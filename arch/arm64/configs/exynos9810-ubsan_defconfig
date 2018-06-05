@@ -1,0 +1,18 @@
+#
+# Kernel Performance Events and Counters
+#
+#
+CONFIG_UBSAN=y
+CONFIG_SEC_DEBUG_UBSAN=y
+CONFIG_LOG_BUF_SHIFT=21
+
+#
+# Undefined config for Kernel SANitizers
+#
+# CONFIG_UH_RKP is not set
+# CONFIG_RKP_CFP_JOPP is not set
+
+#
+# DO NOT REMOVE THE LAST BLANK LINE
+#
+
