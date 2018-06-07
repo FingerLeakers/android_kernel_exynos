@@ -298,6 +298,11 @@ if [ -n "${CONFIG_KALLSYMS}" ]; then
 	fi
 fi
 
+if [ ! -z $CLANG_TRIPLE ]
+then
+	exit 0
+fi
+
 # CFP instrumentation will change binary, need to be before FIPS
 if [ -n "${CONFIG_RKP_CFP_JOPP}" ]; then
 	echo '  RKP_CFP : instrumenting vmlinux... '
