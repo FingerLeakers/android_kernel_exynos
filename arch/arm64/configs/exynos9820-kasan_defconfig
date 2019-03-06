@@ -1,0 +1,29 @@
+#
+# Kernel Performance Events and Counters
+#
+CONFIG_SLUB_DEBUG=y
+
+#
+# KASAN Kernel Address SANitizer
+#
+CONFIG_KASAN=y
+CONFIG_KASAN_INLINE=y
+CONFIG_LOG_BUF_SHIFT=21
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+
+#
+# Undefined config for Kernel SANitizers
+#
+# CONFIG_UH is not set
+# CONFIG_UH_RKP is not set
+# CONFIG_RKP_CFP_JOPP is not set
+# CONFIG_RKP_KDP is not set
+# CONFIG_RKP_NS_PROT is not set
+
+# CONFIG_VIDEO_EXYNOS_FIMC_IS2 is not set
+# CONFIG_LEDS_S2MPB02 is not set
+
+#
+# DO NOT REMOVE THE LAST BLANK LINE
+#
+
