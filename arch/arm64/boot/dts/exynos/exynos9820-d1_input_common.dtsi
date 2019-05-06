@@ -1,0 +1,44 @@
+/*
+ * SAMSUNG EXYNOS9820 board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+*/
+
+#include "exynos9820-d_input_common.dtsi"
+
+/ {
+	fragment@model {
+		target-path = "/";
+		__overlay__ {
+		};
+	};
+};
+
+&hsi2c_10 {
+	touchscreen@48 {
+		sec,project_name = "DAVINCI", "N970";
+		sec,firmware_name = "tsp_sec/y771_d1_bringup.bin";
+		sec,tclm_level = <1>;
+		sec,bringup = <3>;	/* update fw when model version is mismatched */
+	};
+};
+
+&hsi2c_15 { /* keyless */
+	fsr@49 {
+		stm,firmware_name = "key_stm/fsr1ad04_d1.fw";
+	};
+};
+
+&hsi2c_23 {
+	wacom@56 {
+		wacom,max_channel = <22 10>; /* x y */
+		wacom,fw_path = "epen/w9020_d1.fw";
+		wacom,bringup;
+	};
+};
+
