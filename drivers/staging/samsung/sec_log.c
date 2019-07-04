@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
+#include <linux/sched/clock.h>
 #ifdef CONFIG_NO_BOOTMEM
 #include <linux/memblock.h>
 #endif
@@ -213,6 +214,10 @@ static int sec_tsp_raw_data_index;
 static char *sec_tsp_raw_data_buf;
 static unsigned int sec_tsp_raw_data_size;
 
+static int sec_tsp_command_history_index;
+static char *sec_tsp_command_history_buf;
+static unsigned int sec_tsp_command_history_size;
+
 static int __init sec_tsp_log_setup(char *str)
 {
 	unsigned int size = memparse(str, &str);
@@ -238,10 +243,6 @@ static int __init sec_tsp_log_setup(char *str)
 	sec_tsp_log_ptr = phys_to_virt(base) - 4;
 	sec_tsp_log_buf = phys_to_virt(base);
 	sec_tsp_log_size = size;
-
-	pr_info("%s: *sec_tsp_log_ptr:%x\n", __func__, *sec_tsp_log_ptr);
-	pr_info("%s: sec_tsp_log_buf:%p sec_tsp_log_size:0x%x\n",
-		__func__, sec_tsp_log_buf, sec_tsp_log_size);
 
 	if (*sec_tsp_log_mag != LOG_MAGIC) {
 		pr_info("%s: no old log found\n", __func__);
@@ -443,6 +444,32 @@ void sec_debug_tsp_raw_data_msg(char *msg, char *fmt, ...)
 }
 EXPORT_SYMBOL(sec_debug_tsp_raw_data_msg);
 
+void sec_debug_tsp_command_history(char *buf)
+{
+	int len = 0;
+	unsigned int idx;
+	size_t size;
+
+	/* In case of sec_tsp_log_setup is failed */
+	if (!sec_tsp_command_history_size || !sec_tsp_command_history_buf)
+		return;
+
+	idx = sec_tsp_command_history_index;
+	size = strlen(buf);
+
+	/* Overflow buffer size */
+	if (idx + size + 1 > sec_tsp_command_history_size) {
+		len = scnprintf(&sec_tsp_command_history_buf[0],
+			size + 1, "%s ", buf);
+		sec_tsp_command_history_index = len;
+	} else {
+		len = scnprintf(&sec_tsp_command_history_buf[idx],
+			size + 1, "%s ", buf);
+		sec_tsp_command_history_index += len;
+	}
+}
+EXPORT_SYMBOL(sec_debug_tsp_command_history);
+
 void sec_tsp_raw_data_clear(void)
 {
 	if (!sec_tsp_raw_data_size || !sec_tsp_raw_data_buf)
@@ -563,6 +590,25 @@ static ssize_t sec_tsp_raw_data_read(struct file *file, char __user *buf,
 	return count;
 }
 
+static ssize_t sec_tsp_command_history_read(struct file *file, char __user *buf,
+					size_t len, loff_t *offset)
+{
+	loff_t pos = *offset;
+	ssize_t count;
+
+	if (!sec_tsp_command_history_buf)
+		return 0;
+
+	if (pos >= sec_tsp_command_history_index)
+		return 0;
+
+	count = min(len, (size_t)(sec_tsp_command_history_index - pos));
+	if (copy_to_user(buf, sec_tsp_command_history_buf + pos, count))
+		return -EFAULT;
+	*offset += count;
+	return count;
+}
+
 static const struct file_operations tsp_msg_file_ops = {
 	.owner = THIS_MODULE,
 	.read = sec_tsp_log_read,
@@ -574,6 +620,12 @@ static const struct file_operations tsp_raw_data_file_ops = {
 	.owner = THIS_MODULE,
 	.read = sec_tsp_raw_data_read,
 	.write = sec_tsp_raw_data_write,
+	.llseek = generic_file_llseek,
+};
+
+static const struct file_operations tsp_command_history_file_ops = {
+	.owner = THIS_MODULE,
+	.read = sec_tsp_command_history_read,
 	.llseek = generic_file_llseek,
 };
 
@@ -617,6 +669,26 @@ static int __init sec_tsp_raw_data_late_init(void)
 }
 late_initcall(sec_tsp_raw_data_late_init);
 
+static int __init sec_tsp_command_history_late_init(void)
+{
+	struct proc_dir_entry *entry;
+
+	if (!sec_tsp_command_history_buf)
+		return 0;
+
+	entry = proc_create("tsp_cmd_hist", S_IFREG | 0444,
+			NULL, &tsp_command_history_file_ops);
+	if (!entry) {
+		pr_err("%s: failed to create proc entry of tsp_command_history\n", __func__);
+		return 0;
+	}
+
+	proc_set_size(entry, sec_tsp_command_history_size);
+
+	return 0;
+}
+late_initcall(sec_tsp_command_history_late_init);
+
 #define SEC_TSP_RAW_DATA_BUF_SIZE	(50 * 1024)	/* 50 KB */
 static int __init __init_sec_tsp_raw_data(void)
 {
@@ -624,9 +696,6 @@ static int __init __init_sec_tsp_raw_data(void)
 
 	sec_tsp_raw_data_size = SEC_TSP_RAW_DATA_BUF_SIZE;
 	vaddr = kmalloc(sec_tsp_raw_data_size, GFP_KERNEL);
-
-	pr_info("%s: vaddr=0x%lx size=0x%x\n", __func__,
-		(unsigned long)vaddr, sec_tsp_raw_data_size);
 
 	if (!vaddr) {
 		pr_info("%s: ERROR! init failed!\n", __func__);
@@ -640,5 +709,26 @@ static int __init __init_sec_tsp_raw_data(void)
 	return 0;
 }
 fs_initcall(__init_sec_tsp_raw_data);	/* earlier than device_initcall */
+
+#define SEC_TSP_COMMAND_HISTORY_BUF_SIZE	(10 * 1024)	/* 10 KB */
+static int __init __init_sec_tsp_command_history(void)
+{
+	char *vaddr;
+
+	sec_tsp_command_history_size = SEC_TSP_COMMAND_HISTORY_BUF_SIZE;
+	vaddr = kmalloc(sec_tsp_command_history_size, GFP_KERNEL);
+
+	if (!vaddr) {
+		pr_info("%s: ERROR! init failed!\n", __func__);
+		return -ENOMEM;
+	}
+
+	sec_tsp_command_history_buf = vaddr;
+
+	pr_info("%s: init done\n", __func__);
+
+	return 0;
+}
+fs_initcall(__init_sec_tsp_command_history);	/* earlier than device_initcall */
 
 #endif /* CONFIG_SEC_DEBUG_TSP_LOG */

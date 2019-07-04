@@ -1,6 +1,7 @@
 #ifndef __PMUCAL_SYSTEM_H__
 #define __PMUCAL_SYSTEM_H__
 #include "pmucal_common.h"
+#include "pmucal_dbg.h"
 
 struct pmucal_lpm {
 	u32 id;
@@ -12,6 +13,7 @@ struct pmucal_lpm {
 	u32 num_save;
 	u32 num_exit;
 	u32 num_early_wakeup;
+	struct pmucal_dbg_info *dbg;
 };
 
 /* Chip-independent enumeration for low-power mode

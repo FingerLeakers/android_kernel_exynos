@@ -4,6 +4,7 @@
 config ARM_CPUIDLE
         bool "Generic ARM/ARM64 CPU idle Driver"
         select DT_IDLE_STATES
+	select CPU_IDLE_MULTIPLE_DRIVERS
         help
           Select this to enable generic cpuidle driver for ARM.
           It provides a generic idle driver whose idle states are configured
@@ -70,7 +71,7 @@ config ARM_EXYNOS_CPUIDLE
 	  Select this to enable cpuidle for Exynos processors
 
 config ARM64_EXYNOS_CPUIDLE
-	bool "Cpu Idle Driver for the ARM64 Exynos processors"
+	bool "Exynos ARM64 CPU idle Driver"
 	depends on ARCH_EXYNOS && ARM64
 	select CPU_IDLE_MULTIPLE_DRIVERS
 	select DT_IDLE_STATES

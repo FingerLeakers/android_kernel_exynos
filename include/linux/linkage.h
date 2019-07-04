@@ -1,7 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_LINKAGE_H
 #define _LINUX_LINKAGE_H
 
-#include <linux/compiler.h>
+#include <linux/compiler_types.h>
 #include <linux/stringify.h>
 #include <linux/export.h>
 #include <asm/linkage.h>
@@ -37,6 +38,22 @@
 
 #define __page_aligned_data	__section(.data..page_aligned) __aligned(PAGE_SIZE)
 #define __page_aligned_bss	__section(.bss..page_aligned) __aligned(PAGE_SIZE)
+
+#ifdef CONFIG_UH_RKP
+#define __page_aligned_rkp_bss		__section(.rkp_bss.page_aligned) __aligned(PAGE_SIZE)
+#define __rkp_ro				__section(.rkp_ro)
+#else
+#define __page_aligned_rkp_bss		__page_aligned_bss
+#define __rkp_ro
+#endif
+
+#ifdef CONFIG_RKP_KDP
+#define __kdp_ro				__section(.kdp_ro)
+#define __lsm_ro_after_init_kdp	__section(.kdp_ro)
+#else
+#define __kdp_ro
+#define __lsm_ro_after_init_kdp __lsm_ro_after_init
+#endif
 
 /*
  * For assembly routines.
@@ -79,33 +96,26 @@
 #define ALIGN_STR __ALIGN_STR
 
 #ifndef ENTRY
-#ifdef CONFIG_RKP_CFP_JOPP
 #define ENTRY(name) \
+	.globl name ASM_NL \
+	ALIGN ASM_NL \
+	name:
+
+#ifdef CONFIG_RKP_CFP_JOPP
+#define NOP_ENTRY(name) \
 	.globl name ASM_NL \
 	nop; \
 	ALIGN ASM_NL \
 	name :
 
-#define VECTOR_ENTRY(name) \
-	.globl name ASM_NL \
-	ALIGN ASM_NL \
-	name :
-
 /*
- * Fallthrough assembly coding pattern won't work anymore once you start putting data
- * words above FUNC_ENTRY(...).
+ * Fallthrough won't work anymore once you start putting MAGIC in ENTRY(...).
  */
 #define FALLTHROUGH(target) \
 	b target
 
-#else
-#define ENTRY(name) \
-	.globl name ASM_NL \
-	ALIGN ASM_NL \
-	name :
+#endif /* CONFIG_RKP_CFP_JOPP */
 #endif
-#endif
-
 #endif /* LINKER_SCRIPT */
 
 #ifndef WEAK

@@ -16,9 +16,7 @@
 #include <linux/mutex.h>
 #include <linux/poll.h>
 #include <linux/dma-buf.h>
-#include <linux/sync_file.h>
-
-#include "../../drivers/dma-buf/sync_debug.h"
+#include <linux/dma-fence.h>
 
 #define VB2_MAX_FRAME	(32)
 #define VB2_MAX_PLANES	(8)
@@ -128,16 +126,16 @@ struct vb2_mem_ops {
 					enum dma_data_direction dma_dir);
 	void		(*put_userptr)(void *buf_priv);
 
-	void		(*prepare)(void *buf_priv);
-	void		(*finish)(void *buf_priv);
+	void		(*prepare)(void *buf_priv, size_t size);
+	void		(*finish)(void *buf_priv, size_t size);
 
 	void		*(*attach_dmabuf)(struct device *dev,
 					  struct dma_buf *dbuf,
 					  unsigned long size,
 					  enum dma_data_direction dma_dir);
 	void		(*detach_dmabuf)(void *buf_priv);
-	int		(*map_dmabuf)(void *buf_priv);
-	void		(*unmap_dmabuf)(void *buf_priv);
+	int		(*map_dmabuf)(void *buf_priv, size_t size);
+	void		(*unmap_dmabuf)(void *buf_priv, size_t size);
 
 	void		*(*vaddr)(void *buf_priv);
 	void		*(*cookie)(void *buf_priv);
@@ -250,8 +248,6 @@ struct vb2_buffer {
 	struct vb2_plane	planes[VB2_MAX_PLANES];
 	u64			timestamp;
 
-	struct sync_file	*acquire_fence;
-
 	/* private: internal use only
 	 *
 	 * state:		current buffer state; do not change
@@ -259,11 +255,31 @@ struct vb2_buffer {
 	 *			all buffers queued from userspace
 	 * done_entry:		entry on the list that stores all buffers ready
 	 *			to be dequeued to userspace
+	 * in_fence:		fence received from vb2 client to wait on before
+	 *			using the buffer (queueing to the driver)
+	 * fence_cb:		fence callback information
+	 * fence_cb_lock:	protect callback signal/remove
+	 * out_fence_fd:	the out_fence_fd to be shared with userspace.
+	 * out_fence:		the out-fence associated with the buffer once
+	 *			it is queued to the driver.
+	 * sync_file:		the sync file to wrap the out fence
 	 */
 	enum vb2_buffer_state	state;
 
 	struct list_head	queued_entry;
 	struct list_head	done_entry;
+
+	struct dma_fence	*in_fence;
+	struct dma_fence_cb	fence_cb;
+	struct work_struct	qbuf_work;
+	spinlock_t              fence_cb_lock;
+
+	struct timer_list	fence_timer;
+
+	int			out_fence_fd;
+	struct dma_fence	*out_fence;
+	struct sync_file	*sync_file;
+
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	/*
 	 * Counters for how often these buffer-related ops are
@@ -310,16 +326,16 @@ struct vb2_buffer {
  *			buffer in \*num_planes, the size of each plane should be
  *			set in the sizes\[\] array and optional per-plane
  *			allocator specific device in the alloc_devs\[\] array.
- *			When called from VIDIOC_REQBUFS,() \*num_planes == 0,
+ *			When called from VIDIOC_REQBUFS(), \*num_planes == 0,
  *			the driver has to use the currently configured format to
  *			determine the plane sizes and \*num_buffers is the total
  *			number of buffers that are being allocated. When called
- *			from VIDIOC_CREATE_BUFS,() \*num_planes != 0 and it
+ *			from VIDIOC_CREATE_BUFS(), \*num_planes != 0 and it
  *			describes the requested number of planes and sizes\[\]
- *			contains the requested plane sizes. If either
- *			\*num_planes or the requested sizes are invalid callback
- *			must return %-EINVAL. In this case \*num_buffers are
- *			being allocated additionally to q->num_buffers.
+ *			contains the requested plane sizes. In this case
+ *			\*num_buffers are being allocated additionally to
+ *			q->num_buffers. If either \*num_planes or the requested
+ *			sizes are invalid callback must return %-EINVAL.
  * @wait_prepare:	release any locks taken while calling vb2 functions;
  *			it is called before an ioctl needs to wait for a new
  *			buffer to arrive; required to avoid a deadlock in
@@ -373,6 +389,10 @@ struct vb2_buffer {
  *			callback by calling vb2_buffer_done() with either
  *			%VB2_BUF_STATE_DONE or %VB2_BUF_STATE_ERROR; may use
  *			vb2_wait_for_all_buffers() function
+ * @is_unordered:	tell if the queue is unordered, i.e. buffers can be
+ *			dequeued in a different order from how they were queued.
+ *			The default is assumed to be ordered and this function
+ *			only needs to be implemented for unordered queues.
  * @buf_queue:		passes buffer vb to the driver; driver may start
  *			hardware operation on this buffer; driver should give
  *			the buffer back by calling vb2_buffer_done() function;
@@ -396,6 +416,7 @@ struct vb2_ops {
 
 	int (*start_streaming)(struct vb2_queue *q, unsigned int count);
 	void (*stop_streaming)(struct vb2_queue *q);
+	bool (*is_unordered)(struct vb2_queue *q);
 
 	void (*buf_queue)(struct vb2_buffer *vb);
 };
@@ -419,7 +440,7 @@ struct vb2_buf_ops {
 	void (*fill_user_buffer)(struct vb2_buffer *vb, void *pb);
 	int (*fill_vb2_buffer)(struct vb2_buffer *vb, const void *pb,
 				struct vb2_plane *planes);
-	void (*copy_timestamp)(struct vb2_buffer *vb, void *pb);
+	void (*copy_timestamp)(struct vb2_buffer *vb, const void *pb);
 };
 
 /**
@@ -432,6 +453,16 @@ struct vb2_buf_ops {
  * @dev:	device to use for the default allocation context if the driver
  *		doesn't fill in the @alloc_devs array.
  * @dma_attrs:	DMA attributes to use for the DMA.
+ * @bidirectional: when this flag is set the DMA direction for the buffers of
+ *		this queue will be overridden with DMA_BIDIRECTIONAL direction.
+ *		This is useful in cases where the hardware (firmware) writes to
+ *		a buffer which is mapped as read (DMA_TO_DEVICE), or reads from
+ *		buffer which is mapped for write (DMA_FROM_DEVICE) in order
+ *		to satisfy some internal hardware restrictions or adds a padding
+ *		needed by the processing algorithm. In case the DMA mapping is
+ *		not bidirectional but the hardware (firmware) trying to access
+ *		the buffer (in the opposite direction) this could lead to an
+ *		IOMMU protection faults.
  * @fileio_read_once:		report EOF after reading the first buffer
  * @fileio_write_immediately:	queue buffer after each write() call
  * @allow_zero_bytesused:	allow bytesused == 0 to be passed to the driver
@@ -470,6 +501,7 @@ struct vb2_buf_ops {
  * Private elements (won't appear at the uAPI book):
  * @mmap_lock:	private mutex used when buffers are allocated/freed/mmapped
  * @memory:	current memory type used
+ * @dma_dir:	DMA mapping direction.
  * @bufs:	videobuf buffer structures
  * @num_buffers: number of allocated/used buffers
  * @queued_list: list of buffers currently queued from userspace
@@ -494,15 +526,13 @@ struct vb2_buf_ops {
  *		when a buffer with the V4L2_BUF_FLAG_LAST is dequeued.
  * @fileio:	file io emulator internal data, used only if emulator is active
  * @threadio:	thread io internal data, used only if thread is active
- * @timeline:  monotonic timeline of Android sync that signals the release
- *     fences
- * @timeline_max: the timestamp of the most recent release fence
  */
 struct vb2_queue {
 	unsigned int			type;
 	unsigned int			io_modes;
 	struct device			*dev;
 	unsigned long			dma_attrs;
+	unsigned			bidirectional:1;
 	unsigned			fileio_read_once:1;
 	unsigned			fileio_write_immediately:1;
 	unsigned			allow_zero_bytesused:1;
@@ -524,6 +554,7 @@ struct vb2_queue {
 	/* private: internal use only */
 	struct mutex			mmap_lock;
 	unsigned int			memory;
+	enum dma_data_direction		dma_dir;
 	struct vb2_buffer		*bufs[VB2_MAX_FRAME];
 	unsigned int			num_buffers;
 
@@ -545,12 +576,13 @@ struct vb2_queue {
 	unsigned int			is_output:1;
 	unsigned int			copy_timestamp:1;
 	unsigned int			last_buffer_dequeued:1;
+	unsigned int			queueing_started:1;
+
+	u64				out_fence_context;
+	spinlock_t			out_fence_lock;
 
 	struct vb2_fileio_data		*fileio;
 	struct vb2_threadio_data	*threadio;
-
-	struct sync_timeline		*timeline;
-	u32				timeline_max;
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	/*
@@ -562,6 +594,7 @@ struct vb2_queue {
 	u32				cnt_wait_finish;
 	u32				cnt_start_streaming;
 	u32				cnt_stop_streaming;
+	u32				cnt_is_unordered;
 #endif
 };
 
@@ -718,12 +751,23 @@ int vb2_core_create_bufs(struct vb2_queue *q, enum vb2_memory memory,
 int vb2_core_prepare_buf(struct vb2_queue *q, unsigned int index, void *pb);
 
 /**
+ * vb2_setup_out_fence() - setup new out-fence
+ * @q:		The vb2_queue where to setup it
+ * @index:	index of the buffer
+ *
+ * Setup the file descriptor, the fence and the sync_file for the next
+ * buffer to be queued and add everything to the tail of the q->out_fence_list.
+ */
+int vb2_setup_out_fence(struct vb2_queue *q, unsigned int index);
+
+/**
  * vb2_core_qbuf() - Queue a buffer from userspace
  *
  * @q:		videobuf2 queue
  * @index:	id number of the buffer
  * @pb:		buffer structure passed from userspace to vidioc_qbuf handler
  *		in driver
+ * @in_fence:	in-fence to wait on before queueing the buffer
  *
  * Should be called from vidioc_qbuf ioctl handler of a driver.
  * The passed buffer should have been verified.
@@ -738,7 +782,8 @@ int vb2_core_prepare_buf(struct vb2_queue *q, unsigned int index, void *pb);
  * The return values from this function are intended to be directly returned
  * from vidioc_qbuf handler in driver.
  */
-int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb);
+int vb2_core_qbuf(struct vb2_queue *q, unsigned int index, void *pb,
+		  struct dma_fence *in_fence);
 
 /**
  * vb2_core_dqbuf() - Dequeue a buffer to the userspace

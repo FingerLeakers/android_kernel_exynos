@@ -56,6 +56,8 @@ static int exynos_fimc_is_module_pin_control(struct fimc_is_module_enum *module,
 	int ret = 0;
 	int active_count;
 	unsigned long flags;
+	struct v4l2_subdev *subdev_module;
+	struct fimc_is_device_sensor *sensor;
 
 	if (pin_ctrls->shared_rsc_type) {
 		spin_lock_irqsave(pin_ctrls->shared_rsc_slock, flags);
@@ -172,6 +174,61 @@ static int exynos_fimc_is_module_pin_control(struct fimc_is_module_enum *module,
 	case PIN_I2C:
 		ret = fimc_is_i2c_pin_control(module, scenario, value);
 		break;
+	case PIN_MCLK:
+		subdev_module = module->subdev;
+		if (!subdev_module) {
+			err("module's subdev was not probed");
+			return -ENODEV;
+		}
+
+		sensor = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev_module);
+		if (!sensor) {
+			err("failed to get sensor device\n");
+			return -EINVAL;
+		}
+
+		if (pin_ctrls->shared_rsc_type) {
+			if (!sensor->pdata) {
+				err("failed to get platform data for sensor%d (postion: %d)\n",
+						sensor->instance, sensor->position);
+				return -EINVAL;
+			}
+
+			if (!module->pdata) {
+				err("failed to get platform data for module (sensor%d)\n",
+						module->sensor_id);
+				return -EINVAL;
+			}
+
+			if (value) {
+				if (sensor->pdata->mclk_on)
+					ret = sensor->pdata->mclk_on(&sensor->pdev->dev,
+							scenario, module->pdata->mclk_ch);
+				else
+					ret = -EPERM;
+			} else {
+				if (sensor->pdata->mclk_off)
+					ret = sensor->pdata->mclk_off(&sensor->pdev->dev,
+							scenario, module->pdata->mclk_ch);
+				else
+					ret = -EPERM;
+			}
+		} else {
+			if (value)
+				ret = fimc_is_sensor_mclk_on(sensor,
+						scenario, module->pdata->mclk_ch);
+			else
+				ret = fimc_is_sensor_mclk_off(sensor,
+						scenario, module->pdata->mclk_ch);
+		}
+
+		if (ret) {
+			err("failed to %s MCLK(%d)", value ? "on" : "off",  ret);
+			return ret;
+		}
+		usleep_range(delay, delay);
+
+		break;
 	default:
 		pr_err("unknown act for pin\n");
 		break;
@@ -215,6 +272,8 @@ int exynos_fimc_is_module_pins_cfg(struct fimc_is_module_enum *module,
 			pin_ctrls[scenario][gpio_scenario][idx].name);
 	}
 
+	pr_info("[@][%d:%d:%d]: pin_ctrl start\n", module->position, scenario, gpio_scenario);
+
 	/* do configs */
 	for (idx = 0; idx < idx_max; ++idx) {
 		ret = exynos_fimc_is_module_pin_control(module, pinctrl,
@@ -225,6 +284,7 @@ int exynos_fimc_is_module_pins_cfg(struct fimc_is_module_enum *module,
 		}
 	}
 
+	pr_info("[@][%d:%d:%d]: pin_ctrl end\n", module->position, scenario, gpio_scenario);
 p_err:
 	return ret;
 }

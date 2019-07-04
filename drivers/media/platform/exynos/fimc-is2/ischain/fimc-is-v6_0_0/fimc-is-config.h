@@ -35,6 +35,7 @@
 #define SOC_I1S
 #define SOC_I1C
 #define SOC_I1P
+/* #define SOC_ME0C */
 /* #define SOC_DRC */
 /* #define SOC_D0S */
 /* #define SOC_D0C */
@@ -52,7 +53,6 @@
 #define SOC_SSVC2
 #define SOC_SSVC3
 /* #define SOC_DCP *//* TODO */
-/* #define SOC_SRDZ *//* TODO */
 
 /* Post Processing Configruation */
 /* #define ENABLE_DRC */
@@ -60,6 +60,7 @@
 /* #define ENABLE_DNR_IN_TPU */
 /*#define ENABLE_DNR_IN_MCSC */
 #define ENABLE_TNR
+#define NUM_OF_TNR_BUF	4 /* dual(2) & double buffering(2) */
 #define ENABLE_10BIT_MCSC
 #define ENABLE_DJAG_IN_MCSC
 #define ENABLE_VRA
@@ -151,7 +152,7 @@
 #define MULTI_SHOT_TASKLET
 /* #define ENABLE_EARLY_SHOT */
 
-#if defined(USE_I2C_LOCK) && !defined(CONFIG_VENDER_PSV)
+#if defined(USE_I2C_LOCK)
 #define I2C_MUTEX_LOCK(lock)	mutex_lock(lock)
 #define I2C_MUTEX_UNLOCK(lock)	mutex_unlock(lock)
 #else
@@ -161,7 +162,7 @@
 
 #define ENABLE_DBG_EVENT_PRINT
 
-//#define SECURE_CAMERA_EMULATE
+#define SECURE_CAMERA_EMULATE
 #define SECURE_CAMERA_CH	(CSI_ID_D)
 #define SECURE_CAMERA_MEM_ADDR	(0xD0000000)
 #define SECURE_CAMERA_MEM_SIZE	(0x1400000)
@@ -181,4 +182,8 @@
 
 #define FAST_FDAE
 #define RESERVED_MEM_IN_DT
+#define BDS_IN_VIDEO /* This feature should be used when BDS is used in vdieo scenario. */
+
+#define CHAIN_USE_VC_TASKLET	1
+
 #endif

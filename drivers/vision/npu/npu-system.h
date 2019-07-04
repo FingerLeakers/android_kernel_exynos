@@ -89,6 +89,9 @@ struct npu_system {
 #endif
 	struct npu_profile_control	profile_ctl;
 	struct npu_qos_setting		qos_setting;
+
+	/* Open status (Bitfield of npu_system_resume_steps) */
+	unsigned long			resume_steps;
 };
 
 int npu_system_probe(struct npu_system *system, struct platform_device *pdev);

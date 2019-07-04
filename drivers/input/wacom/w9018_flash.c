@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 
 #include "wacom.h"
-#include "w9018_flash.h"
+#include "w9020_flash.h"
 
 bool wacom_i2c_set_feature(struct wacom_i2c *wac_i2c, u8 report_id,
 			   unsigned int buf_size, u8 *data, u16 cmdreg,

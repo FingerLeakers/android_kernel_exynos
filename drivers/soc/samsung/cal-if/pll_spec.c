@@ -199,6 +199,50 @@ static struct pll_spec gpll1031X_spec = {
 	150,		500,
 };
 
+static struct pll_spec gpll0831X_spec = {
+	1,		63,
+	16,		511,
+	0,		6,
+	-32767,		32767,
+	6*MHZ,		30*MHZ,
+	600*MHZ,	1200*MHZ,
+	9.5*MHZ,	1200*MHZ,
+	500,		500,
+};
+
+static struct pll_spec gdpll0817X_spec = {
+	1,		63,
+	64,		1023,
+	0,		6,
+	0,		0,
+	4*MHZ,		12*MHZ,
+	950*MHZ,	2400*MHZ,
+	14.8*MHZ,	2400*MHZ,
+	300,		0,
+};
+
+static struct pll_spec gpll0820X_spec = {
+	1,		63,
+	64,		1023,
+	0,		6,
+	0,		0,
+	4*MHZ,		12*MHZ,
+	1500*MHZ,	3000*MHZ,
+	40.63*MHZ,	6600*MHZ,
+	150,		0,
+};
+
+static struct pll_spec gpll0821X_spec = {
+	1,		63,
+	64,		1023,
+	0,		6,
+	0,		0,
+	4*MHZ,		12*MHZ,
+	1500*MHZ,	3000*MHZ,
+	35*MHZ,		5400*MHZ,
+	150,		0,
+};
+
 struct pll_spec *pll_get_spec(struct cmucal_pll *pll)
 {
 	struct pll_spec *pll_spec;
@@ -246,9 +290,12 @@ struct pll_spec *pll_get_spec(struct cmucal_pll *pll)
 	case PLL_1016X:
 		pll_spec = &gpll1016X_spec;
 		break;
+	case PLL_0817X:
+	case PLL_0822X:
 	case PLL_1017X:
 		pll_spec = &gpll1017X_spec;
 		break;
+	case PLL_0818X:
 	case PLL_1018X:
 		pll_spec = &gpll1018X_spec;
 		break;
@@ -257,6 +304,18 @@ struct pll_spec *pll_get_spec(struct cmucal_pll *pll)
 		break;
 	case PLL_1031X:
 		pll_spec = &gpll1031X_spec;
+		break;
+	case PLL_0831X:
+		pll_spec = &gpll0831X_spec;
+		break;
+	case DPL_L0817X:
+		pll_spec = &gdpll0817X_spec;
+		break;
+	case PLL_0820X:
+		pll_spec = &gpll0820X_spec;
+		break;
+	case PLL_0821X:
+		pll_spec = &gpll0821X_spec;
 		break;
 	default:
 		pll_spec = NULL;

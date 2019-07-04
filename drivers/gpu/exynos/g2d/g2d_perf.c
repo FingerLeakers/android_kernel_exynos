@@ -20,7 +20,6 @@
 #include "g2d_task.h"
 #include "g2d_uapi.h"
 
-#include <soc/samsung/bts.h>
 #include <linux/workqueue.h>
 
 #ifdef CONFIG_PM_DEVFREQ
@@ -223,12 +222,15 @@ static void g2d_set_qos_frequency(struct g2d_context *g2d_ctx,
 	}
 
 	if ((rbw != cur_rbw) || (wbw != cur_wbw)) {
-		struct bts_bw bw;
-
-		bw.peak = ((rbw + wbw) / 1000) * BTS_PEAK_FPS_RATIO / 2;
-		bw.write = wbw;
-		bw.read = rbw;
-		bts_update_bw(BTS_BW_G2D, bw);
+		/*
+		 * FIXME: BTS is not available for now
+		 * struct bts_bw bw;
+		 *
+		 * bw.peak = ((rbw + wbw) / 1000) * BTS_PEAK_FPS_RATIO / 2;
+		 * bw.write = wbw;
+		 * bw.read = rbw;
+		 * bts_update_bw(BTS_BW_G2D, bw);
+		 */
 	}
 }
 
@@ -242,7 +244,7 @@ void g2d_set_performance(struct g2d_context *ctx,
 		return;
 
 	for (i = 0; i < data->num_frame; i++) {
-		if (data->frame[i].num_layers > G2D_MAX_IMAGES)
+		if (data->frame[i].num_layers > g2d_dev->max_layers)
 			return;
 	}
 
@@ -250,6 +252,8 @@ void g2d_set_performance(struct g2d_context *ctx,
 
 	if (!data->num_frame) {
 		if (g2d_still_need_perf(g2d_dev) && !release) {
+			mod_delayed_work(system_wq, &ctx->dwork,
+					 msecs_to_jiffies(50));
 			mutex_unlock(&g2d_dev->lock_qos);
 			return;
 		}

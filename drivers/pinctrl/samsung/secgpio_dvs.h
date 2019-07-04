@@ -24,11 +24,16 @@ struct gpio_dvs_t {
 	bool check_sleep;
 	void (*check_gpio_status)(unsigned char phonestate,
 				const char *skip_grps);
-	int (*get_nr_gpio)(void);
 	const char *skip_grps;
+	int gpio_num;
+	int (*read_gpio)(unsigned int gpionum);
+};
+
+struct secgpio_dvs_data {
+	struct gpio_dvs_t *gpio_dvs;
+	int (*get_nr_gpio)(void);
 };
 
 /* list of all exported SoC specific data */
-extern struct gpio_dvs_t exynos9810_secgpio_dvs;
-extern int exynos9810_secgpio_get_nr_gpio(void);
+extern const struct secgpio_dvs_data exynos9820_secgpio_dvs_data;
 #endif /* __SECGPIO_DVS_H */

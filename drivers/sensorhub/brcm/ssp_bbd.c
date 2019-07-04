@@ -332,6 +332,14 @@ int callback_bbd_on_control(void *ssh_data, const char *str_ctrl)
 					makeResetInfoString(data->resetInfo, data->resetInfoDebug);
 					data->resetInfoDebugTime = get_current_timestamp();
 			}
+	} else if (strstr(str_ctrl, SSP_GET_HW_REV)) {
+		return data->ap_rev;
+	} else if (strstr(str_ctrl, SSP_GET_AP_REV)) {
+                return data->ap_type;
+        } else if (strstr(str_ctrl, SSP_OIS_NOTIFY_RESET)) {
+		if (data->ois_reset->ois_func != NULL) {
+			data->ois_reset->ois_func(data->ois_reset->core);
+		}
 	}
 	dprint("Received string command from LHD(=%s)\n", str_ctrl);
 
@@ -524,7 +532,7 @@ process_one:
 			}
 			if (msg_type == AP2HUB_READ) {
 				if (nDataLen <= 0) {
-					dprint("Waiting 2nd message...(msg=%p, length=%d)\n",
+					dprint("Waiting 2nd message...(msg=%pK, length=%d)\n",
 						msg, msg->length);
 					iRet = bbd_pull_packet(msg->buffer, msg->length,
 								BBD_PULL_TIMEOUT);

@@ -19,10 +19,12 @@
 
 static u32  rear_sensor_id;
 static u32  front_sensor_id;
-static u32	rear_second_sensor_id;
+static u32  rear2_sensor_id;
 #ifdef CONFIG_SECURE_CAMERA_USE
 static u32  secure_sensor_id;
 #endif
+static u32  front2_sensor_id;
+static u32  rear3_sensor_id;
 static u32  ois_sensor_index;
 static u32  aperture_sensor_index;
 
@@ -57,10 +59,12 @@ int fimc_is_vender_probe(struct fimc_is_vender *vender)
 
 	priv->rear_sensor_id = rear_sensor_id;
 	priv->front_sensor_id = front_sensor_id;
-	priv->rear_second_sensor_id = rear_second_sensor_id;
+	priv->rear2_sensor_id = rear2_sensor_id;
 #ifdef CONFIG_SECURE_CAMERA_USE
 	priv->secure_sensor_id = secure_sensor_id;
 #endif
+	priv->front2_sensor_id = front2_sensor_id;
+	priv->rear3_sensor_id = rear3_sensor_id;
 	priv->ois_sensor_index = ois_sensor_index;
 	priv->aperture_sensor_index = aperture_sensor_index;
 
@@ -81,15 +85,22 @@ int fimc_is_vender_dt(struct device_node *np)
 	if (ret)
 		probe_err("front_sensor_id read is fail(%d)", ret);
 
-	ret = of_property_read_u32(np, "rear_second_sensor_id", &rear_second_sensor_id);
+	ret = of_property_read_u32(np, "rear2_sensor_id", &rear2_sensor_id);
 	if (ret)
-		probe_err("rear_second_sensor_id read is fail(%d)", ret);
+		probe_err("rear2_sensor_id read is fail(%d)", ret);
 
 #ifdef CONFIG_SECURE_CAMERA_USE
 	ret = of_property_read_u32(np, "secure_sensor_id", &secure_sensor_id);
 	if (ret)
 		probe_err("secure_sensor_id read is fail(%d)", ret);
 #endif
+	ret = of_property_read_u32(np, "front2_sensor_id", &front2_sensor_id);
+	if (ret)
+		probe_err("front2_sensor_id read is fail(%d)", ret);
+
+	ret = of_property_read_u32(np, "rear3_sensor_id", &rear3_sensor_id);
+	if (ret)
+		probe_err("rear3_sensor_id read is fail(%d)", ret);
 
 	ret = of_property_read_u32(np, "ois_sensor_index", &ois_sensor_index);
 	if (ret)
@@ -131,7 +142,7 @@ void fimc_is_vender_resource_put(struct fimc_is_vender *vender)
 
 }
 
-#if !defined(CONFIG_SUPPORT_FROM)
+#if !defined(ENABLE_CAL_LOAD)
 int fimc_is_vender_cal_load(struct fimc_is_vender *vender,
 	void *module_data)
 {
@@ -164,7 +175,7 @@ int fimc_is_vender_cal_load(struct fimc_is_vender *vender,
 #ifdef ENABLE_IS_CORE
 		cal_addr = core->resourcemgr.minfo.kvaddr + CAL_OFFSET0;
 #else
-		cal_addr = core->resourcemgr.minfo.kvaddr_rear_cal + CAL_OFFSET0;
+		cal_addr = core->resourcemgr.minfo.kvaddr_cal[SENSOR_POSITION_REAR];
 #endif
 	} else if (module->position == SENSOR_POSITION_FRONT) {
 		/* Load calibration data from file system */
@@ -178,7 +189,7 @@ int fimc_is_vender_cal_load(struct fimc_is_vender *vender,
 #ifdef ENABLE_IS_CORE
 		cal_addr = core->resourcemgr.minfo.kvaddr + CAL_OFFSET1;
 #else
-		cal_addr = core->resourcemgr.minfo.kvaddr_front_cal + CAL_OFFSET1;
+		cal_addr = core->resourcemgr.minfo.kvaddr_cal[SENSOR_POSITION_REAR];
 #endif
 	} else {
 		err("[Vendor]: Invalid sensor position: %d", module->position);

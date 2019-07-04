@@ -1,5 +1,8 @@
 #include "pmucal_local.h"
 #include "pmucal_rae.h"
+#ifdef CONFIG_SOC_EXYNOS9820
+#include <soc/samsung/exynos-debug.h>
+#endif
 
 #ifndef PWRCAL_TARGET_LINUX
 struct pmucal_pd *pmucal_blkpwr_list[PMUCAL_NUM_PDS];
@@ -17,7 +20,7 @@ int pmucal_local_enable(unsigned int pd_id)
 {
 	int ret;
 
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_IN);
+	dbg_snapshot_pmu(pd_id, __func__, DSS_FLAG_IN);
 
 	if (pd_id >= pmucal_pd_list_size) {
 		pr_err("%s pd index(%d) is out of supported range (0~%d).\n",
@@ -56,7 +59,9 @@ int pmucal_local_enable(unsigned int pd_id)
 		return ret;
 	}
 
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_OUT);
+	dbg_snapshot_pmu(pd_id, __func__, DSS_FLAG_OUT);
+
+	pmucal_dbg_do_profile(pmucal_pd_list[pd_id].dbg, true);
 
 	return 0;
 }
@@ -73,7 +78,7 @@ int pmucal_local_disable(unsigned int pd_id)
 {
 	int ret, i;
 
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_IN);
+	dbg_snapshot_pmu(pd_id, __func__, DSS_FLAG_IN);
 
 	if (pd_id >= pmucal_pd_list_size) {
 		pr_err("%s pd index(%d) is out of supported range (0~%d).\n",
@@ -99,6 +104,8 @@ int pmucal_local_disable(unsigned int pd_id)
 		}
 	}
 
+	pmucal_dbg_set_emulation(pmucal_pd_list[pd_id].dbg);
+
 	ret = pmucal_rae_handle_seq(pmucal_pd_list[pd_id].off,
 				pmucal_pd_list[pd_id].num_off);
 	if (ret) {
@@ -111,10 +118,17 @@ int pmucal_local_disable(unsigned int pd_id)
 							pmucal_pd_list[pd_id].save[i].value);
 		}
 
+#ifdef CONFIG_SOC_EXYNOS9820
+		if (pd_id == 13 || pd_id == 14)
+			s3c2410wdt_set_emergency_reset(0, 0);
+#endif
+
 		return ret;
 	}
 
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_OUT);
+	dbg_snapshot_pmu(pd_id, __func__, DSS_FLAG_OUT);
+
+	pmucal_dbg_do_profile(pmucal_pd_list[pd_id].dbg, false);
 
 	return 0;
 }
@@ -131,8 +145,6 @@ int pmucal_local_disable(unsigned int pd_id)
 int pmucal_local_is_enabled(unsigned int pd_id)
 {
 	int i;
-
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_IN);
 
 	if (pd_id >= pmucal_pd_list_size) {
 		pr_err("%s pd index(%d) is out of supported range (0~%d).\n",
@@ -154,8 +166,6 @@ int pmucal_local_is_enabled(unsigned int pd_id)
 				pmucal_pd_list[pd_id].status[i].mask)
 			break;
 	}
-
-	exynos_ss_pmu(pd_id, __func__, ESS_FLAG_OUT);
 
 	if (i == pmucal_pd_list[pd_id].num_status)
 		return 1;

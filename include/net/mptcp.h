@@ -35,6 +35,7 @@
 #include <linux/list.h>
 #include <linux/net.h>
 #include <linux/netpoll.h>
+#include <linux/siphash.h>
 #include <linux/skbuff.h>
 #include <linux/socket.h>
 #include <linux/tcp.h>
@@ -224,7 +225,7 @@ struct mptcp_pm_ops {
 	void (*subflow_error)(struct sock *meta_sk, struct sock *sk);
 	int  (*get_local_id)(sa_family_t family, union inet_addr *addr,
 			     struct net *net, bool *low_prio);
-	void (*addr_signal)(struct sock *sk, unsigned int *size,
+	void (*addr_signal)(struct sock *sk, unsigned *size,
 			    struct tcp_out_options *opts, struct sk_buff *skb);
 	void (*add_raddr)(struct mptcp_cb *mpcb, const union inet_addr *addr,
 			  sa_family_t family, __be16 port, u8 id);
@@ -665,7 +666,7 @@ extern struct workqueue_struct *mptcp_wq;
 #define mptcp_debug(fmt, args...)					\
 	do {								\
 		if (unlikely(sysctl_mptcp_debug))			\
-			pr_err(__FILE__ ": " fmt, ##args);	\
+			pr_err(fmt, ##args);	\
 	} while (0)
 
 /* Iterates over all subflows */
@@ -694,7 +695,8 @@ extern struct workqueue_struct *mptcp_wq;
 #define MPTCP_INC_STATS(net, field)	SNMP_INC_STATS((net)->mptcp.mptcp_statistics, field)
 #define MPTCP_INC_STATS_BH(net, field)	__SNMP_INC_STATS((net)->mptcp.mptcp_statistics, field)
 
-enum {
+enum
+{
 	MPTCP_MIB_NUM = 0,
 	MPTCP_MIB_MPCAPABLEPASSIVE,	/* Received SYN with MP_CAPABLE */
 	MPTCP_MIB_MPCAPABLEACTIVE,	/* Sent SYN with MP_CAPABLE */
@@ -749,7 +751,7 @@ extern char *meta_key_name;
 extern struct lock_class_key meta_slock_key;
 extern char *meta_slock_key_name;
 
-extern u32 mptcp_secret[MD5_MESSAGE_BYTES / 4];
+extern siphash_key_t mptcp_secret;
 
 /* This is needed to ensure that two subsequent key/nonce-generation result in
  * different keys/nonces if the IPs and ports are the same.
@@ -791,12 +793,12 @@ void mptcp_parse_options(const uint8_t *ptr, int opsize,
 			 const struct sk_buff *skb,
 			 struct tcp_sock *tp);
 void mptcp_syn_options(const struct sock *sk, struct tcp_out_options *opts,
-		       unsigned int *remaining);
+		       unsigned *remaining);
 void mptcp_synack_options(struct request_sock *req,
 			  struct tcp_out_options *opts,
-			  unsigned int *remaining);
+			  unsigned *remaining);
 void mptcp_established_options(struct sock *sk, struct sk_buff *skb,
-			       struct tcp_out_options *opts, unsigned int *size);
+			       struct tcp_out_options *opts, unsigned *size);
 void mptcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 			 const struct tcp_out_options *opts,
 			 struct sk_buff *skb);
@@ -832,8 +834,9 @@ void mptcp_sub_close_wq(struct work_struct *work);
 void mptcp_sub_close(struct sock *sk, unsigned long delay);
 struct sock *mptcp_select_ack_sock(const struct sock *meta_sk);
 void mptcp_fallback_meta_sk(struct sock *meta_sk);
+void mptcp_prepare_for_backlog(struct sock *sk, struct sk_buff *skb);
 int mptcp_backlog_rcv(struct sock *meta_sk, struct sk_buff *skb);
-void mptcp_ack_handler(unsigned long data);
+void mptcp_ack_handler(unsigned long);
 bool mptcp_check_rtt(const struct tcp_sock *tp, int time);
 int mptcp_check_snd_buf(const struct tcp_sock *tp);
 bool mptcp_handle_options(struct sock *sk, const struct tcphdr *th,
@@ -873,7 +876,6 @@ void mptcp_reqsk_init(struct request_sock *req, const struct sock *sk,
 int mptcp_conn_request(struct sock *sk, struct sk_buff *skb);
 void mptcp_enable_sock(struct sock *sk);
 void mptcp_disable_sock(struct sock *sk);
-void mptcp_enable_static_key(void);
 void mptcp_disable_static_key(void);
 void mptcp_cookies_reqsk_init(struct request_sock *req,
 			      struct mptcp_options_received *mopt,
@@ -1003,7 +1005,7 @@ static inline bool mptcp_is_data_fin2(const struct sk_buff *skb,
 {
 	return mptcp_is_data_fin(skb) ||
 	       (tp->mpcb->infinite_mapping_rcv &&
-		   (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN));
+	        (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN));
 }
 
 static inline u8 mptcp_get_64_bit(u64 data_seq, struct mptcp_cb *mpcb)
@@ -1210,14 +1212,14 @@ static inline void mptcp_set_rto(struct sock *sk)
 		return;
 
 	mptcp_for_each_sk(tp->mpcb, sk_it) {
-		if ((mptcp_sk_can_send(sk_it) || sk->sk_state == TCP_SYN_RECV) &&
+		if ((mptcp_sk_can_send(sk_it) || sk_it->sk_state == TCP_SYN_RECV) &&
 		    inet_csk(sk_it)->icsk_rto > max_rto)
 			max_rto = inet_csk(sk_it)->icsk_rto;
 	}
 	if (max_rto) {
 		micsk->icsk_rto = max_rto << 1;
 
-		/* A successful rto-measurement - reset backoff counter */
+		/* A successfull rto-measurement - reset backoff counter */
 		micsk->icsk_backoff = 0;
 	}
 }
@@ -1348,7 +1350,7 @@ bool mptcp_prune_ofo_queue(struct sock *sk);
 
 #define MPTCP_INC_STATS(net, field)	\
 	do {				\
-	} while (0)
+	} while(0)
 
 static inline bool mptcp_is_data_fin(const struct sk_buff *skb)
 {
@@ -1389,15 +1391,15 @@ static inline void mptcp_parse_options(const uint8_t *ptr, const int opsize,
 				       const struct tcp_sock *tp) {}
 static inline void mptcp_syn_options(const struct sock *sk,
 				     struct tcp_out_options *opts,
-				     unsigned int *remaining) {}
+				     unsigned *remaining) {}
 static inline void mptcp_synack_options(struct request_sock *req,
 					struct tcp_out_options *opts,
-					unsigned int *remaining) {}
+					unsigned *remaining) {}
 
 static inline void mptcp_established_options(struct sock *sk,
 					     struct sk_buff *skb,
 					     struct tcp_out_options *opts,
-					     unsigned int *size) {}
+					     unsigned *size) {}
 static inline void mptcp_options_write(__be32 *ptr, struct tcp_sock *tp,
 				       const struct tcp_out_options *opts,
 				       struct sk_buff *skb) {}
@@ -1437,6 +1439,7 @@ static inline bool mptcp_fallback_infinite(const struct sock *sk, int flag)
 	return false;
 }
 static inline void mptcp_init_mp_opt(const struct mptcp_options_received *mopt) {}
+static inline void mptcp_prepare_for_backlog(struct sock *sk, struct sk_buff *skb) {}
 static inline bool mptcp_check_rtt(const struct tcp_sock *tp, int time)
 {
 	return false;

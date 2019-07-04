@@ -204,6 +204,7 @@
 #undef RESERVED_MEM_IN_DT
 
 #define SKIP_VRA_SFR_DUMP
+#define CHAIN_SKIP_GFRAME_FOR_VRA
 
 /* init AWB */
 /* #define ENABLE_INIT_AWB */

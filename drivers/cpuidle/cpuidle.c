@@ -12,6 +12,7 @@
 #include <linux/kernel.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
+#include <linux/sched/clock.h>
 #include <linux/notifier.h>
 #include <linux/pm_qos.h>
 #include <linux/cpu.h>
@@ -50,6 +51,23 @@ bool cpuidle_not_available(struct cpuidle_driver *drv,
 	return off || !initialized || !drv || !dev || !dev->enabled;
 }
 
+unsigned int cpuidle_get_target_residency(int cpu, int state)
+{
+	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+	struct cpuidle_state *s;
+	unsigned int target_residency = INT_MAX;
+
+	if (!drv)
+		goto exit_func;
+
+	s = &drv->states[state];
+	target_residency = s->target_residency;
+
+exit_func:
+	return target_residency;
+}
+
 /**
  * cpuidle_play_dead - cpu off-lining
  *
@@ -76,7 +94,7 @@ static int find_deepest_state(struct cpuidle_driver *drv,
 			      struct cpuidle_device *dev,
 			      unsigned int max_latency,
 			      unsigned int forbidden_flags,
-			      bool freeze)
+			      bool s2idle)
 {
 	unsigned int latency_req = 0;
 	int i, ret = 0;
@@ -88,7 +106,7 @@ static int find_deepest_state(struct cpuidle_driver *drv,
 		if (s->disabled || su->disable || s->exit_latency <= latency_req
 		    || s->exit_latency > max_latency
 		    || (s->flags & forbidden_flags)
-		    || (freeze && !s->enter_freeze))
+		    || (s2idle && !s->enter_s2idle))
 			continue;
 
 		latency_req = s->exit_latency;
@@ -97,7 +115,24 @@ static int find_deepest_state(struct cpuidle_driver *drv,
 	return ret;
 }
 
-#ifdef CONFIG_SUSPEND
+/**
+ * cpuidle_use_deepest_state - Set/clear governor override flag.
+ * @enable: New value of the flag.
+ *
+ * Set/unset the current CPU to use the deepest idle state (override governors
+ * going forward if set).
+ */
+void cpuidle_use_deepest_state(bool enable)
+{
+	struct cpuidle_device *dev;
+
+	preempt_disable();
+	dev = cpuidle_get_device();
+	if (dev)
+		dev->use_deepest_state = enable;
+	preempt_enable();
+}
+
 /**
  * cpuidle_find_deepest_state - Find the deepest available idle state.
  * @drv: cpuidle driver for the given CPU.
@@ -109,7 +144,8 @@ int cpuidle_find_deepest_state(struct cpuidle_driver *drv,
 	return find_deepest_state(drv, dev, UINT_MAX, 0, false);
 }
 
-static void enter_freeze_proper(struct cpuidle_driver *drv,
+#ifdef CONFIG_SUSPEND
+static void enter_s2idle_proper(struct cpuidle_driver *drv,
 				struct cpuidle_device *dev, int index)
 {
 	/*
@@ -124,7 +160,7 @@ static void enter_freeze_proper(struct cpuidle_driver *drv,
 	 * suspended is generally unsafe.
 	 */
 	stop_critical_timings();
-	drv->states[index].enter_freeze(dev, drv, index);
+	drv->states[index].enter_s2idle(dev, drv, index);
 	WARN_ON(!irqs_disabled());
 	/*
 	 * timekeeping_resume() that will be called by tick_unfreeze() for the
@@ -136,25 +172,25 @@ static void enter_freeze_proper(struct cpuidle_driver *drv,
 }
 
 /**
- * cpuidle_enter_freeze - Enter an idle state suitable for suspend-to-idle.
+ * cpuidle_enter_s2idle - Enter an idle state suitable for suspend-to-idle.
  * @drv: cpuidle driver for the given CPU.
  * @dev: cpuidle device for the given CPU.
  *
- * If there are states with the ->enter_freeze callback, find the deepest of
+ * If there are states with the ->enter_s2idle callback, find the deepest of
  * them and enter it with frozen tick.
  */
-int cpuidle_enter_freeze(struct cpuidle_driver *drv, struct cpuidle_device *dev)
+int cpuidle_enter_s2idle(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 {
 	int index;
 
 	/*
-	 * Find the deepest state with ->enter_freeze present, which guarantees
+	 * Find the deepest state with ->enter_s2idle present, which guarantees
 	 * that interrupts won't be enabled when it exits and allows the tick to
 	 * be frozen safely.
 	 */
 	index = find_deepest_state(drv, dev, UINT_MAX, 0, true);
 	if (index > 0)
-		enter_freeze_proper(drv, dev, index);
+		enter_s2idle_proper(drv, dev, index);
 
 	return index;
 }
@@ -189,22 +225,24 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 			return -EBUSY;
 		}
 		target_state = &drv->states[index];
+		broadcast = false;
 	}
 
 	/* Take note of the planned idle state. */
 	sched_idle_set_state(target_state, index);
 
 	trace_cpu_idle_rcuidle(index, dev->cpu);
-	exynos_ss_cpuidle(drv->states[index].desc, index, 0, ESS_FLAG_IN);
+	dbg_snapshot_cpuidle(drv->states[index].desc, index, 0, DSS_FLAG_IN);
 	time_start = ns_to_ktime(local_clock());
 
 	stop_critical_timings();
 	entered_state = target_state->enter(dev, drv, index);
 	start_critical_timings();
 
+	sched_clock_idle_wakeup_event();
 	time_end = ns_to_ktime(local_clock());
-	exynos_ss_cpuidle(drv->states[index].desc, entered_state,
-			(int)ktime_to_us(ktime_sub(time_end, time_start)), ESS_FLAG_OUT);
+	dbg_snapshot_cpuidle(drv->states[index].desc, entered_state,
+			(int)ktime_to_us(ktime_sub(time_end, time_start)), DSS_FLAG_OUT);
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */
@@ -245,12 +283,18 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
  *
  * @drv: the cpuidle driver
  * @dev: the cpuidle device
+ * @stop_tick: indication on whether or not to stop the tick
  *
  * Returns the index of the idle state.  The return value must not be negative.
+ *
+ * The memory location pointed to by @stop_tick is expected to be written the
+ * 'false' boolean value if the scheduler tick should not be stopped before
+ * entering the returned state.
  */
-int cpuidle_select(struct cpuidle_driver *drv, struct cpuidle_device *dev)
+int cpuidle_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
+		   bool *stop_tick)
 {
-	return cpuidle_curr_governor->select(drv, dev);
+	return cpuidle_curr_governor->select(drv, dev, stop_tick);
 }
 
 /**
@@ -644,63 +688,6 @@ static inline void latency_notifier_init(struct notifier_block *n)
 
 #endif /* CONFIG_SMP */
 
-/* during hotplug out in progress, disable cpuidle for faster hotplug out */
-static int exynos_cpuidle_hp_out_callback(struct notifier_block *nfb,
-					unsigned long action, void *hcpu)
-{
-	unsigned int cpu = (unsigned long)hcpu;
-	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
-
-	if (dev) {
-		switch (action) {
-		case CPU_DOWN_PREPARE:
-			cpuidle_disable_device(dev);
-			break;
-
-		case CPU_DOWN_FAILED:
-			cpuidle_enable_device(dev);
-			break;
-		}
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block __refdata cpuidle_hp_out_notifier = {
-	.notifier_call = exynos_cpuidle_hp_out_callback,
-	.priority = INT_MAX,	/* want to be called first */
-};
-
-
-static int exynos_cpuidle_hp_in_callback(struct notifier_block *nfb,
-					unsigned long action, void *hcpu)
-{
-	unsigned int cpu = (unsigned long)hcpu;
-	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
-
-	if (dev) {
-		switch (action) {
-		case CPU_ONLINE:
-			cpuidle_enable_device(dev);
-			break;
-		}
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block __refdata cpuidle_hp_in_notifier = {
-	.notifier_call = exynos_cpuidle_hp_in_callback,
-	.priority = INT_MIN,	/* want to be called last */
-};
-
-static int __init cpuidle_hotcpu_init(void)
-{
-	register_hotcpu_notifier(&cpuidle_hp_out_notifier);
-	register_hotcpu_notifier(&cpuidle_hp_in_notifier);
-
-	return 0;
-}
-device_initcall(cpuidle_hotcpu_init);
-
 /**
  * cpuidle_init - core initializer
  */
@@ -720,5 +707,5 @@ static int __init cpuidle_init(void)
 	return 0;
 }
 
-module_param(off, int, 0644);
+module_param(off, int, 0444);
 core_initcall(cpuidle_init);

@@ -29,8 +29,6 @@
 #define UHID_NAME	"uhid"
 #define UHID_BUFSIZE	32
 
-static DEFINE_MUTEX(uhid_open_mutex);
-
 struct uhid_device {
 	struct mutex devlock;
 	bool running;
@@ -147,26 +145,15 @@ static void uhid_hid_stop(struct hid_device *hid)
 static int uhid_hid_open(struct hid_device *hid)
 {
 	struct uhid_device *uhid = hid->driver_data;
-	int retval = 0;
 
-	mutex_lock(&uhid_open_mutex);
-	if (!hid->open++) {
-		retval = uhid_queue_event(uhid, UHID_OPEN);
-		if (retval)
-			hid->open--;
-	}
-	mutex_unlock(&uhid_open_mutex);
-	return retval;
+	return uhid_queue_event(uhid, UHID_OPEN);
 }
 
 static void uhid_hid_close(struct hid_device *hid)
 {
 	struct uhid_device *uhid = hid->driver_data;
 
-	mutex_lock(&uhid_open_mutex);
-	if (!--hid->open)
-		uhid_queue_event(uhid, UHID_CLOSE);
-	mutex_unlock(&uhid_open_mutex);
+	uhid_queue_event(uhid, UHID_CLOSE);
 }
 
 static int uhid_hid_parse(struct hid_device *hid)
@@ -193,7 +180,7 @@ static int __uhid_report_queue_and_wait(struct uhid_device *uhid,
 
 	ret = wait_event_interruptible_timeout(uhid->report_wait,
 				!uhid->report_running || !uhid->running,
-				10/*5 * HZ*/);  // from 5000 to 10 due to BT stuck when connecting apple magic mouse
+				5 * HZ);
 	if (!ret || !uhid->running || uhid->report_running)
 		ret = -EIO;
 	else if (ret < 0)
@@ -385,7 +372,7 @@ static int uhid_hid_output_report(struct hid_device *hid, __u8 *buf,
 	return uhid_hid_output_raw(hid, buf, count, HID_OUTPUT_REPORT);
 }
 
-static struct hid_ll_driver uhid_hid_driver = {
+struct hid_ll_driver uhid_hid_driver = {
 	.start = uhid_hid_start,
 	.stop = uhid_hid_stop,
 	.open = uhid_hid_open,
@@ -394,6 +381,7 @@ static struct hid_ll_driver uhid_hid_driver = {
 	.raw_request = uhid_hid_raw_request,
 	.output_report = uhid_hid_output_report,
 };
+EXPORT_SYMBOL_GPL(uhid_hid_driver);
 
 #ifdef CONFIG_COMPAT
 
@@ -797,12 +785,11 @@ static struct miscdevice uhid_misc = {
 };
 
 static int fb_state_change(struct notifier_block *nb,
-	unsigned long val, void *data)
+    unsigned long val, void *data)
 {
 	struct fb_event *evdata = data;
 	unsigned int blank;
-
-	dbg_hid("fb_state_change");
+    dbg_hid("fb_state_change");
 	if (val != FB_EVENT_BLANK)
 		return 0;
 
@@ -822,7 +809,7 @@ static int fb_state_change(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 static struct notifier_block fb_block = {
-	.notifier_call = fb_state_change,
+    .notifier_call = fb_state_change,
 };
 
 static int __init uhid_init(void)
@@ -839,6 +826,7 @@ static void __exit uhid_exit(void)
 
 module_init(uhid_init);
 module_exit(uhid_exit);
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("David Herrmann <dh.herrmann@gmail.com>");
 MODULE_DESCRIPTION("User-space I/O driver support for HID subsystem");

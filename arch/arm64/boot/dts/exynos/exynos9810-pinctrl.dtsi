@@ -77,21 +77,7 @@
 			interrupts = <0 INTREQ__EINT32 0>, <0 INTREQ__EINT33 0>;
 		};
 
-		pcie_wake: pcie_wake {
-			samsung,pins = "gpa3-2";
-			samsung,pin-function = <0>; /* IN */
-			samsung,pin-pud = <0>; /* None*/
-		};
-
-		wlan_host_wake: wlan_host_wake{
-			samsung,pins = "gpa0-7";
-			samsung,pin-function = <0xf>;  /* EXT INT */
-			samsung,pin-pud = <1>;
-			samsung,pin-con-pdn = <3>;
-			samsung,pin-pud-pdn = <1>;
-		};
-
-			speedy_bus: speedy-bus {
+		speedy_bus: speedy-bus {
 			samsung,pins = "gpq0-4";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <3>;
@@ -101,13 +87,7 @@
 		uart1_bus_single: uart1-bus {
 			samsung,pins = "gpq0-3", "gpq0-2", "gpq0-1", "gpq0-0";
 			samsung,pin-function = <2>;
-			samsung,pin-drv = <0>;
 			samsung,pin-pud = <0>;
-		};
-
-		uart1_rxd_pull: uart1-bus-rxd {
-			samsung,pins = "gpq0-0";
-			samsung,pin-pud = <3>;
 		};
 
 		uart1_bus_rts: uart1-bus-rts {
@@ -117,12 +97,6 @@
 			samsung,pin-val = <1>;
 		};
 
-		dwmmc2_cd_ext_irq: dwmmc2_cd_ext_irq {
-			samsung,pins = "gpa1-5";
-			samsung,pin-function = <0xf>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <0>;
-		};
 	};
 
 	/* AUD */
@@ -716,6 +690,7 @@
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <0>;
 		};
+
 	};
 
 	/* FSYS0 */
@@ -732,12 +707,14 @@
 			samsung,pins = "gpf0-1";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <0>;
+			samsung,pin-con-pdn = <3>;
 		};
 
 		ufs_refclk_out: ufs-refclk-out {
 			samsung,pins = "gpf0-0";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <0>;
+			samsung,pin-con-pdn = <3>;
 		};
 	};
 
@@ -762,28 +739,28 @@
 			samsung,pins = "gpf1-0";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <0>;
-			samsung,pin-drv = <4>;
+			samsung,pin-drv = <2>;
 		};
 
 		sd2_cmd: sd2-cmd {
 			samsung,pins = "gpf1-1";
 			samsung,pin-function = <2>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <4>;
+			samsung,pin-pud = <3>;
+			samsung,pin-drv = <2>;
 		};
 
 		sd2_bus1: sd2-bus-width1 {
 			samsung,pins = "gpf1-2";
 			samsung,pin-function = <2>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <4>;
+			samsung,pin-pud = <3>;
+			samsung,pin-drv = <2>;
 		};
 
 		sd2_bus4: sd2-bus-width4 {
 			samsung,pins = "gpf1-3", "gpf1-4", "gpf1-5";
 			samsung,pin-function = <2>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <4>;
+			samsung,pin-pud = <3>;
+			samsung,pin-drv = <2>;
 		};
 
 		sd2_clk_fast_slew_rate_1x: sd2-clk_fast_slew_rate_1x {
@@ -928,6 +905,13 @@
 
 			interrupt-controller;
 			#interrupt-cells = <2>;
+		};
+
+		cfg_wlanen: cfg_wlanen {
+			samsung,pins = "gpg1-0";
+			samsung,pin-function = <1>;
+			samsung,pin-drv = <3>;
+			samsung,pin-con-pdn = <3>;
 		};
 
 		/* USI_PERIC0_UART_DBG */
@@ -1093,22 +1077,22 @@
 		spi1_bus: spi1-bus {
 			samsung,pins = "gpp0-2", "gpp0-1", "gpp0-0";
 			samsung,pin-function = <2>;
-			samsung,pin-pud = <1>;
-			samsung,pin-drv = <2>;
+			samsung,pin-pud = <3>;
+			samsung,pin-drv = <0>;
 		};
 
 		spi1_cs: spi1-cs {
 			samsung,pins = "gpp0-3";
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <3>;
-			samsung,pin-drv = <2>;
+			samsung,pin-drv = <0>;
 		};
 
 		spi1_cs_func: spi1-cs-func {
 			samsung,pins = "gpp0-3";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <3>;
-			samsung,pin-drv = <2>;
+			samsung,pin-drv = <0>;
 		};
 
 		/* PERIC0 USI01_SPI */
@@ -1348,26 +1332,6 @@
 			samsung,pins = "gpg1-4", "gpg1-5", "gpg1-6", "gpg1-7";
 			samsung,pin-function = <2>;
 			samsung,pin-pud = <0>;
-		};
-
-		hrm_irq: hrm-irq {
-			samsung,pins = "gpp3-0";
-			samsung,pin-function = <0xf>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <3>;
-		};
-
-		hrm_irqsleep: hrm-irqsleep {
-			samsung,pins = "gpp3-0";
-			samsung,pin-con-pdn = <2>;
-			samsung,pin-pud-pdn = <0>;
-		};
-
-		hrm_irqidle: hrm-irqidle {
-			samsung,pins = "gpp3-0";
-			samsung,pin-function = <0xf>;
-			samsung,pin-pud = <0>;
-			samsung,pin-drv = <3>;
 		};
 	};
 
@@ -1907,7 +1871,7 @@
 		fimc_is_spi_pin0_fn: fimc-is-spi-pin0-fn {
 			samsung,pins = "gpc1-2", "gpc1-1", "gpc1-0";
 			samsung,pin-function = <2>;
-			samsung,pin-pud = <0>; /*np required by spi system */
+			samsung,pin-pud = <0>;
 			samsung,pin-drv = <0>;
 			samsung,pin-val = <0>;
 		};

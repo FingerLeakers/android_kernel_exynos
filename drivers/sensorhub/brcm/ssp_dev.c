@@ -13,6 +13,7 @@
  *
  */
 #include "ssp.h"
+#include <linux/of.h>
 #ifdef CONFIG_OF
 #include <linux/of_gpio.h>
 #endif
@@ -36,11 +37,79 @@ static void ssp_late_resume(struct early_suspend *handler);
 #include <linux/ssp_motorcallback.h>
 #endif
 
+#ifdef CONFIG_PANEL_NOTIFY
+#include <linux/panel_notify.h>
+struct notifier_block panel_notif;
+
+#include <linux/fb.h>
+struct notifier_block fb_notif;
+#endif 
+
 unsigned int bootmode;
 EXPORT_SYMBOL(bootmode);
 
 struct mutex shutdown_lock;
 bool ssp_debug_time_flag;
+static unsigned int current_hw_rev = -1;
+
+static struct ois_sensor_interface ois_control;
+static struct ois_sensor_interface ois_reset;
+
+int ois_fw_update_register(struct ois_sensor_interface *ois)
+{
+	if (ois->core)
+		ois_control.core = ois->core;
+
+	if (ois->ois_func)
+		ois_control.ois_func = ois->ois_func;
+
+	if (!ois->core || !ois->ois_func) {
+		pr_info("%s - no ois struct\n", __func__);
+		return ERROR;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ois_fw_update_register);
+
+void ois_fw_update_unregister(void)
+{
+	ois_control.core = NULL;
+	ois_control.ois_func = NULL;
+}
+EXPORT_SYMBOL(ois_fw_update_unregister);
+
+int ois_reset_register(struct ois_sensor_interface *ois)
+{
+	if (ois->core)
+		ois_reset.core = ois->core;
+
+	if (ois->ois_func)
+		ois_reset.ois_func = ois->ois_func;
+
+	if (!ois->core || !ois->ois_func) {
+		pr_info("%s - no ois struct\n", __func__);
+		return ERROR;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(ois_reset_register);
+
+void ois_reset_unregister(void)
+{
+	ois_reset.core = NULL;
+	ois_reset.ois_func = NULL;
+}
+EXPORT_SYMBOL(ois_reset_unregister);
+
+static int __init sec_hw_param_get_hw_rev(char *arg)
+{
+	get_option(&arg, &current_hw_rev);
+	return 0;
+}
+
+early_param("androidboot.revision", sec_hw_param_get_hw_rev);
 
 static int __init bootmode_setup(char *str)
 {
@@ -49,6 +118,15 @@ static int __init bootmode_setup(char *str)
 	return 1;
 }
 __setup("bootmode=", bootmode_setup);
+
+static struct ssp_data *ssp_data_info;
+void set_ssp_data_info(struct ssp_data *data)
+{
+	if (data != NULL)
+		ssp_data_info = data;
+	else
+		pr_info("[SSP] %s : ssp data info is null\n", __func__);
+}
 
 void ssp_enable(struct ssp_data *data, bool enable)
 {
@@ -165,6 +243,7 @@ static void initialize_variable(struct ssp_data *data)
 
 #ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
 	data->hiddenhole_device = NULL;
+	data->light_efs_file_status = 0;
 #endif
 	data->voice_device = NULL;
 	data->bMcuDumpMode = ssp_check_sec_dump_mode();
@@ -203,7 +282,7 @@ static void initialize_variable(struct ssp_data *data)
 	data->IsMcuCrashed = false;
 	data->intendedMcuReset = false;
 
-	data->timestamp_factor = 10; // initialize for 0.1%
+	data->timestamp_factor = 5;
 	ssp_debug_time_flag = false;
 	data->dhrAccelScaleRange = 0;
 	data->skipSensorData = 0;
@@ -211,6 +290,13 @@ static void initialize_variable(struct ssp_data *data)
 	data->IsVDIS_Enabled = false;
         data->IsAPsuspend = false;
         data->IsNoRespCnt = 0;
+#ifdef CONFIG_PANEL_NOTIFY
+	memset(&data->panel_event_data, 0, sizeof(struct panel_bl_event_data));
+#endif
+
+	data->ois_control = &ois_control;
+	data->ois_reset = &ois_reset;
+
 }
 
 int initialize_mcu(struct ssp_data *data)
@@ -233,6 +319,11 @@ int initialize_mcu(struct ssp_data *data)
 		goto out;
 	}
 
+	iRet = set_ap_information(data);
+	if (iRet < 0) {
+		pr_err("[SSP] %s - set_ap_type failed\n", __func__);
+		goto out;
+	}
 	iRet = set_sensor_position(data);
 	if (iRet < 0) {
 		pr_err("[SSP]: %s - set_sensor_position failed\n", __func__);
@@ -280,11 +371,25 @@ int initialize_mcu(struct ssp_data *data)
 
 
 	data->dhrAccelScaleRange = get_accel_range(data);
+#ifdef CONFIG_PANEL_NOTIFY
+	send_panel_information(&data->panel_event_data);
+#endif
+
+	send_hall_ic_status(data->hall_ic_status);
 
 /* hoi: il dan mak a */
 #ifndef CONFIG_SENSORS_SSP_BBD
 	iRet = ssp_send_cmd(data, MSG2SSP_AP_MCU_DUMP_CHECK, 0);
 #endif
+	if (ois_control.ois_func != NULL) {
+		ois_control.ois_func(ois_control.core);
+		ois_control.ois_func = NULL;
+	} 
+        
+	pr_err("[SSP]: %s - data->light_efs_file_status %d\n",
+			__func__, data->light_efs_file_status);
+	schedule_delayed_work(&data->work_ssp_light_efs_file_init, msecs_to_jiffies(2000));
+
 out:
 	return iRet;
 }
@@ -331,7 +436,7 @@ irqreturn_t ssp_shub_int_handler(int irq, void *device)
 	data->ts_stacked_cnt = (data->ts_stacked_cnt + 1) % SIZE_TIMESTAMP_BUFFER;
 	data->ts_index_buffer[data->ts_stacked_cnt] = timestamp;
 
-	//pr_err("[SSP_IRQ] ts_stacked_cnt %d timestamp %llu\n", data->ts_stacked_cnt, timestamp);
+	ssp_debug_time("[SSP_IRQ] ts_stacked_cnt %d timestamp %llu\n", data->ts_stacked_cnt, timestamp);
 	return IRQ_HANDLED;
 }
 #endif
@@ -419,9 +524,13 @@ static int ssp_parse_dt(struct device *dev, struct ssp_data *data)
 		data->mag_type = 0;
 	pr_info("[SSP] mag-type = %d\n", data->mag_type);
 
-	if (of_property_read_u32(np, "ssp-ap-rev", &data->ap_rev))
-		data->ap_rev = 0;
-
+	if (of_property_read_u32(np, "ssp-ap-type", &data->ap_type))
+		data->ap_type = 0;
+	pr_info("[SSP] ap-type = %d\n", data->ap_type);
+	
+	if (current_hw_rev != -1)
+		data->ap_rev = current_hw_rev;
+	pr_info("[SSP] ap-rev = %d\n", data->ap_rev);
 #if defined(CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS)
 #ifndef CONFIG_SENSORS_SSP_LIGHT_COLORID
 	if (of_property_read_u32(np, "ssp,prox-hi_thresh",
@@ -484,7 +593,7 @@ static int ssp_parse_dt(struct device *dev, struct ssp_data *data)
 			pr_err("no mag-array, set as 0");
 	} else {
 		if (!of_get_property(np, "ssp-mag-array", &len)) {
-			pr_info("[SSP] No static matrix at DT for YAS532!(%p)\n",
+			pr_info("[SSP] No static matrix at DT for YAS532!(%pK)\n",
 					data->static_matrix);
 			goto dt_exit;
 		}
@@ -577,15 +686,6 @@ static int exynos_cpuidle_muic_notifier(struct notifier_block *nb,
  */
 
 #if defined(CONFIG_SSP_MOTOR_CALLBACK)
-static struct ssp_data *ssp_data_info;
-void set_ssp_data_info(struct ssp_data *data)
-{
-	if (data != NULL)
-		ssp_data_info = data;
-	else
-		pr_info("[SSP] %s : ssp data info is null\n", __func__);
-}
-
 int ssp_motor_callback(int state)
 {
 	int iRet = 0;
@@ -620,6 +720,105 @@ void ssp_motor_work_func(struct work_struct *work)
 }
 #endif
 
+#ifdef CONFIG_PANEL_NOTIFY
+int send_panel_information(struct panel_bl_event_data *evdata){
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	int iRet = 0;
+
+	//TODO: send brightness + aor_ratio information to sensorhub
+        if (msg == NULL) {
+                iRet = -ENOMEM;
+                pr_err("[SSP] %s, failed to allocate memory for ssp_msg\n", __func__);
+                return iRet;
+        }
+	msg->cmd = MSG2SSP_PANEL_INFORMATION;
+	msg->length = sizeof(struct panel_bl_event_data);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(sizeof(struct panel_bl_event_data), GFP_KERNEL);
+	msg->free_buffer = 1;
+	memcpy(msg->buffer, (u8 *)evdata, sizeof(struct panel_bl_event_data));
+
+	iRet = ssp_spi_async(ssp_data_info, msg);
+
+	if (iRet < 0)
+		pr_err("[SSP] %s, failed to send panel information", __func__);
+	return iRet;
+}
+
+int send_hall_ic_status(bool enable) {
+	struct ssp_msg *msg;
+	int iRet = 0;
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+
+	msg->cmd = MSG2SSP_HALL_IC_ON_OFF;
+	msg->length = 1;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(1, GFP_KERNEL);
+
+	msg->free_buffer = 1;
+	msg->buffer[0] = enable;
+	iRet = ssp_spi_async(ssp_data_info, msg);
+
+	if (iRet != SUCCESS) {
+	pr_err("[SSP]: %s - hall ic command, failed %d\n", __func__, iRet);
+		return iRet;
+	}
+
+	pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
+		__func__, iRet, enable);
+
+	return iRet;
+}
+
+static int panel_notifier_callback(struct notifier_block *self, unsigned long event, void *data){
+	struct panel_bl_event_data *evdata = data;
+
+	if (event == PANEL_EVENT_BL_CHANGED) {
+		pr_info("[SSP] %s PANEL_EVENT_BL_CHANGED %d %d\n",
+				__func__, evdata->brightness, evdata->aor_ratio);
+	} else {
+		pr_info("[SSP] %s unknown event %d\n", __func__, event);
+	}
+
+	// store these values for reset
+	memcpy(&ssp_data_info->panel_event_data, evdata, sizeof(struct panel_bl_event_data));
+
+	return send_panel_information(evdata);
+}
+
+static int copr_fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data) {
+	struct fb_event *evdata = data;
+	int fb_blank = 0;
+	int early_blank = 0;
+
+	if (event == FB_EARLY_EVENT_BLANK) {
+		early_blank = 1;
+	} else if (event != FB_EVENT_BLANK) {
+		pr_debug("[SSP] %s : early_blank event error!\n", __func__);
+		return 0;
+	}
+
+	fb_blank = *(int *)evdata->data;
+	pr_info("[SSP] %s: early_blank = %d, fb_blank = %d\n", __func__, early_blank, fb_blank);
+
+	if (evdata->info->node != 0)
+	       	return 0;
+
+	if (fb_blank == FB_BLANK_UNBLANK && !early_blank) {		// LCD ON
+		ssp_data_info->uLastAPState = MSG2SSP_AP_STATUS_WAKEUP;
+	} else if (fb_blank == FB_BLANK_POWERDOWN && early_blank) {	// LCD OFF
+		ssp_data_info->uLastAPState = MSG2SSP_AP_STATUS_SLEEP;
+	} else {
+		goto skip_to_send_cmd;
+	}
+	
+	ssp_send_cmd(ssp_data_info, ssp_data_info->uLastAPState, 0);
+
+skip_to_send_cmd:
+	return 0;
+}
+#endif
 
 void ssp_timestamp_sync_work_func(struct work_struct *work)
 {
@@ -670,7 +869,7 @@ static int ssp_probe(struct spi_device *spi)
 			__func__);
 		goto exit;
 	}
-
+	
 	if (spi->dev.of_node) {
 		iRet = ssp_parse_dt(&spi->dev, data);
 		if (iRet) {
@@ -687,11 +886,12 @@ static int ssp_probe(struct spi_device *spi)
 		}
 
 		/* AP system_rev */
+/*
 		if (pdata->check_ap_rev)
 			data->ap_rev = pdata->check_ap_rev();
 		else
 			data->ap_rev = 0;
-
+*/
 		/* Get sensor positions */
 		if (pdata->get_positions) {
 			pdata->get_positions(&data->accel_position,
@@ -705,7 +905,7 @@ static int ssp_probe(struct spi_device *spi)
 			data->mag_matrix = pdata->mag_matrix;
 		}
 	}
-
+	
 	spi->mode = SPI_MODE_3;
 	if (spi_setup(spi)) {
 		pr_err("[SSP] %s, failed to setup spi\n", __func__);
@@ -824,17 +1024,16 @@ static int ssp_probe(struct spi_device *spi)
  *#endif
  */
 
-
 	pr_info("[SSP]: %s - probe success!\n", __func__);
 
 	enable_debug_timer(data);
 	data->bProbeIsDone = true;
 	iRet = 0;
 	mutex_init(&shutdown_lock);
+	set_ssp_data_info(data);
 
 #ifdef CONFIG_SSP_MOTOR_CALLBACK
 	pr_info("[SSP]: %s motor callback set!", __func__);
-	set_ssp_data_info(data);
 	//register motor
 	setMotorCallback(ssp_motor_callback);
 
@@ -850,8 +1049,34 @@ static int ssp_probe(struct spi_device *spi)
 	INIT_WORK(&data->work_ssp_motor, ssp_motor_work_func);
 #endif
 
+
+#ifdef CONFIG_PANEL_NOTIFY
+	pr_info("[SSP]: %s panel notifier set!", __func__);
+	panel_notif.notifier_call = panel_notifier_callback;
+	iRet = panel_notifier_register(&panel_notif);
+	if (iRet) {
+		pr_err("[SSP]: %s - fail to register panel_notifier_callback\n", __func__);
+	}
+
+	pr_info("[SSP]: %s copr fb notifier set!", __func__);
+	fb_notif.notifier_call = copr_fb_notifier_callback;
+	iRet = fb_register_client(&fb_notif);
+	if (iRet) {
+		pr_err("[SSP]: %s - fail to register copr_fb_notifier_callback\n", __func__);
+	}
+#endif
+
 	INIT_DELAYED_WORK(&data->work_ssp_tiemstamp_sync, ssp_timestamp_sync_work_func);
 	INIT_DELAYED_WORK(&data->work_ssp_reset, ssp_reset_work_func);
+
+#ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
+	INIT_DELAYED_WORK(&data->work_ssp_light_efs_file_init, initialize_light_colorid_do_task);
+	//if (data->light_efs_file_status < 0) {
+		//pr_err("[SSP]: %s - data->light_efs_file_status %d\n",
+		//	__func__, data->light_efs_file_status);
+		//schedule_delayed_work(&data->work_ssp_light_efs_file_init, msecs_to_jiffies(5000));
+	//}
+#endif
 
 	goto exit;
 
@@ -880,6 +1105,7 @@ err_reset_null:
 	mutex_destroy(&data->pending_mutex);
 	mutex_destroy(&data->enable_mutex);
 	mutex_destroy(&data->ssp_enable_mutex);
+
 #ifdef CONFIG_SENSORS_SSP_SHTC1
 	mutex_destroy(&data->bulk_temp_read_lock);
 	mutex_destroy(&data->cp_temp_adc_lock);
@@ -971,10 +1197,49 @@ static void ssp_shutdown(struct spi_device *spi)
 	mutex_destroy(&data->pending_mutex);
 	mutex_destroy(&data->enable_mutex);
 	mutex_destroy(&data->ssp_enable_mutex);
+
+#ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
+	cancel_delayed_work_sync(&data->work_ssp_light_efs_file_init);
+#endif
+	
 	pr_info("[SSP] %s done\n", __func__);
 exit:
 	kfree(data);
 }
+
+#define bbd_old     0
+#define bbd_new_old     1
+#define bbd_current     2
+
+int get_patch_version(int ap_type, int hw_rev)
+{
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+        if (ap_type == 3) { // 3 == beyondxlte
+                if (hw_rev >= 4)
+                        return bbd_current;
+                else
+                        return bbd_new_old;
+        } else if (ap_type == 0) { // 0 == beyond0lte
+                if (hw_rev > 22)
+                        return bbd_current;
+                else if (hw_rev < 20)
+                        return bbd_old;
+                else
+                        return bbd_new_old;
+        }else {
+                if( hw_rev == 23 || hw_rev > 24)
+                        return bbd_current;
+                else if (hw_rev < 20)
+                        return bbd_old;
+                else
+                        return bbd_new_old;
+        }
+#else
+	return bbd_current;
+#endif
+
+}
+
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void ssp_early_suspend(struct early_suspend *handler)

@@ -30,6 +30,10 @@
 #include <linux/interrupt.h>
 #include <linux/of.h>
 #include <linux/dma-buf.h>
+#include <linux/dma-buf-container.h>
+#include <linux/ion_exynos.h>
+#include <asm/cacheflush.h>
+#include <media/videobuf2-memops.h>
 
 #include "fimc-is-core.h"
 #include "fimc-is-cmd.h"
@@ -42,193 +46,372 @@
 #include <plat/iovmm.h>
 #endif
 
-#if defined(CONFIG_VIDEOBUF2_ION)
+#if defined(CONFIG_VIDEOBUF2_DMA_SG)
+struct vb2_dma_sg_buf {
+	struct device			*dev;
+	void				*vaddr;
+	struct page			**pages;
+	struct frame_vector		*vec;
+	int				offset;
+	enum dma_data_direction		dma_dir;
+	struct sg_table			sg_table;
+	/*
+	 * This will point to sg_table when used with the MMAP or USERPTR
+	 * memory model, and to the dma_buf sglist when used with the
+	 * DMABUF memory model.
+	 */
+	struct sg_table			*dma_sgt;
+	size_t				size;
+	unsigned int			num_pages;
+	refcount_t			refcount;
+	struct vb2_vmarea_handler	handler;
+
+	struct dma_buf_attachment	*db_attach;
+	/*
+	 * Our IO address space is not managed by dma-mapping. Therefore
+	 * scatterlist.dma_address should not be corrupted by the IO address
+	 * returned by iovmm_map() because it is used by cache maintenance.
+	 */
+	dma_addr_t			iova;
+};
+
 /* fimc-is vb2 buffer operations */
-static inline ulong fimc_is_vb2_ion_plane_kvaddr(
+static inline ulong is_vb2_dma_sg_plane_kvaddr(
 		struct fimc_is_vb2_buf *vbuf, u32 plane)
 
 {
 	return (ulong)vb2_plane_vaddr(&vbuf->vb.vb2_buf, plane);
 }
 
-static inline ulong fimc_is_vb2_ion_plane_cookie(
-		struct fimc_is_vb2_buf *vbuf, u32 plane)
-{
-	return (ulong)vb2_plane_cookie(&vbuf->vb.vb2_buf, plane);
-}
-
-static dma_addr_t fimc_is_vb2_ion_plane_dvaddr(
+static inline dma_addr_t is_vb2_dma_sg_plane_dvaddr(
 		struct fimc_is_vb2_buf *vbuf, u32 plane)
 
 {
-	dma_addr_t dva = 0;
-
-	WARN_ON(vb2_ion_dma_address(vb2_plane_cookie(&vbuf->vb.vb2_buf, plane), &dva) != 0);
-
-	return (ulong)dva;
+	return vb2_dma_sg_plane_dma_addr(&vbuf->vb.vb2_buf, plane);
 }
 
-static void fimc_is_vb2_ion_plane_prepare(struct fimc_is_vb2_buf *vbuf,
-		u32 plane, bool exact)
+static inline ulong is_vb2_dma_sg_plane_kmap(
+		struct fimc_is_vb2_buf *vbuf, u32 plane)
 {
 	struct vb2_buffer *vb = &vbuf->vb.vb2_buf;
-	enum dma_data_direction dir;
-	unsigned long size;
-	u32 spare;
+	struct vb2_dma_sg_buf *buf = vb->planes[plane].mem_priv;
+	struct dma_buf *dbuf;
 
-	/* skip meta plane */
-	spare = vb->num_planes - 1;
-	if (plane == spare)
-		return;
+	if (likely(vbuf->kva[plane]))
+		return vbuf->kva[plane];
 
-	dir = V4L2_TYPE_IS_OUTPUT(vb->type) ?
-		DMA_TO_DEVICE : DMA_FROM_DEVICE;
+	dbuf = dma_buf_get(vb->planes[plane].m.fd);
+	if (IS_ERR_OR_NULL(dbuf)) {
+		pr_err("failed to get dmabuf of fd: %d, plane: %d\n",
+				vb->planes[plane].m.fd, plane);
+		return 0;
+	}
 
-	size = exact ?
-		vb2_get_plane_payload(vb, plane) : vb2_plane_size(vb, plane);
+	if (dma_buf_begin_cpu_access(dbuf, buf->dma_dir)) {
+		dma_buf_put(dbuf);
+		pr_err("failed to access dmabuf of fd: %d, plane: %d\n",
+				vb->planes[plane].m.fd, plane);
+		return 0;
+	}
 
-	vb2_ion_sync_for_device((void *)vb2_plane_cookie(vb, plane), 0,
-			size, dir);
+	vbuf->kva[plane] = (ulong)dma_buf_kmap(dbuf, buf->offset / PAGE_SIZE);
+	if (!vbuf->kva[plane]) {
+		dma_buf_end_cpu_access(dbuf, buf->dma_dir);
+		dma_buf_put(dbuf);
+		pr_err("failed to kmapping dmabuf of fd: %d, plane: %d\n",
+				vb->planes[plane].m.fd, plane);
+		return 0;
+	}
+
+	vbuf->dbuf[plane] = dbuf;
+	vbuf->kva[plane] += buf->offset & ~PAGE_MASK;
+
+	return vbuf->kva[plane];
 }
 
-static void fimc_is_vb2_ion_plane_finish(struct fimc_is_vb2_buf *vbuf,
-		u32 plane, bool exact)
+static inline void is_vb2_dma_sg_plane_kunmap(
+		struct fimc_is_vb2_buf *vbuf, u32 plane)
+{
+	struct dma_buf *dbuf = vbuf->dbuf[plane];
+
+	if (vbuf->kva[plane]) {
+		dma_buf_kunmap(dbuf, 0, (void *)vbuf->kva[plane]);
+		dma_buf_end_cpu_access(dbuf, 0);
+		dma_buf_put(dbuf);
+
+		vbuf->dbuf[plane] = NULL;
+		vbuf->kva[plane] = 0;
+	}
+}
+
+static long is_vb2_dma_sg_remap_attr(struct fimc_is_vb2_buf *vbuf, int attr)
 {
 	struct vb2_buffer *vb = &vbuf->vb.vb2_buf;
-	enum dma_data_direction dir;
-	unsigned long size;
-	u32 spare;
+	struct vb2_dma_sg_buf *buf;
+	unsigned int plane;
+	long ret;
+	int ioprot = IOMMU_READ | IOMMU_WRITE;
 
-	/* skip meta plane */
-	spare = vb->num_planes - 1;
-	if (plane == spare)
-		return;
+	for (plane = 0; plane < vb->num_planes; ++plane) {
+		buf = vb->planes[plane].mem_priv;
+		vbuf->sgt[plane] = dma_buf_map_attachment(buf->db_attach, buf->dma_dir);
 
-	dir = V4L2_TYPE_IS_OUTPUT(vb->type) ?
-		DMA_TO_DEVICE : DMA_FROM_DEVICE;
+		if (IS_ERR(vbuf->sgt[plane])) {
+			pr_err("Error getting dmabuf scatterlist\n");
+			ret = PTR_ERR(vbuf->sgt[plane]);
+			goto err_get_sgt;
+		}
 
-	size = exact ?
-		vb2_get_plane_payload(vb, plane) : vb2_plane_size(vb, plane);
+		if ((vbuf->dva[plane] == 0) || IS_ERR_VALUE(vbuf->dva[plane])) {
+			if (device_get_dma_attr(buf->dev) == DEV_DMA_COHERENT)
+				ioprot |= IOMMU_CACHE;
 
-	vb2_ion_sync_for_cpu((void *)vb2_plane_cookie(vb, plane), 0,
-			size, dir);
+			vbuf->dva[plane] = ion_iovmm_map_attr(buf->db_attach, 0, buf->size,
+					DMA_BIDIRECTIONAL, ioprot, attr);
+			if (IS_ERR_VALUE(vbuf->dva[plane])) {
+				pr_err("Error from ion_iovmm_map()=%pad\n", &vbuf->dva[plane]);
+				ret = vbuf->dva[plane];
+				goto err_map_remap;
+			}
+		}
+	}
+
+	return 0;
+
+err_map_remap:
+	dma_buf_unmap_attachment(buf->db_attach, vbuf->sgt[plane], buf->dma_dir);
+	vbuf->dva[plane] = 0;
+
+err_get_sgt:
+	while (plane-- > 0) {
+		buf = vb->planes[plane].mem_priv;
+
+		ion_iovmm_unmap_attr(buf->db_attach, vbuf->dva[plane], attr);
+		dma_buf_unmap_attachment(buf->db_attach, vbuf->sgt[plane], buf->dma_dir);
+		vbuf->dva[plane] = 0;
+	}
+
+	return ret;
 }
 
-static void fimc_is_vb2_ion_buf_prepare(struct fimc_is_vb2_buf *vbuf, bool exact)
+void is_vb2_dma_sg_unremap_attr(struct fimc_is_vb2_buf *vbuf, int attr)
 {
 	struct vb2_buffer *vb = &vbuf->vb.vb2_buf;
-	enum dma_data_direction dir;
-	unsigned long size;
-	u32 plane;
-	u32 spare;
+	struct vb2_dma_sg_buf *buf;
+	unsigned int plane;
 
-	dir = V4L2_TYPE_IS_OUTPUT(vb->type) ?
-		DMA_TO_DEVICE : DMA_FROM_DEVICE;
+	for (plane = 0; plane < vb->num_planes; ++plane) {
+		buf = vb->planes[plane].mem_priv;
 
-	/* skip meta plane */
-	spare = vb->num_planes - 1;
-
-	for (plane = 0; plane < spare; plane++) {
-		size = exact ?
-			vb2_get_plane_payload(vb, plane) : vb2_plane_size(vb, plane);
-
-		vb2_ion_sync_for_device((void *)vb2_plane_cookie(vb, plane), 0,
-				size, dir);
+		ion_iovmm_unmap_attr(buf->db_attach, vbuf->dva[plane], attr);
+		dma_buf_unmap_attachment(buf->db_attach, vbuf->sgt[plane], buf->dma_dir);
+		vbuf->dva[plane] = 0;
 	}
 }
 
-static void fimc_is_vb2_ion_buf_finish(struct fimc_is_vb2_buf *vbuf, bool exact)
+#ifdef CONFIG_DMA_BUF_CONTAINER
+static long is_dbufcon_prepare(struct fimc_is_vb2_buf *vbuf,
+		u32 num_planes, struct device *dev)
 {
 	struct vb2_buffer *vb = &vbuf->vb.vb2_buf;
-	enum dma_data_direction dir;
-	unsigned long size;
-	u32 plane;
-	u32 spare;
+	struct dma_buf *dbufcon;
+	int count;
+	int p, b, i;
+	long ret;
 
-	dir = V4L2_TYPE_IS_OUTPUT(vb->type) ?
-		DMA_TO_DEVICE : DMA_FROM_DEVICE;
+	for (p = 0; p < num_planes; p++) {
+		dbufcon = dma_buf_get(vb->planes[p].m.fd);
+		if (IS_ERR_OR_NULL(dbufcon)) {
+			err("failed to get dmabuf of fd: %d, plane: %d",
+				vb->planes[p].m.fd, p);
+			ret = -EINVAL;
+			goto err_get_dbufcon;
+		}
 
-	/* skip meta plane */
-	spare = vb->num_planes - 1;
+		count = dmabuf_container_get_count(dbufcon);
+		if (count < 0) {
+			ret = 0;
+			goto err_get_count;
+		} else if (count == 0) {
+			err("empty dmabuf-container of fd: %d", vb->planes[p].m.fd);
+			ret = -EINVAL;
+			goto err_empty_dbufcon;
+		}
 
-	for (plane = 0; plane < spare; plane++) {
-		size = exact ?
-			vb2_get_plane_payload(vb, plane) : vb2_plane_size(vb, plane);
+		/* FIMC_IS_MAX_PLANES includes a meta-plane */
+		if ((count * num_planes) >= FIMC_IS_MAX_PLANES) {
+			err("out of range plane. count: %d, planes: %d >= supported: %d",
+					count, num_planes, FIMC_IS_MAX_PLANES);
+			ret = -EINVAL;
+			goto err_too_many_planes;
 
-		vb2_ion_sync_for_cpu((void *)vb2_plane_cookie(vb, plane), 0,
-				size, dir);
+		}
+
+		/* change the order of each plane by the order of buffer */
+		for (b = 0, i = p; b < count; b++, i = (b * num_planes) + p) {
+			vbuf->dbuf[i] = dmabuf_container_get_buffer(dbufcon, b);
+			if (IS_ERR_OR_NULL(vbuf->dbuf[i])) {
+				err("failed to get dmabuf-container's dmabuf: %d", b);
+				ret = -EINVAL;
+				goto err_get_dbuf;
+			}
+
+			vbuf->atch[i] = dma_buf_attach(vbuf->dbuf[i], dev);
+			if (IS_ERR(vbuf->atch[i])) {
+				err("failed to attach dmabuf: %d", b);
+				ret = PTR_ERR(vbuf->atch[i]);
+				goto err_attach_dbuf;
+			}
+
+			vbuf->sgt[i] = dma_buf_map_attachment(vbuf->atch[i],
+							DMA_BIDIRECTIONAL);
+			if (IS_ERR(vbuf->sgt[i])) {
+				err("failed to get dmabuf's sgt: %d", b);
+				ret = PTR_ERR(vbuf->sgt[i]);
+				goto err_get_sgt;
+			}
+		}
+
+		dma_buf_put(dbufcon);
 	}
 
-	clear_bit(FIMC_IS_VBUF_CACHE_INVALIDATE, &vbuf->cache_state);
+	vbuf->num_merged_dbufs = count * num_planes;
+
+	return 0;
+
+err_get_sgt:
+	dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
+	vbuf->sgt[i] = NULL;
+
+err_attach_dbuf:
+	dma_buf_put(vbuf->dbuf[i]);
+	vbuf->atch[i] = NULL;
+	vbuf->dbuf[i] = NULL;
+
+err_get_dbuf:
+	while (b-- > 0) {
+		i = (b * num_planes) + p;
+		dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
+				DMA_BIDIRECTIONAL);
+		dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
+		dma_buf_put(vbuf->dbuf[i]);
+		vbuf->sgt[i] = NULL;
+		vbuf->atch[i] = NULL;
+		vbuf->dbuf[i] = NULL;
+	}
+
+err_too_many_planes:
+err_empty_dbufcon:
+err_get_count:
+	dma_buf_put(dbufcon);
+
+err_get_dbufcon:
+	vbuf->num_merged_dbufs = 0;
+
+	while (p-- > 0) {
+		dbufcon = dma_buf_get(vb->planes[p].m.fd);
+		count = dmabuf_container_get_count(dbufcon);
+		dma_buf_put(dbufcon);
+
+		for (b = 0, i = p; b < count; b++, i = (b * num_planes) + p) {
+			dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
+					DMA_BIDIRECTIONAL);
+			dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
+			dma_buf_put(vbuf->dbuf[i]);
+			vbuf->sgt[i] = NULL;
+			vbuf->atch[i] = NULL;
+			vbuf->dbuf[i] = NULL;
+		}
+	}
+
+	return ret;
 }
 
-static dma_addr_t fimc_is_bufcon_map(struct fimc_is_vb2_buf *vbuf,
-	struct device *dev,
-	int idx,
-	struct dma_buf *dmabuf)
+static void is_dbufcon_finish(struct fimc_is_vb2_buf *vbuf)
 {
-	int ret = 0;
+	int i;
 
-	vbuf->bufs[idx] = dmabuf;
-
-	vbuf->attachment[idx] = dma_buf_attach(dmabuf, dev);
-	if (IS_ERR(vbuf->attachment[idx])) {
-		ret = PTR_ERR(vbuf->attachment[idx]);
-		pr_err("%s: Failed to dma_buf_attach %d\n", __func__, idx);
-		goto err_attach;
+	for (i = 0; i < vbuf->num_merged_dbufs; i++) {
+		dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
+				DMA_BIDIRECTIONAL);
+		dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
+		dma_buf_put(vbuf->dbuf[i]);
+		vbuf->sgt[i] = NULL;
+		vbuf->atch[i] = NULL;
+		vbuf->dbuf[i] = NULL;
 	}
 
-	vbuf->sgt[idx] = dma_buf_map_attachment(vbuf->attachment[idx], DMA_BIDIRECTIONAL);
-	if (IS_ERR(vbuf->sgt[idx])) {
-		ret = PTR_ERR(vbuf->sgt[idx]);
-		pr_err("%s: Failed to dma_buf_map_attachment %d\n", __func__, idx);
-		goto err_map_dmabuf;
+	vbuf->num_merged_dbufs = 0;
+}
+
+static long is_dbufcon_map(struct fimc_is_vb2_buf *vbuf)
+{
+	int i;
+	long ret;
+
+	for (i = 0; i < vbuf->num_merged_dbufs; i++) {
+		vbuf->dva[i] = ion_iovmm_map(vbuf->atch[i], 0, 0,
+				DMA_BIDIRECTIONAL, 0);
+		if (IS_ERR_VALUE(vbuf->dva[i])) {
+			err("failed to map dmabuf: %d", i);
+			ret = vbuf->dva[i];
+			goto err_map_dbuf;
+		}
 	}
 
-	vbuf->dva[idx] = ion_iovmm_map(vbuf->attachment[idx], 0, 0, DMA_BIDIRECTIONAL, 0);
-	if (IS_ERR_VALUE(vbuf->dva[idx])) {
-		pr_err("%s: Failed to ion_iovmm_map %d\n", __func__, idx);
-		ret = -ENOMEM;
-		goto err_ion_map_io;
+	return 0;
+
+err_map_dbuf:
+	vbuf->dva[i] = 0;
+
+	while (i-- > 0) {
+		ion_iovmm_unmap(vbuf->atch[i], vbuf->dva[i]);
+		vbuf->dva[i] = 0;
 	}
 
-	return vbuf->dva[idx];
+	return ret;
+}
 
-err_ion_map_io:
-	dma_buf_unmap_attachment(vbuf->attachment[idx], vbuf->sgt[idx], DMA_BIDIRECTIONAL);
-err_map_dmabuf:
-	dma_buf_detach(dmabuf, vbuf->attachment[idx]);
-err_attach:
-	vbuf->bufs[idx] = NULL;
+static void is_dbufcon_unmap(struct fimc_is_vb2_buf *vbuf)
+{
+	int i;
 
+	for (i = 0; i < vbuf->num_merged_dbufs; i++) {
+		ion_iovmm_unmap(vbuf->atch[i], vbuf->dva[i]);
+		vbuf->dva[i] = 0;
+	}
+}
+#else
+static long is_dbufcon_prepare(struct fimc_is_vb2_buf *vbuf,
+		u32 num_planes, struct device *dev)
+{
+	return 0;
+}
+static void is_dbufcon_finish(struct fimc_is_vb2_buf *vbuf)
+{
+}
+
+static long is_dbufcon_map(struct fimc_is_vb2_buf *vbuf)
+{
 	return 0;
 }
 
-static void fimc_is_bufcon_unmap(struct fimc_is_vb2_buf *vbuf,
-	int idx)
+static void is_dbufcon_unmap(struct fimc_is_vb2_buf *vbuf)
 {
-	if (!vbuf->bufs[idx])
-		return;
-
-	ion_iovmm_unmap(vbuf->attachment[idx], vbuf->dva[idx]);
-	vbuf->dva[idx] = 0;
-
-	dma_buf_unmap_attachment(vbuf->attachment[idx], vbuf->sgt[idx], DMA_BIDIRECTIONAL);
-	dma_buf_detach(vbuf->bufs[idx], vbuf->attachment[idx]);
-
-	vbuf->bufs[idx] = NULL;
 }
+#endif
 
-const struct fimc_is_vb2_buf_ops fimc_is_vb2_buf_ops_ion = {
-	.plane_kvaddr	= fimc_is_vb2_ion_plane_kvaddr,
-	.plane_cookie	= fimc_is_vb2_ion_plane_cookie,
-	.plane_dvaddr	= fimc_is_vb2_ion_plane_dvaddr,
-	.plane_prepare	= fimc_is_vb2_ion_plane_prepare,
-	.plane_finish	= fimc_is_vb2_ion_plane_finish,
-	.buf_prepare	= fimc_is_vb2_ion_buf_prepare,
-	.buf_finish	= fimc_is_vb2_ion_buf_finish,
-	.bufcon_map	= fimc_is_bufcon_map,
-	.bufcon_unmap	= fimc_is_bufcon_unmap,
+const struct fimc_is_vb2_buf_ops is_vb2_buf_ops_dma_sg = {
+	.plane_kvaddr		= is_vb2_dma_sg_plane_kvaddr,
+	.plane_dvaddr		= is_vb2_dma_sg_plane_dvaddr,
+	.plane_kmap		= is_vb2_dma_sg_plane_kmap,
+	.plane_kunmap		= is_vb2_dma_sg_plane_kunmap,
+	.remap_attr		= is_vb2_dma_sg_remap_attr,
+	.unremap_attr		= is_vb2_dma_sg_unremap_attr,
+	.dbufcon_prepare	= is_dbufcon_prepare,
+	.dbufcon_finish		= is_dbufcon_finish,
+	.dbufcon_map		= is_dbufcon_map,
+	.dbufcon_unmap		= is_dbufcon_unmap,
 };
 
 /* fimc-is private buffer operations */
@@ -238,37 +421,28 @@ static void fimc_is_ion_free(struct fimc_is_priv_buf *pbuf)
 
 	alloc_ctx = pbuf->ctx;
 	mutex_lock(&alloc_ctx->lock);
-	if (pbuf->cookie.ioaddr)
-		ion_iovmm_unmap(pbuf->attachment, pbuf->cookie.ioaddr);
+	if (pbuf->iova)
+		ion_iovmm_unmap(pbuf->attachment, pbuf->iova);
 	mutex_unlock(&alloc_ctx->lock);
 
-	dma_buf_unmap_attachment(pbuf->attachment, pbuf->cookie.sgt,
+	if (pbuf->kva)
+		dma_buf_vunmap(pbuf->dma_buf, pbuf->kva);
+
+	dma_buf_unmap_attachment(pbuf->attachment, pbuf->sgt,
 				DMA_BIDIRECTIONAL);
 	dma_buf_detach(pbuf->dma_buf, pbuf->attachment);
 	dma_buf_put(pbuf->dma_buf);
-
-	if (pbuf->kva)
-		ion_unmap_kernel(alloc_ctx->client, pbuf->handle);
-	ion_free(alloc_ctx->client, pbuf->handle);
 
 	vfree(pbuf);
 }
 
 static ulong fimc_is_ion_kvaddr(struct fimc_is_priv_buf *pbuf)
 {
-	struct fimc_is_ion_ctx *alloc_ctx;
-
 	if (!pbuf)
 		return 0;
 
-	alloc_ctx = pbuf->ctx;
-	if (!pbuf->kva) {
-		pbuf->kva = ion_map_kernel(alloc_ctx->client, pbuf->handle);
-		if (IS_ERR_OR_NULL(pbuf->kva))
-			pbuf->kva = NULL;
-
-		pbuf->kva += pbuf->cookie.offset;
-	}
+	if (!pbuf->kva)
+		pbuf->kva = dma_buf_vmap(pbuf->dma_buf);
 
 	return (ulong)pbuf->kva;
 }
@@ -280,10 +454,10 @@ static dma_addr_t fimc_is_ion_dvaddr(struct fimc_is_priv_buf *pbuf)
 	if (!pbuf)
 		return -EINVAL;
 
-	if (pbuf->cookie.ioaddr == 0)
+	if (pbuf->iova == 0)
 		return -EINVAL;
 
-	dva = pbuf->cookie.ioaddr;
+	dva = pbuf->iova;
 
 	return (ulong)dva;
 }
@@ -297,30 +471,24 @@ static phys_addr_t fimc_is_ion_phaddr(struct fimc_is_priv_buf *pbuf)
 static void fimc_is_ion_sync_for_device(struct fimc_is_priv_buf *pbuf,
 		off_t offset, size_t size, enum dma_data_direction dir)
 {
-	struct fimc_is_ion_ctx *alloc_ctx = pbuf->ctx;
-
 	if (pbuf->kva) {
 		FIMC_BUG_VOID((offset < 0) || (offset > pbuf->size));
 		FIMC_BUG_VOID((offset + size) < size);
 		FIMC_BUG_VOID((size > pbuf->size) || ((offset + size) > pbuf->size));
 
-		exynos_ion_sync_vaddr_for_device(alloc_ctx->dev,
-			pbuf->dma_buf, pbuf->kva, size, offset, dir);
+		__dma_map_area(pbuf->kva + offset, size, dir);
 	}
 }
 
 static void fimc_is_ion_sync_for_cpu(struct fimc_is_priv_buf *pbuf,
 		off_t offset, size_t size, enum dma_data_direction dir)
 {
-	struct fimc_is_ion_ctx *alloc_ctx = pbuf->ctx;
-
 	if (pbuf->kva) {
 		FIMC_BUG_VOID((offset < 0) || (offset > pbuf->size));
 		FIMC_BUG_VOID((offset + size) < size);
 		FIMC_BUG_VOID((size > pbuf->size) || ((offset + size) > pbuf->size));
 
-		exynos_ion_sync_vaddr_for_cpu(alloc_ctx->dev,
-			pbuf->dma_buf, pbuf->kva, size, offset, dir);
+		__dma_unmap_area(pbuf->kva + offset, size, dir);
 	}
 }
 
@@ -343,19 +511,11 @@ static void *fimc_is_ion_init(struct platform_device *pdev)
 		return ERR_PTR(-ENOMEM);
 
 	ctx->dev = &pdev->dev;
-	ctx->client = exynos_ion_client_create(dev_name(&pdev->dev));
-	if (IS_ERR(ctx->client)) {
-		void *retp = ctx->client;
-		kfree(ctx);
-		return retp;
-	}
-
 	ctx->alignment = SZ_4K;
-	ctx->flags = ION_FLAG_CACHED | ION_FLAG_CACHED_NEEDS_SYNC;
+	ctx->flags = ION_FLAG_CACHED;
 	mutex_init(&ctx->lock);
 
 	return ctx;
-
 }
 
 static void fimc_is_ion_deinit(void *ctx)
@@ -363,16 +523,14 @@ static void fimc_is_ion_deinit(void *ctx)
 	struct fimc_is_ion_ctx *alloc_ctx = ctx;
 
 	mutex_destroy(&alloc_ctx->lock);
-	ion_client_destroy(alloc_ctx->client);
 	vfree(alloc_ctx);
 }
 
 static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
-		size_t size, size_t align)
+		size_t size, const char *heapname, unsigned int flags)
 {
 	struct fimc_is_ion_ctx *alloc_ctx = ctx;
 	struct fimc_is_priv_buf *buf;
-	int heapflags = EXYNOS_ION_HEAP_SYSTEM_MASK;
 	int ret = 0;
 
 	buf = vzalloc(sizeof(*buf));
@@ -381,17 +539,11 @@ static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
 
 	size = PAGE_ALIGN(size);
 
-	buf->handle = ion_alloc(alloc_ctx->client, size, alloc_ctx->alignment,
-				heapflags, alloc_ctx->flags);
-	if (IS_ERR(buf->handle)) {
+	buf->dma_buf = ion_alloc_dmabuf(heapname ? heapname : "ion_system_heap",
+				size, flags ? flags : alloc_ctx->flags);
+	if (IS_ERR(buf->dma_buf)) {
 		ret = -ENOMEM;
 		goto err_alloc;
-	}
-
-	buf->dma_buf = ion_share_dma_buf(alloc_ctx->client, buf->handle);
-	if (IS_ERR(buf->dma_buf)) {
-		ret = PTR_ERR(buf->dma_buf);
-		goto err_share;
 	}
 
 	buf->attachment = dma_buf_attach(buf->dma_buf, alloc_ctx->dev);
@@ -400,10 +552,10 @@ static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
 		goto err_attach;
 	}
 
-	buf->cookie.sgt = dma_buf_map_attachment(
+	buf->sgt = dma_buf_map_attachment(
 				buf->attachment, DMA_BIDIRECTIONAL);
-	if (IS_ERR(buf->cookie.sgt)) {
-		ret = PTR_ERR(buf->cookie.sgt);
+	if (IS_ERR(buf->sgt)) {
+		ret = PTR_ERR(buf->sgt);
 		goto err_map_dmabuf;
 	}
 
@@ -413,10 +565,10 @@ static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
 	buf->ops = &fimc_is_priv_buf_ops_ion;
 
 	mutex_lock(&alloc_ctx->lock);
-	buf->cookie.ioaddr = ion_iovmm_map(buf->attachment, 0,
+	buf->iova = ion_iovmm_map(buf->attachment, 0,
 				   buf->size, buf->direction, 0);
-	if (IS_ERR_VALUE(buf->cookie.ioaddr)) {
-		ret = (int)buf->cookie.ioaddr;
+	if (IS_ERR_VALUE(buf->iova)) {
+		ret = (int)buf->iova;
 		mutex_unlock(&alloc_ctx->lock);
 		goto err_ion_map_io;
 	}
@@ -425,16 +577,12 @@ static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
 	return buf;
 
 err_ion_map_io:
-	if (buf->kva)
-		ion_unmap_kernel(alloc_ctx->client, buf->handle);
-	dma_buf_unmap_attachment(buf->attachment, buf->cookie.sgt,
+	dma_buf_unmap_attachment(buf->attachment, buf->sgt,
 				DMA_BIDIRECTIONAL);
 err_map_dmabuf:
 	dma_buf_detach(buf->dma_buf, buf->attachment);
 err_attach:
 	dma_buf_put(buf->dma_buf);
-err_share:
-	ion_free(alloc_ctx->client, buf->handle);
 err_alloc:
 	vfree(buf);
 
@@ -510,6 +658,7 @@ static phys_addr_t fimc_is_km_phaddr(struct fimc_is_priv_buf *pbuf)
 
 	return pa;
 }
+
 const struct fimc_is_priv_buf_ops fimc_is_priv_buf_ops_km = {
 	.free			= fimc_is_km_free,
 	.kvaddr			= fimc_is_km_kvaddr,
@@ -545,10 +694,10 @@ err_priv_alloc:
 
 int fimc_is_mem_init(struct fimc_is_mem *mem, struct platform_device *pdev)
 {
-#if defined(CONFIG_VIDEOBUF2_ION)
+#if defined(CONFIG_VIDEOBUF2_DMA_SG)
 	mem->fimc_is_mem_ops = &fimc_is_mem_ops_ion;
-	mem->vb2_mem_ops = &vb2_ion_memops;
-	mem->fimc_is_vb2_buf_ops = &fimc_is_vb2_buf_ops_ion;
+	mem->vb2_mem_ops = &vb2_dma_sg_memops;
+	mem->fimc_is_vb2_buf_ops = &is_vb2_buf_ops_dma_sg;
 	mem->kmalloc = &fimc_is_kmalloc;
 #endif
 

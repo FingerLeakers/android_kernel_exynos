@@ -18,9 +18,11 @@
 #include <linux/debugfs.h>
 #include <linux/slab.h>
 #include <linux/kthread.h>
-#include <five_tee_driver.h>
+#include <linux/firmware.h>
+#include <five_tee_interface.h>
 #include "tee_client_api.h"
 #include "five_ta_uuid.h"
+#include "five_audit.h"
 
 #ifdef CONFIG_TEE_DRIVER_DEBUG
 #include <linux/uaccess.h>
@@ -30,6 +32,9 @@ static DEFINE_MUTEX(itee_driver_lock);
 static char is_initialized;
 static TEEC_Context *context;
 static TEEC_Session *session;
+static DEFINE_SPINLOCK(tee_msg_lock);
+static LIST_HEAD(tee_msg_queue);
+struct task_struct *tee_msg_task;
 
 #define MAX_HASH_LEN 64
 
@@ -44,52 +49,85 @@ struct tci_msg {
 #define CMD_SIGN   1
 #define CMD_VERIFY 2
 
+#define SEND_CMD_RETRY 1
+
 static int load_trusted_app(void);
+static void unload_trusted_app(void);
+static int send_cmd(unsigned int cmd,
+		enum hash_algo algo,
+		const void *hash,
+		size_t hash_len,
+		const void *label,
+		size_t label_len,
+		void *signature,
+		size_t *signature_len);
+static int send_cmd_with_retry(unsigned int cmd,
+		enum hash_algo algo,
+		const void *hash,
+		size_t hash_len,
+		const void *label,
+		size_t label_len,
+		void *signature,
+		size_t *signature_len,
+		unsigned int retry_num);
 
-static int thread_handler(void *arg)
-{
+struct tee_msg {
+	struct completion *comp;
+	unsigned int cmd;
+	enum hash_algo algo;
+	const void *hash;
+	size_t hash_len;
+	const void *label;
+	size_t label_len;
+	void *signature;
+	size_t *signature_len;
+	unsigned int retry_num;
 	int rc;
-	struct completion *ta_loaded;
+	struct list_head queue;
+};
 
-	ta_loaded = (struct completion *)arg;
-	rc = load_trusted_app();
-	complete(ta_loaded);
-
-	/* Wait for kthread_stop */
-	set_current_state(TASK_INTERRUPTIBLE);
-	while (!kthread_should_stop()) {
-		schedule();
-		set_current_state(TASK_INTERRUPTIBLE);
-	}
-	set_current_state(TASK_RUNNING);
-
-	return rc;
-}
-
-static int initialize_trusted_app(void)
+static int tee_msg_thread(void *arg)
 {
-	int ret = 0;
-	struct task_struct *tsk;
-	struct completion ta_loaded;
+	for (;;) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (kthread_should_stop()) {
+			set_current_state(TASK_RUNNING);
+			break;
+		}
+		if (list_empty(&tee_msg_queue))
+			schedule();
+		set_current_state(TASK_RUNNING);
 
-	if (is_initialized)
-		return ret;
+		spin_lock(&tee_msg_lock);
+		while (!list_empty(&tee_msg_queue)) {
+			struct tee_msg *send_cmd_args;
+			int rc;
 
-	init_completion(&ta_loaded);
+			send_cmd_args = list_entry(tee_msg_queue.next,
+					    struct tee_msg, queue);
+			list_del_init(&send_cmd_args->queue);
+			spin_unlock(&tee_msg_lock);
 
-	tsk = kthread_run(thread_handler, &ta_loaded, "five_load_trusted_app");
-	if (IS_ERR(tsk)) {
-		ret = PTR_ERR(tsk);
-		pr_err("FIVE: Can't create thread: %d\n", ret);
-		return ret;
+			rc = send_cmd_with_retry(send_cmd_args->cmd,
+					send_cmd_args->algo,
+					send_cmd_args->hash,
+					send_cmd_args->hash_len,
+					send_cmd_args->label,
+					send_cmd_args->label_len,
+					send_cmd_args->signature,
+					send_cmd_args->signature_len,
+					send_cmd_args->retry_num);
+			send_cmd_args->rc = rc;
+			complete(send_cmd_args->comp);
+			spin_lock(&tee_msg_lock);
+		}
+		spin_unlock(&tee_msg_lock);
 	}
+	mutex_lock(&itee_driver_lock);
+	unload_trusted_app();
+	mutex_unlock(&itee_driver_lock);
 
-	wait_for_completion(&ta_loaded);
-	ret = kthread_stop(tsk);
-	is_initialized = ret == 0 ? 1 : 0;
-	pr_info("FIVE: Initialized trusted app ret: %d\n", ret);
-
-	return ret;
+	return 0;
 }
 
 static int send_cmd(unsigned int cmd,
@@ -102,6 +140,7 @@ static int send_cmd(unsigned int cmd,
 		size_t *signature_len)
 {
 	TEEC_Operation operation = {};
+	TEEC_SharedMemory shmem = {0};
 	TEEC_Result rc;
 	uint32_t origin;
 	struct tci_msg *msg = NULL;
@@ -141,9 +180,33 @@ static int send_cmd(unsigned int cmd,
 	if (cmd == CMD_VERIFY && sig_len != *signature_len)
 		return -EINVAL;
 
-	msg = kzalloc(msg_len, GFP_KERNEL);
-	if (!msg)
-		return -ENOMEM;
+	mutex_lock(&itee_driver_lock);
+	if (!is_initialized) {
+		rc = load_trusted_app();
+		pr_info("FIVE: Initialize trusted app, ret: %d\n", rc);
+		if (rc) {
+			mutex_unlock(&itee_driver_lock);
+			rc = -EIO;
+			goto out;
+		}
+	}
+
+	shmem.buffer = NULL;
+	shmem.size = msg_len;
+	shmem.flags = TEEC_MEM_INPUT;
+	if (cmd != CMD_VERIFY)
+		shmem.flags |= TEEC_MEM_OUTPUT;
+
+	rc = TEEC_AllocateSharedMemory(context, &shmem);
+	if (rc != TEEC_SUCCESS || shmem.buffer == NULL) {
+		mutex_unlock(&itee_driver_lock);
+		five_audit_tee_msg("send_cmd",
+			"TEEC_AllocateSharedMemory is failed", rc, 0);
+		rc = -EFAULT;
+		goto out;
+	}
+
+	msg = (struct tci_msg *)shmem.buffer;
 
 	msg->hash_algo = algo;
 	memcpy(msg->hash, hash, hash_len);
@@ -151,42 +214,111 @@ static int send_cmd(unsigned int cmd,
 	if (label_len)
 		memcpy(msg->label, label, label_len);
 
-	if (cmd == CMD_VERIFY) {
+	if (cmd == CMD_VERIFY)
 		memcpy(msg->signature, signature, sig_len);
 
-		operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INPUT,
-							TEEC_NONE,
-							TEEC_NONE, TEEC_NONE);
-	} else {
-		operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_TEMP_INOUT,
-							TEEC_NONE,
-							TEEC_NONE, TEEC_NONE);
-	}
+	operation.paramTypes = TEEC_PARAM_TYPES(TEEC_MEMREF_WHOLE, TEEC_NONE,
+						TEEC_NONE, TEEC_NONE);
 
-	operation.params[0].tmpref.buffer = msg;
-	operation.params[0].tmpref.size = msg_len;
-
-	mutex_lock(&itee_driver_lock);
-	if (initialize_trusted_app()) {
-		mutex_unlock(&itee_driver_lock);
-		rc = -EIO;
-		goto out;
-	}
+	operation.params[0].memref.parent = &shmem;
 
 	rc = TEEC_InvokeCommand(session, cmd, &operation, &origin);
 
 	mutex_unlock(&itee_driver_lock);
 
-	if (rc == TEEC_SUCCESS && origin != TEEC_ORIGIN_TRUSTED_APP)
-		rc = -EIO;
+	if (rc == TEEC_SUCCESS) {
+		if (origin != TEEC_ORIGIN_TRUSTED_APP) {
+			rc = -EIO;
+			five_audit_tee_msg("send_cmd",
+				"TEEC_InvokeCommand is failed", rc, origin);
+		}
+	} else {
+		five_audit_tee_msg("send_cmd", "TEEC_InvokeCommand is failed.",
+								 rc, origin);
+	}
 
 	if (rc == TEEC_SUCCESS && cmd == CMD_SIGN) {
 		memcpy(signature, msg->signature, sig_len);
 		*signature_len = sig_len;
 	}
 
+	TEEC_ReleaseSharedMemory(&shmem);
 out:
-	kzfree(msg);
+	return rc;
+}
+
+static int send_cmd_kthread(unsigned int cmd,
+		enum hash_algo algo,
+		const void *hash,
+		size_t hash_len,
+		const void *label,
+		size_t label_len,
+		void *signature,
+		size_t *signature_len,
+		unsigned int retry_num)
+{
+	struct completion cmd_sent;
+	struct tee_msg cmd_msg;
+
+	init_completion(&cmd_sent);
+
+	cmd_msg.comp = &cmd_sent;
+	cmd_msg.cmd = cmd;
+	cmd_msg.algo = algo;
+	cmd_msg.hash = hash;
+	cmd_msg.hash_len = hash_len;
+	cmd_msg.label = label;
+	cmd_msg.label_len = label_len;
+	cmd_msg.signature = signature;
+	cmd_msg.signature_len = signature_len;
+	cmd_msg.retry_num = retry_num;
+	cmd_msg.rc = -EBADMSG;
+
+	spin_lock(&tee_msg_lock);
+	list_add_tail(&cmd_msg.queue, &tee_msg_queue);
+	spin_unlock(&tee_msg_lock);
+	wake_up_process(tee_msg_task);
+	wait_for_completion(&cmd_sent);
+	return cmd_msg.rc;
+}
+
+static int send_cmd_with_retry(unsigned int cmd,
+				enum hash_algo algo,
+				const void *hash,
+				size_t hash_len,
+				const void *label,
+				size_t label_len,
+				void *signature,
+				size_t *signature_len,
+				unsigned int retry_num)
+{
+	int rc;
+
+	do {
+		bool need_retry = false;
+
+		rc = send_cmd(cmd, algo,
+				hash, hash_len, label, label_len,
+						signature, signature_len);
+
+		need_retry = (rc == TEEC_ERROR_COMMUNICATION ||
+						rc == TEEC_ERROR_TARGET_DEAD);
+		if (need_retry && retry_num) {
+			if (rc == TEEC_ERROR_ACCESS_DENIED) {
+				five_audit_tee_msg("send_cmd_with_retry",
+				"TA got TEEC_ERROR_ACCESS_DENIED", rc, 0);
+			} else {
+				pr_err("FIVE: TA got the fatal error rc=%d. Try again\n",
+									rc);
+				mutex_lock(&itee_driver_lock);
+				unload_trusted_app();
+				mutex_unlock(&itee_driver_lock);
+			}
+		} else {
+			break;
+		}
+	} while (retry_num--);
+
 	return rc;
 }
 
@@ -194,18 +326,20 @@ static int verify_hmac(enum hash_algo algo, const void *hash, size_t hash_len,
 			const void *label, size_t label_len,
 			const void *signature, size_t signature_len)
 {
-	return send_cmd(CMD_VERIFY, algo,
-			hash, hash_len, label, label_len,
-					(void *)signature, &signature_len);
+	return send_cmd_kthread(CMD_VERIFY, algo,
+					hash, hash_len, label, label_len,
+					(void *)signature, &signature_len,
+					SEND_CMD_RETRY);
 }
 
 static int sign_hmac(enum hash_algo algo, const void *hash, size_t hash_len,
 			const void *label, size_t label_len,
 			void *signature, size_t *signature_len)
 {
-	return send_cmd(CMD_SIGN, algo,
-			hash, hash_len, label, label_len,
-						signature, signature_len);
+	return send_cmd_kthread(CMD_SIGN, algo,
+					hash, hash_len, label, label_len,
+					signature, signature_len,
+					SEND_CMD_RETRY);
 }
 
 static int load_trusted_app(void)
@@ -221,7 +355,8 @@ static int load_trusted_app(void)
 
 	rc = TEEC_InitializeContext(NULL, context);
 	if (rc) {
-		pr_err("FIVE: Can't initialize context rc=0x%x\n", rc);
+		five_audit_tee_msg("load_trusted_app", "Can't initialize context",
+									rc, 0);
 		goto error;
 	}
 
@@ -234,8 +369,8 @@ static int load_trusted_app(void)
 	rc = TEEC_OpenSession(context, session,
 				&five_ta_uuid, 0, NULL, NULL, &origin);
 	if (rc) {
-		pr_err("FIVE: Can't open session rc=0x%x origin=0x%x\n",
-				rc, origin);
+		five_audit_tee_msg("load_trusted_app", "Can't open session",
+								rc, origin);
 		goto error;
 	}
 
@@ -243,7 +378,6 @@ static int load_trusted_app(void)
 
 	return 0;
 error:
-	TEEC_CloseSession(session);
 	TEEC_FinalizeContext(context);
 	kfree(session);
 	kfree(context);
@@ -259,6 +393,7 @@ static int register_tee_driver(void)
 		.verify_hmac = verify_hmac,
 		.sign_hmac = sign_hmac,
 	};
+
 	return register_five_tee_driver(&fn);
 }
 
@@ -269,7 +404,6 @@ static void unregister_tee_driver(void)
 	/* tee_integrity_driver has been unloaded */
 }
 
-#ifdef CONFIG_TEE_DRIVER_DEBUG
 static void unload_trusted_app(void)
 {
 	is_initialized = 0;
@@ -281,6 +415,7 @@ static void unload_trusted_app(void)
 	context = NULL;
 }
 
+#ifdef CONFIG_TEE_DRIVER_DEBUG
 static ssize_t tee_driver_write(
 		struct file *file, const char __user *buf,
 		size_t count, loff_t *pos)
@@ -355,14 +490,40 @@ static inline int __init init_fs(void)
 
 static int __init tee_driver_init(void)
 {
+	int rc = 0;
+
 	mutex_init(&itee_driver_lock);
-	register_tee_driver();
-	return init_fs();
+
+#ifdef CONFIG_FIVE_EARLY_LOAD_TRUSTED_APP
+	rc = load_trusted_app();
+	pr_info("FIVE: Initialize trusted app in early boot ret: %d\n", rc);
+#endif
+
+	tee_msg_task = kthread_run(tee_msg_thread, NULL, "five_tee_msg_thread");
+	if (IS_ERR(tee_msg_task)) {
+		rc = PTR_ERR(tee_msg_task);
+		pr_err("FIVE: Can't create tee_msg_task: %d\n", rc);
+		goto out;
+	}
+	rc = register_tee_driver();
+	if (rc) {
+		pr_err("FIVE: Can't register tee_driver\n");
+		goto out;
+	}
+	rc = init_fs();
+	if (rc) {
+		pr_err("FIVE: Can't initialize debug FS\n");
+		goto out;
+	}
+
+out:
+	return rc;
 }
 
 static void __exit tee_driver_exit(void)
 {
 	unregister_tee_driver();
+	kthread_stop(tee_msg_task);
 }
 
 module_init(tee_driver_init);

@@ -28,9 +28,10 @@
 #define MAX_NAME_LEN		64
 #define MAX_DUMP_LEN		20
 
-#define SMC_ID_CLK      0x82001011
-#define SSS_CLK_ENABLE  0
-#define SSS_CLK_DISABLE 1
+#define SMC_ID		0x82000700
+#define SMC_ID_CLK	0x82001011
+#define SSS_CLK_ENABLE	0
+#define SSS_CLK_DISABLE	1
 
 enum modem_t {
 	IMC_XMM6260,
@@ -44,6 +45,8 @@ enum modem_t {
 	SEC_SS300,
 	SEC_SH222AP,
 	SEC_SS310AP,
+	SEC_S5000AP,
+	SEC_S5100,
 	QC_MDM6600,
 	QC_ESC6270,
 	QC_QSC6085,
@@ -74,8 +77,6 @@ enum legacy_ipc_map {
 	MAX_SIPC_MAP,
 };
 
-#define MAX_SIPC5_DEVICES	(IPC_RAW + 1)	/* FMT, RAW */
-
 #define MAX_SIPC_CHANNELS	256	/* 2 ^ 8		*/
 #define MAX_LINK_CHANNELS	32	/* up to 32 channels	*/
 
@@ -101,6 +102,7 @@ enum modem_link {
 	LINKDEV_PLD,
 	LINKDEV_SHMEM,
 	LINKDEV_LLI,
+	LINKDEV_PCIE,
 	LINKDEV_MAX
 };
 #define LINKTYPE(modem_link) (1u << (modem_link))
@@ -271,7 +273,7 @@ enum iodev_attr_bit {
 	ATTR_DUALSIM,		/* support Dual SIM */
 	ATTR_OPTION_REGION,	/* region & operator info */
 	ATTR_ZEROCOPY,		/* support Zerocopy : 0x1 << 12*/
-	ATTR_SMAPPER,		/* support zerocopty with SMAPPER */
+	ATTR_DIT,		/* Support DIT */
 };
 #define IODEV_ATTR(b)	(0x1 << b)
 
@@ -343,7 +345,7 @@ struct modemlink_pm_link_activectl {
 	int gpio_request_host_active;
 };
 
-#ifdef CONFIG_LINK_DEVICE_SHMEM
+#if defined(CONFIG_LINK_DEVICE_SHMEM) || defined(CONFIG_LINK_DEVICE_PCIE)
 enum shmem_type {
 	REAL_SHMEM,
 	C2C_SHMEM,
@@ -366,7 +368,6 @@ struct modem_mbox {
 	unsigned int int_ap2cp_wakeup;
 	unsigned int int_ap2cp_status;
 	unsigned int int_ap2cp_uart_noti;
-	unsigned int int_ap2cp_smapper;
 
 	unsigned int irq_cp2ap_msg;
 	unsigned int irq_cp2ap_active;
@@ -374,7 +375,6 @@ struct modem_mbox {
 	unsigned int irq_cp2ap_status;
 	unsigned int irq_cp2ap_wakelock;
 	unsigned int irq_cp2ap_rat_mode;
-	unsigned int irq_cp2ap_smapper;
 
 	/* Performance request */
 	unsigned int mbx_ap2cp_perf_req;
@@ -396,8 +396,6 @@ struct modem_mbox {
 	unsigned int sbi_lte_active_pos;
 	unsigned int sbi_cp_status_mask;
 	unsigned int sbi_cp_status_pos;
-	unsigned int sbi_cp_smapper_mask;
-	unsigned int sbi_cp_smapper_pos;
 	unsigned int sbi_cp2ap_wakelock_mask;
 	unsigned int sbi_cp2ap_wakelock_pos;
 	unsigned int sbi_cp2ap_rat_mode_mask;
@@ -407,8 +405,6 @@ struct modem_mbox {
 	unsigned int sbi_pda_active_pos;
 	unsigned int sbi_ap_status_mask;
 	unsigned int sbi_ap_status_pos;
-	unsigned int sbi_ap2cp_wakelock_mask;
-	unsigned int sbi_ap2cp_wakelock_pos;
 
 	unsigned int sbi_ap2cp_kerneltime_sec_mask;
 	unsigned int sbi_ap2cp_kerneltime_sec_pos;
@@ -463,6 +459,7 @@ struct modem_data {
 	unsigned int gpio_cp_status;
 	unsigned int irq_cp_status;
 
+#ifdef CONFIG_LINK_DEVICE_HSIC
 	/* for USB/HSIC PM */
 	unsigned int gpio_host_wakeup;
 	unsigned int irq_host_wakeup;
@@ -476,14 +473,11 @@ struct modem_data {
 
 	unsigned int gpio_sim_detect;
 	unsigned int irq_sim_detect;
+#endif
 
-#ifdef CONFIG_LINK_DEVICE_SHMEM
+#if defined(CONFIG_LINK_DEVICE_SHMEM) || defined(CONFIG_LINK_DEVICE_PCIE)
 	struct modem_mbox *mbx;
 	struct mem_link_device *mld;
-
-	/* MIF buffer information */
-	unsigned int buff_offset;
-	unsigned int buff_size;
 #endif
 
 	/* Switch with 2 links in a modem */
@@ -499,9 +493,6 @@ struct modem_data {
 
 	/* SIPC version */
 	enum sipc_ver ipc_version;
-
-	/* the number of real IPC devices -> (IPC_RAW + 1) or (IPC_RFS + 1) */
-	unsigned int max_ipc_dev;
 
 	/* Information of IO devices */
 	unsigned int num_iodevs;
@@ -526,6 +517,7 @@ struct modem_irq {
 	char name[MAX_NAME_LEN];
 	unsigned long flags;
 	bool active;
+	bool registered;
 };
 
 #define MODEM_BOOT_DEV_SPI "spi_boot_link"
@@ -548,31 +540,39 @@ struct modem_boot_spi {
 #define mif_dt_read_enum(np, prop, dest) \
 	do { \
 		u32 val; \
-		if (of_property_read_u32(np, prop, &val)) \
+		if (of_property_read_u32(np, prop, &val)) { \
+			mif_err("%s is not defined\n", prop); \
 			return -EINVAL; \
+		} \
 		dest = (__typeof__(dest))(val); \
 	} while (0)
 
 #define mif_dt_read_bool(np, prop, dest) \
 	do { \
 		u32 val; \
-		if (of_property_read_u32(np, prop, &val)) \
+		if (of_property_read_u32(np, prop, &val)) { \
+			mif_err("%s is not defined\n", prop); \
 			return -EINVAL; \
+		} \
 		dest = val ? true : false; \
 	} while (0)
 
 #define mif_dt_read_string(np, prop, dest) \
 	do { \
 		if (of_property_read_string(np, prop, \
-				(const char **)&dest)) \
+				(const char **)&dest)) { \
+			mif_err("%s is not defined\n", prop); \
 			return -EINVAL; \
+		} \
 	} while (0)
 
 #define mif_dt_read_u32(np, prop, dest) \
 	do { \
 		u32 val; \
-		if (of_property_read_u32(np, prop, &val)) \
+		if (of_property_read_u32(np, prop, &val)) { \
+			mif_err("%s is not defined\n", prop); \
 			return -EINVAL; \
+		} \
 		dest = val; \
 	} while (0)
 

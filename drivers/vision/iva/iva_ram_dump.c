@@ -47,19 +47,76 @@ struct iva_mmr_sect_info {
 	prepare_fn	pre_func;
 };
 
+static const struct iva_mmr_skip_range_info pmu_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x000c,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x0034,
+		.to	= 0x0034,
+	},
+	{
+		.from	= 0x003c,
+		.to	= 0x003c,
+	},
+	{
+		.from	= 0x0054,
+		.to	= 0x005c,
+	},
+	{
+		.from	= 0x006c,
+		.to	= 0xffdc,
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
 static const  struct iva_mmr_sect_info iva_sfr_pmu = {
-	.name = "pmu",
-	.base = IVA_PMU_BASE_ADDR,
-	.size = IVA_HWA_ADDR_GAP,
+	.name		= "pmu",
+	.base		= IVA_PMU_BASE_ADDR,
+	.size		= IVA_HWA_ADDR_GAP,
+	.skip_info	= pmu_skip_range,
+	.skip_num	= ARRAY_SIZE(pmu_skip_range),
 };
 
 static const  struct iva_mmr_sect_info iva_sfr_mcu = {
 	.name = "mcu",
 	.base = IVA_VMCU_MEM_BASE_ADDR,
+#if defined(CONFIG_SOC_EXYNOS9820)
 	.size = VMCU_MEM_SIZE,
+#else
+	.size = VMCU_MEM_SIZE,
+#endif
 };
 
+#if defined(CONFIG_SOC_EXYNOS9820)
+static const  struct iva_mmr_sect_info iva_sfr_mcu_extend = {
+	.name = "mcu",
+	.base = IVA_VMCU_MEM_BASE_ADDR,
+	.size = EXTEND_VMCU_MEM_SIZE,
+};
+#endif
+
 static const struct iva_mmr_skip_range_info vcm_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x000c,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x0030,
+		.to	= 0x003c,
+	},
+	{
+		.from	= 0x00d4,
+		.to	= 0xffdc,
+	},
+#else
 	{	/* handled in vcm_sbuf section */
 		.from	= IVA_VCM_SCH_BUF_OFFSET,
 		.to	= IVA_VCM_SCH_BUF_OFFSET + IVA_VCM_SCH_BUF_SIZE - 1
@@ -67,7 +124,9 @@ static const struct iva_mmr_skip_range_info vcm_skip_range[] = {
 		.from	= IVA_VCM_CMD_BUF_OFFSET,
 		.to	= IVA_VCM_CMD_BUF_OFFSET + IVA_VCM_CMD_BUF_SIZE - 1
 	},
-#if defined(CONFIG_SOC_EXYNOS9810)
+#endif
+
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	{	/* last 8 bytes */
 		.from	= 0xfff8,
 		.to	= 0xfffc
@@ -82,22 +141,1211 @@ static int32_t iva_ram_dump_prepare_vcm_buf(struct iva_dev_data *iva)
 	return 0;
 }
 
-#if defined(CONFIG_SOC_EXYNOS9810)
+static const struct iva_mmr_skip_range_info csc_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x0028,
+		.to	= 0xeffc,
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf01c,
+	},
+	{
+		.from	= 0xf030,
+		.to	= 0xf030,
+	},
+	{
+		.from	= 0xf03c,
+		.to	= 0xf03c,
+	},
+	{
+		.from	= 0xf048,
+		.to	= 0xf050,
+	},
+	{
+		.from	= 0xf058,
+		.to	= 0xf060,
+	},
+	{
+		.from	= 0xf068,
+		.to	= 0xf1fc,
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf21c,
+	},
+	{
+		.from	= 0xf22c,
+		.to	= 0xffec,
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+static const struct iva_mmr_skip_range_info scl_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x0040,
+		.to	= 0x00fc,
+	},
+	{
+		.from	= 0x0010c,
+		.to	= 0x0010c,
+	},
+	{
+		.from	= 0x0011c,
+		.to	= 0x0011c,
+	},
+	{
+		.from	= 0x0012c,
+		.to	= 0x0012c,
+	},
+	{
+		.from	= 0x0013c,
+		.to	= 0x0013c,
+	},
+	{
+		.from	= 0x0014c,
+		.to	= 0x0014c,
+	},
+	{
+		.from	= 0x0015c,
+		.to	= 0x0015c,
+	},
+	{
+		.from	= 0x0016c,
+		.to	= 0x0016c,
+	},
+	{
+		.from	= 0x0017c,
+		.to	= 0x0017c,
+	},
+	{
+		.from	= 0x0018c,
+		.to	= 0x0018c,
+	},
+	{
+		.from	= 0x0019c,
+		.to	= 0x0019c,
+	},
+	{
+		.from	= 0x001ac,
+		.to	= 0x001ac,
+	},
+	{
+		.from	= 0x001bc,
+		.to	= 0x001bc,
+	},
+	{
+		.from	= 0x001cc,
+		.to	= 0x001cc,
+	},
+	{
+		.from	= 0x001dc,
+		.to	= 0x001dc,
+	},
+	{
+		.from	= 0x001ec,
+		.to	= 0x001ec,
+	},
+	{
+		.from	= 0x001fc,
+		.to	= 0x001fc,
+	},
+	{
+		.from	= 0x0020c,
+		.to	= 0x0020c,
+	},
+	{
+		.from	= 0x0021c,
+		.to	= 0x0021c,
+	},
+	{
+		.from	= 0x0022c,
+		.to	= 0x0022c,
+	},
+	{
+		.from	= 0x0023c,
+		.to	= 0x0023c,
+	},
+	{
+		.from	= 0x0024c,
+		.to	= 0x0024c,
+	},
+	{
+		.from	= 0x0025c,
+		.to	= 0x0025c,
+	},
+	{
+		.from	= 0x0026c,
+		.to	= 0x0026c,
+	},
+	{
+		.from	= 0x0027c,
+		.to	= 0x0027c,
+	},
+	{
+		.from	= 0x0028c,
+		.to	= 0x0028c,
+	},
+	{
+		.from	= 0x0029c,
+		.to	= 0x0029c,
+	},
+	{
+		.from	= 0x002ac,
+		.to	= 0x002ac,
+	},
+	{
+		.from	= 0x002bc,
+		.to	= 0x002bc,
+	},
+	{
+		.from	= 0x002cc,
+		.to	= 0x002cc,
+	},
+	{
+		.from	= 0x002dc,
+		.to	= 0x002dc,
+	},
+	{
+		.from	= 0x002ec,
+		.to	= 0x002ec,
+	},
+	{
+		.from	= 0x002fc,
+		.to	= 0x0effc,
+	},
+	{
+		.from	= 0x0f018,
+		.to	= 0x0f030,
+	},
+	{
+		.from	= 0x0f03c,
+		.to	= 0x0f1fc,
+	},
+	{
+		.from	= 0x0f218,
+		.to	= 0x0f224,
+	},
+	{
+		.from	= 0x0f22c,
+		.to	= 0x0ffcc,
+	},
+	{
+		.from	= 0x0ffd4,
+		.to	= 0x0ffdc,
+	},
+	{
+		.from	= 0x0fff8,
+		.to	= 0x0fffc,
+	},
+#endif
+};
+
 static const struct iva_mmr_skip_range_info orb_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9810)
 	{ .from = 0xfff8, .to = 0xfffc }, /* last 4 bytes */
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x002c,
+		.to	= 0x002c,
+	},
+	{
+		.from	= 0x003c,
+		.to	= 0x003c,
+	},
+	{
+		.from	= 0x0064,
+		.to	= 0xeffc,
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf01c,
+	},
+	{
+		.from	= 0xf024,
+		.to	= 0xf030,
+	},
+	{
+		.from	= 0xf038,
+		.to	= 0xf03c,
+	},
+	{
+		.from	= 0xf058,
+		.to	= 0xf05c,
+	},
+	{
+		.from	= 0xf064,
+		.to	= 0xf070,
+	},
+	{
+		.from	= 0xf078,
+		.to	= 0xf07c,
+	},
+	{
+		.from	= 0xf098,
+		.to	= 0xf09c,
+	},
+	{
+		.from	= 0xf0a4,
+		.to	= 0xf0b0,
+	},
+	{
+		.from	= 0xf0b4,
+		.to	= 0xf0bc,
+	},
+	{
+		.from	= 0xf0d8,
+		.to	= 0xf0dc,
+	},
+	{
+		.from	= 0xf0e4,
+		.to	= 0xf0f0,
+	},
+	{
+		.from	= 0xf0f8,
+		.to	= 0xf1fc,
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf21c,
+	},
+	{
+		.from	= 0xf224,
+		.to	= 0xf224,
+	},
+	{
+		.from	= 0xf22c,
+		.to	= 0xf23c,
+	},
+	{
+		.from	= 0xf258,
+		.to	= 0xf25c,
+	},
+	{
+		.from	= 0xf264,
+		.to	= 0xf264,
+	},
+	{
+		.from	= 0xf26c,
+		.to	= 0xffcf,
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc,
+	},
+	{
+		.from	= 0xfff8,
+		.to	= 0xfffc,
+	},
+#endif
+};
+
+
+static const struct iva_mmr_skip_range_info mch_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c,
+	},
+	{
+		.from	= 0x0034,
+		.to	= 0xeffc,
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf01c,
+	},
+	{
+		.from	= 0xf028,
+		.to	= 0xf03c,
+	},
+	{
+		.from	= 0xf058,
+		.to	= 0xf05c,
+	},
+	{
+		.from	= 0xf068,
+		.to	= 0xf1fc,
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf21c,
+	},
+	{
+		.from	= 0xf224,
+		.to	= 0xf224,
+	},
+	{
+		.from	= 0xf22c,
+		.to	= 0xffcc,
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc,
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
 };
 
 static const struct iva_mmr_skip_range_info lmd_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9810)
 	{ .from = 0xfffc, .to = 0xfffc }, /* last 4 bytes */
-};
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x002c,
+		.to	= 0xeffc,
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf01c
+	},
+	{
+		.from	= 0xf030,
+		.to	= 0xf030
+	},
+	{
+		.from	= 0xf03c,
+		.to	= 0xf1fc
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf21c
+	},
+	{
+		.from	= 0xf224,
+		.to	= 0xf224
+	},
+	{
+		.from	= 0xf22c,
+		.to	= 0xffec
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
 #endif
+};
+
+static const struct iva_mmr_skip_range_info lkt_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0020,
+		.to	= 0x002c
+	},
+	{
+		.from	= 0x0050,
+		.to	= 0xf004
+	},
+	{
+		.from	= 0xf010,
+		.to	= 0xf01c
+	},
+	{
+		.from	= 0xf024,
+		.to	= 0xf030
+	},
+	{
+		.from	= 0xf03c,
+		.to	= 0xf03c
+	},
+	{
+		.from	= 0xf058,
+		.to	= 0xf05c
+	},
+	{
+		.from	= 0xf064,
+		.to	= 0xf084
+	},
+	{
+		.from	= 0xf090,
+		.to	= 0xf09c
+	},
+	{
+		.from	= 0xf0a4,
+		.to	= 0xf1fc
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf224
+	},
+	{
+		.from	= 0xf22c,
+		.to	= 0xffcc
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+static const struct iva_mmr_skip_range_info wig_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x000c,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0024,
+		.to	= 0x0024
+	},
+	{
+		.from	= 0x002c,
+		.to	= 0x002c
+	},
+	{
+		.from	= 0x0074,
+		.to	= 0xeffc
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf01c
+	},
+	{
+		.from	= 0xf028,
+		.to	= 0xf1fc
+	},
+	{
+		.from	= 0xf220,
+		.to	= 0xf7fc
+	},
+	{
+		.from	= 0xf810,
+		.to	= 0xffcc
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+
+static const struct iva_mmr_skip_range_info enf_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0020,
+		.to	= 0x00fc
+	},
+	{
+		.from	= 0x0114,
+		.to	= 0x011c
+	},
+	{
+		.from	= 0x0194,
+		.to	= 0xeffc
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf030
+	},
+	{
+		.from	= 0xf03c,
+		.to	= 0xf0fc
+	},
+	{
+		.from	= 0xf118,
+		.to	= 0xf130
+	},
+	{
+		.from	= 0xf13c,
+		.to	= 0xf4fc
+	},
+	{
+		.from	= 0xf518,
+		.to	= 0xf524
+	},
+	{
+		.from	= 0xf52c,
+		.to	= 0xffec
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+
+#define CH0_BASE (0x200)
+#define GET_CH_BASE(ch) (CH0_BASE + (ch) * 0x200)
+static const struct iva_mmr_skip_range_info vdma_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x000c,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0098,
+		.to	= 0x009c
+	},
+	{
+		.from	= 0x00b0,
+		.to	= 0x01fc
+	},
+	/* 0~4 RO */
+	{
+		.from	= GET_CH_BASE(0) + 0x0008,
+		.to	= GET_CH_BASE(0) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(0) + 0x0024,
+		.to	= GET_CH_BASE(0) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(0) + 0x0040,
+		.to	= GET_CH_BASE(0) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(0) + 0x0048,
+		.to	= GET_CH_BASE(0) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(0) + 0x0068,
+		.to	= GET_CH_BASE(0) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(1) + 0x0008,
+		.to	= GET_CH_BASE(1) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(1) + 0x0024,
+		.to	= GET_CH_BASE(1) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(1) + 0x0040,
+		.to	= GET_CH_BASE(1) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(1) + 0x0048,
+		.to	= GET_CH_BASE(1) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(1) + 0x0068,
+		.to	= GET_CH_BASE(1) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(2) + 0x0008,
+		.to	= GET_CH_BASE(2) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(2) + 0x0024,
+		.to	= GET_CH_BASE(2) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(2) + 0x0040,
+		.to	= GET_CH_BASE(2) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(2) + 0x0048,
+		.to	= GET_CH_BASE(2) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(2) + 0x0068,
+		.to	= GET_CH_BASE(2) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(3) + 0x0008,
+		.to	= GET_CH_BASE(3) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(3) + 0x0024,
+		.to	= GET_CH_BASE(3) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(3) + 0x0040,
+		.to	= GET_CH_BASE(3) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(3) + 0x0048,
+		.to	= GET_CH_BASE(3) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(3) + 0x0068,
+		.to	= GET_CH_BASE(3) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(4) + 0x0008,
+		.to	= GET_CH_BASE(4) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(4) + 0x0024,
+		.to	= GET_CH_BASE(4) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(4) + 0x0040,
+		.to	= GET_CH_BASE(4) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(4) + 0x0048,
+		.to	= GET_CH_BASE(4) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(4) + 0x0068,
+		.to	= GET_CH_BASE(4) + 0x01fc
+	},
+	{	/* RO_SPL: 0xc00 */
+		.from	= GET_CH_BASE(5) + 0x0008,
+		.to	= GET_CH_BASE(5) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(5) + 0x0024,
+		.to	= GET_CH_BASE(5) + 0x002c
+	},
+	{
+		.from	= GET_CH_BASE(5) + 0x0040,
+		.to	= GET_CH_BASE(5) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(5) + 0x0048,
+		.to	= GET_CH_BASE(5) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(5) + 0x0068,
+		.to	= GET_CH_BASE(5) + 0x008c
+	},
+	{
+		.from	= GET_CH_BASE(5) + 0x00a0,
+		.to	= GET_CH_BASE(5) + 0x01fc
+	},
+	{	/* RO_YUV0: 0xE00 */
+		.from	= GET_CH_BASE(6) + 0x0008,
+		.to	= GET_CH_BASE(6) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(6) + 0x0024,
+		.to	= GET_CH_BASE(6) + 0x0024
+	},
+	{
+		.from	= GET_CH_BASE(6) + 0x0048,
+		.to	= GET_CH_BASE(6) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(6) + 0x0068,
+		.to	= GET_CH_BASE(6) + 0x0074
+	},
+	{
+		.from	= GET_CH_BASE(6) + 0x0080,
+		.to	= GET_CH_BASE(6) + 0x0080
+	},
+	{
+		.from	= GET_CH_BASE(6) + 0x0090,
+		.to	= GET_CH_BASE(6) + 0x01fc
+	},
+	{	/* RO_YUV1: 0x1000 */
+		.from	= GET_CH_BASE(7) + 0x0008,
+		.to	= GET_CH_BASE(7) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(7) + 0x0024,
+		.to	= GET_CH_BASE(7) + 0x0024
+	},
+	{
+		.from	= GET_CH_BASE(7) + 0x0048,
+		.to	= GET_CH_BASE(7) + 0x004c
+	},
+	{
+		.from	= GET_CH_BASE(7) + 0x0068,
+		.to	= GET_CH_BASE(7) + 0x0074
+	},
+	{
+		.from	= GET_CH_BASE(7) + 0x0080,
+		.to	= GET_CH_BASE(7) + 0x0080
+	},
+	{
+		.from	= GET_CH_BASE(7) + 0x0090,
+		.to	= GET_CH_BASE(7) + 0x01fc
+	},
+	/* 8~11 RO */
+	{
+		.from	= GET_CH_BASE(8) + 0x0008,
+		.to	= GET_CH_BASE(8) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(8) + 0x0014,
+		.to	= GET_CH_BASE(8) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(8) + 0x0040,
+		.to	= GET_CH_BASE(8) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(8) + 0x0048,
+		.to	= GET_CH_BASE(8) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(8) + 0x0088,
+		.to	= GET_CH_BASE(8) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(8) + 0x00b8,
+		.to	= GET_CH_BASE(8) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x0008,
+		.to	= GET_CH_BASE(9) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x0014,
+		.to	= GET_CH_BASE(9) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x0040,
+		.to	= GET_CH_BASE(9) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x0048,
+		.to	= GET_CH_BASE(9) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x0088,
+		.to	= GET_CH_BASE(9) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(9) + 0x00b8,
+		.to	= GET_CH_BASE(9) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x0008,
+		.to	= GET_CH_BASE(10) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x0014,
+		.to	= GET_CH_BASE(10) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x0040,
+		.to	= GET_CH_BASE(10) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x0048,
+		.to	= GET_CH_BASE(10) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x0088,
+		.to	= GET_CH_BASE(10) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(10) + 0x00b8,
+		.to	= GET_CH_BASE(10) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x0008,
+		.to	= GET_CH_BASE(11) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x0014,
+		.to	= GET_CH_BASE(11) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x0040,
+		.to	= GET_CH_BASE(11) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x0048,
+		.to	= GET_CH_BASE(11) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x0088,
+		.to	= GET_CH_BASE(11) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(11) + 0x00b8,
+		.to	= GET_CH_BASE(11) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x0008,
+		.to	= GET_CH_BASE(12) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x0014,
+		.to	= GET_CH_BASE(12) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x0040,
+		.to	= GET_CH_BASE(12) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x0048,
+		.to	= GET_CH_BASE(12) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x0088,
+		.to	= GET_CH_BASE(12) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(12) + 0x00b8,
+		.to	= GET_CH_BASE(12) + 0x01fc
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x0008,
+		.to	= GET_CH_BASE(13) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x0014,
+		.to	= GET_CH_BASE(13) + 0x001c
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x0040,
+		.to	= GET_CH_BASE(13) + 0x0040
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x0048,
+		.to	= GET_CH_BASE(13) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x0088,
+		.to	= GET_CH_BASE(13) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(13) + 0x00b8,
+		.to	= GET_CH_BASE(13) + 0x01fc
+	},
+	{	/* WO_YUV0: 0x1E00 */
+		.from	= GET_CH_BASE(14) + 0x0008,
+		.to	= GET_CH_BASE(14) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x0014,
+		.to	= GET_CH_BASE(14) + 0x0014
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x0048,
+		.to	= GET_CH_BASE(14) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x0088,
+		.to	= GET_CH_BASE(14) + 0x0094
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x00a0,
+		.to	= GET_CH_BASE(14) + 0x00a0
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x00ac,
+		.to	= GET_CH_BASE(14) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(14) + 0x00b8,
+		.to	= GET_CH_BASE(14) + 0x01fc
+	},
+	{	/* WO_YUV1: 0x2000 */
+		.from	= GET_CH_BASE(15) + 0x0008,
+		.to	= GET_CH_BASE(15) + 0x000c
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x0014,
+		.to	= GET_CH_BASE(15) + 0x0014
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x0048,
+		.to	= GET_CH_BASE(15) + 0x006c
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x0088,
+		.to	= GET_CH_BASE(15) + 0x0094
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x00a0,
+		.to	= GET_CH_BASE(15) + 0x00a0
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x00ac,
+		.to	= GET_CH_BASE(15) + 0x00ac
+	},
+	{
+		.from	= GET_CH_BASE(15) + 0x00b8,
+		.to	= GET_CH_BASE(15) + 0x01fc
+	},
+	{
+		.from	= 0x2200,
+		.to	= 0xffdc
+	},
+	{
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+
+static const struct iva_mmr_skip_range_info mot_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0020,
+		.to	= 0x00fc
+	},
+	{
+		.from	= 0x0160,
+		.to	= 0xf1fc
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf230
+	},
+	{
+		.from	= 0xf23c,
+		.to	= 0xf2fc
+	},
+	{
+		.from	= 0xf318,
+		.to	= 0xf330
+	},
+	{
+		.from	= 0xf33c,
+		.to	= 0xffec
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+static const struct iva_mmr_skip_range_info bax_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0000,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+static const struct iva_mmr_skip_range_info bld_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0008,
+		.to	= 0x000c
+	},
+	{
+		.from	= 0x0020,
+		.to	= 0x00fc
+	},
+	{
+		.from	= 0x010c,
+		.to	= 0x010c
+	},
+	{
+		.from	= 0x011c,
+		.to	= 0x011c
+	},
+	{
+		.from	= 0x019c,
+		.to	= 0xeffc
+	},
+	{
+		.from	= 0xf018,
+		.to	= 0xf03c
+	},
+	{
+		.from	= 0xf058,
+		.to	= 0xf07c
+	},
+	{
+		.from	= 0xf098,
+		.to	= 0xf0bc
+	},
+	{
+		.from	= 0xf0d8,
+		.to	= 0xf0fc
+	},
+	{
+		.from	= 0xf118,
+		.to	= 0xf1fc
+	},
+	{
+		.from	= 0xf218,
+		.to	= 0xf23c
+	},
+	{
+		.from	= 0xf258,
+		.to	= 0xf27c
+	},
+	{
+		.from	= 0xf298,
+		.to	= 0xf2bc
+	},
+	{
+		.from	= 0xf2d8,
+		.to	= 0xf2fc
+	},
+	{
+		.from	= 0xf318,
+		.to	= 0xf33c
+	},
+	{
+		.from	= 0xf358,
+		.to	= 0xf37c
+	},
+	{
+		.from	= 0xf398,
+		.to	= 0xf3bc
+	},
+	{
+		.from	= 0xf3d8,
+		.to	= 0xf3fc
+	},
+	{
+		.from	= 0xf418,
+		.to	= 0xf43c
+	},
+	{
+		.from	= 0xf458,
+		.to	= 0xf47c
+	},
+	{
+		.from	= 0xf498,
+		.to	= 0xf4fc
+	},
+	{
+		.from	= 0xf518,
+		.to	= 0xf524
+	},
+	{
+		.from	= 0xf52c,
+		.to	= 0xf53c
+	},
+	{
+		.from	= 0xf558,
+		.to	= 0xf564
+	},
+	{
+		.from	= 0xf56c,
+		.to	= 0xf57c
+	},
+	{
+		.from	= 0xf598,
+		.to	= 0xf5a4
+	},
+	{
+		.from	= 0xf5ac,
+		.to	= 0xf5bc
+	},
+	{
+		.from	= 0xf5d8,
+		.to	= 0xf5e4
+	},
+	{
+		.from	= 0xf5ec,
+		.to	= 0xffec
+	},
+	{
+		.from	= 0xffd4,
+		.to	= 0xffdc
+	},
+	{	/* last 8 bytes */
+		.from	= 0xfff8,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+
+static const struct iva_mmr_skip_range_info dif_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0000,
+		.to	= 0xfffc
+	},
+#endif
+};
+
+static const struct iva_mmr_skip_range_info vcm_cbuf_skip_range[] = {
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.from	= 0x0400,
+		.to	= 0x0ffc
+	},
+	{
+		.from	= 0x1400,
+		.to	= 0x1ffc
+	},
+	{
+		.from	= 0x2400,
+		.to	= 0x2ffc
+	},
+	{
+		.from	= 0x3400,
+		.to	= 0x3ffc
+	},
+	{
+		.from	= 0x4400,
+		.to	= 0x4ffc
+	},
+	{
+		.from	= 0x5400,
+		.to	= 0x5ffc
+	},
+	{
+		.from	= 0x6400,
+		.to	= 0x6ffc
+	},
+	{
+		.from	= 0x7400,
+		.to	= 0x7ffc
+	},
+#endif
+};
 
 static const struct iva_mmr_sect_info iva_sfr_sects[] = {
 	/*
 	 * causion: do not add mbox if there is no specific reason.
 	 */
 	{
-		.name = "vcf",
+		.name = "vcf",				//ok
 		.base = IVA_VCF_BASE_ADDR,
 		.size = VCF_MEM_SIZE,
 	}, {
@@ -106,47 +1354,59 @@ static const struct iva_mmr_sect_info iva_sfr_sects[] = {
 		.size = IVA_HWA_ADDR_GAP,
 		.skip_info = vcm_skip_range,
 		.skip_num = (uint32_t) ARRAY_SIZE(vcm_skip_range),
-	}, {	/* sub range in vcm section : sync with vcm_skip_range */
+	}, {
+		/* sub range in vcm section : sync with vcm_skip_range */
 		.name = "vcm_sbuf",
 		.base = IVA_VCM_BASE_ADDR + IVA_VCM_SCH_BUF_OFFSET,
 		.size = IVA_VCM_SCH_BUF_SIZE,
 		.pre_func = iva_ram_dump_prepare_vcm_buf,
-	}, {	/*
+	}, {
+		/*
 		 * sub range in vcm section : sync with vcm_skip_range
 		 * always behind vcm_sbuf.
 		 */
 		.name = "vcm_cbuf",
 		.base = IVA_VCM_BASE_ADDR + IVA_VCM_CMD_BUF_OFFSET,
 		.size = IVA_VCM_CMD_BUF_SIZE,
+		.skip_info = vcm_cbuf_skip_range,
+		.skip_num = ARRAY_SIZE(vcm_cbuf_skip_range),
 	}, {
-		.name = "csc",
+		.name = "csc",				//ok
 		.base = IVA_CSC_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = csc_skip_range,
+		.skip_num = ARRAY_SIZE(csc_skip_range),
 	}, {
-		.name = "scl0",
+		.name = "scl0",				//ok
 		.base = IVA_SCL0_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = scl_skip_range,
+		.skip_num = ARRAY_SIZE(scl_skip_range),
 	}, {
-		.name = "scl1",
+		.name = "scl1",				//ok
 		.base = IVA_SCL1_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = scl_skip_range,
+		.skip_num = ARRAY_SIZE(scl_skip_range),
 	}, {
-		.name = "orb",
+		.name = "orb",				//ok
 		.base = IVA_ORB_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
-	#if defined(CONFIG_SOC_EXYNOS9810)
+	#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 		.skip_info = orb_skip_range,
 		.skip_num = (uint32_t) ARRAY_SIZE(orb_skip_range),
 	#endif
 	}, {
-		.name = "mch",
+		.name = "mch",				//ok
 		.base = IVA_MCH_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = mch_skip_range,
+		.skip_num = ARRAY_SIZE(mch_skip_range),
 	}, {
 		.name = "lmd",
 		.base = IVA_LMD_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
-	#if defined(CONFIG_SOC_EXYNOS9810)
+	#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 		.skip_info = lmd_skip_range,
 		.skip_num = (uint32_t) ARRAY_SIZE(lmd_skip_range),
 	#endif
@@ -154,26 +1414,36 @@ static const struct iva_mmr_sect_info iva_sfr_sects[] = {
 		.name = "lkt",
 		.base = IVA_LKT_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = lkt_skip_range,
+		.skip_num = ARRAY_SIZE(lkt_skip_range),
 	}, {
 		.name = "wig0",
 		.base = IVA_WIG0_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = wig_skip_range,
+		.skip_num = ARRAY_SIZE(wig_skip_range),
 	}, {
 		.name = "wig1",
 		.base = IVA_WIG1_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = wig_skip_range,
+		.skip_num = ARRAY_SIZE(wig_skip_range),
 	}, {
 		.name = "enf",
 		.base = IVA_ENF_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = enf_skip_range,
+		.skip_num = ARRAY_SIZE(enf_skip_range),
 	}, {
 #if defined(CONFIG_SOC_EXYNOS8895)
 		.name = "vdma0",
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 		.name = "vdma",
 #endif
 		.base = IVA_VDMA0_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = vdma_skip_range,
+		.skip_num = ARRAY_SIZE(vdma_skip_range),
 	},
 #if defined(CONFIG_SOC_EXYNOS8895)
 	{
@@ -181,32 +1451,55 @@ static const struct iva_mmr_sect_info iva_sfr_sects[] = {
 		.base = IVA_VDMA1_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
 	}
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	{
 		.name = "bax",
 		.base = IVA_BAX_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = bax_skip_range,
+		.skip_num = ARRAY_SIZE(bax_skip_range),
 	}, {
 		.name = "mot",
 		.base = IVA_MOT_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = mot_skip_range,
+		.skip_num = ARRAY_SIZE(mot_skip_range)
 	}, {
 		.name = "bld",
 		.base = IVA_BLD_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = bld_skip_range,
+		.skip_num = ARRAY_SIZE(bld_skip_range),
+#if 0
 	}, {
 		.name = "dif",
 		.base = IVA_DIF_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
+		.skip_info = dif_skip_range,
+		.skip_num = ARRAY_SIZE(dif_skip_range),
+#endif
 	}, {
 		.name = "wig2",
 		.base = IVA_WIG2_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
-	}, {
+		.skip_info = wig_skip_range,
+		.skip_num = ARRAY_SIZE(wig_skip_range),
+	},
+#if defined(CONFIG_SOC_EXYNOS9810)
+	{
 		.name = "wig3",
 		.base = IVA_WIG3_BASE_ADDR,
 		.size = IVA_HWA_ADDR_GAP,
 	}
+#endif
+
+#if defined(CONFIG_SOC_EXYNOS9820)
+	{
+		.name = "mcu_dtcm",
+		.base = IVA_VMCU_DTCM_BASE_ADDR,
+		.size = IVA_HWA_ADDR_GAP,
+	}
+#endif
 #endif
 };
 
@@ -284,6 +1577,7 @@ static void iva_ram_dump_pretty_print_vcm_dbg(char *dst_buf, uint32_t dst_buf_sz
 #define NUM_SCH 8
 #define CMD_STATE(val) ((val) == 0 ? "IDLE" : (val) == 1 ? "RUN" : (val) == 2 \
 	? "WAIT" : "UNKNOWN")
+#define CMD_STATE_BIT(val) ((val) == 0 ? "IDLE" : "RUN")
 #define PRINT_TO_BUF(fmt, ...) \
 	*copy_size += snprintf(dst_buf + *copy_size, \
 			dst_buf_sz - *copy_size - 1, fmt, __VA_ARGS__);
@@ -292,7 +1586,7 @@ static void iva_ram_dump_pretty_print_vcm_dbg(char *dst_buf, uint32_t dst_buf_sz
 		PRINT_TO_BUF("%-7s | %-7s | %s\n", "Sched", "Active", "State");
 		for (i = 0; i < NUM_SCH; ++i)
 			PRINT_TO_BUF("%-7u | %-7u | %s\n", \
-				i, GET_BIT(8 + i), CMD_STATE(GET_BIT(NUM_SCH - i - 1)));
+				i, GET_BIT(8 + i), CMD_STATE_BIT(GET_BIT(NUM_SCH - i - 1)));
 	} else if (mux_sel == 0x01) {
 		PRINT_TO_BUF("%-7s | %-10s | %-10s | %-10s | %s\n", \
 			"Sched", "Cmd valid", "Cmd ready", "Cmd done", "Cmd rerun");
@@ -350,7 +1644,7 @@ void iva_ram_dump_copy_vcm_dbg(struct iva_dev_data *iva,
 	const uint32_t vcm_dbg_mux_sel[] = {
 #if defined(CONFIG_SOC_EXYNOS8895)
 		0x03, 0x04, 0x07, 0x08, 0x0b, 0x0c, 0x0f, 0x10
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 		0x00, 0x01,
 		0x04, 0x05,	/* sched 0 */
 		0x08, 0x09,	/* sched 1 */
@@ -369,7 +1663,7 @@ void iva_ram_dump_copy_vcm_dbg(struct iva_dev_data *iva,
 	u32		reg_val;
 	char		*dst_str = (char *) dst_buf;
 
-	dev_dbg(iva->dev, "start to save vcm_dbg.\n");
+	dev_err(iva->dev, "start to save vcm_dbg.\n");
 
 	for (i = 0; i < (uint32_t) ARRAY_SIZE(vcm_dbg_mux_sel); i++) {
 		writel(ENABLE_CAPTURE_M | vcm_dbg_mux_sel[i],
@@ -379,7 +1673,7 @@ void iva_ram_dump_copy_vcm_dbg(struct iva_dev_data *iva,
 				dst_buf_sz - copy_size - 1 /* including null*/,
 				"DBGSEL[%02x]=0x%08x\n",
 				vcm_dbg_mux_sel[i], reg_val);
-#ifdef CONFIG_SOC_EXYNOS9810
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 		iva_ram_dump_pretty_print_vcm_dbg(dst_buf, dst_buf_sz, &copy_size,
 				vcm_dbg_mux_sel[i], reg_val);
 #endif
@@ -395,7 +1689,17 @@ int32_t iva_ram_dump_copy_mcu_sram(struct iva_dev_data *iva,
 	const struct iva_mmr_sect_info *sect_info = &iva_sfr_mcu;
 
 #ifdef ENABLE_SRAM_ACCESS_WORKAROUND
+#if defined(CONFIG_SOC_EXYNOS9810)
 	iva_pmu_prepare_mcu_sram(iva);
+#endif
+#endif
+#if defined(CONFIG_SOC_EXYNOS9820)
+		if (iva->mcu_split_sram) {
+			iva_mcu_prepare_mcu_reset(iva, 0x0);  /* split i/d srams */
+		} else {
+			sect_info = &iva_sfr_mcu_extend;
+			iva_mcu_prepare_mcu_reset(iva, iva->mcu_bin->io_va);
+		}
 #endif
 	if (dst_buf_sz != sect_info->size) {
 		dev_err(iva->dev, "%s() required size(%x) but (0x%x)\n",
@@ -439,7 +1743,7 @@ int32_t iva_ram_dump_copy_iva_sfrs(struct iva_proc *proc, int shared_fd)
 
 #if defined(CONFIG_SOC_EXYNOS8895)
 	ret = dma_buf_begin_cpu_access(iva_map_node->dmabuf, 0, iva_sfr_size, 0);
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	ret = dma_buf_begin_cpu_access(iva_map_node->dmabuf, 0);
 #endif
 	if (ret) {
@@ -469,8 +1773,17 @@ int32_t iva_ram_dump_copy_iva_sfrs(struct iva_proc *proc, int shared_fd)
 			VCM_DBG_SEL_SAVE_MAX_SIZE);
 
 	/* mcu */
-	iva_ram_dump_copy_mcu_sram(iva,
+#if defined(CONFIG_SOC_EXYNOS9820)
+	if (iva->mcu_split_sram) {
+#endif
+		iva_ram_dump_copy_mcu_sram(iva,
 			(void *)(dst_buf + IVA_VMCU_MEM_BASE_ADDR), VMCU_MEM_SIZE);
+#if defined(CONFIG_SOC_EXYNOS9820)
+	} else {
+		iva_ram_dump_copy_mcu_sram(iva,
+			(void *)(dst_buf + IVA_VMCU_MEM_BASE_ADDR), EXTEND_VMCU_MEM_SIZE);
+	}
+#endif
 
 	/* general sfr section */
 	for (i = 0; i < (uint32_t) ARRAY_SIZE(iva_sfr_sects); i++) {
@@ -484,7 +1797,7 @@ int32_t iva_ram_dump_copy_iva_sfrs(struct iva_proc *proc, int shared_fd)
 end_cpu_acc:
 #if defined(CONFIG_SOC_EXYNOS8895)
 	dma_buf_end_cpu_access(iva_map_node->dmabuf, 0, IVA_CFG_SIZE, 0);
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	dma_buf_end_cpu_access(iva_map_node->dmabuf, 0);
 #endif
 	return ret;

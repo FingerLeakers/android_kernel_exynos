@@ -25,6 +25,7 @@
 
 #include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/acpm_ipc_ctrl.h>
+#include <soc/samsung/exynos-sci.h>
 
 #if defined(CONFIG_SEC_ABC)
 #include <linux/sti/abc_common.h>
@@ -35,10 +36,15 @@ void (*mach_restart)(enum reboot_mode mode, const char *cmd);
 EXPORT_SYMBOL(mach_restart);
 
 /* INFORM2 */
+#define SEC_REBOOT_START_OFFSET		(24)
+#define SEC_REBOOT_END_OFFSET		(16)
+
 enum sec_power_flags {
-	SEC_POWER_OFF = 0x0,
-	SEC_POWER_RESET = 0x12345678,
+	SEC_REBOOT_DEFAULT = 0x30,
+	SEC_REBOOT_NORMAL = 0x4E,
+	SEC_REBOOT_LPM = 0x70,
 };
+
 /* INFORM3 */
 #define SEC_RESET_REASON_PREFIX 0x12345670
 #define SEC_RESET_SET_PREFIX    0xabc00000
@@ -53,6 +59,7 @@ enum sec_reset_reason {
 	SEC_RESET_REASON_SECURE    = (SEC_RESET_REASON_PREFIX | 0x7), /* image secure check fail */
 	SEC_RESET_REASON_FWUP      = (SEC_RESET_REASON_PREFIX | 0x9), /* emergency firmware update */
 	SEC_RESET_REASON_EM_FUSE   = (SEC_RESET_REASON_PREFIX | 0xa), /* EMC market fuse */
+	SEC_RESET_REASON_BOOTLOADER   = (SEC_RESET_REASON_PREFIX | 0xd), /* go to download mode */
 	SEC_RESET_REASON_EMERGENCY = 0x0,
 
 	SEC_RESET_SET_FORCE_UPLOAD = (SEC_RESET_SET_PREFIX | 0x40000),
@@ -65,12 +72,23 @@ enum sec_reset_reason {
 #endif
 };
 
+void sec_set_reboot_magic(int magic, int offset, int mask)
+{
+	u32 tmp = 0;
+
+	exynos_pmu_read(EXYNOS_PMU_INFORM2, &tmp);
+	pr_info("%s: prev: %x\n", __func__, tmp);
+	mask <<= offset;
+	tmp &= (~mask);
+	tmp |= magic << offset;
+	pr_info("%s: set as: %x\n", __func__, tmp);
+	exynos_pmu_write(EXYNOS_PMU_INFORM2, tmp);
+}
+
 static void sec_power_off(void)
 {
 	int poweroff_try = 0;
 	union power_supply_propval ac_val, usb_val, wpc_val, water_val;
-
-#ifdef CONFIG_OF
 	int powerkey_gpio = -1;
 	struct device_node *np, *pp;
 
@@ -94,18 +112,19 @@ static void sec_power_off(void)
 		pr_err("Couldn't find power key node\n");
 		return;
 	}
-#else
-	int powerkey_gpio = GPIO_nPOWER;
-#endif
 
 	local_irq_disable();
 
+	sec_set_reboot_magic(SEC_REBOOT_LPM, SEC_REBOOT_END_OFFSET, 0xFF);
 	psy_do_property("ac", get, POWER_SUPPLY_PROP_ONLINE, ac_val);
 	psy_do_property("ac", get, POWER_SUPPLY_EXT_PROP_WATER_DETECT, water_val);
 	psy_do_property("usb", get, POWER_SUPPLY_PROP_ONLINE, usb_val);
 	psy_do_property("wireless", get, POWER_SUPPLY_PROP_ONLINE, wpc_val);
 	pr_info("[%s] AC[%d], USB[%d], WPC[%d], WATER[%d]\n",
 			__func__, ac_val.intval, usb_val.intval, wpc_val.intval, water_val.intval);
+
+	flush_cache_all();
+	llc_flush();
 
 	while (1) {
 		/* Check reboot charging */
@@ -116,9 +135,7 @@ static void sec_power_off(void)
 #endif
 			pr_emerg("%s: charger connected or power off failed(%d), reboot!\n", __func__, poweroff_try);
 			/* To enter LP charging */
-			exynos_pmu_write(EXYNOS_PMU_INFORM2, SEC_POWER_OFF);
 
-			flush_cache_all();
 			mach_restart(REBOOT_SOFT, "sw reset");
 
 			pr_emerg("%s: waiting for reboot\n", __func__);
@@ -135,14 +152,15 @@ static void sec_power_off(void)
 
 			++poweroff_try;
 			pr_emerg
-			    ("%s: Should not reach here! (poweroff_try:%d)\n",
-			     __func__, poweroff_try);
+				("%s: Should not reach here! (poweroff_try:%d)\n",
+				 __func__, poweroff_try);
 		} else {
 		/* if power button is not released, wait and check TA again */
 			pr_info("%s: PowerButton is not released.\n", __func__);
 		}
 		mdelay(1000);
 	}
+
 }
 
 static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
@@ -152,7 +170,7 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 	pr_emerg("%s (%d, %s)\n", __func__, reboot_mode, cmd ? cmd : "(null)");
 
 	/* LPM mode prevention */
-	exynos_pmu_write(EXYNOS_PMU_INFORM2, SEC_POWER_RESET);
+	sec_set_reboot_magic(SEC_REBOOT_NORMAL, SEC_REBOOT_END_OFFSET, 0xFF);
 
 	if (cmd) {
 		unsigned long value;
@@ -164,6 +182,8 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_REASON_RECOVERY);
 		else if (!strcmp(cmd, "download"))
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_REASON_DOWNLOAD);
+		else if (!strcmp(cmd, "bootloader"))
+			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_REASON_BOOTLOADER);
 		else if (!strcmp(cmd, "upload"))
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_REASON_UPLOAD);
 		else if (!strcmp(cmd, "secure"))
@@ -180,10 +200,8 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_REASON_EMERGENCY);
 		else if (!strncmp(cmd, "debug", 5) && !kstrtoul(cmd + 5, 0, &value))
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_SET_DEBUG | value);
-#if defined(CONFIG_SEC_DEBUG_SUPPORT_FORCE_UPLOAD)
 		else if (!strncmp(cmd, "forceupload", 11) && !kstrtoul(cmd + 11, 0, &value))
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_SET_FORCE_UPLOAD | value);
-#endif
 		else if (!strncmp(cmd, "swsel", 5) && !kstrtoul(cmd + 5, 0, &value))
 			exynos_pmu_write(EXYNOS_PMU_INFORM3, SEC_RESET_SET_SWSEL | value);
 		else if (!strncmp(cmd, "sud", 3) && !kstrtoul(cmd + 3, 0, &value))
@@ -208,6 +226,8 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 	}
 
 	flush_cache_all();
+	llc_flush();
+
 	mach_restart(REBOOT_SOFT, "sw reset");
 
 	pr_emerg("%s: waiting for reboot\n", __func__);

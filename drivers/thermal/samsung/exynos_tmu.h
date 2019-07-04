@@ -35,6 +35,7 @@ enum soc_type {
 	SOC_ARCH_EXYNOS8895 = 2,
 	SOC_ARCH_EXYNOS7872,
 	SOC_ARCH_EXYNOS9810,
+	SOC_ARCH_EXYNOS9820,
 };
 
 /**
@@ -67,7 +68,6 @@ struct exynos_tmu_platform_data {
 	enum soc_type type;
 	u32 sensor_type;
 	u32 cal_type;
-	u32 cal_mode;
 };
 
 enum sensing_type {
@@ -83,30 +83,6 @@ static const char * const sensing_method[] = {
 	[MAX] = "max",
 	[MIN] = "min",
 	[BALANCE] = "balance",
-};
-
-enum thermal_zone_name {
-	MNGS_QUAD = 0,
-	APOLLO,
-	GPU,
-	ISP,
-	MNGS_DUAL,
-	BIG,
-	LITTLE,
-	END_ZONE_NAME,
-};
-
-/**
- * It maps 'enum znoe_name' defined in above and is used to define zone name.
- */
-static const char * const tz_zone_names[] = {
-	[MNGS_QUAD]= "MNGS_QUAD",
-	[APOLLO] = "APOLLO",
-	[GPU] = "GPU",
-	[ISP] = "ISP",
-	[MNGS_DUAL]= "MNGS_DUAL",
-	[BIG]="BIG",
-	[LITTLE]="LITTLE",
 };
 
 struct sensor_info {
@@ -155,6 +131,7 @@ struct exynos_tmu_data {
 	u16 temp_error1, temp_error2;
 	struct thermal_zone_device *tzd;
 	unsigned int ntrip;
+	bool enabled;
 	struct thermal_cooling_device *cool_dev;
 	struct list_head node;
 	u32 sensors;

@@ -1536,6 +1536,8 @@ int sensor_2l4_cis_wait_streamon(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+
 	ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
 	if (ret < 0)
 		err("i2c transfer fail addr(0x%x), val(0x%x), ret = %d\n", 0x0005, sensor_fcount, ret);
@@ -1543,6 +1545,8 @@ int sensor_2l4_cis_wait_streamon(struct v4l2_subdev *subdev)
 	ret = fimc_is_sensor_read8(client, 0x3000, &data8);
 	if (ret < 0)
 		err("i2c transfer fail addr(0x%x), val(0x%x), ret = %d\n", 0x3000, data8, ret);
+
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 	/*
 	 * Read sensor frame counter (sensor_fcount address = 0x0005)
@@ -1552,6 +1556,8 @@ int sensor_2l4_cis_wait_streamon(struct v4l2_subdev *subdev)
 		usleep_range(CIS_STREAM_ON_WAIT_TIME, CIS_STREAM_ON_WAIT_TIME);
 		wait_cnt++;
 
+		I2C_MUTEX_LOCK(cis->i2c_lock);
+
 		ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
 		if (ret < 0)
 			err("i2c transfer fail addr(0x%x), val(0x%x), ret = %d\n", 0x0005, sensor_fcount, ret);
@@ -1559,6 +1565,8 @@ int sensor_2l4_cis_wait_streamon(struct v4l2_subdev *subdev)
 		ret = fimc_is_sensor_read8(client, 0x3000, &data8);
 		if (ret < 0)
 			err("i2c transfer fail addr(0x%x), val(0x%x), ret = %d\n", 0x3000, data8, ret);
+
+		I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 		if (wait_cnt >= time_out_cnt) {
 			err("[MOD:D:%d] %s, Don't sensor stream on and time out, wait_limit(%d) > time_out(%d), sensor_fcount(%d), 0x3000(%d)",

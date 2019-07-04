@@ -43,10 +43,12 @@
 #define S5K2L2_PDAF_MAXWIDTH	0 /* MAX witdh size */
 #define S5K2L2_PDAF_MAXHEIGHT	0 /* MAX height size */
 #define S5K2L2_PDAF_ELEMENT	0 /* V4L2_PIX_FMT_SBGGR16 */
+#define S5K2L2_PDAF_STAT_TYPE	VC_STAT_TYPE_INVALID
 
 #define S5K2L2_MIPI_MAXWIDTH	4032 /* MAX width size */
 #define S5K2L2_MIPI_MAXHEIGHT	14 /* MAX height size */
 #define S5K2L2_MIPI_ELEMENT	1 /* V4L2_PIX_FMT_SBGGR16 */
+#define S5K2L2_MIPI_STAT_TYPE	VC_STAT_TYPE_COMP_MIPI_STAT
 
 static struct fimc_is_sensor_cfg config_module_2l2[] = {
 			/* width, height, fps, settle, mode, lane, speed, interleave, pd_mode */
@@ -141,6 +143,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	.s_parm = sensor_module_s_param
 };
@@ -497,7 +500,7 @@ static int __init sensor_module_2l2_probe(struct platform_device *pdev)
 	struct sensor_open_extended *ext;
 	struct exynos_platform_fimc_is_module *pdata;
 	struct device *dev;
-	int ch, vc_idx;
+	int vc_idx;
 	struct pinctrl_state *s;
 
 	FIMC_BUG(!fimc_is_dev);
@@ -553,20 +556,19 @@ static int __init sensor_module_2l2_probe(struct platform_device *pdev)
 	module->cfg = config_module_2l2;
 	module->ops = NULL;
 
-	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
-		module->vc_buffer_offset[ch] = pdata->vc_buffer_offset[ch];
-
 	for (vc_idx = 0; vc_idx < 2; vc_idx++) {
 		switch (vc_idx) {
-		case VC_BUF_DATA_TYPE_SENSOR_STAT:
+		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
 			module->vc_max_size[vc_idx].width = S5K2L2_PDAF_MAXWIDTH;
 			module->vc_max_size[vc_idx].height = S5K2L2_PDAF_MAXHEIGHT;
 			module->vc_max_size[vc_idx].element_size = S5K2L2_PDAF_ELEMENT;
+			module->vc_max_size[vc_idx].stat_type = S5K2L2_PDAF_STAT_TYPE;
 			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT:
+		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
 			module->vc_max_size[vc_idx].width = S5K2L2_MIPI_MAXWIDTH;
 			module->vc_max_size[vc_idx].height = S5K2L2_MIPI_MAXHEIGHT;
 			module->vc_max_size[vc_idx].element_size = S5K2L2_MIPI_ELEMENT;
+			module->vc_max_size[vc_idx].stat_type = S5K2L2_MIPI_STAT_TYPE;
 			break;
 		}
 	}

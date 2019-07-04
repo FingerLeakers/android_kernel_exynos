@@ -21,10 +21,12 @@ config SEC_REBOOT
 	bool "Enable TN reboot features"
 	depends on SEC_EXT
 	default y
+	help
+	  Samsung TN reboot extension Feature. Do additional work when reboot.
 
 menuconfig SEC_DEBUG
 	bool "Enable TN debugging features"
-	depends on EXYNOS_SNAPSHOT && SEC_REBOOT
+	depends on DEBUG_SNAPSHOT && SEC_REBOOT
 	default y
 
 config SEC_DEBUG_RESET_REASON
@@ -50,12 +52,72 @@ config SEC_DEBUG_HW_PARAM
 	help
 	  This option enables storing hw param bigdata info
 
-config SEC_DEBUG_UPLOAD
-	bool "Enable Upload mode"
+config SEC_DEBUG_AUTO_COMMENT
+	bool "Enable TN kernel fault auto comment"
 	depends on SEC_DEBUG
 	default y
 	help
-	  Samsung TN upload mode
+	  This option enables kernel fault auto comment feature
+	  This option also requires bootloader change that enables auto comment extraction along with ramdump
+
+config SEC_DEBUG_DUMP_SUMMARY
+	bool "Enable TN kernel fault dump summary"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables kernel fault dump summary feature
+	  This option also requires bootloader change that enables dump summary extraction along with ramdump
+
+config SEC_DEBUG_LAST_KMSG
+	bool "Write last_kmsg at /proc/last_kmsg"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables /proc/last_kmsg support. This stores the previous
+	  kernel log into separate buffer. /proc/last_kmsg shows the stored log.
+
+config SEC_DEBUG_PPMPU
+	bool "Print ppmpu inforamtion by smc call"
+	depends on SEC_DEBUG
+	default n
+	help
+	  This option enables the kernel to print out ppmpu information when
+	  kernel oops. El3 monitor supports smc calls for this option.
+
+config SEC_DEBUG_INIT_LOG
+	bool "support hooking of init task log"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables hooking of init task log. 
+	  It can be used for debugging purpose in case of booting failure or something else.
+
+config SEC_DEBUG_PCPRWSEM
+	bool "support logging percpu rwsemaphore"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables logging of read/write_lock/unlock of cgroup_threadgroup_rwsem.
+	  The log will be recorded only while system is shutting down.
+
+comment "Samsung ubsan debug feature"
+config SEC_DEBUG_UBSAN
+	bool "Enable ubsan debug feature"
+	default n
+	help
+	  This option enables ubsan debug feature.
+
+comment "Samsung kasan debug feature"
+config SEC_DEBUG_KASAN
+	bool "Enable kasan debug feature"
+	default n
+	help
+	  This option enables kasan debug feature.
+
+config SEC_BOOTSTAT
+	bool "Enable TN Bootstat logging"
+	depends on SEC_EXT
+	default y
 
 comment "Samsung TN Build Options"
 config SEC_FACTORY
@@ -80,7 +142,7 @@ config ARGOS
 config SEC_PARAM
 	bool "Enable Param modification"
 	depends on SEC_DEBUG
-	default n
+	default y
 	help
 	  Samsung TN Param Feature.
 
@@ -116,60 +178,6 @@ config SEC_DEBUG_TSP_LOG
 	depends on SEC_EXT
 	help
 	  This option enables additional log buffer for tsp log.
-
-config SEC_DEBUG_AUTO_SUMMARY
-	bool "Enable TN kernel fault auto summary"
-	depends on SEC_DEBUG
-	default y
-	help
-	  This option enables kernel fault auto summary feature
-	  This option also requires bootloader change that enables auto summary extraction along with ramdump
-
-config SEC_UPLOAD
-	bool "Enable TN upload mode"
-	depends on SEC_DEBUG
-	default y
-	help
-	  Samsung TN upload mode
-
-config SEC_DEBUG_LAST_KMSG
-	bool "Write last_kmsg at /proc/last_kmsg"
-	depends on SEC_DEBUG
-	default y
-	help
-	  This option enables /proc/last_kmsg support. This stores the previous
-	  kernel log into separate buffer. /proc/last_kmsg shows the stored log.
-
-config SEC_DEBUG_PPMPU
-	bool "Print ppmpu inforamtion by smc call"
-	depends on SEC_DEBUG
-	default n
-	help
-	  This option enables the kernel to print out ppmpu information when
-	  kernel oops. El3 monitor supports smc calls for this option.
-
-config SEC_DEBUG_BRANCH_VERIFIER
-	bool "Warning a invalid branch from backtrace"
-	depends on SEC_DEBUG && SEC_DEBUG_AUTO_SUMMARY
-	default n
-	help
-	  This option enables the kernel to check whether branches from
-	  dump_backtrace() are valid. Then it will print a warning if a wrong jump
-	  is detected.
-
-config SEC_DEBUG_INDIRECT_BRANCH_VERIFIER
-	bool "Warning a invalid branch for blr"
-	depends on SEC_DEBUG_BRANCH_VERIFIER
-	depends on RKP_CFP_JOPP
-	default n
-	help
-	  This option enables the branch verifier to check branches including
-	  indirect branches like blr. It also needs a compiler modified.
-
-config SEC_BOOTSTAT
-	bool "Enable TN Bootstat logging"
-	depends on SEC_EXT
-	default y
 
 comment "Samsung Mobile Power Management Options"
 menuconfig SEC_PM
@@ -244,12 +252,20 @@ config SEC_SUPPORT_VST
 	default n
 	help
 	  Samsung TN NAD Feature, support NAD 4.0 feature.
-
-config SEC_DUMP_SUMMARY
+	  
+config SEC_NAD_LOG
+	bool "Samsung TN NAD LOG Feature"
+	depends on SEC_NAD
 	default n
-	bool "Enable summary dump support" if EMBEDDED
 	help
-	  Samsung Dump Summary Feature for ramdump debugging.
+	  Samsung TN NAD Feature, Enable NAD LOG
+	  
+config SEC_NAD_X
+	bool "Samsung TN NAD X Feature"
+	depends on SEC_NAD
+	default n
+	help
+	  Samsung TN NAD Feature, Enable NAD X
 
 comment "Logging Heavy Task Cpu Options"
 config SEC_HEAVY_TASK_CPU
@@ -258,33 +274,26 @@ config SEC_HEAVY_TASK_CPU
 	help
 	  This option enables heavy cpu core counting.
 
-comment "Samsung ubsan debug feature"
-config SEC_DEBUG_UBSAN
-	bool "Enable ubsan debug feature"
+comment "Samsung TN option for VTS test"
+config SEC_VTS_TEST
+	bool "VTS TEST"
 	default n
 	help
-	  This option enables ubsan debug feature.
-
-comment "Samsung kasan debug feature"
-config SEC_DEBUG_KASAN
-	bool "Enable kasan debug feature"
-	default n
-	help
-	  This option enables kasan debug feature.
-
-config SEC_DEBUG_SUPPORT_FORCE_UPLOAD
-	bool "Support force upload mode"
-	default n
-	help
-	  This option supports force upload mode.
+	  This option notices this binary for VTS test.
 
 choice
 	prompt "Version of GAF structure"
 	depends on SEC_DEBUG
+	default SEC_DEBUG_GAF_V5 if PROCA
 	default SEC_DEBUG_GAF_V4
 
 	config SEC_DEBUG_GAF_V4
 		bool "Use GAF structure version 4"
 		help
-		  Default option for FIVE-enabled kernel
+		  Default option for kernel without PROCA LSM module.
+
+	config SEC_DEBUG_GAF_V5
+		bool "Use GAF structure version 5"
+		help
+		  Default option for kernel with PROCA LSM module.
 endchoice

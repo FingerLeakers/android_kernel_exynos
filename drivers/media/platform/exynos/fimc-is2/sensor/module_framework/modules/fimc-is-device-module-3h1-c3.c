@@ -102,6 +102,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	//.s_mbus_fmt = sensor_module_s_format,
 };
@@ -290,7 +291,7 @@ static int __init sensor_module_3h1_c3_probe(struct platform_device *pdev)
 	struct sensor_open_extended *ext;
 	struct exynos_platform_fimc_is_module *pdata;
 	struct device *dev;
-	int ch, vc_idx;
+	int vc_idx;
 	struct pinctrl_state *s;
 
 	FIMC_BUG(!fimc_is_dev);
@@ -348,17 +349,14 @@ static int __init sensor_module_3h1_c3_probe(struct platform_device *pdev)
 	module->cfg = config_module_3h1_c3;
 	module->ops = NULL;
 
-	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
-		module->vc_buffer_offset[ch] = pdata->vc_buffer_offset[ch];
-
 	for (vc_idx = 0; vc_idx < 2; vc_idx++) {
 		switch (vc_idx) {
-		case VC_BUF_DATA_TYPE_SENSOR_STAT:
+		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
 			module->vc_max_size[vc_idx].width = S5K3H1_PDAF_MAXWIDTH;
 			module->vc_max_size[vc_idx].height = S5K3H1_PDAF_MAXHEIGHT;
 			module->vc_max_size[vc_idx].element_size = S5K3H1_PDAF_ELEMENT;
 			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT:
+		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
 			module->vc_max_size[vc_idx].width = S5K3H1_MIPI_MAXWIDTH;
 			module->vc_max_size[vc_idx].height = S5K3H1_MIPI_MAXHEIGHT;
 			module->vc_max_size[vc_idx].element_size = S5K3H1_MIPI_ELEMENT;

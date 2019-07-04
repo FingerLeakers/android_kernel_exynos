@@ -179,95 +179,6 @@ err:
 	return ret;
 }
 
-static struct dma_buf *m2m1shot_buffer_check_userptr(
-		struct m2m1shot_device *m21dev, unsigned long start, size_t len,
-		off_t *out_offset)
-{
-	struct dma_buf *dmabuf = NULL;
-	struct vm_area_struct *vma;
-
-	down_read(&current->mm->mmap_sem);
-	vma = find_vma(current->mm, start);
-	if (!vma || (start < vma->vm_start)) {
-		dev_err(m21dev->dev, "%s: Incorrect user buffer @ %#lx/%#zx\n",
-			__func__, start, len);
-		dmabuf = ERR_PTR(-EINVAL);
-		goto finish;
-	}
-
-	if (!vma->vm_file)
-		goto finish;
-
-	dmabuf = get_dma_buf_file(vma->vm_file);
-	if (dmabuf != NULL)
-		*out_offset = start - vma->vm_start;
-finish:
-	up_read(&current->mm->mmap_sem);
-	return dmabuf;
-}
-
-static int m2m1shot_buffer_get_userptr(struct m2m1shot_device *m21dev,
-					struct m2m1shot_buffer *buffer,
-					struct m2m1shot_buffer_dma *dma_buffer,
-					int write)
-{
-	int i, ret = 0;
-	struct dma_buf *dmabuf;
-	off_t offset;
-
-	for (i = 0; i < buffer->num_planes; i++) {
-		dmabuf = m2m1shot_buffer_check_userptr(m21dev,
-				buffer->plane[i].userptr, buffer->plane[i].len,
-				&offset);
-		if (IS_ERR(dmabuf)) {
-			ret = PTR_ERR(dmabuf);
-			goto err;
-		} else if (dmabuf) {
-			if (dmabuf->size < dma_buffer->plane[i].bytes_used) {
-				dev_err(m21dev->dev,
-				"%s: needs %zu bytes but dmabuf is %zu\n",
-					__func__,
-					dma_buffer->plane[i].bytes_used,
-					dmabuf->size);
-				ret = -EINVAL;
-				goto err;
-			}
-
-			dma_buffer->plane[i].dmabuf = dmabuf;
-			dma_buffer->plane[i].attachment = dma_buf_attach(
-							dmabuf, m21dev->dev);
-			dma_buffer->plane[i].offset = offset;
-			if (IS_ERR(dma_buffer->plane[i].attachment)) {
-				dev_err(m21dev->dev,
-					"%s: Failed to attach dmabuf\n",
-					__func__);
-				ret = PTR_ERR(dma_buffer->plane[i].attachment);
-				dma_buf_put(dmabuf);
-				goto err;
-			}
-		}
-	}
-
-	return 0;
-err:
-	while (i-- > 0)
-		m2m1shot_buffer_put_dma_buf_plane(&dma_buffer->plane[i]);
-
-	return ret;
-}
-
-static void m2m1shot_buffer_put_userptr(struct m2m1shot_buffer *buffer,
-					struct m2m1shot_buffer_dma *dma_buffer,
-					int write)
-{
-	int i;
-
-	for (i = 0; i < buffer->num_planes; i++)
-		if (dma_buffer->plane[i].dmabuf)
-			m2m1shot_buffer_put_dma_buf_plane(
-							&dma_buffer->plane[i]);
-}
-
 static int m2m1shot_prepare_get_buffer(struct m2m1shot_context *ctx,
 					struct m2m1shot_buffer *buffer,
 					struct m2m1shot_buffer_dma *dma_buffer,
@@ -306,14 +217,11 @@ static int m2m1shot_prepare_get_buffer(struct m2m1shot_context *ctx,
 		return -EINVAL;
 	}
 
-	if (buffer->type == M2M1SHOT_BUFFER_DMABUF)
+	if (buffer->type == M2M1SHOT_BUFFER_DMABUF) {
 		ret = m2m1shot_buffer_get_dma_buf(m21dev, buffer, dma_buffer);
-	else
-		ret = m2m1shot_buffer_get_userptr(m21dev, buffer, dma_buffer,
-						(dir == DMA_TO_DEVICE) ? 0 : 1);
-
-	if (ret)
-		return ret;
+		if (ret)
+			return ret;
+	}
 
 	dma_buffer->buffer = buffer;
 
@@ -333,9 +241,6 @@ err:
 
 	if (buffer->type == M2M1SHOT_BUFFER_DMABUF)
 		m2m1shot_buffer_put_dma_buf(buffer, dma_buffer);
-	else
-		m2m1shot_buffer_put_userptr(buffer, dma_buffer,
-					(dir == DMA_TO_DEVICE) ? 0 : 1);
 
 	return ret;
 }
@@ -353,9 +258,6 @@ static void m2m1shot_finish_buffer(struct m2m1shot_device *m21dev,
 
 	if (buffer->type == M2M1SHOT_BUFFER_DMABUF)
 		m2m1shot_buffer_put_dma_buf(buffer, dma_buffer);
-	else
-		m2m1shot_buffer_put_userptr(buffer, dma_buffer,
-					(dir == DMA_TO_DEVICE) ? 0 : 1);
 }
 
 static int m2m1shot_prepare_format(struct m2m1shot_device *m21dev,

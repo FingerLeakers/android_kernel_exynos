@@ -39,7 +39,15 @@ static int parse_qos_data(struct device *dev,
 	for_each_child_of_node(np, cnp) {
 		cqos = &pdata->qos_items[ncount++];
 
-		cqos->desc = of_get_property(cnp, "qos,label", NULL);
+		//cqos->desc = of_get_property(cnp, "qos,label", NULL);
+		if(of_property_read_string(cnp, "qos,label", (const char**)&cqos->desc)) {
+			dev_err(dev, "Failed to get label name: node not exist\n");
+			return -EINVAL;
+		}
+
+#if defined(DEBUG_NAD_BALANCER)
+		NAD_PRINT("qos desc : %s, 0x%x\n", cqos->desc, &cqos->desc);
+#endif
 
 		if (of_property_read_u32(cnp, "qos,delay_time", &cqos->delay_time)) {
 			dev_err(dev, "Failed to get delay time: node not exist\n");
@@ -93,7 +101,7 @@ static int parse_qos_data(struct device *dev,
 					}
 					cqos->single_tables[i].freq = freq_item;
 				}
-			} 
+			}
 			if ((cqos->big_turbo_enable & NAD_BALANCER_MODE_DUAL) == NAD_BALANCER_MODE_DUAL) {
 				if (of_property_read_u32(cnp, "qos,d_table_size", &cqos->dual_table_size)) {
 					dev_err(dev, "Failed to get d_table_size : check configurations\n");
@@ -304,7 +312,7 @@ static void update_temperature(struct nad_balancer_pm_qos *pqos, int type)
 			}
 		}
 		/* print out final temperature */
-		NAD_PRINT("final temperature [MNGS][APOLLO][GPU][ISP] = ");
+		NAD_PRINT("final temperature [BIG][MID][LIT][GPU][ISP] = ");
 		for (i = 0; i < MAX_TMU_COUNT; i++)
 			pr_info("[%d]", pqos->temperature[i]);
 		pr_info("\n");
@@ -318,6 +326,7 @@ static int on_run(void *data)
 	int policy = pqos->policy;
 	int idx = 0;
 	int req_lit = 0;
+	int req_mid = 0;
 	int req_big = 0;
 	int req_mif = 0;
 	int temp_check_period = 0;
@@ -328,6 +337,8 @@ static int on_run(void *data)
 			NAD_PRINT("%s no more working nad balancer qos thread.\n", pqos->desc);
 			if (!strncmp(pqos->desc, "LIT", 3) && req_lit == 1)
 				REMOVE_PM_QOS(&pqos->lit_qos);
+			if (!strncmp(pqos->desc, "MID", 3) && req_mid == 1)
+				REMOVE_PM_QOS(&pqos->mid_qos);
 			if (!strncmp(pqos->desc, "BIG", 3) && req_big == 1)
 				REMOVE_PM_QOS(&pqos->big_qos);
 			if (!strncmp(pqos->desc, "MIF", 3) && req_mif == 1)
@@ -367,33 +378,50 @@ static int on_run(void *data)
 				update_temperature(pqos, UPDATE_CONTI_TEMPERATURE);
 		}
 
-		/* limit qos cl1 max throughput */
+		/* limit qos cl1 min throughput */
+		if (!strncmp(pqos->desc, "MID", 3)) {
+			if (req_mid == 0) {
+				UPDATE_PM_QOS(&pqos->mid_qos, policy ?
+					      PM_QOS_CLUSTER1_FREQ_MAX : PM_QOS_CLUSTER1_FREQ_MIN,
+					      pqos->tables[idx].freq);
+				req_mid = 1;
+			} else {
+				REMOVE_PM_QOS(&pqos->mid_qos);
+				req_mid = 0;
+			}
+			temp_check_period++;
+			if (temp_check_period % 50 == 0)
+				update_temperature(pqos, UPDATE_CONTI_TEMPERATURE);
+		}
+
+
+		/* limit qos cl2 max throughput */
 		if (!strncmp(pqos->desc, "BIG", 3)) {
 			if (req_big == 0) {
 				if (!pqos->tables) {
 					if (pqos->current_mode == NAD_BALANCER_MODE_SINGLE) {
 						//pr_info("single\n");
 						UPDATE_PM_QOS(&pqos->big_qos, policy ?
-							PM_QOS_CLUSTER1_FREQ_MAX : PM_QOS_CLUSTER1_FREQ_MIN,
+							PM_QOS_CLUSTER2_FREQ_MAX : PM_QOS_CLUSTER2_FREQ_MIN,
 							pqos->single_tables[idx].freq);
 
 					} else if (pqos->current_mode == NAD_BALANCER_MODE_DUAL) {
 						//pr_info("dual\n");
 						UPDATE_PM_QOS(&pqos->big_qos, policy ?
-							PM_QOS_CLUSTER1_FREQ_MAX : PM_QOS_CLUSTER1_FREQ_MIN,
+							PM_QOS_CLUSTER2_FREQ_MAX : PM_QOS_CLUSTER2_FREQ_MIN,
 							pqos->dual_tables[idx].freq);
-					
+
 					} else if (pqos->current_mode == NAD_BALANCER_MODE_QUAD) {
 						//pr_info("quad\n");
 						UPDATE_PM_QOS(&pqos->big_qos, policy ?
-							PM_QOS_CLUSTER1_FREQ_MAX : PM_QOS_CLUSTER1_FREQ_MIN,
+							PM_QOS_CLUSTER2_FREQ_MAX : PM_QOS_CLUSTER2_FREQ_MIN,
 							pqos->quad_tables[idx].freq);
 					}
 
 				} else {
 					//pr_info("normal\n");
 					UPDATE_PM_QOS(&pqos->big_qos, policy ?
-						PM_QOS_CLUSTER1_FREQ_MAX : PM_QOS_CLUSTER1_FREQ_MIN,
+						PM_QOS_CLUSTER2_FREQ_MAX : PM_QOS_CLUSTER2_FREQ_MIN,
 						pqos->tables[idx].freq);
 
 				}
@@ -443,7 +471,7 @@ static ssize_t store_nad_balancer(struct device *dev,
 	char cmd_temp[NAD_BUFF_SIZE];
 	char nad_cmd[BALANCER_CMD][NAD_BUFF_SIZE];
 	char *nad_ptr, *string;
-	int i, idx = 0, ret = -1, expire_time;
+	int i, j, idx = 0, ret = -1, expire_time;
 
 	/* Copy buf to nad cmd */
 	strncpy(cmd_temp, buf, NAD_BUFF_SIZE);
@@ -462,8 +490,25 @@ static ssize_t store_nad_balancer(struct device *dev,
 
 #if defined(DEBUG_NAD_BALANCER)
 	NAD_PRINT("cmd : %s, expire_time : %d\n", nad_cmd[0], expire_time);
+
+	idx = 0;
+	while (idx < BALANCER_CMD) {
+		NAD_PRINT("cmd[%d] : %s\n", idx, nad_cmd[idx]);
+		idx++;
+	}
+
+	for (i = 0; i < info->pdata->nQos; i++) {
+		pqos = &info->pdata->qos_items[i];
+		NAD_PRINT("%s freq table\n", pqos->desc);
+
+		for(j = 0; j < pqos->table_size; j++) {
+			NAD_PRINT("%d\n", pqos->tables[j].freq);
+		}
+	}
+
 #endif
 	sleep_test_enable = true;
+
 
 	if (!strncmp(buf, "start", 5)) {
 		/* Enable qos thread */
@@ -531,6 +576,28 @@ static ssize_t show_nad_status(struct device *dev,
 }
 
 static DEVICE_ATTR(status, 0644, show_nad_status, store_nad_status);
+
+
+static ssize_t store_nad_print_log(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	NAD_PRINT("%s\n", __func__);
+	NAD_PRINT("%s\n", buf);
+
+	return count;
+}
+
+static ssize_t show_nad_print_log(struct device *dev,
+			       struct device_attribute *attr,
+			       char *buf)
+{
+	NAD_PRINT("%s\n", __func__);
+
+	return sprintf(buf, "OK\n");
+}
+
+static DEVICE_ATTR(print_log, 0644, show_nad_print_log, store_nad_print_log);
 
 static ssize_t store_nad_timeout(struct device *dev,
 				 struct device_attribute *attr,
@@ -714,6 +781,12 @@ static int sec_nad_balancer_probe(struct platform_device *pdev)
 		pr_err("%s: Failed to create status device file\n", __func__);
 		goto err_create_nad_balancer_sysfs;
 	}
+	ret = device_create_file(pinfo->dev, &dev_attr_print_log);
+	if (ret) {
+		pr_err("%s: Failed to create print log device file\n", __func__);
+		goto err_create_nad_balancer_sysfs;
+	}
+
 	ret = device_create_file(pinfo->dev, &dev_attr_timeout);
 	if (ret) {
 		pr_err("%s: Failed to create timeout device file\n", __func__);

@@ -18,8 +18,9 @@
 
 #define EP_NO_DEVICE		0
 #define EP_BCM_WIFI		1
-#define EP_SAMSUNG_S359		2
+#define EP_SAMSUNG_S359 	2
 #define EP_QC_MODEM		3
+#define EP_SAMSUNG_MODEM	4
 
 /*
  * CAUTION - It SHOULD fit Target Link Speed Encoding

@@ -48,7 +48,7 @@ void iva_ion_sync_sg_for_cpu(struct iva_dev_data *iva, struct iva_mem_map *iva_m
 			      iva_map_node->sg_table->nents, DMA_BIDIRECTIONAL);
 }
 
-void iva_ion_sync_sg_for_device(struct iva_dev_data *iva, struct iva_mem_map *iva_map_node)
+void iva_ion_sync_sg_for_device(struct iva_dev_data *iva, struct iva_mem_map *iva_map_node, bool clean_only)
 {
 	struct device *dev = iva->dev;
 
@@ -73,4 +73,3 @@ void iva_ion_sync_sg_for_device(struct iva_dev_data *iva, struct iva_mem_map *iv
 			       iva_map_node->sg_table->nents, DMA_BIDIRECTIONAL);
 	}
 }
-

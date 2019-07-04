@@ -17,11 +17,22 @@
 #ifndef __FIVE_TEE_UUID_H__
 #define __FIVE_TEE_UUID_H__
 
+#ifdef CONFIG_TRUSTONIC
 static const TEEC_UUID five_ta_uuid = {
 	.timeLow = 0xffffffff,
 	.timeMid = 0x0000,
 	.timeHiAndVersion = 0x0000,
 	.clockSeqAndNode = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x72},
 };
+#endif
+
+#ifdef CONFIG_TEEGRIS
+static const TEEC_UUID five_ta_uuid = {
+	.timeLow = 0x00000000,
+	.timeMid = 0x0000,
+	.timeHiAndVersion = 0x0000,
+	.clockSeqAndNode = {0x00, 0x00, 0x00, 0x00, 0x46, 0x49, 0x56, 0x45},
+};
+#endif
 
 #endif /* __FIVE_TEE_UUID_H__ */

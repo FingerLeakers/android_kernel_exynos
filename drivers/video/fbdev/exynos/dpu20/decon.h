@@ -53,6 +53,10 @@
 #include "./cal_9110/decon_cal.h"
 #endif
 
+#ifdef CONFIG_SEC_ABC
+#include <linux/sti/abc_common.h>
+#endif
+
 #ifdef CONFIG_EXYNOS_COMMON_PANEL
 #include "../panel/panel_drv.h"
 #include "disp_err.h"
@@ -1201,6 +1205,9 @@ struct decon_device {
 	int frame_cnt_target;
 	wait_queue_head_t wait_vstatus;
 	int eint_status;
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+	int eint_pend;
+#endif
 
 	u32 prev_protection_bitmask;
 	unsigned long prev_aclk_khz;
@@ -1230,6 +1237,10 @@ struct decon_device {
 	struct decon_fsync fsync;
 	atomic_t bypass;
 	struct decon_reg_data last_regs;
+#endif
+
+#ifdef CONFIG_DISPLAY_USE_INFO
+	struct notifier_block dpui_notif;
 #endif
 
 #ifdef CONFIG_EXYNOS_MCD_HDR
@@ -1719,6 +1730,11 @@ static inline int decon_reset_panel_global(u32 id)
 	return decon_reset_panel(decon);
 }
 #endif
+
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+void log_decon_bigdata(struct decon_device *decon);
+#endif
+
 enum disp_pwr_mode {
 	DISP_PWR_OFF = 0,
 	DISP_PWR_DOZE,

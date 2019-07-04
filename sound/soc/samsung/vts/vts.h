@@ -67,6 +67,7 @@
 #define VTS_DMIC_CPS_SEL_OFFSET		(27)
 #define VTS_DMIC_CPS_SEL_SIZE		(1)
 #define VTS_DMIC_GAIN_OFFSET		(24)
+#define VTS_DMIC_1DB_GAIN_OFFSET	(21)
 #define VTS_DMIC_GAIN_SIZE		(3)
 #define VTS_DMIC_DMIC_SEL_OFFSET	(18)
 #define VTS_DMIC_DMIC_SEL_SIZE		(1)
@@ -91,6 +92,35 @@
 #define VTS_CM4_R(x)			(0x0010 + (x * 0x4))
 #define VTS_CM4_PC			(0x0004)
 
+#if defined(CONFIG_SOC_EXYNOS9820)
+#define VTS_IRQ_VTS_ERROR               (0)
+#define VTS_IRQ_VTS_BOOT_COMPLETED      (1)
+#define VTS_IRQ_VTS_IPC_RECEIVED        (2)
+#define VTS_IRQ_VTS_VOICE_TRIGGERED     (3)
+#define VTS_IRQ_VTS_PERIOD_ELAPSED      (4)
+#define VTS_IRQ_VTS_REC_PERIOD_ELAPSED  (5)
+#define VTS_IRQ_VTS_DBGLOG_BUFZERO      (6)
+#define VTS_IRQ_VTS_DBGLOG_BUFONE       (7)
+#define VTS_IRQ_VTS_AUDIO_DUMP          (8)
+#define VTS_IRQ_VTS_LOG_DUMP            (9)
+#define VTS_IRQ_COUNT                   (10)
+
+#define VTS_IRQ_AP_IPC_RECEIVED         (16)
+#define VTS_IRQ_AP_SET_DRAM_BUFFER      (17)
+#define VTS_IRQ_AP_START_RECOGNITION    (18)
+#define VTS_IRQ_AP_STOP_RECOGNITION     (19)
+#define VTS_IRQ_AP_START_COPY           (20)
+#define VTS_IRQ_AP_STOP_COPY            (21)
+#define VTS_IRQ_AP_SET_MODE             (22)
+#define VTS_IRQ_AP_POWER_DOWN           (23)
+#define VTS_IRQ_AP_TARGET_SIZE          (24)
+#define VTS_IRQ_AP_SET_REC_BUFFER       (25)
+#define VTS_IRQ_AP_START_REC            (26)
+#define VTS_IRQ_AP_STOP_REC             (27)
+#define VTS_IRQ_AP_RESTART_RECOGNITION  (29)
+#define VTS_IRQ_AP_TEST_COMMAND         (31)
+
+#else
 #define VTS_IRQ_VTS_ERROR               (16)
 #define VTS_IRQ_VTS_BOOT_COMPLETED      (17)
 #define VTS_IRQ_VTS_IPC_RECEIVED        (18)
@@ -117,6 +147,7 @@
 #define VTS_IRQ_AP_STOP_REC		(11)
 #define VTS_IRQ_AP_RESTART_RECOGNITION	(13)
 #define VTS_IRQ_AP_TEST_COMMAND		(15)
+#endif
 
 #define VTS_IRQ_LIMIT			(32)
 
@@ -144,7 +175,7 @@
 /* svoice net(0x8000) & grammar(0x300) binary sizes defined in firmware */
 #define SOUND_MODEL_SVOICE_SIZE_MAX (0x8000 + 0x300)
 
-/* google binary size defined in firmware */
+/* google binary size defined in firmware (It is same with VTSDRV_MISC_MODEL_BIN_MAXSZ) */
 #define SOUND_MODEL_GOOGLE_SIZE_MAX (0xB500)
 
 /* VTS Model Binary Max buffer sizes */
@@ -169,6 +200,11 @@ enum trigger {
 enum vts_platform_type {
 	PLATFORM_VTS_NORMAL_RECORD,
 	PLATFORM_VTS_TRIGGER_RECORD,
+};
+
+enum vts_dmic_sel {
+	DPDM,
+	APDM,
 };
 
 enum executionmode {
@@ -267,6 +303,9 @@ struct vts_data {
 	void __iomem *baaw_base;
 	void __iomem *sram_base;
 	void __iomem *dmic_base;
+#if defined(CONFIG_SOC_EXYNOS9820)
+	void __iomem *dmic_3rd_base;
+#endif
 	void __iomem *gpr_base;
 	size_t sram_size;
 	struct regmap *regmap_dmic;
@@ -292,6 +331,7 @@ struct vts_data {
 	struct snd_dma_buffer dmab;
 	struct snd_dma_buffer dmab_rec;
 	struct snd_dma_buffer dmab_log;
+	struct snd_dma_buffer dmab_model;
 	u32 target_size;
 	volatile enum trigger active_trigger;
 	u32 voicerecog_start;
@@ -304,6 +344,7 @@ struct vts_data {
 	struct snd_soc_card *card;
 	int micclk_init_cnt;
 	unsigned int mic_ready;
+	enum vts_dmic_sel dmic_if;
 	bool irq_state;
 	u32 lpsdgain;
 	u32 dmicgain;
@@ -337,4 +378,5 @@ extern int vts_send_ipc_ack(struct vts_data *data, u32 result);
 extern void vts_register_dma(struct platform_device *pdev_vts,
 		struct platform_device *pdev_vts_dma, unsigned int id);
 extern int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable);
+extern int vts_sound_machine_drv_register(void);
 #endif /* __SND_SOC_VTS_H */

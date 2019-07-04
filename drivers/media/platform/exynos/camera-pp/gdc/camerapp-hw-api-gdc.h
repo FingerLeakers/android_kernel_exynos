@@ -19,8 +19,8 @@
 #define MAX_VIRTUAL_GRID_X		8192
 #define MAX_VIRTUAL_GRID_Y		6144
 #define DS_FRACTION_BITS		8
-#define DS_SHIFTER_MAX		7
-#define DS_INTEGER_BITS		8
+#define DS_SHIFTER_MAX			7
+#define MAX_OUTPUT_SCALER_RATIO	2
 
 #define GDC_CFG_FMT_YCBCR420_2P	(0 << 0)
 #define GDC_CFG_FMT_YUYV		(0xa << 0)
@@ -42,6 +42,10 @@
 #define GDC_CFG_FMT_YCBCR420_3P	(0x14 << 0)
 #define GDC_CFG_FMT_YCBCR422_3P	(0x16 << 0)
 #define GDC_CFG_FMT_YCBCR444_3P	(0x17 << 0)
+#define GDC_CFG_FMT_P010_16B_2P	(0x18 << 0)
+#define GDC_CFG_FMT_P210_16B_2P	(0x19 << 0)
+#define GDC_CFG_FMT_YCRCB422_8P2_2P	(0x1a << 0)
+#define GDC_CFG_FMT_YCRCB420_8P2_2P	(0x1b << 0)
 
 /* interrupt check */
 #define GDC_INT_FRAME_END		(1 << 0)

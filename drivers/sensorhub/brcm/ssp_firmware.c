@@ -14,15 +14,21 @@
  */
 #include "ssp.h"
 
-#if defined(CONFIG_SENSORS_SSP_STAR)
-#define SSP_FIRMWARE_REVISION_BCM	18032700
-#elif defined(CONFIG_SENSORS_SSP_CROWN)
-#define SSP_FIRMWARE_REVISION_BCM	18051000
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+#define SSP_FIRMWARE_REVISION_BCM	19060700
+#elif defined(CONFIG_SENSORS_SSP_DAVINCI)
+#define SSP_FIRMWARE_REVISION_BCM	19022500
 #else
 #define SSP_FIRMWARE_REVISION_BCM	00000000
 #endif
+#define SSP_FIRMWARE_REVISION_NEW_OLD_BCM	19030700
 
 unsigned int get_module_rev(struct ssp_data *data)
 {
+        int patch_version = get_patch_version(data->ap_type, data->ap_rev);
+
+        if(patch_version == bbd_new_old)
+        	return SSP_FIRMWARE_REVISION_NEW_OLD_BCM;
+    
 	return SSP_FIRMWARE_REVISION_BCM;
 }

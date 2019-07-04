@@ -19,6 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/stacktrace.h>
+#include <linux/rculist.h>
 
 #include "tracing_map.h"
 #include "trace.h"
@@ -449,7 +450,7 @@ static int create_val_field(struct hist_trigger_data *hist_data,
 	}
 
 	field = trace_find_event_field(file->event_call, field_name);
-	if (!field) {
+	if (!field || !field->size) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -547,7 +548,7 @@ static int create_key_field(struct hist_trigger_data *hist_data,
 		}
 
 		field = trace_find_event_field(file->event_call, field_name);
-		if (!field) {
+		if (!field || !field->size) {
 			ret = -EINVAL;
 			goto out;
 		}

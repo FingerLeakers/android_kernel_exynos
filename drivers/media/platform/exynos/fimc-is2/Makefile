@@ -12,14 +12,14 @@ fimc-is-objs	:= fimc-is-core.o \
 		fimc-is-video-3aa.o \
 		fimc-is-video-3aac.o \
 		fimc-is-video-3aap.o \
+		fimc-is-video-3aaf.o \
+		fimc-is-video-3aag.o \
 		fimc-is-video-isp.o \
 		fimc-is-video-ispc.o \
 		fimc-is-video-ispp.o \
+		fimc-is-video-mec.o \
 		fimc-is-video-dis.o \
 		fimc-is-video-disc.o \
-		fimc-is-video-dcp.o \
-		fimc-is-video-dcps.o \
-		fimc-is-video-dcpc.o \
 		fimc-is-video-mcs.o \
 		fimc-is-video-mcsp.o \
 		fimc-is-video-vra.o \
@@ -27,6 +27,7 @@ fimc-is-objs	:= fimc-is-core.o \
 		fimc-is-video-ssvc1.o \
 		fimc-is-video-ssvc2.o \
 		fimc-is-video-ssvc3.o \
+		fimc-is-video-pafrdma.o \
 		fimc-is-subdev-ctrl.o \
 		fimc-is-device-ischain.o \
 		fimc-is-time.o \
@@ -34,10 +35,12 @@ fimc-is-objs	:= fimc-is-core.o \
 		fimc-is-dt.o \
 		fimc-is-clk-gate.o \
 		fimc-is-binary.o \
-		fimc-is-i2c-config.o
+		fimc-is-i2c-config.o \
+		fimc-is-sock.o
 
-obj-$(CONFIG_COMPANION_USE) += fimc-is-device-preprocessor.o \
-			       fimc-is-video-preprocessor.o
+obj-$(CONFIG_DCP_V1_0) += fimc-is-video-dcp.o \
+			       fimc-is-video-dcps.o \
+			       fimc-is-video-dcpc.o
 
 ifeq ($(CONFIG_USE_DIRECT_IS_CONTROL),y)
 fimc-is-objs += fimc-is-interface-wrap.o
@@ -86,7 +89,7 @@ subdir-ccflags-$(CONFIG_FIMC_IS_V5_10_0) += -Idrivers/media/platform/exynos/fimc
 subdir-ccflags-$(CONFIG_FIMC_IS_V5_15_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v5_15_0
 subdir-ccflags-$(CONFIG_FIMC_IS_V5_2_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v5_2_0
 subdir-ccflags-$(CONFIG_FIMC_IS_V6_0_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v6_0_0
+subdir-ccflags-$(CONFIG_FIMC_IS_V7_0_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v7_0_0
 
 subdir-ccflags-$(CONFIG_VENDER_DEFAULT) += -Idrivers/media/platform/exynos/fimc-is2/vendor/default
 subdir-ccflags-$(CONFIG_VENDER_MCD) += -Idrivers/media/platform/exynos/fimc-is2/vendor/mcd
-subdir-ccflags-$(CONFIG_VENDER_PSV) += -Idrivers/media/platform/exynos/fimc-is2/vendor/psv

@@ -10,6 +10,8 @@
 #include <linux/stat.h>
 #include <linux/err.h>
 #include <linux/input.h>
+#include <linux/sched/clock.h>
+
 #ifdef CONFIG_SEC_SYSFS
 #include <linux/sec_sysfs.h>
 #endif
@@ -32,6 +34,8 @@ extern struct class *sec_class;
 #define SEC_CLASS_DEV_NAME_WACOM	"sec_epen"
 
 #define SEC_CMD(name, func)		.cmd_name = name, .cmd_func = func
+#define SEC_CMD_H(name, func)		.cmd_name = name, .cmd_func = func, .cmd_log = 1
+
 
 #define SEC_CMD_BUF_SIZE		(4096 - 1)
 #define SEC_CMD_STR_LEN			256
@@ -42,6 +46,7 @@ struct sec_cmd {
 	struct list_head	list;
 	const char		*cmd_name;
 	void			(*cmd_func)(void *device_data);
+	int				cmd_log;
 };
 
 enum SEC_CMD_STATUS {
@@ -68,8 +73,9 @@ struct sec_cmd_data {
 	int			cmd_param[SEC_CMD_PARAM_NUM];
 	char			cmd_result[SEC_CMD_RESULT_STR_LEN];
 	int			cmd_buffer_size;
-	bool			cmd_is_running;
+	volatile bool		cmd_is_running;
 	struct mutex		cmd_lock;
+	struct mutex		fs_lock;
 #ifdef USE_SEC_CMD_QUEUE
 	struct kfifo		cmd_queue;
 	struct mutex		fifo_lock;
@@ -88,6 +94,7 @@ extern void sec_cmd_set_cmd_result_all(struct sec_cmd_data *data, char *buff, in
 extern int sec_cmd_init(struct sec_cmd_data *data,
 				struct sec_cmd *cmds, int len, int devt);
 extern void sec_cmd_exit(struct sec_cmd_data *data, int devt);
+extern void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result);
 
 #endif /* _SEC_CMD_H_ */
 

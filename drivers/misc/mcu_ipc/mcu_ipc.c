@@ -345,6 +345,7 @@ static int set_fixed_affinity(struct device *dev, int irq, u32 mask)
 	argos_info->irq = irq;
 	argos_info->affinity = mask;
 	dev_set_drvdata(dev, argos_info);
+
 	return set_irq_affinity(dev);
 }
 #else

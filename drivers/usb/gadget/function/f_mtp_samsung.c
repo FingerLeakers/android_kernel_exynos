@@ -48,6 +48,7 @@
 #include <linux/usb/gadget.h>
 #include <linux/hardirq.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/usb/f_accessory.h>
 #include <asm-generic/siginfo.h>
 #include <linux/kernel.h>
@@ -759,6 +760,7 @@ requeue_req:
 			r = ret;
 			printk(KERN_DEBUG "[%s]\t%d after ret=%d brk ret=%d\n",
 						 __func__, __LINE__, ret, r);
+			dev->cancel_io = 1;
 			break;
 		}
 	}
@@ -948,6 +950,11 @@ static void read_send_work(struct work_struct *work)
 		if (count == 0)
 			ZLP_flag = 0;
 
+		/* get an idle tx request to use */
+		req = 0;
+		ret = wait_event_interruptible(dev->write_wq,
+				((req = mtpg_req_get(dev, &dev->tx_idle))
+							|| dev->error || dev->cancel_io));
 		if (dev->cancel_io == 1) {
 			dev->cancel_io = 0; /*reported to user space*/
 			r = -EIO;
@@ -955,11 +962,6 @@ static void read_send_work(struct work_struct *work)
 						__func__, __LINE__, r);
 			break;
 		}
-		/* get an idle tx request to use */
-		req = 0;
-		ret = wait_event_interruptible(dev->write_wq,
-				((req = mtpg_req_get(dev, &dev->tx_idle))
-							|| dev->error));
 		if (ret < 0 || !req) {
 			r = ret;
 			printk(KERN_DEBUG "[%s]\t%d ret = %d\n",
@@ -1333,8 +1335,13 @@ static void mtpg_complete_in(struct usb_ep *ep, struct usb_request *req)
 	DEBUG_MTPB("[%s]\t %d req->status is = %d\n",
 			__func__, __LINE__, req->status);
 
-	if (req->status != 0)
+	if (req->status != 0) {
 		dev->error = 1;
+		/* For SHUTDOWN case, */
+		/* USB function should stop all operations */
+		if (req->status == -ESHUTDOWN)
+			dev->cancel_io = 1;
+	}
 
 	mtpg_req_put(dev, &dev->tx_idle, req);
 	wake_up(&dev->write_wq);
@@ -1347,6 +1354,10 @@ static void mtpg_complete_out(struct usb_ep *ep, struct usb_request *req)
 	DEBUG_MTPB("[%s]\tline = [%d]req->status is = %d\n",
 				__func__, __LINE__, req->status);
 	if (req->status != 0) {
+		/* For SHUTDOWN case, */
+		/* USB function should stop all operations */
+		if (req->status == -ESHUTDOWN)
+			dev->cancel_io = 1;
 		dev->error = 1;
 
 		DEBUG_MTPB("[%s]\t%d dev->error is=%d for rx_idle\n",
@@ -1390,6 +1401,7 @@ mtpg_function_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	while ((req = mtpg_req_get(dev, &dev->intr_idle)))
 		mtpg_request_free(req, dev->int_in);
+	pr_info("[UDBG] %s %d guid_info=%p\n", __func__, __LINE__, guid_info); // temp
 	memset(guid_info, 0, sizeof (guid_info));
 	//printk(KERN_DEBUG "mtp: %s guid after reset = %s\n", __func__, guid_info);
 }

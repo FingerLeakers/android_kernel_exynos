@@ -1,10 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _GPIO_KEYS_H
 #define _GPIO_KEYS_H
 
-#include <linux/notifier.h>
-
 struct device;
-struct gpio_desc;
 
 /**
  * struct gpio_keys_button - configuration parameters
@@ -20,7 +18,6 @@ struct gpio_desc;
  *			disable button via sysfs
  * @value:		axis value for %EV_ABS
  * @irq:		Irq number in case of interrupt keys
- * @gpiod:		GPIO descriptor
  */
 struct gpio_keys_button {
 	unsigned int code;
@@ -34,7 +31,6 @@ struct gpio_keys_button {
 	bool can_disable;
 	int value;
 	unsigned int irq;
-	struct gpio_desc *gpiod;
 };
 
 /**
@@ -60,4 +56,5 @@ struct gpio_keys_platform_data {
 
 int register_gpio_keys_notifier(struct notifier_block *nb);
 int unregister_gpio_keys_notifier(struct notifier_block *nb);
+
 #endif

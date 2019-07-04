@@ -26,4 +26,10 @@ extern int abox_vdma_register(struct device *dev, int id, int stream,
 		void *area, phys_addr_t addr,
 		const struct PCMTASK_HARDWARE *pcm_hardware);
 
+/**
+ * Initialize abox vdma
+ * @param[in]	dev_abox	pointer to abox device
+ */
+extern void abox_vdma_init(struct device *dev_abox);
+
 #endif /* __SND_SOC_ABOX_VDMA_H */

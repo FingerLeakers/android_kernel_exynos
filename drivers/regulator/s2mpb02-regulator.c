@@ -29,8 +29,8 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
-#include <linux/mfd/s2mpb02.h>
-#include <linux/mfd/s2mpb02-private.h>
+#include <linux/mfd/samsung/s2mpb02.h>
+#include <linux/mfd/samsung/s2mpb02-regulator.h>
 #include <linux/regulator/of_regulator.h>
 
 struct s2mpb02_data {
@@ -405,6 +405,8 @@ static int s2mpb02_pmic_probe(struct platform_device *pdev)
 			goto err;
 		}
 	}
+
+	pr_info("%s : s2mpb02 probe ended!\n", __func__);
 
 	return 0;
  err:

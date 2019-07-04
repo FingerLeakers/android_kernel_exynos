@@ -14,9 +14,14 @@
 #define SEC_NAD_H
 
 #if defined(CONFIG_SEC_FACTORY)
+#if defined(CONFIG_SEC_NAD_LOG)
+#define NAD_LOG_SIZE 0x100000
+#define NAD_UFS_TEST_BLOCK "/dev/block/UFS_TEST" 
+#define NAD_LOG_OFFSET 0xAC000
+#endif   
 #define NAD_PARAM_NAME "/dev/block/NAD_REFER"
 #define NAD_OFFSET 8192
-#define NAD_ENV_OFFSET 10240
+#define NAD_ENV_OFFSET 10240 * 2
 
 #define NAD_PARAM_READ	0
 #define NAD_PARAM_WRITE	1
@@ -50,22 +55,26 @@
 /* vst */
 #define NAD_VST_MAGIC_NUM	0x95252A
 #define NAD_VST_MAGIC_MASK	0xFFFFFF
-#define NAD_VST_RESULT_MASK	0xF
-#define NAD_VST_ADJUST_MASK	0xF
+#define NAD_VST_RESULT_MASK	0x3F
+#define NAD_VST_ADJUST_MASK	0x3F
 
 enum {
-	EXYNOS8890 = 0,
-	EXYNOS8895 = 1,
-	EXYNOS7880 = 2,
-	EXYNOS7870 = 3,
-	EXYNOS7570 = 4,
-	EXYNOS7885 = 5,
-	EXYNOS9810 = 6,
+    EXYNOS8890 = 0,
+    EXYNOS8895 = 1,
+    EXYNOS7880 = 2,
+    EXYNOS7870 = 3,
+    EXYNOS7570 = 4,
+    EXYNOS7885 = 5,
+    EXYNOS9810 = 6,
+    EXYNOS9110 = 7,
+    EXYNOS9820 = 8,
+    EXYNOS9610 = 9,
 };
 
-	//EXYNOS8890_JUNGFRAU[0], EXYNOS8895_KANGCHEN[1], EXYNOS7880_JOON[2], EXYNOS7870_JOSHUA[3], EXYNOS7570_JAVA[4], EXYNOS7885_LASSEN[5],EXYNOS7883_LASSENQ[5], EXYNOS7884_LASSENO[5],EXYNOS9810_LHOTSE[6]
-	static  char nad_chipset_name[12][12] = {"EXYNOS8890", "EXYNOS8895", "EXYNOS7880", "EXYNOS7870", "EXYNOS7570", "EXYNOS7885", "EXYNOS9810","EXYNOSXXXX","EXYNOSXXXX","EXYNOSXXXX","EXYNOSXXXX","EXYNOSXXXX"};
 
+	//EXYNOS8890_JUNGFRAU[0], EXYNOS8895_KANGCHEN[1], EXYNOS7880_JOON[2], EXYNOS7870_JOSHUA[3], EXYNOS7570_JAVA[4], EXYNOS7885_LASSEN[5],EXYNOS7883_LASSENQ[5], EXYNOS7884_LASSENO[5],EXYNOS9810_LHOTSE[6],EXYNOS9610_RAMEN[7],EXYNOS9820_MAKALU[8]
+	static  char nad_chipset_name[][12] = {"EXYNOS8890", "EXYNOS8895", "EXYNOS7880", "EXYNOS7870", "EXYNOS7570", "EXYNOS7885", "EXYNOS9810","EXYNOS9110","EXYNOS9820","EXYNOS9610","EXYNOSXXXX","EXYNOSXXXX"};
+  static char nad_block_name[10][8] = {"DRAM", "BIG", "MIDD", "LITT", "MIF", "G3D", "INT", "CAM", "FUNC", "CP"};	
 
 #if defined(CONFIG_SEC_SUPPORT_SECOND_NAD)
 typedef struct{
@@ -106,6 +115,7 @@ typedef struct  {
 typedef struct  {
 	char magic[10];
 	u8 big_pass_fail;
+	u8 mid_pass_fail;
 	u8 lit_pass_fail;
 	u8 g3d_pass_fail;
 	u8 mif_pass_fail;
@@ -118,11 +128,30 @@ typedef struct  {
 	int vst_is_excuted;
 
 	u8 big_up_margin;
+	u8 mid_up_margin;
 	u8 lit_up_margin;
 	u8 g3d_up_margin;
 	u8 mif_up_margin;
 	u8 int_up_margin;
 } vst_information;
+
+typedef struct {
+    unsigned int list_num;
+    unsigned int block;
+    unsigned int vector;
+    unsigned int level;
+    unsigned int operation_time;
+    unsigned int vst_current;
+	unsigned int spec_out;
+    unsigned int rsvd;
+} current_info;
+
+typedef struct {
+    char magic[8];
+    int total_num;
+    int rsvd;
+    current_info current_list[100];
+} nad_ave_current_information;
 #endif
 
 #if defined(CONFIG_SEC_NAD_HPM)
@@ -174,17 +203,17 @@ typedef struct {
 #endif
 
 struct nad_env {
-	char nad_factory[10];
-	char nad_result[4];
+	char nad_factory[8];
+	char nad_result[8];
 	unsigned int nad_data;
 
-	char nad_acat[10];
-	char nad_acat_result[4];
+	char nad_acat[8];
+	char nad_acat_result[8];
 	unsigned int nad_acat_data;
 	unsigned int nad_acat_loop_count;
 	unsigned int nad_acat_real_count;
 
-	char nad_dram_test_need[4];
+	char nad_dram_test_need[8];
 	unsigned int nad_dram_test_result;
 	unsigned int nad_dram_fail_data;
 	unsigned long nad_dram_fail_address;
@@ -199,16 +228,20 @@ struct nad_env {
 #if defined(CONFIG_SEC_SUPPORT_VST)
 	vst_information vst_info;
 	int vst_big_fail_count;
+	int vst_mid_fail_count;
 	int vst_lit_fail_count;
 	int vst_g3d_fail_count;
 	int vst_mif_fail_count;
 	int vst_int_fail_count;
-
 	int vst_big_fail_inform4_2;
+	int vst_mid_fail_inform4_2;
 	int vst_lit_fail_inform4_2;
 	int vst_g3d_fail_inform4_2;
 	int vst_mif_fail_inform4_2;
 	int vst_int_fail_inform4_2;
+
+	nad_ave_current_information nad_ave_current_info;
+	unsigned char nAsv_TABLE;
 #endif
 
 #if defined(CONFIG_SEC_SUPPORT_SECOND_NAD)
@@ -220,16 +253,16 @@ struct nad_env {
 	unsigned int  nad_acat_inform2_data;
 	unsigned int  nad_acat_inform3_data;
 
-	char nad_second[10];
-	char nad_second_result[4];
+	char nad_second[8];
+	char nad_second_result[8];
 	unsigned int  nad_second_data;
 	unsigned int  nad_second_inform2_data;
 	unsigned int  nad_second_inform3_data;
 	unsigned int  nad_second_max_temperature;
 	unsigned int  nad_second_init_temperature;
 
-	char nad_acat_second[10];
-	char nad_acat_second_result[4];
+	char nad_acat_second[8];
+	char nad_acat_second_result[8];
 	unsigned int  nad_acat_second_data;
 	unsigned int  nad_acat_second_inform2_data;
 	unsigned int  nad_acat_second_inform3_data;
@@ -249,7 +282,7 @@ struct nad_env {
 	unsigned int  nad_acat_second_running_count;
 	unsigned int acat_fail_retry_count;
 	nad_fail_backup_data acat_fail_backup[NAD_FAIL_COUNT];
-
+#endif
 #if defined(CONFIG_SEC_NAD_HPM)
 	nad_hpm nad_hpm_info;
 	int hpm_min_diff_level_big[NAD_HPM_BIG_LEVELCOUNT];
@@ -263,9 +296,47 @@ struct nad_env {
 	int nad_api_total_count;
 	nad_api_results nad_api_info[30];
 #endif
-#endif
+
 	int nad_enter_status;
+	
+#if defined(CONFIG_SEC_NAD_X)
+	char nad_extend[8];
+	char nad_extend_result[8];
+	unsigned int nadx_is_excuted;
+	unsigned int nad_extend_data;
+	unsigned int nad_extend_inform2_data;
+	unsigned int nad_extend_inform3_data;
+	unsigned int nad_extend_max_temperature;
+	unsigned int nad_extend_init_temperature;
+	unsigned int nad_extend_loop_count;
+	unsigned int nad_extend_real_count;
+	unsigned int nad_extend_skip_fail;
+	nad_fail_information nad_extend_fail_info;
+	nad_dram_information nad_extend_dram_fail_information;
+	unsigned int nad_X_Pre_Domain_Level[7]; //{cl2_lv, cl1_lv, cl0_lv, g3d_lv, mif_lv, int_lv, disp_lv},
+	unsigned int nad_X_Margin;
+
+	unsigned int nadx_fail_count;
+	nad_fail_backup_data nadx_fail_data_backup;
+	
+	char nad_extend_second[8];
+	char nad_extend_second_result[8];
+	unsigned int nad_extend_second_data;
+	unsigned int nad_extend_second_inform2_data;
+	unsigned int nad_extend_second_inform3_data;
+	unsigned int nad_extend_second_max_temperature;
+	unsigned int nad_extend_second_init_temperature;
+	nad_fail_information nad_extend_second_fail_info;
+	nad_dram_information nad_extend_second_dram_fail_information;
+	unsigned int nad_X_second_Pre_Domain_Level[7]; //{cl2_lv, cl1_lv, cl0_lv, g3d_lv, mif_lv, int_lv, disp_lv},
+	unsigned int nad_X_second_Margin;
+#endif
+
+	nad_fail_backup_data last_fail_data_backup;
+	nad_dram_information nad_last_dram_fail_information;
+	int last_nad_fail_status;
 };
+
 
 struct sec_nad_param {
 	struct work_struct sec_nad_work;

@@ -181,22 +181,24 @@ int asv_table_init(void)
 	int i;
 	unsigned int *p_table;
 	unsigned int *regs;
+#if 0		//HACK
 	unsigned long tmp;
+#endif
 
 	p_table = (unsigned int *)&asv_tbl;
 
+#if 0		//HACK
 	for (i = 0; i < ASV_INFO_ADDR_CNT; i++) {
 		exynos_smc_readsfr((unsigned long)(ASV_TABLE_BASE + 0x4 * i), &tmp);
 		*(p_table + i) = (unsigned int)tmp;
 	}
+#endif
 
 	p_table = (unsigned int *)&id_tbl;
 
 	regs = (unsigned int *)ioremap(ID_TABLE_BASE, ID_INFO_ADDR_CNT * sizeof(int));
 	for (i = 0; i < ID_INFO_ADDR_CNT; i++)
 		*(p_table + i) = (unsigned int)regs[i];
-
-	id_tbl.ids_bigcpu = id_tbl.ids_bigcpu << 1;
 
 	pr_info("asv_table_version : %d\n", asv_tbl.asv_table_version);
 	pr_info("  littlecpu grp : %d\n", asv_tbl.littlecpu_asv_group);

@@ -1,17 +1,11 @@
 /*
- * dma.c  --  ALSA Soc Audio Layer
+ * dp_dma.c  --  ALSA Soc Audio Layer
  *
- * (c) 2006 Wolfson Microelectronics PLC.
- * Graeme Gregory graeme.gregory@wolfsonmicro.com or linux@wolfsonmicro.com
+ * Copyright (c) 2018 Samsung Electronics Co. Ltd.
  *
- * Copyright 2004-2005 Simtec Electronics
- *	http://armlinux.simtec.co.uk/
- *	Ben Dooks <ben@simtec.co.uk>
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/slab.h>
@@ -22,7 +16,7 @@
 #include <linux/kthread.h>
 #include <linux/iommu.h>
 #include <linux/dma/dma-pl330.h>
-#ifdef CONFIG_SOC_EXYNOS9810
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 #include <linux/switch.h>
 #include <sound/samsung/dp_ado.h>
 #endif
@@ -38,12 +32,12 @@
 #define ST_RUNNING		(1<<0)
 #define ST_OPENED		(1<<1)
 
-#define SRAM_END		(0x04000000)
-
-#ifdef CONFIG_SOC_EXYNOS8895
+#if defined(CONFIG_SOC_EXYNOS8895)
 #define DP_FIFO                        (0x11090838)
-#elif CONFIG_SOC_EXYNOS9810
+#elif defined(CONFIG_SOC_EXYNOS9810)
 #define DP_FIFO                        (0x11095818)
+#elif defined(CONFIG_SOC_EXYNOS9820)
+#define DP_FIFO                        (0x130B5818)
 #endif
 
 #define RX_SRAM_SIZE		(0x2000)	/* 8 KB */
@@ -78,11 +72,7 @@ struct s3c_dma_params {
 	int channel;				/* Channel ID */
 	dma_addr_t dma_addr;
 	int dma_size;			/* Size of the DMA transfer */
-#ifdef CONFIG_ARM64
 	unsigned long ch;
-#else
-	unsigned ch;
-#endif
 	struct samsung_dma_ops *ops;
 	struct device *sec_dma_dev; /* stream identifier */
 	char *ch_name;
@@ -102,7 +92,6 @@ struct runtime_data {
 	struct s3c_dma_params *params;
 	struct snd_pcm_hardware hw;
 	struct displayport_audio_config_data dp_config;
-	bool cap_dram_used;
 	dma_addr_t irq_pos;
 	u32 irq_cnt;
 };
@@ -330,7 +319,6 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 	prtd->dma_start = runtime->dma_addr;
 	prtd->dma_pos = prtd->dma_start;
 	prtd->dma_end = prtd->dma_start + totbytes;
-	prtd->cap_dram_used = runtime->dma_addr < SRAM_END ? false : true;
 	while ((totbytes / prtd->dma_period) < PERIOD_MIN)
 		prtd->dma_period >>= 1;
 	spin_unlock_irq(&prtd->lock);
@@ -611,8 +599,11 @@ static int preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	buf->private_data = NULL;
 	buf->area = dma_alloc_coherent(pcm->card->dev, size,
 					&buf->addr, GFP_KERNEL);
-	if (!buf->area)
+	if (!buf->area) {
+		pr_err("Failed to allocate memory for dp audio buffer\n");
 		return -ENOMEM;
+	}
+
 	buf->bytes = size;
 	return 0;
 }
@@ -622,7 +613,6 @@ static void dma_free_dma_buffers(struct snd_pcm *pcm)
 {
 	struct snd_pcm_substream *substream;
 	struct snd_dma_buffer *buf;
-	struct runtime_data *prtd;
 	int stream;
 
 	pr_debug("Entered %s\n", __func__);
@@ -638,15 +628,11 @@ static void dma_free_dma_buffers(struct snd_pcm *pcm)
 		if (!buf->area)
 			continue;
 
-		prtd = substream->runtime->private_data;
-		if (prtd->cap_dram_used) {
-			dma_free_coherent(pcm->card->dev, buf->bytes,
-						buf->area, buf->addr);
-		} else {
-			iounmap(buf->area);
-		}
+		dma_free_coherent(pcm->card->dev, buf->bytes,
+					buf->area, buf->addr);
 
 		buf->area = NULL;
+		buf->bytes = 0;
 	}
 }
 
@@ -673,7 +659,11 @@ static int dma_new(struct snd_soc_pcm_runtime *rtd)
 		card->dev->coherent_dma_mask = DMA_BIT_MASK(36);
 #endif
 
+#if defined(CONFIG_SOC_EXYNOS9810)
 	dp_debug_sfr = ioremap(0x11090000, 0x7000);
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	dp_debug_sfr = ioremap(0x130B0000, 0x7000);
+#endif
 
 	if (pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream) {
 		ret = preallocate_dma_buffer(pcm,
@@ -698,11 +688,11 @@ static struct snd_soc_platform_driver samsung_display_adma = {
 	.pcm_free	= dma_free_dma_buffers,
 };
 
-#ifdef CONFIG_SOC_EXYNOS9810
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 struct switch_dev dp_ado_switch;
 void dp_ado_switch_set_state(int state)
 {
-	switch_set_state(&dp_ado_switch, (state  < 0) ? 0 : 1);
+	switch_set_state(&dp_ado_switch, state);
 }
 #endif
 
@@ -710,7 +700,7 @@ static int samsung_display_adma_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct runtime_data *data;
-#ifdef CONFIG_SOC_EXYNOS9810
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	int ret;
 #endif
 
@@ -726,7 +716,7 @@ static int samsung_display_adma_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, data);
 
 	spin_lock_init(&data->lock);
-#ifdef CONFIG_SOC_EXYNOS9810
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	dp_ado_switch.name = "ch_hdmi_audio";
 	ret = switch_dev_register(&dp_ado_switch);
 	if (ret) {

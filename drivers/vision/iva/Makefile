@@ -24,10 +24,20 @@ endif
 ifdef CONFIG_SOC_EXYNOS9810
 iva_ctl-objs += iva_vdma20.o
 endif
+ifdef CONFIG_SOC_EXYNOS9820
+iva_ctl-objs += iva_vdma30.o
+endif
 ifdef CONFIG_IVA_FPGA
+ifdef CONFIG_SOC_EXYNOS9810
 iva_ctl-objs +=\
 	iva_mem_sync.o\
 	iva_vdma20.o
+endif
+ifdef CONFIG_SOC_EXYNOS9820
+iva_ctl-objs +=\
+	iva_mem_sync.o\
+	iva_vdma30.o
+endif
 endif
 
 obj-ko := $(patsubst %.o,%.ko,$(obj-m))

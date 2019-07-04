@@ -145,8 +145,11 @@ int fimc_is_itf_open_wrap(struct fimc_is_device_ischain *device, u32 module_id,
 	for (hw_id = 0; hw_id < DEV_HW_END; hw_id++)
 		clear_bit(hw_id, &hardware->hw_map[instance]);
 
-	for (group_slot = GROUP_SLOT_3AA; group_slot < GROUP_SLOT_MAX; group_slot++) {
+	for (group_slot = GROUP_SLOT_PAF; group_slot < GROUP_SLOT_MAX; group_slot++) {
 		switch (group_slot) {
+		case GROUP_SLOT_PAF:
+			group = &device->group_paf;
+			break;
 		case GROUP_SLOT_3AA:
 			group = &device->group_3aa;
 			break;
@@ -247,7 +250,7 @@ int fimc_is_itf_close_wrap(struct fimc_is_device_ischain *device)
 	}
 #endif
 
-	for (group_slot = GROUP_SLOT_3AA; group_slot < GROUP_SLOT_MAX; group_slot++) {
+	for (group_slot = GROUP_SLOT_PAF; group_slot < GROUP_SLOT_MAX; group_slot++) {
 		group_id = path->group[group_slot];
 		dbg_hw(1, "itf_close_wrap: group[SLOT_%d]=[%x]\n", group_slot, group_id);
 		hw_maxnum = fimc_is_get_hw_list(group_id, hw_list);
@@ -454,6 +457,9 @@ int fimc_is_itf_power_down_wrap(struct fimc_is_interface *interface, u32 instanc
 {
 	int ret = 0;
 	struct fimc_is_core *core;
+#ifdef USE_DDK_SHUT_DOWN_FUNC
+	void *data = NULL;
+#endif
 
 	dbg_hw(2, "%s\n", __func__);
 
@@ -464,6 +470,16 @@ int fimc_is_itf_power_down_wrap(struct fimc_is_interface *interface, u32 instanc
 	}
 
 	fimc_is_itf_sudden_stop_wrap(&core->ischain[instance], instance);
+
+#ifdef USE_DDK_SHUT_DOWN_FUNC
+#ifdef ENABLE_FPSIMD_FOR_USER
+	fpsimd_get();
+	((ddk_shut_down_func_t)DDK_SHUT_DOWN_FUNC_ADDR)(data);
+	fpsimd_put();
+#else
+	((ddk_shut_down_func_t)DDK_SHUT_DOWN_FUNC_ADDR)(data);
+#endif
+#endif
 
 	return ret;
 }

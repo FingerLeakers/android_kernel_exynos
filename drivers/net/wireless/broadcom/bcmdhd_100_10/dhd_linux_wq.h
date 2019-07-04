@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux_wq.h 791030 2018-11-28 02:28:48Z $
+ * $Id: dhd_linux_wq.h 799739 2019-01-17 07:31:48Z $
  */
 #ifndef _dhd_linux_wq_h_
 #define _dhd_linux_wq_h_
@@ -56,6 +56,7 @@ enum _wq_event {
 #endif /* DHD_ERPOM */
 	DHD_WQ_WORK_H2D_CONSOLE_TIME_STAMP_MATCH,
 	DHD_WQ_WORK_AXI_ERROR_DUMP,
+	DHD_WQ_WORK_CTO_RECOVERY,
 	DHD_MAX_WQ_EVENTS
 };
 

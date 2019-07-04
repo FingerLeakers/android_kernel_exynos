@@ -20,7 +20,13 @@
 /*************************************************************************/
 
 #define VENDOR		"STM"
+#if defined (CONFIG_SENSORS_SSP_LSM6DSL)
 #define CHIP_ID		"LSM6DSL"
+#define SELFTEST_DPS_LIMIT  40
+#elif  defined (CONFIG_SENSORS_SSP_LSM6DSO)
+#define CHIP_ID		"LSM6DSO"
+#define SELFTEST_DPS_LIMIT  15
+#endif
 
 #define CALIBRATION_FILE_PATH	"/efs/FactoryApp/gyro_cal_data"
 #define VERBOSE_OUT 1
@@ -90,7 +96,7 @@ int gyro_open_calibration(struct ssp_data *data)
 		pr_err("[SSP]: %s - Can't open calibration file(%d)\n", __func__, -iRet);
 		return iRet;
 	}
-
+	
 	iRet = vfs_read(cal_filp, (char *)&data->gyrocal, 3 * sizeof(int), &cal_filp->f_pos);
 	if (iRet < 0) {
 		pr_err("[SSP]: %s - Can't read gyro cal to file\n", __func__);
@@ -110,6 +116,7 @@ int save_gyro_caldata(struct ssp_data *data, s32 *iCalData)
 	int iRet = 0;
 	struct file *cal_filp = NULL;
 	mm_segment_t old_fs;
+	u8 gyro_mag_cal[25] = {0, };
 
 	data->gyrocal.x = iCalData[0];
 	data->gyrocal.y = iCalData[1];
@@ -121,19 +128,31 @@ int save_gyro_caldata(struct ssp_data *data, s32 *iCalData)
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	cal_filp = filp_open(CALIBRATION_FILE_PATH, O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
+	cal_filp = filp_open(CALIBRATION_FILE_PATH, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0660);
 	if (IS_ERR(cal_filp)) {
 		pr_err("[SSP]: %s - Can't open calibration file\n", __func__);
 		set_fs(old_fs);
 		iRet = PTR_ERR(cal_filp);
 		return -EIO;
 	}
-
+	
 	iRet = vfs_write(cal_filp, (char *)&data->gyrocal, 3 * sizeof(int), &cal_filp->f_pos);
 	if (iRet < 0) {
 		pr_err("[SSP]: %s - Can't write gyro cal to file\n", __func__);
 		iRet = -EIO;
 	}
+
+	cal_filp->f_pos = 0;
+	iRet = vfs_read(cal_filp, (char *)gyro_mag_cal, 25, &cal_filp->f_pos);
+	pr_err("[SSP]: %s, gyro_cal= %d %d %d %d %d %d %d %d %d %d %d %d", __func__,
+			gyro_mag_cal[0], gyro_mag_cal[1], gyro_mag_cal[2], gyro_mag_cal[3],
+			gyro_mag_cal[4], gyro_mag_cal[5], gyro_mag_cal[6], gyro_mag_cal[7],
+			gyro_mag_cal[8], gyro_mag_cal[9], gyro_mag_cal[10], gyro_mag_cal[11]);
+	pr_err("[SSP]: %s, mag_cal= %d %d %d %d %d %d %d %d %d %d %d %d %d", __func__,
+			gyro_mag_cal[12], gyro_mag_cal[13], gyro_mag_cal[14], gyro_mag_cal[15],
+			gyro_mag_cal[16], gyro_mag_cal[17], gyro_mag_cal[18], gyro_mag_cal[19],
+			gyro_mag_cal[20], gyro_mag_cal[21], gyro_mag_cal[22], gyro_mag_cal[23], gyro_mag_cal[24]);
+
 
 	filp_close(cal_filp, current->files);
 	set_fs(old_fs);
@@ -236,7 +255,12 @@ static ssize_t gyro_get_temp(struct device *dev,
 static ssize_t lsm6dsl_gyro_selftest(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#if  defined (CONFIG_SENSORS_SSP_LSM6DSO)
+	char chTempBuf[39] = { 0,};
+        int fifo_test_result = 0, fifo_zro_result = 0, fifo_hwst_delta_result = 0;
+#else
 	char chTempBuf[36] = { 0,};
+#endif
 	u8 initialized = 0;
 	s8 hw_result = 0;
 	int j = 0, total_count = 0, ret_val = 0, gyro_lib_dl_fail = 0;
@@ -259,7 +283,7 @@ static ssize_t lsm6dsl_gyro_selftest(struct device *dev,
 	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 
 	msg->cmd = GYROSCOPE_FACTORY;
-	msg->length = 36;
+	msg->length = ARRAY_SIZE(chTempBuf);
 	msg->options = AP2HUB_READ;
 	msg->buffer = chTempBuf;
 	msg->free_buffer = 0;
@@ -329,13 +353,22 @@ static ssize_t lsm6dsl_gyro_selftest(struct device *dev,
 				chTempBuf[32]);
 	st_bias[2] = (s16)((chTempBuf[35] << 8) +
 				chTempBuf[34]);
-
+    
 	pr_info("[SSP] init: %d, total cnt: %d\n", initialized, total_count);
 	pr_info("[SSP] hw_result: %d, %d, %d, %d\n", hw_result,
 		shift_ratio[0], shift_ratio[1],	shift_ratio[2]);
 	pr_info("[SSP] avg %+8ld %+8ld %+8ld (LSB)\n", avg[0], avg[1], avg[2]);
 	pr_info("[SSP] st_zro %+8d %+8d %+8d (LSB)\n", st_zro[0], st_zro[1], st_zro[2]);
 	pr_info("[SSP] rms %+8ld %+8ld %+8ld (LSB)\n", rms[0], rms[1], rms[2]);
+#if  defined (CONFIG_SENSORS_SSP_LSM6DSO)
+        fifo_test_result = chTempBuf[36];
+        fifo_zro_result = chTempBuf[37];
+        fifo_hwst_delta_result = chTempBuf[38];
+        pr_info("[SSP] test :%d zro :%d hwst_delta :%d", fifo_test_result, fifo_zro_result, fifo_hwst_delta_result);
+
+        if(!fifo_test_result || !fifo_zro_result || !fifo_hwst_delta_result)        
+                return sprintf(buf, "%d,%d,%d\n", fifo_test_result, fifo_zro_result, fifo_hwst_delta_result);
+#endif
 
 	//FIFO ZRO check pass / fail
 	gyro_fifo_avg[0] = avg[0] * DEF_GYRO_SENS / DEF_SCALE_FOR_FLOAT;
@@ -366,7 +399,9 @@ static ssize_t lsm6dsl_gyro_selftest(struct device *dev,
 			&& (gyro_self_diff[2] >= 150 && gyro_self_diff[2] <= 700))
 		self_test_ret = 1;
 
-	if (ABS(gyro_self_zro[0]) <= 40 && ABS(gyro_self_zro[1]) <= 40 && ABS(gyro_self_zro[2]) <= 40)
+	if (ABS(gyro_self_zro[0]) <= SELFTEST_DPS_LIMIT 
+            && ABS(gyro_self_zro[1]) <= SELFTEST_DPS_LIMIT 
+            && ABS(gyro_self_zro[2]) <= SELFTEST_DPS_LIMIT)
 		self_test_zro_ret = 1;
 
 	if (hw_result < 1) {
@@ -396,7 +431,9 @@ static ssize_t lsm6dsl_gyro_selftest(struct device *dev,
 	}
 
 	// AVG value range test +/- 40
-	if ((ABS(gyro_fifo_avg[0]) > 40) || (ABS(gyro_fifo_avg[1]) > 40) || (ABS(gyro_fifo_avg[2]) > 40)) {
+	if ((ABS(gyro_fifo_avg[0]) > SELFTEST_DPS_LIMIT) 
+            || (ABS(gyro_fifo_avg[1]) > SELFTEST_DPS_LIMIT) 
+            || (ABS(gyro_fifo_avg[2]) > SELFTEST_DPS_LIMIT)) {
 		ssp_dbg("[SSP]: %s - %d,%d,%d fail.\n",	__func__, gyro_fifo_avg[0], gyro_fifo_avg[1], gyro_fifo_avg[2]);
 		return sprintf(buf, "%d,%d,%d\n", gyro_fifo_avg[0], gyro_fifo_avg[1], gyro_fifo_avg[2]);
 	}

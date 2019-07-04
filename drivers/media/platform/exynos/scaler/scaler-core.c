@@ -18,15 +18,16 @@
 #include <linux/interrupt.h>
 #include <linux/clk.h>
 #include <linux/slab.h>
+#include <linux/sort.h>
 #include <linux/pm_runtime.h>
 #include <linux/exynos_iovmm.h>
 #include <linux/smc.h>
+#include <linux/ion_exynos.h>
 
 #include <media/v4l2-ioctl.h>
 #include <media/m2m1shot.h>
 #include <media/m2m1shot-helper.h>
-
-#include <video/videonode.h>
+#include <media/videobuf2-dma-sg.h>
 
 #include "scaler.h"
 #include "scaler-regs.h"
@@ -64,7 +65,6 @@ struct vb2_sc_buffer {
 	struct v4l2_m2m_buffer mb;
 	struct sc_ctx *ctx;
 	ktime_t ktime;
-	struct work_struct work;
 };
 
 static const struct sc_fmt sc_formats[] = {
@@ -251,7 +251,8 @@ static const struct sc_fmt sc_formats[] = {
 	}, {
 		.name		= "YUV 4:2:0 contiguous Y/CbCr 10-bit",
 		.pixelformat	= V4L2_PIX_FMT_NV12N_10B,
-		.cfg_val	= SCALER_CFG_FMT_YCBCR420_2P,
+		.cfg_val	= SCALER_CFG_FMT_YCBCR420_2P |
+					SCALER_CFG_10BIT_S10,
 		.bitperpixel	= { 15 },
 		.num_planes	= 1,
 		.num_comp	= 2,
@@ -280,9 +281,21 @@ static const struct sc_fmt sc_formats[] = {
 		.name		= "YUV 4:2:0 contiguous 2-planar, Y/CbCr 10-bit",
 		.pixelformat	= V4L2_PIX_FMT_NV12M_P010,
 		.cfg_val	= SCALER_CFG_FMT_YCBCR420_2P |
+					SCALER_CFG_BYTE_SWAP |
 					SCALER_CFG_10BIT_P010,
 		.bitperpixel	= { 16, 8 },
 		.num_planes	= 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+		.v_shift	= 1,
+	}, {
+		.name		= "YUV 4:2:0 contiguous, Y/CbCr 10-bit",
+		.pixelformat	= V4L2_PIX_FMT_NV12_P010,
+		.cfg_val	= SCALER_CFG_FMT_YCBCR420_2P |
+					SCALER_CFG_BYTE_SWAP |
+					SCALER_CFG_10BIT_P010,
+		.bitperpixel	= { 24 },
+		.num_planes	= 1,
 		.num_comp	= 2,
 		.h_shift	= 1,
 		.v_shift	= 1,
@@ -329,6 +342,8 @@ static const struct sc_fmt sc_formats[] = {
 
 /* must specify in revers order of SCALER_VERSION(xyz) */
 static const u32 sc_version_table[][2] = {
+	{ 0x04000001, SCALER_VERSION(5, 1, 0) }, /* SC_POLY */
+	{ 0x04000000, SCALER_VERSION(5, 1, 0) }, /* SC_POLY */
 	{ 0x02000100, SCALER_VERSION(5, 0, 1) }, /* SC_POLY */
 	{ 0x02000000, SCALER_VERSION(5, 0, 0) },
 	{ 0x80060007, SCALER_VERSION(4, 2, 0) }, /* SC_BI */
@@ -349,6 +364,30 @@ static const u32 sc_version_table[][2] = {
 
 static const struct sc_variant sc_variant[] = {
 	{
+		.limit_input = {
+			.min_w		= 16,
+			.min_h		= 16,
+			.max_w		= 8192,
+			.max_h		= 8192,
+		},
+		.limit_output = {
+			.min_w		= 4,
+			.min_h		= 4,
+			.max_w		= 8192,
+			.max_h		= 8192,
+		},
+		.version		= SCALER_VERSION(5, 1, 0),
+		.sc_up_max		= SCALE_RATIO_CONST(1, 8),
+		.sc_down_min		= SCALE_RATIO_CONST(4, 1),
+		.sc_up_swmax		= SCALE_RATIO_CONST(1, 64),
+		.sc_down_swmin		= SCALE_RATIO_CONST(16, 1),
+		.blending		= 0,
+		.prescale		= 0,
+		.ratio_20bit		= 1,
+		.initphase		= 1,
+		.pixfmt_10bit		= 1,
+		.minsize_srcplane	= 4096 + 1,
+	}, {
 		.limit_input = {
 			.min_w		= 16,
 			.min_h		= 16,
@@ -547,7 +586,7 @@ static const struct sc_variant sc_variant[] = {
 	},
 };
 
-#ifdef CONFIG_PM_DEVFREQ
+#if defined(CONFIG_PM_DEVFREQ)
 static void sc_pm_qos_update_devfreq(struct sc_qos_request *qos_req,
 				int pm_qos_class, u32 freq)
 {
@@ -602,17 +641,13 @@ void sc_request_devfreq(struct sc_qos_request *qos_req,
 			PM_QOS_DEVICE_THROUGHPUT, qos_table[lv].freq_int);
 }
 
-static bool sc_get_pm_qos_level(struct sc_ctx *ctx, int framerate)
+static bool sc_get_pm_qos_level_by_data_size(struct sc_ctx *ctx, int framerate)
 {
 	struct sc_dev *sc = ctx->sc_dev;
 	struct sc_frame *frame = &ctx->d_frame;
 	struct sc_qos_table *qos_table = sc->qos_table;
 	unsigned int dst_len = 0;
 	int i;
-
-	/* No need to calculate if no qos_table exists. */
-	if (!qos_table)
-		return false;
 
 	for (i = 0; i < frame->sc_fmt->num_planes; i++)
 		dst_len += frame->bytesused[i];
@@ -640,6 +675,86 @@ static bool sc_get_pm_qos_level(struct sc_ctx *ctx, int framerate)
 	ctx->pm_qos_lv = i;
 
 	return true;
+}
+
+/*
+ * Required Clock (KHz) = (width * height) / (process time(ms) * ppc)
+ */
+static int sc_get_clock_khz(struct sc_ctx *ctx,
+			struct sc_frame *frame, int process_time)
+{
+	struct sc_dev *sc = ctx->sc_dev;
+	struct sc_ppc_table *ppc_table = sc->ppc_table;
+	int ppc_idx = (ctx->flip_rot_cfg & SCALER_ROT_90) ? 1 : 0;
+	int i, bpp = 0, ppc = 0;
+	unsigned long clk;
+
+	for (i = 0; i < frame->sc_fmt->num_planes; i++)
+		bpp += frame->sc_fmt->bitperpixel[i];
+
+	for (i = 0; i < sc->ppc_table_cnt; i++) {
+		if (ppc_table[i].bpp == bpp) {
+			ppc = ppc_table[i].ppc[ppc_idx];
+			break;
+		}
+	}
+
+	if (!ppc || !process_time)
+		return 0;
+
+	/*
+	 * process_time is unit of microseconds,
+	 * and ppc was already multiplied by 100 to eliminate the decimal point.
+	 * So clk should be multiplied by 100000.
+	 */
+	clk = (unsigned long)(frame->crop.width * frame->crop.height) * 100000;
+	clk /= (process_time * ppc);
+
+	if (clk > INT_MAX)
+		clk = INT_MAX;
+
+	return (int)clk;
+}
+
+static bool sc_get_pm_qos_level_by_ppc(struct sc_ctx *ctx, int framerate)
+{
+	struct sc_dev *sc = ctx->sc_dev;
+	struct sc_qos_table *qos_table = sc->qos_table;
+	int time_us = 1000000 / framerate;
+	int src_clk, dst_clk, target_clk;
+	int i;
+
+	src_clk = sc_get_clock_khz(ctx, &ctx->s_frame, time_us);
+	dst_clk = sc_get_clock_khz(ctx, &ctx->d_frame, time_us);
+
+	target_clk = max(src_clk, dst_clk);
+
+	for (i = sc->qos_table_cnt - 1; i >= 0; i--) {
+		if (qos_table[i].freq_int >= target_clk)
+			break;
+	}
+
+	/* No request is required if level is same. */
+	if (ctx->pm_qos_lv == i)
+		return false;
+
+	ctx->pm_qos_lv = i;
+
+	return true;
+}
+
+static bool sc_get_pm_qos_level(struct sc_ctx *ctx, int framerate)
+{
+	struct sc_dev *sc = ctx->sc_dev;
+
+	/* No need to calculate if no qos_table exists. */
+	if (!sc->qos_table)
+		return false;
+
+	if (!sc->ppc_table)
+		return sc_get_pm_qos_level_by_data_size(ctx, framerate);
+
+	return sc_get_pm_qos_level_by_ppc(ctx, framerate);
 }
 
 /* Find the matches format */
@@ -679,7 +794,7 @@ static int sc_v4l2_querycap(struct file *file, void *fh,
 	cap->capabilities = V4L2_CAP_STREAMING |
 		V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_OUTPUT_MPLANE;
 	cap->capabilities |= V4L2_CAP_DEVICE_CAPS;
-	cap->device_caps = 0x0100 ;
+	cap->device_caps = V4L2_CAP_FENCES;
 
 	return 0;
 }
@@ -981,64 +1096,12 @@ static int sc_v4l2_s_fmt_mplane(struct file *file, void *fh,
 	return 0;
 }
 
-static void sc_fence_work(struct work_struct *work)
-{
-	struct vb2_sc_buffer *svb =
-			container_of(work, struct vb2_sc_buffer, work);
-	struct sc_ctx *ctx = vb2_get_drv_priv(svb->mb.vb.vb2_buf.vb2_queue);
-	struct sync_file *sync_file;
-	int ret;
-
-	/* Buffers do not have acquire_fence are never pushed to workqueue */
-	BUG_ON(svb->mb.vb.vb2_buf.acquire_fence == NULL);
-	BUG_ON(!ctx->m2m_ctx);
-
-	sync_file = svb->mb.vb.vb2_buf.acquire_fence;
-	svb->mb.vb.vb2_buf.acquire_fence = NULL;
-
-	ret = sync_file_wait(sync_file, 1000);
-	if (ret == -ETIME) {
-		dev_warn(ctx->sc_dev->dev, "sync_fence_wait() timeout\n");
-		ret = sync_file_wait(sync_file, 10 * MSEC_PER_SEC);
-
-		if (ret)
-			dev_warn(ctx->sc_dev->dev,
-					"sync_fence_wait() error (%d)\n", ret);
-	}
-
-	fput(sync_file->file);
-
-	/* OK to preceed the timed out buffers: It does not harm the system */
-	v4l2_m2m_buf_queue(ctx->m2m_ctx, &svb->mb.vb);
-	v4l2_m2m_try_schedule(ctx->m2m_ctx);
-}
-
 static int sc_v4l2_reqbufs(struct file *file, void *fh,
 			    struct v4l2_requestbuffers *reqbufs)
 {
 	struct sc_ctx *ctx = fh_to_sc_ctx(fh);
-	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->m2m_ctx, reqbufs->type);
-	unsigned int i;
-	int ret;
 
-	ret = v4l2_m2m_reqbufs(file, ctx->m2m_ctx, reqbufs);
-	if (ret)
-		return ret;
-
-	for (i = 0; i < vq->num_buffers; i++) {
-		struct vb2_buffer *vb;
-		struct vb2_v4l2_buffer *vb2_v4l2;
-		struct v4l2_m2m_buffer *mb;
-		struct vb2_sc_buffer *svb;
-
-		vb = vq->bufs[i];
-		vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-		mb = container_of(vb2_v4l2, typeof(*mb), vb);
-		svb = container_of(mb, typeof(*svb), mb);
-
-		INIT_WORK(&svb->work, sc_fence_work);
-	}
-	return 0;
+	return v4l2_m2m_reqbufs(file, ctx->m2m_ctx, reqbufs);
 }
 
 static int sc_v4l2_querybuf(struct file *file, void *fh,
@@ -1216,6 +1279,10 @@ static int sc_v4l2_s_crop(struct file *file, void *fh,
 			w_align, &rect.top, 0, frame->height - rect.height,
 			h_align, 0);
 
+	if (!V4L2_TYPE_IS_OUTPUT(cr->type) &&
+			sc_fmt_is_s10bit_yuv(frame->sc_fmt->pixelformat))
+		rect.width = ALIGN_DOWN(rect.width, 4);
+
 	if ((rect.height > frame->height) || (rect.top > frame->height) ||
 		(rect.width > frame->width) || (rect.left > frame->width)) {
 		v4l2_err(&ctx->sc_dev->m2m.v4l2_dev,
@@ -1300,6 +1367,7 @@ static void sc_calc_intbufsize(struct sc_dev *sc, struct sc_int_frame *int_frame
 	struct sc_frame *frame = &int_frame->frame;
 	unsigned int pixsize, bytesize;
 	unsigned int ext_size = 0, i;
+	u32 min_size = sc->variant->minsize_srcplane;
 
 	pixsize = frame->width * frame->height;
 	bytesize = (pixsize * frame->sc_fmt->bitperpixel[0]) >> 3;
@@ -1312,16 +1380,19 @@ static void sc_calc_intbufsize(struct sc_dev *sc, struct sc_int_frame *int_frame
 		frame->addr.size[SC_PLANE_Y] = bytesize;
 		break;
 	case 2:
-		if (frame->sc_fmt->num_planes == 1) {
+		if (sc_fmt_is_s10bit_yuv(frame->sc_fmt->pixelformat)) {
+			sc_calc_s10b_planesize(frame->sc_fmt->pixelformat,
+					frame->width, frame->height,
+					&frame->addr.size[SC_PLANE_Y],
+					&frame->addr.size[SC_PLANE_CB],
+					false);
+		} else if (frame->sc_fmt->num_planes == 1) {
+			if (frame->sc_fmt->pixelformat == V4L2_PIX_FMT_NV12_P010)
+				pixsize *= 2;
 			frame->addr.size[SC_PLANE_Y] = pixsize;
 			frame->addr.size[SC_PLANE_CB] = bytesize - pixsize;
 		} else if (frame->sc_fmt->num_planes == 2) {
-			if (frame->sc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_S10B) {
-				frame->addr.size[SC_PLANE_Y] = NV12M_Y_SIZE(frame->width, frame->height);
-				frame->addr.size[SC_PLANE_CB] = NV12M_CBCR_SIZE(frame->width, frame->height);
-			} else {
-				sc_calc_planesize(frame, pixsize);
-			}
+			sc_calc_planesize(frame, pixsize);
 		}
 		break;
 	case 3:
@@ -1351,6 +1422,11 @@ static void sc_calc_intbufsize(struct sc_dev *sc, struct sc_int_frame *int_frame
 	for (i = 0; ext_size && i < frame->sc_fmt->num_comp; i++)
 		frame->addr.size[i] += (i == 0) ? ext_size : ext_size/2;
 
+	for (i = 0; i < frame->sc_fmt->num_comp; i++) {
+		if (frame->addr.size[i] < min_size)
+			frame->addr.size[i] = min_size;
+	}
+
 	memcpy(&int_frame->src_addr, &frame->addr, sizeof(int_frame->src_addr));
 	memcpy(&int_frame->dst_addr, &frame->addr, sizeof(int_frame->dst_addr));
 }
@@ -1362,7 +1438,7 @@ static void free_intermediate_frame(struct sc_ctx *ctx)
 	if (ctx->i_frame == NULL)
 		return;
 
-	if (!ctx->i_frame->handle[0])
+	if (!ctx->i_frame->dma_buf[0])
 		return;
 
 	for(i = 0; i < 3; i++) {
@@ -1372,16 +1448,15 @@ static void free_intermediate_frame(struct sc_ctx *ctx)
 		if (ctx->i_frame->dst_addr.ioaddr[i])
 			ion_iovmm_unmap(ctx->i_frame->attachment[i],
 					ctx->i_frame->dst_addr.ioaddr[i]);
-		if (ctx->i_frame->handle[i]) {
+		if (ctx->i_frame->dma_buf[i]) {
 			dma_buf_unmap_attachment(ctx->i_frame->attachment[i],
 					ctx->i_frame->sgt[i], DMA_BIDIRECTIONAL);
 			dma_buf_detach(ctx->i_frame->dma_buf[i], ctx->i_frame->attachment[i]);
 			dma_buf_put(ctx->i_frame->dma_buf[i]);
-			ion_free(ctx->sc_dev->client, ctx->i_frame->handle[i]);
 		}
 	}
 
-	memset(&ctx->i_frame->handle, 0, sizeof(struct ion_handle *) * 3);
+	memset(&ctx->i_frame->dma_buf, 0, sizeof(struct dma_buf *) * 3);
 	memset(&ctx->i_frame->src_addr, 0, sizeof(ctx->i_frame->src_addr));
 	memset(&ctx->i_frame->dst_addr, 0, sizeof(ctx->i_frame->dst_addr));
 }
@@ -1396,11 +1471,79 @@ static void destroy_intermediate_frame(struct sc_ctx *ctx)
 	}
 }
 
+static bool alloc_intermediate_buffer(struct device *dev,
+				      struct sc_int_frame *iframe, int i,
+				      size_t size, const char *heapname,
+				      unsigned long flags)
+{
+	iframe->dma_buf[i] = ion_alloc_dmabuf(heapname, size, flags);
+	if (IS_ERR(iframe->dma_buf[i])) {
+		dev_err(dev,
+			"Failed to allocate intermediate buffer.%d (err %ld)",
+			i, PTR_ERR(iframe->dma_buf[i]));
+		goto err_dmabuf;
+	}
+
+	iframe->attachment[i] = dma_buf_attach(iframe->dma_buf[i], dev);
+	if (IS_ERR(iframe->attachment[i])) {
+		dev_err(dev,
+			"Failed to attach from dma_buf of buffer.%d (err %ld)",
+			i, PTR_ERR(iframe->attachment[i]));
+		goto err_attach;
+	}
+
+	iframe->sgt[i] = dma_buf_map_attachment(iframe->attachment[i],
+						DMA_BIDIRECTIONAL);
+	if (IS_ERR(iframe->sgt[i])) {
+		dev_err(dev, "Failed to get sgt from buffer.%d (err %ld)",
+			i, PTR_ERR(iframe->sgt[i]));
+		goto err_map;
+	}
+
+	iframe->src_addr.ioaddr[i] = ion_iovmm_map(iframe->attachment[i], 0,
+						   size, DMA_TO_DEVICE, 0);
+	if (IS_ERR_VALUE(iframe->src_addr.ioaddr[i])) {
+		dev_err(dev,
+			"Failed to allocate iova of buffer.%d (err %pa)",
+			i, &iframe->src_addr.ioaddr[i]);
+		goto err_src_map;
+	}
+
+	iframe->dst_addr.ioaddr[i] = ion_iovmm_map(iframe->attachment[i], 0,
+						   size, DMA_FROM_DEVICE, 0);
+	if (IS_ERR_VALUE(iframe->dst_addr.ioaddr[i])) {
+		dev_err(dev,
+			"Failed to allocate iova of buffer.%d (err %pa)",
+			i, &iframe->dst_addr.ioaddr[i]);
+		goto err_dst_map;
+	}
+
+	return true;
+
+err_dst_map:
+	iframe->dst_addr.ioaddr[i] = 0;
+	ion_iovmm_unmap(iframe->attachment[i], iframe->src_addr.ioaddr[i]);
+err_src_map:
+	iframe->src_addr.ioaddr[i] = 0;
+	dma_buf_unmap_attachment(iframe->attachment[i], iframe->sgt[i],
+				 DMA_BIDIRECTIONAL);
+err_map:
+	iframe->sgt[i] = NULL;
+	dma_buf_detach(iframe->dma_buf[i], iframe->attachment[i]);
+err_attach:
+	iframe->attachment[i] = NULL;
+	dma_buf_put(iframe->dma_buf[i]);
+err_dmabuf:
+	iframe->dma_buf[i] = NULL;
+	return false;
+}
+
 static bool initialize_initermediate_frame(struct sc_ctx *ctx)
 {
 	struct sc_frame *frame;
 	struct sc_dev *sc = ctx->sc_dev;
-	int ion_mask, flag;
+	const char *heapname;
+	unsigned long flag;
 	int i;
 
 	frame = &ctx->i_frame->frame;
@@ -1416,16 +1559,16 @@ static bool initialize_initermediate_frame(struct sc_ctx *ctx)
 	 * needed to be initialized because image setting is never changed
 	 * while streaming continues.
 	 */
-	if (ctx->i_frame->handle[0])
+	if (ctx->i_frame->dma_buf[0])
 		return true;
 
 	sc_calc_intbufsize(sc, ctx->i_frame);
 
 	if(test_bit(CTX_INT_FRAME_CP, &sc->state)) {
-		ion_mask = EXYNOS_ION_HEAP_VIDEO_SCALER_MASK;
+		heapname = "vscaler_heap";
 		flag = ION_FLAG_PROTECTED;
 	} else {
-		ion_mask = EXYNOS_ION_HEAP_SYSTEM_MASK;
+		heapname = "ion_system_heap";
 		flag = 0;
 	}
 
@@ -1433,65 +1576,10 @@ static bool initialize_initermediate_frame(struct sc_ctx *ctx)
 		if (!frame->addr.size[i])
 			break;
 
-		ctx->i_frame->handle[i] = ion_alloc(ctx->sc_dev->client,
-				frame->addr.size[i], 0, ion_mask, flag);
-		if (IS_ERR(ctx->i_frame->handle[i])) {
-			dev_err(sc->dev,
-			"Failed to allocate intermediate buffer.%d (err %ld)",
-				i, PTR_ERR(ctx->i_frame->handle[i]));
-			ctx->i_frame->handle[i] = NULL;
+		if (!alloc_intermediate_buffer(sc->dev, ctx->i_frame, i,
+					       frame->addr.size[i],
+					       heapname, flag))
 			goto err_ion_alloc;
-		}
-
-		ctx->i_frame->dma_buf[i] = ion_share_dma_buf(ctx->sc_dev->client,
-				ctx->i_frame->handle[i]);
-		if (IS_ERR(ctx->i_frame->dma_buf[i])) {
-			dev_err(sc->dev,
-			"Failed to get dma_buf from ion_handle of buffer.%d (err %ld)",
-				i, PTR_ERR(ctx->i_frame->dma_buf[i]));
-			ctx->i_frame->dma_buf[i] = NULL;
-			goto err_ion_alloc;
-		}
-
-		ctx->i_frame->attachment[i] = dma_buf_attach(ctx->i_frame->dma_buf[i],
-				sc->dev);
-		if (IS_ERR(ctx->i_frame->attachment[i])) {
-			dev_err(sc->dev,
-			"Failed to get dma_buf_attach from dma_buf of buffer.%d (err %ld)",
-				i, PTR_ERR(ctx->i_frame->attachment[i]));
-			ctx->i_frame->attachment[i] = NULL;
-			goto err_ion_alloc;
-		}
-
-		ctx->i_frame->sgt[i] = dma_buf_map_attachment(ctx->i_frame->attachment[i],
-				DMA_BIDIRECTIONAL);
-		if (IS_ERR(ctx->i_frame->sgt[i])) {
-			dev_err(sc->dev,
-			"Failed to get sgt from dma_buf_attach of buffer.%d (err %ld)",
-				i, PTR_ERR(ctx->i_frame->sgt[i]));
-			ctx->i_frame->sgt[i] = NULL;
-			goto err_ion_alloc;
-		}
-
-		ctx->i_frame->src_addr.ioaddr[i] = ion_iovmm_map(ctx->i_frame->attachment[i], 0,
-					frame->addr.size[i], DMA_TO_DEVICE, 0);
-		if (IS_ERR_VALUE(ctx->i_frame->src_addr.ioaddr[i])) {
-			dev_err(sc->dev,
-				"Failed to allocate iova of buffer.%d (err %pa)",
-				i, &ctx->i_frame->src_addr.ioaddr[i]);
-			ctx->i_frame->src_addr.ioaddr[i] = 0;
-			goto err_ion_alloc;
-		}
-
-		ctx->i_frame->dst_addr.ioaddr[i] = ion_iovmm_map(ctx->i_frame->attachment[i], 0,
-					frame->addr.size[i], DMA_FROM_DEVICE, 0);
-		if (IS_ERR_VALUE(ctx->i_frame->dst_addr.ioaddr[i])) {
-			dev_err(sc->dev,
-				"Failed to allocate iova of buffer.%d (err %pa)",
-				i, &ctx->i_frame->dst_addr.ioaddr[i]);
-			ctx->i_frame->dst_addr.ioaddr[i] = 0;
-			goto err_ion_alloc;
-		}
 
 		frame->addr.ioaddr[i] = ctx->i_frame->dst_addr.ioaddr[i];
 	}
@@ -1566,6 +1654,9 @@ static int sc_prepare_2nd_scaling(struct sc_ctx *ctx,
 
 	*h_ratio = SCALE_RATIO(src_width, crop.width);
 	*v_ratio = SCALE_RATIO(src_height, crop.height);
+
+	if (sc_fmt_is_s10bit_yuv(ctx->d_frame.sc_fmt->pixelformat))
+		crop.width = ALIGN(crop.width, 4);
 
 	if ((ctx->i_frame->frame.sc_fmt != ctx->d_frame.sc_fmt) ||
 		memcmp(&crop, &ctx->i_frame->frame.crop, sizeof(crop)) ||
@@ -1860,30 +1951,71 @@ static int sc_vb2_queue_setup(struct vb2_queue *vq,
 	if (ret)
 		return ret;
 
-	return vb2_queue_init(vq);
+	return 0;
+}
+
+/*
+ * This function should be used for source buffer only.
+ * In case of destination buffer, frame->bytesused[] is not valid.
+ */
+static int sc_check_src_plane_size(struct sc_ctx *ctx, struct vb2_buffer *vb,
+					 struct sc_frame *frame, u32 min_size)
+{
+	struct sg_table *sgt;
+	int i, ret = 0;
+
+	if (!V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type) || !min_size)
+		return ret;
+
+	for (i = 0; i < frame->sc_fmt->num_planes; i++) {
+		if (frame->bytesused[i] < min_size) {
+			sgt = (struct sg_table *)vb2_plane_cookie(vb, i);
+			if (!sgt) {
+				v4l2_err(&ctx->sc_dev->m2m.v4l2_dev,
+					"invalid sgt in plane %d\n", i);
+				return -EINVAL;
+			}
+
+			if (sg_nents_for_len(sgt->sgl, (u64)min_size) <= 0) {
+				ret = -EINVAL;
+				break;
+			}
+		}
+	}
+
+	if (ret)
+		v4l2_err(&ctx->sc_dev->m2m.v4l2_dev,
+			"plane%d size %d is smaller than %d\n",
+			i, frame->bytesused[i], min_size);
+
+	return ret;
 }
 
 static int sc_vb2_buf_prepare(struct vb2_buffer *vb)
 {
 	struct sc_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	struct sc_frame *frame;
+	u32 min_size = ctx->sc_dev->variant->minsize_srcplane;
 	int i;
 
 	frame = ctx_get_frame(ctx, vb->vb2_queue->type);
 	if (IS_ERR(frame))
 		return PTR_ERR(frame);
 
-	if (!V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
+	if (V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type)) {
+		/* Plane size checking is needed for source buffer */
+		if (sc_check_src_plane_size(ctx, vb, frame, min_size))
+			return -EINVAL;
+	} else {
 		for (i = 0; i < frame->sc_fmt->num_planes; i++)
 			vb2_set_plane_payload(vb, i, frame->bytesused[i]);
 	}
 
-	return sc_buf_sync_prepare(vb);
+	return 0;
 }
 
 static void sc_vb2_buf_finish(struct vb2_buffer *vb)
 {
-	sc_buf_sync_finish(vb);
 }
 
 static void sc_vb2_buf_queue(struct vb2_buffer *vb)
@@ -1891,24 +2023,12 @@ static void sc_vb2_buf_queue(struct vb2_buffer *vb)
 	struct sc_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
 	struct vb2_v4l2_buffer *v4l2_buf = to_vb2_v4l2_buffer(vb);
 
-	if (vb->acquire_fence) {
-		struct vb2_v4l2_buffer *vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-		struct v4l2_m2m_buffer *mb = container_of(vb2_v4l2, typeof(*mb), vb);
-		struct vb2_sc_buffer *svb = container_of(mb, typeof(*svb), mb);
-		queue_work(ctx->sc_dev->fence_wq, &svb->work);
-	} else {
-		if (ctx->m2m_ctx)
-			v4l2_m2m_buf_queue(ctx->m2m_ctx, v4l2_buf);
-	}
+	v4l2_m2m_buf_queue(ctx->m2m_ctx, v4l2_buf);
+	v4l2_m2m_try_schedule(ctx->m2m_ctx);
 }
 
 static void sc_vb2_buf_cleanup(struct vb2_buffer *vb)
 {
-	struct vb2_v4l2_buffer *vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-	struct v4l2_m2m_buffer *mb = container_of(vb2_v4l2, typeof(*mb), vb);
-	struct vb2_sc_buffer *svb = container_of(mb, typeof(*svb), mb);
-
-	flush_work(&svb->work);
 }
 
 static void sc_vb2_lock(struct vb2_queue *vq)
@@ -1965,7 +2085,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 	src_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	src_vq->ops = &sc_vb2_ops;
-	src_vq->mem_ops = &vb2_ion_memops;
+	src_vq->mem_ops = &vb2_dma_sg_memops;
 	src_vq->drv_priv = ctx;
 	src_vq->buf_struct_size = sizeof(struct vb2_sc_buffer);
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -1978,7 +2098,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	dst_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	dst_vq->ops = &sc_vb2_ops;
-	dst_vq->mem_ops = &vb2_ion_memops;
+	dst_vq->mem_ops = &vb2_dma_sg_memops;
 	dst_vq->drv_priv = ctx;
 	dst_vq->buf_struct_size = sizeof(struct vb2_sc_buffer);
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -2610,10 +2730,19 @@ static bool sc_process_2nd_stage(struct sc_dev *sc, struct sc_ctx *ctx)
 static void sc_set_dithering(struct sc_ctx *ctx)
 {
 	struct sc_dev *sc = ctx->sc_dev;
+	struct sc_frame *s_frame = &ctx->s_frame;
+	struct sc_frame *d_frame = &ctx->d_frame;
 	unsigned int val = 0;
 
 	if (ctx->dith)
 		val = sc_dith_val(1, 1, 1);
+
+	if (sc->variant->pixfmt_10bit) {
+		if (sc_fmt_is_s10bit_yuv(s_frame->sc_fmt->pixelformat))
+			val |= SCALER_DITH_SRC_INV;
+		if (sc_fmt_is_s10bit_yuv(d_frame->sc_fmt->pixelformat))
+			val |= SCALER_DITH_DST_EN;
+	}
 
 	sc_dbg("dither value is 0x%x\n", val);
 	sc_hwset_dith(sc, val);
@@ -2894,7 +3023,7 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 			struct vb2_sc_buffer *svb =
 					container_of(mb, typeof(*svb), mb);
 
-			dst_vb->reserved2 =
+			dst_vb->vb2_buf.timestamp =
 				(__u32)ktime_us_delta(ktime_get(), svb->ktime);
 		}
 
@@ -2942,21 +3071,12 @@ isr_unlock:
 static int sc_get_bufaddr(struct sc_dev *sc, struct vb2_buffer *vb2buf,
 		struct sc_frame *frame)
 {
-	int ret;
 	unsigned int pixsize, bytesize;
-	void *cookie;
 
 	pixsize = frame->width * frame->height;
 	bytesize = (pixsize * frame->sc_fmt->bitperpixel[0]) >> 3;
 
-	cookie = vb2_plane_cookie(vb2buf, 0);
-	if (!cookie)
-		return -EINVAL;
-
-	ret = sc_get_dma_address(cookie, &frame->addr.ioaddr[SC_PLANE_Y]);
-	if (ret != 0)
-		return ret;
-
+	frame->addr.ioaddr[SC_PLANE_Y] = vb2_dma_sg_plane_dma_addr(vb2buf, 0);
 	frame->addr.ioaddr[SC_PLANE_CB] = 0;
 	frame->addr.ioaddr[SC_PLANE_CR] = 0;
 	frame->addr.size[SC_PLANE_CB] = 0;
@@ -2983,19 +3103,14 @@ static int sc_get_bufaddr(struct sc_dev *sc, struct vb2_buffer *vb2buf,
 				frame->addr.size[SC_PLANE_Y] = NV12N_Y_SIZE(w, h);
 				frame->addr.size[SC_PLANE_CB] = NV12N_CBCR_SIZE(w, h);
 			} else {
+				if (frame->sc_fmt->pixelformat == V4L2_PIX_FMT_NV12_P010)
+					pixsize *= 2;
 				frame->addr.ioaddr[SC_PLANE_CB] = frame->addr.ioaddr[SC_PLANE_Y] + pixsize;
 				frame->addr.size[SC_PLANE_Y] = pixsize;
 				frame->addr.size[SC_PLANE_CB] = bytesize - pixsize;
 			}
 		} else if (frame->sc_fmt->num_planes == 2) {
-			cookie = vb2_plane_cookie(vb2buf, 1);
-			if (!cookie)
-				return -EINVAL;
-
-			ret = sc_get_dma_address(cookie, &frame->addr.ioaddr[SC_PLANE_CB]);
-			if (ret != 0)
-				return ret;
-
+			frame->addr.ioaddr[SC_PLANE_CB] = vb2_dma_sg_plane_dma_addr(vb2buf, 1);
 			if (sc_fmt_is_s10bit_yuv(frame->sc_fmt->pixelformat))
 				sc_calc_s10b_planesize(frame->sc_fmt->pixelformat,
 						frame->width, frame->height,
@@ -3034,19 +3149,8 @@ static int sc_get_bufaddr(struct sc_dev *sc, struct vb2_buffer *vb2buf,
 				frame->addr.ioaddr[SC_PLANE_CR] = frame->addr.ioaddr[SC_PLANE_CB] + frame->addr.size[SC_PLANE_CB];
 			}
 		} else if (frame->sc_fmt->num_planes == 3) {
-			cookie = vb2_plane_cookie(vb2buf, 1);
-			if (!cookie)
-				return -EINVAL;
-			ret = sc_get_dma_address(cookie, &frame->addr.ioaddr[SC_PLANE_CB]);
-			if (ret != 0)
-				return ret;
-			cookie = vb2_plane_cookie(vb2buf, 2);
-			if (!cookie)
-				return -EINVAL;
-			ret = sc_get_dma_address(cookie, &frame->addr.ioaddr[SC_PLANE_CR]);
-			if (ret != 0)
-				return ret;
-
+			frame->addr.ioaddr[SC_PLANE_CB] = vb2_dma_sg_plane_dma_addr(vb2buf, 1);
+			frame->addr.ioaddr[SC_PLANE_CR] = vb2_dma_sg_plane_dma_addr(vb2buf, 2);
 			sc_calc_planesize(frame, pixsize);
 		} else {
 			dev_err(sc->dev, "Please check the num of comp\n");
@@ -3150,10 +3254,10 @@ static int sc_register_m2m_device(struct sc_dev *sc, int dev_id)
 		goto err_dev_alloc;
 	}
 
-	ret = video_register_device(vfd, VFL_TYPE_GRABBER,
-				EXYNOS_VIDEONODE_SCALER(dev_id));
+	ret = video_register_device(vfd, VFL_TYPE_GRABBER, 50 + dev_id);
 	if (ret) {
-		dev_err(sc->dev, "failed to register video device\n");
+		dev_err(sc->dev, "failed to register video device (video%d)\n",
+			50 + dev_id);
 		goto err_m2m_dev;
 	}
 
@@ -3304,6 +3408,37 @@ static int sc_m2m1shot_prepare_format(struct m2m1shot_context *m21ctx,
 		return -EINVAL;
 	}
 
+	if (frame->sc_fmt->h_shift) {
+		unsigned int halign = 1 << frame->sc_fmt->h_shift;
+
+		if (!IS_ALIGNED(fmt->width, halign) ||
+				!IS_ALIGNED(fmt->crop.width, halign)) {
+			dev_err(ctx->sc_dev->dev,
+				"span(%d) or width(%d) is not aligned as %d\n",
+				fmt->width, fmt->crop.width, halign);
+			return -EINVAL;
+		}
+	}
+
+	if (frame->sc_fmt->v_shift) {
+		unsigned int valign = (1 << frame->sc_fmt->v_shift);
+
+		if (!IS_ALIGNED(fmt->height, valign)) {
+			dev_err(ctx->sc_dev->dev,
+				"height(%d) is not aligned as %d\n",
+				fmt->height, valign);
+			return -EINVAL;
+		}
+	}
+
+	if (sc_fmt_is_s10bit_yuv(frame->sc_fmt->pixelformat) &&
+			!IS_ALIGNED(fmt->crop.width, 4)) {
+		dev_err(ctx->sc_dev->dev,
+			"%s: crop.width(%d) is not aligned as 4\n",
+			__func__, fmt->crop.width);
+		return -EINVAL;
+	}
+
 	for (i = 0; i < frame->sc_fmt->num_planes; i++) {
 		if (sc_fmt_is_ayv12(fmt->fmt)) {
 			unsigned int y_size, c_span;
@@ -3368,17 +3503,57 @@ static int sc_m2m1shot_prepare_operation(struct m2m1shot_context *m21ctx,
 	return sc_prepare_denoise_filter(m21ctx->priv);
 }
 
+/*
+ * This function should be used for source buffer only.
+ * In case of destination buffer, plane->bytes_used is not valid.
+ */
+static int sc_m2m1shot_check_src_plane_size(
+			struct m2m1shot_buffer_plane_dma *plane,
+			enum dma_data_direction dir, u32 min_size)
+{
+	if ((dir != DMA_TO_DEVICE) || !min_size)
+		return 0;
+
+	if (plane->dmabuf) {
+		if (plane->bytes_used < min_size &&
+				plane->dmabuf->size < min_size)
+			return -EINVAL;
+	} else {
+		if (plane->bytes_used < min_size)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int sc_m2m1shot_prepare_buffer(struct m2m1shot_context *m21ctx,
 			struct m2m1shot_buffer_dma *buf_dma,
 			int plane,
 			enum dma_data_direction dir)
 {
+	struct sc_ctx *ctx = m21ctx->priv;
+	u32 min_size = ctx->sc_dev->variant->minsize_srcplane;
 	int ret;
 
 	ret = m2m1shot_map_dma_buf(m21ctx->m21dev->dev,
 				&buf_dma->plane[plane], dir);
 	if (ret)
 		return ret;
+
+	/* Plane size checking is needed for source buffer */
+	if (dir == DMA_TO_DEVICE) {
+		ret = sc_m2m1shot_check_src_plane_size(
+				&buf_dma->plane[plane], dir, min_size);
+		if (ret) {
+			dev_err(ctx->sc_dev->dev,
+				"plane%d size %d is smaller than %d\n",
+				plane, buf_dma->plane[plane].bytes_used,
+				min_size);
+			m2m1shot_unmap_dma_buf(m21ctx->m21dev->dev,
+					&buf_dma->plane[plane], dir);
+			return ret;
+		}
+	}
 
 	ret = m2m1shot_dma_addr_map(m21ctx->m21dev->dev, buf_dma, plane, dir);
 	if (ret) {
@@ -3441,6 +3616,8 @@ static void sc_m2m1shot_get_bufaddr(struct sc_dev *sc,
 				frame->addr.size[SC_PLANE_Y] = NV12N_Y_SIZE(w, h);
 				frame->addr.size[SC_PLANE_CB] = NV12N_CBCR_SIZE(w, h);
 			} else {
+				if (frame->sc_fmt->pixelformat == V4L2_PIX_FMT_NV12_P010)
+					pixsize *= 2;
 				frame->addr.ioaddr[SC_PLANE_CB] = frame->addr.ioaddr[SC_PLANE_Y] + pixsize;
 				frame->addr.size[SC_PLANE_Y] = pixsize;
 				frame->addr.size[SC_PLANE_CB] = bytesize - pixsize;
@@ -3688,16 +3865,6 @@ static int sc_runtime_resume(struct device *dev)
 static int sc_runtime_suspend(struct device *dev)
 {
 	struct sc_dev *sc = dev_get_drvdata(dev);
-	const int *ptr = sc->q_reg;
-	int i, idx;
-
-	idx = sc->dbg_idx % SC_DEBUG_MAX_NUM;
-	sc->qch_dbg[idx].time = sched_clock();
-	for (i = 0; i < G2D_QCH_NUM; i++)
-		sc->qch_dbg[idx].log[i] = ptr[i];
-
-	sc->dbg_idx++;
-
 	if (sc->qosreq_int_level > 0)
 		pm_qos_update_request(&sc->qosreq_int, 0);
 	return 0;
@@ -3709,10 +3876,24 @@ static const struct dev_pm_ops sc_pm_ops = {
 	SET_RUNTIME_PM_OPS(NULL, sc_runtime_resume, sc_runtime_suspend)
 };
 
+/* sort qos table in descending order of freq_int */
+static int sc_compare_qos_table_entries(const void *p1, const void *p2)
+{
+	const struct sc_qos_table *t1 = p1, *t2 = p2;
+
+	if (t1->freq_int < t2->freq_int)
+		return 1;
+	else
+		return -1;
+
+	return 0;
+}
+
 static int sc_populate_dt(struct sc_dev *sc)
 {
 	struct device *dev = sc->dev;
 	struct sc_qos_table *qos_table;
+	struct sc_ppc_table *ppc_table;
 	int i, len;
 
 	len = of_property_count_u32_elems(dev->of_node, "mscl_qos_table");
@@ -3730,6 +3911,9 @@ static int sc_populate_dt(struct sc_dev *sc)
 	of_property_read_u32_array(dev->of_node, "mscl_qos_table",
 					(unsigned int *)qos_table, len);
 
+	sort(qos_table, sc->qos_table_cnt, sizeof(*qos_table),
+					sc_compare_qos_table_entries, NULL);
+
 	for (i = 0; i < sc->qos_table_cnt; i++) {
 		dev_info(dev, "MSCL QoS Table[%d] mif : %u int : %u [%u]\n", i,
 			qos_table[i].freq_mif,
@@ -3739,8 +3923,93 @@ static int sc_populate_dt(struct sc_dev *sc)
 
 	sc->qos_table = qos_table;
 
+	len = of_property_count_u32_elems(dev->of_node, "mscl_ppc_table");
+	if (len < 0) {
+		dev_info(dev, "No ppc table for scaler\n");
+		return 0;
+	}
+
+	sc->ppc_table_cnt = len / 3;
+
+	ppc_table = devm_kzalloc(dev,
+			sizeof(*ppc_table) * sc->ppc_table_cnt, GFP_KERNEL);
+	if (!ppc_table)
+		return -ENOMEM;
+
+	of_property_read_u32_array(dev->of_node, "mscl_ppc_table",
+					(unsigned int *)ppc_table, len);
+
+	for (i = 0; i < sc->ppc_table_cnt; i++) {
+		dev_info(dev, "MSCL PPC Table[%d] bpp : %u ppc : %u/%u\n", i,
+			ppc_table[i].bpp,
+			ppc_table[i].ppc[0],
+			ppc_table[i].ppc[1]);
+	}
+
+	sc->ppc_table = ppc_table;
 	return 0;
 }
+
+#ifdef CONFIG_EXYNOS_ITMON
+static bool sc_itmon_check(struct sc_dev *sc, char *str_itmon, char *str_attr)
+{
+	const char *name = NULL;
+
+	if (!str_itmon)
+		return false;
+
+	of_property_read_string(sc->dev->of_node, str_attr, &name);
+	if (!name)
+		return false;
+
+	if (strncmp(str_itmon, name, strlen(name)) == 0)
+		return true;
+
+	return false;
+}
+
+static int sc_itmon_notifier(struct notifier_block *nb,
+			unsigned long action, void *nb_data)
+{
+	struct sc_dev *sc = container_of(nb, struct sc_dev, itmon_nb);
+	struct itmon_notifier *itmon_info = nb_data;
+	static int called_count;
+
+	if (called_count != 0) {
+		dev_info(sc->dev, "%s is called %d times, ignore it.\n",
+				__func__, called_count);
+		return NOTIFY_DONE;
+	}
+
+	if (sc_itmon_check(sc, itmon_info->master, "itmon,master")) {
+		if (test_bit(DEV_RUN, &sc->state)) {
+			if (sc->current_ctx)
+				sc_ctx_dump(sc->current_ctx);
+			sc_hwregs_dump(sc);
+			exynos_sysmmu_show_status(sc->dev);
+		} else {
+			dev_info(sc->dev, "MSCL is not running!\n");
+		}
+		called_count++;
+	} else if (sc_itmon_check(sc, itmon_info->dest, "itmon,dest")) {
+		if (test_bit(DEV_RUN, &sc->state)) {
+			if (sc->current_ctx)
+				sc_ctx_dump(sc->current_ctx);
+			if (itmon_info->onoff) {
+				sc_hwregs_dump(sc);
+				exynos_sysmmu_show_status(sc->dev);
+			} else {
+				dev_info(sc->dev, "MSCL power is disabled!\n");
+			}
+		} else {
+			dev_info(sc->dev, "MSCL is not running!\n");
+		}
+		called_count++;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
 
 static int sc_probe(struct platform_device *pdev)
 {
@@ -3782,6 +4051,8 @@ static int sc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	dma_set_mask(&pdev->dev, DMA_BIT_MASK(36));
+
 	atomic_set(&sc->wdt.cnt, 0);
 	setup_timer(&sc->wdt.timer, sc_watchdog, (unsigned long)sc);
 
@@ -3809,13 +4080,6 @@ static int sc_probe(struct platform_device *pdev)
 	ret = sc_populate_dt(sc);
 	if (ret)
 		return ret;
-
-	sc->fence_wq = create_singlethread_workqueue("scaler_fence_work");
-	if (!sc->fence_wq) {
-		dev_err(&pdev->dev, "Failed to create workqueue for fence\n");
-		ret = -ENOMEM;
-		goto err_wq;
-	}
 
 	ret = sc_register_m2m_device(sc, sc->dev_id);
 	if (ret) {
@@ -3871,27 +4135,6 @@ static int sc_probe(struct platform_device *pdev)
 		}
 	}
 
-	sc->q_reg = ioremap(0x13a07000, 0x100);
-	if (sc->q_reg == NULL) {
-		dev_err(&pdev->dev, "failed to ioremap address region\n");
-		ret = -ENOENT;
-		goto err_qch_reg;
-	}
-
-	sc->qch_dbg = kzalloc(sizeof(struct sc_qch_dbg) * SC_DEBUG_MAX_NUM, GFP_KERNEL);
-	if (sc->qch_dbg == NULL) {
-		ret = -ENOENT;
-		goto err_qch_dbg;
-	}
-
-	sc->client = exynos_ion_client_create("scaler-int");
-	if (IS_ERR(sc->client)) {
-		ret = PTR_ERR(sc->client);
-		dev_err(&pdev->dev,
-			"Failed to create ION client for int.buf.(err %d)\n", ret);
-		goto err_ion_client_create;
-	}
-
 	sc->version = SCALER_VERSION(2, 0, 0);
 
 	hwver = __raw_readl(sc->regs + SCALER_VER);
@@ -3918,19 +4161,17 @@ static int sc_probe(struct platform_device *pdev)
 
 	iovmm_set_fault_handler(&pdev->dev, sc_sysmmu_fault_handler, sc);
 
+#ifdef CONFIG_EXYNOS_ITMON
+	sc->itmon_nb.notifier_call = sc_itmon_notifier;
+	itmon_notifier_chain_register(&sc->itmon_nb);
+#endif
+
 	dev_info(&pdev->dev,
 		"Driver probed successfully(version: %08x(%x))\n",
 		hwver, sc->version);
 
 	return 0;
 
-err_ion_client_create:
-	kfree(sc->qch_dbg);
-err_qch_dbg:
-	iounmap(sc->q_reg);
-err_qch_reg:
-	if (!IS_ERR(sc->aclk))
-		clk_disable_unprepare(sc->aclk);
 err_ver_aclk_get:
 	if (!IS_ERR(sc->pclk))
 		clk_disable_unprepare(sc->pclk);
@@ -3943,8 +4184,6 @@ err_iommu:
 		pm_qos_remove_request(&sc->qosreq_int);
 	sc_unregister_m2m_device(sc);
 err_m2m:
-	destroy_workqueue(sc->fence_wq);
-err_wq:
 	m2m1shot_destroy_device(sc->m21dev);
 
 	return ret;
@@ -3953,11 +4192,6 @@ err_wq:
 static int sc_remove(struct platform_device *pdev)
 {
 	struct sc_dev *sc = platform_get_drvdata(pdev);
-
-	ion_client_destroy(sc->client);
-	iounmap(sc->q_reg);
-	kfree(sc->qch_dbg);
-	destroy_workqueue(sc->fence_wq);
 
 	iovmm_deactivate(sc->dev);
 

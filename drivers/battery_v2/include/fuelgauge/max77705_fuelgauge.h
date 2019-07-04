@@ -43,6 +43,23 @@ enum max77705_vempty_mode {
 	VEMPTY_MODE_SW_RECOVERY,
 };
 
+enum {
+	FG_DATA,
+};
+
+ssize_t max77705_fg_show_attrs(struct device *dev,
+				struct device_attribute *attr, char *buf);
+
+ssize_t max77705_fg_store_attrs(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count);
+
+#define MAX77705_FG_ATTR(_name)				\
+{							\
+	.attr = {.name = #_name, .mode = 0660},	\
+	.show = max77705_fg_show_attrs,			\
+	.store = max77705_fg_store_attrs,			\
+}
 struct sec_fg_info {
 	/* test print count */
 	int pr_cnt;
@@ -167,9 +184,12 @@ struct max77705_fuelgauge_data {
 
 	unsigned int capacity_old;	/* only for atomic calculation */
 	unsigned int capacity_max;	/* only for dynamic calculation */
+	unsigned int g_capacity_max;	/* only for dynamic calculation */
 	unsigned int standard_capacity;
 
+	bool capacity_max_conv;
 	bool initial_update_of_soc;
+	bool sleep_initial_update_of_soc;	
 	struct mutex fg_lock;
 
 	/* register programming */

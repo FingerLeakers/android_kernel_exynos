@@ -20,8 +20,9 @@
 static noinline_for_stack long get_file_size(struct file *file)
 {
 	struct kstat st;
+	u32 request_mask = (STATX_MODE | STATX_SIZE);
 
-	if (vfs_getattr(&file->f_path, &st))
+	if (vfs_getattr(&file->f_path, &st, request_mask, KSTAT_QUERY_FLAGS))
 		return -1;
 	if (!S_ISREG(st.mode))
 		return -1;
@@ -36,6 +37,7 @@ static int read_file_contents(struct file *fp, struct fimc_is_binary *bin)
 	long size;
 	char *buf;
 	int ret;
+	loff_t pos = 0;
 
 	size = get_file_size(fp);
 	if (size <= 0)
@@ -60,7 +62,7 @@ static int read_file_contents(struct file *fp, struct fimc_is_binary *bin)
 			return -ENOMEM;
 	}
 
-	ret = kernel_read(fp, 0, buf, size);
+	ret = kernel_read(fp, buf, size, &pos);
 	if (ret != size) {
 		if (!bin->data)
 			bin->free(buf);
@@ -82,7 +84,7 @@ static int write_file_contents(struct file *fp, struct fimc_is_binary *bin)
 
 	do {
 		count = min_t(ssize_t, PAGE_SIZE, bin->size - pos);
-		ret = kernel_write(fp, buf, count, pos);
+		ret = kernel_write(fp, buf, count, &pos);
 		if (ret > 0) {
 			pos += ret;
 			buf += ret;

@@ -704,6 +704,11 @@ static long dpp_subdev_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		((struct dpp_ch_restriction *)arg)->attr = dpp->attr;
 		break;
 
+	case DPP_GET_RECOVERY_CNT:
+		if (arg)
+			*((int *)arg) = dpp->d.recovery_cnt;
+		break;
+
 	default:
 		break;
 	}
@@ -1012,6 +1017,11 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 			dpp->d.recovery_cnt++;
 			dpp_info("dma%d recovery start(0x%x).. cnt(%d)\n",
 					dpp->id, irqs, dpp->d.recovery_cnt);
+
+#ifdef CONFIG_SEC_ABC
+			if (!(dpp->d.recovery_cnt % 10))
+				sec_abc_send_event("MODULE=display@ERROR=afbc_recovery");
+#endif
 			goto irq_end;
 		}
 		if ((irqs & IDMA_AFBC_TIMEOUT_IRQ) ||

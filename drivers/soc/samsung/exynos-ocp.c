@@ -20,14 +20,20 @@
 #include <linux/mfd/syscon.h>
 #include <linux/io.h>
 #include <linux/irq_work.h>
-#include <linux/mfd/samsung/s2mps18-private.h>
+#include <linux/mfd/samsung/s2mps19-regulator.h>
 #include <trace/events/power.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
+
+#include <soc/samsung/exynos-cpuhp.h>
 
 #include "../../../kernel/sched/sched.h"
+#include "../../cpufreq/exynos-acme.h"
+#include "../../../kernel/sched/ems/ems.h"
+
+#define GCU_BASE_ADDR			(0x1E4C0000)
 
 /* OCP_THROTTLE_CONTROL */
-#define OCPTHROTTCTL			"S3_0_C15_C12_7"	/* 0x3F0C7000 */
+#define OCPTHROTTCTL			(0x9F0)
 #define TEW_MASK			(0x1)
 #define TEW_SHIFT			(2)
 #define TRW_MASK			(0x1f)
@@ -36,34 +42,29 @@
 #define BPC_SHIFT			(16)
 #define TCRST_MASK			(0x7)
 #define TCRST_SHIFT			(21)
+#define DPM_THROTTSET_MASK		(0x1)
+#define DPM_THROTTSET_SHIFT		(24)
 #define OCPBPCHIT_MASK			(0x1)
 #define OCPBPCHIT_SHIFT			(26)
 #define OCPTHROTTERRA_MASK		(0x1)
 #define OCPTHROTTERRA_SHIFT		(27)
 
-/* OCP_THROTTLE_COUNTER_ALL */
-#define OCPTHROTTCNTA			"S3_0_C15_C14_4"	/* 0x3F0E4000 */
-#define TDCEN_MASK			(0x1)
-#define TDCEN_SHIFT			(0)
-#define TDT_MASK			(0xfff)
-#define TDT_SHIFT			(20)
-
-/* OCP_INTEGRATION_T_INDEP_BOTTOM_POWER_THRESHOLD */
-#define OCPTIDEPBOTTHRESH		"S3_0_C15_C15_1"	/* 0x3F0F1000 */
-#define BPT_MASK			(0xffffff)
-#define BPT_SHIFT			(0)
-
 /* GCU_CONTROL_REGISTER */
-#define GCUCTL				"S3_1_C15_C11_0"	/* 0x3F1B0000 */
+#define GCUCTL				(0x22C)
 #define OCPBPCEN_MASK			(0x1)
 #define OCPBPCEN_SHIFT			(25)
 #define OCPTHROTTERRAEN_MASK		(0x1)
 #define OCPTHROTTERRAEN_SHIFT		(24)
 
-/* OCP_INTEGRATION_CONTROL */
-#define OCPINTCTL			"S3_0_C15_C12_5"	/* 0x3F0C5000 */
+/* OCP_INTEGRATION_TOP_POWER_THRESHOLD */
+#define OCPTOPPWRTHRESH 		(0x83C)
 #define IRP_MASK			(0x3f)
-#define IRP_SHIFT			(4)
+#define IRP_SHIFT			(24)
+
+/* OCP_THROTTLE_COUNTER_ALL */
+#define OCPTHROTTCNTA			(0x938)
+#define TDC_MASK			(0xfff)
+#define TDC_SHIFT			(4)
 
 struct ocp_stats {
 	unsigned int		max_state;
@@ -76,12 +77,15 @@ struct ocp_stats {
 
 struct exynos_ocp_data {
 	bool			enabled;
+	bool			updated;
 	bool			flag;
 
 	int			irq;
 	struct work_struct	work;
 	struct delayed_work 	delayed_work;
 	struct irq_work		irq_work;
+
+	void __iomem *		base;
 
 	struct i2c_client	*i2c;
 
@@ -107,10 +111,10 @@ struct exynos_ocp_data *data;
 /*			HELPER FUNCTION				*/
 /****************************************************************/
 
-#define SYS_READ(reg, val)	asm volatile("mrs %0, " reg : "=r" (val))
-#define SYS_WRITE(reg, val)	asm volatile("msr " reg ", %0" :: "r" (val))
-#define CONTROL_OCP_WARN(enable)	s2mps18_update_reg(data->i2c, S2MPS18_PMIC_REG_OCP_WARN1,\
-		((enable) << S2MPS18_OCP_WARN_EN_SHIFT), (1 << S2MPS18_OCP_WARN_EN_SHIFT));
+#define SYS_READ(reg, val)	do { val = __raw_readl(data->base + reg); } while (0);
+#define SYS_WRITE(reg, val)	do { __raw_writel(val, data->base + reg); } while (0);
+#define CONTROL_OCP_WARN(enable)	s2mps19_update_reg(data->i2c, S2MPS19_PMIC_REG_OCP_WARN1,\
+		((enable) << S2MPS19_OCP_WARN_EN_SHIFT), (1 << S2MPS19_OCP_WARN_EN_SHIFT));
 
 static int get_ocp_freq_index(struct ocp_stats *stats, unsigned int freq)
 {
@@ -156,6 +160,11 @@ static void set_ocp_max_limit(unsigned int down_step)
 {
 	unsigned int target_max;
 
+	if (data->cpu >= nr_cpu_ids) {
+		dbg_snapshot_printk("OCP_cpus_off\n");
+		return;
+	}
+
 	/*
 	 * If the down step is greater than 0,
 	 * the target max limit is set to a frequency
@@ -174,10 +183,12 @@ static void set_ocp_max_limit(unsigned int down_step)
 		pr_debug("OCP max limit is released\n");
 	}
 
-	exynos_ss_printk("OCP_enter:%ukHz\n", data->clipped_freq);
+	dbg_snapshot_printk("OCP_enter:%ukHz(%s)\n",
+			data->clipped_freq, down_step ? "throttle" : "release");
 	trace_ocp_max_limit(data->clipped_freq, 1);
 	cpufreq_update_policy(data->cpu);
-	exynos_ss_printk("OCP_exit:%ukHz\n", data->clipped_freq);
+	dbg_snapshot_printk("OCP_exit:%ukHz(%s)\n",
+			data->clipped_freq, down_step ? "throttle" : "release");
 	trace_ocp_max_limit(data->clipped_freq, 0);
 
 	/* Whenever ocp max limit is changed, ocp stats should be updated. */
@@ -201,8 +212,8 @@ static bool is_currentmeter_condition(void)
 	unsigned int val;
 	unsigned char temp;
 
-	s2mps18_update_reg(data->i2c, S2MPS18_REG_ADC_CTRL3, 1, ADC_PTR_MASK);
-	s2mps18_read_reg(data->i2c, S2MPS18_REG_ADC_DATA, &temp);
+	s2mps19_update_reg(data->i2c, S2MPS19_REG_ADC_CTRL3, 1, ADC_PTR_MASK);
+	s2mps19_read_reg(data->i2c, S2MPS19_REG_ADC_DATA, &temp);
 	val = temp * BUCK2_COEFF;
 
 	return val < data->release_threshold;
@@ -217,10 +228,15 @@ static bool is_cpuutil_condition(void)
 {
 	unsigned int cpu, count = 0;
 	unsigned long util = 0;
-	unsigned long capacity = capacity_orig_of(data->cpu);
+	unsigned long capacity;
+
+	if (data->cpu >= nr_cpu_ids)
+		return true;
+
+	capacity = capacity_orig_of(data->cpu);
 
 	for_each_cpu(cpu, &data->cpus) {
-		util += cpu_util(cpu);
+		util += ml_cpu_util(cpu);
 		count++;
 	}
 
@@ -246,6 +262,11 @@ static void control_ocp_operation(bool enable)
 {
 	if (data->enabled == enable)
 		return;
+
+	if (data->cpu >= nr_cpu_ids) {
+		pr_info("all OCP releated cpus are off\n");
+		return;
+	}
 
 	/*
 	 * When enabling OCP operation, first enable OCP_WARN and release OCP max limit.
@@ -280,7 +301,7 @@ static void control_ocp_operation(bool enable)
 	data->enabled = enable;
 
 	pr_info("OCP operation is %s\n", (enable)?"enabled":"disabled");
-	exynos_ss_printk("OCP_%s\n", (enable)?"enabled":"disabled");
+	dbg_snapshot_printk("OCP_%s\n", (enable)?"enabled":"disabled");
 }
 
 /****************************************************************/
@@ -320,23 +341,49 @@ static void clear_ocp_interrupt(void)
 	SYS_WRITE(OCPTHROTTCTL, val);
 }
 
+static int check_dpm_throttset(void)
+{
+	int val;
+
+	SYS_READ(OCPTHROTTCTL, val);
+	val = (val >> DPM_THROTTSET_SHIFT) & DPM_THROTTSET_MASK;
+
+	return val;
+}
+
+static void clear_dpm_throttset(void)
+{
+	int val;
+
+	SYS_READ(OCPTHROTTCTL, val);
+	val &= ~(DPM_THROTTSET_MASK << DPM_THROTTSET_SHIFT);
+	SYS_WRITE(OCPTHROTTCTL, val);
+}
+
+static void clear_ocp_throttling_duration_counter(void)
+{
+	int val;
+
+	SYS_READ(OCPTHROTTCNTA, val);
+	val &= ~(TDC_MASK << TDC_SHIFT);
+	SYS_WRITE(OCPTHROTTCNTA, val);
+}
+
 #define SWI_ENABLE			(1)
 #define SWI_DISABLE			(0)
 
 static void exynos_ocp_work(struct work_struct *work)
 {
-	/* Before start interrupt handling, disable OCP/BPC interrupt. */
-	control_ocp_interrupt(SWI_DISABLE);
+	if (!cpumask_test_cpu(smp_processor_id(), &data->cpus))
+		return;
 
-	/*
-	 * Check the source of interrupt
-	 * and call corresponding handler function.
-	 */
-	if (check_ocp_interrupt()) {
-		data->flag = true;
-		clear_ocp_interrupt();
-		set_ocp_max_limit(data->down_step);
-	}
+	data->flag = true;
+	set_ocp_max_limit(data->down_step);
+
+	/* Before enabling OCP interrupt, clear releated register fields */
+	clear_ocp_throttling_duration_counter();
+	clear_dpm_throttset();
+	clear_ocp_interrupt();
 
 	/* After finish interrupt handling, enable OCP interrupt. */
 	control_ocp_interrupt(SWI_ENABLE);
@@ -361,7 +408,26 @@ static void exynos_ocp_work_release(struct work_struct *work)
 
 static irqreturn_t exynos_ocp_irq_handler(int irq, void *id)
 {
-	schedule_work_on(data->cpu, &data->work);
+	/* Check the source of interrupt */
+	if (!check_ocp_interrupt())
+		return IRQ_NONE;
+
+	/*
+	 * We use DPM only in power constraint method.
+	 * Don't throttle max frequency when interrupt is pending by dpm.
+	 * Only u-throttling and clk div-2 are used for throttling.
+	 */
+	if (check_dpm_throttset())
+		clear_dpm_throttset();
+	else if (data->cpu < nr_cpu_ids) {
+		/* Before start interrupt handling, disable OCP interrupt. */
+		control_ocp_interrupt(SWI_DISABLE);
+
+		schedule_work_on(data->cpu, &data->work);
+	}
+
+	clear_ocp_throttling_duration_counter();
+	clear_ocp_interrupt();
 
 	return IRQ_HANDLED;
 }
@@ -375,7 +441,10 @@ static int exynos_ocp_policy_callback(struct notifier_block *nb,
 {
 	struct cpufreq_policy *policy = info;
 
-	if (policy->cpu != data->cpu)
+	if (!data || !data->updated)
+		return NOTIFY_DONE;
+
+	if (!cpumask_test_cpu(policy->cpu, &data->cpus))
 		return NOTIFY_DONE;
 
 	if (event != CPUFREQ_ADJUST)
@@ -400,10 +469,10 @@ static void exynos_ocp_irq_work(struct irq_work *irq_work)
 	if (irp > IRP_MASK)
 		irp = IRP_MASK;
 
-	SYS_READ(OCPINTCTL, val);
+	SYS_READ(OCPTOPPWRTHRESH, val);
 	val &= ~(IRP_MASK << IRP_SHIFT);
 	val |= (irp << IRP_SHIFT);
-	SYS_WRITE(OCPINTCTL, val);
+	SYS_WRITE(OCPTOPPWRTHRESH, val);
 }
 
 static int exynos_ocp_cpufreq_callback(struct notifier_block *nb,
@@ -412,10 +481,16 @@ static int exynos_ocp_cpufreq_callback(struct notifier_block *nb,
 	struct cpufreq_freqs *freq = info;
 	int cpu = freq->cpu;
 
+	if (!data->enabled)
+		return NOTIFY_DONE;
+
 	if (!cpumask_test_cpu(cpu, &data->cpus))
 		return NOTIFY_DONE;
 
 	if (event != CPUFREQ_PRECHANGE)
+		return NOTIFY_DONE;
+
+	if (data->cpu >= nr_cpu_ids)
 		return NOTIFY_DONE;
 
 	data->cur_freq = freq->new;
@@ -427,6 +502,73 @@ static int exynos_ocp_cpufreq_callback(struct notifier_block *nb,
 static struct notifier_block exynos_ocp_cpufreq_notifier = {
 	.notifier_call = exynos_ocp_cpufreq_callback,
 };
+
+static void ocp_stats_create_table(struct cpufreq_policy *policy);
+
+static int exynos_ocp_update_data(struct cpufreq_policy *policy)
+{
+	if (data->cpu >= nr_cpu_ids)
+		return 0;
+
+	if (!cpumask_test_cpu(data->cpu, policy->cpus))
+		return 0;
+
+	if (data->updated)
+		return 0;
+
+	data->enabled = true;
+	data->flag = false;
+	data->min_freq = policy->user_policy.min;
+	data->max_freq = policy->user_policy.max;
+	data->clipped_freq = data->max_freq;
+	ocp_stats_create_table(policy);
+	control_ocp_interrupt(1);
+
+	data->updated = true;
+
+	pr_info("exynos-ocp: OCP data structure update complete\n");
+
+	return 0;
+}
+
+static struct exynos_cpufreq_ready_block exynos_ocp_ready = {
+	.update = exynos_ocp_update_data,
+};
+
+static int exynos_ocp_cpu_up_callback(unsigned int cpu)
+{
+	struct cpumask mask;
+
+	if (!cpumask_test_cpu(cpu, &data->cpus))
+		return 0;
+
+	/* The first incomming cpu in ocp data binds ocp interrupt on data->cpus. */
+	cpumask_and(&mask, &data->cpus, cpu_online_mask);
+	if (cpumask_weight(&mask) == 1) {
+		data->cpu = cpu;
+		irq_set_affinity_hint(data->irq, &data->cpus);
+	}
+
+	return 0;
+}
+
+static int exynos_ocp_cpu_down_callback(unsigned int cpu)
+{
+	struct cpumask mask;
+
+	if (!cpumask_test_cpu(cpu, &data->cpus))
+		return 0;
+
+	/* If all data->cpus off, update data->cpu as nr_cpu_ids */
+	cpumask_and(&mask, &data->cpus, cpu_online_mask);
+	cpumask_clear_cpu(cpu, &mask);
+	if (cpumask_empty(&mask))
+		data->cpu = nr_cpu_ids;
+	else
+		data->cpu = cpumask_any(&mask);
+
+	return 0;
+}
 
 /****************************************************************/
 /*			SYSFS INTERFACE				*/
@@ -615,6 +757,7 @@ static int ocp_dt_parsing(struct device_node *dn)
 
 	cpulist_parse(buf, &data->cpus);
 	cpumask_and(&data->cpus, &data->cpus, cpu_possible_mask);
+	cpumask_and(&data->cpus, &data->cpus, cpu_online_mask);
 	if (cpumask_weight(&data->cpus) == 0)
 		return -ENODEV;
 
@@ -628,6 +771,9 @@ static void ocp_stats_create_table(struct cpufreq_policy *policy)
 	unsigned int i = 0, count = 0, alloc_size;
 	struct ocp_stats *stats;
 	struct cpufreq_frequency_table *pos, *table;
+
+	if (data && data->stats)
+		return;
 
 	table = policy->freq_table;
 	if (unlikely(!table))
@@ -665,35 +811,23 @@ free_stat:
 static int exynos_ocp_probe(struct platform_device *pdev)
 {
 	struct device_node *dn = pdev->dev.of_node;
-	struct cpufreq_policy *policy;
 	int ret;
 
 	data = kzalloc(sizeof(struct exynos_ocp_data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
+	data->updated = false;
+
 	platform_set_drvdata(pdev, data);
+
+	data->base = ioremap(GCU_BASE_ADDR, SZ_4K);
 
 	ret = ocp_dt_parsing(dn);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to parse OCP data\n");
-		return -ENODEV;
+		goto free_data;
 	}
-
-	policy = cpufreq_cpu_get(data->cpu);
-	if (!policy) {
-		dev_err(&pdev->dev, "Failed to get CPUFreq policy\n");
-		return -ENODEV;
-	}
-
-	data->enabled = true;
-	data->flag = false;
-	data->min_freq = policy->user_policy.min;
-	data->max_freq = policy->user_policy.max;
-	data->clipped_freq = data->max_freq;
-	ocp_stats_create_table(policy);
-
-	cpufreq_cpu_put(policy);
 
 	cpufreq_register_notifier(&exynos_ocp_policy_notifier, CPUFREQ_POLICY_NOTIFIER);
 	cpufreq_register_notifier(&exynos_ocp_cpufreq_notifier, CPUFREQ_TRANSITION_NOTIFIER);
@@ -701,32 +835,49 @@ static int exynos_ocp_probe(struct platform_device *pdev)
 	data->irq = irq_of_parse_and_map(dn, 0);
 	if (data->irq <= 0) {
 		dev_err(&pdev->dev, "Failed to get IRQ\n");
-		return -ENODEV;
+		goto free_data;
 	}
 
+	control_ocp_interrupt(0);
+
 	ret = devm_request_irq(&pdev->dev, data->irq, exynos_ocp_irq_handler,
-			IRQF_TRIGGER_RISING, dev_name(&pdev->dev), data);
+			IRQF_TRIGGER_HIGH | IRQF_SHARED, dev_name(&pdev->dev), data);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request IRQ handler: %d\n", data->irq);
-		return -ENODEV;
+		goto free_data;
 	}
 
 	INIT_WORK(&data->work, exynos_ocp_work);
 	INIT_DELAYED_WORK(&data->delayed_work, exynos_ocp_work_release);
 	init_irq_work(&data->irq_work, exynos_ocp_irq_work);
 
-	get_s2mps18_i2c(&data->i2c);
+	irq_set_affinity_hint(data->irq, &data->cpus);
+
+	cpuhp_setup_state_nocalls(CPUHP_AP_EXYNOS_OCP,
+					"exynos:ocp",
+					exynos_ocp_cpu_up_callback,
+					exynos_ocp_cpu_down_callback);
+
+	get_s2mps19_i2c(&data->i2c);
 	if (data->i2c == NULL) {
-		dev_err(&pdev->dev, "Failed to get s2mps18 i2c_client\n");
-		return -ENODEV;
+		dev_err(&pdev->dev, "Failed to get s2mps19 i2c_client\n");
+		goto free_data;
 	}
+
+	CONTROL_OCP_WARN(1);
 
 	ret = sysfs_create_group(&pdev->dev.kobj, &exynos_ocp_attr_group);
 	if (ret)
 		dev_err(&pdev->dev, "Failed to create Exynos OCP attr group");
 
+	exynos_cpufreq_ready_list_add(&exynos_ocp_ready);
+
 	dev_info(&pdev->dev, "Complete OCP Handler initialization\n");
 	return 0;
+
+free_data:
+	kfree(data);
+	return -ENODEV;
 }
 
 static const struct of_device_id of_exynos_ocp_match[] = {
@@ -753,4 +904,4 @@ int __init exynos_ocp_init(void)
 {
 	return platform_driver_register(&exynos_ocp_driver);
 }
-late_initcall(exynos_ocp_init);
+device_initcall(exynos_ocp_init);

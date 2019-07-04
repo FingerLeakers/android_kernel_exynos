@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/debugfs.h>
+#include <linux/sched/task.h>
 
 #include <media/exynos_tsmux.h>
 
@@ -27,45 +28,98 @@
 
 static unsigned int g2d_debug;
 
-#define G2D_MAX_STAMP_SIZE 1024
+#define G2D_MAX_STAMP_ID 1024
+#define G2D_STAMP_CLAMP_ID(id) ((id) & (G2D_MAX_STAMP_ID - 1))
 
 static struct g2d_stamp {
 	ktime_t time;
-	struct g2d_task *task;
 	unsigned long state;
 	u32 job_id;
-	u32 val;
-	s32 info;
+	u32 stamp;
+	s32 val;
 	u8 cpu;
-} g2d_stamp_list[G2D_MAX_STAMP_SIZE];
+} g2d_stamp_list[G2D_MAX_STAMP_ID];
 
-static atomic_t p_stamp;
+static atomic_t g2d_stamp_id;
+
+enum {
+	G2D_STAMPTYPE_NONE,
+	G2D_STAMPTYPE_NUM,
+	G2D_STAMPTYPE_HEX,
+	G2D_STAMPTYPE_USEC,
+	G2D_STAMPTYPE_INOUT,
+	G2D_STAMPTYPE_ALLOCFREE,
+};
+static struct g2d_stamp_type {
+	const char *name;
+	int type;
+	bool task_specific;
+} g2d_stamp_types[G2D_STAMP_STATE_NUM] = {
+	{"runtime_pm",    G2D_STAMPTYPE_INOUT,     false},
+	{"task_alloc",    G2D_STAMPTYPE_ALLOCFREE, true},
+	{"task_begin",    G2D_STAMPTYPE_NUM,       true},
+	{"task_push",     G2D_STAMPTYPE_USEC,      true},
+	{"irq",           G2D_STAMPTYPE_HEX,       false},
+	{"task_done",     G2D_STAMPTYPE_USEC,      true},
+	{"fence_timeout", G2D_STAMPTYPE_HEX,       true},
+	{"hw_timeout",    G2D_STAMPTYPE_HEX,       true},
+	{"irq_error",     G2D_STAMPTYPE_HEX,       true},
+	{"mmu_fault",     G2D_STAMPTYPE_NONE,      true},
+	{"shutdown",      G2D_STAMPTYPE_INOUT,     false},
+	{"suspend",       G2D_STAMPTYPE_INOUT,     false},
+	{"resume",        G2D_STAMPTYPE_INOUT,     false},
+	{"hwfc_job",      G2D_STAMPTYPE_NUM,       true},
+};
+
+static bool g2d_stamp_show_single(struct seq_file *s, struct g2d_stamp *stamp)
+{
+	if (stamp->time == 0)
+		return false;
+
+	seq_printf(s, "[%u:%12lld] %13s: ", stamp->cpu,
+		   ktime_to_us(stamp->time),
+		   g2d_stamp_types[stamp->stamp].name);
+
+	if (g2d_stamp_types[stamp->stamp].task_specific)
+		seq_printf(s, "JOB ID %2u (STATE %#05lx) - ",
+			   stamp->job_id, stamp->state);
+
+	switch (g2d_stamp_types[stamp->stamp].type) {
+	case G2D_STAMPTYPE_NUM:
+		seq_printf(s, "%d", stamp->val);
+		break;
+	case G2D_STAMPTYPE_HEX:
+		seq_printf(s, "%#x", stamp->val);
+		break;
+	case G2D_STAMPTYPE_USEC:
+		seq_printf(s, "%d usec.", stamp->val);
+		break;
+	case G2D_STAMPTYPE_INOUT:
+		seq_printf(s, "%s", stamp->val ? "out" : "in");
+		break;
+	case G2D_STAMPTYPE_ALLOCFREE:
+		seq_printf(s, "%s", stamp->val ? "free" : "alloc");
+		break;
+	}
+
+	seq_puts(s, "\n");
+
+	return true;
+}
 
 static int g2d_stamp_show(struct seq_file *s, void *unused)
 {
-	int ptr = atomic_read(&p_stamp);
-	struct g2d_stamp *stamp;
+	int idx = G2D_STAMP_CLAMP_ID(atomic_read(&g2d_stamp_id) + 1);
 	int i;
 
-	if (ptr < 0)
-		return 0;
-
 	/* in chronological order */
-	ptr = (ptr + 1) & (G2D_MAX_STAMP_SIZE - 1);
-	i = ptr;
-
-	while (1) {
-		stamp = &g2d_stamp_list[i];
-
-		seq_printf(s, "[%4d] %u:%2u@%u (0x%2lx) %6d %06llu\n", i++,
-			stamp->cpu, stamp->job_id, stamp->val, stamp->state,
-			stamp->info, ktime_to_us(stamp->time));
-
-		i &= (G2D_MAX_STAMP_SIZE - 1);
-
-		if (i == ptr)
+	for (i = idx; i < G2D_MAX_STAMP_ID; i++)
+		if (!g2d_stamp_show_single(s, &g2d_stamp_list[i]))
 			break;
-	}
+
+	for (i = 0; i < idx; i++)
+		if (!g2d_stamp_show_single(s, &g2d_stamp_list[i]))
+			break;
 
 	return 0;
 }
@@ -82,27 +136,121 @@ static const struct file_operations g2d_debug_logs_fops = {
 	.release = single_release,
 };
 
+static int g2d_debug_contexts_show(struct seq_file *s, void *unused)
+{
+	struct g2d_device *g2d_dev = s->private;
+	struct g2d_context *ctx;
+
+	seq_printf(s, "%16s %6s %4s %6s %10s %10s\n",
+		"task", "pid", "prio", "dev", "read_bw", "write_bw");
+	seq_puts(s, "------------------------------------------------------\n");
+
+	spin_lock(&g2d_dev->lock_ctx_list);
+
+	list_for_each_entry(ctx, &g2d_dev->ctx_list, node) {
+		task_lock(ctx->owner);
+		seq_printf(s, "%16s %6u %4d %6s %10llu %10llu\n",
+			ctx->owner->comm, ctx->owner->pid, ctx->priority,
+			g2d_dev->misc[(ctx->authority + 1) & 1].name,
+			ctx->r_bw, ctx->w_bw);
+
+		task_unlock(ctx->owner);
+	}
+
+	spin_unlock(&g2d_dev->lock_ctx_list);
+
+	seq_puts(s, "------------------------------------------------------\n");
+
+	seq_puts(s, "priorities:\n");
+	seq_printf(s, "\tlow(0)    : %d\n",
+		   atomic_read(&g2d_dev->prior_stats[G2D_LOW_PRIORITY]));
+	seq_printf(s, "\tmedium(1) : %d\n",
+		   atomic_read(&g2d_dev->prior_stats[G2D_MEDIUM_PRIORITY]));
+	seq_printf(s, "\thigh(2)   : %d\n",
+		   atomic_read(&g2d_dev->prior_stats[G2D_HIGH_PRIORITY]));
+	seq_printf(s, "\thighest(3): %d\n",
+		   atomic_read(&g2d_dev->prior_stats[G2D_HIGHEST_PRIORITY]));
+
+	return 0;
+}
+
+static int g2d_debug_contexts_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, g2d_debug_contexts_show, inode->i_private);
+}
+
+static const struct file_operations g2d_debug_contexts_fops = {
+	.open = g2d_debug_contexts_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int g2d_debug_tasks_show(struct seq_file *s, void *unused)
+{
+	struct g2d_device *g2d_dev = s->private;
+	struct g2d_task *task;
+
+	for (task = g2d_dev->tasks; task; task = task->next) {
+		seq_printf(s, "TASK[%d]: state %#lx flags %#x ",
+			   task->sec.job_id, task->state, task->flags);
+		seq_printf(s, "prio %d begin@%llu end@%llu nr_src %d\n",
+			   task->sec.priority, ktime_to_us(task->ktime_begin),
+			   ktime_to_us(task->ktime_end), task->num_source);
+	}
+
+	return 0;
+}
+
+static int g2d_debug_tasks_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, g2d_debug_tasks_show, inode->i_private);
+}
+
+static const struct file_operations g2d_debug_tasks_fops = {
+	.open = g2d_debug_tasks_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 void g2d_init_debug(struct g2d_device *g2d_dev)
 {
-	atomic_set(&p_stamp, -1);
+	atomic_set(&g2d_stamp_id, -1);
 
 	g2d_dev->debug_root = debugfs_create_dir("g2d", NULL);
 	if (!g2d_dev->debug_root) {
-		dev_err(g2d_dev->dev, "debugfs : failed to create root directory\n");
+		perrdev(g2d_dev, "debugfs: failed to create root directory");
 		return;
 	}
 
 	g2d_dev->debug = debugfs_create_u32("debug",
 					0644, g2d_dev->debug_root, &g2d_debug);
 	if (!g2d_dev->debug) {
-		dev_err(g2d_dev->dev, "debugfs : failed to create debug file\n");
+		perrdev(g2d_dev, "debugfs: failed to create debug file");
 		return;
 	}
 
 	g2d_dev->debug_logs = debugfs_create_file("logs",
 					0444, g2d_dev->debug_root, g2d_dev, &g2d_debug_logs_fops);
 	if (!g2d_dev->debug_logs) {
-		dev_err(g2d_dev->dev, "debugfs : failed to create debug logs file\n");
+		perrdev(g2d_dev, "debugfs: failed to create logs file");
+		return;
+	}
+
+	g2d_dev->debug_contexts = debugfs_create_file("contexts",
+					0400, g2d_dev->debug_root, g2d_dev,
+					&g2d_debug_contexts_fops);
+	if (!g2d_dev->debug_logs) {
+		perrdev(g2d_dev, "debugfs: failed to create contexts file");
+		return;
+	}
+
+	g2d_dev->debug_tasks= debugfs_create_file("tasks",
+					0400, g2d_dev->debug_root, g2d_dev,
+					&g2d_debug_tasks_fops);
+	if (!g2d_dev->debug_logs) {
+		perrdev(g2d_dev, "debugfs: failed to create tasks file");
 		return;
 	}
 }
@@ -169,8 +317,8 @@ void g2d_dump_sfr(struct g2d_device *g2d_dev, struct g2d_task *task)
 {
 	unsigned int i, num_array;
 
-	num_array = (unsigned int)ARRAY_SIZE(g2d_reg_info) - G2D_MAX_IMAGES
-		    + ((task) ? task->num_source : G2D_MAX_IMAGES);
+	num_array = (unsigned int)ARRAY_SIZE(g2d_reg_info) - g2d_dev->max_layers
+		    + ((task) ? task->num_source : g2d_dev->max_layers);
 
 	for (i = 0; i < num_array; i++) {
 		pr_info("[%s: %04X .. %04X]\n",
@@ -192,7 +340,7 @@ void g2d_dump_cmd(struct g2d_task *task)
 
 	regs = page_address(task->cmd_page);
 
-	for (i = 0; i < task->cmd_count; i++)
+	for (i = 0; i < task->sec.cmd_count; i++)
 		pr_info("G2D: CMD[%03d] %#06x, %#010x\n",
 			i, regs[i].offset, regs[i].value);
 }
@@ -208,30 +356,29 @@ void g2d_dump_info(struct g2d_device *g2d_dev, struct g2d_task *task)
 	g2d_dump_afbcdata(g2d_dev);
 }
 
-void g2d_stamp_task(struct g2d_task *task, u32 val, s32 info)
+void g2d_stamp_task(struct g2d_task *task, u32 stampid, s32 val)
 {
-	int ptr = atomic_inc_return(&p_stamp) & (G2D_MAX_STAMP_SIZE - 1);
-	struct g2d_stamp *stamp = &g2d_stamp_list[ptr];
+	int idx = G2D_STAMP_CLAMP_ID(atomic_inc_return(&g2d_stamp_id));
+	struct g2d_stamp *stamp = &g2d_stamp_list[idx];
 
 	if (task) {
 		stamp->state = task->state;
-		stamp->job_id = task->job_id;
-		stamp->task = task;
+		stamp->job_id = task->sec.job_id;
 	} else {
 		stamp->job_id = 0;
 		stamp->state = 0;
-		stamp->task = NULL;
 	}
 
 	stamp->time = ktime_get();
+	stamp->stamp = stampid;
+	stamp->cpu = raw_smp_processor_id();
 	stamp->val = val;
-	stamp->cpu = get_current_cpunum();
-	stamp->info = info;
 
-	if (task && (stamp->val == G2D_STAMP_STATE_DONE)) {
+	if ((stamp->stamp == G2D_STAMP_STATE_DONE) && task) {
 		if (g2d_debug == 1) {
-			pr_info("Job #%x took %06d to H/W process\n",
-				task->job_id, info);
+			dev_info(task->g2d_dev->dev,
+				 "Job %u consumed %06u usec. by H/W\n",
+				 task->sec.job_id, val);
 		} else if (g2d_debug == 2) {
 			g2d_dump_info(task->g2d_dev, task);
 		}
@@ -239,10 +386,10 @@ void g2d_stamp_task(struct g2d_task *task, u32 val, s32 info)
 
 	/* LLWFD latency measure */
 	/* media/exynos_tsmux.h includes below functions */
-	if (stamp->task != NULL && IS_HWFC(stamp->task->flags)) {
-		if (stamp->val == G2D_STAMP_STATE_PUSH)
-			g2d_blending_start(stamp->task->job_id);
-		if (stamp->val == G2D_STAMP_STATE_DONE)
-			g2d_blending_end(stamp->task->job_id);
+	if (task != NULL && IS_HWFC(task->flags)) {
+		if (stampid == G2D_STAMP_STATE_PUSH)
+			g2d_blending_start(task->sec.job_id);
+		if (stampid == G2D_STAMP_STATE_DONE)
+			g2d_blending_end(task->sec.job_id);
 	}
 }

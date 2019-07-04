@@ -126,6 +126,32 @@ static ssize_t pressure_cabratioin_show(struct device *dev,
 
 	return sprintf(buf, "%d\n", data->iPressureCal);
 }
+
+static ssize_t pressure_selftest_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+
+	int iRet = 0;
+	char selftest_ret = 0;
+
+	msg->cmd = PRESSURE_FACTORY;
+	msg->length = sizeof(selftest_ret);
+	msg->options = AP2HUB_READ;
+	msg->buffer = (u8 *)&selftest_ret;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_sync(data, msg, 3000);
+
+	if (iRet != SUCCESS)
+		pr_err("[SSP]: %s - Pressure Selftest Timeout!!\n", __func__);
+
+	pr_info("[SSP] %s - selftest - %d\n", __func__, (int)selftest_ret);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", (int)selftest_ret);
+}
+
 #if 0
 static ssize_t eeprom_check_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -188,6 +214,7 @@ static DEVICE_ATTR(calibration,  0660,
 static DEVICE_ATTR(sea_level_pressure, /*S_IRUGO |*/ 0220,
 	NULL, sea_level_pressure_store);
 static DEVICE_ATTR(temperature, 0440, pressure_temperature_show, NULL);
+static DEVICE_ATTR(selftest,  0440, pressure_selftest_show, NULL);
 
 #if 0
 static struct device_attribute *pressure_attrs_bmp280[] = {
@@ -205,6 +232,7 @@ static struct device_attribute *pressure_attrs[] = {
 	&dev_attr_calibration,
 	&dev_attr_sea_level_pressure,
 	&dev_attr_temperature,
+	&dev_attr_selftest,
 	NULL,
 };
 

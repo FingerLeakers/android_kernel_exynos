@@ -293,9 +293,6 @@ static unsigned int star_a3_s0_brt_to_step_tbl[S6E3HA8_STAR_TOTAL_PAC_STEPS] = {
 	36100, 36400, 36700, 37000, 37300, 37700, 38000, 38300, 38600, 38900, 39300, 39600, 39900, 40200, 40500, 40900,
 	41200, 41500, 41800, 42100, 42500, 42800, 43100, 43400, 43700, 44100, 44400, 44700,
 #endif
-#ifdef CONFIG_LCD_EXTEND_HBM
-	44800,
-#endif
 };
 #elif PANEL_BACKLIGHT_PAC_STEPS == 256
 static unsigned int star_a3_s0_brt_to_step_tbl[S6E3HA8_STAR_TOTAL_PAC_STEPS] = {
@@ -324,9 +321,6 @@ static unsigned int star_a3_s0_brt_to_step_tbl[S6E3HA8_STAR_TOTAL_PAC_STEPS] = {
 	BRT(361), BRT(364), BRT(367), BRT(370), BRT(373), BRT(377), BRT(380), BRT(383), BRT(386), BRT(389), BRT(393), BRT(396), BRT(399), BRT(402), BRT(405), BRT(409),
 	BRT(412), BRT(415), BRT(418), BRT(421), BRT(425), BRT(428), BRT(431), BRT(434), BRT(437), BRT(441), BRT(444), BRT(447),
 #endif
-#ifdef CONFIG_LCD_EXTEND_HBM
-	BRT(448),
-#endif
 };
 #endif	/* PANEL_BACKLIGHT_PAC_STEPS  */
 
@@ -354,9 +348,6 @@ static unsigned int star_a3_s0_brt_tbl[S6E3HA8_STAR_TOTAL_NR_LUMINANCE] = {
 	BRT(386), BRT(389), BRT(393), BRT(396), BRT(399), BRT(402), BRT(405), BRT(409), BRT(412), BRT(415),
 	BRT(418), BRT(421), BRT(425), BRT(428), BRT(431), BRT(434), BRT(437), BRT(441), BRT(444), BRT(447),
 #endif
-#ifdef CONFIG_LCD_EXTEND_HBM
-	BRT(448),
-#endif
 };
 
 static unsigned int star_a3_s0_lum_tbl[S6E3HA8_STAR_TOTAL_NR_LUMINANCE] = {
@@ -380,10 +371,6 @@ static unsigned int star_a3_s0_lum_tbl[S6E3HA8_STAR_TOTAL_NR_LUMINANCE] = {
 	605, 610, 615, 620, 625, 630, 635, 640, 645, 650,
 	655, 660, 665, 670, 675, 680, 685, 690, 695, 700,
 #endif
-#ifdef CONFIG_LCD_EXTEND_HBM
-	/* EXTEND_HBM */
-	720,
-#endif
 };
 
 struct brightness_table s6e3ha8_star_a3_s0_panel_brightness_table = {
@@ -393,7 +380,7 @@ struct brightness_table s6e3ha8_star_a3_s0_panel_brightness_table = {
 	.sz_lum = ARRAY_SIZE(star_a3_s0_lum_tbl),
 	.sz_ui_lum = S6E3HA8_NR_LUMINANCE,
 	.sz_hbm_lum = S6E3HA8_STAR_NR_HBM_LUMINANCE,
-	.sz_ext_hbm_lum = S6E3HA8_NR_EXTEND_HBM_LUMINANCE,
+	.sz_ext_hbm_lum = 0,
 #if PANEL_BACKLIGHT_PAC_STEPS == 512 || PANEL_BACKLIGHT_PAC_STEPS == 256
 	.brt_to_step = star_a3_s0_brt_to_step_tbl,
 	.sz_brt_to_step = ARRAY_SIZE(star_a3_s0_brt_to_step_tbl),
@@ -426,8 +413,8 @@ static struct panel_dimming_info s6e3ha8_star_a3_s0_panel_dimming_info = {
 	.nr_luminance = S6E3HA8_NR_LUMINANCE,
 	.hbm_target_luminance = S6E3HA8_STAR_TARGET_HBM_LUMINANCE,
 	.nr_hbm_luminance = S6E3HA8_STAR_NR_HBM_LUMINANCE,
-	.extend_hbm_target_luminance = S6E3HA8_TARGET_EXTEND_HBM_LUMINANCE,
-	.nr_extend_hbm_luminance = S6E3HA8_NR_EXTEND_HBM_LUMINANCE,
+	.extend_hbm_target_luminance = -1,
+	.nr_extend_hbm_luminance = 0,
 	.brt_tbl = &s6e3ha8_star_a3_s0_panel_brightness_table,
 };
 #endif /* __S6E3HA8_STAR_A3_S0_PANEL_DIMMING_H___ */

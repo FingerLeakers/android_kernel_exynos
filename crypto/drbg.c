@@ -173,25 +173,41 @@ static const struct drbg_core drbg_cores[] = {
 		.statelen = 20, /* block length of cipher */
 		.blocklen_bytes = 20,
 		.cra_name = "hmac_sha1",
+#ifdef CONFIG_CRYPTO_FIPS
+		.backend_cra_name = "hmac(sha1-ce)",
+#else
 		.backend_cra_name = "hmac(sha1)",
+#endif
 	}, {
 		.flags = DRBG_HMAC | DRBG_STRENGTH256,
 		.statelen = 48, /* block length of cipher */
 		.blocklen_bytes = 48,
 		.cra_name = "hmac_sha384",
+#ifdef CONFIG_CRYPTO_FIPS
+		.backend_cra_name = "hmac(sha384-generic)",
+#else
 		.backend_cra_name = "hmac(sha384)",
+#endif
 	}, {
 		.flags = DRBG_HMAC | DRBG_STRENGTH256,
 		.statelen = 64, /* block length of cipher */
 		.blocklen_bytes = 64,
 		.cra_name = "hmac_sha512",
+#ifdef CONFIG_CRYPTO_FIPS
+		.backend_cra_name = "hmac(sha512-generic)",
+#else
 		.backend_cra_name = "hmac(sha512)",
+#endif
 	}, {
 		.flags = DRBG_HMAC | DRBG_STRENGTH256,
 		.statelen = 32, /* block length of cipher */
 		.blocklen_bytes = 32,
 		.cra_name = "hmac_sha256",
+#ifdef CONFIG_CRYPTO_FIPS
+		.backend_cra_name = "hmac(sha256-ce)",
+#else
 		.backend_cra_name = "hmac(sha256)",
+#endif
 	},
 #endif /* CONFIG_CRYPTO_DRBG_HMAC */
 };
@@ -1033,8 +1049,8 @@ static int get_blocking_random_bytes(u8 *entropy, unsigned int len)
 	}
 
 	oldfs = get_fs();
-	/* set_fs(KERNEL_DS); */
-	current_thread_info()->addr_limit = KERNEL_DS;
+	set_fs(KERNEL_DS);
+
 	memset((void *)buf, 0, length_req);
 
 	do {
@@ -1047,8 +1063,7 @@ static int get_blocking_random_bytes(u8 *entropy, unsigned int len)
 		else
 			break;
 	} while (i);
-	/* set_fs(oldfs); */
-	current_thread_info()->addr_limit = oldfs;
+	set_fs(oldfs);
 
 	if (filp)
 		filp_close(filp, NULL);
@@ -1148,11 +1163,13 @@ static int drbg_seed(struct drbg_state *drbg, struct drbg_string *pers,
 {
 	int ret;
 	unsigned char entropy[((32 + 16) * 2)];
+
 #ifdef CONFIG_CRYPTO_FIPS
 	unsigned char *p;
 	unsigned char buf[((32 + 16) * 2) + 4 + ENTROPY_BLOCK_LEN];
 	unsigned int buflen;
 #endif
+
 	unsigned int entropylen = drbg_sec_strength(drbg->core->flags);
 	struct drbg_string data1;
 	LIST_HEAD(seedlist);
@@ -1201,7 +1218,6 @@ static int drbg_seed(struct drbg_state *drbg, struct drbg_string *pers,
 		/* Get seed from in-kernel /dev/urandom */
 		get_random_bytes(entropy, entropylen);
 #endif
-
 		if (!drbg->jent) {
 			drbg_string_fill(&data1, entropy, entropylen);
 			pr_devel("DRBG: (re)seeding with %u bytes of entropy\n",
@@ -1250,24 +1266,14 @@ static inline void drbg_dealloc_state(struct drbg_state *drbg)
 {
 	if (!drbg)
 		return;
-
-	if (drbg->Vbuf) {
-		kzfree(drbg->Vbuf);
-		drbg->Vbuf = NULL;
-	}
+	kzfree(drbg->Vbuf);
+	drbg->Vbuf = NULL;
 	drbg->V = NULL;
-
-	if (drbg->Cbuf) {
-		kzfree(drbg->Cbuf);
-		drbg->Cbuf = NULL;
-	}
+	kzfree(drbg->Cbuf);
+	drbg->Cbuf = NULL;
 	drbg->C = NULL;
-
-	if (drbg->scratchpadbuf) {
-		kzfree(drbg->scratchpadbuf);
-		drbg->scratchpadbuf = NULL;
-	}
-
+	kzfree(drbg->scratchpadbuf);
+	drbg->scratchpadbuf = NULL;
 	drbg->reseed_ctr = 0;
 	drbg->d_ops = NULL;
 	drbg->core = NULL;
@@ -1882,17 +1888,16 @@ static int drbg_kcapi_sym_ctr(struct drbg_state *drbg,
 			      u8 *inbuf, u32 inlen,
 			      u8 *outbuf, u32 outlen)
 {
-	struct scatterlist sg_in;
+	struct scatterlist sg_in, sg_out;
 	int ret;
 
 	sg_init_one(&sg_in, inbuf, inlen);
+	sg_init_one(&sg_out, drbg->outscratchpad, DRBG_OUTSCRATCHLEN);
 
 	while (outlen) {
 		u32 cryptlen = min3(inlen, outlen, (u32)DRBG_OUTSCRATCHLEN);
-		struct scatterlist sg_out;
 
 		/* Output buffer may not be valid for SGL, use scratchpad */
-		sg_init_one(&sg_out, drbg->outscratchpad, cryptlen);
 		skcipher_request_set_crypt(drbg->ctr_req, &sg_in, &sg_out,
 					   cryptlen, drbg->V);
 		ret = crypto_skcipher_encrypt(drbg->ctr_req);
@@ -1914,6 +1919,7 @@ static int drbg_kcapi_sym_ctr(struct drbg_state *drbg,
 		memcpy(outbuf, drbg->outscratchpad, cryptlen);
 
 		outlen -= cryptlen;
+		outbuf += cryptlen;
 	}
 	ret = 0;
 

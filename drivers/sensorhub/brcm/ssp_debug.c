@@ -17,6 +17,7 @@
 #include <linux/sec_debug.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/buffer.h>
+#include <linux/iio/buffer_impl.h>
 
 #define SSP_DEBUG_TIMER_SEC		(5 * HZ)
 
@@ -266,6 +267,11 @@ void sync_sensor_state(struct ssp_data *data)
 	if (iRet < 0)
 		pr_err("[SSP]: %s - set_accel_cal failed\n", __func__);
 
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+	proximity_open_calibration(data);
+	set_prox_cal(data);
+#endif
+
 #ifdef CONFIG_SENSORS_SSP_SX9306
 	if (atomic64_read(&data->aSensorEnable) & (1 << GRIP_SENSOR)) {
 		open_grip_caldata(data);
@@ -366,6 +372,7 @@ static void print_sensordata(struct ssp_data *data, unsigned int uSensor)
 			get_msdelay(data->adDelayBuf[uSensor]));
 		break;
 	case LIGHT_SENSOR:
+	case UNCAL_LIGHT_SENSOR:
 		ssp_dbg("[SSP] %u : %u, %u, %u, %u, %u, %u (%ums)\n", uSensor,
 			data->buf[uSensor].r, data->buf[uSensor].g,
 			data->buf[uSensor].b, data->buf[uSensor].w,
@@ -463,6 +470,32 @@ static void print_sensordata(struct ssp_data *data, unsigned int uSensor)
 			data->buf[uSensor].offset_z,
 			get_msdelay(data->adDelayBuf[uSensor]));
 		break;
+	case WAKE_UP_MOTION:
+		ssp_dbg("[SSP] %u : %d (%ums)\n", uSensor,
+			data->buf[uSensor].wakeup_move_event[0],
+			get_msdelay(data->adDelayBuf[uSensor]));
+        break;
+    case CALL_GESTURE:
+		ssp_dbg("[SSP] %u : %d (%ums)\n", uSensor,
+			data->buf[uSensor].call_gesture,
+			get_msdelay(data->adDelayBuf[uSensor]));
+        break;
+                break;
+        case MOVE_DETECTOR:
+		ssp_dbg("[SSP] %u : %d (%ums)\n", uSensor,
+			data->buf[uSensor].wakeup_move_event[1],
+			get_msdelay(data->adDelayBuf[uSensor]));
+                break;
+	case POCKET_MODE_SENSOR:
+		ssp_dbg("[SSP] %u : %d (%ums)\n", uSensor,
+			data->buf[uSensor].pocket_mode,
+			get_msdelay(data->adDelayBuf[uSensor]));
+                break;
+	case LED_COVER_EVENT_SENSOR:
+		ssp_dbg("[SSP] %u : %d (%ums)\n", uSensor,
+			data->buf[uSensor].led_cover_event,
+			get_msdelay(data->adDelayBuf[uSensor]));
+                break;
 	case BULK_SENSOR:
 	case GPS_SENSOR:
 		break;
@@ -482,8 +515,9 @@ bool check_wait_event(struct ssp_data *data)
 	int check_sensors[2] = {ACCELEROMETER_SENSOR, LIGHT_SENSOR};
 	int i, sensor;
 	bool res = false;
+	int arrSize = (ANDROID_VERSION < 90000 ? 2 : 1);
 
-	for (i = 0 ; i < 2 ; i++) {
+	for (i = 0 ; i < arrSize ; i++) { // because light sensor does not check anymore
 		sensor = check_sensors[i];
 		//the sensor is registered
 		if ((atomic64_read(&data->aSensorEnable) & (1 << sensor) && !(data->IsGyroselftest))
@@ -508,9 +542,10 @@ static void debug_work_func(struct work_struct *work)
 	unsigned int uSensorCnt;
 	struct ssp_data *data = container_of(work, struct ssp_data, work_debug);
 
-	ssp_dbg("[SSP]: %s(%u) - Sensor state: 0x%llx, RC: %u(%u, %u, %u), CC: %u, TC: %u NSC: %u EC: %u\n",
+	ssp_dbg("[SSP]: %s(%u) - Sensor state: 0x%llx, RC: %u(%u, %u, %u), CC: %u, TC: %u NSC: %u EC: %u GPS: %s\n",
 		__func__, data->uIrqCnt, data->uSensorState, data->uResetCnt, data->mcuCrashedCnt, data->IsNoRespCnt,
-		data->resetCntGPSisOn, data->uComFailCnt, data->uTimeOutCnt, data->uNoRespSensorCnt, data->errorCount);
+		data->resetCntGPSisOn, data->uComFailCnt, data->uTimeOutCnt, data->uNoRespSensorCnt, data->errorCount,
+		data->IsGpsWorking ? "true" : "false");
     
         if(!strstr("", data->resetInfoDebug))
             pr_info("[SSP]: %s(%lld, %lld)\n", data->resetInfoDebug, data->resetInfoDebugTime, get_current_timestamp());

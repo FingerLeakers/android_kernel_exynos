@@ -31,16 +31,28 @@ static int __attribute__((unused)) score_fault_handler(
 		struct iommu_domain *domain, struct device *dev,
 		unsigned long fault_addr, int fault_flag, void *token)
 {
-	/*
-	 * build error : unused variable 'device'
-	 * struct score_device *device = dev_get_drvdata(dev);
-	 */
+	struct score_device *device = dev_get_drvdata(dev);
+	struct score_frame_manager *framemgr;
 
 	pr_err("< SCore IOMMU FAULT HANDLER >\n");
 	pr_err("Device virtual(0x%lX) is invalid access\n", fault_addr);
 	pr_err("Print SCore device information by using DPMU\n");
 
 	score_dpmu_print_all();
+
+	framemgr = &device->system.interface.framemgr;
+	score_info("< frame count >\n");
+	score_info(" all:%d, normal:%d, abnormal:%d\n",
+			framemgr->all_count, framemgr->normal_count,
+			framemgr->abnormal_count);
+	score_info(" entire:%d, ready:%d, process:%d(H:%d/N:%d)\n",
+			framemgr->entire_count, framemgr->ready_count,
+			framemgr->process_count, framemgr->process_high_count,
+			framemgr->process_normal_count);
+	score_info(" pending:%d(H:%d/N:%d), complete:%d\n",
+			framemgr->pending_count, framemgr->pending_high_count,
+			framemgr->pending_normal_count,
+			framemgr->complete_count);
 
 	return -EINVAL;
 }
@@ -231,16 +243,22 @@ static void __score_device_close(struct score_device *device)
 }
 
 static int __score_device_start(struct score_device *device,
-		unsigned int firmware_id)
+		unsigned int firmware_id, unsigned int boot_qos)
 {
 	int ret = 0;
+	struct score_pm *pm;
 	struct score_system *system;
 	struct score_frame_manager *framemgr;
 	unsigned long flags;
 
 	score_enter();
+	pm = &device->pm;
 	system = &device->system;
 	framemgr = &system->interface.framemgr;
+
+	ret = score_pm_qos_set_default(pm, boot_qos);
+	if (ret)
+		goto p_err_default_pm;
 
 	ret = __score_device_power_on(device);
 	if (ret)
@@ -263,6 +281,7 @@ static int __score_device_start(struct score_device *device,
 p_err_system:
 	__score_device_power_off(device);
 p_err_power_on:
+p_err_default_pm:
 	device->state = BIT(SCORE_DEVICE_STATE_STOP);
 	score_info("The device failed to be started (firmware:%u)\n",
 			firmware_id);
@@ -334,6 +353,7 @@ static int __score_device_restart(struct score_device *device,
 	score_leave();
 	return ret;
 p_err_system:
+	device->cur_firmware_id = -1;
 	__score_device_power_off(device);
 	device->state = BIT(SCORE_DEVICE_STATE_STOP);
 	score_info("The device failed to be re-started(%u)\n", firmware_id);
@@ -348,16 +368,14 @@ int score_device_check_start(struct score_device *device)
 		return device->state;
 }
 
-int score_device_start(struct score_device *device,
-		unsigned int firmware_id, unsigned int flag)
+int score_device_start(struct score_device *device, unsigned int firmware_id,
+		unsigned int boot_qos, unsigned int flag)
 {
 	int ret = 0;
 
 	score_enter();
 	if (device->state & BIT(SCORE_DEVICE_STATE_OPEN)) {
-		ret = __score_device_start(device, firmware_id);
-		if (ret)
-			__score_device_close(device);
+		ret = __score_device_start(device, firmware_id, boot_qos);
 	} else if (device->state & BIT(SCORE_DEVICE_STATE_START)) {
 		if (firmware_id != device->cur_firmware_id) {
 			if (flag & SCORE_BOOT_FORCE) {

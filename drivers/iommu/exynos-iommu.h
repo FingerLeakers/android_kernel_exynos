@@ -200,6 +200,8 @@ typedef u32 sysmmu_pte_t;
 #define MMU_TLB_ENTRY_VALID(reg)	((reg) >> 28)
 #define MMU_SBB_ENTRY_VALID(reg)	((reg) >> 28)
 
+#define MMU_VADDR_FROM_TLB(reg, idx)	((((reg) & 0xFFFFC) | ((idx) & 0x3)) << 12)
+#define MMU_PADDR_FROM_TLB(reg)		(((reg) & 0xFFFFFF) << 12)
 #define MMU_VADDR_FROM_SBB(reg)		(((reg) & 0xFFFFF) << 12)
 #define MMU_PADDR_FROM_SBB(reg)		(((reg) & 0x3FFFFFF) << 10)
 
@@ -327,6 +329,12 @@ struct tlb_props {
 	};
 };
 
+enum {
+	SYSMMU_USE_RUNTIME_ACTIVE = 0,
+	SYSMMU_STATE_DISABLED,
+	SYSMMU_STATE_ENABLED,
+};
+
 /*
  * This structure hold all data of a single SYSMMU controller, this includes
  * hw resources like registers and clocks, pointers and list nodes to connect
@@ -338,6 +346,7 @@ struct sysmmu_drvdata {
 	struct device *sysmmu;		/* SYSMMU controller device */
 	void __iomem *sfrbase;		/* our registers */
 	struct clk *clk;		/* SYSMMU's clock */
+	struct iommu_device iommu;	/* IOMMU core handle */
 	int activations;		/* number of calls to sysmmu_enable */
 	int runtime_active;	/* Runtime PM activated count from master */
 	spinlock_t lock;		/* lock for modyfying state */
@@ -348,7 +357,9 @@ struct sysmmu_drvdata {
 	struct atomic_notifier_head fault_notifiers;
 	struct tlb_props tlb_props;
 	bool is_suspended;
+	bool hold_rpm_on_boot;
 	struct exynos_iommu_event_log log;
+	int no_rpm_control;
 };
 
 struct exynos_vm_region {
@@ -388,18 +399,24 @@ int exynos_iommu_add_fault_handler(struct device *dev,
 
 static inline bool get_sysmmu_runtime_active(struct sysmmu_drvdata *data)
 {
-	return ++data->runtime_active == 1;
+	return ++data->runtime_active == 1 && !data->no_rpm_control;
 }
 
 static inline bool put_sysmmu_runtime_active(struct sysmmu_drvdata *data)
 {
 	BUG_ON(data->runtime_active < 1);
-	return --data->runtime_active == 0;
+	return --data->runtime_active == 0 && !data->no_rpm_control;
 }
 
 static inline bool is_sysmmu_runtime_active(struct sysmmu_drvdata *data)
 {
-	return data->runtime_active > 0;
+	return data->runtime_active > 0 && !data->no_rpm_control;
+}
+
+static inline bool is_runtime_active_or_enabled(struct sysmmu_drvdata *data)
+{
+	return is_sysmmu_runtime_active(data) ||
+		data->no_rpm_control == SYSMMU_STATE_ENABLED;
 }
 
 static inline bool set_sysmmu_active(struct sysmmu_drvdata *data)

@@ -27,6 +27,7 @@
 #include "g2d_format.h"
 
 #define G2D_MAX_IMAGES		16
+#define G2D_MAX_IMAGES_HALF	8
 #define G2D_MAX_JOBS		16
 #define G2D_CMD_LIST_SIZE	8192
 
@@ -62,8 +63,8 @@ struct g2d_layer {
 	int			buffer_type;
 	int			num_buffers;
 	struct g2d_buffer	buffer[G2D_MAX_PLANES];
-	struct fence		*fence;
-	struct fence_cb		fence_cb;
+	struct dma_fence	*fence;
+	struct dma_fence_cb	fence_cb;
 	struct g2d_reg		*commands;
 };
 
@@ -87,7 +88,6 @@ struct g2d_task {
 	struct g2d_device	*g2d_dev;
 
 	unsigned int		flags;
-	unsigned int		job_id;
 	unsigned int		bufidx;
 	unsigned long		state;
 	struct sync_file	*release_fence;
@@ -95,16 +95,23 @@ struct g2d_task {
 	struct timer_list	fence_timer;
 	struct timer_list	hw_timer;
 
-	struct g2d_layer	source[G2D_MAX_IMAGES];
+	struct g2d_layer	*source;
 	struct g2d_layer	target;
 	unsigned int		num_source;
 
 	/* Command list */
 	struct page		*cmd_page;
 	dma_addr_t		cmd_addr;
-	unsigned int		cmd_count;
 
-	unsigned int		priority;
+	struct {
+		unsigned long	cmd_paddr;
+		unsigned int	cmd_count;
+		unsigned int	priority;
+		unsigned int	job_id;
+		/* temporarily used by g2d_hw_push_task_by_smc */
+		int		secure_layer_mask;
+	} sec;
+
 	ktime_t			ktime_begin;
 	ktime_t			ktime_end;
 
@@ -181,6 +188,7 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task);
 
 void g2d_start_task(struct g2d_task *task);
+void g2d_cancel_task(struct g2d_task *task);
 void g2d_finish_task_with_id(struct g2d_device *g2d_dev,
 			     unsigned int job_id, bool success);
 void g2d_flush_all_tasks(struct g2d_device *g2d_dev);
@@ -188,7 +196,7 @@ void g2d_flush_all_tasks(struct g2d_device *g2d_dev);
 void g2d_prepare_suspend(struct g2d_device *g2d_dev);
 void g2d_suspend_finish(struct g2d_device *g2d_dev);
 
-void g2d_fence_callback(struct fence *fence, struct fence_cb *cb);
+void g2d_fence_callback(struct dma_fence *fence, struct dma_fence_cb *cb);
 
 void g2d_queuework_task(struct kref *kref);
 

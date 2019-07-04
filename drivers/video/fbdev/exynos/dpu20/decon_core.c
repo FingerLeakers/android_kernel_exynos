@@ -49,6 +49,12 @@
 #elif defined(CONFIG_SOC_EXYNOS9820)
 #include <dt-bindings/clock/exynos9820.h>
 #endif
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+#ifdef CONFIG_SAMSUNG_TUI
+#include "stui_inf.h"
+#endif
 
 #include "decon.h"
 #include "dsim.h"
@@ -189,6 +195,95 @@ void decon_dump(struct decon_device *decon, u32 dsi_dump)
 	if (acquired)
 		console_unlock();
 }
+
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+extern unsigned int get_panel_bigdata(void);
+
+/* Gen Big Data Error for Decon's Bug
+ *
+ * return value
+ * 1. 31 ~ 28 : decon_id
+ * 2. 27 ~ 24 : decon eint pend register
+ * 3. 23 ~ 16 : dsim underrun count
+ * 4. 15 ~  8 : 0x0e panel register
+ * 5.  7 ~  0 : 0x0a panel register
+ * */
+
+static unsigned int gen_decon_bug_bigdata(struct decon_device *decon)
+{
+	struct dsim_device *dsim;
+	unsigned int value, panel_value;
+	unsigned int underrun_cnt = 0;
+
+	/* for decon id */
+	value = decon->id << 28;
+
+	if (decon->id == 0) {
+		/* for eint pend value */
+		value |= (decon->eint_pend & 0x0f) << 24;
+
+		/* for underrun count */
+		dsim = container_of(decon->out_sd[0], struct dsim_device, sd);
+		if (dsim != NULL) {
+			underrun_cnt = dsim->total_underrun_cnt;
+			if (underrun_cnt > 0xff) {
+				decon_info("DECON:INFO:%s:dsim underrun exceed 1byte : %d\n",
+						__func__, underrun_cnt);
+				underrun_cnt = 0xff;
+			}
+		}
+		value |= underrun_cnt << 16;
+
+		/* for panel dump */
+		panel_value = get_panel_bigdata();
+		value |= panel_value & 0xffff;
+	}
+
+	decon_info("DECON:INFO:%s:big data : %x\n", __func__, value);
+	return value;
+}
+
+void log_decon_bigdata(struct decon_device *decon)
+{
+	unsigned int bug_err_num;
+
+	bug_err_num = gen_decon_bug_bigdata(decon);
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	sec_debug_set_extra_info_decon(bug_err_num);
+#endif
+}
+
+#ifdef CONFIG_DISPLAY_USE_INFO
+static int decon_dpui_notifier_callback(struct notifier_block *self,
+				 unsigned long event, void *data)
+{
+	struct decon_device *decon;
+	struct dpui_info *dpui = data;
+	int i, recovery_cnt = 0, value;
+	static int prev_recovery_cnt;
+
+	if (dpui == NULL) {
+		panel_err("%s: dpui is null\n", __func__);
+		return 0;
+	}
+
+	decon = container_of(self, struct decon_device, dpui_notif);
+
+	for (i = 0; i < MAX_DPP_SUBDEV; i++) {
+		value = 0;
+		v4l2_subdev_call(decon->dpp_sd[i], core, ioctl,
+				DPP_GET_RECOVERY_CNT, &value);
+		recovery_cnt += value;
+	}
+
+	inc_dpui_u32_field(DPUI_KEY_EXY_SWRCV,
+			max(0, recovery_cnt - prev_recovery_cnt));
+	prev_recovery_cnt = recovery_cnt;
+
+	return 0;
+}
+#endif /* CONFIG_DISPLAY_USE_INFO */
+#endif /* CONFIG_LOGGING_BIGDATA_BUG */
 
 /* ---------- CHECK FUNCTIONS ----------- */
 static void decon_win_config_to_regs_param
@@ -853,8 +948,12 @@ static int decon_disable(struct decon_device *decon)
 		goto out;
 	}
 
-	if (decon->state == DECON_STATE_TUI)
+	if (decon->state == DECON_STATE_TUI) {
+#ifdef CONFIG_SAMSUNG_TUI
+		stui_cancel_session();
+#endif
 		_decon_tui_protection(false);
+	}
 
 	DPU_EVENT_LOG(DPU_EVT_BLANK, &decon->sd, ktime_set(0, 0));
 	decon_info("decon-%d %s +\n", decon->id, __func__);
@@ -1154,8 +1253,14 @@ int decon_wait_for_vsync(struct decon_device *decon, u32 timeout)
 
 	if (timeout && ret == 0) {
 		if (decon->d.eint_pend) {
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+			decon->eint_pend = readl(decon->d.eint_pend);
+			decon_err("decon%d wait for vsync timeout(p:0x%x)\n",
+				decon->id, decon->eint_pend);
+#else
 			decon_err("decon%d wait for vsync timeout(p:0x%x)\n",
 				decon->id, readl(decon->d.eint_pend));
+#endif
 		} else {
 			decon_err("decon%d wait for vsync timeout\n", decon->id);
 		}
@@ -2002,6 +2107,9 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 	if (decon_reg_start(decon->id, &psr) < 0) {
 		decon_up_list_saved();
 		decon_dump(decon, REQ_DSI_DUMP);
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+		log_decon_bigdata(decon);
+#endif
 		BUG();
 	}
 
@@ -2373,6 +2481,9 @@ video_emul_check_done:
 			decon_dump_afbc_handle(decon, old_dma_bufs);
 #endif
 			decon_dump(decon, REQ_DSI_DUMP);
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+			log_decon_bigdata(decon);
+#endif
 			BUG();
 		}
 		if (!regs->num_of_window) {
@@ -2415,6 +2526,9 @@ video_emul_check_done:
 			decon_dump_afbc_handle(decon, old_dma_bufs);
 #endif
 			decon_dump(decon, REQ_DSI_DUMP);
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+			log_decon_bigdata(decon);
+#endif
 			BUG();
 		}
 #ifdef CONFIG_SUPPORT_HMD
@@ -4475,6 +4589,15 @@ static int decon_probe(struct platform_device *pdev)
 	decon->itmon_nb.notifier_call = decon_itmon_notifier;
 	itmon_notifier_chain_register(&decon->itmon_nb);
 #endif
+
+#ifdef CONFIG_LOGGING_BIGDATA_BUG
+#ifdef CONFIG_DISPLAY_USE_INFO
+	decon->dpui_notif.notifier_call = decon_dpui_notifier_callback;
+	ret = dpui_logging_register(&decon->dpui_notif, DPUI_TYPE_CTRL);
+	if (ret)
+		panel_err("ERR:PANEL:%s:failed to register dpui notifier callback\n", __func__);
+#endif
+#endif /* CONFIG_LOGGING_BIGDATA_BUG */
 
 	dpu_init_freq_hop(decon);
 

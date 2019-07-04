@@ -268,15 +268,16 @@ int etspi_io_read_register(struct etspi_data *etspi, u8 *addr, u8 *buf)
 	struct spi_message m;
 	int read_len = 1;
 
-	u8 tx[] = {OP_REG_R, 0x00, 0x00};
 	u8 val, addrval;
-	u8 rx[] = {0xFF, 0x00, 0x00};
 
 	struct spi_transfer xfer = {
-		.tx_buf = tx,
-		.rx_buf = rx,
+		.tx_buf = etspi->buf,
+		.rx_buf = etspi->buf,
 		.len = 3,
 	};
+
+	memset(etspi->buf, 0, xfer.len);
+	*etspi->buf = OP_REG_R;
 
 	if (copy_from_user(&addrval, (const u8 __user *) (uintptr_t) addr
 		, read_len)) {
@@ -285,7 +286,7 @@ int etspi_io_read_register(struct etspi_data *etspi, u8 *addr, u8 *buf)
 		return status;
 	}
 
-	tx[1] = addrval;
+	*(etspi->buf + 1) = addrval;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -295,10 +296,10 @@ int etspi_io_read_register(struct etspi_data *etspi, u8 *addr, u8 *buf)
 		return status;
 	}
 
-	val = rx[2];
+	val = *(etspi->buf + 2);
 
-	pr_debug("%s len = %d addr = %p val = %x\n", __func__,
-			read_len, addr, val);
+	pr_debug("%s len = %d addr = %x val = %x\n", __func__,
+			read_len, addrval, val);
 
 	if (copy_to_user((u8 __user *) (uintptr_t) buf, &val, read_len)) {
 		pr_err("%s buffer copy_to_user fail status\n", __func__);
@@ -320,13 +321,15 @@ int etspi_io_write_register(struct etspi_data *etspi, u8 *buf)
 	int write_len = 2;
 	struct spi_message m;
 
-	u8 tx[] = {OP_REG_W, 0x00, 0x00};
 	u8 val[3];
 
 	struct spi_transfer xfer = {
-		.tx_buf = tx,
+		.tx_buf = etspi->buf,
 		.len = 3,
 	};
+
+	memset(etspi->buf, 0, xfer.len);
+	*etspi->buf = OP_REG_W;
 
 	if (copy_from_user(val, (const u8 __user *) (uintptr_t) buf,
 			write_len)) {
@@ -338,8 +341,8 @@ int etspi_io_write_register(struct etspi_data *etspi, u8 *buf)
 	pr_debug("%s write_len = %d addr = %x data = %x\n", __func__,
 			write_len, val[0], val[1]);
 
-	tx[1] = val[0];
-	tx[2] = val[1];
+	*(etspi->buf + 1) = val[0];
+	*(etspi->buf + 2) = val[1];
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -359,27 +362,36 @@ int etspi_write_register(struct etspi_data *etspi, u8 addr, u8 buf)
 	return 0;
 #else
 	int status;
+	int i, buf_size;
 	struct spi_message m;
 
 	u8 tx[] = {OP_REG_W, addr, buf};
+	u8 *tx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = tx,
 		.rx_buf	= NULL,
 		.len = 3,
 	};
+
+	buf_size = 3;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = tx[i];
+	xfer.tx_buf = tx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
 	status = spi_sync(etspi->spi, &m);
 
 	if (status == 0) {
-		DEBUG_PRINT("%s address = %x result = %x %x\n"
-					__func__, addr, result[1], result[2]);
+		DEBUG_PRINT("%s address = %x\n",__func__, addr);
 	} else {
 		pr_err("%s read data error status = %d\n", __func__, status);
 	}
 
+	kfree(tx_buffer);
 	return status;
 #endif
 }
@@ -389,31 +401,50 @@ int etspi_read_register(struct etspi_data *etspi, u8 addr, u8 *buf)
 	return 0;
 #else
 	int status;
+	int i, buf_size;
 	struct spi_message m;
 
-	static u8 read_value[] = {OP_REG_R, 0x00, 0x00};
-	static u8 result[] = {0xFF, 0xFF, 0xFF};
+	u8 read_value[] = {OP_REG_R, addr, 0x00};
+	u8 result[] = {0xFF, 0xFF, 0xFF};
+
+	u8 *tx_buffer = NULL;
+	u8 *rx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = NULL,
-		.rx_buf	= result,
 		.len = 3,
 	};
 
-	read_value[1] = addr;
-	xfer.tx_buf = read_value;
+	buf_size = 3;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	rx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (rx_buffer == NULL) {
+		kfree(tx_buffer);
+		return -ENOMEM;
+	}
+	for (i = 0; i < buf_size; i++) {
+		tx_buffer[i] = read_value[i];
+		rx_buffer[i] = result[i];
+	}
+
+	xfer.tx_buf = tx_buffer;
+	xfer.rx_buf = rx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
 	status = spi_sync(etspi->spi, &m);
 
 	if (status == 0) {
-		*buf = result[2];
+		*buf = rx_buffer[2];
 		DEBUG_PRINT("%s address = %x result = %x %x\n"
-					__func__, addr, result[1], result[2]);
+					__func__, addr, rx_buffer[1], rx_buffer[2]);
 	} else {
 		pr_err("%s read data error status = %d\n", __func__, status);
 	}
+
+	kfree(tx_buffer);
+	kfree(rx_buffer);
 
 	return status;
 #endif
@@ -425,15 +456,25 @@ int etspi_io_nvm_read(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 	return 0;
 #else
 	int status;
+	int i, buf_size;
 	struct spi_message m;
 
-	u8 addr/* nvm logical address */, buf[] = {OP_NVM_RE, 0x00};
+	u8 addr; /* nvm logical address */
+	u8 buf[] = {OP_NVM_RE, 0x00};
+	u8 *tx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = buf,
 		.rx_buf	= NULL,
 		.len = 2,
 	};
+
+	buf_size = 2;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = buf[i];
+	xfer.tx_buf = tx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -443,6 +484,8 @@ int etspi_io_nvm_read(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 		DEBUG_PRINT("%s nvm enabled\n", __func__);
 	else
 		pr_err("%s nvm enable error status = %d\n", __func__, status);
+
+	kfree(tx_buffer);
 
 	usleep_range(10, 50);
 
@@ -499,19 +542,29 @@ int etspi_io_nvm_write(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 	return 0;
 #else
 	int status, i, j, len/* physical nvm length */;
+	int buf_size;
 	struct spi_message m;
 	u8 *bufw = NULL;
 	u8 buf[MAX_NVM_LEN + 1] = {OP_NVM_WE, 0x00};
 	u8 addr/* nvm physical addr */;
+	u8 *tx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = buf,
 		.rx_buf	= NULL,
 		.len = 2,
 	};
 
 	if (ioc->len > (MAX_NVM_LEN + 1))
 		return -EINVAL;
+
+	buf_size = MAX_NVM_LEN+1;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = buf[i];
+
+	xfer.tx_buf = tx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -521,6 +574,8 @@ int etspi_io_nvm_write(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 		DEBUG_PRINT("%s nvm enabled\n", __func__);
 	else
 		pr_err("%s nvm enable error status = %d\n", __func__, status);
+
+	kfree(tx_buffer);
 
 	usleep_range(10, 50);
 
@@ -542,7 +597,7 @@ int etspi_io_nvm_write(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 		return -EINVAL;
 	}
 
-	bufw = kmalloc(NVM_WRITE_LENGTH, GFP_KERNEL);
+	bufw = kzalloc(NVM_WRITE_LENGTH, GFP_KERNEL | GFP_DMA);
 	/*TODO: need to dynamic assign nvm length*/
 	if (bufw == NULL) {
 		status = -ENOMEM;
@@ -599,15 +654,26 @@ int etspi_nvm_read(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 	return 0;
 #else
 	int status;
+	int i, buf_size;
 	struct spi_message m;
 
-	u8 addr/* nvm logical address */, buf[] = {OP_NVM_RE, 0x00};
+	u8 addr; /* nvm logical address */
+	u8 buf[] = {OP_NVM_RE, 0x00};
+	u8 *tx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = buf,
 		.rx_buf	= NULL,
 		.len = 2,
 	};
+
+	buf_size = 2;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = buf[i];
+
+	xfer.tx_buf = tx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -617,6 +683,8 @@ int etspi_nvm_read(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 		DEBUG_PRINT("%s nvm enabled\n", __func__);
 	else
 		pr_err("%s nvm enable error status = %d\n", __func__, status);
+
+	kfree(tx_buffer);
 
 	usleep_range(10, 50);
 
@@ -668,15 +736,16 @@ int etspi_io_nvm_writeex(struct etspi_data *etspi,
 	return 0;
 #else
 	int status, i, j, len/* physical nvm length */, wlen;
+	int buf_size;
 	struct spi_message m;
 	u8 *bufw = NULL;
 	u8 bufr[MAX_NVM_LEN + 3];
 	u8 buf[MAX_NVM_LEN + 3] = {OP_NVM_WE, 0x00};
 	u8 addr/* nvm physical addr */, *tmp = NULL;
+	u8 *tx_buffer = NULL;
 	struct egis_ioc_transfer r;
 
 	struct spi_transfer xfer = {
-		.tx_buf = buf,
 		.rx_buf	= NULL,
 		.len = 2,
 	};
@@ -717,6 +786,15 @@ int etspi_io_nvm_writeex(struct etspi_data *etspi,
 	}
 
 	buf[0] = OP_NVM_WE;
+
+	buf_size = MAX_NVM_LEN+1;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = buf[i];
+	xfer.tx_buf = tx_buffer;
+
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
 	status = spi_sync(etspi->spi, &m);
@@ -726,13 +804,15 @@ int etspi_io_nvm_writeex(struct etspi_data *etspi,
 	else
 		pr_err("%s nvm enable error status = %d\n", __func__, status);
 
+	kfree(tx_buffer);
+
 	usleep_range(10, 50);
 
 	wlen = *(u16 *)(buf + 1);
 	pr_debug("%s wlen(%d)\n", __func__, wlen);
 	if (wlen > 8192)
 		wlen = 8196;
-	bufw = kmalloc(wlen, GFP_KERNEL);
+	bufw = kzalloc(wlen, GFP_KERNEL | GFP_DMA);
 	if (bufw == NULL) {
 		status = -ENOMEM;
 		pr_err("%s bufw kmalloc error\n", __func__);
@@ -792,15 +872,24 @@ int etspi_io_nvm_off(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 	return 0;
 #else
 	int status;
+	int i, buf_size;
 	struct spi_message m;
 
 	u8 buf[] = {OP_NVM_OFF, 0x00};
+	u8 *tx_buffer = NULL;
 
 	struct spi_transfer xfer = {
-		.tx_buf = buf,
 		.rx_buf	= NULL,
 		.len = 2,
 	};
+
+	buf_size = 2;
+	tx_buffer = kzalloc(buf_size*sizeof(u8), GFP_KERNEL | GFP_DMA);
+	if (tx_buffer == NULL)
+		return -ENOMEM;
+	for (i = 0; i < buf_size; i++)
+		tx_buffer[i] = buf[i];
+	xfer.tx_buf = tx_buffer;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&xfer, &m);
@@ -811,6 +900,7 @@ int etspi_io_nvm_off(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 	else
 		pr_err("%s nvm disable error status = %d\n", __func__, status);
 
+	kfree(tx_buffer);
 	return status;
 #endif
 }
@@ -835,7 +925,7 @@ int etspi_io_vdm_read(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 					(xfer.len % DIVISION_OF_IMAGE));
 	}
 
-	buf = kzalloc(xfer.len, GFP_KERNEL);
+	buf = kzalloc(xfer.len, GFP_KERNEL | GFP_DMA);
 
 	if (buf == NULL)
 		return -ENOMEM;
@@ -886,7 +976,7 @@ int etspi_io_vdm_write(struct etspi_data *etspi, struct egis_ioc_transfer *ioc)
 					(xfer.len % DIVISION_OF_IMAGE));
 	}
 
-	buf = kzalloc(xfer.len, GFP_KERNEL);
+	buf = kzalloc(xfer.len, GFP_KERNEL | GFP_DMA);
 	if (buf == NULL)
 		return -ENOMEM;
 
@@ -936,7 +1026,7 @@ int etspi_io_get_frame(struct etspi_data *etspi, u8 *fr, u32 size)
 					(xfer.len % DIVISION_OF_IMAGE));
 	}
 
-	buf = kzalloc(xfer.len, GFP_KERNEL);
+	buf = kzalloc(xfer.len, GFP_KERNEL | GFP_DMA);
 
 	if (buf == NULL)
 		return -ENOMEM;

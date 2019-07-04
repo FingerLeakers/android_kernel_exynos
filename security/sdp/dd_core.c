@@ -37,6 +37,9 @@
 
 #define TIMEOUT_PENDING_REQ (5*1000)
 
+#ifdef CONFIG_FSCRYPT_SDP
+extern int fscrypt_sdp_get_storage_type(struct dentry *target_dentry);
+#endif
 extern int fscrypt_inline_encrypted(const struct inode *inode);
 extern int fscrypt_set_bio_cryptd(const struct inode *inode, struct bio *bio);
 
@@ -1419,6 +1422,8 @@ static void dd_write_metadata_work(struct work_struct *work) {
 
 	dd_verbose("dd_write_metadata_work %ld complete (i_state:0x%x)\n",
 			ioc_work->inode->i_ino, ioc_work->inode->i_state);
+
+	iput(ioc_work->inode);
 	kfree(ioc_work);
 }
 
@@ -1550,6 +1555,15 @@ static long dd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		dd_info("DD_IOCTL_EVICT_KEY");
 		dd_evict_master_key(ioc.u.evict_key.userid);
 		return 0;
+	case DD_IOCTL_DUMP_KEY:
+		dd_info("DD_IOCTL_DUMP_KEY");
+#ifdef CONFIG_SDP_KEY_DUMP
+		err = dd_dump_key(ioc.u.dump_key.userid,
+				ioc.u.dump_key.fileDescriptor);
+		return err;
+#else
+		return 0;
+#endif
 #endif
 	case DD_IOCTL_DUMP_REQ_LIST:
 	{
@@ -1670,6 +1684,12 @@ static long dd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		memcpy(ioc_work->value, ioc.u.xattr.value, ioc.u.xattr.size);
 		ioc_work->size = ioc.u.xattr.size;
 
+		if (!igrab(ioc_work->inode)) {
+			dd_error("failed to grab inode refcount. this inode may be getting removed\n");
+			kfree(ioc_work);
+			return 0;
+		}
+
 		INIT_WORK(&ioc_work->work, dd_write_metadata_work);
 		queue_work(dd_ioctl_workqueue, &ioc_work->work);
 
@@ -1769,6 +1789,9 @@ struct dd_info *alloc_dd_info(struct inode *inode) {
 	uid_t calling_uid = from_kuid(&init_user_ns, current_uid());
 	unsigned char master_key[256];
 	int rc = 0;
+#ifdef CONFIG_FSCRYPT_SDP
+	sdp_fs_command_t *cmd = NULL;
+#endif
 
 	if (dd_read_crypt_context(inode, &crypt_context) != sizeof(struct dd_crypt_context)) {
 		dd_error("alloc_dd_info: failed to read dd crypt context ino:%ld\n", inode->i_ino);
@@ -1794,6 +1817,22 @@ struct dd_info *alloc_dd_info(struct inode *inode) {
 
 	if (dd_policy_gid_restriction(crypt_context.policy.flags)) {
 		if(enforce_caller_gid(calling_uid)) {
+#ifdef CONFIG_FSCRYPT_SDP
+			int partition_id = -1;
+			struct dentry *de = NULL;
+			de = d_find_alias(inode);
+			if (de) {
+				partition_id = fscrypt_sdp_get_storage_type(de);
+			}
+
+			cmd = sdp_fs_command_alloc(FSOP_AUDIT_FAIL_DE_ACCESS,
+					current->tgid, crypt_context.policy.userid, partition_id,
+					inode->i_ino, -EACCES, GFP_KERNEL);
+			if (cmd) {
+				sdp_fs_request(cmd, NULL);
+				sdp_fs_command_free(cmd);
+			}
+#endif
 			dd_error("gid restricted.. calling-uid:%d ino:%ld\n", calling_uid, inode->i_ino);
 			return ERR_PTR(-EACCES);
 		}
@@ -1877,6 +1916,9 @@ void dd_info_try_free(struct dd_info *info) {
 		dd_verbose("freeing dd info ino:%ld\n", info->ino);
 		if (info->mdpage)
 			__free_page(info->mdpage);
+
+		if (info->ctfm)
+			crypto_free_skcipher(info->ctfm);
 
 		kmem_cache_free(ext4_dd_info_cachep, info);
 	}

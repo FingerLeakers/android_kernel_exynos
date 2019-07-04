@@ -12,6 +12,13 @@
  *
  */
 
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/interrupt.h>
+#include <linux/platform_device.h>
+#include <linux/miscdevice.h>
+#include <linux/shm_ipc.h>
+
 #include "modem_prj.h"
 #include "modem_utils.h"
 #include "link_device_memory.h"
@@ -103,6 +110,7 @@ int save_acpm_dump(struct link_device *ld, struct io_device *iod,
 	return save_dump_file(ld, iod, arg, mld->acpm_base, acpm_size);
 }
 
+#ifdef CONFIG_CP_RAM_LOGGING
 int save_cplog_dump(struct link_device *ld, struct io_device *iod,
 		unsigned long arg)
 {
@@ -123,6 +131,21 @@ int save_cplog_dump(struct link_device *ld, struct io_device *iod,
 	}
 
 	return save_dump_file(ld, iod, arg, cplog_base, cplog_size);
+}
+#endif
+
+int save_databuf_dump(struct link_device *ld, struct io_device *iod,
+		unsigned long arg)
+{
+	u8 __iomem *dump_base = shm_get_databuf_region();
+	size_t dump_size = shm_get_databuf_size();
+
+	if (dump_size == 0 || dump_base == NULL) {
+		mif_err("ERR! save_databuf_dump fail!\n");
+		return -EFAULT;
+	}
+
+	return save_dump_file(ld, iod, arg, dump_base, dump_size);
 }
 
 int save_shmem_dump(struct link_device *ld, struct io_device *iod,

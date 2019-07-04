@@ -22,8 +22,6 @@
 #include <linux/exynos_iovmm.h>
 #include <linux/smc.h>
 #include <media/v4l2-ioctl.h>
-#include <media/m2m1shot.h>
-#include <media/m2m1shot-helper.h>
 
 #include <video/videonode.h>
 
@@ -43,23 +41,10 @@ module_param_named(gdc_log_level, gdc_log_level, uint, S_IRUGO | S_IWUSR);
 int __gdc_measure_hw_latency;
 module_param_named(gdc_measure_hw_latency, __gdc_measure_hw_latency, int, 0644);
 
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-dma_addr_t tpu_grid_x_addr;
-dma_addr_t tpu_grid_y_addr;
-bool grid_addr_alloc_done;
-#endif
-
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-dma_addr_t tpu_grid_x_addr;
-dma_addr_t tpu_grid_y_addr;
-bool grid_addr_alloc_done = false;
-#endif
-
 struct vb2_gdc_buffer {
 	struct v4l2_m2m_buffer mb;
 	struct gdc_ctx *ctx;
 	ktime_t ktime;
-	struct work_struct work;
 };
 
 static const struct gdc_fmt gdc_formats[] = {
@@ -131,8 +116,87 @@ static const struct gdc_fmt gdc_formats[] = {
 		.num_planes = 1,
 		.num_comp	= 2,
 		.h_shift	= 1,
+	}, {
+		.name		= "YUV 4:2:2 non-contiguous 2-planar, Y/CbCr",
+		.pixelformat	= V4L2_PIX_FMT_NV16M,
+		.cfg_val	= GDC_CFG_FMT_YCBCR422_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "YUV 4:2:2 non-contiguous 2-planar, Y/CrCb",
+		.pixelformat	= V4L2_PIX_FMT_NV61M,
+		.cfg_val	= GDC_CFG_FMT_YCRCB422_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "P010_16B",
+		.pixelformat	= V4L2_PIX_FMT_NV12M_P010,
+		.cfg_val	= GDC_CFG_FMT_P010_16B_2P,
+		.bitperpixel	= { 16, 16 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "P010_16B",
+		.pixelformat	= V4L2_PIX_FMT_NV21M_P010,
+		.cfg_val	= GDC_CFG_FMT_P010_16B_2P,
+		.bitperpixel	= { 16, 16 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "P210_16B",
+		.pixelformat	= V4L2_PIX_FMT_NV16M_P210,
+		.cfg_val	= GDC_CFG_FMT_P210_16B_2P,
+		.bitperpixel	= { 16, 16 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "P210_16B",
+		.pixelformat	= V4L2_PIX_FMT_NV61M_P210,
+		.cfg_val	= GDC_CFG_FMT_P210_16B_2P,
+		.bitperpixel	= { 16, 16 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "YUV422 2P 10bit(8+2)",
+		.pixelformat	= V4L2_PIX_FMT_NV16M_S10B,
+		.cfg_val	= GDC_CFG_FMT_YCRCB422_8P2_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "YUV422 2P 10bit(8+2)",
+		.pixelformat	= V4L2_PIX_FMT_NV61M_S10B,
+		.cfg_val	= GDC_CFG_FMT_YCRCB422_8P2_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "YUV420 2P 10bit(8+2)",
+		.pixelformat	= V4L2_PIX_FMT_NV12M_S10B,
+		.cfg_val	= GDC_CFG_FMT_YCRCB420_8P2_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
+	}, {
+		.name		= "YUV420 2P 10bit(8+2)",
+		.pixelformat	= V4L2_PIX_FMT_NV21M_S10B,
+		.cfg_val	= GDC_CFG_FMT_YCRCB420_8P2_2P,
+		.bitperpixel	= { 8, 8 },
+		.num_planes = 2,
+		.num_comp	= 2,
+		.h_shift	= 1,
 	},
-
 };
 
 static const struct gdc_variant gdc_variant[] = {
@@ -169,69 +233,6 @@ static const struct gdc_fmt *gdc_find_format(struct gdc_dev *gdc,
 
 	return NULL;
 }
-
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-static int gdc_init_internal_buffer(struct gdc_dev *gdc)
-{
-	int ret = 0;
-
-	grid_addr_alloc_done = false;
-	gdc->alloc_ctx_priv = (struct vb2_alloc_ctx *)vb2_ion_create_context(
-					gdc->dev, SZ_4K, VB2ION_CTX_IOMMU | VB2ION_CTX_VMCONTIG);
-	if (IS_ERR_OR_NULL(gdc->alloc_ctx_priv)) {
-		pr_err("failed to internal buff init. allocation context");
-		ret = PTR_ERR(gdc->alloc_ctx_priv);
-		goto err_ion_init;
-	}
-
-err_ion_init:
-
-	return ret;
-
-}
-
-static int gdc_alloc_grid_internal_buffer(struct gdc_dev *gdc, u32 size)
-{
-	void *alloc_ctx_priv;
-
-	alloc_ctx_priv = gdc->alloc_ctx_priv;
-
-	gdc->grid_x_buf.cookie = vb2_ion_private_alloc(alloc_ctx_priv, size);
-	if (IS_ERR_OR_NULL(gdc->grid_x_buf.cookie)) {
-		gdc->grid_x_buf.cookie = NULL;
-		pr_err("Alloc grid_x buffer failed\n");
-		return -ENOMEM;
-	}
-	BUG_ON(vb2_ion_dma_address(gdc->grid_x_buf.cookie, &gdc->grid_x_buf.daddr) != 0);
-	tpu_grid_x_addr = gdc->grid_x_buf.daddr;
-
-	gdc->grid_y_buf.cookie = vb2_ion_private_alloc(alloc_ctx_priv, size);
-	if (IS_ERR_OR_NULL(gdc->grid_y_buf.cookie)) {
-		gdc->grid_y_buf.cookie = NULL;
-		pr_err("Alloc grid_y buffer failed\n");
-		return -ENOMEM;
-	}
-	BUG_ON(vb2_ion_dma_address(gdc->grid_y_buf.cookie, &gdc->grid_y_buf.daddr) != 0);
-	tpu_grid_y_addr = gdc->grid_y_buf.daddr;
-
-	return 0;;
-}
-
-void gdc_release_internal_buffer(struct gdc_dev *gdc)
-{
-	vb2_ion_private_free(gdc->grid_x_buf.cookie);
-	gdc->grid_x_buf.vaddr = NULL;
-	gdc->grid_x_buf.daddr = 0;
-	gdc->grid_x_buf.cookie = NULL;
-
-	vb2_ion_private_free(gdc->grid_y_buf.cookie);
-	gdc->grid_y_buf.vaddr = NULL;
-	gdc->grid_y_buf.daddr = 0;
-	gdc->grid_y_buf.cookie = NULL;
-
-	return;
-}
-#endif
 
 static int gdc_v4l2_querycap(struct file *file, void *fh,
 			     struct v4l2_capability *cap)
@@ -283,7 +284,6 @@ static int gdc_v4l2_g_fmt_mplane(struct file *file, void *fh,
 	pixm->field		= V4L2_FIELD_NONE;
 	pixm->num_planes	= frame->gdc_fmt->num_planes;
 	pixm->colorspace	= 0;
-	pixm->reserved[1]	= frame->pixel_size;
 
 	for (i = 0; i < pixm->num_planes; ++i) {
 		pixm->plane_fmt[i].bytesperline = (pixm->width *
@@ -351,9 +351,6 @@ static int gdc_v4l2_try_fmt_mplane(struct file *file, void *fh,
 			w_align, &pixm->height, limit->min_h,
 			limit->max_h, h_align, 0);
 /**/
-	pixm->num_planes = gdc_fmt->num_planes;
-	pixm->colorspace = 0;
-	pixm->reserved[1] = frame->pixel_size;
 
 	for (i = 0; i < pixm->num_planes; ++i) {
 		/* The pixm->plane_fmt[i].sizeimage for the plane which
@@ -370,8 +367,29 @@ static int gdc_v4l2_try_fmt_mplane(struct file *file, void *fh,
 			pixm->plane_fmt[i].sizeimage =
 				y_size + (c_span * pixm->height >> 1) * 2;
 		} else {
-			pixm->plane_fmt[i].sizeimage =
-				pixm->plane_fmt[i].bytesperline * pixm->height;
+			if ((gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_S10B)
+				|| (gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_S10B)) {
+				if ((i % 2) == 0)
+					pixm->plane_fmt[i].sizeimage =
+						NV12M_Y_SIZE(pixm->width, pixm->height)
+						+ NV12M_Y_2B_SIZE(pixm->width, pixm->height);
+				else if ((i % 2) == 1)
+					pixm->plane_fmt[i].sizeimage =
+						NV12M_CBCR_SIZE(pixm->width, pixm->height)
+						+ NV12M_CBCR_2B_SIZE(pixm->width, pixm->height);
+			} else if ((gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_S10B)
+				|| (gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_S10B)) {
+				if ((i % 2) == 0)
+					pixm->plane_fmt[i].sizeimage =
+						NV16M_Y_SIZE(pixm->width, pixm->height)
+						+ NV16M_Y_2B_SIZE(pixm->width, pixm->height);
+				else if ((i % 2) == 1)
+					pixm->plane_fmt[i].sizeimage =
+						NV16M_CBCR_SIZE(pixm->width, pixm->height)
+						+ NV16M_CBCR_2B_SIZE(pixm->width, pixm->height);
+			} else
+				pixm->plane_fmt[i].sizeimage =
+					pixm->plane_fmt[i].bytesperline * pixm->height;
 		}
 
 		v4l2_dbg(1, gdc_log_level, &ctx->gdc_dev->m2m.v4l2_dev,
@@ -467,66 +485,13 @@ static int gdc_v4l2_s_fmt_mplane(struct file *file, void *fh,
 	return 0;
 }
 
-static void gdc_fence_work(struct work_struct *work)
-{
-	struct vb2_gdc_buffer *svb =
-			container_of(work, struct vb2_gdc_buffer, work);
-	struct gdc_ctx *ctx = vb2_get_drv_priv(svb->mb.vb.vb2_buf.vb2_queue);
-	struct sync_file *sync_file;
-	int ret;
-
-	/* Buffers do not have acquire_fence are never pushed to workqueue */
-	BUG_ON(svb->mb.vb.vb2_buf.acquire_fence == NULL);
-	BUG_ON(!ctx->m2m_ctx);
-
-	sync_file = svb->mb.vb.vb2_buf.acquire_fence;
-	svb->mb.vb.vb2_buf.acquire_fence = NULL;
-
-	ret = sync_file_wait(sync_file, 1000);
-	if (ret == -ETIME) {
-		dev_warn(ctx->gdc_dev->dev, "sync_fence_wait() timeout\n");
-		ret = sync_file_wait(sync_file, 10 * MSEC_PER_SEC);
-
-		if (ret)
-			dev_warn(ctx->gdc_dev->dev,
-					"sync_fence_wait() error (%d)\n", ret);
-	}
-
-	fput(sync_file->file);
-
-	/* OK to preceed the timed out buffers: It does not harm the system */
-	v4l2_m2m_buf_queue(ctx->m2m_ctx, &svb->mb.vb);
-	v4l2_m2m_try_schedule(ctx->m2m_ctx);
-}
-
 static int gdc_v4l2_reqbufs(struct file *file, void *fh,
 			    struct v4l2_requestbuffers *reqbufs)
 {
 	struct gdc_ctx *ctx = fh_to_gdc_ctx(fh);
-	struct vb2_queue *vq = v4l2_m2m_get_vq(ctx->m2m_ctx, reqbufs->type);
-	unsigned int i;
-	int ret;
 	gdc_dbg("v4l2_reqbuf\n");
 
-	ret = v4l2_m2m_reqbufs(file, ctx->m2m_ctx, reqbufs);
-	if (ret)
-		return ret;
-
-	for (i = 0; i < vq->num_buffers; i++) {
-		struct vb2_buffer *vb;
-		struct vb2_v4l2_buffer *vb2_v4l2;
-		struct v4l2_m2m_buffer *mb;
-		struct vb2_gdc_buffer *svb;
-
-		vb = vq->bufs[i];
-		vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-		mb = container_of(vb2_v4l2, typeof(*mb), vb);
-		svb = container_of(mb, typeof(*svb), mb);
-
-
-		INIT_WORK(&svb->work, gdc_fence_work);
-	}
-	return 0;
+	return v4l2_m2m_reqbufs(file, ctx->m2m_ctx, reqbufs);
 }
 
 static int gdc_v4l2_querybuf(struct file *file, void *fh,
@@ -542,8 +507,6 @@ static int gdc_v4l2_qbuf(struct file *file, void *fh,
 {
 	struct gdc_ctx *ctx = fh_to_gdc_ctx(fh);
 	gdc_dbg("v4l2_qbuf\n");
-
-	buf->flags &= ~V4L2_BUF_FLAG_USE_SYNC;
 
 	return v4l2_m2m_qbuf(file, ctx->m2m_ctx, buf);
 }
@@ -611,6 +574,7 @@ static int gdc_v4l2_s_ext_ctrls(struct file * file, void * priv,
 	int ret = 0;
 	int i;
 	struct gdc_ctx *ctx = fh_to_gdc_ctx(file->private_data);
+	struct gdc_dev *gdc = ctx->gdc_dev;
 	struct v4l2_ext_control *ext_ctrl;
 	struct v4l2_control ctrl;
 	gdc_dbg("v4l2_s_ext_ctrl\n");
@@ -637,6 +601,20 @@ static int gdc_v4l2_s_ext_ctrls(struct file * file, void * priv,
 				if ((crop_param->crop_width != crop_param->sensor_width)
 					|| (crop_param->crop_height != crop_param->sensor_height))
 					crop_param->is_crop_dzoom = true;
+
+				/* Check input crop boundary */
+				if (crop_param->crop_start_x + crop_param->crop_width > ctx->s_frame.width
+					|| crop_param->crop_start_y + crop_param->crop_height > ctx->s_frame.height) {
+					dev_err(gdc->dev, "Invalid input crop size %d,%d %dx%d. Input size %dx%d\n",
+							crop_param->crop_start_x, crop_param->crop_start_y,
+							crop_param->crop_width, crop_param->crop_height,
+							ctx->s_frame.width, ctx->s_frame.height);
+
+					crop_param->crop_start_x = 0;
+					crop_param->crop_start_y = 0;
+					crop_param->crop_width = ctx->s_frame.width;
+					crop_param->crop_height = ctx->s_frame.height;
+				}
 			}
 			break;
 		default:
@@ -746,12 +724,12 @@ static int gdc_vb2_buf_prepare(struct vb2_buffer *vb)
 			vb2_set_plane_payload(vb, i, frame->bytesused[i]);
 	}
 
-	return gdc_buf_sync_prepare(vb);
+	return 0;
 }
 
 static void gdc_vb2_buf_finish(struct vb2_buffer *vb)
 {
-	gdc_buf_sync_finish(vb);
+	/* No operation */
 }
 
 static void gdc_vb2_buf_queue(struct vb2_buffer *vb)
@@ -761,24 +739,13 @@ static void gdc_vb2_buf_queue(struct vb2_buffer *vb)
 
 	gdc_dbg("gdc buf_queue\n");
 
-	if (vb->acquire_fence) {
-		struct vb2_v4l2_buffer *vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-		struct v4l2_m2m_buffer *mb = container_of(vb2_v4l2, typeof(*mb), vb);
-		struct vb2_gdc_buffer *svb = container_of(mb, typeof(*svb), mb);
-		queue_work(ctx->gdc_dev->fence_wq, &svb->work);
-	} else {
-		if (ctx->m2m_ctx)
-			v4l2_m2m_buf_queue(ctx->m2m_ctx, v4l2_buf);
-	}
+	if (ctx->m2m_ctx)
+		v4l2_m2m_buf_queue(ctx->m2m_ctx, v4l2_buf);
 }
 
 static void gdc_vb2_buf_cleanup(struct vb2_buffer *vb)
 {
-	struct vb2_v4l2_buffer *vb2_v4l2 = container_of(vb, typeof(*vb2_v4l2), vb2_buf);
-	struct v4l2_m2m_buffer *mb = container_of(vb2_v4l2, typeof(*mb), vb);
-	struct vb2_gdc_buffer *svb = container_of(mb, typeof(*svb), mb);
-
-	flush_work(&svb->work);
+	/* No operation */
 }
 
 static void gdc_vb2_lock(struct vb2_queue *vq)
@@ -835,7 +802,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
 	src_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	src_vq->ops = &gdc_vb2_ops;
-	src_vq->mem_ops = &vb2_ion_memops;
+	src_vq->mem_ops = &vb2_dma_sg_memops;
 	src_vq->drv_priv = ctx;
 	src_vq->buf_struct_size = sizeof(struct vb2_gdc_buffer);
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -848,7 +815,7 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	dst_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	dst_vq->ops = &gdc_vb2_ops;
-	dst_vq->mem_ops = &vb2_ion_memops;
+	dst_vq->mem_ops = &vb2_dma_sg_memops;
 	dst_vq->drv_priv = ctx;
 	dst_vq->buf_struct_size = sizeof(struct vb2_gdc_buffer);
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -913,7 +880,7 @@ static int gdc_open(struct file *file)
 {
 	struct gdc_dev *gdc = video_drvdata(file);
 	struct gdc_ctx *ctx;
-	int ret;
+	int ret = 0;
 
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx) {
@@ -923,7 +890,6 @@ static int gdc_open(struct file *file)
 
 	atomic_inc(&gdc->m2m.in_use);
 
-	ctx->context_type = GDC_CTX_V4L2_TYPE;
 	INIT_LIST_HEAD(&ctx->node);
 	ctx->gdc_dev = gdc;
 
@@ -987,13 +953,6 @@ static int gdc_release(struct file *file)
 
 	atomic_dec(&gdc->m2m.in_use);
 
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-	if(grid_addr_alloc_done == true) {
-		gdc_release_internal_buffer(gdc);
-		gdc_dbg("gdc tpu grid addr free done\n");
-		grid_addr_alloc_done = false;
-	}
-#endif
 	gdc_dbg("gdc close\n");
 
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
@@ -1039,33 +998,24 @@ static void gdc_job_finish(struct gdc_dev *gdc, struct gdc_ctx *ctx)
 
 	spin_lock_irqsave(&gdc->slock, flags);
 
-	if (ctx->context_type == GDC_CTX_V4L2_TYPE) {
-		ctx = v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev);
-		if (!ctx || !ctx->m2m_ctx) {
-			dev_err(gdc->dev, "current ctx is NULL\n");
-			spin_unlock_irqrestore(&gdc->slock, flags);
-			return;
+	ctx = v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev);
+	if (!ctx || !ctx->m2m_ctx) {
+		dev_err(gdc->dev, "current ctx is NULL\n");
+		spin_unlock_irqrestore(&gdc->slock, flags);
+		return;
 
-		}
-		clear_bit(CTX_RUN, &ctx->flags);
-
-		src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
-		dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
-
-		BUG_ON(!src_vb || !dst_vb);
-
-		v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_ERROR);
-		v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_ERROR);
-
-		v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
-	} else {
-		struct m2m1shot_task *task =
-			m2m1shot_get_current_task(gdc->m21dev);
-
-		BUG_ON(ctx->context_type != GDC_CTX_M2M1SHOT_TYPE);
-
-		m2m1shot_task_finish(gdc->m21dev, task, true);
 	}
+	clear_bit(CTX_RUN, &ctx->flags);
+
+	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+
+	BUG_ON(!src_vb || !dst_vb);
+
+	v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_ERROR);
+	v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_ERROR);
+
+	v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
 
 	spin_unlock_irqrestore(&gdc->slock, flags);
 }
@@ -1192,17 +1142,6 @@ static int gdc_run_next_job(struct gdc_dev *gdc)
 	camerapp_hw_gdc_sw_reset(gdc->regs_base);
 
 	gdc_dbg("gdc sw reset\n");
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-	if (grid_addr_alloc_done == false) {
-		ret = gdc_alloc_grid_internal_buffer(gdc, 4096);
-		gdc_dbg("gdc tpu grid addr alloc done\n");
-		grid_addr_alloc_done = true;
-		if (ret) {
-			grid_addr_alloc_done = false;
-			gdc_dbg("fail internal buffer alloc\n");
-		}
-	}
-#endif
 
 	camerapp_gdc_grid_setting(gdc);
 
@@ -1217,18 +1156,14 @@ static int gdc_run_next_job(struct gdc_dev *gdc)
 	mod_timer(&gdc->wdt.timer, jiffies + GDC_TIMEOUT);
 
 	if (__gdc_measure_hw_latency) {
-		if (ctx->context_type == GDC_CTX_V4L2_TYPE) {
-			struct vb2_v4l2_buffer *vb =
-					v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
-			struct v4l2_m2m_buffer *mb =
-					container_of(vb, typeof(*mb), vb);
-			struct vb2_gdc_buffer *svb =
-					container_of(mb, typeof(*svb), mb);
+		struct vb2_v4l2_buffer *vb =
+			v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
+		struct v4l2_m2m_buffer *mb =
+			container_of(vb, typeof(*mb), vb);
+		struct vb2_gdc_buffer *svb =
+			container_of(mb, typeof(*svb), mb);
 
-			svb->ktime = ktime_get();
-		} else {
-			ctx->ktime_m2m1shot = ktime_get();
-		}
+		svb->ktime = ktime_get();
 	}
 
 	camerapp_hw_gdc_start(gdc->regs_base);
@@ -1280,55 +1215,40 @@ static irqreturn_t gdc_irq_handler(int irq, void *priv)
 
 		clear_bit(CTX_RUN, &ctx->flags);
 
-		if (ctx->context_type == GDC_CTX_V4L2_TYPE) {
-			BUG_ON(ctx != v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev));
+		BUG_ON(ctx != v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev));
 
-			src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
-			dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+		src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+		dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
 
-			BUG_ON(!src_vb || !dst_vb);
+		BUG_ON(!src_vb || !dst_vb);
 
-			if (__gdc_measure_hw_latency) {
-				struct v4l2_m2m_buffer *mb =
-						container_of(dst_vb, typeof(*mb), vb);
-				struct vb2_gdc_buffer *svb =
-						container_of(mb, typeof(*svb), mb);
+		if (__gdc_measure_hw_latency) {
+			struct v4l2_m2m_buffer *mb =
+				container_of(dst_vb, typeof(*mb), vb);
+			struct vb2_gdc_buffer *svb =
+				container_of(mb, typeof(*svb), mb);
 
-				dst_vb->vb2_buf.timestamp =
-					(__u32)ktime_us_delta(ktime_get(), svb->ktime);
-			}
-
-			v4l2_m2m_buf_done(src_vb,
-				GDC_INT_OK(irq_status) ?
-					VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR);
-			v4l2_m2m_buf_done(dst_vb,
-				GDC_INT_OK(irq_status) ?
-					VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR);
-
-			if (test_bit(DEV_SUSPEND, &gdc->state)) {
-				gdc_dbg("wake up blocked process by suspend\n");
-				wake_up(&gdc->wait);
-			} else {
-				v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
-			}
-
-			/* Wake up from CTX_ABORT state */
-			if (test_and_clear_bit(CTX_ABORT, &ctx->flags))
-				wake_up(&gdc->wait);
-		} else {
-			struct m2m1shot_task *task =
-						m2m1shot_get_current_task(gdc->m21dev);
-
-			BUG_ON(ctx->context_type != GDC_CTX_M2M1SHOT_TYPE);
-
-			if (__gdc_measure_hw_latency)
-				task->task.reserved[1] =
-					(unsigned long)ktime_us_delta(
-						ktime_get(), ctx->ktime_m2m1shot);
-
-			m2m1shot_task_finish(gdc->m21dev, task,
-						GDC_INT_OK(irq_status));
+			dst_vb->vb2_buf.timestamp =
+				(__u32)ktime_us_delta(ktime_get(), svb->ktime);
 		}
+
+		v4l2_m2m_buf_done(src_vb,
+				GDC_INT_OK(irq_status) ?
+				VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR);
+		v4l2_m2m_buf_done(dst_vb,
+				GDC_INT_OK(irq_status) ?
+				VB2_BUF_STATE_DONE : VB2_BUF_STATE_ERROR);
+
+		if (test_bit(DEV_SUSPEND, &gdc->state)) {
+			gdc_dbg("wake up blocked process by suspend\n");
+			wake_up(&gdc->wait);
+		} else {
+			v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
+		}
+
+		/* Wake up from CTX_ABORT state */
+		if (test_and_clear_bit(CTX_ABORT, &ctx->flags))
+			wake_up(&gdc->wait);
 
 		spin_lock(&gdc->ctxlist_lock);
 		gdc->current_ctx = NULL;
@@ -1343,22 +1263,16 @@ static irqreturn_t gdc_irq_handler(int irq, void *priv)
 static int gdc_get_bufaddr(struct gdc_dev *gdc, struct gdc_ctx *ctx,
 		struct vb2_buffer *vb2buf, struct gdc_frame *frame)
 {
-	int ret;
 	unsigned int pixsize, bytesize;
-	void *cookie;
 	unsigned int w = frame->width;
 	unsigned int h = frame->height;
 
 	pixsize = frame->width * frame->height;
 	bytesize = (pixsize * frame->gdc_fmt->bitperpixel[0]) >> 3;
 
-	cookie = vb2_plane_cookie(vb2buf, 0);
-	if (!cookie)
+	frame->addr.y = gdc_get_dma_address(vb2buf, 0);
+	if (!frame->addr.y)
 		return -EINVAL;
-
-	ret = gdc_get_dma_address(cookie, &frame->addr.y);
-	if (ret != 0)
-		return ret;
 
 	frame->addr.cb = 0;
 	frame->addr.cr = 0;
@@ -1375,74 +1289,32 @@ static int gdc_get_bufaddr(struct gdc_dev *gdc, struct gdc_ctx *ctx,
 		break;
 	case 2:
 		if (frame->gdc_fmt->num_planes == 1) {
-			if ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12)
-				|| ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21))) {
-				if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_8BIT) {
-					frame->addr.cb = frame->addr.y + pixsize;
-					frame->addr.ysize = pixsize;
-					frame->addr.cbsize = bytesize - pixsize;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_10BIT) {
-					frame->addr.ysize = ALIGN(w * 2, 16) * h;
-					frame->addr.cb = frame->addr.y + frame->addr.ysize;
-					frame->addr.cbsize = frame->addr.ysize / 2;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_PACKED_10BIT) {
-					frame->addr.ysize = ALIGN(w * 2 * 10 / 16, 16) * h;
-					frame->addr.cb = frame->addr.y + frame->addr.ysize;
-					frame->addr.cbsize = frame->addr.ysize / 2;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_8_2BIT) {
-					frame->addr.ysize = ALIGN(w, 16) * h;
-					frame->addr.ysize_2bit = ALIGN(w / 4, 16) * h;
-					frame->addr.cbsize = frame->addr.ysize / 2;
-					frame->addr.cbcrsize_2bit = frame->addr.ysize_2bit / 2;
-					frame->addr.y_2bit = frame->addr.y + frame->addr.ysize;
-					frame->addr.cb = frame->addr.y_2bit + frame->addr.ysize_2bit;
-					frame->addr.cbcrsize_2bit = frame->addr.cb + frame->addr.cbsize;
-				}
-			} else if ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61)
-				|| ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16))) {
-				if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_8BIT) {
-					frame->addr.ysize = pixsize;
-					frame->addr.cbsize = bytesize - pixsize;
-					frame->addr.cb = frame->addr.y + pixsize;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_10BIT) {
-					frame->addr.ysize = ALIGN(w * 2, 16) * h;
-					frame->addr.cbsize = ALIGN(w * 2, 16) * h;
-					frame->addr.cb = frame->addr.y + frame->addr.ysize;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_PACKED_10BIT) {
-					frame->addr.ysize = ALIGN(w * 2 * 10 / 16, 16) * h;
-					frame->addr.cbsize = ALIGN(w * 2 * 10 / 16, 16) * h;
-					frame->addr.cb = frame->addr.y + frame->addr.ysize;
-				} else if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_8_2BIT) {
-					frame->addr.ysize = ALIGN(w, 16) * h;
-					frame->addr.ysize_2bit = ALIGN(w / 4, 16) * h;
-					frame->addr.cbsize = ALIGN(w, 16) * h;
-					frame->addr.cbcrsize_2bit = ALIGN(w / 4, 16) * h;
-					frame->addr.y_2bit = frame->addr.y + frame->addr.ysize;
-					frame->addr.cb = frame->addr.y_2bit + frame->addr.ysize_2bit;
-					frame->addr.cbcr_2bit = frame->addr.cb + frame->addr.cbsize;
-				}
-			} else {
-				frame->addr.cb = frame->addr.y + pixsize;
-				frame->addr.ysize = pixsize;
-				frame->addr.cbsize = bytesize - pixsize;
-			}
+			/* V4L2_PIX_FMT_NV12, V4L2_PIX_FMT_NV21,  V4L2_PIX_FMT_NV61, V4L2_PIX_FMT_NV16 */
+			frame->addr.cb = frame->addr.y + pixsize;
+			frame->addr.ysize = pixsize;
+			frame->addr.cbsize = bytesize - pixsize;
 		} else if (frame->gdc_fmt->num_planes == 2) {
-			cookie = vb2_plane_cookie(vb2buf, 1);
-			if (!cookie)
+			/* V4L2_PIX_FMT_NV21M, V4L2_PIX_FMT_NV12M */
+			/* V4L2_PIX_FMT_NV61M, V4L2_PIX_FMT_NV16M */
+			/* V4L2_PIX_FMT_NV12M_P010, V4L2_PIX_FMT_NV16M_P210 */
+			/* V4L2_PIX_FMT_NV21M_P010, V4L2_PIX_FMT_NV61M_P210 */
+			frame->addr.cb = gdc_get_dma_address(vb2buf, 1);
+			if (!frame->addr.cb)
 				return -EINVAL;
 
-			ret = gdc_get_dma_address(cookie, &frame->addr.cb);
-			if (ret != 0)
-				return ret;
-			frame->addr.ysize =
-				pixsize * frame->gdc_fmt->bitperpixel[0] >> 3;
-			frame->addr.cbsize =
-				pixsize * frame->gdc_fmt->bitperpixel[1] >> 3;
-			if (frame->pixel_size == CAMERAPP_PIXEL_SIZE_8_2BIT) {
-				frame->addr.y_2bit = frame->addr.y + frame->addr.ysize;
-				frame->addr.cbcrsize_2bit = frame->addr.cb + frame->addr.cbsize;
-				frame->addr.ysize_2bit = frame->bytesused[0] - frame->addr.ysize;
-				frame->addr.cbcrsize_2bit = frame->bytesused[1] - frame->addr.cbsize;
+			/* 8+2 format */
+			if ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_S10B)
+					|| (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_S10B)) {
+				frame->addr.ysize_2bit = NV16M_Y_SIZE(w, h);
+				frame->addr.y_2bit = frame->addr.y + NV16M_Y_SIZE(w, h);
+				frame->addr.cbcrsize_2bit = NV16M_CBCR_SIZE(w, h);
+				frame->addr.cbcr_2bit = frame->addr.cb + NV16M_CBCR_SIZE(w,h);
+			} else if ((frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_S10B)
+					|| (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_S10B)) {
+				frame->addr.ysize_2bit = NV12M_Y_SIZE(w, h);
+				frame->addr.y_2bit = frame->addr.y + NV12M_Y_SIZE(w, h);
+				frame->addr.cbcrsize_2bit = NV12M_CBCR_SIZE(w, h);
+				frame->addr.cbcr_2bit = frame->addr.cb + NV12M_CBCR_SIZE(w,h);
 			}
 		} else {
 			dev_err(gdc->dev, "Please check frame->gdc_fmt->pixelformat\n");
@@ -1477,18 +1349,13 @@ static int gdc_get_bufaddr(struct gdc_dev *gdc, struct gdc_ctx *ctx,
 				frame->addr.cr = frame->addr.cb + frame->addr.cbsize;
 			}
 		} else if (frame->gdc_fmt->num_planes == 3) {
-			cookie = vb2_plane_cookie(vb2buf, 1);
-			if (!cookie)
+			frame->addr.cb = gdc_get_dma_address(vb2buf, 1);
+			if (!frame->addr.cb)
 				return -EINVAL;
-			ret = gdc_get_dma_address(cookie, &frame->addr.cb);
-			if (ret != 0)
-				return ret;
-			cookie = vb2_plane_cookie(vb2buf, 2);
-			if (!cookie)
+
+			frame->addr.cr = gdc_get_dma_address(vb2buf, 2);
+			if (!frame->addr.cr)
 				return -EINVAL;
-			ret = gdc_get_dma_address(cookie, &frame->addr.cr);
-			if (ret != 0)
-				return ret;
 			frame->addr.ysize =
 				pixsize * frame->gdc_fmt->bitperpixel[0] >> 3;
 			frame->addr.cbsize =
@@ -1628,358 +1495,6 @@ err_v4l2_dev:
 	return ret;
 }
 
-static int gdc_m2m1shot_init_context(struct m2m1shot_context *m21ctx)
-{
-	struct gdc_dev *gdc = dev_get_drvdata(m21ctx->m21dev->dev);
-	struct gdc_ctx *ctx;
-	int ret;
-
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
-	if (!ctx)
-		return -ENOMEM;
-
-	atomic_inc(&gdc->m2m.in_use);
-
-	if (!IS_ERR(gdc->pclk)) {
-		ret = clk_prepare(gdc->pclk);
-		if (ret) {
-			dev_err(gdc->dev, "%s: failed to prepare PCLK(err %d)\n",
-					__func__, ret);
-			goto err_pclk;
-		}
-	}
-
-	if (!IS_ERR(gdc->aclk)) {
-		ret = clk_prepare(gdc->aclk);
-		if (ret) {
-			dev_err(gdc->dev, "%s: failed to prepare ACLK(err %d)\n",
-					__func__, ret);
-			goto err_aclk;
-		}
-	}
-
-	ctx->context_type = GDC_CTX_M2M1SHOT_TYPE;
-	INIT_LIST_HEAD(&ctx->node);
-	ctx->gdc_dev = gdc;
-
-	ctx->s_frame.gdc_fmt = &gdc_formats[0];
-	ctx->d_frame.gdc_fmt = &gdc_formats[0];
-
-	m21ctx->priv = ctx;
-	ctx->m21_ctx = m21ctx;
-
-	return 0;
-err_aclk:
-	if (!IS_ERR(gdc->pclk))
-		clk_unprepare(gdc->pclk);
-err_pclk:
-	kfree(ctx);
-	return ret;
-}
-
-static int gdc_m2m1shot_free_context(struct m2m1shot_context *m21ctx)
-{
-	struct gdc_ctx *ctx = m21ctx->priv;
-
-	atomic_dec(&ctx->gdc_dev->m2m.in_use);
-	if (!IS_ERR(ctx->gdc_dev->aclk))
-		clk_unprepare(ctx->gdc_dev->aclk);
-	if (!IS_ERR(ctx->gdc_dev->pclk))
-		clk_unprepare(ctx->gdc_dev->pclk);
-	BUG_ON(!list_empty(&ctx->node));
-	kfree(ctx);
-	return 0;
-}
-
-static int gdc_m2m1shot_prepare_format(struct m2m1shot_context *m21ctx,
-			struct m2m1shot_pix_format *fmt,
-			enum dma_data_direction dir,
-			size_t bytes_used[])
-{
-	struct gdc_ctx *ctx = m21ctx->priv;
-	struct gdc_frame *frame = (dir == DMA_TO_DEVICE) ?
-					&ctx->s_frame : &ctx->d_frame;
-	s32 size_min = (dir == DMA_TO_DEVICE) ? 16 : 4;
-	int i;
-
-	frame->gdc_fmt = gdc_find_format(ctx->gdc_dev, fmt->fmt,
-						(dir == DMA_TO_DEVICE));
-	if (!frame->gdc_fmt) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: Pixel format %#x is not supported for %s\n",
-			__func__, fmt->fmt,
-			(dir == DMA_TO_DEVICE) ? "output" : "capture");
-		return -EINVAL;
-	}
-
-	if (!fmt->crop.width)
-		fmt->crop.width = fmt->width;
-	if (!fmt->crop.height)
-		fmt->crop.height = fmt->height;
-
-	if (!fmt->width || !fmt->height ||
-				!fmt->crop.width || !fmt->crop.height) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: neither width nor height can be zero\n",
-			__func__);
-		return -EINVAL;
-	}
-
-	if ((fmt->width > 8192) || (fmt->height > 8192)) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: requested image size %dx%d exceed 8192x8192\n",
-			__func__, fmt->width, fmt->height);
-		return -EINVAL;
-	}
-
-	if ((fmt->crop.width < size_min) || (fmt->crop.height < size_min)) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: image size %dx%d must not less than %dx%d\n",
-			__func__, fmt->width, fmt->height, size_min, size_min);
-		return -EINVAL;
-	}
-
-	if ((fmt->crop.left < 0) || (fmt->crop.top < 0)) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: negative crop offset(%d, %d) is not supported\n",
-			__func__, fmt->crop.left, fmt->crop.top);
-		return -EINVAL;
-	}
-
-	if ((fmt->width < (fmt->crop.width + fmt->crop.left)) ||
-		(fmt->height < (fmt->crop.height + fmt->crop.top))) {
-		dev_err(ctx->gdc_dev->dev,
-			"%s: crop region(%d,%d,%d,%d) is larger than image\n",
-			__func__, fmt->crop.left, fmt->crop.top,
-			fmt->crop.width, fmt->crop.height);
-		return -EINVAL;
-	}
-
-	for (i = 0; i < frame->gdc_fmt->num_planes; i++) {
-		if (gdc_fmt_is_ayv12(fmt->fmt)) {
-			unsigned int y_size, c_span;
-			y_size = fmt->width * fmt->height;
-			c_span = ALIGN(fmt->width / 2, 16);
-			bytes_used[i] = y_size + (c_span * fmt->height / 2) * 2;
-		} else {
-			bytes_used[i] = fmt->width * fmt->height;
-			bytes_used[i] *= frame->gdc_fmt->bitperpixel[i];
-			bytes_used[i] /= 8;
-		}
-	}
-
-	frame->width = fmt->width;
-	frame->height = fmt->height;
-
-	return frame->gdc_fmt->num_planes;
-}
-
-static int gdc_m2m1shot_prepare_operation(struct m2m1shot_context *m21ctx,
-						struct m2m1shot_task *task)
-{
-/*
-	struct gdc_ctx *ctx = m21ctx->priv;
-	struct m2m1shot *shot = &task->task;
-*/
-	return 0;
-}
-
-static int gdc_m2m1shot_prepare_buffer(struct m2m1shot_context *m21ctx,
-			struct m2m1shot_buffer_dma *buf_dma,
-			int plane,
-			enum dma_data_direction dir)
-{
-	int ret;
-
-	ret = m2m1shot_map_dma_buf(m21ctx->m21dev->dev,
-				&buf_dma->plane[plane], dir);
-	if (ret)
-		return ret;
-
-	ret = m2m1shot_dma_addr_map(m21ctx->m21dev->dev, buf_dma, plane, dir);
-	if (ret) {
-		m2m1shot_unmap_dma_buf(m21ctx->m21dev->dev,
-					&buf_dma->plane[plane], dir);
-		return ret;
-	}
-
-	return 0;
-}
-
-static void gdc_m2m1shot_finish_buffer(struct m2m1shot_context *m21ctx,
-			struct m2m1shot_buffer_dma *buf_dma,
-			int plane,
-			enum dma_data_direction dir)
-{
-	m2m1shot_dma_addr_unmap(m21ctx->m21dev->dev, buf_dma, plane);
-	m2m1shot_unmap_dma_buf(m21ctx->m21dev->dev,
-				&buf_dma->plane[plane], dir);
-}
-
-static void gdc_m2m1shot_get_bufaddr(struct gdc_dev *gdc,
-			struct m2m1shot_buffer_dma *buf, struct gdc_frame *frame)
-{
-	unsigned int pixsize, bytesize;
-
-	pixsize = frame->width * frame->height;
-	bytesize = (pixsize * frame->gdc_fmt->bitperpixel[0]) >> 3;
-
-	frame->addr.y = buf->plane[0].dma_addr;
-
-	frame->addr.cb = 0;
-	frame->addr.cr = 0;
-	frame->addr.cbsize = 0;
-	frame->addr.crsize = 0;
-
-	switch (frame->gdc_fmt->num_comp) {
-	case 1: /* rgb, yuyv */
-		frame->addr.ysize = bytesize;
-		break;
-	case 2:
-		if (frame->gdc_fmt->num_planes == 1) {
-			if (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12N) {
-				unsigned int w = frame->width;
-				unsigned int h = frame->height;
-				frame->addr.cb =
-					NV12N_CBCR_BASE(frame->addr.y, w, h);
-				frame->addr.ysize = NV12N_Y_SIZE(w, h);
-				frame->addr.cbsize = NV12N_CBCR_SIZE(w, h);
-			} else if (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12N_10B) {
-				unsigned int w = frame->width;
-				unsigned int h = frame->height;
-				frame->addr.cb =
-					NV12N_10B_CBCR_BASE(frame->addr.y, w, h);
-				frame->addr.ysize = NV12N_Y_SIZE(w, h);
-				frame->addr.cbsize = NV12N_CBCR_SIZE(w, h);
-			} else {
-				frame->addr.cb = frame->addr.y + pixsize;
-				frame->addr.ysize = pixsize;
-				frame->addr.cbsize = bytesize - pixsize;
-			}
-		} else if (frame->gdc_fmt->num_planes == 2) {
-			frame->addr.cb = buf->plane[1].dma_addr;
-
-			frame->addr.ysize =
-				pixsize * frame->gdc_fmt->bitperpixel[0] >> 3;
-			frame->addr.cbsize =
-				pixsize * frame->gdc_fmt->bitperpixel[1] >> 3;
-		}
-		break;
-	case 3:
-		if (frame->gdc_fmt->num_planes == 1) {
-			if (gdc_fmt_is_ayv12(frame->gdc_fmt->pixelformat)) {
-				unsigned int c_span;
-				c_span = ALIGN(frame->width >> 1, 16);
-				frame->addr.ysize = pixsize;
-				frame->addr.cbsize =
-					c_span * (frame->height >> 1);
-				frame->addr.crsize = frame->addr.cbsize;
-				frame->addr.cb = frame->addr.y + pixsize;
-				frame->addr.cr =
-					frame->addr.cb + frame->addr.cbsize;
-			} else if (frame->gdc_fmt->pixelformat ==
-					V4L2_PIX_FMT_YUV420N) {
-				unsigned int w = frame->width;
-				unsigned int h = frame->height;
-				frame->addr.ysize = YUV420N_Y_SIZE(w, h);
-				frame->addr.cbsize = YUV420N_CB_SIZE(w, h);
-				frame->addr.crsize = YUV420N_CR_SIZE(w, h);
-				frame->addr.cb =
-					YUV420N_CB_BASE(frame->addr.y, w, h);
-				frame->addr.cr =
-					YUV420N_CR_BASE(frame->addr.y, w, h);
-			} else {
-				frame->addr.ysize = pixsize;
-				frame->addr.cbsize = (bytesize - pixsize) / 2;
-				frame->addr.crsize = frame->addr.cbsize;
-				frame->addr.cb = frame->addr.y + pixsize;
-				frame->addr.cr =
-					frame->addr.cb + frame->addr.cbsize;
-			}
-		} else if (frame->gdc_fmt->num_planes == 3) {
-			frame->addr.cb = buf->plane[1].dma_addr;
-			frame->addr.cr = buf->plane[2].dma_addr;
-
-			frame->addr.ysize =
-				pixsize * frame->gdc_fmt->bitperpixel[0] >> 3;
-			frame->addr.cbsize =
-				pixsize * frame->gdc_fmt->bitperpixel[1] >> 3;
-			frame->addr.crsize =
-				pixsize * frame->gdc_fmt->bitperpixel[2] >> 3;
-		} else {
-			dev_err(gdc->dev, "Please check the num of comp\n");
-		}
-		break;
-	default:
-		break;
-	}
-
-	if (frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_YVU420 ||
-			frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_YVU420M) {
-		u32 t_cb = frame->addr.cb;
-		frame->addr.cb = frame->addr.cr;
-		frame->addr.cr = t_cb;
-	}
-}
-
-static int gdc_m2m1shot_device_run(struct m2m1shot_context *m21ctx,
-				struct m2m1shot_task *task)
-{
-	struct gdc_ctx *ctx = m21ctx->priv;
-	struct gdc_dev *gdc = ctx->gdc_dev;
-	struct gdc_frame *s_frame, *d_frame;
-
-	if (test_bit(DEV_SUSPEND, &gdc->state)) {
-		dev_err(gdc->dev, "GDC is in suspend state\n");
-		return -EAGAIN;
-	}
-
-	/* no aborted state is required for m2m1shot */
-
-	s_frame = &ctx->s_frame;
-	d_frame = &ctx->d_frame;
-
-	gdc_m2m1shot_get_bufaddr(gdc, &task->dma_buf_out, s_frame);
-	gdc_m2m1shot_get_bufaddr(gdc, &task->dma_buf_cap, d_frame);
-
-	return gdc_add_context_and_run(gdc, ctx);
-}
-
-static void gdc_m2m1shot_timeout_task(struct m2m1shot_context *m21ctx,
-		struct m2m1shot_task *task)
-{
-	struct gdc_ctx *ctx = m21ctx->priv;
-	struct gdc_dev *gdc = ctx->gdc_dev;
-	unsigned long flags;
-
-	camerapp_gdc_sfr_dump(gdc->regs_base);
-	exynos_sysmmu_show_status(gdc->dev);
-
-	camerapp_hw_gdc_sw_reset(gdc->regs_base);
-
-	gdc_clk_power_disable(gdc);
-
-	spin_lock_irqsave(&gdc->ctxlist_lock, flags);
-	gdc->current_ctx = NULL;
-	spin_unlock_irqrestore(&gdc->ctxlist_lock, flags);
-
-	clear_bit(DEV_RUN, &gdc->state);
-	clear_bit(CTX_RUN, &ctx->flags);
-
-	gdc_run_next_job(gdc);
-}
-
-static const struct m2m1shot_devops gdc_m2m1shot_ops = {
-	.init_context = gdc_m2m1shot_init_context,
-	.free_context = gdc_m2m1shot_free_context,
-	.prepare_format = gdc_m2m1shot_prepare_format,
-	.prepare_operation = gdc_m2m1shot_prepare_operation,
-	.prepare_buffer = gdc_m2m1shot_prepare_buffer,
-	.finish_buffer = gdc_m2m1shot_finish_buffer,
-	.device_run = gdc_m2m1shot_device_run,
-	.timeout_task = gdc_m2m1shot_timeout_task,
-};
-
 static int __attribute__((unused)) gdc_sysmmu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova, int flags, void *token)
 {
@@ -2094,8 +1609,8 @@ static int gdc_runtime_resume(struct device *dev)
 		}
 	}
 
-	if (gdc->qosreq_int_level > 0)
-		pm_qos_update_request(&gdc->qosreq_int, gdc->qosreq_int_level);
+	if (gdc->qosreq_intcam_level > 0)
+		pm_qos_update_request(&gdc->qosreq_intcam, gdc->qosreq_intcam_level);
 
 	return 0;
 }
@@ -2103,8 +1618,8 @@ static int gdc_runtime_resume(struct device *dev)
 static int gdc_runtime_suspend(struct device *dev)
 {
 	struct gdc_dev *gdc = dev_get_drvdata(dev);
-	if (gdc->qosreq_int_level > 0)
-		pm_qos_update_request(&gdc->qosreq_int, 0);
+	if (gdc->qosreq_intcam_level > 0)
+		pm_qos_update_request(&gdc->qosreq_intcam, 0);
 	return 0;
 }
 #endif
@@ -2164,39 +1679,24 @@ static int gdc_probe(struct platform_device *pdev)
 	else
 		gdc->dev_id = pdev->id;
 
-	gdc->m21dev = m2m1shot_create_device(&pdev->dev, &gdc_m2m1shot_ops,
-						"camerapp-gdc", gdc->dev_id, -1);
-	if (IS_ERR(gdc->m21dev)) {
-		dev_err(&pdev->dev, "%s: Failed to create m2m1shot_device\n",
-			__func__);
-		return PTR_ERR(gdc->m21dev);
-	}
-
 	platform_set_drvdata(pdev, gdc);
 
 	pm_runtime_enable(&pdev->dev);
 
-	gdc->fence_wq = create_singlethread_workqueue("camerapp_gdc_fence_work");
-	if (!gdc->fence_wq) {
-		dev_err(&pdev->dev, "Failed to create workqueue for fence\n");
-		ret = -ENOMEM;
-		goto err_wq;
-	}
-
 	ret = gdc_register_m2m_device(gdc, gdc->dev_id);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to register m2m device\n");
-		goto err_m2m;
+		goto err_wq;
 	}
 
 #if defined(CONFIG_PM_DEVFREQ)
-	if (!of_property_read_u32(pdev->dev.of_node, "camerapp_gdc,int_qos_minlock",
-				(u32 *)&gdc->qosreq_int_level)) {
-		if (gdc->qosreq_int_level > 0) {
-			pm_qos_add_request(&gdc->qosreq_int,
-						PM_QOS_DEVICE_THROUGHPUT, 0);
-			dev_info(&pdev->dev, "INT Min.Lock Freq. = %u\n",
-						gdc->qosreq_int_level);
+	if (!of_property_read_u32(pdev->dev.of_node, "camerapp_gdc,intcam_qos_minlock",
+				(u32 *)&gdc->qosreq_intcam_level)) {
+		if (gdc->qosreq_intcam_level > 0) {
+			pm_qos_add_request(&gdc->qosreq_intcam,
+						PM_QOS_INTCAM_THROUGHPUT, 0);
+			dev_info(&pdev->dev, "INTCAM Min.Lock Freq. = %u\n",
+						gdc->qosreq_intcam_level);
 		}
 	}
 #endif
@@ -2242,11 +1742,6 @@ static int gdc_probe(struct platform_device *pdev)
 		}
 	}
 
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-	gdc_init_internal_buffer(gdc);
-	gdc_dbg("alloc internal buffint_e\n");
-#endif
-
 	gdc->version = 0;	/* no version register in GDCv1.0 */
 
 	gdc->variant = &gdc_variant[0];
@@ -2272,14 +1767,10 @@ err_ver_pclk_get:
 err_ver_rpm_get:
 	iovmm_deactivate(gdc->dev);
 err_iommu:
-	if (gdc->qosreq_int_level > 0)
-		pm_qos_remove_request(&gdc->qosreq_int);
+	if (gdc->qosreq_intcam_level > 0)
+		pm_qos_remove_request(&gdc->qosreq_intcam);
 	gdc_unregister_m2m_device(gdc);
-err_m2m:
-	destroy_workqueue(gdc->fence_wq);
 err_wq:
-	m2m1shot_destroy_device(gdc->m21dev);
-
 	return ret;
 }
 
@@ -2287,23 +1778,15 @@ static int gdc_remove(struct platform_device *pdev)
 {
 	struct gdc_dev *gdc = platform_get_drvdata(pdev);
 
-	destroy_workqueue(gdc->fence_wq);
-
 	iovmm_deactivate(gdc->dev);
-
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-//	vb2_ion_destroy_context(gdc->alloc_ctx_priv);
-#endif
 
 	gdc_clk_put(gdc);
 
 	if (timer_pending(&gdc->wdt.timer))
 		del_timer(&gdc->wdt.timer);
 
-	m2m1shot_destroy_device(gdc->m21dev);
-
-	if (gdc->qosreq_int_level > 0)
-		pm_qos_remove_request(&gdc->qosreq_int);
+	if (gdc->qosreq_intcam_level > 0)
+		pm_qos_remove_request(&gdc->qosreq_intcam);
 
 	return 0;
 }

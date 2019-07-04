@@ -266,6 +266,12 @@ static int fec_read_bufs(struct dm_verity *v, struct dm_verity_io *io,
 			continue;
 		}
 
+		/* assumes block0's first 1024 bytes were all zeroes when encoding.*/
+		if(block == 0 && bufio == v->fec->data_bufio){
+			memset(bbuf, 0, 1024);
+			goto skip_erasure;
+		}
+
 		/* locate erasures if the block is on the data device */
 		if (bufio == v->fec->data_bufio &&
 		    verity_hash_for_block(v, io, block, want_digest,
@@ -283,6 +289,7 @@ static int fec_read_bufs(struct dm_verity *v, struct dm_verity_io *io,
 				fio->erasures[(*neras)++] = i;
 		}
 
+skip_erasure :
 		/*
 		 * deinterleave and copy the bytes that fit into bufs,
 		 * starting from block_offset
@@ -311,19 +318,14 @@ static int fec_alloc_bufs(struct dm_verity *v, struct dm_verity_fec_io *fio)
 {
 	unsigned n;
 
-	if (!fio->rs) {
-		fio->rs = mempool_alloc(v->fec->rs_pool, 0);
-		if (unlikely(!fio->rs)) {
-			DMERR("failed to allocate RS");
-			return -ENOMEM;
-		}
-	}
+	if (!fio->rs)
+		fio->rs = mempool_alloc(v->fec->rs_pool, GFP_NOIO);
 
 	fec_for_each_prealloc_buffer(n) {
 		if (fio->bufs[n])
 			continue;
 
-		fio->bufs[n] = mempool_alloc(v->fec->prealloc_pool, GFP_NOIO);
+		fio->bufs[n] = mempool_alloc(v->fec->prealloc_pool, GFP_NOWAIT);
 		if (unlikely(!fio->bufs[n])) {
 			DMERR("failed to allocate FEC buffer");
 			return -ENOMEM;
@@ -335,21 +337,15 @@ static int fec_alloc_bufs(struct dm_verity *v, struct dm_verity_fec_io *fio)
 		if (fio->bufs[n])
 			continue;
 
-		fio->bufs[n] = mempool_alloc(v->fec->extra_pool, GFP_NOIO);
+		fio->bufs[n] = mempool_alloc(v->fec->extra_pool, GFP_NOWAIT);
 		/* we can manage with even one buffer if necessary */
 		if (unlikely(!fio->bufs[n]))
 			break;
 	}
 	fio->nbufs = n;
 
-	if (!fio->output) {
+	if (!fio->output)
 		fio->output = mempool_alloc(v->fec->output_pool, GFP_NOIO);
-
-		if (!fio->output) {
-			DMERR("failed to allocate FEC page");
-			return -ENOMEM;
-		}
-	}
 
 	return 0;
 }
@@ -439,6 +435,8 @@ int verity_fec_decode(struct dm_verity *v, struct dm_verity_io *io,
 	struct dm_verity_fec_io *fio = fec_io(io);
 	u64 offset, res, rsb;
 
+	if (block == 0)
+		return -1;
 	if (!verity_fec_is_enabled(v))
 		return -EOPNOTSUPP;
 
@@ -449,8 +447,6 @@ int verity_fec_decode(struct dm_verity *v, struct dm_verity_io *io,
 
 	fio->level++;
 
-	if (type == DM_VERITY_BLOCK_TYPE_METADATA)
-		block += v->data_blocks;
 
 	/*
 	 * For RS(M, N), the continuous FEC data is divided into blocks of N

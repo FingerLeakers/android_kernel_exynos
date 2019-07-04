@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_common.c 797282 2018-12-31 05:43:53Z $
+ * $Id: dhd_common.c 812478 2019-04-01 07:35:00Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -53,6 +53,7 @@
 #endif // endif
 
 #include <dhd_bus.h>
+#include <bcmdevs.h>
 #include <dhd_proto.h>
 #include <dhd_dbg.h>
 #include <802.1d.h>
@@ -471,13 +472,17 @@ dhd_query_bus_erros(dhd_pub_t *dhdp)
 	}
 #endif /* DNGL_AXI_ERROR_LOGGING */
 
-#ifdef BCMPCIE
 	if (dhd_bus_get_linkdown(dhdp)) {
 		DHD_ERROR_RLMT(("%s : PCIE Link down occurred, cannot proceed\n",
 			__FUNCTION__));
 		ret = TRUE;
 	}
-#endif /* BCMPCIE */
+
+	if (dhd_bus_get_cto(dhdp)) {
+		DHD_ERROR_RLMT(("%s : CTO Recovery reported, cannot proceed\n",
+			__FUNCTION__));
+		ret = TRUE;
+	}
 
 	return ret;
 }
@@ -4769,6 +4774,12 @@ dhd_get_suspend_bcn_li_dtim(dhd_pub_t *dhd, int *dtim_period, int *bcn_interval)
 	int ret = -1;
 	int allowed_skip_dtim_cnt = 0;
 
+	if (dhd->disable_dtim_in_suspend) {
+		DHD_ERROR(("%s Disable bcn_li_dtim in suspend\n", __FUNCTION__));
+		bcn_li_dtim = 0;
+		return bcn_li_dtim;
+	}
+
 	/* Check if associated */
 	if (dhd_is_associated(dhd, 0, NULL) == FALSE) {
 		DHD_TRACE(("%s NOT assoc ret %d\n", __FUNCTION__, ret));
@@ -4844,6 +4855,12 @@ dhd_get_suspend_bcn_li_dtim(dhd_pub_t *dhd)
 	int dtim_period = 0;
 	int ap_beacon = 0;
 	int allowed_skip_dtim_cnt = 0;
+
+	if (dhd->disable_dtim_in_suspend) {
+		DHD_ERROR(("%s Disable bcn_li_dtim in suspend\n", __FUNCTION__));
+		bcn_li_dtim = 0;
+		goto exit;
+	}
 
 	/* Check if associated */
 	if (dhd_is_associated(dhd, 0, NULL) == FALSE) {
@@ -7264,7 +7281,7 @@ void dhd_h2d_log_time_sync(dhd_pub_t *dhd)
 	}
 }
 #endif /* DHD_H2D_LOG_TIME_SYNC */
-#if defined(DISABLE_HE_ENAB) ||defined(CUSTOM_CONTROL_HE_ENAB) 
+#if defined(DISABLE_HE_ENAB) ||defined(CUSTOM_CONTROL_HE_ENAB)
 int
 dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab)
 {
@@ -7285,7 +7302,8 @@ dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab)
 
 	ret = dhd_iovar(dhd, 0, "he", (char *)&mybuf, sizeof(mybuf), NULL, 0, TRUE);
 	if (ret < 0) {
-		DHD_ERROR(("%s he_enab (%d) set failed, err: %s\n", __FUNCTION__, he_enab, bcmerrorstr(ret)));
+		DHD_ERROR(("%s he_enab (%d) set failed, err: %s\n",
+			__FUNCTION__, he_enab, bcmerrorstr(ret)));
 	} else {
 		DHD_ERROR(("%s he_enab (%d) set successed\n", __FUNCTION__, he_enab));
 	}
@@ -7293,3 +7311,67 @@ dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab)
 	return ret;
 }
 #endif /* DISABLE_HE_ENAB || CUSTOM_CONTROL_HE_ENAB */
+
+bool
+dhd_validate_chipid(dhd_pub_t *dhdp)
+{
+	uint chipid = dhd_bus_chip_id(dhdp);
+	uint config_chipid;
+
+#ifdef BCM4375_CHIP
+	config_chipid = BCM4375_CHIP_ID;
+#elif defined(BCM4361_CHIP)
+	config_chipid = BCM4361_CHIP_ID;
+#elif defined(BCM4359_CHIP)
+	config_chipid = BCM4359_CHIP_ID;
+#elif defined(BCM4358_CHIP)
+	config_chipid = BCM4358_CHIP_ID;
+#elif defined(BCM4354_CHIP)
+	config_chipid = BCM4354_CHIP_ID;
+#elif defined(BCM4339_CHIP)
+	config_chipid = BCM4339_CHIP_ID;
+#elif defined(BCM4335_CHIP)
+	config_chipid = BCM4335_CHIP_ID;
+#elif defined(BCM43430_CHIP)
+	config_chipid = BCM43430_CHIP_ID;
+#elif defined(BCM43018_CHIP)
+	config_chipid = BCM43018_CHIP_ID;
+#elif defined(BCM43455_CHIP)
+	config_chipid = BCM4345_CHIP_ID;
+#elif defined(BCM43454_CHIP)
+	config_chipid = BCM43454_CHIP_ID;
+#elif defined(BCM43012_CHIP_)
+	config_chipid = BCM43012_CHIP_ID;
+#else
+	DHD_ERROR(("%s: Unknown chip id, if you use new chipset,"
+		" please add CONFIG_BCMXXXX into the Kernel and"
+		" BCMXXXX_CHIP definition into the DHD driver\n",
+		__FUNCTION__));
+	config_chipid = 0;
+
+	return FALSE;
+#endif /* BCM4354_CHIP */
+
+#if defined(BCM4354_CHIP) && defined(SUPPORT_MULTIPLE_REVISION)
+	if (chipid == BCM4350_CHIP_ID && config_chipid == BCM4354_CHIP_ID) {
+		return TRUE;
+	}
+#endif /* BCM4354_CHIP && SUPPORT_MULTIPLE_REVISION */
+#if defined(BCM4358_CHIP) && defined(SUPPORT_MULTIPLE_REVISION)
+	if (chipid == BCM43569_CHIP_ID && config_chipid == BCM4358_CHIP_ID) {
+		return TRUE;
+	}
+#endif /* BCM4358_CHIP && SUPPORT_MULTIPLE_REVISION */
+#if defined(BCM4359_CHIP)
+	if (chipid == BCM4355_CHIP_ID && config_chipid == BCM4359_CHIP_ID) {
+		return TRUE;
+	}
+#endif /* BCM4359_CHIP */
+#if defined(BCM4361_CHIP)
+	if (chipid == BCM4347_CHIP_ID && config_chipid == BCM4361_CHIP_ID) {
+		return TRUE;
+	}
+#endif /* BCM4361_CHIP */
+
+	return config_chipid == chipid;
+}

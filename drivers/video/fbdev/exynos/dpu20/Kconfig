@@ -48,6 +48,11 @@ config EXYNOS_HIBERNATION_THREAD
         depends on EXYNOS_HIBERNATION
         default n
 
+config LOGGING_BIGDATA_BUG
+	bool "Logging extra information when decon bug"
+	depends on EXYNOS_DPU20
+	default y
+
 config EXYNOS_DOZE
 	bool "Support DOZE mode"
         depends on EXYNOS_DPU20

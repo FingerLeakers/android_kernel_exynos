@@ -71,8 +71,8 @@ struct score_device {
 
 int score_device_check_start(struct score_device *device);
 int score_device_open(struct score_device *device);
-int score_device_start(struct score_device *device,
-		unsigned int firmware_id, unsigned int flag);
+int score_device_start(struct score_device *device, unsigned int firmware_id,
+		unsigned int boot_qos, unsigned int flag);
 void score_device_get(struct score_device *device);
 void score_device_put(struct score_device *device);
 

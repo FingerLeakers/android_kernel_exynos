@@ -115,7 +115,7 @@ enum ipc_bringup_id {
 	ipc_bringup_perf_streaming_if,
 	ipc_bringup_iva_score_if,
 	ipc_bringup_iva_scaler_asb,
-#if defined(TARGET_SOC_VER_20)
+#if defined(TARGET_SOC_VER_20) || defined(TARGET_SOC_VER_30)
 	ipc_bringup_wig_mfb_enf,
 	ipc_bringup_perf_hwa_enf20,
 	ipc_bringup_peakpower_iva20,

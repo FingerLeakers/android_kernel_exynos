@@ -31,6 +31,8 @@
 
 #include "ssp.h"
 #include <linux/iio/iio.h>
+#include <linux/iio/buffer.h>
+#include <linux/iio/buffer_impl.h>
 #include <linux/iio/kfifo_buf.h>
 #include <linux/iio/trigger_consumer.h>
 #include <linux/iio/sysfs.h>

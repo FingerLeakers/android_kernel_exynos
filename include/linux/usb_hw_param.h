@@ -66,12 +66,6 @@ enum usb_hw_param {
 };
 
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
-int get_ccic_water_count(void);
-int get_ccic_dry_count(void);
-int get_usb310_count(void);
-int get_usb210_count(void);
-unsigned long get_waterdet_duration(void);
-unsigned long get_wvbus_duration(int is_lpm);
-int get_waterchg_count(int is_lpm);
+unsigned long manager_hw_param_update(int param);
 unsigned long long show_ccic_version(void);
 #endif

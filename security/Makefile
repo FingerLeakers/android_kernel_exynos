@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Makefile for the kernel security code
 #
@@ -10,6 +11,7 @@ subdir-$(CONFIG_SECURITY_APPARMOR)	+= apparmor
 subdir-$(CONFIG_SECURITY_YAMA)		+= yama
 subdir-$(CONFIG_SECURITY_LOADPIN)	+= loadpin
 subdir-$(CONFIG_SECURITY_DEFEX)		+= defex_lsm
+subdir-$(CONFIG_SECURITY_DSMS)		+= dsms
 
 # always enable default capabilities
 obj-y					+= commoncap.o
@@ -27,23 +29,19 @@ obj-$(CONFIG_SECURITY_YAMA)		+= yama/
 obj-$(CONFIG_SECURITY_LOADPIN)		+= loadpin/
 obj-$(CONFIG_CGROUP_DEVICE)		+= device_cgroup.o
 obj-$(CONFIG_SECURITY_DEFEX)		+= defex_lsm/built-in.o
+obj-$(CONFIG_SECURITY_DSMS)		+= dsms/
 
 # Object integrity file lists
 subdir-$(CONFIG_INTEGRITY)		+= integrity
 obj-$(CONFIG_INTEGRITY)			+= integrity/
 
-# Knox SDP
-ifndef CONFIG_NO_SDP_BASE
-obj-y += sdp/
-obj-y += sdp/built-in.o
-endif
-
-# TIMA uevent
-obj-$(CONFIG_TIMA)     += tima_uevent/tima_uevent.o
-
-# TZ ICCC
-obj-$(CONFIG_TZ_ICCC)	  += tz_iccc/
-
 # MST driver
 obj-$(CONFIG_MST_LDO)	  += mstdrv/
 
+# Knox SDP
+obj-$(CONFIG_SDP) += sdp/
+obj-$(CONFIG_SDP) += sdp/built-in.o
+
+# PROCA module
+subdir-$(CONFIG_PROCA)			+= proca
+obj-$(CONFIG_PROCA)			+= proca/

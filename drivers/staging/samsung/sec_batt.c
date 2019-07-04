@@ -65,6 +65,7 @@ static int sec_bat_get_fg_reset(char *val)
 	return 1;
 }
 __setup("fg_reset=", sec_bat_get_fg_reset);
+
 #if defined(CONFIG_SEC_FACTORY)
 int factory_mode;
 EXPORT_SYMBOL(factory_mode);

@@ -16,7 +16,6 @@
 #include <soc/samsung/bts.h>
 #include <soc/samsung/cal-if.h>
 #include <linux/apm-exynos.h>
-#include <soc/samsung/acpm_mfd.h>
 struct exynos_pm_domain *exynos_pd_lookup_name(const char *domain_name)
 {
 	struct exynos_pm_domain *exypd = NULL;
@@ -44,7 +43,7 @@ struct exynos_pm_domain *exynos_pd_lookup_name(const char *domain_name)
 }
 EXPORT_SYMBOL(exynos_pd_lookup_name);
 
-static int exynos_pd_status(struct exynos_pm_domain *pd)
+int exynos_pd_status(struct exynos_pm_domain *pd)
 {
 	int status;
 
@@ -57,7 +56,7 @@ static int exynos_pd_status(struct exynos_pm_domain *pd)
 
 	return status;
 }
-
+EXPORT_SYMBOL(exynos_pd_status);
 /* Power domain on sequence.
  * on_pre, on_post functions are registered as notification handler at CAL code.
  */
@@ -68,17 +67,10 @@ static void exynos_pd_power_on_pre(struct exynos_pm_domain *pd)
 	if (pd->devfreq_index >= 0) {
 		exynos_bts_scitoken_setting(true);
 	}
-
-	if ((pd->cal_pdid & 0xffff) == 0x8)
-		exynos_acpm_update_reg(0x3, 0x2a, 0x3 << 6, 0x3 << 6);
 }
 
 static void exynos_pd_power_on_post(struct exynos_pm_domain *pd)
 {
-#if defined(CONFIG_EXYNOS_BCM)
-	if(cal_pd_status(pd->cal_pdid) && pd->bcm)
-		bcm_pd_sync(pd->bcm, true);
-#endif
 }
 
 static void exynos_pd_power_off_pre(struct exynos_pm_domain *pd)
@@ -88,17 +80,10 @@ static void exynos_pd_power_off_pre(struct exynos_pm_domain *pd)
 		exynos_g3d_power_down_noti_apm();
 	}
 #endif /* CONFIG_EXYNOS_CL_DVFS_G3D */
-#if defined(CONFIG_EXYNOS_BCM)
-	if(cal_pd_status(pd->cal_pdid) && pd->bcm)
-		bcm_pd_sync(pd->bcm, false);
-#endif
 }
 
 static void exynos_pd_power_off_post(struct exynos_pm_domain *pd)
 {
-	if ((pd->cal_pdid & 0xffff) == 0x8)
-		exynos_acpm_update_reg(0x3, 0x2a, 0x0 << 6, 0x3 << 6);
-
 	exynos_update_ip_idle_status(pd->idle_ip_index, 1);
 
 	if (pd->devfreq_index >= 0) {
@@ -177,11 +162,11 @@ static int exynos_pd_power_off(struct generic_pm_domain *genpd)
 			exynos_pd_prepare_forced_off(pd);
 			ret = pd->pd_control(pd->cal_pdid, 0);
 			if (unlikely(ret)) {
-				pr_err(EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
+				pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
 				goto acc_unlock;
 			}
 		} else {
-			pr_err(EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
+			pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
 			goto acc_unlock;
 		}
 	}
@@ -237,6 +222,15 @@ static bool exynos_pd_power_down_ok_vts(void)
 #endif
 }
 
+static bool exynos_pd_power_down_ok_usb(void)
+{
+#ifdef CONFIG_USB_DWC3_EXYNOS
+	return !otg_is_connect();
+#else
+	return true;
+#endif
+}
+
 static void of_get_power_down_ok(struct exynos_pm_domain *pd)
 {
 	int ret;
@@ -254,23 +248,33 @@ static void of_get_power_down_ok(struct exynos_pm_domain *pd)
 		case PD_OK_VTS:
 			pd->power_down_ok = exynos_pd_power_down_ok_vts;
 			break;
+		case PD_OK_USB:
+			pd->power_down_ok = exynos_pd_power_down_ok_usb;
+			break;
 		default:
 			break;
 		}
 	}
 }
 
-static void exynos_pd_genpd_init(struct exynos_pm_domain *pd, int state)
+static int exynos_pd_genpd_init(struct exynos_pm_domain *pd, int state)
 {
 	pd->genpd.name = pd->name;
 	pd->genpd.power_off = exynos_pd_power_off;
 	pd->genpd.power_on = exynos_pd_power_on;
 
 	/* pd power on/off latency is less than 1ms */
+	pm_genpd_init(&pd->genpd, NULL, state ? false : true);
+
+	pd->genpd.states = kzalloc(sizeof(struct genpd_power_state), GFP_KERNEL);
+
+	if (!pd->genpd.states)
+		return -ENOMEM;
+
 	pd->genpd.states[0].power_on_latency_ns = 1000000;
 	pd->genpd.states[0].power_off_latency_ns = 1000000;
 
-	pm_genpd_init(&pd->genpd, NULL, state ? false : true);
+	return 0;
 }
 
 /* exynos_pd_show_power_domain - show current power domain status.
@@ -357,7 +361,13 @@ static __init int exynos_pd_dt_parse(void)
 		mutex_init(&pd->access_lock);
 		platform_set_drvdata(pdev, pd);
 
-		exynos_pd_genpd_init(pd, initial_state);
+		ret = exynos_pd_genpd_init(pd, initial_state);
+		if (ret) {
+			pr_err(EXYNOS_PD_PREFIX "%s: exynos_pd_genpd_init fail: %s, ret:%d\n",
+					__func__, pd->name, ret);
+			return ret;
+		}
+
 		of_genpd_add_provider_simple(np, &pd->genpd);
 
 		/* add LOGICAL sub-domain
@@ -395,7 +405,13 @@ static __init int exynos_pd_dt_parse(void)
 			mutex_init(&sub_pd->access_lock);
 			platform_set_drvdata(sub_pdev, sub_pd);
 
-			exynos_pd_genpd_init(sub_pd, initial_state);
+			ret = exynos_pd_genpd_init(sub_pd, initial_state);
+			if (ret) {
+				pr_err(EXYNOS_PD_PREFIX "%s: exynos_pd_genpd_init fail: %s, ret:%d\n",
+						__func__, pd->name, ret);
+				return ret;
+			}
+
 			of_genpd_add_provider_simple(children, &sub_pd->genpd);
 
 			if (pm_genpd_add_subdomain(&pd->genpd, &sub_pd->genpd))
@@ -466,7 +482,6 @@ static int __init exynos_pd_init(void)
 		pr_info("%s PM Domain Initialize\n", EXYNOS_PD_PREFIX);
 		/* show information of power domain registration */
 		exynos_pd_show_power_domain();
-
 		return 0;
 	}
 #endif

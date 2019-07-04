@@ -61,7 +61,7 @@ static u32 sensor_2l7_max_retention_num;
 
 static void sensor_2l7_set_integration_max_margin(u32 mode, cis_shared_data *cis_data)
 {
-	FIMC_BUG(!cis_data);
+	FIMC_BUG_VOID(!cis_data);
 
 	switch (mode) {
 		case SENSOR_2L7_4032X3024_30FPS_MODE3:
@@ -90,7 +90,7 @@ static void sensor_2l7_cis_data_calculation(const struct sensor_pll_info_compact
 	u32 vt_pix_clk_hz = 0;
 	u32 frame_rate = 0, max_fps = 0, frame_valid_us = 0;
 
-	FIMC_BUG(!pll_info_compact);
+	FIMC_BUG_VOID(!pll_info_compact);
 
 	/* 1. get pclk value from pll info */
 	vt_pix_clk_hz = pll_info_compact->pclk;
@@ -153,11 +153,11 @@ void sensor_2l7_cis_data_calc(struct v4l2_subdev *subdev, u32 mode)
 	int ret = 0;
 	struct fimc_is_cis *cis = NULL;
 
-	FIMC_BUG(!subdev);
+	FIMC_BUG_VOID(!subdev);
 
 	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
+	FIMC_BUG_VOID(!cis);
+	FIMC_BUG_VOID(!cis->cis_data);
 
 	if (mode > sensor_2l7_max_setfile_num) {
 		err("invalid mode(%d)!!", mode);

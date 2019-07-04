@@ -42,6 +42,12 @@ static ssize_t checked_secgpio_sleep_read_details(
 	struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t secgpio_checked_sleepgpio_read(
 	struct device *dev, struct device_attribute *attr, char *buf);
+static ssize_t secgpio_read_request_gpio(
+        struct device *dev, struct device_attribute *attr, char *buf);
+static ssize_t secgpio_write_request_gpio(
+        struct device *dev, struct device_attribute *attr,
+        const char *buf, size_t size);
+
 
 static DEVICE_ATTR(gpioinit_check, 0444,
 	checked_init_secgpio_file_read, NULL);
@@ -53,6 +59,9 @@ static DEVICE_ATTR(check_sleep_detail, 0444,
 	checked_secgpio_sleep_read_details, NULL);
 static DEVICE_ATTR(checked_sleepGPIO, 0444,
 	secgpio_checked_sleepgpio_read, NULL);
+static DEVICE_ATTR(check_requested_gpio, 0664,
+        secgpio_read_request_gpio, secgpio_write_request_gpio);
+
 
 static struct attribute *secgpio_dvs_attributes[] = {
 		&dev_attr_gpioinit_check.attr,
@@ -60,6 +69,7 @@ static struct attribute *secgpio_dvs_attributes[] = {
 		&dev_attr_check_init_detail.attr,
 		&dev_attr_check_sleep_detail.attr,
 		&dev_attr_checked_sleepGPIO.attr,
+		&dev_attr_check_requested_gpio.attr,
 		NULL,
 };
 
@@ -144,6 +154,41 @@ static ssize_t secgpio_checked_sleepgpio_read(
 		return snprintf(buf, PAGE_SIZE, "0");
 }
 
+static ssize_t secgpio_read_request_gpio(
+        struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int val = -1;
+        struct gpio_dvs_t *gdvs = dev_get_drvdata(dev);
+
+	if(gdvs->gpio_num >= 0 && gdvs->gpio_num < gdvs->count)
+		val = gdvs->read_gpio(gdvs->gpio_num);
+        
+        return snprintf(buf, PAGE_SIZE, "GPIO[%d] : [%x]", gdvs->gpio_num, val);
+}
+
+static ssize_t secgpio_write_request_gpio(
+        struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
+{
+        int ret;
+        struct gpio_dvs_t *gdvs = dev_get_drvdata(dev);
+
+	ret = sscanf(buf, "%d", &gdvs->gpio_num);
+
+	if(ret <= 0){
+		pr_info("[secgpio_dvs] %s: fail to read input value\n", __func__);
+                return size;
+	}
+
+	if(gdvs->gpio_num < 0 || gdvs->gpio_num >= gdvs->count){
+		pr_info("[secgpio_dvs] %s: invalid gpio range\n", __func__);
+                return size;
+	}
+
+	pr_info("[secgpio_dvs] %s: requested_gpio: [%d]\n", __func__, gdvs->gpio_num);
+	return size;
+}
+
+
 void gpio_dvs_check_initgpio(void)
 {
 	if (gdvs_info && gdvs_info->check_gpio_status)
@@ -160,17 +205,18 @@ void gpio_dvs_check_sleepgpio(void)
 
 #ifdef CONFIG_OF
 static const struct of_device_id secgpio_dvs_dt_match[] = {
-	{ .compatible = "samsung,exynos9810-secgpio-dvs",
-		.data = (void *)&exynos9810_secgpio_dvs },
+	{ .compatible = "samsung,exynos9820-secgpio-dvs",
+		.data = (void *)&exynos9820_secgpio_dvs_data },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, secgpio_dvs_dt_match);
 
-static struct gpio_dvs_t *secgpio_dvs_get_soc_data(struct platform_device *pdev)
+static struct secgpio_dvs_data *secgpio_dvs_get_soc_data(
+					struct platform_device *pdev)
 {
 	const struct of_device_id *match;
 	struct device_node *node = pdev->dev.of_node;
-	struct gpio_dvs_t *gdvs;
+	struct secgpio_dvs_data *data;
 
 	match = of_match_node(secgpio_dvs_dt_match, node);
 	if (!match) {
@@ -178,13 +224,13 @@ static struct gpio_dvs_t *secgpio_dvs_get_soc_data(struct platform_device *pdev)
 		return NULL;
 	}
 
-	gdvs = (struct gpio_dvs_t *)match->data;
-	if (!gdvs) {
+	data = (struct secgpio_dvs_data *)match->data;
+	if (!data) {
 		dev_err(&pdev->dev, "failed to get SoC data\n");
 		return NULL;
 	}
 
-	return gdvs;
+	return data;
 }
 #else
 static struct gpio_dvs_t *secgpio_dvs_get_soc_data(struct platform_device *pdev)
@@ -198,12 +244,18 @@ static int secgpio_dvs_probe(struct platform_device *pdev)
 	int ret = 0;
 	struct class *secgpio_dvs_class;
 	struct device *secgpio_dotest;
-	struct gpio_dvs_t *gdvs = secgpio_dvs_get_soc_data(pdev);
+	struct secgpio_dvs_data *data = secgpio_dvs_get_soc_data(pdev);
+	struct gpio_dvs_t *gdvs;
+
+	if (!data)
+		return -ENODEV;
+
+	gdvs = data->gpio_dvs;
 
 	if (!gdvs)
 		return -ENODEV;
 
-	gdvs->count = gdvs->get_nr_gpio();
+	gdvs->count = data->get_nr_gpio();
 	pr_info("[GPIO_DVS] gpio nr:%d\n", gdvs->count);
 
 	gdvs->result->init = devm_kzalloc(&pdev->dev, gdvs->count, GFP_KERNEL);
@@ -213,6 +265,8 @@ static int secgpio_dvs_probe(struct platform_device *pdev)
 	gdvs->result->sleep = devm_kzalloc(&pdev->dev, gdvs->count, GFP_KERNEL);
 	if (!gdvs->result->sleep)
 		return -ENOMEM;
+
+	gdvs->gpio_num = 0;
 
 	secgpio_dvs_class = class_create(THIS_MODULE, "secgpio_check");
 	if (IS_ERR(secgpio_dvs_class)) {

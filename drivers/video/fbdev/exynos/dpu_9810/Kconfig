@@ -7,7 +7,6 @@ if EXYNOS_DECON_9810
 config EXYNOS_DECON_FB
 	bool "Samsung DECON Framebuffer driver"
 	depends on EXYNOS_DECON_9810
-	select MEDIA_EXYNOS
 	default y
 	help
 	  Say Y here if you want support for the DECON in Samsung S5P SoCs.
@@ -31,11 +30,6 @@ config EXYNOS_DISPLAYPORT
 	default y
 	help
 	  Enable DISPLAYPORT driver.
-
-config DISPLAYPORT_ENG
-	bool "Samsung Exynos Displayport eng build"
-	depends on EXYNOS_DISPLAYPORT
-	default n
 
 config EXYNOS_ZEBU_EMUL_DISP
 	bool "Zebu Emulator Display driver"
@@ -61,16 +55,6 @@ config DECON_HIBER
 	bool "DECON hiber mode"
         depends on EXYNOS_DECON_9810
         default n
-
-config EXYNOS_HIBERNATION_THREAD
-	bool "DECON hiber mode using single thread"
-        depends on DECON_HIBER
-        default n
-
-config SUPPORT_DOZE
-	bool "Suppot Doze mode to aod service"
-		depends on EXYNOS_DECON_9810
-		default n
 
 config EXYNOS_AFBC
 	bool "Display sub-system AFBC stream"
@@ -106,14 +90,6 @@ config DPU_2_0_RELEASE_FENCES
 	bool "Release fence FD is created per each enable window"
         depends on EXYNOS_DECON_9810
         default n
-
-
-config SUPPORT_DSU
-	tristate "Support Dynamic Scale Up (Multi-Resolution)"
-	depends on EXYNOS_DECON_9810
-	depends on ANDROID_MAJOR_VERSION != "p"
-	default n
 endif
 
 source "drivers/video/fbdev/exynos/dpu_9810/panels/Kconfig"
-source "drivers/video/fbdev/exynos/dpu_9810/dp_logger/Kconfig"

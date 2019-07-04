@@ -245,7 +245,6 @@ typedef u32 sysmmu_pte_t;
 #define LV2TABLE_REFCNT_SZ		(LV2TABLE_SIZE * 2)
 #define NUM_DRAM_REGION			(10)
 #define SYSMMU_NO_PANIC			(1)
-#define MAX_HISTROY_BUFF		(2048)
 
 struct ext_buff {
 	int index;
@@ -266,7 +265,8 @@ struct history_buff {
 	u32 save_addr[MAX_HISTROY_BUFF];
 	u32 orig_addr[MAX_HISTROY_BUFF];
 	u32 size[MAX_HISTROY_BUFF];
-	u32 orig_size[MAX_HISTROY_BUFF];
+	u32 orig_size[MAX_HISTROY_BUFF];	
+	s64 time_ns[MAX_HISTROY_BUFF];
 };
 #endif
 
@@ -351,7 +351,7 @@ struct sysmmu_drvdata {
 	bool is_suspended;
 
 	struct exynos_iommu_domain *domain; /* iommu domain for this iovmm */
-	int use_tlb_pinning;
+/*	int use_tlb_pinning; TLB1 is removed in Makalu*/
 };
 
 struct exynos_vm_region {
@@ -379,7 +379,7 @@ struct exynos_iovmm {
 	struct iommu_group *group;
 };
 
-static void exynos_sysmmu_tlb_invalidate(dma_addr_t start, size_t size);
+static void exynos_sysmmu_tlb_invalidate(int ch_num, dma_addr_t start, size_t size);
 int exynos_iommu_add_fault_handler(struct device *dev,
 				iommu_fault_handler_t handler, void *token);
 

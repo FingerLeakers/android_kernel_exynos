@@ -112,8 +112,7 @@
 #define CTI_OFFSET	(0x10000)
 #define PMU_OFFSET	(0x20000)
 #define ETM_OFFSET	(0x30000)
-#define PMUPCSRlo	(0x200)
-#define PMUPCSRhi	(0x204)
+#define PMUPCSR		(0x200)
 
 /* ETM registers */
 #define ETMCTLR		(0x004)

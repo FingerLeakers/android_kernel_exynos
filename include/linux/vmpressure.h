@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_VMPRESSURE_H
 #define __LINUX_VMPRESSURE_H
 
@@ -12,6 +13,7 @@
 struct vmpressure {
 	unsigned long scanned;
 	unsigned long reclaimed;
+	unsigned long pressure;
 
 	unsigned long tree_scanned;
 	unsigned long tree_reclaimed;

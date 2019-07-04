@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_ALARMTIMER_H
 #define _LINUX_ALARMTIMER_H
 
@@ -10,7 +11,12 @@ enum alarmtimer_type {
 	ALARM_REALTIME,
 	ALARM_BOOTTIME,
 
+	/* Supported types end here */
 	ALARM_NUMTYPE,
+
+	/* Used for tracing information. No usable types. */
+	ALARM_REALTIME_FREEZER,
+	ALARM_BOOTTIME_FREEZER,
 };
 
 enum alarmtimer_restart {
@@ -49,9 +55,6 @@ void alarm_restart(struct alarm *alarm);
 int alarm_try_to_cancel(struct alarm *alarm);
 int alarm_cancel(struct alarm *alarm);
 
-#if defined(CONFIG_RTC_ALARM_BOOT)
-int alarm_set_alarm(char *alarm_data);
-#endif
 u64 alarm_forward(struct alarm *alarm, ktime_t now, ktime_t interval);
 u64 alarm_forward_now(struct alarm *alarm, ktime_t interval);
 ktime_t alarm_expires_remaining(const struct alarm *alarm);

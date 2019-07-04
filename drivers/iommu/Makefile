@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_IOMMU_API) += iommu.o
 obj-$(CONFIG_IOMMU_API) += iommu-traces.o
 obj-$(CONFIG_IOMMU_API) += iommu-sysfs.o
@@ -28,4 +29,5 @@ obj-$(CONFIG_EXYNOS_IOVMM) += exynos-iovmm.o
 obj-$(CONFIG_EXYNOS_IOMMU) += exynos-iommu.o exynos-iommu-log.o
 obj-$(CONFIG_FSL_PAMU) += fsl_pamu.o fsl_pamu_domain.o
 obj-$(CONFIG_S390_IOMMU) += s390-iommu.o
+obj-$(CONFIG_QCOM_IOMMU) += qcom_iommu.o
 obj-$(CONFIG_EXYNOS_PCIE_IOMMU) += exynos-pcie-iommu.o

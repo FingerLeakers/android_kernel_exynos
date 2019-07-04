@@ -20,11 +20,10 @@
 #include <linux/mm.h>
 #include <linux/rtmutex.h>
 #include <linux/sched.h>
+#include <uapi/linux/sched/types.h>
 #include <linux/scatterlist.h>
 #include <linux/vmalloc.h>
-#include <linux/highmem.h>
 #include "ion.h"
-#include "ion_priv.h"
 
 void *ion_heap_map_kernel(struct ion_heap *heap,
 			  struct ion_buffer *buffer)
@@ -39,7 +38,7 @@ void *ion_heap_map_kernel(struct ion_heap *heap,
 	struct page **tmp = pages;
 
 	if (!pages)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	if (buffer->flags & ION_FLAG_CACHED)
 		pgprot = PAGE_KERNEL;
@@ -57,8 +56,10 @@ void *ion_heap_map_kernel(struct ion_heap *heap,
 	vaddr = vmap(pages, npages, VM_MAP, pgprot);
 	vfree(pages);
 
-	if (!vaddr)
+	if (!vaddr) {
+		perrfn("failed vmap %d pages", npages);
 		return ERR_PTR(-ENOMEM);
+	}
 
 	return vaddr;
 }
@@ -133,18 +134,8 @@ static int ion_heap_sglist_zero(struct scatterlist *sgl, unsigned int nents,
 			p = 0;
 		}
 	}
-
-	while (p-- > 0) {
-		void *va = kmap(pages[p]);
-
-		/* skip clear if kmap failed because this is not a core job */
-		if (!va)
-			break;
-		clear_page(va);
-		if (pgprot_val(pgprot) == pgprot_val(pgprot_writecombine(PAGE_KERNEL)))
-			__flush_dcache_area(va, PAGE_SIZE);
-		kunmap(pages[p]);
-	}
+	if (p)
+		ret = ion_heap_clear_pages(pages, p, pgprot);
 
 	return ret;
 }
@@ -153,20 +144,13 @@ int ion_heap_buffer_zero(struct ion_buffer *buffer)
 {
 	struct sg_table *table = buffer->sg_table;
 	pgprot_t pgprot;
-	int ret;
-
-	ION_EVENT_BEGIN();
 
 	if (buffer->flags & ION_FLAG_CACHED)
 		pgprot = PAGE_KERNEL;
 	else
 		pgprot = pgprot_writecombine(PAGE_KERNEL);
 
-	ret = ion_heap_sglist_zero(table->sgl, table->nents, pgprot);
-
-	ION_EVENT_CLEAR(buffer, ION_EVENT_DONE());
-
-	return ret;
+	return ion_heap_sglist_zero(table->sgl, table->nents, pgprot);
 }
 
 int ion_heap_pages_zero(struct page *page, size_t size, pgprot_t pgprot)
@@ -275,8 +259,7 @@ int ion_heap_init_deferred_free(struct ion_heap *heap)
 	heap->task = kthread_run(ion_heap_deferred_free, heap,
 				 "%s", heap->name);
 	if (IS_ERR(heap->task)) {
-		pr_err("%s: creating thread for deferred free failed\n",
-		       __func__);
+		perrfn("creating thread for deferred free failed");
 		return PTR_ERR_OR_ZERO(heap->task);
 	}
 	sched_setscheduler(heap->task, SCHED_IDLE, &param);
@@ -321,8 +304,6 @@ static unsigned long ion_heap_shrink_scan(struct shrinker *shrinker,
 
 	if (heap->ops->shrink)
 		freed += heap->ops->shrink(heap, sc->gfp_mask, to_scan);
-
-	trace_ion_shrink(sc->nr_to_scan, freed);
 	return freed;
 }
 
@@ -334,83 +315,3 @@ void ion_heap_init_shrinker(struct ion_heap *heap)
 	heap->shrinker.batch = 0;
 	register_shrinker(&heap->shrinker);
 }
-
-struct ion_heap *ion_heap_create(struct ion_platform_heap *heap_data)
-{
-	struct ion_heap *heap = NULL;
-
-	switch (heap_data->type) {
-	case ION_HEAP_TYPE_SYSTEM_CONTIG:
-		heap = ion_system_contig_heap_create(heap_data);
-		break;
-	case ION_HEAP_TYPE_SYSTEM:
-		heap = ion_system_heap_create(heap_data);
-		break;
-#ifdef CONFIG_ION_RBIN_HEAP
-	case ION_HEAP_TYPE_RBIN:
-		heap = ion_rbin_heap_create(heap_data);
-		break;
-#endif
-	case ION_HEAP_TYPE_CARVEOUT:
-		heap = ion_carveout_heap_create(heap_data);
-		break;
-	case ION_HEAP_TYPE_CHUNK:
-		heap = ion_chunk_heap_create(heap_data);
-		break;
-	case ION_HEAP_TYPE_DMA:
-		heap = ion_cma_heap_create(heap_data);
-		break;
-	case ION_HEAP_TYPE_HPA:
-		heap = ion_hpa_heap_create(heap_data);
-		break;
-	default:
-		pr_err("%s: Invalid heap type %d\n", __func__,
-		       heap_data->type);
-		return ERR_PTR(-EINVAL);
-	}
-
-	if (IS_ERR_OR_NULL(heap)) {
-		pr_err("%s: error creating heap %s type %d base %lu size %zu\n",
-		       __func__, heap_data->name, heap_data->type,
-		       heap_data->base, heap_data->size);
-		return ERR_PTR(-EINVAL);
-	}
-
-	heap->name = heap_data->name;
-	heap->id = heap_data->id;
-	return heap;
-}
-EXPORT_SYMBOL(ion_heap_create);
-
-void ion_heap_destroy(struct ion_heap *heap)
-{
-	if (!heap)
-		return;
-
-	switch (heap->type) {
-	case ION_HEAP_TYPE_SYSTEM_CONTIG:
-		ion_system_contig_heap_destroy(heap);
-		break;
-	case ION_HEAP_TYPE_SYSTEM:
-		ion_system_heap_destroy(heap);
-		break;
-#ifdef CONFIG_ION_RBIN_HEAP
-	case ION_HEAP_TYPE_RBIN:
-		ion_rbin_heap_destroy(heap);
-		break;
-#endif
-	case ION_HEAP_TYPE_CARVEOUT:
-		ion_carveout_heap_destroy(heap);
-		break;
-	case ION_HEAP_TYPE_CHUNK:
-		ion_chunk_heap_destroy(heap);
-		break;
-	case ION_HEAP_TYPE_DMA:
-		ion_cma_heap_destroy(heap);
-		break;
-	default:
-		pr_err("%s: Invalid heap type %d\n", __func__,
-		       heap->type);
-	}
-}
-EXPORT_SYMBOL(ion_heap_destroy);

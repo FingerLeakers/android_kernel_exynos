@@ -55,9 +55,12 @@ enum fimc_is_subdev_id {
 	ENTRY_3AA,
 	ENTRY_3AC,
 	ENTRY_3AP,
+	ENTRY_3AF,
+	ENTRY_3AG,
 	ENTRY_ISP,
 	ENTRY_IXC,
 	ENTRY_IXP,
+	ENTRY_MEXC, /* Motion Estimation */
 	ENTRY_DRC,
 	ENTRY_DIS,
 	ENTRY_DXC,
@@ -78,7 +81,7 @@ enum fimc_is_subdev_id {
 	ENTRY_M4P,
 	ENTRY_M5P,
 	ENTRY_VRA,
-	ENTRY_SRDZ,
+	ENTRY_PAF, /* PDP(PATSTAT) RDMA */
 	ENTRY_END
 };
 
@@ -99,6 +102,12 @@ struct fimc_is_subdev_ops {
 		void *device_data,
 		struct fimc_is_frame *frame,
 		struct camera2_node *node);
+};
+
+enum subdev_ch_mode {
+	SCM_WO_PAF_HW,
+	SCM_W_PAF_HW,
+	SCM_MAX,
 };
 
 struct fimc_is_subdev {
@@ -123,13 +132,10 @@ struct fimc_is_subdev {
 	struct list_head			list;
 
 	/* for internal use */
-	u32					pixelformat;
 	struct fimc_is_framemgr			internal_framemgr;
 	u32					buffer_num;
-	u32					vc_buffer_offset;
+	u32					bytes_per_pixel;
 	struct fimc_is_priv_buf			*pb_subdev[SUBDEV_INTERNAL_BUF_MAX];
-	dma_addr_t				dvaddr_subdev[SUBDEV_INTERNAL_BUF_MAX];
-	ulong					kvaddr_subdev[SUBDEV_INTERNAL_BUF_MAX];
 	char					data_type[15];
 
 	struct fimc_is_video_ctx		*vctx;
@@ -139,11 +145,11 @@ struct fimc_is_subdev {
 	/*
 	 * Parameter for DMA abstraction:
 	 * This value is physical DMA & VC.
-	 * [0]: Without PDP (Use this when none PD mode is enabled.)
-	 * [1]: With PDP (Use this when PD mode is enabled.)
+	 * [0]: Bypass PAF HW (Use this when none PD mode is enabled.)
+	 * [1]: Processing PAF HW (Use this when PD mode is enabled.)
 	 */
-	int					dma_ch[2];
-	int					vc_ch[2];
+	int					dma_ch[SCM_MAX];
+	int					vc_ch[SCM_MAX];
 };
 
 int fimc_is_sensor_subdev_open(struct fimc_is_device_sensor *device,
@@ -166,7 +172,6 @@ int fimc_is_subdev_open(struct fimc_is_subdev *subdev,
 	struct fimc_is_video_ctx *vctx,
 	void *ctl_data);
 int fimc_is_subdev_close(struct fimc_is_subdev *subdev);
-int fimc_is_subdev_reqbuf(struct fimc_is_subdev *subdev);
 int fimc_is_subdev_buffer_queue(struct fimc_is_subdev *subdev, struct vb2_buffer *vb);
 int fimc_is_subdev_buffer_finish(struct fimc_is_subdev *subdev, struct vb2_buffer *vb);
 

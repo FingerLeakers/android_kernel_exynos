@@ -30,6 +30,7 @@
 #include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/string.h>
+#include <linux/sched/signal.h>	/* For send_sig(), same_thread_group(), etc. */
 #include "bbd.h"
 
 #ifdef CONFIG_SENSORS_SSP
@@ -49,6 +50,8 @@ static struct spi_device dummy_spi = {
 
 #ifdef CONFIG_BCM_GPS_SPI_DRIVER
 extern bool ssi_dbg;
+extern bool ssi_dbg_pzc;
+extern bool ssi_dbg_rng;
 #endif
 
 void bbd_log_hex(const char *pIntroduction, const unsigned char *pData, unsigned long ulDataLen);
@@ -90,6 +93,7 @@ struct lhd_killer {
 struct bbd_device {
 	struct kobject *kobj;			/* for sysfs register */
 	struct class *class;			/* for device_create */
+	unsigned int major;
 
 	struct bbd_cdev_priv priv[BBD_DEVICE_INDEX];/* individual structures */
 	struct wake_lock bbd_wake_lock;
@@ -126,11 +130,29 @@ static struct bbd_device bbd;
 /*
  * Embedded patch file provided as /dev/bbd_patch
  */
+static unsigned char bbd_patch_old[] = {
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+#include "bbd_patch_file_beyond_old.h"
+#else
+#include "bbd_patch_file_beyond_old.h"
+#endif
+};
+
+static unsigned char bbd_patch_new_old[] = { // hw_rev 20 ~ hw_rev 23
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+#include "bbd_patch_file_beyond_new_old.h"
+#else
+#include "bbd_patch_file_beyond_new_old.h"
+#endif
+};
+
 static unsigned char bbd_patch[] = {
-#if defined(CONFIG_SENSORS_SSP_STAR)
-#include "bbd_patch_file_star.h"
-#elif defined(CONFIG_SENSORS_SSP_CROWN)
-#include "bbd_patch_file_crown.h"
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+#include "bbd_patch_file_beyond.h"
+#elif defined(CONFIG_SENSORS_SSP_DAVINCI)
+#include "bbd_patch_file_davinci.h"
+#else
+#include "bbd_patch_file_beyond.h"
 #endif
 };
 
@@ -493,14 +515,27 @@ ssize_t bbd_control(const char *buf, ssize_t len)
 		ssi_dbg = true;
 	} else if (strstr(buf, SSI_DEBUG_OFF)) {
 		ssi_dbg = false;
+	} else if (strstr(buf, PZC_DEBUG_ON)) {
+		ssi_dbg_pzc = true;
+	} else if (strstr(buf, PZC_DEBUG_OFF)) {
+		ssi_dbg_pzc = false;
+	} else if (strstr(buf, RNG_DEBUG_ON)) {
+		ssi_dbg_rng = true;
+	} else if (strstr(buf, RNG_DEBUG_OFF)) {
+		ssi_dbg_rng = false;
 #endif
 #ifdef CONFIG_LHD_KILLER
 	} else if (strstr(buf, BBD_CTRL_PASSTHRU_ON)) {
-		pr_info("[SSPBBD] PatchTimer Start\n");
-		bbd_enable_lk();
+		if (current == bbd.lk.lhd) {
+			pr_info("[SSPBBD] PatchTimer Start\n");
+			bbd_enable_lk();
+		}
+		bbd.ssp_cb->on_control(bbd.ssp_priv, SSP_OIS_NOTIFY_RESET);
 	} else if (strstr(buf, BBD_CTRL_PASSTHRU_OFF)) {
-		pr_info("[SSPBBD] Patch Done Timer Off\n");
-		bbd_disable_lk();
+		if (current == bbd.lk.lhd) {
+			pr_info("[SSPBBD] Patch Done Timer Off\n");
+			bbd_disable_lk();
+		}
 #endif /* CONFIG_LHD_KILLER */
 	} else if (bbd.ssp_cb && bbd.ssp_cb->on_control) {
 		/* Tell SHMD about the unknown control string */
@@ -675,8 +710,7 @@ static unsigned int bbd_common_poll(struct file *filp, poll_table *wait)
  * @buf: contains sensor packet coming from gpsd/lhd
  *
  */
-
-static unsigned long init_time;
+static unsigned long init_time = 0;
 static unsigned long clock_get_ms(void)
 {
 	struct timeval t;
@@ -750,19 +784,32 @@ ssize_t bbd_control_write(struct file *filp, const char __user *buf, size_t size
 	/* Process received command string */
 	return bbd_control(bbd.priv[minor].write_buf, len);
 }
+/* bbd patch version define only for beyond*/
+#define bbd_old     0
+#define bbd_new_old     1
+#define bbd_current     2
+
+extern int get_patch_version(int ap_type, int hw_rev);
 
 ssize_t bbd_patch_read(struct file *filp, char __user *buf, size_t size, loff_t *ppos)
 {
 	ssize_t rd_size = size;
 	size_t  offset = filp->f_pos;
-
-	if (offset >= sizeof(bbd_patch)) {	   /* signal EOF */
+	int hw_rev = bbd.ssp_cb->on_control(bbd.ssp_priv, SSP_GET_HW_REV);
+        int ap_type = bbd.ssp_cb->on_control(bbd.ssp_priv, SSP_GET_AP_REV);
+        int patch_ver = get_patch_version(ap_type, hw_rev);
+        int patch_size = (patch_ver == bbd_current ? sizeof(bbd_patch) 
+                                    : (patch_ver == bbd_new_old) ? sizeof(bbd_patch_new_old) : sizeof(bbd_patch_old));
+    
+	if (offset >= patch_size) {	   /* signal EOF */
 		*ppos = 0;
 		return 0;
 	}
-	if (offset+size > sizeof(bbd_patch))
-		rd_size = sizeof(bbd_patch) - offset;
-	if (copy_to_user(buf, bbd_patch + offset, rd_size))
+    
+	if (offset+size > patch_size)
+		rd_size = patch_size - offset;
+        if (copy_to_user(buf, (patch_ver == bbd_current ? bbd_patch : 
+                (patch_ver == bbd_new_old) ? bbd_patch_new_old : bbd_patch_old) + offset, rd_size))
 		rd_size = -EFAULT;
 	else
 		*ppos = filp->f_pos + rd_size;
@@ -1068,12 +1115,12 @@ static const struct file_operations bbd_fops[BBD_DEVICE_INDEX] = {
 	 */
 };
 
-
 int bbd_init(struct device *dev)
 {
 	int minor, ret = -ENOMEM;
 	struct timespec ts1;
 	unsigned long start, elapsed;
+	dev_t devno = 0;
 
 	ts1 = ktime_to_timespec(ktime_get_boottime());
 	start = ts1.tv_sec * 1000000000ULL + ts1.tv_nsec;
@@ -1090,9 +1137,15 @@ int bbd_init(struct device *dev)
 		goto exit;
 	}
 
+	ret = alloc_chrdev_region(&devno, 0, BBD_DEVICE_INDEX, "BBD");
+	if (ret < 0) {
+		pr_err("BBD:%s() alloc_chrdev_region failed, ret=%d", __func__, ret);
+		goto exit;
+	}
+	bbd.major = MAJOR(devno);
+
 	/* Create BBD char devices */
 	for (minor = 0; minor < BBD_DEVICE_INDEX; minor++) {
-		dev_t devno = MKDEV(BBD_DEVICE_MAJOR, minor);
 		struct cdev *cdev = &bbd.priv[minor].dev;
 		const char *name = bbd_dev_name[minor];
 		struct device *dev;
@@ -1107,13 +1160,8 @@ int bbd_init(struct device *dev)
 		/* Don't register /dev/bbd_shmd */
 		if (minor == BBD_MINOR_SHMD)
 			continue;
-		/* Reserve char device number (a.k.a, major, minor) for this BBD device */
-		ret = register_chrdev_region(devno, 1, name);
-		if (ret) {
-			pr_err("BBD:%s() failed to register_chrdev_region() \"%s\", ret=%d", __func__, name, ret);
-			goto free_class;
-		}
 
+		devno = MKDEV(bbd.major, minor);
 		/* Register cdev which relates above device number with this BBD device */
 		cdev_init(cdev, &bbd_fops[minor]);
 		cdev->owner = THIS_MODULE;
@@ -1122,7 +1170,6 @@ int bbd_init(struct device *dev)
 		if (ret) {
 			pr_err("BBD:%s()) failed to cdev_add() \"%s\", ret=%d",
 							__func__, name, ret);
-			unregister_chrdev_region(devno, 1);
 			goto free_class;
 		}
 
@@ -1130,15 +1177,13 @@ int bbd_init(struct device *dev)
 		dev = device_create(bbd.class, NULL, devno, NULL, "%s", name);
 		if (IS_ERR_OR_NULL(dev)) {
 			pr_err("BBD:%s() failed to device_create() \"%s\", ret=%d", __func__, name, ret);
-			unregister_chrdev_region(devno, 1);
 			cdev_del(&bbd.priv[minor].dev);
 			goto free_class;
 		}
 
 		/* Done. Put success log and init BBD specific fields */
 		pr_info("BBD:%s(%d,%d) registered /dev/%s\n",
-				  __func__, BBD_DEVICE_MAJOR, minor, name);
-
+				  __func__, bbd.major, minor, name);
 	}
 
 	/* Register sysfs entry */
@@ -1188,13 +1233,11 @@ free_kobj:
 	kobject_put(bbd.kobj);
 free_class:
 	while (--minor > BBD_MINOR_SHMD) {
-		dev_t devno = MKDEV(BBD_DEVICE_MAJOR, minor);
 		struct cdev *cdev = &bbd.priv[minor].dev;
-
-		device_destroy(bbd.class, devno);
+		device_destroy(bbd.class, MKDEV(bbd.major, minor));
 		cdev_del(cdev);
-		unregister_chrdev_region(devno, 1);
 	}
+	unregister_chrdev_region(MKDEV(bbd.major, 0), BBD_DEVICE_INDEX);
 	class_destroy(bbd.class);
 exit:
 	return ret;
@@ -1216,17 +1259,17 @@ static void __exit bbd_exit(void)
 
 	/* Remove BBD char devices */
 	for (minor = BBD_MINOR_SENSOR; minor < BBD_DEVICE_INDEX; minor++) {
-		dev_t devno = MKDEV(BBD_DEVICE_MAJOR, minor);
+		dev_t devno = MKDEV(bbd.major, minor);
 		struct cdev *cdev = &bbd.priv[minor].dev;
 		const char *name = bbd_dev_name[minor];
 
 		device_destroy(bbd.class, devno);
 		cdev_del(cdev);
-		unregister_chrdev_region(devno, 1);
 
 		pr_info("%s(%d,%d) unregistered /dev/%s\n",
-				__func__, BBD_DEVICE_MAJOR, minor, name);
+				__func__, MAJOR(devno), minor, name);
 	}
+	unregister_chrdev_region(MKDEV(bbd.major, 0), BBD_DEVICE_INDEX);
 
 #ifdef DEBUG_1HZ_STAT
 	bbd_exit_stat();

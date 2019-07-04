@@ -38,7 +38,6 @@ int sec_bat_parse_dt(struct device *dev,
 
 		pdata->default_input_current = input_current;
 		pdata->default_charging_current = charging_current;
-
 		pdata->charging_current =
 			kzalloc(sizeof(sec_charging_current_t) * SEC_BATTERY_CABLE_MAX,
 				GFP_KERNEL);
@@ -51,7 +50,6 @@ int sec_bat_parse_dt(struct device *dev,
 		for_each_child_of_node(np, child) {
 			ret = of_property_read_u32(child, "input_current", &input_current);
 			ret = of_property_read_u32(child, "charging_current", &charging_current);
-
 			p = of_get_property(child, "cable_number", &len);
 			if (!p)
 				return 1;
@@ -63,7 +61,6 @@ int sec_bat_parse_dt(struct device *dev,
 				pdata->charging_current[temp].input_current_limit = (unsigned int)input_current;
 				pdata->charging_current[temp].fast_charging_current = (unsigned int)charging_current;
 			}
-
 		}
 	}
 
@@ -590,6 +587,11 @@ int sec_bat_parse_dt(struct device *dev,
 		if (ret)
 			pr_info("%s : wpc_high_temp_recovery is Empty\n", __func__);
 
+		ret = of_property_read_u32(np, "battery,wpc_input_limit_current",
+				&pdata->wpc_input_limit_current);
+		if (ret)
+			pr_info("%s : wpc_input_limit_current is Empty\n", __func__);
+
 		ret = of_property_read_u32(np, "battery,wpc_charging_limit_current",
 				&pdata->wpc_charging_limit_current);
 		if (ret)
@@ -605,12 +607,12 @@ int sec_bat_parse_dt(struct device *dev,
 		if (ret)
 			pr_info("%s : wpc_lcd_on_high_temp_rec is Empty\n", __func__);
 
-		ret = of_property_read_u32(np, "battery,wpc_lcd_on_charging_limit_current",
-				&pdata->wpc_lcd_on_charging_limit_current);
+		ret = of_property_read_u32(np, "battery,wpc_lcd_on_input_limit_current",
+				&pdata->wpc_lcd_on_input_limit_current);
 		if (ret) {
-			pr_info("%s : wpc_lcd_on_charging_limit_current is Empty\n", __func__);
-			pdata->wpc_lcd_on_charging_limit_current =
-				pdata->wpc_charging_limit_current;
+			pr_info("%s : wpc_lcd_on_input_limit_current is Empty\n", __func__);
+			pdata->wpc_lcd_on_input_limit_current =
+				pdata->wpc_input_limit_current;
 		}
 	}
 
@@ -886,6 +888,23 @@ int sec_bat_parse_dt(struct device *dev,
 	if (ret)
 		pr_info("%s : wpc_low_recovery_normal is Empty\n", __func__);
 
+#if defined(CONFIG_PREVENT_USB_CONN_OVERHEAT)
+	ret = of_property_read_u32(np, "battery,usb_protection_temp",
+				   &temp);
+	battery->usb_protection_temp = (int)temp;
+	if (ret) {
+		pr_info("%s : usb protection temp value is Empty\n", __func__);
+		battery->usb_protection_temp = 610;
+	}
+
+	ret = of_property_read_u32(np, "battery,temp_gap_bat_usb",
+				   &temp);
+	battery->temp_gap_bat_usb = (int)temp;
+	if (ret) {
+		pr_info("%s : temp gap value is Empty\n", __func__);
+		battery->temp_gap_bat_usb = 200;
+	}
+#endif
 	ret = of_property_read_u32(np, "battery,tx_high_threshold",
 				   &temp);
 	pdata->tx_high_threshold = (int)temp;
@@ -1543,7 +1562,7 @@ void sec_bat_parse_mode_dt(struct sec_battery_info *battery)
 			ret = of_property_read_u32(np, "battery,wpc_store_charging_limit_current",
 			   &temp);
 			if (!ret)
-				pdata->wpc_charging_limit_current = temp;
+				pdata->wpc_input_limit_current = temp;
 
 			ret = of_property_read_u32(np, "battery,wpc_store_lcd_on_high_temp",
 			   &temp);
@@ -1558,14 +1577,14 @@ void sec_bat_parse_mode_dt(struct sec_battery_info *battery)
 			ret = of_property_read_u32(np, "battery,wpc_store_lcd_on_charging_limit_current",
 				&temp);
 			if (!ret)
-				pdata->wpc_lcd_on_charging_limit_current = (int)temp;
+				pdata->wpc_lcd_on_input_limit_current = (int)temp;
 
 			pr_info("%s: update store_mode - wpc high_temp(t:%d, r:%d), lcd_on_high_temp(t:%d, r:%d), curr(%d, %d)\n",
 				__func__,
 				pdata->wpc_high_temp, pdata->wpc_high_temp_recovery,
 				pdata->wpc_lcd_on_high_temp, pdata->wpc_lcd_on_high_temp_rec,
-				pdata->wpc_charging_limit_current,
-				pdata->wpc_lcd_on_charging_limit_current);
+				pdata->wpc_input_limit_current,
+				pdata->wpc_lcd_on_input_limit_current);
 		}
 
 		ret = of_property_read_u32(np, "battery,siop_store_hv_wireless_input_limit_current",

@@ -126,4 +126,13 @@
 
 //#define MBOX_MOCK_ENABLE
 
+/*
+ * Delay insearted before streamoff and power down sequence on EMERGENCY.
+ * It is required to give the H/W finish its DMA transfer.
+ */
+#define POWER_DOWN_DELAY_ON_EMERGENCY	(300u)
+
+/* Stream off delay should be longer than timeout of firmware response */
+#define STREAMOFF_DELAY_ON_EMERGENCY	(12000u)
+
 #endif /* _NPU_CONFIG_H_ */

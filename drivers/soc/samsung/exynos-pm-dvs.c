@@ -96,9 +96,12 @@ static int exynos_pm_dvs_remove(struct platform_device *pdev)
 static int exynos_pm_dvs_suspend_late(struct device *dev)
 {
 	struct exynos_dvs_info *di;
+	int old_volt;
 	int ret = 0;
 
 	list_for_each_entry(di, &regulator_list, node) {
+		old_volt = regulator_get_voltage(di->regulator);
+		dev_info(dev, "%s: suspend_volt %d, old : %d \n", di->id, di->suspend_volt, old_volt);
 		ret = regulator_set_voltage(di->regulator, di->suspend_volt, di->suspend_volt + di->volt_range);
 		if (ret) {
 			dev_err(dev, "%s	failed to regulator set_voltage ", di->id);
@@ -114,6 +117,7 @@ static int exynos_pm_dvs_resume_early(struct device *dev)
 	int ret = 0;
 
 	list_for_each_entry(di, &regulator_list, node) {
+		dev_info(dev, "%s: init_volt %d \n", di->id, di->init_volt);
 		ret = regulator_set_voltage(di->regulator, di->init_volt, di->init_volt + di->volt_range);
 		if (ret) {
 			dev_err(dev, "%s	failed to regulator restore voltage ", di->id);

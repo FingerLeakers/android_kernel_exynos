@@ -49,12 +49,12 @@ static int mptcp_get_avail_list_ipv4(struct sock *sk)
 		if (mptcp_gws->len[i] == 0)
 			goto error;
 
-		mptcp_debug("%s: mptcp_get_avail_list_ipv4: List %i\n", __func__, i);
+		mptcp_debug("mptcp_get_avail_list_ipv4: List %i\n", i);
 		list_taken = 0;
 
 		/* Loop through all sub-sockets in this connection */
 		mptcp_for_each_sk(tcp_sk(sk)->mpcb, sk) {
-			mptcp_debug("%s: mptcp_get_avail_list_ipv4: Next sock\n", __func__);
+			mptcp_debug("mptcp_get_avail_list_ipv4: Next sock\n");
 
 			/* Reset length and options buffer, then retrieve
 			 * from socket
@@ -76,7 +76,7 @@ static int mptcp_get_avail_list_ipv4(struct sock *sk)
 			/* Iterate options buffer */
 			for (opt_ptr = &opt[0]; opt_ptr < &opt[opt_len]; opt_ptr++) {
 				if (*opt_ptr == IPOPT_LSRR) {
-					mptcp_debug("%s: mptcp_get_avail_list_ipv4: LSRR options found\n", __func__);
+					mptcp_debug("mptcp_get_avail_list_ipv4: LSRR options found\n");
 					goto sock_lsrr;
 				}
 			}
@@ -84,14 +84,14 @@ static int mptcp_get_avail_list_ipv4(struct sock *sk)
 
 sock_lsrr:
 			/* Pointer to the 2nd to last address */
-			opt_end_ptr = opt_ptr + (*(opt_ptr + 1)) - 4;
+			opt_end_ptr = opt_ptr+(*(opt_ptr+1))-4;
 
 			/* Addresses start 3 bytes after type offset */
 			opt_ptr += 3;
 			j = 0;
 
 			/* Different length lists cannot be the same */
-			if ((opt_end_ptr - opt_ptr) / 4 != mptcp_gws->len[i])
+			if ((opt_end_ptr-opt_ptr)/4 != mptcp_gws->len[i])
 				continue;
 
 			/* Iterate if we are still inside options list
@@ -113,7 +113,7 @@ sock_lsrr:
 			 * are therefore identical.
 			 */
 			if (j == mptcp_gws->len[i]) {
-				mptcp_debug("%s: mptcp_get_avail_list_ipv4: List already used\n", __func__);
+				mptcp_debug("mptcp_get_avail_list_ipv4: List already used\n");
 				list_taken = 1;
 				break;
 			}
@@ -121,7 +121,7 @@ sock_lsrr:
 
 		/* Free list found if not taken by a socket */
 		if (!list_taken) {
-			mptcp_debug("%s: mptcp_get_avail_list_ipv4: List free\n", __func__);
+			mptcp_debug("mptcp_get_avail_list_ipv4: List free\n");
 			break;
 		}
 	}
@@ -203,7 +203,7 @@ static int mptcp_parse_gateway_ipv4(char *gateways)
 	struct in_addr tmp_addr;
 
 	tmp_string = kzalloc(16, GFP_KERNEL);
-	if (!tmp_string)
+	if (tmp_string == NULL)
 		return -ENOMEM;
 
 	write_lock(&mptcp_gws_lock);
@@ -272,7 +272,7 @@ static int mptcp_parse_gateway_ipv4(char *gateways)
 	}
 
 	/* Number of flows is number of gateway lists plus master flow */
-	mptcp_binder_ndiffports = k + 1;
+	mptcp_binder_ndiffports = k+1;
 
 	write_unlock(&mptcp_gws_lock);
 	kfree(tmp_string);
@@ -355,8 +355,8 @@ static void binder_new_session(const struct sock *meta_sk)
 #if IS_ENABLED(CONFIG_IPV6)
 	if (meta_sk->sk_family == AF_INET6 &&
 	    !mptcp_v6_is_v4_mapped(meta_sk)) {
-		mptcp_fallback_default(mpcb);
-		return;
+			mptcp_fallback_default(mpcb);
+			return;
 	}
 #endif
 
@@ -403,7 +403,7 @@ static int proc_mptcp_gateways(struct ctl_table *ctl, int write,
 
 	if (write) {
 		tbl.data = kzalloc(MPTCP_GW_SYSCTL_MAX_LEN, GFP_KERNEL);
-		if (!tbl.data)
+		if (tbl.data == NULL)
 			return -ENOMEM;
 		ret = proc_dostring(&tbl, write, buffer, lenp, ppos);
 		if (ret == 0) {
@@ -414,6 +414,7 @@ static int proc_mptcp_gateways(struct ctl_table *ctl, int write,
 	} else {
 		ret = proc_dostring(ctl, write, buffer, lenp, ppos);
 	}
+
 
 	return ret;
 }

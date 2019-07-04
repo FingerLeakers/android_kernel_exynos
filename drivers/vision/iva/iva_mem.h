@@ -14,7 +14,7 @@
 #include "iva_ctrl_ioctl.h"
 
 #ifdef CONFIG_ION_EXYNOS
-#include <linux/exynos_ion.h>
+#include <linux/ion_exynos.h>
 #define REQ_ION_HEAP_ID		EXYNOS_ION_HEAP_SYSTEM_MASK
 #else
 #define REQ_ION_HEAP_ID		ZONE_BIT(ION_HEAP_TYPE_EXT)
@@ -60,7 +60,6 @@ struct iva_mem_map {
 	struct device		*dev;
 
 	int			shared_fd;
-	struct ion_handle       *handle;
 	struct dma_buf		*dmabuf;
 	struct dma_buf_attachment *attachment;
 	struct sg_table		*sg_table;

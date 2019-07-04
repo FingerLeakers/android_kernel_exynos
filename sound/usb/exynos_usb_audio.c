@@ -40,7 +40,6 @@
 #include <linux/usb/exynos_usb_audio.h>
 
 #define DEBUG 1
-struct exynos_usb_audio *usb_audio;
 
 void exynos_usb_audio_set_device(struct usb_device *udev)
 {
@@ -56,26 +55,53 @@ int exynos_usb_audio_map_buf(struct usb_device *udev)
 	struct IPC_ERAP_MSG *erap_msg = &msg.msg.erap;
 	struct ERAP_USB_AUDIO_PARAM *erap_usb = &erap_msg->param.usbaudio;
 	struct hcd_hw_info *hwinfo = &udev->hwinfo;
+	struct usb_device *usb_dev = udev;
+	u32 id;
 	int ret;
 
 	if (DEBUG)
 		pr_info("USB_AUDIO_IPC : %s ", __func__);
 
+	id = (((usb_dev->descriptor.idVendor) << 16) |
+			(usb_dev->descriptor.idProduct));
+
 	msg.ipcid = IPC_ERAP;
 	erap_msg->msgtype = REALTIME_USB;
 	erap_usb->type = IPC_USB_PCM_BUF;
 
+	erap_usb->param1 = id;
+
+	/* iommu map for in data buffer */
 	usb_audio->in_buf_addr = hwinfo->in_dma;
 
 	if (DEBUG) {
-		pr_info("pcm in data buffer pa addr : %#08x %08x\n",
+		pr_info("pcm in data buffer pa addr : %#08x %08x \n",
 				upper_32_bits(le64_to_cpu(hwinfo->in_dma)),
 				lower_32_bits(le64_to_cpu(hwinfo->in_dma)));
 	}
 
-	ret = abox_iommu_map(dev, USB_AUDIO_PCM_INBUF, hwinfo->in_dma, PAGE_SIZE * 15);
+
+	ret = abox_iommu_map(dev, USB_AUDIO_PCM_INBUF,
+					hwinfo->in_dma, PAGE_SIZE * 256, 0);
 	if (ret) {
-		pr_err("abox iommu mapping for pcm buf is failed\n");
+		pr_err("abox iommu mapping for pcm in buf is failed \n");
+		return ret;
+	}
+
+	/* iommu map for out data buffer */
+	usb_audio->out_buf_addr = hwinfo->out_dma;
+
+	if (DEBUG) {
+		pr_info("pcm out data buffer pa addr : %#08x %08x \n",
+				upper_32_bits(le64_to_cpu(hwinfo->out_dma)),
+				lower_32_bits(le64_to_cpu(hwinfo->out_dma)));
+
+	}
+
+	ret = abox_iommu_map(dev, USB_AUDIO_PCM_OUTBUF,
+					hwinfo->out_dma, PAGE_SIZE * 256, 0);
+	if (ret) {
+		pr_err("abox iommu mapping for pcm out buf is failed \n");
 		return ret;
 	}
 
@@ -95,6 +121,11 @@ int exynos_usb_audio_pcmbuf(struct usb_device *udev)
 
 	if (DEBUG)
 		pr_info("USB_AUDIO_IPC : %s\n", __func__);
+
+	if (!usb_audio->is_audio || !otg_connection) {
+		dev_info(dev, "USB_AUDIO_IPC : is_audio is 0. return!\n");
+		return -1;
+	}
 
 	out_dma = abox_iova_to_phys(dev, USB_AUDIO_PCM_OUTBUF);
 
@@ -141,6 +172,11 @@ int exynos_usb_audio_setrate(int iface, int rate, int alt)
 	if (DEBUG)
 		pr_info("USB_AUDIO_IPC : %s\n", __func__);
 
+	if (!usb_audio->is_audio || !otg_connection) {
+		dev_info(dev, "USB_AUDIO_IPC : is_audio is 0. return!\n");
+		return -1;
+	}
+
 	msg.ipcid = IPC_ERAP;
 	erap_msg->msgtype = REALTIME_USB;
 	erap_usb->type = IPC_USB_SAMPLE_RATE;
@@ -166,11 +202,21 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 	struct IPC_ERAP_MSG *erap_msg = &msg.msg.erap;
 	struct ERAP_USB_AUDIO_PARAM *erap_usb = &erap_msg->param.usbaudio;
 	struct hcd_hw_info *hwinfo = &udev->hwinfo;
-	u64 offset, in_offset, out_offset;
+	u64 in_offset, out_offset;
 	int ret;
+	unsigned long left_time;
+	if (!usb_audio->pcm_open_done) {
+		dev_info(dev, "USB_AUDIO_IPC : pcm node was not opeded!\n");
+		return -EPERM;
+	}
 
 	if (DEBUG)
-		dev_info(&udev->dev, "USB_AUDIO_IPC : %s\n", __func__);
+		dev_info(&udev->dev, "USB_AUDIO_IPC : %s ", __func__);
+
+	if (!usb_audio->is_audio || !otg_connection) {
+		dev_info(dev, "USB_AUDIO_IPC : is_audio is 0. return!\n");
+		return -1;
+	}
 
 	msg.ipcid = IPC_ERAP;
 	erap_msg->msgtype = REALTIME_USB;
@@ -179,41 +225,131 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 	erap_usb->param1 = alt;
 	erap_usb->param2 = iface;
 
+	if (alt == 0 && direction == SNDRV_PCM_STREAM_PLAYBACK) {
+		if (usb_audio->pcm_open_done &&
+				(!usb_audio->outdeq_map_done ||
+				(hwinfo->out_deq != hwinfo->old_out_deq))) {
+			dev_info(dev, "out_deq wait required\n");
+			left_time = wait_for_completion_timeout(&usb_audio->out_conn_stop,
+								msecs_to_jiffies(1000));
+			if (!left_time)
+				dev_info(dev, "%s: timeout for OUT connection done\n");
+		}
+	} else if (alt == 0 && direction == SNDRV_PCM_STREAM_CAPTURE) {
+		if (usb_audio->pcm_open_done &&
+				(!usb_audio->indeq_map_done ||
+				(hwinfo->in_deq != hwinfo->old_in_deq))) {
+			dev_info(dev, "in_deq wait required\n");
+			left_time = wait_for_completion_timeout(&usb_audio->in_conn_stop,
+								msecs_to_jiffies(1000));
+			if (!left_time)
+				dev_info(dev, "%s: timeout for IN connection done\n");
+		}
+	}
+
 	mutex_lock(&usb_audio->lock);
 	if (direction) {
 		/* IN EP */
-		dev_dbg(&udev->dev, "in deq : %#08llx\n", hwinfo->in_deq);
-		offset = hwinfo->old_in_deq % PAGE_SIZE;
-		ret = abox_iommu_unmap(dev, USB_AUDIO_IN_DEQ, (hwinfo->old_in_deq - offset), PAGE_SIZE);
-		if (ret) {
-			pr_err("abox iommu un-mapping for in buf is failed\n");
-			return ret;
+		dev_dbg(dev, "in deq : %#08llx, %#08llx, %#08llx, %#08llx\n",
+				hwinfo->in_deq, hwinfo->old_in_deq,
+				hwinfo->fb_out_deq, hwinfo->fb_old_out_deq);
+		if (!usb_audio->indeq_map_done ||
+			(hwinfo->in_deq != hwinfo->old_in_deq)) {
+			dev_info(dev, "in_deq map required\n");
+			if (usb_audio->indeq_map_done) {
+			ret = abox_iommu_unmap(dev, USB_AUDIO_IN_DEQ);
+			if (ret < 0) {
+					pr_err("un-map of in buf failed %d\n", ret);
+				goto err;
+				}
+			}
+			usb_audio->indeq_map_done = 1;
+
+			in_offset = hwinfo->in_deq % PAGE_SIZE;
+			ret = abox_iommu_map(dev, USB_AUDIO_IN_DEQ,
+					(hwinfo->in_deq - in_offset),
+					PAGE_SIZE, 0);
+			if (ret < 0) {
+				pr_err("map for in buf failed %d\n", ret);
+				goto err;
+			}
 		}
 
-		in_offset = hwinfo->in_deq % PAGE_SIZE;
-		ret = abox_iommu_map(dev, USB_AUDIO_IN_DEQ, (hwinfo->in_deq - in_offset), PAGE_SIZE);
-		if (ret) {
-			pr_err("abox iommu mapping for in buf is failed\n");
-			return ret;
+		if (hwinfo->fb_out_deq) {
+			dev_dbg(dev, "fb_in deq : %#08llx\n", hwinfo->fb_out_deq);
+			if (!usb_audio->fb_outdeq_map_done ||
+				(hwinfo->fb_out_deq != hwinfo->fb_old_out_deq)) {
+				if (usb_audio->fb_outdeq_map_done) {
+					ret = abox_iommu_unmap(dev, USB_AUDIO_FBOUT_DEQ);
+					if (ret < 0) {
+						pr_err("un-map for fb_out buf failed %d\n", ret);
+						goto err;
+					}
+				}
+				usb_audio->fb_outdeq_map_done = 1;
+
+				out_offset = hwinfo->fb_out_deq % PAGE_SIZE;
+				ret = abox_iommu_map(dev, USB_AUDIO_FBOUT_DEQ,
+						(hwinfo->fb_out_deq - out_offset),
+						PAGE_SIZE, 0);
+				if (ret < 0) {
+					pr_err("map for fb_out buf failed %d\n", ret);
+					goto err;
+				}
+			}
 		}
 
 		erap_usb->param3 = lower_32_bits(le64_to_cpu(hwinfo->in_deq));
 		erap_usb->param4 = upper_32_bits(le64_to_cpu(hwinfo->in_deq));
 	} else {
 		/* OUT EP */
-		dev_dbg(&udev->dev, "out deq : %#08llx\n", hwinfo->out_deq);
-		offset = hwinfo->old_out_deq % PAGE_SIZE;
-		ret = abox_iommu_unmap(dev, USB_AUDIO_OUT_DEQ, (hwinfo->old_out_deq - offset), PAGE_SIZE);
-		if (ret) {
-			pr_err("abox iommu un-mapping for in buf is failed\n");
-			return ret;
+		dev_dbg(dev, "out deq : %#08llx, %#08llx, %#08llx, %#08llx\n",
+				hwinfo->out_deq, hwinfo->old_out_deq,
+				hwinfo->fb_in_deq, hwinfo->fb_old_in_deq);
+		if (!usb_audio->outdeq_map_done ||
+			(hwinfo->out_deq != hwinfo->old_out_deq)) {
+			dev_info(dev, "out_deq map required\n");
+			if (usb_audio->outdeq_map_done) {
+			ret = abox_iommu_unmap(dev, USB_AUDIO_OUT_DEQ);
+			if (ret < 0) {
+					pr_err("un-map for out buf failed %d\n", ret);
+				goto err;
+				}
+			}
+			usb_audio->outdeq_map_done = 1;
+
+			out_offset = hwinfo->out_deq % PAGE_SIZE;
+			ret = abox_iommu_map(dev, USB_AUDIO_OUT_DEQ,
+					(hwinfo->out_deq - out_offset),
+					PAGE_SIZE, 0);
+			if (ret < 0) {
+				pr_err("map for out buf failed %d\n", ret);
+				goto err;
+			}
 		}
 
-		out_offset = hwinfo->out_deq % PAGE_SIZE;
-		ret = abox_iommu_map(dev, USB_AUDIO_OUT_DEQ, (hwinfo->out_deq - out_offset), PAGE_SIZE);
-		if (ret) {
-			pr_err("abox iommu mapping for out buf is failed\n");
-			return ret;
+		if (hwinfo->fb_in_deq) {
+			dev_info(dev, "fb_in deq : %#08llx\n", hwinfo->fb_in_deq);
+			if (!usb_audio->fb_indeq_map_done ||
+				(hwinfo->fb_in_deq != hwinfo->fb_old_in_deq)) {
+				if (usb_audio->fb_indeq_map_done) {
+			ret = abox_iommu_unmap(dev, USB_AUDIO_FBIN_DEQ);
+			if (ret < 0) {
+						pr_err("un-map for fb_in buf failed %d\n", ret);
+				goto err;
+			}
+				}
+				usb_audio->fb_indeq_map_done = 1;
+
+			in_offset = hwinfo->fb_in_deq % PAGE_SIZE;
+			ret = abox_iommu_map(dev, USB_AUDIO_FBIN_DEQ,
+					(hwinfo->fb_in_deq - in_offset),
+					PAGE_SIZE, 0);
+			if (ret < 0) {
+					pr_err("map for fb_in buf failed %d\n", ret);
+				goto err;
+			}
+		}
 		}
 
 		erap_usb->param3 = lower_32_bits(le64_to_cpu(hwinfo->out_deq));
@@ -223,7 +359,7 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 	ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 1);
 	if (ret) {
 		dev_err(&usb_audio->udev->dev, "erap usb hcd control failed\n");
-		return -1;
+		goto err;
 	}
 	mutex_unlock(&usb_audio->lock);
 
@@ -235,6 +371,11 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 	}
 
 	return 0;
+
+err:
+	dev_err(&udev->dev, "%s error = %d\n", __func__, ret);
+	mutex_unlock(&usb_audio->lock);
+	return ret;
 }
 
 int exynos_usb_audio_hcd(struct usb_device *udev)
@@ -273,38 +414,46 @@ int exynos_usb_audio_hcd(struct usb_device *udev)
 		dev_info(dev, "USB_AUDIO_IPC : SFR MAPPING!\n");
 
 	mutex_lock(&usb_audio->lock);
-	ret = abox_iommu_map(dev, USB_AUDIO_XHCI_BASE, USB_AUDIO_XHCI_BASE, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu mapping for in buf is failed\n");
-		return ret;
+
+	ret = abox_iommu_map(dev, USB_AUDIO_XHCI_BASE, USB_AUDIO_XHCI_BASE, PAGE_SIZE * 16, 0);
+	if (ret == -EADDRINUSE) {
+		cancel_work_sync(&usb_audio->usb_work);
+		pr_err("iommu unmapping not done. unmap here\n", ret);
+		exynos_usb_audio_unmap_all();
+		ret = abox_iommu_map(dev, USB_AUDIO_XHCI_BASE,
+				USB_AUDIO_XHCI_BASE, PAGE_SIZE * 16, 0);
 	}
 
+	if (ret) {
+		pr_err("iommu mapping for in buf failed %d\n", ret);
+		goto err;
+	}
 	/*DCBAA mapping*/
-	ret = abox_iommu_map(dev, USB_AUDIO_SAVE_RESTORE, hwinfo->save_dma, PAGE_SIZE);
+	ret = abox_iommu_map(dev, USB_AUDIO_SAVE_RESTORE, hwinfo->save_dma, PAGE_SIZE, 0);
 	if (ret) {
 		pr_err(" abox iommu mapping for save_restore buffer is failed\n");
-		return ret;
+		goto err;
 	}
 
 	/*Device Context mapping*/
-	ret = abox_iommu_map(dev, USB_AUDIO_DEV_CTX, hwinfo->out_ctx, PAGE_SIZE);
+	ret = abox_iommu_map(dev, USB_AUDIO_DEV_CTX, hwinfo->out_ctx, PAGE_SIZE, 0);
 	if (ret) {
 		pr_err(" abox iommu mapping for device ctx is failed\n");
-		return ret;
+		goto err;
 	}
 
 	/*Input Context mapping*/
-	ret = abox_iommu_map(dev, USB_AUDIO_INPUT_CTX, hwinfo->in_ctx, PAGE_SIZE);
+	ret = abox_iommu_map(dev, USB_AUDIO_INPUT_CTX, hwinfo->in_ctx, PAGE_SIZE, 0);
 	if (ret) {
 		pr_err(" abox iommu mapping for input ctx is failed\n");
-		return ret;
+		goto err;
 	}
 
 	/*ERST mapping*/
-	ret = abox_iommu_map(dev, USB_AUDIO_ERST, hwinfo->erst_addr, PAGE_SIZE);
+	ret = abox_iommu_map(dev, USB_AUDIO_ERST, hwinfo->erst_addr, PAGE_SIZE, 0);
 	if (ret) {
 		pr_err(" abox iommu mapping for erst is failed\n");
-		return ret;
+		goto err;
 	}
 
 	/* notify to Abox descriptor is ready*/
@@ -312,7 +461,7 @@ int exynos_usb_audio_hcd(struct usb_device *udev)
 	erap_msg->msgtype = REALTIME_USB;
 	erap_usb->type = IPC_USB_XHCI;
 
-	erap_usb->param1 = 1;
+	erap_usb->param1 = usb_audio->is_first_probe;
 	erap_usb->param2 = hwinfo->slot_id;
 	erap_usb->param3 = lower_32_bits(le64_to_cpu(hwinfo->erst_addr));
 	erap_usb->param4 = upper_32_bits(le64_to_cpu(hwinfo->erst_addr));
@@ -320,11 +469,18 @@ int exynos_usb_audio_hcd(struct usb_device *udev)
 	ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 1);
 	if (ret) {
 		dev_err(&usb_audio->udev->dev, "erap usb hcd control failed\n");
-		return -1;
+		goto err;
 	}
+	usb_audio->is_first_probe = 0;
 	mutex_unlock(&usb_audio->lock);
 
 	return 0;
+
+err:
+	dev_err(&udev->dev, "%s error = %d\n", __func__, ret);
+	usb_audio->is_first_probe = 0;
+	mutex_unlock(&usb_audio->lock);
+	return ret;
 }
 
 int exynos_usb_audio_desc(struct usb_device *udev)
@@ -359,10 +515,10 @@ int exynos_usb_audio_desc(struct usb_device *udev)
 	desc_addr -= offset;
 
 	mutex_lock(&usb_audio->lock);
-	ret = abox_iommu_map(dev, USB_AUDIO_DESC, desc_addr, (PAGE_SIZE * 2));
+	ret = abox_iommu_map(dev, USB_AUDIO_DESC, desc_addr, (PAGE_SIZE * 2), 0);
 	if (ret) {
 		dev_err(&udev->dev, "USB AUDIO: abox iommu mapping for usb descriptor is failed\n");
-		return ret;
+		goto err;
 	}
 
 	/* notify to Abox descriptor is ready*/
@@ -382,13 +538,18 @@ int exynos_usb_audio_desc(struct usb_device *udev)
 	ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 1);
 	if (ret) {
 		dev_err(&usb_audio->udev->dev, "erap usb desc  control failed\n");
-		return -1;
+		goto err;
 	}
 	mutex_unlock(&usb_audio->lock);
 
 	dev_info(&udev->dev, "USB AUDIO: Mapping descriptor for using on Abox USB F/W & Nofity mapping is done!");
 
 	return 0;
+
+err:
+	dev_err(&udev->dev, "%s error = %d\n", __func__, ret);
+	mutex_unlock(&usb_audio->lock);
+	return ret;
 }
 
 int exynos_usb_audio_conn(int is_conn)
@@ -413,25 +574,22 @@ int exynos_usb_audio_conn(int is_conn)
 
 	if (!is_conn) {
 		if (usb_audio->is_audio) {
-			ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 1);
+			usb_audio->is_audio = 0;
+			ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 0);
 			if (ret) {
 				pr_err("erap usb dis_conn control failed\n");
 				return -1;
 			}
-
-			wait_for_completion_timeout(&usb_audio->out_task_done,
-						msecs_to_jiffies(1000));
-			/* free mapped iommu & memory */
-			ret = exynos_usb_audio_exit();
-			if (ret) {
-				pr_err("ERROR : usb audio exit is failed\n");
-				return -1;
-			}
-			usb_audio->is_audio = 0;
 		} else {
 			pr_err("Is not USB Audio device\n");
 		}
 	} else {
+		cancel_work_sync(&usb_audio->usb_work);
+		usb_audio->indeq_map_done = 0;
+		usb_audio->outdeq_map_done = 0;
+		usb_audio->fb_indeq_map_done = 0;
+		usb_audio->fb_outdeq_map_done = 0;
+		usb_audio->pcm_open_done = 0;
 		ret = abox_start_ipc_transaction(dev, msg.ipcid, &msg, sizeof(msg), 0, 1);
 		if (ret) {
 			pr_err("erap usb conn control failed\n");
@@ -455,6 +613,13 @@ int exynos_usb_audio_pcm(int is_open, int direction)
 	if (DEBUG)
 		dev_info(dev, "USB_AUDIO_IPC : %s\n", __func__);
 
+	if (!usb_audio->is_audio || !otg_connection) {
+		dev_info(dev, "USB_AUDIO_IPC : is_audio is 0. return!\n");
+		return -1;
+	}
+
+	if (is_open)
+		usb_audio->pcm_open_done = 1;
 	dev_info(dev, "PCM  %s\n", is_open? "OPEN" : "CLOSE");
 
 	msg.ipcid = IPC_ERAP;
@@ -482,7 +647,7 @@ int exynos_usb_audio_l2(int is_l2)
 	struct ERAP_USB_AUDIO_PARAM *erap_usb = &erap_msg->param.usbaudio;
 	int ret;
 
-	if (!usb_audio->is_audio)
+	if (!usb_audio->is_audio || !otg_connection)
 		return 0;
 
 	if (DEBUG)
@@ -505,12 +670,21 @@ int exynos_usb_audio_l2(int is_l2)
 	return 0;
 }
 
+void exynos_usb_audio_work(struct work_struct *w)
+{
+	pr_info("%s\n", __func__);
+
+	exynos_usb_audio_unmap_all();
+}
+
 irqreturn_t exynos_usb_audio_irq_handler(int irq, void *dev_id, ABOX_IPC_MSG *msg)
 {
 	struct IPC_ERAP_MSG *erap_msg = &msg->msg.erap;
 
 	if (DEBUG)
-		pr_info("%s: IRQ = %d (5 = ERAP)\n", __func__, irq);
+		pr_info("%s: IRQ = %d, type=%d, par1 = %d\n", __func__,
+				irq, erap_msg->param.usbaudio.type,
+				erap_msg->param.usbaudio.param1);
 
 	if ( irq == IPC_ERAP ) {
 		if (erap_msg->msgtype == REALTIME_USB) {
@@ -518,11 +692,21 @@ irqreturn_t exynos_usb_audio_irq_handler(int irq, void *dev_id, ABOX_IPC_MSG *ms
 			case IPC_USB_TASK:
 				if (erap_msg->param.usbaudio.param1) {
 					pr_info("irq : %d /* param1 : 1 , IN EP task done */\n", irq);
-					complete(&usb_audio->in_task_done);
 				} else {
 					pr_info("irq : %d /* param0 : 0 , OUT EP task done */\n", irq);
-					complete(&usb_audio->out_task_done);
+					schedule_work(&usb_audio->usb_work);
 				}
+				break;
+			case IPC_USB_STOP_DONE:
+				if (erap_msg->param.usbaudio.param1 ==
+						SNDRV_PCM_STREAM_PLAYBACK)
+					complete(&usb_audio->out_conn_stop);
+				else if (erap_msg->param.usbaudio.param1 ==
+						SNDRV_PCM_STREAM_CAPTURE)
+					complete(&usb_audio->in_conn_stop);
+				else
+					pr_err("Unexpected USB_STOP_DONE param!!\n");
+
 				break;
 			default:
 				pr_err("%s: unknown usb msg type\n", __func__);
@@ -547,8 +731,6 @@ int exynos_usb_audio_init(struct device *dev, struct platform_device *pdev)
 	if (DEBUG)
 		dev_info(dev, "USB_AUDIO_IPC : %s\n", __func__);
 
-	usb_audio = kmalloc(sizeof(struct exynos_usb_audio), GFP_KERNEL);
-
 	np_abox =of_parse_phandle(np, "abox", 0);
 	if(!np_abox) {
 		dev_err(dev, "Failed to get abox device node\n");
@@ -562,26 +744,27 @@ int exynos_usb_audio_init(struct device *dev, struct platform_device *pdev)
 	}
 
 	mutex_init(&usb_audio->lock);
-	init_completion(&usb_audio->out_task_done);
-	init_completion(&usb_audio->in_task_done);
+	init_completion(&usb_audio->in_conn_stop);
+	init_completion(&usb_audio->out_conn_stop);
 	usb_audio->abox = pdev_abox;
 	usb_audio->hcd_pdev = pdev;
 	usb_audio->udev = NULL;
 	usb_audio->is_audio = 0;
+	usb_audio->is_first_probe = 1;
 
-	abox_register_irq_handler(&pdev_abox->dev, IPC_ERAP,
+	abox_register_ipc_handler(&pdev_abox->dev, IPC_ERAP,
 				exynos_usb_audio_irq_handler, &usb_audio);
 
 	return 0;
 }
 
-int exynos_usb_audio_exit(void)
+int exynos_usb_audio_unmap_all(void)
 {
 	struct platform_device *pdev = usb_audio->abox;
 	struct device *dev = &pdev->dev;
-	int ret;
 	u64 addr;
 	u64 offset;
+	int ret;
 
 	if (DEBUG)
 		dev_info(dev, "USB_AUDIO_IPC : %s\n", __func__);
@@ -591,9 +774,19 @@ int exynos_usb_audio_exit(void)
 	if (DEBUG)
 		pr_info("PCM IN BUFFER FREE: paddr = %#08llx\n", addr);
 
-	ret = abox_iommu_unmap(dev, USB_AUDIO_PCM_INBUF, addr, PAGE_SIZE * 15);
-	if (ret) {
-		pr_err("abox iommu unmapping for pcm buf is failed\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_PCM_INBUF);
+	if (ret < 0) {
+		pr_err("iommu un-mapping for in buf failed %d\n", ret);
+		return ret;
+	}
+
+	addr = usb_audio->out_buf_addr;
+	if (DEBUG)
+		pr_info("PCM OUT BUFFER FREE: paddr = %#08llx\n", addr);
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_PCM_OUTBUF);
+	if (ret < 0) {
+		pr_err("iommu unmapping for pcm out buf failed\n");
 		return ret;
 	}
 
@@ -602,50 +795,77 @@ int exynos_usb_audio_exit(void)
 	offset = usb_audio->offset;
 
 	if (DEBUG)
-		pr_info("DESC BUFFER :: paddr : %#08llx / offset : %#08llx\n",
+		pr_info("DESC BUFFER: paddr : %#08llx / offset : %#08llx\n",
 				addr, offset);
-	ret = abox_iommu_unmap(dev, USB_AUDIO_DESC, addr - offset, (PAGE_SIZE * 2));
-	if (ret) {
-		pr_err("USB AUDIO: abox iommu unmapping for usb descriptor is failed\n");
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_DESC);
+	if (ret < 0) {
+		pr_err("iommu unmapping for descriptor failed\n");
 		return ret;
 	}
 
-	ret = abox_iommu_unmap(dev, USB_AUDIO_SAVE_RESTORE, usb_audio->save_dma, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu unmapping for dcbaa is failed\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_SAVE_RESTORE);
+	if (ret < 0) {
+		pr_err(" abox iommu unmapping for dcbaa failed\n");
 		return ret;
 	}
 
 	/*Device Context unmapping*/
-	ret = abox_iommu_unmap(dev, USB_AUDIO_DEV_CTX, usb_audio->out_ctx, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu unmapping for device ctx is failed\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_DEV_CTX);
+	if (ret < 0) {
+		pr_err(" abox iommu unmapping for device ctx failed\n");
 		return ret;
 	}
 
 	/*Input Context unmapping*/
-	ret = abox_iommu_unmap(dev, USB_AUDIO_INPUT_CTX, usb_audio->in_ctx, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu unmapping for input ctx is failed\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_INPUT_CTX);
+	if (ret < 0) {
+		pr_err(" abox iommu unmapping for input ctx failed\n");
 		return ret;
 	}
 
 	/*ERST unmapping*/
-	ret = abox_iommu_unmap(dev, USB_AUDIO_ERST, usb_audio->erst_addr, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu Un-mapping for erst is failed\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_ERST);
+	if (ret < 0) {
+		pr_err(" abox iommu Un-mapping for erst failed\n");
 		return ret;
 	}
 
-	if ( DEBUG ) {
-		dev_info(dev, "USB_AUDIO_IPC : SFR MAPPING!\n");
+	ret = abox_iommu_unmap(dev, USB_AUDIO_IN_DEQ);
+	if (ret < 0) {
+		pr_err("abox iommu un-mapping for in buf failed %d\n", ret);
+		return ret;
 	}
-	ret = abox_iommu_unmap(dev, USB_AUDIO_XHCI_BASE, USB_AUDIO_XHCI_BASE, PAGE_SIZE);
-	if (ret) {
-		pr_err(" abox iommu Un-mapping for in buf is failed\n");
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_FBOUT_DEQ);
+	if (ret < 0) {
+		pr_err("abox iommu un-mapping for fb_out buf failed %d\n", ret);
+		return ret;
+	}
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_OUT_DEQ);
+	if (ret < 0) {
+		pr_err("iommu un-mapping for out buf failed %d\n", ret);
+		return ret;
+	}
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_FBIN_DEQ);
+	if (ret < 0) {
+		pr_err("iommu un-mapping for fb_in buf failed %d\n", ret);
+		return ret;
+	}
+
+	ret = abox_iommu_unmap(dev, USB_AUDIO_XHCI_BASE);
+	if (ret < 0) {
+		pr_err(" abox iommu Un-mapping for in buf failed\n");
 		return ret;
 	}
 
 	return 0;
 }
 
+int exynos_usb_audio_exit(void)
+{
+	/* future use */
+	return 0;
+}

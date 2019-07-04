@@ -36,6 +36,8 @@ char CCIC_NOTI_DEST_Print[CCIC_NOTI_DEST_NUM][10] = {
     {"MANAGER"},
     {"DP"},
     {"DPUSB"},
+    {"BATTERY2"},
+    {"MUIC2"},
     {"ALL"},
 };
 

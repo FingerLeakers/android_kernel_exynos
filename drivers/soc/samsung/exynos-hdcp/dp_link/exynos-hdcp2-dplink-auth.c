@@ -14,6 +14,7 @@
 #include "exynos-hdcp2-dplink-auth.h"
 #include "exynos-hdcp2-dplink-if.h"
 #include "exynos-hdcp2-dplink.h"
+#include "exynos-hdcp2-dplink-inter.h"
 
 #define MAX_LC_RETRY 10
 
@@ -801,7 +802,6 @@ static int do_recv_rp_stream_ready(struct hdcp_link_data *lk)
 	memcpy(msg_info.msg, &m_strm_ready, sizeof(struct dp_rp_stream_ready));
 	msg_info.msg_len = sizeof(struct dp_rp_stream_ready);
 	ret = dp_recv_protocol_msg(lk, DP_REPEATERAUTH_STREAM_READY, &msg_info);
-
 	if (ret < 0) {
 		hdcp_err("HDCP recv RepeaterAuth_Stream_Ready failed. ret(%d)\n", ret);
 		return -1;
@@ -839,7 +839,7 @@ static int check_h_prime_ready(void)
 		}
 
 		/* check as polling mode */
-		hdcp_dplink_get_rxstatus(&status);
+		hdcp_dplink_get_rxinfo(&status);
 		if (status & DP_RXSTATUS_HPRIME_AVAILABLE) {
 			/* reset flag */
 			hprime_ready = 0;
@@ -882,7 +882,7 @@ static int check_pairing_ready(void)
 		}
 
 		/* check as polling mode */
-		hdcp_dplink_get_rxstatus(&status);
+		hdcp_dplink_get_rxinfo(&status);
 		if (status & DP_RXSTATUS_PAIRING_AVAILABLE) {
 			/* reset flag */
 			pairing_ready = 0;
@@ -918,7 +918,7 @@ static int check_rcvidlist_ready(void)
 		}
 
 		/* check as polling mode */
-		hdcp_dplink_get_rxstatus(&status);
+		hdcp_dplink_get_rxinfo(&status);
 		if (status & DP_RXSTATUS_READY) {
 			rp_ready++;
 			return 0;

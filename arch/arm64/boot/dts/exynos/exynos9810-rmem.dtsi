@@ -33,50 +33,42 @@
 			reg = <0x0 0xF9200000 0x2000000>;
 		};
 
-		sec_debug_magic {
-			compatible = "exynos,sec_debug_magic";
-			reg = <0x0 0x80000000 0x1000>;
-		};
-
-		rkp_region: rkp_region@0xAF800000 {
-			compatible = "removed-dma-pool";
-			reg = <0x0 0xAF800000 0x1800000>;
-		};
-
-		tima_mem: tima_region@0xB8000000 {
-			compatible = "removed-dma-pool";
-			reg = <0x0 0xB8000000 0x200000>;
-		};
-
-		seclog_mem {
-			compatible = "exynos,seclog";
-			reg = <0x0 0xC0000000 0x80000>;
-		};
-
-		video_stream {
-			compatible = "exynos8890-ion,vstream";
+		ion_video_fw {
+			compatible = "exynos9820-ion";
+			ion,heapname = "vfw_heap";
 			ion,secure;
 			ion,reusable;
+			ion,protection_id = <2>;
+			size = <0x400000>;
+			alloc-ranges = <0x0 0x40000000 0xB0000000>;
+			alignment = <0x0 0x00400000>;
+		};
+
+		ion_video_nfw {
+			compatible = "exynos9820-ion";
+			ion,heapname = "vnfw_heap";
+			ion,reusable;
+			ion,protection_id = <7>;
+			size = <0x400000>;
+			alloc-ranges = <0x0 0x40000000 0xB0000000>;
+			alignment = <0x0 0x00400000>;
+		};
+
+		ion_video_stream {
+			compatible = "exynos9820-ion";
+			ion,heapname = "vstream_heap";
+			ion,secure;
+			ion,reusable;
+			ion,protection_id = <3>;
 			size = <0x6C00000>;
 			alloc-ranges = <0x0 0x40000000 0xB0000000>;
 			alignment = <0x0 0x00400000>;
-			id = <3>;
-			compat-id = <25 31>;
 		};
 
-		crypto {
-			compatible = "exynos8890-ion,crypto";
-			ion,reusable;
-			size = <0x1800000>;
-			alignment = <0x0 0x00400000>;
-			id = <1>;
-		};
-
-		secure_camera {
-			compatible = "exynos8890-ion,secure_camera";
-			ion,untouchable;
-			reg = <0x0 0xE1900000 0x1E00000>;
-			id = <11>;
+		ion_crypto{
+			compatible = "exynos9820-ion";
+			ion,heapname = "crypto_heap";
+			size = <0x1100000>;
 		};
 
 		exynos_ss {
@@ -119,12 +111,6 @@
 				compatible = "exynos_ss,log_kevents";
 				reg = <0 ESS_LOG_KEVENTS_ADDR ESS_LOG_KEVENTS_SIZE>;
 			};
-		};
-
-		fimc_is_lib {
-			compatible = "exynos,fimc_is_lib";
-			reg = <0x0 0xFF800000 0x800000>;
-			kernel_virt = <0xffffff80 0xfa000000>;
 		};
 	};
 };

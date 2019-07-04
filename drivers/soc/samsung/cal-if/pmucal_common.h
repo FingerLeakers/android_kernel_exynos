@@ -7,7 +7,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/sizes.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 #include <linux/delay.h>
 #endif
 
@@ -22,11 +22,17 @@ enum pmucal_seq_acctype {
 	PMUCAL_SAVE_RESTORE,
 	PMUCAL_COND_SAVE_RESTORE,
 	PMUCAL_WAIT,
+	PMUCAL_WAIT_TWO,
 	PMUCAL_CHECK_SKIP,
 	PMUCAL_COND_CHECK_SKIP,
 	PMUCAL_WRITE_WAIT,
+	PMUCAL_WRITE_RETRY,
+	PMUCAL_WRITE_RETRY_INV,
 	PMUCAL_WRITE_RETURN,
+	PMUCAL_SET_BIT_ATOMIC,
+	PMUCAL_CLR_BIT_ATOMIC,
 	PMUCAL_DELAY,
+	PMUCAL_CLEAR_PEND,
 };
 
 /* represents each row in the PMU sequence guide */

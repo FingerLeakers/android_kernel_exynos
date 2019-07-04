@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/drivers/char/mem.c
  *
@@ -29,18 +30,13 @@
 #include <linux/io.h>
 #include <linux/uio.h>
 
-#ifdef CONFIG_KNOX_KAP
-#include <linux/knox_kap.h>
-#endif
-
-#ifdef CONFIG_MST_LDO
-#include <linux/mst_ctrl.h>
-#endif
-
 #include <linux/uaccess.h>
 
 #ifdef CONFIG_IA64
 # include <linux/efi.h>
+#endif
+#ifdef CONFIG_MST_LDO
+#include <linux/mst_ctrl.h>
 #endif
 
 #define DEVPORT_MINOR	4
@@ -114,6 +110,8 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 	phys_addr_t p = *ppos;
 	ssize_t read, sz;
 	void *ptr;
+	char *bounce;
+	int err;
 
 	if (p != *ppos)
 		return 0;
@@ -136,15 +134,22 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 	}
 #endif
 
+	bounce = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!bounce)
+		return -ENOMEM;
+
 	while (count > 0) {
 		unsigned long remaining;
-		int allowed;
+		int allowed, probe;
 
 		sz = size_inside_page(p, count);
 
+		err = -EPERM;
 		allowed = page_is_allowed(p >> PAGE_SHIFT);
 		if (!allowed)
-			return -EPERM;
+			goto failed;
+
+		err = -EFAULT;
 		if (allowed == 2) {
 			/* Show zeros for restricted memory. */
 			remaining = clear_user(buf, sz);
@@ -156,24 +161,32 @@ static ssize_t read_mem(struct file *file, char __user *buf,
 			 */
 			ptr = xlate_dev_mem_ptr(p);
 			if (!ptr)
-				return -EFAULT;
+				goto failed;
 
-			remaining = copy_to_user(buf, ptr, sz);
-
+			probe = probe_kernel_read(bounce, ptr, sz);
 			unxlate_dev_mem_ptr(p, ptr);
+			if (probe)
+				goto failed;
+
+			remaining = copy_to_user(buf, bounce, sz);
 		}
 
 		if (remaining)
-			return -EFAULT;
+			goto failed;
 
 		buf += sz;
 		p += sz;
 		count -= sz;
 		read += sz;
 	}
+	kfree(bounce);
 
 	*ppos += read;
 	return read;
+
+failed:
+	kfree(bounce);
+	return err;
 }
 
 static ssize_t write_mem(struct file *file, const char __user *buf,
@@ -861,11 +874,8 @@ static const struct memdev {
 #ifdef CONFIG_PRINTK
 	[11] = { "kmsg", 0644, &kmsg_fops, 0 },
 #endif
-#ifdef CONFIG_KNOX_KAP
-	[13] = { "knox_kap", 0664, &knox_kap_fops, 0 },
-#endif
 #ifdef CONFIG_MST_LDO
-     [14] = { "mst_ctrl", 0666, &mst_ctrl_fops, 0 },
+	[14] = { "mst_ctrl", 0666, &mst_ctrl_fops, 0 },
 #endif
 };
 

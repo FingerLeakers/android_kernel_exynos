@@ -239,7 +239,7 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 	struct fimc_is_device_af *af_device = (struct fimc_is_device_af *)device;
 	struct fimc_is_core *core;
 	bool af_regulator = false, io_regulator = false;
-	struct fimc_is_vender_specific *specific;
+	bool camera_running;
 
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 	if (!core) {
@@ -247,10 +247,10 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 		return -ENODEV;
 	}
 
-	specific = core->vender.private_data;
+	camera_running = fimc_is_vendor_check_camera_running(SENSOR_POSITION_REAR);
 
-	pr_info("af_noise : running_rear_camera = %d, onoff = %d\n", specific->running_rear_camera, onoff);
-	if (!specific->running_rear_camera) {
+	pr_info("af_noise : camera_running = %d, onoff = %d\n", camera_running, onoff);
+	if (!camera_running) {
 		if (onoff) {
 			fimc_is_af_power(af_device, true);
 			ret = fimc_is_af_i2c_write(af_device->client, 0x02, 0x00);
@@ -292,7 +292,7 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 	return ret;
 
 power_off:
-	if (!specific->running_rear_camera) {
+	if (!camera_running) {
 		af_regulator = fimc_is_check_regulator_status("VDDAF_COMMON_CAM");
 		io_regulator = fimc_is_check_regulator_status("VDDIO_1.8V_CAM");
 		if (af_regulator && io_regulator) {
@@ -311,13 +311,16 @@ int16_t fimc_is_af_move_lens(struct fimc_is_core *core)
 	struct fimc_is_actuator *actuator = NULL;
 	struct i2c_client *client = NULL;
 	struct fimc_is_device_sensor *device;
+	bool camera_running;
+
+	camera_running = fimc_is_vendor_check_camera_running(SENSOR_POSITION_REAR);
 
 	device = &core->sensor[SENSOR_POSITION_REAR];
 	actuator = device->actuator[SENSOR_POSITION_REAR];
 	client = actuator->client;
 
-	pr_info("fimc_is_af_move_lens : running_rear_camera = %d\n", specific->running_rear_camera);
-	if (!specific->running_rear_camera) {
+	pr_info("fimc_is_af_move_lens : camera_running = %d\n", camera_running);
+	if (!camera_running) {
 		/* wide cam AF i2c pin is controlled at 2l3 power sequence. So not controlled here.*/
 		//fimc_is_i2c_pin_config(client, true);
 
@@ -350,13 +353,16 @@ int16_t fimc_is_af_move_lens_rear2(struct fimc_is_core *core)
 	struct fimc_is_actuator *actuator = NULL;
 	struct i2c_client *client = NULL;
 	struct fimc_is_device_sensor *device;
+	bool camera_running_rear2;
+
+	camera_running_rear2 = fimc_is_vendor_check_camera_running(SENSOR_POSITION_REAR2);
 
 	device = &core->sensor[SENSOR_POSITION_REAR2];
 	actuator = device->actuator[SENSOR_POSITION_REAR2];
 	client = actuator->client;
 
-	pr_info("fimc_is_af_move_lens : running_rear2_camera = %d\n", specific->running_rear_second_camera);
-	if (!specific->running_rear_second_camera) {
+	pr_info("fimc_is_af_move_lens : camera_running_rear2 = %d\n", camera_running_rear2);
+	if (!camera_running_rear2) {
 		fimc_is_i2c_pin_config(client, true);
 
 		ret = fimc_is_af_i2c_write(client, 0x00, 0x80);

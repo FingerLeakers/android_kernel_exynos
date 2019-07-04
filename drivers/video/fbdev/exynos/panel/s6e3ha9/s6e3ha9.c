@@ -2347,7 +2347,7 @@ static void show_rddpm(struct dumpinfo *info)
 
 	panel_info("========== SHOW PANEL [0Ah:RDDPM] INFO ==========\n");
 	panel_info("* Reg Value : 0x%02x, Result : %s\n",
-			rddpm[0], (rddpm[0] == 0x9C) ? "GOOD" : "NG");
+			rddpm[0], ((rddpm[0] & 0x9C) == 0x9C) ? "GOOD" : "NG");
 	panel_info("* Bootster Mode : %s\n", rddpm[0] & 0x80 ? "ON (GD)" : "OFF (NG)");
 	panel_info("* Idle Mode     : %s\n", rddpm[0] & 0x40 ? "ON (NG)" : "OFF (GD)");
 	panel_info("* Partial Mode  : %s\n", rddpm[0] & 0x20 ? "ON" : "OFF");

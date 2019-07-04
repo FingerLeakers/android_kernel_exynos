@@ -13,6 +13,10 @@
 #include <linux/delay.h>
 #include <linux/export.h>
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+
 void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
 			  struct lock_class_key *key)
 {
@@ -52,9 +56,6 @@ EXPORT_SYMBOL(__rwlock_init);
 static void spin_dump(raw_spinlock_t *lock, const char *msg)
 {
 	struct task_struct *owner = NULL;
-
-	if (!printk_ratelimit())
-		return;
 
 	if (lock->owner && lock->owner != SPINLOCK_OWNER_INIT)
 		owner = lock->owner;

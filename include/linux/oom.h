@@ -1,11 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __INCLUDE_LINUX_OOM_H
 #define __INCLUDE_LINUX_OOM_H
 
 
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/types.h>
 #include <linux/nodemask.h>
 #include <uapi/linux/oom.h>
+#include <linux/sched/coredump.h> /* MMF_* */
+#include <linux/mm.h> /* VM_FAULT* */
 
 struct zonelist;
 struct notifier_block;
@@ -63,6 +66,37 @@ static inline bool tsk_is_oom_victim(struct task_struct * tsk)
 	return tsk->signal->oom_mm;
 }
 
+/*
+ * Use this helper if tsk->mm != mm and the victim mm needs a special
+ * handling. This is guaranteed to stay true after once set.
+ */
+static inline bool mm_is_oom_victim(struct mm_struct *mm)
+{
+	return test_bit(MMF_OOM_VICTIM, &mm->flags);
+}
+
+/*
+ * Checks whether a page fault on the given mm is still reliable.
+ * This is no longer true if the oom reaper started to reap the
+ * address space which is reflected by MMF_UNSTABLE flag set in
+ * the mm. At that moment any !shared mapping would lose the content
+ * and could cause a memory corruption (zero pages instead of the
+ * original content).
+ *
+ * User should call this before establishing a page table entry for
+ * a !shared mapping and under the proper page table lock.
+ *
+ * Return 0 when the PF is safe VM_FAULT_SIGBUS otherwise.
+ */
+static inline int check_stable_address_space(struct mm_struct *mm)
+{
+	if (unlikely(test_bit(MMF_UNSTABLE, &mm->flags)))
+		return VM_FAULT_SIGBUS;
+	return 0;
+}
+
+void __oom_reap_task_mm(struct mm_struct *mm);
+
 extern unsigned long oom_badness(struct task_struct *p,
 		struct mem_cgroup *memcg, const nodemask_t *nodemask,
 		unsigned long totalpages);
@@ -73,14 +107,11 @@ extern void exit_oom_victim(void);
 
 extern int register_oom_notifier(struct notifier_block *nb);
 extern int unregister_oom_notifier(struct notifier_block *nb);
-extern int register_oomdebug_notifier(struct notifier_block *nb);
-extern int unregister_oomdebug_notifier(struct notifier_block *nb);
 
 extern bool oom_killer_disable(signed long timeout);
 extern void oom_killer_enable(void);
 
 extern struct task_struct *find_lock_task_mm(struct task_struct *p);
-
 extern void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask);
 
 /* sysctls */

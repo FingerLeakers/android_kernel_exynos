@@ -13,10 +13,6 @@
 #ifndef __ASM_ARCH_SECMEM_H
 #define __ASM_ARCH_SECMEM_H __FILE__
 
-#if defined(CONFIG_ION)
-#include <linux/ion.h>
-#endif
-
 #define MAX_NAME_LEN	20
 
 struct secchunk_info {
@@ -27,10 +23,9 @@ struct secchunk_info {
 };
 
 #if defined(CONFIG_ION)
-extern struct ion_device *ion_exynos;
 struct secfd_info {
 	int	fd;
-	ion_phys_addr_t phys;
+	unsigned long phys;
 };
 #endif
 

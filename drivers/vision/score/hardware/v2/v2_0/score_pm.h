@@ -31,8 +31,14 @@ struct score_pm {
 	struct mutex                    lock;
 };
 
-static inline void score_pm_qos_update(struct score_pm *pm, int request_qos)
+static inline int score_pm_qos_set_default(struct score_pm *pm, int default_qos)
 {
+	return 0;
+}
+
+static inline int score_pm_qos_update(struct score_pm *pm, int request_qos)
+{
+	return 0;
 }
 static inline void score_pm_qos_update_min(struct score_pm *pm)
 {

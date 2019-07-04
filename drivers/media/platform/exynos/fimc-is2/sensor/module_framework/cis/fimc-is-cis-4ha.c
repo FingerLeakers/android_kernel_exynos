@@ -1065,6 +1065,10 @@ int sensor_4ha_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 
 	vt_pic_clk_freq_mhz = cis_data->pclk / (1000 * 1000);
 	line_length_pck = cis_data->line_length_pck;
+	if (input_exposure_time > SENSOR_4HA_EXPOSURE_TIME_MAX) {
+		err("input_exposure_time is out of bound (%d -> %d)", input_exposure_time, SENSOR_4HA_EXPOSURE_TIME_MAX);
+		input_exposure_time = SENSOR_4HA_EXPOSURE_TIME_MAX;
+	}
 	frame_length_lines = ((vt_pic_clk_freq_mhz * input_exposure_time) / line_length_pck);
 	frame_length_lines += cis_data->max_margin_coarse_integration_time;
 
@@ -1906,6 +1910,33 @@ static int sensor_4ha_cis_get_mipi_clock_string(struct v4l2_subdev *subdev, char
 }
 #endif
 
+int sensor_4ha_cis_recover_stream_on(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct fimc_is_cis *cis = NULL;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	info("%s start\n", __func__);
+
+	ret = sensor_4ha_cis_set_global_setting(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_4ha_cis_mode_change(subdev, cis->cis_data->sens_config_index_cur);
+	if (ret < 0) goto p_err;
+	ret = sensor_4ha_cis_stream_on(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_cis_wait_streamon(subdev);
+	if (ret < 0) goto p_err;
+
+	info("%s end\n", __func__);
+p_err:
+	return ret;
+}
+
 static struct fimc_is_cis_ops cis_ops = {
 	.cis_init = sensor_4ha_cis_init,
 	.cis_log_status = sensor_4ha_cis_log_status,
@@ -1938,6 +1969,7 @@ static struct fimc_is_cis_ops cis_ops = {
 	.cis_get_mipi_clock_string = sensor_4ha_cis_get_mipi_clock_string,
 #endif
 	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
+	.cis_recover_stream_on = sensor_4ha_cis_recover_stream_on,
 };
 
 int cis_4ha_probe(struct i2c_client *client,

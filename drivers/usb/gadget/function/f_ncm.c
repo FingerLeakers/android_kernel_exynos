@@ -16,6 +16,8 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/interrupt.h>
+#include <linux/module.h>
 #include <linux/device.h>
 #include <linux/etherdevice.h>
 #include <linux/crc32.h>
@@ -1491,12 +1493,6 @@ ncm_bind(struct usb_configuration *c, struct usb_function *f)
 	ncm->port.out_ep = ep;
 	ep->driver_data = cdev;	/* claim */
 
-	/* request rndis queue */
-	status = gether_alloc_request(&ncm->port);
-	printk("usb: %s : ncm queue reqsest ret = %d \n", __func__, status);
-	if (status < 0)
-		goto fail;
-
 	ep = usb_ep_autoconfig(cdev->gadget, &fs_ncm_notify_desc);
 	if (!ep)
 		goto fail;
@@ -1551,7 +1547,6 @@ ncm_bind(struct usb_configuration *c, struct usb_function *f)
 	return 0;
 
 fail:
-	usb_free_all_descriptors(f);
 	if (ncm->notify_req) {
 		kfree(ncm->notify_req->buf);
 		usb_ep_free_request(ncm->notify, ncm->notify_req);
@@ -1611,14 +1606,19 @@ static ssize_t terminal_version_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
 	int value;
-	sscanf(buf, "%x", &value);
-	terminal_mode_version = (u16)value;
-	printk(KERN_DEBUG "usb: %s buf=%s\n", __func__, buf);
-	/* only set ncm ready when terminal verision value is not zero */
-	if (value)
-		set_ncm_ready(true);
-	else
-		set_ncm_ready(false);
+
+	if (sscanf(buf, "%x", &value) == 1) {
+		terminal_mode_version = (u16)value;
+		printk(KERN_DEBUG "usb: %s buf=%s\n", __func__, buf);
+		/* only set ncm ready when terminal verision value is not zero */
+		if (value)
+			set_ncm_ready(true);
+		else
+			set_ncm_ready(false);
+	} else {
+		printk(KERN_DEBUG "usb: %s Bad format\n", __func__);
+	}
+
 	return size;
 }
 
@@ -1820,8 +1820,6 @@ static void ncm_unbind(struct usb_configuration *c, struct usb_function *f)
 	kfree(ncm->notify_req->buf);
 	usb_ep_free_request(ncm->notify, ncm->notify_req);
 
-	gether_free_request(&ncm->port);
-
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
 	gether_cleanup(netdev_priv(opts->net));
 #endif
@@ -1874,4 +1872,3 @@ static struct usb_function *ncm_alloc(struct usb_function_instance *fi)
 DECLARE_USB_FUNCTION_INIT(ncm, ncm_alloc_inst, ncm_alloc);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Yauheni Kaliuta");
-

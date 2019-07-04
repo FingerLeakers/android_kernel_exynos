@@ -138,6 +138,22 @@ static int cs47l90_adsp_power_ev(struct snd_soc_dapm_widget *w,
 	return wm_adsp2_early_event(w, kcontrol, event, freq);
 }
 
+static int cs47l90_asyncclk_ev(struct snd_soc_dapm_widget *w,
+			       struct snd_kcontrol *kcontrol,
+			       int event)
+{
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		/* Wait at least 1.5ms for asyncclk to stabilise */
+		usleep_range(1500, 1600);
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 #define CS47L90_NG_SRC(name, base) \
 	SOC_SINGLE(name " NG HPOUT1L Switch",  base,  0, 1, 0), \
 	SOC_SINGLE(name " NG HPOUT1R Switch",  base,  1, 1, 0), \
@@ -358,6 +374,14 @@ MADERA_RATE_ENUM("ASRC1 Rate 1", madera_asrc1_rate[0]),
 MADERA_RATE_ENUM("ASRC1 Rate 2", madera_asrc1_rate[1]),
 MADERA_RATE_ENUM("ASRC2 Rate 1", madera_asrc2_rate[0]),
 MADERA_RATE_ENUM("ASRC2 Rate 2", madera_asrc2_rate[1]),
+
+WM_ADSP2_PRELOAD_SWITCH("DSP1", 1),
+WM_ADSP2_PRELOAD_SWITCH("DSP2", 2),
+WM_ADSP2_PRELOAD_SWITCH("DSP3", 3),
+WM_ADSP2_PRELOAD_SWITCH("DSP4", 4),
+WM_ADSP2_PRELOAD_SWITCH("DSP5", 5),
+WM_ADSP2_PRELOAD_SWITCH("DSP6", 6),
+WM_ADSP2_PRELOAD_SWITCH("DSP7", 7),
 
 MADERA_MIXER_CONTROLS("DSP1L", MADERA_DSP1LMIX_INPUT_1_SOURCE),
 MADERA_MIXER_CONTROLS("DSP1R", MADERA_DSP1RMIX_INPUT_1_SOURCE),
@@ -781,7 +805,8 @@ SND_SOC_DAPM_SUPPLY("SYSCLK", MADERA_SYSTEM_CLOCK_1, MADERA_SYSCLK_ENA_SHIFT,
 		    0, madera_sysclk_ev,
 		    SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
 SND_SOC_DAPM_SUPPLY("ASYNCCLK", MADERA_ASYNC_CLOCK_1,
-		    MADERA_ASYNC_CLK_ENA_SHIFT, 0, NULL, 0),
+		    MADERA_ASYNC_CLK_ENA_SHIFT, 0, cs47l90_asyncclk_ev,
+		    SND_SOC_DAPM_POST_PMU),
 SND_SOC_DAPM_SUPPLY("OPCLK", MADERA_OUTPUT_SYSTEM_CLOCK,
 		    MADERA_OPCLK_ENA_SHIFT, 0, NULL, 0),
 SND_SOC_DAPM_SUPPLY("ASYNCOPCLK", MADERA_OUTPUT_ASYNC_CLOCK,
@@ -823,52 +848,28 @@ SND_SOC_DAPM_SUPPLY("FXCLK", SND_SOC_NOPM,
 		    MADERA_DOM_GRP_FX, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ASRC1R1CLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ASRC1_RATE_1, 0,
+SND_SOC_DAPM_SUPPLY("ASRC1CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ASRC1, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ASRC1R2CLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ASRC1_RATE_2, 0,
+SND_SOC_DAPM_SUPPLY("ASRC2CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ASRC2, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ASRC2R1CLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ASRC2_RATE_1, 0,
+SND_SOC_DAPM_SUPPLY("ISRC1CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ISRC1, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ASRC2R2CLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ASRC2_RATE_2, 0,
+SND_SOC_DAPM_SUPPLY("ISRC2CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ISRC2, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC1DECCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC1_DEC, 0,
+SND_SOC_DAPM_SUPPLY("ISRC3CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ISRC3, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC1INTCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC1_INT, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC2DECCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC2_DEC, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC2INTCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC2_INT, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC3DECCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC3_DEC, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC3INTCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC3_INT, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC4DECCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC4_DEC, 0,
-		    madera_domain_clk_ev,
-		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-SND_SOC_DAPM_SUPPLY("ISRC4INTCLK", SND_SOC_NOPM,
-		    MADERA_DOM_GRP_ISRC4_INT, 0,
+SND_SOC_DAPM_SUPPLY("ISRC4CLK", SND_SOC_NOPM,
+		    MADERA_DOM_GRP_ISRC4, 0,
 		    madera_domain_clk_ev,
 		    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 SND_SOC_DAPM_SUPPLY("OUTCLK", SND_SOC_NOPM,
@@ -1728,38 +1729,38 @@ static const struct snd_soc_dapm_route cs47l90_dapm_routes[] = {
 	{ "DSP5", NULL, "DSP5CLK" },
 	{ "DSP6", NULL, "DSP6CLK" },
 	{ "DSP7", NULL, "DSP7CLK" },
-	{ "ISRC1DEC1", NULL, "ISRC1DECCLK" },
-	{ "ISRC1DEC2", NULL, "ISRC1DECCLK" },
-	{ "ISRC1DEC3", NULL, "ISRC1DECCLK" },
-	{ "ISRC1DEC4", NULL, "ISRC1DECCLK" },
-	{ "ISRC1INT1", NULL, "ISRC1INTCLK" },
-	{ "ISRC1INT2", NULL, "ISRC1INTCLK" },
-	{ "ISRC1INT3", NULL, "ISRC1INTCLK" },
-	{ "ISRC1INT4", NULL, "ISRC1INTCLK" },
-	{ "ISRC2DEC1", NULL, "ISRC2DECCLK" },
-	{ "ISRC2DEC2", NULL, "ISRC2DECCLK" },
-	{ "ISRC2DEC3", NULL, "ISRC2DECCLK" },
-	{ "ISRC2DEC4", NULL, "ISRC2DECCLK" },
-	{ "ISRC2INT1", NULL, "ISRC2INTCLK" },
-	{ "ISRC2INT2", NULL, "ISRC2INTCLK" },
-	{ "ISRC2INT3", NULL, "ISRC2INTCLK" },
-	{ "ISRC2INT4", NULL, "ISRC2INTCLK" },
-	{ "ISRC3DEC1", NULL, "ISRC3DECCLK" },
-	{ "ISRC3DEC2", NULL, "ISRC3DECCLK" },
-	{ "ISRC3INT1", NULL, "ISRC3INTCLK" },
-	{ "ISRC3INT2", NULL, "ISRC3INTCLK" },
-	{ "ISRC4DEC1", NULL, "ISRC4DECCLK" },
-	{ "ISRC4DEC2", NULL, "ISRC4DECCLK" },
-	{ "ISRC4INT1", NULL, "ISRC4INTCLK" },
-	{ "ISRC4INT2", NULL, "ISRC4INTCLK" },
-	{ "ASRC1IN1L", NULL, "ASRC1R1CLK" },
-	{ "ASRC1IN1R", NULL, "ASRC1R1CLK" },
-	{ "ASRC1IN2L", NULL, "ASRC1R2CLK" },
-	{ "ASRC1IN2R", NULL, "ASRC1R2CLK" },
-	{ "ASRC2IN1L", NULL, "ASRC2R1CLK" },
-	{ "ASRC2IN1R", NULL, "ASRC2R1CLK" },
-	{ "ASRC2IN2L", NULL, "ASRC2R2CLK" },
-	{ "ASRC2IN2R", NULL, "ASRC2R2CLK" },
+	{ "ISRC1DEC1", NULL, "ISRC1CLK" },
+	{ "ISRC1DEC2", NULL, "ISRC1CLK" },
+	{ "ISRC1DEC3", NULL, "ISRC1CLK" },
+	{ "ISRC1DEC4", NULL, "ISRC1CLK" },
+	{ "ISRC1INT1", NULL, "ISRC1CLK" },
+	{ "ISRC1INT2", NULL, "ISRC1CLK" },
+	{ "ISRC1INT3", NULL, "ISRC1CLK" },
+	{ "ISRC1INT4", NULL, "ISRC1CLK" },
+	{ "ISRC2DEC1", NULL, "ISRC2CLK" },
+	{ "ISRC2DEC2", NULL, "ISRC2CLK" },
+	{ "ISRC2DEC3", NULL, "ISRC2CLK" },
+	{ "ISRC2DEC4", NULL, "ISRC2CLK" },
+	{ "ISRC2INT1", NULL, "ISRC2CLK" },
+	{ "ISRC2INT2", NULL, "ISRC2CLK" },
+	{ "ISRC2INT3", NULL, "ISRC2CLK" },
+	{ "ISRC2INT4", NULL, "ISRC2CLK" },
+	{ "ISRC3DEC1", NULL, "ISRC3CLK" },
+	{ "ISRC3DEC2", NULL, "ISRC3CLK" },
+	{ "ISRC3INT1", NULL, "ISRC3CLK" },
+	{ "ISRC3INT2", NULL, "ISRC3CLK" },
+	{ "ISRC4DEC1", NULL, "ISRC4CLK" },
+	{ "ISRC4DEC2", NULL, "ISRC4CLK" },
+	{ "ISRC4INT1", NULL, "ISRC4CLK" },
+	{ "ISRC4INT2", NULL, "ISRC4CLK" },
+	{ "ASRC1IN1L", NULL, "ASRC1CLK" },
+	{ "ASRC1IN1R", NULL, "ASRC1CLK" },
+	{ "ASRC1IN2L", NULL, "ASRC1CLK" },
+	{ "ASRC1IN2R", NULL, "ASRC1CLK" },
+	{ "ASRC2IN1L", NULL, "ASRC2CLK" },
+	{ "ASRC2IN1R", NULL, "ASRC2CLK" },
+	{ "ASRC2IN2L", NULL, "ASRC2CLK" },
+	{ "ASRC2IN2R", NULL, "ASRC2CLK" },
 	{ "DFC1", NULL, "DFCCLK" },
 	{ "DFC2", NULL, "DFCCLK" },
 	{ "DFC3", NULL, "DFCCLK" },
@@ -2531,7 +2532,7 @@ static struct regmap *cs47l90_get_regmap(struct device *dev)
 	return cs47l90->core.madera->regmap;
 }
 
-static struct snd_soc_codec_driver soc_codec_dev_cs47l90 = {
+static const struct snd_soc_codec_driver soc_codec_dev_cs47l90 = {
 	.probe = cs47l90_codec_probe,
 	.remove = cs47l90_codec_remove,
 	.get_regmap = cs47l90_get_regmap,
@@ -2551,7 +2552,7 @@ static struct snd_soc_codec_driver soc_codec_dev_cs47l90 = {
 	},
 };
 
-static struct snd_compr_ops cs47l90_compr_ops = {
+static const struct snd_compr_ops cs47l90_compr_ops = {
 	.open = cs47l90_open,
 	.free = wm_adsp_compr_free,
 	.set_params = wm_adsp_compr_set_params,
@@ -2561,7 +2562,7 @@ static struct snd_compr_ops cs47l90_compr_ops = {
 	.copy = wm_adsp_compr_copy,
 };
 
-static struct snd_soc_platform_driver cs47l90_compr_platform = {
+static const struct snd_soc_platform_driver cs47l90_compr_platform = {
 	.compr_ops = &cs47l90_compr_ops,
 };
 
@@ -2604,8 +2605,12 @@ static int cs47l90_probe(struct platform_device *pdev)
 				 cs47l90);
 	if (ret != 0) {
 		dev_err(&pdev->dev, "Failed to request DSP IRQ: %d\n", ret);
-		return ret;
+		goto error_core;
 	}
+
+	ret = madera_set_irq_wake(madera, MADERA_IRQ_DSP_IRQ1, 1);
+	if (ret)
+		dev_warn(&pdev->dev, "Failed to set DSP IRQ wake: %d\n", ret);
 
 	for (i = 0; i < CS47L90_NUM_ADSP; i++) {
 		cs47l90->core.adsp[i].part = "cs47l90";
@@ -2637,7 +2642,7 @@ static int cs47l90_probe(struct platform_device *pdev)
 				madera_destroy_bus_error_irq(&cs47l90->core, i);
 				wm_adsp2_remove(&cs47l90->core.adsp[i]);
 			}
-			goto error_core;
+			goto error_dsp_irq;
 		}
 	}
 
@@ -2662,7 +2667,7 @@ static int cs47l90_probe(struct platform_device *pdev)
 	ret = snd_soc_register_platform(&pdev->dev, &cs47l90_compr_platform);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register platform: %d\n", ret);
-		goto error;
+		goto error_pm_runtime;
 	}
 
 	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_dev_cs47l90,
@@ -2671,19 +2676,24 @@ static int cs47l90_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev,
 			"Failed to register codec: %d\n", ret);
 		snd_soc_unregister_platform(&pdev->dev);
-		goto error;
+		goto error_platform;
 	}
 
 	return ret;
 
-error:
+error_platform:
+	 snd_soc_unregister_platform(&pdev->dev);
+error_pm_runtime:
+	 pm_runtime_disable(&pdev->dev);
+
 	for (i = 0; i < CS47L90_NUM_ADSP; i++) {
 		madera_destroy_bus_error_irq(&cs47l90->core, i);
 		wm_adsp2_remove(&cs47l90->core.adsp[i]);
 	}
-
-error_core:
+error_dsp_irq:
+	madera_set_irq_wake(madera, MADERA_IRQ_DSP_IRQ1, 0);
 	madera_free_irq(madera, MADERA_IRQ_DSP_IRQ1, cs47l90);
+error_core:
 	madera_core_destroy(&cs47l90->core);
 
 	return ret;
@@ -2703,6 +2713,7 @@ static int cs47l90_remove(struct platform_device *pdev)
 		wm_adsp2_remove(&cs47l90->core.adsp[i]);
 	}
 
+	madera_set_irq_wake(cs47l90->core.madera, MADERA_IRQ_DSP_IRQ1, 0);
 	madera_free_irq(cs47l90->core.madera, MADERA_IRQ_DSP_IRQ1, cs47l90);
 	madera_core_destroy(&cs47l90->core);
 
@@ -2712,6 +2723,7 @@ static int cs47l90_remove(struct platform_device *pdev)
 static struct platform_driver cs47l90_codec_driver = {
 	.driver = {
 		.name = "cs47l90-codec",
+		.suppress_bind_attrs = true,
 	},
 	.probe = cs47l90_probe,
 	.remove = cs47l90_remove,

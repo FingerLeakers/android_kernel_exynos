@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _SCSI_DISK_H
 #define _SCSI_DISK_H
 
@@ -17,14 +18,15 @@
  */
 #define SD_TIMEOUT		(30 * HZ)
 #define SD_MOD_TIMEOUT		(75 * HZ)
+#define SD_UFS_TIMEOUT		(10 * HZ)
+#define SD_UFS_FLUSH_TIMEOUT		(6 * HZ)
+
 /*
  * Flush timeout is a multiplier over the standard device timeout which is
  * user modifiable via sysfs but initially set to SD_TIMEOUT
  */
 #define SD_FLUSH_TIMEOUT_MULTIPLIER	2
 #define SD_WRITE_SAME_TIMEOUT	(120 * HZ)
-#define SD_UFS_TIMEOUT		(10 * HZ)
-#define SD_UFS_FLUSH_TIMEOUT		(6 * HZ)
 
 /*
  * Number of allowed retries
@@ -65,11 +67,28 @@ enum {
 	SD_LBP_DISABLE,		/* Discard disabled due to failed cmd */
 };
 
+enum {
+	SD_ZERO_WRITE = 0,	/* Use WRITE(10/16) command */
+	SD_ZERO_WS,		/* Use WRITE SAME(10/16) command */
+	SD_ZERO_WS16_UNMAP,	/* Use WRITE SAME(16) with UNMAP */
+	SD_ZERO_WS10_UNMAP,	/* Use WRITE SAME(10) with UNMAP */
+};
+
 struct scsi_disk {
 	struct scsi_driver *driver;	/* always &sd_template */
 	struct scsi_device *device;
 	struct device	dev;
 	struct gendisk	*disk;
+	struct opal_dev *opal_dev;
+#ifdef CONFIG_BLK_DEV_ZONED
+	unsigned int	nr_zones;
+	unsigned int	zone_blocks;
+	unsigned int	zone_shift;
+	unsigned long	*zones_wlock;
+	unsigned int	zones_optimal_open;
+	unsigned int	zones_optimal_nonseq;
+	unsigned int	zones_max_open;
+#endif
 	atomic_t	openers;
 	sector_t	capacity;	/* size in logical blocks */
 	u32		max_xfer_blocks;
@@ -86,6 +105,7 @@ struct scsi_disk {
 	u8		write_prot;
 	u8		protection_type;/* Data Integrity Field */
 	u8		provisioning_mode;
+	u8		zeroing_mode;
 	unsigned	ATO : 1;	/* state of disk ATO bit */
 	unsigned	cache_override : 1; /* temp override of WCE,RCD */
 	unsigned	WCE : 1;	/* state of disk WCE bit */
@@ -100,9 +120,11 @@ struct scsi_disk {
 	unsigned	lbpvpd : 1;
 	unsigned	ws10 : 1;
 	unsigned	ws16 : 1;
-#if defined(CONFIG_UFS_SRPMB)
-	struct rpmb_irq_ctx *rpmb_ctx;
-#endif
+	unsigned	rc_basis: 2;
+	unsigned	zoned: 2;
+	unsigned	urswrz : 1;
+	unsigned	security : 1;
+	unsigned	ignore_medium_access_errors : 1;
 #ifdef CONFIG_USB_STORAGE_DETECT
 	wait_queue_head_t	delay_wait;
 	struct completion	scanning_done;
@@ -112,7 +134,7 @@ struct scsi_disk {
 	int		prv_media_present;
 #endif
 };
-#define to_scsi_disk(obj) container_of(obj, struct scsi_disk, dev)
+#define to_scsi_disk(obj) container_of(obj,struct scsi_disk,dev)
 
 static inline struct scsi_disk *scsi_disk(struct gendisk *disk)
 {
@@ -166,6 +188,21 @@ static inline int scsi_medium_access_command(struct scsi_cmnd *scmd)
 static inline sector_t logical_to_sectors(struct scsi_device *sdev, sector_t blocks)
 {
 	return blocks << (ilog2(sdev->sector_size) - 9);
+}
+
+static inline unsigned int logical_to_bytes(struct scsi_device *sdev, sector_t blocks)
+{
+	return blocks * sdev->sector_size;
+}
+
+static inline sector_t bytes_to_logical(struct scsi_device *sdev, unsigned int bytes)
+{
+	return bytes >> ilog2(sdev->sector_size);
+}
+
+static inline sector_t sectors_to_logical(struct scsi_device *sdev, sector_t sector)
+{
+	return sector >> (ilog2(sdev->sector_size) - 9);
 }
 
 /*
@@ -250,5 +287,58 @@ static inline void sd_dif_complete(struct scsi_cmnd *cmd, unsigned int a)
 }
 
 #endif /* CONFIG_BLK_DEV_INTEGRITY */
+
+static inline int sd_is_zoned(struct scsi_disk *sdkp)
+{
+	return sdkp->zoned == 1 || sdkp->device->type == TYPE_ZBC;
+}
+
+#ifdef CONFIG_BLK_DEV_ZONED
+
+extern int sd_zbc_read_zones(struct scsi_disk *sdkp, unsigned char *buffer);
+extern void sd_zbc_remove(struct scsi_disk *sdkp);
+extern void sd_zbc_print_zones(struct scsi_disk *sdkp);
+extern int sd_zbc_write_lock_zone(struct scsi_cmnd *cmd);
+extern void sd_zbc_write_unlock_zone(struct scsi_cmnd *cmd);
+extern int sd_zbc_setup_report_cmnd(struct scsi_cmnd *cmd);
+extern int sd_zbc_setup_reset_cmnd(struct scsi_cmnd *cmd);
+extern void sd_zbc_complete(struct scsi_cmnd *cmd, unsigned int good_bytes,
+			    struct scsi_sense_hdr *sshdr);
+
+#else /* CONFIG_BLK_DEV_ZONED */
+
+static inline int sd_zbc_read_zones(struct scsi_disk *sdkp,
+				    unsigned char *buf)
+{
+	return 0;
+}
+
+static inline void sd_zbc_remove(struct scsi_disk *sdkp) {}
+
+static inline void sd_zbc_print_zones(struct scsi_disk *sdkp) {}
+
+static inline int sd_zbc_write_lock_zone(struct scsi_cmnd *cmd)
+{
+	/* Let the drive fail requests */
+	return BLKPREP_OK;
+}
+
+static inline void sd_zbc_write_unlock_zone(struct scsi_cmnd *cmd) {}
+
+static inline int sd_zbc_setup_report_cmnd(struct scsi_cmnd *cmd)
+{
+	return BLKPREP_INVALID;
+}
+
+static inline int sd_zbc_setup_reset_cmnd(struct scsi_cmnd *cmd)
+{
+	return BLKPREP_INVALID;
+}
+
+static inline void sd_zbc_complete(struct scsi_cmnd *cmd,
+				   unsigned int good_bytes,
+				   struct scsi_sense_hdr *sshdr) {}
+
+#endif /* CONFIG_BLK_DEV_ZONED */
 
 #endif /* _SCSI_DISK_H */

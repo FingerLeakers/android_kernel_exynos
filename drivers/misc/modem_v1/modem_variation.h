@@ -90,6 +90,14 @@ DECLARE_MODEM_INIT(ss222);
 DECLARE_MODEM_INIT(ss300);
 #endif
 
+#ifdef CONFIG_UMTS_MODEM_S5000AP
+DECLARE_MODEM_INIT(s5000ap);
+#endif
+
+#ifdef CONFIG_UMTS_MODEM_S5100
+DECLARE_MODEM_INIT(s5100);
+#endif
+
 #ifdef CONFIG_CDMA_MODEM_MDM6600
 DECLARE_MODEM_INIT(mdm6600);
 #endif
@@ -141,6 +149,10 @@ DECLARE_LINK_INIT(shmem);
 
 #ifdef CONFIG_LINK_DEVICE_SPI
 DECLARE_LINK_INIT(spi);
+#endif
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+DECLARE_LINK_INIT(pcie);
 #endif
 
 typedef int (*modem_init_call)(struct modem_ctl *, struct modem_data *);

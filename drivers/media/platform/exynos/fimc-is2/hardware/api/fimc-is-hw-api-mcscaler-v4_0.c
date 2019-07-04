@@ -1375,10 +1375,8 @@ void fimc_is_scaler_set_poly_scaler_v_coef(void __iomem *base_addr, u32 output_i
 	}
 }
 
-void fimc_is_scaler_set_poly_scaler_coef(void __iomem *base_addr,
-	u32 output_id,
-	u32 hratio,
-	u32 vratio,
+void fimc_is_scaler_set_poly_scaler_coef(void __iomem *base_addr, u32 output_id,
+	u32 hratio, u32 vratio, struct scaler_coef_cfg *sc_coef,
 	enum exynos_sensor_position sensor_position)
 {
 	u32 h_coef = 0;
@@ -1406,13 +1404,13 @@ void fimc_is_scaler_set_poly_scaler_coef(void __iomem *base_addr,
 	} else if (hratio > RATIO_X6_8 && hratio <= RATIO_X5_8) {
 		h_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x5_8;
 	} else if (hratio > RATIO_X5_8 && hratio <= RATIO_X4_8) {
-		h_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x4_8;
+		h_coef = MCSC_COEFF_x4_8;
 	} else if (hratio > RATIO_X4_8 && hratio <= RATIO_X3_8) {
-		h_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x3_8;
+		h_coef = MCSC_COEFF_x3_8;
 	} else if (hratio > RATIO_X3_8 && hratio <= RATIO_X2_8) {
-		h_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x2_8;
+		h_coef = MCSC_COEFF_x2_8;
 	} else {
-		h_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x2_8;
+		h_coef = MCSC_COEFF_x2_8;
 	}
 
 	/* adjust V coef */
@@ -1427,13 +1425,13 @@ void fimc_is_scaler_set_poly_scaler_coef(void __iomem *base_addr,
 	} else if (vratio > RATIO_X6_8 && vratio <= RATIO_X5_8) {
 		v_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x5_8;
 	} else if (vratio > RATIO_X5_8 && vratio <= RATIO_X4_8) {
-		v_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x4_8;
+		v_coef = MCSC_COEFF_x4_8;
 	} else if (vratio > RATIO_X4_8 && vratio <= RATIO_X3_8) {
-		v_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x3_8;
+		v_coef = MCSC_COEFF_x3_8;
 	} else if (vratio > RATIO_X3_8 && vratio <= RATIO_X2_8) {
-		v_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x2_8;
+		v_coef = MCSC_COEFF_x2_8;
 	} else {
-		v_coef = adjust_coef == true ? MCSC_COEFF_x7_8 : MCSC_COEFF_x2_8;
+		v_coef = MCSC_COEFF_x2_8;
 	}
 
 	fimc_is_scaler_set_h_init_phase_offset(base_addr, output_id, h_phase_offset);
@@ -1738,7 +1736,8 @@ void fimc_is_scaler_set_post_scaler_h_v_coef(void __iomem *base_addr, u32 output
 	}
 }
 
-void fimc_is_scaler_set_post_scaler_coef(void __iomem *base_addr, u32 output_id, u32 hratio, u32 vratio)
+void fimc_is_scaler_set_post_scaler_coef(void __iomem *base_addr, u32 output_id,
+	u32 hratio, u32 vratio, struct scaler_coef_cfg *sc_coef)
 {
 	u32 h_coef = 0;
 	u32 v_coef = 0;
@@ -2183,7 +2182,7 @@ void fimc_is_scaler_set_otf_out_path(void __iomem *base_addr, u32 output_id)
 		&mcsc_fields[MCSC_F_OTF_OUT_SEL], output_id);
 }
 
-void fimc_is_scaler_set_rdma_format(void __iomem *base_addr, u32 dma_in_format)
+void fimc_is_scaler_set_rdma_format(void __iomem *base_addr, u32 hw_id, u32 dma_in_format)
 {
 	fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_RDMAOTF_DATA_FORMAT],
 		&mcsc_fields[MCSC_F_RDMAOTF_DATA_FORMAT], dma_in_format);
@@ -2272,7 +2271,7 @@ void fimc_is_scaler_set_wdma_rgb_coefficient(void __iomem *base_addr, u32 alpha_
 
 }
 
-void fimc_is_scaler_set_wdma_format(void __iomem *base_addr, u32 output_id, u32 dma_out_format)
+void fimc_is_scaler_set_wdma_format(void __iomem *base_addr, u32 hw_id, u32 output_id, u32 dma_out_format)
 {
 	if (dma_out_format == MCSC_RGB_ARGB8888 || dma_out_format == MCSC_RGB_RGBA8888
 		|| dma_out_format == MCSC_RGB_RGBA8888 || dma_out_format == MCSC_RGB_ABGR8888) {
@@ -3230,7 +3229,7 @@ void fimc_is_scaler_clear_wdma_addr(void __iomem *base_addr, u32 output_id)
 
 /* for tdnr : Not used in Lhotse */
 void fimc_is_scaler_set_tdnr_rdma_addr(void __iomem *base_addr, enum tdnr_buf_type type,
-	u32 y_addr, u32 cb_addr, u32 cr_addr)
+	u32 y_addr, u32 cb_addr, u32 cr_addr, int buf_index)
 {
 	/* not supported */
 }
@@ -3241,13 +3240,13 @@ void fimc_is_scaler_clear_tdnr_rdma_addr(void __iomem *base_addr, enum tdnr_buf_
 }
 
 void fimc_is_scaler_set_tdnr_wdma_addr(void __iomem *base_addr, enum tdnr_buf_type type,
-	u32 y_addr, u32 cb_addr, u32 cr_addr)
+	u32 y_addr, u32 cb_addr, u32 cr_addr, int buf_index)
 {
 	/* not supported */
 }
 
 void fimc_is_scaler_get_tdnr_wdma_addr(void __iomem *base_addr, enum tdnr_buf_type type,
-	u32 *y_addr, u32 *cb_addr, u32 *cr_addr)
+	u32 *y_addr, u32 *cb_addr, u32 *cr_addr, int buf_index)
 {
 	/* not supported */
 }
@@ -3350,14 +3349,27 @@ void fimc_is_scaler_set_tdnr_mode_select(void __iomem *base_addr, enum tdnr_mode
 
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_TDNR_MODE_SELECTION], reg_value);
 
+#if 0 /* H/W guide: SCALER_ENABLE(0x0100) --> TDNR_RDMA_START(0x11A4) --> SCALER_RDMA_START(0x0128) */
 	fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_TDNR_ENABLE],
 		&mcsc_fields[MCSC_F_TDNR_ENABLE], tdnr_enable);
+#endif
+}
+
+void fimc_is_scaler_set_tdnr_rdma_start(void __iomem *base_addr, enum tdnr_mode mode)
+{
+	/* not supported */
 }
 
 void fimc_is_scaler_set_tdnr_first(void __iomem *base_addr, u32 tdnr_first)
 {
 	/* TDNR RDMA: DISABLE, WDMA:DISABLE, TDNR_INPUT : SRC0*/
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SCALE_PATH_CTRL], 0);
+}
+
+void fimc_is_scaler_set_tdnr_yic_ctrl(void __iomem *base_addr, enum yic_mode yic_enable)
+{
+	/* not supported */
+
 }
 
 void fimc_is_scaler_set_tdnr_tuneset_general(void __iomem *base_addr, struct general_config config)
@@ -3832,6 +3844,27 @@ void fimc_is_scaler_set_djag_tunning_param(void __iomem *base_addr, const struct
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_DJAG_CP_ARBI], reg_value);
 }
 
+void fimc_is_scaler_set_djag_wb_thres(void __iomem *base_addr, struct djag_wb_thres_cfg *djag_wb)
+{
+	/* not supported */
+}
+
+/* for CAC */
+void fimc_is_scaler_set_cac_enable(void __iomem *base_addr, u32 en)
+{
+	/* not supported */
+}
+
+void fimc_is_scaler_set_cac_input_source(void __iomem *base_addr, u32 in)
+{
+	/* not supported */
+}
+
+void fimc_is_scaler_set_cac_map_crt_thr(void __iomem *base_addr, struct cac_cfg_by_ni *cfg)
+{
+	/* not supported */
+}
+
 /* DS */
 void fimc_is_scaler_set_ds_enable(void __iomem *base_addr, u32 ds_enable)
 {
@@ -3939,6 +3972,18 @@ void fimc_is_scaler_set_ds_gamma_table_enable(void __iomem *base_addr, u32 ds_ga
  *		&mcsc_fields[MCSC_F_DS_DMA_OUT_ENABLE], dma_enable);
  *}
  */
+
+/* LFRO : Less Fast Read Out */
+void fimc_is_scaler_set_lfro_mode_enable(void __iomem *base_addr, u32 hw_id, u32 lfro_enable, u32 lfro_total_fnum)
+{
+	/* not supported */
+}
+
+u32 fimc_is_scaler_get_lfro_mode_status(void __iomem *base_addr, u32 hw_id)
+{
+	/* not supported */
+	return 0;
+}
 
 static void fimc_is_scaler0_clear_intr_src(void __iomem *base_addr, u32 status)
 {

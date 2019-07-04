@@ -227,8 +227,9 @@ int sec_ts_check_firmware_version(struct sec_ts_data *ts, const u8 *fw_info)
 	/* check f/w version
 	 * ver[0] : IC version
 	 * ver[1] : Project version
+	 * ver[2] : Panel infomation
 	 */
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < 3; i++) {
 		if (ts->plat_data->img_version_of_ic[i] != ts->plat_data->img_version_of_bin[i]) {
 			if (ts->plat_data->bringup == 3) {
 				input_err(true, &ts->client->dev, "%s: bringup. force update\n", __func__);
@@ -238,9 +239,6 @@ int sec_ts_check_firmware_version(struct sec_ts_data *ts, const u8 *fw_info)
 			return 0;
 		}
 	}
-
-	if (ts->plat_data->img_version_of_ic[2] != ts->plat_data->img_version_of_bin[2])
-		return 1;
 
 	if (ts->plat_data->img_version_of_ic[3] < ts->plat_data->img_version_of_bin[3])
 		return 1;
@@ -338,7 +336,6 @@ err_write:
 	input_err(true, &ts->client->dev,
 			"%s: failed to alloc.\n", __func__);
 	return -ENOMEM;
-
 }
 
 static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data, u32 mem_size, int retry)
@@ -408,7 +405,6 @@ static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 					goto err;
 				}
 			}
-
 		}
 
 		size_copy = flash_page_size;
@@ -419,6 +415,7 @@ static int sec_ts_flashwrite(struct sec_ts_data *ts, u32 mem_addr, u8 *mem_data,
 	}
 
 	return mem_size;
+
 err:
 	return -EIO;
 }
@@ -664,36 +661,6 @@ static int sec_ts_firmware_update(struct sec_ts_data *ts, const u8 *data,
 			return -EIO;
 		}
 	}
-
-}
-
-int sec_ts_firmware_update_bl(struct sec_ts_data *ts)
-{
-	const struct firmware *fw_entry;
-	char fw_path[SEC_TS_MAX_FW_PATH];
-	int result = -1;
-
-	disable_irq(ts->client->irq);
-
-	snprintf(fw_path, SEC_TS_MAX_FW_PATH, "%s", SEC_TS_DEFAULT_BL_NAME);
-
-	input_info(true, &ts->client->dev, "%s: initial bl update %s\n", __func__, fw_path);
-
-	/* Loading Firmware------------------------------------------ */
-	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: bt is not available\n", __func__);
-		goto err_request_fw;
-	}
-	input_info(true, &ts->client->dev, "%s: request bt done! size = %d\n", __func__, (int)fw_entry->size);
-
-	/* pat_control - boot(false) */
-	result = sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 1, 0);
-
-err_request_fw:
-	release_firmware(fw_entry);
-	enable_irq(ts->client->irq);
-
-	return result;
 }
 
 int sec_ts_bl_update(struct sec_ts_data *ts)
@@ -738,6 +705,7 @@ int sec_ts_bl_update(struct sec_ts_data *ts)
 	}
 
 	return ret;
+
 err:
 	return -EIO;
 }
@@ -868,6 +836,13 @@ static int sec_ts_load_fw_from_bin(struct sec_ts_data *ts)
 	char fw_path[SEC_TS_MAX_FW_PATH];
 	int error = 0;
 	int restore_cal = 0;
+
+	if (ts->plat_data->bringup == 1) {
+		error = -1;
+		input_info(true, &ts->client->dev, "%s: can't update for bringup:%d\n",
+				__func__, ts->plat_data->bringup);
+		return error;
+	}
 
 	if (ts->client->irq)
 		disable_irq(ts->client->irq);
@@ -1005,38 +980,6 @@ open_err:
 	return error;
 }
 
-static int sec_ts_load_fw_from_ffu(struct sec_ts_data *ts)
-{
-	const struct firmware *fw_entry;
-	const char *fw_path = SEC_TS_DEFAULT_FFU_FW;
-	int result = -1;
-
-	disable_irq(ts->client->irq);
-
-	input_info(true, ts->dev, "%s: Load firmware : %s\n", __func__, fw_path);
-
-	/* Loading Firmware */
-	if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
-		input_err(true, &ts->client->dev, "%s: firmware is not available\n", __func__);
-		goto err_request_fw;
-	}
-	input_info(true, &ts->client->dev, "%s: request firmware done! size = %d\n", __func__, (int)fw_entry->size);
-
-	sec_ts_check_firmware_version(ts, fw_entry->data);
-	/* pat_control - boot(false) */
-	if (sec_ts_firmware_update(ts, fw_entry->data, fw_entry->size, 0, 0) < 0)
-		result = -1;
-	else
-		result = 0;
-
-	sec_ts_save_version_of_ic(ts);
-
-err_request_fw:
-	release_firmware(fw_entry);
-	enable_irq(ts->client->irq);
-	return result;
-}
-
 int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts, int update_type)
 {
 	int ret = 0;
@@ -1057,36 +1000,13 @@ int sec_ts_firmware_update_on_hidden_menu(struct sec_ts_data *ts, int update_typ
 	case UMS:
 		ret = sec_ts_load_fw_from_ums(ts);
 		break;
-	case FFU:
-		ret = sec_ts_load_fw_from_ffu(ts);
-		break;
-	case BL:
-		ret = sec_ts_firmware_update_bl(ts);
-		if (ret < 0) {
-			break;
-		} else if (!ret) {
-			ret = sec_ts_firmware_update_on_probe(ts, false);
-			break;
-		} else {
-			ret = sec_ts_bl_update(ts);
-			if (ret < 0)
-				break;
-			ret = sec_ts_firmware_update_on_probe(ts, false);
-			if (ret < 0)
-				break;
-		}
-		break;
 	default:
 		input_err(true, ts->dev, "%s: Not support command[%d]\n",
 				__func__, update_type);
 		break;
 	}
 
-#ifdef SEC_TS_SUPPORT_SPONGELIB
 	sec_ts_check_custom_library(ts);
-	if (ts->use_sponge)
-		sec_ts_set_custom_library(ts);
-#endif
 
 	return ret;
 }

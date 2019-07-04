@@ -34,7 +34,7 @@
 #include <linux/of_gpio.h>
 #include <linux/of.h>
 #include <linux/serial_s3c.h>
-#include <soc/samsung/exynos-powermode.h>
+#include <soc/samsung/exynos-cpupm.h>
 
 //#include <../../arch/arm/include/asm/mach-types.h>
 
@@ -360,6 +360,7 @@ static int bcm43xx_bluetooth_probe(struct platform_device *pdev)
     exynos_update_ip_idle_status(idle_ip_index, STATUS_IDLE);
 
 	pr_info("[BT] bcm43xx_bluetooth_probe End \n");
+
 	return rc;
 }
 
@@ -378,7 +379,7 @@ static int bcm43xx_bluetooth_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#if defined (CONFIG_OF)
+//#if defined (CONFIG_OF)
 static const struct of_device_id exynos_bluetooth_match[] = {
 	{
 		.compatible = "samsung,bcm43xx",
@@ -398,7 +399,7 @@ static struct platform_driver bcm43xx_bluetooth_platform_driver = {
 };
 
 module_platform_driver(bcm43xx_bluetooth_platform_driver);
-#endif
+//#endif
 MODULE_ALIAS("platform:bcm43xx");
 MODULE_DESCRIPTION("bcm43xx_bluetooth");
 MODULE_LICENSE("GPL");

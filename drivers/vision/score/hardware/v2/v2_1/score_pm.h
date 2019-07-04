@@ -53,8 +53,13 @@ struct score_pm {
 #endif
 };
 
+static inline int score_pm_qos_set_default(struct score_pm *pm, int default_qos)
+{
+	return 0;
+}
+
 #if defined(CONFIG_PM_DEVFREQ)
-void score_pm_qos_update(struct score_pm *pm, int request_qos);
+int score_pm_qos_update(struct score_pm *pm, int request_qos);
 void score_pm_qos_update_min(struct score_pm *pm);
 void score_pm_qos_update_max(struct score_pm *pm);
 void score_pm_qos_suspend(struct score_pm *pm);
@@ -62,8 +67,9 @@ void score_pm_qos_resume(struct score_pm *pm);
 int score_pm_qos_get_info(struct score_pm *pm, int *count,
 		int *min_qos, int *max_qos, int *default_qos, int *current_qos);
 #else
-static inline void score_pm_qos_update(struct score_pm *pm, int request_qos)
+static inline int score_pm_qos_update(struct score_pm *pm, int request_qos)
 {
+	return 0;
 }
 static inline void score_pm_qos_update_min(struct score_pm *pm)
 {

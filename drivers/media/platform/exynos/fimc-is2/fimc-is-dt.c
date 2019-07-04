@@ -91,7 +91,6 @@ static int parse_gate_info(struct exynos_platform_fimc_is *pdata, struct device_
 	/* gate info */
 	gate_info_np = of_find_node_by_name(np, "clk_gate_ctrl");
 	if (!gate_info_np) {
-		printk(KERN_ERR "%s: can't find fimc_is clk_gate_ctrl node\n", __func__);
 		ret = -ENOENT;
 		goto p_err;
 	}
@@ -222,6 +221,7 @@ int fimc_is_parse_dt(struct platform_device *pdev)
 	struct device_node *dvfs_np = NULL;
 	struct device_node *vender_np = NULL;
 	struct device_node *np;
+	u32 mem_info[2];
 
 	FIMC_BUG(!pdev);
 
@@ -248,10 +248,32 @@ int fimc_is_parse_dt(struct platform_device *pdev)
 	pdata->print_clk = exynos_fimc_is_print_clk;
 
 	if (parse_gate_info(pdata, np) < 0)
-		probe_err("can't parse clock gate info node");
+		probe_info("can't parse clock gate info node");
 
 	of_property_read_u32(np, "chain_config", &core->chain_config);
-	probe_info("FIMC-IS chain configuration: %d", core->chain_config);
+	probe_info("FIMC-IS chain configuration: %d\n", core->chain_config);
+
+	ret = of_property_read_u32_array(np, "secure_mem_info", mem_info, 2);
+	if (ret) {
+		core->secure_mem_info[0] = 0;
+		core->secure_mem_info[1] = 0;
+	} else {
+		core->secure_mem_info[0] = mem_info[0];
+		core->secure_mem_info[1] = mem_info[1];
+	}
+	probe_info("ret(%d) secure_mem_info(%#08lx, %#08lx)", ret,
+		core->secure_mem_info[0], core->secure_mem_info[1]);
+
+	ret = of_property_read_u32_array(np, "non_secure_mem_info", mem_info, 2);
+	if (ret) {
+		core->non_secure_mem_info[0] = 0;
+		core->non_secure_mem_info[1] = 0;
+	} else {
+		core->non_secure_mem_info[0] = mem_info[0];
+		core->non_secure_mem_info[1] = mem_info[1];
+	}
+	probe_info("ret(%d) non_secure_mem_info(%#08lx, %#08lx)", ret,
+		core->non_secure_mem_info[0], core->non_secure_mem_info[1]);
 
 	vender_np = of_find_node_by_name(np, "vender");
 	if (vender_np) {
@@ -284,12 +306,12 @@ p_err:
 
 int fimc_is_sensor_parse_dt(struct platform_device *pdev)
 {
-	int ret = 0;
-	int i;
-	int elements;
+	int ret;
 	struct exynos_platform_fimc_is_sensor *pdata;
 	struct device_node *dnode;
 	struct device *dev;
+	int elems;
+	int i;
 
 	FIMC_BUG(!pdev);
 	FIMC_BUG(!pdev->dev.of_node);
@@ -308,62 +330,91 @@ int fimc_is_sensor_parse_dt(struct platform_device *pdev)
 	pdata->iclk_off = exynos_fimc_is_sensor_iclk_off;
 	pdata->mclk_on = exynos_fimc_is_sensor_mclk_on;
 	pdata->mclk_off = exynos_fimc_is_sensor_mclk_off;
+#ifdef CONFIG_SOC_EXYNOS9820
+	pdata->mclk_force_off = is_sensor_mclk_force_off;
+#endif
 
 	ret = of_property_read_u32(dnode, "id", &pdata->id);
 	if (ret) {
 		err("id read is fail(%d)", ret);
-		goto p_err;
+		goto err_read_id;
 	}
 
 	ret = of_property_read_u32(dnode, "scenario", &pdata->scenario);
 	if (ret) {
 		err("scenario read is fail(%d)", ret);
-		goto p_err;
+		goto err_read_scenario;
 	}
 
 	ret = of_property_read_u32(dnode, "csi_ch", &pdata->csi_ch);
 	if (ret) {
 		err("csi_ch read is fail(%d)", ret);
-		goto p_err;
+		goto err_read_csi_ch;
 	}
 
-	/* A invalid value is set as default for debugging */
-	for (i = 0; i < CSI_VIRTUAL_CH_MAX * 2; i++) {
-		pdata->dma_ch[i] = -1;
-		pdata->vc_ch[i] = -1;
-	}
-
-	elements = of_property_count_u32_elems(dnode, "dma_ch");
-	if (elements >= 0) {
-		ret = of_property_read_u32_array(dnode, "dma_ch", &pdata->dma_ch[0], elements);
-		if (ret) {
-			warn("dma_ch read is fail(%d)", ret);
-			pdata->dma_abstract = false;
-			ret = 0;
-		} else {
-			pdata->dma_abstract = true;
+	elems = of_property_count_u32_elems(dnode, "dma_ch");
+	if (elems >= CSI_VIRTUAL_CH_MAX) {
+		if (elems % CSI_VIRTUAL_CH_MAX) {
+			err("the length of DMA ch. is not a multiple of VC Max");
+			ret = -EINVAL;
+			goto err_read_dma_ch;
 		}
-	}
 
-	elements = of_property_count_u32_elems(dnode, "vc_ch");
-	if (elements >= 0) {
-		ret = of_property_read_u32_array(dnode, "vc_ch", &pdata->vc_ch[0], elements);
-		if (ret) {
-			warn("vc_ch read is fail(%d)", ret);
-			ret = 0;
+		if (elems != of_property_count_u32_elems(dnode, "vc_ch")) {
+			err("the length of DMA ch. does not match VC ch.");
+			ret = -EINVAL;
+			goto err_read_vc_ch;
+		}
+
+		pdata->dma_ch = kcalloc(elems, sizeof(*pdata->dma_ch), GFP_KERNEL);
+		if (!pdata->dma_ch) {
+			err("out of memory for DMA ch.");
+			ret = -EINVAL;
+			goto err_alloc_dma_ch;
+		}
+
+		pdata->vc_ch = kcalloc(elems, sizeof(*pdata->vc_ch), GFP_KERNEL);
+		if (!pdata->vc_ch) {
+			err("out of memory for VC ch.");
+			ret = -EINVAL;
+			goto err_alloc_vc_ch;
+		}
+
+		for (i = 0; i < elems; i++) {
+			pdata->dma_ch[i] = -1;
+			pdata->vc_ch[i] = -1;
+		}
+
+		if (!of_property_read_u32_array(dnode, "dma_ch", pdata->dma_ch,
+					elems)) {
+			if (!of_property_read_u32_array(dnode, "vc_ch",
+						pdata->vc_ch,
+						elems)) {
+				pdata->dma_abstract = true;
+				pdata->num_of_ch_mode = elems / CSI_VIRTUAL_CH_MAX;
+			} else {
+				warn("failed to read vc_ch\n");
+			}
+		} else {
+			warn("failed to read dma_ch\n");
+		}
+
+		if (!pdata->dma_abstract) {
+			kfree(pdata->vc_ch);
+			kfree(pdata->dma_ch);
 		}
 	}
 
 	ret = of_property_read_u32(dnode, "flite_ch", &pdata->flite_ch);
 	if (ret) {
 		err("flite_ch read is fail(%d)", ret);
-		goto p_err;
+		goto err_read_flite_ch;
 	}
 
 	ret = of_property_read_u32(dnode, "is_bns", &pdata->is_bns);
 	if (ret) {
 		err("is_bns read is fail(%d)", ret);
-		goto p_err;
+		goto err_read_is_bns;
 	}
 
 	if (of_property_read_bool(dnode, "use_ssvc0_internal"))
@@ -381,10 +432,23 @@ int fimc_is_sensor_parse_dt(struct platform_device *pdev)
 	pdev->id = pdata->id;
 	dev->platform_data = pdata;
 
-	return ret;
+	return 0;
 
-p_err:
+err_read_is_bns:
+err_read_flite_ch:
+	kfree(pdata->vc_ch);
+
+err_alloc_vc_ch:
+	kfree(pdata->dma_ch);
+
+err_alloc_dma_ch:
+err_read_vc_ch:
+err_read_dma_ch:
+err_read_csi_ch:
+err_read_scenario:
+err_read_id:
 	kfree(pdata);
+
 	return ret;
 }
 
@@ -492,6 +556,18 @@ static int parse_ois_data(struct exynos_platform_fimc_is_module *pdata, struct d
 	return 0;
 }
 
+static int parse_mcu_data(struct exynos_platform_fimc_is_module *pdata, struct device_node *dnode)
+{
+	u32 temp;
+	char *pprop;
+
+	DT_READ_U32(dnode, "product_name", pdata->mcu_product_name);
+	DT_READ_U32(dnode, "i2c_addr", pdata->mcu_i2c_addr);
+	DT_READ_U32(dnode, "i2c_ch", pdata->mcu_i2c_ch);
+
+	return 0;
+}
+
 static int parse_aperture_data(struct exynos_platform_fimc_is_module *pdata, struct device_node *dnode)
 {
 	u32 temp;
@@ -555,188 +631,6 @@ static int parse_power_seq_data(struct exynos_platform_fimc_is_module *pdata, st
 	return 0;
 }
 
-static int parse_internal_vc_data(struct exynos_platform_fimc_is_module *pdata, struct device_node *dnode)
-{
-	int ret = 0;
-	int vc_count = 0;
-	int i;
-	u32 ch = 0;
-
-	vc_count = of_property_count_elems_of_size(dnode, "vc_list", sizeof(u32)) / 3;
-	if (vc_count >= CSI_VIRTUAL_CH_MAX) {
-		probe_err("vc_list exceed to csi ch max(%d)", vc_count);
-		return -EINVAL;
-	}
-
-	for (i = 0; i < vc_count; i++) {
-		/* parse channel info */
-		ret = of_property_read_u32_index(dnode, "vc_list", i * 3, &ch);
-		if (ret) {
-			probe_err("internal vc read fail(%d)", ret);
-			return ret;
-		}
-
-		/* parse internal vc type info */
-		ret = of_property_read_u32_index(dnode, "vc_list", i * 3 + 1, &pdata->internal_vc[ch]);
-		if (ret) {
-			probe_err("internal vc_type read fail(%d)", ret);
-			return ret;
-		}
-
-		/* parse internal vc return buffer offset info */
-		ret = of_property_read_u32_index(dnode, "vc_list", i * 3 + 2, &pdata->vc_buffer_offset[ch]);
-		if (ret) {
-			probe_err("internal buffer_offset read fail(%d)", ret);
-			return ret;
-		}
-
-		probe_info("internal vc(%d), type(%d), offset(%d)\n", ch, pdata->internal_vc[ch],
-			pdata->vc_buffer_offset[ch]);
-	}
-
-	return ret;
-}
-
-/* Deprecated. Use  fimc_is_module_parse_dt */
-int fimc_is_sensor_module_parse_dt(struct platform_device *pdev,
-	fimc_is_moudle_dt_callback module_callback)
-{
-	int ret = 0;
-	struct exynos_platform_fimc_is_module *pdata;
-	struct device_node *dnode;
-	struct device_node *af_np;
-	struct device_node *flash_np;
-	struct device_node *preprocessor_np;
-	struct device_node *ois_np;
-	struct device_node *aperture_np;
-	struct device_node *power_np;
-	struct device_node *internal_vc_np;
-	struct device *dev;
-
-	FIMC_BUG(!pdev);
-	FIMC_BUG(!pdev->dev.of_node);
-	FIMC_BUG(!module_callback);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
-
-	pdata = kzalloc(sizeof(struct exynos_platform_fimc_is_module), GFP_KERNEL);
-	if (!pdata) {
-		probe_err("%s: no memory for platform data", __func__);
-		return -ENOMEM;
-	}
-
-	pdata->gpio_cfg = exynos_fimc_is_module_pins_cfg;
-	pdata->gpio_dbg = exynos_fimc_is_module_pins_dbg;
-
-	ret = of_property_read_u32(dnode, "id", &pdata->id);
-	if (ret) {
-		probe_err("id read is fail(%d)", ret);
-		goto p_err;
-	}
-
-	ret = of_property_read_u32(dnode, "mclk_ch", &pdata->mclk_ch);
-	if (ret) {
-		probe_err("mclk_ch read is fail(%d)", ret);
-		goto p_err;
-	}
-
-	ret = of_property_read_u32(dnode, "sensor_i2c_ch", &pdata->sensor_i2c_ch);
-	if (ret) {
-		probe_err("i2c_ch read is fail(%d)", ret);
-		goto p_err;
-	}
-
-	ret = of_property_read_u32(dnode, "sensor_i2c_addr", &pdata->sensor_i2c_addr);
-	if (ret) {
-		probe_err("i2c_addr read is fail(%d)", ret);
-		goto p_err;
-	}
-
-	ret = of_property_read_u32(dnode, "position", &pdata->position);
-	if (ret) {
-		probe_err("id read is fail(%d)", ret);
-		goto p_err;
-	}
-
-	af_np = of_find_node_by_name(dnode, "af");
-	if (!af_np) {
-		pdata->af_product_name = ACTUATOR_NAME_NOTHING;
-	} else {
-		parse_af_data(pdata, af_np);
-	}
-
-	flash_np = of_find_node_by_name(dnode, "flash");
-	if (!flash_np) {
-		pdata->flash_product_name = FLADRV_NAME_NOTHING;
-	} else {
-		parse_flash_data(pdata, flash_np);
-	}
-
-	preprocessor_np = of_find_node_by_name(dnode, "preprocessor");
-	if (!preprocessor_np) {
-		pdata->preprocessor_product_name = PREPROCESSOR_NAME_NOTHING;
-	} else {
-		parse_preprocessor_data(pdata, preprocessor_np);
-	}
-
-	ois_np = of_find_node_by_name(dnode, "ois");
-	if (!ois_np) {
-		pdata->ois_product_name = OIS_NAME_NOTHING;
-	} else {
-		parse_ois_data(pdata, ois_np);
-	}
-
-	aperture_np = of_find_node_by_name(dnode, "aperture");
-	if (!aperture_np) {
-		pdata->aperture_product_name = APERTURE_NAME_NOTHING;
-	} else {
-		parse_aperture_data(pdata, aperture_np);
-	}
-
-	pdata->power_seq_dt = of_property_read_bool(dnode, "use_power_seq");
-	if(pdata->power_seq_dt == true) {
-		power_np = of_find_node_by_name(dnode, "power_seq");
-		if (!power_np) {
-			probe_err("power sequence is not declared to DT");
-			goto p_err;
-		} else {
-			parse_power_seq_data(pdata, power_np);
-		}
-	} else {
-		ret = module_callback(pdev, pdata);
-		if (ret) {
-			probe_err("sensor dt callback is fail(%d)", ret);
-			goto p_err;
-		}
-	}
-
-	pdata->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR(pdata->pinctrl)) {
-		probe_err("devm_pinctrl_get is fail");
-		goto p_err;
-	}
-
-	ret = get_pin_lookup_state(pdata->pinctrl, pdata->pin_ctrls);
-	if (ret) {
-		probe_err("get_pin_lookup_state is fail(%d)", ret);
-		goto p_err;
-	}
-
-	internal_vc_np = of_find_node_by_name(dnode, "internal_vc");
-	if (internal_vc_np)
-		parse_internal_vc_data(pdata, internal_vc_np);
-
-	dev->platform_data = pdata;
-
-	return ret;
-
-p_err:
-	kfree(pdata);
-	return ret;
-}
-
-/* New function for module parse dt. Use this instead of fimc_is_sensor_module_parse_dt */
 int fimc_is_module_parse_dt(struct device *dev,
 	fimc_is_moudle_callback module_callback)
 {
@@ -747,9 +641,9 @@ int fimc_is_module_parse_dt(struct device *dev,
 	struct device_node *flash_np;
 	struct device_node *preprocessor_np;
 	struct device_node *ois_np;
+	struct device_node *mcu_np;
 	struct device_node *aperture_np;
 	struct device_node *power_np;
-	struct device_node *internal_vc_np;
 
 	FIMC_BUG(!dev);
 	FIMC_BUG(!dev->of_node);
@@ -789,8 +683,39 @@ int fimc_is_module_parse_dt(struct device *dev,
 
 	ret = of_property_read_u32(dnode, "position", &pdata->position);
 	if (ret) {
-		probe_err("id read is fail(%d)", ret);
+		probe_err("position read is fail(%d)", ret);
 		goto p_err;
+	}
+
+	ret = of_property_read_u32(dnode, "rom_id", &pdata->rom_id);
+	if (ret) {
+		probe_info("rom_id dt parsing skipped\n");
+		pdata->rom_id = ROM_ID_NOTHING;
+	}
+
+	ret = of_property_read_u32(dnode, "rom_type", &pdata->rom_type);
+	if (ret) {
+		probe_info("rom_type dt parsing skipped\n");
+		pdata->rom_type = ROM_TYPE_NONE;
+	}
+
+	ret = of_property_read_u32(dnode, "rom_cal_index", &pdata->rom_cal_index);
+	if (ret) {
+		probe_info("rom_cal_index dt parsing skipped\n");
+		pdata->rom_cal_index = ROM_CAL_NOTHING;
+	}
+
+	ret = of_property_read_u32(dnode, "rom_dualcal_id", &pdata->rom_dualcal_id);
+	if (ret) {
+		probe_info("rom_dualcal_id dt parsing skipped\n");
+		pdata->rom_dualcal_id = ROM_ID_NOTHING;
+	}
+
+
+	ret = of_property_read_u32(dnode, "rom_dualcal_index", &pdata->rom_dualcal_index);
+	if (ret) {
+		probe_info("rom_dualcal_index dt parsing skipped\n");
+		pdata->rom_dualcal_index = ROM_DUALCAL_NOTHING;
 	}
 
 	af_np = of_find_node_by_name(dnode, "af");
@@ -819,6 +744,13 @@ int fimc_is_module_parse_dt(struct device *dev,
 		pdata->ois_product_name = OIS_NAME_NOTHING;
 	} else {
 		parse_ois_data(pdata, ois_np);
+	}
+
+	mcu_np = of_find_node_by_name(dnode, "mcu");
+	if (!mcu_np) {
+		pdata->mcu_product_name = MCU_NAME_NOTHING;
+	} else {
+		parse_mcu_data(pdata, mcu_np);
 	}
 
 	aperture_np = of_find_node_by_name(dnode, "aperture");
@@ -856,10 +788,6 @@ int fimc_is_module_parse_dt(struct device *dev,
 		probe_err("get_pin_lookup_state is fail(%d)", ret);
 		goto p_err;
 	}
-
-	internal_vc_np = of_find_node_by_name(dnode, "internal_vc");
-	if (internal_vc_np)
-		parse_internal_vc_data(pdata, internal_vc_np);
 
 	dev->platform_data = pdata;
 

@@ -75,20 +75,6 @@ static inline void acpm_stop_log(void)
 void exynos_acpm_set_s2d_enable(int en);
 void exynos_acpm_select_s2d_blk(u32 sel);
 int exynos_acpm_s2d_update_en(void);
-#else
-static void exynos_acpm_set_s2d_enable(int en)
-{
-	return;
-}
-
-static int exynos_acpm_s2d_update_en(void)
-{
-	return 0;
-}
-static void exynos_acpm_select_s2d_blk(u32 sel)
-{
-	return;
-}
 #endif
 
 #endif

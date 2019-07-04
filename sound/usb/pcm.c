@@ -358,6 +358,15 @@ static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 
 		alts = &iface->altsetting[1];
 		goto add_sync_ep;
+	case USB_ID(0x1397, 0x0002):
+		ep = 0x81;
+		iface = usb_ifnum_to_if(dev, 1);
+
+		if (!iface || iface->num_altsetting == 0)
+			return -EINVAL;
+
+		alts = &iface->altsetting[1];
+		goto add_sync_ep;
 
 	}
 	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
@@ -861,12 +870,13 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 	iface = usb_ifnum_to_if(subs->dev, subs->cur_audiofmt->iface);
 	alts = &iface->altsetting[subs->cur_audiofmt->altset_idx];
 	ret = snd_usb_init_sample_rate(subs->stream->chip,
-				       subs->cur_audiofmt->iface,
-				       alts,
-				       subs->cur_audiofmt,
-				       subs->cur_rate);
+				subs->cur_audiofmt->iface,
+				alts,
+				subs->cur_audiofmt,
+				subs->cur_rate);
 	if (ret < 0)
 		goto unlock;
+
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 	ret = snd_usb_audio_setrate(subs->stream->chip,
 					subs->cur_audiofmt->iface,
@@ -908,7 +918,7 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 	return ret;
 }
 
-static struct snd_pcm_hardware snd_usb_hardware =
+static const struct snd_pcm_hardware snd_usb_hardware =
 {
 	.info =			SNDRV_PCM_INFO_MMAP |
 				SNDRV_PCM_INFO_MMAP_VALID |
@@ -1308,6 +1318,11 @@ static int snd_usb_pcm_close(struct snd_pcm_substream *substream, int direction)
 	struct snd_usb_substream *subs = &as->substream[direction];
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
+		reinit_completion(&usb_audio->out_conn_stop);
+	else if (direction == SNDRV_PCM_STREAM_CAPTURE)
+		reinit_completion(&usb_audio->in_conn_stop);
+
 	exynos_usb_audio_pcm(0, direction);
 #endif
 	stop_endpoints(subs, true);
@@ -1364,7 +1379,7 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
 		if (bytes % (runtime->sample_bits >> 3) != 0) {
 			int oldbytes = bytes;
 			bytes = frames * stride;
-			dev_warn(&subs->dev->dev,
+			dev_warn_ratelimited(&subs->dev->dev,
 				 "Corrected urb data len. %d->%d\n",
 							oldbytes, bytes);
 		}
@@ -1752,7 +1767,7 @@ static int snd_usb_substream_capture_trigger(struct snd_pcm_substream *substream
 	return -EINVAL;
 }
 
-static struct snd_pcm_ops snd_usb_playback_ops = {
+static const struct snd_pcm_ops snd_usb_playback_ops = {
 	.open =		snd_usb_playback_open,
 	.close =	snd_usb_playback_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1765,7 +1780,7 @@ static struct snd_pcm_ops snd_usb_playback_ops = {
 	.mmap =		snd_pcm_lib_mmap_vmalloc,
 };
 
-static struct snd_pcm_ops snd_usb_capture_ops = {
+static const struct snd_pcm_ops snd_usb_capture_ops = {
 	.open =		snd_usb_capture_open,
 	.close =	snd_usb_capture_close,
 	.ioctl =	snd_pcm_lib_ioctl,

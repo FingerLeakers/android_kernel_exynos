@@ -19,7 +19,11 @@
 /*************************************************************************/
 
 #define VENDOR		"STM"
+#if defined (CONFIG_SENSORS_SSP_LSM6DSL)
 #define CHIP_ID		"LSM6DSL"
+#elif  defined (CONFIG_SENSORS_SSP_LSM6DSO)
+#define CHIP_ID		"LSM6DSO"
+#endif
 
 #define CALIBRATION_FILE_PATH	"/efs/FactoryApp/calibration_data"
 #define CALIBRATION_DATA_AMOUNT	20

@@ -31,9 +31,23 @@
 
 #define COLOR_ID_IDS_LENGTH					20
 
-#define COLOR_ID_PREDEFINED_FILENAME_LENGTH	30
+#define COLOR_ID_PREDEFINED_FILENAME_LENGTH	65
 
 #define WRITE_ALL_DATA_NUMBER				12
+
+#define L_CUT_THRESHOLD_HIGH				3300
+#define L_CUT_THRESHOLD_LOW					2200
+
+#define L_CUT_THRESHOLD_HIGH_B1				7000
+#define L_CUT_THRESHOLD_LOW_B1				5000
+
+#define REV06A_THRESHOLD_HIGH				320
+#define REV06A_THRESHOLD_LOW				250
+
+#define B0		0
+#define B1		1
+#define B2		2
+#define BX		3
 
 ssize_t light_hiddendhole_version_show(struct device *dev, struct device_attribute *attr, char *buf);
 ssize_t light_hiddenhole_version_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size);

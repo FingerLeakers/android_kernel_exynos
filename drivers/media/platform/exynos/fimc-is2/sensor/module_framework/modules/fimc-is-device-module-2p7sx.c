@@ -38,6 +38,10 @@
 
 #include "fimc-is-device-module-base.h"
 
+/* #define S5K2P7SX_PDAF_MAXWIDTH	144 */
+/* #define S5K2P7SX_PDAF_MAXHEIGHT	864 */
+/* #define S5K2P7SX_PDAF_ELEMENT	2 */
+/* #define S5K2P7SX_PDAF_STAT_TYPE	VC_STAT_TYPE_TAIL_MSPD_GLOBAL */
 static struct fimc_is_sensor_cfg config_module_2p7sx[] = {
 	/* 4608x3456@30fps */
 	FIMC_IS_SENSOR_CFG_EXT(4608, 3456, 30, 0, 0, CSI_DATA_LANES_4, 1495,
@@ -73,6 +77,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	.s_parm = sensor_module_s_param
 };
