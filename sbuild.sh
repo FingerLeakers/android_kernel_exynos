@@ -715,7 +715,7 @@ function kpackage {
   pack_odin KERNEL ${package__dash__KERNEL__dash__full_name}.tar "boot.img recovery.img dt.img dtbo.img vbmeta.img"
   cp -f ${package__dash__KERNEL__dash__full_name}.tar $BUILD_SCRIPT_DIR/../output
 
-  popd > /dev/null  
+  popd > /dev/null
 }
 
 function distcleanbuild {
@@ -749,4 +749,59 @@ function kbi {
   ksign
   signvbmeta
   kpackage
+}
+
+function kapply {
+  
+  # Dependencies
+  #   ${clean__dash__kernel_source}: original kernel source from synced sources for a given release
+  #   ${kernel__dash__udpate__dash__repo}: global kernel repository for a given architecture (i.e. android_kernel_exynos)
+  #   ${kernel__dash__udpate__dash__init__dash__tag}: initial tag for global kernel repository source sync for this product
+  #   ${verbose__dash__flag}: enable/disable verbosity during rsync
+
+  # List of branches to apply passed through function parameters
+  UPDATE_DEV_BRANCH_LIST=($@)
+  
+  pushd . > /dev/null
+
+  if [ "${verbose__dash__flag}" = " -v" ]; then
+    rsync -av --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+  else
+    rsync -a --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+  fi
+
+  rm -rf ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
+  mv ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820 ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
+  cd ${kernel__dash__udpate__dash__repo}
+  git checkout master
+  git pull --all || { exit 2; }
+  if [ "${verbose__dash__flag}" = " -v" ]; then
+    rsync -av --delete ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+  else
+    rsync -a --delete ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+  fi
+  cd ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820
+  git checkout ${kernel__dash__udpate__dash__init__dash__tag}
+  git checkout -b build
+  if [ "${verbose__dash__flag}" = " -v" ]; then
+    rsync -av --delete ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { exit 2; }
+  else
+    rsync -a --delete ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { exit 2; }
+  fi
+  git add -A
+  git commit -m 'upstream sync' --allow-empty || { exit 2; }
+  for UPDATE_DEV_BRANCH in '${UPDATE_DEV_BRANCH_LIST}'; do
+    echo 'Merging ${UPDATE_DEV_BRANCH}...'
+    if [ "${UPDATE_DEV_BRANCH}" != "master" ]; then
+        git checkout -b ${UPDATE_DEV_BRANCH} origin/${UPDATE_DEV_BRANCH}
+        git checkout build
+      fi
+    git merge ${UPDATE_DEV_BRANCH} --no-commit || { exit 2; }
+    git commit -m "Merged branch ${UPDATE_DEV_BRANCH} to build branch" --allow-empty || { exit 2; }
+  done
+  rm -rf .git
+  rm -rf ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
+
+  popd > /dev/null
+
 }
