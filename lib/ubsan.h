@@ -1,9 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LIB_UBSAN_H
 #define _LIB_UBSAN_H
-
-#if defined(CONFIG_SEC_DEBUG_UBSAN)
-#include  <linux/sec_debug_ksan.h>
-#endif
 
 enum {
 	type_kind_int = 0,
@@ -35,6 +32,20 @@ struct overflow_data {
 
 struct type_mismatch_data {
 	struct source_location location;
+	struct type_descriptor *type;
+	unsigned long alignment;
+	unsigned char type_check_kind;
+};
+
+struct type_mismatch_data_v1 {
+	struct source_location location;
+	struct type_descriptor *type;
+	unsigned char log_alignment;
+	unsigned char type_check_kind;
+};
+
+struct type_mismatch_data_common {
+	struct source_location *location;
 	struct type_descriptor *type;
 	unsigned long alignment;
 	unsigned char type_check_kind;
@@ -84,4 +95,5 @@ typedef unsigned __int128 u_max;
 typedef s64 s_max;
 typedef u64 u_max;
 #endif
+
 #endif

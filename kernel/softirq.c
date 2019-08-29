@@ -26,10 +26,9 @@
 #include <linux/smpboot.h>
 #include <linux/tick.h>
 #include <linux/irq.h>
-#include <linux/exynos-ss.h>
-#ifdef CONFIG_SEC_DUMP_SUMMARY
-#include <linux/sec_debug.h>
-#endif
+#include <linux/debug-snapshot.h>
+#include <linux/sched/clock.h>
+#include <linux/nmi.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
@@ -83,12 +82,16 @@ static void wakeup_softirqd(void)
 
 /*
  * If ksoftirqd is scheduled, we do not want to process pending softirqs
- * right now. Let ksoftirqd handle this at its own rate, to get fairness.
+ * right now. Let ksoftirqd handle this at its own rate, to get fairness,
+ * unless we're doing some of the synchronous softirqs.
  */
-static bool ksoftirqd_running(void)
+#define SOFTIRQ_NOW_MASK ((1 << HI_SOFTIRQ) | (1 << TASKLET_SOFTIRQ))
+static bool ksoftirqd_running(unsigned long pending)
 {
 	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
 
+	if (pending & SOFTIRQ_NOW_MASK)
+		return false;
 	return tsk && (tsk->state == TASK_RUNNING);
 }
 
@@ -246,6 +249,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
 	unsigned long end = jiffies + MAX_SOFTIRQ_TIME;
 	unsigned long old_flags = current->flags;
+	unsigned long long start_time;
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
 	bool in_hardirq;
@@ -285,9 +289,12 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
-		exynos_ss_irq(ESS_FLAG_SOFTIRQ, h->action, irqs_disabled(), ESS_FLAG_IN);
+		dbg_snapshot_irq_var(start_time);
+		dbg_snapshot_irq(DSS_FLAG_SOFTIRQ, h->action, NULL, 0, DSS_FLAG_IN);
+		sl_softirq_entry(softirq_to_name[vec_nr], h->action);
 		h->action(h);
-		exynos_ss_irq(ESS_FLAG_SOFTIRQ, h->action, irqs_disabled(), ESS_FLAG_OUT);
+		sl_softirq_exit();
+		dbg_snapshot_irq(DSS_FLAG_SOFTIRQ, h->action, NULL, start_time, DSS_FLAG_OUT);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
@@ -315,7 +322,7 @@ restart:
 	account_irq_exit_time(current);
 	__local_bh_enable(SOFTIRQ_OFFSET);
 	WARN_ON_ONCE(in_interrupt());
-	tsk_restore_flags(current, old_flags, PF_MEMALLOC);
+	current_restore_flags(old_flags, PF_MEMALLOC);
 }
 
 asmlinkage __visible void do_softirq(void)
@@ -330,7 +337,7 @@ asmlinkage __visible void do_softirq(void)
 
 	pending = local_softirq_pending();
 
-	if (pending && !ksoftirqd_running())
+	if (pending && !ksoftirqd_running(pending))
 		do_softirq_own_stack();
 
 	local_irq_restore(flags);
@@ -357,7 +364,7 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (ksoftirqd_running())
+	if (ksoftirqd_running(local_softirq_pending()))
 		return;
 
 	if (!force_irqthreads) {
@@ -388,7 +395,7 @@ static inline void tick_irq_exit(void)
 
 	/* Make sure that timer wheel updates are propagated */
 	if ((idle_cpu(cpu) && !need_resched()) || tick_nohz_full_cpu(cpu)) {
-		if (!in_interrupt())
+		if (!in_irq())
 			tick_nohz_irq_exit();
 	}
 #endif
@@ -492,19 +499,10 @@ void __tasklet_hi_schedule(struct tasklet_struct *t)
 }
 EXPORT_SYMBOL(__tasklet_hi_schedule);
 
-void __tasklet_hi_schedule_first(struct tasklet_struct *t)
-{
-	BUG_ON(!irqs_disabled());
-
-	t->next = __this_cpu_read(tasklet_hi_vec.head);
-	__this_cpu_write(tasklet_hi_vec.head, t);
-	__raise_softirq_irqoff(HI_SOFTIRQ);
-}
-EXPORT_SYMBOL(__tasklet_hi_schedule_first);
-
 static __latent_entropy void tasklet_action(struct softirq_action *a)
 {
 	struct tasklet_struct *list;
+	unsigned long long start_time;
 
 	local_irq_disable();
 	list = __this_cpu_read(tasklet_vec.head);
@@ -522,17 +520,14 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
-#ifdef CONFIG_SEC_DUMP_SUMMARY
-				sec_debug_irq_sched_log(-1, t->func, 3);
-#endif
-				exynos_ss_irq(ESS_FLAG_SOFTIRQ_TASKLET,
-						t->func, irqs_disabled(), ESS_FLAG_IN);
+				dbg_snapshot_irq_var(start_time);
+				dbg_snapshot_irq(DSS_FLAG_SOFTIRQ_TASKLET,
+						t->func, NULL, 0, DSS_FLAG_IN);
+				sl_softirq_entry(softirq_to_name[TASKLET_SOFTIRQ], t->func);
 				t->func(t->data);
-				exynos_ss_irq(ESS_FLAG_SOFTIRQ_TASKLET,
-						t->func, irqs_disabled(), ESS_FLAG_OUT);
-#ifdef CONFIG_SEC_DUMP_SUMMARY
-				sec_debug_irq_sched_log(-1, t->func, 4);
-#endif
+				sl_softirq_exit();
+				dbg_snapshot_irq(DSS_FLAG_SOFTIRQ_TASKLET,
+						t->func, NULL, start_time, DSS_FLAG_OUT);
 				tasklet_unlock(t);
 				continue;
 			}
@@ -551,6 +546,7 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 {
 	struct tasklet_struct *list;
+	unsigned long long start_time;
 
 	local_irq_disable();
 	list = __this_cpu_read(tasklet_hi_vec.head);
@@ -568,11 +564,14 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
-				exynos_ss_irq(ESS_FLAG_SOFTIRQ_HI_TASKLET,
-						t->func, irqs_disabled(), ESS_FLAG_IN);
+				dbg_snapshot_irq_var(start_time);
+				dbg_snapshot_irq(DSS_FLAG_SOFTIRQ_HI_TASKLET,
+						t->func, NULL, 0, DSS_FLAG_IN);
+				sl_softirq_entry(softirq_to_name[HI_SOFTIRQ], t->func);
 				t->func(t->data);
-				exynos_ss_irq(ESS_FLAG_SOFTIRQ_HI_TASKLET,
-						t->func, irqs_disabled(), ESS_FLAG_OUT);
+				sl_softirq_exit();
+				dbg_snapshot_irq(DSS_FLAG_SOFTIRQ_HI_TASKLET,
+						t->func, NULL, start_time, DSS_FLAG_OUT);
 				tasklet_unlock(t);
 				continue;
 			}

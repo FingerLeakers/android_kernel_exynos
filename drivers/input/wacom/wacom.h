@@ -2,7 +2,6 @@
 #define _LINUX_WACOM_H_
 
 #include <linux/wakelock.h>
-#include <linux/sec_sysfs.h>
 
 #include "wacom_i2c.h"
 
@@ -54,6 +53,9 @@
 /* pen ble charging */
 #define COM_PEN_CHECK_OUT		0xE8
 #define COM_PEN_CHECK_IN		0xE9
+
+#define COM_RESET_DSP		0xEF
+
 enum epen_ble_charge_mode {
 	EPEN_BLE_C_DIABLE	= 0,
 	EPEN_BLE_C_ENABLE	= 1,
@@ -61,7 +63,9 @@ enum epen_ble_charge_mode {
 	EPEN_BLE_C_FAST		= 3,
 	EPEN_BLE_C_SLOW1	= 4,
 	EPEN_BLE_C_SLOW2	= 5,
-	EPEN_BLE_C_MAX		= 6,
+	EPEN_BLE_C_NONE		= 6,
+	EPEN_BLE_C_DSPX		= 7,
+	EPEN_BLE_C_MAX		= 8,
 };
 
 #define COM_FLASH			0xFF
@@ -134,6 +138,8 @@ enum epen_virtual_event_mode {
 #define EPEN_SETMODE_AOP_OPTION_AOD		(0x1<<1)
 #define EPEN_SETMODE_AOP_OPTION_SCREENOFFMEMO	(0x1<<2)
 #define EPEN_SETMODE_AOP_OPTION_AOT		(0x1<<3)
+#define EPEN_SETMODE_AOP_OPTION_AOD_LCD_ON	(EPEN_SETMODE_AOP_OPTION_AOD | EPEN_SETMODE_AOP_OPTION_AOD_LCD_STATUS)
+#define EPEN_SETMODE_AOP_OPTION_AOD_LCD_OFF	EPEN_SETMODE_AOP_OPTION_AOD
 #define EPEN_SETMODE_AOP			(EPEN_SETMODE_AOP_OPTION_AOD | EPEN_SETMODE_AOP_OPTION_SCREENOFFMEMO | \
 						 EPEN_SETMODE_AOP_OPTION_AOT)
 
@@ -141,8 +147,6 @@ enum epen_virtual_event_mode {
 #define EPEN_SURVEY_MODE_NONE		0x0
 #define EPEN_SURVEY_MODE_GARAGE_ONLY	EPEN_EVENT_GARAGE
 #define EPEN_SURVEY_MODE_GARAGE_AOP	EPEN_EVENT_AOP
-#define EPEN_SURVEY_MODE_AOD_LCD_ON	(EPEN_SETMODE_AOP_OPTION_AOD | EPEN_SETMODE_AOP_OPTION_AOD_LCD_STATUS)
-#define EPEN_SURVEY_MODE_AOD_LCD_OFF	EPEN_SETMODE_AOP_OPTION_AOD
 
 
 /* DeX mode : param of dex_enable command */
@@ -179,7 +183,8 @@ enum epen_virtual_event_mode {
 
 #define HSYNC_COUNTER_UMAGIC		0x96
 #define HSYNC_COUNTER_LMAGIC		0xCA
-
+#define FULL_SCAN_UMAGIC		0x3A
+#define FULL_SCAN_LMAGIC		0x8D
 #define TABLE_SWAP_DATA			0x05
 
 /*--------------------------------------------------
@@ -277,6 +282,7 @@ struct wacom_i2c {
 	int pen_pressed;
 	int side_pressed;
 	bool fullscan_mode;
+	bool localscan_mode;
 	int tsp_noise_mode;
 	int wacom_noise_state;
 	int tool;
@@ -286,12 +292,15 @@ struct wacom_i2c {
 	struct wacom_features *wac_feature;
 	struct wacom_g5_platform_data *pdata;
 	struct delayed_work resume_work;
-	struct delayed_work fullscan_check_work;
+	struct delayed_work gxscan_work;
+	struct delayed_work fullscan_work;
 	bool connection_check;
 	int  fail_channel;
 	int  min_adc_val;
+	int  error_cal;
+	int  min_cal_val;
 	bool battery_saving_mode;
-	bool screen_on;
+	volatile bool screen_on;
 	bool power_enable;
 	struct completion resume_done;
 	struct wake_lock wakelock;
@@ -306,6 +315,7 @@ struct wacom_i2c {
 	int wcharging_mode;
 	u32 i2c_fail_count;
 	u32 abnormal_reset_count;
+	u32 pen_out_count;
 #ifdef LCD_FREQ_SYNC
 	int lcd_freq;
 	bool lcd_freq_wait;
@@ -331,6 +341,9 @@ struct wacom_i2c {
 	int virtual_tracking;
 	u8 dex_mode;
 	u32 mcount;
+	bool is_open_test;
+	bool samplerate_state;
+	u8 ble_mode;
 #ifdef CONFIG_SEC_FACTORY
 	volatile bool fac_garage_mode;
 	u32 garage_gain0;

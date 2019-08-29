@@ -12,6 +12,8 @@
 #ifndef FIMC_IS_HW_H
 #define FIMC_IS_HW_H
 
+#include <linux/phy/phy.h>
+
 #include "fimc-is-type.h"
 #include "fimc-is-hw-chain.h"
 #include "fimc-is-framemgr.h"
@@ -136,16 +138,17 @@ enum csis_hw_err_id {
 	CSIS_ERR_LOST_FE_VC = 5,
 	CSIS_ERR_LOST_FS_VC = 6,
 	CSIS_ERR_SOT_VC = 7,
-	CSIS_ERR_OTF_OVERLAP = 8,
-	CSIS_ERR_DMA_ERR_DMAFIFO_FULL = 9,
-	CSIS_ERR_DMA_ERR_TRXFIFO_FULL = 10,
-	CSIS_ERR_DMA_ERR_BRESP_ERR = 11,
+	CSIS_ERR_DMA_OTF_OVERLAP_VC = 8,
+	CSIS_ERR_DMA_DMAFIFO_FULL = 9,
+	CSIS_ERR_DMA_TRXFIFO_FULL = 10,
+	CSIS_ERR_DMA_BRESP_VC = 11,
 	CSIS_ERR_INVALID_CODE_HS = 12,
 	CSIS_ERR_SOT_SYNC_HS = 13,
 	CSIS_ERR_MAL_CRC = 14,
 	CSIS_ERR_DMA_ABORT_DONE = 15,
 	CSIS_ERR_VRESOL_MISMATCH = 16,
 	CSIS_ERR_HRESOL_MISMATCH = 17,
+	CSIS_ERR_DMA_FRAME_DROP_VC = 18,
 	CSIS_ERR_END
 };
 
@@ -158,6 +161,7 @@ enum csis_hw_control_id {
 	CSIS_CTRL_BUS_WIDTH,
 	CSIS_CTRL_DMA_ABORT_REQ,
 	CSIS_CTRL_ENABLE_LINE_IRQ,
+	CSIS_CTRL_PIXEL_ALIGN_MODE,
 };
 
 /*
@@ -262,9 +266,11 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct fimc_is_frame
 int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct fimc_is_image *image, u32 hwformat);
 #endif
 int csi_hw_dma_common_reset(void);
+int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, u32 dma_ch);
 int csi_hw_s_dma_common(u32 __iomem *base_reg);
 #endif
-int csi_hw_s_dma_common_pattern(u32 __iomem *base_reg, u32 width, u32 height, u32 fps, u32 clk);
+int csi_hw_s_dma_common_pattern_enable(u32 __iomem *base_reg, u32 width, u32 height, u32 fps, u32 clk);
+void csi_hw_s_dma_common_pattern_disable(u32 __iomem *base_reg);
 
 int csi_hw_s_dma_irq_msk(u32 __iomem *base_reg, bool on);
 int csi_hw_g_dma_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear);
@@ -274,7 +280,8 @@ int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat);
 int csi_hw_s_phy_default_value(u32 __iomem *base_reg, u32 instance);
 int csi_hw_s_phy_config(u32 __iomem *base_reg,
 	u32 lanes, u32 mipi_speed, u32 settle, u32 instance);
-
+int csi_hw_s_phy_set(struct phy *phy, u32 lanes, u32 mipi_speed,
+		u32 settle, u32 instance);
 /*
  * ************************************
  * ISCHAIN AND CAMIF CONFIGURE H/W APIS
@@ -309,8 +316,14 @@ void fimc_is_enter_lib_isr(void);
 void fimc_is_exit_lib_isr(void);
 int fimc_is_hw_group_cfg(void *group_data);
 int fimc_is_hw_group_open(void *group_data);
+void fimc_is_hw_camif_init(void);
 int fimc_is_hw_camif_cfg(void *sensor_data);
 int fimc_is_hw_camif_open(void *sensor_data);
+#ifdef USE_CAMIF_FIX_UP
+int fimc_is_hw_camif_fix_up(struct fimc_is_device_sensor *sensor);
+#else
+#define fimc_is_hw_camif_fix_up(a) ({ int __retval = 0; do {} while(0); __retval; })
+#endif
 void fimc_is_hw_ischain_qe_cfg(void);
 int fimc_is_hw_ischain_cfg(void *ischain_data);
 int fimc_is_hw_get_address(void *itfc_data, void *pdev_data, int hw_id);
@@ -325,6 +338,11 @@ int fimc_is_hw_shared_meta_update(struct fimc_is_device_ischain *device,
 		struct fimc_is_group *group, struct fimc_is_frame *frame, int shot_done_flag);
 void __iomem *fimc_is_hw_get_sysreg(ulong core_regs);
 u32 fimc_is_hw_find_settle(u32 mipi_speed);
+#ifdef ENABLE_FULLCHAIN_OVERFLOW_RECOVERY
+int fimc_is_hw_overflow_recovery(void);
+#endif
+unsigned int get_dma(struct fimc_is_device_sensor *device, u32 *dma_ch);
+
 /*
  * *****************
  * FIMC-BNS H/W APIS

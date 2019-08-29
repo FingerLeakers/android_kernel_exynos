@@ -54,9 +54,10 @@ struct wvegas {
 	u32 queue_delay; /* queue delay*/
 };
 
+
 static inline u64 mptcp_wvegas_scale(u32 val, int scale)
 {
-	return (u64)val << scale;
+	return (u64) val << scale;
 }
 
 static void wvegas_enable(const struct sock *sk)
@@ -234,10 +235,12 @@ static void mptcp_wvegas_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		tcp_slow_start(tp, acked);
 }
 
+
 static struct tcp_congestion_ops mptcp_wvegas __read_mostly = {
 	.init		= mptcp_wvegas_init,
 	.ssthresh	= tcp_reno_ssthresh,
 	.cong_avoid	= mptcp_wvegas_cong_avoid,
+	.undo_cwnd	= tcp_reno_undo_cwnd,
 	.pkts_acked	= mptcp_wvegas_pkts_acked,
 	.set_state	= mptcp_wvegas_state,
 	.cwnd_event	= mptcp_wvegas_cwnd_event,

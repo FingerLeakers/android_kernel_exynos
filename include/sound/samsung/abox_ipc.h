@@ -9,8 +9,8 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef __SND_SOC_ABOX_IPC_H
-#define __SND_SOC_ABOX_IPC_H
+#ifndef __ABOX_IPC_H
+#define __ABOX_IPC_H
 
 /******** IPC signal ID *********************/
 enum SIGNAL_ID {
@@ -161,7 +161,7 @@ enum ABOX_ERAP_TYPE {
 };
 
 enum ABOX_USB_MSG {
-	IPC_USB_PCM_OPEN,
+	IPC_USB_PCM_OPEN,	/* USB -> ABOX */
 	IPC_USB_DESC,
 	IPC_USB_XHCI,
 	IPC_USB_L2,
@@ -170,7 +170,8 @@ enum ABOX_USB_MSG {
 	IPC_USB_SET_INTF,
 	IPC_USB_SAMPLE_RATE,
 	IPC_USB_PCM_BUF,
-	IPC_USB_TASK = 0x80,
+	IPC_USB_TASK = 0x80,	/* ABOX -> USB */
+	IPC_USB_STOP_DONE,
 };
 
 struct ERAP_ONOFF_PARAM {
@@ -214,24 +215,34 @@ struct IPC_ERAP_MSG {
 
 /******** ABOX_CONFIG IPC ***********************/
 enum ABOX_CONFIGMSG {
-	SET_MIXER_SAMPLE_RATE = 1,
-	SET_OUT1_SAMPLE_RATE,
-	SET_OUT2_SAMPLE_RATE,
-	SET_RECP_SAMPLE_RATE,
-	SET_INMUX0_SAMPLE_RATE,
-	SET_INMUX1_SAMPLE_RATE,
-	SET_INMUX2_SAMPLE_RATE,
-	SET_INMUX3_SAMPLE_RATE,
-	SET_INMUX4_SAMPLE_RATE,
-	SET_MIXER_FORMAT = 0x10,
-	SET_OUT1_FORMAT,
-	SET_OUT2_FORMAT,
-	SET_RECP_FORMAT,
-	SET_INMUX0_FORMAT,
-	SET_INMUX1_FORMAT,
-	SET_INMUX2_FORMAT,
-	SET_INMUX3_FORMAT,
-	SET_INMUX4_FORMAT,
+	SET_SIFS0_RATE = 1,
+	SET_SIFS1_RATE,
+	SET_SIFS2_RATE,
+	SET_PIFS1_RATE,
+	SET_SIFM0_RATE,
+	SET_SIFM1_RATE,
+	SET_SIFM2_RATE,
+	SET_SIFM3_RATE,
+	SET_SIFM4_RATE,
+	SET_SIFM5_RATE,
+	SET_SIFM6_RATE,
+	SET_SIFS3_RATE,
+	SET_SIFS4_RATE,
+	SET_PIFS0_RATE,
+	SET_SIFS0_FORMAT = 0x10,
+	SET_SIFS1_FORMAT,
+	SET_SIFS2_FORMAT,
+	SET_PIFS1_FORMAT,
+	SET_SIFM0_FORMAT,
+	SET_SIFM1_FORMAT,
+	SET_SIFM2_FORMAT,
+	SET_SIFM3_FORMAT,
+	SET_SIFM4_FORMAT,
+	SET_SIFM5_FORMAT,
+	SET_SIFM6_FORMAT,
+	SET_SIFS3_FORMAT,
+	SET_SIFS4_FORMAT,
+	SET_PIFS0_FORMAT,
 };
 
 struct IPC_ABOX_CONFIG_MSG {
@@ -270,15 +281,13 @@ enum ABOX_SYSTEM_MSG {
 	ABOX_REPORT_DUMP = 0x20,
 	ABOX_REQUEST_DUMP,
 	ABOX_FLUSH_DUMP,
-	ABOX_REPORT_SRAM = 0x40,
-	ABOX_START_CLAIM_SRAM,
-	ABOX_END_CLAIM_SRAM,
-	ABOX_START_RECLAIM_SRAM,
-	ABOX_END_RECLAIM_SRAM,
-	ABOX_REPORT_DRAM,
+	ABOX_TRANSFER_DUMP,
 	ABOX_SET_MODE = 0x50,
 	ABOX_SET_TYPE = 0x60,
 	ABOX_START_VSS = 0xA0,
+	ABOX_STOP_VSS,
+	ABOX_RESET_VSS,
+	ABOX_WATCHDOG_VSS,
 	ABOX_REPORT_COMPONENT = 0xC0,
 	ABOX_UPDATE_COMPONENT_CONTROL,
 	ABOX_REQUEST_COMPONENT_CONTROL,
@@ -294,6 +303,7 @@ struct IPC_SYSTEM_MSG {
 	int param3;
 	union {
 		int param_s32[0];
+		unsigned long long param_u64[0];
 		char param_bundle[740];
 	} bundle;
 };
@@ -305,11 +315,24 @@ struct ABOX_LOG_BUFFER {
 	char buffer[0];
 };
 
+enum ABOX_CONTROL_TYPE {
+	ABOX_CONTROL_INT,
+	ABOX_CONTROL_ENUM,
+	ABOX_CONTROL_BYTE,
+};
+
 struct ABOX_COMPONENT_CONTROL {
+	enum ABOX_CONTROL_TYPE type;
 	unsigned int id;
 	char name[16];
 	unsigned int count;
 	int min, max;
+	unsigned int is_volatile:1;
+	union {
+		unsigned int aaddr;
+		unsigned long long kaddr;
+		const char *addr;
+	} texts; /* list of enumeration text delimited by ',' */
 };
 
 struct ABOX_COMPONENT_DESCRIPTIOR {
@@ -352,4 +375,14 @@ typedef struct {
 	} msg;
 } ABOX_IPC_MSG;
 
-#endif /* __SND_SOC_ABOX_IPC_H */
+struct abox2host_hndshk_tag {
+	unsigned int suspend_wait_flag; /* boot init done */
+	unsigned int hndShkFlag1;
+	unsigned int hndShkFlag2;
+	unsigned int hndShkFlag3;
+	unsigned int hndShkFlag4;
+	unsigned int hndShkFlag5;
+	unsigned int hndShkFlag6;
+	unsigned int hndShkFlag7;
+};
+#endif /* __ABOX_IPC_H */

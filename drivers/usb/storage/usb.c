@@ -52,7 +52,6 @@
 
 #include <linux/sched.h>
 #include <linux/errno.h>
-#include <linux/freezer.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/kthread.h>
@@ -241,10 +240,75 @@ EXPORT_SYMBOL_GPL(usb_stor_reset_resume);
 
 int usb_stor_pre_reset(struct usb_interface *iface)
 {
-	struct us_data *us = usb_get_intfdata(iface);
+	struct us_data *us;
+	unsigned long jiffies_expire = jiffies + HZ;
+	int mu_lock = 1;
+
+	pr_info("%s +\n", __func__);
+
+	us = usb_get_intfdata(iface);
 
 	/* Make sure no command runs during the reset */
-	mutex_lock(&us->dev_mutex);
+	while (!mutex_trylock(&us->dev_mutex)) {
+
+		/* If we can't acquire the lock after waiting one second,
+		 * we're probably deadlocked */
+		if (time_after(jiffies, jiffies_expire))
+			goto busy;
+
+		msleep(15);
+		if (us->pusb_dev->state == USB_STATE_NOTATTACHED) {
+			mu_lock = 0;
+			goto skip;
+		}
+		if (us->pusb_dev->state == USB_STATE_SUSPENDED) {
+			mu_lock = 0;
+			goto skip;
+		}
+		if (iface->condition == USB_INTERFACE_UNBINDING ||
+				iface->condition == USB_INTERFACE_UNBOUND) {
+			mu_lock = 0;
+			goto skip;
+		}
+	}
+	
+	goto skip;
+	
+busy:
+	pr_info("%s busy\n", __func__);
+	set_bit(US_FLIDX_ABORTING, &us->dflags);
+	usb_stor_stop_transport(us);
+	/* wait 6 seconds. usb unlink may be spend 5 sec. */
+	jiffies_expire = jiffies + 6*HZ;
+	pr_info("%s try lock again\n", __func__);
+	while (!mutex_trylock(&us->dev_mutex)) {
+
+		/* If we can't acquire the lock after waiting one second,
+		 * we're probably deadlocked */
+		if (time_after(jiffies, jiffies_expire)) {
+			mu_lock = 0;
+			goto skip;
+		}
+
+		msleep(15);
+		if (us->pusb_dev->state == USB_STATE_NOTATTACHED) {
+			mu_lock = 0;
+			goto skip;
+		}
+		if (us->pusb_dev->state == USB_STATE_SUSPENDED) {
+			mu_lock = 0;
+			goto skip;
+		}
+		if (iface->condition == USB_INTERFACE_UNBINDING ||
+				iface->condition == USB_INTERFACE_UNBOUND) {
+			mu_lock = 0;
+			goto skip;
+		}
+	}
+skip:
+	set_bit(US_FLIDX_RESETTING, &us->dflags);
+	us->is_mu_lock = mu_lock;
+	pr_info("%s - mu_lock=%d\n", __func__, us->is_mu_lock);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usb_stor_pre_reset);
@@ -253,6 +317,7 @@ int usb_stor_post_reset(struct usb_interface *iface)
 {
 	struct us_data *us = usb_get_intfdata(iface);
 
+	pr_info("%s +\n", __func__);
 	/* Report the reset to the SCSI core */
 	usb_stor_report_bus_reset(us);
 
@@ -261,7 +326,14 @@ int usb_stor_post_reset(struct usb_interface *iface)
 	 * the device
 	 */
 
-	mutex_unlock(&us->dev_mutex);
+	clear_bit(US_FLIDX_RESETTING, &us->dflags);
+	clear_bit(US_FLIDX_ABORTING, &us->dflags);
+	if (us->is_mu_lock) {
+		mutex_unlock(&us->dev_mutex);
+		us->is_mu_lock = 0;
+		pr_info("%s mutex_unlock\n", __func__);
+	}
+	pr_info("%s -\n", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usb_stor_post_reset);
@@ -312,10 +384,11 @@ void fill_inquiry_response(struct us_data *us, unsigned char *data,
 }
 EXPORT_SYMBOL_GPL(fill_inquiry_response);
 
-static int usb_stor_control_thread(void *__us)
+static int usb_stor_control_thread(void * __us)
 {
 	struct us_data *us = (struct us_data *)__us;
 	struct Scsi_Host *host = us_to_host(us);
+	struct scsi_cmnd *srb;
 
 	for (;;) {
 		usb_stor_dbg(us, "*** thread sleeping\n");
@@ -331,6 +404,7 @@ static int usb_stor_control_thread(void *__us)
 		scsi_lock(host);
 
 		/* When we are called with no command pending, we're done */
+		srb = us->srb;
 		if (us->srb == NULL) {
 			scsi_unlock(host);
 			mutex_unlock(&us->dev_mutex);
@@ -399,14 +473,11 @@ static int usb_stor_control_thread(void *__us)
 		/* lock access to the state */
 		scsi_lock(host);
 
-		/* indicate that the command is done */
-		if (us->srb->result != DID_ABORT << 16) {
-			usb_stor_dbg(us, "scsi cmd done, result=0x%x\n",
-				     us->srb->result);
-			us->srb->scsi_done(us->srb);
-		} else {
+		/* was the command aborted? */
+		if (us->srb->result == DID_ABORT << 16) {
 SkipForAbort:
 			usb_stor_dbg(us, "scsi command aborted\n");
+			srb = NULL;	/* Don't call srb->scsi_done() */
 		}
 
 		/*
@@ -422,6 +493,10 @@ SkipForAbort:
 			/* Allow USB transfers to resume */
 			clear_bit(US_FLIDX_ABORTING, &us->dflags);
 			clear_bit(US_FLIDX_TIMED_OUT, &us->dflags);
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+			printk(KERN_ERR USB_STORAGE "%s clear TIMED_OUT\n",
+				__func__);
+#endif
 		}
 
 		/* finished working on this command */
@@ -430,6 +505,13 @@ SkipForAbort:
 
 		/* unlock the device pointers */
 		mutex_unlock(&us->dev_mutex);
+
+		/* now that the locks are released, notify the SCSI core */
+		if (srb) {
+			usb_stor_dbg(us, "scsi cmd done, result=0x%x\n",
+					srb->result);
+			srb->scsi_done(srb);
+		}
 	} /* for (;;) */
 
 	/* Wait until we are told to stop */
@@ -738,13 +820,11 @@ static void get_protocol(struct us_data *us)
 /* Get the pipe settings */
 static int get_pipes(struct us_data *us)
 {
-	struct usb_host_interface *altsetting =
-		us->pusb_intf->cur_altsetting;
-	int i;
-	struct usb_endpoint_descriptor *ep;
-	struct usb_endpoint_descriptor *ep_in = NULL;
-	struct usb_endpoint_descriptor *ep_out = NULL;
-	struct usb_endpoint_descriptor *ep_int = NULL;
+	struct usb_host_interface *alt = us->pusb_intf->cur_altsetting;
+	struct usb_endpoint_descriptor *ep_in;
+	struct usb_endpoint_descriptor *ep_out;
+	struct usb_endpoint_descriptor *ep_int;
+	int res;
 
 	/*
 	 * Find the first endpoint of each type we need.
@@ -752,28 +832,16 @@ static int get_pipes(struct us_data *us)
 	 * An optional interrupt-in is OK (necessary for CBI protocol).
 	 * We will ignore any others.
 	 */
-	for (i = 0; i < altsetting->desc.bNumEndpoints; i++) {
-		ep = &altsetting->endpoint[i].desc;
-
-		if (usb_endpoint_xfer_bulk(ep)) {
-			if (usb_endpoint_dir_in(ep)) {
-				if (!ep_in)
-					ep_in = ep;
-			} else {
-				if (!ep_out)
-					ep_out = ep;
-			}
-		}
-
-		else if (usb_endpoint_is_int_in(ep)) {
-			if (!ep_int)
-				ep_int = ep;
-		}
+	res = usb_find_common_endpoints(alt, &ep_in, &ep_out, NULL, NULL);
+	if (res) {
+		usb_stor_dbg(us, "bulk endpoints not found\n");
+		return res;
 	}
 
-	if (!ep_in || !ep_out || (us->protocol == USB_PR_CBI && !ep_int)) {
-		usb_stor_dbg(us, "Endpoint sanity check failed! Rejecting dev.\n");
-		return -EIO;
+	res = usb_find_int_in_endpoint(alt, &ep_int);
+	if (res && us->protocol == USB_PR_CBI) {
+		usb_stor_dbg(us, "interrupt endpoint not found\n");
+		return res;
 	}
 
 	/* Calculate and store the pipe values */

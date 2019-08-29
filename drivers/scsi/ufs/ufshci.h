@@ -48,6 +48,7 @@ enum {
 	REG_UFS_VERSION				= 0x08,
 	REG_CONTROLLER_DEV_ID			= 0x10,
 	REG_CONTROLLER_PROD_ID			= 0x14,
+	REG_AUTO_HIBERNATE_IDLE_TIMER		= 0x18,
 	REG_INTERRUPT_STATUS			= 0x20,
 	REG_INTERRUPT_ENABLE			= 0x24,
 	REG_CONTROLLER_STATUS			= 0x30,
@@ -73,7 +74,13 @@ enum {
 	REG_UIC_COMMAND_ARG_1			= 0x94,
 	REG_UIC_COMMAND_ARG_2			= 0x98,
 	REG_UIC_COMMAND_ARG_3			= 0x9C,
+
+	UFSHCI_REG_SPACE_SIZE			= 0xA0,
+
 	REG_CRYPTO_CAPABILITY			= 0x100,
+	REG_UFS_CRYPTOCAP			= 0x104,
+
+	UFSHCI_CRYPTO_REG_SPACE_SIZE		= 0x400,
 };
 
 /* Controller capability masks */
@@ -85,6 +92,8 @@ enum {
 	MASK_UIC_DME_TEST_MODE_SUPPORT		= 0x04000000,
 };
 
+#define UFS_MASK(mask, offset)		((mask) << (offset))
+
 /* UFS Version 08h */
 #define MINOR_VERSION_NUM_MASK		UFS_MASK(0xFFFF, 0)
 #define MAJOR_VERSION_NUM_MASK		UFS_MASK(0xFFFF, 16)
@@ -95,6 +104,7 @@ enum {
 	UFSHCI_VERSION_11 = 0x00010100, /* 1.1 */
 	UFSHCI_VERSION_20 = 0x00000200, /* 2.0 */
 	UFSHCI_VERSION_21 = 0x00000210, /* 2.1 */
+	UFSHCI_VERSION_30 = 0x00000300, /* 3.0 */
 };
 
 /*
@@ -154,6 +164,10 @@ enum {
 #define DEVICE_ERROR_INDICATOR			UFS_BIT(5)
 #define UIC_POWER_MODE_CHANGE_REQ_STATUS_MASK	UFS_MASK(0x7, 8)
 
+#define UFSHCD_STATUS_READY	(UTP_TRANSFER_REQ_LIST_READY |\
+				UTP_TASK_REQ_LIST_READY |\
+				UIC_COMMAND_READY)
+
 enum {
 	PWR_OK		= 0x0,
 	PWR_LOCAL	= 0x01,
@@ -166,10 +180,12 @@ enum {
 /* HCE - Host Controller Enable 34h */
 #define CONTROLLER_ENABLE	UFS_BIT(0)
 #define CONTROLLER_DISABLE	0x0
+#define CRYPTO_GENERAL_ENABLE	UFS_BIT(1)
 
 /* UECPA - Host UIC Error Code PHY Adapter Layer 38h */
 #define UIC_PHY_ADAPTER_LAYER_ERROR			UFS_BIT(31)
 #define UIC_PHY_ADAPTER_LAYER_ERROR_CODE_MASK		0x1F
+#define UIC_PHY_ADAPTER_LAYER_LANE_ERR_MASK		0xF
 
 /* UECDL - Host UIC Error Code Data Link Layer 3Ch */
 #define UIC_DATA_LINK_LAYER_ERROR		UFS_BIT(31)
@@ -243,12 +259,6 @@ enum link_status {
 	UFSHCD_LINK_IS_DOWN	= 1,
 	UFSHCD_LINK_IS_UP	= 2,
 };
-/*
- * UFS Protector configuration
- */
-#define UFS_DISK_ENC_MODE	(1 << 0)
-#define UFS_FILE_ENC_MODE	(1 << 1)
-
 #define UFSHCI_SECTOR_SIZE                      0x1000
 #define MIN_SECTOR_SIZE                         0x200
 
@@ -298,6 +308,9 @@ enum {
 
 	/* Interrupt disable mask for UFSHCI v1.1 */
 	INTERRUPT_MASK_ALL_VER_11	= 0x31FFF,
+
+	/* Interrupt disable mask for UFSHCI v2.1 */
+	INTERRUPT_MASK_ALL_VER_21	= 0x71FFF,
 };
 
 /*
@@ -349,10 +362,6 @@ enum {
 /* The granularity of the data byte count field in the PRDT is 32-bit */
 #define PRDT_DATA_BYTE_COUNT_PAD	4
 
-/* FMP bypass/encrypt mode */
-#define CLEAR           0
-#define AES_CBC         1
-#define AES_XTS         2
 /**
  * struct ufshcd_sg_entry - UFSHCI PRD Entry
  * @base_addr: Lower 32bit physical address DW-0
@@ -365,7 +374,7 @@ struct ufshcd_sg_entry {
 	__le32 upper_addr;	/* des1 */
 	__le32 reserved;	/* des2 */
 	__le32 size;		/* des3 */
-#ifdef CONFIG_EXYNOS_FMP
+#ifdef CONFIG_SCSI_UFS_EXYNOS_FMP
 	__le32 file_iv0;	/* des4 */
 	__le32 file_iv1;	/* des5 */
 	__le32 file_iv2;	/* des6 */
@@ -394,41 +403,7 @@ struct ufshcd_sg_entry {
 	__le32 reserved1;	/* des29 */
 	__le32 reserved2;	/* des30 */
 	__le32 reserved3;	/* des31 */
-#if defined(CONFIG_EXYNOS_FMP_DUAL_FILE_ENCRYPTION)
-	__le32 file2_enckey0;	/* des32 */
-	__le32 file2_enckey1;	/* des33 */
-	__le32 file2_enckey2;	/* des34 */
-	__le32 file2_enckey3;	/* des35 */
-	__le32 file2_enckey4;	/* des36 */
-	__le32 file2_enckey5;	/* des37 */
-	__le32 file2_enckey6;	/* des38 */
-	__le32 file2_enckey7;	/* des39 */
-	__le32 file2_twkey0;	/* des40 */
-	__le32 file2_twkey1;	/* des41 */
-	__le32 file2_twkey2;	/* des42 */
-	__le32 file2_twkey3;	/* des43 */
-	__le32 file2_twkey4;	/* des44 */
-	__le32 file2_twkey5;	/* des45 */
-	__le32 file2_twkey6;	/* des46 */
-	__le32 file2_twkey7;	/* des47 */
-	__le32 reserved4;	/* des48 */
-	__le32 reserved5;	/* des49 */
-	__le32 reserved6;	/* des50 */
-	__le32 reserved7;	/* des51 */
-	__le32 reserved8;	/* des52 */
-	__le32 reserved9;	/* des53 */
-	__le32 reserved10;	/* des54 */
-	__le32 reserved11;	/* des55 */
-	__le32 reserved12;	/* des56 */
-	__le32 reserved13;	/* des57 */
-	__le32 reserved14;	/* des58 */
-	__le32 reserved15;	/* des59 */
-	__le32 reserved16;	/* des60 */
-	__le32 reserved17;	/* des61 */
-	__le32 reserved18;	/* des62 */
-	__le32 reserved19;	/* des63 */
-#endif /* CONFIG_EXYNOS_FMP_DUAL_FILE_ENCRYPTION */
-#endif /* CONFIG_EXYNOS_FMP */
+#endif /* CONFIG_SCSI_UFS_EXYNOS_FMP */
 };
 
 /**

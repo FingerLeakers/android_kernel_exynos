@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_PAGEMAP_H
 #define _LINUX_PAGEMAP_H
 
@@ -9,7 +10,7 @@
 #include <linux/list.h>
 #include <linux/highmem.h>
 #include <linux/compiler.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/gfp.h>
 #include <linux/bitops.h>
 #include <linux/hardirq.h> /* for in_interrupt() */
@@ -26,11 +27,10 @@ enum mapping_flags {
 	AS_EXITING	= 4, 	/* final truncate in progress */
 	/* writeback related tags are not used */
 	AS_NO_WRITEBACK_TAGS = 5,
-#ifdef CONFIG_SDP
-	AS_SENSITIVE = 6, /* Group of sensitive pages to be cleaned up */
+#if defined(CONFIG_SDP)
+	AS_SENSITIVE = __GFP_BITS_SHIFT + 5, /* Group of sensitive pages to be cleaned up */
 #endif
 };
-
 
 /*
  * The page cache can be done in larger chunks than
@@ -43,16 +43,34 @@ enum mapping_flags {
 #define PAGE_CACHE_SHIFT	PAGE_SHIFT
 #define PAGE_CACHE_SIZE		PAGE_SIZE
 #define PAGE_CACHE_MASK		PAGE_MASK
-#define PAGE_CACHE_ALIGN(addr)	(((addr)+PAGE_CACHE_SIZE-1)&PAGE_CACHE_MASK)
 
+/**
+ * mapping_set_error - record a writeback error in the address_space
+ * @mapping - the mapping in which an error should be set
+ * @error - the error to set in the mapping
+ *
+ * When writeback fails in some way, we must record that error so that
+ * userspace can be informed when fsync and the like are called.  We endeavor
+ * to report errors on any file that was open at the time of the error.  Some
+ * internal callers also need to know when writeback errors have occurred.
+ *
+ * When a writeback error occurs, most filesystems will want to call
+ * mapping_set_error to record the error in the mapping so that it can be
+ * reported when the application calls fsync(2).
+ */
 static inline void mapping_set_error(struct address_space *mapping, int error)
 {
-	if (unlikely(error)) {
-		if (error == -ENOSPC)
-			set_bit(AS_ENOSPC, &mapping->flags);
-		else
-			set_bit(AS_EIO, &mapping->flags);
-	}
+	if (likely(!error))
+		return;
+
+	/* Record in wb_err for checkers using errseq_t based tracking */
+	filemap_set_wb_err(mapping, error);
+
+	/* Record it in flags for now, for legacy callers */
+	if (error == -ENOSPC)
+		set_bit(AS_ENOSPC, &mapping->flags);
+	else
+		set_bit(AS_EIO, &mapping->flags);
 }
 
 static inline void mapping_set_unevictable(struct address_space *mapping)
@@ -113,22 +131,22 @@ static inline void mapping_set_gfp_mask(struct address_space *m, gfp_t mask)
 	m->gfp_mask = mask;
 }
 
-#ifdef CONFIG_SDP
+#if defined(CONFIG_SDP)
 static inline void mapping_set_sensitive(struct address_space *mapping)
 {
-	set_bit(AS_SENSITIVE, &mapping->flags);
+    set_bit(AS_SENSITIVE, &mapping->flags);
 }
 
 static inline void mapping_clear_sensitive(struct address_space *mapping)
 {
-	clear_bit(AS_SENSITIVE, &mapping->flags);
+    clear_bit(AS_SENSITIVE, &mapping->flags);
 }
 
 static inline int mapping_sensitive(struct address_space *mapping)
 {
-	if (mapping)
-		return test_bit(AS_SENSITIVE, &mapping->flags);
-	return !!mapping;
+    if (mapping)
+        return test_bit(AS_SENSITIVE, &mapping->flags);
+    return !!mapping;
 }
 #endif
 
@@ -180,11 +198,9 @@ void release_pages(struct page **pages, int nr, bool cold);
  */
 static inline int page_cache_get_speculative(struct page *page)
 {
-	VM_BUG_ON(in_interrupt());
-
 #ifdef CONFIG_TINY_RCU
 # ifdef CONFIG_PREEMPT_COUNT
-	VM_BUG_ON(!in_atomic());
+	VM_BUG_ON(!in_atomic() && !irqs_disabled());
 # endif
 	/*
 	 * Preempt must be disabled here - we rely on rcu_read_lock doing
@@ -222,7 +238,7 @@ static inline int page_cache_add_speculative(struct page *page, int count)
 
 #if !defined(CONFIG_SMP) && defined(CONFIG_TREE_RCU)
 # ifdef CONFIG_PREEMPT_COUNT
-	VM_BUG_ON(!in_atomic());
+	VM_BUG_ON(!in_atomic() && !irqs_disabled());
 # endif
 	VM_BUG_ON_PAGE(page_count(page) == 0, page);
 	page_ref_add(page, count);
@@ -261,7 +277,7 @@ static inline gfp_t readahead_gfp_mask(struct address_space *x)
 				  __GFP_COLD | __GFP_NORETRY | __GFP_NOWARN;
 }
 
-typedef int filler_t(void *, struct page *);
+typedef int filler_t(struct file *, struct page *);
 
 pgoff_t page_cache_next_hole(struct address_space *mapping,
 			     pgoff_t index, unsigned long max_scan);
@@ -302,7 +318,6 @@ static inline struct page *find_get_page_flags(struct address_space *mapping,
 
 /**
  * find_lock_page - locate, pin and lock a pagecache page
- * pagecache_get_page - find and get a page reference
  * @mapping: the address_space to search
  * @offset: the page index
  *
@@ -373,12 +388,28 @@ struct page *find_lock_entry(struct address_space *mapping, pgoff_t offset);
 unsigned find_get_entries(struct address_space *mapping, pgoff_t start,
 			  unsigned int nr_entries, struct page **entries,
 			  pgoff_t *indices);
-unsigned find_get_pages(struct address_space *mapping, pgoff_t start,
-			unsigned int nr_pages, struct page **pages);
+unsigned find_get_pages_range(struct address_space *mapping, pgoff_t *start,
+			pgoff_t end, unsigned int nr_pages,
+			struct page **pages);
+static inline unsigned find_get_pages(struct address_space *mapping,
+			pgoff_t *start, unsigned int nr_pages,
+			struct page **pages)
+{
+	return find_get_pages_range(mapping, start, (pgoff_t)-1, nr_pages,
+				    pages);
+}
 unsigned find_get_pages_contig(struct address_space *mapping, pgoff_t start,
 			       unsigned int nr_pages, struct page **pages);
-unsigned find_get_pages_tag(struct address_space *mapping, pgoff_t *index,
-			int tag, unsigned int nr_pages, struct page **pages);
+unsigned find_get_pages_range_tag(struct address_space *mapping, pgoff_t *index,
+			pgoff_t end, int tag, unsigned int nr_pages,
+			struct page **pages);
+static inline unsigned find_get_pages_tag(struct address_space *mapping,
+			pgoff_t *index, int tag, unsigned int nr_pages,
+			struct page **pages)
+{
+	return find_get_pages_range_tag(mapping, index, (pgoff_t)-1, tag,
+					nr_pages, pages);
+}
 unsigned find_get_entries_tag(struct address_space *mapping, pgoff_t start,
 			int tag, unsigned int nr_entries,
 			struct page **entries, pgoff_t *indices);
@@ -405,7 +436,7 @@ extern int read_cache_pages(struct address_space *mapping,
 static inline struct page *read_mapping_page(struct address_space *mapping,
 				pgoff_t index, void *data)
 {
-	filler_t *filler = (filler_t *)mapping->a_ops->readpage;
+	filler_t *filler = mapping->a_ops->readpage;
 	return read_cache_page(mapping, index, filler, data);
 }
 
@@ -518,27 +549,11 @@ static inline int lock_page_or_retry(struct page *page, struct mm_struct *mm,
 }
 
 /*
- * This is exported only for wait_on_page_locked/wait_on_page_writeback,
- * and for filesystems which need to wait on PG_private.
+ * This is exported only for wait_on_page_locked/wait_on_page_writeback, etc.,
+ * and should not be used directly.
  */
 extern void wait_on_page_bit(struct page *page, int bit_nr);
-
 extern int wait_on_page_bit_killable(struct page *page, int bit_nr);
-extern int wait_on_page_bit_killable_timeout(struct page *page,
-					     int bit_nr, unsigned long timeout);
-
-static inline int wait_on_page_locked_killable(struct page *page)
-{
-	if (!PageLocked(page))
-		return 0;
-	return wait_on_page_bit_killable(compound_head(page), PG_locked);
-}
-
-extern wait_queue_head_t *page_waitqueue(struct page *page);
-static inline void wake_up_page(struct page *page, int bit)
-{
-	__wake_up_bit(page_waitqueue(page), &page->flags, bit);
-}
 
 /* 
  * Wait for a page to be unlocked.
@@ -551,6 +566,13 @@ static inline void wait_on_page_locked(struct page *page)
 {
 	if (PageLocked(page))
 		wait_on_page_bit(compound_head(page), PG_locked);
+}
+
+static inline int wait_on_page_locked_killable(struct page *page)
+{
+	if (!PageLocked(page))
+		return 0;
+	return wait_on_page_bit_killable(compound_head(page), PG_locked);
 }
 
 /* 
@@ -570,7 +592,7 @@ void page_endio(struct page *page, bool is_write, int err);
 /*
  * Add an arbitrary waiter to a page's wait queue
  */
-extern void add_page_wait_queue(struct page *page, wait_queue_t *waiter);
+extern void add_page_wait_queue(struct page *page, wait_queue_entry_t *waiter);
 
 /*
  * Fault everything in given userspace address range in.

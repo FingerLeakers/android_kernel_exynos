@@ -423,9 +423,7 @@ static int vclk_get_dfs_info(struct vclk *vclk)
 	struct ect_dvfs_domain *dvfs_domain;
 	void *gen_block;
 	struct ect_gen_param_table *minmax = NULL;
-	struct ect_gen_param_table *offset = NULL;
 	unsigned int *minmax_table = NULL;
-	unsigned int *offset_table = NULL;
 	int *params, idx;
 	int ret = 0;
 	char buf[32];
@@ -449,16 +447,6 @@ static int vclk_get_dfs_info(struct vclk *vclk)
 					break;
 			}
 		}
-
-		sprintf(buf, "OFFSET_%s", vclk->name);
-		offset = ect_gen_param_get_table(gen_block, buf);
-		if (offset != NULL) {
-			for (i = 0; i < offset->num_of_row; i++) {
-				offset_table = &offset->parameter[offset->num_of_col * i];
-				if ((offset_table[0] == main_rev) && (offset_table[1] == sub_rev))
-					break;
-			}
-		}
 	}
 
 	vclk->num_rates = dvfs_domain->num_of_level;
@@ -475,23 +463,6 @@ static int vclk_get_dfs_info(struct vclk *vclk)
 	vclk->list = kzalloc(sizeof(unsigned int) * vclk->num_list, GFP_KERNEL);
 	if (!vclk->list)
 		return -EVCLKNOMEM;
-
-	for (i = 0; i < dvfs_domain->num_of_clock; i++) {
-		if (dvfs_domain->list_sfr[i] == ECT_DUMMY_SFR) {
-			vclk->list[i] = INVALID_CLK_ID;
-			continue;
-		}
-		if ((offset != NULL) && (offset_table != NULL))
-			vclk->list[i] = cmucal_get_id_by_addr(dvfs_domain->list_sfr[i]
-					+ (int)offset_table[2 + i]);
-		else
-			vclk->list[i] = cmucal_get_id_by_addr(dvfs_domain->list_sfr[i]);
-
-		if (vclk->list[i] == INVALID_CLK_ID) {
-			ret = -EVCLKINVAL;
-			goto err_nomem1;
-		}
-	}
 
 	vclk->lut = kzalloc(sizeof(struct vclk_lut) * vclk->num_rates,
 			    GFP_KERNEL);

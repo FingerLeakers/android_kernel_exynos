@@ -31,7 +31,7 @@
 
 #include <linux/types.h>
 #include <linux/kfifo.h>
-#include "../modem_v1.h"
+#include "modem_v1.h"
 
 #include "link_device_memory_config.h"
 #include "circ_queue.h"
@@ -279,9 +279,6 @@ struct sbd_link_attr {
 	Bool variable to check if SBD ipc device supports zerocopy
 	*/
 	bool zerocopy;
-
-	/* Bool variable to check if SBD ipc device supports smapper */
-	bool smapper;
 };
 
 struct zerocopy_adaptor {
@@ -321,16 +318,6 @@ struct zerocopy_adaptor {
 	Timer for when buffer pool is full
 	*/
 	struct hrtimer datalloc_timer;
-
-	/* Smapper region */
-	void __iomem *smapper_base;
-
-	/* Pointer to smapper skb addresses */
-	u8 **smapper_skb_addresses;
-
-	/* Work for smapper skb allocation */
-	struct workqueue_struct *smapper_alloc_queue;
-	struct work_struct smapper_alloc_work;
 };
 
 struct sbd_ipc_device {
@@ -360,9 +347,6 @@ struct sbd_ipc_device {
 	Bool variable to check if SBD ipc device supports zerocopy
 	*/
 	bool zerocopy;
-
-	/* Bool variable to check if SBD ipc device supports smapper */
-	bool smapper;
 
 	/*
 	Pointer to Zerocopy adaptor : memory is allocated for UL/DL zerocopy_adaptor
@@ -447,9 +431,6 @@ struct sbd_link_device {
 	unsigned long rxdone_mask;
 
 	bool reset_zerocopy_done;
-
-	/* Flag for checking whether or not an smapper is active */
-	atomic_t smapper_active;
 };
 
 static inline void sbd_activate(struct sbd_link_device *sl)
@@ -583,23 +564,29 @@ static inline unsigned int rb_full(struct sbd_ring_buffer *rb)
 		return (rb_space(rb) == 0);
 }
 
-static inline void smapper_activate(struct sbd_link_device *sl)
+static inline void set_lnk_hdr(struct sbd_ring_buffer *rb, struct sk_buff *skb)
 {
-	if (sl)
-		atomic_set(&sl->smapper_active, 1);
+	skbpriv(skb)->lnk_hdr = rb->lnk_hdr && !rb->more;
 }
 
-static inline void smapper_deactivate(struct sbd_link_device *sl)
+static inline void check_more(struct sbd_ring_buffer *rb, struct sk_buff *skb)
 {
-	if (sl)
-		atomic_set(&sl->smapper_active, 0);
-}
-
-static inline bool smapper_active(struct sbd_link_device *sl)
-{
-	if (!sl)
-		return false;
-	return atomic_read(&sl->smapper_active) ? true : false;
+	if (rb->lnk_hdr) {
+		if (!rb->more) {
+			if (sipc5_get_frame_len(skb->data) > rb->buff_size) {
+				rb->more = true;
+				rb->total = sipc5_get_frame_len(skb->data);
+				rb->rcvd = skb->len;
+			}
+		} else {
+			rb->rcvd += skb->len;
+			if (rb->rcvd >= rb->total) {
+				rb->more = false;
+				rb->total = 0;
+				rb->rcvd = 0;
+			}
+		}
+	}
 }
 
 int create_sbd_link_device(struct link_device *ld, struct sbd_link_device *sl,
@@ -608,13 +595,20 @@ int create_sbd_link_device(struct link_device *ld, struct sbd_link_device *sl,
 int init_sbd_link(struct sbd_link_device *sl);
 
 int sbd_pio_tx(struct sbd_ring_buffer *rb, struct sk_buff *skb);
-struct sk_buff *sbd_pio_rx_zerocopy_adaptor(struct sbd_ring_buffer *rb, int use_memcpy);
 struct sk_buff *sbd_pio_rx(struct sbd_ring_buffer *rb);
-int allocate_data_in_advance(struct zerocopy_adaptor *zdptr);
-extern enum hrtimer_restart datalloc_timer_func(struct hrtimer *timer);
-int smapper_restore(struct sbd_ring_buffer *rb);
 
 #define SBD_UL_LIMIT		16	/* Uplink burst limit */
+
+#if defined(CONFIG_CP_ZEROCOPY)
+struct sk_buff *sbd_pio_rx_zerocopy_adaptor(struct sbd_ring_buffer *rb, int use_memcpy);
+int allocate_data_in_advance(struct zerocopy_adaptor *zdptr);
+int setup_zerocopy_adaptor(struct sbd_ipc_device *ipc_dev);
+extern enum hrtimer_restart datalloc_timer_func(struct hrtimer *timer);
+#else
+static inline struct sk_buff *sbd_pio_rx_zerocopy_adaptor(struct sbd_ring_buffer *rb, int use_memcpy) { return NULL; }
+static inline int allocate_data_in_advance(struct zerocopy_adaptor *zdptr) { return 0; }
+static inline int setup_zerocopy_adaptor(struct sbd_ipc_device *ipc_dev) { return 0; }
+#endif
 
 /**
 // End of group_mem_link_sbd

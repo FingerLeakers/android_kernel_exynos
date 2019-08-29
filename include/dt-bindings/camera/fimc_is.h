@@ -51,6 +51,8 @@
 #define SENSOR_SCENARIO_READ_ROM	4
 #define SENSOR_SCENARIO_STANDBY	5
 #define SENSOR_SCENARIO_SECURE		6
+#define SENSOR_SCENARIO_HW_INIT		7
+#define SENSOR_SCENARIO_ADDITIONAL_POWER	8
 #define SENSOR_SCENARIO_VIRTUAL	9
 #define SENSOR_SCENARIO_MAX		10
 
@@ -61,6 +63,7 @@
 #define PIN_FUNCTION	4
 #define PIN_REGULATOR	5
 #define PIN_I2C		6
+#define PIN_MCLK	7
 
 #define DT_SET_PIN(p, n, a, v, t) \
 			seq@__LINE__ { \
@@ -87,5 +90,19 @@
 #define VC_TAILPDAF		1
 #define VC_MIPISTAT		2
 #define VC_EMBEDDED		3
+#define VC_PRIVATE		4
+
+#define SP_REAR		0
+#define SP_FRONT	1
+#define SP_REAR2	2
+#define SP_FRONT2	3
+#define SP_REAR3	4
+#define SP_FRONT3	5
+#define SP_REAR4	6
+#define SP_FRONT4	7
+#define SP_REAR_TOF	8
+#define SP_FRONT_TOF	9
+#define SP_SECURE	100
+#define SP_VIRTUAL	101
 
 #endif

@@ -33,18 +33,19 @@ int get_msdelay(int64_t dDelayRate)
 {
 	return div_s64(dDelayRate, 1000000);
 }
+
 s32 SettingVDIS_Support(struct ssp_data *data, int64_t *dNewDelay)
 {
 	s32 dMsDelay = 0;
 	int64_t NewDelay = *dNewDelay;
 
-	if ((NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC)
-		&& !data->IsVDIS_Enabled) {
+	if ((NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC
+		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) && !data->IsVDIS_Enabled) {
 		data->IsVDIS_Enabled = true;
 		data->ts_stacked_cnt = 0;
 		send_vdis_flag(data, data->IsVDIS_Enabled);
-	} else if (!(NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC)
-		&& data->IsVDIS_Enabled) {
+	} else if (!(NewDelay == CAMERA_GYROSCOPE_SYNC || NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC
+		|| NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) && data->IsVDIS_Enabled) {
 		data->IsVDIS_Enabled = false;
 		data->ts_stacked_cnt = 0;
 		send_vdis_flag(data, data->IsVDIS_Enabled);
@@ -55,6 +56,10 @@ s32 SettingVDIS_Support(struct ssp_data *data, int64_t *dNewDelay)
 	} else if (NewDelay == CAMERA_GYROSCOPE_VDIS_SYNC) {
 		*dNewDelay = CAMERA_GYROSCOPE_VDIS_SYNC_DELAY;
 		data->cameraGyroSyncMode = true;
+	} else if (NewDelay == CAMERA_GYROSCOPE_SUPER_VDIS_SYNC) {
+		*dNewDelay = CAMERA_GYROSCOPE_SUPER_VDIS_SYNC_DELAY;
+		data->cameraGyroSyncMode = true;
+		initialize_super_vdis_setting();
 	} else {
 		data->cameraGyroSyncMode = false;
 		if ((data->adDelayBuf[GYROSCOPE_SENSOR] == NewDelay)
@@ -113,14 +118,20 @@ static void enable_sensor(struct ssp_data *data,
 			set_proximity_alert_threshold(data);
 
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
-		if (iSensorType == LIGHT_SENSOR || iSensorType == LIGHT_IR_SENSOR) {
+		if (iSensorType == LIGHT_SENSOR 
+			|| iSensorType == LIGHT_IR_SENSOR
+			|| iSensorType == LIGHT_CCT_SENSOR
+			|| iSensorType == UNCAL_LIGHT_SENSOR ) {
 			data->light_log_cnt = 0;
 			data->light_ir_log_cnt = 0;
-
+			data->light_cct_log_cnt = 0;
 		}
 #else
-		if (iSensorType == LIGHT_SENSOR)
+		if (iSensorType == LIGHT_SENSOR
+			|| iSensorType == LIGHT_CCT_SENSOR
+			|| iSensorType == UNCAL_LIGHT_SENSOR)
 			data->light_log_cnt = 0;
+			data->light_cct_log_cnt = 0;
 #endif
 
 #ifdef CONFIG_SENSORS_SSP_SX9306
@@ -321,13 +332,16 @@ static ssize_t show_sensors_enable(struct device *dev,
 static ssize_t set_sensors_enable(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
-	int64_t dTemp;
+	u64 dTemp;
 	u64 uNewEnable = 0;
 	unsigned int uChangedSensor = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
+	int ret = kstrtoull(buf, 10, &dTemp); 
 
-	if (kstrtoll(buf, 10, &dTemp) < 0)
-		return -EINVAL;
+	if (ret < 0) {
+		pr_info("[SSP] %s - kstrtoull failed (%d)\n", __func__, ret);
+		return ret;
+	}
 
 	uNewEnable = (u64)dTemp;
 	ssp_dbg("[SSP]: %s - new_enable = %llu, old_enable = %llu\n", __func__,
@@ -579,13 +593,32 @@ static ssize_t set_mcu_power(struct device *dev,
 static ssize_t set_ssp_control(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
+	struct ssp_data *data = dev_get_drvdata(dev);
+	int iRet = 0;
+
 	pr_info("[SSP] SSP_CONTROL : %s\n", buf);
 
 	if (strstr(buf, SSP_DEBUG_TIME_FLAG_ON))
 		ssp_debug_time_flag = true;
 	else if (strstr(buf, SSP_DEBUG_TIME_FLAG_OFF))
 		ssp_debug_time_flag = false;
+	else if (strstr(buf, SSP_HALL_IC_ON)
+ 		|| strstr(buf, SSP_HALL_IC_OFF)) {
 
+		data->hall_ic_status = strstr(buf, SSP_HALL_IC_ON) ? 1 : 0;
+	
+		iRet = send_hall_ic_status(data->hall_ic_status);
+
+		if (iRet != SUCCESS) {
+			pr_err("[SSP]: %s - hall ic command, failed %d\n", __func__, iRet);
+			return iRet;
+		}
+
+		pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
+			__func__, iRet, data->hall_ic_status);
+
+	}
+	
 	return size;
 }
 
@@ -727,12 +760,13 @@ int htoi(char input)
 		return 0;
 }
 
-int checkInputtedRegisterString(const char *string, char *CheckString[4])
+int checkInputtedRegisterString(const char *string, int *result)
 {
 	int ret = 0;
 	int index = 0;
 	char *Dupstring = NULL;
 	char *pDupstring = NULL;
+	char *CheckString[5] = {0, };
 
 	pDupstring = Dupstring = kstrdup(string, GFP_KERNEL);
 
@@ -741,7 +775,8 @@ int checkInputtedRegisterString(const char *string, char *CheckString[4])
 
 		switch (index) {
 		case 0:
-			if (kstrtou32(&CheckString[index][0], 10, &tmp) < 0 || (tmp >= SENSOR_MAX)) {
+			if (kstrtou32(&CheckString[index][0], 10, &tmp) < 0 
+					|| (tmp >= SENSOR_MAX && tmp != REGISTER_RW_DDI)) {
 				pr_info("[SSP] %s invalid(%d)\n", __func__, tmp);
 				goto exit;
 			}
@@ -764,10 +799,11 @@ int checkInputtedRegisterString(const char *string, char *CheckString[4])
 			ret = index;
 			break;
 		default:
+			pr_info("[SSP] %s invalid cmd size", __func__);
 			ret = false;
 			goto exit;
 		}
-		CheckString[index++][0] = tmp;
+		result[index++] = tmp;
 	}
 	kfree(pDupstring);
 return ret;
@@ -782,6 +818,24 @@ static ssize_t register_rw_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 		struct ssp_data *data = dev_get_drvdata(dev);
+		
+		if (data->registerValue[0] == REGISTER_RW_DDI) {
+			int len = 0, i = 0;
+			int read_size = data->registerValue[2];
+	
+			if (read_size > REGISTER_RW_BUFFER_MAX)
+				return 0;
+
+			for (i = 0; i < read_size; i++) {
+				len += sprintf(buf + len, "%d ", data->registerValue[3 + i]);
+			}
+			//buf[len] = 0;
+			pr_err("[SSP] : sensor(%d) register(%x) size(%d), %s\n", 
+					data->registerValue[0], data->registerValue[1],
+					data->registerValue[2], buf);
+
+			return len;
+		}
 
 		if (data->registerValue[1] == 1) { // 1 is read
 			return sprintf(buf, "sensor(%d) %c regi(0x%x) val(0x%x) ret(%d)\n",
@@ -804,8 +858,9 @@ static ssize_t register_rw_store(struct device *dev,
 		struct ssp_data *data = dev_get_drvdata(dev);
 		struct ssp_msg *msg;
 		int index = 0, iRet = 0;
-		char *CheckString[4] = {0, };
-		char sendBuff[5] = {0, };
+		int CheckString[4] = {0, };
+		char sendBuff[REGISTER_RW_BUFFER_MAX + 3] = {0, };
+		u16 dataLength = 0;
 
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 		if (ZERO_OR_NULL_PTR(msg)) {
@@ -815,54 +870,136 @@ static ssize_t register_rw_store(struct device *dev,
 
 		iRet = checkInputtedRegisterString(buf, CheckString);
 
+		// common input format error
 		if (iRet == 0) {
-			kfree(msg);
-			return -1;
+			goto register_rw_failed;
+		}
+	
+		// ddi register format error
+		if (CheckString[0] == REGISTER_RW_DDI 
+				&& CheckString[3] > REGISTER_RW_BUFFER_MAX) {
+			goto register_rw_failed;
 		}
 
 		msg->cmd = MSG2SSP_AP_REGISTER_SETTING;
-		msg->length = 5;
+		msg->length = dataLength = CheckString[0] == REGISTER_RW_DDI ? CheckString[3] + 3 : 5;
 		msg->options = AP2HUB_READ;
 		msg->data = 0;
 		msg->buffer = sendBuff;
 		msg->free_buffer = 0;
 
 		for (index = 0; index <= iRet; index++)
-			msg->data |= (u32)(CheckString[index][0] << (24 - 8*index));
+		{
+			msg->data |= (u32)(CheckString[index] << (24 - 8*index));
+			pr_info("SSP %s %d: %d", __func__, index, CheckString[index]);
+		}
 
 		iRet = ssp_spi_sync(data, msg, 2000);
 
 		if (iRet != SUCCESS)
 			pr_err("[SSP] %s - fail %d\n", __func__, iRet);
+		
+		memcpy(data->registerValue, sendBuff, dataLength);
 
-		memcpy(data->registerValue, sendBuff, sizeof(sendBuff));
 		return size;
+register_rw_failed:
+		kfree(msg);
+		return -1;
 }
 static DEVICE_ATTR(register_rw, 0664,
 	register_rw_show, register_rw_store);
 
 #endif //CONFIG_SSP_REGISTER_RW
-
-static ssize_t reset_info_show(struct device *dev,
+char resetString[1024] = {0, };
+static ssize_t bcm_minidump_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data  = dev_get_drvdata(dev);
 	int ret = 0;
-	int totalLen = 0;
+	int totalLen = 0, index = 0;
+        const char token = ';';
 
 	totalLen = (int)strlen(data->resetInfo)
 		+ (data->IsGpsWorking ? (int)strlen("GPS ON ") : (int)strlen("GPS OFF "));
 
-	if ((int)strlen(data->resetInfo))
-		ret = snprintf(buf, totalLen + 1, "%s%s",
-			(data->IsGpsWorking ? "GPS ON " : "GPS OFF "), data->resetInfo);
-	else
+	if ((int)strlen(data->resetInfo)) {
+                memset(resetString, 0, ARRAY_SIZE(resetString));
+                for(index = 0; index < (int)strlen(data->resetInfo); index++) {
+                        if(data->resetInfo[index] == token)
+                            break;
+                        resetString[index] = data->resetInfo[index];
+                }
+                ret = snprintf(buf, totalLen + 1, "%s%s",
+                        (data->IsGpsWorking ? "GPS ON " : "GPS OFF "), data->resetInfo);
+
+        } else
 		ret =  snprintf(buf, totalLen + 1, "%s", (data->IsGpsWorking ? "GPS ON " : "GPS OFF "));
 
 	memset(data->resetInfo, 0, ARRAY_SIZE(data->resetInfo));
 
 	return ret;
 }
+
+static ssize_t reset_info_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data  = dev_get_drvdata(dev);
+	int ret = 0;
+	int totalLen = 0, index = 0;
+        const char token = ';';
+        
+	totalLen = (int)strlen(data->resetInfo)
+		+ (data->IsGpsWorking ? (int)strlen("GPS ON ") : (int)strlen("GPS OFF "));
+
+	if ((int)strlen(data->resetInfo)) {
+                for(index = 0; index < (int)strlen(data->resetInfo); index++) {
+                        if(data->resetInfo[index] == token)
+                            break;
+                        resetString[index] = data->resetInfo[index];
+                }
+        } else
+		ret =  snprintf(buf, totalLen + 1, "%s", (data->IsGpsWorking ? "GPS ON " : "GPS OFF "));
+
+        if((int)strlen(resetString)) {
+                totalLen = (int)strlen(resetString)
+		    + (data->IsGpsWorking ? (int)strlen("GPS ON ") : (int)strlen("GPS OFF "));
+        	ret = snprintf(buf, totalLen + 1, "%s%s",
+			(data->IsGpsWorking ? "GPS ON " : "GPS OFF "), resetString);
+        }
+        
+        memset(resetString, 0, ARRAY_SIZE(resetString));
+	return ret;
+}
+
+/*
+static ssize_t show_timestamp_factor(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data  = dev_get_drvdata(dev);
+	int ret = sprintf(buf, "timestamp_factor: %d\n", data->timestamp_factor);
+	return ret;
+}
+
+static ssize_t set_timestamp_factor(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct ssp_data *data  = dev_get_drvdata(dev);
+	u64 dTemp = 5;
+
+	int ret = kstrtoull(buf, 10, &dTemp); 
+
+	if (ret < 0) {
+		pr_info("[SSP] %s - kstrtoull failed (%d), set to default value(5)\n", __func__, ret);
+		data->timestamp_factor = dTemp;
+		return ret;
+	}
+
+	data->timestamp_factor = dTemp;
+
+	return size;
+}
+*/
+
 static DEVICE_ATTR(mcu_rev, 0444, mcu_revision_show, NULL);
 static DEVICE_ATTR(mcu_name, 0444, mcu_model_name_show, NULL);
 static DEVICE_ATTR(mcu_reset, 0444, mcu_reset_show, NULL);
@@ -885,13 +1022,15 @@ static DEVICE_ATTR(data_injection_enable, 0664,
 static DEVICE_ATTR(ssp_control, 0220, NULL, set_ssp_control);
 static DEVICE_ATTR(sensor_dump, 0664,
 	sensor_dump_show, sensor_dump_store);
-static DEVICE_ATTR(bcm_minidump, 0440, reset_info_show, NULL);
-
+static DEVICE_ATTR(bcm_minidump, 0440, bcm_minidump_show, NULL);
+static DEVICE_ATTR(reset_info, 0440, reset_info_show, NULL);
 static DEVICE_ATTR(sensor_state, 0444, show_sensor_state, NULL);
 static DEVICE_ATTR(mcu_power, 0664, show_mcu_power, set_mcu_power);
 
 static DEVICE_ATTR(thermistor_channel_0, 0444, show_thermistor_channel0, NULL);
 static DEVICE_ATTR(thermistor_channel_1, 0444, show_thermistor_channel1, NULL);
+
+//static DEVICE_ATTR(timestamp_factor, 0664, show_timestamp_factor, set_timestamp_factor);
 
 static struct device_attribute *mcu_attrs[] = {
 	&dev_attr_enable,
@@ -912,6 +1051,8 @@ static struct device_attribute *mcu_attrs[] = {
 	&dev_attr_thermistor_channel_0,
 	&dev_attr_thermistor_channel_1,
 	&dev_attr_bcm_minidump,
+	&dev_attr_reset_info,
+//	&dev_attr_timestamp_factor,
 	NULL,
 };
 

@@ -29,6 +29,7 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/netdevice.h>
+#include <linux/pm_runtime.h>
 
 #include "modem_debug.h"
 #include "modem_v1.h"
@@ -39,38 +40,21 @@
 
 #define DEBUG_MODEM_IF
 #ifdef DEBUG_MODEM_IF
-#if 1
 #define DEBUG_MODEM_IF_LINK_TX
-#endif
-#if 1
 #define DEBUG_MODEM_IF_LINK_RX
-#endif
-#if defined(DEBUG_MODEM_IF_LINK_TX) && defined(DEBUG_MODEM_IF_LINK_RX)
-#define DEBUG_MODEM_IF_LINK_HEADER
-#endif
 
-#if 0
-#define DEBUG_MODEM_IF_IODEV_TX
-#endif
-#if 0
-#define DEBUG_MODEM_IF_IODEV_RX
-#endif
+/* #define DEBUG_MODEM_IF_IODEV_TX */
+/* #define DEBUG_MODEM_IF_IODEV_RX */
 
-#if 0
-#define DEBUG_MODEM_IF_FLOW_CTRL
-#endif
+/* #define DEBUG_MODEM_IF_FLOW_CTRL */
 
-#if 0
-#define DEBUG_MODEM_IF_PS_DATA
-#endif
-#if 0
-#define DEBUG_MODEM_IF_IP_DATA
-#endif
+/* #define DEBUG_MODEM_IF_PS_DATA */
+/* #define DEBUG_MODEM_IF_IP_DATA */
 #endif
 
 /*
-IOCTL commands
-*/
+ * IOCTL commands
+ */
 #define IOCTL_MODEM_ON			_IO('o', 0x19)
 #define IOCTL_MODEM_OFF			_IO('o', 0x20)
 #define IOCTL_MODEM_RESET		_IO('o', 0x21)
@@ -93,6 +77,9 @@ IOCTL commands
 #define IOCTL_MODEM_DUMP_UPDATE		_IO('o', 0x33)
 #define IOCTL_MODEM_FORCE_CRASH_EXIT	_IO('o', 0x34)
 #define IOCTL_MODEM_CP_UPLOAD		_IO('o', 0x35)
+#ifdef CONFIG_LINK_DEVICE_PCIE
+#define IOCTL_MODEM_DUMP_RESET		_IO('o', 0x36)
+#endif
 
 #define IOCTL_LINK_CONNECTED		_IO('o', 0x33)
 #define IOCTL_MODEM_SET_TX_LINK		_IO('o', 0x37)
@@ -108,7 +95,7 @@ IOCTL commands
 
 #define IOCTL_LINK_DEVICE_RESET		_IO('o', 0x44)
 
-#ifdef CONFIG_LINK_DEVICE_SHMEM
+#if defined(CONFIG_LINK_DEVICE_SHMEM) || defined(CONFIG_LINK_DEVICE_PCIE)
 #define IOCTL_MODEM_GET_SHMEM_SRINFO	_IO('o', 0x45)
 #define IOCTL_MODEM_SET_SHMEM_SRINFO	_IO('o', 0x46)
 #define IOCTL_MODEM_GET_CP_BOOTLOG	_IO('o', 0x47)
@@ -126,6 +113,12 @@ IOCTL commands
 #define IOCTL_VSS_FULL_DUMP		_IO('o', 0x57)	/* For vss dump */
 #define IOCTL_ACPM_FULL_DUMP		_IO('o', 0x58)  /* for acpm memory dump */
 #define IOCTL_CPLOG_FULL_DUMP		_IO('o', 0x59)  /* for cplog memory dump */
+#define IOCTL_DATABUF_FULL_DUMP		_IO('o', 0x5A)	/* for databuf memory dump */
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+#define IOCTL_REGISTER_PCIE		_IO('o', 0x65)
+#endif
+
 
 /*
 Definitions for IO devices
@@ -168,6 +161,17 @@ enum link_state {
 	LINK_STATE_CP_CRASH
 };
 
+#ifdef CONFIG_LINK_DEVICE_PCIE
+enum runtime_link_id {
+	LINK_SEND = 0,
+	LINK_CP,
+	LINK_SBD_TX_TIMER,
+	LINK_TX_TIMER,
+	LINK_REGISTER_PCI,
+	LINK_ID_MAX,
+};
+#endif /* CONFIG_LINK_DEVICE_PCIE */
+
 struct sim_state {
 	bool online;	/* SIM is online? */
 	bool changed;	/* online is changed? */
@@ -184,9 +188,9 @@ struct modem_firmware {
 
 struct modem_sec_req {
 	u32 mode;
-	u32 size_boot;
-	u32 size_main;
-	u32 dummy;
+	u32 param2;
+	u32 param3;
+	u32 param4;
 } __packed;
 
 enum cp_boot_mode {
@@ -194,6 +198,7 @@ enum cp_boot_mode {
 	CP_BOOT_MODE_DUMP,
 	CP_BOOT_RE_INIT,
 	CP_BOOT_REQ_CP_RAM_LOGGING = 5,
+	CP_BOOT_MODE_MANUAL = 7,
 	MAX_CP_BOOT_MODE
 };
 
@@ -283,7 +288,7 @@ enum iod_rx_state {
 	MAX_IOD_RX_STATE
 };
 
-static const char const *rx_state_string[] = {
+static const char * const rx_state_string[] = {
 	[IOD_RX_ON_STANDBY]	= "RX_ON_STANDBY",
 	[IOD_RX_HEADER]		= "RX_HEADER",
 	[IOD_RX_PAYLOAD]	= "RX_PAYLOAD",
@@ -471,6 +476,8 @@ struct link_device {
 	/* methods for CP crash dump */
 	int (*shmem_dump)(struct link_device *ld, struct io_device *iod,
 			unsigned long arg);
+	int (*databuf_dump)(struct link_device *ld, struct io_device *iod,
+			unsigned long arg);
 	int (*force_dump)(struct link_device *ld, struct io_device *iod);
 	int (*dump_start)(struct link_device *ld, struct io_device *iod);
 	int (*dump_update)(struct link_device *ld, struct io_device *iod,
@@ -522,6 +529,10 @@ struct link_device {
 #endif /* CONFIG_LINK_DEVICE_NAPI */
 
 	void (*gro_flush)(struct link_device *ld);
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+	int (*register_pcie)(struct link_device *ld);
+#endif
 };
 
 #define pm_to_link_device(pm)	container_of(pm, struct link_device, pm)
@@ -551,6 +562,14 @@ struct modemctl_ops {
 	int (*modem_force_crash_exit)(struct modem_ctl *);
 	int (*modem_dump_start)(struct modem_ctl *);
 	void (*modem_boot_confirm)(struct modem_ctl *);
+#if defined(CONFIG_LINK_DEVICE_PCIE)
+	int (*modem_dump_reset)(struct modem_ctl *);
+	int (*modem_link_down)(struct modem_ctl *);
+	int (*modem_runtime_suspend)(struct modem_ctl *);
+	int (*modem_runtime_resume)(struct modem_ctl *);
+	int (*modem_suspend)(struct modem_ctl *);
+	int (*modem_resume)(struct modem_ctl *);
+#endif
 };
 
 /* for IPC Logger */
@@ -651,6 +670,7 @@ struct modem_ctl {
 	unsigned int gpio_perf_req;
 	unsigned int irq_perf_req;
 
+#ifdef CONFIG_LINK_DEVICE_HSIC
 	/* for USB/HSIC PM */
 	unsigned int gpio_host_wakeup;
 	unsigned int irq_host_wakeup;
@@ -664,6 +684,7 @@ struct modem_ctl {
 
 	unsigned int gpio_sim_detect;
 	unsigned int irq_sim_detect;
+#endif
 
 #ifdef CONFIG_LINK_DEVICE_SHMEM
 	unsigned int mbx_pda_active;
@@ -679,7 +700,7 @@ struct modem_ctl {
 	unsigned int int_uart_noti;
 
 	/* for checking aliveness of CP */
-	struct modem_irq irq_cp_wdt;		/* watchdog timer */
+	struct modem_irq irq_cp_wdt;
 	struct modem_irq irq_cp_fail;
 
 	/* Status Bit Info */
@@ -700,6 +721,53 @@ struct modem_ctl {
 	unsigned int sbi_crash_type_pos;
 
 	unsigned int airplane_mode;
+
+	unsigned int ap2cp_cfg_addr;
+	void __iomem *ap2cp_cfg_ioaddr;
+#endif
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+	struct irq_chip *apwake_irq_chip;
+	struct pci_dev *s5100_pdev;
+	struct workqueue_struct *wakeup_wq;
+	struct work_struct link_work;
+	struct work_struct dislink_work;
+
+	struct wake_lock mc_wake_lock;
+
+	int int_pcie_link_ack;
+	int pcie_ch_num;
+
+	bool reserve_doorbell_int;
+	bool recover_pcie_link;
+	bool pcie_registered;
+	bool device_reboot;
+
+	u32 boot_done_cnt;
+
+	atomic_t runtime_link_cnt[LINK_ID_MAX];
+	atomic_t runtime_dislink_cnt[LINK_ID_MAX];
+
+	atomic_t runtime_link_iod_cnt[SIPC5_CH_ID_MAX];
+	atomic_t runtime_dislink_iod_cnt[SIPC5_CH_ID_MAX];
+
+	unsigned int airplane_mode;
+
+	int s5100_gpio_cp_pwr;
+	int s5100_gpio_cp_reset;
+	int s5100_gpio_cp_ps_hold;
+	int s5100_gpio_cp_wakeup;
+	int s5100_gpio_cp_dump_noti;
+	int s5100_gpio_ap_status;
+
+	int s5100_gpio_ap_wakeup;
+	struct modem_irq s5100_irq_ap_wakeup;
+
+	int s5100_gpio_phone_active;
+	struct modem_irq s5100_irq_phone_active;
+
+	bool s5100_cp_reset_required;
+	bool s5100_iommu_map_enabled;
 #endif
 
 #ifdef CONFIG_EXYNOS_BUSMONITOR
@@ -778,9 +846,74 @@ void sipc5_deinit_io_device(struct io_device *iod);
 extern struct net init_net;
 extern int sec_argos_register_notifier(struct notifier_block *n, char *label);
 extern int sec_argos_unregister_notifier(struct notifier_block *n, char *label);
-
 int mif_init_argos_notifier(void);
 #else
 static inline int mif_init_argos_notifier(void) { return 0; }
 #endif
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+static inline int cp_runtime_link(struct modem_ctl *mc,
+		enum runtime_link_id link_id, int unsigned iod_id)
+{
+	int ret = 0;
+
+#ifdef CONFIG_PM
+	int cnt = 0;
+
+	atomic_inc(&mc->runtime_link_cnt[link_id]);
+	if (link_id == LINK_SEND)
+		atomic_inc(&mc->runtime_link_iod_cnt[iod_id]);
+
+	if (in_interrupt())
+		ret = pm_runtime_get(mc->dev);
+	else if (irqs_disabled()) {
+		mif_info("irqs_disabled!! 1\n");
+		ret = pm_runtime_get(mc->dev);
+		mif_info("irqs_disabled!! 2\n");
+	} else {
+		while (pm_runtime_enabled(mc->dev) == false) {
+			usleep_range(10000, 11000);
+			cnt++;
+		}
+		if (cnt)
+			mif_err_limited("pm_runtime_enabled wait count:%d\n",
+					cnt);
+
+		ret = pm_runtime_get_sync(mc->dev);
+		if (ret < 0)
+			mif_err_limited("pm_runtime_get_sync ERR:%d\n", ret);
+	}
+#endif /* CONFIG_PM */
+
+	return ret;
+}
+
+static inline int cp_runtime_dislink(struct modem_ctl *mc,
+		enum runtime_link_id link_id, int unsigned iod_id)
+{
+#ifdef CONFIG_PM
+	atomic_inc(&mc->runtime_dislink_cnt[link_id]);
+	if (link_id == LINK_SEND)
+		atomic_inc(&mc->runtime_dislink_iod_cnt[iod_id]);
+
+	pm_runtime_mark_last_busy(mc->dev);
+	pm_runtime_put_autosuspend(mc->dev);
+#endif /* CONFIG_PM */
+	return 0;
+}
+
+static inline int cp_runtime_dislink_no_autosuspend(struct modem_ctl *mc,
+		enum runtime_link_id link_id, int unsigned iod_id)
+{
+#ifdef CONFIG_PM
+	atomic_inc(&mc->runtime_dislink_cnt[link_id]);
+	if (link_id == LINK_SEND)
+		atomic_inc(&mc->runtime_dislink_iod_cnt[iod_id]);
+
+	pm_runtime_put_sync(mc->dev);
+#endif /* CONFIG_PM */
+	return 0;
+}
+#endif /* CONFIG_LINK_DEVICE_PCIE */
+
 #endif

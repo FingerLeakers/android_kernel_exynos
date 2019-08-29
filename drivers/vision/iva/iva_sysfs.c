@@ -91,11 +91,10 @@ static ssize_t iva_mem_proc_show(struct device *dev,
 
 		hash_for_each(iva_proc_node->h_mem_map, i, iva_map_node, h_node) {
 			IVA_SYSFS_PRINT0(buf, buf_size, tmp_buf, tmp_size,
-				"[%d] buf_fd:0x%08x,\tflags:0x%x,\t""io_va:"
-				"0x%08lx,\tsize:0x%08x, 0x%08x\tref_cnt:%d\n",
+				"[%d] buf_fd:0x%08x,\tflags:0x%x,\tio_va:0x%08lx,\tsize:0x%08x, 0x%08x\tref_cnt:%d\n",
 				i,
 				iva_map_node->shared_fd,
-			       	iva_map_node->flags,
+				iva_map_node->flags,
 				iva_map_node->io_va,
 				iva_map_node->req_size, iva_map_node->act_size,
 				iva_mem_map_read_refcnt(iva_map_node));
@@ -174,6 +173,14 @@ static ssize_t iva_ipcq_show_trans(struct device *dev,
 						ipc_msg_c->data.m.table_id,
 						ipc_msg_c->data.m.guid);
 				break;
+			case IPC_CMD_NODE_DONE:
+				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
+						"NODE_DONE\n");
+				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
+						"\t\tTABLE ID(0x%08X)\tGUID(0x%08X)\n",
+					ipc_msg_c->data.m.table_id,
+					ipc_msg_c->data.m.guid);
+				break;
 			case IPC_CMD_EVICT_TABLE:
 				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
 						"EVICT\n");
@@ -220,7 +227,10 @@ static ssize_t iva_ipcq_show_trans(struct device *dev,
 				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
 						"EVICT_ACK\n");
 				break;
-
+			case IPC_CMD_TIMEOUT_NOTIFY:
+				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
+						"TIMEOUT_NOTIFY\n");
+				break;
 			default:
 				IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
 						"cmd type(%d)\n",
@@ -330,7 +340,6 @@ static ssize_t iva_sysfs_show_qos(struct device *dev,
 		struct dev_pm_opp *opp;
 		unsigned long freq = 0;
 
-		rcu_read_lock();
 		do {
 			opp = dev_pm_opp_find_freq_ceil(dev, &freq);
 			if (IS_ERR(opp))
@@ -343,12 +352,13 @@ static ssize_t iva_sysfs_show_qos(struct device *dev,
 					"%lu%s ", freq,
 					(freq == iva->iva_qos_rate) ? "(*)" : "");
 			freq++;
+			dev_pm_opp_put(opp);
 		} while (1);
-		rcu_read_unlock();
 	}
 
 	if (hit) {
 		IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size, "\n");
+
 	} else {
 		IVA_SYSFS_PRINT(buf, buf_size, tmp_buf, tmp_size,
 				"iva qos rate (%d Khz)\n", iva->iva_qos_rate);
@@ -377,7 +387,6 @@ static ssize_t iva_sysfs_set_qos(struct device *dev,
 		struct dev_pm_opp *opp;
 		unsigned long freq = 0;
 
-		rcu_read_lock();
 		do {
 			opp = dev_pm_opp_find_freq_ceil(dev, &freq);
 			if (IS_ERR(opp))
@@ -385,12 +394,13 @@ static ssize_t iva_sysfs_set_qos(struct device *dev,
 
 			if (freq == value) {
 				hit = true;
+				dev_pm_opp_put(opp);
 				break;
 			}
 
+			dev_pm_opp_put(opp);
 			freq++;
 		} while (1);
-		rcu_read_unlock();
 	}
 
 	if (hit)

@@ -22,16 +22,15 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
+#include <linux/delay.h>
 
 #include "iva_mem.h"
 #include "iva_mem_sync.h"
 
 #define CALL_SHOW_PROC_MAP_LIST
 
-//#define ENABLE_MAP_ATTACHMENT
+#undef ENABLE_MAP_ATTACHMENT
 #undef ENABLE_CACHE_FLUSH_ALL
-
-/* should be same as iva_ext_ram.h in user space */
 #define IVA_MEM_ALLOC_TYPE_FD_SHIFT	(24)
 #define IVA_MEM_GET_SHARED_FD(fd) \
 	(fd & ~(1 << IVA_MEM_ALLOC_TYPE_FD_SHIFT))
@@ -83,7 +82,7 @@ static inline int iva_mem_map_put_refcnt(struct iva_mem_map *iva_map)
 
 int iva_mem_map_read_refcnt(struct iva_mem_map *iva_map)
 {
-	return atomic_read(&iva_map->map_ref.refcount);
+	return kref_read(&iva_map->map_ref);
 }
 
 static int iva_mem_show_proc_mapped_list_nolock(struct iva_proc *proc)
@@ -184,14 +183,12 @@ struct iva_mem_map *iva_mem_find_proc_map_with_fd(struct iva_proc *proc,
 static struct iva_mem_map *iva_mem_ion_alloc(struct iva_proc *proc,
 			uint32_t size, uint32_t align, uint32_t cacheflag)
 {
-#define ZONE_BIT(zone)		(1 << zone)
 	int			ion_shared_fd;
 	struct iva_dev_data	*iva = proc->iva_data;
-	struct ion_client	*client = iva->ion_client;
 	struct device		*dev = iva->dev;
-	struct ion_handle	*handle;
 	struct iva_mem_map	*iva_map_node;
 	struct dma_buf		*dmabuf;
+	const char		*heapname = "ion_system_heap";
 
 	iva_map_node = iva_mem_alloc_map_node(iva);
 	if (!iva_map_node) {
@@ -199,16 +196,7 @@ static struct iva_mem_map *iva_mem_ion_alloc(struct iva_proc *proc,
 		return NULL;
 	}
 
-	handle = ion_alloc(client, size, align, REQ_ION_HEAP_ID, cacheflag);
-	if (IS_ERR(handle)) {
-		dev_err(dev, "%s() fail to alloc ion with id(0x%x), ",
-			__func__, REQ_ION_HEAP_ID);
-		dev_err(dev, "size(0x%x), align(0x%x), ret(%ld)\n",
-			size, align, PTR_ERR(handle));
-		goto err_alloc_ion;
-	}
-
-	dmabuf = ion_share_dma_buf(client, handle);
+	dmabuf = ion_alloc_dmabuf(heapname, size, cacheflag);
 	if (IS_ERR_OR_NULL(dmabuf)) {
 		dev_err(dev, "%s() ion with dma_buf sharing failed.\n",
 				__func__);
@@ -218,13 +206,18 @@ static struct iva_mem_map *iva_mem_ion_alloc(struct iva_proc *proc,
 	/* close() should be called for full release operation*/
 	ion_shared_fd = dma_buf_fd(dmabuf, O_CLOEXEC);
 	if (ion_shared_fd < 0) {
-		dev_err(dev, "%s() ion with getting dma_buf_fd failed.\n",
-				__func__);
-		goto err_dmabuf_fd;
+		usleep_range(10000, 100000);
+		dev_dbg(dev, "%s() retry to get dma_buf_fd.\n", __func__);
+
+		ion_shared_fd = dma_buf_fd(dmabuf, O_CLOEXEC);
+		if (ion_shared_fd < 0) {
+			dev_err(dev, "%s() ion with getting dma_buf_fd failed.\n",
+					__func__);
+			goto err_dmabuf_fd;
+		}
 	}
 
 	iva_map_node->shared_fd	= ion_shared_fd;
-	iva_map_node->handle	= handle;
 	iva_map_node->dmabuf	= dmabuf;
 	/* increase file cnt. iva_mem_ion_free() required */
 	get_dma_buf(dmabuf);
@@ -238,12 +231,12 @@ static struct iva_mem_map *iva_mem_ion_alloc(struct iva_proc *proc,
 	iva_map_node->flags	= 0x0;
 	SET_IVA_ALLOC_TYPE(iva_map_node->flags, IVA_ALLOC_TYPE_ALLOCATED);
 	SET_IVA_CACHE_TYPE(iva_map_node->flags, cacheflag);
-	atomic_set(&iva_map_node->map_ref.refcount, 0);
+	refcount_set(&iva_map_node->map_ref.refcount, 0);
 	iva_map_node->dev	= dev;
 
-	dev_dbg(dev, "%s() succeed : size(0x%x, 0x%x) align(0x%x) handle(%p) ",
+	dev_dbg(dev, "%s() succeed : size(0x%x, 0x%x) align(0x%x) ",
 		__func__, iva_map_node->req_size,
-		iva_map_node->act_size,	align, handle);
+		iva_map_node->act_size,	align);
 	dev_dbg(dev, "dma_buf(%p) with buf fd(%d, %ld)\n",
 		dmabuf,	ion_shared_fd, file_count(dmabuf->file));
 
@@ -261,8 +254,6 @@ static struct iva_mem_map *iva_mem_ion_alloc(struct iva_proc *proc,
 err_dmabuf_fd:
 	dma_buf_put(dmabuf);
 err_dmabuf:
-	ion_free(client, handle);
-err_alloc_ion:
 	iva_mem_free_map_node(iva, iva_map_node);
 	return NULL;
 }
@@ -272,7 +263,6 @@ static int iva_mem_ion_free(struct iva_proc *proc, struct iva_mem_map *iva_map_n
 {
 	int			buf_fd = iva_map_node->shared_fd;
 	struct iva_dev_data	*iva = proc->iva_data;
-	struct ion_client	*client = iva->ion_client;
 	struct device		*dev = iva->dev;
 	int			ref_cnt;
 
@@ -295,9 +285,6 @@ static int iva_mem_ion_free(struct iva_proc *proc, struct iva_mem_map *iva_map_n
 
 	dma_buf_put(iva_map_node->dmabuf);	/* ion_share_dma_buf */
 
-	/* close() should be done in user space */
-	ion_free(client, iva_map_node->handle); /* handle-1, ion_buffer-1 */
-
 	hash_del(&iva_map_node->h_node);
 	proc->mem_map_nr--;
 
@@ -314,7 +301,6 @@ static int iva_mem_get_ion_iova(struct iva_proc *proc,
 	struct dma_buf		*dmabuf;
 	struct sg_table		*sg_table = NULL;
 	struct device		*dev = iva->dev;
-	struct ion_handle	*handle = NULL;
 	struct dma_buf_attachment *attachment;
 	int			map_ref_cnt;
 #ifdef CONFIG_ION_EXYNOS
@@ -344,13 +330,6 @@ static int iva_mem_get_ion_iova(struct iva_proc *proc,
 		return -EINVAL;
 	}
 
-	handle = iva_map_node->handle;
-	if (IS_ERR(handle)) {
-		dev_err(dev, "%s() node has no handle, ret(%ld)\n",
-				__func__, PTR_ERR(handle));
-		return PTR_ERR(handle);
-	}
-
 	attachment = dma_buf_attach(dmabuf, dev);
 	if (IS_ERR_OR_NULL(attachment)) {
 		dev_err(dev, "%s() fail to attach dma buf, buf_fd(%d).\n",
@@ -378,9 +357,9 @@ static int iva_mem_get_ion_iova(struct iva_proc *proc,
 	}
 #else
 	/* CAUTION: io_va is filled with a physical addr */
-	ret = ion_phys(iva->ion_client, handle, &io_va, &io_va_len);
-	if (IS_ERR_VALUE(ret)) {
-		dev_err(dev, "%s() ion_phys() returns failure\n",
+	iova = dma_buf_vmap(dmabuf);
+	if (IS_ERR_VALUE(iova)) {
+		dev_err(dev, "%s() dma_buf_vmap() returns failure\n",
 		       __func__);
 		ret = -EFAULT;
 		goto err_get_iova;
@@ -426,7 +405,7 @@ static int iva_mem_put_ion_iova(struct iva_proc *proc,
 	if (forced_put) {
 		/* forced to unmap iova */
 		__iva_mem_map_destroy(&iva_map_node->map_ref);
-		atomic_set(&iva_map_node->map_ref.refcount, 0);
+		refcount_set(&iva_map_node->map_ref.refcount, 0);
 		return 0;
 	}
 
@@ -460,19 +439,32 @@ static int iva_mem_ion_sync_for_cpu(struct iva_proc *proc,
 			return -EINVAL;
 		}
 	#ifdef CONFIG_ION_EXYNOS
-		exynos_ion_sync_dmabuf_for_cpu(dev, dmabuf,
-				iva_map_node->act_size,	DMA_BIDIRECTIONAL);
-
+		if (iva_map_node->sg_table) {
+			dma_sync_sg_for_cpu(dev,
+					iva_map_node->sg_table->sgl,
+					iva_map_node->sg_table->nents,
+					DMA_BIDIRECTIONAL);
+		} else {
+			if (!iva_map_node->attachment)
+				iva_map_node->attachment = dma_buf_attach(dmabuf, dev);
+			if (IS_ERR(iva_map_node->attachment)) {
+				dev_err(dev, "%s: failed to attach dmabuf (err %ld)\n",
+					__func__, PTR_ERR(iva_map_node->attachment));
+				return PTR_ERR(iva_map_node->attachment);
+			}
+			iva_map_node->sg_table =
+				dma_buf_map_attachment(iva_map_node->attachment, DMA_BIDIRECTIONAL);
+		}
 	#else
 		iva_ion_sync_sg_for_cpu(iva, iva_map_node);
-
 	#endif
-	} else
+	} else {
 #ifdef ENABLE_CACHE_FLUSH_ALL
 		flush_cache_all();
 #else
 		dev_warn(dev, "%s() not supported flush_cache_all.\n", __func__);
 #endif
+	}
 
 	return 0;
 }
@@ -492,12 +484,33 @@ static int iva_mem_ion_sync_for_device(struct iva_proc *proc,
 			return -EINVAL;
 		}
 	#ifdef CONFIG_ION_EXYNOS
-		if (clean_only)
-			exynos_ion_sync_dmabuf_for_device(dev, dmabuf,
-				iva_map_node->act_size, DMA_BIDIRECTIONAL);
-		else
-			exynos_ion_flush_dmabuf_for_device(dev,
-					dmabuf, iva_map_node->act_size);
+		if (iva_map_node->sg_table) {
+			if (clean_only)
+				dma_sync_sg_for_device(dev,
+						iva_map_node->sg_table->sgl,
+						iva_map_node->sg_table->nents,
+						DMA_TO_DEVICE);
+			else
+				dma_sync_sg_for_device(dev,
+						iva_map_node->sg_table->sgl,
+						iva_map_node->sg_table->nents,
+						DMA_BIDIRECTIONAL);
+
+		} else {
+			if (!iva_map_node->attachment)
+				iva_map_node->attachment = dma_buf_attach(dmabuf, dev);
+			if (IS_ERR(iva_map_node->attachment)) {
+				dev_err(dev, "%s: failed to attach dmabuf (err %ld)\n",
+					__func__, PTR_ERR(iva_map_node->attachment));
+				return PTR_ERR(iva_map_node->attachment);
+			}
+			if (clean_only)
+				iva_map_node->sg_table =
+					dma_buf_map_attachment(iva_map_node->attachment, DMA_TO_DEVICE);
+			else
+				iva_map_node->sg_table =
+					dma_buf_map_attachment(iva_map_node->attachment, DMA_BIDIRECTIONAL);
+		}
 	#else
 		iva_ion_sync_sg_for_device(iva, iva_map_node);
 	#endif
@@ -520,7 +533,6 @@ static struct iva_mem_map *iva_mem_import_ion_buf(struct iva_proc *proc,
 	struct device		*dev = iva->dev;
 	struct iva_mem_map	*iva_map_node;
 	struct dma_buf		*dmabuf;
-	struct ion_handle	*handle;
 
 	iva_map_node = iva_mem_alloc_map_node(iva);
 	if (!iva_map_node) {
@@ -536,21 +548,7 @@ static struct iva_mem_map *iva_mem_import_ion_buf(struct iva_proc *proc,
 		goto err_buf_get;
 	}
 
-	/* create handle in space of our client */
-#if defined(CONFIG_SOC_EXYNOS8895)
-	handle = ion_import_dma_buf(iva->ion_client, IVA_MEM_GET_SHARED_FD(import_fd));
-#elif defined(CONFIG_SOC_EXYNOS9810)
-	handle = ion_import_dma_buf(iva->ion_client, dmabuf);
-#endif
-	if (IS_ERR(handle)) {
-		dev_err(dev,
-			"%s() fail to import handle with fd(%d), ret(%ld)\n",
-			__func__, import_fd, PTR_ERR(handle));
-		goto err_buf_import;
-	}
-
 	iva_map_node->shared_fd		= import_fd;
-	iva_map_node->handle		= handle;
 	iva_map_node->dmabuf		= dmabuf;
 	iva_map_node->attachment	= NULL;
 	iva_map_node->sg_table		= NULL;
@@ -560,7 +558,7 @@ static struct iva_mem_map *iva_mem_import_ion_buf(struct iva_proc *proc,
 
 	iva_map_node->flags	= 0x0;
 	SET_IVA_ALLOC_TYPE(iva_map_node->flags, IVA_ALLOC_TYPE_IMPORTED);
-	atomic_set(&iva_map_node->map_ref.refcount, 0);
+	refcount_set(&iva_map_node->map_ref.refcount, 0);
 	iva_map_node->dev	= dev;
 
 	/* lock is held */
@@ -569,8 +567,6 @@ static struct iva_mem_map *iva_mem_import_ion_buf(struct iva_proc *proc,
 
 	return iva_map_node;
 
-err_buf_import:
-	dma_buf_put(dmabuf);
 err_buf_get:
 	iva_mem_free_map_node(iva, iva_map_node);
 	return NULL;
@@ -597,8 +593,6 @@ static void iva_mem_cancel_imported_ion_buf(struct iva_proc *proc,
 	if (iva_map_node->dmabuf)	/* ion_import_dma_buf */
 		dma_buf_put(iva_map_node->dmabuf);
 
-	ion_free(iva->ion_client, iva_map_node->handle);/* destroy handle */
-
 	hash_del(&iva_map_node->h_node);
 	proc->mem_map_nr--;
 
@@ -608,7 +602,6 @@ static void iva_mem_cancel_imported_ion_buf(struct iva_proc *proc,
 static int iva_mem_ion_alloc_param(struct iva_proc *proc,
 			struct iva_ion_param *ion_param)
 {
-#define ZONE_BIT(zone)		(1 << zone)
 	struct iva_dev_data	*iva = proc->iva_data;
 	struct device		*dev = iva->dev;
 	struct iva_mem_map	*iva_map_node;
@@ -813,8 +806,6 @@ static int iva_mem_ion_sync_for_cpu_param(struct iva_proc *proc,
 static int iva_mem_ion_sync_for_device_param(struct iva_proc *proc,
 		struct iva_ion_param *ion_param)
 {
-#define SYNC_ALL_FLUSH			(0)
-#define SYNC_ALL_CLEAN			(1)
 	struct iva_mem_map	*iva_map_node;
 	struct iva_dev_data	*iva = proc->iva_data;
 	struct device		*dev = iva->dev;
@@ -922,25 +913,6 @@ void iva_mem_deinit_proc_mem(struct iva_proc *proc)
 
 int iva_mem_create_ion_client(struct iva_dev_data *iva)
 {
-#define ION_IVA_CLIENT_NAME	"iva_ion"
-	struct device		*dev = iva->dev;
-	struct ion_client	*client;
-
-#ifdef CONFIG_ION_EXYNOS
-	client = exynos_ion_client_create(ION_IVA_CLIENT_NAME);
-#else
-	iva->ion_dev = idev;
-	client = ion_client_create(iva->ion_dev, ION_IVA_CLIENT_NAME);
-#endif
-	if (IS_ERR_OR_NULL(client)) {
-		dev_err(dev, "%s(%d) ion client creation is failed..\n",
-				__func__, __LINE__);
-		return -EINVAL;
-	}
-
-	dev_dbg(dev, "%s(%d) ion device is created with client %p\n",
-				__func__, __LINE__, client);
-	iva->ion_client = client;
 
 	/* panic if kmem cache is not created */
 	iva->map_node_cache = kmem_cache_create("iva_mem",
@@ -955,10 +927,6 @@ int iva_mem_destroy_ion_client(struct iva_dev_data *iva)
 
 	kmem_cache_destroy(iva->map_node_cache);
 
-	if (iva->ion_client) {
-		ion_client_destroy(iva->ion_client);
-		iva->ion_client = NULL;
-	}
 #ifndef CONFIG_ION_EXYNOS
 	iva->ion_dev = NULL;
 #endif

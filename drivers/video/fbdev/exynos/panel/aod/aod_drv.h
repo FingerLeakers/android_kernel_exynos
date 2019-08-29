@@ -18,6 +18,19 @@
 
 #include "aod_drv_ioctl.h"
 
+#define SUPPORT_NORMAL_SELF_MOVE
+
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+enum {
+	NORMAL_SELF_MOVE_PATTERN_OFF,
+	NORMAL_SELF_MOVE_PATTERN_1,
+	NORMAL_SELF_MOVE_PATTERN_2,
+	NORMAL_SELF_MOVE_PATTERN_3,
+	NORMAL_SELF_MOVE_PATTERN_4,
+	MAX_NORMAL_SELF_MOVE_PATTERN,
+};
+#endif
+
 enum AOD_SEQ {
 	SELF_MASK_IMG_SEQ = 0,
 	SELF_MASK_ENA_SEQ,
@@ -36,6 +49,15 @@ enum AOD_SEQ {
 	ENTER_AOD_SEQ,
 	EXIT_AOD_SEQ,
 	SET_TIME_SEQ,
+	//todo ha9 need additional config for ha9
+	CTRL_ICON_SEQ,
+	DISABLE_ICON_SEQ,
+	ENABLE_PARTIAL_SCAN,
+	DISABLE_PARTIAL_SCAN,
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+	ENABLE_SELF_MOVE_SEQ,
+	DISABLE_SELF_MOVE_SEQ,
+#endif
 	MAX_AOD_SEQ,
 };
 
@@ -50,7 +72,18 @@ enum AOD_MAPTBL {
 	ICON_GRID_ON_MAPTBL,
 	SELF_MOVE_MAPTBL,
 	SELF_MOVE_POS_MAPTBL,
-	SEFL_MOVE_RESET_MAPTBL,
+	SELF_MOVE_RESET_MAPTBL,
+//todo ha9 need additional config for ha9
+	SET_TIME_RATE,
+	CTRL_ICON,
+	SET_DIGITAL_COLOR,
+	SET_DIGITAL_UN_WIDTH,
+	SET_PARTIAL_MODE,
+	SET_PARTIAL_AREA,
+	SET_PARTIAL_HLPM,
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+	SELF_MOVE_PATTERN_MAPTBL,
+#endif
 	MAX_AOD_MAPTBL,
 };
 
@@ -84,16 +117,22 @@ struct aod_ioctl_props {
 	struct clk_pos pos;
 	/* Reg: 0x77, Offset: 0x07 */
 
-	struct self_icon_info self_icon;
+	struct self_icon_info icon;
 	struct self_grid_info self_grid;
 	struct analog_clk_info analog;
 	struct digital_clk_info digital;
+	struct partial_scan_info partial;
 
 	int clk_rate;
 	int debug_interval;
 	int debug_rotate;
+	int debug_force_update;
 
 	int first_clk_update;
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+	int self_move_pattern;
+#endif
+	int prev_rotate;
 };
 
 struct aod_dev_info {
@@ -121,6 +160,9 @@ struct aod_ops {
 	int (*exit_from_lpm)(struct aod_dev_info *aod_dev);
 	int (*doze_suspend)(struct aod_dev_info *aod_dev);
 	int (*power_off)(struct aod_dev_info *aod_dev);
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+	int (*self_move_pattern_update)(struct aod_dev_info *aod_dev);
+#endif
 };
 
 int aod_drv_probe(struct panel_device *panel, struct aod_tune *aod_tune);

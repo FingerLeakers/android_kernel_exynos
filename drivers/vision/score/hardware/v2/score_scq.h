@@ -63,14 +63,13 @@ struct score_scq {
 	int				count;
 	void __iomem			*sfr;
 
-	unsigned long			state;
+	unsigned int			state;
 	struct kthread_worker		write_worker;
 	struct task_struct		*write_task;
 };
 
-/* read command from scq */
+int score_scq_send_packet(struct score_scq *scq, struct score_frame *frame);
 int score_scq_read(struct score_scq *scq, struct score_frame *frame);
-/* write command to scq */
 int score_scq_write(struct score_scq *scq, struct score_frame *frame);
 
 void score_scq_init(struct score_scq *scq);

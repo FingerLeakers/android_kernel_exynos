@@ -1,0 +1,172 @@
+/*
+ * SAMSUNG EXYNOS9820 board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+*/
+
+/dts-v1/;
+/plugin/;
+#include "exynos9820-sensorhub.dtsi"
+#include "exynos9820-display-lcd.dtsi"
+#include "battery_data_beyond2lte_common.dtsi"
+#include "exynos9820-beyond2lte_if-pmic-max77705.dtsi"
+#include <dt-bindings/clock/exynos9820.h>
+#include <dt-bindings/pci/pci.h>
+#include "exynos9820-beyond1lte_camera.dtsi"
+#include "exynos9820_evt0-beyond1lte_common.dtsi"
+#include "exynos9820-beyond2lte_fingerprint_00.dtsi"
+#include "exynos9820-beyondlte_kor-tdmb-00.dtsi"
+#include "exynos9820-beyond1lte_kor_gpio_00.dtsi"
+#include "exynos9820-beyond1lte_optics-r00.dtsi"
+
+/ {
+	compatible = "samsung,BEYOND1LTE KOR SINGLE 17", "samsung,EXYNOS9820";
+	dtbo-hw_rev = <17>;
+   	dtbo-hw_rev_end = <255>;
+
+	fragment@model {
+		target-path = "/";
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <1>;
+
+			model = "Samsung BEYOND1LTE KOR SINGLE 17 board based on EXYNOS9820";
+
+		}; /* end of __overlay__ */
+	}; /* end of fragment */
+
+	fragment@camera {
+		target-path = "/";
+		__overlay__ { 
+			fimc_is_sensor_3m3: fimc-is_sensor_3m3@5A { 
+				power_seq_id = <1>; 
+			};
+		}; /* end of __overlay__ */
+	}; /* end of fragment */
+}; /* end of root */
+
+&pinctrl_6 {
+	spi7_bus_suspend: spi7-bus-suspend {
+		samsung,pins = "gpp4-2", "gpp4-1", "gpp4-0";
+		samsung,pin-function = <0>;	/* INPUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+	};
+	spi7_cs_suspend: spi7-cs-suspend {
+		samsung,pins = "gpp4-3";
+		samsung,pin-function = <0>;	/* INPUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+	};
+};
+
+/* SPI USI_PERIC1_USI06_SPI */
+&spi_7 {
+	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	pinctrl-names = "ese_active", "ese_suspend";
+	pinctrl-0 = <&spi7_bus &spi7_cs>;
+	pinctrl-1 = <&spi7_bus_suspend &spi7_cs_suspend>;
+
+	ese_spi@0 {
+		compatible = "ese_p3";
+		reg = <0>;
+		spi-max-frequency = <13000000>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		p3-vdd-1p8= "VDD_ESE_1P8";
+
+		clocks = <&clock GATE_USI06_USI>, <&clock DOUT_CLK_PERIC1_USI06_USI>;
+		clock-names = "pclk", "sclk";
+		ese_p3,cs-gpio = <&gpp4 3 0>;
+
+		controller-data {
+			samsung,spi-feedback-delay = <0>;
+			samsung,spi-chip-select-mode = <0>;
+		};
+	};
+};
+
+&hsi2c_20 {
+	gpios = <&gpp5 0 0 &gpp5 1 0>;
+	status = "okay";
+	clock-frequency = <400000>;
+
+	sec-nfc@27 {
+		compatible = "sec-nfc";
+		reg = <0x27>;
+
+		interrupts = <2 0 0>;
+		interrupt-parent = <&gpa1>;
+
+		sec-nfc,ven-gpio = <&expander_gpios 11 0>;
+		sec-nfc,irq-gpio = <&gpa1 2 0>;
+		sec-nfc,firm-gpio = <&expander_gpios 9 0>;
+		sec-nfc,clk_req-gpio = <&gpa2 6 0xf>;
+		sec-nfc,clk_use = <2>;
+		sec-nfc,nfc_pvdd = "VDD_NFC_1P8";
+
+		clocks = <&clock OSC_NFC>;
+		clock-names = "oscclk_nfc";
+		sec-nfc,nfc_ap_clk;
+		sec-nfc,ldo_control;
+	};
+};
+
+&spi_17 {
+	BCM4773@0 {
+		ssp-acc-position = <7>;
+		ssp-mag-position = <7>;
+		ssp-mag-array = /bits/ 8 <105 83 186 37 145 10 0 219 211 55 95 238 225 25 0 168 255 108 134 7 
+					191 253 92 99 10 153 28>;
+		ssp-thermi-up = /bits/ 16 <3012 2985 2945 2901 2841 2801 2733 2637 2528 2408 2288 2128 1976 1818
+					1658 1486 1330 1184 1046 915 798 689 599>;
+		ssp-thermi-sub = /bits/ 16 <3012 2985 2945 2901 2841 2801 2733 2637 2528 2408 2288 2128 1976 1818
+					1658 1486 1330 1184 1046 915 798 689 599>;
+	};
+};
+
+&hsi2c_10 {
+	touchscreen@48 {
+		sec,bringup = <1>;
+	};
+};
+
+&hsi2c_21 {
+	fimc-is-actuator@0D {
+		reg = <0x0C>;
+	};
+
+	front_eeprom@51 {
+		reg = <0x54>;
+		rom_size = <0x8000>; /* will modify soon as (single : 0x34FF, dual : 0x39FF) */
+		skip_cal_loading;
+
+		/* Beyond_Front_Cal_Map_V004_20180709_for_LSI */
+		/* 0 header */
+		crc_check_list = <0x0000 0x013F 0x01FC
+							0x0200 0x34DF 0x34FC>;
+	};
+};
+
+&speedy {
+	s2mps19mfd@00 {
+		regulators {
+			/* necessary for rev0.1 tele camera*/
+			ldo25_reg: LDO25M {
+				regulator-name = "VDDIO_1.8V_FRONTSUB";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+				regulator-ramp-delay = <12000>;
+				regulator-initial-mode = <3>;
+			};
+		};
+	};
+};

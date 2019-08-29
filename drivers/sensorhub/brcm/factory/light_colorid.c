@@ -42,9 +42,9 @@ struct light_coef_predefine_item light_coef_predefine_table[COLOR_NUM+1] = {
 };
 #else
 struct light_coef_predefine_item light_coef_predefine_table[COLOR_NUM+1] = {
-	{180509,	COLOR_ID_DEFAULT,	{-170, 80, -290, 1000, 2266, 1112, 1370},	{2300, 1000}, 550},
-	{180509,	COLOR_ID_UTYPE,		{-170, 80, -290, 1000, 2266, 1112, 1370},	{2300, 1000}, 550},
-	{180509,	COLOR_ID_BLACK,		{-170, 80, -290, 1000, 2266, 1112, 1370},	{2300, 1000}, 550},
+	{181204,	COLOR_ID_DEFAULT,	{-947, -425, -1777, 1754, 3588, 1112, 1370},	{0, 0}, 550},
+	{181204,	COLOR_ID_UTYPE,		{-947, -425, -1777, 1754, 3588, 1112, 1370},	{0, 0}, 550},
+	{181204,	COLOR_ID_BLACK,		{-947, -425, -1777, 1754, 3588, 1112, 1370},	{0, 0}, 550},
 };
 #endif
 
@@ -213,7 +213,7 @@ bool light_colorid_check_efs_version(void)
 	return true;
 }
 
-int light_colorid_write_predefined_file(int color_id, int coef[], int thresh[],  int thresh_alert)
+int light_colorid_write_predefined_file(struct ssp_data *data, int color_id, int coef[], int thresh[],  int thresh_alert)
 {
 	int iRet = 0, crc;
 	mm_segment_t old_fs;
@@ -225,6 +225,37 @@ int light_colorid_write_predefined_file(int color_id, int coef[], int thresh[], 
 	set_fs(KERNEL_DS);
 
 	snprintf(file_name, sizeof(file_name), "%s%d", PREDEFINED_FILE_NAME, color_id);
+
+	// this value is temporary. Origainal value is in light_coef_predefine_table array.
+	// we normally use light_coef_predefine_table array.
+	if(data->ap_type == B0) {
+		if(data->ap_rev < 23) {
+			thresh[0]= REV06A_THRESHOLD_HIGH;
+			thresh[1] = REV06A_THRESHOLD_LOW;
+		}
+	}
+	else if(data->ap_type == B1) {
+		if (data->ap_rev < 20) {
+			thresh[0] = L_CUT_THRESHOLD_HIGH_B1;
+			thresh[1] = L_CUT_THRESHOLD_LOW_B1;
+		}
+		else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
+				(data->ap_rev == 24)) {
+			thresh[0]= REV06A_THRESHOLD_HIGH;
+			thresh[1]= REV06A_THRESHOLD_LOW;
+		}
+	}
+	else if (data->ap_type == B2) {
+		if (data->ap_rev <= 1) {
+			thresh[0] = L_CUT_THRESHOLD_HIGH;
+			thresh[1] = L_CUT_THRESHOLD_LOW;
+		}
+		else if((data->ap_rev > 1 && data->ap_rev < 23) || 
+				(data->ap_rev == 24)) {
+			thresh[0]= REV06A_THRESHOLD_HIGH;
+			thresh[1]= REV06A_THRESHOLD_LOW;
+		}
+	}
 
 	crc = coef[0] + coef[1] + coef[2] + coef[3] + coef[4] + coef[5] + coef[6]
 		+ thresh[0] + thresh[1] + thresh_alert;
@@ -398,7 +429,7 @@ int light_colorid_read_predefined_file(int color_id, int coef[], unsigned int th
 
 
 
-int light_colorid_write_all_predefined_data(void)
+int light_colorid_write_all_predefined_data(struct ssp_data *data)
 {
 	int i, version = -1, iRet = 0;
 	char str_ids[COLOR_ID_IDS_LENGTH] = "";
@@ -409,6 +440,7 @@ int light_colorid_write_all_predefined_data(void)
 		char buf[5];
 
 		iRet = light_colorid_write_predefined_file(
+			data,
 			light_coef_predefine_table[i].color_id,
 			light_coef_predefine_table[i].coef,
 			light_coef_predefine_table[i].thresh,
@@ -433,31 +465,156 @@ int light_colorid_write_all_predefined_data(void)
 	return iRet;
 }
 
+void initialize_light_colorid_do_task(struct work_struct *work)
+{
+	struct ssp_data *data = container_of((struct delayed_work *)work,
+	                                     struct ssp_data, work_ssp_light_efs_file_init);
+
+	pr_info("[SSP] %s, is called efs file status %d \n", __func__, data->light_efs_file_status);
+
+	if (data->light_efs_file_status < 0) {
+		if (initialize_light_colorid(data) < 0)
+			pr_err("[SSP]: %s - initialize light colorid failed\n", __func__);
+	}
+	
+}
+
 int initialize_light_colorid(struct ssp_data *data)
 {
 	int color_id, ret;
 	unsigned int thresh[2];
 	unsigned int thresh_alert = 0;
+	data->light_efs_file_status = 0;
 
 	if (!light_colorid_check_efs_version())
-		light_colorid_write_all_predefined_data();
+		light_colorid_write_all_predefined_data(data);
 
 	color_id = light_corloid_read_colorid();
 
 	ret = light_colorid_read_predefined_file(color_id, data->light_coef, thresh, &thresh_alert);
-	if (ret < 0)
-		pr_err("[SSP] %s - read predefined file failed : ret %d\n", __func__, ret);
+	if (ret < 0) {
+		data->light_efs_file_status = ret;
+		pr_err("[SSP] %s - read predefined file failed : ret %d\n", __func__, data->light_efs_file_status);
+	}
 
-	data->uProxHiThresh = thresh[0];
-	data->uProxLoThresh = thresh[1];
-	data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-	data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD;
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+	// if efs file can't open and read
+	if (data->light_efs_file_status < 0) {
+
+		if(data->ap_type == B0) {
+			if(data->ap_rev < 23) {
+				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
+				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
+			}
+			else {
+				data->uProxHiThresh = thresh[0];
+				data->uProxLoThresh = thresh[1];
+			}
+		}
+		else if(data->ap_type == B1) {
+			if (data->ap_rev < 20) {
+				data->uProxHiThresh = L_CUT_THRESHOLD_HIGH_B1;
+				data->uProxLoThresh = L_CUT_THRESHOLD_LOW_B1;
+			}
+			else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
+				(data->ap_rev == 24)) {
+				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
+				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
+			}
+			else {
+				data->uProxHiThresh = thresh[0];
+				data->uProxLoThresh = thresh[1];
+			}
+		}
+		else if (data->ap_type == B2) {
+			if (data->ap_rev <= 1) {
+				data->uProxHiThresh = L_CUT_THRESHOLD_HIGH;
+				data->uProxLoThresh = L_CUT_THRESHOLD_LOW;
+			}
+			else if((data->ap_rev > 1 && data->ap_rev < 23) || 
+					(data->ap_rev == 24)) {
+				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
+				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
+			}
+			else {
+				data->uProxHiThresh = thresh[0];
+				data->uProxLoThresh = thresh[1];
+			}
+		}
+		else {//if(data->ap_type == BX) {
+			if (data->ap_rev < 4) {
+				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
+				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
+			}
+			else {
+				data->uProxHiThresh = thresh[0];
+				data->uProxLoThresh = thresh[1];
+			}
+		}
+	}
+	else {
+		data->uProxHiThresh = thresh[0];
+		data->uProxLoThresh = thresh[1];
+	}
+
+
+	if(data->ap_type == B0) {
+		data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+		data->uProxLoThresh_detect = data->uProxLoThresh;
+	}
+	else if(data->ap_type == B1) {
+		if (data->ap_rev < 20) {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = L_CUT_THRESHOLD_LOW_B1;
+		}
+		else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
+				(data->ap_rev == 24)) {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
+		}
+		else {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = data->uProxLoThresh;
+		}
+	}
+	else if(data->ap_type == B2) {
+		if(data->ap_rev <= 1) {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD_FOR_LCUT;
+		}
+		else if((data->ap_rev > 1 && data->ap_rev < 23) || 
+				(data->ap_rev == 24)) {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
+		}
+		else {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = data->uProxLoThresh;
+		}
+	} else {
+		if(data->ap_rev < 4) {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
+		}
+		else {
+			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+			data->uProxLoThresh_detect = data->uProxLoThresh;
+		}
+	}
+#else
+		data->uProxHiThresh = thresh[0];
+		data->uProxLoThresh = thresh[1];
+		data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+		data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD;
+#endif
 
 	data->uProxAlertHiThresh = thresh_alert;
 
 	set_light_coef(data);
 
-	pr_info("[SSP] %s - finished id %d\n", __func__, color_id);
+	pr_info("[SSP] %s - finished id %d, ap-type %d, ap-rev %d, efs file status %d, threshold %d %d %d %d \n"
+		, __func__, color_id, data->ap_type, data->ap_rev, data->light_efs_file_status, 
+		data->uProxHiThresh, data->uProxLoThresh, data->uProxHiThresh_detect, data->uProxLoThresh_detect);
 
 	return 0;
 }
@@ -564,9 +721,10 @@ ssize_t light_hiddenhole_version_store(struct device *dev,
 ssize_t light_hiddendhole_hh_write_all_data_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+	struct ssp_data *data = dev_get_drvdata(dev);
 	int ret = 0, err = 0;
 
-	ret = light_colorid_write_all_predefined_data();
+	ret = light_colorid_write_all_predefined_data(data);
 
 	if (ret >= 0) {
 		int coef[7], i;
@@ -692,7 +850,9 @@ ssize_t  light_hiddendhole_is_exist_efs_show(struct device *dev,
 
 ssize_t light_hiddendhole_check_coef_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d", 1);
+	struct ssp_data *data = dev_get_drvdata(dev);
+	pr_info("[SSP] %s ", __func__);
+	return snprintf(buf, PAGE_SIZE, "%d", data->light_efs_file_status);
 }
 ssize_t light_hiddendhole_check_coef_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)

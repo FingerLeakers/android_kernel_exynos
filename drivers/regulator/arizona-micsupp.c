@@ -55,20 +55,25 @@ static void arizona_micsupp_check_cp(struct work_struct *work)
 	struct arizona_micsupp *micsupp =
 		container_of(work, struct arizona_micsupp, check_cp_work);
 	struct snd_soc_dapm_context *dapm = *micsupp->dapm;
+	struct snd_soc_component *component;
 	struct arizona_micsupp_forced_bypass *bypass = &micsupp->forced_bypass;
 	bool sync = false;
 
 	if (dapm) {
+		component = snd_soc_dapm_to_component(dapm);
+
 		snd_soc_dapm_mutex_lock(dapm);
 		mutex_lock(&bypass->lock);
 
 		if (!bypass->forced) {
 			if (bypass->enabled && bypass->regulated)
-				snd_soc_dapm_force_enable_pin_unlocked(dapm,
+				snd_soc_component_force_enable_pin_unlocked(
+								component,
 								"MICSUPP");
 			else
-				snd_soc_dapm_disable_pin_unlocked(dapm,
-								  "MICSUPP");
+				snd_soc_component_disable_pin_unlocked(
+								component,
+								"MICSUPP");
 			sync = true;
 		}
 

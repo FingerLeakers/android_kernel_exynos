@@ -133,6 +133,11 @@ static void kgdboc_unregister_kbd(void)
 
 static int kgdboc_option_setup(char *opt)
 {
+	if (!opt) {
+		pr_err("kgdboc: config string not provided\n");
+		return -EINVAL;
+	}
+
 	if (strlen(opt) >= MAX_CONFIG_LEN) {
 		printk(KERN_ERR "kgdboc: config string too long\n");
 		return -ENOSPC;
@@ -245,7 +250,8 @@ static void kgdboc_put_char(u8 chr)
 					kgdb_tty_line, chr);
 }
 
-static int param_set_kgdboc_var(const char *kmessage, struct kernel_param *kp)
+static int param_set_kgdboc_var(const char *kmessage,
+				const struct kernel_param *kp)
 {
 	int len = strlen(kmessage);
 

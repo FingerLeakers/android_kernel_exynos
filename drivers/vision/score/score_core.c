@@ -42,7 +42,8 @@ static int score_ioctl_boot(struct score_context *sctx,
 	if (ret)
 		goto p_err_open;
 
-	ret = score_device_start(core->device, boot->firmware_id, boot->flag);
+	ret = score_device_start(core->device, boot->firmware_id,
+			boot->pm_level, boot->flag);
 	if (ret)
 		goto p_err_start;
 
@@ -87,19 +88,16 @@ static int score_ioctl_set_dvfs(struct score_context *sctx,
 
 	score_enter();
 	pm = &sctx->core->device->pm;
-	score_pm_qos_update(pm, dvfs->request_qos);
+	ret = score_pm_qos_update(pm, dvfs->request_qos);
+	if (ret)
+		goto p_err;
+
 	ret = score_pm_qos_get_info(pm,
 			&cur_dvfs.qos_count, &cur_dvfs.min_qos,
 			&cur_dvfs.max_qos, &cur_dvfs.default_qos,
 			&cur_dvfs.current_qos);
 	if (ret) {
 		score_warn("runtime pm is not supported (%d)\n", ret);
-		goto p_err;
-	}
-
-	if (dvfs->request_qos > cur_dvfs.min_qos ||
-			dvfs->request_qos < cur_dvfs.max_qos) {
-		ret = -EINVAL;
 		goto p_err;
 	}
 
@@ -116,6 +114,7 @@ static int score_ioctl_request(struct score_context *sctx,
 	int ret = 0;
 	struct score_core *core;
 	struct score_system *system;
+	struct score_frame_manager *framemgr;
 	struct score_frame *frame;
 	struct score_mmu_packet packet;
 
@@ -135,8 +134,8 @@ static int score_ioctl_request(struct score_context *sctx,
 	}
 
 	system = sctx->system;
-	frame = score_frame_create(&system->interface.framemgr, sctx,
-			TYPE_BLOCK);
+	framemgr = &system->interface.framemgr;
+	frame = score_frame_create(framemgr, sctx, TYPE_BLOCK);
 	if (IS_ERR(frame)) {
 		req->ret = PTR_ERR(frame);
 		goto p_err;
@@ -210,9 +209,11 @@ static int score_ioctl_request_nonblock(struct score_context *sctx,
 	int ret = 0;
 	struct score_core *core;
 	struct score_system *system;
+	struct score_frame_manager *framemgr;
 	struct score_frame *frame;
 	struct score_mmu_packet packet;
 	int frame_type;
+	unsigned long flags;
 
 	score_enter();
 	core = sctx->core;
@@ -230,13 +231,13 @@ static int score_ioctl_request_nonblock(struct score_context *sctx,
 	}
 
 	system = sctx->system;
+	framemgr = &system->interface.framemgr;
 	if (wait)
 		frame_type = TYPE_NONBLOCK;
 	else
 		frame_type = TYPE_NONBLOCK_NOWAIT;
 
-	frame = score_frame_create(&system->interface.framemgr,
-			sctx, frame_type);
+	frame = score_frame_create(framemgr, sctx, frame_type);
 	if (IS_ERR(frame)) {
 		ret = PTR_ERR(frame);
 		goto p_err;
@@ -265,7 +266,14 @@ static int score_ioctl_request_nonblock(struct score_context *sctx,
 p_err_queue:
 	score_mmu_packet_unprepare(&system->mmu, &packet);
 p_err_prepare:
-	score_frame_destroy(frame);
+	spin_lock_irqsave(&framemgr->slock, flags);
+	if (score_frame_check_type(frame, TYPE_NONBLOCK_NOWAIT) ||
+			score_frame_check_type(frame, TYPE_NONBLOCK))
+		score_frame_set_type_remove(frame);
+	spin_unlock_irqrestore(&framemgr->slock, flags);
+
+	if (score_frame_check_type(frame, TYPE_NONBLOCK_REMOVE))
+		score_frame_destroy(frame);
 p_err:
 	req->ret = ret;
 	return 0;
@@ -286,7 +294,8 @@ static int score_ioctl_request_wait(struct score_context *sctx,
 	if (!frame) {
 		spin_unlock_irqrestore(&framemgr->slock, flags);
 		req->ret = -EINVAL;
-		score_warn("frame is already completed (%d)\n", req->task_id);
+		score_warn("frame is already completed (%u,%u)\n",
+				req->task_id, sctx->id);
 		goto p_err_frame;
 	} else {
 		if (score_frame_check_type(frame, TYPE_NONBLOCK)) {
@@ -294,7 +303,7 @@ static int score_ioctl_request_wait(struct score_context *sctx,
 		} else {
 			spin_unlock_irqrestore(&framemgr->slock, flags);
 			req->ret = -EINVAL;
-			score_warn("frame isn't nonblock (%d, %u-%u, %u)\n",
+			score_warn("frame isn't nonblock (%d,%u,%u,%u)\n",
 					frame->type, frame->sctx->id,
 					frame->frame_id, frame->kernel_id);
 			goto p_err_frame;

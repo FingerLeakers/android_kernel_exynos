@@ -144,6 +144,12 @@ struct vclk {
 };
 
 enum clk_pll_type {
+	PLL_0831X = 8310,
+	PLL_0817X = 8170,
+	PLL_0818X = 8180,
+	PLL_0820X = 8200,
+	PLL_0821X = 8210,
+	PLL_0822X = 8220,
 	PLL_1416X = 14160,
 	PLL_1417X = 14170,
 	PLL_1418X = 14180,
@@ -164,6 +170,8 @@ enum clk_pll_type {
 	PLL_1018X = 10180,
 	PLL_1019X = 10190,
 	PLL_1031X = 10310,
+
+	DPL_L0817X= 138170,
 };
 
 enum margin_id {
@@ -181,13 +189,11 @@ enum margin_id {
 	MARGIN_AUD,
 	MARGIN_IVA,
 	MARGIN_SCORE,
+	MARGIN_MFC,
+	MARGIN_NPU,
+	MARGIN_MID,
 	MAX_MARGIN_ID,
 };
-
-#if defined(CONFIG_SAMSUNG_VST_CAL)
-#define NAD_CRC_MAGIC           (0x95252A)
-#define NAD_VST_CAL_VOLT	25000
-#endif
 
 #define IS_FIXED_RATE(_id)	((_id & MASK_OF_TYPE) == FIXED_RATE_TYPE)
 #define IS_FIXED_FACTOR(_id)	((_id & MASK_OF_TYPE) == FIXED_FACTOR_TYPE)
@@ -599,4 +605,6 @@ extern void *cmucal_get_sfr_node(unsigned int id);
 extern unsigned int cmucal_get_id(char *name);
 extern unsigned int cmucal_get_id_by_addr(unsigned int addr);
 extern void (*cal_data_init)(void);
+extern int (*cal_check_hiu_dvfs_id)(u32 id);
+extern void (*cal_set_cmu_smpl_warn)(void);
 #endif

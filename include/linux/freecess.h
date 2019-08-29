@@ -15,7 +15,8 @@
 #define MOD_BINDER             1
 #define MOD_SIG                2
 #define MOD_PKG                3
-#define MOD_END                4 
+#define MOD_CFB                4
+#define MOD_END                5
 
 typedef enum {
 	ADD_UID,
@@ -46,6 +47,7 @@ typedef void (*freecess_hook)(void* data, unsigned int len);
 int sig_report(struct task_struct *caller, struct task_struct *p);
 int binder_report(struct task_struct *caller, struct task_struct *p, int flag);
 int pkg_report(int target_uid);
+int cfb_report(int target_uid, const char *reason);
 int register_kfreecess_hook(int mod, freecess_hook hook);
 int unregister_kfreecess_hook(int mod);
 int pkg_stat_show(struct seq_file *m, void *v);

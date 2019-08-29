@@ -34,8 +34,8 @@
 
 #define LDFW_MAX_NUM				(7)
 
-/* Message buffer information */
-#define MIN_LOG_BUF_LEN				(0x10000)	/* 64KB */
+/* Secure log buffer information */
+#define SECLOG_LOG_BUF_SIZE			(0x10000)
 
 /* Alignment with 4 bytes */
 #define FOUR_BYTES_SHIFT			(2)

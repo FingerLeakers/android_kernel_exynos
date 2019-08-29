@@ -34,7 +34,7 @@
 #include <net/rtnetlink.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <linux/if_vlan.h>
 #include "vlan.h"
@@ -44,7 +44,7 @@
 
 /* Global VLAN variables */
 
-int vlan_net_id __read_mostly;
+unsigned int vlan_net_id __read_mostly;
 
 const char vlan_fullname[] = "802.1Q VLAN Support";
 const char vlan_version[] = DRV_VERSION;
@@ -111,12 +111,7 @@ void unregister_vlan_dev(struct net_device *dev, struct list_head *head)
 		vlan_gvrp_uninit_applicant(real_dev);
 	}
 
-	/* Take it out of our own structures, but be sure to interlock with
-	 * HW accelerating devices or SW vlan input packet processing if
-	 * VLAN is not 0 (leave it there for 802.1p).
-	 */
-	if (vlan_id)
-		vlan_vid_del(real_dev, vlan->vlan_proto, vlan_id);
+	vlan_vid_del(real_dev, vlan->vlan_proto, vlan_id);
 
 	/* Get rid of the vlan's reference to real_dev */
 	dev_put(real_dev);
@@ -376,6 +371,9 @@ static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 			dev->name);
 		vlan_vid_add(dev, htons(ETH_P_8021Q), 0);
 	}
+	if (event == NETDEV_DOWN &&
+	    (dev->features & NETIF_F_HW_VLAN_CTAG_FILTER))
+		vlan_vid_del(dev, htons(ETH_P_8021Q), 0);
 
 	vlan_info = rtnl_dereference(dev->vlan_info);
 	if (!vlan_info)
@@ -422,9 +420,6 @@ static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 	case NETDEV_DOWN: {
 		struct net_device *tmp;
 		LIST_HEAD(close_list);
-
-		if (dev->features & NETIF_F_HW_VLAN_CTAG_FILTER)
-			vlan_vid_del(dev, htons(ETH_P_8021Q), 0);
 
 		/* Put all VLANs for this dev in the down state too.  */
 		vlan_group_for_each_dev(grp, i, vlandev) {
@@ -516,8 +511,8 @@ static int vlan_ioctl_handler(struct net *net, void __user *arg)
 		return -EFAULT;
 
 	/* Null terminate this sucker, just in case. */
-	args.device1[23] = 0;
-	args.u.device2[23] = 0;
+	args.device1[sizeof(args.device1) - 1] = 0;
+	args.u.device2[sizeof(args.u.device2) - 1] = 0;
 
 	rtnl_lock();
 
@@ -572,8 +567,7 @@ static int vlan_ioctl_handler(struct net *net, void __user *arg)
 		err = -EPERM;
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			break;
-		if ((args.u.name_type >= 0) &&
-		    (args.u.name_type < VLAN_NAME_TYPE_HIGHEST)) {
+		if (args.u.name_type < VLAN_NAME_TYPE_HIGHEST) {
 			struct vlan_net *vn;
 
 			vn = net_generic(net, vlan_net_id);
@@ -670,7 +664,7 @@ static struct sk_buff **vlan_gro_receive(struct sk_buff **head,
 out_unlock:
 	rcu_read_unlock();
 out:
-	NAPI_GRO_CB(skb)->flush |= flush;
+	skb_gro_flush_final(skb, pp, flush);
 
 	return pp;
 }

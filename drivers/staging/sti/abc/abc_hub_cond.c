@@ -25,9 +25,10 @@
 #include <asm/io.h>
 
 #define SEC_CONN_PRINT(format, ...) pr_info("[ABC_COND] " format, ##__VA_ARGS__)
-#define WEINT_GPA2_CON		0x14050708
-#define NWEINT_GPM06_CON	0x14220718
-#define NWEINT_GPM07_CON	0x1422071C
+#define NWEINT_GPM23_CON		0x15c3075C
+#define WEINT_GPA3_CON		0x1585070C
+#define WEINT_GPM18_CON		0x15c30748
+
 
 static void detect_con_weint_dump(void)
 {
@@ -35,13 +36,21 @@ static void detect_con_weint_dump(void)
 	void __iomem *sub_int_reg;
 	void __iomem *cam_int_reg;
 
-	ub_int_reg = ioremap(WEINT_GPA2_CON, 0x10);
-    sub_int_reg = ioremap(NWEINT_GPM06_CON, 0x10);
-    cam_int_reg = ioremap(NWEINT_GPM07_CON, 0x10);
+	u32 ub_tmp_reg;
+	u32 sub_tmp_reg;
+	u32 cam_tmp_reg;
+	
+	ub_int_reg = ioremap(NWEINT_GPM23_CON, 0x10);
+	sub_int_reg = ioremap(WEINT_GPA3_CON, 0x10);
+	cam_int_reg = ioremap(WEINT_GPM18_CON, 0x10);
 
-	SEC_CONN_PRINT("GPA2[5] 0x14050708: %#x\n", readl(ub_int_reg));
-    SEC_CONN_PRINT("GPM0[6] 0x14220718: %#x\n", readl(sub_int_reg));
-	SEC_CONN_PRINT("GPM0[7] 0x1422071c: %#x\n", readl(cam_int_reg));
+	ub_tmp_reg = readl(ub_int_reg);
+	sub_tmp_reg = readl(sub_int_reg);
+	cam_tmp_reg = readl(cam_int_reg);
+
+	SEC_CONN_PRINT("GPM23[0] 0x15c3075C: %#x\n", ub_tmp_reg);
+	SEC_CONN_PRINT("GPA3[3] :0x1585070C: %#x\n", sub_tmp_reg);
+	SEC_CONN_PRINT("GPM18[0] 0x15c30748: %#x\n", cam_tmp_reg);
 
 	iounmap(ub_int_reg);
 	iounmap(sub_int_reg);
@@ -69,8 +78,6 @@ static irqreturn_t abc_hub_cond_interrupt_handler(int irq, void *handle)
 			if (gpio_get_value(pinfo->pdata->cond_pdata.irq_gpio[i])) {
 				if (i == 0)
 					abc_hub_send_event("MODULE:cond@ERROR:ub");
-				else if (i == 1)
-					abc_hub_send_event("MODULE:cond@ERROR:sub");
 				else
 					abc_hub_send_event("MODULE:cond@ERROR:cam");
 			}

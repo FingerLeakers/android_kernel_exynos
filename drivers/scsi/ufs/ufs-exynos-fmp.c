@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 Samsung Electronics Co., Ltd.
+ * Author: Boojin Kim <boojin.kim@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -9,406 +10,203 @@
 
 #include <linux/module.h>
 #include <linux/of.h>
+#include <crypto/diskcipher.h>
 #include <crypto/fmp.h>
+#include "ufshcd.h"
+#include "ufs-exynos.h"
 
-#include "ufs-exynos-fmp.h"
-
-static int check_data_equal(void *data1, void *data2)
+/* smu functions */
+#if defined(CONFIG_SCSI_UFS_EXYNOS_SMU)
+static void exynos_ufs_smu_entry0_init(struct exynos_ufs *ufs)
 {
-	return data1 == data2;
+	writel(0x0, ufs->reg_ufsp + UFSPSBEGIN0);
+	writel(0xffffffff, ufs->reg_ufsp + UFSPSEND0);
+	writel(0xff, ufs->reg_ufsp + UFSPSLUN0);
+	writel(0xf1, ufs->reg_ufsp + UFSPSCTRL0);
 }
 
-static int is_valid_bio_data(struct bio *bio)
+int exynos_ufs_smu_init(struct exynos_ufs *ufs)
 {
-	if (bio->fmp_ci.private_enc_mode < 0 ||
-			bio->fmp_ci.private_enc_mode > EXYNOS_FMP_DISK_ENC)
-		return false;
+	if (!ufs)
+		return 0;
 
-	if (bio->fmp_ci.private_algo_mode < 0 ||
-			bio->fmp_ci.private_algo_mode > EXYNOS_FMP_ALGO_MODE_AES_XTS)
-		return false;
+	if (ufs->smu == SMU_ID_MAX) {
+		exynos_ufs_smu_entry0_init(ufs);
+		return 0;
+	}
 
-	return true;
+	dev_info(ufs->dev, "%s with id:%d\n", __func__, ufs->smu);
+	return exynos_smu_init(ufs->smu, SMU_INIT);
 }
 
-static int exynos_ufs_fmp_key_size_cfg(struct fmp_crypto_setting *crypto,
-					uint32_t size)
+int exynos_ufs_smu_resume(struct exynos_ufs *ufs)
 {
-	int ret = 0;
+	int fmp_id;
 
-	if (!crypto || !size) {
-		pr_err("%s: Invalid fmp data or size.\n", __func__);
-		ret = -EINVAL;
-		goto out;
+	if (!ufs)
+		return 0;
+
+	if (ufs->smu < SMU_ID_MAX)
+		fmp_id = ufs->smu;
+	else if (ufs->fmp < SMU_ID_MAX)
+		fmp_id = ufs->fmp;
+	else {
+		exynos_ufs_smu_entry0_init(ufs);
+		return 0;
 	}
 
-	if (crypto->algo_mode == EXYNOS_FMP_ALGO_MODE_AES_XTS)
-		size = size >> 1;
-
-	switch (size) {
-	case FMP_KEY_SIZE_16:
-		crypto->key_size = EXYNOS_FMP_KEY_SIZE_16;
-		break;
-	case FMP_KEY_SIZE_32:
-		crypto->key_size = EXYNOS_FMP_KEY_SIZE_32;
-		break;
-	default:
-		pr_err("%s: FMP doesn't support key size %d\n", __func__, size);
-		ret = -EINVAL;
-		goto out;
-	}
-out:
-	return ret;
+	dev_info(ufs->dev, "%s with id:%d\n", __func__, fmp_id);
+	return exynos_smu_resume(fmp_id);
 }
 
-static int exynos_ufs_fmp_iv_cfg(struct fmp_crypto_setting *crypto,
-					sector_t sector, pgoff_t page_index,
-					int sector_offset)
+int exynos_ufs_smu_abort(struct exynos_ufs *ufs)
 {
-	int ret = 0;
+	if (!ufs || (ufs->smu == SMU_ID_MAX))
+		return 0;
 
-	if (!crypto) {
-		pr_err("%s: Invalid fmp data\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
+	dev_info(ufs->dev, "%s with id:%d\n", __func__, ufs->smu);
+	return exynos_smu_abort(ufs->smu, SMU_ABORT);
+}
+#endif
+/* fmp functions */
+#ifdef CONFIG_SCSI_UFS_EXYNOS_FMP
+int exynos_ufs_fmp_sec_cfg(struct exynos_ufs *ufs)
+{
+	if (!ufs || (ufs->fmp == SMU_ID_MAX))
+		return 0;
 
-	crypto->index = (uint32_t)page_index;
-	crypto->sector = sector + (sector_t)sector_offset;
-out:
-	return ret;
+	if (ufs->fmp != SMU_EMBEDDED)
+		dev_err(ufs->dev, "%s is fails id:%d\n",
+				__func__, ufs->fmp);
+
+
+	dev_info(ufs->dev, "%s with id:%d\n", __func__, ufs->fmp);
+	return exynos_fmp_sec_config(ufs->fmp);
 }
 
-static int exynos_ufs_fmp_key_cfg(struct fmp_crypto_setting *crypto,
-					unsigned char *key,
-					unsigned long key_length)
-{
-	int ret = 0;
-
-	if (!crypto) {
-		pr_err("%s: Invalid fmp data\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-	memset(crypto->key, 0, FMP_MAX_KEY_SIZE);
-	memcpy(crypto->key, key, key_length);
-out:
-	return ret;
-}
-
-static int exynos_ufs_fmp_disk_cfg(struct scsi_cmnd *cmd,
-					struct fmp_crypto_setting *crypto,
-					int sector_offset)
-{
-	int ret = 0;
-	struct bio *bio = cmd->request->bio;
-
-	if (!crypto) {
-		pr_err("%s: Invalid fmp data\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	memset(crypto, 0, sizeof(struct fmp_crypto_setting));
-
-	crypto->enc_mode = EXYNOS_FMP_DISK_ENC;
-
-	if (!bio || !virt_addr_valid(bio))
-		goto bypass_out;
-
-	if ((bio->fmp_ci.private_algo_mode == EXYNOS_FMP_BYPASS_MODE) ||
-			/* direct IO case */
-			(bio->fmp_ci.private_enc_mode == EXYNOS_FMP_FILE_ENC))
-		goto bypass_out;
-
-	if (!is_valid_bio_data(bio))
-		goto bypass_out;
-
-	if (!bio->fmp_ci.key) {
-		pr_err("%s: Invalid disk key\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	crypto->algo_mode = bio->fmp_ci.private_algo_mode;
-	ret = exynos_ufs_fmp_key_size_cfg(crypto, bio->fmp_ci.key_length);
-	if (ret)
-		goto bypass_out;
-
-	ret = exynos_ufs_fmp_iv_cfg(crypto, bio->bi_iter.bi_sector, 0,
-					sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure fmp iv. ret(%d)\n",
-				__func__, ret);
-		ret = -EINVAL;
-		goto out;
-	}
-out:
-	return ret;
-bypass_out:
-	crypto->algo_mode = EXYNOS_FMP_BYPASS_MODE;
-	ret = 0;
-	return ret;
-}
-
-static int exynos_ufs_fmp_direct_io_cfg(struct scsi_cmnd *cmd,
-					struct fmp_crypto_setting *crypto,
-					int sector_offset)
-{
-	int ret = 0;
-	struct bio *bio = cmd->request->bio;
-
-	if (!crypto) {
-		pr_err("%s: Invalid fmp data\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	memset(crypto, 0, sizeof(struct fmp_crypto_setting));
-
-	crypto->enc_mode = EXYNOS_FMP_FILE_ENC;
-
-	if (!bio || !virt_addr_valid(bio) || (bio->fmp_ci.private_algo_mode == EXYNOS_FMP_BYPASS_MODE))
-		goto bypass_out;
-
-	if (!is_valid_bio_data(bio))
-		goto bypass_out;
-
-	crypto->algo_mode = bio->fmp_ci.private_algo_mode;
-	ret = exynos_ufs_fmp_key_size_cfg(crypto, bio->fmp_ci.key_length);
-	if (ret)
-		goto bypass_out;
-
-	ret = exynos_ufs_fmp_iv_cfg(crypto, bio->bi_iter.bi_sector, 0,
-					sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure fmp iv. ret(%d)\n",
-				__func__, ret);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	ret = exynos_ufs_fmp_key_cfg(crypto, bio->fmp_ci.key,
-					bio->fmp_ci.key_length);
-	if (ret) {
-		pr_err("%s: Fail to configure fmp key. ret(%d)\n",
-				__func__, ret);
-		ret = -EINVAL;
-		goto out;
-	}
-out:
-	return ret;
-bypass_out:
-	crypto->algo_mode = EXYNOS_FMP_BYPASS_MODE;
-	ret = 0;
-	return ret;
-}
-
-static int exynos_ufs_fmp_file_cfg(struct scsi_cmnd *cmd,
-					struct page *page,
-					struct fmp_crypto_setting *crypto,
-					int sector_offset)
-{
-	int ret = 0;
-	struct bio *bio = cmd->request->bio;
-	struct _fmp_ci *ci;
-
-	if (!crypto) {
-		pr_err("%s: Invalid fmp data\n", __func__);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	memset(crypto, 0, sizeof(struct fmp_crypto_setting));
-
-	if (!page || PageAnon(page))
-		goto bypass_out;
-
-	if (!page->mapping || !virt_addr_valid(page->mapping) || !bio || !virt_addr_valid(bio))
-		goto bypass_out;
-
-	ci = &page->mapping->fmp_ci;
-
-	if (ci->private_algo_mode == EXYNOS_FMP_BYPASS_MODE)
-		goto bypass_out;
-
-	crypto->algo_mode = ci->private_algo_mode;
-	ret = exynos_ufs_fmp_key_size_cfg(crypto, ci->key_length);
-	if (ret)
-		goto bypass_out;
-
-	ret = exynos_ufs_fmp_iv_cfg(crypto, bio->bi_iter.bi_sector, 0,
-					sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure fmp iv. ret(%d)\n",
-				__func__, ret);
-		ret = -EINVAL;
-		goto out;
-	}
-
-	ret = exynos_ufs_fmp_key_cfg(crypto, ci->key, ci->key_length);
-	if (ret) {
-		pr_err("%s: Fail to configure fmp key. ret(%d)\n",
-				__func__, ret);
-		ret = -EINVAL;
-		goto out;
-	}
-out:
-	return ret;
-bypass_out:
-	crypto->algo_mode = EXYNOS_FMP_BYPASS_MODE;
-	ret = 0;
-	return ret;
-}
-
-int exynos_ufs_fmp_host_set_device(struct platform_device *host_pdev,
-				struct platform_device *pdev,
-				struct exynos_fmp_variant_ops *fmp_vops)
+static struct bio *get_bio(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 {
 	struct exynos_ufs *ufs;
 
-	if (!host_pdev || !pdev || !fmp_vops) {
-		pr_err("%s: Fail to set device for fmp host\n", __func__);
-		return -EINVAL;
+	if (!hba || !lrbp) {
+		pr_err("%s: Invalid MMC:%p data:%p\n", __func__, hba, lrbp);
+		return NULL;
 	}
 
-	ufs = dev_get_platdata(&host_pdev->dev);
-	ufs->fmp.pdev = pdev;
-	ufs->fmp.vops = fmp_vops;
+	ufs = dev_get_platdata(hba->dev);
+	if (ufs->fmp == SMU_ID_MAX)
+		return NULL;
 
-	return 0;
-}
-EXPORT_SYMBOL(exynos_ufs_fmp_host_set_device);
-
-static int is_ufs_fmp_test_enabled(struct scsi_cmnd *cmd,
-				struct platform_device *pdev)
-{
-	struct bio *bio = cmd->request->bio;
-	struct exynos_fmp *fmp = dev_get_drvdata(&pdev->dev);
-
-	if (!fmp)
-		return FALSE;
-
-	if (!bio || !virt_addr_valid(bio)) {
-		fmp->test_mode = 0;
-		return FALSE;
+	if (!virt_addr_valid(lrbp->cmd)) {
+		dev_err(hba->dev, "Invalid cmd:%p\n", lrbp->cmd);
+		return NULL;
 	}
 
-	if (check_data_equal((void *)bio->bi_private, (void *)fmp->test_bh)
-			&& (uint64_t)fmp->test_bh) {
-		fmp->test_mode = 1;
-		return TRUE;
+	if (!virt_addr_valid(lrbp->cmd->request->bio)) {
+		if (lrbp->cmd->request->bio)
+			dev_err(hba->dev, "Invalid bio:%p\n", lrbp->cmd->request->bio);
+		return NULL;
 	}
-
-	fmp->test_mode = 0;
-	return FALSE;
-}
-
-static inline void exynos_ufs_fmp_bypass(void *desc)
-{
-	SET_DAS((struct fmp_table_setting *)desc, 0);
-	SET_FAS((struct fmp_table_setting *)desc, 0);
+	else
+		return lrbp->cmd->request->bio;
 }
 
 int exynos_ufs_fmp_cfg(struct ufs_hba *hba,
-				struct ufshcd_lrb *lrbp,
-				struct scatterlist *sg,
-				uint32_t index,
-				int sector_offset)
+		       struct ufshcd_lrb *lrbp,
+		       struct scatterlist *sg,
+		       uint32_t index, int sector_offset)
 {
-	int ret;
-	struct fmp_data_setting data;
-	struct scsi_cmnd *cmd;
-	struct page *page;
-	struct exynos_ufs *ufs = dev_get_platdata(hba->dev);
+	struct fmp_request req;
+	struct crypto_diskcipher *dtfm;
+	sector_t iv;
+	struct bio *bio = get_bio(hba, lrbp);
 
-	if (!ufs->fmp.pdev || !lrbp->cmd) {
-		exynos_ufs_fmp_bypass(&lrbp->ucd_prdt_ptr[index]);
+	if (!bio)
+		return 0;
+
+	dtfm = crypto_diskcipher_get(bio);
+	if (unlikely(IS_ERR(dtfm))) {
+		pr_warn("%s: fails to get crypt\n", __func__);
+		return -EINVAL;
+	} else if (dtfm) {
+		iv = bio->bi_iter.bi_sector + (sector_t) sector_offset;
+		req.table = (void *)&lrbp->ucd_prdt_ptr[index];
+		req.cmdq_enabled = 0;
+		req.iv = &iv;
+		req.ivsize = sizeof(iv);
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+		/* check fips flag. use fmp without diskcipher */
+		if (!dtfm->algo) {
+			if (exynos_fmp_crypt((void *)dtfm, &req))
+			    pr_warn("%s: fails to test fips\n", __func__);
+			return 0;
+		}
+#endif
+		crypto_diskcipher_check(bio);
+		if (crypto_diskcipher_set_crypt(dtfm, &req)) {
+			pr_warn("%s: fails to set crypt\n", __func__);
+			return -EINVAL;
+		}
 		return 0;
 	}
 
-	cmd = lrbp->cmd;
-	page = sg_page(sg);
-
-	if (cmd->cmnd[0] == REPORT_LUNS || cmd->cmnd[0] == INQUIRY ||
-		cmd->cmnd[0] == MODE_SENSE_10 ||cmd->cmnd[0] == SERVICE_ACTION_IN_16 ) {	
-		exynos_ufs_fmp_bypass(&lrbp->ucd_prdt_ptr[index]);
-		return 0;
-	}
-
-	ret = is_ufs_fmp_test_enabled(cmd, ufs->fmp.pdev);
-	if (ret == TRUE)
-		goto out_test;
-
-	ret = exynos_ufs_fmp_disk_cfg(cmd, &data.disk, sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure FMP Disk Encryption. ret(%d)\n",
-				__func__, ret);
-		return -EINVAL;
-	}
-
-	if (data.disk.algo_mode != EXYNOS_FMP_BYPASS_MODE)
-		goto file_cfg;
-
-	ret = exynos_ufs_fmp_direct_io_cfg(cmd, &data.file, sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure FMP direct IO Encryption. ret(%d)\n",
-				__func__, ret);
-		return -EINVAL;
-	}
-
-	if (data.file.algo_mode != EXYNOS_FMP_BYPASS_MODE)
-		goto out;
-
-file_cfg:
-	ret = exynos_ufs_fmp_file_cfg(cmd, page, &data.file, sector_offset);
-	if (ret) {
-		pr_err("%s: Fail to configure FMP File Encryption. ret(%d)\n",
-				__func__, ret);
-		return -EINVAL;
-	}
-
-out:
-	data.mapping = page->mapping;
-out_test:
-	data.table = (struct fmp_table_setting *)&lrbp->ucd_prdt_ptr[index];
-	data.cmdq_enabled = 0;
-	return ufs->fmp.vops->config(ufs->fmp.pdev, &data);
+	exynos_fmp_bypass(&lrbp->ucd_prdt_ptr[index], 0);
+	return 0;
 }
-EXPORT_SYMBOL(exynos_ufs_fmp_cfg);
 
-int exynos_ufs_fmp_clear(struct ufs_hba *hba,
-				struct ufshcd_lrb *lrbp)
+int exynos_ufs_fmp_clear(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 {
 	int ret = 0;
 	int sg_segments, idx;
 	struct scatterlist *sg;
-	struct exynos_ufs *ufs = dev_get_platdata(hba->dev);
 	struct ufshcd_sg_entry *prd_table;
-	struct fmp_data_setting data;
+	struct crypto_diskcipher *dtfm;
+	struct fmp_crypto_info *ci;
+	struct fmp_request req;
+	struct bio *bio = get_bio(hba, lrbp);
 
-	if (ufs->fmp.pdev || !lrbp->cmd)
-		goto out;
+	if (!bio)
+		return 0;
 
 	sg_segments = scsi_sg_count(lrbp->cmd);
 	if (!sg_segments)
-		goto out;
+		return 0;
 
-	prd_table = (struct ufshcd_sg_entry *)lrbp->ucd_prdt_ptr;
-	scsi_for_each_sg(lrbp->cmd, sg, sg_segments, idx) {
-		data.table = (struct fmp_table_setting *)&prd_table[idx];
-
-		if (!GET_FAS(data.table))
-			continue;
-
-		ret = ufs->fmp.vops->clear(ufs->fmp.pdev, &data);
-		if (ret) {
-			pr_err("%s: Fail to clear FMP desc (%d)\n",
-				__func__, ret);
-			ret = -EINVAL;
-			goto out;
+	dtfm = crypto_diskcipher_get(bio);
+	if (dtfm) {
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+		/* check fips flag. use fmp without diskcipher */
+		if (!dtfm->algo) {
+			prd_table =
+				(struct ufshcd_sg_entry *)lrbp->ucd_prdt_ptr;
+			scsi_for_each_sg(lrbp->cmd, sg, sg_segments, idx) {
+				req.table = (void *)&prd_table[idx];
+				ret = exynos_fmp_clear((void *)dtfm, &req);
+				if (ret) {
+					pr_warn("%s: fails to clear fips\n",
+						__func__);
+					return 0;
+				}
+			}
+			return 0;
+		}
+#endif
+		/* clear key on descrptor */
+		ci = crypto_tfm_ctx(crypto_diskcipher_tfm(dtfm));
+		if (ci && (ci->enc_mode == EXYNOS_FMP_FILE_ENC)) {
+			prd_table =
+			    (struct ufshcd_sg_entry *)lrbp->ucd_prdt_ptr;
+			scsi_for_each_sg(lrbp->cmd, sg, sg_segments, idx) {
+				req.table = (void *)&prd_table[idx];
+				ret = crypto_diskcipher_clear_crypt(dtfm, &req);
+				if (ret) {
+					pr_err("%s: fail to clear desc (%d)\n",
+						__func__, ret);
+					return 0;
+				}
+			}
 		}
 	}
-out:
-	return ret;
+	return 0;
 }
+#endif

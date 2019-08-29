@@ -4,7 +4,7 @@
  * Copyright (C) 2015-2017 Samsung, Inc.
  * Author: Dongrak Shin <dongrak.shin@samsung.com>
  *
-*/
+ */
 
  /* usb notify layer v3.2 */
 
@@ -190,6 +190,8 @@ static ssize_t disable_store(
 		goto error;
 	}
 
+	if (size < strlen(buf))
+		goto error;
 	disable = kzalloc(size+1, GFP_KERNEL);
 	if (!disable)
 		goto error;
@@ -306,33 +308,42 @@ static ssize_t usb_hw_param_show(struct device *dev,
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	p_param = get_hw_param(n, USB_CCIC_WATER_INT_COUNT);
 	if (p_param)
-		*p_param += get_ccic_water_count();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_INT_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_DRY_INT_COUNT);
 	if (p_param)
-		*p_param += get_ccic_dry_count();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_DRY_INT_COUNT);
 	p_param = get_hw_param(n, USB_CLIENT_SUPER_SPEED_COUNT);
 	if (p_param)
-		*p_param += get_usb310_count();
+		*p_param += manager_hw_param_update
+					(USB_CLIENT_SUPER_SPEED_COUNT);
 	p_param = get_hw_param(n, USB_CLIENT_HIGH_SPEED_COUNT);
 	if (p_param)
-		*p_param += get_usb210_count();
+		*p_param += manager_hw_param_update
+					(USB_CLIENT_HIGH_SPEED_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_TIME_DURATION);
 	if (p_param)
-		*p_param += get_waterdet_duration();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_WATER_VBUS_COUNT);
 	if (p_param)
-		*p_param += get_waterchg_count(0);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_VBUS_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_LPM_VBUS_COUNT);
 	if (p_param)
-		*p_param += get_waterchg_count(1);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_LPM_VBUS_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_VBUS_TIME_DURATION);
 	if (p_param)
-		*p_param += get_wvbus_duration(0);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	if (p_param)
-		*p_param += get_wvbus_duration(1);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_VERSION);
-#if defined(CONFIG_USB_NOTIFY_PROC_LOG)
+#if defined(CONFIG_USB_HW_PARAM)
 	if (p_param)
 		*p_param = show_ccic_version();
 #endif
@@ -407,31 +418,40 @@ static ssize_t hw_param_show(struct device *dev,
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	p_param = get_hw_param(n, USB_CCIC_WATER_INT_COUNT);
 	if (p_param)
-		*p_param += get_ccic_water_count();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_INT_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_DRY_INT_COUNT);
 	if (p_param)
-		*p_param += get_ccic_dry_count();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_DRY_INT_COUNT);
 	p_param = get_hw_param(n, USB_CLIENT_SUPER_SPEED_COUNT);
 	if (p_param)
-		*p_param += get_usb310_count();
+		*p_param += manager_hw_param_update
+					(USB_CLIENT_SUPER_SPEED_COUNT);
 	p_param = get_hw_param(n, USB_CLIENT_HIGH_SPEED_COUNT);
 	if (p_param)
-		*p_param += get_usb210_count();
+		*p_param += manager_hw_param_update
+					(USB_CLIENT_HIGH_SPEED_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_TIME_DURATION);
 	if (p_param)
-		*p_param += get_waterdet_duration();
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_WATER_VBUS_COUNT);
 	if (p_param)
-		*p_param += get_waterchg_count(0);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_VBUS_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_LPM_VBUS_COUNT);
 	if (p_param)
-		*p_param += get_waterchg_count(1);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_LPM_VBUS_COUNT);
 	p_param = get_hw_param(n, USB_CCIC_WATER_VBUS_TIME_DURATION);
 	if (p_param)
-		*p_param += get_wvbus_duration(0);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	if (p_param)
-		*p_param += get_wvbus_duration(1);
+		*p_param += manager_hw_param_update
+					(USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_VERSION);
 #if defined(CONFIG_USB_NOTIFY_PROC_LOG)
 	if (p_param)
@@ -594,6 +614,8 @@ static ssize_t whitelist_for_mdm_store(
 		goto error;
 	}
 
+	if (size < strlen(buf))
+		goto error;
 	disable = kzalloc(size+1, GFP_KERNEL);
 	if (!disable)
 		goto error;

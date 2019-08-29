@@ -51,7 +51,6 @@ struct upload_key_state upload_key_states[] = {
 	{KEY_VOLUMEDOWN, KEY_STATE_UP},
 	{KEY_VOLUMEUP, KEY_STATE_UP},
 	{KEY_POWER, KEY_STATE_UP},
-	{KEY_HOMEPAGE, KEY_STATE_UP},
 };
 
 static unsigned int hold_key = KEY_VOLUMEDOWN;
@@ -240,7 +239,7 @@ static struct notifier_block nb_gpio_keys = {
 int __init sec_upload_init(void)
 {
 	/* only work for debug level is low */
-	if ((sec_debug_get_debug_level() & 0x1) != 0x1)
+	if (!sec_debug_enter_upload())
 		register_gpio_keys_notifier(&nb_gpio_keys);
 	return 0;
 }

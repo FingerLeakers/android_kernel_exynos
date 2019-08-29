@@ -13,13 +13,32 @@
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
 #include <linux/platform_device.h>
-#include <asm/smp_plat.h>
+#include <linux/io.h>
 #include <soc/samsung/exynos-pmu.h>
 
 /**
  * "pmureg" has the mapped base address of PMU(Power Management Unit)
  */
 static struct regmap *pmureg;
+#ifdef CONFIG_SOC_EXYNOS9820
+static void __iomem *pmu_alive;
+static spinlock_t update_lock;
+#endif
+
+#ifdef CONFIG_SOC_EXYNOS9820
+/* Atomic operation for PMU_ALIVE registers. (offset 0~0x3FFF)
+   When the targer register can be accessed by multiple masters,
+   This functions should be used. */
+static inline void exynos_pmu_set_bit_atomic(unsigned int offset, unsigned int val)
+{
+	__raw_writel(val, pmu_alive + (offset | 0xc000));
+}
+
+static inline void exynos_pmu_clr_bit_atomic(unsigned int offset, unsigned int val)
+{
+	__raw_writel(val, pmu_alive + (offset | 0x8000));
+}
+#endif
 
 /**
  * No driver refers the "pmureg" directly, through the only exported API.
@@ -36,35 +55,80 @@ int exynos_pmu_write(unsigned int offset, unsigned int val)
 
 int exynos_pmu_update(unsigned int offset, unsigned int mask, unsigned int val)
 {
+#ifdef CONFIG_SOC_EXYNOS9820
+	int i;
+	unsigned long flags;
+
+	if (offset > 0x3fff) {
+		return regmap_update_bits(pmureg, offset, mask, val);
+	} else {
+		spin_lock_irqsave(&update_lock, flags);
+		for (i = 0; i < 32; i++) {
+			if (mask & (1 << i)) {
+				if (val & (1 << i))
+					exynos_pmu_set_bit_atomic(offset, i);
+				else
+					exynos_pmu_clr_bit_atomic(offset, i);
+			}
+		}
+		spin_unlock_irqrestore(&update_lock, flags);
+		return 0;
+	}
+#else
 	return regmap_update_bits(pmureg, offset, mask, val);
+#endif
 }
 
+struct regmap *exynos_get_pmu_regmap(void)
+{
+	return pmureg;
+}
+
+EXPORT_SYMBOL_GPL(exynos_get_pmu_regmap);
 EXPORT_SYMBOL(exynos_pmu_read);
 EXPORT_SYMBOL(exynos_pmu_write);
 EXPORT_SYMBOL(exynos_pmu_update);
 
-/**
- * CPU power control registers in PMU are arranged at regular intervals
- * (interval = 0x8). pmu_cpu_offset calculates how far cpu is from address
- * of first cpu. This expression is based on cpu and cluster id in MPIDR,
- * refer below.
+#define PMU_CPU_CONFIG_BASE			0x1000
+#define PMU_CPU_STATUS_BASE			0x1004
+#define CPU_LOCAL_PWR_CFG			0x1
 
- * cpu address offset : ((cluster id << 2) | (cpu id)) * 0x8
- */
+static int pmu_cpu_offset(unsigned int cpu)
+{
+	unsigned int offset = 0;
 
-#ifdef CONFIG_SOC_EXYNOS9810
-#define phy_cluster(cpu)	!MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1)
-#else
-#define phy_cluster(cpu)	MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1)
-#endif
+	switch (cpu) {
+	case 0:
+		offset = 0x0;
+		break;
+	case 1:
+		offset = 0x80;
+		break;
+	case 2:
+		offset = 0x100;
+		break;
+	case 3:
+		offset = 0x180;
+		break;
+	case 4:
+		offset = 0x300;
+		break;
+	case 5:
+		offset = 0x380;
+		break;
+	case 6:
+		offset = 0x500;
+		break;
+	case 7:
+		offset = 0x580;
+		break;
+	default:
+		BUG();
+		break;
+	}
+	return offset;
+}
 
-#define phy_cpu(cpu)	MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 0)
-
-#define pmu_cpu_offset(cpu)	(((phy_cluster(cpu) << 2)| phy_cpu(cpu)) * 0x8)
-
-#define PMU_CPU_CONFIG_BASE			0x2000
-#define PMU_CPU_STATUS_BASE			0x2004
-#define CPU_LOCAL_PWR_CFG			0xF
 static void pmu_cpu_ctrl(unsigned int cpu, int enable)
 {
 	unsigned int offset;
@@ -233,6 +297,9 @@ static const struct attribute_group *cs_sysfs_groups[] = {
 static int exynos_pmu_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+#ifdef CONFIG_SOC_EXYNOS9820
+	struct resource *res;
+#endif
 
 	pmureg = syscon_regmap_lookup_by_phandle(dev->of_node,
 						"samsung,syscon-phandle");
@@ -240,6 +307,16 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 		pr_err("Fail to get regmap of PMU\n");
 		return PTR_ERR(pmureg);
 	}
+
+#ifdef CONFIG_SOC_EXYNOS9820
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pmu_alive");
+	pmu_alive = devm_ioremap_resource(dev, res);
+	if (IS_ERR(pmu_alive)) {
+		pr_err("Failed to get address of PMU_ALIVE\n");
+		return PTR_ERR(pmu_alive);
+	}
+	spin_lock_init(&update_lock);
+#endif
 
 	if (subsys_system_register(&exynos_info_subsys,
 					cs_sysfs_groups))

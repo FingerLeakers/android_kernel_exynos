@@ -1,8 +1,16 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_INIT_H
 #define _LINUX_INIT_H
 
 #include <linux/compiler.h>
 #include <linux/types.h>
+
+/* Built-in __init functions needn't be compiled with retpoline */
+#if defined(__noretpoline) && !defined(MODULE)
+#define __noinitretpoline __noretpoline
+#else
+#define __noinitretpoline
+#endif
 
 /* These macros are used to mark some functions or 
  * initialized data (doesn't apply to uninitialized data)
@@ -39,7 +47,7 @@
 
 /* These are for everybody (although not all archs will actually
    discard it in modules) */
-#define __init		__section(.init.text) __cold notrace __latent_entropy
+#define __init		__section(.init.text) __cold __inittrace __latent_entropy __noinitretpoline __nocfi
 #define __initdata	__section(.init.data)
 #define __initconst	__section(.init.rodata)
 #define __exitdata	__section(.exit.data)
@@ -68,8 +76,10 @@
 
 #ifdef MODULE
 #define __exitused
+#define __inittrace notrace
 #else
 #define __exitused  __used
+#define __inittrace
 #endif
 
 #define __exit          __section(.exit.text) __exitused __cold notrace
@@ -126,7 +136,10 @@ void prepare_namespace(void);
 void __init load_default_modules(void);
 int __init init_rootfs(void);
 
-#ifdef CONFIG_DEBUG_RODATA
+#if defined(CONFIG_STRICT_KERNEL_RWX) || defined(CONFIG_STRICT_MODULE_RWX)
+extern bool rodata_enabled;
+#endif
+#ifdef CONFIG_STRICT_KERNEL_RWX
 void mark_rodata_ro(void);
 #endif
 
@@ -139,6 +152,15 @@ extern bool initcall_debug;
 #ifndef MODULE
 
 #ifndef __ASSEMBLY__
+
+#ifdef CONFIG_LTO_CLANG
+  /* prepend the variable name with __COUNTER__ to ensure correct ordering */
+  #define ___initcall_name2(c, fn, id) 	__initcall_##c##_##fn##id
+  #define ___initcall_name1(c, fn, id)	___initcall_name2(c, fn, id)
+  #define __initcall_name(fn, id) 	___initcall_name1(__COUNTER__, fn, id)
+#else
+  #define __initcall_name(fn, id) 	__initcall_##fn##id
+#endif
 
 /*
  * initcalls are now grouped by functionality into separate
@@ -157,7 +179,7 @@ extern bool initcall_debug;
  */
 
 #define __define_initcall(fn, id) \
-	static initcall_t __initcall_##fn##id __used \
+	static initcall_t __initcall_name(fn, id) __used \
 	__attribute__((__section__(".initcall" #id ".init"))) = fn;
 
 /*

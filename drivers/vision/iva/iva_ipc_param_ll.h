@@ -64,7 +64,7 @@ struct ipc_res_queue {
 #ifdef CONFIG_TEST_PARAM
 #define IPC_RES_Q_PARAM_SIZE	(8)
 #else
-#define IPC_RES_Q_PARAM_SIZE	(16)
+#define IPC_RES_Q_PARAM_SIZE	(32)
 #endif
 	uint32_t			flags;
 #ifdef IVA_IPC_PARAM_ARCH64_SUPPORT

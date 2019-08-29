@@ -223,6 +223,7 @@ static int ip_local_deliver_finish(struct net *net, struct sock *sk, struct sk_b
 			if (!raw) {
 				if (xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 					__IP_INC_STATS(net, IPSTATS_MIB_INUNKNOWNPROTOS);
+					IP_DUMP_STATS(skb, IPSTATS_MIB_INUNKNOWNPROTOS);
 					icmp_send(skb, ICMP_DEST_UNREACH,
 						  ICMP_PROT_UNREACH, 0);
 				}
@@ -274,6 +275,7 @@ static inline bool ip_rcv_options(struct sk_buff *skb)
 	*/
 	if (skb_cow(skb, skb_headroom(skb))) {
 		__IP_INC_STATS(dev_net(dev), IPSTATS_MIB_INDISCARDS);
+		IP_DUMP_STATS(skb, IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
 
@@ -283,6 +285,7 @@ static inline bool ip_rcv_options(struct sk_buff *skb)
 
 	if (ip_options_compile(dev_net(dev), opt, skb)) {
 		__IP_INC_STATS(dev_net(dev), IPSTATS_MIB_INHDRERRORS);
+		IP_DUMP_STATS(skb, IPSTATS_MIB_INHDRERRORS);
 		goto drop;
 	}
 
@@ -311,8 +314,10 @@ drop:
 static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	const struct iphdr *iph = ip_hdr(skb);
-	struct rtable *rt;
+	int (*edemux)(struct sk_buff *skb);
 	struct net_device *dev = skb->dev;
+	struct rtable *rt;
+	int err;
 
 	/* if ingress device is enslaved to an L3 master device pass the
 	 * skb to its handler for processing
@@ -329,8 +334,10 @@ static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 		int protocol = iph->protocol;
 
 		ipprot = rcu_dereference(inet_protos[protocol]);
-		if (ipprot && ipprot->early_demux) {
-			ipprot->early_demux(skb);
+		if (ipprot && (edemux = READ_ONCE(ipprot->early_demux))) {
+			err = edemux(skb);
+			if (unlikely(err))
+				goto drop_error;
 			/* must reload iph, skb->head might have changed */
 			iph = ip_hdr(skb);
 		}
@@ -341,13 +348,10 @@ static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 	 *	how the packet travels inside Linux networking.
 	 */
 	if (!skb_valid_dst(skb)) {
-		int err = ip_route_input_noref(skb, iph->daddr, iph->saddr,
-					       iph->tos, dev);
-		if (unlikely(err)) {
-			if (err == -EXDEV)
-				__NET_INC_STATS(net, LINUX_MIB_IPRPFILTER);
-			goto drop;
-		}
+		err = ip_route_input_noref(skb, iph->daddr, iph->saddr,
+					   iph->tos, dev);
+		if (unlikely(err))
+			goto drop_error;
 	}
 
 #ifdef CONFIG_IP_ROUTE_CLASSID
@@ -398,6 +402,11 @@ static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 drop:
 	kfree_skb(skb);
 	return NET_RX_DROP;
+
+drop_error:
+	if (err == -EXDEV)
+		__NET_INC_STATS(net, LINUX_MIB_IPRPFILTER);
+	goto drop;
 }
 
 /*
@@ -462,6 +471,7 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	len = ntohs(iph->tot_len);
 	if (skb->len < len) {
 		__IP_INC_STATS(net, IPSTATS_MIB_INTRUNCATEDPKTS);
+		IP_DUMP_STATS(skb, IPSTATS_MIB_INTRUNCATEDPKTS);
 		goto drop;
 	} else if (len < (iph->ihl*4))
 		goto inhdr_error;
@@ -472,6 +482,7 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 */
 	if (pskb_trim_rcsum(skb, len)) {
 		__IP_INC_STATS(net, IPSTATS_MIB_INDISCARDS);
+		IP_DUMP_STATS(skb, IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
 
@@ -490,8 +501,10 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 
 csum_error:
 	__IP_INC_STATS(net, IPSTATS_MIB_CSUMERRORS);
+	IP_DUMP_STATS(skb, IPSTATS_MIB_CSUMERRORS);
 inhdr_error:
 	__IP_INC_STATS(net, IPSTATS_MIB_INHDRERRORS);
+	IP_DUMP_STATS(skb, IPSTATS_MIB_INHDRERRORS);
 drop:
 	kfree_skb(skb);
 out:

@@ -225,7 +225,7 @@ mext_page_mkuptodate(struct page *page, unsigned from, unsigned to)
 	for (i = 0; i < nr; i++) {
 		bh = arr[i];
 		if (!bh_uptodate_or_lock(bh)) {
-			err = bh_submit_read(bh);
+			err = bh_submit_read_fbe(inode, bh);
 			if (err)
 				return err;
 		}
@@ -484,7 +484,7 @@ mext_check_arguments(struct inode *orig_inode,
 		return -EBUSY;
 	}
 
-	if (IS_NOQUOTA(orig_inode) || IS_NOQUOTA(donor_inode)) {
+	if (ext4_is_quota_file(orig_inode) && ext4_is_quota_file(donor_inode)) {
 		ext4_debug("ext4 move extent: The argument files should "
 			"not be quota files [ino:orig %lu, donor %lu]\n",
 			orig_inode->i_ino, donor_inode->i_ino);
@@ -511,7 +511,7 @@ mext_check_arguments(struct inode *orig_inode,
 	if ((orig_start & ~(PAGE_MASK >> orig_inode->i_blkbits)) !=
 	    (donor_start & ~(PAGE_MASK >> orig_inode->i_blkbits))) {
 		ext4_debug("ext4 move extent: orig and donor's start "
-			"offset are not alligned [ino:orig %lu, donor %lu]\n",
+			"offsets are not aligned [ino:orig %lu, donor %lu]\n",
 			orig_inode->i_ino, donor_inode->i_ino);
 		return -EINVAL;
 	}
@@ -526,9 +526,13 @@ mext_check_arguments(struct inode *orig_inode,
 			orig_inode->i_ino, donor_inode->i_ino);
 		return -EINVAL;
 	}
-	if (orig_eof < orig_start + *len - 1)
+	if (orig_eof <= orig_start)
+		*len = 0;
+	else if (orig_eof < orig_start + *len - 1)
 		*len = orig_eof - orig_start;
-	if (donor_eof < donor_start + *len - 1)
+	if (donor_eof <= donor_start)
+		*len = 0;
+	else if (donor_eof < donor_start + *len - 1)
 		*len = donor_eof - donor_start;
 	if (!*len) {
 		ext4_debug("ext4 move extent: len should not be 0 "
@@ -598,12 +602,13 @@ ext4_move_extents(struct file *o_filp, struct file *d_filp, __u64 orig_blk,
 		return -EOPNOTSUPP;
 	}
 
-	if (ext4_encrypted_inode(orig_inode) ||
-	    ext4_encrypted_inode(donor_inode)) {
-		ext4_msg(orig_inode->i_sb, KERN_ERR,
-			 "Online defrag not supported for encrypted files");
-		return -EOPNOTSUPP;
-	}
+	if (ext4_encrypted_inode(orig_inode) && S_ISREG(orig_inode->i_mode)
+			&& !fscrypt_inline_encrypted(orig_inode))
+			return -EOPNOTSUPP;
+
+	if (ext4_encrypted_inode(donor_inode) && S_ISREG(donor_inode->i_mode)
+			&& !fscrypt_inline_encrypted(donor_inode))
+			return -EOPNOTSUPP;
 
 	/* Protect orig and donor inodes against a truncate */
 	lock_two_nondirectories(orig_inode, donor_inode);

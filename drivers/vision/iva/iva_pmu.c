@@ -20,6 +20,9 @@
 #include "regs/iva_base_addr.h"
 #include "regs/iva_pmu_reg.h"
 #include "iva_pmu.h"
+#if defined(CONFIG_SOC_EXYNOS9820)
+#include "iva_mcu.h"
+#endif
 
 #undef PMU_CLK_ENABLE_WITH_BIT_SET		/* clock polarity */
 
@@ -100,12 +103,29 @@ uint32_t iva_pmu_enable_clock(struct iva_dev_data *iva, enum iva_pmu_clk_type ty
 	return old_masked_val;
 }
 
+#if defined(CONFIG_SOC_EXYNOS9810)
 uint32_t iva_pmu_enable_auto_clock_gating(struct iva_dev_data *iva,
 		enum iva_pmu_ip_id ip, bool enable)
 {
 	return __iva_pmu_write_mask(iva->pmu_va + IVA_PMU_HWACG_EN_ADDR,
 			ip, enable);
 }
+#endif
+
+#if defined(CONFIG_SOC_EXYNOS9820)
+uint32_t iva_pmu_enable_sfr_auto_clock_gating(struct iva_dev_data *iva,
+		enum iva_pmu_ip_id ip, bool enable)
+{
+	return __iva_pmu_write_mask(iva->pmu_va + IVA_PMU_SFR_HWACG_EN_ADDR,
+			ip, enable);
+}
+uint32_t iva_pmu_enable_core_auto_clock_gating(struct iva_dev_data *iva,
+		enum iva_pmu_ip_id ip, bool enable)
+{
+	return __iva_pmu_write_mask(iva->pmu_va + IVA_PMU_CORE_HWACG_EN_ADDR,
+			ip, enable);
+}
+#endif
 
 uint32_t iva_pmu_ctrl_mcu(struct iva_dev_data *iva,
 		enum iva_pmu_mcu_ctrl mcu_ctrl, bool set)
@@ -124,11 +144,16 @@ void iva_pmu_prepare_mcu_sram(struct iva_dev_data *iva)
 	iva_pmu_ctrl(iva, pmu_q_ch_vmcu_active, true);
 	/* Put MCU into reset and hold boot*/
 	iva_pmu_ctrl_mcu(iva, pmu_mcu_reset_n | pmu_en_sleep, false);
-#elif defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	iva_pmu_ctrl(iva, pmu_ctrl_qactive, true);
 	iva_pmu_ctrl_mcu(iva, pmu_mcu_reset_n, false);
 #endif
+
+#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9810)
 	iva_pmu_ctrl_mcu(iva, pmu_boothold, true);
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	iva_mcu_ctrl(iva, mcu_boothold, true);
+#endif
 
 	/* Release MCU reset */
 	iva_pmu_ctrl_mcu(iva, pmu_mcu_reset_n, true);
@@ -136,7 +161,11 @@ void iva_pmu_prepare_mcu_sram(struct iva_dev_data *iva)
 
 void iva_pmu_reset_mcu(struct iva_dev_data *iva)
 {
+#if defined(CONFIG_SOC_EXYNOS9820)
+    iva_mcu_ctrl(iva, mcu_boothold, false);
+#else
 	iva_pmu_ctrl_mcu(iva, pmu_boothold, false);
+#endif
 
 #if defined(CONFIG_SOC_EXYNOS8895)
 	/*
@@ -162,9 +191,20 @@ void iva_pmu_prepare_sfr_dump(struct iva_dev_data *iva)
 	 * enable only sfr clocks.
 	 */
 	iva_pmu_enable_sfr_clks(iva);
-	#ifdef ENABLE_CORE_CLK_DURING_DUMP_WORKAROUND
+#ifdef ENABLE_CORE_CLK_DURING_DUMP_WORKAROUND
 	iva_pmu_enable_all_clks(iva);
-	#endif
+#endif
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	iva_pmu_ctrl(iva, pmu_ctrl_qactive, false);
+
+	/*
+	 * to minimize the effect of hwa status change during dump,
+	 * enable only sfr clocks.
+	 */
+	iva_pmu_enable_core_clks(iva);
+#ifdef ENABLE_CORE_CLK_DURING_DUMP_WORKAROUND
+	iva_pmu_enable_all_clks(iva);
+#endif
 #endif
 	iva_pmu_release_all(iva);
 }
@@ -192,11 +232,14 @@ void iva_pmu_show_status(struct iva_dev_data *iva)
 		{ IVA_PMU_CLOCK_CONTROL_ADDR,	"CLOCK_CTROL"	},
 		{ IVA_PMU_SOFT_RESET_ADDR,	"SOFT_RESET"	},
 		{ IVA_PMU_VMCU_CTRL_ADDR,	"VMCU_CTRL"	},
+#if defined(CONFIG_SOC_EXYNOS9810)
 		{ IVA_PMU_HWACG_EN_ADDR,	"HWACG_EN"	},
+#elif defined(CONFIG_SOC_EXYNOS9820)
+		{ IVA_PMU_SFR_HWACG_EN_ADDR, 	"SFR_HWACG"	},
+		{ IVA_PMU_CORE_HWACG_EN_ADDR, 	"CORE_HWACG"	},
+		{ IVA_PMU_QACTIVE_MON_ADDR, 	"QACT_MON"	},
+#endif
 		{ IVA_PMU_HWA_ACTIVITY_ADDR,	"HWA_ACTIVITY"	},
-	#if defined(CONFIG_SOC_EXYNOS9810)
-		{ IVA_PMU_SFR_CLOCK_CONTROL_ADDR, "SFR_CLOCK"	},
-	#endif
 	};
 
 	dev_info(dev, "--------------  IVA PMU  -------------\n");

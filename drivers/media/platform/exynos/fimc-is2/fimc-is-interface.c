@@ -1432,9 +1432,6 @@ static void wq_func_frame(struct fimc_is_subdev *leader,
 	}
 
 	framemgr_x_barrier_irqr(framemgr, FMGR_IDX_4, flags);
-
-	/* cache invalidate */
-	CALL_CACHE_BUFS_FINISH(subdev->vctx);
 }
 
 static void wq_func_30c(struct work_struct *data)

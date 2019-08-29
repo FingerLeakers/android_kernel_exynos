@@ -15,6 +15,8 @@ obj-$(CONFIG_CAMERA_EEPROM_SUPPORT_FRONT)	+= fimc-is-device-eeprom.o
 obj-$(CONFIG_OIS_USE_RUMBA_S4) += fimc-is-device-ois_s4.o
 obj-$(CONFIG_OIS_USE_RUMBA_S6) += fimc-is-device-ois_s6.o
 obj-$(CONFIG_OIS_USE_RUMBA_SA) += fimc-is-device-ois_sa.o
+obj-$(CONFIG_CAMERA_USE_MCU)	+= fimc-is-device-ois_mcu.o
+obj-$(CONFIG_CAMERA_CIS_IMX316_BUCK_USE) += fimc-is-isl91128.o
 
 obj-$(CONFIG_USE_DIRECT_IS_CONTROL) += preprocessor/
 

@@ -4,6 +4,7 @@
 #define EARLY_WAKEUP_FORCED_ENABLE		(0x0870)
 #define EWF_MAX_INDEX				(32)
 
+extern int (*wa_set_cmuewf)(unsigned int index, unsigned int en, void *cmu_cmu, int *ewf_refcnt);
 #ifdef CONFIG_CMU_EWF
 extern int get_cmuewf_index(struct device_node *np, unsigned int *index);
 extern int set_cmuewf(unsigned int index, unsigned int en);

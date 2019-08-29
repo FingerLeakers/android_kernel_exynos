@@ -168,7 +168,7 @@ static void sensor_imx260_cis_data_calculation(const struct sensor_pll_info_comp
         u32 vt_pix_clk_hz = 0;
         u32 frame_rate = 0, max_fps = 0, frame_valid_us = 0;
 
-	FIMC_BUG(!pll_info);
+        FIMC_BUG(!pll_info);
 
 	/* 1. get pclk value from pll info */
         vt_pix_clk_hz = pll_info->pclk;
@@ -2153,7 +2153,7 @@ static int cis_imx260_probe(struct i2c_client *client,
 	struct fimc_is_cis *cis = NULL;
 	struct fimc_is_device_sensor *device = NULL;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
-	u32 sensor_id[FIMC_IS_STREAM_COUNT] = {0, };
+	u32 sensor_id[FIMC_IS_SENSOR_COUNT] = {0, };
 	u32 sensor_id_len;
 	const u32 *sensor_id_spec;
 	char const *setfile;

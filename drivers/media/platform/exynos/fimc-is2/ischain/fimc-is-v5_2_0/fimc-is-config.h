@@ -50,7 +50,6 @@
 #define SOC_SSVC1
 #define SOC_SSVC2
 /* #define SOC_DCP *//* TODO */
-/* #define SOC_SRDZ *//* TODO */
 
 /* Post Processing Configruation */
 /* #define ENABLE_DRC */
@@ -123,7 +122,7 @@
 #define TPU_COMPRESSOR
 #define USE_I2C_LOCK
 #undef ENABLE_FULL_BYPASS
-/* #define SENSOR_REQUEST_DELAY		2 */
+/* #define SENSOR_CONTROL_DELAY		2 */
 
 #ifdef ENABLE_IRQ_MULTI_TARGET
 #define FIMC_IS_HW_IRQ_FLAG     IRQF_GIC_MULTI_TARGET
@@ -148,4 +147,7 @@
 #define NOT_SEPERATED_SYSREG
 #define QOS_INTCAM
 #define EXPANSION_DVFS_TABLE
+
+#define CHAIN_USE_VC_TASKLET	1
+
 #endif

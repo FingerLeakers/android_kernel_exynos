@@ -38,7 +38,7 @@
 #define SET_FILE_MAGIC_NUMBER		(0x12345679)
 #define FIMC_IS_MAX_SCENARIO		(64)
 #define FIMC_IS_MAX_SETFILE		(64)
-#define FIMC_IS_SHOT_TIMEOUT		(4000) /* ms */
+#define FIMC_IS_SHOT_TIMEOUT		(3000) /* ms */
 
 #define SETFILE_DESIGN_BIT_3AA_ISP	(3)
 #define SETFILE_DESIGN_BIT_DRC		(4)
@@ -49,7 +49,7 @@
 #define SETFILE_DESIGN_BIT_SCX_MCSC	(9)
 #define SETFILE_DESIGN_BIT_FD_VRA	(10)
 
-#define REQ_FLAG(id)			(1 << (id))
+#define REQ_FLAG(id)			(1LL << (id))
 #define OUT_FLAG(flag, subdev_id) (flag & ~(REQ_FLAG(subdev_id)))
 #define check_hw_bug_count(this, count) \
 	if (atomic_inc_return(&this->bug_count) > count) BUG_ON(1)
@@ -73,21 +73,23 @@ enum v_enum {
 enum fimc_is_hardware_id {
 	DEV_HW_3AA0	= 1,
 	DEV_HW_3AA1,
+	DEV_HW_VPP,	/* 3AA2 */
 	DEV_HW_ISP0,
 	DEV_HW_ISP1,
-	DEV_HW_DRC,	/* = 5 */
+	DEV_HW_DRC,
 	DEV_HW_SCC,
 	DEV_HW_DIS,
 	DEV_HW_3DNR,
 	DEV_HW_TPU0,
-	DEV_HW_TPU1,	/* = 10 */
+	DEV_HW_TPU1,
 	DEV_HW_SCP,
 	DEV_HW_MCSC0,
 	DEV_HW_MCSC1,
 	DEV_HW_FD,
-	DEV_HW_VRA,	/* = 15 */
+	DEV_HW_VRA,
 	DEV_HW_DCP,
-	DEV_HW_SRDZ,
+	DEV_HW_PAF0,	/* PAF RDMA */
+	DEV_HW_PAF1,
 	DEV_HW_END
 };
 
@@ -120,6 +122,9 @@ enum fimc_is_hw_state {
 	HW_RUN,
 	HW_TUNESET,
 	HW_VRA_CH1_START,
+	HW_MCS_YSUM_CFG,
+	HW_MCS_DS_CFG,
+	HW_OVERFLOW_RECOVERY,
 	HW_END
 };
 
@@ -135,6 +140,26 @@ enum fimc_is_setfile_type {
 	SETFILE_V2 = 2,
 	SETFILE_V3 = 3,
 	SETFILE_MAX
+};
+
+enum cal_type {
+	CAL_TYPE_AF = 1,
+	CAL_TYPE_LSC_UVSP = 2,
+	CAL_TYPE_MAX
+};
+
+struct cal_info {
+	/* case CAL_TYPE_AF:
+	 * Not implemented yet
+	 */
+	/* case CLA_TYPE_LSC_UVSP
+	 * data[0]: lsc_center_x;
+	 * data[1]: lsc_center_y;
+	 * data[2]: lsc_radial_biquad_a;
+	 * data[3]: lsc_radial_biquad_b;
+	 * data[4] - data[15]: reserved
+	 */
+	u32 data[16];
 };
 
 struct hw_debug_info {
@@ -252,7 +277,6 @@ struct fimc_is_hw_ip {
 	struct hw_ip_status			status;
 	atomic_t				fcount;
 	atomic_t				instance;
-	u32					internal_fcount;
 	void __iomem				*regs;
 	resource_size_t				regs_start;
 	resource_size_t				regs_end;
@@ -264,6 +288,7 @@ struct fimc_is_hw_ip {
 	struct is_region			*region[FIMC_IS_STREAM_COUNT];
 	u32					hindex[FIMC_IS_STREAM_COUNT];
 	u32					lindex[FIMC_IS_STREAM_COUNT];
+	u32					internal_fcount[FIMC_IS_STREAM_COUNT];
 	struct fimc_is_framemgr			*framemgr;
 	struct fimc_is_framemgr			*framemgr_late;
 	struct fimc_is_hardware			*hardware;
@@ -271,7 +296,7 @@ struct fimc_is_hw_ip {
 	struct fimc_is_interface		*itf;
 	/* control interface */
 	struct fimc_is_interface_ischain	*itfc;
-	struct fimc_is_hw_ip_setfile		setfile[SENSOR_POSITION_END];
+	struct fimc_is_hw_ip_setfile		setfile[SENSOR_POSITION_MAX];
 	u32					applied_scenario;
 	/* for dump sfr */
 	u8					*sfr_dump;
@@ -297,6 +322,9 @@ struct fimc_is_hw_ip {
 	struct kthread_worker			mshot_worker;
 	struct kthread_work 			mshot_work;
 #endif
+
+	/* currently used for subblock inside MCSC */
+	u32					subblk_ctrl;
 };
 
 #define CALL_HW_OPS(hw, op, args...)	\
@@ -324,6 +352,7 @@ struct fimc_is_hw_ip_ops {
 	int (*delete_setfile)(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map);
 	void (*size_dump)(struct fimc_is_hw_ip *hw_ip);
 	void (*clk_gate)(struct fimc_is_hw_ip *hw_ip, u32 instance, bool on, bool close);
+	int (*restore)(struct fimc_is_hw_ip *hw_ip, u32 instance);
 };
 
 /**
@@ -353,21 +382,46 @@ struct fimc_is_hardware {
 	/* for access mcuctl regs */
 	void __iomem			*base_addr_mcuctl;
 
-	atomic_t			streaming[SENSOR_POSITION_END];
+	struct cal_info			cal_info[SENSOR_POSITION_MAX];
+	atomic_t			streaming[SENSOR_POSITION_MAX];
 	atomic_t			bug_count;
 	atomic_t			log_count;
 
-#ifdef HW_BUG_WA_NO_CONTOLL_PER_FRAME
-	struct semaphore		smp_mcsc_hw_bug;
-#endif
 	bool				video_mode;
+	bool				hs_mode;
+	/* fast read out in hardware */
+	bool				hw_fro_en;
+	unsigned long			hw_recovery_flag;
+	u32				recovery_numbuffers;
+
+	/*
+	 * To deliver MCSC noise index.
+	 * 0: MCSC0, 1: MCSC1
+	 */
+	struct camera2_ni_udm ni_udm[2][NI_BACKUP_MAX];
 };
 
-void framemgr_e_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag);
-void framemgr_x_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag);
+#define framemgr_e_barrier_common(this, index, flag)		\
+	do {							\
+		if (in_irq()) {					\
+			framemgr_e_barrier(this, index);	\
+		} else {						\
+			framemgr_e_barrier_irqs(this, index, flag);	\
+		}							\
+	} while (0)
+
+#define framemgr_x_barrier_common(this, index, flag)		\
+	do {							\
+		if (in_irq()) {					\
+			framemgr_x_barrier(this, index);	\
+		} else {						\
+			framemgr_x_barrier_irqr(this, index, flag);	\
+		}							\
+	} while (0)
+
 u32 get_hw_id_from_group(u32 group_id);
 void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
-	enum fimc_is_hw_frame_state state,
+	enum fimc_is_frame_state state,
 	enum ShotErrorType done_type);
 int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 	struct fimc_is_interface *itf, struct fimc_is_interface_ischain *itfc);
@@ -406,8 +460,13 @@ void fimc_is_hardware_clk_gate_dump(struct fimc_is_hardware *hardware);
 int fimc_is_hardware_runtime_resume(struct fimc_is_hardware *hardware);
 int fimc_is_hardware_runtime_suspend(struct fimc_is_hardware *hardware);
 void fimc_is_hardware_sfr_dump(struct fimc_is_hardware *hardware, u32 hw_id, bool flag_print_log);
-void print_hw_frame_count(struct fimc_is_hw_ip *hw_ip);
 void print_all_hw_frame_count(struct fimc_is_hardware *hardware);
 void fimc_is_hardware_clk_gate(struct fimc_is_hw_ip *hw_ip, u32 instance,
 	bool on, bool close);
+int fimc_is_hardware_flush_frame_by_group(struct fimc_is_hardware *hardware,
+	struct fimc_is_group *head, u32 instance);
+int fimc_is_hardware_restore_by_group(struct fimc_is_hardware *hardware,
+	struct fimc_is_group *group, u32 instance);
+int fimc_is_hardware_recovery_shot(struct fimc_is_hardware *hardware, u32 instance,
+	struct fimc_is_group *group, u32 recov_fcount, struct fimc_is_framemgr *framemgr);
 #endif

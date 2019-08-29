@@ -9,13 +9,24 @@
  * any later version.
  */
 
+#include <linux/fs.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
 #include <linux/cdev.h>
 #include <linux/poll.h>
-#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/major.h>
+#include <linux/slab.h>
+#include <linux/hid.h>
+#include <linux/mutex.h>
+#include <linux/sched/signal.h>
+#include <linux/string.h>
+#include <linux/device.h>
 #include <linux/usb.h>
+
 #include <linux/hidraw.h>
-#include <linux/interrupt.h>
-#include <linux/input.h>
 #include "hid-ids.h"
 
 #define TVR_PROTOCOL_SENSOR		0
@@ -74,6 +85,8 @@ struct input_dev *tvr_input_dev = NULL;
 static int tvr_report_event(struct hid_device *hid, u8 *data, int len);
 static int tvr_connect(struct hid_device *hid);
 static void tvr_disconnect(struct hid_device *hid);
+
+struct hidraw *tvrraw = NULL;
 
 #ifdef CONFIG_HID_OVR
 extern int ovr_connect(struct hid_device *hid, int mode);
@@ -402,13 +415,14 @@ unlock:
 
 static int tvr_report_event(struct hid_device *hid, u8 *data, int len)
 {
-	struct hidraw *dev;
+	struct hidraw *dev = hid->hidtvr;
 	struct hidraw_list *list;
 	int ret = 0;
 	unsigned long flags;
-
-	dev = tvr_hidraw_table[hid->minor];
-
+	
+	if (!dev)
+		return -EPERM;
+	
 	spin_lock_irqsave(&list_lock, flags);
 	list_for_each_entry(list, &dev->list, node) {
 		int new_head = (list->head + 1) & (TVR_HIDRAW_BUFFER_SIZE - 1);
@@ -480,7 +494,6 @@ static int tvr_connect(struct hid_device *hid)
 
 	printk("TVR: connect <<<\n");
 
-	mutex_unlock(&minors_lock);
 	init_waitqueue_head(&dev->wait);
 	INIT_LIST_HEAD(&dev->list);
 
@@ -488,16 +501,17 @@ static int tvr_connect(struct hid_device *hid)
 	dev->minor = minor;
 
 	dev->exist = 1;
+	hid->hidtvr = dev;
+	tvrraw = dev;
 
+	mutex_unlock(&minors_lock);
 out:
 	return result;
 }
 
 static void tvr_disconnect(struct hid_device *hid)
 {
-	struct hidraw *hidraw;
-
-	hidraw = tvr_hidraw_table[hid->minor];
+	struct hidraw *hidraw = hid->hidtvr;
 
 	mutex_lock(&minors_lock);
 
@@ -742,7 +756,6 @@ static void tvr_exit_keys(void)
 		}
 
 		input_unregister_device(tvr_input_dev);
-		input_free_device(tvr_input_dev);
 		tvr_input_dev = NULL;
 	}
 }
@@ -794,6 +807,8 @@ static int tvr_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		}
 
 		isTvrConnected = TVR_CONNECTED;
+	} else if (ifproto == TVR_PROTOCOL_CONTROL) {
+		hdev->hidtvr = tvrraw;
 	}
 
 	retval = hid_parse(hdev);
@@ -913,6 +928,7 @@ static struct device_attribute *tvr_attrs[] = {
 
 static const struct hid_device_id tvr_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_TVR_1) },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_TVR_2) },	
 	{ }
 };
 

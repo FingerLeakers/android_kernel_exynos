@@ -25,11 +25,13 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/kthread.h>
-#include <linux/cpu.h>
 #include <linux/cma.h>
 #include <linux/freezer.h>
+#include <uapi/linux/sched/types.h>
 #include "ion.h"
-#include "ion_priv.h"
+
+#define CREATE_TRACE_POINTS
+#include <trace/events/ion.h>
 
 #define NUM_ORDERS ARRAY_SIZE(orders)
 
@@ -68,23 +70,25 @@ static struct page *alloc_rbin_page(struct ion_rbin_heap *heap,
 	void *addr;
 
 	trace_ion_rbin_partial_alloc_start(heap->heap.name, buffer, size, NULL);
-
 	if (size >= (MAX_ORDER_NR_PAGES << PAGE_SHIFT)) {
-		page = cma_alloc(heap->cma, MAX_ORDER_NR_PAGES, MAX_ORDER - 1);
+		page = cma_alloc(heap->cma, MAX_ORDER_NR_PAGES, MAX_ORDER - 1,
+				 GFP_KERNEL | __GFP_NOWARN);
 		if (page) {
 			size = MAX_ORDER_NR_PAGES << PAGE_SHIFT;
 			goto done;
 		}
 		order = MAX_ORDER - 2;
 	} else if (size < (PAGE_SIZE << order)) {
-		page = cma_alloc(heap->cma, size >> PAGE_SHIFT, 0);
+		page = cma_alloc(heap->cma, size >> PAGE_SHIFT, 0,
+				 GFP_KERNEL | __GFP_NOWARN);
 		if (page)
 			goto done;
 		order--;
 	}
 
 	for ( ; order >= 0; order--) {
-		page = cma_alloc(heap->cma, 1 << order, 0);
+		page = cma_alloc(heap->cma, 1 << order, 0,
+				 GFP_KERNEL | __GFP_NOWARN);
 		if (page) {
 			size = PAGE_SIZE << order;
 			goto done;
@@ -105,9 +109,8 @@ done:
 		set_page_private(page, size);
 		__dma_flush_area(addr, size);
 	}
-
 	trace_ion_rbin_partial_alloc_end(heap->heap.name, buffer,
-					 page ? page_private(page) : 0, page);
+			page ? page_private(page) : 0, page);
 	return page;
 }
 
@@ -186,13 +189,13 @@ static struct page *alloc_rbin_page_from_pool(struct ion_rbin_heap *heap,
 
 done:
 	trace_ion_rbin_pool_alloc_end(heap->heap.name, buffer,
-				      page ? page_private(page) : 0, page);
+			page ? page_private(page) : 0, page);
 	return page;
 }
 
 static int ion_rbin_heap_allocate(struct ion_heap *heap,
 				     struct ion_buffer *buffer,
-				     unsigned long size_org, unsigned long align,
+				     unsigned long size_org,
 				     unsigned long flags)
 {
 	struct ion_rbin_heap *rbin_heap = container_of(heap,
@@ -209,10 +212,6 @@ static int ion_rbin_heap_allocate(struct ion_heap *heap,
 	long nr_alloc;
 	unsigned long from_pool_size = 0;
 
-	/* actually does not support align like system heap or carveout heap */
-	if (align > PAGE_SIZE)
-		return -EINVAL;
-
 	size_remaining = size = PAGE_ALIGN(size_org);
 	nr_total = rbin_heap->count << PAGE_SHIFT;
 
@@ -227,7 +226,6 @@ static int ion_rbin_heap_allocate(struct ion_heap *heap,
 
 	trace_printk("start. len %lu\n", size);
 	trace_ion_rbin_alloc_start(heap->name, buffer, size, NULL);
-
 	INIT_LIST_HEAD(&pages);
 	while (size_remaining > 0) {
 		page = alloc_rbin_page_from_pool(rbin_heap, buffer,
@@ -262,10 +260,9 @@ static int ion_rbin_heap_allocate(struct ion_heap *heap,
 		list_del(&page->lru);
 	}
 
-	buffer->priv_virt = table;
 	buffer->sg_table = table;
 	trace_printk("end success %9lu %9lu\n",
-		     from_pool_size, size - from_pool_size);
+			from_pool_size, size - from_pool_size);
 	trace_ion_rbin_alloc_end(heap->name, buffer, size, NULL);
 	return 0;
 
@@ -274,7 +271,6 @@ free_table:
 free_pages:
 	list_for_each_entry_safe(page, tmp_page, &pages, lru)
 		free_rbin_page(rbin_heap, buffer, page);
-
 	atomic_sub(size >> PAGE_SHIFT, &rbin_allocated_pages);
 	trace_printk("end fail %ld %ld %lu\n", nr_total, nr_alloc, size);
 	trace_ion_rbin_alloc_end(heap->name, buffer, size, (void *)-1UL);
@@ -358,46 +354,6 @@ void wake_ion_rbin_heap_shrink(void)
 	}
 }
 
-static int ion_rbin_heap_prereclaim(void *data)
-{
-	struct ion_rbin_heap *heap = data;
-	struct page *page;
-	unsigned long totalsize;
-	unsigned long pagesize;
-	unsigned int max_pool_order = orders[0];
-	unsigned int order;
-	struct ion_page_pool *pool;
-
-	if (!heap || !heap->cma)
-		return -EINVAL;
-
-	while (true) {
-		wait_event_freezable(heap->waitqueue,
-				     heap->prereclaim_run);
-
-		trace_printk("start\n");
-		reclaim_contig_migrate_range(heap->base_pfn,
-				heap->base_pfn + heap->count, 0);
-		totalsize = 0;
-		while (true) {
-			page = alloc_rbin_page(heap, NULL,
-					       PAGE_SIZE << max_pool_order);
-			if (!page)
-				break;
-			pagesize = page_private(page);
-			totalsize += pagesize;
-			order = get_order(pagesize);
-			pool = heap->pools[order_to_index(order)];
-			ion_page_pool_free(pool, page);
-			atomic_add(1 << order, &rbin_pool_pages);
-		}
-		trace_printk("end %lu\n", totalsize);
-		heap->prereclaim_run = 0;
-	}
-
-	return 0;
-}
-
 static int ion_page_pool_shrink_cma(struct cma *cma, struct ion_page_pool *pool,
 				    int nr_to_scan)
 {
@@ -410,16 +366,16 @@ static int ion_page_pool_shrink_cma(struct cma *cma, struct ion_page_pool *pool,
 		struct page *page;
 		int page_count = 1 << pool->order;
 
-		spin_lock(&pool->lock);
+		mutex_lock(&pool->mutex);
 		if (pool->low_count) {
 			page = ion_page_pool_remove(pool, false);
 		} else if (pool->high_count) {
 			page = ion_page_pool_remove(pool, true);
 		} else {
-			spin_unlock(&pool->lock);
+			mutex_unlock(&pool->mutex);
 			break;
 		}
-		spin_unlock(&pool->lock);
+		mutex_unlock(&pool->mutex);
 		cma_release(cma, page, page_count);
 		freed += page_count;
 	}
@@ -441,7 +397,6 @@ static int ion_rbin_heap_shrink_all(void *data)
 	while (true) {
 		wait_event_freezable(heap->waitqueue,
 				     heap->shrink_run);
-
 		trace_printk("start\n");
 		total_freed = 0;
 		for (i = 0; i < NUM_ORDERS; i++) {
@@ -488,51 +443,55 @@ err_create_pool:
 	return -ENOMEM;
 }
 
-/*
- * Affinity setting of RBIN pre-reclaim thread on big cores.
- * While the big core set varies depending on chipsets,
- * Exynos9810 uses CPU4~7.
- * (By the way, is there an API detecting big cores?)
- */
-#define BIG_CORE_NUM_FIRST 4
-#define BIG_CORE_NUM_LAST 7
-
-static int ion_rbin_heap_cpu_callback(struct notifier_block *nfb,
-				      unsigned long action, void *hcpu)
+static int ion_rbin_heap_prereclaim(void *data)
 {
-	int i;
-	struct cpumask cpu_mask;
+	struct ion_rbin_heap *heap = data;
+	struct page *page;
+	unsigned long totalsize;
+	unsigned long pagesize;
+	unsigned int max_pool_order = orders[0];
+	unsigned int order;
+	struct ion_page_pool *pool;
 
-	if (!rbin_heap)
-		return NOTIFY_OK;
-
-	switch (action & ~CPU_TASKS_FROZEN) {
-	case CPU_UP_PREPARE:
-	case CPU_DEAD:
-	case CPU_UP_CANCELED:
-		cpumask_clear(&cpu_mask);
-		for (i = BIG_CORE_NUM_FIRST; i <= BIG_CORE_NUM_LAST; i++)
-			cpumask_set_cpu(i, &cpu_mask);
-		if (cpumask_any_and(cpu_online_mask, &cpu_mask) >= nr_cpu_ids)
-			cpumask_setall(&cpu_mask);
-		set_cpus_allowed_ptr(rbin_heap->task, &cpu_mask);
+	while (true) {
+		wait_event_freezable(heap->waitqueue,
+				     heap->prereclaim_run);
+		trace_printk("start\n");
+		reclaim_contig_migrate_range(heap->base_pfn,
+				heap->base_pfn + heap->count, 0);
+		totalsize = 0;
+		while (true) {
+			page = alloc_rbin_page(heap, NULL,
+					       PAGE_SIZE << max_pool_order);
+			if (!page)
+				break;
+			pagesize = page_private(page);
+			totalsize += pagesize;
+			order = get_order(pagesize);
+			pool = heap->pools[order_to_index(order)];
+			ion_page_pool_free(pool, page);
+			atomic_add(1 << order, &rbin_pool_pages);
+		}
+		trace_printk("end %lu\n", totalsize);
+		heap->prereclaim_run = 0;
 	}
 
-	return NOTIFY_OK;
+	return 0;
 }
 
-struct ion_heap *ion_rbin_heap_create(struct ion_platform_heap *data)
+struct ion_heap *ion_rbin_heap_create(struct cma *cma,
+				      struct ion_platform_heap *data)
 {
 	struct ion_rbin_heap *heap;
-	struct sched_param param = { .sched_priority = 1 };
+	struct sched_param param = { .sched_priority = 0 };
 
 	heap = kzalloc(sizeof(struct ion_rbin_heap), GFP_KERNEL);
 	if (!heap)
 		return ERR_PTR(-ENOMEM);
 	heap->heap.ops = &rbin_heap_ops;
 	heap->heap.type = ION_HEAP_TYPE_RBIN;
-
-	heap->cma = data->priv;
+	heap->heap.name = kstrndup(data->name, MAX_HEAP_NAME - 1, GFP_KERNEL);
+	heap->cma = cma;
 	if (heap->cma) {
 		heap->base_pfn = PHYS_PFN(cma_get_base(heap->cma));
 		heap->count = cma_get_size(heap->cma) >> PAGE_SHIFT;
@@ -549,22 +508,10 @@ struct ion_heap *ion_rbin_heap_create(struct ion_platform_heap *data)
 					"%s", "rbin_shrink");
 	rbin_heap = heap;
 
-	sched_setscheduler(heap->task, SCHED_FIFO, &param);
-	ion_rbin_heap_cpu_callback(NULL, CPU_UP_PREPARE, NULL);
-	hotcpu_notifier(ion_rbin_heap_cpu_callback, 0);
-
+	sched_setscheduler(heap->task, SCHED_NORMAL, &param);
 	return &heap->heap;
 
 error_create_pools:
 	kfree(heap);
 	return ERR_PTR(-ENOMEM);
 }
-
-void ion_rbin_heap_destroy(struct ion_heap *heap)
-{
-	struct ion_rbin_heap *rbin_heap = container_of(heap,
-							struct ion_rbin_heap,
-							heap);
-	kfree(rbin_heap);
-}
-

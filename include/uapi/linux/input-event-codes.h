@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  * Input event codes
  *
@@ -338,8 +339,8 @@
 
 #define KEY_WAKEUP_UNLOCK	253	/* Wake-up to recent view, ex: AOP */
 #define KEY_RECENT   		254
+#define KEY_INT_CANCEL		0x2be	/* for touch event skip */
 #define KEY_WINK			0x2bf    /* Intelligence Key */
-
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
 #define BTN_MISC		0x100
@@ -527,6 +528,8 @@
 #define KEY_SIDE_GESTURE_RIGHT	0x1ca
 #define KEY_SIDE_GESTURE_LEFT	0x1cb
 
+#define KEY_RESET		0x1cd
+
 #define KEY_FN			0x1d0
 #define KEY_FN_ESC		0x1d1
 #define KEY_FN_F1		0x1d2
@@ -610,6 +613,7 @@
 #define KEY_APPSELECT		0x244	/* AL Select Task/Application */
 #define KEY_SCREENSAVER		0x245	/* AL Screen Saver */
 #define KEY_VOICECOMMAND		0x246	/* Listening Voice Command */
+#define KEY_ASSISTANT		0x247	/* AL Context-aware desktop assistant */
 
 #define KEY_BRIGHTNESS_MIN		0x250	/* Set Brightness to Minimum */
 #define KEY_BRIGHTNESS_MAX		0x251	/* Set Brightness to Maximum */
@@ -651,7 +655,7 @@
  * e.g. teletext or data broadcast application (MHEG, MHP, HbbTV, etc.)
  */
 #define KEY_DATA			0x277
-
+#define KEY_ONSCREEN_KEYBOARD		0x278
 #define KEY_WINK			0x2bf	/* Intelligence Key */
 
 #define BTN_TRIGGER_HAPPY		0x2c0
@@ -695,6 +699,8 @@
 #define BTN_TRIGGER_HAPPY38		0x2e5
 #define BTN_TRIGGER_HAPPY39		0x2e6
 #define BTN_TRIGGER_HAPPY40		0x2e7
+
+/* 0x2f1~2f8 is key event for specail event. */
 
 /* We avoid low common keys in module aliases so they don't get huge. */
 #define KEY_MIN_INTERESTING	KEY_MUTE

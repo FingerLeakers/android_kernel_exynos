@@ -20,11 +20,6 @@ void __iomem *sram_fvmap_base;
 
 static int init_margin_table[MAX_MARGIN_ID];
 static int volt_offset_percent = 0;
-#if defined(CONFIG_SAMSUNG_VST_CAL)
-static int volt_vst_cal;
-int volt_vst_cal_bdata;
-EXPORT_SYMBOL(volt_vst_cal_bdata);
-#endif
 static int percent_margin_table[MAX_MARGIN_ID];
 
 static int __init get_mif_volt(char *str)
@@ -59,6 +54,17 @@ static int __init get_big_volt(char *str)
 	return 0;
 }
 early_param("big", get_big_volt);
+
+static int __init get_mid_volt(char *str)
+{
+	int volt;
+
+	get_option(&str, &volt);
+	init_margin_table[MARGIN_MID] = volt;
+
+	return 0;
+}
+early_param("mid", get_mid_volt);
 
 static int __init get_lit_volt(char *str)
 {
@@ -181,6 +187,28 @@ static int __init get_score_volt(char *str)
 }
 early_param("score", get_score_volt);
 
+static int __init get_npu_volt(char *str)
+{
+	int volt;
+
+	get_option(&str, &volt);
+	init_margin_table[MARGIN_NPU] = volt;
+
+	return 0;
+}
+early_param("npu", get_npu_volt);
+
+static int __init get_mfc_volt(char *str)
+{
+	int volt;
+
+	get_option(&str, &volt);
+	init_margin_table[MARGIN_MFC] = volt;
+
+	return 0;
+}
+early_param("mfc", get_mfc_volt);
+
 static int __init get_percent_margin_volt(char *str)
 {
 	int percent;
@@ -191,19 +219,6 @@ static int __init get_percent_margin_volt(char *str)
 	return 0;
 }
 early_param("volt_offset_percent", get_percent_margin_volt);
-
-#if defined(CONFIG_SAMSUNG_VST_CAL)
-static int __init get_vst_margin_volt(char *str)
-{
-	unsigned int vst_volt;
-
-	get_option(&str, &vst_volt);
-	volt_vst_cal = vst_volt;
-
-	return 0;
-}
-early_param("vst_adjust", get_vst_margin_volt);
-#endif
 
 int fvmap_set_raw_voltage_table(unsigned int id, int uV)
 {
@@ -286,76 +301,6 @@ static void check_percent_margin(struct rate_volt_header *head, unsigned int num
 	}
 }
 
-#if defined(CONFIG_SAMSUNG_VST_CAL)
-static void check_vst_margin(void)
-{
-	int i;
-	int bit = 1;
-	int tmp = 0;
-	int crc = 0;
-	int magic = 0;
-	int margin = volt_vst_cal;
-
-	/* initialize vst cal bdata before using it */
-	volt_vst_cal_bdata = 0;
-
-	if (!volt_vst_cal) {
-		pr_info("[svst] no vst cal\n");
-		return;
-	}
-
-	/* check magic */
-	magic = margin & 0xffffffc0;
-	if ((magic >> 6) != NAD_CRC_MAGIC) {
-		pr_info("[svst] invalid magic = %d\n", magic);
-		return;
-	}
-
-	/* check crc */
-	crc = margin & 0x3;
-	margin = margin >> 2;
-
-	for (i = 0; i < 30; i++) {
-		if (bit & margin)
-			tmp++;
-		bit = bit << 1;
-	}
-	tmp = (tmp % 4);
-	if (tmp != 0)
-		tmp = 4 - tmp;
-
-	pr_info("[svst] crc = %d, tmp = %d\n", crc, tmp);
-
-	if (crc != tmp) {
-		pr_info("[svst] broken crc\n");
-		return;
-	}
-
-	margin = margin & 0xf;
-	volt_vst_cal_bdata = margin;
-	pr_info("[svst] result = %d, bdata = %d\n", margin, volt_vst_cal_bdata);
-
-	bit = 1;
-	for (i = 0; i < 4; i++) {
-		if (bit & margin) {
-			if (i == 0) {
-				pr_info("[svst] big[%d]\n", NAD_VST_CAL_VOLT);
-				init_margin_table[MARGIN_BIG] += NAD_VST_CAL_VOLT;
-			} else if (i == 1) {
-				pr_info("[svst] lit[%d]\n", NAD_VST_CAL_VOLT);
-				init_margin_table[MARGIN_LIT] += NAD_VST_CAL_VOLT;
-			} else if (i == 2) {
-				pr_info("[svst] g3d[%d]\n", NAD_VST_CAL_VOLT);
-				init_margin_table[MARGIN_G3D] += NAD_VST_CAL_VOLT;
-			} else {
-				pr_info("[svst] mif[%d]\n", NAD_VST_CAL_VOLT);
-				init_margin_table[MARGIN_MIF] += NAD_VST_CAL_VOLT;
-			}
-		}
-		bit = bit << 1;
-	}
-}
-#endif
 static int get_vclk_id_from_margin_id(int margin_id)
 {
 	int size = cmucal_get_list_size(ACPM_VCLK_TYPE);
@@ -406,6 +351,7 @@ __ATTR(type##_percent, 0600,									\
 attr_percent(MARGIN_MIF, mif_margin);
 attr_percent(MARGIN_INT, int_margin);
 attr_percent(MARGIN_BIG, big_margin);
+attr_percent(MARGIN_MID, mid_margin);
 attr_percent(MARGIN_LIT, lit_margin);
 attr_percent(MARGIN_G3D, g3d_margin);
 attr_percent(MARGIN_INTCAM, intcam_margin);
@@ -416,11 +362,14 @@ attr_percent(MARGIN_FSYS0, fsys0_margin);
 attr_percent(MARGIN_AUD, aud_margin);
 attr_percent(MARGIN_IVA, iva_margin);
 attr_percent(MARGIN_SCORE, score_margin);
+attr_percent(MARGIN_NPU, npu_margin);
+attr_percent(MARGIN_MFC, mfc_margin);
 
 static struct attribute *percent_margin_attrs[] = {
 	&mif_margin_percent.attr,
 	&int_margin_percent.attr,
 	&big_margin_percent.attr,
+	&mid_margin_percent.attr,
 	&lit_margin_percent.attr,
 	&g3d_margin_percent.attr,
 	&intcam_margin_percent.attr,
@@ -431,6 +380,8 @@ static struct attribute *percent_margin_attrs[] = {
 	&aud_margin_percent.attr,
 	&iva_margin_percent.attr,
 	&score_margin_percent.attr,
+	&npu_margin_percent.attr,
+	&mfc_margin_percent.attr,
 	NULL,
 };
 
@@ -445,8 +396,8 @@ static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base
 	struct clocks *clks;
 	struct pll_header *plls;
 	struct vclk *vclk;
-	struct cmucal_clk *clk_node;
-	unsigned int paddr_offset, fvaddr_offset;
+	unsigned int member_addr;
+	unsigned int blk_idx;
 	int size, margin;
 	int i, j;
 
@@ -454,10 +405,6 @@ static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base
 	header = sram_base;
 
 	size = cmucal_get_list_size(ACPM_VCLK_TYPE);
-
-#if defined(CONFIG_SAMSUNG_VST_CAL)
-	check_vst_margin();
-#endif
 
 	for (i = 0; i < size; i++) {
 		/* load fvmap info */
@@ -496,29 +443,38 @@ static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base
 		if (margin)
 			cal_dfs_set_volt_margin(i | ACPM_VCLK_TYPE, margin);
 
+		for (j = 0; j < fvmap_header[i].num_of_members; j++) {
+			clks = sram_base + fvmap_header[i].o_members;
+
+			if (j < fvmap_header[i].num_of_pll) {
+				plls = sram_base + clks->addr[j];
+				member_addr = plls->addr - 0x90000000;
+			} else {
+
+				member_addr = (clks->addr[j] & ~0x3) & 0xffff;
+				blk_idx = clks->addr[j] & 0x3;
+
+				if (blk_idx < BLOCK_ADDR_SIZE)
+					member_addr |= ((fvmap_header[i].block_addr[blk_idx]) << 16) - 0x90000000;
+				else
+					pr_err("[%s] blk_idx %u is out of range for block_addr\n", __func__, blk_idx);
+			}
+
+
+			vclk->list[j] = cmucal_get_id_by_addr(member_addr);
+
+			if (vclk->list[j] == INVALID_CLK_ID)
+				pr_info("  Invalid addr :0x%x\n", member_addr);
+			else
+				pr_info("  DVFS CMU addr:0x%x\n", member_addr);
+		}
+
 		for (j = 0; j < fvmap_header[i].num_of_lv; j++) {
 			new->table[j].rate = old->table[j].rate;
 			new->table[j].volt = old->table[j].volt;
 			pr_info("  lv : [%7d], volt = %d uV (%d %%) \n",
 				new->table[j].rate, new->table[j].volt,
 				volt_offset_percent);
-		}
-
-		for (j = 0; j < fvmap_header[i].num_of_pll; j++) {
-			clks = sram_base + fvmap_header[i].o_members;
-			plls = sram_base + clks->addr[j];
-			clk_node = cmucal_get_node(vclk->list[j]);
-			if (clk_node == NULL)
-				continue;
-			paddr_offset = clk_node->paddr & 0xFFFF;
-			fvaddr_offset = plls->addr & 0xFFFF;
-			if (paddr_offset == fvaddr_offset)
-				continue;
-
-			clk_node->paddr += fvaddr_offset - paddr_offset;
-			clk_node->pll_con0 += fvaddr_offset - paddr_offset;
-			if (clk_node->pll_con1)
-				clk_node->pll_con1 += (unsigned long long)(fvaddr_offset - paddr_offset);
 		}
 	}
 }
@@ -532,7 +488,7 @@ int fvmap_init(void __iomem *sram_base)
 
 	fvmap_base = map_base;
 	sram_fvmap_base = sram_base;
-	pr_info("%s:fvmap initialize %p\n", __func__, sram_base);
+	pr_info("%s:fvmap initialize %pK\n", __func__, sram_base);
 	fvmap_copy_from_sram(map_base, sram_base);
 
 	/* percent margin for each doamin at runtime */

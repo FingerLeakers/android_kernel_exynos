@@ -58,6 +58,9 @@ static ssize_t name##_list_show(struct device *dev,			\
 define_id_show_func(physical_package_id);
 static DEVICE_ATTR_RO(physical_package_id);
 
+define_id_show_func(coregroup_id);
+static DEVICE_ATTR_RO(coregroup_id);
+
 define_id_show_func(core_id);
 static DEVICE_ATTR_RO(core_id);
 
@@ -68,6 +71,10 @@ static DEVICE_ATTR_RO(thread_siblings_list);
 define_siblings_show_func(core_siblings, core_cpumask);
 static DEVICE_ATTR_RO(core_siblings);
 static DEVICE_ATTR_RO(core_siblings_list);
+
+define_siblings_show_func(cluster_siblings, cluster_cpumask);
+static DEVICE_ATTR_RO(cluster_siblings);
+static DEVICE_ATTR_RO(cluster_siblings_list);
 
 #ifdef CONFIG_SCHED_BOOK
 define_id_show_func(book_id);
@@ -92,6 +99,9 @@ static struct attribute *default_attrs[] = {
 	&dev_attr_thread_siblings_list.attr,
 	&dev_attr_core_siblings.attr,
 	&dev_attr_core_siblings_list.attr,
+	&dev_attr_coregroup_id.attr,
+	&dev_attr_cluster_siblings.attr,
+	&dev_attr_cluster_siblings_list.attr,
 #ifdef CONFIG_SCHED_BOOK
 	&dev_attr_book_id.attr,
 	&dev_attr_book_siblings.attr,
@@ -105,64 +115,45 @@ static struct attribute *default_attrs[] = {
 	NULL
 };
 
-static struct attribute_group topology_attr_group = {
+static const struct attribute_group topology_attr_group = {
 	.attrs = default_attrs,
 	.name = "topology"
 };
 
+static bool cpu_sys_init[NR_CPUS];
 /* Add/Remove cpu_topology interface for CPU device */
 static int topology_add_dev(unsigned int cpu)
 {
 	struct device *dev = get_cpu_device(cpu);
+	int ret;
 
-	return sysfs_create_group(&dev->kobj, &topology_attr_group);
+	if (cpu_sys_init[cpu])
+		return 0;
+
+	ret = sysfs_create_group(&dev->kobj, &topology_attr_group);
+	if (!ret)
+		cpu_sys_init[cpu] = true;
+
+	return ret;
 }
 
-static void topology_remove_dev(unsigned int cpu)
+static int topology_remove_dev(unsigned int cpu)
 {
-	struct device *dev = get_cpu_device(cpu);
+	struct device *dev;
 
+	if (cpu_sys_init[cpu])
+		return 0;
+
+	dev = get_cpu_device(cpu);
 	sysfs_remove_group(&dev->kobj, &topology_attr_group);
-}
-
-static int topology_cpu_callback(struct notifier_block *nfb,
-				 unsigned long action, void *hcpu)
-{
-	unsigned int cpu = (unsigned long)hcpu;
-	int rc = 0;
-
-	switch (action) {
-	case CPU_UP_PREPARE:
-	case CPU_UP_PREPARE_FROZEN:
-		rc = topology_add_dev(cpu);
-		break;
-	case CPU_UP_CANCELED:
-	case CPU_UP_CANCELED_FROZEN:
-	case CPU_DEAD:
-	case CPU_DEAD_FROZEN:
-		topology_remove_dev(cpu);
-		break;
-	}
-	return notifier_from_errno(rc);
+	return 0;
 }
 
 static int topology_sysfs_init(void)
 {
-	int cpu;
-	int rc = 0;
-
-	cpu_notifier_register_begin();
-
-	for_each_online_cpu(cpu) {
-		rc = topology_add_dev(cpu);
-		if (rc)
-			goto out;
-	}
-	__hotcpu_notifier(topology_cpu_callback, 0);
-
-out:
-	cpu_notifier_register_done();
-	return rc;
+	return cpuhp_setup_state(CPUHP_TOPOLOGY_PREPARE,
+				 "base/topology:prepare", topology_add_dev,
+				 topology_remove_dev);
 }
 
 device_initcall(topology_sysfs_init);

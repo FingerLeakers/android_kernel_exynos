@@ -43,8 +43,15 @@
 #include <linux/poll.h>
 #include <linux/sched.h>
 #include <linux/i2c.h>
+
 #ifdef CONFIG_ESE_SECURE
-#include <linux/smc.h>
+extern int tz_tee_ese_secure_check(void);
+enum secure_state {
+	NOT_CHECKED,
+	ESE_SECURED,
+	ESE_NOT_SECURED,
+};
+int nfc_ese_secured;
 #endif
 
 #include "sec_nfc.h"
@@ -246,7 +253,7 @@ static ssize_t sec_nfc_write(struct file *file, const char __user *buf,
 						struct sec_nfc_info, miscdev);
 	int ret = 0;
 
-	NFC_LOG_DBG("write() info: %p, count %d\n", info, (u32)count);
+	NFC_LOG_DBG("write() count %d\n", (u32)count);
 
 #ifdef FEATURE_SEC_NFC_TEST
 	if (on_nfc_test)
@@ -388,7 +395,7 @@ int sec_nfc_i2c_probe(struct i2c_client *client)
 	struct sec_nfc_platform_data *pdata = info->pdata;
 	int ret;
 
-	NFC_LOG_INFO("probe() start: %p\n", info);
+	NFC_LOG_INFO("probe() start\n");
 
 	info->i2c_info.buflen = SEC_NFC_MAX_BUFFER_SIZE;
 	info->i2c_info.buf = kzalloc(SEC_NFC_MAX_BUFFER_SIZE, GFP_KERNEL);
@@ -429,7 +436,7 @@ int sec_nfc_i2c_probe(struct i2c_client *client)
 		}
 	}
 
-	NFC_LOG_INFO("probe() success: %p\n", info);
+	NFC_LOG_INFO("probe() success\n");
 	return 0;
 
 err_irq_req:
@@ -549,7 +556,7 @@ static long sec_nfc_ioctl(struct file *file, unsigned int cmd,
 	unsigned int new = (unsigned int)arg;
 	int ret = 0;
 
-	NFC_LOG_DBG("info: %p, cmd: 0x%x\n", info, cmd);
+	NFC_LOG_DBG("cmd: 0x%x\n", cmd);
 
 	mutex_lock(&info->mutex);
 
@@ -632,6 +639,21 @@ static int sec_nfc_open(struct inode *inode, struct file *file)
 	int ret = 0;
 
 	NFC_LOG_INFO("%s\n", __func__);
+
+#ifdef CONFIG_ESE_SECURE
+	if (nfc_ese_secured == NOT_CHECKED) {
+		ret = tz_tee_ese_secure_check();
+		if (ret) {
+			nfc_ese_secured = ESE_NOT_SECURED;
+			NFC_LOG_ERR("eSE spi is not Secured\n"); 
+			return -EBUSY;
+		}
+		nfc_ese_secured = ESE_SECURED;
+	} else if (nfc_ese_secured == ESE_NOT_SECURED) { 
+		NFC_LOG_ERR("eSE spi is not Secured\n"); 
+		return -EBUSY;
+	}
+#endif
 
 	mutex_lock(&info->mutex);
 	if (info->mode != SEC_NFC_MODE_OFF) {
@@ -824,7 +846,7 @@ out:
 	return ret;
 }
 
-static ssize_t sec_nfc_test_show(struct class *class,
+static ssize_t test_show(struct class *class,
 					struct class_attribute *attr,
 					char *buf)
 {
@@ -865,14 +887,8 @@ exit:
 
 	return size;
 }
-static ssize_t sec_nfc_test_store(struct class *dev,
-					struct class_attribute *attr,
-					const char *buf, size_t size)
-{
-	return size;
-}
 
-static CLASS_ATTR(test, 0664, sec_nfc_test_show, sec_nfc_test_store);
+static CLASS_ATTR_RO(test);
 #endif
 
 static int __sec_nfc_probe(struct device *dev)
@@ -973,7 +989,7 @@ static int __sec_nfc_probe(struct device *dev)
 			NFC_LOG_ERR("NFC: failed to create attr_test\n");
 	}
 #endif
-	NFC_LOG_INFO("probe() success info: %p, pdata %p\n", info, pdata);
+	NFC_LOG_INFO("probe() success\n");
 
 	return 0;
 
@@ -1028,13 +1044,6 @@ static int sec_nfc_probe(struct i2c_client *client,
 
 	nfc_logger_init();
 
-#ifdef CONFIG_ESE_SECURE
-	ret = exynos_smc(0x83000032, 0 , 0, 0);
-	if (ret == EBUSY) { 
-		NFC_LOG_ERR("eSE spi secure fail!\n");
-		return -EBUSY;
-	}
-#endif
 	ret = __sec_nfc_probe(&client->dev);
 	if (ret)
 		return ret;

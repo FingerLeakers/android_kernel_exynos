@@ -9,7 +9,7 @@
  */
 #include "exynos-iommu.h"
 #include <dt-bindings/sysmmu/sysmmu.h>
-#ifdef CONFIG_SEC_DEBUG_AUTO_SUMMARY
+#ifdef CONFIG_SEC_DEBUG_AUTO_COMMENT
 #include <linux/sec_debug.h>
 #endif
 
@@ -169,7 +169,7 @@ static inline void dump_sysmmu_tlb_port(struct sysmmu_drvdata *drvdata,
 	num_port = MMU_CAPA1_NUM_PORT(capa1);
 	num_sbb = 1 << MMU_CAPA_NUM_SBB_ENTRY(capa0);
 
-	pr_auto(ASL4, "SysMMU has %d TLBs, %d ports, %d sbb entries\n",
+	pr_crit("SysMMU has %d TLBs, %d ports, %d sbb entries\n",
 					num_tlb, num_port, num_sbb);
 
 	for (t = 0; t < num_tlb; t++) {
@@ -179,8 +179,8 @@ static inline void dump_sysmmu_tlb_port(struct sysmmu_drvdata *drvdata,
 		num_way = MMU_CAPA1_NUM_TLB_WAY(info);
 		num_set = MMU_CAPA1_NUM_TLB_SET(info);
 
-		pr_auto(ASL4, "TLB.%d has %d way, %d set.\n", t, num_way, num_set);
-		pr_auto(ASL4, "------------- TLB[WAY][SET][ENTRY] -------------\n");
+		pr_crit("TLB.%d has %d way, %d set.\n", t, num_way, num_set);
+		pr_crit("------------- TLB[WAY][SET][ENTRY] -------------\n");
 		for (i = 0, cnt = 0; i < num_way; i++) {
 			for (j = 0; j < num_set; j++) {
 				for (k = 0; k < MMU_NUM_TLB_SUBLINE; k++) {
@@ -194,14 +194,14 @@ static inline void dump_sysmmu_tlb_port(struct sysmmu_drvdata *drvdata,
 	if (!cnt)
 		pr_auto(ASL4, ">> No Valid TLB Entries\n");
 
-	pr_auto(ASL4, "--- SBB(Second-Level Page Table Base Address Buffer) ---\n");
+	pr_crit("--- SBB(Second-Level Page Table Base Address Buffer) ---\n");
 	for (i = 0, cnt = 0; i < num_sbb; i++) {
 		__raw_writel(i, sfrbase + REG_CAPA1_SBB_READ);
 		if (MMU_SBB_ENTRY_VALID(__raw_readl(sfrbase + REG_CAPA1_SBB_VPN))) {
 			sbb_vpn = __raw_readl(sfrbase + REG_CAPA1_SBB_VPN);
 			sbb_link = __raw_readl(sfrbase + REG_CAPA1_SBB_LINK);
 
-			pr_auto(ASL4, "[%02d] VPN: %#010x, PPN: %#010x, ATTR: %#010x\n",
+			pr_crit("[%02d] VPN: %#010x, PPN: %#010x, ATTR: %#010x\n",
 				i, sbb_vpn, sbb_link,
 				__raw_readl(sfrbase + REG_CAPA1_SBB_ATTR));
 			sysmmu_sbb_compare(sbb_vpn, sbb_link, pgtable);
@@ -397,9 +397,11 @@ static inline void show_fault_information(struct sysmmu_drvdata *drvdata,
 		pr_auto(ASL4, "Page table base of driver: %pa\n",
 			&drvdata->pgtable);
 
+	if (fault_id == SYSMMU_FAULT_PTW_ACCESS)
+		pr_auto(ASL4, "System MMU has failed to access page table\n");
+
 	if (!pfn_valid(pgtable >> PAGE_SHIFT)) {
 		pr_auto(ASL4, "Page table base is not in a valid memory region\n");
-		pgtable = 0;
 	} else {
 		sysmmu_pte_t *ent;
 		ent = section_entry(phys_to_virt(pgtable), fault_addr);
@@ -409,11 +411,6 @@ static inline void show_fault_information(struct sysmmu_drvdata *drvdata,
 			ent = page_entry(ent, fault_addr);
 			pr_auto(ASL4, "Lv2 entry: %#010x\n", *ent);
 		}
-	}
-
-	if (fault_id == SYSMMU_FAULT_PTW_ACCESS) {
-		pr_crit("System MMU has failed to access page table\n");
-		pgtable = 0;
 	}
 
 	dump_sysmmu_status(drvdata, pgtable);

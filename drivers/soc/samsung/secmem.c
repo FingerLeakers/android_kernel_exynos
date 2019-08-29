@@ -23,7 +23,7 @@
 #include <linux/export.h>
 #include <linux/pm_qos.h>
 #include <linux/dma-contiguous.h>
-#include <linux/exynos_ion.h>
+#include <linux/ion_exynos.h>
 #include <linux/smc.h>
 #include <linux/dma-buf.h>
 
@@ -206,15 +206,10 @@ static long secmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 #endif
 	case (uint32_t)SECMEM_IOC_GET_DRM_ONOFF:
-	{
-		int drm_status = 0;
-
 		smp_rmb();
-		drm_status = (int)drm_onoff;
-		if (copy_to_user((void __user *)arg, &drm_status, sizeof(int)))
+		if (copy_to_user((void __user *)arg, &drm_onoff, sizeof(bool)))
 			return -EFAULT;
 		break;
-	}
 	case (uint32_t)SECMEM_IOC_SET_DRM_ONOFF:
 	{
 		int ret, val = 0;

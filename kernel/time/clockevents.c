@@ -17,7 +17,7 @@
 #include <linux/module.h>
 #include <linux/smp.h>
 #include <linux/device.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 
 #include "tick-internal.h"
 
@@ -180,7 +180,7 @@ void clockevents_switch_state(struct clock_event_device *dev,
 void clockevents_shutdown(struct clock_event_device *dev)
 {
 	clockevents_switch_state(dev, CLOCK_EVT_STATE_SHUTDOWN);
-	dev->next_event.tv64 = KTIME_MAX;
+	dev->next_event = KTIME_MAX;
 }
 
 /**
@@ -214,7 +214,7 @@ static int clockevents_increase_min_delta(struct clock_event_device *dev)
 	if (dev->min_delta_ns >= MIN_DELTA_LIMIT) {
 		printk_deferred(KERN_WARNING
 				"CE: Reprogramming failure. Giving up\n");
-		dev->next_event.tv64 = KTIME_MAX;
+		dev->next_event = KTIME_MAX;
 		return -ETIME;
 	}
 
@@ -254,7 +254,6 @@ static int clockevents_program_min_delta(struct clock_event_device *dev)
 
 		dev->retries++;
 		clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
-		exynos_ss_clockevent(clc, delta, &dev->next_event);
 		if (dev->set_next_event((unsigned long) clc, dev) == 0)
 			return 0;
 
@@ -292,7 +291,6 @@ static int clockevents_program_min_delta(struct clock_event_device *dev)
 
 	dev->retries++;
 	clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
-	exynos_ss_clockevent(clc, delta, &dev->next_event);
 	return dev->set_next_event((unsigned long) clc, dev);
 }
 
@@ -313,7 +311,7 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 	int64_t delta;
 	int rc;
 
-	if (unlikely(expires.tv64 < 0)) {
+	if (unlikely(expires < 0)) {
 		WARN_ON_ONCE(1);
 		return -ETIME;
 	}
@@ -339,7 +337,6 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 	delta = max(delta, (int64_t) dev->min_delta_ns);
 
 	clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
-	exynos_ss_clockevent(clc, delta, &dev->next_event);
 	rc = dev->set_next_event((unsigned long) clc, dev);
 
 	return (rc && force) ? clockevents_program_min_delta(dev) : rc;
@@ -472,7 +469,7 @@ void clockevents_register_device(struct clock_event_device *dev)
 }
 EXPORT_SYMBOL_GPL(clockevents_register_device);
 
-void clockevents_config(struct clock_event_device *dev, u32 freq)
+static void clockevents_config(struct clock_event_device *dev, u32 freq)
 {
 	u64 sec;
 

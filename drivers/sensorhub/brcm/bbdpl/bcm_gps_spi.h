@@ -62,6 +62,10 @@
 
 #define HSI_PZC_MAX_RX_BUFFER      0x10000
 
+#define CONFIG_MEM_CORRUPT_CHECK  4
+#define CONFIG_MEM_PATTERN     0x1A
+#define CONFIG_MEM_ADD         0x11
+
 #define DEBUG_TIME_STAT
 #define CONFIG_TRANSFER_STAT
 #define CONFIG_REG_IO 1
@@ -84,9 +88,10 @@ struct bcm_spi_strm_protocol  {
 struct bcm_spi_transfer_stat  {
 	int  len_255;
 	int  len_1K;
-    int  len_2K; 
-    int  len_4K; 
+	int  len_2K; 
+	int  len_4K; 
 	int  len_8K;
+	int  len_16K;
 	int  len_32K;
 	int  len_64K;
 } __attribute__((__packed__));
@@ -162,8 +167,17 @@ struct bcm_spi_priv {
 	atomic_t suspending;
 
 	/* SPI tx/rx buf */
+#if CONFIG_MEM_CORRUPT_CHECK    
+    unsigned char *chk_mem_frame_1; 
+#endif    
 	struct bcm_ssi_tx_frame *tx_buf;
+#if CONFIG_MEM_CORRUPT_CHECK    
+    unsigned char *chk_mem_frame_2; 
+#endif    
 	struct bcm_ssi_rx_frame *rx_buf;
+#if CONFIG_MEM_CORRUPT_CHECK    
+    unsigned char *chk_mem_frame_3; 
+#endif    
 
 	/* 4775 SPI tx/rx strm protocol */
 	struct bcm_spi_strm_protocol tx_strm;
@@ -197,6 +211,8 @@ bool bcm477x_data_dump(void *);
  * bcm_gps_spi.cpp
  */
 struct bcm_spi_priv *bcm_get_bcm_gps(void); 
+void bcm_ssi_clear_mem_corruption(struct bcm_spi_priv *priv);
+void bcm_ssi_check_mem_corruption(struct bcm_spi_priv *priv);
 void bcm_ssi_print_trans_stat(struct bcm_spi_priv *priv);
 void bcm_ssi_clear_trans_stat(struct bcm_spi_priv *priv);
 int bcm_ssi_rx(struct bcm_spi_priv *priv, size_t *length);

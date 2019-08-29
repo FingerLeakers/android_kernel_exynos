@@ -48,6 +48,7 @@
 #include <linux/clk.h>
 #include <linux/wakelock.h>
 #include <linux/smc.h>
+#include "../misc/tzdev/include/tzdev/tee_client_api.h"
 
 #include "ese_p3.h"
 
@@ -56,6 +57,23 @@
 
 #define SPI_DEFAULT_SPEED 6500000L
 
+#ifdef CONFIG_ESE_SECURE
+static TEEC_UUID ese_drv_uuid = {
+	0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x65, 0x73, 0x65, 0x44, 0x72, 0x76}
+};
+
+enum pm_mode {
+	PM_SUSPEND,
+	PM_RESUME,
+	SECURE_CHECK,
+};
+
+enum secure_state {
+	NOT_CHECKED,
+	ESE_SECURED,
+	ESE_NOT_SECURED,
+};
+#endif
 /* size of maximum read/write buffer supported by driver */
 #define MAX_BUFFER_SIZE   259U
 
@@ -106,26 +124,29 @@ struct p3_data {
 #ifdef CONFIG_ESE_SECURE
 	struct clk *ese_spi_pclk;
 	struct clk *ese_spi_sclk;
+	int ese_secure_check;
 #endif
 };
 
 #ifndef CONFIG_ESE_SECURE
-static void p3_pinctrl_config(struct device *dev, bool onoff)
+static void p3_pinctrl_config(struct p3_data *data, bool onoff)
 {
+	struct spi_device *spi = data->spi;
+	struct device *spi_dev = spi->dev.parent->parent;
 	struct pinctrl *pinctrl = NULL;
 
 	P3_INFO_MSG("%s: pinctrol - %s\n", __func__, onoff ? "on" : "off");
 
 	if (onoff) {
 		/* ON */
-		pinctrl = devm_pinctrl_get_select(dev, "ese_active");
+		pinctrl = devm_pinctrl_get_select(spi_dev, "ese_active");
 		if (IS_ERR_OR_NULL(pinctrl))
 			P3_ERR_MSG("%s: Failed to configure ese pin\n", __func__);
 		else
 			devm_pinctrl_put(pinctrl);
 	} else {
 		/* OFF */
-		pinctrl = devm_pinctrl_get_select(dev, "ese_suspend");
+		pinctrl = devm_pinctrl_get_select(spi_dev, "ese_suspend");
 		if (IS_ERR_OR_NULL(pinctrl))
 			P3_ERR_MSG("%s: Failed to configure ese pin\n", __func__);
 		else
@@ -135,32 +156,44 @@ static void p3_pinctrl_config(struct device *dev, bool onoff)
 #endif
 
 #ifdef CONFIG_ESE_SECURE
-static int p3_suspend(void)
+static uint32_t tz_tee_ese_drv(enum pm_mode mode)
 {
-	u64 r0 = 0, r1 = 0, r2 = 0, r3 = 0;
-	int ret = 0;
+	TEEC_Context context;
+	TEEC_Session session;
+	TEEC_Result result;
+	uint32_t returnOrigin = TEEC_NONE;
 
-	r0 = (0x83000032);
-	ret = exynos_smc(r0, r1, r2, r3);
+	result = TEEC_InitializeContext(NULL, &context);
+	if (result != TEEC_SUCCESS)
+		goto out;
 
-	if (ret)
-		P3_ERR_MSG("P3 check suspend status! 0x%X\n", ret);
+	result = TEEC_OpenSession(&context, &session, &ese_drv_uuid, TEEC_LOGIN_PUBLIC,
+			NULL, NULL, &returnOrigin);
+	if (result != TEEC_SUCCESS)
+		goto finalize_context;
 
-	return ret;
+	/* test with valid cmd id, expected result : TEEC_SUCCESS */
+	result = TEEC_InvokeCommand(&session, mode, NULL, &returnOrigin);
+	if (result != TEEC_SUCCESS) {
+		P3_ERR_MSG("%s with cmd %d : FAIL\n", __func__, mode);
+		goto close_session;
+	}
+
+	P3_ERR_MSG("eSE tz_tee_dev return origin %d\n", returnOrigin);
+
+close_session:
+	TEEC_CloseSession(&session);
+finalize_context:
+	TEEC_FinalizeContext(&context);
+out:
+	P3_INFO_MSG("tz_tee_ese_drv, cmd %s result=%#x origin=%#x\n", mode ? "Resume" :"Suspend " , result, returnOrigin);
+
+	return result;
 }
-
-static int p3_resume(void)
+extern int tz_tee_ese_secure_check(void);
+int tz_tee_ese_secure_check()
 {
-	u64 r0 = 0, r1 = 0, r2 = 0, r3 = 0;
-	int ret = 0;
-
-	r0 = (0x83000033);
-	ret = exynos_smc(r0, r1, r2, r3);
-
-	if (ret)
-		P3_ERR_MSG("P3 check resume status! 0x%X\n", ret);
-
-	return ret;
+	return	tz_tee_ese_drv(SECURE_CHECK);
 }
 
 static int p3_clk_control(struct p3_data *data, bool onoff)
@@ -372,6 +405,21 @@ static int spip3_open(struct inode *inode, struct file *filp)
 			struct p3_data, p3_device);
 	int ret = 0;
 
+#ifdef CONFIG_ESE_SECURE
+	if (p3_dev->ese_secure_check == NOT_CHECKED) {
+		ret = tz_tee_ese_secure_check();
+		if (ret) {
+			p3_dev->ese_secure_check = ESE_NOT_SECURED;
+			P3_ERR_MSG("eSE spi is not Secured\n"); 
+			return -EBUSY;
+		}
+		p3_dev->ese_secure_check = ESE_SECURED;
+	} else if (p3_dev->ese_secure_check == ESE_NOT_SECURED) {
+			P3_ERR_MSG("eSE spi is not Secured\n"); 
+			return -EBUSY;
+	}
+#endif
+
 	/* for defence MULTI-OPEN */
 	if (p3_dev->device_opened) {
 		P3_ERR_MSG("%s - ALREADY opened!\n", __func__);
@@ -388,9 +436,9 @@ static int spip3_open(struct inode *inode, struct file *filp)
 
 #ifdef CONFIG_ESE_SECURE
 	p3_clk_control(p3_dev, true);
-	p3_resume();
+	tz_tee_ese_drv(PM_RESUME);
 #else
-	p3_pinctrl_config(p3_dev->p3_device.parent, true);
+	p3_pinctrl_config(p3_dev, true);
 #endif
 
 #ifdef FEATURE_ESE_POWER_ON_OFF
@@ -433,10 +481,10 @@ static int spip3_release(struct inode *inode, struct file *filp)
 
 #ifdef CONFIG_ESE_SECURE
 	p3_clk_control(p3_dev, false);
-	p3_suspend();
+	tz_tee_ese_drv(PM_SUSPEND);
 	usleep_range(1000, 1500);
 #else
-	p3_pinctrl_config(p3_dev->p3_device.parent, false);
+	p3_pinctrl_config(p3_dev, false);
 #endif
 #ifdef FEATURE_ESE_POWER_ON_OFF
 		ret = p3_regulator_onoff(p3_dev, 0);
@@ -659,13 +707,6 @@ static int spip3_probe(struct spi_device *spi)
 	P3_INFO_MSG("%s chip select : %d , bus number = %d\n",
 		__func__, spi->chip_select, spi->master->bus_num);
 
-#ifdef CONFIG_ESE_SECURE
-	if (p3_suspend() == EBUSY) {
-		P3_ERR_MSG("eSE spi Secure fail!\n"); 
-		return -EBUSY;
-	}
-#endif
-
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (data == NULL) {
 		P3_ERR_MSG("failed to allocate memory for module data\n");
@@ -707,6 +748,9 @@ static int spip3_probe(struct spi_device *spi)
 	data->p3_device.name = "p3";
 	data->p3_device.fops = &spip3_dev_fops;
 	data->p3_device.parent = &spi->dev;
+#ifdef CONFIG_ESE_SECURE
+	data->ese_secure_check = NOT_CHECKED;
+#endif
 
 	dev_set_drvdata(&spi->dev, data);
 
@@ -737,10 +781,8 @@ static int spip3_probe(struct spi_device *spi)
 		goto err_ldo_off;
 	}
 #endif
-#ifdef CONFIG_ESE_SECURE
-	p3_suspend();
-#else
-	p3_pinctrl_config(&spi->dev, false);
+#ifndef CONFIG_ESE_SECURE
+	p3_pinctrl_config(data, false);
 #endif
 
 	P3_INFO_MSG("%s finished...\n", __func__);

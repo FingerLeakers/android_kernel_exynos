@@ -48,7 +48,7 @@ void remove_af_noise_unregister(struct remove_af_noise *af_cam)
 }
 EXPORT_SYMBOL(remove_af_noise_unregister);
 
-void report_shake_cam_data(struct ssp_data *data,
+void report_shake_cam_data(struct ssp_data *data, int sensor_type,
 	struct sensor_value *shake_cam_data)
 {
 	data->buf[SHAKE_CAM].x = shake_cam_data->x;

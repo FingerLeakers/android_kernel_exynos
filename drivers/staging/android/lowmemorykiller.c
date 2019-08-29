@@ -32,22 +32,20 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/cma.h>
 #include <linux/oom.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/swap.h>
 #include <linux/rcupdate.h>
 #include <linux/profile.h>
 #include <linux/notifier.h>
 #include <linux/ratelimit.h>
 
-#define CREATE_TRACE_POINTS
-#include "trace/lowmemorykiller.h"
+static int lmkd_count;
 
 static u32 lowmem_debug_level = 1;
 static short lowmem_adj[6] = {
@@ -67,6 +65,7 @@ static int lowmem_minfree[6] = {
 
 static int lowmem_minfree_size = 4;
 static u32 lowmem_lmkcount;
+static int lmkd_cricount;
 
 static unsigned long lowmem_deathpending_timeout;
 
@@ -76,23 +75,11 @@ static unsigned long lowmem_deathpending_timeout;
 			pr_info(x);			\
 	} while (0)
 
-static int test_task_flag(struct task_struct *p, int flag)
-{
-	struct task_struct *t = p;
-
-	do {
-		if (test_tsk_thread_flag(t, flag))
-			return 1;
-	} while_each_thread(p, t);
-
-	return 0;
-}
-
 static void show_memory(void)
 {
 	unsigned long nr_rbin_free, nr_rbin_pool, nr_rbin_alloc, nr_rbin_file;
 
-	nr_rbin_free = global_page_state(NR_FREE_RBIN_PAGES);
+	nr_rbin_free = global_zone_page_state(NR_FREE_RBIN_PAGES);
 	nr_rbin_pool = atomic_read(&rbin_pool_pages);
 	nr_rbin_alloc = atomic_read(&rbin_allocated_pages);
 	nr_rbin_file = totalrbin_pages - nr_rbin_free - nr_rbin_pool
@@ -124,7 +111,7 @@ static void show_memory(void)
 		" rbin_file:%lukB"
 		"\n",
 		K(totalram_pages),
-		K(global_page_state(NR_FREE_PAGES)),
+		K(global_zone_page_state(NR_FREE_PAGES)),
 		K(global_node_page_state(NR_ACTIVE_ANON)),
 		K(global_node_page_state(NR_INACTIVE_ANON)),
 		K(global_node_page_state(NR_ACTIVE_FILE)),
@@ -136,11 +123,11 @@ static void show_memory(void)
 		K(global_node_page_state(NR_WRITEBACK)),
 		K(global_node_page_state(NR_FILE_MAPPED)),
 		K(global_node_page_state(NR_SHMEM)),
-		K(global_page_state(NR_SLAB_RECLAIMABLE)),
-		K(global_page_state(NR_SLAB_UNRECLAIMABLE)),
-		global_page_state(NR_KERNEL_STACK_KB),
-		K(global_page_state(NR_PAGETABLE)),
-		K(global_page_state(NR_FREE_CMA_PAGES)),
+		K(global_node_page_state(NR_SLAB_RECLAIMABLE)),
+		K(global_node_page_state(NR_SLAB_UNRECLAIMABLE)),
+		global_zone_page_state(NR_KERNEL_STACK_KB),
+		K(global_zone_page_state(NR_PAGETABLE)),
+		K(global_zone_page_state(NR_FREE_CMA_PAGES)),
 		K(nr_rbin_free),
 		K(nr_rbin_pool),
 		K(nr_rbin_alloc),
@@ -158,11 +145,6 @@ static unsigned long lowmem_count(struct shrinker *s,
 		global_node_page_state(NR_INACTIVE_FILE);
 }
 
-#if defined(CONFIG_ZSWAP)
-extern u64 zswap_pool_pages;
-extern atomic_t zswap_stored_pages;
-#endif
-
 static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 {
 	struct task_struct *tsk;
@@ -175,28 +157,24 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	int selected_tasksize = 0;
 	short selected_oom_score_adj;
 	int array_size = ARRAY_SIZE(lowmem_adj);
-	int other_free = global_page_state(NR_FREE_PAGES) - totalreserve_pages;
+	int other_free = global_zone_page_state(NR_FREE_PAGES) - totalreserve_pages;
 	int other_file = global_node_page_state(NR_FILE_PAGES) -
 				global_node_page_state(NR_SHMEM) -
-				global_node_page_state(NR_UNEVICTABLE) -
 				total_swapcache_pages();
-	static DEFINE_RATELIMIT_STATE(lmk_rs, DEFAULT_RATELIMIT_INTERVAL, 1);
-	unsigned long nr_cma_free;
 	unsigned long nr_rbin_free, nr_rbin_pool, nr_rbin_alloc, nr_rbin_file;
-	int migratetype;
-#if defined(CONFIG_ZSWAP)
-	int zswap_stored_pages_temp;
+	static DEFINE_RATELIMIT_STATE(lmk_rs, DEFAULT_RATELIMIT_INTERVAL, 1);
+#if defined(CONFIG_SWAP)
+	unsigned long swap_orig_nrpages;
+	unsigned long swap_comp_nrpages;
 	int swap_rss;
 	int selected_swap_rss;
+
+	swap_orig_nrpages = get_swap_orig_data_nrpages();
+	swap_comp_nrpages = get_swap_comp_pool_nrpages();
 #endif
 
-	nr_cma_free = global_page_state(NR_FREE_CMA_PAGES);
-	migratetype = gfpflags_to_migratetype(sc->gfp_mask);
-	if (!((migratetype == MIGRATE_MOVABLE) &&
-		((sc->gfp_mask & GFP_HIGHUSER_MOVABLE) == GFP_HIGHUSER_MOVABLE)))
-		other_free -= nr_cma_free;
 	if ((sc->gfp_mask & __GFP_RBIN) != __GFP_RBIN) {
-		nr_rbin_free = global_page_state(NR_FREE_RBIN_PAGES);
+		nr_rbin_free = global_zone_page_state(NR_FREE_RBIN_PAGES);
 		nr_rbin_pool = atomic_read(&rbin_pool_pages);
 		nr_rbin_alloc = atomic_read(&rbin_allocated_pages);
 		nr_rbin_file = totalrbin_pages - nr_rbin_free - nr_rbin_pool
@@ -204,7 +182,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		other_free -= nr_rbin_free;
 		other_file -= nr_rbin_file;
 	}
-
 	if (lowmem_adj_size < array_size)
 		array_size = lowmem_adj_size;
 	if (lowmem_minfree_size < array_size)
@@ -237,12 +214,6 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		if (tsk->flags & PF_KTHREAD)
 			continue;
 
-		if (same_thread_group(tsk, current))
-			continue;
-
-		if (test_task_flag(tsk, TIF_MEMALLOC))
-			continue;
-
 		p = find_lock_task_mm(tsk);
 		if (!p)
 			continue;
@@ -268,18 +239,13 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			continue;
 		}
 		tasksize = get_mm_rss(p->mm);
-#if defined(CONFIG_ZSWAP)
-		zswap_stored_pages_temp = atomic_read(&zswap_stored_pages);
-		if (zswap_stored_pages_temp) {
-			lowmem_print(3, "shown tasksize : %d\n", tasksize);
-			swap_rss = (int)zswap_pool_pages
-					* get_mm_counter(p->mm, MM_SWAPENTS)
-					/ zswap_stored_pages_temp;
-			tasksize += swap_rss;
-			lowmem_print(3, "real tasksize : %d\n", tasksize);
-		} else {
-			swap_rss = 0;
-		}
+#if defined(CONFIG_SWAP)
+		swap_rss = get_mm_counter(p->mm, MM_SWAPENTS) *
+				swap_comp_nrpages / swap_orig_nrpages;
+		lowmem_print(3, "%s tasksize rss: %d swap_rss: %d swap: %lu/%lu\n",
+			     __func__, tasksize, swap_rss, swap_comp_nrpages,
+			     swap_orig_nrpages);
+		tasksize += swap_rss;
 #endif
 		task_unlock(p);
 		if (tasksize <= 0)
@@ -293,7 +259,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		}
 		selected = p;
 		selected_tasksize = tasksize;
-#if defined(CONFIG_ZSWAP)
+#if defined(CONFIG_SWAP)
 		selected_swap_rss = swap_rss;
 #endif
 		selected_oom_score_adj = oom_score_adj;
@@ -301,32 +267,26 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     p->comm, p->pid, oom_score_adj, tasksize);
 	}
 	if (selected) {
-		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
-		long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
-		long free = other_free * (long)(PAGE_SIZE / 1024);
-#if defined(CONFIG_ZSWAP)
+#if defined(CONFIG_SWAP)
 		int orig_tasksize = selected_tasksize - selected_swap_rss;
 #endif
-
 		task_lock(selected);
 		send_sig(SIGKILL, selected, 0);
 		if (selected->mm)
 			task_set_lmk_waiting(selected);
 		task_unlock(selected);
-		trace_lowmemory_kill(selected, cache_size, cache_limit, free);
-		lowmem_print(1, "Killing '%s' (%d) (tgid %d), adj %hd,\n"
-#if defined(CONFIG_ZSWAP)
+		lowmem_print(1, "Killing '%s' (%d), adj %hd,\n"
+#if defined(CONFIG_SWAP)
 				 "   to free %ldkB (%ldKB %ldKB) on behalf of '%s' (%d) because\n"
 #else
 				 "   to free %ldkB on behalf of '%s' (%d) because\n"
 #endif
 				 "   cache %ldkB is below limit %ldkB for oom_score_adj %hd\n"
 				 "   Free memory is %ldkB above reserved\n"
-				 "   Free CMA is %ldkB\n"
 				 "   GFP mask is %#x(%pGg)\n",
-			     selected->comm, selected->pid, selected->tgid,
+			     selected->comm, selected->pid,
 			     selected_oom_score_adj,
-#if defined(CONFIG_ZSWAP)
+#if defined(CONFIG_SWAP)
 			     selected_tasksize * (long)(PAGE_SIZE / 1024),
 			     orig_tasksize * (long)(PAGE_SIZE / 1024),
 			     selected_swap_rss * (long)(PAGE_SIZE / 1024),
@@ -334,19 +294,18 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     selected_tasksize * (long)(PAGE_SIZE / 1024),
 #endif
 			     current->comm, current->pid,
-			     cache_size, cache_limit,
+			     other_file * (long)(PAGE_SIZE / 1024),
+			     minfree * (long)(PAGE_SIZE / 1024),
 			     min_score_adj,
-			     free,
-			     nr_cma_free * (long)(PAGE_SIZE / 1024),
+			     other_free * (long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask, &sc->gfp_mask);
-		show_mem_extra_call_notifiers();
-		show_memory();
-		if ((selected_oom_score_adj <= 100) && (__ratelimit(&lmk_rs)))
-				dump_tasks(NULL, NULL);
-
 		lowmem_deathpending_timeout = jiffies + HZ;
 		rem += selected_tasksize;
 		lowmem_lmkcount++;
+		show_mem_extra_call_notifiers();
+		show_memory();
+		if ((selected_oom_score_adj <= 100) && (__ratelimit(&lmk_rs)))
+			dump_tasks(NULL, NULL);
 	}
 
 	lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n",
@@ -370,108 +329,17 @@ static int __init lowmem_init(void)
 	register_shrinker(&lowmem_shrinker);
 	return 0;
 }
-
-static void __exit lowmem_exit(void)
-{
-		unregister_shrinker(&lowmem_shrinker);
-}
-
-#ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
-static short lowmem_oom_adj_to_oom_score_adj(short oom_adj)
-{
-	if (oom_adj == OOM_ADJUST_MAX)
-		return OOM_SCORE_ADJ_MAX;
-	else
-		return (oom_adj * OOM_SCORE_ADJ_MAX) / -OOM_DISABLE;
-}
-
-static void lowmem_autodetect_oom_adj_values(void)
-{
-	int i;
-	short oom_adj;
-	short oom_score_adj;
-	int array_size = ARRAY_SIZE(lowmem_adj);
-
-	if (lowmem_adj_size < array_size)
-		array_size = lowmem_adj_size;
-
-	if (array_size <= 0)
-		return;
-
-	oom_adj = lowmem_adj[array_size - 1];
-	if (oom_adj > OOM_ADJUST_MAX)
-		return;
-
-	oom_score_adj = lowmem_oom_adj_to_oom_score_adj(oom_adj);
-	if (oom_score_adj <= OOM_ADJUST_MAX)
-		return;
-
-	lowmem_print(1, "lowmem_shrink: convert oom_adj to oom_score_adj:\n");
-	for (i = 0; i < array_size; i++) {
-		oom_adj = lowmem_adj[i];
-		oom_score_adj = lowmem_oom_adj_to_oom_score_adj(oom_adj);
-		lowmem_adj[i] = oom_score_adj;
-		lowmem_print(1, "oom_adj %d => oom_score_adj %d\n",
-			     oom_adj, oom_score_adj);
-	}
-}
-
-static int lowmem_adj_array_set(const char *val, const struct kernel_param *kp)
-{
-	int ret;
-
-	ret = param_array_ops.set(val, kp);
-
-	/* HACK: Autodetect oom_adj values in lowmem_adj array */
-	lowmem_autodetect_oom_adj_values();
-
-	return ret;
-}
-
-static int lowmem_adj_array_get(char *buffer, const struct kernel_param *kp)
-{
-	return param_array_ops.get(buffer, kp);
-}
-
-static void lowmem_adj_array_free(void *arg)
-{
-	param_array_ops.free(arg);
-}
-
-static struct kernel_param_ops lowmem_adj_array_ops = {
-	.set = lowmem_adj_array_set,
-	.get = lowmem_adj_array_get,
-	.free = lowmem_adj_array_free,
-};
-
-static const struct kparam_array __param_arr_adj = {
-	.max = ARRAY_SIZE(lowmem_adj),
-	.num = &lowmem_adj_size,
-	.ops = &param_ops_short,
-	.elemsize = sizeof(lowmem_adj[0]),
-	.elem = lowmem_adj,
-};
-#endif
+device_initcall(lowmem_init);
 
 /*
  * not really modular, but the easiest way to keep compat with existing
  * bootargs behaviour is to continue using module_param here.
  */
 module_param_named(cost, lowmem_shrinker.seeks, int, 0644);
-#ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
-module_param_cb(adj, &lowmem_adj_array_ops,
-		.arr = &__param_arr_adj,
-		0644);
-__MODULE_PARM_TYPE(adj, "array of short");
-#else
 module_param_array_named(adj, lowmem_adj, short, &lowmem_adj_size, 0644);
-#endif
 module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 			 0644);
 module_param_named(debug_level, lowmem_debug_level, uint, 0644);
 module_param_named(lmkcount, lowmem_lmkcount, uint, 0444);
-
-module_init(lowmem_init);
-module_exit(lowmem_exit);
-
-MODULE_LICENSE("GPL");
+module_param_named(lmkd_count, lmkd_count, int, 0644);
+module_param_named(lmkd_cricount, lmkd_cricount, int, 0644);

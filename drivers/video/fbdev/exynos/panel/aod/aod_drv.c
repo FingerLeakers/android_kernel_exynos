@@ -172,8 +172,6 @@ static int aod_enter_to_lpm(struct aod_dev_info *aod_dev)
 
 	mutex_lock(&aod_dev->lock);
 
-	panel_info("%s was called\n", __func__);
-
 	if (props->self_mask_en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MASK_DIS_SEQ);
 		if (ret)
@@ -184,6 +182,12 @@ static int aod_enter_to_lpm(struct aod_dev_info *aod_dev)
 	if (ret)
 		panel_err("PANEL:ERR:%s:faield to write aod seq\n", __func__);
 
+	if ((props->partial.scan_en) || (props->partial.hlpm_scan_en)) {
+		ret = panel_do_aod_seqtbl_by_index(aod_dev, ENABLE_PARTIAL_SCAN);
+		if (ret) {
+			panel_info("AOD:ERR:%s:failed to enable partial scan\n", __func__);
+		}
+	}
 /* write image to side ram */
 	if (aod_dev->reset_flag) {
 		if (aod_dev->icon_img.up_flag) {
@@ -207,19 +211,31 @@ static int aod_enter_to_lpm(struct aod_dev_info *aod_dev)
 		aod_dev->reset_flag = 0;
 	}
 #if 0
-	if (props->self_move_en || props->self_icon.en) {
+	if (props->self_move_en || props->icon.en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MOVE_ON_SEQ);
 		if (ret)
 			panel_err("PANEL:ERR:%s:failed to enable self move\n", __func__);
 	}
-#endif
-	if (props->self_icon.en || props->self_grid.en) {
+
+	if (props->icon.en || props->self_grid.en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, ICON_GRID_ON_SEQ);
 		if (ret)
 			panel_err("AOD:ERR:%s:failed to seq icon on\n", __func__);
 	}
+#endif
+	if (props->icon.en) {
+		ret = panel_do_aod_seqtbl_by_index(aod_dev, CTRL_ICON_SEQ);
+		if (ret)
+			panel_err("AOD:ERR:%s:failed to seq icon on\n", __func__);
+	}
+#if 0
+	//for analog clock test
+	props->analog.en = 1;
+	props->digital.en = 1;
+#endif
 
 	if (props->analog.en && aod_dev->ac_img.up_flag) {
+		panel_info("PANEL:INFO:%s:analog enable\n", __func__);
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, ANALOG_CTRL_SEQ);
 		if (ret)
 			panel_err("AOD:ERR:%s:failed to seq analog ctrl\n", __func__);
@@ -254,23 +270,37 @@ static int aod_exit_from_lpm(struct aod_dev_info *aod_dev)
 		props->digital.en = 0;
 	}
 
-	if (props->self_icon.en || props->self_grid.en) {
+	if ((props->partial.scan_en) || (props->partial.hlpm_scan_en)) {
+		ret = panel_do_aod_seqtbl_by_index(aod_dev, DISABLE_PARTIAL_SCAN);
+		if (ret) {
+			panel_info("AOD:ERR:%s:failed to enable partial scan\n", __func__);
+		}
+	}
+
+	if (props->icon.en || props->self_grid.en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, ICON_GRID_OFF_SEQ);
 		if (ret)
 			panel_err("AOD:ERR:%s:failed to seq icon on\n", __func__);
 	}
 
-	if (props->self_move_en || props->self_icon.en) {
+	if (props->self_move_en || props->icon.en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MOVE_OFF_SEQ);
 		if (ret)
 			panel_err("PANEL:ERR:%s:failed to disable self mode\n", __func__);
 
 		if (props->self_move_en)
 			props->self_move_en = 0;
-
-		if (props->self_icon.en)
-			props->self_icon.en = 0;
+#if 0 //todo
+		if (props->icon.en)
+			props->icon.en = 0;
+#endif
 	}
+
+	if (props->partial.scan_en)
+		props->partial.scan_en = 0;
+
+	if (props->partial.hlpm_scan_en)
+		props->partial.hlpm_scan_en = 0;
 
 	ret = panel_do_aod_seqtbl_by_index(aod_dev, EXIT_AOD_SEQ);
 	if (ret)
@@ -323,10 +353,10 @@ static int aod_power_off(struct aod_dev_info *aod_dev)
 
 	if (props->self_move_en)
 		props->self_move_en = 0;
-
-	if (props->self_icon.en)
-		props->self_icon.en = 0;
-
+#if 0 //todo
+	if (props->icon.en)
+		props->icon.en = 0;
+#endif
 	/* set flag reseted */
 	aod_dev->reset_flag = 1;
 	props->first_clk_update = 1;
@@ -336,14 +366,68 @@ static int aod_power_off(struct aod_dev_info *aod_dev)
 	return ret;
 }
 
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+static int self_move_pattern_update(struct aod_dev_info *aod)
+{
+	int ret;
+	struct aod_ioctl_props *props;
+	struct panel_device *panel;
+
+	if (aod == NULL) {
+		panel_err("AOD:PANEL:%s:aod_dev_info is null\n", __func__);
+		return 0;
+	}
+
+	props = &aod->props;
+	panel = to_panel_device(aod);
+	if (panel->state.cur_state == PANEL_STATE_ALPM) {
+		panel_info("AOD:WARN:%s:self move pattern ignored in LPM\n", __func__);
+		return 0;
+	}
+
+	if (panel->state.cur_state != PANEL_STATE_NORMAL ||
+			panel->state.disp_on != PANEL_DISPLAY_ON) {
+		panel_info("AOD:WARN:%s:self move pattern ignored in DISPLAY OFF\n", __func__);
+		return 0;
+	}
+
+#ifdef CONFIG_SUPPORT_DSU
+	if (panel->panel_data.props.mres_updated) {
+		panel_info("AOD:WARN:%s:self move pattern ignored during mres updates\n", __func__);
+		return 0;
+	}
+#endif
+
+	if (props->self_move_pattern == 0) {
+		pr_info("%s DISABLE_SELF_MOVE_SEQ %d\n", __func__, props->self_move_pattern);
+		ret = panel_do_aod_seqtbl_by_index(aod, DISABLE_SELF_MOVE_SEQ);
+		if (ret < 0) {
+			panel_info("AOD:ERR:%s:failed to disable_self_move_seq\n", __func__);
+			return ret;
+		}
+	} else {
+		pr_info("%s ENABLE_SELF_MOVE_SEQ %d\n", __func__, props->self_move_pattern);
+		ret = panel_do_aod_seqtbl_by_index(aod, ENABLE_SELF_MOVE_SEQ);
+		if (ret < 0) {
+			panel_info("AOD:ERR:%s:failed to enable_self_move_seq\n", __func__);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+#endif
+
 static struct aod_ops aod_drv_ops = {
 	.init_panel = aod_init_panel,
 	.enter_to_lpm = aod_enter_to_lpm,
 	.exit_from_lpm = aod_exit_from_lpm,
 	.doze_suspend = aod_doze_suspend,
 	.power_off = aod_power_off,
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+	.self_move_pattern_update = self_move_pattern_update,
+#endif
 };
-
 
 static int __seq_aod_self_move_en(struct aod_dev_info *aod, unsigned long arg)
 {
@@ -382,6 +466,32 @@ move_on_exit:
 
 
 static int __seq_aod_self_move_off(struct aod_dev_info *aod)
+{
+	int ret = 0;
+
+	struct panel_device *panel = to_panel_device(aod);
+
+	if (panel == NULL) {
+		panel_err("AOD:PANEL:%s:panel is null\n", __func__);
+		goto move_on_exit;
+	}
+
+	if (panel->state.cur_state != PANEL_STATE_ALPM) {
+		panel_info("AOD:WARN:%s:self move off ignored\n", __func__);
+		goto move_on_exit;
+	}
+
+	ret = panel_do_aod_seqtbl_by_index(aod, SELF_MOVE_RESET_SEQ);
+	if (ret) {
+		panel_info("AOD:ERR:%s:failed to seq_self_move off\n", __func__);
+		goto move_on_exit;
+	}
+move_on_exit:
+	return ret;
+}
+
+
+static int __seq_aod_self_move_reset(struct aod_dev_info *aod, unsigned long arg)
 {
 	int ret = 0;
 
@@ -498,6 +608,7 @@ static int aod_drv_fops_open(struct inode *inode, struct file *file)
 	struct aod_dev_info *aod = container_of(dev, struct aod_dev_info, dev);
 	struct panel_device *panel = to_panel_device(aod);
 
+	panel_wake_lock(panel);
 	mutex_lock(&panel->io_lock);
 	mutex_lock(&aod->lock);
 
@@ -505,10 +616,11 @@ static int aod_drv_fops_open(struct inode *inode, struct file *file)
 
 	file->private_data = aod;
 
+#if 0
 	ret = __get_icon_img_info(aod);
 	if (ret)
 		panel_err("AOD:ERR:%s:failed to get icon img info\n", __func__);
-
+#endif
 	ret = __get_ac_img_info(aod);
 	if (ret)
 		panel_err("AOD:ERR:%s:failed to get ac img info\n", __func__);
@@ -555,6 +667,7 @@ exit_grid_ioctl:
 static int __aod_ioctl_set_icon(struct aod_dev_info *aod, unsigned long arg)
 {
 	int ret = 0;
+	int index = 0;
 	struct self_icon_info icon_info;
 	struct aod_ioctl_props *props = &aod->props;
 
@@ -568,7 +681,17 @@ static int __aod_ioctl_set_icon(struct aod_dev_info *aod, unsigned long arg)
 	panel_info("AOD:INFO:%s:%d:%d:%d:%d:%d\n", __func__, icon_info.en,
 		icon_info.height, icon_info.width, icon_info.pos_x, icon_info.pos_y);
 
-	memcpy(&props->self_icon, &icon_info, sizeof(struct self_icon_info));
+	memcpy(&props->icon, &icon_info, sizeof(struct self_icon_info));
+
+
+	if (props->icon.en)
+		index = CTRL_ICON_SEQ;
+	else
+		index = DISABLE_ICON_SEQ;
+
+	ret = panel_do_aod_seqtbl_by_index(aod, index);
+	if (ret)
+		panel_err("AOD:ERR:%s:failed to seq icon on\n", __func__);
 
 exit_icon_ioctl:
 	return ret;
@@ -588,8 +711,8 @@ static int __aod_ioctl_set_time(struct aod_dev_info *aod, unsigned long arg)
 		ret = -EINVAL;
 		goto exit_time_ioctl;
 	}
-	panel_info("AOD:INFO:%s:%d:%d:%d:%d\n", __func__, cur_time.cur_h,
-		cur_time.cur_m, cur_time.cur_s, cur_time.cur_ms);
+	panel_info("AOD:INFO:%s:%d:%d:%d:%d:%d\n", __func__, cur_time.cur_h,
+		cur_time.cur_m, cur_time.cur_s, cur_time.cur_ms, cur_time.interval);
 
 	memcpy(&props->cur_time, &cur_time, sizeof(struct aod_cur_time));
 
@@ -603,6 +726,9 @@ static int __aod_ioctl_set_time(struct aod_dev_info *aod, unsigned long arg)
 		panel_info("AOD:ERR:%s:failed to seq_self_move off\n", __func__);
 		goto exit_time_ioctl;
 	}
+
+	if (props->first_clk_update)
+		props->first_clk_update = 0;
 
 exit_time_ioctl:
 	return ret;
@@ -646,6 +772,9 @@ static int __aod_ioctl_set_analog_clk(struct aod_dev_info *aod, unsigned long ar
 		}
 	}
 
+	if (clk.en)
+		props->prev_rotate = clk.rotate;
+
 exit_analog_ioctl:
 	return ret;
 }
@@ -672,6 +801,9 @@ static int __aod_ioctl_set_digital_clk(struct aod_dev_info *aod, unsigned long a
 	panel_info("AOD:INFO:%s:hh_en:%d, mm_en:%d\n", __func__,
 		clk.en_hh, clk.en_mm);
 
+	panel_info("AOD:INFO:%s:unicode attr : %x\n", __func__,
+		clk.unicode_attr);
+
 	memcpy(&props->digital, &clk, sizeof(struct digital_clk_info));
 
 	if (panel->state.cur_state != PANEL_STATE_ALPM) {
@@ -697,6 +829,69 @@ exit_digital_ioctl:
 	return ret;
 }
 
+
+static __aod_ictl_set_parial_scan(struct aod_dev_info *aod, unsigned long arg)
+{
+
+	int ret = 0;
+	struct partial_scan_info scan_info;
+	struct aod_ioctl_props *props = &aod->props;
+	struct panel_device *panel = to_panel_device(aod);
+
+	if (copy_from_user(&scan_info, (struct partial_scan_info __user *)arg,
+		sizeof(struct partial_scan_info))) {
+		panel_err("PANEL:ERR:%s:failed to get user's info\n", __func__);
+		ret = -EINVAL;
+		goto exit_partial_ioctl;
+	}
+
+	memcpy(&props->partial, &scan_info, sizeof(struct partial_scan_info));
+
+	if (panel->state.cur_state != PANEL_STATE_ALPM) {
+		panel_info("AOD:WARN:%s:Not AOD State.. Partial ignored\n", __func__);
+		goto exit_partial_ioctl;
+	}
+
+	panel_info("AOD:INFO:%s:hlpm enable : %d, partial_scan : %d\n",
+		__func__, scan_info.hlpm_scan_en, scan_info.scan_en);
+
+	if (scan_info.hlpm_scan_en) {
+		panel_info("AOD:INFO:hlpm area1: 0 ~ %dline, %s",
+			scan_info.hlpm_area_1,
+			(scan_info.hlpm_mode_sel & 0x01) ? "ALPM" : "HLPM");
+		panel_info("AOD:INFO:hlpm area2: %d ~ %dline, %s",
+			scan_info.hlpm_area_1, scan_info.hlpm_area_2,
+			(scan_info.hlpm_mode_sel & 0x02) ? "ALPM" : "HLPM");
+		panel_info("AOD:INFO:hlpm area3: %d ~ %dline, %s",
+			scan_info.hlpm_area_2, scan_info.hlpm_area_3,
+			(scan_info.hlpm_mode_sel & 0x04) ? "ALPM" : "HLPM");
+		panel_info("AOD:INFO:hlpm area4: %d ~ %dline, %s",
+			scan_info.hlpm_area_3, scan_info.hlpm_area_4,
+			(scan_info.hlpm_mode_sel & 0x08) ? "ALPM" : "HLPM");
+		panel_info("AOD:INFO:hlpm area5: %d ~ %dline, %s",
+			scan_info.hlpm_area_4, 3040 - 1,
+			(scan_info.hlpm_mode_sel & 0x10) ? "ALPM" : "HLPM");
+	}
+
+	if (scan_info.scan_en)
+		panel_info("AOD:INFO:scan line: %d ~ %dline",
+			scan_info.scan_sl, scan_info.scan_el);
+
+	if ((scan_info.scan_en) || (scan_info.hlpm_scan_en)) {
+		ret = panel_do_aod_seqtbl_by_index(aod, ENABLE_PARTIAL_SCAN);
+		if (ret) {
+			panel_info("AOD:ERR:%s:failed to enable partial scan\n", __func__);
+		}
+	} else {
+		ret = panel_do_aod_seqtbl_by_index(aod, DISABLE_PARTIAL_SCAN);
+		if (ret) {
+			panel_info("AOD:ERR:%s:failed to enable partial scan\n", __func__);
+		}
+	}
+
+exit_partial_ioctl:
+	return ret;
+}
 
 static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -730,6 +925,17 @@ static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			}
 		}
 		break;
+
+	case IOCTL_SELF_MOVE_RESET:
+		panel_info(
+"AOD:INFO:%s:IOCTL_SELF_MOVE_RESET\n", __func__);
+		ret = __seq_aod_self_move_reset(aod, arg);
+		if (ret) {
+			panel_err("AOD:ERR:%s:failed to seq self move reset\n", __func__);
+			goto exit_ioctl;
+		}
+		break;
+
 	case IOCTL_SET_TIME:
 		panel_info("AOD:INFO:%s:IOCTL_SET_TIME\n", __func__);
 		ret = __aod_ioctl_set_time(aod, arg);
@@ -753,6 +959,11 @@ static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned lon
 	case IOCTL_SET_DIGITAL_CLK:
 		panel_info("AOD:INFO:%s:IOCTL_SET_DIGITAL_CLK\n", __func__);
 		ret = __aod_ioctl_set_digital_clk(aod, arg);
+		break;
+
+	case IOCTL_SET_PARTIAL_HLPM_SCAN:
+		panel_info("AOD:INFO:%s:IOCTL_SET_PARTIAL_HLPM_SCAN\n", __func__);
+		ret = __aod_ictl_set_parial_scan(aod, arg);
 		break;
 	}
 
@@ -779,6 +990,7 @@ static ssize_t aod_drv_fops_write(struct file *file, const char __user *buf,
 	struct aod_dev_info *aod = file->private_data;
 	struct panel_device *panel = to_panel_device(aod);
 
+	panel_wake_lock(panel);
 	mutex_lock(&panel->io_lock);
 	mutex_lock(&aod->lock);
 
@@ -832,14 +1044,19 @@ static ssize_t aod_drv_fops_write(struct file *file, const char __user *buf,
 exit_write:
 	mutex_unlock(&aod->lock);
 	mutex_unlock(&panel->io_lock);
+	panel_wake_unlock(panel);
+
 	return count;
 }
 
 static int aod_drv_fops_release(struct inode *inode, struct file *file)
 {
-	int ret = 0;
+	struct aod_dev_info *aod = file->private_data;
+	struct panel_device *panel = to_panel_device(aod);
 
-	return ret;
+	panel_wake_unlock(panel);
+
+	return 0;
 }
 
 static const struct file_operations aod_drv_fops = {
@@ -890,41 +1107,53 @@ int aod_drv_probe(struct panel_device *panel, struct aod_tune *aod_tune)
 
 	//for test
 	props->self_move_en = 1;
+#endif
 
+#if 0
 	// self icon
-	props->icon_img_updated = 1;
-	props->self_icon.en = 1;
-	props->self_icon.pos_x = 100;
-	props->self_icon.pos_y = 1500;
-	props->self_icon.width = 0x34;
-	props->self_icon.height = 0x34;
+	aod->icon_img.up_flag = 1;
+
+	props->icon.en = 1;
+	props->icon.pos_x = 1440/2;
+	props->icon.pos_y = 2960/2;
+	props->icon.width = 0x100;
+	props->icon.height = 0x100;
 
 	// self grid
 	props->self_grid.en = 1;
 	props->self_grid.end_pos_x = 1440;
 	props->self_grid.end_pos_y = 2960;
+#endif
 
+#if 0
 	// for analog clock
 	aod->ac_img.up_flag = 1;
 	props->analog.en = 1;
-	props->analog.pos_x = 1440/2;
-	props->analog.pos_y = 2960/2;
+	props->analog.pos_x = 1440 / 2;
+	props->analog.pos_y = 2960 / 2;
 	props->debug_interval = ALG_INTERVAL_1000;
 	props->analog.rotate = ALG_ROTATE_0;
+#endif
 
+	props->cur_time.cur_h = 6;
+	props->cur_time.cur_m = 30;
+	props->cur_time.cur_ms = 0;
+	props->cur_time.interval = ALG_INTERVAL_100m;
+	props->cur_time.disp_24h = 1;
+#if 0
 	// for digital clock
 	aod->dc_img.up_flag = 1;
 	props->digital.en = 1;
 	props->digital.en_hh = 1;
 	props->digital.en_mm = 1;
 	props->digital.pos1_x = 280;
-	props->digital.pos1_y = 1480;
+	props->digital.pos1_y = 607 - (356/2);
 	props->digital.pos2_x = 500;
-	props->digital.pos2_y = 1480;
+	props->digital.pos2_y = 607 - (356/2);
 	props->digital.pos3_x = 740;
-	props->digital.pos3_y = 1480;
+	props->digital.pos3_y = 607 - (356/2);
 	props->digital.pos4_x = 960;
-	props->digital.pos4_y = 1480;
+	props->digital.pos4_y = 607 - (356/2);
 	props->digital.img_width = 200;
 	props->digital.img_height = 356;
 	props->digital.b_en = 1;
@@ -934,6 +1163,21 @@ int aod_drv_probe(struct panel_device *panel, struct aod_tune *aod_tune)
 	props->digital.b2_pos_y = 1480 + 256;
 	props->digital.b_color = 0x00ff00;
 	props->digital.b_radius = 0x0a;
+#endif
+
+#if 0
+	props->partial.scan_en = 1;
+	props->partial.scan_sl = 0;
+	props->partial.scan_el = 3040/2;
+#endif
+
+#if 0
+	props->partial.hlpm_scan_en = 1;
+	props->partial.hlpm_mode_sel = 0x0A;
+	props->partial.hlpm_area_1 = 607;
+	props->partial.hlpm_area_2 = 1215;
+	props->partial.hlpm_area_3 = 1823;
+	props->partial.hlpm_area_4 = 2432;
 #endif
 
 	for (i = 0; i < aod->nr_maptbl; i++) {

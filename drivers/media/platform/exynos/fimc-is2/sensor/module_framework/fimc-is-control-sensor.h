@@ -17,8 +17,9 @@
 #define NUM_OF_FRAME_60FPS	(2)
 #define NUM_OF_FRAME_120FPS	(4)
 #define NUM_OF_FRAME_240FPS	(12)
+#define NUM_OF_FRAME_480FPS	(16)
 
-#define CAM2P0_UCTL_LIST_SIZE   (NUM_OF_FRAME_240FPS + 1)	/* This value must be larger than NUM_OF_FRAME */
+#define CAM2P0_UCTL_LIST_SIZE   (NUM_OF_FRAME_480FPS + 1)	/* This value must be larger than NUM_OF_FRAME */
 #define EXPECT_DM_NUM		(CAM2P0_UCTL_LIST_SIZE)
 
 struct gain_setting {

@@ -53,44 +53,45 @@ struct exynos_fmp_data {
 
 /* Exynos implementation specific driver private data */
 struct dw_mci_exynos_priv_data {
-	u8			ctrl_type;
-	u8			ciu_div;
-	u32			sdr_timing;
-	u32			ddr_timing;
-	u32			sdr_hs_timing;
-	u32			hs400_timing;
-	u32			tuned_sample;
-	u32			cur_speed;
-	u32			dqs_delay;
-	u32			saved_dqs_en;
-	u32			saved_strobe_ctrl;
-	u32			hs200_timing;
-	u32			hs400_ulp_timing;
-	u32			hs400_tx_t_fastlimit;
-	u32			hs400_tx_t_initval;
-	u32			sdr104_timing;
-	u32			sdr50_timing;
-	u32			*ref_clk;
-	u32			delay_line;
-	u32			tx_delay_line;
-	struct pinctrl		*pinctrl;
-	u32			clk_drive_number;
-	u32			clk_drive_tuning;
-	struct pinctrl_state	*clk_drive_base;
-	struct pinctrl_state	*clk_drive_str[6];
-	int			cd_gpio;
-	int         sec_sd_slot_type;
+	u8 ctrl_type;
+	u8 ciu_div;
+	u32 sdr_timing;
+	u32 ddr_timing;
+	u32 sdr_hs_timing;
+	u32 tuned_sample;
+	u32 cur_speed;
+	u32 dqs_delay;
+	u32 saved_dqs_en;
+	u32 saved_strobe_ctrl;
+	u32 hs200_timing;
+	u32 hs400_timing;
+	u32 hs400_ulp_timing;
+	u32 hs400_tx_t_fastlimit;
+	u32 hs400_tx_t_initval;
+	u32 sdr104_timing;
+	u32 sdr50_timing;
+	u32 *ref_clk;
+	u32 delay_line;
+	u32 tx_delay_line;
+	struct pinctrl *pinctrl;
+	u32 clk_drive_number;
+	u32 clk_drive_tuning;
+	struct pinctrl_state *clk_drive_base;
+	struct pinctrl_state *clk_drive_str[6];
+	struct pinctrl_state *pins_config[2];
+	int cd_gpio;
+	int sec_sd_slot_type;
 #define SEC_NO_DET_SD_SLOT  0 /* No detect GPIO SD slot case */
 #define SEC_HOTPLUG_SD_SLOT 1 /* detect GPIO SD slot without Tray */
 #define SEC_HYBRID_SD_SLOT  2 /* detect GPIO SD slot with Tray */
-	u32			caps;
-	u32			ctrl_flag;
-	u32			ctrl_windows;
-	u32			ignore_phase;
-	u32			selclk_drv;
-	u32			voltage_int_extra;
-	struct exynos_smu_data	smu;
-	struct exynos_fmp_data	fmp;
+	u32 caps;
+	u32 ctrl_flag;
+	u32 ctrl_windows;
+	u32 ignore_phase;
+	u32 selclk_drv;
+	u32 voltage_int_extra;
+	struct exynos_smu_data smu;
+	struct exynos_fmp_data fmp;
 
 #define DW_MMC_EXYNOS_BYPASS_FOR_ALL_PASS	BIT(0)
 #define DW_MMC_EXYNOS_ENABLE_SHIFT		BIT(1)
@@ -120,15 +121,14 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 #define SDMMC_BUFADDRL		(SDMMC_DSCADDRU + SFR_OFFSET)
 #define SDMMC_BUFADDRU		(SDMMC_BUFADDRL + SFR_OFFSET)
 
-
 #if defined(CONFIG_MMC_DW_64BIT_DESC)
 #define SDMMC_AXI_BURST_LEN	0x00b4
 #define SDMMC_SECTOR_NUM_INC	0x01F8
-#define SDMMC_CLKSEL		(SDMMC_BUFADDRU + SFR_OFFSET) /* specific to Samsung Exynos */
+#define SDMMC_CLKSEL		(SDMMC_BUFADDRU + SFR_OFFSET)	/* specific to Samsung Exynos */
 #else
-#define SDMMC_CLKSEL		(SDMMC_BUFADDR + SFR_OFFSET) /* specific to Samsung Exynos */
-#define SDMMC_AXI_BURST_LEN	0xffff	/*not used*/
-#define SDMMC_SECTOR_NUM_INC	0xffff	/*not used*/
+#define SDMMC_CLKSEL		(SDMMC_BUFADDR + SFR_OFFSET)	/* specific to Samsung Exynos */
+#define SDMMC_AXI_BURST_LEN	0xffff	/*not used */
+#define SDMMC_SECTOR_NUM_INC	0xffff	/*not used */
 #endif
 
 #define SDMMC_CDTHRCTL		0x100
@@ -218,6 +218,7 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 					DWMCI_RD_DQS_DELAY_CTRL(0x40))
 
 /* DLINE_CTRL register defines */
+#define DQS_CTRL_RD_DELAY(x, y)		(((x) & ~0x3FF) | ((y) & 0x3FF))
 #define DQS_CTRL_GET_RD_DELAY(x)	((x) & 0x3FF)
 
 /* Block number in eMMC */
@@ -237,7 +238,6 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 						DWMCI_MPSCTRL_NON_SECURE_READ_BIT |\
 						DWMCI_MPSCTRL_NON_SECURE_WRITE_BIT |\
 						DWMCI_MPSCTRL_VALID)
-
 
 /* Maximum number of Ending sector */
 #define SDMMC_ENDING_SEC_NR_MAX	0xFFFFFFFF
@@ -261,6 +261,10 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 #define HWACG_Q_ACTIVE_EN			1
 #define HWACG_Q_ACTIVE_DIS			0
 
+/* PINS STATE Control */
+#define PINS_FUNC			1
+#define PINS_PDN			0
+
 /* Phase 7 Mux Control */
 #define sample_path_sel_en(dev, reg) ({\
 		u32 __ret = 0;\
@@ -276,4 +280,4 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 		__raw_writel((__ret) , (dev)->regs + SDMMC_##reg);\
 		})
 
-#endif /* _DW_MMC_EXYNOS_H_ */
+#endif				/* _DW_MMC_EXYNOS_H_ */

@@ -30,11 +30,12 @@ struct aod_cur_time {
 };
 
 struct self_icon_info {
-	int en;
-	int pos_x;
-	int pos_y;
-	int width;
-	int height;
+	u32 en;
+	u32 pos_x;
+	u32 pos_y;
+	u32 width;
+	u32 height;
+	u32 color;
 };
 
 struct self_grid_info {
@@ -62,6 +63,8 @@ struct analog_clk_info {
 	int pos_x;
 	int pos_y;
 	int rotate;
+	int mask_en;
+	int mem_reuse_en;
 };
 
 struct digital_clk_info {
@@ -78,20 +81,28 @@ struct digital_clk_info {
 	int pos4_y;
 	int img_width;
 	int img_height;
-	int b_en;
-	int b1_pos_x;
-	int b1_pos_y;
-	int b2_pos_x;
-	int b2_pos_y;
-	int b_color;
-	int b_radius;
+	int color;
+	int unicode_attr;
+	int unicode_width;
+};
+
+struct partial_scan_info {
+	u32 hlpm_scan_en;
+	u32 hlpm_mode_sel;
+	u32 hlpm_area_1;
+	u32 hlpm_area_2;
+	u32 hlpm_area_3;
+	u32 hlpm_area_4;
+	u32 scan_en;
+	u32 scan_sl;
+	u32 scan_el;
 };
 
 #define AOD_IOCTL_MAGIC	'S'
 
 #define IOCTL_SELF_MOVE_EN			_IOW(AOD_IOCTL_MAGIC, 1, int)
-
 #define IOCTL_SELF_MOVE_OFF			_IOW(AOD_IOCTL_MAGIC, 2, int)
+#define IOCTL_SELF_MOVE_RESET		_IOW(AOD_IOCTL_MAGIC, 3, int)
 
 #define IOCTL_SET_TIME				_IOW(AOD_IOCTL_MAGIC, 11, struct aod_cur_time)
 
@@ -103,5 +114,6 @@ struct digital_clk_info {
 
 #define IOCTL_SET_DIGITAL_CLK		_IOW(AOD_IOCTL_MAGIC, 51, struct digital_clk_info)
 
+#define IOCTL_SET_PARTIAL_HLPM_SCAN _IOW(AOD_IOCTL_MAGIC, 61, struct partial_scan_info)
 #endif //__AOD_DRV_IOCTL_H__
 

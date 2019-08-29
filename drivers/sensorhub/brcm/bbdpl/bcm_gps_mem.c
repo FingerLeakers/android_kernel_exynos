@@ -186,7 +186,8 @@ void bcm_failsafe_mem_read(struct bcm_spi_priv *priv)
 			pr_info("[SSPBBD]: filsafe_mem_read : unknown memory type. %d in index %d\n", data_mem_type, data_index ); 
 		}
 
-		data_size = g_bcm_failsafe_data_recordlist_4775[data_index++].size;
+		data_size = g_bcm_failsafe_data_recordlist_4775[data_index].size;
+		data_index++; 
 	}
 
 #ifdef CONFIG_TRANSFER_STAT

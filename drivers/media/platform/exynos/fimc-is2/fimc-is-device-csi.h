@@ -53,34 +53,29 @@ enum fimc_is_csi_state {
 /* MIPI-CSI interface */
 enum itf_vc_buf_data_type {
 	VC_BUF_DATA_TYPE_INVALID = -1,
-	VC_BUF_DATA_TYPE_SENSOR_STAT = 0,	/* stat from sensor */
-	VC_BUF_DATA_TYPE_GENERAL_STAT,		/* stat from companion, pdp */
+	VC_BUF_DATA_TYPE_SENSOR_STAT1 = 0,
+	VC_BUF_DATA_TYPE_GENERAL_STAT1,
+	VC_BUF_DATA_TYPE_SENSOR_STAT2,
+	VC_BUF_DATA_TYPE_GENERAL_STAT2,
 	VC_BUF_DATA_TYPE_MAX
-};
-
-enum itf_vc_stat_type {
-	VC_STAT_INVALID = -1,
-	VC_STAT_TAIL_MSPD,
-	VC_STAT_MIPI_STAT,
-	VC_STAT_PDP_PDAF,
 };
 
 struct fimc_is_device_csi {
 	/* channel information */
 	u32				instance;
-	u32				offset;
+	enum subdev_ch_mode		scm;
 	u32 __iomem			*base_reg;
-	u32 __iomem			*vc_reg[CSI_VIRTUAL_CH_MAX * 2];
-	u32 __iomem			*cmn_reg[CSI_VIRTUAL_CH_MAX * 2];
+	u32 __iomem			*vc_reg[SCM_MAX][CSI_VIRTUAL_CH_MAX];
+	u32 __iomem			*cmn_reg[SCM_MAX][CSI_VIRTUAL_CH_MAX];
 	u32 __iomem			*phy_reg;
 	resource_size_t			regs_start;
 	resource_size_t			regs_end;
 	int				irq;
-	int				vc_irq[CSI_VIRTUAL_CH_MAX * 2];
+	int				vc_irq[SCM_MAX][CSI_VIRTUAL_CH_MAX];
 	unsigned long			vc_irq_state;
 
 	/* csi common dma */
-	struct fimc_is_device_csi_dma *csi_dma;
+	struct fimc_is_device_csi_dma	*csi_dma;
 
 	/* for settle time */
 	struct fimc_is_sensor_cfg	*sensor_cfg;
@@ -108,10 +103,6 @@ struct fimc_is_device_csi {
 	/* pointer address from device sensor */
 	struct v4l2_subdev		**subdev;
 	struct phy			*phy;
-#if defined(CONFIG_SECURE_CAMERA_USE)
-	struct phy      *extra_phy;
-	int		extra_phy_off;
-#endif
 
 	u32 error_id[CSI_VIRTUAL_CH_MAX];
 	u32 error_count;
@@ -121,7 +112,7 @@ struct fimc_is_device_csi {
 
 	atomic_t			vvalid; /* set 1 while vvalid period */
 #endif
-	wait_queue_head_t		wait_queue;
+	char				name[FIMC_IS_STR_LEN];
 };
 
 struct fimc_is_device_csi_dma {
@@ -135,6 +126,7 @@ struct fimc_is_device_csi_dma {
 	spinlock_t			barrier;
 };
 
+void csi_frame_start_inline(struct fimc_is_device_csi *csi);
 int __must_check fimc_is_csi_dma_probe(struct fimc_is_device_csi_dma *csi_dma, struct platform_device *pdev);
 
 int __must_check fimc_is_csi_probe(void *parent, u32 instance);

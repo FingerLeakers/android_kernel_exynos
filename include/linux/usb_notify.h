@@ -4,7 +4,7 @@
  * Copyright (C) 2011-2017 Samsung, Inc.
  * Author: Dongrak Shin <dongrak.shin@samsung.com>
  *
-*/
+ */
 
  /* usb notify layer v3.2 */
 
@@ -118,6 +118,7 @@ struct otg_notify {
 	int vbus_detect_gpio;
 	int redriver_en_gpio;
 	int is_wakelock;
+	int is_host_wakelock;
 	int unsupport_host;
 	int smsc_ovc_poll_sec;
 	int auto_drive_vbus;
@@ -125,9 +126,7 @@ struct otg_notify {
 	int disable_control;
 	int device_check_sec;
 	int pre_peri_delay_us;
-	int sec_whitelist_enable;
 	int speed;
-	const char *muic_name;
 	int (*pre_gpio)(int gpio, int use);
 	int (*post_gpio)(int gpio, int use);
 	int (*vbus_drive)(bool);
@@ -200,11 +199,11 @@ static inline bool is_blocked(struct otg_notify *n, int type) {return false; }
 static inline int usb_check_whitelist_for_mdm(struct usb_device *dev)
 			{return 0; }
 #if defined(CONFIG_USB_HW_PARAM)
-static unsigned long long *get_hw_param(struct otg_notify *n,
+static inline unsigned long long *get_hw_param(struct otg_notify *n,
 			enum usb_hw_param index) {return NULL; }
-static int inc_hw_param(struct otg_notify *n,
+static inline int inc_hw_param(struct otg_notify *n,
 			enum usb_hw_param index) {return 0; }
-static int inc_hw_param_host(struct host_notify_dev *dev,
+static inline int inc_hw_param_host(struct host_notify_dev *dev,
 			enum usb_hw_param index) {return 0; }
 #endif
 #endif

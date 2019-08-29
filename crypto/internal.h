@@ -27,10 +27,10 @@
 #include <linux/slab.h>
 #include <linux/fips.h>
 
-#define SKC_VERSION_TEXT "SKC v1.9"
+#define SKC_VERSION_TEXT "SKC v2.0"
 
 #define FIPS_HMAC_SIZE         (32)
-#define FIPS_CRYPTO_ADDRS_SIZE (1000)
+#define FIPS_CRYPTO_ADDRS_SIZE (4096)
 
 struct first_last {
 	aligned_u64 first;
@@ -69,29 +69,27 @@ extern struct blocking_notifier_head crypto_chain;
 #ifdef CONFIG_CRYPTO_FIPS
 bool in_fips_err(void);
 void set_in_fips_err(void);
+int do_integrity_check(void);
+const char *get_builtime_crypto_hmac(void);
+const void *get_pointer_in_fips_err(void);
 #ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
 void reset_in_fips_err(void);
 void set_fips_functest_KAT_mode(const int num);
 void set_fips_functest_conditional_mode(const int num);
 char *get_fips_functest_mode(void);
-#define SKC_FUNCTEST_KAT_CASE_NUM 24
+#define SKC_FUNCTEST_KAT_CASE_NUM 26
 #define SKC_FUNCTEST_CONDITIONAL_CASE_NUM 2
 #define SKC_FUNCTEST_NO_TEST "NO_TEST"
-#endif
-void crypto_init_proc(int *fips_error);
-int do_integrity_check(void);
-int testmgr_crypto_proc_init(void);
-const char *get_builtime_crypto_hmac(void);
-#else
+#endif /* CONFIG_CRYPTO_FIPS_FUNC_TEST */
+#endif /* CONFIG_CRYPTO_FIPS */
 void __init crypto_init_proc(void);
-#endif
 void __exit crypto_exit_proc(void);
 #else
 static inline void crypto_init_proc(void)
 { }
 static inline void crypto_exit_proc(void)
 { }
-#endif
+#endif /* CONFIG_PROC_FS */
 
 static inline unsigned int crypto_cipher_ctxsize(struct crypto_alg *alg)
 {

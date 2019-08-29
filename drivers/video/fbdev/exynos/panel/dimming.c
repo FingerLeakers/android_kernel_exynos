@@ -52,6 +52,7 @@ const char *global_dim_info_name[] = {
 	"NR_TP",
 	"NR_LUMINANCE",
 	"VREGOUT",
+	"VREF",
 	"GAMMA",
 	"VT_VOLTAGE",
 };
@@ -598,6 +599,7 @@ static u64 mtp_offset_to_vregout(struct dimming_info *dim_info,
 	u32 *vt_voltage = dim_info->vt_voltage;
 	u32 *v0_voltage = dim_info->v0_voltage;
 	s64 VREGOUT = dim_info->vregout;
+	s64 VREF = dim_info->vref;
 
 	if (!tp || v < 0 || v >= NR_TP) {
 		pr_err("%s, invalid tp %d\n", __func__, v);
@@ -622,7 +624,7 @@ static u64 mtp_offset_to_vregout(struct dimming_info *dim_info,
 			pr_err("%s, error : ivt (%d) out of range(0x0 ~ 0xF)\n", __func__, offset);
 			return -EINVAL;
 		}
-		vreg = vsrc;
+		vreg = vsrc - VREF;
 		num = vreg * (s64)vt_voltage[offset];
 		res = vsrc - disp_div64(num, den);
 	} else if (v == TP_V0) {
@@ -631,11 +633,11 @@ static u64 mtp_offset_to_vregout(struct dimming_info *dim_info,
 			pr_err("%s, error : ivt (%d) out of range(0x0 ~ 0xF)\n", __func__, offset);
 			return -EINVAL;
 		}
-		vreg = vsrc;
+		vreg = vsrc - VREF;
 		num = vreg * (s64)v0_voltage[offset];
 		res = vsrc - disp_div64(num, den);
 	} else if (v == TP_V255) {
-		vreg = vsrc;
+		vreg = vsrc - VREF;
 		num = vreg * ((s64)tp[v].numerator + tp[v].center[c] + tp[v].offset[c]);
 		res = vsrc - disp_div64(num, den);
 	} else {
@@ -658,9 +660,10 @@ static s32 mtp_vregout_to_offset(struct dimming_info *dim_info,
 		int v, enum color c, int luminance_index)
 {
 	s64 num, den, res, vsrc;
-	u32 upper = ((v == TP_V255) ? 511 : 255);
+	u32 upper;
 	s32(*rgb_offset)[MAX_COLOR];
 	s64 VREGOUT = dim_info->vregout;
+	s64 VREF = dim_info->vref;
 	struct dimming_lut *dim_lut = dim_info->dim_lut;
 	struct tp *tp = dim_info->tp;
 	struct dimming_tp_output *tpout;
@@ -674,6 +677,11 @@ static s32 mtp_vregout_to_offset(struct dimming_info *dim_info,
 		pr_err("%s, out of range luminance index (%d)\n", __func__, luminance_index);
 		return 0;
 	}
+
+	if (tp[v].bits > 0)
+		upper = (1 << tp[v].bits) - 1;
+	else
+		upper = ((v == TP_V255) ? 511: 255);
 
 	rgb_offset = dim_lut[luminance_index].rgb_color_offset;
 	tpout = dim_lut[luminance_index].tpout;
@@ -690,7 +698,7 @@ static s32 mtp_vregout_to_offset(struct dimming_info *dim_info,
 
 	if (v == TP_V255) {
 		num = (vsrc - tpout[v].vout[c]) * (s64)tp[v].denominator;
-		den = vsrc;
+		den = vsrc - VREF;
 	} else {
 		num = (vsrc - tpout[v].vout[c]) * (s64)tp[v].denominator;
 		den = vsrc - tpout[v + 1].vout[c];
@@ -774,6 +782,37 @@ s64 interpolation(s64 from, s64 to, int cur_step, int total_step)
 	num = from + disp_div64(num, den);
 
 	return num;
+}
+
+int gamma_table_add_offset(s32 (*src)[MAX_COLOR], s32 (*ofs)[MAX_COLOR],
+		s32 (*out)[MAX_COLOR], struct tp *tp, int nr_tp)
+{
+	int v, c, upper, res;
+
+	if (unlikely(!tp || nr_tp == 0 || !src|| !ofs || !out)) {
+		pr_err("%s, invalid parameter (tp %d, nr_tp %d, src %d, ofs %d, out %d)\n",
+				__func__, !!tp, nr_tp, !!src, !!ofs, !!out);
+		return -EINVAL;
+	}
+
+	for (v = 0; v < nr_tp; v++) {
+		upper = (1 << tp[v].bits) - 1;
+		for_each_color(c) {
+			res = src[v][c] + ofs[v][c];
+			if (res < 0)
+				res = 0;
+			if (res > upper)
+				res = upper;
+
+			out[v][c] = res;
+#ifdef DEBUG_DIMMING
+			pr_info("%s, src %d, ofs %d, out %d\n",
+					__func__, src[v][c], ofs[v][c], out[v][c]);
+#endif
+		}
+	}
+
+	return 0;
 }
 
 int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
@@ -1349,6 +1388,8 @@ void print_dimming_info(struct dimming_info *dim_info, int tag)
 				dim_info->nr_luminance);
 		pr_info("%-15s %lld %d\n", global_dim_info_name[GLOBAL_DIM_INFO_VREGOUT],
 				dim_info->vregout, DIMMING_BITSHIFT);
+		pr_info("%-15s %lld %d\n", global_dim_info_name[GLOBAL_DIM_INFO_VREF],
+				dim_info->vref, DIMMING_BITSHIFT);
 		pr_info("%-15s %d\n", global_dim_info_name[GLOBAL_DIM_INFO_GAMMA],
 				gamma_curve_lut[(int)dim_info->target_g_curve_degree].gamma);
 		len = snprintf(buf, MAX_PRINT_BUF_SIZE,
@@ -1443,6 +1484,7 @@ int init_dimming_info(struct dimming_info *dim_info, struct dimming_init_info *s
 	memcpy(dim_info->vt_voltage, src->vt_voltage, sizeof(src->vt_voltage));
 	memcpy(dim_info->v0_voltage, src->v0_voltage, sizeof(src->v0_voltage));
 	dim_info->vregout = src->vregout;
+	dim_info->vref = src->vref;
 	dim_info->nr_tp = src->nr_tp;
 	dim_info->tp = src->tp;
 	dim_info->nr_luminance = src->nr_luminance;
@@ -1519,6 +1561,7 @@ int process_dimming(struct dimming_info *dim_info)
 	int i, c, v;
 	struct tp *tp;
 	s64 VREGOUT;
+	s64 VREF;
 #ifdef DEBUG_EXCUTION_TIME
 	mytime_t ts, te;
 
@@ -1530,6 +1573,7 @@ int process_dimming(struct dimming_info *dim_info)
 		return -EINVAL;
 	}
 	VREGOUT = dim_info->vregout;
+	VREF = dim_info->vref;
 	prepare_dim_info(dim_info);
 #ifdef DEBUG_DIMMING
 	print_dimming_info(dim_info, TAG_MTP_OFFSET_START);

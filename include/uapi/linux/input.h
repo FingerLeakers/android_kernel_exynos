@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  * Copyright (c) 1999-2002 Vojtech Pavlik
  *
@@ -154,9 +155,14 @@ struct input_id {
  * Note that input core does not clamp reported values to the
  * [minimum, maximum] limits, such task is left to userspace.
  *
- * Resolution for main axes (ABS_X, ABS_Y, ABS_Z) is reported in
- * units per millimeter (units/mm), resolution for rotational axes
- * (ABS_RX, ABS_RY, ABS_RZ) is reported in units per radian.
+ * The default resolution for main axes (ABS_X, ABS_Y, ABS_Z)
+ * is reported in units per millimeter (units/mm), resolution
+ * for rotational axes (ABS_RX, ABS_RY, ABS_RZ) is reported
+ * in units per radian.
+ * When INPUT_PROP_ACCELEROMETER is set the resolution changes.
+ * The main axes (ABS_X, ABS_Y, ABS_Z) are then reported in
+ * in units per g (units/g) and in units per degree per second
+ * (units/deg/s) for rotational axes (ABS_RX, ABS_RY, ABS_RZ).
  */
 struct input_absinfo {
 	__s32 value;
@@ -309,6 +315,13 @@ struct input_mask {
 #define EVIOCSMASK		_IOW('E', 0x93, struct input_mask)	/* Set event-masks */
 
 #define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
+#define KEY_SIDE_GESTURE_RIGHT	0x1ca
+#define KEY_SIDE_GESTURE_LEFT	0x1cb
+#define KEY_SIDE_GESTURE	0x1c6
+#define KEY_BLACK_UI_GESTURE	0x1c7
+#define SW_GLOVE		0x0f	/* set = glove mode */
+#define ABS_MT_PALM		0x3e	/* palm touch */
+#define ABS_MT_GRIP		0x3f	/* grip touch */
 
 /*
  * IDs.

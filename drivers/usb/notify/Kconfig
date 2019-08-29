@@ -58,7 +58,7 @@ config USB_EXTERNAL_NOTIFY
 	  Added usb external notify.
 	  The usb external notify broadcast special situation
 	  to muic and charger.
-	  
+
 config USB_NOTIFY_PROC_LOG
 	boolean "USB proc log"
 	depends on USB_NOTIFY_LAYER
@@ -76,8 +76,20 @@ config USB_HOST_SAMSUNG_FEATURE
 	  It is different from LSI BSP code.
 
 config USB_HW_PARAM
-    boolean "USB H/W Parameter"
-    depends on USB_NOTIFY_LAYER
-    help
-      Added USB H/W Parameter for DQA Agent.
-      You need more works for USB PDIC driver.
+    	boolean "USB H/W Parameter"
+    	depends on USB_NOTIFY_LAYER
+    	help
+      	  Added USB H/W Parameter for DQA Agent.
+          You need more works for USB PDIC driver.
+
+config USB_PORT_POWER_OPTIMIZATION
+	default n
+	bool "USB3.0 Link port power optimization"
+
+config USB_INTERFACE_LPM_LIST
+        boolean "USB interface class lpm Feature"
+        depends on USB
+        help
+          The device needs to support L1 for audio class devices
+          But L1 mode has some issues. 
+	  So we will apply L1 mode to the device that has specific interface classes

@@ -60,8 +60,8 @@ enum {
 	MIPI_DSI_PIXEL_STREAM_3BYTE_18			= 0x2e,
 	MIPI_DSI_PACKED_PIXEL_STREAM_24			= 0x3e,
 
-	MIPI_DSI_DSC_PRA				= 0x07,
-	MIPI_DSI_DSC_PPS				= 0x0a,
+	MIPI_DSI_DSC_PRA                                = 0x07,
+	MIPI_DSI_DSC_PPS                                = 0x0a,
 };
 
 /* MIPI DSI Peripheral-to-Processor transaction types */

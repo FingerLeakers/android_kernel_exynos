@@ -56,6 +56,9 @@
 #include <linux/muic/muic_notifier.h>
 #endif
 
+#ifdef CONFIG_PANEL_NOTIFY
+#include <linux/panel_notify.h>
+#endif
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
 //#include <linux/hall.h>
 //#endif
@@ -116,6 +119,13 @@
 
 #define SSP_DEBUG_TIME_FLAG_ON		"SSP:DEBUG_TIME=1"
 #define SSP_DEBUG_TIME_FLAG_OFF		"SSP:DEBUG_TIME=0"
+
+#define SSP_HALL_IC_ON			"SSP:HALL_IC=1"
+#define SSP_HALL_IC_OFF			"SSP:HALL_IC=0"
+
+#if 0 //def	CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS 
+#define CONFIG_SENSORS_SSP_PROX_ADC_CAL
+#endif
 
 extern bool ssp_debug_time_flag;
 
@@ -190,6 +200,7 @@ enum {
 
 #define MSG2SSP_AP_MCU_SET_GYRO_CAL		0xCD
 #define MSG2SSP_AP_MCU_SET_ACCEL_CAL		0xCE
+#define MSG2SSP_AP_MCU_SET_PROX_CAL		0xCF
 #define MSG2SSP_AP_STATUS_SHUTDOWN		0xD0
 #define MSG2SSP_AP_STATUS_WAKEUP		0xD1
 #define MSG2SSP_AP_STATUS_SLEEP		0xD2
@@ -241,10 +252,12 @@ enum {
 #define MSG2AP_INST_TIMESTAMP_OFFSET		0xA8
 #define MSG2SSP_AP_THERMISTOR_CHANNEL_0 	0xA9
 #define MSG2SSP_AP_THERMISTOR_CHANNEL_1 	0xAA
+#define MSG2SSP_AP_INFORMATION			0xB6
 
 #define MSG2SSP_AP_IRDATA_SEND		0x38
 #define MSG2SSP_AP_IRDATA_SEND_RESULT 0x39
 #define MSG2SSP_AP_PROX_GET_TRIM	0x40
+#define MSG2SSP_AP_PROX_GET_THRESHOLD	0x47
 
 #define SH_MSG2AP_GYRO_CALIBRATION_START   0x43
 #define SH_MSG2AP_GYRO_CALIBRATION_STOP	0x44
@@ -268,6 +281,14 @@ enum {
 
 #define MSG2SSP_AP_FUSEROM			0X01
 
+/* PANEL data */
+#define MSG2SSP_GET_DDI_COPR		0x90
+#define MSG2SSP_PANEL_INFORMATION	0x91
+#define MSG2SSP_GET_TEST_COPR		0x92
+#define MSG2SSP_GET_READ_COPR		0x93
+#define MSG2SSP_READ_COPR_ON_OFF	0x94
+#define MSG2SSP_GET_COPR_ROIX		0x95
+#define MSG2SSP_HALL_IC_ON_OFF		0x96
 /* voice data */
 #define TYPE_WAKE_UP_VOICE_SERVICE			0x01
 #define TYPE_WAKE_UP_VOICE_SOUND_SOURCE_AM		0x01
@@ -319,16 +340,20 @@ enum {
 #ifdef CONFIG_SENSORS_SSP_CROWN
 #define DEFAULT_DETECT_HIGH_THRESHOLD		16360
 #define DEFAULT_DETECT_LOW_THRESHOLD		1500
+#elif defined(CONFIG_SENSORS_SSP_BEYOND)
+#define DEFAULT_DETECT_HIGH_THRESHOLD		16368
+#define DEFAULT_DETECT_LOW_THRESHOLD		250
+#define DEFAULT_DETECT_LOW_THRESHOLD_FOR_LCUT	2200
 #else
 #define DEFAULT_DETECT_HIGH_THRESHOLD		16368
 #define DEFAULT_DETECT_LOW_THRESHOLD		1000
-#endif
+#endif //CONFIG_SENSORS_SSP_CROWN
 #else
 #define DEFAULT_HIGH_THRESHOLD			2000
 #define DEFAULT_LOW_THRESHOLD			1400
 #define DEFAULT_CAL_HIGH_THRESHOLD		2000
 #define DEFAULT_CAL_LOW_THRESHOLD		840
-#endif
+#endif //CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS
 #endif
 
 #define DEFAULT_PROX_ALERT_HIGH_THRESHOLD			1000
@@ -352,8 +377,10 @@ enum {
 /* Key value for Camera - Gyroscope sync */
 #define CAMERA_GYROSCOPE_SYNC 7700000ULL /*7.7ms*/
 #define CAMERA_GYROSCOPE_VDIS_SYNC 6600000ULL /*6.6ms*/
+#define CAMERA_GYROSCOPE_SUPER_VDIS_SYNC 5500000ULL /*5.5ms*/
 #define CAMERA_GYROSCOPE_SYNC_DELAY 10000000ULL
 #define CAMERA_GYROSCOPE_VDIS_SYNC_DELAY 5000000ULL
+#define CAMERA_GYROSCOPE_SUPER_VDIS_SYNC_DELAY 2000000ULL
 
 
 /** HIFI Sensor **/
@@ -387,6 +414,14 @@ enum {
 #define GYRO_CALIBRATION_STATE_REGISTERED	1
 #define GYRO_CALIBRATION_STATE_EVENT_OCCUR  2
 #define GYRO_CALIBRATION_STATE_DONE		3
+
+/* bbd patch version define only for beyond*/
+#define bbd_old     0
+#define bbd_new_old     1
+#define bbd_current     2
+
+#define REGISTER_RW_DDI			89
+#define REGISTER_RW_BUFFER_MAX		256
 
 /* temphumidity sensor*/
 struct shtc1_buffer {
@@ -471,8 +506,16 @@ struct sensor_value {
 			u16 b;
 			u16 w;
 #ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
+#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_ATIME_2BYTE
+			u16 a_gain;
+			u16 a_time;
+#ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
+			u8 brightness;
+#endif
+#else
 			u16 a_gain;
 			u8 a_time;
+#endif
 #else
 			u8 a_time;
 			u8 a_gain;
@@ -507,15 +550,23 @@ struct sensor_value {
 #else
 /* CONFIG_SENSORS_SSP_TMD4903, CONFIG_SENSORS_SSP_TMD3782, CONFIG_SENSORS_SSP_TMD4904 */
 			u16 prox_adc;
+			u32 light;
 #endif
 		} __attribute__((__packed__));
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+		struct {
+			s16 proxcal_offset;
+			u16 proxcal_thresh_hi;
+			u16 proxcal_thresh_lo;
+		};
+#endif
 		u8 step_det;
 		u8 sig_motion;
 #if defined(CONFIG_SENSORS_SSP_TMG399x)
 		u8 prox_raw[4];
 #else
 /* CONFIG_SENSORS_SSP_TMD4903, CONFIG_SENSORS_SSP_TMD3782, CONFIG_SENSORS_SSP_TMD4904 */
-		u16 prox_raw[4];
+		s16 prox_raw[4];
 #endif
 		 struct {
 			u8 prox_alert_detect;
@@ -534,6 +585,19 @@ struct sensor_value {
 		u32 step_diff;
 		u8 tilt_detector;
 		u8 pickup_gesture;
+		u8 call_gesture;
+		u8 wakeup_move_event[2]; // wakeup motion[0] & move[1] event come sametime
+		struct {
+			u8 pocket_mode;
+			u8 pocket_reason;
+			u32 pocket_base_proxy;
+			u32 pocket_current_proxy;
+			u32 pocket_release_diff;
+			u32 pocket_min_release;
+			u32 pocket_light_data;
+			u32 pocket_temp;
+		} __attribute__((__packed__));
+		u8 led_cover_event;
 		u8 scontext_buf[SCONTEXT_DATA_SIZE];
 		struct {
 			u8 proximity_pocket_detect;
@@ -643,6 +707,11 @@ struct ssp_time_diff {
 };
 #endif
 
+struct ois_sensor_interface{
+	void *core;
+	void (*ois_func)(void *);
+};
+
 struct ssp_data {
 	struct iio_dev *indio_dev[SENSOR_MAX];
 	struct iio_dev *indio_scontext_dev;
@@ -693,6 +762,8 @@ struct ssp_data {
 #endif
 #ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
 	struct device *hiddenhole_device;
+	int light_efs_file_status;
+	struct delayed_work work_ssp_light_efs_file_init;
 #endif
 	struct device *temphumidity_device;
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
@@ -705,6 +776,10 @@ struct ssp_data {
 	struct notifier_block cpuidle_muic_nb;
 #endif
 	struct device *thermistor_device;
+	
+	struct ois_sensor_interface *ois_control;
+	struct ois_sensor_interface *ois_reset;
+
 	bool bFirstRef;
 	bool bSspShutdown;
 	bool bAccelAlert;
@@ -725,6 +800,9 @@ struct ssp_data {
 
 	int light_coef[7];
 #if defined(CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS)
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+	int ProxOffset;
+#endif
 	unsigned int uProxHiThresh;
 	unsigned int uProxLoThresh;
 	unsigned int uProxHiThresh_detect;
@@ -810,7 +888,7 @@ struct ssp_data {
 
 	void (*get_sensor_data[SENSOR_MAX])(char *, int *,
 		struct sensor_value *);
-	void (*report_sensor_data[SENSOR_MAX])(struct ssp_data *,
+	void (*report_sensor_data[SENSOR_MAX])(struct ssp_data *, int sensor_type,
 		struct sensor_value *);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -820,6 +898,7 @@ struct ssp_data {
 #ifdef CONFIG_SENSORS_SSP_SENSORHUB
 	struct ssp_sensorhub_data *hub_data;
 #endif
+	int ap_type;
 	int ap_rev;
 	int accel_position;
 	int mag_position;
@@ -854,6 +933,7 @@ struct ssp_data {
 	void (*ssp_big_task[BIG_TYPE_MAX])(struct work_struct *);
 	u64 timestamp;
 	int light_log_cnt;
+	int light_cct_log_cnt;
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 	int light_ir_log_cnt;
 #endif
@@ -879,7 +959,10 @@ struct ssp_data {
 #if defined(CONFIG_SSP_MOTOR_CALLBACK)
 	int motor_state;
 #endif
-	char sensor_state[SENSOR_MAX + 1];
+#if defined(CONFIG_PANEL_NOTIFY)
+	struct panel_bl_event_data panel_event_data;
+#endif
+	char sensor_state[SENSOR_MAX + 1 + ((SENSOR_MAX-1) / 10)]; // \0 + blank
 	unsigned int uNoRespSensorCnt;
 	unsigned int errorCount;
 	unsigned int pktErrCnt;
@@ -899,7 +982,7 @@ struct ssp_data {
 	int pin_shub_int;
 	int irq_shub_int;
 	bool intendedMcuReset;
-	char registerValue[5];
+	char registerValue[REGISTER_RW_BUFFER_MAX + 3];
 	u8 dhrAccelScaleRange;
 	unsigned int skipSensorData;
 	bool resetting;
@@ -927,6 +1010,8 @@ struct ssp_data {
         bool IsAPsuspend;
 /* no ack about mcu_resp pin*/
         bool IsNoRespCnt;
+/* hall ic */
+	bool hall_ic_status; // 0: open 1: close
 };
 
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
@@ -1027,8 +1112,13 @@ int get_hw_offset(struct ssp_data *data);
 int set_gyro_cal(struct ssp_data *data);
 int save_gyro_caldata(struct ssp_data *data, s32 *iCalData);
 int set_accel_cal(struct ssp_data *data);
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+void set_prox_cal(struct ssp_data *data);
+int proximity_save_calibration(struct ssp_data *data);
+#endif
 int initialize_magnetic_sensor(struct ssp_data *data);
 int initialize_thermistor_table(struct ssp_data *data);
+int set_ap_information(struct ssp_data *data);
 int set_sensor_position(struct ssp_data *data);
 #ifdef CONFIG_SENSORS_MULTIPLE_GLASS_TYPE
 int set_glass_type(struct ssp_data *data);
@@ -1046,6 +1136,7 @@ void set_light_coef(struct ssp_data *data);
 int initialize_light_colorid(struct ssp_data *data);
 void initialize_hiddenhole_factorytest(struct ssp_data *data);
 void remove_hiddenhole_factorytest(struct ssp_data *data);
+void initialize_light_colorid_do_task(struct work_struct *work);
 #endif
 int get_msdelay(int64_t dDelayRate);
 #if defined(CONFIG_SSP_MOTOR_CALLBACK)
@@ -1059,43 +1150,51 @@ void enable_debug_timer(struct ssp_data *data);
 void disable_debug_timer(struct ssp_data *data);
 int initialize_debug_timer(struct ssp_data *data);
 void get_proximity_threshold(struct ssp_data *data);
-void report_meta_data(struct ssp_data *data, struct sensor_value *s);
-void report_acc_data(struct ssp_data *data, struct sensor_value *accdata);
-void report_gyro_data(struct ssp_data *data, struct sensor_value *gyrodata);
-void report_mag_data(struct ssp_data *data, struct sensor_value *magdata);
-void report_mag_uncaldata(struct ssp_data *data, struct sensor_value *magdata);
-void report_rot_data(struct ssp_data *data, struct sensor_value *rotdata);
-void report_game_rot_data(struct ssp_data *data, struct sensor_value *grvec_data);
-void report_step_det_data(struct ssp_data *data, struct sensor_value *stepdet_data);
-void report_gesture_data(struct ssp_data *data, struct sensor_value *gesdata);
-void report_pressure_data(struct ssp_data *data, struct sensor_value *predata);
-void report_light_data(struct ssp_data *data, struct sensor_value *lightdata);
+void report_meta_data(struct ssp_data *data, int sensor_type, struct sensor_value *s);
+void report_acc_data(struct ssp_data *data, int sensor_type, struct sensor_value *accdata);
+void report_gyro_data(struct ssp_data *data, int sensor_type, struct sensor_value *gyrodata);
+void report_mag_data(struct ssp_data *data, int sensor_type, struct sensor_value *magdata);
+void report_mag_uncaldata(struct ssp_data *data, int sensor_type, struct sensor_value *magdata);
+void report_rot_data(struct ssp_data *data, int sensor_type, struct sensor_value *rotdata);
+void report_game_rot_data(struct ssp_data *data, int sensor_type, struct sensor_value *grvec_data);
+void report_step_det_data(struct ssp_data *data, int sensor_type, struct sensor_value *stepdet_data);
+void report_gesture_data(struct ssp_data *data, int sensor_type, struct sensor_value *gesdata);
+void report_pressure_data(struct ssp_data *data, int sensor_type, struct sensor_value *predata);
+void report_light_data(struct ssp_data *data, int sensor_type, struct sensor_value *lightdata);
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
-void report_light_ir_data(struct ssp_data *data, struct sensor_value *lightirdata);
+void report_light_ir_data(struct ssp_data *data, int sensor_type, struct sensor_value *lightirdata);
 #endif
-void report_light_flicker_data(struct ssp_data *data, struct sensor_value *lightFlickerData);
-void report_light_cct_data(struct ssp_data *data, struct sensor_value *lightdata);
-void report_prox_data(struct ssp_data *data, struct sensor_value *proxdata);
-void report_prox_raw_data(struct ssp_data *data, struct sensor_value *proxrawdata);
-void report_prox_alert_data(struct ssp_data *data, struct sensor_value *proxdata);
-void report_proximity_pocket_data(struct ssp_data *data, struct sensor_value *proximity_pocket);
-void report_grip_data(struct ssp_data *data, struct sensor_value *gripdata);
-void report_geomagnetic_raw_data(struct ssp_data *data, struct sensor_value *magrawdata);
-void report_sig_motion_data(struct ssp_data *data, struct sensor_value *sig_motion_data);
-void report_uncalib_gyro_data(struct ssp_data *data, struct sensor_value *gyrodata);
-void report_step_cnt_data(struct ssp_data *data, struct sensor_value *sig_motion_data);
+void report_light_flicker_data(struct ssp_data *data, int sensor_type, struct sensor_value *lightFlickerData);
+void report_light_cct_data(struct ssp_data *data, int sensor_type, struct sensor_value *lightdata);
+void report_prox_data(struct ssp_data *data, int sensor_type, struct sensor_value *proxdata);
+void report_prox_raw_data(struct ssp_data *data, int sensor_type, struct sensor_value *proxrawdata);
+void report_prox_alert_data(struct ssp_data *data, int sensor_type, struct sensor_value *proxdata);
+void report_proximity_pocket_data(struct ssp_data *data, int sensor_type, struct sensor_value *proximity_pocket);
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+void report_prox_adc_calib_data(struct ssp_data *data, int sensor_type, struct sensor_value *proxcalibdata);
+#endif
+void report_grip_data(struct ssp_data *data, int sensor_type, struct sensor_value *gripdata);
+void report_geomagnetic_raw_data(struct ssp_data *data, int sensor_type, struct sensor_value *magrawdata);
+void report_sig_motion_data(struct ssp_data *data, int sensor_type, struct sensor_value *sig_motion_data);
+void report_uncalib_gyro_data(struct ssp_data *data, int sensor_type, struct sensor_value *gyrodata);
+void report_step_cnt_data(struct ssp_data *data, int sensor_type, struct sensor_value *sig_motion_data);
 #ifdef CONFIG_SENSORS_SSP_INTERRUPT_GYRO_SENSOR
-void report_interrupt_gyro_data(struct ssp_data *data, struct sensor_value *gyrodata);
+void report_interrupt_gyro_data(struct ssp_data *data, int sensor_type, struct sensor_value *gyrodata);
 #endif
 int print_mcu_debug(char *pchRcvDataFrame, int *pDataIdx, int iRcvDataFrameLength);
-void report_temp_humidity_data(struct ssp_data *data, struct sensor_value *temp_humi_data);
-void report_shake_cam_data(struct ssp_data *data, struct sensor_value *shake_cam_data);
+void report_temp_humidity_data(struct ssp_data *data, int sensor_type, struct sensor_value *temp_humi_data);
+void report_shake_cam_data(struct ssp_data *data, int sensor_type, struct sensor_value *shake_cam_data);
 void report_bulk_comp_data(struct ssp_data *data);
-void report_tilt_data(struct ssp_data *data, struct sensor_value *tilt_data);
-void report_pickup_data(struct ssp_data *data, struct sensor_value *pickup_data);
-void report_scontext_data(struct ssp_data *data, struct sensor_value *scontextbuf);
-void report_thermistor_data(struct ssp_data *data, struct sensor_value *thermistor_data);
-void report_uncalib_accel_data(struct ssp_data *data, struct sensor_value *acceldata);
+void report_tilt_data(struct ssp_data *data, int sensor_type, struct sensor_value *tilt_data);
+void report_pickup_data(struct ssp_data *data, int sensor_type, struct sensor_value *pickup_data);
+void report_scontext_data(struct ssp_data *data, int sensor_type, struct sensor_value *scontextbuf);
+void report_thermistor_data(struct ssp_data *data, int sensor_type, struct sensor_value *thermistor_data);
+void report_uncalib_accel_data(struct ssp_data *data, int sensor_type, struct sensor_value *acceldata);
+void report_wakeup_motion_data(struct ssp_data *data, int sensor_type, struct sensor_value *wakeup_motion_data);
+void report_call_gesture_data(struct ssp_data *data, int sensor_type, struct sensor_value *call_gesture_data);
+void report_move_detector_data(struct ssp_data *data, int sensor_type, struct sensor_value *move_detector_data);
+void report_pocket_mode_data(struct ssp_data *data, int sensor_type, struct sensor_value *pocket_data);
+void report_led_cover_event_data(struct ssp_data *data, int sensor_type, struct sensor_value *led_cover_event_data);
 
 unsigned int get_module_rev(struct ssp_data *data);
 void reset_mcu(struct ssp_data *data);
@@ -1147,6 +1246,13 @@ void ssp_reset_batching_resources(struct ssp_data *data);
 irqreturn_t ssp_shub_int_handler(int irq, void *device);
 #endif
 
+#ifdef CONFIG_PANEL_NOTIFY 
+int send_panel_information(struct panel_bl_event_data *evdata);
+#endif
+int get_patch_version(int ap_type, int hw_rev);
+
+int send_hall_ic_status(bool enable);
+
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
 //int ssp_ckeck_lcd(int);
 //#endif
@@ -1159,5 +1265,6 @@ void ssp_reset_work_func(struct work_struct *work);
 void set_AccelCalibrationInfoData(char *pchRcvDataFrame, int *iDataIdx);
 void set_GyroCalibrationInfoData(char *pchRcvDataFrame, int *iDataIdx);
 int send_vdis_flag(struct ssp_data *data, bool bFlag);
+void initialize_super_vdis_setting(void);
 
 #endif

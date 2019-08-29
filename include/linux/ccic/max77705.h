@@ -164,7 +164,7 @@
 #define BIT_VSAFE0V				BIT(3)
 #define BIT_AttachSrcErr		BIT(2)
 #define BIT_ConnStat			BIT(1)
-
+#define BIT_Altmode				BIT(0)
 
 /*
  * REG_PD_STATUS0
@@ -213,16 +213,15 @@ enum max77705_vcon_role {
 #define FW_WAIT_TIMEOUT			(1000 * 5) /* 5 sec */
 #define I2C_SMBUS_BLOCK_HALF	(I2C_SMBUS_BLOCK_MAX / 2)
 
-struct max77705_fw_header {
-	u8 data0;
-	u8 data1;
-	u8 data2;
-	u8 data3;
-	u8 data4; /* FW version LSB */
-	u8 data5;
-	u8 data6;
-	u8 data7; /* FW version MSB */
-};
+typedef struct {
+	u32 magic;     /* magic number */
+	u8 major;         /* major version */
+	u8 minor:3;       /* minor version */
+	u8 product_id:5;  /* product id */
+	u8 id;            /* id */
+	u8 rev;           /* rev */
+} max77705_fw_header;
+#define MAX77705_SIGN 0xCEF166C1
 
 enum {
 	FW_UPDATE_START = 0x00,
@@ -253,6 +252,13 @@ enum {
 	RFU,
 };
 
+enum {
+	NOT_IN_UFP_MODE = 0,
+	CCI_500mA,
+	CCI_1_5A,
+	CCI_3_0A,
+	CCI_SHORT,
+};
 
 /*
  * All type of Interrupts
@@ -373,8 +379,15 @@ enum max77705_usbc_SYSMsg {
 
 	SYSMSG_SET_GRL = 0x64,
 
+	SYSMSG_PD_CCx_5V_SHORT = 0x65,
+	SYSMSG_PD_SBUx_5V_SHORT = 0x66,
+	SYSMSG_PD_SHORT_NONE = 0x67,
+	SYSERROR_DROP5V_SRCRDY = 0x68,
+	SYSERROR_DROP5V_SNKRDY = 0x69,
+
 	SYSERROR_FACTORY_RID0 = 0x70,
 	SYSERROR_POWER_NEGO = 0x80,
+	SYSMSG_CURRENT_CABLE = 0x90,
 };
 
 enum max77705_pdmsg {
@@ -509,6 +522,9 @@ typedef enum {
 	OPCODE_SEND_GET_RESPONSE = 0x36,
 	OPCODE_SWAP_REQUEST = 0x37,
 	OPCODE_SWAP_REQUEST_RESPONSE = 0x38,
+	OPCODE_APDO_SRCCAP_REQUEST = 0x3A,
+	OPCODE_GET_PPS_STATUS = 0x3B,
+	OPCODE_SET_PPS = 0x3C,
 	OPCODE_VDM_DISCOVER_IDENETITY_RESPONSE = 0x40,
 	OPCODE_VDM_DISCOVER_SET_VDM_REQ = 0x48,
 	OPCODE_VDM_DISCOVER_GET_VDM_RESP = 0x4b,
@@ -517,6 +533,7 @@ typedef enum {
 	OPCODE_SAMSUNG_ACC_COMMAND_RECIEVED,
 	OPCODE_SAMSUNG_ACC_COMMAND_RESPOND,
 	OPCODE_SAMSUNG_SECURE_KEY_REVOCATION,
+	OPCODE_SET_ALTERNATEMODE = 0x55,
 	OPCODE_SAMSUNG_FW_AUTOIBUS = 0x57,
 	OPCODE_READ_SELFTEST = 0x59,
 	OPCODE_GRL_COMMAND = 0x70,
@@ -550,5 +567,13 @@ typedef enum {
 /* SAMSUNG OPCODE */
 #define REG_NONE 0xff
 #define CCIC_IRQ_INIT_DETECT		(-1)
+
+#define MINOR_VERSION_MASK 0b00000111
+
+/* PRODUCT ID  */
+#define FW_PRODUCT_ID_REG 3
+//#define STAR_PRODUCT_ID 0b0000
+//#define Lykan_PRODUCT_ID 0b0001
+//#define BEYOND_PRODUCT_ID 0b0010
 #endif
 

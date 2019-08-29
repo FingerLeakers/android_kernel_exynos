@@ -334,6 +334,7 @@ int sensor_cis_dump_registers(struct v4l2_subdev *subdev, const u32 *regs, const
 	struct fimc_is_cis *cis;
 	struct i2c_client *client;
 	u8 data8 = 0;
+	u16 data16 = 0;
 
 	FIMC_BUG(!subdev);
 	FIMC_BUG(!regs);
@@ -353,12 +354,25 @@ int sensor_cis_dump_registers(struct v4l2_subdev *subdev, const u32 *regs, const
 	}
 
 	for (i = 0; i < size; i += I2C_NEXT) {
-		ret = fimc_is_sensor_read8(client, regs[i + I2C_ADDR], &data8);
-		if (ret < 0) {
-			err("fimc_is_sensor_write8 fail, ret(%d), addr(%#x)",
-					ret, regs[i + I2C_ADDR]);
+		if (regs[i + I2C_BYTE] == 0x2 && regs[i + I2C_ADDR] == 0x6028) {
+			ret = fimc_is_sensor_write16(client, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
 		}
-		pr_err("[SEN:DUMP] [%#x] : %x\n", regs[i + I2C_ADDR], data8);
+
+		if (regs[i + I2C_BYTE] == 0x1) {
+			ret = fimc_is_sensor_read8(client, regs[i + I2C_ADDR], &data8);
+			if (ret < 0) {
+				err("fimc_is_sensor_read8 fail, ret(%d), addr(%#x)",
+						ret, regs[i + I2C_ADDR]);
+			}
+			pr_err("[SEN:DUMP] [0x%04X, 0x%04X\n", regs[i + I2C_ADDR], data8);
+		} else {
+			ret = fimc_is_sensor_read16(client, regs[i + I2C_ADDR], &data16);
+			if (ret < 0) {
+				err("fimc_is_sensor_read6 fail, ret(%d), addr(%#x)",
+						ret, regs[i + I2C_ADDR]);
+			}
+			pr_err("[SEN:DUMP] [0x%04X, 0x%04X\n", regs[i + I2C_ADDR], data16);
+		}
 	}
 
 p_err:
@@ -469,7 +483,9 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 	    goto p_err;
 	}
 
+	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	if (ret < 0)
 	    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
 
@@ -481,7 +497,9 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 		usleep_range(CIS_STREAM_ON_WAIT_TIME, CIS_STREAM_ON_WAIT_TIME);
 		wait_cnt++;
 
+		I2C_MUTEX_LOCK(cis->i2c_lock);
 		ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
+		I2C_MUTEX_UNLOCK(cis->i2c_lock);
 		if (ret < 0)
 		    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
 
@@ -502,4 +520,26 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 #endif
 p_err:
 	return ret;
+}
+
+int sensor_cis_set_initial_exposure(struct v4l2_subdev *subdev)
+{
+	struct fimc_is_cis *cis;
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	if (unlikely(!cis)) {
+		err("cis is NULL");
+		return -EINVAL;
+	}
+
+	if (cis->use_initial_ae) {
+		cis->init_ae_setting = cis->last_ae_setting;
+
+		dbg_sensor(1, "[MOD:D:%d] %s short(exp:%d/again:%d/dgain:%d), long(exp:%d/again:%d/dgain:%d)\n",
+			cis->id, __func__, cis->init_ae_setting.exposure, cis->init_ae_setting.analog_gain,
+			cis->init_ae_setting.digital_gain, cis->init_ae_setting.long_exposure,
+			cis->init_ae_setting.long_analog_gain, cis->init_ae_setting.long_digital_gain);
+	}
+
+	return 0;
 }

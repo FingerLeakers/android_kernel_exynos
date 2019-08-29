@@ -43,7 +43,6 @@
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 
-#include <soc/samsung/exynos-powermode.h>
 
 /* Semaphore for peterson algorithm  */
 #define AP_TURN 0
@@ -129,7 +128,7 @@
 /* Bit definitions for ADC_V3 */
 #define ADC_V3_DAT_FLAG		(1u << 31)
 
-#define MAX_ADC_V3_CHANNELS		12
+#define MAX_ADC_V3_CHANNELS		10
 #define MAX_ADC_V2_CHANNELS		10
 #define MAX_ADC_V1_CHANNELS		8
 #define MAX_EXYNOS3250_ADC_CHANNELS	2
@@ -238,12 +237,17 @@ static int exynos_adc_enable_clk(struct exynos_adc *info)
 
 	return 0;
 }
-
+static void exynos_adc_update_ip_idle_status(struct exynos_adc *info, int idle)
+{
+#ifdef CONFIG_ARCH_EXYNOS_PM
+	exynos_update_ip_idle_status(info->idle_ip_index, idle);
+#endif
+}
 static int exynos_adc_enable_access(struct exynos_adc *info)
 {
 	int ret;
 
-	exynos_update_ip_idle_status(info->idle_ip_index, 0);
+	exynos_adc_update_ip_idle_status(info, 0);
 	if (info->needs_adc_phy)
 		regmap_write(info->pmu_map, info->data->phy_offset, 1);
 
@@ -272,7 +276,7 @@ err:
 	if (info->needs_adc_phy)
 		regmap_write(info->pmu_map, info->data->phy_offset, 0);
 
-	exynos_update_ip_idle_status(info->idle_ip_index, 1);
+	exynos_adc_update_ip_idle_status(info, 1);
 	return ret;
 }
 
@@ -285,7 +289,7 @@ static void exynos_adc_disable_access(struct exynos_adc *info)
 
 	if (info->needs_adc_phy)
 		regmap_write(info->pmu_map, info->data->phy_offset, 0);
-	exynos_update_ip_idle_status(info->idle_ip_index, 1);
+	exynos_adc_update_ip_idle_status(info, 1);
 }
 
 static void exynos_adc_v1_init_hw(struct exynos_adc *info)
@@ -478,7 +482,7 @@ static void exynos_adc_v2_start_conv(struct exynos_adc *info,
 
 	con2 = readl(ADC_V2_CON2(info->regs));
 	con2 &= ~ADC_V2_CON2_ACH_MASK;
-	con2 |= (u32)ADC_V2_CON2_ACH_SEL(addr);
+	con2 |= (unsigned int)ADC_V2_CON2_ACH_SEL(addr);
 	writel(con2, ADC_V2_CON2(info->regs));
 
 	con1 = readl(ADC_V2_CON1(info->regs));
@@ -713,6 +717,65 @@ err_unlock:
 }
 
 #ifdef ADC_TS
+static int exynos_read_s3c64xx_ts(struct iio_dev *indio_dev, int *x, int *y)
+{
+	struct exynos_adc *info = iio_priv(indio_dev);
+	unsigned long timeout;
+	int ret;
+
+	mutex_lock(&indio_dev->mlock);
+	info->read_ts = true;
+
+	reinit_completion(&info->completion);
+
+	writel(ADC_S3C2410_TSC_PULL_UP_DISABLE | ADC_TSC_AUTOPST,
+	       ADC_V1_TSC(info->regs));
+
+	/* Select the ts channel to be used and Trigger conversion */
+	info->data->start_conv(info, ADC_S3C2410_MUX_TS);
+
+	timeout = wait_for_completion_timeout(&info->completion,
+					      EXYNOS_ADC_TIMEOUT);
+	if (timeout == 0) {
+		dev_warn(&indio_dev->dev, "Conversion timed out! Resetting\n");
+		if (info->data->init_hw)
+			info->data->init_hw(info);
+		ret = -ETIMEDOUT;
+	} else {
+		*x = info->ts_x;
+		*y = info->ts_y;
+		ret = 0;
+	}
+
+	info->read_ts = false;
+	mutex_unlock(&indio_dev->mlock);
+
+	return ret;
+}
+
+static irqreturn_t exynos_adc_isr(int irq, void *dev_id)
+{
+	struct exynos_adc *info = dev_id;
+	u32 mask = info->data->mask;
+
+	/* Read value */
+	if (info->read_ts) {
+		info->ts_x = readl(ADC_V1_DATX(info->regs));
+		info->ts_y = readl(ADC_V1_DATY(info->regs));
+		writel(ADC_TSC_WAIT4INT | ADC_S3C2443_TSC_UD_SEN, ADC_V1_TSC(info->regs));
+	} else {
+		info->value = readl(ADC_V1_DATX(info->regs)) & mask;
+	}
+
+	/* clear irq */
+	if (info->data->clear_irq)
+		info->data->clear_irq(info);
+
+	complete(&info->completion);
+
+	return IRQ_HANDLED;
+}
+
 /*
  * Here we (ab)use a threaded interrupt handler to stay running
  * for as long as the touchscreen remains pressed, we report
@@ -745,7 +808,7 @@ static irqreturn_t exynos_ts_isr(int irq, void *dev_id)
 		input_report_key(info->input, BTN_TOUCH, 1);
 		input_sync(info->input);
 
-		msleep(1);
+		usleep_range(1000, 1100);
 	};
 
 	writel(0, ADC_V1_CLRINTPNDNUP(info->regs));
@@ -804,8 +867,6 @@ static const struct iio_chan_spec exynos_adc_iio_channels[] = {
 	ADC_CHANNEL(7, "adc7"),
 	ADC_CHANNEL(8, "adc8"),
 	ADC_CHANNEL(9, "adc9"),
-	ADC_CHANNEL(10, "adc10"),
-	ADC_CHANNEL(11, "adc11"),
 };
 
 static int exynos_adc_remove_devices(struct device *dev, void *c)
@@ -944,8 +1005,9 @@ static int exynos_adc_probe(struct platform_device *pdev)
 	info->tsirq = irq;
 
 	info->dev = &pdev->dev;
+#ifdef CONFIG_ARCH_EXYNOS_PM
 	info->idle_ip_index = exynos_get_idle_ip_index(dev_name(&pdev->dev));
-
+#endif
 	init_completion(&info->completion);
 
 	info->clk = devm_clk_get(&pdev->dev, "gate_adcif");

@@ -39,6 +39,8 @@
 #include "include/circ_queue.h"
 #include "include/sbd.h"
 #include "include/sipc5.h"
+#include "link_rx_dit.h"
+#include "link_rx_pktproc.h"
 
 #ifdef GROUP_MEM_TYPE
 
@@ -75,6 +77,13 @@ enum mem_iface_type {
 #define SHM_4M_RAW_RX_BUFF_SZ	2097152
 #endif
 
+#ifdef CONFIG_LINK_DEVICE_PCIE
+#define SHM_4M_RESERVED_SZ_FIRST	984
+#define SHM_4M_RESERVED_SZ_SECOND	3028
+#define DOORBELL_INT_ADD		0x10000
+#define MODEM_INT_NUM			16
+#endif
+
 #define SHM_UL_USAGE_LIMIT	SZ_32K	/* Uplink burst limit */
 
 struct __packed shmem_4mb_phys_map {
@@ -101,7 +110,23 @@ struct __packed shmem_4mb_phys_map {
 	u32 raw_rx_head;
 	u32 raw_rx_tail;
 
-	char reserved[SHM_4M_RESERVED_SZ];
+#ifdef CONFIG_LINK_DEVICE_PCIE
+	u8 reserved_first[SHM_4M_RESERVED_SZ_FIRST];
+	u32 ap2cp_msg;
+	u32 cp2ap_msg;
+	u32 ap2cp_united_status;
+	u32 cp2ap_united_status;
+	u32 ap2cp_mif_freq;
+	u32 cp2ap_dvfsreq_cpu;
+	u32 cp2ap_dvfsreq_mif;
+	u32 cp2ap_dvfsreq_int;
+	u32 reserved_empty;
+	u32 ap2cp_kerneltime;
+	u32 cp2ap_int_state;
+	u8 reserved_second[SHM_4M_RESERVED_SZ_SECOND];
+#else
+        char reserved[SHM_4M_RESERVED_SZ];
+#endif
 
 	char fmt_tx_buff[SHM_4M_FMT_TX_BUFF_SZ];
 	char fmt_rx_buff[SHM_4M_FMT_RX_BUFF_SZ];
@@ -155,7 +180,7 @@ struct __packed shmem_4mb_phys_map {
 #ifdef GROUP_MEM_IPC_DEVICE
 
 struct mem_ipc_device {
-	enum dev_format id;
+	enum legacy_ipc_map id;
 	char name[16];
 
 	struct circ_queue txq;
@@ -335,7 +360,7 @@ struct mem_link_device {
 	struct resource *syscp_info;
 
 	/**
-	 * Actual logical IPC devices (for IPC_FMT and IPC_RAW)
+	 * Actual logical IPC devices (for IPC_MAP_FMT, IPC_MAP_NORM_RAW...)
 	 */
 	struct mem_ipc_device ipc_dev[MAX_SIPC_MAP];
 
@@ -365,9 +390,6 @@ struct mem_link_device {
 	unsigned int sbi_cp_status_mask;
 	unsigned int sbi_cp_status_pos;
 
-	unsigned int sbi_cp_smapper_mask;
-	unsigned int sbi_cp_smapper_pos;
-
 	unsigned int mbx_perf_req;
 	unsigned int mbx_perf_req_cpu;
 	unsigned int mbx_perf_req_mif;
@@ -380,8 +402,6 @@ struct mem_link_device {
 	struct work_struct pm_qos_work_cpu;
 	struct work_struct pm_qos_work_mif;
 	struct work_struct pm_qos_work_int;
-
-	unsigned int irq_smapper;
 
 	struct freq_table cl0_table;
 	struct freq_table cl1_table;
@@ -501,6 +521,7 @@ struct mem_link_device {
 	unsigned int force_use_memcpy;
 	unsigned int memcpy_packet_count;
 	unsigned int zeromemcpy_packet_count;
+	unsigned int dit_packet_count;
 
 	atomic_t forced_cp_crash;
 	struct timer_list crash_ack_timer;
@@ -522,6 +543,34 @@ struct mem_link_device {
 #endif /* CONFIG_LINK_DEVICE_NAPI */
 #ifdef CONFIG_MODEM_IF_NET_GRO
 	struct timespec flush_time;
+#endif
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+	/* Doorbell interrupt value to separate interrupt */
+	unsigned int intval_ap2cp_msg;
+	unsigned int intval_ap2cp_status;
+	unsigned int intval_ap2cp_active;
+
+	/* Location for arguments in shared memory */
+	u32 __iomem *ap2cp_msg;
+	u32 __iomem *cp2ap_msg;
+	u32 __iomem *ap2cp_united_status;
+	u32 __iomem *cp2ap_united_status;
+	u32 __iomem *ap2cp_mif_freq;
+	u32 __iomem *cp2ap_dvfsreq_cpu;
+	u32 __iomem *cp2ap_dvfsreq_mif;
+	u32 __iomem *cp2ap_dvfsreq_int;
+	u32 __iomem *ap2cp_kerneltime;
+	u32 __iomem *cp2ap_int_state;
+
+	u32 __iomem *doorbell_addr;
+	struct pci_dev *s5100_pdev;
+
+	int msi_irq_base;
+	int msi_irq_base_enabled;
+
+	struct wake_lock tx_timer_wlock;
+	struct wake_lock sbd_tx_timer_wlock;
 #endif
 };
 
@@ -740,7 +789,7 @@ static inline enum dev_format dev_id(enum sipc_ch_id ch)
 	return sipc5_fmt_ch(ch) ? IPC_FMT : IPC_RAW;
 }
 
-static inline enum dev_format get_mmap_idx(enum sipc_ch_id ch,
+static inline enum legacy_ipc_map get_mmap_idx(enum sipc_ch_id ch,
 		struct sk_buff *skb)
 {
 	if (sipc5_fmt_ch(ch))
@@ -947,5 +996,7 @@ void iosm_event_bh(struct mem_link_device *mld, u16 cmd);
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 extern int is_rndis_use(void);
 #endif
+
+extern void pass_skb_to_net(struct mem_link_device *mld, struct sk_buff *skb);
 
 #endif

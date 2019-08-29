@@ -167,6 +167,7 @@ void iovmm_unmap(struct device *dev, dma_addr_t iova);
 static inline dma_addr_t exynos_iovmm_map_userptr(struct device *dev,
 			unsigned long vaddr, size_t size, int prot)
 {
+	return (dma_addr_t)-ENODEV;
 }
 #define exynos_iovmm_unmap_userptr(dev, iova) do { } while (0)
 
@@ -240,6 +241,8 @@ dma_addr_t exynos_iovmm_map_userptr(struct device *dev, unsigned long vaddr,
  */
 void exynos_iovmm_unmap_userptr(struct device *dev, dma_addr_t iova);
 
+int iovmm_map_oto(struct device *dev, phys_addr_t phys, size_t size);
+void iovmm_unmap_oto(struct device *dev, phys_addr_t phys);
 /*
  * The handle_pte_fault() is called by exynos_sysmmu_map_user_pages().
  * Driver cannot include include/linux/huge_mm.h because
@@ -266,6 +269,7 @@ int sysmmu_set_prefetch_buffer_property(struct device *dev,
 			unsigned int ipoption[], unsigned int opoption[]);
 void exynos_sysmmu_show_status(struct device *dev);
 void exynos_sysmmu_dump_pgtable(struct device *dev);
+void exynos_sysmmu_control(struct device *master, bool enable);
 
 /*
  * exynos_sysmmu_set/clear/show_ppc_event() -

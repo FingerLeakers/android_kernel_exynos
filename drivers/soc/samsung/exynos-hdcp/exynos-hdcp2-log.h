@@ -12,7 +12,6 @@
 
 #ifndef __EXYNOS_HDCP2_LOG_H__
 #define __EXYNOS_HDCP2_LOG_H__
-#include <linux/dp_logger.h>
 
 #undef HDCP_DEBUG
 
@@ -30,7 +29,6 @@
 	do {						\
 		printk(KERN_ERR "[HDCP2]%s:%d: " fmt,	\
 		       __func__, __LINE__, ##args);	\
-		dp_logger_print("[HDCP2]"fmt, ##args);  \
 	} while (0)
 
 #define hdcp_info(fmt, args...)				\

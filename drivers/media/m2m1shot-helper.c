@@ -22,7 +22,7 @@
  */
 #include <linux/kernel.h>
 #include <linux/exynos_iovmm.h>
-#include <linux/exynos_ion.h>
+#include <linux/ion_exynos.h>
 
 #include <media/m2m1shot-helper.h>
 
@@ -111,8 +111,8 @@ void m2m1shot_sync_for_device(struct device *dev,
 		return;
 
 	if (plane->dmabuf)
-		exynos_ion_sync_dmabuf_for_device(dev, plane->dmabuf,
-						  plane->bytes_used, dir);
+		dma_sync_sg_for_device(dev, plane->sgt->sgl,
+				       plane->sgt->orig_nents, dir);
 	else
 		exynos_iommu_sync_for_device(dev, plane->dma_addr,
 					     plane->bytes_used, dir);
@@ -127,8 +127,8 @@ void m2m1shot_sync_for_cpu(struct device *dev,
 		return;
 
 	if (plane->dmabuf)
-		exynos_ion_sync_dmabuf_for_cpu(dev, plane->dmabuf,
-					       plane->bytes_used, dir);
+		dma_sync_sg_for_cpu(dev, plane->sgt->sgl,
+				       plane->sgt->orig_nents, dir);
 	else
 		exynos_iommu_sync_for_cpu(dev, plane->dma_addr,
 					  plane->bytes_used, dir);

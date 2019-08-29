@@ -153,7 +153,7 @@ int __cgroup_bpf_update(struct cgroup *cgrp, struct cgroup *parent,
 }
 
 /**
- * __cgroup_bpf_run_filter() - Run a program for packet filtering
+ * __cgroup_bpf_run_filter_skb() - Run a program for packet filtering
  * @sk: The socket sending or receiving traffic
  * @skb: The skb that is being sent or received
  * @type: The type of program to be exectuted
@@ -167,9 +167,9 @@ int __cgroup_bpf_update(struct cgroup *cgrp, struct cgroup *parent,
  * This function will return %-EPERM if any if an attached program was found
  * and if it returned != 1 during execution. In all other cases, 0 is returned.
  */
-int __cgroup_bpf_run_filter(struct sock *sk,
-			    struct sk_buff *skb,
-			    enum bpf_attach_type type)
+int __cgroup_bpf_run_filter_skb(struct sock *sk,
+				struct sk_buff *skb,
+				enum bpf_attach_type type)
 {
 	struct bpf_prog *prog;
 	struct cgroup *cgrp;
@@ -202,4 +202,74 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 
 	return ret;
 }
-EXPORT_SYMBOL(__cgroup_bpf_run_filter);
+EXPORT_SYMBOL(__cgroup_bpf_run_filter_skb);
+
+/**
+ * __cgroup_bpf_run_filter_sk() - Run a program on a sock
+ * @sk: sock structure to manipulate
+ * @type: The type of program to be exectuted
+ *
+ * socket is passed is expected to be of type INET or INET6.
+ *
+ * The program type passed in via @type must be suitable for sock
+ * filtering. No further check is performed to assert that.
+ *
+ * This function will return %-EPERM if any if an attached program was found
+ * and if it returned != 1 during execution. In all other cases, 0 is returned.
+ */
+int __cgroup_bpf_run_filter_sk(struct sock *sk,
+			       enum bpf_attach_type type)
+{
+	struct cgroup *cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
+	struct bpf_prog *prog;
+	int ret = 0;
+
+
+	rcu_read_lock();
+
+	prog = rcu_dereference(cgrp->bpf.effective[type]);
+	if (prog)
+		ret = BPF_PROG_RUN(prog, sk) == 1 ? 0 : -EPERM;
+
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(__cgroup_bpf_run_filter_sk);
+
+/**
+ * __cgroup_bpf_run_filter_sock_ops() - Run a program on a sock
+ * @sk: socket to get cgroup from
+ * @sock_ops: bpf_sock_ops_kern struct to pass to program. Contains
+ * sk with connection information (IP addresses, etc.) May not contain
+ * cgroup info if it is a req sock.
+ * @type: The type of program to be exectuted
+ *
+ * socket passed is expected to be of type INET or INET6.
+ *
+ * The program type passed in via @type must be suitable for sock_ops
+ * filtering. No further check is performed to assert that.
+ *
+ * This function will return %-EPERM if any if an attached program was found
+ * and if it returned != 1 during execution. In all other cases, 0 is returned.
+ */
+int __cgroup_bpf_run_filter_sock_ops(struct sock *sk,
+				     struct bpf_sock_ops_kern *sock_ops,
+				     enum bpf_attach_type type)
+{
+	struct cgroup *cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
+	struct bpf_prog *prog;
+	int ret = 0;
+
+
+	rcu_read_lock();
+
+	prog = rcu_dereference(cgrp->bpf.effective[type]);
+	if (prog)
+		ret = BPF_PROG_RUN(prog, sock_ops) == 1 ? 0 : -EPERM;
+
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(__cgroup_bpf_run_filter_sock_ops);

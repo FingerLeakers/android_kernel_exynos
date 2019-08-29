@@ -1,0 +1,222 @@
+/*
+ * SAMSUNG EXYNOS9820 board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+*/
+
+/dts-v1/;
+/plugin/;
+#include "exynos9820-sensorhub.dtsi"
+#include "exynos9820-display-lcd.dtsi"
+#include "battery_data_davinci5g_common.dtsi"
+#include "exynos9820-beyond2lte_if-pmic-max77705.dtsi"
+#include <dt-bindings/clock/exynos9820.h>
+#include <dt-bindings/pci/pci.h>
+#include "exynos9820-davinci5g_camera.dtsi"
+#include "exynos9820-davinci5g_common.dtsi"
+#include "exynos9820-davinci5g_fingerprint_00.dtsi"
+#include "exynos9820-davinci5g_kor_gpio_00.dtsi"
+#include "exynos9820-beyondlte_kor-tdmb-00.dtsi"
+
+/ {
+	compatible = "samsung,DAVINCI EUR OPEN 00", "samsung,EXYNOS9820";
+	dtbo-hw_rev = <0>;
+   	dtbo-hw_rev_end = <0>;
+
+	fragment@model {
+		target-path = "/";
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <1>;
+
+			model = "Samsung DAVINCI EUR OPEN 00 board based on EXYNOS9820";
+
+		}; /* end of __overlay__ */
+	}; /* end of fragment */
+}; /* end of root */
+
+&pinctrl_6 {
+	spi7_bus_suspend: spi7-bus-suspend {
+		samsung,pins = "gpp4-2", "gpp4-1", "gpp4-0";
+		samsung,pin-function = <0>;	/* INPUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+	};
+	spi7_cs_suspend: spi7-cs-suspend {
+		samsung,pins = "gpp4-3";
+		samsung,pin-function = <0>;	/* INPUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+	};
+};
+
+/* SPI USI_PERIC1_USI06_SPI */
+&spi_7 {
+	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	pinctrl-names = "ese_active", "ese_suspend";
+	pinctrl-0 = <&spi7_bus &spi7_cs>;
+	pinctrl-1 = <&spi7_bus_suspend &spi7_cs_suspend>;
+
+	ese_spi@0 {
+		compatible = "ese_p3";
+		reg = <0>;
+		spi-max-frequency = <13000000>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		p3-vdd-1p8= "VDD_ESE_1P8";
+
+		clocks = <&clock GATE_USI06_USI>, <&clock DOUT_CLK_PERIC1_USI06_USI>;
+		clock-names = "pclk", "sclk";
+		ese_p3,cs-gpio = <&gpp4 3 0>;
+
+		controller-data {
+			samsung,spi-feedback-delay = <0>;
+			samsung,spi-chip-select-mode = <0>;
+		};
+	};
+};
+
+&hsi2c_20 {
+	gpios = <&gpp5 0 0 &gpp5 1 0>;
+	status = "okay";
+	clock-frequency = <400000>;
+
+	sec-nfc@27 {
+		compatible = "sec-nfc";
+		reg = <0x27>;
+
+		interrupts = <2 0 0>;
+		interrupt-parent = <&gpa1>;
+
+		sec-nfc,ven-gpio = <&expander_gpios 11 0>;
+		sec-nfc,irq-gpio = <&gpa1 2 0>;
+		sec-nfc,firm-gpio = <&expander_gpios 9 0>;
+		sec-nfc,clk_req-gpio = <&gpa2 6 0xf>;
+		sec-nfc,clk_use = <2>;
+		sec-nfc,nfc_pvdd = "VDD_NFC_1P8";
+
+		clocks = <&clock OSC_NFC>;
+		clock-names = "oscclk_nfc";
+		sec-nfc,nfc_ap_clk;
+		sec-nfc,ldo_control;
+	};
+
+	max86915@57 {
+		compatible = "hrm_max";
+		reg = <0x57>;
+		interrupt-parent = <&gpp3>;
+		interrupts = <0 0 0>;
+		pinctrl-names = "default", "sleep", "idle";
+		pinctrl-0 = <&hrm_irq &hrm_en>;
+		pinctrl-1 = <&hrm_irqsleep &hrm_ensleep>;
+		pinctrl-2 = <&hrm_irqidle &hrm_enidle>;
+		hrmsensor,hrm_int-gpio = <&gpp3 0 0>;
+		hrmsensor,hrm_boost_en-gpio = <&gpg0 7 0>;
+		hrmsensor,vdd_1p8 = "S2MPB02_LDO8";
+		hrmsensor,i2c_1p8 = "VDD_NFC_1P8";
+		hrmsensor,thd = <100000 100000>;
+		hrmsensor,init_curr = <0x46 0x41 0x28 0x3c>;
+	};
+};
+
+&pinctrl_5 {
+	hrm_irq: hrm-irq {
+		samsung,pins = "gpp3-0";
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <3>;
+	};
+
+	hrm_irqsleep: hrm-irqsleep {
+		samsung,pins = "gpp3-0";
+		samsung,pin-con-pdn = <2>;
+		samsung,pin-pud-pdn = <0>;
+	};
+
+	hrm_irqidle: hrm-irqidle {
+		samsung,pins = "gpp3-0";
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <3>;
+	};
+
+	hrm_en: hrm-en {
+		samsung,pins = "gpg0-7";
+		samsung,pin-function = <0>;
+		samsung,pin-pud = <1>;
+		samsung,pin-drv = <2>;
+	};
+
+	hrm_ensleep: hrm-ensleep {
+		samsung,pins = "gpg0-7";
+		samsung,pin-con-pdn = <2>;
+		samsung,pin-pud-pdn = <1>;
+	};
+
+	hrm_enidle: hrm-enidle {
+		samsung,pins = "gpg0-7";
+		samsung,pin-function = <0>;
+		samsung,pin-pud = <1>;
+		samsung,pin-drv = <2>;
+	};
+};
+
+&spi_17 {
+	BCM4773@0 {
+		ssp-acc-position = <4>;
+		ssp-mag-position = <5>;
+		ssp-mag-array = /bits/ 8 <216 82 110 20 16 123 255 209 211 54 70 37 180 8 0 147 255 113 132 121
+					190 252 250 15 9 40 180>;
+		ssp-thermi-up = /bits/ 16 <2995 2964 2926 2883 2822 2750 2670 2564 2450 2320 2178 2020 1860 1700
+					1540 1377 1218 1079 999 834 753 647 566>;
+		ssp-thermi-sub = /bits/ 16 <2986 2953 2918 2873 2810 2741 2656 2552 2441 2312 2171 2015 1857 1698
+					1537 1377 1217 1083 1003 845 758 654 575>;
+	};
+};
+
+&hsi2c_10 {
+	touchscreen@48 {
+		sec,tclm_level = <1>;
+		sec,project_name = "BEYOND2", "G975";
+		sec,bringup = <1>;	/* do not check kernel fw */
+	};
+};
+
+&hsi2c_25 {
+	status = "okay";
+	expander_gpios: pcal6524@22 {
+		compatible = "pcal6524,gpio-expander";
+		gpio-controller;
+		#gpio-cells = <2>;
+		reg = <0x22>;
+		pinctrl-names = "expander_reset_setting";
+		pinctrl-0 = <&expander_reset_active>;
+		pcal6524,gpio_start = <300>;
+		pcal6524,ngpio = <24>;
+		pcal6524,reset-gpio = <&gpg4 0 0>;
+		pcal6524,support_initialize = <1>;
+		/* config, 24 ~ 0, 1bit configure[1:input, 0:output]*/
+		pcal6524,config = <0xFFFFFF>;    /* P2[11111111] P1[11111111] P0[11111111] */
+		/* data_out, 24 ~ 0, 1bit configure[1:high, 0:low]*/
+		pcal6524,data_out = <0x000000>;  /* P2[00000000] P1[00000000] P0[00000000] */
+		/* pull_reg, 8 ~ 0, 2bit configure[00:no_pull, 01:pull_down, 10:pull_up, 11:not used] */
+		pcal6524,pull_reg_p0 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+		pcal6524,pull_reg_p1 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+		pcal6524,pull_reg_p2 = <0x0000>; /* 00 00 00 00 / 00 00 00 00 */
+	};
+};
+
+&displayport {
+	status = "okay";
+	dp,aux_sw_oe = <&expander_gpios 4 0>;
+	dp,sbu_sw_sel = <&expander_gpios 1 0>;
+	dp,usb_con_sel = <&gpg0 4 0>;
+};

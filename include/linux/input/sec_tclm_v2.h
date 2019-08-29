@@ -25,6 +25,8 @@
 #define SEC_TCLM_NVM_OFFSET_LENGTH		4
 /* [0]: tclm_level, [1] afe_base_high, [2] afe_base_low = 3byte */
 
+#define SEC_CAL_PASS				1
+
 enum tclm_offset {
 	SEC_TCLM_NVM_OFFSET_IC_FIRMWARE_VER		= 1,
 	SEC_TCLM_NVM_ALL_DATA				= 2,
@@ -68,9 +70,9 @@ struct sec_tclm_nvdata {
 	u8 cal_pos_hist_cnt;
 	u8 cal_pos_hist_lastp;
 	u8 cal_pos_hist_queue[2 * CAL_HISTORY_QUEUE_MAX];
-	u8 pressure_base_cal_count; /* for only booting and pressure model */
-	u8 pressure_delta_cal_count;
-};
+	u8 cal_fail_falg; /* pass : 1 fail : etc */ 
+	u8 cal_fail_cnt; /* history cnt */ 
+} __attribute__ ((packed));
 
 /* TCLM_CONCEPT  - end */
 struct sec_tclm_data {

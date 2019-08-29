@@ -230,6 +230,9 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	} else {
 		pr_err("%s %s: left cmd is nothing\n", SECLOG, __func__);
 		mutex_unlock(&data->fifo_lock);
+		mutex_lock(&data->cmd_lock);
+		data->cmd_is_running = false;
+		mutex_unlock(&data->cmd_lock);
 		return;
 	}
 	mutex_unlock(&data->fifo_lock);
@@ -307,6 +310,20 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 
 	sec_cmd_ptr->cmd_func(data);
 
+	if (cmd_found && sec_cmd_ptr->cmd_log) {
+		char tbuf[32];
+		unsigned long long t;
+		unsigned long nanosec_rem;
+
+		memset(tbuf, 0x00, sizeof(tbuf));
+		t = local_clock();
+		nanosec_rem = do_div(t, 1000000000);
+		snprintf(tbuf, sizeof(tbuf), "[r:%lu.%06lu]",
+				(unsigned long)t,
+				nanosec_rem / 1000);
+
+		sec_debug_tsp_command_history(tbuf);
+	}
 }
 
 static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devattr,
@@ -314,6 +331,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
 	struct command cmd = {{0}};
+	struct sec_cmd *sec_cmd_ptr = NULL;
 	int queue_size;
 
 	if (!data) {
@@ -334,6 +352,31 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	}
 
 	strncpy(cmd.cmd, buf, count);
+
+	list_for_each_entry(sec_cmd_ptr, &data->cmd_list_head, list) {
+		if (!strncmp(cmd.cmd, sec_cmd_ptr->cmd_name, strlen(sec_cmd_ptr->cmd_name))) {
+			if (sec_cmd_ptr->cmd_log) {
+				char task_info[40];
+				char tbuf[32];
+				unsigned long long t;
+				unsigned long nanosec_rem;
+
+				memset(tbuf, 0x00, sizeof(tbuf));
+				t = local_clock();
+				nanosec_rem = do_div(t, 1000000000);
+				snprintf(tbuf, sizeof(tbuf), "[q:%lu.%06lu]",
+						(unsigned long)t,
+						nanosec_rem / 1000);
+
+				snprintf(task_info, 40, "\n[%d:%s]", current->pid, current->comm);
+				sec_debug_tsp_command_history(task_info);
+				sec_debug_tsp_command_history(cmd.cmd);
+				sec_debug_tsp_command_history(tbuf);
+
+			}
+			break;
+		}
+	}
 
 	mutex_lock(&data->fifo_lock);
 	queue_size = (kfifo_len(&data->cmd_queue) / sizeof(struct command));
@@ -363,6 +406,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	}
 	mutex_unlock(&data->fifo_lock);
 
+	mutex_lock(&data->fs_lock);
 	/* check lock   */
 	mutex_lock(&data->cmd_lock);
 	data->cmd_is_running = true;
@@ -371,6 +415,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	data->cmd_state = SEC_CMD_STATUS_RUNNING;
 	sec_cmd_store_function(data);
 
+	mutex_unlock(&data->fs_lock);
 	return count;
 }
 #endif
@@ -538,6 +583,7 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 	}
 
 	mutex_init(&data->cmd_lock);
+	mutex_init(&data->fs_lock);
 
 	mutex_lock(&data->cmd_lock);
 	data->cmd_is_running = false;
@@ -639,6 +685,53 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 #endif
 	mutex_destroy(&data->cmd_lock);
 	list_del(&data->cmd_list_head);
+}
+
+void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result)
+{
+	char *event[5];
+	char timestamp[32];
+	char feature[32];
+	char stest[32];
+	char sresult[32];
+	ktime_t calltime;
+	u64 realtime;
+	int curr_time;
+	char *eol = "\0";
+
+	calltime = ktime_get();
+	realtime = ktime_to_ns(calltime);
+	do_div(realtime, NSEC_PER_USEC);
+	curr_time = realtime / USEC_PER_MSEC;
+
+	snprintf(timestamp, 32, "TIMESTAMP=%d", curr_time);
+	strncat(timestamp, eol, 1);
+	snprintf(feature, 32, "FEATURE=TSP");
+	strncat(feature, eol, 1);
+	if (!test) {
+		snprintf(stest, 32, "TEST=NULL");
+	} else {
+		snprintf(stest, 32, "%s", test);
+	}
+	strncat(stest, eol, 1);
+
+	if (!result) {
+		snprintf(sresult, 32, "RESULT=NULL");
+	} else {
+		snprintf(sresult, 32, "%s", result);
+	}
+	strncat(sresult, eol, 1);
+
+	pr_info("%s %s: time:%s, feature:%s, test:%s, result:%s\n",
+			SECLOG, __func__, timestamp, feature, stest, sresult);
+
+	event[0] = timestamp;
+	event[1] = feature;
+	event[2] = stest;
+	event[3] = sresult;
+	event[4] = NULL;
+
+	kobject_uevent_env(&data->fac_dev->kobj, KOBJ_CHANGE, event);
 }
 
 MODULE_DESCRIPTION("Samsung factory command");

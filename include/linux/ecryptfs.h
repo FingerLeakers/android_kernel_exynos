@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_ECRYPTFS_H
 #define _LINUX_ECRYPTFS_H
 
@@ -41,6 +42,7 @@
 #define RFC2440_CIPHER_AES_256 0x09
 #define RFC2440_CIPHER_TWOFISH 0x0a
 #define RFC2440_CIPHER_CAST_6 0x0b
+
 #define RFC2440_CIPHER_RSA 0x01
 
 /**

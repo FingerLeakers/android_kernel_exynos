@@ -129,6 +129,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	.s_parm = sensor_module_s_param
 };
@@ -302,6 +303,7 @@ static int sensor_2l7_power_setpin(struct device *dev,
 #else
 	/******************** VISION ON ********************/
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
+	SET_PIN_VOLTAGE(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "SVDD10", PIN_REGULATOR, 1, 0, 1000000);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "SVDD10", PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "CAM0_VDD28_AF", PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "CAM0_SVDDA29", PIN_REGULATOR, 1, 100);
@@ -309,12 +311,14 @@ static int sensor_2l7_power_setpin(struct device *dev,
 #ifdef CONFIG_OIS_USE
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "CAM0_VDD28_OIS", PIN_REGULATOR, 1, 100);
 #endif
+	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "on_i2c", PIN_I2C, 1, 10);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 2000);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 2000);
 
 	/******************** VISION NORMAL OFF ********************/
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "CAM0_VDD28_AF", PIN_REGULATOR, 0, 1000);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst", PIN_OUTPUT, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "off_i2c", PIN_I2C, 1, 10);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
@@ -327,6 +331,7 @@ static int sensor_2l7_power_setpin(struct device *dev,
 
 	/******************** NORMAL ON ********************/
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
+	SET_PIN_VOLTAGE(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "SVDD10", PIN_REGULATOR, 1, 0, 1000000);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "SVDD10", PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "CAM0_VDD28_AF", PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "CAM0_SVDDA29", PIN_REGULATOR, 1, 100);
@@ -334,12 +339,16 @@ static int sensor_2l7_power_setpin(struct device *dev,
 #ifdef CONFIG_OIS_USE
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "CAM0_VDD28_OIS", PIN_REGULATOR, 1, 100);
 #endif
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 2000);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "on_i2c", PIN_I2C, 1, 10);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "MCLK", PIN_MCLK, 1, 2000);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 2000);
 
 	/******************** NORMAL OFF ********************/
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "CAM0_VDD28_AF", PIN_REGULATOR, 0, 1000);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst", PIN_OUTPUT, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "off_i2c", PIN_I2C, 1, 10);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "MCLK", PIN_MCLK, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
@@ -453,6 +462,7 @@ static int __init sensor_module_2l7_probe(struct platform_device *pdev)
 		ext->actuator_con.peri_setting.i2c.slave_address = pdata->af_i2c_addr;
 		ext->actuator_con.peri_setting.i2c.speed = 400000;
 	}
+	ext->actuator_con.product_name = ACTUATOR_NAME_NOTHING;
 
 	if (pdata->flash_product_name != FLADRV_NAME_NOTHING) {
 		ext->flash_con.product_name = pdata->flash_product_name;

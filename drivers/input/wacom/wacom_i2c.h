@@ -1,9 +1,6 @@
 #ifndef _LINUX_WACOM_I2C_H_
 #define _LINUX_WACOM_I2C_H_
 
-/*sec_class sysfs*/
-extern struct class *sec_class;
-
 #ifdef CONFIG_BATTERY_SAMSUNG
 extern unsigned int lpcharge;
 #endif

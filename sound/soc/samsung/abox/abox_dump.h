@@ -23,6 +23,14 @@
 extern void abox_dump_period_elapsed(int id, size_t pointer);
 
 /**
+ * Transfer dump data
+ * @param[in]	id		unique buffer id
+ * @param[in]	buf		start of the trasferring buffer
+ * @param[in]	bytes		number of bytes
+ */
+extern void abox_dump_transfer(int id, const char *buf, size_t bytes);
+
+/**
  * Register abox dump buffer
  * @param[in]	dev		pointer to abox device
  * @param[in]	id		unique buffer id
@@ -35,4 +43,9 @@ extern void abox_dump_period_elapsed(int id, size_t pointer);
 extern int abox_dump_register_buffer(struct device *dev, int id,
 		const char *name, void *area, phys_addr_t addr, size_t bytes);
 
+/**
+ * Initialize abox dump module
+ * @param[in]	dev		pointer to abox device
+ */
+extern void abox_dump_init(struct device *dev_abox);
 #endif /* __SND_SOC_ABOX_DUMP_H */

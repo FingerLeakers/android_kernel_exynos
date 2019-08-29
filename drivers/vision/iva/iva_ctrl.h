@@ -13,7 +13,7 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
-#include <linux/ion.h>
+#include <linux/ion_exynos.h>
 #include <linux/dma-buf.h>
 #include <linux/clk.h>
 #include <linux/pm_qos.h>
@@ -48,9 +48,9 @@ struct mcu_binary {
 	uint32_t	bin_size;
 	void		*bin;
 	/* ion case */
-	struct ion_handle	*handle;
 	struct dma_buf		*dmabuf;
 	struct dma_buf_attachment *attachment;
+	struct sg_table		*sgt;
 	dma_addr_t		io_va;
 };
 
@@ -88,6 +88,7 @@ struct iva_ipcq {
 #endif
 	struct list_head	ipcq_pend_list;
 	spinlock_t		rsv_slock;
+	spinlock_t		rspq_slock;
 	uint32_t		rsv_hint;
 	struct iq_pend_mail	*rsv;
 	struct iva_ipcq_stat	ipcq_stat;
@@ -121,7 +122,9 @@ struct iva_dev_data {
 	struct device		*dev;
 	struct clk		*iva_clk;
 	struct pm_qos_request	iva_qos_iva;
+	struct pm_qos_request	iva_qos_dev;
 	s32			iva_qos_rate;
+	bool			iva_bus_qos_en;
 	struct platform_device	*iva_dvfs_dev;
 	struct resource		*iva_res;
 	void __iomem		*iva_va;
@@ -139,7 +142,6 @@ struct iva_dev_data {
 	bool			en_hwa_req;
 
 	/* memory related */
-	struct ion_client	*ion_client;
 	struct kmem_cache	*map_node_cache;
 #ifndef CONFIG_ION_EXYNOS
 	struct ion_device	*ion_dev;
@@ -150,6 +152,9 @@ struct iva_dev_data {
 	uint32_t		mcu_shmem_size;	/* start from top */
 	uint32_t		mcu_print_delay;
 	struct mcu_print_info	*mcu_print;
+#if defined(CONFIG_SOC_EXYNOS9820)
+	uint32_t		mcu_split_sram;
+#endif
 
 	/* error handling */
 	atomic_t		mcu_err_cnt;	/* error count during a session */
@@ -158,6 +163,9 @@ struct iva_dev_data {
 
 	/* will be removed */
 	void __iomem	*pmu_va;
+#if defined(CONFIG_SOC_EXYNOS9820)
+	void __iomem	*sys_va;
+#endif
 	void __iomem	*mbox_va;
 	void __iomem	*shmem_va;
 

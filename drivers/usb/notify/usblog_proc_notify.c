@@ -4,7 +4,7 @@
  * Copyright (C) 2016-2017 Samsung, Inc.
  * Author: Dongrak Shin <dongrak.shin@samsung.com>
  *
-*/
+ */
 
  /* usb notify layer v3.2 */
 
@@ -19,6 +19,8 @@
 #include <linux/proc_fs.h>
 #include <linux/spinlock.h>
 #include <linux/seq_file.h>
+/* clock.h should be included since kernel 4.14 */
+#include <linux/sched/clock.h>
 #include <linux/usb_notify.h>
 
 #define USBLOG_MAX_BUF_SIZE	(1 << 7) /* 128 */
@@ -190,14 +192,16 @@ static const char *ccic_dev_string(enum ccic_device dev)
 		return "MUIC";
 	case NOTIFY_DEV_CCIC:
 		return "CCIC";
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 	case NOTIFY_DEV_MANAGER:
 		return "MANAGER";
-#endif
 	case NOTIFY_DEV_DP:
 		return "DP";
 	case NOTIFY_DEV_USB_DP:
 		return "USB_DP";
+	case NOTIFY_DEV_SUB_BATTERY:
+		return "BATTERY2";
+	case NOTIFY_DEV_SECOND_MUIC:
+		return "MUIC2";
 	default:
 		return "UNDEFINED";
 	}
@@ -214,10 +218,8 @@ static const char *ccic_id_string(enum ccic_id id)
 		return "ID_RID";
 	case NOTIFY_ID_USB:
 		return "ID_USB";
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 	case NOTIFY_ID_POWER_STATUS:
 		return "ID_POWER_STATUS";
-#endif
 	case NOTIFY_ID_WATER:
 		return "ID_WATER";
 	case NOTIFY_ID_VCONN:
@@ -421,7 +423,8 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 		break;
 	case NOTIFY_CCIC_EVENT:
 		if (type.id == NOTIFY_ID_ATTACH) {
-			if (type.src == NOTIFY_DEV_MUIC)
+			if (type.src == NOTIFY_DEV_MUIC
+				|| type.src == NOTIFY_DEV_SECOND_MUIC)
 				seq_printf(m,
 					"[%5lu.%06lu] ccic notify:    id=%s src=%s dest=%s rprd=%s cable=%d %s\n",
 				(unsigned long)ts, rem_nsec / 1000,
@@ -454,7 +457,6 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 			ccic_dev_string(type.src),
 			ccic_dev_string(type.dest),
 			usbstatus_string(type.sub2));
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 		else if (type.id  == NOTIFY_ID_POWER_STATUS)
 			seq_printf(m, "[%5lu.%06lu] ccic notify:    id=%s src=%s dest=%s %s\n",
 			(unsigned long)ts, rem_nsec / 1000,
@@ -462,7 +464,6 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 			ccic_dev_string(type.src),
 			ccic_dev_string(type.dest),
 			ccic_con_string(type.sub1));
-#endif
 		else if (type.id  == NOTIFY_ID_WATER)
 			seq_printf(m, "[%5lu.%06lu] ccic notify:   id=%s src=%s dest=%s    %s detected\n",
 			(unsigned long)ts, rem_nsec / 1000,
@@ -541,7 +542,8 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 		break;
 	case NOTIFY_MANAGER:
 		if (type.id == NOTIFY_ID_ATTACH) {
-			if (type.src == NOTIFY_DEV_MUIC)
+			if (type.src == NOTIFY_DEV_MUIC
+				|| type.src == NOTIFY_DEV_SECOND_MUIC)
 				seq_printf(m,
 					"[%5lu.%06lu] manager notify: id=%s src=%s dest=%s rprd=%s cable=%d %s\n",
 				(unsigned long)ts, rem_nsec / 1000,
@@ -574,7 +576,6 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 			ccic_dev_string(type.src),
 			ccic_dev_string(type.dest),
 			usbstatus_string(type.sub2));
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 		else if (type.id  == NOTIFY_ID_POWER_STATUS)
 			seq_printf(m, "[%5lu.%06lu] manager notify: id=%s src=%s dest=%s %s\n",
 			(unsigned long)ts, rem_nsec / 1000,
@@ -582,7 +583,6 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 			ccic_dev_string(type.src),
 			ccic_dev_string(type.dest),
 			ccic_con_string(type.sub1));
-#endif
 		else if (type.id  == NOTIFY_ID_WATER)
 			seq_printf(m, "[%5lu.%06lu] manager notify: id=%s src=%s dest=%s    %s detected\n",
 			(unsigned long)ts, rem_nsec / 1000,
@@ -767,8 +767,8 @@ static int usblog_proc_show(struct seq_file *m, void *v)
 			rem_nsec = do_div(ts, 1000000000);
 			seq_printf(m, "[%5lu.%06lu] %s\n", (unsigned long)ts,
 				rem_nsec / 1000,
-			usbstate_string(temp_usblog_buffer->
-						state_buffer[i].usbstate));
+			usbstate_string(temp_usblog_buffer
+						->state_buffer[i].usbstate));
 		}
 	}
 
@@ -794,8 +794,8 @@ static int usblog_proc_show(struct seq_file *m, void *v)
 			seq_printf(m, "[%5lu.%06lu] %s %s\n", (unsigned long)ts,
 				rem_nsec / 1000,
 			event_string(temp_usblog_buffer->event_buffer[i].event),
-			status_string(temp_usblog_buffer->
-					event_buffer[i].enable));
+			status_string(temp_usblog_buffer
+				->event_buffer[i].enable));
 		}
 	}
 
@@ -821,8 +821,8 @@ static int usblog_proc_show(struct seq_file *m, void *v)
 			rem_nsec = do_div(ts, 1000000000);
 			seq_printf(m, "[%5lu.%06lu] %s\n", (unsigned long)ts,
 				rem_nsec / 1000,
-			extra_string(temp_usblog_buffer->
-					extra_buffer[i].event));
+			extra_string(temp_usblog_buffer
+				->extra_buffer[i].event));
 		}
 	}
 
@@ -1209,7 +1209,7 @@ int register_usblog_proc(void)
 
 	usblog_root.init = 1;
 
-	proc_create("usblog", 0, NULL, &usblog_proc_fops);
+	proc_create("usblog", 0444, NULL, &usblog_proc_fops);
 
 	usblog_root.usblog_buffer
 		= kzalloc(sizeof(struct usblog_buf), GFP_KERNEL);

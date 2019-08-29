@@ -24,14 +24,22 @@
 #include <linux/workqueue.h>
 #include <linux/miscdevice.h>
 
+#if defined(CONFIG_EXYNOS_DPU20)
+#include "../dpu20/disp_err.h"
+#include "../dpu20/dsim.h"
+#include "../dpu20/decon.h"
+#include "../dpu20/panels/decon_lcd.h"
+#else
 #include "../dpu_9810/disp_err.h"
 #include "../dpu_9810/dsim.h"
 #include "../dpu_9810/decon.h"
 #include "../dpu_9810/panels/decon_lcd.h"
+#endif
+
 #include "panel.h"
 #include "mdnie.h"
 #include "copr.h"
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 #include "panel_poc.h"
 #endif
 #ifdef CONFIG_ACTIVE_CLOCK
@@ -87,6 +95,7 @@ enum panel_gpio_lists {
 	PANEL_GPIO_DISP_DET,
 	PANEL_GPIO_PCD,
 	PANEL_GPIO_ERR_FG,
+	PANEL_GPIO_UB_CON_DET,
 	PANEL_GPIO_MAX,
 };
 
@@ -94,6 +103,7 @@ enum panel_gpio_lists {
 #define GPIO_NAME_DISP_DET 	"gpio,disp-det"
 #define GPIO_NAME_PCD		"gpio,pcd"
 #define GPIO_NAME_ERR_FG	"gpio,err_fg"
+#define GPIO_NAME_UB_CON_DET 	"gpio,ub-con-det"
 
 #define REGULATOR_3p0_NAME "regulator,3p0"
 #define REGULATOR_1p8_NAME "regulator,1p8"
@@ -104,10 +114,12 @@ struct panel_pad {
 	int gpio_disp_det;
 	int gpio_pcd;
 	int gpio_err_fg;
+	int gpio_ub_con_det;
 
 	int irq_disp_det;
 	int irq_pcd;
 	int irq_err_fg;
+	int irq_ub_con_det;
 
 	struct regulator *regulator[REGULATOR_MAX];
 
@@ -115,9 +127,12 @@ struct panel_pad {
 	int pend_bit_disp_det;
 };
 
+#define DSIM_OPTION_WAIT_TX_DONE	(1U << 0)
+#define DSIM_OPTION_POINT_GPARA		(1U << 1)
+
 struct mipi_drv_ops {
-	int (*read)(u32 id, u8 addr, u8 ofs, u8 *buf, int size);
-	int (*write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size);
+	int (*read)(u32 id, u8 addr, u8 ofs, u8 *buf, int size, u32 option);
+	int (*write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size, u32 option);
 	enum dsim_state(*get_state)(u32 id);
 	void (*parse_dt)(struct device_node *, struct decon_lcd *);
 };
@@ -125,8 +140,28 @@ struct mipi_drv_ops {
 #define PANEL_INIT_KERNEL 		0
 #define PANEL_INIT_BOOT 		1
 
-#define PANEL_DISCONNECT		0
-#define PANEL_CONNECT			1
+#define PANEL_DISP_DET_HIGH 	1
+#define PANEL_DISP_DET_LOW		0
+
+enum {
+	PANEL_STATE_NOK = 0,
+	PANEL_STATE_OK = 1,
+};
+
+enum {
+	PANEL_EL_OFF = 0,
+	PANEL_EL_ON = 1,
+};
+
+enum {
+	PANEL_UB_CONNECTED = 0,
+	PANEL_UB_DISCONNECTED = 1,
+};
+
+enum {
+	PANEL_DISCONNECT = 0,
+	PANEL_CONNECT = 1,
+};
 
 #define ALPM_MODE	0
 #define HLPM_MODE	1
@@ -156,6 +191,7 @@ enum {
 struct panel_state {
 	int init_at;
 	int connect_panel;
+	int ub_connected;
 	int cur_state;
 	int power;
 	int disp_on;
@@ -257,7 +293,7 @@ struct panel_device {
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	struct aod_dev_info aod;
 #endif
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	struct panel_poc_device poc_dev;
 #endif
 #ifdef CONFIG_SUPPORT_TDMB_TUNE
@@ -270,6 +306,17 @@ struct panel_device {
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
 	struct panel_work dim_flash_work;
+	struct panel_irc_info *irc_info;
+#endif
+
+	struct work_struct test1_work_item;
+	struct workqueue_struct *test1_workqueue;
+
+	struct work_struct test_load_work_item;
+	struct workqueue_struct *test_load_workqueue;
+
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	struct adaptive_idx adap_idx;
 #endif
 };
 
@@ -322,7 +369,19 @@ static inline int panel_aod_power_off(struct panel_device *panel)
 	return (panel->aod.ops && panel->aod.ops->power_off) ?
 		panel->aod.ops->power_off(&panel->aod) : 0;
 }
+
+#ifdef SUPPORT_NORMAL_SELF_MOVE
+static inline int panel_self_move_pattern_update(struct panel_device *panel)
+{
+	return (panel->aod.ops && panel->aod.ops->self_move_pattern_update) ?
+		panel->aod.ops->self_move_pattern_update(&panel->aod) : 0;
+}
 #endif
+#endif
+
+bool ub_con_disconnected(struct panel_device *panel);
+int panel_wake_lock(struct panel_device *panel);
+void panel_wake_unlock(struct panel_device *panel);
 
 #define PANEL_DRV_NAME "panel-drv"
 
@@ -351,10 +410,17 @@ static inline int panel_aod_power_off(struct panel_device *panel)
 #endif
 
 #ifdef CONFIG_SUPPORT_DSU
+#ifdef CONFIG_EXYNOS_MULTIRESOLUTION
+#define PANEL_IOC_SET_DSU				_IOW(PANEL_IOC_BASE, 41, int *)
+#else
 #define PANEL_IOC_SET_DSU				_IOW(PANEL_IOC_BASE, 41, struct dsu_info *)
+#endif
 #endif
 #define PANEL_IOC_REG_RESET_CB			_IOR(PANEL_IOC_BASE, 51, struct host_cb *)
 #ifdef CONFIG_SUPPORT_INDISPLAY
 #define PANEL_IOC_SET_FINGER_SET		_IO(PANEL_IOC_BASE, 61)
+#endif
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+#define PANEL_IOC_MIPI_FREQ_CHANGED		_IOR(PANEL_IOC_BASE, 71, int *)
 #endif
 #endif //__PANEL_DRV_H__

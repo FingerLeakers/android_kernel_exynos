@@ -40,7 +40,7 @@ static int abox_failsafe_start(struct device *dev, struct abox_data *data)
 		if (abox_failsafe_service)
 			pm_runtime_put(dev);
 		dev_info(dev, "%s\n", __func__);
-		abox_clear_cpu_gear_requests(dev, data);
+		abox_clear_cpu_gear_requests(dev);
 	}
 
 	return ret;

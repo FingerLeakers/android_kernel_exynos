@@ -39,10 +39,17 @@
 #define MS_IDENTIFIER 1000000000U
 #endif
 
-#define VDIS_TIMESTAMP_FORMAT 0xFFFFFFFF
+#define SUPER_VDIS_FORMAT	0xEEEEEEEE
+#define VDIS_TIMESTAMP_FORMAT 	0xFFFFFFFF
 #define NORMAL_TIMESTAMP_FORMAT 0x0
 #define get_prev_index(a) (a - 1 + SIZE_TIMESTAMP_BUFFER) % SIZE_TIMESTAMP_BUFFER
 #define get_next_index(a) (a + 1) % SIZE_TIMESTAMP_BUFFER
+
+static u8 ts_index_cnt[SIZE_TIMESTAMP_BUFFER] = {0,};
+
+void initialize_super_vdis_setting() {
+	memset(ts_index_cnt, 0, sizeof(ts_index_cnt));
+}
 
 u64 get_delay(u64 kernel_delay)
 {
@@ -94,13 +101,36 @@ static void get_timestamp(struct ssp_data *data, char *pchRcvDataFrame,
 	u32 ts_flag = 0;
 
 	if (data->IsVDIS_Enabled == true && sensor_type == GYROSCOPE_SENSOR) {
+		u64 prev_index = 0;
 
 		memcpy(&ts_index, pchRcvDataFrame + *iDataIdx, 4);
 		memcpy(&ts_flag, pchRcvDataFrame + *iDataIdx + 4, 4);
 
-		if (ts_flag == VDIS_TIMESTAMP_FORMAT) {
-			u64 prev_index = get_prev_index(ts_index);
+		prev_index = get_prev_index(ts_index);
 
+		if (ts_flag == SUPER_VDIS_FORMAT || ts_flag == VDIS_TIMESTAMP_FORMAT) {
+			if (ts_index >= SIZE_TIMESTAMP_BUFFER) {
+				pr_err("[SSP_DEBUG_TIME] index error, ts_index: %d\n", ts_index);
+				goto normal_parse;
+			} else if (ts_index_cnt[ts_index] == 0) {
+				ts_index_cnt[prev_index] = 0;
+			}
+		}
+
+		if (ts_flag == SUPER_VDIS_FORMAT) {
+			u64 interval = (data->ts_index_buffer[ts_index] - data->ts_index_buffer[prev_index]) / data->timestamp_factor; 
+			u64 offset = interval * (ts_index_cnt[ts_index] + 1);
+
+			ts_index_cnt[ts_index]++;
+
+			time_delta_ns = data->ts_index_buffer[prev_index] + offset;
+
+			if (time_delta_ns > current_timestamp) {
+				time_delta_ns = current_timestamp;
+				pr_err("[SSP_DEBUG_TIME] timestamp_error, ts_index: %d ts_index_cnt: %d timestamp: %llu\n",
+					       	ts_index, ts_index_cnt[ts_index], time_delta_ns);
+			}
+		} else if (ts_flag == VDIS_TIMESTAMP_FORMAT) {
 			if (data->ts_index_buffer[ts_index] < data->ts_index_buffer[prev_index]) {
 				int i = 0;
 				ssp_debug_time("[SSP_DEBUG_TIME] ts_index: %u prev_index: %llu stacked_cnt: %d", 
@@ -117,15 +147,15 @@ static void get_timestamp(struct ssp_data *data, char *pchRcvDataFrame,
 		}
 	} else {
 normal_parse:
+		ts_flag = 0;
 		memset(&time_delta_ns, 0, 8);
 		memcpy(&time_delta_ns, pchRcvDataFrame + *iDataIdx, 8);
 	}
-
 	update_timestamp = time_delta_ns;
 
-	if (ts_flag == VDIS_TIMESTAMP_FORMAT) {
-		ssp_debug_time("[SSP_DEBUG_TIME] ts_index: %u stacked_cnt: %u ts_flag: %x timestamp: %llu ts_buffer: %llu", ts_index,
-				data->ts_stacked_cnt, ts_flag, time_delta_ns, data->ts_index_buffer[ts_index]);
+	if (ts_flag == VDIS_TIMESTAMP_FORMAT || ts_flag == SUPER_VDIS_FORMAT) {
+		ssp_debug_time("[SSP_DEBUG_TIME] ts_index: %u stacked_cnt: %u ts_flag: 0x%x current_ts: %lld update_ts: %llu latency: %lld",
+			       	ts_index, data->ts_stacked_cnt, ts_flag, current_timestamp, update_timestamp, current_timestamp - time_delta_ns);
 	} else { 
 		ssp_debug_time("[SSP_DEBUG_TIME] sensor_type: %2d update_ts: %lld current_ts: %lld diff: %lld latency: %lld\n",
 			sensor_type, update_timestamp, current_timestamp,
@@ -198,8 +228,18 @@ static void get_light_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 {
 #ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
 #ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
+#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_ATIME_2BYTE
+#ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 21);
+	*iDataIdx += 21;
+#else
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 20);
+	*iDataIdx += 20;
+#endif
+#else
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 19);
 	*iDataIdx += 19;
+#endif
 #else
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 18);
 	*iDataIdx += 18;
@@ -267,8 +307,8 @@ static void get_proximity_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 2);
 	*iDataIdx += 2;
 #else	//CONFIG_SENSORS_SSP_TMD4903, CONFIG_SENSORS_SSP_TMD3782, CONFIG_SENSORS_SSP_TMD4904
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 3);
-	*iDataIdx += 3;
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 3 + 4);
+	*iDataIdx += (3 + 4); // 4 for light data
 #endif
 }
 
@@ -302,6 +342,15 @@ static void get_proximity_rawdata(char *pchRcvDataFrame, int *iDataIdx,
 	*iDataIdx += 2;
 #endif
 }
+
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+static void get_proximity_adc_calib_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 6);
+	*iDataIdx += 6;
+}
+#endif
 
 #ifdef CONFIG_SENSORS_SSP_SX9306
 static void get_grip_sensordata(char *pchRcvDataFrame, int *iDataIdx,
@@ -354,6 +403,25 @@ static void get_pickup_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
 	*iDataIdx += 1;
 }
+static void get_wakeup_motion_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(&sensorsdata->wakeup_move_event[0], pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+static void get_call_gesture_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+static void get_move_detector_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(&sensorsdata->wakeup_move_event[1], pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+
 static void get_thermistor_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
@@ -366,7 +434,18 @@ static void get_ucal_accel_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 12);
 	*iDataIdx += 12;
 }
-
+static void get_pocket_mode_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 26);
+	*iDataIdx += 26;
+}
+static void get_led_cover_event_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
 #ifdef CONFIG_SENSORS_SSP_HIFI_BATCHING // HIFI batch
 
 /*
@@ -532,7 +611,7 @@ void ssp_batch_report(struct ssp_data *data)
 
 		if (sensor_type == META_SENSOR) {
 			sensor_data.meta_data.sensor = data->batch_event.batch_data[idx_data++];
-			report_meta_data(data, &sensor_data);
+			report_meta_data(data, sensor_type, &sensor_data);
 			count++;
 			continue;
 		}
@@ -556,7 +635,7 @@ void ssp_batch_report(struct ssp_data *data)
 		ssp_debug_time("[SSP_BAT]: sensor %d, AP %lld MCU %lld, diff %lld, count: %d\n",
 			sensor_type, timestamp, sensor_data.timestamp, timestamp - sensor_data.timestamp, count);
 
-		data->report_sensor_data[sensor_type](data, &sensor_data);
+		data->report_sensor_data[sensor_type](data, sensor_type, &sensor_data);
 		data->reportedData[sensor_type] = true;
 		count++;
 	}
@@ -735,8 +814,9 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 
 				if (AddedSensorState & (1ULL << sensor_type)
 				|| sensor_type == GEOMAGNETIC_RAW
-				|| sensor_type == PROXIMITY_RAW)
-					data->report_sensor_data[sensor_type](data, &sensorsdata);
+				|| sensor_type == PROXIMITY_RAW
+				|| sensor_type == PROXIMITY_ADC_CALIB)
+					data->report_sensor_data[sensor_type](data, sensor_type, &sensorsdata);
 				else {
 					if (data->skipSensorData == 30) {
 						pr_info("[SSP]: sensor not added,but sensor(%d) came", sensor_type);
@@ -781,7 +861,7 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 						sensorsdata.meta_data.sensor);
 				return ERROR;
 			}
-			report_meta_data(data, &sensorsdata);
+			report_meta_data(data, sensor_type, &sensorsdata);
 			break;
 		case MSG2AP_INST_TIME_SYNC:
 			data->bTimeSyncing = true;
@@ -790,9 +870,9 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 			pr_info("[SSP]: %s - Gyro caldata received from MCU\n",  __func__);
 			memcpy(caldata, pchRcvDataFrame + iDataIdx, sizeof(caldata));
 			if(data->IsAPsuspend) {
-            	iDataIdx += sizeof(caldata);
+            			iDataIdx += sizeof(caldata);
 			    break;
-            }
+		        }
 			wake_lock(&data->ssp_wake_lock);
 			save_gyro_caldata(data, caldata);
 			wake_unlock(&data->ssp_wake_lock);
@@ -819,7 +899,7 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 			break;
 		case MSG2AP_INST_SCONTEXT_DATA:
 			memcpy(sensorsdata.scontext_buf, pchRcvDataFrame + iDataIdx, SCONTEXT_DATA_SIZE);
-			report_scontext_data(data, &sensorsdata);
+			report_scontext_data(data, sensor_type, &sensorsdata);
 			iDataIdx += SCONTEXT_DATA_SIZE;
 				break;
 		default:
@@ -858,10 +938,14 @@ void initialize_function_pointer(struct ssp_data *data)
 
 	data->get_sensor_data[PROXIMITY_RAW] = get_proximity_rawdata;
 	data->get_sensor_data[PROXIMITY_POCKET] = get_proximity_pocket_sensordata;
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+	data->get_sensor_data[PROXIMITY_ADC_CALIB] = get_proximity_adc_calib_sensordata;
+#endif
 #ifdef CONFIG_SENSORS_SSP_SX9306
 	data->get_sensor_data[GRIP_SENSOR] = get_grip_sensordata;
 #endif
 	data->get_sensor_data[LIGHT_SENSOR] = get_light_sensordata;
+	data->get_sensor_data[UNCAL_LIGHT_SENSOR] = get_light_sensordata;
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 	data->get_sensor_data[LIGHT_IR_SENSOR] = get_light_ir_sensordata;
 #endif
@@ -883,6 +967,11 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->get_sensor_data[PICKUP_GESTURE] = get_pickup_sensordata;
 	data->get_sensor_data[THERMISTOR_SENSOR] = get_thermistor_sensordata;
 	data->get_sensor_data[ACCEL_UNCALIB_SENSOR] = get_ucal_accel_sensordata;
+	data->get_sensor_data[WAKE_UP_MOTION] = get_wakeup_motion_sensordata;
+	data->get_sensor_data[CALL_GESTURE] = get_call_gesture_sensordata;
+    data->get_sensor_data[MOVE_DETECTOR] = get_move_detector_sensordata;
+	data->get_sensor_data[POCKET_MODE_SENSOR] = get_pocket_mode_sensordata;
+	data->get_sensor_data[LED_COVER_EVENT_SENSOR] = get_led_cover_event_sensordata;
 	data->get_sensor_data[BULK_SENSOR] = NULL;
 	data->get_sensor_data[GPS_SENSOR] = NULL;
 
@@ -901,10 +990,14 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->report_sensor_data[LIGHT_FLICKER_SENSOR] = report_light_flicker_data;
 
 	data->report_sensor_data[PROXIMITY_RAW] = report_prox_raw_data;
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL 
+	data->report_sensor_data[PROXIMITY_ADC_CALIB] = report_prox_adc_calib_data;
+#endif
 #ifdef CONFIG_SENSORS_SSP_SX9306
 	data->report_sensor_data[GRIP_SENSOR] = report_grip_data;
 #endif
 	data->report_sensor_data[LIGHT_SENSOR] = report_light_data;
+	data->report_sensor_data[UNCAL_LIGHT_SENSOR] = report_light_data;
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 	data->report_sensor_data[LIGHT_IR_SENSOR] = report_light_ir_data;
 #endif
@@ -928,6 +1021,11 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->report_sensor_data[LIGHT_CCT_SENSOR] = report_light_cct_data;
 	data->report_sensor_data[THERMISTOR_SENSOR] = report_thermistor_data;
 	data->report_sensor_data[ACCEL_UNCALIB_SENSOR] = report_uncalib_accel_data;
+	data->report_sensor_data[WAKE_UP_MOTION] = report_wakeup_motion_data;
+	data->report_sensor_data[CALL_GESTURE] = report_call_gesture_data;
+    data->report_sensor_data[MOVE_DETECTOR] = report_move_detector_data;
+	data->report_sensor_data[POCKET_MODE_SENSOR] = report_pocket_mode_data;
+	data->report_sensor_data[LED_COVER_EVENT_SENSOR] = report_led_cover_event_data;
 
 	data->ssp_big_task[BIG_TYPE_DUMP] = ssp_dump_task;
 	data->ssp_big_task[BIG_TYPE_READ_LIB] = ssp_read_big_library_task;

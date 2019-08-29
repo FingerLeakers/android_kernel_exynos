@@ -277,7 +277,8 @@ static int notrace persistent_ram_update_user(struct persistent_ram_zone *prz,
 	int ret = unlikely(__copy_from_user(buffer->data + start, s, count)) ?
 		-EFAULT : 0;
 
-	exynos_ss_hook_pmsg(buffer->data + start, count);
+	dbg_snapshot_hook_pmsg(buffer->data + start, count);
+
 	persistent_ram_update_ecc(prz, start, count);
 	return ret;
 }
@@ -404,7 +405,7 @@ static void *persistent_ram_vmap(phys_addr_t start, size_t size,
 	page_start = start - offset_in_page(start);
 	page_count = DIV_ROUND_UP(size + offset_in_page(start), PAGE_SIZE);
 
-#ifndef CONFIG_EXYNOS_SNAPSHOT
+#ifndef CONFIG_DEBUG_SNAPSHOT
 	if (memtype)
 		prot = pgprot_noncached(PAGE_KERNEL);
 	else
@@ -431,7 +432,12 @@ static void *persistent_ram_vmap(phys_addr_t start, size_t size,
 	vaddr = vmap(pages, page_count, VM_MAP, prot);
 	kfree(pages);
 
-	return vaddr;
+	/*
+	 * Since vmap() uses page granularity, we must add the offset
+	 * into the page here, to get the byte granularity address
+	 * into the mapping to represent the actual "start" location.
+	 */
+	return vaddr + offset_in_page(start);
 }
 
 static void *persistent_ram_iomap(phys_addr_t start, size_t size,
@@ -450,6 +456,11 @@ static void *persistent_ram_iomap(phys_addr_t start, size_t size,
 	else
 		va = ioremap_wc(start, size);
 
+	/*
+	 * Since request_mem_region() and ioremap() are byte-granularity
+	 * there is no need handle anything special like we do when the
+	 * vmap() case in persistent_ram_vmap() above.
+	 */
 	return va;
 }
 
@@ -470,7 +481,7 @@ static int persistent_ram_buffer_map(phys_addr_t start, phys_addr_t size,
 		return -ENOMEM;
 	}
 
-	prz->buffer = prz->vaddr + offset_in_page(start);
+	prz->buffer = prz->vaddr;
 	prz->buffer_size = size - sizeof(struct persistent_ram_buffer);
 
 	return 0;
@@ -517,7 +528,8 @@ void persistent_ram_free(struct persistent_ram_zone *prz)
 
 	if (prz->vaddr) {
 		if (pfn_valid(prz->paddr >> PAGE_SHIFT)) {
-			vunmap(prz->vaddr);
+			/* We must vunmap() at page-granularity. */
+			vunmap(prz->vaddr - offset_in_page(prz->paddr));
 		} else {
 			iounmap(prz->vaddr);
 			release_mem_region(prz->paddr, prz->size);

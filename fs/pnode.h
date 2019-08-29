@@ -10,6 +10,7 @@
 
 #include <linux/list.h>
 #include "mount.h"
+
 #ifdef CONFIG_RKP_NS_PROT
 #define IS_MNT_SHARED(m) ((m)->mnt->mnt_flags & MNT_SHARED)
 #else
@@ -43,8 +44,8 @@
 #define CL_COPY_MNT_NS_FILE	0x80
 
 #define CL_COPY_ALL		(CL_COPY_UNBINDABLE | CL_COPY_MNT_NS_FILE)
+
 #ifdef CONFIG_RKP_NS_PROT
-	
 extern void rkp_assign_mnt_flags(struct vfsmount *,int);
 static inline void set_mnt_shared(struct mount *mnt)
 {

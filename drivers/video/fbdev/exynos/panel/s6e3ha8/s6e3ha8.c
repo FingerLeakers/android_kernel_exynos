@@ -13,7 +13,11 @@
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
 /* TODO : remove dsim dependent code */
+#if defined(CONFIG_EXYNOS_DPU20)
+#include "../../dpu20/decon.h"
+#else
 #include "../../dpu_9810/decon.h"
+#endif
 #include "../panel.h"
 #include "s6e3ha8.h"
 #include "s6e3ha8_panel.h"
@@ -24,88 +28,16 @@
 #include "../panel_drv.h"
 
 #ifdef CONFIG_PANEL_AID_DIMMING
-static int gamma_ctoi(s32 (*dst)[MAX_COLOR], u8 *hbm, int nr_tp)
-{
-	unsigned int i, c, pos = 1;
-
-	for (i = nr_tp - 1; i > 0; i--) {
-		for_each_color(c) {
-			if (i == nr_tp - 1)
-				dst[i][c] = ((hbm[0] >> c) & 0x01) << 8 | hbm[pos++];
-			else
-				dst[i][c] = hbm[pos++];
-		}
-	}
-
-	dst[0][RED] = hbm[pos + 1] & 0xF;
-	dst[0][GREEN] = (hbm[pos + 2] >> 4) & 0xF;
-	dst[0][BLUE] = hbm[pos + 2] & 0xF;
-
-	return 0;
-}
-
-static int gamma_ctoi_v0(s32 (*dst)[MAX_COLOR], u8 *hbm, int nr_tp)
+static int gamma_ctoi(s32 (*dst)[MAX_COLOR], u8 *src, int nr_tp)
 {
 	unsigned int i, c, pos = 1;
 
 	for (i = nr_tp - 1; i > 1; i--) {
 		for_each_color(c) {
 			if (i == nr_tp - 1)
-				dst[i][c] = ((hbm[0] >> c) & 0x01) << 8 | hbm[pos++];
+				dst[i][c] = (((src[0] >> (MAX_COLOR - c - 1)) & 0x01) << 8) | src[pos++];
 			else
-				dst[i][c] = hbm[pos++];
-		}
-	}
-
-	dst[1][RED] = (hbm[pos + 0] >> 4) & 0xF;
-	dst[1][GREEN] = hbm[pos + 0] & 0xF;
-	dst[1][BLUE] = (hbm[pos + 1] >> 4) & 0xF;
-
-	dst[0][RED] = hbm[pos + 1] & 0xF;
-	dst[0][GREEN] = (hbm[pos + 2] >> 4) & 0xF;
-	dst[0][BLUE] = hbm[pos + 2] & 0xF;
-
-	return 0;
-}
-
-static void mtp_ctoi(s32 (*dst)[MAX_COLOR], char *src, int nr_tp)
-{
-	int i, c, pos = 1, sign;
-
-	for (i = nr_tp - 1; i > 0; i--) {
-		for_each_color(c) {
-			if (i == nr_tp - 1) {
-				sign = (src[0] & 0x01) ? -1 : 1;
-				dst[i][c] = sign * src[pos];
-				pos += 1;
-			} else {
-				sign = (src[pos] & 0x80) ? -1 : 1;
-				dst[i][c] = sign * (src[pos] & 0x7F);
-				pos += 1;
-			}
-		}
-	}
-
-	dst[0][RED] = src[pos + 1] & 0xF;
-	dst[0][GREEN] = (src[pos + 2] >> 4) & 0xF;
-	dst[0][BLUE] = src[pos + 2] & 0xF;
-}
-
-static void mtp_ctoi_v0(s32 (*dst)[MAX_COLOR], char *src, int nr_tp)
-{
-	int i, c, pos = 1, sign;
-
-	for (i = nr_tp - 1; i > 1; i--) {
-		for_each_color(c) {
-			if (i == nr_tp - 1) {
-				sign = (src[0] & 0x01) ? -1 : 1;
-				dst[i][c] = sign * src[pos];
-				pos += 1;
-			} else {
-				sign = (src[pos] & 0x80) ? -1 : 1;
-				dst[i][c] = sign * (src[pos] & 0x7F);
-				pos += 1;
-			}
+				dst[i][c] = src[pos++];
 		}
 	}
 
@@ -116,55 +48,39 @@ static void mtp_ctoi_v0(s32 (*dst)[MAX_COLOR], char *src, int nr_tp)
 	dst[0][RED] = src[pos + 1] & 0xF;
 	dst[0][GREEN] = (src[pos + 2] >> 4) & 0xF;
 	dst[0][BLUE] = src[pos + 2] & 0xF;
+
+	return 0;
 }
 
+static void mtp_ctoi(s32 (*dst)[MAX_COLOR], u8 *src, int nr_tp)
+{
+	int v, c, sign;
+	int signed_bit[S6E3HA8_NR_TP] = {
+		-1, -1, 7, 7, 7, 7, 7, 7, 7, 7, 7, 8
+	};
+	int value_mask[S6E3HA8_NR_TP] = {
+		0xF, 0xF, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xFF
+	};
+	int value;
+
+	gamma_ctoi(dst, src, nr_tp);
+	for (v = 0; v < nr_tp; v++) {
+		for_each_color(c) {
+			sign = (signed_bit[v] < 0) ? 1 :
+				(dst[v][c] & (0x1 << signed_bit[v])) ? -1 : 1;
+			value = dst[v][c] & value_mask[v];
+			dst[v][c] = sign * value;
+		}
+	}
+}
 
 static void copy_tpout_center(u8 *output, u32 value, u32 v, u32 color)
 {
 	int index = (S6E3HA8_NR_TP - v - 1);
 
 	if (v == S6E3HA8_NR_TP - 1) {
-		output[0] &= ~(1 << color);
-		output[0] |= ((value & 0x0100) ? 1 : 0) << color;
-		output[color + 1] = value & 0x00FF;
-		if (value > 511)
-			pr_err("%s, error : exceed output range tp:%d c:%d value:%d!!\n",
-					__func__, index, color, value);
-	} else if (v == 0) {
-		if (color == RED) {
-			output[index * MAX_COLOR + 1] &= ~(0xF << 4);
-			output[index * MAX_COLOR + 1] |= (0 & 0xF) << 4;
-			output[index * MAX_COLOR + 2] &= ~0xF;
-			output[index * MAX_COLOR + 2] |= (value & 0xF);
-		} else if (color == GREEN) {
-			output[index * MAX_COLOR + 1] &= ~0xF;
-			output[index * MAX_COLOR + 1] |= (0 & 0xF);
-			output[index * MAX_COLOR + 3] &= ~(0xF << 4);
-			output[index * MAX_COLOR + 3] |= (value & 0xF) << 4;
-		} else if (color == BLUE) {
-			output[index * MAX_COLOR + 2] &= ~(0xF << 4);
-			output[index * MAX_COLOR + 2] |= (0 & 0xF) << 4;
-			output[index * MAX_COLOR + 3] &= ~0xF;
-			output[index * MAX_COLOR + 3] |= (value & 0xF);
-		}
-		if (value > 15)
-			pr_err("%s, error : exceed output range tp:%d c:%d value:%d!!\n",
-					__func__, index, color, value);
-	} else {
-		output[index * MAX_COLOR + color + 1] = value & 0x00FF;
-		if (value > 255)
-			pr_err("%s, error : exceed output range tp:%d c:%d value:%d!!\n",
-					__func__, index, color, value);
-	}
-}
-
-static void copy_tpout_center_v0(u8 *output, u32 value, u32 v, u32 color)
-{
-	int index = (S6E3HA8_USING_V0_NR_TP - v - 1);
-
-	if (v == S6E3HA8_USING_V0_NR_TP - 1) {
-		output[0] &= ~(1 << color);
-		output[0] |= ((value & 0x0100) ? 1 : 0) << color;
+		output[0] &= ~(0x1 << (MAX_COLOR - color - 1));
+		output[0] |= (((value >> 8) & 0x01) << (MAX_COLOR - color - 1));
 		output[color + 1] = value & 0x00FF;
 		if (value > 511)
 			pr_err("%s, error : exceed output range tp:%d c:%d value:%d!!\n",
@@ -205,6 +121,17 @@ static void copy_tpout_center_v0(u8 *output, u32 value, u32 v, u32 color)
 	}
 }
 
+static void gamma_itoc(u8 *dst, s32(*src)[MAX_COLOR], int nr_tp)
+{
+	int v, c;
+
+	for (v = 0; v < nr_tp; v++) {
+		for_each_color(c) {
+			copy_tpout_center(dst, src[v][c], v, c);
+		}
+	}
+}
+
 #ifdef CONFIG_SUPPORT_DIM_FLASH
 static int copy_from_dim_flash(struct panel_info *panel_data,
 		u8 *dst, enum dim_flash_items item, int row, int col, int size)
@@ -242,8 +169,12 @@ void print_gamma_table(struct panel_info *panel_data, int id)
 #endif
 
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
+#ifdef CONFIG_SUPPORT_HMD
 	gamma_maptbl = find_panel_maptbl_by_index(panel_data,
 			(id == PANEL_BL_SUBDEV_TYPE_HMD) ? HMD_GAMMA_MAPTBL : GAMMA_MAPTBL);
+#else
+	gamma_maptbl = find_panel_maptbl_by_index(panel_data, GAMMA_MAPTBL);
+#endif
 	if (unlikely(!gamma_maptbl))
 		return;
 
@@ -269,7 +200,7 @@ static int generate_hbm_gamma_table(struct panel_info *panel_data, int id)
 	s32 (*nor_gamma_tbl)[MAX_COLOR] = NULL;
 	s32 (*hbm_gamma_tbl)[MAX_COLOR] = NULL;
 	int luminance, nr_luminance, nr_hbm_luminance, nr_extend_hbm_luminance;
-	int i, v, c, nr_tp, ret = 0;
+	int i, nr_tp, ret = 0;
 
 	panel_dim_info = panel_data->panel_dim_info[id];
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
@@ -287,23 +218,21 @@ static int generate_hbm_gamma_table(struct panel_info *panel_data, int id)
 	nor_gamma_tbl = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 	hbm_gamma_tbl = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 
+#ifdef CONFIG_SUPPORT_HMD
 	gamma_maptbl = find_panel_maptbl_by_index(panel_data,
 			(id == PANEL_BL_SUBDEV_TYPE_HMD) ? HMD_GAMMA_MAPTBL : GAMMA_MAPTBL);
+#else
+	gamma_maptbl = find_panel_maptbl_by_index(panel_data, GAMMA_MAPTBL);
+#endif
 	if (unlikely(!gamma_maptbl)) {
 		pr_err("%s panel_bl-%d gamma_maptbl not found\n", __func__, id);
 		ret = -EINVAL;
 		goto err;
 	}
 
-	if (nr_tp == S6E3HA8_USING_V0_NR_TP) {
-		gamma_ctoi_v0(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
-				sizeof_row(gamma_maptbl)], nr_tp);
-		gamma_ctoi_v0(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
-	} else {
-		gamma_ctoi(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
-				sizeof_row(gamma_maptbl)], nr_tp);
-		gamma_ctoi(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
-	}
+	gamma_ctoi(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
+			sizeof_row(gamma_maptbl)], nr_tp);
+	gamma_ctoi(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
 	for (i = nr_luminance; i < nr_luminance +
 			nr_hbm_luminance + nr_extend_hbm_luminance; i++) {
 		luminance = brt_tbl->lum[i];
@@ -316,19 +245,8 @@ static int generate_hbm_gamma_table(struct panel_info *panel_data, int id)
 			/* UI MAX BRIGHTNESS ~ EXTENDED HBM MAX BRIGHTNESS */
 			memcpy(out_gamma_tbl, hbm_gamma_tbl, sizeof(s32) * nr_tp * MAX_COLOR);
 
-		for (v = nr_tp - 1; v >= 0; v--) {
-			for_each_color(c) {
-				if (nr_tp == S6E3HA8_USING_V0_NR_TP)
-					copy_tpout_center_v0(
-							(u8 *)&gamma_maptbl->arr[i * sizeof_row(gamma_maptbl)],
-							out_gamma_tbl[v][c], v, c);
-				else
-					copy_tpout_center(
-							(u8 *)&gamma_maptbl->arr[i * sizeof_row(gamma_maptbl)],
-							out_gamma_tbl[v][c], v, c);
-
-			}
-		}
+		gamma_itoc((u8 *)&gamma_maptbl->arr[i * sizeof_row(gamma_maptbl)],
+				out_gamma_tbl, nr_tp);
 	}
 
 err:
@@ -391,9 +309,13 @@ static int generate_gamma_table_using_lut(struct panel_info *panel_data, int id)
 	if (panel_dim_info->dimming_maptbl) {
 		gamma_maptbl = &panel_dim_info->dimming_maptbl[DIMMING_GAMMA_MAPTBL];
 	} else {
+#ifdef CONFIG_SUPPORT_HMD
 		gamma_maptbl = find_panel_maptbl_by_index(panel_data,
 				(id == PANEL_BL_SUBDEV_TYPE_HMD) ?
 				HMD_GAMMA_MAPTBL : GAMMA_MAPTBL);
+#else
+		gamma_maptbl = find_panel_maptbl_by_index(panel_data, GAMMA_MAPTBL);
+#endif
 	}
 	if (unlikely(!gamma_maptbl)) {
 		pr_err("%s panel_bl-%d gamma_maptbl not found\n", __func__, id);
@@ -410,18 +332,14 @@ static int generate_gamma_table_using_lut(struct panel_info *panel_data, int id)
 	}
 
 	mtp = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
-	if (nr_tp == S6E3HA8_USING_V0_NR_TP)
-		mtp_ctoi_v0(mtp, res->data, nr_tp);
-	else
-		mtp_ctoi(mtp, res->data, nr_tp);
+	mtp_ctoi(mtp, res->data, nr_tp);
 	init_dimming_mtp(dim_info, mtp);
 	process_dimming(dim_info);
 
 	for (i = 0; i < nr_luminance; i++)
 		get_dimming_gamma(dim_info, brt_tbl->lum[i],
 				(u8 *)&gamma_maptbl->arr[i * sizeof_row(gamma_maptbl)],
-				(nr_tp == S6E3HA8_USING_V0_NR_TP) ?
-				copy_tpout_center_v0 : copy_tpout_center);
+				copy_tpout_center);
 
 	panel_data->dim_info[id] = dim_info;
 
@@ -453,8 +371,12 @@ static int generate_gamma_table_using_flash(struct panel_info *panel_data, int i
 	}
 
 	nr_luminance = panel_data->panel_dim_info[id]->nr_luminance;
+#ifdef CONFIG_SUPPORT_HMD
 	tbl = find_panel_maptbl_by_index(panel_data,
 			(id == PANEL_BL_SUBDEV_TYPE_HMD) ? HMD_GAMMA_MAPTBL : GAMMA_MAPTBL);
+#else
+	tbl = find_panel_maptbl_by_index(panel_data, GAMMA_MAPTBL);
+#endif
 	if (unlikely(!tbl)) {
 		pr_err("%s panel_bl-%d gamma_maptbl not found\n", __func__, id);
 		return -EINVAL;
@@ -626,10 +548,12 @@ static int init_gamma_table(struct maptbl *tbl)
 #endif
 }
 
+#ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int getidx_common_maptbl(struct maptbl *tbl)
 {
 	return 0;
 }
+#endif
 
 static int getidx_dimming_maptbl(struct maptbl *tbl)
 {
@@ -764,28 +688,34 @@ static int generate_hbm_gamma(struct panel_info *panel_data,
 	s32 (*nor_gamma_tbl)[MAX_COLOR] = NULL;
 	s32 (*hbm_gamma_tbl)[MAX_COLOR] = NULL;
 	int luminance, nr_luminance, nr_hbm_luminance, nr_extend_hbm_luminance;
-	int id, v, c, nr_tp, brightness, ret = 0;
-	u32 upper_idx, lower_idx;
-	u32 upper_lum, lower_lum;
-	u32 upper_brt, lower_brt;
+	int id, nr_tp, brightness, ret = 0;
+	int upper_idx, lower_idx, nor_max_idx, hbm_max_idx;
+	u32 upper_lum, lower_lum, nor_max_lum, hbm_max_lum;
+	u32 upper_brt, lower_brt, nor_max_brt, hbm_max_brt;
 
 	id = panel_bl->props.id;
 	panel_dim_info = panel_data->panel_dim_info[id];
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
 	brightness = panel_bl->props.brightness_of_step;
-	//brightness = get_brightness_of_brt_to_step(panel_bl, id, brightness);
 
 	nr_tp = panel_dim_info->dim_init_info.nr_tp;
 	nr_luminance = panel_dim_info->nr_luminance;
 	nr_hbm_luminance = panel_dim_info->nr_hbm_luminance;
 	nr_extend_hbm_luminance = panel_dim_info->nr_extend_hbm_luminance;
 
-	upper_idx = nr_luminance + nr_hbm_luminance - 1;
-	lower_idx = nr_luminance - 1;
+	upper_idx = panel_bl->props.actual_brightness_index;
+	lower_idx = max(0, (upper_idx - 1));
 	upper_lum = brt_tbl->lum[upper_idx];
 	lower_lum = brt_tbl->lum[lower_idx];
 	upper_brt = brt_tbl->brt[upper_idx];
 	lower_brt = brt_tbl->brt[lower_idx];
+
+	hbm_max_idx = nr_luminance + nr_hbm_luminance - 1;
+	nor_max_idx = nr_luminance - 1;
+	hbm_max_lum = brt_tbl->lum[hbm_max_idx];
+	nor_max_lum = brt_tbl->lum[nor_max_idx];
+	hbm_max_brt = brt_tbl->brt[hbm_max_idx];
+	nor_max_brt = brt_tbl->brt[nor_max_idx];
 
 	hbm_gamma_res = find_panel_resource(panel_data, "hbm_gamma");
 	if (unlikely(!hbm_gamma_res)) {
@@ -796,15 +726,9 @@ static int generate_hbm_gamma(struct panel_info *panel_data,
 	nor_gamma_tbl = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 	hbm_gamma_tbl = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 
-	if (nr_tp == S6E3HA8_USING_V0_NR_TP) {
-		gamma_ctoi_v0(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
-				sizeof_row(gamma_maptbl)], nr_tp);
-		gamma_ctoi_v0(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
-	} else {
-		gamma_ctoi(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
-				sizeof_row(gamma_maptbl)], nr_tp);
-		gamma_ctoi(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
-	}
+	gamma_ctoi(nor_gamma_tbl, &gamma_maptbl->arr[(nr_luminance - 1) *
+			sizeof_row(gamma_maptbl)], nr_tp);
+	gamma_ctoi(hbm_gamma_tbl, hbm_gamma_res->data, nr_tp);
 
 	luminance = interpolation(lower_lum, upper_lum,
 			(s32)((u64)brightness - lower_brt), (s32)(upper_brt - lower_brt));
@@ -812,19 +736,12 @@ static int generate_hbm_gamma(struct panel_info *panel_data,
 	if (luminance <= panel_dim_info->hbm_target_luminance)
 		/* UI MAX BRIGHTNESS ~ HBM MAX BRIGHTNESS */
 		gamma_table_interpolation(nor_gamma_tbl, hbm_gamma_tbl, out_gamma_tbl,
-				nr_tp, luminance - lower_lum, upper_lum - lower_lum);
+				nr_tp, luminance - nor_max_lum, hbm_max_lum - nor_max_lum);
 	else
 		/* UI MAX BRIGHTNESS ~ EXTENDED HBM MAX BRIGHTNESS */
 		memcpy(out_gamma_tbl, hbm_gamma_tbl, sizeof(s32) * nr_tp * MAX_COLOR);
 
-	for (v = nr_tp - 1; v >= 0; v--) {
-		for_each_color(c) {
-			if (nr_tp == S6E3HA8_USING_V0_NR_TP)
-				copy_tpout_center_v0(dst, out_gamma_tbl[v][c], v, c);
-			else
-				copy_tpout_center(dst, out_gamma_tbl[v][c], v, c);
-		}
-	}
+	gamma_itoc(dst, out_gamma_tbl, nr_tp);
 
 	kfree(out_gamma_tbl);
 	kfree(nor_gamma_tbl);
@@ -883,6 +800,8 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 
 	if (is_hbm_brightness(panel_bl, brightness)) {
 		copy_common_maptbl(tbl, dst);
+		aor = dst[0] << 8 | dst[1];
+		panel_bl->props.aor_ratio = AOR_TO_RATIO(aor, brt_tbl->vtotal);
 		return;
 	}
 
@@ -893,6 +812,8 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	}
 	dst[0] = (aor >> 8) & 0xFF;
 	dst[1] = aor & 0xFF;
+
+	panel_bl->props.aor_ratio = AOR_TO_RATIO(aor, brt_tbl->vtotal);
 }
 
 static void copy_irc_maptbl(struct maptbl *tbl, u8 *dst)
@@ -900,6 +821,8 @@ static void copy_irc_maptbl(struct maptbl *tbl, u8 *dst)
 	struct panel_device *panel;
 	struct panel_bl_device *panel_bl;
 	struct brightness_table *brt_tbl;
+	struct panel_irc_info *irc_info;
+	struct panel_dimming_info *panel_dim_info;
 	int id, brightness, ret;
 
 	if (!tbl || !dst) {
@@ -913,13 +836,16 @@ static void copy_irc_maptbl(struct maptbl *tbl, u8 *dst)
 	id = panel_bl->props.id;
 	brightness = panel_bl->props.brightness;
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
+	panel_dim_info = panel->panel_data.panel_dim_info[id];
+	irc_info = panel_dim_info->irc_info;
 
-	ret = panel_bl_irc_interpolation(panel_bl, id,
-			(u8 (*)[MAX_IRC_PARAM])tbl->arr, dst);
+	memcpy(irc_info->ref_tbl, &tbl->arr[(brt_tbl->sz_ui_lum - 1) * irc_info->total_len], irc_info->total_len);
+	ret = panel_bl_irc_interpolation(panel_bl, id, irc_info);
 	if (ret < 0) {
 		pr_err("%s, invalid irc (ret %d)\n", __func__, ret);
 		return;
 	}
+	memcpy(dst, irc_info->buffer, irc_info->total_len);
 }
 
 static int getidx_irc_mode_table(struct maptbl *tbl)
@@ -1116,6 +1042,7 @@ static int init_irc_table(struct maptbl *tbl)
 #endif
 }
 
+#ifdef CONFIG_SUPPORT_HMD
 static int init_hmd_aor_table(struct maptbl *tbl)
 {
 #ifdef CONFIG_SUPPORT_DIM_FLASH
@@ -1132,6 +1059,7 @@ static int init_hmd_aor_table(struct maptbl *tbl)
 	return init_common_table(tbl);
 #endif
 }
+#endif
 
 static int init_elvss_temp_table(struct maptbl *tbl)
 {
@@ -1438,10 +1366,12 @@ static int s6e3ha8_getidx_tdmb_tune_table(struct maptbl *tbl)
 }
 #endif
 
+#ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static void copy_dummy_maptbl(struct maptbl *tbl, u8 *dst)
 {
 	return;
 }
+#endif
 
 static void copy_common_maptbl(struct maptbl *tbl, u8 *dst)
 {
@@ -1507,7 +1437,7 @@ static void copy_mcd_resistance_maptbl(struct maptbl *tbl, u8 *dst)
 static void copy_copr_maptbl(struct maptbl *tbl, u8 *dst)
 {
 	struct copr_info *copr;
-	struct copr_reg *reg;
+	struct copr_reg_v2 *reg;
 
 	if (!tbl || !dst)
 		return;
@@ -1516,7 +1446,7 @@ static void copy_copr_maptbl(struct maptbl *tbl, u8 *dst)
 	if (unlikely(!copr))
 		return;
 
-	reg = &copr->props.reg;
+	reg = &copr->props.reg.v2;
 
 	dst[0] = (reg->cnt_re << 3) | (reg->copr_ilc << 2) |
 		(reg->copr_gamma << 1) | reg->copr_en;
@@ -1749,12 +1679,14 @@ static int getidx_mdnie_scenario_maptbl(struct maptbl *tbl)
 	return tbl->ncol * (mdnie->props.mode);
 }
 
+#ifdef CONFIG_SUPPORT_HMD
 static int getidx_mdnie_hmd_maptbl(struct maptbl *tbl)
 {
 	struct mdnie_info *mdnie = (struct mdnie_info *)tbl->pdata;
 
 	return tbl->ncol * (mdnie->props.hmd);
 }
+#endif
 
 static int getidx_mdnie_hdr_maptbl(struct maptbl *tbl)
 {
@@ -1814,7 +1746,7 @@ static int init_mdnie_night_mode_table(struct maptbl *tbl)
 	return 0;
 }
 
-int init_mdnie_color_lens_table(struct maptbl *tbl)
+static int init_mdnie_color_lens_table(struct maptbl *tbl)
 {
 	struct mdnie_info *mdnie;
 	struct maptbl *color_lens_maptbl;
@@ -1961,7 +1893,7 @@ static int getidx_adjust_ldu_maptbl(struct maptbl *tbl)
 	return maptbl_index(tbl, wcrd_type[mdnie->props.mode], mdnie->props.ldu, 0);
 }
 
-int getidx_color_lens_maptbl(struct maptbl *tbl)
+static int getidx_color_lens_maptbl(struct maptbl *tbl)
 {
 	struct mdnie_info *mdnie = (struct mdnie_info *)tbl->pdata;
 
@@ -2377,8 +2309,6 @@ static void show_err_fg(struct dumpinfo *info)
 	}
 
 	panel_info("==================================================\n");
-
-	inc_dpui_u32_field(DPUI_KEY_PNESDE, (err_fg[0] & 0x4D) ? 1 : 0);
 }
 
 static void show_dsi_err(struct dumpinfo *info)

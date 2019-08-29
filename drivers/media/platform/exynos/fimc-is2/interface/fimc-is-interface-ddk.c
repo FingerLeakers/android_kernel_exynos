@@ -12,7 +12,7 @@
 #include "fimc-is-hw-control.h"
 #include "sfr/fimc-is-sfr-isp-v310.h"
 #include "fimc-is-err.h"
-#include <soc/samsung/bcm.h>
+#include <soc/samsung/exynos-bcm_dbg.h>
 
 int debug_irq_ddk;
 module_param(debug_irq_ddk, int, 0644);
@@ -22,9 +22,7 @@ module_param(debug_time_hw, int, 0644);
 bool check_dma_done(struct fimc_is_hw_ip *hw_ip, u32 instance_id, u32 fcount)
 {
 	bool ret = false;
-	int expected_fcount;
 	struct fimc_is_frame *frame;
-	struct fimc_is_frame *list_frame;
 	struct fimc_is_framemgr *framemgr;
 	int wq_id0 = WORK_MAX_MAP, wq_id1 = WORK_MAX_MAP;
 	int wq_id2 = WORK_MAX_MAP, wq_id3 = WORK_MAX_MAP;
@@ -43,11 +41,33 @@ bool check_dma_done(struct fimc_is_hw_ip *hw_ip, u32 instance_id, u32 fcount)
 
 	FIMC_BUG(!framemgr);
 
+flush_wait_done_frame:
 	framemgr_e_barrier_common(framemgr, 0, flags);
 	frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
 	framemgr_x_barrier_common(framemgr, 0, flags);
 
-	if (frame == NULL) {
+	if (frame) {
+		u32 frame_fcount = frame->fcount;
+
+		if (frame->num_buffers == 1)
+			frame_fcount += frame->cur_buf_index;
+
+		if (unlikely(frame_fcount < fcount)) {
+			/* Flush the old frame which is in HW_WAIT_DONE state & retry. */
+			mswarn_hw("queued_count(%d) [ddk:%d,hw:%d] invalid frame(F:%d,idx:%d)",
+					instance_id, hw_ip,
+					framemgr->queued_count[FS_HW_WAIT_DONE],
+					fcount, hw_fcount,
+					frame_fcount, frame->cur_buf_index);
+			fimc_is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
+			goto flush_wait_done_frame;
+		} else if (unlikely(frame_fcount > fcount)) {
+			mswarn_hw("%s:[F%d] Too early frame. Skip it.", instance_id, hw_ip,
+					__func__, frame_fcount);
+			return true;
+		}
+	} else {
+		/* Flush the old frame which is in HW_CONFIGURE state & skip dma_done. */
 flush_config_frame:
 		framemgr_e_barrier_common(framemgr, 0, flags);
 		frame = peek_frame(framemgr, FS_HW_CONFIGURE);
@@ -70,47 +90,13 @@ flush_config_frame:
 	}
 
 	/*
-	 * The expected_fcount in which num_buffers is considered.
-	 * It would be matched with frame->fcount which has "HW_WAIT_DONE" state.
-	 *  ex. frame->fcount : 1, num_buffer : 4, fcount : 4 => expected_fcount : 1
+	 * fcount: This value should be same value that is notified by host at shot time.
+	 * In case of FRO or batch mode, this value also should be same between start and end.
 	 */
-	expected_fcount = fcount - (frame->num_buffers - 1);
-
-	msdbg_hw(1, "check_dma [ddk:%d,exp:%d,hw:%d] frame(F:%d,idx:%d,num_buffers:%d)\n",
+	msdbg_hw(1, "check_dma [ddk:%d,hw:%d] frame(F:%d,idx:%d,num_buffers:%d)\n",
 			instance_id, hw_ip,
-			fcount, expected_fcount, hw_fcount,
+			fcount, hw_fcount,
 			frame->fcount, frame->cur_buf_index, frame->num_buffers);
-
-	if (((frame->num_buffers > 1) && (expected_fcount != frame->fcount))
-		|| ((frame->num_buffers == 1) && (expected_fcount != (frame->fcount + frame->cur_buf_index)))) {
-		framemgr_e_barrier_common(framemgr, 0, flags);
-		list_frame = find_frame(framemgr, FS_HW_WAIT_DONE, frame_fcount,
-					(void *)(ulong)expected_fcount);
-		framemgr_x_barrier_common(framemgr, 0, flags);
-		if (list_frame == NULL) {
-			mswarn_hw("queued_count(%d) [ddk:%d,exp:%d,hw:%d] invalid frame(F:%d,idx:%d)",
-				instance_id, hw_ip,
-				framemgr->queued_count[FS_HW_WAIT_DONE],
-				fcount, expected_fcount, hw_fcount,
-				frame->fcount, frame->cur_buf_index);
-flush_wait_done_frame:
-			framemgr_e_barrier_common(framemgr, 0, flags);
-			frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
-			if (frame) {
-				if (unlikely(frame->fcount < expected_fcount)) {
-					framemgr_x_barrier_common(framemgr, 0, flags);
-					fimc_is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
-					goto flush_wait_done_frame;
-				}
-			} else {
-				framemgr_x_barrier_common(framemgr, 0, flags);
-				return true;
-			}
-			framemgr_x_barrier_common(framemgr, 0, flags);
-		} else {
-			frame = list_frame;
-		}
-	}
 
 	switch (hw_ip->id) {
 	case DEV_HW_3AA0:
@@ -118,24 +104,40 @@ flush_wait_done_frame:
 		output_id0 = ENTRY_3AP;
 		wq_id1 = WORK_30C_FDONE; /* before BDS */
 		output_id1 = ENTRY_3AC;
+		wq_id2 = WORK_30F_FDONE; /* efd output */
+		output_id2 = ENTRY_3AF;
+		wq_id3 = WORK_30G_FDONE; /* mrg output */
+		output_id3 = ENTRY_3AG;
+		wq_id4 = WORK_ME0C_FDONE; /* me output */
+		output_id4 = ENTRY_MEXC;
 		break;
 	case DEV_HW_3AA1:
 		wq_id0 = WORK_31P_FDONE;
 		output_id0 = ENTRY_3AP;
 		wq_id1 = WORK_31C_FDONE;
 		output_id1 = ENTRY_3AC;
+		wq_id2 = WORK_31F_FDONE; /* efd output */
+		output_id2 = ENTRY_3AF;
+		wq_id3 = WORK_31G_FDONE; /* mrg output */
+		output_id3 = ENTRY_3AG;
+		wq_id4 = WORK_ME1C_FDONE; /* me output */
+		output_id4 = ENTRY_MEXC;
 		break;
 	case DEV_HW_ISP0:
 		wq_id0 = WORK_I0P_FDONE; /* chunk output */
 		output_id0 = ENTRY_IXP;
 		wq_id1 = WORK_I0C_FDONE; /* yuv output */
 		output_id1 = ENTRY_IXC;
+		wq_id2 = WORK_ME0C_FDONE; /* me output */
+		output_id2 = ENTRY_MEXC;
 		break;
 	case DEV_HW_ISP1:
 		wq_id0 = WORK_I1P_FDONE;
 		output_id0 = ENTRY_IXP;
 		wq_id1 = WORK_I1C_FDONE;
 		output_id1 = ENTRY_IXC;
+		wq_id2 = WORK_ME1C_FDONE; /* me output */
+		output_id2 = ENTRY_MEXC;
 		break;
 	case DEV_HW_TPU0:
 		wq_id1 = WORK_D0C_FDONE;
@@ -236,6 +238,9 @@ static void fimc_is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 	int wq_id = WORK_MAX_MAP;
 	int output_id = ENTRY_END;
 	u32 hw_fcount, index;
+#if defined(ENABLE_FULLCHAIN_OVERFLOW_RECOVERY)
+	int ret = 0;
+#endif
 
 	FIMC_BUG_VOID(!this);
 
@@ -319,11 +324,15 @@ static void fimc_is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 		break;
 	case LIB_EVENT_ERROR_CIN_OVERFLOW:
 		fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_3AA);
-		bcm_stop(NULL);
+		exynos_bcm_dbg_stop(CAMERA_DRIVER);
 		msinfo_hw("LIB_EVENT_ERROR_CIN_OVERFLOW\n", instance_id, hw_ip);
 		fimc_is_hardware_flush_frame(hw_ip, FS_HW_CONFIGURE, IS_SHOT_OVERFLOW);
 
-#ifdef OVERFLOW_PANIC_ENABLE_ISCHAIN
+#if defined(ENABLE_FULLCHAIN_OVERFLOW_RECOVERY)
+		ret = fimc_is_hw_overflow_recovery();
+		if (ret < 0)
+			panic("OVERFLOW recovery fail!!!!");
+#elif defined(OVERFLOW_PANIC_ENABLE_ISCHAIN)
 		panic("CIN OVERFLOW!!");
 #endif
 		break;
@@ -357,6 +366,11 @@ static void fimc_is_lib_camera_callback(void *this, enum lib_cb_event_type event
 
 	FIMC_BUG_VOID(!hw_ip->hardware);
 
+	if (test_bit(HW_OVERFLOW_RECOVERY, &hardware->hw_recovery_flag)) {
+		err_hw("[ID:%d] During recovery : invalid interrupt", hw_ip->id);
+		return;
+	}
+
 	switch (event_id) {
 	case LIB_EVENT_CONFIG_LOCK:
 		fcount = (ulong)data;
@@ -369,6 +383,42 @@ static void fimc_is_lib_camera_callback(void *this, enum lib_cb_event_type event
 		fimc_is_hardware_config_lock(hw_ip, instance_id, (u32)fcount);
 		break;
 	case LIB_EVENT_FRAME_START_ISR:
+		if (sysfs_debug.pattern_en && (hw_ip->id == DEV_HW_3AA0 || hw_ip->id == DEV_HW_3AA1)) {
+			struct fimc_is_group *group;
+			struct v4l2_subdev *subdev;
+			struct fimc_is_device_csi *csi;
+
+			group = hw_ip->group[instance_id];
+			if (IS_ERR_OR_NULL(group)) {
+				mserr_hw("group is NULL", instance_id, hw_ip);
+				return;
+			}
+
+			if (IS_ERR_OR_NULL(group->device)) {
+				mserr_hw("device is NULL", instance_id, hw_ip);
+				return;
+			}
+
+			if (IS_ERR_OR_NULL(group->device->sensor)) {
+				mserr_hw("sensor is NULL", instance_id, hw_ip);
+				return;
+			}
+
+			if (IS_ERR_OR_NULL(group->device->sensor->subdev_csi)) {
+				mserr_hw("subdev_csi is NULL", instance_id, hw_ip);
+				return;
+			}
+
+			subdev = group->device->sensor->subdev_csi;
+			csi = v4l2_get_subdevdata(subdev);
+			if (IS_ERR_OR_NULL(csi)) {
+				mserr_hw("csi is NULL", instance_id, hw_ip);
+				return;
+			}
+
+			csi_frame_start_inline(csi);
+		}
+
 		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
 		index = hw_ip->debug_index[1];
 		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
@@ -515,7 +565,6 @@ int fimc_is_lib_isp_object_create(struct fimc_is_hw_ip *hw_ip,
 {
 	int ret = 0;
 	u32 chain_id, input_type, obj_info = 0;
-	struct fimc_is_group *head;
 
 	FIMC_BUG(!hw_ip);
 	FIMC_BUG(!this);
@@ -540,11 +589,8 @@ int fimc_is_lib_isp_object_create(struct fimc_is_hw_ip *hw_ip,
 		break;
 	}
 
-	head = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, hw_ip->group[instance_id]);
-
-	FIMC_BUG(!head);
-
-	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state))
+	/* input_type : use only in 3AA (guide by DDK) */
+	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &hw_ip->group[instance_id]->state))
 		input_type = 0; /* default */
 	else
 		input_type = 1;
@@ -848,7 +894,7 @@ int fimc_is_lib_isp_load_cal_data(struct fimc_is_lib_isp *this,
 }
 
 int fimc_is_lib_isp_get_cal_data(struct fimc_is_lib_isp *this,
-	u32 instance_id, struct cal_info *data, int type)
+	u32 instance_id, struct cal_info *c_info, int type)
 {
 	int ret = 0;
 
@@ -857,11 +903,13 @@ int fimc_is_lib_isp_get_cal_data(struct fimc_is_lib_isp *this,
 	FIMC_BUG(!this->object);
 
 	ret = CALL_LIBOP(this, get_cal_data, this->object, instance_id,
-				data, type);
+				c_info, type);
 	if (ret) {
 		err_lib("apply_tune_set fail (%d)", ret);
 		return ret;
 	}
+	dbg_lib(3, "%s: data(%d,%d,%d,%d)\n",
+		__func__, c_info->data[0], c_info->data[1], c_info->data[2], c_info->data[3]);
 
 	return ret;
 }
@@ -901,6 +949,24 @@ int fimc_is_lib_isp_sensor_update_control(struct fimc_is_lib_isp *this,
 		err_lib("sensor_update_ctl fail (%d)", ret);
 		return ret;
 	}
+
+	return ret;
+}
+
+int fimc_is_lib_isp_reset_recovery(struct fimc_is_hw_ip *hw_ip,
+		struct fimc_is_lib_isp *this, u32 instance_id)
+{
+	int ret = 0;
+
+	BUG_ON(!hw_ip);
+	BUG_ON(!this->func);
+
+	ret = CALL_LIBOP(this, recovery, instance_id);
+	if (ret) {
+		err_lib("chain_reset_recovery fail (%d)", hw_ip->id);
+		return ret;
+	}
+	msinfo_lib("chain_reset_recovery done\n", instance_id, hw_ip);
 
 	return ret;
 }

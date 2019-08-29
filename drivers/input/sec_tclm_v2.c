@@ -233,6 +233,8 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 {
 	int i;
 	int now_lastp = data->nvdata.cal_pos_hist_lastp;
+	unsigned char *pStr = NULL;
+	unsigned char pTmp[5] = { 0 };
 
 	if (data->nvdata.cal_pos_hist_cnt > CAL_HISTORY_QUEUE_MAX
 		|| data->nvdata.cal_pos_hist_lastp >= CAL_HISTORY_QUEUE_MAX) {
@@ -243,11 +245,14 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 
 	input_info(true, &data->client->dev, "%s: [Now] %4s%d\n", __func__,
 		data->tclm_string[data->nvdata.cal_position].f_name, data->nvdata.cal_count);
-	pr_info("%s %s: [Old] ", SECLOG, __func__);
+
+	pStr = kzalloc(CAL_HISTORY_QUEUE_MAX * 5, GFP_KERNEL);
+	if (pStr == NULL)
+		return;
 
 	for (i = 0; i < data->nvdata.cal_pos_hist_cnt; i++) {
-		pr_cont("%c%d", data->tclm_string[data->nvdata.cal_pos_hist_queue[2 * now_lastp]].s_name, data->nvdata.cal_pos_hist_queue[2 * now_lastp + 1]);
-
+		snprintf(pTmp, sizeof(pTmp), "%c%d", data->tclm_string[data->nvdata.cal_pos_hist_queue[2 * now_lastp]].s_name, data->nvdata.cal_pos_hist_queue[2 * now_lastp + 1]);
+		strlcat(pStr, pTmp, CAL_HISTORY_QUEUE_MAX * 5);
 		if (i < CAL_HISTORY_QUEUE_SHORT_DISPLAY) {
 			data->cal_pos_hist_last3[2 * i] = data->tclm_string[data->nvdata.cal_pos_hist_queue[2 * now_lastp]].s_name;
 			data->cal_pos_hist_last3[2 * i + 1] = data->nvdata.cal_pos_hist_queue[2 * now_lastp + 1];
@@ -258,13 +263,15 @@ void sec_tclm_position_history(struct sec_tclm_data *data)
 		else
 			now_lastp--;
 	}
-	pr_cont("\n");
+
+	input_info(true, &data->client->dev, "%s: [Old] %s\n", __func__, pStr);
 
 	if (i < CAL_HISTORY_QUEUE_SHORT_DISPLAY)
 		data->cal_pos_hist_last3[2 * i] = 0;
 	else
 		data->cal_pos_hist_last3[6] = 0;
 
+	kfree(pStr);
 }
 
 void sec_tclm_debug_info(struct sec_tclm_data *data)

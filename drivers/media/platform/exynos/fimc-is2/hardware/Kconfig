@@ -28,6 +28,20 @@ config CAMERA_MC_SCALER_VER2_USE
         help
           use mc-scaler version 2(mcs param)
 
+config CAMERA_TDNR_VER1_USE
+        bool "Use TDNR in MC-SCALER S/W VERSION 1"
+        depends on CAMERA_MC_SCALER_VER2_USE
+        default n
+        help
+          use tdnr version 1
+
+config CAMERA_TDNR_VER2_USE
+        bool "Use TDNR in MC-SCALER S/W VERSION 2"
+        depends on CAMERA_MC_SCALER_VER2_USE
+        default n
+        help
+          use tdnr version 2(has compressor)
+
 source "drivers/media/platform/exynos/fimc-is2/hardware/api/Kconfig"
 endmenu
 
@@ -48,9 +62,3 @@ config DCP_V1_0
         default n
         help
           use dcp v1.0
-
-config SRDZ_V1_0
-        bool "Use SRDZ H/W v1.0"
-        default n
-        help
-          use srdz v1.0

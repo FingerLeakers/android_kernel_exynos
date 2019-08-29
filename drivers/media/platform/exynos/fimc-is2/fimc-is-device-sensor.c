@@ -32,8 +32,10 @@
 #if defined(CONFIG_SECURE_CAMERA_USE)
 #include <linux/smc.h>
 #endif
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EHMP)
 #include <linux/ehmp.h>
+#elif defined(CONFIG_SCHED_EMS)
+#include <linux/ems.h>
 #endif
 
 #include "fimc-is-core.h"
@@ -58,7 +60,7 @@ extern struct pm_qos_request exynos_isp_qos_cam;
 extern struct pm_qos_request exynos_isp_qos_mem;
 extern struct pm_qos_request exynos_isp_qos_hpg;
 
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
 extern struct gb_qos_request gb_req;
 #endif
 
@@ -273,11 +275,6 @@ int fimc_is_sensor_mclk_on(struct fimc_is_device_sensor *device, u32 scenario, u
 {
 	int ret = 0;
 	struct exynos_platform_fimc_is_sensor *pdata;
-#ifdef CONFIG_COMPANION_USE
-	struct fimc_is_core *core;
-	struct fimc_is_device_preproc *device_preproc = NULL;
-	struct fimc_is_module_enum *module_preproc = NULL;
-#endif
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!device->pdev);
@@ -295,20 +292,6 @@ int fimc_is_sensor_mclk_on(struct fimc_is_device_sensor *device, u32 scenario, u
 		minfo("%s : already clk on", device, __func__);
 		goto p_err;
 	}
-
-#ifdef CONFIG_COMPANION_USE
-	core = device->private_data;
-	device_preproc = &core->preproc;
-	module_preproc = device_preproc->module;
-
-	if (module_preproc != NULL && module_preproc->position == device->position) {
-		if (test_bit(FIMC_IS_PREPROC_MCLK_ON, &device_preproc->state)) {
-			minfo("%s : sensor mclk will on with companion mclk.\n", device, __func__);
-			set_bit(FIMC_IS_SENSOR_MCLK_ON, &device->state);
-			goto p_err;
-		}
-	}
-#endif
 
 	if (!pdata->mclk_on) {
 		merr("mclk_on is NULL", device);
@@ -334,11 +317,6 @@ int fimc_is_sensor_mclk_off(struct fimc_is_device_sensor *device, u32 scenario, 
 {
 	int ret = 0;
 	struct exynos_platform_fimc_is_sensor *pdata;
-#ifdef CONFIG_COMPANION_USE
-	struct fimc_is_core *core;
-	struct fimc_is_device_preproc *device_preproc = NULL;
-	struct fimc_is_module_enum *module_preproc = NULL;
-#endif
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!device->pdev);
@@ -351,19 +329,6 @@ int fimc_is_sensor_mclk_off(struct fimc_is_device_sensor *device, u32 scenario, 
 		minfo("%s : already clk off", device, __func__);
 		goto p_err;
 	}
-
-#ifdef CONFIG_COMPANION_USE
-	core = device->private_data;
-	device_preproc = &core->preproc;
-	module_preproc = device_preproc->module;
-
-	if (module_preproc != NULL && module_preproc->position == device->position) {
-		if (test_bit(FIMC_IS_PREPROC_MCLK_ON, &device_preproc->state)) {
-			info("%s : companion clk is on. sensor mclk will off with companion mclk\n", __func__);
-			goto p_err;
-		}
-	}
-#endif
 
 	if (!pdata->mclk_off) {
 		merr("mclk_off is NULL", device);
@@ -1058,9 +1023,6 @@ static int fimc_is_sensor_notify_by_fend(struct fimc_is_device_sensor *device, v
 
 		done_state = (frame->result) ? VB2_BUF_STATE_ERROR : VB2_BUF_STATE_DONE;
 		CALL_VOPS(vctx, done, frame->index, done_state);
-
-		/* cache invalidate */
-		CALL_CACHE_BUFS_FINISH(vctx);
 	}
 
 	return ret;
@@ -1658,20 +1620,6 @@ int fimc_is_sensor_s_input(struct fimc_is_device_sensor *device,
 	}
 
 	fimc_is_sensor_peri_init_work(sensor_peri);
-
-	/* set preproc data */
-	if (device->preprocessor && module->ext.preprocessor_con.product_name == device->preprocessor->id) {
-		u32 i2c_channel = module->ext.preprocessor_con.peri_info1.peri_setting.i2c.channel;
-		sensor_peri->subdev_preprocessor = device->subdev_preprocessor;
-		sensor_peri->preprocessor = device->preprocessor;
-		sensor_peri->preprocessor->i2c_lock = &core->i2c_lock[i2c_channel];
-		if (sensor_peri->preprocessor) {
-			set_bit(FIMC_IS_SENSOR_PREPROCESSOR_AVAILABLE, &sensor_peri->peri_state);
-		}
-	} else {
-		sensor_peri->subdev_preprocessor = NULL;
-		sensor_peri->preprocessor = NULL;
-	}
 #endif
 
 	device->pdata->scenario = scenario;
@@ -2276,12 +2224,6 @@ int fimc_is_sensor_register_itf(struct fimc_is_device_sensor *device)
 #ifndef DISABLE_LIB
 	register_sensor_interface register_sensor_itf =
 		(register_sensor_interface)SENSOR_REGISTER_FUNC_ADDR;
-#ifdef CONFIG_COMPANION_DIRECT_USE
-#ifdef USE_RTA_BINARY
-	register_sensor_interface register_preprocessor_itf =
-		(register_sensor_interface)PREPROC_REGISTER_FUNC_ADDR;
-#endif
-#endif
 #endif
 
 	FIMC_BUG(!device);
@@ -2325,26 +2267,6 @@ int fimc_is_sensor_register_itf(struct fimc_is_device_sensor *device)
 		err("[SEN:%d] register_sensor_itf(rta) failed(%d)", module->sensor_id, ret);
 		goto p_err;
 	}
-
-#ifdef CONFIG_COMPANION_DIRECT_USE
-	if (test_bit(FIMC_IS_SENSOR_PREPROCESSOR_AVAILABLE, &sensor_peri->peri_state) &&
-			pdata->preprocessor_product_name != PREPROCESSOR_NAME_NOTHING) {
-		dbg("%s(%d): call register_preprocessor_itf \n", __func__, __LINE__);
-
-		register_preprocessor_itf = (register_sensor_interface)PREPROC_REGISTER_FUNC_ADDR;
-#ifdef ENABLE_FPSIMD_FOR_USER
-		fpsimd_get();
-		ret = register_preprocessor_itf((void *)&sensor_peri->preprocessor_inferface);
-		fpsimd_put();
-#else
-		ret = register_preprocessor_itf((void *)&sensor_peri->preprocessor_inferface);
-#endif
-		if (ret < 0) {
-			err("register_preprocessor_itf failed(%d)", ret);
-			goto p_err;
-		}
-	}
-#endif
 #endif
 #endif
 
@@ -2564,6 +2486,13 @@ static int fimc_is_sensor_back_start(void *qdevice,
 	if (ret) {
 		merr("hw_camif_cfg is error(%d)", device, ret);
 		ret = -EINVAL;
+		goto p_err;
+	}
+
+	ret = v4l2_subdev_call(device->subdev_module, video,
+				s_routing, 0, 0, 0);
+	if (ret) {
+		merr("failed at s_routing for module(%d)", device, ret);
 		goto p_err;
 	}
 
@@ -2899,7 +2828,7 @@ int fimc_is_sensor_runtime_suspend(struct device *dev)
 #if defined(CONFIG_HMP_VARIABLE_SCALE)
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			set_hmp_boost(0);
-#elif defined(CONFIG_SCHED_EHMP)
+#elif defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			gb_qos_update_request(&gb_req, 0);
 #endif

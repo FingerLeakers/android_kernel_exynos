@@ -62,15 +62,16 @@ config USB_DWC3_OMAP
 
 config USB_DWC3_EXYNOS
 	tristate "Samsung Exynos Platform"
-	depends on ARCH_EXYNOS && OF || COMPILE_TEST
+	depends on (ARCH_EXYNOS || COMPILE_TEST) && OF
 	default USB_DWC3
+	select TYPEC
 	help
 	  Recent Exynos5 SoCs ship with one DesignWare Core USB3 IP inside,
 	  say 'Y' or 'M' if you have one such device.
 
 config USB_DWC3_PCI
 	tristate "PCIe-based Platforms"
-	depends on PCI
+	depends on USB_PCI && ACPI
 	default USB_DWC3
 	help
 	  If you're using the DesignWare Core IP with a PCIe, please say
@@ -98,17 +99,11 @@ config USB_DWC3_OF_SIMPLE
 
 config USB_DWC3_ST
 	tristate "STMicroelectronics Platforms"
-	depends on ARCH_STI && OF
+	depends on (ARCH_STI || COMPILE_TEST) && OF
 	default USB_DWC3
 	help
 	  STMicroelectronics SoCs with one DesignWare Core USB3 IP
 	  inside (i.e. STiH407).
 	  Say 'Y' or 'M' if you have one such device.
 
-config USB_ANDROID_SAMSUNG_DISABLE_U1_U2
-	bool "Disable U1/U2 state"
-	depends on USB_DWC3_GADGET=y || USB_DWC3_DUAL_ROLE=y
-	default n
-	help
-	  Select this when you want to disable U1/U2 state in USB 3.0
 endif

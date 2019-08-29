@@ -40,7 +40,7 @@ enum exynos_pm_event {
 
 #define EXYNOS_PM_PREFIX	"EXYNOS-PM:"
 
-int register_usb_is_connect(bool (*func)(void));
+int register_usb_is_connect(u32 (*func)(void));
 
 #ifdef CONFIG_CPU_IDLE
 int exynos_pm_register_notifier(struct notifier_block *nb);
@@ -64,14 +64,33 @@ static inline int exynos_pm_notify(enum exynos_pm_event event)
 #endif
 
 #ifdef CONFIG_EXYNOS_FLEXPMU_DBG
-extern int acpm_get_mifdn_count(void);
+extern u32 acpm_get_mifdn_count(void);
+extern u32 acpm_get_apsocdn_count(void);
+extern u32 acpm_get_early_wakeup_count(void);
 extern int acpm_get_mif_request(void);
 #else
 static inline int acpm_get_mif_request(void)
 {
 	return 0;
 }
-static inline int acpm_get_mifdn_count(void)
+static inline u32 acpm_get_mifdn_count(void)
+{
+	return 0;
+}
+static inline u32 acpm_get_apsocdn_count(void)
+{
+	return 0;
+}
+static inline u32 acpm_get_early_wakeup_count(void)
+{
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_USB_DWC3_EXYNOS
+extern u32 otg_is_connect(void);
+#else
+static inline u32 otg_is_connect(void)
 {
 	return 0;
 }
@@ -81,9 +100,12 @@ static inline int acpm_get_mifdn_count(void)
 enum ids_info {
 	tg,
 	lg,
+	mg,
 	bg,
 	g3dg,
 	mifg,
+	lids,
+	mids,
 	bids,
 	gids,
 };

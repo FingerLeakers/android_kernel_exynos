@@ -26,15 +26,11 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/v4l2-ctrls.h>
-#if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
-#include <media/videobuf2-cma-phys.h>
-#elif defined(CONFIG_VIDEOBUF2_ION)
-#include <media/videobuf2-ion.h>
+#if defined(CONFIG_VIDEOBUF2_DMA_SG)
+#include <media/videobuf2-dma-sg.h>
 #endif
 #include "camerapp-video.h"
 
-/* #define ENABLE_USE_INTERNAL_BUFFER */
-/*#define ENABLE_GDC_CONSTANT_DISTORTION_CORRECTION */
 /* #define ENABLE_GDC_FRAMEWISE_DISTORTION_CORRECTION */
 
 extern int gdc_log_level;
@@ -45,17 +41,11 @@ extern int gdc_log_level;
 			fmt, __func__, __LINE__, ##args);		\
 	} while (0)
 
-#define MODULE_NAME		"exynos5-camerapp-gdc"
+#define MODULE_NAME		"camerapp-gdc"
 #define GDC_TIMEOUT		(2 * HZ)	/* 2 seconds */
 #define GDC_WDT_CNT		3
-#define GDC_MAX_CTRL_NUM		11
 
 #define GDC_MAX_PLANES		3
-/* Address index */
-#define GDC_ADDR_Y		0
-#define GDC_ADDR_CB		1
-#define GDC_ADDR_CBCR		1
-#define GDC_ADDR_CR		2
 
 /* GDC hardware device state */
 #define DEV_RUN		1
@@ -70,6 +60,15 @@ extern int gdc_log_level;
 #define CTX_DST_FMT	6
 #define CTX_INT_FRAME	7 /* intermediate frame available */
 
+/* GDC grid size (x, y) */
+#if defined(CONFIG_CAMERA_PP_GDC_V2_1_0_OBJ)
+#define GRID_X_SIZE		33
+#define GRID_Y_SIZE		33
+#else
+#define GRID_X_SIZE		9
+#define GRID_Y_SIZE		7
+#endif
+
 #define fh_to_gdc_ctx(__fh)	container_of(__fh, struct gdc_ctx, fh)
 #define gdc_fmt_is_rgb888(x)	((x == V4L2_PIX_FMT_RGB32) || \
 		(x == V4L2_PIX_FMT_BGR32))
@@ -83,14 +82,6 @@ extern int gdc_log_level;
 			(x == V4L2_PIX_FMT_NV21M) || (x == V4L2_PIX_FMT_YUV420M) || \
 			(x == V4L2_PIX_FMT_YVU420M) || (x == V4L2_PIX_FMT_NV12MT_16X16))
 #define gdc_fmt_is_ayv12(x)	((x) == V4L2_PIX_FMT_YVU420)
-
-#ifdef CONFIG_VIDEOBUF2_ION
-#define gdc_buf_sync_prepare vb2_ion_buf_prepare
-#define gdc_buf_sync_finish vb2_ion_buf_finish
-#else
-void gdc_buf_sync_finish(struct vb2_buffer *vb);
-int gdc_buf_sync_prepare(struct vb2_buffer *vb);
-#endif
 
 enum gdc_clk_status {
 	GDC_CLK_ON,
@@ -195,17 +186,12 @@ struct gdc_wdt {
 	atomic_t		cnt;
 };
 
-enum GDC_CONTEXT_TYPE {
-	GDC_CTX_V4L2_TYPE,
-	GDC_CTX_M2M1SHOT_TYPE
-};
-
 struct gdc_grid_param {
 	bool is_valid;
 	u32 prev_width;
 	u32 prev_height;
-	int dx[7][9];
-	int dy[7][9];
+	int dx[GRID_Y_SIZE][GRID_X_SIZE];
+	int dy[GRID_Y_SIZE][GRID_X_SIZE];
 };
 
 struct gdc_crop_param {
@@ -218,19 +204,19 @@ struct gdc_crop_param {
 	u32 crop_height;
 	bool is_crop_dzoom;
 	bool is_scaled;
+	bool use_calculated_grid;
+	int calculated_grid_x[GRID_Y_SIZE][GRID_X_SIZE];
+	int calculated_grid_y[GRID_Y_SIZE][GRID_X_SIZE];
 	int reserved[32];
 };
 
 /*
  * gdc_ctx - the abstration for GDC open context
  * @node:		list to be added to gdc_dev.context_list
- * @context_type	determines if the context is @m2m_ctx or @m21_ctx.
  * @gdc_dev:		the GDC device this context applies to
  * @m2m_ctx:		memory-to-memory device context
- * @m21_ctx:		m2m1shot context
  * @frame:		source frame properties
  * @fh:			v4l2 file handle
- * @ktime:		start time of a task of m2m1shot
  * @flip_rot_cfg:	rotation and flip configuration
  * @bl_op:		image blend mode
  * @dith:		image dithering mode
@@ -240,25 +226,17 @@ struct gdc_crop_param {
  */
 struct gdc_ctx {
 	struct list_head		node;
-	enum GDC_CONTEXT_TYPE		context_type;
 	struct gdc_dev		*gdc_dev;
-	union {
-		struct v4l2_m2m_ctx		*m2m_ctx;
-		struct m2m1shot_context		*m21_ctx;
-	};
+	struct v4l2_m2m_ctx		*m2m_ctx;
 	struct gdc_frame		s_frame;
 	struct gdc_frame		d_frame;
-	union {
-		struct v4l2_fh		fh;
-		ktime_t		ktime_m2m1shot;
-	};
+	struct v4l2_fh		fh;
 	unsigned long		flags;
 	struct gdc_grid_param		grid_param;
 	struct gdc_crop_param		crop_param;
 };
 
 struct gdc_priv_buf {
-	void	*cookie;
 	dma_addr_t	daddr;
 	void	*vaddr;
 	size_t	size;
@@ -290,7 +268,6 @@ struct gdc_dev {
 	struct device			*dev;
 	const struct gdc_variant		*variant;
 	struct gdc_m2m_device		m2m;
-	struct m2m1shot_device		*m21dev;
 	struct clk			*aclk;
 	struct clk			*pclk;
 	struct clk			*clk_chld;
@@ -303,21 +280,14 @@ struct gdc_dev {
 	struct vb2_alloc_ctx		*alloc_ctx;
 	spinlock_t			slock;
 	struct mutex			lock;
-	struct workqueue_struct		*fence_wq;
 	struct gdc_wdt			wdt;
 	spinlock_t			ctxlist_lock;
 	struct gdc_ctx			*current_ctx;
 	struct list_head		context_list; /* for gdc_ctx_abs.node */
-	struct pm_qos_request		qosreq_int;
-	s32				qosreq_int_level;
+	struct pm_qos_request		qosreq_intcam;
+	s32				qosreq_intcam_level;
 	int				dev_id;
 	u32				version;
-
-#ifdef ENABLE_USE_INTERNAL_BUFFER
-	struct vb2_alloc_ctx		*alloc_ctx_priv;
-	struct gdc_priv_buf		grid_x_buf;
-	struct gdc_priv_buf		grid_y_buf;
-#endif
 };
 
 static inline struct gdc_frame *ctx_get_frame(struct gdc_ctx *ctx,
@@ -347,17 +317,20 @@ void camerapp_gdc_sfr_dump(void __iomem *base_addr);
 u32 camerapp_hw_gdc_get_intr_status_and_clear(void __iomem *base_addr);
 void camerapp_gdc_grid_setting(struct gdc_dev *gdc);
 
-#ifdef CONFIG_VIDEOBUF2_ION
-static inline int gdc_get_dma_address(void *cookie, dma_addr_t *addr)
+#ifdef CONFIG_VIDEOBUF2_DMA_SG
+static inline dma_addr_t gdc_get_dma_address(struct vb2_buffer *vb2_buf, u32 plane)
 {
-	return vb2_ion_dma_address(cookie, addr);
+	return vb2_dma_sg_plane_dma_addr(vb2_buf, plane);
 }
 
-#define gdc_get_kernel_address vb2_ion_private_vaddr
-#else
-static inline int gdc_get_dma_address(void *cookie, dma_addr_t *addr)
+static inline void  *gdc_get_kvaddr(struct vb2_buffer *vb2_buf, u32 plane)
 {
-	return -ENOSYS;
+	return vb2_plane_vaddr(vb2_buf, plane);
+}
+#else
+static inline dma_addr_t gdc_get_dma_address(void *cookie, dma_addr_t *addr)
+{
+	return NULL;
 }
 
 static inline void *gdc_get_kernel_address(void *cookie)

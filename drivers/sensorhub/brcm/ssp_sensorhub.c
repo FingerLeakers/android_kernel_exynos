@@ -62,13 +62,22 @@ static int ssp_sensorhub_send_cmd(struct ssp_sensorhub_data *hub_data,
 		sensorhub_err("MSG2SSP_INST_LIB_NOTI err(%d)", buf[2]);
 		return -EINVAL;
 	}
-
+#ifdef CONFIG_PANEL_NOTIFY
+	if (buf[2] == MSG2SSP_AP_STATUS_WAKEUP ||
+		buf[2] == MSG2SSP_AP_STATUS_SLEEP) {
+		ret = SUCCESS;
+	} else {
+		ret = ssp_send_cmd(hub_data->ssp_data, buf[2], 0);
+	}
+#else
 	ret = ssp_send_cmd(hub_data->ssp_data, buf[2], 0);
+#endif
 
+#ifndef CONFIG_PANEL_NOTIFY
 	if (buf[2] == MSG2SSP_AP_STATUS_WAKEUP ||
 		buf[2] == MSG2SSP_AP_STATUS_SLEEP)
 		hub_data->ssp_data->uLastAPState = buf[2];
-
+#endif
 	if (buf[2] == MSG2SSP_AP_STATUS_SUSPEND ||
 		buf[2] == MSG2SSP_AP_STATUS_RESUME)
 		hub_data->ssp_data->uLastResumeState = buf[2];
@@ -300,7 +309,7 @@ void ssp_sensorhub_report_notice(struct ssp_data *ssp_data, char notice)
 	index += sizeof(short);
 	memcpy(&sensorsdata.scontext_buf[index], reportData, size + 1);
 
-	report_scontext_data(ssp_data, &sensorsdata);
+	report_scontext_data(ssp_data, META_SENSOR+1, &sensorsdata);
 
 	if (notice == MSG2SSP_AP_STATUS_WAKEUP)
 		sensorhub_info("wake up");

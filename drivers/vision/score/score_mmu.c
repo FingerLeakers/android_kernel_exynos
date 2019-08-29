@@ -14,6 +14,7 @@
 #include <linux/slab.h>
 #include <linux/dma-buf.h>
 #include <linux/freezer.h>
+#include <linux/fdtable.h>
 #include <linux/version.h>
 #if (KERNEL_VERSION(4, 11, 0) <= LINUX_VERSION_CODE)
 #include <uapi/linux/sched/types.h>
@@ -36,7 +37,6 @@ enum score_mmu_buffer_state {
 	BUF_STATE_END
 };
 
-#if defined(CONFIG_EXYNOS_SCORE_FPGA)
 static void __score_mmu_context_del_list_dmabuf(struct score_mmu_context *ctx,
 		struct score_mmu_buffer *kbuf)
 {
@@ -62,10 +62,10 @@ static void __score_mmu_context_unmap_dmabuf(struct score_mmu_context *ctx,
 		struct score_mmu_buffer *kbuf)
 {
 	score_enter();
-	if (!kbuf->mirror) {
+	if (!kbuf->mirror)
 		__score_mmu_context_del_list_dmabuf(ctx, kbuf);
-		dma_buf_put(kbuf->dbuf);
-	}
+
+	dma_buf_put(kbuf->dbuf);
 	score_leave();
 }
 
@@ -84,7 +84,8 @@ static void __score_mmu_context_unmap_buffer(struct score_mmu_context *ctx,
 	}
 	score_leave();
 }
-#else
+
+#if defined(CONFIG_EXYNOS_SCORE)
 static void __score_mmu_context_freelist_add_dmabuf(
 		struct score_mmu_context *ctx,
 		struct score_mmu_buffer *kbuf)
@@ -92,9 +93,6 @@ static void __score_mmu_context_freelist_add_dmabuf(
 	struct score_mmu *mmu;
 
 	score_enter();
-	if (kbuf->mirror)
-		return;
-
 	mmu = ctx->mmu;
 	spin_lock(&ctx->dbuf_slock);
 	if (list_empty(&kbuf->list)) {
@@ -127,7 +125,6 @@ static void __score_mmu_context_freelist_add(struct score_mmu_context *ctx,
 	}
 	score_leave();
 }
-
 #endif
 
 void score_mmu_unmap_buffer(struct score_mmu_context *ctx,
@@ -136,9 +133,11 @@ void score_mmu_unmap_buffer(struct score_mmu_context *ctx,
 	score_enter();
 #if defined(CONFIG_EXYNOS_SCORE_FPGA)
 	__score_mmu_context_unmap_buffer(ctx, kbuf);
-	kfree(kbuf);
 #else
-	__score_mmu_context_freelist_add(ctx, kbuf);
+	if (kbuf->mirror)
+		__score_mmu_context_unmap_buffer(ctx, kbuf);
+	else
+		__score_mmu_context_freelist_add(ctx, kbuf);
 #endif
 	score_leave();
 }
@@ -155,9 +154,6 @@ static int __score_mmu_copy_dmabuf(struct score_mmu_buffer *cur_buf,
 			udelay(10);
 			continue;
 		}
-		cur_buf->dbuf = list_buf->dbuf;
-		cur_buf->attachment = list_buf->attachment;
-		cur_buf->sgt = list_buf->sgt;
 		cur_buf->dvaddr = list_buf->dvaddr;
 		break;
 	}
@@ -199,7 +195,6 @@ static int __score_mmu_context_add_list_dmabuf(struct score_mmu_context *ctx,
 	if (!ctx->dbuf_count) {
 		list_add_tail(&kbuf->list, &ctx->dbuf_list);
 		ctx->dbuf_count++;
-		kbuf->mirror = false;
 		ret = BUF_STATE_NEW;
 		goto p_end;
 	}
@@ -208,7 +203,6 @@ static int __score_mmu_context_add_list_dmabuf(struct score_mmu_context *ctx,
 		if (kbuf->dbuf > list_buf->dbuf) {
 			list_add_tail(&kbuf->list, &list_buf->list);
 			ctx->dbuf_count++;
-			kbuf->mirror = false;
 			ret = BUF_STATE_NEW;
 			goto p_end;
 		} else if (kbuf->dbuf == list_buf->dbuf) {
@@ -218,7 +212,6 @@ static int __score_mmu_context_add_list_dmabuf(struct score_mmu_context *ctx,
 			} else {
 				list_replace_init(&list_buf->list,
 						&kbuf->list);
-				kbuf->mirror = false;
 				score_mmu_freelist_add(mmu, list_buf);
 				ret = BUF_STATE_REPLACE;
 			}
@@ -234,7 +227,6 @@ static int __score_mmu_context_add_list_dmabuf(struct score_mmu_context *ctx,
 
 	list_add_tail(&kbuf->list, &ctx->dbuf_list);
 	ctx->dbuf_count++;
-	kbuf->mirror = false;
 	ret = BUF_STATE_NEW;
 p_end:
 	spin_unlock(&ctx->dbuf_slock);
@@ -242,7 +234,6 @@ p_end:
 	if (ret == BUF_STATE_NEW) {
 		ret = mmu->mmu_ops->map_dmabuf(mmu, kbuf);
 	} else if (ret == BUF_STATE_REGISTERED) {
-		dma_buf_put(kbuf->dbuf);
 		ret = __score_mmu_copy_dmabuf(kbuf, list_buf);
 	} else if (ret == BUF_STATE_REPLACE) {
 		ret = mmu->mmu_ops->map_dmabuf(mmu, kbuf);
@@ -279,7 +270,7 @@ static int __score_mmu_context_map_dmabuf(struct score_mmu_context *ctx,
 	}
 
 	dbuf = dma_buf_get(kbuf->m.fd);
-	if (IS_ERR_OR_NULL(dbuf)) {
+	if (IS_ERR(dbuf)) {
 		score_err("dma_buf is invalid (fd:%d)\n", kbuf->m.fd);
 		ret = -EINVAL;
 		goto p_err;
@@ -287,7 +278,7 @@ static int __score_mmu_context_map_dmabuf(struct score_mmu_context *ctx,
 	kbuf->dbuf = dbuf;
 
 	if ((dbuf->size - kbuf->offset) < kbuf->size) {
-		score_err("user buffer size is small((%zd - %ld) < %zd)\n",
+		score_err("user buffer size is small((%zd - %u) < %zd)\n",
 				dbuf->size, kbuf->offset, kbuf->size);
 		ret = -EINVAL;
 		goto p_err_size;
@@ -309,48 +300,83 @@ p_err:
 	return ret;
 }
 
+static struct dma_buf *__score_mmu_get_dma_buf_from_file(struct file *filp)
+{
+	int ret;
+	int fd;
+	struct dma_buf *dbuf;
+
+	score_enter();
+	get_file(filp);
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0) {
+		ret = fd;
+		score_err("Failed to get unused fd (%d)\n", ret);
+		goto p_err_fd;
+	}
+
+	fd_install(fd, filp);
+
+	dbuf = dma_buf_get(fd);
+	if (IS_ERR(dbuf)) {
+		ret = IS_ERR(dbuf);
+		score_err("Failed to get dma_buf from file (%d)\n", ret);
+		goto p_err_dbuf;
+	}
+
+	__close_fd(current->files, fd);
+
+	score_leave();
+	return dbuf;
+p_err_dbuf:
+	__close_fd(current->files, fd);
+p_err_fd:
+	fput(filp);
+	return ERR_PTR(ret);
+}
+
 static int __score_mmu_context_map_userptr(struct score_mmu_context *ctx,
 		struct score_mmu_buffer *kbuf)
 {
 	int ret = 0;
 	unsigned long addr;
 	struct vm_area_struct *vma;
+	unsigned long vm_start;
 	struct dma_buf *dbuf;
 	struct score_mmu *mmu;
 
 	score_enter();
 	addr = kbuf->m.userptr;
 
+	down_read(&current->mm->mmap_sem);
 	vma = find_vma(current->mm, addr);
 	if (!vma || (addr < vma->vm_start) || (addr > vma->vm_end)) {
+		up_read(&current->mm->mmap_sem);
 		score_err("User buffer(%#lx) is invalid\n", addr);
 		ret = -EINVAL;
 		goto p_err;
 	}
+	vm_start = vma->vm_start;
 
 	if (!vma->vm_file) {
+		up_read(&current->mm->mmap_sem);
 		score_err("User buffer(%#lx) does not map a file\n", addr);
 		ret = -EINVAL;
 		goto p_err;
 	}
 
-#if defined(CONFIG_EXYNOS_SCORE_V2)
-	dbuf = get_dma_buf_file(vma->vm_file);
-#else
-	score_err("not supported yet\n");
-	ret = -EINVAL;
-	goto p_err;
-#endif
-	if (IS_ERR_OR_NULL(dbuf)) {
-		score_err("dma_buf is invalid (ptr:%#lx)\n", addr);
+	dbuf = __score_mmu_get_dma_buf_from_file(vma->vm_file);
+	up_read(&current->mm->mmap_sem);
+
+	if (IS_ERR(dbuf)) {
 		ret = -EINVAL;
 		goto p_err;
 	}
 	kbuf->dbuf = dbuf;
 
-	kbuf->offset += (addr - vma->vm_start);
+	kbuf->offset += (unsigned int)(addr - vm_start);
 	if ((dbuf->size - kbuf->offset) < kbuf->size) {
-		score_err("user buffer size is small((%zd - %ld) < %zd)\n",
+		score_err("user buffer size is small((%zd - %u) < %zd)\n",
 				dbuf->size, kbuf->offset, kbuf->size);
 		ret = -EINVAL;
 		goto p_err_size;
@@ -396,35 +422,21 @@ p_err:
 	return ret;
 }
 
-void *score_mmu_map_buffer(struct score_mmu_context *ctx,
-		struct score_host_buffer *buf)
+int score_mmu_map_buffer(struct score_mmu_context *ctx,
+		struct score_mmu_buffer *kbuf)
 {
 	int ret;
-	struct score_mmu_buffer *kbuf;
 
 	score_enter();
-	kbuf = kzalloc(sizeof(*kbuf), GFP_KERNEL);
-	if (!kbuf) {
-		ret = -ENOMEM;
-		score_err("Fail to alloc mmu buffer\n");
-		goto p_err;
-	}
-
-	kbuf->type = buf->memory_type;
-	kbuf->size = buf->memory_size;
-	kbuf->m.mem_info = buf->m.mem_info;
-	kbuf->offset = buf->addr_offset;
 
 	ret = __score_mmu_context_map_buffer(ctx, kbuf);
 	if (ret)
-		goto p_err_map;
+		goto p_err;
 
 	score_leave();
-	return kbuf;
-p_err_map:
-	kfree(kbuf);
+	return 0;
 p_err:
-	return ERR_PTR(ret);
+	return ret;
 }
 
 static void score_mmu_check_useless(struct kthread_work *work)

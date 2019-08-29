@@ -1100,8 +1100,6 @@ static int csi_init(struct v4l2_subdev *subdev, u32 value)
 	csi->sensor_cfg = module->cfg;
 	csi->vcis = module->vcis;
 	csi->vci = module->vci;
-	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
-		csi->internal_vc[ch] = module->internal_vc[ch]; /* internal vc setting */
 	csi->image.framerate = SENSOR_DEFAULT_FRAMERATE; /* default frame rate */
 	csi->mode = module->mode;
 	/* default value */

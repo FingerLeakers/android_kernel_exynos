@@ -13,7 +13,6 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/memblock.h>
-#include <linux/iommu.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
@@ -33,7 +32,6 @@ struct abox_vdma_rtd {
 	struct snd_pcm_substream *substream;
 	unsigned long iova;
 	size_t pointer;
-	bool ack_enabled;
 	bool iommu_mapped;
 };
 
@@ -120,12 +118,14 @@ static int abox_vdma_open(struct snd_pcm_substream *substream)
 
 	dev_dbg(dev, "%s[%d:%c]\n", __func__, id, substream_to_char(substream));
 
+	abox_wait_restored(dev_get_drvdata(abox_vdma_dev_abox));
+
+	rtd->substream = substream;
 	snd_soc_set_runtime_hwparams(substream, &rtd->hardware);
 
 	msg.ipcid = abox_stream_to_ipcid(substream->stream);
 	msg.task_id = pcmtask_msg->channel_id = id;
 	pcmtask_msg->msgtype = PCM_PLTDAI_OPEN;
-
 	return abox_vdma_request_ipc(&msg, 0, 0);
 }
 
@@ -135,15 +135,19 @@ static int abox_vdma_close(struct snd_pcm_substream *substream)
 	struct snd_soc_platform *platform = soc_rtd->platform;
 	struct device *dev = platform->dev;
 	int id = to_platform_device(dev)->id;
+	struct abox_vdma_info *info = snd_soc_platform_get_drvdata(platform);
+	struct abox_vdma_rtd *rtd = abox_vdma_get_rtd(info, substream->stream);
 	ABOX_IPC_MSG msg;
 	struct IPC_PCMTASK_MSG *pcmtask_msg = &msg.msg.pcmtask;
 
 	dev_dbg(dev, "%s[%d:%c]\n", __func__, id, substream_to_char(substream));
 
+	rtd->substream = NULL;
+
 	msg.ipcid = abox_stream_to_ipcid(substream->stream);
 	msg.task_id = pcmtask_msg->channel_id = id;
 	pcmtask_msg->msgtype = PCM_PLTDAI_CLOSE;
-	return abox_vdma_request_ipc(&msg, 0, 0);
+	return abox_vdma_request_ipc(&msg, 0, 1);
 }
 
 static int abox_vdma_hw_params(struct snd_pcm_substream *substream,
@@ -235,13 +239,10 @@ static int abox_vdma_trigger(struct snd_pcm_substream *substream, int cmd)
 	int id = to_platform_device(dev)->id;
 	ABOX_IPC_MSG msg;
 	struct IPC_PCMTASK_MSG *pcmtask_msg = &msg.msg.pcmtask;
-	struct platform_device *pdev_abox;
 	int ret;
 
 	dev_info(dev, "%s[%d:%c](%d)\n", __func__, id,
 			substream_to_char(substream), cmd);
-
-	pdev_abox = to_platform_device(abox_vdma_dev_abox);
 
 	msg.ipcid = abox_stream_to_ipcid(substream->stream);
 	msg.task_id = pcmtask_msg->channel_id = id;
@@ -251,8 +252,6 @@ static int abox_vdma_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		if (memblock_is_memory(substream->runtime->dma_addr))
-			abox_request_dram_on(pdev_abox, dev, true);
 		pcmtask_msg->param.trigger = 1;
 		ret = abox_vdma_request_ipc(&msg, 1, 0);
 		break;
@@ -261,8 +260,6 @@ static int abox_vdma_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		pcmtask_msg->param.trigger = 0;
 		ret = abox_vdma_request_ipc(&msg, 1, 0);
-		if (memblock_is_memory(substream->runtime->dma_addr))
-			abox_request_dram_on(pdev_abox, dev, false);
 		break;
 	default:
 		dev_err(dev, "invalid command: %d\n", cmd);
@@ -293,15 +290,14 @@ static int abox_vdma_ack(struct snd_pcm_substream *substream)
 	struct snd_soc_platform *platform = soc_rtd->platform;
 	struct device *dev = platform->dev;
 	int id = to_platform_device(dev)->id;
-	struct abox_vdma_info *info = snd_soc_platform_get_drvdata(platform);
-	struct abox_vdma_rtd *rtd = abox_vdma_get_rtd(info, substream->stream);
 	snd_pcm_uframes_t appl_ptr = pcm_rtd->control->appl_ptr;
 	snd_pcm_uframes_t appl_ofs = appl_ptr % pcm_rtd->buffer_size;
 	ssize_t appl_bytes = frames_to_bytes(pcm_rtd, appl_ofs);
 	ABOX_IPC_MSG msg;
 	struct IPC_PCMTASK_MSG *pcmtask_msg = &msg.msg.pcmtask;
 
-	if (!rtd->ack_enabled)
+	/* Firmware doesn't need ack of capture stream. */
+	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
 		return 0;
 
 	dev_dbg(dev, "%s[%d:%c]: %zd\n", __func__, id,
@@ -312,7 +308,7 @@ static int abox_vdma_ack(struct snd_pcm_substream *substream)
 	pcmtask_msg->msgtype = PCM_PLTDAI_ACK;
 	pcmtask_msg->param.pointer = (unsigned int)appl_bytes;
 
-	return abox_vdma_request_ipc(&msg, 0, 0);
+	return abox_vdma_request_ipc(&msg, 1, 0);
 }
 
 static struct snd_pcm_ops abox_vdma_platform_ops = {
@@ -359,7 +355,7 @@ static int abox_vdma_platform_new(struct snd_soc_pcm_runtime *soc_rtd)
 			info->rtd[i].iova = abox_vdma_get_iova(id, i);
 
 		if (info->rtd[i].buffer.bytes == 0)
-			info->rtd[i].buffer.bytes = BUFFER_BYTES_MAX;
+			info->rtd[i].buffer.bytes = BUFFER_BYTES_MIN;
 
 		if (info->rtd[i].buffer.addr) {
 			substream->dma_buffer = info->rtd[i].buffer;
@@ -376,7 +372,8 @@ static int abox_vdma_platform_new(struct snd_soc_pcm_runtime *soc_rtd)
 		if (abox_iova_to_phys(dev_abox, info->rtd[i].iova) == 0) {
 			ret = abox_iommu_map(dev_abox, info->rtd[i].iova,
 					substream->dma_buffer.addr,
-					substream->dma_buffer.bytes);
+					substream->dma_buffer.bytes,
+					substream->dma_buffer.area);
 			if (ret < 0)
 				return ret;
 
@@ -409,9 +406,7 @@ static void abox_vdma_platform_free(struct snd_pcm *pcm)
 		info->rtd[i].substream = NULL;
 
 		if (info->rtd[i].iommu_mapped) {
-			abox_iommu_unmap(dev_abox, info->rtd[i].iova,
-					substream->dma_buffer.addr,
-					substream->dma_buffer.bytes);
+			abox_iommu_unmap(dev_abox, info->rtd[i].iova);
 			info->rtd[i].iommu_mapped = false;
 		}
 
@@ -430,7 +425,7 @@ struct snd_soc_platform_driver abox_vdma_platform = {
 	.pcm_free	= abox_vdma_platform_free,
 };
 
-static irqreturn_t abox_vdma_irq_handler(int ipc_id, void *dev_id,
+static irqreturn_t abox_vdma_ipc_handler(int ipc_id, void *dev_id,
 		ABOX_IPC_MSG *msg)
 {
 	struct IPC_PCMTASK_MSG *pcmtask_msg = &msg->msg.pcmtask;
@@ -447,19 +442,20 @@ static irqreturn_t abox_vdma_irq_handler(int ipc_id, void *dev_id,
 		abox_vdma_period_elapsed(info, rtd, pcmtask_msg->param.pointer);
 		break;
 	case PCM_PLTDAI_ACK:
-		rtd->ack_enabled = !!pcmtask_msg->param.trigger;
+		/* Ignore ack request and always send ack IPC to firmware. */
 		break;
 	case PCM_PLTDAI_REGISTER:
 	{
 		struct PCMTASK_HARDWARE *hardware;
 		struct device *dev_abox = dev_id;
 		struct abox_data *data = dev_get_drvdata(dev_abox);
+		void *area;
+		phys_addr_t addr;
 
 		hardware = &pcmtask_msg->param.hardware;
-		abox_vdma_register(dev_abox, id, stream,
-				abox_addr_to_kernel_addr(data, hardware->addr),
-				abox_addr_to_phys_addr(data, hardware->addr),
-				hardware);
+		area = abox_addr_to_kernel_addr(data, hardware->addr);
+		addr = abox_addr_to_phys_addr(data, hardware->addr);
+		abox_vdma_register(dev_abox, id, stream, area, addr, hardware);
 		break;
 	}
 	default:
@@ -483,11 +479,6 @@ void abox_vdma_register_work_func(struct work_struct *work)
 	struct abox_vdma_info *info;
 
 	dev_dbg(abox_vdma_dev_abox, "%s\n", __func__);
-
-	if (!abox_vdma_card.dev) {
-		platform_device_register_data(abox_vdma_dev_abox,
-				"samsung-abox-vdma", -1, NULL, 0);
-	}
 
 	for (info = abox_vdma_list; (info - abox_vdma_list) <
 			ARRAY_SIZE(abox_vdma_list); info++) {
@@ -514,12 +505,11 @@ int abox_vdma_register(struct device *dev, int id, int stream,
 	if (!info || !rtd)
 		return -EINVAL;
 
-	if (info->dev && rtd->iova)
+	if (info->dev)
 		return -EEXIST;
 
-	dev_info(dev, "%s(%d, %s, %d, %p, %pa, %u)\n", __func__,
-			id, pcm_hardware->name, stream, area, &addr,
-			pcm_hardware->buffer_bytes_max);
+	dev_info(dev, "%s(%d, %s, %d, %u)\n", __func__, id, pcm_hardware->name,
+			stream, pcm_hardware->buffer_bytes_max);
 
 	info->id = id;
 	strncpy(info->name, pcm_hardware->name, sizeof(info->name) - 1);
@@ -551,7 +541,7 @@ int abox_vdma_register(struct device *dev, int id, int stream,
 	hardware->periods_min = pcm_hardware->periods_min;
 	hardware->periods_max = pcm_hardware->periods_max;
 
-	abox_vdma_dev_abox = info->dev = dev;
+	info->dev = dev;
 	schedule_work(&abox_vdma_register_work);
 
 	return 0;
@@ -562,8 +552,6 @@ static void abox_vdma_register_card_work_func(struct work_struct *work)
 	int i;
 
 	dev_dbg(abox_vdma_dev_abox, "%s\n", __func__);
-
-	snd_soc_unregister_card(&abox_vdma_card);
 
 	for (i = 0; i < abox_vdma_card.num_links; i++) {
 		struct snd_soc_dai_link *link = &abox_vdma_card.dai_link[i];
@@ -580,11 +568,10 @@ static void abox_vdma_register_card_work_func(struct work_struct *work)
 		link->codec_dai_name = "snd-soc-dummy-dai";
 		link->no_pcm = 1;
 	}
-
-	snd_soc_register_card(&abox_vdma_card);
+	abox_register_extra_sound_card(abox_vdma_card.dev, &abox_vdma_card, 1);
 }
 
-DECLARE_DELAYED_WORK(abox_vdma_register_card_work,
+static DECLARE_DELAYED_WORK(abox_vdma_register_card_work,
 		abox_vdma_register_card_work_func);
 
 static int abox_vdma_add_dai_link(struct device *dev)
@@ -636,8 +623,9 @@ static int samsung_abox_vdma_probe(struct platform_device *pdev)
 
 	dev_dbg(dev, "%s[%d]\n", __func__, id);
 
-	if (id <= 0) {
+	if (id < 0) {
 		abox_vdma_card.dev = &pdev->dev;
+		schedule_delayed_work(&abox_vdma_register_card_work, 0);
 	} else {
 		info->dev = dev;
 		pm_runtime_no_callbacks(dev);
@@ -716,21 +704,17 @@ static const struct PCMTASK_HARDWARE test_hardware = {
 };
 #endif
 
-static int __init samsung_abox_vdma_initcall(void)
+void abox_vdma_init(struct device *dev_abox)
 {
-	struct abox_data *data = abox_get_abox_data();
-	struct device *dev_abox;
+	dev_info(dev_abox, "%s\n", __func__);
 
-	if (!data)
-		return 0;
-
-	pr_info("%s\n", __func__);
-
-	dev_abox = &abox_get_abox_data()->pdev->dev;
-	abox_register_irq_handler(dev_abox, IPC_PCMPLAYBACK,
-			abox_vdma_irq_handler, dev_abox);
-	abox_register_irq_handler(dev_abox, IPC_PCMCAPTURE,
-			abox_vdma_irq_handler, dev_abox);
+	abox_vdma_dev_abox = dev_abox;
+	abox_register_ipc_handler(dev_abox, IPC_PCMPLAYBACK,
+			abox_vdma_ipc_handler, dev_abox);
+	abox_register_ipc_handler(dev_abox, IPC_PCMCAPTURE,
+			abox_vdma_ipc_handler, dev_abox);
+	platform_device_register_data(dev_abox,
+			"samsung-abox-vdma", -1, NULL, 0);
 #ifdef TEST
 	abox_vdma_register(dev_abox, 102, SNDRV_PCM_STREAM_PLAYBACK, test_buf,
 			virt_to_phys(test_buf), &test_hardware);
@@ -738,9 +722,7 @@ static int __init samsung_abox_vdma_initcall(void)
 			virt_to_phys(test_buf), &test_hardware);
 	schedule_delayed_work(&test_work, HZ * 5);
 #endif
-	return 0;
 }
-late_initcall(samsung_abox_vdma_initcall);
 
 /* Module information */
 MODULE_AUTHOR("Gyeongtaek Lee, <gt82.lee@samsung.com>");

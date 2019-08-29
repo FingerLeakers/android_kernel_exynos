@@ -112,39 +112,17 @@ static int samsung_kbd_mouse_input_mapping(struct hid_device *hdev,
 
 	switch (usage->hid & HID_USAGE) {
 	/* report 2 */
-	case 0x183:
-		samsung_kbd_mouse_map_key_clear(KEY_MEDIA);
-		break;
-	case 0x195:
-		samsung_kbd_mouse_map_key_clear(KEY_EMAIL);
-		break;
-	case 0x196:
-		samsung_kbd_mouse_map_key_clear(KEY_CALC);
-		break;
-	case 0x197:
-		samsung_kbd_mouse_map_key_clear(KEY_COMPUTER);
-		break;
-	case 0x22b:
-		samsung_kbd_mouse_map_key_clear(KEY_SEARCH);
-		break;
-	case 0x22c:
-		samsung_kbd_mouse_map_key_clear(KEY_WWW);
-		break;
-	case 0x22d:
-		samsung_kbd_mouse_map_key_clear(KEY_BACK);
-		break;
-	case 0x22e:
-		samsung_kbd_mouse_map_key_clear(KEY_FORWARD);
-		break;
-	case 0x22f:
-		samsung_kbd_mouse_map_key_clear(KEY_FAVORITES);
-		break;
-	case 0x230:
-		samsung_kbd_mouse_map_key_clear(KEY_REFRESH);
-		break;
-	case 0x231:
-		samsung_kbd_mouse_map_key_clear(KEY_STOP);
-		break;
+	case 0x183: samsung_kbd_mouse_map_key_clear(KEY_MEDIA); break;
+	case 0x195: samsung_kbd_mouse_map_key_clear(KEY_EMAIL);	break;
+	case 0x196: samsung_kbd_mouse_map_key_clear(KEY_CALC); break;
+	case 0x197: samsung_kbd_mouse_map_key_clear(KEY_COMPUTER); break;
+	case 0x22b: samsung_kbd_mouse_map_key_clear(KEY_SEARCH); break;
+	case 0x22c: samsung_kbd_mouse_map_key_clear(KEY_WWW); break;
+	case 0x22d: samsung_kbd_mouse_map_key_clear(KEY_BACK); break;
+	case 0x22e: samsung_kbd_mouse_map_key_clear(KEY_FORWARD); break;
+	case 0x22f: samsung_kbd_mouse_map_key_clear(KEY_FAVORITES); break;
+	case 0x230: samsung_kbd_mouse_map_key_clear(KEY_REFRESH); break;
+	case 0x231: samsung_kbd_mouse_map_key_clear(KEY_STOP); break;
 	default:
 		return 0;
 	}
@@ -498,7 +476,7 @@ static int samsung_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 {
 	int ret = 0;
 
-	if (hdev->product == USB_DEVICE_ID_SAMSUNG_WIRELESS_KBD_MOUSE)
+	if (USB_DEVICE_ID_SAMSUNG_WIRELESS_KBD_MOUSE == hdev->product)
 		ret = samsung_kbd_mouse_input_mapping(hdev,
 			hi, field, usage, bit, max);
 	else if (hdev->product == USB_DEVICE_ID_SAMSUNG_WIRELESS_KBD)

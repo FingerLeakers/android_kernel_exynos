@@ -43,6 +43,7 @@ struct abox_log_buffer_info {
 	struct device *dev;
 	int id;
 	bool file_created;
+	atomic_t opened;
 	ssize_t file_index;
 	struct mutex lock;
 	struct ABOX_LOG_BUFFER *log_buffer;
@@ -215,8 +216,22 @@ static int abox_log_file_open(struct inode *inode, struct  file *file)
 
 	dev_dbg(info->dev, "%s\n", __func__);
 
+	if (atomic_cmpxchg(&info->opened, 0, 1))
+		return -EBUSY;
+
 	info->file_index = -1;
 	file->private_data = info;
+
+	return 0;
+}
+
+static int abox_log_file_release(struct inode *inode, struct file *file)
+{
+	struct abox_log_buffer_info *info = inode->i_private;
+
+	dev_dbg(info->dev, "%s\n", __func__);
+
+	atomic_cmpxchg(&info->opened, 1, 0);
 
 	return 0;
 }
@@ -300,6 +315,7 @@ static unsigned int abox_log_file_poll(struct file *file, poll_table *wait)
 
 static const struct file_operations abox_log_fops = {
 	.open = abox_log_file_open,
+	.release = abox_log_file_release,
 	.read = abox_log_file_read,
 	.poll = abox_log_file_poll,
 	.llseek = generic_file_llseek,
@@ -323,12 +339,13 @@ void abox_log_register_buffer_work_func(struct work_struct *work)
 	abox_log_buffer_info_new.id = 0;
 	abox_log_buffer_info_new.log_buffer = NULL;
 
-	dev_info(dev, "%s(%p, %d, %p)\n", __func__, dev, id, buffer);
+	dev_info(dev, "%s(%d)\n", __func__, id);
 
 	info = vmalloc(sizeof(*info));
 	mutex_init(&info->lock);
 	info->id = id;
 	info->file_created = false;
+	atomic_set(&info->opened, 0);
 	info->kernel_buffer.buffer = vzalloc(SIZE_OF_BUFFER);
 	info->kernel_buffer.index = 0;
 	info->kernel_buffer.wrap = false;
@@ -350,7 +367,7 @@ int abox_log_register_buffer(struct device *dev, int id,
 {
 	struct abox_log_buffer_info *info;
 
-	dev_dbg(dev, "%s(%d, %p)\n", __func__, id, buffer);
+	dev_dbg(dev, "%s(%d)\n", __func__, id);
 
 	if (abox_log_buffer_info_new.dev != NULL ||
 			abox_log_buffer_info_new.id > 0 ||

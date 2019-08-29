@@ -19,7 +19,7 @@
 #include <linux/log2.h>
 #include <linux/bitops.h>
 #include <linux/jiffies.h>
-#include <linux/of.h>
+#include <linux/property.h>
 #include <linux/acpi.h>
 #include <linux/i2c.h>
 #include <linux/nvmem-provider.h>
@@ -365,7 +365,8 @@ static ssize_t at24_eeprom_read_mac(struct at24_data *at24, char *buf,
 	memset(msg, 0, sizeof(msg));
 	msg[0].addr = client->addr;
 	msg[0].buf = addrbuf;
-	addrbuf[0] = 0x90 + offset;
+	/* EUI-48 starts from 0x9a, EUI-64 from 0x98 */
+	addrbuf[0] = 0xa0 - at24->chip.byte_len + offset;
 	msg[0].len = 1;
 	msg[1].addr = client->addr;
 	msg[1].flags = I2C_M_RD;
@@ -506,6 +507,9 @@ static int at24_read(void *priv, unsigned int off, void *val, size_t count)
 	if (unlikely(!count))
 		return count;
 
+	if (off + count > at24->chip.byte_len)
+		return -EINVAL;
+
 	/*
 	 * Read data from chip, protecting against concurrent updates
 	 * from this host, but not from other I2C masters.
@@ -538,6 +542,9 @@ static int at24_write(void *priv, unsigned int off, void *val, size_t count)
 	if (unlikely(!count))
 		return -EINVAL;
 
+	if (off + count > at24->chip.byte_len)
+		return -EINVAL;
+
 	/*
 	 * Write data to chip, protecting against concurrent updates
 	 * from this host, but not from other I2C masters.
@@ -562,26 +569,43 @@ static int at24_write(void *priv, unsigned int off, void *val, size_t count)
 	return 0;
 }
 
-#ifdef CONFIG_OF
-static void at24_get_ofdata(struct i2c_client *client,
-			    struct at24_platform_data *chip)
+static void at24_get_pdata(struct device *dev, struct at24_platform_data *chip)
 {
-	const __be32 *val;
-	struct device_node *node = client->dev.of_node;
+	int err;
+	u32 val;
 
-	if (node) {
-		if (of_get_property(node, "read-only", NULL))
-			chip->flags |= AT24_FLAG_READONLY;
-		val = of_get_property(node, "pagesize", NULL);
-		if (val)
-			chip->page_size = be32_to_cpup(val);
+	if (device_property_present(dev, "read-only"))
+		chip->flags |= AT24_FLAG_READONLY;
+
+	err = device_property_read_u32(dev, "address-width", &val);
+	if (!err) {
+		switch (val) {
+		case 8:
+			if (chip->flags & AT24_FLAG_ADDR16)
+				dev_warn(dev, "Override address width to be 8, while default is 16\n");
+			chip->flags &= ~AT24_FLAG_ADDR16;
+			break;
+		case 16:
+			chip->flags |= AT24_FLAG_ADDR16;
+			break;
+		default:
+			dev_warn(dev, "Bad \"address-width\" property: %u\n",
+				 val);
+		}
+	}
+
+	err = device_property_read_u32(dev, "pagesize", &val);
+	if (!err) {
+		chip->page_size = val;
+	} else {
+		/*
+		 * This is slow, but we can't know all eeproms, so we better
+		 * play safe. Specifying custom eeprom-types via platform_data
+		 * is recommended anyhow.
+		 */
+		chip->page_size = 1;
 	}
 }
-#else
-static void at24_get_ofdata(struct i2c_client *client,
-			    struct at24_platform_data *chip)
-{ }
-#endif /* CONFIG_OF */
 
 static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -613,15 +637,8 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		chip.byte_len = BIT(magic & AT24_BITMASK(AT24_SIZE_BYTELEN));
 		magic >>= AT24_SIZE_BYTELEN;
 		chip.flags = magic & AT24_BITMASK(AT24_SIZE_FLAGS);
-		/*
-		 * This is slow, but we can't know all eeproms, so we better
-		 * play safe. Specifying custom eeprom-types via platform_data
-		 * is recommended anyhow.
-		 */
-		chip.page_size = 1;
 
-		/* update chipdata if OF is present */
-		at24_get_ofdata(client, &chip);
+		at24_get_pdata(&client->dev, &chip);
 
 		chip.setup = NULL;
 		chip.context = NULL;
@@ -637,6 +654,16 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!is_power_of_2(chip.page_size))
 		dev_warn(&client->dev,
 			"page_size looks suspicious (no power of 2)!\n");
+
+	/*
+	 * REVISIT: the size of the EUI-48 byte array is 6 in at24mac402, while
+	 * the call to ilog2() in AT24_DEVICE_MAGIC() rounds it down to 4.
+	 *
+	 * Eventually we'll get rid of the magic values altoghether in favor of
+	 * real structs, but for now just manually set the right size.
+	 */
+	if (chip.flags & AT24_FLAG_MAC && chip.byte_len == 4)
+		chip.byte_len = 6;
 
 	/* Use I2C operations unless we're stuck with SMBus extensions. */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -766,7 +793,7 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	at24->nvmem_config.reg_read = at24_read;
 	at24->nvmem_config.reg_write = at24_write;
 	at24->nvmem_config.priv = at24;
-	at24->nvmem_config.stride = 4;
+	at24->nvmem_config.stride = 1;
 	at24->nvmem_config.word_size = 1;
 	at24->nvmem_config.size = chip.byte_len;
 

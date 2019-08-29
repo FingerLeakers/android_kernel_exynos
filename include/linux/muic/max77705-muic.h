@@ -113,6 +113,7 @@ struct max77705_muic_data {
 
 	int				irq_uiadc;
 	int				irq_chgtyp;
+	int				irq_fakvb;
 	int				irq_spr;
 	int				irq_dcdtmo;
 	int				irq_vbadc;
@@ -143,6 +144,7 @@ struct max77705_muic_data {
 	bool				is_charger_ready;
 	bool				is_afc_reset;
 	bool				is_skip_bigdata;
+	bool				is_charger_mode;
 
 	u8				is_boot_dpdnvden;
 
@@ -202,8 +204,10 @@ enum max77705_reg_bit_control {
 
 /* MAX77705 STATUS1 register */
 #define USBC_STATUS1_UIADC_SHIFT	0
+#define USBC_STATUS1_FAKVB_SHIFT	3
 #define USBC_STATUS1_VBADC_SHIFT	4
 #define USBC_STATUS1_UIADC_MASK		(0x7 << USBC_STATUS1_UIADC_SHIFT)
+#define USBC_STATUS1_FAKVB_MASK		(0x1 << USBC_STATUS1_FAKVB_SHIFT)
 #define USBC_STATUS1_VBADC_MASK		(0xf << USBC_STATUS1_VBADC_SHIFT)
 
 /* MAX77705 BC STATUS register */

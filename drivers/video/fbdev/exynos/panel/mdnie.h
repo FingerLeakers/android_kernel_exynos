@@ -172,6 +172,7 @@ enum NIGHT_LEVEL {
 	NIGHT_LEVEL_3300K,
 	NIGHT_LEVEL_2900K,
 	NIGHT_LEVEL_2500K,
+	NIGHT_LEVEL_7000K,
 	MAX_NIGHT_LEVEL,
 };
 
@@ -514,12 +515,12 @@ struct mdnie_info {
 extern int mdnie_probe(struct panel_device *panel, struct mdnie_tune *mdnie_tune);
 extern int mdnie_enable(struct mdnie_info *mdnie);
 extern int mdnie_disable(struct mdnie_info *mdnie);
-extern int mdnie_update(struct mdnie_info *mdnie);
+extern int panel_mdnie_update(struct panel_device *panel);
 #else
 static inline int mdnie_probe(struct panel_device *panel, struct mdnie_tune *mdnie_tune) { return 0; }
 static inline int mdnie_enable(struct mdnie_info *mdnie) { return 0; }
 static inline int mdnie_disable(struct mdnie_info *mdnie) { return 0; }
-static inline int mdnie_update(struct mdnie_info *mdnie) { return 0; }
+static inline int panel_mdnie_update(struct panel_device *panel) { return 0; }
 #endif
 extern struct maptbl *mdnie_find_maptbl(struct mdnie_info *);
 extern struct maptbl *mdnie_find_etc_maptbl(struct mdnie_info *, int);

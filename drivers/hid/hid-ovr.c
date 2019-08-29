@@ -9,12 +9,24 @@
  * any later version.
  */
 
+#include <linux/fs.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
 #include <linux/cdev.h>
 #include <linux/poll.h>
-#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/major.h>
+#include <linux/slab.h>
+#include <linux/hid.h>
+#include <linux/mutex.h>
+#include <linux/sched/signal.h>
+#include <linux/string.h>
+#include <linux/device.h>
 #include <linux/usb.h>
+
 #include <linux/hidraw.h>
-#include <linux/interrupt.h>
 #include "hid-ids.h"
 
 #define USB_TRACKER_INTERFACE_PROTOCOL	0
@@ -1047,9 +1059,6 @@ int ovr_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, 
 EXPORT_SYMBOL_GPL(ovr_raw_event);
 
 static const struct hid_device_id ovr_devices[] = {
-	{ HID_USB_DEVICE(USB_VENDOR_ID_OVR, USB_DEVICE_ID_OVR_TRACKER) },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_OVR, USB_DEVICE_ID_OVR_KTRACKER) },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_OVR, USB_DEVICE_ID_OVR_LATENCY_TESTER) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_GEARVR_1) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_SAMSUNG_ELECTRONICS, USB_DEVICE_ID_SAMSUNG_GEARVR_2) },
 	{ }

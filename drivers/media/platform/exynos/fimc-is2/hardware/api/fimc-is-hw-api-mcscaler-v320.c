@@ -942,12 +942,12 @@ void fimc_is_scaler_set_otf_out_path(void __iomem *base_addr, u32 output_id)
 	/* not support */
 }
 
-void fimc_is_scaler_set_rdma_format(void __iomem *base_addr, u32 dma_in_format)
+void fimc_is_scaler_set_rdma_format(void __iomem *base_addr, u32 hw_id, u32 dma_in_format)
 {
 	/* not support */
 }
 
-void fimc_is_scaler_set_wdma_format(void __iomem *base_addr, u32 output_id, u32 dma_out_format)
+void fimc_is_scaler_set_wdma_format(void __iomem *base_addr, u32 hw_id, u32 output_id, u32 dma_out_format)
 {
 	switch (output_id) {
 	case MCSC_OUTPUT0:

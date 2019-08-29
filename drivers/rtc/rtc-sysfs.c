@@ -27,7 +27,8 @@
 static ssize_t
 name_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%s\n", to_rtc_device(dev)->name);
+	return sprintf(buf, "%s %s\n", dev_driver_string(dev->parent),
+		       dev_name(dev->parent));
 }
 static DEVICE_ATTR_RO(name);
 
@@ -246,25 +247,6 @@ offset_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RW(offset);
 
-#if defined(CONFIG_RTC_ALARM_BOOT)
-static ssize_t alarm_boot_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	ssize_t retval;
-	struct rtc_wkalrm alm;
-
-	retval = rtc_get_alarm_boot(to_rtc_device(dev), &alm);
-	if (retval) {
-		retval = sprintf(buf, "%d", alm.enabled);
-		dev_info(dev, "%s: enabled? : %d\n", __func__, alm.enabled);
-		return retval;
-	}
-
-	return retval;
-}
-static DEVICE_ATTR_RO(alarm_boot);
-#endif
-
 static struct attribute *rtc_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_date.attr,
@@ -274,9 +256,6 @@ static struct attribute *rtc_attrs[] = {
 	&dev_attr_hctosys.attr,
 	&dev_attr_wakealarm.attr,
 	&dev_attr_offset.attr,
-#if defined(CONFIG_RTC_ALARM_BOOT)
-	&dev_attr_alarm_boot.attr,
-#endif
 	NULL,
 };
 

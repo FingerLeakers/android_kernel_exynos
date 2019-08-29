@@ -88,7 +88,7 @@ uint32_t exynos_smc_new(uint32_t cmd, uint32_t arg1, uint32_t arg2, uint32_t arg
 		: "+r"(reg0), "+r"(reg1), "+r"(reg2), "+r"(reg3)
 	);
 
-    return reg1;
+	return reg1;
 }
 
 int exynos_smc_read_oemflag(uint32_t ctrl_word, uint32_t *val)
@@ -97,10 +97,12 @@ int exynos_smc_read_oemflag(uint32_t ctrl_word, uint32_t *val)
 	uint32_t	arg1 = 0;
 	uint32_t	arg2 = 0;
 	uint32_t	arg3 = 0;
+
 	register uint32_t reg0 __asm__("x0") = cmd;
 	register uint32_t reg1 __asm__("x1") = arg1;
 	register uint32_t reg2 __asm__("x2") = arg2;
 	register uint32_t reg3 __asm__("x3") = arg3;
+
 	uint32_t idx = 0;
 
 	for (idx = 0; reg2 != ctrl_word; idx++) {
@@ -151,16 +153,18 @@ int exynos_smc_read_oemflag_new(uint32_t getflag, uint32_t *val)
 	uint32_t	arg1 = 0;
 	uint32_t	arg2 = 0;
 	uint32_t	arg3 = 0;
+
 	register uint32_t reg0 __asm__("x0") = cmd;
 	register uint32_t reg1 __asm__("x1") = arg1;
 	register uint32_t reg2 __asm__("x2") = arg2;
 	register uint32_t reg3 __asm__("x3") = arg3;
-  uint32_t idx = 0;
 
-   reg0 = 0x83000003;
-   reg1 = 1;
-   reg2 = getflag;
-   reg3 = idx;
+	uint32_t idx = 0;
+
+	reg0 = 0x83000003;
+	reg1 = 1;
+	reg2 = getflag;
+	reg3 = idx;
 
 	__asm__ volatile (
 #ifdef CONFIG_RKP_CFP_FIX_SMC_BUG
@@ -196,36 +200,38 @@ static struct cdev tzic_cdev;
 #define TZIC_IOCTL_GET_FUSE_REQ_NEW _IO(TZIC_IOC_MAGIC, 10)
 
 #ifndef CONFIG_TZDEV
-typedef enum {
+
+// TZ_IRS_CMD
+enum {
 	IRS_SET_FLAG_CMD        =           1,
 	IRS_SET_FLAG_VALUE_CMD,
 	IRS_INC_FLAG_CMD,
 	IRS_GET_FLAG_VAL_CMD,
 	IRS_ADD_FLAG_CMD,
 	IRS_DEL_FLAG_CMD
-} TZ_IRS_CMD;
+};
 #endif /* CONFIG_TZDEV */
 
-typedef enum {
-    OEMFLAG_MIN_FLAG = 2,
-    OEMFLAG_TZ_DRM,
-    OEMFLAG_FIDD,
-    OEMFLAG_CC,
-    OEMFLAG_SYSSCOPE,
-    OEMFLAG_CP,
-    OEMFLAG_NUM_OF_FLAG,
-} Sec_OemFlagID_t;
+// Sec_OemFlagID_t
+enum {
+	OEMFLAG_MIN_FLAG = 2,
+	OEMFLAG_TZ_DRM,
+	OEMFLAG_FIDD,
+	OEMFLAG_CC,
+	OEMFLAG_SYSSCOPE,
+	OEMFLAG_NUM_OF_FLAG,
+};
 
-typedef struct {
-    uint32_t  name;
-    uint32_t  func_cmd;
-    uint32_t  value;
-} t_flag;
+struct t_flag {
+	uint32_t  name;
+	uint32_t  func_cmd;
+	uint32_t  value;
+};
 
 static long tzic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
-	t_flag param = { 0, 0, 0 };
+	struct t_flag param = { 0, 0, 0 };
 #ifdef CONFIG_TZDEV
 	unsigned long p1, p2, p3;
 
@@ -269,9 +275,9 @@ static long tzic_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		}
 
-		param.name = p1;
-		param.value = p2;
-		param.func_cmd = p3;
+		param.name = (uint32_t)p1;
+		param.value = (uint32_t)p2;
+		param.func_cmd = (uint32_t)p3;
 
 		goto return_new_to;
 	break;
@@ -446,7 +452,9 @@ static int gotoCpu0(void)
 {
 	int ret = 0;
 	struct cpumask mask = CPU_MASK_CPU0;
+
 	ret = set_cpus_allowed_ptr(current, &mask);
+
 	if (ret != 0)
 		LOG(KERN_INFO "set_cpus_allowed_ptr=%d.\n", ret);
 	return ret;
@@ -456,7 +464,9 @@ static int gotoAllCpu(void)
 {
 	int ret = 0;
 	struct cpumask mask = CPU_MASK_ALL;
+
 	ret = set_cpus_allowed_ptr(current, &mask);
+
 	if (ret != 0)
 		LOG(KERN_INFO "set_cpus_allowed_ptr=%d.\n", ret);
 	return ret;

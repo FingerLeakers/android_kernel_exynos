@@ -57,7 +57,7 @@ int pmucal_cp_status(void)
 		return ret;
 	}
 
-	if (pmucal_cp_list.status->value == 0x5)
+	if (pmucal_cp_list.status->value == PMU_CP_STATUS_BIT)
 		return 1;
 	else
 		return 0;
@@ -202,17 +202,6 @@ int pmucal_cp_disable_dump_pc_no_pg(void)
 
 	return 0;
 }
-
-#define PMU_CP_CTRL_NS_OFFSET	0x30
-#define PMU_CP_CTRL_S_OFFSET	0x34
-#define SMC_ID		0x82000700
-#define READ_CTRL	0x3
-#define WRITE_CTRL	0x4
-
-enum cp_control {
-	CP_CTRL_S,
-	CP_CTRL_NS,
-};
 
 int pmucal_is_cp_smc_regs(struct pmucal_seq *seq) {
 	int use_smc = 0;

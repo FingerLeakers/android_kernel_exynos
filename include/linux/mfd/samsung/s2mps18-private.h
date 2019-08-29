@@ -321,7 +321,7 @@ enum S2MPS18_regulators {
 #define HIGH_ACC_CURRENT_L800		293
 
 #define ADC_EN_MASK			0x80
-#define ADC_ASYNCRD_MASK		0x80
+#define ADC_ASYNCRD_MASK	0x80
 #define ADC_PTR_MASK			0x0F
 #define ADC_PGEN_MASK			0x30
 #define CURRENT_MODE			0x00

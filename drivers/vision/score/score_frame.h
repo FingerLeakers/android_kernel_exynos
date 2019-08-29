@@ -20,7 +20,6 @@
 #include <linux/wait.h>
 
 #include "score_util.h"
-#include "score_packet.h"
 #include "score_mmu.h"
 
 struct score_context;
@@ -78,6 +77,7 @@ enum score_frame_type {
  * @entire_list: list to be included in total list of frame manager
  * @state_list: list to be included in each state list of frame manager
  * @packet: packet address delivered from user
+ * @pended: true if pended
  * @pending_packet: packet address when state of frame is changed to pending
  * @packet_size: packet ION buffer size
  * @ret: result value delivered form SCore device
@@ -86,6 +86,8 @@ enum score_frame_type {
  * @buffer_count: count of memory buffer matched with sc_buffer
  *	included in one task
  * @kernel_id: id of DSP kernel
+ * @priority: true if triority is high
+ * @task_type: optional execution type of DSP task
  * @timestamp: [optional] time to measure performance
  */
 struct score_frame {
@@ -101,13 +103,16 @@ struct score_frame {
 	struct list_head		state_list;
 
 	void				*packet;
-	unsigned int			packet_size;
+	size_t				packet_size;
+	bool				pended;
 	void				*pending_packet;
 	int				ret;
 	struct list_head		buffer_list;
 	unsigned int			buffer_count;
 
 	unsigned int			kernel_id;
+	bool				priority;
+	unsigned int			task_type;
 	struct timespec			timestamp[SCORE_TIME_POINT_NUM];
 };
 
@@ -118,9 +123,16 @@ struct score_frame {
  * @ready_list: list of frames that state is ready
  * @ready_count: count of frames that state is ready
  * @process_list: list of frames that state is process
- * @process_count: count of frames that state is process
+ * @process_count: count of all frames that state is process
+ * @process_high_count: count of frames that state is process,
+ *                      priority is high
+ * @process_normal_count: count of frames that state is process,
+ *                        priority is normal
  * @pending_list: list of frames that state is pending
- * @pending_count: count of frames that state is pending
+ * @pending_count: count of all frames that state is pending
+ * @pending_high_count: count of frames that state is pending, priority is high
+ * @pending_normal_count: count of frames that state is pending,
+ *                        priority is normal
  * @complete_list: list of frames that state is complete
  * @complete_count: count of frames that state is complete
  * @slock: spin lock to prevent state of frame overlapped
@@ -135,8 +147,12 @@ struct score_frame_manager {
 	unsigned int			ready_count;
 	struct list_head		process_list;
 	unsigned int			process_count;
+	unsigned int			process_high_count;
+	unsigned int			process_normal_count;
 	struct list_head		pending_list;
 	unsigned int			pending_count;
+	unsigned int			pending_high_count;
+	unsigned int			pending_normal_count;
 	struct list_head		complete_list;
 	unsigned int			complete_count;
 
@@ -177,9 +193,9 @@ struct score_frame *score_frame_get_process_by_id(
 struct score_frame *score_frame_get_by_id(
 		struct score_frame_manager *framemgr, unsigned int id);
 struct score_frame *score_frame_get_first_pending(
-		struct score_frame_manager *framemgr);
+		struct score_frame_manager *framemgr, bool priority);
 unsigned int score_frame_get_pending_count(
-		struct score_frame_manager *framemgr);
+		struct score_frame_manager *framemgr, bool priority);
 void score_frame_flush_process(struct score_frame_manager *framemgr,
 		int result);
 void score_frame_flush_all(struct score_frame_manager *framemgr, int result);

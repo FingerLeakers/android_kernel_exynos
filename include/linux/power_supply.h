@@ -241,6 +241,7 @@ enum power_supply_type {
 	POWER_SUPPLY_TYPE_HV_MAINS_CHG_LIMIT,	/* 39 */
 	POWER_SUPPLY_TYPE_HV_QC20,			/* 40 - ILIM 1.8A - CHG 3.0A */
 	POWER_SUPPLY_TYPE_HV_QC30,			/* 41 - ILIM 3.0A - CHG 3.5A (Step Charging 4.2A -> 3.0A) */
+
 	POWER_SUPPLY_TYPE_MAX,
 };
 /* EXTENDED_ONLINE_TYPE */
@@ -328,6 +329,8 @@ struct power_supply {
 	struct delayed_work deferred_register_work;
 	spinlock_t changed_lock;
 	bool changed;
+	bool initialized;
+	bool removing;
 	atomic_t use_cnt;
 #ifdef CONFIG_THERMAL
 	struct thermal_zone_device *tzd;

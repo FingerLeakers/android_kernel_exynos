@@ -25,7 +25,6 @@
 #include <linux/of_address.h>
 #include <linux/clocksource.h>
 #include <linux/sched_clock.h>
-#include <linux/notifier.h>
 #ifdef CONFIG_SEC_EXT
 #include <linux/sec_ext.h>
 #endif
@@ -47,7 +46,6 @@
 
 #define MCT_L_TCNTB_OFFSET		(0x00)
 #define MCT_L_ICNTB_OFFSET		(0x08)
-#define MCT_L_ICNTO_OFFSET		(0x0C)
 #define MCT_L_TCON_OFFSET		(0x20)
 #define MCT_L_INT_CSTAT_OFFSET		(0x30)
 #define MCT_L_INT_ENB_OFFSET		(0x34)
@@ -86,7 +84,6 @@ static void __iomem *reg_base;
 static unsigned long clk_rate;
 static unsigned int mct_int_type;
 static int mct_irqs[MCT_NR_IRQS];
-extern struct atomic_notifier_head hardlockup_notifier_list;
 
 struct mct_clock_event_device {
 	struct clock_event_device evt;
@@ -189,7 +186,7 @@ static u64 exynos4_read_count_64(void)
 		hi2 = readl_relaxed(reg_base + EXYNOS4_MCT_G_CNT_U);
 	} while (hi != hi2);
 
-	return ((cycle_t)hi << 32) | lo;
+	return ((u64)hi << 32) | lo;
 }
 
 /**
@@ -207,7 +204,7 @@ static u32 notrace exynos4_read_count_32(void)
 	return readl_relaxed(reg_base + EXYNOS4_MCT_G_CNT_L);
 }
 
-static cycle_t exynos4_frc_read(struct clocksource *cs)
+static u64 exynos4_frc_read(struct clocksource *cs)
 {
 	return exynos4_read_count_32();
 }
@@ -275,7 +272,7 @@ static void exynos4_mct_comp0_stop(void)
 static void exynos4_mct_comp0_start(bool periodic, unsigned long cycles)
 {
 	unsigned int tcon;
-	cycle_t comp_cycle;
+	u64 comp_cycle;
 
 	tcon = readl_relaxed(reg_base + EXYNOS4_MCT_G_TCON);
 
@@ -453,49 +450,6 @@ static irqreturn_t exynos4_mct_tick_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
-static void exynos4_mct_tick_dump(unsigned int cpu)
-{
-	unsigned int icntb, icnto, tcon, intenb, intcstat;
-	int i;
-
-	if (cpu > CONFIG_NR_CPUS)
-		return;
-
-	/* 5 times to verify */
-	for (i = 0; i < 5; i++) {
-		/* count buffer */
-		icntb = readl_relaxed(reg_base + EXYNOS4_MCT_L_BASE(cpu) + MCT_L_ICNTB_OFFSET);
-		icnto = readl_relaxed(reg_base + EXYNOS4_MCT_L_BASE(cpu) + MCT_L_ICNTO_OFFSET);
-		intenb = readl_relaxed(reg_base + EXYNOS4_MCT_L_BASE(cpu) + MCT_L_INT_ENB_OFFSET);
-		intcstat = readl_relaxed(reg_base + EXYNOS4_MCT_L_BASE(cpu) + MCT_L_INT_CSTAT_OFFSET);
-		tcon = readl_relaxed(reg_base + EXYNOS4_MCT_L_BASE(cpu) + MCT_L_TCON_OFFSET);
-		pr_info("%s(%d): ICNTB:0x%X, ICNTO: 0x%X, INTENB:0x%X, INTCSTAT:0x%X, TCON:0x%X\n",
-				__func__, cpu, icntb, icnto, intenb, intcstat, tcon);
-	}
-}
-
-static int exynos4_mct_hardlockup_handler(struct notifier_block *nb,
-					   unsigned long l, void *p)
-{
-	unsigned int cpu = (*(int *)p);
-
-	exynos4_mct_tick_dump(cpu);
-	return 0;
-}
-
-static struct notifier_block nb_hardlockup_block = {
-	.notifier_call = exynos4_mct_hardlockup_handler,
-};
-
-static void register_hardlockup_notifier_list(void)
-{
-	atomic_notifier_chain_register(&hardlockup_notifier_list, &nb_hardlockup_block);
-}
-#else
-static void register_hardlockup_notifier_list(void) {}
-#endif
-
 static int exynos4_mct_starting_cpu(unsigned int cpu)
 {
 	struct mct_clock_event_device *mevt =
@@ -602,7 +556,7 @@ static int __init exynos4_timer_resources(struct device_node *np, void __iomem *
 
 	/* Install hotplug callbacks which configure the timer on this CPU */
 	err = cpuhp_setup_state(CPUHP_AP_EXYNOS4_MCT_TIMER_STARTING,
-				"AP_EXYNOS4_MCT_TIMER_STARTING",
+				"clockevents/exynos4/mct_timer:starting",
 				exynos4_mct_starting_cpu,
 				exynos4_mct_dying_cpu);
 	if (err)
@@ -618,11 +572,9 @@ out_irq:
 static int __init mct_init_dt(struct device_node *np, unsigned int int_type)
 {
 	u32 nr_irqs, i;
-	int ret = 0;
+	int ret;
 
 	mct_int_type = int_type;
-
-	register_hardlockup_notifier_list();
 
 	/* This driver uses only one global timer interrupt */
 	mct_irqs[MCT_G0_IRQ] = irq_of_parse_and_map(np, MCT_G0_IRQ);
@@ -648,15 +600,11 @@ static int __init mct_init_dt(struct device_node *np, unsigned int int_type)
 	if (ret)
 		return ret;
 
-	ret = exynos4_clockevent_init();
-	if (ret)
-		return ret;
-
 #ifdef CONFIG_SEC_BOOTSTAT
 	sec_bootstat_mct_start(exynos4_read_count_64());
 #endif
 
-	return ret;
+	return exynos4_clockevent_init();
 }
 
 
@@ -669,5 +617,5 @@ static int __init mct_init_ppi(struct device_node *np)
 {
 	return mct_init_dt(np, MCT_INT_PPI);
 }
-CLOCKSOURCE_OF_DECLARE(exynos4210, "samsung,exynos4210-mct", mct_init_spi);
-CLOCKSOURCE_OF_DECLARE(exynos4412, "samsung,exynos4412-mct", mct_init_ppi);
+TIMER_OF_DECLARE(exynos4210, "samsung,exynos4210-mct", mct_init_spi);
+TIMER_OF_DECLARE(exynos4412, "samsung,exynos4412-mct", mct_init_ppi);

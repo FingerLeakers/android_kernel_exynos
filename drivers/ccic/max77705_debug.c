@@ -427,7 +427,7 @@ void mxim_debug_set_i2c_client(struct i2c_client *client)
 {
 	if (mxim_pdev) {
 		mxim_pdev->client = client;
-		msg_maxim("Set i2c_client. %p", mxim_pdev->client);
+		msg_maxim("Set i2c_client. %pK", mxim_pdev->client);
 	} else
 		msg_maxim("Failed to set i2c_client.");
 }

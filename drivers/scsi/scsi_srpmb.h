@@ -23,6 +23,9 @@
 #define RPMB_END_ADDRESS			0x4000
 
 #define RPMB_PACKET_SIZE 			512
+#define RPMB_REQRES				510
+#define RPMB_RESULT				508
+
 
 #define WRITE_COUTNER_DATA_LEN_ERROR		0x601
 #define WRITE_COUTNER_SECURITY_OUT_ERROR	0x602
@@ -45,7 +48,7 @@
 #define ON					1
 #define OFF					0
 
-#define RPMB_BUF_MAX_SIZE			32 * 1024
+#define RPMB_BUF_MAX_SIZE			(32 * 1024)
 
 struct rpmb_irq_ctx {
 	struct device *dev;

@@ -17,12 +17,13 @@
 #include <linux/clk.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/io.h>
 #include <linux/mutex.h>
 #include <linux/wait.h>
 #include <linux/exynos_iovmm.h>
 
 #include <media/videobuf2-core.h>
-#include <media/videobuf2-ion.h>
+#include <media/videobuf2-dma-sg.h>
 
 #include "smfc.h"
 #include "smfc-sync.h"
@@ -35,6 +36,30 @@ enum {
 	SMFC_HWFC_RUN,
 	SMFC_HWFC_WAIT,
 };
+
+int exynos_smfc_wait_done(bool enable_hwfc)
+{
+	int prev, new;
+
+	wait_event(smfc_hwfc_sync_wq,
+		   atomic_read(&smfc_hwfc_state) < SMFC_HWFC_WAIT);
+
+	prev = atomic_read(&smfc_hwfc_state);
+	while (enable_hwfc && prev == SMFC_HWFC_RUN
+			&& (new = atomic_cmpxchg((&smfc_hwfc_state),
+					prev, SMFC_HWFC_WAIT)) != prev)
+		prev = new;
+
+	return 0;
+}
+
+static void __exynos_smfc_wakeup_done_waiters(struct smfc_ctx *ctx)
+{
+	if ((!!(ctx->flags & SMFC_CTX_COMPRESS)) && ctx->enable_hwfc) {
+		atomic_set(&smfc_hwfc_state, SMFC_HWFC_STANDBY);
+		wake_up(&smfc_hwfc_sync_wq);
+	}
+}
 
 static irqreturn_t exynos_smfc_irq_handler(int irq, void *priv)
 {
@@ -88,7 +113,8 @@ static irqreturn_t exynos_smfc_irq_handler(int irq, void *priv)
 		vb = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 		if (vb) {
 			if (!!(ctx->flags & SMFC_CTX_COMPRESS)) {
-				vb2_set_plane_payload(&vb->vb2_buf, 0, streamsize);
+				vb2_set_plane_payload(&vb->vb2_buf,
+						      0, streamsize);
 				if (!!(ctx->flags & SMFC_CTX_B2B_COMPRESS))
 					vb2_set_plane_payload(&vb->vb2_buf, 1,
 							thumb_streamsize);
@@ -97,16 +123,13 @@ static irqreturn_t exynos_smfc_irq_handler(int irq, void *priv)
 			vb->reserved2 =
 				(__u32)ktime_us_delta(ktime, ctx->ktime_beg);
 			v4l2_m2m_buf_done(vb, state);
-
-			if ((!!(ctx->flags & SMFC_CTX_COMPRESS)) && ctx->enable_hwfc) {
-				atomic_set(&smfc_hwfc_state, SMFC_HWFC_STANDBY);
-				wake_up(&smfc_hwfc_sync_wq);
-			}
 		}
 
 		vb = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 		if (vb)
 			v4l2_m2m_buf_done(vb, state);
+
+		__exynos_smfc_wakeup_done_waiters(ctx);
 
 		if (!suspending) {
 			v4l2_m2m_job_finish(smfc->m2mdev, ctx->fh.m2m_ctx);
@@ -166,6 +189,9 @@ static void smfc_timedout_handler(unsigned long arg)
 							VB2_BUF_STATE_ERROR);
 		v4l2_m2m_buf_done(v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx),
 							VB2_BUF_STATE_ERROR);
+
+		__exynos_smfc_wakeup_done_waiters(ctx);
+
 		if (!suspending) {
 			v4l2_m2m_job_finish(smfc->m2mdev, ctx->fh.m2m_ctx);
 		} else {
@@ -181,9 +207,9 @@ static void smfc_timedout_handler(unsigned long arg)
 }
 
 
-static int smfc_vb2_queue_setup(struct vb2_queue *vq,
-		unsigned int *num_buffers, unsigned int *num_planes,
-		unsigned int sizes[], struct device *alloc_devs[])
+static int smfc_vb2_queue_setup(struct vb2_queue *vq, unsigned int *num_buffers,
+				unsigned int *num_planes, unsigned int sizes[],
+				struct device *alloc_devs[])
 {
 	struct smfc_ctx *ctx = vb2_get_drv_priv(vq);
 
@@ -238,10 +264,7 @@ static int smfc_vb2_queue_setup(struct vb2_queue *vq,
 static int smfc_vb2_buf_prepare(struct vb2_buffer *vb)
 {
 	struct smfc_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
-	struct vb2_v4l2_buffer *v4l2_buf = to_vb2_v4l2_buffer(vb);
 	unsigned int i;
-
-	bool clean_cache = !(v4l2_buf->flags & V4L2_BUF_FLAG_NO_CACHE_CLEAN);
 	bool full_clean = false;
 
 	/* output buffers should have valid bytes_used */
@@ -264,15 +287,16 @@ static int smfc_vb2_buf_prepare(struct vb2_buffer *vb)
 			}
 
 			/*
+			 * FIXME: handle this
 			 * There is no chance to clean CPU caches if HWFC is
 			 * enabled because the compression starts before the
 			 * image producer completes writing.
 			 * Therefore, the image producer (MCSC) and the read DMA
 			 * of JPEG/SMFC should access the memory with the same
 			 * shareability attributes.
-			 */
 			if (ctx->enable_hwfc)
 				clean_cache = false;
+			 */
 		} else {
 			/* buffer contains JPEG stream to decompress */
 			int ret = smfc_parse_jpeg_header(ctx, vb);
@@ -303,18 +327,22 @@ static int smfc_vb2_buf_prepare(struct vb2_buffer *vb)
 		}
 	}
 
-	if (clean_cache)
+	/*
+	 * FIXME: develop how to maintain a part of buffer
+	if (!(to_vb2_v4l2_buffer(vb)->flags & V4L2_BUF_FLAG_NO_CACHE_CLEAN))
 		return (full_clean) ?
 			vb2_ion_buf_prepare(vb) : vb2_ion_buf_prepare_exact(vb);
+	 */
 	return 0;
 }
 
 static void smfc_vb2_buf_finish(struct vb2_buffer *vb)
 {
-	struct vb2_v4l2_buffer *v4l2_buf = to_vb2_v4l2_buffer(vb);
-	if (!(v4l2_buf->flags & V4L2_BUF_FLAG_NO_CACHE_INVALIDATE))
-
+	/*
+	 * FIXME: develop how to maintain a part of buffer
+	if (!(vb->v4l2_buf.flags & V4L2_BUF_FLAG_NO_CACHE_INVALIDATE))
 		vb2_ion_buf_finish_exact(vb);
+	 */
 }
 
 static void smfc_vb2_buf_cleanup(struct vb2_buffer *vb)
@@ -323,22 +351,18 @@ static void smfc_vb2_buf_cleanup(struct vb2_buffer *vb)
 	if (!V4L2_TYPE_IS_OUTPUT(vb->vb2_queue->type) &&
 			!!(ctx->flags & SMFC_CTX_COMPRESS)) {
 		/*
-		 * clean the APP segments written by CPU in front
+		 * TODO: clean the APP segments written by CPU in front
 		 * of the start of the JPEG stream to be written by H/W
 		 * for the later use of this buffer.
 		 */
-		void *cookie = vb2_plane_cookie(vb, 0);
-		size_t size = (size_t)vb2_ion_buffer_offset(cookie);
-		vb2_ion_sync_for_device(cookie, 0, size, DMA_TO_DEVICE);
 	}
 }
 
 static void smfc_vb2_buf_queue(struct vb2_buffer *vb)
 {
 	struct smfc_ctx *ctx = vb2_get_drv_priv(vb->vb2_queue);
-	struct vb2_v4l2_buffer *vbuf = container_of(vb,
-				struct vb2_v4l2_buffer, vb2_buf);
-	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, vbuf);
+
+	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, to_vb2_v4l2_buffer(vb));
 }
 
 static void smfc_vb2_stop_streaming(struct vb2_queue *vq)
@@ -378,7 +402,7 @@ static int smfc_queue_init(void *priv, struct vb2_queue *src_vq,
 	src_vq->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	src_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	src_vq->ops = &smfc_vb2_ops;
-	src_vq->mem_ops = &vb2_ion_memops;
+	src_vq->mem_ops = &vb2_dma_sg_memops;
 	src_vq->drv_priv = ctx;
 	src_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
 	src_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
@@ -392,33 +416,13 @@ static int smfc_queue_init(void *priv, struct vb2_queue *src_vq,
 	dst_vq->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	dst_vq->io_modes = VB2_MMAP | VB2_USERPTR | VB2_DMABUF;
 	dst_vq->ops = &smfc_vb2_ops;
-	dst_vq->mem_ops = &vb2_ion_memops;
+	dst_vq->mem_ops = &vb2_dma_sg_memops;
 	dst_vq->drv_priv = ctx;
 	dst_vq->buf_struct_size = sizeof(struct v4l2_m2m_buffer);
 	dst_vq->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	dst_vq->lock = &ctx->smfc->video_device_mutex;
 
 	return vb2_queue_init(dst_vq);
-}
-
-int exynos_smfc_wait_done(bool enable_hwfc)
-{
-	int prev, new;
-	int ret = 0;
-
-	ret = wait_event_interruptible(smfc_hwfc_sync_wq,
-			atomic_read(&smfc_hwfc_state) < SMFC_HWFC_WAIT);
-
-	if(ret < 0)
-		return ret;
-
-	prev = atomic_read(&smfc_hwfc_state);
-	while (enable_hwfc && prev == SMFC_HWFC_RUN
-			&& (new = atomic_cmpxchg((&smfc_hwfc_state),
-					prev, SMFC_HWFC_WAIT)) != prev)
-		prev = new;
-
-	return ret;
 }
 
 static int exynos_smfc_open(struct file *filp)
@@ -783,7 +787,7 @@ static int smfc_find_hw_version(struct device *dev, struct smfc_dev *smfc)
 	}
 
 	if (ret >= 0) {
-		smfc->hwver = __raw_readl(smfc->reg + REG_IP_VERSION_NUMBER);
+		smfc->hwver = readl(smfc->reg + REG_IP_VERSION_NUMBER);
 		if (!IS_ERR(smfc->clk_gate)) {
 			clk_disable_unprepare(smfc->clk_gate);
 			if (!IS_ERR(smfc->clk_gate2))
@@ -879,6 +883,8 @@ static int exynos_smfc_probe(struct platform_device *pdev)
 	}
 
 	smfc->dev = &pdev->dev;
+
+	dma_set_mask(&pdev->dev, DMA_BIT_MASK(36));
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	smfc->reg = devm_ioremap_resource(&pdev->dev, res);

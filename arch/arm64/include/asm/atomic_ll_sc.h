@@ -264,7 +264,6 @@ __LL_SC_PREFIX(__cmpxchg_case_##name(volatile void *ptr,		\
 	"	st" #rel "xr" #sz "\t%w[tmp], %" #w "[new], %[v]\n"	\
 	"	cbnz	%w[tmp], 1b\n"					\
 	"	" #mb "\n"						\
-	"	mov	%" #w "[oldval], %" #w "[old]\n"		\
 	"2:"								\
 	: [tmp] "=&r" (tmp), [oldval] "=&r" (oldval),			\
 	  [v] "+Q" (*(unsigned long *)ptr)				\
@@ -305,6 +304,7 @@ __LL_SC_PREFIX(__cmpxchg_double##name(unsigned long old1,		\
 	unsigned long tmp, ret;						\
 									\
 	asm volatile("// __cmpxchg_double" #name "\n"			\
+	"	isb\n"							\
 	"	prfm	pstl1strm, %2\n"				\
 	"1:	ldxp	%0, %1, %2\n"					\
 	"	eor	%0, %0, %3\n"					\

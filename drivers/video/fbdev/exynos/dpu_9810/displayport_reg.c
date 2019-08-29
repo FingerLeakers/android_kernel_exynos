@@ -10,54 +10,49 @@
 */
 
 #include "displayport.h"
-#include "../../../drivers/phy/phy-samsung-usb-cal.h"
-#include "../../../drivers/phy/phy-exynos-usbdp.h"
+#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
+#include "../../../drivers/phy/samsung/phy-samsung-usb-cal.h"
+#include "../../../drivers/phy/samsung/phy-exynos-usbdp.h"
+#endif
 
 u32 phy_tune_parameters[4][4][3] = {
 	/* Swing Level_0 */ { {4, 0, 0}, {0, 7, 0}, {2,  9, 1}, {0, 13, 1} },
-	/* Swing Level_1 */ { {2, 0, 0}, {2, 6, 1}, {0, 10, 1}, {0, 10, 1} },
+	/* Swing Level_1 */ { {1, 0, 0}, {2, 6, 1}, {0, 10, 1}, {0, 10, 1} },
 	/* Swing Level_2 */ { {2, 0, 1}, {0, 6, 1}, {0,  6, 1}, {0,  6, 1} },
 	/* Swing Level_3 */ { {0, 0, 1}, {0, 0, 1}, {0,  0, 1}, {0,  0, 1} },
 };
 
 /* supported_videos[] is to be arranged in the order of pixel clock */
 struct displayport_supported_preset supported_videos[] = {
-	/* video_format,	dv_timings,	fps,	v_sync_pol,	h_sync_pol,	vic,	name,	dex_support, pro_audio */
-	{V640X480P60,	V4L2_DV_BT_DMT_640X480P60,	60, SYNC_NEGATIVE, SYNC_NEGATIVE, 1, "V640X480P60",	DEX_FHD_SUPPORT},
-	{V720X480P60,	V4L2_DV_BT_CEA_720X480P59_94,	60, SYNC_NEGATIVE, SYNC_NEGATIVE, 2, "V720X480P60",	DEX_FHD_SUPPORT},
-	{V720X576P50,	V4L2_DV_BT_CEA_720X576P50,	50, SYNC_NEGATIVE, SYNC_NEGATIVE, 17, "V720X576P50",	DEX_FHD_SUPPORT},
-	{V1280X800P60RB, V4L2_DV_BT_DMT_1280X800P60_RB,	60, SYNC_NEGATIVE, SYNC_POSITIVE, 0, "V1280X800P60RB",	DEX_FHD_SUPPORT},
-	{V1280X720P50,	V4L2_DV_BT_CEA_1280X720P50,	50, SYNC_POSITIVE, SYNC_POSITIVE, 19, "V1280X720P50",	DEX_FHD_SUPPORT},
-	{V1280X720P60,	V4L2_DV_BT_CEA_1280X720P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 4, "V1280X720P60",	DEX_FHD_SUPPORT, true},
-	{V1366X768P60,  V4L2_DV_BT_DMT_1366X768P60,     60, SYNC_POSITIVE, SYNC_NEGATIVE,   0, "V1366X768P60", DEX_FHD_SUPPORT},
-	{V1280X1024P60,	V4L2_DV_BT_DMT_1280X1024P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1280X1024P60",	DEX_FHD_SUPPORT},
-	{V1920X1080P24,	V4L2_DV_BT_CEA_1920X1080P24,	24, SYNC_POSITIVE, SYNC_POSITIVE, 32, "V1920X1080P24",	DEX_FHD_SUPPORT},
-	{V1920X1080P25,	V4L2_DV_BT_CEA_1920X1080P25,	25, SYNC_POSITIVE, SYNC_POSITIVE, 33, "V1920X1080P25",	DEX_FHD_SUPPORT},
-	{V1920X1080P30,	V4L2_DV_BT_CEA_1920X1080P30,	30, SYNC_POSITIVE, SYNC_POSITIVE, 34, "V1920X1080P30",	DEX_FHD_SUPPORT, true},
-	{V1600X900P59, V4L2_DV_BT_CVT_1600X900P59_ADDED, 59, SYNC_POSITIVE,	SYNC_POSITIVE, 0, "V1600X900P59", DEX_FHD_SUPPORT},
-	{V1600X900P60RB, V4L2_DV_BT_DMT_1600X900P60_RB,	60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1600X900P60RB",	DEX_FHD_SUPPORT},
-	{V1920X1080P50,	V4L2_DV_BT_CEA_1920X1080P50,	50, SYNC_POSITIVE, SYNC_POSITIVE, 31, "V1920X1080P50",	DEX_FHD_SUPPORT},
-	{V1920X1080P59,	V4L2_DV_BT_CVT_1920X1080P59_ADDED, 59, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1920X1080P59", DEX_FHD_SUPPORT},
-	{V1920X1080P60,	V4L2_DV_BT_CEA_1920X1080P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 16, "V1920X1080P60",	DEX_FHD_SUPPORT, true},
-	{V2048X1536P60,	V4L2_DV_BT_CVT_2048X1536P60_ADDED, 60, SYNC_NEGATIVE, SYNC_POSITIVE, 0, "V2048X1536P60", DEX_FHD_SUPPORT},
-	{V1920X1440P60,	V4L2_DV_BT_DMT_1920X1440P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1920X1440P60",	DEX_FHD_SUPPORT},
-	{V2560X1440P59,	V4L2_DV_BT_CVT_2560X1440P59_ADDED, 59, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V2560X1440P59", DEX_WQHD_SUPPORT},
-	{V1440x2560P60,	V4L2_DV_BT_CVT_1440X2560P60_ADDED, 60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1440x2560P60"},
-	{V1440x2560P75,	V4L2_DV_BT_CVT_1440X2560P75_ADDED, 75, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V1440x2560P75"},
-	{V2560X1440P60,	V4L2_DV_BT_CVT_2560X1440P60_ADDED, 60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V2560X1440P60", DEX_WQHD_SUPPORT},
-	{V3840X2160P24,	V4L2_DV_BT_CEA_3840X2160P24,	24, SYNC_POSITIVE, SYNC_POSITIVE, 93, "V3840X2160P24"},
-	{V3840X2160P25,	V4L2_DV_BT_CEA_3840X2160P25,	25, SYNC_POSITIVE, SYNC_POSITIVE, 94, "V3840X2160P25"},
-	{V3840X2160P30,	V4L2_DV_BT_CEA_3840X2160P30,	30, SYNC_POSITIVE, SYNC_POSITIVE, 95, "V3840X2160P30",	DEX_NOT_SUPPORT, true},
-	{V4096X2160P24,	V4L2_DV_BT_CEA_4096X2160P24,	24, SYNC_POSITIVE, SYNC_POSITIVE, 98, "V4096X2160P24"},
-	{V4096X2160P25,	V4L2_DV_BT_CEA_4096X2160P25,	25, SYNC_POSITIVE, SYNC_POSITIVE, 99, "V4096X2160P25"},
-	{V4096X2160P30,	V4L2_DV_BT_CEA_4096X2160P30,	30, SYNC_POSITIVE, SYNC_POSITIVE, 100, "V4096X2160P30"},
-	{V3840X2160P59RB, V4L2_DV_BT_CVT_3840X2160P59_ADDED, 59, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V3840X2160P59RB"},
-	{V3840X2160P50,	V4L2_DV_BT_CEA_3840X2160P50,	50, SYNC_POSITIVE, SYNC_POSITIVE, 96, "V3840X2160P50"},
-	{V3840X2160P60,	V4L2_DV_BT_CEA_3840X2160P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 97, "V3840X2160P60"},
-	{V4096X2160P50, V4L2_DV_BT_CEA_4096X2160P50,	50, SYNC_POSITIVE, SYNC_POSITIVE, 101, "V4096X2160P50"},
-	{V4096X2160P60,	V4L2_DV_BT_CEA_4096X2160P60,	60, SYNC_POSITIVE, SYNC_POSITIVE, 102, "V4096X2160P60"},
-	{V640X10P60SACRC, V4L2_DV_BT_CVT_640x10P60_ADDED, 60, SYNC_POSITIVE, SYNC_POSITIVE, 0, "V640X10P60SACRC"},
-	{VDUMMYTIMING, V4L2_DV_BT_CVT_640x10P60_ADDED,	60, SYNC_POSITIVE, SYNC_POSITIVE,  0, "VDUMMYTIMING"},
+	{V640X480P60,      V4L2_DV_BT_DMT_640X480P60,         60, SYNC_NEGATIVE, SYNC_NEGATIVE,   1, "V640X480P60"},
+	{V720X480P60,      V4L2_DV_BT_CEA_720X480P59_94,      60, SYNC_NEGATIVE, SYNC_NEGATIVE,   2, "V720X480P60"},
+	{V720X576P50,      V4L2_DV_BT_CEA_720X576P50,         50, SYNC_NEGATIVE, SYNC_NEGATIVE,  17, "V720X576P50"},
+	{V1280X720P50,     V4L2_DV_BT_CEA_1280X720P50,        50, SYNC_POSITIVE, SYNC_POSITIVE,  19, "V1280X720P50"},
+	{V1280X720P60,     V4L2_DV_BT_CEA_1280X720P60,        60, SYNC_POSITIVE, SYNC_POSITIVE,   4, "V1280X720P60"},
+	{V1280X800P60RB,   V4L2_DV_BT_DMT_1280X800P60_RB,     60, SYNC_POSITIVE, SYNC_NEGATIVE,   0, "V1280X800P60RB"},
+	{V1280X1024P60,    V4L2_DV_BT_DMT_1280X1024P60,       60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V1280X1024P60"},
+	{V1920X1080P24,    V4L2_DV_BT_CEA_1920X1080P24,       24, SYNC_POSITIVE, SYNC_POSITIVE,  32, "V1920X1080P24"},
+	{V1920X1080P25,    V4L2_DV_BT_CEA_1920X1080P25,       25, SYNC_POSITIVE, SYNC_POSITIVE,  33, "V1920X1080P25"},
+	{V1920X1080P30,    V4L2_DV_BT_CEA_1920X1080P30,       30, SYNC_POSITIVE, SYNC_POSITIVE,  34, "V1920X1080P30"},
+	{V1600X900P60RB,   V4L2_DV_BT_DMT_1600X900P60_RB,     60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V1600X900P60RB"},
+	{V1920X1080P50,    V4L2_DV_BT_CEA_1920X1080P50,       50, SYNC_POSITIVE, SYNC_POSITIVE,  31, "V1920X1080P50"},
+	{V1920X1080P60,    V4L2_DV_BT_CEA_1920X1080P60,       60, SYNC_POSITIVE, SYNC_POSITIVE,  16, "V1920X1080P60"},
+	{V2048X1536P60,    V4L2_DV_BT_CVT_2048X1536P60_ADDED, 60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V2048X1536P60"},
+	{V1920X1440P60,    V4L2_DV_BT_DMT_1920X1440P60,       60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V1920X1440P60"},
+	{V2560X1440P59,    V4L2_DV_BT_CVT_2560X1440P59_ADDED, 59, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V2560X1440P59"},
+	{V2560X1440P60,    V4L2_DV_BT_CVT_2560X1440P60_ADDED, 60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V2560X1440P60"},
+	{V3840X2160P24,    V4L2_DV_BT_CEA_3840X2160P24,       24, SYNC_POSITIVE, SYNC_POSITIVE,  93, "V3840X2160P24"},
+	{V3840X2160P25,    V4L2_DV_BT_CEA_3840X2160P25,       25, SYNC_POSITIVE, SYNC_POSITIVE,  94, "V3840X2160P25"},
+	{V3840X2160P30,    V4L2_DV_BT_CEA_3840X2160P30,       30, SYNC_POSITIVE, SYNC_POSITIVE,  95, "V3840X2160P30"},
+	{V4096X2160P24,    V4L2_DV_BT_CEA_4096X2160P24,       24, SYNC_POSITIVE, SYNC_POSITIVE,  98, "V4096X2160P24"},
+	{V4096X2160P25,    V4L2_DV_BT_CEA_4096X2160P25,       25, SYNC_POSITIVE, SYNC_POSITIVE,  99, "V4096X2160P25"},
+	{V4096X2160P30,    V4L2_DV_BT_CEA_4096X2160P30,       30, SYNC_POSITIVE, SYNC_POSITIVE, 100, "V4096X2160P30"},
+	{V3840X2160P59RB,  V4L2_DV_BT_CVT_3840X2160P59_ADDED, 59, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V3840X2160P59RB"},
+	{V3840X2160P50,    V4L2_DV_BT_CEA_3840X2160P50,       50, SYNC_POSITIVE, SYNC_POSITIVE,  96, "V3840X2160P50"},
+	{V3840X2160P60,    V4L2_DV_BT_CEA_3840X2160P60,       60, SYNC_POSITIVE, SYNC_POSITIVE,  97, "V3840X2160P60"},
+	{V4096X2160P50,    V4L2_DV_BT_CEA_4096X2160P50,       50, SYNC_POSITIVE, SYNC_POSITIVE, 101, "V4096X2160P50"},
+	{V4096X2160P60,    V4L2_DV_BT_CEA_4096X2160P60,       60, SYNC_POSITIVE, SYNC_POSITIVE, 102, "V4096X2160P60"},
+	{V640X10P60SACRC,  V4L2_DV_BT_CVT_640x10P60_ADDED,    60, SYNC_POSITIVE, SYNC_POSITIVE,   0, "V640X10P60SACRC"},
 };
 
 const int supported_videos_pre_cnt = ARRAY_SIZE(supported_videos);
@@ -96,8 +91,6 @@ void displayport_reg_sw_reset(void)
 {
 	u32 cnt = 10;
 	u32 state;
-
-	displayport_info("%s\n", __func__);
 
 	displayport_write_mask(SYSTEM_SW_RESET_CONTROL, ~0, SW_RESET);
 
@@ -155,7 +148,9 @@ void displayport_reg_phy_mode_setting(void)
 	case CCIC_NOTIFY_DP_PIN_A:
 	case CCIC_NOTIFY_DP_PIN_C:
 	case CCIC_NOTIFY_DP_PIN_E:
+#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
 		exynos_usbdrd_inform_dp_use(1, 4);
+#endif
 
 		displayport_phy_write_mask(CMN_REG2C, 1, MAN_USBDP_MODE_EN);
 
@@ -174,7 +169,9 @@ void displayport_reg_phy_mode_setting(void)
 	case CCIC_NOTIFY_DP_PIN_B:
 	case CCIC_NOTIFY_DP_PIN_D:
 	case CCIC_NOTIFY_DP_PIN_F:
+#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
 		exynos_usbdrd_inform_dp_use(1, 2);
+#endif
 
 		displayport_phy_write_mask(CMN_REG2C, 1, MAN_USBDP_MODE_EN);
 
@@ -220,7 +217,7 @@ void displayport_reg_phy_ssc_enable(u32 en)
 
 void displayport_reg_wait_phy_pll_lock(void)
 {
-	u32 cnt = 300;	/* wait for 150us + 10% margin */
+	u32 cnt = 165;	/* wait for 150us + 10% margin */
 	u32 state;
 
 	do {
@@ -230,7 +227,7 @@ void displayport_reg_wait_phy_pll_lock(void)
 	} while (!state && cnt);
 
 	if (!cnt)
-		displayport_err("%s is timeout 300us\n", __func__);
+		displayport_err("%s is timeout.\n", __func__);
 }
 
 void displayport_reg_set_link_bw(u8 link_rate)
@@ -700,9 +697,12 @@ void displayport_reg_set_active_symbol(void)
 	else if (integer_fec_on > 5)
 		threshold_fec_on = 9;
 
-	displayport_info("fec_off(int: %d, frac: %d, thr: %d), fec_on(int: %d, frac: %d, thr: %d)\n",
-			integer_fec_off, fraction_fec_off, threshold_fec_off,
-			integer_fec_on, fraction_fec_on, threshold_fec_on);
+	displayport_info("integer_fec_off = %d\n", integer_fec_off);
+	displayport_info("fraction_fec_off = %d\n", fraction_fec_off);
+	displayport_info("threshold_fec_off = %d\n", threshold_fec_off);
+	displayport_info("integer_fec_on = %d\n", integer_fec_on);
+	displayport_info("fraction_fec_on = %d\n", fraction_fec_on);
+	displayport_info("threshold_fec_on = %d\n", threshold_fec_on);
 
 	displayport_write_mask(SST1_ACTIVE_SYMBOL_INTEGER_FEC_OFF, integer_fec_off, ACTIVE_SYMBOL_INTEGER_FEC_OFF);
 	displayport_write_mask(SST1_ACTIVE_SYMBOL_FRACTION_FEC_OFF, fraction_fec_off, ACTIVE_SYMBOL_FRACTION_FEC_OFF);
@@ -872,12 +872,6 @@ int displayport_reg_dpcd_write(u32 address, u32 length, u8 *data)
 		retry_cnt--;
 	}
 
-#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	if (ret == 0)
-		secdp_bigdata_clr_error_cnt(ERR_AUX);
-	else
-		secdp_bigdata_inc_error_cnt(ERR_AUX);
-#endif
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
@@ -907,12 +901,6 @@ int displayport_reg_dpcd_read(u32 address, u32 length, u8 *data)
 	if (ret == 0)
 		displayport_reg_aux_ch_received_buf(data, length);
 
-#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	if (ret == 0)
-		secdp_bigdata_clr_error_cnt(ERR_AUX);
-	else
-		secdp_bigdata_inc_error_cnt(ERR_AUX);
-#endif
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
@@ -966,80 +954,6 @@ int displayport_reg_dpcd_read_burst(u32 address, u32 length, u8 *data)
 			break;
 		}
 	}
-
-	return ret;
-}
-
-int displayport_reg_i2c_write(u32 address, u32 length, u8 *data)
-{
-	int ret;
-	struct displayport_device *displayport = get_displayport_drvdata();
-	int retry_cnt = AUX_RETRY_COUNT;
-
-	mutex_lock(&displayport->aux_lock);
-
-	while (retry_cnt > 0) {
-		displayport_reg_set_aux_ch_command(I2C_WRITE);
-		displayport_reg_set_aux_ch_address(address);
-		displayport_reg_set_aux_ch_address_only_command(1);
-		ret = displayport_reg_set_aux_ch_operation_enable();
-		displayport_reg_set_aux_ch_address_only_command(0);
-
-		displayport_reg_aux_ch_buf_clr();
-		displayport_reg_aux_defer_ctrl(1);
-		displayport_reg_set_aux_reply_timeout();
-		displayport_reg_set_aux_ch_address_only_command(0);
-		displayport_reg_set_aux_ch_command(I2C_WRITE);
-		displayport_reg_set_aux_ch_address(address);
-		displayport_reg_set_aux_ch_length(length);
-		displayport_reg_aux_ch_send_buf(data, length);
-		ret = displayport_reg_set_aux_ch_operation_enable();
-
-		if (ret == 0) {
-			displayport_reg_set_aux_ch_command(I2C_WRITE);
-			displayport_reg_set_aux_ch_address(EDID_ADDRESS);
-			displayport_reg_set_aux_ch_address_only_command(1);
-			ret = displayport_reg_set_aux_ch_operation_enable();
-			displayport_reg_set_aux_ch_address_only_command(0);
-			displayport_dbg("address only request in i2c write\n");
-		}
-
-		if (ret == 0)
-			break;
-
-		retry_cnt--;
-	}
-
-	mutex_unlock(&displayport->aux_lock);
-
-	return ret;
-}
-
-int displayport_reg_i2c_read(u32 address, u32 length, u8 *data)
-{
-	int ret;
-	struct displayport_device *displayport = get_displayport_drvdata();
-	int retry_cnt = AUX_RETRY_COUNT;
-
-	mutex_lock(&displayport->aux_lock);
-	while (retry_cnt > 0) {
-		displayport_reg_set_aux_ch_command(I2C_READ);
-		displayport_reg_set_aux_ch_address(address);
-		displayport_reg_set_aux_ch_length(length);
-		displayport_reg_aux_ch_buf_clr();
-		displayport_reg_aux_defer_ctrl(1);
-		displayport_reg_set_aux_reply_timeout();
-		ret = displayport_reg_set_aux_ch_operation_enable();
-
-		if (ret == 0)
-			break;
-		retry_cnt--;
-	}
-
-	if (ret == 0)
-		displayport_reg_aux_ch_received_buf(data, length);
-
-	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
 }
@@ -1170,13 +1084,6 @@ int displayport_reg_edid_read(u8 edid_addr_offset, u32 length, u8 *data)
 		retry_cnt--;
 	}
 
-#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
-	if (ret == 0)
-		secdp_bigdata_clr_error_cnt(ERR_AUX);
-	else
-		secdp_bigdata_inc_error_cnt(ERR_AUX);
-#endif
-
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
@@ -1283,12 +1190,9 @@ void displayport_reg_lh_p_ch_power(u32 en)
 	}
 }
 
-void displayport_reg_sw_function_en(u32 en)
+void displayport_reg_sw_function_en(void)
 {
-	if (en)
-		displayport_write_mask(SYSTEM_SW_FUNCTION_ENABLE, 1, SW_FUNC_EN);
-	else
-		displayport_write_mask(SYSTEM_SW_FUNCTION_ENABLE, 0, SW_FUNC_EN);
+	displayport_write_mask(SYSTEM_SW_FUNCTION_ENABLE, 1, SW_FUNC_EN);
 }
 
 void displayport_reg_phy_aux_level_setting(void)
@@ -1311,30 +1215,28 @@ void displayport_reg_phy_disable(void)
 	displayport_reg_phy_reset(1);
 	displayport_phy_write(DP_REG_0, 0x00);
 
+#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
 	exynos_usbdrd_inform_dp_use(0, displayport_reg_get_lane_count());
 	exynos_usbdrd_request_phy_isol();
+#endif
 }
 
 void displayport_reg_init(void)
 {
-	displayport_info("%s\n", __func__);
+	displayport_reg_sw_reset();
+
 	displayport_reg_phy_init();
+
 	displayport_reg_function_enable();
-	displayport_reg_sw_function_en(1);
+	displayport_reg_lh_p_ch_power(1);
+	displayport_reg_sw_function_en();
 
 	displayport_reg_set_interrupt(1);
 	displayport_reg_set_lane_map_config();
 }
 
-void displayport_reg_deinit(void)
-{
-	displayport_write_mask(SST1_VIDEO_ENABLE, 0, VIDEO_EN);
-	displayport_reg_sw_function_en(0);
-}
-
 void displayport_reg_set_video_configuration(videoformat video_format, u8 bpc, u8 range)
 {
-	displayport_info("color range: %d, bpc: %d\n", range, bpc);
 	displayport_reg_set_daynamic_range((range)?CEA_RANGE:VESA_RANGE);
 	displayport_write_mask(SST1_VIDEO_CONTROL, bpc, BPC);	/* 0 : 6bits, 1 : 8bits */
 	displayport_write_mask(SST1_VIDEO_CONTROL, 0, COLOR_FORMAT);	/* RGB */
@@ -1371,16 +1273,16 @@ void displayport_reg_set_avi_infoframe(struct infoframe avi_infoframe)
 {
 	u32 avi_infoframe_data = 0;
 
-	avi_infoframe_data = ((u32)avi_infoframe.data[3] << 24) | ((u32)avi_infoframe.data[2] << 16)
-			| ((u32)avi_infoframe.data[1] << 8) | (u32)avi_infoframe.data[0];
+	avi_infoframe_data = ((u32)avi_infoframe.data[3] << 24) || ((u32)avi_infoframe.data[2] << 16)
+			|| ((u32)avi_infoframe.data[1] << 8) || (u32)avi_infoframe.data[0];
 	displayport_write(SST1_INFOFRAME_AVI_PACKET_DATA_SET0, avi_infoframe_data);
 
-	avi_infoframe_data = ((u32)avi_infoframe.data[7] << 24) | ((u32)avi_infoframe.data[6] << 16)
-			| ((u32)avi_infoframe.data[5] << 8) | (u32)avi_infoframe.data[4];
+	avi_infoframe_data = ((u32)avi_infoframe.data[7] << 24) || ((u32)avi_infoframe.data[6] << 16)
+			|| ((u32)avi_infoframe.data[5] << 8) || (u32)avi_infoframe.data[4];
 	displayport_write(SST1_INFOFRAME_AVI_PACKET_DATA_SET1, avi_infoframe_data);
 
-	avi_infoframe_data = ((u32)avi_infoframe.data[11] << 24) | ((u32)avi_infoframe.data[10] << 16)
-			| ((u32)avi_infoframe.data[9] << 8) | (u32)avi_infoframe.data[8];
+	avi_infoframe_data = ((u32)avi_infoframe.data[11] << 24) || ((u32)avi_infoframe.data[10] << 16)
+			|| ((u32)avi_infoframe.data[9] << 8) || (u32)avi_infoframe.data[8];
 	displayport_write(SST1_INFOFRAME_AVI_PACKET_DATA_SET2, avi_infoframe_data);
 
 	avi_infoframe_data = (u32)avi_infoframe.data[12];
@@ -1390,43 +1292,19 @@ void displayport_reg_set_avi_infoframe(struct infoframe avi_infoframe)
 	displayport_write_mask(SST1_INFOFRAME_SEND_CONTROL, 1, AVI_INFO_SEND);
 }
 
-#ifdef FEATURE_SUPPORT_SPD_INFOFRAME
-void displayport_reg_set_spd_infoframe(struct infoframe spd_infoframe)
-{
-	int i, j;
-	int data_ind = 0;
-	u32 spd_infoframe_data;
-
-	displayport_write(SST1_INFOFRAME_SPD_PACKET_TYPE, spd_infoframe.type_code);
-
-	for (i = 0; i < 24; i += 4) {
-		spd_infoframe_data = 0;
-
-		for (j = 0; j < 32; j += 8)
-			spd_infoframe_data |= spd_infoframe.data[data_ind++] << j;
-
-		displayport_write(SST1_INFOFRAME_SPD_PACKET_DATA_SET0 + i, spd_infoframe_data);
-	}
-	displayport_write(SST1_INFOFRAME_SPD_PACKET_DATA_SET6, spd_infoframe.data[24]);
-
-	displayport_write_mask(SST1_INFOFRAME_UPDATE_CONTROL, 1, SPD_INFO_UPDATE);
-	displayport_write_mask(SST1_INFOFRAME_SEND_CONTROL, 1, SPD_INFO_SEND);
-}
-#endif
-
 void displayport_reg_set_audio_infoframe(struct infoframe audio_infoframe, u32 en)
 {
 	u32 audio_infoframe_data = 0;
 
-	audio_infoframe_data = ((u32)audio_infoframe.data[3] << 24) | ((u32)audio_infoframe.data[2] << 16)
-			| ((u32)audio_infoframe.data[1] << 8) | (u32)audio_infoframe.data[0];
+	audio_infoframe_data = ((u32)audio_infoframe.data[3] << 24) || ((u32)audio_infoframe.data[2] << 16)
+			|| ((u32)audio_infoframe.data[1] << 8) || (u32)audio_infoframe.data[0];
 	displayport_write(SST1_INFOFRAME_AUDIO_PACKET_DATA_SET0, audio_infoframe_data);
 
-	audio_infoframe_data = ((u32)audio_infoframe.data[7] << 24) | ((u32)audio_infoframe.data[6] << 16)
-			| ((u32)audio_infoframe.data[5] << 8) | (u32)audio_infoframe.data[4];
+	audio_infoframe_data = ((u32)audio_infoframe.data[7] << 24) || ((u32)audio_infoframe.data[6] << 16)
+			|| ((u32)audio_infoframe.data[5] << 8) || (u32)audio_infoframe.data[4];
 	displayport_write(SST1_INFOFRAME_AUDIO_PACKET_DATA_SET1, audio_infoframe_data);
 
-	audio_infoframe_data = ((u32)audio_infoframe.data[9] << 8) | (u32)audio_infoframe.data[8];
+	audio_infoframe_data = ((u32)audio_infoframe.data[10] << 8) || (u32)audio_infoframe.data[9];
 	displayport_write(SST1_INFOFRAME_AUDIO_PACKET_DATA_SET2, audio_infoframe_data);
 
 	displayport_write_mask(SST1_INFOFRAME_UPDATE_CONTROL, en, AUDIO_INFO_UPDATE);
@@ -1479,7 +1357,7 @@ void displayport_reg_start(void)
 void displayport_reg_video_mute(u32 en)
 {
 /*	displayport_dbg("set mute %d\n", en);
- *	displayport_write_mask(SST1_VIDEO_MUTE, en, VIDEO_MUTE);
+ *	displayport_write_mask(Video_Control_1, en, VIDEO_MUTE);
  */
 }
 
@@ -1804,19 +1682,6 @@ void displayport_reg_wait_buf_full(void)
 
 	if (!cnt)
 		displayport_err("%s is timeout.\n", __func__);
-}
-
-void displayport_reg_print_audio_state(void)
-{
-	u32 val1, val2, val3, val4, val5;
-
-	val1 = displayport_read(SYSTEM_SST1_FUNCTION_ENABLE);
-	val2 = displayport_read(SST1_AUDIO_ENABLE);
-	val3 = displayport_read(SST1_AUDIO_MASTER_TIMING_GEN);
-	val4 = displayport_read(SST1_AUDIO_DMA_REQUEST_LATENCY_CONFIG);
-	val5 = displayport_read(SST1_AUDIO_CONTROL);
-	displayport_info("audio state: func_en=0x%x, aud_en=0x%x, master_t_gen=0x%x, dma_req=0x%x, aud_con=0x%X\n",
-			val1, val2, val3, val4, val5);
 }
 
 void displayport_reg_set_hdcp22_system_enable(u32 en)

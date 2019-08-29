@@ -9,6 +9,7 @@
 #define CAP_LOD_SET      ((kernel_cap_t){{ CAP_TO_MASK(CAP_CHOWN) \
 				    | CAP_TO_MASK(CAP_DAC_OVERRIDE) \
 				    | CAP_TO_MASK(CAP_FOWNER) \
+				    | CAP_TO_MASK(CAP_KILL) \
 				    | CAP_TO_MASK(CAP_SETGID) \
 				    | CAP_TO_MASK(CAP_SETUID), \
 				    0 } })

@@ -23,6 +23,7 @@
 #define IVA_CTRL_EXIT_MCU		_IOW(IVA_CTRL_MAGIC, 3, uint32_t)
 
 #define IVA_CTRL_GET_STATUS		_IOR(IVA_CTRL_MAGIC, 4, struct iva_status_param)
+
 #define IVA_IPC_QUEUE_SEND_CMD		_IOW(IVA_CTRL_MAGIC, 5, struct ipc_cmd_param)
 #define IVA_IPC_QUEUE_RECEIVE_RSP	_IOR(IVA_CTRL_MAGIC, 6, struct ipc_res_param)
 

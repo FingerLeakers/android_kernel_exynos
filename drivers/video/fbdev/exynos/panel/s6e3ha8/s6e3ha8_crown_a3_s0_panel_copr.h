@@ -62,10 +62,6 @@ static void *crown_a3_s0_set_copr_cmdtbl[] = {
 	&PKTINFO(crown_a3_s0_level2_key_disable),
 };
 
-static void *crown_a3_s0_get_copr_cmdtbl[] = {
-	&s6e3ha8_restbl[RES_COPR],
-};
-
 static void *crown_a3_s0_clr_copr_cnt_on_cmdtbl[] = {
 	&PKTINFO(crown_a3_s0_level2_key_enable),
 	&PKTINFO(crown_a3_s0_copr_clr_cnt_on),
@@ -88,7 +84,6 @@ static void *crown_a3_s0_get_copr_dsi_cmdtbl[] = {
 
 static struct seqinfo crown_a3_s0_copr_seqtbl[MAX_COPR_SEQ] = {
 	[COPR_SET_SEQ] = SEQINFO_INIT("set-copr-seq", crown_a3_s0_set_copr_cmdtbl),
-	[COPR_GET_SEQ] = SEQINFO_INIT("get-copr-seq", crown_a3_s0_get_copr_cmdtbl),
 	[COPR_CLR_CNT_ON_SEQ] = SEQINFO_INIT("clr-copr-cnt-on-seq", crown_a3_s0_clr_copr_cnt_on_cmdtbl),
 	[COPR_CLR_CNT_OFF_SEQ] = SEQINFO_INIT("clr-copr-cnt-off-seq", crown_a3_s0_clr_copr_cnt_off_cmdtbl),
 	[COPR_SPI_GET_SEQ] = SEQINFO_INIT("get-copr-spi-seq", crown_a3_s0_get_copr_spi_cmdtbl),
@@ -100,8 +95,8 @@ static struct panel_copr_data s6e3ha8_crown_a3_s0_copr_data = {
 	.nr_seqtbl = ARRAY_SIZE(crown_a3_s0_copr_seqtbl),
 	.maptbl = (struct maptbl *)crown_a3_s0_copr_maptbl,
 	.nr_maptbl = (sizeof(crown_a3_s0_copr_maptbl) / sizeof(struct maptbl)),
-	.version = 2,
-	.reg = {
+	.version = COPR_VER_2,
+	.reg.v2 = {
 		.cnt_re = false,
 		.copr_ilc = true,
 		.copr_en = true,

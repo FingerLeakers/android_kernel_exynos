@@ -26,11 +26,12 @@
 #include <linux/cpumask.h>
 #include <linux/interrupt.h>
 #include <linux/sec_argos.h>
+#include <linux/ologk.h>
 
-#ifdef CONFIG_SCHED_EHMP
-#include <linux/ehmp.h>
+#if defined(CONFIG_SCHED_EMS)
+#include <linux/ems.h>
 static struct gb_qos_request gb_req = {
-	.name = "argos_ehmp_boost",
+	.name = "argos_global_boost",
 };
 #endif
 
@@ -43,10 +44,12 @@ static DEFINE_SPINLOCK(argos_task_lock);
 
 enum {
 	THRESHOLD,
-	CPU_MIN_FREQ,
-	CPU_MAX_FREQ,
-	KFC_MIN_FREQ,
-	KFC_MAX_FREQ,
+	BIG_MIN_FREQ,
+	BIG_MAX_FREQ,
+	MID_MIN_FREQ,
+	MID_MAX_FREQ,
+	LIT_MIN_FREQ,
+	LIT_MAX_FREQ,
 	MIFFREQ,
 	INTFREQ,
 	TASK_AFFINITY_EN,
@@ -74,10 +77,12 @@ struct argos_irq_affinity {
 };
 
 struct argos_pm_qos {
-	struct pm_qos_request cpu_min_qos_req;
-	struct pm_qos_request cpu_max_qos_req;
-	struct pm_qos_request kfc_min_qos_req;
-	struct pm_qos_request kfc_max_qos_req;
+	struct pm_qos_request big_min_qos_req;
+	struct pm_qos_request big_max_qos_req;
+	struct pm_qos_request mid_min_qos_req;
+	struct pm_qos_request mid_max_qos_req;
+	struct pm_qos_request lit_min_qos_req;
+	struct pm_qos_request lit_max_qos_req;
 	struct pm_qos_request mif_qos_req;
 	struct pm_qos_request int_qos_req;
 	struct pm_qos_request hotplug_min_qos_req;
@@ -385,11 +390,9 @@ int argos_hmpboost_apply(int dev_num, bool enable)
 	if (enable) {
 		/* disable -> enable */
 		if (!*hmpboost_enable) {
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EMS)
 			/* set global boost */
 			gb_qos_update_request(&gb_req, 100);
-#elif defined(CONFIG_SCHED_HMP)
-			set_hmp_boost(true);
 #endif
 			*hmpboost_enable = true;
 			pr_info("%s: hmp boost enable [%d]\n", __func__, dev_num);
@@ -397,11 +400,9 @@ int argos_hmpboost_apply(int dev_num, bool enable)
 	} else {
 		/* enable -> disable */
 		if (*hmpboost_enable) {
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EMS)
 			/* unset global boost */
 			gb_qos_update_request(&gb_req, 0);
-#elif defined(CONFIG_SCHED_HMP)
-			set_hmp_boost(false);
 #endif
 			*hmpboost_enable = false;
 			pr_info("%s: hmp boost disable [%d]\n", __func__, dev_num);
@@ -418,10 +419,12 @@ static void argos_freq_unlock(int type)
 
 	cname = argos_pdata->devices[type].desc;
 
-	REMOVE_PM_QOS(&qos->cpu_min_qos_req);
-	REMOVE_PM_QOS(&qos->cpu_max_qos_req);
-	REMOVE_PM_QOS(&qos->kfc_min_qos_req);
-	REMOVE_PM_QOS(&qos->kfc_max_qos_req);
+	REMOVE_PM_QOS(&qos->big_min_qos_req);
+	REMOVE_PM_QOS(&qos->big_max_qos_req);
+	REMOVE_PM_QOS(&qos->mid_min_qos_req);
+	REMOVE_PM_QOS(&qos->mid_max_qos_req);
+	REMOVE_PM_QOS(&qos->lit_min_qos_req);
+	REMOVE_PM_QOS(&qos->lit_max_qos_req);
 	REMOVE_PM_QOS(&qos->mif_qos_req);
 	REMOVE_PM_QOS(&qos->int_qos_req);
 
@@ -430,47 +433,65 @@ static void argos_freq_unlock(int type)
 
 static void argos_freq_lock(int type, int level)
 {
-	unsigned int cpu_min_freq, cpu_max_freq, kfc_min_freq,
-			 kfc_max_freq, mif_freq, int_freq;
+	unsigned int big_min_freq, big_max_freq;
+	unsigned int mid_min_freq, mid_max_freq;
+	unsigned int lit_min_freq, lit_max_freq;
+	unsigned int mif_freq, int_freq;
 	struct boost_table *t = &argos_pdata->devices[type].tables[level];
 	struct argos_pm_qos *qos = argos_pdata->devices[type].qos;
 	const char *cname;
 
 	cname = argos_pdata->devices[type].desc;
 
-	cpu_min_freq = t->items[CPU_MIN_FREQ];
-	cpu_max_freq = t->items[CPU_MAX_FREQ];
-	kfc_min_freq = t->items[KFC_MIN_FREQ];
-	kfc_max_freq = t->items[KFC_MAX_FREQ];
+	big_min_freq = t->items[BIG_MIN_FREQ];
+	big_max_freq = t->items[BIG_MAX_FREQ];
+	mid_min_freq = t->items[MID_MIN_FREQ];
+	mid_max_freq = t->items[MID_MAX_FREQ];
+	lit_min_freq = t->items[LIT_MIN_FREQ];
+	lit_max_freq = t->items[LIT_MAX_FREQ];
 	mif_freq = t->items[MIFFREQ];
 	int_freq = t->items[INTFREQ];
 
-	if (cpu_min_freq) {
-		UPDATE_PM_QOS(&qos->cpu_min_qos_req,
-			      PM_QOS_CLUSTER1_FREQ_MIN, cpu_min_freq);
+	if (big_min_freq) {
+		UPDATE_PM_QOS(&qos->big_min_qos_req,
+			      PM_QOS_CLUSTER2_FREQ_MIN, big_min_freq);
 	} else {
-		REMOVE_PM_QOS(&qos->cpu_min_qos_req);
+		REMOVE_PM_QOS(&qos->big_min_qos_req);
 	}
 
-	if (cpu_max_freq) {
-		UPDATE_PM_QOS(&qos->cpu_max_qos_req,
-			      PM_QOS_CLUSTER1_FREQ_MAX, cpu_max_freq);
+	if (big_max_freq) {
+		UPDATE_PM_QOS(&qos->big_max_qos_req,
+			      PM_QOS_CLUSTER2_FREQ_MAX, big_max_freq);
 	} else {
-		REMOVE_PM_QOS(&qos->cpu_max_qos_req);
+		REMOVE_PM_QOS(&qos->big_max_qos_req);
 	}
 
-	if (kfc_min_freq) {
-		UPDATE_PM_QOS(&qos->kfc_min_qos_req,
-			      PM_QOS_CLUSTER0_FREQ_MIN, kfc_min_freq);
+	if (mid_min_freq) {
+		UPDATE_PM_QOS(&qos->mid_min_qos_req,
+			      PM_QOS_CLUSTER1_FREQ_MIN, mid_min_freq);
 	} else {
-		REMOVE_PM_QOS(&qos->kfc_min_qos_req);
+		REMOVE_PM_QOS(&qos->mid_min_qos_req);
 	}
 
-	if (kfc_max_freq) {
-		UPDATE_PM_QOS(&qos->kfc_max_qos_req,
-			      PM_QOS_CLUSTER0_FREQ_MAX, kfc_max_freq);
+	if (mid_max_freq) {
+		UPDATE_PM_QOS(&qos->mid_max_qos_req,
+			      PM_QOS_CLUSTER1_FREQ_MAX, mid_max_freq);
 	} else {
-		REMOVE_PM_QOS(&qos->kfc_max_qos_req);
+		REMOVE_PM_QOS(&qos->mid_max_qos_req);
+	}
+
+	if (lit_min_freq) {
+		UPDATE_PM_QOS(&qos->lit_min_qos_req,
+			      PM_QOS_CLUSTER0_FREQ_MIN, lit_min_freq);
+	} else {
+		REMOVE_PM_QOS(&qos->lit_min_qos_req);
+	}
+
+	if (lit_max_freq) {
+		UPDATE_PM_QOS(&qos->lit_max_qos_req,
+			      PM_QOS_CLUSTER0_FREQ_MAX, lit_max_freq);
+	} else {
+		REMOVE_PM_QOS(&qos->lit_max_qos_req);
 	}
 
 	if (mif_freq) {
@@ -486,8 +507,9 @@ static void argos_freq_lock(int type, int level)
 	} else {
 		REMOVE_PM_QOS(&qos->int_qos_req);
 	}
-	pr_info("%s name:%s, CPU_MIN=%d, CPU_MAX=%d , KFC_MIN=%d, KFC_MAX=%d, MIF=%d, INT=%d\n",
-		__func__, cname, cpu_min_freq, cpu_max_freq, kfc_min_freq, kfc_max_freq, mif_freq, int_freq);
+
+	pr_info("%s name:%s, BIG_MIN=%d, BIG_MAX=%d, MID_MIN=%d, MID_MAX=%d, LIT_MIN=%d, LIT_MAX=%d, MIF=%d, INT=%d\n",
+		__func__, cname, big_min_freq, big_max_freq, mid_min_freq, mid_max_freq, lit_min_freq, lit_max_freq, mif_freq, int_freq);
 }
 
 void argos_block_enable(char *req_name, bool set)
@@ -561,6 +583,9 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 	prev_level = cnode->prev_level;
 
 	pr_debug("%s name:%s, speed:%ldMbps\n", __func__, cnode->desc, speed);
+	if(speed >= 300) {
+		ologk("%s: name:%s, speed:%ldMbps", __func__, cnode->desc, speed);
+	}
 
 	argos_blocked = cnode->argos_block;
 
@@ -646,8 +671,10 @@ static int argos_parse_dt(struct device *dev)
 
 	np = dev->of_node;
 	pdata->ndevice = of_get_child_count(np);
-	if (!pdata->ndevice)
+	if (!pdata->ndevice) {
+		dev_err(dev, "Failed to get child count\n");
 		return -ENODEV;
+	}
 
 	pdata->devices = devm_kzalloc(dev, sizeof(struct argos) * pdata->ndevice, GFP_KERNEL);
 	if (!pdata->devices)

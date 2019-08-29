@@ -14,9 +14,9 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/slab.h>
 #include <linux/pm_runtime.h>
 #include <linux/exynos_iovmm.h>
-#include <asm/cacheflush.h>
 
 #include "g2d.h"
 #include "g2d_task.h"
@@ -24,34 +24,27 @@
 #include "g2d_command.h"
 #include "g2d_fence.h"
 #include "g2d_debug.h"
-
-#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
-#include <linux/smc.h>
-
-#define G2D_ALWAYS_S 37
-static int g2d_map_cmd_data(struct g2d_task *task)
-{
-	return 0;
-}
+#include "g2d_secure.h"
 
 static void g2d_secure_enable(void)
 {
-	exynos_smc(SMC_PROTECTION_SET, 0, G2D_ALWAYS_S, 1);
+	if (IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION))
+		exynos_smc(SMC_PROTECTION_SET, 0, G2D_ALWAYS_S, 1);
 }
 
 static void g2d_secure_disable(void)
 {
-	exynos_smc(SMC_PROTECTION_SET, 0, G2D_ALWAYS_S, 0);
+	if (IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION))
+		exynos_smc(SMC_PROTECTION_SET, 0, G2D_ALWAYS_S, 0);
 }
 
-static void g2d_flush_command_page(struct g2d_task *task)
-{
-	__dma_flush_area(page_address(task->cmd_page), G2D_CMD_LIST_SIZE);
-}
-#else
 static int g2d_map_cmd_data(struct g2d_task *task)
 {
+	bool self_prot = task->g2d_dev->caps & G2D_DEVICE_CAPS_SELF_PROTECTION;
 	struct scatterlist sgl;
+
+	if (!self_prot && IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION))
+		return 0;
 
 	/* mapping the command data */
 	sg_init_table(&sgl, 1);
@@ -61,18 +54,12 @@ static int g2d_map_cmd_data(struct g2d_task *task)
 				   IOMMU_READ | IOMMU_CACHE);
 
 	if (IS_ERR_VALUE(task->cmd_addr)) {
-		dev_err(task->g2d_dev->dev,
-			"%s: Unable to allocate IOVA for cmd data\n", __func__);
+		perrfndev(task->g2d_dev, "Unable to alloc IOVA for cmd data");
 		return task->cmd_addr;
 	}
 
 	return 0;
 }
-
-#define g2d_secure_enable() do { } while (0)
-#define g2d_secure_disable() do { } while (0)
-#define g2d_flush_command_page(task) do { } while (0)
-#endif
 
 struct g2d_task *g2d_get_active_task_from_id(struct g2d_device *g2d_dev,
 					     unsigned int id)
@@ -80,12 +67,11 @@ struct g2d_task *g2d_get_active_task_from_id(struct g2d_device *g2d_dev,
 	struct g2d_task *task;
 
 	list_for_each_entry(task, &g2d_dev->tasks_active, node) {
-		if (task->job_id == id)
+		if (task->sec.job_id == id)
 			return task;
 	}
 
-	dev_err(g2d_dev->dev,
-		"%s: No active task entry is found for ID %d\n", __func__, id);
+	perrfndev(g2d_dev, "No active task entry is found for ID %d", id);
 
 	return NULL;
 }
@@ -149,8 +135,7 @@ void g2d_finish_task_with_id(struct g2d_device *g2d_dev,
 		return;
 
 	if (is_task_state_killed(task)) {
-		dev_err(g2d_dev->dev, "%s: Killed task ID %d is completed\n",
-			__func__, job_id);
+		perrfndev(g2d_dev, "Killed task ID %d is completed", job_id);
 		success = false;
 	}
 
@@ -161,14 +146,13 @@ void g2d_flush_all_tasks(struct g2d_device *g2d_dev)
 {
 	struct g2d_task *task;
 
-	dev_err(g2d_dev->dev, "%s: Flushing all active tasks\n", __func__);
+	perrfndev(g2d_dev, "Flushing all active tasks");
 
 	while (!list_empty(&g2d_dev->tasks_active)) {
 		task = list_first_entry(&g2d_dev->tasks_active,
 					struct g2d_task, node);
 
-		dev_err(g2d_dev->dev, "%s: Flushed task of ID %d\n",
-			__func__, task->job_id);
+		perrfndev(g2d_dev, "Flushed task of ID %d", task->sec.job_id);
 
 		mark_task_state_killed(task);
 
@@ -186,8 +170,6 @@ static void g2d_execute_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 	task->hw_timer.expires =
 		jiffies + msecs_to_jiffies(G2D_HW_TIMEOUT_MSEC);
 	add_timer(&task->hw_timer);
-
-	g2d_flush_command_page(task);
 
 	/*
 	 * g2d_device_run() is not reentrant while g2d_schedule() is
@@ -237,6 +219,9 @@ static void g2d_schedule_task(struct g2d_task *task)
 
 	del_timer(&task->fence_timer);
 
+	if (g2d_task_has_error_fence(task))
+		goto err_fence;
+
 	g2d_complete_commands(task);
 
 	/*
@@ -249,13 +234,13 @@ static void g2d_schedule_task(struct g2d_task *task)
 	 */
 	ret = pm_runtime_get_sync(g2d_dev->dev);
 	if (ret < 0) {
-		dev_err(g2d_dev->dev, "Failed to enable power (%d)\n", ret);
+		perrfndev(g2d_dev, "Failed to enable power (%d)", ret);
 		goto err_pm;
 	}
 
 	ret = clk_prepare_enable(g2d_dev->clock);
 	if (ret < 0) {
-		dev_err(g2d_dev->dev, "Failed to enable clock (%d)\n", ret);
+		perrfndev(g2d_dev, "Failed to enable clock (%d)", ret);
 		goto err_clk;
 	}
 
@@ -272,6 +257,7 @@ static void g2d_schedule_task(struct g2d_task *task)
 err_clk:
 	pm_runtime_put(g2d_dev->dev);
 err_pm:
+err_fence:
 	__g2d_finish_task(task, false);
 }
 
@@ -292,11 +278,18 @@ void g2d_queuework_task(struct kref *kref)
 	BUG_ON(failed);
 }
 
+static void g2d_task_direct_schedule(struct kref *kref)
+{
+	struct g2d_task *task = container_of(kref, struct g2d_task, starter);
+
+	g2d_schedule_task(task);
+}
+
 void g2d_start_task(struct g2d_task *task)
 {
 	reinit_completion(&task->completion);
 
-	if (atomic_read(&task->starter.refcount) > 1) {
+	if (atomic_read(&task->starter.refcount.refs) > 1) {
 		task->fence_timer.expires =
 			jiffies + msecs_to_jiffies(G2D_FENCE_TIMEOUT_MSEC);
 		add_timer(&task->fence_timer);
@@ -304,10 +297,15 @@ void g2d_start_task(struct g2d_task *task)
 
 	task->ktime_begin = ktime_get();
 
-	kref_put(&task->starter, g2d_queuework_task);
+	kref_put(&task->starter, g2d_task_direct_schedule);
 }
 
-void g2d_fence_callback(struct fence *fence, struct fence_cb *cb)
+void g2d_cancel_task(struct g2d_task *task)
+{
+	__g2d_finish_task(task, false);
+}
+
+void g2d_fence_callback(struct dma_fence *fence, struct dma_fence_cb *cb)
 {
 	struct g2d_layer *layer = container_of(cb, struct g2d_layer, fence_cb);
 	unsigned long flags;
@@ -333,6 +331,7 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 	spin_lock_irqsave(&g2d_dev->lock_task, flags);
 
 	if (list_empty(taskfree)) {
+		perrfndev(g2d_dev, "no free task slot found(hwfc? %d)", hwfc);
 		spin_unlock_irqrestore(&g2d_dev->lock_task, flags);
 		return NULL;
 	}
@@ -342,7 +341,7 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 	INIT_WORK(&task->work, g2d_task_schedule_work);
 
 	init_task_state(task);
-	task->priority = g2d_ctx->priority;
+	task->sec.priority = g2d_ctx->priority;
 
 	g2d_init_commands(task);
 
@@ -365,7 +364,7 @@ void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 
 	if (IS_HWFC(task->flags)) {
 		/* hwfc job id will be set from repeater driver info */
-		task->job_id = G2D_MAX_JOBS;
+		task->sec.job_id = G2D_MAX_JOBS;
 		list_add(&task->node, &g2d_dev->tasks_free_hwfc);
 	} else {
 		list_add(&task->node, &g2d_dev->tasks_free);
@@ -393,6 +392,7 @@ void g2d_destroy_tasks(struct g2d_device *g2d_dev)
 
 		__free_pages(task->cmd_page, get_order(G2D_CMD_LIST_SIZE));
 
+		kfree(task->source);
 		kfree(task);
 
 		task = next;
@@ -412,6 +412,11 @@ static struct g2d_task *g2d_create_task(struct g2d_device *g2d_dev, int id)
 	if (!task)
 		return ERR_PTR(-ENOMEM);
 
+	task->source = kcalloc(g2d_dev->max_layers, sizeof(*task->source),
+			       GFP_KERNEL);
+	if (!task)
+		goto err_alloc;
+
 	INIT_LIST_HEAD(&task->node);
 
 	task->cmd_page = alloc_pages(GFP_KERNEL, get_order(G2D_CMD_LIST_SIZE));
@@ -420,7 +425,7 @@ static struct g2d_task *g2d_create_task(struct g2d_device *g2d_dev, int id)
 		goto err_page;
 	}
 
-	task->job_id = id;
+	task->sec.job_id = id;
 	task->bufidx = -1;
 	task->g2d_dev = g2d_dev;
 
@@ -428,7 +433,9 @@ static struct g2d_task *g2d_create_task(struct g2d_device *g2d_dev, int id)
 	if (ret)
 		goto err_map;
 
-	for (i = 0; i < G2D_MAX_IMAGES; i++)
+	task->sec.cmd_paddr = (unsigned long)page_to_phys(task->cmd_page);
+
+	for (i = 0; i < g2d_dev->max_layers; i++)
 		task->source[i].task = task;
 	task->target.task = task;
 
@@ -445,6 +452,8 @@ static struct g2d_task *g2d_create_task(struct g2d_device *g2d_dev, int id)
 err_map:
 	__free_pages(task->cmd_page, get_order(G2D_CMD_LIST_SIZE));
 err_page:
+	kfree(task->source);
+err_alloc:
 	kfree(task);
 
 	return ERR_PTR(ret);

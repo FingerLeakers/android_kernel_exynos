@@ -267,7 +267,12 @@ static void check_device_speed(struct usb_device *dev, bool on)
 {
 	struct otg_notify *o_notify = get_otg_notify();
 	struct usb_device *hdev;
+	struct usb_device *udev;
+	struct usb_hub *hub;
+	int port = 0;
 	int speed = USB_SPEED_UNKNOWN;
+	static int hs_hub = 0;
+	static int ss_hub = 0;
 
 	if (!o_notify) {
 		pr_err("%s otg_notify is null\n", __func__);
@@ -277,29 +282,46 @@ static void check_device_speed(struct usb_device *dev, bool on)
 	hdev = dev->parent;
 	if (!hdev)
 		return;
-	if (on)
-		speed = dev->speed;
+	
+	hdev = dev->bus->root_hub;
 
-	o_notify->speed = speed;
+	hub = usb_hub_to_struct_hub(hdev);
 
-	switch (speed) {
-	case USB_SPEED_SUPER:
-		pr_info("%s : %s superspeed device\n",
-			__func__, (on ? "attached" : "detached"));
-		break;
-	case USB_SPEED_HIGH:
-		pr_info("%s : %s highspeed device\n",
-			__func__, (on ? "attached" : "detached"));
-		break;
-	case USB_SPEED_FULL:
-		pr_info("%s : %s fullspeed device\n",
-			__func__, (on ? "attached" : "detached"));
-		break;
-	case USB_SPEED_LOW:
-		pr_info("%s : %s lowspeed device\n",
-			__func__, (on ? "attached" : "detached"));
-		break;
+	/* check all ports */
+	for (port = 1; port <= hdev->maxchild; port++) {
+		udev = hub->ports[port-1]->child;
+		if (udev) {
+			if (!on && (udev == dev))
+				continue;
+			if (udev->speed > speed)
+				speed = udev->speed;
+		}
 	}
+
+	if (hdev->speed >= USB_SPEED_SUPER) {
+		if (speed > USB_SPEED_UNKNOWN) 
+			ss_hub = 1;
+		else
+			ss_hub = 0;
+	} else if (hdev->speed > USB_SPEED_UNKNOWN
+			&& hdev->speed != USB_SPEED_WIRELESS) {
+		if (speed > USB_SPEED_UNKNOWN) 
+			hs_hub = 1;
+		else
+			hs_hub = 0;
+	} else ;
+
+	if (ss_hub || hs_hub) {
+		if (speed > o_notify->speed)
+			o_notify->speed = speed;
+	} else
+		o_notify->speed = USB_SPEED_UNKNOWN;
+	
+	pr_info("%s : dev->speed %s %s\n", __func__,
+				usb_speed_string(dev->speed), on ? "on" : "off");
+
+	pr_info("%s : o_notify->speed %s\n", __func__,
+				usb_speed_string(o_notify->speed));
 }
 
 #if defined(CONFIG_USB_HW_PARAM)
@@ -315,8 +337,9 @@ static int set_hw_param(struct usb_device *dev)
 	}
 
 	if (dev->bus->root_hub != dev) {
-		bInterfaceClass = dev->config->interface[0]->
-					cur_altsetting->desc.bInterfaceClass;
+		bInterfaceClass
+			= dev->config->interface[0]
+				->cur_altsetting->desc.bInterfaceClass;
 		speed = dev->speed;
 
 		pr_info("%s USB device connected - Class : 0x%x, speed : 0x%x\n",

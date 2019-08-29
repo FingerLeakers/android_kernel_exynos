@@ -28,15 +28,10 @@
 #include <linux/notifier.h>
 #include <linux/ccic/ccic_notifier.h>
 #endif
-#include <linux/dp_logger.h>
-#include <linux/displayport_bigdata.h>
 
-#include "secdp_unit_test.h"
 #include "regs-displayport.h"
 #include "./panels/decon_lcd.h"
 #include "hdr_metadata.h"
-
-#define FEATURE_SUPPORT_SPD_INFOFRAME
 
 extern int displayport_log_level;
 
@@ -46,7 +41,6 @@ extern int displayport_log_level;
 	do {									\
 		if (displayport_log_level >= 3) {				\
 			pr_err("Displayport: " pr_fmt(fmt), ##__VA_ARGS__);			\
-			dp_logger_print(fmt, ##__VA_ARGS__);                    \
 		}								\
 	} while (0)
 
@@ -54,7 +48,6 @@ extern int displayport_log_level;
 	do {									\
 		if (displayport_log_level >= 4) {				\
 			pr_warn("Displayport: " pr_fmt(fmt), ##__VA_ARGS__);			\
-			dp_logger_print(fmt, ##__VA_ARGS__);                    \
 		}								\
 	} while (0)
 
@@ -62,7 +55,6 @@ extern int displayport_log_level;
 	do {									\
 		if (displayport_log_level >= 6)					\
 			pr_info("Displayport: " pr_fmt(fmt), ##__VA_ARGS__);			\
-			dp_logger_print(fmt, ##__VA_ARGS__);                    \
 	} while (0)
 
 #define displayport_dbg(fmt, ...)						\
@@ -155,12 +147,6 @@ enum displayport_interrupt_mask {
 #define FB_AUDIO_24BIT	(1 << 2)
 #define FB_AUDIO_20BIT	(1 << 1)
 #define FB_AUDIO_16BIT	(1 << 0)
-
-#define FB_AUDIO_1CH (1)
-#define FB_AUDIO_2CH (1 << 1)
-#define FB_AUDIO_6CH (1 << 5)
-#define FB_AUDIO_8CH (1 << 7)
-#define FB_AUDIO_1N2CH (FB_AUDIO_1CH | FB_AUDIO_2CH)
 
 struct fb_audio {
 	u8 format;
@@ -372,7 +358,6 @@ struct fb_vendor {
 #define VERSION (0xFF << 16)
 #define HDCP_CAPABLE (1 << 1)
 
-#define SMC_CHECK_STREAM_TYPE_ID	((unsigned int)0x82004022)
 #define DPCD_HDCP22_RX_INFO 0x69330
 
 #define DPCD_HDCP22_RX_CAPS_LENGTH 3
@@ -386,12 +371,6 @@ struct fb_vendor {
 
 #define HDCP_VERSION_1_3 0x13
 #define HDCP_VERSION_2_2 0x02
-
-enum drm_state {
-	DRM_OFF = 0x0,
-	DRM_ON = 0x1,
-	DRM_SAME_STREAM_TYPE = 0x2	/* If the previous contents and stream_type id are the same flag */
-};
 
 #define SYNC_POSITIVE 0
 #define SYNC_NEGATIVE 1
@@ -415,21 +394,16 @@ typedef enum {
 	V1280X720P50,
 	V1280X720P60,
 	V1280X800P60RB,
-	V1366X768P60,
 	V1280X1024P60,
 	V1920X1080P24,
 	V1920X1080P25,
 	V1920X1080P30,
-	V1600X900P59,
 	V1600X900P60RB,
 	V1920X1080P50,
-	V1920X1080P59,
 	V1920X1080P60,
 	V2048X1536P60,
 	V1920X1440P60,
 	V2560X1440P59,
-	V1440x2560P60,
-	V1440x2560P75,
 	V2560X1440P60,
 	V3840X2160P24,
 	V3840X2160P25,
@@ -443,7 +417,6 @@ typedef enum {
 	V4096X2160P50,
 	V4096X2160P60,
 	V640X10P60SACRC,
-	VDUMMYTIMING,
 } videoformat;
 
 typedef enum{
@@ -528,17 +501,7 @@ struct edid_data {
 	u8 max_average_lumi_data;
 	u8 min_lumi_data;
 };
-enum dex_state {
-	DEX_OFF,
-	DEX_ON,
-	DEX_RECONNECTING,
-};
-enum dex_support_type {
-	DEX_NOT_SUPPORT = 0,
-	DEX_FHD_SUPPORT,
-	DEX_WQHD_SUPPORT,
-	DEX_UHD_SUPPORT
-};
+
 struct displayport_device {
 	enum displayport_state state;
 	struct device *dev;
@@ -573,7 +536,6 @@ struct displayport_device {
 	struct mutex hpd_lock;
 	struct mutex aux_lock;
 	struct mutex training_lock;
-	struct mutex hdcp2_lock;
 	wait_queue_head_t dp_wait;
 	int audio_state;
 	int audio_buf_empty_check;
@@ -601,28 +563,10 @@ struct displayport_device {
 	enum test_pattern bist_type;
 	enum displayport_dynamic_range_type dyn_range;
 	videoformat cur_video;
-	uint64_t ven_id;
-	uint64_t prod_id;
 
 	struct edid_data rx_edid_data;
 
 	int idle_ip_index;
-	int do_unit_test;
-
-	int dex_setting;
-	enum dex_state dex_state;
-	u8 dex_ver[2];
-	enum dex_support_type dex_adapter_type;
-
-	enum drm_state drm_start_state;
-	enum drm_state drm_smc_state;
-
-	u8 edid_manufacturer[4];
-	u32 edid_product;
-	u32 edid_serial;
-	u8 *edid_test_buf;
-
-	videoformat best_video;
 };
 
 struct displayport_debug_param {
@@ -692,8 +636,6 @@ struct displayport_supported_preset {
 	u32 h_sync_pol;
 	u8 vic;
 	char *name;
-	enum dex_support_type dex_support;
-	bool pro_audio_support;
 	bool edid_support_match;
 };
 
@@ -723,35 +665,6 @@ struct displayport_supported_preset {
 	.type = V4L2_DV_BT_656_1120, \
 	V4L2_INIT_BT_TIMINGS(2048, 1536, 0, V4L2_DV_HSYNC_POS_POL, \
 		209250000, 48, 32, 80, 3, 4, 37, 0, 0, 0, \
-		V4L2_DV_BT_STD_DMT | V4L2_DV_BT_STD_CVT, 0) \
-}
-
-#define V4L2_DV_BT_CVT_1440X2560P75_ADDED { \
-	.type = V4L2_DV_BT_656_1120, \
-	V4L2_INIT_BT_TIMINGS(1440, 2560, 0, V4L2_DV_HSYNC_POS_POL, \
-		307000000, 10, 8, 120, 6, 2, 26, 0, 0, 0, \
-		V4L2_DV_BT_STD_DMT | V4L2_DV_BT_STD_CVT, 0) \
-}
-
-#define V4L2_DV_BT_CVT_1440X2560P60_ADDED { \
-	.type = V4L2_DV_BT_656_1120, \
-	V4L2_INIT_BT_TIMINGS(1440, 2560, 0, V4L2_DV_HSYNC_POS_POL, \
-		246510000, 32, 10, 108, 6, 2, 16, 0, 0, 0, \
-		V4L2_DV_BT_STD_DMT | V4L2_DV_BT_STD_CVT, 0) \
-}
-
-#define V4L2_DV_BT_CVT_1600X900P59_ADDED { \
-	.type = V4L2_DV_BT_656_1120, \
-	V4L2_INIT_BT_TIMINGS(1600, 900, 0, \
-		V4L2_DV_HSYNC_POS_POL | V4L2_DV_VSYNC_POS_POL, \
-		97750000, 48, 32, 80, 3, 5, 18, 0, 0, 0, \
-		V4L2_DV_BT_STD_DMT, V4L2_DV_FL_REDUCED_BLANKING) \
-}
-
-#define V4L2_DV_BT_CVT_1920X1080P59_ADDED { \
-	.type = V4L2_DV_BT_656_1120, \
-	V4L2_INIT_BT_TIMINGS(1920, 1080, 0, V4L2_DV_HSYNC_POS_POL, \
-		138500000, 48, 44, 68, 3, 5, 23, 0, 0, 0, \
 		V4L2_DV_BT_STD_DMT | V4L2_DV_BT_STD_CVT, 0) \
 }
 
@@ -929,8 +842,6 @@ extern struct hdcp13_info hdcp13_info;
 #define BINFO_SIZE 2
 #define V_READ_RETRY_CNT 3
 
-#define USBDP_PHY_CONTROL 0x14060704
-
 enum{
 	LINK_CHECK_PASS = 0,
 	LINK_CHECK_NEED = 1,
@@ -985,39 +896,18 @@ static inline void displayport_write_mask(u32 reg_id, u32 val, u32 mask)
 	writel(val, displayport->res.link_regs + reg_id);
 }
 
-static inline int displayport_phy_enabled(void)
-{
-	/* USBDP_PHY_CONTROL register */
-	void __iomem *usbdp_phy_base = ioremap(USBDP_PHY_CONTROL, SZ_4);
-	int en = readl(usbdp_phy_base) & 0x1;
-
-	if (!en)
-		displayport_info("combo phy disabled\n");
-
-	return en;
-}
-
 static inline u32 displayport_phy_read(u32 reg_id)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
-
-	if (!displayport_phy_enabled())
-		return 0;
 
 	return readl(displayport->res.phy_regs + reg_id);
 }
 
 static inline u32 displayport_phy_read_mask(u32 reg_id, u32 mask)
 {
-	u32 val;
-
-	if (!displayport_phy_enabled())
-		return 0;
-
-	val = displayport_phy_read(reg_id);
+	u32 val = displayport_phy_read(reg_id);
 
 	val &= (mask);
-
 	return val;
 }
 
@@ -1025,21 +915,14 @@ static inline void displayport_phy_write(u32 reg_id, u32 val)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
 
-	if (!displayport_phy_enabled())
-		return;
-
 	writel(val, displayport->res.phy_regs + reg_id);
 }
 
 static inline void displayport_phy_write_mask(u32 reg_id, u32 val, u32 mask)
 {
+	struct displayport_device *displayport = get_displayport_drvdata();
+	u32 old = displayport_phy_read(reg_id);
 	u32 bit_shift;
-	u32 old;
-
-	if (!displayport_phy_enabled())
-		return;
-
-	old = displayport_phy_read(reg_id);
 
 	for (bit_shift = 0; bit_shift < 32; bit_shift++) {
 		if ((mask >> bit_shift) & 0x00000001)
@@ -1047,12 +930,10 @@ static inline void displayport_phy_write_mask(u32 reg_id, u32 val, u32 mask)
 	}
 
 	val = ((val<<bit_shift) & mask) | (old & ~mask);
-	displayport_phy_write(reg_id, val);
+	writel(val, displayport->res.phy_regs + reg_id);
 }
 
 void displayport_reg_init(void);
-void displayport_reg_deinit(void);
-void displayport_reg_sw_reset(void);
 void displayport_reg_set_interrupt_mask(enum displayport_interrupt_mask param, u8 set);
 u32 displayport_reg_get_interrupt_and_clear(u32 interrupt_status_register);
 void displayport_reg_start(void);
@@ -1065,8 +946,6 @@ int displayport_reg_dpcd_write_burst(u32 address, u32 length, u8 *data);
 int displayport_reg_dpcd_read_burst(u32 address, u32 length, u8 *data);
 int displayport_reg_edid_write(u8 edid_addr_offset, u32 length, u8 *data);
 int displayport_reg_edid_read(u8 edid_addr_offset, u32 length, u8 *data);
-int displayport_reg_i2c_read(u32 address, u32 length, u8 *data);
-int displayport_reg_i2c_write(u32 address, u32 length, u8 *data);
 void displayport_reg_phy_reset(u32 en);
 void displayport_reg_phy_disable(void);
 void displayport_reg_phy_init_setting(void);
@@ -1110,7 +989,6 @@ void displayport_reg_set_ch_status_word_length(enum audio_bit_per_channel audio_
 void displayport_reg_set_ch_status_sampling_frequency(enum audio_sampling_frequency audio_sampling_freq);
 void displayport_reg_set_ch_status_clock_accuracy(enum audio_clock_accuracy clock_accuracy);
 void displayport_reg_wait_buf_full(void);
-void displayport_reg_print_audio_state(void);
 
 void displayport_reg_set_hdcp22_system_enable(u32 en);
 void displayport_reg_set_hdcp22_mode(u32 en);
@@ -1130,14 +1008,9 @@ void edid_set_preferred_preset(int mode);
 int edid_find_resolution(u16 xres, u16 yres, u16 refresh);
 u8 edid_read_checksum(void);
 u32 edid_audio_informs(void);
-bool edid_support_pro_audio(void);
-struct fb_audio *edid_get_test_audio_info(void);
 
 int displayport_audio_bist_enable(struct displayport_audio_config_data audio_config_data);
 void displayport_reg_set_avi_infoframe(struct infoframe avi_infofrmae);
-#ifdef FEATURE_SUPPORT_SPD_INFOFRAME
-void displayport_reg_set_spd_infoframe(struct infoframe spd_infofrmae);
-#endif
 void displayport_reg_set_audio_infoframe(struct infoframe audio_infofrmae, u32 en);
 void displayport_reg_set_hdr_infoframe(struct infoframe hdr_infofrmae, u32 en);
 
@@ -1154,8 +1027,7 @@ extern int hdcp_dplink_set_hprime_available(void);
 extern int hdcp_dplink_set_rp_ready(void);
 extern int hdcp_dplink_set_reauth(void);
 extern int hdcp_dplink_set_integrity_fail(void);
-extern int hdcp_dplink_cancel_auth(void);
-extern void hdcp_dplink_clear_all(void);
+extern int hdcp_dplink_hpd_changed(void);
 
 #define DISPLAYPORT_IOC_DUMP			_IOW('V', 0, u32)
 #define DISPLAYPORT_IOC_GET_ENUM_DV_TIMINGS	_IOW('V', 1, u8)

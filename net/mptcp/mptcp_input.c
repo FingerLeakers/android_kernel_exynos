@@ -72,6 +72,7 @@ static inline int mptcp_tso_acked_reinject(const struct sock *meta_sk,
 
 	TCP_SKB_CB(skb)->seq += len;
 	skb->ip_summed = CHECKSUM_PARTIAL;
+
 	if (delta_truesize)
 		skb->truesize -= delta_truesize;
 
@@ -415,28 +416,6 @@ static inline void mptcp_prepare_skb(struct sk_buff *skb,
 	 */
 	tcb->seq = ((u32)tp->mptcp->map_data_seq) + tcb->seq - tp->mptcp->map_subseq;
 	tcb->end_seq = tcb->seq + skb->len + inc;
-}
-
-/**
- * @return: 1 if the segment has been eaten and can be suppressed,
- *          otherwise 0.
- */
-static inline int mptcp_direct_copy(const struct sk_buff *skb,
-				    struct sock *meta_sk)
-{
-	struct tcp_sock *meta_tp = tcp_sk(meta_sk);
-	int chunk = min_t(unsigned int, skb->len, meta_tp->ucopy.len);
-	int eaten = 0;
-
-	__set_current_state(TASK_RUNNING);
-
-	if (!skb_copy_datagram_msg(skb, 0, meta_tp->ucopy.msg, chunk)) {
-		meta_tp->ucopy.len -= chunk;
-		meta_tp->copied_seq += chunk;
-		eaten = (chunk == skb->len);
-		tcp_rcv_space_adjust(meta_sk);
-	}
-	return eaten;
 }
 
 static inline void mptcp_reset_mapping(struct tcp_sock *tp, u32 old_copied_seq)
@@ -987,7 +966,7 @@ static int mptcp_queue_skb(struct sock *sk)
 		/* Quick ACK if more 3/4 of the receive window is filled */
 		if (after64(tp->mptcp->map_data_seq,
 			    rcv_nxt64 + 3 * (tcp_receive_window(meta_tp) >> 2)))
-			tcp_enter_quickack_mode(sk);
+			tcp_enter_quickack_mode(sk, TCP_MAX_QUICKACKS);
 
 	} else {
 		/* Ready for the meta-rcv-queue */
@@ -1009,13 +988,6 @@ static int mptcp_queue_skb(struct sock *sk)
 				__kfree_skb(tmp1);
 				goto next;
 			}
-
-			/* Is direct copy possible ? */
-			if (TCP_SKB_CB(tmp1)->seq == meta_tp->rcv_nxt &&
-			    meta_tp->ucopy.task == current &&
-			    meta_tp->copied_seq == meta_tp->rcv_nxt &&
-			    meta_tp->ucopy.len && sock_owned_by_user(meta_sk))
-				eaten = mptcp_direct_copy(tmp1, meta_sk);
 
 			if (mpcb->in_time_wait) /* In time-wait, do not receive data */
 				eaten = 1;
@@ -1046,7 +1018,7 @@ next:
 		}
 	}
 
-	inet_csk(meta_sk)->icsk_ack.lrcvtime = tcp_time_stamp;
+	inet_csk(meta_sk)->icsk_ack.lrcvtime = tcp_jiffies32;
 	mptcp_reset_mapping(tp, old_copied_seq);
 
 	return data_queued ? -1 : -2;
@@ -1057,6 +1029,8 @@ void mptcp_data_ready(struct sock *sk)
 	struct sock *meta_sk = mptcp_meta_sk(sk);
 	struct sk_buff *skb, *tmp;
 	int queued = 0;
+
+	tcp_mstamp_refresh(tcp_sk(meta_sk));
 
 	/* restart before the check, because mptcp_fin might have changed the
 	 * state.
@@ -1210,7 +1184,6 @@ int mptcp_lookup_join(struct sk_buff *skb, struct inet_timewait_sock *tw)
 	 */
 	bh_lock_sock_nested(meta_sk);
 	if (sock_owned_by_user(meta_sk)) {
-		skb->sk = meta_sk;
 		if (unlikely(sk_add_backlog(meta_sk, skb,
 					    meta_sk->sk_rcvbuf + meta_sk->sk_sndbuf))) {
 			bh_unlock_sock(meta_sk);
@@ -1283,7 +1256,6 @@ int mptcp_do_join_short(struct sk_buff *skb,
 	}
 
 	if (sock_owned_by_user(meta_sk)) {
-		skb->sk = meta_sk;
 		if (unlikely(sk_add_backlog(meta_sk, skb,
 					    meta_sk->sk_rcvbuf + meta_sk->sk_sndbuf)))
 			__NET_INC_STATS(net, LINUX_MIB_TCPBACKLOGDROP);
@@ -1431,9 +1403,8 @@ static void mptcp_snd_una_update(struct tcp_sock *meta_tp, u32 data_ack)
 {
 	u32 delta = data_ack - meta_tp->snd_una;
 
-	u64_stats_update_begin(&meta_tp->syncp);
+	sock_owned_by_me((struct sock *)meta_tp);
 	meta_tp->bytes_acked += delta;
-	u64_stats_update_end(&meta_tp->syncp);
 	meta_tp->snd_una = data_ack;
 }
 
@@ -1447,9 +1418,6 @@ static void mptcp_data_ack(struct sock *sk, const struct sk_buff *skb)
 	int prior_packets;
 	u32 nwin, data_ack, data_seq;
 	u16 data_len = 0;
-
-	if (meta_sk->sk_state == TCP_CLOSE)
-		return;
 
 	/* A valid packet came in - subflow is operational again */
 	tp->pf = 0;
@@ -1466,9 +1434,7 @@ static void mptcp_data_ack(struct sock *sk, const struct sk_buff *skb)
 	 * set by mptcp_clean_rtx_infinite.
 	 */
 	if (!(tcb->mptcp_flags & MPTCPHDR_ACK) && !tp->mpcb->infinite_mapping_snd)
-		goto exit;
-
-	data_ack = tp->mptcp->rx_opt.data_ack;
+		return;
 
 	if (unlikely(!tp->mptcp->fully_established) &&
 	    tp->mptcp->snt_isn + 1 != TCP_SKB_CB(skb)->ack_seq)
@@ -1477,6 +1443,13 @@ static void mptcp_data_ack(struct sock *sk, const struct sk_buff *skb)
 		 */
 		mptcp_become_fully_estab(sk);
 
+	/* After we did the subflow-only processing (stopping timer and marking
+	 * subflow as established), check if we can proceed with MPTCP-level
+	 * processing.
+	 */
+	if (meta_sk->sk_state == TCP_CLOSE)
+		return;
+
 	/* Get the data_seq */
 	if (mptcp_is_data_seq(skb)) {
 		data_seq = tp->mptcp->rx_opt.data_seq;
@@ -1484,6 +1457,8 @@ static void mptcp_data_ack(struct sock *sk, const struct sk_buff *skb)
 	} else {
 		data_seq = meta_tp->snd_wl1;
 	}
+
+	data_ack = tp->mptcp->rx_opt.data_ack;
 
 	/* If the ack is older than previous acks
 	 * then we can probably ignore it.
@@ -1526,7 +1501,7 @@ static void mptcp_data_ack(struct sock *sk, const struct sk_buff *skb)
 	 */
 	sk->sk_err_soft = 0;
 	inet_csk(meta_sk)->icsk_probes_out = 0;
-	meta_tp->rcv_tstamp = tcp_time_stamp;
+	meta_tp->rcv_tstamp = tcp_jiffies32;
 	prior_packets = meta_tp->packets_out;
 	if (!prior_packets)
 		goto no_queue;
@@ -1912,8 +1887,8 @@ bool mptcp_check_rtt(const struct tcp_sock *tp, int time)
 		if (!mptcp_sk_can_recv(sk))
 			continue;
 
-		if (rtt_max < tcp_sk(sk)->rcv_rtt_est.rtt)
-			rtt_max = tcp_sk(sk)->rcv_rtt_est.rtt;
+		if (rtt_max < tcp_sk(sk)->rcv_rtt_est.rtt_us)
+			rtt_max = tcp_sk(sk)->rcv_rtt_est.rtt_us;
 	}
 	if (time < (rtt_max >> 3) || !rtt_max)
 		return true;
@@ -2323,8 +2298,6 @@ int mptcp_rcv_synsent_state_process(struct sock *sk, struct sock **skptr,
 		*skptr = sk;
 		tp = tcp_sk(sk);
 
-		sk->sk_bound_dev_if = skb->skb_iif;
-
 		/* If fastopen was used data might be in the send queue. We
 		 * need to update their sequence number to MPTCP-level seqno.
 		 * Note that it can happen in rare cases that fastopen_req is
@@ -2441,7 +2414,8 @@ void mptcp_init_buffer_space(struct sock *sk)
 
 	if (is_master_tp(tp)) {
 		meta_tp->rcvq_space.space = meta_tp->rcv_wnd;
-		meta_tp->rcvq_space.time = tcp_time_stamp;
+		tcp_mstamp_refresh(meta_tp);
+		meta_tp->rcvq_space.time = meta_tp->tcp_mstamp;
 		meta_tp->rcvq_space.seq = meta_tp->copied_seq;
 
 		/* If there is only one subflow, we just use regular TCP

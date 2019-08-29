@@ -13,14 +13,24 @@
 #ifndef FIMC_IS_VENDOR_CONFIG_H
 #define FIMC_IS_VENDOR_CONFIG_H
 
-#if defined(CONFIG_CAMERA_STAR)
-#include "fimc-is-vendor-config_star.h"
-#elif defined(CONFIG_CAMERA_STAR2)
-#include "fimc-is-vendor-config_star2.h"
-#elif defined(CONFIG_CAMERA_CROWN)
-#include "fimc-is-vendor-config_crown.h"
+#define USE_BINARY_PADDING_DATA_ADDED	/* for DDK signature */
+
+#if defined(USE_BINARY_PADDING_DATA_ADDED) && (defined(CONFIG_USE_SIGNED_BINARY) || defined(CONFIG_SAMSUNG_PRODUCT_SHIP))
+#define USE_TZ_CONTROLLED_MEM_ATTRIBUTE
+#endif
+
+#if defined(CONFIG_CAMERA_BEYOND0)
+#include "fimc-is-vendor-config_beyond0.h"
+#elif defined(CONFIG_CAMERA_BEYOND1)
+#include "fimc-is-vendor-config_beyond1.h"
+#elif defined(CONFIG_CAMERA_BEYOND2)
+#include "fimc-is-vendor-config_beyond2.h"
+#elif defined(CONFIG_CAMERA_BEYONDX)
+#include "fimc-is-vendor-config_beyondx.h"
+#elif defined(CONFIG_CAMERA_DAVINCI5G)
+#include "fimc-is-vendor-config_davinci5g.h"
 #else
-#include "fimc-is-vendor-config_star.h" /* Default */
+#include "fimc-is-vendor-config_beyond2.h" /* Default */
 #endif
 
 #endif

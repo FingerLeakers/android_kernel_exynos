@@ -116,6 +116,7 @@ struct fimc_is_resourcemgr {
 	struct fimc_is_clk_gate_ctrl		clk_gate_ctrl;
 	u32					cluster0;
 	u32					cluster1;
+	u32					cluster2;
 	u32					hal_version;
 #ifdef ENABLE_FW_SHARE_DUMP
 	ulong					fw_share_dump_buf;
@@ -148,6 +149,8 @@ struct fimc_is_resourcemgr {
 
 	/* for critical section at get/put */
 	struct mutex				rsc_lock;
+	/* for sysreg setting */
+	struct mutex				sysreg_lock;
 };
 
 int fimc_is_resourcemgr_probe(struct fimc_is_resourcemgr *resourcemgr, void *private_data, struct platform_device *pdev);

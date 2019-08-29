@@ -32,6 +32,11 @@
 #include <linux/swap.h>
 #include <linux/string.h>
 #include <linux/init.h>
+#include <linux/sched/mm.h>
+#include <linux/sched/coredump.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/numa_balancing.h>
+#include <linux/sched/task.h>
 #include <linux/pagemap.h>
 #include <linux/perf_event.h>
 #include <linux/highmem.h>
@@ -59,7 +64,7 @@
 #include <linux/vmalloc.h>
 #include <linux/task_integrity.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
 
@@ -74,6 +79,9 @@
 
 #ifdef CONFIG_RKP_KDP
 #define rkp_is_nonroot(x) ((x->cred->type)>>1 & 1)
+#ifdef CONFIG_LOD_SEC
+#define rkp_is_lod(x) ((x->cred->type)>>3 & 1)
+#endif /*CONFIG_LOD_SEC*/
 #endif /*CONFIG_RKP_KDP*/
 
 int suid_dumpable = 0;
@@ -218,7 +226,7 @@ static struct page *get_arg_page(struct linux_binprm *bprm, unsigned long pos,
 	 * doing the exec and bprm->mm is the new process's mm.
 	 */
 	ret = get_user_pages_remote(current, bprm->mm, pos, 1, gup_flags,
-			&page, NULL);
+			&page, NULL, NULL);
 	if (ret <= 0)
 		return NULL;
 
@@ -889,23 +897,6 @@ struct file *open_exec(const char *name)
 }
 EXPORT_SYMBOL(open_exec);
 
-int kernel_read(struct file *file, loff_t offset,
-		char *addr, unsigned long count)
-{
-	mm_segment_t old_fs;
-	loff_t pos = offset;
-	int result;
-
-	old_fs = get_fs();
-	set_fs(get_ds());
-	/* The cast to a user pointer is valid due to the set_fs() */
-	result = vfs_read(file, (void __user *)addr, count, &pos);
-	set_fs(old_fs);
-	return result;
-}
-
-EXPORT_SYMBOL(kernel_read);
-
 int kernel_read_file(struct file *file, void **buf, loff_t *size,
 		     loff_t max_size, enum kernel_read_file_id id)
 {
@@ -943,8 +934,7 @@ int kernel_read_file(struct file *file, void **buf, loff_t *size,
 
 	pos = 0;
 	while (pos < i_size) {
-		bytes = kernel_read(file, pos, (char *)(*buf) + pos,
-				    i_size - pos);
+		bytes = kernel_read(file, *buf + pos, i_size - pos, &pos);
 		if (bytes < 0) {
 			ret = bytes;
 			goto out;
@@ -952,7 +942,6 @@ int kernel_read_file(struct file *file, void **buf, loff_t *size,
 
 		if (bytes == 0)
 			break;
-		pos += bytes;
 	}
 
 	if (pos != i_size) {
@@ -978,7 +967,7 @@ out:
 }
 EXPORT_SYMBOL_GPL(kernel_read_file);
 
-int kernel_read_file_from_path(char *path, void **buf, loff_t *size,
+int kernel_read_file_from_path(const char *path, void **buf, loff_t *size,
 			       loff_t max_size, enum kernel_read_file_id id)
 {
 	struct file *file;
@@ -1055,7 +1044,7 @@ static int exec_mmap(struct mm_struct *mm)
 	vmacache_flush(tsk);
 #ifdef CONFIG_RKP_KDP
 	if(rkp_cred_enable){
-	uh_call(UH_APP_RKP,0x43,(u64)current_cred(), (u64)mm->pgd,0,0);
+	uh_call(UH_APP_RKP, RKP_KDP_X43,(u64)current_cred(), (u64)mm->pgd, 0, 0);
 	}
 #endif /*CONFIG_RKP_KDP*/
 	task_unlock(tsk);
@@ -1123,7 +1112,7 @@ static int de_thread(struct task_struct *tsk)
 		struct task_struct *leader = tsk->group_leader;
 
 		for (;;) {
-			threadgroup_change_begin(tsk);
+			cgroup_threadgroup_change_begin(tsk);
 			write_lock_irq(&tasklist_lock);
 			/*
 			 * Do this under tasklist_lock to ensure that
@@ -1134,7 +1123,7 @@ static int de_thread(struct task_struct *tsk)
 				break;
 			__set_current_state(TASK_KILLABLE);
 			write_unlock_irq(&tasklist_lock);
-			threadgroup_change_end(tsk);
+			cgroup_threadgroup_change_end(tsk);
 			schedule();
 			if (unlikely(__fatal_signal_pending(tsk)))
 				goto killed;
@@ -1192,7 +1181,7 @@ static int de_thread(struct task_struct *tsk)
 		if (unlikely(leader->ptrace))
 			__wake_up_parent(leader, leader->parent);
 		write_unlock_irq(&tasklist_lock);
-		threadgroup_change_end(tsk);
+		cgroup_threadgroup_change_end(tsk);
 
 		release_task(leader);
 	}
@@ -1204,8 +1193,10 @@ no_thread_group:
 	/* we have changed execution domain */
 	tsk->exit_signal = SIGCHLD;
 
+#ifdef CONFIG_POSIX_TIMERS
 	exit_itimers(sig);
 	flush_itimer_signals();
+#endif
 
 	if (atomic_read(&oldsighand->count) != 1) {
 		struct sighand_struct *newsighand;
@@ -1242,15 +1233,14 @@ killed:
 	return -EAGAIN;
 }
 
-char *get_task_comm(char *buf, struct task_struct *tsk)
+char *__get_task_comm(char *buf, size_t buf_size, struct task_struct *tsk)
 {
-	/* buf must be at least sizeof(tsk->comm) in size */
 	task_lock(tsk);
-	strncpy(buf, tsk->comm, sizeof(tsk->comm));
+	strncpy(buf, tsk->comm, buf_size);
 	task_unlock(tsk);
 	return buf;
 }
-EXPORT_SYMBOL_GPL(get_task_comm);
+EXPORT_SYMBOL_GPL(__get_task_comm);
 
 /*
  * These functions flushes out all traces of the currently running executable
@@ -1265,10 +1255,25 @@ void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 	task_unlock(tsk);
 	perf_event_comm(tsk, exec);
 }
+
 #ifdef CONFIG_RKP_NS_PROT
 extern struct super_block *sys_sb;	/* pointer to superblock */
+extern struct super_block *odm_sb;	/* pointer to superblock */
+extern struct super_block *vendor_sb;	/* pointer to superblock */
 extern struct super_block *rootfs_sb;	/* pointer to superblock */
 extern int is_recovery;
+
+static int kdp_check_sb_mismatch(struct super_block *sb) 
+{	
+	if(is_recovery) {
+		return 0;
+	}
+	if((sb != rootfs_sb) && (sb != sys_sb)
+		&& (sb != odm_sb) && (sb != vendor_sb)) {
+		return 1;
+	}
+	return 0;
+}
 
 static int invalid_drive(struct linux_binprm * bprm) 
 {
@@ -1278,16 +1283,14 @@ static int invalid_drive(struct linux_binprm * bprm)
 	vfsmnt = bprm->file->f_path.mnt;
 	if(!vfsmnt || 
 		!rkp_ro_page((unsigned long)vfsmnt)) {
-		printk("\nInvalid Drive #%s# #%p#\n",bprm->filename,vfsmnt);
+		printk("\nInvalid Drive #%s# #%p#\n",bprm->filename, vfsmnt);
 		return 1;
 	} 
 	sb = vfsmnt->mnt_sb;
 
-	if((!is_recovery) &&
-		sb != rootfs_sb   
-		&& sb != sys_sb) {
-		printk("\n Superblock Mismatch #%s# vfsmnt #%p#sb #%p:%p:%p#\n",
-					bprm->filename,vfsmnt,sb,rootfs_sb,sys_sb);
+	if(kdp_check_sb_mismatch(sb)) {
+		printk("\nSuperblock Mismatch #%s# vfsmnt #%p#sb #%p:%p:%p:%p:%p#\n",
+					bprm->filename, vfsmnt, sb, rootfs_sb, sys_sb, odm_sb, vendor_sb);
 		return 1;
 	}
 
@@ -1307,6 +1310,12 @@ static int is_rkp_priv_task(void)
 }
 #endif
 
+/*
+ * Calling this is the point of no return. None of the failures will be
+ * seen by userspace since either the process is already taking a fatal
+ * signal (via de_thread() or coredump), or will have SEGV raised
+ * (after exec_mmap()) by search_binary_handlers (see below).
+ */
 int flush_old_exec(struct linux_binprm * bprm)
 {
 	int retval;
@@ -1334,14 +1343,20 @@ int flush_old_exec(struct linux_binprm * bprm)
 	if(rkp_cred_enable &&
 		is_rkp_priv_task() && 
 		invalid_drive(bprm)) {
-		//panic("\n Illegal Execution file_name #%s#\n",bprm->filename);
+		panic("\n KDP_NS_PROT: Illegal Execution of file #%s#\n", bprm->filename);
 	}
 #endif /*CONFIG_RKP_NS_PROT*/
 	retval = exec_mmap(bprm->mm);
 	if (retval)
 		goto out;
 
-	bprm->mm = NULL;		/* We're using it now */
+	/*
+	 * After clearing bprm->mm (to mark that current is using the
+	 * prepared mm now), we have nothing left of the original
+	 * process. If anything from here on returns an error, the check
+	 * in search_binary_handler() will SEGV current.
+	 */
+	bprm->mm = NULL;
 
 	set_fs(USER_DS);
 	current->flags &= ~(PF_RANDOMIZE | PF_FORKNOEXEC | PF_KTHREAD |
@@ -1386,16 +1401,45 @@ EXPORT_SYMBOL(would_dump);
 
 void setup_new_exec(struct linux_binprm * bprm)
 {
+	/*
+	 * Once here, prepare_binrpm() will not be called any more, so
+	 * the final state of setuid/setgid/fscaps can be merged into the
+	 * secureexec flag.
+	 */
+	bprm->secureexec |= bprm->cap_elevated;
+
+	if (bprm->secureexec) {
+		/* Make sure parent cannot signal privileged process. */
+		current->pdeath_signal = 0;
+
+		/*
+		 * For secureexec, reset the stack limit to sane default to
+		 * avoid bad behavior from the prior rlimits. This has to
+		 * happen before arch_pick_mmap_layout(), which examines
+		 * RLIMIT_STACK, but after the point of no return to avoid
+		 * needing to clean up the change on failure.
+		 */
+		if (current->signal->rlim[RLIMIT_STACK].rlim_cur > _STK_LIM)
+			current->signal->rlim[RLIMIT_STACK].rlim_cur = _STK_LIM;
+	}
+
 	arch_pick_mmap_layout(current->mm);
 
-	/* This is the point of no return */
 	current->sas_ss_sp = current->sas_ss_size = 0;
 
-	if (uid_eq(current_euid(), current_uid()) && gid_eq(current_egid(), current_gid()))
-		set_dumpable(current->mm, SUID_DUMP_USER);
-	else
+	/*
+	 * Figure out dumpability. Note that this checking only of current
+	 * is wrong, but userspace depends on it. This should be testing
+	 * bprm->secureexec instead.
+	 */
+	if (bprm->interp_flags & BINPRM_FLAGS_ENFORCE_NONDUMP ||
+	    !(uid_eq(current_euid(), current_uid()) &&
+	      gid_eq(current_egid(), current_gid())))
 		set_dumpable(current->mm, suid_dumpable);
+	else
+		set_dumpable(current->mm, SUID_DUMP_USER);
 
+	arch_setup_new_exec();
 	perf_event_exec();
 	__set_task_comm(current, kbasename(bprm->filename), true);
 
@@ -1404,15 +1448,6 @@ void setup_new_exec(struct linux_binprm * bprm)
 	 * some architectures like powerpc
 	 */
 	current->mm->task_size = TASK_SIZE;
-
-	/* install the new credentials */
-	if (!uid_eq(bprm->cred->uid, current_euid()) ||
-	    !gid_eq(bprm->cred->gid, current_egid())) {
-		current->pdeath_signal = 0;
-	} else {
-		if (bprm->interp_flags & BINPRM_FLAGS_ENFORCE_NONDUMP)
-			set_dumpable(current->mm, suid_dumpable);
-	}
 
 	/* An exec changes our domain. We are no longer part of the thread
 	   group */
@@ -1457,7 +1492,7 @@ static void free_bprm(struct linux_binprm *bprm)
 	kfree(bprm);
 }
 
-int bprm_change_interp(char *interp, struct linux_binprm *bprm)
+int bprm_change_interp(const char *interp, struct linux_binprm *bprm)
 {
 	/* If a binfmt changed the interp, free it first. */
 	if (bprm->interp != bprm->filename)
@@ -1507,12 +1542,8 @@ static void check_unsafe_exec(struct linux_binprm *bprm)
 	struct task_struct *p = current, *t;
 	unsigned n_fs;
 
-	if (p->ptrace) {
-		if (ptracer_capable(p, current_user_ns()))
-			bprm->unsafe |= LSM_UNSAFE_PTRACE_CAP;
-		else
-			bprm->unsafe |= LSM_UNSAFE_PTRACE;
-	}
+	if (p->ptrace)
+		bprm->unsafe |= LSM_UNSAFE_PTRACE;
 
 	/*
 	 * This isn't strictly necessary, but it makes it harder for LSMs to
@@ -1560,7 +1591,7 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 	if (task_no_new_privs(current))
 		return;
 
-	inode = file_inode(bprm->file);
+	inode = bprm->file->f_path.dentry->d_inode;
 	mode = READ_ONCE(inode->i_mode);
 	if (!(mode & (S_ISUID|S_ISGID)))
 		return;
@@ -1599,6 +1630,7 @@ static void bprm_fill_uid(struct linux_binprm *bprm)
 int prepare_binprm(struct linux_binprm *bprm)
 {
 	int retval;
+	loff_t pos = 0;
 
 	bprm_fill_uid(bprm);
 
@@ -1606,10 +1638,10 @@ int prepare_binprm(struct linux_binprm *bprm)
 	retval = security_bprm_set_creds(bprm);
 	if (retval)
 		return retval;
-	bprm->cred_prepared = 1;
+	bprm->called_set_creds = 1;
 
 	memset(bprm->buf, 0, BINPRM_BUF_SIZE);
-	return kernel_read(bprm->file, 0, bprm->buf, BINPRM_BUF_SIZE);
+	return kernel_read(bprm->file, bprm->buf, BINPRM_BUF_SIZE, &pos);
 }
 
 EXPORT_SYMBOL(prepare_binprm);
@@ -1702,17 +1734,12 @@ int search_binary_handler(struct linux_binprm *bprm)
 		if (printable(bprm->buf[0]) && printable(bprm->buf[1]) &&
 		    printable(bprm->buf[2]) && printable(bprm->buf[3]))
 			return retval;
-		if (request_module(
-			      "binfmt-%04x", *(ushort *)(bprm->buf + 2)) < 0) {
-			task_integrity_delayed_reset(current);
+		if (request_module("binfmt-%04x",
+					*(ushort *)(bprm->buf + 2)) < 0)
 			return retval;
-		}
 		need_retry = false;
 		goto retry;
 	}
-
-	if (retval < 0)
-		task_integrity_delayed_reset(current);
 
 	return retval;
 }
@@ -1720,62 +1747,127 @@ EXPORT_SYMBOL(search_binary_handler);
 
 #if defined CONFIG_SEC_RESTRICT_FORK
 #if defined CONFIG_SEC_RESTRICT_ROOTING_LOG
-#define PRINT_LOG(...)printk(KERN_ERR __VA_ARGS__)
+#define PRINT_LOG(...)	printk(KERN_ERR __VA_ARGS__)
 #else
 #define PRINT_LOG(...)
-#endif// End of CONFIG_SEC_RESTRICT_ROOTING_LOG
+#endif	// End of CONFIG_SEC_RESTRICT_ROOTING_LOG
 
 #define CHECK_ROOT_UID(x) (x->cred->uid.val == 0 || x->cred->gid.val == 0 || \
-    x->cred->euid.val == 0 || x->cred->egid.val == 0 || \
-			   x->cred->suid.val == 0 || x->cred->sgid.val == 0)
+			x->cred->euid.val == 0 || x->cred->egid.val == 0 || \
+			x->cred->suid.val == 0 || x->cred->sgid.val == 0)
 
 /*  sec_check_execpath
     return value : give task's exec path is matched or not
 */
 int sec_check_execpath(struct mm_struct *mm, char *denypath)
 {
-  struct file *exe_file;
-  char *path, *pathbuf = NULL;
-  unsigned int path_length = 0, denypath_length = 0;
-  int ret = 0;
+	struct file *exe_file;
+	char *path, *pathbuf = NULL;
+	unsigned int path_length = 0, denypath_length = 0;
+	int ret = 0;
 
-  if (mm == NULL)
-    return 0;
+	if (mm == NULL)
+		return 0;
 
-  exe_file = get_mm_exe_file(mm);
-  if (!exe_file) {
-    PRINT_LOG("Cannot get exe from task->mm.\n");
-    goto out_nofile;
-  }
+	if (!(exe_file = get_mm_exe_file(mm))) {
+		PRINT_LOG("Cannot get exe from task->mm.\n");
+		goto out_nofile;
+	}
 
-  pathbuf = kmalloc(PATH_MAX, GFP_TEMPORARY);
-  if (!pathbuf) {
-    PRINT_LOG("failed to kmalloc for pathbuf\n");
-    goto out;
-  }
+	if (!(pathbuf = kmalloc(PATH_MAX, GFP_KERNEL))) {
+		PRINT_LOG("failed to kmalloc for pathbuf\n");
+		goto out;
+	}
 
-  path = d_path(&exe_file->f_path, pathbuf, PATH_MAX);
-  if (IS_ERR(path)) {
-    PRINT_LOG("Error get path..\n");
-    goto out;
-  }
+	path = d_path(&exe_file->f_path, pathbuf, PATH_MAX);
+	if (IS_ERR(path)) {
+		PRINT_LOG("Error get path..\n");
+		goto out;
+	}
 
-  path_length = strlen(path);
-  denypath_length = strlen(denypath);
+	path_length = strlen(path);
+	denypath_length = strlen(denypath);
 
-  if (!strncmp(path, denypath, (path_length < denypath_length) ?
-	       path_length : denypath_length)) {
-    ret = 1;
-  }
- out:
-  fput(exe_file);
- out_nofile:
-  if (pathbuf)
-    kfree(pathbuf);
+	if (!strncmp(path, denypath, (path_length < denypath_length) ?
+				path_length : denypath_length)) {
+		ret = 1;
+	}
+out:
+	fput(exe_file);
+out_nofile:
+	if (pathbuf)
+		kfree(pathbuf);
 
-  return ret;
+	return ret;
 }
 EXPORT_SYMBOL(sec_check_execpath);
+
+static int sec_restrict_fork(void)
+{
+	struct cred *shellcred;
+	int ret = 0;
+	struct task_struct *parent_tsk;
+	struct mm_struct *parent_mm = NULL;
+	const struct cred *parent_cred;
+
+	read_lock(&tasklist_lock);
+	parent_tsk = current->parent;
+	if (!parent_tsk) {
+		read_unlock(&tasklist_lock);
+		return 0;
+	}
+
+	get_task_struct(parent_tsk);
+	/* holding on to the task struct is enough so just release
+	 * the tasklist lock here */
+	read_unlock(&tasklist_lock);
+
+	if (current->pid == 1 || parent_tsk->pid == 1)
+		goto out;
+
+	/* get current->parent's mm struct to access it's mm
+	 * and to keep it alive */
+	parent_mm = get_task_mm(parent_tsk);
+
+	if (current->mm == NULL || parent_mm == NULL)
+		goto out;
+
+	if (sec_check_execpath(parent_mm, "/sbin/adbd")) {
+		shellcred = prepare_creds();
+		if (!shellcred) {
+			ret = 1;
+			goto out;
+		}
+
+		shellcred->uid.val = 2000;
+		shellcred->gid.val = 2000;
+		shellcred->euid.val = 2000;
+		shellcred->egid.val = 2000;
+		commit_creds(shellcred);
+		ret = 0;
+		goto out;
+	}
+
+	if (sec_check_execpath(current->mm, "/data/")) {
+		ret = 1;
+		goto out;
+	}
+
+	parent_cred = get_task_cred(parent_tsk);
+	if (!parent_cred)
+		goto out;
+	if (!CHECK_ROOT_UID(parent_tsk))
+	{
+		ret = 1;
+	}
+	put_cred(parent_cred);
+out:
+	if (parent_mm)
+		mmput(parent_mm);
+	put_task_struct(parent_tsk);
+
+	return ret;
+}
 #ifdef CONFIG_RKP_KDP
 static int rkp_restrict_fork(struct filename *path)
 {
@@ -1784,6 +1876,13 @@ static int rkp_restrict_fork(struct filename *path)
 	if(!strcmp(path->name,"/system/bin/patchoat")){
 		return 0 ;
 	}
+        /* If the Process is from Linux on Dex, 
+        then no need to reduce privilege */
+#ifdef CONFIG_LOD_SEC
+	if(rkp_is_lod(current)){
+            return 0;
+        }
+#endif
 	if(rkp_is_nonroot(current)){
 		shellcred = prepare_creds();
 		if (!shellcred) {
@@ -1799,72 +1898,7 @@ static int rkp_restrict_fork(struct filename *path)
 	return 0;
 }
 #endif /*CONFIG_RKP_KDP*/
-static int sec_restrict_fork(void)
-{
-  struct cred *shellcred;
-  int ret = 0;
-  struct task_struct *parent_tsk;
-  struct mm_struct *parent_mm = NULL;
-  const struct cred *parent_cred;
-
-  read_lock(&tasklist_lock);
-  parent_tsk = current->parent;
-  if (!parent_tsk) {
-    read_unlock(&tasklist_lock);
-    return 0;
-  }
-
-  get_task_struct(parent_tsk);
-  /* holding on to the task struct is enough so just release
-   * the tasklist lock here */
-  read_unlock(&tasklist_lock);
-
-  if (current->pid == 1 || parent_tsk->pid == 1)
-    goto out;
-
-  /* get current->parent's mm struct to access it's mm
-   * and to keep it alive */
-  parent_mm = get_task_mm(parent_tsk);
-
-  if (current->mm == NULL || parent_mm == NULL)
-    goto out;
-
-  if (sec_check_execpath(parent_mm, "/sbin/adbd")) {
-    shellcred = prepare_creds();
-    if (!shellcred) {
-      ret = 1;
-      goto out;
-    }
-
-    shellcred->uid.val = 2000;
-    shellcred->gid.val = 2000;
-    shellcred->euid.val = 2000;
-    shellcred->egid.val = 2000;
-    commit_creds(shellcred);
-    ret = 0;
-    goto out;
-  }
-
-  if (sec_check_execpath(current->mm, "/data/")) {
-    ret = 1;
-    goto out;
-  }
-
-  parent_cred = get_task_cred(parent_tsk);
-  if (!parent_cred)
-    goto out;
-  if (!CHECK_ROOT_UID(parent_tsk)) {
-      ret = 1;
-  }
-  put_cred(parent_cred);
- out:
-  if (parent_mm)
-    mmput(parent_mm);
-  put_task_struct(parent_tsk);
-
-  return ret;
-}
-#endif/* End of CONFIG_SEC_RESTRICT_FORK */
+#endif	/* End of CONFIG_SEC_RESTRICT_FORK */
 
 static int exec_binprm(struct linux_binprm *bprm)
 {
@@ -1883,6 +1917,8 @@ static int exec_binprm(struct linux_binprm *bprm)
 		trace_sched_process_exec(current, old_pid, bprm);
 		ptrace_event(PTRACE_EVENT_EXEC, old_vpid);
 		proc_exec_connector(current);
+	} else {
+		task_integrity_delayed_reset(current);
 	}
 
 	return ret;
@@ -1957,9 +1993,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 		bprm->filename = filename->name;
 	} else {
 		if (filename->name[0] == '\0')
-			pathbuf = kasprintf(GFP_TEMPORARY, "/dev/fd/%d", fd);
+			pathbuf = kasprintf(GFP_KERNEL, "/dev/fd/%d", fd);
 		else
-			pathbuf = kasprintf(GFP_TEMPORARY, "/dev/fd/%d/%s",
+			pathbuf = kasprintf(GFP_KERNEL, "/dev/fd/%d/%s",
 					    fd, filename->name);
 		if (!pathbuf) {
 			retval = -ENOMEM;
@@ -2014,6 +2050,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 	/* execve succeeded */
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
+	membarrier_execve(current);
 	acct_update_integrals(current);
 	task_numa_free(current);
 	free_bprm(bprm);
@@ -2132,7 +2169,6 @@ SYSCALL_DEFINE3(execve,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
 {
-#if defined CONFIG_SEC_RESTRICT_FORK
 #ifdef CONFIG_RKP_KDP
 	struct filename *path = getname(filename);
 	int error = PTR_ERR(path);
@@ -2141,25 +2177,24 @@ SYSCALL_DEFINE3(execve,
 		return error;
 
 	if(rkp_cred_enable){
-		uh_call(UH_APP_RKP,0x4b,(u64)path->name,0,0,0);
+		uh_call(UH_APP_RKP, RKP_KDP_X4B, (u64)path->name, 0, 0, 0);
 	}
 #endif
-  if (CHECK_ROOT_UID(current)) {
-    if (sec_restrict_fork()) {
-      PRINT_LOG("Restricted making process. PID = %d(%s) "
+#if defined CONFIG_SEC_RESTRICT_FORK
+	if (CHECK_ROOT_UID(current) && sec_restrict_fork()) {
+		PRINT_LOG("Restricted making process. PID = %d(%s) "
 		"PPID = %d(%s)\n",
 		current->pid, current->comm,
 		current->parent->pid, current->parent->comm);
 #ifdef CONFIG_RKP_KDP
 		putname(path);
 #endif
-      return -EACCES;
-    }
-  }
+		return -EACCES;
+	}
 #ifdef CONFIG_RKP_KDP
 	if(CHECK_ROOT_UID(current) && rkp_cred_enable) {
 		if(rkp_restrict_fork(path)){
-			PRINT_LOG("RKP_KDP Restricted making process. PID = %d(%s) "
+			pr_warn("RKP_KDP Restricted making process. PID = %d(%s) "
 							"PPID = %d(%s)\n",
 			current->pid, current->comm,
 			current->parent->pid, current->parent->comm);
@@ -2167,9 +2202,12 @@ SYSCALL_DEFINE3(execve,
 			return -EACCES;
 		}
 	}
+#endif
+#endif
+#ifdef CONFIG_RKP_KDP
 	putname(path);
 #endif
-#endif// End of CONFIG_SEC_RESTRICT_FORK
+
 	return do_execve(getname(filename), argv, envp);
 }
 

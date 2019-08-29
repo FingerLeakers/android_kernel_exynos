@@ -75,6 +75,7 @@ static int fimc_is_hw_dcp_open(struct fimc_is_hw_ip *hw_ip, u32 instance,
 err_chain_create:
 err_lib_func:
 	vfree(hw_ip->priv_info);
+	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
 	frame_manager_close(hw_ip->framemgr_late);
@@ -128,7 +129,7 @@ static int fimc_is_hw_dcp_deinit(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	return ret;
 }
 
-int fimc_is_hw_dcp_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
+static int fimc_is_hw_dcp_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 {
 	int ret = 0;
 	struct fimc_is_hw_dcp *hw_dcp;
@@ -143,6 +144,7 @@ int fimc_is_hw_dcp_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 
 	fimc_is_lib_isp_chain_destroy(hw_ip, &hw_dcp->lib[instance], instance);
 	vfree(hw_ip->priv_info);
+	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
 	frame_manager_close(hw_ip->framemgr_late);
 
@@ -151,7 +153,7 @@ int fimc_is_hw_dcp_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	return ret;
 }
 
-int fimc_is_hw_dcp_enable(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
+static int fimc_is_hw_dcp_enable(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 {
 	int ret = 0;
 
@@ -170,7 +172,7 @@ int fimc_is_hw_dcp_enable(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_ma
 	return ret;
 }
 
-int fimc_is_hw_dcp_disable(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
+static int fimc_is_hw_dcp_disable(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 {
 	int ret = 0;
 	long timetowait;
@@ -264,226 +266,7 @@ static void fimc_is_hw_dcp_check_param(struct dcp_param *param,
 	}
 }
 
-int fimc_is_hw_dcp_shot(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
-	ulong hw_map)
-{
-	int ret = 0;
-	int i = 0;
-	int plane;
-	struct fimc_is_hw_dcp *hw_dcp;
-	struct dcp_param_set *param_set;
-	struct is_region *region;
-	struct dcp_param *param;
-	u32 lindex, hindex;
-	bool frame_done = false;
-
-	FIMC_BUG(!hw_ip);
-	FIMC_BUG(!frame);
-
-	msdbgs_hw(2, "[F:%d]shot\n", frame->instance, hw_ip, frame->fcount);
-
-	if (!test_bit(hw_ip->id, &hw_map))
-		return 0;
-
-	if (!test_bit(HW_INIT, &hw_ip->state)) {
-		mserr_hw("not initialized!!\n", frame->instance, hw_ip);
-		return -EINVAL;
-	}
-
-	fimc_is_hw_g_ctrl(hw_ip, hw_ip->id, HW_G_CTRL_FRM_DONE_WITH_DMA, (void *)&frame_done);
-	if ((!frame_done)
-		|| (!test_bit(ENTRY_DC0C, &frame->out_flag) && !test_bit(ENTRY_DC1C, &frame->out_flag)))
-		set_bit(hw_ip->id, &frame->core_flag);
-
-	FIMC_BUG(!hw_ip->priv_info);
-	hw_dcp = (struct fimc_is_hw_dcp *)hw_ip->priv_info;
-	param_set = &hw_dcp->param_set[frame->instance];
-	region = hw_ip->region[frame->instance];
-	FIMC_BUG(!region);
-
-	param = &region->parameter.dcp;
-
-	if (frame->type == SHOT_TYPE_INTERNAL) {
-		hw_ip->internal_fcount = frame->fcount;
-		mserr_hw("[F:%d]frame->type(%d) invalid\n", frame->instance, hw_ip, frame->fcount,
-			frame->type);
-		return 0;
-	} else {
-		FIMC_BUG(!frame->shot);
-		/* per-frame control
-		 * check & update size from region */
-		lindex = frame->shot->ctl.vendor_entry.lowIndexParam;
-		hindex = frame->shot->ctl.vendor_entry.highIndexParam;
-
-		if (hw_ip->internal_fcount) {
-			hw_ip->internal_fcount = 0;
-			fimc_is_hw_dcp_check_param(param, param_set, &lindex, &hindex);
-		}
-	}
-
-	fimc_is_hw_dcp_update_param(param, param_set, lindex, hindex, frame->instance);
-
-	/* DMA settings */
-	plane = param->dma_input_m.plane;
-	if (param_set->dma_input_m.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->input_dva[DCP_DMA_IN_GDC_MASTER][i] =
-				frame->dvaddr_buffer[i];
-			if (param_set->input_dva[DCP_DMA_IN_GDC_MASTER][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_IN_GDC_MASTER plane[%d] dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* Slave input */
-	plane = param->dma_input_s.plane;
-	if (param_set->dma_input_s.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->input_dva[DCP_DMA_IN_GDC_SLAVE][i] =
-				frame->shot->uctl.scalerUd.sourceAddress[i];
-			if (param_set->input_dva[DCP_DMA_IN_GDC_SLAVE][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_IN_GDC_SLAVE plane[%d]dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* Master Main output: plane order is [Y, C, Y2, C2] */
-	plane = param->dma_output_m.plane;
-	if (param_set->dma_output_m.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->output_dva[DCP_DMA_OUT_MASTER][i] =
-				frame->shot->uctl.scalerUd.sccTargetAddress[i];
-			if (param_set->output_dva[DCP_DMA_OUT_MASTER][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_OUT_MASTER plane[%d] dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* Slave Main output: plane order is [Y, C] */
-	plane = param->dma_output_s.plane;
-	if (param_set->dma_output_s.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->output_dva[DCP_DMA_OUT_SLAVE][i] =
-				frame->shot->uctl.scalerUd.scpTargetAddress[i];
-			if (param_set->output_dva[DCP_DMA_OUT_SLAVE][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_OUT_SLAVE plane[%d] dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* Disparity */
-	if (param_set->dma_output_disparity.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		/* disparity input: previous data */
-		param_set->input_dva[DCP_DMA_IN_DISPARITY][0] =
-			param_set->output_dva[DCP_DMA_OUT_DISPARITY][0];
-
-		/* disparity output: currnet data */
-		param_set->output_dva[DCP_DMA_OUT_DISPARITY][0] =
-			frame->shot->uctl.scalerUd.dxcTargetAddress[0];
-		if (param_set->output_dva[DCP_DMA_OUT_DISPARITY][0] == 0) {
-			mserr_hw("[F:%d]DCP_DMA_OUT_DISPARITY plane[%d] dva is zero",
-				frame->instance, hw_ip, frame->fcount, 0);
-			return -EINVAL;
-		}
-	}
-
-	/* Master Sub output: plane order is [Y, C] */
-	plane = param->dma_output_m_ds.plane;
-	if (param_set->dma_output_m_ds.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->output_dva[DCP_DMA_OUT_MASTER_DS][i] =
-				frame->shot->uctl.scalerUd.sccTargetAddress[8 + i];
-
-			if (param_set->output_dva[DCP_DMA_OUT_MASTER_DS][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_OUT_MASTER_DS plane[%d] dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* Slave Sub output: plane order is [Y, C] */
-	plane = param->dma_output_s_ds.plane;
-	if (param_set->dma_output_s_ds.cmd == DMA_INPUT_COMMAND_ENABLE) {
-		for (i = 0; i < plane; i++) {
-			param_set->output_dva[DCP_DMA_OUT_SLAVE_DS][i] =
-				frame->shot->uctl.scalerUd.scpTargetAddress[8 + i];
-			if (param_set->output_dva[DCP_DMA_OUT_SLAVE_DS][i] == 0) {
-				mserr_hw("[F:%d]DCP_DMA_OUT_SLAVE_DS plane[%d] dva is zero",
-					frame->instance, hw_ip, frame->fcount, i);
-				return -EINVAL;
-			}
-		}
-	}
-
-	/* param_set->instance_id = frame->instance; */ /* TODO: remove */
-	param_set->fcount = frame->fcount;
-
-	/* multi-buffer: currently not support HFR */
-	if (frame->num_buffers)
-		hw_ip->num_buffers = frame->num_buffers;
-
-	if (param_set->control.cmd == CONTROL_COMMAND_STOP)
-		return 0;
-
-	if (frame->shot) {
-		ret = fimc_is_lib_isp_set_ctrl(hw_ip, &hw_dcp->lib[frame->instance], frame);
-		if (ret)
-			mserr_hw("set_ctrl fail", frame->instance, hw_ip);
-	}
-
-	fimc_is_lib_isp_shot(hw_ip, &hw_dcp->lib[frame->instance],
-			param_set, frame->shot);
-
-	set_bit(HW_CONFIG, &hw_ip->state);
-
-	return ret;
-}
-
-int fimc_is_hw_dcp_set_param(struct fimc_is_hw_ip *hw_ip, struct is_region *region,
-	u32 lindex, u32 hindex, u32 instance, ulong hw_map)
-{
-	int ret = 0;
-	struct fimc_is_hw_dcp *hw_dcp;
-	struct dcp_param_set *param_set;
-	struct dcp_param *param = NULL;
-
-	FIMC_BUG(!hw_ip);
-	FIMC_BUG(!region);
-
-	if (!test_bit_variables(hw_ip->id, &hw_map))
-		return 0;
-
-	if (!test_bit(HW_INIT, &hw_ip->state)) {
-		msdbg_hw(2, "not initialized\n", instance, hw_ip);
-		return -EINVAL;
-	}
-
-	FIMC_BUG(!hw_ip->priv_info);
-	hw_dcp = (struct fimc_is_hw_dcp *)hw_ip->priv_info;
-	param_set = &hw_dcp->param_set[instance];
-
-	hw_ip->region[instance] = region;
-	hw_ip->lindex[instance] = lindex;
-	hw_ip->hindex[instance] = hindex;
-
-	param = &(hw_ip->region[instance]->parameter.dcp);
-
-	fimc_is_hw_dcp_update_param(param, param_set,
-				lindex, hindex, instance);
-
-	return ret;
-}
-
-void fimc_is_hw_dcp_update_param(struct dcp_param *param,
+static void fimc_is_hw_dcp_update_param(struct dcp_param *param,
 	struct dcp_param_set *param_set, u32 lindex, u32 hindex, u32 instance)
 {
 	param_set->instance_id = instance;
@@ -543,7 +326,227 @@ void fimc_is_hw_dcp_update_param(struct dcp_param *param,
 	}
 }
 
-int fimc_is_hw_dcp_get_meta(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
+static int fimc_is_hw_dcp_shot(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
+	ulong hw_map)
+{
+	int ret = 0;
+	int i = 0;
+	int plane;
+	struct fimc_is_hw_dcp *hw_dcp;
+	struct dcp_param_set *param_set;
+	struct is_region *region;
+	struct dcp_param *param;
+	u32 lindex, hindex, instance;
+	bool frame_done = false;
+
+	FIMC_BUG(!hw_ip);
+	FIMC_BUG(!frame);
+
+	instance = frame->instance;
+	msdbgs_hw(2, "[F:%d]shot\n", instance, hw_ip, frame->fcount);
+
+	if (!test_bit(hw_ip->id, &hw_map))
+		return 0;
+
+	if (!test_bit(HW_INIT, &hw_ip->state)) {
+		mserr_hw("not initialized!!\n", instance, hw_ip);
+		return -EINVAL;
+	}
+
+	fimc_is_hw_g_ctrl(hw_ip, hw_ip->id, HW_G_CTRL_FRM_DONE_WITH_DMA, (void *)&frame_done);
+	if ((!frame_done)
+		|| (!test_bit(ENTRY_DC0C, &frame->out_flag) && !test_bit(ENTRY_DC1C, &frame->out_flag)))
+		set_bit(hw_ip->id, &frame->core_flag);
+
+	FIMC_BUG(!hw_ip->priv_info);
+	hw_dcp = (struct fimc_is_hw_dcp *)hw_ip->priv_info;
+	param_set = &hw_dcp->param_set[instance];
+	region = hw_ip->region[instance];
+	FIMC_BUG(!region);
+
+	param = &region->parameter.dcp;
+
+	if (frame->type == SHOT_TYPE_INTERNAL) {
+		hw_ip->internal_fcount[instance] = frame->fcount;
+		mserr_hw("[F:%d]frame->type(%d) invalid\n", instance, hw_ip, frame->fcount,
+			frame->type);
+		return 0;
+	} else {
+		FIMC_BUG(!frame->shot);
+		/* per-frame control
+		 * check & update size from region */
+		lindex = frame->shot->ctl.vendor_entry.lowIndexParam;
+		hindex = frame->shot->ctl.vendor_entry.highIndexParam;
+
+		if (hw_ip->internal_fcount[instance]) {
+			hw_ip->internal_fcount[instance] = 0;
+			fimc_is_hw_dcp_check_param(param, param_set, &lindex, &hindex);
+		}
+	}
+
+	fimc_is_hw_dcp_update_param(param, param_set, lindex, hindex, instance);
+
+	/* DMA settings */
+	plane = param->dma_input_m.plane;
+	if (param_set->dma_input_m.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->input_dva[DCP_DMA_IN_GDC_MASTER][i] =
+				(typeof(**param_set->input_dva))frame->dvaddr_buffer[i];
+			if (param_set->input_dva[DCP_DMA_IN_GDC_MASTER][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_IN_GDC_MASTER plane[%d] dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* Slave input */
+	plane = param->dma_input_s.plane;
+	if (param_set->dma_input_s.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->input_dva[DCP_DMA_IN_GDC_SLAVE][i] =
+				frame->sourceAddress[i];
+			if (param_set->input_dva[DCP_DMA_IN_GDC_SLAVE][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_IN_GDC_SLAVE plane[%d]dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* Master Main output: plane order is [Y, C, Y2, C2] */
+	plane = param->dma_output_m.plane;
+	if (param_set->dma_output_m.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->output_dva[DCP_DMA_OUT_MASTER][i] =
+				frame->sccTargetAddress[i];
+			if (param_set->output_dva[DCP_DMA_OUT_MASTER][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_OUT_MASTER plane[%d] dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* Slave Main output: plane order is [Y, C] */
+	plane = param->dma_output_s.plane;
+	if (param_set->dma_output_s.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->output_dva[DCP_DMA_OUT_SLAVE][i] =
+				frame->scpTargetAddress[i];
+			if (param_set->output_dva[DCP_DMA_OUT_SLAVE][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_OUT_SLAVE plane[%d] dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* Disparity */
+	if (param_set->dma_output_disparity.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		/* disparity input: previous data */
+		param_set->input_dva[DCP_DMA_IN_DISPARITY][0] =
+			param_set->output_dva[DCP_DMA_OUT_DISPARITY][0];
+
+		/* disparity output: currnet data */
+		param_set->output_dva[DCP_DMA_OUT_DISPARITY][0] =
+			frame->dxcTargetAddress[0];
+		if (param_set->output_dva[DCP_DMA_OUT_DISPARITY][0] == 0) {
+			mserr_hw("[F:%d]DCP_DMA_OUT_DISPARITY plane[%d] dva is zero",
+				instance, hw_ip, frame->fcount, 0);
+			return -EINVAL;
+		}
+	}
+
+	/* Master Sub output: plane order is [Y, C] */
+	plane = param->dma_output_m_ds.plane;
+	if (param_set->dma_output_m_ds.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->output_dva[DCP_DMA_OUT_MASTER_DS][i] =
+				frame->sccTargetAddress[8 + i];
+
+			if (param_set->output_dva[DCP_DMA_OUT_MASTER_DS][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_OUT_MASTER_DS plane[%d] dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* Slave Sub output: plane order is [Y, C] */
+	plane = param->dma_output_s_ds.plane;
+	if (param_set->dma_output_s_ds.cmd == DMA_INPUT_COMMAND_ENABLE) {
+		for (i = 0; i < plane; i++) {
+			param_set->output_dva[DCP_DMA_OUT_SLAVE_DS][i] =
+				frame->scpTargetAddress[8 + i];
+			if (param_set->output_dva[DCP_DMA_OUT_SLAVE_DS][i] == 0) {
+				mserr_hw("[F:%d]DCP_DMA_OUT_SLAVE_DS plane[%d] dva is zero",
+					instance, hw_ip, frame->fcount, i);
+				return -EINVAL;
+			}
+		}
+	}
+
+	/* param_set->instance_id = instance; */ /* TODO: remove */
+	param_set->fcount = frame->fcount;
+
+	/* multi-buffer: currently not support HFR */
+	if (frame->num_buffers)
+		hw_ip->num_buffers = frame->num_buffers;
+
+	if (param_set->control.cmd == CONTROL_COMMAND_STOP)
+		return 0;
+
+	if (frame->shot) {
+		ret = fimc_is_lib_isp_set_ctrl(hw_ip, &hw_dcp->lib[instance], frame);
+		if (ret)
+			mserr_hw("set_ctrl fail", instance, hw_ip);
+	}
+
+	fimc_is_lib_isp_shot(hw_ip, &hw_dcp->lib[instance],
+			param_set, frame->shot);
+
+	set_bit(HW_CONFIG, &hw_ip->state);
+
+	return ret;
+}
+
+static int fimc_is_hw_dcp_set_param(struct fimc_is_hw_ip *hw_ip, struct is_region *region,
+	u32 lindex, u32 hindex, u32 instance, ulong hw_map)
+{
+	int ret = 0;
+	struct fimc_is_hw_dcp *hw_dcp;
+	struct dcp_param_set *param_set;
+	struct dcp_param *param = NULL;
+
+	FIMC_BUG(!hw_ip);
+	FIMC_BUG(!region);
+
+	if (!test_bit_variables(hw_ip->id, &hw_map))
+		return 0;
+
+	if (!test_bit(HW_INIT, &hw_ip->state)) {
+		msdbg_hw(2, "not initialized\n", instance, hw_ip);
+		return -EINVAL;
+	}
+
+	FIMC_BUG(!hw_ip->priv_info);
+	hw_dcp = (struct fimc_is_hw_dcp *)hw_ip->priv_info;
+	param_set = &hw_dcp->param_set[instance];
+
+	hw_ip->region[instance] = region;
+	hw_ip->lindex[instance] = lindex;
+	hw_ip->hindex[instance] = hindex;
+
+	param = &(hw_ip->region[instance]->parameter.dcp);
+
+	fimc_is_hw_dcp_update_param(param, param_set,
+				lindex, hindex, instance);
+
+	return ret;
+}
+
+static int fimc_is_hw_dcp_get_meta(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
 	ulong hw_map)
 {
 	int ret = 0;
@@ -565,64 +568,56 @@ int fimc_is_hw_dcp_get_meta(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *f
 	return ret;
 }
 
-int fimc_is_hw_dcp_frame_ndone(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
+static int fimc_is_hw_dcp_frame_ndone(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
 	u32 instance, enum ShotErrorType done_type)
 {
 	int ret = 0;
-	bool flag_get_meta = true;
 
 	FIMC_BUG(!hw_ip);
 	FIMC_BUG(!frame);
 
 	if (test_bit(ENTRY_DC1S, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC1S_FDONE, ENTRY_DC1S, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC1S_FDONE, ENTRY_DC1S, done_type, false);
 	}
 
 
 	if (test_bit(ENTRY_DC0C, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC0C_FDONE, ENTRY_DC0C, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC0C_FDONE, ENTRY_DC0C, done_type, false);
 	}
 
 
 	if (test_bit(ENTRY_DC1C, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC1C_FDONE, ENTRY_DC1C, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC1C_FDONE, ENTRY_DC1C, done_type, false);
 	}
 
 
 	if (test_bit(ENTRY_DC2C, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC2C_FDONE, ENTRY_DC2C, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC2C_FDONE, ENTRY_DC2C, done_type, false);
 	}
 
 	if (test_bit(ENTRY_DC3C, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC3C_FDONE, ENTRY_DC3C, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC3C_FDONE, ENTRY_DC3C, done_type, false);
 	}
 
 	if (test_bit(ENTRY_DC4C, &frame->out_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			WORK_DC4C_FDONE, ENTRY_DC4C, done_type, flag_get_meta);
-		flag_get_meta = false;
+			WORK_DC4C_FDONE, ENTRY_DC4C, done_type, false);
 	}
 
 	if (test_bit(hw_ip->id, &frame->core_flag)) {
 		ret = fimc_is_hardware_frame_done(hw_ip, frame,
-			-1, FIMC_IS_HW_CORE_END, done_type, flag_get_meta);
-		flag_get_meta = false;
+			-1, FIMC_IS_HW_CORE_END, done_type, false);
 	}
 
 	return ret;
 }
 
-int fimc_is_hw_dcp_load_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
+static int fimc_is_hw_dcp_load_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 {
 	int ret = 0;
 
@@ -639,7 +634,7 @@ int fimc_is_hw_dcp_load_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance, ulong
 	return ret;
 }
 
-int fimc_is_hw_dcp_apply_setfile(struct fimc_is_hw_ip *hw_ip, u32 scenario,
+static int fimc_is_hw_dcp_apply_setfile(struct fimc_is_hw_ip *hw_ip, u32 scenario,
 	u32 instance, ulong hw_map)
 {
 	u32 setfile_index = 0;
@@ -674,7 +669,7 @@ int fimc_is_hw_dcp_apply_setfile(struct fimc_is_hw_ip *hw_ip, u32 scenario,
 	return ret;
 }
 
-int fimc_is_hw_dcp_delete_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance,
+static int fimc_is_hw_dcp_delete_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance,
 	ulong hw_map)
 {
 	int ret = 0;
@@ -695,7 +690,7 @@ int fimc_is_hw_dcp_delete_setfile(struct fimc_is_hw_ip *hw_ip, u32 instance,
 	return ret;
 }
 
-void fimc_is_hw_dcp_size_dump(struct fimc_is_hw_ip *hw_ip)
+static void fimc_is_hw_dcp_size_dump(struct fimc_is_hw_ip *hw_ip)
 {
 	return;
 }
@@ -735,7 +730,6 @@ int fimc_is_hw_dcp_probe(struct fimc_is_hw_ip *hw_ip, struct fimc_is_interface *
 	hw_ip->itf  = itf;
 	hw_ip->itfc = itfc;
 	atomic_set(&hw_ip->fcount, 0);
-	hw_ip->internal_fcount = 0;
 	hw_ip->is_leader = true;
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 	atomic_set(&hw_ip->status.otf_start, 0);

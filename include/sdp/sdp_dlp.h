@@ -11,13 +11,16 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #ifndef _SDP_DLP_H
 #define _SDP_DLP_H
 
 bool dlp_is_locked(int user_id);
-bool dlp_fbe_is_set(void);
 int dlp_isInterestedFile(int user_id, const char *filename);
 
 #endif /* _SDP_DLP_H */

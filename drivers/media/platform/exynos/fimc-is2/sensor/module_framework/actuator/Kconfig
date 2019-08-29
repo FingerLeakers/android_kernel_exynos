@@ -36,6 +36,14 @@ config CAMERA_ACT_DW9714_OBJ
         help
           Use to build DW9714 driver.
 
+config CAMERA_ACT_DW9780_OBJ
+        bool "Use actuator DW9780"
+	depends on USE_DIRECT_IS_CONTROL
+	depends on CAMERA_ACT_SELECT
+        default n
+        help
+          Use to build DW9780 driver.
+
 config CAMERA_ACT_DW9804_OBJ
         bool "Use actuator DW9804"
 	depends on USE_DIRECT_IS_CONTROL
@@ -60,6 +68,14 @@ config CAMERA_ACT_AK7372_OBJ
         help
           Use to build AK7372 driver.
 
+config CAMERA_ACT_LC898217_OBJ
+        bool "Use actuator LC898217"
+	depends on USE_DIRECT_IS_CONTROL
+	depends on CAMERA_ACT_SELECT
+        default n
+        help
+          Use to build LC898217 driver.
+
 config CAMERA_ACT_AK737X_OBJ
         bool "Use actuator AK737X"
 	depends on USE_DIRECT_IS_CONTROL
@@ -75,3 +91,11 @@ config CAMERA_ACT_ZC533_OBJ
         default n
         help
           Use to build ZC533 driver.
+
+config CAMERA_ACT_ZC569_OBJ
+        bool "Use actuator ZC569"
+	depends on USE_DIRECT_IS_CONTROL
+	depends on CAMERA_ACT_SELECT
+        default n
+        help
+          Use to build ZC569 driver.

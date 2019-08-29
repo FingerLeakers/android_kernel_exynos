@@ -38,7 +38,6 @@ struct maxim_dsm *read_maxdsm;
 bool abox_ipc_irq_read_avail;
 bool abox_ipc_irq_write_avail;
 int dsm_offset;
-int dsm_param_size;
 
 int maxim_dsm_read(int offset, int size, void *dsm_data)
 {
@@ -56,11 +55,7 @@ int maxim_dsm_read(int offset, int size, void *dsm_data)
 
 	dbg_abox_adaptation("");
 	abox_ipc_irq_read_avail = false;
-	if (offset >= 185)
-		dsm_offset = offset % 185;
-	else
-		dsm_offset = offset;
-	dsm_param_size = size;
+	dsm_offset = offset;
 
 	ret = abox_request_ipc(&data->pdev_abox->dev, IPC_ERAP,
 					 &msg, sizeof(msg), 0, 0);
@@ -76,7 +71,7 @@ int maxim_dsm_read(int offset, int size, void *dsm_data)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(maxim_dsm_read);
+EXPORT_SYMBOL_GPL(maxdsm_dsm_read);
 
 int maxim_dsm_write(uint32_t *dsm_data, int offset, int size)
 {
@@ -113,7 +108,7 @@ int maxim_dsm_write(uint32_t *dsm_data, int offset, int size)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(maxim_dsm_write);
+EXPORT_SYMBOL_GPL(maxdsm_dsm_write);
 
 static irqreturn_t abox_adaptation_irq_handler(int irq,
 					void *dev_id, ABOX_IPC_MSG *msg)
@@ -128,15 +123,12 @@ static irqreturn_t abox_adaptation_irq_handler(int irq,
 		switch (erap_msg->msgtype) {
 		case REALTIME_EXTRA:
 			if ((dsm_offset != READ_WRITE_ALL_PARAM) &&
-				(dsm_offset != PARAM_DSM_5_0_ABOX_GET_LOGGING) &&
-				(dsm_offset != PARAM_DSM_5_0_ABOX_GET_LOGGING_R)) {
-
-				if ((dsm_offset + dsm_param_size) > read_maxdsm->param_size)
-					dsm_param_size = read_maxdsm->param_size - dsm_offset;
+				(dsm_offset != PARAM_DSM_5_0_ABOX_GET_LOGGING)) {
 
 				memcpy(&read_maxdsm->param[dsm_offset],
 					&erap_msg->param.raw.params[0],
-					sizeof(uint32_t) * dsm_param_size);
+					min((sizeof(uint32_t) * read_maxdsm->param_size),
+						(sizeof(erap_msg->param.raw))));
 
 				abox_ipc_irq_read_avail = true;
 
@@ -150,12 +142,10 @@ static irqreturn_t abox_adaptation_irq_handler(int irq,
 				&& (erap_msg->param.raw.params[0]
 					<= sizeof(erap_msg->param.raw.params))) {
 
-				if (erap_msg->param.raw.params[0] > read_maxdsm->param_size)
-					erap_msg->param.raw.params[0] = read_maxdsm->param_size;
-
 				memcpy(&read_maxdsm->param[0],
 					&erap_msg->param.raw.params[0],
-					sizeof(uint32_t) * erap_msg->param.raw.params[0]);
+					min((sizeof(uint32_t) * read_maxdsm->param_size),
+						(sizeof(erap_msg->param.raw))));
 
 				abox_ipc_irq_read_avail = true;
 
@@ -219,7 +209,7 @@ static int samsung_abox_adaptation_probe(struct platform_device *pdev)
 	}
 	data->abox_data = platform_get_drvdata(data->pdev_abox);
 
-	abox_register_irq_handler(&data->pdev_abox->dev, IPC_ERAP,
+	abox_register_ipc_handler(&data->pdev_abox->dev, IPC_ERAP,
 			abox_adaptation_irq_handler, pdev);
 
 	dev_info(dev, "%s\n", __func__);

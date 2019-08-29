@@ -14,6 +14,7 @@ obj-$(CONFIG_SENSORS_SSP_MPU6500)	+= factory/accel_mpu6500.o factory/gyro_mpu650
 obj-$(CONFIG_SENSORS_SSP_BMI058)	+= factory/accel_bmi058.o factory/gyro_bmi058.o
 obj-$(CONFIG_SENSORS_SSP_K6DS3TR)	+= factory/accel_k6ds3tr.o factory/gyro_k6ds3tr.o
 obj-$(CONFIG_SENSORS_SSP_LSM6DSL)	+= factory/accel_lsm6dsl.o factory/gyro_lsm6dsl.o
+obj-$(CONFIG_SENSORS_SSP_LSM6DSO)	+= factory/accel_lsm6dsl.o factory/gyro_lsm6dsl.o
 
 obj-$(CONFIG_SENSORS_SSP_YAS532)	+= factory/magnetic_yas532.o
 obj-$(CONFIG_SENSORS_SSP_YAS537)	+= factory/magnetic_yas537.o
@@ -26,6 +27,7 @@ obj-$(CONFIG_SENSORS_SSP_TMD4903)	+= factory/light_tmg399x.o factory/gesture_tmg
 obj-$(CONFIG_SENSORS_SSP_TMD4905)	+= factory/light_tmg399x.o factory/gesture_tmg399x.o
 obj-$(CONFIG_SENSORS_SSP_TMD4904)	+= factory/light_tmg399x.o
 obj-$(CONFIG_SENSORS_SSP_TMD4906)	+= factory/light_tmg399x.o
+obj-$(CONFIG_SENSORS_SSP_TMD4910) += factory/light_tmg399x.o
 obj-$(CONFIG_SENSORS_SSP_CM3323)	+= factory/light_cm3323.o
 
 obj-$(CONFIG_SENSORS_SSP_PROX_FACTORYCAL)	+= factory/prox_tmg399x.o
@@ -43,19 +45,9 @@ obj-$(CONFIG_SENSORS_SSP_IRLED)		+= factory/irled_tmd4903.o
 obj-$(CONFIG_SENSORS_SSP_SX9306)	 += factory/grip_sx9306.o
 
 obj-$(CONFIG_SENSORS_SSP_SENSORHUB)	+= ssp_sensorhub.o ssp_misc.o
-obj-$(CONFIG_SENSORS_MAX86900)		+= max86900.o
-obj-$(CONFIG_SENSORS_MAX86902)		+= max86902.o
-obj-$(CONFIG_SENSORS_MAX_NOTCHFILTER)	+= max_notchfilter/
-obj-$(CONFIG_SENSORS_ADPD142)		+= adpd142.o
-obj-$(CONFIG_SENSORS_ADPD143)		+= adpd143.o
 obj-$(CONFIG_SENSORS_SX9310)		+= sx9310.o
 obj-$(CONFIG_SENSORS_SX9320)		+= sx9320.o
-
-obj-$(CONFIG_SENSORS_HRM_MAX86902)	+= hrm_max86902.o
-obj-$(CONFIG_SENSORS_HRM_ADPD143)	+= hrm_adpd143.o
-obj-$(CONFIG_SENSORS_HRMSENSOR)		+= hrmsensor.o
-obj-$(CONFIG_SENSORS_HRM_MAX86915)	+= hrm_max86915.o
-obj-$(CONFIG_SENSORS_MAX86915)		+= max86915.o
+obj-$(CONFIG_SENSORS_SX9330)		+= sx9330.o
 
 obj-$(CONFIG_SENSORS_SSP_BBD)           += ssp_bbd.o factory/mcu_bcm4774.o
 obj-$(CONFIG_SENSORS_SSP_BBD)           += bbdpl/

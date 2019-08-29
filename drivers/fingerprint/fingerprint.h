@@ -32,12 +32,14 @@ enum {
 	SENSOR_EGIS,
 	SENSOR_VIPER_WOG,
 	SENSOR_NAMSAN,
+	SENSOR_GW32J,
+	SENSOR_QBT2000,
 	SENSOR_MAXIMUM,
 };
 
-#define SENSOR_STATUS_SIZE 8
+#define SENSOR_STATUS_SIZE 10
 static char sensor_status[SENSOR_STATUS_SIZE][10] = {"ooo", "unknown", "failed",
-	"viper", "raptor", "egis", "viper_wog", "namsan"};
+	"viper", "raptor", "egis", "viper_wog", "namsan", "gw32j", "qbt2000"};
 
 /* For Finger Detect Mode */
 enum {

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _FAT_H
 #define _FAT_H
 
@@ -8,7 +9,7 @@
 #include <linux/msdos_fs.h>
 
 #ifdef CONFIG_FAT_SUPPORT_STLOG
-#include <linux/stlog.h>
+#include <linux/fslog.h>
 #else
 #define ST_LOG(fmt, ...)
 #endif
@@ -353,6 +354,11 @@ static inline void fatent_brelse(struct fat_entry *fatent)
 	fatent->fat_inode = NULL;
 }
 
+static inline bool fat_valid_entry(struct msdos_sb_info *sbi, int entry)
+{
+	return FAT_START_ENT <= entry && entry < sbi->max_cluster;
+}
+
 extern void fat_ent_access_init(struct super_block *sb);
 extern int fat_ent_read(struct inode *inode, struct fat_entry *fatent,
 			int entry);
@@ -370,8 +376,8 @@ extern const struct file_operations fat_file_operations;
 extern const struct inode_operations fat_file_inode_operations;
 extern int fat_setattr(struct dentry *dentry, struct iattr *attr);
 extern void fat_truncate_blocks(struct inode *inode, loff_t offset);
-extern int fat_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		       struct kstat *stat);
+extern int fat_getattr(const struct path *path, struct kstat *stat,
+		       u32 request_mask, unsigned int flags);
 extern int fat_file_fsync(struct file *file, loff_t start, loff_t end,
 			  int datasync);
 

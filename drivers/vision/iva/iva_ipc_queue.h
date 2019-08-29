@@ -39,4 +39,5 @@ extern void	iva_ipcq_deinit(struct iva_ipcq *ipcq);
 extern int	iva_ipcq_probe(struct iva_dev_data *iva);
 extern void	iva_ipcq_remove(struct iva_dev_data *iva);
 
+extern int	iva_ipcq_init_pending_mail(struct iva_ipcq *ipcq);
 #endif /* __IVA_IPQ_QUEUE_H__*/

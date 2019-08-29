@@ -73,17 +73,8 @@ struct acpm_debug_info {
 };
 
 #define LOG_ID_SHIFT				(28)
-#define LOG_LEVEL				(27)
-#define LOG_TIME_INDEX				(22)
-
-struct regulator_ss_info {
-	char name[7];
-	unsigned int min_uV;
-	unsigned int uV_step;
-	unsigned int linear_min_sel;
-	unsigned int vsel_reg;
-};
-
+#define LOG_TIME_INDEX				(20)
+#define LOG_LEVEL				(19)
 #define BUSY_WAIT				(0)
 #define SLEEP_WAIT				(1)
 #define INTGR0					0x0008
@@ -124,16 +115,11 @@ do {							\
 } while(0)
 
 #define REGULATOR_INFO_ID	8
-#define REGULATOR_SS_MAX	128
-#define NO_SS_RANGE		(REGULATOR_SS_MAX + 100)
-#define NO_SET_REGMAP		(REGULATOR_SS_MAX + 99)
 
 extern void acpm_log_print(void);
 extern void timestamp_write(void);
 extern void acpm_ramdump(void);
 extern void acpm_fw_log_level(unsigned int on);
 extern void acpm_ipc_set_waiting_mode(bool mode);
-
-extern struct regulator_ss_info *get_regulator_ss(int n);
 
 #endif

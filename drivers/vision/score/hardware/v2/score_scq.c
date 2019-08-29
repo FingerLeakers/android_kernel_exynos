@@ -35,7 +35,6 @@
  */
 static int __score_scq_wait_mc(struct score_scq *scq, struct score_frame *frame)
 {
-	int ret = 0;
 	int ready;
 	int time_count = MC_INIT_TIMEOUT;
 	int i;
@@ -45,7 +44,7 @@ static int __score_scq_wait_mc(struct score_scq *scq, struct score_frame *frame)
 	for (i = 0; i < time_count; i++) {
 		ready = readl(scq->sfr + MC_INIT_DONE_CHECK);
 		if ((ready & 0xffff0000) != 0)
-			return ret;
+			return 0;
 		mdelay(1);
 	}
 
@@ -62,7 +61,7 @@ static int __score_scq_pending_create(struct score_scq *scq,
 	unsigned int size;
 
 	score_enter();
-	if (frame->pending_packet)
+	if (frame->pended)
 		return 0;
 
 	packet = frame->packet;
@@ -76,6 +75,8 @@ static int __score_scq_pending_create(struct score_scq *scq,
 	}
 
 	memcpy(frame->pending_packet, packet, size);
+	frame->pended = true;
+
 	score_leave();
 p_err:
 	return ret;
@@ -97,7 +98,7 @@ static int __score_scq_create(struct score_scq *scq, struct score_frame *frame)
 	int i;
 
 	score_enter();
-	if (frame->pending_packet)
+	if (frame->pended)
 		packet = frame->pending_packet;
 	else
 		packet = frame->packet;
@@ -108,9 +109,8 @@ static int __score_scq_create(struct score_scq *scq, struct score_frame *frame)
 	data = (unsigned int *)target_packet;
 	size = packet_info->valid_size >> 2;
 	if (size > MAX_SCQ_SIZE) {
-		score_err("size(%d) is invalid (%u-%u, %u)\n",
-				size, frame->sctx->id, frame->frame_id,
-				frame->kernel_id);
+		score_err("size(%u) is too big compared to scq(%u)\n",
+				size, MAX_SCQ_SIZE);
 		ret = -EINVAL;
 		goto p_err;
 	}
@@ -238,7 +238,7 @@ int score_scq_read(struct score_scq *scq, struct score_frame *frame)
 	int ret = 0;
 
 	score_enter();
-	if (!test_bit(SCORE_SCQ_STATE_OPEN, &scq->state)) {
+	if (!(scq->state & BIT(SCORE_SCQ_STATE_OPEN))) {
 		score_warn("reading scq is already closed\n");
 		ret = -ENOSTR;
 		goto p_err;
@@ -264,17 +264,15 @@ int score_scq_write(struct score_scq *scq, struct score_frame *frame)
 	int ret = 0;
 
 	score_enter();
-	if (!test_bit(SCORE_SCQ_STATE_OPEN, &scq->state)) {
+	if (!(scq->state & BIT(SCORE_SCQ_STATE_OPEN))) {
 		score_warn("writing scq is already closed\n");
 		ret = -ENOSTR;
 		goto p_err;
 	}
 
 	if (scq->count + 1 > MAX_HOST_TASK_COUNT) {
-		score_warn("task will be pending (size:%d/%d) (%u-%u, %u)\n",
-				scq->count, MAX_HOST_TASK_COUNT,
-				frame->sctx->id, frame->frame_id,
-				frame->kernel_id);
+		score_warn("task will be pending (size:%d/%d)\n",
+				scq->count, MAX_HOST_TASK_COUNT);
 		ret = __score_scq_pending_create(scq, frame);
 		if (!ret)
 			return -EBUSY;
@@ -303,8 +301,243 @@ int score_scq_write(struct score_scq *scq, struct score_frame *frame)
 
 	score_leave();
 p_err:
-	kfree(frame->pending_packet);
+	if (frame->pended) {
+		kfree(frame->pending_packet);
+		frame->pended = false;
+	}
+
 	return ret;
+}
+
+static int __score_scq_translate_buffer(struct score_frame *frame,
+		struct score_host_buffer *buffer, unsigned int count,
+		unsigned char *data, unsigned int max_size)
+{
+	int ret;
+	unsigned int idx;
+	unsigned int offset;
+	unsigned int type;
+
+	struct score_mmu_buffer *kbuf;
+	unsigned int *taddr;
+
+	for (idx = 0; idx < count; ++idx) {
+		offset = buffer[idx].offset;
+		if (offset >= max_size) {
+			ret = -EINVAL;
+			score_err("invalid offset(%u) (max:%u)\n",
+					offset, max_size);
+			goto p_err;
+		}
+
+		type = buffer[idx].type;
+		switch (type) {
+		case TASK_ID_TYPE:
+			data[offset] = (unsigned char)frame->frame_id;
+			break;
+		case MEMORY_TYPE:
+			/* taddr will point to the valid packet memory */
+			if (offset > max_size - sizeof(unsigned int) + 1) {
+				ret = -EINVAL;
+				score_err("invalid offset(%u) (max:%zu)\n",
+						offset, max_size -
+						sizeof(unsigned int) + 1);
+				goto p_err;
+			}
+
+			kbuf = kzalloc(sizeof(*kbuf), GFP_KERNEL);
+			if (!kbuf) {
+				ret = -ENOMEM;
+				score_err("Fail to alloc mmu buffer\n");
+				goto p_err;
+			}
+
+			kbuf->type = buffer[idx].memory_type;
+			kbuf->size = buffer[idx].memory_size;
+			kbuf->m.mem_info = buffer[idx].m.mem_info;
+			kbuf->offset = buffer[idx].addr_offset;
+			kbuf->mirror = false;
+
+			ret = score_mmu_map_buffer(frame->sctx->mmu_ctx, kbuf);
+			if (ret) {
+				kfree(kbuf);
+				goto p_err;
+			}
+
+			score_frame_add_buffer(frame, kbuf);
+
+			taddr = (unsigned int *)(data + offset);
+			*taddr = (unsigned int)(kbuf->dvaddr + kbuf->offset);
+			break;
+		default:
+			ret = -EINVAL;
+			score_err("wrong buffer type: %u\n", type);
+			goto p_err;
+		}
+	}
+
+	return 0;
+p_err:
+	score_err("Failed to translate [%u/%u] buffer\n", idx, count);
+	return ret;
+}
+
+static int __score_scq_translate_packet(struct score_frame *frame)
+{
+	int ret = 0;
+
+	struct score_host_packet *packet;
+	unsigned int packet_size;
+	struct score_host_packet_info *packet_info;
+	struct score_host_buffer *buffers;
+	unsigned char *target_packet;
+	size_t size;
+
+	score_enter();
+	packet = frame->packet;
+	packet_size = packet->size;
+
+	if (packet_size > frame->packet_size) {
+		ret = -EINVAL;
+		score_err("packet size is larger than buffer (%u/%zu)\n",
+				packet_size, frame->packet_size);
+		goto p_err;
+	}
+
+	if (packet_size < MIN_PACKET_SIZE ||
+			packet_size > MAX_PACKET_SIZE) {
+		ret = -EINVAL;
+		score_err("packet size is invalid (%u/MIN:%lu/MAX:%u)\n",
+				packet_size, MIN_PACKET_SIZE, MAX_PACKET_SIZE);
+		goto p_err;
+	}
+
+	packet_info = (struct score_host_packet_info *)&packet->payload[0];
+
+	/*
+	 * check if buf count is valid
+	 * packet_size = MIN_PACKET_SIZE + packet_info->buf_count *
+	 * sizeof(struct score_host_buffer) + target_packet_size
+	 */
+
+	/* host buffers size */
+	size = packet_info->buf_count * sizeof(struct score_host_buffer);
+	if (size > packet_size - MIN_PACKET_SIZE) {
+		ret = -EINVAL;
+		score_err("size of host buffers is too large (%zu/%lu)\n",
+				size, packet_size - MIN_PACKET_SIZE);
+		goto p_err;
+	}
+
+	/*
+	 * packet->packet_offset is address offset value between
+	 * score_host_packet and target_packet and equals to
+	 * sizeof(struct sc_host_packet_info) + host buffers size
+	 */
+	size = sizeof(struct score_host_packet_info) +
+		packet_info->buf_count * sizeof(struct score_host_buffer);
+	if (packet->packet_offset != size) {
+		ret = -EINVAL;
+		score_err("packet_offset is invalid (%u != %zu)\n",
+				packet->packet_offset, size);
+		goto p_err;
+	}
+
+	buffers = (struct score_host_buffer *)&packet_info->payload[0];
+	target_packet = (unsigned char *)packet_info + packet->packet_offset;
+
+	/*
+	 * packet_info->valid_size is size of packet which is being
+	 * send to target.
+	 */
+	size = packet_size - (sizeof(struct score_host_packet) +
+		sizeof(struct score_host_packet_info) +
+		packet_info->buf_count * sizeof(struct score_host_buffer));
+	if (packet_info->valid_size != size) {
+		ret = -EINVAL;
+		score_err("size of target packet is invalid (%u != %zu)\n",
+				packet_info->valid_size, size);
+		goto p_err;
+	}
+
+	ret = __score_scq_translate_buffer(frame, buffers,
+			packet_info->buf_count, target_packet,
+			packet_info->valid_size);
+	if (ret)
+		goto p_err;
+
+	/* priority and optional task type are  not supported at V2 */
+	frame->task_type = 0;
+	frame->priority = false;
+
+	score_leave();
+p_err:
+	return ret;
+}
+
+static void score_scq_write_thread(struct kthread_work *work)
+{
+	int ret;
+	unsigned long flags;
+	struct score_frame *frame;
+	struct score_frame_manager *framemgr;
+	struct score_scq *scq;
+
+	score_enter();
+	frame = container_of(work, struct score_frame, work);
+	framemgr = frame->owner;
+
+	spin_lock_irqsave(&framemgr->slock, flags);
+	if (frame->state == SCORE_FRAME_STATE_COMPLETE)
+		goto p_exit;
+
+	ret = score_frame_trans_ready_to_process(frame);
+	if (ret) {
+		score_frame_trans_any_to_complete(frame, ret);
+		goto p_exit;
+	}
+
+	scq = &frame->sctx->system->scq;
+	ret = score_scq_write(scq, frame);
+	if (ret) {
+		if (ret == -EBUSY) {
+			score_warn("frame is pended (%u-%u, %u)\n",
+					frame->sctx->id, frame->frame_id,
+					frame->kernel_id);
+			score_frame_trans_process_to_pending(frame);
+		} else {
+			score_err("frame is abnormaly completed (%u-%u, %u)\n",
+					frame->sctx->id, frame->frame_id,
+					frame->kernel_id);
+			score_frame_trans_process_to_complete(frame, ret);
+		}
+
+		goto p_exit;
+	}
+
+	score_leave();
+p_exit:
+	spin_unlock_irqrestore(&framemgr->slock, flags);
+}
+
+int score_scq_send_packet(struct score_scq *scq, struct score_frame *frame)
+{
+	int ret = 0;
+	unsigned long flags;
+
+	score_enter();
+	ret = __score_scq_translate_packet(frame);
+	if (ret) {
+		spin_lock_irqsave(&frame->owner->slock, flags);
+		score_frame_trans_ready_to_complete(frame, ret);
+		spin_unlock_irqrestore(&frame->owner->slock, flags);
+	} else {
+		kthread_init_work(&frame->work, score_scq_write_thread);
+		score_scq_write_thread(&frame->work);
+	}
+
+	score_leave();
+	return 0;
 }
 
 void score_scq_init(struct score_scq *scq)
@@ -318,7 +551,7 @@ int score_scq_open(struct score_scq *scq)
 {
 	score_enter();
 	score_scq_init(scq);
-	set_bit(SCORE_SCQ_STATE_OPEN, &scq->state);
+	scq->state = BIT(SCORE_SCQ_STATE_OPEN);
 	score_leave();
 	return 0;
 }
@@ -326,7 +559,7 @@ int score_scq_open(struct score_scq *scq)
 int score_scq_close(struct score_scq *scq)
 {
 	score_enter();
-	set_bit(SCORE_SCQ_STATE_CLOSE, &scq->state);
+	scq->state = BIT(SCORE_SCQ_STATE_CLOSE);
 	score_leave();
 	return 0;
 }
@@ -357,7 +590,7 @@ int score_scq_probe(struct score_system *system)
 		goto p_err_sched_write;
 	}
 
-	set_bit(SCORE_SCQ_STATE_CLOSE, &scq->state);
+	scq->state = BIT(SCORE_SCQ_STATE_CLOSE);
 	score_leave();
 	return ret;
 p_err_sched_write:

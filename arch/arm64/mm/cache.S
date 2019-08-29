@@ -23,7 +23,7 @@
 #include <asm/assembler.h>
 #include <asm/cpufeature.h>
 #include <asm/alternative.h>
-#include <asm/uaccess.h>
+#include <asm/asm-uaccess.h>
 
 /*
  *	__flush_dcache_all()
@@ -133,9 +133,6 @@ ENDPROC(flush_cache_louis)
  *	- end     - virtual end address of region
  */
 ENTRY(flush_icache_range)
-#ifdef CONFIG_RKP_CFP_JOPP
-FALLTHROUGH(__flush_cache_user_range)
-#endif
 	/* FALLTHROUGH */
 
 /*
@@ -157,7 +154,7 @@ ENTRY(__flush_cache_user_range)
 #ifndef	CONFIG_SOC_EXYNOS9810
 user_alt 9f, "dc cvau, x4",  "dc civac, x4",  ARM64_WORKAROUND_CLEAN_CACHE
 #else
-user_alt 9f, "dc cvac, x4",  "dc cvac, x4",  ARM64_WORKAROUND_CLEAN_CACHE
+user_alt 9f, "dc civac, x4",  "dc civac, x4",  ARM64_WORKAROUND_CLEAN_CACHE
 #endif
 	add	x4, x4, x2
 	cmp	x4, x1
@@ -187,6 +184,49 @@ ENDPROC(flush_icache_range)
 ENDPROC(__flush_cache_user_range)
 
 /*
+ *	flush_icache_range_poc(start,end)
+ *
+ *	Ensure that the I and D caches for the specified region [start, end]
+ *	are cleaned and invalidated to the PoC.
+ *
+ *	- start   - virtual start address of region
+ *	- end     - virtual end address of region
+ */
+
+ENTRY(flush_icache_range_poc)
+	uaccess_ttbr0_enable x2, x3, x4
+	dcache_line_size x2, x3
+	sub	x3, x2, #1
+	bic	x4, x0, x3
+1:
+USER(9f, dc	civac, x4	)	// clean D line to PoC
+	add	x4, x4, x2
+	cmp	x4, x1
+	b.lo	1b
+	dsb	ish
+
+	icache_line_size x2, x3
+	sub	x3, x2, #1
+	bic	x4, x0, x3
+1:
+USER(9f, ic	ivau, x4	)	// invalidate I line PoU
+	dsb	ish
+	isb
+	add	x4, x4, x2
+	cmp	x4, x1
+	b.lo	1b
+	dsb	ish
+	isb
+	mov	x0, #0
+1:
+	uaccess_ttbr0_disable x1, x2
+	ret
+9:
+	mov	x0, #-EFAULT
+	b	1b
+ENDPROC(flush_icache_range_poc)
+
+/*
  *	__flush_dcache_area(kaddr, size)
  *
  *	Ensure that any D-cache lines for the interval [kaddr, kaddr+size)
@@ -213,10 +253,23 @@ ENTRY(__clean_dcache_area_pou)
 #ifndef	CONFIG_SOC_EXYNOS9810
 	dcache_by_line_op cvau, ish, x0, x1, x2, x3
 #else
-	dcache_by_line_op cvac, ish, x0, x1, x2, x3
+	dcache_by_line_op civac, ish, x0, x1, x2, x3
 #endif
 	ret
 ENDPROC(__clean_dcache_area_pou)
+
+/*
+ *	__inval_dcache_area(kaddr, size)
+ *
+ * 	Ensure that any D-cache lines for the interval [kaddr, kaddr+size)
+ * 	are invalidated. Any partial lines at the ends of the interval are
+ *	also cleaned to PoC to prevent data loss.
+ *
+ *	- kaddr   - kernel address
+ *	- size    - size in question
+ */
+ENTRY(__inval_dcache_area)
+	/* FALLTHROUGH */
 
 /*
  *	__dma_inv_area(start, size)
@@ -225,17 +278,6 @@ ENDPROC(__clean_dcache_area_pou)
  */
 __dma_inv_area:
 	add	x1, x1, x0
-#ifdef CONFIG_RKP_CFP_JOPP
-FALLTHROUGH(__inval_cache_range)
-#endif
-	/* FALLTHROUGH */
-
-/*
- *	__inval_cache_range(start, end)
- *	- start   - start address of region
- *	- end     - end address of region
- */
-ENTRY(__inval_cache_range)
 	dcache_line_size x2, x3
 	sub	x3, x2, #1
 	tst	x1, x3				// end cache line aligned?
@@ -253,7 +295,7 @@ ENTRY(__inval_cache_range)
 	b.lo	2b
 	dsb	sy
 	ret
-ENDPIPROC(__inval_cache_range)
+ENDPIPROC(__inval_dcache_area)
 ENDPROC(__dma_inv_area)
 
 /*
@@ -278,6 +320,20 @@ __dma_clean_area:
 	ret
 ENDPIPROC(__clean_dcache_area_poc)
 ENDPROC(__dma_clean_area)
+
+/*
+ *	__clean_dcache_area_pop(kaddr, size)
+ *
+ * 	Ensure that any D-cache lines for the interval [kaddr, kaddr+size)
+ * 	are cleaned to the PoP.
+ *
+ *	- kaddr   - kernel address
+ *	- size    - size in question
+ */
+ENTRY(__clean_dcache_area_pop)
+	dcache_by_line_op cvap, sy, x0, x1, x2, x3
+	ret
+ENDPIPROC(__clean_dcache_area_pop)
 
 /*
  *	__dma_flush_area(start, size)

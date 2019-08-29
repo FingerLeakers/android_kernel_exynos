@@ -13,6 +13,7 @@ obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-3ap.o
 obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-isp.o
 obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-ixc.o
 obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-ixp.o
+obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-mexc.o
 
 obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-dcp.o
 obj-$(CONFIG_FIMC_IS_V6_0_0) += fimc-is-subdev-dcxs.o

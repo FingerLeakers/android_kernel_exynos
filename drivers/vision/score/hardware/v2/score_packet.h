@@ -20,6 +20,11 @@
 
 #define MAX_PACKET_SIZE		(2048)
 
+enum host_info_type {
+	MEMORY_TYPE = 1,
+	TASK_ID_TYPE = 2
+};
+
 struct score_host_buffer {
 	unsigned int				memory_type :3;
 	unsigned int				offset      :29;

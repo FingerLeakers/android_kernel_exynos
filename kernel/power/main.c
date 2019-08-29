@@ -24,7 +24,7 @@ DEFINE_MUTEX(pm_mutex);
 
 /* Routines for PM-transition notifications */
 
-static BLOCKING_NOTIFIER_HEAD(pm_chain_head);
+BLOCKING_NOTIFIER_HEAD(pm_chain_head);
 
 int register_pm_notifier(struct notifier_block *nb)
 {
@@ -37,17 +37,6 @@ int unregister_pm_notifier(struct notifier_block *nb)
 	return blocking_notifier_chain_unregister(&pm_chain_head, nb);
 }
 EXPORT_SYMBOL_GPL(unregister_pm_notifier);
-
-bool is_pm_chain_notifier(struct notifier_block **notifier_block,
-		unsigned long val)
-{
-	if ((&pm_chain_head.head == notifier_block) &&
-			((val == PM_SUSPEND_PREPARE) || (val == PM_POST_SUSPEND)))
-		return true;
-
-	return false;
-}
-EXPORT_SYMBOL_GPL(is_pm_chain_notifier);
 
 int __pm_notifier_call_chain(unsigned long val, int nr_to_call, int *nr_calls)
 {
@@ -62,6 +51,27 @@ int pm_notifier_call_chain(unsigned long val)
 {
 	return __pm_notifier_call_chain(val, -1, NULL);
 }
+
+#ifdef CONFIG_SEC_PM_DEBUG
+void *pm_notifier_call_chain_get_callback(int nr_calls)
+{
+	struct notifier_block *nb, *next_nb;
+	int nr_to_call = nr_calls;
+
+	nb = rcu_dereference_raw(pm_chain_head.head);
+
+	while (nb && nr_to_call) {
+		next_nb = rcu_dereference_raw(nb->next);
+		nb = next_nb;
+		nr_to_call--;
+	}
+
+	if (nb)
+		return (void *)nb->notifier_call;
+	else
+		return ERR_PTR(-ENODATA);
+}
+#endif /* CONFIG_SEC_PM_DEBUG */
 
 /* If set, devices may be suspended and resumed asynchronously. */
 int pm_async_enabled = 1;
@@ -89,7 +99,79 @@ static ssize_t pm_async_store(struct kobject *kobj, struct kobj_attribute *attr,
 
 power_attr(pm_async);
 
-#ifdef CONFIG_PM_DEBUG
+#ifdef CONFIG_SUSPEND
+static ssize_t mem_sleep_show(struct kobject *kobj, struct kobj_attribute *attr,
+			      char *buf)
+{
+	char *s = buf;
+	suspend_state_t i;
+
+	for (i = PM_SUSPEND_MIN; i < PM_SUSPEND_MAX; i++)
+		if (mem_sleep_states[i]) {
+			const char *label = mem_sleep_states[i];
+
+			if (mem_sleep_current == i)
+				s += sprintf(s, "[%s] ", label);
+			else
+				s += sprintf(s, "%s ", label);
+		}
+
+	/* Convert the last space to a newline if needed. */
+	if (s != buf)
+		*(s-1) = '\n';
+
+	return (s - buf);
+}
+
+static suspend_state_t decode_suspend_state(const char *buf, size_t n)
+{
+	suspend_state_t state;
+	char *p;
+	int len;
+
+	p = memchr(buf, '\n', n);
+	len = p ? p - buf : n;
+
+	for (state = PM_SUSPEND_MIN; state < PM_SUSPEND_MAX; state++) {
+		const char *label = mem_sleep_states[state];
+
+		if (label && len == strlen(label) && !strncmp(buf, label, len))
+			return state;
+	}
+
+	return PM_SUSPEND_ON;
+}
+
+static ssize_t mem_sleep_store(struct kobject *kobj, struct kobj_attribute *attr,
+			       const char *buf, size_t n)
+{
+	suspend_state_t state;
+	int error;
+
+	error = pm_autosleep_lock();
+	if (error)
+		return error;
+
+	if (pm_autosleep_state() > PM_SUSPEND_ON) {
+		error = -EBUSY;
+		goto out;
+	}
+
+	state = decode_suspend_state(buf, n);
+	if (state < PM_SUSPEND_MAX && state > PM_SUSPEND_ON)
+		mem_sleep_current = state;
+	else
+		error = -EINVAL;
+
+ out:
+	pm_autosleep_unlock();
+	return error ? error : n;
+}
+
+power_attr(mem_sleep);
+#endif /* CONFIG_SUSPEND */
+
+#ifdef CONFIG_PM_SLEEP_DEBUG
 int pm_test_level = TEST_NONE;
 
 static const char * const pm_tests[__TEST_AFTER_LAST] = {
@@ -150,7 +232,7 @@ static ssize_t pm_test_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 
 power_attr(pm_test);
-#endif /* CONFIG_PM_DEBUG */
+#endif /* CONFIG_PM_SLEEP_DEBUG */
 
 #ifdef CONFIG_DEBUG_FS
 static char *suspend_step_name(enum suspend_stat_step step)
@@ -300,6 +382,61 @@ static ssize_t pm_wakeup_irq_show(struct kobject *kobj,
 
 power_attr_ro(pm_wakeup_irq);
 
+bool pm_debug_messages_on __read_mostly = true;
+
+static ssize_t pm_debug_messages_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", pm_debug_messages_on);
+}
+
+static ssize_t pm_debug_messages_store(struct kobject *kobj,
+				       struct kobj_attribute *attr,
+				       const char *buf, size_t n)
+{
+	unsigned long val;
+
+	if (kstrtoul(buf, 10, &val))
+		return -EINVAL;
+
+	if (val > 1)
+		return -EINVAL;
+
+	pm_debug_messages_on = !!val;
+	return n;
+}
+
+power_attr(pm_debug_messages);
+
+/**
+ * __pm_pr_dbg - Print a suspend debug message to the kernel log.
+ * @defer: Whether or not to use printk_deferred() to print the message.
+ * @fmt: Message format.
+ *
+ * The message will be emitted if enabled through the pm_debug_messages
+ * sysfs attribute.
+ */
+void __pm_pr_dbg(bool defer, const char *fmt, ...)
+{
+	struct va_format vaf;
+	va_list args;
+
+	if (!pm_debug_messages_on)
+		return;
+
+	va_start(args, fmt);
+
+	vaf.fmt = fmt;
+	vaf.va = &args;
+
+	if (defer)
+		printk_deferred(KERN_DEBUG "PM: %pV", &vaf);
+	else
+		printk(KERN_DEBUG "PM: %pV", &vaf);
+
+	va_end(args);
+}
+
 #else /* !CONFIG_PM_SLEEP_DEBUG */
 static inline void pm_print_times_init(void) {}
 #endif /* CONFIG_PM_SLEEP_DEBUG */
@@ -379,12 +516,16 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	}
 
 	state = decode_state(buf, n);
-	if (state < PM_SUSPEND_MAX)
+	if (state < PM_SUSPEND_MAX) {
+		if (state == PM_SUSPEND_MEM)
+			state = mem_sleep_current;
+
 		error = pm_suspend(state);
-	else if (state == PM_SUSPEND_MAX)
+	} else if (state == PM_SUSPEND_MAX) {
 		error = hibernate();
-	else
+	} else {
 		error = -EINVAL;
+	}
 
  out:
 	pm_autosleep_unlock();
@@ -496,6 +637,9 @@ static ssize_t autosleep_store(struct kobject *kobj,
 	    && strcmp(buf, "off") && strcmp(buf, "off\n"))
 		return -EINVAL;
 
+	if (state == PM_SUSPEND_MEM)
+		state = mem_sleep_current;
+
 	error = pm_autosleep_set_state(state);
 	return error ? error : n;
 }
@@ -604,35 +748,6 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
-#ifdef CONFIG_FOTA_LIMIT
-static char fota_limit_str[] =
-#ifdef CONFIG_ARCH_EXYNOS9
-	"[START]\n"
-	"/sys/power/cpufreq_max_limit 1469000\n"
-	"[STOP]\n"
-	"/sys/power/cpufreq_max_limit -1\n"
-	"[END]\n";
-#else
-	"[NOT_SUPPORT]\n";
-#endif
-
-static ssize_t fota_limit_show(struct kobject *kobj,
-					struct kobj_attribute *attr,
-					char *buf)
-{
-	pr_info("%s\n", __func__);
-	return sprintf(buf, "%s", fota_limit_str);
-}
-
-static struct kobj_attribute fota_limit_attr = {
-	.attr	= {
-		.name = __stringify(fota_limit),
-		.mode = 0440,
-	},
-	.show	= fota_limit_show,
-};
-#endif /* CONFIG_FOTA_LIMIT */
-
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -642,6 +757,9 @@ static struct attribute * g[] = {
 #ifdef CONFIG_PM_SLEEP
 	&pm_async_attr.attr,
 	&wakeup_count_attr.attr,
+#ifdef CONFIG_SUSPEND
+	&mem_sleep_attr.attr,
+#endif
 #ifdef CONFIG_PM_AUTOSLEEP
 	&autosleep_attr.attr,
 #endif
@@ -649,24 +767,20 @@ static struct attribute * g[] = {
 	&wake_lock_attr.attr,
 	&wake_unlock_attr.attr,
 #endif
-#ifdef CONFIG_PM_DEBUG
-	&pm_test_attr.attr,
-#endif
 #ifdef CONFIG_PM_SLEEP_DEBUG
+	&pm_test_attr.attr,
 	&pm_print_times_attr.attr,
 	&pm_wakeup_irq_attr.attr,
+	&pm_debug_messages_attr.attr,
 #endif
 #endif
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
-#ifdef CONFIG_FOTA_LIMIT
-	&fota_limit_attr.attr,
-#endif
 	NULL,
 };
 
-static struct attribute_group attr_group = {
+static const struct attribute_group attr_group = {
 	.attrs = g,
 };
 

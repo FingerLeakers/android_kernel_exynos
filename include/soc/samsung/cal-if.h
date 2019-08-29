@@ -41,6 +41,8 @@ extern int cal_cpu_status(unsigned int cpu);
 extern int cal_cluster_enable(unsigned int cluster);
 extern int cal_cluster_disable(unsigned int cluster);
 extern int cal_cluster_status(unsigned int cluster);
+extern int cal_cluster_req_emulation(unsigned int cluster, bool en);
+extern int cal_is_lastcore_detecting(unsigned int cpu);
 
 extern unsigned int cal_dfs_get(char *name);
 extern unsigned long cal_dfs_get_max_freq(unsigned int id);

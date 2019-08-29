@@ -42,15 +42,17 @@
 #endif
 
 #define DEK_LOG_COUNT		100
+#define DEK_LOG_BUF_SIZE	1024
+#define LOG_ENTRY_BUF_SIZE	512
 
-#ifdef CONFIG_SDP
-extern void ecryptfs_mm_drop_cache(int userid, int engineid);
-#endif
+//#if defined(CONFIG_SDP) && !defined(CONFIG_FSCRYPT_SDP)
+//extern void ecryptfs_mm_drop_cache(int userid, int engineid);
+//#endif
 
 /* Log buffer */
 struct log_struct {
 	int len;
-	char buf[256];
+	char buf[DEK_LOG_BUF_SIZE];
 	struct list_head list;
 	spinlock_t list_lock;
 };
@@ -60,6 +62,13 @@ static int log_count;
 /* Wait queue */
 wait_queue_head_t wq;
 static int flag;
+
+static struct workqueue_struct *queue_log_workqueue;
+typedef struct __log_entry_t {
+	int engineId;
+	char buffer[LOG_ENTRY_BUF_SIZE];
+	struct work_struct work;
+} log_entry_t;
 
 int dek_is_sdp_uid(uid_t uid)
 {
@@ -161,10 +170,6 @@ retry:
 	return 0;
 }
 
-/* Log */
-static void dek_add_to_log(int engine_id, char *buffer);
-
-
 static int dek_open_evt(struct inode *inode, struct file *file)
 {
 	return 0;
@@ -184,6 +189,36 @@ static int dek_release_req(struct inode *ignored, struct file *file)
 {
 	return 0;
 }
+
+#if DEK_DEBUG
+void hex_key_dump(const char* tag, uint8_t *data, size_t data_len)
+{
+	static const char *hex = "0123456789ABCDEF";
+	static const char delimiter = ' ';
+	int i;
+	char *buf;
+	size_t buf_len;
+
+	if (tag == NULL || data == NULL || data_len <= 0) {
+		return;
+	}
+
+	buf_len = data_len * 3;
+	buf = (char *)kmalloc(buf_len, GFP_ATOMIC);
+	if (buf == NULL) {
+		return;
+	}
+	for (i= 0 ; i < data_len ; i++) {
+		buf[i*3 + 0] = hex[(data[i] >> 4) & 0x0F];
+		buf[i*3 + 1] = hex[(data[i]) & 0x0F];
+		buf[i*3 + 2] = delimiter;
+	}
+	buf[buf_len - 1] = '\0';
+	printk(KERN_ERR
+		"[%s] %s(len=%d) : %s\n", "DEK_DBG", tag, data_len, buf);
+	kfree(buf);
+}
+#endif
 
 #ifdef CONFIG_SDP_KEY_DUMP
 void key_dump(unsigned char *buf, int len)
@@ -216,7 +251,6 @@ static void kek_dump(int engine_id, int kek_type, const char *kek_name)
 
 static void dump_all_keys(int engine_id)
 {
-	printk("engine id : %d\n", engine_id);
 	kek_dump(engine_id, KEK_TYPE_SYM, "KEK_TYPE_SYM");
 	kek_dump(engine_id, KEK_TYPE_RSA_PUB, "KEK_TYPE_RSA_PUB");
 	kek_dump(engine_id, KEK_TYPE_RSA_PRIV, "KEK_TYPE_RSA_PRIV");
@@ -256,6 +290,65 @@ int dek_generate_dek(int engine_id, dek_t *newDek)
 	return 0;
 }
 
+int dek_encrypt_dek_ecdh(dek_t *plainDek, dek_t *encDek, kek_t *drv_key)
+{
+	int res;
+	int enc_type;
+	unsigned int enc_plen;
+	u8 enc_pbuf[SDP_CRYPTO_GCM_MAX_PLEN];
+
+	ss_payload sspay;
+	dek_t in;
+	dek_t out;
+
+	enc_type = CONV_DLEN_TO_TYPE(plainDek->len);
+	if (unlikely(!enc_type))
+		return -EINVAL;
+
+#if DEK_DEBUG
+	hex_key_dump("enc_ecdh: plainDek", (u8 *)plainDek, sizeof(dek_t));
+#endif
+
+	// Update Dummy DEK into input dek
+	in.type = DEK_TYPE_DUMMY,
+	in.len = 0;
+
+	// Derive shared secret
+	res = ecdh_deriveSS(&in, &out, drv_key);
+	if (res || out.len != sizeof(ss_payload))
+		return -EINVAL;
+
+	// Update ss_payload
+	memcpy(&sspay, out.buf, out.len);
+	res = dek_aes_encrypt_key_raw(
+			sspay.ss.buf, sspay.ss.len, plainDek->buf, plainDek->len, enc_pbuf, &enc_plen);
+	if (res)
+		goto clean;
+
+	/*
+	 * Update encDek which will be stored into file system
+	 *
+	 * Blob Format : [ DataK.pub | GCM Pack   ]
+	 *               [ dhkt_t    | gcm_pack32 ]
+	 *            or [ dhkt_t    | gcm_pack64 ]
+	 */
+	memset(encDek->buf, 0, DEK_MAXLEN);
+	memcpy(encDek->buf, &sspay.dh, sizeof(dhk_t));
+	memcpy((u8 *)encDek->buf + sizeof(dhk_t), enc_pbuf, enc_plen);
+	encDek->len = sizeof(dhk_t) + enc_plen;
+	encDek->type = DEK_TYPE_ECDH256_ENC;
+
+#if DEK_DEBUG
+	hex_key_dump("enc_ecdh: encDek", (u8 *)encDek, sizeof(dek_t));
+#endif
+
+clean:
+	memset(sspay.ss.buf, 0, sspay.ss.len);
+	memset(out.buf, 0, out.len);
+
+	return res;
+}
+
 static int dek_encrypt_dek(int engine_id, dek_t *plainDek, dek_t *encDek)
 {
 	int ret = 0;
@@ -270,15 +363,13 @@ static int dek_encrypt_dek(int engine_id, dek_t *plainDek, dek_t *encDek)
 
 	kek = get_kek(engine_id, KEK_TYPE_SYM, &ret);
 	if (kek) {
-		if (dek_aes_encrypt(kek, plainDek->buf, encDek->buf, plainDek->len)) {
+		ret = dek_aes_encrypt_key(kek, plainDek->buf, plainDek->len, encDek->buf, &encDek->len);
+		if (ret) {
 			DEK_LOGE("aes encrypt failed\n");
 			dek_add_to_log(engine_id, "aes encrypt failed");
-			encDek->len = 0;
 		} else {
-			encDek->len = plainDek->len;
 			encDek->type = DEK_TYPE_AES_ENC;
 		}
-
 		put_kek(kek);
 	} else {
 #ifdef CONFIG_PUB_CRYPTO
@@ -289,7 +380,7 @@ static int dek_encrypt_dek(int engine_id, dek_t *plainDek, dek_t *encDek)
 		case SDPK_ALGOTYPE_ASYMM_ECDH:
 			kek = get_kek(engine_id, KEK_TYPE_ECDH256_PUB, &ret);
 			if (kek) {
-				ret = ecdh_encryptDEK(plainDek, encDek, kek);
+				ret = dek_encrypt_dek_ecdh(plainDek, encDek, kek);
 				put_kek(kek);
 				break;
 			} else{
@@ -368,6 +459,63 @@ int dek_encrypt_dek_efs(int engine_id, dek_t *plainDek, dek_t *encDek)
 	return dek_encrypt_dek(engine_id, plainDek, encDek);
 }
 
+int dek_decrypt_dek_ecdh(dek_t *encDek, dek_t *plainDek, kek_t *drv_key)
+{
+	int res;
+	int dec_type;
+	unsigned int dec_plen;
+	u8 dec_pbuf[SDP_CRYPTO_GCM_MAX_PLEN];
+
+	ssk_t ss;
+	dek_t in;
+	dek_t out;
+
+	dec_plen = encDek->len - sizeof(dhk_t);
+	dec_type = CONV_PLEN_TO_TYPE(dec_plen);
+	if (unlikely(!dec_type))
+		return -EINVAL;
+
+#if DEK_DEBUG
+	hex_key_dump("dec_ecdh: encDek", (u8 *)encDek, sizeof(dek_t));
+#endif
+
+	// Update DataK.pub into input dek
+	memcpy(in.buf, encDek->buf, sizeof(dhk_t));
+	in.type = DEK_TYPE_ECDH256_ENC;
+	in.len = sizeof(dhk_t);
+
+	// Derive shared secret
+	res = ecdh_deriveSS(&in, &out, drv_key);
+	if (res || out.len != sizeof(ssk_t))
+		return -EINVAL;
+
+	// Update ss_payload
+	memcpy(&ss, out.buf, out.len);
+
+	// Update GCM pack buffer
+	memcpy(dec_pbuf, (u8 *)encDek->buf + sizeof(dhk_t), dec_plen);
+
+	// Clean up plain key buffer
+	memset(plainDek->buf, 0, DEK_MAXLEN);
+
+	res = dek_aes_decrypt_key_raw(
+			ss.buf, ss.len, dec_pbuf, dec_plen, plainDek->buf, &plainDek->len);
+	if (res)
+		goto clean;
+
+	plainDek->type = DEK_TYPE_PLAIN;
+
+#if DEK_DEBUG
+	hex_key_dump("dec_ecdh: plainDek->buf", plainDek->buf,plainDek->len);
+#endif
+
+clean:
+	memset(ss.buf, 0, ss.len);
+	memset(out.buf, 0, out.len);
+
+	return res;
+}
+
 static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 {
 	int dek_type = encDek->type;
@@ -385,12 +533,11 @@ static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 	{
 		kek = get_kek(engine_id, KEK_TYPE_SYM, &ret);
 		if (kek) {
-			if (dek_aes_decrypt(kek, encDek->buf, plainDek->buf, encDek->len)) {
+			ret = dek_aes_decrypt_key(kek, encDek->buf, encDek->len, plainDek->buf, &plainDek->len);
+			if (ret) {
 				DEK_LOGE("aes decrypt failed\n");
 				dek_add_to_log(engine_id, "aes decrypt failed");
-				plainDek->len = 0;
 			} else {
-				plainDek->len = encDek->len;
 				plainDek->type = DEK_TYPE_PLAIN;
 			}
 			put_kek(kek);
@@ -399,7 +546,7 @@ static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 			dek_add_to_log(engine_id, "decrypt failed, no KEK_TYPE_SYM");
 			return -EIO;
 		}
-		return 0;
+		return ret;
 	}
 	case DEK_TYPE_RSA_ENC:
 	{
@@ -444,7 +591,7 @@ static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 #ifdef CONFIG_PUB_CRYPTO
 		kek = get_kek(engine_id, KEK_TYPE_ECDH256_PRIV, &ret);
 		if (kek) {
-			ret = ecdh_decryptEDEK(encDek, plainDek, kek);
+			ret = dek_decrypt_dek_ecdh(encDek, plainDek, kek);
 			put_kek(kek);
 		} else{
 			DEK_LOGE("no KEK_TYPE_ECDH256_PRIV for id: %d\n", engine_id);
@@ -470,6 +617,24 @@ static int dek_decrypt_dek(int engine_id, dek_t *encDek, dek_t *plainDek)
 int dek_decrypt_dek_efs(int engine_id, dek_t *encDek, dek_t *plainDek)
 {
 	return dek_decrypt_dek(engine_id, encDek, plainDek);
+}
+
+int dek_encrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *fek, unsigned int fek_len,
+					unsigned char *efek, unsigned int *efek_len)
+{
+	return dek_aes_encrypt_key_raw(master_key, master_key_len,
+								fek, fek_len,
+								efek, efek_len);
+}
+
+int dek_decrypt_fek(unsigned char *master_key, unsigned int master_key_len,
+					unsigned char *efek, unsigned int efek_len,
+					unsigned char *fek, unsigned int *fek_len)
+{
+	return dek_aes_decrypt_key_raw(master_key, master_key_len,
+								efek, efek_len,
+								fek, fek_len);
 }
 
 static int dek_on_boot(dek_arg_on_boot *evt)
@@ -512,9 +677,9 @@ static int dek_on_boot(dek_arg_on_boot *evt)
 
 static int dek_on_device_locked(dek_arg_on_device_locked *evt)
 {
-#ifdef CONFIG_SDP
-	int user_id = evt->user_id;
-#endif
+//#if defined(CONFIG_SDP) && !defined(CONFIG_FSCRYPT_SDP)
+//	int user_id = evt->user_id;
+//#endif
 	int engine_id = evt->engine_id;
 
 	del_kek(engine_id, KEK_TYPE_SYM);
@@ -522,8 +687,12 @@ static int dek_on_device_locked(dek_arg_on_device_locked *evt)
 	del_kek(engine_id, KEK_TYPE_DH_PRIV);
 	del_kek(engine_id, KEK_TYPE_ECDH256_PRIV);
 
-#ifdef CONFIG_SDP
-	ecryptfs_mm_drop_cache(user_id, engine_id);
+//#if defined(CONFIG_SDP) && !defined(CONFIG_FSCRYPT_SDP)
+//	ecryptfs_mm_drop_cache(user_id, engine_id);
+//#endif
+
+#ifdef CONFIG_FSCRYPT_SDP
+	fscrypt_sdp_cache_drop_inode_mappings(engine_id);
 #endif
 
 #ifdef CONFIG_SDP_KEY_DUMP
@@ -796,8 +965,11 @@ static long dek_do_ioctl_evt(unsigned int minor, unsigned int cmd,
 			goto err;
 		}
 
-#ifdef CONFIG_SDP
-		ecryptfs_mm_drop_cache(evt->user_id, evt->engine_id);
+//#if defined(CONFIG_SDP) && !defined(CONFIG_FSCRYPT_SDP)
+//		ecryptfs_mm_drop_cache(evt->user_id, evt->engine_id);
+//#endif
+#ifdef CONFIG_FSCRYPT_SDP
+		fscrypt_sdp_cache_drop_inode_mappings(evt->engine_id);
 #endif
 		ret = 0;
 		dek_add_to_log(evt->engine_id, "Disk cache clean up");
@@ -885,35 +1057,66 @@ static long dek_do_ioctl_req(unsigned int minor, unsigned int cmd,
 	 */
 	case DEK_ENCRYPT_DEK: {
 		dek_arg_encrypt_dek req;
-
+		dek_t *tempPlain_dek, *tempEnc_dek;
 		DEK_LOGD("DEK_ENCRYPT_DEK\n");
 
 		memset(&req, 0, sizeof(dek_arg_encrypt_dek));
-		if (copy_from_user(&req, ubuf, sizeof(req))) {
+		if(copy_from_user(&req, ubuf, sizeof(req))) {
 			DEK_LOGE("can't copy from user req\n");
 			zero_out((char *)&req, sizeof(dek_arg_encrypt_dek));
 			ret = -EFAULT;
 			goto err;
 		}
-		if (req.plain_dek.len <= 0 || req.plain_dek.len > DEK_MAXLEN) {
+		if(req.plain_dek.len <= 0 || req.plain_dek.len > DEK_MAXLEN) {
 			DEK_LOGE("Incorrect dek len\n");
 			zero_out((char *)&req, sizeof(dek_arg_encrypt_dek));
 			ret = -EFAULT;
 			goto err;
 		}
+		tempPlain_dek = kmalloc(sizeof(dek_t), GFP_NOFS);
+		if (tempPlain_dek == NULL) {
+			return -ENOMEM;
+		}
+		tempEnc_dek = kmalloc(sizeof(dek_t), GFP_NOFS);
+		if (tempEnc_dek == NULL) {
+			kzfree(tempPlain_dek);
+			return -ENOMEM;
+		}
+
+		tempPlain_dek->type = req.plain_dek.type;
+		tempPlain_dek->len = req.plain_dek.len;
+		memcpy(tempPlain_dek->buf, req.plain_dek.buf, req.plain_dek.len);
+
 		ret = dek_encrypt_dek(req.engine_id,
-				&req.plain_dek, &req.enc_dek);
+				tempPlain_dek, tempEnc_dek);
+
+		memset(tempPlain_dek->buf, 0, DEK_MAXLEN);
+
 		if (ret < 0) {
+			DEK_LOGE("DEK_ENCRYPT_DEK: failed to encrypt dek! (err:%d)\n", ret);
 			zero_out((char *)&req, sizeof(dek_arg_encrypt_dek));
+			kzfree(tempPlain_dek);
+			kzfree(tempEnc_dek);
 			goto err;
 		}
-		if (copy_to_user(ubuf, &req, sizeof(req))) {
+
+		req.enc_dek.type = tempEnc_dek->type;
+		req.enc_dek.len = tempEnc_dek->len;
+		memcpy(req.enc_dek.buf, tempEnc_dek->buf, tempEnc_dek->len);
+
+		if(copy_to_user(ubuf, &req, sizeof(req))) {
 			DEK_LOGE("can't copy to user req\n");
 			zero_out((char *)&req, sizeof(dek_arg_encrypt_dek));
 			ret = -EFAULT;
+			kzfree(tempPlain_dek);
+			kzfree(tempEnc_dek);
 			goto err;
 		}
 		zero_out((char *)&req, sizeof(dek_arg_encrypt_dek));
+
+		kzfree(tempPlain_dek);
+		kzfree(tempEnc_dek);
+
 		break;
 	}
 	/*
@@ -925,35 +1128,64 @@ static long dek_do_ioctl_req(unsigned int minor, unsigned int cmd,
 	 */
 	case DEK_DECRYPT_DEK: {
 		dek_arg_decrypt_dek req;
+		dek_t *tempPlain_dek, *tempEnc_dek;
 
 		DEK_LOGD("DEK_DECRYPT_DEK\n");
 
 		memset(&req, 0, sizeof(dek_arg_decrypt_dek));
-		if (copy_from_user(&req, ubuf, sizeof(req))) {
+		if(copy_from_user(&req, ubuf, sizeof(req))) {
 			DEK_LOGE("can't copy from user req\n");
 			zero_out((char *)&req, sizeof(dek_arg_decrypt_dek));
 			ret = -EFAULT;
 			goto err;
 		}
-		if (req.enc_dek.len <= 0 || req.enc_dek.len > DEK_MAXLEN) {
+		if(req.enc_dek.len <= 0 || req.enc_dek.len > DEK_MAXLEN) {
 			DEK_LOGE("Incorrect dek len\n");
 			zero_out((char *)&req, sizeof(dek_arg_decrypt_dek));
 			ret = -EFAULT;
 			goto err;
 		}
+		tempPlain_dek = kmalloc(sizeof(dek_t), GFP_NOFS);
+		if (tempPlain_dek == NULL) {
+			return -ENOMEM;
+		}
+		tempEnc_dek = kmalloc(sizeof(dek_t), GFP_NOFS);
+		if (tempEnc_dek == NULL) {
+			kzfree(tempPlain_dek);
+			return -ENOMEM;
+		}		
+		tempEnc_dek->type = req.enc_dek.type;
+		tempEnc_dek->len = req.enc_dek.len;
+		memcpy(tempEnc_dek->buf, req.enc_dek.buf, req.enc_dek.len);
+
 		ret = dek_decrypt_dek(req.engine_id,
-				&req.enc_dek, &req.plain_dek);
+				tempEnc_dek, tempPlain_dek);
+
 		if (ret < 0) {
+			DEK_LOGE("DEK_DECRYPT_DEK: failed to decrypt dek! (err:%d)\n", ret);
 			zero_out((char *)&req, sizeof(dek_arg_decrypt_dek));
+			kzfree(tempPlain_dek);
+			kzfree(tempEnc_dek);
 			goto err;
 		}
-		if (copy_to_user(ubuf, &req, sizeof(req))) {
+
+		req.plain_dek.type = tempPlain_dek->type;
+		req.plain_dek.len = tempPlain_dek->len;
+		memcpy(req.plain_dek.buf, tempPlain_dek->buf, tempPlain_dek->len);
+		memset(tempPlain_dek->buf, 0, DEK_MAXLEN);
+
+		if(copy_to_user(ubuf, &req, sizeof(req))) {
 			DEK_LOGE("can't copy to user req\n");
 			zero_out((char *)&req, sizeof(dek_arg_decrypt_dek));
 			ret = -EFAULT;
+			kzfree(tempPlain_dek);
+			kzfree(tempEnc_dek);
 			goto err;
 		}
 		zero_out((char *)&req, sizeof(dek_arg_decrypt_dek));
+
+		kzfree(tempPlain_dek);
+		kzfree(tempEnc_dek);
 		break;
 	}
 
@@ -1037,7 +1269,7 @@ static ssize_t dek_read_log(struct file *file, char __user *buffer, size_t len, 
 {
 	int ret = 0;
 	struct log_struct *tmp = NULL;
-	char log_buf[256];
+	char log_buf[DEK_LOG_BUF_SIZE];
 	int log_buf_len;
 
 	if (list_empty(&log_buffer.list)) {
@@ -1076,8 +1308,11 @@ static ssize_t dek_read_log(struct file *file, char __user *buffer, size_t len, 
 	return len;
 }
 
-static void dek_add_to_log(int engine_id, char *buffer)
+void queue_log_work(struct work_struct *log_work)
 {
+	log_entry_t *logStruct = container_of(log_work, log_entry_t, work);
+	int engine_id = logStruct->engineId;
+	char *buffer = logStruct->buffer;
 	struct timespec ts;
 	struct log_struct *tmp = (struct log_struct *)kmalloc(sizeof(struct log_struct), GFP_KERNEL);
 
@@ -1112,6 +1347,24 @@ static void dek_add_to_log(int engine_id, char *buffer)
 	} else {
 		DEK_LOGE("dek_add_to_log - failed to allocate buffer\n");
 	}
+
+	kfree(logStruct);
+}
+
+void dek_add_to_log(int engine_id, char *buffer)
+{
+	log_entry_t *temp = (log_entry_t *)kmalloc(sizeof(log_entry_t), GFP_ATOMIC);
+	int len;
+	if (!temp) {
+		DEK_LOGE("failed to allocate memory for log entry\n");
+		return;
+	}
+	temp->engineId = engine_id;
+	len = (strlen(buffer) > LOG_ENTRY_BUF_SIZE) ? (LOG_ENTRY_BUF_SIZE - 1) : strlen(buffer);
+	memcpy(temp->buffer, buffer, len);
+	temp->buffer[len] = '\0';
+	INIT_WORK(&temp->work, queue_log_work);
+	queue_work(queue_log_workqueue, &temp->work);
 }
 
 const struct file_operations dek_fops_evt = {
@@ -1188,6 +1441,12 @@ static int __init dek_init(void)
 		return ret;
 	}
 
+	queue_log_workqueue = alloc_workqueue("queue_log_workqueue", WQ_HIGHPRI, 0);
+	if (!queue_log_workqueue) {
+		DEK_LOGE("failed to allocate queue_log_workqueue\n");
+		return -ENOMEM;
+	}
+
 	INIT_LIST_HEAD(&log_buffer.list);
 	spin_lock_init(&log_buffer.list_lock);
 	init_waitqueue_head(&wq);
@@ -1196,6 +1455,10 @@ static int __init dek_init(void)
 
 	printk("dek: initialized\n");
 	dek_add_to_log(000, "Initialized");
+
+#ifdef CONFIG_FSCRYPT_SDP
+	fscrypt_sdp_cache_init();
+#endif
 
 	return 0;
 }

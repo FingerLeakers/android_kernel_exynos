@@ -4,7 +4,7 @@
  * Copyright (C) 2011-2017 Samsung, Inc.
  * Author: Dongrak Shin <dongrak.shin@samsung.com>
  *
-*/
+ */
 
  /* usb notify layer v3.2 */
 

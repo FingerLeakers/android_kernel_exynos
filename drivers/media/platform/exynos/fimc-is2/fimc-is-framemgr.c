@@ -283,7 +283,7 @@ int frame_manager_close(struct fimc_is_framemgr *this)
 	spin_lock_irqsave(&this->slock, flag);
 
 	if (this->frames) {
-		vfree(this->frames);
+		vfree_atomic(this->frames);
 		this->frames = NULL;
 	}
 

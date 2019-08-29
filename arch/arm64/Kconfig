@@ -2,19 +2,29 @@ config ARM64
 	def_bool y
 	select ACPI_CCA_REQUIRED if ACPI
 	select ACPI_GENERIC_GSI if ACPI
+	select ACPI_GTDT if ACPI
+	select ACPI_IORT if ACPI
 	select ACPI_REDUCED_HARDWARE_ONLY if ACPI
 	select ACPI_MCFG if ACPI
 	select ACPI_SPCR_TABLE if ACPI
 	select ARCH_CLOCKSOURCE_DATA
+	select ARCH_HAS_DEBUG_VIRTUAL
 	select ARCH_HAS_DEVMEM_IS_ALLOWED
 	select ARCH_HAS_ACPI_TABLE_UPGRADE if ACPI
 	select ARCH_HAS_ELF_RANDOMIZE
+	select ARCH_HAS_FORTIFY_SOURCE
 	select ARCH_HAS_GCOV_PROFILE_ALL
-	select ARCH_HAS_GIGANTIC_PAGE
+	select ARCH_HAS_GIGANTIC_PAGE if (MEMORY_ISOLATION && COMPACTION) || CMA
 	select ARCH_HAS_KCOV
+	select ARCH_HAS_SET_MEMORY
 	select ARCH_HAS_SG_CHAIN
+	select ARCH_HAS_STRICT_KERNEL_RWX
+	select ARCH_HAS_STRICT_MODULE_RWX
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
+	select ARCH_HAVE_NMI_SAFE_CMPXCHG if ACPI_APEI_SEA
 	select ARCH_USE_CMPXCHG_LOCKREF
+	select ARCH_SUPPORTS_MEMORY_FAILURE
+	select ARCH_SUPPORTS_LTO_CLANG
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
@@ -36,6 +46,7 @@ config ARM64
 	select EDAC_SUPPORT
 	select FRAME_POINTER
 	select GENERIC_ALLOCATOR
+	select GENERIC_ARCH_TOPOLOGY
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_CLOCKEVENTS_BROADCAST
 	select GENERIC_CPU_AUTOPROBE
@@ -52,10 +63,10 @@ config ARM64
 	select GENERIC_TIME_VSYSCALL
 	select HANDLE_DOMAIN_IRQ
 	select HARDIRQS_SW_RESEND
+	select HAVE_ACPI_APEI if (ACPI && EFI)
 	select HAVE_ALIGNED_STRUCT_PAGE if SLUB
 	select HAVE_ARCH_AUDITSYSCALL
 	select HAVE_ARCH_BITREVERSE
-	select HAVE_ARCH_HARDENED_USERCOPY
 	select HAVE_ARCH_HUGE_VMAP
 	select HAVE_ARCH_JUMP_LABEL
 	select HAVE_ARCH_KASAN if SPARSEMEM_VMEMMAP && !(ARM64_16K_PAGES && ARM64_VA_BITS_48)
@@ -65,6 +76,7 @@ config ARM64
 	select HAVE_ARCH_SECCOMP_FILTER
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
+	select HAVE_ARCH_VMAP_STACK
 	select HAVE_ARM_SMCCC
 	select HAVE_EBPF_JIT
 	select HAVE_C_RECORDMCOUNT
@@ -83,10 +95,11 @@ config ARM64
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_GCC_PLUGINS
 	select HAVE_GENERIC_DMA_COHERENT
-#	select HAVE_HW_BREAKPOINT if PERF_EVENTS
+	select HAVE_HW_BREAKPOINT if PERF_EVENTS
 	select HAVE_IRQ_TIME_ACCOUNTING
 	select HAVE_MEMBLOCK
 	select HAVE_MEMBLOCK_NODE_MAP if NUMA
+	select HAVE_NMI if ACPI_APEI_SEA
 	select HAVE_PATA_PLATFORM
 	select HAVE_PERF_EVENTS
 	select HAVE_PERF_REGS
@@ -95,7 +108,7 @@ config ARM64
 	select HAVE_RCU_TABLE_FREE
 	select HAVE_SYSCALL_TRACEPOINTS
 	select HAVE_KPROBES
-	select HAVE_KRETPROBES if HAVE_KPROBES
+	select HAVE_KRETPROBES
 	select IOMMU_DMA if IOMMU_SUPPORT
 	select IRQ_DOMAIN
 	select IRQ_FORCED_THREADING
@@ -109,7 +122,7 @@ config ARM64
 	select POWER_SUPPLY
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
-	select SECCOMP
+	select THREAD_INFO_IN_TASK
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -200,7 +213,7 @@ config GENERIC_CALIBRATE_DELAY
 config ZONE_DMA
 	def_bool n
 
-config HAVE_GENERIC_RCU_GUP
+config HAVE_GENERIC_GUP
 	def_bool y
 
 config ARCH_DMA_ADDR_T_64BIT
@@ -235,6 +248,12 @@ config PGTABLE_LEVELS
 	default 3 if ARM64_4K_PAGES && ARM64_VA_BITS_39
 	default 3 if ARM64_16K_PAGES && ARM64_VA_BITS_47
 	default 4 if !ARM64_64K_PAGES && ARM64_VA_BITS_48
+
+config ARCH_SUPPORTS_UPROBES
+	def_bool y
+
+config ARCH_PROC_KCORE_TEXT
+	def_bool y
 
 source "init/Kconfig"
 
@@ -415,7 +434,7 @@ config ARM64_ERRATUM_845719
 
 config ARM64_ERRATUM_843419
 	bool "Cortex-A53: 843419: A load or store might access an incorrect address"
-	default y
+	default y if !LTO_CLANG
 	select ARM64_MODULE_CMODEL_LARGE if MODULES
 	help
 	  This option links the kernel with '--fix-cortex-a53-843419' and
@@ -425,9 +444,19 @@ config ARM64_ERRATUM_843419
 
 	  If unsure, say Y.
 
-config ARM64_ERRATUM_814818
-	bool "Ananke : Allocating streaming write might deadlock"
+config ARM64_ERRATUM_1024718
+	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
 	default y
+	help
+	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
+
+	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
+	  update of the hardware dirty bit when the DBM/AP bits are updated
+	  without a break-before-make. The work around is to disable the usage
+	  of hardware DBM locally on the affected cores. CPUs not affected by
+	  erratum will continue to use the feature.
+
+	  If unsure, say Y.
 
 config CAVIUM_ERRATUM_22375
 	bool "Cavium erratum 22375, 24313"
@@ -476,6 +505,38 @@ config CAVIUM_ERRATUM_27456
 
 	  If unsure, say Y.
 
+config CAVIUM_ERRATUM_30115
+	bool "Cavium erratum 30115: Guest may disable interrupts in host"
+	default y
+	help
+	  On ThunderX T88 pass 1.x through 2.2, T81 pass 1.0 through
+	  1.2, and T83 Pass 1.0, KVM guest execution may disable
+	  interrupts in host. Trapping both GICv3 group-0 and group-1
+	  accesses sidesteps the issue.
+
+	  If unsure, say Y.
+
+config QCOM_FALKOR_ERRATUM_1003
+	bool "Falkor E1003: Incorrect translation due to ASID change"
+	default y
+	help
+	  On Falkor v1, an incorrect ASID may be cached in the TLB when ASID
+	  and BADDR are changed together in TTBRx_EL1. Since we keep the ASID
+	  in TTBR1_EL1, this situation only occurs in the entry trampoline and
+	  then only for entries in the walk cache, since the leaf translation
+	  is unchanged. Work around the erratum by invalidating the walk cache
+	  entries for the trampoline before entering the kernel proper.
+
+config QCOM_FALKOR_ERRATUM_1009
+	bool "Falkor E1009: Prematurely complete a DSB after a TLBI"
+	default y
+	help
+	  On Falkor v1, the CPU may prematurely complete a DSB following a
+	  TLBI xxIS invalidate maintenance operation. Repeat the TLBI operation
+	  one more time to fix the issue.
+
+	  If unsure, say Y.
+
 config QCOM_QDF2400_ERRATUM_0065
 	bool "QDF2400 E0065: Incorrect GITS_TYPER.ITT_Entry_size"
 	default y
@@ -483,6 +544,16 @@ config QCOM_QDF2400_ERRATUM_0065
 	  On Qualcomm Datacenter Technologies QDF2400 SoC, ITS hardware reports
 	  ITE size incorrectly. The GITS_TYPER.ITT_Entry_size field should have
 	  been indicated as 16Bytes (0xf), not 8Bytes (0x7).
+
+	  If unsure, say Y.
+
+config QCOM_FALKOR_ERRATUM_E1041
+	bool "Falkor E1041: Speculative instruction fetches might cause errant memory access"
+	default y
+	help
+	  Falkor CPU may speculatively fetch instructions from an improper
+	  memory location when MMU translation is changed from SCTLR_ELn[M]=1
+	  to SCTLR_ELn[M]=0. Prefix an ISB instruction to fix the problem.
 
 	  If unsure, say Y.
 
@@ -575,113 +646,6 @@ config SCHED_SMT
 	  MultiThreading at a cost of slightly increased overhead in some
 	  places. If unsure say N here.
 
-config DISABLE_CPU_SCHED_DOMAIN_BALANCE
-	bool "(EXPERIMENTAL) Disable CPU level scheduler load-balancing"
-	help
-	  Disables scheduler load-balancing at CPU sched domain level.
-
-config SCHED_HMP
-	bool "(EXPERIMENTAL) Heterogenous multiprocessor scheduling"
-	depends on DISABLE_CPU_SCHED_DOMAIN_BALANCE && SCHED_MC && FAIR_GROUP_SCHED && !SCHED_AUTOGROUP
-	help
-	  Experimental scheduler optimizations for heterogeneous platforms.
-	  Attempts to introspectively select task affinity to optimize power
-	  and performance. Basic support for multiple (>2) cpu types is in place,
-	  but it has only been tested with two types of cpus.
-	  There is currently no support for migration of task groups, hence
-	  !SCHED_AUTOGROUP. Furthermore, normal load-balancing must be disabled
-	  between cpus of different type (DISABLE_CPU_SCHED_DOMAIN_BALANCE).
-
-config SCHED_HMP_PRIO_FILTER
-	bool "(EXPERIMENTAL) Filter HMP migrations by task priority"
-	depends on SCHED_HMP
-	help
-	  Enables task priority based HMP migration filter. Any task with
-	  a NICE value above the threshold will always be on low-power cpus
-	  with less compute capacity.
-
-config SCHED_HMP_PRIO_FILTER_VAL
-	int "NICE priority threshold"
-	default 5
-	depends on SCHED_HMP_PRIO_FILTER
-
-config HMP_FAST_CPU_MASK
-	string "HMP scheduler fast CPU mask"
-	depends on SCHED_HMP
-	help
-          Leave empty to use device tree information.
-	  Specify the cpuids of the fast CPUs in the system as a list string,
-	  e.g. cpuid 0+1 should be specified as 0-1.
-
-config HMP_SLOW_CPU_MASK
-	string "HMP scheduler slow CPU mask"
-	depends on SCHED_HMP
-	help
-	  Leave empty to use device tree information.
-	  Specify the cpuids of the slow CPUs in the system as a list string,
-	  e.g. cpuid 0+1 should be specified as 0-1.
-
-config HMP_VARIABLE_SCALE
-	bool "Allows changing the load tracking scale through sysfs"
-	depends on SCHED_HMP
-	default y
-	help
-	  When turned on, this option exports the thresholds and load average
-	  period value for the load tracking patches through sysfs.
-	  The values can be modified to change the rate of load accumulation
-	  and the thresholds used for HMP migration.
-	  The load_avg_period_ms is the time in ms to reach a load average of
-	  0.5 for an idle task of 0 load average ratio that start a busy loop.
-	  The up_threshold and down_threshold is the value to go to a faster
-	  CPU or to go back to a slower cpu.
-	  The {up,down}_threshold are devided by 1024 before being compared
-	  to the load average.
-	  For examples, with load_avg_period_ms = 128 and up_threshold = 512,
-	  a running task with a load of 0 will be migrated to a bigger CPU after
-	  128ms, because after 128ms its load_avg_ratio is 0.5 and the real
-	  up_threshold is 0.5.
-	  This patch has the same behavior as changing the Y of the load
-	  average computation to
-	        (1002/1024)^(LOAD_AVG_PERIOD/load_avg_period_ms)
-	  but it remove intermadiate overflows in computation.
-
-config HMP_FREQUENCY_INVARIANT_SCALE
-	bool "(EXPERIMENTAL) Frequency-Invariant Tracked Load for HMP"
-	depends on HMP_VARIABLE_SCALE && CPU_FREQ
-	default n
-	help
-	  Scales the current load contribution in line with the frequency
-	  of the CPU that the task was executed on.
-	  In this version, we use a simple linear scale derived from the
-	  maximum frequency reported by CPUFreq.
-	  Restricting tracked load to be scaled by the CPU's frequency
-	  represents the consumption of possible compute capacity
-	  (rather than consumption of actual instantaneous capacity as
-	  normal) and allows the HMP migration's simple threshold
-	  migration strategy to interact more predictably with CPUFreq's
-	  asynchronous compute capacity changes.
-
-config SCHED_HMP_LITTLE_PACKING
-	bool "Small task packing for HMP"
-	depends on SCHED_HMP
-	default n
-	help
-	  Allows the HMP Scheduler to pack small tasks into CPUs in the
-	  smallest HMP domain.
-	  Controlled by two sysfs files in sys/kernel/hmp.
-	  packing_enable: 1 to enable, 0 to disable packing. Default 1.
-	  packing_limit: runqueue load ratio where a RQ is considered
-	    to be full. Default is NICE_0_LOAD * 9/8.
-
-config SCHED_HMP_TASK_BASED_SOFTLANDING
-	bool "(EXPERIMENTAL) Task based softlanding for HMP down migration"
-	depends on SCHED_HMP && CPU_FREQ
-	help
-	  Enables task based softlanding when HMP down migration.
-	  The task based softlanding guarantees proper performance
-	  to the down-migrated task by frequency qos lock.
-
-
 config NR_CPUS
 	int "Maximum number of CPUs (2-4096)"
 	range 2 4096
@@ -727,6 +691,9 @@ config HAVE_SETUP_PER_CPU_AREA
 config NEED_PER_CPU_EMBED_FIRST_CHUNK
 	def_bool y
 	depends on NUMA
+
+config HOLES_IN_ZONE
+	def_bool y
 
 source kernel/Kconfig.preempt
 source kernel/Kconfig.hz
@@ -807,6 +774,17 @@ config KEXEC
 	  but it is independent of the system firmware.   And like a reboot
 	  you can start any kernel with it, not just Linux.
 
+config CRASH_DUMP
+	bool "Build kdump crash kernel"
+	help
+	  Generate crash dump after being started by kexec. This should
+	  be normally only set in special crash dump kernels which are
+	  loaded in the main kernel with kexec-tools into a specially
+	  reserved region and then later executed after a crash by
+	  kdump/kexec.
+
+	  For more details see Documentation/kdump/kdump.txt
+
 config XEN_DOM0
 	def_bool y
 	depends on XEN
@@ -851,6 +829,32 @@ config UNMAP_KERNEL_AT_EL0
 	  userspace. This can be defended against by unmapping the kernel
 	  when running in userspace, mapping it back in on exception entry
 	  via a trampoline page in the vector table.
+
+	  If unsure, say Y.
+
+config HARDEN_BRANCH_PREDICTOR
+	bool "Harden the branch predictor against aliasing attacks" if EXPERT
+	default y
+	help
+	  Speculation attacks against some high-performance processors rely on
+	  being able to manipulate the branch predictor for a victim context by
+	  executing aliasing branches in the attacker context.  Such attacks
+	  can be partially mitigated against by clearing internal branch
+	  predictor state and limiting the prediction logic in some situations.
+
+	  This config option will take CPU-specific actions to harden the
+	  branch predictor against aliasing attacks and may rely on specific
+	  instruction sequences or control bits being set by the system
+	  firmware.
+
+	  If unsure, say Y.
+
+config ARM64_SSBD
+	bool "Speculative Store Bypass Disable" if EXPERT
+	default y
+	help
+	  This enables mitigation of the bypassing of previous stores
+	  by speculative loads.
 
 	  If unsure, say Y.
 
@@ -929,19 +933,6 @@ config ARM64_SW_TTBR0_PAN
 	  zeroed area and reserved ASID. The user access routines
 	  restore the valid TTBR0_EL1 temporarily.
 
-menu "JOP Attack Prevention"
-
-config RKP_CFP_JOPP
-	bool "Function pointer jumps to function entries only."
-	default n
-
-config RKP_CFP_JOPP_MAGIC
-	hex
-	depends on RKP_CFP_JOPP
-	default "0x00be7bad"
-
-endmenu
-
 menu "ARMv8.1 architectural features"
 
 config ARM64_HW_AFDBM
@@ -963,7 +954,7 @@ config ARM64_HW_AFDBM
 
 config ARM64_PAN
 	bool "Enable support for Privileged Access Never (PAN)"
-	default y
+	default n
 	help
 	 Privileged Access Never (PAN; part of the ARMv8.1 Extensions)
 	 prevents the kernel or hypervisor from accessing user-space (EL0)
@@ -1025,6 +1016,18 @@ config ARM64_UAO
 	  regular load/store instructions if the cpu does not implement the
 	  feature.
 
+config ARM64_PMEM
+	bool "Enable support for persistent memory"
+	select ARCH_HAS_PMEM_API
+	select ARCH_HAS_UACCESS_FLUSHCACHE
+	help
+	  Say Y to enable support for the persistent memory API based on the
+	  ARMv8.2 DCPoP feature.
+
+	  The feature is detected at runtime, and the kernel will use DC CVAC
+	  operations if DC CVAP is not supported (following the behaviour of
+	  DC CVAP itself if the system does not define a point of persistence).
+
 endmenu
 
 config ARM64_MODULE_CMODEL_LARGE
@@ -1034,13 +1037,6 @@ config ARM64_MODULE_PLTS
 	bool
 	select ARM64_MODULE_CMODEL_LARGE
 	select HAVE_MOD_ARCH_SPECIFIC
-
-config RELOCATABLE_KERNEL
-	bool "set kernel to relocatable in both virtual and physical address"
-	default n
-	help
-	  This configuare will allow you to config the kernel into position
-	  independent kernel, with '--PIE' insert into LD script.
 
 config RELOCATABLE
 	bool
@@ -1074,7 +1070,7 @@ config RANDOMIZE_BASE
 
 config RANDOMIZE_MODULE_REGION_FULL
 	bool "Randomize the module region independently from the core kernel"
-	depends on RANDOMIZE_BASE && !DYNAMIC_FTRACE
+	depends on RANDOMIZE_BASE && !LTO_CLANG
 	default y
 	help
 	  Randomizes the location of the module region without considering the
@@ -1193,33 +1189,16 @@ config BUILD_ARM64_APPENDED_KERNEL_IMAGE_NAME
 	default "Image.gz-dtb" if IMG_GZ_DTB
 	default "Image-dtb" if IMG_DTB
 
+config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
+	string "Default dtb names"
+	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
+	help
+	  Space separated list of names of dtbs to append when
+	  building a concatenated Image.gz-dtb.
+
 config LOD_SEC
 	bool "kernel security re-enforcement for Linux On Dex, including cap re-check and seccomp report"
 	default n
-
-config TIMA
-	bool "Enable TIMA(Trustzone based Integrity Measurement Archtecture) feature"
-	default n
-
-config TIMA_LKMAUTH
-	bool "Enable LKM authentication by TIMA"
-	depends on MODULES
-	help
-	  TIMA authenticates loaded kernel modules. Disable it if you don't
-	  want TIMA enabled.
-
-config TIMA_LKM_BLOCK
-	bool "Block LKM by TIMA"
-	help
-	  LKM is disapproved by Samsung security policy.
-
-config TIMA_LKMAUTH_CODE_PROT
-	bool "Support kernel Module"
-	depends on MODULES
-	default n
-	help
-	  When enabled, this feature will mark all Executable sections in an
-	  LKM as RO
 
 config UH
 	bool "Enable micro hypervisor feature"
@@ -1233,36 +1212,21 @@ config UH
 
 config UH_DEBUG
     bool "Enable micro hypervisor debug feature"
-	depends on !SEC_FACTORY
+	depends on UH
 	default n
 	help
 	  It's for debugging uH.
 
 config UH_RKP
 	bool "Enable RKP (Realtime Kernel Protection) UH feature"
-	depends on !SEC_FACTORY
-	select UH
+	depends on UH
 	default n
 	help
 	  it protects a kernel text and etc.
 
-config UH_RKP_6G
-	bool "Support 6G Model"
-	depends on !SEC_FACTORY
-	default n
-	help
-	  support 6G
-
-config UH_INFORM
-    bool "Debugfs for information of the security feature's active/inactive statue"
-	default n
-	help
-	  This config has the information of RKP,JOPP,ROPP,KDP,DMV.
-	  It informs that the above feature are whether active or inactive.
-
 config RKP_KDP
 	bool "Protection for cred structure"
-	depends on !SEC_FACTORY
+	depends on !SEC_VTS_TEST
 	depends on UH_RKP
 	default n
 	help
@@ -1270,7 +1234,6 @@ config RKP_KDP
 
 config RKP_NS_PROT
 	bool "Protection for namespace structure"
-	depends on !SEC_FACTORY
 	depends on RKP_KDP
 	default n
 	help
@@ -1278,18 +1241,71 @@ config RKP_NS_PROT
 
 config RKP_DMAP_PROT
 	bool "Page Double Mapping protection"
-	depends on !SEC_FACTORY
 	depends on RKP_KDP
 	default n
 	help
 	  Prevents unauthorized mapping for page table.
 
-config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
-	string "Default dtb names"
-	depends on BUILD_ARM64_APPENDED_DTB_IMAGE
+config RKP_TEST
+	bool "Enable RKP test"
+	depends on UH_RKP && !SAMSUNG_PRODUCT_SHIP
+	default n
 	help
-	  Space separated list of names of dtbs to append when
-	  building a concatenated Image.gz-dtb.
+	  enable RKP test.
+
+config KDP_TEST
+	bool "Enable KDP test"
+	depends on RKP_KDP && RKP_NS_PROT && !SAMSUNG_PRODUCT_SHIP
+	default n
+	help
+	  enable KDP test.
+
+config UH_RKP_FIMC_CHECK
+	bool "Select FIMC type"
+	depends on UH_RKP
+	default n
+	help
+	  it protects a kernel text and etc.
+
+config UH_LKMAUTH
+	bool "Enable LKM authentication by micro hypervisor"
+	depends on MODULES
+	help
+	  micro hypervisor authenticates loaded kernel modules. Disable it if you don't
+	  want CONFIG_UH enabled.
+
+config UH_LKM_BLOCK
+	bool "Block LKM by micro hypervisor"
+	help
+	  LKM is disapproved by Samsung security policy.
+
+config RKP_CFP
+	bool "JOPP and ROPP"
+	default n
+	help
+	  Control flow protection, including both JOPP and ROPP. Please do NOT
+	  set this CONFIG, JOPP/ROPP will select it.
+
+config RKP_CFP_JOPP
+	bool "JOP Prevention"
+	select RKP_CFP
+	# depends on TIMA_RKP
+	default n
+	help
+	  Restrict function pointer jumps to function entry points only.
+
+config RKP_CFP_JOPP_MAGIC
+	hex
+	depends on RKP_CFP && RKP_CFP_JOPP
+	default "0x00be7bad"
+
+
+config RKP_CFP_TEST
+	bool "test file, only include in ENG build"
+	depends on RKP_CFP
+	default n
+	help
+	  For test only.
 
 endmenu
 
@@ -1300,7 +1316,7 @@ source "fs/Kconfig.binfmt"
 config COMPAT
 	bool "Kernel support for 32-bit EL0"
 	depends on ARM64_4K_PAGES || EXPERT
-	select COMPAT_BINFMT_ELF
+	select COMPAT_BINFMT_ELF if BINFMT_ELF
 	select HAVE_UID16
 	select OLD_SIGSUSPEND3
 	select COMPAT_OLD_SIGACTION

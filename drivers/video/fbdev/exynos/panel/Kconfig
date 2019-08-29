@@ -1,5 +1,5 @@
 config EXYNOS_DECON_LCD
-	depends on EXYNOS_DECON_8895 || EXYNOS_DECON_9810
+	depends on EXYNOS_DECON_8895 || EXYNOS_DECON_9810 || CONFIG_EXYNOS_DPU20
 	bool "Select LCD panel driver"
 
 config EXYNOS_DECON_MDNIE_LITE
@@ -10,6 +10,11 @@ config EXYNOS_DECON_MDNIE_LITE
 config SUPPORT_AFC
 	depends on EXYNOS_DECON_LCD && EXYNOS_DECON_MDNIE_LITE
 	tristate "Support AFC"
+	default n
+
+config SUPPORT_ISC_TUNE_TEST
+	depends on EXYNOS_DECON_LCD
+	tristate "Support ISC TUNE TEST"
 	default n
 
 config EXYNOS_DECON_LCD_SYSFS
@@ -46,7 +51,6 @@ config PANEL_AID_DIMMING_DEBUG
 config SUPPORT_DSU
 	tristate "Support DSU(Multi Resolution)"
 	depends on EXYNOS_DECON_LCD
-	depends on ANDROID_MAJOR_VERSION != "p"
 	default n
 
 config SUPPORT_HMD
@@ -80,24 +84,47 @@ config EXYNOS_DECON_LCD_S6E3HA8
 	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
 	tristate "S6E3HA8 AMOLED LCD DRIVER"
 
+config EXYNOS_DECON_LCD_S6E3HA9
+	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
+	tristate "S6E3HA9 AMOLED LCD DRIVER"
+
+config EXYNOS_DECON_LCD_S6E3FA7
+	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
+	tristate "S6E3FA7 AMOLED LCD DRIVER"
+
 config ACTIVE_CLOCK
 	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
 	tristate "Support DDI Active Clock Feature"
 	default n
 
-config SUPPORT_POC_FLASH
+config SUPPORT_DDI_FLASH
 	depends on EXYNOS_DECON_LCD
+	tristate "Support display ddi flash"
+	default n
+
+config SUPPORT_POC_FLASH
+	depends on EXYNOS_DECON_LCD && SUPPORT_DDI_FLASH
 	tristate "Support display poc flash"
 	default n
 
 config SUPPORT_DIM_FLASH
-	depends on EXYNOS_DECON_LCD && SUPPORT_POC_FLASH
+	depends on EXYNOS_DECON_LCD && SUPPORT_DDI_FLASH
 	tristate "Support display dimming flash"
 	default n
 
 config SUPPORT_GRAM_CHECKSUM
 	depends on EXYNOS_DECON_LCD
 	tristate "Support GRAM Checksum"
+	default n
+
+config SUPPORT_CCD_TEST
+	depends on EXYNOS_DECON_LCD
+	tristate "Support CCD TEST"
+	default n
+
+config SUPPORT_DYNAMIC_HLPM
+	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
+	tristate "Support Dynamic HLPM TEST"
 	default n
 
 config SUPPORT_TDMB_TUNE
@@ -114,3 +141,8 @@ config DISPLAY_USE_INFO
 	depends on EXYNOS_DECON_LCD
 	tristate "Support display use info logging"
 	default n
+
+config PANEL_NOTIFY
+	depends on EXYNOS_DECON_LCD
+	tristate "Support panel notifier"
+	default y

@@ -1932,6 +1932,55 @@ p_err:
 	return ret;
 }
 
+u8 fimc_is_read_ois_mode_s6(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	u8 mode = OPTICAL_STABILIZATION_MODE_OFF;
+	struct fimc_is_ois *ois = NULL;
+	struct i2c_client *client = NULL;
+
+	ois = (struct fimc_is_ois *)v4l2_get_subdevdata(subdev);
+	if (!ois) {
+		err("ois is NULL");
+		return OPTICAL_STABILIZATION_MODE_OFF;
+	}
+
+	client = ois->client;
+	if (!client) {
+		err("client is NULL");
+		return OPTICAL_STABILIZATION_MODE_OFF;
+	}
+
+	ret = fimc_is_ois_i2c_read(client, 0x0002, &mode);
+	if (ret) {
+		err("i2c read fail\n");
+		return OPTICAL_STABILIZATION_MODE_OFF;
+	}
+
+	switch(mode) {
+		case 0x00:
+			mode = OPTICAL_STABILIZATION_MODE_STILL;
+			break;
+		case 0x01:
+			mode = OPTICAL_STABILIZATION_MODE_VIDEO;
+			break;
+		case 0x05:
+			mode = OPTICAL_STABILIZATION_MODE_CENTERING;
+			break;
+		case 0x13:
+			mode = OPTICAL_STABILIZATION_MODE_STILL_ZOOM;
+			break;
+		case 0x14:
+			mode = OPTICAL_STABILIZATION_MODE_VDIS;
+			break;
+		default:
+			dbg_ois("%s: ois_mode value(%d)\n", __func__, mode);
+			break;
+	}
+
+	return mode;
+}
+
 int fimc_is_set_ois_mode_s6(struct v4l2_subdev *subdev, int mode)
 {
 	int ret = 0;
@@ -2127,7 +2176,7 @@ int fimc_calculate_shift_value(struct v4l2_subdev *subdev)
 	Tele_XGG = hex2float_kernel(Tele_XGG_Hex,eLIT_ENDIAN); // unit : 1/SCALE
 	Tele_YGG = hex2float_kernel(Tele_YGG_Hex,eLIT_ENDIAN); // unit : 1/SCALE
 
-	fimc_is_sec_get_cal_buf(&cal_buf);
+	fimc_is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
 	Image_Shift_x_Hex = (cal_buf[0x6C7C+3] << 24) | (cal_buf[0x6C7C+2] << 16) | (cal_buf[0x6C7C+1] << 8) | (cal_buf[0x6C7C]);
 	Image_Shift_y_Hex = (cal_buf[0x6C80+3] << 24) | (cal_buf[0x6C80+2] << 16) | (cal_buf[0x6C80+1] << 8) | (cal_buf[0x6C80]);
@@ -2854,6 +2903,7 @@ static struct fimc_is_ois_ops ois_ops_s6 = {
 	.ois_read_fw_ver = fimc_is_ois_read_fw_ver_s6,
 	.ois_center_shift = fimc_is_ois_shift_s6,
 	.ois_set_center = fimc_is_ois_set_centering_s6,
+	.ois_read_mode = fimc_is_read_ois_mode_s6,
 };
 
 int ois_rumbaS6_probe(struct i2c_client *client,
