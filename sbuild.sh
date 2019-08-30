@@ -765,9 +765,9 @@ function kapply {
   pushd . > /dev/null
 
   if [ "${verbose__dash__flag}" = " -v" ]; then
-    rsync -av --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+    rsync -av --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { exit 2; }
   else
-    rsync -a --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+    rsync -a --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { exit 2; }
   fi
 
   rm -rf ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
