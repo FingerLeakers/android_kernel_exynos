@@ -760,44 +760,56 @@ function kapply {
   #   ${verbose__dash__flag}: enable/disable verbosity during rsync
 
   # List of branches to apply passed through function parameters
-  UPDATE_DEV_BRANCH_LIST=($@)
-  
+  UPDATE_DEV_BRANCH_LIST=("$@")
+
   pushd . > /dev/null
 
+  cd ${kernel__dash__udpate__dash__repo}
+  for UPDATE_DEV_BRANCH in "${UPDATE_DEV_BRANCH_LIST[@]}"; do
+    git rev-parse --verify origin/${UPDATE_DEV_BRANCH} 2>/dev/null 1>/dev/null
+    if [ $? -ne 0 ]; then
+      echo "Cannot find branch origin/${UPDATE_DEV_BRANCH}"
+      popd > /dev/null
+      return 2
+    fi
+  done
+
   if [ "${verbose__dash__flag}" = " -v" ]; then
-    rsync -av --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { exit 2; }
+    rsync --hrlptgoDv --delete --inplace --whole-file --stats ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { popd > /dev/null; return 2; }
   else
-    rsync -a --delete ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { exit 2; }
+    rsync -hrlptgoD --delete --inplace --whole-file --stats ${clean__dash__kernel_source}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude 'sbuild.sh' || { popd > /dev/null; return 2; }
   fi
 
   rm -rf ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
   mv ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820 ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
-  cd ${kernel__dash__udpate__dash__repo}
   git checkout master
-  git pull --all || { exit 2; }
+  git pull --all || { popd > /dev/null; return 2; }
   if [ "${verbose__dash__flag}" = " -v" ]; then
-    rsync -av --delete ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+    rsync -hrlptgoDv --delete --inplace --whole-file --stats ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { popd > /dev/null; return 2; }
   else
-    rsync -a --delete ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { exit 2; }
+    rsync -hrlptgoD --delete --inplace --whole-file --stats ${kernel__dash__udpate__dash__repo}/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ || { popd > /dev/null; return 2; }
   fi
   cd ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820
   git checkout ${kernel__dash__udpate__dash__init__dash__tag}
   git checkout -b build
   if [ "${verbose__dash__flag}" = " -v" ]; then
-    rsync -av --delete ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { exit 2; }
+    rsync --hrlptgoDv --delete --inplace --whole-file --stats ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { popd > /dev/null; return 2; }
   else
-    rsync -a --delete ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { exit 2; }
+    rsync -hrlptgoD --delete --inplace --whole-file --stats ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__/ ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820/ --exclude '.git' || { popd > /dev/null; return 2; }
   fi
   git add -A
-  git commit -m 'upstream sync' --allow-empty || { exit 2; }
-  for UPDATE_DEV_BRANCH in '${UPDATE_DEV_BRANCH_LIST}'; do
-    echo 'Merging ${UPDATE_DEV_BRANCH}...'
+  git commit -m 'upstream sync' --allow-empty || { popd > /dev/null; return 2; }
+  for UPDATE_DEV_BRANCH in "${UPDATE_DEV_BRANCH_LIST[@]}"; do
+    echo "Merging ${UPDATE_DEV_BRANCH}..."
     if [ "${UPDATE_DEV_BRANCH}" != "master" ]; then
+      git rev-parse --verify ${UPDATE_DEV_BRANCH} 2>/dev/null 1>/dev/null
+      if [ $? -ne 0 ]; then
         git checkout -b ${UPDATE_DEV_BRANCH} origin/${UPDATE_DEV_BRANCH}
         git checkout build
       fi
-    git merge ${UPDATE_DEV_BRANCH} --no-commit || { exit 2; }
-    git commit -m "Merged branch ${UPDATE_DEV_BRANCH} to build branch" --allow-empty || { exit 2; }
+    fi
+    git merge ${UPDATE_DEV_BRANCH} --no-commit || { popd > /dev/null; return 2; }
+    git commit -m "Merged branch ${UPDATE_DEV_BRANCH} to build branch" --allow-empty || { popd > /dev/null; return 2; }
   done
   rm -rf .git
   rm -rf ${PRODUCT_ROOT_DIRECTORY}/android/kernel/exynos9820__
