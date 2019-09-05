@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 menu "Device Drivers"
 
 source "drivers/amba/Kconfig"
@@ -20,13 +21,15 @@ source "drivers/block/Kconfig"
 
 source "drivers/nvme/Kconfig"
 
+source "drivers/mcps/Kconfig"
+
 # misc before ide - BLK_DEV_SGIIOC4 depends on SGI_IOC4
 
 source "drivers/misc/Kconfig"
 
-source "drivers/staging/samsung/sec_notifier/Kconfig"
-
 source "drivers/muic/Kconfig"
+
+source "drivers/ifconn/Kconfig"
 
 source "drivers/ide/Kconfig"
 
@@ -178,8 +181,6 @@ source "drivers/irqchip/Kconfig"
 
 source "drivers/ipack/Kconfig"
 
-source "drivers/battery/Kconfig"
-
 source "drivers/battery_v2/Kconfig"
 
 source "drivers/reset/Kconfig"
@@ -212,26 +213,34 @@ source "drivers/hwtracing/intel_th/Kconfig"
 
 source "drivers/fpga/Kconfig"
 
-source "drivers/trace/Kconfig"
+source "drivers/fsi/Kconfig"
 
-source "drivers/vision/Kconfig"
+source "drivers/tee/Kconfig"
+
+source "drivers/mux/Kconfig"
 
 source "drivers/ccic/Kconfig"
 
-source "drivers/sensorhub/brcm/Kconfig"
-
-source "drivers/gps/Kconfig"
+source "drivers/redriver/Kconfig"
 
 source "drivers/bts/Kconfig"
 
-source "drivers/gud/Kconfig"
+source "drivers/vision/Kconfig"
+
+source "drivers/sensorhub/brcm/Kconfig"
+
+source "drivers/optics/Kconfig"
 
 source "drivers/motor/Kconfig"
 
 source "drivers/fingerprint/Kconfig"
 
-source "drivers/gator_5.27/Kconfig"
-
 source "drivers/five/Kconfig"
+
+#source "drivers/gator/Kconfig"
+
+source "drivers/icdrv/Kconfig"
+
+source "drivers/samsung/Kconfig"
 
 endmenu

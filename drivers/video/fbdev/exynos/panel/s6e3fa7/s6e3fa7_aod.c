@@ -294,9 +294,14 @@ void s6e3fa7_copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst)
 
 	en_reg |= (SC_TIME_EN | SC_A_CLK_EN);
 
-	if (props->analog.en)
+	if (props->analog.en) {
+		if (props->prev_rotate != props->analog.rotate) {
+			panel_info("AOD:INFO:%s:analog rotate mismatch: %d->%d\n",
+				__func__,props->prev_rotate, props->analog.rotate);
+			msleep(1000);
+		}
 		en_reg |= SC_DISP_ON;
-
+	}
 	if (props->cur_time.disp_24h)
 		en_reg |= SC_24H_EN;
 
@@ -392,7 +397,7 @@ void s6e3fa7_copy_self_move_reset(struct maptbl *tbl, u8 *dst)
 }
 
 #ifdef SUPPORT_NORMAL_SELF_MOVE
-int getidx_self_pattern(struct maptbl *tbl)
+int s6e3fa7_getidx_self_pattern(struct maptbl *tbl)
 {
 	int row = 0;
 	struct aod_dev_info *aod = tbl->pdata;
@@ -422,7 +427,7 @@ int getidx_self_pattern(struct maptbl *tbl)
 }
 
 #if 0
-void copy_self_move_enable(struct maptbl *tbl, u8 *dst)
+void s6e3fa7_copy_self_move_enable(struct maptbl *tbl, u8 *dst)
 {
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;
@@ -435,7 +440,7 @@ void copy_self_move_enable(struct maptbl *tbl, u8 *dst)
 }
 #endif
 
-void copy_self_move_pattern(struct maptbl *tbl, u8 *dst)
+void s6e3fa7_copy_self_move_pattern(struct maptbl *tbl, u8 *dst)
 {
 	int idx;
 

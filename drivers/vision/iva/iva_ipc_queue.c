@@ -24,6 +24,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/uaccess.h>
+#include <linux/sched/clock.h>
 
 #include "iva_ipc_header.h"
 #include "iva_mcu.h"
@@ -43,7 +44,10 @@
 #define IPCQ_CMD_ALLOC_RETRY_CNT	(3)
 #define IPCQ_CMD_ALLOC_SLEEP_MS		(10)
 
-#define IPCQ_TIMEOUT_MS			(0)
+#define IPCQ_TIMEOUT_MS			(2000)
+
+#define WAIT_DELAY_US			(1000)
+#define VALUE_CHECK_DECREMENT	(10)	/* us */
 
 #define CMD_PARAM_TO_LL_CMD_PARAM(c)	\
 		(container_of(c, struct _ipcq_cmd_param_ll, cmd_param))
@@ -75,8 +79,14 @@ static inline uint32_t __iva_ipcq_get_mcu_from_va(const struct iva_dev_data *iva
 {
 	uint32_t conv_addr;
 
+#if defined(CONFIG_SOC_EXYNOS9810)
 	conv_addr = (uint32_t) (mcu_va - iva->shmem_va) +
 			(iva->mcu_mem_size - iva->mcu_shmem_size);
+#elif defined(CONFIG_SOC_EXYNOS9820)
+    conv_addr = (uint32_t) (mcu_va - iva->shmem_va);
+#endif
+
+    dev_dbg(iva->dev, "%s() conv_addr(0x%x)\n", __func__, conv_addr);
 	return conv_addr;
 }
 
@@ -86,8 +96,13 @@ static inline void __iomem *__iva_ipcq_get_va_from_mcu(const struct iva_dev_data
 {
 	void __iomem *conv_addr;
 
+#if defined(CONFIG_SOC_EXYNOS9810)
 	conv_addr = mcu - (iva->mcu_mem_size - iva->mcu_shmem_size)
 			+ iva->shmem_va;
+#elif defined(CONFIG_SOC_EXYNOS9820)
+    conv_addr = mcu + iva->shmem_va;
+#endif
+
 	dev_dbg(iva->dev, "%s() conv_addr(0x%p), mcu(0x%x)\n", __func__,
 			conv_addr, mcu);
 	return conv_addr;
@@ -237,6 +252,32 @@ static int iva_ipcq_insert_pending_mail(struct iva_ipcq *ipcq,
 	return 0;
 }
 
+
+int iva_ipcq_init_pending_mail(struct iva_ipcq *ipcq)
+{
+	struct iq_pend_mail	*pend_mail;
+	struct iva_dev_data	*iva = ipcq->iva_data;
+	struct device		*dev = iva->dev;
+
+	if (!ipcq) {
+		dev_info(dev, "%s(%d) no ipcq\n", __func__, __LINE__);
+		return 0;
+	}
+
+	mutex_lock(&ipcq->ipcq_mutex);
+	while (!list_empty(&ipcq->ipcq_pend_list)) {
+		dev_info(dev, "%s(%d) one mail is remaining in plist: free\n",
+				__func__, __LINE__);
+		pend_mail = list_first_entry(&ipcq->ipcq_pend_list,
+				struct iq_pend_mail, node);
+		list_del(&pend_mail->node);
+		__iva_ipcq_free_pend_mail(ipcq, pend_mail);
+	}
+	mutex_unlock(&ipcq->ipcq_mutex);
+
+	return 0;
+}
+
 #ifdef ENABLE_IPCQ_WORK_QUEUE
 static void iva_ipcq_do_work(struct work_struct *work)
 {
@@ -292,11 +333,17 @@ static struct iva_mbox_cb_block iva_ipcq_cb = {
 };
 
 
-static inline int32_t iva_ipcq_is_active(struct ipc_cmd_queue *ap_cmd_q)
+static inline int32_t iva_ipcq_wait_is_active(struct ipc_cmd_queue *ap_cmd_q,
+		uint32_t to_us)
 {
-	if ((ap_cmd_q->flags & IPC_QUEUE_ACTIVE_FLAG)
+	int ret	= (int) to_us;
+
+	while ((ap_cmd_q->flags & IPC_QUEUE_ACTIVE_FLAG)
 			!= IPC_QUEUE_ACTIVE_FLAG) {
-		return 0;
+		if (ret < 0)
+			return 0;
+		usleep_range(VALUE_CHECK_DECREMENT, VALUE_CHECK_DECREMENT+1);
+		ret -= VALUE_CHECK_DECREMENT;
 	}
 
 	return 1;
@@ -343,7 +390,7 @@ static struct ipc_cmd_param __iomem *iva_ipcq_alloc_cmds(struct iva_ipcq *ipcq,
 	uint32_t	slot_flags;
 	uint32_t	ret_cnt = IPCQ_CMD_ALLOC_RETRY_CNT;
 
-	if (!iva_ipcq_is_active(ap_cmd_q))
+	if (!iva_ipcq_wait_is_active(ap_cmd_q, WAIT_DELAY_US))
 		return NULL;
 
 	/* only half of total command queue slots are allowed */
@@ -705,6 +752,7 @@ static int32_t iva_ipcq_free_rsp(struct iva_ipcq *ipcq,
 	struct device		*dev = iva->dev;
 	struct _ipcq_res_param_ll *r_param_ll =
 				RES_PARAM_TO_LL_RES_PARAM(r_param);
+	unsigned long			flags;
 
 	dev_dbg(dev,
 		"%s() clear, r_param_ll(%p) flag(0x%08x) ipcq_ctrl_req(%d)\n",
@@ -715,11 +763,16 @@ static int32_t iva_ipcq_free_rsp(struct iva_ipcq *ipcq,
 	} else {
 		r_param_ll->flags &= ~F_IPC_QUEUE_USED_SLOT;
 		r_param->ipc_cmd_type = IPC_CMD_NONE;
+		spin_lock_irqsave(&ipcq->rspq_slock, flags);
 
-		if (ipcq->ipcq_ctrl_req)
+		if (ipcq->ipcq_ctrl_req) {
+			ipcq->ipcq_ctrl_req = false;
+			spin_unlock_irqrestore(&ipcq->rspq_slock, flags);
 			iva_mbox_send_mail_to_mcu(iva,
 				MBOX_CTRL_IPCQ_CTRL_RSP_QUEUE_FREE);
-		ipcq->ipcq_ctrl_req = false;
+		} else {
+			spin_unlock_irqrestore(&ipcq->rspq_slock, flags);
+		}
 	}
 
 	return 0;
@@ -883,10 +936,12 @@ int iva_ipcq_wait_res_usr(struct iva_proc *proc,
 			tmp_resp.ipc_cmd_type	= IPC_CMD_UNKNOWN_NOTIFY;
 		ret_param = &tmp_resp;
 
-		iva_mcu_print_flush_pending_mcu_log(iva);
+		if (!!iva->state) {
+			iva_mcu_print_flush_pending_mcu_log(iva);
 
-		iva_pmu_show_status(iva);
-		iva_vdma_show_status(iva);
+			iva_pmu_show_status(iva);
+			iva_vdma_show_status(iva);
+		}
 	} else {
 		switch (IPC_GET_FUNC(ret_param->header)) {
 		case ipc_func_sched_table:
@@ -905,10 +960,12 @@ int iva_ipcq_wait_res_usr(struct iva_proc *proc,
 				del_timer_sync(&ipcq->to_timer);
 				ipcq->to_in_ms = 0;
 
-				iva_mcu_print_flush_pending_mcu_log(iva);
+				if (!!iva->state) {
+					iva_mcu_print_flush_pending_mcu_log(iva);
 
-				iva_pmu_show_status(iva);
-				iva_vdma_show_status(iva);
+					iva_pmu_show_status(iva);
+					iva_vdma_show_status(iva);
+				}
 			}
 			break;
 		default:
@@ -1128,6 +1185,7 @@ int iva_ipcq_probe(struct iva_dev_data *iva)
 	mutex_init(&ipcq->ipcq_mutex);
 	spin_lock_init(&ipcq->ipcq_slock);
 	spin_lock_init(&ipcq->rsv_slock);
+	spin_lock_init(&ipcq->rspq_slock);
 	init_waitqueue_head(&ipcq->ipcq_wait_queue);
 	INIT_LIST_HEAD(&ipcq->ipcq_pend_list);
 #ifdef ENABLE_IPCQ_WORK_QUEUE

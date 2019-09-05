@@ -81,6 +81,7 @@ struct npu_proto_drv npu_proto_drv = {
 	.state = ATOMIC_INIT(PROTO_DRV_STATE_UNLOADED),
 	.req_id_gen = ATOMIC_INIT(NPU_REQ_ID_INITIAL - 1),
 	.if_session_ctx = NULL,
+	.npu_device = NULL,
 	.session_ref = {
 		.hash_table = {NULL},
 		.entry_list = LIST_HEAD_INIT(npu_proto_drv.session_ref.entry_list),
@@ -184,6 +185,7 @@ static const char* NW_CMD_NAMES[NPU_NW_CMD_END - NPU_NW_CMD_BASE] = {
 	"PROFILE_START",
 	"PROFILE_STOP",
 	"FW_TC_EXECUTE",
+	"CLEAR_CB",
 };
 /* Convinient function to get stringfy name of command */
 static const char* __cmd_name(const u32 cmd)
@@ -431,7 +433,7 @@ int register_session_ref(struct npu_session *sess)
 	}
 
 	list_add_tail(&sess_entry->list, &sess_ref->entry_list);
-	npu_udbg("session ref @%p registered.\n", sess, sess_entry);
+	npu_udbg("session ref @%pK registered.\n", sess, sess_entry);
 
 	return 0;
 
@@ -463,14 +465,14 @@ int drop_session_ref(const npu_uid_t uid)
 	}
 	/* Check entries */
 	if (!list_empty(&sess_entry->frame_list)) {
-		npu_warn("frame list for UID [%u] is not empty. First is at %p\n",
+		npu_warn("frame list for UID [%u] is not empty. First is at %pK\n",
 			uid, list_first_entry_or_null(&sess_entry->frame_list, struct proto_req_frame, sess_ref_list));
 	}
 	if (!list_empty(&sess_entry->nw_list)) {
-		npu_warn("network mgmt. list for UID [%u] is not empty. First is at %p\n",
+		npu_warn("network mgmt. list for UID [%u] is not empty. First is at %pK\n",
 			uid, list_first_entry_or_null(&sess_entry->nw_list, struct proto_req_nw, sess_ref_list));
 	}
-	npu_info("[U%u]session ref @%p dropped.\n", uid, sess_entry);
+	npu_info("[U%u]session ref @%pK dropped.\n", uid, sess_entry);
 
 	/* Remove from Linked list */
 	list_del_init(&sess_entry->list);
@@ -507,13 +509,13 @@ int link_session_frame(struct proto_req_frame *req_frame)
 		return -EINVAL;
 	}
 	if (is_list_used(&req_frame->sess_ref_list)) {
-		npu_uerr("frame seemed to belong other session. next pointer is %p\n"
+		npu_uerr("frame seemed to belong other session. next pointer is %pK\n"
 			, frame, req_frame->sess_ref_list.next);
 		return -EFAULT;
 	}
 	INIT_LIST_HEAD(&req_frame->sess_ref_list);
 	list_add_tail(&req_frame->sess_ref_list, &sess_entry->frame_list);
-	npu_ufdbg("frame linked to ref@%p.\n", frame, sess_entry);
+	npu_ufdbg("frame linked to ref@%pK.\n", frame, sess_entry);
 	return 0;
 }
 
@@ -538,13 +540,13 @@ int link_session_nw(struct proto_req_nw *req_nw)
 		return -EINVAL;
 	}
 	if (is_list_used(&req_nw->sess_ref_list)) {
-		npu_uerr("network mgmt. seemed to belong other session. next pointer is %p\n"
+		npu_uerr("network mgmt. seemed to belong other session. next pointer is %pK\n"
 			, nw, req_nw->sess_ref_list.next);
 		return -EFAULT;
 	}
 	INIT_LIST_HEAD(&req_nw->sess_ref_list);
 	list_add_tail(&req_nw->sess_ref_list, &sess_entry->nw_list);
-	npu_udbg("NW linked to ref@%p.\n", nw, sess_entry);
+	npu_udbg("NW linked to ref@%pK.\n", nw, sess_entry);
 	return 0;
 }
 
@@ -570,13 +572,13 @@ int unlink_session_frame(struct proto_req_frame *req_frame)
 			goto found_match;
 		}
 	}
-	npu_uferr("frame does not belong to session ref@%p.\n", frame, sess_entry);
+	npu_uferr("frame does not belong to session ref@%pK.\n", frame, sess_entry);
 	return -EINVAL;
 
 found_match:
 #endif /* UNLINK_CHECK_OWNERSHIP */
 	list_del_init(&req_frame->sess_ref_list);
-	npu_ufdbg("frame unlinked from ref@%p.\n", frame, sess_entry);
+	npu_ufdbg("frame unlinked from ref@%pK.\n", frame, sess_entry);
 	return 0;
 }
 
@@ -608,13 +610,62 @@ int unlink_session_nw(struct proto_req_nw *req_nw)
 			goto found_match;
 		}
 	}
-	npu_uerr("network mgmt. does not belong to session ref@%p.\n", nw, sess_entry);
+	npu_uerr("network mgmt. does not belong to session ref@%pK.\n", nw, sess_entry);
 	return -EINVAL;
 
 found_match:
 #endif /* UNLINK_CHECK_OWNERSHIP */
 	list_del_init(&req_nw->sess_ref_list);
-	npu_uinfo("NW unlinked from ref@%p.\n", nw, sess_entry);
+	npu_uinfo("NW unlinked from ref@%pK.\n", nw, sess_entry);
+	return 0;
+}
+
+/*
+ * Nullify src_queue(for frame) and notify_func(for nw)
+ * for all requests linked with session reference for specified nw
+ * (But do not clear notify_func for req_nw itself)
+ * to make no more notificatin sent for this session.
+ */
+static int force_clear_cb(struct proto_req_nw *req_nw)
+{
+	struct session_ref_entry	*sess_entry = NULL;
+	struct proto_req_nw		*iter_nw;
+	struct proto_req_frame		*iter_frame;
+	struct npu_nw			*nw;
+	int				cnt;
+
+	BUG_ON(!req_nw);
+
+	nw = &req_nw->nw;
+
+	sess_entry = find_session_ref_nw(req_nw);
+	if (sess_entry == NULL) {
+		npu_uerr("cannot found session ref.\n", nw);
+		return -ENOENT;
+	}
+
+	/* Clear callback from associated frame list */
+	cnt = 0;
+	list_for_each_entry(iter_frame, &sess_entry->frame_list, sess_ref_list) {
+		npu_ufinfo("Reset src_queue for frame in state [%d]\n",
+			&iter_frame->frame, iter_frame->state);
+		iter_frame->frame.src_queue = NULL;
+		cnt++;
+	}
+	npu_uinfo("Clear src_queue for frame: %d entries\n", nw, cnt);
+
+	cnt = 0;
+	list_for_each_entry(iter_nw, &sess_entry->nw_list, sess_ref_list) {
+		/* Do not clear CB for req_nw itself */
+		if (iter_nw != req_nw)	{
+			npu_uinfo("Reset notify_func for nw in state [%d]\n",
+				&iter_nw->nw, iter_nw->state);
+			iter_nw->nw.notify_func = NULL;
+			cnt++;
+		}
+	}
+	npu_uinfo("Clear notify_func for nw: %d entries\n", nw, cnt);
+
 	return 0;
 }
 
@@ -882,13 +933,13 @@ int session_fault_listener(void)
 				OFM_cnt = OFM_info->address_vector_cnt;
 
 				for (idx1 = 0; idx1 < IFM_cnt; idx1++) {
-					npu_info("- %u %d %p %pad %zu\n",
+					npu_info("- %u %d %pK %pad %zu\n",
 						(IFM_addr + idx1)->av_index, MEMORY_TYPE_IN_FMAP,
 						(IFM_addr + idx1)->vaddr, &((IFM_addr + idx1)->daddr),
 						(IFM_addr + idx1)->size);
 				}
 				for (idx1 = 0; idx1 < OFM_cnt; idx1++) {
-					npu_info("- %u %d %p %pad %zu\n",
+					npu_info("- %u %d %pK %pad %zu\n",
 						(OFM_addr + idx1)->av_index, MEMORY_TYPE_OT_FMAP,
 						(OFM_addr + idx1)->vaddr, &((OFM_addr + idx1)->daddr),
 						(OFM_addr + idx1)->size);
@@ -960,12 +1011,12 @@ int session_fault_listener(void)
 					OFM_addr = OFM_info->addr_info;
 
 					for (idx1 = 0; idx1 < IFM_cnt; idx1++) {
-						npu_info("- %zu %d %p %pad %zu\n",
+						npu_info("- %zu %d %pK %pad %zu\n",
 							idx1, MEMORY_TYPE_IN_FMAP, (IFM_addr + idx1)->vaddr,
 							&((IFM_addr + idx1)->daddr), (IFM_addr + idx1)->size);
 					}
 					for (idx1 = 0; idx1 < OFM_cnt; idx1++) {
-						npu_info("- %zu %d %p %pad %zu\n",
+						npu_info("- %zu %d %pK %pad %zu\n",
 							idx1, MEMORY_TYPE_OT_FMAP, (OFM_addr + idx1)->vaddr,
 							&((OFM_addr + idx1)->daddr), (OFM_addr + idx1)->size);
 					}
@@ -973,12 +1024,12 @@ int session_fault_listener(void)
 				IMB_addr = session->IMB_info;
 				WGT_addr = session->WGT_info;
 				for (idx1 = 0; idx1 < IMB_cnt; idx1++) {
-					npu_info("- %zu %d %p %pad %zu\n",
+					npu_info("- %zu %d %pK %pad %zu\n",
 						idx1, MEMORY_TYPE_IM_FMAP, (IMB_addr + idx1)->vaddr,
 						&((IMB_addr + idx1)->daddr), (IMB_addr + idx1)->size);
 				}
 				for (idx1 = 0; idx1 < WGT_cnt; idx1++) {
-					npu_info("- %zu %d %p %pad %zu\n",
+					npu_info("- %zu %d %pK %pad %zu\n",
 						idx1, MEMORY_TYPE_WEIGHT, (WGT_addr + idx1)->vaddr,
 						&((WGT_addr + idx1)->daddr), (WGT_addr + idx1)->size);
 				}
@@ -1016,8 +1067,8 @@ int proto_req_fault_listener(void)
 					fr_Cnt,
 					frame->uid,
 					frame->frame_id,
-					frame->mbox_process_dat->address_vector_cnt,
-					&(frame->mbox_process_dat->address_vector_start_daddr),
+					frame->mbox_process_dat.address_vector_cnt,
+					&(frame->mbox_process_dat.address_vector_start_daddr),
 					__print_npu_timestamp(&iter_frame->ts, stat_buf, TIME_STAT_BUF_LEN));
 
 			if (iter_frame->state == PROCESSING) {
@@ -1081,7 +1132,7 @@ static int nw_mgmt_op_get_request(struct proto_req_nw *target)
 
 			sess = target->nw.session;
 			if (sess && sess->ncp_info.ncp_addr.vaddr) {
-				npu_info("T32_TRACE: NCP at d:0x%p\n", sess->ncp_info.ncp_addr.vaddr);
+				npu_info("T32_TRACE: NCP at d:0x%pK\n", sess->ncp_info.ncp_addr.vaddr);
 			} else {
 				npu_info("T32_TRACE: Cannot locate NCP.\n");
 			}
@@ -1191,30 +1242,22 @@ static int frame_mbox_ops_put(struct proto_req_frame *src)
 ***********************************************/
 static void set_emergency_err_from_req_frame(struct proto_req_frame *req_frame)
 {
-	struct session_ref_entry *sess_entry = find_session_ref_frame(req_frame);
-	const struct npu_session *session = sess_entry->session;
-	const struct npu_vertex_ctx *vctx = &(session->vctx);
-	const struct npu_vertex *vertex = vctx->vertex ;
-	struct npu_device *device ;
+	struct npu_device *device = npu_proto_drv.npu_device;
 
-	device = container_of(vertex, struct npu_device, vertex);
-	npu_info("call npu_dedvice_set_emergency_err(device)\n");
+	BUG_ON(!device);
+
+	npu_warn("call npu_device_set_emergency_err(device)\n");
 	npu_device_set_emergency_err(device);
-	fw_will_note(FW_LOGSIZE/4);
 }
 
 static void set_emergency_err_from_req_nw(struct proto_req_nw *req_nw)
 {
-	struct session_ref_entry *sess_entry = find_session_ref_nw(req_nw);
-	const struct npu_session *session = sess_entry->session;
-	const struct npu_vertex_ctx *vctx = &(session->vctx);
-	const struct npu_vertex *vertex = vctx->vertex ;
-	struct npu_device *device ;
+	struct npu_device *device = npu_proto_drv.npu_device;
 
-	device = container_of(vertex, struct npu_device, vertex);
-	npu_info("call npu_device_set_emergency_err(device)\n");
+	BUG_ON(!device);
+
+	npu_warn("call npu_device_set_emergency_err(device)\n");
 	npu_device_set_emergency_err(device);
-	fw_will_note(FW_LOGSIZE/4);
 }
 
 
@@ -1311,6 +1354,13 @@ static int npu_protodrv_handler_nw_free(void)
 					goto error_req;
 				}
 				break;
+
+			case NPU_NW_CMD_CLEAR_CB:
+				/* Clear all callbacks associated with referred session */
+				ret = force_clear_cb(entry);
+				if (ret)
+					npu_uwarn("force_clear_cb error (%d).\n", &entry->nw, ret);
+
 			default:
 				/* No additional checking for other commands */
 				break;
@@ -1399,6 +1449,22 @@ break_entry_iter:
 	return handle_cnt;
 }
 
+/* Error handler helper function */
+static int __mbox_frame_ops_put(struct proto_req_frame *entry)
+{
+	/*
+	 * No further request is pumping into hardware
+	 * on emergency recovery mode
+	 */
+	if (npu_device_is_emergency_err(npu_proto_drv.npu_device)) {
+		/* Print log message only if the list is not empty */
+		npu_ufwarn("EMERGENCY - do not send request to hardware.\n", &entry->frame);
+		return 0;
+	}
+
+	return frame_mbox_ops_put(entry);
+}
+
 static int npu_protodrv_handler_frame_requested(void)
 {
 	int proc_handle_cnt = 0;
@@ -1423,7 +1489,7 @@ static int npu_protodrv_handler_frame_requested(void)
 			if (q_full)	{
 				break;
 			}
-			if (frame_mbox_ops_put(entry) > 0) {
+			if (__mbox_frame_ops_put(entry) > 0) {
 				/* Success */
 				proto_frame_lsm.lsm_move_entry(PROCESSING, entry);
 				proc_handle_cnt++;
@@ -1461,6 +1527,17 @@ static int npu_protodrv_handler_frame_requested(void)
 static int __mbox_nw_ops_put(struct proto_req_nw *entry)
 {
 	int ret;
+
+	/*
+	 * No further request is pumping into hardware
+	 * on emergency recovery mode
+	 */
+	if (npu_device_is_emergency_err(npu_proto_drv.npu_device)) {
+		/* Print log message only if the list is not empty */
+		npu_uwarn("EMERGENCY - do not send request [%d:%s] to hardware.\n",
+			&entry->nw, entry->nw.cmd, __cmd_name(entry->nw.cmd));
+		return 0;
+	}
 
 	ret = nw_mbox_ops_put(entry);
 	if (ret <= 0)
@@ -1522,6 +1599,11 @@ static int  npu_protodrv_handler_nw_requested(void)
 					proc_handle_cnt++;
 				}
 			}
+			break;
+		case NPU_NW_CMD_CLEAR_CB:
+			/* Move to completed state */
+			proto_nw_lsm.lsm_move_entry(COMPLETED, entry);
+			compl_handle_cnt++;
 			break;
 		default:
 			npu_utrace("Conventional command cmd:(%u)(%s)\n",
@@ -1760,6 +1842,20 @@ static int npu_protodrv_handler_nw_completed(void)
 						transition = 0;
 					}
 					break;
+
+				case NPU_NW_CMD_CLEAR_CB:
+					/* Always success */
+					entry->nw.result_code = NPU_ERR_NO_ERROR;
+					npu_udbg("complete CLEAR_CB\n", &entry->nw);
+
+					/* Leave assertion if this message is request other than emergency mode */
+					if (!npu_device_is_emergency_err(npu_proto_drv.npu_device)) {
+						npu_uwarn("NPU_NW_CMD_CLEAR_CB posted on non-emergency situation.\n",
+							&entry->nw);
+					}
+					transition = 1;
+					break;
+
 				case NPU_NW_CMD_POWER_DOWN:
 				case NPU_NW_CMD_PROFILE_START:
 				case NPU_NW_CMD_PROFILE_STOP:
@@ -2182,8 +2278,8 @@ static size_t stat_to_string(const struct lsm_state_stat *stat, char *outbuf, co
 		ts_max_init = ns_to_timespec(stat->max_init[i]);
 		ret = scnprintf(outbuf, remain_len,
 				"Average curr age %ld.%09ldns, init age %ld.%09ldns\n"
-				" Max curr age %ld.%09ldns - entry at [%p]\n"
-				" Max init age %ld.%09ldns - entry at [%p]\n",
+				" Max curr age %ld.%09ldns - entry at [%pK]\n"
+				" Max init age %ld.%09ldns - entry at [%pK]\n",
 				ts_avg_curr.tv_sec, ts_avg_curr.tv_nsec,
 				ts_avg_init.tv_sec, ts_avg_init.tv_nsec,
 				ts_max_curr.tv_sec, ts_max_curr.tv_nsec, stat->max_curr_entry[i],
@@ -2442,9 +2538,10 @@ int proto_drv_probe(struct npu_device *npu_device)
 
 	/* Pass reference of npu_proto_drv via npu_device */
 	npu_device->proto_drv = &npu_proto_drv;
+	npu_proto_drv.npu_device = npu_device;
 
 #ifdef T32_GROUP_TRACE_SUPPORT
-	probe_info("T32_TRACE: to do trace, use following T32 command.\n Break.Set 0x%p\n",
+	probe_info("T32_TRACE: to do trace, use following T32 command.\n Break.Set 0x%pK\n",
 		   t32_trace_ncp_load);
 #endif
 
@@ -2460,6 +2557,8 @@ int proto_drv_release(void)
 		return -EBADR;
 	}
 
+	npu_proto_drv.npu_device = NULL;
+
 #ifdef MBOX_MOCK_ENABLE
 	npu_dbg("deinit mbox_mock()");
 	deinit_for_mbox_mock();
@@ -2469,20 +2568,6 @@ int proto_drv_release(void)
 	probe_info("complete in proto_drv_release\n");
 	return 0;
 }
-
-#define BIT_CHECK_AND_EXECUTE(BIT, VAR_R, DESC, CODE)		\
-do {								\
-	const char *__desc = DESC;				\
-	if (test_bit((BIT), (VAR_R))) {				\
-		if (__desc)					\
-			npu_info("%s started.\n", __desc);	\
-		CODE						\
-	} else {						\
-		if (__desc)					\
-			npu_info("%s skipped.\n", __desc);	\
-	}							\
-	clear_bit((BIT), (VAR_R));				\
-} while (0)
 
 int proto_drv_open(struct npu_device *npu_device)
 {
@@ -2627,6 +2712,9 @@ int proto_drv_close(struct npu_device *npu_device)
 #ifdef MBOX_MOCK_ENABLE
 	BIT_CHECK_AND_EXECUTE(PROTO_DRV_OPEN_SETUP_MBOX_MOCK, &npu_proto_drv.open_steps, NULL, ;);
 #endif
+
+	if (npu_proto_drv.open_steps != 0)
+		npu_warn("Missing clean-up steps [%lu] found.\n", npu_proto_drv.open_steps);
 
 	state_transition(PROTO_DRV_STATE_PROBED);
 	npu_info("complete in proto_drv_close\n");

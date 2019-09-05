@@ -19,6 +19,7 @@
 #include "exynos9820-smdk9820-camera.dtsi"
 #include "exynos9820-bootargs_ext.dtsi"
 #include "exynos9820-smdk9820-rmem.dtsi"
+#include "exynos9820-mali.dtsi"
 
 / {
 	compatible = "samsung,exynos9820", "samsung,SMDK9820";

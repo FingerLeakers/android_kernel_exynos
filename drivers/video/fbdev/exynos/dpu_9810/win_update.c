@@ -32,9 +32,6 @@ static void win_update_adjust_region(struct decon_device *decon,
 	if (!decon->win_up.enabled)
 		return;
 
-	if (IS_DECON_DOZE_STATE(decon))
-		return;
-
 	if (update_config->state != DECON_WIN_STATE_UPDATE)
 		return;
 
@@ -236,33 +233,12 @@ void dpu_prepare_win_update_config(struct decon_device *decon,
 	struct decon_win_config *win_config = win_data->config;
 	bool reconfigure = false;
 	struct decon_rect r;
-#ifdef CONFIG_SUPPORT_DSU
-	struct decon_lcd dsu_info;
-#endif
 
 	if (!decon->win_up.enabled)
 		return;
 
 	if (decon->dt.out_type != DECON_OUT_DSI)
 		return;
-
-#ifdef CONFIG_SUPPORT_DSU
-	if (regs->dsu.needupdate) {
-		memset(&dsu_info, 0, sizeof(struct decon_lcd));
-
-		dsu_info.xres = regs->dsu.right;
-		dsu_info.yres = regs->dsu.bottom;
-
-		DPU_FULL_RECT(&regs->up_region, &dsu_info);
-
-		memcpy(&decon->win_up.prev_up_region, &regs->up_region,
-			sizeof(struct decon_rect));
-
-		decon_info("DECON:INFO:%s: DSU Config fullupdate : %d %d\n",
-			__func__, regs->up_region.left, regs->up_region.bottom);
-		return;
-	}
-#endif
 
 	/* find adjusted update region on LCD */
 	win_update_adjust_region(decon, win_config, regs);
@@ -298,7 +274,6 @@ void dpu_prepare_win_update_config(struct decon_device *decon,
 		win_update_reconfig_coordinates(decon, win_config, regs);
 }
 
-#if !defined(CONFIG_EXYNOS_COMMON_PANEL)
 static int win_update_send_partial_command(struct dsim_device *dsim,
 		struct decon_rect *rect)
 {
@@ -345,19 +320,6 @@ static int win_update_send_partial_command(struct dsim_device *dsim,
 
 	return 0;
 }
-#else
-static int win_update_send_partial_command(struct dsim_device *dsim,
-		struct decon_rect *rect)
-{
-	DPU_DEBUG_WIN("SET: [%d %d %d %d]\n", rect->left, rect->top,
-			rect->right - rect->left + 1, rect->bottom - rect->top + 1);
-
-	call_panel_ops(dsim, setarea, dsim,
-			rect->left, rect->right, rect->top, rect->bottom);
-
-	return 0;
-}
-#endif
 
 static void win_update_find_included_slice(struct decon_lcd *lcd,
 		struct decon_rect *rect, bool in_slice[])

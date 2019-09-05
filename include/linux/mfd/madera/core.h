@@ -29,11 +29,13 @@ enum madera_type {
 	CS47L92 = 5,
 	CS47L93 = 6,
 	WM1840 = 7,
+	CS47L15 = 8,
 };
 
 #define MADERA_MAX_CORE_SUPPLIES	2
 #define MADERA_MAX_GPIOS		40
 
+#define CS47L15_NUM_GPIOS		15
 #define CS47L35_NUM_GPIOS		16
 #define CS47L85_NUM_GPIOS		40
 #define CS47L90_NUM_GPIOS		38
@@ -167,8 +169,9 @@ struct madera {
 	unsigned int hp_ena;
 	unsigned int hp_impedance_x100[MADERA_MAX_ACCESSORY];
 
-	struct madera_extcon *extcon_info;
 	bool hs_mic_muted;
+
+	struct madera_extcon *extcon_info;
 
 	struct snd_soc_dapm_context *dapm;
 

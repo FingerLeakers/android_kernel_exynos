@@ -105,6 +105,8 @@
 
 #define SEC_TS_DEFAULT_FW_NAME		"tsp_sec/y771_beyond2.bin"
 #define SEC_TS_DEFAULT_UMS_FW		"/sdcard/Firmware/TSP/lsi.bin"
+#define SEC_TS_DEFAULT_SPU_FW		"/spu/TSP/ffu_tsp.bin"
+#define SEC_TS_DEFAULT_FFU_FW		"ffu_tsp.bin"
 #define SEC_TS_MAX_FW_PATH		64
 #define SEC_TS_FW_BLK_SIZE_MAX		(512)
 #define SEC_TS_FW_BLK_SIZE_DEFAULT	(512)	// y761 & y771 ~
@@ -169,6 +171,8 @@
 #define SEC_TS_CMD_WAKEUP_GESTURE_MODE		0x39
 #define SEC_TS_WRITE_POSITION_FILTER		0x3A
 #define SEC_TS_CMD_WET_MODE			0x3B
+#define SEC_TS_CMD_JIG_MODE			0x3C
+#define SEC_TS_CMD_SET_LOW_POWER_SENSITIVITY	0x40
 #define SEC_TS_CMD_ERASE_FLASH			0x45
 #define SEC_TS_READ_ID				0x52
 #define SEC_TS_READ_BOOT_STATUS			0x55
@@ -185,6 +189,7 @@
 #define SEC_TS_CMD_SENSITIVITY_MODE		0x77
 #define SEC_TS_READ_SENSITIVITY_VALUE		0x78
 #define SEC_TS_SET_FACTORY_DATA_TYPE		0x7D
+#define SEC_TS_READ_PROX_INTENSITY		0x7E
 #define SEC_TS_READ_SELFTEST_RESULT		0x80
 #define SEC_TS_CMD_CALIBRATION_AMBIENT		0x81
 #define SEC_TS_CMD_P2P_TEST			0x82
@@ -194,6 +199,7 @@
 #define SEC_TS_CMD_CALIBRATION_OFFSET_SDC	0x8F
 //#define SEC_TS_CMD_START_LOWPOWER_TEST	0x9B
 #define SEC_TS_CMD_LPM_AOD_OFF_ON		0x9B
+#define SEC_TS_CMD_SIP_MODE			0xB5
 #define SET_TS_CMD_SET_LOWTEMPERATURE_MODE	0xBE
 
 #define SEC_TS_CMD_LPM_AOD_OFF	0x01
@@ -246,6 +252,10 @@
 #define SEC_TS_READ_CALIBRATION_REPORT		0xF1
 #define SEC_TS_CMD_SET_VENDOR_EVENT_LEVEL	0xF2
 #define SEC_TS_CMD_SET_SCAN_MODE		0xF3
+
+#define SEC_TS_CMD_SET_MISCAL_THD		0xA9
+#define SEC_TS_CMD_RUN_MISCAL			0xA7
+#define SEC_TS_CMD_GET_MISCAL_RESULT		0xA8
 
 #define SEC_TS_FLASH_SIZE_64		64
 #define SEC_TS_FLASH_SIZE_128		128
@@ -454,6 +464,9 @@ typedef enum {
 	SPONGE_EVENT_TYPE_AOD_HOMEKEY_RELEASE_NO_HAPTIC	= 0x0E
 } SPONGE_EVENT_TYPE;
 
+#define EVENT_TYPE_TSP_SCAN_UNBLOCK	0xE1;
+#define EVENT_TYPE_TSP_SCAN_BLOCK	0xE2;
+
 #define CMD_RESULT_WORD_LEN		10
 
 #define SEC_TS_I2C_RETRY_CNT		3
@@ -475,8 +488,13 @@ enum sec_ts_cover_id {
 	SEC_TS_VIEW_WALLET,
 	SEC_TS_LED_COVER,
 	SEC_TS_CLEAR_FLIP_COVER,
-	SEC_TS_QWERTY_KEYBOARD_EUR,
 	SEC_TS_QWERTY_KEYBOARD_KOR,
+	SEC_TS_QWERTY_KEYBOARD_US,
+	SEC_TS_NEON_COVER,
+	SEC_TS_ALCANTARA_COVER,
+	SEC_TS_GAMEPACK_COVER,
+	SEC_TS_LED_BACK_COVER,
+	SEC_TS_CLEAR_SIDE_VIEW_COVER,
 	SEC_TS_MONTBLANC_COVER = 100,
 };
 
@@ -722,6 +740,7 @@ struct sec_ts_data {
 	u16 touch_functions;
 	u16 ic_status;
 	u8 charger_mode;
+	bool force_charger_mode;
 	struct sec_ts_event_coordinate touchtype;
 	u8 gesture_status[6];
 	u8 cal_status;
@@ -764,6 +783,8 @@ struct sec_ts_data {
 	int cover_type;
 	u8 cover_cmd;
 	u16 rect_data[4];
+	u16 fod_rect_data[4];
+	bool fod_set_val;
 
 	int tspid_val;
 	int tspicid_val;
@@ -773,6 +794,8 @@ struct sec_ts_data {
 	unsigned int scrub_y;
 
 	unsigned int spen_mode_val;
+	u8 tsp_temp_data;
+	bool tsp_temp_data_skip;
 
 	u8 grip_edgehandler_direction;
 	int grip_edgehandler_start_y;
@@ -786,6 +809,8 @@ struct sec_ts_data {
 	u16 grip_landscape_deadzone;
 	u16 grip_landscape_top_deadzone;
 	u16 grip_landscape_bottom_deadzone;
+	u16 grip_landscape_top_gripzone;
+	u16 grip_landscape_bottom_gripzone;
 
 	struct delayed_work ghost_check;
 	u8 tsp_dump_lock;
@@ -798,6 +823,9 @@ struct sec_ts_data {
 	u8 factory_position;
 
 	u8 ed_enable;
+	u16 proximity_thd;
+	bool proximity_jig_mode; 
+	u8 sip_mode;
 
 	unsigned char ito_test[4];		/* ito panel tx/rx chanel */
 	unsigned char check_multi;
@@ -857,6 +885,8 @@ struct sec_ts_data {
 
 	int debug_flag;
 	int fix_active_mode;
+
+	u8 lp_sensitivity;
 
 	u8 fod_vi_size;
 	u8 press_prop;
@@ -928,6 +958,8 @@ struct sec_ts_plat_data {
 	bool support_fod;
 	bool enable_settings_aot;
 	bool sync_reportrate_120;
+	bool support_open_short_test;
+	bool support_mis_calibration_test;
 };
 
 typedef struct {
@@ -972,7 +1004,8 @@ int sec_ts_fix_tmode(struct sec_ts_data *ts, u8 mode, u8 state);
 int sec_ts_release_tmode(struct sec_ts_data *ts);
 int sec_ts_set_custom_library(struct sec_ts_data *ts);
 int sec_ts_set_aod_rect(struct sec_ts_data *ts);
-int sec_ts_set_temp(struct sec_ts_data *ts);
+int sec_ts_set_fod_rect(struct sec_ts_data *ts);
+int sec_ts_set_temp(struct sec_ts_data *ts, bool bforced);
 
 int sec_ts_check_custom_library(struct sec_ts_data *ts);
 int sec_ts_set_touch_function(struct sec_ts_data *ts);

@@ -14,6 +14,8 @@
 #include "iva_base_addr_10.h"
 #elif defined(CONFIG_SOC_EXYNOS9810)
 #include "iva_base_addr_20.h"
+#elif defined(CONFIG_SOC_EXYNOS9820)
+#include "iva_base_addr_30.h"
 #endif
 
 #endif /* __IVA_BASE_ADDR_H__ */

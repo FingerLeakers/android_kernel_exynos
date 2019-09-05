@@ -19,24 +19,16 @@
 
 #include "panel.h"
 
-#define POC_IMG_SIZE	(532816)
-#define POC_IMG_ADDR	(0x000000)
 #define POC_PAGE		(4096)
 #define POC_TEST_PATTERN_SIZE	(4096)
-#define POC_IMG_WR_SIZE	(POC_IMG_SIZE)
 #define POC_IMG_PATH "/data/poc_img"
 #define POC_DATA_PATH "/data/poc_data"
 #define POC_CHKSUM_DATA_LEN		(4)
 #define POC_CHKSUM_RES_LEN		(1)
 #define POC_CHKSUM_LEN		(POC_CHKSUM_DATA_LEN + POC_CHKSUM_RES_LEN)
 #ifdef CONFIG_DISPLAY_USE_INFO
-#ifdef CONFIG_SEC_FACTORY
-#define POC_TOTAL_TRY_COUNT_FILE_PATH	("/efs/FactoryApp/poc_totaltrycount")
-#define POC_TOTAL_FAIL_COUNT_FILE_PATH	("/efs/FactoryApp/poc_totalfailcount")
-#else
-#define POC_TOTAL_TRY_COUNT_FILE_PATH	("/efs/etc/poc/totaltrycount")
-#define POC_TOTAL_FAIL_COUNT_FILE_PATH	("/efs/etc/poc/totalfailcount")
-#endif
+#define POC_TOTAL_TRY_COUNT_FILE_PATH	("/efs/afc/apply_count")
+#define POC_TOTAL_FAIL_COUNT_FILE_PATH	("/efs/afc/fail_count")
 #define POC_INFO_FILE_PATH	("/efs/FactoryApp/poc_info")
 #define POC_USER_FILE_PATH	("/efs/FactoryApp/poc_user")
 #endif
@@ -45,21 +37,23 @@
 #define BIT_RATE_DIV_4	(1)
 #define BIT_RATE_DIV_32	(4)
 
-#if defined(CONFIG_POC_DREAM)
-#define ERASE_WAIT_COUNT	(180)
-#elif defined(CONFIG_POC_DREAM2)
-#define ERASE_WAIT_COUNT	(41)
-#else
-#define ERASE_WAIT_COUNT	(180)
-#endif
-
 #define PARTITION_NOT_EXIST	(0)
 #define PARTITION_EXISTS	(1)
+
+#ifdef CONFIG_SUPPORT_POC_SPI
+#define POC_SPI_WAIT_WRITE_CNT 100
+#define POC_SPI_WAIT_ERASE_CNT 100
+#endif
+
+#define PANEL_POC_SPI_BUSY_WAIT
 
 enum {
 	/* poc erase */
 	POC_ERASE_ENTER_SEQ,
 	POC_ERASE_SEQ,
+	POC_ERASE_4K_SEQ,
+	POC_ERASE_32K_SEQ,
+	POC_ERASE_64K_SEQ,
 	POC_ERASE_EXIT_SEQ,
 
 	/* poc write */
@@ -70,10 +64,24 @@ enum {
 	POC_WRITE_EXIT_SEQ,
 
 	/* poc read */
+	POC_READ_PRE_ENTER_SEQ,
 	POC_READ_ENTER_SEQ,
 	POC_READ_DAT_SEQ,
 	POC_READ_EXIT_SEQ,
 
+#ifdef CONFIG_SUPPORT_POC_SPI
+	/* poc spi */
+	POC_SPI_INIT_SEQ,
+	POC_SPI_EXIT_SEQ,
+	POC_SPI_ERASE_64K_SEQ,
+	POC_SPI_ERASE_32K_SEQ,
+	POC_SPI_ERASE_4K_SEQ,
+	POC_SPI_WRITE_SEQ,
+	POC_SPI_READ_SEQ,
+	POC_SPI_STATUS_SEQ,
+	POC_SPI_WAIT_WRITE_SEQ,
+	POC_SPI_WAIT_ERASE_SEQ,
+#endif
 	/* if necessary, add new seq */
 	MAX_POC_SEQ,
 };
@@ -101,6 +109,7 @@ enum {
 	POC_OP_CANCEL = 4,
 	POC_OP_CHECKSUM = 5,
 	POC_OP_CHECKPOC = 6,
+	POC_OP_SECTOR_ERASE = 7,
 	POC_OP_IMG_READ = 10,
 	POC_OP_IMG_WRITE = 11,
 	POC_OP_DIM_READ = 12,
@@ -113,9 +122,16 @@ enum {
 	POC_OP_WRITE_TEST = 20,
 	POC_OP_IMG_READ_TEST = 21,
 	POC_OP_DIM_READ_TEST = 22,
-	POC_OP_DIM_READ_FROM_FILE,
-	POC_OP_MTP_READ,
-	POC_OP_MCD_READ,
+	POC_OP_DIM_READ_FROM_FILE = 23,
+	POC_OP_MTP_READ = 24,
+	POC_OP_MCD_READ = 25,
+#ifdef CONFIG_SUPPORT_POC_SPI
+	POC_OP_SET_CONN_SRC = 26,
+	POC_OP_SET_SPI_SPEED = 27,
+	POC_OP_READ_SPI_STATUS_REG = 28,
+#endif
+	POC_OP_INITIALIZE = 29,
+	POC_OP_UNINITIALIZE = 30,
 	MAX_POC_OP,
 };
 
@@ -147,7 +163,13 @@ enum poc_state {
 	POC_STATE_RD_FAILED,
 	MAX_POC_STATE,
 };
-
+#ifdef CONFIG_SUPPORT_POC_SPI
+enum poc_conn_src {
+	POC_CONN_SRC_DSI = 0,
+	POC_CONN_SRC_SPI = 1,
+	MAX_POC_CONN_SRC,
+};
+#endif
 struct panel_poc_info {
 	u32 version;
 	bool enabled;
@@ -157,7 +179,8 @@ struct panel_poc_info {
 	u32 total_size;
 
 	u32 waddr;
-	u8 wdata;
+	u8 *wdata;
+	u32 wdata_len;
 	u32 raddr;
 
 	u8 poc;
@@ -175,6 +198,20 @@ struct panel_poc_info {
 #ifdef CONFIG_DISPLAY_USE_INFO
 	int total_failcount;
 	int total_trycount;
+	int erase_trycount;
+	int erase_failcount;
+	int write_trycount;
+	int write_failcount;
+	int read_trycount;
+	int read_failcount;
+#endif
+#ifdef CONFIG_SUPPORT_POC_SPI
+	enum poc_conn_src conn_src;
+	u32 spi_wdata_len;
+	u32 state_mask;
+	u32 state_init;
+	u32 state_uninit;
+	u32 busy_mask;
 #endif
 };
 
@@ -251,6 +288,15 @@ struct panel_poc_data {
 	u32 nr_maptbl;
 	struct poc_partition *partition;
 	u32 nr_partition;
+	u32 wdata_len;
+#ifdef CONFIG_SUPPORT_POC_SPI
+	enum poc_conn_src conn_src;
+	u32 spi_wdata_len;
+	u32 state_mask;
+	u32 state_init;
+	u32 state_uninit;
+	u32 busy_mask;
+#endif
 };
 
 #define IOC_GET_POC_STATUS	_IOR('A', 100, __u32)		/* 0:NONE, 1:ERASED, 2:WROTE, 3:READ */
@@ -263,7 +309,7 @@ struct panel_poc_data {
 #define IOC_SET_POC_TEST	_IOR('A', 112, __u32)		/* POC FLASH TEST - ERASE/WRITE/READ/COMPARE */
 
 extern int panel_poc_probe(struct panel_device *panel, struct panel_poc_data *poc_data);
-extern int set_panel_poc(struct panel_poc_device *poc_dev, u32 cmd);
+extern int set_panel_poc(struct panel_poc_device *poc_dev, u32 cmd, const char *cmd_ext);
 extern int read_poc_partition(struct panel_poc_device *poc_dev, int index);
 extern int get_poc_partition_size(struct panel_poc_device *poc_dev, int index);
 extern int copy_poc_partition(struct panel_poc_device *poc_dev, u8 *dst,
@@ -273,4 +319,5 @@ extern int check_poc_partition_exists(struct panel_poc_device *poc_dev, int inde
 extern void copy_poc_wr_addr_maptbl(struct maptbl *tbl, u8 *dst);
 extern void copy_poc_wr_data_maptbl(struct maptbl *tbl, u8 *dst);
 extern void copy_poc_rd_addr_maptbl(struct maptbl *tbl, u8 *dst);
+extern void copy_poc_er_addr_maptbl(struct maptbl *tbl, u8 *dst);
 #endif /* __PANEL_POC_H__ */

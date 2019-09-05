@@ -55,7 +55,9 @@ struct muic_notifier_struct {
 	muic_attached_dev_t attached_dev;
 	muic_notifier_cmd_t cmd;
 	CC_NOTI_ATTACH_TYPEDEF cxt;
+	CC_NOTI_ATTACH_TYPEDEF cxt2;
 	struct blocking_notifier_head notifier_call_chain;
+	struct mutex mutex;
 };
 
 #define MUIC_NOTIFIER_BLOCK(name)	\

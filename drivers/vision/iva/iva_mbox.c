@@ -19,6 +19,7 @@
 #include <linux/fs.h>
 #include <linux/io.h>
 #include <linux/time.h>
+#include <linux/delay.h>
 #include <linux/rtc.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -138,11 +139,32 @@ static int iva_mbox_set_mbox_irq_en(struct iva_dev_data *iva,
 
 }
 
+#define MAX_PENDING_MSG_SIZE	(4)
+#define GET_MBOX_MSG_SIZE(val) \
+	(((val) >> MBOX_STATUS_0_OCC_M0_VMCU_S) & MBOX_STATUS_0_OCC_M0_VMCU_M)
+static int iva_mbox_mcu_queue_full(struct iva_dev_data *iva, uint32_t n_retry,
+		uint32_t msleep_range)
+{
+	volatile uint32_t	val;
+	uint32_t		i;
+	void __iomem		*mbox_va = iva->mbox_va;
 
+	for (i = 0; i < n_retry; i++) {
+		if (msleep_range)
+			msleep(msleep_range);
+		val = readl(mbox_va + MBOX_STATUS_0_ADDR);
+		/* check mbox mcu queue is available or full. */
+		if (GET_MBOX_MSG_SIZE(val) < MAX_PENDING_MSG_SIZE)
+			return 0;
+	}
+	return -1;
+}
+
+#define MAX_RETRY_WO_DELAY	(200)
+#define MAX_RETRY_W_DELAY	(5)
+#define MBOX_DELAY		(2)
 int iva_mbox_send_mail_to_mcu(struct iva_dev_data *iva, uint32_t msg)
 {
-	#define MAX_PENDING_MSG_SIZE	(4)
-	uint32_t        val;
 	void __iomem	*mbox_va = iva->mbox_va;
 
 	if (!mbox_va) {
@@ -151,11 +173,12 @@ int iva_mbox_send_mail_to_mcu(struct iva_dev_data *iva, uint32_t msg)
 		return -ENODEV;
 	}
 
-	while (1) {	/* TO DO: use interrupt */
-		val = readl(mbox_va + MBOX_STATUS_0_ADDR);
-		val = (val >> MBOX_STATUS_0_OCC_M0_VMCU_S) & MBOX_STATUS_0_OCC_M0_VMCU_M;
-		if (val < MAX_PENDING_MSG_SIZE)
-			break;
+	if (iva_mbox_mcu_queue_full(iva, MAX_RETRY_WO_DELAY, 0)) {
+		if (iva_mbox_mcu_queue_full(iva, MAX_RETRY_W_DELAY, MBOX_DELAY)) {
+			dev_err(iva->dev, "%s() Fail to get MCU mbox slot.\n",
+					__func__);
+			return -EINVAL;
+		}
 	}
 
 	writel(msg, mbox_va + MBOX_MESSAGE_BASE_ADDR + M0_VMCU_OFFSET);

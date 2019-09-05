@@ -94,8 +94,9 @@
 
 &speedy {
 	s2mps19mfd@00 {
-		smpl_warn_en = <0>; /* 1 : enable , 0 : disable */
-		smpl_warn_dev2= <0>;
+		smpl_warn_en = <1>; /* 1 : enable , 0 : disable */
+		smpl_warn_dev2= <1>;
+		support_vdd_pll_1p7 = <1>;
 	};
 };
 
@@ -111,17 +112,17 @@
 	status = "disabled";
 };
 
-&exynos_hiu {
-	sw-pbl = <0x79>;
-	tb-enabled = <0>;
-	pc-enabled = <0>;
-		     /* PB  BL  PBL  PWR_THR_INC */
-	config-table = <0x0 0x0 0x79 0x0	/* config A */
-			0x0 0x0 0x79 0x0	/* config B */
-			0x0 0x0 0x79 0x0	/* config C */
-			0x0 0x0 0x79 0x0	/* config D */
-			0x0 0x0 0x79 0x0	/* config E */
-			0x0 0x0 0x79 0x0	/* config F */
-			0x0 0x0 0x79 0x0	/* config G */
-			0x0 0x0 0x79 0x0>;	/* config H */
+&ufs {
+	/* PM Qos for INT power domain */
+	ufs-pm-qos-int = <534000>;
 };
+
+&displayport {
+	status = "okay";
+	dp,aux_sw_oe = <&gpg1 6 0>;
+	dp,sbu_sw_sel = <&gpg4 0 0>;
+	dp,usb_con_sel = <&gpg0 4 0>;
+
+	pinctrl-names = "default";
+};
+

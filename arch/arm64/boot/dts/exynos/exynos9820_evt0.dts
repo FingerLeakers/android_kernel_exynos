@@ -32,7 +32,6 @@
 #include "exynos9820_evt0-camera.dtsi"
 #include <dt-bindings/soc/samsung/exynos-emc.h>
 #include "exynos9820-pmucal-dbg.dtsi"
-#include "exynos9820-beyond2lte_svcled.dtsi"
 #include "exynos9820-mfc.dtsi"
 
 / {

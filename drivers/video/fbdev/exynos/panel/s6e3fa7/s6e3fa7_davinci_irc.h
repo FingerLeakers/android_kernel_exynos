@@ -21,10 +21,10 @@
 #define S6E3FA7_IRC_FIXED_OFS		0
 #define S6E3FA7_IRC_FIXED_LEN		19
 #define S6E3FA7_IRC_TOTAL_LEN		S6E3FA7_IRC_DYNAMIC_OFS + S6E3FA7_IRC_DYNAMIC_LEN
+#define S6E3FA7_DAVINCI_HBM_COEF	4		// coef = 0.6, -> 10*(1-0.6)
 
 static u8 irc_buffer[S6E3FA7_IRC_TOTAL_LEN];
 static u8 irc_ref_tbl[S6E3FA7_IRC_TOTAL_LEN];
-
 
 static struct panel_irc_info s6e3fa7_davinci_irc = {
 	.irc_version = IRC_INTERPOLATION_V1,
@@ -33,6 +33,7 @@ static struct panel_irc_info s6e3fa7_davinci_irc = {
 	.dynamic_offset = S6E3FA7_IRC_DYNAMIC_OFS,
 	.dynamic_len = S6E3FA7_IRC_DYNAMIC_LEN,
 	.total_len = S6E3FA7_IRC_TOTAL_LEN,
+	.hbm_coef = S6E3FA7_DAVINCI_HBM_COEF,
 	.buffer = irc_buffer,
 	.ref_tbl = irc_ref_tbl
 };

@@ -23,14 +23,18 @@
 #include <linux/etherdevice.h>
 #include <linux/device.h>
 #include <linux/module.h>
-#include <soc/samsung/pmu-cp.h>
 #include <trace/events/napi.h>
 #include <net/ip.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <uapi/linux/net_dropdump.h>
+#ifdef CONFIG_LINK_FORWARD
+#include <linux/linkforward.h>
+#endif
 
 #include "modem_prj.h"
 #include "modem_utils.h"
+#include "modem_klat.h"
 
 static u8 sipc5_build_config(struct io_device *iod, struct link_device *ld,
 			     unsigned int count);
@@ -300,13 +304,12 @@ static int rx_raw_misc(struct sk_buff *skb)
 static int check_gro_support(struct sk_buff *skb)
 {
 	switch (skb->data[0] & 0xF0) {
-		case 0x40:
-			return (ip_hdr(skb)->protocol == IPPROTO_TCP);
+	case 0x40:
+		return (ip_hdr(skb)->protocol == IPPROTO_TCP);
 
-		case 0x60:
-			return (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP);
+	case 0x60:
+		return (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP);
 	}
-
 	return 0;
 }
 #else
@@ -323,7 +326,7 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	struct net_device *ndev;
 	struct iphdr *iphdr;
 	int len = skb->len;
-	int ret;
+	int ret, l2forward = 0;
 
 	ndev = iod->ndev;
 	if (!ndev) {
@@ -337,8 +340,6 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	}
 
 	skb->dev = ndev;
-	ndev->stats.rx_packets++;
-	ndev->stats.rx_bytes += skb->len;
 
 	/* check the version of IP */
 	iphdr = (struct iphdr *)skb->data;
@@ -370,29 +371,45 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	skb_reset_transport_header(skb);
 	skb_reset_network_header(skb);
 
-	if (check_gro_support(skb)) {
-		ret = napi_gro_receive(napi_get_current(), skb);
-		if (ret == GRO_DROP) {
-			mif_err_limited("%s: %s<-%s: ERR! napi_gro_receive\n",
-					ld->name, iod->name, iod->mc->name);
-		}
+#ifdef CONFIG_LINK_FORWARD
+	/* Link Forward */
+	l2forward = (get_linkforward_mode() & 0x1) ? linkforward_manip_skb(skb, LINK_FORWARD_DIR_REPLY) : 0;
+#endif
 
-		if (ld->gro_flush)
-			ld->gro_flush(ld);
+	if (!l2forward) {
+		/* klat */
+		klat_rx(skb, skbpriv(skb)->sipc_ch - SIPC_CH_ID_PDP_0);
+
+		ndev->stats.rx_packets++;
+		ndev->stats.rx_bytes += skb->len;
+
+		if (check_gro_support(skb)) {
+			ret = napi_gro_receive(napi_get_current(), skb);
+			if (ret == GRO_DROP) {
+				mif_err_limited("%s: %s<-%s: ERR! napi_gro_receive\n",
+						ld->name, iod->name, iod->mc->name);
+			}
+
+			if (ld->gro_flush)
+				ld->gro_flush(ld);
+			return len;
+		}
 	} else {
+		ndev->stats.rx_packets++;
+		ndev->stats.rx_bytes += skb->len;
+	}
 #ifdef CONFIG_LINK_DEVICE_NAPI
-		ret = netif_receive_skb(skb);
+	ret = netif_receive_skb(skb);
 #else /* !CONFIG_LINK_DEVICE_NAPI */
-		if (in_interrupt())
-			ret = netif_rx(skb);
-		else
-			ret = netif_rx_ni(skb);
+	if (in_interrupt())
+		ret = netif_rx(skb);
+	else
+		ret = netif_rx_ni(skb);
 #endif /* CONFIG_LINK_DEVICE_NAPI */
 
-		if (ret != NET_RX_SUCCESS) {
-			mif_err_limited("%s: %s<-%s: ERR! netif_rx\n",
-					ld->name, iod->name, iod->mc->name);
-		}
+	if (ret != NET_RX_SUCCESS) {
+		mif_err_limited("%s: %s<-%s: ERR! netif_rx\n",
+				ld->name, iod->name, iod->mc->name);
 	}
 	return len;
 }
@@ -853,6 +870,13 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		else
 			return -EINVAL;
 
+	case IOCTL_DATABUF_FULL_DUMP:
+		mif_info("%s: IOCTL_DATABUF_FULL_DUMP\n", iod->name);
+		if (ld->databuf_dump)
+			return ld->databuf_dump(ld, iod, arg);
+		else
+			return -EINVAL;
+
 	case IOCTL_VSS_FULL_DUMP:
 		mif_info("%s: IOCTL_VSS_FULL_DUMP\n", iod->name);
 		if (ld->vss_dump)
@@ -921,6 +945,27 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		mif_err("%s: !ld->airplane_mode\n", iod->name);
 		return -EINVAL;
+
+#ifdef CONFIG_LINK_DEVICE_PCIE
+	case IOCTL_MODEM_DUMP_RESET:
+		if (mc->ops.modem_dump_reset) {
+			mif_err("%s: IOCTL_MODEM_DUMP_RESET\n", iod->name);
+			ret = mc->ops.modem_dump_reset(mc);
+			if (ld->reset_zerocopy)
+				ld->reset_zerocopy(ld);
+			return ret;
+		}
+		mif_err("%s: !mc->ops.modem_dump_reset\n", iod->name);
+		return -EINVAL;
+
+	case IOCTL_REGISTER_PCIE:
+		if (ld->register_pcie) {
+			mif_info("%s: IOCTL_REGISTER_PCIE\n", iod->name);
+			return ld->register_pcie(ld);
+		}
+		mif_err("%s: !ld->register_pcie\n", iod->name);
+		return -EINVAL;
+#endif
 
 	default:
 		 /* If you need to handle the ioctl for specific link device,
@@ -1115,7 +1160,7 @@ static ssize_t misc_read(struct file *filp, char *buf, size_t count,
 		skb_pull(skb, copied);
 		skb_queue_head(rxq, skb);
 	} else {
-		dev_kfree_skb_any(skb);
+		dev_consume_skb_any(skb);
 	}
 
 	return copied;
@@ -1131,6 +1176,9 @@ static const struct file_operations misc_io_fops = {
 	.write = misc_write,
 	.read = misc_read,
 };
+
+#define RMNET_RPS ("0E")
+#define RMNET_FLOW_CNT ("64")
 
 static int vnet_open(struct net_device *ndev)
 {
@@ -1154,6 +1202,11 @@ static int vnet_open(struct net_device *ndev)
 		}
 	}
 	list_add(&iod->node_ndev, &iod->msd->activated_ndev_list);
+
+	/* Set RMNET_RPS */
+	netdev_store_rps_map(&(ndev->_rx[0]), RMNET_RPS, sizeof(RMNET_RPS));
+	netdev_store_rps_dev_flow_table_cnt(&(ndev->_rx[0]), RMNET_FLOW_CNT,
+			sizeof(RMNET_FLOW_CNT));
 
 	netif_start_queue(ndev);
 
@@ -1310,7 +1363,7 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 	($skb_new will be freed by the link device.)
 	*/
 	if (skb_new != skb)
-		dev_kfree_skb_any(skb);
+		dev_consume_skb_any(skb);
 
 	return NETDEV_TX_OK;
 
@@ -1320,29 +1373,32 @@ retry:
 	because @skb will be reused by NET_TX.
 	*/
 	if (skb_new && skb_new != skb)
-		dev_kfree_skb_any(skb_new);
+		dev_consume_skb_any(skb_new);
 
 	return NETDEV_TX_BUSY;
 
 drop:
 	ndev->stats.tx_dropped++;
 
+	DROPDUMP_QPCAP_SKB(skb, NET_DROPDUMP_OPT_MIF_TXFAIL);
 	dev_kfree_skb_any(skb);
 
 	/*
 	If @skb has been expanded to $skb_new, $skb_new must also be freed here.
 	*/
 	if (skb_new != skb)
-		dev_kfree_skb_any(skb_new);
+		dev_consume_skb_any(skb_new);
 
 	return NETDEV_TX_OK;
 }
 
+#if defined(CONFIG_MODEM_IF_LEGACY_QOS) || defined(CONFIG_MODEM_IF_QOS)
 static u16 vnet_select_queue(struct net_device *dev, struct sk_buff *skb,
 		void *accel_priv, select_queue_fallback_t fallback)
 {
 	return (skb && skb->priomark == RAW_HPRIO) ? 1 : 0;
 }
+#endif
 
 static int dummy_net_open(struct net_device *ndev)
 {
@@ -1357,7 +1413,9 @@ static struct net_device_ops vnet_ops = {
 	.ndo_open = vnet_open,
 	.ndo_stop = vnet_stop,
 	.ndo_start_xmit = vnet_xmit,
+#if defined(CONFIG_MODEM_IF_LEGACY_QOS) || defined(CONFIG_MODEM_IF_QOS)
 	.ndo_select_queue = vnet_select_queue,
+#endif
 };
 
 static void vnet_setup(struct net_device *ndev)
@@ -1415,10 +1473,6 @@ static u8 sipc5_build_config(struct io_device *iod, struct link_device *ld,
 		cfg |= SIPC5_MULTI_FRAME_CFG;
 		sipc5_inc_info_id(iod);
 	}
-#if 0
-	else if ((count + SIPC5_MIN_HEADER_SIZE) > 0xFFFF)
-		cfg |= SIPC5_EXT_LENGTH_CFG;
-#endif
 
 	return cfg;
 }
@@ -1533,9 +1587,9 @@ int sipc5_init_io_device(struct io_device *iod)
 			free_netdev(iod->ndev);
 		}
 
-		mif_debug("iod 0x%p\n", iod);
+		mif_debug("iod 0x%pK\n", iod);
 		vnet = netdev_priv(iod->ndev);
-		mif_debug("vnet 0x%p\n", vnet);
+		mif_debug("vnet 0x%pK\n", vnet);
 		vnet->iod = iod;
 
 		break;

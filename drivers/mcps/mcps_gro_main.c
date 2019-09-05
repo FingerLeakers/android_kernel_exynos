@@ -32,7 +32,7 @@ module_param(mcps_gro_pantry_max_capability , int , 0644);
 int mcps_gro_pantry_quota __read_mostly = 300;
 module_param(mcps_gro_pantry_quota , int , 0644);
 
-static long mcps_gro_flush_time = 150000L;
+static long mcps_gro_flush_time = 5000L;
 module_param(mcps_gro_flush_time, long, 0644);
 
 static void mcps_gro_flush_timer(struct mcps_pantry *pantry)
@@ -81,6 +81,8 @@ static int process_gro_pantry(struct napi_struct *napi , int quota)
         mcps_do_ipi_and_irq_enable(pantry);
     }
 
+    getnstimeofday(&pantry->flush_time);
+
     while (again) {
         struct sk_buff *skb;
 
@@ -103,9 +105,7 @@ static int process_gro_pantry(struct napi_struct *napi , int quota)
             }
             if (++work >= quota) {
                 PRINT_GRO_WORKED(pantry->cpu , work , quota);
-//                napi_gro_flush(&pantry->rx_napi_struct, false);
-//                getnstimeofday(&pantry->flush_time);
-                return work;
+                goto end;
             }
         }
 
@@ -132,10 +132,10 @@ static int process_gro_pantry(struct napi_struct *napi , int quota)
     }
 
     napi_gro_flush(&pantry->rx_napi_struct, false);
-    getnstimeofday(&pantry->flush_time);
 
     check_pending_info(pantry->cpu , (pantry->processed + pantry->gro_processed), 1);
 
+end:
     return work;
 }
 

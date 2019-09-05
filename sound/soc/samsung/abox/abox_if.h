@@ -47,7 +47,7 @@ struct abox_if_data {
  * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
  * @return		error code if any
  */
-extern int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
+extern int abox_if_hw_params_fixup(struct snd_soc_dai *dai,
 		struct snd_pcm_hw_params *params, int stream);
 
 /**
@@ -57,7 +57,7 @@ extern int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
  * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
  * @return		error code if any
  */
-extern int abox_if_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+extern int abox_if_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params, int stream);
 
 #endif /* __SND_SOC_ABOX_IF_H */

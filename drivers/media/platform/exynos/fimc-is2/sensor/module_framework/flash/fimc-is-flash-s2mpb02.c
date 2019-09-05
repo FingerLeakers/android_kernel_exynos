@@ -25,6 +25,11 @@
 #include "fimc-is-device-sensor-peri.h"
 #include "fimc-is-core.h"
 
+#ifdef CONFIG_FLASH_CURRENT_CHANGE_SUPPORT
+extern int s2mpb02_set_flash_current(int intensive);
+extern int s2mpb02_set_torch_current(bool torch_mode, bool change_current, int intensity);
+#endif
+
 static int flash_s2mpb02_init(struct v4l2_subdev *subdev, u32 val)
 {
 	int ret = 0;
@@ -73,11 +78,25 @@ static int sensor_s2mpb02_flash_control(struct v4l2_subdev *subdev, enum flash_m
 		if (ret)
 			err("torch flash off fail");
 	} else if (mode == CAM2_FLASH_MODE_SINGLE) {
-		ret = control_flash_gpio(flash->flash_gpio, intensity);
+#ifdef CONFIG_FLASH_CURRENT_CHANGE_SUPPORT
+		if (intensity >= 150) {
+			s2mpb02_set_flash_current(intensity);
+			ret = control_flash_gpio(flash->flash_gpio, 1);
+			if (ret)
+				err("capture flash on fail");
+		} else {
+			s2mpb02_set_torch_current(false, true, intensity);
+			ret = control_flash_gpio(flash->torch_gpio, 1);
+			if (ret)
+				err("capture flash on fail");
+		}
+#else
+		ret = control_flash_gpio(flash->flash_gpio, 1);
 		if (ret)
 			err("capture flash on fail");
+#endif
 	} else if (mode == CAM2_FLASH_MODE_TORCH) {
-		ret = control_flash_gpio(flash->torch_gpio, intensity);
+		ret = control_flash_gpio(flash->torch_gpio, 1);
 		if (ret)
 			err("torch flash on fail");
 	} else {

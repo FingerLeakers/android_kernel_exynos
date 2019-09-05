@@ -63,7 +63,9 @@ static u8 CROWN_POC_KEY_DISABLE[] = { 0xF1, 0xA5, 0xA5 };
 static u8 CROWN_POC_PGM_ENABLE[] = { 0xC0, 0x02 };
 static u8 CROWN_POC_PGM_DISABLE[] = { 0xC0, 0x00 };
 static u8 CROWN_POC_EXEC[] = { 0xC0, 0x03 };
+#ifdef CONFIG_SUPPORT_POC_FLASH
 static u8 CROWN_POC_ERASE[] = { 0xC1, 0x00, 0xC7, 0x00, 0x10, 0x00 };
+#endif
 static u8 CROWN_POC_WR_ENABLE[] = { 0xC1, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, CROWN_BDIV };
 static u8 CROWN_POC_QD_ENABLE[] = { 0xC1, 0x00, 0x01, 0x40, 0x02, 0x00, 0x00, 0x00, 0x00, 0x10 };
 static u8 CROWN_POC_WR_STT[] = { 0xC1, 0x00, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, CROWN_BDIV };
@@ -77,7 +79,9 @@ static DEFINE_STATIC_PACKET(crown_poc_key_enable, DSI_PKT_TYPE_WR, CROWN_POC_KEY
 static DEFINE_STATIC_PACKET(crown_poc_key_disable, DSI_PKT_TYPE_WR, CROWN_POC_KEY_DISABLE, 0);
 static DEFINE_STATIC_PACKET(crown_poc_pgm_enable, DSI_PKT_TYPE_WR, CROWN_POC_PGM_ENABLE, 0);
 static DEFINE_STATIC_PACKET(crown_poc_pgm_disable, DSI_PKT_TYPE_WR, CROWN_POC_PGM_DISABLE, 0);
+#ifdef CONFIG_SUPPORT_POC_FLASH
 static DEFINE_STATIC_PACKET(crown_poc_erase, DSI_PKT_TYPE_WR, CROWN_POC_ERASE, 0);
+#endif
 static DEFINE_STATIC_PACKET(crown_poc_exec, DSI_PKT_TYPE_WR, CROWN_POC_EXEC, 0);
 static DEFINE_STATIC_PACKET(crown_poc_wr_enable, DSI_PKT_TYPE_WR, CROWN_POC_WR_ENABLE, 0);
 static DEFINE_STATIC_PACKET(crown_poc_qd_enable, DSI_PKT_TYPE_WR, CROWN_POC_QD_ENABLE, 0);
@@ -94,6 +98,7 @@ static DEFINE_PANEL_UDELAY_NO_SLEEP(crown_poc_wait_rd_done, CROWN_RD_DONE_UDELAY
 static DEFINE_PANEL_UDELAY_NO_SLEEP(crown_poc_wait_wr_done, CROWN_WR_DONE_UDELAY);
 static DEFINE_PANEL_MDELAY(crown_poc_wait_qd_status, CROWN_QD_DONE_MDELAY);
 
+#ifdef CONFIG_SUPPORT_POC_FLASH
 static void *crown_poc_erase_enter_cmdtbl[] = {
 	&PKTINFO(crown_level2_key_enable),
 	&PKTINFO(crown_poc_key_enable),
@@ -114,6 +119,7 @@ static void *crown_poc_erase_exit_cmdtbl[] = {
 	&PKTINFO(crown_poc_key_disable),
 	&PKTINFO(crown_level2_key_disable),
 };
+#endif
 
 static void *crown_poc_wr_enter_cmdtbl[] = {
 	&PKTINFO(crown_level2_key_enable),
@@ -179,10 +185,12 @@ static void *crown_poc_rd_exit_cmdtbl[] = {
 };
 
 static struct seqinfo crown_poc_seqtbl[MAX_POC_SEQ] = {
+#ifdef CONFIG_SUPPORT_POC_FLASH
 	/* poc erase */
 	[POC_ERASE_ENTER_SEQ] = SEQINFO_INIT("poc-erase-enter-seq", crown_poc_erase_enter_cmdtbl),
 	[POC_ERASE_SEQ] = SEQINFO_INIT("poc-erase-seq", crown_poc_erase_cmdtbl),
 	[POC_ERASE_EXIT_SEQ] = SEQINFO_INIT("poc-erase-exit-seq", crown_poc_erase_exit_cmdtbl),
+#endif
 
 	/* poc write */
 	[POC_WRITE_ENTER_SEQ] = SEQINFO_INIT("poc-wr-enter-seq", crown_poc_wr_enter_cmdtbl),

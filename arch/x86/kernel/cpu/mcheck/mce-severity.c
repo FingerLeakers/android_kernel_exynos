@@ -14,7 +14,7 @@
 #include <linux/init.h>
 #include <linux/debugfs.h>
 #include <asm/mce.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "mce-internal.h"
 
@@ -143,6 +143,11 @@ static struct severity {
 		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_INSTR),
 		USER
 		),
+	MCESEV(
+		PANIC, "Data load in unrecoverable area of kernel",
+		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_DATA),
+		KERNEL
+		),
 #endif
 	MCESEV(
 		PANIC, "Action required: unknown MCACOD",
@@ -245,6 +250,9 @@ static int mce_severity_amd(struct mce *m, int tolerant, char **msg, bool is_exc
 
 	if (m->status & MCI_STATUS_UC) {
 
+		if (ctx == IN_KERNEL)
+			return MCE_PANIC_SEVERITY;
+
 		/*
 		 * On older systems where overflow_recov flag is not present, we
 		 * should simply panic if an error overflow occurs. If
@@ -254,10 +262,6 @@ static int mce_severity_amd(struct mce *m, int tolerant, char **msg, bool is_exc
 		if (mce_flags.overflow_recov) {
 			if (mce_flags.smca)
 				return mce_severity_amd_smca(m, ctx);
-
-			/* software can try to contain */
-			if (!(m->mcgstatus & MCG_STATUS_RIPV) && (ctx == IN_KERNEL))
-				return MCE_PANIC_SEVERITY;
 
 			/* kill current process */
 			return MCE_AR_SEVERITY;
@@ -311,7 +315,7 @@ static int mce_severity_intel(struct mce *m, int tolerant, char **msg, bool is_e
 			*msg = s->msg;
 		s->covered = 1;
 		if (s->sev >= MCE_UC_SEVERITY && ctx == IN_KERNEL) {
-			if (panic_on_oops || tolerant < 1)
+			if (tolerant < 1)
 				return MCE_PANIC_SEVERITY;
 		}
 		return s->sev;

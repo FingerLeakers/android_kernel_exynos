@@ -43,6 +43,8 @@
 
 #define USE_CAMERA_MIPI_CLOCK_VARIATION
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+#define USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE
+/*#define USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION*/
 /*#define USE_CAMERA_MIPI_CLOCK_VARIATION_RUNTIME*/
 #endif
 
@@ -72,7 +74,6 @@
 
 /* define supported aperture level */
 #define ROM_SUPPORT_APERTURE_F2	// Second step of aperture.
-#define ROM_SUPPORT_APERTURE_F3	// Third step of aperture.
 
 /* Tele sensor crop shift and OIS calibration will be applied instead of this feature in this project */
 /* #define OIS_CENTERING_SHIFT_ENABLE */
@@ -96,8 +97,17 @@
 #define REAR_TOF_ROM_ID ROM_ID_REAR3
 #define REAR_TOF_CHECK_MAP_VERSION '1'
 #define REAR_TOF_DEFAULT_UID 0xCD35
+#define REAR_TOF_CHECK_SENSOR_ID '1'  /* '1' => imx316*/
+#ifdef REAR_TOF_CHECK_SENSOR_ID
+#define REAR_TOF_IMX316_CRC_ADDR1_MAP002 0x11E3  /* imx316 eeprom cal map ver02 */
+#define REAR_TOF_IMX316_CRC_ADDR1_MAP001 0x11E1  /* imx316 eeprom cal map ver01 */
+#endif
 #endif
 
 #define USE_BUCK2_REGULATOR_CONTROL
+#define USE_TOF_IO_DENOISE_REAR_CAMERA_IO
+#define USE_SHARE_I2C_CLIENT_IMX516_IMX316
+
+#define LEDS_S2MPB02_ADAPTIVE_MOVIE_CURRENT 140
 
 #endif /* FIMC_IS_VENDOR_CONFIG_DNS_V02_H */

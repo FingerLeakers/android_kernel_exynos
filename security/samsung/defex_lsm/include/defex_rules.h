@@ -13,6 +13,7 @@
 #ifdef DEFEX_INTEGRITY_ENABLE
 #define INTEGRITY_LENGTH 32
 #endif /* DEFEX_INTEGRITY_ENABLE */
+#define FEATURE_NAME_MAX_STR 32
 
 #define GET_ITEM_OFFSET(item_ptr)	(((char*)item_ptr) - ((char*)defex_packed_rules))
 #define GET_ITEM_PTR(offset)		((struct rule_item_struct *)(((char*)defex_packed_rules) + (offset)))
@@ -23,7 +24,16 @@ enum feature_types {
 	feature_ped_exception = 4,
 	feature_ped_status = 8,
 	feature_safeplace_path = 16,
-	feature_safeplace_status = 32
+	feature_safeplace_status = 32,
+	feature_immutable_path_open = 64,
+	feature_immutable_path_write = 128,
+	feature_immutable_src_exception = 256,
+	feature_immutable_status = 512
+};
+
+struct feature_match_entry {
+	char feature_name[FEATURE_NAME_MAX_STR];
+	int feature_num;
 };
 
 struct static_rule {

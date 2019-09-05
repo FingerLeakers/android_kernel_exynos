@@ -395,7 +395,6 @@ void fimc_is_hw_group_init(struct fimc_is_group *group)
 	group->subdev[ENTRY_M4P] = NULL;
 	group->subdev[ENTRY_M5P] = NULL;
 	group->subdev[ENTRY_VRA] = NULL;
-	group->subdev[ENTRY_SRDZ] = NULL;
 
 	INIT_LIST_HEAD(&group->subdev_list);
 }
@@ -579,6 +578,10 @@ int fimc_is_hw_group_open(void *group_data)
 	return ret;
 }
 
+void fimc_is_hw_camif_init(void)
+{
+}
+
 int fimc_is_hw_camif_cfg(void *sensor_data)
 {
 	int ret = 0;
@@ -619,7 +622,7 @@ int fimc_is_hw_camif_cfg(void *sensor_data)
 	/* CSIS to PDP MUX */
 	ischain = sensor->ischain;
 	if (ischain) {
-		pdp_ch = (ischain->group_3aa.id == GROUP_ID_3AA0) ? 0 : 1;
+		pdp_ch = (ischain->group_3aa.id == GROUP_ID_3AA1) ? 1 : 0;
 
 		switch (pdp_ch) {
 		case 0:
@@ -1846,6 +1849,49 @@ u32 fimc_is_hw_find_settle(u32 mipi_speed)
 	return fimc_is_csi_settle_table[m + 1];
 }
 
+unsigned int get_dma(struct fimc_is_device_sensor *device, u32 *dma_ch)
+{
+	struct fimc_is_core *core;
+	u32 open_sensor_count = 0;
+	u32 position;
+	int i;
+	int ret = 0;
+
+	*dma_ch = 0;
+	core = device->private_data;
+	for (i = 0; i < FIMC_IS_SENSOR_COUNT; i++) {
+		if (test_bit(FIMC_IS_SENSOR_OPEN, &(core->sensor[i].state))) {
+			open_sensor_count++;
+			position = device->position;
+			switch (position) {
+			case SENSOR_POSITION_REAR:
+				*dma_ch |= 1 << 0;
+				*dma_ch |= 1 << 4;
+				break;
+			case SENSOR_POSITION_FRONT:
+				*dma_ch |= 1 << 1;
+				break;
+			case SENSOR_POSITION_REAR2:
+				*dma_ch |= 1 << 2;
+				break;
+			case SENSOR_POSITION_SECURE:
+				*dma_ch |= 1 << 3;
+				break;
+			default:
+				err("invalid sensor(%d)", position);
+				ret = -EINVAL;
+				goto p_err;
+			}
+		}
+	}
+	if (open_sensor_count != 1 && open_sensor_count != 2) {
+		err("invalid open sensor limit(%d)", open_sensor_count);
+		ret = -EINVAL;
+	}
+p_err:
+	return ret;
+}
+
 void fimc_is_hw_cip_clk_enable(bool enable)
 {
 	/* Only for EVT0 */
@@ -1968,4 +2014,30 @@ void fimc_is_hw_c2sync_sw_reset(u32 __iomem *base_reg,
 		fimc_is_hw_set_field(base_reg, &c2sync_m0_s2_regs[C2SYNC_R_M0_S2_TRS_C2COM_SW_RESET],
 			&c2sync_m0_s2_fields[C2SYNC_F_M0_S2_TRS_C2COM_SW_RESET], 1);
 	}
+}
+
+void fimc_is_hw_djag_get_input(struct fimc_is_device_ischain *ischain, u32 *djag_in)
+{
+	struct fimc_is_global_param *g_param;
+
+	if (!ischain) {
+		err_hw("device is NULL");
+		return;
+	}
+
+	g_param = &ischain->resourcemgr->global_param;
+
+	dbg_hw(2, "%s:video_mode %d\n", __func__, g_param->video_mode);
+
+	if (g_param->video_mode)
+		*djag_in = MCSC_DJAG_IN_VIDEO_MODE;
+	else
+		*djag_in = MCSC_DJAG_IN_CAPTURE_MODE;
+}
+
+void fimc_is_hw_djag_adjust_out_size(struct fimc_is_device_ischain *ischain,
+					u32 in_width, u32 in_height,
+					u32 *out_width, u32 *out_height)
+{
+	/* Do nothing. */
 }

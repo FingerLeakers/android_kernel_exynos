@@ -61,6 +61,7 @@ enum {
 	MUIC_PATH_USB_CP,
 	MUIC_PATH_UART_AP,
 	MUIC_PATH_UART_CP,
+	MUIC_PATH_UART_CP2,
 	MUIC_PATH_OPEN,
 	MUIC_PATH_AUDIO,
 };
@@ -76,6 +77,7 @@ enum {
 enum {
 	SWITCH_SEL_USB_MASK	= 0x1,
 	SWITCH_SEL_UART_MASK	= 0x2,
+	SWITCH_SEL_UART_MASK2	= 0x4,
 	SWITCH_SEL_RUSTPROOF_MASK	= 0x8,
 	SWITCH_SEL_AFC_DISABLE_MASK	= 0x100,
 };
@@ -195,6 +197,8 @@ typedef enum {
 	ATTACHED_DEV_NUM,
 } muic_attached_dev_t;
 
+#define SECOND_MUIC_DEV (ATTACHED_DEV_NUM + 1)
+
 #ifdef CONFIG_MUIC_HV_FORCE_LIMIT
 /* MUIC attached device type */
 typedef enum {
@@ -246,6 +250,9 @@ struct muic_platform_data {
 	/* muic AFC voltage switching function */
 	int (*muic_afc_set_voltage_cb)(int voltage);
 
+	/* muic hv charger disable function */
+	int (*muic_hv_charger_disable_cb)(bool en);
+
 	/* muic check charger init function */
 	int (*muic_hv_charger_init_cb)(void);
 
@@ -258,6 +265,7 @@ int get_afc_mode(void);
 int get_ccic_info(void);
 void muic_set_hmt_status(int status);
 int muic_afc_set_voltage(int voltage);
+extern int muic_hv_charger_disable(bool en);
 int muic_hv_charger_init(void);
 int muic_set_hiccup_mode(int on_off);
 #ifdef CONFIG_SEC_FACTORY

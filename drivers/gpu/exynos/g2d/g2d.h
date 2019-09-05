@@ -19,6 +19,7 @@
 #include <linux/miscdevice.h>
 #include <media/exynos_repeater.h>
 #include <linux/pm_qos.h>
+#include <soc/samsung/exynos-itmon.h>
 
 struct g2d_task; /* defined in g2d_task.h */
 
@@ -72,8 +73,14 @@ struct g2d_dvfs_table {
 	u32 freq;
 };
 
+/* Proved that G2D does not leak protected conents that it is processing. */
+#define G2D_DEVICE_CAPS_SELF_PROTECTION		1
+/* Separate bitfield to select YCbCr Bitdepth at REG_COLORMODE[29:28] */
+#define G2D_DEVICE_CAPS_YUV_BITDEPTH		2
+
 struct g2d_device {
 	unsigned long		state;
+	unsigned long		caps;
 
 	struct miscdevice	misc[2];
 	struct device		*dev;
@@ -83,6 +90,9 @@ struct g2d_device {
 	u64			fence_context;
 	atomic_t		fence_timeline;
 	spinlock_t		fence_lock;
+
+	spinlock_t		lock_ctx_list;
+	struct list_head	ctx_list;
 
 	/* task management */
 	spinlock_t		lock_task;
@@ -99,32 +109,53 @@ struct g2d_device {
 	struct dentry *debug_root;
 	struct dentry *debug;
 	struct dentry *debug_logs;
+	struct dentry *debug_contexts;
+	struct dentry *debug_tasks;
 
 	atomic_t	prior_stats[G2D_PRIORITY_END];
 
 	struct mutex			lock_qos;
 	struct list_head		qos_contexts;
 	u32 hw_ppc[PPC_END];
+	u32				max_layers;
 
 	struct g2d_dvfs_table *dvfs_table;
 	u32 dvfs_table_cnt;
+
+	struct notifier_block	itmon_nb;
 };
 
 #define G2D_AUTHORITY_HIGHUSER 1
 
 struct g2d_context {
+	struct list_head	node;
 	struct g2d_device	*g2d_dev;
 	struct shared_buffer_info *hwfc_info;
 	u32 priority;
 	int authority;
+	struct task_struct	*owner;
 
 	struct delayed_work dwork;
 
 	struct pm_qos_request req;
 	struct list_head qos_node;
+	struct mutex	lock_hwfc_info;
 	u64	r_bw;
 	u64	w_bw;
 };
+
+#define IPPREFIX "[Exynos][G2D] "
+#define perr(format, arg...) \
+	pr_err(IPPREFIX format "\n", ##arg)
+
+#define perrfn(format, arg...) \
+	pr_err(IPPREFIX  "%s: " format "\n", __func__, ##arg)
+
+#define perrdev(g2d, format, arg...) \
+	dev_err(g2d->dev, IPPREFIX format "\n", ##arg)
+
+#define perrfndev(g2d, format, arg...) \
+	dev_err(g2d->dev, IPPREFIX  "%s: " format "\n", __func__, ##arg)
 
 int g2d_device_run(struct g2d_device *g2d_dev, struct g2d_task *task);
 void g2d_hw_timeout_handler(unsigned long arg);

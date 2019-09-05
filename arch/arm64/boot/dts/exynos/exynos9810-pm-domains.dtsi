@@ -29,7 +29,7 @@
 		reg = <0x0 0x14064008 0x20>;
 		cal_id = <0xB1380001>;
 		need_smc = <0x16A10204>;
-		status = "disabled";
+		status = "okay";
 	};
 
 	pd_dcpost: pd-dcpost@14064010 {
@@ -37,7 +37,7 @@
 		reg = <0x0 0x14064010 0x20>;
 		cal_id = <0xB1380002>;
 		need_smc = <0x16B10204>;
-		status = "disabled";
+		status = "okay";
 		parent = <&pd_dcf>;
 	};
 
@@ -46,7 +46,7 @@
 		reg = <0x0 0x14064018 0x20>;
 		cal_id = <0xB1380003>;
 		need_smc = <0x16810204>;
-		status = "disabled";
+		status = "okay";
 	};
 
 	pd_dpu: pd-dpu@14064020 {

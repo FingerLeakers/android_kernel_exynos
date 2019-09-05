@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: 802.11.h 811885 2019-03-27 19:39:19Z $
+ * $Id: 802.11.h 814166 2019-04-10 06:14:49Z $
  */
 
 #ifndef _802_11_H_
@@ -1536,8 +1536,8 @@ typedef struct ccx_qfl_ie ccx_qfl_ie_t;
 #define DOT11_MNG_HE_CAP_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_HE_CAP_ID)
 #define EXT_MNG_HE_OP_ID			36u	/* HE Operation IE, 11ax */
 #define DOT11_MNG_HE_OP_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_HE_OP_ID)
-#define EXT_MNG_RAPS_ID				37u	/* OFDMA Random Access Parameter Set */
-#define DOT11_MNG_RAPS_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_RAPS_ID)
+#define EXT_MNG_UORA_ID				37u	/* UORA Parameter Set */
+#define DOT11_MNG_UORA_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_UORA_ID)
 #define EXT_MNG_MU_EDCA_ID			38u	/* MU EDCA Parameter Set */
 #define DOT11_MNG_MU_EDCA_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_MU_EDCA_ID)
 #define EXT_MNG_SRPS_ID				39u	/* Spatial Reuse Parameter Set */
@@ -1571,6 +1571,8 @@ typedef struct ccx_qfl_ie ccx_qfl_ie_t;
 #define FILS_HLP_CONTAINER_EXT_ID	FILS_EXTID_MNG_HLP_CONTAINER_ID
 #define DOT11_ESP_EXT_ID		OCE_EXTID_MNG_ESP_ID
 #define FILS_REQ_PARAMS_EXT_ID		FILS_EXTID_MNG_REQ_PARAMS
+#define EXT_MNG_RAPS_ID				37u	/* OFDMA Random Access Parameter Set */
+#define DOT11_MNG_RAPS_ID			(DOT11_MNG_ID_EXT_ID + EXT_MNG_RAPS_ID)
 /* End of deprecated definitions */
 
 #define DOT11_MNG_IE_ID_EXT_MATCH(_ie, _id) (\

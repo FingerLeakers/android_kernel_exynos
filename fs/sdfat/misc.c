@@ -43,9 +43,61 @@
 #include "version.h"
 
 #ifdef CONFIG_SDFAT_SUPPORT_STLOG
+#ifdef CONFIG_PROC_FSLOG
+#include <linux/fslog.h>
+#else
 #include <linux/stlog.h>
+#endif
 #else
 #define ST_LOG(fmt, ...)
+#endif
+
+/*************************************************************************
+ * FUNCTIONS WHICH HAS KERNEL VERSION DEPENDENCY
+ *************************************************************************/
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
+#define CURRENT_TIME_SEC	timespec_trunc(current_kernel_time(), NSEC_PER_SEC)
+#endif
+
+
+#ifdef CONFIG_SDFAT_UEVENT
+static struct kobject sdfat_uevent_kobj;
+
+int sdfat_uevent_init(struct kset *sdfat_kset)
+{
+	int err;
+	struct kobj_type *ktype = get_ktype(&sdfat_kset->kobj);
+
+	sdfat_uevent_kobj.kset = sdfat_kset;
+	err = kobject_init_and_add(&sdfat_uevent_kobj, ktype, NULL, "uevent");
+	if (err)
+		pr_err("[SDFAT] Unable to create sdfat uevent kobj\n");
+
+	return err;
+}
+
+void sdfat_uevent_uninit(void)
+{
+	kobject_del(&sdfat_uevent_kobj);
+	memset(&sdfat_uevent_kobj, 0, sizeof(struct kobject));
+}
+
+void sdfat_uevent_ro_remount(struct super_block *sb)
+{
+	struct block_device *bdev = sb->s_bdev;
+	dev_t bd_dev = bdev ? bdev->bd_dev : 0;
+	
+	char major[16], minor[16];
+	char *envp[] = { major, minor, NULL };
+
+	snprintf(major, sizeof(major), "MAJOR=%d", MAJOR(bd_dev));
+	snprintf(minor, sizeof(minor), "MINOR=%d", MINOR(bd_dev));
+
+	kobject_uevent_env(&sdfat_uevent_kobj, KOBJ_CHANGE, envp);
+
+	ST_LOG("[SDFAT](%s[%d:%d]): Uevent triggered\n",
+			sb->s_id, MAJOR(bd_dev), MINOR(bd_dev));
+}
 #endif
 
 /*
@@ -84,12 +136,14 @@ void __sdfat_fs_error(struct super_block *sb, int report, const char *fmt, ...)
 			sb->s_id, MAJOR(bd_dev), MINOR(bd_dev));
 	} else if (opts->errors == SDFAT_ERRORS_RO && !(sb->s_flags & MS_RDONLY)) {
 		sb->s_flags |= MS_RDONLY;
+		sdfat_statistics_set_mnt_ro();
 		pr_err("[SDFAT](%s[%d:%d]): Filesystem has been set "
 			"read-only\n", sb->s_id, MAJOR(bd_dev), MINOR(bd_dev));
 #ifdef CONFIG_SDFAT_SUPPORT_STLOG
 		ST_LOG("[SDFAT](%s[%d:%d]): Filesystem has been set read-only\n",
 			sb->s_id, MAJOR(bd_dev), MINOR(bd_dev));
 #endif
+		sdfat_uevent_ro_remount(sb);
 	}
 }
 EXPORT_SYMBOL(__sdfat_fs_error);

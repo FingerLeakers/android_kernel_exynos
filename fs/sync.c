@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * High-level sync()-related operations
  */
@@ -8,7 +9,7 @@
 #include <linux/slab.h>
 #include <linux/export.h>
 #include <linux/namei.h>
-#include <linux/sched.h>
+#include <linux/sched/xacct.h>
 #include <linux/writeback.h>
 #include <linux/syscalls.h>
 #include <linux/linkage.h>
@@ -34,6 +35,8 @@
 #else
 #define dbg_print(...)
 #endif
+
+static unsigned long fsync_time_cnt[4];
 
 enum {
 	INTR_SYNC_STATE_IDLE = 0,
@@ -307,7 +310,7 @@ int sync_filesystem(struct super_block *sb)
 	/*
 	 * No point in syncing out anything if the filesystem is read-only.
 	 */
-	if (sb->s_flags & MS_RDONLY)
+	if (sb_rdonly(sb))
 		return 0;
 
 	ret = __sync_filesystem(sb, 0);
@@ -319,13 +322,13 @@ EXPORT_SYMBOL(sync_filesystem);
 
 static void sync_inodes_one_sb(struct super_block *sb, void *arg)
 {
-	if (!(sb->s_flags & MS_RDONLY))
+	if (!sb_rdonly(sb))
 		sync_inodes_sb(sb);
 }
 
 static void sync_fs_one_sb(struct super_block *sb, void *arg)
 {
-	if (!(sb->s_flags & MS_RDONLY) && sb->s_op->sync_fs)
+	if (!sb_rdonly(sb) && sb->s_op->sync_fs)
 		sb->s_op->sync_fs(sb, *(int *)arg);
 }
 
@@ -460,15 +463,39 @@ int vfs_fsync(struct file *file, int datasync)
 }
 EXPORT_SYMBOL(vfs_fsync);
 
+unsigned long read_fsync_time_cnt(int idx)
+{
+	return fsync_time_cnt[idx];
+}
+
+static void inc_fsync_time_cnt(unsigned long end, unsigned long start)
+{
+	unsigned int time = jiffies_to_msecs(end - start);
+	const int FSYNC_TIME_SLOW 	= 1000;
+	const int FSYNC_TIME_ANR 	= 10000;
+	const int FSYNC_TIME_WATCHDOG 	= 30000;
+
+	if (time < FSYNC_TIME_SLOW)
+		fsync_time_cnt[0]++;
+	else if (time < FSYNC_TIME_ANR)
+		fsync_time_cnt[1]++;
+	else if (time < FSYNC_TIME_WATCHDOG)
+		fsync_time_cnt[2]++;
+	else
+		fsync_time_cnt[3]++;
+}
+
 static int do_fsync(unsigned int fd, int datasync)
 {
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
+	unsigned long stamp = jiffies;
 
 	if (f.file) {
 		ret = vfs_fsync(f.file, datasync);
 		fdput(f);
 		inc_syscfs(current);
+		inc_fsync_time_cnt(jiffies, stamp);
 	}
 	return ret;
 }
@@ -586,14 +613,9 @@ SYSCALL_DEFINE4(sync_file_range, int, fd, loff_t, offset, loff_t, nbytes,
 		goto out_put;
 
 	mapping = f.file->f_mapping;
-	if (!mapping) {
-		ret = -EINVAL;
-		goto out_put;
-	}
-
 	ret = 0;
 	if (flags & SYNC_FILE_RANGE_WAIT_BEFORE) {
-		ret = filemap_fdatawait_range(mapping, offset, endbyte);
+		ret = file_fdatawait_range(f.file, offset, endbyte);
 		if (ret < 0)
 			goto out_put;
 	}
@@ -606,7 +628,7 @@ SYSCALL_DEFINE4(sync_file_range, int, fd, loff_t, offset, loff_t, nbytes,
 	}
 
 	if (flags & SYNC_FILE_RANGE_WAIT_AFTER)
-		ret = filemap_fdatawait_range(mapping, offset, endbyte);
+		ret = file_fdatawait_range(f.file, offset, endbyte);
 
 out_put:
 	fdput(f);

@@ -41,6 +41,51 @@ static struct seclog_data ldata;
 static struct seclog_ctx slog_ctx;
 static struct sec_log_info *sec_log[NR_CPUS];
 
+static inline uint32_t exynos_seclog_check_va_validation(uint64_t ptr)
+{
+	uint64_t base = (uint64_t)ldata.virt_addr;
+	uint64_t end = base + ldata.size;
+
+	if (base <= ptr && end > ptr)
+		return 0;
+
+	return -1;
+}
+
+static void exynos_ldfw_error(struct platform_device *pdev,
+				int error)
+{
+	int err_ldfw, i;
+
+	for (i = 0; i < LDFW_MAX_NUM; i++) {
+		err_ldfw = (error >> (BITLEN_LDFW_ERROR * i))
+				& MASK_LDFW_ERROR;
+
+		switch (err_ldfw) {
+		case 0:
+			break;
+		case ERROR_NOT_SUPPORT_LDFW_SEC_LOG:
+			dev_err(&pdev->dev,
+				"[ERROR] LDFW[%d] doesn't support Secure log\n",
+				i);
+			break;
+		case ERROR_LDFW_ALREADY_INITIALIZED:
+			dev_err(&pdev->dev,
+				"[ERROR] LDFW[%d] already initialized Secure log\n",
+				i);
+			break;
+		case ERROR_NOT_SUPPORT_LDFW_ERR_VALUE:
+			dev_err(&pdev->dev,
+				"[ERROR] LDFW[%d] returns unsupported error value\n",
+				i);
+			break;
+		default:
+			dev_err(&pdev->dev,
+				"[ERROR] LDFW[%d] Unknown error value from LDFW [err = %#x]\n",
+				i, err_ldfw);
+		}
+	}
+}
 
 static void *exynos_seclog_request_region(unsigned long addr,
 					unsigned int size)
@@ -54,7 +99,7 @@ static void *exynos_seclog_request_region(unsigned long addr,
 	if (!addr)
 		return NULL;
 
-	pages = kmalloc(sizeof(struct page *) * num_pages, GFP_ATOMIC);
+	pages = kmalloc_array(num_pages, sizeof(struct page *), GFP_ATOMIC);
 	if (!pages)
 		return NULL;
 
@@ -90,6 +135,30 @@ static void exynos_seclog_worker(struct work_struct *work)
 					sec_log[cpu]->log_return_cnt = 0;
 					v_log_addr = SECLOG_PHYS_TO_VIRT(sec_log[cpu]->initial_log_addr);
 				}
+			}
+
+			if (exynos_seclog_check_va_validation((uint64_t)v_log_addr)) {
+				/* v_log_addr is not valid. print debugging info  */
+				pr_err("[SECLOG_ERR C%d] read_cnt[%d]\n",
+						cpu, sec_log[cpu]->log_read_cnt);
+				pr_err("[SECLOG_ERR C%d] write_cnt[%d]\n",
+						cpu, sec_log[cpu]->log_write_cnt);
+				pr_err("[SECLOG_ERR C%d] return_cnt[%d]\n",
+						cpu, sec_log[cpu]->log_return_cnt);
+				pr_err("[SECLOG_ERR C%d] v_log_addr[%#lx]\n",
+						cpu, v_log_addr);
+				pr_err("[SECLOG_ERR C%d] start_log_addr[%#lx]\n",
+						cpu, sec_log[cpu]->start_log_addr);
+				pr_err("[SECLOG_ERR C%d] initial_log_addr[%#lx]\n",
+						cpu, sec_log[cpu]->initial_log_addr);
+				pr_err("[SECLOG_ERR C%d] p_log_addr[%#lx]\n",
+						cpu,
+						v_log_addr
+						- (unsigned long)ldata.virt_addr
+						+ ldata.phys_addr);
+
+				/* make panic for debugging */
+				BUG();
 			}
 
 			/* For debug */
@@ -173,7 +242,7 @@ static int exynos_seclog_probe(struct platform_device *pdev)
 {
 	struct irq_data *seclog_irqd = NULL;
 	irq_hw_number_t hwirq = 0;
-	int err, err_ldfw, i;
+	int err, i;
 
 	/* Translate PA to VA of message buffer */
 	ldata.virt_addr = exynos_seclog_request_region(ldata.phys_addr, ldata.size);
@@ -256,41 +325,7 @@ static int exynos_seclog_probe(struct platform_device *pdev)
 		default:
 			/* Error cases by LDFW */
 			if ((err & MASK_LDFW_MAGIC) == LDFW_MAGIC) {
-				for (i = 0; i < LDFW_MAX_NUM; i++) {
-					err_ldfw = (err >> (BITLEN_LDFW_ERROR * i))
-							& MASK_LDFW_ERROR;
-
-					if (err_ldfw) {
-						switch (err_ldfw) {
-						case ERROR_NOT_SUPPORT_LDFW_SEC_LOG:
-							dev_err(&pdev->dev,
-								"[ERROR] LDFW[%d]"
-								" doesn't support Secure log\n",
-								i);
-							break;
-						case ERROR_LDFW_ALREADY_INITIALIZED:
-							dev_err(&pdev->dev,
-								"[ERROR] LDFW[%d]"
-								" already initialized Secure log\n",
-								i);
-							break;
-						case ERROR_NOT_SUPPORT_LDFW_ERR_VALUE:
-							dev_err(&pdev->dev,
-								"[ERROR] LDFW[%d]"
-								" returns unsupported error value\n",
-								i);
-							break;
-						default:
-							dev_err(&pdev->dev,
-								"[ERROR] LDFW[%d]"
-								" Unknown error value from LDFW "
-								"[err = %#x]\n",
-								i, err_ldfw);
-							break;
-						}
-					}
-				}
-
+				exynos_ldfw_error(pdev, err);
 				goto detect_ldfw_err;
 			} else {
 				dev_err(&pdev->dev,
@@ -312,15 +347,15 @@ detect_ldfw_err:
 	/* Setup virtual address of message buffer of each core */
 	for (i = 0; i < NR_CPUS; i++) {
 		sec_log[i] = (struct sec_log_info *)((unsigned long)ldata.virt_addr
-								+ (MIN_LOG_BUF_LEN * i));
+								+ (SECLOG_LOG_BUF_SIZE * i));
 		dev_dbg(&pdev->dev,
 			"sec_log[C%d]: %#lx\n",
 			i, (unsigned long)sec_log[i]);
 	}
 
 	dev_info(&pdev->dev,
-		"Message buffer address[%#lx], Message buffer size[%#lx]\n",
-		ldata.phys_addr, ldata.size);
+		"Message buffer address[PA : %#lx, VA : %#lx], Message buffer size[%#lx]\n",
+		ldata.phys_addr, ldata.virt_addr, ldata.size);
 	dev_info(&pdev->dev, "Exynos Secure Log driver probe done!\n");
 
 	return 0;

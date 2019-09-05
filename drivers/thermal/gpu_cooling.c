@@ -34,16 +34,6 @@
 #include <soc/samsung/ect_parser.h>
 #include "samsung/exynos_tmu.h"
 
-#if defined(CONFIG_SOC_EXYNOS8895) && defined(CONFIG_SOC_EMULATOR8895)
-#include <dt-bindings/clock/emulator8895.h>
-#elif defined(CONFIG_SOC_EXYNOS8895) && !defined(CONFIG_SOC_EMULATOR8895)
-#include <dt-bindings/clock/exynos8895.h>
-#elif defined(CONFIG_SOC_EXYNOS7872)
-#include <dt-bindings/clock/exynos7872.h>
-#elif defined(CONFIG_SOC_EXYNOS9810)
-#include <dt-bindings/clock/exynos9810.h>
-#endif
-
 /**
  * struct power_table - frequency to power conversion
  * @frequency:	frequency in KHz
@@ -67,7 +57,6 @@ struct power_table {
  *	cooling	devices.
  * @gpufreq_val: integer value representing the absolute value of the clipped
  *	frequency.
- * @allowed_gpus: all the gpus involved for this gpufreq_cooling_device.
  *
  * This structure is required for keeping information of each
  * gpufreq_cooling_device registered. In order to prevent corruption of this a
@@ -81,7 +70,6 @@ struct gpufreq_cooling_device {
 	u32 last_load;
 	struct power_table *dyn_power_table;
 	int dyn_power_table_entries;
-	get_static_t plat_get_static_power;
 	int *var_table;
 	int *var_coeff;
 	int *asv_coeff;
@@ -93,7 +81,7 @@ static DEFINE_IDR(gpufreq_idr);
 static DEFINE_MUTEX(cooling_gpu_lock);
 static BLOCKING_NOTIFIER_HEAD(gpu_notifier);
 
-static unsigned int gpufreq_dev_count;
+static unsigned int gpufreq_cdev_count;
 
 struct cpufreq_frequency_table *gpu_freq_table;
 
@@ -274,11 +262,11 @@ EXPORT_SYMBOL_GPL(gpufreq_cooling_get_freq);
 
 /**
  * build_dyn_power_table() - create a dynamic power to frequency table
- * @gpufreq_device:	the gpufreq cooling device in which to store the table
+ * @gpufreq_cdev:	the gpufreq cooling device in which to store the table
  * @capacitance: dynamic power coefficient for these gpus
  *
  * Build a dynamic power to frequency table for this gpu and store it
- * in @gpufreq_device.  This table will be used in gpu_power_to_freq() and
+ * in @gpufreq_cdev.  This table will be used in gpu_power_to_freq() and
  * gpu_freq_to_power() to convert between power and frequency
  * efficiently.  Power is stored in mW, frequency in KHz.  The
  * resulting table is in ascending order.
@@ -287,7 +275,7 @@ EXPORT_SYMBOL_GPL(gpufreq_cooling_get_freq);
  * -ENOMEM if we run out of memory or -EAGAIN if an OPP was
  * added/enabled while the function was executing.
  */
-static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_device,
+static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_cdev,
 				 u32 capacitance)
 {
 	struct power_table *power_table;
@@ -318,7 +306,7 @@ static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_device,
 		 * Do the multiplication with MHz and millivolt so as
 		 * to not overflow.
 		 */
-		power = (u64)capacitance * freq * voltage_mv * voltage_mv;
+		power = (u64)capacitance * (freq / 1000) * voltage_mv * voltage_mv;
 		do_div(power, 1000000000);
 
 		power_table[i].frequency = (unsigned int)freq;
@@ -328,20 +316,28 @@ static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_device,
 		cnt++;
 	}
 
-	gpufreq_device->dyn_power_table = power_table;
-	gpufreq_device->dyn_power_table_entries = cnt;
+	gpufreq_cdev->dyn_power_table = power_table;
+	gpufreq_cdev->dyn_power_table_entries = cnt;
 
 	return 0;
 }
 
-static int build_static_power_table(struct gpufreq_cooling_device *gpufreq_device)
+static int build_static_power_table(struct device_node *np, struct gpufreq_cooling_device *gpufreq_cdev)
 {
 	int i, j;
-	int ratio = cal_asv_get_ids_info(ACPM_DVFS_G3D);
-	int asv_group = cal_asv_get_grp(ACPM_DVFS_G3D);
+	int ratio = 0, asv_group = 0, cal_id = 0, ret = 0;
 	void *gen_block;
-	struct ect_gen_param_table *volt_temp_param, *asv_param;
+	struct ect_gen_param_table *volt_temp_param = NULL, *asv_param = NULL;
 	int ratio_table[16] = { 0, 25, 29, 35, 41, 48, 57, 67, 79, 94, 110, 130, 151, 162, 162, 162};
+
+	ret = of_property_read_u32(np, "g3d_cmu_cal_id", &cal_id);
+	if (ret) {
+		pr_err("%s: Failed to get cal-id\n", __func__);
+		return -EINVAL;
+	}
+
+	ratio = cal_asv_get_ids_info(cal_id);
+	asv_group = cal_asv_get_grp(cal_id);
 
 	if (asv_group < 0 || asv_group > 15)
 		asv_group = 0;
@@ -359,66 +355,66 @@ static int build_static_power_table(struct gpufreq_cooling_device *gpufreq_devic
 	asv_param = ect_gen_param_get_table(gen_block, "DTM_G3D_ASV");
 
 	if (volt_temp_param && asv_param) {
-		gpufreq_device->var_volt_size = volt_temp_param->num_of_row - 1;
-		gpufreq_device->var_temp_size = volt_temp_param->num_of_col - 1;
+		gpufreq_cdev->var_volt_size = volt_temp_param->num_of_row - 1;
+		gpufreq_cdev->var_temp_size = volt_temp_param->num_of_col - 1;
 
-		gpufreq_device->var_coeff = kzalloc(sizeof(int) *
+		gpufreq_cdev->var_coeff = kzalloc(sizeof(int) *
 							volt_temp_param->num_of_row *
 							volt_temp_param->num_of_col,
 							GFP_KERNEL);
-		if (!gpufreq_device->var_coeff)
+		if (!gpufreq_cdev->var_coeff)
 			goto err_mem;
 
-		gpufreq_device->asv_coeff = kzalloc(sizeof(int) *
+		gpufreq_cdev->asv_coeff = kzalloc(sizeof(int) *
 							asv_param->num_of_row *
 							asv_param->num_of_col,
 							GFP_KERNEL);
-		if (!gpufreq_device->asv_coeff)
+		if (!gpufreq_cdev->asv_coeff)
 			goto free_var_coeff;
 
-		gpufreq_device->var_table = kzalloc(sizeof(int) *
+		gpufreq_cdev->var_table = kzalloc(sizeof(int) *
 							volt_temp_param->num_of_row *
 							volt_temp_param->num_of_col,
 							GFP_KERNEL);
-		if (!gpufreq_device->var_table)
+		if (!gpufreq_cdev->var_table)
 			goto free_asv_coeff;
 
-		memcpy(gpufreq_device->var_coeff, volt_temp_param->parameter,
+		memcpy(gpufreq_cdev->var_coeff, volt_temp_param->parameter,
 			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
-		memcpy(gpufreq_device->asv_coeff, asv_param->parameter,
+		memcpy(gpufreq_cdev->asv_coeff, asv_param->parameter,
 			sizeof(int) * asv_param->num_of_row * asv_param->num_of_col);
-		memcpy(gpufreq_device->var_table, volt_temp_param->parameter,
+		memcpy(gpufreq_cdev->var_table, volt_temp_param->parameter,
 			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
 	} else {
 		pr_err("%s: Failed to get param table from ECT\n", __func__);
 		return -EINVAL;
 	}
 
-	for (i = 1; i <= gpufreq_device->var_volt_size; i++) {
-		long asv_coeff = (long)gpufreq_device->asv_coeff[3 * i + 0] * asv_group * asv_group
-				+ (long)gpufreq_device->asv_coeff[3 * i + 1] * asv_group
-				+ (long)gpufreq_device->asv_coeff[3 * i + 2];
+	for (i = 1; i <= gpufreq_cdev->var_volt_size; i++) {
+		long asv_coeff = (long)gpufreq_cdev->asv_coeff[3 * i + 0] * asv_group * asv_group
+				+ (long)gpufreq_cdev->asv_coeff[3 * i + 1] * asv_group
+				+ (long)gpufreq_cdev->asv_coeff[3 * i + 2];
 		asv_coeff = asv_coeff / 100;
 
-		for (j = 1; j <= gpufreq_device->var_temp_size; j++) {
-			long var_coeff = (long)gpufreq_device->var_coeff[i * (gpufreq_device->var_temp_size + 1) + j];
+		for (j = 1; j <= gpufreq_cdev->var_temp_size; j++) {
+			long var_coeff = (long)gpufreq_cdev->var_coeff[i * (gpufreq_cdev->var_temp_size + 1) + j];
 			var_coeff =  ratio * var_coeff * asv_coeff;
 			var_coeff = var_coeff / 100000;
-			gpufreq_device->var_table[i * (gpufreq_device->var_temp_size + 1) + j] = (int)var_coeff;
+			gpufreq_cdev->var_table[i * (gpufreq_cdev->var_temp_size + 1) + j] = (int)var_coeff;
 		}
 	}
 
 	return 0;
 
 free_asv_coeff:
-	kfree(gpufreq_device->asv_coeff);
+	kfree(gpufreq_cdev->asv_coeff);
 free_var_coeff:
-	kfree(gpufreq_device->var_coeff);
+	kfree(gpufreq_cdev->var_coeff);
 err_mem:
 	return -ENOMEM;
 }
 
-static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_device,
+static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_cdev,
 		unsigned long voltage, int temperature, u32 *power)
 {
 	int volt_index = 0, temp_index = 0;
@@ -427,8 +423,8 @@ static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_device,
 	voltage = voltage / 1000;
 	temperature  = temperature / 1000;
 
-	for (volt_index = 0; volt_index <= gpufreq_device->var_volt_size; volt_index++) {
-		if (voltage < gpufreq_device->var_table[volt_index * ((int)gpufreq_device->var_temp_size + 1)]) {
+	for (volt_index = 0; volt_index <= gpufreq_cdev->var_volt_size; volt_index++) {
+		if (voltage < gpufreq_cdev->var_table[volt_index * ((int)gpufreq_cdev->var_temp_size + 1)]) {
 			volt_index = volt_index - 1;
 			break;
 		}
@@ -437,11 +433,11 @@ static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_device,
 	if (volt_index == 0)
 		volt_index = 1;
 
-	if (volt_index > gpufreq_device->var_volt_size)
-		volt_index = gpufreq_device->var_volt_size;
+	if (volt_index > gpufreq_cdev->var_volt_size)
+		volt_index = gpufreq_cdev->var_volt_size;
 
-	for (temp_index = 0; temp_index <= gpufreq_device->var_temp_size; temp_index++) {
-		if (temperature < gpufreq_device->var_table[temp_index]) {
+	for (temp_index = 0; temp_index <= gpufreq_cdev->var_temp_size; temp_index++) {
+		if (temperature < gpufreq_cdev->var_table[temp_index]) {
 			temp_index = temp_index - 1;
 			break;
 		}
@@ -450,35 +446,35 @@ static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_device,
 	if (temp_index == 0)
 		temp_index = 1;
 
-	if (temp_index > gpufreq_device->var_temp_size)
-		temp_index = gpufreq_device->var_temp_size;
+	if (temp_index > gpufreq_cdev->var_temp_size)
+		temp_index = gpufreq_cdev->var_temp_size;
 
-	index = (int)(volt_index * (gpufreq_device->var_temp_size + 1) + temp_index);
-	*power = (unsigned int)gpufreq_device->var_table[index];
+	index = (int)(volt_index * (gpufreq_cdev->var_temp_size + 1) + temp_index);
+	*power = (unsigned int)gpufreq_cdev->var_table[index];
 
 	return 0;
 }
 
-static u32 gpu_freq_to_power(struct gpufreq_cooling_device *gpufreq_device,
+static u32 gpu_freq_to_power(struct gpufreq_cooling_device *gpufreq_cdev,
 			     u32 freq)
 {
 	int i;
-	struct power_table *pt = gpufreq_device->dyn_power_table;
+	struct power_table *pt = gpufreq_cdev->dyn_power_table;
 
-	for (i = 1; i < gpufreq_device->dyn_power_table_entries; i++)
+	for (i = 1; i < gpufreq_cdev->dyn_power_table_entries; i++)
 		if (freq < pt[i].frequency)
 			break;
 
 	return pt[i - 1].power;
 }
 
-static u32 gpu_power_to_freq(struct gpufreq_cooling_device *gpufreq_device,
+static u32 gpu_power_to_freq(struct gpufreq_cooling_device *gpufreq_cdev,
 			     u32 power)
 {
 	int i;
-	struct power_table *pt = gpufreq_device->dyn_power_table;
+	struct power_table *pt = gpufreq_cdev->dyn_power_table;
 
-	for (i = 1; i < gpufreq_device->dyn_power_table_entries; i++)
+	for (i = 1; i < gpufreq_cdev->dyn_power_table_entries; i++)
 		if (power < pt[i].power)
 			break;
 
@@ -487,7 +483,7 @@ static u32 gpu_power_to_freq(struct gpufreq_cooling_device *gpufreq_device,
 
 /**
  * get_static_power() - calculate the static power consumed by the gpus
- * @gpufreq_device:	struct &gpufreq_cooling_device for this gpu cdev
+ * @gpufreq_cdev:	struct &gpufreq_cooling_device for this gpu cdev
  * @tz:		thermal zone device in which we're operating
  * @freq:	frequency in KHz
  * @power:	pointer in which to store the calculated static power
@@ -500,13 +496,13 @@ static u32 gpu_power_to_freq(struct gpufreq_cooling_device *gpufreq_device,
  *
  * Return: 0 on success, -E* on failure.
  */
-static int get_static_power(struct gpufreq_cooling_device *gpufreq_device,
+static int get_static_power(struct gpufreq_cooling_device *gpufreq_cdev,
 			    struct thermal_zone_device *tz, unsigned long freq,
 			    u32 *power)
 {
 	unsigned long voltage;
 
-	if (freq == 0) {
+	if (!freq) {
 		*power = 0;
 		return 0;
 	}
@@ -518,29 +514,29 @@ static int get_static_power(struct gpufreq_cooling_device *gpufreq_device,
 		return -EINVAL;
 	}
 
-	return lookup_static_power(gpufreq_device, voltage, tz->temperature, power);
+	return lookup_static_power(gpufreq_cdev, voltage, tz->temperature, power);
 }
 
 /**
  * get_dynamic_power() - calculate the dynamic power
- * @gpufreq_device:	&gpufreq_cooling_device for this cdev
+ * @gpufreq_cdev:	&gpufreq_cooling_device for this cdev
  * @freq:	current frequency
  *
  * Return: the dynamic power consumed by the gpus described by
- * @gpufreq_device.
+ * @gpufreq_cdev.
  */
-static u32 get_dynamic_power(struct gpufreq_cooling_device *gpufreq_device,
+static u32 get_dynamic_power(struct gpufreq_cooling_device *gpufreq_cdev,
 			     unsigned long freq)
 {
 	u32 raw_gpu_power;
 
-	raw_gpu_power = gpu_freq_to_power(gpufreq_device, freq);
-	return (raw_gpu_power * gpufreq_device->last_load) / 100;
+	raw_gpu_power = gpu_freq_to_power(gpufreq_cdev, freq);
+	return (raw_gpu_power * gpufreq_cdev->last_load) / 100;
 }
 
 /**
  * gpufreq_apply_cooling - function to apply frequency clipping.
- * @gpufreq_device: gpufreq_cooling_device pointer containing frequency
+ * @gpufreq_cdev: gpufreq_cooling_device pointer containing frequency
  *	clipping data.
  * @cooling_state: value of the cooling state.
  *
@@ -550,25 +546,24 @@ static u32 get_dynamic_power(struct gpufreq_cooling_device *gpufreq_device,
  * Return: 0 on success, an error code otherwise (-EINVAL in case wrong
  * cooling state).
  */
-static int gpufreq_apply_cooling(struct gpufreq_cooling_device *gpufreq_device,
+static int gpufreq_apply_cooling(struct gpufreq_cooling_device *gpufreq_cdev,
 				 unsigned long cooling_state)
 {
 	unsigned int gpu_cooling_freq = 0;
 
 	/* Check if the old cooling action is same as new cooling action */
-	if (gpufreq_device->gpufreq_state == cooling_state)
+	if (gpufreq_cdev->gpufreq_state == cooling_state)
 		return 0;
 
-	gpufreq_device->gpufreq_state = cooling_state;
+	gpufreq_cdev->gpufreq_state = cooling_state;
 
-	gpu_cooling_freq = gpufreq_cooling_get_freq(0, gpufreq_device->gpufreq_state);
+	gpu_cooling_freq = gpufreq_cooling_get_freq(0, gpufreq_cdev->gpufreq_state);
 	if (gpu_cooling_freq == THERMAL_CFREQ_INVALID) {
 		pr_warn("Failed to convert %lu gpu_level\n",
-				     gpufreq_device->gpufreq_state);
+				     gpufreq_cdev->gpufreq_state);
 		return -EINVAL;
 	}
 
-	gpu_cooling_freq = gpu_cooling_freq / 1000;
 	blocking_notifier_call_chain(&gpu_notifier, GPU_THROTTLING, &gpu_cooling_freq);
 
 	return 0;
@@ -613,9 +608,9 @@ static int gpufreq_get_max_state(struct thermal_cooling_device *cdev,
 static int gpufreq_get_cur_state(struct thermal_cooling_device *cdev,
 				 unsigned long *state)
 {
-	struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+	struct gpufreq_cooling_device *gpufreq_cdev = cdev->devdata;
 
-	*state = gpufreq_device->gpufreq_state;
+	*state = gpufreq_cdev->gpufreq_state;
 
 	return 0;
 }
@@ -633,9 +628,9 @@ static int gpufreq_get_cur_state(struct thermal_cooling_device *cdev,
 static int gpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 				 unsigned long state)
 {
-	struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+	struct gpufreq_cooling_device *gpufreq_cdev = cdev->devdata;
 
-	return gpufreq_apply_cooling(gpufreq_device, state);
+	return gpufreq_apply_cooling(gpufreq_cdev, state);
 }
 
 static int exynos_gpufreq_cooling_get_level(struct thermal_cooling_device *cdev,
@@ -698,17 +693,17 @@ static int gpufreq_get_requested_power(struct thermal_cooling_device *cdev,
 	unsigned long freq;
 	int ret = 0;
 	u32 static_power, dynamic_power;
-	struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+	struct gpufreq_cooling_device *gpufreq_cdev = cdev->devdata;
 	u32 load_gpu = 0;
 
 	freq = gpu_dvfs_get_cur_clock();
 
 	load_gpu = gpu_dvfs_get_utilization();;
 
-	gpufreq_device->last_load = load_gpu;
+	gpufreq_cdev->last_load = load_gpu;
 
-	dynamic_power = get_dynamic_power(gpufreq_device, freq);
-	ret = get_static_power(gpufreq_device, tz, freq, &static_power);
+	dynamic_power = get_dynamic_power(gpufreq_cdev, freq);
+	ret = get_static_power(gpufreq_cdev, tz, freq, &static_power);
 
 	if (ret)
 		return ret;
@@ -744,14 +739,14 @@ static int gpufreq_state2power(struct thermal_cooling_device *cdev,
 	unsigned int freq;
 	u32 static_power, dynamic_power;
 	int ret;
-	struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+	struct gpufreq_cooling_device *gpufreq_cdev = cdev->devdata;
 
-	freq = gpu_freq_table[state].frequency / 1000;
+	freq = gpu_freq_table[state].frequency;
 	if (!freq)
 		return -EINVAL;
 
-	dynamic_power = gpu_freq_to_power(gpufreq_device, freq);
-	ret = get_static_power(gpufreq_device, tz, freq, &static_power);
+	dynamic_power = gpu_freq_to_power(gpufreq_cdev, freq);
+	ret = get_static_power(gpufreq_cdev, tz, freq, &static_power);
 	if (ret)
 		return ret;
 
@@ -787,18 +782,18 @@ static int gpufreq_power2state(struct thermal_cooling_device *cdev,
 	int ret;
 	s32 dyn_power;
 	u32 static_power;
-	struct gpufreq_cooling_device *gpufreq_device = cdev->devdata;
+	struct gpufreq_cooling_device *gpufreq_cdev = cdev->devdata;
 
 	cur_freq = gpu_dvfs_get_cur_clock();
-	ret = get_static_power(gpufreq_device, tz, cur_freq, &static_power);
+	ret = get_static_power(gpufreq_cdev, tz, cur_freq, &static_power);
 	if (ret)
 		return ret;
 
 	dyn_power = power - static_power;
 	dyn_power = dyn_power > 0 ? dyn_power : 0;
-	target_freq = gpu_power_to_freq(gpufreq_device, dyn_power);
+	target_freq = gpu_power_to_freq(gpufreq_cdev, dyn_power);
 
-	*state = gpufreq_cooling_get_level(0, target_freq * 1000);
+	*state = gpufreq_cooling_get_level(0, target_freq);
 	if (*state == THERMAL_CSTATE_INVALID) {
 		pr_warn("Failed to convert %dKHz for gpu into a cdev state\n",
 				     target_freq);
@@ -818,7 +813,6 @@ static struct thermal_cooling_device_ops gpufreq_cooling_ops = {
 	.get_cooling_level = exynos_gpufreq_cooling_get_level,
 };
 
-
 int exynos_gpu_add_notifier(struct notifier_block *n)
 {
 	return blocking_notifier_chain_register(&gpu_notifier, n);
@@ -829,8 +823,6 @@ int exynos_gpu_add_notifier(struct notifier_block *n)
  * @np: a valid struct device_node to the cooling device device tree node
  * @clip_gpus: gpumask of gpus where the frequency constraints will happen.
  * @capacitance: dynamic power coefficient for these gpus
- * @plat_static_func: function to calculate the static power consumed by these
- *                    gpus (optional)
  *
  * This interface function registers the gpufreq cooling device with the name
  * "thermal-gpufreq-%x". This api can support multiple instances of gpufreq
@@ -842,22 +834,21 @@ int exynos_gpu_add_notifier(struct notifier_block *n)
  */
 static struct thermal_cooling_device *
 __gpufreq_cooling_register(struct device_node *np,
-			   const struct cpumask *clip_gpus, u32 capacitance,
-			   get_static_t plat_static_func)
+			   const struct cpumask *clip_gpus, u32 capacitance)
 {
 	struct thermal_cooling_device *cool_dev;
-	struct gpufreq_cooling_device *gpufreq_dev = NULL;
+	struct gpufreq_cooling_device *gpufreq_cdev = NULL;
 	char dev_name[THERMAL_NAME_LENGTH];
 	int ret = 0;
 
-	gpufreq_dev = kzalloc(sizeof(struct gpufreq_cooling_device),
+	gpufreq_cdev = kzalloc(sizeof(struct gpufreq_cooling_device),
 			      GFP_KERNEL);
-	if (!gpufreq_dev)
+	if (!gpufreq_cdev)
 		return ERR_PTR(-ENOMEM);
 
-	ret = get_idr(&gpufreq_idr, &gpufreq_dev->id);
+	ret = get_idr(&gpufreq_idr, &gpufreq_cdev->id);
 	if (ret) {
-		kfree(gpufreq_dev);
+		kfree(gpufreq_cdev);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -867,31 +858,31 @@ __gpufreq_cooling_register(struct device_node *np,
 		gpufreq_cooling_ops.state2power = gpufreq_state2power;
 		gpufreq_cooling_ops.power2state = gpufreq_power2state;
 
-		ret = build_dyn_power_table(gpufreq_dev, capacitance);
+		ret = build_dyn_power_table(gpufreq_cdev, capacitance);
 
 		if (ret)
 			return ERR_PTR(ret);
 
-		ret = build_static_power_table(gpufreq_dev);
+		ret = build_static_power_table(np, gpufreq_cdev);
 		if (ret)
 			return ERR_PTR(ret);
 	}
 
 	snprintf(dev_name, sizeof(dev_name), "thermal-gpufreq-%d",
-		 gpufreq_dev->id);
+		 gpufreq_cdev->id);
 
-	cool_dev = thermal_of_cooling_device_register(np, dev_name, gpufreq_dev,
+	cool_dev = thermal_of_cooling_device_register(np, dev_name, gpufreq_cdev,
 						      &gpufreq_cooling_ops);
 	if (IS_ERR(cool_dev)) {
-		release_idr(&gpufreq_idr, gpufreq_dev->id);
-		kfree(gpufreq_dev);
+		release_idr(&gpufreq_idr, gpufreq_cdev->id);
+		kfree(gpufreq_cdev);
 		return cool_dev;
 	}
-	gpufreq_dev->cool_dev = cool_dev;
-	gpufreq_dev->gpufreq_state = 0;
+	gpufreq_cdev->cool_dev = cool_dev;
+	gpufreq_cdev->gpufreq_state = 0;
 	mutex_lock(&cooling_gpu_lock);
 
-	gpufreq_dev_count++;
+	gpufreq_cdev_count++;
 
 	mutex_unlock(&cooling_gpu_lock);
 
@@ -912,7 +903,7 @@ __gpufreq_cooling_register(struct device_node *np,
 struct thermal_cooling_device *
 gpufreq_cooling_register(const struct cpumask *clip_gpus)
 {
-	return __gpufreq_cooling_register(NULL, clip_gpus, 0, NULL);
+	return __gpufreq_cooling_register(NULL, clip_gpus, 0);
 }
 EXPORT_SYMBOL_GPL(gpufreq_cooling_register);
 
@@ -936,7 +927,7 @@ of_gpufreq_cooling_register(struct device_node *np,
 	if (!np)
 		return ERR_PTR(-EINVAL);
 
-	return __gpufreq_cooling_register(np, clip_gpus, 0, NULL);
+	return __gpufreq_cooling_register(np, clip_gpus, 0);
 }
 EXPORT_SYMBOL_GPL(of_gpufreq_cooling_register);
 
@@ -944,8 +935,6 @@ EXPORT_SYMBOL_GPL(of_gpufreq_cooling_register);
  * gpufreq_power_cooling_register() - create gpufreq cooling device with power extensions
  * @clip_gpus:	gpumask of gpus where the frequency constraints will happen
  * @capacitance:	dynamic power coefficient for these gpus
- * @plat_static_func:	function to calculate the static power consumed by these
- *			gpus (optional)
  *
  * This interface function registers the gpufreq cooling device with
  * the name "thermal-gpufreq-%x".  This api can support multiple
@@ -954,19 +943,13 @@ EXPORT_SYMBOL_GPL(of_gpufreq_cooling_register);
  * simple gpu power model.  The gpus must have registered their OPPs
  * using the OPP library.
  *
- * An optional @plat_static_func may be provided to calculate the
- * static power consumed by these gpus.  If the platform's static
- * power consumption is unknown or negligible, make it NULL.
- *
  * Return: a valid struct thermal_cooling_device pointer on success,
  * on failure, it returns a corresponding ERR_PTR().
  */
 struct thermal_cooling_device *
-gpufreq_power_cooling_register(const struct cpumask *clip_gpus, u32 capacitance,
-			       get_static_t plat_static_func)
+gpufreq_power_cooling_register(const struct cpumask *clip_gpus, u32 capacitance)
 {
-	return __gpufreq_cooling_register(NULL, clip_gpus, capacitance,
-				plat_static_func);
+	return __gpufreq_cooling_register(NULL, clip_gpus, capacitance);
 }
 EXPORT_SYMBOL(gpufreq_power_cooling_register);
 
@@ -975,8 +958,6 @@ EXPORT_SYMBOL(gpufreq_power_cooling_register);
  * @np:	a valid struct device_node to the cooling device device tree node
  * @clip_gpus:	gpumask of gpus where the frequency constraints will happen
  * @capacitance:	dynamic power coefficient for these gpus
- * @plat_static_func:	function to calculate the static power consumed by these
- *			gpus (optional)
  *
  * This interface function registers the gpufreq cooling device with
  * the name "thermal-gpufreq-%x".  This api can support multiple
@@ -986,27 +967,20 @@ EXPORT_SYMBOL(gpufreq_power_cooling_register);
  * extensions by using a simple gpu power model.  The gpus must have
  * registered their OPPs using the OPP library.
  *
- * An optional @plat_static_func may be provided to calculate the
- * static power consumed by these gpus.  If the platform's static
- * power consumption is unknown or negligible, make it NULL.
- *
  * Return: a valid struct thermal_cooling_device pointer on success,
  * on failure, it returns a corresponding ERR_PTR().
  */
 struct thermal_cooling_device *
 of_gpufreq_power_cooling_register(struct device_node *np,
 				  const struct cpumask *clip_gpus,
-				  u32 capacitance,
-				  get_static_t plat_static_func)
+				  u32 capacitance)
 {
 	if (!np)
 		return ERR_PTR(-EINVAL);
 
-	return __gpufreq_cooling_register(np, clip_gpus, capacitance,
-				plat_static_func);
+	return __gpufreq_cooling_register(np, clip_gpus, capacitance);
 }
 EXPORT_SYMBOL(of_gpufreq_power_cooling_register);
-
 
 /**
  * gpufreq_cooling_unregister - function to remove gpufreq cooling device.
@@ -1016,19 +990,19 @@ EXPORT_SYMBOL(of_gpufreq_power_cooling_register);
  */
 void gpufreq_cooling_unregister(struct thermal_cooling_device *cdev)
 {
-	struct gpufreq_cooling_device *gpufreq_dev;
+	struct gpufreq_cooling_device *gpufreq_cdev;
 
 	if (!cdev)
 		return;
 
-	gpufreq_dev = cdev->devdata;
+	gpufreq_cdev = cdev->devdata;
 	mutex_lock(&cooling_gpu_lock);
-	gpufreq_dev_count--;
+	gpufreq_cdev_count--;
 	mutex_unlock(&cooling_gpu_lock);
 
-	thermal_cooling_device_unregister(gpufreq_dev->cool_dev);
-	release_idr(&gpufreq_idr, gpufreq_dev->id);
-	kfree(gpufreq_dev);
+	thermal_cooling_device_unregister(gpufreq_cdev->cool_dev);
+	release_idr(&gpufreq_idr, gpufreq_cdev->id);
+	kfree(gpufreq_cdev);
 }
 EXPORT_SYMBOL_GPL(gpufreq_cooling_unregister);
 
@@ -1066,7 +1040,7 @@ static int gpu_cooling_table_init(void)
 
 		gpu_freq_table[count].flags = 0;
 		gpu_freq_table[count].driver_data = count;
-		gpu_freq_table[count].frequency = (unsigned int)freq * 1000;
+		gpu_freq_table[count].frequency = (unsigned int)freq;
 
 		pr_info("[GPU cooling] index : %d, frequency : %d\n",
 			gpu_freq_table[count].driver_data, gpu_freq_table[count].frequency);
@@ -1123,7 +1097,7 @@ static int __init exynos_gpu_cooling_init(void)
 	}
 
 regist:
-	dev = __gpufreq_cooling_register(np, NULL, capacitance, NULL);
+	dev = __gpufreq_cooling_register(np, NULL, capacitance);
 
 	if (IS_ERR(dev)) {
 		pr_err("Fail to register gpufreq cooling\n");

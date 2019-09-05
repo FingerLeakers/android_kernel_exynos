@@ -65,7 +65,6 @@
 
 /* define supported aperture level */
 #define ROM_SUPPORT_APERTURE_F2	// Second step of aperture.
-#define ROM_SUPPORT_APERTURE_F3	// Third step of aperture.
 
 /* Tele sensor crop shift and OIS calibration will be applied instead of this feature in this project */
 /* #define OIS_CENTERING_SHIFT_ENABLE */
@@ -92,5 +91,7 @@
 #endif
 
 #define USE_BUCK2_REGULATOR_CONTROL
+
+#define LEDS_S2MPB02_ADAPTIVE_MOVIE_CURRENT 140
 
 #endif /* FIMC_IS_VENDOR_CONFIG_DNS_V01_H */

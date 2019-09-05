@@ -65,12 +65,6 @@ static bool mptcp_is_temp_unavailable(struct sock *sk,
 			return true;
 	}
 
-	/* If TSQ is already throttling us, do not send on this subflow. When
-	 * TSQ gets cleared the subflow becomes eligible again.
-	 */
-	if (test_bit(TSQ_THROTTLED, &tp->tsq_flags))
-		return true;
-
 	in_flight = tcp_packets_in_flight(tp);
 	/* Not even a single spot in the cwnd */
 	if (in_flight >= tp->snd_cwnd)
@@ -223,7 +217,7 @@ struct sock *get_available_subflow(struct sock *meta_sk, struct sk_buff *skb,
 {
 	struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct sock *sk;
-	bool force;
+	bool looping = false, force;
 
 	/* if there is only one subflow, bypass the scheduling function */
 	if (mpcb->cnt_subflows == 1) {
@@ -244,6 +238,7 @@ struct sock *get_available_subflow(struct sock *meta_sk, struct sk_buff *skb,
 	}
 
 	/* Find the best subflow */
+restart:
 	sk = get_subflow_from_selectors(mpcb, skb, &subflow_is_active,
 					zero_wnd_test, &force);
 	if (force)
@@ -254,7 +249,7 @@ struct sock *get_available_subflow(struct sock *meta_sk, struct sk_buff *skb,
 
 	sk = get_subflow_from_selectors(mpcb, skb, &subflow_is_backup,
 					zero_wnd_test, &force);
-	if (!force && skb)
+	if (!force && skb) {
 		/* one used backup sk or one NULL sk where there is no one
 		 * temporally unavailable unused backup sk
 		 *
@@ -262,6 +257,12 @@ struct sock *get_available_subflow(struct sock *meta_sk, struct sk_buff *skb,
 		 * sks, so clean the path mask
 		 */
 		TCP_SKB_CB(skb)->path_mask = 0;
+
+		if (!looping) {
+			looping = true;
+			goto restart;
+		}
+	}
 	return sk;
 }
 EXPORT_SYMBOL_GPL(get_available_subflow);
@@ -292,7 +293,7 @@ static struct sk_buff *mptcp_rcv_buf_optimization(struct sock *sk, int penal)
 		goto retrans;
 
 	/* Only penalize again after an RTT has elapsed */
-	if (tcp_time_stamp - dsp->last_rbuf_opti < usecs_to_jiffies(tp->srtt_us >> 3))
+	if (tcp_jiffies32 - dsp->last_rbuf_opti < usecs_to_jiffies(tp->srtt_us >> 3))
 		goto retrans;
 
 	/* Half the cwnd of the slow flow */
@@ -308,7 +309,7 @@ static struct sk_buff *mptcp_rcv_buf_optimization(struct sock *sk, int penal)
 				if (prior_cwnd >= tp_it->snd_ssthresh)
 					tp_it->snd_ssthresh = max(tp_it->snd_ssthresh >> 1U, 2U);
 
-				dsp->last_rbuf_opti = tcp_time_stamp;
+				dsp->last_rbuf_opti = tcp_jiffies32;
 			}
 			break;
 		}
@@ -453,7 +454,7 @@ static void defsched_init(struct sock *sk)
 {
 	struct defsched_priv *dsp = defsched_get_priv(tcp_sk(sk));
 
-	dsp->last_rbuf_opti = tcp_time_stamp;
+	dsp->last_rbuf_opti = tcp_jiffies32;
 }
 
 struct mptcp_sched_ops mptcp_sched_default = {

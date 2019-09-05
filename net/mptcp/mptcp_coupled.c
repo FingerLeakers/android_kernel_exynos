@@ -64,7 +64,7 @@ static inline void mptcp_set_alpha(const struct sock *meta_sk, u64 alpha)
 
 static inline u64 mptcp_ccc_scale(u32 val, int scale)
 {
-	return (u64)val << scale;
+	return (u64) val << scale;
 }
 
 static inline bool mptcp_get_forced(const struct sock *meta_sk)
@@ -216,8 +216,8 @@ static void mptcp_ccc_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		if (unlikely(!alpha))
 			alpha = 1;
 
-		snd_cwnd = (int)div_u64((u64)mptcp_ccc_scale(1, alpha_scale),
-					alpha);
+		snd_cwnd = (int) div_u64 ((u64) mptcp_ccc_scale(1, alpha_scale),
+						alpha);
 
 		/* snd_cwnd_cnt >= max (scale * tot_cwnd / alpha, cwnd)
 		 * Thus, we select here the max value.
@@ -244,6 +244,7 @@ static struct tcp_congestion_ops mptcp_ccc = {
 	.init		= mptcp_ccc_init,
 	.ssthresh	= tcp_reno_ssthresh,
 	.cong_avoid	= mptcp_ccc_cong_avoid,
+	.undo_cwnd	= tcp_reno_undo_cwnd,
 	.cwnd_event	= mptcp_ccc_cwnd_event,
 	.set_state	= mptcp_ccc_set_state,
 	.owner		= THIS_MODULE,

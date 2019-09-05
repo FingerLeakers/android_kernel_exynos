@@ -981,6 +981,9 @@
 	snps,elastic_buf_mode_quirk;
 	usb3-lpm-capable;
 	snps,usb3_lpm_capable;
+	snps,has-lpm-erratum;
+	snps,lpm-nyet-threshold = <0>;
+	adj-sof-accuracy = <1>;
 	/*
 	 * dis-u2-freeclk-exists-quirk, dis_u2_susphy_quirk are alternative.
 	 * One of them should be selected
@@ -1069,7 +1072,7 @@
 		smpl_warn_vth = <0x80>;
 		/* LowBat_Hys[4:3] 00(100mV), 01(200mV), 10(300mV), 11(400mV) */
 		smpl_warn_hys = <0x00>;
-		ocp_warn1_en = <0>; /* 1 : enable, 0 : disable */
+		ocp_warn1_en = <1>; /* 1 : enable, 0 : disable */
 		ocp_warn1_cnt = <0>; /* ocp warn reset timing control, 0 : 2 clock, 1 : 32 clock */
 		ocp_warn1_dvs_mask = <0>; /* ocp warn mask when dvs, 0 : not masked, 1 : masked  */
 		ocp_warn1_lv = <0x0>; /* step : -250mA */
@@ -1466,6 +1469,7 @@
 		ocp_warn3_cnt = <0>; /* ocp warn reset timing control, 0 : 2 clock, 1 : 32 clock */
 		ocp_warn3_dvs_mask = <0>; /* ocp warn mask when dvs, 0 : not masked, 1 : masked  */
 		ocp_warn3_lv = <0x0>; /* step : -250mA */
+		buck1s_pwm = <1>; /* 1 : BUCK1S PWM mode, 0 or Not defined : not configured */
 
 		regulators {
 			s_buck1_reg: BUCK1S {
@@ -2095,11 +2099,3 @@ expander_reset_active: expander_reset_active {
 	use-msi = "false";
 };
 
-&displayport {
-	status = "okay";
-	dp,aux_sw_oe = <&expander_gpios 4 0>;
-	dp,sbu_sw_sel = <&expander_gpios 1 0>;
-	dp,usb_con_sel = <&gpg0 4 0>;
-
-	pinctrl-names = "default";
-};

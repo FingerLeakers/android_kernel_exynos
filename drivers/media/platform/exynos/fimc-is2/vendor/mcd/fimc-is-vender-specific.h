@@ -22,10 +22,12 @@
 #include "fimc-is-pmic.h"
 #endif
 
+#if !defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
 typedef enum FRomPowersource{
     FROM_POWER_SOURCE_REAR	= 0,  /*wide*/
-    FROM_POWER_SOURCE_REAR_SECOND /*tele*/
+    FROM_POWER_SOURCE_REAR_SECOND  /*tele*/
 } FRomPowersource;
+#endif
 
 /* #define USE_ION_ALLOC */
 #define FIMC_IS_COMPANION_CRC_SIZE	4
@@ -60,37 +62,30 @@ struct fimc_is_vender_specific {
 #ifdef USE_ION_ALLOC
 	struct ion_client	*fimc_ion_client;
 #endif
-	struct mutex		spi_lock;
-#ifdef CONFIG_COMPANION_DCDC_USE
-	struct dcdc_power	companion_dcdc;
-#endif
+	struct mutex		rom_lock;
+	struct mutex		hw_init_lock;
 #ifdef CONFIG_OIS_USE
 	bool			ois_ver_read;
 #endif /* CONFIG_OIS_USE */
 
-	struct i2c_client	*eeprom_client0;
-	struct i2c_client	*eeprom_client1;
-
-	bool			running_rear_camera;
-	bool			running_front_camera;
-	bool			running_rear_second_camera;
-
-	char			*comp_int_pin; /* Companion PAF INT */
-	char			*comp_int_pinctrl;
-	u8			standby_state;
-	struct fimc_is_companion_retention	retention_data;
+	struct i2c_client	*eeprom_client[ROM_ID_MAX];
+	bool		rom_valid[ROM_ID_MAX];
 
 	/* dt */
 	u32			rear_sensor_id;
 	u32			front_sensor_id;
-	u32			rear_second_sensor_id;
-#ifdef CONFIG_SECURE_CAMERA_USE
+	u32			rear2_sensor_id;
+	u32			front2_sensor_id;
+	u32			rear3_sensor_id;
+	u32			rear_tof_sensor_id;
+	u32			front_tof_sensor_id;
+#ifdef SECURE_CAMERA_IRIS
 	u32			secure_sensor_id;
 #endif
 	u32			ois_sensor_index;
+	u32			mcu_sensor_index;
 	u32			aperture_sensor_index;
 	bool			check_sensor_vendor;
-	bool			skip_cal_loading;
 	bool			use_ois_hsi2c;
 	bool			use_ois;
 	bool			use_module_check;
@@ -98,7 +93,12 @@ struct fimc_is_vender_specific {
 	bool			suspend_resume_disable;
 	bool			need_cold_reset;
 	bool			zoom_running;
+	int32_t			rear_tof_uid[TOF_CAL_UID_MAX];
+	int32_t			front_tof_uid[TOF_CAL_UID_MAX];
+
+#if !defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
 	FRomPowersource		f_rom_power;
+#endif
 };
 
 #endif

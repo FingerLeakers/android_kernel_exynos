@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * ld script to make ARM Linux kernel
  * taken from the i386 version by Russell King
@@ -60,7 +61,7 @@ jiffies = jiffies_64;
 #define TRAMP_TEXT					\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_start) = .;	\
-	*(.entry.tramp.text)				\
+	KEEP(*(.entry.tramp.text))			\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_end) = .;
 #else
@@ -83,22 +84,6 @@ PECOFF_FILE_ALIGNMENT = 0x200;
 #define PECOFF_EDATA_PADDING
 #endif
 
-#if defined(CONFIG_DEBUG_ALIGN_RODATA)
-/*
- *  4 KB granule:   1 level 2 entry
- * 16 KB granule: 128 level 3 entries, with contiguous bit
- * 64 KB granule:  32 level 3 entries, with contiguous bit
- */
-#define SEGMENT_ALIGN			SZ_2M
-#else
-/*
- *  4 KB granule:  16 level 3 entries, with contiguous bit
- * 16 KB granule:   4 level 3 entries, without contiguous bit
- * 64 KB granule:   1 level 3 entry
- */
-#define SEGMENT_ALIGN			SZ_64K
-#endif
-
 SECTIONS
 {
 	/*
@@ -114,7 +99,8 @@ SECTIONS
 		*(.discard)
 		*(.discard.*)
 		*(.interp .dynamic)
-		*(.dynsym .dynstr .hash)
+		*(.dynsym .dynstr .hash .gnu.hash)
+		*(.eh_frame)
 	}
 
 	. = KIMAGE_VADDR + TEXT_OFFSET;
@@ -123,7 +109,6 @@ SECTIONS
 		_text = .;
 		HEAD_TEXT
 	}
-	. = ALIGN(1<<PAGE_SHIFT);
 	.text : {			/* Real text segment		*/
 		_stext = .;		/* Text and read-only data	*/
 			__exception_text_start = .;
@@ -147,41 +132,6 @@ SECTIONS
 		*(.got)			/* Global offset table		*/
 	}
 
-#ifdef CONFIG_UH_RKP
-	. = ALIGN(PAGE_SIZE);
-	.rkp.bitmap : {
-		rkp_pgt_bitmap = .;
-		*(.rkp.bitmap)
-	}
-	. = ALIGN(PAGE_SIZE);
-	.rkp.dblmap : {
-		rkp_map_bitmap = .;
-		*(.rkp.dblmap)
-	}
-#ifdef CONFIG_RKP_KDP
-	 /* Creating a new section to store task credentials */
-	. = ALIGN(PAGE_SIZE);
-	.rkp.prot.page : {
-		__rkp_ro_start = .;
-	}
-	. = __rkp_ro_start + 0x4000;
-	. = ALIGN(PAGE_SIZE);
-#endif /* CONFIG_RKP_KDP*/
-	. = ALIGN(PAGE_SIZE);
-	.empty_zero_page :{
-		*(.empty_zero_page)
-	}
-	. = ALIGN(PAGE_SIZE);
-	bm_pte = .;
-	. += PAGE_SIZE;
-	. = ALIGN(PAGE_SIZE);
-	bm_pmd = .;
-	. += PAGE_SIZE;
-	. = ALIGN(PAGE_SIZE);
-	bm_pud = .;
-	. += PAGE_SIZE;
-#endif
-
 	. = ALIGN(SEGMENT_ALIGN);
 	_etext = .;			/* End of text section */
 
@@ -191,11 +141,26 @@ SECTIONS
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__init_begin = .;
+	__inittext_begin = .;
 
 	INIT_TEXT_SECTION(8)
 	.exit.text : {
 		ARM_EXIT_KEEP(EXIT_TEXT)
 	}
+
+	. = ALIGN(4);
+	.altinstructions : {
+		__alt_instructions = .;
+		KEEP(*(.altinstructions))
+		__alt_instructions_end = .;
+	}
+	.altinstr_replacement : {
+		KEEP(*(.altinstr_replacement))
+	}
+
+	. = ALIGN(PAGE_SIZE);
+	__inittext_end = .;
+	__initdata_begin = .;
 
 	.init.data : {
 		INIT_DATA
@@ -212,31 +177,20 @@ SECTIONS
 
 	PERCPU_SECTION(L1_CACHE_BYTES)
 
-	. = ALIGN(4);
-	.altinstructions : {
-		__alt_instructions = .;
-		*(.altinstructions)
-		__alt_instructions_end = .;
-	}
-	.altinstr_replacement : {
-		*(.altinstr_replacement)
-	}
-	. = ALIGN(0x1000);
-	.rela : {
-		__reloc_start = .;
+	.rela.dyn : ALIGN(8) {
 		*(.rela .rela*)
-		__reloc_end = .;
 	}
 
-	__rela_offset	= ABSOLUTE(ADDR(.rela) - KIMAGE_VADDR);
-	__rela_size	= SIZEOF(.rela);
+	__rela_offset	= ABSOLUTE(ADDR(.rela.dyn) - KIMAGE_VADDR);
+	__rela_size	= SIZEOF(.rela.dyn);
 
 	. = ALIGN(SEGMENT_ALIGN);
+	__initdata_end = .;
 	__init_end = .;
 
 	_data = .;
 	_sdata = .;
-	RW_DATA_SECTION(L1_CACHE_BYTES, PAGE_SIZE, THREAD_SIZE)
+	RW_DATA_SECTION(L1_CACHE_BYTES, PAGE_SIZE, THREAD_ALIGN)
 
 	/*
 	 * Data written with the MMU off but read with the MMU on requires
@@ -257,11 +211,13 @@ SECTIONS
 	}
 
 	PECOFF_EDATA_PADDING
+	__pecoff_data_rawsize = ABSOLUTE(. - __initdata_begin);
 	_edata = .;
 
 	BSS_SECTION(0, 0, 0)
 
 	. = ALIGN(PAGE_SIZE);
+#ifndef CONFIG_UH
 	idmap_pg_dir = .;
 	. += IDMAP_DIR_SIZE;
 	swapper_pg_dir = .;
@@ -271,11 +227,14 @@ SECTIONS
 	reserved_ttbr0 = .;
 	. += RESERVED_TTBR0_SIZE;
 #endif
+
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	tramp_pg_dir = .;
 	. += PAGE_SIZE;
 #endif
+#endif
 
+	__pecoff_data_size = ABSOLUTE(. - __initdata_begin);
 	_end = .;
 
 	STABS_DEBUG

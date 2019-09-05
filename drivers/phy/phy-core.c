@@ -364,16 +364,8 @@ int phy_power_on(struct phy *phy)
 	}
 
 	ret = phy_pm_runtime_get_sync(phy);
-	if (ret < 0 && ret != -ENOTSUPP) {
-		/*
-		 * Temporary add code for debugging and preventing ITMON error
-		 * currently pm_runtime_enable() is called unexpectedly.
-		 * so when phy_power_on is called, -ENOSYS error is returned.
-		 * this code will be removed after finding root cause.
-		 */
-		dev_info(&phy->dev, "%s: %d(%d)\n", __func__, __LINE__, ret);
+	if (ret < 0 && ret != -ENOTSUPP)
 		goto err_pm_sync;
-	}
 
 	ret = 0; /* Override possible ret == -ENOTSUPP */
 
@@ -478,6 +470,10 @@ static struct phy *_of_phy_get(struct device_node *np, int index)
 	ret = of_parse_phandle_with_args(np, "phys", "#phy-cells",
 		index, &args);
 	if (ret)
+		return ERR_PTR(-ENODEV);
+
+	/* This phy type handled by the usb-phy subsystem for now */
+	if (of_device_is_compatible(args.np, "usb-nop-xceiv"))
 		return ERR_PTR(-ENODEV);
 
 	mutex_lock(&phy_provider_mutex);

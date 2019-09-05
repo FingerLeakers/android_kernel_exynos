@@ -15,7 +15,65 @@
  */
 
 #include <linux/task_integrity.h>
+#include "five_audit.h"
 #include "five_state.h"
+#include "five_hooks.h"
+
+enum task_integrity_state_cause {
+	STATE_CAUSE_UNKNOWN,
+	STATE_CAUSE_DIGSIG,
+	STATE_CAUSE_DMV_PROTECTED,
+	STATE_CAUSE_TRUSTED,
+	STATE_CAUSE_HMAC,
+	STATE_CAUSE_SYSTEM_LABEL,
+	STATE_CAUSE_NOCERT,
+	STATE_CAUSE_TAMPERED,
+	STATE_CAUSE_MISMATCH_LABEL
+};
+
+struct task_verification_result {
+	enum task_integrity_value new_tint;
+	enum task_integrity_value prev_tint;
+	enum task_integrity_state_cause cause;
+};
+
+static const char *task_integrity_state_str(
+		enum task_integrity_state_cause cause)
+{
+	const char *str = "unknown";
+
+	switch (cause) {
+	case STATE_CAUSE_DIGSIG:
+		str = "digsig";
+		break;
+	case STATE_CAUSE_DMV_PROTECTED:
+		str = "dmv_protected";
+		break;
+	case STATE_CAUSE_TRUSTED:
+		str = "trusted";
+		break;
+	case STATE_CAUSE_HMAC:
+		str = "hmac";
+		break;
+	case STATE_CAUSE_SYSTEM_LABEL:
+		str = "system_label";
+		break;
+	case STATE_CAUSE_NOCERT:
+		str = "nocert";
+		break;
+	case STATE_CAUSE_MISMATCH_LABEL:
+		str = "mismatch_label";
+		break;
+	case STATE_CAUSE_TAMPERED:
+		str = "tampered";
+		break;
+	case STATE_CAUSE_UNKNOWN:
+		str = "unknown";
+		break;
+	}
+
+	return str;
+}
 
 static int is_system_label(struct integrity_label *label)
 {
@@ -44,7 +102,7 @@ static int verify_or_update_label(struct task_integrity *intg,
 	if (is_system_label(file_label))
 		return 0;
 
-	spin_lock(&intg->lock);
+	spin_lock(&intg->value_lock);
 	l = intg->label;
 
 	if (l) {
@@ -68,129 +126,134 @@ static int verify_or_update_label(struct task_integrity *intg,
 	}
 
 out:
-	spin_unlock(&intg->lock);
+	spin_unlock(&intg->value_lock);
 
 	return rc;
 }
 
 static bool set_first_state(struct integrity_iint_cache *iint,
 				struct task_integrity *integrity,
-				enum task_integrity_value *new_tint,
-				const char **msg)
+				struct task_verification_result *result)
 {
 	enum task_integrity_value tint = INTEGRITY_NONE;
 	bool trusted_file = iint->five_flags & FIVE_TRUSTED_FILE;
+	enum task_integrity_state_cause cause = STATE_CAUSE_UNKNOWN;
 
+	result->new_tint = result->prev_tint = task_integrity_read(integrity);
 	task_integrity_clear(integrity);
 
 	switch (iint->five_status) {
 	case FIVE_FILE_RSA:
-		if (trusted_file)
+		if (trusted_file) {
+			cause = STATE_CAUSE_TRUSTED;
 			tint = INTEGRITY_PRELOAD_ALLOW_SIGN;
-		else
+		} else {
+			cause = STATE_CAUSE_DIGSIG;
 			tint = INTEGRITY_PRELOAD;
+		}
 		break;
 	case FIVE_FILE_DMVERITY:
+		cause = STATE_CAUSE_DMV_PROTECTED;
 		tint = INTEGRITY_DMVERITY;
 		break;
 	case FIVE_FILE_HMAC:
+		cause = STATE_CAUSE_HMAC;
 		tint = INTEGRITY_MIXED;
 		break;
+	case FIVE_FILE_FAIL:
+		cause = STATE_CAUSE_TAMPERED;
+		tint = INTEGRITY_NONE;
+		break;
+	case FIVE_FILE_UNKNOWN:
+		cause = STATE_CAUSE_NOCERT;
+		tint = INTEGRITY_NONE;
+		break;
 	default:
+		cause = STATE_CAUSE_NOCERT;
 		tint = INTEGRITY_NONE;
 		break;
 	}
 
 	task_integrity_set(integrity, tint);
-
-	*new_tint = tint;
-	if (msg)
-		*msg = "bprm-check";
+	result->new_tint = tint;
+	result->cause = cause;
 
 	return true;
 }
 
 static bool set_next_state(struct integrity_iint_cache *iint,
 			   struct task_integrity *integrity,
-			   enum task_integrity_value *new_tint,
-			   const char **msg)
+			   struct task_verification_result *result)
 {
 	bool is_newstate = false;
-	enum task_integrity_value source_tint = task_integrity_read(integrity);
 	bool has_digsig = (iint->five_status == FIVE_FILE_RSA);
 	bool dmv_protected = (iint->five_status == FIVE_FILE_DMVERITY);
 	struct integrity_label *label = iint->five_label;
-	const char *cause = "unknown";
+	enum task_integrity_state_cause cause = STATE_CAUSE_UNKNOWN;
 	enum task_integrity_value state_tint = INTEGRITY_NONE;
+
+	result->new_tint = result->prev_tint = task_integrity_read(integrity);
 
 	if (has_digsig)
 		return is_newstate;
 
-	iint->five_flags &= ~FIVE_TRUSTED_FILE;
+	if (five_get_cache_status(iint) == FIVE_FILE_UNKNOWN ||
+			five_get_cache_status(iint) == FIVE_FILE_FAIL) {
+		spin_lock(&integrity->value_lock);
 
-	if (verify_or_update_label(integrity, iint)) {
-		task_integrity_reset(integrity);
-		cause = "mismatch-label";
+		if (five_get_cache_status(iint) == FIVE_FILE_UNKNOWN)
+			cause = STATE_CAUSE_NOCERT;
+		else
+			cause = STATE_CAUSE_TAMPERED;
+
 		state_tint = INTEGRITY_NONE;
 		is_newstate = true;
 		goto out;
 	}
 
-	switch (source_tint) {
+	if (verify_or_update_label(integrity, iint)) {
+		spin_lock(&integrity->value_lock);
+		cause = STATE_CAUSE_MISMATCH_LABEL;
+		state_tint = INTEGRITY_NONE;
+		is_newstate = true;
+		goto out;
+	}
+
+	spin_lock(&integrity->value_lock);
+	switch (integrity->value) {
 	case INTEGRITY_PRELOAD_ALLOW_SIGN:
 		if (dmv_protected) {
-			task_integrity_cmpxchg(integrity,
-					INTEGRITY_PRELOAD_ALLOW_SIGN,
-					INTEGRITY_DMVERITY_ALLOW_SIGN);
-			cause = "dmverity-allow-sign";
+			cause = STATE_CAUSE_DMV_PROTECTED;
 			state_tint = INTEGRITY_DMVERITY_ALLOW_SIGN;
 		} else if (is_system_label(label)) {
-			task_integrity_cmpxchg(integrity,
-					INTEGRITY_PRELOAD_ALLOW_SIGN,
-					INTEGRITY_MIXED_ALLOW_SIGN);
-			cause = "mixed-allow-sign";
+			cause = STATE_CAUSE_SYSTEM_LABEL;
 			state_tint = INTEGRITY_MIXED_ALLOW_SIGN;
 		} else {
-			task_integrity_set_unless(integrity,
-					INTEGRITY_MIXED,
-					INTEGRITY_NONE);
-			cause = "mixed";
+			cause = STATE_CAUSE_HMAC;
 			state_tint = INTEGRITY_MIXED;
 		}
 		is_newstate = true;
 		break;
 	case INTEGRITY_PRELOAD:
 		if (dmv_protected) {
-			task_integrity_cmpxchg(integrity,
-					INTEGRITY_PRELOAD,
-					INTEGRITY_DMVERITY);
-			cause = "dmverity";
+			cause = STATE_CAUSE_DMV_PROTECTED;
 			state_tint = INTEGRITY_DMVERITY;
 		} else {
-			task_integrity_set_unless(integrity,
-					INTEGRITY_MIXED,
-					INTEGRITY_NONE);
-			cause = "mixed";
+			cause = STATE_CAUSE_HMAC;
 			state_tint = INTEGRITY_MIXED;
 		}
 		is_newstate = true;
 		break;
 	case INTEGRITY_MIXED_ALLOW_SIGN:
 		if (!dmv_protected && !is_system_label(label)) {
-			task_integrity_set_unless(integrity,
-					INTEGRITY_MIXED,
-					INTEGRITY_NONE);
-			cause = "mixed";
+			cause = STATE_CAUSE_HMAC;
 			state_tint = INTEGRITY_MIXED;
 			is_newstate = true;
 		}
 		break;
 	case INTEGRITY_DMVERITY:
 		if (!dmv_protected) {
-			task_integrity_set_unless(integrity,
-					INTEGRITY_MIXED,
-					INTEGRITY_NONE);
-			cause = "mixed";
+			cause = STATE_CAUSE_HMAC;
 			state_tint = INTEGRITY_MIXED;
 			is_newstate = true;
 		}
@@ -198,16 +261,10 @@ static bool set_next_state(struct integrity_iint_cache *iint,
 	case INTEGRITY_DMVERITY_ALLOW_SIGN:
 		if (!dmv_protected) {
 			if (is_system_label(label)) {
-				task_integrity_cmpxchg(integrity,
-						INTEGRITY_DMVERITY_ALLOW_SIGN,
-						INTEGRITY_MIXED_ALLOW_SIGN);
-				cause = "mixed-allow-sign";
+				cause = STATE_CAUSE_SYSTEM_LABEL;
 				state_tint = INTEGRITY_MIXED_ALLOW_SIGN;
 			} else {
-				task_integrity_set_unless(integrity,
-						INTEGRITY_MIXED,
-						INTEGRITY_NONE);
-				cause = "mixed";
+				cause = STATE_CAUSE_HMAC;
 				state_tint = INTEGRITY_MIXED;
 			}
 			is_newstate = true;
@@ -219,8 +276,7 @@ static bool set_next_state(struct integrity_iint_cache *iint,
 		break;
 	default:
 		// Unknown state
-		task_integrity_reset(integrity);
-		cause = "unknown-source-integrity";
+		cause = STATE_CAUSE_UNKNOWN;
 		state_tint = INTEGRITY_NONE;
 		is_newstate = true;
 	}
@@ -228,26 +284,40 @@ static bool set_next_state(struct integrity_iint_cache *iint,
 out:
 
 	if (is_newstate) {
-		*new_tint = state_tint;
-		if (msg)
-			*msg = cause;
+		__task_integrity_set(integrity, state_tint);
+		result->new_tint = state_tint;
+		result->cause = cause;
 	}
+	spin_unlock(&integrity->value_lock);
 
 	return is_newstate;
 }
 
-bool five_state_proceed(struct integrity_iint_cache *iint,
-			struct task_integrity *integrity,
-			enum five_hooks fn,
-			enum task_integrity_value *new_tint,
-			const char **msg)
+void five_state_proceed(struct task_integrity *integrity,
+			struct file_verification_result *file_result)
 {
+	struct integrity_iint_cache *iint = file_result->iint;
+	enum five_hooks fn = file_result->fn;
+	struct task_struct *task = file_result->task;
+	struct file *file = file_result->file;
 	bool is_newstate;
+	struct task_verification_result task_result = {};
+
+	if (!iint)
+		return;
 
 	if (fn == BPRM_CHECK)
-		is_newstate = set_first_state(iint, integrity, new_tint, msg);
+		is_newstate = set_first_state(iint, integrity, &task_result);
 	else
-		is_newstate = set_next_state(iint, integrity, new_tint, msg);
+		is_newstate = set_next_state(iint, integrity, &task_result);
 
-	return is_newstate;
+	if (is_newstate) {
+		if (task_result.new_tint == INTEGRITY_NONE)
+			five_hook_integrity_reset(task);
+		five_audit_verbose(task, file, five_get_string_fn(fn),
+			task_result.prev_tint, task_result.new_tint,
+			task_integrity_state_str(task_result.cause),
+			file_result->five_result);
+	}
 }
+

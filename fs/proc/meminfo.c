@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -50,12 +51,14 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	long available;
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
+	long rbinfree;
 
 	si_meminfo(&i);
 	si_swapinfo(&i);
 	committed = percpu_counter_read_positive(&vm_committed_as);
 
-	cached = global_node_page_state(NR_FILE_PAGES) -
+	cached = global_node_page_state(NR_FILE_PAGES) +
+			atomic_read(&rbin_cached_pages) -
 			total_swapcache_pages() - i.bufferram;
 	if (cached < 0)
 		cached = 0;
@@ -64,10 +67,11 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		pages[lru] = global_node_page_state(NR_LRU_BASE + lru);
 
 	available = si_mem_available();
+	rbinfree = global_zone_page_state(NR_FREE_RBIN_PAGES);
 
 	show_val_kb(m, "MemTotal:       ", i.totalram);
-	show_val_kb(m, "MemFree:        ", i.freeram);
-	show_val_kb(m, "MemAvailable:   ", available);
+	show_val_kb(m, "MemFree:        ", i.freeram + rbinfree);
+	show_val_kb(m, "MemAvailable:   ", available + rbinfree);
 	show_val_kb(m, "Buffers:        ", i.bufferram);
 	show_val_kb(m, "Cached:         ", cached);
 	show_val_kb(m, "SwapCached:     ", total_swapcache_pages());
@@ -80,7 +84,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "Active(file):   ", pages[LRU_ACTIVE_FILE]);
 	show_val_kb(m, "Inactive(file): ", pages[LRU_INACTIVE_FILE]);
 	show_val_kb(m, "Unevictable:    ", pages[LRU_UNEVICTABLE]);
-	show_val_kb(m, "Mlocked:        ", global_page_state(NR_MLOCK));
+	show_val_kb(m, "Mlocked:        ", global_zone_page_state(NR_MLOCK));
 
 #ifdef CONFIG_HIGHMEM
 	show_val_kb(m, "HighTotal:      ", i.totalhigh);
@@ -94,14 +98,18 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		    (unsigned long)atomic_long_read(&mmap_pages_allocated));
 #endif
 
-#ifdef CONFIG_RBIN
+#ifdef CONFIG_ION_RBIN_HEAP
 	show_val_kb(m, "RbinTotal:       ", totalrbin_pages);
 	show_val_kb(m, "RbinAlloced:       ",
 		    atomic_read(&rbin_allocated_pages)
 		    + atomic_read(&rbin_pool_pages));
 	show_val_kb(m, "RbinPool:       ", atomic_read(&rbin_pool_pages));
-	show_val_kb(m, "RbinFree:        ",
-		    global_page_state(NR_FREE_RBIN_PAGES));
+	show_val_kb(m, "RbinFree:        ", rbinfree);
+	show_val_kb(m, "RbinCached:       ",
+		    atomic_read(&rbin_cached_pages));
+#endif
+#ifdef CONFIG_KZEROD
+	show_val_kb(m, "ZeroedFree:     ", kzerod_get_zeroed_size());
 #endif
 	show_val_kb(m, "SwapTotal:      ", i.totalswap);
 	show_val_kb(m, "SwapFree:       ", i.freeswap);
@@ -115,17 +123,17 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		    global_node_page_state(NR_FILE_MAPPED));
 	show_val_kb(m, "Shmem:          ", i.sharedram);
 	show_val_kb(m, "Slab:           ",
-		    global_page_state(NR_SLAB_RECLAIMABLE) +
-		    global_page_state(NR_SLAB_UNRECLAIMABLE));
+		    global_node_page_state(NR_SLAB_RECLAIMABLE) +
+		    global_node_page_state(NR_SLAB_UNRECLAIMABLE));
 
 	show_val_kb(m, "SReclaimable:   ",
-		    global_page_state(NR_SLAB_RECLAIMABLE));
+		    global_node_page_state(NR_SLAB_RECLAIMABLE));
 	show_val_kb(m, "SUnreclaim:     ",
-		    global_page_state(NR_SLAB_UNRECLAIMABLE));
+		    global_node_page_state(NR_SLAB_UNRECLAIMABLE));
 	seq_printf(m, "KernelStack:    %8lu kB\n",
-		   global_page_state(NR_KERNEL_STACK_KB));
+		   global_zone_page_state(NR_KERNEL_STACK_KB));
 	show_val_kb(m, "PageTables:     ",
-		    global_page_state(NR_PAGETABLE));
+		    global_zone_page_state(NR_PAGETABLE));
 #ifdef CONFIG_QUICKLIST
 	show_val_kb(m, "Quicklists:     ", quicklist_total_size());
 #endif
@@ -133,7 +141,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "NFS_Unstable:   ",
 		    global_node_page_state(NR_UNSTABLE_NFS));
 	show_val_kb(m, "Bounce:         ",
-		    global_page_state(NR_BOUNCE));
+		    global_zone_page_state(NR_BOUNCE));
 	show_val_kb(m, "WritebackTmp:   ",
 		    global_node_page_state(NR_WRITEBACK_TEMP));
 	show_val_kb(m, "CommitLimit:    ", vm_commit_limit());
@@ -160,7 +168,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_CMA
 	show_val_kb(m, "CmaTotal:       ", totalcma_pages);
 	show_val_kb(m, "CmaFree:        ",
-		    global_page_state(NR_FREE_CMA_PAGES));
+		    global_zone_page_state(NR_FREE_CMA_PAGES));
 #endif
 
 	hugetlb_report_meminfo(m);

@@ -14,7 +14,7 @@
 #include <linux/delay.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 
 #define BUF_MAX 4096
 #define EV_DELAY 0xff

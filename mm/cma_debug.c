@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * CMA DebugFS Interface
  *
@@ -138,7 +139,7 @@ static int cma_alloc_mem(struct cma *cma, int count)
 	if (!mem)
 		return -ENOMEM;
 
-	p = cma_alloc(cma, count, 0);
+	p = cma_alloc(cma, count, 0, GFP_KERNEL);
 	if (!p) {
 		kfree(mem);
 		return -ENOMEM;
@@ -164,16 +165,12 @@ DEFINE_SIMPLE_ATTRIBUTE(cma_alloc_fops, NULL, cma_alloc_write, "%llu\n");
 static void cma_debugfs_add_one(struct cma *cma, int idx)
 {
 	struct dentry *tmp;
+	char name[16];
 	int u32s;
 
-	if (cma->name) {
-		tmp = debugfs_create_dir(cma->name, cma_debugfs_root);
-	} else {
-		char name[16];
+	scnprintf(name, sizeof(name), "cma-%s", cma->name);
 
-		sprintf(name, "cma-%d", idx);
-		tmp = debugfs_create_dir(name, cma_debugfs_root);
-	}
+	tmp = debugfs_create_dir(name, cma_debugfs_root);
 
 	debugfs_create_file("alloc", S_IWUSR, tmp, cma,
 				&cma_alloc_fops);

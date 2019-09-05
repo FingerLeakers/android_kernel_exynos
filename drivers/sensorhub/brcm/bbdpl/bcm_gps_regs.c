@@ -232,6 +232,7 @@ int RegRead( struct bcm_spi_priv *priv, char *id, unsigned char cmdRegOffset, un
 
 	pr_info("%s\n",acB);
 
+	p = acB;
 	p += snprintf(acB,sizeof(acB),"[SSPBBD]: REG(R) %s @ [%02X]: ",id,cmdRegOffset);
 
 	/* Second Transaction will read data  */
@@ -407,7 +408,7 @@ int bcm_reg32Iread( struct bcm_spi_priv *priv, char *id, unsigned regaddr, unsig
 
 		if ( regval )
 		{
-			*regval++ = swap_reg.ul;
+			*regval++ = (unsigned int)swap_reg.ul;
 		}
 	}
 

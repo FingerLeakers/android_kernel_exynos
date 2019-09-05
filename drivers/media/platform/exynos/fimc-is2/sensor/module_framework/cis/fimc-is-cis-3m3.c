@@ -199,45 +199,6 @@ static int sensor_3m3_wait_stream_off_status(cis_shared_data *cis_data)
 	return ret;
 }
 
-int sensor_3m3_cis_check_rev(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	u8 rev = 0;
-	struct i2c_client *client;
-	struct fimc_is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-	
-	memset(cis->cis_data, 0, sizeof(cis_shared_data));
-	cis->rev_flag = false;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-
-	ret = fimc_is_sensor_read8(client, 0x0002, &rev);
-	if (ret < 0) {
-		cis->rev_flag = true;
-		ret = -EAGAIN;
-	} else {
-		cis->cis_data->cis_rev = rev;
-		pr_info("%s : Default version 3m3 sensor. Rev. 0x%X\n", __func__, rev);
-	}
-
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	return ret;
-}
-
 /* CIS OPS */
 int sensor_3m3_cis_init(struct v4l2_subdev *subdev)
 {
@@ -258,6 +219,16 @@ int sensor_3m3_cis_init(struct v4l2_subdev *subdev)
 	}
 
 	FIMC_BUG(!cis->cis_data);
+#if !defined(CONFIG_VENDER_MCD)
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+
+	ret = sensor_cis_check_rev(cis);
+	if (ret < 0) {
+		warn("sensor_3m3_check_rev is fail when cis init");
+		ret = -EINVAL;		
+		goto p_err;
+	}
+#endif
 
 	cis->cis_data->cur_width = SENSOR_3M3_MAX_WIDTH;
 	cis->cis_data->cur_height = SENSOR_3M3_MAX_HEIGHT;
@@ -304,8 +275,8 @@ int sensor_3m3_cis_log_status(struct v4l2_subdev *subdev)
 	int ret = 0;
 	struct fimc_is_cis *cis;
 	struct i2c_client *client = NULL;
-	u8 data8;
-	u16 data16;
+	u8 data8 = 0;
+	u16 data16 = 0;
 
 	FIMC_BUG(!subdev);
 
@@ -323,20 +294,40 @@ int sensor_3m3_cis_log_status(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
-	pr_err("[SEN:DUMP] *******************************\n");
-	fimc_is_sensor_read16(client, 0x0000, &data16);
-	pr_err("[SEN:DUMP] model_id(%x)\n", data16);
-	fimc_is_sensor_read8(client, 0x0002, &data8);
-	pr_err("[SEN:DUMP] revision_number(%x)\n", data8);
-	fimc_is_sensor_read8(client, 0x0005, &data8);
-	pr_err("[SEN:DUMP] frame_count(%x)\n", data8);
-	fimc_is_sensor_read8(client, 0x0100, &data8);
-	pr_err("[SEN:DUMP] mode_select(%x)\n", data8);
+	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-	sensor_cis_dump_registers(subdev, sensor_3m3_setfiles[0], sensor_3m3_setfile_sizes[0]);
+	pr_info("[%s] *******************************\n", __func__);
+	ret = fimc_is_sensor_read16(client, 0x0000, &data16);
+	if (unlikely(!ret)) pr_info("model_id(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read8(client, 0x0002, &data8);
+	if (unlikely(!ret)) pr_info("revision_number(0x%x)\n", data8);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read8(client, 0x0005, &data8);
+	if (unlikely(!ret)) pr_info("frame_count(0x%x)\n", data8);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read8(client, 0x0100, &data8);
+	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read16(client, 0x0136, &data16);
+	if (unlikely(!ret)) pr_info("0x0136(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read16(client, 0x0202, &data16);
+	if (unlikely(!ret)) pr_info("0x0202(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read16(client, 0x0204, &data16);
+	if (unlikely(!ret)) pr_info("0x0204(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read16(client, 0x0340, &data16);
+	if (unlikely(!ret)) pr_info("0x0340(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = fimc_is_sensor_read8(client, 0x3000, &data8);
+	if (unlikely(!ret)) pr_info("0x3000(0x%x)\n", data8);
+	else goto i2c_err;
+	pr_info("[%s] *******************************\n", __func__);
 
-	pr_err("[SEN:DUMP] *******************************\n");
-
+i2c_err:
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 p_err:
 	return ret;
 }
@@ -483,10 +474,10 @@ int sensor_3m3_cis_update_crop_region(struct v4l2_subdev *subdev)
 		return 0;
 	}
 
-	fimc_is_sec_get_cal_buf(&cal_buf);
+	fimc_is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
-	dummy_flag = cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR];
-	crop_num = cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR];
+	dummy_flag = cal_buf[ROM_REAR3_FLAG_DUMMY_ADDR];
+	crop_num = cal_buf[ROM_REAR3_IMAGE_CROP_NUM_ADDR];
 
 	info("[%s] dummy_flag[%x], crop_num[%x]", __func__, dummy_flag, crop_num);
 
@@ -626,7 +617,7 @@ int sensor_3m3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		goto p_err;
 	}
 
-	info("[3M3] current scenario: 0x%x (rev:0x%x)", setfile, cis->cis_data->cis_rev);
+	info("[3M3] current scenario: 0x%x (rev:0x%x), mode(%d)", setfile, cis->cis_data->cis_rev, mode);
 
 	dbg_sensor(1, "[%s] mode changed(%d)\n", __func__, mode);
 
@@ -864,6 +855,8 @@ int sensor_3m3_cis_stream_on(struct v4l2_subdev *subdev)
 	/* Sensor stream on */
 	fimc_is_sensor_write16(client, 0x0100, 0x0100);
 
+	info("%s\n", __func__);
+
 #if 0 /* FIXME */
 	/* WDR */
 	if (fimc_is_vender_wdr_mode_on(cis_data))
@@ -873,20 +866,21 @@ int sensor_3m3_cis_stream_on(struct v4l2_subdev *subdev)
 #endif
 	cis_data->stream_on = true;
 
-
 #if 0 /* For debug - fcount check */
-        {       u16 value, timeout, addr;
-                timeout = 0;
-                addr = 0x3000; /* smiaRegs_vendor_error_type */
-                fimc_is_sensor_read16(client, addr, &value);
-                while (timeout < 10) {
-                        addr = 0x0005; /* smiaRegs_rd_general_frame_count */
-                        fimc_is_sensor_read16(client, addr, &value);
-                        msleep(5);
-                        timeout++;
-                }
-
-        }
+	{
+		u16 value, timeout, addr;
+		timeout = 0;
+		addr = 0x3000; /* smiaRegs_vendor_error_type */
+		fimc_is_sensor_read16(client, addr, &value);
+		info("%s - 0x%x(0x%x)\n", __func__, addr, value);
+		while (timeout < 10) {
+			addr = 0x0005; /* smiaRegs_rd_general_frame_count */
+			fimc_is_sensor_read16(client, addr, &value);
+			info("%s - 0x%x(0x%x)\n", __func__, addr, value);
+			msleep(5);
+			timeout++;
+		}
+	}
 #endif
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);
@@ -953,6 +947,8 @@ int sensor_3m3_cis_stream_off(struct v4l2_subdev *subdev)
 
 	/* Sensor stream off */
 	fimc_is_sensor_write16(client, 0x0100, 0x00);
+
+	info("%s\n", __func__);
 
 	cis_data->stream_on = false;
 
@@ -1993,11 +1989,11 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		return 0;
 	}
 
-	fimc_is_sec_get_cal_buf(&cal_buf);
+	fimc_is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
 #ifdef TEST_SHIFT_CROP
-	cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR] = 7;
-	cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR] = test_crop_num;
+	cal_buf[ROM_REAR3_FLAG_DUMMY_ADDR] = 7;
+	cal_buf[ROM_REAR3_IMAGE_CROP_NUM_ADDR] = test_crop_num;
 
 	if (test_crop_num == 9)
 		test_crop_num = 1;
@@ -2005,8 +2001,8 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		test_crop_num++;
 #endif
 
-	dummy_flag = cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR];
-	crop_num = cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR];
+	dummy_flag = cal_buf[ROM_REAR3_FLAG_DUMMY_ADDR];
+	crop_num = cal_buf[ROM_REAR3_IMAGE_CROP_NUM_ADDR];
 
 	info("[%s] dummy_flag[%x], crop_num[%x]", __func__, dummy_flag, crop_num);
 
@@ -2048,6 +2044,12 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		if (crop_num == 7 || crop_num == 8 || crop_num == 9)
 			height = 560;
 		break;
+	case SENSOR_3M3_4032X1908_30FPS:
+		width = 124;
+		height = 464;
+		if (crop_num == 4 || crop_num == 5 || crop_num == 6)
+			height = 448;
+		break;
 	default:
 		warn("[%s] Don't change pdaf tail size\n", __func__);
 		break;
@@ -2064,6 +2066,33 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 	return 0;
 }
 #endif
+
+int sensor_3m3_cis_recover_stream_on(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct fimc_is_cis *cis = NULL;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	info("%s start\n", __func__);
+
+	ret = sensor_3m3_cis_set_global_setting(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_3m3_cis_mode_change(subdev, cis->cis_data->sens_config_index_cur);
+	if (ret < 0) goto p_err;
+	ret = sensor_3m3_cis_stream_on(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_cis_wait_streamon(subdev);
+	if (ret < 0) goto p_err;
+
+	info("%s end\n", __func__);
+p_err:
+	return ret;
+}
 
 static struct fimc_is_cis_ops cis_ops = {
 	.cis_init = sensor_3m3_cis_init,
@@ -2100,7 +2129,9 @@ static struct fimc_is_cis_ops cis_ops = {
 #ifdef CAMERA_REAR2_SENSOR_SHIFT_CROP
 	.cis_update_pdaf_tail_size = sensor_3m3_cis_update_pdaf_tail_size,
 #endif
-	.cis_check_rev = sensor_3m3_cis_check_rev,
+	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
+	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
+	.cis_recover_stream_on = sensor_3m3_cis_recover_stream_on,
 };
 
 static int cis_3m3_probe(struct i2c_client *client,
@@ -2222,7 +2253,7 @@ static int cis_3m3_probe(struct i2c_client *client,
 			warn("f-number read is fail(%d)",ret);
 		}
 	} else {
-		cis->aperture_num = F1_7;
+		cis->aperture_num = F2_4;
 	}
 
 	probe_info("%s f-number %d\n", __func__, cis->aperture_num);
@@ -2236,10 +2267,15 @@ static int cis_3m3_probe(struct i2c_client *client,
 		setfile = "default";
 	}
 
+	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
+	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
+
 	v4l2_i2c_subdev_init(subdev_cis, client, &subdev_ops);
 	v4l2_set_subdevdata(subdev_cis, cis);
 	v4l2_set_subdev_hostdata(subdev_cis, device);
 	snprintf(subdev_cis->name, V4L2_SUBDEV_NAME_SIZE, "cis-subdev.%d", cis->id);
+
+	sensor_cis_parse_dt(dev, cis->subdev);
 
 	probe_info("%s done\n", __func__);
 

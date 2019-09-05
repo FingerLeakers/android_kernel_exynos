@@ -22,6 +22,8 @@
  *
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <crypto/aead.h>
 #include <crypto/hash.h>
 #include <crypto/rng.h>
@@ -39,6 +41,7 @@
 #include <linux/interrupt.h>
 #include "tcrypt.h"
 #include "internal.h"
+#include "testmgr.h"
 
 /*
  * Need slab memory for testing (size in number of pages).
@@ -138,8 +141,6 @@ static int test_aead_cycles(struct aead_request *req, int enc, int blen)
 	int ret = 0;
 	int i;
 
-	local_irq_disable();
-
 	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		if (enc)
@@ -169,8 +170,6 @@ static int test_aead_cycles(struct aead_request *req, int enc, int blen)
 	}
 
 out:
-	local_irq_enable();
-
 	if (ret == 0)
 		printk("1 operation in %lu cycles (%d bytes)\n",
 		       (cycles + 4) / 8, blen);
@@ -225,11 +224,13 @@ static void sg_init_aead(struct scatterlist *sg, char *xbuf[XBUFSIZE],
 	}
 
 	sg_init_table(sg, np + 1);
-	np--;
+	if (rem)
+		np--;
 	for (k = 0; k < np; k++)
 		sg_set_buf(&sg[k + 1], xbuf[k], PAGE_SIZE);
 
-	sg_set_buf(&sg[k + 1], xbuf[k], rem);
+	if (rem)
+		sg_set_buf(&sg[k + 1], xbuf[k], rem);
 }
 
 static void test_aead_speed(const char *algo, int enc, unsigned int secs,
@@ -289,7 +290,7 @@ static void test_aead_speed(const char *algo, int enc, unsigned int secs,
 	}
 
 	init_completion(&result.completion);
-	pr_info("\ntesting speed of %s (%s) %s\n", algo,
+	printk(KERN_INFO "\ntesting speed of %s (%s) %s\n", algo,
 			get_driver_name(crypto_aead, tfm), e);
 
 	req = aead_request_alloc(tfm, GFP_KERNEL);
@@ -331,7 +332,7 @@ static void test_aead_speed(const char *algo, int enc, unsigned int secs,
 				memset(iv, 0xff, iv_len);
 
 			crypto_aead_clear_flags(tfm, ~0);
-			pr_info("test %u (%d bit key, %d byte blocks): ",
+			printk(KERN_INFO "test %u (%d bit key, %d byte blocks): ",
 					i, *keysize * 8, *b_size);
 
 
@@ -344,7 +345,7 @@ static void test_aead_speed(const char *algo, int enc, unsigned int secs,
 			}
 
 			sg_init_aead(sg, xbuf,
-				    *b_size + (enc ? authsize : 0));
+				    *b_size + (enc ? 0 : authsize));
 
 			sg_init_aead(sgout, xoutbuf,
 				    *b_size + (enc ? authsize : 0));
@@ -352,7 +353,9 @@ static void test_aead_speed(const char *algo, int enc, unsigned int secs,
 			sg_set_buf(&sg[0], assoc, aad_size);
 			sg_set_buf(&sgout[0], assoc, aad_size);
 
-			aead_request_set_crypt(req, sg, sgout, *b_size, iv);
+			aead_request_set_crypt(req, sg, sgout,
+					       *b_size + (enc ? 0 : authsize),
+					       iv);
 			aead_request_set_ad(req, aad_size);
 
 			if (secs)
@@ -696,7 +699,7 @@ static void test_ahash_speed_common(const char *algo, unsigned int secs,
 		return;
 	}
 
-	pr_info("\ntesting speed of async %s (%s)\n", algo,
+	printk(KERN_INFO "\ntesting speed of async %s (%s)\n", algo,
 			get_driver_name(crypto_ahash, tfm));
 
 	if (crypto_ahash_digestsize(tfm) > MAX_DIGEST_SIZE) {
@@ -726,6 +729,9 @@ static void test_ahash_speed_common(const char *algo, unsigned int secs,
 			       speed[i].blen, TVMEMSIZE * PAGE_SIZE);
 			break;
 		}
+
+		if (speed[i].klen)
+			crypto_ahash_setkey(tfm, tvmem[0], speed[i].klen);
 
 		pr_info("test%3u "
 			"(%5u byte blocks,%5u bytes per update,%4u updates): ",
@@ -1011,6 +1017,8 @@ static void test_available(void)
 static inline int tcrypt_test(const char *alg)
 {
 	int ret;
+
+	pr_debug("testing %s\n", alg);
 
 	ret = alg_test(alg, alg, 0, 0);
 	/* non-fips algs return -EINVAL in fips mode */
@@ -1406,9 +1414,9 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 		test_cipher_speed("lrw(aes)", DECRYPT, sec, NULL, 0,
 				speed_template_32_40_48);
 		test_cipher_speed("xts(aes)", ENCRYPT, sec, NULL, 0,
-				speed_template_32_48_64);
+				speed_template_32_64);
 		test_cipher_speed("xts(aes)", DECRYPT, sec, NULL, 0,
-				speed_template_32_48_64);
+				speed_template_32_64);
 		test_cipher_speed("cts(cbc(aes))", ENCRYPT, sec, NULL, 0,
 				speed_template_16_24_32);
 		test_cipher_speed("cts(cbc(aes))", DECRYPT, sec, NULL, 0,
@@ -1839,9 +1847,9 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 		test_acipher_speed("lrw(aes)", DECRYPT, sec, NULL, 0,
 				   speed_template_32_40_48);
 		test_acipher_speed("xts(aes)", ENCRYPT, sec, NULL, 0,
-				   speed_template_32_48_64);
+				   speed_template_32_64);
 		test_acipher_speed("xts(aes)", DECRYPT, sec, NULL, 0,
-				   speed_template_32_48_64);
+				   speed_template_32_64);
 		test_acipher_speed("cts(cbc(aes))", ENCRYPT, sec, NULL, 0,
 				   speed_template_16_24_32);
 		test_acipher_speed("cts(cbc(aes))", DECRYPT, sec, NULL, 0,
@@ -2096,6 +2104,11 @@ static int do_test(const char *alg, u32 type, u32 mask, int m)
 		ret += alg_test("drbg_nopr_hmac_sha256", "stdrng", 0, 0);
 		ret += alg_test("drbg_pr_hmac_sha256", "stdrng", 0, 0);
 #endif
+
+#ifdef CONFIG_CRYPTO_KBKDF_CTR_HMAC_SHA512
+		ret += alg_test_kbkdf();
+#endif
+
 		break;
 #endif //CONFIG_CRYPTO_FIPS
 	}
@@ -2115,12 +2128,6 @@ static int __init tcrypt_mod_init(void)
 	}
 
 #ifdef CONFIG_CRYPTO_FIPS
-#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
-	if (!strcmp(SKC_FUNCTEST_NO_TEST, get_fips_functest_mode()))
-		testmgr_crypto_proc_init();
-#else
-	testmgr_crypto_proc_init();
-#endif //CONFIG_CRYPTO_FIPS_FUNC_TEST
 	mode = 1402;
 	pr_info("FIPS : POST (%s)\n", SKC_VERSION_TEXT);
 
@@ -2163,6 +2170,8 @@ err_free_tv:
 	if (err) {
 		printk(KERN_ERR "tcrypt: one or more tests failed!\n");
 		goto err_free_tv;
+	} else {
+		pr_debug("all tests passed\n");
 	}
 
 	/* We intentionaly return -EAGAIN to prevent keeping the module,
@@ -2180,7 +2189,7 @@ err_free_tv:
 		free_page((unsigned long)tvmem[i]);
 
 	return err;
-#endif
+#endif /* CONFIG_CRYPTO_FIPS */
 }
 
 /*
@@ -2249,26 +2258,10 @@ static int __init fips_func_test(void)
 #endif
 
 #ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
-#if defined(CONFIG_CRYPTO_POST_DEFERRED_INIT)
-	deferred_module_init(fips_func_test);
-#elif defined(CONFIG_CRYPTO_POST_LATE_INIT_SYNC)
-	late_initcall_sync(fips_func_test);
-#elif defined(CONFIG_CRYPTO_POST_LATE_INIT)
 	late_initcall(fips_func_test);
 #else
-	module_init(fips_func_test);
-#endif// CONFIG_CRYPTO_POST_DEFERRED_INIT
-#else
-#if defined(CONFIG_CRYPTO_POST_DEFERRED_INIT)
-deferred_module_init(tcrypt_mod_init);
-#elif defined(CONFIG_CRYPTO_POST_LATE_INIT_SYNC)
-late_initcall_sync(tcrypt_mod_init);
-#elif defined(CONFIG_CRYPTO_POST_LATE_INIT)
-late_initcall(tcrypt_mod_init);
-#else
-module_init(tcrypt_mod_init);
-#endif // CONFIG_CRYPTO_POST_DEFERRED_INIT
-#endif // CONFIG_CRYPTO_FIPS_FUNC_TEST
+	late_initcall(tcrypt_mod_init);
+#endif
 module_exit(tcrypt_mod_fini);
 
 module_param(alg, charp, 0);

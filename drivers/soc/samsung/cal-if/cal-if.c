@@ -1,7 +1,13 @@
 #include <linux/module.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 #include <soc/samsung/ect_parser.h>
 #include <soc/samsung/cal-if.h>
+#ifdef CONFIG_EXYNOS9820_BTS
+#include <soc/samsung/bts.h>
+#endif
+#if defined(CONFIG_EXYNOS_BCM_DBG)
+#include <soc/samsung/exynos-bcm_dbg.h>
+#endif
 
 #include "pwrcal-env.h"
 #include "pwrcal-rae.h"
@@ -14,9 +20,12 @@
 #include "pmucal_system.h"
 #include "pmucal_local.h"
 #include "pmucal_cpu.h"
+#include "pmucal_dbg.h"
 #include "pmucal_cp.h"
 #include "pmucal_rae.h"
 #include "pmucal_powermode.h"
+
+#include "../exynos-hiu.h"
 
 static DEFINE_SPINLOCK(pmucal_cpu_lock);
 
@@ -51,7 +60,10 @@ int cal_dfs_set_rate(unsigned int id, unsigned long rate)
 	int ret;
 
 	if (IS_ACPM_VCLK(id)) {
-		ret = exynos_acpm_set_rate(GET_IDX(id), rate);
+		if (cal_check_hiu_dvfs_id && cal_check_hiu_dvfs_id(id))
+			ret = exynos_hiu_set_freq(id, rate);
+		else
+			ret = exynos_acpm_set_rate(GET_IDX(id), rate);
 		if (!ret) {
 			vclk = cmucal_get_node(id);
 			if (vclk)
@@ -94,6 +106,9 @@ unsigned long cal_dfs_cached_get_rate(unsigned int id)
 unsigned long cal_dfs_get_rate(unsigned int id)
 {
 	int ret;
+
+	if (cal_check_hiu_dvfs_id && cal_check_hiu_dvfs_id(id))
+		return exynos_hiu_get_freq(id);
 
 	ret = vclk_recalc_rate(id);
 
@@ -167,16 +182,36 @@ unsigned int cal_dfs_get_resume_freq(unsigned int id)
 int cal_pd_control(unsigned int id, int on)
 {
 	unsigned int index;
+	int ret;
 
 	if ((id & 0xFFFF0000) != BLKPWR_MAGIC)
 		return -1;
 
 	index = id & 0x0000FFFF;
 
-	if (on)
-		return pmucal_local_enable(index);
-	else
-		return pmucal_local_disable(index);
+	if (on) {
+		ret = pmucal_local_enable(index);
+#ifdef CONFIG_EXYNOS9820_BTS
+		if (index == 0x7)
+			bts_pd_sync(id, on);
+#endif
+#if defined(CONFIG_EXYNOS_BCM_DBG)
+		if (cal_pd_status(id))
+			exynos_bcm_dbg_pd_sync(id, true);
+#endif
+	} else {
+#ifdef CONFIG_EXYNOS9820_BTS
+		if (index == 0x7)
+			bts_pd_sync(id, on);
+#endif
+#if defined(CONFIG_EXYNOS_BCM_DBG)
+		if (cal_pd_status(id))
+			exynos_bcm_dbg_pd_sync(id, false);
+#endif
+		ret = pmucal_local_disable(index);
+	}
+
+	return ret;
 }
 
 int cal_pd_status(unsigned int id)
@@ -284,6 +319,22 @@ int cal_cluster_status(unsigned int cluster)
 	spin_unlock(&pmucal_cpu_lock);
 
 	return ret;
+}
+
+int cal_cluster_req_emulation(unsigned int cluster, bool en)
+{
+	int ret;
+
+	spin_lock(&pmucal_cpu_lock);
+	ret = pmucal_cpu_cluster_req_emulation(cluster, en);
+	spin_unlock(&pmucal_cpu_lock);
+
+	return ret;
+}
+
+extern int cal_is_lastcore_detecting(unsigned int cpu)
+{
+	return pmucal_is_lastcore_detecting(cpu);
 }
 
 int cal_dfs_get_asv_table(unsigned int id, unsigned int *table)
@@ -409,6 +460,10 @@ int __init cal_if_init(void *dev)
 		return ret;
 
 	ret = pmucal_cpuinform_init();
+	if (ret < 0)
+		return ret;
+
+	ret = pmucal_dbg_init();
 	if (ret < 0)
 		return ret;
 

@@ -29,6 +29,7 @@
 #define SMC_CMD_KERNEL_PANIC_NOTICE	(-122)
 #define SMC_CMD_SET_SEH_ADDRESS		(-123)
 #define SMC_CMD_LOCKUP_NOTICE		(0x8200007C)
+#define SMC_CMD_GET_SJTAG_STATUS	(0x8200012E)
 
 /* For protecting kernel text area */
 #define SMC_CMD_PROTECT_KERNEL_TEXT	(-125)
@@ -65,13 +66,17 @@
 #define SMC_DRM_PPMP_MFCFW_UNPROT	(0x82002113)
 #define MC_FC_SET_CFW_PROT		(0x82002040)
 #define SMC_DRM_SEC_SMMU_INFO		(0x820020D0)
-
-/* PPMPU */
-#define SMC_PPMPU_PR_VIOLATION		(0x820020DE)
-#define SMC_PPMPU_GET_PROT		(0x820020DF)
-
 #define MC_FC_DRM_SET_CFW_PROT		(0x10000000)
 #define SMC_SRPMB_WSM			(0x82003811)
+
+/* Command ID for seccam */
+#define SMC_SECCAM_SETENV               (0x82002130)
+#define SMC_SECCAM_INIT                 (0x82002131)
+#define SMC_SECCAM_INIT_NSBUF           (0x82002134)
+#define SMC_SECCAM_SYSREG_PROT          (0x82002132)
+#define SMC_SECCAM_PREPARE              (0x82002135)
+#define SMC_SECCAM_UNPREPARE            (0x82002136)
+#define SMC_SECCAM_GETSTATUS            (0x82002137)
 
 /* Deprecated */
 #define SMC_DRM_MAKE_PGTABLE		(0x81000003)
@@ -93,6 +98,13 @@
 
 /* For Secure log information */
 #define SMC_CMD_SEC_LOG_INFO		(0x82000610)
+
+/* For PPMPU fail information */
+#define SMC_CMD_GET_PPMPU_FAIL_INFO	(0x8200211A)
+#define SMC_CMD_CHECK_PPMPU_CH_NUM	(0x8200211B)
+
+/* For MMCache flush */
+#define SMC_CMD_MM_CACHE_OPERATION	(0x82000720)
 
 /* MACRO for SMC_CMD_REG */
 #define SMC_REG_CLASS_CP15		(0x0 << 30)
@@ -133,14 +145,14 @@
 #define PROT_MFC			(0)
 #define PROT_MSCL0			(1)
 #define PROT_MSCL1			(2)
-#define PROT_G0				(3)
-#define PROT_G1				(4)
-#define PROT_VG0			(5)
-#define PROT_VG1			(6)
+#define PROT_GF0			(3)
+#define PROT_GF1			(4)
+#define PROT_VG				(5)
+#define PROT_VGF			(6)
 #define PROT_G2				(7)
 #define PROT_G3				(8)
-#define PROT_VGR0			(9)
-#define PROT_VGRF			(10)
+#define PROT_VGS			(9)
+#define PROT_VGRFS			(10)
 #define PROT_WB1			(11)
 #define PROT_G3D			(12)
 #define PROT_JPEG			(13)

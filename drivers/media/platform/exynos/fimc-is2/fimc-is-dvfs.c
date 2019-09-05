@@ -11,8 +11,10 @@
  */
 
 #include <linux/slab.h>
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EHMP)
 #include <linux/ehmp.h>
+#elif defined(CONFIG_SCHED_EMS)
+#include <linux/ems.h>
 #endif
 #include "fimc-is-core.h"
 #include "fimc-is-dvfs.h"
@@ -29,7 +31,7 @@ extern struct pm_qos_request exynos_isp_qos_mem;
 extern struct pm_qos_request exynos_isp_qos_cam;
 extern struct pm_qos_request exynos_isp_qos_hpg;
 
-#ifdef CONFIG_SCHED_EHMP
+#if defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
 extern struct gb_qos_request gb_req;
 #endif
 
@@ -306,7 +308,7 @@ int fimc_is_dvfs_sel_dynamic(struct fimc_is_device_ischain *device, struct fimc_
 		}
 	}
 
-	if (!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state))
+	if (!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state) || group->id == GROUP_ID_VRA0)
 		return -EAGAIN;
 
 	position = fimc_is_sensor_g_position(device->sensor);
@@ -348,6 +350,7 @@ p_again:
 
 int fimc_is_dvfs_sel_external(struct fimc_is_device_sensor *device)
 {
+	int ret;
 	struct fimc_is_core *core;
 	struct fimc_is_dvfs_ctrl *dvfs_ctrl;
 	struct fimc_is_dvfs_scenario_ctrl *external_ctrl;
@@ -391,13 +394,20 @@ int fimc_is_dvfs_sel_external(struct fimc_is_device_sensor *device)
 			continue;
 		}
 
-		if ((scenarios[i].ext_check_func(device, position, resol, fps,
-			stream_cnt, sensor_map, dual_info)) > 0) {
+		ret = scenarios[i].ext_check_func(device, position, resol, fps,
+				stream_cnt, sensor_map, dual_info);
+		switch (ret) {
+		case DVFS_MATCHED:
 			scenario_id = scenarios[i].scenario_id;
 			external_ctrl->cur_scenario_id = scenario_id;
 			external_ctrl->cur_scenario_idx = i;
 			external_ctrl->cur_frame_tick = scenarios[i].keep_frame_tick;
 			return scenario_id;
+		case DVFS_SKIP:
+			return -EAGAIN;
+		case DVFS_NOT_MATCHED:
+		default:
+			continue;
 		}
 	}
 
@@ -564,7 +574,7 @@ int fimc_is_set_dvfs(struct fimc_is_core *core, struct fimc_is_device_ischain *d
 				dvfs_ctrl->cur_hmp_bst = 0;
 			}
 		}
-#elif defined(CONFIG_SCHED_EHMP)
+#elif defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
 		/* for migration to big core */
 		if (hpg_qos > 4) {
 			if (!dvfs_ctrl->cur_hmp_bst) {
@@ -598,19 +608,14 @@ void fimc_is_dual_mode_update(struct fimc_is_device_ischain *device,
 	struct fimc_is_group *group,
 	struct fimc_is_frame *frame)
 {
-	struct fimc_is_core *core = NULL;
-	struct fimc_is_device_sensor *sensor = NULL;
-	struct fimc_is_resourcemgr *resourcemgr = NULL;
-	struct fimc_is_dual_info *dual_info = NULL;
+	struct fimc_is_core *core = (struct fimc_is_core *)device->interface->core;
+	struct fimc_is_dual_info *dual_info = &core->dual_info;
+	struct fimc_is_device_sensor *sensor = device->sensor;
 
-	core = (struct fimc_is_core *)device->interface->core;
-	sensor = device->sensor;
-	resourcemgr = device->resourcemgr;
-	dual_info = &core->dual_info;
-
-	/* Continue if wide and tele complete fimc_is_sensor_s_input(). */
+	/* Continue if wide and tele/s-wide complete fimc_is_sensor_s_input(). */
 	if (!(test_bit(SENSOR_POSITION_REAR, &core->sensor_map) &&
-		test_bit(SENSOR_POSITION_REAR2, &core->sensor_map)))
+		(test_bit(SENSOR_POSITION_REAR2, &core->sensor_map) ||
+		 test_bit(SENSOR_POSITION_REAR3, &core->sensor_map))))
 		return;
 
 	if (group->head->device_type != FIMC_IS_DEVICE_SENSOR)
@@ -622,10 +627,10 @@ void fimc_is_dual_mode_update(struct fimc_is_device_ischain *device,
 		dual_info->max_fps_master = frame->shot->ctl.aa.aeTargetFpsRange[1];
 		break;
 	case SENSOR_POSITION_REAR2:
+	case SENSOR_POSITION_REAR3:
 		dual_info->max_fps_slave = frame->shot->ctl.aa.aeTargetFpsRange[1];
 		break;
 	default:
-		err("invalid dual sensor position\n");
 		return;
 	}
 
@@ -649,22 +654,17 @@ void fimc_is_dual_dvfs_update(struct fimc_is_device_ischain *device,
 	struct fimc_is_group *group,
 	struct fimc_is_frame *frame)
 {
-	struct fimc_is_core *core = NULL;
-	struct fimc_is_device_sensor *sensor = NULL;
-	struct fimc_is_resourcemgr *resourcemgr = NULL;
-	struct fimc_is_dvfs_scenario_ctrl *static_ctrl = NULL;
-	struct fimc_is_dual_info *dual_info = NULL;
+	struct fimc_is_core *core = (struct fimc_is_core *)device->interface->core;
+	struct fimc_is_dual_info *dual_info = &core->dual_info;
+	struct fimc_is_resourcemgr *resourcemgr = device->resourcemgr;
+	struct fimc_is_dvfs_scenario_ctrl *static_ctrl
+				= resourcemgr->dvfs_ctrl.static_ctrl;
 	int scenario_id, pre_scenario_id;
 
-	core = (struct fimc_is_core *)device->interface->core;
-	sensor = device->sensor;
-	resourcemgr = device->resourcemgr;
-	static_ctrl = resourcemgr->dvfs_ctrl.static_ctrl;
-	dual_info = &core->dual_info;
-
-	/* Continue if wide and tele complete fimc_is_sensor_s_input(). */
+	/* Continue if wide and tele/s-wide complete fimc_is_sensor_s_input(). */
 	if (!(test_bit(SENSOR_POSITION_REAR, &core->sensor_map) &&
-		test_bit(SENSOR_POSITION_REAR2, &core->sensor_map)))
+		(test_bit(SENSOR_POSITION_REAR2, &core->sensor_map) ||
+		 test_bit(SENSOR_POSITION_REAR3, &core->sensor_map))))
 		return;
 
 	if (group->head->device_type != FIMC_IS_DEVICE_SENSOR)
@@ -727,5 +727,17 @@ void fimc_is_dual_dvfs_update(struct fimc_is_device_ischain *device,
 
 	/* Update current mode to pre_mode. */
 	dual_info->pre_mode = dual_info->mode;
+}
+
+unsigned int fimc_is_get_bit_count(unsigned long bits)
+{
+	unsigned int count = 0;
+
+	while (bits) {
+		bits &= (bits - 1);
+		count++;
+	}
+
+	return count;
 }
 #endif

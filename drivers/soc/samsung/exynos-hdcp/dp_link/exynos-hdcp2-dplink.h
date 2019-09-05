@@ -14,6 +14,30 @@
 int dplink_emul_handler(int cmd);
 #endif
 
+enum auth_state {
+	HDCP_AUTH_PROCESS_IDLE	= 0x1,
+	HDCP_AUTH_PROCESS_STOP	= 0x2,
+	HDCP_AUTH_PROCESS_DONE	= 0x3
+};
+
+enum auth_signal {
+	HDCP_DRM_OFF	= 0x100,
+	HDCP_DRM_ON	= 0x200,
+	HDCP_RP_READY	= 0x300,
+};
+
+enum drm_state {
+	DRM_OFF = 0x0,
+	DRM_ON = 0x1,
+	DRM_SAME_STREAM_TYPE = 0x2	/* If the previous contents and stream_type id are the same flag */
+};
+
+enum dp_state {
+	DP_DISCONNECT,
+	DP_CONNECT,
+	DP_HDCP_READY,
+};
+
 /* Do hdcp2.2 authentication with DP Receiver
  * and enable encryption if authentication is succeed.
  * @return
@@ -21,18 +45,8 @@ int dplink_emul_handler(int cmd);
  *  - ENOMEM: hdcp context open fail
  *  - EACCES: authentication fail
  */
+int hdcp_dplink_get_rxinfo(uint8_t *status);
 int hdcp_dplink_authenticate(void);
-
 int do_dplink_auth(struct hdcp_link_info *lk_handle);
-int hdcp_dplink_get_rxstatus(uint8_t *status);
-int hdcp_dplink_set_paring_available(void);
-int hdcp_dplink_set_hprime_available(void);
-int hdcp_dplink_set_rp_ready(void);
-int hdcp_dplink_set_reauth(void);
-int hdcp_dplink_set_integrity_fail(void);
-int hdcp_dplink_cancel_auth(void);
-int hdcp_dplink_stream_manage(void);
-int hdcp_dplink_is_auth_state(void);
 void hdcp_clear_session(uint32_t id);
-void hdcp_dplink_clear_all(void);
 #endif

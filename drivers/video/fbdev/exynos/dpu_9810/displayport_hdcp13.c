@@ -259,6 +259,12 @@ u8 hdcp13_cmp_ri(void)
 
 void hdcp13_encryption_con(u8 enable)
 {
+	struct decon_device *decon = get_decon_drvdata(2);
+
+	/* wait 2 frames for hdcp encryption enable/disable */
+	decon_wait_for_vsync(decon, VSYNC_TIMEOUT_MSEC);
+	decon_wait_for_vsync(decon, VSYNC_TIMEOUT_MSEC);
+
 	if (enable == 1) {
 		displayport_write_mask(HDCP13_CONTROL_0, ~0, SW_AUTH_OK | HDCP13_ENC_EN);
 		/*displayport_reg_video_mute(0);*/
@@ -273,7 +279,6 @@ void hdcp13_encryption_con(u8 enable)
 void hdcp13_link_integrity_check(void)
 {
 	int i;
-
 	if (hdcp13_info.link_check == LINK_CHECK_NEED) {
 		displayport_info("[HDCP 1.3] HDCP13_Link_integrity_check\n");
 
@@ -302,10 +307,6 @@ void hdcp13_link_integrity_check(void)
 			}
 			msleep(20);
 		}
-
-		if (i == 10)
-			displayport_info("[HDCP 1.3] HDCP13_DPCD.HDCP13_BSTATUS = %02x\n",
-					HDCP13_DPCD.HDCP13_BSTATUS[0]);
 	}
 }
 
@@ -493,8 +494,6 @@ void hdcp13_run(void)
 		hdcp13_info.auth_state = HDCP13_STATE_AUTH_PROCESS;
 
 		hdcp13_encryption_con(0);
-		msleep(500);
-
 		hdcp13_func_en(1);
 
 		hdcp13_repeater_set();

@@ -290,35 +290,6 @@ static struct regulator_desc regulators[S2MPB03_REGULATOR_MAX] = {
 };
 
 #ifdef CONFIG_OF
-static void s2mpb03_pmic_dt_parse_ldo_slew(struct device_node *pmic_np,
-					struct s2mpb03_platform_data *pdata)
-{
-	u8 val;
-
-	pdata->disable_ldo2_remote_sense =
-		of_property_read_bool(pmic_np, "disable_ldo2_remote_sense");
-
-	if (of_property_read_u8(pmic_np, "slew2,dram_dsch1", &val))
-		val = -1;
-	pdata->slew2.dram_dsch1 = val;
-
-	if (of_property_read_u8(pmic_np, "slew2,dram_dsch2", &val))
-		val = -1;
-	pdata->slew2.dram_dsch2 = val;
-
-	if (of_property_read_u8(pmic_np, "slew2,l5_slew", &val))
-		val = -1;
-	pdata->slew2.l5_slew = val;
-
-	if (of_property_read_u8(pmic_np, "slew2,l6_slew", &val))
-		val = -1;
-	pdata->slew2.l6_slew = val;
-
-	if (of_property_read_u8(pmic_np, "slew2,l7_slew", &val))
-		val = -1;
-	pdata->slew2.l7_slew = val;
-}
-
 static int s2mpb03_pmic_dt_parse_pdata(struct device *dev,
 					struct s2mpb03_platform_data *pdata)
 {
@@ -332,8 +303,6 @@ static int s2mpb03_pmic_dt_parse_pdata(struct device *dev,
 		return -ENODEV;
 	}
 	pdata->wakeup = of_property_read_bool(pmic_np, "s2mpb03,wakeup");
-
-	s2mpb03_pmic_dt_parse_ldo_slew(pmic_np, pdata);
 
 	regulators_np = of_find_node_by_name(pmic_np, "regulators");
 	if (!regulators_np) {
@@ -388,58 +357,6 @@ static int s2mpb03_pmic_dt_parse_pdata(struct s2mpb03_dev *iodev,
 }
 #endif /* CONFIG_OF */
 
-static inline void s2mpb03_update_ldo_slew(struct i2c_client *i2c,
-		const u8 addr, const u8 val, const u8 mask, const u8 shift)
-{
-	int ret;
-
-	ret = s2mpb03_update_reg(i2c, addr, val << shift, mask << shift);
-	if (ret < 0)
-		dev_err(&i2c->dev, "%s: failed to update ldo slew\n"
-				"\t(addr:0x%02X, shift:0x%02X)\n", __func__,
-				addr, shift);
-}
-
-static void s2mpb03_pmic_set_ldo_slew(struct i2c_client *i2c,
-					struct s2mpb03_platform_data *pdata)
-{
-	u8 val;
-	const u8 dsch_mask = 1;
-	const u8 ldo_slew_mask = 3;
-
-	val = !pdata->disable_ldo2_remote_sense;
-	s2mpb03_update_reg(i2c, S2MPB03_REG_LDO_SLEW1, val, 1);
-
-	val = pdata->slew2.dram_dsch1;
-	if (val <= dsch_mask)
-		s2mpb03_update_ldo_slew(i2c, S2MPB03_REG_LDO_SLEW2, val,
-				dsch_mask, 0);
-
-	val = pdata->slew2.dram_dsch2;
-	if (val <= dsch_mask)
-		s2mpb03_update_ldo_slew(i2c, S2MPB03_REG_LDO_SLEW2, val,
-				dsch_mask, 1);
-
-	val = pdata->slew2.l5_slew;
-	if (val <= ldo_slew_mask)
-		s2mpb03_update_ldo_slew(i2c, S2MPB03_REG_LDO_SLEW2, val,
-				ldo_slew_mask, 6);
-
-	val = pdata->slew2.l6_slew;
-	if (val <= ldo_slew_mask)
-		s2mpb03_update_ldo_slew(i2c, S2MPB03_REG_LDO_SLEW2, val,
-				ldo_slew_mask, 4);
-
-	val = pdata->slew2.l7_slew;
-	if (val <= ldo_slew_mask)
-		s2mpb03_update_ldo_slew(i2c, S2MPB03_REG_LDO_SLEW2, val,
-				ldo_slew_mask, 2);
-
-	s2mpb03_read_reg(i2c, S2MPB03_REG_LDO_SLEW2, &val);
-	dev_info(&i2c->dev, "%s: SLEW2 val=0x%02X\n", __func__, val);
-
-}
-
 static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 				const struct i2c_device_id *dev_id)
 {
@@ -452,7 +369,7 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 
 	pr_info("%s:%s\n", MFD_DEV_NAME, __func__);
 
-	iodev = kzalloc(sizeof(struct s2mpb03_dev), GFP_KERNEL);
+	iodev = devm_kzalloc(&i2c->dev, sizeof(struct s2mpb03_dev), GFP_KERNEL);
 	if (!iodev) {
 		dev_err(&i2c->dev, "%s: Failed to alloc mem for s2mpb03\n",
 							__func__);
@@ -470,7 +387,7 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		ret = s2mpb03_pmic_dt_parse_pdata(&i2c->dev, pdata);
 		if (ret < 0) {
 			dev_err(&i2c->dev, "Failed to get device of_node\n");
-			goto err_dt;
+			goto err_pdata;
 		}
 
 		i2c->dev.platform_data = pdata;
@@ -485,7 +402,7 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		iodev->wakeup = pdata->wakeup;
 	} else {
 		ret = -EINVAL;
-		goto err_dt;
+		goto err_pdata;
 	}
 	mutex_init(&iodev->i2c_lock);
 	i2c_set_clientdata(i2c, iodev);
@@ -494,8 +411,8 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 				GFP_KERNEL);
 	if (!s2mpb03) {
 		pr_info("[%s:%d] if (!s2mpb03)\n", __FILE__, __LINE__);
-		ret = -EINVAL;
-		goto err_data;
+		ret = -ENOMEM;
+		goto err_s2mpb03_data;
 	}
 
 	s2mpb03->iodev = iodev;
@@ -508,32 +425,22 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		config.driver_data = s2mpb03;
 		config.of_node = pdata->regulators[i].reg_node;
 		s2mpb03->opmode[id] = regulators[id].enable_mask;
-		s2mpb03->rdev[i] = regulator_register(&regulators[id], &config);
+		s2mpb03->rdev[i] = devm_regulator_register(&i2c->dev, &regulators[id], &config);
 		if (IS_ERR(s2mpb03->rdev[i])) {
 			ret = PTR_ERR(s2mpb03->rdev[i]);
 			dev_err(&i2c->dev, "regulator init failed for %d\n",
 				id);
 			s2mpb03->rdev[i] = NULL;
-			goto err_rdata;
+			goto err_s2mpb03_data;
 		}
 	}
 
-	s2mpb03_pmic_set_ldo_slew(i2c, pdata);
-
 	return ret;
 
-err_rdata:
-	pr_info("[%s:%d] err:\n", __FILE__, __LINE__);
-	for (i = 0; i < s2mpb03->num_regulators; i++)
-		if (s2mpb03->rdev[i])
-			regulator_unregister(s2mpb03->rdev[i]);
-err_data:
+err_s2mpb03_data:
 	mutex_destroy(&iodev->i2c_lock);
-	kfree(s2mpb03);
-err_dt:
-	kfree(pdata);
 err_pdata:
-	kfree(iodev);
+	pr_info("[%s:%d] err\n", __func__, __LINE__);
 
 	return ret;
 }
@@ -547,13 +454,7 @@ static struct of_device_id s2mpb03_i2c_dt_ids[] = {
 
 static int s2mpb03_pmic_remove(struct i2c_client *i2c)
 {
-	struct s2mpb03_data *s2mpb03 = i2c_get_clientdata(i2c);
-	int i;
 	dev_info(&i2c->dev, "%s\n", __func__);
-	for (i = 0; i < s2mpb03->num_regulators; i++)
-		if (s2mpb03->rdev[i])
-			regulator_unregister(s2mpb03->rdev[i]);
-
 	return 0;
 }
 

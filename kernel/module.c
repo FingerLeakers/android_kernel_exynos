@@ -17,6 +17,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 #include <linux/export.h>
+#include <linux/extable.h>
 #include <linux/moduleloader.h>
 #include <linux/trace_events.h>
 #include <linux/init.h>
@@ -46,8 +47,9 @@
 #include <linux/string.h>
 #include <linux/mutex.h>
 #include <linux/rculist.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/cacheflush.h>
+#include <linux/set_memory.h>
 #include <asm/mmu_context.h>
 #include <linux/license.h>
 #include <asm/sections.h>
@@ -61,129 +63,35 @@
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
 #include <linux/dynamic_debug.h>
+#include <linux/audit.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
 
-#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
-#include <asm/tlbflush.h>
-#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
-#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
-#define TIMA_SET_PTE_RO 1
-#define TIMA_SET_PTE_NX 2
-#endif/*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
 
 #ifndef ARCH_SHF_SMALL
 #define ARCH_SHF_SMALL 0
 #endif
 
-#ifdef CONFIG_TIMA_LKMAUTH
-
-/*
- * TEE-dependent configurations
- */
-#include <../drivers/gud/gud-exynos9810/MobiCoreDriver/public/mobicore_driver_api.h>
-
-#include <linux/fs.h>
-#include <linux/delay.h>
-#include <asm/uaccess.h>
-
-#define TL_TIMA_LKMAUTH_UUID {{ 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xb }}
-
-/* Commands for lkmauth tl */
-#define CMD_TIMA_LKMAUTH_LOAD_HASH				0x00000009
-#define CMD_TIMA_LKMAUTH_VERIFY_MODULE			0x00000010
-#define CMD_TIMA_LKMAUTH_LKM_BLOCK				0x00000011
-#define CMD_TIMA_LKMAUTH_UNKNOWN				0x7FFFFFFF
-
-/* Return codes for lkmauth tl */
-#define	RET_TL_TIMA_LKMAUTH_OK					0x00000000
-#define	RET_TL_TIMA_LKMAUTH_HASH_LOADED			0x00000001
-#define	RET_TL_TIMA_LKMAUTH_LKM_BLOCK_FORCE		0x00000002
-
-/* Error codes for lkmauth tl */
-#define	RET_TL_TIMA_LKMAUTH_LG_MAXKO			0x00000010
-#define	RET_TL_TIMA_LKMAUTH_SHA1_INIT_FAIL		0x00000020
-#define	RET_TL_TIMA_LKMAUTH_SHA1_FINAL_FAIL		0x00000030
-#define	RET_TL_TIMA_LKMAUTH_VERIFY_FAIL			0x00000040
+#ifdef CONFIG_UH_LKMAUTH
+/* Return codes for uh_lkmauth */
+#define	RET_UH_LKMAUTH_OK					0x00000000
+#define	RET_UH_LKMAUTH_LKM_BLOCK_FORCE		0x00000002
 
 /* Return codes for lkmauth function */
 #define	RET_LKMAUTH_SUCCESS				0
 #define	RET_LKMAUTH_FAIL				-1
-
-#define HASH_SIZE 20
-#define TIMA_SIGN_LEN 256	/* the rsa signature length of lkm_sec_info */
-#define MC_MAPPING_MAX_SIZE 0x100000
-
-uint8_t *tci = NULL;
-uint8_t *drv_tci = NULL;
-uint8_t lkmauth_tl_loaded = 0;
-uint8_t lkm_sec_info_loaded = 0;
-struct mc_session_handle mchandle;
-struct mc_session_handle drv_mchandle;
-
-/*
- * TEE-independent configurations
- */
-#include <linux/kobject.h>
-DEFINE_MUTEX(lkmauth_mutex);
-extern struct device *tima_uevent_dev;
-
-/* Message types for the lkmauth command */
-typedef struct lkmauth_hash_s {
-	uint32_t cmd_id;
-	uint32_t hash_buf_start;	/* starting address of buf for ko hashes */
-	uint32_t hash_buf_len;	/* length of hash buf, should be multiples of 20 bytes */
-} __attribute__ ((packed)) lkmauth_hash_t;
-
-typedef struct lkmauth_req_s {
-	uint32_t cmd_id;
-	uint32_t module_addr_start;
-	uint32_t module_len;
-	uint32_t min;
-	uint32_t max;
-	char module_name[280];
-	int module_name_len;
-} __attribute__ ((packed)) lkmauth_req_t;
-
-typedef struct lkmauth_rsp_s {
-	/* First 4 bytes should always be command id */
-	uint32_t cmd_id;
-	int ret;
-	union {
-		unsigned char hash[HASH_SIZE];
-		char result_ondemand[256];
-	} __attribute__ ((packed)) result;
-} __attribute__ ((packed)) lkmauth_rsp_t;
-
-typedef struct {
-	union {
-		lkmauth_hash_t lkmauth_hash;
-		lkmauth_req_t lkmauth_req;
-		lkmauth_rsp_t lkmauth_rsp;
-	};
-} tciMessage_t;
-#endif /* End CONFIG_TIMA_LKMAUTH */
-
+#endif
 /*
  * Modules' sections will be aligned on page boundaries
  * to ensure complete separation of code and data, but
- * only when CONFIG_DEBUG_SET_MODULE_RONX=y
+ * only when CONFIG_STRICT_MODULE_RWX=y
  */
- 
-#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
-# define debug_align(X) ALIGN(X, PAGE_SIZE)
-#else
-#ifdef TIMA_LKM_SET_PAGE_ATTRIB
-#define debug_align(X) ALIGN(X, PAGE_SIZE)
-#else
-#ifdef CONFIG_DEBUG_SET_MODULE_RONX
+#ifdef CONFIG_STRICT_MODULE_RWX
 # define debug_align(X) ALIGN(X, PAGE_SIZE)
 #else
 # define debug_align(X) (X)
-#endif
-#endif
 #endif
 
 /* If this is set, the section belongs in the init part of the module */
@@ -401,6 +309,7 @@ int unregister_module_notifier(struct notifier_block *nb)
 EXPORT_SYMBOL(unregister_module_notifier);
 
 struct load_info {
+	const char *name;
 	Elf_Ehdr *hdr;
 	unsigned long len;
 	Elf_Shdr *sechdrs;
@@ -417,8 +326,11 @@ struct load_info {
 	} index;
 };
 
-/* We require a truly strong try_module_get(): 0 means failure due to
-   ongoing or failed initialization etc. */
+/*
+ * We require a truly strong try_module_get(): 0 means success.
+ * Otherwise an error is returned due to ongoing or failed
+ * initialization etc.
+ */
 static inline int strong_try_module_get(struct module *mod)
 {
 	BUG_ON(mod && mod->state == MODULE_STATE_UNFORMED);
@@ -434,7 +346,7 @@ static inline void add_taint_module(struct module *mod, unsigned flag,
 				    enum lockdep_ok lockdep_ok)
 {
 	add_taint(flag, lockdep_ok);
-	mod->taints |= (1U << flag);
+	set_bit(flag, &mod->taints);
 }
 
 /*
@@ -490,16 +402,16 @@ extern const struct kernel_symbol __start___ksymtab_gpl[];
 extern const struct kernel_symbol __stop___ksymtab_gpl[];
 extern const struct kernel_symbol __start___ksymtab_gpl_future[];
 extern const struct kernel_symbol __stop___ksymtab_gpl_future[];
-extern const unsigned long __start___kcrctab[];
-extern const unsigned long __start___kcrctab_gpl[];
-extern const unsigned long __start___kcrctab_gpl_future[];
+extern const s32 __start___kcrctab[];
+extern const s32 __start___kcrctab_gpl[];
+extern const s32 __start___kcrctab_gpl_future[];
 #ifdef CONFIG_UNUSED_SYMBOLS
 extern const struct kernel_symbol __start___ksymtab_unused[];
 extern const struct kernel_symbol __stop___ksymtab_unused[];
 extern const struct kernel_symbol __start___ksymtab_unused_gpl[];
 extern const struct kernel_symbol __stop___ksymtab_unused_gpl[];
-extern const unsigned long __start___kcrctab_unused[];
-extern const unsigned long __start___kcrctab_unused_gpl[];
+extern const s32 __start___kcrctab_unused[];
+extern const s32 __start___kcrctab_unused_gpl[];
 #endif
 
 #ifndef CONFIG_MODVERSIONS
@@ -598,7 +510,7 @@ struct find_symbol_arg {
 
 	/* Output */
 	struct module *owner;
-	const unsigned long *crc;
+	const s32 *crc;
 	const struct kernel_symbol *sym;
 };
 
@@ -664,7 +576,7 @@ static bool find_symbol_in_section(const struct symsearch *syms,
  * (optional) module which owns it.  Needs preempt disabled or module_mutex. */
 const struct kernel_symbol *find_symbol(const char *name,
 					struct module **owner,
-					const unsigned long **crc,
+					const s32 **crc,
 					bool gplok,
 					bool warn)
 {
@@ -698,7 +610,7 @@ static struct module *find_module_all(const char *name, size_t len,
 
 	module_assert_mutex_or_preempt();
 
-	list_for_each_entry(mod, &modules, list) {
+	list_for_each_entry_rcu(mod, &modules, list) {
 		if (!even_unformed && mod->state == MODULE_STATE_UNFORMED)
 			continue;
 		if (strlen(mod->name) == len && !memcmp(mod->name, name, len))
@@ -764,16 +676,7 @@ static void percpu_modcopy(struct module *mod,
 		memcpy(per_cpu_ptr(mod->percpu, cpu), from, size);
 }
 
-/**
- * is_module_percpu_address - test whether address is from module static percpu
- * @addr: address to test
- *
- * Test whether @addr belongs to module static percpu area.
- *
- * RETURNS:
- * %true if @addr is from module static percpu area
- */
-bool is_module_percpu_address(unsigned long addr)
+bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr)
 {
 	struct module *mod;
 	unsigned int cpu;
@@ -787,9 +690,15 @@ bool is_module_percpu_address(unsigned long addr)
 			continue;
 		for_each_possible_cpu(cpu) {
 			void *start = per_cpu_ptr(mod->percpu, cpu);
+			void *va = (void *)addr;
 
-			if ((void *)addr >= start &&
-			    (void *)addr < start + mod->percpu_size) {
+			if (va >= start && va < start + mod->percpu_size) {
+				if (can_addr) {
+					*can_addr = (unsigned long) (va - start);
+					*can_addr += (unsigned long)
+						per_cpu_ptr(mod->percpu,
+							    get_boot_cpu_id());
+				}
 				preempt_enable();
 				return true;
 			}
@@ -798,6 +707,20 @@ bool is_module_percpu_address(unsigned long addr)
 
 	preempt_enable();
 	return false;
+}
+
+/**
+ * is_module_percpu_address - test whether address is from module static percpu
+ * @addr: address to test
+ *
+ * Test whether @addr belongs to module static percpu area.
+ *
+ * RETURNS:
+ * %true if @addr is from module static percpu area
+ */
+bool is_module_percpu_address(unsigned long addr)
+{
+	return __is_module_percpu_address(addr, NULL);
 }
 
 #else /* ... !CONFIG_SMP */
@@ -827,6 +750,11 @@ static inline void percpu_modcopy(struct module *mod,
 	BUG_ON(size != 0);
 }
 bool is_module_percpu_address(unsigned long addr)
+{
+	return false;
+}
+
+bool __is_module_percpu_address(unsigned long addr, unsigned long *can_addr)
 {
 	return false;
 }
@@ -1046,6 +974,8 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 		return -EFAULT;
 	name[MODULE_NAME_LEN-1] = '\0';
 
+	audit_log_kern_module(name);
+
 	if (mutex_lock_interruptible(&module_mutex) != 0)
 		return -EINTR;
 
@@ -1242,24 +1172,13 @@ static inline int module_unload_init(struct module *mod)
 static size_t module_flags_taint(struct module *mod, char *buf)
 {
 	size_t l = 0;
+	int i;
 
-	if (mod->taints & (1 << TAINT_PROPRIETARY_MODULE))
-		buf[l++] = 'P';
-	if (mod->taints & (1 << TAINT_OOT_MODULE))
-		buf[l++] = 'O';
-	if (mod->taints & (1 << TAINT_FORCED_MODULE))
-		buf[l++] = 'F';
-	if (mod->taints & (1 << TAINT_CRAP))
-		buf[l++] = 'C';
-	if (mod->taints & (1 << TAINT_UNSIGNED_MODULE))
-		buf[l++] = 'E';
-	if (mod->taints & (1 << TAINT_LIVEPATCH))
-		buf[l++] = 'K';
-	/*
-	 * TAINT_FORCED_RMMOD: could be added.
-	 * TAINT_CPU_OUT_OF_SPEC, TAINT_MACHINE_CHECK, TAINT_BAD_PAGE don't
-	 * apply to modules.
-	 */
+	for (i = 0; i < TAINT_FLAGS_COUNT; i++) {
+		if (taint_flags[i].module && test_bit(i, &mod->taints))
+			buf[l++] = taint_flags[i].c_true;
+	}
+
 	return l;
 }
 
@@ -1291,11 +1210,10 @@ static ssize_t store_uevent(struct module_attribute *mattr,
 			    struct module_kobject *mk,
 			    const char *buffer, size_t count)
 {
-	enum kobject_action action;
+	int rc;
 
-	if (kobject_action_type(buffer, count, &action) == 0)
-		kobject_uevent(&mk->kobj, action);
-	return count;
+	rc = kobject_synth_uevent(&mk->kobj, buffer, count);
+	return rc ? rc : count;
 }
 
 struct module_attribute module_uevent =
@@ -1361,24 +1279,19 @@ static int try_to_force_load(struct module *mod, const char *reason)
 }
 
 #ifdef CONFIG_MODVERSIONS
-/* If the arch applies (non-zero) relocations to kernel kcrctab, unapply it. */
-static unsigned long maybe_relocated(unsigned long crc,
-				     const struct module *crc_owner)
+
+static u32 resolve_rel_crc(const s32 *crc)
 {
-#ifdef ARCH_RELOCATES_KCRCTAB
-	if (crc_owner == NULL)
-		return crc - (unsigned long)reloc_start;
-#endif
-	return crc;
+	return *(u32 *)((void *)crc + *crc);
 }
 
-static int check_version(Elf_Shdr *sechdrs,
-			 unsigned int versindex,
+static int check_version(const struct load_info *info,
 			 const char *symname,
 			 struct module *mod,
-			 const unsigned long *crc,
-			 const struct module *crc_owner)
+			 const s32 *crc)
 {
+	Elf_Shdr *sechdrs = info->sechdrs;
+	unsigned int versindex = info->index.vers;
 	unsigned int i, num_versions;
 	struct modversion_info *versions;
 
@@ -1395,31 +1308,36 @@ static int check_version(Elf_Shdr *sechdrs,
 		/ sizeof(struct modversion_info);
 
 	for (i = 0; i < num_versions; i++) {
+		u32 crcval;
+
 		if (strcmp(versions[i].name, symname) != 0)
 			continue;
 
-		if (versions[i].crc == maybe_relocated(*crc, crc_owner))
+		if (IS_ENABLED(CONFIG_MODULE_REL_CRCS))
+			crcval = resolve_rel_crc(crc);
+		else
+			crcval = *crc;
+		if (versions[i].crc == crcval)
 			return 1;
-		pr_debug("Found checksum %lX vs module %lX\n",
-		       maybe_relocated(*crc, crc_owner), versions[i].crc);
+		pr_debug("Found checksum %X vs module %lX\n",
+			 crcval, versions[i].crc);
 		goto bad_version;
 	}
 
 	/* Broken toolchain. Warn once, then let it go.. */
-	pr_warn_once("%s: no symbol version for %s\n", mod->name, symname);
+	pr_warn_once("%s: no symbol version for %s\n", info->name, symname);
 	return 1;
 
 bad_version:
 	pr_warn("%s: disagrees about version of symbol %s\n",
-	       mod->name, symname);
+	       info->name, symname);
 	return 0;
 }
 
-static inline int check_modstruct_version(Elf_Shdr *sechdrs,
-					  unsigned int versindex,
+static inline int check_modstruct_version(const struct load_info *info,
 					  struct module *mod)
 {
-	const unsigned long *crc;
+	const s32 *crc;
 
 	/*
 	 * Since this should be found in kernel (which can't be removed), no
@@ -1432,9 +1350,8 @@ static inline int check_modstruct_version(Elf_Shdr *sechdrs,
 		BUG();
 	}
 	preempt_enable();
-	return check_version(sechdrs, versindex,
-			     VMLINUX_SYMBOL_STR(module_layout), mod, crc,
-			     NULL);
+	return check_version(info, VMLINUX_SYMBOL_STR(module_layout),
+			     mod, crc);
 }
 
 /* First part is kernel version, which we ignore if module has crcs. */
@@ -1448,18 +1365,15 @@ static inline int same_magic(const char *amagic, const char *bmagic,
 	return strcmp(amagic, bmagic) == 0;
 }
 #else
-static inline int check_version(Elf_Shdr *sechdrs,
-				unsigned int versindex,
+static inline int check_version(const struct load_info *info,
 				const char *symname,
 				struct module *mod,
-				const unsigned long *crc,
-				const struct module *crc_owner)
+				const s32 *crc)
 {
 	return 1;
 }
 
-static inline int check_modstruct_version(Elf_Shdr *sechdrs,
-					  unsigned int versindex,
+static inline int check_modstruct_version(const struct load_info *info,
 					  struct module *mod)
 {
 	return 1;
@@ -1480,7 +1394,7 @@ static const struct kernel_symbol *resolve_symbol(struct module *mod,
 {
 	struct module *owner;
 	const struct kernel_symbol *sym;
-	const unsigned long *crc;
+	const s32 *crc;
 	int err;
 
 	/*
@@ -1495,8 +1409,7 @@ static const struct kernel_symbol *resolve_symbol(struct module *mod,
 	if (!sym)
 		goto unlock;
 
-	if (!check_version(info->sechdrs, info->index.vers, name, mod, crc,
-			   owner)) {
+	if (!check_version(info, name, mod, crc)) {
 		sym = ERR_PTR(-EINVAL);
 		goto getname;
 	}
@@ -1759,21 +1672,6 @@ static inline void remove_notes_attrs(struct module *mod)
 }
 #endif /* CONFIG_KALLSYMS */
 
-static void add_usage_links(struct module *mod)
-{
-#ifdef CONFIG_MODULE_UNLOAD
-	struct module_use *use;
-	int nowarn;
-
-	mutex_lock(&module_mutex);
-	list_for_each_entry(use, &mod->target_list, target_list) {
-		nowarn = sysfs_create_link(use->target->holders_dir,
-					   &mod->mkobj.kobj, mod->name);
-	}
-	mutex_unlock(&module_mutex);
-#endif
-}
-
 static void del_usage_links(struct module *mod)
 {
 #ifdef CONFIG_MODULE_UNLOAD
@@ -1784,6 +1682,26 @@ static void del_usage_links(struct module *mod)
 		sysfs_remove_link(use->target->holders_dir, mod->name);
 	mutex_unlock(&module_mutex);
 #endif
+}
+
+static int add_usage_links(struct module *mod)
+{
+	int ret = 0;
+#ifdef CONFIG_MODULE_UNLOAD
+	struct module_use *use;
+
+	mutex_lock(&module_mutex);
+	list_for_each_entry(use, &mod->target_list, target_list) {
+		ret = sysfs_create_link(use->target->holders_dir,
+					&mod->mkobj.kobj, mod->name);
+		if (ret)
+			break;
+	}
+	mutex_unlock(&module_mutex);
+	if (ret)
+		del_usage_links(mod);
+#endif
+	return ret;
 }
 
 static int module_add_modinfo_attrs(struct module *mod)
@@ -1894,13 +1812,18 @@ static int mod_sysfs_setup(struct module *mod,
 	if (err)
 		goto out_unreg_param;
 
-	add_usage_links(mod);
+	err = add_usage_links(mod);
+	if (err)
+		goto out_unreg_modinfo_attrs;
+
 	add_sect_attrs(mod, info);
 	add_notes_attrs(mod, info);
 
 	kobject_uevent(&mod->mkobj.kobj, KOBJ_ADD);
 	return 0;
 
+out_unreg_modinfo_attrs:
+	module_remove_modinfo_attrs(mod);
 out_unreg_param:
 	module_param_sysfs_remove(mod);
 out_unreg_holders:
@@ -1959,7 +1882,7 @@ static void mod_sysfs_teardown(struct module *mod)
 	mod_sysfs_fini(mod);
 }
 
-#ifdef CONFIG_DEBUG_SET_MODULE_RONX
+#ifdef CONFIG_STRICT_MODULE_RWX
 /*
  * LKM RO/NX protection: protect module's text/ro-data
  * from modification and any data from execution.
@@ -2015,6 +1938,9 @@ static void frob_writable_data(const struct module_layout *layout,
 /* livepatching wants to disable read-only so it can frob module. */
 void module_disable_ro(const struct module *mod)
 {
+	if (!rodata_enabled)
+		return;
+
 	frob_text(&mod->core_layout, set_memory_rw);
 	frob_rodata(&mod->core_layout, set_memory_rw);
 	frob_ro_after_init(&mod->core_layout, set_memory_rw);
@@ -2024,6 +1950,9 @@ void module_disable_ro(const struct module *mod)
 
 void module_enable_ro(const struct module *mod, bool after_init)
 {
+	if (!rodata_enabled)
+		return;
+
 	frob_text(&mod->core_layout, set_memory_ro);
 	frob_rodata(&mod->core_layout, set_memory_ro);
 	frob_text(&mod->init_layout, set_memory_ro);
@@ -2056,6 +1985,9 @@ void set_all_modules_text_rw(void)
 {
 	struct module *mod;
 
+	if (!rodata_enabled)
+		return;
+
 	mutex_lock(&module_mutex);
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (mod->state == MODULE_STATE_UNFORMED)
@@ -2072,9 +2004,18 @@ void set_all_modules_text_ro(void)
 {
 	struct module *mod;
 
+	if (!rodata_enabled)
+		return;
+
 	mutex_lock(&module_mutex);
 	list_for_each_entry_rcu(mod, &modules, list) {
-		if (mod->state == MODULE_STATE_UNFORMED)
+		/*
+		 * Ignore going modules since it's possible that ro
+		 * protection has already been disabled, otherwise we'll
+		 * run into protection faults at module deallocation.
+		 */
+		if (mod->state == MODULE_STATE_UNFORMED ||
+			mod->state == MODULE_STATE_GOING)
 			continue;
 
 		frob_text(&mod->core_layout, set_memory_ro);
@@ -2085,10 +2026,12 @@ void set_all_modules_text_ro(void)
 
 static void disable_ro_nx(const struct module_layout *layout)
 {
-	frob_text(layout, set_memory_rw);
-	frob_rodata(layout, set_memory_rw);
+	if (rodata_enabled) {
+		frob_text(layout, set_memory_rw);
+		frob_rodata(layout, set_memory_rw);
+		frob_ro_after_init(layout, set_memory_rw);
+	}
 	frob_rodata(layout, set_memory_x);
-	frob_ro_after_init(layout, set_memory_rw);
 	frob_ro_after_init(layout, set_memory_x);
 	frob_writable_data(layout, set_memory_x);
 }
@@ -2189,6 +2132,8 @@ void __weak module_arch_freeing_init(struct module *mod)
 {
 }
 
+static void cfi_cleanup(struct module *mod);
+
 /* Free a module, remove from lists, etc. */
 static void free_module(struct module *mod)
 {
@@ -2230,6 +2175,10 @@ static void free_module(struct module *mod)
 
 	/* This may be empty, but that's OK */
 	disable_ro_nx(&mod->init_layout);
+
+	/* Clean up CFI for the module. */
+	cfi_cleanup(mod);
+
 	module_arch_freeing_init(mod);
 	module_memfree(mod->init_layout.base);
 	kfree(mod->args);
@@ -2775,495 +2724,32 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 }
 #endif /* CONFIG_KALLSYMS */
 
-#ifdef CONFIG_TIMA_LKMAUTH
-/* read file into the buf, return the file size */
-int read_file_buf(char *filename, void **buf)
-{
-	struct file *f;
-	int file_size = 0;
-	mm_segment_t fs;
-
-	f = filp_open(filename, O_RDONLY, 0);
-	if (!IS_ERR(f)) {
-		// Get current segment descriptor
-		fs = get_fs();
-		// Set segment descriptor associated to kernel space
-		set_fs(get_ds());
-		file_size = f->f_mapping->host->i_size;
-		pr_info("TIMA: lkmauth--File %s has %d bytes.\n", filename,
-			file_size);
-		*buf = vmalloc(file_size);
-		// Read the file
-		f->f_op->read(f, *buf, file_size, &f->f_pos);
-		// Restore segment descriptor
-		set_fs(fs);
-		filp_close(f, NULL);
-	} else {
-		pr_err("TIMA: lkmauth--filp_open error for %s!!.\n", filename);
-	}
-	return file_size;
-}
-
-int send_notification(lkmauth_rsp_t * krsp, int ret)
-{
-	char *envp[3], *status, *result;
-
-	/* Send a notification through uevent. Note that the lkmauth tzapp
-	 * should have already raised an alert in TZ Security log.
-	 */
-	status = kzalloc(16, GFP_KERNEL);
-	if (!status) {
-		pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
-		return -1;
-	}
-	snprintf(status, 16, "TIMA_STATUS=%d", ret);
-	envp[0] = status;
-
-	result = kzalloc(256, GFP_KERNEL);
-	if (!result) {
-		pr_err("TIMA: lkmauth--%s kmalloc failed.\n", __func__);
-		kfree(envp[0]);
-		return -1;
-	}
-	snprintf(result, 256, "TIMA_RESULT=%s",
-			krsp->result.result_ondemand);
-	pr_warn("TIMA: %s result (%s) \n", krsp->result.result_ondemand,
-			result);
-	envp[1] = result;
-	envp[2] = NULL;
-
-	kobject_uevent_env(&tima_uevent_dev->kobj, KOBJ_CHANGE, envp);
-	kfree(envp[0]);
-	kfree(envp[1]);
-	return 0;
-}
-
-#ifndef CONFIG_TIMA_LKM_BLOCK
+#ifdef CONFIG_UH_LKMAUTH
+#ifdef CONFIG_UH_LKM_BLOCK
 static int lkmauth(Elf_Ehdr * hdr, int len)
 {
-	int ret = RET_LKMAUTH_FAIL;	/* value to be returned for lkmauth */
-	lkmauth_hash_t *khashreq = NULL;
-	lkmauth_req_t *kreq = NULL;
-	lkmauth_rsp_t *krsp = NULL;
-	enum mc_result mc_ret;
-	struct mc_uuid_t uuid = TL_TIMA_LKMAUTH_UUID;
-	struct mc_bulk_map map_info;
-	void *buf;
-	int buf_len;
-	int nb_of_1mb_section;
-	int idx_mapping_section;
-	int mapping_len;
-	uint8_t *hdr_local = (uint8_t *)hdr;
-
-	mutex_lock(&lkmauth_mutex);
-	nb_of_1mb_section = ( len + MC_MAPPING_MAX_SIZE - 1 )/MC_MAPPING_MAX_SIZE;
-	pr_warn
-	    ("TIMA: lkmauth--launch the tl to check kernel module; module len is %d\n",
-	     len);
-
-	/* Load the lkmauth tl and handle potential error conditions.
-	 */
-	if (!lkmauth_tl_loaded) {
-		mc_ret = mc_open_device(MC_DEVICE_ID_DEFAULT);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot get mobicore handle from kernel. %d\n",
-			     mc_ret);
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_ret;
-		}
-		/* open session for lkmauth trustlet */
-		mc_ret =
-		    mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0, sizeof(tciMessage_t),
-				  &tci, 0);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot alloc world shared memory.\n");
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_close_device;
-		}
-		memset(&mchandle, 0, sizeof(struct mc_session_handle));
-		mchandle.device_id = MC_DEVICE_ID_DEFAULT;
-		mc_ret =
-		    mc_open_session(&mchandle, &uuid, tci,
-				    sizeof(tciMessage_t));
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot open mobicore session from kernel. %d\n",
-			     mc_ret);
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_free_wsm;
-		}
-		/* open session for tima driver */
-		mc_ret =
-		    mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0, 4096, &drv_tci, 0);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot alloc world shared memory for tima driver.\n");
-			ret = RET_LKMAUTH_FAIL;	/* lkm authentication failed. */
-			goto lkmauth_close_session;	/* leave the function now. */
-		}
-		memset(&drv_mchandle, 0, sizeof(struct mc_session_handle));
-		drv_mchandle.device_id = MC_DEVICE_ID_DEFAULT;
-		lkmauth_tl_loaded = 1;	/* both lkmauth tl and tima secure driver is loaded */
-	}
-
-	if (!lkm_sec_info_loaded) {
-		/* load lkm_sec_info */
-		buf_len = read_file_buf("/system/lkm_sec_info", &buf);
-		if (buf_len == 0) {
-			pr_err
-			    ("TIMA: lkmauth-- cannot allocate buffer for lkm_sec_info\n");
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_ret;
-		}
-
-		/* map lkm_sec_info buf to tl virutal space */
-		mc_ret = mc_map(&mchandle, (void *)buf, buf_len, &map_info);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot map lkm_sec_info buf to tl virtual space\n");
-			ret = RET_LKMAUTH_FAIL;
-			vfree(buf);
-			goto lkmauth_ret;
-		}
-
-		/* Generate the request cmd to load lkm_sec_info.
-		 */
-		khashreq = (struct lkmauth_hash_s *)tci;
-		khashreq->cmd_id = CMD_TIMA_LKMAUTH_LOAD_HASH;
-		/* pr_warn("TIMA: lkmauth -- virtual address of lkm_sec_info buffer in tl is : %x\n", (uint32_t)map_info.secure_virt_addr);
-		 */
-		khashreq->hash_buf_start = (uint32_t) map_info.secure_virt_addr;
-		khashreq->hash_buf_len = buf_len;
-
-		/* prepare the response buffer */
-		krsp = (struct lkmauth_rsp_s *)tci;
-
-		/* Send the command to the tl.
-		 */
-		mc_ret = mc_notify(&mchandle);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err("TIMA: lkmauth--mc_notify failed.\n");
-			ret = RET_LKMAUTH_FAIL;
-			mc_unmap(&mchandle, (void *)buf, &map_info);
-			vfree(buf);
-			goto lkmauth_ret;
-		}
-
-retry1:
-		mc_ret = mc_wait_notification(&mchandle, -1);
-		if (MC_DRV_ERR_INTERRUPTED_BY_SIGNAL == mc_ret) {
-			usleep_range(1000, 5000);
-			goto retry1;
-		}
-
-		if (mc_ret != MC_DRV_OK) {
-			pr_err("TIMA: lkmauth--wait_notify failed.\n");
-			ret = RET_LKMAUTH_FAIL;
-			mc_unmap(&mchandle, buf, &map_info);
-			vfree(buf);
-			goto lkmauth_ret;
-		}
-		pr_warn("TIMA: lkmauth--wait_notify completed.\n");
-
-		/* Process potential error conditions for the tl response.
-		 */
-		mc_ret = mc_unmap(&mchandle, buf, &map_info);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot unmap lkm_sec_info buf\n");
-			ret = RET_LKMAUTH_FAIL;
-			vfree(buf);
-			goto lkmauth_ret;
-		}
-
-		vfree(buf);
-
-		/* Parse the tl response for loading lkm_sec_info.
-		 */
-		if (krsp->ret == RET_TL_TIMA_LKMAUTH_OK) {
-			pr_info
-			    ("TIMA: lkmauth--lkm_sec_info sucessfully loaded\n");
-			ret = RET_LKMAUTH_SUCCESS;
-			lkm_sec_info_loaded = 1;
-		} else if (krsp->ret == RET_TL_TIMA_LKMAUTH_HASH_LOADED) {
-			pr_info("TIMA: lkmauth--lkm_sec_info already loaded\n");
-			ret = RET_LKMAUTH_FAIL;
-			lkm_sec_info_loaded = 1;
-		} else {
-			pr_err("TIMA: lkmauth--lkm_sec_info load error (%d)\n",
-			       krsp->ret);
-			ret = RET_LKMAUTH_FAIL;
-			send_notification(krsp, ret);
-			goto lkmauth_ret;
-		}
-	}
-
-	/* map ko buf to tl virtual space */
-	for ( idx_mapping_section = 0; idx_mapping_section < nb_of_1mb_section; idx_mapping_section++ ){
-		if ( idx_mapping_section == nb_of_1mb_section -1 ){
-			mapping_len =  len - idx_mapping_section * MC_MAPPING_MAX_SIZE;
-		}
-		else
-		{
-			mapping_len = MC_MAPPING_MAX_SIZE;
-		}
-		mc_ret = mc_map(&mchandle, (void *)hdr_local, mapping_len, &map_info);
-		
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-				("TIMA: lkmauth--cannot map ko buf to tl virtual space %d\n", mc_ret);
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_ret;
-		}
-
-		/* Generate the request cmd to verify hash of ko.
-		*/
-		kreq = (struct lkmauth_req_s *)tci;
-		kreq->cmd_id = CMD_TIMA_LKMAUTH_VERIFY_MODULE;
-		/* pr_warn("TIMA: lkmauth -- virtual address of ko buffer in tl is : %x\n", (uint32_t)map_info.secure_virt_addr);
-		*/
-		kreq->module_addr_start = (uint32_t) map_info.secure_virt_addr;
-		kreq->module_len = mapping_len;
-
-		/* prepare the response buffer */
-		krsp = (struct lkmauth_rsp_s *)tci;
-
-		/* Send the command to the tl.
-		*/
-		mc_ret = mc_notify(&mchandle);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err("TIMA: lkmauth--mc_notify failed.\n");
-			ret = RET_LKMAUTH_FAIL;
-			mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-			goto lkmauth_ret;
-		}
-
-retry2:
-		mc_ret = mc_wait_notification(&mchandle, -1);
-		if (MC_DRV_ERR_INTERRUPTED_BY_SIGNAL == mc_ret) {
-			usleep_range(1000, 5000);
-			goto retry2;
-		}
-
-		if (mc_ret != MC_DRV_OK) {
-			pr_err("TIMA: lkmauth--wait_notify failed.\n");
-			ret = RET_LKMAUTH_FAIL;
-			mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-			goto lkmauth_ret;
-		}
-		pr_warn("TIMA: lkmauth--wait_notify completed.\n");
-
-		mc_ret = mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err("TIMA: lkmauth--cannot unmap ko memory\n");
-		}
-
-		/* Parse the tl response.
-		*/
-		if (krsp->ret == 0) {
-			pr_warn("TIMA: lkmauth--section verification succeeded idx : %d\n", idx_mapping_section);
-			hdr_local = hdr_local + MC_MAPPING_MAX_SIZE;
-			continue;
-			} else {
-
-			pr_err("TIMA: lkmauth--verification failed %d\n", krsp->ret);
-			ret = RET_LKMAUTH_FAIL;
-			send_notification(krsp, ret);
-			goto lkmauth_ret;
-		}
-	}
-		pr_warn("TIMA: lkmauth--verification succeeded.\n");
-		ret = RET_LKMAUTH_SUCCESS;	/* ret should already be 0 before the assignment. */
-	goto lkmauth_ret;
-
-lkmauth_close_session:
-	if (mc_close_session(&mchandle) != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--failed to close mobicore session.\n");
-	}
-
-lkmauth_free_wsm:
-	if (mc_free_wsm(MC_DEVICE_ID_DEFAULT, tci) != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--failed to free wsm.\n");
-	}
-
-lkmauth_close_device:
-	if (mc_close_device(MC_DEVICE_ID_DEFAULT) != MC_DRV_OK) {
-		pr_err
-		    ("TIMA: lkmauth--failed to shutdown mobicore instance.\n");
-	}
-
-lkmauth_ret:
-	mutex_unlock(&lkmauth_mutex);
+	int ret = RET_UH_LKMAUTH_LKM_BLOCK_FORCE;
+	pr_warn("UH: lkmauth--LKM is not allowed by Samsung security policy.\n");
 	return ret;
 }
-#else
-static int lkmauth(Elf_Ehdr * hdr, int len)
-{
-	int ret = RET_LKMAUTH_FAIL;	/* value to be returned for lkmauth */
-	lkmauth_req_t *kreq = NULL;
-	lkmauth_rsp_t *krsp = NULL;
-	enum mc_result mc_ret;
-	struct mc_uuid_t uuid = TL_TIMA_LKMAUTH_UUID;
-	struct mc_bulk_map map_info;
-	uint8_t *hdr_local = (uint8_t *)hdr;
+#endif
+#endif
 
-	mutex_lock(&lkmauth_mutex);
-	pr_warn
-	    ("TIMA: lkmauth--launch the tl to check kernel module; module len is %d\n",
-	     len);
-
-	/* Load the lkmauth tl and handle potential error conditions.
-	 */
-	if (!lkmauth_tl_loaded) {
-		mc_ret = mc_open_device(MC_DEVICE_ID_DEFAULT);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot get mobicore handle from kernel. %d\n",
-			     mc_ret);
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_ret;
-		}
-		/* open session for lkmauth trustlet */
-		mc_ret =
-		    mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0, sizeof(tciMessage_t),
-				  &tci, 0);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot alloc world shared memory.\n");
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_close_device;
-		}
-		memset(&mchandle, 0, sizeof(struct mc_session_handle));
-		mchandle.device_id = MC_DEVICE_ID_DEFAULT;
-		mc_ret =
-		    mc_open_session(&mchandle, &uuid, tci,
-				    sizeof(tciMessage_t));
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot open mobicore session from kernel. %d\n",
-			     mc_ret);
-			ret = RET_LKMAUTH_FAIL;
-			goto lkmauth_free_wsm;
-		}
-		/* open session for tima driver */
-		mc_ret =
-		    mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0, 4096, &drv_tci, 0);
-		if (mc_ret != MC_DRV_OK) {
-			pr_err
-			    ("TIMA: lkmauth--cannot alloc world shared memory for tima driver.\n");
-			ret = RET_LKMAUTH_FAIL;	/* lkm authentication failed. */
-			goto lkmauth_close_session;	/* leave the function now. */
-		}
-		memset(&drv_mchandle, 0, sizeof(struct mc_session_handle));
-		drv_mchandle.device_id = MC_DEVICE_ID_DEFAULT;
-		lkmauth_tl_loaded = 1;	/* both lkmauth tl and tima secure driver is loaded */
-	}
-
-	/* map ko buf to tl virtual space */
-	mc_ret = mc_map(&mchandle, (void *)hdr_local, len, &map_info);
-		
-	if (mc_ret != MC_DRV_OK) {
-		pr_err
-			("TIMA: lkmauth--cannot map ko buf to tl virtual space %d\n", mc_ret);
-		ret = RET_LKMAUTH_FAIL;
-		goto lkmauth_ret;
-	}
-
-	/* Generate the request cmd to verify hash of ko.
-	*/
-	kreq = (struct lkmauth_req_s *)tci;
-	kreq->cmd_id = CMD_TIMA_LKMAUTH_LKM_BLOCK;
-	/* pr_warn("TIMA: lkmauth -- virtual address of ko buffer in tl is : %x\n", (uint32_t)map_info.secure_virt_addr);
-	*/
-	kreq->module_addr_start = (uint32_t) map_info.secure_virt_addr;
-	kreq->module_len = len;
-
-	/* prepare the response buffer */
-	krsp = (struct lkmauth_rsp_s *)tci;
-
-	/* Send the command to the tl.
-	*/
-	mc_ret = mc_notify(&mchandle);
-	if (mc_ret != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--mc_notify failed.\n");
-		ret = RET_LKMAUTH_FAIL;
-		mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-		goto lkmauth_ret;
-	}
-
-retry:
-	mc_ret = mc_wait_notification(&mchandle, -1);
-	if (MC_DRV_ERR_INTERRUPTED_BY_SIGNAL == mc_ret) {
-		usleep_range(1000, 5000);
-		goto retry;
-	}
-
-	if (mc_ret != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--wait_notify failed.\n");
-		ret = RET_LKMAUTH_FAIL;
-		mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-		goto lkmauth_ret;
-	}
-	pr_warn("TIMA: lkmauth--wait_notify completed.\n");
-
-	mc_ret = mc_unmap(&mchandle, (void *)hdr_local, &map_info);
-	if (mc_ret != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--cannot unmap ko memory\n");
-	}
-
-	/* Parse the tl response.
-	*/
-	if (krsp->ret == RET_TL_TIMA_LKMAUTH_LKM_BLOCK_FORCE) {
-		pr_warn("TIMA: lkmauth--Succeeded to block lkm through TZ.\n");
-		ret = krsp->ret;
-		send_notification(krsp, ret);
-	} else {
-		pr_err("TIMA: lkmauth--Failed to block lkm through TZ. ret = %x\n", krsp->ret);
-		ret = RET_LKMAUTH_FAIL;
-		send_notification(krsp, ret);
-	}
-	goto lkmauth_ret;
-
-lkmauth_close_session:
-	if (mc_close_session(&mchandle) != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--failed to close mobicore session.\n");
-	}
-
-lkmauth_free_wsm:
-	if (mc_free_wsm(MC_DEVICE_ID_DEFAULT, tci) != MC_DRV_OK) {
-		pr_err("TIMA: lkmauth--failed to free wsm.\n");
-	}
-
-lkmauth_close_device:
-	if (mc_close_device(MC_DEVICE_ID_DEFAULT) != MC_DRV_OK) {
-		pr_err
-		    ("TIMA: lkmauth--failed to shutdown mobicore instance.\n");
-	}
-
-lkmauth_ret:
-	mutex_unlock(&lkmauth_mutex);
-	return ret;
-}
-#endif /* CONFIG_TIMA_LKM_BLOCK */
-#endif /* CONFIG_TIMA_LKMAUTH */
-
-static void dynamic_debug_setup(struct _ddebug *debug, unsigned int num)
+static void dynamic_debug_setup(struct module *mod, struct _ddebug *debug, unsigned int num)
 {
 	if (!debug)
 		return;
 #ifdef CONFIG_DYNAMIC_DEBUG
-	if (ddebug_add_module(debug, num, debug->modname))
+	if (ddebug_add_module(debug, num, mod->name))
 		pr_err("dynamic debug error adding module: %s\n",
 			debug->modname);
 #endif
 }
 
-static void dynamic_debug_remove(struct _ddebug *debug)
+static void dynamic_debug_remove(struct module *mod, struct _ddebug *debug)
 {
 	if (debug)
-		ddebug_remove_module(debug->modname);
+		ddebug_remove_module(mod->name);
 }
 
 void * __weak module_alloc(unsigned long size)
@@ -3352,13 +2838,15 @@ static int elf_header_check(struct load_info *info)
 		info->len - info->hdr->e_shoff))
 		return -ENOEXEC;
 
-#ifdef CONFIG_TIMA_LKMAUTH
+#ifdef CONFIG_UH_LKMAUTH
+#ifdef CONFIG_UH_LKM_BLOCK
 	if (lkmauth(info->hdr, info->len) != RET_LKMAUTH_SUCCESS) {
 		pr_err
-		    ("TIMA: lkmauth--unable to load kernel module; module len is %lu.\n",
+		    ("UH: lkmauth--unable to load kernel module; module len is %lu.\n",
 		     info->len);
 		return -ENOEXEC;
 	}
+#endif
 #endif
 	return 0;
 }
@@ -3386,6 +2874,8 @@ static int check_modinfo_livepatch(struct module *mod, struct load_info *info)
 	if (get_modinfo(info, "livepatch")) {
 		mod->klp = true;
 		add_taint_module(mod, TAINT_LIVEPATCH, LOCKDEP_STILL_OK);
+		pr_notice_once("%s: tainting kernel with TAINT_LIVEPATCH\n",
+			       mod->name);
 	}
 
 	return 0;
@@ -3403,6 +2893,15 @@ static int check_modinfo_livepatch(struct module *mod, struct load_info *info)
 }
 #endif /* CONFIG_LIVEPATCH */
 
+static void check_modinfo_retpoline(struct module *mod, struct load_info *info)
+{
+	if (retpoline_module_ok(get_modinfo(info, "retpoline")))
+		return;
+
+	pr_warn("%s: loading module not compiled with retpoline compiler.\n",
+		mod->name);
+}
+
 /* Sets info->hdr and info->len. */
 static int copy_module_from_user(const void __user *umod, unsigned long len,
 				  struct load_info *info)
@@ -3419,7 +2918,7 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 
 	/* Suck in entire file: we'll want most of it. */
 	info->hdr = __vmalloc(info->len,
-			GFP_KERNEL | __GFP_HIGHMEM | __GFP_NOWARN, PAGE_KERNEL);
+			GFP_KERNEL | __GFP_NOWARN, PAGE_KERNEL);
 	if (!info->hdr)
 		return -ENOMEM;
 
@@ -3467,9 +2966,15 @@ static int rewrite_section_headers(struct load_info *info, int flags)
 		info->index.vers = 0; /* Pretend no __versions section! */
 	else
 		info->index.vers = find_sec(info, "__versions");
-	info->index.info = find_sec(info, ".modinfo");
-	info->sechdrs[info->index.info].sh_flags &= ~(unsigned long)SHF_ALLOC;
 	info->sechdrs[info->index.vers].sh_flags &= ~(unsigned long)SHF_ALLOC;
+
+	info->index.info = find_sec(info, ".modinfo");
+	if (!info->index.info)
+		info->name = "(missing .modinfo section)";
+	else
+		info->name = get_modinfo(info, "name");
+	info->sechdrs[info->index.info].sh_flags &= ~(unsigned long)SHF_ALLOC;
+
 	return 0;
 }
 
@@ -3509,21 +3014,29 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 
 	info->index.mod = find_sec(info, ".gnu.linkonce.this_module");
 	if (!info->index.mod) {
-		pr_warn("No module found in object\n");
+		pr_warn("%s: No module found in object\n",
+			info->name ?: "(missing .modinfo name field)");
 		return ERR_PTR(-ENOEXEC);
 	}
 	/* This is temporary: point mod into copy of data. */
 	mod = (void *)info->sechdrs[info->index.mod].sh_addr;
 
+	/*
+	 * If we didn't load the .modinfo 'name' field, fall back to
+	 * on-disk struct mod 'name' field.
+	 */
+	if (!info->name)
+		info->name = mod->name;
+
 	if (info->index.sym == 0) {
-		pr_warn("%s: module has no symbols (stripped?)\n", mod->name);
+		pr_warn("%s: module has no symbols (stripped?)\n", info->name);
 		return ERR_PTR(-ENOEXEC);
 	}
 
 	info->index.pcpu = find_pcpusec(info);
 
 	/* Check module struct version now, before we try to use module. */
-	if (!check_modstruct_version(info->sechdrs, info->index.vers, mod))
+	if (!check_modstruct_version(info, mod))
 		return ERR_PTR(-ENOEXEC);
 
 	return mod;
@@ -3544,7 +3057,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 			return err;
 	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
 		pr_err("%s: version magic '%s' should be '%s'\n",
-		       mod->name, modmagic, vermagic);
+		       info->name, modmagic, vermagic);
 		return -ENOEXEC;
 	}
 
@@ -3554,6 +3067,8 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 				mod->name);
 		add_taint_module(mod, TAINT_OOT_MODULE, LOCKDEP_STILL_OK);
 	}
+
+	check_modinfo_retpoline(mod, info);
 
 	if (get_modinfo(info, "staging")) {
 		add_taint_module(mod, TAINT_CRAP, LOCKDEP_STILL_OK);
@@ -3629,9 +3144,9 @@ static int find_module_sections(struct module *mod, struct load_info *info)
 	mod->trace_events = section_objs(info, "_ftrace_events",
 					 sizeof(*mod->trace_events),
 					 &mod->num_trace_events);
-	mod->trace_enums = section_objs(info, "_ftrace_enum_map",
-					sizeof(*mod->trace_enums),
-					&mod->num_trace_enums);
+	mod->trace_evals = section_objs(info, "_ftrace_eval_map",
+					sizeof(*mod->trace_evals),
+					&mod->num_trace_evals);
 #endif
 #ifdef CONFIG_TRACING
 	mod->trace_bprintk_fmt_start = section_objs(info, "__trace_printk_fmt",
@@ -3794,7 +3309,7 @@ int __weak module_frob_arch_sections(Elf_Ehdr *hdr,
 
 /* module_blacklist is a comma-separated list of module names */
 static char *module_blacklist;
-static bool blacklisted(char *module_name)
+static bool blacklisted(const char *module_name)
 {
 	const char *p;
 	size_t len;
@@ -3824,7 +3339,7 @@ static struct module *layout_and_allocate(struct load_info *info, int flags)
 	if (IS_ERR(mod))
 		return mod;
 
-	if (blacklisted(mod->name))
+	if (blacklisted(info->name))
 		return ERR_PTR(-EPERM);
 
 	err = check_modinfo(mod, info, flags);
@@ -3882,6 +3397,8 @@ int __weak module_finalize(const Elf_Ehdr *hdr,
 	return 0;
 }
 
+static void cfi_init(struct module *mod);
+
 static int post_relocation(struct module *mod, const struct load_info *info)
 {
 	/* Sort exception table now relocations are done. */
@@ -3893,6 +3410,9 @@ static int post_relocation(struct module *mod, const struct load_info *info)
 
 	/* Setup kallsyms-specific fields. */
 	add_kallsyms(mod, info);
+
+	/* Setup CFI for the module. */
+	cfi_init(mod);
 
 	/* Arch-specific module finalizing. */
 	return module_finalize(info->hdr, info->sechdrs, mod);
@@ -3929,166 +3449,6 @@ static void do_mod_ctors(struct module *mod)
 		mod->ctors[i]();
 #endif
 }
-
-#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
-#ifndef TIMA_KERNEL_L1_MANAGE
-static inline pmd_t *tima_pmd_off_k(unsigned long virt)
-{
-		return pmd_offset(pud_offset(pgd_offset_k(virt), virt), virt);
-}
-
-void tima_set_pte_val(unsigned long virt,int numpages,int flags)
-{
-        unsigned long start = virt;
-        unsigned long end   = virt + (numpages << PAGE_SHIFT);
-        unsigned long pmd_end;
-        pmd_t *pmd;
-        pte_t *pte;
-
-        while (virt < end) 
-        {
-                pmd =tima_pmd_off_k(virt);
-                pmd_end = min(ALIGN(virt + 1, PMD_SIZE), end);
-
-                if ((pmd_val(*pmd) & PMD_TYPE_MASK) != PMD_TYPE_TABLE) {
-                        //printk("Not a pagetable\n");
-                        virt = pmd_end;
-                        continue;
-                }
-
-                while (virt < pmd_end) 
-                {
-                        pte = pte_offset_kernel(pmd, virt);
-                        if(flags == TIMA_SET_PTE_RO)
-                        {
-                                /*Make pages readonly*/
-                                ptep_set_wrprotect(current->mm, virt,pte);
-                        }
-                        if(flags == TIMA_SET_PTE_NX)
-                        { 
-                                /*Make pages Non Executable*/
-                                ptep_set_nxprotect(current->mm, virt,pte);
-                        }
-                        virt += PAGE_SIZE;
-                }
-        }
-
-        flush_tlb_kernel_range(start, end);        
-}
-#endif
-
-/**
- *    tima_mod_page_change_access  - Wrapper function to change access control permissions of pages 
- *
- *     It sends code and data pages to secure side to  make code pages readonly and data pages non executable
- * 
- */
-
-void tima_mod_page_change_access(struct module *mod)
-{
-        unsigned int    *vatext,*vadata;/* base virtual address of text and data regions*/
-        unsigned int    text_count,data_count;/* Number of text and data pages present in core section */
-     
-     /*Lets first pickup core section */
-        vatext      = mod->module_core;
-        vadata      = (int *)((char *)(mod->module_core) + mod->core_ro_size);
-        text_count  = ((char *)vadata - (char *)vatext);
-        data_count  = debug_align(mod->core_size) - text_count;
-        text_count  = text_count / PAGE_SIZE;
-        data_count  = data_count / PAGE_SIZE;
-
-        /*Should be atleast a page */
-        if(!text_count)
-                text_count = 1;
-        if(!data_count)
-                data_count = 1;
- /* Change permissive bits for core section and making Code read only, Data Non Executable*/
-        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
-        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX); 
-
-     /*Lets pickup init section */
-        vatext      = mod->module_init;
-        vadata      = (int *)((char *)(mod->module_init) + mod->init_ro_size);
-        text_count  = ((char *)vadata - (char *)vatext);
-        data_count  = debug_align(mod->init_size) - text_count;
-        text_count  = text_count / PAGE_SIZE;
-        data_count  = data_count / PAGE_SIZE;
-
-/* Change permissive bits for init section and making Code read only,Data Non Executable*/
-        tima_set_pte_val( (unsigned long)vatext,text_count,TIMA_SET_PTE_RO);
-        tima_set_pte_val( (unsigned long)vadata,data_count,TIMA_SET_PTE_NX);
-}
-#endif /*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
-
-#ifdef TIMA_LKM_SET_PAGE_ATTRIB
-void tima_mod_send_smc_instruction(unsigned int *vatext, unsigned int *vadata,
-				   unsigned int text_count,
-				   unsigned int data_count)
-{
-	unsigned long cmd_id = TIMA_PAC_CMD_ID;
-	/*Call SMC instruction */
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 6
-	__asm__ __volatile__(".arch_extension sec\n");
-#endif
-	__asm__ __volatile__("stmfd  sp!,{r0-r4,r11}\n"
-			     "mov    r11, r0\n"
-			     "mov    r0, %0\n"
-			     "mov    r1, %1\n"
-			     "mov    r2, %2\n"
-			     "mov    r3, %3\n"
-			     "mov    r4, %4\n"
-			     "smc    #11\n"
-			     "mov    r6, #0\n"
-			     "pop    {r0-r4,r11}\n"
-			     "mcr    p15, 0, r6, c8, c3, 0\n"
-			     "dsb\n"
-			     "isb\n"::"r"(cmd_id), "r"(vatext), "r"(text_count),
-			     "r"(vadata), "r"(data_count):"r0", "r1", "r2",
-			     "r3", "r4", "r11", "cc");
-
-}
-
-/**
- *    tima_mod_page_change_access  - Wrapper function to change access control permissions of pages 
- *
- *     It sends code and data pages to secure side to  make code pages readonly and data pages non executable
- * 
- */
-
-void tima_mod_page_change_access(struct module *mod)
-{
-	unsigned int *vatext, *vadata;	/* base virtual address of text and data regions */
-	unsigned int text_count, data_count;	/* Number of text and data pages present in core section */
-
-	/*Lets first pickup core section */
-	vatext = mod->module_core;
-	vadata = (int *)((char *)(mod->module_core) + mod->core_ro_size);
-	text_count = ((char *)vadata - (char *)vatext);
-	data_count = debug_align(mod->core_size) - text_count;
-	text_count = text_count / PAGE_SIZE;
-	data_count = data_count / PAGE_SIZE;
-
-	/*Should be atleast a page */
-	if (!text_count)
-		text_count = 1;
-	if (!data_count)
-		data_count = 1;
-
-	/* Change permissive bits for core section */
-	tima_mod_send_smc_instruction(vatext, vadata, text_count, data_count);
-
-	/*Lets pickup init section */
-	vatext = mod->module_init;
-	vadata = (int *)((char *)(mod->module_init) + mod->init_ro_size);
-	text_count = ((char *)vadata - (char *)vatext);
-	data_count = debug_align(mod->init_size) - text_count;
-	text_count = text_count / PAGE_SIZE;
-	data_count = data_count / PAGE_SIZE;
-
-	/* Change permissive bits for init section */
-	tima_mod_send_smc_instruction(vatext, vadata, text_count, data_count);
-}
-#endif
 
 /* For freeing module_init on success, in case kallsyms traversing */
 struct mod_initfree {
@@ -4147,10 +3507,6 @@ static noinline int do_init_module(struct module *mod)
 	blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_LIVE, mod);
 
-#ifdef TIMA_LKM_SET_PAGE_ATTRIB
-	tima_mod_page_change_access(mod);
-#endif
-
 	/*
 	 * We need to finish all async code before the module init sequence
 	 * is done.  This has potential to deadlock.  For example, a newly
@@ -4193,6 +3549,11 @@ static noinline int do_init_module(struct module *mod)
 	 * walking this with preempt disabled.  In all the failure paths, we
 	 * call synchronize_sched(), but we don't want to slow down the success
 	 * path, so use actual RCU here.
+	 * Note that module_alloc() on most architectures creates W+X page
+	 * mappings which won't be cleaned up until do_free_init() runs.  Any
+	 * code such as mark_rodata_ro() which depends on those mappings to
+	 * be cleaned up needs to sync with the queued work - ie
+	 * rcu_barrier_sched()
 	 */
 	call_rcu_sched(&freeinit->rcu, do_free_init);
 	mutex_unlock(&module_mutex);
@@ -4278,9 +3639,6 @@ static int complete_formation(struct module *mod, struct load_info *info)
 	/* This relies on module_mutex for list integrity. */
 	module_bug_finalize(info->hdr, info->sechdrs, mod);
 
-#ifdef CONFIG_TIMA_LKMAUTH_CODE_PROT
-	tima_mod_page_change_access(mod);
-#endif /*CONFIG_TIMA_LKMAUTH_CODE_PROT*/
 	module_enable_ro(mod, false);
 	module_enable_nx(mod);
 
@@ -4352,6 +3710,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		goto free_copy;
 	}
 
+	audit_log_kern_module(mod->name);
+
 	/* Reserve our place in the list. */
 	err = add_unformed_module(mod);
 	if (err)
@@ -4414,7 +3774,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		goto free_arch_cleanup;
 	}
 
-	dynamic_debug_setup(info->debug, info->num_debug);
+	dynamic_debug_setup(mod, info->debug, info->num_debug);
 
 	/* Ftrace init must be called in the MODULE_STATE_UNFORMED state */
 	ftrace_module_init(mod);
@@ -4440,7 +3800,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 		       mod->name, after_dashes);
 	}
 
-	/* Link in to syfs. */
+	/* Link in to sysfs. */
 	err = mod_sysfs_setup(mod, info, mod->kp, mod->num_kp);
 	if (err < 0)
 		goto coming_cleanup;
@@ -4462,6 +3822,8 @@ static int load_module(struct load_info *info, const char __user *uargs,
  sysfs_cleanup:
 	mod_sysfs_teardown(mod);
  coming_cleanup:
+	mod->state = MODULE_STATE_GOING;
+	destroy_params(mod->kp, mod->num_kp);
 	blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_GOING, mod);
 	klp_module_going(mod);
@@ -4476,7 +3838,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	module_disable_nx(mod);
 
  ddebug_cleanup:
-	dynamic_debug_remove(info->debug);
+	dynamic_debug_remove(mod, info->debug);
 	synchronize_sched();
 	kfree(mod->args);
  free_arch_cleanup:
@@ -4739,7 +4101,7 @@ static unsigned long mod_find_symname(struct module *mod, const char *name)
 
 	for (i = 0; i < kallsyms->num_symtab; i++)
 		if (strcmp(name, symname(kallsyms, i)) == 0 &&
-		    kallsyms->symtab[i].st_info != 'U')
+		    kallsyms->symtab[i].st_shndx != SHN_UNDEF)
 			return kallsyms->symtab[i].st_value;
 	return 0;
 }
@@ -4753,7 +4115,7 @@ unsigned long module_kallsyms_lookup_name(const char *name)
 
 	/* Don't lock: we're in enough trouble already. */
 	preempt_disable();
-	if ((colon = strchr(name, ':')) != NULL) {
+	if ((colon = strnchr(name, MODULE_NAME_LEN, ':')) != NULL) {
 		if ((mod = find_module_all(name, colon - name, false)) != NULL)
 			ret = mod_find_symname(mod, colon+1);
 	} else {
@@ -4785,6 +4147,10 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 		if (mod->state == MODULE_STATE_UNFORMED)
 			continue;
 		for (i = 0; i < kallsyms->num_symtab; i++) {
+
+			if (kallsyms->symtab[i].st_shndx == SHN_UNDEF)
+				continue;
+
 			ret = fn(data, symname(kallsyms, i),
 				 mod, kallsyms->symtab[i].st_value);
 			if (ret != 0)
@@ -4795,6 +4161,26 @@ int module_kallsyms_on_each_symbol(int (*fn)(void *, const char *,
 }
 #endif /* CONFIG_KALLSYMS */
 
+static void cfi_init(struct module *mod)
+{
+#ifdef CONFIG_CFI_CLANG
+	mod->cfi_check =
+		(cfi_check_fn)mod_find_symname(mod, CFI_CHECK_FN_NAME);
+	cfi_module_add(mod, module_addr_min, module_addr_max);
+#endif
+}
+
+static void cfi_cleanup(struct module *mod)
+{
+#ifdef CONFIG_CFI_CLANG
+	cfi_module_remove(mod, module_addr_min, module_addr_max);
+#endif
+}
+
+/* Maximum number of characters written by module_flags() */
+#define MODULE_FLAGS_BUF_SIZE (TAINT_FLAGS_COUNT + 4)
+
+/* Keep in sync with MODULE_FLAGS_BUF_SIZE !!! */
 static char *module_flags(struct module *mod, char *buf)
 {
 	int bx = 0;
@@ -4839,7 +4225,7 @@ static void m_stop(struct seq_file *m, void *p)
 static int m_show(struct seq_file *m, void *p)
 {
 	struct module *mod = list_entry(p, struct module, list);
-	char buf[8];
+	char buf[MODULE_FLAGS_BUF_SIZE];
 
 	/* We always ignore unformed modules. */
 	if (mod->state == MODULE_STATE_UNFORMED)
@@ -4904,22 +4290,23 @@ const struct exception_table_entry *search_module_extables(unsigned long addr)
 	struct module *mod;
 
 	preempt_disable();
-	list_for_each_entry_rcu(mod, &modules, list) {
-		if (mod->state == MODULE_STATE_UNFORMED)
-			continue;
-		if (mod->num_exentries == 0)
-			continue;
+	mod = __module_address(addr);
+	if (!mod)
+		goto out;
 
-		e = search_extable(mod->extable,
-				   mod->extable + mod->num_exentries - 1,
-				   addr);
-		if (e)
-			break;
-	}
+	if (!mod->num_exentries)
+		goto out;
+
+	e = search_extable(mod->extable,
+			   mod->num_exentries,
+			   addr);
+out:
 	preempt_enable();
 
-	/* Now, if we found one, we are running inside it now, hence
-	   we cannot unload the module, hence no refcnt needed. */
+	/*
+	 * Now, if we found one, we are running inside it now, hence
+	 * we cannot unload the module, hence no refcnt needed.
+	 */
 	return e;
 }
 
@@ -5010,7 +4397,7 @@ EXPORT_SYMBOL_GPL(__module_text_address);
 void print_modules(void)
 {
 	struct module *mod;
-	char buf[8];
+	char buf[MODULE_FLAGS_BUF_SIZE];
 
 	printk(KERN_DEFAULT "Modules linked in:");
 	/* Most callers should already have preempt disabled, but make sure */

@@ -16,6 +16,8 @@
 #include "iva_vdma10.h"
 #elif defined(CONFIG_SOC_EXYNOS9810)
 #include "iva_vdma20.h"
+#elif defined(CONFIG_SOC_EXYNOS9820)
+#include "iva_vdma30.h"
 #endif
 
 #endif /* __IVA_VDMA_H__ */

@@ -13,7 +13,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with this program; if not, see <http://www.gnu.org/licenses/>.
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #include <linux/debugfs.h>
@@ -24,7 +25,7 @@
 #include <linux/slab.h>
 #include <linux/ctype.h>
 #include <sdp/dlp_ioctl.h>
-#include <sdp/sdp_dlp.h>
+#include <sdp/sdp_dlp.h> 
 
 #define DLP_DUMP_LIST 1 //TODO
 
@@ -34,27 +35,21 @@ struct dlp_struct {
 	int user_id;
 	long time;
 	bool lock;
-	char *extensions;
+	char* extensions;
 	struct list_head list;
 	struct mutex list_mutex;
 };
 struct dlp_struct dlp_info;
 
-struct dlp_fbe_struct {
-	bool fbe_enable;
-};
-struct dlp_fbe_struct *dlp_fbe;
-
 #if DLP_DUMP_LIST
-static void dlp_dump_list(void)
-{
+static void dlp_dump_list(void) {
 	struct list_head *entry;
 	struct dlp_struct *tmp;
-
-	printk("============ debug ============\n");
+	
+	printk("============ debug ============\n");	
 
 	mutex_lock(&dlp_info.list_mutex);
-
+	
 	list_for_each(entry, &dlp_info.list) {
 		tmp = list_entry(entry, struct dlp_struct, list);
 
@@ -66,13 +61,11 @@ static void dlp_dump_list(void)
 			printk("DLP : extensions : (empty)\n");
 		}
 	}
-	mutex_unlock(&dlp_info.list_mutex);
-	pr_info("DLP %s : %d", __func__, dlp_fbe->fbe_enable);
+	mutex_unlock(&dlp_info.list_mutex);	
 }
 #endif
 
-static struct dlp_struct *dlp_find_list(int user_id)
-{
+static struct dlp_struct *dlp_find_list(int user_id) {
 	struct list_head *entry;
 	struct dlp_struct *tmp;
 
@@ -81,7 +74,7 @@ static struct dlp_struct *dlp_find_list(int user_id)
 	list_for_each(entry, &dlp_info.list) {
 		tmp = list_entry(entry, struct dlp_struct, list);
 		printk("DLP: tmp->user_id %d\n", tmp->user_id);
-		if (tmp->user_id == user_id) {
+		if(tmp->user_id == user_id) {
 			printk("DLP: found user_id %d\n", user_id); // TODO : deleted
 			mutex_unlock(&dlp_info.list_mutex);
 			return tmp;
@@ -92,29 +85,22 @@ static struct dlp_struct *dlp_find_list(int user_id)
 	return NULL;
 }
 
-bool dlp_is_locked(int user_id)
-{
+bool dlp_is_locked(int user_id) {
 	struct dlp_struct *tmp;
-
 	tmp = dlp_find_list(user_id);
-	if (tmp) {
+	if(tmp){
 		return tmp->lock;
-	} else {
+	}
+	else {
 		return false;
 	}
 }
 
-bool dlp_fbe_is_set(void)
-{
-	return dlp_fbe->fbe_enable;
-}
-
-static struct dlp_struct *dlp_add_info(int user_id)
-{
+static struct dlp_struct *dlp_add_info(int user_id){
 	struct dlp_struct *new_item;
 
 	new_item = kmalloc(sizeof(struct dlp_struct), GFP_KERNEL);
-	if (new_item == NULL) {
+	if(new_item == NULL) {
 		printk("DLP: can't alloc memory for dlp_info\n");
 		return NULL;
 	}
@@ -133,22 +119,21 @@ static struct dlp_struct *dlp_add_info(int user_id)
 	return new_item;
 }
 
-static int dlp_lock_setting(void __user *argp, bool lock)
-{
+static int dlp_lock_setting(void __user *argp, bool lock) {
 	int ret = 0;
 	struct dlp_struct *tmp = NULL;
 	struct _dlp_lock_set dlp_lock_set;
 
 	ret = copy_from_user(&dlp_lock_set, (void __user *)argp, sizeof(dlp_lock_set));
-	if (ret) {
+	if(ret)	{
 		printk("DLP : fail to copy_from_user : dlp_lock_setting\n");
 		return -EFAULT;
 	}
 
 	tmp = dlp_find_list(dlp_lock_set.user_id);
-	if (tmp == NULL) {
+	if(tmp == NULL){
 		tmp = dlp_add_info(dlp_lock_set.user_id);
-		if (tmp == NULL) {
+		if(tmp == NULL){
 			return -EFAULT;
 		}
 	}
@@ -159,38 +144,35 @@ static int dlp_lock_setting(void __user *argp, bool lock)
 	return 0;
 };
 
-static int dlp_extension_setting(void __user *argp)
-{
+static int dlp_extension_setting(void __user *argp) {
 	int ret = 0;
 	struct dlp_struct *tmp = NULL;
 	struct _dlp_extension_set dlp_ext_set;
 
 	ret = copy_from_user(&dlp_ext_set, (void __user *)argp, sizeof(dlp_ext_set));
-	if (ret) {
+	if(ret)	{
 		printk("DLP : fail to copy_from_user : dlp_extension_setting\n");
 		return -EFAULT;
 	}
 
-	// terminate extension string with null
-	dlp_ext_set.extensions[MAX_EXT_LENGTH] = '\0';
 	printk("DLP: dlp_extension_setting called with user_id %d\n", dlp_ext_set.user_id);
 
 	tmp = dlp_find_list(dlp_ext_set.user_id);
-	if (tmp == NULL) {
+	if(tmp == NULL){
 		tmp = dlp_add_info(dlp_ext_set.user_id);
-		if (tmp == NULL) {
+		if(tmp == NULL){
 			return -EFAULT;
 		}
 	}
 
 	/* Delete old extensions and create new */
 	mutex_lock(&dlp_info.list_mutex);
-	if (tmp->extensions) {
+	if(tmp->extensions) {
 		kfree(tmp->extensions);
 		tmp->extensions = NULL;
 	}
 
-	if (strlen(dlp_ext_set.extensions)) {
+	if(strlen(dlp_ext_set.extensions)) {
 		tmp->extensions = kmalloc(strlen(dlp_ext_set.extensions)+1, GFP_KERNEL);
 		if (!tmp->extensions) {
 			mutex_unlock(&dlp_info.list_mutex);
@@ -207,48 +189,26 @@ static int dlp_extension_setting(void __user *argp)
 	return 0;
 }
 
-static int dlp_fbe_init(void)
-{
-	dlp_fbe = kmalloc(sizeof(struct dlp_fbe_struct), GFP_KERNEL);
-	if (dlp_fbe == NULL)
-		return -ENOMEM;
 
-	dlp_fbe->fbe_enable = false; /*default is false*/
-	return 0;
-
-}
-
-static int dlp_fbe_setting(void __user *argp)
-{
-	dlp_fbe->fbe_enable = true;
-	pr_info("DLP %s, fbe is set\n", __func__);
-	return 0;
-}
-
-static long dlp_ioctl(struct file *file, unsigned int cmd,
+static long dlp_ioctl(struct file *file, unsigned cmd,
 		unsigned long arg) {
 	int ret = 0;
 	void __user *argp = (void __user *) arg;
 
 	switch (cmd) {
 	case DLP_LOCK_ENABLE: {
-		pr_info("DLP: DLP_LOCK_ENABLE\n");
+		printk("DLP: DLP_LOCK_ENABLE\n");
 		ret = dlp_lock_setting(argp, true);
 		break;
 	}
 	case DLP_LOCK_DISABLE: {
-		pr_info("DLP: DLP_LOCK_DISABLE\n");
+		printk("DLP: DLP_LOCK_DISABLE\n");
 		ret = dlp_lock_setting(argp, false);
 		break;
 	}
 	case DLP_EXTENSION_SET: {
-		pr_info("DLP: DLP_EXTENSION_SET\n");
+		printk("DLP: DLP_EXTENSION_SET\n");
 		ret = dlp_extension_setting(argp);
-		break;
-	}
-	case DLP_FBE_SET: {
-		pr_info("DLP: DLP_FBE_SET\n");
-		ret = dlp_fbe_setting(argp);
 		break;
 	}
 	default:
@@ -256,15 +216,14 @@ static long dlp_ioctl(struct file *file, unsigned int cmd,
 		return -EINVAL;
 	}
 
-#if DLP_DUMP_LIST
-	dlp_dump_list();
+#if DLP_DUMP_LIST	
+	dlp_dump_list(); 
 #endif
 
-	return ret;
+	return ret;	
 }
 
-int dlp_isInterestedFile(int user_id, const char *filename)
-{
+int dlp_isInterestedFile(int user_id, const char *filename){
 	int i, j;
 	char *ext, *ret;
 	char lower[256];
@@ -273,33 +232,33 @@ int dlp_isInterestedFile(int user_id, const char *filename)
 
 	printk("DLP: dlp_isInterestedFile : %s\n", filename);
 
-	if (ext == NULL) {
+	if(ext == NULL){
 		printk("DLP: Ext not found\n");
 		return -1;
-	} else{
+	}else{
 		ext++;
 		strncpy(lower, ext, sizeof(lower)-1);
 		lower[sizeof(lower)-1] = '\0';
-		for (j = 0; j < strlen(lower); j++) {
+		for (j=0; j < strlen(lower); j++) {
 			lower[j] = tolower(lower[j]);
 		}
 		printk("DLP: extension : %s\n", lower);
 	}
 
 	item = dlp_find_list(user_id);
-	if (item == NULL || item->extensions == NULL) {
+	if(item == NULL || item->extensions == NULL){
 		//extensions for DLP is not set ...
 		// check if the extension is matching with default extensions
 		printk("DLP: extension set for DLP is not set\n");
-		for (i = (sizeof(DLP_FILE_EXTENSIONS)/sizeof(char *) - 1); i >= 0; i--) {
-			if (strcmp(DLP_FILE_EXTENSIONS[i], lower) == 0) {
+		for(i=(sizeof(DLP_FILE_EXTENSIONS)/sizeof(char*) -1); i>=0; i--){
+			if(strcmp(DLP_FILE_EXTENSIONS[i], lower)==0){
 				return 0;
 			}
-		}
+		}	
 		printk("DLP: extension not matching with default return -1\n");
 		return -1;
-	}
-
+	} 
+	
 	printk("DLP: extension = %s\n", item->extensions);
 
 	strcat(lower, ","); // add comma, so that we compare each ext fully (doc vs. docx)
@@ -325,8 +284,7 @@ static struct miscdevice dlp_misc_dev = {
 	.fops = &dlp_fops_evt,
 };
 
-static int __init dlp_ioctl_init(void)
-{
+static int __init dlp_ioctl_init(void) {
 	int ret;
 
 	ret = misc_register(&dlp_misc_dev);
@@ -338,17 +296,12 @@ static int __init dlp_ioctl_init(void)
 	INIT_LIST_HEAD(&dlp_info.list);
 	mutex_init(&dlp_info.list_mutex);
 
-	ret = dlp_fbe_init();
-	if (ret < 0)
-		return ret;
-
 	printk("DLP: dlp_ioctl initialized\n");
 
 	return 0;
 }
 
-static void __exit dlp_ioctl_exit(void)
-{
+static void __exit dlp_ioctl_exit(void) {
 	misc_deregister(&dlp_misc_dev);
 	printk("DLP: dlp_ioctl mics_deregister\n");
 }

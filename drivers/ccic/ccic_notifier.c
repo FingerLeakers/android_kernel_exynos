@@ -3,7 +3,7 @@
 
 #include <linux/notifier.h>
 #include <linux/ccic/ccic_notifier.h>
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 #include <linux/ccic/ccic_sysfs.h>
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 #include <linux/battery/battery_notifier.h>
@@ -36,6 +36,8 @@ char CCIC_NOTI_DEST_Print[CCIC_NOTI_DEST_NUM][10] = {
     {"MANAGER"},
     {"DP"},
     {"DPUSB"},
+    {"BATTERY2"},
+    {"MUIC2"},
     {"ALL"},
 };
 
@@ -54,6 +56,7 @@ char CCIC_NOTI_ID_Print[CCIC_NOTI_ID_NUM][20] = {
     {"ID_ROLE_SWAP"},
     {"ID_FAC"},
     {"ID_PIN_STATUS"},
+    {"ID_WATER_CABLE"},
 };
 
 char CCIC_NOTI_RID_Print[CCIC_NOTI_RID_NUM][15] = {

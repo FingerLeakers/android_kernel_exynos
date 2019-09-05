@@ -862,11 +862,6 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 				val == DPP_COMP_SRC_G2D ? "G2D" : "GPU",
 				get_dpp_drvdata(IDMA_VGF0)->d.recovery_cnt,
 				get_dpp_drvdata(IDMA_VGF1)->d.recovery_cnt);
-
-#ifdef CONFIG_SEC_ABC
-		if (!(dpp->d.recovery_cnt % 10))
-			sec_abc_send_event("MODULE=display@ERROR=afbc_recovery");
-#endif
 		goto irq_end;
 	}
 
@@ -1057,13 +1052,11 @@ err:
 
 static int dpp_remove(struct platform_device *pdev)
 {
-#if defined(CONFIG_ION_EXYNOS)
 	struct dpp_device *dpp = platform_get_drvdata(pdev);
 
 	iovmm_deactivate(dpp->dev);
 
 	dpp_info("%s driver unloaded\n", pdev->name);
-#endif
 	return 0;
 }
 

@@ -24,12 +24,17 @@
 #include "mdnie.h"
 #include "copr.h"
 
+#ifdef CONFIG_PANEL_NOTIFY
+#include <linux/panel_notify.h>
+#endif
+
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "./aod/aod_drv.h"
 #endif
 enum {
 	MIPI_DSI_WR_UNKNOWN = 0,
 	MIPI_DSI_WR_GEN_CMD,
+	MIPI_DSI_WR_CMD_NO_WAKE,
 	MIPI_DSI_WR_DSC_CMD,
 	MIPI_DSI_WR_PPS_CMD,
 	MIPI_DSI_WR_GRAM_CMD,
@@ -52,6 +57,7 @@ enum {
 
 #define CONFIG_SUPPORT_MST
 #define CONFIG_SUPPORT_GRAYSPOT_TEST
+#define CONFIG_SUPPORT_SPI_IF_SEL
 
 #define to_panel_device(_m_)	container_of(_m_, struct panel_device, _m_)
 
@@ -70,6 +76,8 @@ enum {
 #define PANEL_CODE_LEN		(5)
 #define PANEL_COORD_LEN		(4)
 #define PANEL_DATE_LEN		(7)
+#define PANEL_RDDPM_LEN		(3)
+#define PANEL_RDDSM_LEN		(3)
 
 #define NORMAL_TEMPERATURE			(25)
 #define POWER_IS_ON(pwr)		(pwr <= FB_BLANK_NORMAL)
@@ -157,21 +165,23 @@ enum {
 	CMD_TYPE_PINCTL,
 	CMD_TYPE_TX_PKT_START,
 	CMD_PKT_TYPE_NONE = CMD_TYPE_TX_PKT_START,
-	SPI_PKT_TYPE_WR,
 	DSI_PKT_TYPE_WR,
+	DSI_PKT_TYPE_WR_NO_WAKE,
 	DSI_PKT_TYPE_COMP,
 /*Command to write ddi side ram */
 	DSI_PKT_TYPE_WR_SR,
 	DSI_PKT_TYPE_WR_MEM,
 	DSI_PKT_TYPE_PPS,
 	CMD_TYPE_TX_PKT_END = DSI_PKT_TYPE_PPS,
-	CMD_TYPE_RD_PKT_START,
-	SPI_PKT_TYPE_RD = CMD_TYPE_RD_PKT_START,
-#ifdef CONFIG_SUPPORT_POC_FLASH
+	CMD_TYPE_RX_PKT_START,
+	SPI_PKT_TYPE_RD = CMD_TYPE_RX_PKT_START,
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	DSI_PKT_TYPE_RD_POC,
 #endif
 	DSI_PKT_TYPE_RD,
 	CMD_TYPE_RX_PKT_END = DSI_PKT_TYPE_RD,
+	SPI_PKT_TYPE_WR,
+	SPI_PKT_TYPE_SETPARAM,
 	CMD_TYPE_RES,
 	CMD_TYPE_SEQ,
 	CMD_TYPE_KEY,
@@ -179,6 +189,17 @@ enum {
 	CMD_TYPE_DMP,
 	MAX_CMD_TYPE,
 };
+
+#define IS_CMD_TYPE_TX_PKT(_type_) \
+	((CMD_TYPE_TX_PKT_START <= (_type_) && (_type_) <= CMD_TYPE_TX_PKT_END) ||\
+	 (_type_) == CMD_TYPE_KEY)
+
+#define IS_CMD_TYPE_RX_PKT(_type_) \
+	(CMD_TYPE_RX_PKT_START <= (_type_) && (_type_) <= CMD_TYPE_RX_PKT_END)
+
+#define IS_CMD_TYPE_DELAY(_type_) \
+	((_type_) == CMD_TYPE_DELAY || (_type_) == CMD_TYPE_DELAY_NO_SLEEP)
+
 
 enum {
 	RES_UNINITIALIZED,
@@ -255,6 +276,9 @@ struct pkt_update_info {
 	void *pdata;
 };
 
+#define PKT_OPTION_NONE (0)
+#define PKT_OPTION_CHECK_TX_DONE (1 << 0)
+
 struct pktinfo {
 	u32 type;
 	char *name;
@@ -264,6 +288,7 @@ struct pktinfo {
 	u32 dlen;
 	struct pkt_update_info *pktui;
 	u32 nr_pktui;
+	u32 option;
 };
 
 struct rdinfo {
@@ -364,7 +389,7 @@ struct pkt_update_info PKTUI(_name_)[] =			\
 	},												\
 }
 
-#define PKTINFO_INIT(_name_, _type_, _arr_, _ofs_, _pktui_, _nr_pktui_)	\
+#define PKTINFO_INIT(_name_, _type_, _arr_, _ofs_, _option_, _pktui_, _nr_pktui_)	\
 {												\
 	.name = (#_name_),							\
 	.type = (_type_),							\
@@ -373,23 +398,30 @@ struct pkt_update_info PKTUI(_name_)[] =			\
 	.dlen = ARRAY_SIZE((_arr_)),				\
 	.pktui = (_pktui_),							\
 	.nr_pktui = (_nr_pktui_),					\
+	.option = (_option_),							\
 }
 
-#define DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, _pktui_, _nr_pktui_)	\
-struct pktinfo PKTINFO(_name_) = PKTINFO_INIT(_name_, _type_, _arr_, _ofs_, _pktui_, _nr_pktui_)
+#define DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, _option_, _pktui_, _nr_pktui_)	\
+struct pktinfo PKTINFO(_name_) = PKTINFO_INIT(_name_, _type_, _arr_, _ofs_, _option_, _pktui_, _nr_pktui_)
 
 #define DEFINE_VARIABLE_PACKET(_name_, _type_, _arr_, _ofs_)				\
-DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, PKTUI(_name_), ARRAY_SIZE(PKTUI(_name_)))
+DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, 0, PKTUI(_name_), ARRAY_SIZE(PKTUI(_name_)))
+
+#define DEFINE_VARIABLE_PACKET_WITH_OPTION(_name_, _type_, _arr_, _ofs_, _option_)				\
+DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, _option_, PKTUI(_name_), ARRAY_SIZE(PKTUI(_name_)))
 
 #define DEFINE_STATIC_PACKET(_name_, _type_, _arr_, _ofs_)		\
-DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, (NULL), (0))
+DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, 0, (NULL), (0))
+
+#define DEFINE_STATIC_PACKET_WITH_OPTION(_name_, _type_, _arr_, _ofs_, _option_)		\
+DEFINE_PACKET(_name_, _type_, _arr_, _ofs_, _option_, (NULL), (0))
 
 #define PN_MAP_DATA_TABLE(_name_)	PN_CONCAT(PN_CONCAT(__pn_name__, _name_), table)
 #define PN_CMD_DATA_TABLE(_name_)	PN_CONCAT(__PN_NAME__, _name_)
 
 #define DEFINE_PN_STATIC_PACKET(_name_, _type_, _arr_)			\
 DEFINE_PACKET(PN_CONCAT(__pn_name__, _name_), _type_,	\
-		PN_CONCAT(__PN_NAME__, _arr_), _ofs_, NULL, 0)
+		PN_CONCAT(__PN_NAME__, _arr_), _ofs_, 0, NULL, 0)
 
 /* structure of mapping table */
 struct maptbl_ops {
@@ -590,7 +622,33 @@ enum PANEL_SEQ {
 #ifdef CONFIG_SUPPORT_ISC_DEFECT
 	PANEL_CHECK_ISC_DEFECT_SEQ,
 #endif
+#ifdef CONFIG_SUPPORT_SPI_IF_SEL
+	PANEL_SPI_IF_ON_SEQ,
+	PANEL_SPI_IF_OFF_SEQ,
+#endif
+#ifdef CONFIG_SUPPORT_CCD_TEST
+	PANEL_CCD_TEST_SEQ,
+#endif
+#ifdef CONFIG_SUPPORT_DYNAMIC_HLPM
+	PANEL_DYNAMIC_HLPM_ON_SEQ,
+	PANEL_DYNAMIC_HLPM_OFF_SEQ,
+#endif
+#ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
+	PANEL_ISC_THRESHOLD_SEQ,
+	PANEL_STM_TUNE_SEQ,
+#endif
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	PANEL_FFC_SEQ,
+#endif
+#ifdef CONFIG_DYNAMIC_FREQ
+	PANEL_DYNAMIC_FFC_SEQ,
+#endif
+	PANEL_GAMMA_INTER_CONTROL_SEQ,
+	PANEL_PARTIAL_DISP_ON_SEQ,
+	PANEL_PARTIAL_DISP_OFF_SEQ,
 	PANEL_DUMP_SEQ,
+	PANEL_CHECK_CONDITION_SEQ,
+	PANEL_DIA_ONOFF_SEQ,
 	PANEL_DUMMY_SEQ,
 	MAX_PANEL_SEQ,
 };
@@ -617,6 +675,15 @@ struct brt_map {
 	int lum;
 };
 
+#define DDI_SUPPORT_WRITE_GPARA	(1U << 0)
+#define DDI_SUPPORT_READ_GPARA	(1U << 1)
+#define DDI_SUPPORT_POINT_GPARA	(1U << 2)
+
+struct ddi_properties {
+	u32 gpara;
+	bool support_partial_disp;
+};
+
 struct common_panel_info {
 	char *ldi_name;
 	char *name;
@@ -624,6 +691,7 @@ struct common_panel_info {
 	char *vendor;
 	u32 id;
 	u32 rev;
+	struct ddi_properties ddi_props;
 	struct maptbl *maptbl;
 	int nr_maptbl;
 	struct seqinfo *seqtbl;
@@ -642,8 +710,17 @@ struct common_panel_info {
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	struct aod_tune *aod_tune;
 #endif
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	struct panel_poc_data *poc_data;
+#endif
+#ifdef CONFIG_SUPPORT_POC_SPI
+	struct spi_data *spi_data;
+#endif
+#ifdef CONFIG_DYNAMIC_FREQ
+	struct df_freq_tbl_info *df_freq_tbl;
+#endif
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	struct profiler_tune *profile_tune;
 #endif
 };
 
@@ -724,6 +801,39 @@ enum {
 };
 #endif
 
+#ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
+enum stm_field_num
+{
+	STM_CTRL_EN = 0,
+	STM_MAX_OPT,
+	STM_DEFAULT_OPT,
+	STM_DIM_STEP,
+	STM_FRAME_PERIOD,
+	STM_MIN_SECT,
+	STM_PIXEL_PERIOD,
+	STM_LINE_PERIOD,
+	STM_MIN_MOVE,
+	STM_M_THRES,
+	STM_V_THRES,
+	STM_FIELD_MAX
+};
+
+static const char* str_stm_fied[STM_FIELD_MAX] =
+{
+	"stm_ctrl_en=",
+	"stm_max_opt=",
+	"stm_default_opt=",
+	"stm_dim_step=",
+	"stm_frame_period=",
+	"stm_min_sect=",
+	"stm_pixel_period=",
+	"stm_line_period=",
+	"stm_min_move=",
+	"stm_m_thres=",
+	"stm_v_thres="
+};
+#endif
+
 enum {
 	MCD_RS_1_RIGHT,
 	MCD_RS_1_LEFT,
@@ -739,23 +849,28 @@ enum {
 };
 
 #define MAX_PANEL (32)
+#define MAX_PANEL_DDI (8)
 #define MAX_PANEL_LUT (128)
 
 enum {
 	PANEL_ID,
 	PANEL_MASK,
 	PANEL_INDEX,
+	PANEL_DDI_INDEX,
 };
 
 struct panel_lut {
 	u32 id;
 	u32 mask;
 	u32 index;
+	u32 ddi_index;
 };
 
 struct panel_lut_info {
 	const char *names[MAX_PANEL];
 	int nr_panel;
+	struct device_node *ddi_node[MAX_PANEL_DDI];
+	int nr_panel_ddi;
 	struct panel_lut lut[MAX_PANEL_LUT];
 	int nr_lut;
 };
@@ -782,7 +897,7 @@ struct panel_properties {
 #ifdef CONFIG_SUPPORT_XTALK_MODE
 	u32 xtalk_mode;
 #endif
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	u32 poc_op;
 #endif
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
@@ -806,6 +921,24 @@ struct panel_properties {
 	u32 dim_flash_state;	/* success or fail */
 	u32 cur_dim_type;	/* AID DIMMING or DIM FLASH */
 #endif
+#ifdef CONFIG_SUPPORT_DYNAMIC_HLPM
+	u32 dynamic_hlpm;
+#endif
+#ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
+	u8 isc_threshold;
+	u8 stm_field_info[STM_FIELD_MAX];
+#endif
+	u8* gamma_control_buf;
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	u32 cur_ffc_idx;
+#endif
+#ifdef CONFIG_SUPPORT_DSU
+	bool mres_updated;
+#endif
+	int panel_partial_disp;
+	u32 dia_mode;
+	u32 ub_con_cnt;
+	u32 conn_det_enable;
 };
 
 struct panel_info {
@@ -814,6 +947,7 @@ struct panel_info {
 	unsigned char date[PANEL_DATE_LEN];
 	unsigned char coordinate[PANEL_COORD_LEN];
 	struct panel_properties props;
+	struct ddi_properties ddi_props;
 
 	/* platform dependent data - ex> exynos : dsim_device */
 	void *pdata;
@@ -846,6 +980,7 @@ void print_data(char *data, int size);
 void print_maptbl(struct maptbl *tbl);
 int register_common_panel(struct common_panel_info *info);
 struct common_panel_info *find_panel(struct panel_device *panel, u32 id);
+struct device_node *find_panel_ddi_node(struct panel_device *panel, u32 id);
 void print_panel_lut(struct panel_lut_info *lut_info);
 struct seqinfo *find_panel_seqtbl(struct panel_info *panel_data, char *name);
 struct seqinfo *find_index_seqtbl(struct panel_info *panel_data, u32 index);
@@ -872,8 +1007,10 @@ int get_panel_resource_size(struct resinfo *res);
 int panel_resource_update(struct panel_device *panel, struct resinfo *res);
 int panel_resource_update_by_name(struct panel_device *panel, char *name);
 int panel_dumpinfo_update(struct panel_device *panel, struct dumpinfo *info);
-int panel_rx_nbytes(struct panel_device *panel, u32 type, u8 *buf, u8 addr, u8 pos, u8 len);
-int panel_verify_tx_packet(struct panel_device *panel, u8 *table, u8 len);
+int panel_rx_nbytes(struct panel_device *panel, u32 type, u8 *buf, u8 addr, u8 pos, u32 len);
+int panel_tx_nbytes(struct panel_device *panel,	u32 type, u8 *buf, u8 addr, u8 pos, u32 len);
+
+int panel_verify_tx_packet(struct panel_device *panel, u8 *src, u8 ofs, u8 len);
 
 int panel_set_key(struct panel_device *panel, int level, bool on);
 struct pktinfo *alloc_static_packet(char *name, u32 type, u8 *data, u32 dlen);

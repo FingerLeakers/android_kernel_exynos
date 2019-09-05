@@ -791,6 +791,8 @@ static int ect_parse_minlock_domain(int parser_version, void *address, struct ec
 	return 0;
 }
 
+uint64_t ect_minlock_domain_0;	/* used for sec debug auto analysis */ 	
+
 static int ect_parse_minlock_header(void *address, struct ect_info *info)
 {
 	int ret = 0;
@@ -844,6 +846,7 @@ static int ect_parse_minlock_header(void *address, struct ect_info *info)
 	}
 
 	info->block_handle = ect_minlock_header;
+	ect_minlock_domain_0 = (uint64_t)ect_minlock_header->domain_list;
 
 	return 0;
 
@@ -2105,7 +2108,7 @@ static struct file_operations ops_all_dump = {
 	.release = single_release,
 };
 
-static ssize_t store_ect_create_binary(struct class *class,
+static ssize_t create_binary_store(struct class *class,
 		struct class_attribute *attr, const char *buf, size_t size)
 {
 	char filename_buffer[512];
@@ -2145,7 +2148,7 @@ static ssize_t store_ect_create_binary(struct class *class,
 }
 
 
-static CLASS_ATTR(create_binary, S_IWUSR | S_IRUGO, NULL, store_ect_create_binary);
+static CLASS_ATTR_WO(create_binary);
 
 
 static int ect_dump_init(void)
@@ -2540,16 +2543,19 @@ int ect_parse_binary_header(void)
 	int ret = 0;
 	int i, j;
 	char *block_name;
-	void *address;
+	void *address, *address_tmp;
 	unsigned int length, offset;
 	struct ect_header *ect_header;
 
 	ect_init_map_io();
 
 	address = (void *)ect_address;
-	if (address == NULL)
+	address_tmp = (void *)ect_address;
+	
+	if (address == NULL) {
+		pr_err("%s-%d ect_address is NULL\n", __func__, __LINE__);
 		return -EINVAL;
-
+	}
 	ect_header = kzalloc(sizeof(struct ect_header), GFP_KERNEL);
 
 	ect_parse_integer(&address, ect_header->sign);
@@ -2559,6 +2565,18 @@ int ect_parse_binary_header(void)
 
 	if (memcmp(ect_header->sign, ect_signature, sizeof(ect_signature) - 1)) {
 		ret = -EINVAL;
+		pr_err("%s-%d ect_signature file!\n", __func__, __LINE__);
+		pr_err("ect_header->sign:%c%c%c%c\n", 
+				    ect_header->sign[0],
+				    ect_header->sign[1],
+				    ect_header->sign[2],
+				    ect_header->sign[3]);
+
+		pr_err("ect_header->version:%c%c%c%c\n",
+				   ect_header->version[0],
+				   ect_header->version[1],
+				   ect_header->version[2],
+				   ect_header->version[3]);
 		goto err_memcmp;
 	}
 
@@ -2593,6 +2611,15 @@ int ect_parse_binary_header(void)
 err_parser:
 err_parse_string:
 err_memcmp:
+	pr_err("ect data dump\n");
+	for (i = 0; i < 50; i++) {
+		pr_err("%8x %8x %8x %8x\n",
+			__raw_readl(address_tmp + 16 * i),
+			__raw_readl(address_tmp + 16 * i + 4),
+			__raw_readl(address_tmp + 16 * i + 8),
+			__raw_readl(address_tmp + 16 * i + 12));
+	}
+
 	kfree(ect_header);
 
 	return ret;

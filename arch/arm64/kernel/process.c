@@ -24,6 +24,9 @@
 #include <linux/efi.h>
 #include <linux/export.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/stddef.h>
@@ -44,8 +47,9 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/personality.h>
 #include <linux/notifier.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 #include <trace/events/power.h>
+#include <linux/percpu.h>
 
 #include <asm/alternative.h>
 #include <asm/compat.h>
@@ -55,8 +59,6 @@
 #include <asm/mmu_context.h>
 #include <asm/processor.h>
 #include <asm/stacktrace.h>
-
-#include <soc/samsung/exynos-condbg.h>
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
@@ -149,9 +151,7 @@ void machine_restart(char *cmd)
 {
 	/* Disable interrupts first */
 	local_irq_disable();
-
-	if (!ecd_get_enable() || ecd_get_debug_mode() != MODE_DEBUG)
-		smp_send_stop();
+	smp_send_stop();
 
 	/*
 	 * UpdateCapsule() depends on the system being reset via
@@ -160,7 +160,7 @@ void machine_restart(char *cmd)
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		efi_reboot(reboot_mode, NULL);
 
-	exynos_ss_post_reboot(cmd);
+	dbg_snapshot_post_reboot(cmd);
 
 	/* Now call the architecture specific reboot code. */
 	if (arm_pm_restart)
@@ -175,6 +175,10 @@ void machine_restart(char *cmd)
 	while (1);
 }
 
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+extern unsigned long long incorrect_addr;
+#endif
+
 /*
  * dump a block of kernel memory from around the given address
  */
@@ -182,20 +186,32 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 {
 	int	i, j;
 	int	nlines;
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+	int	nbytes_offset = nbytes;
+#endif
 	u32	*p;
 
 	/*
 	 * don't attempt to dump non-kernel addresses or
 	 * values that are probably just small negative numbers
 	 */
-	if (addr < PAGE_OFFSET || addr >= -256UL) {
+	if (addr < PAGE_OFFSET || addr > -256UL) {
 		/*
 		 * If kaslr is enabled, Kernel code is able to
-		 * locate in VMALLOC address.
+		 * located in VMALLOC address.
 		 */
-		if (addr < (unsigned long)KERNEL_START ||
-		    addr > (unsigned long)KERNEL_END)
+		if (IS_ENABLED(CONFIG_RANDOMIZE_BASE)) {
+#ifdef CONFIG_VMAP_STACK
+			if (!is_vmalloc_addr((const void *)addr))
+				return;
+#else
+			if (addr < (unsigned long)KERNEL_START ||
+			    addr > (unsigned long)KERNEL_END)
+				return;
+#endif
+		} else {
 			return;
+		}
 	}
 
 	printk("\n%s: %#lx:\n", name, addr);
@@ -208,7 +224,6 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	nbytes += (addr & (sizeof(u32) - 1));
 	nlines = (nbytes + 31) / 32;
 
-
 	for (i = 0; i < nlines; i++) {
 		/*
 		 * just display low 16 bits of address to keep
@@ -217,7 +232,18 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 		printk("%04lx :", (unsigned long)p & 0xffff);
 		for (j = 0; j < 8; j++) {
 			u32	data;
+
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+			if ((incorrect_addr != 0) && (((unsigned long long)p >= (incorrect_addr - nbytes_offset)) && ((unsigned long long)p <= (incorrect_addr + nbytes_offset)))) {
+				if (j == 7)
+					pr_cont(" ********\n");
+				else
+					pr_cont(" ********");
+			}
+			else if (probe_kernel_address(p, data)) {
+#else
 			if (probe_kernel_address(p, data)) {
+#endif
 				if (j == 7)
 					pr_cont(" ********\n");
 				else
@@ -267,13 +293,13 @@ void __show_regs(struct pt_regs *regs)
 	}
 
 	if (!user_mode(regs)) {
-		exynos_ss_save_context(regs);
+		dbg_snapshot_save_context(regs);
 		/*
 		 *  If you want to see more kernel events after panic,
-		 *  you should modify exynos_ss_set_enable's function 2nd parameter
+		 *  you should modify dbg_snapshot_set_enable's function 2nd parameter
 		 *  to true.
 		 */
-		exynos_ss_set_enable("log_kevents", false);
+		dbg_snapshot_set_enable("log_kevents", false);
 	}
 
 	pr_info("TIF_FOREIGN_FPSTATE: %d, FP/SIMD depth %d, cpu: %d\n",
@@ -308,8 +334,8 @@ void __show_regs(struct pt_regs *regs)
 
 void show_regs(struct pt_regs * regs)
 {
-	printk("\n");
 	__show_regs(regs);
+	dump_backtrace(regs, NULL);
 }
 
 static void tls_thread_flush(void)
@@ -357,6 +383,15 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 
 	memset(&p->thread.cpu_context, 0, sizeof(struct cpu_context));
 
+	/*
+	 * In case p was allocated the same task_struct pointer as some
+	 * other recently-exited task, make sure p is disassociated from
+	 * any cpu that may have run that now-exited task recently.
+	 * Otherwise we could erroneously skip reloading the FPSIMD
+	 * registers for p.
+	 */
+	fpsimd_flush_task_state(p);
+
 	if (likely(!(p->flags & PF_KTHREAD))) {
 		*childregs = *current_pt_regs();
 		childregs->regs[0] = 0;
@@ -384,7 +419,7 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 		memset(childregs, 0, sizeof(struct pt_regs));
 		childregs->pstate = PSR_MODE_EL1h;
 		if (IS_ENABLED(CONFIG_ARM64_UAO) &&
-		    cpus_have_cap(ARM64_HAS_UAO))
+		    cpus_have_const_cap(ARM64_HAS_UAO))
 			childregs->pstate |= PSR_UAO_BIT;
 		p->thread.cpu_context.x19 = stack_start;
 		p->thread.cpu_context.x20 = stk_sz;
@@ -397,12 +432,14 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	return 0;
 }
 
+void tls_preserve_current_state(void)
+{
+	*task_user_tls(current) = read_sysreg(tpidr_el0);
+}
+
 static void tls_thread_switch(struct task_struct *next)
 {
-	unsigned long tpidr;
-
-	tpidr = read_sysreg(tpidr_el0);
-	*task_user_tls(current) = tpidr;
+	tls_preserve_current_state();
 
 	if (is_compat_thread(task_thread_info(next)))
 		write_sysreg(next->thread.tp_value, tpidrro_el0);
@@ -424,9 +461,23 @@ void uao_thread_switch(struct task_struct *next)
 }
 
 /*
+ * We store our current task in sp_el0, which is clobbered by userspace. Keep a
+ * shadow copy so that we can restore this upon entry from userspace.
+ *
+ * This is *only* for exception entry from EL0, and is not valid until we
+ * __switch_to() a user task.
+ */
+DEFINE_PER_CPU(struct task_struct *, __entry_task);
+
+static void entry_task_switch(struct task_struct *next)
+{
+	__this_cpu_write(__entry_task, next);
+}
+
+/*
  * Thread switching.
  */
-struct task_struct *__switch_to(struct task_struct *prev,
+__notrace_funcgraph struct task_struct *__switch_to(struct task_struct *prev,
 				struct task_struct *next)
 {
 	struct task_struct *last;
@@ -435,11 +486,14 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	tls_thread_switch(next);
 	hw_breakpoint_thread_switch(next);
 	contextidr_thread_switch(next);
+	entry_task_switch(next);
 	uao_thread_switch(next);
 
 	/*
 	 * Complete any pending TLB or cache maintenance on this CPU in case
 	 * the thread migrates to a different CPU.
+	 * This full barrier is also required by the membarrier system
+	 * call.
 	 */
 	dsb(ish);
 
@@ -452,27 +506,32 @@ struct task_struct *__switch_to(struct task_struct *prev,
 unsigned long get_wchan(struct task_struct *p)
 {
 	struct stackframe frame;
-	unsigned long stack_page;
+	unsigned long stack_page, ret = 0;
 	int count = 0;
 	if (!p || p == current || p->state == TASK_RUNNING)
 		return 0;
 
+	stack_page = (unsigned long)try_get_task_stack(p);
+	if (!stack_page)
+		return 0;
+
 	frame.fp = thread_saved_fp(p);
-	frame.sp = thread_saved_sp(p);
 	frame.pc = thread_saved_pc(p);
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	frame.graph = p->curr_ret_stack;
 #endif
-	stack_page = (unsigned long)task_stack_page(p);
 	do {
-		if (frame.sp < stack_page ||
-		    frame.sp >= stack_page + THREAD_SIZE ||
-		    unwind_frame(p, &frame))
-			return 0;
-		if (!in_sched_functions(frame.pc))
-			return frame.pc;
+		if (unwind_frame(p, &frame))
+			goto out;
+		if (!in_sched_functions(frame.pc)) {
+			ret = frame.pc;
+			goto out;
+		}
 	} while (count ++ < 16);
-	return 0;
+
+out:
+	put_task_stack(p);
+	return ret;
 }
 
 unsigned long arch_align_stack(unsigned long sp)
@@ -485,7 +544,15 @@ unsigned long arch_align_stack(unsigned long sp)
 unsigned long arch_randomize_brk(struct mm_struct *mm)
 {
 	if (is_compat_task())
-		return randomize_page(mm->brk, 0x02000000);
+		return randomize_page(mm->brk, SZ_32M);
 	else
-		return randomize_page(mm->brk, 0x40000000);
+		return randomize_page(mm->brk, SZ_1G);
+}
+
+/*
+ * Called from setup_new_exec() after (COMPAT_)SET_PERSONALITY.
+ */
+void arch_setup_new_exec(void)
+{
+	current->mm->context.flags = is_compat_task() ? MMCF_AARCH32 : 0;
 }

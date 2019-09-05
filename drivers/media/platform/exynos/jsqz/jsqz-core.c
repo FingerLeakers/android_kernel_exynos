@@ -334,7 +334,7 @@ static int disable_jsqz(struct jsqz_dev *jsqz)
 static int jsqz_set_source_n_config(struct jsqz_dev *jsqz_device,
 			   struct jsqz_task *task)
 {
-	u32 cs, width, height, stride, format, mode, func;
+	u32 cs, width, height, stride, format, mode, func, time_out;
 	dma_addr_t y_addr = 0;
 	dma_addr_t u_addr = 0;
 	dma_addr_t v_addr = 0;
@@ -355,8 +355,10 @@ static int jsqz_set_source_n_config(struct jsqz_dev *jsqz_device,
 	height = task->user_task.info_out.height;
 	mode = task->user_task.config.mode;
 	func = task->user_task.config.function;
+	time_out = 0;
 
 	jsqz_set_stride_on_n_value(jsqz_device->regs, stride);
+	jsqz_on_off_time_out(jsqz_device->regs, time_out);
 
 	if (stride == 0) {
 		stride = width;
@@ -1484,6 +1486,13 @@ static long jsqz_ioctl(struct file *filp,
 				"%s: Failed to read userdata\n", __func__);
 			return -EFAULT;
 		}
+		
+		if ((data.user_task.num_of_buf > MAX_BUF_NUM - 1) || (data.user_task.num_of_buf < 1)) {
+			dev_err(jsqz_device->dev,
+				"%s: number of buffer is wrong, num_of_buf is %d\n",
+				__func__, data.user_task.num_of_buf);
+			return -EINVAL;
+		}
 
 		dev_dbg(jsqz_device->dev
 			, "%s: user data copied, now launching processing...\n"
@@ -1602,6 +1611,12 @@ static long jsqz_compat_ioctl32(struct file *filp,
     				task.user_task.buf_out[i].userptr = data.buf_out[i].userptr;
     			task.user_task.buf_out[i].type = data.buf_out[i].type;
     		}
+    	}
+    	else {
+    		dev_err(jsqz_device->dev,
+				"%s: number of buffer is wrong, num_of_buf is %d\n",
+				__func__, task.user_task.num_of_buf);
+			return -EINVAL;
     	}
 
 		/*

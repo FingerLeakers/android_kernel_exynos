@@ -29,6 +29,7 @@
 #define DEVFREQ_POSTCHANGE		(1)
 
 struct devfreq;
+struct devfreq_governor;
 
 /**
  * struct devfreq_dev_status - Data given from devfreq user device to
@@ -102,35 +103,6 @@ struct devfreq_dev_profile {
 
 	unsigned long *freq_table;
 	unsigned int max_state;
-};
-
-/**
- * struct devfreq_governor - Devfreq policy governor
- * @node:		list node - contains registered devfreq governors
- * @name:		Governor's name
- * @immutable:		Immutable flag for governor. If the value is 1,
- *			this govenror is never changeable to other governor.
- * @get_target_freq:	Returns desired operating frequency for the device.
- *			Basically, get_target_freq will run
- *			devfreq_dev_profile.get_dev_status() to get the
- *			status of the device (load = busy_time / total_time).
- *			If no_central_polling is set, this callback is called
- *			only with update_devfreq() notified by OPP.
- * @event_handler:      Callback for devfreq core framework to notify events
- *                      to governors. Events include per device governor
- *                      init and exit, opp changes out of devfreq, suspend
- *                      and resume of per device devfreq during device idle.
- *
- * Note that the callbacks are called with devfreq->lock locked by devfreq.
- */
-struct devfreq_governor {
-	struct list_head node;
-
-	const char name[DEVFREQ_NAME_LEN];
-	const unsigned int immutable;
-	int (*get_target_freq)(struct devfreq *this, unsigned long *freq);
-	int (*event_handler)(struct devfreq *devfreq,
-				unsigned int event, void *data);
 };
 
 /**
@@ -249,23 +221,11 @@ extern void devm_devfreq_unregister_notifier(struct device *dev,
 extern struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 						int index);
 
-/**
- * devfreq_update_stats() - update the last_status pointer in struct devfreq
- * @df:		the devfreq instance whose status needs updating
- *
- *  Governors are recommended to use this function along with last_status,
- * which allows other entities to reuse the last_status without affecting
- * the values fetched later by governors.
- */
-static inline int devfreq_update_stats(struct devfreq *df)
-{
-	return df->profile->get_dev_status(df->dev.parent, &df->last_status);
-}
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND) || IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_USAGE)\
 	|| IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_INTERACTIVE)
 struct devfreq_notifier_block {
-	struct notifier_block nb;
-	struct devfreq *df;
+       struct notifier_block nb;
+       struct devfreq *df;
 };
 #endif
 
@@ -324,45 +284,49 @@ struct devfreq_simple_exynos_data {
 #endif
 
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_INTERACTIVE)
+#if defined(CONFIG_EXYNOS_ALT_DVFS)
+#define LOAD_BUFFER_MAX			10
+struct devfreq_alt_load {
+	unsigned long long	delta;
+	unsigned int		load;
+};
+
+#define ALTDVFS_MIN_SAMPLE_TIME 	15
+#define ALTDVFS_HOLD_SAMPLE_TIME	100
+#define ALTDVFS_TARGET_LOAD		75
+#define ALTDVFS_NUM_TARGET_LOAD 	1
+#define ALTDVFS_HISPEED_LOAD		99
+#define ALTDVFS_HISPEED_FREQ		1000000
+#define ALTDVFS_TOLERANCE		1
+
+struct devfreq_alt_dvfs_data {
+	struct devfreq_alt_load	buffer[LOAD_BUFFER_MAX];
+	struct devfreq_alt_load	*front;
+	struct devfreq_alt_load	*rear;
+
+	unsigned long long	busy;
+	unsigned long long	total;
+	unsigned int		min_load;
+	unsigned int		max_load;
+	unsigned long long	max_spent;
+
+	/* ALT-DVFS parameter */
+	unsigned int		*target_load;
+	unsigned int		num_target_load;
+	unsigned int		min_sample_time;
+	unsigned int		hold_sample_time;
+	unsigned int		hispeed_load;
+	unsigned int		hispeed_freq;
+	unsigned int		tolerance;
+};
+#endif /* ALT_DVFS */
+
 #define DEFAULT_DELAY_TIME		10 /* msec */
 #define DEFAULT_NDELAY_TIME		1
 #define DELAY_TIME_RANGE		10
 #define BOUND_CPU_NUM			0
 
-#ifdef CONFIG_EXYNOS_WD_DVFS
-#define SIMPLE_LOAD_MAX				10
-struct devfreq_simple_load {
-	unsigned long long delta;
-	unsigned int load;
-};
-#endif
 struct devfreq_simple_interactive_data {
-#ifdef CONFIG_EXYNOS_WD_DVFS
-	struct devfreq_simple_load buffer[SIMPLE_LOAD_MAX];
-	struct devfreq_simple_load *front;
-	struct devfreq_simple_load *rear;
-	unsigned long long busy;
-	unsigned long long total;
-	unsigned int min_load;
-	unsigned int max_load;
-	unsigned long long max_spent;
-	/* governor parameter */
-#define INTERACTIVE_MIN_SAMPLE_TIME	15
-	unsigned int min_sample_time;
-#define INTERACTIVE_HOLD_SAMPLE_TIME	100
-	unsigned int hold_sample_time;
-#define INTERACTIVE_TARGET_LOAD		75
-#define INTERACTIVE_NTARGET_LOAD	1
-	unsigned int *target_load;
-	unsigned int ntarget_load;
-#define INTERACTIVE_GO_HISPEED_LOAD	99
-	unsigned int go_hispeed_load;
-#define INTERACTIVE_HISPEED_FREQ	1000000
-	unsigned int hispeed_freq;
-#define INTERACTIVE_TOLERANCE		1
-	unsigned int tolerance;
-	/* governor end */
-#endif
 	bool use_delay_time;
 	int *delay_time;
 	int ndelay_time;
@@ -375,6 +339,11 @@ struct devfreq_simple_interactive_data {
 	int pm_qos_class_max;
 	struct devfreq_notifier_block nb;
 	struct devfreq_notifier_block nb_max;
+
+#if defined(CONFIG_EXYNOS_ALT_DVFS)
+	struct devfreq_alt_dvfs_data alt_data;
+	unsigned int governor_freq;
+#endif
 };
 #endif
 

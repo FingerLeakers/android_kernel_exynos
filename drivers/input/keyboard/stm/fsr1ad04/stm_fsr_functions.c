@@ -48,6 +48,7 @@ static void run_reference_read(void *device_data);
 static void get_reference(void *device_data);
 static void run_jitter_read(void *device_data);
 static void run_force_calibration(void *device_data);
+static void set_press_mode(void *device_data);
 static void get_press_strength(void *device_data);
 static void set_calibration_mode(void *device_data);
 static void set_calibration_clear(void *device_data);
@@ -79,6 +80,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("run_reference_read", run_reference_read),},
 	{SEC_CMD("get_reference", get_reference),},
 	{SEC_CMD("run_jitter_read", run_jitter_read),},
+	{SEC_CMD("set_press_mode", set_press_mode),},
 	{SEC_CMD("run_force_calibration", run_force_calibration),},
 	{SEC_CMD("get_press_strength", get_press_strength),},
 	{SEC_CMD("set_calibration_mode", set_calibration_mode),},
@@ -386,7 +388,7 @@ static void fsr_print_cx(struct fsr_sidekey_info *info)
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	snprintf(pTmp, 8, "       ");
@@ -395,14 +397,14 @@ static void fsr_print_cx(struct fsr_sidekey_info *info)
 		snprintf(pTmp, 8, "  CH%02d  ", ChannelName[i]);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 7; i++) {
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	snprintf(pTmp, 7, " CX1  ");
@@ -411,7 +413,7 @@ static void fsr_print_cx(struct fsr_sidekey_info *info)
 		snprintf(pTmp, 8, " %6d", info->ch_cx_data[ChannelRemap[i]].cx1);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	snprintf(pTmp, 7, " CX2  ");
@@ -420,7 +422,7 @@ static void fsr_print_cx(struct fsr_sidekey_info *info)
 		snprintf(pTmp, 8, " %6d", info->ch_cx_data[ChannelRemap[i]].cx2);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	snprintf(pTmp, 7, " Total");
@@ -429,36 +431,28 @@ static void fsr_print_cx(struct fsr_sidekey_info *info)
 		snprintf(pTmp, 8, " %6d", info->ch_cx_data[ChannelRemap[i]].total);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 7; i++) {
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	kfree(pStr);
 }
 
-#define TOTAL_CX_G1			0
-#define TOTAL_CX_G2			0
-
-static void run_cx_data_read(void *device_data)
+int fsr_read_cx(struct fsr_sidekey_info *info)
 {
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	u8 regAdd[3] = {0xD0, 0x00, 0x00};
 	u8 ch_cx1_loc[6] = {1, 5, 25, 29, 37, 41};
 	struct channel_cx_data_raw ch_cx_data;
 	u16 cxAddr;
 	u8 *data = (u8 *)&ch_cx_data;
 	struct cx_data_raw *ch_data;
-	char buff[64] = { 0 };
 	int retval = 0;
 	int i = 0;
-
-	sec_cmd_set_default_result(sec);
 
 	input_info(true, &info->client->dev, "%s: Size of struct cx_data_raw is %d\n", __func__, sizeof(struct cx_data_raw));
 
@@ -466,11 +460,8 @@ static void run_cx_data_read(void *device_data)
 	regAdd[1] = (cxAddr >> 8) & 0xff;
 	regAdd[2] = (cxAddr) & 0xff;
 	retval = fsr_read_reg(info, &regAdd[0], 3, (u8 *)&ch_cx_data, sizeof(struct channel_cx_data_raw));
-	if (retval < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		goto err;
-	}
+	if (retval < 0)
+		return -1;
 
 	for (i = 0; i < 6; i++) {
 		ch_data = (struct cx_data_raw *)(data + ch_cx1_loc[i]);
@@ -482,6 +473,25 @@ static void run_cx_data_read(void *device_data)
 	}
 
 	fsr_print_cx(info);
+
+	return 0;
+}
+
+static void run_cx_data_read(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
+	char buff[64] = { 0 };
+	int retval = 0;
+
+	sec_cmd_set_default_result(sec);
+
+	retval = fsr_read_cx(info);
+	if (retval < 0) {
+		snprintf(buff, sizeof(buff), "%s", "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		goto err;
+	}
 
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
 			info->ch_cx_data[1].total, info->ch_cx_data[0].total,
@@ -538,35 +548,35 @@ static void fsr_print_frame(struct fsr_sidekey_info *info, struct fsr_frame_data
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 6; i++) {
 		snprintf(pTmp, 8, "   CH%02d", ChannelName[i]);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 6; i++) {
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 6; i++) {
 		snprintf(pTmp, 8, " %6d", fdata[ChannelRemap[i]]);
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	memset(pStr, 0x0, BUFFER_MAX);
 	for (i = 0; i < 6; i++) {
 		snprintf(pTmp, 8, "-------");
 		strncat(pStr, pTmp, 8);
 	}
-	input_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
+	input_raw_info(true, &info->client->dev, "%s: %s\n", __func__, pStr);
 
 	kfree(pStr);
 }
@@ -614,13 +624,13 @@ int fsr_read_frame(struct fsr_sidekey_info *info, u16 type, struct fsr_frame_dat
 	if (print) {
 		switch (type) {
 		case TYPE_RAW_DATA:
-			input_info(true, &info->client->dev, "%s: [Raw Data]\n", __func__);
+			input_raw_info(true, &info->client->dev, "%s: [Raw Data]\n", __func__);
 			break;
 		case TYPE_STRENGTH_DATA:
-			input_info(true, &info->client->dev, "%s: [Strength Data]\n", __func__);
+			input_raw_info(true, &info->client->dev, "%s: [Strength Data]\n", __func__);
 			break;
 		case TYPE_BASELINE_DATA:
-			input_info(true, &info->client->dev, "%s: [Baseline Data]\n", __func__);
+			input_raw_info(true, &info->client->dev, "%s: [Baseline Data]\n", __func__);
 			break;
 		}
 
@@ -628,7 +638,7 @@ int fsr_read_frame(struct fsr_sidekey_info *info, u16 type, struct fsr_frame_dat
 	} else {
 		short *fdata = (short *)data;
 
-		input_info(true, &info->client->dev, "%s: %-5d %-5d %-5d %-5d %-5d %-5d\n", __func__,
+		input_info(true, &info->client->dev, "%s: %5d %5d %5d %5d %5d %5d\n", __func__,
 			fdata[1], fdata[0], fdata[3], fdata[2], fdata[5], fdata[4]);
 	}
 
@@ -693,7 +703,7 @@ static void run_delta_read(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	fsr_read_frame(info, TYPE_STRENGTH_DATA, fsr_frame_data, true);
+	fsr_read_frame(info, TYPE_STRENGTH_DATA, fsr_frame_data, false);
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
 				(*fsr_frame_data).ch06, (*fsr_frame_data).ch12,
 				(*fsr_frame_data).ch07, (*fsr_frame_data).ch14,
@@ -870,6 +880,152 @@ static void run_force_calibration(void *device_data)
 	input_info(true, &info->client->dev, "%s: %s\n", __func__, buff);
 }
 
+static bool fsr_is_support_threshold(struct fsr_sidekey_info *info)
+{
+	if (strncmp(info->board->project_name, "DAVINCI", 7) != 0)
+		return true;
+
+	/* D1/D2 DV2 C type sample */
+	if ((info->fw_main_version_of_ic & 0xF000) < 0x2000 &&
+		(info->fw_main_version_of_ic & 0xFF) >= 0x0E && (info->fw_main_version_of_ic & 0xFF) < 0xF0)
+		return true;
+
+	/* Test Firmware */
+	if ((info->fw_main_version_of_ic & 0xF000) == 0xF000)
+		return true;
+
+	return false;
+}
+
+int fsr_get_threshold(struct fsr_sidekey_info *info)
+{
+	u8 regAdd[3] = {0xD0, 0x00, 0x46};
+	u8 data[5] = {0};
+	u8 result[3] = {0};
+	short threshold;
+	int rc;
+
+	if (!fsr_is_support_threshold(info))
+		return -1;
+
+	rc = fsr_read_reg(info, regAdd, 3, data, 5);
+	if (rc < 0) {
+		input_err(true, &info->client->dev, "%s: faied to read address\n", __func__);	
+		return rc;
+	}
+
+	/* Read Threshold */
+	regAdd[1] = data[2];
+	regAdd[2] = data[1];
+	rc = fsr_read_reg(info, regAdd, 3, result, 3);
+	if (rc < 0) {
+		input_err(true, &info->client->dev, "%s: faied to read threshold\n", __func__);	
+		return rc;
+	}
+	threshold = (result[2] << 8) | result[1];
+
+	/* Read Hysteresis */
+	regAdd[1] = data[4];
+	regAdd[2] = data[3];
+	rc = fsr_read_reg(info, regAdd, 3, result, 3);
+	if (rc < 0) {
+		input_err(true, &info->client->dev, "%s: faied to read hysteresis\n", __func__);	
+		return rc;
+	}
+	info->thd_of_ic[1] = (result[2] << 8) | result[1];
+	info->thd_of_ic[0] = threshold;
+
+	input_info(true, &info->client->dev, "%s: threshold:%d, hysteresis:%d\n",
+		__func__, info->thd_of_ic[0], info->thd_of_ic[1]);
+
+	return 0;
+}
+
+static int fsr_set_threshold(struct fsr_sidekey_info *info, short *target)
+{
+	u8 regAdd[5] = {0x9C, 0};
+	int rc;
+
+	if (!fsr_is_support_threshold(info))
+		return -1;
+
+	info->thd_of_bin[0] = target[0];
+	info->thd_of_bin[1] = target[1];
+
+	input_info(true, &info->client->dev, "%s: threshold:%d, hysteresis:%d\n",
+		__func__, info->thd_of_bin[0], info->thd_of_bin[1]);
+
+	regAdd[1] = target[0] & 0xFF;
+	regAdd[2] = target[0] >> 8;
+	regAdd[3] = target[1] & 0xFF;
+	regAdd[4] = target[1] >> 8;
+	rc = fsr_write_reg(info, regAdd, 5);
+
+	fsr_get_threshold(info);
+	if ((info->thd_of_bin[0] != info->thd_of_ic[0]) || (info->thd_of_bin[1] != info->thd_of_ic[1])) {
+		input_err(true, &info->client->dev, "%s: threshold:%d/%d, hysteresis:%d/%d\n", __func__,
+			info->thd_of_bin[0], info->thd_of_ic[0], info->thd_of_bin[1], info->thd_of_ic[1]);
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+
+static void set_press_mode(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	u8 regAdd[5] = {0xA3, 0};
+	int rc;
+	short target[2] = {100, 30}; // Threshold:100, Hysteresis:30
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "%s", "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		goto out;
+	}
+	if (!fsr_is_support_threshold(info)) {
+		snprintf(buff, sizeof(buff), "%s", "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		goto out;
+	}
+
+	fsr_interrupt_set(info, INT_DISABLE);
+
+	regAdd[1] = sec->cmd_param[0];
+	fsr_write_reg(info, regAdd, 2);
+	rc = fsr_fw_wait_for_event_D3(info, regAdd[0], regAdd[1]);
+	if (rc < 0) {
+		snprintf(buff, sizeof(buff), "%s", "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	} else {
+		snprintf(buff, sizeof(buff), "%s", "OK");
+		sec->cmd_state = SEC_CMD_STATUS_OK;
+	}
+
+	if (sec->cmd_param[0] == 1) {
+		/* Enter Press Mode: set THD 100 */
+		rc = fsr_set_threshold(info, target);
+		if (rc < 0) {
+			input_err(true, &info->client->dev, "%s: failed to set threshold %d\n", __func__, target[0]);
+		}
+	} else {
+		/* Exit Press Mode: back to default THD */
+		fsr_systemreset(info, 20);
+		fsr_delay(10);
+		fsr_get_threshold(info);
+	}
+
+	fsr_interrupt_set(info, INT_ENABLE);
+
+out:
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	input_info(true, &info->client->dev, "%s: %s\n", __func__, buff);
+}
+
 static void get_average_strength(struct fsr_sidekey_info *info, short *avg, int num)
 {
 	struct fsr_frame_data_info *fsr_frame_data = (struct fsr_frame_data_info *)&info->fsr_frame_data_delta;
@@ -961,6 +1117,7 @@ static int fsr_set_calibration_strength(struct fsr_sidekey_info *info, short *da
 	u8 regAdd[13] = {0};
 	u8 afe[3] = {0};
 	int i, rc;
+	int len = 0;
 
 	fsr_interrupt_set(info, INT_DISABLE);
 
@@ -979,17 +1136,27 @@ static int fsr_set_calibration_strength(struct fsr_sidekey_info *info, short *da
 		goto err;
 	}
 
-	/*  Write Taget value/Threshold/Hysterisys  */
-	regAdd[0] = 0x9C;
-	regAdd[1] = target[0] & 0xFF;
-	regAdd[2] = target[0] >> 8;
-	regAdd[3] = target[1] & 0xFF;
-	regAdd[4] = target[1] >> 8;
-	regAdd[5] = target[2] & 0xFF;
-	regAdd[6] = target[2] >> 8;
-	input_info(true, &info->client->dev, "%s: target:%d threshold:%d hysterisys:%d\n", __func__,
-		target[0], target[1], target[2]);
-	rc = fsr_write_reg(info, regAdd, 7);
+	if (fsr_is_support_threshold(info)) {
+		/* Write Taget value */
+		regAdd[0] = 0x9C;
+		regAdd[1] = target[0] & 0xFF;
+		regAdd[2] = target[0] >> 8;
+		len = 3;
+		input_info(true, &info->client->dev, "%s: %d, target:%d\n", __func__, len, target[0]);
+	} else {
+		/* Write Taget value/Threshold/Hysterisys */
+		regAdd[0] = 0x9C;
+		regAdd[1] = target[0] & 0xFF;
+		regAdd[2] = target[0] >> 8;
+		regAdd[3] = target[1] & 0xFF;
+		regAdd[4] = target[1] >> 8;
+		regAdd[5] = target[2] & 0xFF;
+		regAdd[6] = target[2] >> 8;
+		len = 7;
+		input_info(true, &info->client->dev, "%s: %d, target:%d threshold:%d hysterisys:%d\n", __func__,
+			len, target[0], target[1], target[2]);
+	}
+	rc = fsr_write_reg(info, regAdd, len);
 	if (rc < 0) {
 		input_err(true, &info->client->dev, "%s: failed to write target value, %d\n", __func__, rc);
 		goto err;
@@ -1165,11 +1332,11 @@ int fsr_get_calibration_strength(struct fsr_sidekey_info *info)
 		input_err(true, &info->client->dev, "%s: failed to get afe_ver, %d\n", __func__, rc);
 	}
 	info->calibration_target[3] = data[2];
-	input_info(true, &info->client->dev, "%s: fw's afe_ver %02X\n", __func__, data[1]);
+	input_raw_info(true, &info->client->dev, "%s: fw's afe_ver %02X\n", __func__, data[1]);
 	
-	input_info(true, &info->client->dev, "%s: [Calibrated Strength Data]\n", __func__);
+	input_raw_info(true, &info->client->dev, "%s: [Calibrated Strength Data]\n", __func__);
 	fsr_print_frame(info, &info->fsr_cal_strength);
-	input_info(true, &info->client->dev, "%s: target:%d, threshold:%d, hysteresis:%d, afe_ver:%02X\n", __func__,
+	input_raw_info(true, &info->client->dev, "%s: target:%d, threshold:%d, hysteresis:%d, afe_ver:%02X\n", __func__,
 		info->calibration_target[0], info->calibration_target[1],
 		info->calibration_target[2], info->calibration_target[3]);
 
@@ -1210,13 +1377,24 @@ static void get_threshold(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	rc = fsr_get_calibration_strength(info);
-	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	if (fsr_is_support_threshold(info)) {
+		rc = fsr_get_threshold(info);
+		if (rc < 0) {
+			snprintf(buff, sizeof(buff), "%s", "NG");
+			sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		} else {
+			snprintf(buff, sizeof(buff), "%d", info->thd_of_ic[0]);
+			sec->cmd_state = SEC_CMD_STATUS_OK;
+		}
 	} else {
-		snprintf(buff, sizeof(buff), "%d", info->calibration_target[1]);
-		sec->cmd_state = SEC_CMD_STATUS_OK;
+		rc = fsr_get_calibration_strength(info);
+		if (rc < 0) {
+			snprintf(buff, sizeof(buff), "%s", "NG");
+			sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		} else {
+			snprintf(buff, sizeof(buff), "%d", info->calibration_target[1]);
+			sec->cmd_state = SEC_CMD_STATUS_OK;
+		}
 	}
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
@@ -1228,16 +1406,15 @@ static void set_threshold(void *device_data)
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
-	u8 regAdd[7] = {0};
+	short target[2] = {0};
 	int rc;
 
 	sec_cmd_set_default_result(sec);
 
-	rc = fsr_get_calibration_strength(info);
-	if (rc < 0 || info->fsr_cal_strength.ch06 < 0 || info->calibration_target[1] < 0) {
-		input_err(true, &info->client->dev, "%s: not calibrated device!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	if (!fsr_is_support_threshold(info)) {
+		input_err(true, &info->client->dev, "%s: please check after dv2 sample\n", __func__);
+		snprintf(buff, sizeof(buff), "%s", "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 		goto err;
 	}
 
@@ -1248,51 +1425,19 @@ static void set_threshold(void *device_data)
 		goto err;
 	}
 
-	input_info(true, &info->client->dev, "%s: %d\n", __func__, sec->cmd_param[0]);
-
-	fsr_interrupt_set(info, INT_DISABLE);
-
-	/* Calibration Mode On */
-	regAdd[0] = 0x9A;
-	regAdd[1] = 0x01;
-	rc = fsr_write_reg(info, regAdd, 2);
+	rc = fsr_get_threshold(info);
 	if (rc < 0) {
+		input_err(true, &info->client->dev, "%s: failed to get threshold\n", __func__);
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto err;
 	}
 
-	/*  Write Taget value/Threshold/Hysterisys  */
-	regAdd[0] = 0x9C;
-	regAdd[1] = TARGET_DATA & 0xFF;
-	regAdd[2] = TARGET_DATA >> 8;
-	regAdd[3] = sec->cmd_param[0] & 0xFF;
-	regAdd[4] = sec->cmd_param[0] >> 8;
-	regAdd[5] = HYSTERISYS & 0xFF;
-	regAdd[6] = HYSTERISYS >> 8;
-	rc = fsr_write_reg(info, regAdd, 7);
+	target[0] = sec->cmd_param[0];
+	target[1] = info->thd_of_ic[1];
+	rc = fsr_set_threshold(info, target);
 	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		goto err;
-	}
-	fsr_delay(50);
-
-	/* Save Data to Flash */
-	fsr_command(info, CMD_SAVE_TUNNING_DATA);
-	fsr_delay(200);
-	rc = fsr_fw_wait_for_event(info, STATUS_EVENT_SAVE_CX_DONE);
-	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		goto err;
-	}
-
-	/* Calibration Mode Off */
-	regAdd[0] = 0x9A;
-	regAdd[1] = 0x00;
-	rc = fsr_write_reg(info, regAdd, 2);
-	if (rc < 0) {
+		input_err(true, &info->client->dev, "%s: failed to set threshold\n", __func__);
 		snprintf(buff, sizeof(buff), "%s", "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto err;
@@ -1302,7 +1447,6 @@ static void set_threshold(void *device_data)
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
 err:
-	fsr_systemreset(info, 20);
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	input_info(true, &info->client->dev, "%s: %s\n", __func__, buff);

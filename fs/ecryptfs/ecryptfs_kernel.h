@@ -40,18 +40,9 @@
 #include <linux/backing-dev.h>
 #include <linux/ecryptfs.h>
 
-#ifdef CONFIG_SDP
-#include <sdp/dek_common.h>
-#include <linux/list.h>
-#include <linux/spinlock.h>
-#endif
 #ifdef CONFIG_ECRYPTFS_FEK_INTEGRITY
 #define HASH_OFFSET 512
 #define FEK_HASH_SIZE 32
-#endif
-
-#ifdef CONFIG_DLP
-#include "ecryptfs_dlp.h"
 #endif
 
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
@@ -73,9 +64,7 @@
 
 #define ECRYPTFS_BASE_PATH_SIZE 1024
 #define ECRYPTFS_LABEL_SIZE 1024
-#ifdef CONFIG_SDP
-#define PKG_NAME_SIZE 16
-#endif
+#define SEC_ECRYPTFS_HMAC_KEY_SIZE   32
 
 void ecryptfs_dump_auth_tok(struct ecryptfs_auth_tok *auth_tok);
 extern void ecryptfs_to_hex(char *dst, char *src, size_t src_size);
@@ -111,11 +100,16 @@ struct ecryptfs_page_crypt_context {
 static inline struct ecryptfs_auth_tok *
 ecryptfs_get_encrypted_key_payload_data(struct key *key)
 {
-	if (key->type == &key_type_encrypted)
-		return (struct ecryptfs_auth_tok *)
-			(&((struct encrypted_key_payload *)key->payload.data[0])->payload_data);
-	else
+	struct encrypted_key_payload *payload;
+
+	if (key->type != &key_type_encrypted)
 		return NULL;
+
+	payload = key->payload.data[0];
+	if (!payload)
+		return ERR_PTR(-EKEYREVOKED);
+
+	return (struct ecryptfs_auth_tok *)payload->payload_data;
 }
 
 static inline struct key *ecryptfs_get_encrypted_key(char *sig)
@@ -141,18 +135,24 @@ static inline struct ecryptfs_auth_tok *
 ecryptfs_get_key_payload_data(struct key *key)
 {
 	struct ecryptfs_auth_tok *auth_tok;
+	struct user_key_payload *ukp;
 
 	auth_tok = ecryptfs_get_encrypted_key_payload_data(key);
-	if (!auth_tok)
-		return (struct ecryptfs_auth_tok *)user_key_payload(key)->data;
-	else
+	if (auth_tok)
 		return auth_tok;
+
+	ukp = user_key_payload_locked(key);
+	if (!ukp)
+		return ERR_PTR(-EKEYREVOKED);
+
+	return (struct ecryptfs_auth_tok *)ukp->data;
 }
 
+#ifdef CONFIG_CRYPTO_FIPS
 #define ECRYPTFS_MAX_CIPHER_MODE_SIZE 3
 #define ECRYPTFS_AES_CBC_MODE "cbc"
 #define ECRYPTFS_AES_ECB_MODE "ecb"
-
+#endif
 #define ECRYPTFS_MAX_KEYSET_SIZE 1024
 #define ECRYPTFS_MAX_CIPHER_NAME_SIZE 31
 #define ECRYPTFS_MAX_NUM_ENC_KEYS 64
@@ -166,9 +166,9 @@ ecryptfs_get_key_payload_data(struct key *key)
 #define ECRYPTFS_DEFAULT_CIPHER "aes"
 #define ECRYPTFS_DEFAULT_KEY_BYTES 16
 #define ECRYPTFS_DEFAULT_HASH "md5"
-
+#ifdef CONFIG_CRYPTO_FIPS
 #define ECRYPTFS_SHA256_HASH "sha256"
-
+#endif
 #define ECRYPTFS_TAG_70_DIGEST ECRYPTFS_DEFAULT_HASH
 #define ECRYPTFS_TAG_1_PACKET_TYPE 0x01
 #define ECRYPTFS_TAG_3_PACKET_TYPE 0x8C
@@ -196,9 +196,9 @@ ecryptfs_get_key_payload_data(struct key *key)
 #define ECRYPTFS_FILENAME_MIN_RANDOM_PREPEND_BYTES 16
 #define ECRYPTFS_NON_NULL 0x42 /* A reasonable substitute for NULL */
 #define MD5_DIGEST_SIZE 16
-
+#ifdef CONFIG_CRYPTO_FIPS
 #define SHA256_HASH_SIZE 32
-
+#endif
 #define ECRYPTFS_TAG_70_DIGEST_SIZE MD5_DIGEST_SIZE
 #define ECRYPTFS_TAG_70_MIN_METADATA_SIZE (1 + ECRYPTFS_MIN_PKT_LEN_SIZE \
 					   + ECRYPTFS_SIG_SIZE + 1 + 1)
@@ -264,22 +264,10 @@ struct ecryptfs_crypt_stat {
 #define ECRYPTFS_ENCFN_USE_FEK        0x00001000
 #define ECRYPTFS_UNLINK_SIGS          0x00002000
 #define ECRYPTFS_I_SIZE_INITIALIZED   0x00004000
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #define ECRYPTFS_ENCRYPTED_OTHER_DEVICE 0x00008000
 #endif
-
-#ifdef CONFIG_SDP
-#define ECRYPTFS_DEK_SDP_ENABLED      0x00100000
-#define ECRYPTFS_DEK_IS_SENSITIVE     0x00200000
-#define ECRYPTFS_DEK_MULTI_ENGINE     0x00400000 // eCryptfs header contains engine id.
-#define ECRYPTFS_SDP_IS_CHAMBER_DIR   0x02000000
-#endif
-
-#ifdef CONFIG_DLP
-#define ECRYPTFS_DLP_ENABLED		  0x04000000
-#endif
-
+#define ECRYPTFS_SUPPORT_HMAC_KEY     0x00010000
 	u32 flags;
 	unsigned int file_version;
 	size_t iv_bytes;
@@ -295,22 +283,13 @@ struct ecryptfs_crypt_stat {
 	unsigned char cipher[ECRYPTFS_MAX_CIPHER_NAME_SIZE + 1];
 	unsigned char key[ECRYPTFS_MAX_KEY_BYTES];
 	unsigned char root_iv[ECRYPTFS_MAX_IV_BYTES];
-
 #ifdef CONFIG_ECRYPTFS_FEK_INTEGRITY
 	unsigned char hash[FEK_HASH_SIZE];
 #endif
-
 	struct list_head keysig_list;
 	struct mutex keysig_list_mutex;
 	struct mutex cs_tfm_mutex;
 	struct mutex cs_mutex;
-#ifdef CONFIG_SDP
-	int engine_id;
-	dek_t sdp_dek;
-#endif
-#ifdef CONFIG_DLP
-	struct knox_dlp_data expiry;
-#endif
 };
 
 /* inode private data. */
@@ -381,7 +360,9 @@ struct ecryptfs_key_tfm {
 	struct mutex key_tfm_mutex;
 	struct list_head key_tfm_list;
 	unsigned char cipher_name[ECRYPTFS_MAX_CIPHER_NAME_SIZE + 1];
+#ifdef CONFIG_CRYPTO_FIPS
 	unsigned char cipher_mode[ECRYPTFS_MAX_CIPHER_MODE_SIZE + 1];
+#endif
 };
 
 extern struct mutex key_tfm_list_mutex;
@@ -402,22 +383,14 @@ struct ecryptfs_mount_crypt_stat {
 #define ECRYPTFS_GLOBAL_ENCFN_USE_MOUNT_FNEK   0x00000020
 #define ECRYPTFS_GLOBAL_ENCFN_USE_FEK          0x00000040
 #define ECRYPTFS_GLOBAL_MOUNT_AUTH_TOK_ONLY    0x00000080
-#define ECRYPTFS_ENABLE_CC                     0x00000400
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #define ECRYPTFS_ENABLE_FILTERING              0x00000100
 #define ECRYPTFS_ENABLE_NEW_PASSTHROUGH        0x00000200
 #endif
-
-#ifdef CONFIG_SDP
-#define ECRYPTFS_MOUNT_SDP_ENABLED             0x80000000
+#ifdef CONFIG_CRYPTO_FIPS
+#define ECRYPTFS_ENABLE_CC                     0x00000400
 #endif
-
-#ifdef CONFIG_DLP
-#define ECRYPTFS_MOUNT_DLP_ENABLED             0x40000000
-#endif
-
-	u32 flags;
+    u32 flags;
 	struct list_head global_auth_tok_list;
 	struct mutex global_auth_tok_list_mutex;
 	size_t global_default_cipher_key_size;
@@ -427,7 +400,6 @@ struct ecryptfs_mount_crypt_stat {
 	unsigned char global_default_fn_cipher_name[
 		ECRYPTFS_MAX_CIPHER_NAME_SIZE + 1];
 	char global_default_fnek_sig[ECRYPTFS_SIG_SIZE_HEX + 1];
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	int max_name_filter_len;
 	char enc_filter_name[ENC_NAME_FILTER_MAX_INSTANCE]
@@ -435,16 +407,11 @@ struct ecryptfs_mount_crypt_stat {
 	char enc_filter_ext[ENC_EXT_FILTER_MAX_INSTANCE]
 				[ENC_EXT_FILTER_MAX_LEN + 1];
 #endif
-#if defined(CONFIG_SDP) || defined(CONFIG_DLP)
-	int userid;
-	struct list_head chamber_dir_list;
-	spinlock_t chamber_dir_list_lock;
-
-	int partition_id;
-#endif
 };
 
-#define ECRYPTFS_OVERRIDE_ROOT_CRED(saved_cred) ecryptfs_override_fsids(0, 0)
+#define ECRYPTFS_OVERRIDE_ROOT_CRED(saved_cred) \
+	saved_cred = ecryptfs_override_fsids(0, 0); \
+	if (!saved_cred) { return -ENOMEM; }
 
 #define ECRYPTFS_REVERT_CRED(saved_cred)	ecryptfs_revert_fsids(saved_cred)
 
@@ -465,11 +432,7 @@ struct ecryptfs_propagate_stat {
 struct ecryptfs_sb_info {
 	struct super_block *wsi_sb;
 	struct ecryptfs_mount_crypt_stat mount_crypt_stat;
-	struct backing_dev_info bdi;
 	struct ecryptfs_propagate_stat propagate_stat;
-#ifdef CONFIG_SDP
-	int userid;
-#endif
 };
 
 /* file private data. */
@@ -726,9 +689,10 @@ int
 ecryptfs_parse_packet_set(struct ecryptfs_crypt_stat *crypt_stat,
 			  unsigned char *src, struct dentry *ecryptfs_dentry);
 /* Do not directly use this function. Use ECRYPTFS_OVERRIDE_CRED() instead. */
-const struct cred *ecryptfs_override_fsids(uid_t fsuid, gid_t fsgid);
+const struct cred * ecryptfs_override_fsids(uid_t fsuid, gid_t fsgid);
 /* Do not directly use this function, use ECRYPTFS_REVERT_CRED() instead. */
-void ecryptfs_revert_fsids(const struct cred *old_cred);
+void ecryptfs_revert_fsids(const struct cred * old_cred);
+
 int ecryptfs_truncate(struct dentry *dentry, loff_t new_length);
 ssize_t
 ecryptfs_getxattr_lower(struct dentry *lower_dentry, struct inode *lower_inode,
@@ -776,20 +740,29 @@ ecryptfs_add_global_auth_tok(struct ecryptfs_mount_crypt_stat *mount_crypt_stat,
 int ecryptfs_get_global_auth_tok_for_sig(
 	struct ecryptfs_global_auth_tok **global_auth_tok,
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat, char *sig);
-
+#ifdef CONFIG_CRYPTO_FIPS
 int
 ecryptfs_add_new_key_tfm(struct ecryptfs_key_tfm **key_tfm, char *cipher_name,
-    size_t key_size, u32 mount_flags);
-
+			 size_t key_size, u32 mount_flags);
+#else
+int
+ecryptfs_add_new_key_tfm(struct ecryptfs_key_tfm **key_tfm, char *cipher_name,
+			 size_t key_size);
+#endif
 int ecryptfs_init_crypto(void);
 int ecryptfs_destroy_crypto(void);
-
+#ifdef CONFIG_CRYPTO_FIPS
 int ecryptfs_tfm_exists(char *cipher_name, char *cipher_mode, struct ecryptfs_key_tfm **key_tfm);
 int ecryptfs_get_tfm_and_mutex_for_cipher_name(struct crypto_skcipher **tfm,
 					       struct mutex **tfm_mutex,
 					       char *cipher_name,
 					       u32 mount_flags);
-
+#else
+int ecryptfs_tfm_exists(char *cipher_name, struct ecryptfs_key_tfm **key_tfm);
+int ecryptfs_get_tfm_and_mutex_for_cipher_name(struct crypto_skcipher **tfm,
+					       struct mutex **tfm_mutex,
+					       char *cipher_name);
+#endif
 int ecryptfs_keyring_auth_tok_for_sig(struct key **auth_tok_key,
 				      struct ecryptfs_auth_tok **auth_tok,
 				      char *sig);

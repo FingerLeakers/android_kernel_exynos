@@ -22,7 +22,6 @@
 #define DRIVER_NAME "panel_spi"
 #define PANEL_SPI_DRIVER_NAME "panel_spi_driver"
 #define MAX_PANEL_SPI_RX_BUF	(2048)
-#define MAX_PANEL_SPI_SPEED_HZ	(10000000)
 
 enum {
 	PANEL_SPI_CTRL_DATA_RX = 0,
@@ -35,7 +34,6 @@ enum {
 struct panel_spi_dev;
 
 struct spi_drv_ops {
-	int (*readbuf)(struct panel_spi_dev *spi_dev, u8 cmd, u8 *buf, int size);
 	int (*read)(struct panel_spi_dev *spi_dev, const u8 cmd, u8 *buf, int size);
 	int (*write)(struct spi_device *spi, u32 addr, const u8 *buf, int size);
 	int (*ctl)(struct spi_device *spi, int msg);
@@ -57,6 +55,7 @@ struct panel_spi_dev {
 
 struct spi_data {
 	int spi_addr;
+	u32 speed_hz;
 };
 
 int panel_spi_drv_probe(struct panel_device *panel, struct spi_data *spi_data);

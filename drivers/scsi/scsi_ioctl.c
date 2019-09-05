@@ -12,7 +12,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/string.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
@@ -67,24 +67,24 @@ static int ioctl_probe(struct Scsi_Host *host, void __user *buffer)
 /*
 
  * The SCSI_IOCTL_SEND_COMMAND ioctl sends a command out to the SCSI host.
- * The IOCTL_NORMAL_TIMEOUT and NORMAL_RETRIES  variables are used.  
- * 
+ * The IOCTL_NORMAL_TIMEOUT and NORMAL_RETRIES  variables are used.
+ *
  * dev is the SCSI device struct ptr, *(int *) arg is the length of the
- * input data, if any, not including the command string & counts, 
+ * input data, if any, not including the command string & counts,
  * *((int *)arg + 1) is the output buffer size in bytes.
- * 
- * *(char *) ((int *) arg)[2] the actual command byte.   
- * 
+ *
+ * *(char *) ((int *) arg)[2] the actual command byte.
+ *
  * Note that if more than MAX_BUF bytes are requested to be transferred,
  * the ioctl will fail with error EINVAL.
- * 
+ *
  * This size *does not* include the initial lengths that were passed.
- * 
+ *
  * The SCSI command is read from the memory location immediately after the
  * length words, and the input data is right after the command.  The SCSI
- * routines know the command size based on the opcode decode.  
- * 
- * The output area is then filled in starting from the command byte. 
+ * routines know the command size based on the opcode decode.
+ *
+ * The output area is then filled in starting from the command byte.
  */
 
 static int ioctl_internal_command(struct scsi_device *sdev, char *cmd,
@@ -118,13 +118,15 @@ static int ioctl_internal_command(struct scsi_device *sdev, char *cmd,
 		case NOT_READY:	/* This happens if there is no disc in drive */
 			if (sdev->removable)
 				break;
+			/* FALLTHROUGH */
 		case UNIT_ATTENTION:
 			if (sdev->removable) {
 				sdev->changed = 1;
 				result = 0;	/* This is no longer considered an error */
 				break;
 			}
-		default:	/* Fall through for non-removable media */
+			/* FALLTHROUGH -- for non-removable media */
+		default:
 			sdev_printk(KERN_INFO, sdev,
 				    "ioctl_internal_command return code = %x\n",
 				    result);
@@ -190,7 +192,7 @@ static int srpmb_ioctl_secu_prot_command(struct scsi_device *sdev, char *cmd,
 				  &sshdr, timeout, retries, NULL);
 
 	if (prot_in_out == SCSI_IOCTL_SECURITY_PROTOCOL_IN) {
-		memcpy(req->rpmb_data, buf, req->data_len);
+		memcpy(req->rpmb_data, buf, bufflen);
 	}
 	SCSI_LOG_IOCTL(2, printk("Ioctl returned  0x%x\n", result));
 
@@ -381,11 +383,11 @@ int srpmb_scsi_ioctl(struct scsi_device *sdev, Rpmb_Req *req)
 		return -ENODEV;
 
 	_cmd = SCSI_UFS_REQUEST_SENSE;
-	if(sdev->host->wlun_clr_uac)
+	if (sdev->host->wlun_clr_uac)
 		sdev->host->hostt->ioctl(sdev, _cmd, NULL);
 
 	prot_spec = SECU_PROT_SPEC_CERT_DATA;
-	if(req->cmd == SCSI_IOCTL_SECURITY_PROTOCOL_IN)
+	if (req->cmd == SCSI_IOCTL_SECURITY_PROTOCOL_IN)
 		t_len = req->inlen;
 	else
 		t_len = req->outlen;
@@ -423,6 +425,7 @@ int srpmb_scsi_ioctl(struct scsi_device *sdev, Rpmb_Req *req)
 int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 {
 	char scsi_cmd[MAX_COMMAND_SIZE];
+	struct scsi_sense_hdr sense_hdr;
 
 	memset(scsi_cmd, 0x0, MAX_COMMAND_SIZE);
 
@@ -469,7 +472,7 @@ int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 		return scsi_set_medium_removal(sdev, SCSI_REMOVAL_ALLOW);
 	case SCSI_IOCTL_TEST_UNIT_READY:
 		return scsi_test_unit_ready(sdev, IOCTL_NORMAL_TIMEOUT,
-					    NORMAL_RETRIES, NULL);
+					    NORMAL_RETRIES, &sense_hdr);
 	case SCSI_IOCTL_START_UNIT:
 		scsi_cmd[0] = START_STOP;
 		scsi_cmd[1] = 0;
@@ -524,7 +527,10 @@ int scsi_ioctl(struct scsi_device *sdev, int cmd, void __user *arg)
 	case SCSI_IOCTL_GET_PCI:
                 return scsi_ioctl_get_pci(sdev, arg);
 	case SG_SCSI_RESET:
-		return scsi_ioctl_reset(sdev, arg);
+		if(sdev->host->by_ufs) 
+			return -EINVAL; 
+		else 
+			return scsi_ioctl_reset(sdev, arg);
 	default:
 		if (sdev->host->hostt->ioctl)
 			return sdev->host->hostt->ioctl(sdev, cmd, arg);

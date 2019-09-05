@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
@@ -31,6 +32,7 @@
 
 #include "madera.h"
 
+#define CS47L15_SILICON_ID	0x6370
 #define CS47L35_SILICON_ID	0x6360
 #define CS47L85_SILICON_ID	0x6338
 #define CS47L90_SILICON_ID	0x6364
@@ -47,6 +49,34 @@ static const struct mfd_cell madera_ldo1_devs[] = {
 	{ .name = "madera-ldo1" },
 };
 
+static const struct mfd_cell madera_pinctrl_dev[] = {
+	{
+		.name = "madera-pinctrl",
+		.of_compatible = "cirrus,madera-pinctrl",
+	},
+};
+
+static const char * const cs47l15_supplies[] = {
+	"MICVDD",
+	"CPVDD1",
+	"SPKVDD",
+};
+
+static const struct mfd_cell cs47l15_devs[] = {
+	{ .name = "madera-irq" },
+	{ .name = "madera-gpio" },
+	{
+		.name = "madera-extcon",
+		.parent_supplies = cs47l15_supplies,
+		.num_parent_supplies = 1, /* We only need MICVDD */
+	},
+	{
+		.name = "cs47l15-codec",
+		.parent_supplies = cs47l15_supplies,
+		.num_parent_supplies = ARRAY_SIZE(cs47l15_supplies),
+	},
+};
+
 static const char * const cs47l35_supplies[] = {
 	"MICVDD",
 	"DBVDD2",
@@ -56,11 +86,14 @@ static const char * const cs47l35_supplies[] = {
 };
 
 static const struct mfd_cell cs47l35_devs[] = {
-	{ .name = "madera-pinctrl", },
 	{ .name = "madera-irq", },
 	{ .name = "madera-micsupp" },
 	{ .name = "madera-gpio", },
-	{ .name = "madera-extcon", },
+	{
+		.name = "madera-extcon",
+		.parent_supplies = cs47l35_supplies,
+		.num_parent_supplies = 1, /* We only need MICVDD */
+	},
 	{
 		.name = "cs47l35-codec",
 		.parent_supplies = cs47l35_supplies,
@@ -80,11 +113,14 @@ static const char * const cs47l85_supplies[] = {
 };
 
 static const struct mfd_cell cs47l85_devs[] = {
-	{ .name = "madera-pinctrl", },
 	{ .name = "madera-irq", },
 	{ .name = "madera-micsupp", },
 	{ .name = "madera-gpio", },
-	{ .name = "madera-extcon", },
+	{
+		.name = "madera-extcon",
+		.parent_supplies = cs47l85_supplies,
+		.num_parent_supplies = 1, /* We only need MICVDD */
+	},
 	{
 		.name = "cs47l85-codec",
 		.parent_supplies = cs47l85_supplies,
@@ -102,11 +138,14 @@ static const char * const cs47l90_supplies[] = {
 };
 
 static const struct mfd_cell cs47l90_devs[] = {
-	{ .name = "madera-pinctrl", },
 	{ .name = "madera-irq", },
 	{ .name = "madera-micsupp", },
 	{ .name = "madera-gpio", },
-	{ .name = "madera-extcon", },
+	{
+		.name = "madera-extcon",
+		.parent_supplies = cs47l90_supplies,
+		.num_parent_supplies = 1, /* We only need MICVDD */
+	},
 	{
 		.name = "cs47l90-codec",
 		.parent_supplies = cs47l90_supplies,
@@ -121,11 +160,14 @@ static const char * const cs47l92_supplies[] = {
 };
 
 static const struct mfd_cell cs47l92_devs[] = {
-	{ .name = "madera-pinctrl" },
 	{ .name = "madera-irq", },
 	{ .name = "madera-micsupp", },
 	{ .name = "madera-gpio" },
-	{ .name = "madera-extcon" },
+	{
+		.name = "madera-extcon",
+		.parent_supplies = cs47l92_supplies,
+		.num_parent_supplies = 1, /* We only need MICVDD */
+	},
 	{
 		.name = "cs47l92-codec",
 		.parent_supplies = cs47l92_supplies,
@@ -137,6 +179,8 @@ static const struct mfd_cell cs47l92_devs[] = {
 const char *madera_name_from_type(enum madera_type type)
 {
 	switch (type) {
+	case CS47L15:
+		return "CS47L15";
 	case CS47L35:
 		return "CS47L35";
 	case CS47L85:
@@ -186,9 +230,6 @@ static int madera_wait_for_boot(struct madera *madera)
 	 */
 	regmap_write(madera->regmap, MADERA_IRQ1_STATUS_1,
 		     MADERA_BOOT_DONE_EINT1);
-
-	if (ret)
-		dev_err(madera->dev, "Polling BOOT_DONE_STS failed: %d\n", ret);
 
 	pm_runtime_mark_last_busy(madera->dev);
 
@@ -247,8 +288,6 @@ static int madera_runtime_resume(struct device *dev)
 
 	dev_info(dev, "Leaving sleep mode\n");
 
-	madera_enable_hard_reset(madera);
-
 	ret = regulator_enable(madera->dcvdd);
 	if (ret) {
 		dev_err(dev, "Failed to enable DCVDD: %d\n", ret);
@@ -257,8 +296,6 @@ static int madera_runtime_resume(struct device *dev)
 
 	regcache_cache_only(madera->regmap, false);
 	regcache_cache_only(madera->regmap_32bit, false);
-
-	madera_disable_hard_reset(madera);
 
 	ret = madera_wait_for_boot(madera);
 	if (ret)
@@ -274,15 +311,6 @@ static int madera_runtime_resume(struct device *dev)
 	if (ret) {
 		dev_err(dev, "Failed to restore 32-bit register cache\n");
 		goto err;
-	}
-
-	switch (madera->type) {
-	case CS47L92:
-	case CS47L93:
-		regmap_write(madera->regmap, MADERA_CTRL_SCRATCH, 0xA5);
-		break;
-	default:
-		break;
 	}
 
 	return 0;
@@ -323,6 +351,8 @@ unsigned int madera_get_num_micbias(struct madera *madera)
 {
 
 	switch (madera->type) {
+	case CS47L15:
+		return 1;
 	case CS47L35:
 		return 2;
 	case CS47L85:
@@ -350,6 +380,8 @@ unsigned int madera_get_num_childbias(struct madera *madera,
 	 */
 
 	switch (madera->type) {
+	case CS47L15:
+		return 3;
 	case CS47L35:
 		return 2;
 	case CS47L85:
@@ -382,6 +414,7 @@ EXPORT_SYMBOL_GPL(madera_get_num_childbias);
 
 #ifdef CONFIG_OF
 const struct of_device_id madera_of_match[] = {
+	{ .compatible = "cirrus,cs47l15", .data = (void *)CS47L15 },
 	{ .compatible = "cirrus,cs47l35", .data = (void *)CS47L35 },
 	{ .compatible = "cirrus,cs47l85", .data = (void *)CS47L85 },
 	{ .compatible = "cirrus,cs47l90", .data = (void *)CS47L90 },
@@ -581,6 +614,30 @@ static void madera_configure_micbias(struct madera *madera)
 	}
 }
 
+static int madera_dev_select_pinctrl(struct madera *madera,
+				     struct pinctrl *pinctrl,
+				     const char *name)
+{
+	struct pinctrl_state *pinctrl_state;
+	int ret;
+
+	pinctrl_state = pinctrl_lookup_state(pinctrl, name);
+
+	/* it's ok if it doesn't exist */
+	if (!IS_ERR(pinctrl_state)) {
+		dev_dbg(madera->dev, "Applying pinctrl %s state\n", name);
+		ret = pinctrl_select_state(pinctrl, pinctrl_state);
+		if (ret) {
+			dev_err(madera->dev,
+				"Failed to select pinctrl %s state: %d\n",
+				name, ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 int madera_dev_init(struct madera *madera)
 {
 	struct device *dev = madera->dev;
@@ -588,10 +645,12 @@ int madera_dev_init(struct madera *madera)
 	unsigned int hwid;
 	int (*patch_fn)(struct madera *) = NULL;
 	const struct mfd_cell *mfd_devs;
+	struct pinctrl *pinctrl;
 	int n_devs = 0;
 	int i, ret;
 
 	dev_set_drvdata(madera->dev, madera);
+
 	BLOCKING_INIT_NOTIFIER_HEAD(&madera->notifier);
 
 	if (dev_get_platdata(madera->dev)) {
@@ -613,7 +672,41 @@ int madera_dev_init(struct madera *madera)
 
 	madera->num_core_supplies = ARRAY_SIZE(madera_core_supplies);
 
+	/*
+	 * Pinctrl subsystem only configures pinctrls if all referenced pins
+	 * are registered. Create our pinctrl child now so that its pins exist
+	 * otherwise external pinctrl dependencies will fail
+	 * Note: Can't devm_ because it is cleaned up after children are already
+	 * destroyed
+	 */
+	ret = mfd_add_devices(madera->dev, PLATFORM_DEVID_NONE,
+			      madera_pinctrl_dev, 1, NULL, 0, NULL);
+	if (ret) {
+		dev_err(madera->dev, "Failed to add pinctrl child: %d\n", ret);
+		return ret;
+	}
+
+	pinctrl = pinctrl_get(dev);
+	if (IS_ERR(pinctrl)) {
+		ret = PTR_ERR(pinctrl);
+		dev_err(madera->dev, "Failed to get pinctrl: %d\n", ret);
+		goto err_pinctrl_dev;
+	}
+
+	/* Use (optional) minimal config with only external pin bindings */
+	ret = madera_dev_select_pinctrl(madera, pinctrl, "probe");
+	if (ret)
+		goto err_pinctrl;
+
+	ret = devm_regulator_bulk_get(dev, madera->num_core_supplies,
+				      madera->core_supplies);
+	if (ret) {
+		dev_err(dev, "Failed to request core supplies: %d\n", ret);
+		goto err_pinctrl;
+	}
+
 	switch (madera->type) {
+	case CS47L15:
 	case CS47L35:
 	case CS47L90:
 	case CS47L91:
@@ -629,19 +722,13 @@ int madera_dev_init(struct madera *madera)
 				      NULL, 0, NULL);
 		if (ret) {
 			dev_err(dev, "Failed to add LDO1 child: %d\n", ret);
-			return ret;
+			goto err_pinctrl;
 		}
 		break;
 	default:
 		dev_err(madera->dev, "Unknown device type %d\n", madera->type);
-		return -ENODEV;
-	}
-
-	ret = devm_regulator_bulk_get(dev, madera->num_core_supplies,
-				      madera->core_supplies);
-	if (ret) {
-		dev_err(dev, "Failed to request core supplies: %d\n", ret);
-		goto err_devs;
+		ret = -ENODEV;
+		goto err_pinctrl;
 	}
 
 	/*
@@ -654,7 +741,7 @@ int madera_dev_init(struct madera *madera)
 	if (IS_ERR(madera->dcvdd)) {
 		ret = PTR_ERR(madera->dcvdd);
 		dev_err(dev, "Failed to request DCVDD: %d\n", ret);
-		goto err_devs;
+		goto err_pinctrl;
 	}
 
 	madera->dcvdd_notifier.notifier_call = madera_dcvdd_notify;
@@ -697,6 +784,7 @@ int madera_dev_init(struct madera *madera)
 	}
 
 	switch (hwid) {
+	case CS47L15_SILICON_ID:
 	case CS47L35_SILICON_ID:
 	case CS47L85_SILICON_ID:
 	case CS47L90_SILICON_ID:
@@ -732,6 +820,19 @@ int madera_dev_init(struct madera *madera)
 	name = madera_name_from_type(madera->type);
 
 	switch (hwid) {
+	case CS47L15_SILICON_ID:
+		if (IS_ENABLED(CONFIG_MFD_CS47L15)) {
+			switch (madera->type) {
+			case CS47L15:
+				patch_fn = cs47l15_patch;
+				mfd_devs = cs47l15_devs;
+				n_devs = ARRAY_SIZE(cs47l15_devs);
+				break;
+			default:
+				break;
+			}
+		}
+		break;
 	case CS47L35_SILICON_ID:
 		if (IS_ENABLED(CONFIG_MFD_CS47L35)) {
 			switch (madera->type) {
@@ -808,6 +909,11 @@ int madera_dev_init(struct madera *madera)
 		}
 	}
 
+	/* Apply (optional) main pinctrl config, this will configure our pins */
+	ret = madera_dev_select_pinctrl(madera, pinctrl, "active");
+	if (ret)
+		goto err_reset;
+
 	/* Init 32k clock sourced from MCLK2 */
 	ret = regmap_update_bits(madera->regmap,
 			MADERA_CLOCK_32K_1,
@@ -819,15 +925,6 @@ int madera_dev_init(struct madera *madera)
 	}
 
 	madera_configure_micbias(madera);
-
-	switch (madera->type) {
-	case CS47L92:
-	case CS47L93:
-		regmap_write(madera->regmap, MADERA_CTRL_SCRATCH, 0xA5);
-		break;
-	default:
-		break;
-	}
 
 	pm_runtime_set_active(madera->dev);
 	pm_runtime_enable(madera->dev);
@@ -841,6 +938,8 @@ int madera_dev_init(struct madera *madera)
 		dev_err(madera->dev, "Failed to add subdevices: %d\n", ret);
 		goto err_pm_runtime;
 	}
+
+	pinctrl_put(pinctrl);
 
 	return 0;
 
@@ -856,7 +955,9 @@ err_notifier:
 	regulator_unregister_notifier(madera->dcvdd, &madera->dcvdd_notifier);
 err_dcvdd:
 	regulator_put(madera->dcvdd);
-err_devs:
+err_pinctrl:
+	pinctrl_put(pinctrl);
+err_pinctrl_dev:
 	mfd_remove_devices(dev);
 
 	return ret;

@@ -475,7 +475,8 @@ static int dp_decap_rpauth_stream_ready(uint8_t *m,
 
 	m_prime = m;
 	ret = dp_rp_verify_stream_ready(m_prime);
+	if (ret)
+		hdcp_err("dp_rp_verify_stream_ready ret(%d)\n", ret);
 
 	return 0;
 }
-

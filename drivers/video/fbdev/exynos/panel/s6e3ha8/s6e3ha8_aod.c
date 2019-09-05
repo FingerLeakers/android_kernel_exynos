@@ -13,14 +13,14 @@
 #include "../panel_drv.h"
 #include "s6e3ha8_aod.h"
 
-void copy_self_mask_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_self_mask_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	pr_info("%s was called\n", __func__);
 	pr_info("%x %x %x\n", dst[0], dst[1], dst[2]);
 }
 
 
-void copy_digital_pos(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_digital_pos(struct maptbl *tbl, u8 *dst)
 {
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;
@@ -57,8 +57,11 @@ void copy_digital_pos(struct maptbl *tbl, u8 *dst)
 
 }
 
-void copy_digital_blink(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_digital_blink(struct maptbl *tbl, u8 *dst)
 {
+/*beyond does not support blink - remove */
+
+#if 0
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;
 
@@ -89,11 +92,11 @@ void copy_digital_blink(struct maptbl *tbl, u8 *dst)
 	dst[DIG_BLK2_POS_X2_REG] = (u8)(props->digital.b2_pos_x & 0xff);
 	dst[DIG_BLK2_POS_Y1_REG] = (u8)(props->digital.b2_pos_y >> 8);
 	dst[DIG_BLK2_POS_Y2_REG] = (u8)(props->digital.b2_pos_y & 0xff);
-
+#endif
 }
 
 
-void copy_set_time_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_set_time_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	char dig_en = 0;
 	char en_reg = 0;
@@ -177,7 +180,7 @@ void copy_set_time_ctrl(struct maptbl *tbl, u8 *dst)
 	panel_info("AOD:INFO:%s: %x %x %x\n", __func__, dst[0], dst[1], dst[2]);
 }
 
-void copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	char enable = 0;
 	struct aod_dev_info *aod = tbl->pdata;
@@ -203,16 +206,16 @@ void copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst)
 		enable |= SG_GRID_ENABLE;
 	}
 
-	if (props->self_icon.en) {
-		dst[SI_POS_X_POS0_REG] = (char)(props->self_icon.pos_x >> 8);
-		dst[SI_POS_X_POS1_REG] = (char)(props->self_icon.pos_x & 0x00ff);
-		dst[SI_POS_Y_POS0_REG] = (char)(props->self_icon.pos_y >> 8);
-		dst[SI_POS_Y_POS1_REG] = (char)(props->self_icon.pos_y & 0x00ff);
+	if (props->icon.en) {
+		dst[SI_POS_X_POS0_REG] = (char)(props->icon.pos_x >> 8);
+		dst[SI_POS_X_POS1_REG] = (char)(props->icon.pos_x & 0x00ff);
+		dst[SI_POS_Y_POS0_REG] = (char)(props->icon.pos_y >> 8);
+		dst[SI_POS_Y_POS1_REG] = (char)(props->icon.pos_y & 0x00ff);
 
-		dst[SI_IMG_WIDTH0_REG] = (char)(props->self_icon.width >> 8);
-		dst[SI_IMG_WIDTH1_REG] = (char)(props->self_icon.width & 0xff);
-		dst[SI_IMG_HEIGHT0_REG] = (char)(props->self_icon.height >> 8);
-		dst[SI_IMG_HEIGHT1_REG] = (char)(props->self_icon.height & 0x00ff);
+		dst[SI_IMG_WIDTH0_REG] = (char)(props->icon.width >> 8);
+		dst[SI_IMG_WIDTH1_REG] = (char)(props->icon.width & 0xff);
+		dst[SI_IMG_HEIGHT0_REG] = (char)(props->icon.height >> 8);
+		dst[SI_IMG_HEIGHT1_REG] = (char)(props->icon.height & 0x00ff);
 
 		enable |= SI_ICON_ENABLE;
 	}
@@ -225,13 +228,13 @@ void copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst)
 }
 
 
-void copy_self_move_on_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_self_move_on_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	char enable = 0x3;
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;
 
-	if (props->self_icon.en)
+	if (props->icon.en)
 		enable &= ~(ICON_SELF_MOVE_EN);
 
 	if (props->self_move_en)
@@ -243,7 +246,7 @@ void copy_self_move_on_ctrl(struct maptbl *tbl, u8 *dst)
 }
 
 
-void copy_analog_pos_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_analog_pos_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;
@@ -278,7 +281,7 @@ void copy_analog_pos_ctrl(struct maptbl *tbl, u8 *dst)
 	panel_info("AOD:INFO:%s: %x\n", __func__, dst[ANALOG_POS_X1_REG]);
 }
 
-void copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	char en_reg = 0;
 	struct aod_dev_info *aod = tbl->pdata;
@@ -302,7 +305,7 @@ void copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst)
 	panel_info("AOD:INFO:%s: %x %x %x\n", __func__, dst[0], dst[1], dst[2]);
 }
 
-void copy_digital_clock_ctrl(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_digital_clock_ctrl(struct maptbl *tbl, u8 *dst)
 {
 	char en_reg = 0;
 	char dig_en = 0;
@@ -337,7 +340,7 @@ void copy_digital_clock_ctrl(struct maptbl *tbl, u8 *dst)
 }
 
 
-int getidx_self_mode_pos(struct maptbl *tbl)
+int s6e3ha8_getidx_self_mode_pos(struct maptbl *tbl)
 {
 	int row = 0;
 	struct aod_dev_info *aod = tbl->pdata;
@@ -375,7 +378,7 @@ int getidx_self_mode_pos(struct maptbl *tbl)
 
 #define REG_MOVE_DSP_X	4
 
-void copy_self_move_reset(struct maptbl *tbl, u8 *dst)
+void s6e3ha8_copy_self_move_reset(struct maptbl *tbl, u8 *dst)
 {
 	struct aod_dev_info *aod = tbl->pdata;
 	struct aod_ioctl_props *props = &aod->props;

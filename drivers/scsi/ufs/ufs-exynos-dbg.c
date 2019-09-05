@@ -8,14 +8,18 @@
  */
 
 #include <linux/clk.h>
+#include <linux/platform_device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/io.h>
 #include <linux/smc.h>
 
 #include "ufshcd.h"
 #include "unipro.h"
 #include "mphy.h"
 #include "ufs-exynos.h"
+#include <soc/samsung/exynos-pmu.h>
 
-#if !defined(CONFIG_SOC_EXYNOS7420) && !defined(CONFIG_SOC_EXYNOS8890)
 /*
  * This is a list for latest SoC.
  */
@@ -74,18 +78,33 @@ static struct exynos_ufs_sfr_log ufs_log_sfr[] = {
 	{"DMA0 MONITOR CNT"		,	HCI_DMA0_MONITOR_CNT,		0},
 	{"DMA1 MONITOR STATE"		,	HCI_DMA1_MONITOR_STATE,		0},
 	{"DMA1 MONITOR CNT"		,	HCI_DMA1_MONITOR_CNT,		0},
+	{"DMA0 DOORBELL DEBUG"		,	HCI_DMA0_DOORBELL_DEBUG,		0},
+	{"DMA1 DOORBELL DEBUG"		,	HCI_DMA1_DOORBELL_DEBUG,		0},
+
 	{"AXI DMA IF CTRL"		,	HCI_UFS_AXI_DMA_IF_CTRL,	0},
 	{"UFS ACG DISABLE"	 	,	HCI_UFS_ACG_DISABLE,		0},
 	{"MPHY REFCLK SEL"		,	HCI_MPHY_REFCLK_SEL,		0},
-	{"SMU ABORT MATCH INFO"		,	HCI_SMU_ABORT_MATCH_INFO,	0},
+
+	{"SMU RD ABORT MATCH INFO"		,	HCI_SMU_RD_ABORT_MATCH_INFO,	0},
+	{"SMU WR ABORT MATCH INFO"		,	HCI_SMU_WR_ABORT_MATCH_INFO,	0},
+
 	{"DBR DUPLICATION INFO"		,	HCI_DBR_DUPLICATION_INFO,	0},
+	{"INVALID PRDT CTRL"		,	HCI_INVALID_PRDT_CTRL,		0},
 	{"DBR TIMER CONFIG"		,	HCI_DBR_TIMER_CONFIG,		0},
-	{"DBR TIMER ENABLE"		,	HCI_DBR_TIMER_ENABLE,		0},
-	{"DBR TIMER STATUS"		,	HCI_DBR_TIMER_STATUS,		0},
+	{"UTRL DBR TIMER ENABLE"		,	HCI_UTRL_DBR_TIMER_ENABLE,		0},
+	{"UTRL DBR TIMER STATUS"		,	HCI_UTRL_DBR_TIMER_STATUS,		0},
+
+	{"UTMRL DBR TIMER ENABLE"		,	HCI_UTMRL_DBR_TIMER_ENABLE,		0},
+	{"UTMRL DBR TIMER STATUS"		,	HCI_UTMRL_DBR_TIMER_STATUS,		0},
+
 	{"UTRL DBR 3 0 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_3_0_TIMER_EXPIRED_VALUE,		0},
 	{"UTRL DBR 7 4 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_7_4_TIMER_EXPIRED_VALUE,	0},
 	{"UTRL DBR 11 8 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_11_8_TIMER_EXPIRED_VALUE,	0},
 	{"UTRL DBR 15 12 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_15_12_TIMER_EXPIRED_VALUE,		0},
+	{"UTRL DBR 19 16 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_19_16_TIMER_EXPIRED_VALUE,		0},
+	{"UTRL DBR 23 20 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_23_20_TIMER_EXPIRED_VALUE,	0},
+	{"UTRL DBR 27 24 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_27_24_TIMER_EXPIRED_VALUE,	0},
+	{"UTRL DBR 31 28 TIMER EXPIRED VALUE"		,	HCI_UTRL_DBR_31_28_TIMER_EXPIRED_VALUE,		0},
 	{"UTMRL DBR 3 0 TIMER EXPIRED VALUE"		,	HCI_UTMRL_DBR_3_0_TIMER_EXPIRED_VALUE,		0},
 
 	{"FMP SFR"			,	LOG_FMP_SFR,			0},
@@ -146,12 +165,32 @@ static struct exynos_ufs_sfr_log ufs_log_sfr[] = {
 
 	{"PMA SFR"			,	LOG_PMA_SFR,			0},
 
-	{"COMN 0x2f"			,	(0x00BC),			0},
-	{"TRSV_L0 0x4b"			,	(0x01EC),			0},
-	{"TRSV_L0 0x4f"			,	(0x01FC),			0},
-	{"TRSV_L1 0x4b"			,	(0x032C),			0},
-	{"TRSV_L1 0x4f"			,	(0x033C),			0},
+	{"COMN 0x45"			,	(0x0114),			0},
+	{"COMN 0x46"			,	(0x0118),			0},
+	{"COMN 0x47"			,	(0x011C),			0},
+	{"TRSV_L0 0x1C5"		,	(0x0714),			0},
+	{"TRSV_L0 0x1EC"		,	(0x07B0),			0},
+	{"TRSV_L0 0x1ED"		,	(0x07B4),			0},
+	{"TRSV_L0 0x1EE"		,	(0x07B8),			0},
+	{"TRSV_L0 0x1EF"		,	(0x07BC),			0},
 
+	{"TRSV_L1 0x1C5"		,	(0x0B14),			0},
+	{"TRSV_L1 0x1EC"		,	(0x0BB0),			0},
+	{"TRSV_L1 0x1ED"		,	(0x0BB4),			0},
+	{"TRSV_L1 0x1EE"		,	(0x0BB8),			0},
+	{"TRSV_L1 0x1EF"		,	(0x0BBC),			0},
+
+	{"TRSV_L0 0x152"		,	(0x0548),			0},
+	{"TRSV_L0 0x153"		,	(0x054C),			0},
+	{"TRSV_L0 0x154"		,	(0x0550),			0},
+	{"TRSV_L0 0x159"		,	(0x0564),			0},
+	{"TRSV_L0 0x1F2"		,	(0x07C8),			0},
+
+	{"TRSV_L1 0x252"		,	(0x0948),			0},
+	{"TRSV_L1 0x253"		,	(0x094C),			0},
+	{"TRSV_L1 0x254"		,	(0x0950),			0},
+	{"TRSV_L1 0x259"		,	(0x0964),			0},
+	{"TRSV_L1 0x2F2"		,	(0x0BC8),			0},
 	{},
 };
 
@@ -162,7 +201,6 @@ static struct exynos_ufs_attr_log ufs_log_attr[] = {
 	{UIC_ARG_MIB(0x1543),	0, 0},
 	{UIC_ARG_MIB(0x155C),	0, 0},
 	{UIC_ARG_MIB(0x155D),	0, 0},
-	{UIC_ARG_MIB(0x155E),	0, 0},
 	{UIC_ARG_MIB(0x155F),	0, 0},
 	{UIC_ARG_MIB(0x1560),	0, 0},
 	{UIC_ARG_MIB(0x1561),	0, 0},
@@ -186,24 +224,27 @@ static struct exynos_ufs_attr_log ufs_log_attr[] = {
 	{UIC_ARG_MIB(0x15A4),	0, 0},
 	{UIC_ARG_MIB(0x15A7),	0, 0},
 	{UIC_ARG_MIB(0x15A8),	0, 0},
+	{UIC_ARG_MIB(0x15A9),	0, 0},
 	{UIC_ARG_MIB(0x15C0),	0, 0},
 	{UIC_ARG_MIB(0x15C1),	0, 0},
+	{UIC_ARG_MIB(0x15D2),	0, 0},
+	{UIC_ARG_MIB(0x15D3),	0, 0},
+	{UIC_ARG_MIB(0x15D4),	0, 0},
+	{UIC_ARG_MIB(0x15D5),	0, 0},
 	/* PA Debug */
-	{UIC_ARG_MIB(0x9514),	0, 0},
-	{UIC_ARG_MIB(0x9536),	0, 0},
-	{UIC_ARG_MIB(0x9556),	0, 0},
+	{UIC_ARG_MIB(0x9500),	0, 0},
+	{UIC_ARG_MIB(0x9501),	0, 0},
+	{UIC_ARG_MIB(0x9502),	0, 0},
+	{UIC_ARG_MIB(0x9504),	0, 0},
 	{UIC_ARG_MIB(0x9564),	0, 0},
-	{UIC_ARG_MIB(0x9566),	0, 0},
-	{UIC_ARG_MIB(0x9567),	0, 0},
-	{UIC_ARG_MIB(0x9568),	0, 0},
 	{UIC_ARG_MIB(0x956A),	0, 0},
+	{UIC_ARG_MIB(0x956D),	0, 0},
+	{UIC_ARG_MIB(0x9570),	0, 0},
 	{UIC_ARG_MIB(0x9595),	0, 0},
 	{UIC_ARG_MIB(0x9596),	0, 0},
 	{UIC_ARG_MIB(0x9597),	0, 0},
 	/* DL Standard */
-	{UIC_ARG_MIB(0x2046),	0, 0},
 	{UIC_ARG_MIB(0x2047),	0, 0},
-	{UIC_ARG_MIB(0x2066),	0, 0},
 	{UIC_ARG_MIB(0x2067),	0, 0},
 	/* DL Debug */
 	{UIC_ARG_MIB(0xA000),	0, 0},
@@ -234,22 +275,13 @@ static struct exynos_ufs_attr_log ufs_log_attr[] = {
 	{UIC_ARG_MIB(0xA121),	0, 0},
 	{UIC_ARG_MIB(0xA122),	0, 0},
 	/* NL Standard */
-	{UIC_ARG_MIB(0x3000),	0, 0},
-	{UIC_ARG_MIB(0x3001),	0, 0},
 	/* NL Debug */
-	{UIC_ARG_MIB(0xB010),	0, 0},
 	{UIC_ARG_MIB(0xB011),	0, 0},
 	/* TL Standard */
 	{UIC_ARG_MIB(0x4020),	0, 0},
-	{UIC_ARG_MIB(0x4021),	0, 0},
-	{UIC_ARG_MIB(0x4022),	0, 0},
-	{UIC_ARG_MIB(0x4023),	0, 0},
-	{UIC_ARG_MIB(0x4025),	0, 0},
-	{UIC_ARG_MIB(0x402B),	0, 0},
 	/* TL Debug */
 	{UIC_ARG_MIB(0xC001),	0, 0},
 	{UIC_ARG_MIB(0xC024),	0, 0},
-	{UIC_ARG_MIB(0xC025),	0, 0},
 	{UIC_ARG_MIB(0xC026),	0, 0},
 	/* MPHY PCS Lane 0*/
 	{UIC_ARG_MIB_SEL(0x0021, TX_LANE_0+0),	0, 0},
@@ -312,7 +344,10 @@ static struct exynos_ufs_sfr_log ufs_show_sfr[] = {
 	{"FORCE HCS",				HCI_FORCE_HCS,		0},
 	{"DMA0 MONITOR STATE"		,	HCI_DMA0_MONITOR_STATE,		0},
 	{"DMA1 MONITOR STATE"		,	HCI_DMA1_MONITOR_STATE,		0},
-	{"SMU ABORT MATCH INFO"		,	HCI_SMU_ABORT_MATCH_INFO,	0},
+	{"DMA0 DOORBELL DEBUG"		,	HCI_DMA0_DOORBELL_DEBUG,		0},
+	{"DMA1 DOORBELL DEBUG"		,	HCI_DMA1_DOORBELL_DEBUG,		0},
+	{"SMU RD ABORT MATCH INFO"		,	HCI_SMU_RD_ABORT_MATCH_INFO,	0},
+	{"SMU WR ABORT MATCH INFO"		,	HCI_SMU_WR_ABORT_MATCH_INFO,	0},
 
 	{"FMP SFR"			,	LOG_FMP_SFR,			0},
 
@@ -328,11 +363,32 @@ static struct exynos_ufs_sfr_log ufs_show_sfr[] = {
 
 	{"PMA SFR"			,	LOG_PMA_SFR,			0},
 
-	{"COMN 0x2f"			,	(0x00BC),			0},
-	{"TRSV_L0 0x4b"			,	(0x01EC),			0},
-	{"TRSV_L0 0x4f"			,	(0x01FC),			0},
-	{"TRSV_L1 0x4b"			,	(0x032C),			0},
-	{"TRSV_L1 0x4f"			,	(0x033C),			0},
+	{"COMN 0x45"			,	(0x0114),			0},
+	{"COMN 0x46"			,	(0x0118),			0},
+	{"COMN 0x47"			,	(0x011C),			0},
+	{"TRSV_L0 0x1C5"		,	(0x0714),			0},
+	{"TRSV_L0 0x1EC"		,	(0x07B0),			0},
+	{"TRSV_L0 0x1ED"		,	(0x07B4),			0},
+	{"TRSV_L0 0x1EE"		,	(0x07B8),			0},
+	{"TRSV_L0 0x1EF"		,	(0x07BC),			0},
+
+	{"TRSV_L1 0x1C5"		,	(0x0B14),			0},
+	{"TRSV_L1 0x1EC"		,	(0x0BB0),			0},
+	{"TRSV_L1 0x1ED"		,	(0x0BB4),			0},
+	{"TRSV_L1 0x1EE"		,	(0x0BB8),			0},
+	{"TRSV_L1 0x1EF"		,	(0x0BBC),			0},
+
+	{"TRSV_L0 0x152"		,	(0x0548),			0},
+	{"TRSV_L0 0x153"		,	(0x054C),			0},
+	{"TRSV_L0 0x154"		,	(0x0550),			0},
+	{"TRSV_L0 0x159"		,	(0x0564),			0},
+	{"TRSV_L0 0x1F2"		,	(0x07C8),			0},
+
+	{"TRSV_L1 0x252"		,	(0x0948),			0},
+	{"TRSV_L1 0x253"		,	(0x094C),			0},
+	{"TRSV_L1 0x254"		,	(0x0950),			0},
+	{"TRSV_L1 0x259"		,	(0x0964),			0},
+	{"TRSV_L1 0x2F2"		,	(0x0BC8),			0},
 	{},
 };
 
@@ -343,6 +399,7 @@ static struct exynos_ufs_attr_log ufs_show_attr[] = {
 	{UIC_ARG_MIB(0x1580),	0, 0},
 	/* PA Debug */
 	{UIC_ARG_MIB(0x9595),	0, 0},
+	{UIC_ARG_MIB(0x9596),	0, 0},
 	{UIC_ARG_MIB(0x9597),	0, 0},
 	/* DL Debug */
 	{UIC_ARG_MIB(0xA000),	0, 0},
@@ -351,577 +408,30 @@ static struct exynos_ufs_attr_log ufs_show_attr[] = {
 	{UIC_ARG_MIB(0xA114),	0, 0},
 	{UIC_ARG_MIB(0xA116),	0, 0},
 	/* MPHY PCS Lane 0*/
-	{UIC_ARG_MIB_SEL(0x0021, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0022, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0023, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0024, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0028, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0029, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002A, TX_LANE_0+0),	0, 0},
 	{UIC_ARG_MIB_SEL(0x002B, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002C, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002D, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0033, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0035, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0036, TX_LANE_0+0),	0, 0},
 	{UIC_ARG_MIB_SEL(0x0041, TX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A1, RX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A2, RX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A3, RX_LANE_0+0),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A4, RX_LANE_0+0),	0, 0},
 	{UIC_ARG_MIB_SEL(0x00A7, RX_LANE_0+0),	0, 0},
 	{UIC_ARG_MIB_SEL(0x00C1, RX_LANE_0+0),	0, 0},
 	/* MPHY PCS Lane 1*/
-	{UIC_ARG_MIB_SEL(0x0021, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0022, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0023, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0024, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0028, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0029, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002A, TX_LANE_0+1),	0, 0},
 	{UIC_ARG_MIB_SEL(0x002B, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002C, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x002D, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0033, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0035, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x0036, TX_LANE_0+1),	0, 0},
 	{UIC_ARG_MIB_SEL(0x0041, TX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A1, RX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A2, RX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A3, RX_LANE_0+1),	0, 0},
-	{UIC_ARG_MIB_SEL(0x00A4, RX_LANE_0+1),	0, 0},
 	{UIC_ARG_MIB_SEL(0x00A7, RX_LANE_0+1),	0, 0},
 	{UIC_ARG_MIB_SEL(0x00C1, RX_LANE_0+1),	0, 0},
 	{},
 };
-#else
-static struct exynos_ufs_sfr_log ufs_log_sfr[] = {
-	{"STD HCI SFR"			,	LOG_STD_HCI_SFR,		0},
-
-	{"CAPABILITIES"			,	REG_CONTROLLER_CAPABILITIES,	0},
-	{"UFS VERSION"			,	REG_UFS_VERSION,		0},
-	{"PRODUCT ID"			,	REG_CONTROLLER_DEV_ID,		0},
-	{"MANUFACTURE ID"		,	REG_CONTROLLER_PROD_ID,		0},
-	{"INTERRUPT STATUS"		,	REG_INTERRUPT_STATUS,		0},
-	{"INTERRUPT ENABLE"		,	REG_INTERRUPT_ENABLE,		0},
-	{"CONTROLLER STATUS"		,	REG_CONTROLLER_STATUS,		0},
-	{"CONTROLLER ENABLE"		,	REG_CONTROLLER_ENABLE,		0},
-	{"UTP TRANSF REQ INT AGG CNTRL"	,	REG_UTP_TRANSFER_REQ_INT_AGG_CONTROL,		0},
-	{"UTP TRANSF REQ LIST BASE L"	,	REG_UTP_TRANSFER_REQ_LIST_BASE_L,		0},
-	{"UTP TRANSF REQ LIST BASE H"	,	REG_UTP_TRANSFER_REQ_LIST_BASE_H,		0},
-	{"UTP TRANSF REQ DOOR BELL"	,	REG_UTP_TRANSFER_REQ_DOOR_BELL,		0},
-	{"UTP TRANSF REQ LIST CLEAR"	,	REG_UTP_TRANSFER_REQ_LIST_CLEAR,		0},
-	{"UTP TRANSF REQ LIST RUN STOP"	,	REG_UTP_TRANSFER_REQ_LIST_RUN_STOP,		0},
-	{"UTP TASK REQ LIST BASE L"	,	REG_UTP_TASK_REQ_LIST_BASE_L,		0},
-	{"UTP TASK REQ LIST BASE H"	,	REG_UTP_TASK_REQ_LIST_BASE_H,		0},
-	{"UTP TASK REQ DOOR BELL"	,	REG_UTP_TASK_REQ_DOOR_BELL,		0},
-	{"UTP TASK REQ LIST CLEAR"	,	REG_UTP_TASK_REQ_LIST_CLEAR,		0},
-	{"UTP TASK REQ LIST RUN STOP"	,	REG_UTP_TASK_REQ_LIST_RUN_STOP,		0},
-	{"UIC COMMAND"			,	REG_UIC_COMMAND,		0},
-	{"UIC COMMAND ARG1"		,	REG_UIC_COMMAND_ARG_1,		0},
-	{"UIC COMMAND ARG2"		,	REG_UIC_COMMAND_ARG_2,		0},
-	{"UIC COMMAND ARG3"		,	REG_UIC_COMMAND_ARG_3,		0},
-
-	{"VS HCI SFR"			,	LOG_VS_HCI_SFR,			0},
-
-	{"TXPRDT ENTRY SIZE"		,	HCI_TXPRDT_ENTRY_SIZE,		0},
-	{"RXPRDT ENTRY SIZE"		,	HCI_RXPRDT_ENTRY_SIZE,		0},
-	{"TO CNT DIV VAL"		,	HCI_TO_CNT_DIV_VAL,		0},
-	{"1US TO CNT VAL"		,	HCI_1US_TO_CNT_VAL,		0},
-	{"INVALID UPIU CTRL"		,	HCI_INVALID_UPIU_CTRL,		0},
-	{"INVALID UPIU BADDR"		,	HCI_INVALID_UPIU_BADDR,		0},
-	{"INVALID UPIU UBADDR"		,	HCI_INVALID_UPIU_UBADDR,		0},
-	{"INVALID UTMR OFFSET ADDR"	,	HCI_INVALID_UTMR_OFFSET_ADDR,		0},
-	{"INVALID UTR OFFSET ADDR"	,	HCI_INVALID_UTR_OFFSET_ADDR,		0},
-	{"INVALID DIN OFFSET ADDR"	,	HCI_INVALID_DIN_OFFSET_ADDR,		0},
-	{"DBR TIMER CONFIG"		,	HCI_DBR_TIMER_CONFIG,		0},
-	{"DBR TIMER STATUS"		,	HCI_DBR_TIMER_STATUS,		0},
-	{"VENDOR SPECIFIC IS"		,	HCI_VENDOR_SPECIFIC_IS,		0},
-	{"VENDOR SPECIFIC IE"		,	HCI_VENDOR_SPECIFIC_IE,		0},
-	{"UTRL NEXUS TYPE"		,	HCI_UTRL_NEXUS_TYPE,		0},
-	{"UTMRL NEXUS TYPE"		,	HCI_UTMRL_NEXUS_TYPE,		0},
-	{"E2EFC CTRL"			,	HCI_E2EFC_CTRL,		0},
-	{"SW RST"			,	HCI_SW_RST,		0},
-	{"LINK VERSION"			,	HCI_LINK_VERSION,		0},
-	{"IDLE TIMER CONFIG"		,	HCI_IDLE_TIMER_CONFIG,		0},
-	{"RX UPIU MATCH ERROR CODE"	,	HCI_RX_UPIU_MATCH_ERROR_CODE,		0},
-	{"DATA REORDER"			,	HCI_DATA_REORDER,		0},
-	{"MAX DOUT DATA SIZE"		,	HCI_MAX_DOUT_DATA_SIZE,		0},
-	{"UNIPRO APB CLK CTRL"		,	HCI_UNIPRO_APB_CLK_CTRL,		0},
-	{"AXIDMA RWDATA BURST LEN"	,	HCI_AXIDMA_RWDATA_BURST_LEN,		0},
-	{"GPIO OUT"			,	HCI_GPIO_OUT,		0},
-	{"WRITE DMA CTRL"		,	HCI_WRITE_DMA_CTRL,		0},
-	{"ERROR EN PA LAYER"		,	HCI_ERROR_EN_PA_LAYER,		0},
-	{"ERROR EN DL LAYER"		,	HCI_ERROR_EN_DL_LAYER,		0},
-	{"ERROR EN N LAYER"		,	HCI_ERROR_EN_N_LAYER,		0},
-	{"ERROR EN T LAYER"		,	HCI_ERROR_EN_T_LAYER,		0},
-	{"ERROR EN DME LAYER"		,	HCI_ERROR_EN_DME_LAYER,		0},
-	{"REQ HOLD EN"			,	HCI_REQ_HOLD_EN,		0},
-	{"CLKSTOP CTRL"			,	HCI_CLKSTOP_CTRL,		0},
-	{"FORCE HCS"			,	HCI_FORCE_HCS,		0},
-	{"FSM MONITOR"			,	HCI_FSM_MONITOR,		0},
-	{"PRDT HIT RATIO"		,	HCI_PRDT_HIT_RATIO,		0},
-	{"DMA0 MONITOR STATE"		,	HCI_DMA0_MONITOR_STATE,		0},
-	{"DMA0 MONITOR CNT"		,	HCI_DMA0_MONITOR_CNT,		0},
-	{"DMA1 MONITOR STATE"		,	HCI_DMA1_MONITOR_STATE,		0},
-	{"DMA1 MONITOR CNT"		,	HCI_DMA1_MONITOR_CNT,		0},
-
-	{"FMP SFR"			,	LOG_FMP_SFR,			0},
-
-	{"UFSPRCTRL"			,	UFSPRCTRL,			0},
-	{"UFSPRSTAT"			,	UFSPRSTAT,			0},
-	{"UFSPRSECURITY"		,	UFSPRSECURITY,			0},
-	{"UFSPVERSION"			,	UFSPVERSION,			0},
-	{"UFSPWCTRL"			,	UFSPWCTRL,			0},
-	{"UFSPWSTAT"			,	UFSPWSTAT,			0},
-	{"UFSPSBEGIN0"			,	UFSPSBEGIN0,			0},
-	{"UFSPSEND0"			,	UFSPSEND0,			0},
-	{"UFSPSLUN0"			,	UFSPSLUN0,			0},
-	{"UFSPSCTRL0"			,	UFSPSCTRL0,			0},
-	{"UFSPSBEGIN1"			,	UFSPSBEGIN1,			0},
-	{"UFSPSEND1"			,	UFSPSEND1,			0},
-	{"UFSPSLUN1"			,	UFSPSLUN1,			0},
-	{"UFSPSCTRL1"			,	UFSPSCTRL1,			0},
-	{"UFSPSBEGIN2"			,	UFSPSBEGIN2,			0},
-	{"UFSPSEND2"			,	UFSPSEND2,			0},
-	{"UFSPSLUN2"			,	UFSPSLUN2,			0},
-	{"UFSPSCTRL2"			,	UFSPSCTRL2,			0},
-	{"UFSPSBEGIN3"			,	UFSPSBEGIN3,			0},
-	{"UFSPSEND3"			,	UFSPSEND3,			0},
-	{"UFSPSLUN3"			,	UFSPSLUN3,			0},
-	{"UFSPSCTRL3"			,	UFSPSCTRL3,			0},
-	{"UFSPSBEGIN4"			,	UFSPSBEGIN4,			0},
-	{"UFSPSLUN4"			,	UFSPSLUN4,			0},
-	{"UFSPSCTRL4"			,	UFSPSCTRL4,			0},
-	{"UFSPSBEGIN5"			,	UFSPSBEGIN5,			0},
-	{"UFSPSEND5"			,	UFSPSEND5,			0},
-	{"UFSPSLUN5"			,	UFSPSLUN5,			0},
-	{"UFSPSCTRL5"			,	UFSPSCTRL5,			0},
-	{"UFSPSBEGIN6"			,	UFSPSBEGIN6,			0},
-	{"UFSPSEND6"			,	UFSPSEND6,			0},
-	{"UFSPSLUN6"			,	UFSPSLUN6,			0},
-	{"UFSPSCTRL6"			,	UFSPSCTRL6,			0},
-	{"UFSPSBEGIN7"			,	UFSPSBEGIN7,			0},
-	{"UFSPSEND7"			,	UFSPSEND7,			0},
-	{"UFSPSLUN7"			,	UFSPSLUN7,			0},
-	{"UFSPSCTRL7"			,	UFSPSCTRL7,			0},
-
-	{"UNIPRO SFR"			,	LOG_UNIPRO_SFR,			0},
-
-	{"COMP_VERSION"			,	UNIP_COMP_VERSION			,	0},
-	{"COMP_INFO"			,	UNIP_COMP_INFO				,	0},
-	{"COMP_RESET"			,	UNIP_COMP_RESET				,	0},
-	{"DME_POWERON_REQ"		,	UNIP_DME_POWERON_REQ			,	0},
-	{"DME_POWERON_CNF_RESULT"	,	UNIP_DME_POWERON_CNF_RESULT		,	0},
-	{"DME_POWEROFF_REQ"		,	UNIP_DME_POWEROFF_REQ			,	0},
-	{"DME_POWEROFF_CNF_RESULT"	,	UNIP_DME_POWEROFF_CNF_RESULT		,	0},
-	{"DME_RESET_REQ"		,	UNIP_DME_RESET_REQ			,	0},
-	{"DME_RESET_REQ_LEVEL"		,	UNIP_DME_RESET_REQ_LEVEL		,	0},
-	{"DME_ENABLE_REQ"		,	UNIP_DME_ENABLE_REQ			,	0},
-	{"DME_ENABLE_CNF_RESULT"	,	UNIP_DME_ENABLE_CNF_RESULT		,	0},
-	{"DME_ENDPOINTRESET_REQ"	,	UNIP_DME_ENDPOINTRESET_REQ		,	0},
-	{"DME_ENDPOINTRESET_CNF_RESULT"	,	UNIP_DME_ENDPOINTRESET_CNF_RESULT	,	0},
-	{"DME_LINKSTARTUP_REQ"		,	UNIP_DME_LINKSTARTUP_REQ		,	0},
-	{"DME_LINKSTARTUP_CNF_RESULT"	,	UNIP_DME_LINKSTARTUP_CNF_RESULT		,	0},
-	{"DME_HIBERN8_ENTER_REQ"	,	UNIP_DME_HIBERN8_ENTER_REQ		,	0},
-	{"DME_HIBERN8_ENTER_CNF_RESULT"	,	UNIP_DME_HIBERN8_ENTER_CNF_RESULT	,	0},
-	{"DME_HIBERN8_ENTER_IND_RESULT"	,	UNIP_DME_HIBERN8_ENTER_IND_RESULT	,	0},
-	{"DME_HIBERN8_EXIT_REQ"		,	UNIP_DME_HIBERN8_EXIT_REQ		,	0},
-	{"DME_HIBERN8_EXIT_CNF_RESULT"	,	UNIP_DME_HIBERN8_EXIT_CNF_RESULT	,	0},
-	{"DME_HIBERN8_EXIT_IND_RESULT"	,	UNIP_DME_HIBERN8_EXIT_IND_RESULT	,	0},
-	{"DME_PWR_REQ"			,	UNIP_DME_PWR_REQ			,	0},
-	{"DME_PWR_REQ_POWERMODE	"	,	UNIP_DME_PWR_REQ_POWERMODE		,	0},
-	{"DME_PWR_REQ_LOCALL2TIMER0"	,	UNIP_DME_PWR_REQ_LOCALL2TIMER0		,	0},
-	{"DME_PWR_REQ_LOCALL2TIMER1"	,	UNIP_DME_PWR_REQ_LOCALL2TIMER1		,	0},
-	{"DME_PWR_REQ_LOCALL2TIMER2"	,	UNIP_DME_PWR_REQ_LOCALL2TIMER2		,	0},
-	{"DME_PWR_REQ_REMOTEL2TIMER0"	,	UNIP_DME_PWR_REQ_REMOTEL2TIMER0		,	0},
-	{"DME_PWR_REQ_REMOTEL2TIMER1"	,	UNIP_DME_PWR_REQ_REMOTEL2TIMER1		,	0},
-	{"DME_PWR_REQ_REMOTEL2TIMER2"	,	UNIP_DME_PWR_REQ_REMOTEL2TIMER2		,	0},
-	{"DME_PWR_CNF_RESULT"		,	UNIP_DME_PWR_CNF_RESULT			,	0},
-	{"DME_PWR_IND_RESULT"		,	UNIP_DME_PWR_IND_RESULT			,	0},
-	{"DME_TEST_MODE_REQ"		,	UNIP_DME_TEST_MODE_REQ			,	0},
-	{"DME_TEST_MODE_CNF_RESULT"	,	UNIP_DME_TEST_MODE_CNF_RESULT		,	0},
-	{"DME_ERROR_IND_LAYER"		,	UNIP_DME_ERROR_IND_LAYER		,	0},
-	{"DME_ERROR_IND_ERRCODE"	,	UNIP_DME_ERROR_IND_ERRCODE		,	0},
-	{"DME_PACP_CNFBIT"		,	UNIP_DME_PACP_CNFBIT			,	0},
-	{"DME_DL_FRAME_IND"		,	UNIP_DME_DL_FRAME_IND			,	0},
-	{"DME_INTR_STATUS"		,	UNIP_DME_INTR_STATUS			,	0},
-	{"DME_INTR_ENABLE"		,	UNIP_DME_INTR_ENABLE			,	0},
-	{"DME_GETSET_ADDR"		,	UNIP_DME_GETSET_ADDR			,	0},
-	{"DME_GETSET_WDATA"		,	UNIP_DME_GETSET_WDATA			,	0},
-	{"DME_GETSET_RDATA"		,	UNIP_DME_GETSET_RDATA			,	0},
-	{"DME_GETSET_CONTROL"		,	UNIP_DME_GETSET_CONTROL			,	0},
-	{"DME_GETSET_RESULT"		,	UNIP_DME_GETSET_RESULT			,	0},
-	{"DME_PEER_GETSET_ADDR"		,	UNIP_DME_PEER_GETSET_ADDR		,	0},
-	{"DME_PEER_GETSET_WDATA"	,	UNIP_DME_PEER_GETSET_WDATA		,	0},
-	{"DME_PEER_GETSET_RDATA"	,	UNIP_DME_PEER_GETSET_RDATA		,	0},
-	{"DME_PEER_GETSET_CONTROL"	,	UNIP_DME_PEER_GETSET_CONTROL		,	0},
-	{"DME_PEER_GETSET_RESULT"	,	UNIP_DME_PEER_GETSET_RESULT		,	0},
-	{"DME_DIRECT_GETSET_BASE"	,	UNIP_DME_DIRECT_GETSET_BASE		,	0},
-	{"DME_DIRECT_GETSET_ERR_ADDR"	,	UNIP_DME_DIRECT_GETSET_ERR_ADDR		,	0},
-	{"DME_DIRECT_GETSET_ERR_CODE"	,	UNIP_DME_DIRECT_GETSET_ERR_CODE		,	0},
-	{"DME_INTR_ERROR_CODE"		,	UNIP_DME_INTR_ERROR_CODE		,	0},
-	{"DME_DEEPSTALL_ENTER_REQ"	,	UNIP_DME_DEEPSTALL_ENTER_REQ		,	0},
-	{"DME_DISCARD_CPORT_ID"		,	UNIP_DME_DISCARD_CPORT_ID		,	0},
-	{"DBG_DME_CTRL_STATE"		,	UNIP_DBG_DME_CTRL_STATE			,	0},
-	{"DBG_FORCE_DME_CTRL_STATE"	,	UNIP_DBG_FORCE_DME_CTRL_STATE		,	0},
-	{"DBG_AUTO_DME_LINKSTARTUP"	,	UNIP_DBG_AUTO_DME_LINKSTARTUP,			0},
-	{"DBG_PA_CTRLSTATE"		,	UNIP_DBG_PA_CTRLSTATE			,	0},
-	{"DBG_PA_TX_STATE"		,	UNIP_DBG_PA_TX_STATE			,	0},
-	{"DBG_BREAK_DME_CTRL_STATE"	,	UNIP_DBG_BREAK_DME_CTRL_STATE		,	0},
-	{"DBG_STEP_DME_CTRL_STATE"	,	UNIP_DBG_STEP_DME_CTRL_STATE		,	0},
-	{"DBG_NEXT_DME_CTRL_STATE"	,	UNIP_DBG_NEXT_DME_CTRL_STATE		,	0},
-
-	{"PMA SFR"			,	LOG_PMA_SFR,			0},
-
-	{"COMN 0x00"			,	(0x00<<2),			0},
-	{"COMN 0x01"			,	(0x01<<2),			0},
-	{"COMN 0x02"			,	(0x02<<2),			0},
-	{"COMN 0x03"			,	(0x03<<2),			0},
-	{"COMN 0x04"			,	(0x04<<2),			0},
-	{"COMN 0x05"			,	(0x05<<2),			0},
-	{"COMN 0x06"			,	(0x06<<2),			0},
-	{"COMN 0x07"			,	(0x07<<2),			0},
-	{"COMN 0x08"			,	(0x08<<2),			0},
-	{"COMN 0x0a"			,	(0x0a<<2),			0},
-	{"COMN 0x0b"			,	(0x0b<<2),			0},
-	{"COMN 0x0c"			,	(0x0c<<2),			0},
-	{"COMN 0x0d"			,	(0x0d<<2),			0},
-	{"COMN 0x0e"			,	(0x0e<<2),			0},
-	{"COMN 0x0f"			,	(0x0f<<2),			0},
-	{"COMN 0x10"			,	(0x10<<2),			0},
-	{"COMN 0x11"			,	(0x11<<2),			0},
-	{"COMN 0x12"			,	(0x12<<2),			0},
-	{"COMN 0x13"			,	(0x13<<2),			0},
-	{"COMN 0x14"			,	(0x14<<2),			0},
-	{"COMN 0x15"			,	(0x15<<2),			0},
-	{"COMN 0x16"			,	(0x16<<2),			0},
-	{"COMN 0x17"			,	(0x17<<2),			0},
-	{"COMN 0x18"			,	(0x18<<2),			0},
-	{"COMN 0x19"			,	(0x19<<2),			0},
-	{"COMN 0x1a"			,	(0x1a<<2),			0},
-	{"COMN 0x1b"			,	(0x1b<<2),			0},
-	{"COMN 0x1c"			,	(0x1c<<2),			0},
-	{"COMN 0x1d"			,	(0x1d<<2),			0},
-	{"COMN 0x1e"			,	(0x1e<<2),			0},
-	{"COMN 0x1f"			,	(0x1f<<2),			0},
-	{"COMN 0x20"			,	(0x20<<2),			0},
-	{"COMN 0x21"			,	(0x21<<2),			0},
-	{"COMN 0x22"			,	(0x22<<2),			0},
-	{"COMN 0x23"			,	(0x23<<2),			0},
-	{"COMN 0x24"			,	(0x24<<2),			0},
-	{"COMN 0x25"			,	(0x25<<2),			0},
-	{"COMN 0x26"			,	(0x26<<2),			0},
-	{"COMN 0x27"			,	(0x27<<2),			0},
-	{"COMN 0x28"			,	(0x28<<2),			0},
-	{"COMN 0x29"			,	(0x29<<2),			0},
-	{"COMN 0x2a"			,	(0x2a<<2),			0},
-	{"COMN 0x2b"			,	(0x2b<<2),			0},
-	{"COMN 0x2c"			,	(0x2c<<2),			0},
-	{"COMN 0x2d"			,	(0x2d<<2),			0},
-	{"COMN 0x2e"			,	(0x2e<<2),			0},
-	{"COMN 0x2f"			,	(0x2f<<2),			0},
-	{"COMN 0x30"			,	(0x30<<2),			0},
-	{"TRSV 0x31"			,	(0x31<<2),			0},
-	{"TRSV 0x32"			,	(0x32<<2),			0},
-	{"TRSV 0x33"			,	(0x33<<2),			0},
-	{"TRSV 0x34"			,	(0x34<<2),			0},
-	{"TRSV 0x35"			,	(0x35<<2),			0},
-	{"TRSV 0x36"			,	(0x36<<2),			0},
-	{"TRSV 0x37"			,	(0x37<<2),			0},
-	{"TRSV 0x38"			,	(0x38<<2),			0},
-	{"TRSV 0x3a"			,	(0x3a<<2),			0},
-	{"TRSV 0x3b"			,	(0x3b<<2),			0},
-	{"TRSV 0x3c"			,	(0x3c<<2),			0},
-	{"TRSV 0x3d"			,	(0x3d<<2),			0},
-	{"TRSV 0x3e"			,	(0x3e<<2),			0},
-	{"TRSV 0x3f"			,	(0x3f<<2),			0},
-	{"TRSV 0x40"			,	(0x40<<2),			0},
-	{"TRSV 0x41"			,	(0x41<<2),			0},
-	{"TRSV 0x42"			,	(0x42<<2),			0},
-	{"TRSV 0x43"			,	(0x43<<2),			0},
-	{"TRSV 0x44"			,	(0x44<<2),			0},
-	{"TRSV 0x45"			,	(0x45<<2),			0},
-	{"TRSV 0x46"			,	(0x46<<2),			0},
-	{"TRSV 0x47"			,	(0x47<<2),			0},
-	{"TRSV 0x48"			,	(0x48<<2),			0},
-	{"TRSV 0x49"			,	(0x49<<2),			0},
-	{"TRSV 0x4a"			,	(0x4a<<2),			0},
-	{"TRSV 0x4b"			,	(0x4b<<2),			0},
-	{"TRSV 0x4c"			,	(0x4c<<2),			0},
-	{"TRSV 0x4d"			,	(0x4d<<2),			0},
-	{"TRSV 0x4e"			,	(0x4e<<2),			0},
-	{"TRSV 0x4f"			,	(0x4f<<2),			0},
-	{"TRSV 0x50"			,	(0x50<<2),			0},
-	{"TRSV 0x51"			,	(0x51<<2),			0},
-	{"TRSV 0x52"			,	(0x52<<2),			0},
-	{"TRSV 0x53"			,	(0x53<<2),			0},
-	{"TRSV 0x54"			,	(0x54<<2),			0},
-	{"TRSV 0x55"			,	(0x55<<2),			0},
-	{"TRSV 0x56"			,	(0x56<<2),			0},
-	{"TRSV 0x57"			,	(0x57<<2),			0},
-	{"TRSV 0x58"			,	(0x58<<2),			0},
-	{"TRSV 0x59"			,	(0x59<<2),			0},
-	{"TRSV 0x5a"			,	(0x5a<<2),			0},
-	{"TRSV 0x5b"			,	(0x5b<<2),			0},
-	{"TRSV 0x5c"			,	(0x5c<<2),			0},
-	{"TRSV 0x5d"			,	(0x5d<<2),			0},
-	{"TRSV 0x5e"			,	(0x5e<<2),			0},
-	{"TRSV 0x5f"			,	(0x5f<<2),			0},
-	{"TRSV 0x60"			,	(0x60<<2),			0},
-	{"TRSV 0x61"			,	(0x61<<2),			0},
-	{"TRSV 0x62"			,	(0x62<<2),			0},
-	{"TRSV 0x63"			,	(0x63<<2),			0},
-	{"TRSV 0x64"			,	(0x64<<2),			0},
-	{"TRSV 0x65"			,	(0x65<<2),			0},
-	{"TRSV 0x66"			,	(0x66<<2),			0},
-	{"TRSV 0x67"			,	(0x67<<2),			0},
-	{"TRSV 0x68"			,	(0x68<<2),			0},
-	{"TRSV 0x6a"			,	(0x6a<<2),			0},
-	{"TRSV 0x6b"			,	(0x6b<<2),			0},
-	{"TRSV 0x6c"			,	(0x6c<<2),			0},
-	{"TRSV 0x6d"			,	(0x6d<<2),			0},
-	{"TRSV 0x6e"			,	(0x6e<<2),			0},
-	{"TRSV 0x6f"			,	(0x6f<<2),			0},
-	{"TRSV 0x70"			,	(0x70<<2),			0},
-	{"TRSV 0x71"			,	(0x71<<2),			0},
-	{"TRSV 0x72"			,	(0x72<<2),			0},
-	{"TRSV 0x73"			,	(0x73<<2),			0},
-	{"TRSV 0x74"			,	(0x74<<2),			0},
-	{"TRSV 0x75"			,	(0x75<<2),			0},
-	{"TRSV 0x76"			,	(0x76<<2),			0},
-	{"TRSV 0x77"			,	(0x77<<2),			0},
-	{"TRSV 0x78"			,	(0x78<<2),			0},
-	{"TRSV 0x79"			,	(0x79<<2),			0},
-	{"TRSV 0x7a"			,	(0x7a<<2),			0},
-	{"TRSV 0x7b"			,	(0x7b<<2),			0},
-	{"TRSV 0x7c"			,	(0x7c<<2),			0},
-	{"TRSV 0x7d"			,	(0x7d<<2),			0},
-	{"TRSV 0x7e"			,	(0x7e<<2),			0},
-	{"TRSV 0x7f"			,	(0x7f<<2),			0},
-
-	{},
-};
-
-static struct exynos_ufs_attr_log ufs_log_attr[] = {
-	/* PA Standard */
-	{UIC_ARG_MIB(0x1520),	0, 0},
-	{UIC_ARG_MIB(0x1540),	0, 0},
-	{UIC_ARG_MIB(0x1543),	0, 0},
-	{UIC_ARG_MIB(0x155C),	0, 0},
-	{UIC_ARG_MIB(0x155D),	0, 0},
-	{UIC_ARG_MIB(0x155E),	0, 0},
-	{UIC_ARG_MIB(0x155F),	0, 0},
-	{UIC_ARG_MIB(0x1560),	0, 0},
-	{UIC_ARG_MIB(0x1561),	0, 0},
-	{UIC_ARG_MIB(0x1564),	0, 0},
-	{UIC_ARG_MIB(0x1567),	0, 0},
-	{UIC_ARG_MIB(0x1568),	0, 0},
-	{UIC_ARG_MIB(0x1569),	0, 0},
-	{UIC_ARG_MIB(0x156A),	0, 0},
-	{UIC_ARG_MIB(0x1571),	0, 0},
-	{UIC_ARG_MIB(0x1580),	0, 0},
-	{UIC_ARG_MIB(0x1581),	0, 0},
-	{UIC_ARG_MIB(0x1582),	0, 0},
-	{UIC_ARG_MIB(0x1583),	0, 0},
-	{UIC_ARG_MIB(0x1584),	0, 0},
-	{UIC_ARG_MIB(0x1585),	0, 0},
-	{UIC_ARG_MIB(0x1590),	0, 0},
-	{UIC_ARG_MIB(0x1591),	0, 0},
-	{UIC_ARG_MIB(0x15A1),	0, 0},
-	{UIC_ARG_MIB(0x15A2),	0, 0},
-	{UIC_ARG_MIB(0x15A3),	0, 0},
-	{UIC_ARG_MIB(0x15A4),	0, 0},
-	{UIC_ARG_MIB(0x15A7),	0, 0},
-	{UIC_ARG_MIB(0x15A8),	0, 0},
-	{UIC_ARG_MIB(0x15C0),	0, 0},
-	{UIC_ARG_MIB(0x15C1),	0, 0},
-	/* PA Debug */
-	{UIC_ARG_MIB(0x9500),	0, 0},
-	{UIC_ARG_MIB(0x9501),	0, 0},
-	{UIC_ARG_MIB(0x9502),	0, 0},
-	{UIC_ARG_MIB(0x9503),	0, 0},
-	{UIC_ARG_MIB(0x9510),	0, 0},
-	{UIC_ARG_MIB(0x9511),	0, 0},
-	{UIC_ARG_MIB(0x9514),	0, 0},
-	{UIC_ARG_MIB(0x9515),	0, 0},
-	{UIC_ARG_MIB(0x9516),	0, 0},
-	{UIC_ARG_MIB(0x9517),	0, 0},
-	{UIC_ARG_MIB(0x9520),	0, 0},
-	{UIC_ARG_MIB(0x9521),	0, 0},
-	{UIC_ARG_MIB(0x9522),	0, 0},
-	{UIC_ARG_MIB(0x9523),	0, 0},
-	{UIC_ARG_MIB(0x9525),	0, 0},
-	{UIC_ARG_MIB(0x9528),	0, 0},
-	{UIC_ARG_MIB(0x9529),	0, 0},
-	{UIC_ARG_MIB(0x952A),	0, 0},
-	{UIC_ARG_MIB(0x952B),	0, 0},
-	{UIC_ARG_MIB(0x952C),	0, 0},
-	{UIC_ARG_MIB(0x9534),	0, 0},
-	{UIC_ARG_MIB(0x9535),	0, 0},
-	{UIC_ARG_MIB(0x9536),	0, 0},
-	{UIC_ARG_MIB(0x9539),	0, 0},
-	{UIC_ARG_MIB(0x9540),	0, 0},
-	{UIC_ARG_MIB(0x9541),	0, 0},
-	{UIC_ARG_MIB(0x9542),	0, 0},
-	{UIC_ARG_MIB(0x9543),	0, 0},
-	{UIC_ARG_MIB(0x9546),	0, 0},
-	{UIC_ARG_MIB(0x9551),	0, 0},
-	{UIC_ARG_MIB(0x9552),	0, 0},
-	{UIC_ARG_MIB(0x9554),	0, 0},
-	{UIC_ARG_MIB(0x9556),	0, 0},
-	{UIC_ARG_MIB(0x9557),	0, 0},
-	{UIC_ARG_MIB(0x9558),	0, 0},
-	{UIC_ARG_MIB(0x9559),	0, 0},
-	{UIC_ARG_MIB(0x9560),	0, 0},
-	{UIC_ARG_MIB(0x9561),	0, 0},
-	{UIC_ARG_MIB(0x9562),	0, 0},
-	{UIC_ARG_MIB(0x9563),	0, 0},
-	{UIC_ARG_MIB(0x9564),	0, 0},
-	{UIC_ARG_MIB(0x9565),	0, 0},
-	{UIC_ARG_MIB(0x9566),	0, 0},
-	{UIC_ARG_MIB(0x9567),	0, 0},
-	{UIC_ARG_MIB(0x9568),	0, 0},
-	{UIC_ARG_MIB(0x9569),	0, 0},
-	{UIC_ARG_MIB(0x9570),	0, 0},
-	{UIC_ARG_MIB(0x9571),	0, 0},
-	{UIC_ARG_MIB(0x9572),	0, 0},
-	{UIC_ARG_MIB(0x9573),	0, 0},
-	/* DL Standard */
-	{UIC_ARG_MIB(0x2002),	0, 0},
-	{UIC_ARG_MIB(0x2003),	0, 0},
-	{UIC_ARG_MIB(0x2004),	0, 0},
-	{UIC_ARG_MIB(0x2005),	0, 0},
-	{UIC_ARG_MIB(0x2006),	0, 0},
-	{UIC_ARG_MIB(0x2040),	0, 0},
-	{UIC_ARG_MIB(0x2041),	0, 0},
-	{UIC_ARG_MIB(0x2042),	0, 0},
-	{UIC_ARG_MIB(0x2043),	0, 0},
-	{UIC_ARG_MIB(0x2044),	0, 0},
-	{UIC_ARG_MIB(0x2045),	0, 0},
-	{UIC_ARG_MIB(0x2046),	0, 0},
-	{UIC_ARG_MIB(0x2047),	0, 0},
-	{UIC_ARG_MIB(0x2060),	0, 0},
-	{UIC_ARG_MIB(0x2061),	0, 0},
-	{UIC_ARG_MIB(0x2062),	0, 0},
-	{UIC_ARG_MIB(0x2063),	0, 0},
-	{UIC_ARG_MIB(0x2064),	0, 0},
-	{UIC_ARG_MIB(0x2065),	0, 0},
-	{UIC_ARG_MIB(0x2066),	0, 0},
-	{UIC_ARG_MIB(0x2067),	0, 0},
-	/* DL Debug */
-	{UIC_ARG_MIB(0xA000),	0, 0},
-	{UIC_ARG_MIB(0xA003),	0, 0},
-	{UIC_ARG_MIB(0xA004),	0, 0},
-	{UIC_ARG_MIB(0xA005),	0, 0},
-	{UIC_ARG_MIB(0xA006),	0, 0},
-	{UIC_ARG_MIB(0xA007),	0, 0},
-	{UIC_ARG_MIB(0xA009),	0, 0},
-	{UIC_ARG_MIB(0xA010),	0, 0},
-	{UIC_ARG_MIB(0xA011),	0, 0},
-	{UIC_ARG_MIB(0xA012),	0, 0},
-	{UIC_ARG_MIB(0xA013),	0, 0},
-	{UIC_ARG_MIB(0xA014),	0, 0},
-	{UIC_ARG_MIB(0xA015),	0, 0},
-	{UIC_ARG_MIB(0xA016),	0, 0},
-	{UIC_ARG_MIB(0xA020),	0, 0},
-	{UIC_ARG_MIB(0xA021),	0, 0},
-	{UIC_ARG_MIB(0xA022),	0, 0},
-	{UIC_ARG_MIB(0xA023),	0, 0},
-	{UIC_ARG_MIB(0xA024),	0, 0},
-	{UIC_ARG_MIB(0xA025),	0, 0},
-	{UIC_ARG_MIB(0xA026),	0, 0},
-	{UIC_ARG_MIB(0xA027),	0, 0},
-	{UIC_ARG_MIB(0xA028),	0, 0},
-	{UIC_ARG_MIB(0xA029),	0, 0},
-	{UIC_ARG_MIB(0xA02A),	0, 0},
-	{UIC_ARG_MIB(0xA02B),	0, 0},
-	{UIC_ARG_MIB(0xA02C),	0, 0},
-	{UIC_ARG_MIB(0xA02D),	0, 0},
-	{UIC_ARG_MIB(0xA02E),	0, 0},
-	{UIC_ARG_MIB(0xA02F),	0, 0},
-	{UIC_ARG_MIB(0xA030),	0, 0},
-	{UIC_ARG_MIB(0xA031),	0, 0},
-	{UIC_ARG_MIB(0xA041),	0, 0},
-	{UIC_ARG_MIB(0xA042),	0, 0},
-	{UIC_ARG_MIB(0xA043),	0, 0},
-	{UIC_ARG_MIB(0xA044),	0, 0},
-	{UIC_ARG_MIB(0xA045),	0, 0},
-	{UIC_ARG_MIB(0xA046),	0, 0},
-	{UIC_ARG_MIB(0xA047),	0, 0},
-	{UIC_ARG_MIB(0xA060),	0, 0},
-	{UIC_ARG_MIB(0xA061),	0, 0},
-	{UIC_ARG_MIB(0xA062),	0, 0},
-	{UIC_ARG_MIB(0xA063),	0, 0},
-	{UIC_ARG_MIB(0xA064),	0, 0},
-	{UIC_ARG_MIB(0xA065),	0, 0},
-	{UIC_ARG_MIB(0xA066),	0, 0},
-	{UIC_ARG_MIB(0xA067),	0, 0},
-	{UIC_ARG_MIB(0xA068),	0, 0},
-	{UIC_ARG_MIB(0xA069),	0, 0},
-	{UIC_ARG_MIB(0xA06A),	0, 0},
-	{UIC_ARG_MIB(0xA06B),	0, 0},
-	{UIC_ARG_MIB(0xA06C),	0, 0},
-	{UIC_ARG_MIB(0xA080),	0, 0},
-	/* NL Standard */
-	{UIC_ARG_MIB(0x3000),	0, 0},
-	{UIC_ARG_MIB(0x3001),	0, 0},
-	{UIC_ARG_MIB(0x4020),	0, 0},
-	{UIC_ARG_MIB(0x4021),	0, 0},
-	{UIC_ARG_MIB(0x4022),	0, 0},
-	{UIC_ARG_MIB(0x4023),	0, 0},
-	{UIC_ARG_MIB(0x4025),	0, 0},
-	{UIC_ARG_MIB(0x402B),	0, 0},
-	/* MPHY */
-	{UIC_ARG_MIB(0x0021),	0, 0},
-	{UIC_ARG_MIB(0x0022),	0, 0},
-	{UIC_ARG_MIB(0x0023),	0, 0},
-	{UIC_ARG_MIB(0x0024),	0, 0},
-	{UIC_ARG_MIB(0x0028),	0, 0},
-	{UIC_ARG_MIB(0x0029),	0, 0},
-	{UIC_ARG_MIB(0x002A),	0, 0},
-	{UIC_ARG_MIB(0x002B),	0, 0},
-	{UIC_ARG_MIB(0x002C),	0, 0},
-	{UIC_ARG_MIB(0x002D),	0, 0},
-	{UIC_ARG_MIB(0x0033),	0, 0},
-	{UIC_ARG_MIB(0x0035),	0, 0},
-	{UIC_ARG_MIB(0x0036),	0, 0},
-	{UIC_ARG_MIB(0x0041),	0, 0},
-	{UIC_ARG_MIB(0x00A1),	0, 0},
-	{UIC_ARG_MIB(0x00A2),	0, 0},
-	{UIC_ARG_MIB(0x00A3),	0, 0},
-	{UIC_ARG_MIB(0x00A4),	0, 0},
-	{UIC_ARG_MIB(0x00A7),	0, 0},
-	{UIC_ARG_MIB(0x00C1),	0, 0},
-	{UIC_ARG_MIB(0x029b),	0, 0},
-	{UIC_ARG_MIB(0x035d),	0, 0},
-	{UIC_ARG_MIB(0x028B),	0, 0},
-	{UIC_ARG_MIB(0x029A),	0, 0},
-	{UIC_ARG_MIB(0x0277),	0, 0},
-
-	{},
-};
-
-static struct exynos_ufs_sfr_log ufs_show_sfr[] = {
-	{},
-};
-
-static struct exynos_ufs_attr_log ufs_show_attr[] = {
-	{},
-};
-
-#endif
 static void exynos_ufs_get_misc(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	struct exynos_ufs_clk_info *clki;
 	struct list_head *head = &ufs->debug.misc.clk_list_head;
+	u32 reg = 0;
 
 	list_for_each_entry(clki, head, list) {
 		if (!IS_ERR_OR_NULL(clki->clk))
 			clki->freq = clk_get_rate(clki->clk);
 	}
-	ufs->debug.misc.isolation = readl(ufs->phy.reg_pmu);
+	exynos_pmu_read(EXYNOS_PMU_UFS_PHY_OFFSET, &reg);
+	ufs->debug.misc.isolation = (bool)(reg & BIT(0));
 }
 
 static void exynos_ufs_get_sfr(struct ufs_hba *hba,
@@ -943,8 +453,10 @@ static void exynos_ufs_get_sfr(struct ufs_hba *hba,
 				cfg->val = ufshcd_readl(hba, cfg->offset);
 			else if (sel_api == LOG_VS_HCI_SFR)
 				cfg->val = hci_readl(ufs, cfg->offset);
+#ifdef CONFIG_SCSI_UFS_FMP_DUMP
 			else if (sel_api == LOG_FMP_SFR)
 				cfg->val = exynos_smc(SMC_CMD_FMP_SMU_DUMP, 0, 0, cfg->offset);
+#endif
 			else if (sel_api == LOG_UNIPRO_SFR)
 				cfg->val = unipro_readl(ufs, cfg->offset);
 			else if (sel_api == LOG_PMA_SFR)
@@ -1064,6 +576,11 @@ static void exynos_ufs_dump_attr(struct ufs_hba *hba,
 	}
 }
 
+#define cport_writel_raw(ufs, val, reg)	\
+		writel_relaxed((val), (ufs)->debug.reg_cport + (reg))
+#define cport_readl_raw(hba, reg)	\
+		readl_relaxed((ufs)->debug.reg_cport + (reg))
+
 /*
  * Functions to be provied externally
  *
@@ -1077,8 +594,8 @@ void exynos_ufs_get_uic_info(struct ufs_hba *hba)
 	if (!(ufs->misc_flags & EXYNOS_UFS_MISC_TOGGLE_LOG))
 		return;
 
-	exynos_ufs_get_attr(hba, ufs->debug.attr);
 	exynos_ufs_get_sfr(hba, ufs->debug.sfr);
+	exynos_ufs_get_attr(hba, ufs->debug.attr);
 	exynos_ufs_get_misc(hba);
 
 	ufs->misc_flags &= ~(EXYNOS_UFS_MISC_TOGGLE_LOG);
@@ -1088,8 +605,7 @@ void exynos_ufs_dump_uic_info(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 
-	/* secure log */
-	exynos_smc(SMC_CMD_UFS_LOG, 1, 0, hba->secure_log.paddr);
+	exynos_ufs_dump_cport_log(hba);
 
 	exynos_ufs_get_sfr(hba, ufs->debug.sfr);
 	exynos_ufs_get_attr(hba, ufs->debug.attr);
@@ -1109,6 +625,62 @@ void exynos_ufs_show_uic_info(struct ufs_hba *hba)
 	exynos_ufs_dump_attr(hba, ufs_show_attr);
 }
 
+#define UFS_CPORT_PRINT		0	/*CPORT printing enable:1 , disable:0*/
+
+#define CPORT_TX_BUF_SIZE	0x100
+#define CPORT_RX_BUF_SIZE	0x100
+#define CPORT_LOG_PTR_SIZE	0x100
+#define CPORT_UTRL_SIZE		0x400
+#define CPORT_UCD_SIZE		0x400
+#define CPORT_UTMRL_SIZE	0xc0
+#define CPORT_BUF_SIZE		(CPORT_TX_BUF_SIZE + CPORT_RX_BUF_SIZE + \
+				CPORT_LOG_PTR_SIZE +  CPORT_UTRL_SIZE + \
+				CPORT_UCD_SIZE +  CPORT_UTMRL_SIZE)
+
+#define CPORT_TX_BUF_PTR	0x0
+#define CPORT_RX_BUF_PTR	(CPORT_TX_BUF_PTR + CPORT_TX_BUF_SIZE)
+#define CPORT_LOG_PTR_OFFSET	(CPORT_RX_BUF_PTR + CPORT_RX_BUF_SIZE)
+#define CPORT_UTRL_PTR		(CPORT_LOG_PTR_OFFSET + CPORT_LOG_PTR_SIZE)
+#define CPORT_UCD_PTR		(CPORT_UTRL_PTR + CPORT_UTRL_SIZE)
+#define CPORT_UTMRL_PTR		(CPORT_UCD_PTR + CPORT_UCD_SIZE)
+
+#define UFS_CPORT_PRINT	0
+
+struct exynos_ufs_log_cport {
+	int poison_for_once;
+	u32 ptr;
+	u8 buf[CPORT_BUF_SIZE];
+} ufs_log_cport;
+
+static int exynos_ufs_populate_dt_cport(struct exynos_ufs *ufs)
+{
+	struct device *dev = ufs->dev;
+	struct device_node *np;
+	struct resource io_res;
+	int ret = 0;
+
+	np = of_get_child_by_name(dev->of_node, "ufs-cport");
+	if (!np) {
+		dev_err(dev, "failed to get ufs-cport node\n");
+		return -ENODEV;
+	}
+
+	ret = of_address_to_resource(np, 0, &io_res);
+	if (ret) {
+		dev_err(dev, "failed to get i/o address cport\n");
+		goto err_0;
+	}
+
+	ufs->debug.reg_cport = devm_ioremap_resource(dev, &io_res);
+	if (!ufs->debug.reg_cport) {
+		dev_err(dev, "failed to ioremap for cport\n");
+		ret = -ENOMEM;
+		goto err_0;
+	}
+
+err_0:
+	return ret;
+}
 
 int exynos_ufs_init_dbg(struct ufs_hba *hba)
 {
@@ -1116,6 +688,7 @@ int exynos_ufs_init_dbg(struct ufs_hba *hba)
 	struct list_head *head = &hba->clk_list_head;
 	struct ufs_clk_info *clki;
 	struct exynos_ufs_clk_info *exynos_clki;
+	int ret = 0;
 
 	ufs->debug.sfr = ufs_log_sfr;
 	ufs->debug.attr = ufs_log_attr;
@@ -1135,10 +708,139 @@ int exynos_ufs_init_dbg(struct ufs_hba *hba)
 		list_add_tail(&exynos_clki->list, &ufs->debug.misc.clk_list_head);
 	}
 
-	hba->secure_log.paddr = exynos_ss_get_spare_paddr(0);
-	hba->secure_log.vaddr = (u32 *)exynos_ss_get_spare_vaddr(0);
+	/* CPort log map and enable */
+	ret = exynos_ufs_populate_dt_cport(ufs);
+	if (ret && ret != -ENODEV) {
+		ufs_log_cport.poison_for_once = 0xDEADBEAF;
+		return ret;
+	}
 
 	return 0;
+}
+
+void exynos_ufs_ctrl_cport_log(struct exynos_ufs *ufs,
+						bool en, int log_type)
+{
+	int type;
+
+	if (ufs_log_cport.poison_for_once == 0xDEADBEAF)
+		return;
+
+	type = (log_type << 4) | log_type;
+
+	if (en) {
+		hci_writel(ufs, type, 0x114);
+		hci_writel(ufs, 1, 0x110);
+	} else {
+		hci_writel(ufs, 0, 0x110);
+
+		ufs_log_cport.poison_for_once = 0xDEADBEAF;
+	}
+}
+
+void exynos_ufs_dump_cport_log(struct ufs_hba *hba)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	u32 *buf_ptr;
+	u8 *buf_ptr_out;
+	u32 offset;
+	u32 size = 0;
+	u32 cur_ptr = 0;
+
+	if (ufs_log_cport.poison_for_once == 0xDEADBEAF)
+		return;
+
+	/* CPort log disable */
+	exynos_ufs_ctrl_cport_log(ufs, false, 0);
+
+	/*
+	 * Dump data
+	 *
+	 * [ log type 0 ]
+	 * First 4 double words
+	 *
+	 * [ log type 1 ]
+	 * 6 double words, for Rx
+	 * 8 double words, for Tx
+	 *
+	 * [ log type 2 ]
+	 * 4 double words, for Command UPIU, DATA OUT/IN UPIU and RTT.
+	 * 2 double words, otherwise.
+	 *
+	 */
+	ufs_log_cport.ptr = cport_readl_raw(ufs, CPORT_LOG_PTR_OFFSET);
+	hba->cport_addr = buf_ptr = (u32 *)&ufs_log_cport.buf[0];
+	size = 0;
+	offset = 0;
+
+	while (size < CPORT_BUF_SIZE) {
+		*buf_ptr = cport_readl_raw(ufs, offset);
+		size += 4;
+		buf_ptr += 1;
+		offset += 4;
+	}
+	mb(); /* memory barrier for ufs cport dump */
+
+	dev_err(hba->dev, "cport logging finished\n");
+
+	/* Print data */
+	buf_ptr_out = &ufs_log_cport.buf[0];
+	cur_ptr = 0;
+
+#ifdef UFS_CPORT_PRINT
+	while (cur_ptr < CPORT_BUF_SIZE) {
+		switch (cur_ptr) {
+		case CPORT_TX_BUF_PTR:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tTX BUF (%d)\n", ((ufs_log_cport.ptr >> 0) & 0x3F)/2);
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		case  CPORT_RX_BUF_PTR:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tRX BUF (%d)\n", ((ufs_log_cport.ptr >> 8) & 0x3F)/2);
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		case CPORT_LOG_PTR_OFFSET:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tCPORT LOG PTR\n");
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		case CPORT_UTRL_PTR:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tUTRL\n");
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		case CPORT_UCD_PTR:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tUCD\n");
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		case CPORT_UTMRL_PTR:
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			dev_err(hba->dev, ": \t\tUTMRL\n");
+			dev_err(hba->dev, ":---------------------------------------------------\n");
+			break;
+		default:
+			break;
+		}
+
+		if (cur_ptr == CPORT_LOG_PTR_OFFSET) {
+			dev_err(hba->dev, "%02x%02x%02x%02x ",
+				*(buf_ptr_out+0x3), *(buf_ptr_out+0x2), *(buf_ptr_out+0x1), *(buf_ptr_out+0x0));
+			buf_ptr_out += 0x100;
+			cur_ptr += 0x100;
+		} else {
+			dev_err(hba->dev, "%02x%02x%02x%02x %02x%02x%02x%02x "
+				"%02x%02x%02x%02x %02x%02x%02x%02x\n",
+				*(buf_ptr_out+0x3), *(buf_ptr_out+0x2), *(buf_ptr_out+0x1), *(buf_ptr_out+0x0),
+				*(buf_ptr_out+0x7), *(buf_ptr_out+0x6), *(buf_ptr_out+0x5), *(buf_ptr_out+0x4),
+				*(buf_ptr_out+0xb), *(buf_ptr_out+0xa), *(buf_ptr_out+0x9), *(buf_ptr_out+0x8),
+				*(buf_ptr_out+0xf), *(buf_ptr_out+0xe), *(buf_ptr_out+0xd), *(buf_ptr_out+0xc));
+			buf_ptr_out += 0x10;
+			cur_ptr += 0x10;
+		}
+	}
+#endif
 }
 
 static	struct ufs_cmd_info   ufs_cmd_queue;

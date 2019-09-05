@@ -833,7 +833,7 @@ static void find_qmax(unsigned int freq, unsigned int *read_mo,
 
 static void exynos_bts_mif_update(unsigned int freq)
 {
-	unsigned long i;
+	unsigned int i;
 	unsigned int read_mo;
 	unsigned int write_mo;
 
@@ -977,7 +977,7 @@ static int exynos_qos_status_open_show(struct seq_file *buf, void *d)
 static int exynos_mo_status_open_show(struct seq_file *buf, void *d)
 {
 	struct bts_info *bts;
-	unsigned long i;
+	unsigned int i;
 	int nr_ip = 0;
 
 	seq_puts(buf, "\tIP/Scen/RW/MO\nex)echo 0 0 0 16 > mo\n");
@@ -1055,7 +1055,7 @@ static ssize_t exynos_mo_write(struct file *file, const char __user *user_buf,
 static int exynos_prio_status_open_show(struct seq_file *buf, void *d)
 {
 	struct bts_info *bts;
-	unsigned long i;
+	unsigned int i;
 	int nr_ip = 0;
 
 	seq_puts(buf, "\tqos IP/Scen/Prio\nex)echo 0 0 8 > priority\n");
@@ -1128,12 +1128,12 @@ static ssize_t exynos_prio_write(struct file *file, const char __user *user_buf,
 
 static int exynos_scen_status_open_show(struct seq_file *buf, void *d)
 {
-	unsigned long i;
+	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(bts_scen) - 1; i++) {
 		if (!bts_scen[i].name)
 			continue;
-		seq_printf(buf, "[%2lu]%9s\n", i, bts_scen[i].name);
+		seq_printf(buf, "[%2d]%9s\n", i, bts_scen[i].name);
 	}
 	return 0;
 }
@@ -1142,23 +1142,24 @@ static ssize_t exynos_scen_write(struct file *file, const char __user *buf,
 					size_t count, loff_t *ppos)
 {
 	char *buf_data;
-	int ret;
 	u32 scen;
 	u32 on;
+	ssize_t len;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return -ENOMEM;
 
-	ret = copy_from_user(buf_data, buf, count);
-	if (ret < 0)
-		goto out;
+	len = simple_write_to_buffer(buf_data, 31, ppos, buf, count);
+	if (len < 0)
+		return len;
+
+	buf_data[len] = '\0';
 
 	if (sscanf(buf_data, "%u %u", &scen, &on) != 2)
 		goto out;
 
 	bts_update_scen((enum bts_scen_type)scen, on);
-
 
 out:
 	kfree(buf_data);
@@ -1275,17 +1276,20 @@ static ssize_t exynos_qmax_r_write(struct file *file, const char __user *buf, si
 			 loff_t *f_pos)
 {
 	char *buf_data;
-	int ntokens, ret;
+	int ntokens;
 	unsigned int *new_qmax = NULL;
 	unsigned long flags;
+	ssize_t len;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return count;
 
-	ret = copy_from_user(buf_data, buf, count);
-	if (ret < 0)
-		goto out;
+	len = simple_write_to_buffer(buf_data, 31, f_pos, buf, count);
+	if (len < 0)
+		return len;
+
+	buf_data[len] = '\0';
 
 	new_qmax = get_tokenized_data(buf_data, &ntokens);
 	if (IS_ERR(new_qmax))
@@ -1345,17 +1349,20 @@ static ssize_t exynos_qmax_w_write(struct file *file, const char __user *buf, si
 			 loff_t *f_pos)
 {
 	char *buf_data;
-	int ntokens, ret;
+	int ntokens;
 	unsigned int *new_qmax = NULL;
 	unsigned long flags;
+	ssize_t len;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return count;
 
-	ret = copy_from_user(buf_data, buf, count);
-	if (ret < 0)
-		goto out;
+	len = simple_write_to_buffer(buf_data, 31, f_pos, buf, count);
+	if (len < 0)
+		return len;
+
+	buf_data[len] = '\0';
 
 	new_qmax = get_tokenized_data(buf_data, &ntokens);
 	if (IS_ERR(new_qmax))
@@ -1401,16 +1408,18 @@ static ssize_t exynos_qbusy_write(struct file *file, const char __user *buf, siz
 				  loff_t *f_pos)
 {
 	char *buf_data;
-	unsigned long i;
-	int ret;
+	unsigned int i;
+	ssize_t len;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return count;
 
-	ret = copy_from_user(buf_data, buf, count);
-	if (ret < 0)
-		goto out;
+	len = simple_write_to_buffer(buf_data, 31, f_pos, buf, count);
+	if (len < 0)
+		return len;
+
+	buf_data[len] = '\0';
 
 	if (sscanf(buf_data, "%u", &exynos_qbusy) != 1)
 		goto out;
@@ -1448,14 +1457,17 @@ static ssize_t exynos_idq_write(struct file *file, const char __user *buf,
 	char *buf_data;
 	unsigned int port, idq;
 	int ret;
+	ssize_t len;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return count;
 
-	ret = copy_from_user(buf_data, buf, count);
-	if (ret < 0)
-		goto out;
+	len = simple_write_to_buffer(buf_data, 31, f_ops, buf, count);
+	if (len < 0)
+		return len;
+
+	buf_data[len] = '\0';
 
 	ret = sscanf(buf_data, "%u %u", &port, &idq);
 	if (ret < 0)
@@ -1698,7 +1710,7 @@ void bts_update_bw(enum bts_bw_type type, struct bts_bw bw)
 static int __init exynos_bts_init(void)
 {
 	int ret;
-	unsigned long i;
+	unsigned int i;
 	struct bts_info *bts;
 
 	ret = bts_debugfs();

@@ -16,19 +16,14 @@ static void fw_update(void *device_data);
 static void get_fw_ver_bin(void *device_data);
 static void get_fw_ver_ic(void *device_data);
 static void get_config_ver(void *device_data);
-static void get_evt_info(void *device_data);
 static void get_threshold(void *device_data);
 static void module_off_master(void *device_data);
 static void module_on_master(void *device_data);
 static void get_chip_vendor(void *device_data);
 static void get_chip_name(void *device_data);
-static void set_mis_cal_spec(void *device_data);
-static void get_mis_cal_info(void *device_data);
 static void get_wet_mode(void *device_data);
 static void get_x_num(void *device_data);
 static void get_y_num(void *device_data);
-static void get_x_cross_routing(void *device_data);
-static void get_y_cross_routing(void *device_data);
 static void get_checksum_data(void *device_data);
 static void run_reference_read(void *device_data);
 static void run_reference_read_all(void *device_data);
@@ -42,52 +37,37 @@ static void run_delta_cm_read_all(void *device_data);
 static void get_delta(void *device_data);
 static void run_decoded_raw_read_all(void *device_data);
 static void run_delta_cm_read_all(void *device_data);
+static void run_raw_p2p_read(void *device_data);
+static void run_raw_p2p_avg_read_all(void *device_data);
 static void run_raw_p2p_read_all(void *device_data);
-static void run_raw_p2p_min_read_all(void *device_data);
-static void run_raw_p2p_max_read_all(void *device_data);
+static void run_raw_p2p_node_gap_y_read_all(void *device_data);
 static void run_self_reference_read(void *device_data);
 static void run_self_reference_read_all(void *device_data);
 static void run_self_rawcap_read(void *device_data);
 static void run_self_rawcap_read_all(void *device_data);
 static void run_self_delta_read(void *device_data);
 static void run_self_delta_read_all(void *device_data);
-static void run_self_raw_p2p_min_read_all(void *device_data);
-static void run_self_raw_p2p_max_read_all(void *device_data);
+static void run_self_raw_p2p_avg_read_all(void *device_data);
+static void run_self_raw_p2p_diff_read_all(void *device_data);
 static void run_rawdata_read_all(void *device_data);
 static void run_force_calibration(void *device_data);
+static void run_miscalibration(void *device_data);
 static void get_force_calibration(void *device_data);
 static void get_gap_data_x_all(void *device_data);
 static void get_gap_data_y_all(void *device_data);
-#ifdef USE_PRESSURE_SENSOR
-static void run_force_pressure_calibration(void *device_data);
-static void get_pressure_calibration_count(void *device_data);
-static void set_pressure_test_mode(void *device_data);
-static void run_pressure_filtered_strength_read_all(void *device_data);
-static void run_pressure_strength_read_all(void *device_data);
-static void run_pressure_rawdata_read_all(void *device_data);
-static void run_pressure_offset_read_all(void *device_data);
-static void set_pressure_strength(void *device_data);
-static void set_pressure_rawdata(void *device_data);
-static void set_pressure_data_index(void *device_data);
-static void get_pressure_strength(void *device_data);
-static void get_pressure_rawdata(void *device_data);
-static void get_pressure_data_index(void *device_data);
-static void set_pressure_strength_clear(void *device_data);
-static void get_pressure_threshold(void *device_data);
-static void set_pressure_user_level(void *device_data);
-static void get_pressure_user_level(void *device_data);
-static void set_pressure_setting_mode_enable(void *device_data);
-static void run_pressure_jitter_p2p_read(void *device_data);
-#endif
 static void run_trx_short_test(void *device_data);
+
 #ifdef TCLM_CONCEPT
 static void set_external_factory(void *device_data);
 static void get_pat_information(void *device_data);
+static void tclm_test_cmd(void *device_data);
+static void get_calibration(void *device_data);
 #endif
+
 static void set_tsp_test_result(void *device_data);
 static void get_tsp_test_result(void *device_data);
 static void clear_tsp_test_result(void *device_data);
-//static void run_lowpower_selftest(void *device_data);
+/*static void run_lowpower_selftest(void *device_data);*/
 static void increase_disassemble_count(void *device_data);
 static void get_disassemble_count(void *device_data);
 static void glove_mode(void *device_data);
@@ -96,10 +76,14 @@ static void dead_zone_enable(void *device_data);
 static void drawing_test_enable(void *device_data);
 static void set_lowpower_mode(void *device_data);
 static void set_wirelesscharger_mode(void *device_data);
+static void set_temperature(void *device_data);
 static void spay_enable(void *device_data);
 static void set_aod_rect(void *device_data);
 static void get_aod_rect(void *device_data);
 static void aod_enable(void *device_data);
+static void aot_enable(void *device_data);
+static void fod_enable(void *device_data);
+static void singletap_enable(void *device_data);
 static void set_grip_data(void *device_data);
 static void external_noise_mode(void *device_data);
 static void brush_enable(void *device_data);
@@ -111,16 +95,15 @@ static void set_factory_level(void *device_data);
 static void check_connection(void *device_data);
 static void fix_active_mode(void *device_data);
 static void touch_aging_mode(void *device_data);
-static void tclm_test_cmd(void *device_data);
-static void get_calibration(void *device_data);
+static void fp_int_control(void *device_data);
 static void not_support_cmd(void *device_data);
 
 static int execute_selftest(struct sec_ts_data *ts, bool save_result);
 static void sec_ts_print_frame(struct sec_ts_data *ts, short *min, short *max);
 
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-extern int tui_force_close(uint32_t arg);
-extern void tui_cover_mode_set(bool arg);
+#ifdef MINORITY_REPORT
+static void minority_report_calculate_rawdata(struct sec_ts_data *ts);
+static void minority_report_calculate_ito(struct sec_ts_data *ts);
 #endif
 
 static struct sec_cmd sec_cmds[] = {
@@ -128,93 +111,77 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("get_fw_ver_bin", get_fw_ver_bin),},
 	{SEC_CMD("get_fw_ver_ic", get_fw_ver_ic),},
 	{SEC_CMD("get_config_ver", get_config_ver),},
-	{SEC_CMD("get_evt_info", get_evt_info),},
 	{SEC_CMD("get_threshold", get_threshold),},
 	{SEC_CMD("module_off_master", module_off_master),},
 	{SEC_CMD("module_on_master", module_on_master),},
 	{SEC_CMD("get_chip_vendor", get_chip_vendor),},
 	{SEC_CMD("get_chip_name", get_chip_name),},
-	{SEC_CMD("set_mis_cal_spec", set_mis_cal_spec),},
-	{SEC_CMD("get_mis_cal_info", get_mis_cal_info),},
 	{SEC_CMD("get_wet_mode", get_wet_mode),},
 	{SEC_CMD("get_x_num", get_x_num),},
 	{SEC_CMD("get_y_num", get_y_num),},
-	{SEC_CMD("get_x_cross_routing", get_x_cross_routing),},
-	{SEC_CMD("get_y_cross_routing", get_y_cross_routing),},
 	{SEC_CMD("get_checksum_data", get_checksum_data),},
 	{SEC_CMD("run_reference_read", run_reference_read),},
 	{SEC_CMD("run_reference_read_all", run_reference_read_all),},
 	{SEC_CMD("get_reference", get_reference),},
 	{SEC_CMD("run_rawcap_read", run_rawcap_read),},
 	{SEC_CMD("run_rawcap_read_all", run_rawcap_read_all),},
+	{SEC_CMD("run_get_gap_data_x_all", get_gap_data_x_all),},
+	{SEC_CMD("run_get_gap_data_y_all", get_gap_data_y_all),},	
 	{SEC_CMD("get_rawcap", get_rawcap),},
 	{SEC_CMD("run_delta_read", run_delta_read),},
 	{SEC_CMD("run_delta_read_all", run_delta_read_all),},
 	{SEC_CMD("get_delta", get_delta),},
 	{SEC_CMD("run_cs_raw_read_all", run_decoded_raw_read_all),},
 	{SEC_CMD("run_cs_delta_read_all", run_delta_cm_read_all),},
+	{SEC_CMD("run_raw_p2p_read", run_raw_p2p_read),},
+	{SEC_CMD("run_raw_p2p_avg_read_all", run_raw_p2p_avg_read_all),},
 	{SEC_CMD("run_raw_p2p_read_all", run_raw_p2p_read_all),},
-	{SEC_CMD("run_raw_p2p_min_read_all", run_raw_p2p_min_read_all),},
-	{SEC_CMD("run_raw_p2p_max_read_all", run_raw_p2p_max_read_all),},
+	{SEC_CMD("run_raw_p2p_node_gap_y_read_all", run_raw_p2p_node_gap_y_read_all),},
 	{SEC_CMD("run_self_reference_read", run_self_reference_read),},
 	{SEC_CMD("run_self_reference_read_all", run_self_reference_read_all),},
 	{SEC_CMD("run_self_rawcap_read", run_self_rawcap_read),},
 	{SEC_CMD("run_self_rawcap_read_all", run_self_rawcap_read_all),},
 	{SEC_CMD("run_self_delta_read", run_self_delta_read),},
 	{SEC_CMD("run_self_delta_read_all", run_self_delta_read_all),},
-	{SEC_CMD("run_self_raw_p2p_min_read_all", run_self_raw_p2p_min_read_all),},
-	{SEC_CMD("run_self_raw_p2p_max_read_all", run_self_raw_p2p_max_read_all),},
+	{SEC_CMD("run_self_raw_p2p_avg_read_all", run_self_raw_p2p_avg_read_all),},
+	{SEC_CMD("run_self_raw_p2p_diff_read_all", run_self_raw_p2p_diff_read_all),},
 	{SEC_CMD("run_rawdata_read_all_for_ghost", run_rawdata_read_all),},
+	{SEC_CMD("run_miscalibration", run_miscalibration),},
 	{SEC_CMD("run_force_calibration", run_force_calibration),},
 	{SEC_CMD("get_force_calibration", get_force_calibration),},
 	{SEC_CMD("get_gap_data_x_all", get_gap_data_x_all),},
 	{SEC_CMD("get_gap_data_y_all", get_gap_data_y_all),},
-#ifdef USE_PRESSURE_SENSOR
-	{SEC_CMD("run_force_pressure_calibration", run_force_pressure_calibration),},
-	{SEC_CMD("get_pressure_calibration_count", get_pressure_calibration_count),},
-	{SEC_CMD("set_pressure_test_mode", set_pressure_test_mode),},
-	{SEC_CMD("run_pressure_filtered_strength_read_all", run_pressure_filtered_strength_read_all),},
-	{SEC_CMD("run_pressure_strength_read_all", run_pressure_strength_read_all),},
-	{SEC_CMD("run_pressure_rawdata_read_all", run_pressure_rawdata_read_all),},
-	{SEC_CMD("run_pressure_offset_read_all", run_pressure_offset_read_all),},
-	{SEC_CMD("set_pressure_strength", set_pressure_strength),},
-	{SEC_CMD("set_pressure_rawdata", set_pressure_rawdata),},
-	{SEC_CMD("set_pressure_data_index", set_pressure_data_index),},
-	{SEC_CMD("get_pressure_strength", get_pressure_strength),},
-	{SEC_CMD("get_pressure_rawdata", get_pressure_rawdata),},
-	{SEC_CMD("get_pressure_data_index", get_pressure_data_index),},
-	{SEC_CMD("set_pressure_strength_clear", set_pressure_strength_clear),},
-	{SEC_CMD("get_pressure_threshold", get_pressure_threshold),},
-	{SEC_CMD("set_pressure_user_level", set_pressure_user_level),},
-	{SEC_CMD("get_pressure_user_level", get_pressure_user_level),},
-	{SEC_CMD("set_pressure_setting_mode_enable", set_pressure_setting_mode_enable),},
-	{SEC_CMD("run_pressure_jitter_p2p_read", run_pressure_jitter_p2p_read),},
-#endif
 	{SEC_CMD("run_trx_short_test", run_trx_short_test),},
 #ifdef TCLM_CONCEPT
 	{SEC_CMD("get_pat_information", get_pat_information),},
 	{SEC_CMD("set_external_factory", set_external_factory),},
+	{SEC_CMD("tclm_test_cmd", tclm_test_cmd),},
+	{SEC_CMD("get_calibration", get_calibration),},
 #endif
 	{SEC_CMD("set_tsp_test_result", set_tsp_test_result),},
 	{SEC_CMD("get_tsp_test_result", get_tsp_test_result),},
 	{SEC_CMD("clear_tsp_test_result", clear_tsp_test_result),},
-//	{SEC_CMD("run_lowpower_selftest", run_lowpower_selftest),},
+/*	{SEC_CMD("run_lowpower_selftest", run_lowpower_selftest),}, */
 	{SEC_CMD("increase_disassemble_count", increase_disassemble_count),},
 	{SEC_CMD("get_disassemble_count", get_disassemble_count),},
-	{SEC_CMD("glove_mode", glove_mode),},
-	{SEC_CMD("clear_cover_mode", clear_cover_mode),},
+	{SEC_CMD_H("glove_mode", glove_mode),},
+	{SEC_CMD_H("clear_cover_mode", clear_cover_mode),},
 	{SEC_CMD("dead_zone_enable", dead_zone_enable),},
 	{SEC_CMD("drawing_test_enable", drawing_test_enable),},
-	{SEC_CMD("set_lowpower_mode", set_lowpower_mode),},
-	{SEC_CMD("set_wirelesscharger_mode", set_wirelesscharger_mode),},
-	{SEC_CMD("spay_enable", spay_enable),},
+	{SEC_CMD_H("set_lowpower_mode", set_lowpower_mode),},
+	{SEC_CMD_H("set_wirelesscharger_mode", set_wirelesscharger_mode),},
+	{SEC_CMD("set_temperature", set_temperature),},
+	{SEC_CMD_H("spay_enable", spay_enable),},
 	{SEC_CMD("set_aod_rect", set_aod_rect),},
 	{SEC_CMD("get_aod_rect", get_aod_rect),},
-	{SEC_CMD("aod_enable", aod_enable),},
+	{SEC_CMD_H("aod_enable", aod_enable),},
+	{SEC_CMD_H("aot_enable", aot_enable),},
+	{SEC_CMD_H("fod_enable", fod_enable),},
+	{SEC_CMD_H("singletap_enable", singletap_enable),},
 	{SEC_CMD("set_grip_data", set_grip_data),},
-	{SEC_CMD("external_noise_mode", external_noise_mode),},
-	{SEC_CMD("brush_enable", brush_enable),},
-	{SEC_CMD("set_touchable_area", set_touchable_area),},
+	{SEC_CMD_H("external_noise_mode", external_noise_mode),},
+	{SEC_CMD_H("brush_enable", brush_enable),},
+	{SEC_CMD_H("set_touchable_area", set_touchable_area),},
 	{SEC_CMD("set_log_level", set_log_level),},
 	{SEC_CMD("debug", debug),},
 	{SEC_CMD("factory_cmd_result_all", factory_cmd_result_all),},
@@ -222,55 +189,9 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("check_connection", check_connection),},
 	{SEC_CMD("fix_active_mode", fix_active_mode),},
 	{SEC_CMD("touch_aging_mode", touch_aging_mode),},
-	{SEC_CMD("tclm_test_cmd", tclm_test_cmd),},
-	{SEC_CMD("get_calibration", get_calibration),},
+	{SEC_CMD_H("fp_int_control", fp_int_control),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
-
-void send_event_to_user(struct sec_ts_data *ts, int number, int val)
-{
-	char timestamp[32];
-	char feature[32];
-	char result[32];
-	char test[32];
-	char *event[5];
-	ktime_t calltime;
-	u64 realtime;
-	int curr_time;
-	char *eol = "\0";
-
-	calltime = ktime_get();
-	realtime = ktime_to_ns(calltime);
-	do_div(realtime, NSEC_PER_USEC);
-	curr_time = realtime / USEC_PER_MSEC;
-
-	snprintf(timestamp, 32, "TIMESTAMP=%d", curr_time);
-	strncat(timestamp, eol, 1);
-	snprintf(feature, 32, "FEATURE=TSP");
-	strncat(feature, eol, 1);
-	snprintf(test, 32, "TEST=%d", number);
-	strncat(test, eol, 1);
-	if (val == UEVENT_OPEN_SHORT_PASS)
-		snprintf(result, 32, "RESULT=PASS");
-	else if (val == UEVENT_OPEN_SHORT_FAIL)
-		snprintf(result, 32, "RESULT=FAIL");
-	else if (val == UEVENT_TSP_I2C_RESET)
-		snprintf(result, 32, "RESULT=RESET");
-	else if (val == UEVENT_TSP_I2C_ERROR)
-		snprintf(result, 32, "RESULT=I2C");
-	else
-		snprintf(result, 32, "RESULT=NULL");
-	strncat(result, eol, 1);
-
-	input_info(true, &ts->client->dev, "%s: time:%s, feature:%s, result:%s\n", __func__, timestamp, feature, result);
-	event[0] = timestamp;
-	event[1] = feature;
-	event[2] = test;
-	event[3] = result;
-	event[4] = NULL;
-
-	kobject_uevent_env(&ts->sec.fac_dev->kobj, KOBJ_CHANGE, event);
-}
 
 static ssize_t scrub_position_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -332,13 +253,13 @@ static ssize_t read_raw_check_show(struct device *dev,
 
 	for (ii = 0; ii < (ts->rx_count * ts->tx_count - 1); ii++) {
 		snprintf(temp, CMD_RESULT_WORD_LEN, "%d ", ts->pFrame[ii]);
-		strncat(buffer, temp, CMD_RESULT_WORD_LEN);
+		strlcat(buffer, temp, ts->rx_count * ts->tx_count * 6);
 
 		memset(temp, 0x00, CMD_RESULT_WORD_LEN);
 	}
 
 	snprintf(temp, CMD_RESULT_WORD_LEN, "%d", ts->pFrame[ii]);
-	strncat(buffer, temp, CMD_RESULT_WORD_LEN);
+	strlcat(buffer, temp, ts->rx_count * ts->tx_count * 6);
 
 	ret = snprintf(buf, ts->rx_count * ts->tx_count * 6, buffer);
 	vfree(buffer);
@@ -431,7 +352,7 @@ static ssize_t read_comm_err_count_show(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 
 	input_info(true, &ts->client->dev, "%s: %d\n", __func__,
-			ts->multi_count);
+			ts->comm_err_count);
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", ts->comm_err_count);
 }
@@ -457,11 +378,14 @@ static ssize_t read_module_id_show(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[256] = { 0 };
 
-	snprintf(buff, sizeof(buff), "SE%02X%02X%02X%02X%c%01X%02X%02X",
-		ts->plat_data->panel_revision, ts->plat_data->img_version_of_bin[2],
+	snprintf(buff, sizeof(buff), "SE%02X%02X%02X%02X%c%01X",
+		ts->plat_data->img_version_of_bin[1], ts->plat_data->img_version_of_bin[2],
 		ts->plat_data->img_version_of_bin[3], ts->nv,
-		ts->tdata->tclm_string[ts->tdata->nvdata.cal_position].s_name, ts->tdata->nvdata.cal_count & 0xF,
-		ts->pressure_cal_base, ts->pressure_cal_delta);
+#ifdef TCLM_CONCEPT
+		ts->tdata->tclm_string[ts->tdata->nvdata.cal_position].s_name, ts->tdata->nvdata.cal_count & 0xF);
+#else
+		" ",0);
+#endif
 
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 
@@ -475,7 +399,8 @@ static ssize_t read_vendor_show(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	unsigned char buffer[10] = { 0 };
 
-	snprintf(buffer, 5, ts->plat_data->firmware_name + 8);
+	if (ts->plat_data->firmware_name)
+		snprintf(buffer, 5, ts->plat_data->firmware_name + 8);
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "LSI_%s", buffer);
 }
@@ -512,14 +437,14 @@ static ssize_t read_all_touch_count_show(struct device *dev,
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 
-	input_info(true, &ts->client->dev, "%s: touch:%d, force:%d, aod:%d, spay:%d\n", __func__,
-			ts->all_finger_count, ts->all_force_count,
-			ts->all_aod_tap_count, ts->all_spay_count);
+	input_info(true, &ts->client->dev, "%s: touch:%d, aod:%d, spay:%d\n", __func__,
+			ts->all_finger_count, ts->all_aod_tap_count,
+			ts->all_spay_count);
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE,
-			"\"TTCN\":\"%d\",\"TFCN\":\"%d\",\"TACN\":\"%d\",\"TSCN\":\"%d\"",
-			ts->all_finger_count, ts->all_force_count,
-			ts->all_aod_tap_count, ts->all_spay_count);
+			"\"TTCN\":\"%d\",\"TACN\":\"%d\",\"TSCN\":\"%d\"",
+			ts->all_finger_count, ts->all_aod_tap_count,
+			ts->all_spay_count);
 }
 
 static ssize_t clear_all_touch_count_store(struct device *dev,
@@ -529,7 +454,6 @@ static ssize_t clear_all_touch_count_store(struct device *dev,
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 
-	ts->all_force_count = 0;
 	ts->all_aod_tap_count = 0;
 	ts->all_spay_count = 0;
 
@@ -559,33 +483,6 @@ static ssize_t clear_mode_change_failed_count_store(struct device *dev,
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 
 	ts->mode_change_failed_count= 0;
-
-	input_info(true, &ts->client->dev, "%s: clear\n", __func__);
-
-	return count;
-}
-
-static ssize_t read_irq_recovery_count_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-
-	input_info(true, &ts->client->dev, "%s: %d\n", __func__,
-			ts->irq_recovery_count);
-
-	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d",
-			ts->irq_recovery_count);
-}
-
-static ssize_t clear_irq_recovery_count_store(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-
-	ts->irq_recovery_count = 0;
 
 	input_info(true, &ts->client->dev, "%s: clear\n", __func__);
 
@@ -645,7 +542,6 @@ static ssize_t sensitivity_mode_show(struct device *dev,
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d,%d,%d,%d,%d",
 			value[0], value[1], value[2], value[3], value[4]);
-
 }
 
 static ssize_t sensitivity_mode_store(struct device *dev,
@@ -696,96 +592,6 @@ static ssize_t sensitivity_mode_store(struct device *dev,
 	return count;
 }
 
-static ssize_t pressure_enable_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[256] = { 0 };
-
-	input_info(true, &ts->client->dev, "%s: force touch %s\n",
-			__func__, ts->lowpower_mode & SEC_TS_MODE_SPONGE_FORCE_KEY ? "ON" : "OFF");
-
-	if (ts->lowpower_mode & SEC_TS_MODE_SPONGE_FORCE_KEY)
-		snprintf(buff, sizeof(buff), "1");
-	else
-		snprintf(buff, sizeof(buff), "0");
-
-	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
-}
-
-/* Factory & game tools	: OFF value [0] / ON value [1]	*/
-/* Settings				: OFF value [2] / ON value [3]	*/
-static ssize_t pressure_enable_store(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	int ret;
-	unsigned long value = 0;
-
-	if (count > 2)
-		return -EINVAL;
-
-	ret = kstrtoul(buf, 10, &value);
-	if (ret != 0)
-		return ret;
-
-	if (!ts->use_sponge)
-		return -EINVAL;
-
-	if (!ts->plat_data->support_pressure) {
-		input_err(true, &ts->client->dev, "%s: Not support pressure[%d]\n",
-				__func__, value);
-		return -EINVAL;
-	}
-
-	input_info(true, &ts->client->dev, "%s: caller_id[%d]\n", __func__, value);
-
-	if (value == 1 || value == 3) {
-		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_FORCE_KEY;
-	} else if (value == 0 || value == 2) {
-		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_FORCE_KEY;
-	} else {
-		input_err(true, &ts->client->dev, "%s: Abnormal input value[%d]\n",
-				__func__, value);
-		return -EINVAL;
-	}
-	ts->pressure_caller_id = value;
-
-	sec_ts_set_custom_library(ts);
-
-	return count;
-}
-
-static ssize_t read_pressure_raw_check_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	/* need 22 char for each 'PRESSURE_CHANNEL_NUM * 4' data */
-	char buff[PRESSURE_CHANNEL_NUM * 4 * 22] = {0};
-	int data[2] = {TYPE_RAW_DATA, TYPE_OFFSET_DATA_SEC};
-	char loc[3] = {'R', 'C', 'L'};
-	int i, j;
-
-	for (i = 0; i < 2; i++) {
-		for (j = 0; j < PRESSURE_CHANNEL_NUM; j++) {
-			char tmp[20] = {0};
-
-			snprintf(tmp, sizeof(tmp), "\"TP%02d%c\":\"%d\"",
-					data[i], loc[j], ts->pressure_data[data[i]][j]);
-			strncat(buff, tmp, sizeof(tmp));
-			if (i < 3 || j < PRESSURE_CHANNEL_NUM - 1)
-				strncat(buff, ",", 2);
-		}
-	}
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s", buff);
-}
-
 static ssize_t read_ambient_info_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -822,15 +628,15 @@ static ssize_t read_ambient_channel_info_show(struct device *dev,
 	for (i = 0; i < ts->tx_count; i++) {
 		snprintf(temp, sizeof(temp), "\"TAMB_TX%02d\":\"%d\",",
 				i, ts->ambient_tx[i]);
-		strncat(buffer, temp, sizeof(temp));
+		strlcat(buffer, temp, (ts->tx_count + ts->rx_count) * 25);
 	}
 
 	for (i = 0; i < ts->rx_count; i++) {
 		snprintf(temp, sizeof(temp), "\"TAMB_RX%02d\":\"%d\"",
 				i, ts->ambient_rx[i]);
-		strncat(buffer, temp, sizeof(temp));
+		strlcat(buffer, temp, (ts->tx_count + ts->rx_count) * 25);
 		if (i  != (ts->rx_count - 1))
-			strncat(buffer, ",", 2);
+			strlcat(buffer, ",", (ts->tx_count + ts->rx_count) * 25);
 	}
 
 	ret = snprintf(buf, (ts->tx_count + ts->rx_count) * 25, buffer);
@@ -860,15 +666,15 @@ static ssize_t read_ambient_channel_delta_show(struct device *dev,
 	for (i = 0; i < ts->tx_count; i++) {
 		snprintf(temp, sizeof(temp), "\"TCDT%02d\":\"%d\",",
 				i, ts->ambient_tx_delta[i]);
-		strncat(buffer, temp, sizeof(temp));
+		strlcat(buffer, temp, (ts->tx_count + ts->rx_count) * 25);
 	}
 
 	for (i = 0; i < ts->rx_count; i++) {
 		snprintf(temp, sizeof(temp), "\"TCDR%02d\":\"%d\"",
 				i, ts->ambient_rx_delta[i]);
-		strncat(buffer, temp, sizeof(temp));
+		strlcat(buffer, temp, (ts->tx_count + ts->rx_count) * 25);
 		if (i  != (ts->rx_count - 1))
-			strncat(buffer, ",", 2);
+			strlcat(buffer, ",", (ts->tx_count + ts->rx_count) * 25);
 	}
 
 	ret = snprintf(buf, (ts->tx_count + ts->rx_count) * 25, buffer);
@@ -947,9 +753,9 @@ static ssize_t get_lp_dump(struct device *dev, struct device_attribute *attr, ch
 		ret = ts->sec_ts_read_sponge(ts, string_data, dump_format);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev,
-					"%s: Failed to read rect\n", __func__);
+					"%s: Failed to read sponge\n", __func__);
 			snprintf(buf, SEC_CMD_BUF_SIZE,
-					"NG, Failed to read rect, addr=%d",
+					"NG, Failed to read sponge, addr=%d",
 					string_addr);
 			goto out;
 		}
@@ -970,45 +776,13 @@ static ssize_t get_lp_dump(struct device *dev, struct device_attribute *attr, ch
 						"%d: %04x%04x%04x%04x\n",
 						string_addr, data0, data1, data2, data3);
 			}
-			strncat(buf, buff, sizeof(buff));
+			strlcat(buf, buff, PAGE_SIZE);
 		}
 	}
 
 out:
 	enable_irq(ts->client->irq);
 	return strlen(buf);
-}
-
-static ssize_t get_force_recal_count(struct device *dev,
-					struct device_attribute *attr, char *buf)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	u8 rbuf[4] = {0, };
-	u32 recal_count;
-	int ret;
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", -ENODEV);
-	}
-
-	if (ts->reset_is_on_going) {
-		input_err(true, &ts->client->dev, "%s: Reset is ongoing!\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", -EBUSY);
-	}
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_READ_FORCE_RECAL_COUNT, rbuf, 4);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev,
-				"%s: Failed to read\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", -EIO);
-	}
-
-	recal_count = (rbuf[0] & 0xFF) << 24 | (rbuf[1] & 0xFF) << 16 |
-			(rbuf[2] & 0xFF) << 8 | (rbuf[3] & 0xFF);
-
-	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", recal_count);
 }
 
 static ssize_t ic_status_show(struct device *dev,
@@ -1023,101 +797,107 @@ static ssize_t ic_status_show(struct device *dev,
 
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_TOUCHFUNCTION, data, 2);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "mutual,%d,", data[0] & 0x01 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "hover,%d,", data[0] & 0x02 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "cover,%d,", data[0] & 0x04 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "glove,%d,", data[0] & 0x08 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "stylus,%d,", data[0] & 0x10 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "palm,%d,", data[0] & 0x20 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "wet,%d,", data[0] & 0x40 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "prox,%d,", data[0] & 0x80 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "mutual:%d, ", data[0] & SEC_TS_BIT_SETFUNC_MUTUAL ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "hover:%d, ", data[0] & SEC_TS_BIT_SETFUNC_HOVER ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "cover:%d, ", data[0] & SEC_TS_BIT_SETFUNC_COVER ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "glove:%d, ", data[0] & SEC_TS_BIT_SETFUNC_GLOVE ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "stylus:%d, ", data[0] & SEC_TS_BIT_SETFUNC_STYLUS ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "palm:%d, ", data[0] & SEC_TS_BIT_SETFUNC_PALM ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "wet:%d, ", data[0] & SEC_TS_BIT_SETFUNC_WET ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "prox:%d, ", data[0] & SEC_TS_BIT_SETFUNC_PROXIMITY ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
 
-	memset(data, 0x00, 2);
+	data[0] = 0;
+	data[1] = 0;
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_POWER_MODE, data, 1);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "npm,%d,", data[0] == 0 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "lpm,%d,", data[0] == 1 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "test,%d,", data[0] == 2 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "flash,%d,", data[0] == 3 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "npm:%d, ", data[0] == TO_TOUCH_MODE);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "lpm:%d, ", data[0] == TO_LOWPOWER_MODE);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "test:%d, ", data[0] == TO_SELFTEST_MODE);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "flash:%d, ", data[0] == TO_FLASH_MODE);
+	strlcat(buff, temp, sizeof(buff));
 
-	memset(data, 0x00, 2);
+	data[0] = 0;
 	ret = ts->sec_ts_i2c_read(ts, SET_TS_CMD_SET_CHARGER_MODE, data, 1);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "no_charge,%d,", data[0] == 0 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "wire_charge,%d,", data[0] == 1 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-	snprintf(temp, sizeof(temp), "wireless_charge,%d,", data[0] == 2 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "no_charger:%d, ",
+			data[0] == SEC_TS_BIT_CHARGER_MODE_NO);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "wired_charger:%d, ",
+			data[0] == SEC_TS_BIT_CHARGER_MODE_WIRE_CHARGER);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "wireless_charger:%d, ",
+			data[0] == SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER);
+	strlcat(buff, temp, sizeof(buff));
 
-	memset(data, 0x00, 2);
+	data[0] = 0;
 	ret = ts->sec_ts_i2c_read(ts, SET_TS_CMD_SET_NOISE_MODE, data, 1);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "noise,%d,", data[0]);
-	strncat(buff, temp, sizeof(temp));
-
-	memset(data, 0x00, 2);
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_COVERTYPE, data, 1);
-	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
-
-	snprintf(temp, sizeof(temp), "cover_type,%d,", data[0]);
-	strncat(buff, temp, sizeof(temp));
-
-	memset(data, 0x00, 2);
-	ret = ts->sec_ts_read_sponge(ts, data, 1);
-	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
-
-	snprintf(temp, sizeof(temp), "pressure,%d,", data[0] & 0x40 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-
-	snprintf(temp, sizeof(temp), "aod,%d,", data[0] & 0x04 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
-
-	snprintf(temp, sizeof(temp), "spay,%d,", data[0] & 0x02 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "noise:%d, ", data[0] & 0x0F);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "supported_noise_mode:%d, ", (data[0] >> 4) & 0x0F);
+	strlcat(buff, temp, sizeof(buff));
 
 	data[0] = 0;
-
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_MONITOR_NOISE_MODE, data, 1);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "monitor_noise,%d,", data[0]);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "monitor_noise:%d, ", data[0]);
+	strlcat(buff, temp, sizeof(buff));
 
 	data[0] = 0;
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_COVERTYPE, data, 1);
+	if (ret < 0)
+		goto out;
 
+	snprintf(temp, sizeof(temp), "cover_type:%d, ", data[0]);
+	strlcat(buff, temp, sizeof(buff));
+
+	data[0] = 0;
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_BRUSH_MODE, data, 1);
 	if (ret < 0)
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
+		goto out;
 
-	snprintf(temp, sizeof(temp), "artcanvas,%d,", data[0]);
-	strncat(buff, temp, sizeof(temp));
+	snprintf(temp, sizeof(temp), "brush_mode:%d, ", data[0]);
+	strlcat(buff, temp, sizeof(buff));
 
+	data[0] = 0;
+	ret = ts->sec_ts_read_sponge(ts, data, 1);
+	if (ret < 0)
+		goto out;
+
+	snprintf(temp, sizeof(temp), "aod:%d, ", data[0] & SEC_TS_MODE_SPONGE_AOD ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "aot:%d", data[0] & SEC_TS_MODE_SPONGE_DOUBLETAP_TO_WAKEUP ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "spay:%d, ", data[0] & SEC_TS_MODE_SPONGE_SWIPE ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "fod:%d, ", data[0] & SEC_TS_MODE_SPONGE_PRESS ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+	snprintf(temp, sizeof(temp), "singletap:%d", data[0] & SEC_TS_MODE_SPONGE_SINGLE_TAP ? 1 : 0);
+	strlcat(buff, temp, sizeof(buff));
+
+out:
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
 }
 
@@ -1175,6 +955,7 @@ static int sec_ts_set_factory_data_type(struct sec_ts_data *ts, u8 pos)
 	sec_ts_delay(30);
 	return ret;
 }
+
 static void set_factory_level(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
@@ -1196,13 +977,13 @@ static void set_factory_level(void *device_data)
 	ts->factory_position = sec->cmd_param[0] + 1;	// for FW index
 	ts->factory_level = true;
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	return;
 
 NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
@@ -1213,23 +994,22 @@ NG:
 #define CHECK_ONLY_OPEN_TEST	1
 #define CHECK_ONLY_SHORT_TEST	2
 
-/* SELFTEST FAIL HISTORY : (cm1_1 + cm1_2 + cm2_1 + cm2_2 + cm3_1 + cm3_2) * 56 byte = 336 byte */
+/* SELFTEST FAIL HISTORY : (cm1_1 + cm1_2 + cm2_1 + cm2_2 + cm3_1 + cm3_2) * 48 byte */
 static ssize_t get_selftest_fail_hist_dump(struct sec_ts_data *ts, char *buf, u8 position)
 {
 	int i, j;
 	int ii, jj;
 	int ret;
-	int read_data_size = 3 * 2 * 56;
 	int print_cnt = 0;
 	char tempn[40] = {0};
 	char tempv[25] = {0};
 	char buff[1024 + 256] = {0};
-	int check_slop = 0;
-	int check_data_leng = 0;
-	u8 read_event_buff[6][56] = { { 0, } };
+	u8 read_event_buff[6][48] = { { 0, } };
 	u8 *rBuff;
+	u8 temp_result = 0;
+	u8 defect_tx, defect_rx;
+	u16 defective_node_data;
 	struct sec_ts_selftest_fail_hist *p_fail_hist;
-
 
 	/* set Factory level */
 	ret = sec_ts_write_factory_level(ts, position);
@@ -1241,18 +1021,18 @@ static ssize_t get_selftest_fail_hist_dump(struct sec_ts_data *ts, char *buf, u8
 	if (ret < 0)
 		goto err_exit;
 
-	rBuff = kzalloc(read_data_size, GFP_KERNEL);
+	rBuff = kzalloc(SEC_CM_HIST_DATA_SIZE, GFP_KERNEL);
 	if (!rBuff)
 		goto err_mem;
 
 	/* read full data */
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FACTORY_DATA, (u8 *)read_event_buff[0], read_data_size);
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FACTORY_DATA, (u8 *)read_event_buff[0], SEC_CM_HIST_DATA_SIZE);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: read fail history data failed!\n", __func__);
 		goto err_i2c;
 	}
 	input_info(true, &ts->client->dev, "%s: read data read_data_size[%d]  ret[%d]\n",
-						__func__, read_data_size, ret);
+						__func__, SEC_CM_HIST_DATA_SIZE, ret);
 
 	// CM 1 & 2 & 3 each 2 times
 	for (i = 1 ; i < 4 ; ++i ) {
@@ -1272,111 +1052,68 @@ static ssize_t get_selftest_fail_hist_dump(struct sec_ts_data *ts, char *buf, u8
 			}
 
 			input_info(true, &ts->client->dev, "%s: PRINT CM%d #%d INFO\n", __func__, i, j);
-			input_info(true, &ts->client->dev, "%s: FW VER : 0x%X, Selftest Parm : 0x%X, fail_cnt : %d, Test Result : 0x%X\n",
+			input_info(true, &ts->client->dev, "%s: FW VER : 0x%X, Selftest Parm : 0x%X, fail_cnt1/2 : %d/%d, Test Result : 0x%X\n",
 								__func__, p_fail_hist->tsp_fw_version, p_fail_hist->selftest_exec_parm,
-								p_fail_hist->fail_cnt, p_fail_hist->test_result);
+								p_fail_hist->fail_cnt1, p_fail_hist->fail_cnt2, p_fail_hist->test_result);
 
 			print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE, "CM%d #%d :", i, j);
 			print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE,
-								" FW VER : 0x%X, Selftest Parm : 0x%X, fail_cnt : %d, Test Result : 0x%X\n",
+								" FW VER : 0x%X, Selftest Parm : 0x%X, fail_cnt1/2 : %d/%d, Test Result : 0x%X\n",
 								p_fail_hist->tsp_fw_version, p_fail_hist->selftest_exec_parm,
-								p_fail_hist->fail_cnt, p_fail_hist->test_result);
+								p_fail_hist->fail_cnt1, p_fail_hist->fail_cnt2, p_fail_hist->test_result);
+			
+			input_info(true, &ts->client->dev, "%s: Primary Failure Type : 0x%X\n", __func__, p_fail_hist->fail_type);
+			print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE, "Fail Type : 0x%X\n", p_fail_hist->fail_type);
 
+			memset(buff, 0x00, 25);
 			memset(tempn, 0x00, 40);
+			
+			if (p_fail_hist->fail_type == 0x01)
+				snprintf(tempn, 40, "S2S Short Fail (Tx/Rx to Tx/Rx):");
+			else if (p_fail_hist->fail_type == 0x02)
+				snprintf(tempn, 40, "S2G Short Fail (Tx/Rx to GND):");
+			else if (p_fail_hist->fail_type == 0x03)
+				snprintf(tempn, 40, "S2O Short Fail (Tx/Rx to Rx/Tx):");
+			else if (p_fail_hist->fail_type == 0x04)
+				snprintf(tempn, 40, "Open Fail:");
+			else if (p_fail_hist->fail_type == 0x05)
+				snprintf(tempn, 40, "Slope Fail:");
+			else if (p_fail_hist->fail_type == 0x06)
+				snprintf(tempn, 40, "CM2 Fail:");
+			else if (p_fail_hist->fail_type == 0x07)
+				snprintf(tempn, 40, "CM3 Fail:");
+			else if (p_fail_hist->fail_type == 0x16)
+				snprintf(tempn, 40, "S2S Short in Boundary Range:");
 
-			if (i == OPEN_SHORT_TEST) {	// CM
-				check_slop = 1;
-				check_data_leng = 40;
-			} else if (i == CRACK_TEST){	// CM2
-				check_slop = 0;
-				check_data_leng = 16;
-			} else if (i == BRIDGE_SHORT_TEST){	// CM3
-				check_slop = 0;
-				check_data_leng = 16;
+			strlcat(buff, tempn, sizeof(buff));
+
+			for (ii = 0; ii < 8; ii++) {
+				temp_result = p_fail_hist->fail_data[ii];
+				for (jj = ii * 8; jj < (ii + 1) * 8; jj++) {
+					memset(tempv, 0x00, 25);
+					if (temp_result & 0x1)
+						snprintf(tempv, 20, "%s%d,",
+								jj < ts->tx_count ? "TX":"RX",
+								jj < ts->tx_count ? jj : jj - ts->tx_count);
+					strlcat(buff, tempv, sizeof(buff));
+					temp_result = temp_result >> 1;
+				}
 			}
+			
+			input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
+			print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE, "%s\n", buff);
+			memset(buff, 0x00, 25);
 
-			for (ii = 0 ; ii < check_data_leng ; ii += 8){
-				// skip slop data
-				if (check_slop == 0 && ii == 0)
-					ii = 8;
+			//factory failure data
+			for (ii = 0 ; ii < 5 ; ii++) {
+				defect_tx = p_fail_hist->defective_data[ii] & 0xFF;
+				defect_rx = (p_fail_hist->defective_data[ii] >> 8 ) & 0xFF;
+				defective_node_data = (p_fail_hist->defective_data[ii] >> 16) & 0xFFFF;
 
-				memset(tempn, 0x00, 40);
-				memset(buff, 0x00, 25);
-
-				if (i == OPEN_SHORT_TEST) {
-					if (ii / 8 == 0)
-						snprintf(tempn, 40, "OPEN_SHORT(TX/RX_SLOP):");
-					else if (ii / 8 == 1)
-						snprintf(tempn, 40, "OPEN_SHORT(TX/RX_OPEN):");
-					else if (ii / 8 == 2)
-						snprintf(tempn, 40, "OPEN_SHORT(TX/RX_SHORT_TO_GND):");
-					else if (ii / 8 == 3)
-						snprintf(tempn, 40, "OPEN_SHORT(TX/RX_SHORT_TO_TX/RX):");
-					else if (ii / 8 == 4)
-						snprintf(tempn, 40, "OPEN_SHORT(TX/RX_SHORT_TO_RX/TX):");
-				} else if (i == CRACK_TEST) {
-					snprintf(tempn, 40, "CRACK:");
-				} else if (i == BRIDGE_SHORT_TEST) {
-					snprintf(tempn, 40, "BRIDGE_SHORT:");
-				}
-				strncat(buff, tempn, 40);
-
-				for (jj = 0; jj < 8; jj++) {
-					int lshift = 0;
-
-					input_info(true, &ts->client->dev, "%s: p_fail_hist->fail_data[%d] = %02X ,",
-							__func__, ii + jj, p_fail_hist->fail_data[ii + jj]);
-
-					while (lshift <= 7) {
-						if ((p_fail_hist->fail_data[ii + jj] & (0x01 << lshift)) == 0) {
-							lshift++;
-							continue;
-						}
-
-						memset(tempv, 0x00, 25);
-						if (jj == 0) {
-							snprintf(tempv, 20, "T%d,", lshift);
-						} else if (jj == 1) {
-							snprintf(tempv, 20, "T%d,", lshift + 8);
-						} else if (jj == 2) {
-
-							if (lshift == 0)
-								snprintf(tempv, 20, "T16,");
-							else
-								snprintf(tempv, 20, "R%d,", lshift - 1);
-						} else if (jj == 3) {
-							snprintf(tempv, 20, "R%d,", lshift + 8 - 1);
-						} else if (jj == 4) {
-							snprintf(tempv, 20, "R%d,", lshift + 16 - 1);
-						} else if (jj == 5) {
-							snprintf(tempv, 20, "R%d,", lshift + 24 - 1);
-						} else if (jj == 6) {
-							if (lshift == 0)
-								snprintf(tempv, 20, "R31,");
-							else if (lshift == 1)
-								snprintf(tempv, 20, "R32,");
-							else if (lshift == 2)
-								snprintf(tempv, 20, "R33,");
-							else if (lshift == 3)
-								snprintf(tempv, 20, "R34,");
-							else if (lshift == 4)
-								snprintf(tempv, 20, "F0,");
-							else if (lshift == 5)
-								snprintf(tempv, 20, "F1,");
-							else if (lshift == 6)
-								snprintf(tempv, 20, "F2,");
-							else
-								snprintf(tempv, 20, "N,");
-						} else {
-							snprintf(tempv, 20, "N,");
-						}
-						strncat(buff, tempv, 25);
-						lshift++;
-					}
-				}
-				input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-				print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE, "%s\n", buff);
-				memset(buff, 0x00, 25);
+				input_info(true, &ts->client->dev, "%s: RX : %d, TX : %d, Data : %d\n", __func__, 
+									defect_rx, defect_tx, defective_node_data);
+				print_cnt += snprintf(buf + print_cnt, SEC_CMD_BUF_SIZE, "RX,TX[%d,%d] %d\n",
+									defect_rx, defect_tx, defective_node_data);
 			}
 		}
 	}
@@ -1446,11 +1183,11 @@ static ssize_t get_cmoffset_dump(struct sec_ts_data *ts, char *buf, u8 position,
 		goto err_i2c;
 	}
 
-	if (type == OFFSET_FAC_DATA_CM2){
+	if (type == OFFSET_FAC_DATA_CM2) {
 		signature_val = SEC_CM2_SIGNATURE;
-	} else if (type == OFFSET_FAC_DATA_CM3){
+	} else if (type == OFFSET_FAC_DATA_CM3) {
 		signature_val = SEC_CM3_SIGNATURE;
-	} else if (type == OFFSET_FAC_DATA_CM){
+	} else if (type == OFFSET_FAC_DATA_CM) {
 		signature_val = SEC_OFFSET_SIGNATURE;
 	} else {
 		input_err(true, &ts->client->dev, "%s: cmoffset pos[%d] type[%d], type is abnormal\n",
@@ -1466,7 +1203,7 @@ static ssize_t get_cmoffset_dump(struct sec_ts_data *ts, char *buf, u8 position,
 	if (value != signature_val) {
 		input_err(true, &ts->client->dev, "%s: cmoffset pos[%d] type[%d], signature is mismatched\n",
 			__func__, position, type);
-		snprintf(buf, SEC_CMD_BUF_SIZE, "Empty, error");
+		snprintf(buf, SEC_CMD_BUF_SIZE, "Empty, error\n");
 		goto err_invalid;
 	}
 
@@ -1492,10 +1229,10 @@ static ssize_t get_cmoffset_dump(struct sec_ts_data *ts, char *buf, u8 position,
 			else
 				temp = avg + temp * 2;
 			snprintf(buff, sizeof(buff), " %4d", temp);
-			strncat(buf, buff, sizeof(buff));
+			strlcat(buf, buff, PAGE_SIZE);
 		}
 		snprintf(buff, sizeof(buff), "\n");
-		strncat(buf, buff, sizeof(buff));
+		strlcat(buf, buff, PAGE_SIZE);
 	}
 
 	input_err(true, &ts->client->dev, "%s: total buf size:%d\n", __func__, strlen(buf));
@@ -1505,7 +1242,6 @@ err_invalid:
 	sec_ts_set_factory_data_type(ts, OFFSET_FAC_DATA_NO);
 
 	input_info(true, &ts->client->dev, "%s: set power mode to normal mode\n", __func__);
-
 	sec_ts_locked_release_all_finger(ts);
 	data[0] = 0x00;
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, data, 1);
@@ -1523,7 +1259,6 @@ err_mem:
 	sec_ts_set_factory_data_type(ts, OFFSET_FAC_DATA_NO);
 
 	input_info(true, &ts->client->dev, "%s: set power mode to normal mode\n", __func__);
-
 	sec_ts_locked_release_all_finger(ts);
 	data[0] = 0x00;
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, data, 1);
@@ -1536,18 +1271,27 @@ err_exit:
 
 static int sec_ts_check_condition(struct sec_ts_data *ts, char *buf)
 {
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "TSP turned off");
-	}
+	if (ts->power_status != SEC_TS_STATE_POWER_ON)
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "TSP is not NP mode");
 
-	if (ts->reset_is_on_going) {
-		input_err(true, &ts->client->dev, "%s: Reset is ongoing!\n", __func__);
+	if (ts->reset_is_on_going)
 		return snprintf(buf, SEC_CMD_BUF_SIZE, "Reset is ongoing");
-	}
+
+	if (ts->sec.cmd_is_running)
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "cmd is running");
+
+	if (mutex_is_locked(&ts->eventlock))
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "irq is running");
+
 	return 0;
 }
-#if 0 // not support crown ~
+
+/*
+ * CM 1 not used
+ * CM 2 beyond 1/2/5G
+ * CM 3 beyond 0/1/2/5G
+ * */
+#if 0	//not used in beyond project
 static ssize_t get_cmoffset_sdc(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
@@ -1587,6 +1331,7 @@ static ssize_t get_cmoffset_main(struct device *dev, struct device_attribute *at
 	return get_cmoffset_dump(ts, buf, OFFSET_FW_MAIN, OFFSET_FAC_DATA_CM);
 }
 #endif
+
 static ssize_t get_cm2_sdc(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct sec_cmd_data *sec = dev_get_drvdata(dev);
@@ -1702,122 +1447,6 @@ static ssize_t get_selftest_fail_hist_main(struct device *dev, struct device_att
 	return get_selftest_fail_hist_dump(ts, buf, OFFSET_FW_MAIN);
 }
 
-#ifdef USE_PRESSURE_SENSOR
-static ssize_t get_pressure_cfoffset_strength_all(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct sec_cmd_data *sec = dev_get_drvdata(dev);
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	u8 *rBuff;
-	int i, ret;
-	int cfoffset_max = 3 * 3;
-	int strength_max = 3 * 5;
-	char buff[16] = {0, };
-	short temp;
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "TSP turned off");
-	}
-
-	if (ts->reset_is_on_going) {
-		input_err(true, &ts->client->dev, "%s: Reset is ongoing!\n", __func__);
-		return snprintf(buf, SEC_CMD_BUF_SIZE, "Reset is ongoing");
-	}
-
-	rBuff = kzalloc(strength_max * 2, GFP_KERNEL);
-	if (!rBuff)
-		goto err_exit;
-
-	/* cf offset 18byte */
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FORCE_CFOFFSET_DATA, rBuff, cfoffset_max * 2);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read cfoffset failed!\n", __func__);
-		snprintf(buf, SEC_CMD_BUF_SIZE, "NG, error");
-		goto err_i2c;
-	}
-
-	memset(buff, 0x00, 16);
-	snprintf(buff, sizeof(buff), "[CFOFFSET]");
-	strncat(buf, buff, sizeof(buff));
-
-	for (i = 0; i < cfoffset_max; i++) {
-		temp = rBuff[2 * i + 1] | rBuff[2 * i] << 8;
-
-		memset(buff, 0x00, 16);
-		if (i % 3 == 0) {
-			snprintf(buff, sizeof(buff), "\n");
-			strncat(buf, buff, sizeof(buff));
-			if (i / 3 == 0) {
-				snprintf(buff, sizeof(buff), "SDC: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 1) {
-				snprintf(buff, sizeof(buff), "SUB: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 2) {
-				snprintf(buff, sizeof(buff), "MAI: ");
-				strncat(buf, buff, sizeof(buff));
-			}
-		}
-
-		memset(buff, 0x00, 16);
-		snprintf(buff, sizeof(buff), "\t%d", temp);
-		strncat(buf, buff, sizeof(buff));
-	}
-
-	memset(buff, 0x00, 16);
-	snprintf(buff, sizeof(buff), "\n[STRENGTH]");
-	strncat(buf, buff, sizeof(buff));
-
-	/* strength 30byte */
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FORCE_PRESSURE_DATA, rBuff, strength_max * 2);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read strength failed!\n", __func__);
-		snprintf(buff, sizeof(buff), "\n NG");
-		strncat(buf, buff, sizeof(buff));
-		goto err_i2c;
-	}
-
-	for (i = 0; i < strength_max; i++) {
-		temp = rBuff[2 * i + 1] | rBuff[2 * i] << 8;
-
-		memset(buff, 0x00, 16);
-		if (i % 3 == 0) {
-			snprintf(buff, sizeof(buff), "\n");
-			strncat(buf, buff, sizeof(buff));
-			if (i / 3 == 0) {
-				snprintf(buff, sizeof(buff), "LAT: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 1) {
-				snprintf(buff, sizeof(buff), "SDC: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 2) {
-				snprintf(buff, sizeof(buff), "SUB: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 3) {
-				snprintf(buff, sizeof(buff), "MAI: ");
-				strncat(buf, buff, sizeof(buff));
-			} else if (i / 3 == 4) {
-				snprintf(buff, sizeof(buff), "SVC: ");
-				strncat(buf, buff, sizeof(buff));
-			}
-		}
-
-		snprintf(buff, sizeof(buff), "\t%d", temp);
-		strncat(buf, buff, sizeof(buff));
-	}
-
-	snprintf(buff, sizeof(buff), "\n");
-	strncat(buf, buff, sizeof(buff));
-
-	input_err(true, &ts->client->dev, "%s: total buf size:%d\n", __func__, strlen(buf));
-
-err_i2c:
-	kfree(rBuff);
-err_exit:
-	return strlen(buf);
-}
-#endif
-
 static ssize_t prox_power_off_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1850,6 +1479,125 @@ static ssize_t prox_power_off_store(struct device *dev,
 	return count;
 }
 
+static ssize_t read_support_feature(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	u32 feature = 0;
+
+	if (ts->plat_data->enable_settings_aot)
+		feature |= INPUT_FEATURE_ENABLE_SETTINGS_AOT;
+
+	if (ts->plat_data->sync_reportrate_120)
+		feature |= INPUT_FEATURE_ENABLE_SYNC_RR120;
+
+	input_info(true, &ts->client->dev, "%s: %d%s%s%s\n",
+			__func__, feature,
+			feature & INPUT_FEATURE_ENABLE_SETTINGS_AOT ? " aot" : "",
+			feature & INPUT_FEATURE_ENABLE_PRESSURE ? " pressure" : "",
+			feature & INPUT_FEATURE_ENABLE_SYNC_RR120 ? " RR120hz" : "");
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", feature);
+}
+
+static ssize_t ear_detect_enable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+
+	input_info(true, &ts->client->dev, "%s: %d\n", __func__,
+			ts->ed_enable);
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d\n", ts->ed_enable);
+}
+
+static ssize_t ear_detect_enable_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	long data;
+	int ret;
+
+	ret = kstrtol(buf, 10, &data);
+	if (ret < 0)
+		return ret;
+
+	input_info(true, &ts->client->dev, "%s: %ld\n", __func__, data);
+
+	ts->ed_enable = data;
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_SET_EAR_DETECT_MODE, &ts->ed_enable, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+				"%s: failed to set ed_enable\n", __func__);
+	}
+
+	return count;
+}
+
+static ssize_t sec_ts_fod_position_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	u8 data[255] = { SEC_TS_CMD_SPONGE_FOD_POSITION, };
+	char buff[3] = { 0 };
+	int i, ret;
+
+	if (!ts->plat_data->support_fod) {
+		input_err(true, &ts->client->dev, "%s: fod is not supported\n", __func__);
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "NG");
+	}
+
+	if (!ts->fod_vi_size) {
+		input_err(true, &ts->client->dev, "%s: not read fod_info yet\n", __func__);
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "NG");
+	}
+
+	ret = ts->sec_ts_read_sponge(ts, data, ts->fod_vi_size);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to read\n", __func__);
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "NG");
+	}
+
+	for (i = 0; i < ts->fod_vi_size; i++) {
+		snprintf(buff, 3, "%02X", data[i]);
+		strlcat(buf, buff, SEC_CMD_BUF_SIZE);
+	}
+
+	return strlen(buf);
+}
+
+static ssize_t sec_ts_fod_info_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	u8 data[3] = { SEC_TS_CMD_SPONGE_FOD_INFO, };
+	int ret;
+
+	if (!ts->plat_data->support_fod) {
+		input_err(true, &ts->client->dev, "%s: fod is not supported\n", __func__);
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "NG");
+	}
+
+	ret = ts->sec_ts_read_sponge(ts, data, 3);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to read\n", __func__);
+		return snprintf(buf, SEC_CMD_BUF_SIZE, "NG");
+	}
+
+	ts->fod_vi_size = data[2];
+	input_info(true, &ts->client->dev, "%s: tx:%d, rx:%d, size:%d\n",
+			__func__, data[0], data[1], ts->fod_vi_size);
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d,%d,%d", data[0], data[1], ts->fod_vi_size);
+}
+
 static DEVICE_ATTR(ito_check, 0444, read_ito_check_show, NULL);
 static DEVICE_ATTR(raw_check, 0444, read_raw_check_show, NULL);
 static DEVICE_ATTR(multi_count, 0664, read_multi_count_show, clear_multi_count_store);
@@ -1859,20 +1607,16 @@ static DEVICE_ATTR(comm_err_count, 0664, read_comm_err_count_show, clear_comm_er
 static DEVICE_ATTR(checksum, 0664, read_checksum_show, clear_checksum_store);
 static DEVICE_ATTR(all_touch_count, 0664, read_all_touch_count_show, clear_all_touch_count_store);
 static DEVICE_ATTR(mode_change_failed_count, 0664, read_mode_change_failed_count_show, clear_mode_change_failed_count_store);
-static DEVICE_ATTR(irq_recovery_count, 0664, read_irq_recovery_count_show, clear_irq_recovery_count_store);
 static DEVICE_ATTR(ic_reset_count, 0664, read_ic_reset_count_show, clear_ic_reset_count_store);
 static DEVICE_ATTR(module_id, 0444, read_module_id_show, NULL);
 static DEVICE_ATTR(vendor, 0444, read_vendor_show, NULL);
-static DEVICE_ATTR(pressure_enable, 0664, pressure_enable_show, pressure_enable_store);
-static DEVICE_ATTR(pressure_raw_check, 0444, read_pressure_raw_check_show, NULL);
 static DEVICE_ATTR(read_ambient_info, 0444, read_ambient_info_show, NULL);
 static DEVICE_ATTR(read_ambient_channel_info, 0444, read_ambient_channel_info_show, NULL);
 static DEVICE_ATTR(read_ambient_channel_delta, 0444, read_ambient_channel_delta_show, NULL);
 static DEVICE_ATTR(get_lp_dump, 0444, get_lp_dump, NULL);
-static DEVICE_ATTR(force_recal_count, 0444, get_force_recal_count, NULL);
 static DEVICE_ATTR(status, 0444, ic_status_show, NULL);
 static DEVICE_ATTR(sensitivity_mode, 0664, sensitivity_mode_show, sensitivity_mode_store);
-#if 0 // not support crown ~
+#if 0
 static DEVICE_ATTR(cmoffset_sdc, 0444, get_cmoffset_sdc, NULL);
 static DEVICE_ATTR(cmoffset_sub, 0444, get_cmoffset_sub, NULL);
 static DEVICE_ATTR(cmoffset_main, 0444, get_cmoffset_main, NULL);
@@ -1886,10 +1630,11 @@ static DEVICE_ATTR(cm3_main, 0444, get_cm3_main, NULL);
 static DEVICE_ATTR(selftest_fail_hist_sdc, 0444, get_selftest_fail_hist_sdc, NULL);
 static DEVICE_ATTR(selftest_fail_hist_sub, 0444, get_selftest_fail_hist_sub, NULL);
 static DEVICE_ATTR(selftest_fail_hist_main, 0444, get_selftest_fail_hist_main, NULL);
-#ifdef USE_PRESSURE_SENSOR
-static DEVICE_ATTR(cfoffset_strength, 0444, get_pressure_cfoffset_strength_all, NULL);
-#endif
 static DEVICE_ATTR(prox_power_off, 0664, prox_power_off_show, prox_power_off_store);
+static DEVICE_ATTR(support_feature, 0444, read_support_feature, NULL);
+static DEVICE_ATTR(ear_detect_enable, 0664, ear_detect_enable_show, ear_detect_enable_store);
+static DEVICE_ATTR(fod_pos, 0444, sec_ts_fod_position_show, NULL);
+static DEVICE_ATTR(fod_info, 0444, sec_ts_fod_info_show, NULL);
 
 static struct attribute *cmd_attributes[] = {
 	&dev_attr_scrub_pos.attr,
@@ -1902,20 +1647,16 @@ static struct attribute *cmd_attributes[] = {
 	&dev_attr_checksum.attr,
 	&dev_attr_all_touch_count.attr,
 	&dev_attr_mode_change_failed_count.attr,
-	&dev_attr_irq_recovery_count.attr,
 	&dev_attr_ic_reset_count.attr,
 	&dev_attr_module_id.attr,
 	&dev_attr_vendor.attr,
-	&dev_attr_pressure_enable.attr,
-	&dev_attr_pressure_raw_check.attr,
 	&dev_attr_read_ambient_info.attr,
 	&dev_attr_read_ambient_channel_info.attr,
 	&dev_attr_read_ambient_channel_delta.attr,
 	&dev_attr_get_lp_dump.attr,
-	&dev_attr_force_recal_count.attr,
 	&dev_attr_status.attr,
 	&dev_attr_sensitivity_mode.attr,
-#if 0 // not support crown ~
+#if 0
 	&dev_attr_cmoffset_sdc.attr,
 	&dev_attr_cmoffset_sub.attr,
 	&dev_attr_cmoffset_main.attr,
@@ -1929,10 +1670,11 @@ static struct attribute *cmd_attributes[] = {
 	&dev_attr_selftest_fail_hist_sdc.attr,
 	&dev_attr_selftest_fail_hist_sub.attr,
 	&dev_attr_selftest_fail_hist_main.attr,
-#ifdef USE_PRESSURE_SENSOR
-	&dev_attr_cfoffset_strength.attr,
-#endif
 	&dev_attr_prox_power_off.attr,
+	&dev_attr_support_feature.attr,
+	&dev_attr_ear_detect_enable.attr,
+	&dev_attr_fod_pos.attr,
+	&dev_attr_fod_info.attr,
 	NULL,
 };
 
@@ -1949,7 +1691,7 @@ static int sec_ts_check_index(struct sec_ts_data *ts)
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > ts->tx_count
 			|| sec->cmd_param[1] < 0 || sec->cmd_param[1] > ts->rx_count) {
 
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		input_info(true, &ts->client->dev, "%s: parameter error: %u, %u\n",
@@ -1972,20 +1714,20 @@ static void fw_update(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
 	retval = sec_ts_firmware_update_on_hidden_menu(ts, sec->cmd_param[0]);
 	if (retval < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NA");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		input_err(true, &ts->client->dev, "%s: failed [%d]\n", __func__, retval);
 	} else {
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 		input_info(true, &ts->client->dev, "%s: success [%d]\n", __func__, retval);
@@ -2012,9 +1754,13 @@ int sec_ts_fix_tmode(struct sec_ts_data *ts, u8 mode, u8 state)
 int sec_ts_p2p_tmode(struct sec_ts_data *ts)
 {
 	int ret;
-	u8 mode[2] = {0x0F, 0x11};
+	u8 mode[3] = {0x0F, 0x00, 0xDF};
+	char para = TO_SELFTEST_MODE;
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
+	sec_ts_delay(30);
 
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_P2P_MODE, mode, sizeof(mode));
@@ -2026,33 +1772,35 @@ int sec_ts_p2p_tmode(struct sec_ts_data *ts)
 static int execute_p2ptest(struct sec_ts_data *ts)
 {
 	int ret;
-	u8 test[2] = {0x00, 0x64};
+	u8 test[2] = {0x00, 0x32};
 	u8 tBuff[10] = {0};
 	int retry = 0;
 
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_P2P_TEST, test, sizeof(test));
-	sec_ts_delay(2000);
+	sec_ts_delay(600);
 
 	ret = -1;
 
 	while (ts->sec_ts_i2c_read(ts, SEC_TS_READ_ONE_EVENT, tBuff, 8)) {
 		if (((tBuff[0] >> 2) & 0xF) == TYPE_STATUS_EVENT_VENDOR_INFO) {
 			if (tBuff[1] == SEC_TS_VENDOR_ACK_CMR_TEST_DONE) {
-				ts->cm_raw_set_p2p_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
-				ts->cm_raw_set_p2p_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
-				ts->cm_raw_set_p2p_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
+				ts->cm_raw_set_avg_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
+				ts->cm_raw_set_avg_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
+				ts->cm_raw_set_p2p = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
 			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_CSR_TX_TEST_DONE) {
-				ts->self_raw_set_p2p_x_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
-				ts->self_raw_set_p2p_x_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
-				ts->self_raw_set_p2p_x_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
+				ts->self_raw_set_avg_tx_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
+				ts->self_raw_set_avg_tx_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
+				ts->self_raw_set_p2p_tx_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
 			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_CSR_RX_TEST_DONE) {
-				ts->self_raw_set_p2p_y_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
-				ts->self_raw_set_p2p_y_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
-				ts->self_raw_set_p2p_y_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
+				ts->self_raw_set_avg_rx_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
+				ts->self_raw_set_avg_rx_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
+				ts->self_raw_set_p2p_rx_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
 			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_CMR_KEY_TEST_DONE) {
 				ts->cm_raw_key_p2p_max = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
 				ts->cm_raw_key_p2p_min = (tBuff[4] & 0xFF) << 8 | (tBuff[5] & 0xFF);
 				ts->cm_raw_key_p2p_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
+			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_RX_NODE_GAP_TEST_DONE) {
+				ts->cm_raw_set_p2p_gap_y = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
 			}
 		}
 
@@ -2100,21 +1848,21 @@ static void sec_ts_print_frame(struct sec_ts_data *ts, short *min, short *max)
 
 	memset(pStr, 0x0, lsize);
 	snprintf(pTmp, sizeof(pTmp), "      TX");
-	strncat(pStr, pTmp, lsize);
+	strlcat(pStr, pTmp, lsize);
 
 	for (i = 0; i < ts->tx_count; i++) {
 		snprintf(pTmp, sizeof(pTmp), " %02d ", i);
-		strncat(pStr, pTmp, lsize);
+		strlcat(pStr, pTmp, lsize);
 	}
 
 	input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 	memset(pStr, 0x0, lsize);
 	snprintf(pTmp, sizeof(pTmp), " +");
-	strncat(pStr, pTmp, lsize);
+	strlcat(pStr, pTmp, lsize);
 
 	for (i = 0; i < ts->tx_count; i++) {
 		snprintf(pTmp, sizeof(pTmp), "----");
-		strncat(pStr, pTmp, lsize);
+		strlcat(pStr, pTmp, lsize);
 	}
 
 	input_raw_info(true, &ts->client->dev, "%s\n", pStr);
@@ -2122,7 +1870,7 @@ static void sec_ts_print_frame(struct sec_ts_data *ts, short *min, short *max)
 	for (i = 0; i < ts->rx_count; i++) {
 		memset(pStr, 0x0, lsize);
 		snprintf(pTmp, sizeof(pTmp), "Rx%02d | ", i);
-		strncat(pStr, pTmp, lsize);
+		strlcat(pStr, pTmp, lsize);
 
 		for (j = 0; j < ts->tx_count; j++) {
 			snprintf(pTmp, sizeof(pTmp), " %3d", ts->pFrame[(j * ts->rx_count) + i]);
@@ -2133,7 +1881,7 @@ static void sec_ts_print_frame(struct sec_ts_data *ts, short *min, short *max)
 			if (ts->pFrame[(j * ts->rx_count) + i] > *max)
 				*max = ts->pFrame[(j * ts->rx_count) + i];
 
-			strncat(pStr, pTmp, lsize);
+			strlcat(pStr, pTmp, lsize);
 		}
 		input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 	}
@@ -2183,7 +1931,6 @@ static int sec_ts_read_frame(struct sec_ts_data *ts, u8 type, short *min,
 		}
 
 		sec_ts_locked_release_all_finger(ts);
-
 		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: Set rawdata type failed\n", __func__);
@@ -2255,27 +2002,27 @@ static void sec_ts_print_channel(struct sec_ts_data *ts)
 
 	memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 	snprintf(pTmp, sizeof(pTmp), " TX");
-	strncat(pStr, pTmp, 7 * ts->tx_count);
+	strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 	for (k = 0; k < ts->tx_count; k++) {
 		snprintf(pTmp, sizeof(pTmp), "    %02d", k);
-		strncat(pStr, pTmp, 7 * ts->tx_count);
+		strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 	}
 	input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 
 	memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 	snprintf(pTmp, sizeof(pTmp), " +");
-	strncat(pStr, pTmp, 7 * ts->tx_count);
+	strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 	for (k = 0; k < ts->tx_count; k++) {
 		snprintf(pTmp, sizeof(pTmp), "------");
-		strncat(pStr, pTmp, 7 * ts->tx_count);
+		strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 	}
 	input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 
 	memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 	snprintf(pTmp, sizeof(pTmp), " | ");
-	strncat(pStr, pTmp, 7 * ts->tx_count);
+	strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 	for (i = 0; i < (ts->tx_count + ts->rx_count) * 2; i += 2) {
 		if (j == ts->tx_count) {
@@ -2283,37 +2030,37 @@ static void sec_ts_print_channel(struct sec_ts_data *ts)
 			input_raw_info(true, &ts->client->dev, "\n");
 			memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 			snprintf(pTmp, sizeof(pTmp), " RX");
-			strncat(pStr, pTmp, 7 * ts->tx_count);
+			strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 			for (k = 0; k < ts->tx_count; k++) {
 				snprintf(pTmp, sizeof(pTmp), "    %02d", k);
-				strncat(pStr, pTmp, 7 * ts->tx_count);
+				strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 			}
 
 			input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 
 			memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 			snprintf(pTmp, sizeof(pTmp), " +");
-			strncat(pStr, pTmp, 7 * ts->tx_count);
+			strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 			for (k = 0; k < ts->tx_count; k++) {
 				snprintf(pTmp, sizeof(pTmp), "------");
-				strncat(pStr, pTmp, 7 * ts->tx_count);
+				strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 			}
 			input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 
 			memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 			snprintf(pTmp, sizeof(pTmp), " | ");
-			strncat(pStr, pTmp, 7 * ts->tx_count);
+			strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 		} else if (j && !(j % ts->tx_count)) {
 			input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 			memset(pStr, 0x0, 7 * (ts->tx_count + 1));
 			snprintf(pTmp, sizeof(pTmp), " | ");
-			strncat(pStr, pTmp, 7 * ts->tx_count);
+			strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 		}
 
 		snprintf(pTmp, sizeof(pTmp), " %5d", ts->pFrame[j]);
-		strncat(pStr, pTmp, 7 * ts->tx_count);
+		strlcat(pStr, pTmp, 7 * (ts->tx_count + 1));
 
 		j++;
 	}
@@ -2440,9 +2187,9 @@ static int get_gap_data(void *device_data)
 
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
 		snprintf(buff, sizeof(buff), "%d,%d", 0, tx_max);
-		sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_STR_LEN, "GAP_DATA_X");
+		sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_STR_LEN, "GAP_DATA_TX");
 		snprintf(buff, sizeof(buff), "%d,%d", 0, rx_max);
-		sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_STR_LEN, "GAP_DATA_Y");
+		sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_STR_LEN, "GAP_DATA_RX");
 	}
 
 	sec->cmd_state = SEC_CMD_STATUS_OK;
@@ -2472,7 +2219,7 @@ static void get_gap_data_x_all(void *device_data)
 				node_gap = 100 - (ts->pFrame[ii] * 100 / ts->pFrame[ii + 1]);
 
 			snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", node_gap);
-			strncat(buff, temp, CMD_RESULT_WORD_LEN);
+			strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 			memset(temp, 0x00, SEC_CMD_STR_LEN);
 		}
 	}
@@ -2505,7 +2252,7 @@ static void get_gap_data_y_all(void *device_data)
 				node_gap = 100 - (ts->pFrame[ii] * 100 / ts->pFrame[ii + ts->tx_count]);
 
 			snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", node_gap);
-			strncat(buff, temp, CMD_RESULT_WORD_LEN);
+			strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 			memset(temp, 0x00, SEC_CMD_STR_LEN);
 		}
 	}
@@ -2530,13 +2277,13 @@ static int get_self_channel_data(void *device_data, u8 type)
 
 	switch (type) {
 	case TYPE_OFFSET_DATA_SDC:
-		item_name = "SELF_OFFSET_MODULE";
+		item_name = "CS_OFFSET_MODULE";
 		break;
 	case TYPE_RAW_DATA:
-		item_name = "SELF_DELTA";
+		item_name = "CS_DELTA";
 		break;
 	case TYPE_OFFSET_DATA_SEC:
-		item_name = "SELF_OFFSET_SET";
+		item_name = "CS_OFFSET_SET";
 		break;
 	default:
 		break;
@@ -2550,7 +2297,7 @@ static int get_self_channel_data(void *device_data, u8 type)
 		tx_max = max(tx_max, ts->pFrame[ii]);
 	}
 	snprintf(buff, sizeof(buff), "%d,%d", tx_min, tx_max);
-	snprintf(temp, sizeof(temp), "%s%s", item_name, "_X");
+	snprintf(temp, sizeof(temp), "%s%s", item_name, "_TX");
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
 		sec_cmd_set_cmd_result_all(sec, buff, sizeof(buff), temp);
 
@@ -2564,7 +2311,7 @@ static int get_self_channel_data(void *device_data, u8 type)
 		rx_max = max(rx_max, ts->pFrame[ii]);
 	}
 	snprintf(buff, sizeof(buff), "%d,%d", rx_min, rx_max);
-	snprintf(temp, sizeof(temp), "%s%s", item_name, "_Y");
+	snprintf(temp, sizeof(temp), "%s%s", item_name, "_RX");
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
 		sec_cmd_set_cmd_result_all(sec, buff, sizeof(buff), temp);
 
@@ -2628,14 +2375,14 @@ static int sec_ts_read_raw_data(struct sec_ts_data *ts,
 		if (mode->frame_channel) {
 			for (ii = 0; ii < (ts->rx_count + ts->tx_count); ii++) {
 				snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", ts->pFrame[ii]);
-				strncat(buff, temp, CMD_RESULT_WORD_LEN);
+				strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 
 				memset(temp, 0x00, SEC_CMD_STR_LEN);
 			}
 		} else {
 			for (ii = 0; ii < (ts->rx_count * ts->tx_count); ii++) {
 				snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", ts->pFrame[ii]);
-				strncat(buff, temp, CMD_RESULT_WORD_LEN);
+				strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 
 				memset(temp, 0x00, SEC_CMD_STR_LEN);
 			}
@@ -2675,7 +2422,7 @@ error_alloc_mem:
 	if (!sec)
 		return ret;
 
-	snprintf(temp, SEC_CMD_STR_LEN, "FAIL");
+	snprintf(temp, SEC_CMD_STR_LEN, "NG");
 	sec_cmd_set_cmd_result(sec, temp, SEC_CMD_STR_LEN);
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING && (!mode->frame_channel))
 		sec_cmd_set_cmd_result_all(sec, temp, SEC_CMD_STR_LEN, item_name);
@@ -2738,14 +2485,14 @@ static int sec_ts_read_rawp2p_data(struct sec_ts_data *ts,
 		if (mode->frame_channel) {
 			for (ii = 0; ii < (ts->rx_count + ts->tx_count); ii++) {
 				snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", ts->pFrame[ii]);
-				strncat(buff, temp, CMD_RESULT_WORD_LEN);
+				strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 
 				memset(temp, 0x00, SEC_CMD_STR_LEN);
 			}
 		} else {
 			for (ii = 0; ii < (ts->rx_count * ts->tx_count); ii++) {
 				snprintf(temp, CMD_RESULT_WORD_LEN, "%d,", ts->pFrame[ii]);
-				strncat(buff, temp, CMD_RESULT_WORD_LEN);
+				strlcat(buff, temp, ts->tx_count * ts->rx_count * CMD_RESULT_WORD_LEN);
 
 				memset(temp, 0x00, SEC_CMD_STR_LEN);
 			}
@@ -2780,7 +2527,7 @@ error_power_state:
 	if (!sec)
 		return ret;
 
-	snprintf(temp, SEC_CMD_STR_LEN, "FAIL");
+	snprintf(temp, SEC_CMD_STR_LEN, "NG");
 	sec_cmd_set_cmd_result(sec, temp, SEC_CMD_STR_LEN);
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 
@@ -2818,18 +2565,20 @@ static int sec_ts_read_rawp2p_data_all(struct sec_ts_data *ts,
 	}
 
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
-		snprintf(buff, sizeof(buff), "%d,%d", ts->cm_raw_set_p2p_min, ts->cm_raw_set_p2p_max);
+		snprintf(buff, sizeof(buff), "%d,%d", ts->cm_raw_set_avg_min, ts->cm_raw_set_avg_max);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_AVG");
+		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p);
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P");
-		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p_diff);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_DIFF");
-		snprintf(buff, sizeof(buff), "%d,%d", ts->self_raw_set_p2p_x_min, ts->self_raw_set_p2p_x_max);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_X");
-		snprintf(buff, sizeof(buff), "%d,%d", ts->self_raw_set_p2p_y_min, ts->self_raw_set_p2p_y_max);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_Y");
-		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->self_raw_set_p2p_x_diff);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_X_DIFF");
-		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->self_raw_set_p2p_y_diff);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_Y_DIFF");
+		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p_gap_y);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
+		snprintf(buff, sizeof(buff), "%d,%d", ts->self_raw_set_avg_tx_min, ts->self_raw_set_avg_tx_max);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_TX_AVG");
+		snprintf(buff, sizeof(buff), "%d,%d", ts->self_raw_set_avg_rx_min, ts->self_raw_set_avg_rx_max);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_RX_AVG");
+		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->self_raw_set_p2p_tx_diff);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_TX_DIFF_P2P");
+		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->self_raw_set_p2p_rx_diff);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_RX_DIFF_P2P");
 	}
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -2854,16 +2603,17 @@ error_test_fail:
 error_tmode_fail:
 	enable_irq(ts->client->irq);
 error_power_state:
-	snprintf(buff, sizeof(buff), "%s", "FAIL");
+	snprintf(buff, sizeof(buff), "NG");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_AVG");
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_DIFF");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_X");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_Y");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_X_DIFF");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "SELF_RAW_SET_P2P_Y_DIFF");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_TX_AVG");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_RX_AVG");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_TX_DIFF_P2P");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CS_RAW_SET_RX_DIFF_P2P");
 	}
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	return ret;
@@ -2877,9 +2627,9 @@ static void get_fw_ver_bin(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	snprintf(buff, sizeof(buff), "SE%02X%02X%02X",
-			ts->plat_data->panel_revision, ts->plat_data->img_version_of_bin[2],
-			ts->plat_data->img_version_of_bin[3]);
+	snprintf(buff, sizeof(buff), "SE%02X%02X%02X%02X",
+			ts->plat_data->img_version_of_bin[0], ts->plat_data->img_version_of_bin[1],
+			ts->plat_data->img_version_of_bin[2], ts->plat_data->img_version_of_bin[3]);
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
@@ -2893,6 +2643,7 @@ static void get_fw_ver_ic(void *device_data)
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[16] = { 0 };
+	char model[16] = { 0 };
 	int ret;
 	u8 fw_ver[4];
 
@@ -2901,27 +2652,31 @@ static void get_fw_ver_ic(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_READ_IMG_VERSION, fw_ver, 4);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: firmware version read error\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
-	snprintf(buff, sizeof(buff), "SE%02X%02X%02X",
-			ts->plat_data->panel_revision, fw_ver[2], fw_ver[3]);
+	snprintf(buff, sizeof(buff), "SE%02X%02X%02X%02X",
+			fw_ver[0], fw_ver[1], fw_ver[2], fw_ver[3]);
+	snprintf(model, sizeof(model), "SE%02X%02X",
+		fw_ver[0], fw_ver[1]);
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
+	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "FW_VER_IC");
+		sec_cmd_set_cmd_result_all(sec, model, strnlen(model, sizeof(model)), "FW_MODEL");
+	}
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 }
@@ -2994,21 +2749,21 @@ static void get_threshold(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_TOUCH_MODE_FOR_THRESHOLD, threshold, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: threshold write type failed. ret: %d\n", __func__, ret);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_TOUCH_THRESHOLD, threshold, 2);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: read threshold fail!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3024,122 +2779,9 @@ static void get_threshold(void *device_data)
 	return;
 err:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	return;
 }
-
-static u32 evt0_lot_id[] = {
-	0x0807FFFF,
-	0x0610FFFF,
-	0x060BFFFF, 
-	0x060FFFFF,
-	0x061EFFFF,
-	0x0617FFFF,
-	0x0507FFFF,
-	0x010AFFFF,
-	0x0506FFFF,
-	0x210BFFFF,
-	0x2106FFFF,
-	0x0109FFFF,
-	0x0110FFFF,
-};
-
-int sec_ts_read_evt_info(struct sec_ts_data *ts)
-{
-	char buff[20] = { 0 };
-	char w_data[10] = { 0 };
-	char r_data[4] = { 0 };
-	u32 r_data_32;
-	int ret;
-	int ii;
-	int result = 1;
-
-	w_data[0] = 0x00;
-	w_data[1] = 0x04;
-	w_data[2] = 0xFA;
-	w_data[3] = 0x08;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_FLASH_READ_ADDR, w_data, 4);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_FLASH_READ_ADDR write type failed. ret: %d\n", __func__, ret);
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		goto err;
-	}
-
-	w_data[0] = 0x00;
-	w_data[1] = 0x04;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_FLASH_READ_SIZE, w_data, 2);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_FLASH_READ_SIZE write type failed. ret: %d\n", __func__, ret);
-		goto err;
-	}
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_FLASH_READ_DATA, r_data, 4);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read threshold fail!\n", __func__);
-		goto err;
-	}
-
-	r_data_32 = r_data[0] | r_data[1] << 8 | r_data[2] << 16 | r_data[3] << 24;
-
-	for (ii = 0; ii < 13; ii++) {
-		if (r_data_32 == evt0_lot_id[ii]){
-			input_info(true, &ts->client->dev,
-				"%s: matched evt0 data[%d] r_data[0x%08x] = evt0_lot_id[0x%08x]\n",
-				__func__, ii, r_data_32, evt0_lot_id[ii]);
-			result = 0;
-			break;
-		}
-	}
-	ts->evt_info = result;
-
-	input_info(true, &ts->client->dev, "%s: evt:%d, [0x%08X]\n", __func__, ts->evt_info, r_data_32);
-
-	return result;
-err:
-	return -1;
-
-}
-
-static void get_evt_info(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[20] = { 0 };
-	int result = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		goto err;
-	}
-
-	result = sec_ts_read_evt_info(ts);
-	if (result < 0){
-		snprintf(buff, sizeof(buff), "%s", "NG");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		goto err;
-	}
-
-	snprintf(buff, sizeof(buff), "%d", result);
-
-	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "EVT_CHECK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return;
-err:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	return;
-}
-
 
 static void module_off_master(void *device_data)
 {
@@ -3151,9 +2793,9 @@ static void module_off_master(void *device_data)
 	ret = sec_ts_stop_device(ts);
 
 	if (ret == 0)
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 	else
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 
 	sec_cmd_set_default_result(sec);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
@@ -3179,9 +2821,9 @@ static void module_on_master(void *device_data)
 	}
 
 	if (ret == 0)
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 	else
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 
 	sec_cmd_set_default_result(sec);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
@@ -3235,135 +2877,6 @@ static void get_chip_name(void *device_data)
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 }
 
-static void set_mis_cal_spec(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[16] = { 0 };
-	char wreg[5] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->plat_data->mis_cal_check == 0) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] not support, %d\n", __func__);
-		goto NG;
-	} else if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
-		goto NG;
-	} else {
-		if ((sec->cmd_param[0] < 0 || sec->cmd_param[0] > 255) ||
-				(sec->cmd_param[1] < 0 || sec->cmd_param[1] > 255) ||
-				(sec->cmd_param[2] < 0 || sec->cmd_param[2] > 255)) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			goto NG;
-		} else {
-			wreg[0] = sec->cmd_param[0];
-			wreg[1] = sec->cmd_param[1];
-			wreg[2] = sec->cmd_param[2];
-
-			ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_MIS_CAL_SPEC, wreg, 3);
-			if (ret < 0) {
-				input_err(true, &ts->client->dev, "%s: nvm write failed. ret: %d\n", __func__, ret);
-				goto NG;
-			} else {
-				input_info(true, &ts->client->dev, "%s: tx gap=%d, rx gap=%d, peak=%d\n",
-								__func__, wreg[0], wreg[1], wreg[2]);
-				sec_ts_delay(20);
-			}
-		}
-	}
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec_cmd_set_cmd_exit(sec);
-	return;
-
-NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec_cmd_set_cmd_exit(sec);
-	return;
-}
-
-/*
- *	## Mis Cal result ##
- *	FF : initial value in Firmware.
- *	FD : Cal fail case
- *	F4 : i2c fail case (5F)
- *	F3 : i2c fail case (5E)
- *	F2 : power off state
- *	F1 : not support mis cal concept
- *	F0 : initial value in fucntion
- *	08 : Ambient Ambient condition check(PEAK) result 0 (PASS), 1(FAIL)
- *	04 : Ambient Ambient condition check(DIFF MAX TX) result 0 (PASS), 1(FAIL)
- *	02 : Ambient Ambient condition check(DIFF MAX RX) result 0 (PASS), 1(FAIL)
- *	01 : Wet Wet mode result 0 (PASS), 1(FAIL)
- *	00 : Pass
- */
-static void get_mis_cal_info(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[16] = { 0 };
-	char mis_cal_data = 0xF0;
-	char wreg[5] = { 0 };
-	int ret;
-	char buff_all[16] = { 0 };
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->plat_data->mis_cal_check == 0) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] not support, %d\n", __func__);
-		mis_cal_data = 0xF1;
-		goto NG;
-	} else if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
-		mis_cal_data = 0xF2;
-		goto NG;
-	} else {
-		ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_MIS_CAL_READ, &mis_cal_data, 1);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: i2c fail!, %d\n", __func__, ret);
-			mis_cal_data = 0xF3;
-			goto NG;
-		} else {
-			input_info(true, &ts->client->dev, "%s: miss cal data : %d\n", __func__, mis_cal_data);
-		}
-
-		ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_MIS_CAL_SPEC, wreg, 4);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: i2c fail!, %d\n", __func__, ret);
-			mis_cal_data = 0xF4;
-			goto NG;
-		} else {
-			input_info(true, &ts->client->dev, "%s: miss cal spec : %d,%d,%d,%d\n",
-						__func__, wreg[0], wreg[1], wreg[2], wreg[3]);
-		}
-	}
-
-	snprintf(buff, sizeof(buff), "%d", mis_cal_data);
-	snprintf(buff_all, sizeof(buff_all), "%d,%d,%d,%d,%d", mis_cal_data, wreg[0], wreg[1], wreg[2], wreg[3]);
-
-	sec_cmd_set_cmd_result(sec, buff_all, strnlen(buff_all, sizeof(buff_all)));
-	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff_all);
-	return;
-
-NG:
-	snprintf(buff, sizeof(buff), "%d", mis_cal_data);
-	snprintf(buff_all, sizeof(buff_all), "%d,%d,%d,%d", mis_cal_data, 0, 0, 0);
-	sec_cmd_set_cmd_result(sec, buff_all, strnlen(buff_all, sizeof(buff_all)));
-	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff_all);
-}
-
 static void get_wet_mode(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
@@ -3375,7 +2888,6 @@ static void get_wet_mode(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	sec_ts_delay(300);
-
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_WET_MODE, &wet_mode_info, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: i2c fail!, %d\n", __func__, ret);
@@ -3421,39 +2933,6 @@ static void get_y_num(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 	snprintf(buff, sizeof(buff), "%d", ts->rx_count);
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-}
-
-static void get_x_cross_routing(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[16] = { 0 };
-
-	sec_cmd_set_default_result(sec);
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-}
-
-static void get_y_cross_routing(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[16] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	ret = strncmp(ts->plat_data->model_name, "G935", 4)
-		&& strncmp(ts->plat_data->model_name, "N930", 4);
-	if (ret == 0)
-		snprintf(buff, sizeof(buff), "13,14");
-	else
-		snprintf(buff, sizeof(buff), "NG");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
@@ -3559,7 +3038,7 @@ static void get_checksum_data(void *device_data)
 	sec_cmd_set_default_result(sec);
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3577,7 +3056,7 @@ static void get_checksum_data(void *device_data)
 	if (ret < 0) {
 		enable_irq(ts->client->irq);
 		input_err(true, &ts->client->dev, "%s: boot complete failed\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3586,7 +3065,7 @@ static void get_checksum_data(void *device_data)
 		enable_irq(ts->client->irq);
 		input_err(true, &ts->client->dev, "%s: firmware integrity failed, ret:%d, data:%X\n",
 				__func__, ret, data[0]);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3594,7 +3073,7 @@ static void get_checksum_data(void *device_data)
 	if (ret < 0 || (data[1] != SEC_TS_STATUS_APP_MODE)) {
 		enable_irq(ts->client->irq);
 		input_err(true, &ts->client->dev, "%s: boot status failed, ret:%d, data:%X\n", __func__, ret, data[0]);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3602,7 +3081,7 @@ static void get_checksum_data(void *device_data)
 	if (ret < 0 || (data[3] == TOUCH_SYSTEM_MODE_FLASH)) {
 		enable_irq(ts->client->irq);
 		input_err(true, &ts->client->dev, "%s: touch status failed, ret:%d, data:%X\n", __func__, ret, data[3]);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3616,7 +3095,7 @@ static void get_checksum_data(void *device_data)
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_GET_CHECKSUM, &temp, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: send get_checksum_cmd fail!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "SendCMDfail");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3625,7 +3104,7 @@ static void get_checksum_data(void *device_data)
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_GET_CHECKSUM, csum_result, 4);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: read get_checksum result fail!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "ReadCSUMfail");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -3663,7 +3142,7 @@ static void get_checksum_data(void *device_data)
 
 		if (request_firmware(&fw_entry, fw_path, &ts->client->dev) !=  0) {
 			input_err(true, &ts->client->dev, "%s: firmware is not available\n", __func__);
-			snprintf(buff, sizeof(buff), "%s", "NG");
+			snprintf(buff, sizeof(buff), "NG");
 			goto err;
 		}
 
@@ -3677,7 +3156,7 @@ static void get_checksum_data(void *device_data)
 		if (img_checksum != ic_checksum) {
 			input_err(true, &ts->client->dev, "%s: img_checksum=[0x%X] != ic_checksum=[0x%X]!!!\n",
 							__func__, img_checksum, ic_checksum);
-			snprintf(buff, sizeof(buff), "%s", "NG");
+			snprintf(buff, sizeof(buff), "NG");
 			goto err;
 		}
 	}
@@ -3691,7 +3170,7 @@ out:
 
 err:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 }
 
 static void run_reference_read(void *device_data)
@@ -3735,9 +3214,9 @@ static void get_reference(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -3793,9 +3272,9 @@ static void get_rawcap(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -3852,9 +3331,9 @@ static void get_delta(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -3899,7 +3378,7 @@ static void run_delta_cm_read_all(void *device_data)
 	sec_ts_read_raw_data(ts, sec, &mode);
 }
 
-static void run_raw_p2p_read_all(void *device_data)
+static void run_raw_p2p_read(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
@@ -3913,7 +3392,7 @@ static void run_raw_p2p_read_all(void *device_data)
 	sec_ts_read_rawp2p_data_all(ts, sec, &mode);
 }
 
-static void run_raw_p2p_min_read_all(void *device_data)
+static void run_raw_p2p_avg_read_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
@@ -3922,13 +3401,13 @@ static void run_raw_p2p_min_read_all(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
-	mode.type = TYPE_RAW_DATA_P2P_MIN;
+	mode.type = TYPE_RAW_DATA_P2P_AVG;
 	mode.allnode = TEST_MODE_ALL_NODE;
 
 	sec_ts_read_rawp2p_data(ts, sec, &mode);
 }
 
-static void run_raw_p2p_max_read_all(void *device_data)
+static void run_raw_p2p_read_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
@@ -3937,7 +3416,22 @@ static void run_raw_p2p_max_read_all(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
-	mode.type = TYPE_RAW_DATA_P2P_MAX;
+	mode.type = TYPE_RAW_DATA_P2P_DIFF;
+	mode.allnode = TEST_MODE_ALL_NODE;
+
+	sec_ts_read_rawp2p_data(ts, sec, &mode);
+}
+
+static void run_raw_p2p_node_gap_y_read_all(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	struct sec_ts_test_mode mode;
+
+	sec_cmd_set_default_result(sec);
+
+	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
+	mode.type = TYPE_RAW_DATA_NODE_GAP_Y;
 	mode.allnode = TEST_MODE_ALL_NODE;
 
 	sec_ts_read_rawp2p_data(ts, sec, &mode);
@@ -4037,7 +3531,7 @@ static void run_self_delta_read_all(void *device_data)
 	sec_ts_read_raw_data(ts, sec, &mode);
 }
 
-static void run_self_raw_p2p_min_read_all(void *device_data)
+static void run_self_raw_p2p_avg_read_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
@@ -4046,14 +3540,14 @@ static void run_self_raw_p2p_min_read_all(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
-	mode.type = TYPE_RAW_DATA_P2P_MIN;
+	mode.type = TYPE_RAW_DATA_P2P_AVG;
 	mode.frame_channel = TEST_MODE_READ_CHANNEL;
 	mode.allnode = TEST_MODE_ALL_NODE;
 
 	sec_ts_read_rawp2p_data(ts, sec, &mode);
 }
 
-static void run_self_raw_p2p_max_read_all(void *device_data)
+static void run_self_raw_p2p_diff_read_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
@@ -4062,7 +3556,7 @@ static void run_self_raw_p2p_max_read_all(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
-	mode.type = TYPE_RAW_DATA_P2P_MAX;
+	mode.type = TYPE_RAW_DATA_P2P_DIFF;
 	mode.frame_channel = TEST_MODE_READ_CHANNEL;
 	mode.allnode = TEST_MODE_ALL_NODE;
 
@@ -4118,10 +3612,6 @@ void sec_ts_run_rawdata_all(struct sec_ts_data *ts, bool full_read)
 	int ret, i, read_num;
 	u8 test_type[5] = {TYPE_AMBIENT_DATA, TYPE_DECODED_DATA,
 		TYPE_SIGNAL_DATA, TYPE_OFFSET_DATA_SEC, TYPE_OFFSET_DATA_SDC};
-#ifdef USE_PRESSURE_SENSOR
-	short pressure[3] = { 0 };
-	u8 cal_data[18] = { 0 };
-#endif
 
 	ts->tsp_dump_lock = 1;
 	input_raw_data_clear();
@@ -4181,38 +3671,6 @@ void sec_ts_run_rawdata_all(struct sec_ts_data *ts, bool full_read)
 		}
 	}
 
-#ifdef USE_PRESSURE_SENSOR
-	ret = sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: failed to fix tmode\n",
-				__func__);
-		goto out;
-	}
-
-	/* run pressure offset data read */
-	read_pressure_data(ts, TYPE_OFFSET_DATA_SEC, pressure);
-	sec_ts_delay(20);
-
-	/* run pressure rawdata read */
-	read_pressure_data(ts, TYPE_RAW_DATA, pressure);
-	sec_ts_delay(20);
-
-	/* run pressure raw delta read  */
-	read_pressure_data(ts, TYPE_REMV_AMB_DATA, pressure);
-	sec_ts_delay(20);
-
-	/* run pressure sigdata read */
-	read_pressure_data(ts, TYPE_SIGNAL_DATA, pressure);
-	sec_ts_delay(20);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_GET_PRESSURE, cal_data, 6);
-	ts->pressure_left = ((cal_data[0] << 8) | cal_data[1]);
-	ts->pressure_center = ((cal_data[2] << 8) | cal_data[3]);
-	ts->pressure_right = ((cal_data[4] << 8) | cal_data[5]);
-	input_raw_info(true, &ts->client->dev, "%s: pressure cal data - Left: %d, Center: %d, Right: %d\n",
-			__func__, ts->pressure_left, ts->pressure_center,
-			ts->pressure_right);
-#endif
 	sec_ts_release_tmode(ts);
 
 	if (full_read)
@@ -4266,7 +3724,7 @@ out:
  * buff[2] : write data
  * buff[..] : cont.
  */
-void set_tsp_nvm_data_clear(struct sec_ts_data *ts, u8 offset)
+static void set_tsp_nvm_data_clear(struct sec_ts_data *ts, u8 offset)
 {
 	char buff[4] = { 0 };
 	int ret;
@@ -4423,13 +3881,29 @@ out_nvm:
 	return ret;
 }
 
+static int set_tsp_nvm_data_by_size(struct sec_ts_data *ts, u8 reg, int size, u8 *data)
+{
+	int rc;
+	u8 buff[SEC_CMD_STR_LEN] = {0};
+
+	buff[0] = reg;
+	buff[1] = size - 1;	/* 1bytes */
+	memcpy(&buff[2], data, size);
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, buff, size + 2);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev,
+			"%s: nvm write failed. ret: %d\n", __func__, rc);
+	}
+	sec_ts_delay(20);
+	return rc;
+}
+
 int sec_tclm_data_read(struct i2c_client *client, int address)
 {
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 0;
-	int i = 0;
 	u8 buff[4];
-	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH];
+	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT];
 
 	switch (address) {
 	case SEC_TCLM_NVM_OFFSET_IC_FIRMWARE_VER:
@@ -4442,23 +3916,13 @@ int sec_tclm_data_read(struct i2c_client *client, int address)
 		ret = (buff[2] << 8) | buff[3];
 		return ret;
 	case SEC_TCLM_NVM_ALL_DATA:
-		ret = get_tsp_nvm_data_by_size(ts, SEC_TS_NVM_OFFSET_FAC_RESULT, SEC_TS_NVM_OFFSET_LENGTH, nbuff);
+		memset(&ts->tdata->nvdata, 0x00, sizeof(struct sec_tclm_nvdata));
+		
+		ret = get_tsp_nvm_data_by_size(ts, SEC_TS_NVM_OFFSET_CAL_COUNT, sizeof(struct sec_tclm_nvdata), nbuff);
 		if (ret < 0)
 			return ret;
-		ts->tdata->nvdata.cal_count = nbuff[SEC_TS_NVM_OFFSET_CAL_COUNT];
-		ts->tdata->nvdata.tune_fix_ver = (nbuff[SEC_TS_NVM_OFFSET_TUNE_VERSION] << 8) | nbuff[SEC_TS_NVM_OFFSET_TUNE_VERSION + 1];
-		ts->tdata->nvdata.cal_position = nbuff[SEC_TS_NVM_OFFSET_CAL_POSITION];
-		ts->tdata->nvdata.cal_pos_hist_cnt = nbuff[SEC_TS_NVM_OFFSET_HISTORY_QUEUE_COUNT];
-		ts->tdata->nvdata.cal_pos_hist_lastp = nbuff[SEC_TS_NVM_OFFSET_HISTORY_QUEUE_LASTP];
-		for (i = SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO; i < 2 * CAL_HISTORY_QUEUE_MAX + SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO; i++)
-			ts->tdata->nvdata.cal_pos_hist_queue[i - SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO] = nbuff[i];
 
-		input_err(true, &ts->client->dev, "%s:  %d %d %d %d\n", __func__,
-			ts->tdata->nvdata.cal_count, ts->tdata->nvdata.tune_fix_ver,
-			ts->tdata->nvdata.cal_pos_hist_cnt, ts->tdata->nvdata.cal_pos_hist_lastp);
-
-		ts->nv = nbuff[SEC_TS_NVM_OFFSET_FAC_RESULT];
-		ts->disassemble_count = nbuff[SEC_TS_NVM_OFFSET_DISASSEMBLE_COUNT];
+		memcpy(&ts->tdata->nvdata, nbuff, sizeof(struct sec_tclm_nvdata));
 		return ret;
 	case SEC_TCLM_NVM_TEST:
 		input_info(true, &ts->client->dev, "%s: dt: tclm_level [%d] afe_base [%04X]\n",
@@ -4481,23 +3945,13 @@ int sec_tclm_data_write(struct i2c_client *client, int address)
 {
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 1;
-	int i = 0;
-	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH];
+	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT];
 
-	memset(nbuff, 0x00, SEC_TS_NVM_OFFSET_LENGTH);
+	memset(nbuff, 0x00, sizeof(struct sec_tclm_nvdata));
 	switch (address) {
 	case SEC_TCLM_NVM_ALL_DATA:
-		nbuff[SEC_TS_NVM_OFFSET_FAC_RESULT] = ts->nv;
-		nbuff[SEC_TS_NVM_OFFSET_DISASSEMBLE_COUNT] = ts->disassemble_count;
-		nbuff[SEC_TS_NVM_OFFSET_CAL_COUNT] = ts->tdata->nvdata.cal_count;
-		nbuff[SEC_TS_NVM_OFFSET_TUNE_VERSION] = (u8)(ts->tdata->nvdata.tune_fix_ver >> 8);
-		nbuff[SEC_TS_NVM_OFFSET_TUNE_VERSION + 1] = (u8)(0xff & ts->tdata->nvdata.tune_fix_ver);
-		nbuff[SEC_TS_NVM_OFFSET_CAL_POSITION] = ts->tdata->nvdata.cal_position;
-		nbuff[SEC_TS_NVM_OFFSET_HISTORY_QUEUE_COUNT] = ts->tdata->nvdata.cal_pos_hist_cnt;
-		nbuff[SEC_TS_NVM_OFFSET_HISTORY_QUEUE_LASTP] = ts->tdata->nvdata.cal_pos_hist_lastp;
-		for (i = SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO; i < 2 * CAL_HISTORY_QUEUE_MAX + SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO; i++)
-			nbuff[i] = ts->tdata->nvdata.cal_pos_hist_queue[i - SEC_TS_NVM_OFFSET_HISTORY_QUEUE_ZERO];
-		ret = set_tsp_nvm_data_by_size(ts, SEC_TS_NVM_OFFSET_FAC_RESULT, SEC_TS_NVM_OFFSET_LENGTH, nbuff);
+		memcpy(nbuff, &ts->tdata->nvdata, sizeof(struct sec_tclm_nvdata));
+		ret = set_tsp_nvm_data_by_size(ts, SEC_TS_NVM_OFFSET_CAL_COUNT, sizeof(struct sec_tclm_nvdata), nbuff);
 		return ret;
 	case SEC_TCLM_NVM_TEST:
 		ret = set_tsp_nvm_data_by_size(ts, SEC_TS_NVM_TOTAL_OFFSET_LENGTH + SEC_TCLM_NVM_OFFSET,
@@ -4508,22 +3962,6 @@ int sec_tclm_data_write(struct i2c_client *client, int address)
 	}
 }
 
-int set_tsp_nvm_data_by_size(struct sec_ts_data *ts, u8 reg, int size, u8 *data)
-{
-	int rc;
-	u8 buff[SEC_CMD_STR_LEN] = {0};
-
-	buff[0] = reg;
-	buff[1] = size - 1;	/* 1bytes */
-	memcpy(&buff[2], data, size);
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, buff, size + 2);
-	if (rc < 0) {
-		input_err(true, &ts->client->dev,
-			"%s: nvm write failed. ret: %d\n", __func__, rc);
-	}
-	sec_ts_delay(20);
-	return rc;
-}
 #if 0
 static void sec_ts_tclm_set_nvm_data_2byte(struct sec_ts_data *ts, u8 reg, u8 data1, u8 data2)
 {
@@ -4560,24 +3998,24 @@ static void sec_ts_tclm_set_nvm_data_2byte(struct sec_ts_data *ts, u8 reg, u8 da
  *	---A-	: i2c_err
  *	----A	: wet
  */
-void minority_report_calculate_rawdata(struct sec_ts_data *ts)
+static void minority_report_calculate_rawdata(struct sec_ts_data *ts)
 {
 	int ii, jj;
 	int temp = 0;
 	int max = -30000;
 	int min = 30000;
 	int node_gap = 1;
-	short tx_max[20] = { 0 };
-	short tx_min[20] = { 0 };
-	short rx_max[40] = { 0 };
-	short rx_min[40] = { 0 };
+	short tx_max[TOUCH_TX_CHANNEL_NUM] = { 0 };
+	short tx_min[TOUCH_TX_CHANNEL_NUM] = { 0 };
+	short rx_max[TOUCH_RX_CHANNEL_NUM] = { 0 };
+	short rx_min[TOUCH_RX_CHANNEL_NUM] = { 0 };
 
-	for (ii = 0; ii < 20; ii++) {
+	for (ii = 0; ii < TOUCH_TX_CHANNEL_NUM; ii++) {
 		tx_max[ii] = -30000;
 		tx_min[ii] = 30000;
 	}
 
-	for (ii = 0; ii < 40; ii++) {
+	for (ii = 0; ii < TOUCH_RX_CHANNEL_NUM; ii++) {
 		rx_max[ii] = -30000;
 		rx_min[ii] = 30000;
 	}
@@ -4659,7 +4097,7 @@ void minority_report_calculate_rawdata(struct sec_ts_data *ts)
 
 }
 
-void minority_report_calculate_ito(struct sec_ts_data *ts)
+static void minority_report_calculate_ito(struct sec_ts_data *ts)
 {
 
 	if (ts->ito_test[0] ||  ts->ito_test[1] || ts->ito_test[2] || ts->ito_test[3])
@@ -4740,9 +4178,9 @@ static void set_tsp_test_result(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP_truned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -4806,9 +4244,9 @@ static void get_tsp_test_result(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP_truned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -4856,9 +4294,9 @@ static void clear_tsp_test_result(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP_truned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -4899,9 +4337,9 @@ static void increase_disassemble_count(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP_truned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -4951,9 +4389,9 @@ static void get_disassemble_count(void *device_data)
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
 				__func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP_truned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -4972,16 +4410,12 @@ static void get_disassemble_count(void *device_data)
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 }
 
-#define GLOVE_MODE_EN		(1 << 0)
-#define CLEAR_COVER_EN		(1 << 1)
-#define FAST_GLOVE_MODE_EN	(1 << 2)
-
 static void glove_mode(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
-	int glove_mode_enables = 0;
+	int ret;
 
 	sec_cmd_set_default_result(sec);
 
@@ -4989,17 +4423,14 @@ static void glove_mode(void *device_data)
 		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
-		int retval;
-
 		if (sec->cmd_param[0])
-			glove_mode_enables |= GLOVE_MODE_EN;
+			ts->touch_functions |= SEC_TS_BIT_SETFUNC_GLOVE;
 		else
-			glove_mode_enables &= ~(GLOVE_MODE_EN);
+			ts->touch_functions &= ~SEC_TS_BIT_SETFUNC_GLOVE;
 
-		retval = sec_ts_glove_mode_enables(ts, glove_mode_enables);
-
-		if (retval < 0) {
-			input_err(true, &ts->client->dev, "%s: failed, retval = %d\n", __func__, retval);
+		ret = sec_ts_set_touch_function(ts);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev, "%s: failed, retval = %d\n", __func__, ret);
 			snprintf(buff, sizeof(buff), "NG");
 			sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		} else {
@@ -5011,6 +4442,8 @@ static void glove_mode(void *device_data)
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_exit(sec);
+
+	input_info(true, &ts->client->dev, "%s: %s cmd_param: %d\n", __func__, buff, sec->cmd_param[0]);
 }
 
 static void clear_cover_mode(void *device_data)
@@ -5023,42 +4456,18 @@ static void clear_cover_mode(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 3) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
 		if (sec->cmd_param[0] > 1) {
-			ts->flip_enable = true;
 			ts->cover_type = sec->cmd_param[1];
 			ts->cover_cmd = (u8)ts->cover_type;
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-			if (TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()) {
-				sec_ts_delay(500);
-				tui_force_close(1);
-				sec_ts_delay(200);
-				if (TRUSTEDUI_MODE_TUI_SESSION & trustedui_get_current_mode()) {
-					trustedui_clear_mask(TRUSTEDUI_MODE_VIDEO_SECURED|TRUSTEDUI_MODE_INPUT_SECURED);
-					trustedui_set_mode(TRUSTEDUI_MODE_OFF);
-				}
-			}
-
-			tui_cover_mode_set(true);
-#endif
-
+			sec_ts_set_cover_type(ts, true);
 		} else {
-			ts->flip_enable = false;
-#ifdef CONFIG_TRUSTONIC_TRUSTED_UI
-			tui_cover_mode_set(false);
-#endif
+			sec_ts_set_cover_type(ts, false);
 		}
 
-		if (!ts->power_status == SEC_TS_STATE_POWER_OFF && ts->reinit_done) {
-			if (ts->flip_enable)
-				sec_ts_set_cover_type(ts, true);
-			else
-				sec_ts_set_cover_type(ts, false);
-		}
-
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
@@ -5079,7 +4488,7 @@ static void dead_zone_enable(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
 		data = sec->cmd_param[0];
@@ -5088,12 +4497,12 @@ static void dead_zone_enable(void *device_data)
 		if (ret < 0) {
 			input_err(true, &ts->client->dev,
 					"%s: failed to set deadzone\n", __func__);
-			snprintf(buff, sizeof(buff), "%s", "NG");
+			snprintf(buff, sizeof(buff), "NG");
 			sec->cmd_state = SEC_CMD_STATUS_FAIL;
 			goto err_set_dead_zone;
 		}
 
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
 
@@ -5104,39 +4513,24 @@ err_set_dead_zone:
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 };
 
-
+/*
+ * drawing_test_enable
+ * - It is called when the *#0*# touch drawing test mode is started.
+ */
 static void drawing_test_enable(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
-	int ret;
 
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
-		if (ts->use_sponge) {
-			if (sec->cmd_param[0])
-				ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_FORCE_KEY;
-			else
-				ts->lowpower_mode |= SEC_TS_MODE_SPONGE_FORCE_KEY;
-
-			ret = sec_ts_set_custom_library(ts);
-			if (ret < 0) {
-				snprintf(buff, sizeof(buff), "%s", "NG");
-				sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			} else {
-				snprintf(buff, sizeof(buff), "%s", "OK");
-				sec->cmd_state = SEC_CMD_STATUS_OK;
-			}
-
-		} else {
-			snprintf(buff, sizeof(buff), "%s", "NA");
-			sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		}
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 	}
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
@@ -5188,9 +4582,6 @@ static int execute_selftest(struct sec_ts_data *ts, bool save_result)
 	else
 		tpara[0] = 0xA3;
 
-	if (ts->plat_data->support_pressure)
-		tpara[0] |= 0x10;
-
 	rBuff = kzalloc(result_size, GFP_KERNEL);
 	if (!rBuff)
 		goto err_mem;
@@ -5222,49 +4613,49 @@ static int execute_selftest(struct sec_ts_data *ts, bool save_result)
 
 	for (i = 0; i < 80; i += 4) {
 		if (i / 4 == 0)
-			strncat(pStr, "SIG ", 5);
+			strlcat(pStr, "SIG ", sizeof(pStr));
 		else if (i / 4 == 1)
-			strncat(pStr, "VER ", 5);
+			strlcat(pStr, "VER ", sizeof(pStr));
 		else if (i / 4 == 2)
-			strncat(pStr, "SIZ ", 5);
+			strlcat(pStr, "SIZ ", sizeof(pStr));
 		else if (i / 4 == 3)
-			strncat(pStr, "CRC ", 5);
+			strlcat(pStr, "CRC ", sizeof(pStr));
 		else if (i / 4 == 4)
-			strncat(pStr, "RES ", 5);
+			strlcat(pStr, "RES ", sizeof(pStr));
 		else if (i / 4 == 5)
-			strncat(pStr, "COU ", 5);
+			strlcat(pStr, "COU ", sizeof(pStr));
 		else if (i / 4 == 6)
-			strncat(pStr, "PAS ", 5);
+			strlcat(pStr, "PAS ", sizeof(pStr));
 		else if (i / 4 == 7)
-			strncat(pStr, "FAI ", 5);
+			strlcat(pStr, "FAI ", sizeof(pStr));
 		else if (i / 4 == 8)
-			strncat(pStr, "CHA ", 5);
+			strlcat(pStr, "CHA ", sizeof(pStr));
 		else if (i / 4 == 9)
-			strncat(pStr, "AMB ", 5);
+			strlcat(pStr, "AMB ", sizeof(pStr));
 		else if (i / 4 == 10)
-			strncat(pStr, "RXS ", 5);
+			strlcat(pStr, "RXS ", sizeof(pStr));
 		else if (i / 4 == 11)
-			strncat(pStr, "TXS ", 5);
+			strlcat(pStr, "TXS ", sizeof(pStr));
 		else if (i / 4 == 12)
-			strncat(pStr, "RXO ", 5);
+			strlcat(pStr, "RXO ", sizeof(pStr));
 		else if (i / 4 == 13)
-			strncat(pStr, "TXO ", 5);
+			strlcat(pStr, "TXO ", sizeof(pStr));
 		else if (i / 4 == 14)
-			strncat(pStr, "RXG ", 5);
+			strlcat(pStr, "RXG ", sizeof(pStr));
 		else if (i / 4 == 15)
-			strncat(pStr, "TXG ", 5);
+			strlcat(pStr, "TXG ", sizeof(pStr));
 		else if (i / 4 == 16)
-			strncat(pStr, "RXR ", 5);
+			strlcat(pStr, "RXR ", sizeof(pStr));
 		else if (i / 4 == 17)
-			strncat(pStr, "TXT ", 5);
+			strlcat(pStr, "TXT ", sizeof(pStr));
 		else if (i / 4 == 18)
-			strncat(pStr, "RXT ", 5);
+			strlcat(pStr, "RXT ", sizeof(pStr));
 		else if (i / 4 == 19)
-			strncat(pStr, "TXR ", 5);
+			strlcat(pStr, "TXR ", sizeof(pStr));
 
 		snprintf(pTmp, sizeof(pTmp), "%2X, %2X, %2X, %2X",
 			rBuff[i], rBuff[i + 1], rBuff[i + 2], rBuff[i + 3]);
-		strncat(pStr, pTmp, strnlen(pTmp, sizeof(pTmp)));
+		strlcat(pStr, pTmp, sizeof(pStr));
 
 		if (i / 4 == 4) {
 			if ((rBuff[i + 3] & 0x30) != 0)// RX, RX open check.
@@ -5281,7 +4672,7 @@ static int execute_selftest(struct sec_ts_data *ts, bool save_result)
 			input_raw_info(true, &ts->client->dev, "%s\n", pStr);
 			memset(pStr, 0x00, sizeof(pStr));
 		} else {
-			strncat(pStr, "  ", 3);
+			strlcat(pStr, "  ", sizeof(pStr));
 		}
 	}
 
@@ -5319,14 +4710,22 @@ static void run_trx_short_test(void *device_data)
 	int checklen = 0;
 	int start_point = 0;
 	int sum = 0;
+	char test[32];
+	char result[32];
+	u64 temp_result;
 
 	sec_cmd_set_default_result(sec);
 
+	if (sec->cmd_param[1])
+		snprintf(test, sizeof(test), "TEST=%d,%d", sec->cmd_param[0], sec->cmd_param[1]);
+	else
+		snprintf(test, sizeof(test), "TEST=%d", sec->cmd_param[0]);
+
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -5342,7 +4741,7 @@ static void run_trx_short_test(void *device_data)
 
 	rBuff = kzalloc(size, GFP_KERNEL);
 	if (!rBuff) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
@@ -5366,11 +4765,11 @@ static void run_trx_short_test(void *device_data)
 		enable_irq(ts->client->irq);
 
 		if (rc > 0) {
-			snprintf(buff, sizeof(buff), "%s", "OK");
+			snprintf(buff, sizeof(buff), "OK");
 			sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 			sec->cmd_state = SEC_CMD_STATUS_OK;
 		} else {
-			snprintf(buff, sizeof(buff), "%s", "NG");
+			snprintf(buff, sizeof(buff), "NG");
 			sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 			sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		}
@@ -5487,7 +4886,6 @@ static void run_trx_short_test(void *device_data)
 
 	memcpy(data, &rBuff[48], 32);
 
-	// set start check point for cm1 short test
 	for (ii = start_point ; ii < checklen; ii++)
 		sum += data[ii];
 
@@ -5519,71 +4917,20 @@ static void run_trx_short_test(void *device_data)
 		} else if (sec->cmd_param[0] == BRIDGE_SHORT_TEST) {
 			snprintf(tempn, 40, "BRIDGE_SHORT:");
 		}
-		strncat(buff, tempn, 40);
+		strlcat(buff, tempn, sizeof(buff));
+		memcpy(&temp_result, &data[ii], 8);
 
-		for (jj = 0; jj < 8; jj++) {
-			int lshift = 0;
-
-			if (!data[ii + jj])
-				continue;
-
-			input_info(true, &ts->client->dev, "%s: [%d] %02X\n",
-					__func__, ii + jj, data[ii + jj]);
-
-			while (lshift <= 7) {
-				if ((data[ii + jj] & (0x01 << lshift)) == 0) {
-					lshift++;
-					continue;
-				}
-
-				memset(tempv, 0x00, 25);
-
-				if (jj == 0) {
-					snprintf(tempv, 20, "TX%d,", lshift);
-				} else if (jj == 1) {
-					snprintf(tempv, 20, "TX%d,", lshift + 8);
-				} else if (jj == 2) {
-
-					if (lshift == 0)
-						snprintf(tempv, 20, "TX16,");
-					else
-						snprintf(tempv, 20, "RX%d,", lshift - 1);
-				} else if (jj == 3) {
-					snprintf(tempv, 20, "RX%d,", lshift + 8 - 1);
-				} else if (jj == 4) {
-					snprintf(tempv, 20, "RX%d,", lshift + 16 - 1);
-				} else if (jj == 5) {
-					snprintf(tempv, 20, "RX%d,", lshift + 24 - 1);
-				} else if (jj == 6) {
-					if (lshift == 0)
-						snprintf(tempv, 20, "RX31,");
-					else if (lshift == 1)
-						snprintf(tempv, 20, "RX32,");
-					else if (lshift == 2)
-						snprintf(tempv, 20, "RX33,");
-					else if (lshift == 3)
-						snprintf(tempv, 20, "RX34,");
-					else if (lshift == 4)
-						snprintf(tempv, 20, "F0,");
-					else if (lshift == 5)
-						snprintf(tempv, 20, "F1,");
-					else if (lshift == 6)
-						snprintf(tempv, 20, "F2,");
-					else if (lshift == 7)
-						snprintf(tempv, 20, "F3,");
-					else
-						snprintf(tempv, 20, "N,");
-				} else {
-					snprintf(tempv, 20, "N,");
-				}
-				input_info(true, &ts->client->dev, "%s: %s\n", __func__, tempv);
-
-				strncat(buff, tempv, 25);
-				lshift++;
-			}
+		for (jj = 0; jj < ts->tx_count + ts->rx_count; jj++) {
+			memset(tempv, 0x00, 25);
+			if (temp_result & 0x1)
+				snprintf(tempv, 20, "%cX%d,",
+						jj < ts->tx_count ? 'T':'R',
+						jj < ts->tx_count ? jj : jj - ts->tx_count);
+			strlcat(buff, tempv, sizeof(buff));
+			temp_result = temp_result >> 1;
 		}
-
 	}
+
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 
@@ -5592,11 +4939,12 @@ static void run_trx_short_test(void *device_data)
 	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
 
 	kfree(rBuff);
-	send_event_to_user(ts, sec->cmd_param[0], UEVENT_OPEN_SHORT_FAIL);
+	snprintf(result, sizeof(result), "RESULT=FAIL");
+	sec_cmd_send_event_to_user(&ts->sec, test, result);
 	return;
 
 test_ok:
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -5605,7 +4953,8 @@ test_ok:
 	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
 
 	kfree(rBuff);
-	send_event_to_user(ts, sec->cmd_param[0], UEVENT_OPEN_SHORT_PASS);
+	snprintf(result, sizeof(result), "RESULT=PASS");
+	sec_cmd_send_event_to_user(&ts->sec, test, result);
 	return;
 
 err_trx_short:
@@ -5615,7 +4964,7 @@ err_trx_short:
 	ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
 	enable_irq(ts->client->irq);
 
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 
@@ -5623,6 +4972,8 @@ err_trx_short:
 
 	kfree(rBuff);
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
+	snprintf(result, sizeof(result), "RESULT=FAIL");
+	sec_cmd_send_event_to_user(&ts->sec, test, result);
 	return;
 }
 #if 0	// not use star~
@@ -5638,9 +4989,9 @@ static void run_lowpower_selftest(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
@@ -5706,16 +5057,7 @@ err_exit:
 }
 #endif
 
-int sec_tclm_execute_force_calibration(struct i2c_client *client, int cal_mode)
-{
-	struct sec_ts_data *ts = i2c_get_clientdata(client);
-	int rc;
-	/* cal_mode is same tclm and sec. if they are different, modify source */
-	rc = sec_ts_execute_force_calibration(ts, cal_mode);
-
-	return rc;
-}
-int sec_ts_execute_force_calibration(struct sec_ts_data *ts, int cal_mode)
+static int sec_ts_execute_force_calibration(struct sec_ts_data *ts, int cal_mode)
 {
 	int rc = -1;
 	u8 cmd;
@@ -5726,25 +5068,128 @@ int sec_ts_execute_force_calibration(struct sec_ts_data *ts, int cal_mode)
 		cmd = SEC_TS_CMD_FACTORY_PANELCALIBRATION;
 	else if (cal_mode == AMBIENT_CAL)
 		cmd = SEC_TS_CMD_CALIBRATION_AMBIENT;
-#ifdef USE_PRESSURE_SENSOR
-	else if (cal_mode == PRESSURE_CAL)
-		cmd = SEC_TS_CMD_CALIBRATION_PRESSURE;
-#endif
 	else
 		return rc;
 
-	if (ts->sec_ts_i2c_write(ts, cmd, NULL, 0) < 0) {
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: clear event stack failed\n", __func__);
+		return rc;
+	}
+
+	rc = ts->sec_ts_i2c_write(ts, cmd, NULL, 0);
+	if (rc < 0) {
 		input_err(true, &ts->client->dev, "%s: Write Cal commend failed!\n", __func__);
 		return rc;
 	}
 
-	sec_ts_delay(1000);
+	sec_ts_delay(3000);
 
 	rc = sec_ts_wait_for_ready(ts, SEC_TS_VENDOR_ACK_OFFSET_CAL_DONE);
+
+#ifdef TCLM_CONCEPT
 	if (rc >= 0 && (cal_mode == OFFSET_CAL_SEC) && ts->tdata->support_tclm_test)
 		ts->is_cal_done = true;
 
+	if (rc < 0) {
+		ts->tdata->nvdata.cal_fail_cnt++;
+		ts->tdata->nvdata.cal_fail_falg = 0;
+		ts->tdata->tclm_write(ts->tdata->client, SEC_TCLM_NVM_ALL_DATA);
+		return rc;
+	}
+
+	ts->tdata->nvdata.cal_fail_falg = SEC_CAL_PASS;
+	ts->tdata->tclm_write(ts->tdata->client, SEC_TCLM_NVM_ALL_DATA);
+#endif
 	return rc;
+}
+
+int sec_tclm_execute_force_calibration(struct i2c_client *client, int cal_mode)
+{
+	struct sec_ts_data *ts = i2c_get_clientdata(client);
+	int rc;
+	/* cal_mode is same tclm and sec. if they are different, modify source */
+	rc = sec_ts_execute_force_calibration(ts, cal_mode);
+
+	return rc;
+}
+
+static void run_miscalibration(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = {0};
+	int rc;
+	u8 mBuff[3] = { 0x32, 0x00, 0x00 };
+	u8 result[2] = { 0, 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	disable_irq(ts->client->irq);
+
+	if (ts->power_status == SEC_TS_STATE_POWER_OFF)
+		goto err;
+
+	rc = sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
+
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: sec_ts_fix_tmode failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_MISCAL_THD, mBuff, sizeof(mBuff));
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_SET_MISCALIBRATIONTEST failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_RUN_MISCAL, NULL, 0);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_MISALIBRATIONTEST failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(200);
+
+	rc = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_GET_MISCAL_RESULT, result, sizeof(result));
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_GET_MISCALBRATION failed\n", __func__);
+		goto err;
+	}
+
+	sec_ts_delay(10);
+
+	rc = sec_ts_release_tmode(ts);
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "%s: SEC_TS_CMD_STATEMANAGE_ON failed\n", __func__);
+		goto err;
+	}
+
+	if (result[0]) {
+		enable_irq(ts->client->irq);
+		snprintf(buff, sizeof(buff), "%d", result[1]);
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		return;
+	}
+
+	enable_irq(ts->client->irq);
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	return;
+
+err:
+	enable_irq(ts->client->irq);
+	snprintf(buff, sizeof(buff), "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+
+	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 }
 
 static void run_force_calibration(void *device_data)
@@ -5753,19 +5198,17 @@ static void run_force_calibration(void *device_data)
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = {0};
 	int rc;
-	struct sec_ts_test_mode mode;
-	char mis_cal_data = 0xF0;
 
 	sec_cmd_set_default_result(sec);
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out_force_cal_before_irq_ctrl;
 	}
 
 	if (ts->touch_count > 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG_FINGER_ON");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out_force_cal_before_irq_ctrl;
 	}
@@ -5774,68 +5217,9 @@ static void run_force_calibration(void *device_data)
 
 	rc = sec_ts_execute_force_calibration(ts, OFFSET_CAL_SEC);
 	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "FAIL");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out_force_cal;
-	}
-
-#ifdef USE_PRESSURE_SENSOR
-	rc = sec_ts_execute_force_calibration(ts, PRESSURE_CAL);
-	if (rc < 0)
-		input_err(true, &ts->client->dev, "%s: fail to write PRESSURE CAL!\n", __func__);
-#endif
-
-	if (ts->plat_data->mis_cal_check) {
-		sec_ts_delay(50);
-
-		buff[0] = 0;
-		rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_STATEMANAGE_ON, buff, 1);
-		if (rc < 0) {
-			input_err(true, &ts->client->dev,
-					"%s: mis_cal_check error[1] ret: %d\n", __func__, rc);
-		}
-
-		buff[0] = 0x2;
-		buff[1] = 0x2;
-		rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CHG_SYSMODE, buff, 2);
-		if (rc < 0) {
-			input_err(true, &ts->client->dev,
-					"%s: mis_cal_check error[2] ret: %d\n", __func__, rc);
-		}
-
-		input_err(true, &ts->client->dev, "%s: try mis Cal. check\n", __func__);
-		rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_MIS_CAL_CHECK, NULL, 0);
-		if (rc < 0) {
-			input_err(true, &ts->client->dev,
-					"%s: mis_cal_check error[3] ret: %d\n", __func__, rc);
-		}
-		sec_ts_delay(200);
-
-		rc = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_MIS_CAL_READ, &mis_cal_data, 1);
-		if (rc < 0) {
-			input_err(true, &ts->client->dev, "%s: i2c fail!, %d\n", __func__, rc);
-			mis_cal_data = 0xF3;
-		} else {
-			input_info(true, &ts->client->dev, "%s: miss cal data : %d\n", __func__, mis_cal_data);
-		}
-
-		buff[0] = 1;
-		rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_STATEMANAGE_ON, buff, 1);
-		if (rc < 0) {
-			input_err(true, &ts->client->dev,
-					"%s: mis_cal_check error[4] ret: %d\n", __func__, rc);
-		}
-
-		if (mis_cal_data) {
-			memset(&mode, 0x00, sizeof(struct sec_ts_test_mode));
-			mode.type = TYPE_AMBIENT_DATA;
-			mode.allnode = TEST_MODE_ALL_NODE;
-
-			sec_ts_read_raw_data(ts, NULL, &mode);
-			snprintf(buff, sizeof(buff), "%s", "MIS CAL");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_force_cal;
-		}
 	}
 
 #ifdef TCLM_CONCEPT
@@ -5854,7 +5238,7 @@ static void run_force_calibration(void *device_data)
 #endif
 
 	ts->cal_status = sec_ts_read_calibration_report(ts);
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
 out_force_cal:
@@ -5867,7 +5251,6 @@ out_force_cal_before_irq_ctrl:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
 }
 
 static void get_force_calibration(void *device_data)
@@ -5881,1058 +5264,33 @@ static void get_force_calibration(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
 	rc = sec_ts_read_calibration_report(ts);
 	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "FAIL");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else if (rc == SEC_TS_STATUS_CALIBRATION_SEC) {
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	} else {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	}
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
 }
-
-#ifdef USE_PRESSURE_SENSOR
-static void run_force_pressure_calibration(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	int rc;
-	char data[3] = { 0 };
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		return;
-	}
-
-	if (ts->touch_count > 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG_FINGER_ON");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-		goto out_force_pressure_cal;
-	}
-
-	disable_irq(ts->client->irq);
-
-	rc = sec_ts_execute_force_calibration(ts, PRESSURE_CAL);
-	if (rc < 0) {
-		snprintf(buff, sizeof(buff), "%s", "FAIL");
-		sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	} else {
-		snprintf(buff, sizeof(buff), "%s", "OK");
-		sec->cmd_state = SEC_CMD_STATUS_OK;
-	}
-
-	ts->pressure_cal_base = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_BASE_CAL_COUNT);
-	if (ts->pressure_cal_base == 0xFF)
-		ts->pressure_cal_base = 0;
-	if (ts->pressure_cal_base > 0xFD)
-		ts->pressure_cal_base = 0xFD;
-
-	/* Use TSP NV area : in this model, use only one byte
-	 * data[0] : offset from user NVM storage
-	 * data[1] : length of stroed data - 1 (ex. using 1byte, value is  1 - 1 = 0)
-	 * data[2] : write data
-	 */
-	data[0] = SEC_TS_NVM_OFFSET_PRESSURE_BASE_CAL_COUNT;
-	data[1] = 0;
-	data[2] = ts->pressure_cal_base + 1;
-
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, data, 3);
-	if (rc < 0)
-		input_err(true, &ts->client->dev,
-				"%s: nvm write failed. ret: %d\n", __func__, rc);
-
-	ts->pressure_cal_base = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_BASE_CAL_COUNT);
-
-	input_info(true, &ts->client->dev, "%s: count:%d\n", __func__, ts->pressure_cal_base);
-
-	enable_irq(ts->client->irq);
-
-out_force_pressure_cal:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-}
-
-static void get_pressure_calibration_count(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	unsigned char count;
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		return;
-	}
-
-	count = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT);
-	if (count == 0xFF)
-		count = 0;
-
-	snprintf(buff, sizeof(buff), "%d", count);
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-}
-
-static void set_pressure_test_mode(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	int ret;
-	unsigned char data = TYPE_INVALID_DATA;
-	unsigned char enable = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		return;
-	}
-
-	if (sec->cmd_param[0] == 1) {
-		enable = 0x1;
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TEMPERATURE_COMP_MODE, &enable, 1);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-
-		ret = sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_FACTORY_MODE, &enable, 1);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-	} else {
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SELECT_PRESSURE_TYPE, &data, 1);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-
-		ret = sec_ts_release_tmode(ts);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-
-		enable = 0x0;
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_TEMPERATURE_COMP_MODE, &enable, 1);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_FACTORY_MODE, &enable, 1);
-		if (ret < 0) {
-			snprintf(buff, sizeof(buff), "%s", "NG");
-			sec->cmd_state = SEC_CMD_STATUS_FAIL;
-			goto out_test_mode;
-		}
-	}
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-out_test_mode:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-}
-
-int read_pressure_data(struct sec_ts_data *ts, u8 type, short *value)
-{
-	unsigned char data[6] = { 0 };
-	short pressure[3] = { 0 };
-	int ret, i;
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF)
-		return -ENODEV;
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SELECT_PRESSURE_TYPE, data, 1);
-	if (ret < 0)
-		return -EIO;
-
-	if (data[0] != type) {
-		data[1] = type;
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SELECT_PRESSURE_TYPE, &data[1], 1);
-		if (ret < 0)
-			return -EIO;
-
-		sec_ts_delay(50);
-	}
-
-	memset(data, 0x00, 6);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_READ_PRESSURE_DATA, data, 6);
-	if (ret < 0)
-		return -EIO;
-
-	pressure[0] = (data[0] << 8 | data[1]);
-	pressure[1] = (data[2] << 8 | data[3]);
-	pressure[2] = (data[4] << 8 | data[5]);
-
-	input_raw_info(true, &ts->client->dev, "%s: Type:%d, Left: %d, Center: %d, Rignt: %d\n",
-			__func__, type, pressure[0], pressure[1], pressure[2]);
-
-	memcpy(value, pressure, 3 * 2);
-
-	for (i = 0; i < PRESSURE_CHANNEL_NUM; i++)
-		ts->pressure_data[type][i] = pressure[i];
-
-	return ret;
-}
-
-static void run_pressure_filtered_strength_read_all(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	short pressure[3] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	ret = read_pressure_data(ts, TYPE_SIGNAL_DATA, pressure);
-	if (ret < 0) {
-		snprintf(buff, sizeof(buff), "%s", "WRITE FAILED");
-		goto error_read_str;
-	}
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", pressure[0], pressure[1], pressure[2]);
-
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return;
-
-error_read_str:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-}
-
-static void run_pressure_strength_read_all(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	short pressure[3] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	ret = read_pressure_data(ts, TYPE_REMV_AMB_DATA, pressure);
-	if (ret < 0) {
-		snprintf(buff, sizeof(buff), "%s", "WRITE FAILED");
-		goto error_read_str;
-	}
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", pressure[0], pressure[1], pressure[2]);
-
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return;
-
-error_read_str:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-}
-
-static void run_pressure_rawdata_read_all(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	short pressure[3] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	ret = read_pressure_data(ts, TYPE_RAW_DATA, pressure);
-	if (ret < 0) {
-		snprintf(buff, sizeof(buff), "%s", "WRITE FAILED");
-		goto error_read_rawdata;
-	}
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", pressure[0], pressure[1], pressure[2]);
-
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return;
-
-error_read_rawdata:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-}
-
-static void run_pressure_offset_read_all(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	short pressure[3] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	ret = read_pressure_data(ts, TYPE_OFFSET_DATA_SEC, pressure);
-	if (ret < 0) {
-		snprintf(buff, sizeof(buff), "%s", "WRITE FAILED");
-		goto error_read_str;
-	}
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", pressure[0], pressure[1], pressure[2]);
-
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
-
-	return;
-
-error_read_str:
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-}
-
-/*
- * index	Factory App		Firmware
- * 0		X			latest
- * 1		SUB(but not use)	SDC
- * 2		MAIN			SUB
- * 3		SVC			MAIN
- * 4		X			SVC
- *
- * change index value(+ 1) for mismatching about factory app and firmware
- */
-
-static void set_pressure_strength(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	u8 cal_data[18] = { 0 };
-	u8 index;
-	u8 data[3] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	if ((sec->cmd_param[0] < 1) || (sec->cmd_param[0] > 3)) {
-		input_info(true, &ts->client->dev, "%s: parameter error: %u\n",
-			__func__, sec->cmd_param[0]);
-		goto err_cmd_param_str;
-	}
-
-	index = (u8)sec->cmd_param[0] + 1;
-
-	/* LEFT */
-	cal_data[0] = (sec->cmd_param[1] >> 8);
-	cal_data[1] = (sec->cmd_param[1] & 0xFF);
-	/* CENTER */
-	cal_data[2] = (sec->cmd_param[2] >> 8);
-	cal_data[3] = (sec->cmd_param[2] & 0xFF);
-	/* RIGHT */
-	cal_data[4] = (sec->cmd_param[3] >> 8);
-	cal_data[5] = (sec->cmd_param[3] & 0xFF);
-
-	ret = sec_ts_write_factory_level(ts, index);
-	if (ret < 0)
-		goto err_cmd_param_str;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_PRESSURE, cal_data, 6);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: pressure write failed. ret: %d\n", __func__, ret);
-		goto err_comm_str;
-	}
-
-	sec_ts_delay(30);
-
-	ts->pressure_cal_delta = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT);
-	if (ts->pressure_cal_delta == 0xFF)
-		ts->pressure_cal_delta = 0;
-
-	if (ts->pressure_cal_delta > 0xFD)
-		ts->pressure_cal_delta = 0xFD;
-
-	/* Use TSP NV area : in this model, use only one byte
-	 * data[0] : offset from user NVM storage
-	 * data[1] : length of stroed data - 1 (ex. using 1byte, value is  1 - 1 = 0)
-	 * data[2] : write data
-	 */
-	data[0] = SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT;
-	data[1] = 0;
-	data[2] = ts->pressure_cal_delta + 1;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, data, 3);
-	if (ret < 0)
-		input_err(true, &ts->client->dev,
-				"%s: count nvm write failed. ret: %d\n", __func__, ret);
-
-	ts->pressure_cal_delta = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_DELTA_CAL_COUNT);
-
-	input_info(true, &ts->client->dev, "%s: count:%d\n", __func__, ts->pressure_cal_delta);
-
-	data[0] = SEC_TS_NVM_OFFSET_PRESSURE_INDEX;
-	data[1] = 0;
-	data[2] = index;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, data, 3);
-	if (ret < 0)
-		input_err(true, &ts->client->dev,
-				"%s: index nvm write failed. ret: %d\n", __func__, ret);
-
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	return;
-
-err_comm_str:
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-err_cmd_param_str:
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-}
-
-static void set_pressure_rawdata(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	char buff[SEC_CMD_STR_LEN] = {0};
-
-	sec_cmd_set_default_result(sec);
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	return;
-}
-
-static void set_pressure_data_index(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	u8 data[30] = { 0 };
-	u8 cal_data[6] = { 0 };
-	u8 index;
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	if ((sec->cmd_param[0] < 0) || (sec->cmd_param[0] > 4)) {
-		input_info(true, &ts->client->dev, "%s: parameter error: %u\n",
-			__func__, sec->cmd_param[0]);
-		goto err_set_cmd_param_index;
-	}
-
-	memset(cal_data, 0x00, 6);
-	memset(data, 0x00, 30);
-
-	if (sec->cmd_param[0] == 0) {
-		input_info(true, &ts->client->dev, "%s: clear calibration result\n", __func__);
-/*
- * clear pressure calibrated data before force calibration.(need to change Zero Offset)
- */
-		ret = sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-		if (ret < 0)
-			goto err_set_cmd_param_index;
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_PRESSURE, cal_data, 6);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev,
-					"%s: clear pressure strength failed. ret: %d\n", __func__, ret);
-			goto err_set_cmd_param_index;
-		}
-
-		sec_ts_delay(30);
-		goto clear_index;
-	}
-
-	index = (u8)sec->cmd_param[0] + 1;
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FORCE_PRESSURE_DATA, data, 30);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read pressure data failed. ret: %d\n", __func__, ret);
-		goto err_set_cmd_param_index;
-	}
-
-	memcpy(cal_data, &data[index * 6], 6);
-	input_info(true, &ts->client->dev, "%s: index:%d: L:%d, C:%d, R:%d\n",
-			__func__, index, (cal_data[0] << 8) | cal_data[1],
-			(cal_data[2] << 8) | cal_data[3], (cal_data[4] << 8) | cal_data[5]);
-
-	ret = sec_ts_write_factory_level(ts, index);
-	if (ret < 0)
-		goto err_set_cmd_param_index;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_PRESSURE, cal_data, 6);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: re-write failed. ret: %d\n", __func__, ret);
-		goto err_set_comm_index;
-	}
-
-	sec_ts_delay(30);
-
-	/* Use TSP NV area : in this model, use only one byte
-	 * buff[0] : offset from user NVM storage
-	 * buff[1] : length of stroed data - 1 (ex. using 1byte, value is  1 - 1 = 0)
-	 * buff[2] : write data
-	 */
-	memset(data, 0x00, 3);
-	data[0] = SEC_TS_NVM_OFFSET_PRESSURE_INDEX;
-	data[1] = 0;
-	data[2] = (u8)(index & 0xFF);
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, data, 3);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: nvm write failed. ret: %d\n", __func__, ret);
-		goto err_set_comm_index;
-	}
-
-	sec_ts_delay(20);
-
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-
-clear_index:
-	snprintf(buff, sizeof(buff), "%s", "OK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	return;
-
-err_set_comm_index:
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-err_set_cmd_param_index:
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	return;
-
-}
-static void get_pressure_strength(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	u8 index;
-	u8 data[30] = { 0 };
-	int ret;
-	short pressure[3] = { 0 };
-
-	sec_cmd_set_default_result(sec);
-
-	if ((sec->cmd_param[0] < 1) || (sec->cmd_param[0] > 4))
-		goto err_get_cmd_param_str;
-
-	index = sec->cmd_param[0] + 1;
-
-	memset(data, 0x00, 30);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_GET_FORCE_PRESSURE_DATA, data, 30);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: read pressure data failed. ret: %d\n", __func__, ret);
-		goto err_set_comm_index;
-	}
-
-	pressure[0] = ((data[6 * index + 0] << 8) + data[6 * index + 1]);
-	pressure[1] = ((data[6 * index + 2] << 8) + data[6 * index + 3]);
-	pressure[2] = ((data[6 * index + 4] << 8) + data[6 * index + 5]);
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", pressure[0], pressure[1], pressure[2]);
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	input_info(true, &ts->client->dev, "%s: [%d] : %d, %d, %d\n",
-			__func__, index, pressure[0], pressure[1], pressure[2]);
-
-	return;
-
-err_set_comm_index:
-err_get_cmd_param_str:
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-}
-
-static void get_pressure_rawdata(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	char buff[SEC_CMD_STR_LEN] = {0};
-
-	sec_cmd_set_default_result(sec);
-
-	snprintf(buff, sizeof(buff), "OK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	return;
-}
-
-static void get_pressure_data_index(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	int index = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	index = get_tsp_nvm_data(ts, SEC_TS_NVM_OFFSET_PRESSURE_INDEX);
-	if (index < 0) {
-		goto err_get_index;
-	} else {
-		if (index == 0xFF)
-			snprintf(buff, sizeof(buff), "%d", 0);
-		else
-			snprintf(buff, sizeof(buff), "%d", index - 1);
-	}
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	input_info(true, &ts->client->dev, "%s: %d\n",
-			__func__, index);
-
-	return;
-
-err_get_index:
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	return;
-
-}
-
-static void set_pressure_strength_clear(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	u8 data[3];
-	u8 cal_data[6] = { 0 };
-	int i;
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	/* clear pressure calibrated data */
-	/* i : 1 -> value of SDC, do not remove */
-	for (i = 2; i < 5; i++) {
-		u8 index = (u8)i;
-
-		ret = sec_ts_write_factory_level(ts, index);
-		if (ret < 0)
-			goto err_set_level;
-
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_GET_PRESSURE, cal_data, 6);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: cmd write failed. ret: %d\n", __func__, ret);
-			goto err_comm_str;
-		}
-
-		sec_ts_delay(30);
-	}
-
-	memset(data, 0x00, 3);
-	data[0] = SEC_TS_NVM_OFFSET_PRESSURE_INDEX;
-	data[1] = 0;
-	data[2] = 0;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_NVM, data, 3);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: nvm write failed. ret: %d\n", __func__, ret);
-		goto err_comm_str;
-	}
-
-	sec_ts_delay(20);
-
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-
-	return;
-
-err_comm_str:
-	sec_ts_write_factory_level(ts, OFFSET_FW_NOSAVE);
-err_set_level:
-	snprintf(buff, sizeof(buff), "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-}
-
-static void get_pressure_threshold(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	char buff[SEC_CMD_STR_LEN] = {0};
-
-	sec_cmd_set_default_result(sec);
-
-	snprintf(buff, sizeof(buff), "300");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-}
-
-/* low level is more sensitivity, except level-0(value 0) */
-static void set_pressure_user_level(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	int ret;
-	char addr[3] = { 0 };
-	char data[2] = { 0 };
-	int pressure_thd = 0;
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
-		return;
-	}
-
-	if ((sec->cmd_param[0] < 1) || (sec->cmd_param[0] > 5))
-		goto out_set_user_level;
-
-	/*
-	 * byte[0]: m_sponge_ifpacket_addr[7:0]
-	 * byte[1]: m_sponge_ifpacket_addr[15:8]
-	 * byte[n] : user data (max 32 bytes)
-	 */
-	addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_LEVEL;
-	addr[1] = 0x00;
-	addr[2] = sec->cmd_param[0];
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_WRITE_PARAM, addr, 3);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_NOTIFY_PACKET, NULL, 0);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_READ_PARAM, addr, 2);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	sec_ts_delay(20);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SPONGE_READ_PARAM, data, 1);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	input_info(true, &ts->client->dev, "%s: set user level: %d\n", __func__, data[0]);
-
-	ts->pressure_user_level = data[0];
-
-	addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_THD_HIGH;
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_READ_PARAM, addr, 2);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	sec_ts_delay(20);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SPONGE_READ_PARAM, data, 2);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	pressure_thd = data[0] | data[1] << 8;
-	input_info(true, &ts->client->dev, "%s: HIGH THD: %d\n", __func__, pressure_thd);
-
-	addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_THD_LOW;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_READ_PARAM, addr, 2);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	sec_ts_delay(20);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SPONGE_READ_PARAM, data, 2);
-	if (ret < 0)
-		goto out_set_user_level;
-
-	pressure_thd = data[0] | data[1] << 8;
-	input_info(true, &ts->client->dev, "%s: LOW THD: %d\n", __func__, pressure_thd);
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_exit(sec);
-	return;
-
-out_set_user_level:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_exit(sec);
-}
-
-static void get_pressure_user_level(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = {0};
-	char addr[3] = { 0 };
-	char data[2] = { 0 };
-	int ret;
-
-	sec_cmd_set_default_result(sec);
-
-	snprintf(buff, sizeof(buff), "%d", ts->pressure_user_level);
-
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-
-	addr[0] = SEC_TS_CMD_SPONGE_OFFSET_PRESSURE_LEVEL;
-	addr[1] = 0x00;
-
-	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_READ_PARAM, addr, 2);
-	if (ret < 0)
-		goto out_get_user_level;
-
-	sec_ts_delay(20);
-
-	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SPONGE_READ_PARAM, data, 1);
-	if (ret < 0)
-		goto out_get_user_level;
-
-	input_err(true, &ts->client->dev, "%s: set user level: %d\n", __func__, data[0]);
-	ts->pressure_user_level = data[0];
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_exit(sec);
-	return;
-
-out_get_user_level:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_exit(sec);
-}
-
-static void set_pressure_setting_mode_enable(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = { 0 };
-
-	sec_cmd_set_default_result(sec);
-
-	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		input_err(true, &ts->client->dev, "%s: not support param\n", __func__);
-		goto NG;
-	}
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		goto NG;
-	}
-
-	ts->pressure_setting_mode = sec->cmd_param[0];
-
-	input_info(true, &ts->client->dev,
-				"%s: %s\n", __func__, ts->pressure_setting_mode ? "enabled" : "disabled");
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec_cmd_set_cmd_exit(sec);
-	return;
-
-NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec_cmd_set_cmd_exit(sec);
-}
-
-static void run_pressure_jitter_p2p_read(void *device_data)
-{
-	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
-	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[SEC_CMD_STR_LEN] = { 0 };
-	u8 data[6];
-	int i;
-	int rc;
-	short pressure[3] = {0, 0, 0};
-	short min_pressure[3] = {30000, 30000, 30000};
-	short max_pressure[3] = {-30000, -30000, -30000};
-
-	sec_cmd_set_default_result(sec);
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		goto err_jitter_p2p;
-	}
-
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SENSE_OFF, NULL, 0);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	sec_ts_delay(20);
-
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SENSE_ON, NULL, 0);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	sec_ts_delay(20);
-
-	data[0] = 0x00;
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SELECT_PRESSURE_TYPE, data, 1);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	sec_ts_delay(700);
-
-	data[0] = 0x00;
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_STATEMANAGE_ON, data, 1);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	sec_ts_delay(20);
-
-	data[0] = 0x02;
-	data[1] = 0x02;
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_CHG_SYSMODE, data, 2);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	memset(data, 0x00, 6);
-	for (i = 0; i < 120; i++) {
-		rc = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_READ_PRESSURE_DATA, data, 6);
-		if (rc < 0)
-			goto err_jitter_p2p;
-
-		pressure[0] = (data[0] << 8 | data[1]);
-		pressure[1] = (data[2] << 8 | data[3]);
-		pressure[2] = (data[4] << 8 | data[5]);
-
-		max_pressure[0] = max(max_pressure[0], pressure[0]);
-		max_pressure[1] = max(max_pressure[1], pressure[1]);
-		max_pressure[2] = max(max_pressure[2], pressure[2]);
-
-		min_pressure[0] = min(min_pressure[0], pressure[0]);
-		min_pressure[1] = min(min_pressure[1], pressure[1]);
-		min_pressure[2] = min(min_pressure[2], pressure[2]);
-
-		sec_ts_delay(10);
-	}
-
-	memset(data, 0x00, 6);
-	data[0] = 0x01;
-	rc = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_STATEMANAGE_ON, data, 1);
-	if (rc < 0)
-		goto err_jitter_p2p;
-
-	input_info(true, &ts->client->dev, "[L]%d,%d:%d [R]%d,%d:%d [C]%d,%d:%d\n",
-			max_pressure[0], min_pressure[0], max_pressure[0] - min_pressure[0],
-			max_pressure[1], min_pressure[1], max_pressure[1] - min_pressure[1],
-			max_pressure[2], min_pressure[2], max_pressure[2] - min_pressure[2]);
-
-	sec_ts_locked_release_all_finger(ts);
-
-	sec_ts_reinit(ts);
-
-	snprintf(buff, sizeof(buff), "%d,%d,%d", max_pressure[0] - min_pressure[0],
-			max_pressure[1] - min_pressure[1], max_pressure[2] - min_pressure[2]);
-
-	sec->cmd_state = SEC_CMD_STATUS_OK;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	return;
-
-err_jitter_p2p:
-	sec_ts_locked_release_all_finger(ts);
-
-	sec_ts_reinit(ts);
-
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-}
-#endif
 
 static void factory_cmd_result_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	char buff[16] = { 0 };
 
 	sec->item_count = 0;
 	memset(sec->cmd_result_all, 0x00, SEC_CMD_RESULT_STR_LEN);
@@ -6950,9 +5308,6 @@ static void factory_cmd_result_all(void *device_data)
 
 	sec->cmd_all_factory_state = SEC_CMD_STATUS_RUNNING;
 
-	snprintf(buff, sizeof(buff), "%d", ts->plat_data->item_version);
-	sec_cmd_set_cmd_result_all(sec, buff, sizeof(buff), "ITEM_VERSION");
-
 	get_chip_vendor(sec);
 	get_chip_name(sec);
 	get_fw_ver_bin(sec);
@@ -6967,11 +5322,9 @@ static void factory_cmd_result_all(void *device_data)
 	run_self_reference_read(sec);
 	get_self_channel_data(sec, TYPE_OFFSET_DATA_SEC);
 
-	run_raw_p2p_read_all(sec);
+	run_raw_p2p_read(sec);
 
 	get_wet_mode(sec);
-	get_mis_cal_info(sec);
-	get_evt_info(sec);
 
 	sec->cmd_all_factory_state = SEC_CMD_STATUS_OK;
 
@@ -6987,13 +5340,12 @@ static void set_lowpower_mode(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
-
 #if 0
 	/* set lowpower mode by spay, edge_swipe function. */
 	ts->lowpower_mode = sec->cmd_param[0];
@@ -7003,7 +5355,6 @@ static void set_lowpower_mode(void *device_data)
 	sec_cmd_set_cmd_exit(sec);
 
 	return;
-
 }
 
 static void set_wirelesscharger_mode(void *device_data)
@@ -7012,102 +5363,102 @@ static void set_wirelesscharger_mode(void *device_data)
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
 	int ret;
-	bool mode;
-	u8 w_data[1] = {0x00};
 
 	sec_cmd_set_default_result(sec);
 
-	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 3)
-		goto OUT;
-
-	if (sec->cmd_param[0] == 0) {
-		ts->charger_mode |= SEC_TS_BIT_CHARGER_MODE_NO;
-		mode = false;
-	} else {
-		ts->charger_mode &= (~SEC_TS_BIT_CHARGER_MODE_NO);
-		mode = true;
-	}
-
-	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: fail to enable w-charger status, POWER_STATUS=OFF\n", __func__);
+	switch (sec->cmd_param[0]) {
+	case TYPE_WIRELESS_CHARGER_NONE:
+		ts->charger_mode = SEC_TS_BIT_CHARGER_MODE_NO;
+		break;
+	case TYPE_WIRELESS_CHARGER:
+		ts->charger_mode = SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER;
+		break;
+	default:
+		input_err(true, &ts->client->dev,
+				"%s: invalid param %d\n", __func__, sec->cmd_param[0]);
 		goto NG;
 	}
 
-	if (sec->cmd_param[0] == 1)
-		ts->charger_mode = ts->charger_mode | SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER;
-	else if (sec->cmd_param[0] == 3)
-		ts->charger_mode = ts->charger_mode | SEC_TS_BIT_CHARGER_MODE_WIRELESS_BATTERY_PACK;
-	else if (mode == false)
-		ts->charger_mode = ts->charger_mode & (~SEC_TS_BIT_CHARGER_MODE_WIRELESS_CHARGER) & (~SEC_TS_BIT_CHARGER_MODE_WIRELESS_BATTERY_PACK);
-
-	w_data[0] = ts->charger_mode;
-	ret = ts->sec_ts_i2c_write(ts, SET_TS_CMD_SET_CHARGER_MODE, w_data, 1);
+	ret = ts->sec_ts_i2c_write(ts, SET_TS_CMD_SET_CHARGER_MODE, &ts->charger_mode, 1);
 	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Failed to send command 74\n", __func__);
+		input_err(true, &ts->client->dev,
+				"%s: Failed to write mode 0x%02X\n", __func__, ts->charger_mode);
 		goto NG;
 	}
 
-	input_err(true, &ts->client->dev, "%s: %s, status =%x\n",
-			__func__, (mode) ? "wireless enable" : "wireless disable", ts->charger_mode);
+	input_err(true, &ts->client->dev, "%s: %sabled, status=0x%02X\n",
+			__func__, ts->charger_mode == SEC_TS_BIT_CHARGER_MODE_NO ? "dis" : "en",
+			ts->charger_mode);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
 
 NG:
-	input_err(true, &ts->client->dev, "%s: %s, status =%x\n",
-			__func__, (mode) ? "wireless enable" : "wireless disable", ts->charger_mode);
-
-OUT:
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 }
 
-#ifdef CONFIG_EPEN_WACOM_W9018
-/*
- *	set spen mode by epen driver
- * 
- *	mode
- *	0 : Return to normal mode
- *	1 : Enter sleep mode & release pressed fingers
- *	2 : High noise mode ( abnormal case )
- */
-
-int set_spen_mode(int mode)
+int sec_ts_set_temp(struct sec_ts_data *ts)
 {
-	u8 w_data[2] = {0x00, 0x00};
-	int ret;
+	int ret = 0;
+	u8 temp_data = 0;
 
-	if (ts_dup == NULL)
-		return 0;
+	if (!ts->psy)
+		ts->psy = power_supply_get_by_name("battery");
 
-	if (ts_dup->power_status == SEC_TS_STATE_POWER_OFF) {
-		input_err(true, &ts_dup->client->dev,
-				"%s: fail to send status, POWER_STATUS=OFF \n",
-				__func__);
-		return -EINVAL;
+	if (!ts->psy) {
+		input_err(true, &ts->client->dev, "%s: Cannot find power supply\n", __func__);
+		return -1;
 	}
 
-	w_data[0] = mode;
-	ret = ts_dup->sec_ts_i2c_write(ts_dup, SEC_TS_CMD_SET_SPENMODE, w_data, 1);
+	ret = power_supply_get_property(ts->psy, POWER_SUPPLY_PROP_TEMP, &ts->psy_value);
 	if (ret < 0) {
-		input_err(true, &ts_dup->client->dev,
-				"%s: Failed to send command 75", __func__);
-		return -EINVAL;
+		input_err(true, &ts->client->dev, "%s: Couldn't get aicl settled value ret=%d\n", __func__, ret);
+		return ret;
 	}
 
-	ts_dup->spen_mode_val = mode;
+	temp_data = (u8)(ts->psy_value.intval / 10);
+	ret = ts->sec_ts_i2c_write(ts, SET_TS_CMD_SET_LOWTEMPERATURE_MODE, &temp_data, 1);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to write\n", __func__);
+		return ret;
+	}
 
-	input_info(true, &ts_dup->client->dev, "%s: mode(%d) sended \n",
-			__func__, mode);
-	return mode;
+	input_info(true, &ts->client->dev, "%s temperature:%d\n", __func__, (s8)temp_data);
+
+	return ret;
 }
-EXPORT_SYMBOL(set_spen_mode);
-#endif
+
+static void set_temperature(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret = 0;
+
+	sec_cmd_set_default_result(sec);
+
+	ret = sec_ts_set_temp(ts);
+	if (ret < 0)
+		goto NG;
+	
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+	return;
+NG:
+	snprintf(buff, sizeof(buff), "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+	return;
+}
 
 static void spay_enable(void *device_data)
 {
@@ -7117,103 +5468,88 @@ static void spay_enable(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1)
-		goto NG;
-
-	if (sec->cmd_param[0]) {
-		if (ts->use_sponge)
-			ts->lowpower_mode |= SEC_TS_MODE_SPONGE_SPAY;
-	} else {
-		if (ts->use_sponge)
-			ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_SPAY;
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->use_sponge) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
 	}
 
-	input_info(true, &ts->client->dev, "%s: %02X\n", __func__, ts->lowpower_mode);
+	if (sec->cmd_param[0])
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_SWIPE;
+	else
+		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_SWIPE;
 
-	if (ts->use_sponge)
-		sec_ts_set_custom_library(ts);
+	input_info(true, &ts->client->dev, "%s: %s, %02X\n",
+			__func__, sec->cmd_param[0] ? "on" : "off", ts->lowpower_mode);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	sec_ts_set_custom_library(ts);
+
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
+}
 
-NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec_cmd_set_cmd_exit(sec);
+int sec_ts_set_aod_rect(struct sec_ts_data *ts)
+{
+	u8 data[10] = {0x02, 0};
+	int ret, i;
+
+	if (!ts->use_sponge || !(ts->lowpower_mode & SEC_TS_MODE_SPONGE_AOD))
+		return 0;
+
+	for (i = 0; i < 4; i++) {
+		data[i * 2 + 2] = ts->rect_data[i] & 0xFF;
+		data[i * 2 + 3] = (ts->rect_data[i] >> 8) & 0xFF;
+	}
+
+	ret = ts->sec_ts_write_sponge(ts, data, 10);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "%s: Failed to write sponge\n", __func__);
+
+	return ret;
 }
 
 static void set_aod_rect(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
-	struct irq_desc *desc = irq_to_desc(ts->client->irq);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
-	u8 data[10] = {0x02, 0};
 	int ret, i;
 
 	sec_cmd_set_default_result(sec);
 
-	ts->irq_gpio_status = gpio_get_value(ts->plat_data->irq_gpio);
-	ts->irq_depth = desc->depth;
-
-	input_info(true, &ts->client->dev, "%s: w:%d, h:%d, x:%d, y:%d, (%d,%d,%d)\n",
+	input_info(true, &ts->client->dev, "%s: w:%d, h:%d, x:%d, y:%d, lowpower_mode:0x%02X\n",
 			__func__, sec->cmd_param[0], sec->cmd_param[1],
-			sec->cmd_param[2], sec->cmd_param[3],
-			ts->irq_gpio_status, ts->irq_depth, desc->irq_count);
+			sec->cmd_param[2], sec->cmd_param[3], ts->lowpower_mode);
 
-	for (i = 0; i < 4; i++) {
-		data[i * 2 + 2] = sec->cmd_param[i] & 0xFF;
-		data[i * 2 + 3] = (sec->cmd_param[i] >> 8) & 0xFF;
+	if (ts->use_sponge)
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_AOD;
+
+	for (i = 0; i < 4; i++)
 		ts->rect_data[i] = sec->cmd_param[i];
-	}
 
-	if (ts->use_sponge) {
-		disable_irq(ts->client->irq);
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_WRITE_PARAM, &data[0], 10);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: Failed to write offset\n", __func__);
-			goto NG;
-		}
+	ret = sec_ts_set_aod_rect(ts);
+	if (ret < 0)
+		goto NG;
 
-		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SPONGE_NOTIFY_PACKET, NULL, 0);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: Failed to send notify\n", __func__);
-			goto NG;
-		}
-		enable_irq(ts->client->irq);
-
-		/* optional reg : SEC_TS_CMD_LPM_AOD_OFF_ON(0x9B)			*/
-		/* 0 : aod off : change tsp scan freq , avoid wacom scan noise 	*/
-		/* 1 : aod on->off : change tsp scan freq , avoid wacom scan noise in lpm mode*/
-		/* 2 : aod on : scan based on vsync/hsync					*/
-		if (ts->power_status == SEC_TS_STATE_LPM) {
-			if (sec->cmd_param[0] == 0 && sec->cmd_param[1] == 0 &&
-				sec->cmd_param[2] == 0 && sec->cmd_param[3] == 0 ) {
-
-				data[0] = SEC_TS_CMD_LPM_AOD_ON_OFF;
-			} else {
-				data[0] = SEC_TS_CMD_LPM_AOD_ON;
-			}
-			ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_LPM_AOD_OFF_ON, &data[0], 1);
-			if (ret < 0) {
-				input_err(true, &ts->client->dev, "%s: Failed to send aod off_on cmd\n", __func__);
-				goto NG;
-			}
-		}
-	}
-
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
+
 NG:
-	enable_irq(ts->client->irq);
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7231,14 +5567,10 @@ static void get_aod_rect(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	if (ts->use_sponge) {
-		disable_irq(ts->client->irq);
-		ret = ts->sec_ts_read_sponge(ts, data, 8);
-		if (ret < 0) {
-			input_err(true, &ts->client->dev, "%s: Failed to read rect\n", __func__);
-			goto NG;
-		}
-		enable_irq(ts->client->irq);
+	ret = ts->sec_ts_read_sponge(ts, data, 8);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to read rect\n", __func__);
+		goto NG;
 	}
 
 	for (i = 0; i < 4; i++)
@@ -7247,14 +5579,14 @@ static void get_aod_rect(void *device_data)
 	input_info(true, &ts->client->dev, "%s: w:%d, h:%d, x:%d, y:%d\n",
 			__func__, rect_data[0], rect_data[1], rect_data[2], rect_data[3]);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
+
 NG:
-	enable_irq(ts->client->irq);
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7268,33 +5600,183 @@ static void aod_enable(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1)
-		goto NG;
-
-	if (sec->cmd_param[0]) {
-		if (ts->use_sponge)
-			ts->lowpower_mode |= SEC_TS_MODE_SPONGE_AOD;
-	} else {
-		if (ts->use_sponge)
-			ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_AOD;
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->use_sponge) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
 	}
+	
+	if (sec->cmd_param[0])
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_AOD;
+	else
+		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_AOD;
 
-	input_info(true, &ts->client->dev, "%s: %02X\n", __func__, ts->lowpower_mode);
+	input_info(true, &ts->client->dev, "%s: %s, %02X\n",
+			__func__, sec->cmd_param[0] ? "on" : "off", ts->lowpower_mode);
 
-	if (ts->use_sponge)
-		sec_ts_set_custom_library(ts);
+	sec_ts_set_custom_library(ts);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
+}
 
-NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
-	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+static void aot_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->use_sponge) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	}
+
+	if (sec->cmd_param[0])
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_DOUBLETAP_TO_WAKEUP;
+	else
+		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_DOUBLETAP_TO_WAKEUP;
+
+	input_info(true, &ts->client->dev, "%s: %s, %02X\n",
+			__func__, sec->cmd_param[0] ? "on" : "off", ts->lowpower_mode);
+
+	sec_ts_set_custom_library(ts);
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
+	return;
+}
+
+int sec_ts_set_press_property(struct sec_ts_data *ts)
+{
+	u8 data[3] = { SEC_TS_CMD_SPONGE_PRESS_PROPERTY, 0 };
+	int ret;
+
+	if (!ts->use_sponge || !ts->plat_data->support_fod)
+		return 0;
+
+	data[2] = ts->press_prop;
+
+	ret = ts->sec_ts_write_sponge(ts, data, 3);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "%s: Failed to write sponge\n", __func__);
+
+	input_info(true, &ts->client->dev, "%s: %d\n", __func__, ts->press_prop);
+
+	return ret;
+}
+
+static void fod_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->plat_data->support_fod || !ts->use_sponge) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	}
+
+	if (sec->cmd_param[0])
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_PRESS;
+	else
+		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_PRESS;
+
+	ts->press_prop = !!sec->cmd_param[1];
+
+	input_info(true, &ts->client->dev, "%s: %s, fast:%d, %02X\n",
+			__func__, sec->cmd_param[0] ? "on" : "off",
+			ts->press_prop, ts->lowpower_mode);
+
+	mutex_lock(&ts->modechange);
+	if (ts->input_closed && !ts->lowpower_mode && !ts->ed_enable) {
+		if (device_may_wakeup(&ts->client->dev) && ts->power_status == SEC_TS_STATE_LPM)
+			disable_irq_wake(ts->client->irq);
+		sec_ts_stop_device(ts);
+	} else { 
+		sec_ts_set_custom_library(ts);
+		sec_ts_set_press_property(ts);
+	}
+	mutex_unlock(&ts->modechange);
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+	return;
+}
+
+static void singletap_enable(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->use_sponge) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	}
+
+	if (sec->cmd_param[0])
+		ts->lowpower_mode |= SEC_TS_MODE_SPONGE_SINGLE_TAP;
+	else
+		ts->lowpower_mode &= ~SEC_TS_MODE_SPONGE_SINGLE_TAP;
+
+	input_info(true, &ts->client->dev, "%s: %s, %02X\n",
+			__func__, sec->cmd_param[0] ? "on" : "off", ts->lowpower_mode);
+
+	sec_ts_set_custom_library(ts);
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+	return;
 }
 
 /*
@@ -7304,17 +5786,17 @@ NG:
  *		8  :  set landscape mode data
  *		16 :  mode clear
  *	data
- *		0x30, FFF (y start), FFF (y end),  FF(direction)
- *		0x31, FFFF (edge zone)
- *		0x32, FF (up x), FF (down x), FFFF (y)
- *		0x33, FF (mode), FFF (edge), FFF (dead zone)
+ *		0xAA, FFF (y start), FFF (y end),  FF(direction)
+ *		0xAB, FFFF (edge zone)
+ *		0xAC, FF (up x), FF (down x), FFFF (y)
+ *		0xAD, FF (mode), FFF (edge), FFF (dead zone x), FF (dead zone top y), FF (dead zone bottom y)
  *	case
- *		edge handler set :  0x30....
- *		booting time :  0x30...  + 0x31...
- *		normal mode : 0x32...  (+0x31...)
- *		landscape mode : 0x33...
- *		landscape -> normal (if same with old data) : 0x33, 0
- *		landscape -> normal (etc) : 0x32....  + 0x33, 0
+ *		edge handler set :  0xAA....
+ *		booting time :  0xAA...  + 0xAB...
+ *		normal mode : 0xAC...  (+0xAB...)
+ *		landscape mode : 0xAD...
+ *		landscape -> normal (if same with old data) : 0xAD, 0
+ *		landscape -> normal (etc) : 0xAC....  + 0xAD, 0
  */
 
 void set_grip_data_to_ic(struct sec_ts_data *ts, u8 flag)
@@ -7363,9 +5845,11 @@ void set_grip_data_to_ic(struct sec_ts_data *ts, u8 flag)
 		data[1] = (ts->grip_landscape_edge >> 4) & 0xFF;
 		data[2] = (ts->grip_landscape_edge << 4 & 0xF0) | ((ts->grip_landscape_deadzone >> 8) & 0xF);
 		data[3] = ts->grip_landscape_deadzone & 0xFF;
-		ts->sec_ts_i2c_write(ts, SEC_TS_CMD_LANDSCAPE_MODE, data, 4);
-		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X\n",
-				__func__, SEC_TS_CMD_LANDSCAPE_MODE, data[0], data[1], data[2], data[3]);
+		data[4] = ts->grip_landscape_top_deadzone & 0xFF;
+		data[5] = ts->grip_landscape_bottom_deadzone & 0xFF;
+		ts->sec_ts_i2c_write(ts, SEC_TS_CMD_LANDSCAPE_MODE, data, 6);
+		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X,%02X,%02X\n",
+				__func__, SEC_TS_CMD_LANDSCAPE_MODE, data[0], data[1], data[2], data[3], data[4], data[5]);
 	}
 
 	if (flag & G_CLR_LANDSCAPE_MODE) {
@@ -7389,8 +5873,8 @@ void set_grip_data_to_ic(struct sec_ts_data *ts, u8 flag)
  *		1, X (edge zone), X (dead zone up x), X (dead zone down x), X (dead zone y)
  *			ex) echo set_grip_data,1,200,10,50,1500 > cmd
  *
- *		2, 1 (landscape mode), X (edge zone), X (dead zone)
- *			ex) echo set_grip_data,2,1,200,100 > cmd
+ *		2, 1 (landscape mode), X (edge zone), X (dead zone x), X (dead zone top y), X (dead zone bottom y)
+ *			ex) echo set_grip_data,2,1,200,100,120,0 > cmd
  *
  *		2, 0 (portrait mode)
  *			ex) echo set_grip_data,2,0  > cmd
@@ -7448,6 +5932,8 @@ static void set_grip_data(void *device_data)
 			ts->grip_landscape_mode = 1;
 			ts->grip_landscape_edge = sec->cmd_param[2];
 			ts->grip_landscape_deadzone	= sec->cmd_param[3];
+			ts->grip_landscape_top_deadzone = sec->cmd_param[4];
+			ts->grip_landscape_bottom_deadzone = sec->cmd_param[5];
 			mode = mode | G_SET_LANDSCAPE_MODE;
 		} else {
 			input_err(true, &ts->client->dev, "%s: cmd1 is abnormal, %d (%d)\n",
@@ -7462,7 +5948,7 @@ static void set_grip_data(void *device_data)
 
 	mutex_unlock(&ts->device_mutex);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7471,7 +5957,7 @@ static void set_grip_data(void *device_data)
 err_grip_data:
 	mutex_unlock(&ts->device_mutex);
 
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7574,14 +6060,14 @@ static void external_noise_mode(void *device_data)
 	if (ret < 0)
 		goto NG;
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 	return;
 
 NG:
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7597,7 +6083,7 @@ static void brush_enable(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
@@ -7606,8 +6092,8 @@ static void brush_enable(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
 
@@ -7621,13 +6107,14 @@ static void brush_enable(void *device_data)
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: failed to set brush mode\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
+
 out:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7645,7 +6132,7 @@ static void set_touchable_area(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
@@ -7654,8 +6141,8 @@ static void set_touchable_area(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
 
@@ -7669,13 +6156,14 @@ static void set_touchable_area(void *device_data)
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: failed to set 16:9 mode\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
+
 out:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7696,7 +6184,7 @@ static void set_log_level(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
@@ -7711,7 +6199,7 @@ static void set_log_level(void *device_data)
 			(sec->cmd_param[6] < 0 || sec->cmd_param[6] > 1) ||
 			(sec->cmd_param[7] < 0 || sec->cmd_param[7] > 1)) {
 		input_err(true, &ts->client->dev, "%s: para out of range\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "Para out of range");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
@@ -7720,7 +6208,7 @@ static void set_log_level(void *device_data)
 	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_STATUS_EVENT_TYPE, tBuff, 2);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Read Event type enable status fail\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "Read Stat Fail");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -7735,7 +6223,7 @@ static void set_log_level(void *device_data)
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_STATUS_EVENT_TYPE, tBuff, 2);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Write Event type enable status fail\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "Write Stat Fail");
+		snprintf(buff, sizeof(buff), "NG");
 		goto err;
 	}
 
@@ -7747,7 +6235,7 @@ static void set_log_level(void *device_data)
 		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_VENDOR_EVENT_LEVEL, w_data, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: Write Vendor Event Level fail\n", __func__);
-			snprintf(buff, sizeof(buff), "%s", "Write Stat Fail");
+			snprintf(buff, sizeof(buff), "NG");
 			goto err;
 		}
 	} else {
@@ -7755,7 +6243,7 @@ static void set_log_level(void *device_data)
 		ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_VENDOR_EVENT_LEVEL, w_data, 0);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: Write Vendor Event Level fail\n", __func__);
-			snprintf(buff, sizeof(buff), "%s", "Write Stat Fail");
+			snprintf(buff, sizeof(buff), "NG");
 			goto err;
 		}
 	}
@@ -7763,13 +6251,14 @@ static void set_log_level(void *device_data)
 	input_info(true, &ts->client->dev, "%s: ERROR : %d, INFO : %d, USER_INPUT : %d, INFO_SPONGE : %d, VENDOR_INFO : %d, VENDOR_EVENT_LEVEL : %d\n",
 			__func__, sec->cmd_param[0], sec->cmd_param[1], sec->cmd_param[2], sec->cmd_param[5], sec->cmd_param[6], w_data[0]);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	return;
+
 err:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 }
 
 static void debug(void *device_data)
@@ -7782,7 +6271,7 @@ static void debug(void *device_data)
 
 	ts->debug_flag = sec->cmd_param[0];
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
@@ -7803,15 +6292,15 @@ static void check_connection(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
 	}
 
 	rBuff = kzalloc(size, GFP_KERNEL);
 	if (!rBuff) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		return;
@@ -7885,7 +6374,7 @@ static void check_connection(void *device_data)
 
 	enable_irq(ts->client->irq);
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -7898,7 +6387,7 @@ err_conn_check:
 	ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, data, 1);
 	enable_irq(ts->client->irq);
 
-	snprintf(buff, sizeof(buff), "%s", "NG");
+	snprintf(buff, sizeof(buff), "NG");
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 
@@ -7915,7 +6404,7 @@ static void fix_active_mode(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
@@ -7924,8 +6413,8 @@ static void fix_active_mode(void *device_data)
 
 	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
 		input_err(true, &ts->client->dev, "%s: Touch is stopped!\n", __func__);
-		snprintf(buff, sizeof(buff), "%s", "TSP turned off");
-		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
 
@@ -7936,8 +6425,9 @@ static void fix_active_mode(void *device_data)
 			sec_ts_release_tmode(ts);
 	}
 
-	snprintf(buff, sizeof(buff), "%s", "OK");
+	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;
+
 out:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7956,7 +6446,7 @@ static void touch_aging_mode(void *device_data)
 	sec_cmd_set_default_result(sec);
 
 	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 		goto out;
 	}
@@ -7968,12 +6458,13 @@ static void touch_aging_mode(void *device_data)
 
 	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &data, 1);
 	if (ret < 0) {
-		snprintf(buff, sizeof(buff), "%s", "NG");
+		snprintf(buff, sizeof(buff), "NG");
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
-		snprintf(buff, sizeof(buff), "%s", "OK");
+		snprintf(buff, sizeof(buff), "OK");
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
+
 out:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
@@ -7981,24 +6472,48 @@ out:
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 }
 
-/*
-enum tclm_root {
-	CALPOSITION_NONE			= 0,
-	CALPOSITION_INITIAL			= 1,
-	CALPOSITION_FACTORY			= 2,
-	CALPOSITION_OUTSIDE			= 3,
-	CALPOSITION_LCIA			= 4,
-	CALPOSITION_SVCCENTER		= 5,
-	CALPOSITION_ABNORMAL		= 6,
-	CALPOSITION_FIRMUP			= 7,
-	CALPOSITION_SPECOUT			= 8,
-	CALPOSITION_TUNEUP			= 9,
-	CALPOSITION_EVERYTIME		= 10,
-	CALPOSITION_TESTMODE		= 11,
-	CALPOSITION_UNDEFINE		= 12,
-	CALPOSITION_MAX			= 16,
-};
-*/
+static void fp_int_control(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret;
+	u8 data[2] = { 1, 0 }; /* byte[0]:1 - INTR2 */
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	} else if (!ts->plat_data->support_fod) {
+		snprintf(buff, sizeof(buff), "NA");
+		sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	}
+	
+	data[1] = sec->cmd_param[0];
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_INPUT_GPIO_CONTROL, data, 2);
+	if (ret < 0) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+		sec_cmd_set_cmd_exit(sec);
+		return;
+	}
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	input_info(true, &ts->client->dev, "%s: %d %s\n", __func__, data[1], buff);
+	return;
+}
+
+#ifdef TCLM_CONCEPT
 static void tclm_test_cmd(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
@@ -8018,8 +6533,9 @@ static void tclm_test_cmd(void *device_data)
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	return;
+
 not_support:
-	snprintf(buff, sizeof(buff), "%s", "NA");
+	snprintf(buff, sizeof(buff), "NA");
 	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
@@ -8039,11 +6555,13 @@ static void get_calibration(void *device_data)
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	return;
+
 not_support:
-	snprintf(buff, sizeof(buff), "%s", "NA");
+	snprintf(buff, sizeof(buff), "NA");
 	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 }
+#endif
 
 static void not_support_cmd(void *device_data)
 {
@@ -8051,7 +6569,7 @@ static void not_support_cmd(void *device_data)
 	char buff[SEC_CMD_STR_LEN] = { 0 };
 
 	sec_cmd_set_default_result(sec);
-	snprintf(buff, sizeof(buff), "%s", "NA");
+	snprintf(buff, sizeof(buff), "NA");
 
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_NOT_APPLICABLE;
@@ -8060,7 +6578,7 @@ static void not_support_cmd(void *device_data)
 
 int sec_ts_fn_init(struct sec_ts_data *ts)
 {
-	int retval;
+	int retval = 0;
 
 	retval = sec_cmd_init(&ts->sec, sec_cmds,
 			ARRAY_SIZE(sec_cmds), SEC_CLASS_DEVT_TSP);
@@ -8087,8 +6605,6 @@ int sec_ts_fn_init(struct sec_ts_data *ts)
 		goto exit;
 	}
 
-	ts->reinit_done = true;
-
 	return 0;
 
 exit:
@@ -8105,5 +6621,4 @@ void sec_ts_fn_remove(struct sec_ts_data *ts)
 			&cmd_attr_group);
 
 	sec_cmd_exit(&ts->sec, SEC_CLASS_DEVT_TSP);
-
 }

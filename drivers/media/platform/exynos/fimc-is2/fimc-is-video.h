@@ -83,9 +83,12 @@
 #define VIDEO_3XS_READY_BUFFERS			0
 #define VIDEO_3XC_READY_BUFFERS			0
 #define VIDEO_3XP_READY_BUFFERS			0
+#define VIDEO_3XF_READY_BUFFERS			0
+#define VIDEO_3XG_READY_BUFFERS			0
 #define VIDEO_IXS_READY_BUFFERS			0
 #define VIDEO_IXC_READY_BUFFERS			0
 #define VIDEO_IXP_READY_BUFFERS			0
+#define VIDEO_MEXC_READY_BUFFERS			0
 #define VIDEO_SCC_READY_BUFFERS			0
 #define VIDEO_SCP_READY_BUFFERS			0
 #define VIDEO_DXS_READY_BUFFERS			0
@@ -99,6 +102,7 @@
 #define VIDEO_SSXVC1_READY_BUFFERS		0
 #define VIDEO_SSXVC2_READY_BUFFERS		0
 #define VIDEO_SSXVC3_READY_BUFFERS		0
+#define VIDEO_PAFXS_READY_BUFFERS		0
 
 #define FIMC_IS_VIDEO_NAME(name)		("exynos-fimc-is-"name)
 #define FIMC_IS_VIDEO_SSX_NAME			FIMC_IS_VIDEO_NAME("ss")
@@ -106,9 +110,12 @@
 #define FIMC_IS_VIDEO_3XS_NAME(id)		FIMC_IS_VIDEO_NAME("3"#id"s")
 #define FIMC_IS_VIDEO_3XC_NAME(id)		FIMC_IS_VIDEO_NAME("3"#id"c")
 #define FIMC_IS_VIDEO_3XP_NAME(id)		FIMC_IS_VIDEO_NAME("3"#id"p")
+#define FIMC_IS_VIDEO_3XF_NAME(id)		FIMC_IS_VIDEO_NAME("3"#id"f")
+#define FIMC_IS_VIDEO_3XG_NAME(id)		FIMC_IS_VIDEO_NAME("3"#id"g")
 #define FIMC_IS_VIDEO_IXS_NAME(id)		FIMC_IS_VIDEO_NAME("i"#id"s")
 #define FIMC_IS_VIDEO_IXC_NAME(id)		FIMC_IS_VIDEO_NAME("i"#id"c")
 #define FIMC_IS_VIDEO_IXP_NAME(id)		FIMC_IS_VIDEO_NAME("i"#id"p")
+#define FIMC_IS_VIDEO_MEXC_NAME(id)		FIMC_IS_VIDEO_NAME("me"#id"c")
 #define FIMC_IS_VIDEO_DXS_NAME(id)		FIMC_IS_VIDEO_NAME("d"#id"s")
 #define FIMC_IS_VIDEO_DXC_NAME(id)		FIMC_IS_VIDEO_NAME("d"#id"c")
 #define FIMC_IS_VIDEO_DCPXS_NAME(id)		FIMC_IS_VIDEO_NAME("dcp"#id"s")
@@ -122,6 +129,7 @@
 #define FIMC_IS_VIDEO_SSXVC1_NAME(id)		FIMC_IS_VIDEO_NAME("ss"#id"vc1")
 #define FIMC_IS_VIDEO_SSXVC2_NAME(id)		FIMC_IS_VIDEO_NAME("ss"#id"vc2")
 #define FIMC_IS_VIDEO_SSXVC3_NAME(id)		FIMC_IS_VIDEO_NAME("ss"#id"vc3")
+#define FIMC_IS_VIDEO_PAFXS_NAME(id)		FIMC_IS_VIDEO_NAME("p"#id"s")
 
 struct fimc_is_device_ischain;
 struct fimc_is_subdev;
@@ -144,15 +152,21 @@ enum fimc_is_video_dev_num {
 	FIMC_IS_VIDEO_30S_NUM = 10,
 	FIMC_IS_VIDEO_30C_NUM,
 	FIMC_IS_VIDEO_30P_NUM,
+	FIMC_IS_VIDEO_30F_NUM,
+	FIMC_IS_VIDEO_30G_NUM,
 	FIMC_IS_VIDEO_31S_NUM = 20,
 	FIMC_IS_VIDEO_31C_NUM,
 	FIMC_IS_VIDEO_31P_NUM,
+	FIMC_IS_VIDEO_31F_NUM,
+	FIMC_IS_VIDEO_31G_NUM,
 	FIMC_IS_VIDEO_I0S_NUM = 30,
 	FIMC_IS_VIDEO_I0C_NUM,
 	FIMC_IS_VIDEO_I0P_NUM,
 	FIMC_IS_VIDEO_I1S_NUM = 40,
 	FIMC_IS_VIDEO_I1C_NUM,
 	FIMC_IS_VIDEO_I1P_NUM,
+	FIMC_IS_VIDEO_ME0C_NUM = 48,
+	FIMC_IS_VIDEO_ME1C_NUM = 49,
 	FIMC_IS_VIDEO_DCP0S_NUM = 50,	/* Master */
 	FIMC_IS_VIDEO_DCP0C_NUM,	/* Master Main Capture */
 	FIMC_IS_VIDEO_DCP1S_NUM,	/* Slave */
@@ -201,6 +215,10 @@ enum fimc_is_video_dev_num {
 	FIMC_IS_VIDEO_SS5VC1_NUM,
 	FIMC_IS_VIDEO_SS5VC2_NUM,
 	FIMC_IS_VIDEO_SS5VC3_NUM,
+	FIMC_IS_VIDEO_PAF0S_NUM = 140,
+	FIMC_IS_VIDEO_PAF1S_NUM,
+	FIMC_IS_VIDEO_32S_NUM = 150,
+	FIMC_IS_VIDEO_32P_NUM,
 	FIMC_IS_VIDEO_MAX_NUM
 };
 
@@ -222,7 +240,8 @@ enum fimc_is_video_state {
 enum fimc_is_queue_state {
 	FIMC_IS_QUEUE_BUFFER_PREPARED,
 	FIMC_IS_QUEUE_BUFFER_READY,
-	FIMC_IS_QUEUE_STREAM_ON
+	FIMC_IS_QUEUE_STREAM_ON,
+	IS_QUEUE_NEED_TO_REMAP,
 };
 
 struct fimc_is_frame_cfg {
@@ -232,6 +251,7 @@ struct fimc_is_frame_cfg {
 	ulong				flip;
 	u32				width;
 	u32				height;
+	u32				hw_pixeltype;
 	u32				size[FIMC_IS_MAX_PLANES];
 	u32				bytesperline[FIMC_IS_MAX_PLANES];
 };
@@ -267,9 +287,8 @@ struct fimc_is_queue {
 	u32				buf_maxcount;
 	u32				buf_rdycount;
 	u32				buf_refcount;
-	ulong				buf_dva[FIMC_IS_MAX_BUFS][FIMC_IS_MAX_PLANES];
+	dma_addr_t			buf_dva[FIMC_IS_MAX_BUFS][FIMC_IS_MAX_PLANES];
 	ulong				buf_kva[FIMC_IS_MAX_BUFS][FIMC_IS_MAX_PLANES];
-	ulong				buf_box[FIMC_IS_MAX_BUFS][FIMC_IS_MAX_PLANES];
 
 	/* for debugging */
 	u32				buf_req;
@@ -288,7 +307,6 @@ struct fimc_is_video_ctx {
 	u32				instance;
 	u32				refcount;
 	unsigned long			state;
-	struct list_head		cache_flush_head;
 
 	void				*device;
 	void				*next_device;
@@ -342,8 +360,9 @@ int fimc_is_queue_setup(struct fimc_is_queue *queue,
 	struct device *alloc_devs[]);
 int fimc_is_queue_buffer_queue(struct fimc_is_queue *queue,
 	struct vb2_buffer *vb);
-int fimc_is_buffer_init(struct vb2_buffer *vb);
-int fimc_is_queue_prepare(struct vb2_buffer *vb);
+int fimc_is_queue_buffer_init(struct vb2_buffer *vb);
+void fimc_is_queue_buffer_cleanup(struct vb2_buffer *vb);
+int fimc_is_queue_buffer_prepare(struct vb2_buffer *vb);
 void fimc_is_queue_wait_prepare(struct vb2_queue *vbq);
 void fimc_is_queue_wait_finish(struct vb2_queue *vbq);
 int fimc_is_queue_start_streaming(struct fimc_is_queue *queue,
@@ -412,15 +431,23 @@ extern int fimc_is_ssx_video_probe(void *data);
 extern int fimc_is_30s_video_probe(void *data);
 extern int fimc_is_30c_video_probe(void *data);
 extern int fimc_is_30p_video_probe(void *data);
+extern int fimc_is_30f_video_probe(void *data);
+extern int fimc_is_30g_video_probe(void *data);
 extern int fimc_is_31s_video_probe(void *data);
 extern int fimc_is_31c_video_probe(void *data);
 extern int fimc_is_31p_video_probe(void *data);
+extern int fimc_is_31f_video_probe(void *data);
+extern int fimc_is_31g_video_probe(void *data);
+extern int fimc_is_32s_video_probe(void *data);
+extern int fimc_is_32p_video_probe(void *data);
 extern int fimc_is_i0s_video_probe(void *data);
 extern int fimc_is_i0c_video_probe(void *data);
 extern int fimc_is_i0p_video_probe(void *data);
 extern int fimc_is_i1s_video_probe(void *data);
 extern int fimc_is_i1c_video_probe(void *data);
 extern int fimc_is_i1p_video_probe(void *data);
+extern int fimc_is_me0c_video_probe(void *data);
+extern int fimc_is_me1c_video_probe(void *data);
 extern int fimc_is_d0s_video_probe(void *data);
 extern int fimc_is_d0c_video_probe(void *data);
 extern int fimc_is_d1s_video_probe(void *data);
@@ -447,6 +474,8 @@ extern int fimc_is_ssxvc0_video_probe(void *data);
 extern int fimc_is_ssxvc1_video_probe(void *data);
 extern int fimc_is_ssxvc2_video_probe(void *data);
 extern int fimc_is_ssxvc3_video_probe(void *data);
+extern int fimc_is_paf0s_video_probe(void *data);
+extern int fimc_is_paf1s_video_probe(void *data);
 
 #define GET_VIDEO(vctx) 		(vctx ? (vctx)->video : NULL)
 #define GET_QUEUE(vctx) 		(vctx ? &(vctx)->queue : NULL)
@@ -459,13 +488,4 @@ extern int fimc_is_ssxvc3_video_probe(void *data);
 #endif
 #define CALL_QOPS(q, op, args...)	(((q)->qops->op) ? ((q)->qops->op(args)) : 0)
 #define CALL_VOPS(v, op, args...)	((v) && ((v)->vops.op) ? ((v)->vops.op(v, args)) : 0)
-#define CALL_CACHE_BUFS_FINISH(vctx)						\
-	({ struct fimc_is_vb2_buf *vbuf, *temp;					\
-	if (vctx) {								\
-		list_for_each_entry_safe(vbuf, temp, &(vctx)->cache_flush_head, cache_flush_list) {	\
-			CALL_VOID_BUFOP(vbuf, buf_finish, vbuf, false);		\
-			list_del(&vbuf->cache_flush_list);			\
-		}								\
-	}})
-
 #endif

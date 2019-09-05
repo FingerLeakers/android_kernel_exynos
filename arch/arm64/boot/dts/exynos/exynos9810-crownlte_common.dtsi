@@ -10,11 +10,11 @@
 */
 
 #include "exynos9810-rmem.dtsi"
-#include "exynos9810-rmem_crown.dtsi"
+#include "exynos9810-rmem_star2.dtsi"
 #include "exynos9810.dtsi"
 #include "exynos9810-display-lcd.dtsi"
 #include "modem-ss360ap-sipc-pdata.dtsi"
-#include "exynos9810-crownlte_svcled.dtsi"
+#include "exynos9810-star2lte_svcled.dtsi"
 #include "exynos9810-crownlte_motor.dtsi"
 #include "exynos9810-starlte_sound.dtsi"
 #include "exynos9810-crownlte-input-common.dtsi"
@@ -26,6 +26,21 @@
 	ect {
 		parameter_address = <0xA0000000>;
 		parameter_size = <0x32000>;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x80000000>;
+	};
+
+	memory@880000000 {
+		device_type = "memory";
+		reg = <0x00000008 0x80000000 0x80000000>;
+	};
+
+	memory@900000000 {
+		device_type = "memory";
+		reg = <0x00000009 0x00000000 0x0>;
 	};
 
 	chosen {
@@ -211,8 +226,6 @@
 			 */
 			snps,dis-u2-freeclk-exists-quirk;
 			/* snps,dis_u2_susphy_quirk;*/
-			/* definition for manual control of ldo 12, 13, 14 */
-			ldo_manual_control;
 		};
 	};
 
@@ -314,11 +327,6 @@
 	usb_notifier {
 		compatible = "samsung,usb-notifier";
 		udc = <&udc>;
-		/*
-		 * USB_LDOCONTROL_EXYNOS8895	1
-		 * USB_LDOCONTROL_EXYNOS9810	2
-		*/
-		usb-ldocontrol = <2>;
 	};
 
 	/* USI_00 */
@@ -766,6 +774,7 @@
 					regulator-name = "vdd_ldo12";
 					regulator-min-microvolt = <700000>;
 					regulator-max-microvolt = <1100000>;
+					regulator-always-on;
 					regulator-ramp-delay = <12000>;
 					regulator-initial-mode = <1>;
 				};
@@ -774,6 +783,7 @@
 					regulator-name = "vdd_ldo13";
 					regulator-min-microvolt = <1600000>;
 					regulator-max-microvolt = <1950000>;
+					regulator-always-on;
 					regulator-ramp-delay = <12000>;
 					regulator-initial-mode = <1>;
 				};
@@ -782,6 +792,7 @@
 					regulator-name = "vdd_ldo14";
 					regulator-min-microvolt = <1700000>;
 					regulator-max-microvolt = <3350000>;
+					regulator-always-on;
 					regulator-ramp-delay = <12000>;
 					regulator-initial-mode = <1>;
 				};
@@ -924,6 +935,8 @@
 					regulator-name = "VDD_EXT_1P3_PB02";
 					regulator-min-microvolt = <1300000>;
 					regulator-max-microvolt = <1300000>;
+					regulator-always-on;
+					regulator-boot-on;
 				};
 
 				_buckboost_reg: s2mpb02-bb {
@@ -1065,7 +1078,7 @@
 					brightness = <0xC>; /* Nx20 = 240mA */
 					timeout = <0xF>;
 					torch_table_enable = <1>;
-					torch_table = <2 3 3 5 5 7 7 7 9 9>; /* [0],[1],[3],[5],[8] */
+					torch_table = <2 3 3 4 4 7 7 7 9 9>; /* [0],[1],[3],[5],[8] */
 				};
 			};
 		};
@@ -1757,7 +1770,7 @@
 				preview_high_speed_fps_int = <DVFS_INT_L5>;
 				preview_high_speed_fps_hpg = <1>;
 
-				video_high_speed_60fps_int_cam = <DVFS_INT_CAM_L1>;
+				video_high_speed_60fps_int_cam = <DVFS_INT_CAM_L2>;
 				video_high_speed_60fps_cam = <DVFS_CAM_L5>;
 				video_high_speed_60fps_mif = <DVFS_MIF_L5>;
 				video_high_speed_60fps_int = <DVFS_INT_L5>;
@@ -2009,9 +2022,8 @@
 	hsi2c_0: hsi2c@10860000 {
 		gpios = <&gpc0 0 0 &gpc0 1 0>;
 		status = "okay";
-		clock-frequency = <1000000>;
+		clock-frequency = <400000>;
 		samsung,reset-before-trans;
-		samsung,fast-plus-mode;
 
 		pinctrl-names = "default","on_i2c","off_i2c";
 		pinctrl-0 = <&hsi2c0_bus_in>;
@@ -2284,15 +2296,10 @@
 		};
 
 		panel-lookup {
-			panel-name = "s6e3ha8_crown_a3_s0_preliminary", "s6e3ha8_crown_a3_s0_default";
+			panel-name = "s6e3ha8_crown_a3_s0_default", "s6e3ha8_crown_a3_s0_metal";
 			panel-lut = <
-				0x000000 0x00000F 0x0   /* AID Dimming */
-				0x000001 0x00000F 0x0   /* AID Dimming */
-				0x000002 0x00000F 0x0   /* AID Dimming */
-				0x000003 0x00000F 0x0   /* AID Dimming */
-
-				0x000004 0x00000F 0x1   /* GAMMA FLASH */
-				0x000005 0x00000F 0x1   /* GAMMA FLASH */
+				0x000000 0x000040 0x0   /* No Metal Rev */
+				0x000040 0x000040 0x1   /* Metal Rev */
 
 				/* default panel */
 				0x000000 0x000000 0x1   /* not found */
@@ -2460,16 +2467,9 @@
 				cl1 {
 					qos,label="BIG";
 					qos,delay_time=<8>;
-					qos,big_turbo_enable=<7>;
-					qos,s_table_size=<18>;
-					qos,s_table=<2704000 2652000 2496000 2314000 2106000 2002000 1924000 1794000 1690000 
-						1586000 1469000 1261000	1170000 1066000 962000 858000 741000 650000>;
-					qos,d_table_size=<15>;
-					qos,d_table=<2314000 2106000 2002000 1924000 1794000 1690000 1586000 1469000 1261000
-						1170000 1066000 962000 858000 741000 650000>;
-					qos,q_table_size=<11>;
-					qos,q_table=<1794000 1690000 1586000 1469000 1261000 1170000 1066000 962000 858000
-						741000 650000>;
+					qos,table_size=<12>;
+					qos,table=<2002000 1924000 1794000 1690000 1586000 1469000 1261000 1170000
+						1066000 962000 858000 741000>;
 				};
 
 				mif {
@@ -2510,7 +2510,7 @@
 			cond,det_conn_gpios = <&gpa2 5 0			/* UB_CON_DET */
 								   &gpm6 0 0           /* SUB_DET */
 								   &gpm7 0 0>;         /* CAM_DET */
-			cond,name="ub_cond","sub_cond","cam_cond";
+			cond,name="sub_cond","ub_cond","cam_cond";
 			cond,det_conn_irq_type = <3>, /* UB_CON_DETECT BOTH EDGE*/
 								<3>, /* SUB_DETECT BOTH EDGE*/
 								<3>; /* CAM_DETECT BOTH EDGE*/

@@ -694,15 +694,14 @@ int set_mcps_arps_config (const char * val , const struct kernel_param *kp)
     int idx = 0;
     int len = strlen(val);
 
-    char * tval = (char *)kmalloc(sizeof(char) * len , GFP_KERNEL);
+    char *tval, *tval_copy;
+    tval = tval_copy = kstrdup(val, GFP_KERNEL);
     if(!tval) {
-        MCPS_DEBUG("copy - fail : len = %d \n" , len);
+        MCPS_DEBUG("kstrdup - fail\n");
         goto error;
     }
 
-    memcpy(tval , val , sizeof(char) * len);
-
-    token = strsep(&tval , " ");
+    token = strsep(&tval_copy , " ");
     if(!token) {
         MCPS_DEBUG("token - fail\n");
         goto error;
@@ -720,7 +719,7 @@ int set_mcps_arps_config (const char * val , const struct kernel_param *kp)
             MCPS_DEBUG("kstrtouint - fail %s \n", token);
             goto error;
         }
-        token = strsep(&tval, " ");
+        token = strsep(&tval_copy, " ");
         idx++;
     }
 
@@ -812,7 +811,7 @@ int get_mcps_enqueued (char *buffer , const struct kernel_param *kp)
         len += scnprintf(buffer + len, PAGE_SIZE, "%d ", pantry->enqueued);
     }
 
-#ifdef CONFIG_MODEM_IF_NET_GRO
+#ifdef CONFIG_MCPS_GRO_ENABLE
     len += scnprintf(buffer + len, PAGE_SIZE, "\n");
 
     for (cpu = 0; cpu < NR_CPUS; cpu++) {
@@ -848,7 +847,7 @@ int get_mcps_processed (char *buffer , const struct kernel_param *kp)
         len += scnprintf(buffer + len, PAGE_SIZE, "%d ", pantry->processed);
     }
 
-#ifdef CONFIG_MODEM_IF_NET_GRO
+#ifdef CONFIG_MCPS_GRO_ENABLE
     len += scnprintf(buffer + len, PAGE_SIZE, "\n");
 
     for (cpu = 0; cpu < NR_CPUS; cpu++) {
@@ -923,7 +922,7 @@ int get_mcps_ignored (char *buffer , const struct kernel_param *kp)
         len += scnprintf(buffer + len, PAGE_SIZE, " ");
     }
 
-#ifdef CONFIG_MODEM_IF_NET_GRO
+#ifdef CONFIG_MCPS_GRO_ENABLE
     len += scnprintf(buffer + len, PAGE_SIZE, "\n");
     for (cpu = 0; cpu < NR_CPUS; cpu++) {
         pantry = &per_cpu(mcps_gro_pantries, cpu);

@@ -15,15 +15,14 @@
 #include <linux/clk.h>
 #include <linux/smc.h>
 #include <soc/samsung/exynos-pm.h>
-#include <soc/samsung/exynos-powermode.h>
+#include <soc/samsung/exynos-cpupm.h>
 #include "ufshcd.h"
 #include "unipro.h"
 #include "mphy.h"
 #include "ufshcd-pltfrm.h"
 #include "ufs-exynos.h"
-#include <crypto/fmp.h>
 #include "ufs-exynos-fmp.h"
-#include "ufs-exynos-smu.h"
+#include <soc/samsung/exynos-pmu.h>
 
 /*
  * Unipro attribute value
@@ -100,13 +99,42 @@ static inline int ufs_init_cal(struct exynos_ufs *ufs, int idx,
 	return 0;
 }
 
+static void exynos_ufs_update_active_lanes(struct ufs_hba *hba)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	struct ufs_cal_param *p = ufs->cal_param;
+	u32 active_tx_lane = 0;
+	u32 active_rx_lane = 0;
+
+	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_ACTIVETXDATALANES), &(active_tx_lane));
+	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_ACTIVERXDATALANES), &(active_rx_lane));
+
+	p->active_tx_lane = (u8) active_tx_lane;
+	p->active_rx_lane = (u8) active_rx_lane;
+
+	dev_info(ufs->dev, "active_tx_lane(%d), active_rx_lane(%d)\n", p->active_tx_lane, p->active_rx_lane);
+}
+
+static void exynos_ufs_update_max_gear(struct ufs_hba *hba)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	struct uic_pwr_mode *pmd = &ufs->req_pmd_parm;
+	struct ufs_cal_param *p = ufs->cal_param;
+	u32 max_rx_hs_gear = 0;
+
+	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_MAXRXHSGEAR), &(max_rx_hs_gear));
+
+	p->max_gear = min_t(u8, max_rx_hs_gear, pmd->gear);
+
+	dev_info(ufs->dev, "max_gear(%d)\n", p->max_gear);
+}
+
 static inline int ufs_pre_link(struct exynos_ufs *ufs)
 {
 	int ret = 0;
 	struct ufs_cal_param *p = ufs->cal_param;
 
 	p->mclk_rate = ufs->mclk_rate;
-	p->target_lane = ufs->num_rx_lanes;
 	p->available_lane = ufs->num_rx_lanes;
 
 	if ((ret = ufs_cal_pre_link(p)) != UFS_CAL_NO_ERROR) {
@@ -120,6 +148,12 @@ static inline int ufs_pre_link(struct exynos_ufs *ufs)
 static inline int ufs_post_link(struct exynos_ufs *ufs)
 {
 	int ret = 0;
+
+	/* update active lanes after link*/
+	exynos_ufs_update_active_lanes(ufs->hba);
+
+	/* update max gear after link*/
+	exynos_ufs_update_max_gear(ufs->hba);
 
 	if ((ret = ufs_cal_post_link(ufs->cal_param)) != UFS_CAL_NO_ERROR) {
 		dev_err(ufs->dev, "ufs_post_link = %d!!!\n", ret);
@@ -136,7 +170,6 @@ static inline int ufs_pre_gear_change(struct exynos_ufs *ufs,
 	int ret = 0;
 
 	p->pmd = pmd;
-	p->target_lane = pmd->lane;
 	if ((ret = ufs_cal_pre_pmc(p)) != UFS_CAL_NO_ERROR) {
 		dev_err(ufs->dev, "ufs_pre_gear_change = %d!!!\n", ret);
 		return -EPERM;
@@ -234,14 +267,8 @@ unsigned long ufs_lld_calc_timeout(const unsigned int ms)
 
 static inline void exynos_ufs_ctrl_phy_pwr(struct exynos_ufs *ufs, bool en)
 {
-	u32 reg;
-
-	reg = readl(ufs->phy.reg_pmu);
-
-	if (en)
-		writel(reg | BIT(0), ufs->phy.reg_pmu);
-	else
-		writel(reg & ~(BIT(0)), ufs->phy.reg_pmu);
+	exynos_pmu_update(EXYNOS_PMU_UFS_PHY_OFFSET, 0x1 << 0, (en ? 1 : 0) << 0);
+	dev_info(ufs->dev, "exynos_ufs_ctrl_phy_pwr = %d\n", (int)en);
 }
 
 #ifndef __EXYNOS_UFS_VS_DEBUG__
@@ -279,12 +306,6 @@ static void exynos_ufs_dump_debug_info(struct ufs_hba *hba)
 #else
 	exynos_ufs_dump_std_sfr(hba);
 #endif
-
-#if defined(CONFIG_SCSI_UFS_TEST_MODE)
-	exynos_ufs_show_uic_info(hba);
-	/* do not recover system if test mode is enabled */
-	BUG();
-#endif
 }
 
 static void exynos_ufs_select_refclk(struct exynos_ufs *ufs, bool en)
@@ -306,7 +327,7 @@ static void exynos_ufs_select_refclk(struct exynos_ufs *ufs, bool en)
 inline void exynos_ufs_set_hwacg_control(struct exynos_ufs *ufs, bool en)
 {
 	u32 reg;
-	if ((ufs->hw_rev != UFS_VER_0004) && (ufs->hw_rev != UFS_VER_0005))
+	if ((ufs->hw_rev != UFS_VER_0004) && (ufs->hw_rev != UFS_VER_0005) && (ufs->hw_rev != UFS_VER_0006))
 		return;
 
 	/*
@@ -379,10 +400,14 @@ static void exynos_ufs_init_pmc_req(struct ufs_hba *hba,
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	struct uic_pwr_mode *req_pmd = &ufs->req_pmd_parm;
 	struct uic_pwr_mode *act_pmd = &ufs->act_pmd_parm;
+	struct ufs_cal_param *p = ufs->cal_param;
 
 	/* update lane variable after link */
 	ufs->num_rx_lanes = pwr_max->lane_rx;
 	ufs->num_tx_lanes = pwr_max->lane_tx;
+
+	p->connected_rx_lane = pwr_max->lane_rx;
+	p->connected_tx_lane = pwr_max->lane_tx;
 
 	pwr_req->gear_rx
 		= act_pmd->gear= min_t(u8, pwr_max->gear_rx, req_pmd->gear);
@@ -563,9 +588,6 @@ static void exynos_ufs_set_features(struct ufs_hba *hba, u32 hw_rev)
 			UFSHCD_QUIRK_UNRESET_INTR_AGGR |
 			UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR;
 
-	hba->quirks |= UFSHCD_QUIRK_GET_UPMCRS_DIRECT |
-		UFSHCD_QUIRK_GET_GENERRCODE_DIRECT;
-
 	/* quirks of exynos-specific driver */
 }
 
@@ -586,6 +608,7 @@ static int exynos_ufs_init(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	int ret;
+	int id;
 
 	/* set features, such as caps or quirks */
 	exynos_ufs_set_features(hba, ufs->hw_rev);
@@ -600,19 +623,21 @@ static int exynos_ufs_init(struct ufs_hba *hba)
 	if (ret)
 		return ret;
 
-	ret = exynos_ufs_smu_get_dev(ufs);
-	if (ret == -EPROBE_DEFER) {
-		dev_err(ufs->dev, "%s: SMU device not probed yet (%d)\n",
-				__func__, ret);
-		return ret;
-	} else if (ret) {
-		dev_err(ufs->dev, "%s, Fail to get SMU device (%d)\n",
-				__func__, ret);
-		return ret;
-	}
+	/* get fmp & smu id */
+	ret = of_property_read_u32(ufs->dev->of_node, "fmp-id", &id);
+	if (ret)
+		ufs->fmp = SMU_ID_MAX;
+	else
+		ufs->fmp = id;
+
+	ret = of_property_read_u32(ufs->dev->of_node, "smu-id", &id);
+	if (ret)
+		ufs->smu = SMU_ID_MAX;
+	else
+		ufs->smu = id;
 
 	/* FMPSECURITY & SMU */
-	exynos_ufs_smu_sec_cfg(ufs);
+	exynos_ufs_fmp_sec_cfg(ufs);
 	exynos_ufs_smu_init(ufs);
 
 	/* Enable log */
@@ -653,8 +678,7 @@ success:
 	/* device reset */
 	exynos_ufs_dev_hw_reset(hba);
 
-	/* secure log */
-	exynos_smc(SMC_CMD_UFS_LOG, 0, 0, 0);
+	exynos_ufs_ctrl_cport_log(ufs, true, 0);
 out:
 	return;
 }
@@ -686,7 +710,7 @@ static int exynos_ufs_pre_setup_clocks(struct ufs_hba *hba, bool on)
 		/* HWAGC disable */
 		exynos_ufs_set_hwacg_control(ufs, false);
 	} else {
-		pm_qos_update_request(&ufs->pm_qos_fsys0, 0);
+		pm_qos_update_request(&ufs->pm_qos_int, 0);
 	}
 
 	return ret;
@@ -698,7 +722,7 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on)
 	int ret = 0;
 
 	if (on) {
-		pm_qos_update_request(&ufs->pm_qos_fsys0, ufs->pm_qos_fsys0_value);
+		pm_qos_update_request(&ufs->pm_qos_int, ufs->pm_qos_int_value);
 	} else {
 		/*
 		 * Now all used blocks would be turned off in a host.
@@ -783,6 +807,10 @@ static int exynos_ufs_pwr_change_notify(struct ufs_hba *hba,
 
 		break;
 	case POST_CHANGE:
+
+		/* update active lanes after pmc */
+		exynos_ufs_update_active_lanes(hba);
+
 		/* UIC configuration table after power mode change */
 		ret = ufs_post_gear_change(ufs);
 
@@ -840,7 +868,9 @@ static void exynos_ufs_set_nexus_t_task_mgmt(struct ufs_hba *hba, int tag, u8 tm
 static void exynos_ufs_hibern8_notify(struct ufs_hba *hba,
 				u8 enter, bool notify)
 {
-	switch (notify) {
+	int noti = (int) notify;
+
+	switch (noti) {
 	case PRE_CHANGE:
 		exynos_ufs_pre_hibern8(hba, enter);
 		break;
@@ -857,10 +887,11 @@ static int exynos_ufs_hibern8_prepare(struct ufs_hba *hba,
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	int ret = 0;
+	int noti = (int) notify;
 
-	switch (notify) {
+	switch (noti) {
 	case PRE_CHANGE:
-		if(!enter)
+		if (!enter)
 			ret = ufs_pre_h8_exit(ufs);
 		break;
 	case POST_CHANGE:
@@ -874,11 +905,20 @@ static int exynos_ufs_hibern8_prepare(struct ufs_hba *hba,
 	return ret;
 }
 
+static int __exynos_ufs_reset_ctrl(struct ufs_hba *hba, enum ufs_dev_reset dev_reset)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+
+	exynos_ufs_dev_reset_ctrl(ufs, (bool)dev_reset);
+
+	return 0;
+}
+
 static int __exynos_ufs_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 
-	pm_qos_update_request(&ufs->pm_qos_fsys0, 0);
+	pm_qos_update_request(&ufs->pm_qos_int, 0);
 
 	exynos_ufs_dev_reset_ctrl(ufs, false);
 
@@ -904,11 +944,10 @@ static int __exynos_ufs_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	exynos_ufs_ctrl_auto_hci_clk(ufs, false);
 
 	/* FMPSECURITY & SMU resume */
-	exynos_ufs_smu_sec_cfg(ufs);
+	exynos_ufs_fmp_sec_cfg(ufs);
 	exynos_ufs_smu_resume(ufs);
 
-	/* secure log */
-	exynos_smc(SMC_CMD_UFS_LOG, 0, 0, 0);
+	exynos_ufs_ctrl_cport_log(ufs, true, 0);
 
 	if (ufshcd_is_clkgating_allowed(hba))
 		clk_disable_unprepare(ufs->clk_hci);
@@ -916,7 +955,7 @@ static int __exynos_ufs_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	return 0;
 }
 
-static u8 exynos_ufs_get_unipro_direct(struct ufs_hba *hba, int num)
+static u8 exynos_ufs_get_unipro_direct(struct ufs_hba *hba, u32 num)
 {
 	u32 offset[] = {
 		UNIP_DME_LINKSTARTUP_CNF_RESULT,
@@ -935,9 +974,9 @@ static u8 exynos_ufs_get_unipro_direct(struct ufs_hba *hba, int num)
 static int exynos_ufs_crypto_engine_cfg(struct ufs_hba *hba,
 				struct ufshcd_lrb *lrbp,
 				struct scatterlist *sg, int index,
-				int sector_offset)
+				int sector_offset, int page_index)
 {
-	return exynos_ufs_fmp_cfg(hba, lrbp, sg, index, sector_offset);
+	return exynos_ufs_fmp_cfg(hba, lrbp, sg, index, sector_offset, page_index);
 }
 
 static int exynos_ufs_crypto_engine_clear(struct ufs_hba *hba,
@@ -949,6 +988,7 @@ static int exynos_ufs_crypto_engine_clear(struct ufs_hba *hba,
 static int exynos_ufs_access_control_abort(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+
 	return exynos_ufs_smu_abort(ufs);
 }
 
@@ -964,6 +1004,7 @@ static struct ufs_hba_variant_ops exynos_ufs_ops = {
 	.hibern8_notify = exynos_ufs_hibern8_notify,
 	.hibern8_prepare = exynos_ufs_hibern8_prepare,
 	.dbg_register_dump = exynos_ufs_dump_debug_info,
+	.reset_ctrl = __exynos_ufs_reset_ctrl,
 	.suspend = __exynos_ufs_suspend,
 	.resume = __exynos_ufs_resume,
 	.get_unipro_result = exynos_ufs_get_unipro_direct,
@@ -1013,7 +1054,6 @@ static int exynos_ufs_populate_dt_sys_per_feature(struct device *dev,
 
 	return ret;
 }
-
 static int exynos_ufs_populate_dt_sys(struct device *dev, struct exynos_ufs *ufs)
 {
 	int i = 0;
@@ -1030,7 +1070,7 @@ static int exynos_ufs_populate_dt_sys(struct device *dev, struct exynos_ufs *ufs
 
 static int exynos_ufs_populate_dt_phy(struct device *dev, struct exynos_ufs *ufs)
 {
-	struct device_node *ufs_phy, *phy_sys;
+	struct device_node *ufs_phy/* , *phy_sys*/;
 	struct exynos_ufs_phy *phy = &ufs->phy;
 	struct resource io_res;
 	int ret;
@@ -1047,6 +1087,7 @@ static int exynos_ufs_populate_dt_phy(struct device *dev, struct exynos_ufs *ufs
 		goto err_0;
 	}
 
+
 	phy->reg_pma = devm_ioremap_resource(dev, &io_res);
 	if (!phy->reg_pma) {
 		dev_err(dev, "failed to ioremap for phy pma\n");
@@ -1054,27 +1095,6 @@ static int exynos_ufs_populate_dt_phy(struct device *dev, struct exynos_ufs *ufs
 		goto err_0;
 	}
 
-	phy_sys = of_get_child_by_name(ufs_phy, "ufs-phy-sys");
-	if (!phy_sys) {
-		dev_err(dev, "failed to get ufs-phy-sys node\n");
-		ret = -ENODEV;
-		goto err_0;
-	}
-
-	ret = of_address_to_resource(phy_sys, 0, &io_res);
-	if (ret) {
-		dev_err(dev, "failed to get i/o address ufs-phy pmu\n");
-		goto err_1;
-	}
-
-	phy->reg_pmu = devm_ioremap_resource(dev, &io_res);
-	if (!phy->reg_pmu) {
-		dev_err(dev, "failed to ioremap for ufs-phy pmu\n");
-		ret = -ENOMEM;
-	}
-
-err_1:
-	of_node_put(phy_sys);
 err_0:
 	of_node_put(ufs_phy);
 
@@ -1107,6 +1127,10 @@ static int exynos_ufs_populate_dt(struct device *dev, struct exynos_ufs *ufs)
 	/* Get exynos-specific version for featuring */
 	if (of_property_read_u32(np, "hw-rev", &ufs->hw_rev))
 		ufs->hw_rev = UFS_VER_0004;
+
+	/* Get exynos-evt version for featuring */
+	if (of_property_read_u8(np, "evt-ver", &ufs->cal_param->evt_ver))
+		ufs->cal_param->evt_ver = 0;
 
 	ret = exynos_ufs_populate_dt_phy(dev, ufs);
 	if (ret) {
@@ -1193,7 +1217,7 @@ static int exynos_ufs_probe(struct platform_device *pdev)
 	dev->platform_data = ufs;
 	dev->dma_mask = &exynos_ufs_dma_mask;
 
-	pm_qos_add_request(&ufs->pm_qos_fsys0, PM_QOS_FSYS0_THROUGHPUT, 0);
+	pm_qos_add_request(&ufs->pm_qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
 
 	ret = ufshcd_pltfrm_init(pdev, &exynos_ufs_ops);
 
@@ -1206,7 +1230,7 @@ static int exynos_ufs_remove(struct platform_device *pdev)
 
 	ufshcd_pltfrm_exit(pdev);
 
-	pm_qos_remove_request(&ufs->pm_qos_fsys0);
+	pm_qos_remove_request(&ufs->pm_qos_int);
 
 	ufs->misc_flags = EXYNOS_UFS_MISC_TOGGLE_LOG;
 

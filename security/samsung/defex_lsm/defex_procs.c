@@ -229,6 +229,7 @@ static int at_same_group_gid(unsigned int gid1, unsigned int gid2)
 }
 
 /* Cred. violation feature decision function */
+#define AID_MEDIA_RW	1023
 #ifndef CONFIG_SECURITY_DSMS
 static int task_defex_check_creds(struct task_struct *p)
 #else
@@ -275,7 +276,8 @@ static int task_defex_check_creds(struct task_struct *p, int syscall)
 		goto exit;
 	} else {
 		check_deeper = 0;
-		if ((cur_uid != uid) || (cur_euid != uid) || !((cur_fsuid == fsuid) || (cur_fsuid == uid)) || (cur_egid != egid)) {
+		/* temporary allow fsuid changes to "media_rw" */
+		if ((cur_uid != uid) || (cur_euid != uid) || !((cur_fsuid == fsuid) || (cur_fsuid == uid) || (cur_fsuid == AID_MEDIA_RW)) || (cur_egid != egid)) {
 			check_deeper = 1;
 			set_task_creds(p->pid, cur_euid, cur_fsuid, cur_egid);
 		}
@@ -407,12 +409,96 @@ out:
 }
 #endif /* DEFEX_SAFEPLACE_ENABLE */
 
+#ifdef DEFEX_IMMUTABLE_ENABLE
+
+/* Immutable feature decision function */
+static int task_defex_src_exception(struct task_struct *p)
+{
+	struct file *exe_file = NULL;
+	const struct path *dpath = NULL;
+	int allow = 1;
+
+	exe_file = defex_get_source_file(p);
+	if (!exe_file)
+		goto do_skip1;
+
+	dpath = &exe_file->f_path;
+	if (!dpath->dentry || !dpath->dentry->d_inode)
+		goto do_skip2;
+
+	allow = rules_lookup(dpath, feature_immutable_src_exception, exe_file);
+
+do_skip2:
+#ifndef DEFEX_CACHES_ENABLE
+	fput(exe_file);
+#endif /* DEFEX_CACHES_ENABLE */
+do_skip1:
+	return allow;
+}
+
+/* Immutable feature decision function */
+static int task_defex_immutable(struct task_struct *p, struct file *f, int attribute)
+{
+	static const char def[] = "";
+	int ret = DEFEX_ALLOW, is_violation = 0;
+	char *proc_file, *new_file = (char *)def, *buff;
+	const struct path *dpath = NULL;
+
+	if (IS_ERR(f))
+		goto out;
+
+	dpath = &f->f_path;
+	if (!dpath->dentry || !dpath->dentry->d_inode)
+		goto out;
+
+	is_violation = rules_lookup(dpath, attribute, f);
+
+	if (is_violation) {
+		/* Source exception */
+		if (attribute == feature_immutable_path_open && task_defex_src_exception(p))
+			goto out;
+		ret = -DEFEX_DENY;
+		proc_file = defex_get_filename(p);
+		buff = kzalloc(PATH_MAX, GFP_ATOMIC);
+		if (buff)
+			new_file = d_path(dpath, buff, PATH_MAX);
+		pr_crit("defex: immutable %s violation [task=%s (%s), access to:%s]\n",
+			(attribute==feature_immutable_path_open)?"open":"write", p->comm, proc_file, new_file);
+		kfree(proc_file);
+		kfree(buff);
+	}
+out:
+	return ret;
+}
+#endif /* DEFEX_IMMUTABLE_ENABLE */
+
+#ifdef DEFEX_DEPENDING_ON_OEMUNLOCK
+static bool boot_state_unlocked __ro_after_init;
+static int __init verifiedboot_state_setup(char *str)
+{
+	static const char unlocked[] = "orange";
+
+	boot_state_unlocked = !strncmp(str, unlocked, sizeof(unlocked));
+
+	if(boot_state_unlocked)
+		pr_crit("Device is unlocked and DEFEX will be disabled.");
+
+	return 1;
+}
+__setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
+#endif /* DEFEX_DEPENDING_ON_OEMUNLOCK */
+
 /* Main decision function */
 int task_defex_enforce(struct task_struct *p, struct file *f, int syscall)
 {
 	int ret = DEFEX_ALLOW;
 	int feature_flag;
 	const struct local_syscall_struct *item;
+
+#ifdef DEFEX_DEPENDING_ON_OEMUNLOCK
+	if(boot_state_unlocked)
+		return ret;
+#endif /* DEFEX_DEPENDING_ON_OEMUNLOCK */
 
 	if (!p || p->pid == 1 || !p->mm)
 		return ret;
@@ -457,6 +543,22 @@ int task_defex_enforce(struct task_struct *p, struct file *f, int syscall)
 		}
 	}
 #endif /* DEFEX_SAFEPLACE_ENABLE */
+
+#ifdef DEFEX_IMMUTABLE_ENABLE
+	/* Immutable feature */
+	if (feature_flag & FEATURE_IMMUTABLE) {
+		if (syscall == __DEFEX_openat || syscall == __DEFEX_write) {
+		//if (syscall == __DEFEX_write) {
+			ret = task_defex_immutable(p, f,
+				(syscall == __DEFEX_openat)?feature_immutable_path_open:feature_immutable_path_write);
+			if (ret == -DEFEX_DENY) {
+				if (!(feature_flag & FEATURE_IMMUTABLE_SOFT)) {
+					return -DEFEX_DENY;
+				}
+			}
+		}
+	}
+#endif /* DEFEX_IMMUTABLE_ENABLE */
 
 	return DEFEX_ALLOW;
 }

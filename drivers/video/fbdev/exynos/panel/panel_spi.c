@@ -43,6 +43,11 @@ static int panel_spi_reset(struct spi_device *spi) {
 
 	pr_info("%s: reset called!", __func__);
 
+	if (IS_ERR_OR_NULL(spi)) {
+		panel_err("PANEL:ERR:%s:spi device is not initialized\n", __func__);
+		return -ENODEV;
+	}
+
 	if (unlikely(!spi)) {
 		pr_err("%s, invalid parameter\n", __func__);
 		return -EINVAL;
@@ -100,6 +105,14 @@ static int panel_spi_command(struct panel_spi_dev *spi_dev, const u8 *wbuf, int 
 
 	spi = spi_dev->spi;
 
+	if (IS_ERR_OR_NULL(spi)) {
+		panel_err("PANEL:ERR:%s:spi device is not initialized\n", __func__);
+		return -ENODEV;
+	}
+
+	if (spi_dev->speed_hz > 0)
+		spi->max_speed_hz = spi_dev->speed_hz;
+
 	spi_message_init(&msg);
 	if(wsize < 1 || !wbuf) {
 		return -EINVAL;
@@ -108,9 +121,8 @@ static int panel_spi_command(struct panel_spi_dev *spi_dev, const u8 *wbuf, int 
 	speed_hz = spi_dev->speed_hz;
 	if (speed_hz <= 0)
 		speed_hz = 0;
-	else if (speed_hz > MAX_PANEL_SPI_SPEED_HZ)
-		speed_hz = MAX_PANEL_SPI_SPEED_HZ;
-
+	else if (speed_hz > spi->max_speed_hz)
+		speed_hz = spi->max_speed_hz;
 
 	x_write.len = wsize;
 	x_write.tx_buf = wbuf;
@@ -160,39 +172,39 @@ static int panel_spi_read(struct panel_spi_dev *spi_dev, const u8 rcmd, u8 *rbuf
 		wsize = spi_dev->setparam_buffer_size;
 	}
 	ret = panel_spi_command(spi_dev, wbuf, wsize, rbuf, rsize);
-	if (!ret) {
+
+	if (ret < 0)
+		return ret;
+
+	if (!ret)
 		return -EINVAL;
-	}
+
 	//setparam_buffer_size set to 0 if setparam once
 	spi_dev->setparam_buffer_size = 0;
 
 	return rsize;
 }
 
-static int panel_spi_read_buffer(struct panel_spi_dev *spi_dev, u8 cmd, u8 *buf, int size)
+static int panel_spi_read_id(struct panel_spi_dev *spi_dev, u32 *id)
 {
-	struct spi_device *spi;
+	int ret = 0;
+	const u8 wbuf[] = { 0x9F };
+	u8 rbuf[3] = { 0x00, };
+	int wsize = 1;
+	int rsize = 3;
 
-	spi = spi_dev->spi;
+	ret = panel_spi_command(spi_dev, wbuf, wsize, rbuf, rsize);
 
-	pr_debug("%s, %02x %d %02x %d\n", __func__, spi_dev->read_buf_cmd, spi_dev->read_buf_size, cmd, size);
+	if (ret < 0)
+		return ret;
+	
+	if (!ret)
+		return -EIO;
 
-	if (!buf) {
-		return -EINVAL+1;
-	}
+	*id = (rbuf[0] << 16) | (rbuf[1] << 8) | rbuf[2];
+	pr_debug("%s: 0x06X\n", __func__, *id);
 
-	if (spi_dev->read_buf_size < 1 || spi_dev->read_buf_size != size) {
-		return -EINVAL+2;
-	}
-
-	if (spi_dev->read_buf_cmd != cmd) {
-		return -EINVAL+3;
-	}
-
-	memcpy(buf, spi_dev->read_buf_data, size);
-
-	return size;
-
+	return 0;
 }
 
 static int panel_spi_probe_dt(struct spi_device *spi)
@@ -242,9 +254,6 @@ static int panel_spi_probe(struct spi_device *spi)
 		return ret;
 	}
 
-//	panel_spi = spi;
-
-
 	return 0;
 }
 
@@ -259,9 +268,7 @@ static const struct of_device_id panel_spi_match_table[] = {
 };
 
 static struct spi_drv_ops panel_spi_drv_ops = {
-	.readbuf = panel_spi_read_buffer,
 	.read = panel_spi_read,
-//	.write = panel_spi_write,
 	.ctl = panel_spi_ctrl,
 	.cmd = panel_spi_command,
 	.setparam = panel_spi_cmd_setparam,
@@ -270,13 +277,7 @@ static struct spi_drv_ops panel_spi_drv_ops = {
 static int __match_panel_spi(struct device *dev, void *data)
 {
 	struct spi_device *spi;
-/*
-	spi = (struct spi_device *)dev_get_drvdata(dev);
-	if (spi == NULL) {
-		pr_err("PANEL:ERR:%s:failed to get spi drvdata\n", __func__);
-		return 0;
-	}
-*/
+
 	spi = (struct spi_device *)dev;
 	if (spi == NULL) {
 		pr_err("PANEL:ERR:%s:failed to get spi drvdata\n", __func__);
@@ -301,12 +302,11 @@ static struct spi_driver panel_spi_driver = {
 
 int panel_spi_drv_probe(struct panel_device *panel, struct spi_data *spi_data)
 {
-//	int i;
 	int ret = 0;
 	struct panel_spi_dev *spi_dev;
 	struct device_driver *driver;
 	struct device *dev;
-//	struct aod_ioctl_props *props;
+	u32 id;
 
 	if (!panel || !spi_data) {
 		pr_err("%s panel(%p) or spi_data(%p) not exist\n",
@@ -314,87 +314,9 @@ int panel_spi_drv_probe(struct panel_device *panel, struct spi_data *spi_data)
 		goto rest_init;
 	}
 
-//	spi_data: from panel.h defined data sets (aod_tune)
-
 	spi_dev = &panel->panel_spi_dev;
-
-	/*
-	props = &aod->props;
-	aod->seqtbl = aod_tune->seqtbl;
-	aod->nr_seqtbl = aod_tune->nr_seqtbl;
-
-	aod->maptbl = aod_tune->maptbl;
-	aod->nr_maptbl = aod_tune->nr_maptbl;
-
-	aod->ops = &aod_drv_ops;
-	aod->reset_flag = 1;
-	props->first_clk_update = 1;
-
-	props->self_mask_en = aod_tune->self_mask_en;
-	props->self_reset_cnt = 0;
-	mutex_init(&aod->lock);
-*/
-
-#if 0
-	//for test
-	props->self_move_en = 1;
-	props->self_move_interval = INTERVAL_DEBUG;
-
-	//for test
-	props->self_move_en = 1;
-
-	// self icon
-	props->icon_img_updated = 1;
-	props->self_icon.en = 1;
-	props->self_icon.pos_x = 100;
-	props->self_icon.pos_y = 1500;
-	props->self_icon.width = 0x34;
-	props->self_icon.height = 0x34;
-
-	// self grid
-	props->self_grid.en = 1;
-	props->self_grid.end_pos_x = 1440;
-	props->self_grid.end_pos_y = 2960;
-
-	// for analog clock
-	aod->ac_img.up_flag = 1;
-	props->analog.en = 1;
-	props->analog.pos_x = 1440/2;
-	props->analog.pos_y = 2960/2;
-	props->debug_interval = ALG_INTERVAL_1000;
-	props->analog.rotate = ALG_ROTATE_0;
-
-	// for digital clock
-	aod->dc_img.up_flag = 1;
-	props->digital.en = 1;
-	props->digital.en_hh = 1;
-	props->digital.en_mm = 1;
-	props->digital.pos1_x = 280;
-	props->digital.pos1_y = 1480;
-	props->digital.pos2_x = 500;
-	props->digital.pos2_y = 1480;
-	props->digital.pos3_x = 740;
-	props->digital.pos3_y = 1480;
-	props->digital.pos4_x = 960;
-	props->digital.pos4_y = 1480;
-	props->digital.img_width = 200;
-	props->digital.img_height = 356;
-	props->digital.b_en = 1;
-	props->digital.b1_pos_x = 720;
-	props->digital.b1_pos_y = 1580;
-	props->digital.b2_pos_x = 720;
-	props->digital.b2_pos_y = 1480 + 256;
-	props->digital.b_color = 0x00ff00;
-	props->digital.b_radius = 0x0a;
-#endif
-/*
-	for (i = 0; i < aod->nr_maptbl; i++) {
-		aod->maptbl[i].pdata = aod;
-		maptbl_init(&aod->maptbl[i]);
-	}
-*/
 	spi_dev->ops = &panel_spi_drv_ops;
-	spi_dev->speed_hz = 10000000;
+	spi_dev->speed_hz = spi_data->speed_hz;
 	spi_dev->setparam_buffer = (u8 *)devm_kzalloc(panel->dev, PANEL_SPI_MAX_CMD_SIZE * sizeof(u8), GFP_KERNEL);
 	spi_dev->read_buf_data= (u8 *)devm_kzalloc(panel->dev, PANEL_SPI_RX_BUF_SIZE * sizeof(u8), GFP_KERNEL);
 	spi_dev->dev.minor = MISC_DYNAMIC_MINOR;
@@ -414,12 +336,11 @@ int panel_spi_drv_probe(struct panel_device *panel, struct spi_data *spi_data)
 
 	driver = driver_find(PANEL_SPI_DRIVER_NAME, &spi_bus_type);
 	if (IS_ERR_OR_NULL(driver)) {
-		dsim_err("PANEL:ERR:%s failed to find driver\n", __func__);
+		panel_err("PANEL:ERR:%s failed to find driver\n", __func__);
 		return -ENODEV;
 	}
 
-//	spi_dev->spi = (struct spi_device *)driver_find_device(driver, NULL, spi_dev->spi, __match_panel_spi);
-	dev	= driver_find_device(driver, NULL, NULL, __match_panel_spi);
+	dev = driver_find_device(driver, NULL, NULL, __match_panel_spi);
 	if (IS_ERR_OR_NULL(dev)) {
 		panel_err("PANEL:ERR:%s:failed to find device\n", __func__);
 		return -ENODEV;
@@ -431,33 +352,13 @@ int panel_spi_drv_probe(struct panel_device *panel, struct spi_data *spi_data)
 		return -ENODEV;
 	}
 
-	panel_info("%s: spi_dev probe done! id: %d\n", __func__, spi_data->spi_addr);
+	ret = panel_spi_read_id(spi_dev, &id);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to read id. check cable connection\n", __func__);
+
+	panel_info("%s: spi_dev probe done! id: 0x%06X\n", __func__, id);
 
 rest_init:
 	return ret;
 }
-
-
-/*
-struct spi_device *of_find_panel_spi_by_node(struct device_node *node)
-{
-	//return (spi->dev.of_node == node) ? panel_spi : NULL;
-	return panel_spi;
-}
-EXPORT_SYMBOL(of_find_panel_spi_by_node);
-*/
-/*
-static int __init panel_spi_init(void)
-{
-	return spi_register_driver(&panel_spi_driver);
-}
-subsys_initcall(panel_spi_init);
-
-static void __exit panel_spi_exit(void)
-{
-	spi_unregister_driver(&panel_spi_driver);
-}
-
-module_exit(panel_spi_exit);
-*/
 

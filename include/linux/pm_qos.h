@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _LINUX_PM_QOS_H
 #define _LINUX_PM_QOS_H
 /* interface for the pm_qos_power infrastructure of the linux kernel.
@@ -6,7 +7,6 @@
  */
 #include <linux/plist.h>
 #include <linux/notifier.h>
-#include <linux/miscdevice.h>
 #include <linux/device.h>
 #include <linux/workqueue.h>
 
@@ -18,34 +18,36 @@ enum {
 	PM_QOS_CLUSTER0_FREQ_MAX,
 	PM_QOS_CLUSTER1_FREQ_MIN,
 	PM_QOS_CLUSTER1_FREQ_MAX,
+	PM_QOS_CLUSTER2_FREQ_MIN,
+	PM_QOS_CLUSTER2_FREQ_MAX,
+	PM_QOS_CPU_ONLINE_MIN,
+	PM_QOS_CPU_ONLINE_MAX,
 	PM_QOS_DEVICE_THROUGHPUT,
 	PM_QOS_INTCAM_THROUGHPUT,
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 	PM_QOS_DEVICE_THROUGHPUT_MAX,
 	PM_QOS_INTCAM_THROUGHPUT_MAX,
-#endif
 	PM_QOS_BUS_THROUGHPUT,
 	PM_QOS_BUS_THROUGHPUT_MAX,
 	PM_QOS_NETWORK_THROUGHPUT,
 	PM_QOS_MEMORY_BANDWIDTH,
-	PM_QOS_CPU_ONLINE_MIN,
-	PM_QOS_CPU_ONLINE_MAX,
 	PM_QOS_DISPLAY_THROUGHPUT,
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 	PM_QOS_DISPLAY_THROUGHPUT_MAX,
-#endif
 	PM_QOS_CAM_THROUGHPUT,
 	PM_QOS_AUD_THROUGHPUT,
 	PM_QOS_IVA_THROUGHPUT,
 	PM_QOS_SCORE_THROUGHPUT,
 	PM_QOS_FSYS0_THROUGHPUT,
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 	PM_QOS_CAM_THROUGHPUT_MAX,
 	PM_QOS_AUD_THROUGHPUT_MAX,
 	PM_QOS_IVA_THROUGHPUT_MAX,
 	PM_QOS_SCORE_THROUGHPUT_MAX,
 	PM_QOS_FSYS0_THROUGHPUT_MAX,
-#endif
+	PM_QOS_MFC_THROUGHPUT,
+	PM_QOS_NPU_THROUGHPUT,
+	PM_QOS_MFC_THROUGHPUT_MAX,
+	PM_QOS_NPU_THROUGHPUT_MAX,
+	PM_QOS_GPU_THROUGHPUT_MIN,
+	PM_QOS_GPU_THROUGHPUT_MAX,
 	/* insert new class ID */
 	PM_QOS_NUM_CLASSES,
 };
@@ -63,40 +65,42 @@ enum pm_qos_flags_status {
 #define PM_QOS_NETWORK_LAT_DEFAULT_VALUE	(2000 * USEC_PER_SEC)
 #define PM_QOS_DEVICE_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_INTCAM_THROUGHPUT_DEFAULT_VALUE	0
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 #define PM_QOS_DEVICE_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_INTCAM_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
-#endif
 #define PM_QOS_BUS_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_BUS_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_DISPLAY_THROUGHPUT_DEFAULT_VALUE	0
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 #define PM_QOS_DISPLAY_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
-#endif
 #define PM_QOS_CAM_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_AUD_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_IVA_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_SCORE_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_FSYS0_THROUGHPUT_DEFAULT_VALUE	0
-#ifdef CONFIG_ARM_EXYNOS_DEVFREQ_DEBUG
 #define PM_QOS_CAM_THROUGHPUT_MAX_DEFAULT_VALUE		INT_MAX
 #define PM_QOS_AUD_THROUGHPUT_MAX_DEFAULT_VALUE		INT_MAX
 #define PM_QOS_IVA_THROUGHPUT_MAX_DEFAULT_VALUE		INT_MAX
 #define PM_QOS_SCORE_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_FSYS0_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
-#endif
+#define PM_QOS_MFC_THROUGHPUT_DEFAULT_VALUE	0
+#define PM_QOS_NPU_THROUGHPUT_DEFAULT_VALUE	0
+#define PM_QOS_MFC_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
+#define PM_QOS_NPU_THROUGHPUT_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_NETWORK_THROUGHPUT_DEFAULT_VALUE	0
 #define PM_QOS_MEMORY_BANDWIDTH_DEFAULT_VALUE	0
 #define PM_QOS_RESUME_LATENCY_DEFAULT_VALUE	0
 #define PM_QOS_LATENCY_TOLERANCE_DEFAULT_VALUE	0
 #define PM_QOS_LATENCY_TOLERANCE_NO_CONSTRAINT	(-1)
 #define PM_QOS_LATENCY_ANY			((s32)(~(__u32)0 >> 1))
-#define PM_QOS_CPU_ONLINE_MIN_DEFAULT_VALUE	1
-#define PM_QOS_CPU_ONLINE_MAX_DEFAULT_VALUE	NR_CPUS
-#define PM_QOS_CLUSTER1_FREQ_MIN_DEFAULT_VALUE	0
-#define PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE	INT_MAX
 #define PM_QOS_CLUSTER0_FREQ_MIN_DEFAULT_VALUE	0
 #define PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE	INT_MAX
+#define PM_QOS_CLUSTER1_FREQ_MIN_DEFAULT_VALUE	0
+#define PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE	INT_MAX
+#define PM_QOS_CLUSTER2_FREQ_MIN_DEFAULT_VALUE	0
+#define PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE	INT_MAX
+#define PM_QOS_CPU_ONLINE_MIN_DEFAULT_VALUE	1
+#define PM_QOS_CPU_ONLINE_MAX_DEFAULT_VALUE	NR_CPUS
+#define PM_QOS_GPU_FREQ_MIN_DEFAULT_VALUE	0
+#define PM_QOS_GPU_FREQ_MAX_DEFAULT_VALUE	INT_MAX
 
 #define PM_QOS_FLAG_NO_POWER_OFF	(1 << 0)
 #define PM_QOS_FLAG_REMOTE_WAKEUP	(1 << 1)
@@ -182,9 +186,7 @@ static inline int dev_pm_qos_request_active(struct dev_pm_qos_request *req)
 }
 
 int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
-			 enum pm_qos_req_action action, int value, void *notify_param);
-int pm_qos_update_constraints(int pm_qos_class,
-			struct pm_qos_constraints *constraints);
+			 enum pm_qos_req_action action, int value);
 bool pm_qos_update_flags(struct pm_qos_flags *pqf,
 			 struct pm_qos_flags_request *req,
 			 enum pm_qos_req_action action, s32 val);
@@ -193,8 +195,6 @@ void pm_qos_add_request_trace(char *func, unsigned int line,
 			s32 value);
 void pm_qos_update_request(struct pm_qos_request *req,
 			   s32 new_value);
-void pm_qos_update_request_param(struct pm_qos_request *req,
-			   s32 new_value, void *notify_param);
 void pm_qos_update_request_timeout(struct pm_qos_request *req,
 				   s32 new_value, unsigned long timeout_us);
 void pm_qos_remove_request(struct pm_qos_request *req);
@@ -219,8 +219,6 @@ int dev_pm_qos_add_notifier(struct device *dev,
 			    struct notifier_block *notifier);
 int dev_pm_qos_remove_notifier(struct device *dev,
 			       struct notifier_block *notifier);
-int dev_pm_qos_add_global_notifier(struct notifier_block *notifier);
-int dev_pm_qos_remove_global_notifier(struct notifier_block *notifier);
 void dev_pm_qos_constraints_init(struct device *dev);
 void dev_pm_qos_constraints_destroy(struct device *dev);
 int dev_pm_qos_add_ancestor_request(struct device *dev,
@@ -244,6 +242,12 @@ static inline s32 dev_pm_qos_requested_resume_latency(struct device *dev)
 static inline s32 dev_pm_qos_requested_flags(struct device *dev)
 {
 	return dev->power.qos->flags_req->data.flr.flags;
+}
+
+static inline s32 dev_pm_qos_raw_read_value(struct device *dev)
+{
+	return IS_ERR_OR_NULL(dev->power.qos) ?
+		0 : pm_qos_read_value(&dev->power.qos->resume_latency);
 }
 #else
 static inline enum pm_qos_flags_status __dev_pm_qos_flags(struct device *dev,
@@ -271,12 +275,6 @@ static inline int dev_pm_qos_add_notifier(struct device *dev,
 			{ return 0; }
 static inline int dev_pm_qos_remove_notifier(struct device *dev,
 					     struct notifier_block *notifier)
-			{ return 0; }
-static inline int dev_pm_qos_add_global_notifier(
-					struct notifier_block *notifier)
-			{ return 0; }
-static inline int dev_pm_qos_remove_global_notifier(
-					struct notifier_block *notifier)
 			{ return 0; }
 static inline void dev_pm_qos_constraints_init(struct device *dev)
 {
@@ -309,6 +307,7 @@ static inline void dev_pm_qos_hide_latency_tolerance(struct device *dev) {}
 
 static inline s32 dev_pm_qos_requested_resume_latency(struct device *dev) { return 0; }
 static inline s32 dev_pm_qos_requested_flags(struct device *dev) { return 0; }
+static inline s32 dev_pm_qos_raw_read_value(struct device *dev) { return 0; }
 #endif
 
 #endif

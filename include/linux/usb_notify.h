@@ -4,7 +4,7 @@
  * Copyright (C) 2011-2017 Samsung, Inc.
  * Author: Dongrak Shin <dongrak.shin@samsung.com>
  *
-*/
+ */
 
  /* usb notify layer v3.2 */
 
@@ -48,6 +48,7 @@ enum otg_notify_events {
 	NOTIFY_EVENT_POWER_SOURCE,
 	NOTIFY_EVENT_VBUSPOWER,
 	NOTIFY_EVENT_POGO,
+	NOTIFY_EVENT_PD_CONTRACT,
 	NOTIFY_EVENT_VIRTUAL,
 };
 
@@ -118,6 +119,7 @@ struct otg_notify {
 	int vbus_detect_gpio;
 	int redriver_en_gpio;
 	int is_wakelock;
+	int is_host_wakelock;
 	int unsupport_host;
 	int smsc_ovc_poll_sec;
 	int auto_drive_vbus;
@@ -125,9 +127,7 @@ struct otg_notify {
 	int disable_control;
 	int device_check_sec;
 	int pre_peri_delay_us;
-	int sec_whitelist_enable;
 	int speed;
-	const char *muic_name;
 	int (*pre_gpio)(int gpio, int use);
 	int (*post_gpio)(int gpio, int use);
 	int (*vbus_drive)(bool);
@@ -157,6 +157,7 @@ extern struct otg_booster *find_get_booster(struct otg_notify *n);
 extern int register_booster(struct otg_notify *n, struct otg_booster *b);
 extern int register_ovc_func(struct otg_notify *n,
 				int (*check_state)(void *), void *data);
+extern int get_typec_status(struct otg_notify *n, int event);
 extern int get_usb_mode(struct otg_notify *n);
 extern unsigned long get_cable_type(struct otg_notify *n);
 extern int is_usb_host(struct otg_notify *n);
@@ -188,6 +189,7 @@ static inline int register_booster(struct otg_notify *n,
 					struct otg_booster *b) {return 0; }
 static inline int register_ovc_func(struct otg_notify *n,
 			int (*check_state)(void *), void *data) {return 0; }
+static inline int get_typec_status(struct otg_notify *n, int event) {return 0; }
 static inline int get_usb_mode(struct otg_notify *n) {return 0; }
 static inline unsigned long get_cable_type(struct otg_notify *n) {return 0; }
 static inline int is_usb_host(struct otg_notify *n) {return 0; }
@@ -200,11 +202,11 @@ static inline bool is_blocked(struct otg_notify *n, int type) {return false; }
 static inline int usb_check_whitelist_for_mdm(struct usb_device *dev)
 			{return 0; }
 #if defined(CONFIG_USB_HW_PARAM)
-static unsigned long long *get_hw_param(struct otg_notify *n,
+static inline unsigned long long *get_hw_param(struct otg_notify *n,
 			enum usb_hw_param index) {return NULL; }
-static int inc_hw_param(struct otg_notify *n,
+static inline int inc_hw_param(struct otg_notify *n,
 			enum usb_hw_param index) {return 0; }
-static int inc_hw_param_host(struct host_notify_dev *dev,
+static inline int inc_hw_param_host(struct host_notify_dev *dev,
 			enum usb_hw_param index) {return 0; }
 #endif
 #endif

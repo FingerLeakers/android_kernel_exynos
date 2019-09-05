@@ -19,6 +19,7 @@
 struct score_ioctl_boot32 {
 	int			ret;
 	unsigned int		firmware_id;
+	unsigned int		pm_level;
 	unsigned int		flag;
 	int			reserved[4];
 };
@@ -96,6 +97,9 @@ static int __score_ioctl_get_boot32(struct score_ioctl_boot *karg,
 	memset(karg, 0, sizeof(*karg));
 
 	ret = get_user(karg->firmware_id, &uarg->firmware_id);
+	if (ret)
+		goto p_err;
+	ret = get_user(karg->pm_level, &uarg->pm_level);
 	if (ret)
 		goto p_err;
 	ret = get_user(karg->flag, &uarg->flag);

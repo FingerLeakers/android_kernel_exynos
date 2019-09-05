@@ -18,8 +18,9 @@
 #include <linux/dma-buf.h>
 #include <linux/sync_file.h>
 #include <linux/iommu.h>
-#include <linux/ion.h>
-#include <linux/exynos_ion.h>
+#include <linux/ion_exynos.h>
+#include <linux/slab.h>
+#include <linux/sched/mm.h>
 #include <linux/exynos_iovmm.h>
 
 #include <asm/cacheflush.h>
@@ -51,9 +52,10 @@ static void g2d_clean_caches_layer(struct device *dev, struct g2d_layer *layer,
 	if (device_get_dma_attr(dev) != DEV_DMA_COHERENT) {
 		for (i = 0; i < layer->num_buffers; i++) {
 			if (layer->buffer_type == G2D_BUFTYPE_DMABUF) {
-				exynos_ion_sync_dmabuf_for_device(dev,
-						layer->buffer[i].dmabuf.dmabuf,
-						layer->buffer[i].length, dir);
+				dma_sync_sg_for_device(dev,
+					layer->buffer[i].dmabuf.sgt->sgl,
+					layer->buffer[i].dmabuf.sgt->orig_nents,
+					dir);
 			} else {
 				exynos_iommu_sync_for_device(dev,
 						layer->buffer[i].dma_addr,
@@ -73,10 +75,12 @@ static void g2d_clean_caches_layer(struct device *dev, struct g2d_layer *layer,
 
 		dmabuf = layer->buffer[i].dmabuf.dmabuf;
 		if ((layer->buffer_type == G2D_BUFTYPE_DMABUF) &&
-				ion_cached_needsync_dmabuf(dmabuf) &&
-					ion_may_hwrender_dmabuf(dmabuf)) {
-			exynos_ion_sync_dmabuf_for_cpu(dev, dmabuf,
-				layer->buffer[i].length, DMA_FROM_DEVICE);
+				ion_cached_dmabuf(dmabuf) &&
+					ion_hwrender_dmabuf(dmabuf)) {
+				dma_sync_sg_for_cpu(dev,
+					layer->buffer[i].dmabuf.sgt->sgl,
+					layer->buffer[i].dmabuf.sgt->orig_nents,
+					DMA_FROM_DEVICE);
 		}
 	}
 }
@@ -110,9 +114,9 @@ static void g2d_invalidate_caches_task(struct g2d_task *task)
 
 		buffer = &task->target.buffer[i];
 		if (task->target.buffer_type == G2D_BUFTYPE_DMABUF) {
-			exynos_ion_sync_dmabuf_for_cpu(dev,
-				buffer->dmabuf.dmabuf,
-				buffer->length, DMA_FROM_DEVICE);
+			dma_sync_sg_for_cpu(dev, buffer->dmabuf.sgt->sgl,
+					    buffer->dmabuf.sgt->orig_nents,
+					    DMA_FROM_DEVICE);
 		} else {
 			exynos_iommu_sync_for_cpu(dev, buffer->dma_addr,
 				buffer->payload, DMA_FROM_DEVICE);
@@ -120,25 +124,35 @@ static void g2d_invalidate_caches_task(struct g2d_task *task)
 	}
 }
 
+#define buferr_show(dev, i, payload, w, h, b, name, len)		       \
+perrfndev(dev,								       \
+	  "Too small buffer[%d]: expected %u for %ux%u(bt%u)/%s but %u given", \
+	  i, payload,w, h, b, name, len)
+
 static int g2d_prepare_buffer(struct g2d_device *g2d_dev,
 			      struct g2d_layer *layer,
 			      struct g2d_layer_data *data)
 {
-	struct device *dev = g2d_dev->dev;
 	const struct g2d_fmt *fmt = NULL;
 	struct g2d_reg *cmd = layer->commands;
 	unsigned int payload;
 	int i;
 
-	fmt = g2d_find_format(cmd[G2DSFR_IMG_COLORMODE].value);
+	fmt = g2d_find_format(cmd[G2DSFR_IMG_COLORMODE].value, g2d_dev->caps);
 
 	BUG_ON(!fmt);
+
+	if (data->num_buffers == 0) {
+		perrfndev(g2d_dev, "Invalid number of buffer %u for %s",
+			  data->num_buffers, fmt->name);
+		return -EINVAL;
+	}
 
 	if ((data->num_buffers > 1) && (data->num_buffers != fmt->num_planes)) {
 		/* NV12 8+2 in two buffers is valid */
 		if ((fmt->num_planes != 4) || (data->num_buffers != 2)) {
-			dev_err(dev, "%s: Invalid number of buffer %u for %s\n",
-				__func__, data->num_buffers, fmt->name);
+			perrfndev(g2d_dev, "Invalid number of buffer %u for %s",
+				  data->num_buffers, fmt->name);
 			return -EINVAL;
 		}
 	}
@@ -146,31 +160,28 @@ static int g2d_prepare_buffer(struct g2d_device *g2d_dev,
 	if (data->num_buffers > 1) {
 		for (i = 0; i < data->num_buffers; i++) {
 			payload = (unsigned int)g2d_get_payload_index(
-						cmd, fmt, i, data->num_buffers);
+						cmd, fmt, i, data->num_buffers,
+						g2d_dev->caps);
 			if (data->buffer[i].length < payload) {
-				dev_err(dev,
-					"%s: Too small buffer[%d]: expected %uB"
-					" for %ux%u(b%u)/%s but %uB is given\n",
-					__func__, i, payload,
-					cmd[G2DSFR_IMG_WIDTH].value,
-					cmd[G2DSFR_IMG_HEIGHT].value,
-					cmd[G2DSFR_IMG_BOTTOM].value,
-					fmt->name, data->buffer[i].length);
+				buferr_show(g2d_dev, i, payload,
+					    cmd[G2DSFR_IMG_WIDTH].value,
+					    cmd[G2DSFR_IMG_HEIGHT].value,
+					    cmd[G2DSFR_IMG_BOTTOM].value,
+					    fmt->name, data->buffer[i].length);
 				return -EINVAL;
 			}
 
 			layer->buffer[i].payload = payload;
 		}
 	} else {
-		payload = (unsigned int)g2d_get_payload(cmd, fmt, layer->flags);
+		payload = (unsigned int)g2d_get_payload(cmd, fmt, layer->flags,
+							g2d_dev->caps);
 		if (data->buffer[0].length < payload) {
-			dev_err(dev, "%s: Too small buffer: expected %uB"
-				" for %ux%u(bt %u)/%s but %uB is given\n",
-				__func__, payload,
-				cmd[G2DSFR_IMG_WIDTH].value,
-				cmd[G2DSFR_IMG_HEIGHT].value,
-				cmd[G2DSFR_IMG_BOTTOM].value,
-				fmt->name, data->buffer[0].length);
+			buferr_show(g2d_dev, 0, payload,
+				    cmd[G2DSFR_IMG_WIDTH].value,
+				    cmd[G2DSFR_IMG_HEIGHT].value,
+				    cmd[G2DSFR_IMG_BOTTOM].value,
+				    fmt->name, data->buffer[0].length);
 			return -EINVAL;
 		}
 
@@ -188,7 +199,7 @@ static int g2d_get_dmabuf(struct g2d_task *task,
 			  struct g2d_buffer_data *data,
 			  enum dma_data_direction dir)
 {
-	struct device *dev = task->g2d_dev->dev;
+	struct g2d_device *g2d_dev = task->g2d_dev;
 	struct dma_buf *dmabuf;
 	struct dma_buf_attachment *attachment;
 	struct sg_table *sgt;
@@ -196,64 +207,61 @@ static int g2d_get_dmabuf(struct g2d_task *task,
 	int ret = -EINVAL;
 	int prot = IOMMU_READ;
 
-	if (device_get_dma_attr(dev) == DEV_DMA_COHERENT)
-		prot |= IOMMU_CACHE;
-
 	if (!IS_HWFC(task->flags) || (dir == DMA_TO_DEVICE)) {
 		dmabuf = dma_buf_get(data->dmabuf.fd);
 		if (IS_ERR(dmabuf)) {
-			dev_err(dev, "%s: Failed to get dmabuf from fd %d\n",
-				__func__, data->dmabuf.fd);
+			perrfndev(g2d_dev, "Failed to get dmabuf from fd %d",
+				  data->dmabuf.fd);
 			return PTR_ERR(dmabuf);
 		}
 	} else {
-		dmabuf = ctx->hwfc_info->bufs[task->job_id];
+		dmabuf = ctx->hwfc_info->bufs[task->sec.job_id];
 		get_dma_buf(dmabuf);
 	}
 
 	if (dmabuf->size < data->dmabuf.offset) {
-		dev_err(dev, "%s: too large offset %u for dmabuf of %zu\n",
-			__func__, data->dmabuf.offset, dmabuf->size);
+		perrfndev(g2d_dev, "too large offset %u for dmabuf of %zu",
+			  data->dmabuf.offset, dmabuf->size);
 		goto err;
 	}
 
 	if ((dmabuf->size - data->dmabuf.offset) < buffer->payload) {
-		dev_err(dev, "%s: too small dmabuf %zu/%u but reqiured %u\n",
-			__func__, dmabuf->size,
-			data->dmabuf.offset, buffer->payload);
+		perrfndev(g2d_dev, "too small dmabuf %zu/%u but reqiured %u",
+			  dmabuf->size, data->dmabuf.offset, buffer->payload);
 		goto err;
 	}
 
-	if (dir != DMA_TO_DEVICE)
-		prot |= IOMMU_WRITE;
-
-	if (ion_cached_needsync_dmabuf(dmabuf)) {
+	if (ion_cached_dmabuf(dmabuf)) {
 		task->total_cached_len += buffer->payload;
 
-		if ((dir == DMA_TO_DEVICE) && ion_may_hwrender_dmabuf(dmabuf))
+		if ((dir == DMA_TO_DEVICE) && ion_hwrender_dmabuf(dmabuf))
 			task->total_hwrender_len += buffer->payload;
 	}
 
-	attachment = dma_buf_attach(dmabuf, dev);
+	attachment = dma_buf_attach(dmabuf, g2d_dev->dev);
 	if (IS_ERR(attachment)) {
 		ret = PTR_ERR(attachment);
-		dev_err(dev,
-			"%s: failed to attach to dmabuf (%d)\n", __func__, ret);
+		perrfndev(g2d_dev, "failed to attach to dmabuf (%d)", ret);
 		goto err;
 	}
 
 	sgt = dma_buf_map_attachment(attachment, dir);
 	if (IS_ERR(sgt)) {
 		ret = PTR_ERR(sgt);
-		dev_err(dev, "%s: failed to map dmabuf (%d)\n", __func__, ret);
+		perrfndev(g2d_dev, "failed to map dmabuf (%d)", ret);
 		goto err_map;
 	}
+
+	if (dir != DMA_TO_DEVICE)
+		prot |= IOMMU_WRITE;
+
+	if (device_get_dma_attr(g2d_dev->dev) == DEV_DMA_COHERENT)
+		prot |= IOMMU_CACHE;
 
 	dma_addr = ion_iovmm_map(attachment, 0, buffer->payload, dir, prot);
 	if (IS_ERR_VALUE(dma_addr)) {
 		ret = (int)dma_addr;
-		dev_err(dev, "%s: failed to iovmm map for dmabuf (%d)\n",
-			__func__, ret);
+		perrfndev(g2d_dev, "failed to iovmm map for dmabuf (%d)", ret);
 		goto err_iovmmmap;
 	}
 
@@ -300,7 +308,7 @@ static int g2d_get_userptr(struct g2d_task *task,
 			   struct g2d_buffer_data *data,
 			   enum dma_data_direction dir)
 {
-	struct device *dev = task->g2d_dev->dev;
+	struct g2d_device *g2d_dev = task->g2d_dev;
 	unsigned long end = data->userptr + data->length;
 	struct vm_area_struct *vma;
 	struct vm_area_struct *tvma;
@@ -316,8 +324,7 @@ static int g2d_get_userptr(struct g2d_task *task,
 
 	vma = find_vma(mm, data->userptr);
 	if (!vma || (data->userptr < vma->vm_start)) {
-		dev_err(dev, "%s: invalid address %#lx\n",
-			__func__, data->userptr);
+		perrfndev(g2d_dev, "invalid address %#lx", data->userptr);
 		goto err_novma;
 	}
 
@@ -329,12 +336,8 @@ static int g2d_get_userptr(struct g2d_task *task,
 
 	if (dir != DMA_TO_DEVICE)
 		prot |= IOMMU_WRITE;
-	if (is_vma_cached(vma)) {
+	if (is_vma_cached(vma))
 		task->total_cached_len += buffer->payload;
-
-		if (device_get_dma_attr(dev) == DEV_DMA_COHERENT)
-			prot |= IOMMU_CACHE;
-	}
 
 	buffer->userptr.vma = tvma;
 
@@ -344,22 +347,20 @@ static int g2d_get_userptr(struct g2d_task *task,
 
 	while (end > vma->vm_end) {
 		if (!!(vma->vm_flags & VM_PFNMAP)) {
-			dev_err(dev, "%s: non-linear pfnmap is not supported\n",
-				__func__);
+			perrfndev(g2d_dev, "nonlinear pfnmap is not supported");
 			goto err_vma;
 		}
 
 		if ((vma->vm_next == NULL) ||
 				(vma->vm_end != vma->vm_next->vm_start)) {
-			dev_err(dev, "%s: invalid size %u bytes\n",
-					__func__, data->length);
+			perrfndev(g2d_dev, "invalid size %u", data->length);
 			goto err_vma;
 		}
 
 		vma = vma->vm_next;
 		tvma->vm_next = kmemdup(vma, sizeof(*vma), GFP_KERNEL);
 		if (tvma->vm_next == NULL) {
-			dev_err(dev, "%s: failed to allocate vma\n", __func__);
+			perrfndev(g2d_dev, "failed to allocate vma");
 			ret = -ENOMEM;
 			goto err_vma;
 		}
@@ -375,11 +376,14 @@ static int g2d_get_userptr(struct g2d_task *task,
 			vma->vm_ops->open(vma);
 	}
 
-	buffer->dma_addr = exynos_iovmm_map_userptr(dev, data->userptr,
+	if (device_get_dma_attr(g2d_dev->dev) == DEV_DMA_COHERENT)
+		prot |= IOMMU_CACHE;
+
+	buffer->dma_addr = exynos_iovmm_map_userptr(g2d_dev->dev, data->userptr,
 						    data->length, prot);
 	if (IS_ERR_VALUE(buffer->dma_addr)) {
 		ret = (int)buffer->dma_addr;
-		dev_err(dev, "%s: failed to iovmm map userptr\n", __func__);
+		perrfndev(g2d_dev, "failed to iovmm map userptr");
 		goto err_map;
 	}
 
@@ -526,8 +530,8 @@ static void g2d_put_image(struct g2d_device *g2d_dev, struct g2d_layer *layer,
 			layer->buffer, layer->num_buffers, dir);
 
 	if (layer->fence)
-		fence_remove_callback(layer->fence, &layer->fence_cb);
-	fence_put(layer->fence);
+		dma_fence_remove_callback(layer->fence, &layer->fence_cb);
+	dma_fence_put(layer->fence);
 
 	layer->buffer_type = G2D_BUFTYPE_NONE;
 }
@@ -536,15 +540,15 @@ static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 			  struct g2d_layer *layer, struct g2d_layer_data *data,
 			  int index)
 {
-	struct device *dev = g2d_dev->dev;
 	int ret;
 
 	layer->flags = data->flags;
 	layer->buffer_type = data->buffer_type;
+	layer->fence = NULL;
 
 	if (!G2D_BUFTYPE_VALID(layer->buffer_type)) {
-		dev_err(dev, "%s: invalid buffer type %u specified\n",
-			__func__, layer->buffer_type);
+		perrfndev(g2d_dev, "invalid buffer type %u specified",
+			  layer->buffer_type);
 		return -EINVAL;
 	}
 
@@ -558,8 +562,8 @@ static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 			return 0;
 		}
 
-		dev_err(dev, "%s: DMA layer %d has no buffer - flags: %#x\n",
-			__func__, index, layer->flags);
+		perrfndev(g2d_dev, "DMA layer %d has no buffer - flags: %#x",
+			  index, layer->flags);
 		return -EINVAL;
 	}
 
@@ -573,8 +577,8 @@ static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 
 	layer->fence = g2d_get_acquire_fence(g2d_dev, layer, data->fence);
 	if (IS_ERR(layer->fence)) {
-		dev_err(dev, "%s: Invalid fence fd %d on source[%d]\n",
-			__func__, data->fence, index);
+		perrfndev(g2d_dev, "Invalid fence fd %d on source[%d]",
+			  data->fence, index);
 		return PTR_ERR(layer->fence);
 	}
 
@@ -584,8 +588,7 @@ static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 
 	if (!g2d_prepare_source(task, layer, index)) {
 		ret = -EINVAL;
-		dev_err(dev, "%s: Failed to prepare source layer %d\n",
-			__func__, index);
+		perrfndev(g2d_dev, "Failed to prepare source layer %d", index);
 		goto err_prepare;
 	}
 
@@ -595,8 +598,8 @@ err_prepare:
 		       layer->num_buffers, DMA_TO_DEVICE);
 err_buffer:
 	if (layer->fence)
-		fence_remove_callback(layer->fence, &layer->fence_cb);
-	fence_put(layer->fence); /* fence_put() checkes NULL */
+		dma_fence_remove_callback(layer->fence, &layer->fence_cb);
+	dma_fence_put(layer->fence); /* dma_fence_put() checkes NULL */
 
 	return ret;
 }
@@ -604,7 +607,6 @@ err_buffer:
 static int g2d_get_sources(struct g2d_device *g2d_dev, struct g2d_task *task,
 			   struct g2d_layer_data __user *src)
 {
-	struct device *dev = g2d_dev->dev;
 	unsigned int i;
 	int ret;
 
@@ -612,9 +614,9 @@ static int g2d_get_sources(struct g2d_device *g2d_dev, struct g2d_task *task,
 		struct g2d_layer_data data;
 
 		if (copy_from_user(&data, src, sizeof(*src))) {
-			dev_err(dev,
-				"%s: Failed to read source image data %d/%d\n",
-				__func__, i, task->num_source);
+			perrfndev(g2d_dev,
+				  "Failed to read source image data %d/%d",
+				  i, task->num_source);
 			ret = -EFAULT;
 			break;
 		}
@@ -636,7 +638,6 @@ static int g2d_get_sources(struct g2d_device *g2d_dev, struct g2d_task *task,
 static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 			  struct g2d_task *task, struct g2d_layer_data *data)
 {
-	struct device *dev = g2d_dev->dev;
 	struct g2d_layer *target = &task->target;
 	int ret;
 
@@ -646,9 +647,8 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 	target->buffer_type = data->buffer_type;
 
 	if (!G2D_BUFTYPE_VALID(target->buffer_type)) {
-		dev_err(dev,
-			"%s: invalid buffer type %u specified for target\n",
-			__func__, target->buffer_type);
+		perrfndev(g2d_dev, "invalid buffer type %u specified to target",
+			  target->buffer_type);
 		return -EINVAL;
 	}
 
@@ -666,8 +666,7 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 		 */
 		ret = hwfc_get_valid_buffer(&task->bufidx);
 		if (ret < 0) {
-			dev_err(dev, "%s: Failed to get valid buffer from repeater\n",
-				__func__);
+			perrfndev(g2d_dev, "Failed to get buffer for HWFC");
 			return ret;
 		}
 
@@ -682,10 +681,10 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 				ptask = ptask->next;
 				continue;
 			}
-			if ((ptask->job_id == task->bufidx) &&
+			if ((ptask->sec.job_id == task->bufidx) &&
 					!is_task_state_idle(ptask)) {
-				dev_err(dev, "%s: The %d task is not idle\n",
-				__func__, task->bufidx);
+				perrfndev(g2d_dev, "The %d task is not idle",
+					  task->bufidx);
 
 				spin_unlock_irqrestore(
 					&task->g2d_dev->lock_task, flags);
@@ -697,7 +696,7 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 
 		g2d_stamp_task(task, G2D_STAMP_STATE_HWFCBUF, task->bufidx);
 
-		task->job_id = task->bufidx;
+		task->sec.job_id = task->bufidx;
 
 		spin_unlock_irqrestore(&task->g2d_dev->lock_task, flags);
 
@@ -708,8 +707,8 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 	}
 
 	if (target->buffer_type == G2D_BUFTYPE_EMPTY) {
-		dev_err(dev, "%s: target has no buffer - flags: %#x\n",
-			__func__, task->flags);
+		perrfndev(g2d_dev, "target has no buffer - flags: %#x",
+			  task->flags);
 		return -EINVAL;
 	}
 
@@ -722,8 +721,7 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 
 	target->fence = g2d_get_acquire_fence(g2d_dev, target, data->fence);
 	if (IS_ERR(target->fence)) {
-		dev_err(dev, "%s: Invalid fence fd %d on target\n",
-			__func__, data->fence);
+		perrfndev(g2d_dev, "Invalid taret fence fd %d", data->fence);
 		return PTR_ERR(target->fence);
 	}
 
@@ -733,7 +731,7 @@ static int g2d_get_target(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 
 	if (!g2d_prepare_target(task)) {
 		ret = -EINVAL;
-		dev_err(dev, "%s: Failed to prepare target layer\n", __func__);
+		perrfndev(g2d_dev, "Failed to prepare target layer");
 		goto err_prepare;
 	}
 
@@ -743,8 +741,8 @@ err_prepare:
 				target->num_buffers, DMA_FROM_DEVICE);
 err_buffer:
 	if (target->fence)
-		fence_remove_callback(target->fence, &target->fence_cb);
-	fence_put(target->fence); /* fence_put() checkes NULL */
+		dma_fence_remove_callback(target->fence, &target->fence_cb);
+	dma_fence_put(target->fence); /* dma_fence_put() checkes NULL */
 
 	return ret;
 }
@@ -752,20 +750,19 @@ err_buffer:
 int g2d_get_userdata(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 		     struct g2d_task *task, struct g2d_task_data *data)
 {
-	struct device *dev = g2d_dev->dev;
 	unsigned int i;
 	int ret;
 
 	/* invalid range check */
-	if ((data->num_source < 1) || (data->num_source > G2D_MAX_IMAGES)) {
-		dev_err(dev, "%s: Invalid number of source images %u\n",
-			__func__, data->num_source);
+	if ((data->num_source < 1) || (data->num_source > g2d_dev->max_layers)) {
+		perrfndev(g2d_dev, "Invalid number of source images %u",
+			  data->num_source);
 		return -EINVAL;
 	}
 
 	if (data->priority > G2D_MAX_PRIORITY) {
-		dev_err(dev, "%s: Invalid number of priority %u\n",
-			__func__, data->priority);
+		perrfndev(g2d_dev, "Invalid number of priority %u",
+			  data->priority);
 		return -EINVAL;
 	}
 
@@ -811,7 +808,10 @@ void g2d_put_images(struct g2d_device *g2d_dev, struct g2d_task *task)
 	g2d_invalidate_caches_task(task);
 
 	if (task->release_fence) {
-		fence_signal(task->release_fence->fence);
+		if (is_task_state_error(task))
+			dma_fence_set_error(task->release_fence->fence, -EIO);
+
+		dma_fence_signal(task->release_fence->fence);
 		fput(task->release_fence->file);
 	}
 

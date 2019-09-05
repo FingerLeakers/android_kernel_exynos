@@ -25,14 +25,11 @@
 #include <asm/tlbflush.h>
 #ifdef CONFIG_UH_RKP
 #include <linux/rkp.h>
-
-#define FIMC_VA	 (0xffffff80fa000000ULL)
-#define FIMC_SIZE	(0x780000)
 #endif
 
 #define check_pgt_cache()		do { } while (0)
 
-#define PGALLOC_GFP	(GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO)
+#define PGALLOC_GFP	(GFP_KERNEL | __GFP_ZERO)
 #define PGD_SIZE	(PTRS_PER_PGD * sizeof(pgd_t))
 
 #if CONFIG_PGTABLE_LEVELS > 2
@@ -47,26 +44,19 @@ static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
 	if (rkp_ropage)
 		return rkp_ropage;
 	else
-		return (pmd_t *)__get_free_page(PGALLOC_GFP);
-#else
-	return (pmd_t *)__get_free_page(PGALLOC_GFP);
 #endif
+	return (pmd_t *)__get_free_page(PGALLOC_GFP);
 }
 
 static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 {
-#ifdef CONFIG_UH_RKP
 	BUG_ON((unsigned long)pmd & (PAGE_SIZE-1));
-
-	if ((unsigned long)pmd >= (unsigned long)RKP_RBUF_VA &&
-		(unsigned long)pmd < ((unsigned long)RKP_RBUF_VA + RKP_ROBUF_SIZE))
+#ifdef CONFIG_UH_RKP
+	if (is_rkp_ro_page((u64)pmd))
 		rkp_ro_free((void *)pmd);
 	else
-		free_page((unsigned long)pmd);
-#else
-	BUG_ON((unsigned long)pmd & (PAGE_SIZE-1));
-	free_page((unsigned long)pmd);
 #endif
+	free_page((unsigned long)pmd);
 }
 
 static inline void __pud_populate(pud_t *pud, phys_addr_t pmd, pudval_t prot)
@@ -96,26 +86,19 @@ static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long addr)
 	if (rkp_ropage)
 		return rkp_ropage;
 	else
-		return (pud_t *)__get_free_page(PGALLOC_GFP);
-#else
-	return (pud_t *)__get_free_page(PGALLOC_GFP);
 #endif
+	return (pud_t *)__get_free_page(PGALLOC_GFP);
 }
 
 static inline void pud_free(struct mm_struct *mm, pud_t *pud)
 {
-#ifdef CONFIG_UH_RKP
 	BUG_ON((unsigned long)pud & (PAGE_SIZE-1));
-
-	if ((unsigned long)pud >= (unsigned long)RKP_RBUF_VA &&
-			(unsigned long)pud < ((unsigned long)RKP_RBUF_VA + RKP_ROBUF_SIZE))
+#ifdef CONFIG_UH_RKP
+	if (is_rkp_ro_page((u64)pud))
 		rkp_ro_free((void *)pud);
 	else
-		free_page((unsigned long)pud);
-#else
-	BUG_ON((unsigned long)pud & (PAGE_SIZE-1));
-	free_page((unsigned long)pud);
 #endif
+	free_page((unsigned long)pud);
 }
 
 static inline void __pgd_populate(pgd_t *pgdp, phys_addr_t pud, pgdval_t prot)
@@ -141,13 +124,10 @@ static inline pte_t *
 pte_alloc_one_kernel(struct mm_struct *mm, unsigned long addr)
 {
 #ifdef CONFIG_UH_RKP
-	if (addr >= FIMC_VA && addr < FIMC_VA + FIMC_SIZE)
+	if (addr_rkp_ro(addr))
 		return (pte_t *)rkp_ro_alloc();
-	else	
-		return (pte_t *)__get_free_page(PGALLOC_GFP);
-#else
-	return (pte_t *)__get_free_page(PGALLOC_GFP);
 #endif
+	return (pte_t *)__get_free_page(PGALLOC_GFP);
 }
 
 static inline pgtable_t

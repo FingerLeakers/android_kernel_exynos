@@ -25,6 +25,42 @@
 
 #define GIC_IS_SECURE_FREE
 
+void abox_gic_enable(struct device *dev, unsigned int irq, bool en)
+{
+	struct abox_gic_data *data = dev_get_drvdata(dev);
+	unsigned int base = en ? GIC_DIST_ENABLE_SET : GIC_DIST_ENABLE_CLEAR;
+	unsigned int offset = base + (irq / 32 * 4);
+	unsigned int shift = irq % 32;
+	unsigned int mask = 0x1 << shift;
+	static DEFINE_SPINLOCK(lock);
+	unsigned long flags;
+
+	spin_lock_irqsave(&lock, flags);
+	writel(mask, data->gicd_base + offset);
+	spin_unlock_irqrestore(&lock, flags);
+}
+
+void abox_gic_target(struct device *dev, unsigned int irq,
+		enum abox_gic_target target)
+{
+	struct abox_gic_data *data = dev_get_drvdata(dev);
+	unsigned int offset = GIC_DIST_TARGET + (irq & 0xfffffffc);
+	unsigned int shift = (irq & 0x3) * 8;
+	unsigned int mask = 0xff << shift;
+	unsigned int val;
+	static DEFINE_SPINLOCK(lock);
+	unsigned long flags;
+
+	dev_dbg(dev, "%s(%d, %d)\n", __func__, irq, target);
+
+	spin_lock_irqsave(&lock, flags);
+	val = readl(data->gicd_base + offset);
+	val &= ~mask;
+	val |= ((0x1 << target) << shift) & mask;
+	writel(val, data->gicd_base + offset);
+	spin_unlock_irqrestore(&lock, flags);
+}
+
 void abox_gic_generate_interrupt(struct device *dev, unsigned int irq)
 {
 #ifdef GIC_IS_SECURE_FREE
@@ -48,7 +84,7 @@ int abox_gic_register_irq_handler(struct device *dev, unsigned int irq,
 {
 	struct abox_gic_data *data = dev_get_drvdata(dev);
 
-	dev_info(dev, "%s(%u, %p, %p)\n", __func__, irq, handler, dev_id);
+	dev_dbg(dev, "%s(%u, %pf)\n", __func__, irq, handler);
 
 	if (irq >= ARRAY_SIZE(data->handler)) {
 		dev_err(dev, "invalid irq: %d\n", irq);
@@ -108,12 +144,12 @@ static irqreturn_t abox_gic_irq_handler(int irq, void *dev_id)
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 		dev_dbg(dev, "IAR: %08X\n", irqstat);
 
-		if (likely(irqnr < 16)) {
+		if (irqnr < 16) {
 			writel(irqstat, data->gicc_base + GIC_CPU_EOI);
 			writel(irqstat, data->gicc_base + GIC_CPU_DEACTIVATE);
 			ret |= __abox_gic_irq_handler(data, irqnr);
 			continue;
-		} else if (unlikely(irqnr > 15 && irqnr < 1021)) {
+		} else if (irqnr > 15 && irqnr < 1021) {
 			writel(irqstat, data->gicc_base + GIC_CPU_EOI);
 			ret |= __abox_gic_irq_handler(data, irqnr);
 			continue;
@@ -122,6 +158,22 @@ static irqreturn_t abox_gic_irq_handler(int irq, void *dev_id)
 	} while (1);
 
 	return ret;
+}
+
+static void abox_gicd_enable(struct device *dev, bool en)
+{
+	struct abox_gic_data *data = dev_get_drvdata(dev);
+	void __iomem *gicd_base = data->gicd_base;
+
+	if (en) {
+		writel(0x1, gicd_base + GIC_DIST_CTRL);
+		writel(0x0, gicd_base + GIC_DIST_IGROUP + 0x0);
+		writel(0x0, gicd_base + GIC_DIST_IGROUP + 0x4);
+		writel(0x0, gicd_base + GIC_DIST_IGROUP + 0x8);
+		writel(0x0, gicd_base + GIC_DIST_IGROUP + 0xC);
+	} else {
+		writel(0x0, gicd_base + GIC_DIST_CTRL);
+	}
 }
 
 void abox_gic_init_gic(struct device *dev)
@@ -172,6 +224,7 @@ int abox_gic_enable_irq(struct device *dev)
 
 		data->disabled = false;
 		enable_irq(data->irq);
+		abox_gicd_enable(dev, true);
 	}
 	return 0;
 }
@@ -203,12 +256,12 @@ static int samsung_abox_gic_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	platform_set_drvdata(pdev, data);
 
-	data->gicd_base = devm_request_and_map_byname(pdev, "gicd",
+	data->gicd_base = devm_get_request_ioremap(pdev, "gicd",
 			&data->gicd_base_phys, NULL);
 	if (IS_ERR(data->gicd_base))
 		return PTR_ERR(data->gicd_base);
 
-	data->gicc_base = devm_request_and_map_byname(pdev, "gicc",
+	data->gicc_base = devm_get_request_ioremap(pdev, "gicc",
 			&data->gicc_base_phys, NULL);
 	if (IS_ERR(data->gicc_base))
 		return PTR_ERR(data->gicc_base);
@@ -220,11 +273,16 @@ static int samsung_abox_gic_probe(struct platform_device *pdev)
 	}
 
 	ret = devm_request_irq(dev, data->irq, abox_gic_irq_handler,
-		IRQF_TRIGGER_RISING, pdev->name, dev);
+			IRQF_TRIGGER_RISING | IRQF_GIC_MULTI_TARGET,
+			pdev->name, dev);
 	if (ret < 0) {
 		dev_err(dev, "Failed to request irq\n");
 		return ret;
 	}
+
+	ret = enable_irq_wake(data->irq);
+	if (ret < 0)
+		dev_err(dev, "Failed to enable irq wake\n");
 
 #ifndef CONFIG_PM
 	abox_gic_resume(dev);
@@ -243,7 +301,7 @@ static int samsung_abox_gic_remove(struct platform_device *pdev)
 
 static const struct of_device_id samsung_abox_gic_of_match[] = {
 	{
-		.compatible = "samsung,abox_gic",
+		.compatible = "samsung,abox-gic",
 	},
 	{},
 };

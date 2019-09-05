@@ -2,6 +2,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/device.h>
+#include <linux/delay.h>
 #include <linux/nls.h>
 #include <linux/usb/composite.h>
 #include <linux/usb/gadget_configfs.h>
@@ -14,7 +15,6 @@
 #include <linux/platform_device.h>
 #include <linux/kdev_t.h>
 #include <linux/usb/ch9.h>
-#include <linux/delay.h>
 
 #ifdef CONFIG_USB_CONFIGFS_F_ACC
 extern int acc_ctrlrequest(struct usb_composite_dev *cdev,
@@ -50,7 +50,7 @@ EXPORT_SYMBOL_GPL(create_function_device);
 #endif
 
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
-void set_usb_enumeration_state(bool state);
+void set_usb_enumeration_state(int state);
 void set_usb_enable_state(void);
 extern int dwc3_gadget_get_cmply_link_state(struct usb_gadget *g);
 #endif
@@ -217,6 +217,8 @@ static int set_alt_serialnumber(struct gadget_strings *gs)
 	char *str;
 	int ret = -ENOMEM;
 
+	pr_info("%s\n", __func__);
+
 	str = kmalloc(CHIPID_SIZE + 1, GFP_KERNEL);
 	if (!str) {
 		pr_err("%s: failed to alloc for string\n", __func__);
@@ -365,16 +367,18 @@ static ssize_t gadget_dev_desc_UDC_store(struct config_item *item,
 	char *name;
 	int ret;
 
-	/* HACK: ffs_ep0_write must be called before UDC store in adb,
-	 * but sometimes UDC store was executed before ffs_ep0_write.
-	 * Delay was added to avoid the problem
-	 */
 	pr_info("%s: +++\n", __func__);
+	mdelay(50);
 
 	name = kstrdup(page, GFP_KERNEL);
-
 	if (!name)
 		return -ENOMEM;
+
+	if(!len || (strlen(name) != len)) {
+		kfree(name);
+		return -EINVAL;
+	}
+
 	if (name[len - 1] == '\n')
 		name[len - 1] = '\0';
 
@@ -384,7 +388,6 @@ static ssize_t gadget_dev_desc_UDC_store(struct config_item *item,
 		ret = unregister_gadget(gi);
 		if (ret)
 			goto err;
-		/* prevent memory leak */
 		kfree(name);
 	} else {
 		if (gi->composite.gadget_driver.udc_name) {
@@ -519,25 +522,26 @@ static int config_usb_cfg_link(
 
 	/* usb tethering */
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-	list_for_each_entry(gs, &gi->string_list, list) {
-		src = gs->serialnumber;
-	}
+	if (fi->set_inst_eth_addr) {
+		list_for_each_entry(gs, &gi->string_list, list) {
+			src = gs->serialnumber;
+		}
 
-	if (!ethaddr[0]) {
-		for (i = 0; i < ETH_ALEN; i++)
-			ethaddr[i] = 0;
-		/* create a fake MAC address from our serial number.
-		 * first byte is 0x02 to signify locally administered.
-		 */
-		ethaddr[0] = 0x02;
-		for (i = 0; (i < 256) && *src; i++) {
-			/* XOR the USB serial across the remaining bytes */
-			ethaddr[i % (ETH_ALEN - 1) + 1] ^= *src++;
+		if (src) {
+			for (i = 0; i < ETH_ALEN; i++)
+				ethaddr[i] = 0;
+			/* create a fake MAC address from our serial number.
+			 * first byte is 0x02 to signify locally administered.
+			 */
+			ethaddr[0] = 0x02;
+			for (i = 0; (i < 256) && *src; i++) {
+				/* XOR the USB serial across the remaining bytes */
+				ethaddr[i % (ETH_ALEN - 1) + 1] ^= *src++;
+			}
+
+			fi->set_inst_eth_addr(fi, ethaddr);
 		}
 	}
-
-	if (fi->set_inst_eth_addr)
-		fi->set_inst_eth_addr(fi, ethaddr);
 #endif
 	f = usb_get_function(fi);
 	if (IS_ERR(f)) {
@@ -887,7 +891,7 @@ static inline struct gadget_info *os_desc_item_to_gadget_info(
 
 static ssize_t os_desc_use_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d",
+	return sprintf(page, "%d\n",
 			os_desc_item_to_gadget_info(item)->use_os_desc);
 }
 
@@ -911,7 +915,7 @@ static ssize_t os_desc_use_store(struct config_item *item, const char *page,
 
 static ssize_t os_desc_b_vendor_code_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d",
+	return sprintf(page, "0x%02x\n",
 			os_desc_item_to_gadget_info(item)->b_vendor_code);
 }
 
@@ -1050,7 +1054,7 @@ static inline struct usb_os_desc_ext_prop
 
 static ssize_t ext_prop_type_show(struct config_item *item, char *page)
 {
-	return sprintf(page, "%d", to_usb_os_desc_ext_prop(item)->type);
+	return sprintf(page, "%d\n", to_usb_os_desc_ext_prop(item)->type);
 }
 
 static ssize_t ext_prop_type_store(struct config_item *item,
@@ -1362,7 +1366,7 @@ static void purge_configs_funcs(struct gadget_info *gi)
 			list_move_tail(&f->list, &cfg->func_list);
 			if (f->unbind) {
 				dev_err(&gi->cdev.gadget->dev,
-				         "unbind function '%s'/%p\n",
+				         "unbind function '%s'/%pK\n",
 				         f->name, f);
 				f->unbind(c, f);
 			}
@@ -1429,9 +1433,10 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 				gs->manufacturer;
 			gs->strings[USB_GADGET_PRODUCT_IDX].s = gs->product;
 #ifndef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-			if (gs->serialnumber && !set_alt_serialnumber(gs))
-				pr_info("usb: serial number: %s\n",
-						gs->serialnumber);
+			if (!gs->serialnumber)
+				set_alt_serialnumber(gs);
+
+			pr_info("usb: serial number: %s\n", gs->serialnumber);
 #endif
 			gs->strings[USB_GADGET_SERIAL_IDX].s = gs->serialnumber;
 			i++;
@@ -1560,10 +1565,7 @@ static void android_work(struct work_struct *data)
 		store_usblog_notify(NOTIFY_USBSTATE, (void *)connected[0], NULL);
 #endif
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
-		if (cdev->desc.bcdUSB == 0x310)
-			set_usb_enumeration_state(0x310); // Super-Speed
-		else
-			set_usb_enumeration_state(0x210); // High-Speed
+		set_usb_enumeration_state(cdev->desc.bcdUSB);
 #endif
 	}
 
@@ -1664,6 +1666,7 @@ static int android_setup(struct usb_gadget *gadget,
 		value = composite_setup(gadget, c);
 
 	spin_lock_irqsave(&cdev->lock, flags);
+
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	if (c->bRequest == USB_REQ_SET_CONFIGURATION &&
 			cdev->mute_switch == true)
@@ -1705,6 +1708,7 @@ static void android_disconnect(struct usb_gadget *gadget)
 	acc_disconnect();
 #endif
 	gi->connected = 0;
+
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	printk(KERN_DEBUG "usb: %s con(%d), sw(%d)\n",
 		 __func__, gi->connected, gi->sw_connected);
@@ -1716,6 +1720,7 @@ static void android_disconnect(struct usb_gadget *gadget)
 		printk(KERN_DEBUG"usb: %s mute_switch con(%d) sw(%d)\n",
 			 __func__, gi->connected, gi->sw_connected);
 	} else {
+
 	//	set_ncm_ready(false);
 		if (cdev->force_disconnect) {
 			gi->sw_connected = 1;
@@ -1974,6 +1979,7 @@ static DEVICE_ATTR(functions, S_IRUGO | S_IWUSR, functions_show,
 						functions_store);
 static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, enable_show, enable_store);
 static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
+
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static ssize_t
 bcdUSB_show(struct device *pdev, struct device_attribute *attr, char *buf)

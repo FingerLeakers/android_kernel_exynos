@@ -12,7 +12,11 @@
 #ifndef __SND_SOC_ABOX_GIC_H
 #define __SND_SOC_ABOX_GIC_H
 
-#define ABOX_GIC_IRQ_COUNT 16
+#include <linux/interrupt.h>
+
+#define ABOX_GIC_SGI_COUNT 16
+#define ABOX_GIC_SPI_COUNT 103
+#define ABOX_GIC_IRQ_COUNT (ABOX_GIC_SGI_COUNT + ABOX_GIC_SPI_COUNT)
 
 struct abox_gic_irq_handler_t {
 	irq_handler_t handler;
@@ -27,8 +31,53 @@ struct abox_gic_data {
 	int irq;
 	struct abox_gic_irq_handler_t handler[ABOX_GIC_IRQ_COUNT];
 	bool disabled;
-
 };
+
+enum abox_gic_target {
+	ABOX_GIC_CORE0,
+	ABOX_GIC_CP,
+	ABOX_GIC_AP,
+	ABOX_GIC_CORE1,
+	ABOX_GIC_CORE2,
+	ABOX_GIC_CORE3,
+};
+
+/**
+ * Enable or disable an IRQ
+ * @param[in]	dev	pointer to abox_gic device
+ * @param[in]	irq	irq id
+ * @param[in]	en	enable
+ */
+extern void abox_gic_enable(struct device *dev, unsigned int irq, bool en);
+
+/**
+ * Change target of an IRQ
+ * @param[in]	dev	pointer to abox_gic device
+ * @param[in]	irq	irq id
+ * @param[in]	target	target
+ */
+extern void abox_gic_target(struct device *dev, unsigned int irq,
+		enum abox_gic_target target);
+
+/**
+ * Change target of an IRQ to ap
+ * @param[in]	dev	pointer to abox_gic device
+ * @param[in]	irq	irq id
+ */
+static inline void abox_gic_target_ap(struct device *dev, unsigned int irq)
+{
+	abox_gic_target(dev, irq, ABOX_GIC_AP);
+}
+
+/**
+ * Change target of an IRQ to core0
+ * @param[in]	dev	pointer to abox_gic device
+ * @param[in]	irq	irq id
+ */
+static inline void abox_gic_target_core0(struct device *dev, unsigned int irq)
+{
+	abox_gic_target(dev, irq, ABOX_GIC_CORE0);
+}
 
 /**
  * Generate interrupt

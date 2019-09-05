@@ -8,9 +8,30 @@
  * Exynos ACME(A Cpufreq that Meets Every chipset) driver implementation
  */
 
+#include <linux/pm_qos.h>
+#include <soc/samsung/exynos-dm.h>
+#include "exynos-ufc.h"
+
 struct exynos_cpufreq_dm {
 	struct list_head		list;
 	struct exynos_dm_constraint	c;
+};
+
+struct exynos_ufc {
+	struct list_head		list;
+	struct exynos_ufc_info		info;
+};
+
+typedef int (*target_fn)(struct cpufreq_policy *policy,
+			        unsigned int target_freq,
+			        unsigned int relation);
+
+struct exynos_cpufreq_ready_block {
+	struct list_head		list;
+
+	/* callback function to update policy-dependant data */
+	int (*update)(struct cpufreq_policy *policy);
+	int (*get_target)(struct cpufreq_policy *policy, target_fn target);
 };
 
 struct exynos_cpufreq_domain {
@@ -27,7 +48,7 @@ struct exynos_cpufreq_domain {
 	unsigned int			id;
 	struct cpumask			cpus;
 	unsigned int			cal_id;
-	enum exynos_dm_type		dm_type;
+	int				dm_type;
 
 	/* frequency scaling */
 	bool				enabled;
@@ -37,9 +58,6 @@ struct exynos_cpufreq_domain {
 
 	unsigned int			max_freq;
 	unsigned int			min_freq;
-#ifdef CONFIG_SEC_PM
-	unsigned int			max_usable_freq;
-#endif
 	unsigned int			boot_freq;
 	unsigned int			resume_freq;
 	unsigned int			old;
@@ -56,6 +74,8 @@ struct exynos_cpufreq_domain {
 	struct notifier_block		pm_qos_max_notifier;
 
 	/* for sysfs */
+	int				user_boost;
+	int				user_boost_game;
 	unsigned int			user_default_qos;
 
 	/* freq boost */
@@ -65,10 +85,42 @@ struct exynos_cpufreq_domain {
 
 	/* list head of DVFS Manager constraints */
 	struct list_head		dm_list;
+
+	/* list head of User cpuFreq Ctrl (UFC) */
+	struct list_head		ufc_list;
+
+	bool				need_awake;
+
+	struct thermal_cooling_device *cdev;
 };
+
+/*
+ * list head of cpufreq domain
+ */
+
+extern struct exynos_cpufreq_domain
+		*find_domain_cpumask(const struct cpumask *mask);
+extern struct list_head *get_domain_list(void);
+extern struct exynos_cpufreq_domain *first_domain(void);
+extern struct exynos_cpufreq_domain *last_domain(void);
+extern int exynos_cpufreq_domain_count(void);
 
 /*
  * the time it takes on this CPU to switch between
  * two frequencies in nanoseconds
  */
-#define TRANSITION_LATENCY	100000
+#define TRANSITION_LATENCY	5000000
+
+/*
+ * Exynos CPUFreq API
+ */
+extern void exynos_cpufreq_ready_list_add(struct exynos_cpufreq_ready_block *rb);
+extern unsigned int exynos_pstate_get_boost_freq(int cpu);
+#ifdef CONFIG_ARM_EXYNOS_UFC
+extern int ufc_domain_init(struct exynos_cpufreq_domain *domain);
+#else
+static inline int ufc_domain_init(struct exynos_cpufreq_domain *domain)
+{
+	return 0;
+}
+#endif

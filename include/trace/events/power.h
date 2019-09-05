@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM power
 
@@ -29,6 +30,13 @@ DECLARE_EVENT_CLASS(cpu,
 
 	TP_printk("state=%lu cpu_id=%lu", (unsigned long)__entry->state,
 		  (unsigned long)__entry->cpu_id)
+);
+
+DEFINE_EVENT(cpu, cpupm,
+
+	TP_PROTO(unsigned int state, unsigned int cpu_id),
+
+	TP_ARGS(state, cpu_id)
 );
 
 DEFINE_EVENT(cpu, cpu_idle,
@@ -216,11 +224,78 @@ TRACE_EVENT(cpu_frequency_limits,
 		  (unsigned long)__entry->cpu_id)
 );
 
-DEFINE_EVENT(cpu, cpu_capacity,
+TRACE_EVENT(cpu_frequency_filter,
 
-	TP_PROTO(unsigned int capacity, unsigned int cpu_id),
+	TP_PROTO(unsigned int target_freq, unsigned int req_type),
 
-	TP_ARGS(capacity, cpu_id)
+	TP_ARGS(target_freq, req_type),
+
+	TP_STRUCT__entry(
+		__field(	u32,		target_freq	)
+		__field(	u32,		req_type	)
+	),
+
+	TP_fast_assign(
+		__entry->target_freq = target_freq;
+		__entry->req_type = req_type;
+	),
+
+	TP_printk("eff: target=%lu req_type=%lu",
+		  (unsigned long)__entry->target_freq,
+		  (unsigned long)__entry->req_type)
+);
+
+TRACE_EVENT(sugov_kair_freq,
+	    TP_PROTO(unsigned int cpu, unsigned long util, unsigned long max,
+		     int l1_rand, unsigned int legacy_freq, unsigned int freq),
+	    TP_ARGS(cpu, util, max, l1_rand, legacy_freq, freq),
+	    TP_STRUCT__entry(
+		    __field(	unsigned int,	cpu)
+		    __field(	unsigned long,	util)
+		    __field(	unsigned long,	max)
+		    __field(	int,		l1_rand)
+		    __field(	unsigned int,	legacy_freq)
+		    __field(	unsigned int,	freq)
+	    ),
+	    TP_fast_assign(
+		    __entry->cpu = cpu;
+		    __entry->util = util;
+		    __entry->max = max;
+		    __entry->l1_rand = l1_rand;
+		    __entry->legacy_freq = legacy_freq;
+		    __entry->freq = freq;
+	    ),
+	    TP_printk("cpu=%u util=%lu max=%lu l1_rand=%d legacy_freq=%u kair_freq=%u",
+		      __entry->cpu,
+		      __entry->util,
+		      __entry->max,
+		      __entry->l1_rand,
+		      __entry->legacy_freq,
+		      __entry->freq)
+);
+
+TRACE_EVENT(cpu_frequency_sugov,
+
+	TP_PROTO(unsigned int freq, unsigned long util, unsigned int cpu_id),
+
+	TP_ARGS(freq, util, cpu_id),
+
+	TP_STRUCT__entry(
+		__field(	u32,		freq	)
+		__field(	u32,		util	)
+		__field(	u32,		cpu_id	)
+	),
+
+	TP_fast_assign(
+		__entry->freq = freq;
+		__entry->util = util;
+		__entry->cpu_id = cpu_id;
+	),
+
+	TP_printk("freq=%lu util=%lu cpu_id=%lu",
+		  (unsigned long)__entry->freq,
+		  (unsigned long)__entry->util,
+		  (unsigned long)__entry->cpu_id)
 );
 
 TRACE_EVENT(device_pm_callback_start,
@@ -448,22 +523,9 @@ DECLARE_EVENT_CLASS(pm_qos_request,
 
 	TP_printk("pm_qos_class=%s value=%d",
 		  __print_symbolic(__entry->pm_qos_class,
-			{ PM_QOS_CPU_DMA_LATENCY,	"CPU_DMA_LATENCY"	},
-			{ PM_QOS_NETWORK_LATENCY,	"NETWORK_LATENCY"	},
-			{ PM_QOS_CLUSTER0_FREQ_MIN,	"CLUSTER0_MIN"		},
-			{ PM_QOS_CLUSTER0_FREQ_MAX,	"CLUSTER0_MAX"		},
-			{ PM_QOS_CLUSTER1_FREQ_MIN,	"CLUSTER1_MIN"		},
-			{ PM_QOS_CLUSTER1_FREQ_MAX,	"CLUSTER1_MAX"		},
-			{ PM_QOS_DEVICE_THROUGHPUT,	"DEVICE_THROUGHPUT"	},
-			{ PM_QOS_INTCAM_THROUGHPUT,	"INTCAM_THROUGHPUT"	},
-			{ PM_QOS_BUS_THROUGHPUT,	"BUS_THROUGHPUT"	},
-			{ PM_QOS_BUS_THROUGHPUT_MAX,	"BUS_THROUGHPUT_MAX"	},
-			{ PM_QOS_NETWORK_THROUGHPUT,	"NETWORK_THROUGHPUT"	},
-			{ PM_QOS_MEMORY_BANDWIDTH,	"MEMORY_BANDWIDTH"	},
-			{ PM_QOS_CPU_ONLINE_MIN,	"CPU_ONLINE_MIN"	},
-			{ PM_QOS_CPU_ONLINE_MAX,	"CPU_ONLINE_MAX"	},
-			{ PM_QOS_DISPLAY_THROUGHPUT,	"DISPLAY_THROUGHPUT"	},
-			{ PM_QOS_CAM_THROUGHPUT,	"CAM_THROUGHPUT"	}),
+			{ PM_QOS_CPU_DMA_LATENCY,	"CPU_DMA_LATENCY" },
+			{ PM_QOS_NETWORK_LATENCY,	"NETWORK_LATENCY" },
+			{ PM_QOS_NETWORK_THROUGHPUT,	"NETWORK_THROUGHPUT" }),
 		  __entry->value)
 );
 
@@ -508,22 +570,9 @@ TRACE_EVENT(pm_qos_update_request_timeout,
 
 	TP_printk("pm_qos_class=%s value=%d, timeout_us=%ld",
 		  __print_symbolic(__entry->pm_qos_class,
-			{ PM_QOS_CPU_DMA_LATENCY,	"CPU_DMA_LATENCY"	},
-			{ PM_QOS_NETWORK_LATENCY,	"NETWORK_LATENCY"	},
-			{ PM_QOS_CLUSTER0_FREQ_MIN,	"CLUSTER0_MIN"		},
-			{ PM_QOS_CLUSTER0_FREQ_MAX,	"CLUSTER0_MAX"		},
-			{ PM_QOS_CLUSTER1_FREQ_MIN,	"CLUSTER1_MIN"		},
-			{ PM_QOS_CLUSTER1_FREQ_MAX,	"CLUSTER1_MAX"		},
-			{ PM_QOS_DEVICE_THROUGHPUT,	"DEVICE_THROUGHPUT"	},
-			{ PM_QOS_INTCAM_THROUGHPUT,	"INTCAM_THROUGHPUT"	},
-			{ PM_QOS_BUS_THROUGHPUT,	"BUS_THROUGHPUT"	},
-			{ PM_QOS_BUS_THROUGHPUT_MAX,	"BUS_THROUGHPUT_MAX"	},
-			{ PM_QOS_NETWORK_THROUGHPUT,	"NETWORK_THROUGHPUT"	},
-			{ PM_QOS_MEMORY_BANDWIDTH,	"MEMORY_BANDWIDTH"	},
-			{ PM_QOS_CPU_ONLINE_MIN,	"CPU_ONLINE_MIN"	},
-			{ PM_QOS_CPU_ONLINE_MAX,	"CPU_ONLINE_MAX"	},
-			{ PM_QOS_DISPLAY_THROUGHPUT,	"DISPLAY_THROUGHPUT"	},
-			{ PM_QOS_CAM_THROUGHPUT,	"CAM_THROUGHPUT"	}),
+			{ PM_QOS_CPU_DMA_LATENCY,	"CPU_DMA_LATENCY" },
+			{ PM_QOS_NETWORK_LATENCY,	"NETWORK_LATENCY" },
+			{ PM_QOS_NETWORK_THROUGHPUT,	"NETWORK_THROUGHPUT" }),
 		  __entry->value, __entry->timeout_us)
 );
 
@@ -646,27 +695,7 @@ TRACE_EVENT(ocp_max_limit,
 		  (__entry->start)?"begin":"end")
 );
 
-TRACE_EVENT(hpgov_req_hotplug,
-
-	TP_PROTO(int fast_hp, int min),
-
-	TP_ARGS(fast_hp, min),
-
-	TP_STRUCT__entry(
-		__field(int, fast_hp)
-		__field(int, min)
-	),
-
-	TP_fast_assign(
-		__entry->fast_hp = fast_hp;
-		__entry->min = min;
-	),
-
-	TP_printk("fast_hp=%d min=%d",
-		__entry->fast_hp, __entry->min)
-);
-
-TRACE_EVENT(hpgov_cpu_load,
+TRACE_EVENT(emc_cpu_load,
 
 	TP_PROTO(int cpu, int load, int max_load),
 
@@ -688,102 +717,254 @@ TRACE_EVENT(hpgov_cpu_load,
 		__entry->cpu, __entry->load, __entry->max_load)
 );
 
-TRACE_EVENT(hpgov_cluster_load,
+TRACE_EVENT(emc_domain_load,
 
-	TP_PROTO(int load, int max_load),
+	TP_PROTO(const char *domain, int load, int max_load),
 
-	TP_ARGS(load, max_load),
+	TP_ARGS(domain, load, max_load),
 
 	TP_STRUCT__entry(
+		__string(domain, domain)
 		__field(int, load)
 		__field(int, max_load)
 	),
 
 	TP_fast_assign(
+		__assign_str(domain, domain);
 		__entry->load = load;
 		__entry->max_load = max_load;
 	),
 
-	TP_printk("load_sum=%d, max_load_sum=%d",
-		__entry->load, __entry->max_load)
+	TP_printk("domain:%s load_sum=%d, max_load_sum=%d",
+		__get_str(domain), __entry->load, __entry->max_load)
 );
 
-TRACE_EVENT(hpgov_cluster_busy,
+TRACE_EVENT(emc_domain_status,
 
-	TP_PROTO(int cluster, int thr, int load_sum, int max_load_sum, int busy),
+	TP_PROTO(const char *domain, unsigned int sys_heavy, unsigned int sys_busy,
+			unsigned int dom_heavy, unsigned int dom_busy),
 
-	TP_ARGS(cluster, thr, load_sum, max_load_sum, busy),
+	TP_ARGS(domain, sys_heavy, sys_busy, dom_heavy, dom_busy),
 
 	TP_STRUCT__entry(
-		__field(int, cluster)
-		__field(int, thr)
-		__field(int, load_sum)
-		__field(int, max_load_sum)
+		__string(domain, domain)
+		__field(unsigned int, sys_heavy)
+		__field(unsigned int, sys_busy)
+		__field(unsigned int, dom_heavy)
+		__field(unsigned int, dom_busy)
+	),
+
+	TP_fast_assign(
+		__assign_str(domain, domain);
+		__entry->sys_heavy = sys_heavy;
+		__entry->sys_busy = sys_busy;
+		__entry->dom_heavy = dom_heavy;
+		__entry->dom_busy = dom_busy;
+	),
+
+	TP_printk("domain:%s s_heavy =%x, s_busy=%x, d_heavy=%x, d_busy=%x",
+			__get_str(domain), __entry->sys_heavy, __entry->sys_busy,
+			__entry->dom_heavy, __entry->dom_busy)
+);
+
+TRACE_EVENT(emc_update_system_status,
+
+	TP_PROTO(unsigned int prev_heavy, unsigned int prev_busy,
+			unsigned int heavy, unsigned int busy),
+
+	TP_ARGS(prev_heavy, prev_busy, heavy, busy),
+
+	TP_STRUCT__entry(
+		__field(unsigned int, prev_heavy)
+		__field(unsigned int, prev_busy)
+		__field(unsigned int, heavy)
+		__field(unsigned int, busy)
+	),
+
+	TP_fast_assign(
+		__entry->prev_heavy = prev_heavy;
+		__entry->prev_busy = prev_busy;
+		__entry->heavy = heavy;
+		__entry->busy = busy;
+	),
+
+	TP_printk("prev_heavy=%x, prev_busy=%x, heavy=%x busy=%x",
+			__entry->prev_heavy, __entry->prev_busy,
+			__entry->heavy, __entry->busy)
+);
+
+TRACE_EVENT(emc_select_mode,
+
+	TP_PROTO(const char *mode, int need_online_cnt),
+
+	TP_ARGS(mode, need_online_cnt),
+
+	TP_STRUCT__entry(
+		__string(mode, mode)
+		__field(int, need_online_cnt)
+	),
+
+	TP_fast_assign(
+		__assign_str(mode, mode);
+		__entry->need_online_cnt = need_online_cnt;
+	),
+
+	TP_printk("mode:%s need_online_cnt=%d",
+		__get_str(mode), __entry->need_online_cnt)
+);
+
+TRACE_EVENT(emc_domain_busy,
+
+	TP_PROTO(const char *domain, unsigned long load, int busy),
+
+	TP_ARGS(domain, load, busy),
+
+	TP_STRUCT__entry(
+		__string(domain, domain)
+		__field(unsigned long, load)
 		__field(int, busy)
 	),
 
 	TP_fast_assign(
-		__entry->cluster = cluster;
-		__entry->thr = thr;
-		__entry->load_sum = load_sum;
-		__entry->max_load_sum = max_load_sum;
+		__assign_str(domain, domain);
+		__entry->load = load;
 		__entry->busy = busy;
 	),
 
-	TP_printk("cluster=%d, thr=%d, load_sum=%d, max_load_sum=%d busy=%d",
-			__entry->cluster, __entry->thr,
-			__entry->load_sum, __entry->max_load_sum,
-			__entry->busy)
+	TP_printk("domain=%s, load=%ld, busy=%d",
+			__get_str(domain), __entry->load, __entry->busy)
 );
 
-TRACE_EVENT(hpgov_load_imbalance,
+TRACE_EVENT(emc_start_timer,
 
-	TP_PROTO(int cluster, unsigned long idle_thr, int heavy_thr,
-			int idle_cnt, int active_cnt, int heavy_cnt),
+	TP_PROTO(const char *mode, unsigned int change_latency),
 
-	TP_ARGS(cluster, idle_thr, heavy_thr, idle_cnt, active_cnt, heavy_cnt),
+	TP_ARGS(mode, change_latency),
 
 	TP_STRUCT__entry(
-		__field(int, cluster)
-		__field(unsigned long, idle_thr)
-		__field(int, heavy_thr)
-		__field(int, idle_cnt)
-		__field(int, active_cnt)
-		__field(int, heavy_cnt)
+		__string(mode, mode)
+		__field(unsigned int, change_latency)
 	),
 
 	TP_fast_assign(
-		__entry->cluster = cluster;
-		__entry->idle_thr = idle_thr;
-		__entry->heavy_thr = heavy_thr;
-		__entry->idle_cnt = idle_cnt;
-		__entry->active_cnt = active_cnt;
-		__entry->heavy_cnt = heavy_cnt;
+		__assign_str(mode, mode);
+		__entry->change_latency = change_latency;
 	),
 
-	TP_printk("cl=%d, idle_thr=%ld, heavy_thr=%d, idle_cnt=%d, active_cnt= %d, heavy_cnt=%d",
-		__entry->cluster, __entry->idle_thr, __entry->heavy_thr,
-			__entry->idle_cnt, __entry->active_cnt, __entry->heavy_cnt)
+	TP_printk("mode=%s, change_latency=%d",
+			__get_str(mode), __entry->change_latency)
 );
 
-TRACE_EVENT(hpgov_update_mode,
+TRACE_EVENT(emc_do_mode_change,
 
-	TP_PROTO(int cur_mode, int target_mode),
+	TP_PROTO(const char *prev_mode, const char *new_mode, unsigned int event),
 
-	TP_ARGS(cur_mode, target_mode),
+	TP_ARGS(prev_mode, new_mode, event),
 
 	TP_STRUCT__entry(
-		__field(int, cur_mode)
-		__field(int, target_mode)
+		__string(prev_mode, prev_mode)
+		__string(new_mode, new_mode)
+		__field(unsigned int, event)
 	),
 
 	TP_fast_assign(
-		__entry->cur_mode = cur_mode;
-		__entry->target_mode = target_mode;
+		__assign_str(prev_mode, prev_mode);
+		__assign_str(new_mode, new_mode);
+		__entry->event = event;
 	),
 
-	TP_printk("update_mode %d -> %d",
-		__entry->cur_mode, __entry->target_mode)
+	TP_printk("mode: %s->%s (event 0x%x)", __get_str(prev_mode),
+					__get_str(new_mode), __entry->event)
+);
+
+TRACE_EVENT(emc_update_cpu_pwr,
+
+	TP_PROTO(unsigned int pre_cpu_mask, unsigned int cpu, unsigned int on),
+
+	TP_ARGS(pre_cpu_mask, cpu, on),
+
+	TP_STRUCT__entry(
+		__field(unsigned int, pre_cpu_mask)
+		__field(unsigned int, cpu)
+		__field(unsigned int, on)
+	),
+
+	TP_fast_assign(
+		__entry->pre_cpu_mask = pre_cpu_mask;
+		__entry->cpu = cpu;
+		__entry->on = on;
+	),
+
+	TP_printk("pre_cpu_mask=%x, cpu=%u, on=%s", __entry->pre_cpu_mask,
+					__entry->cpu, __entry->on? "ON" : "OFF")
+);
+
+TRACE_EVENT(cpus_up_enter,
+
+	TP_PROTO(int cpu),
+
+	TP_ARGS(cpu),
+
+	TP_STRUCT__entry(
+		__field(int, cpu)
+	),
+
+	TP_fast_assign(
+		__entry->cpu = cpu;
+	),
+
+	TP_printk("enter cpus_up cpu%d", __entry->cpu)
+);
+
+TRACE_EVENT(cpus_up_exit,
+
+	TP_PROTO(int cpu),
+
+	TP_ARGS(cpu),
+
+	TP_STRUCT__entry(
+		__field(int, cpu)
+	),
+
+	TP_fast_assign(
+		__entry->cpu = cpu;
+	),
+
+	TP_printk("exit cpus_up cpu%d", __entry->cpu)
+);
+
+TRACE_EVENT(cpus_down_enter,
+
+	TP_PROTO(int cpu),
+
+	TP_ARGS(cpu),
+
+	TP_STRUCT__entry(
+		__field(int, cpu)
+	),
+
+	TP_fast_assign(
+		__entry->cpu = cpu;
+	),
+
+	TP_printk("enter cpus_down cpu%d", __entry->cpu)
+);
+
+TRACE_EVENT(cpus_down_exit,
+
+	TP_PROTO(int cpu),
+
+	TP_ARGS(cpu),
+
+	TP_STRUCT__entry(
+		__field(int, cpu)
+	),
+
+	TP_fast_assign(
+		__entry->cpu = cpu;
+	),
+
+	TP_printk("exit cpus_down cpu%d", __entry->cpu)
 );
 
 #endif /* _TRACE_POWER_H */

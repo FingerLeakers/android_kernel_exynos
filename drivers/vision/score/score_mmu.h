@@ -111,7 +111,7 @@ struct score_mmu_buffer {
 	struct sg_table                 *sgt;
 	dma_addr_t                      dvaddr;
 	void                            *kvaddr;
-	off_t				offset;
+	unsigned int			offset;
 	bool				mirror;
 };
 
@@ -129,8 +129,8 @@ struct score_mmu_packet {
 	void				*kvaddr;
 };
 
-void *score_mmu_map_buffer(struct score_mmu_context *ctx,
-		struct score_host_buffer *buf);
+int score_mmu_map_buffer(struct score_mmu_context *ctx,
+		struct score_mmu_buffer *kbuf);
 void score_mmu_unmap_buffer(struct score_mmu_context *ctx,
 		struct score_mmu_buffer *kbuf);
 void *score_mmu_create_context(struct score_mmu *mmu);

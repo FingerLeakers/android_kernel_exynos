@@ -25,12 +25,14 @@
  * struct score_ioctl_boot - Command to initialize and boot device
  * @ret: [out] additional result value
  * @firmware_id: [in] id to select booting setting
+ * @pm_level [in] pm_qos level to be requested
  * @option: [in] additional control command
  * @reserved: reserved parameter
  */
 struct score_ioctl_boot {
 	int			ret;
 	unsigned int		firmware_id;
+	unsigned int		pm_level;
 	unsigned int		flag;
 	int			reserved[4];
 };

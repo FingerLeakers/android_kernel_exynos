@@ -78,9 +78,6 @@ void max77705_usbc_opcode_write(struct max77705_usbc_platform_data *usbc_data,
 
 static bool debug_en_vps;
 static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data, int irq);
-#if defined(CONFIG_CCIC_MAX77705)
-static int fw_update_dcd = 1;
-#endif
 
 struct max77705_muic_vps_data {
 	int				adc;
@@ -161,7 +158,11 @@ static const struct max77705_muic_vps_data muic_vps_table[] = {
 	},
 	{
 		.adc		= MAX77705_UIADC_255K,
+#if defined(CONFIG_SEC_FACTORY)
+		.vbvolt		= VB_DONTCARE,
+#else
 		.vbvolt		= VB_HIGH,
+#endif
 		.chgtyp		= CHGTYP_DONTCARE,
 		.muic_switch	= COM_USB,
 		.vps_name	= "JIG USB OFF",
@@ -226,7 +227,7 @@ static const struct max77705_muic_vps_data muic_vps_table[] = {
 #if defined(CONFIG_HICCUP_CHARGER)
 	{
 		.adc		= MAX77705_UIADC_OPEN,
-		.vbvolt		= VB_HIGH,
+		.vbvolt		= VB_DONTCARE,
 		.chgtyp		= CHGTYP_HICCUP_MODE,
 		.muic_switch	= COM_USB_CP,
 		.vps_name	= "Hiccup mode",
@@ -607,6 +608,11 @@ static ssize_t max77705_muic_show_uart_sel(struct device *dev,
 	case MUIC_PATH_UART_CP:
 		mode = "CP\n";
 		break;
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+	case MUIC_PATH_UART_CP2:
+		mode = "CP2\n";
+		break;
+#endif	/* CONFIG_MUIC_UART_SWITCH */
 	default:
 		break;
 	}
@@ -627,6 +633,12 @@ static ssize_t max77705_muic_set_uart_sel(struct device *dev,
 	if (!strncasecmp(buf, "AP", 2)) {
 		pdata->uart_path = MUIC_PATH_UART_AP;
 		switch_to_ap_uart(muic_data, muic_data->attached_dev);
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+	} else if (!strncasecmp(buf, "CP2", 3)) {
+		pdata->uart_path = MUIC_PATH_UART_CP2;
+		muic_data->pdata->set_gpio_uart_sel(pdata->uart_path);
+		switch_to_cp_uart(muic_data, muic_data->attached_dev);
+#endif	/* CONFIG_MUIC_UART_SWITCH */
 	} else if (!strncasecmp(buf, "CP", 2)) {
 		pdata->uart_path = MUIC_PATH_UART_CP;
 		switch_to_cp_uart(muic_data, muic_data->attached_dev);
@@ -989,19 +1001,12 @@ static ssize_t hiccup_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct max77705_muic_data *muic_data = dev_get_drvdata(dev);
-	union power_supply_propval psy_val;
 
 	if (!strncasecmp(buf, "DISABLE", 7)) {
 		pr_info("%s\n", __func__);
-#if defined(CONFIG_MUIC_MAX77705_CCIC)
-		if (muic_data->afc_water_disable)
-			com_to_open(muic_data);
-#endif /* CONFIG_MUIC_MAX77705_CCIC */
-		if (muic_data->is_hiccup_mode) {
-			com_to_open(muic_data);
-			psy_val.intval = 1;
-			psy_do_property("battery", set, POWER_SUPPLY_EXT_PROP_OVERHEAT_HICCUP, psy_val);
-		}
+		pdic_manual_ccopen_request(0);
+		com_to_open(muic_data);
+		muic_data->is_hiccup_mode = MUIC_HICCUP_MODE_OFF;
 	} else
 		pr_warn("%s invalid com : %s\n", __func__, buf);
 
@@ -1095,6 +1100,10 @@ static int max77705_muic_attach_uart_path(struct max77705_muic_data *muic_data,
 		ret = switch_to_ap_uart(muic_data, new_dev);
 	else if (pdata->uart_path == MUIC_PATH_UART_CP)
 		ret = switch_to_cp_uart(muic_data, new_dev);
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+	else if (pdata->uart_path == MUIC_PATH_UART_CP2)
+		ret = switch_to_cp_uart(muic_data, new_dev);
+#endif	/* CONFIG_MUIC_UART_SWITCH */
 	else
 		pr_warn("%s invalid uart_path\n", __func__);
 
@@ -1144,6 +1153,7 @@ static int max77705_muic_handle_detach(struct max77705_muic_data *muic_data, int
 	int ret = 0;
 #if defined(CONFIG_MUIC_NOTIFIER)
 	bool noti = true;
+	muic_attached_dev_t attached_dev = muic_data->attached_dev;
 #endif /* CONFIG_MUIC_NOTIFIER */
 
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)
@@ -1153,7 +1163,9 @@ static int max77705_muic_handle_detach(struct max77705_muic_data *muic_data, int
 		muic_data->is_check_hv = false;
 		max77705_muic_disable_afc_protocol(muic_data);
 	}
-
+#if defined(CONFIG_HICCUP_CHARGER)
+	muic_data->is_hiccup_mode = MUIC_HICCUP_MODE_OFF;
+#endif
 	muic_data->hv_voltage = 0;
 	muic_data->afc_retry = 0;
 	muic_data->is_afc_reset = false;
@@ -1213,8 +1225,8 @@ static int max77705_muic_handle_detach(struct max77705_muic_data *muic_data, int
 
 #if defined(CONFIG_MUIC_NOTIFIER)
 	if (noti) {
-		muic_notifier_detach_attached_dev(muic_data->attached_dev);
 		muic_data->attached_dev = ATTACHED_DEV_NONE_MUIC;
+		muic_notifier_detach_attached_dev(attached_dev);
 	}
 #endif /* CONFIG_MUIC_NOTIFIER */
 
@@ -1311,7 +1323,7 @@ static int max77705_muic_handle_attach(struct max77705_muic_data *muic_data,
 		muic_attached_dev_t new_dev, int irq)
 {
 #if defined(CONFIG_MUIC_NOTIFIER)
-	bool logically_notify = false;
+	bool notify_skip = false;
 #endif /* CONFIG_MUIC_NOTIFIER */
 #if defined(CONFIG_CCIC_MAX77705)
 	int fw_update_state = muic_data->usbc_pdata->max77705->fw_update_state;
@@ -1327,7 +1339,7 @@ static int max77705_muic_handle_attach(struct max77705_muic_data *muic_data,
  				MUIC_DEV_NAME, __func__, muic_data->attached_dev);
  			goto handle_attach;
  		}
- 
+
 		if (new_dev == ATTACHED_DEV_HICCUP_MUIC)
 			goto handle_attach;
 
@@ -1366,10 +1378,9 @@ handle_attach:
 		ret = max77705_muic_attach_usb_path(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:
+		pr_info("%s DCD_TIMEOUT system_state = 0x%x\n", __func__, system_state);
 #if defined(CONFIG_CCIC_MAX77705)
-		if (fw_update_state == FW_UPDATE_END && fw_update_dcd) {
-			fw_update_dcd = 0;
-			pr_info("%s:%s DCD_TIMEOUT is recognized after F/W update\n", MUIC_DEV_NAME, __func__);
+		if (fw_update_state == FW_UPDATE_END && system_state < SYSTEM_RUNNING) {
 			/* TA Reset, D+ gnd */
 			max77705_muic_dp_reset(muic_data);
 
@@ -1382,6 +1393,8 @@ handle_attach:
 #if defined(CONFIG_HICCUP_CHARGER)
 	case ATTACHED_DEV_HICCUP_MUIC:
 		ret = com_to_usb_cp(muic_data);
+		if (!(muic_data->status3 & BC_STATUS_VBUSDET_MASK))
+			notify_skip = true;
 		break;
 #endif /* CONFIG_HICCUP_CHARGER */
 	default:
@@ -1392,7 +1405,7 @@ handle_attach:
 	}
 
 #if defined(CONFIG_MUIC_NOTIFIER)
-	if (logically_notify) {
+	if (notify_skip) {
 		pr_info("%s: noti\n", __func__);
 	} else {
 		muic_notifier_attach_attached_dev(new_dev);
@@ -1539,7 +1552,7 @@ static u8 max77705_resolve_chgtyp(struct max77705_muic_data *muic_data, u8 chgty
 
 #if defined(CONFIG_HICCUP_CHARGER)
 	/* Check hiccup mode */
-	if (muic_data->is_hiccup_mode > 0) {
+	if (muic_data->is_hiccup_mode > MUIC_HICCUP_MODE_OFF) {
 		pr_info("%s is_hiccup_mode(%d)\n", __func__, muic_data->is_hiccup_mode);
 		return CHGTYP_HICCUP_MODE;
 	}
@@ -1618,9 +1631,14 @@ muic_attached_dev_t max77705_muic_check_new_dev(struct max77705_muic_data *muic_
 		if (!(muic_check_vps_chgtyp(tmp_vps, chgtyp)))
 			continue;
 
-#if 0 /* TODO: should be modified */
-		if (!(muic_check_support_dev(muic_data, tmp_vps->attached_dev)))
-			continue;
+#if defined(CONFIG_SEC_FACTORY)
+		if (muic_data->pdata->opmode & OPMODE_CCIC) {
+			if (tmp_vps->attached_dev == ATTACHED_DEV_JIG_USB_OFF_MUIC &&
+				!vbvolt) {
+				pr_info("%s 255k w/o vbus\n", __func__);
+				continue;
+			}
+		}
 #endif
 
 		pr_info("%s vps table match found at i(%lu), %s\n",
@@ -1643,11 +1661,17 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 	int irq)
 {
 	struct i2c_client *i2c = muic_data->i2c;
+#if defined(CONFIG_USB_HW_PARAM)
+	struct otg_notify *o_notify = get_otg_notify();
+#endif
 	muic_attached_dev_t new_dev = ATTACHED_DEV_NONE_MUIC;
 	int intr = MUIC_INTR_DETACH;
 	u8 status[5];
-	u8 adc, vbvolt, chgtyp, spchgtyp, sysmsg, vbadc, dcdtmo, ccstat;
+	u8 adc, vbvolt, chgtyp, spchgtyp, sysmsg, vbadc, dcdtmo, ccstat, fakvb;
 	int ret;
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+	int event;
+#endif
 
 	ret = max77705_bulk_read(i2c,
 		MAX77705_USBC_REG_USBC_STATUS1, 5, status);
@@ -1673,19 +1697,17 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 	vbadc = (status[0] & USBC_STATUS1_VBADC_MASK) >> USBC_STATUS1_VBADC_SHIFT;
 	dcdtmo = (status[2] & BC_STATUS_DCDTMO_MASK) >> BC_STATUS_DCDTMO_SHIFT;
 	ccstat = (status[4] & BIT_CCStat) >> FFS(BIT_CCStat);
+	fakvb = (status[0] & USBC_STATUS1_FAKVB_MASK) >> USBC_STATUS1_FAKVB_SHIFT;
 
-	pr_info("%s adc:0x%x vbvolt:0x%x chgtyp:0x%x spchgtyp:0x%x sysmsg:0x%x vbadc:0x%x dcdtmo:0x%x\n",
-		__func__, adc, vbvolt, chgtyp, spchgtyp, sysmsg, vbadc, dcdtmo);
-
-	/* Set the fake_vbus charger type */
-	muic_data->fake_chgtyp = chgtyp;
+	pr_info("%s adc:0x%x vbvolt:0x%x chgtyp:0x%x spchgtyp:0x%x sysmsg:0x%x vbadc:0x%x dcdtmo:0x%x fakvb:0x%x\n",
+		__func__, adc, vbvolt, chgtyp, spchgtyp, sysmsg, vbadc, dcdtmo, fakvb);
 
 	if (irq == muic_data->irq_vbadc) {
 		if (vbadc == MAX77705_VBADC_3_8V_TO_4_5V &&
 				ccstat == cc_No_Connection) {
 			/* W/A of CC is detached but Vbus is valid(3.8~4.5V) */
 			vbvolt = 0;
-			muic_data->status3 = muic_data->status3 & (!BC_STATUS_VBUSDET_MASK);
+			muic_data->status3 = muic_data->status3 & ~(BC_STATUS_VBUSDET_MASK);
 			pr_info("%s vbadc(0x%x), ccstat(0x%x), set vbvolt to 0 => BC(0x%x)\n",
 					__func__, vbadc, ccstat, muic_data->status3);
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)
@@ -1722,9 +1744,23 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 		}
 	}
 
+	if (irq == muic_data->irq_fakvb) {
+		pr_info("%s fake vbus status : %s\n", __func__, fakvb? "enable":"disable");
+		if (fakvb) {
+#ifdef CONFIG_USB_NOTIFY_PROC_LOG
+			event = NOTIFY_EXTRA_USBKILLER;
+			store_usblog_notify(NOTIFY_EXTRA, (void *)&event, NULL);
+#endif
+#if defined(CONFIG_USB_HW_PARAM)
+			if (o_notify)
+				inc_hw_param(o_notify, USB_CCIC_USB_KILLER_COUNT);
+#endif
+		}
+	}
+
 #if !defined(CONFIG_SEC_FACTORY)
 	/* W/A of defect cable(Vbus is valid and CC is invalid), set or cancel vbus_wa_work */
-	if (irq == muic_data->irq_vbusdet) {
+	if (irq == muic_data->irq_vbusdet || irq == MUIC_IRQ_INIT_DETECT) {
 		wake_unlock(&muic_data->muic_wake_lock);
 		cancel_delayed_work(&(muic_data->vbus_wa_work));
 		if (vbvolt > 0) {
@@ -1747,7 +1783,7 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 		}
 
 #if defined(CONFIG_HICCUP_CHARGER)
-		if (muic_data->afc_water_disable) {
+		if (muic_data->afc_water_disable && !muic_data->is_hiccup_mode) {
 			if (vbvolt > 0) {
 				pr_info("%s water hiccup mode, Aux USB path\n", __func__);
 				com_to_usb_cp(muic_data);
@@ -1798,6 +1834,11 @@ static irqreturn_t max77705_muic_irq(int irq, void *data)
 
 	pr_info("%s irq:%d (%s)\n", __func__, irq, desc->action->name);
 
+	if (!muic_data) {
+		pr_err("%s irq data is null\n", desc->action->name);
+		goto out;
+	}
+
 	mutex_lock(&muic_data->muic_mutex);
 	if (muic_data->is_muic_ready == true)
 		max77705_muic_detect_dev(muic_data, irq);
@@ -1805,6 +1846,7 @@ static irqreturn_t max77705_muic_irq(int irq, void *data)
 		pr_info("%s MUIC is not ready, just return\n", __func__);
 	mutex_unlock(&muic_data->muic_mutex);
 
+out:
 	return IRQ_HANDLED;
 }
 
@@ -1840,6 +1882,17 @@ static void max77705_muic_afc_work(struct work_struct *work)
 		muic_data->hv_voltage = 9;
 		max77705_muic_afc_hv_set(muic_data, 9);
 	}
+}
+
+static int max77705_muic_hv_charger_disable(bool en)
+{
+	struct max77705_muic_data *muic_data = g_muic_data;
+
+	muic_data->is_charger_mode = en;
+
+	schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(0));
+
+	return 0;
 }
 
 static int max77705_muic_afc_set_voltage(int voltage)
@@ -1965,8 +2018,9 @@ static int max77705_muic_set_hiccup_mode(int on_off)
 	pr_info("%s (%d)\n", __func__, on_off);
 
 	switch (on_off) {
-	case 0:
-	case 1:
+	case MUIC_HICCUP_MODE_OFF:
+	case MUIC_HICCUP_MODE_ON:
+	case MUIC_HICCUP_MODE_NOTY:
 		if (muic_data->is_hiccup_mode != on_off) {
 			muic_data->is_hiccup_mode = on_off;
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)
@@ -2063,6 +2117,9 @@ static int max77705_muic_irq_init(struct max77705_muic_data *muic_data)
 		muic_data->irq_chgtyp = irq_base + MAX77705_USBC_IRQ_CHGT_INT;
 		REQUEST_IRQ(muic_data->irq_chgtyp, muic_data, "muic-chgtyp");
 
+		muic_data->irq_fakvb = irq_base + MAX77705_USBC_IRQ_FAKVB_INT;
+		REQUEST_IRQ(muic_data->irq_fakvb, muic_data, "muic-fakvb");
+
 		muic_data->irq_dcdtmo = irq_base + MAX77705_USBC_IRQ_DCD_INT;
 		REQUEST_IRQ(muic_data->irq_dcdtmo, muic_data, "muic-dcdtmo");
 
@@ -2073,9 +2130,10 @@ static int max77705_muic_irq_init(struct max77705_muic_data *muic_data)
 		REQUEST_IRQ(muic_data->irq_vbusdet, muic_data, "muic-vbusdet");
 	}
 
-	pr_info("%s uiadc(%d), chgtyp(%d), dcdtmo(%d), vbadc(%d), vbusdet(%d)\n",
-			__func__, muic_data->irq_uiadc,
-			muic_data->irq_chgtyp, muic_data->irq_dcdtmo,
+	pr_info("%s uiadc(%d), chgtyp(%d), fakvb(%d), dcdtmo(%d), vbadc(%d), vbusdet(%d)\n",
+			__func__,
+			muic_data->irq_uiadc, muic_data->irq_chgtyp,
+			muic_data->irq_fakvb, muic_data->irq_dcdtmo,
 			muic_data->irq_vbadc, muic_data->irq_vbusdet);
 	return ret;
 }
@@ -2093,9 +2151,17 @@ static void max77705_muic_free_irqs(struct max77705_muic_data *muic_data)
 {
 	pr_info("%s\n", __func__);
 
+	disable_irq(muic_data->irq_uiadc);
+	disable_irq(muic_data->irq_chgtyp);
+	disable_irq(muic_data->irq_fakvb);
+	disable_irq(muic_data->irq_dcdtmo);
+	disable_irq(muic_data->irq_vbadc);
+	disable_irq(muic_data->irq_vbusdet);
+
 	/* free MUIC IRQ */
 	FREE_IRQ(muic_data->irq_uiadc, muic_data, "muic-uiadc");
 	FREE_IRQ(muic_data->irq_chgtyp, muic_data, "muic-chgtyp");
+	FREE_IRQ(muic_data->irq_fakvb, muic_data, "muic-fakvb");
 	FREE_IRQ(muic_data->irq_dcdtmo, muic_data, "muic-dcdtmo");
 	FREE_IRQ(muic_data->irq_vbadc, muic_data, "muic-vbadc");
 	FREE_IRQ(muic_data->irq_vbusdet, muic_data, "muic-vbusdet");
@@ -2113,6 +2179,34 @@ static void max77705_muic_init_detect(struct max77705_muic_data *muic_data)
 
 	mutex_unlock(&muic_data->muic_mutex);
 }
+
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+int max77705_muic_set_gpio_uart_sel(int uart_sel)
+{
+	int gpio = g_muic_data->pdata->gpio_uart_sel;
+	int ret;
+
+	pr_info("%s %d\n", __func__, uart_sel);
+
+	ret = gpio_request(gpio, "GPIO_UART_CTRL");
+	if (ret) {
+		pr_err("failed to gpio_request GPIO_UART_CTRL\n");
+		return ret;
+	}
+
+	if (!gpio_is_valid(gpio))
+		return -ENXIO;
+
+	if (uart_sel == MUIC_PATH_UART_CP2)
+		gpio_direction_output(gpio, 1);
+	else
+		gpio_direction_output(gpio, 0);
+
+	gpio_free(gpio);
+
+	return 0;
+}
+#endif	/* CONFIG_MUIC_UART_SWITCH */
 
 #if defined(CONFIG_OF)
 static int of_max77705_muic_dt(struct max77705_muic_data *muic_data)
@@ -2154,6 +2248,13 @@ static int of_max77705_muic_dt(struct max77705_muic_data *muic_data)
 			}
 		}
 	}
+
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+	muic_data->pdata->gpio_uart_sel =
+		of_get_named_gpio(np_muic, "uart_ctrl", 0);
+	pr_info("%s uart_ctrl[%d]\n", __func__,
+		muic_data->pdata->gpio_uart_sel);
+#endif
 
 	/* for debug */
 	for (i = 0; i < ATTACHED_DEV_NUM; i++)
@@ -2288,6 +2389,7 @@ int max77705_muic_probe(struct max77705_usbc_platform_data *usbc_data)
 		goto err_return;
 	}
 
+	muic_data->pdata = &muic_pdata;
 #if defined(CONFIG_OF)
 	ret = of_max77705_muic_dt(muic_data);
 	if (ret < 0)
@@ -2299,22 +2401,24 @@ int max77705_muic_probe(struct max77705_usbc_platform_data *usbc_data)
 	muic_data->i2c = usbc_data->muic;
 	muic_data->mfd_pdata = mfd_pdata;
 	muic_data->usbc_pdata = usbc_data;
-	muic_data->pdata = &muic_pdata;
 	muic_data->attached_dev = ATTACHED_DEV_NONE_MUIC;
 	muic_data->is_muic_ready = false;
 	muic_data->is_otg_test = false;
 	muic_data->is_factory_start = false;
 	muic_data->switch_val = COM_OPEN;
+	muic_data->is_charger_mode = false;
 
 	usbc_data->muic_data = muic_data;
 	g_muic_data = muic_data;
 
+#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
+	muic_data->pdata->set_gpio_uart_sel = max77705_muic_set_gpio_uart_sel;
+#endif
+
 	if (muic_data->pdata->init_gpio_cb) {
 		ret = muic_data->pdata->init_gpio_cb(get_switch_sel());
-		if (ret) {
+		if (ret)
 			pr_err("%s: failed to init gpio(%d)\n", __func__, ret);
-			goto fail;
-		}
 	}
 
 	mutex_lock(&muic_data->muic_mutex);
@@ -2369,6 +2473,7 @@ int max77705_muic_probe(struct max77705_usbc_platform_data *usbc_data)
 
 	/* set MUIC afc voltage switching function */
 	muic_data->pdata->muic_afc_set_voltage_cb = max77705_muic_afc_set_voltage;
+	muic_data->pdata->muic_hv_charger_disable_cb = max77705_muic_hv_charger_disable;
 
 	/* set MUIC check charger init function */
 	muic_data->pdata->muic_hv_charger_init_cb = max77705_muic_hv_charger_init;
@@ -2404,7 +2509,6 @@ fail_init_irq:
 	sysfs_remove_group(&switch_device->kobj, &max77705_muic_group);
 fail_sysfs_create:
 	mutex_unlock(&muic_data->muic_mutex);
-fail:
 	mutex_destroy(&muic_data->muic_mutex);
 err_return:
 	return ret;

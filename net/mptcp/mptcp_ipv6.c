@@ -47,43 +47,43 @@
 __u32 mptcp_v6_get_nonce(const __be32 *saddr, const __be32 *daddr,
 			 __be16 sport, __be16 dport)
 {
-	u32 secret[MD5_MESSAGE_BYTES / 4];
-	u32 hash[MD5_DIGEST_WORDS];
-	u32 i;
+	const struct {
+		struct in6_addr saddr;
+		struct in6_addr daddr;
+		u32 seed;
+		__be16 sport;
+		__be16 dport;
+	} __aligned(SIPHASH_ALIGNMENT) combined = {
+		.saddr = *(struct in6_addr *)saddr,
+		.daddr = *(struct in6_addr *)daddr,
+		.seed = mptcp_seed++,
+		.sport = sport,
+		.dport = dport
+	};
 
-	memcpy(hash, saddr, 16);
-	for (i = 0; i < 4; i++)
-		secret[i] = mptcp_secret[i] + (__force u32)daddr[i];
-	secret[4] = mptcp_secret[4] +
-		    (((__force u16)sport << 16) + (__force u16)dport);
-	secret[5] = mptcp_seed++;
-	for (i = 6; i < MD5_MESSAGE_BYTES / 4; i++)
-		secret[i] = mptcp_secret[i];
-
-	md5_transform(hash, secret);
-
-	return hash[0];
+	return siphash(&combined, offsetofend(typeof(combined), dport),
+		       &mptcp_secret);
 }
 
 u64 mptcp_v6_get_key(const __be32 *saddr, const __be32 *daddr,
 		     __be16 sport, __be16 dport, u32 seed)
 {
-	u32 secret[MD5_MESSAGE_BYTES / 4];
-	u32 hash[MD5_DIGEST_WORDS];
-	u32 i;
+	const struct {
+		struct in6_addr saddr;
+		struct in6_addr daddr;
+		u32 seed;
+		__be16 sport;
+		__be16 dport;
+	} __aligned(SIPHASH_ALIGNMENT) combined = {
+		.saddr = *(struct in6_addr *)saddr,
+		.daddr = *(struct in6_addr *)daddr,
+		.seed = seed,
+		.sport = sport,
+		.dport = dport
+	};
 
-	memcpy(hash, saddr, 16);
-	for (i = 0; i < 4; i++)
-		secret[i] = mptcp_secret[i] + (__force u32)daddr[i];
-	secret[4] = mptcp_secret[4] +
-		    (((__force u16)sport << 16) + (__force u16)dport);
-	secret[5] = seed;
-	for (i = 6; i < MD5_MESSAGE_BYTES / 4; i++)
-		secret[i] = mptcp_secret[i];
-
-	md5_transform(hash, secret);
-
-	return *((u64 *)hash);
+	return siphash(&combined, offsetofend(typeof(combined), dport),
+		       &mptcp_secret);
 }
 
 static void mptcp_v6_reqsk_destructor(struct request_sock *req)
@@ -188,7 +188,7 @@ int mptcp_v6_do_rcv(struct sock *meta_sk, struct sk_buff *skb)
 					&tcp_hashinfo,
 					&ip6h->saddr, th->source,
 					&ip6h->daddr, ntohs(th->dest),
-					tcp_v6_iif(skb));
+					tcp_v6_iif(skb), tcp_v6_sdif(skb));
 
 	if (!sk)
 		goto new_subflow;
@@ -294,7 +294,8 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 
 	ret = inet6_create(sock_net(meta_sk), sock, IPPROTO_TCP, 1);
 	if (unlikely(ret < 0)) {
-		mptcp_debug("%s inet6_create failed ret: %d\n", __func__, ret);
+		net_err_ratelimited("%s inet6_create failed ret: %d\n",
+				    __func__, ret);
 		return ret;
 	}
 
@@ -305,8 +306,11 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	lockdep_set_class_and_name(&(sk)->sk_lock.slock, &meta_slock_key, meta_slock_key_name);
 	lockdep_init_map(&(sk)->sk_lock.dep_map, meta_key_name, &meta_key, 0);
 
-	if (mptcp_add_sock(meta_sk, sk, loc->loc6_id, rem->rem6_id, GFP_KERNEL))
+	if (mptcp_add_sock(meta_sk, sk, loc->loc6_id, rem->rem6_id, GFP_KERNEL)) {
+		net_err_ratelimited("%s mptcp_add_sock failed ret: %d\n",
+				    __func__, ret);
 		goto error;
+	}
 
 	tp->mptcp->slave_sk = 1;
 	tp->mptcp->low_prio = loc->low_prio;
@@ -331,8 +335,9 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	ret = kernel_bind(sock, (struct sockaddr *)&loc_in,
 			  sizeof(struct sockaddr_in6));
 	if (ret < 0) {
-		mptcp_debug("%s: MPTCP subsocket bind()failed, error %d\n",
-			    __func__, ret);
+		net_err_ratelimited("%s: token %#x bind() to %pI6 index %d failed, error %d\n",
+				    __func__, tcp_sk(meta_sk)->mpcb->mptcp_loc_token,
+				    &loc_in.sin6_addr, loc->if_idx, ret);
 		goto error;
 	}
 
@@ -348,8 +353,8 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	ret = kernel_connect(sock, (struct sockaddr *)&rem_in,
 			     sizeof(struct sockaddr_in6), O_NONBLOCK);
 	if (ret < 0 && ret != -EINPROGRESS) {
-		mptcp_debug("%s: MPTCP subsocket connect() failed, error %d\n",
-			    __func__, ret);
+		net_err_ratelimited("%s: MPTCP subsocket connect() failed, error %d\n",
+				    __func__, ret);
 		goto error;
 	}
 
@@ -386,7 +391,6 @@ const struct inet_connection_sock_af_ops mptcp_v6_specific = {
 	.getsockopt	   = ipv6_getsockopt,
 	.addr2sockaddr	   = inet6_csk_addr2sockaddr,
 	.sockaddr_len	   = sizeof(struct sockaddr_in6),
-	.bind_conflict	   = inet6_csk_bind_conflict,
 #ifdef CONFIG_COMPAT
 	.compat_setsockopt = compat_ipv6_setsockopt,
 	.compat_getsockopt = compat_ipv6_getsockopt,
@@ -406,7 +410,6 @@ const struct inet_connection_sock_af_ops mptcp_v6_mapped = {
 	.getsockopt	   = ipv6_getsockopt,
 	.addr2sockaddr	   = inet6_csk_addr2sockaddr,
 	.sockaddr_len	   = sizeof(struct sockaddr_in6),
-	.bind_conflict	   = inet6_csk_bind_conflict,
 #ifdef CONFIG_COMPAT
 	.compat_setsockopt = compat_ipv6_setsockopt,
 	.compat_getsockopt = compat_ipv6_getsockopt,
@@ -438,7 +441,7 @@ int mptcp_pm_v6_init(void)
 	}
 
 	ops->slab = kmem_cache_create(ops->slab_name, ops->obj_size, 0,
-				      SLAB_DESTROY_BY_RCU|SLAB_HWCACHE_ALIGN,
+				      SLAB_TYPESAFE_BY_RCU|SLAB_HWCACHE_ALIGN,
 				      NULL);
 
 	if (ops->slab == NULL) {

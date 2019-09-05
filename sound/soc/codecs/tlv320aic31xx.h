@@ -32,6 +32,7 @@ enum aic31xx_type {
 	AIC3120 = AIC31XX_MINIDSP_BIT,
 	AIC3111 = (AIC31XX_STEREO_CLASS_D_BIT | AIC31XX_MINIDSP_BIT),
 	DAC3100 = DAC31XX_BIT,
+	DAC3101 = DAC31XX_BIT | AIC31XX_STEREO_CLASS_D_BIT,
 };
 
 struct aic31xx_pdata {
@@ -115,7 +116,7 @@ struct aic31xx_pdata {
 /* INT2 interrupt control */
 #define AIC31XX_INT2CTRL	AIC31XX_REG(0, 49)
 /* GPIO1 control */
-#define AIC31XX_GPIO1		AIC31XX_REG(0, 50)
+#define AIC31XX_GPIO1		AIC31XX_REG(0, 51)
 
 #define AIC31XX_DACPRB		AIC31XX_REG(0, 60)
 /* ADC Instruction Set Register */

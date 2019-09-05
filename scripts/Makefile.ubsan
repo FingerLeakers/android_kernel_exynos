@@ -1,6 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0
 ifdef CONFIG_UBSAN
-      CC = $(srctree)/../../prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.2.1/bin/aarch64-linux-gnu-gcc
-
+      KBUILD_CFLAGS := $(filter-out -Werror=strict-prototypes,$(KBUILD_CFLAGS))
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=shift)
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=integer-divide-by-zero)
       CFLAGS_UBSAN += $(call cc-option, -fsanitize=unreachable)

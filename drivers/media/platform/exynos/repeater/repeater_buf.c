@@ -46,7 +46,7 @@ int get_capturing_buf_idx(struct shared_buffer *bufs, int *buf_idx)
 			bufs->buf_status[i] = SHARED_BUF_CAPTURING;
 			*buf_idx = i;
 			ret = 0;
-            break;
+			break;
 		}
 	}
 

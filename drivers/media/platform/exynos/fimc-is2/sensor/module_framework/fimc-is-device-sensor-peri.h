@@ -22,15 +22,14 @@
 #include "fimc-is-mem.h"
 #include "fimc-is-param.h"
 #include "fimc-is-interface-sensor.h"
-#ifdef CONFIG_COMPANION_DIRECT_USE
-#include "fimc-is-interface-preprocessor.h"
-#endif
 #include "fimc-is-control-sensor.h"
 
 #define HRTIMER_IMPOSSIBLE		0
 #define HRTIMER_POSSIBLE		1
 #define VIRTUAL_COORDINATE_WIDTH		32768
 #define VIRTUAL_COORDINATE_HEIGHT		32768
+#define FIMC_IS_CIS_REV_MAX_LIST		3
+#define VENDOR_SOFT_LANDING_STEP_MAX	2
 
 struct fimc_is_cis {
 	u32				id;
@@ -66,12 +65,19 @@ struct fimc_is_cis {
 
 	/* expected udm */
 	camera2_lens_udm_t		expecting_lens_udm[EXPECT_DM_NUM];
+	camera2_sensor_udm_t		expecting_sensor_udm[EXPECT_DM_NUM];
 
 	/* For sensor status dump */
 	struct work_struct		cis_status_dump_work;
 
 	/* one more check_rev in mode_change */
 	bool				rev_flag;
+
+	/* For sensor revision checking */
+	u32 				rev_addr;
+	u32 				rev_byte;
+	u32 				rev_valid_count;
+	u32 				rev_valid_values[FIMC_IS_CIS_REV_MAX_LIST];
 
 	/* get a min, max fps to HAL */
 	u32				min_fps;
@@ -99,6 +105,11 @@ struct fimc_is_cis {
 	struct work_struct				factory_dramtest_work;
 	u32				factory_dramtest_section2_fcount;
 #endif
+
+	/* settings for initial AE */
+	bool				use_initial_ae;
+	ae_setting			init_ae_setting;
+	ae_setting			last_ae_setting;
 };
 
 struct fimc_is_actuator_data {
@@ -153,7 +164,10 @@ struct fimc_is_actuator {
 	u32				vendor_product_id;
 	u32				vendor_first_pos;
 	u32				vendor_first_delay;
+	u32				vendor_soft_landing_list[VENDOR_SOFT_LANDING_STEP_MAX * 2];
+	u32				vendor_soft_landing_list_len;
 	bool				vendor_use_sleep_mode;
+	bool				vendor_use_standby_mode;
 };
 
 struct fimc_is_aperture {
@@ -220,10 +234,37 @@ struct fimc_is_ois {
 	u8				pre_coef;
 	bool				fadeupdown;
 	bool				initial_centering_mode;
-#ifdef CAMERA_REAR2_OIS
+#ifdef CAMERA_2ND_OIS
 	int				ois_power_mode;
 #endif
 	struct work_struct		ois_set_init_work;
+	int				af_pos_wide;
+	int				af_pos_tele;
+};
+
+struct fimc_is_mcu {
+	struct v4l2_subdev			*subdev; /* connected module subdevice */
+	struct i2c_client 			*client;
+	u32						id;
+	u32						device; /* connected sensor device */
+	u32						ver;
+	u32						name;
+	int						gpio_mcu_reset;
+	int						gpio_mcu_boot0;
+	u8						vdrinfo_bin[4];
+	u8						hw_bin[4];
+	u8						vdrinfo_mcu[4];
+	u8						hw_mcu[4];
+	char						load_fw_name[50];
+	struct fimc_is_ois			*ois;
+	struct v4l2_subdev			*subdev_ois;
+	struct fimc_is_device_ois	*ois_device;
+	struct fimc_is_aperture		*aperture;
+	struct v4l2_subdev		*subdev_aperture;
+	struct fimc_is_aperture_ops		*aperture_ops;
+	struct fimc_is_device_sensor_peri	*sensor_peri;
+	struct mutex				*i2c_lock;
+	void						*private_data;
 };
 
 struct fimc_is_preprocessor {
@@ -244,17 +285,109 @@ struct fimc_is_preprocessor {
 	struct mutex			*i2c_lock;
 };
 
+struct paf_action {
+	enum itf_vc_stat_type	type;
+	paf_notifier_t		notifier;
+	void			*data;
+	unsigned int		flags;
+	const char		*name;
+	struct list_head	list;
+};
+
+struct fimc_is_pdp_ops {
+	/* common paf interface */
+	int (*set_param)(struct v4l2_subdev *subdev,
+			struct paf_setting_t *regs, u32 regs_size);
+	int (*get_ready)(struct v4l2_subdev *subdev, u32 *ready);
+	int (*register_notifier)(struct v4l2_subdev *subdev,
+			enum itf_vc_stat_type type,
+			paf_notifier_t notifier, void *data);
+	int (*unregister_notifier)(struct v4l2_subdev *subdev,
+			enum itf_vc_stat_type type,
+			paf_notifier_t notifier);
+	void (*notify)(struct v4l2_subdev *subdev,
+			unsigned int type,
+			void *data);
+};
+
 struct fimc_is_pdp {
 	u32				id;
-	u32 __iomem			*base_reg;
+	void __iomem			*base;
 	resource_size_t			regs_start;
 	resource_size_t			regs_end;
 	int				irq;
 	size_t				width;
 	size_t				height;
 	struct mutex			control_lock;
+
 	struct fimc_is_pdp_ops		*pdp_ops;
 	struct v4l2_subdev		*subdev; /* connected module subdevice */
+
+	spinlock_t			slock_paf_action;
+	struct list_head		list_of_paf_action;
+
+	struct tasklet_struct		tasklet_stat0;
+	atomic_t			frameptr_stat0;
+	struct workqueue_struct		*wq_stat0;
+	struct work_struct		work_stat0;
+};
+
+struct fimc_is_pafstat_ops {
+	/* common paf interface ops */
+	int (*set_param)(struct v4l2_subdev *subdev,
+			struct paf_setting_t *regs, u32 regs_size);
+	int (*get_ready)(struct v4l2_subdev *subdev, u32 *ready);
+	int (*register_notifier)(struct v4l2_subdev *subdev,
+			enum itf_vc_stat_type type,
+			paf_notifier_t notifier, void *data);
+	int (*unregister_notifier)(struct v4l2_subdev *subdev,
+			enum itf_vc_stat_type type,
+			paf_notifier_t notifier);
+
+	/* device specific ops */
+	int (*set_num_buffers)(struct v4l2_subdev *subdev,
+			u32 num_buffers, u32 mipi_speed);
+};
+
+struct fimc_is_pafstat {
+	u32				id;	/* 0: context0, 1: context1 */
+	void __iomem			*regs_com;
+	void __iomem			*regs;
+	resource_size_t			regs_start;
+	resource_size_t			regs_end;
+	u8				*sfr_dump;
+	void __iomem			*regs_b;
+	resource_size_t			regs_b_start;
+	resource_size_t			regs_b_end;
+	u8				*sfr_b_dump;
+
+	atomic_t			sfr_state;
+	atomic_t			fs;
+	atomic_t			cl;
+	atomic_t			fe;
+	atomic_t			fe_img;
+	atomic_t			fe_stat;
+	int				irq;
+	atomic_t			Vvalid;
+	wait_queue_head_t		wait_queue;
+
+	/* 0: MSPD normal
+	   1: 2PD mode 1
+	   2: 2PD mode 2
+	   3: 2PD mode 3
+	   4: MSPD tail */
+	u32				sensor_mode;
+	size_t				in_width;
+	size_t				in_height;
+	size_t				pd_width;
+	size_t				pd_height;
+	u32				fro_cnt;
+
+	u32				regs_max;
+	struct paf_setting_t		*regs_set;
+	struct fimc_is_pafstat_ops	*pafstat_ops;
+	struct v4l2_subdev		*subdev; /* connected module subdevice */
+	char				name[FIMC_IS_STR_LEN];
 };
 
 struct fimc_is_device_sensor_peri {
@@ -278,8 +411,14 @@ struct fimc_is_device_sensor_peri {
 	struct fimc_is_pdp		*pdp;
 	struct v4l2_subdev		*subdev_pdp;
 
+	struct fimc_is_pafstat		*pafstat;
+	struct v4l2_subdev		*subdev_pafstat;
+
 	struct fimc_is_aperture		*aperture;
 	struct v4l2_subdev		*subdev_aperture;
+
+	struct fimc_is_mcu		*mcu;
+	struct v4l2_subdev		*subdev_mcu;
 
 	unsigned long			peri_state;
 
@@ -299,9 +438,6 @@ struct fimc_is_device_sensor_peri {
         u32                             mode_change_first;
 
 	struct fimc_is_sensor_interface		sensor_interface;
-#ifdef CONFIG_COMPANION_DIRECT_USE
-	struct fimc_is_preprocessor_interface	preprocessor_inferface;
-#endif
 	int						reuse_3a_value;
 };
 
@@ -385,4 +521,5 @@ void fimc_is_sensor_peri_init_work(struct fimc_is_device_sensor_peri *sensor_per
 #define CALL_ACTUATOROPS(s, op, args...) (((s)->actuator_ops->op) ? ((s)->actuator_ops->op(args)) : 0)
 #define CALL_APERTUREOPS(s, op, args...) (((s)->aperture_ops->op) ? ((s)->aperture_ops->op(args)) : 0)
 #define CALL_PDPOPS(s, op, args...) (((s)->pdp_ops->op) ? ((s)->pdp_ops->op(args)) : 0)
+#define CALL_PAFSTATOPS(s, op, args...) (((s)->pafstat_ops->op) ? ((s)->pafstat_ops->op(args)) : 0)
 #endif

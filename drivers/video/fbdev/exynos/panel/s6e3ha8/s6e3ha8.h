@@ -38,7 +38,7 @@
 
 #define S6E3HA8_MTP_REG				0xC8
 #define S6E3HA8_MTP_OFS				0
-#define S6E3HA8_MTP_LEN				35
+#define S6E3HA8_MTP_LEN				34
 
 #define S6E3HA8_DATE_REG			0xA1
 #define S6E3HA8_DATE_OFS			4
@@ -76,10 +76,6 @@
 #define S6E3HA8_OCTA_ID_OFS			1
 #define S6E3HA8_OCTA_ID_LEN			(PANEL_OCTA_ID_LEN)
 
-#define S6E3HA8_COPR_REG			0x5A
-#define S6E3HA8_COPR_OFS			0
-#define S6E3HA8_COPR_LEN			9
-
 #define S6E3HA8_COPR_SPI_REG			0x5A
 #define S6E3HA8_COPR_SPI_OFS			0
 #define S6E3HA8_COPR_SPI_LEN			9
@@ -116,11 +112,11 @@
 /* for panel dump */
 #define S6E3HA8_RDDPM_REG			0x0A
 #define S6E3HA8_RDDPM_OFS			0
-#define S6E3HA8_RDDPM_LEN			3
+#define S6E3HA8_RDDPM_LEN			(PANEL_RDDPM_LEN)
 
 #define S6E3HA8_RDDSM_REG			0x0E
 #define S6E3HA8_RDDSM_OFS			0
-#define S6E3HA8_RDDSM_LEN			3
+#define S6E3HA8_RDDSM_LEN			(PANEL_RDDSM_LEN)
 
 #define S6E3HA8_ERR_REG				0xEA
 #define S6E3HA8_ERR_OFS				0
@@ -138,7 +134,7 @@
 #define S6E3HA8_SELF_DIAG_OFS			0
 #define S6E3HA8_SELF_DIAG_LEN			1
 
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 #define S6E3HA8_POC_CHKSUM_REG		0xEC
 #define S6E3HA8_POC_CHKSUM_OFS		0
 #define S6E3HA8_POC_CHKSUM_LEN		(PANEL_POC_CHKSUM_LEN)
@@ -233,7 +229,7 @@
 #define S6E3HA8_DIM_FLASH_MTP_TOTAL_SIZE (S6E3HA8_DIM_FLASH_MTP_CHECKSUM_OFS + S6E3HA8_DIM_FLASH_MTP_CHECKSUM_LEN)
 #endif /* CONFIG_SUPPORT_DIM_FLASH */
 
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 /* MCD */
 #define S6E3HA8_FLASH_MCD_ADDR	(POC_MCD_PARTITION)
 #define S6E3HA8_FLASH_MCD1_R_OFS	(0)
@@ -246,7 +242,7 @@
 #define S6E3HA8_FLASH_MCD2_L_OFS	(S6E3HA8_FLASH_MCD1_L_OFS + S6E3HA8_FLASH_MCD1_L_LEN)
 #define S6E3HA8_FLASH_MCD2_L_LEN	(1)
 #define S6E3HA8_FLASH_MCD_LEN	(S6E3HA8_FLASH_MCD2_L_OFS + S6E3HA8_FLASH_MCD2_L_LEN)
-#endif /* CONFIG_SUPPORT_POC_FLASH */
+#endif /* CONFIG_SUPPORT_DDI_FLASH */
 
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 #define NR_S6E3HA8_MDNIE_REG	(3)
@@ -323,7 +319,7 @@ enum {
 	ACTIVE_CLK_SELF_DRAWER,
 	ACTIVE_CLK_CTRL_UPDATE_MAPTBL,
 #endif
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	POC_ON_MAPTBL,
 	POC_WR_ADDR_MAPTBL,
 	POC_RD_ADDR_MAPTBL,
@@ -344,7 +340,6 @@ enum {
 
 enum {
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-	READ_COPR,
 	READ_COPR_SPI,
 	READ_COPR_DSI,
 #endif
@@ -372,7 +367,7 @@ enum {
 	READ_ERR_FG,
 	READ_DSI_ERR,
 	READ_SELF_DIAG,
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	READ_POC_CHKSUM,
 	READ_POC_CTRL,
 	READ_POC_DATA,
@@ -398,7 +393,6 @@ enum {
 
 enum {
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-	RES_COPR,
 	RES_COPR_SPI,
 	RES_COPR_DSI,
 #endif
@@ -426,7 +420,7 @@ enum {
 	RES_ERR_FG,
 	RES_DSI_ERR,
 	RES_SELF_DIAG,
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	RES_POC_CHKSUM,
 	RES_POC_CTRL,
 	RES_POC_DATA,
@@ -468,7 +462,6 @@ static u8 S6E3HA8_ELVSS_T[S6E3HA8_ELVSS_T_LEN];
 static u8 S6E3HA8_IRC[S6E3HA8_IRC_LEN];
 
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-static u8 S6E3HA8_COPR[S6E3HA8_COPR_LEN];
 static u8 S6E3HA8_COPR_SPI[S6E3HA8_COPR_SPI_LEN];
 static u8 S6E3HA8_COPR_DSI[S6E3HA8_COPR_DSI_LEN];
 #endif
@@ -480,7 +473,7 @@ static u8 S6E3HA8_ERR[S6E3HA8_ERR_LEN];
 static u8 S6E3HA8_ERR_FG[S6E3HA8_ERR_FG_LEN];
 static u8 S6E3HA8_DSI_ERR[S6E3HA8_DSI_ERR_LEN];
 static u8 S6E3HA8_SELF_DIAG[S6E3HA8_SELF_DIAG_LEN];
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 static u8 S6E3HA8_POC_CHKSUM[S6E3HA8_POC_CHKSUM_LEN];
 static u8 S6E3HA8_POC_CTRL[S6E3HA8_POC_CTRL_LEN];
 static u8 S6E3HA8_POC_DATA[S6E3HA8_POC_DATA_LEN];
@@ -521,7 +514,6 @@ static struct rdinfo s6e3ha8_rditbl[] = {
 	[READ_ELVSS_T] = RDINFO_INIT(elvss_t, DSI_PKT_TYPE_RD, S6E3HA8_ELVSS_T_REG, S6E3HA8_ELVSS_T_OFS, S6E3HA8_ELVSS_T_LEN),
 	[READ_IRC] = RDINFO_INIT(irc, DSI_PKT_TYPE_RD, S6E3HA8_IRC_REG, S6E3HA8_IRC_OFS, S6E3HA8_IRC_LEN),
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-	[READ_COPR] = RDINFO_INIT(copr, SPI_PKT_TYPE_RD, S6E3HA8_COPR_REG, S6E3HA8_COPR_OFS, S6E3HA8_COPR_LEN),
 	[READ_COPR_SPI] = RDINFO_INIT(copr_spi, SPI_PKT_TYPE_RD, S6E3HA8_COPR_SPI_REG, S6E3HA8_COPR_SPI_OFS, S6E3HA8_COPR_SPI_LEN),
 	[READ_COPR_DSI] = RDINFO_INIT(copr_dsi, DSI_PKT_TYPE_RD, S6E3HA8_COPR_DSI_REG, S6E3HA8_COPR_DSI_OFS, S6E3HA8_COPR_DSI_LEN),
 #endif
@@ -532,7 +524,7 @@ static struct rdinfo s6e3ha8_rditbl[] = {
 	[READ_ERR_FG] = RDINFO_INIT(err_fg, DSI_PKT_TYPE_RD, S6E3HA8_ERR_FG_REG, S6E3HA8_ERR_FG_OFS, S6E3HA8_ERR_FG_LEN),
 	[READ_DSI_ERR] = RDINFO_INIT(dsi_err, DSI_PKT_TYPE_RD, S6E3HA8_DSI_ERR_REG, S6E3HA8_DSI_ERR_OFS, S6E3HA8_DSI_ERR_LEN),
 	[READ_SELF_DIAG] = RDINFO_INIT(self_diag, DSI_PKT_TYPE_RD, S6E3HA8_SELF_DIAG_REG, S6E3HA8_SELF_DIAG_OFS, S6E3HA8_SELF_DIAG_LEN),
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	[READ_POC_CHKSUM] = RDINFO_INIT(poc_chksum, DSI_PKT_TYPE_RD, S6E3HA8_POC_CHKSUM_REG, S6E3HA8_POC_CHKSUM_OFS, S6E3HA8_POC_CHKSUM_LEN),
 	[READ_POC_CTRL] = RDINFO_INIT(poc_ctrl, DSI_PKT_TYPE_RD, S6E3HA8_POC_CTRL_REG, S6E3HA8_POC_CTRL_OFS, S6E3HA8_POC_CTRL_LEN),
 	[READ_POC_DATA] = RDINFO_INIT(poc_data, DSI_PKT_TYPE_RD, S6E3HA8_POC_DATA_REG, S6E3HA8_POC_DATA_OFS, S6E3HA8_POC_DATA_LEN),
@@ -574,7 +566,6 @@ static DEFINE_RESUI(vint, &s6e3ha8_rditbl[READ_VINT], 0);
 static DEFINE_RESUI(elvss_t, &s6e3ha8_rditbl[READ_ELVSS_T], 0);
 static DEFINE_RESUI(irc, &s6e3ha8_rditbl[READ_IRC], 0);
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-static DEFINE_RESUI(copr, &s6e3ha8_rditbl[READ_COPR], 0);
 static DEFINE_RESUI(copr_spi, &s6e3ha8_rditbl[READ_COPR_SPI], 0);
 static DEFINE_RESUI(copr_dsi, &s6e3ha8_rditbl[READ_COPR_DSI], 0);
 #endif
@@ -585,7 +576,7 @@ static DEFINE_RESUI(err, &s6e3ha8_rditbl[READ_ERR], 0);
 static DEFINE_RESUI(err_fg, &s6e3ha8_rditbl[READ_ERR_FG], 0);
 static DEFINE_RESUI(dsi_err, &s6e3ha8_rditbl[READ_DSI_ERR], 0);
 static DEFINE_RESUI(self_diag, &s6e3ha8_rditbl[READ_SELF_DIAG], 0);
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 static DEFINE_RESUI(poc_chksum, &s6e3ha8_rditbl[READ_POC_CHKSUM], 0);
 static DEFINE_RESUI(poc_ctrl, &s6e3ha8_rditbl[READ_POC_CTRL], 0);
 static DEFINE_RESUI(poc_data, &s6e3ha8_rditbl[READ_POC_DATA], 0);
@@ -626,7 +617,6 @@ static struct resinfo s6e3ha8_restbl[] = {
 	[RES_ELVSS_T] = RESINFO_INIT(elvss_t, S6E3HA8_ELVSS_T, RESUI(elvss_t)),
 	[RES_IRC] = RESINFO_INIT(irc, S6E3HA8_IRC, RESUI(irc)),
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
-	[RES_COPR] = RESINFO_INIT(copr, S6E3HA8_COPR, RESUI(copr)),
 	[RES_COPR_SPI] = RESINFO_INIT(copr_spi, S6E3HA8_COPR_SPI, RESUI(copr_spi)),
 	[RES_COPR_DSI] = RESINFO_INIT(copr_dsi, S6E3HA8_COPR_DSI, RESUI(copr_dsi)),
 #endif
@@ -637,7 +627,7 @@ static struct resinfo s6e3ha8_restbl[] = {
 	[RES_ERR_FG] = RESINFO_INIT(err_fg, S6E3HA8_ERR_FG, RESUI(err_fg)),
 	[RES_DSI_ERR] = RESINFO_INIT(dsi_err, S6E3HA8_DSI_ERR, RESUI(dsi_err)),
 	[RES_SELF_DIAG] = RESINFO_INIT(self_diag, S6E3HA8_SELF_DIAG, RESUI(self_diag)),
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	[RES_POC_CHKSUM] = RESINFO_INIT(poc_chksum, S6E3HA8_POC_CHKSUM, RESUI(poc_chksum)),
 	[RES_POC_CTRL] = RESINFO_INIT(poc_ctrl, S6E3HA8_POC_CTRL, RESUI(poc_ctrl)),
 	[RES_POC_DATA] = RESINFO_INIT(poc_data, S6E3HA8_POC_DATA, RESUI(poc_data)),
@@ -687,7 +677,9 @@ static struct dumpinfo s6e3ha8_dmptbl[] = {
 };
 
 static int init_common_table(struct maptbl *);
+#ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int getidx_common_maptbl(struct maptbl *);
+#endif
 static int init_gamma_table(struct maptbl *);
 static int getidx_dimming_maptbl(struct maptbl *);
 #if (PANEL_BACKLIGHT_PAC_STEPS == 512 || PANEL_BACKLIGHT_PAC_STEPS == 256)
@@ -705,7 +697,9 @@ static int init_elvss_table(struct maptbl *tbl);
 static int init_vint_table(struct maptbl *tbl);
 static int init_aor_table(struct maptbl *tbl);
 static int init_irc_table(struct maptbl *tbl);
+#ifdef CONFIG_SUPPORT_HMD
 static int init_hmd_aor_table(struct maptbl *tbl);
+#endif
 static int init_elvss_temp_table(struct maptbl *);
 static int getidx_elvss_temp_table(struct maptbl *);
 #ifdef CONFIG_SUPPORT_XTALK_MODE
@@ -719,7 +713,9 @@ static int getidx_resolution_table(struct maptbl *);
 static int init_lpm_table(struct maptbl *tbl);
 static int getidx_lpm_table(struct maptbl *);
 static int getidx_lpm_dyn_vlin_table(struct maptbl *tbl);
+#ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static void copy_dummy_maptbl(struct maptbl *tbl, u8 *dst);
+#endif
 static void copy_common_maptbl(struct maptbl *, u8 *);
 static void copy_tset_maptbl(struct maptbl *, u8 *);
 static void copy_mcd_resistance_maptbl(struct maptbl *tbl, u8 *dst);
@@ -745,13 +741,15 @@ static int getidx_hmd_dimming_mtptbl(struct maptbl *);
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int init_color_blind_table(struct maptbl *tbl);
 static int getidx_mdnie_scenario_maptbl(struct maptbl *tbl);
+#ifdef CONFIG_SUPPORT_HMD
 static int getidx_mdnie_hmd_maptbl(struct maptbl *tbl);
+#endif
 static int getidx_mdnie_hdr_maptbl(struct maptbl *tbl);
 static int getidx_mdnie_trans_mode_maptbl(struct maptbl *tbl);
 static int init_mdnie_night_mode_table(struct maptbl *tbl);
 static int getidx_mdnie_night_mode_maptbl(struct maptbl *tbl);
-int init_mdnie_color_lens_table(struct maptbl *tbl);
-int getidx_color_lens_maptbl(struct maptbl *tbl);
+static int init_mdnie_color_lens_table(struct maptbl *tbl);
+static int getidx_color_lens_maptbl(struct maptbl *tbl);
 static int init_color_coordinate_table(struct maptbl *);
 static int init_sensor_rgb_table(struct maptbl *tbl);
 static int getidx_adjust_ldu_maptbl(struct maptbl *tbl);

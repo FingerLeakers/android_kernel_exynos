@@ -15,80 +15,98 @@
 
 #include <linux/kernel.h>
 #include <linux/io.h>
+#include <linux/property.h>
+
+#include <asm/cacheflush.h>
 
 #include "g2d.h"
 #include "g2d_regs.h"
 #include "g2d_task.h"
 #include "g2d_uapi.h"
 #include "g2d_debug.h"
+#include "g2d_secure.h"
 
-#ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
-#include <linux/smc.h>
-#include <asm/cacheflush.h>
-
-struct g2d_task_secbuf {
-	unsigned long cmd_paddr;
-	int cmd_count;
-	int priority;
-	int job_id;
-	int secure_layer;
-};
-
-void g2d_hw_push_task(struct g2d_device *g2d_dev, struct g2d_task *task)
+static void g2d_hw_push_task_by_smc(struct g2d_device *g2d_dev,
+				    struct g2d_task *task)
 {
-	struct g2d_task_secbuf sec_task;
 	int i;
 
-	sec_task.cmd_paddr = (unsigned long)page_to_phys(task->cmd_page);
-	sec_task.cmd_count = task->cmd_count;
-	sec_task.priority = task->priority;
-	sec_task.job_id = task->job_id;
-	sec_task.secure_layer = 0;
+	task->sec.secure_layer_mask = 0;
 
-	for (i = 0; i < task->num_source; i++) {
+	for (i = 0; i < task->num_source; i++)
 		if (!!(task->source[i].flags & G2D_LAYERFLAG_SECURE))
-			sec_task.secure_layer |= 1 << i;
-	}
-	if (!!(task->target.flags & G2D_LAYERFLAG_SECURE) ||
-		!!(sec_task.secure_layer))
-		sec_task.secure_layer |= 1 << 24;
+			task->sec.secure_layer_mask |= 1 << i;
 
-	__flush_dcache_area(&sec_task, sizeof(sec_task));
+	if (!!(task->target.flags & G2D_LAYERFLAG_SECURE) ||
+		!!(task->sec.secure_layer_mask))
+		task->sec.secure_layer_mask |= 1 << 24;
+
+	__flush_dcache_area(&task->sec, sizeof(task->sec));
 	__flush_dcache_area(page_address(task->cmd_page), G2D_CMD_LIST_SIZE);
-	if (exynos_smc(SMC_DRM_G2D_CMD_DATA, virt_to_phys(&sec_task), 0, 0)) {
-		dev_err(g2d_dev->dev, "%s : Failed to push %d %d %d %d\n",
-			__func__, sec_task.cmd_count, sec_task.priority,
-			sec_task.job_id, sec_task.secure_layer);
+	if (exynos_smc(SMC_DRM_G2D_CMD_DATA, virt_to_phys(&task->sec), 0, 0)) {
+		perrfndev(g2d_dev, "Failed to push %d %d %d %d",
+			  task->sec.cmd_count, task->sec.priority,
+			  task->sec.job_id, task->sec.secure_layer_mask);
 
 		g2d_dump_info(g2d_dev, task);
 		BUG();
 	}
 }
-#else
+
 void g2d_hw_push_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 {
-	u32 state = g2d_hw_get_job_state(g2d_dev, task->job_id);
+	bool self_prot = g2d_dev->caps & G2D_DEVICE_CAPS_SELF_PROTECTION;
+	u32 state = g2d_hw_get_job_state(g2d_dev, task->sec.job_id);
 
 	if (state != G2D_JOB_STATE_DONE)
-		dev_err(g2d_dev->dev, "%s: Unexpected state %#x of JOB %d\n",
-			__func__, state, task->job_id);
+		perrfndev(g2d_dev, "Unexpected state %#x of JOB %d",
+			  state, task->sec.job_id);
 
-	writel_relaxed(G2D_JOB_HEADER_DATA(task->priority, task->job_id),
+	if (IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)) {
+		unsigned int i;
+
+		if (!self_prot) {
+			g2d_hw_push_task_by_smc(g2d_dev, task);
+			return;
+		}
+
+		state = 0;
+
+		for (i = 0; i < task->num_source; i++)
+			if (task->source[i].flags & G2D_LAYERFLAG_SECURE)
+				state |= 1 << i;
+
+		if ((task->target.flags & G2D_LAYERFLAG_SECURE) || state)
+			state |= 1 << 24;
+
+		writel_relaxed(state,
+			       g2d_dev->reg +
+			       G2D_JOBn_LAYER_SECURE_REG(task->sec.job_id));
+	}
+
+	if (device_get_dma_attr(g2d_dev->dev) != DEV_DMA_COHERENT)
+		__flush_dcache_area(page_address(task->cmd_page),
+				    G2D_CMD_LIST_SIZE);
+
+	writel_relaxed(G2D_JOB_HEADER_DATA(task->sec.priority,
+					   task->sec.job_id),
 			g2d_dev->reg + G2D_JOB_HEADER_REG);
 
 	writel_relaxed(G2D_ERR_INT_ENABLE, g2d_dev->reg + G2D_INTEN_REG);
 
 	writel_relaxed(task->cmd_addr, g2d_dev->reg + G2D_JOB_BASEADDR_REG);
-	writel_relaxed(task->cmd_count, g2d_dev->reg + G2D_JOB_SFRNUM_REG);
-	writel_relaxed(1 << task->job_id, g2d_dev->reg + G2D_JOB_INT_ID_REG);
+	writel_relaxed(task->sec.cmd_count, g2d_dev->reg + G2D_JOB_SFRNUM_REG);
+	writel_relaxed(1 << task->sec.job_id,
+		       g2d_dev->reg + G2D_JOB_INT_ID_REG);
 	writel(G2D_JOBPUSH_INT_ENABLE, g2d_dev->reg + G2D_JOB_PUSH_REG);
 }
-#endif
 
 bool g2d_hw_stuck_state(struct g2d_device *g2d_dev)
 {
 	int i, val;
 	int retry_count = 10;
+	bool is_idle = true;
+	bool is_running = false;
 
 	while (retry_count-- > 0) {
 		for (i = 0; i < G2D_MAX_JOBS; i++) {
@@ -97,15 +115,17 @@ bool g2d_hw_stuck_state(struct g2d_device *g2d_dev)
 
 			val &= G2D_JOB_STATE_MASK;
 
-			if ((i < MAX_SHARED_BUF_NUM) &&
-				(val == G2D_JOB_STATE_RUNNING))
-				return false;
+			if (val != G2D_JOB_STATE_DONE)
+				is_idle = false;
 
-			/* if every task are queued except hwfc job*/
-			if ((i >= MAX_SHARED_BUF_NUM) &&
-				(val != G2D_JOB_STATE_QUEUEING))
-				return false;
+			if (val == G2D_JOB_STATE_RUNNING)
+				is_running = true;
 		}
+
+		if (is_idle || is_running)
+			return false;
+
+		is_idle = true;
 	}
 
 	return true;
@@ -134,12 +154,11 @@ u32 g2d_hw_errint_status(struct g2d_device *g2d_dev)
 
 	for (idx = 0; idx < 3; idx++) {
 		if (errstatus & (1 << idx))
-			dev_err(g2d_dev->dev,
-				"G2D ERROR INTERRUPT: %s\n", error_desc[idx]);
+			perrdev(g2d_dev, "G2D ERROR INTERRUPT: %s",
+				error_desc[idx]);
 	}
 
-	dev_err(g2d_dev->dev, "G2D FIFO STATUS: %#x\n",
-		g2d_hw_fifo_status(g2d_dev));
+	perrdev(g2d_dev, "G2D FIFO STATUS: %#x", g2d_hw_fifo_status(g2d_dev));
 
 	return status;
 }
@@ -162,8 +181,7 @@ int g2d_hw_get_current_task(struct g2d_device *g2d_dev)
 
 	for (i = 0; i < G2D_MAX_JOBS; i++) {
 		val = readl_relaxed(g2d_dev->reg + G2D_JOB_IDn_STATE_REG(i));
-		dev_err(g2d_dev->dev,
-			"G2D TASK[%03d] STATE : %d\n", i, val);
+		perrdev(g2d_dev, "G2D TASK[%03d] STATE : %d", i, val);
 	}
 
 	return -1;
@@ -177,11 +195,10 @@ void g2d_hw_kill_task(struct g2d_device *g2d_dev, unsigned int job_id)
 
 	while (retry_count-- > 0) {
 		if (!(readl(g2d_dev->reg + G2D_JOB_PUSHKILL_STATE_REG) & 0x2)) {
-			dev_err(g2d_dev->dev,
-				"%s: Killed JOB %d\n", __func__, job_id);
+			perrdev(g2d_dev, "Killed JOB %d", job_id);
 			return;
 		}
 	}
 
-	dev_err(g2d_dev->dev, "%s: Failed to kill job %d\n", __func__, job_id);
+	perrdev(g2d_dev, "Failed to kill job %d", job_id);
 }

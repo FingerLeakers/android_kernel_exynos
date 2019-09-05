@@ -11,9 +11,9 @@ then
 else
   if [ -d ${SRC} ]
   then
-    if [ -L ${DST} ] || [ -d ${DST} ]
+    if [ -L ${DST} ]
     then
-      rm -rf ${DST}
+      rm -f ${DST}
     fi
     ln -s $(basename ${SRC}) ${DST}
   else

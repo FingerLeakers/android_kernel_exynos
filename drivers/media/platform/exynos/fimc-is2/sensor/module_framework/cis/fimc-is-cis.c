@@ -214,10 +214,38 @@ p_err:
 	return ret;
 }
 
+int sensor_cis_check_rev_on_init(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct i2c_client *client;
+	struct fimc_is_cis *cis = NULL;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		return ret;
+	}
+
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+
+	ret = sensor_cis_check_rev(cis);
+
+	return ret;
+}
+
 int sensor_cis_check_rev(struct fimc_is_cis *cis)
 {
 	int ret = 0;
-	u8 rev = 0;
+	u8 rev8 = 0;
+	u16 rev16 = 0;
+	int i;
 	struct i2c_client *client;
 
 	FIMC_BUG(!cis);
@@ -230,15 +258,41 @@ int sensor_cis_check_rev(struct fimc_is_cis *cis)
 		goto p_err;
 	}
 
-	ret = fimc_is_sensor_read8(client, 0x0002, &rev);
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+
+	if (cis->rev_byte == 2) { // 2 BYTE read
+		ret = fimc_is_sensor_read16(client, cis->rev_addr, &rev16);
+		cis->cis_data->cis_rev = rev16;
+	} else {
+		ret = fimc_is_sensor_read8(client, cis->rev_addr, &rev8);	//default
+		cis->cis_data->cis_rev = rev8;
+	}
+
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
 	if (ret < 0) {
-		err("fimc_is_sensor_read8 fail, (ret %d)", ret);
+		err("fimc_is_sensor_read is fail, (ret %d)", ret);
+		ret = -EAGAIN;
 		goto p_err;
 	}
 
-	cis->cis_data->cis_rev = rev;
+	if (cis->rev_valid_count) {
+		for (i = 0; i < cis->rev_valid_count; i++) {
+			if (cis->cis_data->cis_rev == cis->rev_valid_values[i]) {
+				pr_info("%s : Sensor version. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+				break;
+			}
+		}
 
-	dbg_sensor(1, "rev: %#x\n", rev);
+		if (i == cis->rev_valid_count) {
+			pr_info("%s : Wrong sensor version. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+#if defined(USE_CAMERA_CHECK_SENSOR_REV)
+			ret = -EINVAL;
+#endif
+		}
+	} else {
+		pr_info("%s : Skip rev checking. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+	}
 
 p_err:
 	return ret;
@@ -334,6 +388,7 @@ int sensor_cis_dump_registers(struct v4l2_subdev *subdev, const u32 *regs, const
 	struct fimc_is_cis *cis;
 	struct i2c_client *client;
 	u8 data8 = 0;
+	u16 data16 = 0;
 
 	FIMC_BUG(!subdev);
 	FIMC_BUG(!regs);
@@ -353,12 +408,73 @@ int sensor_cis_dump_registers(struct v4l2_subdev *subdev, const u32 *regs, const
 	}
 
 	for (i = 0; i < size; i += I2C_NEXT) {
-		ret = fimc_is_sensor_read8(client, regs[i + I2C_ADDR], &data8);
-		if (ret < 0) {
-			err("fimc_is_sensor_write8 fail, ret(%d), addr(%#x)",
-					ret, regs[i + I2C_ADDR]);
+		if (regs[i + I2C_BYTE] == 0x2 && regs[i + I2C_ADDR] == 0x6028) {
+			ret = fimc_is_sensor_write16(client, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
 		}
-		pr_err("[SEN:DUMP] [%#x] : %x\n", regs[i + I2C_ADDR], data8);
+
+		if (regs[i + I2C_BYTE] == 0x1) {
+			ret = fimc_is_sensor_read8(client, regs[i + I2C_ADDR], &data8);
+			if (ret < 0) {
+				err("fimc_is_sensor_read8 fail, ret(%d), addr(%#x)",
+						ret, regs[i + I2C_ADDR]);
+			}
+			pr_err("[SEN:DUMP] [0x%04X, 0x%04X\n", regs[i + I2C_ADDR], data8);
+		} else {
+			ret = fimc_is_sensor_read16(client, regs[i + I2C_ADDR], &data16);
+			if (ret < 0) {
+				err("fimc_is_sensor_read6 fail, ret(%d), addr(%#x)",
+						ret, regs[i + I2C_ADDR]);
+			}
+			pr_err("[SEN:DUMP] [0x%04X, 0x%04X\n", regs[i + I2C_ADDR], data16);
+		}
+	}
+
+p_err:
+	return ret;
+}
+
+int sensor_cis_parse_dt(struct device *dev, struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	int i = 0;
+	struct fimc_is_cis *cis;
+	struct device_node *dnode;
+	const u32 *rev_reg_spec;
+	u32 rev_reg[FIMC_IS_CIS_REV_MAX_LIST+2];
+	u32 rev_reg_len;
+
+	FIMC_BUG(!dev);
+	FIMC_BUG(!dev->of_node);
+	FIMC_BUG(!subdev);
+
+	dnode = dev->of_node;
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	if (!cis) {
+		err("cis is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	rev_reg_spec = of_get_property(dnode, "rev_reg", &rev_reg_len);
+	if (rev_reg_spec) {
+		rev_reg_len /= (unsigned int)sizeof(*rev_reg_spec);
+		BUG_ON(rev_reg_len > (FIMC_IS_CIS_REV_MAX_LIST + 2));
+
+		ret = of_property_read_u32_array(dnode, "rev_reg", rev_reg, rev_reg_len);
+		cis->rev_valid_count = rev_reg_len - 2;
+		cis->rev_addr = rev_reg[0];
+		cis->rev_byte = rev_reg[1];
+
+		for (i = 2; i < rev_reg_len; i++) {
+			 cis->rev_valid_values[i-2] = rev_reg[i];
+		}
+	} else {
+		info("rev_reg read is fail(%d)", ret);
+		cis->rev_addr = 0x0002;	// default 1byte 0x0002 read
+		cis->rev_byte = 1;
+		cis->rev_valid_count = 0;
+		ret = 0;
 	}
 
 p_err:
@@ -469,9 +585,14 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 	    goto p_err;
 	}
 
+	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	if (ret < 0)
 	    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
+
+	if (cis_data->dual_slave == true)
+		time_out_cnt = time_out_cnt * 2;
 
 	/*
 	 * Read sensor frame counter (sensor_fcount address = 0x0005)
@@ -481,7 +602,9 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 		usleep_range(CIS_STREAM_ON_WAIT_TIME, CIS_STREAM_ON_WAIT_TIME);
 		wait_cnt++;
 
+		I2C_MUTEX_LOCK(cis->i2c_lock);
 		ret = fimc_is_sensor_read8(client, 0x0005, &sensor_fcount);
+		I2C_MUTEX_UNLOCK(cis->i2c_lock);
 		if (ret < 0)
 		    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
 
@@ -502,4 +625,26 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 #endif
 p_err:
 	return ret;
+}
+
+int sensor_cis_set_initial_exposure(struct v4l2_subdev *subdev)
+{
+	struct fimc_is_cis *cis;
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	if (unlikely(!cis)) {
+		err("cis is NULL");
+		return -EINVAL;
+	}
+
+	if (cis->use_initial_ae) {
+		cis->init_ae_setting = cis->last_ae_setting;
+
+		dbg_sensor(1, "[MOD:D:%d] %s short(exp:%d/again:%d/dgain:%d), long(exp:%d/again:%d/dgain:%d)\n",
+			cis->id, __func__, cis->init_ae_setting.exposure, cis->init_ae_setting.analog_gain,
+			cis->init_ae_setting.digital_gain, cis->init_ae_setting.long_exposure,
+			cis->init_ae_setting.long_analog_gain, cis->init_ae_setting.long_digital_gain);
+	}
+
+	return 0;
 }

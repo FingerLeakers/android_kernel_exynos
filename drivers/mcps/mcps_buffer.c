@@ -480,10 +480,10 @@ int pending_migration
 
     if (!__test_and_set_bit(NAPI_STATE_SCHED, &pantry->rx_napi_struct.state)) {
         if(gro) {
-            if (!mcps_ipi_queued(pantry))
+            if (!mcps_gro_ipi_queued(pantry))
                 __napi_schedule_irqoff(&pantry->rx_napi_struct);
         } else {
-            if (!mcps_gro_ipi_queued(pantry))
+            if (!mcps_ipi_queued(pantry))
                 __napi_schedule_irqoff(&pantry->rx_napi_struct);
         }
 

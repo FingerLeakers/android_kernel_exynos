@@ -10,19 +10,29 @@
 #define CHIP_ID		"TMD4905"
 #elif defined(CONFIG_SENSORS_SSP_TMD4906)
 #define CHIP_ID		"TMD4906"
+#elif defined(CONFIG_SENSORS_SSP_TMD4907)
+#define CHIP_ID		"TMD4907"
+#elif defined(CONFIG_SENSORS_SSP_TMD4910)
+#define CHIP_ID		"TMD4910"
 #else
 #define CHIP_ID		"UNKNOWN"
 #endif
 
 #define PROX_ADC_BITS_NUM		14
+#define THRESHOLD_HIGH			0
+#define THRESHOLD_LOW			1
+#define THRESHOLD_DETECT_HIGH	2
+#define THRESHOLD_DETECT_LOW	3
+
+#define PROX_CAL_FILE_PATH	"/efs/FactoryApp/prox_cal"
 
 /*************************************************************************/
 /* Functions                                                             */
 /*************************************************************************/
 
-static u16 get_proximity_rawdata(struct ssp_data *data)
+static s16 get_proximity_rawdata(struct ssp_data *data)
 {
-	u16 uRowdata = 0;
+	s16 uRowdata = 0;
 	char chTempbuf[4] = { 0 };
 
 	s32 dMsDelay = 20;
@@ -40,6 +50,55 @@ static u16 get_proximity_rawdata(struct ssp_data *data)
 	}
 
 	return uRowdata;
+}
+
+static u16 get_proximity_all_threshold(struct ssp_data *data, int threshold_type)
+{
+	int iRet = 0;
+	struct ssp_msg *msg;
+	u8 buffer[8] = {0, };
+	u16 threshold_high = 0;
+	u16 threshold_low = 0;
+	u16 threshold_detect_high = 0;
+	u16 threshold_detect_low = 0;
+	u16 threshold = 0;
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_PROX_GET_THRESHOLD;
+	msg->length = 8;
+	msg->options = AP2HUB_READ;
+	msg->buffer = buffer;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_sync(data, msg, 1000);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s fail %d\n", __func__, iRet);
+		return FAIL;
+	}
+
+	threshold_high = ((((u16) buffer[1]) << 8) & 0xff00) | ((((u16) buffer[0])) & 0x00ff);
+	threshold_low = ((((u16) buffer[3]) << 8) & 0xff00) | ((((u16) buffer[2])) & 0x00ff);
+	threshold_detect_high = ((((u16) buffer[5]) << 8) & 0xff00) | ((((u16) buffer[4])) & 0x00ff);
+	threshold_detect_low = ((((u16) buffer[7]) << 8) & 0xff00) | ((((u16) buffer[6])) & 0x00ff);
+
+	pr_info("[SSP] %s - %d, %d, %d, %d\n", __func__,
+		threshold_high, threshold_low, threshold_detect_high, threshold_detect_low);
+
+	if(threshold_type == THRESHOLD_HIGH) {
+		threshold = threshold_high;
+	}
+	else if(threshold_type == THRESHOLD_LOW) {
+		threshold = threshold_low;
+	}
+	else if(threshold_type == THRESHOLD_DETECT_HIGH) {
+		threshold = threshold_detect_high;
+	}
+	else {
+		threshold = threshold_detect_low;
+	}
+
+	return threshold;
+	
 }
 
 /*************************************************************************/
@@ -79,10 +138,9 @@ static ssize_t proximity_thresh_high_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
+	u16 threshold_high = get_proximity_all_threshold(data, THRESHOLD_HIGH);
 
-	ssp_dbg("[SSP]: ProxThresh = hi - %u\n", data->uProxHiThresh);
-
-	return sprintf(buf, "%u\n", data->uProxHiThresh);
+	return snprintf(buf, PAGE_SIZE, "%d\n", threshold_high);
 }
 
 static ssize_t proximity_thresh_high_store(struct device *dev,
@@ -120,10 +178,9 @@ static ssize_t proximity_thresh_low_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
+	u16 threshold_low = get_proximity_all_threshold(data, THRESHOLD_LOW);
 
-	ssp_dbg("[SSP]: ProxThresh = lo - %u\n", data->uProxLoThresh);
-
-	return sprintf(buf, "%u\n", data->uProxLoThresh);
+	return snprintf(buf, PAGE_SIZE, "%d\n", threshold_low);
 }
 
 static ssize_t proximity_thresh_low_store(struct device *dev,
@@ -161,10 +218,9 @@ static ssize_t proximity_thresh_detect_high_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
+	u16 threshold_detect_high = get_proximity_all_threshold(data, THRESHOLD_DETECT_HIGH);
 
-	ssp_dbg("[SSP]: ProxThresh = hidetect - %u\n", data->uProxHiThresh_detect);
-
-	return sprintf(buf, "%u\n", data->uProxHiThresh_detect);
+	return snprintf(buf, PAGE_SIZE, "%d\n", threshold_detect_high);
 }
 
 static ssize_t proximity_thresh_detect_high_store(struct device *dev,
@@ -202,10 +258,9 @@ static ssize_t proximity_thresh_detect_low_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
+	u16 threshold_detect_low = get_proximity_all_threshold(data, THRESHOLD_DETECT_LOW);
 
-	ssp_dbg("[SSP]: ProxThresh = lodetect - %u\n", data->uProxLoThresh_detect);
-
-	return sprintf(buf, "%u\n", data->uProxLoThresh_detect);
+	return snprintf(buf, PAGE_SIZE, "%d\n", threshold_detect_low);
 }
 
 static ssize_t proximity_thresh_detect_low_store(struct device *dev,
@@ -245,7 +300,7 @@ static ssize_t proximity_raw_data_show(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%u\n", get_proximity_rawdata(data));
+	return sprintf(buf, "%d\n", get_proximity_rawdata(data));
 }
 
 static ssize_t proximity_default_trim_show(struct device *dev,
@@ -254,7 +309,7 @@ static ssize_t proximity_default_trim_show(struct device *dev,
 	struct ssp_data *data = dev_get_drvdata(dev);
 	int iRet = 0;
 	struct ssp_msg *msg;
-	u8 buffer[8] = {0,};
+	u8 buffer[2] = {0,};
 	int trim;
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
@@ -270,8 +325,8 @@ static ssize_t proximity_default_trim_show(struct device *dev,
 		return FAIL;
 	}
 
-	if (buffer[1] == 0xff)
-		trim = (0xff - buffer[0]) * (-1);
+	if (buffer[1] > 0)
+		trim = (buffer[0] - 0xff) - 0x01;
 	else
 		trim = buffer[0];
 
@@ -311,6 +366,14 @@ static ssize_t proximity_avg_store(struct device *dev,
 		return iRet;
 	if (atomic64_read(&data->aSensorEnable) & (1 << PROXIMITY_SENSOR)) {
 		if (dEnable) {
+			data->buf[PROXIMITY_RAW].prox_raw[0] = -1;
+			data->buf[PROXIMITY_RAW].prox_raw[1] = 0;
+			data->buf[PROXIMITY_RAW].prox_raw[2] = 0;
+			data->buf[PROXIMITY_RAW].prox_raw[3] = 0;
+			data->uFactoryProxAvg[0] = 0;
+			data->uFactoryProxAvg[1] = 0;
+			data->uFactoryProxAvg[2] = 0;
+			data->uFactoryProxAvg[3] = 0;
 			send_instruction(data, ADD_SENSOR, PROXIMITY_RAW, chTempbuf, 4);
 			data->bProximityRawEnabled = true;
 		} else {
@@ -494,6 +557,229 @@ static ssize_t prox_light_get_dhr_sensor_info_show(struct device *dev,
 		p_drive_current, persistent_time, p_pulse, p_gain, p_time, p_pulse_length, l_atime, offset);
 }
 
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+bool check_proximity_adc_calib_hw_ver(struct ssp_data *data)
+{
+	bool res = false;
+    if (data->ap_type == 3) { // 3 == beyondxlte
+        if (data->ap_rev >= 4)
+                res = true;
+
+    } else if (data->ap_type == 0) { // 0 == beyond0lte
+        if (data->ap_rev > 22)
+                res = true;
+    }else {
+        if( data->ap_rev == 23 || data->ap_rev > 24)
+                res = true;
+    }
+
+	pr_info("[SSP] %s - %d", __func__, res);
+
+	return true;
+}
+
+int proximity_open_calibration(struct ssp_data *data)
+{
+	int ret = 0;
+	mm_segment_t old_fs;
+	struct file *cal_filp = NULL;
+	int prox_cal[3];
+
+	if(!check_proximity_adc_calib_hw_ver(data))
+		return -EINVAL;
+
+	pr_info("[SSP] %s ", __func__);
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(PROX_CAL_FILE_PATH, O_RDONLY, 0660);
+	if (IS_ERR(cal_filp)) {
+		ret = PTR_ERR(cal_filp);
+		if (ret != -ENOENT)
+			pr_err("[SSP]: %s - Can't open cancellation file\n",
+				__func__);
+		goto exit;
+	}
+
+	ret = vfs_read(cal_filp, (u8 *)prox_cal, sizeof(int)*3, &cal_filp->f_pos);
+	if (ret < 0) {
+		pr_err("[SSP]: %s - Can't read the cancel data\n", __func__);
+		ret = -EIO;
+	}
+
+	filp_close(cal_filp, current->files);
+exit:
+	set_fs(old_fs);
+
+	if(ret < 0) {
+		data->ProxOffset = 0x0FFF;
+	} else {
+		data->ProxOffset = prox_cal[0];
+		data->uProxHiThresh = prox_cal[1];
+		data->uProxLoThresh = prox_cal[2];
+		data->uProxLoThresh_detect = prox_cal[2];
+	}
+	
+	pr_info("[SSP] %s: offset %d, hi %d lo %d\n",
+	__func__, data->ProxOffset, data->uProxHiThresh, data->uProxLoThresh);
+
+	return ret;
+}
+
+int proximity_save_calibration(struct ssp_data *data)
+{
+	int ret = 0;
+	mm_segment_t old_fs;
+	struct file *cal_filp = NULL;
+	int buffer[3];
+
+	if(!check_proximity_adc_calib_hw_ver(data))
+		return -EINVAL;
+	pr_info("[SSP] %s ", __func__);
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(PROX_CAL_FILE_PATH, O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
+	if (IS_ERR(cal_filp)) {
+		pr_err("[SSP]: %s - Can't open calibration file\n", __func__);
+		set_fs(old_fs);
+		ret = PTR_ERR(cal_filp);
+		return -EIO;
+	}
+
+	buffer[0] = data->ProxOffset;
+	buffer[1] = data->uProxHiThresh;
+	buffer[2] = data->uProxLoThresh;
+
+	ret = vfs_write(cal_filp, (char *)buffer, 3 * sizeof(int), &cal_filp->f_pos);
+	if (ret < 0) {
+		pr_err("[SSP]: %s - Can't write prox cal to file\n", __func__);
+		ret = -EIO;
+	}
+	
+	pr_info("[SSP] %s: offset %d, hi %d lo %d\n", __func__, buffer[0], buffer[1], buffer[2]);
+
+	filp_close(cal_filp, current->files);
+	set_fs(old_fs);
+
+	return ret;
+}
+
+void set_prox_cal(struct ssp_data *data)
+{
+	int ret;
+	s16 prox_cal;
+	struct ssp_msg *msg;
+
+	if(!check_proximity_adc_calib_hw_ver(data))
+		return;
+
+	if (!(data->uSensorState & (1 << PROXIMITY_SENSOR))) {
+		pr_info("[SSP] %s - Skip this function!!!, proximity sensor is not connected(0x%llx)\n",
+			__func__, data->uSensorState);
+		return;
+	}
+
+	pr_info("[SSP] %s ", __func__);
+
+	prox_cal = data->ProxOffset;
+	
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_MCU_SET_PROX_CAL;
+	msg->length = sizeof(prox_cal);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(sizeof(prox_cal), GFP_KERNEL);
+	msg->free_buffer = 1;
+	memcpy(msg->buffer, &prox_cal, sizeof(prox_cal));
+
+	ret = ssp_spi_async(data, msg);
+
+	if (ret != SUCCESS) {
+		pr_err("[SSP] %s - fail %d\n", __func__, ret);
+	}
+
+	pr_info("[SSP] %s : %d", __func__, data->ProxOffset);
+
+	return;
+}
+
+static ssize_t proximity_cal_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	pr_info("[SSP] %s ", __func__);
+
+	return snprintf(buf, PAGE_SIZE, "%d,%d,%d\n",
+		data->ProxOffset, data->uProxHiThresh, data->uProxLoThresh);
+}
+
+static ssize_t proximity_cal_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	char buffer[4] = { 0 };
+	int iRet;
+	int64_t enable;
+	struct ssp_data *data = dev_get_drvdata(dev);
+	s32 ms_delay = 20;
+
+	if(!check_proximity_adc_calib_hw_ver(data))
+		return -EINVAL;
+
+	if (!(data->uSensorState & (1 << PROXIMITY_SENSOR))) {
+		pr_info("[SSP] %s - Skip this function!!!, proximity sensor is not connected(0x%llx)\n",
+			__func__, data->uSensorState);
+		return -EINVAL;
+	}
+
+	memcpy(&buffer[0], &ms_delay, 4);
+
+	iRet = kstrtoll(buf, 10, &enable);
+	if (iRet < 0)
+		return iRet;
+
+	pr_info("[SSP] %s - enable %d", __func__, enable);
+	
+	if (enable) {
+		send_instruction(data, ADD_SENSOR, PROXIMITY_ADC_CALIB, buffer, 4);
+	} else {
+		send_instruction(data, REMOVE_SENSOR, PROXIMITY_ADC_CALIB, buffer, 4);
+	}
+
+	return size;
+}
+#endif
+struct decimal_point {
+	int integer, point;
+};
+
+extern void set_decimal_point(struct decimal_point* dp, int i, int p);
+
+static ssize_t proximity_position_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+	struct decimal_point x = { 0, }, y = { 0, };
+
+	switch (data->ap_type) {
+	case 0:
+		set_decimal_point(&x, 47, 3);
+		set_decimal_point(&y, 2, 9);
+		break;
+	case 1:
+		set_decimal_point(&x, 49, 8);
+		set_decimal_point(&y, 2, 7);
+		break;
+	case 2:
+		set_decimal_point(&x, 48, 0);
+		set_decimal_point(&y, 2, 9);
+		break;
+	}
+	
+	return snprintf(buf, PAGE_SIZE, "%d.%d %d.%d\n", x.integer, x.point, y.integer, y.point);
+}
 
 static DEVICE_ATTR(vendor, 0440, proximity_vendor_show, NULL);
 static DEVICE_ATTR(name, 0440, proximity_name_show, NULL);
@@ -514,6 +800,10 @@ static DEVICE_ATTR(setting, 0660, proximity_setting_show, proximity_setting_stor
 
 static DEVICE_ATTR(prox_alert_thresh, 0440, proximity_alert_thresh_show, NULL);
 static DEVICE_ATTR(dhr_sensor_info, 0440, prox_light_get_dhr_sensor_info_show, NULL);
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL
+static DEVICE_ATTR(prox_cal, 0660, proximity_cal_show, proximity_cal_store);
+#endif
+static DEVICE_ATTR(prox_position, 0440, proximity_position_show, NULL);
 
 static struct device_attribute *prox_attrs[] = {
 	&dev_attr_vendor,
@@ -532,6 +822,10 @@ static struct device_attribute *prox_attrs[] = {
 #endif
 	&dev_attr_prox_alert_thresh,
 	&dev_attr_dhr_sensor_info,
+#ifdef CONFIG_SENSORS_SSP_PROX_ADC_CAL 
+	&dev_attr_prox_cal,
+#endif
+	&dev_attr_prox_position,
 	NULL,
 };
 

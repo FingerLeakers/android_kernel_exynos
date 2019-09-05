@@ -21,6 +21,9 @@
 #include <linux/muic/muic.h>
 #include <linux/muic/max77705-muic.h>
 #include <linux/battery/battery_notifier.h>
+#if defined(CONFIG_TYPEC)
+#include <linux/usb/typec.h>
+#endif
 
 struct max77705_opcode {
 	unsigned char opcode;
@@ -93,6 +96,8 @@ struct max77705_usbc_platform_data {
 	int irq_vdm6;
 	int irq_vdm7;
 
+	int irq_vir0;
+
 	/* register information */
 	u8 usbc_status1;
 	u8 usbc_status2;
@@ -123,12 +128,14 @@ struct max77705_usbc_platform_data {
 
 	struct work_struct op_wait_work;
 	struct work_struct op_send_work;
+	struct work_struct cc_open_req_work;
 	struct workqueue_struct	*op_wait_queue;
 	struct workqueue_struct	*op_send_queue;
 	struct completion op_completion;
 	int op_code;
 	int is_first_booting;
 	usbc_cmd_data last_opcode;
+	unsigned long opcode_stamp;
 	struct mutex op_lock;
 
 	/* F/W opcode command data */
@@ -148,13 +155,16 @@ struct max77705_usbc_platform_data {
 	u8 pin_assignment;
 	uint32_t is_sent_pin_configuration;
 	wait_queue_head_t host_turn_on_wait_q;
+	wait_queue_head_t device_add_wait_q;
 	int host_turn_on_event;
 	int host_turn_on_wait_time;
+	int device_add;
 	int is_samsung_accessory_enter_mode;
+	int send_enter_mode_req;
 	u8 sbu[2];
-	u8 is_sbu_done;
-	u8 selftest;
-	u8 is_selftest_done;
+	struct completion ccic_sysfs_completion;
+//	u8 selftest;
+//	struct completion is_selftest_done;
 
 	struct max77705_muic_data *muic_data;
 	struct max77705_pd_data *pd_data;
@@ -177,6 +187,8 @@ struct max77705_usbc_platform_data {
 	int is_client;
 	bool auto_vbus_en;
 	u8 cc_pin_status;
+	int ccrp_state;
+	int vsafe0v_status;
 #endif
 #if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	struct dual_role_phy_instance *dual_role;
@@ -185,10 +197,22 @@ struct max77705_usbc_platform_data {
 	int power_role;
 	int data_role;
 	int try_state_change;
+#elif defined(CONFIG_TYPEC)
+	struct typec_port *port;
+	struct typec_partner *partner;
+	struct usb_pd_identity partner_identity;
+	struct typec_capability typec_cap;
+	struct completion typec_reverse_completion;
+	int typec_power_role;
+	int typec_data_role;
+	int typec_try_state_change;
+	int pwr_opmode;
 #endif
+	bool pd_support;
 	struct delayed_work usb_external_notifier_register_work;
 	struct notifier_block usb_external_notifier_nb;
 	int mpsm_mode;
+	bool mdm_block;
 	int vbus_enable;
 	int pd_pr_swap;
 	int shut_down;
@@ -201,6 +225,7 @@ struct max77705_usbc_platform_data {
 	struct completion uvdm_longpacket_in_wait;
 	int is_in_first_sec_uvdm_req;
 	int is_in_sec_uvdm_out;
+	bool pn_flag;
 	u8 uvdm_error;
 
 #if defined(CONFIG_SEC_FACTORY)
@@ -209,6 +234,11 @@ struct max77705_usbc_platform_data {
 	struct delayed_work factory_rid_work;
 #endif
 	int detach_done_wait;
+	int set_altmode;
+	int set_altmode_error;
+
+	u8 control3_reg;
+	int cc_open_req;
 };
 
 /* Function Status from s2mm005 definition */
@@ -257,6 +287,12 @@ void max77705_notify_dr_status(struct max77705_usbc_platform_data *usbpd_data,
 		uint8_t attach);
 void max77705_pdo_list(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
+#if defined(CONFIG_PDIC_PD30)
+int max77705_response_apdo_request(struct max77705_usbc_platform_data *usbc_data,
+		unsigned char *data);
+void max77705_response_set_pps(struct max77705_usbc_platform_data *usbc_data,
+		unsigned char *data);
+#endif
 void max77705_current_pdo(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
 void max77705_detach_pd(struct max77705_usbc_platform_data *usbc_data);
@@ -266,9 +302,15 @@ extern void max77705_vbus_turn_on_ctrl(struct max77705_usbc_platform_data *usbc_
 extern void max77705_dp_detach(void *data);
 void max77705_usbc_disable_auto_vbus(struct max77705_usbc_platform_data *usbc_data);
 extern void max77705_set_host_turn_on_event(int mode);
+extern void pdic_manual_ccopen_request(int is_on);
+#if defined(CONFIG_TYPEC)
+int max77705_get_pd_support(struct max77705_usbc_platform_data *usbc_data);
+#endif
 
 extern const uint8_t BOOT_FLASH_FW_PASS2[];
 extern const uint8_t BOOT_FLASH_FW_PASS3[];
+extern const uint8_t BOOT_FLASH_FW_PASS4[];
+extern const uint8_t BOOT_FLASH_FW_PASS5[];
 
 #if defined(CONFIG_SEC_FACTORY)
 void factory_execute_monitor(int);

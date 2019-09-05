@@ -23,12 +23,12 @@
 #include <linux/kernel.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
-#include <linux/ion.h>
 #include <linux/notifier.h>
 #include <linux/pm_runtime.h>
-#include <linux/pm_opp.h>
 #include <linux/clk-provider.h>
 #include <linux/of_device.h>
+#include <linux/sched/task.h>
+#include <linux/pm_opp.h>
 #ifdef CONFIG_EXT_BOOTMEM
 #include <linux/ext_bootmem.h>
 #endif
@@ -51,7 +51,7 @@
 #include "iva_ipc_header.h"
 #include "iva_vdma.h"
 
-#undef ENABLE_MMAP_US
+#define ENABLE_MMAP_US
 #undef ENABLE_FPGA_REG_ACCESS
 #undef ENABLE_LOCAL_PLAT_DEVICE
 #undef ENABLE_MEASURE_IVA_PERF
@@ -73,6 +73,15 @@
 #elif defined(CONFIG_SOC_EXYNOS9810)
 #define IVA_PM_QOS_IVA			(PM_QOS_IVA_THROUGHPUT)
 #define IVA_PM_QOS_IVA_REQ		(534000)
+#define IVA_PM_IVA_MIN			(34000)
+#elif defined(CONFIG_SOC_EXYNOS9820)
+#define IVA_CTL_QOS_DEV
+#define IVA_PM_QOS_IVA			(PM_QOS_IVA_THROUGHPUT)
+#define IVA_PM_QOS_IVA_REQ		(534000)
+#define IVA_PM_QOS_DEV			(PM_QOS_DEVICE_THROUGHPUT)
+#define IVA_PM_QOS_DEV_REQ		(400000)
+#define IVA_PM_QOS_MIF			(PM_QOS_BUS_THROUGHPUT)
+#define IVA_PM_QOS_MIF_REQ		(1794000)
 #define IVA_PM_IVA_MIN			(34000)
 #else
 #undef IVA_PM_QOS_IVA
@@ -154,6 +163,8 @@ static int32_t __iva_ctrl_init(struct device *dev)
 
 	/* iva mbox supports both of iva and score. */
 	iva_mbox_init(iva);
+	iva_ipcq_init_pending_mail(&iva->mcu_ipcq);
+
 	return 0;
 
 }
@@ -220,7 +231,7 @@ static int32_t iva_ctrl_init(struct iva_proc *proc, bool en_hwa)
 	if (ret < 0) {
 		dev_err(dev, "%s() fail to enable iva clk/pwr. ret(%d)\n",
 				__func__, ret);
-		atomic_set(&proc->init_ref.refcount, 0);
+		refcount_set(&proc->init_ref.refcount, 0);
 		return ret;
 	}
 
@@ -232,8 +243,8 @@ static int32_t iva_ctrl_init(struct iva_proc *proc, bool en_hwa)
 init_skip:
 	dev_dbg(dev, "%s() glob_init_ref(%d) <- init_ref(%d)\n",
 			__func__,
-			atomic_read(&iva->glob_init_ref.refcount),
-			atomic_read(&proc->init_ref.refcount));
+			kref_read(&iva->glob_init_ref),
+			kref_read(&proc->init_ref));
 	return 0;
 }
 
@@ -292,7 +303,7 @@ static void iva_ctrl_release_proc_init_ref(struct kref *kref)
 		dev_info(dev, "%s() still global init requesters in a system. ",
 			__func__);
 		dev_info(dev, "glob_init_ref(%d)\n",
-			atomic_read(&iva->glob_init_ref.refcount));
+			kref_read(&iva->glob_init_ref));
 	}
 }
 
@@ -300,28 +311,29 @@ static int32_t iva_ctrl_deinit(struct iva_proc *proc, bool forced)
 {
 	struct iva_dev_data	*iva = proc->iva_data;
 	struct device		*dev = iva->dev;
-	int		ret = 0;
 	unsigned int	put_cnt;
 
-	put_cnt = atomic_read(&proc->init_ref.refcount);
+	put_cnt = kref_read(&proc->init_ref);
 	if (!put_cnt)
 		return 0;
 
 	if (forced) {
 		dev_warn(dev, "%s() forced init requester removal,", __func__);
 		dev_warn(dev, " put_cnt(%d) == init_ref(%d)\n",
-			put_cnt, atomic_read(&proc->init_ref.refcount));
+			put_cnt, kref_read(&proc->init_ref));
 
 	} else
 		put_cnt = 1;
 
-	ret = kref_sub(&proc->init_ref, put_cnt, iva_ctrl_release_proc_init_ref);
-	if (!ret) {
+	/* instead of kref_sub */
+	if (refcount_sub_and_test(put_cnt, &proc->init_ref.refcount)) {
+		iva_ctrl_release_proc_init_ref(&proc->init_ref);
+	} else {
 		dev_info(dev, "%s() still init requesters in the process. ",
 			__func__);
 		dev_warn(dev, "glob_init_ref(%d) <- init_ref(%d)\n",
-			atomic_read(&iva->glob_init_ref.refcount),
-			atomic_read(&proc->init_ref.refcount));
+			kref_read(&iva->glob_init_ref),
+			kref_read(&proc->init_ref));
 	}
 
 	/* always return as successful */
@@ -342,6 +354,7 @@ static void __maybe_unused iva_ctrl_deinit_forced(struct iva_dev_data *iva)
 static void iva_ctrl_mcu_boot_prepare_system(struct iva_dev_data *iva)
 {
 	struct device *dev = iva->dev;
+	int dev_qos_req = 0;
 #ifdef CONFIG_PM_SLEEP
 	/* prevent the system to suspend */
 	if (!wake_lock_active(&iva->iva_wake_lock)) {
@@ -354,8 +367,14 @@ static void iva_ctrl_mcu_boot_prepare_system(struct iva_dev_data *iva)
 #ifdef IVA_PM_QOS_IVA
 	if (!test_and_set_bit(IVA_ST_PM_QOS_IVA, &iva->state)) {
 		dev_dbg(dev, "%s() request iva pm_qos(0x%lx), rate(%d)\n",
-					__func__, iva->state, iva->iva_qos_rate);
+				__func__, iva->state, iva->iva_qos_rate);
 		pm_qos_update_request(&iva->iva_qos_iva, iva->iva_qos_rate);
+#ifdef IVA_CTL_QOS_DEV
+		if (iva->iva_bus_qos_en) {
+			dev_qos_req = IVA_PM_QOS_DEV_REQ;
+		}
+		pm_qos_update_request(&iva->iva_qos_dev, dev_qos_req);
+#endif
 	}
 #endif
 	dev_dbg(dev, "%s() iva_clk rate(%ld)\n", __func__,
@@ -369,13 +388,16 @@ static void iva_ctrl_mcu_boot_unprepare_system(struct iva_dev_data *iva)
 #ifdef IVA_PM_QOS_IVA
 	if (test_and_clear_bit(IVA_ST_PM_QOS_IVA, &iva->state)) {
 		pm_qos_update_request(&iva->iva_qos_iva, 0);
+#ifdef IVA_CTL_QOS_DEV
+		pm_qos_update_request(&iva->iva_qos_dev, 0);
+#endif
 		clear_bit(IVA_ST_PM_QOS_IVA, &iva->state);
 	}
 #endif
 #ifdef CONFIG_PM_SLEEP
 	if (wake_lock_active(&iva->iva_wake_lock)) {
 		wake_unlock(&iva->iva_wake_lock);
-		dev_dbg(dev, "%s() wake_inlock, now(%d)\n",
+		dev_info(dev, "%s() wake_unlock, now(%d)\n",
 			__func__, wake_lock_active(&iva->iva_wake_lock));
 	}
 #endif
@@ -395,6 +417,7 @@ static int32_t iva_ctrl_mcu_boot_file(struct iva_proc *proc,
 	if (!iva_ctrl_is_iva_on(iva)) {
 		dev_dbg(dev, "%s() mcu boot request w/o iva init(0x%lx)\n",
 				__func__, iva->state);
+
 		return -EIO;
 	}
 
@@ -425,7 +448,7 @@ static int32_t iva_ctrl_mcu_boot_file(struct iva_proc *proc,
 	if (ret) {	/* error */
 		iva_ctrl_mcu_boot_unprepare_system(iva);
 
-		atomic_set(&proc->boot_ref.refcount, 0);
+		refcount_set(&proc->boot_ref.refcount, 0);
 		return ret;
 	}
 
@@ -436,8 +459,8 @@ static int32_t iva_ctrl_mcu_boot_file(struct iva_proc *proc,
 boot_skip:
 	dev_dbg(dev, "%s() glob_init_ref(%d) <- boot_ref(%d)\n",
 			__func__,
-			atomic_read(&iva->glob_init_ref.refcount),
-			atomic_read(&proc->init_ref.refcount));
+			kref_read(&iva->glob_init_ref),
+			kref_read(&proc->init_ref));
 	return 0;
 }
 
@@ -445,13 +468,9 @@ static void iva_ctrl_release_global_boot_ref(struct kref *kref)
 {
 	struct iva_dev_data *iva =
 			container_of(kref, struct iva_dev_data, glob_boot_ref);
-	struct device *dev = iva->dev;
 
 	iva_mcu_exit(iva);
-
 	iva_ctrl_mcu_boot_unprepare_system(iva);
-
-	dev_dbg(dev, "%s()\n", __func__);
 }
 
 static void iva_ctrl_release_proc_boot_ref(struct kref *kref)
@@ -471,7 +490,7 @@ static void iva_ctrl_release_proc_boot_ref(struct kref *kref)
 		dev_info(dev, "%s() still global boot requesters in a system.",
 			__func__);
 		dev_info(dev, "glob_boot_ref(%d)\n",
-			atomic_read(&iva->glob_boot_ref.refcount));
+			kref_read(&iva->glob_boot_ref));
 	}
 }
 
@@ -479,10 +498,9 @@ static int32_t iva_ctrl_mcu_exit(struct iva_proc *proc, bool forced)
 {
 	struct iva_dev_data	*iva = proc->iva_data;
 	struct device		*dev = iva->dev;
-	int		ret = 0;
 	unsigned int	put_cnt;
 
-	put_cnt = atomic_read(&proc->boot_ref.refcount);
+	put_cnt = kref_read(&proc->boot_ref);
 	if (!put_cnt)
 		return 0;
 
@@ -490,18 +508,19 @@ static int32_t iva_ctrl_mcu_exit(struct iva_proc *proc, bool forced)
 		dev_warn(dev, "%s() forced mcu exit requester removal, ",
 			__func__);
 		dev_warn(dev, "put_cnt(%d) == boot_ref(%d)\n",
-			put_cnt, atomic_read(&proc->boot_ref.refcount));
+			put_cnt, kref_read(&proc->boot_ref));
 
 	} else
 		put_cnt = 1;
 
-	ret = kref_sub(&proc->boot_ref, put_cnt, iva_ctrl_release_proc_boot_ref);
-	if (!ret) {
+	if (refcount_sub_and_test(put_cnt, &proc->boot_ref.refcount)) {
+		iva_ctrl_release_proc_boot_ref(&proc->boot_ref);
+	} else {
 		dev_info(dev, "%s() still mcu boot requesters in the process.",
 			__func__);
 		dev_info(dev, "glob_boot_ref(%d) <- boot_ref(%d)\n",
-			atomic_read(&iva->glob_boot_ref.refcount),
-			atomic_read(&proc->boot_ref.refcount));
+			kref_read(&iva->glob_boot_ref),
+			kref_read(&proc->boot_ref));
 	}
 
 	/* always return as successful */
@@ -521,12 +540,12 @@ static void __maybe_unused iva_ctrl_mcu_exit_forced(struct iva_dev_data *iva)
 
 bool iva_ctrl_is_iva_on(struct iva_dev_data *iva)
 {
-	return !!atomic_read(&iva->glob_init_ref.refcount);
+	return !!kref_read(&iva->glob_init_ref);
 }
 
 bool iva_ctrl_is_boot(struct iva_dev_data *iva)
 {
-	return !!atomic_read(&iva->glob_boot_ref.refcount);
+	return !!kref_read(&iva->glob_boot_ref);
 }
 
 static int32_t iva_ctrl_get_iva_status_usr(struct iva_dev_data *iva,
@@ -546,51 +565,43 @@ static int32_t iva_ctrl_get_iva_status_usr(struct iva_dev_data *iva,
 	return 0;
 }
 
+/* Rule should be aligned with user layer. */
+#define BUS_CLK_FLAG_S (24)
+#define IVA_UNPACK_CLK_REQ(val) (val & ((1 << BUS_CLK_FLAG_S) - 1))
+#define IVA_UNPACK_BUS_CLK_FLAG(val) (val & (1 << BUS_CLK_FLAG_S))
+
 static int32_t iva_ctrl_set_clk_usr(struct iva_dev_data *iva,
 		uint32_t __user *usr_clk_rate)
 {
-	struct device *dev = &iva->iva_dvfs_dev->dev;
-	int32_t 	iva_clk_rate;
-	bool		hit = false;
+	struct device	*dev = iva->dev;
+	uint32_t	usr_req, clk_req;
+	unsigned long	freq = 0;
 
-	get_user(iva_clk_rate, usr_clk_rate);
+	get_user(usr_req, usr_clk_rate);
 
-	if ((iva_clk_rate < IVA_PM_IVA_MIN) || (iva_clk_rate > IVA_PM_QOS_IVA_REQ)){
-		dev_err(iva->dev, "invalid usr clk rate provided.\n");
-		return -EINVAL;
-	}
-
+	clk_req = IVA_UNPACK_CLK_REQ(usr_req);
 	if (iva->iva_dvfs_dev) {
-		struct dev_pm_opp *opp;
-		unsigned long freq = 0;
+		struct device *dvfs_dev = &iva->iva_dvfs_dev->dev;
 
-		rcu_read_lock();
-		do {
-			opp = dev_pm_opp_find_freq_ceil(dev, &freq);
-			if (IS_ERR(opp))
+		while (!IS_ERR(dev_pm_opp_find_freq_ceil(dvfs_dev, &freq))) {
+			if (freq == clk_req)
 				break;
-
-			if (freq == iva_clk_rate) {
-				hit = true;
-				break;
-			}
-
 			freq++;
-		} while (1);
-		rcu_read_unlock();
+		}
 	}
+	dev_info(dev, "IVA: change freq of IVA %d -> %d KHz\n",
+					iva->iva_qos_rate, clk_req);
 
-	if (hit) {
-		iva->iva_qos_rate = iva_clk_rate;
-		pm_qos_update_request(&iva->iva_qos_iva, iva->iva_qos_rate);
-	} else {
-		dev_warn(dev, "fail to set qos rate, req(%dKhz), cur(%dKhz)\n",
-				iva_clk_rate, iva->iva_qos_rate);
-	}
+	if (freq == clk_req)
+		iva->iva_qos_rate = clk_req;
+	else
+		dev_warn(dev, "fail to set qos rate, req(%u KHz), cur(%d KHz)\n",
+				clk_req, iva->iva_qos_rate);
 
 	dev_dbg(dev, "%s() iva_clk rate(%ld)\n", __func__,
 			clk_get_rate(iva->iva_clk));
 
+	iva->iva_bus_qos_en = IVA_UNPACK_BUS_CLK_FLAG(usr_req);
 	return 0;
 }
 
@@ -753,7 +764,6 @@ static int iva_ctrl_mmap(struct file *filp, struct vm_area_struct *vma)
 #endif
 }
 
-
 static int iva_ctrl_open(struct inode *inode, struct file *filp)
 {
 	struct device *dev;
@@ -770,10 +780,24 @@ static int iva_ctrl_open(struct inode *inode, struct file *filp)
 	iva = filp->private_data = g_iva_data;
 	dev = iva->dev;
 #endif
+	mutex_lock(&iva->proc_mutex);
+	if (!list_empty(&iva->proc_head)) {
+		struct list_head	*work_node;
+		struct iva_proc		*proc;
+
+		list_for_each(work_node, &iva->proc_head) {
+			proc = list_entry(work_node, struct iva_proc, proc_node);
+			dev_err(dev, "%s() iva_proc is already open(%s, %d, %d)\n",
+				__func__, proc->tsk->comm, proc->pid, proc->tid);
+		}
+		mutex_unlock(&iva->proc_mutex);
+		return -EMFILE;
+	}
 	proc = devm_kmalloc(dev, sizeof(*proc), GFP_KERNEL);
 	if (!proc) {
 		dev_err(dev, "%s() fail to alloc mem for struct iva_proc\n",
 			__func__);
+		mutex_unlock(&iva->proc_mutex);
 		return -ENOMEM;
 	}
 	/* assume only one open() per process */
@@ -785,15 +809,14 @@ static int iva_ctrl_open(struct inode *inode, struct file *filp)
 
 	iva_mem_init_proc_mem(proc);
 
-	atomic_set(&proc->init_ref.refcount, 0);
-	atomic_set(&proc->boot_ref.refcount, 0);
+	refcount_set(&proc->init_ref.refcount, 0);
+	refcount_set(&proc->boot_ref.refcount, 0);
 
-	mutex_lock(&iva->proc_mutex);
 	list_add(&proc->proc_node, &iva->proc_head);
-	mutex_unlock(&iva->proc_mutex);
 
 	/* update file->private to hold struct iva_proc */
 	filp->private_data = (void *) proc;
+	mutex_unlock(&iva->proc_mutex);
 
 	dev_dbg(dev, "%s() succeed to open from (%s, %d, %d)\n", __func__,
 			proc->tsk->comm, proc->pid, proc->tid);
@@ -827,9 +850,7 @@ static int iva_ctrl_release(struct inode *inode, struct file *filp)
 	iva_ctrl_deinit(proc, true);
 
 	iva_mem_deinit_proc_mem(proc);
-
 	put_task_struct(proc->tsk);
-
 	devm_kfree(dev, proc);
 	return 0;
 }
@@ -918,6 +939,10 @@ static void iva_ctl_parse_of_dt(struct device *dev, struct iva_dev_data	*iva)
 				&iva->mcu_shmem_size);
 		of_property_read_u32(child_node, "print_delay",
 				&iva->mcu_print_delay);
+#if defined(CONFIG_SOC_EXYNOS9820)
+		of_property_read_u32(child_node, "split_sram",
+				&iva->mcu_split_sram);
+#endif
 		dev_dbg(dev,
 			"%s() of mem_size(0x%x) shmem_size(0x%x) print_delay(%d)\n",
 			__func__,
@@ -1001,10 +1026,21 @@ static int iva_ctl_probe(struct platform_device *pdev)
 
 	iva_ctl_parse_of_dt(dev, iva);
 
+	iva->iva_bus_qos_en = false;
+
 	if (!iva->mcu_mem_size || !iva->mcu_shmem_size) {
 		dev_warn(dev, "%s() forced set to mcu dft value\n", __func__);
-		iva->mcu_mem_size	= VMCU_MEM_SIZE;
-		iva->mcu_shmem_size	= SHMEM_SIZE;
+#if defined(CONFIG_SOC_EXYNOS9820)
+		if (iva->mcu_split_sram) {
+#endif
+			iva->mcu_mem_size	= VMCU_MEM_SIZE;
+			iva->mcu_shmem_size	= SHMEM_SIZE;
+#if defined(CONFIG_SOC_EXYNOS9820)
+		} else {
+			iva->mcu_mem_size	= EXTEND_VMCU_MEM_SIZE;
+			iva->mcu_shmem_size	= EXTEND_SHMEM_SIZE;
+		}
+#endif
 	}
 
 	/* reserve the resources */
@@ -1095,6 +1131,9 @@ static int iva_ctl_probe(struct platform_device *pdev)
 
 #ifdef IVA_PM_QOS_IVA
 	pm_qos_add_request(&iva->iva_qos_iva, IVA_PM_QOS_IVA, 0);
+#ifdef IVA_CTL_QOS_DEV
+	pm_qos_add_request(&iva->iva_qos_dev, IVA_PM_QOS_DEV, 0);
+#endif
 #else
 	iva->iva_qos_rate = IVA_PM_IVA_MIN;
 #endif

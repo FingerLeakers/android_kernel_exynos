@@ -39,7 +39,7 @@
 #include <linux/gpio.h>
 #include <linux/delay.h>
 #include <linux/wakelock.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 #include <linux/bitops.h>
 #include <linux/smc.h>
 #include <soc/samsung/pmu-cp.h>
@@ -60,23 +60,26 @@
 
 enum bit_debug_flags {
 	DEBUG_FLAG_FMT,
+	DEBUG_FLAG_MISC,
 	DEBUG_FLAG_RFS,
 	DEBUG_FLAG_PS,
 	DEBUG_FLAG_BOOT,
 	DEBUG_FLAG_DUMP,
 	DEBUG_FLAG_CSVT,
-	DEBUG_FLAG_LOG
+	DEBUG_FLAG_LOG,
+	DEBUG_FLAG_ALL,
 };
 
+#define DEBUG_FLAG_DEFAULT    (1 << DEBUG_FLAG_FMT | 1 << DEBUG_FLAG_MISC)
 #ifdef DEBUG_MODEM_IF_PS_DATA
-static unsigned long dflags = (1 << DEBUG_FLAG_FMT | 1 << DEBUG_FLAG_RFS | 1 << DEBUG_FLAG_PS);
+static unsigned long dflags = (DEBUG_FLAG_DEFAULT | 1 << DEBUG_FLAG_RFS | 1 << DEBUG_FLAG_PS);
 #else
-static unsigned long dflags = (1 << DEBUG_FLAG_FMT);
+static unsigned long dflags = (DEBUG_FLAG_DEFAULT);
 #endif
 module_param(dflags, ulong, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(dflags, "modem_v1 debug flags");
 
-static unsigned long wakeup_dflags = (1 << DEBUG_FLAG_FMT | 1 << DEBUG_FLAG_RFS | 1 << DEBUG_FLAG_PS);
+static unsigned long wakeup_dflags = (DEBUG_FLAG_DEFAULT | 1 << DEBUG_FLAG_RFS | 1 << DEBUG_FLAG_PS);
 module_param(wakeup_dflags, ulong, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(wakeup_dflags, "modem_v1 wakeup debug flags");
 
@@ -318,8 +321,10 @@ static inline bool log_enabled(u8 ch)
 		return test_bit(DEBUG_FLAG_LOG, &flags);
 	else if (sipc_ps_ch(ch))
 		return test_bit(DEBUG_FLAG_PS, &flags);
+	else if (sipc5_misc_ch(ch))
+		return test_bit(DEBUG_FLAG_MISC, &flags);
 	else
-		return false;
+		return test_bit(DEBUG_FLAG_ALL, &flags);
 }
 
 /* print ipc packet */
@@ -527,7 +532,7 @@ void stop_net_ifaces(struct link_device *ld)
 	unsigned long flags;
 	spin_lock_irqsave(&ld->netif_lock, flags);
 
-	if (!atomic_read(&ld->netif_stopped) > 0) {
+	if (!atomic_read(&ld->netif_stopped)) {
 		if (ld->msd)
 			netif_tx_flowctl(ld->msd, true);
 
@@ -1056,7 +1061,10 @@ int mif_request_irq(struct modem_irq *irq, irq_handler_t isr, void *data)
 		return ret;
 	}
 
+	enable_irq_wake(irq->num);
 	irq->active = true;
+	irq->registered = true;
+
 	mif_info("%s(#%d) handler registered (flags:0x%08lX)\n",
 		irq->name, irq->num, irq->flags);
 
@@ -1076,6 +1084,7 @@ void mif_enable_irq(struct modem_irq *irq)
 	}
 
 	enable_irq(irq->num);
+	enable_irq_wake(irq->num);
 
 	irq->active = true;
 
@@ -1090,6 +1099,9 @@ void mif_disable_irq(struct modem_irq *irq)
 {
 	unsigned long flags;
 
+	if (irq->registered == false)
+		return;
+
 	spin_lock_irqsave(&irq->lock, flags);
 
 	if (!irq->active) {
@@ -1099,6 +1111,7 @@ void mif_disable_irq(struct modem_irq *irq)
 	}
 
 	disable_irq_nosync(irq->num);
+	disable_irq_wake(irq->num);
 
 	irq->active = false;
 
@@ -1107,6 +1120,33 @@ void mif_disable_irq(struct modem_irq *irq)
 
 exit:
 	spin_unlock_irqrestore(&irq->lock, flags);
+}
+
+void mif_disable_irq_sync(struct modem_irq *irq)
+{
+	if (irq->registered == false)
+		return;
+
+	spin_lock(&irq->lock);
+
+	if (!irq->active) {
+		spin_unlock(&irq->lock);
+		mif_err("%s(#%d) is not active <%pf>\n",
+				irq->name, irq->num, CALLER);
+		return;
+	}
+
+	spin_unlock(&irq->lock);
+
+	disable_irq(irq->num);
+	enable_irq_wake(irq->num);
+
+	spin_lock(&irq->lock);
+	irq->active = false;
+	spin_unlock(&irq->lock);
+
+	mif_info("%s(#%d) is disabled <%pf>\n",
+		irq->name, irq->num, CALLER);
 }
 
 struct file *mif_open_file(const char *path)
@@ -1203,7 +1243,7 @@ void mif_set_snapshot(bool enable)
 {
 	if (!enable)
 		acpm_stop_log();
-	exynos_ss_set_enable("log_kevents", enable);
+	dbg_snapshot_set_enable("log_kevents", enable);
 }
 
 struct mif_buff_mng *init_mif_buff_mng(unsigned char *buffer_start,
@@ -1216,7 +1256,7 @@ struct mif_buff_mng *init_mif_buff_mng(unsigned char *buffer_start,
 		return NULL;
 	}
 
-	mif_info("Init mif_buffer management - buffer:%p, size:%u, cell_size:%u\n",
+	mif_info("Init mif_buffer management - buffer:%pK, size:%u, cell_size:%u\n",
 		buffer_start, buffer_size, cell_size);
 
 	bm = kzalloc(sizeof(struct mif_buff_mng), GFP_KERNEL);
@@ -1241,7 +1281,7 @@ struct mif_buff_mng *init_mif_buff_mng(unsigned char *buffer_start,
 		return NULL;
 	}
 
-	mif_info("cell_count:%u, map_size:%u, map_size_byte:%lu  buff_map:%p\n"
+	mif_info("cell_count:%u, map_size:%u, map_size_byte:%lu  buff_map:%pK\n"
 		, bm->cell_count, bm->buffer_map_size,
 		(sizeof(unsigned int) * bm->buffer_map_size), bm->buffer_map);
 
@@ -1359,7 +1399,7 @@ void *alloc_mif_buff(struct mif_buff_mng *bm)
 
 #ifdef MIF_BUFF_DEBUG
 	mif_info("location:%d cell_size:%u\n", location, bm->cell_size);
-	mif_info("buffer_allocated:%p\n", buff_allocated);
+	mif_info("buffer_allocated:%pK\n", buff_allocated);
 	mif_info("used/free: %u/%u\n", get_mif_buff_used_count(bm),
 			get_mif_buff_free_count(bm));
 #endif
@@ -1383,7 +1423,7 @@ int free_mif_buff(struct mif_buff_mng *bm, void *buffer)
 	addr_diff = (unsigned int)(uc_buffer - bm->buffer_start);
 
 	if (addr_diff > bm->buffer_size) {
-		mif_err("ERR Buffer:%p is not my pool one.\n", uc_buffer);
+		mif_err("ERR Buffer:%pK is not my pool one.\n", uc_buffer);
 		return -1;
 	}
 
@@ -1392,12 +1432,12 @@ int free_mif_buff(struct mif_buff_mng *bm, void *buffer)
 	j = location % MIF_BITS_FOR_MAP_CELL;
 
 #ifdef MIF_BUFF_DEBUG
-	mif_info("uc_buff:%p diff:%u\n", uc_buffer, addr_diff);
+	mif_info("uc_buff:%pK diff:%u\n", uc_buffer, addr_diff);
 	mif_info("location:%d i:%d j:%d\n", location, i, j);
 #endif
 
 	if ((bm->buffer_map[i] & (MIF_64BIT_FIRST_BIT >> j)) == 0) {
-		mif_err("ERR Buffer:%p is allready freed\n", uc_buffer);
+		mif_err("ERR Buffer:%pK is allready freed\n", uc_buffer);
 		return -1;
 	}
 

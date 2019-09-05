@@ -166,19 +166,10 @@ int fimc_is_devicemgr_open(struct fimc_is_devicemgr *devicemgr,
 		FIMC_BUG(!GET_VIDEO(sensor->vctx));
 
 		/* get the stream id */
-		if (sensor->instance == 3) {
-			/*
-			 * HACK: sensor stand alone such as secure camera
-			 * TODO: A ischain should not be used at sensor stand alone scenario.
-			 */
-			ischain = &core->ischain[3];
-			stream = 3;
-		} else {
-			for (stream = 0; stream < FIMC_IS_STREAM_COUNT; ++stream) {
-				ischain = &core->ischain[stream];
-				if (!test_bit(FIMC_IS_ISCHAIN_OPEN, &ischain->state))
-					break;
-			}
+		for (stream = 0; stream < FIMC_IS_STREAM_COUNT; ++stream) {
+			ischain = &core->ischain[stream];
+			if (!test_bit(FIMC_IS_ISCHAIN_OPEN, &ischain->state))
+				break;
 		}
 
 		FIMC_BUG(stream >= FIMC_IS_STREAM_COUNT);
@@ -279,18 +270,15 @@ int fimc_is_devicemgr_start(struct fimc_is_devicemgr *devicemgr,
 {
 	int ret = 0;
 	struct fimc_is_group *group = NULL;
-	struct fimc_is_group *child_group;
 	struct fimc_is_device_sensor *sensor;
+	struct fimc_is_group *child_group;
 	struct devicemgr_sensor_tag_data *tag_data;
 	u32 stream;
-	int i;
 
 	switch (type) {
 	case FIMC_IS_DEVICE_SENSOR:
 		sensor = (struct fimc_is_device_sensor *)device;
 		group = &sensor->group_sensor;
-		child_group = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, group);
-		stream = group->instance;
 
 		if (!test_bit(FIMC_IS_SENSOR_STAND_ALONE, &sensor->state) && sensor->ischain) {
 			ret = fimc_is_ischain_start_wrap(sensor->ischain, group);
@@ -308,11 +296,15 @@ int fimc_is_devicemgr_start(struct fimc_is_devicemgr *devicemgr,
 			}
 		}
 
-		/* Only in case of OTF case, used tasklet. */
-		if (sensor->ischain && child_group) {
-			for (i = 0; i < TAG_DATA_MAX; i++) {
-				tag_data = &devicemgr->sensor_tag_data[stream][i];
-				tasklet_init(&devicemgr->tasklet_sensor_tag[stream][i], tasklet_sensor_tag, (unsigned long)tag_data);
+		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
+			child_group = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, group);
+			stream = group->instance;
+
+			/* Only in case of OTF case, used tasklet. */
+			if (sensor->ischain && child_group) {
+				tag_data = &devicemgr->sensor_tag_data[stream];
+				tasklet_init(&devicemgr->tasklet_sensor_tag[stream],
+						tasklet_sensor_tag, (unsigned long)tag_data);
 			}
 		}
 		break;
@@ -333,21 +325,22 @@ int fimc_is_devicemgr_stop(struct fimc_is_devicemgr *devicemgr,
 {
 	int ret = 0;
 	struct fimc_is_group *group = NULL;
-	struct fimc_is_group *child_group;
 	struct fimc_is_device_sensor *sensor;
+	struct fimc_is_group *child_group;
 	u32 stream;
-	int i;
 
 	switch (type) {
 	case FIMC_IS_DEVICE_SENSOR:
 		sensor = (struct fimc_is_device_sensor *)device;
 		group = &sensor->group_sensor;
-		child_group = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, group);
-		stream = group->instance;
 
-		if (sensor->ischain && child_group)
-			for (i = 0; i < TAG_DATA_MAX; i++)
-				tasklet_kill(&devicemgr->tasklet_sensor_tag[stream][i]);
+		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
+			child_group = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, group);
+			stream = group->instance;
+
+			if (sensor->ischain && child_group)
+				tasklet_kill(&devicemgr->tasklet_sensor_tag[stream]);
+		}
 
 		if (!test_bit(FIMC_IS_SENSOR_STAND_ALONE, &sensor->state) && sensor->ischain) {
 			ret = fimc_is_ischain_stop_wrap(sensor->ischain, group);
@@ -426,7 +419,6 @@ int fimc_is_devicemgr_shot_callback(struct fimc_is_group *group,
 	struct fimc_is_devicemgr *devicemgr;
 	struct devicemgr_sensor_tag_data *tag_data;
 	u32 stream;
-	u32 index;
 
 	switch (type) {
 	case FIMC_IS_DEVICE_SENSOR:
@@ -460,23 +452,28 @@ int fimc_is_devicemgr_shot_callback(struct fimc_is_group *group,
 
 		break;
 	case FIMC_IS_DEVICE_ISCHAIN:
+		/* Only for sensor group with OTF */
+		if (group->head->device_type != FIMC_IS_DEVICE_SENSOR ||
+			frame->type != SHOT_TYPE_EXTERNAL) {
+			break;
+		}
+
 		devicemgr = group->device->devicemgr;
 		stream = group->instance;
-		index = devicemgr->tasklet_index[stream]++ % TAG_DATA_MAX;
 
-		tag_data = &devicemgr->sensor_tag_data[stream][index];
+		tag_data = &devicemgr->sensor_tag_data[stream];
 		tag_data->fcount = fcount;
 		tag_data->devicemgr = devicemgr;
 		tag_data->group = &devicemgr->sensor[stream]->group_sensor;
 		tag_data->stream = stream;
 
-		/* OTF */
-		if (frame->type == SHOT_TYPE_EXTERNAL &&
-			group->head->device_type == FIMC_IS_DEVICE_SENSOR) {
-			mgrdbgs(1, " DEVICE TASKLET(%d) schedule\n", group->device, group,
-								frame, index);
-			tasklet_schedule(&devicemgr->tasklet_sensor_tag[stream][index]);
+		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
+			mgrdbgs(1, " DEVICE TASKLET schedule\n", group->device, group, frame);
+			tasklet_schedule(&devicemgr->tasklet_sensor_tag[stream]);
+		} else {
+			tasklet_sensor_tag((unsigned long)tag_data);
 		}
+
 		break;
 	default:
 		mgerr("device type(%d) is invalid", group, group, group->device_type);

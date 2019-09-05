@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 #ifndef __ASM_GENERIC_SOCKET_H
 #define __ASM_GENERIC_SOCKET_H
 
@@ -92,15 +93,24 @@
 
 #define SO_CNX_ADVICE		53
 
-/* START_OF_KNOX_NPA */
-#define SO_SET_DOMAIN_NAME	55
-#define SO_SET_DNS_UID		56
-/* END_OF_KNOX_NPA */
+#define SCM_TIMESTAMPING_OPT_STATS	54
+
+#define SO_MEMINFO		55
+
+#define SO_INCOMING_NAPI_ID	56
 
 #define SO_COOKIE		57
 
-/* START_OF_KNOX_NPA */
-#define SO_SET_DNS_PID		58
-/* END_OF_KNOX_NPA */
+#define SCM_TIMESTAMPING_PKTINFO	58
+
+#define SO_PEERGROUPS		59
+
+#define SO_ZEROCOPY		60
+
+// KNOX NPA - START
+#define SO_SET_DOMAIN_NAME 1000
+#define SO_SET_DNS_UID 1001
+#define SO_SET_DNS_PID 1002
+// KNOX NPA - END
 
 #endif /* __ASM_GENERIC_SOCKET_H */

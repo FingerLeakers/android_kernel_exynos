@@ -74,7 +74,7 @@ static void parse_static_rules(const struct static_rule *rules, size_t max_len, 
 	int i;
 	size_t count;
 	const char *current_rule;
-#if (defined(DEFEX_PERMISSIVE_PED) || defined(DEFEX_PERMISSIVE_SP))
+#if (defined(DEFEX_PERMISSIVE_PED) || defined(DEFEX_PERMISSIVE_SP) || defined(DEFEX_PERMISSIVE_IM))
 	static const char permissive[2] = "2";
 #endif /* DEFEX_PERMISSIVE_**/
 
@@ -98,9 +98,16 @@ static void parse_static_rules(const struct static_rule *rules, size_t max_len, 
 			safeplace_status_store(global_safeplace_obj, NULL, current_rule, count);
 			break;
 #endif /* DEFEX_SAFEPLACE_ENABLE */
+#ifdef DEFEX_IMMUTABLE_ENABLE
+		case feature_immutable_status:
+#ifdef DEFEX_PERMISSIVE_IM
+			current_rule = permissive;
+#endif /* DEFEX_PERMISSIVE_IM */
+			immutable_status_store(global_immutable_obj, NULL, current_rule, count);
+			break;
+#endif /* DEFEX_IMMUTABLE_ENABLE */
 		}
 	}
-
 	printk(KERN_INFO "DEFEX_LSM started");
 }
 
@@ -289,10 +296,19 @@ int lookup_tree(const char *file_path, int attribute, struct file *f)
 			break;
 		if (cur_item->feature_type & attribute) {
 #ifdef DEFEX_INTEGRITY_ENABLE
-			if (defex_integrity_default(file_path)
-				&& defex_check_integrity(f, cur_item->integrity))
-				return DEFEX_INTEGRITY_FAIL;
+			/* Integrity acceptable only for files */
+			if (cur_item->feature_type & feature_is_file) {
+				if (defex_integrity_default(file_path)
+					&& defex_check_integrity(f, cur_item->integrity))
+					return DEFEX_INTEGRITY_FAIL;
+			}
 #endif /* DEFEX_INTEGRITY_ENABLE */
+			if (attribute & (feature_immutable_path_open | feature_immutable_path_write)
+				&& !(cur_item->feature_type & feature_is_file)) {
+				/* Allow open the folder by default */
+				if (!next_separator || *(ptr + l + 1) == 0)
+					return 0;
+			}
 			return 1;
 		}
 		base = cur_item;
@@ -307,8 +323,8 @@ int lookup_tree(const char *file_path, int attribute, struct file *f)
 int rules_lookup(const struct path *dpath, int attribute, struct file *f)
 {
 	int ret = 0;
+#if (defined(DEFEX_SAFEPLACE_ENABLE) || defined(DEFEX_IMMUTABLE_ENABLE) || defined(DEFEX_PED_ENABLE))
 	static const char system_root_txt[] = "/system_root";
-#if (defined(DEFEX_SAFEPLACE_ENABLE) || defined(DEFEX_PED_ENABLE))
 	char *target_file, *buff;
 #ifndef DEFEX_USE_PACKED_RULES
 	int i, count, end;
@@ -374,8 +390,18 @@ int defex_init_sysfs(void)
 		goto safeplace_error;
 #endif /* DEFEX_SAFEPLACE_ENABLE */
 
+#ifdef DEFEX_IMMUTABLE_ENABLE
+	global_immutable_obj = task_defex_create_immutable_obj(defex_kset);
+	if (!global_immutable_obj)
+		goto immutable_error;
+#endif /* DEFEX_IMMUTABLE_ENABLE */
+
 	parse_static_rules(defex_static_rules, STATIC_RULES_MAX_STR, static_rule_count);
 	return 0;
+
+#ifdef DEFEX_IMMUTABLE_ENABLE
+immutable_error:
+#endif /* DEFEX_IMMUTABLE_ENABLE */
 
 #ifdef DEFEX_SAFEPLACE_ENABLE
 	task_defex_destroy_safeplace_obj(global_safeplace_obj);

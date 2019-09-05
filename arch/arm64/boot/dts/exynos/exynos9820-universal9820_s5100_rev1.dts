@@ -17,6 +17,7 @@
 #include "exynos9820-universal9820_common.dtsi"
 #include "exynos9820-rmem_s5100_dual.dtsi"
 #include "exynos9820-universal9820-camera_rev5.dtsi"
+#include "exynos9820-mali.dtsi"
 
 / {
 	compatible = "samsung,exynos9820", "samsung,UNIVERSAL9820_s5100";

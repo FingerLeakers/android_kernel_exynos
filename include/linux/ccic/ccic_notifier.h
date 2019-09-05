@@ -34,11 +34,11 @@ typedef enum {
 	CCIC_NOTIFY_DEV_PDIC,
 	CCIC_NOTIFY_DEV_MUIC,
 	CCIC_NOTIFY_DEV_CCIC,
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 	CCIC_NOTIFY_DEV_MANAGER,
-#endif
 	CCIC_NOTIFY_DEV_DP,
 	CCIC_NOTIFY_DEV_USB_DP,
+	CCIC_NOTIFY_DEV_SUB_BATTERY,
+	CCIC_NOTIFY_DEV_SECOND_MUIC,
 } ccic_notifier_device_t;
 
 typedef enum {
@@ -46,9 +46,7 @@ typedef enum {
 	CCIC_NOTIFY_ID_ATTACH,
 	CCIC_NOTIFY_ID_RID,
 	CCIC_NOTIFY_ID_USB,
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 	CCIC_NOTIFY_ID_POWER_STATUS,
-#endif
 	CCIC_NOTIFY_ID_WATER,
 	CCIC_NOTIFY_ID_VCONN,
 	CCIC_NOTIFY_ID_DP_CONNECT,
@@ -58,6 +56,7 @@ typedef enum {
 	CCIC_NOTIFY_ID_ROLE_SWAP,
 	CCIC_NOTIFY_ID_FAC,
 	CCIC_NOTIFY_ID_CC_PIN_STATUS,
+	CCIC_NOTIFY_ID_WATER_CABLE,
 } ccic_notifier_id_t;
 
 typedef struct
@@ -120,6 +119,15 @@ typedef enum {
 	State_PE_SRC_Send_Capabilities = 3,
 	State_PE_SNK_Wait_for_Capabilities = 17,
 } ccic_notifier_pd_state_t;
+
+typedef enum
+{
+	Rp_None = 0,
+	Rp_56K = 1,	/* 80uA */
+	Rp_22K = 2,	/* 180uA */
+	Rp_10K = 3,	/* 330uA */
+	Rp_Abnormal = 4,
+} CCIC_RP_CurrentLvl;
 #endif
 
 /* ID = 2 : RID */
@@ -202,8 +210,8 @@ extern int ccic_notifier_register(struct notifier_block *nb,
 extern int ccic_notifier_unregister(struct notifier_block *nb);
 extern int ccic_notifier_init(void);
 
-#define CCIC_NOTI_DEST_NUM	(10)
-#define CCIC_NOTI_ID_NUM	(14)
+#define CCIC_NOTI_DEST_NUM	(12)
+#define CCIC_NOTI_ID_NUM	(15)
 #define CCIC_NOTI_RID_NUM	(8)
 #define CCIC_NOTI_USB_STATUS_NUM (5)
 #define CCIC_NOTI_PIN_STATUS_NUM	(8)

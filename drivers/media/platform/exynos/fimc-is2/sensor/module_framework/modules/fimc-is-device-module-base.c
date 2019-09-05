@@ -37,8 +37,82 @@
 #include "fimc-is-dt.h"
 #include "fimc-is-device-module-base.h"
 #include "interface/fimc-is-interface-library.h"
+#if defined(CONFIG_CAMERA_PDP)
 #include "pdp/fimc-is-pdp.h"
+#endif
+#if defined(CONFIG_CAMERA_PAFSTAT)
+#include "pafstat/fimc-is-pafstat.h"
+#endif
+#ifdef CAMERA_MODULE_DUAL_CAL_AVAILABLE_VERSION
 #include "fimc-is-sec-define.h"
+#endif
+
+int sensor_module_register_paf(struct fimc_is_module_enum *module, int ch)
+{
+	int ret = 0;
+
+#if defined(CONFIG_CAMERA_PDP)
+	ret = pdp_register(module, ch);
+#elif defined(CONFIG_CAMERA_PAFSTAT)
+	ret = pafstat_register(module, ch);
+#endif
+	if (ret) {
+		err("[MOD:%s] PAF register is fail(%d)", module->sensor_name, ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+int sensor_module_unregister_paf(struct fimc_is_module_enum *module)
+{
+	int ret = 0;
+
+#if defined(CONFIG_CAMERA_PDP)
+	ret = pdp_unregister(module);
+#elif defined(CONFIG_CAMERA_PAFSTAT)
+	ret = pafstat_unregister(module);
+#endif
+	if (ret) {
+		err("[MOD:%s] PAF unregister is fail(%d)", module->sensor_name, ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+int sensor_module_s_stream_paf(struct fimc_is_module_enum *module,
+	struct fimc_is_device_sensor_peri *sensor_peri,
+	struct fimc_is_sensor_cfg *cfg, int enable)
+{
+	int ret = 0;
+	struct v4l2_subdev_format fmt;
+	struct v4l2_subdev *subdev;
+
+#if defined(CONFIG_CAMERA_PDP)
+	subdev = sensor_peri->subdev_pdp;
+#elif defined(CONFIG_CAMERA_PAFSTAT)
+	subdev = sensor_peri->subdev_pafstat;
+#endif
+	if (subdev) {
+		fmt.format.width = cfg->width;
+		fmt.format.height = cfg->height;
+
+		ret = v4l2_subdev_call(subdev, pad, set_fmt, NULL, &fmt);
+		if (ret) {
+			err("[MOD:%s] PAF set_fmt is fail(%d)", module->sensor_name, ret);
+			return ret;
+		}
+
+		ret = v4l2_subdev_call(subdev, video, s_stream, enable ? cfg->pd_mode : PD_NONE);
+		if (ret) {
+			err("[MOD:%s] PAF s_stream is fail(%d)", module->sensor_name, ret);
+			return ret;
+		}
+	}
+
+	return ret;
+}
 
 int sensor_module_power_reset(struct v4l2_subdev *subdev, struct fimc_is_device_sensor *device)
 {
@@ -52,15 +126,7 @@ int sensor_module_power_reset(struct v4l2_subdev *subdev, struct fimc_is_device_
 	if (ret)
 		err("gpio off is fail(%d)", ret);
 
-	ret = fimc_is_sensor_mclk_off(device, device->pdata->scenario, module->pdata->mclk_ch);
-	if (ret)
-		err("fimc_is_sensor_mclk_off is fail(%d)", ret);
-
 	usleep_range(10000, 10000);
-
-	ret = fimc_is_sensor_mclk_on(device, device->pdata->scenario, module->pdata->mclk_ch);
-	if (ret)
-		err("fimc_is_sensor_mclk_on is fail(%d)", ret);
 
 	ret = fimc_is_sensor_gpio_on(device);
 	if (ret)
@@ -80,7 +146,9 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 	struct v4l2_subdev *subdev_cis = NULL;
 	struct v4l2_subdev *subdev_actuator = NULL;
 	struct v4l2_subdev *subdev_flash = NULL;
+#ifndef CONFIG_CAMERA_USE_MCU
 	struct v4l2_subdev *subdev_aperture = NULL;
+#endif
 	struct v4l2_subdev *subdev_ois = NULL;
 	struct fimc_is_preprocessor *preprocessor = NULL;
 	struct v4l2_subdev *subdev_preprocessor = NULL;
@@ -103,9 +171,6 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		FIMC_BUG(!preprocessor);
 	}
 	memset(&sensor_peri->sensor_interface, 0, sizeof(struct fimc_is_sensor_interface));
-#ifdef CONFIG_COMPANION_DIRECT_USE
-	memset(&sensor_peri->preprocessor_inferface, 0, sizeof(struct fimc_is_preprocessor_interface));
-#endif
 
 	if (sensor_peri->actuator) {
 		memset(&sensor_peri->actuator->pre_position, 0, sizeof(u32 [EXPECT_DM_NUM]));
@@ -124,13 +189,6 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 	pdata = module->pdata;
 	FIMC_BUG(!pdata);
 
-#ifdef CONFIG_COMPANION_DIRECT_USE
-	ret = init_preprocessor_interface(&sensor_peri->preprocessor_inferface);
-	if (ret) {
-		err("failed in init_preprocessor_interface, return: %d", ret);
-		goto p_err;
-	}
-#endif
 	/* wait preproc s_input before init sensor mode change */
 	if (subdev_preprocessor) {
 		ret = CALL_PREPROPOPS(preprocessor, preprocessor_wait_s_input, subdev_preprocessor);
@@ -140,22 +198,25 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		}
 	}
 
-	ret = CALL_CISOPS(&sensor_peri->cis, cis_check_rev, subdev_cis);
+#ifdef CONFIG_VENDER_MCD
+	ret = CALL_CISOPS(&sensor_peri->cis, cis_check_rev_on_init, subdev_cis);
 	if (ret < 0) {
 		device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev_cis);
 		if (device != NULL && ret == -EAGAIN) {
 			err("Checking sensor revision is fail. So retry camera power sequence.");
 			sensor_module_power_reset(subdev, device);
-			ret = CALL_CISOPS(&sensor_peri->cis, cis_check_rev, subdev_cis);
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_check_rev_on_init, subdev_cis);
 			if (ret < 0) {
 #ifdef USE_CAMERA_HW_BIG_DATA
 				fimc_is_sec_get_hw_param(&hw_param, sensor_peri->module->position);
 				if (hw_param)
 					hw_param->i2c_sensor_err_cnt++;
 #endif
+				goto p_err;
 			}
 		}
 	}
+#endif
 
 	/* init kthread for sensor register setting when s_format */
 	ret = fimc_is_sensor_init_mode_change_thread(sensor_peri);
@@ -167,6 +228,13 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_init, subdev_cis);
 	if (ret) {
 		err("v4l2_subdev_call(init) is fail(%d)", ret);
+		goto p_err;
+	}
+
+	/* set initial ae setting if initial_ae feature is supported */
+	ret = CALL_CISOPS(&sensor_peri->cis, cis_set_initial_exposure, subdev_cis);
+	if (ret) {
+		err("v4l2_subdev_call(set_initial_exposure) is fail(%d)", ret);
 		goto p_err;
 	}
 
@@ -189,23 +257,24 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		}
 	}
 #endif
-	if (subdev_ois != NULL) {
-		ret = CALL_OISOPS(sensor_peri->ois, ois_init, sensor_peri->subdev_ois);
+
+
+	if (sensor_peri->mcu && sensor_peri->mcu->ois != NULL) {
+		ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_init, sensor_peri->subdev_mcu);
 		if (ret < 0) {
 			err("v4l2_subdev_call(ois_init) is fail(%d)", ret);
 			return ret;
 		}
-		subdev_aperture = sensor_peri->subdev_aperture;
-		if (subdev_aperture != NULL)
-			schedule_work(&sensor_peri->ois->ois_set_init_work);
 	}
 
+#ifndef CONFIG_CAMERA_USE_MCU
 	subdev_aperture = sensor_peri->subdev_aperture;
 	if (subdev_aperture != NULL) {
 		ret = v4l2_subdev_call(subdev_aperture, core, init, 0);
 		if (ret)
 			err("[%s] aperture init fail\n", __func__);
 	}
+#endif
 
 	if (test_bit(FIMC_IS_SENSOR_ACTUATOR_AVAILABLE, &sensor_peri->peri_state) &&
 			pdata->af_product_name != ACTUATOR_NAME_NOTHING && sensor_peri->actuator != NULL) {
@@ -232,7 +301,6 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		}
 	}
 
-#ifdef CONFIG_COMPANION_DIRECT_USE
 	if (test_bit(FIMC_IS_SENSOR_PREPROCESSOR_AVAILABLE, &sensor_peri->peri_state) &&
 			pdata->preprocessor_product_name != PREPROCESSOR_NAME_NOTHING) {
 
@@ -245,7 +313,6 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 			goto p_err;
 		}
 	}
-#endif
 
 	pr_info("[MOD:%s] %s(%d)\n", module->sensor_name, __func__, val);
 
@@ -260,6 +327,9 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
 	struct fimc_is_preprocessor *preprocessor = NULL;
 	struct v4l2_subdev *subdev_preprocessor = NULL;
+#ifdef APERTURE_CLOSE_VALUE
+	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
+#endif
 
 	FIMC_BUG(!subdev);
 
@@ -279,25 +349,38 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 	/* kthread stop to sensor setting when s_format */
 	fimc_is_sensor_deinit_mode_change_thread(sensor_peri);
 
-	if (sensor_peri->aperture) {
+	if (sensor_peri->subdev_cis) {
+		CALL_CISOPS(&sensor_peri->cis, cis_deinit, sensor_peri->subdev_cis);
+	}
+
+	if (sensor_peri->mcu && sensor_peri->mcu->aperture) {
 		/* wait until aperture operation end */
-		flush_work(&sensor_peri->aperture->aperture_set_start_work);
-		flush_work(&sensor_peri->aperture->aperture_set_work);
+		flush_work(&sensor_peri->mcu->aperture->aperture_set_start_work);
+		flush_work(&sensor_peri->mcu->aperture->aperture_set_work);
 
 #ifdef APERTURE_CLOSE_VALUE
-		if (sensor_peri->aperture->cur_value != APERTURE_CLOSE_VALUE
-			&& sensor_peri->aperture->step == APERTURE_STEP_STATIONARY) {
-			ret = CALL_APERTUREOPS(sensor_peri->aperture, aperture_deinit,
-				sensor_peri->subdev_aperture, APERTURE_CLOSE_VALUE);
-			if (ret < 0)
-				err("[%s] aperture_deinit failed\n", __func__);
+		if (core->vender.closing_hint != IS_CLOSING_HINT_SWITCHING) {
+			if (sensor_peri->mcu->aperture->cur_value != APERTURE_CLOSE_VALUE
+				&& sensor_peri->mcu->aperture->step == APERTURE_STEP_STATIONARY) {
+				ret = CALL_APERTUREOPS(sensor_peri->mcu->aperture, aperture_deinit,
+					sensor_peri->subdev_mcu, APERTURE_CLOSE_VALUE);
+				if (ret < 0)
+					err("[%s] aperture_deinit failed\n", __func__);
+			}
 		}
 #endif
 	}
 
-#ifdef CONFIG_OIS_USE_RUMBA_S6
+#if defined (CONFIG_OIS_USE_RUMBA_S6)
 	if (sensor_peri->subdev_ois != NULL) {
 		ret = CALL_OISOPS(sensor_peri->ois, ois_deinit, sensor_peri->subdev_ois);
+		if (ret < 0) {
+			err("v4l2_subdev_call(ois_deinit) is fail(%d)", ret);
+		}
+	}
+#elif defined (CONFIG_CAMERA_USE_MCU)
+	if (sensor_peri->mcu && sensor_peri->mcu->ois) {
+		ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_deinit, sensor_peri->subdev_mcu);
 		if (ret < 0) {
 			err("v4l2_subdev_call(ois_deinit) is fail(%d)", ret);
 		}
@@ -454,6 +537,15 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			goto p_err;
 		}
 		break;
+	case V4L2_CID_SENSOR_GET_PD_VALUE:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_laser_photo_diode, sensor_peri->subdev_cis, (u16*)&ctrl->value);
+		info("%s value :%d",__func__,ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
 	case V4L2_CID_SENSOR_ADJUST_ANALOG_GAIN:
 		/* TODO: v4l2 g_ctrl cannot support adjust function */
 #if 0
@@ -526,6 +618,33 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		break;
 	case V4L2_CID_SENSOR_GET_SSM_THRESHOLD:
 		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_super_slow_motion_threshold,
+				sensor_peri->subdev_cis, &ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_GET_SSM_GMC:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_super_slow_motion_gmc,
+				sensor_peri->subdev_cis, &ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_GET_SSM_FRAMEID:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_super_slow_motion_frame_id,
+				sensor_peri->subdev_cis, &ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_GET_SSM_MD_THRESHOLD:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_super_slow_motion_md_threshold,
 				sensor_peri->subdev_cis, &ctrl->value);
 		if (ret < 0) {
 			err("err!!! ret(%d)", ret);
@@ -608,14 +727,15 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		}
 		break;
 	case V4L2_CID_ACTUATOR_SET_POSITION:
-		if (sensor_peri->subdev_ois != NULL) {
-			ret = CALL_OISOPS(sensor_peri->ois, ois_shift_compensation, sensor_peri->subdev_ois, ctrl->value,
+		if (sensor_peri->mcu && sensor_peri->mcu->ois) {
+			ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_shift_compensation, sensor_peri->subdev_mcu, ctrl->value,
 								sensor_peri->actuator->pos_size_bit);
 			if (ret < 0) {
 				err("ois shift compensation fail");
 				goto p_err;
 			}
 		}
+
 		ret = v4l2_subdev_call(sensor_peri->subdev_actuator, core, s_ctrl, ctrl);
 		if (ret < 0) {
 			err("[MOD:%d] v4l2_subdev_call(s_ctrl, id:%d) is fail(%d)",
@@ -669,6 +789,44 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			sensor_peri->subdev_cis, ctrl->value);
 		if (ret < 0) {
 			err("failed to control super slow motion: %d\n", ctrl->value);
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_SET_SSM_FLICKER:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_super_slow_motion_flicker,
+			sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to control super slow motion: %d\n", ctrl->value);
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_SET_SSM_GMC_TABLE_IDX:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_super_slow_motion_gmc_table_idx,
+			sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to control super slow motion: %d\n", ctrl->value);
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_SET_SSM_GMC_BLOCK:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_super_slow_motion_gmc_block_with_md_low,
+			sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to control super slow motion: %d\n", ctrl->value);
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_SET_FACTORY_CONTROL:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_factory_control, sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to factory control: %d\n", ctrl->value);
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_SENSOR_SET_LASER_CONTORL:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_laser_control, sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to laser control: %d\n", ctrl->value);
 			goto p_err;
 		}
 		break;
@@ -741,44 +899,26 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 			}
 			break;
 
-		case V4L2_CID_IS_GET_DUAL_CAL: {
-#ifdef CAMERA_MODULE_DUAL_CAL_AVAILABLE_VERSION
+		case V4L2_CID_IS_GET_DUAL_CAL:
+		{
+#ifdef CONFIG_VENDER_MCD
 			char *dual_cal = NULL;
-			struct fimc_is_from_info *finfo = NULL;
-			bool ver_valid = false;
 			int cal_size = 0;
 
-			fimc_is_sec_get_sysfs_finfo(&finfo);
-			ver_valid = fimc_is_sec_check_from_ver(core, SENSOR_POSITION_REAR);
-			if (ver_valid == false || finfo->header_ver[10] < CAMERA_MODULE_DUAL_CAL_AVAILABLE_VERSION) {
-				err("FROM version is low. Not apply dual cal.");
-				ret = -EINVAL;
-				goto p_err;
-			} else {
-				char *cal_buf;
-				u8 dummy_flag = 0;
-
-				fimc_is_sec_get_cal_buf(&cal_buf);
-				dummy_flag = cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR];
-
-				if (dummy_flag == 7) {
-					fimc_is_get_rear_dual_cal_buf(&dual_cal, &cal_size);
-					ret = copy_to_user(ext_ctrl->ptr, dual_cal, cal_size);
-					if (ret) {
-						err("failed copying %d bytes of data\n", ret);
-						ret = -EINVAL;
-						goto p_err;
-					}
-				} else {
-					err("invalid dummy_flag in dual cal.(%d)", dummy_flag);
+			ret = fimc_is_get_dual_cal_buf(device->position, &dual_cal, &cal_size);
+			if (ret == 0) {
+				info("dual cal[%d] : ver[%d]", device->position, *((s32 *)dual_cal));
+				ret = copy_to_user(ext_ctrl->ptr, dual_cal, cal_size);
+				if (ret) {
+					err("failed copying %d bytes of data\n", ret);
 					ret = -EINVAL;
 					goto p_err;
 				}
+			} else {
+				err("failed to fimc_is_get_dual_cal_buf : %d\n", ret);
+				ret = -EINVAL;
+				goto p_err;
 			}
-#else
-			err("Available version is not defined. Not apply dual cal.");
-			ret = -EINVAL;
-			goto p_err;
 #endif
 			break;
 		}
@@ -800,49 +940,71 @@ p_err:
 	return ret;
 }
 
-int sensor_module_s_stream(struct v4l2_subdev *subdev, int enable)
+int sensor_module_s_routing(struct v4l2_subdev *sd, u32 input, u32 output, u32 config)
 {
 	int ret = 0;
-	struct fimc_is_device_sensor *device = NULL;
-	struct fimc_is_module_enum *module = NULL;
-	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+	struct fimc_is_device_sensor *sensor;
+	struct fimc_is_module_enum *module;
+	struct fimc_is_device_sensor_peri *sensor_peri;
+	int paf_ch;
 
-	FIMC_BUG(!subdev);
+	sensor = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(sd);
+	module = (struct fimc_is_module_enum *)v4l2_get_subdevdata(sd);
+	paf_ch = (sensor->ischain->group_3aa.id == GROUP_ID_3AA1) ? 1 : 0;
 
-	module = (struct fimc_is_module_enum *)v4l2_get_subdevdata(subdev);
-	FIMC_BUG(!module);
+	if (config) {
+		ret = sensor_module_register_paf(module, paf_ch);
+		if (ret) {
+			err("[MOD:%s] PAF(%d) failed to register(%d)",
+					module->sensor_name, paf_ch, ret);
+		}
+	} else {
+		sensor_peri = (struct fimc_is_device_sensor_peri *)module->private_data;
 
+		if (test_bit(FIMC_IS_SENSOR_PDP_AVAILABLE, &sensor_peri->peri_state)
+				|| test_bit(FIMC_IS_SENSOR_PAFSTAT_AVAILABLE,
+					&sensor_peri->peri_state)) {
+			ret = sensor_module_unregister_paf(module);
+			if (ret) {
+				err("[MOD:%s] PAF(%d) failed to unregister(%d)",
+						module->sensor_name, paf_ch, ret);
+			}
+		}
+	}
+
+	return ret;
+}
+
+int sensor_module_s_stream(struct v4l2_subdev *sd, int enable)
+{
+	int ret, paf_ch;
+	struct fimc_is_device_sensor *sensor;
+	struct fimc_is_sensor_cfg *cfg;
+	struct fimc_is_module_enum *module;
+	struct fimc_is_device_sensor_peri *sensor_peri;
+
+	sensor = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(sd);
+	module = (struct fimc_is_module_enum *)v4l2_get_subdevdata(sd);
 	sensor_peri = (struct fimc_is_device_sensor_peri *)module->private_data;
-	FIMC_BUG(!sensor_peri);
+	paf_ch = (sensor->ischain->group_3aa.id == GROUP_ID_3AA1) ? 1 : 0;
+	cfg = sensor->cfg;
 
-	device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
-	FIMC_BUG(!device);
-
-	/* PDP subdev control */
 	if (enable) {
-		int pdp_ch = (device->ischain->group_3aa.id == GROUP_ID_3AA0) ? 0 : 1;
-		struct fimc_is_sensor_cfg *cfg = device->cfg;
-		struct v4l2_subdev *subdev_pdp;
-		struct v4l2_subdev_format fmt;
+#if defined(CONFIG_CAMERA_PAFSTAT)
+		if (test_bit(FIMC_IS_SENSOR_PAFSTAT_AVAILABLE, &sensor_peri->peri_state))
+			CALL_PAFSTATOPS(sensor_peri->pafstat, set_num_buffers,
+				sensor_peri->subdev_pafstat,
+				sensor->num_buffers,
+				cfg->mipi_speed);
+#endif
 
-		ret = pdp_register(module, pdp_ch);
-		if (ret == 0) {
-			subdev_pdp = sensor_peri->subdev_pdp;
-			if (subdev_pdp) {
-				fmt.format.width = cfg->width;
-				fmt.format.height = cfg->height;
-
-				ret = v4l2_subdev_call(subdev_pdp, pad, set_fmt, NULL, &fmt);
-				if (ret) {
-					err("[MOD:%s] PDP set_fmt is fail(%d)", module->sensor_name, ret);
-					goto err_pdp_set_fmt;
-				}
-
-				ret = v4l2_subdev_call(subdev_pdp, video, s_stream, cfg->pd_mode);
-				if (ret) {
-					err("[MOD:%s] PDP s_stream is fail(%d)", module->sensor_name, ret);
-					goto err_pdp_s_stream;
-				}
+		if (test_bit(FIMC_IS_SENSOR_PDP_AVAILABLE, &sensor_peri->peri_state)
+				|| test_bit(FIMC_IS_SENSOR_PAFSTAT_AVAILABLE,
+					&sensor_peri->peri_state)) {
+			ret = sensor_module_s_stream_paf(module, sensor_peri, cfg, enable);
+			if (ret) {
+				err("[MOD:%s] PAF(%d) s_stream is fail(%d)", module->sensor_name, paf_ch, ret);
+				goto err_paf_s_stream;
 			}
 		}
 
@@ -850,7 +1012,7 @@ int sensor_module_s_stream(struct v4l2_subdev *subdev, int enable)
 		 * Camera first mode set high speed recording and maintain 120fps
 		 * not setting exposure so need to this check
 		 */
-		if (sensor_peri->cis.cis_data->video_mode == true && device->cfg->framerate >= 60) {
+		if (sensor_peri->cis.cis_data->video_mode == true && cfg->framerate >= 60) {
 			sensor_peri->sensor_interface.diff_bet_sen_isp
 				= sensor_peri->sensor_interface.otf_flag_3aa ? DIFF_OTF_DELAY + 1 : DIFF_M2M_DELAY;
 			if (fimc_is_sensor_init_sensor_thread(sensor_peri))
@@ -860,11 +1022,20 @@ int sensor_module_s_stream(struct v4l2_subdev *subdev, int enable)
 				= sensor_peri->sensor_interface.otf_flag_3aa ? DIFF_OTF_DELAY : DIFF_M2M_DELAY;
 		}
 	} else {
-		pdp_unregister(module);
+		if (test_bit(FIMC_IS_SENSOR_PDP_AVAILABLE, &sensor_peri->peri_state)
+				|| test_bit(FIMC_IS_SENSOR_PAFSTAT_AVAILABLE,
+					&sensor_peri->peri_state)) {
+			ret = sensor_module_s_stream_paf(module, sensor_peri, cfg, enable);
+			if (ret) {
+				err("[MOD:%s] PAF(%d) s_stream is fail(%d)", module->sensor_name, paf_ch, ret);
+				goto err_paf_s_stream;
+			}
+		}
+
 		fimc_is_sensor_deinit_sensor_thread(sensor_peri);
 	}
 
-	ret = fimc_is_sensor_peri_s_stream(device, enable);
+	ret = fimc_is_sensor_peri_s_stream(sensor, enable);
 	if (ret) {
 		err("[MOD] fimc_is_sensor_peri_s_stream is fail(%d)", ret);
 		goto err_peri_s_stream;
@@ -873,9 +1044,16 @@ int sensor_module_s_stream(struct v4l2_subdev *subdev, int enable)
 	return 0;
 
 err_peri_s_stream:
-err_pdp_s_stream:
-err_pdp_set_fmt:
-	pdp_unregister(module);
+err_paf_s_stream:
+	if (test_bit(FIMC_IS_SENSOR_PDP_AVAILABLE, &sensor_peri->peri_state)
+			|| test_bit(FIMC_IS_SENSOR_PAFSTAT_AVAILABLE,
+				&sensor_peri->peri_state)) {
+		ret = sensor_module_unregister_paf(module);
+		if (ret) {
+			err("[MOD:%s] PAF(%d) failed to unregister(%d)",
+					module->sensor_name, paf_ch, ret);
+		}
+	}
 
 	return ret;
 }
@@ -898,6 +1076,7 @@ int sensor_module_s_format(struct v4l2_subdev *subdev,
 	struct v4l2_subdev *subdev_preprocessor = NULL;
 	struct fimc_is_cis *cis = NULL;
 	struct fimc_is_preprocessor *preprocessor = NULL;
+	struct fimc_is_core *core = NULL;
 
 	FIMC_BUG(!subdev);
 
@@ -919,6 +1098,9 @@ int sensor_module_s_format(struct v4l2_subdev *subdev,
 
 	device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
 	FIMC_BUG(!device);
+
+	core = (struct fimc_is_core *)platform_get_drvdata(device->pdev);
+	BUG_ON(!core);
 
 	subdev_preprocessor = sensor_peri->subdev_preprocessor;
 

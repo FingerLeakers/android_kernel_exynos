@@ -77,14 +77,11 @@ void __add_flow(struct sauron* sauron, struct eye * eye , int cpu , u32 gro)
  * */
 struct eye* __search_flow_rcu(struct sauron* sauron, u32 hash)
 {
-    unsigned int idx = hash % HASH_SIZE(sauron->sauron_eyes);
-    struct eye* eye;
+    unsigned int idx = (unsigned int)(hash % HASH_SIZE(sauron->sauron_eyes));
+    struct eye* eye = NULL;
 
     hlist_for_each_entry_rcu(eye , &sauron->sauron_eyes[idx] , eye_hash_node)
     {
-        if(eye == NULL)
-            continue;
-
         if(eye->hash == hash)
             return eye;
     }
@@ -110,15 +107,12 @@ error :
 }
 
 struct eye* search_flow_lock(struct sauron * sauron , u32 hash) {
-    unsigned int idx = hash % HASH_SIZE(sauron->sauron_eyes);
-    struct eye* eye;
-    struct hlist_node *temp;
+    unsigned int idx = (unsigned int)(hash % HASH_SIZE(sauron->sauron_eyes));
+    struct eye* eye = NULL;
+    struct hlist_node *temp = NULL;
 
     hlist_for_each_entry_safe(eye, temp , &sauron->sauron_eyes[idx], eye_hash_node)
     {
-        if(eye == NULL)
-            continue;
-
         if (eye->hash == hash)
             return eye;
     }
@@ -277,7 +271,7 @@ struct eye* add_flow(struct sk_buff* skb , unsigned int hash, int cpu, u32 gro)
 
     rcu_read_lock();
     sauron = rcu_dereference(mcps->sauron_body);
-    idx = hash % HASH_SIZE(sauron->sauron_eyes);
+    idx = (unsigned int)(hash % HASH_SIZE(sauron->sauron_eyes));
     spin_lock(&sauron->sauron_eyes_lock);
     // I think we should re-find hash value... cuz RCU
     if(search_flow_lock(sauron , hash)) {

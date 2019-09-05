@@ -6,20 +6,35 @@ menuconfig SEC_SIPC_MODEM_IF
 
 if SEC_SIPC_MODEM_IF
 
+config SEC_MODEM_S5000AP
+	bool "Exynos ModAP S5xxxAP"
+	select UMTS_MODEM_S5000AP
+	select LINK_DEVICE_SHMEM
+	select CP_SECURE_BOOT
+	select CP_RAM_LOGGING
+	select LINK_DEVICE_NAPI
+	select CP_ZEROCOPY
+	select MODEM_IF_NET_GRO
+	select CP_LINEAR_WA
+	select CP_ETDAC_OTP_WA
+	default n
+
+config SEC_MODEM_S5100
+	bool "Exynos S51xx"
+	select UMTS_MODEM_S5100
+	select BOOT_DEVICE_SPI
+	select LINK_DEVICE_PCIE
+	select LINK_DEVICE_NAPI
+	default n
+
 config SEC_MODEM_SS310AP
-	bool "Exynos8895 and SS310 feature"
+	bool "Exynos ModAP S3xxAP"
 	select UMTS_MODEM_SS310AP
 	select LINK_DEVICE_SHMEM
 	select CP_SECURE_BOOT
 	select CP_RAM_LOGGING
-	default y
-
-config CP_ZEROCOPY
-	bool "Support zero memory copy"
-	default y
-
-config CP_SMAPPER
-	bool "Support SMAPPER"
+	select LINK_DEVICE_NAPI
+	select CP_ZEROCOPY
 	default n
 
 menu "Configuration Description"
@@ -51,6 +66,27 @@ config LINK_DEVICE_NAPI
 	NAPI is a new driver API designed to reduce CPU and interrupt load
 	when the driver is receiving lots of packets.
 
+config CP_ZEROCOPY
+	bool "Support zero memory copy"
+	default n
+
+config CP_DIT
+	bool "Support DIT"
+	depends on CP_ZEROCOPY || CP_PKTPROC
+	default n
+	help
+	DIT (Direct Internet packet Transfer engine)
+
+config CP_LINEAR_WA
+	bool "CP linear mode work-around for Exynos9820"
+	default n
+
+config CP_PKTPROC
+	bool "Support packet processor"
+	default n
+	help
+	Packet processor
+
 config LINK_DEVICE_C2C
 	bool "Pseudo shared-memory with chip-to-chip (C2C) interface"
 	select LINK_DEVICE_MEMORY
@@ -73,12 +109,24 @@ config LINK_DEVICE_HSIC
 	bool "link device: HSIC"
 	default n
 
+config LINK_DEVICE_PCIE
+	bool "modem driver link device PCIe"
+	default n
+
 config LTE_MODEM_XMM7260
 	bool "modem chip : IMC XMM7260"
 	default n
 
 config UMTS_MODEM_SS310AP
-	bool "modem chip : SS310 with exynos7580"
+	bool "modem chip : Exynos ModAP S3xxAP"
+	default n
+
+config UMTS_MODEM_S5000AP
+	bool "modem chip : Exynos ModAP S5xxxAP"
+	default n
+
+config UMTS_MODEM_S5100
+	bool "modem chip : Exynos S5100(2chip)"
 	default n
 
 config DEBUG_PKTLOG
@@ -118,6 +166,14 @@ config MODEM_IF_NET_GRO
 	default n
 	---help---
 	 This enables GRO(Generic Receive Offload) feature
+
+config CP_ETDAC_OTP_WA
+	bool "Support CP ET-DAC OTP"
+	default n
+
+config KLAT
+	bool "kernel CLAT"
+	default n
 
 endmenu
 endif

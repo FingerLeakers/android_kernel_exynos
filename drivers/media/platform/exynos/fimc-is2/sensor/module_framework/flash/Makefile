@@ -12,6 +12,3 @@ EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/vendor
 EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/hardware/api
 EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor/module_framework
 EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/sensor
-ifeq ($(CONFIG_COMPANION_DIRECT_USE),y)
-EXTRA_CFLAGS += -Idrivers/media/platform/exynos/fimc-is2/vendor/mcd/preprocessor
-endif

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 # ==========================================================================
 # Installing dtb files
 #
@@ -14,17 +15,11 @@ src := $(obj)
 PHONY := __dtbs_install
 __dtbs_install:
 
-export dtbinst-root ?= $(obj)
+export dtbinst_root ?= $(obj)
 
 include include/config/auto.conf
 include scripts/Kbuild.include
 include $(src)/Makefile
-
-PHONY += __dtbs_install_prep
-__dtbs_install_prep:
-ifeq ("$(dtbinst-root)", "$(obj)")
-	$(Q)mkdir -p $(INSTALL_DTBS_PATH)
-endif
 
 dtbinst-files	:= $(dtb-y)
 dtboinst-files	:= $(dtbo-y)

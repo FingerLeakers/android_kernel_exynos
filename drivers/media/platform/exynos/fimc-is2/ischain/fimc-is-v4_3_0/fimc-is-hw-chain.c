@@ -335,6 +335,10 @@ int fimc_is_hw_group_open(void *group_data)
 	return ret;
 }
 
+void fimc_is_hw_camif_init(void)
+{
+}
+
 int fimc_is_hw_camif_cfg(void *sensor_data)
 {
 	int ret = 0;
@@ -521,7 +525,7 @@ int fimc_is_hw_ischain_cfg(void *ischain_data)
 	csi = (struct fimc_is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
 
 	/* checked single/dual camera */
-	for (i = 0; i < FIMC_IS_STREAM_COUNT; i++)
+	for (i = 0; i < FIMC_IS_SENSOR_COUNT; i++)
 		if (test_bit(FIMC_IS_SENSOR_OPEN, &(core->sensor[i].state)))
 			sensor_cnt++;
 
@@ -1585,4 +1589,16 @@ void __iomem *fimc_is_hw_get_sysreg(ulong core_regs)
 		sysregs = NULL;
 
 	return sysregs;
+}
+
+void fimc_is_hw_djag_get_input(struct mcsc_scenario_info *info, u32 *djag_in)
+{
+	/* Do nothing. */
+}
+
+void fimc_is_hw_djag_adjust_out_size(struct fimc_is_device_ischain *ischain,
+					u32 in_width, u32 in_height,
+					u32 *out_width, u32 *out_height)
+{
+	/* Do nothing. */
 }

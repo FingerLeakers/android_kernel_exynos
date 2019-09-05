@@ -51,6 +51,11 @@ CONFIG_DEBUG_PI_LIST=y
 CONFIG_DEBUG_SG=y
 
 #
+# LCD eng feature
+#
+CONFIG_EXYNOS_LCD_ENG=y
+
+#
 # DS5 enable setup
 #
 CONFIG_HW_PERF_EVENTS=y

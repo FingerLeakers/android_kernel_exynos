@@ -1,0 +1,10 @@
+comment "Samsung LABO Options"
+config SEC_LABO
+	bool "Samsung LABO Feature"
+	depends on SEC_STI
+	depends on SEC_FACTORY
+	default y
+	help
+	  Samsung LABO Driver Feature
+	  This driver is to support LABO APK
+	  It depends on SEC_STI Feature

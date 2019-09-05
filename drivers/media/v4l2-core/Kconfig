@@ -6,6 +6,7 @@
 config VIDEO_V4L2
 	tristate
 	depends on (I2C || I2C=n) && VIDEO_DEV
+	select RATIONAL
 	default (I2C || I2C=n) && VIDEO_DEV
 
 config VIDEO_ADV_DEBUG
@@ -54,6 +55,9 @@ config V4L2_FLASH_LED_CLASS
 
 	  When in doubt, say N.
 
+config V4L2_FWNODE
+	tristate
+
 # Used by drivers that need Videobuf modules
 config VIDEOBUF_GEN
 	tristate
@@ -101,12 +105,6 @@ config VIDEOBUF2_VMALLOC
 config VIDEOBUF2_DMA_SG
 	tristate
 	depends on HAS_DMA
-	select VIDEOBUF2_CORE
-	select VIDEOBUF2_MEMOPS
-
-config  VIDEOBUF2_ION
-	bool "Video buffer 2 by Android ION"
-	depends on ION_EXYNOS
 	select VIDEOBUF2_CORE
 	select VIDEOBUF2_MEMOPS
 

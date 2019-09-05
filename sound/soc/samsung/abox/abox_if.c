@@ -20,6 +20,7 @@
 
 #include "abox_util.h"
 #include "abox.h"
+#include "abox_cmpnt.h"
 #include "abox_if.h"
 
 static int abox_if_startup(struct snd_pcm_substream *substream,
@@ -31,11 +32,11 @@ static int abox_if_startup(struct snd_pcm_substream *substream,
 	struct abox_data *abox_data = data->abox_data;
 	int ret;
 
-	dev_info(dev, "%s[%c]\n", __func__,
+	dev_dbg(dev, "%s[%c]\n", __func__,
 			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
 			'C' : 'P');
 
-	abox_request_cpu_gear(dev, abox_data, dai, abox_data->cpu_gear_min);
+	abox_request_cpu_gear_dai(dev, abox_data, dai, abox_data->cpu_gear_min);
 	ret = clk_enable(data->clk_bclk);
 	if (ret < 0) {
 		dev_err(dev, "Failed to enable bclk: %d\n", ret);
@@ -63,13 +64,13 @@ static void abox_if_shutdown(struct snd_pcm_substream *substream,
 	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
 	struct abox_data *abox_data = data->abox_data;
 
-	dev_info(dev, "%s[%c]\n", __func__,
+	dev_dbg(dev, "%s[%c]\n", __func__,
 			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
 			'C' : 'P');
 
 	clk_disable(data->clk_bclk_gate);
 	clk_disable(data->clk_bclk);
-	abox_request_cpu_gear(dev, abox_data, dai, ABOX_CPU_GEAR_MIN);
+	abox_request_cpu_gear_dai(dev, abox_data, dai, 0);
 }
 
 static int abox_if_hw_free(struct snd_pcm_substream *substream,
@@ -79,7 +80,7 @@ static int abox_if_hw_free(struct snd_pcm_substream *substream,
 	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
 	struct abox_data *abox_data = data->abox_data;
 
-	dev_info(dev, "%s[%c]\n", __func__,
+	dev_dbg(dev, "%s[%c]\n", __func__,
 			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
 			'C' : 'P');
 
@@ -92,25 +93,17 @@ static int abox_dsif_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio)
 {
 	struct device *dev = dai->dev;
 	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
-	struct abox_data *abox_data = data->abox_data;
-	unsigned int rate;
+	unsigned int rate = dai->rate;
 	int ret;
 
-	dev_info(dev, "%s\n", __func__);
-
-	rate = dai->rate;
-
-	ret = abox_register_bclk_usage(dev, abox_data, dai->id, rate, 1, ratio);
-	if (ret < 0)
-		dev_err(dev, "Unable to register bclk usage: %d\n", ret);
+	dev_dbg(dev, "%s(%u)\n", __func__, ratio);
 
 	ret = clk_set_rate(data->clk_bclk, rate * ratio);
-	if (ret < 0) {
+	if (ret < 0)
 		dev_err(dev, "bclk set error=%d\n", ret);
-	} else {
+	else
 		dev_info(dev, "rate=%u, bclk=%lu\n", rate,
 				clk_get_rate(data->clk_bclk));
-	}
 
 	return ret;
 }
@@ -214,6 +207,9 @@ static int abox_dsif_hw_params(struct snd_pcm_substream *substream,
 	default:
 		return -EINVAL;
 	}
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		abox_cmpnt_reset_cnt_val(dev, data->cmpnt, dai->id);
 
 	return 0;
 }
@@ -325,7 +321,7 @@ static int abox_uaif_set_tristate(struct snd_soc_dai *dai, int tristate)
 	int id = data->id;
 	enum qchannel clk;
 
-	dev_info(dev, "%s(%d)\n", __func__, tristate);
+	dev_dbg(dev, "%s(%d)\n", __func__, tristate);
 
 	switch (id) {
 	case 0:
@@ -350,6 +346,7 @@ static int abox_uaif_set_tristate(struct snd_soc_dai *dai, int tristate)
 static int abox_uaif_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *hw_params, struct snd_soc_dai *dai)
 {
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct device *dev = dai->dev;
 	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
 	struct abox_data *abox_data = data->abox_data;
@@ -395,27 +392,26 @@ static int abox_uaif_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	switch (channels) {
-	case 2:
+	switch (rtd->dai_link->dai_fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
+	case SND_SOC_DAIFMT_I2S:
 		set_value_by_name(ctrl1, ABOX_VALID_STR, 0);
 		set_value_by_name(ctrl1, ABOX_VALID_END, 0);
 		break;
-	case 1:
-	case 4:
-	case 6:
-	case 8:
+	default:
 		set_value_by_name(ctrl1, ABOX_VALID_STR, (width - 1));
 		set_value_by_name(ctrl1, ABOX_VALID_END, (width - 1));
 		break;
-	default:
-		return -EINVAL;
 	}
+
 	set_value_by_name(ctrl1, ABOX_SLOT_MAX, (channels - 1));
 	set_value_by_name(ctrl1, ABOX_FORMAT, abox_get_format(width, channels));
 
 	ret = snd_soc_component_write(cmpnt, ABOX_UAIF_CTRL1(id), ctrl1);
 	if (ret < 0)
 		dev_err(dev, "sfr access failed: %d\n", ret);
+
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		abox_cmpnt_reset_cnt_val(dev, data->cmpnt, dai->id);
 
 	return 0;
 }
@@ -479,9 +475,13 @@ static void abox_uaif_shutdown(struct snd_pcm_substream *substream,
 			'C' : 'P');
 
 	/* dpcm_be_dai_trigger doesn't call trigger stop on paused stream. */
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		/* Delay to flush FIFO in UAIF */
+		usleep_range(600, 1200);
+
 		snd_soc_component_update_bits(cmpnt, ABOX_UAIF_CTRL0(id),
 				ABOX_SPK_ENABLE_MASK, 0 << ABOX_SPK_ENABLE_L);
+	}
 	abox_if_shutdown(substream, dai);
 }
 
@@ -568,7 +568,7 @@ static int abox_if_config_put(struct snd_kcontrol *kcontrol,
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
 	unsigned int reg = mc->reg;
-	unsigned int val = ucontrol->value.integer.value[0];
+	unsigned int val = (unsigned int)ucontrol->value.integer.value[0];
 
 	dev_info(dev, "%s(0x%08x, %u)\n", __func__, reg, val);
 
@@ -578,11 +578,11 @@ static int abox_if_config_put(struct snd_kcontrol *kcontrol,
 }
 
 static const struct snd_kcontrol_new abox_if_controls[] = {
-	SOC_SINGLE_EXT("%s width", ABOX_IF_WIDTH, 0, 32, 0,
+	SOC_SINGLE_EXT("%s Width", ABOX_IF_WIDTH, 0, 32, 0,
 			abox_if_config_get, abox_if_config_put),
-	SOC_SINGLE_EXT("%s channel", ABOX_IF_CHANNEL, 0, 8, 0,
+	SOC_SINGLE_EXT("%s Channel", ABOX_IF_CHANNEL, 0, 8, 0,
 			abox_if_config_get, abox_if_config_put),
-	SOC_SINGLE_EXT("%s rate", ABOX_IF_RATE, 0, 384000, 0,
+	SOC_SINGLE_EXT("%s Rate", ABOX_IF_RATE, 0, 384000, 0,
 			abox_if_config_get, abox_if_config_put),
 };
 
@@ -592,7 +592,7 @@ static int abox_if_cmpnt_probe(struct snd_soc_component *cmpnt)
 	struct abox_if_data *data = snd_soc_component_get_drvdata(cmpnt);
 	struct snd_kcontrol_new (*controls)[3];
 	struct snd_kcontrol_new *control;
-	int i;
+	size_t i;
 
 	dev_info(dev, "%s\n", __func__);
 
@@ -610,7 +610,7 @@ static int abox_if_cmpnt_probe(struct snd_soc_component *cmpnt)
 
 	data->cmpnt = cmpnt;
 	snd_soc_component_init_regmap(cmpnt, data->abox_data->regmap);
-	abox_register_if(data->abox_data->pdev, to_platform_device(dev),
+	abox_cmpnt_register_if(data->abox_data->pdev, to_platform_device(dev),
 			data->id, snd_soc_component_get_dapm(cmpnt),
 			data->of_data->get_dai_name(data->id),
 			!!data->dai_drv->playback.formats,
@@ -727,7 +727,7 @@ static int samsung_abox_if_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	platform_set_drvdata(pdev, data);
 
-	data->sfr_base = devm_not_request_and_map(pdev, "sfr", 0, NULL, NULL);
+	data->sfr_base = devm_get_ioremap(pdev, "sfr", NULL, NULL);
 	if (IS_ERR(data->sfr_base))
 		return PTR_ERR(data->sfr_base);
 
@@ -797,7 +797,7 @@ static struct platform_driver samsung_abox_if_driver = {
 
 module_platform_driver(samsung_abox_if_driver);
 
-int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
+int abox_if_hw_params_fixup(struct snd_soc_dai *dai,
 		struct snd_pcm_hw_params *params, int stream)
 {
 	struct device *dev = dai->dev;
@@ -813,6 +813,16 @@ int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
 	rate = data->config[ABOX_IF_RATE];
 	channels = data->config[ABOX_IF_CHANNEL];
 	width = data->config[ABOX_IF_WIDTH];
+
+	/* don't break symmetric limitation */
+	if (dai->driver->symmetric_rates && dai->rate && dai->rate != rate)
+		rate = dai->rate;
+	if (dai->driver->symmetric_channels && dai->channels &&
+			dai->channels != channels)
+		channels = dai->channels;
+	if (dai->driver->symmetric_samplebits && dai->sample_width &&
+			dai->sample_width != width)
+		width = dai->sample_width;
 
 	if (rate)
 		hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE)->min = rate;
@@ -860,12 +870,12 @@ int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
 	return ret;
 }
 
-int abox_if_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+int abox_if_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params, int stream)
 {
 	struct snd_soc_dai *dai = rtd->cpu_dai;
 
-	return abox_if_hw_params_fixup_by_dai(dai, params, stream);
+	return abox_if_hw_params_fixup(dai, params, stream);
 }
 
 /* Module information */

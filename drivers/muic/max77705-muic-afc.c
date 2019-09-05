@@ -58,6 +58,9 @@ bool max77705_muic_check_is_enable_afc(struct max77705_muic_data *muic_data, mui
 		} else if (!muic_data->is_charger_ready) {
 			pr_info("%s Charger is not ready(%d), skip AFC\n",
 				__func__, muic_data->is_charger_ready);
+		} else if (muic_data->is_charger_mode) {
+			pr_info("%s is_charger_mode(%d), skip AFC\n",
+				__func__, muic_data->is_charger_mode);
 #if defined(CONFIG_CCIC_NOTIFIER)
 		} else if (muic_data->usbc_pdata->fac_water_enable) {
 			pr_info("%s fac_water_enable(%d), skip AFC\n", __func__,
@@ -363,7 +366,11 @@ void max77705_muic_handle_detect_dev_afc(struct max77705_muic_data *muic_data, u
 			} else {
 #if defined(CONFIG_MUIC_NOTIFIER)
 				/* Send attached device noti to clear prepare noti */
-				muic_notifier_attach_attached_dev(muic_data->attached_dev);
+				if (muic_data->attached_dev == ATTACHED_DEV_AFC_CHARGER_5V_MUIC ||
+					muic_data->attached_dev == ATTACHED_DEV_AFC_CHARGER_9V_MUIC)
+					muic_notifier_attach_attached_dev(muic_data->attached_dev);
+				else
+					muic_notifier_attach_attached_dev(ATTACHED_DEV_AFC_CHARGER_ERR_V_MUIC);
 #endif /* CONFIG_MUIC_NOTIFIER */
 			}
 #if defined(CONFIG_SEC_ABC)
@@ -487,7 +494,11 @@ void max77705_muic_handle_detect_dev_qc(struct max77705_muic_data *muic_data, un
 			} else {
 #if defined(CONFIG_MUIC_NOTIFIER)
 				/* Send attached device noti to clear prepare noti */
-				muic_notifier_attach_attached_dev(muic_data->attached_dev);
+				if (muic_data->attached_dev == ATTACHED_DEV_QC_CHARGER_5V_MUIC ||
+					muic_data->attached_dev == ATTACHED_DEV_QC_CHARGER_9V_MUIC)
+					muic_notifier_attach_attached_dev(muic_data->attached_dev);
+				else
+					muic_notifier_attach_attached_dev(ATTACHED_DEV_QC_CHARGER_ERR_V_MUIC);
 #endif /* CONFIG_MUIC_NOTIFIER */
 			}
 #if defined(CONFIG_SEC_ABC)

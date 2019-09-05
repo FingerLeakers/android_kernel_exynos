@@ -15,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/of.h>
@@ -23,13 +24,14 @@
 #include <linux/shm_ipc.h>
 #include <linux/smc.h>
 #include <linux/modem_notifier.h>
+#ifdef CONFIG_CP_PMUCAL
+#include <soc/samsung/cal-if.h>
+#else
 #include <soc/samsung/pmu-cp.h>
-
+#endif
 #include "modem_prj.h"
 #include "modem_utils.h"
 #include "link_device_memory.h"
-
-#include <soc/samsung/cal-if.h>
 
 #ifdef CONFIG_EXYNOS_BUSMONITOR
 #include <linux/exynos-busmon.h>
@@ -143,7 +145,7 @@ static void cp_active_handler(void *arg)
 		mif_err("new_state = %s\n", cp_state_str(new_state));
 
 		if (old_state == STATE_ONLINE)
-			modem_notify_event(MODEM_EVENT_EXIT);
+			modem_notify_event(MODEM_EVENT_RESET);
 
 		list_for_each_entry(iod, &mc->modem_state_notify_list, list) {
 			if (iod && atomic_read(&iod->opened) > 0)
@@ -160,7 +162,7 @@ static int __init console_setup(char *str)
 
 	return 0;
 }
-__setup("androidboot.hw_rev=", console_setup);
+__setup("androidboot.revision=", console_setup);
 #else
 static int get_system_rev(struct device_node *np)
 {
@@ -203,8 +205,44 @@ static int get_ds_detect(struct device_node *np)
 }
 #else
 static int ds_detect = 1;
-module_param(ds_detect, int, S_IRUGO | S_IWUSR | S_IWGRP);
+module_param(ds_detect, int, S_IRUGO | S_IWUSR | S_IWGRP | S_IRGRP);
 MODULE_PARM_DESC(ds_detect, "Dual SIM detect");
+
+static ssize_t ds_detect_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", ds_detect);
+}
+
+static ssize_t ds_detect_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int ret;
+	int value;
+
+	ret = sscanf(buf, "%d", &value);
+	if (ret != 1 || value > 2 || value < 0) {
+		mif_err("invalid value:%d with %d\n", value, ret);
+		return -EINVAL;
+	}
+
+	ds_detect = value;
+	mif_info("set ds_detect: %d\n", ds_detect);
+
+	return count;
+}
+static DEVICE_ATTR_RW(ds_detect);
+
+static struct attribute *sim_attrs[] = {
+	&dev_attr_ds_detect.attr,
+	NULL,
+};
+
+static const struct attribute_group sim_group = {	\
+	.attrs = sim_attrs,				\
+	.name = "sim",
+};
 
 static int get_ds_detect(struct device_node *np)
 {
@@ -306,8 +344,6 @@ static int ss310ap_on(struct modem_ctl *mc)
 			mif_err("%s: AP2CP_CFG ioremap failed.\n", __func__);
 			ret = -EACCES;
 			return ret;
-		} else {
-			mif_err("AP2CP_CFG : 0x%p\n", AP2CP_CFG);
 		}
 
 		mif_err("__raw_readl(AP2CP_CFG): 0x%08x\n", __raw_readl(AP2CP_CFG));
@@ -536,7 +572,7 @@ static int ss310ap_force_crash_exit(struct modem_ctl *mc)
 	return 0;
 }
 
-int ss310ap_force_crash_exit_ext(void)
+int modem_force_crash_exit_ext(void)
 {
 	if (g_mc) {
 		mif_err("Make forced crash exit\n");
@@ -545,9 +581,9 @@ int ss310ap_force_crash_exit_ext(void)
 
 	return 0;
 }
-EXPORT_SYMBOL(ss310ap_force_crash_exit_ext);
+EXPORT_SYMBOL(modem_force_crash_exit_ext);
 
-int ss310ap_send_panic_noti_ext(void)
+int modem_send_panic_noti_ext(void)
 {
 	struct modem_data *modem;
 
@@ -561,7 +597,7 @@ int ss310ap_send_panic_noti_ext(void)
 
 	return 0;
 }
-EXPORT_SYMBOL(ss310ap_send_panic_noti_ext);
+EXPORT_SYMBOL(modem_send_panic_noti_ext);
 
 static int ss310ap_dump_start(struct modem_ctl *mc)
 {
@@ -590,8 +626,6 @@ static int ss310ap_dump_start(struct modem_ctl *mc)
 		if (AP2CP_CFG == NULL) {
 			mif_err("%s: AP2CP_CFG ioremap failed.\n", __func__);
 			return -EACCES;
-		} else {
-			mif_err("AP2CP_CFG : 0x%p\n", AP2CP_CFG);
 		}
 
 		mif_err("__raw_readl(AP2CP_CFG): 0x%08x\n", __raw_readl(AP2CP_CFG));
@@ -795,6 +829,10 @@ int ss310ap_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	 */
 	mc->busmon_nfb.notifier_call = ss310ap_busmon_notifier;
 	busmon_notifier_chain_register(&mc->busmon_nfb);
+#endif
+#ifndef CONFIG_GPIO_DS_DETECT
+	if (sysfs_create_group(&pdev->dev.kobj, &sim_group))
+		mif_err("failed to create sysfs node related sim\n");
 #endif
 	mif_err("---\n");
 	return 0;

@@ -121,6 +121,11 @@ struct sx9360_p {
 
 	int debug_count;
 	char hall_ic[6];
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_SUPPORT_MCC_THRESHOLD_CHANGE)
+	int mcc;
+	u8 default_threshold;
+	u8 mcc_threshold;
+#endif	
 };
 
 static int sx9360_check_hallic_state(char *file_path, char hall_ic_status[])
@@ -537,7 +542,7 @@ static ssize_t sx9360_register_write_store(struct device *dev,
 	int regist = 0, val = 0;
 	struct sx9360_p *data = dev_get_drvdata(dev);
 
-	if (sscanf(buf, "%d,%d", &regist, &val) != 2) {
+	if (sscanf(buf, "%2x,%2x", &regist, &val) != 2) {
 		pr_err("[SX9360]: %s - The number of data are wrong\n",
 			__func__);
 		return -EINVAL;
@@ -550,24 +555,23 @@ static ssize_t sx9360_register_write_store(struct device *dev,
 	return count;
 }
 
-static ssize_t sx9360_register_read_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t sx9360_register_read_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
 {
-	int regist = 0;
-	unsigned char val = 0;
+	u8 val = 0;
+	int offset = 0, idx = 0;
 	struct sx9360_p *data = dev_get_drvdata(dev);
 
-	if (sscanf(buf, "%d", &regist) != 1) {
-		pr_err("[SX9360]: %s - The number of data are wrong\n",
-			__func__);
-		return -EINVAL;
+	for (idx = 0; idx < (int)(ARRAY_SIZE(setup_reg)); idx++) {
+		sx9360_i2c_read(data, setup_reg[idx].reg, &val);
+		pr_info("[SX9360]: %s - Read Reg: 0x%x Value: 0x%x\n\n",
+			__func__, setup_reg[idx].reg, val);
+
+		offset += snprintf(buf + offset, PAGE_SIZE - offset,
+		"Reg: 0x%x Value: 0x%08x\n", setup_reg[idx].reg, val);
 	}
 
-	sx9360_i2c_read(data, (unsigned char)regist, &val);
-	pr_info("[SX9360]: %s - Register(0x%2x) data(0x%2x)\n",
-		__func__, regist, val);
-
-	return count;
+	return offset;
 }
 
 static ssize_t sx9360_read_data_show(struct device *dev,
@@ -943,22 +947,74 @@ static ssize_t sx9360_onoff_store(struct device *dev,
 		return ret;
 	}
 
-	if (val == 0)
+	if (val == 0) {
 		data->skip_data = true;
-	else
+		if (atomic_read(&data->enable) == ON) {
+			data->state = IDLE;
+			input_report_rel(data->input, REL_MISC, 2);
+			input_sync(data->input);
+		}		
+	} else {
 		data->skip_data = false;
+	}
 
 	pr_info("[SX9360]: %s -%u\n", __func__, val);
 	return count;
 }
+
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_SUPPORT_MCC_THRESHOLD_CHANGE)
+static ssize_t sx9360_mcc_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret, mcc;
+	u8 threshold;
+	struct sx9360_p *data = dev_get_drvdata(dev);
+
+	ret = kstrtoint(buf, 10, &mcc);
+	if (ret) {
+		pr_err("[SX9360]: %s - Invalid Argument\n", __func__);
+		return ret; 		
+	}
+
+	data->mcc = mcc;
+
+	pr_info("[SX9360]: %s - mcc value %d\n", __func__, data->mcc);	
+
+	// 001 : call box, 440/441 : jpn, 450 : kor, 460 : chn
+	if ((data->mcc != 001) && (data->mcc != 440) && (data->mcc != 441) &&
+		(data->mcc != 450) && (data->mcc != 460)) {
+		pr_info("[SX9360]: %s - default threshold %u\n", __func__, data->default_threshold);
+		threshold = data->default_threshold; /* DEFAULT KOR THRESHOLD > 1912  */
+		sx9360_i2c_write(data, SX9360_PROXCTRL5_REG, threshold);
+	} else {
+		threshold = data->mcc_threshold;
+		sx9360_i2c_write(data, SX9360_PROXCTRL5_REG, threshold);
+	}
+
+	pr_info("[SX9360]: %s - change threshold %u\n", __func__, threshold);
+	setup_reg[SX9360_PROXTHRESH_REG_IDX].val = threshold;
+
+	return count;
+}
+
+static ssize_t sx9360_mcc_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sx9360_p *data = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->mcc);
+}
+
+static DEVICE_ATTR(mcc, S_IRUGO |S_IWUSR | S_IWGRP,
+		sx9360_mcc_show, sx9360_mcc_store);
+#endif
 
 static DEVICE_ATTR(menual_calibrate, S_IRUGO | S_IWUSR | S_IWGRP,
 		sx9360_get_offset_calibration_show,
 		sx9360_set_offset_calibration_store);
 static DEVICE_ATTR(register_write, S_IWUSR | S_IWGRP,
 		NULL, sx9360_register_write_store);
-static DEVICE_ATTR(register_read, S_IWUSR | S_IWGRP,
-		NULL, sx9360_register_read_store);
+static DEVICE_ATTR(register_read, S_IRUGO, sx9360_register_read_show, NULL);
 static DEVICE_ATTR(readback, S_IRUGO, sx9360_read_data_show, NULL);
 static DEVICE_ATTR(reset, S_IRUGO, sx9360_sw_reset_show, NULL);
 
@@ -1019,6 +1075,9 @@ static struct device_attribute *sensor_attrs[] = {
 	&dev_attr_resolution,
 	&dev_attr_adc_filt,
 	&dev_attr_useful_filt,
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_SUPPORT_MCC_THRESHOLD_CHANGE)
+	&dev_attr_mcc,
+#endif
 	NULL,
 };
 
@@ -1067,6 +1126,7 @@ static void sx9360_touch_process(struct sx9360_p *data)
 	u8 status = 0;
 
 	sx9360_i2c_read(data, SX9360_STAT_REG, &status);
+	pr_info("[SX9360]: %s - 0x%x\n", __func__, status);
 
 	if (data->abnormal_mode) {
 		if (status & CSX_STATUS_REG) {
@@ -1111,12 +1171,33 @@ static void sx9360_init_work_func(struct work_struct *work)
 	struct sx9360_p *data = container_of((struct delayed_work *)work,
 		struct sx9360_p, init_work);
 
+	int retry = 0;
+
 	sx9360_initialize_chip(data);
 
 	sx9360_set_mode(data, SX9360_MODE_NORMAL);
 	/* make sure no interrupts are pending since enabling irq
 	 * will only work on next falling edge */
 	sx9360_read_irqstate(data);
+	msleep(20);
+
+	while(retry++ < 10) {
+		sx9360_get_data(data);
+		/* Defence code */
+		if (data->capMain == 0 && data->avg == 0 && data->diff == 0
+			&& data->useful == 0 && data->offset == 0) {
+			pr_info("[SX9360]: Defence code for grip sensor - retry: %d\n", retry);
+
+			sx9360_i2c_write(data, SX9360_SOFTRESET_REG, SX9360_SOFTRESET);
+			msleep(300);
+			sx9360_initialize_chip(data);
+			sx9360_set_mode(data, SX9360_MODE_NORMAL);
+			sx9360_read_irqstate(data);
+			msleep(20);
+		} else {
+			break;
+		}
+	}
 }
 
 static void sx9360_irq_work_func(struct work_struct *work)
@@ -1179,12 +1260,8 @@ static irqreturn_t sx9360_interrupt_thread(int irq, void *pdata)
 {
 	struct sx9360_p *data = pdata;
 
-	if (sx9360_get_nirq_state(data) == 0)
-		sx9360_process_interrupt(data);
-	else
-		pr_err("[SX9360]: %s - nirq read high %d\n",
-			__func__, sx9360_get_nirq_state(data));
 	wake_lock_timeout(&data->grip_wake_lock, 3 * HZ);
+	schedule_delayed_work(&data->irq_work, msecs_to_jiffies(100));
 
 	return IRQ_HANDLED;
 }
@@ -1308,8 +1385,17 @@ static int sx9360_parse_dt(struct sx9360_p *data, struct device *dev)
 		setup_reg[SX9360_GAINRAWFILT_REG_IDX].val = (u8)val;
 	if (!sx9360_read_setupreg(dNode, SX9360_HYST, &val))
 		setup_reg[SX9360_HYST_REG_IDX].val = (u8)val;
-	if (!sx9360_read_setupreg(dNode, SX9360_PROXTHRESH, &val))
+	if (!sx9360_read_setupreg(dNode, SX9360_PROXTHRESH, &val)) {
 		setup_reg[SX9360_PROXTHRESH_REG_IDX].val = (u8)val;
+#if !defined(CONFIG_SEC_FACTORY) && defined(CONFIG_SUPPORT_MCC_THRESHOLD_CHANGE)
+		data->default_threshold = val;
+	}
+	if (!sx9360_read_setupreg(dNode, SX9360_PROXTHRESH_MCC, &val)) {
+		data->mcc_threshold = val;
+	} else {
+		data->mcc_threshold = data->default_threshold;
+#endif
+	}
 
 	return 0;
 }

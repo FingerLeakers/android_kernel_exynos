@@ -8,7 +8,6 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-/* #define DEBUG */
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/spinlock.h>
@@ -21,7 +20,7 @@
 #include "abox_dbg.h"
 #include "abox_log.h"
 
-#define BUFFER_MAX (SZ_32)
+#define BUFFER_MAX (SZ_64)
 #define NAME_LENGTH (SZ_32)
 
 struct abox_dump_buffer_info {
@@ -140,22 +139,17 @@ static ssize_t abox_dump_auto_write(struct file *file, const char __user *data,
 
 		if (info->auto_started != enable) {
 			struct device *dev = info->dev;
-			struct platform_device *pdev_abox;
 
-			pdev_abox = to_platform_device(abox_dump_dev_abox);
-			if (enable) {
-				abox_request_dram_on(pdev_abox, dev, true);
-				pm_runtime_get(dev);
-			} else {
+			if (enable)
+				pm_runtime_get_sync(dev);
+			else
 				pm_runtime_put(dev);
-				abox_request_dram_on(pdev_abox, dev, false);
-			}
 		}
 
 		info->auto_started = enable;
 		if (enable) {
 			info->file_created = false;
-			info->auto_pointer = -1;
+			info->pointer = info->auto_pointer = 0;
 		}
 
 		abox_dump_request_dump(info->id);
@@ -225,14 +219,14 @@ static void abox_dump_auto_dump_work_func(struct work_struct *work)
 	struct abox_dump_buffer_info *info = container_of(work,
 			struct abox_dump_buffer_info, auto_work);
 	struct device *dev = info->dev;
-	int id = info->id;
+	const char *name = info->name;
 
 	if (info->auto_started) {
 		mm_segment_t old_fs;
 		char filename[SZ_64];
 		struct file *filp;
 
-		sprintf(filename, "/data/abox_dump-%d.raw", id);
+		sprintf(filename, "/data/abox_dump-%s.raw", name);
 
 		old_fs = get_fs();
 		set_fs(KERNEL_DS);
@@ -250,20 +244,15 @@ static void abox_dump_auto_dump_work_func(struct work_struct *work)
 			void *area = info->buffer.area;
 			size_t bytes = info->buffer.bytes;
 			size_t pointer = info->pointer;
-			bool first = false;
 
-			if (unlikely(info->auto_pointer < 0)) {
-				info->auto_pointer = pointer;
-				first = true;
-			}
-			dev_dbg(dev, "%pad, %p, %zx, %zx)\n",
+			dev_dbg(dev, "%pad, %pK, %zx, %zx)\n",
 					&info->buffer.addr, area, bytes,
 					info->auto_pointer);
-			if (pointer < info->auto_pointer || first) {
+			if (pointer < info->auto_pointer) {
 				vfs_write(filp, area + info->auto_pointer,
 						bytes - info->auto_pointer,
 						&filp->f_pos);
-				dev_dbg(dev, "vfs_write(%p, %zx)\n",
+				dev_dbg(dev, "vfs_write(%pK, %zx)\n",
 						area + info->auto_pointer,
 						bytes - info->auto_pointer);
 				info->auto_pointer = 0;
@@ -271,7 +260,7 @@ static void abox_dump_auto_dump_work_func(struct work_struct *work)
 			vfs_write(filp, area + info->auto_pointer,
 					pointer - info->auto_pointer,
 					&filp->f_pos);
-			dev_dbg(dev, "vfs_write(%p, %zx)\n",
+			dev_dbg(dev, "vfs_write(%pK, %zx)\n",
 					area + info->auto_pointer,
 					pointer - info->auto_pointer);
 			info->auto_pointer = pointer;
@@ -279,11 +268,25 @@ static void abox_dump_auto_dump_work_func(struct work_struct *work)
 			vfs_fsync(filp, 1);
 			filp_close(filp, NULL);
 		} else {
-			dev_err(dev, "dump file %d open error: %ld\n", id,
+			dev_err(dev, "dump file %s open error: %ld\n", name,
 					PTR_ERR(filp));
 		}
 
 		set_fs(old_fs);
+	}
+}
+
+static void abox_dump_check_buffer(struct snd_dma_buffer *buffer)
+{
+	if (!buffer->bytes)
+		buffer->bytes = SZ_64K;
+	if (!buffer->area) {
+		/* area will be used in kernel only.
+		 * kmalloc and virt_to_phys are just enough.
+		 */
+		buffer->area = devm_kmalloc(abox_dump_dev_abox, buffer->bytes,
+				GFP_KERNEL);
+		buffer->addr = virt_to_phys(buffer->area);
 	}
 }
 
@@ -292,18 +295,15 @@ void abox_dump_register_buffer_work_func(struct work_struct *work)
 	int id;
 	struct abox_dump_buffer_info *info;
 
-	if (!abox_dump_card.dev) {
-		platform_device_register_data(abox_dump_dev_abox,
-				"samsung-abox-dump", -1, NULL, 0);
-	}
-
 	dev_dbg(abox_dump_card.dev, "%s\n", __func__);
 
 	for (info = &abox_dump_list[0]; (info - &abox_dump_list[0]) <
 			ARRAY_SIZE(abox_dump_list); info++) {
 		id = info->id;
 		if (info->dev && !abox_dump_get_buffer_info(id)) {
-			dev_info(info->dev, "%s[%d]\n", __func__, id);
+			abox_dump_check_buffer(&info->buffer);
+			dev_info(info->dev, "%s(%d, %s, %#zx)\n", __func__,
+					id, info->name, info->buffer.bytes);
 			list_add_tail(&info->list, &abox_dump_list_head);
 			platform_device_register_data(info->dev,
 					"samsung-abox-dump", id, NULL, 0);
@@ -319,19 +319,19 @@ int abox_dump_register_buffer(struct device *dev, int id, const char *name,
 {
 	struct abox_dump_buffer_info *info;
 
-	dev_dbg(dev, "%s[%d] %p(%pa)\n", __func__, id, area, &addr);
+	dev_dbg(dev, "%s[%d](%s, %#zx)\n", __func__, id, name, bytes);
 
 	if (id < 0 || id >= ARRAY_SIZE(abox_dump_list)) {
 		dev_err(dev, "invalid id: %d\n", id);
 		return -EINVAL;
 	}
 
-	if (abox_dump_get_buffer_info(id)) {
+	info = &abox_dump_list[id];
+	if (!strcmp(info->name, name)) {
 		dev_dbg(dev, "already registered dump: %d\n", id);
 		return 0;
 	}
 
-	info = &abox_dump_list[id];
 	mutex_init(&info->lock);
 	info->id = id;
 	strncpy(info->name, name, sizeof(info->name) - 1);
@@ -344,7 +344,6 @@ int abox_dump_register_buffer(struct device *dev, int id, const char *name,
 
 	return 0;
 }
-EXPORT_SYMBOL(abox_dump_register_buffer);
 
 static struct snd_pcm_hardware abox_dump_hardware = {
 	.info		= SNDRV_PCM_INFO_INTERLEAVED
@@ -483,7 +482,24 @@ void abox_dump_period_elapsed(int id, size_t pointer)
 	schedule_work(&info->auto_work);
 	snd_pcm_period_elapsed(info->substream);
 }
-EXPORT_SYMBOL(abox_dump_period_elapsed);
+
+void abox_dump_transfer(int id, const char *buf, size_t bytes)
+{
+	struct abox_dump_buffer_info *info = abox_dump_get_buffer_info(id);
+	struct device *dev = info->dev;
+	size_t size, pointer;
+
+	dev_dbg(dev, "%s[%d](%pK, %zx): %zx\n", __func__, id, buf, bytes,
+			info->pointer);
+
+	size = min(bytes, info->buffer.bytes - info->pointer);
+	memcpy(info->buffer.area + info->pointer, buf, size);
+	if (bytes - size > 0)
+		memcpy(info->buffer.area, buf + size, bytes - size);
+
+	pointer = (info->pointer + bytes) % info->buffer.bytes;
+	abox_dump_period_elapsed(id, pointer);
+}
 
 static snd_pcm_uframes_t abox_dump_platform_pointer(
 		struct snd_pcm_substream *substream)
@@ -516,7 +532,6 @@ static void abox_dump_register_card_work_func(struct work_struct *work)
 
 	pr_debug("%s\n", __func__);
 
-	snd_soc_unregister_card(&abox_dump_card);
 	for (i = 0; i < abox_dump_card.num_links; i++) {
 		struct snd_soc_dai_link *link = &abox_dump_card.dai_link[i];
 
@@ -531,13 +546,13 @@ static void abox_dump_register_card_work_func(struct work_struct *work)
 		link->codec_dai_name = "snd-soc-dummy-dai";
 		link->no_pcm = 1;
 	}
-	snd_soc_register_card(&abox_dump_card);
+	abox_register_extra_sound_card(abox_dump_card.dev, &abox_dump_card, 2);
 }
 
-DECLARE_DELAYED_WORK(abox_dump_register_card_work,
+static DECLARE_DELAYED_WORK(abox_dump_register_card_work,
 		abox_dump_register_card_work_func);
 
-static void abox_dump_add_dai_link(struct device *dev)
+static int abox_dump_add_dai_link(struct device *dev)
 {
 	int id = to_platform_device(dev)->id;
 	struct abox_dump_buffer_info *info = abox_dump_get_buffer_info(id);
@@ -547,7 +562,7 @@ static void abox_dump_add_dai_link(struct device *dev)
 
 	if (id > ARRAY_SIZE(abox_dump_dai_links)) {
 		dev_err(dev, "Too many dump request\n");
-		return;
+		return -ENOMEM;
 	}
 
 	cancel_delayed_work_sync(&abox_dump_register_card_work);
@@ -568,6 +583,8 @@ static void abox_dump_add_dai_link(struct device *dev)
 		abox_dump_card.num_links = id + 1;
 
 	schedule_delayed_work(&abox_dump_register_card_work, HZ);
+
+	return 0;
 }
 
 static int abox_dump_platform_probe(struct snd_soc_platform *platform)
@@ -621,20 +638,21 @@ static int samsung_abox_dump_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	int id = to_platform_device(dev)->id;
+	int ret = 0;
 
 	dev_dbg(dev, "%s[%d]\n", __func__, id);
 
-	if (id >= 0) {
+	if (id < 0) {
+		abox_dump_card.dev = &pdev->dev;
+		schedule_delayed_work(&abox_dump_register_card_work, 0);
+	} else {
 		pm_runtime_no_callbacks(dev);
 		pm_runtime_enable(dev);
-
 		devm_snd_soc_register_platform(dev, &abox_dump_platform);
-		abox_dump_add_dai_link(dev);
-	} else {
-		abox_dump_card.dev = &pdev->dev;
+		ret = abox_dump_add_dai_link(dev);
 	}
 
-	return 0;
+	return ret;
 }
 
 static int samsung_abox_dump_remove(struct platform_device *pdev)
@@ -666,6 +684,19 @@ static struct platform_driver samsung_abox_dump_driver = {
 };
 
 module_platform_driver(samsung_abox_dump_driver);
+
+void abox_dump_init(struct device *dev_abox)
+{
+	dev_info(dev_abox, "%s\n", __func__);
+
+	abox_dump_dev_abox = dev_abox;
+	debugfs_create_file("dump_auto_start", 0660, abox_dbg_get_root_dir(),
+			dev_abox, &abox_dump_auto_start_fops);
+	debugfs_create_file("dump_auto_stop", 0660, abox_dbg_get_root_dir(),
+			dev_abox, &abox_dump_auto_stop_fops);
+	platform_device_register_data(dev_abox,
+			"samsung-abox-dump", -1, NULL, 0);
+}
 
 /* Module information */
 MODULE_AUTHOR("Gyeongtaek Lee, <gt82.lee@samsung.com>");

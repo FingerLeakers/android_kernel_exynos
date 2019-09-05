@@ -1592,7 +1592,6 @@ static int d_vss_state_put(struct snd_kcontrol *kcontrol,
 			return -EAGAIN;
 		}
 
-		abox_debug_string_update();
 #ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 		return -EPERM;
 #else

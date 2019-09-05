@@ -123,9 +123,20 @@ int sh_mem_init(struct iva_dev_data *iva)
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9810)
 	iva_base_offset = IVA_VMCU_MEM_BASE_ADDR +
 			iva->mcu_mem_size - iva->mcu_shmem_size;
 	iva->shmem_va = iva->iva_va + iva_base_offset;
+#elif defined(CONFIG_SOC_EXYNOS9820)
+	if (iva->mcu_split_sram) {
+		iva_base_offset = IVA_VMCU_MEM_BASE_ADDR +
+				iva->mcu_mem_size - iva->mcu_shmem_size;
+		iva->shmem_va = iva->iva_va + iva_base_offset;
+	} else {
+		iva_base_offset = iva->mcu_mem_size - iva->mcu_shmem_size;
+		iva->shmem_va = iva->mcu_bin->bin + iva_base_offset;
+	}
+#endif
 
 	dev_dbg(dev, "%s() mapped addr(0x%p)\n", __func__, iva->shmem_va);
 

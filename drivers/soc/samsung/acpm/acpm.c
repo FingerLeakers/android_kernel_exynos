@@ -17,8 +17,9 @@
 #include <linux/debugfs.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 #include <linux/soc/samsung/exynos-soc.h>
+#include <linux/sched/clock.h>
 
 #include "acpm.h"
 #include "acpm_ipc.h"
@@ -198,7 +199,9 @@ static int debug_ipc_loopback_test_get(void *data, unsigned long long *val)
 	config.response = true;
 	config.indirection = false;
 
+	ipc_time_start = sched_clock();
 	ret = acpm_send_data(exynos_acpm->dev->of_node, 3, &config);
+	ipc_time_end = sched_clock();
 
 	if (!ret)
 		*val = ipc_time_end - ipc_time_start;
@@ -271,6 +274,11 @@ void acpm_enter_wfi(void)
 		pr_err("[ACPM] wfi done\n");
 		exynos_acpm->enter_wfi++;
 	}
+}
+
+u32 exynos_get_peri_timer_icvra(void)
+{
+       return (EXYNOS_PERI_TIMER_MAX - __raw_readl(exynos_acpm->timer_base + EXYNOS_TIMER_APM_TCVR)) & EXYNOS_PERI_TIMER_MAX;
 }
 
 void exynos_acpm_timer_clear(void)

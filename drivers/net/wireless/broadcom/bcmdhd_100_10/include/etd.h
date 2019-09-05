@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: etd.h 790743 2018-11-27 06:57:26Z $
+ * $Id: etd.h 813064 2019-04-03 11:29:38Z $
  */
 
 #ifndef _ETD_H_
@@ -81,6 +81,7 @@ typedef enum {
 	TAG_TRAP_PCIE_ERR_ATTN	= 23, /* PCIE error attn log */
 	TAG_TRAP_AXI_ERROR	= 24, /* AXI Error */
 	TAG_TRAP_AXI_HOST_INFO  = 25, /* AXI Host log */
+	TAG_TRAP_AXI_SR_ERROR	= 26, /* AXI SR error log */
 	TAG_TRAP_LAST  /* This must be the last entry */
 } hnd_ext_tag_trap_t;
 
@@ -108,6 +109,42 @@ typedef struct hnd_ext_trap_bp_err
 	uint32 itipoobcout;
 	uint32 itipoobdout;
 } hnd_ext_trap_bp_err_t;
+
+#define HND_EXT_TRAP_AXISR_INFO_VER_1	1
+typedef struct hnd_ext_trap_axi_sr_err_v1
+{
+	uint8 version;
+	uint8 pad[3];
+	uint32 error;
+	uint32 coreid;
+	uint32 baseaddr;
+	uint32 ioctrl;
+	uint32 iostatus;
+	uint32 resetctrl;
+	uint32 resetstatus;
+	uint32 resetreadid;
+	uint32 resetwriteid;
+	uint32 errlogctrl;
+	uint32 errlogdone;
+	uint32 errlogstatus;
+	uint32 errlogaddrlo;
+	uint32 errlogaddrhi;
+	uint32 errlogid;
+	uint32 errloguser;
+	uint32 errlogflags;
+	uint32 itipoobaout;
+	uint32 itipoobbout;
+	uint32 itipoobcout;
+	uint32 itipoobdout;
+
+	/* axi_sr_issue_debug */
+	uint32 sr_pwr_control;
+	uint32 sr_corereset_wrapper_main;
+	uint32 sr_corereset_wrapper_aux;
+	uint32 sr_main_gci_status_0;
+	uint32 sr_aux_gci_status_0;
+	uint32 sr_dig_gci_status_0;
+} hnd_ext_trap_axi_sr_err_v1_t;
 
 #define HND_EXT_TRAP_PSMWD_INFO_VER	1
 typedef struct hnd_ext_trap_psmwd_v1 {
@@ -228,6 +265,18 @@ typedef struct hnd_ext_trap_wlc_mem_err_v2 {
 	uint8 soft_ap_client_cnt;
 	uint16 txqueue_len[MEM_TRAP_NUM_WLC_TX_QUEUES];
 } hnd_ext_trap_wlc_mem_err_v2_t;
+
+#define HND_EXT_TRAP_WLC_MEM_ERR_VER_V3		3
+
+typedef struct hnd_ext_trap_wlc_mem_err_v3 {
+	uint8 version;
+	uint8 instance;
+	uint8 stas_associated;
+	uint8 aps_associated;
+	uint8 soft_ap_client_cnt;
+	uint8 peer_cnt;
+	uint16 txqueue_len[MEM_TRAP_NUM_WLC_TX_QUEUES];
+} hnd_ext_trap_wlc_mem_err_v3_t;
 
 typedef struct hnd_ext_trap_pcie_mem_err {
 	uint16 d2h_queue_len;
@@ -521,6 +570,22 @@ typedef struct hnd_ext_trap_macphytxerr_v2 {
 	uint16 pad;
 	uint32 recv_fifo_status[3][2]; /* Rcv Status0 & Rcv Status1 for 3 Rx fifos */
 } hnd_ext_trap_macphytxerr_v2_t;
+
+#define HND_EXT_TRAP_PCIE_ERR_ATTN_VER_1	(1u)
+#define MAX_AER_HDR_LOG_REGS			(4u)
+typedef struct hnd_ext_trap_pcie_err_attn_v1 {
+	uint8 version;
+	uint8 pad[3];
+	uint32 err_hdr_logreg1;
+	uint32 err_hdr_logreg2;
+	uint32 err_hdr_logreg3;
+	uint32 err_hdr_logreg4;
+	uint32 err_code_logreg;
+	uint32 err_type;
+	uint32 err_code_state;
+	uint32 last_err_attn_ts;
+	uint32 cfg_tlp_hdr[MAX_AER_HDR_LOG_REGS];
+} hnd_ext_trap_pcie_err_attn_v1_t;
 
 #define MAX_EVENTLOG_BUFFERS	48
 typedef struct eventlog_trapdata_info {

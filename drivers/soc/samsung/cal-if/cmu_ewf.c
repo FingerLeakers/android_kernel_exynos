@@ -16,13 +16,17 @@
 #include <linux/clk.h>
 #include <linux/clkdev.h>
 #include <linux/clk-provider.h>
+#include <linux/debug-snapshot.h>
 
 #include <soc/samsung/cmu_ewf.h>
 
 static void __iomem *cmu_cmu;
 static spinlock_t cmuewf_lock;
 static int ewf_refcnt[EWF_MAX_INDEX];
-static struct clk_hw ewf_clk;
+
+#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
+static struct clk_hw __maybe_unused ewf_clk;
+#endif
 
 int get_cmuewf_index(struct device_node *np, unsigned int *index)
 {
@@ -50,36 +54,42 @@ int set_cmuewf(unsigned int index, unsigned int en)
 
 	spin_lock_irqsave(&cmuewf_lock, flags);
 
-	exynos_ss_clk(&ewf_clk, __func__, 1, ESS_FLAG_IN);
-	if (en) {
-		reg = __raw_readl(cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-		reg |= 1 << index;
-		__raw_writel(reg, cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
+	dbg_snapshot_clk(&ewf_clk, __func__, 1, DSS_FLAG_IN);
 
-		ewf_refcnt[index] += 1;
+	if (wa_set_cmuewf) {
+		ret = wa_set_cmuewf(index, en, cmu_cmu, ewf_refcnt);
+		if (ret)
+			dbg_snapshot_clk(&ewf_clk, __func__, 1, DSS_FLAG_ON);
 	} else {
-		tmp = ewf_refcnt[index] - 1;
-
-		if (tmp == 0) {
+		if (en) {
 			reg = __raw_readl(cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-			reg &= ~(1 << index);
+			reg |= 1 << index;
 			__raw_writel(reg, cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-		} else if (tmp < 0) {
-			pr_err("[EWF]%s ref count mismatch. ewf_index:%u\n", __func__, index);
 
-			exynos_ss_clk(&ewf_clk, __func__, 1, ESS_FLAG_ON);
-			ret = -EINVAL;
-			goto exit;
+			ewf_refcnt[index] += 1;
+		} else {
+			tmp = ewf_refcnt[index] - 1;
+
+			if (tmp == 0) {
+				reg = __raw_readl(cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
+				reg &= ~(1 << index);
+				__raw_writel(reg, cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
+			} else if (tmp < 0) {
+				pr_err("[EWF]%s ref count mismatch. ewf_index:%u\n",__func__,  index);
+
+				dbg_snapshot_clk(&ewf_clk, __func__, 1, DSS_FLAG_ON);
+				ret = -EINVAL;
+				goto exit;
+			}
+
+			ewf_refcnt[index] -= 1;
 		}
-
-		ewf_refcnt[index] -= 1;
 	}
-
-	exynos_ss_clk(&ewf_clk, __func__, 1, ESS_FLAG_OUT);
+	dbg_snapshot_clk(&ewf_clk, __func__, 1, DSS_FLAG_OUT);
 exit:
 	spin_unlock_irqrestore(&cmuewf_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static int cmuewf_probe(struct platform_device *pdev)
@@ -90,7 +100,7 @@ static int cmuewf_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "cmuewf probe\n");
 
 	if (!node) {
-		dev_err(&pdev->dev, "driver doesn't support"
+		dev_err(&pdev->dev, "driver doesnt support"
 				"non-dt devices\n");
 		return -ENODEV;
 	}

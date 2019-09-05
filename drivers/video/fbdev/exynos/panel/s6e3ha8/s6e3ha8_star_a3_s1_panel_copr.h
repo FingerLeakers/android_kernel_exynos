@@ -62,10 +62,6 @@ static void *star_a3_s1_set_copr_cmdtbl[] = {
 	&PKTINFO(star_a3_s1_level2_key_disable),
 };
 
-static void *star_a3_s1_get_copr_cmdtbl[] = {
-	&s6e3ha8_restbl[RES_COPR],
-};
-
 static void *star_a3_s1_clr_copr_cnt_on_cmdtbl[] = {
 	&PKTINFO(star_a3_s1_level2_key_enable),
 	&PKTINFO(star_a3_s1_copr_clr_cnt_on),
@@ -88,7 +84,6 @@ static void *star_a3_s1_get_copr_dsi_cmdtbl[] = {
 
 static struct seqinfo star_a3_s1_copr_seqtbl[MAX_COPR_SEQ] = {
 	[COPR_SET_SEQ] = SEQINFO_INIT("set-copr-seq", star_a3_s1_set_copr_cmdtbl),
-	[COPR_GET_SEQ] = SEQINFO_INIT("get-copr-seq", star_a3_s1_get_copr_cmdtbl),
 	[COPR_CLR_CNT_ON_SEQ] = SEQINFO_INIT("clr-copr-cnt-on-seq", star_a3_s1_clr_copr_cnt_on_cmdtbl),
 	[COPR_CLR_CNT_OFF_SEQ] = SEQINFO_INIT("clr-copr-cnt-off-seq", star_a3_s1_clr_copr_cnt_off_cmdtbl),
 	[COPR_SPI_GET_SEQ] = SEQINFO_INIT("get-copr-spi-seq", star_a3_s1_get_copr_spi_cmdtbl),
@@ -100,8 +95,8 @@ static struct panel_copr_data s6e3ha8_star_a3_s1_copr_data = {
 	.nr_seqtbl = ARRAY_SIZE(star_a3_s1_copr_seqtbl),
 	.maptbl = (struct maptbl *)star_a3_s1_copr_maptbl,
 	.nr_maptbl = (sizeof(star_a3_s1_copr_maptbl) / sizeof(struct maptbl)),
-	.version = 2,
-	.reg = {
+	.version = COPR_VER_2,
+	.reg.v2 = {
 		.cnt_re = false,
 		.copr_ilc = true,
 		.copr_en = true,

@@ -14,22 +14,10 @@
 #define __S6E3HA8_AOD_PANEL_H__
 
 #include "s6e3ha8_aod.h"
-
 #include "s6e3ha8_self_mask_img.h"
 #include "s6e3ha8_self_icon_img.h"
 #include "s6e3ha8_analog_clock_img.h"
 #include "s6e3ha8_digital_clock_img.h"
-
-
-#if 0
-static u8 S6E3HA8_AOD_KEY1_ENABLE[] = { 0x9F, 0xA5, 0xA5 };
-static u8 S6E3HA8_AOD_KEY1_DISABLE[] = { 0x9F, 0x5A, 0x5A };
-
-static DEFINE_PANEL_KEY(star2_a3_sa_level1_key_enable, CMD_LEVEL_1,
-		KEY_ENABLE, &PKTINFO(star2_a3_sa_level1_key_enable));
-static DEFINE_PANEL_KEY(star2_a3_sa_level1_key_disable, CMD_LEVEL_1,
-		KEY_DISABLE, &PKTINFO(star2_a3_sa_level1_key_disable));
-#endif
 
 static u8 S6E3HA8_AOD_KEY2_ENABLE[] = { 0xF0, 0x5A, 0x5A };
 static u8 S6E3HA8_AOD_KEY2_DISABLE[] = { 0xF0, 0xA5, 0xA5 };
@@ -170,27 +158,27 @@ static char s6e3ha8_aod_self_move_pos_tbl[][90] = {
 
 static struct maptbl s6e3ha8_aod_maptbl[] = {
 	[SELF_MASK_CTRL_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_self_mask,
-		init_common_table, NULL, copy_self_mask_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_self_mask_ctrl),
 	[DIGITAL_POS_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_digital_pos,
-		init_common_table, NULL, copy_digital_pos),
+		init_common_table, NULL, s6e3ha8_copy_digital_pos),
 	[DIGITAL_BLK_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_digital_blink,
-		init_common_table, NULL, copy_digital_blink),
+		init_common_table, NULL, s6e3ha8_copy_digital_blink),
 	[SET_TIME_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_set_time,
-		init_common_table, NULL, copy_set_time_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_set_time_ctrl),
 	[ICON_GRID_ON_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_icon_grid_on,
-		init_common_table, NULL, copy_icon_grid_on_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_icon_grid_on_ctrl),
 	[SELF_MOVE_MAPTBL] = DEFINE_0D_MAPTBL(star2_s3_sa_self_move_on,
-		init_common_table, NULL, copy_self_move_on_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_self_move_on_ctrl),
 	[ANALOG_POS_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_analog_pos,
-		init_common_table, NULL, copy_analog_pos_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_analog_pos_ctrl),
 	[ANALOG_CLK_CTRL_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_analog_clock,
-		init_common_table, NULL, copy_analog_clock_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_analog_clock_ctrl),
 	[DIGITAL_CLK_CTRL_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_digital_clock,
-		init_common_table, NULL, copy_digital_clock_ctrl),
+		init_common_table, NULL, s6e3ha8_copy_digital_clock_ctrl),
 	[SELF_MOVE_POS_MAPTBL] = DEFINE_2D_MAPTBL(s6e3ha8_aod_self_move_pos_tbl,
-		init_common_table, getidx_self_mode_pos, copy_common_maptbl),
-	[SEFL_MOVE_RESET_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_self_move_reset,
-		init_common_table, NULL, copy_self_move_reset),
+		init_common_table, s6e3ha8_getidx_self_mode_pos, copy_common_maptbl),
+	[SELF_MOVE_RESET_MAPTBL] = DEFINE_0D_MAPTBL(s6e3ha8_aod_self_move_reset,
+		init_common_table, NULL, s6e3ha8_copy_self_move_reset),
 };
 
 // --------------------- Image for self mask image ---------------------
@@ -570,7 +558,7 @@ static char S6E3HA8_AOD_SELF_MOVE_RESET[] = {
 #if 0
 DEFINE_STATIC_PACKET(s6e3ha8_aod_self_move_reset, DSI_PKT_TYPE_WR, S6E3HA8_AOD_SELF_MOVE_RESET, 0);
 #else
-static DEFINE_PKTUI(s6e3ha8_aod_self_move_reset, &s6e3ha8_aod_maptbl[SEFL_MOVE_RESET_MAPTBL], 0);
+static DEFINE_PKTUI(s6e3ha8_aod_self_move_reset, &s6e3ha8_aod_maptbl[SELF_MOVE_RESET_MAPTBL], 0);
 static DEFINE_VARIABLE_PACKET(s6e3ha8_aod_self_move_reset, DSI_PKT_TYPE_WR, S6E3HA8_AOD_SELF_MOVE_RESET, 0);
 #endif
 

@@ -27,8 +27,8 @@
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
 #include <linux/mfd/core.h>
-#include <linux/mfd/s2mpb02.h>
-#include <linux/mfd/s2mpb02-private.h>
+#include <linux/mfd/samsung/s2mpb02.h>
+#include <linux/mfd/samsung/s2mpb02-regulator.h>
 #include <linux/regulator/machine.h>
 
 #ifdef	CONFIG_OF

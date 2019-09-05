@@ -23,24 +23,31 @@
 #include "fmp_fips_fops.h"
 #include "fmp_fips_selftest.h"
 #include "fmp_fips_integrity.h"
-
-#define MAX_SCAN_PART	(50)
-#define MAX_RETRY_COUNT (0x100000)
+#include "fmp_test.h"
 
 static const char pass[] = "passed";
 static const char fail[] = "failed";
 
-#define FMP_FIPS_INIT_STATE	0
-#define FMP_FIPS_PROGRESS_STATE	1
-#define FMP_FIPS_ERR_STATE	2
-#define FMP_FIPS_SUCCESS_STATE	3
+enum fips_state {
+	FMP_FIPS_INIT_STATE,
+	FMP_FIPS_PROGRESS_STATE,
+	FMP_FIPS_ERR_STATE,
+	FMP_FIPS_SUCCESS_STATE
+};
 
-static int fmp_fips_state = FMP_FIPS_INIT_STATE;
+static enum fips_state fmp_fips_state = FMP_FIPS_INIT_STATE;
 
 bool in_fmp_fips_err(void)
 {
 	if (fmp_fips_state == FMP_FIPS_INIT_STATE ||
-			fmp_fips_state == FMP_FIPS_ERR_STATE)
+	    fmp_fips_state == FMP_FIPS_ERR_STATE)
+		return true;
+	return false;
+}
+
+bool in_fmp_fips_init(void)
+{
+	if (fmp_fips_state == FMP_FIPS_INIT_STATE)
 		return true;
 	return false;
 }
@@ -48,176 +55,6 @@ bool in_fmp_fips_err(void)
 static void set_fmp_fips_state(uint32_t val)
 {
 	fmp_fips_state = val;
-}
-
-static dev_t find_devt_for_selftest(struct exynos_fmp *fmp,
-					struct fmp_fips_data *data)
-{
-	int i, idx = 0;
-	uint32_t count = 0;
-	uint64_t size;
-	uint64_t size_list[MAX_SCAN_PART];
-	dev_t devt_list[MAX_SCAN_PART];
-	dev_t devt_scan, devt;
-	struct block_device *bdev;
-	struct device *dev = fmp->dev;
-	fmode_t fmode = FMODE_WRITE | FMODE_READ;
-
-	memset(size_list, 0, sizeof(size_list));
-	memset(devt_list, 0, sizeof(devt_list));
-
-	if (!data) {
-		dev_err(dev, "Invalid fmp test data\n");
-		return (dev_t)0;
-	}
-
-	do {
-		for (i = 1; i < MAX_SCAN_PART; i++) {
-			devt_scan = blk_lookup_devt(data->block_type, i);
-			bdev = blkdev_get_by_dev(devt_scan, fmode, NULL);
-			if (IS_ERR(bdev))
-				continue;
-			else {
-				size_list[idx] = (uint64_t)i_size_read(bdev->bd_inode);
-				devt_list[idx++] = devt_scan;
-				blkdev_put(bdev, fmode);
-			}
-		}
-
-		if (!idx) {
-			mdelay(100);
-			count++;
-			continue;
-		}
-
-		for (i = 0; i < idx; i++) {
-			if (i == 0) {
-				size = size_list[i];
-				devt = devt_list[i];
-			} else {
-				if (size < size_list[i])
-					devt = devt_list[i];
-			}
-		}
-
-		bdev = blkdev_get_by_dev(devt, fmode, NULL);
-		dev_info(dev, "Found partno %d for FMP test\n",
-							bdev->bd_part->partno);
-		blkdev_put(bdev, fmode);
-		return devt;
-	} while (count < MAX_RETRY_COUNT);
-
-	dev_err(dev, "Block device isn't initialized yet for FMP test\n");
-	return (dev_t)0;
-}
-
-static int exynos_fmp_host_get_type(struct device *dev,
-					struct fmp_fips_data *data)
-{
-	int ret = 0;
-	struct device_node *node = dev->of_node;
-	const char *type;
-
-	ret = of_property_read_string_index(node, "exynos,block-type", 0, &type);
-	if (ret) {
-		pr_err("%s: Could not get block type\n", __func__);
-		ret = -EINVAL;
-		goto err;
-	}
-	strlcpy(data->block_type, type, FMP_BLOCK_TYPE_NAME_LEN);
-err:
-	return ret;
-}
-
-static int exynos_fmp_get_fips_offset(struct device *dev,
-					struct fmp_fips_data *data)
-{
-	int ret = 0;
-	struct device_node *node = dev->of_node;
-	uint32_t offset;
-
-	ret = of_property_read_u32(node, "exynos,fips-block_offset", &offset);
-	if (ret) {
-		pr_err("%s: Could not get fips test block offset\n", __func__);
-		ret = -EINVAL;
-		goto err;
-	}
-	data->test_block_offset = offset;
-err:
-	return ret;
-}
-
-struct fmp_fips_data *do_fmp_fips_init(struct exynos_fmp *fmp)
-{
-	int ret = 0;
-	struct fmp_fips_data *data;
-	struct device *dev;
-	struct inode *inode;
-	struct super_block *sb;
-	unsigned long blocksize;
-	unsigned char blocksize_bits;
-
-	sector_t self_test_block;
-	fmode_t fmode = FMODE_WRITE | FMODE_READ;
-
-	if (!fmp) {
-		pr_err("%s: Invalid exynos fmp struct\n", __func__);
-		return NULL;
-	}
-
-	dev = fmp->dev;
-	data = kmalloc(sizeof(struct fmp_fips_data), GFP_KERNEL);
-	if (!data)
-		return NULL;
-
-	ret = exynos_fmp_host_get_type(dev, data);
-	if (ret) {
-		dev_err(dev, "%s: Fail to get host type. ret(%d)", __func__, ret);
-		goto err;
-	}
-
-	data->devt = find_devt_for_selftest(fmp, data);
-	if (!data->devt) {
-		dev_err(dev, "%s: Fail to find devt for self test\n", __func__);
-		goto err;
-	}
-
-	ret = exynos_fmp_get_fips_offset(dev, data);
-	if (ret) {
-		dev_err(dev, "%s: Fail to get fips offset. ret(%d)\n", __func__, ret);
-		goto err;
-	}
-
-	data->bdev = blkdev_get_by_dev(data->devt, fmode, NULL);
-	if (IS_ERR(data->bdev)) {
-		dev_err(dev, "%s: Fail to open block device\n", __func__);
-		goto err;
-	}
-	inode = data->bdev->bd_inode;
-	sb = inode->i_sb;
-	blocksize = sb->s_blocksize;
-	blocksize_bits = sb->s_blocksize_bits;
-	self_test_block = (i_size_read(inode) - (blocksize * data->test_block_offset))
-			  >> blocksize_bits;
-	data->sector = self_test_block;
-
-	return data;
-
-err:
-	kzfree(data);
-	return NULL;
-}
-
-void do_fmp_fips_exit(struct fmp_fips_data *data)
-{
-	fmode_t fmode = FMODE_WRITE | FMODE_READ;
-
-	if (!data)
-		return;
-
-	if (data->bdev)
-		blkdev_put(data->bdev, fmode);
-	kzfree(data);
 }
 
 static ssize_t fmp_fips_result_show(struct device *dev,
@@ -302,7 +139,7 @@ static const struct file_operations fmp_fips_fops = {
 
 int exynos_fmp_fips_init(struct exynos_fmp *fmp)
 {
-	int ret = 0;
+	int ret;
 
 	if (!fmp || !fmp->dev) {
 		pr_err("%s: Invalid exynos fmp dev\n", __func__);
@@ -318,22 +155,23 @@ int exynos_fmp_fips_init(struct exynos_fmp *fmp)
 	if (ret) {
 		dev_err(fmp->dev, "%s: Fail to register misc device. ret(%d)\n",
 				__func__, ret);
-		goto misc_err;
+		return -EINVAL;
 	}
 
 	ret = sysfs_create_group(&fmp->dev->kobj, &fmp_fips_attr_group);
 	if (ret) {
 		dev_err(fmp->dev, "%s: Fail to create sysfs. ret(%d)\n",
 				__func__, ret);
-		goto sysfs_err;
+		return -EINVAL;
 	}
 
-	set_fmp_fips_state(FMP_FIPS_PROGRESS_STATE);
+	set_fmp_fips_state(FMP_FIPS_SUCCESS_STATE);
 
-	fmp->fips_data = do_fmp_fips_init(fmp);
-	if (!fmp->fips_data) {
-		dev_err(fmp->dev, "%s: Fail to initialize fips test.\n",
-				__func__);
+	fmp->test_data = fmp_test_init(fmp);
+	if (!fmp->test_data) {
+		dev_err(fmp->dev,
+			"%s: fails to initialize fips test.\n", __func__);
+		ret = -EINVAL;
 		goto err;
 	}
 
@@ -357,24 +195,18 @@ int exynos_fmp_fips_init(struct exynos_fmp *fmp)
 
 	set_fmp_fips_state(FMP_FIPS_SUCCESS_STATE);
 	fmp->result.overall = 1;
-
-	do_fmp_fips_exit(fmp->fips_data);
-
+	fmp_test_exit(fmp->test_data);
 	return 0;
-
 err:
 #if defined(CONFIG_NODE_FOR_SELFTEST_FAIL)
 	set_fmp_fips_state(FMP_FIPS_ERR_STATE);
 	fmp->result.overall = 0;
-	do_fmp_fips_exit(fmp->fips_data);
-
+	fmp_test_exit(fmp->test_data);
 	return 0;
 #else
 	panic("%s: Panic due to FMP self test for FIPS KAT", __func__);
 #endif
-sysfs_err:
-misc_err:
-	return -1;
+	return -EINVAL;
 }
 
 void exynos_fmp_fips_exit(struct exynos_fmp *fmp)

@@ -43,31 +43,17 @@
 
 u32 mptcp_v4_get_nonce(__be32 saddr, __be32 daddr, __be16 sport, __be16 dport)
 {
-	u32 hash[MD5_DIGEST_WORDS];
-
-	hash[0] = (__force u32)saddr;
-	hash[1] = (__force u32)daddr;
-	hash[2] = ((__force u16)sport << 16) + (__force u16)dport;
-	hash[3] = mptcp_seed++;
-
-	md5_transform(hash, mptcp_secret);
-
-	return hash[0];
+	return siphash_4u32((__force u32)saddr, (__force u32)daddr,
+			    (__force u32)sport << 16 | (__force u32)dport,
+			    mptcp_seed++, &mptcp_secret);
 }
 
 u64 mptcp_v4_get_key(__be32 saddr, __be32 daddr, __be16 sport, __be16 dport,
 		     u32 seed)
 {
-	u32 hash[MD5_DIGEST_WORDS];
-
-	hash[0] = (__force u32)saddr;
-	hash[1] = (__force u32)daddr;
-	hash[2] = ((__force u16)sport << 16) + (__force u16)dport;
-	hash[3] = seed;
-
-	md5_transform(hash, mptcp_secret);
-
-	return *((u64 *)hash);
+	return siphash_2u64((__force u64)saddr << 32 | (__force u64)daddr,
+			    (__force u64)seed << 32 | (__force u64)sport << 16 | (__force u64)dport,
+			    &mptcp_secret);
 }
 
 
@@ -300,7 +286,8 @@ int mptcp_init4_subsockets(struct sock *meta_sk, const struct mptcp_loc4 *loc,
 
 	ret = inet_create(sock_net(meta_sk), sock, IPPROTO_TCP, 1);
 	if (unlikely(ret < 0)) {
-		mptcp_debug("%s inet_create failed ret: %d\n", __func__, ret);
+		net_err_ratelimited("%s inet_create failed ret: %d\n",
+				    __func__, ret);
 		return ret;
 	}
 
@@ -311,8 +298,11 @@ int mptcp_init4_subsockets(struct sock *meta_sk, const struct mptcp_loc4 *loc,
 	lockdep_set_class_and_name(&(sk)->sk_lock.slock, &meta_slock_key, meta_slock_key_name);
 	lockdep_init_map(&(sk)->sk_lock.dep_map, meta_key_name, &meta_key, 0);
 
-	if (mptcp_add_sock(meta_sk, sk, loc->loc4_id, rem->rem4_id, GFP_KERNEL))
+	if (mptcp_add_sock(meta_sk, sk, loc->loc4_id, rem->rem4_id, GFP_KERNEL)) {
+		net_err_ratelimited("%s mptcp_add_sock failed ret: %d\n",
+				    __func__, ret);
 		goto error;
+	}
 
 	tp->mptcp->slave_sk = 1;
 	tp->mptcp->low_prio = loc->low_prio;
@@ -337,8 +327,9 @@ int mptcp_init4_subsockets(struct sock *meta_sk, const struct mptcp_loc4 *loc,
 	ret = kernel_bind(sock, (struct sockaddr *)&loc_in,
 			  sizeof(struct sockaddr_in));
 	if (ret < 0) {
-		mptcp_debug("%s: MPTCP subsocket bind() failed, error %d\n",
-			    __func__, ret);
+		net_err_ratelimited("%s: token %#x bind() to %pI4 index %d failed, error %d\n",
+				    __func__, tcp_sk(meta_sk)->mpcb->mptcp_loc_token,
+				    &loc_in.sin_addr, loc->if_idx, ret);
 		goto error;
 	}
 
@@ -354,8 +345,8 @@ int mptcp_init4_subsockets(struct sock *meta_sk, const struct mptcp_loc4 *loc,
 	ret = kernel_connect(sock, (struct sockaddr *)&rem_in,
 			     sizeof(struct sockaddr_in), O_NONBLOCK);
 	if (ret < 0 && ret != -EINPROGRESS) {
-		mptcp_debug("%s: MPTCP subsocket connect() failed, error %d\n",
-			    __func__, ret);
+		net_err_ratelimited("%s: MPTCP subsocket connect() failed, error %d\n",
+				    __func__, ret);
 		goto error;
 	}
 
@@ -391,7 +382,6 @@ const struct inet_connection_sock_af_ops mptcp_v4_specific = {
 	.getsockopt	   = ip_getsockopt,
 	.addr2sockaddr	   = inet_csk_addr2sockaddr,
 	.sockaddr_len	   = sizeof(struct sockaddr_in),
-	.bind_conflict	   = inet_csk_bind_conflict,
 #ifdef CONFIG_COMPAT
 	.compat_setsockopt = compat_ip_setsockopt,
 	.compat_getsockopt = compat_ip_getsockopt,
@@ -423,7 +413,7 @@ int mptcp_pm_v4_init(void)
 	}
 
 	ops->slab = kmem_cache_create(ops->slab_name, ops->obj_size, 0,
-				      SLAB_DESTROY_BY_RCU|SLAB_HWCACHE_ALIGN,
+				      SLAB_TYPESAFE_BY_RCU|SLAB_HWCACHE_ALIGN,
 				      NULL);
 
 	if (ops->slab == NULL) {

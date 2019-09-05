@@ -314,6 +314,9 @@ static int search_roland_implicit_fb(struct usb_device *dev, int ifnum,
 	return 0;
 }
 
+/* Setup an implicit feedback endpoint from a quirk. Returns 0 if no quirk
+ * applies. Returns 1 if a quirk was found.
+ */
 static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 					 struct usb_device *dev,
 					 struct usb_interface_descriptor *altsd,
@@ -358,6 +361,15 @@ static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 
 		alts = &iface->altsetting[1];
 		goto add_sync_ep;
+	case USB_ID(0x1397, 0x0002):
+		ep = 0x81;
+		iface = usb_ifnum_to_if(dev, 1);
+
+		if (!iface || iface->num_altsetting == 0)
+			return -EINVAL;
+
+		alts = &iface->altsetting[1];
+		goto add_sync_ep;
 
 	}
 	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
@@ -383,7 +395,7 @@ add_sync_ep:
 
 	subs->data_endpoint->sync_master = subs->sync_endpoint;
 
-	return 0;
+	return 1;
 }
 
 static int set_sync_endpoint(struct snd_usb_substream *subs,
@@ -421,6 +433,10 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 	err = set_sync_ep_implicit_fb_quirk(subs, dev, altsd, attr);
 	if (err < 0)
 		return err;
+
+	/* endpoint set by quirk */
+	if (err > 0)
+		return 0;
 
 	if (altsd->bNumEndpoints < 2)
 		return 0;
@@ -741,8 +757,10 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 
 	ret = snd_pcm_lib_alloc_vmalloc_buffer(substream,
 					       params_buffer_bytes(hw_params));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&subs->dev->dev,"cannot pcm lib alloc, ret %d\n", ret);
 		return ret;
+	}
 
 	subs->pcm_format = params_format(hw_params);
 	subs->period_bytes = params_period_bytes(hw_params);
@@ -753,7 +771,7 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 
 	fmt = find_format(subs);
 	if (!fmt) {
-		dev_dbg(&subs->dev->dev,
+		dev_err(&subs->dev->dev,
 			"cannot set format: format = %#x, rate = %d, channels = %d\n",
 			   subs->pcm_format, subs->cur_rate, subs->channels);
 		return -EINVAL;
@@ -771,6 +789,10 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 	subs->altset_idx = fmt->altset_idx;
 	subs->need_setup_ep = true;
 
+	dev_info(&subs->dev->dev,"Dir:%s, intf:%d, alt_id:%d, format:%#x, sample_rate:%d, ch:%d\n",
+			subs->direction? "IN":"OUT", subs->interface,
+			subs->altset_idx, subs->pcm_format, subs->cur_rate,
+			subs->channels);
 	return 0;
 }
 
@@ -861,12 +883,13 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 	iface = usb_ifnum_to_if(subs->dev, subs->cur_audiofmt->iface);
 	alts = &iface->altsetting[subs->cur_audiofmt->altset_idx];
 	ret = snd_usb_init_sample_rate(subs->stream->chip,
-				       subs->cur_audiofmt->iface,
-				       alts,
-				       subs->cur_audiofmt,
-				       subs->cur_rate);
+				subs->cur_audiofmt->iface,
+				alts,
+				subs->cur_audiofmt,
+				subs->cur_rate);
 	if (ret < 0)
 		goto unlock;
+
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 	ret = snd_usb_audio_setrate(subs->stream->chip,
 					subs->cur_audiofmt->iface,
@@ -908,7 +931,7 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 	return ret;
 }
 
-static struct snd_pcm_hardware snd_usb_hardware =
+static const struct snd_pcm_hardware snd_usb_hardware =
 {
 	.info =			SNDRV_PCM_INFO_MMAP |
 				SNDRV_PCM_INFO_MMAP_VALID |
@@ -940,7 +963,7 @@ static int hw_check_valid_format(struct snd_usb_substream *subs,
 	check_fmts.bits[1] = (u32)(fp->formats >> 32);
 	snd_mask_intersect(&check_fmts, fmts);
 	if (snd_mask_empty(&check_fmts)) {
-		hwc_debug("   > check: no supported format %d\n", fp->format);
+		hwc_debug("   > check: no supported format %d\n", fp->formats);
 		return 0;
 	}
 	/* check the channels */
@@ -1308,6 +1331,11 @@ static int snd_usb_pcm_close(struct snd_pcm_substream *substream, int direction)
 	struct snd_usb_substream *subs = &as->substream[direction];
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	if (direction == SNDRV_PCM_STREAM_PLAYBACK)
+		reinit_completion(&usb_audio->out_conn_stop);
+	else if (direction == SNDRV_PCM_STREAM_CAPTURE)
+		reinit_completion(&usb_audio->in_conn_stop);
+
 	exynos_usb_audio_pcm(0, direction);
 #endif
 	stop_endpoints(subs, true);
@@ -1364,7 +1392,7 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
 		if (bytes % (runtime->sample_bits >> 3) != 0) {
 			int oldbytes = bytes;
 			bytes = frames * stride;
-			dev_warn(&subs->dev->dev,
+			dev_warn_ratelimited(&subs->dev->dev,
 				 "Corrected urb data len. %d->%d\n",
 							oldbytes, bytes);
 		}
@@ -1752,7 +1780,7 @@ static int snd_usb_substream_capture_trigger(struct snd_pcm_substream *substream
 	return -EINVAL;
 }
 
-static struct snd_pcm_ops snd_usb_playback_ops = {
+static const struct snd_pcm_ops snd_usb_playback_ops = {
 	.open =		snd_usb_playback_open,
 	.close =	snd_usb_playback_close,
 	.ioctl =	snd_pcm_lib_ioctl,
@@ -1765,7 +1793,7 @@ static struct snd_pcm_ops snd_usb_playback_ops = {
 	.mmap =		snd_pcm_lib_mmap_vmalloc,
 };
 
-static struct snd_pcm_ops snd_usb_capture_ops = {
+static const struct snd_pcm_ops snd_usb_capture_ops = {
 	.open =		snd_usb_capture_open,
 	.close =	snd_usb_capture_close,
 	.ioctl =	snd_pcm_lib_ioctl,

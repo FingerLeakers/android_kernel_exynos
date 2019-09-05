@@ -13,11 +13,7 @@
 #include <linux/uaccess.h>
 #include <linux/smc.h>
 #include <asm/cacheflush.h>
-#include <linux/exynos_ion.h>
 #include <linux/smc.h>
-#if defined(CONFIG_ION)
-#include <linux/ion.h>
-#endif
 #include "iia_link/exynos-hdcp2-iia-auth.h"
 #include "exynos-hdcp2-teeif.h"
 #include "iia_link/exynos-hdcp2-iia-selftest.h"
@@ -26,6 +22,12 @@
 #include "dp_link/exynos-hdcp2-dplink-if.h"
 #include "dp_link/exynos-hdcp2-dplink.h"
 #include "dp_link/exynos-hdcp2-dplink-selftest.h"
+#include "dp_link/exynos-hdcp2-dplink-inter.h"
+#include <linux/of_irq.h>
+#include <linux/platform_device.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/irqreturn.h>
 
 #define EXYNOS_HDCP_DEV_NAME	"hdcp2"
 
@@ -33,9 +35,25 @@ struct miscdevice hdcp;
 static DEFINE_MUTEX(hdcp_lock);
 struct hdcp_session_list g_hdcp_session_list;
 enum hdcp_result hdcp_link_ioc_authenticate(void);
+extern enum dp_state dp_hdcp_state;
 
+struct hdcp_ctx {
+	struct delayed_work work;
+	/* debugfs root */
+	struct dentry *debug_dir;
+	/* seclog can be disabled via debugfs */
+	bool enabled;
+	unsigned int irq;
+};
 
+static struct hdcp_ctx h_ctx;
 static uint32_t inst_num;
+
+#if defined(CONFIG_HDCP2_FUNC_TEST_MODE)
+uint32_t func_test_mode = 1;
+#else
+uint32_t func_test_mode;
+#endif
 
 static long hdcp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -156,7 +174,7 @@ static long hdcp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		struct hdcp_enc_info enc_info;
 		size_t packet_len = 0;
 		uint8_t pes_priv[HDCP_PRIVATE_DATA_LEN];
-		ion_phys_addr_t input_phys, output_phys;
+		unsigned long input_phys, output_phys;
 		struct hdcp_session_node *ss_node;
 		struct hdcp_link_node *lk_node;
 		struct hdcp_link_data *lk_data;
@@ -184,8 +202,8 @@ static long hdcp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (!lk_data)
 			return HDCP_ERROR_INVALID_INPUT;
 
-		input_phys = (ion_phys_addr_t)enc_info.input_phys;
-		output_phys = (ion_phys_addr_t)enc_info.output_phys;
+		input_phys = (unsigned long)enc_info.input_phys;
+		output_phys = (unsigned long)enc_info.output_phys;
 
 		/* set input counters */
 		memset(&(lk_data->tx_ctx.input_ctr), 0x00, HDCP_INPUT_CTR_LEN);
@@ -294,6 +312,14 @@ static long hdcp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	}
 
+	case (uint32_t)HDCP_FUNC_TEST_MODE:
+	{
+		func_test_mode = 1;
+		hdcp_info("HDCP DRM always enable mode on\n");
+		break;
+	}
+
+
 	default:
 		hdcp_err("HDCP: Invalid IOC num(%d)\n", cmd);
 		return -ENOTTY;
@@ -337,6 +363,85 @@ static int hdcp_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static void exynos_hdcp_worker(struct work_struct *work)
+{
+	int ret;
+
+	if (dp_hdcp_state == DP_DISCONNECT) {
+		hdcp_err("dp_disconnected\n");
+		return;
+	}
+
+	hdcp_info("Exynos HDCP interrupt occur by LDFW.\n");
+	ret = hdcp_dplink_auth_check(HDCP_DRM_ON);
+}
+
+static irqreturn_t exynos_hdcp_irq_handler(int irq, void *dev_id)
+{
+	if (h_ctx.enabled) {
+		if (dp_hdcp_state == DP_HDCP_READY) 
+			schedule_delayed_work(&h_ctx.work, msecs_to_jiffies(0));
+		else
+			schedule_delayed_work(&h_ctx.work, msecs_to_jiffies(2500));
+	}
+
+	return IRQ_HANDLED;
+}
+
+static int exynos_hdcp_probe(struct platform_device *pdev)
+{
+	struct irq_data *hdcp_irqd = NULL;
+	irq_hw_number_t hwirq = 0;
+	int err;
+
+	h_ctx.irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
+	if (!h_ctx.irq) {
+		dev_err(&pdev->dev, "Fail to get irq from dt\n");
+		return -EINVAL;
+	}
+
+	/* Get irq_data for secure log */
+	hdcp_irqd = irq_get_irq_data(h_ctx.irq);
+	if (!hdcp_irqd) {
+		dev_err(&pdev->dev, "Fail to get irq_data\n");
+		return -EINVAL;
+	}
+
+	/* Get hardware interrupt number */
+	hwirq = irqd_to_hwirq(hdcp_irqd);
+	err = devm_request_irq(&pdev->dev, h_ctx.irq,
+			exynos_hdcp_irq_handler,
+			IRQF_TRIGGER_RISING, pdev->name, NULL);
+	if (err) {
+		dev_err(&pdev->dev,
+				"Fail to request IRQ handler. err(%d) irq(%d)\n",
+				err, h_ctx.irq);
+		return err;
+	}
+	/* Set workqueue for Secure log as bottom half */
+	INIT_DELAYED_WORK(&h_ctx.work, exynos_hdcp_worker);
+	h_ctx.enabled = true;
+	err = exynos_smc(SMC_HDCP_NOTIFY_INTR_NUM, 0, 0, hwirq);
+
+	hdcp_info("Exynos HDCP driver probe done! (%d)\n", err);
+
+	return err;
+}
+
+static const struct of_device_id exynos_hdcp_of_match_table[] = {
+	{ .compatible = "samsung,exynos-hdcp", },
+	{ },
+};
+
+static struct platform_driver exynos_hdcp_driver = {
+	.probe = exynos_hdcp_probe,
+	.driver = {
+		.name = "exynos-hdcp",
+		.owner = THIS_MODULE,
+		.of_match_table = of_match_ptr(exynos_hdcp_of_match_table),
+	}
+};
+
 static int __init hdcp_init(void)
 {
 	int ret;
@@ -364,16 +469,19 @@ static int __init hdcp_init(void)
 		return -EINVAL;
 	}
 
-	return 0;
+	return platform_driver_register(&exynos_hdcp_driver);
 }
 
 static void __exit hdcp_exit(void)
 {
 	/* todo: do clear sequence */
 
+	cancel_delayed_work_sync(&h_ctx.work);
+
 	misc_deregister(&hdcp);
 	hdcp_session_list_destroy(&g_hdcp_session_list);
 	hdcp_tee_close();
+	platform_driver_unregister(&exynos_hdcp_driver);
 }
 
 static const struct file_operations hdcp_fops = {
@@ -392,3 +500,6 @@ struct miscdevice hdcp = {
 
 module_init(hdcp_init);
 module_exit(hdcp_exit);
+
+MODULE_DESCRIPTION("Exynos Secure hdcp driver");
+MODULE_AUTHOR("<hakmin_1.kim@samsung.com>");

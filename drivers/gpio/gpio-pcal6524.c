@@ -32,7 +32,7 @@
 #include <linux/of_gpio.h>
 #endif
 #include <linux/i2c/pcal6524.h>
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 
 struct pcal6524_chip {
 	struct i2c_client *client;
@@ -324,7 +324,6 @@ static int pcal6524_parse_dt(struct device *dev,
 		struct pcal6524_platform_data *pdata)
 {
 	struct device_node *np = dev->of_node;
-	struct pinctrl *reset_pinctrl;
 	int ret, i, j;
 	u32 pull_reg[3];
 
@@ -340,16 +339,6 @@ static int pcal6524_parse_dt(struct device *dev,
 		return ret;
 	}
 	pdata->reset_gpio = of_get_named_gpio(np, "pcal6524,reset-gpio", 0);
-	/* Get pinctrl if target uses pinctrl */
-	reset_pinctrl = devm_pinctrl_get_select(dev, "expander_reset_setting");
-	if (IS_ERR(reset_pinctrl)) {
-		if (PTR_ERR(reset_pinctrl) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-
-		pr_debug("Target does not use pinctrl\n");
-		reset_pinctrl = NULL;
-	}
-
 	ret = of_property_read_u32(np, "pcal6524,support_initialize", (u32 *)&pdata->support_init);
 	if (ret < 0) {
 		pr_err("[%s]: Unable to read pcal6524,support_init\n", __func__);
@@ -513,7 +502,7 @@ static ssize_t show_pcal6524_gpio_state(struct device *dev,
 	int i, drv_str;
 	int quot = 0, rest = 0;
 	uint8_t read_input[3];
-	size_t size = 0;
+	char *bufp = buf;
 
 	for (i = 0; i < PCAL6524_PORT_CNT; i++) {
 		pcal6524_read_reg(chip, PCAL6524_INPUT + i, &read_input[i]);
@@ -529,26 +518,26 @@ static ssize_t show_pcal6524_gpio_state(struct device *dev,
 	}
 
 	for (i = 0; i <= PCAL6524_MAX_GPIO; i++) {
-		size += sprintf(&buf[size], "Expander[3%02d]", i);
+		bufp += sprintf(bufp, "Expander[3%02d]", i);
 		quot = i / 8;
 		rest = i % 8;
 
 		if ((chip_state.reg_config[quot] >> rest) & 0x1)
-			size += sprintf(&buf[size], " IN");
+			bufp += sprintf(bufp, " IN");
 		else {
 			if ((chip_state.reg_output[quot] >> rest) & 0x1)
-				size += sprintf(&buf[size], " OUT_HIGH");
+				bufp += sprintf(bufp, " OUT_HIGH");
 			else
-				size += sprintf(&buf[size], " OUT_LOW");
+				bufp += sprintf(bufp, " OUT_LOW");
 		}
 
 		if ((chip_state.reg_enpullupdown[quot] >> rest) & 0x1) {
 			if ((chip_state.reg_selpullupdown[quot] >> rest) & 0x1)
-				size += sprintf(&buf[size], " PULL_UP");
+				bufp += sprintf(bufp, " PULL_UP");
 			else
-				size += sprintf(&buf[size], " PULL_DOWN");
+				bufp += sprintf(bufp, " PULL_DOWN");
 		} else
-			size += sprintf(&buf[size], " PULL_NONE");
+			bufp += sprintf(bufp, " PULL_NONE");
 
 		if (quot == 2) {
 			if (rest > 3)
@@ -569,26 +558,26 @@ static ssize_t show_pcal6524_gpio_state(struct device *dev,
 
 		switch (drv_str) {
 		case GPIO_CFG_6_25MA:
-			size += sprintf(&buf[size], " DRV_6.25mA");
+			bufp += sprintf(bufp, " DRV_6.25mA");
 			break;
 		case GPIO_CFG_12_5MA:
-			size += sprintf(&buf[size], " DRV_12.5mA");
+			bufp += sprintf(bufp, " DRV_12.5mA");
 			break;
 		case GPIO_CFG_18_75MA:
-			size += sprintf(&buf[size], " DRV_18.75mA");
+			bufp += sprintf(bufp, " DRV_18.75mA");
 			break;
 		case GPIO_CFG_25MA:
-			size += sprintf(&buf[size], " DRV_25mA");
+			bufp += sprintf(bufp, " DRV_25mA");
 			break;
 		}
 
 		if ((read_input[quot] >> rest) & 0x1)
-			size += sprintf(&buf[size], " VAL_HIGH\n");
+			bufp += sprintf(bufp, " VAL_HIGH\n");
 		else
-			size += sprintf(&buf[size], " VAL_LOW\n");
+			bufp += sprintf(bufp, " VAL_LOW\n");
 	}
 
-	return size;
+	return strlen(buf);
 }
 
 static DEVICE_ATTR(expgpio, 0644,
@@ -783,7 +772,9 @@ static int pcal6524_gpio_probe(struct i2c_client *client,
 	struct pcal6524_platform_data *pdata = NULL;
 	struct pcal6524_chip *dev;
 	struct gpio_chip *gc;
+#if 0
 	struct dentry *debugfs_file;
+#endif
 	int ret, i;
 	int retry;
 
@@ -875,11 +866,8 @@ static int pcal6524_gpio_probe(struct i2c_client *client,
 		if (retry++ > 5) {
 			dev_err(&client->dev,
 					"Failed to expander retry[%d]\n", retry);
-
 			panic("pcal6524 i2c fail, check HW!\n");
-
 			goto err;
-
 		}
 		usleep_range(100, 200);
 	}
@@ -900,6 +888,7 @@ static int pcal6524_gpio_probe(struct i2c_client *client,
 		goto err;
 	}
 
+#if 0
 	ret = sysfs_create_file(&pcal6524_dev->kobj, &dev_attr_expgpio.attr);
 	if (ret) {
 		dev_err(&client->dev,
@@ -921,12 +910,14 @@ static int pcal6524_gpio_probe(struct i2c_client *client,
 				"Failed to create debugfs file for gpio\n");
 		goto err_debug_file;
 	}
+#endif
 
 	i2c_set_clientdata(client, dev);
 	g_dev = dev;
 
 	return 0;
 
+#if 0
 err_debug_file:
 	debugfs_remove_recursive(dev->dentry);
 err_debug_dir:
@@ -934,6 +925,7 @@ err_debug_dir:
 err_destroy:
 	sec_device_destroy(0);
 	return ret;
+#endif
 err:
 	mutex_destroy(&dev->lock);
 	kfree(dev);

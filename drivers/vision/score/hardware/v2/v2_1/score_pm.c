@@ -44,13 +44,13 @@ static void __score_pm_qos_remove(struct score_pm *pm)
 	score_leave();
 }
 
-void score_pm_qos_update(struct score_pm *pm, int request_qos)
+int score_pm_qos_update(struct score_pm *pm, int request_qos)
 {
 	score_enter();
 	if ((request_qos >= pm->qos_count) || (request_qos < 0)) {
 		score_warn("DVFS level(%d) is invalid (L0 <= level <= L%d)\n",
 				request_qos, pm->qos_count - 1);
-		return;
+		return -EINVAL;
 	}
 
 	mutex_lock(&pm->lock);
@@ -64,6 +64,7 @@ void score_pm_qos_update(struct score_pm *pm, int request_qos)
 	}
 	mutex_unlock(&pm->lock);
 	score_leave();
+	return 0;
 }
 
 void score_pm_qos_update_min(struct score_pm *pm)

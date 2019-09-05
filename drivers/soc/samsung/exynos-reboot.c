@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015 Samsung Electronics Co., Ltd.
+ * Copyright (c) 2015 Samsung Electronics Co., Ltd.
  *	      http://www.samsung.com/
  *
  * Exynos - Support SoC specific Reboot
@@ -12,11 +12,15 @@
 
 #include <linux/io.h>
 #include <linux/of.h>
+#include <linux/of_gpio.h>
+#include <linux/input.h>
+#include <linux/delay.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/soc/samsung/exynos-soc.h>
+#include <linux/debug-snapshot.h>
 
 #ifdef CONFIG_EXYNOS_ACPM
 #include <soc/samsung/acpm_ipc_ctrl.h>
@@ -74,13 +78,24 @@ int soc_has_big(void)
 }
 
 #define CPU_RESET_DISABLE_FROM_SOFTRESET	(0x041C)
-#define CPU_RESET_DISABLE_FROM_WDTRESET	(0x0414)
-#define BIG_CPU0_RESET			(0x3C0C)
-#define BIG_NONCPU_ETC_RESET		(0x3C8C)
+#define CPU_RESET_DISABLE_FROM_WDTRESET		(0x0414)
+#define BIG_CPU0_RESET				(0x3C0C)
+#define BIG_NONCPU_ETC_RESET			(0x3C8C)
 #define LITTLE_CPU0_ETC_RESET			(0x3C4C)
-#define SWRESET				(0x0400)
-#define RESET_SEQUENCER_CONFIGURATION	(0x0500)
-#define PS_HOLD_CONTROL			(0x330C)
+#ifdef CONFIG_SOC_EXYNOS9810
+#define SWRESET					(0x0400)
+#define RST_STAT				(0x0404)
+#define SWRESET_TRIGGER				(1 << 0)
+#define PS_HOLD_CONTROL				(0x330C)
+#else
+#define SWRESET					(0x3A00)
+#define RST_STAT				(0x0404)
+#define SWRESET_TRIGGER				(1 << 1)
+#define PS_HOLD_CONTROL				(0x030C)
+#endif
+#define RESET_SEQUENCER_CONFIGURATION		(0x0500)
+#define PS_HOLD_EN				(1 << 8)
+#define EXYNOS_PMU_SYSIP_DAT0			(0x0810)
 
 /* defines for BIG reset */
 #define PEND_BIG				(1 << 1)
@@ -98,7 +113,7 @@ int soc_has_big(void)
 #define RESET_DISABLE_WDT_L2RESET		(1 << 31)
 
 #define DFD_EDPCSR_DUMP_EN			(1 << 0)
-#define DFD_L2RSTDISABLE_BIG_EN		(1 << 11)
+#define DFD_L2RSTDISABLE_BIG_EN			(1 << 11)
 #define DFD_DBGL1RSTDISABLE_BIG_EN		(1 << 10)
 #define DFD_L2RSTDISABLE_LITTLE_EN		(1 << 9)
 #define DFD_DBGL1RSTDISABLE_LITTLE_EN		(0xF << 24)
@@ -123,7 +138,7 @@ int soc_has_big(void)
 #define	DFD_BIG_NONCPU_ETC_RESET	(RESET_DISABLE_WDT_PRESET_DBG	\
 					| RESET_DISABLE_PRESET_DBG	\
 					| RESET_DISABLE_WDT_L2RESET)
-#define	PMU_CPU_OFFSET		(0x10)
+#define	PMU_CPU_OFFSET			(0x10)
 
 void dfd_set_dump_gpr(int en)
 {
@@ -237,16 +252,61 @@ void big_reset_control(int en)
 #define INFORM_RAMDUMP		0xd
 #define INFORM_RECOVERY		0xf
 
+#define REBOOT_MODE_NORMAL		0x00
+#define REBOOT_MODE_CHARGE		0x0A
+/* Reboot into fastboot mode */
+#define REBOOT_MODE_FASTBOOT		0xFC
+/* Reboot into recovery */
+#define REBOOT_MODE_RECOVERY		0xFF
+
 #if !defined(CONFIG_SEC_REBOOT)
 #ifdef CONFIG_OF
 static void exynos_power_off(void)
 {
+	int poweroff_try = 0;
+	int power_gpio = -1;
+	unsigned int keycode = 0;
+	struct device_node *np, *pp;
+
+	np = of_find_node_by_path("/gpio_keys");
+	if (!np)
+		return;
+
+	for_each_child_of_node(np, pp) {
+		if (!of_find_property(pp, "gpios", NULL))
+			continue;
+		of_property_read_u32(pp, "linux,code", &keycode);
+		if (keycode == KEY_POWER) {
+			pr_info("%s: <%u>\n", __func__,  keycode);
+			power_gpio = of_get_gpio(pp, 0);
+			break;
+		}
+	}
+
+	of_node_put(np);
+
+	if (!gpio_is_valid(power_gpio)) {
+		pr_err("Couldn't find power key node\n");
+		return;
+	}
+
+	while (1) {
+		/* wait for power button release */
+		if (gpio_get_value(power_gpio)) {
 #ifdef CONFIG_EXYNOS_ACPM
-	exynos_acpm_reboot();
+			exynos_acpm_reboot();
 #endif
-	pr_emerg("%s: Set PS_HOLD Low.\n", __func__);
-	writel(readl(exynos_pmu_base + PS_HOLD_CONTROL) & 0xFFFFFEFF,
-				exynos_pmu_base + PS_HOLD_CONTROL);
+			pr_emerg("%s: Set PS_HOLD Low.\n", __func__);
+			exynos_pmu_update(PS_HOLD_CONTROL, PS_HOLD_EN, 0);
+			++poweroff_try;
+			pr_emerg("%s: Should not reach here! (poweroff_try:%d)\n",
+				 __func__, poweroff_try);
+		} else {
+			/* if power button is not released, wait and check TA again */
+			pr_info("%s: PowerButton is not released.\n", __func__);
+		}
+		mdelay(1000);
+	}
 }
 #else
 static void exynos_power_off(void)
@@ -258,41 +318,65 @@ static void exynos_power_off(void)
 
 static void exynos_reboot(enum reboot_mode mode, const char *cmd)
 {
-	u32 restart_inform, soc_id;
+	u32 reg_val, soc_id, revision;
+	void __iomem *addr;
+
+
+
 
 	if (!exynos_pmu_base)
 		return;
 #ifdef CONFIG_EXYNOS_ACPM
 	exynos_acpm_reboot();
 #endif
-	restart_inform = INFORM_NONE;
+	printk("[%s] reboot cmd: %s\n", __func__, cmd);
 
+	addr = exynos_pmu_base + EXYNOS_PMU_SYSIP_DAT0;
 	if (cmd) {
-		if (!strcmp((char *)cmd, "recovery"))
-			restart_inform = INFORM_RECOVERY;
-		else if(!strcmp((char *)cmd, "ramdump"))
-			restart_inform = INFORM_RAMDUMP;
+		if (!strcmp((char *)cmd, "charge")) {
+			__raw_writel(REBOOT_MODE_CHARGE, addr);
+		} else if (!strcmp(cmd, "bootloader") || !strcmp(cmd, "bl") ||
+				!strcmp((char *)cmd, "fastboot") || !strcmp(cmd, "fb")) {
+			__raw_writel(REBOOT_MODE_FASTBOOT, addr);
+		} else if (!strcmp(cmd, "recovery")) {
+			__raw_writel(REBOOT_MODE_RECOVERY, addr);
+		}
 	}
 
 	/* Check by each SoC */
 	soc_id = exynos_soc_info.product_id;
-	pr_info("SOC ID %X.\n", soc_id);
+	revision = exynos_soc_info.revision;
+	pr_info("SOC ID %X. Revision: %x\n", soc_id, revision);
 	switch(soc_id) {
 	case EXYNOS9810_SOC_ID:
 		/* Check reset_sequencer_configuration register */
-		if (readl(exynos_pmu_base + RESET_SEQUENCER_CONFIGURATION) & DFD_EDPCSR_DUMP_EN) {
+		exynos_pmu_read(RESET_SEQUENCER_CONFIGURATION, &reg_val);
+		if (reg_val & DFD_EDPCSR_DUMP_EN) {
 			little_reset_control(0);
 			big_reset_control(0);
 			dfd_set_dump_gpr(0);
+		}
+		if (revision < EXYNOS_MAIN_REV_1) {
+			pr_emerg("%s: Exynos SoC reset right now with fake watchdog\n", __func__);
+#ifdef CONFIG_S3C2410_WATCHDOG
+//			s3c2410wdt_set_emergency_reset(1000, 1);
+//			s3c2410wdt_reset_confirm(100, 1);
+#endif
+			while (1)
+				wfi();
 		}
 		break;
 	default:
 		break;
 	}
 
+	/* Clear RST_STAT */
+	exynos_pmu_write(RST_STAT, 0);
 	/* Do S/W Reset */
 	pr_emerg("%s: Exynos SoC reset right now\n", __func__);
-	__raw_writel(0x1, exynos_pmu_base + SWRESET);
+	exynos_pmu_write(SWRESET, SWRESET_TRIGGER);
+	while (1)
+		wfi();
 }
 
 static int __init exynos_reboot_setup(struct device_node *np)

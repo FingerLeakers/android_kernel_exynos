@@ -304,16 +304,12 @@ struct init_vclk exynos9810_peric0_hwacg_vclks[] __initdata = {
 	HWACG_VCLK(GATE_PWM, PWM_QCH, "GATE_PWM", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_UART_DBG, UART_DBG_QCH, "GATE_UART_DBG", "UMUX_CLKCMU_PERIC0_BUS", 0, 0, "console-pclk0"),
 	HWACG_VCLK(GATE_USI00_I2C, USI00_I2C_QCH, "GATE_USI00_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-	HWACG_VCLK(GATE_USI00, USI00_USI_QCH, "GATE_USI00_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, "fp-spi-pclk"),
-#else
 	HWACG_VCLK(GATE_USI00, USI00_USI_QCH, "GATE_USI00_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
-#endif
 	HWACG_VCLK(GATE_USI01_I2C, USI01_I2C_QCH, "GATE_USI01_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI01, USI01_USI_QCH, "GATE_USI01_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI02_I2C, USI02_I2C_QCH, "GATE_USI02_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI02, USI02_USI_QCH, "GATE_USI02_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
-	HWACG_VCLK(GATE_USI03_I2C, USI03_I2C_QCH, "GATE_USI03_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, "clk_peric_usi03"),
+	HWACG_VCLK(GATE_USI03_I2C, USI03_I2C_QCH, "GATE_USI03_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI03, USI03_USI_QCH, "GATE_USI03_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI04_I2C, USI04_I2C_QCH, "GATE_USI04_I2C", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
 	HWACG_VCLK(GATE_USI04, USI04_USI_QCH, "GATE_USI04_USI", "UMUX_CLKCMU_PERIC0_BUS", 0, VCLK_GATE, NULL),
@@ -424,11 +420,7 @@ struct init_vclk exynos9810_fsys1_vclks[] __initdata = {
 
 struct init_vclk exynos9810_peric0_vclks[] __initdata = {
 	VCLK(UART_DBG, DIV_CLK_PERIC0_UART_DBG, "UART_DBG", 0, 0, "console-sclk0"),
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-	VCLK(USI00, DIV_CLK_PERIC0_USI00_USI, "USI00_USI", 0, 0, "fp-spi-sclk"),
-#else
 	VCLK(USI00, DIV_CLK_PERIC0_USI00_USI, "USI00_USI", 0, 0, NULL),
-#endif
 	VCLK(USI01, DIV_CLK_PERIC0_USI01_USI, "USI01_USI", 0, 0, NULL),
 	VCLK(USI02, DIV_CLK_PERIC0_USI02_USI, "USI02_USI", 0, 0, NULL),
 	VCLK(USI03, DIV_CLK_PERIC0_USI03_USI, "USI03_USI", 0, 0, NULL),
@@ -519,6 +511,9 @@ void __init exynos9810_clk_init(struct device_node *np)
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_cmgp_hwacg_vclks, ARRAY_SIZE(exynos9810_cmgp_hwacg_vclks));
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_cmu_hwacg_vclks, ARRAY_SIZE(exynos9810_cmu_hwacg_vclks));
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_core_hwacg_vclks, ARRAY_SIZE(exynos9810_core_hwacg_vclks));
+	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dcf_hwacg_vclks, ARRAY_SIZE(exynos9810_dcf_hwacg_vclks));
+	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dcpost_hwacg_vclks, ARRAY_SIZE(exynos9810_dcpost_hwacg_vclks));
+	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dcrd_hwacg_vclks, ARRAY_SIZE(exynos9810_dcrd_hwacg_vclks));
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dpu_hwacg_vclks, ARRAY_SIZE(exynos9810_dpu_hwacg_vclks));
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dspm_hwacg_vclks, ARRAY_SIZE(exynos9810_dspm_hwacg_vclks));
 	samsung_register_vclk(exynos9810_clk_provider, exynos9810_dsps_hwacg_vclks, ARRAY_SIZE(exynos9810_dsps_hwacg_vclks));

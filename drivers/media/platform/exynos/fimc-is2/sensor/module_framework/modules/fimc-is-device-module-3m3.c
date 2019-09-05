@@ -38,17 +38,8 @@
 
 #include "fimc-is-device-module-base.h"
 
-#define S5K3M3_PDAF_MAXWIDTH	128 /* MAX witdh size */
-#define S5K3M3_PDAF_MAXHEIGHT	736 /* MAX height size */
-#define S5K3M3_PDAF_ELEMENT	2 /* V4L2_PIX_FMT_SBGGR16 */
-
-#define S5K3M3_MIPI_MAXWIDTH	0 /* MAX width size */
-#define S5K3M3_MIPI_MAXHEIGHT	0 /* MAX height size */
-#define S5K3M3_MIPI_ELEMENT	0 /* V4L2_PIX_FMT_SBGGR16 */
-
 static struct fimc_is_sensor_cfg config_module_3m3[] = {
 			/* width, height, fps, settle, mode, lane, speed, interleave, pd_mode */
-
 	FIMC_IS_SENSOR_CFG(4032, 3024, 30, 0, 0, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 4032, 3024), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 128, 736), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 736),
@@ -64,32 +55,37 @@ static struct fimc_is_sensor_cfg config_module_3m3[] = {
 		VC_IN(1, HW_FORMAT_RAW10, 128, 480), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 480),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(3024, 3024, 30, 0, 3, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(4032, 1908, 30, 0, 3, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+		VC_IN(0, HW_FORMAT_RAW10, 4032, 1908), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 448), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 448),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
+	FIMC_IS_SENSOR_CFG(3024, 3024, 30, 0, 4, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 3024, 3024), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 96, 736), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 96, 736),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(2016, 1512, 30, 0, 4, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(2016, 1512, 30, 0, 5, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 2016, 1512), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 128, 736), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 736),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(1504, 1504, 30, 0, 5, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(1504, 1504, 30, 0, 6, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 1504, 1504), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 96, 704), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 96, 704),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(1920, 1080, 60, 0, 6, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(1920, 1080, 60, 0, 7, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 1920, 1080), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 60, 256), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 60, 256),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(1344, 756, 120, 0, 7, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(1344, 756, 120, 0, 8, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 1344, 756), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	FIMC_IS_SENSOR_CFG(2016, 1134, 30, 0, 8, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+	FIMC_IS_SENSOR_CFG(2016, 1134, 30, 0, 9, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 2016, 1134), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_RAW10, 128, 544), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 544),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
@@ -107,6 +103,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	.s_parm = sensor_module_s_param
 };
@@ -131,6 +128,9 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	int gpio_ois_reset = 0;
 #endif
 	int gpio_none = 0;
+	int gpio_subcam_sel = 0;
+	u32 power_seq_id = 0;
+	bool use_mclk_share = false;
 
 	FIMC_BUG(!dev);
 
@@ -144,17 +144,41 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	dev_info(dev, "%s E v4\n", __func__);
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
-	if (gpio_is_valid(gpio_reset)) {
+	if (!gpio_is_valid(gpio_reset)) {
+		dev_err(dev, "failed to get gpio_reset\n");
+		return -EINVAL;
+	} else {
 		gpio_request_one(gpio_reset, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
 		gpio_free(gpio_reset);
 	}
 #ifdef CONFIG_OIS_USE
 	gpio_ois_reset = of_get_named_gpio(dnode, "gpio_ois_reset", 0);
-	if (gpio_is_valid(gpio_ois_reset)) {
+	if (!gpio_is_valid(gpio_ois_reset)) {
+		dev_err(dev, "failed to get gpio_ois_reset\n");
+		return -EINVAL;
+	} else {
 		gpio_request_one(gpio_ois_reset, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
 		gpio_free(gpio_ois_reset);
 	}
 #endif
+
+	gpio_subcam_sel = of_get_named_gpio(dnode, "gpio_subcam_sel", 0);
+	if (!gpio_is_valid(gpio_subcam_sel)) {
+		dev_err(dev, "failed to get gpio_subcam_sel\n");
+	} else {
+		gpio_request_one(gpio_subcam_sel, GPIOF_OUT_INIT_LOW, "SUBCAM_SEL");
+		gpio_free(gpio_subcam_sel);
+	}
+
+	if (of_property_read_u32(dnode, "power_seq_id", &power_seq_id)) {
+		dev_err(dev, "power_seq_id read is fail");
+		power_seq_id = 0;
+	}
+
+	use_mclk_share = of_property_read_bool(dnode, "use_mclk_share");
+	if (use_mclk_share) {
+		dev_info(dev, "use_mclk_share(%d)", use_mclk_share);
+	}
 
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON);
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF);
@@ -164,48 +188,64 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	/* TELE CAMERA - POWER ON */
 #ifdef USE_BUCK2_REGULATOR_CONTROL
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDD_EXT_1P3_PB02", PIN_REGULATOR, 1, 0);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
+			&core->shared_rsc_slock[SHARED_PIN7], &core->shared_rsc_count[SHARED_PIN7], 1);
 #endif
+	if (gpio_is_valid(gpio_subcam_sel))
+		SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON,
+				gpio_subcam_sel, "gpio_subcam_sel high", PIN_OUTPUT, 1, 2000);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDA_2.8V_SUB", PIN_REGULATOR, 1, 0);
-#ifdef CONFIG_SEC_FACTORY
-	SET_PIN_VOLTAGE(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.05V_SUB", PIN_REGULATOR, 1, 0, 1000000);
-#else
-	SET_PIN_VOLTAGE(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.05V_SUB", PIN_REGULATOR, 1, 0, 1050000);
-#endif
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.05V_SUB", PIN_REGULATOR, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDAF_2.8V_SUB",
 		PIN_REGULATOR, 1, 2000);
 #ifdef CONFIG_OIS_USE
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 1, 100);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
+			&core->shared_rsc_slock[SHARED_PIN3], &core->shared_rsc_count[SHARED_PIN3], 1);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.8V_OIS", PIN_REGULATOR, 1, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
 			&core->shared_rsc_slock[SHARED_PIN2], &core->shared_rsc_count[SHARED_PIN2], 1);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 1, 0);
-	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
-			&core->shared_rsc_slock[SHARED_PIN3], &core->shared_rsc_count[SHARED_PIN3], 1);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDD_2.8V_OIS", PIN_REGULATOR, 1, 0);
-	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
-			&core->shared_rsc_slock[SHARED_PIN4], &core->shared_rsc_count[SHARED_PIN4], 1);
 #endif
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDIO_1.8V_SUB",
-		PIN_REGULATOR, 1, 100);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDIO_1.8V_CAM", PIN_REGULATOR, 1, 100);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
+			&core->shared_rsc_slock[SHARED_PIN6], &core->shared_rsc_count[SHARED_PIN6], 1);
+	if (power_seq_id == 1) {
+		SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDIO_1.8V_FRONTSUB", PIN_REGULATOR, 1, 100);
+	}
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDDIO_1.8V_SUB", PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "on_i2c", PIN_I2C, 1, 10);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
 			&core->shared_rsc_slock[SHARED_PIN0], &core->shared_rsc_count[SHARED_PIN0], 1);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "MCLK", PIN_MCLK, 1, 0);
+	if (use_mclk_share) {
+		SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
+				&core->shared_rsc_slock[SHARED_PIN8], &core->shared_rsc_count[SHARED_PIN8], 1);
+	}
 
 	/* 10ms delay is needed for I2C communication of the AK7371 actuator */
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 8000);
 #ifdef CONFIG_OIS_USE
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_ois_reset, "ois_rst high", PIN_OUTPUT, 1, 10000);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_ois_reset, "ois_rst high", PIN_OUTPUT, 1, 20000);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
 			&core->shared_rsc_slock[SHARED_PIN1], &core->shared_rsc_count[SHARED_PIN1], 1);
 #endif
 
 	/* TELE CAMERA - POWER OFF */
+	if (gpio_is_valid(gpio_subcam_sel))
+		SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF,
+				gpio_subcam_sel, "gpio_subcam_sel low", PIN_OUTPUT, 0, 9);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDAF_2.8V_SUB",
 		PIN_REGULATOR, 0, 9);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "off_i2c", PIN_I2C, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDIO_1.8V_SUB",
-		PIN_REGULATOR, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDIO_1.8V_CAM", PIN_REGULATOR, 0, 0);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
+		&core->shared_rsc_slock[SHARED_PIN6], &core->shared_rsc_count[SHARED_PIN6], 0);
+	if (power_seq_id == 1) {
+		SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDIO_1.8V_FRONTSUB", PIN_REGULATOR, 0, 0);
+	}
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDIO_1.8V_SUB", PIN_REGULATOR, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDA_2.8V_SUB", PIN_REGULATOR, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDD_1.05V_SUB",
 		PIN_REGULATOR, 0, 0);
@@ -213,31 +253,37 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_ois_reset, "ois_rst low", PIN_OUTPUT, 0, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
 			&core->shared_rsc_slock[SHARED_PIN1], &core->shared_rsc_count[SHARED_PIN1], 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDD_1.8V_OIS", PIN_REGULATOR, 0, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
-			&core->shared_rsc_slock[SHARED_PIN3], &core->shared_rsc_count[SHARED_PIN3], 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDD_2.8V_OIS", PIN_REGULATOR, 0, 0);
-	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
-			&core->shared_rsc_slock[SHARED_PIN4], &core->shared_rsc_count[SHARED_PIN4], 0);
+			&core->shared_rsc_slock[SHARED_PIN2], &core->shared_rsc_count[SHARED_PIN2], 0);
 #endif
 	/* Mclock disable */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "MCLK", PIN_MCLK, 0, 0);
+	if (use_mclk_share) {
+		SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
+				&core->shared_rsc_slock[SHARED_PIN8], &core->shared_rsc_count[SHARED_PIN8], 0);
+	}
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
 			&core->shared_rsc_slock[SHARED_PIN0], &core->shared_rsc_count[SHARED_PIN0], 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 #ifdef CONFIG_OIS_USE
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDDD_1.8V_OIS", PIN_REGULATOR, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 0, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
-			&core->shared_rsc_slock[SHARED_PIN2], &core->shared_rsc_count[SHARED_PIN2], 0);
+			&core->shared_rsc_slock[SHARED_PIN3], &core->shared_rsc_count[SHARED_PIN3], 0);
 #endif
 #ifdef USE_BUCK2_REGULATOR_CONTROL
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDD_EXT_1P3_PB02", PIN_REGULATOR, 0, 0);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
+			&core->shared_rsc_slock[SHARED_PIN7], &core->shared_rsc_count[SHARED_PIN7], 0);
 #endif
 
 	/* VISION - POWER ON */
 #ifdef USE_BUCK2_REGULATOR_CONTROL
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDD_EXT_1P3_PB02", PIN_REGULATOR, 1, 0);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, SRT_ACQUIRE,
+			&core->shared_rsc_slock[SHARED_PIN7], &core->shared_rsc_count[SHARED_PIN7], 1);
 #endif
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDDA_2.8V_SUB", PIN_REGULATOR, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.05V_SUB", PIN_REGULATOR, 1, 0);
@@ -246,16 +292,16 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 #ifdef CONFIG_OIS_USE
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDDD_1.8V_OIS", PIN_REGULATOR, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 1, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDDD_2.8V_OIS", PIN_REGULATOR, 1, 0);
 #endif
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDDIO_1.8V_SUB",
 		PIN_REGULATOR, 1, 100);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "on_i2c", PIN_I2C, 1, 10);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "MCLK", PIN_MCLK, 1, 0);
 	/* 10ms delay is needed for I2C communication of the AK7371 actuator */
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 8000);
 #ifdef CONFIG_OIS_USE
-	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_ois_reset, "ois_rst high", PIN_OUTPUT, 1, 10000);
+	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_ois_reset, "ois_rst high", PIN_OUTPUT, 1, 20000);
 #endif
 
 	/* TELE CAMERA - POWER OFF */
@@ -271,9 +317,9 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 #ifdef CONFIG_OIS_USE
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_ois_reset, "ois_rst low", PIN_OUTPUT, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "VDD_VM_2.8V_OIS", PIN_REGULATOR, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "VDDD_2.8V_OIS", PIN_REGULATOR, 0, 0);
 #endif
 	/* Mclock disable */
+	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "MCLK", PIN_MCLK, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
@@ -282,6 +328,8 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 #endif
 #ifdef USE_BUCK2_REGULATOR_CONTROL
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "VDD_EXT_1P3_PB02", PIN_REGULATOR, 0, 0);
+	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, SRT_RELEASE,
+			&core->shared_rsc_slock[SHARED_PIN7], &core->shared_rsc_count[SHARED_PIN7], 0);
 #endif
 
 	dev_info(dev, "%s X v4\n", __func__);
@@ -299,7 +347,7 @@ static int __init sensor_module_3m3_probe(struct platform_device *pdev)
 	struct sensor_open_extended *ext;
 	struct exynos_platform_fimc_is_module *pdata;
 	struct device *dev;
-	int ch, vc_idx;
+	int t;
 	struct pinctrl_state *s;
 
 	FIMC_BUG(!fimc_is_dev);
@@ -351,22 +399,83 @@ static int __init sensor_module_3m3_probe(struct platform_device *pdev)
 	module->cfgs = ARRAY_SIZE(config_module_3m3);
 	module->cfg = config_module_3m3;
 	module->ops = NULL;
-	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
-		module->vc_buffer_offset[ch] = pdata->vc_buffer_offset[ch];
 
-	for (vc_idx = 0; vc_idx < 2; vc_idx++) {
-		switch (vc_idx) {
-		case VC_BUF_DATA_TYPE_SENSOR_STAT:
-			module->vc_max_size[vc_idx].width = S5K3M3_PDAF_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5K3M3_PDAF_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5K3M3_PDAF_ELEMENT;
-			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT:
-			module->vc_max_size[vc_idx].width = S5K3M3_MIPI_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5K3M3_MIPI_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5K3M3_MIPI_ELEMENT;
-			break;
+	for (t = VC_BUF_DATA_TYPE_SENSOR_STAT1; t < VC_BUF_DATA_TYPE_MAX; t++) {
+		module->vc_extra_info[t].stat_type = VC_STAT_TYPE_INVALID;
+		module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_INVALID;
+		module->vc_extra_info[t].max_width = 0;
+		module->vc_extra_info[t].max_height = 0;
+		module->vc_extra_info[t].max_element = 0;
+
+/* HACK: disable tail mode with PDP */
+#if 0
+		if (IS_ENABLED(CONFIG_CAMERA_PDP)) {
+			switch (t) {
+			case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+				if (!IS_ENABLED(CONFIG_SOC_EXYNOS9820) ||
+						IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_TAIL_FOR_SW_PDAF;
+					module->vc_extra_info[t].sensor_mode
+						= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 128;
+					module->vc_extra_info[t].max_height = 736;
+					module->vc_extra_info[t].max_element = 2;
+				}
+				break;
+			case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+				/* PDP STAT0: SFR, Size: 1756(1756)Bytes */
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT0;
+					module->vc_extra_info[t].sensor_mode
+						= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 1756;
+					module->vc_extra_info[t].max_height = 1;
+					module->vc_extra_info[t].max_element = 1;
+				}
+				break;
+			case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+				/* PDP STAT1/2: DMA, Size: 17920+21504(17556+21168)Bytes */
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT1;
+					module->vc_extra_info[t].sensor_mode
+						= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 39424;
+					module->vc_extra_info[t].max_height = 1;
+					module->vc_extra_info[t].max_element = 1;
+				}
+				break;
+			}
+		} else {
+			switch (t) {
+			case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+				module->vc_extra_info[t].stat_type
+					= VC_STAT_TYPE_TAIL_FOR_SW_PDAF;
+				module->vc_extra_info[t].sensor_mode
+					= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+				module->vc_extra_info[t].max_width = 128;
+				module->vc_extra_info[t].max_height = 736;
+				module->vc_extra_info[t].max_element = 2;
+				break;
+			}
 		}
+#else
+		switch (t) {
+			case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+				module->vc_extra_info[t].stat_type
+					= VC_STAT_TYPE_TAIL_FOR_SW_PDAF;
+				module->vc_extra_info[t].sensor_mode
+					= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+				module->vc_extra_info[t].max_width = 128;
+				module->vc_extra_info[t].max_height = 736;
+				module->vc_extra_info[t].max_element = 2;
+				break;
+		}
+#endif
 	}
 
 	/* Sensor peri */
@@ -432,6 +541,17 @@ static int __init sensor_module_3m3_probe(struct platform_device *pdev)
 	} else {
 		ext->ois_con.product_name = pdata->ois_product_name;
 		ext->ois_con.peri_type = SE_NULL;
+	}
+
+	if (pdata->mcu_product_name != MCU_NAME_NOTHING) {
+		ext->mcu_con.product_name = pdata->mcu_product_name;
+		ext->mcu_con.peri_type = SE_I2C;
+		ext->mcu_con.peri_setting.i2c.channel = pdata->mcu_i2c_ch;
+		ext->mcu_con.peri_setting.i2c.slave_address = pdata->mcu_i2c_addr;
+		ext->mcu_con.peri_setting.i2c.speed = 400000;
+	} else {
+		ext->mcu_con.product_name = pdata->mcu_product_name;
+		ext->mcu_con.peri_type = SE_NULL;
 	}
 
 	v4l2_subdev_init(subdev_module, &subdev_ops);

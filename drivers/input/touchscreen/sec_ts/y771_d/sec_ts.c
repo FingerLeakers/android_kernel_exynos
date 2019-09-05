@@ -71,6 +71,7 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 	struct sec_ts_data *ts = dev_get_drvdata(dev);
 	int ret;
 	unsigned long data;
+	struct input_dev *input_device = NULL;
 
 	if (count > 2) {
 		input_err(true, &ts->client->dev,
@@ -120,6 +121,15 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 			input_err(true, &ts->client->dev, "%s: failed to get pm_runtime\n", __func__);
 			return -EIO;
 		}
+
+		list_for_each_entry(input_device, &ts->input_dev->node, node) {
+			if (strncmp(input_device->name, "sec_e-pen", 9) == 0) {
+				if (input_device->close)
+					input_device->close(input_device);
+				break;
+			}
+		}
+
 		reinit_completion(&ts->secure_powerdown);
 		reinit_completion(&ts->secure_interrupt);
 #if defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
@@ -153,6 +163,14 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 #endif
 
 		input_info(true, &ts->client->dev, "%s: secure touch disable\n", __func__);
+
+		list_for_each_entry(input_device, &ts->input_dev->node, node) {
+			if (strncmp(input_device->name, "sec_e-pen", 9) == 0) {
+				if (input_device->open)
+					input_device->open(input_device);
+				break;
+			}
+		}
 
 		ret = sec_ts_release_tmode(ts);
 		if (ret < 0) {
@@ -944,6 +962,10 @@ void sec_ts_reinit(struct sec_ts_data *ts)
 	sec_ts_set_custom_library(ts);
 	sec_ts_set_press_property(ts);
 
+	if (ts->plat_data->support_fod && ts->use_sponge && ts->fod_set_val) {
+		sec_ts_set_fod_rect(ts);
+	}
+
 	/* Power mode */
 	if (ts->power_status == SEC_TS_STATE_LPM) {
 		w_data[0] = TO_LOWPOWER_MODE;
@@ -1010,11 +1032,12 @@ void sec_ts_print_info(struct sec_ts_data *ts)
 		ts->print_info_cnt_release++;
 
 	input_info(true, &ts->client->dev,
-			"mode:%04X tc:%d noise:%x wet:%d wc:%x lp:(%x) D%05X fn:%04X/%04X // v:%02X%02X cal:%02X(%02X) C%02XT%04X.%4s%s Cal_flag:%s fail_cnt:%d // sp:%d id(%d,%d) // #%d %d\n",
+			"mode:%04X tc:%d noise:%x wet:%d wc:%x(%d) lp:(%x) fod:%d D%05X fn:%04X/%04X ED:%d // v:%02X%02X cal:%02X(%02X) C%02XT%04X.%4s%s Cal_flag:%s fail_cnt:%d // sp:%d sip:%d id(%d,%d) tmp(%d)// #%d %d\n",
 			ts->print_info_currnet_mode, ts->touch_count,
 			ts->touch_noise_status, ts->wet_mode,
-			ts->charger_mode, ts->lowpower_mode, ts->defect_probability,
-			ts->touch_functions, ts->ic_status,
+			ts->charger_mode, ts->force_charger_mode,
+			ts->lowpower_mode, ts->fod_set_val, ts->defect_probability,
+			ts->touch_functions, ts->ic_status, ts->ed_enable,
 			ts->plat_data->img_version_of_ic[2], ts->plat_data->img_version_of_ic[3],
 			ts->cal_status, ts->nv,
 #ifdef TCLM_CONCEPT
@@ -1026,7 +1049,8 @@ void sec_ts_print_info(struct sec_ts_data *ts)
 #else
 			0,0," "," "," ",0,
 #endif
-			ts->spen_mode_val, ts->tspid_val, ts->tspicid_val,
+			ts->spen_mode_val, ts->sip_mode, ts->tspid_val, ts->tspicid_val,
+			ts->tsp_temp_data,
 			ts->print_info_cnt_open, ts->print_info_cnt_release);
 }
 
@@ -1218,12 +1242,24 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				ts->print_info_currnet_mode = ((event_buff[2] & 0xFF) << 8) + (event_buff[3] & 0xFF);
 
 				if (p_event_status->status_data_1 == 2 && p_event_status->status_data_2 == 2) {
-					input_info(true, &ts->client->dev, "%s: Normal changed\n", __func__);
+					ts->scrub_id = EVENT_TYPE_TSP_SCAN_UNBLOCK;
+					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+					input_sync(ts->input_dev);
+					input_info(true, &ts->client->dev, "%s: Normal changed(%d)\n", __func__, ts->scrub_id);
 				} else if (p_event_status->status_data_1 == 5 && p_event_status->status_data_2 == 2) {
-					input_info(true, &ts->client->dev, "%s: lp changed\n", __func__);
+					ts->scrub_id = EVENT_TYPE_TSP_SCAN_UNBLOCK;
+					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+					input_sync(ts->input_dev);
+					input_info(true, &ts->client->dev, "%s: lp changed(%d)\n", __func__, ts->scrub_id);
 				} else if (p_event_status->status_data_1 == 6) {
-					input_info(true, &ts->client->dev, "%s: sleep changed\n", __func__);
+					ts->scrub_id = EVENT_TYPE_TSP_SCAN_BLOCK;
+					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+					input_sync(ts->input_dev);
+					input_info(true, &ts->client->dev, "%s: sleep changed(%d)\n", __func__, ts->scrub_id);
 				}
+				input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
+				input_sync(ts->input_dev);
+
 			}
 
 			if ((p_event_status->stype == TYPE_STATUS_EVENT_VENDOR_INFO) &&
@@ -1549,6 +1585,12 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	} while (remain_event_count >= 0);
 
 	input_sync(ts->input_dev);
+
+	if(ts->touch_count == 0 && ts->tsp_temp_data_skip){
+		ts->tsp_temp_data_skip = false;
+		sec_ts_set_temp(ts, false);
+		input_err(true, &ts->client->dev, "%s: sec_ts_set_temp, no touch\n", __func__);	
+	}
 }
 
 static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
@@ -1596,13 +1638,18 @@ int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable)
 	case SEC_TS_LED_COVER:
 	case SEC_TS_MONTBLANC_COVER:
 	case SEC_TS_CLEAR_FLIP_COVER:
-	case SEC_TS_QWERTY_KEYBOARD_EUR:
+	case SEC_TS_QWERTY_KEYBOARD_US:
 	case SEC_TS_QWERTY_KEYBOARD_KOR:
+	case SEC_TS_CLEAR_SIDE_VIEW_COVER:
 		ts->cover_cmd = (u8)ts->cover_type;
 		break;
 	case SEC_TS_CHARGER_COVER:
 	case SEC_TS_COVER_NOTHING1:
 	case SEC_TS_COVER_NOTHING2:
+	case SEC_TS_NEON_COVER:
+	case SEC_TS_ALCANTARA_COVER:
+	case SEC_TS_GAMEPACK_COVER:
+	case SEC_TS_LED_BACK_COVER:
 	default:
 		ts->cover_cmd = 0;
 		input_err(true, &ts->client->dev, "%s: not chage touch state, %d\n",
@@ -1872,7 +1919,7 @@ static void sec_ts_init_proc(struct sec_ts_data *ts)
 	struct proc_dir_entry *entry_cmoffset_all;
 	struct proc_dir_entry *entry_fail_hist_all;
 
-	ts->proc_cmoffset_size = (ts->tx_count * ts->rx_count * 4 + 100) * 2;
+	ts->proc_cmoffset_size = (ts->tx_count * ts->rx_count * 4 + 100) * 3;	/* cm1 cm2 cm3 */
 	ts->proc_cmoffset_all_size = ts->proc_cmoffset_size * 3;	/* sdc sub main */
 
 	ts->proc_fail_hist_size = ((ts->tx_count + ts->rx_count) * 4 + 100) * 6;	/* have to check */
@@ -2244,6 +2291,8 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	pdata->enable_settings_aot = of_property_read_bool(np, "enable_settings_aot");
 	pdata->sync_reportrate_120 = of_property_read_bool(np, "sync-reportrate-120");
 	pdata->support_ear_detect = of_property_read_bool(np, "support_ear_detect_mode");
+	pdata->support_open_short_test = of_property_read_bool(np, "support_open_short_test");
+	pdata->support_mis_calibration_test = of_property_read_bool(np, "support_mis_calibration_test");
 
 	if (of_property_read_u32_array(np, "sec,area-size", px_zone, 3)) {
 		input_info(true, &client->dev, "Failed to get zone's size\n");
@@ -3095,6 +3144,19 @@ static void sec_ts_print_info_work(struct work_struct *work)
 	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
 			work_print_info.work);
 	sec_ts_print_info(ts);
+
+	if (ts->sec.cmd_is_running) {
+		input_err(true, &ts->client->dev, "%s: skip sec_ts_set_temp, cmd running\n", __func__);	
+	} else {
+		if (ts->touch_count) {
+			ts->tsp_temp_data_skip = true;
+			input_err(true, &ts->client->dev, "%s: skip sec_ts_set_temp, t_cnt(%d)\n", __func__, ts->touch_count);	
+		} else {
+			ts->tsp_temp_data_skip = false;
+			sec_ts_set_temp(ts, false);
+		}
+	}
+	
 	schedule_delayed_work(&ts->work_print_info, msecs_to_jiffies(TOUCH_PRINT_INFO_DWORK_TIME));
 }
 
@@ -3257,7 +3319,7 @@ static int sec_ts_input_open(struct input_dev *dev)
 	if (ts->fix_active_mode)
 		sec_ts_fix_tmode(ts, TOUCH_SYSTEM_MODE_TOUCH, TOUCH_MODE_STATE_TOUCH);
 
-	sec_ts_set_temp(ts);
+	sec_ts_set_temp(ts, true);
 
 	mutex_unlock(&ts->modechange);
 
@@ -3284,6 +3346,7 @@ static void sec_ts_input_close(struct input_dev *dev)
 	mutex_lock(&ts->modechange);
 
 	ts->input_closed = true;
+	ts->sip_mode = 0;
 
 #ifdef TCLM_CONCEPT
 	sec_tclm_debug_info(ts->tdata);
@@ -3295,9 +3358,6 @@ static void sec_ts_input_close(struct input_dev *dev)
 	sec_ts_print_info(ts);
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	secure_touch_stop(ts, 1);
-#endif
-#ifdef CONFIG_SAMSUNG_TUI
-	stui_cancel_session();
 #endif
 
 #ifdef USE_POWER_RESET_WORK
@@ -3522,6 +3582,7 @@ static int sec_ts_pm_resume(struct device *dev)
 #ifdef CONFIG_SAMSUNG_TUI
 extern int stui_i2c_lock(struct i2c_adapter *adap);
 extern int stui_i2c_unlock(struct i2c_adapter *adap);
+extern void epen_disable_mode(int mode);
 
 int stui_tsp_enter(void)
 {
@@ -3529,6 +3590,9 @@ int stui_tsp_enter(void)
 
 	if (!tsp_info)
 		return -EINVAL;
+
+	/* Disable wacom interrupt during tui */
+	epen_disable_mode(1);
 
 	disable_irq(tsp_info->client->irq);
 	sec_ts_unlocked_release_all_finger(tsp_info);
@@ -3555,6 +3619,9 @@ int stui_tsp_exit(void)
 		pr_err("[STUI] stui_i2c_unlock failed : %d\n", ret);
 
 	enable_irq(tsp_info->client->irq);
+
+	/* Enable wacom interrupt after tui exit */
+	epen_disable_mode(0);
 
 	return ret;
 }

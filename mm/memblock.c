@@ -22,6 +22,8 @@
 
 #include <asm/sections.h>
 #include <linux/io.h>
+#include <linux/proc_fs.h>
+#include <linux/sort.h>
 
 #include "internal.h"
 
@@ -35,15 +37,18 @@ struct memblock memblock __initdata_memblock = {
 	.memory.regions		= memblock_memory_init_regions,
 	.memory.cnt		= 1,	/* empty dummy entry */
 	.memory.max		= INIT_MEMBLOCK_REGIONS,
+	.memory.name		= "memory",
 
 	.reserved.regions	= memblock_reserved_init_regions,
 	.reserved.cnt		= 1,	/* empty dummy entry */
 	.reserved.max		= INIT_MEMBLOCK_REGIONS,
+	.reserved.name		= "reserved",
 
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
 	.physmem.regions	= memblock_physmem_init_regions,
 	.physmem.cnt		= 1,	/* empty dummy entry */
 	.physmem.max		= INIT_PHYSMEM_REGIONS,
+	.physmem.name		= "physmem",
 #endif
 
 	.bottom_up		= false,
@@ -51,9 +56,6 @@ struct memblock memblock __initdata_memblock = {
 };
 
 int memblock_debug __initdata_memblock;
-#ifdef CONFIG_MOVABLE_NODE
-bool movable_node_enabled __initdata_memblock = false;
-#endif
 static bool system_has_some_mirror __initdata_memblock = false;
 static int memblock_can_resize __initdata_memblock;
 static int memblock_memory_in_slab __initdata_memblock = 0;
@@ -62,18 +64,6 @@ static int memblock_reserved_in_slab __initdata_memblock = 0;
 ulong __init_memblock choose_memblock_flags(void)
 {
 	return system_has_some_mirror ? MEMBLOCK_MIRROR : MEMBLOCK_NONE;
-}
-
-/* inline so we don't get a warning when pr_debug is compiled out */
-static __init_memblock const char *
-memblock_type_name(struct memblock_type *type)
-{
-	if (type == &memblock.memory)
-		return "memory";
-	else if (type == &memblock.reserved)
-		return "reserved";
-	else
-		return "unknown";
 }
 
 /* adjust *@size so that (@base + *@size) doesn't overflow, return new size */
@@ -398,12 +388,12 @@ static int __init_memblock memblock_double_array(struct memblock_type *type,
 	}
 	if (!addr) {
 		pr_err("memblock: Failed to double %s array from %ld to %ld entries !\n",
-		       memblock_type_name(type), type->max, type->max * 2);
+		       type->name, type->max, type->max * 2);
 		return -1;
 	}
 
 	memblock_dbg("memblock: %s is doubled to %ld at [%#010llx-%#010llx]",
-			memblock_type_name(type), type->max * 2, (u64)addr,
+			type->name, type->max * 2, (u64)addr,
 			(u64)addr + new_size - 1);
 
 	/*
@@ -497,6 +487,126 @@ static void __init_memblock memblock_insert_region(struct memblock_type *type,
 	type->total_size += size;
 }
 
+#define NAME_SIZE	14
+struct reserved_mem_reg {
+	phys_addr_t	base;
+	long		size;
+	bool		nomap;			/*  1/16 byte */
+	bool		reusable;		/*  1/16 byte */
+	char		name[NAME_SIZE];	/* 14/16 byte */
+};
+
+static struct reserved_mem_reg kernel_mem_reg[] = {
+	[MEMSIZE_KERNEL_KERNEL]		= {0, 0, false, false, "Kernel    "},
+	[MEMSIZE_KERNEL_PAGING]		= {0, 0, false, false, "paging    "},
+	[MEMSIZE_KERNEL_LOGBUF]		= {0, 0, false, false, "log_buffer"},
+	[MEMSIZE_KERNEL_PIDHASH]	= {0, 0, false, false, "pid_hash  "},
+	[MEMSIZE_KERNEL_VFSHASH]	= {0, 0, false, false, "vfs_hash  "},
+	[MEMSIZE_KERNEL_MM_INIT]	= {0, 0, false, false, "mm_init   "},
+	[MEMSIZE_KERNEL_OTHERS]		= {0, 0, false, false, "others    "},
+};
+
+#define MAX_RESERVED_MEM_REG	64
+static struct reserved_mem_reg reserved_mem_reg[MAX_RESERVED_MEM_REG];
+static int reserved_mem_reg_count;
+
+static enum memsize_kernel_type memsize_kernel_type = MEMSIZE_KERNEL_STOP;
+static const char *memsize_reserved_name;
+
+void set_memsize_kernel_type(enum memsize_kernel_type type)
+{
+	memsize_kernel_type = type;
+}
+
+void set_memsize_reserved_name(const char *name)
+{
+	memsize_reserved_name = name;
+}
+
+void unset_memsize_reserved_name(void)
+{
+	memsize_reserved_name = NULL;
+}
+
+/* assume that freeing region is NOT bigger than the previous region */
+void free_memsize_reserved(phys_addr_t free_base, phys_addr_t free_size)
+{
+	int i;
+	struct reserved_mem_reg *rmem_reg;
+	phys_addr_t free_end, end;
+
+	for (i = 0 ; i < reserved_mem_reg_count; i++)
+	{
+		rmem_reg = &reserved_mem_reg[i];
+
+		end = rmem_reg->base + rmem_reg->size;
+		if (free_base < rmem_reg->base ||
+		    free_base >= end)
+			continue;
+
+		free_end = free_base + free_size;
+		if (free_base == rmem_reg->base) {
+			rmem_reg->size -= free_size;
+			if (rmem_reg->size != 0)
+				rmem_reg->base += free_size;
+		} else if (free_end == end) {
+			rmem_reg->size -= free_size;
+		} else {
+			record_memsize_reserved(rmem_reg->name,
+				free_end, end - free_end, rmem_reg->nomap,
+				rmem_reg->reusable);
+			rmem_reg->size = free_base - rmem_reg->base;
+		}
+	}
+}
+
+void record_memsize_size_only(enum memsize_kernel_type type, long size)
+{
+	struct reserved_mem_reg *rmem_reg;
+
+	if (type >= ARRAY_SIZE(kernel_mem_reg)) {
+		pr_err("type index is out ouf kernel_mem_reg\n");
+		return;
+	}
+	rmem_reg = &kernel_mem_reg[type];
+	rmem_reg->size += size;
+}
+
+void record_memsize_reserved(const char *name, phys_addr_t base,
+			     phys_addr_t size, bool nomap, bool reusable)
+{
+	struct reserved_mem_reg *rmem_reg;
+	char *found;
+	int name_size;
+
+	if (reserved_mem_reg_count == ARRAY_SIZE(reserved_mem_reg)) {
+		pr_err("not enough space on reserved_mem_reg\n");
+		return;
+	}
+	rmem_reg = &reserved_mem_reg[reserved_mem_reg_count++];
+
+	rmem_reg->base = base;
+	rmem_reg->size = size;
+	rmem_reg->nomap = nomap;
+	rmem_reg->reusable = reusable;
+
+	if (!name) {
+		strcpy(rmem_reg->name, "unknown");
+	} else {
+		name_size = strlen(name);
+		found = strstr(name, "_region");
+		if (found)
+			name_size = found - name;
+		found = strchr(name, '@');
+		if (found && (name_size > found - name))
+			name_size = found - name;
+		if (name_size > NAME_SIZE - 1)
+			name_size = NAME_SIZE - 1;
+		strncpy(rmem_reg->name, name, name_size);
+		rmem_reg->name[NAME_SIZE - 1] = '\0';
+	}
+}
+
 /**
  * memblock_add_range - add new memblock region
  * @type: memblock type to add new region into
@@ -522,6 +632,7 @@ int __init_memblock memblock_add_range(struct memblock_type *type,
 	phys_addr_t end = base + memblock_cap_size(base, &size);
 	int idx, nr_new;
 	struct memblock_region *rgn;
+	unsigned long new_size = 0;
 
 	if (!size)
 		return 0;
@@ -534,7 +645,8 @@ int __init_memblock memblock_add_range(struct memblock_type *type,
 		type->regions[0].flags = flags;
 		memblock_set_region_node(&type->regions[0], nid);
 		type->total_size = size;
-		return 0;
+		new_size = (unsigned long)size;
+		goto done;
 	}
 repeat:
 	/*
@@ -563,10 +675,12 @@ repeat:
 #endif
 			WARN_ON(flags != rgn->flags);
 			nr_new++;
-			if (insert)
+			if (insert) {
 				memblock_insert_region(type, idx++, base,
 						       rbase - base, nid,
 						       flags);
+				new_size += (unsigned long)(rbase - base);
+			}
 		}
 		/* area below @rend is dealt with, forget about it */
 		base = min(rend, end);
@@ -575,9 +689,11 @@ repeat:
 	/* insert the remaining portion */
 	if (base < end) {
 		nr_new++;
-		if (insert)
+		if (insert) {
 			memblock_insert_region(type, idx, base, end - base,
 					       nid, flags);
+			new_size += (unsigned long)(end - base);
+		}
 	}
 
 	if (!nr_new)
@@ -595,8 +711,15 @@ repeat:
 		goto repeat;
 	} else {
 		memblock_merge_regions(type);
-		return 0;
 	}
+done:
+	if (memsize_reserved_name && type == &memblock.reserved)
+		record_memsize_reserved(memsize_reserved_name, obase, size,
+					false, false);
+	else if (memsize_kernel_type != MEMSIZE_KERNEL_STOP &&
+			type == &memblock.reserved)
+		record_memsize_size_only(memsize_kernel_type, (long)new_size);
+	return 0;
 }
 
 int __init_memblock memblock_add_node(phys_addr_t base, phys_addr_t size,
@@ -607,10 +730,10 @@ int __init_memblock memblock_add_node(phys_addr_t base, phys_addr_t size,
 
 int __init_memblock memblock_add(phys_addr_t base, phys_addr_t size)
 {
-	memblock_dbg("memblock_add: [%#016llx-%#016llx] flags %#02lx %pF\n",
-		     (unsigned long long)base,
-		     (unsigned long long)base + size - 1,
-		     0UL, (void *)_RET_IP_);
+	phys_addr_t end = base + size - 1;
+
+	memblock_dbg("memblock_add: [%pa-%pa] %pF\n",
+		     &base, &end, (void *)_RET_IP_);
 
 	return memblock_add_range(&memblock.memory, base, size, MAX_NUMNODES, 0);
 }
@@ -701,6 +824,14 @@ static int __init_memblock memblock_remove_range(struct memblock_type *type,
 	if (ret)
 		return ret;
 
+	if (memsize_reserved_name && type == &memblock.memory)
+		record_memsize_reserved(memsize_reserved_name, base, size,
+					true, false);
+	else if (memsize_reserved_name && type == &memblock.reserved)
+		free_memsize_reserved(base, size);
+	else if (memsize_kernel_type != MEMSIZE_KERNEL_STOP
+			&& type == &memblock.reserved)
+		record_memsize_size_only(memsize_kernel_type, size * -1);
 	for (i = end_rgn - 1; i >= start_rgn; i--)
 		memblock_remove_region(type, i);
 	return 0;
@@ -714,10 +845,10 @@ int __init_memblock memblock_remove(phys_addr_t base, phys_addr_t size)
 
 int __init_memblock memblock_free(phys_addr_t base, phys_addr_t size)
 {
-	memblock_dbg("   memblock_free: [%#016llx-%#016llx] %pF\n",
-		     (unsigned long long)base,
-		     (unsigned long long)base + size - 1,
-		     (void *)_RET_IP_);
+	phys_addr_t end = base + size - 1;
+
+	memblock_dbg("   memblock_free: [%pa-%pa] %pF\n",
+		     &base, &end, (void *)_RET_IP_);
 
 	kmemleak_free_part_phys(base, size);
 	return memblock_remove_range(&memblock.reserved, base, size);
@@ -725,10 +856,10 @@ int __init_memblock memblock_free(phys_addr_t base, phys_addr_t size)
 
 int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 {
-	memblock_dbg("memblock_reserve: [%#016llx-%#016llx] flags %#02lx %pF\n",
-		     (unsigned long long)base,
-		     (unsigned long long)base + size - 1,
-		     0UL, (void *)_RET_IP_);
+	phys_addr_t end = base + size - 1;
+
+	memblock_dbg("memblock_reserve: [%pa-%pa] %pF\n",
+		     &base, &end, (void *)_RET_IP_);
 
 	return memblock_add_range(&memblock.reserved, base, size, MAX_NUMNODES, 0);
 }
@@ -807,6 +938,18 @@ int __init_memblock memblock_mark_mirror(phys_addr_t base, phys_addr_t size)
 int __init_memblock memblock_mark_nomap(phys_addr_t base, phys_addr_t size)
 {
 	return memblock_setclr_flag(base, size, 1, MEMBLOCK_NOMAP);
+}
+
+/**
+ * memblock_clear_nomap - Clear flag MEMBLOCK_NOMAP for a specified region.
+ * @base: the base phys addr of the region
+ * @size: the size of the region
+ *
+ * Return 0 on success, -errno on failure.
+ */
+int __init_memblock memblock_clear_nomap(phys_addr_t base, phys_addr_t size)
+{
+	return memblock_setclr_flag(base, size, 0, MEMBLOCK_NOMAP);
 }
 
 /**
@@ -1198,8 +1341,8 @@ phys_addr_t __init memblock_alloc_base(phys_addr_t size, phys_addr_t align, phys
 	alloc = __memblock_alloc_base(size, align, max_addr);
 
 	if (alloc == 0)
-		panic("ERROR: Failed to allocate 0x%llx bytes below 0x%llx.\n",
-		      (unsigned long long) size, (unsigned long long) max_addr);
+		panic("ERROR: Failed to allocate %pa bytes below %pa.\n",
+		      &size, &max_addr);
 
 	return alloc;
 }
@@ -1270,18 +1413,17 @@ static void * __init memblock_virt_alloc_internal(
 
 	if (max_addr > memblock.current_limit)
 		max_addr = memblock.current_limit;
-
 again:
 	alloc = memblock_find_in_range_node(size, align, min_addr, max_addr,
 					    nid, flags);
-	if (alloc)
+	if (alloc && !memblock_reserve(alloc, size))
 		goto done;
 
 	if (nid != NUMA_NO_NODE) {
 		alloc = memblock_find_in_range_node(size, align, min_addr,
 						    max_addr, NUMA_NO_NODE,
 						    flags);
-		if (alloc)
+		if (alloc && !memblock_reserve(alloc, size))
 			goto done;
 	}
 
@@ -1299,7 +1441,6 @@ again:
 
 	return NULL;
 done:
-	memblock_reserve(alloc, size);
 	ptr = phys_to_virt(alloc);
 	memset(ptr, 0, size);
 
@@ -1510,11 +1651,37 @@ void __init memblock_enforce_memory_limit(phys_addr_t limit)
 			      (phys_addr_t)ULLONG_MAX);
 }
 
+void __init memblock_cap_memory_range(phys_addr_t base, phys_addr_t size)
+{
+	int start_rgn, end_rgn;
+	int i, ret;
+
+	if (!size)
+		return;
+
+	ret = memblock_isolate_range(&memblock.memory, base, size,
+						&start_rgn, &end_rgn);
+	if (ret)
+		return;
+
+	/* remove all the MAP regions */
+	for (i = memblock.memory.cnt - 1; i >= end_rgn; i--)
+		if (!memblock_is_nomap(&memblock.memory.regions[i]))
+			memblock_remove_region(&memblock.memory, i);
+
+	for (i = start_rgn - 1; i >= 0; i--)
+		if (!memblock_is_nomap(&memblock.memory.regions[i]))
+			memblock_remove_region(&memblock.memory, i);
+
+	/* truncate the reserved regions */
+	memblock_remove_range(&memblock.reserved, 0, base);
+	memblock_remove_range(&memblock.reserved,
+			base + size, (phys_addr_t)ULLONG_MAX);
+}
+
 void __init memblock_mem_limit_remove_map(phys_addr_t limit)
 {
-	struct memblock_type *type = &memblock.memory;
 	phys_addr_t max_addr;
-	int i, ret, start_rgn, end_rgn;
 
 	if (!limit)
 		return;
@@ -1525,19 +1692,7 @@ void __init memblock_mem_limit_remove_map(phys_addr_t limit)
 	if (max_addr == (phys_addr_t)ULLONG_MAX)
 		return;
 
-	ret = memblock_isolate_range(type, max_addr, (phys_addr_t)ULLONG_MAX,
-				&start_rgn, &end_rgn);
-	if (ret)
-		return;
-
-	/* remove all the MAP regions above the limit */
-	for (i = end_rgn - 1; i >= start_rgn; i--) {
-		if (!memblock_is_nomap(&type->regions[i]))
-			memblock_remove_region(type, i);
-	}
-	/* truncate the reserved regions */
-	memblock_remove_range(&memblock.reserved, max_addr,
-			      (phys_addr_t)ULLONG_MAX);
+	memblock_cap_memory_range(0, max_addr);
 }
 
 static int __init_memblock memblock_search(struct memblock_type *type, phys_addr_t addr)
@@ -1611,8 +1766,7 @@ int __init_memblock memblock_is_region_memory(phys_addr_t base, phys_addr_t size
 
 	if (idx == -1)
 		return 0;
-	return memblock.memory.regions[idx].base <= base &&
-		(memblock.memory.regions[idx].base +
+	return (memblock.memory.regions[idx].base +
 		 memblock.memory.regions[idx].size) >= end;
 }
 
@@ -1667,28 +1821,29 @@ phys_addr_t __init_memblock memblock_get_current_limit(void)
 	return memblock.current_limit;
 }
 
-static void __init_memblock memblock_dump(struct memblock_type *type, char *name)
+static void __init_memblock memblock_dump(struct memblock_type *type)
 {
-	unsigned long long base, size;
+	phys_addr_t base, end, size;
 	unsigned long flags;
 	int idx;
 	struct memblock_region *rgn;
 
-	pr_info(" %s.cnt  = 0x%lx\n", name, type->cnt);
+	pr_info(" %s.cnt  = 0x%lx\n", type->name, type->cnt);
 
 	for_each_memblock_type(type, rgn) {
 		char nid_buf[32] = "";
 
 		base = rgn->base;
 		size = rgn->size;
+		end = base + size - 1;
 		flags = rgn->flags;
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
 		if (memblock_get_region_node(rgn) != MAX_NUMNODES)
 			snprintf(nid_buf, sizeof(nid_buf), " on node %d",
 				 memblock_get_region_node(rgn));
 #endif
-		pr_info(" %s[%#x]\t[%#016llx-%#016llx], %#llx bytes%s flags: %#lx\n",
-			name, idx, base, base + size - 1, size, nid_buf, flags);
+		pr_info(" %s[%#x]\t[%pa-%pa], %pa bytes%s flags: %#lx\n",
+			type->name, idx, &base, &end, &size, nid_buf, flags);
 	}
 }
 
@@ -1718,12 +1873,15 @@ memblock_reserved_memory_within(phys_addr_t start_addr, phys_addr_t end_addr)
 void __init_memblock __memblock_dump_all(void)
 {
 	pr_info("MEMBLOCK configuration:\n");
-	pr_info(" memory size = %#llx reserved size = %#llx\n",
-		(unsigned long long)memblock.memory.total_size,
-		(unsigned long long)memblock.reserved.total_size);
+	pr_info(" memory size = %pa reserved size = %pa\n",
+		&memblock.memory.total_size,
+		&memblock.reserved.total_size);
 
-	memblock_dump(&memblock.memory, "memory");
-	memblock_dump(&memblock.reserved, "reserved");
+	memblock_dump(&memblock.memory);
+	memblock_dump(&memblock.reserved);
+#ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
+	memblock_dump(&memblock.physmem);
+#endif
 }
 
 void __init memblock_allow_resize(void)
@@ -1746,19 +1904,14 @@ static int memblock_debug_show(struct seq_file *m, void *private)
 	struct memblock_type *type = m->private;
 	struct memblock_region *reg;
 	int i;
+	phys_addr_t end;
 
 	for (i = 0; i < type->cnt; i++) {
 		reg = &type->regions[i];
-		seq_printf(m, "%4d: ", i);
-		if (sizeof(phys_addr_t) == 4)
-			seq_printf(m, "0x%08lx..0x%08lx\n",
-				   (unsigned long)reg->base,
-				   (unsigned long)(reg->base + reg->size - 1));
-		else
-			seq_printf(m, "0x%016llx..0x%016llx\n",
-				   (unsigned long long)reg->base,
-				   (unsigned long long)(reg->base + reg->size - 1));
+		end = reg->base + reg->size - 1;
 
+		seq_printf(m, "%4d: ", i);
+		seq_printf(m, "%pa..%pa\n", &reg->base, &end);
 	}
 	return 0;
 }
@@ -1775,6 +1928,165 @@ static const struct file_operations memblock_debug_fops = {
 	.release = single_release,
 };
 
+static int memsize_kernel_show(struct seq_file *m, void *private)
+{
+	int i;
+	unsigned long total, initmem, kernel, text, rodata, data, bss, etc;
+	struct reserved_mem_reg *rmem_reg;
+	unsigned long unsigned_size;
+
+	initmem = __init_end - __init_begin;
+	rmem_reg = &kernel_mem_reg[MEMSIZE_KERNEL_KERNEL];
+	kernel = rmem_reg->size - initmem;
+	text = _etext - _text;
+	rodata = __end_rodata - __start_rodata;
+	if (__start_rodata < _etext)
+		text -= rodata;
+	data = _edata - _sdata;
+	bss = __bss_stop - __bss_start;
+	etc = kernel - text - rodata - data - bss;
+
+	seq_printf(m, " Kernel     : %8lu KB\n"
+		      "  .text     : %8lu KB\n"
+		      "  .rodata   : %8lu KB\n"
+		      "  .data     : %8lu KB\n"
+		      "  .BSS      : %8lu KB\n"
+		      "  .ETC      : %8lu KB\n",
+		   DIV_ROUND_UP(kernel, SZ_1K),
+		   DIV_ROUND_UP(text, SZ_1K),
+		   DIV_ROUND_UP(rodata, SZ_1K),
+		   DIV_ROUND_UP(data, SZ_1K),
+		   DIV_ROUND_UP(bss, SZ_1K),
+		   DIV_ROUND_UP(etc, SZ_1K));
+
+	total = kernel;
+	for (i = MEMSIZE_KERNEL_KERNEL + 1; i < MEMSIZE_KERNEL_STOP; i++) {
+		rmem_reg = &kernel_mem_reg[i];
+		unsigned_size = (unsigned long)rmem_reg->size;
+
+		seq_printf(m, " %s : %8lu KB\n", rmem_reg->name,
+			   DIV_ROUND_UP(unsigned_size, SZ_1K));
+		total += unsigned_size;
+	}
+	seq_printf(m, " Total      : %8lu KB\n", DIV_ROUND_UP(total, SZ_1K));
+
+	return 0;
+}
+
+static unsigned long get_memsize_kernel(void)
+{
+	int i;
+	unsigned long total;
+	struct reserved_mem_reg *rmem_reg;
+
+	rmem_reg = &kernel_mem_reg[MEMSIZE_KERNEL_KERNEL];
+	total = rmem_reg->size - (__init_end - __init_begin);
+
+	for (i = MEMSIZE_KERNEL_KERNEL + 1; i < MEMSIZE_KERNEL_STOP; i++) {
+		rmem_reg = &kernel_mem_reg[i];
+		total += (unsigned long)rmem_reg->size;
+	}
+
+	return total;
+}
+
+static int proc_memsize_kernel_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, memsize_kernel_show, NULL);
+}
+
+static const struct file_operations proc_memsize_kernel_fops = {
+	.open = proc_memsize_kernel_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int __rmem_reg_cmp(const void *a, const void *b)
+{
+	const struct reserved_mem_reg *ra = a, *rb = b;
+
+	if (ra->base > rb->base)
+		return -1;
+
+	if (ra->base < rb->base)
+		return 1;
+
+	return 0;
+}
+
+static int memsize_reserved_show(struct seq_file *m, void *private)
+{
+	int i;
+	struct reserved_mem_reg *rmem_reg;
+	unsigned long dt_reserved = 0, reusable = 0, kernel, total;
+	unsigned long system = totalram_pages << PAGE_SHIFT;
+
+	sort(reserved_mem_reg, reserved_mem_reg_count,
+	     sizeof(reserved_mem_reg[0]), __rmem_reg_cmp, NULL);
+	seq_printf(m, "v1\n");
+	for (i = 0 ; i < reserved_mem_reg_count; i++)
+	{
+		rmem_reg = &reserved_mem_reg[i];
+		seq_printf(m, "0x%09lx-0x%09lx 0x%08lx ( %7lu KB ) %s %s %s\n",
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+			   0UL,
+			   0UL,
+#else
+			   (unsigned long)rmem_reg->base,
+			   (unsigned long)(rmem_reg->base + rmem_reg->size),
+#endif
+			   (unsigned long)rmem_reg->size,
+			   (unsigned long)DIV_ROUND_UP(rmem_reg->size, SZ_1K),
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+			   "xxxxx",
+#else
+			   rmem_reg->nomap ? "nomap" : "  map",
+#endif
+			   rmem_reg->reusable ? "reusable" : "unusable",
+			   rmem_reg->name);
+		if (rmem_reg->reusable)
+			reusable += (unsigned long)rmem_reg->size;
+		else
+			dt_reserved += (unsigned long)rmem_reg->size;
+	}
+
+	kernel = get_memsize_kernel();
+	seq_printf(m, "0x%09lx-0x%09lx 0x%08lx ( %7lu KB ) %s %s %s\n",
+		   0UL, 0UL, kernel, DIV_ROUND_UP(kernel, SZ_1K), "xxxxx",
+		   "unusable", "kernel");
+	total = kernel + dt_reserved + system;
+
+	seq_printf(m, "\n");
+	seq_printf(m, "Reserved    : %7lu KB\n",
+		   DIV_ROUND_UP(kernel + dt_reserved, SZ_1K));
+	seq_printf(m, " .kernel    : %7lu KB\n",
+		   DIV_ROUND_UP(kernel, SZ_1K));
+	seq_printf(m, " .DT&EPARAM : %7lu KB\n",
+		   DIV_ROUND_UP(dt_reserved, SZ_1K));
+	seq_printf(m, "System      : %7lu KB\n",
+		   DIV_ROUND_UP(system, SZ_1K));
+	seq_printf(m, " .common    : %7lu KB\n",
+		   DIV_ROUND_UP(system - reusable, SZ_1K));
+	seq_printf(m, " .reusable  : %7lu KB\n",
+		   DIV_ROUND_UP(reusable, SZ_1K));
+	seq_printf(m, "Total       : %7lu KB ( %5lu.%02lu MB )\n",
+		   DIV_ROUND_UP(total, SZ_1K),
+		   total >> 20, ((total % SZ_1M) * 100) >> 20);
+	return 0;
+}
+
+static int proc_memsize_reserved_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, memsize_reserved_show, NULL);
+}
+
+static const struct file_operations proc_memsize_reserved_fops = {
+	.open = proc_memsize_reserved_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
 static int __init memblock_init_debugfs(void)
 {
 	struct dentry *root = debugfs_create_dir("memblock", NULL);
@@ -1782,6 +2094,10 @@ static int __init memblock_init_debugfs(void)
 		return -ENXIO;
 	debugfs_create_file("memory", S_IRUGO, root, &memblock.memory, &memblock_debug_fops);
 	debugfs_create_file("reserved", S_IRUGO, root, &memblock.reserved, &memblock_debug_fops);
+	if (proc_mkdir("memsize", NULL)) {
+		proc_create("memsize/kernel", 0, NULL, &proc_memsize_kernel_fops);
+		proc_create("memsize/reserved", 0, NULL, &proc_memsize_reserved_fops);
+	}
 #ifdef CONFIG_HAVE_MEMBLOCK_PHYS_MAP
 	debugfs_create_file("physmem", S_IRUGO, root, &memblock.physmem, &memblock_debug_fops);
 #endif

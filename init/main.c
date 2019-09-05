@@ -12,8 +12,10 @@
 #define DEBUG		/* Enable initcall_debug */
 
 #include <linux/types.h>
+#include <linux/extable.h>
 #include <linux/module.h>
 #include <linux/proc_fs.h>
+#include <linux/binfmts.h>
 #include <linux/kernel.h>
 #include <linux/syscalls.h>
 #include <linux/stackprotector.h>
@@ -25,7 +27,8 @@
 #include <linux/initrd.h>
 #include <linux/bootmem.h>
 #include <linux/acpi.h>
-#include <linux/tty.h>
+#include <linux/console.h>
+#include <linux/nmi.h>
 #include <linux/percpu.h>
 #include <linux/kmod.h>
 #include <linux/vmalloc.h>
@@ -60,26 +63,31 @@
 #include <linux/device.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
+#include <linux/sched/init.h>
 #include <linux/signal.h>
 #include <linux/idr.h>
 #include <linux/kgdb.h>
 #include <linux/ftrace.h>
 #include <linux/async.h>
-#include <linux/kmemcheck.h>
 #include <linux/sfi.h>
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/perf_event.h>
 #include <linux/ptrace.h>
+#include <linux/pti.h>
 #include <linux/blkdev.h>
 #include <linux/elevator.h>
 #include <linux/sched_clock.h>
+#include <linux/sched/task.h>
+#include <linux/sched/task_stack.h>
 #include <linux/context_tracking.h>
 #include <linux/random.h>
 #include <linux/list.h>
 #include <linux/integrity.h>
 #include <linux/proc_ns.h>
 #include <linux/io.h>
+#include <linux/cache.h>
+#include <linux/rodata_test.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -92,6 +100,7 @@
 #endif
 
 #ifdef CONFIG_UH
+#include <linux/uh_fault_handler.h>
 #include <linux/uh.h>
 #endif
 #ifdef CONFIG_UH_RKP
@@ -103,17 +112,6 @@ static int kernel_init(void *);
 extern void init_IRQ(void);
 extern void fork_init(void);
 extern void radix_tree_init(void);
-
-int rkp_support_large_memory;
-EXPORT_SYMBOL(rkp_support_large_memory);
-
-#ifdef CONFIG_UH_RKP
-extern struct vm_struct *vmlist;
-#endif
-
-#ifdef CONFIG_PTRACK_DEBUG
-extern void ptrack_init(void);
-#endif
 
 #ifdef CONFIG_DEFERRED_INITCALLS
 extern initcall_t __deferred_initcall_start[], __deferred_initcall_end[];
@@ -138,6 +136,9 @@ static void __ref do_deferred_initcalls(struct work_struct *work)
 		do_one_initcall(*call);
 
 	free_initmem();
+#ifdef CONFIG_UH_RKP
+	rkp_deferred_init();
+#endif
 }
 
 static DECLARE_WORK(deferred_initcall_work, do_deferred_initcalls);
@@ -169,6 +170,11 @@ void (*__initdata late_time_init)(void);
 char __initdata boot_command_line[COMMAND_LINE_SIZE];
 /* Untouched saved command line (eg. for /proc) */
 char *saved_command_line;
+
+#if defined(CONFIG_SEC_DEBUG_HIDING)
+char *erased_command_line;
+#endif
+
 /* Command line for parameter parsing */
 static char *static_command_line;
 /* Command line for per-initcall parameter parsing */
@@ -229,13 +235,21 @@ static bool __init obsolete_checksetup(char *line)
 			} else if (!p->setup_func) {
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
-				return true;
-			} else if (p->setup_func(line + n))
-				return true;
+				had_early_param = true;
+				goto fail;
+			} else {
+				set_memsize_reserved_name(p->str);
+				if (p->setup_func(line + n)) {
+					had_early_param = true;
+					goto fail;
+				}
+			}
 		}
 		p++;
 	} while (p < __setup_end);
 
+fail:
+	unset_memsize_reserved_name();
 	return had_early_param;
 }
 
@@ -411,10 +425,17 @@ static void __init setup_command_line(char *command_line)
 {
 	saved_command_line =
 		memblock_virt_alloc(strlen(boot_command_line) + 1, 0);
+#if defined(CONFIG_SEC_DEBUG_HIDING)
+	erased_command_line =
+		memblock_virt_alloc(strlen(boot_command_line) + 1, 0);
+#endif
 	initcall_command_line =
 		memblock_virt_alloc(strlen(boot_command_line) + 1, 0);
 	static_command_line = memblock_virt_alloc(strlen(command_line) + 1, 0);
 	strcpy(saved_command_line, boot_command_line);
+#if defined(CONFIG_SEC_DEBUG_HIDING)
+	strcpy(erased_command_line, boot_command_line);
+#endif
 	strcpy(static_command_line, command_line);
 }
 
@@ -431,6 +452,7 @@ static __initdata DECLARE_COMPLETION(kthreadd_done);
 
 static noinline void __ref rest_init(void)
 {
+	struct task_struct *tsk;
 	int pid;
 
 	rcu_scheduler_starting();
@@ -439,27 +461,47 @@ static noinline void __ref rest_init(void)
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
-	kernel_thread(kernel_init, NULL, CLONE_FS);
+	pid = kernel_thread(kernel_init, NULL, CLONE_FS);
+	/*
+	 * Pin init on the boot CPU. Task migration is not properly working
+	 * until sched_init_smp() has been run. It will set the allowed
+	 * CPUs for init to the non isolated CPUs.
+	 */
+	rcu_read_lock();
+	tsk = find_task_by_pid_ns(pid, &init_pid_ns);
+	set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id()));
+	rcu_read_unlock();
+
 	numa_default_policy();
 	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES);
 	rcu_read_lock();
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
+
+	/*
+	 * Enable might_sleep() and smp_processor_id() checks.
+	 * They cannot be enabled earlier because with CONFIG_PRREMPT=y
+	 * kernel_thread() would trigger might_sleep() splats. With
+	 * CONFIG_PREEMPT_VOLUNTARY=y the init task might have scheduled
+	 * already, but it's stuck on the kthreadd_done completion.
+	 */
+	system_state = SYSTEM_SCHEDULING;
+
 	complete(&kthreadd_done);
 
 	/*
 	 * The boot idle thread must execute schedule()
 	 * at least once to get things moving:
 	 */
-	init_idle_bootup_task(current);
 	schedule_preempt_disabled();
 	/* Call into cpu_idle with preempt disabled */
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
 #ifdef CONFIG_RKP_KDP
-RKP_RO_AREA int is_recovery = 0;
+int is_recovery __kdp_ro = 0;
 #endif
+
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
@@ -471,11 +513,13 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
+			set_memsize_reserved_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
 		}
 	}
 	/* We accept everything at this stage. */
+
 #ifdef CONFIG_RKP_KDP
 	if ((strncmp(param, "bootmode", 9) == 0)) {
 			//printk("\n RKP22 In Recovery Mode= %d\n",*val);
@@ -485,6 +529,7 @@ static int __init do_early_param(char *param, char *val,
 	}
 #endif
 
+	unset_memsize_reserved_name();
 	return 0;
 }
 
@@ -509,6 +554,8 @@ void __init parse_early_param(void)
 	done = 1;
 }
 
+void __init __weak arch_post_acpi_subsys_init(void) { }
+
 void __init __weak smp_setup_processor_id(void)
 {
 }
@@ -519,74 +566,82 @@ void __init __weak thread_stack_cache_init(void)
 }
 #endif
 
+void __init __weak mem_encrypt_init(void) { }
+
 /*
  * Set up kernel memory allocators
  */
 static void __init mm_init(void)
 {
+	set_memsize_kernel_type(MEMSIZE_KERNEL_MM_INIT);
 	/*
 	 * page_ext requires contiguous pages,
 	 * bigger than MAX_ORDER unless SPARSEMEM.
 	 */
 	page_ext_init_flatmem();
 	mem_init();
+	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	kmem_cache_init();
-	percpu_init_late();
 	pgtable_init();
 	vmalloc_init();
 	ioremap_huge_init();
-#ifdef CONFIG_PTRACK_DEBUG
-	ptrack_init();
-#endif
+	/* Should be run before the first non-init thread is created */
+	init_espfix_bsp();
+	/* Should be run after espfix64 is set up. */
+	pti_init();
 }
-
 #ifdef CONFIG_UH_RKP
-#ifdef CONFIG_UH_RKP_6G
-__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x30000] = {0};
-__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x30000] = {0};
-#else
-__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x20000] = {0};
-__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x20000] = {0};
-#endif
-u8 rkp_started; /* 0 initialized by c standard */
+rkp_init_t rkp_init_data __rkp_ro = {
+	.magic = RKP_INIT_MAGIC,
+	.vmalloc_start = VMALLOC_START,
+	.no_fimc_verify = 0,
+	.fimc_phys_addr = 0,
+	._text = (u64)_text,
+	._etext = (u64)_etext,
+	._srodata = (u64)__start_rodata,
+	._erodata = (u64)__end_rodata,
+	 .large_memory = 0,
+};
+sparse_bitmap_for_kernel_t* rkp_s_bitmap_ro __rkp_ro = 0;
+sparse_bitmap_for_kernel_t* rkp_s_bitmap_dbl __rkp_ro = 0;
+sparse_bitmap_for_kernel_t* rkp_s_bitmap_buffer __rkp_ro = 0;
 
 static void __init rkp_init(void)
 {
-	struct vm_struct *p;
-	rkp_init_t init;
-
-	init.magic = RKP_INIT_MAGIC;
-	init.vmalloc_start = VMALLOC_START;
-	init.vmalloc_end = (u64)high_memory;
-	init.init_mm_pgd = (u64)__pa(swapper_pg_dir);
-	init.id_map_pgd = (u64)__pa(idmap_pg_dir);
-	init.zero_pg_addr = __pa(empty_zero_page);
-	init.rkp_pgt_bitmap = (u64)__pa(rkp_pgt_bitmap);
-	init.rkp_dbl_bitmap = (u64)__pa(rkp_map_bitmap);
-	init.rkp_bitmap_size = RKP_PGT_BITMAP_LEN;
-	init.no_fimc_verify = 1;
-	init.fimc_phys_addr = 0;
-
-	for (p = vmlist; p; p = p->next) {
-		if (p->addr == (void *)FIMC_LIB_START_VA) {
-			init.fimc_phys_addr = (u64)(p->phys_addr);
-			break;
-		}
-	}
-	init._text = (u64)_text;
-	init._etext = (u64)_etext;
-	init.extra_memory_addr = RKP_EXTRA_MEM_START;
-	init.extra_memory_size = RKP_EXTRA_MEM_SIZE;
-	//init.physmap_addr
-	init._srodata = (u64)__start_rodata;
-	init._erodata = (u64)__end_rodata;
-	init.large_memory = rkp_support_large_memory;
-
-	uh_call(UH_APP_RKP, RKP_START, (u64)&init, (u64)kimage_voffset, 0, 0);
-	rkp_started = 1;
-}
+	uh_call(UH_APP_INIT, 0, uh_get_fault_handler(), kimage_voffset, 0, 0);
+	rkp_init_data.vmalloc_end = (u64)high_memory;
+	rkp_init_data.init_mm_pgd = (u64)__pa(swapper_pg_dir);
+	rkp_init_data.id_map_pgd = (u64)__pa(idmap_pg_dir);
+	rkp_init_data.tramp_pgd = (u64)__pa(tramp_pg_dir);
+#ifdef CONFIG_UH_RKP_FIMC_CHECK
+	rkp_init_data.no_fimc_verify = 1;
 #endif
+	rkp_init_data.tramp_valias = (u64)TRAMP_VALIAS;
+	rkp_init_data.zero_pg_addr = (u64)__pa(empty_zero_page);
+	rkp_s_bitmap_ro = (sparse_bitmap_for_kernel_t *)
+		uh_call(UH_APP_RKP, RKP_GET_RO_BITMAP, 0, 0, 0, 0);
+	rkp_s_bitmap_dbl = (sparse_bitmap_for_kernel_t *)
+		uh_call(UH_APP_RKP, RKP_GET_DBL_BITMAP, 0, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_START, (u64)&rkp_init_data, (u64)kimage_voffset, 0, 0);
+
+}
+static void __init rkp_robuffer_init(void)
+{
+	rkp_s_bitmap_buffer = (sparse_bitmap_for_kernel_t *)
+		uh_call(UH_APP_RKP, RKP_GET_RKP_GET_BUFFER_BITMAP, 0, 0, 0, 0);
+}
+
+#endif
+
 #ifdef CONFIG_RKP_KDP
+#define VERITY_PARAM_LENGTH 20
+static char verifiedbootstate[VERITY_PARAM_LENGTH];
+static int __init verifiedboot_state_setup(char *str)
+{
+	strlcpy(verifiedbootstate, str, sizeof(verifiedbootstate));
+	return 1;
+}
+__setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
 
 void kdp_init(void)
 {
@@ -614,49 +669,82 @@ void kdp_init(void)
 
 	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
 
-	cred.task_threadinfo = offsetof(struct thread_info,task);
+	cred.verifiedbootstate = (u64)verifiedbootstate;
 	uh_call(UH_APP_RKP, 0x40, (u64)&cred, 0, 0, 0);
 }
 #endif /*CONFIG_RKP_KDP*/
+
 
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP) && defined(CONFIG_SEC_DEBUG_HIDING)
+	char *erase_cmd_start, *erase_cmd_end;
+	char *erase_string[] = {"ap_serial=0x", "serialno=", "androidboot.em.did="};
+	size_t len, value_len;
+	unsigned int i, j;
+#endif
+
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
-
-	/*
-	 * Set up the the initial canary ASAP:
-	 */
-	boot_init_stack_canary();
 
 	cgroup_init_early();
 
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
 
-/*
- * Interrupts are still disabled. Do necessary setups, then
- * enable them
- */
+	/*
+	 * Interrupts are still disabled. Do necessary setups, then
+	 * enable them.
+	 */
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
+#ifdef CONFIG_UH_RKP
+	rkp_robuffer_init();
+#endif
 	setup_arch(&command_line);
+	/*
+	 * Set up the the initial canary and entropy after arch
+	 * and after adding latent and command line entropy.
+	 */
+	add_latent_entropy();
+	add_device_randomness(command_line, strlen(command_line));
+	boot_init_stack_canary();
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
-	boot_cpu_state_init();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+	boot_cpu_hotplug_init();
 
-	build_all_zonelists(NULL, NULL);
+	build_all_zonelists(NULL);
 	page_alloc_init();
 
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP) && defined(CONFIG_SEC_DEBUG_HIDING)
+	for (i = 0; i < ARRAY_SIZE(erase_string); i++) {
+		len = strlen(erase_string[i]);
+		erase_cmd_start = strstr(erased_command_line, erase_string[i]);
+		erase_cmd_end = strstr(erase_cmd_start, " ");
+
+		if ((erase_cmd_end != NULL) &&
+				(erase_cmd_start != NULL) &&
+				(erase_cmd_end > erase_cmd_start)) {
+			value_len = (size_t)(erase_cmd_end - erase_cmd_start) - len;
+
+			for (j = 0; j < value_len; j++)
+				erase_cmd_start[len + j] = '0';
+		}
+	}
+	pr_notice("Kernel command line: %s\n", erased_command_line);
+#else
 	pr_notice("Kernel command line: %s\n", boot_command_line);
+#endif
+
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -678,15 +766,16 @@ asmlinkage __visible void __init start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
-#ifdef CONFIG_UH
-	uh_init();
 #ifdef CONFIG_UH_RKP
 	rkp_init();
+#endif
 #ifdef CONFIG_RKP_KDP
 	rkp_cred_enable = 1;
 #endif /*CONFIG_RKP_KDP*/
-#endif
-#endif
+	ftrace_init();
+
+	/* trace_printk can be enabled here */
+	early_trace_init();
 
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
@@ -702,14 +791,21 @@ asmlinkage __visible void __init start_kernel(void)
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
 		local_irq_disable();
-	idr_init_cache();
+	radix_tree_init();
+
+	/*
+	 * Allow workqueue creation and work item queueing/cancelling
+	 * early.  Work item execution depends on kthreads and starts after
+	 * workqueue_init().
+	 */
+	workqueue_init_early();
+
 	rcu_init();
 
-	/* trace_printk() and trace points may be used after this */
+	/* Trace events are available after this */
 	trace_init();
 
 	context_tracking_init();
-	radix_tree_init();
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
 	init_IRQ();
@@ -721,7 +817,7 @@ asmlinkage __visible void __init start_kernel(void)
 	timekeeping_init();
 	time_init();
 	sched_clock_postinit();
-	printk_nmi_init();
+	printk_safe_init();
 	perf_event_init();
 	profile_init();
 	call_function_init();
@@ -750,6 +846,14 @@ asmlinkage __visible void __init start_kernel(void)
 	 */
 	locking_selftest();
 
+	/*
+	 * This needs to be called before any devices perform DMA
+	 * operations that might use the SWIOTLB bounce buffers. It will
+	 * mark the bounce buffers as decrypted so that their usage will
+	 * not cause "plain-text" data to be decrypted when accessed.
+	 */
+	mem_encrypt_init();
+
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start && !initrd_below_start_ok &&
 	    page_to_pfn(virt_to_page((void *)initrd_start)) < min_low_pfn) {
@@ -759,14 +863,12 @@ asmlinkage __visible void __init start_kernel(void)
 		initrd_start = 0;
 	}
 #endif
-	page_ext_init();
-	debug_objects_mem_init();
 	kmemleak_init();
+	debug_objects_mem_init();
 	setup_per_cpu_pageset();
 	numa_policy_init();
 	if (late_time_init)
 		late_time_init();
-	sched_clock_init();
 	calibrate_delay();
 	pidmap_init();
 	anon_vma_init();
@@ -774,10 +876,6 @@ asmlinkage __visible void __init start_kernel(void)
 #ifdef CONFIG_X86
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		efi_enter_virtual_mode();
-#endif
-#ifdef CONFIG_X86_ESPFIX64
-	/* Should be run before the first non-init thread is created */
-	init_espfix_bsp();
 #endif
 	thread_stack_cache_init();
 #ifdef CONFIG_RKP_KDP
@@ -790,15 +888,10 @@ asmlinkage __visible void __init start_kernel(void)
 	buffer_init();
 	key_init();
 	security_init();
-#ifdef CONFIG_RKP_KDP
-	if (rkp_cred_enable) 
-		uh_call(UH_APP_RKP, 0x51, (u64)__rkp_ro_start, 0, 0, 0);
-#endif /*CONFIG_RKP_KDP*/
 	dbg_late_init();
 	vfs_caches_init();
+	pagecache_init();
 	signals_init();
-	/* rootfs populating might need page-writeback */
-	page_writeback_init();
 	proc_root_init();
 	nsfs_init();
 	cpuset_init();
@@ -809,14 +902,12 @@ asmlinkage __visible void __init start_kernel(void)
 	check_bugs();
 
 	acpi_subsystem_init();
+	arch_post_acpi_subsys_init();
 	sfi_init_late();
 
 	if (efi_enabled(EFI_RUNTIME_SERVICES)) {
-		efi_late_init();
 		efi_free_boot_services();
 	}
-
-	ftrace_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
@@ -905,6 +996,41 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 #endif
 __setup("initcall_blacklist=", initcall_blacklist);
 
+#ifdef CONFIG_SEC_BOOTSTAT
+
+static bool __init_or_module initcall_sec_debug = true;
+
+static int __init_or_module do_one_initcall_sec_debug(initcall_t fn)
+{
+	ktime_t calltime, delta, rettime;
+	unsigned long long duration;
+	int ret;
+	struct device_init_time_entry *entry;
+
+	calltime = ktime_get();
+	ret = fn();
+	rettime = ktime_get();
+	delta = ktime_sub(rettime, calltime);
+	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+	if (duration > DEVICE_INIT_TIME_100MS) {
+		entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+		if (!entry)
+			return -ENOMEM;
+		entry->buf = kasprintf(GFP_KERNEL, "%pf", fn);
+		if (!entry->buf) {
+			kfree(entry);
+			return -ENOMEM;
+		}
+		entry->duration = duration;
+		list_add(&entry->next, &device_init_time_list);
+		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
+			 fn, ret, duration);
+	}
+
+	return ret;
+}
+#endif
+
 static int __init_or_module do_one_initcall_debug(initcall_t fn)
 {
 	ktime_t calltime, delta, rettime;
@@ -934,6 +1060,10 @@ int __init_or_module do_one_initcall(initcall_t fn)
 
 	if (initcall_debug)
 		ret = do_one_initcall_debug(fn);
+#ifdef CONFIG_SEC_BOOTSTAT
+	else if (initcall_sec_debug)
+		ret = do_one_initcall_sec_debug(fn);
+#endif
 	else
 		ret = fn();
 
@@ -1006,7 +1136,6 @@ static void __init do_initcall_level(int level)
 #ifdef CONFIG_SEC_BOOTSTAT
 	sec_bootstat_add_initcall(initcall_level_names[level]);
 #endif
-
 }
 
 static void __init do_initcalls(void)
@@ -1078,19 +1207,29 @@ static int try_to_run_init_process(const char *init_filename)
 
 static noinline void __init kernel_init_freeable(void);
 
-#ifdef CONFIG_DEBUG_RODATA
-static bool rodata_enabled = true;
+#if defined(CONFIG_STRICT_KERNEL_RWX) || defined(CONFIG_STRICT_MODULE_RWX)
+bool rodata_enabled __ro_after_init = true;
 static int __init set_debug_rodata(char *str)
 {
 	return strtobool(str, &rodata_enabled);
 }
 __setup("rodata=", set_debug_rodata);
+#endif
 
+#ifdef CONFIG_STRICT_KERNEL_RWX
 static void mark_readonly(void)
 {
-	if (rodata_enabled)
+	if (rodata_enabled) {
+		/*
+		 * load_module() results in W+X mappings, which are cleaned up
+		 * with call_rcu_sched().  Let's make sure that queued work is
+		 * flushed so that we don't hit false positives looking for
+		 * insecure pages which are W+X.
+		 */
+		rcu_barrier_sched();
 		mark_rodata_ro();
-	else
+		rodata_test();
+	} else
 		pr_info("Kernel memory protection disabled.\n");
 }
 #else
@@ -1120,6 +1259,7 @@ static int __ref kernel_init(void *unused)
 #endif /* CONFIG_SEC_GPIO_DVS */
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
+	ftrace_free_init_mem();
 #ifndef CONFIG_DEFERRED_INITCALLS
 	free_initmem();
 #endif
@@ -1133,7 +1273,6 @@ static int __ref kernel_init(void *unused)
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret) {
 #ifdef CONFIG_DEFERRED_INITCALLS
-
 			schedule_work(&deferred_initcall_work);
 #endif
 			return 0;
@@ -1150,8 +1289,12 @@ static int __ref kernel_init(void *unused)
 	 */
 	if (execute_command) {
 		ret = run_init_process(execute_command);
-		if (!ret)
+		if (!ret) {
+#ifdef CONFIG_DEFERRED_INITCALLS
+			schedule_work(&deferred_initcall_work);
+#endif
 			return 0;
+		}
 		panic("Requested init %s failed (error %d).",
 		      execute_command, ret);
 	}
@@ -1162,7 +1305,7 @@ static int __ref kernel_init(void *unused)
 		return 0;
 
 	panic("No working init found.  Try passing init= option to kernel. "
-	      "See Linux Documentation/init.txt for guidance.");
+	      "See Linux Documentation/admin-guide/init.rst for guidance.");
 }
 
 static noinline void __init kernel_init_freeable(void)
@@ -1179,14 +1322,14 @@ static noinline void __init kernel_init_freeable(void)
 	 * init can allocate pages on any node
 	 */
 	set_mems_allowed(node_states[N_MEMORY]);
-	/*
-	 * init can run on any cpu.
-	 */
-	set_cpus_allowed_ptr(current, cpu_all_mask);
 
 	cad_pid = task_pid(current);
 
 	smp_prepare_cpus(setup_max_cpus);
+
+	workqueue_init();
+
+	init_mm_internals();
 
 	do_pre_smp_initcalls();
 	lockup_detector_init();
@@ -1195,6 +1338,8 @@ static noinline void __init kernel_init_freeable(void)
 	sched_init_smp();
 
 	page_alloc_init_late();
+	/* Initialize page ext after all struct pages are initialized. */
+	page_ext_init();
 
 	do_basic_setup();
 

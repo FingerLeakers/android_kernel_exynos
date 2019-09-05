@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * task_io_accounting: a structure which is used for recording a single task's
  * IO statistics.
@@ -35,6 +36,10 @@ struct task_io_accounting {
 	 */
 	u64 write_bytes;
 
+#ifdef CONFIG_SUBMIT_BH_IO_ACCOUNTING
+	u64 submit_bh_write_bytes;
+#endif
+	
 	/*
 	 * A task can cause "negative" IO too.  If this task truncates some
 	 * dirty pagecache, some IO which another task has been accounted for

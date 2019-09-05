@@ -66,6 +66,14 @@ DECLARE_MODEM_INIT_DUMMY(ss310ap)
 DECLARE_MODEM_INIT_DUMMY(ss300)
 #endif
 
+#ifndef CONFIG_UMTS_MODEM_S5000AP
+DECLARE_MODEM_INIT_DUMMY(s5000ap)
+#endif
+
+#ifndef CONFIG_UMTS_MODEM_S5100
+DECLARE_MODEM_INIT_DUMMY(s5100)
+#endif
+
 #ifndef CONFIG_CDMA_MODEM_MDM6600
 DECLARE_MODEM_INIT_DUMMY(mdm6600)
 #endif
@@ -121,6 +129,10 @@ DECLARE_LINK_INIT_DUMMY(shmem)
 DECLARE_LINK_INIT_DUMMY(spi)
 #endif
 
+#ifndef CONFIG_LINK_DEVICE_PCIE
+DECLARE_LINK_INIT_DUMMY(pcie);
+#endif
+
 static modem_init_call modem_init_func[MAX_MODEM_TYPE] = {
 	[IMC_XMM6260] = MODEM_INIT_CALL(xmm6260),
 	[IMC_XMM6262] = MODEM_INIT_CALL(xmm6262),
@@ -133,6 +145,8 @@ static modem_init_call modem_init_func[MAX_MODEM_TYPE] = {
 	[SEC_SS300] = MODEM_INIT_CALL(ss300),
 	[SEC_SH222AP] = MODEM_INIT_CALL(sh222ap),
 	[SEC_SS310AP] = MODEM_INIT_CALL(ss310ap),
+	[SEC_S5000AP] = MODEM_INIT_CALL(s5000ap),
+	[SEC_S5100] = MODEM_INIT_CALL(s5100),
 	[QC_MDM6600] = MODEM_INIT_CALL(mdm6600),
 	[QC_ESC6270] = MODEM_INIT_CALL(esc6270),
 	[QC_QSC6085] = MODEM_INIT_CALL(qsc6085),
@@ -152,6 +166,7 @@ static link_init_call link_init_func[LINKDEV_MAX] = {
 	[LINKDEV_LLI] = LINK_INIT_CALL(lli),
 	[LINKDEV_SHMEM] = LINK_INIT_CALL(shmem),
 	[LINKDEV_SPI] = LINK_INIT_CALL(spi),
+	[LINKDEV_PCIE] = LINK_INIT_CALL(pcie),
 };
 
 int call_modem_init_func(struct modem_ctl *mc, struct modem_data *pdata)

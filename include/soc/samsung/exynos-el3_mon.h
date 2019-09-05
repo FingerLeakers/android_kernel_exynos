@@ -19,6 +19,12 @@
 #define EXYNOS_ERROR_ALREADY_INITIALIZED	(1)
 #define EXYNOS_ERROR_NOT_VALID_ADDRESS		(0x1000)
 
+/* Mode for setting TZPC of runtime PM domain */
+#define EXYNOS_GET_IN_PD_DOWN			(0)
+#define EXYNOS_WAKEUP_PD_DOWN			(1)
+
+#define RUNTIME_PM_TZPC_GROUP			(2)
+
 int exynos_pd_tz_save(unsigned int addr);
 int exynos_pd_tz_restore(unsigned int addr);
 

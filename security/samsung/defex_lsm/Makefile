@@ -5,9 +5,10 @@
 # Features to Enable
 PED_ENABLE=true
 SAFEPLACE_ENABLE=true
-ifneq ($(wildcard $(srctree)/$(src)/../../include/crypto/internal/rsa.h),)
-$(warning [DEFEX] INTEGRITY_ENABLE)
-INTEGRITY_ENABLE=true
+IMMUTABLE_ENABLE=true
+ifneq ($(wildcard $(srctree)/include/crypto/internal/rsa.h),)
+    $(warning [DEFEX] INTEGRITY_ENABLE)
+    INTEGRITY_ENABLE=true
 endif
 
 # caches to enable
@@ -19,8 +20,11 @@ obj-y += defex_ht.o
 obj-y += defex_config.o
 obj-y += defex_sysfs.o
 obj-y += defex_procs.o
-obj-y += defex_catch_list_compat.o
 obj-y += defex_rules.o
+obj-$(CONFIG_COMPAT) += defex_catch_list_compat.o
+
+# Immutable Feature is applied with permissive mode first.
+EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_IM
 
 ifeq ($(CONFIG_DEFEX_KERNEL_ONLY), y)
 EXTRA_CFLAGS += -DDEFEX_KERNEL_ONLY
@@ -40,6 +44,11 @@ ifeq ($(INTEGRITY_ENABLE), true)
     EXTRA_CFLAGS += -DDEFEX_INTEGRITY_ENABLE
 endif
 
+ifeq ($(IMMUTABLE_ENABLE), true)
+    obj-y += defex_immutable.o
+    EXTRA_CFLAGS += -DDEFEX_IMMUTABLE_ENABLE
+endif
+
 ifeq ($(CACHES_ENABLE), true)
     obj-y += defex_caches.o
     EXTRA_CFLAGS += -DDEFEX_CACHES_ENABLE
@@ -48,21 +57,18 @@ endif
 ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
     obj-y += defex_debug.o
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_IM
     EXTRA_CFLAGS += -DDEFEX_DEBUG_ENABLE
     EXTRA_CFLAGS += -DDEFEX_SYSFS_ENABLE
 endif
 
 ifeq ($(SEC_BUILD_OPTION_VTS), true)
-$(warning [DEFEX] VTS true $(SEC_BUILD_OPTION_VTS))
-EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
-EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_PED
+    $(warning [DEFEX] VTS true $(SEC_BUILD_OPTION_VTS))
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_PED
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_IM
 else
-$(warning [DEFEX] VTS false $(SEC_BUILD_OPTION_VTS))
-endif
-
-ifeq ($(CONFIG_SEC_FACTORY), y)
-EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
-EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_PED
+    $(warning [DEFEX] VTS false $(SEC_BUILD_OPTION_VTS))
 endif
 
 ifneq ($(wildcard  $(srctree)/$(src)/pack_rules.c),)
@@ -96,5 +102,4 @@ ifneq ($(wildcard  $(srctree)/$(src)/pack_rules.c),)
 	$(call cmd,pack)
 
 endif
-
 

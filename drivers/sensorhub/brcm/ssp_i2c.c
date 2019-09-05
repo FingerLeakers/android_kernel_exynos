@@ -525,6 +525,38 @@ retries:
 	return ERROR;
 }
 
+int set_ap_information(struct ssp_data *data)
+{
+	int iRet = 0;
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+
+	if (msg == NULL) {
+		iRet = -ENOMEM;
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
+				__func__);
+		return iRet;
+	}
+	msg->cmd = MSG2SSP_AP_INFORMATION;
+	msg->length = 2;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(2, GFP_KERNEL);
+	msg->free_buffer = 1;
+	msg->buffer[0] = (char)data->ap_type;
+	msg->buffer[1] = (char)data->ap_rev;
+
+	iRet = ssp_spi_async(data, msg);
+
+	pr_info("[SSP] AP TYPE = %d AP REV = %d\n", data->ap_type, data->ap_rev);
+
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s -fail to %s %d\n",
+			__func__, __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+
 int set_sensor_position(struct ssp_data *data)
 {
 	int iRet = 0;
@@ -684,9 +716,9 @@ void set_proximity_threshold(struct ssp_data *data)
 	}
 
 #if defined(CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS)
-	pr_info("[SSP]: Proximity Threshold - %u, %u, %u, %u\n",
+	pr_info("[SSP]: Proximity Threshold - %u, %u, %u, %u, efs file status %d\n",
 		data->uProxHiThresh, data->uProxLoThresh,
-		data->uProxHiThresh_detect, data->uProxLoThresh_detect);
+		data->uProxHiThresh_detect, data->uProxLoThresh_detect, data->light_efs_file_status);
 #else
 	pr_info("[SSP]: Proximity Threshold - %u, %u\n",
 		data->uProxHiThresh, data->uProxLoThresh);
@@ -841,10 +873,13 @@ int set_hall_threshold(struct ssp_data *data)
 
 u64 get_sensor_scanning_info(struct ssp_data *data)
 {
-	int iRet = 0, z = 0;
-	u64 result = 0;
+	int iRet = 0, z = 0, cnt = 1;
+	u64 result = 0, len = sizeof(data->sensor_state);
 	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-
+#if defined (CONFIG_SENSORS_SSP_DAVINCI)
+	int disable_sensor_type[10] = {7,9,10,24,30,31,32,35,39,40};
+#endif
+	
 	if (msg == NULL) {
 		iRet = -ENOMEM;
 		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
@@ -862,9 +897,30 @@ u64 get_sensor_scanning_info(struct ssp_data *data)
 	if (iRet != SUCCESS)
 		pr_err("[SSP]: %s - i2c fail %d\n", __func__, iRet);
 
-	data->sensor_state[SENSOR_MAX] = '\0';
-	for (z = 0; z < SENSOR_MAX; z++)
-		data->sensor_state[SENSOR_MAX - 1 - z] = (result & (1ULL << z)) ? '1' : '0';
+	for (z = 0; z < SENSOR_MAX; z++) {
+		if(z % 10 == 0 && z != 0)
+			data->sensor_state[len - 1 - cnt++] = ' ';
+		data->sensor_state[len - 1 - cnt++] = (result & (1ULL << z)) ? '1' : '0';
+	}
+	data->sensor_state[cnt - 1] = '\0';
+#if defined (CONFIG_SENSORS_SSP_DAVINCI)
+	if (data->ap_rev == 18 &&  data->ap_type <= 1) {
+		int j;
+		iRet = 0; len = 0;
+		for (j = 0; j < SENSOR_MAX; j++) {
+			if (disable_sensor_type[iRet] == j) {
+				iRet++;
+				continue;
+			}
+			if (result & (1ULL << j))
+				len |= (1ULL << j);
+		}
+//		for(int i = 0; i < ARRAY_SIZE(disable_sensor_type); i++) {
+//			data->sensor_state[sizeof(data->sensor_state)- (disable_sensor_type[i] + (disable_sensor_type[i] / 10)+1)] = '0'; // divide 10 for blank
+//		}
+		result = len;
+	} // D1 D1x && hw _rev 18 disable prox light sensor type
+#endif
 	pr_err("[SSP]: state: %s\n", data->sensor_state);
 
 	return result;

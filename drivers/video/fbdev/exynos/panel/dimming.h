@@ -125,6 +125,7 @@ enum {
 	GLOBAL_DIM_INFO_NR_TP,
 	GLOBAL_DIM_INFO_NR_LUMINANCE,
 	GLOBAL_DIM_INFO_VREGOUT,
+	GLOBAL_DIM_INFO_VREF,
 	GLOBAL_DIM_INFO_GAMMA,
 	GLOBAL_DIM_INFO_VT_VOLTAGE,
 };
@@ -343,11 +344,13 @@ struct tp {
 	s64 vout[MAX_COLOR];	/* voltage output of tp */
 	u32 denominator;		/* denominator of tp */
 	u32 numerator;			/* numerator of tp */
+	u32 bits;				/* available bit of tp */
 	struct _range range;		/* tp input range for Test Case Generation */
 };
 
 struct dimming_info {
-	s64 vregout;
+	s64 vregout;			/* vregout * (1 << bitshift) */
+	s64 vref;				/* vref * (1 << bitshift) */
 	u32 vt_voltage[16];		/* vt voltage table */
 	u32 v0_voltage[16];		/* v0 voltage table */
 	struct tp_lut_info tp_lut_info;
@@ -371,6 +374,7 @@ struct dimming_init_info {
 	struct tp *tp;			/* informations of panel's tuning point */
 	int nr_luminance;		/* number of luminance */
 	s64 vregout;			/* vregout * (1 << bitshift) */
+	s64 vref;				/* vref * (1 << bitshift) */
 	int bitshift;			/* bitshift for precise calculation */
 	u32 vt_voltage[16];		/* vt voltage table */
 	u32 v0_voltage[16];		/* v0 voltage table */
@@ -401,6 +405,8 @@ static inline s64 disp_pow_round(s64 num, u32 digits)
 			disp_pow(10, digits)) * disp_pow(10, digits);
 }
 int process_dimming(struct dimming_info *);
+int gamma_table_add_offset(s32 (*src)[MAX_COLOR], s32 (*ofs)[MAX_COLOR],
+		s32 (*out)[MAX_COLOR], struct tp *tp, int nr_tp);
 int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
 		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step);
 void get_dimming_gamma(struct dimming_info *dim_info, u32 luminance, u8 *output,

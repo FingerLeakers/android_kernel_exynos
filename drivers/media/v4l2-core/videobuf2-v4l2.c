@@ -15,7 +15,6 @@
  */
 
 #include <linux/err.h>
-#include <linux/file.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mm.h>
@@ -24,6 +23,7 @@
 #include <linux/sched.h>
 #include <linux/freezer.h>
 #include <linux/kthread.h>
+#include <linux/sync_file.h>
 
 #include <media/v4l2-dev.h>
 #include <media/v4l2-fh.h>
@@ -61,14 +61,13 @@ static int __verify_planes_array(struct vb2_buffer *vb, const struct v4l2_buffer
 
 	/* Is memory for copying plane information present? */
 	if (b->m.planes == NULL) {
-		dprintk(1, "multi-planar buffer passed but "
-			   "planes array not provided\n");
+		dprintk(1, "multi-planar buffer passed but planes array not provided\n");
 		return -EINVAL;
 	}
 
 	if (b->length < vb->num_planes || b->length > VB2_MAX_PLANES) {
-		dprintk(1, "incorrect planes array length, "
-			   "expected %d, got %d\n", vb->num_planes, b->length);
+		dprintk(1, "incorrect planes array length, expected %d, got %d\n",
+			vb->num_planes, b->length);
 		return -EINVAL;
 	}
 
@@ -120,9 +119,9 @@ static int __verify_length(struct vb2_buffer *vb, const struct v4l2_buffer *b)
 	return 0;
 }
 
-static void __copy_timestamp(struct vb2_buffer *vb, void *pb)
+static void __copy_timestamp(struct vb2_buffer *vb, const void *pb)
 {
-	struct v4l2_buffer *b = pb;
+	const struct v4l2_buffer *b = pb;
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct vb2_queue *q = vb->vb2_queue;
 
@@ -137,38 +136,6 @@ static void __copy_timestamp(struct vb2_buffer *vb, void *pb)
 		if (b->flags & V4L2_BUF_FLAG_TIMECODE)
 			vbuf->timecode = b->timecode;
 	}
-
-	q->timeline_max++;
-	if (!!(b->flags & V4L2_BUF_FLAG_USE_SYNC)) {
-		int fd = get_unused_fd_flags(0);
-
-		b->reserved = -1;
-		if (fd < 0) {
-			dprintk(1, "qbuf: failed to get unused fd\n");
-			return;
-		} else {
-			struct sync_pt *pt;
-			struct sync_file *sync_file;
-
-			pt = sync_pt_create(q->timeline, sizeof(*pt), q->timeline_max);
-			if (!pt) {
-				dprintk(1, "qbuf: failed to create sync_pt\n");
-				put_unused_fd(fd);
-				return;
-			}
-
-			sync_file = sync_file_create(&pt->base);
-			fence_put(&pt->base);
-			if (!sync_file) {
-				put_unused_fd(fd);
-				dprintk(1, "qbuf: failed to create fence\n");
-				return;
-			}
-
-			fd_install(fd, sync_file->file);
-			b->reserved = fd;
-		}
-	}
 };
 
 static void vb2_warn_zero_bytesused(struct vb2_buffer *vb)
@@ -179,7 +146,6 @@ static void vb2_warn_zero_bytesused(struct vb2_buffer *vb)
 		return;
 
 	check_once = true;
-	/* WARN_ON(1); */
 
 	pr_warn("use of bytesused == 0 is deprecated and will be removed in the future,\n");
 	if (vb->vb2_queue->allow_zero_bytesused)
@@ -212,6 +178,17 @@ static int vb2_queue_or_prepare_buf(struct vb2_queue *q, struct v4l2_buffer *b,
 		return -EINVAL;
 	}
 
+	if ((b->fence_fd != 0 && b->fence_fd != -1) &&
+	    !(b->flags & V4L2_BUF_FLAG_IN_FENCE)) {
+		dprintk(1, "%s: fence_fd set without IN_FENCE flag\n", opname);
+		return -EINVAL;
+	}
+
+	if (b->fence_fd < 0 && (b->flags & V4L2_BUF_FLAG_IN_FENCE)) {
+		dprintk(1, "%s: IN_FENCE flag set but no fence_fd\n", opname);
+		return -EINVAL;
+	}
+
 	return __verify_planes_array(q->bufs[b->index], b);
 }
 
@@ -238,6 +215,17 @@ static void __fill_v4l2_buffer(struct vb2_buffer *vb, void *pb)
 	b->timecode = vbuf->timecode;
 	b->sequence = vbuf->sequence;
 	b->reserved2 = vbuf->reserved2;
+
+	if (b->flags & V4L2_BUF_FLAG_OUT_FENCE) {
+		b->fence_fd = vb->out_fence_fd;
+	} else {
+		b->fence_fd = 0;
+	}
+
+	if (vb->in_fence)
+		b->flags |= V4L2_BUF_FLAG_IN_FENCE;
+	else
+		b->flags &= ~V4L2_BUF_FLAG_IN_FENCE;
 
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		/*
@@ -348,22 +336,12 @@ static int __fill_vb2_buffer(struct vb2_buffer *vb,
 		 * that just says that it is either a top or a bottom field,
 		 * but not which of the two it is.
 		 */
-		dprintk(1, "the field is incorrectly set to ALTERNATE "
-					"for an output buffer\n");
+		dprintk(1, "the field is incorrectly set to ALTERNATE for an output buffer\n");
 		return -EINVAL;
 	}
 	vb->timestamp = 0;
 	vbuf->sequence = 0;
 	vbuf->reserved2 = b->reserved2;
-
-	if (!!(b->flags & V4L2_BUF_FLAG_USE_SYNC) && ((int)b->reserved >= 0)) {
-		vb->acquire_fence = sync_file_fdget((int)b->reserved);
-		if (!vb->acquire_fence) {
-			dprintk(1, "failed to import fence fd %u\n",
-				b->reserved);
-			return -EINVAL;
-		}
-	}
 
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		if (b->memory == VB2_MEMORY_USERPTR) {
@@ -380,6 +358,8 @@ static int __fill_vb2_buffer(struct vb2_buffer *vb,
 					b->m.planes[plane].m.fd;
 				planes[plane].length =
 					b->m.planes[plane].length;
+				planes[plane].data_offset =
+					b->m.planes[plane].data_offset;
 			}
 		}
 
@@ -521,6 +501,10 @@ int vb2_querybuf(struct vb2_queue *q, struct v4l2_buffer *b)
 	ret = __verify_planes_array(vb, b);
 	if (!ret)
 		vb2_core_querybuf(q, b->index, b);
+
+	/* Do not return the out-fence fd on querybuf */
+	if (vb->out_fence)
+		b->fence_fd = -1;
 	return ret;
 }
 EXPORT_SYMBOL(vb2_querybuf);
@@ -588,6 +572,9 @@ int vb2_create_bufs(struct vb2_queue *q, struct v4l2_create_buffers *create)
 	case V4L2_BUF_TYPE_SDR_OUTPUT:
 		requested_sizes[0] = f->fmt.sdr.buffersize;
 		break;
+	case V4L2_BUF_TYPE_META_CAPTURE:
+		requested_sizes[0] = f->fmt.meta.buffersize;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -601,6 +588,7 @@ EXPORT_SYMBOL_GPL(vb2_create_bufs);
 
 int vb2_qbuf(struct vb2_queue *q, struct v4l2_buffer *b)
 {
+	struct dma_fence *in_fence = NULL;
 	int ret;
 
 	if (vb2_fileio_is_active(q)) {
@@ -609,7 +597,28 @@ int vb2_qbuf(struct vb2_queue *q, struct v4l2_buffer *b)
 	}
 
 	ret = vb2_queue_or_prepare_buf(q, b, "qbuf");
-	return ret ? ret : vb2_core_qbuf(q, b->index, b);
+	if (ret)
+		return ret;
+
+	if (b->flags & V4L2_BUF_FLAG_IN_FENCE) {
+		in_fence = sync_file_get_fence(b->fence_fd);
+		if (!in_fence) {
+			dprintk(1, "failed to get in-fence from fd %d\n",
+				b->fence_fd);
+			return -EINVAL;
+		}
+	}
+
+	if (b->flags & V4L2_BUF_FLAG_OUT_FENCE) {
+		ret = vb2_setup_out_fence(q, b->index);
+		if (ret) {
+			dprintk(1, "failed to set up out-fence\n");
+			dma_fence_put(in_fence);
+			return ret;
+		}
+	}
+
+	return vb2_core_qbuf(q, b->index, b, in_fence);
 }
 EXPORT_SYMBOL_GPL(vb2_qbuf);
 
@@ -999,6 +1008,12 @@ void vb2_ops_wait_finish(struct vb2_queue *vq)
 	mutex_lock(vq->lock);
 }
 EXPORT_SYMBOL_GPL(vb2_ops_wait_finish);
+
+bool vb2_ops_set_unordered(struct vb2_queue *q)
+{
+	return true;
+}
+EXPORT_SYMBOL_GPL(vb2_ops_set_unordered);
 
 MODULE_DESCRIPTION("Driver helper framework for Video for Linux 2");
 MODULE_AUTHOR("Pawel Osciak <pawel@osciak.com>, Marek Szyprowski");

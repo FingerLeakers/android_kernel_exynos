@@ -25,11 +25,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/v4l2-ctrls.h>
-#if defined(CONFIG_VIDEOBUF2_CMA_PHYS)
-#include <media/videobuf2-cma-phys.h>
-#elif defined(CONFIG_VIDEOBUF2_ION)
-#include <media/videobuf2-ion.h>
-#endif
+#include <soc/samsung/exynos-itmon.h>
 
 extern int sc_log_level;
 #define sc_dbg(fmt, args...)						\
@@ -44,9 +40,6 @@ extern int sc_log_level;
 #define SC_TIMEOUT		(2 * HZ)	/* 2 seconds */
 #define SC_WDT_CNT		3
 #define SC_MAX_CTRL_NUM		11
-#define SC_QCH_SIZE		(sizeof(u32) * 21)
-#define SC_DEBUG_MAX_NUM	16
-#define G2D_QCH_NUM		21
 
 #define SC_MAX_PLANES		3
 /* Address index */
@@ -123,14 +116,6 @@ extern int sc_log_level;
 #define SC_CID_DNOISE_FT		(V4L2_CID_EXYNOS_BASE + 150)
 #define SC_M2M1SHOT_OP_FILTER_SHIFT	(28)
 #define SC_M2M1SHOT_OP_FILTER_MASK	(0xf << 28)
-
-#ifdef CONFIG_VIDEOBUF2_ION
-#define sc_buf_sync_prepare vb2_ion_buf_prepare
-#define sc_buf_sync_finish vb2_ion_buf_finish
-#else
-void sc_buf_sync_finish(struct vb2_buffer *vb);
-int sc_buf_sync_prepare(struct vb2_buffer *vb);
-#endif
 
 enum sc_csc_idx {
 	NO_CSC,
@@ -256,6 +241,7 @@ struct sc_variant {
 	u32 sc_down_min;
 	u32 sc_up_swmax;
 	u32 sc_down_swmin;
+	u32 minsize_srcplane;		/* zero if no limitation exists */
 	u8 blending:1;
 	u8 prescale:1;
 	u8 ratio_20bit:1;
@@ -320,7 +306,6 @@ struct sc_frame {
 
 struct sc_int_frame {
 	struct sc_frame			frame;
-	struct ion_handle		*handle[3];
 	struct sc_addr			src_addr;
 	struct sc_addr			dst_addr;
 	struct sg_table			*sgt[3];
@@ -378,15 +363,15 @@ struct sc_dnoise_filter {
 	u32			h;
 };
 
-struct sc_qch_dbg {
-	unsigned long long time;
-	u32 log[G2D_QCH_NUM];
-};
-
 struct sc_qos_table {
 	unsigned int freq_mif;
 	unsigned int freq_int;
 	unsigned int data_size;
+};
+
+struct sc_ppc_table {
+	unsigned int bpp;
+	unsigned int ppc[2];
 };
 
 struct sc_ctx;
@@ -423,7 +408,6 @@ struct sc_dev {
 	struct clk			*clk_chld;
 	struct clk			*clk_parn;
 	void __iomem			*regs;
-	void __iomem			*q_reg;
 	struct resource			*regs_res;
 	struct workqueue_struct		*qosclr_int_wq;
 	wait_queue_head_t		wait;
@@ -431,7 +415,6 @@ struct sc_dev {
 	struct vb2_alloc_ctx		*alloc_ctx;
 	spinlock_t			slock;
 	struct mutex			lock;
-	struct workqueue_struct		*fence_wq;
 	struct sc_wdt			wdt;
 	spinlock_t			ctxlist_lock;
 	struct sc_ctx			*current_ctx;
@@ -442,11 +425,11 @@ struct sc_dev {
 	u32				version;
 	bool				pb_disable;
 	u32				cfw;
-	int				dbg_idx;
-	struct sc_qch_dbg		*qch_dbg;
-	struct ion_client		*client;
 	struct sc_qos_table		*qos_table;
+	struct sc_ppc_table		*ppc_table;
 	int qos_table_cnt;
+	int ppc_table_cnt;
+	struct notifier_block itmon_nb;
 };
 
 enum SC_CONTEXT_TYPE {
@@ -557,22 +540,4 @@ void sc_hwset_vcoef(struct sc_dev *sc, unsigned int coef);
 void sc_hwregs_dump(struct sc_dev *sc);
 void sc_ctx_dump(struct sc_ctx *ctx);
 
-#ifdef CONFIG_VIDEOBUF2_ION
-static inline int sc_get_dma_address(void *cookie, dma_addr_t *addr)
-{
-	return vb2_ion_dma_address(cookie, addr);
-}
-
-#define sc_get_kernel_address vb2_ion_private_vaddr
-#else
-static inline int sc_get_dma_address(void *cookie, dma_addr_t *addr)
-{
-	return -ENOSYS;
-}
-
-static inline void *sc_get_kernel_address(void *cookie)
-{
-	return NULL;
-}
-#endif
 #endif /* SCALER__H_ */

@@ -33,14 +33,14 @@ static void dump_packet(u8 *data, int len)
 	u8 s[17];
 	int i, j;
 
-	s[16]='\0';
+	s[16] = '\0';
 	for (i = 0; i < len; i += 16) {
 		printk("%06x :", i);
-		for (j=0; j<16; j++) {
+		for (j = 0; j < 16; j++) {
 			printk(" %02x", data[i+j]);
-			s[j] = (data[i+j]<' ' ? '.' : (data[i+j]>'}' ? '.' : data[i+j]));
+			s[j] = (data[i+j] < ' ' ? '.' : (data[i+j] > '}' ? '.' : data[i+j]));
 		}
-		printk(" |%s|\n",s);
+		printk(" |%s|\n", s);
 	}
 	printk("\n");
 }
@@ -92,7 +92,7 @@ static void srpmb_worker(struct work_struct *data)
 
 	dev_info(&sr_pdev->dev, "start rpmb workqueue with command(%d)\n", req->type);
 
-	switch(req->type) {
+	switch (req->type) {
 	case GET_WRITE_COUNTER:
 		if (req->data_len != RPMB_PACKET_SIZE) {
 			update_rpmb_status_flag(rpmb_ctx, req,
@@ -123,6 +123,12 @@ static void srpmb_worker(struct work_struct *data)
 			dev_err(&sr_pdev->dev, "ioctl error : %x\n", ret);
 			break;
 		}
+		if (req->rpmb_data[RPMB_RESULT] || req->rpmb_data[RPMB_RESULT+1]) {
+			dev_info(&sr_pdev->dev, "GET_WRITE_COUNTER: REQ/RES = %02x%02x, RESULT = %02x%02x\n",
+				req->rpmb_data[RPMB_REQRES], req->rpmb_data[RPMB_REQRES+1],
+				req->rpmb_data[RPMB_RESULT], req->rpmb_data[RPMB_RESULT+1]);
+		}
+
 		update_rpmb_status_flag(rpmb_ctx, req, RPMB_PASSED);
 
 		break;
@@ -174,15 +180,14 @@ static void srpmb_worker(struct work_struct *data)
 					"ioctl write_data result error: %x\n", ret);
 			break;
 		}
-
-		swap_packet(req->rpmb_data, (uint8_t *)&packet);
-		if (packet.result == 0) {
-			update_rpmb_status_flag(rpmb_ctx, req, RPMB_PASSED);
-		} else {
-			update_rpmb_status_flag(rpmb_ctx, req, packet.result);
-			dev_err(&sr_pdev->dev,
-					"packet result error: %x\n", req->status_flag);
+		if (req->rpmb_data[RPMB_RESULT] || req->rpmb_data[RPMB_RESULT+1]) {
+			dev_info(&sr_pdev->dev, "WRITE_DATA: REQ/RES = %02x%02x, RESULT = %02x%02x\n",
+				req->rpmb_data[RPMB_REQRES], req->rpmb_data[RPMB_REQRES+1],
+				req->rpmb_data[RPMB_RESULT], req->rpmb_data[RPMB_RESULT+1]);
 		}
+
+		update_rpmb_status_flag(rpmb_ctx, req, RPMB_PASSED);
+
 		break;
 	case READ_DATA:
 		if (req->data_len < RPMB_PACKET_SIZE ||
@@ -215,6 +220,12 @@ static void srpmb_worker(struct work_struct *data)
 					"ioctl result read data error : %x\n", ret);
 			break;
 		}
+		if (req->rpmb_data[RPMB_RESULT] || req->rpmb_data[RPMB_RESULT+1]) {
+			dev_info(&sr_pdev->dev, "READ_DATA: REQ/RES = %02x%02x, RESULT = %02x%02x\n",
+				req->rpmb_data[RPMB_REQRES], req->rpmb_data[RPMB_REQRES+1],
+				req->rpmb_data[RPMB_RESULT], req->rpmb_data[RPMB_RESULT+1]);
+		}
+
 		update_rpmb_status_flag(rpmb_ctx, req, RPMB_PASSED);
 
 		break;
@@ -302,8 +313,8 @@ int init_wsm(struct device *dev)
 			&rpmb_ctx->phy_addr, GFP_KERNEL);
 
 	if (rpmb_ctx->vir_addr && rpmb_ctx->phy_addr) {
-		dev_info(dev, "srpmb dma addr: virt(%llx), phy(%llx)\n",
-			(uint64_t)rpmb_ctx->vir_addr, (uint64_t)rpmb_ctx->phy_addr);
+		dev_info(dev, "srpmb dma addr: virt_pK(%pK), phy(%llx)\n",
+			rpmb_ctx->vir_addr, (uint64_t)rpmb_ctx->phy_addr);
 
 		rpmb_ctx->irq = irq_of_parse_and_map(sr_pdev->dev.of_node, 0);
 		if (rpmb_ctx->irq <= 0) {

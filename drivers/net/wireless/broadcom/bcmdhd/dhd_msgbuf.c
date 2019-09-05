@@ -26,7 +26,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_msgbuf.c 811770 2019-03-27 08:55:00Z $
+ * $Id: dhd_msgbuf.c 816516 2019-04-25 02:36:46Z $
  */
 
 #include <typedefs.h>
@@ -69,6 +69,7 @@
 
 #ifdef DHD_PKT_LOGGING
 #include <dhd_pktlog.h>
+#include <dhd_linux_pktdump.h>
 #endif /* DHD_PKT_LOGGING */
 #ifdef DHD_EWPR_VER2
 #include <dhd_bitpack.h>
@@ -520,7 +521,11 @@ typedef struct dhd_prot {
 	void		*pktid_dma_map;	/* pktid map for DMA MAP */
 	void		*pktid_dma_unmap; /* pktid map for DMA UNMAP */
 #endif /* DHD_MAP_PKTID_LOGGING */
-
+	uint32		pktid_depleted_cnt;	/* pktid depleted count */
+	/* netif tx queue stop count */
+	uint8		pktid_txq_stop_cnt;
+	/* netif tx queue start count */
+	uint8		pktid_txq_start_cnt;
 	uint64		ioctl_fillup_time;	/* timestamp for ioctl fillup */
 	uint64		ioctl_ack_time;		/* timestamp for ioctl ack */
 	uint64		ioctl_cmplt_time;	/* timestamp for ioctl completion */
@@ -563,6 +568,7 @@ typedef struct dhd_prot {
 	msgbuf_ring_t *d2hring_hp2p_txcpl; /* D2H HPP Tx completion ring */
 	msgbuf_ring_t *d2hring_hp2p_rxcpl; /* D2H HPP Rx completion ring */
 #endif /* DHD_HP2P */
+	bool no_tx_resource;
 } dhd_prot_t;
 
 #ifdef DHD_EWPR_VER2
@@ -1638,7 +1644,7 @@ dhd_pktid_logging_dump(dhd_pub_t *dhd)
 #define DHD_PCIE_PKTID
 #define MAX_CTRL_PKTID		(1024) /* Maximum number of pktids supported */
 #define MAX_RX_PKTID		(1024)
-#define MAX_TX_PKTID		(3072 * 2)
+#define MAX_TX_PKTID		(3072 * 12)
 
 /* On Router, the pktptr serves as a pktid. */
 
@@ -1658,6 +1664,8 @@ typedef enum dhd_pkttype {
 	PKTTYPE_TSBUF_RX
 } dhd_pkttype_t;
 
+#define DHD_PKTID_MIN_AVAIL_COUNT		512U
+#define DHD_PKTID_DEPLETED_MAX_COUNT		(DHD_PKTID_MIN_AVAIL_COUNT * 2U)
 #define DHD_PKTID_INVALID			(0U)
 #define DHD_IOCTL_REQ_PKTID			(0xFFFE)
 #define DHD_FAKE_PKTID				(0xFACE)
@@ -3256,6 +3264,7 @@ dhd_prot_init(dhd_pub_t *dhd)
 
 	prot->device_ipc_version = dhd->bus->api.fw_rev;
 	prot->host_ipc_version = PCIE_SHARED_VERSION;
+	prot->no_tx_resource = FALSE;
 
 	/* Init the host API version */
 	dhd_set_host_cap(dhd);
@@ -5391,12 +5400,6 @@ dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data)
 
 	max_items_to_process = MIN(num_items, DHD_EVENT_LOGTRACE_BOUND);
 
-	/* update host ring read pointer */
-	if ((ring->rd + max_items_to_process) >= ring->max_items)
-		ring->rd = 0;
-	else
-		ring->rd += max_items_to_process;
-
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
 
 	/* Prefetch data to populate the cache */
@@ -5440,6 +5443,14 @@ dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data)
 		--n;
 	}
 
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	/* update host ring read pointer */
+	if ((ring->rd + max_items_to_process) >= ring->max_items)
+		ring->rd = 0;
+	else
+		ring->rd += max_items_to_process;
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
+
 	/* Now after processing max_items_to_process update dongle rd index.
 	 * The TCM rd index is updated only if bus is not
 	 * in D3. Else, the rd index is updated from resume
@@ -5449,10 +5460,11 @@ dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data)
 	if (DHD_BUS_CHECK_SUSPEND_OR_ANY_SUSPEND_IN_PROGRESS(dhd)) {
 		DHD_INFO(("%s: bus is in suspend(%d) or suspending(0x%x) state!!\n",
 			__FUNCTION__, dhd->busstate, dhd->dhd_bus_busy_state));
+		DHD_GENERAL_UNLOCK(dhd, flags);
 	} else {
+		DHD_GENERAL_UNLOCK(dhd, flags);
 		DHD_EDL_RING_TCM_RD_UPDATE(dhd);
 	}
-	DHD_GENERAL_UNLOCK(dhd, flags);
 
 	/* if num_items > bound, then anyway we will reschedule and
 	 * this function runs again, so that if in between the DPC has
@@ -5496,6 +5508,8 @@ void
 dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd)
 {
 	dhd_prot_t *prot = NULL;
+	unsigned long flags = 0;
+	msgbuf_ring_t *ring = NULL;
 
 	if (!dhd)
 		return;
@@ -5504,7 +5518,10 @@ dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd)
 	if (!prot || !prot->d2hring_edl)
 		return;
 
-	dhd_prot_upd_read_idx(dhd, prot->d2hring_edl);
+	ring = prot->d2hring_edl;
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	dhd_prot_upd_read_idx(dhd, ring);
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
 }
 #endif /* EWP_EDL */
 
@@ -6299,6 +6316,24 @@ exit:
 	dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd);
 }
 
+int
+dhd_prot_check_tx_resource(dhd_pub_t *dhd)
+{
+	return dhd->prot->no_tx_resource;
+}
+
+void
+dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd)
+{
+	dhd->prot->pktid_txq_stop_cnt++;
+}
+
+void
+dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd)
+{
+	dhd->prot->pktid_txq_start_cnt++;
+}
+
 /** called on MSG_TYPE_TX_STATUS message received from dongle */
 static void BCMFASTPATH
 dhd_prot_txstatus_process(dhd_pub_t *dhd, void *msg)
@@ -6363,6 +6398,11 @@ dhd_prot_txstatus_process(dhd_pub_t *dhd, void *msg)
 		ASSERT(0);
 #endif /* DHD_FW_COREDUMP */
 		return;
+	}
+
+	if (DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map) == DHD_PKTID_MIN_AVAIL_COUNT) {
+		dhd->prot->no_tx_resource = FALSE;
+		dhd_bus_start_queue(dhd->bus);
 	}
 
 	if (SECURE_DMA_ENAB(dhd->osh)) {
@@ -6439,10 +6479,16 @@ workq_ring_full:
 			ltoh16(txstatus->compl_hdr.status) & WLFC_CTL_PKTFLAG_MASK);
 #ifdef DHD_PKT_LOGGING
 	if (dhd->d11_tx_status) {
-		DHD_PKTLOG_TXS(dhd, pkt, pktid,
-			ltoh16(txstatus->compl_hdr.status) & WLFC_CTL_PKTFLAG_MASK);
+		uint16 status = ltoh16(txstatus->compl_hdr.status) &
+			WLFC_CTL_PKTFLAG_MASK;
+		uint32 pkthash = __dhd_dbg_pkt_hash((uintptr_t)pkt, pktid);
+		DHD_PKTLOG_TXS(dhd, pkt, pktid, status);
+		dhd_dump_pkt(dhd, ltoh32(txstatus->cmn_hdr.if_id),
+			(uint8 *)PKTDATA(dhd->osh, pkt), len, TRUE,
+			&pkthash, &status);
 	}
 #endif /* DHD_PKT_LOGGING */
+
 #if defined(BCMPCIE)
 	dhd_txcomplete(dhd, pkt, pkt_fate);
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
@@ -6634,11 +6680,26 @@ dhd_prot_txdata(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 	msgbuf_ring_t *ring;
 	flow_ring_table_t *flow_ring_table;
 	flow_ring_node_t *flow_ring_node;
+#ifdef DHD_PKT_LOGGING
+	uint32 pkthash;
+#endif /* DHD_PKT_LOGGING */
 
 	if (dhd->flow_ring_table == NULL) {
 		DHD_ERROR(("dhd flow_ring_table is NULL\n"));
 		return BCME_NORESOURCE;
 	}
+#ifdef DHD_PCIE_PKTID
+	if (!DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map)) {
+		if (dhd->prot->pktid_depleted_cnt == DHD_PKTID_DEPLETED_MAX_COUNT) {
+			dhd_bus_stop_queue(dhd->bus);
+			dhd->prot->no_tx_resource = TRUE;
+		}
+		dhd->prot->pktid_depleted_cnt++;
+		goto err_no_res;
+	} else {
+		dhd->prot->pktid_depleted_cnt = 0;
+	}
+#endif /* DHD_PCIE_PKTID */
 
 	flowid = DHD_PKT_GET_FLOWID(PKTBUF);
 	flow_ring_table = (flow_ring_table_t *)dhd->flow_ring_table;
@@ -6673,14 +6734,17 @@ dhd_prot_txdata(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 		goto err_free_pktid;
 	}
 
-	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
-#ifdef DHD_PKT_LOGGING
-	DHD_PKTLOG_TX(dhd, PKTBUF, pktid);
-#endif /* DHD_PKT_LOGGING */
-
 	/* Extract the data pointer and length information */
 	pktdata = PKTDATA(dhd->osh, PKTBUF);
 	pktlen  = PKTLEN(dhd->osh, PKTBUF);
+
+	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
+#ifdef DHD_PKT_LOGGING
+	DHD_PKTLOG_TX(dhd, PKTBUF, pktid);
+	/* Dump TX packet */
+	pkthash = __dhd_dbg_pkt_hash((uintptr_t)PKTBUF, pktid);
+	dhd_dump_pkt(dhd, ifidx, pktdata, pktlen, TRUE, &pkthash, NULL);
+#endif /* DHD_PKT_LOGGING */
 
 	/* Ethernet header: Copy before we cache flush packet using DMA_MAP */
 	bcopy(pktdata, txdesc->txhdr, ETHER_HDR_LEN);
@@ -6906,7 +6970,7 @@ err_no_res_pktfree:
 #endif /* DHD_PCIE_PKTID */
 
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
-
+err_no_res:
 	return BCME_NORESOURCE;
 } /* dhd_prot_txdata */
 
@@ -7896,6 +7960,9 @@ void dhd_prot_dump(dhd_pub_t *dhd, struct bcmstrbuf *b)
 		dhd->prot->rw_index_sz);
 	bcm_bprintf(b, "h2d_max_txpost: %d, prot->h2d_max_txpost: %d\n",
 		h2d_max_txpost, dhd->prot->h2d_max_txpost);
+	bcm_bprintf(b, "pktid_txq_start_cnt: %d\n", dhd->prot->pktid_txq_start_cnt);
+	bcm_bprintf(b, "pktid_txq_stop_cnt: %d\n", dhd->prot->pktid_txq_stop_cnt);
+	bcm_bprintf(b, "pktid_depleted_cnt: %d\n", dhd->prot->pktid_depleted_cnt);
 }
 
 /* Update local copy of dongle statistics */
@@ -10338,6 +10405,11 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 	DHD_ERROR(("DHD: %s\n", dhd_version));
 	DHD_ERROR(("Firmware: %s\n", fw_version));
 
+#ifdef DHD_FW_COREDUMP
+	DHD_ERROR(("\n ------- DUMPING CONFIGURATION INFORMATION ------ \r\n"));
+	DHD_ERROR(("memdump mode: %d\n", dhd->memdump_enabled));
+#endif /* DHD_FW_COREDUMP */
+
 	DHD_ERROR(("\n ------- DUMPING PROTOCOL INFORMATION ------- \r\n"));
 	DHD_ERROR(("ICPrevs: Dev %d, Host %d, active %d\n",
 		prot->device_ipc_version,
@@ -10530,6 +10602,11 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 	DHD_ERROR(("%s: multi_client_flow_rings:%d max_multi_client_flow_rings:%d\n",
 		__FUNCTION__, dhd->multi_client_flow_rings, dhd->max_multi_client_flow_rings));
 #endif /* DHD_LIMIT_MULTI_CLIENT_FLOWRINGS */
+
+	DHD_ERROR(("pktid_txq_start_cnt: %d\n", prot->pktid_txq_start_cnt));
+	DHD_ERROR(("pktid_txq_stop_cnt: %d\n", prot->pktid_txq_stop_cnt));
+	DHD_ERROR(("pktid_depleted_cnt: %d\n", prot->pktid_depleted_cnt));
+
 	dhd_pcie_debug_info_dump(dhd);
 
 	return 0;

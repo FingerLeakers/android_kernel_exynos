@@ -15,6 +15,7 @@ static struct dentry *rootdir;
 static struct cmucal_clk *clk_info;
 static struct vclk *dvfs_domain;
 static unsigned int margin;
+static unsigned int debug_freq;
 
 extern unsigned int dbg_offset;
 
@@ -256,6 +257,39 @@ vclk_write_set_margin(struct file *filp, const char __user *ubuf,
 	return len;
 }
 
+static ssize_t
+vclk_read_set_freq(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	r = sprintf(buf, "freq : %u\n", debug_freq);
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+vclk_write_set_freq(struct file *filp, const char __user *ubuf,
+		   size_t cnt, loff_t *ppos)
+{
+	char buf[16];
+	ssize_t len;
+	u32 freq;
+
+	len = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, ubuf, cnt);
+	if (len < 0)
+		return len;
+
+	buf[len] = '\0';
+	if (!kstrtoint(buf, 0, &freq)) {
+		debug_freq = freq;
+		cal_dfs_set_rate(dvfs_domain->id, freq);
+	}
+
+	return len;
+}
+
 static const struct file_operations clk_info_fops = {
 	.open		= vclk_clk_info_open,
 	.read		= vclk_read_clk_info,
@@ -275,6 +309,13 @@ static const struct file_operations set_margin_fops = {
 	.open		= simple_open,
 	.read		= vclk_read_set_margin,
 	.write		= vclk_write_set_margin,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations set_freq_fops = {
+	.open		= simple_open,
+	.read		= vclk_read_set_freq,
+	.write		= vclk_write_set_freq,
 	.llseek		= seq_lseek,
 };
 
@@ -393,6 +434,11 @@ static int __init vclk_debug_init(void)
 
 	d = debugfs_create_file("set_margin", 0600, rootdir, NULL,
 				&set_margin_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("set_freq", 0600, rootdir, NULL,
+				&set_freq_fops);
 	if (!d)
 		return -ENOMEM;
 

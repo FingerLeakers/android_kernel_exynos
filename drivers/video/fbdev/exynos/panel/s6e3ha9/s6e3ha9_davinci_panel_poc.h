@@ -53,7 +53,15 @@
 #define DAVINCI_POC_MCD_SIZE (S6E3HA9_FLASH_MCD_LEN)
 
 #ifdef CONFIG_SUPPORT_POC_SPI
+#define DAVINCI_SPI_ER_DONE_MDELAY		(35)
+#define DAVINCI_SPI_STATUS_WR_DONE_MDELAY		(15)
+
+#ifdef PANEL_POC_SPI_BUSY_WAIT
+#define DAVINCI_SPI_WR_DONE_UDELAY		(50)
+#else
 #define DAVINCI_SPI_WR_DONE_UDELAY		(400)
+#endif
+
 #endif
 
 /* ===================================================================================== */
@@ -165,12 +173,15 @@ static DEFINE_PANEL_MDELAY(davinci_poc_wait_wr_enable_02, DAVINCI_WR_ENABLE_02_M
 static DEFINE_PANEL_MDELAY(davinci_poc_wait_qd_status, DAVINCI_QD_DONE_MDELAY);
 
 #ifdef CONFIG_SUPPORT_POC_SPI
-static u8 DAVINCI_POC_SPI_EXIT_QPI[] = { 0xFF };
-static u8 DAVINCI_POC_SPI_SET_STATUS1[] = { 0x01, 0x00 };
-static u8 DAVINCI_POC_SPI_SET_STATUS2[] = { 0x31, 0x00 };
-static DEFINE_STATIC_PACKET(davinci_poc_spi_exit_qpi, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_EXIT_QPI, 0);
-static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status1, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS1, 0);
-static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status2, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS2, 0);
+static u8 DAVINCI_POC_SPI_SET_STATUS1_INIT[] = { 0x01, 0x00 };
+static u8 DAVINCI_POC_SPI_SET_STATUS2_INIT[] = { 0x31, 0x00 };
+static u8 DAVINCI_POC_SPI_SET_STATUS1_EXIT[] = { 0x01, 0x5C };
+static u8 DAVINCI_POC_SPI_SET_STATUS2_EXIT[] = { 0x31, 0x02 };
+static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status1_init, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS1_INIT, 0);
+static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status2_init, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS2_INIT, 0);
+static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status1_exit, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS1_EXIT, 0);
+static DEFINE_STATIC_PACKET(davinci_poc_spi_set_status2_exit, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_SET_STATUS2_EXIT, 0);
+
 static u8 DAVINCI_POC_SPI_STATUS1[] = { 0x05 };
 static u8 DAVINCI_POC_SPI_STATUS2[] = { 0x35 };
 static u8 DAVINCI_POC_SPI_READ[] = { 0x03, 0x00, 0x00, 0x00 };
@@ -194,12 +205,12 @@ static DECLARE_PKTUI(davinci_poc_spi_write) = {
 	{ .offset = 4, .maptbl = &davinci_poc_maptbl[POC_SPI_WRITE_DATA_MAPTBL] },
 };
 static DEFINE_VARIABLE_PACKET(davinci_poc_spi_write, SPI_PKT_TYPE_WR, DAVINCI_POC_SPI_WRITE, 0);
-static DEFINE_PANEL_UDELAY(davinci_poc_spi_write_done, DAVINCI_SPI_WR_DONE_UDELAY);
-
 static DEFINE_PKTUI(davinci_poc_spi_rd_addr, &davinci_poc_maptbl[POC_SPI_READ_ADDR_MAPTBL], 1);
 static DEFINE_VARIABLE_PACKET(davinci_poc_spi_rd_addr, SPI_PKT_TYPE_SETPARAM, DAVINCI_POC_SPI_READ, 0);
+static DEFINE_PANEL_UDELAY_NO_SLEEP(davinci_poc_spi_wait_write, DAVINCI_SPI_WR_DONE_UDELAY);
+static DEFINE_PANEL_MDELAY(davinci_poc_spi_wait_erase, DAVINCI_SPI_ER_DONE_MDELAY);
+static DEFINE_PANEL_MDELAY(davinci_poc_spi_wait_status, DAVINCI_SPI_STATUS_WR_DONE_MDELAY);
 #endif
-
 
 #ifdef CONFIG_SUPPORT_POC_FLASH
 static void *davinci_poc_erase_enter_cmdtbl[] = {
@@ -305,11 +316,21 @@ static void *davinci_poc_rd_exit_cmdtbl[] = {
 };
 #ifdef CONFIG_SUPPORT_POC_SPI
 static void *davinci_poc_spi_init_cmdtbl[] = {
-	&PKTINFO(davinci_poc_spi_exit_qpi),
 	&PKTINFO(davinci_poc_spi_write_enable),
-	&PKTINFO(davinci_poc_spi_set_status1),
+	&PKTINFO(davinci_poc_spi_set_status1_init),
+	&DLYINFO(davinci_poc_spi_wait_status),
 	&PKTINFO(davinci_poc_spi_write_enable),
-	&PKTINFO(davinci_poc_spi_set_status2),
+	&PKTINFO(davinci_poc_spi_set_status2_init),
+	&DLYINFO(davinci_poc_spi_wait_status),
+};
+
+static void *davinci_poc_spi_exit_cmdtbl[] = {
+	&PKTINFO(davinci_poc_spi_write_enable),
+	&PKTINFO(davinci_poc_spi_set_status1_exit),
+	&DLYINFO(davinci_poc_spi_wait_status),
+	&PKTINFO(davinci_poc_spi_write_enable),
+	&PKTINFO(davinci_poc_spi_set_status2_exit),
+	&DLYINFO(davinci_poc_spi_wait_status),
 };
 
 static void *davinci_poc_spi_read_cmdtbl[] = {
@@ -335,7 +356,9 @@ static void *davinci_poc_spi_erase_64k_cmdtbl[] = {
 static void *davinci_poc_spi_write_cmdtbl[] = {
 	&PKTINFO(davinci_poc_spi_write_enable),
 	&PKTINFO(davinci_poc_spi_write),
-	&DLYINFO(davinci_poc_spi_write_done),
+#ifndef PANEL_POC_SPI_BUSY_WAIT
+	&DLYINFO(davinci_poc_spi_wait_write),
+#endif
 };
 
 static void *davinci_poc_spi_status_cmdtbl[] = {
@@ -343,6 +366,14 @@ static void *davinci_poc_spi_status_cmdtbl[] = {
 	&s6e3ha9_restbl[RES_POC_SPI_STATUS1],
 	&PKTINFO(davinci_poc_spi_status2),
 	&s6e3ha9_restbl[RES_POC_SPI_STATUS2],
+};
+
+static void *davinci_poc_spi_wait_write_cmdtbl[] = {
+	&DLYINFO(davinci_poc_spi_wait_write),
+};
+
+static void *davinci_poc_spi_wait_erase_cmdtbl[] = {
+	&DLYINFO(davinci_poc_spi_wait_erase),
 };
 #endif
 
@@ -367,12 +398,15 @@ static struct seqinfo davinci_poc_seqtbl[MAX_POC_SEQ] = {
 	[POC_READ_EXIT_SEQ] = SEQINFO_INIT("poc-rd-exit-seq", davinci_poc_rd_exit_cmdtbl),
 #ifdef CONFIG_SUPPORT_POC_SPI
 	[POC_SPI_INIT_SEQ] = SEQINFO_INIT("poc-spi-init-seq", davinci_poc_spi_init_cmdtbl),
+	[POC_SPI_EXIT_SEQ] = SEQINFO_INIT("poc-spi-exit-seq", davinci_poc_spi_exit_cmdtbl),
 	[POC_SPI_READ_SEQ] = SEQINFO_INIT("poc-spi-read-seq", davinci_poc_spi_read_cmdtbl),
 	[POC_SPI_ERASE_4K_SEQ] = SEQINFO_INIT("poc-spi-erase-4k-seq", davinci_poc_spi_erase_4k_cmdtbl),
 	[POC_SPI_ERASE_32K_SEQ] = SEQINFO_INIT("poc-spi-erase-4k-seq", davinci_poc_spi_erase_32k_cmdtbl),
 	[POC_SPI_ERASE_64K_SEQ] = SEQINFO_INIT("poc-spi-erase-32k-seq", davinci_poc_spi_erase_64k_cmdtbl),
 	[POC_SPI_WRITE_SEQ] = SEQINFO_INIT("poc-spi-write-seq", davinci_poc_spi_write_cmdtbl),
 	[POC_SPI_STATUS_SEQ] = SEQINFO_INIT("poc-spi-status-seq", davinci_poc_spi_status_cmdtbl),
+	[POC_SPI_WAIT_WRITE_SEQ] = SEQINFO_INIT("poc-spi-wait-write-seq", davinci_poc_spi_wait_write_cmdtbl),
+	[POC_SPI_WAIT_ERASE_SEQ] = SEQINFO_INIT("poc-spi-wait-erase-seq", davinci_poc_spi_wait_erase_cmdtbl),
 #endif
 };
 
@@ -430,6 +464,11 @@ static struct panel_poc_data s6e3ha9_davinci_poc_data = {
 	.wdata_len = 256,
 #ifdef CONFIG_SUPPORT_POC_SPI
 	.spi_wdata_len = 256,
+	.conn_src = POC_CONN_SRC_SPI,
+	.state_mask = 0x025C,
+	.state_init = 0x0000,
+	.state_uninit = 0x025C,
+	.busy_mask = 0x0001,
 #endif
 };
 #endif /* __S6E3HA9_DAVINCI_PANEL_POC_H__ */

@@ -76,7 +76,13 @@ static ssize_t store_sysfs_system_power(struct device *dev,
 		ret = score_device_open(device);
 		if (ret)
 			goto p_err_put;
-		ret = score_device_start(device, request_fw_id, 0);
+
+#if defined(CONFIG_PM_DEVFREQ)
+		ret = score_device_start(device, request_fw_id,
+				device->pm.default_qos, 0);
+#else
+		ret = score_device_start(device, request_fw_id, 0, 0);
+#endif
 		if (ret)
 			goto p_err_put;
 	} else if (sysfs_streq(buf, "off")) {

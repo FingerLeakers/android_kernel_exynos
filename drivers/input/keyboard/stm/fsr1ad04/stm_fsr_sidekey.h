@@ -24,8 +24,8 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
 #include <linux/input/mt.h>
-#ifdef CONFIG_SEC_SYSFS
-#include <linux/sec_sysfs.h>
+#ifdef CONFIG_DRV_SAMSUNG
+#include <linux/sec_class.h>
 #endif
 
 #include <linux/device.h>
@@ -40,6 +40,8 @@
 
 #define STM_FSR_DRV_NAME	"fsr_sidekey"
 #define STM_FSR_DRV_VERSION	"201901023"
+
+#define FSR_STATE_WORK_TIMER		(5 * 1000)
 
 #define CMD_RESULT_WORD_LEN		10
 
@@ -93,11 +95,15 @@
 
 #define STATUS_EVENT_ESD_FAILURE	0xED
 
-#define INT_ENABLE_D3			0x48
-#define INT_DISABLE_D3			0x08
+#define INT_ENABLE_D3			0x40
+#define INT_DISABLE_D3			0x00
 
 #define INT_ENABLE			0x01
 #define INT_DISABLE			0x00
+
+#define FSR_EVENT_VOLUME_UP		0x01
+#define FSR_EVENT_VOLUME_DOWN		0x02
+#define FSR_EVENT_BIXBY			0x04
 
 enum fsr_error_return {
 	FSR_NOT_ERROR = 0,
@@ -116,6 +122,7 @@ struct fsr_sidekey_plat_data {
 
 	u16 system_info_addr;
 
+	int bringup;
 	int irq_gpio;	/* Interrupt GPIO */
 	int rst_gpio;
 	int rst_active_low;
@@ -249,6 +256,8 @@ struct fsr_sidekey_info {
 	struct i2c_client *client;
 	struct input_dev *input_dev;
 
+	u8 event_state;
+	int vol_dn_count;
 	int irq;
 	int irq_type;
 	bool irq_enabled;
@@ -260,7 +269,8 @@ struct fsr_sidekey_info {
 	unsigned int debug_string;
 
 	struct delayed_work reset_work;
-	struct delayed_work temp_work;
+	struct delayed_work state_work;
+	struct delayed_work read_info_work;
 
 #ifdef ENABLE_POWER_CONTROL
 	int (*power)(void *data, bool on);
@@ -276,13 +286,16 @@ struct fsr_sidekey_info {
 	struct power_supply *psy;
 	u8 temperature;
 
-	int product_id_of_ic;			/* product id of ic */
-	int fw_version_of_ic;			/* firmware version of IC */
-	int config_version_of_ic;		/* Config release data from IC */
+	short thd_of_ic[2];
+	short thd_of_bin[2];
+
+	u8 product_id_of_ic;			/* product id of ic */
+	u16 fw_version_of_ic;			/* firmware version of IC */
+	u16 config_version_of_ic;		/* Config release data from IC */
 	u16 fw_main_version_of_ic;		/* firmware main version of IC */
 
-	int fw_version_of_bin;			/* firmware version of binary */
-	int config_version_of_bin;		/* Config release data from IC */
+	u16 fw_version_of_bin;			/* firmware version of binary */
+	u16 config_version_of_bin;		/* Config release data from IC */
 	u16 fw_main_version_of_bin;		/* firmware main version of binary */
 
 	struct sec_cmd_data sec;
@@ -319,8 +332,10 @@ int fsr_fw_update_on_hidden_menu(struct fsr_sidekey_info *info, int update_type)
 
 int fsr_functions_init(struct fsr_sidekey_info *info);
 void fsr_functions_remove(struct fsr_sidekey_info *info);
+int fsr_read_cx(struct fsr_sidekey_info *info);
 int fsr_read_frame(struct fsr_sidekey_info *info, u16 type, struct fsr_frame_data_info *data, bool print);
 int fsr_get_calibration_strength(struct fsr_sidekey_info *info);
+int fsr_get_threshold(struct fsr_sidekey_info *info);
 
 
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
@@ -333,6 +348,12 @@ int get_lcd_attached(char *mode);
 #endif
 #if defined(CONFIG_EXYNOS_DPU20)
 int get_lcd_info(char *arg);
+#endif
+
+#if defined(CONFIG_ARCH_EXYNOS9)
+extern int get_voldn_press(void);
+#elif defined(CONFIG_SEC_PM)
+extern int get_resinkey_press(void);
 #endif
 
 #endif /* _LINUX_STM_FSR_SIDEKEY_H_ */

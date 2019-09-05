@@ -14,15 +14,33 @@
  */
 #include "ssp.h"
 
-#if defined(CONFIG_SENSORS_SSP_STAR)
-#define SSP_FIRMWARE_REVISION_BCM	18032700
-#elif defined(CONFIG_SENSORS_SSP_CROWN)
-#define SSP_FIRMWARE_REVISION_BCM	18051000
+#if defined(CONFIG_SENSORS_SSP_BEYOND)
+
+#if ANDROID_VERSION < 100000	//p_os
+#define SSP_FIRMWARE_REVISION_BCM	19071200
+#else				//q_os
+#define SSP_FIRMWARE_REVISION_BCM	19082300
+#endif
+
+#elif defined(CONFIG_SENSORS_SSP_DAVINCI)
+
+#if ANDROID_VERSION < 100000	//p_os
+#define SSP_FIRMWARE_REVISION_BCM	19082700
+#else				//q_os
+#define SSP_FIRMWARE_REVISION_BCM	19072400
+#endif
+
 #else
 #define SSP_FIRMWARE_REVISION_BCM	00000000
 #endif
+#define SSP_FIRMWARE_REVISION_NEW_OLD_BCM	19030700
 
 unsigned int get_module_rev(struct ssp_data *data)
 {
+        int patch_version = get_patch_version(data->ap_type, data->ap_rev);
+
+        if(patch_version == bbd_new_old)
+        	return SSP_FIRMWARE_REVISION_NEW_OLD_BCM;
+    
 	return SSP_FIRMWARE_REVISION_BCM;
 }

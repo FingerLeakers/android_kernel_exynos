@@ -240,6 +240,9 @@ static void __mptcp_reinject_data(struct sk_buff *orig_skb, struct sock *meta_sk
 		if (!after(end_seq, TCP_SKB_CB(skb1)->seq))
 			break;
 
+		if (before(end_seq, TCP_SKB_CB(skb1)->end_seq))
+			break;
+
 		__skb_unlink(skb1, &mpcb->reinject_queue);
 		__kfree_skb(skb1);
 	}
@@ -622,14 +625,14 @@ int mptcp_write_wakeup(struct sock *meta_sk, int mib)
 		TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
 		if (!mptcp_skb_entail(subsk, skb, 0))
 			return -1;
-		skb_mstamp_get(&skb->skb_mstamp);
 
 		mptcp_check_sndseq_wrap(meta_tp, TCP_SKB_CB(skb)->end_seq -
 						 TCP_SKB_CB(skb)->seq);
 		tcp_event_new_data_sent(meta_sk, skb);
 
 		__tcp_push_pending_frames(subsk, mss, TCP_NAGLE_PUSH);
-		meta_tp->lsndtime = tcp_time_stamp;
+		skb->skb_mstamp = meta_tp->tcp_mstamp;
+		meta_tp->lsndtime = tcp_jiffies32;
 
 		return 0;
 	} else {
@@ -667,6 +670,8 @@ bool mptcp_write_xmit(struct sock *meta_sk, unsigned int mss_now, int nonagle,
 	int reinject = 0;
 	unsigned int sublimit;
 	__u32 path_mask = 0;
+
+	tcp_mstamp_refresh(meta_tp);
 
 	while ((skb = mpcb->sched_ops->next_segment(meta_sk, &reinject, &subsk,
 						    &sublimit))) {
@@ -750,10 +755,10 @@ bool mptcp_write_xmit(struct sock *meta_sk, unsigned int mss_now, int nonagle,
 		 * always push on the subflow
 		 */
 		__tcp_push_pending_frames(subsk, mss_now, TCP_NAGLE_PUSH);
-		meta_tp->lsndtime = tcp_time_stamp;
+		skb->skb_mstamp = meta_tp->tcp_mstamp;
+		meta_tp->lsndtime = tcp_jiffies32;
 
 		path_mask |= mptcp_pi_to_flag(subtp->mptcp->path_index);
-		skb_mstamp_get(&skb->skb_mstamp);
 
 		if (!reinject) {
 			mptcp_check_sndseq_wrap(meta_tp,
@@ -1295,6 +1300,7 @@ void mptcp_send_active_reset(struct sock *meta_sk, gfp_t priority)
 		return;
 	}
 
+	tcp_mstamp_refresh(meta_tp);
 
 	tcp_sk(sk)->send_mp_fclose = 1;
 	/** Reset all other subflows */
@@ -1333,8 +1339,7 @@ static void mptcp_ack_retransmit_timer(struct sock *sk)
 	if (inet_csk(sk)->icsk_af_ops->rebuild_header(sk))
 		goto out; /* Routing failure or similar */
 
-	if (!tp->retrans_stamp)
-		tp->retrans_stamp = tcp_time_stamp ? : 1;
+	tcp_mstamp_refresh(tp);
 
 	if (tcp_write_timeout(sk)) {
 		MPTCP_INC_STATS(sock_net(sk), MPTCP_MIB_JOINACKRTO);
@@ -1368,12 +1373,14 @@ static void mptcp_ack_retransmit_timer(struct sock *sk)
 		return;
 	}
 
+	if (!tp->retrans_stamp)
+		tp->retrans_stamp = tcp_time_stamp(tp) ? : 1;
 
 	icsk->icsk_retransmits++;
 	icsk->icsk_rto = min(icsk->icsk_rto << 1, TCP_RTO_MAX);
 	sk_reset_timer(sk, &tp->mptcp->mptcp_ack_timer,
 		       jiffies + icsk->icsk_rto);
-	if (retransmits_timed_out(sk, net->ipv4.sysctl_tcp_retries1 + 1, 0, 0))
+	if (retransmits_timed_out(sk, net->ipv4.sysctl_tcp_retries1 + 1, 0))
 		__sk_dst_reset(sk);
 
 out:;
@@ -1425,7 +1432,7 @@ int mptcp_retransmit_skb(struct sock *meta_sk, struct sk_buff *skb)
 	 *
 	 * This is a meta-retransmission thus we check on the meta-socket.
 	 */
-	if (atomic_read(&meta_sk->sk_wmem_alloc) >
+	if (refcount_read(&meta_sk->sk_wmem_alloc) >
 	    min(meta_sk->sk_wmem_queued + (meta_sk->sk_wmem_queued >> 2), meta_sk->sk_sndbuf)) {
 		return -EAGAIN;
 	}
@@ -1471,7 +1478,6 @@ int mptcp_retransmit_skb(struct sock *meta_sk, struct sk_buff *skb)
 
 	if (!mptcp_skb_entail(subsk, skb, -1))
 		goto failed;
-	skb_mstamp_get(&skb->skb_mstamp);
 
 	/* Update global TCP statistics. */
 	MPTCP_INC_STATS(sock_net(meta_sk), MPTCP_MIB_RETRANSSEGS);
@@ -1479,11 +1485,14 @@ int mptcp_retransmit_skb(struct sock *meta_sk, struct sk_buff *skb)
 	/* Diff to tcp_retransmit_skb */
 
 	/* Save stamp of the first retransmit. */
-	if (!meta_tp->retrans_stamp)
-		meta_tp->retrans_stamp = tcp_skb_timestamp(skb);
+	if (!meta_tp->retrans_stamp) {
+		tcp_mstamp_refresh(meta_tp);
+		meta_tp->retrans_stamp = tcp_time_stamp(meta_tp);
+	}
 
 	__tcp_push_pending_frames(subsk, mss_now, TCP_NAGLE_PUSH);
-	meta_tp->lsndtime = tcp_time_stamp;
+	skb->skb_mstamp = meta_tp->tcp_mstamp;
+	meta_tp->lsndtime = tcp_jiffies32;
 
 	return 0;
 
@@ -1534,7 +1543,7 @@ void mptcp_meta_retransmit_timer(struct sock *meta_sk)
 					    meta_tp->snd_nxt);
 		}
 #endif
-		if (tcp_time_stamp - meta_tp->rcv_tstamp > TCP_RTO_MAX) {
+		if (tcp_jiffies32 - meta_tp->rcv_tstamp > TCP_RTO_MAX) {
 			tcp_write_err(meta_sk);
 			return;
 		}

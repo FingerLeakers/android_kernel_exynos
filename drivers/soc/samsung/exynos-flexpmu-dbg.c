@@ -28,7 +28,7 @@
 #define FLEXPMU_DBG_FUNC_READ(__name)		\
 	exynos_flexpmu_dbg_ ## __name ## _read
 
-#define BUF_MAX_LINE	100
+#define BUF_MAX_LINE	10
 #define BUF_LINE_SIZE	30
 #define BUF_SIZE	(BUF_MAX_LINE * BUF_LINE_SIZE)
 
@@ -44,6 +44,7 @@ enum flexpmu_debugfs_id {
 	FID_SEQ_COUNT,
 	FID_MIF_ALWAYS_ON,
 	FID_LPM_COUNT,
+	FID_LOG_STOP,
 	FID_MAX
 };
 
@@ -55,6 +56,7 @@ char *flexpmu_debugfs_name[FID_MAX] = {
 	"seq_count",
 	"mif_always_on",
 	"lpm_count",
+	"log_stop",
 };
 
 /* enum for data lines */
@@ -86,6 +88,22 @@ enum data_id {
 	DID_AP_COUNT_SICD,
 	DID_MIF_COUNT_SICD,
 	DID_CUR_PMD,
+	DID_CPU_INFORM01,
+	DID_CPU_INFORM23,
+	DID_CPU_INFORM45,
+	DID_CPU_INFORM67,
+	DID_INT_REG01,
+	DID_INT_REG02,
+	DID_INT_REG03,
+	DID_INT_REG04,
+	DID_INT_REG05,
+	DID_INT_REG06,
+	DID_INT_REG07,
+	DID_INT_REG08,
+	DID_INT_REG09,
+	DID_INT_REG10,
+	DID_INT_REG11,
+	DID_LOG_STOP,
 	DID_MAX
 };
 
@@ -110,6 +128,18 @@ u32 acpm_get_mifdn_count(void)
 	return __raw_readl(flexpmu_dbg_base + (DATA_LINE * DID_MIF_COUNT_SLEEP) + DATA_IDX + 4);
 }
 EXPORT_SYMBOL_GPL(acpm_get_mifdn_count);
+
+u32 acpm_get_apsocdn_count(void)
+{
+	return __raw_readl(flexpmu_dbg_base + (DATA_LINE * DID_AP_COUNT_SLEEP) + DATA_IDX + 4);
+}
+EXPORT_SYMBOL_GPL(acpm_get_apsocdn_count);
+
+u32 acpm_get_early_wakeup_count(void)
+{
+	return __raw_readl(flexpmu_dbg_base + (DATA_LINE * DID_AP_COUNT_SLEEP) + DATA_IDX);
+}
+EXPORT_SYMBOL_GPL(acpm_get_early_wakeup_count);
 
 #define MIF_REQ_MASK		(0x00FF0000)
 #define MIF_REQ_SHIFT		(16)
@@ -321,6 +351,21 @@ static ssize_t exynos_flexpmu_dbg_lpm_count_read(int fid, char *buf)
 	return ret;
 }
 
+static ssize_t exynos_flexpmu_dbg_log_stop_read(int fid, char *buf)
+{
+	ssize_t ret = 0;
+	int data_count = 0;
+
+	struct flexpmu_dbg_print_arg print_arg[BUF_MAX_LINE] = {
+		{},
+		{"log stopped", DEC_PRINT},
+	};
+
+	ret = print_dataline_2(DID_LOG_STOP, print_arg, ret, buf, &data_count);
+
+	return ret;
+}
+
 static ssize_t (*flexpmu_debugfs_read_fptr[FID_MAX])(int, char *) = {
 	FLEXPMU_DBG_FUNC_READ(cpu_status),
 	FLEXPMU_DBG_FUNC_READ(seq_status),
@@ -329,6 +374,7 @@ static ssize_t (*flexpmu_debugfs_read_fptr[FID_MAX])(int, char *) = {
 	FLEXPMU_DBG_FUNC_READ(seq_count),
 	FLEXPMU_DBG_FUNC_READ(mif_always_on),
 	FLEXPMU_DBG_FUNC_READ(lpm_count),
+	FLEXPMU_DBG_FUNC_READ(log_stop),
 };
 
 static ssize_t exynos_flexpmu_dbg_read(struct file *file, char __user *user_buf,
@@ -365,11 +411,31 @@ static ssize_t exynos_flexpmu_dbg_write(struct file *file, const char __user *us
 					(DATA_LINE * DID_MIF_ALWAYS_ON) + 0xC);
 		}
 		break;
+	case FID_LOG_STOP:
+		if (buf[0] == '0') {
+			__raw_writel(0, flexpmu_dbg_base +
+					(DATA_LINE * DID_LOG_STOP) + 0xC);
+		}
+		if (buf[0] == '1') {
+			__raw_writel(1, flexpmu_dbg_base +
+					(DATA_LINE * DID_LOG_STOP) + 0xC);
+		}
+		break;
 	default:
 		break;
 	}
 
 	return ret;
+}
+
+void exynos_flexpmu_dbg_log_stop(void)
+{
+	pr_info("flexpmu log stop\n");
+
+	if (flexpmu_dbg_base)
+		__raw_writel(1, flexpmu_dbg_base + (DATA_LINE * DID_LOG_STOP) + 0xC);
+
+	return ;
 }
 
 static int exynos_flexpmu_dbg_probe(struct platform_device *pdev)

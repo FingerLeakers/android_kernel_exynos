@@ -283,7 +283,8 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct fimc_is_image
 	}
 
 	if (image->format.pixelformat == V4L2_PIX_FMT_SBGGR10 ||
-		image->format.pixelformat == V4L2_PIX_FMT_SBGGR12)
+		image->format.pixelformat == V4L2_PIX_FMT_SBGGR12 ||
+		image->format.pixelformat == V4L2_PIX_FMT_PRIV_MAGIC)
 		dma_pack12 = CSIS_REG_DMA_PACK12;
 	else
 		dma_pack12 = CSIS_REG_DMA_NORMAL;
@@ -387,10 +388,10 @@ static void csi_hw_g_err_types_from_err_dma(u32 __iomem *base_reg, u32 val, u32 
 	}
 
 	for (i = 0; i < CSI_VIRTUAL_CH_MAX; i++) {
-		err_id[i] |= ((dma_otf_overlap   & (1 << i)) ? (1 << CSIS_ERR_OTF_OVERLAP) : 0);
-		err_id[i] |= ((dmafifo_full_err  & 1) ? (1 << CSIS_ERR_DMA_ERR_DMAFIFO_FULL) : 0);
-		err_id[i] |= ((trxfifo_full_err  & 1) ? (1 << CSIS_ERR_DMA_ERR_TRXFIFO_FULL) : 0);
-		err_id[i] |= ((bresp_err         & (1 << i)) ? (1 << CSIS_ERR_DMA_ERR_BRESP_ERR) : 0);
+		err_id[i] |= ((dma_otf_overlap   & (1 << i)) ? (1 << CSIS_ERR_DMA_OTF_OVERLAP_VC) : 0);
+		err_id[i] |= ((dmafifo_full_err  & 1) ? (1 << CSIS_ERR_DMA_DMAFIFO_FULL) : 0);
+		err_id[i] |= ((trxfifo_full_err  & 1) ? (1 << CSIS_ERR_DMA_TRXFIFO_FULL) : 0);
+		err_id[i] |= ((bresp_err         & (1 << i)) ? (1 << CSIS_ERR_DMA_BRESP_VC) : 0);
 	}
 }
 

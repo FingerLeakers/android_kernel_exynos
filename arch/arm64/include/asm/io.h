@@ -23,7 +23,7 @@
 
 #include <linux/types.h>
 #include <linux/blk_types.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 
 #include <asm/byteorder.h>
 #include <asm/barrier.h>
@@ -41,33 +41,33 @@
 #define __raw_writeb __raw_writeb
 static inline void __raw_writeb(u8 val, volatile void __iomem *addr)
 {
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_IN);
 	asm volatile("strb %w0, [%1]" : : "rZ" (val), "r" (addr));
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 }
 
 #define __raw_writew __raw_writew
 static inline void __raw_writew(u16 val, volatile void __iomem *addr)
 {
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_IN);
 	asm volatile("strh %w0, [%1]" : : "rZ" (val), "r" (addr));
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 }
 
 #define __raw_writel __raw_writel
 static inline void __raw_writel(u32 val, volatile void __iomem *addr)
 {
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_IN);
 	asm volatile("str %w0, [%1]" : : "rZ" (val), "r" (addr));
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 }
 
 #define __raw_writeq __raw_writeq
 static inline void __raw_writeq(u64 val, volatile void __iomem *addr)
 {
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_IN);
 	asm volatile("str %x0, [%1]" : : "rZ" (val), "r" (addr));
-	exynos_ss_reg(0, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(0, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 }
 
 #define __raw_readb __raw_readb
@@ -75,12 +75,12 @@ static inline u8 __raw_readb(const volatile void __iomem *addr)
 {
 	u8 val;
 
-	exynos_ss_reg(1, 0, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(1, 0, (size_t)addr, DSS_FLAG_IN);
 	asm volatile(ALTERNATIVE("ldrb %w0, [%1]",
 				 "ldarb %w0, [%1]",
 				 ARM64_WORKAROUND_DEVICE_LOAD_ACQUIRE)
 		     : "=r" (val) : "r" (addr));
-	exynos_ss_reg(1, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(1, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 	return val;
 }
 
@@ -89,12 +89,12 @@ static inline u16 __raw_readw(const volatile void __iomem *addr)
 {
 	u16 val;
 
-	exynos_ss_reg(1, 0, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(1, 0, (size_t)addr, DSS_FLAG_IN);
 	asm volatile(ALTERNATIVE("ldrh %w0, [%1]",
 				 "ldarh %w0, [%1]",
 				 ARM64_WORKAROUND_DEVICE_LOAD_ACQUIRE)
 		     : "=r" (val) : "r" (addr));
-	exynos_ss_reg(1, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(1, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 	return val;
 }
 
@@ -103,12 +103,12 @@ static inline u32 __raw_readl(const volatile void __iomem *addr)
 {
 	u32 val;
 
-	exynos_ss_reg(1, 0, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(1, 0, (size_t)addr, DSS_FLAG_IN);
 	asm volatile(ALTERNATIVE("ldr %w0, [%1]",
 				 "ldar %w0, [%1]",
 				 ARM64_WORKAROUND_DEVICE_LOAD_ACQUIRE)
 		     : "=r" (val) : "r" (addr));
-	exynos_ss_reg(1, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(1, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 	return val;
 }
 
@@ -117,17 +117,33 @@ static inline u64 __raw_readq(const volatile void __iomem *addr)
 {
 	u64 val;
 
-	exynos_ss_reg(1, 0, (size_t)addr, ESS_FLAG_IN);
+	dbg_snapshot_reg(1, 0, (size_t)addr, DSS_FLAG_IN);
 	asm volatile(ALTERNATIVE("ldr %0, [%1]",
 				 "ldar %0, [%1]",
 				 ARM64_WORKAROUND_DEVICE_LOAD_ACQUIRE)
 		     : "=r" (val) : "r" (addr));
-	exynos_ss_reg(1, (size_t)val, (size_t)addr, ESS_FLAG_OUT);
+	dbg_snapshot_reg(1, (size_t)val, (size_t)addr, DSS_FLAG_OUT);
 	return val;
 }
 
 /* IO barriers */
-#define __iormb()		rmb()
+#define __iormb(v)							\
+({									\
+	unsigned long tmp;						\
+									\
+	rmb();								\
+									\
+	/*								\
+	 * Create a dummy control dependency from the IO read to any	\
+	 * later instructions. This ensures that a subsequent call to	\
+	 * udelay() will be ordered due to the ISB in get_cycles().	\
+	 */								\
+	asm volatile("eor	%0, %1, %1\n"				\
+		     "cbnz	%0, ."					\
+		     : "=r" (tmp) : "r" ((unsigned long)(v))		\
+		     : "memory");					\
+})
+
 #define __iowmb()		wmb()
 
 #define mmiowb()		do { } while (0)
@@ -152,10 +168,10 @@ static inline u64 __raw_readq(const volatile void __iomem *addr)
  * following Normal memory access. Writes are ordered relative to any prior
  * Normal memory access.
  */
-#define readb(c)		({ u8  __v = readb_relaxed(c); __iormb(); __v; })
-#define readw(c)		({ u16 __v = readw_relaxed(c); __iormb(); __v; })
-#define readl(c)		({ u32 __v = readl_relaxed(c); __iormb(); __v; })
-#define readq(c)		({ u64 __v = readq_relaxed(c); __iormb(); __v; })
+#define readb(c)		({ u8  __v = readb_relaxed(c); __iormb(__v); __v; })
+#define readw(c)		({ u16 __v = readw_relaxed(c); __iormb(__v); __v; })
+#define readl(c)		({ u32 __v = readl_relaxed(c); __iormb(__v); __v; })
+#define readq(c)		({ u64 __v = readq_relaxed(c); __iormb(__v); __v; })
 
 #define writeb(v,c)		({ __iowmb(); writeb_relaxed((v),(c)); })
 #define writew(v,c)		({ __iowmb(); writew_relaxed((v),(c)); })
@@ -194,11 +210,21 @@ extern void __iomem *ioremap_cache(phys_addr_t phys_addr, size_t size);
 #define iounmap				__iounmap
 
 /*
+ * PCI configuration space mapping function.
+ *
+ * The PCI specification disallows posted write configuration transactions.
+ * Add an arch specific pci_remap_cfgspace() definition that is implemented
+ * through nGnRnE device memory attribute as recommended by the ARM v8
+ * Architecture reference manual Issue A.k B2.8.2 "Device memory".
+ */
+#define pci_remap_cfgspace(addr, size) __ioremap((addr), (size), __pgprot(PROT_DEVICE_nGnRnE))
+
+/*
  * io{read,write}{16,32,64}be() macros
  */
-#define ioread16be(p)		({ __u16 __v = be16_to_cpu((__force __be16)__raw_readw(p)); __iormb(); __v; })
-#define ioread32be(p)		({ __u32 __v = be32_to_cpu((__force __be32)__raw_readl(p)); __iormb(); __v; })
-#define ioread64be(p)		({ __u64 __v = be64_to_cpu((__force __be64)__raw_readq(p)); __iormb(); __v; })
+#define ioread16be(p)		({ __u16 __v = be16_to_cpu((__force __be16)__raw_readw(p)); __iormb(__v); __v; })
+#define ioread32be(p)		({ __u32 __v = be32_to_cpu((__force __be32)__raw_readl(p)); __iormb(__v); __v; })
+#define ioread64be(p)		({ __u64 __v = be64_to_cpu((__force __be64)__raw_readq(p)); __iormb(__v); __v; })
 
 #define iowrite16be(v,p)	({ __iowmb(); __raw_writew((__force __u16)cpu_to_be16(v), p); })
 #define iowrite32be(v,p)	({ __iowmb(); __raw_writel((__force __u32)cpu_to_be32(v), p); })

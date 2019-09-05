@@ -30,8 +30,6 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_dma.h>
-#include <linux/amba/bus.h>
-#include <linux/amba/pl330.h>
 #if defined(CONFIG_SECURE_OS_BOOSTER_API)
 #if defined(CONFIG_SOC_EXYNOS8890) || defined(CONFIG_SOC_EXYNOS7870) \
 	|| defined(CONFIG_SOC_EXYNOS7880) || defined(CONFIG_SOC_EXYNOS7570) \
@@ -40,6 +38,8 @@
 #else
 #include <mach/secos_booster.h>
 #endif
+#elif defined(CONFIG_TZDEV_BOOST)
+#include <../drivers/misc/tzdev/tz_boost.h>
 #endif
 
 struct sec_spi_info {
@@ -56,7 +56,6 @@ struct sec_spi_info {
  * So it should be un-defined after enable GPIO protection
  */
 #undef DISABLED_GPIO_PROTECTION
-
 /*#define ET5XX_SPI_DEBUG*/
 
 #ifdef ET5XX_SPI_DEBUG
@@ -126,7 +125,12 @@ struct sec_spi_info {
 #define FP_SET_WAKE_UP_SIGNAL				0x17
 #endif
 #define FP_POWER_CONTROL_ET5XX				0x18
-#define FP_IOCTL_RESERVED_01				0x19
+#define FP_SENSOR_ORIENT				0x19
+#define FP_SPI_VALUE					0x1a
+#define FP_IOCTL_RESERVED_01				0x1b
+#define FP_IOCTL_RESERVED_02				0x1c
+
+
 
 /* trigger signal initial routine */
 #define INT_TRIGGER_INIT				0xa4
@@ -228,6 +232,7 @@ struct etspi_data {
 	struct workqueue_struct *wq_dbg;
 	struct timer_list dbg_timer;
 	int sensortype;
+	u32 spi_value;
 	struct device *fp_device;
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	bool enabled_clk;
@@ -235,12 +240,16 @@ struct etspi_data {
 	struct wake_lock fp_spi_lock;
 #endif
 #endif
+	unsigned int orient;
 	struct wake_lock fp_signal_lock;
 	bool tz_mode;
 	int detect_period;
 	int detect_threshold;
 	bool finger_on;
 	const char *chipid;
+	bool ldo_enabled;
+	int reset_count;
+	int interrupt_count;
 };
 
 int etspi_io_burst_read_register(struct etspi_data *etspi,

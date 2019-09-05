@@ -23,6 +23,10 @@
 #define DISP_DPU_TE_QACTIVE_PLL_EN			0x0010
 #define TE_QACTIVE_PLL_EN				(0x1 << 0)
 
+#define M4S4_TOP_ISO_BYPASS		(0x1 << 0)
+#define M4S4_MODULE_ISO_BYPASS	(0x1 << 0)
+#define MIPI_PHY_M4S4_CON		0x1406070C
+
 #endif /* _REGS_DISP_SS_H */
 
 #ifndef _REGS_DECON_H

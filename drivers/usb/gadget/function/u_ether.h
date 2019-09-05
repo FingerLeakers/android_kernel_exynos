@@ -262,10 +262,6 @@ void gether_cleanup(struct eth_dev *dev);
 struct net_device *gether_connect(struct gether *);
 void gether_disconnect(struct gether *);
 
-void gether_free_request(struct gether *link);
-
-int gether_alloc_request(struct gether *link);
-
 /* Some controllers can't support CDC Ethernet (ECM) ... */
 static inline bool can_support_ecm(struct usb_gadget *gadget)
 {

@@ -106,7 +106,41 @@ int csi_hw_s_phy_sctrl_n(u32 __iomem *base_reg,
 int csi_hw_s_phy_default_value(u32 __iomem *base_reg, u32 instance)
 {
 #ifdef USE_PHY_LINK
-	/* Get a guide and setting for KC(Exynos8895) */
+	bool config_dphy_s2 = false;
+
+	/* Get a guide and setting for KC(Exynos8895), Ramen(Exynos9610) */
+	/* for Ramen
+	B
+	0: 0x00000000 -> need to check
+	1: 0x00000800
+	2: 0x10001249
+	3: 0x00500000
+
+	4: 0x00000000
+	5: 0x00000000
+	6: 0x00000000
+	7: 0x00000000
+	8: 0x00000000
+	9: 0x00000000
+	10: 0x00000000
+	11: 0x00000000
+
+	S
+	0: 0x9E003E00
+	1: 0x00000046
+	2: 0x0000002C
+	3: 0x00000000
+
+	4: 0x00003FEA
+	5: 0x000C0000
+	6: 0x00000140
+	7: 0x00000000
+	8: 0x00000000
+	9: 0x00000000
+	10: 0x00000000
+	11: 0x00000000
+	*/
+
 	csi_hw_s_phy_bctrl_n(base_reg, 0x1F4, 0);
 	csi_hw_s_phy_bctrl_n(base_reg, 0x800, 1);
 	csi_hw_s_phy_bctrl_n(base_reg, 0x10001249, 2);
@@ -116,12 +150,20 @@ int csi_hw_s_phy_default_value(u32 __iomem *base_reg, u32 instance)
 	csi_hw_s_phy_sctrl_n(base_reg, 0x46, 1);
 	csi_hw_s_phy_sctrl_n(base_reg, 0xC000002C, 2);
 
-	if (instance == CSI_ID_A || instance == CSI_ID_C) {
+#if defined(CONFIG_SOC_EXYNOS8895)
+	if (instance == CSI_ID_A || instance == CSI_ID_C)
+		config_dphy_s2 = false;	/* DPHY_S4 */
+	else if (instance == CSI_ID_B || instance == CSI_ID_D)
+		config_dphy_s2 = true;	/* DPHY_S2 */
+#elif defined(CONFIG_SOC_EXYNOS9610)
+	config_dphy_s2 = false;		/* DPHY_S4 */
+#endif
+	if (config_dphy_s2) {
+		csi_hw_s_phy_sctrl_n(base_reg, 0xC000, 3);
+	} else {
 		csi_hw_s_phy_sctrl_n(base_reg, 0x3FEA, 4);
 		csi_hw_s_phy_sctrl_n(base_reg, 0xC0000, 5);
 		csi_hw_s_phy_sctrl_n(base_reg, 0x140, 6);
-	} else if (instance == CSI_ID_B || instance == CSI_ID_D) {
-		csi_hw_s_phy_sctrl_n(base_reg, 0xC000, 3);
 	}
 #else
 #ifdef USE_SENSOR_IF_DPHY
@@ -207,7 +249,6 @@ int csi_hw_s_control(u32 __iomem *base_reg, u32 id, u32 value)
 	return 0;
 }
 
-#if !defined(CONFIG_VENDER_PSV)
 int csi_hw_s_config(u32 __iomem *base_reg,
 	u32 vc, struct fimc_is_vci_config *config, u32 width, u32 height)
 {
@@ -239,6 +280,13 @@ int csi_hw_s_config(u32 __iomem *base_reg,
 		if (pd_mode == PD_MOD3)
 			pixel_mode = CSIS_PIXEL_MODE_QUAD;
 	}
+
+#if defined(CONFIG_SOC_EXYNOS9610)
+	if (sensor_cfg->mipi_speed > 2000) {
+		pixel_mode = CSIS_PIXEL_MODE_QUAD;
+		info("%s: mipi_speed(%d), pixel_mode(%d)\n", __func__, sensor_cfg->mipi_speed, pixel_mode);
+	}
+#endif
 
 	val = fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_ISP_CONFIG_CH0 + (vc * 3)]);
 	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_VIRTUAL_CHANNEL], config->map);
@@ -291,10 +339,12 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 vc, struct fimc_is_image *ima
 	}
 
 	if (cfg->format->pixelformat == V4L2_PIX_FMT_SBGGR10 ||
-		cfg->format->pixelformat == V4L2_PIX_FMT_SBGGR12)
+		cfg->format->pixelformat == V4L2_PIX_FMT_SBGGR12 ||
+		cfg->format->pixelformat == V4L2_PIX_FMT_PRIV_MAGIC)
 #else
 	if (image->format.pixelformat == V4L2_PIX_FMT_SBGGR10 ||
-		image->format.pixelformat == V4L2_PIX_FMT_SBGGR12)
+		image->format.pixelformat == V4L2_PIX_FMT_SBGGR12 ||
+		image->format.pixelformat == V4L2_PIX_FMT_PRIV_MAGIC)
 #endif
 		dma_pack12 = CSIS_REG_DMA_PACK12;
 	else
@@ -375,12 +425,6 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 vc, struct fimc_is_image *ima
 p_err:
 	return ret;
 }
-#else /* CONFIG_VENDER_PSV: not operate function, just return */
-int csi_hw_s_config(u32 __iomem *base_reg,
-	u32 vc, struct fimc_is_vci_config *config, u32 width, u32 height) { return 0; }
-int csi_hw_s_config_dma(u32 __iomem *base_reg,
-	u32 vc, struct fimc_is_frame_cfg *cfg, u32 hwformat) { return 0; }
-#endif
 
 int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on)
 {
@@ -529,7 +573,6 @@ u32 csi_hw_g_frameptr(u32 __iomem *base_reg, u32 vc)
 	return frame_ptr;
 }
 
-#if !defined(CONFIG_VENDER_PSV)
 void csi_hw_s_dma_addr(u32 __iomem *base_reg, u32 vc, u32 number, u32 addr)
 {
 	u32 i = 0;
@@ -556,21 +599,16 @@ void csi_hw_s_output_dma(u32 __iomem *base_reg, u32 vc, bool enable)
 {
 	u32 val = fimc_is_hw_get_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL]);
 
-	val = fimc_is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_DISABLE], enable);
+	val = fimc_is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_ENABLE], enable);
 	val = fimc_is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_UPDT_PTR_EN], enable);
 	fimc_is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], val);
 }
-#else /* CONFIG_VENDER_PSV */
-void csi_hw_s_dma_addr(u32 __iomem *base_reg, u32 vc, u32 number, u32 addr) { return; }
-void csi_hw_s_multibuf_dma_addr(u32 __iomem *base_reg, u32 vc, u32 number, u32 addr) { return; }
-void csi_hw_s_output_dma(u32 __iomem *base_reg, u32 vc, bool enable) { return; }
-#endif
 
 bool csi_hw_g_output_dma_enable(u32 __iomem *base_reg, u32 vc)
 {
 	/* if DMA_DISABLE field value is 1, this means dma output is disabled */
 	if (fimc_is_hw_get_field(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL],
-			&csi_vcdma_fields[CSIS_F_DMA_N_DISABLE]))
+			&csi_vcdma_fields[CSIS_F_DMA_N_ENABLE]))
 		return true;
 	else
 		return false;
@@ -604,7 +642,78 @@ int csi_hw_dma_common_reset(void)
 	return 0;
 }
 
-#if !defined(CONFIG_VENDER_PSV)
+#define GET_DMA_CH(x, y)	((x) & (1 << (y)))
+int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, unsigned int dma_ch)
+{
+	u32 val;
+	u32 sram0_split;
+	u32 sram1_split;
+	u32 max;
+
+	if (!base_reg)
+		return 0;
+
+	/* Common DMA Arbitration Priority register */
+	/* CSIS_DMA_F_DMA_ARB_PRI_1 : 1 = CSIS2 DMA has a high priority */
+	/* CSIS_DMA_F_DMA_ARB_PRI_1 : 2 = CSIS3 DMA has a high priority */
+	/* CSIS_DMA_F_DMA_ARB_PRI_0 : 1 = CSIS0 DMA has a high priority */
+	/* CSIS_DMA_F_DMA_ARB_PRI_0 : 2 = CSIS1 DMA has a high priority */
+	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_ARB_PRI]);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_DMA_ARB_PRI_1], 0x1);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_DMA_ARB_PRI_0], 0x2);
+	fimc_is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_ARB_PRI], val);
+
+	/* Common DMA Control register */
+	/* CSIS_DMA_F_IP_PROCESSING : 1 = Q-channel clock enable  */
+	/* CSIS_DMA_F_IP_PROCESSING : 0 = Q-channel clock disable */
+	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL]);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], 0x1);
+	fimc_is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL], val);
+
+	/* Common DMA SRAM split register */
+	/* CSIS_DMA_F_DMA_SRAM1_SPLIT : internal SRAM1 is 10KB (640 * 16 bytes) */
+	/* CSIS_DMA_F_DMA_SRAM0_SPLIT : internal SRAM0 is 10KB (640 * 16 bytes) */
+	/* This register can be set between 0 to 640 */
+	max = size / 16;
+	sram0_split = max / 2;
+	sram1_split = max / 2;
+
+	if (GET_DMA_CH(dma_ch, 0) && !GET_DMA_CH(dma_ch, 1))
+		sram0_split = max;
+	else if (!GET_DMA_CH(dma_ch, 0) && GET_DMA_CH(dma_ch, 1))
+		sram0_split = 4;
+
+	if (GET_DMA_CH(dma_ch, 2) && !GET_DMA_CH(dma_ch, 3))
+		sram1_split = max;
+	else if (!GET_DMA_CH(dma_ch, 2) && GET_DMA_CH(dma_ch, 3))
+		sram1_split = 4;
+
+	if (GET_DMA_CH(dma_ch, 4))
+		sram0_split = max;
+
+	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_SRAM_SPLIT]);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_DMA_SRAM1_SPLIT], sram1_split);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_DMA_SRAM0_SPLIT], sram0_split);
+	fimc_is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_SRAM_SPLIT], val);
+
+	/* Common DMA Martix register */
+	/* CSIS_DMA_F_DMA_MATRIX : Under Table see */
+	/*       CSIS0      CSIS1      CSIS2      CSIS3  */
+	/* 0  : SRAM0_0    SRAM0_0    SRAM1_0    SRAM1_1 */
+	/* 2  : SRAM0_0    SRAM1_0    SRAM0_1    SRAM1_1 */
+	/* 5  : SRAM0_0    SRAM1_1    SRAM1_0    SRAM0_1 */
+	/* 14 : SRAM1_0    SRAM0_1    SRAM0_0    SRAM1_1 */
+	/* 16 : SRAM1_0    SRAM1_1    SRAM0_0    SRAM0_1 */
+	/* 17 : SRAM1_0    SRAM1_1    SRAM0_1    SRAM0_0 */
+	/* 22 : SRAM1_1    SRAM1_0    SRAM0_0    SRAM0_1 */
+	/* 23 : SRAM1_1    SRAM1_0    SRAM0_1    SRAM0_0 */
+	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_MATRIX]);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_DMA_MATRIX], 0x0);
+	fimc_is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_MATRIX], val);
+
+	return 0;
+}
+
 int csi_hw_s_dma_common(u32 __iomem *base_reg)
 {
 	u32 val;
@@ -655,32 +764,45 @@ int csi_hw_s_dma_common(u32 __iomem *base_reg)
 
 	return 0;
 }
-#else /* CONFIG_VENDER_PSV */
-int csi_hw_s_dma_common(u32 __iomem *base_reg) { return 0; }
-#endif
 
-int csi_hw_s_dma_common_pattern(u32 __iomem *base_reg,
+int csi_hw_s_dma_common_pattern_enable(u32 __iomem *base_reg,
 	u32 width, u32 height, u32 fps, u32 clk)
 {
 	u32 val;
+	int clk_mhz;
+	int vvalid;
 	int vblank;
-	u32 hblank = 8;
-	u32 v_to_hblank = 16;
-	u32 h_to_vblank = 2;
+	int vblank_size;
+	u32 hblank = 70;	/* This value should be guided according to 3AA HW constrain. */
+	u32 v_to_hblank = 0x80;	/* This value should be guided according to 3AA HW constrain. */
+	u32 h_to_vblank = 0x40;	/* This value should be guided according to 3AA HW constrain. */
 
-	if (!width) {
+	if (!width || (width % 8 != 0)) {
 		err("A width(%d) is not aligned to 8", width);
 		return -EINVAL;
 	}
 
-	/* V-blank Calculation */
-	vblank = (clk * 2 / fps) - (width + hblank) * height - v_to_hblank - h_to_vblank;
-	if (vblank <= 0) {
-		info("Invalid size & fps: size(%d x %d), vblank(%d), fps(%d), clk(%d Mhz)\n",
-			width, height, vblank, fps, clk);
-		vblank = clk * 1000; /* 100 us */
-		fps = clk * 2 / (vblank + (width + hblank) * height + v_to_hblank + h_to_vblank);
+	clk_mhz = clk / 1000000;
+
+	/*
+	 * V-valid Calculation:
+	 * The unit of v-valid is usec.
+	 * 2 means 2ppc.
+	 */
+	vvalid = (width * height) / (clk_mhz * 2);
+
+	/*
+	 * V-blank Calculation:
+	 * The unit of v-blank is usec.
+	 * v-blank operates with 1ppc.
+	 */
+	vblank = ((1000000 / fps) - vvalid);
+	if (vblank < 0) {
+		vblank = 1000; /* 1000 us */
+		info("FPS is too high. So, FPS is adjusted forcely. vvalid(%d us), vblank(%d us)\n",
+			vvalid, vblank);
 	}
+	vblank_size = vblank * clk_mhz;
 
 	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_CTRL]);
 	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_VTOHBLANK], v_to_hblank);
@@ -695,16 +817,22 @@ int csi_hw_s_dma_common_pattern(u32 __iomem *base_reg,
 
 	val = fimc_is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_ENABLE]);
 	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_PPC_MODE], CSIS_PIXEL_MODE_DUAL);
-	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_VBLANK], vblank);
+	val = fimc_is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_VBLANK], vblank_size);
 	fimc_is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_ENABLE], val);
 
 	fimc_is_hw_set_field(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_ENABLE],
 			&csi_dma_fields[CSIS_DMA_F_TESTPATTERN], 1);
 
-	info("Enable Pattern Generator: size(%d x %d), vblank(%d), fps(%d), clk(%d Mhz)\n",
-		width, height, vblank, fps, clk);
+	info("Enable Pattern Generator: size(%d x %d), fps(%d), clk(%d Hz), vvalid(%d us), vblank(%d us)\n",
+		width, height, fps, clk, vvalid, vblank);
 
 	return 0;
+}
+
+void csi_hw_s_dma_common_pattern_disable(u32 __iomem *base_reg)
+{
+	fimc_is_hw_set_field(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_ENABLE],
+		&csi_dma_fields[CSIS_DMA_F_TESTPATTERN], 0);
 }
 
 int csi_hw_enable(u32 __iomem *base_reg)
@@ -843,10 +971,10 @@ int csi_hw_g_dma_irq_src_vc(u32 __iomem *base_reg, struct csis_irq_src *src, u32
 	src->dma_end = fimc_is_hw_get_field_value(dma_src, &csi_vcdma_cmn_fields[CSIS_F_DMA_FRM_END]);
 
 	if (dma_src & (1 << (csi_vcdma_cmn_fields[CSIS_F_DMA_OTF_OVERLAP].bit_start + vc_phys)))
-		src->err_id[vc_phys] |= 1 << CSIS_ERR_OTF_OVERLAP;
+		src->err_id[vc_phys] |= 1 << CSIS_ERR_DMA_OTF_OVERLAP_VC;
 
 	if (dma_src & (1 << csi_vcdma_cmn_fields[CSIS_F_DMA_ERROR].bit_start))
-		src->err_id[vc_phys] |= 1 << CSIS_ERR_DMA_ERR_DMAFIFO_FULL;
+		src->err_id[vc_phys] |= 1 << CSIS_ERR_DMA_DMAFIFO_FULL;
 
 	if (dma_src & (1 << csi_vcdma_cmn_fields[CSIS_F_DMA_ABORT_DONE].bit_start))
 		src->err_id[vc_phys] |= 1 << CSIS_ERR_DMA_ABORT_DONE;
@@ -854,7 +982,6 @@ int csi_hw_g_dma_irq_src_vc(u32 __iomem *base_reg, struct csis_irq_src *src, u32
 	return 0;
 }
 
-#if !defined(CONFIG_VENDER_PSV)
 int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat)
 {
 	int ret = 0;
@@ -868,7 +995,9 @@ int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat)
 		goto p_err;
 	}
 
+#if !defined(CONFIG_SOC_EXYNOS9610)
 	if (vc == CSI_VIRTUAL_CH_0) {
+#endif
 		switch (hwformat) {
 		case HW_FORMAT_RAW10:
 		case HW_FORMAT_RAW6_DA:
@@ -887,6 +1016,7 @@ int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat)
 			dma_input_path = CSIS_REG_DMA_INPUT_OTF;
 			break;
 		case HW_FORMAT_RAW8:
+		case HW_FORMAT_USER:
 			otf_format = 3;
 			dma_input_path = CSIS_REG_DMA_INPUT_PRL;
 			break;
@@ -901,18 +1031,26 @@ int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat)
 		fimc_is_hw_set_reg(base_reg, &csi_vcdma_cmn_regs[CSIS_R_OTF_FORMAT], val);
 
 		val = fimc_is_hw_get_reg(base_reg, &csi_vcdma_cmn_regs[CSIS_R_DMA_DATA_CTRL]);
-		val = fimc_is_hw_set_field_value(val, &csi_vcdma_cmn_fields[CSIS_F_DMA_INPUT_PATH],
+		val = fimc_is_hw_set_field_value(val, &csi_vcdma_cmn_fields[CSIS_F_DMA_INPUT_PATH_CH0],
 			dma_input_path);
+#if defined(CONFIG_SOC_EXYNOS9610)
+		val = fimc_is_hw_set_field_value(val, &csi_vcdma_cmn_fields[CSIS_F_DMA_INPUT_PATH_CH1],
+			dma_input_path);
+#endif
 		fimc_is_hw_set_reg(base_reg, &csi_vcdma_cmn_regs[CSIS_R_DMA_DATA_CTRL], val);
+#if !defined(CONFIG_SOC_EXYNOS9610)
 	}
+#endif
 
 p_err:
 	return ret;
 }
-#else
-int csi_hw_s_config_dma_cmn(u32 __iomem *base_reg, u32 vc, u32 hwformat) { return 0; }
-#endif
 
+#ifdef USE_SENSOR_IF_DPHY
+#define PHY_REF_SPEED	(1500)
+#else
+#define PHY_REF_SPEED	(1500)
+#endif
 int csi_hw_s_phy_config(u32 __iomem *base_reg,
 	u32 lanes, u32 mipi_speed, u32 settle, u32 instance)
 {
@@ -920,9 +1058,9 @@ int csi_hw_s_phy_config(u32 __iomem *base_reg,
 #ifdef USE_PHY_LINK
 	bool deskew = false;
 
-#ifdef USE_SENSOR_IF_DPHY
+#ifndef USE_SENSOR_IF_DPHY
 	/* deskew enable (only over than 1.5Gbps) */
-	if (mipi_speed > 1500) {
+	if (mipi_speed > PHY_REF_SPEED) {
 		u32 phy_val = 0;
 
 		deskew = true;
@@ -954,13 +1092,12 @@ int csi_hw_s_phy_config(u32 __iomem *base_reg,
 #endif
 
 	info("[CSI] deskew(%d)\n", deskew);
-#else
+#else /* USE_PHY_LINK */
 	int i;
 	u32 clk_settle_ctl;
 	u32 skew_cal_en;
 	u32 skew_delay_sel;
 	u32 hs_mode_sel;
-	u32 ref_speed;
 
 	if (!mipi_speed) {
 		err("[CSI] There is no mipi_speed");
@@ -968,13 +1105,9 @@ int csi_hw_s_phy_config(u32 __iomem *base_reg,
 		goto p_err;
 	}
 
-#ifdef USE_SENSOR_IF_DPHY
-	ref_speed = 1500;
-#else
-	ref_speed = 500;
-#endif
+
 	clk_settle_ctl  = 0x1;
-	if (mipi_speed >= ref_speed) {
+	if (mipi_speed >= PHY_REF_SPEED) {
 		skew_cal_en = 1;
 
 		if (mipi_speed >= 3000)
@@ -1019,7 +1152,13 @@ int csi_hw_s_phy_config(u32 __iomem *base_reg,
 
 	info("[CSI] skew_cal_en(%d)\n", skew_cal_en);
 p_err:
-#endif
+#endif /* USE_PHY_LINK */
 
 	return ret;
+}
+
+int csi_hw_s_phy_set(struct phy *phy, u32 lanes, u32 mipi_speed,
+		u32 settle, u32 instance)
+{
+	return 0;
 }

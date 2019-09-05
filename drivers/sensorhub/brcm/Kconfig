@@ -87,7 +87,17 @@ config SENSORS_SSP_LSM6DSL
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
 
-
+config SENSORS_SSP_LSM6DSO
+	tristate "Sensors ssp lsm6dsl"
+	default n
+	depends on SPI
+	help
+	  This option enables lsm6dsl 6axis sensor.
+	  If you say yes here you get lsm6dsl support for
+	  factory test.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ssp.
+	  
 config SENSORS_SSP_AK09911
 	tristate "Sensors ssp ak09911"
 	default n
@@ -143,17 +153,6 @@ config SENSORS_SSP_MAGNETIC_COMMON
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
 
-config SENSORS_SSP_AK09918
-	tristate "Sensors ssp ak09918"
-	default n
-	depends on SPI
-	help
-	  ak09911 file for factory test and doeplus in ssp driver.
-          If you say yes here you get ak09911 support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-	  
 config SENSORS_SSP_CM3320
 	tristate "Sensors ssp cm3320"
 	default n
@@ -272,105 +271,6 @@ config SENSORS_SSP_IRLED
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
 
-config SENSORS_HRMSENSOR
-	tristate "HRM Sensor Driver Common"
-	default n
-	depends on I2C
-	help
-	  If you say yes here you get support for the HRM sensor.
-	  This feature is common feature for supporting HRM sensor.
-	  This driver can also be built as a module.  If so, the module
-	  will be called hrmsensor.
-
-config SENSORS_HRM_MAX86902
-	tristate "HRM Sensor Driver MAX86902"
-	default n
-	depends on SENSORS_HRMSENSOR
-	help
-	  If you say yes here you get support for the HRM sensor.
-	  This driver should be set with SENSORS_HRMSENSOR.
-	  This driver can also be built as a module.  If so, the module
-	  will be called max86902.
-
-config SENSORS_HRM_MAX86915
-	tristate "HRM Sensor Driver MAX86915"
-	default n
-	depends on SENSORS_HRMSENSOR
-	help
-	  If you say yes here you get support for the HRM sensor.
-	  This driver should be set with SENSORS_HRMSENSOR.
-	  This driver can also be built as a module.  If so, the module
-	  will be called max86915.
-
-config SENSORS_MAX86915
-	tristate "HRM Sensor Driver MAX86915"
-	default n
-	depends on I2C
-	help
-	  If you say yes here you get support for the HRM sensor.
-	  This driver should be set with SENSORS_HRMSENSOR.
-	  This driver can also be built as a module.  If so, the module
-	  will be called max86915.
-
-config SENSORS_HRM_ADPD143
-	tristate "HRM Sensor Driver ADPD143"
-	default n
-	depends on SENSORS_HRMSENSOR
-	help
-	  If you say yes here you get support for the HRM sensor.
-	  This driver should be set with SENSORS_HRMSENSOR.
-	  This driver can also be built as a module.  If so, the module
-	  will be called adpd143.
-
-
-config SENSORS_MAX86900
-	tristate "MAXIM MAX86900 HRM Sensor"
-	default n
-	depends on I2C
-	help
-	  If you say yes here you get support for the MAX86900
-	  HRM sensor.
-	  This driver can also be built as a module.  If so, the module
-	  will be called max86900.
-
-config SENSORS_MAX86902
-	tristate "MAXIM MAX86902 HRM & UV Sensor"
-	default n
-	depends on I2C
-	help
-	  If you say yes here you get support for the MAX86902
-	  HRM & UV sensor.
-	  This driver can also be built as a module.	If so, the module
-	  will be called max86902.
-
-config SENSORS_MAX86902_LED_5V
-	tristate "MAXIM MAX86902 LED 5V"
-	default n
-	depends on SENSORS_MAX86902
-	help
-	  If you say yes here you get support for the MAX86902
-	  LED power as 5V.
-	  This driver can also be built as a module.	  If so, the module
-	  will be called max86902.
-
-config SENSORS_HRM_MAX869_ENHANCED_EOL
-	bool "MAX869 HRM sensor enhanced eol"
-	default n
-	help
-	  If you want to apply enhanced eol process, it should be set.
-
-config SENSORS_HRM_MAX869_NEW_EOL
-	bool "MAX869 HRM sensor new eol"
-	default n
-	help
-	  If you want to apply new eol process, it should be set.
-
-config MAX86902_THRESHOLD
-	int "MAX86902 HRM sensor finger detection threshold"
-	default 70000
-	help
-	  If you want to change finger detection threshold, it should be set.
-
 config SENSOR_SSP_PROXIMTY_FOR_WINDOW_TYPE
 	tristate "PROXIMITY THRESHOLD FOR WINDOW_TYPE"
 	default n
@@ -378,20 +278,6 @@ config SENSOR_SSP_PROXIMTY_FOR_WINDOW_TYPE
 	help
 	  If you say yes here you get support for the proximity threshold
 	  This threshold is changed by window type.
-
-config SENSORS_ADPD142
-	depends on I2C
-	tristate "ADI hrm sensor driver"
-	default n
-	help
-	  This option enables hrm sensors using adpd142 driver.
-
-config SENSORS_ADPD143
-	depends on I2C
-	tristate "ADI hrm sensor driver"
-	default n
-	help
-	  This option enables hrm sensors using adpd143 driver.
 
 config SENSORS_SSP_TMD4905
 	tristate "Sensors ssp tmd4905"
@@ -406,6 +292,20 @@ config SENSORS_SSP_TMD4906
 	depends on SPI
 	help
 	  This option enables tmd4906 proxitmity sensor.
+
+config SENSORS_SSP_TMD4910
+	tristate "Sensors ssp tmd4910"
+	default n
+	depends on SPI
+	help
+	  This option enables tmd4910 proxitmity sensor.
+
+config SENSORS_SSP_TMD4907
+	tristate "Sensors ssp tmd4907"
+	default n
+	depends on SPI
+	help
+	  This option enables tmd4907 proxitmity sensor.
 
 config SENSORS_SSP_TMD4904
 	tristate "Sensors ssp tmd4904"
@@ -450,6 +350,17 @@ config SENSORS_SSP_PROX_SETTING
 	help
 	   If you say yes here you get support for the proximity setting.
 
+config SENSORS_SSP_PROX_ADC_CAL
+	tristate "Sensors ssp prox adc clibration"
+	default n
+	depends on SPI
+	help
+	  prox_autocal_ams file for factory test in ssp driver.
+          If you say yes here you get prox_adc_cal support for
+	  factory test.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ssp.
+	  
 config SENSORS_SSP_PROX_AUTOCAL_AMS
 	tristate "Sensors ssp proxautocal ams"
 	default n
@@ -478,6 +389,20 @@ config SENSORS_SSP_LIGHT_REPORT_LUX
 	depends on SPI
 	help
 	  If you want to report lux, it should be set.
+	  
+config SENSORS_SSP_LIGHT_ADDING_LUMINANCE
+	tristate "Sensors ssp light sensor added luminance that is 1byte"
+	default n
+	depends on SPI
+	help
+	  If you want to use max atime value, it should be set.
+	  
+config SENSORS_SSP_LIGHT_MAX_ATIME_2BYTE
+	tristate "Sensors ssp light sensor atime control, max atime value is 2byte"
+	default n
+	depends on SPI
+	help
+	  If you want to use max atime value, it should be set.
 
 config SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
 	tristate "Sensors ssp light sensor auto gain control, max gain value is 512"
@@ -607,6 +532,36 @@ config SENSORS_SX9320_NORMAL_TOUCH_THRESHOLD
 	  This value is the standard of normal touch using
 	  SemTech sx9320 device driver.
 
+config SENSORS_SX9330
+	depends on I2C
+	tristate "SX9330 driver"
+	default n
+	help
+	  Say Y here if you use sx9330.
+	  This option enables grip sensors using
+	  SemTech sx9330 device driver.
+	  Say N here if you do not use sx9330.
+
+config SENSORS_SX9360
+	depends on I2C
+	tristate "SX9360 driver"
+	default n
+	help
+	  Say Y here if you use sx9360.
+	  This option enables grip sensors using
+	  SemTech sx9360 device driver.
+	  Say N here if you do not use sx9360.
+
+config SUPPORT_MCC_THRESHOLD_CHANGE
+	depends on I2C
+	tristate "Change grip sensor threshold according to the MCC value"
+	default n
+	help
+	  Say Y here if you need to check mcc(mobile country code).
+	  This option enables when it is necessary to adjust the threshold
+	  according to the mcc value.
+	  Say N here if you do not need to check mcc.
+
 config SENSORS_SSP_INTERRUPT_GYRO_SENSOR
          tristate "Sensors ssp interrpt gyro"
          default n
@@ -721,7 +676,29 @@ config SENSORS_SSP_CROWN
 	depends on SPI
 	help
 	  Binary file for ssp driver.
-          If you say yes here you get STAR project support for
+          If you say yes here you get CROWN project support for
+	  factory test.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ssp.
+
+config SENSORS_SSP_BEYOND
+	tristate "BEYOND Project"
+	default n
+	depends on SPI
+	help
+	  Binary file for ssp driver.
+          If you say yes here you get BEYOND project support for
+	  factory test.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ssp.
+
+config SENSORS_SSP_DAVINCI
+	tristate "DAVINCI Project"
+	default n
+	depends on SPI
+	help
+	  Binary file for ssp driver.
+          If you say yes here you get DAVINCI project support for
 	  factory test.
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
@@ -771,5 +748,19 @@ config SSP_SUPPORT_MAGNETIC_OVERFLOW
 	default n
 	help
 	  If you want to use Register RW sysfs, it should be set.
+
+config SENSORS_SSP_LIGHT_LUX_RAW
+	tristate "Sensors ssp light lux"
+	default n
+	depends on SPI
+	help
+	  If you want to use lux raw value, it should be set.
+
+config SENSORS_SSP_PROX_LIGHT_DIFF
+	tristate "Sensors ssp prox light diff"
+	default n
+	depends on SPI
+	help
+	  If you want to use light diff value at proximity data, it should be set.
 
 source "drivers/sensorhub/brcm/bbdpl/Kconfig"

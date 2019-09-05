@@ -6,7 +6,7 @@
  *
  * This file contains the core interrupt handling code.
  *
- * Detailed information is available in Documentation/DocBook/genericirq
+ * Detailed information is available in Documentation/core-api/genericirq.rst
  *
  */
 
@@ -15,7 +15,7 @@
 #include <linux/sched.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
-#include <linux/exynos-ss.h>
+#include <linux/debug-snapshot.h>
 
 #include <trace/events/irq.h>
 
@@ -139,13 +139,13 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc, unsigned int *flags
 	unsigned int irq = desc->irq_data.irq;
 	struct irqaction *action;
 
+	record_irq_time(desc);
+
 	for_each_action_of_desc(desc, action) {
 		irqreturn_t res;
 
 		trace_irq_handler_entry(irq, action);
-		exynos_ss_irq(irq, (void *)action->handler, (int)irqs_disabled(), ESS_FLAG_IN);
 		res = action->handler(irq, action->dev_id);
-		exynos_ss_irq(irq, (void *)action->handler, (int)irqs_disabled(), ESS_FLAG_OUT);
 		trace_irq_handler_exit(irq, action, res);
 
 		if (WARN_ONCE(!irqs_disabled(),"irq %u handler %pF enabled interrupts\n",

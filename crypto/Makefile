@@ -1,6 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # Cryptographic API
 #
+
+ifeq ($(CONFIG_CRYPTO_FIPS), y)
+#ccflags-y := -DCONFIG_CRYPTO_FIPS_FUNC_TEST
+endif
 
 # ---------------------------------------
 # Keep this at the top of FIPS boundary
@@ -9,8 +14,6 @@ obj-$(CONFIG_CRYPTO_FIPS) += fips_integrity.o
 
 obj-$(CONFIG_CRYPTO) += crypto.o
 crypto-y := api.o cipher.o compress.o memneq.o
-
-obj-$(CONFIG_CRYPTO_WORKQUEUE) += crypto_wq.o
 
 obj-$(CONFIG_CRYPTO_FIPS) += fips.o
 
@@ -31,7 +34,6 @@ crypto_hash-y += ahash.o
 crypto_hash-y += shash.o
 obj-$(CONFIG_CRYPTO_HASH2) += crypto_hash.o
 
-CFLAGS_testmgr.o = -fno-merge-constants
 cryptomgr-y := algboss.o testmgr.o
 obj-$(CONFIG_CRYPTO_MANAGER2) += cryptomgr.o
 
@@ -44,6 +46,7 @@ obj-$(CONFIG_CRYPTO_CBC) += cbc.o
 obj-$(CONFIG_CRYPTO_CTR) += ctr.o
 obj-$(CONFIG_CRYPTO_GCM) += gcm.o
 obj-$(CONFIG_CRYPTO_AES) += aes_generic.o
+CFLAGS_aes_generic.o := $(call cc-option,-fno-code-hoisting) # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83356
 obj-$(CONFIG_CRYPTO_AUTHENC) += authenc.o authencesn.o
 
 obj-$(CONFIG_CRYPTO_RNG2) += rng.o
@@ -53,12 +56,14 @@ CFLAGS_jitterentropy.o = -O0
 jitterentropy_rng-y := jitterentropy.o jitterentropy-kcapi.o
 obj-$(CONFIG_CRYPTO_TEST) += tcrypt.o
 obj-$(CONFIG_CRYPTO_GHASH) += ghash-generic.o
+obj-$(CONFIG_CRYPTO_KBKDF_CTR_HMAC_SHA512) += kbkdf.o
 
 # Keep this at the bottom of FIPS boundary
 obj-$(CONFIG_CRYPTO_FIPS) += last_file.o
 obj-$(CONFIG_CRYPTO_FIPS) += fips_out.o
 # ---------------------------------------
 
+obj-$(CONFIG_CRYPTO_WORKQUEUE) += crypto_wq.o
 obj-$(CONFIG_CRYPTO_ENGINE) += crypto_engine.o
 
 obj-$(CONFIG_CRYPTO_AKCIPHER2) += akcipher.o
@@ -67,10 +72,6 @@ obj-$(CONFIG_CRYPTO_KPP2) += kpp.o
 dh_generic-y := dh.o
 dh_generic-y += dh_helper.o
 obj-$(CONFIG_CRYPTO_DH) += dh_generic.o
-ecdh_generic-y := ecc.o
-ecdh_generic-y += ecdh.o
-ecdh_generic-y += ecdh_helper.o
-obj-$(CONFIG_CRYPTO_ECDH) += ecdh_generic.o
 
 $(obj)/rsapubkey-asn1.o: $(obj)/rsapubkey-asn1.c $(obj)/rsapubkey-asn1.h
 $(obj)/rsaprivkey-asn1.o: $(obj)/rsaprivkey-asn1.c $(obj)/rsaprivkey-asn1.h
@@ -85,8 +86,9 @@ rsa_generic-y += rsa_helper.o
 rsa_generic-y += rsa-pkcs1pad.o
 obj-$(CONFIG_CRYPTO_RSA) += rsa_generic.o
 
-obj-$(CONFIG_CRYPTO_ACOMP2) += acompress.o
-obj-$(CONFIG_CRYPTO_ACOMP2) += scompress.o
+crypto_acompress-y := acompress.o
+crypto_acompress-y += scompress.o
+obj-$(CONFIG_CRYPTO_ACOMP2) += crypto_acompress.o
 
 obj-$(CONFIG_CRYPTO_USER) += crypto_user.o
 obj-$(CONFIG_CRYPTO_CMAC) += cmac.o
@@ -122,6 +124,7 @@ obj-$(CONFIG_CRYPTO_TWOFISH) += twofish_generic.o
 obj-$(CONFIG_CRYPTO_TWOFISH_COMMON) += twofish_common.o
 obj-$(CONFIG_CRYPTO_SERPENT) += serpent_generic.o
 CFLAGS_serpent_generic.o := $(call cc-option,-fsched-pressure)  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79149
+obj-$(CONFIG_CRYPTO_AES_TI) += aes_ti.o
 obj-$(CONFIG_CRYPTO_CAMELLIA) += camellia_generic.o
 obj-$(CONFIG_CRYPTO_CAST_COMMON) += cast_common.o
 obj-$(CONFIG_CRYPTO_CAST5) += cast5_generic.o
@@ -131,6 +134,7 @@ obj-$(CONFIG_CRYPTO_TEA) += tea.o
 obj-$(CONFIG_CRYPTO_KHAZAD) += khazad.o
 obj-$(CONFIG_CRYPTO_ANUBIS) += anubis.o
 obj-$(CONFIG_CRYPTO_SEED) += seed.o
+obj-$(CONFIG_CRYPTO_SPECK) += speck.o
 obj-$(CONFIG_CRYPTO_SALSA20) += salsa20_generic.o
 obj-$(CONFIG_CRYPTO_CHACHA20) += chacha20_generic.o
 obj-$(CONFIG_CRYPTO_POLY1305) += poly1305_generic.o
@@ -149,7 +153,12 @@ obj-$(CONFIG_CRYPTO_USER_API_HASH) += algif_hash.o
 obj-$(CONFIG_CRYPTO_USER_API_SKCIPHER) += algif_skcipher.o
 obj-$(CONFIG_CRYPTO_USER_API_RNG) += algif_rng.o
 obj-$(CONFIG_CRYPTO_USER_API_AEAD) += algif_aead.o
-obj-$(CONFIG_CRYPTO_ZSTD) += zstd.o
+obj-$(CONFIG_CRYPTO_DISKCIPHER) += diskcipher.o
+
+ecdh_generic-y := ecc.o
+ecdh_generic-y += ecdh.o
+ecdh_generic-y += ecdh_helper.o
+obj-$(CONFIG_CRYPTO_ECDH) += ecdh_generic.o
 
 #
 # generic algorithms and the async_tx api
@@ -159,3 +168,5 @@ obj-$(CONFIG_ASYNC_CORE) += async_tx/
 obj-$(CONFIG_ASYMMETRIC_KEY_TYPE) += asymmetric_keys/
 obj-$(CONFIG_CRYPTO_HASH_INFO) += hash_info.o
 obj-$(CONFIG_CRYPTO_ABLK_HELPER) += ablk_helper.o
+crypto_simd-y := simd.o
+obj-$(CONFIG_CRYPTO_SIMD) += crypto_simd.o

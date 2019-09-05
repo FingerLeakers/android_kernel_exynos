@@ -204,6 +204,7 @@
 #undef RESERVED_MEM_IN_DT
 
 #define SKIP_VRA_SFR_DUMP
+#define CHAIN_SKIP_GFRAME_FOR_VRA
 
 /* init AWB */
 /* #define ENABLE_INIT_AWB */
@@ -213,5 +214,8 @@
 
 #define USE_CAMIF_FIX_UP	1
 #define CHAIN_USE_VC_TASKLET	0
+
+#undef OVERFLOW_PANIC_ENABLE_ISCHAIN
+#undef OVERFLOW_PANIC_ENABLE_CSIS
 
 #endif

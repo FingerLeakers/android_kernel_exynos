@@ -14,11 +14,11 @@
 
 #include <linux/pm_qos.h>
 #include <crypto/smu.h>
-#include <crypto/fmp.h>
-#include "ufs-cal-9810.h"
+#include "ufs-cal-9820.h"
 
 #define UFS_VER_0004	4
 #define UFS_VER_0005	5
+#define UFS_VER_0006	6
 
 /*
  * Exynos's Vendor specific registers for UFSHCI
@@ -96,6 +96,8 @@
 #define HCI_DMA0_MONITOR_CNT		0xCC
 #define HCI_DMA1_MONITOR_STATE		0xD0
 #define HCI_DMA1_MONITOR_CNT		0xD4
+#define HCI_DMA0_DOORBELL_DEBUG		0xD8
+#define HCI_DMA1_DOORBELL_DEBUG		0xDC
 
 #define HCI_UFS_AXI_DMA_IF_CTRL		0xF8
 #define HCI_UFS_ACG_DISABLE		0xFC
@@ -104,18 +106,27 @@
  #define HCI_IOP_ACG_DISABLE_EN		BIT(0)
 #define HCI_MPHY_REFCLK_SEL		0x108
  #define MPHY_REFCLK_SEL		BIT(0)
-#define HCI_SMU_ABORT_MATCH_INFO		0x10C
+#define HCI_SMU_RD_ABORT_MATCH_INFO		0x118
+#define HCI_SMU_WR_ABORT_MATCH_INFO		0x11C
 #define HCI_DBR_DUPLICATION_INFO		0x120
+#define HCI_INVALID_PRDT_CTRL		0x130
 
 #define HCI_DBR_TIMER_CONFIG		0x140
-#define HCI_DBR_TIMER_ENABLE		0x144
-#define HCI_DBR_TIMER_STATUS		0x148
+#define HCI_UTRL_DBR_TIMER_ENABLE		0x144
+#define HCI_UTRL_DBR_TIMER_STATUS		0x148
+#define HCI_UTMRL_DBR_TIMER_ENABLE		0x14C
+#define HCI_UTMRL_DBR_TIMER_STATUS		0x150
 
-#define HCI_UTRL_DBR_3_0_TIMER_EXPIRED_VALUE		0x150
-#define HCI_UTRL_DBR_7_4_TIMER_EXPIRED_VALUE		0x154
-#define HCI_UTRL_DBR_11_8_TIMER_EXPIRED_VALUE		0x158
-#define HCI_UTRL_DBR_15_12_TIMER_EXPIRED_VALUE		0x15C
-#define HCI_UTMRL_DBR_3_0_TIMER_EXPIRED_VALUE		0x160
+#define HCI_UTRL_DBR_3_0_TIMER_EXPIRED_VALUE		0x160
+#define HCI_UTRL_DBR_7_4_TIMER_EXPIRED_VALUE		0x164
+#define HCI_UTRL_DBR_11_8_TIMER_EXPIRED_VALUE		0x168
+#define HCI_UTRL_DBR_15_12_TIMER_EXPIRED_VALUE		0x16C
+#define HCI_UTRL_DBR_19_16_TIMER_EXPIRED_VALUE		0x170
+#define HCI_UTRL_DBR_23_20_TIMER_EXPIRED_VALUE		0x174
+#define HCI_UTRL_DBR_27_24_TIMER_EXPIRED_VALUE		0x178
+#define HCI_UTRL_DBR_31_28_TIMER_EXPIRED_VALUE		0x17C
+
+#define HCI_UTMRL_DBR_3_0_TIMER_EXPIRED_VALUE		0x180
 
 /* Device fatal error */
 #define DFES_ERR_EN	BIT(31)
@@ -376,6 +387,8 @@ enum {
 #define PHY_PMA_COMN_ADDR(reg)		(reg)
 #define PHY_PMA_TRSV_ADDR(reg, lane)	((reg) + (0x140 * (lane)))
 
+#define EXYNOS_PMU_UFS_PHY_OFFSET	0x0724
+
 /*
  * Driver specific definitions
  */
@@ -477,7 +490,6 @@ struct exynos_ufs_soc {
 
 struct exynos_ufs_phy {
 	void __iomem *reg_pma;
-	void __iomem *reg_pmu;
 	struct exynos_ufs_soc *soc;
 };
 
@@ -522,16 +534,7 @@ struct exynos_ufs_debug {
 	struct exynos_ufs_sfr_log* sfr;
 	struct exynos_ufs_attr_log* attr;
 	struct exynos_ufs_misc_log misc;
-};
-
-struct exynos_smu_data {
-	struct exynos_smu_variant_ops *vops;
-	struct platform_device *pdev;
-};
-
-struct exynos_fmp_data {
-	struct exynos_fmp_variant_ops *vops;
-	struct platform_device *pdev;
+	void __iomem *reg_cport;
 };
 
 struct exynos_ufs {
@@ -559,8 +562,8 @@ struct exynos_ufs {
 	struct uic_pwr_mode req_pmd_parm;
 	struct uic_pwr_mode act_pmd_parm;
 
-	struct exynos_smu_data smu;
-	struct exynos_fmp_data fmp;
+	enum smu_id		fmp;
+	enum smu_id		smu;
 
 	u32 rx_min_actv_time_cap;
 	u32 rx_hibern8_time_cap;
@@ -649,7 +652,7 @@ struct ufs_cmd_logging_category {
 struct ufs_cmd_info {
 	int 	first;
 	int 	last;
-	struct ufs_cmd_logging_category *addr_per_tag[16];
+	struct ufs_cmd_logging_category *addr_per_tag[32];
 	struct ufs_cmd_logging_category  data[MAX_CMD_LOGS];
 
 };
@@ -657,6 +660,8 @@ struct ufs_cmd_info {
 extern void exynos_ufs_get_uic_info(struct ufs_hba *hba);
 extern void exynos_ufs_dump_uic_info(struct ufs_hba *hba);
 extern int exynos_ufs_init_dbg(struct ufs_hba *hba);
+extern void exynos_ufs_ctrl_cport_log(struct exynos_ufs *ufs, bool en, int log_type);
+extern void exynos_ufs_dump_cport_log(struct ufs_hba *hba);
 extern void exynos_ufs_show_uic_info(struct ufs_hba *hba);
 extern void exynos_ufs_cmd_log_start(struct ufs_hba *hba, struct scsi_cmnd *cmd);
 extern void exynos_ufs_cmd_log_end(struct ufs_hba *hba, int tag);

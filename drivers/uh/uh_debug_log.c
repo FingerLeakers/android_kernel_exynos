@@ -55,3 +55,4 @@ static void __exit uh_log_exit(void)
 
 module_init(uh_log_init);
 module_exit(uh_log_exit);
+

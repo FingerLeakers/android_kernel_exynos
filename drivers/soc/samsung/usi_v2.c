@@ -38,7 +38,7 @@ static const struct usi_v2_mode usi_v2_modes[] = {
 
 static int get_usi_v2_mode(const char* mode_name)
 {
-	unsigned int i;
+	size_t i;
 
 	for (i = 0; i < sizeof(usi_v2_modes)/sizeof(struct usi_v2_mode); i++) {
 		if (!strncmp(mode_name, usi_v2_modes[i].name,
@@ -81,17 +81,18 @@ static int usi_v2_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, data);
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
-		dev_info(&pdev->dev,
-			"usi configuration for secure channel is skipped(FP)\n");
-		return 0;
-	}
-#endif
 #ifdef CONFIG_ESE_SECURE
 	if (data->ch_id == CONFIG_ESE_SECURE_USI_MODE) {
 		dev_info(&pdev->dev,
 			"usi configuration for secure channel is skipped(eSE)\n");
+		return 0;
+	}
+#endif
+
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
+		dev_info(&pdev->dev,
+				"usi configuration for secure channel is skipped(FP)\n");
 		return 0;
 	}
 #endif
@@ -116,13 +117,6 @@ static int usi_v2_resume_noirq(struct device *dev)
 	struct usi_v2_data *data = platform_get_drvdata(pdev);
 	int ret;
 
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
-		dev_info(&pdev->dev,
-			"usi configuration for secure channel is skipped(FP)\n");
-		return 0;
-	}
-#endif
 #ifdef CONFIG_ESE_SECURE
 	if (data->ch_id == CONFIG_ESE_SECURE_USI_MODE) {
 		dev_info(&pdev->dev,
@@ -130,6 +124,14 @@ static int usi_v2_resume_noirq(struct device *dev)
 		return 0;
 	}
 #endif
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
+		dev_info(&pdev->dev,
+				"usi configuration for secure channel is skipped(FP)\n");
+		return 0;
+	}
+#endif	
+
 	if (data->mode && data->base) {
 		writel(data->mode, data->base);
 		dev_info(&pdev->dev, "%s mode:%d\n", __func__, data->mode);

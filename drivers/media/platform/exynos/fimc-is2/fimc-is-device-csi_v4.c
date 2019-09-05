@@ -20,7 +20,8 @@
 #include <linux/videodev2_exynos_camera.h>
 #include <linux/io.h>
 #include <linux/phy/phy.h>
-#include <soc/samsung/bcm.h>
+#include <linux/fs.h>
+#include <soc/samsung/exynos-bcm_dbg.h>
 
 #include "fimc-is-debug.h"
 #include "fimc-is-config.h"
@@ -48,28 +49,38 @@ static enum hrtimer_restart csis_early_buf_done(struct hrtimer *timer)
 }
 #endif
 
-static inline void csi_frame_start_inline(struct fimc_is_device_csi *csi)
+inline void csi_frame_start_inline(struct fimc_is_device_csi *csi)
 {
 	/* frame start interrupt */
 	csi->sw_checker = EXPECT_FRAME_END;
 	atomic_inc(&csi->fcount);
-	dbg_csiisr("<%d %d ", csi->instance,
+	dbg_isr("<%d %d ", csi, csi->instance,
 			atomic_read(&csi->fcount));
 	atomic_inc(&csi->vvalid);
 	{
 		u32 vsync_cnt = atomic_read(&csi->fcount);
+		struct fimc_is_device_sensor *sensor;
+		u32 hashkey;
+
+		sensor = v4l2_get_subdev_hostdata(*csi->subdev);
+		if (!sensor) {
+			err("sensor is NULL");
+			BUG();
+		}
+
+		hashkey = vsync_cnt % FIMC_IS_TIMESTAMP_HASH_KEY;
+		sensor->timestamp[hashkey] = fimc_is_get_timestamp();
+		sensor->timestampboot[hashkey] = fimc_is_get_timestamp_boot();
 
 		v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VSYNC, &vsync_cnt);
 	}
-
-	wake_up(&csi->wait_queue);
 
 	tasklet_schedule(&csi->tasklet_csis_str);
 }
 
 static inline void csi_frame_line_inline(struct fimc_is_device_csi *csi)
 {
-	dbg_csiisr("-%d %d-", csi->instance,
+	dbg_isr("-%d %d-", csi, csi->instance,
 			atomic_read(&csi->fcount));
 	/* frame line interrupt */
 	tasklet_schedule(&csi->tasklet_csis_line);
@@ -77,7 +88,7 @@ static inline void csi_frame_line_inline(struct fimc_is_device_csi *csi)
 
 static inline void csi_frame_end_inline(struct fimc_is_device_csi *csi)
 {
-	dbg_csiisr("%d %d>", csi->instance,
+	dbg_isr("%d %d>", csi, csi->instance,
 			atomic_read(&csi->fcount));
 	/* frame end interrupt */
 	csi->sw_checker = EXPECT_FRAME_START;
@@ -108,8 +119,15 @@ static inline void csi_s_config_dma(struct fimc_is_device_csi *csi, struct fimc_
 			continue;
 
 		if (test_bit(FIMC_IS_SUBDEV_INTERNAL_USE, &dma_subdev->state)) {
+			if ((csi->sensor_cfg->output[vc].type == VC_NOTHING) ||
+				(csi->sensor_cfg->output[vc].type == VC_PRIVATE))
+				continue;
+
 			/* set from internal subdev setting */
-			fmt.pixelformat = dma_subdev->pixelformat;
+			if (csi->sensor_cfg->output[vc].type == VC_TAILPDAF)
+				fmt.pixelformat = V4L2_PIX_FMT_SBGGR16;
+			else
+				fmt.pixelformat = V4L2_PIX_FMT_PRIV_MAGIC;
 			framecfg.format = &fmt;
 			framecfg.width = dma_subdev->output.width;
 		} else {
@@ -123,8 +141,8 @@ static inline void csi_s_config_dma(struct fimc_is_device_csi *csi, struct fimc_
 			}
 		}
 
-		csi_hw_s_config_dma(csi->vc_reg[vc + csi->offset], vc, &framecfg, vci_config[vc].hwformat);
-		csi_hw_s_config_dma_cmn(csi->cmn_reg[vc + csi->offset], vc, vci_config[vc].hwformat);
+		csi_hw_s_config_dma(csi->vc_reg[csi->scm][vc], vc, &framecfg, vci_config[vc].hwformat);
+		csi_hw_s_config_dma_cmn(csi->cmn_reg[csi->scm][vc], vc, vci_config[vc].hwformat);
 	}
 }
 
@@ -132,24 +150,26 @@ static inline void csi_s_buf_addr(struct fimc_is_device_csi *csi, struct fimc_is
 {
 	FIMC_BUG_VOID(!frame);
 
-	csi_hw_s_dma_addr(csi->vc_reg[vc + csi->offset], vc, index, frame->dvaddr_buffer[0]);
+	csi_hw_s_dma_addr(csi->vc_reg[csi->scm][vc], vc, index,
+				(u32)frame->dvaddr_buffer[0]);
 }
 
 static inline void csi_s_multibuf_addr(struct fimc_is_device_csi *csi, struct fimc_is_frame *frame, u32 index, u32 vc)
 {
 	FIMC_BUG_VOID(!frame);
 
-	csi_hw_s_multibuf_dma_addr(csi->vc_reg[vc + csi->offset], vc, index, frame->dvaddr_buffer[0]);
+	csi_hw_s_multibuf_dma_addr(csi->vc_reg[csi->scm][vc], vc, index,
+				(u32)frame->dvaddr_buffer[0]);
 }
 
 static inline void csi_s_output_dma(struct fimc_is_device_csi *csi, u32 vc, bool enable)
 {
-	csi_hw_s_output_dma(csi->vc_reg[vc + csi->offset], vc, enable);
+	csi_hw_s_output_dma(csi->vc_reg[csi->scm][vc], vc, enable);
 }
 
 static inline void csi_s_frameptr(struct fimc_is_device_csi *csi, u32 vc, u32 number, bool clear)
 {
-	csi_hw_s_frameptr(csi->vc_reg[vc + csi->offset], vc, number, clear);
+	csi_hw_s_frameptr(csi->vc_reg[csi->scm][vc], vc, number, clear);
 }
 
 #ifdef SUPPORTED_EARLYBUF_DONE_SW
@@ -210,7 +230,8 @@ static void csis_s_vc_dma_multibuf(struct fimc_is_device_csi *csi)
 		if (!dma_subdev
 			|| (!test_bit(FIMC_IS_SUBDEV_INTERNAL_USE, &dma_subdev->state))
 			|| (!test_bit(FIMC_IS_SUBDEV_START, &dma_subdev->state))
-			|| (csi->sensor_cfg->output[vc].type == VC_NOTHING))
+			|| (csi->sensor_cfg->output[vc].type == VC_NOTHING)
+			|| (csi->sensor_cfg->output[vc].type == VC_PRIVATE))
 			continue;
 
 		framemgr = GET_SUBDEV_FRAMEMGR(dma_subdev);
@@ -255,7 +276,7 @@ static void csis_disable_all_vc_dma_buf(struct fimc_is_device_csi *csi)
 		csi_s_output_dma(csi, vc, false);
 
 		/* print infomation DMA on/off */
-		cur_dma_enable = csi_hw_g_output_cur_dma_enable(csi->vc_reg[vc + csi->offset], vc);
+		cur_dma_enable = csi_hw_g_output_cur_dma_enable(csi->vc_reg[csi->scm][vc], vc);
 
 		framemgr = GET_SUBDEV_FRAMEMGR(dma_subdev);
 		framemgr_e_barrier(framemgr, 0);
@@ -350,7 +371,8 @@ static void csis_flush_vc_multibuf(struct fimc_is_device_csi *csi, u32 vc)
 	if (!subdev
 		|| !test_bit(FIMC_IS_SUBDEV_START, &subdev->state)
 		|| !test_bit(FIMC_IS_SUBDEV_INTERNAL_USE, &subdev->state)
-		|| (csi->sensor_cfg->output[vc].type == VC_NOTHING))
+		|| (csi->sensor_cfg->output[vc].type == VC_NOTHING)
+		|| (csi->sensor_cfg->output[vc].type == VC_PRIVATE))
 		return;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
@@ -400,6 +422,7 @@ void tasklet_csis_str_otf(unsigned long data)
 	struct fimc_is_groupmgr *groupmgr;
 	struct fimc_is_group *group_sensor, *group_3aa, *group_isp;
 	u32 fcount, group_sensor_id, group_3aa_id, group_isp_id;
+	u32 backup_fcount;
 
 	subdev = (struct v4l2_subdev *)data;
 	csi = v4l2_get_subdevdata(subdev);
@@ -478,9 +501,12 @@ void tasklet_csis_str_otf(unsigned long data)
 		}
 		g_print_cnt++;
 	} else {
+		backup_fcount = atomic_read(&group_sensor->backup_fcount);
 		g_print_cnt = 0;
-		if (fcount + group_sensor->skip_shots > atomic_read(&group_sensor->backup_fcount)) {
+		if (fcount + group_sensor->skip_shots > backup_fcount) {
 			atomic_set(&group_sensor->sensor_fcount, fcount + group_sensor->skip_shots);
+			dbg("%s: [F:%d] up(smp_trigger) - [backup_F:%d] num_bufs(%d)\n", __func__, fcount,
+				backup_fcount, device->num_buffers);
 			up(&group_sensor->smp_trigger);
 		}
 	}
@@ -540,15 +566,19 @@ static void csi_dma_tag(struct v4l2_subdev *subdev,
 	struct fimc_is_video_ctx *vctx = NULL;
 	struct fimc_is_frame *ldr_frame;
 	struct fimc_is_frame *frame = NULL;
-	struct fimc_is_frame *frame_done = NULL;
+	struct fimc_is_subdev *dma_subdev = csi->dma_subdev[vc];
 	int i = 0;
 
-	if (!test_bit(FIMC_IS_SUBDEV_INTERNAL_USE, &csi->dma_subdev[vc]->state)) {
+	if (!dma_subdev) {
+		merr("[VC%d] could not get DMA sub-device", csi, vc);
+		return;
+	}
+
+	if (!test_bit(FIMC_IS_SUBDEV_INTERNAL_USE, &dma_subdev->state)) {
 		framemgr_e_barrier_irqs(framemgr, 0, flags);
 
 		frame = peek_frame(framemgr, FS_PROCESS);
 		if (frame) {
-			frame_done = frame;
 			trans_frame(framemgr, frame, FS_COMPLETE);
 
 			/* get subdev and video context */
@@ -583,43 +613,41 @@ static void csi_dma_tag(struct v4l2_subdev *subdev,
 
 		framemgr_x_barrier_irqr(framemgr, 0, flags);
 
-		/* cache invalidate */
-		CALL_CACHE_BUFS_FINISH(vctx);
-
 		data_type = CSIS_NOTIFY_DMA_END;
 	} else {
 		/* get internal VC buffer for embedded data */
 		if (csi->sensor_cfg->output[vc].type == VC_EMBEDDED) {
-			u32 frameptr;
-			struct fimc_is_subdev *dma_subdev;
+			u32 frameptr = csi_hw_g_frameptr(csi->vc_reg[csi->scm][vc], vc);
 
-			dma_subdev = csi->dma_subdev[vc];
-			WARN_ON(!dma_subdev);
+			if (frameptr < framemgr->num_frames) {
+				frame = &framemgr->frames[frameptr];
 
-			if (!framemgr->frames) {
-				merr("[VC%d] framemgr was already closed", csi, vc);
-				return;
-			}
-
-			frameptr = csi_hw_g_frameptr(csi->vc_reg[vc + csi->offset], vc);
-			frame = &framemgr->frames[frameptr];
-			if (frame) {
 				/* cache invalidate */
 				CALL_BUFOP(dma_subdev->pb_subdev[frame->index], sync_for_cpu,
 					dma_subdev->pb_subdev[frame->index],
 					0,
-					dma_subdev->output.width * dma_subdev->output.height * 2,
+					dma_subdev->pb_subdev[frame->index]->size,
 					DMA_FROM_DEVICE);
+					mdbgd_front("%s, %s[%d] = %d\n", csi, __func__, "VC_EMBEDDED",
+								frameptr, frame->fcount);
 			}
-
-			frame_done = frame;
 			data_type = CSIS_NOTIFY_DMA_END_VC_EMBEDDED;
+		} else if (csi->sensor_cfg->output[vc].type == VC_MIPISTAT) {
+			u32 frameptr = csi_hw_g_frameptr(csi->vc_reg[csi->scm][vc], vc);
+
+			frameptr = frameptr % framemgr->num_frames;
+			frame = &framemgr->frames[frameptr];
+
+			data_type = CSIS_NOTIFY_DMA_END_VC_MIPISTAT;
+
+			mdbgd_front("%s, %s[%d] = %d\n", csi, __func__, "VC_MIPISTAT",
+							frameptr, frame->fcount);
 		} else {
 			return;
 		}
 	}
 
-	v4l2_subdev_notify(subdev, data_type, frame_done);
+	v4l2_subdev_notify(subdev, data_type, frame);
 }
 
 static void csi_err_check(struct fimc_is_device_csi *csi, u32 *err_id)
@@ -632,7 +660,7 @@ static void csi_err_check(struct fimc_is_device_csi *csi, u32 *err_id)
 
 	/* 2. If err occurs first in 1 frame, request DMA abort */
 	if (!err_flag)
-		csi_hw_s_control(csi->cmn_reg[0 + csi->offset], CSIS_CTRL_DMA_ABORT_REQ, true);
+		csi_hw_s_control(csi->cmn_reg[csi->scm][0], CSIS_CTRL_DMA_ABORT_REQ, true);
 
 	/* 3. Cumulative error */
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
@@ -713,12 +741,12 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 			case CSIS_ERR_SOT_VC:
 				err_str = GET_STR(CSIS_ERR_SOT_VC);
 				break;
-			case CSIS_ERR_OTF_OVERLAP:
-				err_str = GET_STR(CSIS_ERR_OTF_OVERLAP);
+			case CSIS_ERR_DMA_OTF_OVERLAP_VC:
+				err_str = GET_STR(CSIS_ERR_DMA_OTF_OVERLAP_VC);
 				break;
-			case CSIS_ERR_DMA_ERR_DMAFIFO_FULL:
+			case CSIS_ERR_DMA_DMAFIFO_FULL:
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
-				err_str = GET_STR(CSIS_ERR_DMA_ERR_DMAFIFO_FULL);
+				err_str = GET_STR(CSIS_ERR_DMA_DMAFIFO_FULL);
 #if defined(OVERFLOW_PANIC_ENABLE_CSIS)
 #ifdef USE_CAMERA_HW_BIG_DATA
 				fimc_is_vender_csi_err_handler(csi);
@@ -726,18 +754,17 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_sec_copy_err_cnt_to_file();
 #endif
 #endif
-				bcm_stop(NULL);
+				exynos_bcm_dbg_stop(CAMERA_DRIVER);
 
 				panic("[DMA%d][VC P%d, L%d] CSIS error!! %s",
-					csi->dma_subdev[vc]->dma_ch[csi->offset / CSI_VIRTUAL_CH_MAX],
-					csi->dma_subdev[vc]->vc_ch[csi->offset / CSI_VIRTUAL_CH_MAX], vc,
+					csi->dma_subdev[vc]->dma_ch[csi->scm],
+					csi->dma_subdev[vc]->vc_ch[csi->scm], vc,
 					err_str);
-
 #endif
 				break;
-			case CSIS_ERR_DMA_ERR_TRXFIFO_FULL:
+			case CSIS_ERR_DMA_TRXFIFO_FULL:
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
-				err_str = GET_STR(CSIS_ERR_DMA_ERR_TRXFIFO_FULL);
+				err_str = GET_STR(CSIS_ERR_DMA_TRXFIFO_FULL);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
 #ifdef USE_CAMERA_HW_BIG_DATA
 				fimc_is_vender_csi_err_handler(csi);
@@ -748,9 +775,9 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
-			case CSIS_ERR_DMA_ERR_BRESP_ERR:
+			case CSIS_ERR_DMA_BRESP_VC:
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
-				err_str = GET_STR(CSIS_ERR_DMA_ERR_BRESP_ERR);
+				err_str = GET_STR(CSIS_ERR_DMA_BRESP_VC);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
 #ifdef USE_CAMERA_HW_BIG_DATA
 				fimc_is_vender_csi_err_handler(csi);
@@ -770,12 +797,15 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 			case CSIS_ERR_HRESOL_MISMATCH:
 				err_str = GET_STR(CSIS_ERR_HRESOL_MISMATCH);
 				break;
+			case CSIS_ERR_DMA_FRAME_DROP_VC:
+				err_str = GET_STR(CSIS_ERR_DMA_FRAME_DROP_VC);
+				break;
 			}
 
 			/* Print error log */
 			merr("[DMA%d][VC P%d, L%d][F%d] Occurred the %s(ID %d)", csi,
-				csi->dma_subdev[vc]->dma_ch[csi->offset / CSI_VIRTUAL_CH_MAX],
-				csi->dma_subdev[vc]->vc_ch[csi->offset / CSI_VIRTUAL_CH_MAX], vc,
+				csi->dma_subdev[vc]->dma_ch[csi->scm],
+				csi->dma_subdev[vc]->vc_ch[csi->scm], vc,
 				atomic_read(&csi->fcount), err_str, err);
 
 #ifdef USE_CAMERA_HW_BIG_DATA
@@ -837,8 +867,8 @@ static void csi_err_handle(struct fimc_is_device_csi *csi)
 		csi_hw_dump(csi->base_reg);
 		csi_hw_phy_dump(csi->phy_reg, csi->instance);
 		for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-			csi_hw_vcdma_dump(csi->vc_reg[vc + csi->offset]);
-			csi_hw_vcdma_cmn_dump(csi->cmn_reg[vc + csi->offset]);
+			csi_hw_vcdma_dump(csi->vc_reg[csi->scm][vc]);
+			csi_hw_vcdma_cmn_dump(csi->cmn_reg[csi->scm][vc]);
 		}
 		csi_hw_common_dma_dump(csi->csi_dma->base_reg);
 #if defined(ENABLE_PDP_STAT_DMA)
@@ -846,9 +876,7 @@ static void csi_err_handle(struct fimc_is_device_csi *csi)
 #endif
 
 		/* CLK dump */
-		if (device->position != SENSOR_POSITION_SECURE) {
-			schedule_work(&core->wq_data_print_clk);
-		}
+		schedule_work(&core->wq_data_print_clk);
 	}
 }
 
@@ -1023,6 +1051,12 @@ static irqreturn_t fimc_is_isr_csi(int irq, void *data)
 		if (csi->sw_checker != EXPECT_FRAME_START) {
 			warn("[CSIS%d] Lost end interupt\n",
 					csi->instance);
+			/*
+			* Even though it skips to start tasklet,
+			* framecount of CSI device should be increased
+			* to match with chain device including DDK.
+			*/
+			atomic_inc(&csi->fcount);
 			goto clear_status;
 		}
 		csi_frame_start_inline(csi);
@@ -1032,6 +1066,12 @@ static irqreturn_t fimc_is_isr_csi(int irq, void *data)
 		if (csi->sw_checker != EXPECT_FRAME_END) {
 			warn("[CSIS%d] Lost start interupt\n",
 					csi->instance);
+			/*
+			* Even though it skips to start tasklet,
+			* framecount of CSI device should be increased
+			* to match with chain device including DDK.
+			*/
+			atomic_inc(&csi->fcount);
 			goto clear_status;
 		}
 		csi_frame_end_inline(csi);
@@ -1077,12 +1117,12 @@ static irqreturn_t fimc_is_isr_csi_dma(int irq, void *data)
 		irq_src.dma_end = 0;
 		irq_src.line_end = 0;
 		irq_src.err_flag = 0;
-		vc_phys = csi->dma_subdev[vc]->vc_ch[csi->offset / CSI_VIRTUAL_CH_MAX];
+		vc_phys = csi->dma_subdev[vc]->vc_ch[csi->scm];
 		if (vc_phys < 0) {
 			merr("[VC%d] vc_phys is invalid (%d)\n", csi, vc, vc_phys);
 			continue;
 		}
-		csi_hw_g_dma_irq_src_vc(csi->cmn_reg[vc + csi->offset], &irq_src, vc_phys, true);
+		csi_hw_g_dma_irq_src_vc(csi->cmn_reg[csi->scm][vc], &irq_src, vc_phys, true);
 
 		dma_err_id[vc] = irq_src.err_id[vc_phys];
 		dma_err_flag |= dma_err_id[vc];
@@ -1091,7 +1131,7 @@ static irqreturn_t fimc_is_isr_csi_dma(int irq, void *data)
 			dma_frame_end |= 1 << vc;
 	}
 
-	dbg_csiisr("DE %d %X\n", csi->instance, dma_frame_end);
+	dbg_isr("DE %d %X\n", csi, csi->instance, dma_frame_end);
 
 	/* DMA End */
 	if (dma_frame_end) {
@@ -1217,6 +1257,8 @@ static int csi_init(struct v4l2_subdev *subdev, u32 value)
 
 	csi_hw_reset(csi->base_reg);
 
+	mdbgd_front("%s(%d)\n", csi, __func__, ret);
+
 p_err:
 	return ret;
 }
@@ -1235,34 +1277,16 @@ static int csi_s_power(struct v4l2_subdev *subdev,
 		return -EINVAL;
 	}
 
-	if (on) {
+	if (on)
 		ret = phy_power_on(csi->phy);
-	} else {
-#if defined(CONFIG_SECURE_CAMERA_USE) && defined(NOT_SEPERATED_SYSREG)
-		if (csi->phy->power_count > 0)
-#endif
-		{
-			ret = phy_power_off(csi->phy);
-		}
-	}
+	else
+		ret = phy_power_off(csi->phy);
 
 	if (ret) {
 		err("fail to csi%d power on/off(%d)", csi->instance, on);
 		goto p_err;
 	}
 
-#if defined(CONFIG_SECURE_CAMERA_USE) && defined(NOT_SEPERATED_SYSREG)
-	if (csi->extra_phy) {
-		if (on && (csi->extra_phy->power_count == 0))
-			ret = phy_power_on(csi->extra_phy);
-		else if (!on && (csi->extra_phy->power_count == 1))
-			ret = phy_power_off(csi->extra_phy);
-
-		if (ret)
-			warn("fail to extra csi%d power on/off(%d)",
-						csi->instance, on);
-	}
-#endif
 
 p_err:
 	mdbgd_front("%s(%d, %d)\n", csi, __func__, on, ret);
@@ -1274,6 +1298,7 @@ static long csi_ioctl(struct v4l2_subdev *subdev, unsigned int cmd, void *arg)
 	int ret = 0;
 	struct fimc_is_device_csi *csi;
 	struct fimc_is_device_sensor *device;
+	int vc;
 
 	FIMC_BUG(!subdev);
 
@@ -1289,11 +1314,43 @@ static long csi_ioctl(struct v4l2_subdev *subdev, unsigned int cmd, void *arg)
 	switch (cmd) {
 	/* cancel the current and next dma setting */
 	case SENSOR_IOCTL_DMA_CANCEL:
-		csi_hw_s_control(csi->cmn_reg[0 + csi->offset], CSIS_CTRL_DMA_ABORT_REQ, true);
-		csi_s_output_dma(csi, CSI_VIRTUAL_CH_0, false);
-		csi_s_output_dma(csi, CSI_VIRTUAL_CH_1, false);
-		csi_s_output_dma(csi, CSI_VIRTUAL_CH_2, false);
-		csi_s_output_dma(csi, CSI_VIRTUAL_CH_3, false);
+		csi_hw_s_control(csi->cmn_reg[csi->scm][0], CSIS_CTRL_DMA_ABORT_REQ, true);
+		for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
+			csi_s_output_dma(csi, vc, false);
+		break;
+	case SENSOR_IOCTL_PATTERN_ENABLE:
+		{
+			struct fimc_is_device_csi_dma *csi_dma = csi->csi_dma;
+			struct fimc_is_sensor_cfg *sensor_cfg;
+			u32 clk = 533000000; /* Unit: Hz, This is just for debugging. So, value is fixed */
+			u32 fps;
+
+			sensor_cfg = csi->sensor_cfg;
+			if (!sensor_cfg) {
+				merr("[CSI] sensor cfg is null", csi);
+				ret = -EINVAL;
+				goto p_err;
+			}
+
+			fps = sysfs_debug.pattern_fps > 0 ?
+				sysfs_debug.pattern_fps : sensor_cfg->framerate;
+
+			ret = csi_hw_s_dma_common_pattern_enable(csi_dma->base_reg,
+				sensor_cfg->input[CSI_VIRTUAL_CH_0].width,
+				sensor_cfg->input[CSI_VIRTUAL_CH_0].height,
+				fps, clk);
+			if (ret) {
+				merr("[CSI] csi_hw_s_dma_common_pattern is fail(%d)\n", csi, ret);
+				goto p_err;
+			}
+		}
+		break;
+	case SENSOR_IOCTL_PATTERN_DISABLE:
+		{
+			struct fimc_is_device_csi_dma *csi_dma = csi->csi_dma;
+
+			csi_hw_s_dma_common_pattern_disable(csi_dma->base_reg);
+		}
 		break;
 	default:
 		break;
@@ -1322,7 +1379,7 @@ static int csi_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 	case V4L2_CID_IS_G_VC2_FRAMEPTR:
 	case V4L2_CID_IS_G_VC3_FRAMEPTR:
 		vc = CSI_VIRTUAL_CH_1 + (ctrl->id - V4L2_CID_IS_G_VC1_FRAMEPTR);
-		ctrl->value = csi_hw_g_frameptr(csi->vc_reg[vc + csi->offset], vc);
+		ctrl->value = csi_hw_g_frameptr(csi->vc_reg[csi->scm][vc], vc);
 
 		break;
 	default:
@@ -1346,6 +1403,7 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	int vc;
 	u32 settle;
 	u32 __iomem *base_reg;
+	u32 dma_ch;
 	struct fimc_is_device_sensor *device = v4l2_get_subdev_hostdata(subdev);
 	struct fimc_is_device_csi_dma *csi_dma = csi->csi_dma;
 	struct fimc_is_sensor_cfg *sensor_cfg;
@@ -1358,28 +1416,25 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	if (test_bit(CSIS_START_STREAM, &csi->state)) {
 		merr("[CSI] already start", csi);
 		ret = -EINVAL;
-		goto p_err;
+		goto err_start_already;
 	}
 
 	sensor_cfg = csi->sensor_cfg;
 	if (!sensor_cfg) {
 		merr("[CSI] sensor cfg is null", csi);
 		ret = -EINVAL;
-		goto p_err;
+		goto err_invalid_sensor_cfg;
 	}
 
 	base_reg = csi->base_reg;
 
 	if (test_bit(CSIS_DMA_ENABLE, &csi->state)) {
 		/* Registeration of CSIS CORE IRQ */
-		ret = request_irq(csi->irq,
-				fimc_is_isr_csi,
-				FIMC_IS_HW_IRQ_FLAG,
-				"mipi-csi",
-				csi);
+		ret = request_irq(csi->irq, fimc_is_isr_csi,
+				FIMC_IS_HW_IRQ_FLAG, "CSI", csi);
 		if (ret) {
-			merr("request_irq(IRQ_MIPICSI %d) is fail(%d)", csi, csi->irq, ret);
-			goto p_err;
+			merr("failed to request IRQ for CSI(%d): %d", csi, csi->irq, ret);
+			goto err_req_csi_irq;
 		}
 		csi_hw_s_irq_msk(base_reg, true);
 
@@ -1393,27 +1448,25 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 			if (!test_bit(FIMC_IS_SUBDEV_OPEN, &dma_subdev->state))
 				continue;
 
-			if (test_bit(csi->vc_irq[vc + csi->offset] % BITS_PER_LONG, &csi->vc_irq_state))
+			if (test_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state))
 				continue;
 
-			ret = request_irq(csi->vc_irq[vc + csi->offset],
-				fimc_is_isr_csi_dma,
-				FIMC_IS_HW_IRQ_FLAG,
-				"csi-vcdma",
-				csi);
+			ret = request_irq(csi->vc_irq[csi->scm][vc], fimc_is_isr_csi_dma,
+				FIMC_IS_HW_IRQ_FLAG, "CAMIF.DMA", csi);
 			if (ret) {
-				merr("request_irq(IRQ_VCDMA %d) is fail(%d)", csi, csi->vc_irq[vc + csi->offset], ret);
-				goto p_err;
+				merr("failed to request IRQ for DMA(%d) VC[%d] mode(%d): %d",
+					csi, csi->vc_irq[csi->scm][vc], vc, csi->scm, ret);
+				goto err_req_dma_irq;
 			}
-			csi_hw_s_dma_irq_msk(csi->cmn_reg[vc + csi->offset], true);
-			set_bit(csi->vc_irq[vc + csi->offset] % BITS_PER_LONG, &csi->vc_irq_state);
+			csi_hw_s_dma_irq_msk(csi->cmn_reg[csi->scm][vc], true);
+			set_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state);
 		}
 	}
 
 	if (!device->cfg) {
 		merr("[CSI] cfg is NULL", csi);
 		ret = -EINVAL;
-		goto p_err;
+		goto err_invalid_device_cfg;
 	}
 
 	settle = device->cfg->settle;
@@ -1436,17 +1489,26 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 		clear_bit(CSIS_JOIN_ISCHAIN, &csi->state);
 
 	/* PHY control */
+	/* PHY be configured in CSI driver */
 	csi_hw_s_phy_default_value(csi->phy_reg, csi->instance);
 	csi_hw_phy_otp_config(csi->phy_reg, csi->instance);
 	csi_hw_s_settle(csi->phy_reg, settle);
 	ret = csi_hw_s_phy_config(csi->phy_reg, sensor_cfg->lanes, sensor_cfg->mipi_speed, settle, csi->instance);
 	if (ret) {
 		merr("[CSI] csi_hw_s_phy_config is fail", csi);
-		goto p_err;
+		goto err_config_phy;
+	}
+
+	/* PHY be configured in PHY driver */
+	ret = csi_hw_s_phy_set(csi->phy, sensor_cfg->lanes, sensor_cfg->mipi_speed, settle, csi->instance);
+	if (ret) {
+		merr("[CSI] csi_hw_s_phy_set is fail", csi);
+		goto err_set_phy;
 	}
 
 	csi_hw_s_lane(base_reg, &csi->image, sensor_cfg->lanes, sensor_cfg->mipi_speed);
 	csi_hw_s_control(base_reg, CSIS_CTRL_INTERLEAVE_MODE, sensor_cfg->interleave_mode);
+	csi_hw_s_control(base_reg, CSIS_CTRL_PIXEL_ALIGN_MODE, 0x1);
 
 	if (sensor_cfg->interleave_mode == CSI_MODE_CH0_ONLY) {
 		csi_hw_s_config(base_reg,
@@ -1523,24 +1585,14 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	spin_lock(&csi_dma->barrier);
 	/* common dma register setting */
 	if (atomic_inc_return(&csi_dma->rcount) == 1) {
-		csi_hw_s_dma_common(csi_dma->base_reg);
+		ret = get_dma(device, &dma_ch);
+		if (ret)
+			goto err_get_dma;
+		/* FIXME: 10KB 10KB 5KB -> 36KB, 36KB, 8KB, 16KB */
+		csi_hw_s_dma_common_dynamic(csi_dma->base_reg, 10 * SZ_1K, dma_ch);
 #if defined(ENABLE_PDP_STAT_DMA)
-		csi_hw_s_dma_common(csi_dma->base_reg_stat);
+		csi_hw_s_dma_common_dynamic(csi_dma->base_reg_stat, 5 * SZ_1K, dma_ch);
 #endif
-		if (sysfs_debug.pattern_en) {
-			u32 clk = 533000000; /* Hz, This is just for debugging. So, value is fixed */
-
-			ret = csi_hw_s_dma_common_pattern(csi_dma->base_reg,
-				sensor_cfg->input[CSI_VIRTUAL_CH_0].width,
-				sensor_cfg->input[CSI_VIRTUAL_CH_0].height,
-				sysfs_debug.pattern_fps,
-				clk);
-			if (ret) {
-				merr("[CSI] csi_hw_s_dma_common_pattern is fail(%d)\n", csi, ret);
-				spin_unlock(&csi_dma->barrier);
-				goto p_err;
-			}
-		}
 	}
 	spin_unlock(&csi_dma->barrier);
 
@@ -1551,8 +1603,8 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 		csi_hw_dump(base_reg);
 		csi_hw_phy_dump(csi->phy_reg, csi->instance);
 		for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-			csi_hw_vcdma_dump(csi->vc_reg[vc + csi->offset]);
-			csi_hw_vcdma_cmn_dump(csi->cmn_reg[vc + csi->offset]);
+			csi_hw_vcdma_dump(csi->vc_reg[csi->scm][vc]);
+			csi_hw_vcdma_cmn_dump(csi->cmn_reg[csi->scm][vc]);
 		}
 		csi_hw_common_dma_dump(csi_dma->base_reg);
 #if defined(ENABLE_PDP_STAT_DMA)
@@ -1561,14 +1613,41 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	}
 
 	set_bit(CSIS_START_STREAM, &csi->state);
-p_err:
+
+	return 0;
+
+err_get_dma:
+	atomic_dec(&csi_dma->rcount);
+	spin_unlock(&csi_dma->barrier);
+
+	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
+		csi_s_output_dma(csi, vc, false);
+
+err_config_phy:
+err_set_phy:
+err_invalid_device_cfg:
+err_req_dma_irq:
+	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
+		if (!test_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state))
+			continue;
+
+		clear_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state);
+		csi_hw_s_dma_irq_msk(csi->cmn_reg[csi->scm][vc], false);
+		free_irq(csi->vc_irq[csi->scm][vc], csi);
+	}
+
+	csi_hw_s_irq_msk(base_reg, false);
+	free_irq(csi->irq, csi);
+
+err_req_csi_irq:
+err_invalid_sensor_cfg:
+err_start_already:
 	return ret;
 }
 
 static int csi_stream_off(struct v4l2_subdev *subdev,
 	struct fimc_is_device_csi *csi)
 {
-	int ret = 0;
 	int vc;
 	u32 __iomem *base_reg;
 	struct fimc_is_device_sensor *device = v4l2_get_subdev_hostdata(subdev);
@@ -1579,8 +1658,7 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 
 	if (!test_bit(CSIS_START_STREAM, &csi->state)) {
 		merr("[CSI] already stop", csi);
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
 
 	base_reg = csi->base_reg;
@@ -1589,18 +1667,6 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 
 	csi_hw_reset(base_reg);
 
-	/*
-	 * DMA HW doesn't have own reset register.
-	 * So, all virtual ch dma should be disabled
-	 * because previous state is remained after stream on.
-	 */
-	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-		csi_s_output_dma(csi, vc, false);
-
-		/* HACK: address info of previous scenario for debug info */
-		fimc_is_print_frame_dva(csi->dma_subdev[vc]);
-	}
-
 	spin_lock(&csi_dma->barrier);
 	atomic_dec(&csi_dma->rcount);
 	spin_unlock(&csi_dma->barrier);
@@ -1608,21 +1674,25 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 	if (!test_bit(FIMC_IS_SENSOR_OTF_OUTPUT, &device->state))
 		tasklet_kill(&csi->tasklet_csis_line);
 
-	if (!test_bit(CSIS_DMA_ENABLE, &csi->state))
-		goto p_dma_skip;
+	if (test_bit(CSIS_DMA_ENABLE, &csi->state)) {
+		tasklet_kill(&csi->tasklet_csis_str);
+		tasklet_kill(&csi->tasklet_csis_end);
 
-	tasklet_kill(&csi->tasklet_csis_str);
-	tasklet_kill(&csi->tasklet_csis_end);
+		for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
+			/*
+			 * DMA HW doesn't have own reset register.
+			 * So, all virtual ch dma should be disabled
+			 * because previous state is remained after stream on.
+			 */
+			csi_s_output_dma(csi, vc, false);
 
-	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-		if (csi->dma_subdev[vc]) {
-			ret = flush_work(&csi->wq_csis_dma[vc]);
-			if (ret)
-				minfo("[CSI] flush_work executed! vc(%d)\n", csi, vc);
+			if (csi->dma_subdev[vc])
+				if (flush_work(&csi->wq_csis_dma[vc]))
+					minfo("[CSI] flush_work executed! vc(%d)\n", csi, vc);
 		}
-	}
 
-	csis_flush_all_vc_buf_done(csi, VB2_BUF_STATE_ERROR);
+		csis_flush_all_vc_buf_done(csi, VB2_BUF_STATE_ERROR);
+	}
 
 	atomic_set(&csi->vvalid, 0);
 
@@ -1630,19 +1700,18 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 	free_irq(csi->irq, csi);
 
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-		if (!test_bit(csi->vc_irq[vc + csi->offset] % BITS_PER_LONG, &csi->vc_irq_state))
+		if (!test_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state))
 			continue;
 
-		csi_hw_s_dma_irq_msk(csi->cmn_reg[vc + csi->offset], false);
-		free_irq(csi->vc_irq[vc + csi->offset], csi);
+		csi_hw_s_dma_irq_msk(csi->cmn_reg[csi->scm][vc], false);
+		free_irq(csi->vc_irq[csi->scm][vc], csi);
 
-		clear_bit(csi->vc_irq[vc + csi->offset] % BITS_PER_LONG, &csi->vc_irq_state);
+		clear_bit(csi->vc_irq[csi->scm][vc] % BITS_PER_LONG, &csi->vc_irq_state);
 	}
 
-p_dma_skip:
 	clear_bit(CSIS_START_STREAM, &csi->state);
-p_err:
-	return ret;
+
+	return 0;
 }
 
 static int csi_s_stream(struct v4l2_subdev *subdev, int enable)
@@ -1673,7 +1742,9 @@ static int csi_s_stream(struct v4l2_subdev *subdev, int enable)
 	}
 
 p_err:
-	return 0;
+	mdbgd_front("%s(%d)\n", csi, __func__, ret);
+
+	return ret;
 }
 
 static int csi_s_param(struct v4l2_subdev *subdev, struct v4l2_streamparm *param)
@@ -1745,9 +1816,15 @@ static int csi_s_format(struct v4l2_subdev *subdev,
 
 	sensor_cfg = csi->sensor_cfg;
 	if (sensor_cfg->pd_mode == PD_NONE)
-		csi->offset = CSI_VIRTUAL_CH_0;
+		csi->scm = SCM_WO_PAF_HW;
 	else
-		csi->offset = CSI_VIRTUAL_CH_MAX;
+		csi->scm = SCM_W_PAF_HW;
+
+	if (csi->scm >= device->num_of_ch_mode) {
+		merr("invalid sub-device channel mode(%d/%d)", csi,
+				csi->scm, device->num_of_ch_mode);
+		return -EINVAL;
+	}
 
 	/*
 	 * DMA HW doesn't have own reset register.
@@ -1802,7 +1879,7 @@ static int csi_s_buffer(struct v4l2_subdev *subdev, void *buf, unsigned int *siz
 		goto p_err;
 	}
 
-	if (csi_hw_g_output_dma_enable(csi->vc_reg[vc + csi->offset], vc)) {
+	if (csi_hw_g_output_dma_enable(csi->vc_reg[csi->scm][vc], vc)) {
 		err("[VC%d][F%d] already DMA enabled!!", vc, frame->fcount);
 		ret = -EINVAL;
 	} else {
@@ -1855,146 +1932,167 @@ static const struct v4l2_subdev_ops subdev_ops = {
 	.pad = &pad_ops
 };
 
+#define VC_DMA_START	0
+#define VC_DMA_SIZE	1
+#define CMN_DMA_START	2
+#define CMN_DMA_SIZE	3
+#define NUM_VC_DMA_RES	4
 int fimc_is_csi_probe(void *parent, u32 instance)
 {
-	int i = 0;
+	int vc, m;
 	int ret = 0;
 	struct v4l2_subdev *subdev_csi;
 	struct fimc_is_device_csi *csi;
 	struct fimc_is_device_sensor *device = parent;
-	struct resource *mem_res;
-	struct platform_device *pdev;
 	struct fimc_is_core *core;
-	int num_resource;
-	int cnt_resource = 0;
+	struct resource *res;
+	struct platform_device *pdev;
+	struct device *dev;
+	struct device_node *dnode, *child;
+	u32 dma_res[CSI_VIRTUAL_CH_MAX * NUM_VC_DMA_RES];
+	char *irq_name;
+	int elems;
+	int cnt_of_ch_mode = 0;
 
 	FIMC_BUG(!device);
 
-	subdev_csi = kzalloc(sizeof(struct v4l2_subdev), GFP_KERNEL);
-	if (!subdev_csi) {
-		merr("subdev_csi is NULL", device);
-		ret = -ENOMEM;
-		goto p_err;
-	}
-	device->subdev_csi = subdev_csi;
-	core = device->private_data;
-
-	csi = kzalloc(sizeof(struct fimc_is_device_csi), GFP_KERNEL);
-	if (!csi) {
-		merr("csi is NULL", device);
-		ret = -ENOMEM;
-		goto p_err_free1;
-	}
-
-	/* Get SFR base register */
 	pdev = device->pdev;
+	dev = &pdev->dev;
+	dnode = dev->of_node;
 
-	num_resource = of_property_count_elems_of_size(pdev->dev.of_node, "reg", sizeof(u32)) / 3;
-
-	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, cnt_resource++);
-	if (!mem_res) {
-		probe_err("Failed to get io memory region(%p)", mem_res);
-		ret = -EBUSY;
-		goto err_get_resource;
+	csi = devm_kzalloc(dev, sizeof(struct fimc_is_device_csi), GFP_KERNEL);
+	if (!csi) {
+		merr("failed to alloc memory for CSI device", device);
+		ret = -ENOMEM;
+		goto err_alloc_csi;
 	}
 
-	csi->regs_start = mem_res->start;
-	csi->regs_end = mem_res->end;
-	csi->base_reg =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
+	/* CSI */
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "csi");
+	if (!res) {
+		probe_err("failed to get memory resource for CSI");
+		ret = -ENODEV;
+		goto err_get_csi_res;
+	}
+
+	csi->regs_start = res->start;
+	csi->regs_end = res->end;
+	csi->base_reg = devm_ioremap_nocache(dev, res->start, resource_size(res));
 	if (!csi->base_reg) {
-		probe_err("Failed to remap io region(%p)", csi->base_reg);
+		probe_err("can't ioremap for CSI");
 		ret = -ENOMEM;
-		goto err_get_resource;
+		goto err_ioremap_csi;
+	}
+
+	csi->irq = platform_get_irq_byname(pdev, "csi");
+	if (csi->irq < 0) {
+		probe_err("failed to get IRQ resource for CSI: %d", csi->irq);
+		ret = csi->irq;
+		goto err_get_csi_irq;
 	}
 
 	/* PHY */
-	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, cnt_resource++);
-	if (!mem_res) {
-		probe_err("Failed to get io memory region(%p)", mem_res);
-		ret = -EBUSY;
-		goto err_get_resource;
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "phy");
+	if (!res) {
+		probe_err("failed to get memory resource for PHY");
+		ret = -ENODEV;
+		goto err_get_phy_res;
 	}
 
-	csi->phy_reg =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
+	csi->phy_reg = devm_ioremap_nocache(dev, res->start, resource_size(res));
 	if (!csi->phy_reg) {
-		probe_err("Failed to remap phy io region(%p)", csi->phy_reg);
+		probe_err("can't ioremap for PHY");
 		ret = -ENOMEM;
-		goto err_get_resource;
+		goto err_ioremap_phy;
 	}
 
-	/* VC DMA */
-	i = 0;
-	while (cnt_resource <  num_resource) {
-		mem_res = platform_get_resource(pdev, IORESOURCE_MEM, cnt_resource++);
-		if (!mem_res) {
-			probe_err("Failed to get io memory region(CSIS VCDMA[%d])(%p)", i, mem_res);
-			ret = -EBUSY;
-			goto err_get_resource;
-		}
-
-		csi->vc_reg[i] =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
-		if (!csi->vc_reg[i]) {
-			probe_err("Failed to remap io region(CSIS VCDMA[%d])(%p)", i, csi->vc_reg[i]);
-			ret = -ENOMEM;
-			goto err_get_resource;
-		}
-
-		mem_res = platform_get_resource(pdev, IORESOURCE_MEM, cnt_resource++);
-		if (!mem_res) {
-			probe_err("Failed to get io memory region(CSIS VCDMA CMN[%d])(%p)", i, mem_res);
-			ret = -EBUSY;
-			goto err_get_resource;
-		}
-
-		csi->cmn_reg[i] =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
-		if (!csi->cmn_reg[i]) {
-			probe_err("Failed to remap io region(CSIS VCDMA CMN[%d])(%p)", i, csi->cmn_reg[i]);
-			ret = -ENOMEM;
-			goto err_get_resource;
-		}
-		i++;
+	csi->phy = devm_phy_get(dev, "csis_dphy");
+	if (IS_ERR(csi->phy)) {
+		probe_err("failed to get PHY device for CSI");
+		ret = PTR_ERR(csi->phy);
+		goto err_get_phy_dev;
 	}
 
-	num_resource = of_property_count_elems_of_size(pdev->dev.of_node, "interrupts", sizeof(u32)) / 3;
-	cnt_resource = 0;
-
-	/* Get CORE IRQ SPI number */
-	csi->irq = platform_get_irq(pdev, cnt_resource++);
-	if (csi->irq < 0) {
-		probe_err("Failed to get csi_irq(%d)", csi->irq);
-		ret = -EBUSY;
-		goto err_get_irq;
+	irq_name = __getname();
+	if (unlikely(!irq_name)) {
+		ret = -ENOMEM;
+		goto err_alloc_irq_name;
 	}
 
-	/* Get DMA IRQ SPI number */
-	i = 0;
-	while (cnt_resource <  num_resource) {
-		csi->vc_irq[i] = platform_get_irq(pdev, cnt_resource++);
-		if (csi->vc_irq[i] < 0) {
-			probe_err("Failed to get vc%d DMA irq(%d)", i, csi->vc_irq[i]);
-			ret = -EBUSY;
-			goto err_get_irq;
+	/* sub-device channel mode */
+	for_each_child_of_node(dnode, child) {
+		elems = of_property_count_elems_of_size(child, "reg",
+					sizeof(u32) * NUM_VC_DMA_RES);
+		if (elems != CSI_VIRTUAL_CH_MAX) {
+			probe_err("insufficient VC DMA memory resources(%d)", elems);
+			ret = -EINVAL;
+			goto err_get_vc_dma_res;
 		}
-		i++;
+
+		ret = of_property_read_u32_array(child, "reg", dma_res,
+					CSI_VIRTUAL_CH_MAX * NUM_VC_DMA_RES);
+		if (ret) {
+			probe_err("failed to get VC DMA memory resources");
+			goto err_read_vc_dma_res;
+		}
+
+		for (vc = 0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
+			csi->vc_reg[cnt_of_ch_mode][vc] = devm_ioremap_nocache(dev,
+					dma_res[(vc * NUM_VC_DMA_RES) + VC_DMA_START],
+					dma_res[(vc * NUM_VC_DMA_RES) + VC_DMA_SIZE]);
+			if (!csi->vc_reg[cnt_of_ch_mode][vc]) {
+				probe_err("failed to ioremap VC[%d] DMA memory for mode: %d",
+						vc, cnt_of_ch_mode);
+				ret = -ENOMEM;
+				goto err_ioremap_vc_dma_mem;
+			}
+
+			csi->cmn_reg[cnt_of_ch_mode][vc] = devm_ioremap_nocache(dev,
+					dma_res[(vc * NUM_VC_DMA_RES) + CMN_DMA_START],
+					dma_res[(vc * NUM_VC_DMA_RES) + CMN_DMA_SIZE]);
+			if (!csi->cmn_reg[cnt_of_ch_mode][vc]) {
+				probe_err("failed to ioremap CMN[%d] DMA memory for mode: %d",
+						vc, cnt_of_ch_mode);
+				ret = -ENOMEM;
+				goto err_ioremap_cmn_dma_mem;
+			}
+
+			snprintf(irq_name, PATH_MAX, "mode%d_VC%d", cnt_of_ch_mode, vc);
+			csi->vc_irq[cnt_of_ch_mode][vc] = platform_get_irq_byname(pdev, irq_name);
+			if (csi->vc_irq[cnt_of_ch_mode][vc] < 0) {
+				probe_err("invalid VC[%d] DMA IRQ for mode: %d",
+						vc, cnt_of_ch_mode);
+				ret = -EINVAL;
+				goto err_get_dma_irq;
+
+			}
+		}
+
+		cnt_of_ch_mode++;
 	}
 
-	csi->phy = devm_phy_get(&pdev->dev, "csis_dphy");
-	if (IS_ERR(csi->phy))
-		return PTR_ERR(csi->phy);
+	if ((device->dma_abstract) && (device->num_of_ch_mode > cnt_of_ch_mode)) {
+		probe_err("too many sensor ch. modes sensor: %d, csi: %d",
+				device->num_of_ch_mode, cnt_of_ch_mode);
+		ret = -EINVAL;
+		goto err_too_many_ch_modes;
+	}
 
-#if defined(CONFIG_SECURE_CAMERA_USE) && defined(NOT_SEPERATED_SYSREG)
-	csi->extra_phy = devm_phy_get(&pdev->dev, "extra_csis_dphy");
-	if (IS_ERR(csi->extra_phy))
-		csi->extra_phy = NULL;
-#endif
+	subdev_csi = devm_kzalloc(dev, sizeof(struct v4l2_subdev), GFP_KERNEL);
+	if (!subdev_csi) {
+		merr("subdev_csi is NULL", device);
+		ret = -ENOMEM;
+		goto err_alloc_subdev_csi;
+	}
 
-	/* pointer to me from device sensor */
+	device->subdev_csi = subdev_csi;
+
 	csi->subdev = &device->subdev_csi;
+	core = device->private_data;
+	csi->csi_dma = &core->csi_dma;
 
 	csi->instance = instance;
-
-	/* Get common dma */
-	csi->csi_dma = &core->csi_dma;
+	snprintf(csi->name, FIMC_IS_STR_LEN, "CSI%d", csi->instance);
 
 	/* default state setting */
 	clear_bit(CSIS_SET_MULTIBUF_VC1, &csi->state);
@@ -2003,14 +2101,12 @@ int fimc_is_csi_probe(void *parent, u32 instance)
 	set_bit(CSIS_DMA_ENABLE, &csi->state);
 
 	/* init dma subdev slots */
-	for (i = CSI_VIRTUAL_CH_0; i < CSI_VIRTUAL_CH_MAX; i++)
-		csi->dma_subdev[i] = NULL;
+	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
+		csi->dma_subdev[vc] = NULL;
 
 	csi->workqueue = alloc_workqueue("fimc-csi/[H/U]", WQ_HIGHPRI | WQ_UNBOUND, 0);
 	if (!csi->workqueue)
 		probe_warn("failed to alloc CSI own workqueue, will be use global one");
-
-	init_waitqueue_head(&csi->wait_queue);
 
 	v4l2_subdev_init(subdev_csi, &subdev_ops);
 	v4l2_set_subdevdata(subdev_csi, csi);
@@ -2022,63 +2118,97 @@ int fimc_is_csi_probe(void *parent, u32 instance)
 		goto err_reg_v4l2_subdev;
 	}
 
-	info("[%d][FRT:D] %s(%d)\n", instance, __func__, ret);
+	__putname(irq_name);
+
+	info("[%d][CSI:D] %s(%d)\n", instance, __func__, ret);
 	return 0;
 
 err_reg_v4l2_subdev:
-err_get_irq:
-	iounmap(csi->base_reg);
-
-err_get_resource:
-	kfree(csi);
-
-p_err_free1:
-	kfree(subdev_csi);
+	devm_kfree(dev, subdev_csi);
 	device->subdev_csi = NULL;
 
-p_err:
-	err("[%d][FRT:D] %s(%d)\n", instance, __func__, ret);
+err_alloc_subdev_csi:
+err_too_many_ch_modes:
+err_get_dma_irq:
+	for (m = 0; m < SCM_MAX; m++)
+		for (vc = 0; vc < CSI_VIRTUAL_CH_MAX; vc++)
+			csi->vc_irq[m][vc] = -ENXIO;
+
+err_ioremap_cmn_dma_mem:
+err_ioremap_vc_dma_mem:
+	for (m = 0; m < SCM_MAX; m++) {
+		for (vc = 0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
+			if (csi->vc_reg[m][vc])
+				devm_iounmap(dev, csi->vc_reg[m][vc]);
+
+			if (csi->cmn_reg[m][vc])
+				devm_iounmap(dev, csi->cmn_reg[m][vc]);
+		}
+	}
+
+err_read_vc_dma_res:
+err_get_vc_dma_res:
+	__putname(irq_name);
+
+err_alloc_irq_name:
+	devm_phy_put(dev, csi->phy);
+
+err_get_phy_dev:
+	devm_iounmap(dev, csi->phy_reg);
+
+err_ioremap_phy:
+err_get_phy_res:
+err_get_csi_irq:
+	devm_iounmap(dev, csi->base_reg);
+
+err_ioremap_csi:
+err_get_csi_res:
+	devm_kfree(dev, csi);
+
+err_alloc_csi:
+	err("[%d][CSI:D] %s: %d", instance, __func__, ret);
 	return ret;
 }
 
 int fimc_is_csi_dma_probe(struct fimc_is_device_csi_dma *csi_dma, struct platform_device *pdev)
 {
 	int ret = 0;
-	struct resource *mem_res = NULL;
+	struct resource *res;
 
 	/* Get SFR base register */
-	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, IORESOURCE_CSIS_DMA);
-	if (!mem_res) {
-		probe_err("Failed to get CSIS_DMA io memory region(%p)", mem_res);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, IORESOURCE_CSIS_DMA);
+	if (!res) {
+		probe_err("Failed to get CSIS_DMA io memory region(%p)", res);
 		ret = -EBUSY;
 		goto err_get_resource_csis_dma;
 	}
 
-	csi_dma->regs_start = mem_res->start;
-	csi_dma->regs_end = mem_res->end;
-	csi_dma->base_reg =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
+	csi_dma->regs_start = res->start;
+	csi_dma->regs_end = res->end;
+	csi_dma->base_reg =  devm_ioremap_nocache(&pdev->dev, res->start, resource_size(res));
 	if (!csi_dma->base_reg) {
 		probe_err("Failed to remap CSIS_DMA io region(%p)", csi_dma->base_reg);
 		ret = -ENOMEM;
 		goto err_get_base_csis_dma;
 	}
 
-	mem_res = NULL;
-	mem_res = platform_get_resource(pdev, IORESOURCE_MEM, IORESOURCE_STAT_DMA);
-	if (!mem_res) {
-		probe_err("Failed to get STAT_DMA io memory region(%p)", mem_res);
+#if defined(ENABLE_PDP_STAT_DMA)
+	res = platform_get_resource(pdev, IORESOURCE_MEM, IORESOURCE_STAT_DMA);
+	if (!res) {
+		probe_err("Failed to get STAT_DMA io memory region(%p)", res);
 		ret = -EBUSY;
 		goto err_get_resource_stat_dma;
 	}
 
-	csi_dma->regs_start = mem_res->start;
-	csi_dma->regs_end = mem_res->end;
-	csi_dma->base_reg_stat =  devm_ioremap_nocache(&pdev->dev, mem_res->start, resource_size(mem_res));
+	csi_dma->regs_start = res->start;
+	csi_dma->regs_end = res->end;
+	csi_dma->base_reg_stat =  devm_ioremap_nocache(&pdev->dev, res->start, resource_size(res));
 	if (!csi_dma->base_reg_stat) {
 		probe_err("Failed to remap STAT_DMA io region(%p)", csi_dma->base_reg_stat);
 		ret = -ENOMEM;
 		goto err_get_base_stat_dma;
 	}
+#endif
 
 	atomic_set(&csi_dma->rcount, 0);
 
@@ -2086,8 +2216,10 @@ int fimc_is_csi_dma_probe(struct fimc_is_device_csi_dma *csi_dma, struct platfor
 
 	return 0;
 
+#if defined(ENABLE_PDP_STAT_DMA)
 err_get_base_stat_dma:
 err_get_resource_stat_dma:
+#endif
 err_get_base_csis_dma:
 err_get_resource_csis_dma:
 	err("[CSI:D] %s(%d)\n", __func__, ret);

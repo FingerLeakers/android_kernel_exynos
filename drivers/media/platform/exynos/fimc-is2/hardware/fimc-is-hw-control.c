@@ -27,33 +27,10 @@
 #endif
 #include "fimc-is-hw-vra.h"
 #include "fimc-is-hw-dcp.h"
-#include "fimc-is-hw-srdz.h"
 #include "fimc-is-hw-dm.h"
-#include "fimc-is-interface-library.h"
+#include "fimc-is-hw-paf-rdma.h"
 
 #define INTERNAL_SHOT_EXIST	(1)
-
-void framemgr_e_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag)
-{
-	if (in_interrupt()) {
-		framemgr_e_barrier(this, index);
-	} else {
-		framemgr_e_barrier_irqs(this, index, flag);
-	}
-
-	return;
-}
-
-void framemgr_x_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag)
-{
-	if (in_interrupt()) {
-		framemgr_x_barrier(this, index);
-	} else {
-		framemgr_x_barrier_irqr(this, index, flag);
-	}
-
-	return;
-}
 
 static int __get_free_work_irq(struct fimc_is_work_list *this,
 	struct fimc_is_work **work)
@@ -154,7 +131,7 @@ static int __set_req_work(struct fimc_is_work_list *this,
 static inline int get_free_work(struct fimc_is_work_list *this,
 	struct fimc_is_work **work)
 {
-	if (in_interrupt())
+	if (in_irq())
 		return __get_free_work_irq(this, work);
 	else
 		return __get_free_work(this, work);
@@ -163,7 +140,7 @@ static inline int get_free_work(struct fimc_is_work_list *this,
 static inline int set_req_work(struct fimc_is_work_list *this,
 	struct fimc_is_work *work)
 {
-	if (in_interrupt())
+	if (in_irq())
 		return __set_req_work_irq(this, work);
 	else
 		return __set_req_work(this, work);
@@ -193,6 +170,9 @@ static void prepare_sfr_dump(struct fimc_is_hardware *hardware)
 		hw_ip = &hardware->hw_ip[hw_slot];
 
 		if (hw_ip->id == DEV_HW_END || hw_ip->id == 0)
+		       continue;
+
+		if (hw_ip->id == DEV_HW_PAF0 || hw_ip->id == DEV_HW_PAF1)
 		       continue;
 
 		if (IS_ERR_OR_NULL(hw_ip->regs) ||
@@ -250,22 +230,45 @@ static void _fimc_is_hardware_sfr_dump(struct fimc_is_hw_ip *hw_ip, bool flag_pr
 	if (hw_ip->sfr_dump_flag) {
 		sinfo_hw("sfr_dump was already dumped", hw_ip);
 
+/* To dump only valid sfr addresses in VRA2.0 */
+#ifdef SKIP_VRA_SFR_DUMP
+		if (hw_ip->id == DEV_HW_VRA) {
+			sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX, 0x%llX~0x%llX]\n", hw_ip,
+					hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),	reg_size,
+					hw_ip->regs_start, hw_ip->regs_start + 0x4000, hw_ip->regs_start + 0x905c,
+					hw_ip->regs_start + 0x905c + 0x7e4);
+		} else
+			sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX]\n", hw_ip,
+					hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),
+					reg_size, hw_ip->regs_start, hw_ip->regs_end);
+#else
 		sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX]\n", hw_ip,
 				hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),
 				reg_size, hw_ip->regs_start, hw_ip->regs_end);
+#endif
 		if (flag_print_log) {
+#ifdef SKIP_VRA_SFR_DUMP
+			if (hw_ip->id == DEV_HW_VRA) {
+				print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+						hw_ip->sfr_dump, 0x4000, false);
+				print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+						hw_ip->sfr_dump + 0x905c, 0x7e4, false);
+			} else
+				print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+						hw_ip->sfr_dump, reg_size, false);
+#else
 			print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
 					hw_ip->sfr_dump, reg_size, false);
+#endif
 		}
 
 		if (!IS_ERR_OR_NULL(hw_ip->sfr_b_dump)) {
 			sinfo_hw("##### SFR B DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX]\n", hw_ip,
 				hw_ip->sfr_b_dump, (void *)virt_to_phys(hw_ip->sfr_b_dump),
 				reg_b_size, hw_ip->regs_b_start, hw_ip->regs_b_end);
-			if (flag_print_log) {
+			if (flag_print_log)
 				print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
 						hw_ip->sfr_b_dump, reg_b_size, false);
-			}
 		}
 		return;
 	}
@@ -277,18 +280,60 @@ static void _fimc_is_hardware_sfr_dump(struct fimc_is_hw_ip *hw_ip, bool flag_pr
 	hw_ip->sfr_dump_flag = true;
 
 	/* dump reg */
+#ifdef SKIP_VRA_SFR_DUMP
+	if (hw_ip->id == DEV_HW_VRA) {
+		memcpy(hw_ip->sfr_dump, hw_ip->regs, 0x4000);
+		memcpy(hw_ip->sfr_dump, hw_ip->regs + 0x905c, 0x7e4);
+	} else
+		memcpy(hw_ip->sfr_dump, hw_ip->regs, reg_size);
+#else
 	memcpy(hw_ip->sfr_dump, hw_ip->regs, reg_size);
 
+#endif
+#ifdef SKIP_VRA_SFR_DUMP
+	if (hw_ip->id == DEV_HW_VRA) {
+		sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX, 0x%llX~0x%llX]\n", hw_ip,
+				hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),	reg_size,
+				hw_ip->regs_start, hw_ip->regs_start + 0x4000, hw_ip->regs_start + 0x905c,
+				hw_ip->regs_start + 0x905c + 0x7e4);
+	} else
+		sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX]\n", hw_ip,
+				hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),
+				reg_size, hw_ip->regs_start, hw_ip->regs_end);
+#else
 	sinfo_hw("##### SFR DUMP(V/P/S):(%p/%p/0x%X)[0x%llX~0x%llX]\n", hw_ip,
 			hw_ip->sfr_dump, (void *)virt_to_phys(hw_ip->sfr_dump),
 			reg_size, hw_ip->regs_start, hw_ip->regs_end);
+#endif
 #ifdef ENABLE_PANIC_SFR_PRINT
-	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
-			hw_ip->regs, reg_size, false);
-#else
-	if (flag_print_log) {
+#ifdef SKIP_VRA_SFR_DUMP
+	if (hw_ip->id == DEV_HW_VRA) {
+		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+				hw_ip->regs, 0x4000, false);
+		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+				hw_ip->regs + 0x905c, 0x7e4, false);
+	} else
 		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
 				hw_ip->regs, reg_size, false);
+#else
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+			hw_ip->regs, reg_size, false);
+#endif
+#else
+	if (flag_print_log) {
+#ifdef SKIP_VRA_SFR_DUMP
+		if (hw_ip->id == DEV_HW_VRA) {
+			print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+					hw_ip->regs, 0x4000, false);
+			print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+					hw_ip->regs + 0x905c, 0x7e4, false);
+		} else
+			print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+					hw_ip->regs + 0x905c, 0x7e4, false);
+#else
+		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
+				hw_ip->regs, reg_size, false);
+#endif
 	}
 #endif
 	if (IS_ERR_OR_NULL(hw_ip->sfr_b_dump))
@@ -304,10 +349,9 @@ static void _fimc_is_hardware_sfr_dump(struct fimc_is_hw_ip *hw_ip, bool flag_pr
 	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
 			hw_ip->regs_b, reg_b_size, false);
 #else
-	if (flag_print_log) {
+	if (flag_print_log)
 		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 4,
 				hw_ip->regs_b, reg_b_size, false);
-	}
 #endif
 }
 
@@ -366,7 +410,7 @@ void print_all_hw_frame_count(struct fimc_is_hardware *hardware)
 }
 
 void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
-	enum fimc_is_hw_frame_state state,
+	enum fimc_is_frame_state state,
 	enum ShotErrorType done_type)
 {
 	int ret = 0;
@@ -396,8 +440,6 @@ void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
 		if (done_type == IS_SHOT_TIMEOUT) {
 			mserr_hw("[F:%d]hardware is timeout", frame->instance, hw_ip, frame->fcount);
 			fimc_is_hardware_size_dump(hw_ip);
-			if (hw_ip->id == DEV_HW_3AA0 || hw_ip->id == DEV_HW_3AA1)
-				fimc_is_lib_logdump();
 		}
 
 		ret = fimc_is_hardware_frame_ndone(hw_ip, frame, atomic_read(&hw_ip->instance), done_type);
@@ -425,6 +467,9 @@ u32 get_group_id_from_hw_ip(u32 hw_id)
 	case DEV_HW_3AA1:
 		group_id = GROUP_ID_3AA1;
 		break;
+	case DEV_HW_VPP:
+		group_id = GROUP_ID_3AA2;
+		break;
 	case DEV_HW_ISP0:
 		group_id = GROUP_ID_ISP0;
 		break;
@@ -449,6 +494,12 @@ u32 get_group_id_from_hw_ip(u32 hw_id)
 	case DEV_HW_DCP:
 		group_id = GROUP_ID_DCP;
 		break;
+	case DEV_HW_PAF0:
+		group_id = GROUP_ID_PAF0;
+		break;
+	case DEV_HW_PAF1:
+		group_id = GROUP_ID_PAF1;
+		break;
 	default:
 		group_id = GROUP_ID_MAX;
 		err_hw("invalid hw_id(%d)", hw_id);
@@ -468,6 +519,9 @@ u32 get_hw_id_from_group(u32 group_id)
 		break;
 	case GROUP_ID_3AA1:
 		hw_id = DEV_HW_3AA1;
+		break;
+	case GROUP_ID_3AA2:
+		hw_id = DEV_HW_VPP;
 		break;
 	case GROUP_ID_ISP0:
 		hw_id = DEV_HW_ISP0;
@@ -493,6 +547,12 @@ u32 get_hw_id_from_group(u32 group_id)
 	case GROUP_ID_VRA0:
 		hw_id = DEV_HW_VRA;
 		break;
+	case GROUP_ID_PAF0:
+		hw_id = DEV_HW_PAF0;
+		break;
+	case GROUP_ID_PAF1:
+		hw_id = DEV_HW_PAF1;
+		break;
 	default:
 		hw_id = DEV_HW_END;
 		err_hw("invalid group(%d)", group_id);
@@ -506,14 +566,10 @@ static inline void fimc_is_hardware_fill_frame_info(u32 instance,
 	struct fimc_is_frame *hw_frame,
 	struct fimc_is_frame *frame)
 {
-	int i;
-
 	hw_frame->groupmgr	= frame->groupmgr;
 	hw_frame->group		= frame->group;
-	hw_frame->shot		= frame->shot;
 	hw_frame->shot_ext	= frame->shot_ext;
-	hw_frame->kvaddr_shot	= frame->kvaddr_shot;
-	hw_frame->dvaddr_shot	= frame->dvaddr_shot;
+	hw_frame->shot		= frame->shot;
 	hw_frame->shot_size	= frame->shot_size;
 	hw_frame->fcount	= frame->fcount;
 	hw_frame->rcount	= frame->rcount;
@@ -521,10 +577,26 @@ static inline void fimc_is_hardware_fill_frame_info(u32 instance,
 	hw_frame->out_flag      = GET_OUT_FLAG_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN, frame->out_flag);
 	hw_frame->core_flag	= 0;
 	atomic_set(&hw_frame->shot_done_flag, 1);
-	for (i = 0; i < FIMC_IS_MAX_PLANES; i++) {
-		hw_frame->dvaddr_buffer[i] = frame->dvaddr_buffer[i];
-		hw_frame->kvaddr_buffer[i] = frame->kvaddr_buffer[i];
-	}
+
+	memcpy(hw_frame->dvaddr_buffer, frame->dvaddr_buffer, sizeof(frame->dvaddr_buffer));
+	memcpy(hw_frame->kvaddr_buffer, frame->kvaddr_buffer, sizeof(frame->kvaddr_buffer));
+	memcpy(hw_frame->txcTargetAddress, frame->txcTargetAddress, sizeof(frame->txcTargetAddress));
+	memcpy(hw_frame->txpTargetAddress, frame->txpTargetAddress, sizeof(frame->txpTargetAddress));
+	memcpy(hw_frame->mrgTargetAddress, frame->mrgTargetAddress, sizeof(frame->mrgTargetAddress));
+	memcpy(hw_frame->efdTargetAddress, frame->efdTargetAddress, sizeof(frame->efdTargetAddress));
+	memcpy(hw_frame->ixcTargetAddress, frame->ixcTargetAddress, sizeof(frame->ixcTargetAddress));
+	memcpy(hw_frame->ixpTargetAddress, frame->ixpTargetAddress, sizeof(frame->ixpTargetAddress));
+	memcpy(hw_frame->mexcTargetAddress, frame->mexcTargetAddress, sizeof(frame->mexcTargetAddress));
+	memcpy(hw_frame->sccTargetAddress, frame->sccTargetAddress, sizeof(frame->sccTargetAddress));
+	memcpy(hw_frame->scpTargetAddress, frame->scpTargetAddress, sizeof(frame->scpTargetAddress));
+	memcpy(hw_frame->sc0TargetAddress, frame->sc0TargetAddress, sizeof(frame->sc0TargetAddress));
+	memcpy(hw_frame->sc1TargetAddress, frame->sc1TargetAddress, sizeof(frame->sc1TargetAddress));
+	memcpy(hw_frame->sc2TargetAddress, frame->sc2TargetAddress, sizeof(frame->sc2TargetAddress));
+	memcpy(hw_frame->sc3TargetAddress, frame->sc3TargetAddress, sizeof(frame->sc3TargetAddress));
+	memcpy(hw_frame->sc4TargetAddress, frame->sc4TargetAddress, sizeof(frame->sc4TargetAddress));
+	memcpy(hw_frame->sc5TargetAddress, frame->sc5TargetAddress, sizeof(frame->sc5TargetAddress));
+	memcpy(hw_frame->dxcTargetAddress, frame->dxcTargetAddress, sizeof(frame->dxcTargetAddress));
+
 	hw_frame->instance = instance;
 }
 
@@ -677,8 +749,32 @@ int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 
 	}
 
-#ifdef HW_BUG_WA_NO_CONTOLL_PER_FRAME
-	sema_init(&hardware->smp_mcsc_hw_bug, 1);
+#if defined(SOC_PAF0)
+	hw_id = DEV_HW_PAF0;
+	hw_slot = fimc_is_hw_slot_id(hw_id);
+	if (!valid_hw_slot_id(hw_slot)) {
+		err_hw("invalid slot (%d,%d)", hw_id, hw_slot);
+		return -EINVAL;
+	}
+	ret = fimc_is_hw_paf_probe(&(hardware->hw_ip[hw_slot]), itf, itfc, hw_id, "PAF0");
+	if (ret) {
+		err_hw("probe fail (%d,%d)", hw_id, hw_slot);
+		return ret;
+	}
+#endif
+
+#if defined(SOC_PAF1)
+	hw_id = DEV_HW_PAF1;
+	hw_slot = fimc_is_hw_slot_id(hw_id);
+	if (!valid_hw_slot_id(hw_slot)) {
+		err_hw("invalid slot (%d,%d)", hw_id, hw_slot);
+		return -EINVAL;
+	}
+	ret = fimc_is_hw_paf_probe(&(hardware->hw_ip[hw_slot]), itf, itfc, hw_id, "PAF1");
+	if (ret) {
+		err_hw("probe fail (%d,%d)", hw_id, hw_slot);
+		return ret;
+	}
 #endif
 
 #if defined(SOC_3AAISP)
@@ -717,6 +813,20 @@ int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 		return -EINVAL;
 	}
 	ret = fimc_is_hw_3aa_probe(&(hardware->hw_ip[hw_slot]), itf, itfc, hw_id, "3AA1");
+	if (ret) {
+		err_hw("probe fail (%d,%d)", hw_id, hw_slot);
+		return ret;
+	}
+#endif
+
+#if (defined(SOC_32S) && !defined(SOC_3AAISP))
+	hw_id = DEV_HW_VPP;
+	hw_slot = fimc_is_hw_slot_id(hw_id);
+	if (!valid_hw_slot_id(hw_slot)) {
+		err_hw("invalid slot (%d,%d)", hw_id, hw_slot);
+		return -EINVAL;
+	}
+	ret = fimc_is_hw_3aa_probe(&(hardware->hw_ip[hw_slot]), itf, itfc, hw_id, "VPP");
 	if (ret) {
 		err_hw("probe fail (%d,%d)", hw_id, hw_slot);
 		return ret;
@@ -864,20 +974,6 @@ int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 		return ret;
 	}
 #endif
-
-#if defined(SOC_SRDZ) && defined(CONFIG_SRDZ_V1_0)
-	hw_id = DEV_HW_SRDZ;
-	hw_slot = fimc_is_hw_slot_id(hw_id);
-	if (!valid_hw_slot_id(hw_slot)) {
-		err_hw("invalid slot (%d,%d)", hw_id, hw_slot);
-		return -EINVAL;
-	}
-	ret = fimc_is_hw_srdz_probe(&(hardware->hw_ip[hw_slot]), itf, itfc, hw_id, "SRD");
-	if (ret) {
-		err_hw("probe fail (%d,%d)", hw_id, hw_slot);
-		return ret;
-	}
-#endif
 	hardware->base_addr_mcuctl = itfc->regs_mcuctl;
 
 	for (i = 0; i < FIMC_IS_STREAM_COUNT; i++) {
@@ -885,13 +981,14 @@ int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 		hardware->sensor_position[i] = 0;
 	}
 
-	for (i = 0; i < SENSOR_POSITION_END; i++)
+	for (i = 0; i < SENSOR_POSITION_MAX; i++)
 		atomic_set(&hardware->streaming[i], 0);
 
 	atomic_set(&hardware->rsccount, 0);
 	atomic_set(&hardware->bug_count, 0);
 	atomic_set(&hardware->log_count, 0);
 	hardware->video_mode = false;
+	clear_bit(HW_OVERFLOW_RECOVERY, &hardware->hw_recovery_flag);
 
 	prepare_sfr_dump(hardware);
 
@@ -967,6 +1064,10 @@ int fimc_is_hardware_shot(struct fimc_is_hardware *hardware, u32 instance,
 
 	child = group->tail;
 
+	if ((group->id == GROUP_ID_3AA0 || group->id == GROUP_ID_3AA1)
+		&& !test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state))
+		fimc_is_hw_mcsc_set_size_for_uvsp(hardware, frame, hw_map);
+
 	while (child && (child->device_type == FIMC_IS_DEVICE_ISCHAIN)) {
 		hw_maxnum = fimc_is_get_hw_list(child->id, hw_list);
 		for (hw_index = hw_maxnum - 1; hw_index >= 0; hw_index--) {
@@ -1024,13 +1125,14 @@ int fimc_is_hardware_get_meta(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame 
 
 	FIMC_BUG(!hw_ip);
 
-	if ((output_id != FIMC_IS_HW_CORE_END)
-		&& (done_type == IS_SHOT_SUCCESS)
-		&& (test_bit(hw_ip->id, &frame->core_flag))) {
+	if (((output_id != FIMC_IS_HW_CORE_END) && (done_type == IS_SHOT_SUCCESS)
+			&& (test_bit(hw_ip->id, &frame->core_flag)))
+		|| (done_type != IS_SHOT_SUCCESS)) {
 		/* FIMC-IS v3.x only
 		 * There is a chance that the DMA done interrupt occurred before
 		 * the core done interrupt. So we skip to call the get_meta function.
 		 */
+		/* There is no need to call get_meta function in case of NDONE */
 		msdbg_hw(1, "%s: skip to get_meta [F:%d][B:0x%lx][C:0x%lx][O:0x%lx]\n",
 			instance, hw_ip, __func__, frame->fcount,
 			frame->bak_flag, frame->core_flag, frame->out_flag);
@@ -1040,15 +1142,17 @@ int fimc_is_hardware_get_meta(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame 
 	switch (hw_ip->id) {
 	case DEV_HW_3AA0:
 	case DEV_HW_3AA1:
+		copy_ctrl_to_dm(frame->shot);
 	case DEV_HW_ISP0:
 	case DEV_HW_ISP1:
-		copy_ctrl_to_dm(frame->shot);
-
 		ret = CALL_HW_OPS(hw_ip, get_meta, frame, hw_map);
 		if (ret) {
 			mserr_hw("[F:%d] get_meta fail", instance, hw_ip, frame->fcount);
 			return 0;
 		}
+		if (hw_ip->id == DEV_HW_3AA0 || hw_ip->id == DEV_HW_3AA1)
+			fimc_is_hw_mcsc_set_ni(hw_ip->hardware, frame, instance);
+
 		break;
 	case DEV_HW_TPU0:
 	case DEV_HW_TPU1:
@@ -1144,13 +1248,16 @@ int fimc_is_hardware_grp_shot(struct fimc_is_hardware *hardware, u32 instance,
 	struct fimc_is_group *group, struct fimc_is_frame *frame, ulong hw_map)
 {
 	int ret = 0;
-	int i, hw_slot = -1;
+	int hw_slot = -1;
 	struct fimc_is_hw_ip *hw_ip = NULL;
 	enum fimc_is_hardware_id hw_id = DEV_HW_END;
 	struct fimc_is_frame *hw_frame;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_group *head;
 	ulong flags = 0;
+#if defined(MULTI_SHOT_KTHREAD) || defined(MULTI_SHOT_TASKLET)
+	int i;
+#endif
 
 	FIMC_BUG(!hardware);
 	FIMC_BUG(!frame);
@@ -1172,22 +1279,28 @@ int fimc_is_hardware_grp_shot(struct fimc_is_hardware *hardware, u32 instance,
 	hw_ip->framemgr = &hardware->framemgr[head->id];
 	hw_ip->framemgr_late = &hardware->framemgr_late[head->id];
 
+#ifdef ENABLE_HW_FAST_READ_OUT
+	if (frame->num_buffers > 1)
+		hardware->hw_fro_en = true;
+	mdbg_hw(2, "ischain hw FRO EN(%d)\n", instance, hardware->hw_fro_en);
+#endif
+
 	if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
-		msinfo_hw("grp_shot [F:%d][G:0x%x][B:0x%lx][O:0x%lx][IN:0x%x]\n",
+		msinfo_hw("grp_shot [F:%d][G:0x%x][B:0x%lx][O:0x%lx][dva:%pad]\n",
 			instance, hw_ip,
 			frame->fcount, GROUP_ID(head->id),
-			frame->bak_flag, frame->out_flag, frame->dvaddr_buffer[0]);
+			frame->bak_flag, frame->out_flag, &frame->dvaddr_buffer[0]);
 
 	framemgr = hw_ip->framemgr;
 	framemgr_e_barrier_irqs(framemgr, 0, flags);
 	ret = check_shot_exist(framemgr, frame->fcount);
 
 	/* check late shot */
-	if ((hw_ip->internal_fcount >= frame->fcount || ret == INTERNAL_SHOT_EXIST)
+	if ((hw_ip->internal_fcount[instance] >= frame->fcount || ret == INTERNAL_SHOT_EXIST)
 		&& test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state)) {
 		msinfo_hw("LATE_SHOT (%d)[F:%d][G:0x%x][B:0x%lx][O:0x%lx][C:0x%lx]\n",
 			instance, hw_ip,
-			hw_ip->internal_fcount, frame->fcount, GROUP_ID(head->id),
+			hw_ip->internal_fcount[instance], frame->fcount, GROUP_ID(head->id),
 			frame->bak_flag, frame->out_flag, frame->core_flag);
 		frame->type = SHOT_TYPE_LATE;
 		/* unlock previous framemgr */
@@ -1227,6 +1340,7 @@ int fimc_is_hardware_grp_shot(struct fimc_is_hardware *hardware, u32 instance,
 	hw_frame->planes	= frame->planes;
 	hw_frame->num_buffers	= frame->num_buffers;
 	hw_frame->cur_buf_index	= 0;
+	hardware->recovery_numbuffers = frame->num_buffers;
 
 	/* for NI (noise index) */
 	hw_frame->noise_idx = frame->noise_idx;
@@ -1333,10 +1447,8 @@ int make_internal_shot(struct fimc_is_hw_ip *hw_ip, u32 instance, u32 fcount,
 	}
 	frame->groupmgr		= NULL;
 	frame->group		= NULL;
-	frame->shot		= NULL;
 	frame->shot_ext		= NULL;
-	frame->kvaddr_shot	= 0;
-	frame->dvaddr_shot	= 0;
+	frame->shot		= NULL;
 	frame->shot_size	= 0;
 	frame->fcount		= fcount;
 	frame->rcount		= 0;
@@ -1346,7 +1458,10 @@ int make_internal_shot(struct fimc_is_hw_ip *hw_ip, u32 instance, u32 fcount,
 	atomic_set(&frame->shot_done_flag, 1);
 	/* multi-buffer */
 	frame->planes		= 0;
-	frame->num_buffers	= 1;
+	if (hw_ip->hardware->hw_fro_en)
+		frame->num_buffers = hw_ip->num_buffers;
+	else
+		frame->num_buffers = 1;
 
 	for (i = 0; i < FIMC_IS_MAX_PLANES; i++)
 		frame->dvaddr_buffer[i]	= 0;
@@ -1370,12 +1485,13 @@ int fimc_is_hardware_config_lock(struct fimc_is_hw_ip *hw_ip, u32 instance, u32 
 	u32 sensor_fcount;
 	u32 fcount = framenum + 1;
 	u32 log_count;
+	bool req_int_shot = false;
 
 	FIMC_BUG(!hw_ip);
 
 	hardware = hw_ip->hardware;
 
-	if (!test_bit(FIMC_IS_GROUP_OTF_INPUT, &hw_ip->group[instance]->state))
+	if (!test_bit(FIMC_IS_GROUP_OTF_INPUT, &hw_ip->group[instance]->head->state))
 		return ret;
 
 	msdbgs_hw(2, "[F:%d]C.L\n", instance, hw_ip, framenum);
@@ -1394,10 +1510,17 @@ int fimc_is_hardware_config_lock(struct fimc_is_hw_ip *hw_ip, u32 instance, u32 
 retry_get_frame:
 	framemgr_e_barrier(framemgr, 0);
 
-	frame = get_frame(framemgr, FS_HW_REQUEST);
+	/*
+	 * Check fcount of the requested frame before handling it.
+	 * The fcount of next shot,
+	 * which is going to be delivered to HW within N config_lock,
+	 * must be N+1 to guarantee the fcount synchronization with sensor device.
+	 */
+	frame = peek_frame(framemgr, FS_HW_REQUEST);
 	if (!IS_ERR_OR_NULL(frame)) {
-		if (unlikely(frame->fcount <= framenum)) {
-			put_frame(framemgr, frame, FS_HW_WAIT_DONE);
+		if (unlikely(frame->fcount < fcount)) {
+			/* Fcount of the requested frame is too old. Flush it. */
+			trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
 
 			framemgr_x_barrier(framemgr, 0);
 
@@ -1408,8 +1531,18 @@ retry_get_frame:
 			}
 
 			goto retry_get_frame;
+		} else if (unlikely(frame->fcount > fcount)) {
+			/* Fcount of the requested frame is too fast. Skip it. */
+			req_int_shot = true;
+		} else {
+			/* It is the expected fcount. Use it. */
+			frame = get_frame(framemgr, FS_HW_REQUEST);
 		}
 	} else {
+		req_int_shot = true;
+	}
+
+	if (req_int_shot) {
 		ret = make_internal_shot(hw_ip, instance, fcount, &frame, framemgr);
 		if (ret == INTERNAL_SHOT_EXIST) {
 			framemgr_x_barrier(framemgr, 0);
@@ -1451,16 +1584,20 @@ retry_get_frame:
 	return ret;
 }
 
-void check_late_shot(struct fimc_is_hw_ip *hw_ip)
+void check_late_shot(struct fimc_is_hw_ip *hw_ip, u32 fcount)
 {
 	struct fimc_is_frame *frame;
 	struct fimc_is_framemgr *framemgr = hw_ip->framemgr_late;
 
 	framemgr_e_barrier(framemgr, 0);
 
-	frame = get_frame(framemgr, FS_HW_REQUEST);
-	if (frame) {
-		put_frame(framemgr, frame, FS_HW_WAIT_DONE);
+	/*
+	 * Handle LATE_FRAME error only for the frame that is being processed
+	 * or has been processed.
+	 */
+	frame = peek_frame(framemgr, FS_HW_REQUEST);
+	if (frame && frame->fcount <= fcount) {
+		trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
 
 		framemgr_x_barrier(framemgr, 0);
 
@@ -1553,7 +1690,7 @@ void fimc_is_hardware_frame_start(struct fimc_is_hw_ip *hw_ip, u32 instance)
 			print_all_hw_frame_count(hw_ip->hardware);
 			framemgr_x_barrier(framemgr, 0);
 			mserr_hw("FSTART frame null (%d) (%d != %d)", instance, hw_ip,
-				hw_ip->internal_fcount, hw_ip->group[instance]->id, head->id);
+				hw_ip->internal_fcount[instance], hw_ip->group[instance]->id, head->id);
 			return;
 		}
 
@@ -1577,13 +1714,13 @@ void fimc_is_hardware_frame_start(struct fimc_is_hw_ip *hw_ip, u32 instance)
 
 		put_frame(framemgr, frame, FS_HW_WAIT_DONE);
 		framemgr_x_barrier(framemgr, 0);
+
+		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &head->state))
+			check_late_shot(hw_ip, frame->fcount);
 	}
 
 	clear_bit(HW_CONFIG, &hw_ip->state);
 	atomic_set(&hw_ip->status.Vvalid, V_VALID);
-
-	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &hw_ip->group[instance]->state))
-		check_late_shot(hw_ip);
 }
 
 int fimc_is_hardware_sensor_start(struct fimc_is_hardware *hardware, u32 instance,
@@ -1625,6 +1762,7 @@ int fimc_is_hardware_sensor_start(struct fimc_is_hardware *hardware, u32 instanc
 	atomic_set(&hardware->streaming[hardware->sensor_position[instance]], 1);
 	atomic_set(&hardware->bug_count, 0);
 	atomic_set(&hardware->log_count, 0);
+	clear_bit(HW_OVERFLOW_RECOVERY, &hardware->hw_recovery_flag);
 
 	msinfo_hw("hw_sensor_start [P:0x%lx]\n", instance, hw_ip, hw_map);
 
@@ -1649,6 +1787,7 @@ int fimc_is_hardware_sensor_stop(struct fimc_is_hardware *hardware, u32 instance
 	atomic_set(&hardware->streaming[hardware->sensor_position[instance]], 0);
 	atomic_set(&hardware->bug_count, 0);
 	atomic_set(&hardware->log_count, 0);
+	clear_bit(HW_OVERFLOW_RECOVERY, &hardware->hw_recovery_flag);
 
 	if (test_bit(DEV_HW_3AA0, &hw_map)) {
 		hw_id = DEV_HW_3AA0;
@@ -1764,7 +1903,8 @@ int fimc_is_hardware_process_start(struct fimc_is_hardware *hardware, u32 instan
 			mserr_hw("enable fail (%d)", instance, hw_ip, hw_slot);
 			return -EINVAL;
 		}
-		hw_ip->internal_fcount = 0;
+
+		hw_ip->internal_fcount[instance] = 0;
 	}
 
 	return ret;
@@ -1772,7 +1912,7 @@ int fimc_is_hardware_process_start(struct fimc_is_hardware *hardware, u32 instan
 
 static int flush_frames_in_instance(struct fimc_is_hw_ip *hw_ip,
 	struct fimc_is_framemgr *framemgr, u32 instance,
-	enum fimc_is_hw_frame_state state, enum ShotErrorType done_type)
+	enum fimc_is_frame_state state, enum ShotErrorType done_type)
 {
 	int retry = 150;
 	struct fimc_is_frame *frame;
@@ -1836,7 +1976,7 @@ void fimc_is_hardware_force_stop(struct fimc_is_hardware *hardware,
 	int ret = 0;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_framemgr *framemgr_late;
-	enum fimc_is_hw_frame_state state;
+	enum fimc_is_frame_state state;
 
 	FIMC_BUG_VOID(!hw_ip);
 
@@ -1977,7 +2117,7 @@ void fimc_is_hardware_process_stop(struct fimc_is_hardware *hardware, u32 instan
 	CALL_HW_OPS(hw_ip, clk_gate, instance, true, false);
 	fimc_is_hardware_force_stop(hardware, hw_ip, instance);
 	CALL_HW_OPS(hw_ip, clk_gate, instance, false, false);
-	hw_ip->internal_fcount = 0;
+	hw_ip->internal_fcount[instance] = 0;
 	atomic_set(&hw_ip->status.otf_start, 0);
 
 	return;
@@ -2022,7 +2162,7 @@ int fimc_is_hardware_open(struct fimc_is_hardware *hardware, u32 hw_id,
 		}
 
 		memset(hw_ip->debug_info, 0x00, sizeof(struct hw_debug_info) * DEBUG_FRAME_COUNT);
-		memset(hw_ip->setfile, 0x00, sizeof(struct fimc_is_hw_ip_setfile) * SENSOR_POSITION_END);
+		memset(hw_ip->setfile, 0x00, sizeof(struct fimc_is_hw_ip_setfile) * SENSOR_POSITION_MAX);
 		hw_ip->applied_scenario = -1;
 		hw_ip->debug_index[0] = 0;
 		hw_ip->debug_index[1] = 0;
@@ -2143,7 +2283,6 @@ int fimc_is_hardware_close(struct fimc_is_hardware *hardware,u32 hw_id, u32 inst
 		atomic_set(&hw_ip->status.otf_start, 0);
 		atomic_set(&hw_ip->fcount, 0);
 		atomic_set(&hw_ip->instance, 0);
-		hw_ip->internal_fcount = 0;
 		atomic_set(&hw_ip->run_rsccount, 0);
 
 #if defined(MULTI_SHOT_KTHREAD)
@@ -2285,7 +2424,7 @@ int fimc_is_hardware_shot_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame
 		frame_manager_print_info_queues(framemgr);
 		print_all_hw_frame_count(hw_ip->hardware);
 		framemgr_x_barrier_common(framemgr, 0, flags);
-		FIMC_BUG(!frame);
+		FIMC_BUG(1);
 	}
 
 	head = GET_HEAD_GROUP_IN_DEVICE(FIMC_IS_DEVICE_ISCHAIN,
@@ -2299,6 +2438,8 @@ int fimc_is_hardware_shot_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame
 		goto free_frame;
 
 	switch (head->id) {
+	case GROUP_ID_PAF0:
+	case GROUP_ID_PAF1:
 	case GROUP_ID_3AA0:
 	case GROUP_ID_3AA1:
 	case GROUP_ID_ISP0:
@@ -2376,6 +2517,25 @@ exit:
 	trans_frame(framemgr, frame, FS_HW_FREE);
 	framemgr_x_barrier_common(framemgr, 0, flags);
 	atomic_set(&frame->shot_done_flag, 0);
+
+	/* Force flush the old H/W frames with DONE state */
+	framemgr_e_barrier_common(framemgr, 0, flags);
+	if (framemgr->queued_count[FS_HW_WAIT_DONE] > 0) {
+		struct fimc_is_frame *temp;
+		u32 fcount = frame->fcount;
+		u32 instance = frame->instance;
+
+		list_for_each_entry_safe(frame, temp, &framemgr->queued_list[FS_HW_WAIT_DONE], list) {
+			if (frame && frame->instance == instance && frame->fcount < fcount) {
+				msinfo_hw("[F%d]force flush\n",
+						frame->instance, hw_ip, frame->fcount);
+				trans_frame(framemgr, frame, FS_HW_FREE);
+				atomic_set(&frame->shot_done_flag, 0);
+			}
+		}
+	}
+	framemgr_x_barrier_common(framemgr, 0, flags);
+
 	if (framemgr->queued_count[FS_HW_FREE] > 10)
 		atomic_set(&hw_ip->hardware->bug_count, 0);
 
@@ -2481,6 +2641,10 @@ int fimc_is_hardware_frame_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 			frame->frame_info[INFO_FRAME_END_PROC].when = local_clock();
 		}
 
+		if (frame->shot && get_meta)
+			fimc_is_hardware_get_meta(hw_ip, frame,
+				frame->instance, hw_ip->hardware->hw_map[frame->instance],
+				output_id, done_type);
 	} else {
 		if (frame->type == SHOT_TYPE_INTERNAL)
 			goto shot_done;
@@ -2517,6 +2681,11 @@ int fimc_is_hardware_frame_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 			goto shot_done;
 		}
 
+		if (frame->shot && get_meta)
+			fimc_is_hardware_get_meta(hw_ip, frame,
+				frame->instance, hw_ip->hardware->hw_map[frame->instance],
+				output_id, done_type);
+
 		ret = do_frame_done_work_func(hw_ip->itf,
 				wq_id,
 				frame->instance,
@@ -2529,11 +2698,6 @@ int fimc_is_hardware_frame_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 
 		clear_bit(output_id, &frame->out_flag);
 	}
-
-	if (frame->shot && get_meta)
-		fimc_is_hardware_get_meta(hw_ip, frame,
-			frame->instance, hw_ip->hardware->hw_map[frame->instance],
-			output_id, done_type);
 
 shot_done:
 	if (output_id == FIMC_IS_HW_CORE_END)
@@ -2603,7 +2767,18 @@ int fimc_is_hardware_frame_ndone(struct fimc_is_hw_ip *ldr_hw_ip,
 			}
 
 			if (done_type == IS_SHOT_TIMEOUT)
-				_fimc_is_hardware_sfr_dump(hw_ip, false);
+#ifdef SKIP_VRA_SFR_DUMP
+			{
+				/* HACK
+				 * To access the register with offset value 4098 in VRA
+				 * occurs ITMON read time-out error.
+				 */
+				if (hw_ip->id != DEV_HW_VRA)
+					fimc_is_hardware_sfr_dump(hardware, hw_id, false);
+			}
+#else
+				fimc_is_hardware_sfr_dump(hardware, hw_id, false);
+#endif
 		}
 		head = head->child;
 	}
@@ -2952,6 +3127,12 @@ int fimc_is_hardware_load_setfile(struct fimc_is_hardware *hardware, ulong addr,
 
 			if (!test_bit(hw_ip->id, &hardware->hw_map[instance])) {
 				msdbg_hw(1, "skip parsing at not mapped hw_ip", instance, hw_ip);
+				if (hw_slot) {
+					unsigned long base = header.num_setfile_base;
+					size_t blk_size = sizeof(u32);
+
+					setfile_table_idx = (u32)*(ulong *)(base + (ip * blk_size));
+				}
 				continue;
 			}
 
@@ -3153,7 +3334,6 @@ void fimc_is_hardware_sfr_dump(struct fimc_is_hardware *hardware, u32 hw_id, boo
 	if (hw_id == HW_SLOT_MAX) {
 		for (hw_slot = 0; hw_slot < HW_SLOT_MAX; hw_slot++) {
 			hw_ip = &hardware->hw_ip[hw_slot];
-
 			_fimc_is_hardware_sfr_dump(hw_ip, flag_print_log);
 		}
 	} else {
@@ -3163,4 +3343,98 @@ void fimc_is_hardware_sfr_dump(struct fimc_is_hardware *hardware, u32 hw_id, boo
 			_fimc_is_hardware_sfr_dump(hw_ip, flag_print_log);
 		}
 	}
+}
+
+int fimc_is_hardware_flush_frame_by_group(struct fimc_is_hardware *hardware,
+	struct fimc_is_group *group, u32 instance)
+{
+	struct fimc_is_hw_ip *hw_ip = NULL;
+	enum fimc_is_hardware_id hw_id = DEV_HW_END;
+	int hw_list[GROUP_HW_MAX], hw_slot;
+	int hw_maxnum = 0;
+
+	hw_maxnum = fimc_is_get_hw_list(group->id, hw_list);
+	hw_id = hw_list[0];
+	hw_slot = fimc_is_hw_slot_id(hw_id);
+	if (!valid_hw_slot_id(hw_slot)) {
+		merr_hw("invalid slot (%d,%d)", instance,
+				hw_id, hw_slot);
+		return -EINVAL;
+	}
+	hw_ip = &hardware->hw_ip[hw_slot];
+
+	msdbg_hw(1, "flush_frame by group(%d)\n", instance, hw_ip, group->id);
+	fimc_is_hardware_flush_frame(hw_ip, FS_HW_REQUEST, IS_SHOT_UNPROCESSED);
+
+	return 0;
+}
+
+int fimc_is_hardware_restore_by_group(struct fimc_is_hardware *hardware,
+	struct fimc_is_group *group, u32 instance)
+{
+	int ret = 0;
+	struct fimc_is_hw_ip *hw_ip = NULL;
+	enum fimc_is_hardware_id hw_id = DEV_HW_END;
+	int hw_list[GROUP_HW_MAX], hw_index, hw_slot;
+	int hw_maxnum = 0;
+
+	hw_maxnum = fimc_is_get_hw_list(group->id, hw_list);
+	for (hw_index = hw_maxnum - 1; hw_index >= 0; hw_index--) {
+		hw_id = hw_list[hw_index];
+		hw_slot = fimc_is_hw_slot_id(hw_id);
+		if (!valid_hw_slot_id(hw_slot)) {
+			merr_hw("invalid slot (%d,%d)", instance,
+					hw_id, hw_slot);
+			return -EINVAL;
+		}
+		hw_ip = &hardware->hw_ip[hw_slot];
+
+		ret = CALL_HW_OPS(hw_ip, restore, instance);
+		if (ret) {
+			mserr_hw("reset & restore fail = %x", instance, hw_ip, ret);
+			goto exit;
+		}
+	}
+
+exit:
+	return ret;
+}
+
+int fimc_is_hardware_recovery_shot(struct fimc_is_hardware *hardware, u32 instance,
+	struct fimc_is_group *group, u32 recov_fcount, struct fimc_is_framemgr *framemgr)
+{
+	int ret = 0;
+	struct fimc_is_frame *frame = NULL;
+	struct fimc_is_hw_ip *hw_ip = NULL;
+	enum fimc_is_hardware_id hw_id = DEV_HW_END;
+	int hw_list[GROUP_HW_MAX], hw_slot;
+	int hw_maxnum = 0;
+	ulong flags = 0;
+
+	hw_maxnum = fimc_is_get_hw_list(group->id, hw_list);
+	hw_id = hw_list[0];
+	hw_slot = fimc_is_hw_slot_id(hw_id);
+	if (!valid_hw_slot_id(hw_slot)) {
+		merr_hw("invalid slot (%d,%d)", instance,
+				hw_id, hw_slot);
+		return -EINVAL;
+	}
+	hw_ip = &hardware->hw_ip[hw_slot];
+
+	framemgr_e_barrier_common(framemgr, 0, flags);
+	frame = get_frame(framemgr, FS_HW_REQUEST);
+	if (!frame) {
+		ret = make_internal_shot(hw_ip, instance, recov_fcount, &frame, framemgr);
+		if (ret) {
+			framemgr_x_barrier_common(framemgr, 0, flags);
+			goto exit;
+		}
+	}
+	framemgr_x_barrier_common(framemgr, 0, flags);
+
+	ret = fimc_is_hardware_shot(hardware, instance, hw_ip->group[instance],
+			frame, framemgr, hardware->hw_map[instance], frame->fcount);
+
+exit:
+	return ret;
 }

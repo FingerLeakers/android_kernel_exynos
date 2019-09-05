@@ -22,38 +22,6 @@
 
 #include "modem_pktlog.h"
 
-#if 0
-#define PKTLOG_MAX_LEN 256
-void pktlog_copy_buf(struct pktlog_data *pktlog, int type, void *buf)
-{
-	struct sk_buff *pkt;
-	int len;
-
-	if (!pktlog || !pktlog->qmax)
-		return;
-
-	pkt = alloc_skb(PKTLOG_MAX_LEN,
-			int_interrupt() ? GFP_ATOMIC : GFP_KERNEL);
-	if (!pkt) {
-		pr_err("%s: fail to alloc skb for pktlog buf\n", __func__);
-		return;
-	}
-	pkt->tstamp = ktime_get_real();
-	pktpriv(pkt)->type = type;
-
-	/*TODO: log from fmt variable prameters */
-
-	/* skb_put(); */
-
-	skb_queue_tail(&pktlog->logq, pkt);
-	if (pktlog->logq->qlen > qmax) {
-		struct sk_buff *drop = skb_dequene(&pktlog->logq);
-		if (drop)
-			dev_kfree_skb_any(drop);
-	}
-}
-#endif
-
 void pktlog_queue_skb(struct pktlog_data *pktlog, unsigned char dir,
 		struct sk_buff *skb)
 {
@@ -188,7 +156,8 @@ static ssize_t pktlog_read(struct file *filp, char *buf, size_t count,
 		goto exit;
 	}
 	cplen += payload_len;
-
+	dev_consume_skb_any(pkt);
+	return cplen;
 exit:
 	dev_kfree_skb_any(pkt);
 	return cplen;

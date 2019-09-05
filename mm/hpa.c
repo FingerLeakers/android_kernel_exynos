@@ -27,6 +27,8 @@
 #include <linux/vmalloc.h>
 #include <linux/device.h>
 #include <linux/oom.h>
+#include <linux/sched/task.h>
+#include <linux/sched/mm.h>
 
 #include "internal.h"
 
@@ -36,96 +38,93 @@ static unsigned long start_pfn, end_pfn;
 static unsigned long cached_scan_pfn;
 
 #define HPA_MIN_OOMADJ	100
-static unsigned long hpa_deathpending_timeout;
 
-static int test_task_flag(struct task_struct *p, int flag)
+static bool oom_unkillable_task(struct task_struct *p)
 {
-	struct task_struct *t = p;
+	if (is_global_init(p))
+		return true;
+	if (p->flags & PF_KTHREAD)
+		return true;
+	return false;
+}
 
-	do {
-		task_lock(t);
-		if (test_tsk_thread_flag(t, flag)) {
-			task_unlock(t);
-			return 1;
-		}
-		task_unlock(t);
-	} while_each_thread(p, t);
-
-	return 0;
+static bool oom_skip_task(struct task_struct *p, int selected_adj)
+{
+	if (same_thread_group(p, current))
+		return true;
+	if (p->signal->oom_score_adj <= HPA_MIN_OOMADJ)
+		return true;
+	if ((p->signal->oom_score_adj < selected_adj) &&
+	    (selected_adj <= OOM_SCORE_ADJ_MAX))
+		return true;
+	if (test_bit(MMF_OOM_SKIP, &p->mm->flags))
+		return true;
+	if (in_vfork(p))
+		return true;
+	return false;
 }
 
 static int hpa_killer(void)
 {
-	struct task_struct *tsk;
+	struct task_struct *tsk, *p;
 	struct task_struct *selected = NULL;
-	unsigned long rem = 0;
-	int tasksize;
-	int selected_tasksize = 0;
-	short selected_oom_score_adj = HPA_MIN_OOMADJ;
-	int ret = 0;
+	unsigned long selected_tasksize = 0;
+	int selected_adj = OOM_SCORE_ADJ_MAX + 1;
 
 	rcu_read_lock();
 	for_each_process(tsk) {
-		struct task_struct *p;
-		short oom_score_adj;
+		int tasksize;
+		int current_adj;
 
-		if (tsk->flags & PF_KTHREAD)
-			continue;
-
-		if (same_thread_group(tsk, current))
-			continue;
-
-		if (test_task_flag(tsk, TIF_MEMALLOC))
+		if (oom_unkillable_task(tsk))
 			continue;
 
 		p = find_lock_task_mm(tsk);
 		if (!p)
 			continue;
 
-		if (task_lmk_waiting(p)) {
+		if (oom_skip_task(p, selected_adj)) {
 			task_unlock(p);
-
-			if (time_before_eq(jiffies, hpa_deathpending_timeout)) {
-				rcu_read_unlock();
-				return ret;
-			}
-
 			continue;
 		}
-		oom_score_adj = p->signal->oom_score_adj;
+
 		tasksize = get_mm_rss(p->mm);
+		tasksize += get_mm_counter(p->mm, MM_SWAPENTS);
+		tasksize += atomic_long_read(&p->mm->nr_ptes);
+		tasksize += mm_nr_pmds(p->mm);
+		current_adj = p->signal->oom_score_adj;
+
 		task_unlock(p);
-		if (tasksize <= 0 || oom_score_adj <= HPA_MIN_OOMADJ)
+
+		if (selected &&
+		    (current_adj == selected_adj) &&
+		    (tasksize <= selected_tasksize))
 			continue;
 
-		if (selected) {
-			if (oom_score_adj < selected_oom_score_adj)
-				continue;
-			if (oom_score_adj == selected_oom_score_adj &&
-			    tasksize <= selected_tasksize)
-				continue;
-		}
+		if (selected)
+			put_task_struct(selected);
+
 		selected = p;
 		selected_tasksize = tasksize;
-		selected_oom_score_adj = oom_score_adj;
-	}
-
-	if (selected) {
-		pr_info("HPA: Killing '%s' (%d), adj %hd freed %ldkB\n",
-				selected->comm, selected->pid,
-				selected_oom_score_adj,
-				selected_tasksize * (long)(PAGE_SIZE / 1024));
-		hpa_deathpending_timeout = jiffies + HZ;
-		task_set_lmk_waiting(selected);
-		send_sig(SIGKILL, selected, 0);
-		rem += selected_tasksize;
-	} else {
-		pr_info("HPA: no killable task\n");
-		ret = -ESRCH;
+		selected_adj = current_adj;
+		get_task_struct(selected);
 	}
 	rcu_read_unlock();
 
-	return ret;
+	if (!selected) {
+		pr_info("HPA: no killable task\n");
+		return -ESRCH;
+	}
+
+	pr_info("HPA: Killing '%s' (%d), adj %hd to free %lukB\n",
+		selected->comm, task_pid_nr(selected), selected_adj,
+		selected_tasksize * (PAGE_SIZE / SZ_1K));
+
+	do_send_sig_info(SIGKILL, SEND_SIG_FORCED, selected, true);
+
+	put_task_struct(selected);
+
+	return 0;
 }
 
 static bool is_movable_chunk(unsigned long pfn, unsigned int order)
@@ -145,69 +144,101 @@ static bool is_movable_chunk(unsigned long pfn, unsigned int order)
 	return true;
 }
 
-static int alloc_freepages_range(struct zone *zone, unsigned int order,
-				 struct page **pages, int required)
+static int get_exception_of_page(phys_addr_t phys,
+				 phys_addr_t exception_areas[][2],
+				 int nr_exception)
+{
+	int i;
 
+	for (i = 0; i < nr_exception; i++)
+		if ((exception_areas[i][0] <= phys) &&
+		    (phys <= exception_areas[i][1]))
+			return i;
+	return -1;
+}
+
+static inline void expand(struct zone *zone, struct page *page,
+			  int low, int high, struct free_area *area,
+			  int migratetype)
+{
+	unsigned long size = 1 << high;
+
+	while (high > low) {
+		area--;
+		high--;
+		size >>= 1;
+
+		list_add(&page[size].lru, &area->free_list[migratetype]);
+		area->nr_free++;
+		set_page_private(&page[size], high);
+		__SetPageBuddy(&page[size]);
+	}
+}
+
+static struct page *alloc_freepage_one(struct zone *zone, unsigned int order,
+				       phys_addr_t exception_areas[][2],
+				       int nr_exception)
 {
 	unsigned int current_order;
-	unsigned int mt;
-	unsigned long wmark;
-	unsigned long flags;
 	struct free_area *area;
 	struct page *page;
-	int i;
-	int count = 0;
-	struct list_head *pos, *n;
+	int mt;
 
-	spin_lock_irqsave(&zone->lock, flags);
+	for (mt = MIGRATE_UNMOVABLE; mt < MIGRATE_PCPTYPES; ++mt) {
+		for (current_order = order;
+		     current_order < MAX_ORDER; ++current_order) {
+			area = &(zone->free_area[current_order]);
 
-	for (current_order = order; current_order < MAX_ORDER; ++current_order) {
-		area = &(zone->free_area[current_order]);
-		wmark = min_wmark_pages(zone) + (1 << current_order);
-
-		for (mt = MIGRATE_UNMOVABLE; mt < MIGRATE_PCPTYPES; ++mt) {
-			list_for_each_safe(pos, n, &area->free_list[mt]) {
-				if (!zone_watermark_ok(zone, current_order,
-							wmark, 0, 0))
-					goto wmark_fail;
-
-				/*
-				 * expanding the current free chunk is not
-				 * supported here due to the complex logic of
-				 * expand().
-				 */
-				if ((required << order) < (1 << current_order))
-					break;
-
-				page = list_entry(pos, struct page, lru);
-
-				if ((page_to_pfn(page) >= 0xF0000) &&
-						(page_to_pfn(page) <= 0xFFFFF))
-					continue;
-				if (page_to_pfn(page) > end_pfn)
+			list_for_each_entry(page, &area->free_list[mt], lru) {
+				if (get_exception_of_page(page_to_phys(page),
+							  exception_areas,
+							  nr_exception) >= 0)
 					continue;
 
 				list_del(&page->lru);
+
 				__ClearPageBuddy(page);
 				set_page_private(page, 0);
-				set_pcppage_migratetype(page, mt);
-				/*
-				 * skip checking bad page state
-				 * for fast allocation
-				 */
 				area->nr_free--;
-				__mod_zone_page_state(zone, NR_FREE_PAGES,
-							-(1 << current_order));
+				expand(zone, page, order,
+				       current_order, area, mt);
+				set_pcppage_migratetype(page, mt);
 
-				required -= 1 << (current_order - order);
-
-				for (i = 1 << (current_order - order); i > 0; i--) {
-					post_alloc_hook(page, order, GFP_KERNEL);
-					pages[count++] = page;
-					page += 1 << order;
-				}
+				return page;
 			}
 		}
+	}
+
+	return NULL;
+}
+
+static int alloc_freepages_range(struct zone *zone, unsigned int order,
+				 struct page **pages, int required,
+				 phys_addr_t exception_areas[][2],
+				 int nr_exception)
+
+{
+	unsigned long wmark;
+	unsigned long flags;
+	struct page *page;
+	int count = 0;
+
+	spin_lock_irqsave(&zone->lock, flags);
+
+	while (required > count) {
+		wmark = min_wmark_pages(zone) + (1 << order);
+		if (!zone_watermark_ok(zone, order, wmark, 0, 0))
+			goto wmark_fail;
+
+		page = alloc_freepage_one(zone, order, exception_areas,
+					  nr_exception);
+		if (!page)
+			break;
+
+		post_alloc_hook(page, order, GFP_KERNEL);
+		__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
+		pages[count++] = page;
+		__count_zid_vm_events(PGALLOC, page_zonenum(page), 1 << order);
 	}
 
 wmark_fail:
@@ -225,7 +256,29 @@ static void prep_highorder_pages(unsigned long base_pfn, int order)
 		set_page_count(pfn_to_page(pfn), 0);
 }
 
-int alloc_pages_highorder(int order, struct page **pages, int nents)
+/**
+ * alloc_pages_highorder_except() - allocate large order pages
+ * @order:           required page order
+ * @pages:           array to store allocated @order order pages
+ * @nents:           number of @order order pages
+ * @exception_areas: memory areas that should not include pages in @pages
+ * @nr_exception:    number of memory areas in @exception_areas
+ *
+ * Returns 0 on allocation success. -error otherwise.
+ *
+ * Allocates @nents pages of @order << PAGE_SHIFT number of consecutive pages
+ * and store the page descriptors of the allocated pages to @pages. Every page
+ * in @pages should also be aligned by @order << PAGE_SHIFT.
+ *
+ * If @nr_exception is larger than 0, alloc_page_highorder_except() does not
+ * allocate pages in the areas described in @exception_areas. @exception_areas
+ * is an array of array with two elements: The first element is the start
+ * address of an area and the last element is the end address. The end address
+ * is the last byte address in the area, that is "[start address] + [size] - 1".
+ */
+int alloc_pages_highorder_except(int order, struct page **pages, int nents,
+				 phys_addr_t exception_areas[][2],
+				 int nr_exception)
 {
 	struct zone *zone;
 	unsigned int nr_pages = 1 << order;
@@ -242,7 +295,8 @@ retry:
 			continue;
 
 		allocated = alloc_freepages_range(zone, order,
-					pages + nents - remained, remained);
+					pages + nents - remained, remained,
+					exception_areas, nr_exception);
 		remained -= allocated;
 
 		if (remained == 0)
@@ -255,15 +309,14 @@ retry:
 			(total_scanned < (end_pfn - start_pfn) * MAX_SCAN_TRY)
 			&& (remained > 0);
 			pfn += nr_pages, total_scanned += nr_pages) {
+		int mt;
+
 		if (pfn + nr_pages > end_pfn) {
 			pfn = start_pfn;
 			continue;
 		}
 
 		/* pfn validation check in the range */
-		if ((pfn >= 0xF0000) && (pfn <= 0xFFFFF))
-			pfn = 0x800000;
-
 		tmp = pfn;
 		do {
 			if (!pfn_valid(tmp))
@@ -273,19 +326,31 @@ retry:
 		if (tmp < (pfn + nr_pages))
 			continue;
 
-		/* CMA pages should not be reclaimed */
-		if (is_migrate_cma_rbin(
-				get_pageblock_migratetype(pfn_to_page(pfn)))) {
+		mt = get_pageblock_migratetype(pfn_to_page(pfn));
+		/*
+		 * CMA pages should not be reclaimed.
+		 * Isolated page blocks should not be tried again because it
+		 * causes isolated page block remained in isolated state
+		 * forever.
+		 */
+		if (is_migrate_cma(mt) || is_migrate_isolate(mt)) {
 			/* nr_pages is added before next iteration */
 			pfn = ALIGN(pfn + 1, pageblock_nr_pages) - nr_pages;
+			continue;
+		}
+
+		ret = get_exception_of_page(pfn << PAGE_SHIFT,
+					    exception_areas, nr_exception);
+		if (ret >= 0) {
+			pfn = (exception_areas[ret][1] + 1) >> PAGE_SHIFT;
+			pfn -= nr_pages;
 			continue;
 		}
 
 		if (!is_movable_chunk(pfn, order))
 			continue;
 
-		ret = alloc_contig_range_fast(pfn, pfn + nr_pages,
-				get_pageblock_migratetype(pfn_to_page(pfn)));
+		ret = alloc_contig_range_fast(pfn, pfn + nr_pages, mt);
 		if (ret == 0)
 			prep_highorder_pages(pfn, order);
 		else
@@ -350,9 +415,6 @@ static int __init init_highorder_pages_allocator(void)
 		start_pfn = __phys_to_pfn(memblock_start_of_DRAM());
 		end_pfn = max_pfn;
 	}
-
-	if (end_pfn > 0x97FFFF)
-		end_pfn = 0x97FFFF;
 
 	cached_scan_pfn = start_pfn;
 

@@ -81,11 +81,12 @@ enum S2DOS05_reg {
 	S2DOS05_REG_BUCK_CFG,
 	S2DOS05_REG_BUCK_VOUT,
 	S2DOS05_REG_IRQ_MASK = 0x0D,
-	S2DOS05_REG_IRQ = 0x11,
 #ifdef CONFIG_SEC_PM
 	S2DOS05_REG_SSD_TSD = 0x0E,
+	S2DOS05_REG_UVLO_FD = 0x0F,
 	S2DOS05_REG_OCL = 0x10,
 #endif
+	S2DOS05_REG_IRQ = 0x11,
 };
 
 /* S2DOS05 regulator ids */
@@ -163,7 +164,7 @@ enum S2DOS05_regulators {
 #define POWER_L4			5000
 
 #define ADC_EN_MASK			0x80
-#define ADC_ASYNCRD_MASK		0x80
+#define ADC_ASYNCRD_MASK	0x80
 #define ADC_PTR_MASK			0x0F
 #define ADC_PGEN_MASK			0x30
 #define CURRENT_MODE			0x00
@@ -173,13 +174,13 @@ enum S2DOS05_regulators {
 
 #define S2DOS05_MAX_ADC_CHANNEL		8
 
-extern void s2dos05_powermeter_init(struct s2dos05_dev *s2dos05);
+extern void s2dos05_powermeter_init(struct s2dos05_dev *s2dos05,
+					struct device *sec_disp_pmic_dev);
 extern void s2dos05_powermeter_deinit(struct s2dos05_dev *s2dos05);
 
 /* S2DOS05 shared i2c API function */
 extern int s2dos05_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest);
 extern int s2dos05_write_reg(struct i2c_client *i2c, u8 reg, u8 value);
 extern int s2dos05_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
-
 
 #endif /*  __LINUX_MFD_S2DOS05_H */

@@ -3,6 +3,7 @@
  * Copyright (c) 2008 Simtec Electronics
  *     Ben Dooks <ben@simtec.co.uk>, <ben-linux@fluff.org>
  * Copyright (c) 2013 Tomasz Figa <tomasz.figa@gmail.com>
+ * Copyright (c) 2017 Samsung Electronics Co., Ltd.
  *
  * PWM driver for Samsung SoCs
  *
@@ -27,8 +28,6 @@
 
 /* For struct samsung_timer_variant and samsung_pwm_lock. */
 #include <clocksource/samsung_pwm.h>
-#include <soc/samsung/exynos-pm.h>
-#include <soc/samsung/exynos-powermode.h>
 
 #define REG_TCFG0			0x00
 #define REG_TCFG1			0x04
@@ -88,6 +87,7 @@ struct samsung_pwm_channel {
  * @chip:		generic PWM chip
  * @variant:		local copy of hardware variant data
  * @inverter_mask:	inverter status for all channels - one bit per channel
+ * @disabled_mask:	disabled status for all channels - one bit per channel
  * @base:		base address of mapped PWM registers
  * @pwm_pclk:		peri clock used to set the pwm registers.
  * @pwm_sclk:		base clock used to drive the timers
@@ -98,6 +98,7 @@ struct samsung_pwm_chip {
 	struct pwm_chip chip;
 	struct samsung_pwm_variant variant;
 	u8 inverter_mask;
+	u8 disabled_mask;
 
 	void __iomem *base;
 	struct clk *pwm_pclk;
@@ -124,11 +125,18 @@ struct samsung_pwm_chip {
 static DEFINE_SPINLOCK(samsung_pwm_lock);
 #endif
 
+static void pwm_samsung_update_ip_idle_status(struct samsung_pwm_chip *chip, int idle)
+{
+#ifdef CONFIG_ARCH_EXYNOS_PM
+	exynos_update_ip_idle_status(chip->idle_ip_index, idle);
+#endif
+}
+
 static int pwm_samsung_clk_enable(struct samsung_pwm_chip *chip)
 {
 	int ret;
 
-	exynos_update_ip_idle_status(chip->idle_ip_index, 0);
+	pwm_samsung_update_ip_idle_status(chip, 0);
 
 	ret = clk_enable(chip->pwm_pclk);
 	if (ret)
@@ -142,7 +150,7 @@ static int pwm_samsung_clk_enable(struct samsung_pwm_chip *chip)
 pwm_sclk_err:
 	clk_disable(chip->pwm_pclk);
 pwm_pclk_err:
-	exynos_update_ip_idle_status(chip->idle_ip_index, 1);
+	pwm_samsung_update_ip_idle_status(chip, 1);
 	return ret;
 }
 
@@ -150,7 +158,7 @@ static void pwm_samsung_clk_disable(struct samsung_pwm_chip *chip)
 {
 	clk_disable(chip->pwm_sclk);
 	clk_disable(chip->pwm_pclk);
-	exynos_update_ip_idle_status(chip->idle_ip_index, 1);
+	pwm_samsung_update_ip_idle_status(chip, 1);
 }
 
 static inline
@@ -328,6 +336,8 @@ static void pwm_samsung_manual_update(struct samsung_pwm_chip *chip,
 	else
 		tcon |= TCON_AUTORELOAD(tcon_chan);
 
+	chip->disabled_mask &= ~BIT(pwm->hwpwm);
+
 	if (!(tcon & TCON_START(tcon_chan)))
 		tcon |= TCON_START(tcon_chan);
 
@@ -353,6 +363,8 @@ static int pwm_samsung_enable(struct pwm_chip *chip, struct pwm_device *pwm)
 	else if (!(tcon & TCON_AUTORELOAD(tcon_chan)) &&
 			channel->duty_cycle != DUTY_CYCLE_ZERO)
 		pwm_samsung_manual_update(our_chip, pwm);
+
+	our_chip->disabled_mask |= BIT(pwm->hwpwm);
 
 	channel->running = 1;
 	our_chip->enable_cnt++;
@@ -383,8 +395,8 @@ static void pwm_samsung_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 	spin_unlock_irqrestore(&samsung_pwm_lock, flags);
 }
 
-static int pwm_samsung_config(struct pwm_chip *chip, struct pwm_device *pwm,
-			      int duty_ns, int period_ns)
+static int __pwm_samsung_config(struct pwm_chip *chip, struct pwm_device *pwm,
+				int duty_ns, int period_ns, bool force_period)
 {
 	struct samsung_pwm_chip *our_chip = to_samsung_pwm_chip(chip);
 	unsigned int tcon_chan = to_tcon_channel(pwm->hwpwm);
@@ -416,7 +428,7 @@ static int pwm_samsung_config(struct pwm_chip *chip, struct pwm_device *pwm,
 			clk_get_rate(our_chip->pwm_sclk));
 
 	/* Check to see if we are changing the clock rate of the PWM. */
-	if (chan->period_ns != period_ns) {
+	if (chan->period_ns != period_ns || force_period) {
 		unsigned long tin_rate;
 		u32 period;
 
@@ -500,6 +512,12 @@ static int pwm_samsung_config(struct pwm_chip *chip, struct pwm_device *pwm,
 	return ret;
 }
 
+static int pwm_samsung_config(struct pwm_chip *chip, struct pwm_device *pwm,
+			      int duty_ns, int period_ns)
+{
+	return __pwm_samsung_config(chip, pwm, duty_ns, period_ns, false);
+}
+
 static void pwm_samsung_set_invert(struct samsung_pwm_chip *chip,
 				   unsigned int channel, bool invert)
 {
@@ -543,6 +561,33 @@ static int pwm_samsung_set_polarity(struct pwm_chip *chip,
 	return 0;
 }
 
+static int pwm_samsung_capture(struct pwm_chip *chip, struct pwm_device *pwm,
+		       struct pwm_capture *result, unsigned long timeout)
+{
+	struct samsung_pwm_chip *our_chip = to_samsung_pwm_chip(chip);
+	struct samsung_pwm_channel *chan = pwm_get_chip_data(pwm);
+	unsigned long freq;
+	u32 tcon, tcnt, tcmp, polarity, enabled;
+	u32 tcon_chan = to_tcon_channel(pwm->hwpwm);
+
+	result->period = chan->period_ns;
+	result->duty_cycle = chan->duty_ns;
+
+	tcon = readl(our_chip->base + REG_TCON);
+	polarity = tcon & TCON_INVERT(tcon_chan);
+	enabled = tcon & TCON_START(tcon_chan);
+
+	tcnt = readl(our_chip->base + REG_TCNTB(pwm->hwpwm));
+	tcmp = readl(our_chip->base + REG_TCMPB(pwm->hwpwm));
+	freq = clk_get_rate(our_chip->pwm_sclk) / tcnt;
+	dev_info(our_chip->chip.dev, "output freq = %luHz, tcnt = %u, tcmp = %u\n",
+			freq, tcnt, tcmp);
+	dev_info(our_chip->chip.dev, "pwm %sabled, polarity: %s",
+			(enabled ? "en":"dis"), (polarity ? "inverse" : "normal"));
+
+	return 0;
+}
+
 static const struct pwm_ops pwm_samsung_ops = {
 	.request	= pwm_samsung_request,
 	.free		= pwm_samsung_free,
@@ -550,6 +595,7 @@ static const struct pwm_ops pwm_samsung_ops = {
 	.disable	= pwm_samsung_disable,
 	.config		= pwm_samsung_config,
 	.set_polarity	= pwm_samsung_set_polarity,
+	.capture	= pwm_samsung_capture,
 	.owner		= THIS_MODULE,
 };
 
@@ -642,8 +688,9 @@ static int pwm_samsung_probe(struct platform_device *pdev)
 	chip->chip.base = -1;
 	chip->chip.npwm = SAMSUNG_PWM_NUM;
 	chip->inverter_mask = BIT(SAMSUNG_PWM_NUM) - 1;
+#ifdef CONFIG_ARCH_EXYNOS_PM
 	chip->idle_ip_index = exynos_get_idle_ip_index(dev_name(&pdev->dev));
-
+#endif
 	if (IS_ENABLED(CONFIG_OF) && pdev->dev.of_node) {
 		ret = pwm_samsung_parse_dt(chip);
 		if (ret)
@@ -678,7 +725,7 @@ static int pwm_samsung_probe(struct platform_device *pdev)
 		return PTR_ERR(chip->pwm_sclk);
 	}
 
-	exynos_update_ip_idle_status(chip->idle_ip_index, 0);
+	pwm_samsung_update_ip_idle_status(chip, 0);
 
 	/* pwm clock enable */
 	ret = clk_prepare_enable(chip->pwm_pclk);
@@ -729,7 +776,7 @@ chip_add_err:
 sclk_err:
 	clk_disable_unprepare(chip->pwm_pclk);
 base_clk_err:
-	exynos_update_ip_idle_status(chip->idle_ip_index, 1);
+	pwm_samsung_update_ip_idle_status(chip, 1);
 	return ret;
 
 }

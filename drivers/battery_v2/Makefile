@@ -1,8 +1,14 @@
-obj-$(CONFIG_BATTERY_SAMSUNG)	+= sec_battery.o sec_battery_sysfs.o
+ifeq ($(CONFIG_BATTERY_SAMSUNG_MHS), y)
+obj-$(CONFIG_BATTERY_SAMSUNG)	+= sec_battery_mhs.o sec_battery_sysfs.o sec_battery_dt.o
+else
+obj-$(CONFIG_BATTERY_SAMSUNG)	+= sec_battery.o sec_battery_sysfs.o sec_battery_dt.o
+endif
 obj-$(CONFIG_OF)		+= sec_adc.o
 obj-$(CONFIG_BATTERY_CISD)	+= sec_cisd.o
 obj-$(CONFIG_MULTI_CHARGING)	+= sec_multi_charger.o
 obj-$(CONFIG_STEP_CHARGING)	+= sec_step_charging.o
+obj-$(CONFIG_WIRELESS_AUTH)	+= sec_battery_misc.o
+obj-$(CONFIG_DIRECT_CHARGING)	+= sec_direct_charger.o
 obj-$(CONFIG_UPDATE_BATTERY_DATA)	+= sec_battery_data.o
 obj-$(CONFIG_BATTERY_NOTIFIER)	+= battery_notifier.o
 
@@ -35,7 +41,10 @@ obj-$(CONFIG_CHARGER_MAX77705)	+= max77705_charger.o
 obj-$(CONFIG_CHARGER_S2MU003)   += s2mu003_charger.o
 obj-$(CONFIG_CHARGER_DA9155)    += da9155_charger.o
 
+obj-$(CONFIG_WIRELESS_CHARGER_HAL_MFC)	+= mfc_hal_charger.o
 obj-$(CONFIG_WIRELESS_CHARGER_BQ51221)	+= bq51221_charger.o
 obj-$(CONFIG_WIRELESS_CHARGER_P9220)	+= p9220_charger.o
 obj-$(CONFIG_WIRELESS_CHARGER_MFC)	+= mfc_charger.o
+obj-$(CONFIG_WIRELESS_CHARGER_MFC_S2MIW04)	+= mfc_s2miw04_charger.o
 
+obj-$(CONFIG_CHARGER_PCA9468)	+= pca9468_charger.o

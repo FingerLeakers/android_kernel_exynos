@@ -50,6 +50,7 @@ enum sensor_module_3p8_position {
 	SENSOR_MODULE_3P8_FRONT = 1,
 };
 
+/* #define S5K3P8_PDAF_STAT_TYPE	VC_STAT_TYPE_TAIL_MSPD_GLOBAL */
 static struct fimc_is_sensor_cfg config_module_3p8[] = {
 	/* 4624x3466@30fps */
 	FIMC_IS_SENSOR_CFG_EXT(4624, 3466, 30, 32, 0, CSI_DATA_LANES_4, 0, SET_VC(VC_TAIL_MODE_PDAF, 144, 864), 0, 0),
@@ -95,6 +96,7 @@ static const struct v4l2_subdev_core_ops core_ops = {
 };
 
 static const struct v4l2_subdev_video_ops video_ops = {
+	.s_routing = sensor_module_s_routing,
 	.s_stream = sensor_module_s_stream,
 	.s_mbus_fmt = sensor_module_s_format,
 };
@@ -561,7 +563,6 @@ static int __init sensor_module_3p8_probe(struct platform_device *pdev)
 	int ret = 0;
 	bool use_pdaf = false;
 	u8 exist_actuator = 0;
-	int ch;
 	struct fimc_is_core *core;
 	struct v4l2_subdev *subdev_module;
 	struct fimc_is_module_enum *module;
@@ -646,8 +647,6 @@ static int __init sensor_module_3p8_probe(struct platform_device *pdev)
 	module->cfgs = ARRAY_SIZE(config_module_3p8);
 	module->cfg = config_module_3p8;
 	module->ops = NULL;
-	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
-		module->internal_vc[ch] = pdata->internal_vc[ch];
 	/* Sensor peri */
 	module->private_data = kzalloc(sizeof(struct fimc_is_device_sensor_peri), GFP_KERNEL);
 	if (!module->private_data) {

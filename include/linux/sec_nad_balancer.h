@@ -22,7 +22,7 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -36,9 +36,9 @@
 #include <linux/alarmtimer.h>
 
 #if defined(CONFIG_SEC_FACTORY)
-#define BALANCER_CMD	5
+#define BALANCER_CMD	6
 #define NAD_BUFF_SIZE	256
-#define MAX_TMU_COUNT	4
+#define MAX_TMU_COUNT	5
 
 #define UPDATE_FIRST_TEMPERATURE	1
 #define UPDATE_CONTI_TEMPERATURE	2
@@ -82,6 +82,7 @@ struct nad_balancer_pm_qos {
 
 	struct pm_qos_request big_qos;
 	struct pm_qos_request lit_qos;
+	struct pm_qos_request mid_qos;
 	struct pm_qos_request mif_qos;
 	struct pm_qos_request int_qos;
 

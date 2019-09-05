@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *	Generic watchdog defines. Derived from..
  *
@@ -52,6 +53,7 @@ struct watchdog_ops {
 	unsigned int (*get_timeleft)(struct watchdog_device *);
 	int (*restart)(struct watchdog_device *, unsigned long, void *);
 	long (*ioctl)(struct watchdog_device *, unsigned int, unsigned long);
+	void (*reset_confirm)(struct watchdog_device *);
 };
 
 /** struct watchdog_device - The structure that defines a watchdog device
@@ -117,6 +119,7 @@ struct watchdog_device {
 #define WDOG_NO_WAY_OUT		1	/* Is 'nowayout' feature set ? */
 #define WDOG_STOP_ON_REBOOT	2	/* Should be stopped on reboot */
 #define WDOG_HW_RUNNING		3	/* True if HW watchdog running */
+#define WDOG_STOP_ON_UNREGISTER	4	/* Should be stopped on unregister */
 	struct list_head deferred;
 };
 
@@ -149,6 +152,12 @@ static inline void watchdog_set_nowayout(struct watchdog_device *wdd, bool noway
 static inline void watchdog_stop_on_reboot(struct watchdog_device *wdd)
 {
 	set_bit(WDOG_STOP_ON_REBOOT, &wdd->status);
+}
+
+/* Use the following function to stop the watchdog when unregistering it */
+static inline void watchdog_stop_on_unregister(struct watchdog_device *wdd)
+{
+	set_bit(WDOG_STOP_ON_UNREGISTER, &wdd->status);
 }
 
 /* Use the following function to check if a timeout value is invalid */

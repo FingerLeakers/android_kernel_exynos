@@ -387,8 +387,6 @@ static int tdmb_mmap(struct file *filp, struct vm_area_struct *vma)
 	if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot))
 		return -EAGAIN;
 
-	DPRINTK("succeeded\n");
-
 	tdmb_ts_head = (unsigned int *)ts_ring;
 	tdmb_ts_tail = (unsigned int *)(ts_ring + 4);
 	tdmb_ts_buffer = ts_ring + 8;
@@ -400,10 +398,6 @@ static int tdmb_mmap(struct file *filp, struct vm_area_struct *vma)
 	tdmb_ts_size
 	= ((tdmb_ts_size / DMB_TS_SIZE) * DMB_TS_SIZE) - (30 * DMB_TS_SIZE);
 
-	DPRINTK("head : %p, tail : %p, buffer : %p, size : %x\n",
-			tdmb_ts_head, tdmb_ts_tail,
-			tdmb_ts_buffer, tdmb_ts_size);
-
 	cmd_buffer = tdmb_ts_buffer + tdmb_ts_size + 8;
 	cmd_head = (unsigned int *)(cmd_buffer - 8);
 	cmd_tail = (unsigned int *)(cmd_buffer - 4);
@@ -413,10 +407,7 @@ static int tdmb_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	cmd_size = 30 * DMB_TS_SIZE - 8; /* klaatu hard coding */
 
-	DPRINTK("cmd head : %p, tail : %p, buffer : %p, size : %x\n",
-			cmd_head, cmd_tail,
-			cmd_buffer, cmd_size);
-
+	DPRINTK("succeeded\n");
 	return 0;
 }
 
@@ -454,7 +445,7 @@ static int _tdmb_cmd_update(
 		return false;
 	}
 
-	DPRINTK("%p head %d tail %d\n", cmd_buffer, head, tail);
+	DPRINTK("head %d tail %d\n", head, tail);
 
 	if (head+data_size_tmp <= size) {
 		memcpy((cmd_buffer + head),
@@ -619,6 +610,7 @@ static long tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	case IOCTL_TDMB_SCAN_FREQ_ASYNC:
+#if 0
 		mutex_lock(&tdmb_lock);
 		if (!tdmb_pwr_on) {
 			DPRINTK("IOCTL_TDMB_SCAN_FREQ_ASYNC-Not ready\n");
@@ -644,6 +636,8 @@ static long tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		vfree(ensemble_info);
 		tdmb_last_ch = 0;
 		mutex_unlock(&tdmb_lock);
+#endif
+		DPRINTK("IOCTL_TDMB_SCAN_FREQ_ASYNC - blocked\n");
 		break;
 
 	case IOCTL_TDMB_SCAN_FREQ_SYNC:
@@ -654,6 +648,11 @@ static long tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			break;
 		}
 		ensemble_info = vmalloc(sizeof(struct ensemble_info_type));
+		if (ensemble_info == NULL) {
+			DPRINTK("IOCTL_TDMB_SCAN_FREQ_SYNC-vmalloc fail\n");
+			mutex_unlock(&tdmb_lock);
+			break;
+		}	
 		if (copy_from_user(ensemble_info, (void *)arg, sizeof(struct ensemble_info_type)))
 			DPRINTK("cmd(%x):copy_from_user failed\n", cmd);
 		else
@@ -1147,7 +1146,7 @@ static ssize_t tdmb_unit_test_store(struct class *dev,
 	return size;
 }
 
-static CLASS_ATTR(unit_test, 0664, tdmb_unit_test_show, tdmb_unit_test_store);
+static CLASS_ATTR_RW(tdmb_unit_test);
 #endif
 
 static int tdmb_probe(struct platform_device *pdev)
@@ -1190,7 +1189,7 @@ static int tdmb_probe(struct platform_device *pdev)
 		return -EFAULT;
 	}
 #ifdef TDMB_UNIT_TEST
-	ret = class_create_file(tdmb_class, &class_attr_unit_test);
+	ret = class_create_file(tdmb_class, &class_attr_tdmb_unit_test);
 	if (ret)
 		pr_err("failed to create attr_unit_test(%d)\n", ret);
 #endif

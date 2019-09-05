@@ -35,6 +35,8 @@ enum max77705_hw_rev {
 	MAX77705_PASS1 = 0x1,
 	MAX77705_PASS2 = 0x2,
 	MAX77705_PASS3 = 0x3,
+	MAX77705_PASS4 = 0x4,
+	MAX77705_PASS5 = 0x5,
 };
 
 enum max77705_reg {
@@ -265,6 +267,7 @@ enum max77705_irq_source {
 	CC_INT,
 	PD_INT,
 	VDM_INT,
+	VIR_INT,
 	MAX77705_IRQ_GROUP_NR,
 };
 
@@ -304,6 +307,7 @@ enum max77705_irq {
 	MAX77705_USBC_IRQ_VBUS_INT,
 	MAX77705_USBC_IRQ_VBADC_INT,
 	MAX77705_USBC_IRQ_DCD_INT,
+	MAX77705_USBC_IRQ_FAKVB_INT,
 	MAX77705_USBC_IRQ_CHGT_INT,
 	MAX77705_USBC_IRQ_UIDADC_INT,
 
@@ -330,6 +334,9 @@ enum max77705_irq {
 	MAX77705_IRQ_VDM_DP_CONFIGURE_INT,
 	MAX77705_IRQ_VDM_ATTENTION_INT,
 
+	/* VIRTUAL */
+	MAX77705_VIR_IRQ_ALTERROR_INT,
+
 	MAX77705_IRQ_NR,
 };
 
@@ -348,6 +355,8 @@ struct max77705_dev {
 	int irq_base;
 	int irq_gpio;
 	bool wakeup;
+	bool blocking_waterevent;
+	int device_product_id;
 	struct mutex irqlock;
 	int irq_masks_cur[MAX77705_IRQ_GROUP_NR];
 	int irq_masks_cache[MAX77705_IRQ_GROUP_NR];
@@ -356,6 +365,7 @@ struct max77705_dev {
 	u8 HW_Revision;
 	u8 FW_Revision;
 	u8 FW_Minor_Revision;
+	u8 FW_Product_ID;
 	struct work_struct fw_work;
 	struct workqueue_struct *fw_workqueue;
 	struct completion fw_completion;
@@ -374,6 +384,8 @@ struct max77705_dev {
 	u8 pmic_ver;	/* pmic version */
 
 	u8 cc_booting_complete;
+
+	int set_altmode;
 
 	struct max77705_platform_data *pdata;
 };
@@ -404,5 +416,6 @@ extern bool is_muic_usb_path_cp_usb(void);
 /* for charger api */
 extern void max77705_hv_muic_charger_init(void);
 extern int max77705_usbc_fw_update(struct max77705_dev *max77705, const u8 *fw_bin, int fw_bin_len, int enforce_do);
+extern void max77705_usbc_fw_setting(struct max77705_dev *max77705, int enforce_do);
 #endif /* __LINUX_MFD_MAX77705_PRIV_H */
 

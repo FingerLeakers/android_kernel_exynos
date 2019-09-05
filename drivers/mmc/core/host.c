@@ -30,16 +30,16 @@
 #include "host.h"
 #include "slot-gpio.h"
 #include "pwrseq.h"
+#include "sdio_ops.h"
+
+#define cls_dev_to_mmc_host(d)	container_of(d, struct mmc_host, class_dev)
 
 static DEFINE_IDA(mmc_host_ida);
-static DEFINE_SPINLOCK(mmc_host_lock);
 
 static void mmc_host_classdev_release(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
-	spin_lock(&mmc_host_lock);
-	ida_remove(&mmc_host_ida, host->index);
-	spin_unlock(&mmc_host_lock);
+	ida_simple_remove(&mmc_host_ida, host->index);
 	kfree(host);
 }
 
@@ -108,6 +108,12 @@ void mmc_retune_hold(struct mmc_host *host)
 {
 	if (!host->hold_retune)
 		host->retune_now = 1;
+	host->hold_retune += 1;
+}
+
+void mmc_retune_hold_now(struct mmc_host *host)
+{
+	host->retune_now = 0;
 	host->hold_retune += 1;
 }
 
@@ -297,6 +303,8 @@ int mmc_of_parse(struct mmc_host *host)
 	if (device_property_read_bool(dev, "wakeup-source") ||
 	    device_property_read_bool(dev, "enable-sdio-wakeup")) /* legacy */
 		host->pm_caps |= MMC_PM_WAKE_SDIO_IRQ;
+	if (device_property_read_bool(dev, "mmc-ddr-3_3v"))
+		host->caps |= MMC_CAP_3_3V_DDR;
 	if (device_property_read_bool(dev, "mmc-ddr-1_8v"))
 		host->caps |= MMC_CAP_1_8V_DDR;
 	if (device_property_read_bool(dev, "mmc-ddr-1_2v"))
@@ -311,14 +319,14 @@ int mmc_of_parse(struct mmc_host *host)
 		host->caps2 |= MMC_CAP2_HS400_1_2V | MMC_CAP2_HS200_1_2V_SDR;
 	if (device_property_read_bool(dev, "mmc-hs400-enhanced-strobe"))
 		host->caps2 |= MMC_CAP2_HS400_ES;
+	if (device_property_read_bool(dev, "skip-init-mmc-scan"))
+		host->caps2 |= MMC_CAP2_SKIP_INIT_SCAN;
 	if (device_property_read_bool(dev, "no-sdio"))
 		host->caps2 |= MMC_CAP2_NO_SDIO;
 	if (device_property_read_bool(dev, "no-sd"))
 		host->caps2 |= MMC_CAP2_NO_SD;
 	if (device_property_read_bool(dev, "no-mmc"))
 		host->caps2 |= MMC_CAP2_NO_MMC;
-	if (device_property_read_bool(dev, "skip-init-mmc-scan"))
-		host->caps2 |= MMC_CAP2_SKIP_INIT_SCAN;
 
 	host->dsr_req = !device_property_read_u32(dev, "dsr", &host->dsr);
 	if (host->dsr_req && (host->dsr & ~0xffff)) {
@@ -352,22 +360,13 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	/* scanning will be enabled when we're ready */
 	host->rescan_disable = 1;
 
-again:
-	if (!ida_pre_get(&mmc_host_ida, GFP_KERNEL)) {
+	err = ida_simple_get(&mmc_host_ida, 0, 0, GFP_KERNEL);
+	if (err < 0) {
 		kfree(host);
 		return NULL;
 	}
 
-	spin_lock(&mmc_host_lock);
-	err = ida_get_new(&mmc_host_ida, &host->index);
-	spin_unlock(&mmc_host_lock);
-
-	if (err == -EAGAIN) {
-		goto again;
-	} else if (err) {
-		kfree(host);
-		return NULL;
-	}
+	host->index = err;
 
 	dev_set_name(&host->class_dev, "mmc%d", host->index);
 
@@ -379,6 +378,8 @@ again:
 
 	if (mmc_gpio_alloc(host)) {
 		put_device(&host->class_dev);
+		ida_simple_remove(&mmc_host_ida, host->index);
+		kfree(host);
 		return NULL;
 	}
 
@@ -389,6 +390,7 @@ again:
 	wake_lock_init(&host->detect_wake_lock, WAKE_LOCK_SUSPEND,
 			host->wlock_name);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
+	INIT_DELAYED_WORK(&host->sdio_irq_work, sdio_irq_work);
 	setup_timer(&host->retune_timer, mmc_retune_timer, (unsigned long)host);
 
 	/*
@@ -432,10 +434,6 @@ int mmc_add_host(struct mmc_host *host)
 	mmc_add_host_debugfs(host);
 #endif
 
-#ifdef CONFIG_BLOCK
-	mmc_latency_hist_sysfs_init(host);
-#endif
-
 	mmc_start_host(host);
 	if (!(host->pm_flags & MMC_PM_IGNORE_PM_NOTIFY))
 		mmc_register_pm_notifier(host);
@@ -461,10 +459,6 @@ void mmc_remove_host(struct mmc_host *host)
 
 #ifdef CONFIG_DEBUG_FS
 	mmc_remove_host_debugfs(host);
-#endif
-
-#ifdef CONFIG_BLOCK
-	mmc_latency_hist_sysfs_exit(host);
 #endif
 
 	device_del(&host->class_dev);

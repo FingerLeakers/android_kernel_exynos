@@ -35,12 +35,15 @@ struct dev_ril_bridge_msg {
 
 #ifdef CONFIG_DEV_RIL_BRIDGE
 extern int register_dev_ril_bridge_event_notifier(struct notifier_block *nb);
+extern int unregister_dev_ril_bridge_event_notifier(struct notifier_block *nb);
 extern int dev_ril_bridge_send_msg(int id, int size, void *buf);
 
 #else
 static inline int register_dev_ril_bridge_event_notifier(
-		struct notifier_block *nb)	{}
-static inline int dev_ril_bridge_send_msg(int id, int size, void *buf) {}
+		struct notifier_block *nb) {return 0;}
+static inline int unregister_dev_ril_bridge_event_notifier(
+		struct notifier_block *nb) {return 0;}
+static inline int dev_ril_bridge_send_msg(int id, int size, void *buf) {return 0;}
 #endif
 
 #endif/*__DEV_RIL_BRIDGE_H__*/

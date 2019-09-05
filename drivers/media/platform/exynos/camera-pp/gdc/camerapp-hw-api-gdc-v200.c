@@ -89,8 +89,9 @@ void camerapp_hw_gdc_update_grid_param(void __iomem *base_addr, struct gdc_grid_
 	if (grid_param->is_valid == true) {
 		for (i = 0; i < 7; i++) {
 			for (j = 0; j < 9; j++) {
-				writel((u32)grid_param->dx[i][j], base_addr + sfr_start_x + sfr_offset * i * j);
-				writel((u32)grid_param->dy[i][j], base_addr + sfr_start_y + sfr_offset * i * j);
+                u32 cal_sfr_offset = (sfr_offset * i * 9) + (sfr_offset * j);
+				writel((u32)grid_param->dx[i][j], base_addr + sfr_start_x + cal_sfr_offset);
+				writel((u32)grid_param->dy[i][j], base_addr + sfr_start_y + cal_sfr_offset);
 			}
 		}
 	}
@@ -122,7 +123,7 @@ void camerapp_hw_gdc_update_scale_parameters(void __iomem *base_addr, struct gdc
 	u32 out_scaled_width;
 	u32 out_scaled_height;
 
-	/* grid size setting */
+	/* grid size setting : assume no crop */
 	gdc_input_width = s_frame->width;
 	gdc_input_height = s_frame->height;
 	camerapp_sfr_set_field(base_addr, &gdc_regs[GDC_R_GDC_CONFIG], &gdc_fields[GDC_F_GDC_MIRROR_X], 0);
@@ -206,15 +207,24 @@ void camerapp_hw_gdc_update_scale_parameters(void __iomem *base_addr, struct gdc
 
 	/* if GDC is scaled up : 128(default) = no scaling, 64 = 2 times scaling */
 	/* now is selected no scaling. => calcuration (128 * in / out) */
-	out_scaled_width = 128 * gdc_input_width / gdc_output_width;
-	out_scaled_height = 128 * gdc_input_width / gdc_output_width;
+	if (gdc_crop_width < gdc_output_width)	/* only for scale up */
+		out_scaled_width = 128 * gdc_input_width / gdc_output_width;
+	else									/* default value */
+		out_scaled_width = 128;
+
+	if (gdc_crop_height < gdc_output_height)
+		out_scaled_height = 128 * gdc_input_height / gdc_output_height;
+	else
+		out_scaled_height = 128;
+
 	camerapp_sfr_set_field(base_addr, &gdc_regs[GDC_R_GDC_OUT_SCALE],
 		&gdc_fields[GDC_F_GDC_OUT_SCALE_Y], out_scaled_height);
 	camerapp_sfr_set_field(base_addr, &gdc_regs[GDC_R_GDC_OUT_SCALE],
 		&gdc_fields[GDC_F_GDC_OUT_SCALE_X], out_scaled_width);
 
-	gdc_dbg("gdc in(%dx%d) -> out(%dx%d)\n",
-		gdc_input_width, gdc_input_height, gdc_output_width, gdc_output_height);
+	gdc_dbg("gdc in(%dx%d) crop(%dx%d) -> out(%dx%d)\n",
+		gdc_input_width, gdc_input_height, gdc_crop_width, gdc_crop_height,
+		gdc_output_width, gdc_output_height);
 }
 
 void camerapp_hw_gdc_update_dma_size(void __iomem *base_addr, struct gdc_frame *s_frame, struct gdc_frame *d_frame)
@@ -238,38 +248,50 @@ void camerapp_hw_gdc_update_dma_size(void __iomem *base_addr, struct gdc_frame *
 
 	input_stride_lum_w_2bit = 0;
 	input_stride_chroma_w_2bit = 0;
-	if (s_frame->pixel_size == CAMERAPP_PIXEL_SIZE_10BIT) {
+	output_stride_lum_w_2bit = 0;
+	output_stride_chroma_w_2bit = 0;
+
+	if ((s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_P010)
+			|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_P010)
+			|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_P210)
+			|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_P210)) {
 		input_stride_lum_w = (u32)(((in_dma_width * 2 + 15) / 16) * 16);
 		input_stride_chroma_w = (u32)(((in_dma_width * 2 + 15) / 16) * 16);
-	} else if (s_frame->pixel_size == CAMERAPP_PIXEL_SIZE_PACKED_10BIT) {
-		input_stride_lum_w = (u32)(((in_dma_width * 10 + 7) / 8 + 15) / 16 * 16);
-		input_stride_chroma_w = (u32)(((in_dma_width * 10 + 7) / 8 + 15) / 16 * 16);
-	} else { /* 8bit or 8+2 */
+	} else {
 		input_stride_lum_w = (u32)(((in_dma_width + 15) / 16) * 16);
 		input_stride_chroma_w = (u32)(((in_dma_width + 15) / 16) * 16);
-		if (s_frame->pixel_size == CAMERAPP_PIXEL_SIZE_8_2BIT) {
+		if ((s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_S10B)
+				|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_S10B)
+				|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_S10B)
+				|| (s_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_S10B)) {
 			input_stride_lum_w_2bit = (u32)((((in_dma_width * 2 + 7) / 8 + 15) / 16) * 16);
 			input_stride_chroma_w_2bit = (u32)((((in_dma_width * 2 + 7) / 8 + 15) / 16) * 16);
 		}
 	}
 
-	output_stride_lum_w_2bit = 0;
-	output_stride_chroma_w_2bit = 0;
-	if (d_frame->pixel_size == CAMERAPP_PIXEL_SIZE_10BIT) {
+	if ((d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_P010)
+			|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_P010)
+			|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_P210)
+			|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_P210)) {
 		output_stride_lum_w = (u32)(((out_dma_width * 2 + 15) / 16) * 16);
 		output_stride_chroma_w = (u32)(((out_dma_width * 2 + 15) / 16) * 16);
-	} else if (d_frame->pixel_size == CAMERAPP_PIXEL_SIZE_PACKED_10BIT) {
-		gdc_dbg("Not supported GDC out format\n");
-		output_stride_lum_w = 0;
-		output_stride_chroma_w = 0;
-	} else { /* 8bit or 8+2 */
+	} else {
 		output_stride_lum_w = (u32)(((out_dma_width + 15) / 16) * 16);
 		output_stride_chroma_w = (u32)(((out_dma_width + 15) / 16) * 16);
-		if (d_frame->pixel_size == CAMERAPP_PIXEL_SIZE_8_2BIT) {
+		if ((d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_S10B)
+				|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_S10B)
+				|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_S10B)
+				|| (d_frame->gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_S10B)) {
 			output_stride_lum_w_2bit = (u32)((((out_dma_width * 2 + 7) / 8 + 15) / 16) * 16);
 			output_stride_chroma_w_2bit = (u32)((((out_dma_width * 2 + 7) / 8 + 15) / 16) * 16);
 		}
 	}
+
+/*
+	src_10bit_format == packed10bit (10bit + 10bit + 10bit... no padding)
+	input_stride_lum_w = (u32)(((in_dma_width * 10 + 7) / 8 + 15) / 16 * 16);
+	input_stride_chroma_w = (u32)(((in_dma_width * 10 + 7) / 8 + 15) / 16 * 16);
+*/
 
 	gdc_dbg("s_w = %d, lum stride_w = %d, stride_2bit_w = %d\n",
 		s_frame->width, input_stride_lum_w, input_stride_lum_w_2bit);
@@ -332,108 +354,114 @@ void camerapp_hw_gdc_set_format(void __iomem *base_addr, struct gdc_frame *s_fra
 	u32 input_yuv_format, output_yuv_format;
 
 	/*PIXEL_FORMAT		0: NV12 (2plane Y/UV order), 1: NV21 (2plane Y/VU order) */
-	/* YUV bit depth : 0 - 8bit / 1 - P010 / 2 - 8+2,  3 - packed 10bit */
+	/* YUV bit depth : 0 - 8bit / 1 - P010 / 2 - 8+2 / 3 - packed 10bit */
 	/* YUV format: 0 - YUV422, 1 - YUV420 */
 
 	/* input */
-	switch (s_frame->pixel_size) {
-	case CAMERAPP_PIXEL_SIZE_10BIT:
+	switch (s_frame->gdc_fmt->pixelformat) {
+	case V4L2_PIX_FMT_NV12M_P010:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV16M_P210:
+	case V4L2_PIX_FMT_NV61M_P210:
 		input_10bit_format = 1;
 		break;
-	case CAMERAPP_PIXEL_SIZE_PACKED_10BIT:
-		input_10bit_format = 3;
-		break;
-	case CAMERAPP_PIXEL_SIZE_8_2BIT:
+	case V4L2_PIX_FMT_NV12M_S10B:
+	case V4L2_PIX_FMT_NV21M_S10B:
+	case V4L2_PIX_FMT_NV16M_S10B:
+	case V4L2_PIX_FMT_NV61M_S10B:
 		input_10bit_format = 2;
-		break;
-	case CAMERAPP_PIXEL_SIZE_8BIT:
-		input_10bit_format = 0;
 		break;
 	default:
 		input_10bit_format = 0;
 		break;
 	}
+
 	switch (s_frame->gdc_fmt->pixelformat) {
 	case V4L2_PIX_FMT_NV21M:
-		input_pix_format = 1;
-		input_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV12M:
-		input_pix_format = 0;
-		input_yuv_format = 1;
-		break;
 	case V4L2_PIX_FMT_NV21:
-		input_pix_format = 1;
-		input_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV12:
-		input_pix_format = 0;
-		input_yuv_format = 1;
-		break;
 	case V4L2_PIX_FMT_NV61:
+	case V4L2_PIX_FMT_NV61M:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV61M_P210:
+	case V4L2_PIX_FMT_NV21M_S10B:
+	case V4L2_PIX_FMT_NV61M_S10B:
 		input_pix_format = 1;
-		input_yuv_format = 0;
-		break;
-	case V4L2_PIX_FMT_NV16:
-		input_pix_format = 0;
-		input_yuv_format = 0;
 		break;
 	default:
-		pr_info("[Error] : check for GDC input format\n");
 		input_pix_format = 0;
+		break;
+	}
+
+	switch (s_frame->gdc_fmt->pixelformat) {
+	case V4L2_PIX_FMT_NV12M:
+	case V4L2_PIX_FMT_NV21M:
+	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV21:
+	case V4L2_PIX_FMT_NV12M_P010:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV12M_S10B:
+	case V4L2_PIX_FMT_NV21M_S10B:
 		input_yuv_format = 1;
+		break;
+	default:
+		input_yuv_format = 0;
 		break;
 	}
 
 	/* output */
-	switch (d_frame->pixel_size) {
-	case CAMERAPP_PIXEL_SIZE_10BIT:
+	switch (d_frame->gdc_fmt->pixelformat) {
+	case V4L2_PIX_FMT_NV12M_P010:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV16M_P210:
+	case V4L2_PIX_FMT_NV61M_P210:
 		output_10bit_format = 1;
 		break;
-	case CAMERAPP_PIXEL_SIZE_8_2BIT:
+	case V4L2_PIX_FMT_NV12M_S10B:
+	case V4L2_PIX_FMT_NV21M_S10B:
+	case V4L2_PIX_FMT_NV16M_S10B:
+	case V4L2_PIX_FMT_NV61M_S10B:
 		output_10bit_format = 2;
 		break;
-	case CAMERAPP_PIXEL_SIZE_8BIT:
-		output_10bit_format = 0;
-		break;
 	default:
 		output_10bit_format = 0;
-		break;
-	}
-	switch (d_frame->gdc_fmt->pixelformat) {
-	case V4L2_PIX_FMT_NV21M:
-		output_pix_format = 1;
-		output_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV12M:
-		output_pix_format = 0;
-		output_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV21:
-		output_pix_format = 1;
-		output_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV12:
-		output_pix_format = 0;
-		output_yuv_format = 1;
-		break;
-	case V4L2_PIX_FMT_NV61:
-		output_pix_format = 1;
-		output_yuv_format = 0;
-		break;
-	case V4L2_PIX_FMT_NV16:
-		output_pix_format = 0;
-		output_yuv_format = 0;
-		break;
-	default:
-		pr_info("[Error] : check for GDC output format\n");
-		output_pix_format = 0;
-		output_yuv_format = 1;
 		break;
 	}
 
-	if (input_yuv_format != output_yuv_format)
-		pr_info("[Error] : Need to check : GDC in/out YUV format is different.\n");
+	switch (d_frame->gdc_fmt->pixelformat) {
+	case V4L2_PIX_FMT_NV21M:
+	case V4L2_PIX_FMT_NV21:
+	case V4L2_PIX_FMT_NV61:
+	case V4L2_PIX_FMT_NV61M:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV61M_P210:
+	case V4L2_PIX_FMT_NV21M_S10B:
+	case V4L2_PIX_FMT_NV61M_S10B:
+		output_pix_format = 1;
+		break;
+	default:
+		output_pix_format = 0;
+		break;
+	}
+
+	switch (d_frame->gdc_fmt->pixelformat) {
+	case V4L2_PIX_FMT_NV12M:
+	case V4L2_PIX_FMT_NV21M:
+	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV21:
+	case V4L2_PIX_FMT_NV12M_P010:
+	case V4L2_PIX_FMT_NV21M_P010:
+	case V4L2_PIX_FMT_NV12M_S10B:
+	case V4L2_PIX_FMT_NV21M_S10B:
+		output_yuv_format = 1;
+		break;
+	default:
+		output_yuv_format = 0;
+		break;
+	}
+
+	gdc_dbg("gdc format (10bit, pix, yuv) : in(%d, %d, %d), out(%d, %d, %d)\n",
+		input_10bit_format, input_pix_format, input_yuv_format,
+		output_10bit_format, output_pix_format, output_yuv_format);
 
 	/* IN/OUT Format */
 	camerapp_sfr_set_field(base_addr, &gdc_regs[GDC_R_GDC_YUV_FORMAT],

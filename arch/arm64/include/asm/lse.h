@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_LSE_H
 #define __ASM_LSE_H
 
@@ -8,18 +9,28 @@
 
 #ifdef __ASSEMBLER__
 
+#ifndef __clang__
 .arch_extension	lse
+#endif
 
+#ifdef CONFIG_SEC_ARM64_LSE_ATOMICS
+.macro alt_lse, llsc, lse
+	\lse
+.endm
+#else
 .macro alt_lse, llsc, lse
 	alternative_insn "\llsc", "\lse", ARM64_HAS_LSE_ATOMICS
 .endm
+#endif	/* CONFIG_SEC_ARM64_LSE_ATOMICS */
 
 #else	/* __ASSEMBLER__ */
 
+#ifndef __clang__
 __asm__(".arch_extension	lse");
+#endif
 
 /* Move the ll/sc atomics out-of-line */
-#define __LL_SC_INLINE
+#define __LL_SC_INLINE		notrace
 #define __LL_SC_PREFIX(x)	__ll_sc_##x
 #define __LL_SC_EXPORT(x)	EXPORT_SYMBOL(__LL_SC_PREFIX(x))
 
@@ -27,9 +38,13 @@ __asm__(".arch_extension	lse");
 #define __LL_SC_CALL(op)	"bl\t" __stringify(__LL_SC_PREFIX(op)) "\n"
 #define __LL_SC_CLOBBERS	"x16", "x17", "x30"
 
+#ifdef CONFIG_SEC_ARM64_LSE_ATOMICS
+#define ARM64_LSE_ATOMIC_INSN(llsc, lse)	lse
+#else
 /* In-line patching at runtime */
 #define ARM64_LSE_ATOMIC_INSN(llsc, lse)				\
 	ALTERNATIVE(llsc, lse, ARM64_HAS_LSE_ATOMICS)
+#endif	/* CONFIG_SEC_ARM64_LSE_ATOMICS */
 
 #endif	/* __ASSEMBLER__ */
 #else	/* CONFIG_AS_LSE && CONFIG_ARM64_LSE_ATOMICS */

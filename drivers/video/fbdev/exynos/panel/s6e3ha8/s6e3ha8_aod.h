@@ -16,7 +16,6 @@
 #include "../panel.h"
 #include "../aod/aod_drv.h"
 
-
 #define SI_ICON_ENABLE		0x01
 #define SG_GRID_ENABLE		0x10
 
@@ -137,19 +136,16 @@
 #define ANALOG_POS_Y1_REG		3
 #define ANALOG_POS_Y2_REG		4
 #define ANALOG_ROT_REG			5
-
 #endif
-void copy_self_mask_ctrl(struct maptbl *, u8 *);
-void copy_digital_pos(struct maptbl *tbl, u8 *dst);
-void copy_digital_blink(struct maptbl *tbl, u8 *dst);
-void copy_set_time_ctrl(struct maptbl *tbl, u8 *dst);
-void copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst);
-void copy_self_move_on_ctrl(struct maptbl *tbl, u8 *dst);
-void copy_analog_pos_ctrl(struct maptbl *tbl, u8 *dst);
-void copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst);
-void copy_digital_clock_ctrl(struct maptbl *tbl, u8 *dst);
-int getidx_self_mode_pos(struct maptbl *tbl);
-void copy_self_move_reset(struct maptbl *tbl, u8 *dst);
-
+void s6e3ha8_copy_self_mask_ctrl(struct maptbl *, u8 *);
+void s6e3ha8_copy_digital_pos(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_digital_blink(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_set_time_ctrl(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_icon_grid_on_ctrl(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_self_move_on_ctrl(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_analog_pos_ctrl(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_analog_clock_ctrl(struct maptbl *tbl, u8 *dst);
+void s6e3ha8_copy_digital_clock_ctrl(struct maptbl *tbl, u8 *dst);
+int s6e3ha8_getidx_self_mode_pos(struct maptbl *tbl);
+void s6e3ha8_copy_self_move_reset(struct maptbl *tbl, u8 *dst);
 #endif
-

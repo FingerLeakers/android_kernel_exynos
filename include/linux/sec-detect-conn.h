@@ -32,7 +32,7 @@
 #include <linux/suspend.h>
 #include <linux/of_gpio.h>
 #include <linux/sec_class.h>
-#include <linux/sec_sysfs.h>
+#include <linux/sec_class.h>
 
 #define DETECT_CONN_ENABLE_MAGIC 0xDECC
 #define DET_CONN_MAX_NUM_GPIOS 32
@@ -52,5 +52,7 @@ struct detect_conn_info {
 	int irq_enabled[DET_CONN_MAX_NUM_GPIOS];
 	struct sec_det_conn_p_data *pdata;
 };
+
+static char sec_detect_available_pins_string[15*10] = {0,};
 
 #endif

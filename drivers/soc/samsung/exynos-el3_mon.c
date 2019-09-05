@@ -12,16 +12,13 @@
 
 #include <linux/slab.h>
 #include <linux/smc.h>
-#include <linux/kallsyms.h>
 #include <asm/cacheflush.h>
+#include <asm/memory.h>
 
 #include <soc/samsung/exynos-el3_mon.h>
 
-static char *smc_lockup;
 static char *smc_debug_mem;
 
-#define EXYNOS_GET_IN_PD_DOWN			0
-#define EXYNOS_WAKEUP_PD_DOWN			1
 
 #ifdef CONFIG_EXYNOS_KERNEL_PROTECTION
 static int __init exynos_protect_kernel_text(void)
@@ -33,18 +30,14 @@ static int __init exynos_protect_kernel_text(void)
 	unsigned long ktext_end_pa = 0;
 
 	/* Get virtual addresses of kernel text */
-	ktext_start_va = kallsyms_lookup_name("_text");
+	ktext_start_va = (unsigned long)_text;
 	if (!ktext_start_va) {
 		pr_err("%s: [ERROR] Kernel text start address is invalid\n",
 								__func__);
 		return -1;
 	}
 
-#ifdef CONFIG_UH_RKP
-	ktext_end_va = kallsyms_lookup_name("rkp_pgt_bitmap");
-#else
-	ktext_end_va = kallsyms_lookup_name("_etext");
-#endif
+	ktext_end_va = (unsigned long)_etext;
 	if (!ktext_end_va) {
 		pr_err("%s: [ERROR] Kernel text end address is invalid\n",
 								__func__);
@@ -52,13 +45,16 @@ static int __init exynos_protect_kernel_text(void)
 	}
 
 	/* Translate VA to PA */
-	ktext_start_pa = virt_to_phys((void *)ktext_start_va);
-	ktext_end_pa = virt_to_phys((void *)ktext_end_va);
+	ktext_start_pa = (unsigned long)__pa_symbol(_text);
+	ktext_end_pa = (unsigned long)__pa_symbol(_etext);
 
-	pr_info("%s: Kernel text start VA(%#lx), PA(%#lx)\n",
-			__func__, ktext_start_va, ktext_start_pa);
-	pr_info("%s: Kernel text end VA(%#lx), PA(%#lx)\n",
-			__func__, ktext_end_va, ktext_end_pa);
+	pr_info("%s: Kernel text start VA(%pK), PA(%pK)\n",
+			__func__, (void *)ktext_start_va, (void *)ktext_start_pa);
+	pr_info("%s: Kernel text end VA(%pK), PA(%pK)\n",
+			__func__, (void *)ktext_end_va, (void *)ktext_end_pa);
+
+	/* I-cache flush to the PoC */
+	flush_icache_range_poc(ktext_start_va, ktext_end_va);
 
 	/* Request to protect kernel text area */
 	ret = exynos_smc(SMC_CMD_PROTECT_KERNEL_TEXT,
@@ -110,7 +106,7 @@ static int  __init exynos_set_debug_mem(void)
 	__flush_dcache_area(smc_debug_mem, size);
 
 	phys = (char *)virt_to_phys(smc_debug_mem);
-	pr_err("%s: alloc kmem for smc_dbg virt: 0x%p phys: 0x%p size: %d.\n",
+	pr_err("%s: alloc kmem for smc_dbg virt: 0x%pK phys: 0x%pK size: %d.\n",
 			__func__, smc_debug_mem, phys, size);
 	ret = exynos_smc(SMC_CMD_SET_DEBUG_MEM, (u64)phys, (u64)size, 0);
 
@@ -124,123 +120,6 @@ static int  __init exynos_set_debug_mem(void)
 	return 0;
 }
 late_initcall(exynos_set_debug_mem);
-
-static int  __init exynos_get_reason_mem(void)
-{
-	smc_lockup = kmalloc(PAGE_SIZE, GFP_KERNEL);
-
-	if (!smc_lockup) {
-		pr_err("%s: kmalloc for smc_lockup failed.\n", __func__);
-		smc_lockup = NULL;
-	}
-
-	return 0;
-}
-arch_initcall(exynos_get_reason_mem);
-
-struct __exception_info {
-	unsigned long exception_type;
-	unsigned long sp_el1;
-	unsigned long sp_el3;
-	unsigned long elr_el3;
-	unsigned long esr_el3;
-};
-
-struct __lockup_info {
-	struct __exception_info exception_info[NR_CPUS];
-};
-
-static const char *ename[] = {
-	"info38961",
-	"sync",
-	"irq",
-	"fiq",
-	"async",
-	"stack corruption",
-	"unknown"
-};
-
-static const char *el_mode[] = {
-	"el1 mode",
-	"el3 mode"
-};
-
-#define EXYNOS_EXCEPTION_FROM_SHIFT			(63)
-
-#define EXYNOS_EXCEPTION_FROM_EL3			(1)
-#define EXYNOS_EXCEPTION_FROM_EL1			(0)
-
-
-static int exynos_parse_reason(struct __lockup_info *ptr)
-{
-	int i, count, ekind, efrom;
-	struct __lockup_info *lockup_info = ptr;
-	unsigned long etype, elr_el3, sp_el1, sp_el3, esr_el3;
-
-	for(i = 0, count = 0; i < NR_CPUS; i++) {
-		etype = lockup_info->exception_info[i].exception_type;
-
-		if (!etype) {
-			/* this core has not got stuck in EL3 monitor */
-			continue;
-		}
-
-		/* add 1 to count for the core got stuck in EL3 monitor */
-		count++;
-
-		/* parsing the information */
-		ekind = (etype & 0xf) > 6 ? 6 : (etype & 0xf) - 1;
-		efrom = (etype >> EXYNOS_EXCEPTION_FROM_SHIFT) & 0x1;
-		elr_el3 = lockup_info->exception_info[i].elr_el3;
-		sp_el1 = lockup_info->exception_info[i].sp_el1;
-		sp_el3 = lockup_info->exception_info[i].sp_el3;
-		esr_el3 = lockup_info->exception_info[i].esr_el3;
-
-		/* it got stuck due to unexpected exception */
-		pr_emerg("%s: %dth core gets stuck in EL3 monitor due to " \
-			"%s exception from %s.\n", \
-			 __func__, i, ename[ekind], el_mode[efrom]);
-		pr_emerg("%s: elr 0x%lx sp_el1 0x%lx sp_el3 0x%lx " \
-			"esr_el3 0x%lx\n", __func__, elr_el3, sp_el1, \
-			sp_el3, esr_el3);
-	}
-
-	/* count should be more than '1' */
-	return !count;
-}
-
-int exynos_check_hardlockup_reason(void)
-{
-	int ret;
-	char *phys;
-
-	if (!smc_lockup) {
-		pr_err("%s: fail to alloc memory for storing lockup info.\n",
-			__func__);
-		return 0;
-	}
-
-	/* to map & flush memory */
-	memset(smc_lockup, 0x00, PAGE_SIZE);
-	__flush_dcache_area(smc_lockup, PAGE_SIZE);
-
-	phys = (char *)virt_to_phys(smc_lockup);
-	pr_err("%s: smc_lockup virt: 0x%p phys: 0x%p size: %ld.\n",
-			__func__, smc_lockup, phys, PAGE_SIZE);
-
-	ret = exynos_smc(SMC_CMD_GET_LOCKUP_REASON, (u64)phys, (u64)PAGE_SIZE, 0);
-
-	if (ret) {
-		pr_emerg("%s: SMC_CMD_GET_LOCKUP_REASON returns 0x%x. fail " \
-			"to get the information.\n",  __func__, ret);
-		goto check_exit;
-	}
-
-	ret = exynos_parse_reason((struct __lockup_info *)smc_lockup);
-
-check_exit:
-	return ret;
-}
 
 static void exynos_smart_exception_handler(unsigned int id,
 				unsigned long elr, unsigned long esr,
@@ -269,16 +148,12 @@ static void exynos_smart_exception_handler(unsigned int id,
 								sctlr, ttbr);
 		pr_err("tcr_el1   : 0x%016lx, \tlr (EL1) : 0x%016lx\n\n",
 								tcr, x6);
-	} else {
-		pr_err("elr_el3   : 0x%016lx, \tesr_el3  : 0x%016lx\n",
-								elr, esr);
-		pr_err("sctlr_el3 : 0x%016lx, \tttbr_el3 : 0x%016lx\n",
-								sctlr, ttbr);
-		pr_err("tcr_el3   : 0x%016lx, \tscr_el3  : 0x%016lx\n\n",
-								tcr, x6);
-
 		if ((offset > 0x0 && offset < (PAGE_SIZE * 2))
 				&& !(offset % 0x8) && (smc_debug_mem)) {
+
+			/* Invalidate smc_debug_mem for cache coherency */
+			__inval_dcache_area(smc_debug_mem, PAGE_SIZE * 2);
+
 			tmp = (unsigned long)smc_debug_mem;
 			tmp += (unsigned long)offset;
 			ptr = (unsigned long *)tmp;
@@ -289,6 +164,35 @@ static void exynos_smart_exception_handler(unsigned int id,
 					i * 2 + 1, ptr[i * 2 + 1]);
 			}
 			pr_err("x%02d : 0x%016lx\n", i * 2,  ptr[i * 2]);
+		} else {
+			pr_err("GPR dump offset is not valid 0x%x\n", offset);
+		}
+	} else {
+		pr_err("elr_el3   : 0x%016lx, \tesr_el3  : 0x%016lx\n",
+								elr, esr);
+		pr_err("sctlr_el3 : 0x%016lx, \tttbr_el3 : 0x%016lx\n",
+								sctlr, ttbr);
+		pr_err("tcr_el3   : 0x%016lx, \tscr_el3  : 0x%016lx\n\n",
+								tcr, x6);
+
+		if ((offset > 0x0 && offset < (PAGE_SIZE * 2))
+				&& !(offset % 0x8) && (smc_debug_mem)) {
+
+			/* Invalidate smc_debug_mem for cache coherency */
+			__inval_dcache_area(smc_debug_mem, PAGE_SIZE * 2);
+
+			tmp = (unsigned long)smc_debug_mem;
+			tmp += (unsigned long)offset;
+			ptr = (unsigned long *)tmp;
+
+			for (i = 0; i < 15; i++) {
+				pr_err("x%02d : 0x%016lx, \tx%02d : 0x%016lx\n",
+					i * 2, ptr[i * 2],
+					i * 2 + 1, ptr[i * 2 + 1]);
+			}
+			pr_err("x%02d : 0x%016lx\n", i * 2,  ptr[i * 2]);
+		} else {
+			pr_err("GPR dump offset is not valid 0x%x\n", offset);
 		}
 	}
 
@@ -327,11 +231,15 @@ arch_initcall(exynos_set_seh_address);
 int exynos_pd_tz_save(unsigned int addr)
 {
 	return exynos_smc(SMC_CMD_PREAPRE_PD_ONOFF,
-			EXYNOS_GET_IN_PD_DOWN, addr, 0);
+				EXYNOS_GET_IN_PD_DOWN,
+				addr,
+				RUNTIME_PM_TZPC_GROUP);
 }
 
 int exynos_pd_tz_restore(unsigned int addr)
 {
 	return exynos_smc(SMC_CMD_PREAPRE_PD_ONOFF,
-			EXYNOS_WAKEUP_PD_DOWN, addr, 0);
+				EXYNOS_WAKEUP_PD_DOWN,
+				addr,
+				RUNTIME_PM_TZPC_GROUP);
 }

@@ -29,10 +29,15 @@
 #include <linux/of_address.h>
 #include <linux/ctype.h>
 #include <video/mipi_display.h>
-#ifdef CONFIG_DISP_PMIC_SSD
 #include <linux/regulator/consumer.h>
-#endif
+#include "../../../../../kernel/irq/internals.h"
+
+#if defined(CONFIG_EXYNOS_DPU20)
+#include "../dpu20/decon.h"
+#else
 #include "../dpu_9810/decon.h"
+#endif
+
 #include "panel.h"
 #include "panel_drv.h"
 #include "dpui.h"
@@ -43,14 +48,20 @@
 #ifdef CONFIG_ACTIVE_CLOCK
 #include "active_clock.h"
 #endif
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 #include "panel_poc.h"
 #endif
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "./aod/aod_drv.h"
 #endif
+#ifdef CONFIG_SUPPORT_POC_SPI
+#include "panel_spi.h"
+#endif
 #if defined(CONFIG_TDMB_NOTIFIER)
 #include <linux/tdmb_notifier.h>
+#endif
+#ifdef CONFIG_DYNAMIC_FREQ
+#include "dynamic_freq.h"
 #endif
 
 static char *panel_state_names[] = {
@@ -60,20 +71,58 @@ static char *panel_state_names[] = {
 	"LPM",		/* LPM */
 };
 
+/* panel workqueue */
+static char *panel_work_names[] = {
+	[PANEL_WORK_DISP_DET] = "disp-det",
+	[PANEL_WORK_PCD] = "pcd",
+	[PANEL_WORK_ERR_FG] = "err-fg",
+	[PANEL_WORK_CONN_DET] = "conn-det",
+#ifdef CONFIG_SUPPORT_DIM_FLASH
+	[PANEL_WORK_DIM_FLASH] = "dim-flash",
+#endif
+	[PANEL_WORK_CHECK_CONDITION] = "panel-condition-check",
+};
+
+static void disp_det_handler(struct work_struct *data);
+static void conn_det_handler(struct work_struct *data);
+static void err_fg_handler(struct work_struct *data);
+static void dim_flash_handler(struct work_struct *work);
+static void panel_condition_handler(struct work_struct *work);
+
+static panel_wq_handler panel_wq_handlers[] = {
+	[PANEL_WORK_DISP_DET] = disp_det_handler,
+	[PANEL_WORK_PCD] = NULL,
+	[PANEL_WORK_ERR_FG] = err_fg_handler,
+	[PANEL_WORK_CONN_DET] = conn_det_handler,
+#ifdef CONFIG_SUPPORT_DIM_FLASH
+	[PANEL_WORK_DIM_FLASH] = dim_flash_handler,
+#endif
+	[PANEL_WORK_CHECK_CONDITION] = panel_condition_handler,
+};
+
+/* panel gpio */
+static char *panel_gpio_names[PANEL_GPIO_MAX] = {
+	[PANEL_GPIO_RESET] = PANEL_GPIO_NAME_RESET,
+	[PANEL_GPIO_DISP_DET] = PANEL_GPIO_NAME_DISP_DET,
+	[PANEL_GPIO_PCD] = PANEL_GPIO_NAME_PCD,
+	[PANEL_GPIO_ERR_FG] = PANEL_GPIO_NAME_ERR_FG,
+	[PANEL_GPIO_CONN_DET] = PANEL_GPIO_NAME_CONN_DET,
+};
+
+/* panel regulator */
+static char *panel_regulator_names[PANEL_REGULATOR_MAX] = {
+	[PANEL_REGULATOR_DDI_3P0] = PANEL_REGULATOR_NAME_DDI_3P0,
+	[PANEL_REGULATOR_DDI_1P8] = PANEL_REGULATOR_NAME_DDI_1P8,
+	[PANEL_REGULATOR_DDR_1P6] = PANEL_REGULATOR_NAME_DDR_1P6,
+	[PANEL_REGULATOR_SSD] = PANEL_REGULATOR_NAME_SSD,
+};
+
 static int boot_panel_id = 0;
 int panel_log_level = 6;
-#ifdef CONFIG_SUPPORT_PANEL_SWAP
-static int connect_panel = PANEL_CONNECT;
-#endif
 #ifdef CONFIG_SUPPORT_PANEL_SWAP
 int panel_reprobe(struct panel_device *panel);
 #endif
 
-#ifdef CONFIG_SUPPORT_DOZE
-#define CONFIG_SET_1p5_ALPM
-#define BUCK_ALPM_VOLT		1500000
-#define BUCK_NORMAL_VOLT	1600000
-#endif
 /**
  * get_lcd info - get lcd global information.
  * @arg: key string of lcd information
@@ -100,112 +149,270 @@ int get_lcd_info(char *arg)
 
 EXPORT_SYMBOL(get_lcd_info);
 
-void clear_disp_det_pend(struct panel_device *panel)
+bool panel_gpio_valid(struct panel_gpio *gpio)
 {
-	int pend_disp_det;
-	struct panel_pad *pad = &panel->pad;
-
-	if (pad->pend_reg_disp_det != NULL) {
-		pend_disp_det = readl(pad->pend_reg_disp_det);
-		pend_disp_det = pend_disp_det & ~(pad->pend_bit_disp_det);
-		writel(pend_disp_det, pad->pend_reg_disp_det);
+	if (!gpio->name || !gpio_is_valid(gpio->num)) {
+		pr_err("%s invalid gpio(%d)\n", __func__, gpio->num);
+		return false;
 	}
-
-	return;
+	return true;
 }
 
-#define SSD_CURRENT_DOZE	8000
-#define SSD_CURRENT_NORMAL	2000
+static int panel_gpio_state(struct panel_gpio *gpio)
+{
+	if (!panel_gpio_valid(gpio))
+		return -EINVAL;
+	if (gpio->active_low)
+		return gpio_get_value(gpio->num) ?
+			PANEL_STATE_OK : PANEL_STATE_NOK;
+	else
+		return gpio_get_value(gpio->num) ?
+			PANEL_STATE_NOK : PANEL_STATE_OK;
+}
 
+static int panel_disp_det_state(struct panel_device *panel)
+{
+	int state;
+
+	state = panel_gpio_state(&panel->gpio[PANEL_GPIO_DISP_DET]);
+	if (state >= 0)
+		pr_debug("%s disp_det:%s\n",
+				__func__, state ? "EL-OFF" : "EL-ON");
+
+	return state;
+}
+
+static int panel_conn_det_state(struct panel_device *panel)
+{
+	int state;
+
+	state = panel_gpio_state(&panel->gpio[PANEL_GPIO_CONN_DET]);
+	if (state >= 0)
+		pr_debug("%s conn_det:%s\n",
+				__func__, state ? "connected" : "disconnected");
+
+	return state;
+}
+
+bool ub_con_disconnected(struct panel_device *panel)
+{
+	int state;
+
+	state = panel_conn_det_state(panel);
+	if (state < 0)
+		return false;
+
+	return !state;
+}
+
+void clear_pending_bit(int irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+
+	if (desc->irq_data.chip->irq_ack)
+{
+		desc->irq_data.chip->irq_ack(&desc->irq_data);
+		desc->istate &= -IRQS_PENDING;
+	}
+};
+
+static int panel_regulator_enable(struct panel_device *panel)
+{
+	struct panel_regulator *regulator = panel->regulator;
+	int i, ret;
+
+	for (i = 0; i < PANEL_REGULATOR_MAX; i++) {
+		if (IS_ERR_OR_NULL(regulator[i].reg))
+			continue;
+
+		if (regulator[i].type != PANEL_REGULATOR_TYPE_PWR)
+			continue;
+
+		ret = regulator_enable(regulator[i].reg);
+		if (ret != 0) {
+			panel_err("PANEL:%s:faield to enable regulator(%d:%s), ret:%d\n",
+					__func__, i, regulator[i].name, ret);
+			return ret;
+		}
+
+		pr_info("enable regulator(%d:%s)\n", i, regulator[i].name);
+	}
+
+	return 0;
+}
+
+static int panel_regulator_disable(struct panel_device *panel)
+{
+	struct panel_regulator *regulator = panel->regulator;
+	int i, ret;
+
+	for (i = PANEL_REGULATOR_MAX - 1; i >= 0; i--) {
+		if (IS_ERR_OR_NULL(regulator[i].reg))
+			continue;
+
+		if (regulator[i].type != PANEL_REGULATOR_TYPE_PWR)
+			continue;
+
+		ret = regulator_disable(regulator[i].reg);
+		if (ret != 0) {
+			panel_err("PANEL:%s:faield to disable regulator(%d:%s), ret:%d\n",
+					__func__, i, regulator[i].name, ret);
+			return ret;
+		}
+		pr_info("disable regulator(%d:%s)\n", i, regulator[i].name);
+	}
+
+	return 0;
+}
+
+static int panel_regulator_set_voltage(struct panel_device *panel, int state)
+{
+	struct panel_regulator *regulator = panel->regulator;
+	int i, old_uv, new_uv;
+	int ret = 0;
+
+	for (i = 0; i < PANEL_REGULATOR_MAX; i++) {
+		if (IS_ERR_OR_NULL(regulator[i].reg))
+			continue;
+
+		if (regulator[i].type != PANEL_REGULATOR_TYPE_PWR)
+			continue;
+
+		new_uv = (state == PANEL_STATE_ALPM) ?
+			regulator[i].lpm_voltage : regulator[i].def_voltage;
+		if (new_uv == 0)
+			continue;
+
+		old_uv = regulator_get_voltage(regulator[i].reg);
+		if (old_uv < 0) {
+			panel_err("PANEL:%s:faield to get regulator(%d:%s) voltage, ret:%d\n",
+					__func__, i, regulator[i].name, old_uv);
+			ret = -EINVAL;
+			return ret;
+		}
+
+		if (new_uv == old_uv)
+			continue;
+
+		ret = regulator_set_voltage(regulator[i].reg, new_uv, new_uv);
+		if (ret < 0) {
+			panel_err("PANEL:%s:faield to set regulator(%d:%s) target voltage(%d), ret:%d\n",
+					__func__, i, regulator[i].name, new_uv, ret);
+			ret = -EINVAL;
+			return ret;
+		}
+
+		panel_info("PANEL:INFO:%s: voltage:%duV\n", __func__, new_uv);
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_DISP_PMIC_SSD
+static int panel_regulator_set_short_detection(struct panel_device *panel, int state)
+{
+	struct panel_regulator *regulator = panel->regulator;
+	int i, ret, new_ua;
+
+	for (i = 0; i < PANEL_REGULATOR_MAX; i++) {
+		if (regulator[i].type != PANEL_REGULATOR_TYPE_SSD)
+			continue;
+
+		new_ua = (state == PANEL_STATE_ALPM) ?
+			regulator[i].lpm_current : regulator[i].def_current;
+		if (new_ua == 0)
+			continue;
+
+		ret = regulator_set_short_detection(regulator[i].reg, true, new_ua);
+		if (ret < 0) {
+			panel_err("PANEL:%s:faield to set short detection regulator(%d:%s), ret:%d\n",
+					__func__, i, regulator[i].name, new_ua);
+			regulator_put(regulator[i].reg);
+			return ret;
+		}
+
+		panel_info("PANEL:INFO:%s:set regulator(%s) SSD:%duA, state:%d\n",
+				__func__, regulator[i].name, new_ua, state);
+	}
+
+	return 0;
+}
+#else
+static inline int panel_regulator_set_short_detection(struct panel_device *panel, int state)
+{
+	return 0;
+}
+#endif
 
 int __set_panel_power(struct panel_device *panel, int power)
 {
-	int i;
 	int ret = 0;
-	struct panel_pad *pad = &panel->pad;
-#ifdef CONFIG_DISP_PMIC_SSD
-	struct regulator *elvss = regulator_get(NULL, "elvss");
-#endif
+	struct panel_gpio *gpio = panel->gpio;
+
 	if (panel->state.power == power) {
 		panel_warn("PANEL:WARN:%s:same status.. skip..\n", __func__);
-		goto set_err;
+		return 0;
 	}
 
 	if (power == PANEL_POWER_ON) {
-#ifdef CONFIG_DISP_PMIC_SSD
-		if (!IS_ERR_OR_NULL(elvss)) {
-			ret = regulator_set_short_detection(elvss, true, SSD_CURRENT_NORMAL);
-			if (ret)
-				panel_err("PANEL:ERR:%s:failed to ssd current to normal\n", __func__);
-			panel_info("PANEL:INFO:set SSD to %duA : %d\n", SSD_CURRENT_NORMAL, ret);
-		} else {
-			panel_err("PANEL:ERR:%s:failed to get elvss regulator\n", __func__);
-		}
-#endif
-		for (i = 0; i < REGULATOR_MAX; i++) {
-			ret = regulator_enable(pad->regulator[i]);
-			if (ret) {
-				panel_err("PANEL:%s:faield to enable regulator : %d :%d\n",
-					__func__, i, ret);
-				goto set_err;
-			}
+		ret = panel_regulator_set_short_detection(panel, PANEL_STATE_ON);
+		if (ret < 0)
+			panel_err("PANEL:ERR:%s:failed to set ssd current, ret:%d\n",
+								__func__, ret);
+		ret = panel_regulator_enable(panel);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:faield to panel_regulator_enable, ret:%d\n",
+					__func__, ret);
+			return ret;
 		}
 		usleep_range(10000, 10000);
-		gpio_direction_output(pad->gpio_reset, 1);
+		gpio_direction_output(gpio[PANEL_GPIO_RESET].num, 1);
 		usleep_range(5000, 5000);
 	} else {
-		gpio_direction_output(pad->gpio_reset, 0);
-		for (i = REGULATOR_MAX - 1; i >= 0; i--) {
-			ret = regulator_disable(pad->regulator[i]);
-			if (ret) {
-				panel_err("PANEL:%s:faield to disable regulator : %d :%d\n",
-					__func__, i, ret);
-				goto set_err;
-			}
+		gpio_direction_output(gpio[PANEL_GPIO_RESET].num, 0);
+		ret = panel_regulator_disable(panel);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:faield to panel_regulator_disable, ret:%d\n",
+					__func__, ret);
+			return ret;
 		}
-		pr_info("%s reset panel (%s)\n", __func__,
-				gpio_get_value(pad->gpio_reset) ? "high" : "low");
 	}
 
 	pr_info("%s, power(%s) gpio_reset(%s)\n", __func__,
 			power == PANEL_POWER_ON ? "on" : "off",
-			gpio_get_value(pad->gpio_reset) ? "high" : "low");
+			gpio_get_value(gpio[PANEL_GPIO_RESET].num) ? "high" : "low");
 	panel->state.power = power;
-set_err:
-#ifdef CONFIG_DISP_PMIC_SSD
-	regulator_put(elvss);
-#endif
-	return ret;
+
+	return 0;
 }
 
-
-int __panel_seq_display_on(struct panel_device *panel)
+static int __panel_seq_display_on(struct panel_device *panel)
 {
-	int ret = 0;
+	int ret;
 
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DISPLAY_ON_SEQ);
 	if (unlikely(ret < 0)) {
-		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
+		panel_err("PANEL:ERR:%s:failed to seqtbl(PANEL_DISPLAY_ON_SEQ)\n",
+				__func__);
+		return ret;
 	}
 
-	return ret;
+	return 0;
 }
 
-
-int __panel_seq_display_off(struct panel_device *panel)
+static int __panel_seq_display_off(struct panel_device *panel)
 {
 	int ret;
 
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DISPLAY_OFF_SEQ);
 	if (unlikely(ret < 0)) {
-		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
+		panel_err("PANEL:ERR:%s:failed to seqtbl(PANEL_DISPLAY_OFF_SEQ)\n",
+				__func__);
+		return ret;
 	}
 
-	return ret;
+	return 0;
 }
-
-#define PANEL_DISP_DET_HIGH 	1
-#define PANEL_DISP_DET_LOW		0
 
 static int __panel_seq_res_init(struct panel_device *panel)
 {
@@ -213,11 +420,12 @@ static int __panel_seq_res_init(struct panel_device *panel)
 
 	ret = panel_do_seqtbl_by_index(panel, PANEL_RES_INIT_SEQ);
 	if (unlikely(ret < 0)) {
-		panel_err("PANEL:ERR:%s, failed to write resource init seqtbl\n",
+		panel_err("PANEL:ERR:%s, failed to seqtbl(PANEL_RES_INIT_SEQ)\n",
 				__func__);
+		return ret;
 	}
 
-	return ret;
+	return 0;
 }
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
@@ -227,29 +435,78 @@ static int __panel_seq_dim_flash_res_init(struct panel_device *panel)
 
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DIM_FLASH_RES_INIT_SEQ);
 	if (unlikely(ret < 0)) {
-		panel_err("PANEL:ERR:%s, failed to write dimming flash resource init seqtbl\n",
+		panel_err("PANEL:ERR:%s, failed to seqtbl(PANEL_DIM_FLASH_RES_INIT_SEQ)\n",
 				__func__);
+		return ret;
 	}
 
+	return 0;
+}
+#endif
+
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+static int panel_mipi_freq_update(struct panel_device *panel)
+{
+	int ret = 0;
+	struct panel_state *state = &panel->state;
+	struct adaptive_idx *adap_idx = &panel->adap_idx;
+
+	if (state->connect_panel == PANEL_DISCONNECT) {
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
+		return -ENODEV;
+	}
+
+	if (state->cur_state == PANEL_STATE_OFF ||
+		state->cur_state == PANEL_STATE_ON ||
+		!IS_PANEL_ACTIVE(panel))
+		return 0;
+
+	mutex_lock(&panel->op_lock);
+	if (adap_idx->cur_freq_idx ==
+		panel->panel_data.props.cur_ffc_idx) {
+		pr_debug("[ADAP_FREQ] %s:cur_ffc_idx(%d) already set to %d\n",
+				__func__, panel->panel_data.props.cur_ffc_idx,
+				adap_idx->cur_freq_idx);
+		goto exit_changed;
+	}
+
+	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_FFC_SEQ);
+	if (unlikely(ret < 0)) {
+		panel_err("[ADAP_FREQ] %s:failed to set PANEL_FFC_SEQ cur_ffc_idx(%d)\n",
+				__func__, panel->panel_data.props.cur_ffc_idx);
+		goto exit_changed;
+	}
+	panel_info("[ADAP_FREQ] %s:cur_ffc_idx(%d)\n",
+			__func__, panel->panel_data.props.cur_ffc_idx);
+
+exit_changed:
+	mutex_unlock(&panel->op_lock);
 	return ret;
+}
+
+static int panel_mipi_freq_changed(struct panel_device *panel, void *arg)
+{
+	return panel_mipi_freq_update(panel);
 }
 #endif
 
 static int __panel_seq_init(struct panel_device *panel)
 {
 	int ret = 0;
-	int retry = 200;
-	int disp_det = panel->pad.gpio_disp_det;
+	int retry = 20;
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
 
-	if (gpio_get_value(disp_det) == PANEL_DISP_DET_HIGH) {
-		panel_warn("PANEL:WARN:%s:disp det already set to 1\n",
-			__func__);
+	if (panel_disp_det_state(panel) == PANEL_STATE_OK) {
+		panel_warn("PANEL:WARN:%s:panel already initialized\n", __func__);
 		return 0;
 	}
 
 #ifdef CONFIG_SUPPORT_PANEL_SWAP
-	panel_reprobe(panel);
+	ret = panel_reprobe(panel);
+	if (ret < 0) {
+		panel_err("PANEL:ERR:%s:failed to panel_reprobe\n", __func__);
+		return ret;
+	}
 #endif
 
 	mutex_lock(&panel_bl->lock);
@@ -258,17 +515,21 @@ static int __panel_seq_init(struct panel_device *panel)
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_DISP);
 #endif
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_INIT_SEQ);
-	if (unlikely(ret < 0))
+	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
+		goto err_init_seq;
+	}
 	mutex_unlock(&panel->op_lock);
 	mutex_unlock(&panel_bl->lock);
 
+
 check_disp_det:
-	if (gpio_get_value(disp_det) == PANEL_DISP_DET_LOW) {
-		usleep_range(100, 100);
-		if (retry--)
+	if (panel_disp_det_state(panel) == PANEL_STATE_NOK) {
+		usleep_range(1000, 1000);
+		if (--retry >= 0)
 			goto check_disp_det;
-		goto do_exit;
+		panel_err("PANEL:ERR:%s:check disp det .. not ok\n", __func__);
+		return -EAGAIN;
 	}
 
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
@@ -277,15 +538,15 @@ check_disp_det:
 		panel_err("PANEL:ERR:%s:failed to aod init_panel\n", __func__);
 #endif
 
-	clear_disp_det_pend(panel);
-
-	enable_irq(panel->pad.irq_disp_det);
+	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
 
 	panel_info("PANEL:INFO:%s:check disp det .. success\n", __func__);
 	return 0;
 
-do_exit:
-	panel_err("PANEL:ERR:%s:failed to panel power on\n", __func__);
+err_init_seq:
+	mutex_unlock(&panel->op_lock);
+	mutex_unlock(&panel_bl->lock);
 	return -EAGAIN;
 }
 
@@ -294,7 +555,7 @@ static int __panel_seq_exit(struct panel_device *panel)
 	int ret;
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
 
-	disable_irq(panel->pad.irq_disp_det);
+	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
@@ -332,16 +593,12 @@ static int __panel_seq_hmd_on(struct panel_device *panel)
 	return ret;
 }
 #endif
+
 #ifdef CONFIG_SUPPORT_DOZE
 static int __panel_seq_exit_alpm(struct panel_device *panel)
 {
 	int ret = 0;
-	struct backlight_device *bd = panel->panel_bl.bd;
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
-#ifdef CONFIG_SET_1p5_ALPM
-	int volt;
-	struct panel_pad *pad = &panel->pad;
-#endif
 	panel_info("PANEL:INFO:%s:was called\n", __func__);
 
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
@@ -352,17 +609,10 @@ static int __panel_seq_exit_alpm(struct panel_device *panel)
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
-#ifdef CONFIG_SET_1p5_ALPM
-	volt = regulator_get_voltage(pad->regulator[REGULATOR_1p6V]);
-	panel_info("PANEL:INFO:%s:regulator voltage  : %d\n", __func__, volt);
-	if (volt != BUCK_NORMAL_VOLT) {
-		ret = regulator_set_voltage(pad->regulator[REGULATOR_1p6V],
-			BUCK_NORMAL_VOLT, BUCK_NORMAL_VOLT);
-		if (ret)
-			panel_warn("PANEL:WARN:%s:failed to set volt to 1.6\n",
+	ret = panel_regulator_set_voltage(panel, PANEL_STATE_NORMAL);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set voltage\n",
 				__func__);
-	}
-#endif
 
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_ALPM_EXIT_SEQ);
 	if (ret)
@@ -371,10 +621,12 @@ static int __panel_seq_exit_alpm(struct panel_device *panel)
 	panel->panel_data.props.lpm_brightness = -1;
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_DISP);
 #endif
+	if (panel->panel_data.props.panel_partial_disp != -1)
+		panel->panel_data.props.panel_partial_disp = 0;
 	mutex_unlock(&panel->op_lock);
 	mutex_unlock(&panel_bl->lock);
-
-	backlight_update_status(bd);
+	panel_update_brightness(panel);
+	msleep(34);
 	return ret;
 }
 
@@ -412,36 +664,20 @@ exit_delay:
 	return;
 }
 
-
-
 static int __panel_seq_set_alpm(struct panel_device *panel)
 {
-	int ret = 0;
-	int volt = 0;
+	int ret;
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
-#ifdef CONFIG_SET_1p5_ALPM
-	struct panel_pad *pad = &panel->pad;
-#endif
-#ifdef CONFIG_DISP_PMIC_SSD
-	struct regulator *elvss = regulator_get(NULL, "elvss");
-#endif
-	panel_info("PANEL:INFO:%s:was called\n", __func__);
 
-#ifdef CONFIG_DISP_PMIC_SSD
-	if (!IS_ERR_OR_NULL(elvss)) {
-		ret = regulator_set_short_detection(elvss, true, SSD_CURRENT_DOZE);
-		if (ret)
-			panel_err("PANEL:ERR:%s:failed to ssd current to lpm\n", __func__);
-		panel_info("PANEL:INFO:set SSD to %duA : %d\n", SSD_CURRENT_DOZE, ret);
-	} else {
-		panel_err("PANEL:ERR:%s:failed to get elvss regulator\n", __func__);
-	}
-#endif
+	panel_info("PANEL:INFO:%s:was called\n", __func__);
+	ret = panel_regulator_set_short_detection(panel, PANEL_STATE_ALPM);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set ssd current, ret:%d\n",
+				__func__, ret);
 	__delay_normal_alpm(panel);
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
-
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_ALPM_ENTER_SEQ);
 	if (ret)
 		panel_err("PANEL:ERR:%s, failed to alpm-enter\n", __func__);
@@ -449,30 +685,22 @@ static int __panel_seq_set_alpm(struct panel_device *panel)
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_AOD);
 #endif
 
-#ifdef CONFIG_SET_1p5_ALPM
-	volt = regulator_get_voltage(pad->regulator[REGULATOR_1p6V]);
-	panel_info("PANEL:INFO:%s:regulator voltage : %d\n", __func__, volt);
-	if (volt != BUCK_ALPM_VOLT) {
-		ret = regulator_set_voltage(pad->regulator[REGULATOR_1p6V],
-			BUCK_ALPM_VOLT, BUCK_ALPM_VOLT);
-		if (ret)
-			panel_warn("PANEL:WARN:%s:failed to set volt to 1.5\n",
+	ret = panel_regulator_set_voltage(panel, PANEL_STATE_ALPM);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set voltage\n",
 				__func__);
-	}
-#endif
 	mutex_unlock(&panel->op_lock);
 	mutex_unlock(&panel_bl->lock);
 
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	ret = panel_aod_enter_to_lpm(panel);
-	if (ret)
+	if (ret) {
 		panel_err("PANEL:ERR:%s:failed to enter to lpm\n", __func__);
+		return ret;
+	}
 #endif
 
-#ifdef CONFIG_DISP_PMIC_SSD
-	regulator_put(elvss);
-#endif
-	return ret;
+	return 0;
 }
 #endif
 
@@ -531,8 +759,7 @@ static int __panel_seq_dump(struct panel_device *panel)
 
 static int panel_debug_dump(struct panel_device *panel)
 {
-	int ret, disp_det;
-	struct panel_pad *pad = &panel->pad;
+	int ret;
 
 	if (unlikely(!panel)) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
@@ -550,8 +777,8 @@ static int panel_debug_dump(struct panel_device *panel)
 		return ret;
 	}
 
-	disp_det = gpio_get_value(pad->gpio_disp_det);
-	panel_info("PANEL:INFO:%s: disp gpio : %d\n", __func__, disp_det);
+	panel_info("PANEL:INFO:%s: disp_det_state:%s\n", __func__,
+			panel_disp_det_state(panel) == PANEL_STATE_OK ? "OK" : "NOK");
 dump_exit:
 	return 0;
 }
@@ -562,23 +789,22 @@ int panel_display_on(struct panel_device *panel)
 	struct panel_state *state = &panel->state;
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
 		goto do_exit;
 	}
 
-	if (state->cur_state == PANEL_STATE_OFF) {
-		panel_warn("PANEL:WANR:%s:panel off\n", __func__);
+	if (state->cur_state == PANEL_STATE_OFF ||
+		state->cur_state == PANEL_STATE_ON) {
+		panel_warn("PANEL:WARN:%s:invalid state\n", __func__);
 		goto do_exit;
 	}
 
 	mdnie_enable(&panel->mdnie);
-
 	ret = __panel_seq_display_on(panel);
 	if (ret) {
 		panel_err("PANEL:ERR:%s:failed to display on\n", __func__);
 		return ret;
 	}
-
 	state->disp_on = PANEL_DISPLAY_ON;
 	copr_enable(&panel->copr);
 
@@ -594,12 +820,13 @@ static int panel_display_off(struct panel_device *panel)
 	struct panel_state *state = &panel->state;
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
 		goto do_exit;
 	}
 
-	if (state->cur_state == PANEL_STATE_OFF) {
-		panel_warn("PANEL:WANR:%s:panel off\n", __func__);
+	if (state->cur_state == PANEL_STATE_OFF ||
+		state->cur_state == PANEL_STATE_ON) {
+		panel_warn("PANEL:WARN:%s:invalid state\n", __func__);
 		goto do_exit;
 	}
 
@@ -680,6 +907,8 @@ static int panel_prepare(struct panel_device *panel, struct common_panel_info *i
 		panel_data->maptbl[i].pdata = panel;
 	for (i = 0; i < panel_data->nr_restbl; i++)
 		panel_data->restbl[i].state = RES_UNINITIALIZED;
+	memcpy(&panel_data->ddi_props, &info->ddi_props,
+			sizeof(panel_data->ddi_props));
 	mutex_unlock(&panel->op_lock);
 
 	return 0;
@@ -752,12 +981,12 @@ int panel_is_changed(struct panel_device *panel)
 #ifdef CONFIG_SUPPORT_DIM_FLASH
 int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 {
-	struct dim_flash_result *result = &panel->dim_flash_work.result;
+	struct dim_flash_result *result = &panel->dim_flash_result;
 	int state = 0;
 	int ret;
 
 	if (dim_type == DIM_TYPE_DIM_FLASH) {
-		ret = set_panel_poc(&panel->poc_dev, POC_OP_DIM_READ);
+		ret = set_panel_poc(&panel->poc_dev, POC_OP_DIM_READ, NULL);
 		if (unlikely(ret)) {
 			pr_err("%s, failed to read gamma flash(ret %d)\n",
 					__func__, ret);
@@ -765,7 +994,8 @@ int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 				state = GAMMA_FLASH_ERROR_READ_FAIL;
 		}
 
-		if (panel->poc_dev.nr_partition > POC_DIM_PARTITION) {
+		if (state != GAMMA_FLASH_ERROR_READ_FAIL &&
+				panel->poc_dev.nr_partition > POC_DIM_PARTITION) {
 			result->dim_chksum_ok =
 				panel->poc_dev.partition[POC_DIM_PARTITION].chksum_ok;
 			result->dim_chksum_by_calc =
@@ -776,7 +1006,7 @@ int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 
 		ret = check_poc_partition_exists(&panel->poc_dev, POC_DIM_PARTITION);
 		if (ret < 0) {
-			panel_err("ERR:PANEL:%s failed to check dim_flash exist\n",
+			panel_err("PANEL:ERR:%s failed to check dim_flash exist\n",
 					__func__);
 			if (!state)
 				state = GAMMA_FLASH_ERROR_READ_FAIL;
@@ -796,7 +1026,7 @@ int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 				state = GAMMA_FLASH_ERROR_CHECKSUM_MISMATCH;
 		}
 
-		ret = set_panel_poc(&panel->poc_dev, POC_OP_MTP_READ);
+		ret = set_panel_poc(&panel->poc_dev, POC_OP_MTP_READ, NULL);
 		if (unlikely(ret)) {
 			pr_err("%s, failed to read mtp flash(ret %d)\n",
 					__func__, ret);
@@ -830,14 +1060,22 @@ int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 				state = GAMMA_FLASH_ERROR_READ_FAIL;
 		}
 
-		if (panel->poc_dev.nr_partition > POC_MTP_PARTITION) {
+		if (state != GAMMA_FLASH_ERROR_READ_FAIL &&
+				panel->poc_dev.nr_partition > POC_MTP_PARTITION) {
 			result->mtp_chksum_ok = panel->poc_dev.partition[POC_MTP_PARTITION].chksum_ok;
 			result->mtp_chksum_by_calc = panel->poc_dev.partition[POC_MTP_PARTITION].chksum_by_calc;
 			result->mtp_chksum_by_read = panel->poc_dev.partition[POC_MTP_PARTITION].chksum_by_read;
 		}
 
 		if (result->mtp_chksum_by_calc != result->mtp_chksum_by_read ||
-				memcmp(result->mtp_reg, result->mtp_flash, sizeof(result->mtp_reg))) {
+			memcmp(result->mtp_reg, result->mtp_flash, sizeof(result->mtp_reg))) {
+
+			pr_info("[MTP FROM PANEL]\n");
+			print_data(result->mtp_reg, sizeof(result->mtp_reg));
+
+			pr_info("[MTP FROM FLASH]\n");
+			print_data(result->mtp_flash, sizeof(result->mtp_flash));
+
 			if (!state)
 				state = GAMMA_FLASH_ERROR_MTP_OFFSET;
 		}
@@ -883,13 +1121,13 @@ int panel_reprobe(struct panel_device *panel)
 		return ret;
 	}
 
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	ret = panel_poc_probe(panel, info->poc_data);
 	if (unlikely(ret)) {
 		pr_err("%s, failed to probe poc driver\n", __func__);
 		return -ENODEV;
 	}
-#endif /* CONFIG_SUPPORT_POC_FLASH */
+#endif /* CONFIG_SUPPORT_DDI_FLASH */
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
 	if (panel->panel_data.props.cur_dim_type == DIM_TYPE_DIM_FLASH) {
@@ -917,39 +1155,207 @@ int panel_reprobe(struct panel_device *panel)
 }
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
-static void panel_update_dim_flash_work(struct work_struct *work)
+static void dim_flash_handler(struct work_struct *work)
 {
-	struct panel_work *pn_work = container_of(to_delayed_work(work),
+	struct panel_work *w = container_of(to_delayed_work(work),
 			struct panel_work, dwork);
 	struct panel_device *panel =
-		container_of(pn_work, struct panel_device, dim_flash_work);
-	struct backlight_device *bd = panel->panel_bl.bd;
+		container_of(w, struct panel_device, work[PANEL_WORK_DIM_FLASH]);
 	int ret;
 
-	if (atomic_read(&panel->dim_flash_work.running)) {
+	if (atomic_read(&w->running)) {
 		pr_info("%s already running\n", __func__);
 		return;
 	}
 
-	atomic_set(&panel->dim_flash_work.running, 1);
+	atomic_set(&w->running, 1);
 	mutex_lock(&panel->panel_bl.lock);
 	pr_info("%s +\n", __func__);
 	ret = panel_update_dim_type(panel, DIM_TYPE_DIM_FLASH);
 	if (ret < 0) {
 		pr_err("%s, failed to update dim_flash %d\n",
 				__func__, ret);
-		pn_work->ret = ret;
+		w->ret = ret;
 	} else {
 		pr_info("%s, update dim_flash done %d\n",
 				__func__, ret);
-		pn_work->ret = GAMMA_FLASH_SUCCESS;
+		w->ret = GAMMA_FLASH_SUCCESS;
 	}
 	pr_info("%s -\n", __func__);
 	mutex_unlock(&panel->panel_bl.lock);
-	backlight_update_status(bd);
-	atomic_set(&panel->dim_flash_work.running, 0);
+	panel_update_brightness(panel);
+	atomic_set(&w->running, 0);
 }
 #endif
+
+
+
+void clear_check_wq_var(struct panel_condition_check *pcc)
+{
+	pcc->check_state = NO_CHECK_STATE;
+	pcc->is_panel_check = false;
+	pcc->frame_cnt = 0;
+}
+
+bool show_copr_value(struct panel_device *panel, int frame_cnt)
+{
+	int ret = 0;
+	bool retVal = false;
+#ifdef CONFIG_EXYNOS_DECON_LCD_COPR
+	struct copr_info *copr = &panel->copr;
+	char write_buf[200] = {0, };
+	int c = 0, i = 0, len = 0;
+
+	if (copr_is_enabled(copr)) {
+		ret = copr_get_value(copr);
+		if (ret < 0) {
+			panel_err("%s failed to get copr\n", __func__);
+			return retVal;
+		}
+		len += snprintf(write_buf + len, sizeof(write_buf) - len, "cur:%d avg:%d ",
+			copr->props.cur_copr, copr->props.avg_copr);
+		if (copr->props.nr_roi > 0) {
+			len += snprintf(write_buf + len, sizeof(write_buf) - len, "roi:");
+			for (i = 0; i < copr->props.nr_roi; i++) {
+				for (c = 0; c < 3; c++){
+					if (sizeof(write_buf) - len > 0) {
+						len += snprintf(write_buf + len, sizeof(write_buf) - len, "%d%s",
+							copr->props.copr_roi_r[i][c],
+							((i == copr->props.nr_roi - 1) && c == 2) ? "\n" : " ");
+					}
+				}
+			}
+		} else {
+			len += snprintf(write_buf + len, sizeof(write_buf) - len, "%s", "\n");
+		}
+		panel_info("%s: copr(frame_cnt=%d) -> %s", __func__, frame_cnt, write_buf);
+		if (copr->props.cur_copr > 0) 	// not black
+			retVal = true;
+	} else {
+		panel_info("%s: copr do not support\n", __func__);
+	}
+#else
+	panel_info("%s: copr feature is disabled\n", __func__);
+#endif
+	return retVal;
+}
+
+static void panel_condition_handler(struct work_struct *work)
+{
+	int ret = 0;
+	struct panel_work *w = container_of(to_delayed_work(work),
+			struct panel_work, dwork);
+	struct panel_device *panel =
+		container_of(w, struct panel_device, work[PANEL_WORK_CHECK_CONDITION]);
+	struct panel_condition_check *condition = &panel->condition_check;
+
+	if (atomic_read(&w->running)) {
+		pr_info("%s already running\n", __func__);
+		return;
+	}
+	panel_wake_lock(panel);
+	atomic_set(&w->running, 1);
+	mutex_lock(&w->lock);
+	panel_info("%s: %s\n", __func__, condition->str_state[condition->check_state]);
+
+	switch (condition->check_state) {
+	case PRINT_NORMAL_PANEL_INFO:
+		// print rddpm
+		ret = panel_do_seqtbl_by_index(panel, PANEL_CHECK_CONDITION_SEQ);
+		if (unlikely(ret < 0)) {
+			panel_err("%s failed to write panel check\n", __func__);
+		}
+		if(show_copr_value(panel, condition->frame_cnt))
+			clear_check_wq_var(condition);
+		else
+			condition->check_state = CHECK_NORMAL_PANEL_INFO;
+		break;
+	case PRINT_DOZE_PANEL_INFO:
+		ret = panel_do_seqtbl_by_index(panel, PANEL_CHECK_CONDITION_SEQ);
+		if (unlikely(ret < 0)) {
+			panel_err("%s failed to write panel check\n", __func__);
+		}
+		clear_check_wq_var(condition);
+		break;
+	case CHECK_NORMAL_PANEL_INFO:
+		if(show_copr_value(panel, condition->frame_cnt))
+			clear_check_wq_var(condition);
+		break;
+	default:
+		pr_info("%s state %d\n", __func__, condition->check_state);
+		clear_check_wq_var(condition);
+		break;
+	}
+	mutex_unlock(&w->lock);
+	atomic_set(&w->running, 0);
+	panel_wake_unlock(panel);
+}
+
+int init_check_wq(struct panel_condition_check *condition)
+{
+	clear_check_wq_var(condition);
+	strcpy(condition->str_state[NO_CHECK_STATE], STR_NO_CHECK);
+	strcpy(condition->str_state[PRINT_NORMAL_PANEL_INFO], STR_NOMARL_ON);
+	strcpy(condition->str_state[CHECK_NORMAL_PANEL_INFO], STR_NOMARL_100FRAME);
+	strcpy(condition->str_state[PRINT_DOZE_PANEL_INFO], STR_AOD_ON);
+
+	return 0;
+}
+
+void panel_check_ready(struct panel_device *panel)
+{
+	struct panel_condition_check *pcc = &panel->condition_check;
+	struct panel_work *pw = &panel->work[PANEL_WORK_CHECK_CONDITION];
+
+	mutex_lock(&pw->lock);
+	pcc->is_panel_check = true;
+	if (panel->state.cur_state == PANEL_STATE_NORMAL)
+		pcc->check_state = PRINT_NORMAL_PANEL_INFO;
+	if (panel->state.cur_state == PANEL_STATE_ALPM)
+		pcc->check_state = PRINT_DOZE_PANEL_INFO;
+	mutex_unlock(&pw->lock);
+}
+
+static void panel_check_start(struct panel_device *panel)
+{
+	struct panel_condition_check *pcc = &panel->condition_check;
+	struct panel_work *pw = &panel->work[PANEL_WORK_CHECK_CONDITION];
+
+	mutex_lock(&pw->lock);
+	if (pcc->frame_cnt < 100) {
+		pcc->frame_cnt++;
+		switch (pcc->check_state) {
+		case PRINT_NORMAL_PANEL_INFO:
+		case PRINT_DOZE_PANEL_INFO:
+			if (pcc->frame_cnt == 1)
+				queue_delayed_work(pw->wq, &pw->dwork, msecs_to_jiffies(0));
+			break;
+		case CHECK_NORMAL_PANEL_INFO:
+			if (pcc->frame_cnt % 10 == 0)
+				queue_delayed_work(pw->wq, &pw->dwork, msecs_to_jiffies(0));
+			break;
+		case NO_CHECK_STATE:
+			// do nothing
+			break;
+		default:
+			panel_warn("%s state is invalid %d %d %d\n",
+				__func__, pcc->is_panel_check, pcc->frame_cnt, pcc->check_state);
+			clear_check_wq_var(pcc);
+			break;
+		}
+	} else {
+		if (pcc->check_state == CHECK_NORMAL_PANEL_INFO) {
+			panel_warn("%s screen is black in first 100 frame %d %d %d\n",
+				__func__, pcc->is_panel_check, pcc->frame_cnt, pcc->check_state);
+		} else {
+			panel_warn("%s state is invalid %d %d %d\n",
+				__func__, pcc->is_panel_check, pcc->frame_cnt, pcc->check_state);
+		}
+		clear_check_wq_var(pcc);
+	}
+	mutex_unlock(&pw->lock);
+}
+
 
 int panel_probe(struct panel_device *panel)
 {
@@ -990,6 +1396,10 @@ int panel_probe(struct panel_device *panel)
 	panel_data->props.cur_alpm_mode = ALPM_OFF;
 	panel_data->props.lpm_opr = 250;		/* default LPM OPR 2.5 */
 	panel_data->props.cur_lpm_opr = 250;	/* default LPM OPR 2.5 */
+	panel_data->props.panel_partial_disp = 0;
+	panel_data->props.dia_mode = 0;
+	panel_data->props.irc_mode = 0;
+	panel_data->props.panel_partial_disp = (info->ddi_props.support_partial_disp)? 0 : -1;
 
 	memset(panel_data->props.mcd_rs_range, -1,
 			sizeof(panel_data->props.mcd_rs_range));
@@ -998,6 +1408,9 @@ int panel_probe(struct panel_device *panel)
 	panel_data->props.gct_on = GRAM_TEST_OFF;
 	panel_data->props.gct_vddm = VDDM_ORIG;
 	panel_data->props.gct_pattern = GCT_PATTERN_NONE;
+#endif
+#ifdef CONFIG_SUPPORT_DYNAMIC_HLPM
+	panel_data->props.dynamic_hlpm = 0;
 #endif
 #ifdef CONFIG_SUPPORT_TDMB_TUNE
 	panel_data->props.tdmb_on = false;
@@ -1016,8 +1429,17 @@ int panel_probe(struct panel_device *panel)
 	panel_data->props.xtalk_mode = XTALK_OFF;
 #endif
 	panel_data->props.poc_onoff = POC_ONOFF_ON;
-	panel_data->props.irc_mode = 0;
 	mutex_unlock(&panel->panel_bl.lock);
+
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	panel_data->props.cur_ffc_idx = 0;
+#endif
+
+#ifdef CONFIG_SUPPORT_DSU
+	panel_data->props.mres_updated = false;
+#endif
+	panel_data->props.ub_con_cnt = 0;
+	panel_data->props.conn_det_enable = 0;
 
 	ret = panel_prepare(panel, info);
 	if (unlikely(ret)) {
@@ -1040,31 +1462,13 @@ int panel_probe(struct panel_device *panel)
 	resource_copy_by_name(panel_data, panel_data->date, "date");
 	resource_copy_by_name(panel_data, panel_data->coordinate, "coordinate");
 
-#ifdef CONFIG_SUPPORT_POC_FLASH
+#ifdef CONFIG_SUPPORT_DDI_FLASH
 	ret = panel_poc_probe(panel, info->poc_data);
 	if (unlikely(ret)) {
 		pr_err("%s, failed to probe poc driver\n", __func__);
 		return -ENODEV;
 	}
-#endif /* CONFIG_SUPPORT_POC_FLASH */
-
-#ifdef CONFIG_SUPPORT_DIM_FLASH
-	mutex_lock(&panel->panel_bl.lock);
-	mutex_lock(&panel->op_lock);
-	for (i = 0; i < MAX_PANEL_BL_SUBDEV; i++) {
-		if (panel_data->panel_dim_info[i]->dim_flash_on) {
-			panel_data->props.dim_flash_on = true;
-			pr_info("%s dim_flash : on\n", __func__);
-			break;
-		}
-	}
-	mutex_unlock(&panel->op_lock);
-	mutex_unlock(&panel->panel_bl.lock);
-
-	if (panel_data->props.dim_flash_on)
-		queue_delayed_work(panel->dim_flash_work.wq,
-				&panel->dim_flash_work.dwork, msecs_to_jiffies(500));
-#endif /* CONFIG_SUPPORT_DIM_FLASH */
+#endif /* CONFIG_SUPPORT_DDI_FLASH */
 
 	ret = panel_maptbl_init(panel);
 	if (unlikely(ret)) {
@@ -1108,6 +1512,47 @@ int panel_probe(struct panel_device *panel)
 	}
 #endif
 
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	ret = profiler_probe(panel, info->profile_tune);
+	if (unlikely(ret)) {
+		panel_err("PANEL:ERR:%s:failed to probe profiler\n", __func__);
+	}
+#endif
+
+#ifdef CONFIG_SUPPORT_POC_SPI
+	ret = panel_spi_drv_probe(panel, info->spi_data);
+
+	if (unlikely(ret)) {
+		pr_err("%s, failed to probe panel spi driver\n", __func__);
+		return -ENODEV;
+	}
+#endif
+
+#ifdef CONFIG_DYNAMIC_FREQ
+	ret = dynamic_freq_probe(panel, info->df_freq_tbl);
+	if (ret)
+		panel_err("PANEL:ERR:%s:failed to register dynamic freq module\n",
+			__func__);
+#endif
+#ifdef CONFIG_SUPPORT_DIM_FLASH
+	mutex_lock(&panel->panel_bl.lock);
+	mutex_lock(&panel->op_lock);
+	for (i = 0; i < MAX_PANEL_BL_SUBDEV; i++) {
+		if (panel_data->panel_dim_info[i]->dim_flash_on) {
+			panel_data->props.dim_flash_on = true;
+			pr_info("%s dim_flash : on\n", __func__);
+			break;
+		}
+	}
+	mutex_unlock(&panel->op_lock);
+	mutex_unlock(&panel->panel_bl.lock);
+
+	if (panel_data->props.dim_flash_on)
+		queue_delayed_work(panel->work[PANEL_WORK_DIM_FLASH].wq,
+				&panel->work[PANEL_WORK_DIM_FLASH].dwork,
+				msecs_to_jiffies(500));
+#endif /* CONFIG_SUPPORT_DIM_FLASH */
+	init_check_wq(&panel->condition_check);
 	return 0;
 }
 
@@ -1118,13 +1563,13 @@ static int panel_sleep_in(struct panel_device *panel)
 	enum panel_active_state prev_state = state->cur_state;
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
 		goto do_exit;
 	}
 
 	switch (state->cur_state) {
 	case PANEL_STATE_ON:
-		panel_warn("PANEL:WANR:%s:panel already %s state\n",
+		panel_warn("PANEL:WARN:%s:panel already %s state\n",
 				__func__, panel_state_names[state->cur_state]);
 		goto do_exit;
 	case PANEL_STATE_NORMAL:
@@ -1152,6 +1597,10 @@ static int panel_sleep_in(struct panel_device *panel)
 	panel_info("%s panel_state:%s -> %s\n", __func__,
 			panel_state_names[prev_state], panel_state_names[state->cur_state]);
 
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	panel->profiler.flag_font = 0;
+#endif
+
 	return 0;
 
 do_exit:
@@ -1164,9 +1613,21 @@ static int panel_power_on(struct panel_device *panel)
 	struct panel_state *state = &panel->state;
 	enum panel_active_state prev_state = state->cur_state;
 
-	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
-		goto do_exit;
+	if (panel->state.connect_panel == PANEL_DISCONNECT) {
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
+		return -ENODEV;
+	}
+
+	panel->state.connected = panel_conn_det_state(panel);
+	if (panel->state.connected < 0) {
+		pr_debug("PANEL:INFO:%s:conn unsupported\n", __func__);
+	} else if (panel->state.connected == PANEL_STATE_NOK) {
+		panel_warn("PANEL:WARN:%s:ub disconnected\n", __func__);
+#if defined(CONFIG_SUPPORT_PANEL_SWAP)
+		return -ENODEV;
+#endif
+	} else {
+		pr_debug("PANEL:INFO:%s:ub connected\n", __func__);
 	}
 
 	if (state->cur_state == PANEL_STATE_OFF) {
@@ -1187,7 +1648,6 @@ do_exit:
 	return ret;
 }
 
-
 static int panel_power_off(struct panel_device *panel)
 {
 	int ret = -EINVAL;
@@ -1196,18 +1656,15 @@ static int panel_power_off(struct panel_device *panel)
 #ifdef CONFIG_ACTIVE_CLOCK
 	struct act_clock_dev *act_clk;
 #endif
-#ifdef CONFIG_SUPPORT_PANEL_SWAP
-	state->connect_panel = connect_panel;
-#endif
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
 		goto do_exit;
 	}
 
 	switch (state->cur_state) {
 	case PANEL_STATE_OFF:
-		panel_warn("PANEL:WANR:%s:panel already %s state\n",
+		panel_warn("PANEL:WARN:%s:panel already %s state\n",
 				__func__, panel_state_names[state->cur_state]);
 		goto do_exit;
 	case PANEL_STATE_ALPM:
@@ -1238,7 +1695,7 @@ static int panel_power_off(struct panel_device *panel)
 	if (ret)
 		panel_err("PANEL:ERR:%s:failed to aod power off\n", __func__);
 #endif
-	panel_info("%s panel state:%s -> %s\n", __func__,
+	panel_info("%s panel_state:%s -> %s\n", __func__,
 			panel_state_names[prev_state], panel_state_names[state->cur_state]);
 
 	return 0;
@@ -1250,23 +1707,30 @@ do_exit:
 static int panel_sleep_out(struct panel_device *panel)
 {
 	int ret = 0;
-#ifdef CONFIG_SUPPORT_PANEL_SWAP
-	int retry = 2;
-#else
-	int retry = 30;
-#endif
+	static int retry = 3;
 	struct panel_state *state = &panel->state;
 	enum panel_active_state prev_state = state->cur_state;
 
-	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
-		goto do_exit;
+	if (panel->state.connect_panel == PANEL_DISCONNECT) {
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
+		return -ENODEV;
 	}
 
-retry_sleep_out:
+	panel->state.connected = panel_conn_det_state(panel);
+	if (panel->state.connected < 0) {
+		pr_debug("PANEL:INFO:%s:conn unsupported\n", __func__);
+	} else if (panel->state.connected == PANEL_STATE_NOK) {
+		panel_warn("PANEL:WARN:%s:ub disconnected\n", __func__);
+#if defined(CONFIG_SUPPORT_PANEL_SWAP)
+		return -ENODEV;
+#endif
+	} else {
+		panel_info("PANEL:INFO:%s:ub connected\n", __func__);
+	}
+
 	switch (state->cur_state) {
 	case PANEL_STATE_NORMAL:
-		panel_warn("PANEL:WANR:%s:panel already %s state\n",
+		panel_warn("PANEL:WARN:%s:panel already %s state\n",
 				__func__, panel_state_names[state->cur_state]);
 		goto do_exit;
 	case PANEL_STATE_ALPM:
@@ -1290,22 +1754,14 @@ retry_sleep_out:
 		if (ret) {
 			if (--retry >= 0 && ret == -EAGAIN) {
 				panel_power_off(panel);
-				usleep_range(100000, 100000);
-				goto retry_sleep_out;
-			} else {
-#ifdef CONFIG_SUPPORT_PANEL_SWAP
-				/*
-				 * in swap panel case, if init panel is failed,
-				 * set connect_panel DISCONNECTED to ignore
-				 * panel operations.
-				 */
-				panel->state.connect_panel = PANEL_DISCONNECT;
-#endif
-				panel_err("PANEL:ERR:%s:failed to panel init seq\n",
-					__func__);
+				msleep(100);
 				goto do_exit;
 			}
+			panel_err("PANEL:ERR:%s:failed to panel init seq\n",
+					__func__);
+			BUG();
 		}
+		retry = 3;
 		break;
 	default:
 		panel_err("PANEL:ERR:%s:invalid state(%d)\n",
@@ -1313,7 +1769,12 @@ retry_sleep_out:
 		goto do_exit;
 	}
 	state->cur_state = PANEL_STATE_NORMAL;
+	state->disp_on = PANEL_DISPLAY_OFF;
 	panel->ktime_panel_on = ktime_get();
+
+	mutex_lock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
+	clear_check_wq_var(&panel->condition_check);
+	mutex_unlock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
 #ifdef CONFIG_SUPPORT_HMD
 	if (state->hmd_on == PANEL_HMD_ON) {
 		panel_info("PANEL:INFO:%s:hmd was on, setting hmd on seq\n", __func__);
@@ -1322,10 +1783,16 @@ retry_sleep_out:
 			panel_err("PANEL:ERR:%s:failed to set hmd on seq\n",
 				__func__);
 		}
+
+		ret = panel_bl_set_brightness(&panel->panel_bl,
+				PANEL_BL_SUBDEV_TYPE_HMD, 1);
+		if (ret)
+			pr_err("%s : fail to set hmd brightness\n", __func__);
 	}
 #endif
 	panel_info("%s panel_state:%s -> %s\n", __func__,
-			panel_state_names[prev_state], panel_state_names[state->cur_state]);
+			panel_state_names[prev_state],
+			panel_state_names[state->cur_state]);
 
 	return 0;
 
@@ -1334,53 +1801,6 @@ do_exit:
 }
 
 #ifdef CONFIG_SUPPORT_DOZE
-static int panel_update_doze(struct panel_device *panel)
-{
-	int ret = 0;
-	struct panel_properties *props = &panel->panel_data.props;
-	struct panel_bl_device *panel_bl = &panel->panel_bl;
-	bool updated;
-
-	mutex_lock(&panel_bl->lock);
-	mutex_lock(&panel->op_lock);
-	updated = (props->cur_alpm_mode != props->alpm_mode) ||
-#ifdef CONFIG_SUPPORT_TDMB_TUNE
-		(props->cur_tdmb_on != props->tdmb_on) ||
-#endif
-		(props->cur_lpm_opr != props->lpm_opr);
-#ifdef CONFIG_SUPPORT_AOD_BL
-	if (props->lpm_brightness !=
-			panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_AOD].brightness) {
-		pr_info("%s updated %d, brightness %d\n", __func__, updated,
-				panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_AOD].brightness);
-		updated = true;
-	}
-#endif
-	mutex_unlock(&panel->op_lock);
-	mutex_unlock(&panel_bl->lock);
-
-	if (updated) {
-		ret = __panel_seq_set_alpm(panel);
-		if (ret) {
-			panel_err("PANEL:ERR:%s, failed to write alpm\n",
-				__func__);
-		}
-	}
-	return ret;
-}
-
-
-static int panel_update_doze_suspend(struct panel_device *panel)
-{
-	int ret = 0;
-#ifdef CONFIG_EXTEND_LIVE_CLOCK
-	ret = panel_aod_doze_suspend(panel);
-	if (ret)
-		panel_err("PANEL:ERR:%s:failed to aod doze_suspend\n", __func__);
-#endif
-	return ret;
-}
-
 static int panel_doze(struct panel_device *panel, unsigned int cmd)
 {
 	int ret = 0;
@@ -1388,27 +1808,18 @@ static int panel_doze(struct panel_device *panel, unsigned int cmd)
 	enum panel_active_state prev_state = state->cur_state;
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
-		panel_warn("PANEL:WANR:%s:panel disconnected\n", __func__);
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
 		goto do_exit;
 	}
 
 	switch (state->cur_state) {
 	case PANEL_STATE_ALPM:
-		ret = panel_update_doze(panel);
-		if (ret) {
-			panel_err("PANEL:ERR:%s:failed to update doze mode\n",
-				__func__);
-			goto do_exit;
-		}
-		if (cmd == PANEL_IOC_DOZE_SUSPEND) {
-			ret = panel_update_doze_suspend(panel);
-			if (ret) {
-				panel_err("PANEL:ERR:%s:failed to update doze suspend mode\n",
-					__func__);
-			goto do_exit;
-			}
-		}
-		break;
+		panel_warn("PANEL:WANR:%s:panel already %s state\n",
+				__func__, panel_state_names[state->cur_state]);
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+		panel_mipi_freq_update(panel);
+#endif
+		goto do_exit;
 	case PANEL_POWER_ON:
 	case PANEL_POWER_OFF:
 		ret = panel_sleep_out(panel);
@@ -1429,33 +1840,92 @@ static int panel_doze(struct panel_device *panel, unsigned int cmd)
 			panel_err("PANEL:ERR:%s, failed to write alpm\n",
 				__func__);
 		}
-		if (cmd == PANEL_IOC_DOZE_SUSPEND) {
-			ret = panel_update_doze_suspend(panel);
-			if (ret) {
-				panel_err("PANEL:ERR:%s:failed to update doze suspend mode\n",
-					__func__);
-			goto do_exit;
-			}
-		}
 		state->cur_state = PANEL_STATE_ALPM;
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+		panel_mipi_freq_update(panel);
+#endif
+		panel_mdnie_update(panel);
 		break;
 	default:
 		break;
 	}
+	mutex_lock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
+	clear_check_wq_var(&panel->condition_check);
+	mutex_unlock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
+
 	panel_info("%s panel_state:%s -> %s\n", __func__,
 			panel_state_names[prev_state], panel_state_names[state->cur_state]);
 
 do_exit:
 	return ret;
 }
-
 #endif //CONFIG_SUPPORT_DOZE
 
-
-
-
 #ifdef CONFIG_SUPPORT_DSU
-int panel_set_dsu(struct panel_device *panel, struct dsu_info *dsu)
+#ifdef CONFIG_EXYNOS_MULTIRESOLUTION
+static int panel_set_mres(struct panel_device *panel, int *mres_idx)
+{
+	int ret = 0;
+	int actual_mode;
+	struct panel_state *state;
+	struct decon_lcd *lcd_info;
+	struct lcd_mres_info *dt_lcd_mres;
+	struct dsc_slice *dsc_slice_info;
+
+	if (unlikely(!panel)) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		ret = -EINVAL;
+		goto do_exit;
+	}
+
+	state = &panel->state;
+	lcd_info = &panel->lcd_info;
+	dt_lcd_mres = &lcd_info->dt_lcd_mres;
+	dsc_slice_info = &lcd_info->dt_dsc_slice;
+	if (dt_lcd_mres->mres_en == 0) {
+		panel_err("PANEL:ERR:%s:multi-resolution unsupported!!\n",
+			__func__);
+		ret = -EINVAL;
+		goto do_exit;
+	}
+
+	actual_mode = *mres_idx;
+	if (actual_mode >= dt_lcd_mres->mres_number) {
+		panel_err("PANEL:ERR:%s:invalid mres idx:%d, number:%d\n",
+			__func__, actual_mode, dt_lcd_mres->mres_number);
+		actual_mode = 0;
+	}
+
+	lcd_info->mres_mode = actual_mode + DSU_MODE_1;
+	lcd_info->xres = dt_lcd_mres->res_info[actual_mode].width;
+	lcd_info->yres = dt_lcd_mres->res_info[actual_mode].height;
+	lcd_info->dsc_enabled = dt_lcd_mres->res_info[actual_mode].dsc_en;
+	lcd_info->dsc_slice_h = dt_lcd_mres->res_info[actual_mode].dsc_height;
+	lcd_info->dsc_dec_sw = dsc_slice_info->dsc_dec_sw[actual_mode];
+	lcd_info->dsc_enc_sw = dsc_slice_info->dsc_enc_sw[actual_mode];
+
+	if (lcd_info->dsc_enabled)
+		panel_info("PANEL:INFO:%s: dsu mode:%d, resol:%dx%d, dsc:%s, slice_h:%d\n",
+			__func__, lcd_info->mres_mode, lcd_info->xres, lcd_info->yres,
+			lcd_info->dsc_enabled ? "on" : "off", lcd_info->dsc_slice_h);
+	else
+		panel_info("PANEL:INFO:%s: dsu mode:%d, resol:%dx%d, dsc:%s, partial WxH:%dx%d\n",
+			__func__, lcd_info->mres_mode, lcd_info->xres, lcd_info->yres,
+			lcd_info->dsc_enabled ? "on" : "off", lcd_info->partial_width[actual_mode], lcd_info->partial_height[actual_mode]);
+
+	panel->panel_data.props.mres_updated = true;
+	ret = panel_do_seqtbl_by_index(panel, PANEL_DSU_SEQ);
+	if (unlikely(ret < 0)) {
+		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
+	}
+
+	return 0;
+
+do_exit:
+	return ret;
+}
+#else
+static int panel_set_dsu(struct panel_device *panel, struct dsu_info *dsu)
 {
 	int ret = 0;
 	int xres, yres;
@@ -1521,6 +1991,7 @@ int panel_set_dsu(struct panel_device *panel, struct dsu_info *dsu)
 	lcd_info->dsc_enabled = dt_lcd_mres->res_info[actual_mode].dsc_en;
 	lcd_info->dsc_slice_h = dt_lcd_mres->res_info[actual_mode].dsc_height;
 
+	panel->panel_data.props.mres_updated = true;
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DSU_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
@@ -1531,8 +2002,8 @@ int panel_set_dsu(struct panel_device *panel, struct dsu_info *dsu)
 do_exit:
 	return ret;
 }
-#endif
-
+#endif /* CONFIG_EXYNOS_MULTIRESOLUTION */
+#endif /* CONFIG_SUPPORT_DSU */
 
 static int panel_ioctl_dsim_probe(struct v4l2_subdev *sd, void *arg)
 {
@@ -1567,6 +2038,7 @@ static int panel_ioctl_dsim_ops(struct v4l2_subdev *sd)
 	panel->mipi_drv.write = mipi_ops->write;
 	panel->mipi_drv.get_state = mipi_ops->get_state;
 	panel->mipi_drv.parse_dt = mipi_ops->parse_dt;
+
 
 	return 0;
 }
@@ -1623,9 +2095,14 @@ static int panel_set_error_cb(struct v4l2_subdev *sd)
 
 static int panel_check_cb(struct panel_device *panel)
 {
-	struct panel_pad *pad = &panel->pad;
+	int status = DISP_CHECK_STATUS_OK;
 
-	return gpio_get_value(pad->gpio_disp_det) == PANEL_DISP_DET_HIGH;
+	if (panel_conn_det_state(panel) == PANEL_STATE_NOK)
+		status |= DISP_CHECK_STATUS_NODEV;
+	if (panel_disp_det_state(panel) == PANEL_STATE_NOK)
+		status |= DISP_CHECK_STATUS_ELOFF;
+
+	return status;
 }
 
 static int panel_error_cb(struct panel_device *panel)
@@ -1709,6 +2186,11 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 {
 	int ret = 0;
 	struct panel_device *panel = container_of(sd, struct panel_device, sd);
+#ifdef CONFIG_SUPPORT_DSU
+#ifdef CONFIG_EXTEND_LIVE_CLOCK
+	static int mres_updated_frame_cnt;
+#endif
+#endif
 
 	mutex_lock(&panel->io_lock);
 
@@ -1727,6 +2209,7 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 
 		case PANEL_IOC_GET_PANEL_STATE:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_GET_PANEL_STATE\n", __func__);
+			panel->state.connected = panel_conn_det_state(panel);
 			v4l2_set_subdev_hostdata(sd, &panel->state);
 			break;
 
@@ -1760,13 +2243,16 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			panel_info("PANEL:INFO:%s:PANEL_IOC_%s\n", __func__,
 				cmd == PANEL_IOC_DOZE ? "DOZE" : "DOZE_SUSPEND");
 			ret = panel_doze(panel, cmd);
-			mdnie_update(&panel->mdnie);
 			break;
 #endif
 #ifdef CONFIG_SUPPORT_DSU
 		case PANEL_IOC_SET_DSU:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_SET_DSU\n", __func__);
+#ifdef CONFIG_EXYNOS_MULTIRESOLUTION
+			ret = panel_set_mres(panel, arg);
+#else
 			ret = panel_set_dsu(panel, arg);
+#endif
 			break;
 #endif
 		case PANEL_IOC_DISP_ON:
@@ -1787,8 +2273,18 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 				panel_info("PANEL:INFO:%s:FRAME_DONE (panel_state:%s, display on)\n",
 						__func__, panel_state_names[panel->state.cur_state]);
 				ret = panel_display_on(panel);
+				panel_check_ready(panel);
 			}
 			copr_update_start(&panel->copr, 3);
+#ifdef CONFIG_SUPPORT_DSU
+			if (panel->panel_data.props.mres_updated &&
+					(++mres_updated_frame_cnt > 1)) {
+				panel->panel_data.props.mres_updated = false;
+				mres_updated_frame_cnt = 0;
+			}
+#endif
+			if (panel->condition_check.is_panel_check)
+				panel_check_start(panel);
 			break;
 		case PANEL_IOC_EVT_VSYNC:
 			//panel_dbg("PANEL:INFO:%s:PANEL_IOC_EVT_VSYNC\n", __func__);
@@ -1798,14 +2294,28 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			ret = panel_set_finger_layer(panel, arg);
 			break;
 #endif
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+		case PANEL_IOC_MIPI_FREQ_CHANGED:
+			ret = panel_mipi_freq_changed(panel, arg);
+			break;
+#endif
+
+#ifdef CONFIG_DYNAMIC_FREQ
+		case PANEL_IOC_GET_DF_STATUS:
+			v4l2_set_subdev_hostdata(sd, &panel->df_status);
+			break;
+
+		case PANEL_IOC_DYN_FREQ_FFC:
+			ret = set_dynamic_freq_ffc(panel);
+			break;
+#endif
 		default:
 			panel_err("PANEL:ERR:%s:undefined command\n", __func__);
 			ret = -EINVAL;
 			break;
-
 	}
 
-	if (ret) {
+	if (ret < 0) {
 		panel_err("PANEL:ERR:%s:failed to ioctl panel cmd : %d\n",
 			__func__,  _IOC_NR(cmd));
 	}
@@ -1834,259 +2344,361 @@ static void panel_init_v4l2_subdev(struct panel_device *panel)
 	v4l2_set_subdevdata(sd, panel);
 }
 
-
 static int panel_drv_set_gpios(struct panel_device *panel)
 {
-	int ret = 0;
 	int rst_val = -1, det_val = -1;
-	struct panel_pad *pad = &panel->pad;
+	struct panel_gpio *gpio = panel->gpio;
 
 	if (panel == NULL) {
-		panel_err("PANEL:ERR:%s:pad is null\n", __func__);
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 
-	if (pad->gpio_reset != 0) {
-		ret = gpio_request(pad->gpio_reset, "lcd_reset");
-		if (ret < 0) {
-			panel_err("PANEL:ERR:%s:failed to request gpio reset\n",
-				__func__);
-			return -EINVAL;
-		}
-		rst_val = gpio_get_value(pad->gpio_reset);
+	if (!gpio_is_valid(gpio[PANEL_GPIO_RESET].num)) {
+		panel_err("PANEL:ERR:%s:gpio(%s) not exist\n",
+			   	__func__, panel_gpio_names[PANEL_GPIO_RESET]);
+		return -EINVAL;
 	}
+	rst_val = gpio_get_value(gpio[PANEL_GPIO_RESET].num);
 
-	if (pad->gpio_disp_det != 0) {
-		ret = gpio_request_one(pad->gpio_disp_det, GPIOF_IN, "disp_det");
-		if (ret < 0) {
-			panel_err("PANEL:ERR:%s:failed to request gpio disp det : %d\n",
-				__func__, ret);
-			return -EINVAL;
-		}
-		det_val = gpio_get_value(pad->gpio_disp_det);
-
+	if (!gpio_is_valid(gpio[PANEL_GPIO_DISP_DET].num)) {
+		panel_err("PANEL:ERR:%s:gpio(%s) not exist\n",
+			   	__func__, panel_gpio_names[PANEL_GPIO_RESET]);
+		return -EINVAL;
 	}
+	det_val = gpio_get_value(gpio[PANEL_GPIO_DISP_DET].num);
+
 	/*
-	 * panel state is decided by rst and disp_det pin
+	 * panel state is decided by rst, conn_det and disp_det pin
 	 *
 	 * @rst_val
 	 *  0 : need to init panel in kernel
 	 *  1 : already initialized in bootloader
 	 *
+	 * @conn_det
+	 *  < 0 : unsupported
+	 *  = 0 : ub connector is disconnected
+	 *  = 1 : ub connector is connected
+	 *
 	 * @det_val
-	 *  0 : panel is not connected
-	 *  1 : panel is connected
+	 *  0 : panel is "sleep in" state
+	 *  1 : panel is "sleep out" state
 	 */
-	if (rst_val == 1) {
-		panel->state.init_at = PANEL_INIT_BOOT;
-		if (det_val == 0) {
-			gpio_direction_output(pad->gpio_reset, 0);
-			panel->state.connect_panel = PANEL_DISCONNECT;
-		} else {
-			gpio_direction_output(pad->gpio_reset, 1);
-			panel->state.connect_panel = PANEL_CONNECT;
-			panel->state.cur_state = PANEL_STATE_NORMAL;
-			panel->state.power = PANEL_POWER_ON;
-			panel->state.disp_on = PANEL_DISPLAY_ON;
-		}
-#ifdef CONFIG_SUPPORT_PANEL_SWAP
-		connect_panel = panel->state.connect_panel;
-#endif
+	panel->state.init_at = (rst_val == 1) ?
+		PANEL_INIT_BOOT : PANEL_INIT_KERNEL;
+
+	/* connected : conn_det is connected or not */
+	panel->state.connected = panel_conn_det_state(panel);
+
+	/* connect_panel : decide to use or ignore panel */
+	panel->state.connect_panel =
+		(panel->state.init_at == PANEL_INIT_KERNEL || det_val == 1) ?
+		PANEL_CONNECT : PANEL_DISCONNECT;
+
+	if (panel->state.init_at == PANEL_INIT_KERNEL || det_val == 0) {
+		gpio_direction_output(gpio[PANEL_GPIO_RESET].num, 0);
+		panel->state.cur_state = PANEL_STATE_OFF;
+		panel->state.power = PANEL_POWER_OFF;
+		panel->state.disp_on = PANEL_DISPLAY_OFF;
 	} else {
-		panel->state.init_at = PANEL_INIT_KERNEL;
+		gpio_direction_output(gpio[PANEL_GPIO_RESET].num, 1);
+		panel->state.cur_state = PANEL_STATE_NORMAL;
+		panel->state.power = PANEL_POWER_ON;
+		panel->state.disp_on = PANEL_DISPLAY_ON;
 	}
 
-	panel_dbg("PANEL:INFO:%s: rst:%d, disp_det:%d (init_at:%s, state:%s)\n",
+	panel_info("PANEL:INFO:%s: rst:%d, disp_det:%d (init_at:%s, ub_con:%d(%s) panel:%d(%s))\n",
 		__func__, rst_val, det_val,
 		(panel->state.init_at ? "BL" : "KERNEL"),
-		(panel->state.connect_panel ? "CONNECTED" : "DISCONNECTED"));
+		panel->state.connected,
+		(panel->state.connected < 0 ? "UNSUPPORTED" :
+		(panel->state.connected == true ? "CONNECTED" : "DISCONNECTED")),
+		panel->state.connect_panel,
+		(panel->state.connect_panel == PANEL_CONNECT ? "USE" : "NO USE"));
 
 	return 0;
 }
 
-static inline int panel_get_gpio(struct device *dev ,char *name)
+static int panel_drv_set_regulators(struct panel_device *panel)
 {
-	int ret = 0;
-	ret = of_gpio_named_count(dev->of_node, name);
-	if (ret != 1) {
-		panel_err("PANEL:ERR:%s:can't find gpio named : %s\n",
-			__func__, name);
+	int ret;
+
+	if (panel->state.init_at == PANEL_INIT_BOOT) {
+		ret = panel_regulator_set_short_detection(panel, PANEL_STATE_NORMAL);
+		if (ret < 0)
+			panel_err("PANEL:ERR:%s:failed to set ssd current, ret:%d\n",
+					__func__, ret);
+		ret = panel_regulator_enable(panel);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:faield to panel_regulator_enable, ret:%d\n",
+					__func__, ret);
+			return ret;
+		}
+
+		if (panel->state.connect_panel == PANEL_DISCONNECT) {
+			ret = panel_regulator_disable(panel);
+			if (ret < 0) {
+				panel_err("PANEL:ERR:%s:faield to panel_regulator_disable, ret:%d\n",
+						__func__, ret);
+				return ret;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int of_get_panel_gpio(struct device_node *np, struct panel_gpio *gpio)
+{
+	struct device_node *pend_np;
+	enum of_gpio_flags flags;
+	int ret;
+
+	if (of_gpio_count(np) < 1)
+		return -ENODEV;
+
+	if (of_property_read_string(np, "name",
+			(const char **)&gpio->name)) {
+		pr_err("%s %s:property('name') not found\n",
+				__func__, np->name);
 		return -EINVAL;
 	}
-	ret = of_get_named_gpio(dev->of_node, name, 0);
-	if (!gpio_is_valid(ret)) {
-		panel_err("PANEL:ERR:%s:failed to get gpio named : %s\n",
-			__func__, name);
-		return -EINVAL;
+
+	gpio->num = of_get_gpio_flags(np, 0, &flags);
+	if (!gpio_is_valid(gpio->num)) {
+		pr_err("%s %s:invalid gpio %s:%d\n",
+				__func__, np->name, gpio->name, gpio->num);
+		return -ENODEV;
 	}
-	return ret;
+	gpio->active_low = flags & OF_GPIO_ACTIVE_LOW;
+
+	if (of_property_read_u32(np, "dir", &gpio->dir))
+		pr_warn("%s %s:property('dir') not found\n",
+				__func__, np->name);
+
+	if ((gpio->dir & GPIOF_DIR_IN) == GPIOF_DIR_OUT) {
+		ret = gpio_request(gpio->num, gpio->name);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:failed to request gpio(%s:%d)\n",
+					__func__, gpio->num, gpio->name);
+			return ret;
+		}
+	} else {
+		ret = gpio_request_one(gpio->num, GPIOF_IN, gpio->name);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:failed to request gpio(%s:%d)\n",
+					__func__, gpio->num, gpio->name);
+			return ret;
+		}
+	}
+
+	if (of_property_read_u32(np, "irq-type", &gpio->irq_type))
+		pr_warn("%s %s:property('irq-type') not found\n",
+				__func__, np->name);
+
+	if (gpio->irq_type > 0) {
+		gpio->irq = gpio_to_irq(gpio->num);
+
+		pend_np = of_get_child_by_name(np, "irq-pend");
+		if (pend_np) {
+			gpio->irq_pend_reg = of_iomap(pend_np, 0);
+			if (gpio->irq_pend_reg == NULL) {
+				pr_err("%s %s:%s:property('reg') not found\n",
+						__func__, np->name, pend_np->name);
+			}
+
+			if (of_property_read_u32(pend_np, "bit",
+						&gpio->irq_pend_bit)) {
+				pr_err("%s %s:%s:property('bit') not found\n",
+						__func__, np->name, pend_np->name);
+				gpio->irq_pend_bit = -EINVAL;
+			}
+			of_node_put(pend_np);
+		}
+	}
+
+	return 0;
 }
 
 static int panel_parse_gpio(struct panel_device *panel)
 {
-	int i;
-	int ret;
-	struct device_node *pend_disp_det;
 	struct device *dev = panel->dev;
-	struct panel_pad *pad = &panel->pad;
-	int gpio_result[PANEL_GPIO_MAX];
-	char *gpio_lists[PANEL_GPIO_MAX] = {
-		GPIO_NAME_RESET, GPIO_NAME_DISP_DET, GPIO_NAME_PCD, GPIO_NAME_ERR_FG
-	};
+	struct device_node *gpios_np, *np;
+	struct panel_gpio *gpio = panel->gpio;
+	int i;
 
-	for (i = 0; i < PANEL_GPIO_MAX; i++) {
-		ret = panel_get_gpio(dev, gpio_lists[i]);
-		if (ret <= 0)
-			 ret = 0;
-		gpio_result[i] = ret;
-	}
-	pad->gpio_reset = gpio_result[PANEL_GPIO_RESET];
-	pad->gpio_disp_det = gpio_result[PANEL_GPIO_DISP_DET];
-	pad->gpio_pcd = gpio_result[PANEL_GPIO_PCD];
-	pad->gpio_err_fg = gpio_result[PANEL_GPIO_ERR_FG];
-
-	ret = panel_drv_set_gpios(panel);
-
-	if (pad->gpio_disp_det) {
-		pad->irq_disp_det = gpio_to_irq(pad->gpio_disp_det);
-		pend_disp_det = of_get_child_by_name(dev->of_node, "pend,disp-det");
-		if (!pend_disp_det) {
-			panel_warn("PANEL:WARN:%s:No DT node for te_eint\n", __func__);
-		}
-		else {
-			pad->pend_reg_disp_det = of_iomap(pend_disp_det, 0);
-			if (!pad->pend_reg_disp_det) {
-				panel_err("PANEL:ERR:%s:failed to get disp pend reg\n", __func__);
-				return -EINVAL;
-			}
-			of_property_read_u32(pend_disp_det, "pend-bit",
-				&pad->pend_bit_disp_det);
-			panel_info("PANEL:INFO:%s:pend bit disp_det %x\n",\
-				__func__, pad->pend_bit_disp_det);
-			panel_info("PANEL:INFO:%s:disp_det pend : %x\n",
-				__func__, readl(pad->pend_reg_disp_det));
-		}
-	}
-	if (pad->gpio_pcd)
-		pad->irq_pcd = gpio_to_irq(pad->gpio_pcd);
-
-	if (pad->gpio_err_fg)
-		pad->irq_err_fg = gpio_to_irq(pad->gpio_err_fg);
-
-	if (pad->gpio_reset == 0) {
-		panel_err("PANEL:ERR:%s:can't find gpio for panel reset\n",
-			__func__);
+	gpios_np = of_get_child_by_name(dev->of_node, "gpios");
+	if (!gpios_np) {
+		pr_err("%s 'gpios' node not found\n", __func__);
 		return -EINVAL;
 	}
 
-	return ret;
+	for_each_child_of_node(gpios_np, np) {
+		for (i = 0; i < PANEL_GPIO_MAX; i++)
+			if (!of_node_cmp(np->name,
+						panel_gpio_names[i]))
+				break;
+
+		if (i == PANEL_GPIO_MAX) {
+			pr_warn("%s %s not found in panel_gpio list\n",
+					__func__, np->name);
+			continue;
+		}
+
+		if (of_get_panel_gpio(np, &gpio[i]))
+			pr_err("%s failed to get gpio %s\n",
+					__func__, np->name);
+
+		pr_info("gpio[%d] name:%s active:%s dir:%d irq_type:%d\n",
+				i, gpio[i].name, gpio[i].active_low ? "low" : "high",
+				gpio[i].dir, gpio[i].irq_type);
+	}
+	of_node_put(gpios_np);
+
+	return 0;
 }
 
+static int of_get_panel_regulator(struct device_node *np,
+		struct panel_regulator *regulator)
+{
+	struct device_node *reg_np;
+
+	reg_np = of_parse_phandle(np, "regulator", 0);
+	if (!reg_np) {
+		pr_err("%s %s:'regulator' node not found\n",
+				__func__, np->name);
+		return -EINVAL;
+	}
+
+	if (of_property_read_string(reg_np, "regulator-name",
+				(const char **)&regulator->name)) {
+		pr_err("%s %s:%s:property('regulator-name') not found\n",
+				__func__, np->name, reg_np->name);
+		of_node_put(reg_np);
+		return -EINVAL;
+	}
+	of_node_put(reg_np);
+
+	regulator->reg = regulator_get(NULL, regulator->name);
+	if (IS_ERR(regulator->reg)) {
+		pr_err("%s failed to get regulator %s\n",
+				__func__, regulator->name);
+		return -EINVAL;
+	}
+
+	of_property_read_u32(np, "def-voltage", &regulator->def_voltage);
+	of_property_read_u32(np, "lpm-voltage", &regulator->lpm_voltage);
+	of_property_read_u32(np, "def-current", &regulator->def_current);
+	of_property_read_u32(np, "lpm-current", &regulator->lpm_current);
+
+	return 0;
+}
 
 static int panel_parse_regulator(struct panel_device *panel)
 {
 	int i;
-	int ret = 0;
-	char *tmp_str;
 	struct device *dev = panel->dev;
-	struct panel_pad *pad = &panel->pad;
-	struct regulator *reg[REGULATOR_MAX];
-	char *reg_lists[REGULATOR_MAX] = {
-		REGULATOR_3p0_NAME, REGULATOR_1p8_NAME, REGULATOR_1p6_NAME,
-	};
+	struct panel_regulator *regulator = panel->regulator;
+	struct device_node *regulators_np, *np;
 
-	for (i = 0; i < REGULATOR_MAX; i++) {
-		of_property_read_string(dev->of_node, reg_lists[i],
-			(const char **)&tmp_str);
-		if (tmp_str == NULL) {
-			panel_err("PANEL:ERR:%s:failed to get regulator string : %s\n",
-				__func__, reg_lists[i]);
-			ret = -EINVAL;
-			goto parse_regulator_err;
-		}
-		reg[i] = regulator_get(NULL, tmp_str);
-		if (IS_ERR(reg[i])) {
-			panel_err("PANEL:ERR:%s:failed to get regulator :%s:%s\n",
-				__func__, reg_lists[i], tmp_str);
-			ret = -EINVAL;
-			goto parse_regulator_err;
-		}
-		if (panel->state.init_at == PANEL_INIT_BOOT) {
-			ret = regulator_enable(reg[i]);
-			if (ret) {
-				panel_err("PANEL:ERR:%s:failed to enable regualtor : %s\n",
-					__func__, tmp_str);
-				goto parse_regulator_err;
-			}
-#ifdef CONFIG_SUPPORT_DOZE
-#ifdef CONFIG_SET_1p5_ALPM
-			if (i == REGULATOR_1p6V) {
-				ret = regulator_set_voltage(reg[i], 1600000, 1600000);
-				if (ret) {
-					panel_err("PANEL:%s:failed to set volatege\n",
-						__func__);
-					goto parse_regulator_err;
-				}
-			}
-#endif
-#endif
-			if (panel->state.connect_panel == PANEL_DISCONNECT) {
-				panel_info("PANEL:INFO:%s:panel was disconnected: disable : %s\n",
-					__func__, reg_lists[i]);
-				ret = regulator_disable(reg[i]);
-				if (ret) {
-					panel_err("PANEL:ERR:%s:failed to disable regualtor : %s\n",
-						__func__, tmp_str);
-					goto parse_regulator_err;
-				}
-			}
-		}
+	regulators_np = of_get_child_by_name(dev->of_node, "regulators");
+	if (!regulators_np) {
+		pr_err("%s 'regulators' node not found\n", __func__);
+		return -EINVAL;
 	}
-	pad->regulator[REGULATOR_3p0V] = reg[REGULATOR_3p0V];
-	pad->regulator[REGULATOR_1p8V] = reg[REGULATOR_1p8V];
-	pad->regulator[REGULATOR_1p6V] = reg[REGULATOR_1p6V];
 
-	ret = 0;
+	for_each_child_of_node(regulators_np, np) {
+		for (i = 0; i < PANEL_REGULATOR_MAX; i++)
+			if (!of_node_cmp(np->name,
+					panel_regulator_names[i]))
+				break;
 
-	panel_dbg("PANEL:INFO:%s:panel parse regulator : done\n", __func__);
+		if (i == PANEL_REGULATOR_MAX) {
+			pr_warn("%s %s not found in panel_regulator list\n",
+					__func__, np->name);
+			continue;
+		}
 
-parse_regulator_err:
-	return ret;
+		if (i == PANEL_REGULATOR_SSD)
+			regulator[i].type = PANEL_REGULATOR_TYPE_SSD;
+		else
+			regulator[i].type = PANEL_REGULATOR_TYPE_PWR;
+
+		if (of_get_panel_regulator(np, &regulator[i])) {
+			pr_err("%s failed to get regulator %s\n",
+					__func__, np->name);
+			of_node_put(regulators_np);
+			return -EINVAL;
+		}
+		pr_info("regulator[%d] name:%s type:%d\n",
+				i, regulator[i].name, regulator[i].type);
+	}
+	of_node_put(regulators_np);
+
+	panel_dbg("PANEL:INFO:%s done\n", __func__);
+
+	return 0;
 }
 
-
-static irqreturn_t panel_disp_det_irq(int irq, void *dev_id)
+static irqreturn_t panel_work_isr(int irq, void *dev_id)
 {
-	struct panel_device *panel = (struct panel_device *)dev_id;
+	struct panel_work *w = (struct panel_work *)dev_id;
 
-	queue_work(panel->disp_det_workqueue, &panel->disp_det_work);
+	queue_delayed_work(w->wq, &w->dwork, msecs_to_jiffies(0));
 
 	return IRQ_HANDLED;
 }
 
-
 int panel_register_isr(struct panel_device *panel)
 {
-	int ret = 0;
-	struct panel_pad *pad = &panel->pad;
+	int i, iw, ret;
+	struct panel_gpio *gpio = panel->gpio;
+	char name[64];
 
-	if (panel->state.connect_panel == PANEL_DISCONNECT) {
-		return 0;
-	}
+	if (panel->state.connect_panel == PANEL_DISCONNECT)
+		return -ENODEV;
+	for (i = 0; i < PANEL_GPIO_MAX; i++) {
+		if (!panel_gpio_valid(gpio) || gpio[i].irq_type <= 0)
+			continue;
 
-	clear_disp_det_pend(panel);
-	if (pad->gpio_disp_det) {
-		ret = devm_request_irq(panel->dev, pad->irq_disp_det, panel_disp_det_irq,
-			IRQF_TRIGGER_FALLING, "disp_det", panel);
-		if (ret) {
-			panel_dbg("PANEL:ERR:%s:failed to register disp det irq\n", __func__);
+		for (iw = 0; iw < PANEL_WORK_MAX; iw++) {
+			if (!strncmp(panel_gpio_names[i],
+					panel_work_names[iw], 32))
+				break;
+		}
+
+		if (iw == PANEL_WORK_MAX)
+			continue;
+
+		snprintf(name, 64, "panel%d:%s",
+				panel->id, panel_work_names[iw]);
+		ret = devm_request_irq(panel->dev, gpio[i].irq, panel_work_isr,
+				gpio[i].irq_type, name, &panel->work[iw]);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:failed to register irq(%s:%d)\n",
+					__func__, name, gpio[i].irq);
 			return ret;
 		}
 	}
+
 	return 0;
 }
 
 #ifdef CONFIG_EXYNOS_COMMON_PANEL
+int panel_wake_lock(struct panel_device *panel)
+{
+	int ret = 0;
+
+	ret = decon_wake_lock_global(0, WAKE_TIMEOUT_MSEC);
+
+	return ret;
+}
+
+void panel_wake_unlock(struct panel_device *panel)
+{
+	decon_wake_unlock_global(0);
+}
+
 extern void parse_lcd_info(struct device_node *node, struct decon_lcd *lcd_info);
 
 static int panel_parse_lcd_info(struct panel_device *panel)
@@ -2095,13 +2707,22 @@ static int panel_parse_lcd_info(struct panel_device *panel)
 	struct device_node *node;
 	struct device *dev = panel->dev;
 
-	node = of_parse_phandle(dev->of_node, "ddi_info", 0);
+	node = find_panel_ddi_node(panel, boot_panel_id);
+	if (!node) {
+		panel_err("%s, panel not found (boot_panel_id 0x%08X)\n",
+				__func__, boot_panel_id);
+		node = of_parse_phandle(dev->of_node, "ddi-info", 0);
+	}
+	panel->ddi_node = node;
 
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	panel->lcd_info.adaptive_info.adap_idx =
+		&panel->adap_idx;
+#endif
 	parse_lcd_info(node, &panel->lcd_info);
 
 	return ret;
 }
-
 #else
 static int panel_parse_lcd_info(struct panel_device *panel)
 {
@@ -2191,18 +2812,19 @@ static int panel_parse_lcd_info(struct panel_device *panel)
 		&panel_info->data_lane);
 	panel_dbg("PANEL:DBG:using data lane count(%d)\n",
 		panel_info->data_lane);
-
+#if 0 //minwoo
 	if (panel_info->mode == DECON_MIPI_COMMAND_MODE) {
 		of_property_read_u32(node, "cmd_underrun_lp_ref",
-			&panel_info->cmd_underrun_lp_ref);
+			&panel_info->cmd_underrun_lp_ref[decon->mres_mode]);
 		panel_dbg("PANEL:DBG:cmd_underrun_lp_ref(%d)\n",
-			panel_info->cmd_underrun_lp_ref);
+			panel_info->cmd_underrun_lp_ref[decon->mres_mode]);
 	} else {
 		of_property_read_u32(node, "vt_compensation",
 			&panel_info->vt_compensation);
 		panel_dbg("PANEL:DBG:vt_compensation(%d)\n",
 			panel_info->vt_compensation);
 	}
+#endif
 #ifdef CONFIG_SUPPORT_DSU
 	of_property_read_u32(node, "dsu_en", &dt_dsu_info->dsu_en);
 	panel_info("PANEL:INFO:%s:dsu_en : %d\n", __func__, dt_dsu_info->dsu_en);
@@ -2285,9 +2907,30 @@ static int panel_parse_panel_lookup(struct panel_device *panel)
 	}
 	lut_info->nr_panel = sz;
 
+	sz = of_property_count_u32_elems(np, "panel-ddi-info");
+	if (sz <= 0) {
+		panel_warn("PANEL:WARN:%s:No ddi-info property\n", __func__);
+		return -EINVAL;
+	}
+
+	if (sz >= ARRAY_SIZE(lut_info->ddi_node)) {
+		panel_warn("PANEL:WARN:%s:exceeded MAX_PANEL_DDI size\n", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < sz; i++) {
+		lut_info->ddi_node[i] = of_parse_phandle(np, "panel-ddi-info", i);
+		if (!lut_info->ddi_node[i]) {
+			panel_warn("PANEL:WARN:%s:failed to get phandle of ddi-info[%d]\n",
+					__func__, i);
+			return -EINVAL;
+		}
+	}
+	lut_info->nr_panel_ddi = sz;
+
 	sz_lut = of_property_count_u32_elems(np, "panel-lut");
-	if ((sz_lut % 3) || (sz_lut >= MAX_PANEL_LUT)) {
-		panel_warn("PANEL:WARN:%s:sz_lut(%d) should be multiple of 3"
+	if ((sz_lut % 4) || (sz_lut >= MAX_PANEL_LUT)) {
+		panel_warn("PANEL:WARN:%s:sz_lut(%d) should be multiple of 4"
 				" and less than MAX_PANEL_LUT\n", __func__, sz_lut);
 		return -EINVAL;
 	}
@@ -2295,18 +2938,18 @@ static int panel_parse_panel_lookup(struct panel_device *panel)
 	ret = of_property_read_u32_array(np, "panel-lut",
 			(u32 *)lut_info->lut, sz_lut);
 	if (ret) {
-		panel_warn("PANEL:WARN:%s:failed to read panel-ltu\n", __func__);
+		panel_warn("PANEL:WARN:%s:failed to read panel-lut\n", __func__);
 		return -EINVAL;
 	}
 
-	for (i = 0; i < sz_lut / 3; i++) {
+	for (i = 0; i < sz_lut / 4; i++) {
 		if (lut_info->lut[i].index >= lut_info->nr_panel) {
 			panel_warn("PANEL:WARN:%s:invalid panel index(%d)\n",
 					__func__, lut_info->lut[i].index);
 			return -EINVAL;
 		}
 	}
-	lut_info->nr_lut = sz_lut / 3;
+	lut_info->nr_lut = sz_lut / 4;
 
 	print_panel_lut(lut_info);
 
@@ -2319,59 +2962,79 @@ static int panel_parse_dt(struct panel_device *panel)
 	struct device *dev = panel->dev;
 
 	if (IS_ERR_OR_NULL(dev->of_node)) {
-		panel_err("ERR:PANEL:%s:failed to get dt info\n", __func__);
+		panel_err("PANEL:ERR:%s:failed to get dt info\n", __func__);
 		return -EINVAL;
 	}
 
 	panel->id = of_alias_get_id(dev->of_node, "panel");
 	if (panel->id < 0) {
-		panel_err("ERR:PANEL:%s:invalid panel's id : %d\n",
+		panel_err("PANEL:ERR:%s:invalid panel's id : %d\n",
 			__func__, panel->id);
 		return panel->id;
 	}
-	panel_dbg("INFO:PANEL:%s:panel-id:%d\n", __func__, panel->id);
+	panel_info("PANEL:INFO:%s:panel-%d\n", __func__, panel->id);
 
-	panel_parse_gpio(panel);
+	ret = panel_parse_gpio(panel);
+	if (ret < 0) {
+		panel_err("PANEL:ERR:%s:panel-%d:failed to parse gpio\n",
+			__func__, panel->id);
+		return ret;
+	}
 
-	panel_parse_regulator(panel);
+	ret = panel_parse_regulator(panel);
+	if (ret < 0) {
+		panel_err("PANEL:ERR:%s:panel-%d:failed to parse regulator\n",
+			__func__, panel->id);
+		return ret;
+	}
 
-	panel_parse_lcd_info(panel);
+	ret = panel_parse_panel_lookup(panel);
+	if (ret < 0) {
+		panel_err("PANEL:ERR:%s:panel-%d:failed to parse panel lookup\n",
+			__func__, panel->id);
+		return ret;
+	}
 
-	panel_parse_panel_lookup(panel);
+	ret = panel_parse_lcd_info(panel);
+	if (ret < 0) {
+		panel_err("PANEL:ERR:%s:panel-%d:failed to parse lcd_info\n",
+			__func__, panel->id);
+		return ret;
+	}
 
-	return ret;
+	return 0;
 }
 
-void disp_det_handler(struct work_struct *data)
+static void disp_det_handler(struct work_struct *work)
 {
-	int ret, disp_det;
+	int ret, disp_det_state;
+	struct panel_work *w = container_of(to_delayed_work(work),
+			struct panel_work, dwork);
 	struct panel_device *panel =
-			container_of(data, struct panel_device, disp_det_work);
-	struct panel_pad *pad = &panel->pad;
-	struct backlight_device *bd = panel->panel_bl.bd;
+		container_of(w, struct panel_device, work[PANEL_WORK_DISP_DET]);
+	struct panel_gpio *gpio = panel->gpio;
 	struct panel_state *state = &panel->state;
 
-	disp_det = gpio_get_value(pad->gpio_disp_det);
-
-	panel_info("PANEL:INFO:%s: disp_det:%d\n", __func__, disp_det);
+	disp_det_state = panel_disp_det_state(panel);
+	panel_info("PANEL:INFO:%s: disp_det_state:%s\n",
+			__func__, disp_det_state == PANEL_STATE_OK ? "OK" : "NOK");
 
 	switch (state->cur_state) {
 	case PANEL_STATE_ALPM:
 	case PANEL_STATE_NORMAL:
-		if (disp_det == 0) {
-			disable_irq(pad->irq_disp_det);
+		if (disp_det_state == PANEL_STATE_NOK) {
+			disable_irq(gpio[PANEL_GPIO_DISP_DET].irq);
 			/* delay for disp_det deboundce */
 			usleep_range(10000, 11000);
 
 			panel_err("PANEL:ERR:%s:disp_det is abnormal state\n",
-				__func__);
+					__func__);
 			ret = panel_error_cb(panel);
 			if (ret)
 				panel_err("PANEL:ERR:%s:failed to recover panel\n",
 						__func__);
-			backlight_update_status(bd);
-			clear_disp_det_pend(panel);
-			enable_irq(pad->irq_disp_det);
+			clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+			enable_irq(gpio[PANEL_GPIO_DISP_DET].irq);
 		}
 		break;
 	default:
@@ -2379,6 +3042,36 @@ void disp_det_handler(struct work_struct *data)
 	}
 
 	return;
+}
+
+void panel_send_ubconn_uevent(struct panel_device* panel)
+{
+	char *uevent_conn_str[3] = {"CONNECTOR_NAME=UB_CONNECT", "CONNECTOR_TYPE=HIGH_LEVEL", NULL};
+	kobject_uevent_env(&panel->lcd->dev.kobj, KOBJ_CHANGE, uevent_conn_str);
+	panel_info("%s, %s, %s\n", __func__, uevent_conn_str[0], uevent_conn_str[1]);
+}
+
+void conn_det_handler(struct work_struct * data)
+{
+	struct panel_work *w = container_of(to_delayed_work(data),
+		struct panel_work, dwork);
+	struct panel_device *panel =
+		container_of(w, struct panel_device, work[PANEL_WORK_CONN_DET]);
+	panel_info("%s state:%d cnt:%d\n",
+		__func__, ub_con_disconnected(panel), panel->panel_data.props.ub_con_cnt);
+	if (!ub_con_disconnected(panel))
+		return ;
+	if (panel->panel_data.props.conn_det_enable) {
+		panel_send_ubconn_uevent(panel);
+	}
+	panel->panel_data.props.ub_con_cnt++;
+	return ;
+}
+
+void err_fg_handler(struct work_struct * data)
+{
+	pr_info("%s\n", __func__);
+	return ;
 }
 
 static int panel_fb_notifier(struct notifier_block *self, unsigned long event, void *data)
@@ -2396,7 +3089,6 @@ static int panel_fb_notifier(struct notifier_block *self, unsigned long event, v
 			return 0;
 		default:
 			return 0;
-
 	}
 
 	panel = container_of(self, struct panel_device, fb_notif);
@@ -2425,6 +3117,18 @@ static int panel_fb_notifier(struct notifier_block *self, unsigned long event, v
 }
 
 #ifdef CONFIG_DISPLAY_USE_INFO
+unsigned int g_rddpm = 0xFF;
+unsigned int g_rddsm = 0xFF;
+
+unsigned int get_panel_bigdata(void)
+{
+	unsigned int val = 0;
+
+	val = (g_rddsm << 8) | g_rddpm;
+
+	return val;
+}
+
 static int panel_dpui_notifier_callback(struct notifier_block *self,
 				 unsigned long event, void *data)
 {
@@ -2436,7 +3140,6 @@ static int panel_dpui_notifier_callback(struct notifier_block *self,
 	char tbuf[MAX_DPUI_VAL_LEN];
 	u8 panel_datetime[7] = { 0, };
 	u8 panel_coord[4] = { 0, };
-	u8 panel_chip_id[5] = { 0, };
 	int i, site, rework, poc;
 	u8 cell_id[16], octa_id[PANEL_OCTA_ID_LEN] = { 0, };
 	bool cell_id_exist = true;
@@ -2469,14 +3172,6 @@ static int panel_dpui_notifier_callback(struct notifier_block *self,
 	set_dpui_field(DPUI_KEY_LCDID2, tbuf, size);
 	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%d", panel_data->id[2]);
 	set_dpui_field(DPUI_KEY_LCDID3, tbuf, size);
-	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%s_%s", info->vendor, info->model);
-	set_dpui_field(DPUI_KEY_DISP_MODEL, tbuf, size);
-
-	resource_copy_by_name(panel_data, panel_chip_id, "chip_id");
-	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "0x%02X%02X%02X%02X%02X",
-			panel_chip_id[0], panel_chip_id[1], panel_chip_id[2],
-			panel_chip_id[3], panel_chip_id[4]);
-	set_dpui_field(DPUI_KEY_CHIPID, tbuf, size);
 
 	resource_copy_by_name(panel_data, panel_coord, "coordinate");
 	size = snprintf(tbuf, MAX_DPUI_VAL_LEN, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
@@ -2505,6 +3200,15 @@ static int panel_dpui_notifier_callback(struct notifier_block *self,
 			size += snprintf(tbuf + size, MAX_DPUI_VAL_LEN - size, "%c", cell_id[i]);
 	}
 	set_dpui_field(DPUI_KEY_OCTAID, tbuf, size);
+
+#ifdef CONFIG_SUPPORT_DIM_FLASH
+	size = snprintf(tbuf, MAX_DPUI_VAL_LEN,
+			"%d", panel->work[PANEL_WORK_DIM_FLASH].ret);
+	set_dpui_field(DPUI_KEY_PNGFLS, tbuf, size);
+#endif
+
+	inc_dpui_u32_field(DPUI_KEY_UB_CON, panel->panel_data.props.ub_con_cnt);
+	panel->panel_data.props.ub_con_cnt = 0;
 
 	return 0;
 }
@@ -2548,6 +3252,48 @@ static int panel_tdmb_notifier_callback(struct notifier_block *nb,
 }
 #endif
 
+static int panel_init_work(struct panel_work *w,
+		char *name, panel_wq_handler handler)
+{
+	if (w == NULL || name == NULL || handler == NULL) {
+		panel_err("PANEL:ERR:%s:invalid parameter\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_init(&w->lock);
+	INIT_DELAYED_WORK(&w->dwork, handler);
+	w->wq = create_singlethread_workqueue(name);
+	if (w->wq == NULL) {
+		panel_err("PANEL:ERR:%s:failed to create %s workqueue\n",
+				__func__, name);
+		return -ENOMEM;
+	}
+	atomic_set(&w->running, 0);
+
+	pr_info("%s %s done\n", __func__, name);
+	return 0;
+}
+
+static int panel_drv_init_work(struct panel_device *panel)
+{
+	int i, ret;
+
+	for (i = 0; i < PANEL_WORK_MAX; i++) {
+		if (!panel_wq_handlers[i])
+			continue;
+
+		ret = panel_init_work(&panel->work[i],
+				panel_work_names[i], panel_wq_handlers[i]);
+		if (ret < 0) {
+			panel_err("PANEL:ERR:%s:failed to initialize panel_work(%s)\n",
+					__func__, panel_work_names[i]);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
 static int panel_drv_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -2564,6 +3310,7 @@ static int panel_drv_probe(struct platform_device *pdev)
 
 	panel->state.init_at = PANEL_INIT_BOOT;
 	panel->state.connect_panel = PANEL_CONNECT;
+	panel->state.connected = true;
 	panel->state.cur_state = PANEL_STATE_OFF;
 	panel->state.power = PANEL_POWER_OFF;
 	panel->state.disp_on = PANEL_DISPLAY_OFF;
@@ -2579,6 +3326,14 @@ static int panel_drv_probe(struct platform_device *pdev)
 #ifdef CONFIG_ACTIVE_CLOCK
 	panel->act_clk_dev.act_info.update_img = IMG_UPDATE_NEED;
 #endif
+#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
+	/* Caution!! Check default freq @ mipi dt files */
+	/* adap_idx was initialized to undefined value.. */
+	/* after 1'st ril notifier call this value was changed to appropriate value */
+	panel->adap_idx.cur_freq_idx = 0;
+	panel->adap_idx.req_freq_idx = 0;
+#endif
+
 	mutex_init(&panel->op_lock);
 	mutex_init(&panel->data_lock);
 	mutex_init(&panel->io_lock);
@@ -2588,30 +3343,28 @@ static int panel_drv_probe(struct platform_device *pdev)
 
 	panel_parse_dt(panel);
 
+	panel_drv_set_gpios(panel);
+
+	panel_drv_set_regulators(panel);
+
 	panel_init_v4l2_subdev(panel);
 
 	platform_set_drvdata(pdev, panel);
 
-	INIT_WORK(&panel->disp_det_work, disp_det_handler);
-
-	panel->disp_det_workqueue = create_singlethread_workqueue("disp_det");
-	if (panel->disp_det_workqueue == NULL) {
-		panel_err("ERR:PANEL:%s:failed to create workqueue for disp det\n", __func__);
-		ret = -ENOMEM;
-		goto probe_err;
-	}
+	panel_drv_init_work(panel);
 
 	panel->fb_notif.notifier_call = panel_fb_notifier;
 	ret = fb_register_client(&panel->fb_notif);
 	if (ret) {
-		panel_err("ERR:PANEL:%s:failed to register fb notifier callback\n", __func__);
+		panel_err("PANEL:ERR:%s:failed to register fb notifier callback\n", __func__);
 		goto probe_err;
 	}
+
 #ifdef CONFIG_DISPLAY_USE_INFO
 	panel->panel_dpui_notif.notifier_call = panel_dpui_notifier_callback;
 	ret = dpui_logging_register(&panel->panel_dpui_notif, DPUI_TYPE_PANEL);
 	if (ret) {
-		panel_err("ERR:PANEL:%s:failed to register dpui notifier callback\n", __func__);
+		panel_err("PANEL:ERR:%s:failed to register dpui notifier callback\n", __func__);
 		goto probe_err;
 	}
 #endif
@@ -2619,19 +3372,10 @@ static int panel_drv_probe(struct platform_device *pdev)
 	ret = tdmb_notifier_register(&panel->tdmb_notif,
 			panel_tdmb_notifier_callback, TDMB_NOTIFY_DEV_LCD);
 	if (ret) {
-		panel_err("ERR:PANEL:%s:failed to register tdmb notifier callback\n",
+		panel_err("PANEL:ERR:%s:failed to register tdmb notifier callback\n",
 				__func__);
 		goto probe_err;
 	}
-#endif
-#ifdef CONFIG_SUPPORT_DIM_FLASH
-	INIT_DELAYED_WORK(&panel->dim_flash_work.dwork, panel_update_dim_flash_work);
-	panel->dim_flash_work.wq = create_singlethread_workqueue("dim_flash");
-	if (panel->dim_flash_work.wq == NULL) {
-		panel_err("ERR:PANEL:%s:failed to create workqueue for dim_flash\n", __func__);
-		return -EINVAL;
-	}
-	atomic_set(&panel->dim_flash_work.running, 0);
 #endif
 
 	panel_register_isr(panel);

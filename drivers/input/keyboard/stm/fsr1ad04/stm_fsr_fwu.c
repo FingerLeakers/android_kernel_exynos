@@ -626,6 +626,8 @@ int fsr_execute_autotune(struct fsr_sidekey_info *info)
 
 void fsr_fw_init(struct fsr_sidekey_info *info)
 {
+	fsr_read_system_info(info);
+
 	input_info(true, &info->client->dev, "%s: %d\n", __func__, info->fsr_sys_info.PureSetFlag);
 
 //	if (info->fsr_sys_info.PureSetFlag == 0) {
@@ -705,6 +707,9 @@ int fsr_fw_update_on_probe(struct fsr_sidekey_info *info)
 	const struct ftb_header *header;
 	int restore_cal = 0;
 
+	if (info->board->bringup == 1)
+		return FSR_NOT_ERROR;
+
 	if (info->board->firmware_name) {
 		info->firmware_name = info->board->firmware_name;
 	}
@@ -744,6 +749,12 @@ int fsr_fw_update_on_probe(struct fsr_sidekey_info *info)
 		info->config_version_of_bin,
 		info->fw_main_version_of_bin);
 
+	if (info->board->bringup == 2) {
+		input_err(true, &info->client->dev, "%s: skip fw_update for bringup\n", __func__);
+		retval = FSR_NOT_ERROR;
+		goto done;
+	}
+
 	if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
 		|| (info->config_version_of_ic < info->config_version_of_bin)
 		|| (info->fw_version_of_ic < info->fw_version_of_bin))
@@ -765,6 +776,12 @@ static int fsr_load_fw_from_kernel(struct fsr_sidekey_info *info,
 	int retval;
 	const struct firmware *fw_entry = NULL;
 	unsigned char *fw_data = NULL;
+
+	if (info->board->bringup == 1) {
+		input_err(true, &info->client->dev, "%s: can't update for bringup\n",
+			__func__);
+		return -EINVAL;
+	}
 
 	if (!fw_path) {
 		input_err(true, &info->client->dev, "%s: Firmware name is not defined\n",

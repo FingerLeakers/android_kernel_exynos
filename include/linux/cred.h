@@ -1,4 +1,4 @@
-/* Credentials management - see Documentation/security/credentials.txt
+/* Credentials management - see Documentation/security/credentials.rst
  *
  * Copyright (C) 2008 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
@@ -18,8 +18,9 @@
 #include <linux/selinux.h>
 #include <linux/atomic.h>
 #include <linux/uidgid.h>
+#include <linux/sched.h>
+#include <linux/sched/user.h>
 
-struct user_struct;
 struct cred;
 struct inode;
 
@@ -30,7 +31,7 @@ struct group_info {
 	atomic_t	usage;
 	int		ngroups;
 	kgid_t		gid[0];
-};
+} __randomize_layout;
 
 /**
  * get_group_info - Get a reference to a group info structure
@@ -82,6 +83,16 @@ extern int set_current_groups(struct group_info *);
 extern void set_groups(struct cred *, struct group_info *);
 extern int groups_search(const struct group_info *, kgid_t);
 extern bool may_setgroups(void);
+extern void groups_sort(struct group_info *);
+
+#ifdef CONFIG_RKP_KDP
+struct ro_rcu_head {
+	struct rcu_head	rcu;		/* RCU deletion hook */
+	void *bp_cred;
+};
+#define get_rocred_rcu(cred) ((struct ro_rcu_head *)((atomic_t *)cred->use_cnt+1))
+#define get_usecnt_rcu(use_cnt) ((struct ro_rcu_head *)((atomic_t *)use_cnt+1))
+#endif /*CONFIG_RKP_KDP*/
 
 /*
  * The security context of a task
@@ -150,7 +161,8 @@ struct cred {
 	void *bp_pgd;
 	unsigned long long type;
 #endif /*CONFIG_RKP_KDP*/
-};
+} __randomize_layout;
+
 #ifdef CONFIG_RKP_KDP
 typedef struct cred_param{
 	struct cred *cred;
@@ -170,6 +182,17 @@ enum {
 	RKP_CMD_OVRD_CREDS,
 };
 #define override_creds(x) rkp_override_creds(&x)
+
+#define rkp_cred_fill_params(crd,crd_ro,uptr,tsec,rkp_cmd_type,rkp_use_cnt)	\
+do {						\
+	cred_param.cred = crd;		\
+	cred_param.cred_ro = crd_ro;		\
+	cred_param.use_cnt_ptr = uptr;		\
+	cred_param.sec_ptr= tsec;		\
+	cred_param.type = rkp_cmd_type;		\
+	cred_param.use_cnt = (u64)rkp_use_cnt;		\
+} while(0)
+
 #endif /*CONFIG_RKP_KDP*/
 
 extern void __put_cred(struct cred *);
@@ -438,15 +461,5 @@ do {						\
 	*(_fsuid) = __cred->fsuid;		\
 	*(_fsgid) = __cred->fsgid;		\
 } while(0)
-//	if (!crd) panic(itoa(__LINE__));
 
-#define rkp_cred_fill_params(crd,crd_ro,uptr,tsec,rkp_cmd_type,rkp_use_cnt)	\
-do {						\
-	cred_param.cred = crd;		\
-	cred_param.cred_ro = crd_ro;		\
-	cred_param.use_cnt_ptr = uptr;		\
-	cred_param.sec_ptr= tsec;		\
-	cred_param.type = rkp_cmd_type;		\
-	cred_param.use_cnt = (u64)rkp_use_cnt;		\
-} while(0)
 #endif /* _LINUX_CRED_H */

@@ -205,22 +205,8 @@ static int madera_resume(struct device *dev)
 static irqreturn_t madera_boot_done(int irq, void *data)
 {
 	struct madera *madera = data;
-	unsigned int val = 0;
-	int ret;
 
-	switch (madera->type) {
-	case CS47L92:
-	case CS47L93:
-		ret = regmap_read(madera->regmap, MADERA_CTRL_SCRATCH, &val);
-		if (ret != 0)
-			dev_warn(madera->dev,
-				 "Failed to read scratch reg: %d\n", ret);
-		dev_warn(madera->dev, "BOOT_DONE: 0x%x\n", val);
-		break;
-	default:
-		dev_warn(madera->dev, "BOOT_DONE\n");
-		break;
-	}
+	dev_warn(madera->dev, "BOOT_DONE\n");
 
 	return IRQ_HANDLED;
 }

@@ -163,8 +163,8 @@ static void __score_interface_scq_read(struct score_interface *itf)
 		wake_up(&fmgr->done_wq);
 
 	spin_lock_irqsave(&fmgr->slock, flags);
-	if (score_frame_get_pending_count(fmgr)) {
-		pending_frame = score_frame_get_first_pending(fmgr);
+	if (score_frame_get_pending_count(fmgr, false)) {
+		pending_frame = score_frame_get_first_pending(fmgr, false);
 		if (pending_frame) {
 			score_frame_trans_pending_to_ready(pending_frame);
 			kthread_queue_work(&scq->write_worker,

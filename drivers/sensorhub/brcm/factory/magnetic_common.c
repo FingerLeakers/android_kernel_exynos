@@ -28,10 +28,6 @@
 #define CHIP_ID_AKM			"AK09916C"
 #endif
 
-#if defined(CONFIG_SENSORS_SSP_CROWN)
-#define GM_AKM_DATA_SPEC_Z_MIN	-9000
-#define GM_AKM_DATA_SPEC_Z_MAX	9000
-#endif
 #define GM_AKM_DATA_SPEC_MIN	-6500
 #define GM_AKM_DATA_SPEC_MAX	6500
 
@@ -47,7 +43,7 @@
 
 #define YAS_STATIC_ELLIPSOID_MATRIX	{10000, 0, 0, 0, 10000, 0, 0, 0, 10000}
 #define MAG_HW_OFFSET_FILE_PATH	"/efs/FactoryApp/hw_offset"
-#define MAG_CAL_PARAM_FILE_PATH	"/efs/FactoryApp/mag_cal_param"
+#define MAG_CAL_PARAM_FILE_PATH	"/efs/FactoryApp/gyro_cal_data"
 
 
 static int check_data_spec(struct ssp_data *data, int sensortype)
@@ -71,14 +67,8 @@ static int check_data_spec(struct ssp_data *data, int sensortype)
 		|| (data->buf[sensortype].x < data_spec_min)
 		|| (data->buf[sensortype].y > data_spec_max)
 		|| (data->buf[sensortype].y < data_spec_min)
-#if defined(CONFIG_SENSORS_SSP_CROWN)		
-                || (data->buf[sensortype].z > GM_AKM_DATA_SPEC_Z_MAX)
-		|| (data->buf[sensortype].z < GM_AKM_DATA_SPEC_Z_MIN)
-#else
-                || (data->buf[sensortype].z > data_spec_max)
-		|| (data->buf[sensortype].z < data_spec_min)
-#endif
-		)
+		|| (data->buf[sensortype].z > data_spec_max)
+		|| (data->buf[sensortype].z < data_spec_min))
 		return FAIL;
 	else
 		return SUCCESS;
@@ -159,12 +149,12 @@ static ssize_t magnetic_get_selftest_akm(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	s8 iResult[4] = {-1, -1, -1, -1};
-	char bufSelftset[22] = {0, };
+	char bufSelftest[28] = {0, };
 	char bufAdc[4] = {0, };
 	s16 iSF_X = 0, iSF_Y = 0, iSF_Z = 0;
 	s16 iADC_X = 0, iADC_Y = 0, iADC_Z = 0;
 	s32 dMsDelay = 20;
-	int ret = 0, iSpecOutRetries = 0;
+	int ret = 0, iSpecOutRetries = 0, i = 0;
 	struct ssp_data *data = dev_get_drvdata(dev);
 	struct ssp_msg *msg;
 
@@ -184,9 +174,9 @@ static ssize_t magnetic_get_selftest_akm(struct device *dev,
 Retry_selftest:
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 	msg->cmd = GEOMAGNETIC_FACTORY;
-	msg->length = 22;
+	msg->length = 28;
 	msg->options = AP2HUB_READ;
-	msg->buffer = bufSelftset;
+	msg->buffer = bufSelftest;
 	msg->free_buffer = 0;
 
 	ret = ssp_spi_sync(data, msg, 1000);
@@ -197,12 +187,12 @@ Retry_selftest:
 	}
 
 	/* read 6bytes data registers */
-	iSF_X = (s16)((bufSelftset[13] << 8) + bufSelftset[14]);
-	iSF_Y = (s16)((bufSelftset[15] << 8) + bufSelftset[16]);
-	iSF_Z = (s16)((bufSelftset[17] << 8) + bufSelftset[18]);
+	iSF_X = (s16)((bufSelftest[13] << 8) + bufSelftest[14]);
+	iSF_Y = (s16)((bufSelftest[15] << 8) + bufSelftest[16]);
+	iSF_Z = (s16)((bufSelftest[17] << 8) + bufSelftest[18]);
 
 	/* DAC (store Cntl Register value to check power down) */
-	iResult[2] = bufSelftset[21];
+	iResult[2] = bufSelftest[21];
 
 	iSF_X = (s16)(((iSF_X * data->uFuseRomData[0]) >> 7) + iSF_X);
 	iSF_Y = (s16)(((iSF_Y * data->uFuseRomData[1]) >> 7) + iSF_Y);
@@ -242,6 +232,14 @@ Retry_selftest:
 		goto Retry_selftest;
 	}
 
+	for(i = 0; i < 3; i++) {
+		if(bufSelftest[22 + (i * 2)] == 1 && bufSelftest[23 + (i * 2)] == 0)
+			continue;
+		iResult[1] = -1;
+		pr_info("[SSP] continuos selftest fail #%d:%d #%d:%d", 
+				22 + (i * 2), bufSelftest[22 + (i * 2)],
+				23 + (i * 2), bufSelftest[23 + (i * 2)]);
+	}
 	iSpecOutRetries = 10;
 
 	/* ADC */
@@ -821,18 +819,21 @@ int load_magnetic_cal_param_from_nvm(u8 *data, u8 length)
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	cal_filp = filp_open(MAG_CAL_PARAM_FILE_PATH, O_RDONLY, 0);
+	cal_filp = filp_open(MAG_CAL_PARAM_FILE_PATH, O_CREAT | O_RDONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
 	if (IS_ERR(cal_filp)) {
-		pr_err("[SSP] %s: filp_open failed\n", __func__);
+		pr_err("[SSP] %s: filp_open failed, errno = %d\n", __func__, PTR_ERR(cal_filp));
 		set_fs(old_fs);
 		iRet = PTR_ERR(cal_filp);
 
 		return iRet;
 	}
 
+	cal_filp->f_pos = 3 * sizeof(int); // gyro_cal : 12 bytes
+
 	iRet = vfs_read(cal_filp, (char *)data, length * sizeof(char), &cal_filp->f_pos);
+
 	if (iRet != length * sizeof(char)) {
-		pr_err("[SSP] %s: filp_open failed\n", __func__);
+		pr_err("[SSP] %s: filp_open read failed, read size = %d", __func__, iRet);
 		iRet = -EIO;
 	}
 
@@ -840,9 +841,7 @@ int load_magnetic_cal_param_from_nvm(u8 *data, u8 length)
 	set_fs(old_fs);
 
 	return iRet;
-
 }
-
 
 
 int set_magnetic_cal_param_to_ssp(struct ssp_data *data)
@@ -904,6 +903,7 @@ int save_magnetic_cal_param_to_nvm(struct ssp_data *data, char *pchRcvDataFrame,
 	int length = 0;
 	u8 mag_caldata_akm[MAC_CAL_PARAM_SIZE_AKM] = {0, }; //AKM uses 13 byte.
 	u8 mag_caldata_yas[MAC_CAL_PARAM_SIZE_YAS] = {0, }; // YAMAHA uses 7 byte.
+	u8 gyro_mag_cal[25] = {0,};
 
 	if (data->mag_type == MAG_TYPE_AKM) {
 		//AKM uses 13 byte. YAMAHA uses 7 byte.
@@ -926,13 +926,15 @@ int save_magnetic_cal_param_to_nvm(struct ssp_data *data, char *pchRcvDataFrame,
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	cal_filp = filp_open(MAG_CAL_PARAM_FILE_PATH, O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
+	cal_filp = filp_open(MAG_CAL_PARAM_FILE_PATH, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0660);
 	if (IS_ERR(cal_filp)) {
 		set_fs(old_fs);
 		iRet = PTR_ERR(cal_filp);
 		pr_err("[SSP]: %s - Can't open mag cal file err(%d)\n", __func__, iRet);
 		return -EIO;
 	}
+
+	cal_filp->f_pos = 12; // gyro_cal : 12 bytes
 
 	if (data->mag_type == MAG_TYPE_AKM)
 		iRet = vfs_write(cal_filp, (char *)mag_caldata_akm, length * sizeof(char), &cal_filp->f_pos);
@@ -943,6 +945,18 @@ int save_magnetic_cal_param_to_nvm(struct ssp_data *data, char *pchRcvDataFrame,
 		pr_err("[SSP]: %s - Can't write mag cal to file\n", __func__);
 		iRet = -EIO;
 	}
+
+	cal_filp->f_pos = 0;
+	iRet = vfs_read(cal_filp, (char *)gyro_mag_cal, 25, &cal_filp->f_pos);
+
+	pr_err("[SSP]: %s, gyro_cal= %d %d %d %d %d %d %d %d %d %d %d %d", __func__,
+			gyro_mag_cal[0], gyro_mag_cal[1], gyro_mag_cal[2], gyro_mag_cal[3],
+			gyro_mag_cal[4], gyro_mag_cal[5], gyro_mag_cal[6], gyro_mag_cal[7],
+			gyro_mag_cal[8], gyro_mag_cal[9], gyro_mag_cal[10], gyro_mag_cal[11]);
+	pr_err("[SSP]: %s, mag_cal= %d %d %d %d %d %d %d %d %d %d %d %d %d", __func__,
+			gyro_mag_cal[12], gyro_mag_cal[13], gyro_mag_cal[14], gyro_mag_cal[15],
+			gyro_mag_cal[16], gyro_mag_cal[17], gyro_mag_cal[18], gyro_mag_cal[19],
+			gyro_mag_cal[20], gyro_mag_cal[21], gyro_mag_cal[22], gyro_mag_cal[23], gyro_mag_cal[24]);
 
 	filp_close(cal_filp, current->files);
 	set_fs(old_fs);

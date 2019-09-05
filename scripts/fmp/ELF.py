@@ -10,8 +10,10 @@ UND symbols
 import subprocess
 import re
 import os
+import struct
 from Utils import Utils
 from collections import OrderedDict
+from binascii import unhexlify
 
 __author__ = "Vadym Stupakov"
 __copyright__ = "Copyright (c) 2017 Samsung Electronics"
@@ -137,9 +139,15 @@ class ELF:
                         size = int(size, 16)
                     else:
                         size = int(size, 10)
-                    self.__symbols[int(line[0], 16)] = Symbol(addr=int(line[0], 16), size=size, sym_type=line[2],
-                                                              bind=line[3], visibility=line[4], ndx=line[5],
-                                                              name=line[6])
+                    """
+                    Do not include additional compiler information with name $d and $x
+                    $d and $x is mapping symbols, their virtual addresses may coincide with virtual addresses
+                    of the real objects
+                    """
+                    if line[6] not in ("$d", "$x"):
+                        self.__symbols[int(line[0], 16)] = Symbol(addr=int(line[0], 16), size=size, sym_type=line[2],
+                                                                  bind=line[3], visibility=line[4], ndx=line[5],
+                                                                  name=line[6])
             self.__symbols = OrderedDict(sorted(self.__symbols.items()))
         return self.__symbols
 
@@ -161,6 +169,66 @@ class ELF:
                     ranged_rela.append(el)
             return ranged_rela
         return self.__relocs
+
+    def get_altinstructions(self, start_addr=None, end_addr=None):
+        """
+        :param start_addr: start address :int
+        :param end_addr: end address: int
+        :returns list: [alt_inst1, alt_inst2, alt_inst3, ..., alt_instN]
+
+        .altinstructions section contains an array of struct alt_instr.
+        As instance, for kernel 4.14 from /arch/arm64/include/asm/alternative.h
+        struct alt_instr {
+            s32 orig_offset;    /* offset to original instruction */
+            s32 alt_offset;     /* offset to replacement instruction */
+            u16 cpufeature;     /* cpufeature bit set for replacement */
+            u8  orig_len;       /* size of original instruction(s) */
+            u8  alt_len;        /* size of new instruction(s), <= orig_len */
+        };
+
+        Later, address of original instruction can be calculated as
+        at runtime     : &(alt_instr->orig_offset) + alt_instr->orig_offset + kernel offset
+        ELF processing : address of .altinstruction section + in section offset of alt_instr structure + value of alt_instr.orig_offset
+        details in /arch/arm64/kernel/alternative.c, void __apply_alternatives(void *, bool)
+        """
+
+        # The struct_format should reflect <struct alt_instr> content
+        struct_format = '<iiHBB'
+        pattern_altinst_section_content = "^ *0x[0-9A-Fa-f]{16} (.*) .*.{16}$"
+        pattern_altinstr_section_addr = "^ *(0x[0-9A-Fa-f]{16}).*.*.{16}$"
+
+        ranged_altinst = list()
+
+        __hex_dump = self.__readelf_raw(["--hex-dump=.altinstructions", self.__elf_file])
+        if len(__hex_dump) == 0:
+            return ranged_altinst
+
+        # .altinstruction section start addr in ELF
+        __altinstr_section_addr = int(re.findall(pattern_altinstr_section_addr, __hex_dump, re.MULTILINE)[0], 16)
+
+        # To provide .altinstruction section content using host readelf only
+        # some magic with string parcing is needed
+        hex_dump_list = re.findall(pattern_altinst_section_content, __hex_dump, re.MULTILINE)
+        __hex_dump_str = ''.join(hex_dump_list).replace(" ", "")
+        __altinstr_section_bin = unhexlify(__hex_dump_str)
+
+        __struct_size = struct.calcsize(struct_format)
+
+        if (len(__altinstr_section_bin) % __struct_size) != 0:
+            return ranged_altinst
+
+        if start_addr and end_addr is not None:
+            __i = 0
+            while __i < (len(__altinstr_section_bin) - __struct_size):
+                __struct_byte = __altinstr_section_bin[__i: __i + __struct_size]
+                __struct_value = list(struct.unpack(struct_format, __struct_byte))
+                __struct_value[0] = __struct_value[0] + __altinstr_section_addr + __i
+
+                if self.utils.to_int(start_addr) <= __struct_value[0] <= self.utils.to_int(end_addr):
+                    ranged_altinst.append(__struct_value[0])
+                __i = __i + __struct_size
+
+        return ranged_altinst
 
     def get_symbol_by_name(self, sym_names):
         """
