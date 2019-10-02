@@ -20,13 +20,18 @@
 #include <linux/ioctl.h>
 #include <linux/fs.h>
 #include <linux/init.h>
+
+#if defined(CONFIG_ARCH_RANCHU)
+#include <linux/ion.h>
+#endif
+
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 
 #include "tz_cdev.h"
-#include "tzdev.h"
+#include "tzdev_internal.h"
 
 #define TZDEV_MAX_PFNS_COUNT	(SIZE_MAX / sizeof(sk_pfn_t))
 
@@ -49,7 +54,7 @@ static long __ionfd2phys_ioctl(int fd, size_t nr_pfns, sk_pfn_t *pfns)
 	int ret = 0;
 	struct dma_buf *d_buf;
 	void *addr, *vaddr;
-	size_t pfn;
+	int pfn;
 
 	d_buf = dma_buf_get(fd);
 	if (IS_ERR_OR_NULL(d_buf)) {
@@ -194,6 +199,8 @@ static ssize_t system_heap_id_show(struct device *dev, struct device_attribute *
 	 * is zero */
 #define ION_HEAP_TYPE_SYSTEM_EX9820 (1)
 	return sprintf(buf, "%d\n", ION_HEAP_TYPE_SYSTEM_EX9820);
+#elif defined(CONFIG_ARCH_RANCHU)
+	return sprintf(buf, "%d\n", ION_HEAP_TYPE_SYSTEM);
 #endif
 	return -ENOSYS;
 }

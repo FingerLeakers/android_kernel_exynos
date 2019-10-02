@@ -22,14 +22,12 @@
 #include <linux/slab.h>
 #include <linux/reboot.h>
 #include <linux/suspend.h>
-#include <linux/debug-snapshot.h>
 #include <linux/io.h>
 #include <linux/sched/clock.h>
 #include <linux/clk.h>
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/bts.h>
 #include <linux/of_platform.h>
-#include <dt-bindings/soc/samsung/exynos9810-devfreq.h>
 #include "../../soc/samsung/cal-if/acpm_dvfs.h"
 #include <soc/samsung/exynos-pd.h>
 
@@ -47,6 +45,8 @@
 
 #include "exynos-ppc.h"
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/exynos_devfreq.h>
 static struct exynos_devfreq_data **devfreq_data;
 
 static u32 freq_array[6];
@@ -162,7 +162,7 @@ static int exynos_constraint_parse(struct exynos_devfreq_data *data,
 
 			data->constraint[i]->guidance = true;
 			data->constraint[i]->constraint_type = constraint_type;
-			data->constraint[i]->constraint_dm_type = constraint_dm_type;
+			data->constraint[i]->dm_slave = constraint_dm_type;
 			data->constraint[i]->table_length = ect_domain->num_of_level;
 			data->constraint[i]->freq_table = const_table;
 		}
@@ -175,7 +175,7 @@ static int exynos_constraint_parse(struct exynos_devfreq_data *data,
 #ifdef CONFIG_EXYNOS_DVFS_MANAGER
 			if (const_flag) {
 				const_table[use_level].master_freq = data->opp_list[j].freq;
-				const_table[use_level].constraint_freq
+				const_table[use_level].slave_freq
 					= ect_find_constraint_freq(ect_domain, data->opp_list[j].freq);
 			}
 #endif
@@ -238,7 +238,7 @@ static int exynos_devfreq_update_fvp(struct exynos_devfreq_data *data, u32 min_f
 				config.cmd[0] = use_level;
 				config.cmd[1] = data->opp_list[j].freq;
 				config.cmd[2] = DATA_INIT;
-				config.cmd[3] = constraint->freq_table[use_level].constraint_freq;
+				config.cmd[3] = constraint->freq_table[use_level].slave_freq;
 				ret = acpm_ipc_send_data(ch_num, &config);
 				if (ret) {
 					dev_err(data->dev, "make constraint table is failed");
@@ -273,6 +273,45 @@ static int exynos_devfreq_reboot(struct exynos_devfreq_data *data)
 
 }
 
+static unsigned long _exynos_devfreq_get_freq(unsigned int devfreq_type)
+{
+	struct exynos_devfreq_data *data = NULL;
+	unsigned long freq;
+
+	if (devfreq_data)
+		data = devfreq_data[devfreq_type];
+
+	if (!data) {
+		printk("Fail to get exynos_devfreq_data\n");
+		return 0;
+	}
+
+	if (data->clk) {
+		if (preemptible() && !in_interrupt())
+			freq = (clk_get_rate(data->clk) / 1000) / 2;
+		else
+			freq = data->old_freq;
+	}
+	else
+		freq = cal_dfs_get_rate(data->dfs_id);
+
+	if ((u32)freq == 0) {
+		if (data->clk)
+			dev_err(data->dev, "failed get frequency from clock framework\n");
+		else
+			dev_err(data->dev, "failed get frequency from CAL\n");
+
+		return 0;
+	}
+
+	return freq;
+}
+
+unsigned long exynos_devfreq_get_domain_freq(unsigned int devfreq_type)
+{
+	return _exynos_devfreq_get_freq(devfreq_type);
+}
+
 static int exynos_devfreq_get_freq(struct device *dev, u32 *cur_freq,
 		struct clk *clk, struct exynos_devfreq_data *data)
 {
@@ -284,9 +323,10 @@ static int exynos_devfreq_get_freq(struct device *dev, u32 *cur_freq,
 		}
 	}
 
-	*cur_freq = (u32)cal_dfs_get_rate(data->dfs_id);
+	*cur_freq = (u32)_exynos_devfreq_get_freq(data->devfreq_type);
+
 	if (*cur_freq == 0) {
-		dev_err(dev, "failed get frequency from CAL\n");
+		dev_err(dev, "failed get frequency\n");
 		return -EINVAL;
 	}
 
@@ -932,7 +972,70 @@ static ssize_t store_hold_sample_time(struct device *dev,
 
 	return count;
 }
-#endif
+
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+/* Show Load Tracking Information */
+static ssize_t store_load_tracking(struct file *file, struct kobject *kobj,
+		struct bin_attribute *attr, char *buf,
+		loff_t offset, size_t count)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+			struct platform_device, dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+	unsigned int enable;
+
+	sscanf(buf, "%u", &enable);
+
+	if (enable == 1) {
+		if (alt_data->log == NULL)
+			alt_data->log = vmalloc(sizeof(struct devfreq_alt_load) *
+				(MSEC_PER_SEC / alt_data->min_sample_time * MAX_LOG_TIME));
+		alt_data->log_top = 0;
+		alt_data->load_track = true;
+	}
+	else if (enable == 0) {
+		alt_data->load_track = false;
+	}
+
+	return count;
+}
+
+static ssize_t show_load_tracking(struct file *file, struct kobject *kobj,
+		struct bin_attribute *attr, char *buf, loff_t offset, size_t count)
+{
+	struct device *dev = kobj_to_dev(kobj);
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+			struct platform_device, dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+	char line[128];
+	ssize_t len, size = 0;
+	static int printed = 0;
+	int i;
+
+	for (i = printed; i < alt_data->log_top; i++) {
+		len = snprintf(line, 128, "%llu %llu %u %u\n", alt_data->log[i].clock
+				, alt_data->log[i].delta, alt_data->log[i].load, alt_data->log[i].alt_freq);
+		if (len + size <= count) {
+			memcpy(buf + size, line, len);
+			size += len;
+			printed++;
+		}
+		else
+			break;
+	}
+
+	if (!size)
+		printed = 0;
+
+	return size;
+}
+#endif /* CONFIG_EXYNOS_ALT_DVFS_DEBUG */
+#endif /* CONFIG_EXYNOS_ALT_DVFS */
 
 
 static DEVICE_ATTR(use_delay_time, 0640, show_use_delay_time, store_use_delay_time);
@@ -940,6 +1043,9 @@ static DEVICE_ATTR(delay_time, 0640, show_delay_time, store_delay_time);
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
 static DEVICE_ATTR(target_load, 0640, show_target_load, store_target_load);
 static DEVICE_ATTR(hold_sample_time, 0640, show_hold_sample_time, store_hold_sample_time);
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+static BIN_ATTR(load_tracking, 0640, show_load_tracking, store_load_tracking, 0);
+#endif
 #endif
 
 static struct attribute *devfreq_interactive_sysfs_entries[] = {
@@ -952,9 +1058,19 @@ static struct attribute *devfreq_interactive_sysfs_entries[] = {
 	NULL,
 };
 
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+static struct bin_attribute *devfreq_interactive_sysfs_bin_entries[] = {
+	&bin_attr_load_tracking,
+	NULL,
+};
+#endif
+
 static struct attribute_group devfreq_delay_time_attr_group = {
 	.name = "interactive",
 	.attrs = devfreq_interactive_sysfs_entries,
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+	.bin_attrs = devfreq_interactive_sysfs_bin_entries,
+#endif
 };
 
 #ifdef CONFIG_EXYNOS_DVFS_MANAGER
@@ -1061,6 +1177,11 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 		data->pm_domain = exynos_pd_lookup_name(pd_name);
 	}
 
+	data->clk = devm_clk_get(data->dev, "DEVFREQ");
+	if (data->clk && !IS_ERR(data->clk))
+		dev_info(data->dev, "%s clock info exist\n", devfreq_domain_name);
+	else
+		data->clk = NULL;
 
 	if (of_property_read_u32_array(np, "freq_info", (u32 *)&freq_array,
 				       (size_t)(ARRAY_SIZE(freq_array))))
@@ -1412,8 +1533,9 @@ static int exynos_devfreq_target(struct device *dev, unsigned long *target_freq,
 	dev_dbg(dev, "LV_%d, %uKhz, %uuV ======> LV_%d, %uKhz, %uuV\n",
 		data->old_idx, data->old_freq, data->old_volt,
 		data->new_idx, data->new_freq, data->new_volt);
-
+#ifdef CONFIG_DEBUG_SNAPSHOT
 	dbg_snapshot_freq(data->ess_flag, data->old_freq, data->new_freq, DSS_FLAG_IN);
+#endif
 	do_gettimeofday(&before_setfreq);
 
 	ret = exynos_devfreq_set_freq(dev, data->new_freq, data->clk, data);
@@ -1424,7 +1546,10 @@ static int exynos_devfreq_target(struct device *dev, unsigned long *target_freq,
 	}
 
 	do_gettimeofday(&after_setfreq);
+#ifdef CONFIG_DEBUG_SNAPSHOT
 	dbg_snapshot_freq(data->ess_flag, data->old_freq, data->new_freq, DSS_FLAG_OUT);
+#endif
+	trace_exynos_devfreq(data->old_freq, data->new_freq, dev_name(data->dev));
 
 	data->old_freq = data->new_freq;
 	data->old_idx = data->new_idx;

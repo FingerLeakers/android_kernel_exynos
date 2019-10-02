@@ -5,7 +5,6 @@
  * Park Bumgyu <bumgyu.park@samsung.com>
  */
 
-#include <linux/cpufreq.h>
 #include <trace/events/ems.h>
 
 #include "../sched.h"
@@ -24,483 +23,371 @@ struct energy_state {
 	/* for sse */
 	unsigned long cap_s;
 	unsigned long power_s;
+
+	unsigned long static_power;
 };
 
 /*
- * Each cpu can have its own mips, coefficient and energy table. Generally,
- * cpus in the same frequency domain have the same mips, coefficient and
- * energy table.
+ * Each cpu can have its own mips_per_mhz, coefficient and energy table.
+ * Generally, cpus in the same frequency domain have the same mips_per_mhz,
+ * coefficient and energy table.
  */
 struct energy_table {
-	unsigned int mips;
+	unsigned int mips_per_mhz;
 	unsigned int coefficient;
-	unsigned int mips_s;
+	unsigned int mips_per_mhz_s;
 	unsigned int coefficient_s;
+	unsigned int static_coefficient;
 
 	struct energy_state *states;
 
 	unsigned int nr_states;
+	unsigned int nr_states_orig;
+	unsigned int nr_states_requests[NUM_OF_REQUESTS];
 };
-DEFINE_PER_CPU(struct energy_table, energy_table);
+static DEFINE_PER_CPU(struct energy_table, energy_table);
+#define get_energy_table(cpu)	&per_cpu(energy_table, cpu)
 
-/* check the status of energy table */
-bool energy_initialized;
-
-void set_energy_table_status(bool status)
+__weak int get_gov_next_cap(int dst_cpu, struct task_struct *p)
 {
-	energy_initialized = status;
+	return -1;
 }
 
-bool get_energy_table_status(void)
+static int
+default_get_next_cap(int dst_cpu, struct task_struct *p)
 {
-	return energy_initialized;
+	struct energy_table *table = get_energy_table(dst_cpu);
+	unsigned long next_cap = 0;
+	int cpu;
+
+	for_each_cpu(cpu, cpu_coregroup_mask(dst_cpu)) {
+		unsigned long util;
+
+		if (cpu == dst_cpu) { /* util with task */
+			util = ml_cpu_util_with(cpu, p);
+
+			/* if it is over-capacity, give up eifficiency calculatation */
+			if (util > table->states[table->nr_states - 1].cap)
+				return 0;
+		}
+		else /* util without task */
+			util = ml_cpu_util_without(cpu, p);
+
+		/*
+		 * The cpu in the coregroup has same capacity and the
+		 * capacity depends on the cpu with biggest utilization.
+		 * Find biggest utilization in the coregroup and use it
+		 * as max floor to know what capacity the cpu will have.
+		 */
+		if (util > next_cap)
+			next_cap = util;
+	}
+
+	return next_cap;
 }
 
-inline unsigned int get_cpu_mips(unsigned int cpu, int sse)
+static inline unsigned int
+__compute_energy(unsigned long util, unsigned long cap,
+				unsigned long dp, unsigned long sp)
 {
-	return sse ? per_cpu(energy_table, cpu).mips_s :
-		     per_cpu(energy_table, cpu).mips;
+	return 1 + (dp * ((util << SCHED_CAPACITY_SHIFT) / cap))
+				+ (sp << SCHED_CAPACITY_SHIFT);
 }
 
-unsigned int get_cpu_max_capacity(unsigned int cpu, int sse)
+static unsigned int
+compute_energy(struct energy_table *table, struct task_struct *p,
+			int target_cpu, int cap_idx)
 {
-	struct energy_table *table = &per_cpu(energy_table, cpu);
+	unsigned int energy;
 
-	/* If energy table wasn't initialized, return 0 as capacity */
-	if (!table->states)
-		return 0;
+	energy = __compute_energy(__ml_cpu_util_with(target_cpu, p, SSE),
+				table->states[cap_idx].cap_s,
+				table->states[cap_idx].power_s,
+				table->states[cap_idx].static_power);
+	energy += __compute_energy(__ml_cpu_util_with(target_cpu, p, USS),
+				table->states[cap_idx].cap,
+				table->states[cap_idx].power,
+				table->states[cap_idx].static_power);
 
-	return sse ? table->states[table->nr_states - 1].cap_s :
-			table->states[table->nr_states - 1].cap;
+	return energy;
 }
 
-unsigned long get_freq_cap(unsigned int cpu, unsigned long freq, int sse)
+static unsigned int
+compute_efficiency(struct task_struct *p, int target_cpu, unsigned int eff_weight)
 {
-	struct energy_table *table = &per_cpu(energy_table, cpu);
-	struct energy_state *state = NULL;
+	struct energy_table *table = get_energy_table(target_cpu);
+	unsigned long next_cap = 0;
+	unsigned long capacity, energy;
+	unsigned int eff;
+	unsigned int cap_idx;
 	int i;
 
-	for (i = 0; i < table->nr_states; i++) {
-		if (table->states[i].frequency >= freq) {
-			state = &table->states[i];
-			break;
-		}
-	}
-
-	if (!state)
+	/* energy table does not exist */
+	if (!table->nr_states)
 		return 0;
 
-	return sse ? state->cap_s : state->cap;
-}
+	/* Get next capacity of cpu in coregroup with task */
+	next_cap = get_gov_next_cap(target_cpu, p);
+	if ((int)next_cap < 0)
+		next_cap = default_get_next_cap(target_cpu, p);
 
-extern unsigned long __ml_cpu_util(int cpu, int sse);
-
-unsigned int calculate_energy(struct task_struct *p, int target_cpu)
-{
-	unsigned long util[NR_CPUS] = {0, };
-	unsigned int total_energy = 0;
-	int cpu;
-
-	if (!get_energy_table_status())
-		return UINT_MAX;
-
-	/*
-	 * 0. Calculate utilization of the entire active cpu when task
-	 *    is assigned to target cpu.
-	 */
-	for_each_cpu(cpu, cpu_active_mask) {
-		if (unlikely(cpu == target_cpu))
-			util[cpu] = ml_task_attached_cpu_util(cpu, p);
-		else
-			util[cpu] = ml_cpu_util_wake(cpu, p);
-	}
-
-	for_each_cpu(cpu, cpu_active_mask) {
-		struct energy_table *table;
-		unsigned long max_util = 0, util_sum = 0, util_sum_s = 0;
-		unsigned long capacity = SCHED_CAPACITY_SCALE;
-		unsigned long capacity_s = SCHED_CAPACITY_SCALE;
-		int i, cap_idx;
-
-		/* Compute coregroup energy with only one cpu per coregroup */
-		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
-			continue;
-
-		/*
-		 * 1. The cpu in the coregroup has same capacity and the
-		 *    capacity depends on the cpu that has the biggest
-		 *    utilization. Find biggest utilization in the coregroup
-		 *    to know what capacity the cpu will have.
-		 */
-		for_each_cpu(i, cpu_coregroup_mask(cpu))
-			if (util[i] > max_util)
-				max_util = util[i];
-
-		/*
-		 * 2. Find the capacity according to biggest utilization in
-		 *    coregroup.
-		 */
-		table = &per_cpu(energy_table, cpu);
-		cap_idx = table->nr_states - 1;
-		for (i = 0; i < table->nr_states; i++) {
-			if (table->states[i].cap >= max_util) {
-				capacity = table->states[i].cap;
-				capacity_s = table->states[i].cap_s;
-				cap_idx = i;
-				break;
-			}
-		}
-
-		/*
-		 * 3. Get the utilization sum of coregroup. Since cpu
-		 *    utilization of CFS reflects the performance of cpu,
-		 *    normalize the utilization to calculate the amount of
-		 *    cpu usuage that excludes cpu performance.
-		 */
-		for_each_cpu(i, cpu_coregroup_mask(cpu)) {
-			unsigned long uss_util = __ml_cpu_util(i, 0);
-			unsigned long sse_util = __ml_cpu_util(i, 1);
-
-			if (i == task_cpu(p)) {
-				if (p->sse)
-					sse_util -= min_t(unsigned long, sse_util, ml_task_util_est(p));
-				else
-					uss_util -= min_t(unsigned long, uss_util, ml_task_util_est(p));
-			}
-
-			if (i == target_cpu) {
-				if (p->sse)
-					sse_util += ml_task_util_est(p);
-				else
-					uss_util += ml_task_util_est(p);
-			}
-
-			/* task utilization exceeds capacity of cpu */
-			if (util[i] >= capacity) {
-				util_sum += ml_cpu_util_ratio(cpu, 0);
-				util_sum_s += ml_cpu_util_ratio(cpu, 1);
-				continue;
-			}
-
-			/* normalize cpu utilization */
-			util_sum += (uss_util << SCHED_CAPACITY_SHIFT) / capacity;
-			util_sum_s += (sse_util << SCHED_CAPACITY_SHIFT) / capacity_s;
-		}
-
-		/*
-		 * 4. compute active energy
-		 */
-		total_energy += util_sum * table->states[cap_idx].power;
-		total_energy += util_sum_s * table->states[cap_idx].power_s;
-	}
-
-	return total_energy;
-}
-
-static int find_min_util_cpu(const struct cpumask *mask, struct task_struct *p)
-{
-	unsigned long min_util = ULONG_MAX;
-	int min_util_cpu = -1;
-	int cpu;
-
-	/* Find energy efficient cpu in each coregroup. */
-	for_each_cpu_and(cpu, mask, cpu_active_mask) {
-		unsigned long capacity_orig = capacity_orig_of(cpu);
-		unsigned long util = ml_task_attached_cpu_util(cpu, p);
-
-		/* Skip over-capacity cpu */
-		if (util >= capacity_orig)
-			continue;
-
-		/*
-		 * Choose min util cpu within coregroup as candidates.
-		 * Choosing a min util cpu is most likely to handle
-		 * wake-up task without increasing the frequecncy.
-		 */
-		if (util < min_util) {
-			min_util = util;
-			min_util_cpu = cpu;
-		}
-	}
-
-	return min_util_cpu;
-}
-
-struct eco_env {
-	struct task_struct *p;
-	int prev_cpu;
-};
-
-static int select_eco_cpu(struct eco_env *eenv)
-{
-	unsigned int best_energy = UINT_MAX;
-	unsigned int prev_energy;
-	int eco_cpu = eenv->prev_cpu;
-	int cpu, best_cpu = -1;
-
-	/*
-	 * It is meaningless to find an energy cpu when the energy table is
-	 * not created or has not been created yet.
-	 */
-	if (!per_cpu(energy_table, eenv->prev_cpu).nr_states)
-		return eenv->prev_cpu;
-
-	for_each_cpu(cpu, cpu_active_mask) {
-		struct cpumask mask;
-		int energy_cpu;
-
-		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
-			continue;
-
-		cpumask_and(&mask, cpu_coregroup_mask(cpu), tsk_cpus_allowed(eenv->p));
-		/*
-		 * Checking prev cpu is meaningless, because the energy of prev cpu
-		 * will be compared to best cpu at last
-		 */
-		cpumask_clear_cpu(eenv->prev_cpu, &mask);
-		if (cpumask_empty(&mask))
-			continue;
-
-		/*
-		 * Select the best target, which is expected to consume the
-		 * lowest energy among the min util cpu for each coregroup.
-		 */
-		energy_cpu = find_min_util_cpu(&mask, eenv->p);
-		if (cpu_selected(energy_cpu)) {
-			unsigned int energy = calculate_energy(eenv->p, energy_cpu);
-
-			if (energy < best_energy) {
-				best_energy = energy;
-				best_cpu = energy_cpu;
-			}
-		}
-	}
-
-	if (!cpu_selected(best_cpu))
-		return -1;
-
-	/*
-	 * Compare prev cpu to best cpu to determine whether keeping the task
-	 * on PREV CPU and sending the task to BEST CPU is beneficial for
-	 * energy.
-	 * An energy saving is considered meaningful if it reduces the energy
-	 * consumption of PREV CPU candidate by at least ~1.56%.
-	 */
-	prev_energy = calculate_energy(eenv->p, eenv->prev_cpu);
-	if (prev_energy - (prev_energy >> 6) > best_energy)
-		eco_cpu = best_cpu;
-
-	trace_ems_select_eco_cpu(eenv->p, eco_cpu, eenv->prev_cpu, best_cpu,
-			prev_energy, best_energy);
-
-	return eco_cpu;
-}
-
-int select_energy_cpu(struct task_struct *p, int prev_cpu, int sd_flag, int sync)
-{
-	struct sched_domain *sd = NULL;
-	int cpu = smp_processor_id();
-	struct eco_env eenv = {
-		.p = p,
-		.prev_cpu = prev_cpu,
-	};
-
-	if (!sched_feat(ENERGY_AWARE))
-		return -1;
-
-	/*
-	 * Energy-aware wakeup placement on overutilized cpu is hard to get
-	 * energy gain.
-	 */
-	rcu_read_lock();
-	sd = rcu_dereference_sched(cpu_rq(prev_cpu)->sd);
-	if (!sd || sd->shared->overutilized) {
-		rcu_read_unlock();
-		return -1;
-	}
-	rcu_read_unlock();
-
-	/*
-	 * We cannot do energy-aware wakeup placement sensibly for tasks
-	 * with 0 utilization, so let them be placed according to the normal
-	 * strategy.
-	 */
-	if (!task_util(p))
-		return -1;
-
-	if (sysctl_sched_sync_hint_enable && sync)
-		if (cpumask_test_cpu(cpu, &p->cpus_allowed))
-			return cpu;
-
-	/*
-	 * Find eco-friendly target.
-	 * After selecting the best cpu according to strategy,
-	 * we choose a cpu that is energy efficient compared to prev cpu.
-	 */
-	return select_eco_cpu(&eenv);
-}
-
-static int c_weight[NR_CPUS];
-static int e_weight[NR_CPUS];
-static int tiny_task_level = 10;
-
-unsigned int calculate_efficiency(struct task_struct *p, int target_cpu)
-{
-	unsigned long util[NR_CPUS] = {0, };
-	unsigned int energy, eff;
-	unsigned int cap_idx;
-	struct energy_table *table;
-	unsigned long capacity = SCHED_CAPACITY_SCALE;
-	unsigned long capacity_s = SCHED_CAPACITY_SCALE;
-	unsigned long max_util = 0, uss_util, sse_util;
-	unsigned long uss_ratio, sse_ratio;
-	int cpu, i;
-
-	if (!get_energy_table_status())
-		return UINT_MAX;
-
-	/*
-	 * 0. Calculate utilization of the entire active cpu when task
-	 *    is assigned to target cpu.
-	 */
-	for_each_cpu(cpu, cpu_coregroup_mask(target_cpu)) {
-		if (unlikely(cpu == target_cpu))
-			util[cpu] = ml_task_attached_cpu_util(cpu, p);
-		else
-			util[cpu] = ml_cpu_util_wake(cpu, p);
-
-		/*
-		 * 1. The cpu in the coregroup has same capacity and the
-		 *    capacity depends on the cpu that has the biggest
-		 *    utilization. Find biggest utilization in the coregroup
-		 *    to know what capacity the cpu will have.
-		 */
-		if (util[cpu] > max_util)
-			max_util = util[cpu];
-	}
-
-	/*
-	 * 2. Find the capacity according to biggest utilization in
-	 *    coregroup.
-	 */
-	table = &per_cpu(energy_table, target_cpu);
+	/* Find the capacity index according to next capacity */
 	cap_idx = table->nr_states - 1;
 	for (i = 0; i < table->nr_states; i++) {
-		if (table->states[i].cap >= max_util) {
-			capacity = table->states[i].cap;
-			capacity_s = table->states[i].cap_s;
+		if (table->states[i].cap >= next_cap) {
 			cap_idx = i;
 			break;
 		}
 	}
 
-	if (util[target_cpu] >= capacity) {
-		uss_util = ml_cpu_util_ratio(target_cpu, 0);
-		sse_util = ml_cpu_util_ratio(target_cpu, 1);
-		goto cal_eff;
-	}
-
-	uss_util = __ml_cpu_util(target_cpu, 0);
-	sse_util = __ml_cpu_util(target_cpu, 1);
-
-	if (target_cpu != task_cpu(p)) {
-		if (p->sse)
-			sse_util += ml_task_util(p);
-		else
-			uss_util += ml_task_util(p);
-	}
-
-	if (sched_feat(UTIL_EST)) {
-		unsigned int uss_util_est = __ml_cpu_util_est(target_cpu, 0);
-		unsigned int sse_util_est = __ml_cpu_util_est(target_cpu, 1);
-
-		if (target_cpu != task_cpu(p)) {
-			if (p->sse)
-				sse_util += ml_task_util_est(p);
-			else
-				uss_util += ml_task_util_est(p);
-		}
-
-		uss_util = max_t(unsigned long, uss_util, uss_util_est);
-		sse_util = max_t(unsigned long, sse_util, sse_util_est);
-	}
-
-cal_eff:
-	uss_ratio = (uss_util << SCHED_CAPACITY_SHIFT) / capacity;
-	sse_ratio = (sse_util << SCHED_CAPACITY_SHIFT) / capacity_s;
-
-	energy = uss_ratio * table->states[cap_idx].power;
-	energy += sse_ratio * table->states[cap_idx].power_s;
-
 	if (p->sse)
-		capacity = capacity_s;
+		capacity = table->states[cap_idx].cap_s;
+	else
+		capacity = table->states[cap_idx].cap;
 
-	eff = ((energy * e_weight[target_cpu]) << 10) / (capacity * c_weight[target_cpu]);
+	/*
+	 * Compute performance efficiency
+	 *  efficiency = capacity / energy
+	 */
+	capacity = (capacity * eff_weight) << (SCHED_CAPACITY_SHIFT * 2);
+	energy = compute_energy(table, p, target_cpu, cap_idx);
+	eff = capacity / energy;
+
+	trace_ems_compute_eff(p, target_cpu, ml_cpu_util_with(target_cpu, p),
+				eff_weight, capacity, energy, eff);
 
 	return eff;
 }
 
-static int select_eff_cpu(struct eco_env *eenv)
+static int find_best_eff(struct tp_env *env, unsigned int *eff, int idle)
 {
-	unsigned int best_energy = UINT_MAX;
-	int cpu, best_cpu = -1;
+	unsigned int best_eff = 0;
+	int best_cpu = -1;
+	int cpu;
+	struct cpumask candidates;
 
-	/*
-	 * It is meaningless to find an energy cpu when the energy table is
-	 * not created or has not been created yet.
-	 */
-	if (!per_cpu(energy_table, eenv->prev_cpu).nr_states)
-		return find_min_util_cpu(cpu_coregroup_mask(4), eenv->p);
+	if (idle)
+		cpumask_copy(&candidates, &env->idle_candidates);
+	else
+		cpumask_copy(&candidates, &env->candidates);
 
-	if (ml_task_util_est(eenv->p) <= tiny_task_level)
-		return find_min_util_cpu(cpu_coregroup_mask(4), eenv->p);
+	if (cpumask_empty(&candidates))
+		return -1;
 
-	for_each_cpu(cpu, cpu_active_mask) {
-		unsigned int energy;
+	/* find best efficiency cpu */
+	for_each_cpu(cpu, &candidates) {
+		unsigned int eff;
 
-		if (!cpumask_test_cpu(cpu, tsk_cpus_allowed(eenv->p)))
-			continue;
-
-		energy = calculate_efficiency(eenv->p, cpu);
-		if (energy < best_energy) {
-			best_energy = energy;
+		eff = compute_efficiency(env->p, cpu, env->eff_weight[cpu]);
+		if (eff > best_eff) {
+			best_eff = eff;
 			best_cpu = cpu;
 		}
 	}
 
+	*eff = best_eff;
+
+	trace_ems_best_eff(env->p, *(unsigned int *)cpumask_bits(&candidates),
+						idle, best_cpu, best_eff);
+
 	return best_cpu;
 }
 
-int select_best_cpu(struct task_struct *p, int prev_cpu, int sd_flag, int sync)
+static void get_ready_env(struct tp_env *env)
 {
-	int cpu = smp_processor_id();
-	struct eco_env eenv = {
-		.p = p,
-		.prev_cpu = prev_cpu,
-	};
+	int cpu;
 
-	if (!sched_feat(ENERGY_AWARE))
-		return -1;
+	for_each_cpu(cpu, cpu_active_mask) {
+		/*
+		 * The weight is pre-defined in EMSTune.
+		 * We can get weight depending on current emst mode.
+		 */
+		env->eff_weight[cpu] = emst_get_weight(env->p, cpu, idle_cpu(cpu));
+	}
 
-	/*
-	 * We cannot do energy-aware wakeup placement sensibly for tasks
-	 * with 0 utilization, so let them be placed according to the normal
-	 * strategy.
-	 */
-	if (sysctl_sched_sync_hint_enable && sync)
-		if (cpumask_test_cpu(cpu, &p->cpus_allowed))
-			return cpu;
+	cpumask_copy(&env->candidates, &env->fit_cpus);
+	cpumask_clear(&env->idle_candidates);
 
-	/*
-	 * Find eco-friendly target.
-	 * After selecting the best cpu according to strategy,
-	 * we choose a cpu that is energy efficient compared to prev cpu.
-	 */
-	return select_eff_cpu(&eenv);
+	for_each_cpu(cpu, &env->fit_cpus) {
+		/*
+		 * Basically, all active cpus are candidates. But if
+		 * env->prefer_idle is set to '1', the idle cpus are included in
+		 * env->idle_candidates and * the running cpus are included in
+		 * the env->candidate. Both candidates are exclusive.
+		 */
+		if (env->prefer_idle && idle_cpu(cpu)) {
+			cpumask_set_cpu(cpu, &env->idle_candidates);
+			cpumask_clear_cpu(cpu, &env->candidates);
+		}
+	}
+
+	trace_ems_candidates(env->p,
+		*(unsigned int *)cpumask_bits(&env->candidates),
+		*(unsigned int *)cpumask_bits(&env->idle_candidates));
 }
 
+int find_best_cpu(struct tp_env *env)
+{
+	unsigned int best_eff = 0;
+	int best_cpu;
+	bool best_idle = false;
 
-#ifdef CONFIG_SIMPLIFIED_ENERGY_MODEL
+	/*
+	 * Get ready to find best cpu.
+	 * Depending on the state of the task, the candidate cpus and C/E
+	 * weight are decided.
+	 */
+	get_ready_env(env);
+
+	/*
+	 * Find best cpu among the running cpu and idle cpu.
+	 * The best idle cpu  is meaningful only if task.prefer_idle
+	 * is set to '1'. If prefer idle is not set, best_idle_cpu
+	 * has a negative number and it is ignored.
+	 */
+	best_cpu = find_best_eff(env, &best_eff, 0);
+	if (env->prefer_idle) {
+		unsigned int best_idle_eff = 0;
+		int best_idle_cpu;
+
+		best_idle_cpu = find_best_eff(env, &best_idle_eff, 1);
+		if (best_idle_cpu < 0)
+			goto out;
+
+		/*
+		 * Multiply best idle efficiency by 1.25 to increase the idle cpu
+		 * selection probability.
+		 */
+		best_idle_eff = best_idle_eff + (best_idle_eff >> 2);
+		if (best_idle_eff >= best_eff) {
+			best_eff = best_idle_eff;
+			best_cpu = best_idle_cpu;
+			best_idle = true;
+		}
+	}
+
+out:
+	trace_ems_best_cpu(env->p, best_cpu, best_eff, best_idle);
+
+	return best_cpu;
+}
+
+/*
+ * returns allowed capacity base on the allowed power
+ * freq: base frequency to find base_power
+ * power: allowed_power = base_power + power
+ */
+int find_allowed_capacity(int cpu, unsigned int freq, int power)
+{
+	struct energy_table *table = get_energy_table(cpu);
+	unsigned long new_power = 0;
+	int i;
+
+	/* find power budget for new frequency */
+	for (i = 0; i < table->nr_states; i++)
+		if (table->states[i].frequency >= freq)
+			break;
+
+	/* calaculate new power budget */
+	new_power = table->states[i].power + power;
+
+	/* find minimum freq over the new power budget */
+	for (i = 0; i < table->nr_states; i++)
+		if (table->states[i].power >= new_power)
+			return table->states[i].cap;
+
+	/* returne the max capaity */
+	return table->states[table->nr_states - 1].cap;
+}
+
+int find_step_power(int cpu, int step)
+{
+	struct energy_table *table = get_energy_table(cpu);
+	int max_idx = table->nr_states - 1;
+
+	if (!step)
+		return 0;
+
+	return (table->states[max_idx].power - table->states[0].power) / step;
+}
+
+/*
+ * Information of per_cpu cpu capacity variable
+ *
+ * cpu_capacity_orig{_s}
+ * : Original capacity of cpu. It never be changed since initialization.
+ *
+ * cpu_capacity{_s}
+ * : Capacity of cpu. It is same as cpu_capacity_orig normally but it can be
+ *   changed by CPU frequency restriction.
+ *
+ * cpu_capacity_ratio{_s}
+ * : Ratio between capacity of sse and uss. It is used for calculating
+ *   cpu utilization in Multi Load for optimization.
+ */
+static DEFINE_PER_CPU(unsigned long, cpu_capacity_orig) = SCHED_CAPACITY_SCALE;
+static DEFINE_PER_CPU(unsigned long, cpu_capacity_orig_s) = SCHED_CAPACITY_SCALE;
+
+static DEFINE_PER_CPU(unsigned long, cpu_capacity) = SCHED_CAPACITY_SCALE;
+static DEFINE_PER_CPU(unsigned long, cpu_capacity_s) = SCHED_CAPACITY_SCALE;
+
+static DEFINE_PER_CPU(unsigned long, cpu_capacity_ratio) = SCHED_CAPACITY_SCALE;
+static DEFINE_PER_CPU(unsigned long, cpu_capacity_ratio_s) = SCHED_CAPACITY_SCALE;
+
+unsigned long capacity_cpu_orig(int cpu, int sse)
+{
+	return sse ? per_cpu(cpu_capacity_orig_s, cpu) :
+			per_cpu(cpu_capacity_orig, cpu);
+}
+
+unsigned long capacity_cpu(int cpu, int sse)
+{
+	return sse ? per_cpu(cpu_capacity_s, cpu) : per_cpu(cpu_capacity, cpu);
+}
+
+unsigned long capacity_ratio(int cpu, int sse)
+{
+	return sse ? per_cpu(cpu_capacity_ratio_s, cpu) : per_cpu(cpu_capacity_ratio, cpu);
+}
+
+static int sched_cpufreq_policy_callback(struct notifier_block *nb,
+					unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = data;
+
+	if (event != CPUFREQ_NOTIFY)
+		return NOTIFY_DONE;
+
+	/*
+	 * When policy->max is pressed, the performance of the cpu is restricted.
+	 * In the restricted state, the cpu capacity also changes, and the
+	 * overutil condition changes accordingly, so the cpu capcacity is updated
+	 * whenever policy is changed.
+	 */
+	rebuild_sched_energy_table(policy->related_cpus, policy->max,
+					policy->cpuinfo.max_freq, STATES_FREQ);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block sched_cpufreq_policy_notifier = {
+	.notifier_call = sched_cpufreq_policy_callback,
+};
+
+static void
+fill_frequency_table(struct energy_table *table, int table_size,
+			unsigned long *f_table, int max_f, int min_f)
+{
+	int i, index = 0;
+
+	for (i = table_size - 1; i >=0; i--) {
+		if (f_table[i] > max_f || f_table[i] < min_f)
+			continue;
+
+		table->states[index].frequency = f_table[i];
+		index++;
+	}
+}
 
 static void
 fill_power_table(struct energy_table *table, int table_size,
@@ -509,7 +396,8 @@ fill_power_table(struct energy_table *table, int table_size,
 {
 	int i, index = 0;
 	int c = table->coefficient, c_s = table->coefficient_s, v;
-	unsigned long f, power, power_s;
+	int static_c = table->static_coefficient;
+	unsigned long f, power, power_s, static_power;
 
 	/* energy table and frequency table are inverted */
 	for (i = table_size - 1; i >= 0; i--) {
@@ -524,6 +412,7 @@ fill_power_table(struct energy_table *table, int table_size,
 		 */
 		power = c * f * v * v;
 		power_s = c_s * f * v * v;
+		static_power = static_c * v * v;
 
 		/*
 		 * Generally, frequency is more than treble figures in MHz and
@@ -533,29 +422,32 @@ fill_power_table(struct energy_table *table, int table_size,
 		 */
 		do_div(power, 1000000000);
 		do_div(power_s, 1000000000);
+		do_div(static_power, 1000000);
 		table->states[index].power = power;
 		table->states[index].power_s = power_s;
+		table->states[index].static_power = static_power;
 
-		/* save frequency to energy table */
-		table->states[index].frequency = f_table[i];
 		index++;
 	}
 }
 
 static void
-fill_cap_table(struct energy_table *table, int max_mips, unsigned long max_mips_freq)
+fill_cap_table(struct energy_table *table, unsigned long max_mips)
 {
-	int i, m = table->mips, m_s = table->mips_s;
+	int i;
+	int mpm = table->mips_per_mhz;
+	int mpm_s = table->mips_per_mhz_s;
 	unsigned long f;
 
 	for (i = 0; i < table->nr_states; i++) {
 		f = table->states[i].frequency;
 
 		/*
-		 * capacity = freq/max_freq * mips/max_mips * 1024
+		 *     mips(f) = f * mips_per_mhz
+		 * capacity(f) = mips(f) / max_mips * 1024
 		 */
-		table->states[i].cap = f * m * 1024 / max_mips_freq / max_mips;
-		table->states[i].cap_s = f * m_s * 1024 / max_mips_freq / max_mips;
+		table->states[i].cap = f * mpm * 1024 / max_mips;
+		table->states[i].cap_s = f * mpm_s * 1024 / max_mips;
 	}
 }
 
@@ -565,134 +457,189 @@ static void show_energy_table(struct energy_table *table, int cpu)
 
 	pr_info("[Energy Table: cpu%d]\n", cpu);
 	for (i = 0; i < table->nr_states; i++) {
-		pr_info("[%2d] cap=%4lu power=%4lu | cap(S)=%4lu power(S)=%4lu\n",
+		pr_info("[%2d] cap=%4lu power=%4lu | cap(S)=%4lu power(S)=%4lu | static-power=%4lu\n",
 			i, table->states[i].cap, table->states[i].power,
-			table->states[i].cap_s, table->states[i].power_s);
+			table->states[i].cap_s, table->states[i].power_s,
+			table->states[i].static_power);
 	}
 }
 
-static DEFINE_PER_CPU(unsigned long, cpu_capacity) = SCHED_CAPACITY_SCALE;
-static DEFINE_PER_CPU(unsigned long, cpu_capacity_s) = SCHED_CAPACITY_SCALE;
+static DEFINE_SPINLOCK(rebuilding_lock);
 
-static DEFINE_PER_CPU(unsigned long, cpufreq_capacity) = SCHED_CAPACITY_SCALE;
-static DEFINE_PER_CPU(unsigned long, cpufreq_capacity_s) = SCHED_CAPACITY_SCALE;
-
-static DEFINE_PER_CPU(unsigned long, qos_capacity) = SCHED_CAPACITY_SCALE;
-static DEFINE_PER_CPU(unsigned long, qos_capacity_s) = SCHED_CAPACITY_SCALE;
-
-unsigned long capacity_orig_of_sse(int cpu, int sse)
+static inline int
+find_nr_states(struct energy_table *table, int clipped_freq)
 {
-	return sse ? per_cpu(cpu_capacity_s, cpu) : per_cpu(cpu_capacity, cpu);
+	int i;
+
+	for (i = table->nr_states_orig - 1; i >= 0; i--) {
+		if (table->states[i].frequency <= clipped_freq)
+			break;
+	}
+
+	return i + 1;
 }
 
-static DEFINE_PER_CPU(unsigned long, cpu_capacity_ratio) = SCHED_CAPACITY_SCALE;
-static DEFINE_PER_CPU(unsigned long, cpu_capacity_ratio_s) = SCHED_CAPACITY_SCALE;
-
-unsigned long capacity_ratio(int cpu, int sse)
+static inline int
+find_min_nr_states(struct energy_table *table)
 {
-	return sse ? per_cpu(cpu_capacity_ratio_s, cpu) : per_cpu(cpu_capacity_ratio, cpu);
+	int i, min = table->nr_states_orig;
+
+	for (i = 0; i < NUM_OF_REQUESTS; i++) {
+		if (table->nr_states_requests[i] < min)
+			min = table->nr_states_requests[i];
+	}
+
+	return min;
 }
 
-static inline void update_capacity_ratio(int cpu)
+static bool
+update_nr_states(struct cpumask *cpus, int clipped_freq, int max_freq, int type)
 {
-	per_cpu(cpu_capacity_ratio, cpu) = (per_cpu(cpu_capacity, cpu) << SCHED_CAPACITY_SHIFT)
-				/ per_cpu(cpu_capacity_s, cpu);
-	per_cpu(cpu_capacity_ratio_s, cpu) = (per_cpu(cpu_capacity_s, cpu) << SCHED_CAPACITY_SHIFT)
-				/ per_cpu(cpu_capacity, cpu);
+	struct energy_table *table, *cursor;
+	int cpu, nr_states, nr_states_request;
+
+	if (type >= NUM_OF_REQUESTS)
+		return false;
+
+	table = get_energy_table(cpumask_any(cpus));
+	if (!table || !table->states)
+		return false;
+
+	/* find new nr_states for requester */
+	nr_states_request = find_nr_states(table, clipped_freq);
+	if (!nr_states_request)
+		return false;
+
+	for_each_cpu(cpu, cpus) {
+		cursor = get_energy_table(cpu);
+		cursor->nr_states_requests[type] = nr_states_request;
+	}
+
+	/*
+	 * find min nr_states among nr_states of requesters
+	 * If nr_states in energy table is not changed, skip rebuilding.
+	 */
+	nr_states = find_min_nr_states(table);
+	if (nr_states == table->nr_states)
+		return false;
+
+	/* Update clipped state of all cpus which are clipped */
+	for_each_cpu(cpu, cpus) {
+		cursor = get_energy_table(cpu);
+		cursor->nr_states = nr_states;
+	}
+
+	return true;
+}
+
+static unsigned long find_max_mips(void)
+{
+	struct energy_table *table;
+	unsigned long max_mips = 0;
+	int cpu;
+
+	/*
+	 * Find fastest cpu among the cpu to which the energy table is allocated.
+	 * The mips and max frequency of fastest cpu are needed to calculate
+	 * capacity.
+	 */
+	for_each_possible_cpu(cpu) {
+		unsigned long max_f, mpm;
+		unsigned long mips;
+
+		table = get_energy_table(cpu);
+		if (!table->states)
+			continue;
+
+		/* max mips = max_f * mips_per_mhz */
+		max_f = table->states[table->nr_states - 1].frequency;
+		mpm = max(table->mips_per_mhz, table->mips_per_mhz_s);
+		mips = max_f * mpm;
+		if (mips > max_mips)
+			max_mips = mips;
+	}
+
+	return max_mips;
+}
+
+static void
+update_capacity(struct energy_table *table, int cpu, bool init)
+{
+	int last_state = table->nr_states - 1;
+	unsigned long ratio;
+	struct sched_domain *sd;
+
+	if (last_state < 0)
+		return;
+
+	/*
+	 * update cpu_capacity_orig{_s},
+	 * this value never changes after initialization.
+	 */
+	if (init) {
+		per_cpu(cpu_capacity_orig_s, cpu) = table->states[last_state].cap_s;
+		per_cpu(cpu_capacity_orig, cpu) = table->states[last_state].cap;
+	}
+
+	/* update cpu_capacity{_s} */
+	per_cpu(cpu_capacity_s, cpu) = table->states[last_state].cap_s;
+	per_cpu(cpu_capacity, cpu) = table->states[last_state].cap;
+
+	/* update cpu_capacity_ratio{_s} */
+	ratio = (per_cpu(cpu_capacity, cpu) << SCHED_CAPACITY_SHIFT);
+	ratio /= per_cpu(cpu_capacity_s, cpu);
+	per_cpu(cpu_capacity_ratio, cpu) = ratio;
+	ratio = (per_cpu(cpu_capacity_s, cpu) << SCHED_CAPACITY_SHIFT);
+	ratio /= per_cpu(cpu_capacity, cpu);
+	per_cpu(cpu_capacity_ratio_s, cpu) = ratio;
+
+	/* announce capacity update to cfs */
+	topology_set_cpu_scale(cpu, table->states[last_state].cap);
+	rcu_read_lock();
+	for_each_domain(cpu, sd)
+		update_group_capacity(sd, cpu);
+	rcu_read_unlock();
+}
+
+static void
+__rebuild_sched_energy_table(void)
+{
+	struct energy_table *table;
+	int cpu, max_mips = 0;
+
+	max_mips = find_max_mips();
+	for_each_possible_cpu(cpu) {
+		table = get_energy_table(cpu);
+		if (!table->states)
+			continue;
+
+		fill_cap_table(table, max_mips);
+		update_capacity(table, cpu, false);
+	}
 }
 
 /*
- * Store the original capacity to update the cpu capacity according to the
- * max frequency of cpufreq.
+ * Because capacity is a relative value computed based on max_mips, it must be
+ * recalculated if maximum mips is changed. If maximum mips changes when max
+ * frequency is changed by policy->max or pm_qos, recalculate capacity of
+ * energy table.
  */
-static DEFINE_PER_CPU(unsigned long, cpu_orig_scale) = SCHED_CAPACITY_SCALE;
-static DEFINE_PER_CPU(unsigned long, cpu_orig_scale_s) = SCHED_CAPACITY_SCALE;
-
-#define calculate_scale(orig, max)	((orig * max) >> SCHED_CAPACITY_SHIFT)
-static inline void update_capacity(int cpu)
+void rebuild_sched_energy_table(struct cpumask *cpus,
+				int clipped_freq,
+				int max_freq, int type)
 {
-	unsigned long freq_cap, qos_cap;
-
-	freq_cap = per_cpu(cpufreq_capacity, cpu);
-	qos_cap = per_cpu(qos_capacity, cpu);
-	per_cpu(cpu_capacity, cpu) = min(freq_cap, qos_cap);
-	topology_set_cpu_scale(cpu, per_cpu(cpu_capacity, cpu));
-
-	freq_cap = per_cpu(cpufreq_capacity_s, cpu);
-	qos_cap = per_cpu(qos_capacity_s, cpu);
-	per_cpu(cpu_capacity_s, cpu) = min(freq_cap, qos_cap);
-
-	update_capacity_ratio(cpu);
-}
-
-static inline void update_cpufreq_capacity(int cpu, unsigned long max_scale)
-{
-	unsigned long scale;
-
-	scale = calculate_scale(per_cpu(cpu_orig_scale, cpu), max_scale);
-	per_cpu(cpufreq_capacity, cpu) = scale;
+	spin_lock(&rebuilding_lock);
 
 	/*
-	 * If system does not consider sse, cpu_orig_scale_s is 0. In this
-	 * case, cpufreq_capacity_s has same value as cpufreq_capacity.
+	 * Update nr_states in energy table depending on clipped_freq.
+	 * If there's no update, skip rebuilding energy table.
 	 */
-	if (per_cpu(cpu_orig_scale_s, cpu))
-		scale = calculate_scale(per_cpu(cpu_orig_scale_s, cpu), max_scale);
+	if (!update_nr_states(cpus, clipped_freq, max_freq, type))
+		goto unlock;
 
-	per_cpu(cpufreq_capacity_s, cpu) = scale;
-
-	update_capacity(cpu);
-}
-
-static int sched_cpufreq_policy_callback(struct notifier_block *nb,
-					unsigned long event, void *data)
-{
-	struct cpufreq_policy *policy = data;
-	unsigned long max_scale;
-	int cpu;
-
-	if (event != CPUFREQ_NOTIFY)
-		return NOTIFY_DONE;
-
-	/*
-	 * When policy->max is pressed, the performance of the cpu is constrained.
-	 * In the constrained state, the cpu capacity also changes, and the
-	 * overutil condition changes accordingly, so the cpu scale is updated
-	 * whenever policy is changed.
-	 */
-	max_scale = (policy->max << SCHED_CAPACITY_SHIFT);
-	max_scale /= policy->cpuinfo.max_freq;
-	for_each_cpu(cpu, policy->related_cpus)
-		update_cpufreq_capacity(cpu, max_scale);
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block sched_cpufreq_policy_notifier = {
-	.notifier_call = sched_cpufreq_policy_callback,
-};
-
-void update_qos_capacity(int cpu, unsigned long freq, unsigned long max)
-{
-	unsigned long max_scale;
-	int i;
-
-	max_scale = (freq << SCHED_CAPACITY_SHIFT);
-	max_scale /= max;
-
-	for_each_cpu(i, cpu_coregroup_mask(cpu)) {
-		unsigned long scale;
-
-		scale = calculate_scale(per_cpu(cpu_orig_scale, i), max_scale);
-		per_cpu(qos_capacity, i) = scale;
-
-		if (per_cpu(cpu_orig_scale_s, i))
-			scale = calculate_scale(per_cpu(cpu_orig_scale_s, i), max_scale);
-
-		per_cpu(qos_capacity_s, i) = scale;
-
-		update_capacity(i);
-	}
+	__rebuild_sched_energy_table();
+unlock:
+	spin_unlock(&rebuilding_lock);
 }
 
 /*
@@ -707,28 +654,8 @@ void init_sched_energy_table(struct cpumask *cpus, int table_size,
 				int max_f, int min_f)
 {
 	struct energy_table *table;
-	int cpu, i, mips, valid_table_size = 0;
-	int max_mips = 0;
-	unsigned long max_mips_freq = 0;
-	int last_state;
-
-	cpumask_and(cpus, cpus, cpu_possible_mask);
-	if (cpumask_empty(cpus))
-		return;
-
-	mips = per_cpu(energy_table, cpumask_any(cpus)).mips;
-	for_each_cpu(cpu, cpus) {
-		/*
-		 * All cpus in a frequency domain must have the same capacity
-		 * because cpu and frequency domain always are same.
-		 * Verifying domain is enough to check the mips so it does not
-		 * need to check mips_s.
-		 */
-		if (mips != per_cpu(energy_table, cpu).mips) {
-			pr_warn("cpu%d has different cpacity!!\n", cpu);
-			return;
-		}
-	}
+	int i, cpu, valid_table_size = 0;
+	unsigned long max_mips;
 
 	/* get size of valid frequency table to allocate energy table */
 	for (i = 0; i < table_size; i++) {
@@ -742,119 +669,51 @@ void init_sched_energy_table(struct cpumask *cpus, int table_size,
 	if (!valid_table_size)
 		return;
 
-	/* allocate memory for energy table and fill power table */
+	/* allocate memory for energy table and fill frequency */
 	for_each_cpu(cpu, cpus) {
-		table = &per_cpu(energy_table, cpu);
+		table = get_energy_table(cpu);
 		table->states = kcalloc(valid_table_size,
 				sizeof(struct energy_state), GFP_KERNEL);
 		if (unlikely(!table->states))
 			return;
 
 		table->nr_states = valid_table_size;
-		fill_power_table(table, table_size, f_table, v_table, max_f, min_f);
+		fill_frequency_table(table, table_size, f_table, max_f, min_f);
 	}
 
 	/*
-	 * Find fastest cpu among the cpu to which the energy table is allocated.
-	 * The mips and max frequency of fastest cpu are needed to calculate
-	 * capacity.
+	 * Because 'capacity' column of energy table is a relative value, the
+	 * previously configured capacity of energy table can be reconfigurated
+	 * based on the maximum mips whenever new cpu's energy table is
+	 * initialized. On the other hand, since 'power' column of energy table
+	 * is an obsolute value, it needs to be configured only once at the
+	 * initialization of the energy table.
 	 */
+	max_mips = find_max_mips();
 	for_each_possible_cpu(cpu) {
-		table = &per_cpu(energy_table, cpu);
+		table = get_energy_table(cpu);
 		if (!table->states)
 			continue;
 
-		mips = max(table->mips, table->mips_s);
-		if (mips > max_mips) {
-			max_mips = mips;
+		/*
+		 * 1. fill power column of energy table only for the cpu that
+		 *    initializes the energy table.
+		 */
+		if (cpumask_test_cpu(cpu, cpus))
+			fill_power_table(table, table_size,
+					f_table, v_table, max_f, min_f);
 
-			last_state = table->nr_states - 1;
-			max_mips_freq = table->states[last_state].frequency;
-		}
-	}
+		/* 2. fill capacity column of energy table */
+		fill_cap_table(table, max_mips);
 
-	/*
-	 * Calculate and fill capacity table.
-	 * Recalculate the capacity whenever frequency domain changes because
-	 * the fastest cpu may have changed and the capacity needs to be
-	 * recalculated.
-	 */
-	for_each_possible_cpu(cpu) {
-		struct sched_domain *sd;
+		/* 3. update per-cpu capacity variable */
+		update_capacity(table, cpu, true);
 
-		table = &per_cpu(energy_table, cpu);
-		if (!table->states)
-			continue;
-
-		fill_cap_table(table, max_mips, max_mips_freq);
-		show_energy_table(table, cpu);
-
-		last_state = table->nr_states - 1;
-		per_cpu(cpu_orig_scale_s, cpu) = table->states[last_state].cap_s;
-		per_cpu(cpu_orig_scale, cpu) = table->states[last_state].cap;
-		topology_set_cpu_scale(cpu, table->states[last_state].cap);
-
-		rcu_read_lock();
-		for_each_domain(cpu, sd)
-			update_group_capacity(sd, cpu);
-		rcu_read_unlock();
+		show_energy_table(get_energy_table(cpu), cpu);
 	}
 
 	topology_update();
 }
-
-static ssize_t show_energy_weight(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	int cpu, len = 0;
-
-	for_each_possible_cpu(cpu) {
-		len += sprintf(buf + len, "[cpu%d] perf:%d energy:%d\n",
-				cpu, c_weight[cpu], e_weight[cpu]);
-	}
-
-	return len;
-}
-
-static ssize_t store_energy_weight(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf,
-		size_t count)
-{
-	int cpu, cw, ew, i;
-
-	if (sscanf(buf, "%d %d %d", &cpu, &cw, &ew) != 3)
-		return -EINVAL;
-
-	/* Check cpu is possible */
-	if (!cpumask_test_cpu(cpu, cpu_possible_mask))
-		return -EINVAL;
-
-	/* Check ratio isn't outrage */
-	if (cw < 0 || ew < 0)
-		return -EINVAL;
-
-	for_each_cpu(i, cpu_coregroup_mask(cpu)) {
-		c_weight[i] = cw;
-		e_weight[i] = ew;
-	}
-
-	return count;
-}
-
-static struct kobj_attribute energy_attr =
-__ATTR(energy_weight, 0644, show_energy_weight, store_energy_weight);
-
-static int __init init_energy_weight(void)
-{
-	int ret;
-
-	ret = sysfs_create_file(ems_kobj, &energy_attr.attr);
-	if (ret)
-		pr_err("%s: faile to create sysfs file\n", __func__);
-
-	return 0;
-}
-late_initcall(init_energy_weight);
 
 static int __init init_sched_energy_data(void)
 {
@@ -876,9 +735,9 @@ static int __init init_sched_energy_data(void)
 			return -ENODATA;
 		}
 
-		table = &per_cpu(energy_table, cpu);
-		if (of_property_read_u32(cpu_phandle, "capacity-mips", &table->mips)) {
-			pr_warn("No capacity-mips data\n");
+		table = get_energy_table(cpu);
+		if (of_property_read_u32(cpu_phandle, "mips-per-mhz", &table->mips_per_mhz)) {
+			pr_warn("No mips-per-mhz data\n");
 			return -ENODATA;
 		}
 
@@ -887,18 +746,27 @@ static int __init init_sched_energy_data(void)
 			return -ENODATA;
 		}
 
-		/* Data for sse is OPTIONAL */
-		of_property_read_u32(cpu_phandle, "capacity-mips-s", &table->mips_s);
-		of_property_read_u32(cpu_phandle, "power-coefficient-s", &table->coefficient_s);
+		if (of_property_read_u32(cpu_phandle, "static-power-coefficient",
+								&table->static_coefficient)) {
+			pr_warn("No static-power-coefficient data\n");
+			return -ENODATA;
+		}
 
-		of_property_read_u32(cpu_phandle, "capacity-weight", &c_weight[cpu]);
-		of_property_read_u32(cpu_phandle, "energy-weight", &e_weight[cpu]);
+		/*
+		 * Data for sse is OPTIONAL.
+		 * If it does not fill sse data, sse table and uss table are same.
+		 */
+		if (of_property_read_u32(cpu_phandle, "mips-per-mhz-s", &table->mips_per_mhz_s))
+			table->mips_per_mhz_s = table->mips_per_mhz;
+		if (of_property_read_u32(cpu_phandle, "power-coefficient-s", &table->coefficient_s))
+			table->coefficient_s = table->coefficient;
 
 		of_node_put(cpu_phandle);
 		of_node_put(cpu_node);
 
-		pr_info("cpu%d mips=%d coefficient=%d mips_s=%d coefficient_s=%d\n",
-			cpu, table->mips, table->coefficient, table->mips_s, table->coefficient_s);
+		pr_info("cpu%d mips_per_mhz=%d coefficient=%d mips_per_mhz_s=%d coefficient_s=%d static_coefficient=%d\n",
+			cpu, table->mips_per_mhz, table->coefficient,
+			table->mips_per_mhz_s, table->coefficient_s, table->static_coefficient);
 	}
 
 	cpufreq_register_notifier(&sched_cpufreq_policy_notifier, CPUFREQ_POLICY_NOTIFIER);
@@ -906,4 +774,3 @@ static int __init init_sched_energy_data(void)
 	return 0;
 }
 core_initcall(init_sched_energy_data);
-#endif	/* CONFIG_SIMPLIFIED_ENERGY_MODEL */

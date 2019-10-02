@@ -15,17 +15,15 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <soc/samsung/exynos-pmu.h>
+#include <linux/mod_devicetable.h>
 
 /**
  * "pmureg" has the mapped base address of PMU(Power Management Unit)
  */
 static struct regmap *pmureg;
-#ifdef CONFIG_SOC_EXYNOS9820
 static void __iomem *pmu_alive;
 static spinlock_t update_lock;
-#endif
 
-#ifdef CONFIG_SOC_EXYNOS9820
 /* Atomic operation for PMU_ALIVE registers. (offset 0~0x3FFF)
    When the targer register can be accessed by multiple masters,
    This functions should be used. */
@@ -38,7 +36,6 @@ static inline void exynos_pmu_clr_bit_atomic(unsigned int offset, unsigned int v
 {
 	__raw_writel(val, pmu_alive + (offset | 0x8000));
 }
-#endif
 
 /**
  * No driver refers the "pmureg" directly, through the only exported API.
@@ -55,7 +52,6 @@ int exynos_pmu_write(unsigned int offset, unsigned int val)
 
 int exynos_pmu_update(unsigned int offset, unsigned int mask, unsigned int val)
 {
-#ifdef CONFIG_SOC_EXYNOS9820
 	int i;
 	unsigned long flags;
 
@@ -74,9 +70,6 @@ int exynos_pmu_update(unsigned int offset, unsigned int mask, unsigned int val)
 		spin_unlock_irqrestore(&update_lock, flags);
 		return 0;
 	}
-#else
-	return regmap_update_bits(pmureg, offset, mask, val);
-#endif
 }
 
 struct regmap *exynos_get_pmu_regmap(void)
@@ -233,6 +226,7 @@ struct exynos_cpu_power_ops exynos_cpu = {
 	.cluster_state = exynos_cluster_state,
 };
 
+#ifdef CONFIG_CP_PMUCAL
 #define PMU_CP_STAT		0x0038
 int exynos_check_cp_status(void)
 {
@@ -242,6 +236,7 @@ int exynos_check_cp_status(void)
 
 	return val;
 }
+#endif
 
 static struct bus_type exynos_info_subsys = {
 	.name = "exynos_info",
@@ -297,9 +292,7 @@ static const struct attribute_group *cs_sysfs_groups[] = {
 static int exynos_pmu_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-#ifdef CONFIG_SOC_EXYNOS9820
 	struct resource *res;
-#endif
 
 	pmureg = syscon_regmap_lookup_by_phandle(dev->of_node,
 						"samsung,syscon-phandle");
@@ -308,7 +301,6 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 		return PTR_ERR(pmureg);
 	}
 
-#ifdef CONFIG_SOC_EXYNOS9820
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pmu_alive");
 	pmu_alive = devm_ioremap_resource(dev, res);
 	if (IS_ERR(pmu_alive)) {
@@ -316,7 +308,6 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 		return PTR_ERR(pmu_alive);
 	}
 	spin_lock_init(&update_lock);
-#endif
 
 	if (subsys_system_register(&exynos_info_subsys,
 					cs_sysfs_groups))

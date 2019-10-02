@@ -8,7 +8,7 @@
 #include "cmucal.h"
 #include "ra.h"
 
-static enum trans_opt ra_get_trans_opt(unsigned int to, unsigned int from)
+static enum trans_opt ra_get_trans_opt(unsigned long to, unsigned long from)
 {
 	if (from == to)
 		return TRANS_IGNORE;
@@ -300,7 +300,7 @@ static int ra_set_pll(struct cmucal_clk *clk, unsigned int rate,
 	struct cmucal_pll_table *rate_table;
 	struct cmucal_pll_table table;
 	struct cmucal_clk *umux;
-	unsigned int fin;
+	unsigned long fin;
 	int ret = 0;
 
 	pll = to_pll_clk(clk);
@@ -340,7 +340,7 @@ static int ra_set_pll(struct cmucal_clk *clk, unsigned int rate,
 	return ret;
 }
 
-static unsigned int ra_get_pll(struct cmucal_clk *clk)
+static unsigned long ra_get_pll(struct cmucal_clk *clk)
 {
 	struct cmucal_pll *pll;
 	unsigned int mdiv, pdiv, sdiv, pll_con0;
@@ -369,6 +369,8 @@ static unsigned int ra_get_pll(struct cmucal_clk *clk)
 
 	if (is_normal_pll(pll)) {
 		fout *= mdiv;
+		if (pll->type == pll_0716x)
+			fout *= 2;
 		do_div(fout, (pdiv << sdiv));
 	} else if (is_frac_pll(pll) && clk->pll_con1) {
 		kdiv = get_value(clk->pll_con1, pll->k_shift, pll->k_width);
@@ -697,11 +699,11 @@ int ra_set_value(unsigned int id, unsigned int params)
 	return ret;
 }
 
-unsigned int ra_get_value(unsigned int id)
+unsigned long ra_get_value(unsigned int id)
 {
 	struct cmucal_clk *clk;
 	unsigned type = GET_TYPE(id);
-	unsigned int val;
+	unsigned long val;
 
 	clk = cmucal_get_node(id);
 	if (!clk) {
@@ -892,7 +894,7 @@ void ra_set_pll_ops(unsigned int *list,
 		unsigned int num_list,
 		struct vclk_trans_ops *ops)
 {
-	unsigned int from, to;
+	unsigned long from, to;
 	int i;
 	bool trans;
 
@@ -924,7 +926,7 @@ void ra_set_clk_by_type(unsigned int *list,
 		     unsigned int type,
 		     enum trans_opt opt)
 {
-	unsigned int from, to;
+	unsigned long from, to;
 	int i;
 	bool trans;
 
@@ -950,7 +952,7 @@ void ra_set_clk_by_seq(unsigned int *list,
 		    struct vclk_seq *seq,
 		    unsigned int num_list)
 {
-	unsigned int from, to;
+	unsigned long from, to;
 	unsigned int i, idx;
 	bool trans;
 
@@ -1001,7 +1003,7 @@ int ra_compare_clk_list(unsigned int *params,
 
 	return 0;
 mismatch:
-	pr_debug("mis-match %s <%u %u> \n",
+	pr_debug("mis-match %s <%u %lu> \n",
 		 clk->name, params[i], ra_get_value(list[i]));
 	return -EVCLKNOENT;
 }
@@ -1117,13 +1119,13 @@ int ra_set_rate(unsigned int id, unsigned int rate)
 }
 EXPORT_SYMBOL_GPL(ra_set_rate);
 
-unsigned int ra_recalc_rate(unsigned int id)
+unsigned long ra_recalc_rate(unsigned int id)
 {
 	struct cmucal_clk *clk;
 	unsigned int cur;
 	unsigned int clk_path[RECALC_MAX];
-	unsigned int depth, ratio;
-	unsigned long rate;
+	unsigned int depth;
+	unsigned long rate, ratio;
 
 	if (GET_TYPE(id) > GATE_TYPE)
 		return 0;

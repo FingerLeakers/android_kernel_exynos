@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -48,6 +48,5 @@ int tzdev_migrate_pages(struct task_struct *task, struct mm_struct *mm,
 		int force, struct page **pages);
 void tzdev_put_user_pages(struct page **pages, unsigned long nr_pages);
 void tzdev_decrease_pinned_vm(struct mm_struct *mm, unsigned long nr_pages);
-void tzdev_mem_release_panic_handler(void);
 
 #endif /* __TZ_MEM_H__ */

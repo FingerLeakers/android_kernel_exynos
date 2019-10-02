@@ -39,14 +39,8 @@
 #define MS_IDENTIFIER 1000000000U
 #endif
 
-
-#ifdef CONFIG_SENSORS_SSP_DAVINCI
 #define SUPER_VDIS_FORMAT	0xEEEE
 #define VDIS_TIMESTAMP_FORMAT 	0xFFFF
-#else
-#define SUPER_VDIS_FORMAT	0xEEEEEEEE
-#define VDIS_TIMESTAMP_FORMAT 	0xFFFFFFFF
-#endif
 #define NORMAL_TIMESTAMP_FORMAT 0x0
 #define get_prev_index(a) (a - 1 + SIZE_TIMESTAMP_BUFFER) % SIZE_TIMESTAMP_BUFFER
 #define get_next_index(a) (a + 1) % SIZE_TIMESTAMP_BUFFER
@@ -111,12 +105,8 @@ static void get_timestamp(struct ssp_data *data, char *pchRcvDataFrame,
 		u64 prev_index = 0;
 
 		memcpy(&ts_index, pchRcvDataFrame + *iDataIdx, 4);
-#ifdef CONFIG_SENSORS_SSP_DAVINCI
 		memcpy(&ts_flag, pchRcvDataFrame + *iDataIdx + 4, 2);
 		memcpy(&ts_cnt, pchRcvDataFrame + *iDataIdx + 6, 2);
-#else
-		memcpy(&ts_flag, pchRcvDataFrame + *iDataIdx + 4, 4);
-#endif
 		prev_index = get_prev_index(ts_index);
 
 		if (ts_flag == SUPER_VDIS_FORMAT || ts_flag == VDIS_TIMESTAMP_FORMAT) {
@@ -284,24 +274,8 @@ static void get_light_flicker_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_light_cct_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
-#ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
-#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
-#ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 25);
-	*iDataIdx += 25;
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 19);
-	*iDataIdx += 19;
-#endif
-
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 18);
-	*iDataIdx += 18;
-#endif
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 10);
-	*iDataIdx += 10;
-#endif
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 27);
+	*iDataIdx += 27;
 }
 static void get_pressure_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)

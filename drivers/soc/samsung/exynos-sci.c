@@ -19,18 +19,6 @@
 #include <soc/samsung/acpm_ipc_ctrl.h>
 #include <soc/samsung/exynos-sci.h>
 
-const char *exynos_sci_llc_region_name[LLC_REGION_MAX] = {
-	[LLC_REGION_DISABLE]			= "LLC_REGION_DISABLE",
-	[LLC_REGION_LIT_MID_ALL]		= "LLC_REGION_LIT_MID_ALL",
-	[LLC_REGION_CPU_ALL]			= "LLC_REGION_CPU_ALL",
-	[LLC_REGION_CPU_2_GPU_2]		= "LLC_REGION_CPU_2_GPU_2",
-	[LLC_REGION_BIG_ALL]			= "LLC_REGION_BIG_ALL",
-	[LLC_REGION_GPU_ALL]			= "LLC_REGION_GPU_ALL",
-	[LLC_REGION_LIT_MID_GPU_SHARE]		= "LLC_REGION_LIT_MID_GPU_SHARE",
-	[LLC_REGION_CPU_GPU_SHARE]		= "LLC_REGION_CPU_GPU_SHARE",
-	[LLC_REGION_BIG_GPU_SHARE]		= "LLC_REGION_BIG_GPU_SHARE",
-};
-
 static struct exynos_sci_data *sci_data;
 static void __iomem *dump_base;
 
@@ -41,7 +29,7 @@ static void print_sci_data(struct exynos_sci_data *data)
 	SCI_DBG("Use Initial LLC Region: %s\n",
 			data->use_init_llc_region ? "True" : "False");
 	SCI_DBG("Initial LLC Region: %s (%u)\n",
-		exynos_sci_llc_region_name[data->initial_llc_region],
+		data->region_name[data->initial_llc_region],
 		data->initial_llc_region);
 	SCI_DBG("LLC Enable: %s\n",
 			data->llc_enable ? "True" : "False");
@@ -52,6 +40,7 @@ static int exynos_sci_parse_dt(struct device_node *np,
 				struct exynos_sci_data *data)
 {
 	int ret;
+	int size;
 
 	if (!np)
 		return -ENODEV;
@@ -76,6 +65,33 @@ static int exynos_sci_parse_dt(struct device_node *np,
 					&data->llc_enable);
 	if (ret) {
 		SCI_ERR("%s: Failed get llc_enable\n", __func__);
+		return ret;
+	}
+
+	/* retention */
+	ret = of_property_read_u32(np, "ret_enable",
+					&data->ret_enable);
+	if (ret) {
+		SCI_ERR("%s: Failed get ret_enable\n", __func__);
+		return ret;
+	}
+
+	size = of_property_count_strings(np, "region_name");
+	if (size < 0) {
+		SCI_ERR("%s: Failed get number of region_name\n", __func__);
+		return size;
+	}
+
+	size = of_property_read_string_array(np, "region_name", data->region_name, size);
+	if (size < 0) {
+		SCI_ERR("%s: Failed get region_name\n", __func__);
+		return size;
+	}
+
+	ret = of_property_read_u32_array(np, "region_way", (u32 *)&data->way_array,
+				       (size_t)(ARRAY_SIZE(data->way_array)));
+	if (ret) {
+		SCI_ERR("%s: Failed get region_way\n", __func__);
 		return ret;
 	}
 
@@ -164,6 +180,7 @@ static int exynos_sci_llc_invalidate(struct exynos_sci_data *data)
 	struct exynos_sci_cmd_info cmd_info;
 	unsigned int cmd[4] = {0, 0, 0, 0};
 	int ret = 0;
+	int tmp_reg;
 	enum exynos_sci_err_code ipc_err;
 
 	if (data->llc_region_prio[LLC_REGION_DISABLE])
@@ -172,6 +189,7 @@ static int exynos_sci_llc_invalidate(struct exynos_sci_data *data)
 	cmd_info.cmd_index = SCI_LLC_INVAL;
 	cmd_info.direction = 0;
 	cmd_info.data = 0;
+	cmd[2] = data->invway;
 
 	exynos_sci_base_cmd(&cmd_info, cmd);
 
@@ -187,6 +205,12 @@ static int exynos_sci_llc_invalidate(struct exynos_sci_data *data)
 		ret = -EBADMSG;
 		goto out;
 	}
+
+	/* llc_invalidate_wait */
+	do {
+		/* 0x1A000A0C */
+		tmp_reg = __raw_readl(data->sci_base + SCI_SB_LLCSTATUS);
+	} while (tmp_reg & (0x1 << 0));
 
 out:
 	return ret;
@@ -197,14 +221,16 @@ static int exynos_sci_llc_flush(struct exynos_sci_data *data)
 	struct exynos_sci_cmd_info cmd_info;
 	unsigned int cmd[4] = {0, 0, 0, 0};
 	int ret = 0;
+	int tmp_reg = 0;
 	enum exynos_sci_err_code ipc_err;
 
 	if (data->llc_region_prio[LLC_REGION_DISABLE])
 		goto out;
 
-	cmd_info.cmd_index = SCI_LLC_FLUSH;
+	cmd_info.cmd_index = SCI_LLC_FLUSH_PRE;
 	cmd_info.direction = 0;
 	cmd_info.data = 0;
+	cmd[2] = data->invway;
 
 	exynos_sci_base_cmd(&cmd_info, cmd);
 
@@ -221,6 +247,29 @@ static int exynos_sci_llc_flush(struct exynos_sci_data *data)
 		goto out;
 	}
 
+	/* llc_invalidate_wait */
+	do {
+		/* 0x1A000A0C */
+		tmp_reg = __raw_readl(data->sci_base + SCI_SB_LLCSTATUS);
+	} while (tmp_reg & (0x1 << 0));
+
+	cmd_info.cmd_index = SCI_LLC_FLUSH_POST;
+	cmd_info.direction = 0;
+	cmd_info.data = 0;
+
+	exynos_sci_base_cmd(&cmd_info, cmd);
+
+	ret = exynos_sci_ipc_send_data(cmd_info.cmd_index, data, cmd);
+	if (ret) {
+		SCI_ERR("%s: Failed send data\n", __func__);
+		goto out;
+	}
+
+	ipc_err = exynos_sci_ipc_err_handle(cmd[1]);
+	if (ipc_err) {
+		ret = -EBADMSG;
+		goto out;
+	}
 out:
 	return ret;
 }
@@ -231,8 +280,8 @@ static int exynos_sci_llc_region_alloc(struct exynos_sci_data *data,
 {
 	struct exynos_sci_cmd_info cmd_info;
 	unsigned int cmd[4] = {0, 0, 0, 0};
-	unsigned int i;
 	int ret = 0;
+	int index = 0;
 	enum exynos_sci_err_code ipc_err;
 
 	if (direction == SCI_IPC_SET) {
@@ -243,22 +292,22 @@ static int exynos_sci_llc_region_alloc(struct exynos_sci_data *data,
 		}
 
 		if (*region_index > LLC_REGION_DISABLE) {
-			if (on)
+			if (on) {
 				data->llc_region_prio[*region_index] = 1;
-			else
+				index = SCI_LLC_REGION_ALLOC;
+			} else {
 				data->llc_region_prio[*region_index] = 0;
-
-			for (i = LLC_REGION_DISABLE + 1; i < LLC_REGION_MAX; i++) {
-				if (data->llc_region_prio[i])
-					*region_index = i;
+				index = SCI_LLC_REGION_DEALLOC;
 			}
 		}
-
-		if (data->llc_region_prio[LLC_REGION_DISABLE])
-			goto out;
+	} else {
+		index = SCI_LLC_REGION_ALLOC;
 	}
 
-	cmd_info.cmd_index = SCI_LLC_REGION_ALLOC;
+	if (data->llc_region_prio[LLC_REGION_DISABLE])
+		goto out;
+
+	cmd_info.cmd_index = index;
 	cmd_info.direction = direction;
 	cmd_info.data = *region_index;
 
@@ -279,6 +328,49 @@ static int exynos_sci_llc_region_alloc(struct exynos_sci_data *data,
 
 	if (direction == SCI_IPC_GET)
 		*region_index = SCI_CMD_GET(cmd[1], SCI_DATA_MASK, SCI_DATA_SHIFT);
+
+out:
+	return ret;
+}
+
+static int exynos_sci_ret_enable(struct exynos_sci_data *data,
+					enum exynos_sci_ipc_dir direction,
+					unsigned int *enable)
+{
+	struct exynos_sci_cmd_info cmd_info;
+	unsigned int cmd[4] = {0, 0, 0, 0};
+	int ret = 0;
+	enum exynos_sci_err_code ipc_err;
+
+	if (direction == SCI_IPC_SET) {
+		if (*enable > 1) {
+			SCI_ERR("%s: Invalid Control Index: %u\n", __func__, *enable);
+			ret = -EINVAL;
+			goto out;
+		}
+	}
+
+	cmd_info.cmd_index = SCI_RET_EN;
+	cmd_info.direction = direction;
+	cmd_info.data = *enable;
+
+	exynos_sci_base_cmd(&cmd_info, cmd);
+
+	/* send command for SCI */
+	ret = exynos_sci_ipc_send_data(cmd_info.cmd_index, data, cmd);
+	if (ret) {
+		SCI_ERR("%s: Failed send data\n", __func__);
+		goto out;
+	}
+
+	ipc_err = exynos_sci_ipc_err_handle(cmd[1]);
+	if (ipc_err) {
+		ret = -EBADMSG;
+		goto out;
+	}
+
+	if (direction == SCI_IPC_GET)
+		*enable = SCI_CMD_GET(cmd[1], SCI_DATA_MASK, SCI_DATA_SHIFT);
 
 out:
 	return ret;
@@ -332,120 +424,21 @@ out:
 	return ret;
 }
 
-static void exynos_sci_llc_dump_to_memory(struct exynos_sci_data *data,
-				struct exynos_llc_dump_fmt *llc_dump_fmt)
-{
-	u32 *dump_data = (u32 *)llc_dump_fmt;
-	u32 entry_size = sizeof(struct exynos_llc_dump_fmt);
-	u32 write_count = entry_size / 4;
-	int i;
-
-	for (i = 0; i < write_count; i++)
-		__raw_writel(dump_data[i], dump_base + (i * 0x4));
-
-	dump_base += entry_size;
-}
-
-static int exynos_sci_llc_dump(struct exynos_sci_data *data)
-{
-	struct exynos_llc_dump_fmt llc_dump_fmt;
-	u32 clk_gating_save, disable_llc_save;
-	u32 tmp;
-	u16 slice, bank, set, way, qword;
-	u32 arr_dbg_rd = 1, arr_dbg_sel = 1, llc_arr_dbg_sel;
-	u32 arr_dbg_cntl;
-	char *dump_sign = "LLCD";
-	u32 *char_data = (u32 *)dump_sign;
-
-	/* disable LLC clock gating */
-	tmp = __raw_readl(data->sci_base + PM_SCI_CTL);
-	clk_gating_save = (tmp >> LLC_En_Bit) & 0x1;
-	tmp = tmp & ~(0x1 << LLC_En_Bit);
-	__raw_writel(tmp, data->sci_base + PM_SCI_CTL);
-
-	/* disable LLC */
-	tmp = __raw_readl(data->sci_base + CCMControl1);
-	disable_llc_save = (tmp >> DisableLlc_Bit) & 0x1;
-	tmp = tmp | (0x1 << DisableLlc_Bit);
-	__raw_writel(tmp, data->sci_base + CCMControl1);
-
-	__raw_writel(char_data[0], dump_base);
-	dump_base += 0x4;
-
-	for (slice = 0; slice <= LLC_SLICE_END; slice++) {
-		llc_dump_fmt.slice = slice;
-		for (bank = 0; bank <= LLC_BANK_END; bank++) {
-			llc_dump_fmt.bank = bank;
-			for (set = 0; set <= LLC_SET_END; set++) {
-				llc_dump_fmt.set = set;
-				for (way = 0; way <= LLC_WAY_END; way++) {
-					llc_dump_fmt.way = way;
-					llc_arr_dbg_sel = 1;
-					arr_dbg_cntl = 0;
-					arr_dbg_cntl = ((arr_dbg_rd << 30) | (arr_dbg_sel << 27) |
-							(llc_arr_dbg_sel << 23) | (slice << 20) |
-							(bank << 19) | (set << 9) | (way << 4));
-					__raw_writel(arr_dbg_cntl, data->sci_base + ArrDbgCntl);
-
-					do {
-						arr_dbg_cntl = __raw_readl(data->sci_base + ArrDbgCntl);
-					} while (((arr_dbg_cntl >> 30) & 0x1) == 0x1);
-
-					llc_dump_fmt.tag.data_lo =
-						__raw_readl(data->sci_base + ArrDbgRDataLo);
-					llc_dump_fmt.tag.data_mi =
-						__raw_readl(data->sci_base + ArrDbgRDataMi);
-					llc_dump_fmt.tag.data_hi =
-						__raw_readl(data->sci_base + ArrDbgRDataHi);
-
-					for (qword = 0; qword <= LLC_QWORD_END; qword++) {
-						llc_arr_dbg_sel = 4;
-						arr_dbg_cntl = 0;
-						arr_dbg_cntl = ((arr_dbg_rd << 30) | (arr_dbg_sel << 27) |
-								(llc_arr_dbg_sel << 23) | (slice << 20) |
-								(bank << 19) | (set << 9) | (way << 4) |
-								(qword << 0));
-						__raw_writel(arr_dbg_cntl, data->sci_base + ArrDbgCntl);
-
-						do {
-							arr_dbg_cntl = __raw_readl(data->sci_base + ArrDbgCntl);
-						} while (((arr_dbg_cntl >> 30) & 0x1) == 0x1);
-
-						llc_dump_fmt.data_q[qword].data_lo =
-							__raw_readl(data->sci_base + ArrDbgRDataLo);
-						llc_dump_fmt.data_q[qword].data_mi =
-							__raw_readl(data->sci_base + ArrDbgRDataMi);
-						llc_dump_fmt.data_q[qword].data_hi =
-							__raw_readl(data->sci_base + ArrDbgRDataHi);
-					}
-
-					exynos_sci_llc_dump_to_memory(data, &llc_dump_fmt);
-				}
-			}
-		}
-	}
-
-	dump_base = data->llc_dump_addr.v_addr;
-
-	/* restore LLC */
-	tmp = __raw_readl(data->sci_base + CCMControl1);
-	tmp = tmp & ~(0x1 << DisableLlc_Bit);
-	tmp = tmp | (disable_llc_save << DisableLlc_Bit);
-	__raw_writel(tmp, data->sci_base + CCMControl1);
-
-	/* restore LLC clock gating */
-	tmp = __raw_readl(data->sci_base + PM_SCI_CTL);
-	tmp = tmp & ~(0x1 << LLC_En_Bit);
-	tmp = tmp | (clk_gating_save << LLC_En_Bit);
-	__raw_writel(tmp, data->sci_base + PM_SCI_CTL);
-
-	return 0;
-}
-
 /* Export Functions */
-void llc_invalidate(void)
+void llc_invalidate(unsigned int invway)
 {
 	int ret;
+
+	sci_data->invway = invway;
+
+	if (invway == FULL_INV) {
+		sci_data->invway = TOPWAY;
+		ret = exynos_sci_llc_invalidate(sci_data);
+		if (ret)
+			SCI_ERR("%s: Failed llc invalidate\n", __func__);
+
+		sci_data->invway = BOTTOMWAY;
+	}
 
 	ret = exynos_sci_llc_invalidate(sci_data);
 	if (ret)
@@ -455,9 +448,22 @@ void llc_invalidate(void)
 }
 EXPORT_SYMBOL(llc_invalidate);
 
-void llc_flush(void)
+void llc_flush(unsigned int region)
 {
 	int ret;
+
+	if (region >= LLC_REGION_MAX || !sci_data->llc_region_prio[region])
+		return;
+
+	sci_data->invway = sci_data->way_array[region];
+
+	if (sci_data->invway == FULL_INV) {
+		sci_data->invway = TOPWAY;
+		ret = exynos_sci_llc_flush(sci_data);
+		if (ret)
+			SCI_ERR("%s: Failed llc flush\n", __func__);
+		sci_data->invway = BOTTOMWAY;
+	}
 
 	ret = exynos_sci_llc_flush(sci_data);
 	if (ret)
@@ -479,125 +485,6 @@ void llc_region_alloc(unsigned int region_index, bool on)
 }
 EXPORT_SYMBOL(llc_region_alloc);
 
-void llc_dump(void)
-{
-	SCI_INFO("%s: llc_dump start!!\n", __func__);
-
-	exynos_sci_llc_dump(sci_data);
-
-	SCI_INFO("%s: llc_dump end!!\n", __func__);
-
-	return;
-}
-EXPORT_SYMBOL(llc_dump);
-
-#define SCI_ErrStatHi	0x0114
-#define SCI_ErrStatLo	0x0118
-#define SCI_ErrCnt	0x0108
-#define SCI_ErrAddrHi	0x010C
-#define SCI_ErrAddrLo	0x0110
-
-/* for SCI_ErrCnt */
-static struct err_variant sci_err_type_1[] = {
-	ERR_VAR("MaxOtherCount", 31, 24),
-	ERR_VAR("MaxCount", 23, 16),
-	ERR_VAR("ClrOtherCount", 15, 15),
-	ERR_VAR("ClrCount", 14, 14),
-	ERR_VAR("RspErrEn", 13, 13),
-	ERR_VAR("ProtErrEn", 12, 12),
-	ERR_VAR("MemArrayErrEn", 11, 11),
-	ERR_VAR("SfArrayErrEn", 10, 10),
-	ERR_VAR("LlcArrayErrEn", 9, 9),
-	ERR_VAR("FatalUnContErrEn", 8, 8),
-	ERR_VAR("FatalUcErrEn", 7, 7),
-	ERR_VAR("CountCorrErrEn", 6, 6),
-	ERR_VAR("CountUnCorrErrEn", 5, 5),
-	ERR_VAR("IntOtherCountErrEn", 4, 4),
-	ERR_VAR("IntCountErrEn", 3, 3),
-	ERR_VAR("IntCorrErrEn", 2, 2),
-	ERR_VAR("IntUnCorrErrEn", 1, 1),
-	ERR_VAR("LogErrEn", 0, 0),
-	ERR_VAR("END", 64, 64),
-};
-
-/* for SCI_ErrStatLo */
-static struct err_variant sci_err_type_2[] = {
-	ERR_VAR("SType", 31, 16),
-	ERR_VAR("ErrType", 15, 12),
-	ERR_VAR("MultiErrorValid", 5, 5),
-	ERR_VAR("SynValid", 4, 4),
-	ERR_VAR("AddrValid", 3, 3),
-	ERR_VAR("UnContained", 2, 2),
-	ERR_VAR("UC", 1, 1),
-	ERR_VAR("Vaild", 0, 0),
-	ERR_VAR("END", 64, 64),
-};
-
-/* for SCI_ErrStatHi */
-static struct err_variant sci_err_type_3[] = {
-	ERR_VAR("OtherCount", 31, 24),
-	ERR_VAR("Count", 23, 16),
-	ERR_VAR("ErrSyn", 8, 0),
-	ERR_VAR("END", 64, 64),
-};
-
-enum {
-	SCI_ERRCNT = 0,
-	SCI_ERRSTATLO,
-	SCI_ERRSTATHI
-};
-
-static struct err_variant_data exynos_sci_err_table[] = {
-	ERR_REG(sci_err_type_1, 0, "SCI_ErrCnt"),
-	ERR_REG(sci_err_type_2, 0, "SCI_ErrStatLo"),
-	ERR_REG(sci_err_type_3, 0xff, "SCI_ErrStatHi"),
-};
-
-static void exynos_sci_err_parse(u32 reg_idx, u64 reg)
-{
-	if (reg_idx >= ARRAY_SIZE(exynos_sci_err_table)) {
-		pr_err("%s: there is no parse data\n", __func__);
-		return;
-	}
-
-	exynos_err_parse(reg_idx, reg, &exynos_sci_err_table[reg_idx]);
-}
-
-#define MSB_MASKING		(0x0000FF0000000000)
-#define MSB_PADDING		(0xFFFFFF0000000000)
-#define ERR_INJ_DONE		(1 << 31)
-#define ERR_NS			(1 << 8)
-
-extern void exynos_dump_common_cpu_reg(void);
-
-void sci_error_dump(void)
-{
-	void __iomem *sci_base;
-	unsigned int sci_reg, sci_ns, sci_err_inj;
-	unsigned long sci_reg_addr, sci_reg_hi;
-
-	sci_base = sci_data->sci_base;
-
-	pr_info("============== SCI Error Logging Info=====================\n");
-	pr_info("SCI_ErrCnt    : %08x\n", sci_reg = __raw_readl(sci_base + SCI_ErrCnt));
-	exynos_sci_err_parse(SCI_ERRCNT, sci_reg);
-	pr_info("SCI_ErrStatHi : %08x\n", sci_reg = __raw_readl(sci_base + SCI_ErrStatHi));
-	exynos_sci_err_parse(SCI_ERRSTATHI, sci_reg);
-	pr_info("SCI_ErrStatLo : %08x\n", sci_reg = __raw_readl(sci_base + SCI_ErrStatLo));
-	exynos_sci_err_parse(SCI_ERRSTATLO, sci_reg);
-	pr_info("SCI_ErrAddr(Hi,Lo): %08x %08x\n",
-			sci_reg_hi = __raw_readl(sci_base + SCI_ErrAddrHi),
-			sci_reg = __raw_readl(sci_base + SCI_ErrAddrLo));
-
-	sci_reg_addr = sci_reg + (MSB_MASKING & (sci_reg_hi << 32L));
-	sci_ns = (ERR_NS & sci_reg_hi) >> 8;
-	sci_err_inj = (ERR_INJ_DONE & sci_reg_hi) >> 31;
-	pr_info("SCI_ErrAddr : %016lx (NS:%d, ERR_INJ:%d)\n", sci_reg_addr, sci_err_inj);
-	exynos_dump_common_cpu_reg();
-	pr_info("============================================================\n");
-}
-EXPORT_SYMBOL(sci_error_dump);
-
 /* SYSFS Interface */
 static ssize_t show_sci_data(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -615,18 +502,18 @@ static ssize_t show_sci_data(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "Use Initial LLC Region: %s\n",
 				data->use_init_llc_region ? "True" : "False");
 	count += snprintf(buf + count, PAGE_SIZE, "Initial LLC Region: %s (%u)\n",
-				exynos_sci_llc_region_name[data->initial_llc_region],
+				data->region_name[data->initial_llc_region],
 				data->initial_llc_region);
 	count += snprintf(buf + count, PAGE_SIZE, "LLC Enable: %s\n",
 				data->llc_enable ? "True" : "False");
 	count += snprintf(buf + count, PAGE_SIZE, "Plugin Initial LLC Region: %s (%u)\n",
-				exynos_sci_llc_region_name[data->plugin_init_llc_region],
+				data->region_name[data->plugin_init_llc_region],
 				data->plugin_init_llc_region);
 	count += snprintf(buf + count, PAGE_SIZE, "LLC Region Priority:\n");
 	count += snprintf(buf + count, PAGE_SIZE, "prio   region                  on\n");
 	for (i = LLC_REGION_DISABLE + 1; i < LLC_REGION_MAX; i++)
 		count += snprintf(buf + count, PAGE_SIZE, "%2d     %s  %u\n",
-				i, exynos_sci_llc_region_name[i], data->llc_region_prio[i]);
+				i, data->region_name[i], data->llc_region_prio[i]);
 
 	return count;
 }
@@ -638,11 +525,11 @@ static ssize_t store_llc_invalidate(struct device *dev,
 	struct platform_device *pdev = container_of(dev,
 					struct platform_device, dev);
 	struct exynos_sci_data *data = platform_get_drvdata(pdev);
-	unsigned int invalidate;
+	unsigned int invalidate, invway;
 	int ret;
 
-	ret = sscanf(buf, "%u",	&invalidate);
-	if (ret != 1)
+	ret = sscanf(buf, "%u %x", &invalidate, &invway);
+	if (ret != 2)
 		return -EINVAL;
 
 	if (invalidate != 1) {
@@ -651,11 +538,26 @@ static ssize_t store_llc_invalidate(struct device *dev,
 		return -EINVAL;
 	}
 
+	data->invway = invway;
+
 	ret = exynos_sci_llc_invalidate(data);
 	if (ret) {
 		SCI_ERR("%s: Failed llc invalidate\n", __func__);
 		return ret;
 	}
+
+	if (invway == FULL_INV) {
+		data->invway = TOPWAY;
+		ret = exynos_sci_llc_invalidate(data);
+		if (ret)
+			SCI_ERR("%s: Failed llc invalidate\n", __func__);
+
+		data->invway = BOTTOMWAY;
+	}
+
+	ret = exynos_sci_llc_invalidate(data);
+	if (ret)
+		SCI_ERR("%s: Failed llc invalidate\n", __func__);
 
 	return count;
 }
@@ -667,11 +569,11 @@ static ssize_t store_llc_flush(struct device *dev,
 	struct platform_device *pdev = container_of(dev,
 					struct platform_device, dev);
 	struct exynos_sci_data *data = platform_get_drvdata(pdev);
-	unsigned int flush;
+	unsigned int flush, invway;
 	int ret;
 
-	ret = sscanf(buf, "%u",	&flush);
-	if (ret != 1)
+	ret = sscanf(buf, "%u %x", &flush, &invway);
+	if (ret != 2)
 		return -EINVAL;
 
 	if (flush != 1) {
@@ -680,11 +582,19 @@ static ssize_t store_llc_flush(struct device *dev,
 		return -EINVAL;
 	}
 
-	ret = exynos_sci_llc_flush(data);
-	if (ret) {
-		SCI_ERR("%s: Failed llc flush\n", __func__);
-		return ret;
+	data->invway = invway;
+
+	if (invway == FULL_INV) {
+		data->invway = TOPWAY;
+		ret = exynos_sci_llc_flush(data);
+		if (ret)
+			SCI_ERR("%s: Failed llc flush\n", __func__);
+		data->invway = BOTTOMWAY;
 	}
+
+	ret = exynos_sci_llc_flush(data);
+	if (ret)
+		SCI_ERR("%s: Failed llc flush\n", __func__);
 
 	return count;
 }
@@ -707,7 +617,7 @@ static ssize_t show_llc_region_alloc(struct device *dev,
 	}
 
 	count += snprintf(buf + count, PAGE_SIZE, "LLC Region: %s (%u)\n",
-			exynos_sci_llc_region_name[region_index], region_index);
+			data->region_name[region_index], region_index);
 
 	return count;
 }
@@ -824,6 +734,52 @@ static ssize_t show_llc_dump_addr_info(struct device *dev,
 	return count;
 }
 
+static ssize_t show_llc_retention(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct platform_device *pdev = container_of(dev,
+					struct platform_device, dev);
+	struct exynos_sci_data *data = platform_get_drvdata(pdev);
+	ssize_t count = 0;
+	unsigned int enable = 0;
+	int ret;
+
+	ret = exynos_sci_ret_enable(data, SCI_IPC_GET, &enable);
+	if (ret) {
+		count += snprintf(buf + count, PAGE_SIZE,
+				"Failed llc retention state\n");
+		return count;
+	}
+
+	count += snprintf(buf + count, PAGE_SIZE, "LLC Retention: %s (%d)\n",
+			enable ? "enable":"disable", enable);
+
+	return count;
+}
+
+static ssize_t store_llc_retention(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct platform_device *pdev = container_of(dev,
+					struct platform_device, dev);
+	struct exynos_sci_data *data = platform_get_drvdata(pdev);
+	unsigned int enable;
+	int ret;
+
+	ret = sscanf(buf, "%u", &enable);
+	if (ret != 1)
+		return -EINVAL;
+
+	ret = exynos_sci_ret_enable(data, SCI_IPC_SET, &enable);
+	if (ret) {
+		SCI_ERR("%s: Failed llc retention control\n", __func__);
+		return ret;
+	}
+
+	return count;
+}
+
 static DEVICE_ATTR(sci_data, 0440, show_sci_data, NULL);
 static DEVICE_ATTR(llc_invalidate, 0640, NULL, store_llc_invalidate);
 static DEVICE_ATTR(llc_flush, 0640, NULL, store_llc_flush);
@@ -831,6 +787,7 @@ static DEVICE_ATTR(llc_region_alloc, 0640, show_llc_region_alloc, store_llc_regi
 static DEVICE_ATTR(llc_enable, 0640, show_llc_enable, store_llc_enable);
 static DEVICE_ATTR(llc_dump_test, 0640, NULL, store_llc_dump_test);
 static DEVICE_ATTR(llc_dump_addr_info, 0440, show_llc_dump_addr_info, NULL);
+static DEVICE_ATTR(llc_retention, 0640, show_llc_retention, store_llc_retention);
 
 static struct attribute *exynos_sci_sysfs_entries[] = {
 	&dev_attr_sci_data.attr,
@@ -840,6 +797,7 @@ static struct attribute *exynos_sci_sysfs_entries[] = {
 	&dev_attr_llc_enable.attr,
 	&dev_attr_llc_dump_test.attr,
 	&dev_attr_llc_dump_addr_info.attr,
+	&dev_attr_llc_retention.attr,
 	NULL,
 };
 
@@ -893,6 +851,14 @@ static int __init exynos_sci_probe(struct platform_device *pdev)
 		goto err_parse_dt;
 	}
 
+	if (data->ret_enable) {
+		ret = exynos_sci_ret_enable(data, SCI_IPC_SET, &data->ret_enable);
+		if (ret) {
+			SCI_ERR("%s: Failed ret enable control\n", __func__);
+			goto err_ret_disable;
+		}
+	}
+
 	ret = exynos_sci_llc_region_alloc(data, SCI_IPC_GET,
 					&data->plugin_init_llc_region, 0);
 	if (ret) {
@@ -936,13 +902,14 @@ static int __init exynos_sci_probe(struct platform_device *pdev)
 	print_sci_data(data);
 
 	SCI_INFO("%s: exynos sci is initialized!!\n", __func__);
- 
+
 	return 0;
 
 err_ioremap:
 err_llc_disable:
 err_llc_region:
 err_plug_llc_region:
+err_ret_disable:
 err_parse_dt:
 #ifdef CONFIG_EXYNOS_ACPM
 	acpm_ipc_release_channel(data->dev->of_node, data->ipc_ch_num);

@@ -91,10 +91,13 @@ static void link_vbus_filter_en(struct exynos_usbphy_info *info,
 static void phy_power_en(struct exynos_usbphy_info *info, u8 en)
 {
 	u32 reg;
+	bool ss_cap;
 	int main_version;
 
 	main_version = info->version & EXYNOS_USBCON_VER_MAJOR_VER_MASK;
-	if (main_version == EXYNOS_USBCON_VER_05_0_0) {
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
+
+	if ((main_version == EXYNOS_USBCON_VER_05_0_0) || (ss_cap)) {
 		void *__iomem reg_base;
 
 		if (info->used_phy_port == 1)
@@ -102,30 +105,48 @@ static void phy_power_en(struct exynos_usbphy_info *info, u8 en)
 		else
 			reg_base = info->regs_base;
 
-		/* 3.0 PHY Power Down control */
-		reg = readl(reg_base + EXYNOS_USBCON_PWR);
-		if (en) {
-			/* apply to KC asb vector */
-			if (EXYNOS_USBCON_VER_MINOR(info->version) >= 0x1) {
-				reg &= ~(PWR_PIPE3_POWERDONW);
-				reg &= ~(PWR_FORCE_POWERDOWN_EN);
+		if (!ss_cap) {
+			/* 3.0 PHY Power Up or Down control */
+			reg = readl(reg_base + EXYNOS_USBCON_PWR);
+
+			if (en) {
+				/* apply to KC asb vector */
+				if (EXYNOS_USBCON_VER_MINOR(info->version) >= 0x1) {
+					reg &= ~(PWR_PIPE3_POWERDONW);
+					reg &= ~(PWR_FORCE_POWERDOWN_EN);
+				} else {
+					reg &= ~(PWR_TEST_POWERDOWN_HSP);
+					reg &= ~(PWR_TEST_POWERDOWN_SSP);
+					writel(reg, reg_base + EXYNOS_USBCON_PWR);
+					udelay(1000);
+					reg |= (PWR_TEST_POWERDOWN_HSP);
+				}
 			} else {
-				reg &= ~(PWR_TEST_POWERDOWN_HSP);
-			reg &= ~(PWR_TEST_POWERDOWN_SSP);
-				writel(reg, reg_base + EXYNOS_USBCON_PWR);
-				udelay(1000);
-				reg |= (PWR_TEST_POWERDOWN_HSP);
+				if (EXYNOS_USBCON_VER_MINOR(info->version) >= 0x1) {
+					reg |= (PWR_PIPE3_POWERDONW);
+					reg |= (PWR_FORCE_POWERDOWN_EN);
+				} else {
+					reg |= (PWR_TEST_POWERDOWN_SSP);
+				}
 			}
-		} else {
-			if (EXYNOS_USBCON_VER_MINOR(info->version) >= 0x1) {
-				reg |= (PWR_PIPE3_POWERDONW);
-				reg |= (PWR_FORCE_POWERDOWN_EN);
+			writel(reg, reg_base + EXYNOS_USBCON_PWR);
+		} else if (ss_cap) {	//hs_cap: KITT Only Case
+			/* 3.0 PHY Power Up or Down Control (Only KITT) */
+			reg = readl(reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+
+			if (en) {
+				reg |= (G2PHY_CNTL0_UPCS_PWR_STABLE);
+				reg &= ~(G2PHY_CNTL0_TEST_POWERDOWN);
 			} else {
-			reg |= (PWR_TEST_POWERDOWN_SSP);
+				reg |= (G2PHY_CNTL0_TEST_POWERDOWN);
+				reg &= ~(G2PHY_CNTL0_UPCS_PWR_STABLE);
 			}
+			writel(reg, reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
 		}
-		writel(reg, reg_base + EXYNOS_USBCON_PWR);
-	} else if (main_version == EXYNOS_USBCON_VER_03_0_0) {
+
+	}
+
+	if (main_version == EXYNOS_USBCON_VER_03_0_0) {
 		/* 2.0 PHY Power Down Control */
 		reg = readl(info->regs_base + EXYNOS_USBCON_HSP_TEST);
 		if (en)
@@ -193,7 +214,7 @@ void phy_exynos_usb_v3p1_pma_ready(struct exynos_usbphy_info *info)
 	u32 reg;
 
 	reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg &= ~PMA_LOW_PWRN;
+	reg &= ~PMA_LOW_PWR;
 	writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
 
 	udelay(1);
@@ -209,8 +230,8 @@ void phy_exynos_usb_v3p1_pma_ready(struct exynos_usbphy_info *info)
 	reg &= ~PMA_APB_SW_RST;
 	reg &= ~PMA_INIT_SW_RST;
 	reg &= ~PMA_PLL_REF_REQ_MASK;
-	reg &= ~PMA_REF_FREQ_MASK;
-	reg |= PMA_REF_FREQ_SET(0x1);
+	reg &= ~PMA_REF_FREQ_SEL_MASK;
+	reg |= PMA_REF_FREQ_SEL_SET(0x1);
 	writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
 
 	reg = readl(regs_base + EXYNOS_USBCON_LINK_CTRL);
@@ -223,14 +244,12 @@ void phy_exynos_usb_v3p1_g2_pma_ready(struct exynos_usbphy_info *info)
 	void __iomem *regs_base = info->regs_base;
 	u32 reg;
 
-	udelay(100);
-
 	reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg &= ~PMA_ROPLL_REF_REQ_MASK;
-	reg &= ~PMA_ROPLL_REF_REQ_MASK;
+	reg &= ~PMA_ROPLL_REF_CLK_SEL_MASK;
+	reg &= ~PMA_LCPLL_REF_CLK_SEL_MASK;
 	reg &= ~PMA_PLL_REF_REQ_MASK;
-	reg |= PMA_REF_FREQ_SET(1);
-	reg |= PMA_LOW_PWRN;
+	reg |= PMA_REF_FREQ_SEL_SET(1);
+	reg |= PMA_LOW_PWR;
 	reg |= PMA_TRSV_SW_RST;
 	reg |= PMA_CMN_SW_RST;
 	reg |= PMA_INIT_SW_RST;
@@ -239,7 +258,7 @@ void phy_exynos_usb_v3p1_g2_pma_ready(struct exynos_usbphy_info *info)
 
 	udelay(1);
 	reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg &= ~PMA_LOW_PWRN;
+	reg &= ~PMA_LOW_PWR;
 	writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
 	udelay(1);
 
@@ -266,7 +285,7 @@ void phy_exynos_usb_v3p1_g2_disable(struct exynos_usbphy_info *info)
 	writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
 
 	reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg |= PMA_LOW_PWRN;
+	reg |= PMA_LOW_PWR;
 	reg |= PMA_TRSV_SW_RST;
 	reg |= PMA_CMN_SW_RST;
 	reg |= PMA_INIT_SW_RST;
@@ -319,8 +338,7 @@ void phy_exynos_usb_v3p1_g2_pma_sw_rst_release(struct exynos_usbphy_info *info)
 	reg &= ~PMA_CMN_SW_RST;
 	writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
 
-	udelay(1000);
-
+	udelay(10);
 }
 
 void phy_exynos_usb_v3p1_g2_link_pclk_sel(struct exynos_usbphy_info *info)
@@ -350,6 +368,10 @@ void phy_exynos_usb_v3p1_pipe_ovrd(struct exynos_usbphy_info *info)
 {
 	void __iomem *regs_base = info->regs_base;
 	u32 reg;
+	bool ss_cap = 0;
+
+	//For KITT
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
 
 	/* force pipe3 signal for link */
 	reg = readl(regs_base + EXYNOS_USBCON_LINK_CTRL);
@@ -359,36 +381,39 @@ void phy_exynos_usb_v3p1_pipe_ovrd(struct exynos_usbphy_info *info)
 	writel(reg, regs_base + EXYNOS_USBCON_LINK_CTRL);
 
 	/* PMA Disable */
-	reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg |= PMA_LOW_PWRN;
-	writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
+	if (!ss_cap) {
+		reg = readl(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
+		reg |= PMA_LOW_PWR;
+		writel(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
+	}
 }
 
 void phy_exynos_usb3p1_rewa_ready(struct exynos_usbphy_info *info);
 void phy_exynos_usb_v3p1_late_enable(struct exynos_usbphy_info *info);
 
-void phy_exynos_usb_v3p1_link_rst(struct exynos_usbphy_info *info)
+void phy_exynos_usb_v3p1_link_sw_reset(struct exynos_usbphy_info *info)
 {
 	void __iomem *regs_base = info->regs_base;
-	u32 reg;
-	bool ss_only_cap;
 	int main_version;
+	u32 reg;
 
 	main_version = info->version & EXYNOS_USBCON_VER_MAJOR_VER_MASK;
-	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 4;
 
+	/* use link_sw_rst because it has functioning as Hreset_n
+	 * for asb host/device role change, originally not recommend link_sw_rst by Foundry T.
+	 * so that some of global register has cleard - 2018.11.12
+	 */
+	//#ifndef __BOOT__
+	/* Link Reset */
 	if (main_version == EXYNOS_USBCON_VER_03_0_0) {
-		/* Link Reset */
-		if (main_version == EXYNOS_USBCON_VER_03_0_0) {
-			reg = readl(info->regs_base + EXYNOS_USBCON_CLKRST);
-			reg |= CLKRST_LINK_SW_RST;
-			writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
+		reg = readl(info->regs_base + EXYNOS_USBCON_CLKRST);
+		reg |= CLKRST_LINK_SW_RST;
+		writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
 
-			udelay(10);
+		udelay(10);
 
-			reg &= ~CLKRST_LINK_SW_RST;
-			writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
-		}
+		reg &= ~CLKRST_LINK_SW_RST;
+		writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
 	}
 }
 
@@ -397,16 +422,26 @@ void phy_exynos_usb_v3p1_enable(struct exynos_usbphy_info *info)
 	void __iomem *regs_base = info->regs_base;
 	u32 reg;
 	u32 reg_hsp;
-	bool ss_only_cap;
+	bool ss_only_cap, ss_cap;
 	int main_version;
 
 	main_version = info->version & EXYNOS_USBCON_VER_MAJOR_VER_MASK;
-	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 4;
+	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_ONLY_CAP) >> 4;
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
 
 	if (main_version == EXYNOS_USBCON_VER_03_0_0) {
 		/* Set force q-channel */
 		exynos_cal_usbphy_q_ch(regs_base, 1);
-        }
+	}
+
+	//For KITT USB30 Gen2 PHY Power Enable (Set to 0x237)
+	if (ss_cap) {
+		reg = readl(info->regs_base + EXYNOS_USBCON_G2PHY_CNTL1);
+		reg |= G2PHY_CNTL1_ANA_PWR_EN;
+		reg |= G2PHY_CNTL1_PCS_PWR_STABLE;
+		reg |= G2PHY_CNTL1_PMA_PWR_STABLE;
+		writel(reg, regs_base + EXYNOS_USBCON_G2PHY_CNTL1);
+	}
 
 	/* Set PHY POR High */
 	phy_sw_rst_high(info);
@@ -425,10 +460,13 @@ void phy_exynos_usb_v3p1_enable(struct exynos_usbphy_info *info)
 		if (info->common_block_disable) {
 			reg |= HSP_EN_UTMISUSPEND;
 			reg |= HSP_COMMONONN;
-		} else
+		} else {
 			reg &= ~HSP_COMMONONN;
+		}
 		writel(reg, regs_base + EXYNOS_USBCON_HSP);
-	} else {
+	}
+
+	if (ss_only_cap || ss_cap) {
 		void *ss_reg_base;
 
 		if (info->used_phy_port == 1)
@@ -444,8 +482,7 @@ void phy_exynos_usb_v3p1_enable(struct exynos_usbphy_info *info)
 
 	/* Follow setting sequence for USB Link */
 	/* 1. Set VBUS Valid and DP-Pull up control
-	 * by VBUS pad usage
-	 */
+	 * by VBUS pad usage */
 	link_vbus_filter_en(info, false);
 	reg = readl(regs_base + EXYNOS_USBCON_UTMI);
 	reg_hsp = readl(regs_base + EXYNOS_USBCON_HSP);
@@ -472,7 +509,7 @@ void phy_exynos_usb_v3p1_enable(struct exynos_usbphy_info *info)
 	/* after POR low and delay 75us, PHYCLOCK is guaranteed. */
 	udelay(75);
 
-	if (ss_only_cap) {
+	if (ss_only_cap || ss_cap) {
 		phy_exynos_usb_v3p1_late_enable(info);
 		return;
 	}
@@ -517,6 +554,17 @@ enum exynos_usbcon_cr {
 	USBCON_CR_DATA = 1,
 	USBCON_CR_READ = 18,
 	USBCON_CR_WRITE = 19,
+};
+
+//For KITT
+enum exynos_usbcon_ssp_cr {
+	USBCON_CR_SSP_READ = 18,
+	USBCON_CR_SSP_WRITE = 19,
+};
+
+enum exynos_usbcon_ssp_cr_clk {
+	CR_CLK_HIGH = 0x1,
+	CR_CLK_LOW = 0x0,
 };
 
 static u16 phy_exynos_usb_v3p1_cr_access(struct exynos_usbphy_info *info,
@@ -585,8 +633,8 @@ static u16 phy_exynos_usb_v3p1_cr_access(struct exynos_usbphy_info *info,
 					break;
 				else if ((handshake_cnt == 1) && !(ssp_crctl1 & SSP_CRCTL1_CR_ACK))
 					break;
-
-				udelay(1);
+				else
+					udelay(1);
 			} while (usec-- > 0);
 
 			if (!usec)
@@ -601,6 +649,158 @@ static u16 phy_exynos_usb_v3p1_cr_access(struct exynos_usbphy_info *info,
 	return (u16) ((ssp_crctl1 & SSP_CRCTL1_CR_DATA_OUT_MASK) >> 16);
 }
 
+//For KITT
+static u32 phy_exynos_usb_v3p1_ssp_cr_clk_up(struct exynos_usbphy_info *info)
+{
+	void __iomem *base = info->regs_base;
+	u32 g2phy_crparcon0 = 0;
+
+	udelay(10);
+	g2phy_crparcon0 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+	g2phy_crparcon0 |= G2PHY_CRPARCON0_CR_PARA_CLK;
+	writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+
+	return CR_CLK_HIGH;
+}
+
+//For KITT
+static u32 phy_exynos_usb_v3p1_ssp_cr_clk_down(struct exynos_usbphy_info *info)
+{
+	void __iomem *base = info->regs_base;
+	u32 g2phy_crparcon0 = 0;
+
+	udelay(10);
+	g2phy_crparcon0 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+	g2phy_crparcon0 &= ~(G2PHY_CRPARCON0_CR_PARA_CLK);
+	writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+
+	return CR_CLK_LOW;
+}
+
+//For KITT
+static void phy_exynos_usb_v3p1_ssp_cr_clk(struct exynos_usbphy_info *info)
+{
+	phy_exynos_usb_v3p1_ssp_cr_clk_up(info);
+	phy_exynos_usb_v3p1_ssp_cr_clk_down(info);
+}
+
+//For KITT------------------------------------------------------------------------
+static u16 phy_exynos_usb_v3p1_ssp_cr_access(struct exynos_usbphy_info *info,
+	enum exynos_usbcon_cr cr_op, u16 addr, u16 data)
+{
+
+	// DesignWare Cores USB 3.1 SS+ PHY for SS 10 LPP Databook
+	// 5.12 Control Register Interface
+
+	void __iomem *base;
+	u32 PreClkCnt = 0x1;
+
+	u32 g2phy_crparcon0 = 0;
+	u32 g2phy_crparcon1 = 0;
+	u32 g2phy_crparcon2 = 0;
+	u32 loop_cnt = 0;
+
+	base = info->regs_base;
+
+	/*Clear CR port register*/
+	/*Clear G2PHY_CRPARCON0*/
+	g2phy_crparcon0 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+	g2phy_crparcon0 &= ~(G2PHY_CRPARCON0_CR_PARA_ACK|G2PHY_CRPARCON0_CR_PARA_SEL
+			|G2PHY_CRPARCON0_CR_PARA_CLK);
+	g2phy_crparcon0 &= ~(0xffffU << 16);
+	writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+
+	/*Clear G2PHY_CRPARCON1*/
+	g2phy_crparcon1 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON1);
+	g2phy_crparcon1 &= ~(G2PHY_CRPARCON1_CR_PARA_RD_EN);
+	g2phy_crparcon1 &= ~(0xffffU << 16);
+	writel(g2phy_crparcon1, base + EXYNOS_USBCON_G2PHY_CRPARCON1);
+
+	/*Clear G2PHY_CRPARCON2*/
+	g2phy_crparcon2 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON2);
+	g2phy_crparcon2 &= ~(G2PHY_CRPARCON2_CR_PARA_WR_EN);
+	g2phy_crparcon2 &= ~(0xffffU << 16);
+	writel(g2phy_crparcon2, base + EXYNOS_USBCON_G2PHY_CRPARCON2);
+
+	/*Set cr_para_sel to 0x1*/
+	g2phy_crparcon0 |= G2PHY_CRPARCON0_CR_PARA_SEL;
+	writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+
+	/*Pre clocking to PHY*/
+	if (PreClkCnt != 0x0) {
+		do {
+			phy_exynos_usb_v3p1_ssp_cr_clk(info);
+			PreClkCnt--;
+			if (PreClkCnt == 0)
+				break;
+		} while (1);
+	}
+
+	do {
+		if (loop_cnt == 0)
+			phy_exynos_usb_v3p1_ssp_cr_clk(info);
+		else if (loop_cnt == 1) {
+			g2phy_crparcon0 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON0);
+			g2phy_crparcon0 |= (G2PHY_CRPARCON0_CR_PARA_ADDR(addr)|(G2PHY_CRPARCON0_CR_PARA_CLK));
+
+			if (cr_op == USBCON_CR_WRITE) {
+				g2phy_crparcon2 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON2);
+				g2phy_crparcon2 |= (G2PHY_CRPARCON2_CR_PARA_WR_DATA(data)|G2PHY_CRPARCON2_CR_PARA_WR_EN);
+
+				phy_exynos_usb_v3p1_ssp_cr_clk_up(info);	// Toggle High
+				writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);	// write addr
+				writel(g2phy_crparcon2, base + EXYNOS_USBCON_G2PHY_CRPARCON2);  // write Data + EN
+
+			} else {
+				// cr_op==USBCON_CR_READ
+				g2phy_crparcon1 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON1);
+				g2phy_crparcon1 |= G2PHY_CRPARCON1_CR_PARA_RD_EN;
+
+				g2phy_crparcon0 |= phy_exynos_usb_v3p1_ssp_cr_clk_up(info);	// Toggle High
+				writel(g2phy_crparcon0, base + EXYNOS_USBCON_G2PHY_CRPARCON0);	// read Addr
+				writel(g2phy_crparcon1, base + EXYNOS_USBCON_G2PHY_CRPARCON1);	// read EN: High
+			}
+
+			g2phy_crparcon0 &= ~(0x1 << phy_exynos_usb_v3p1_ssp_cr_clk_down(info));	// Toggle Low
+
+		} else if (loop_cnt == 2) {
+			if (cr_op == USBCON_CR_WRITE) {
+				//g2phy_crparcon2 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON2);
+				//g2phy_crparcon2 &= ~(G2PHY_CRPARCON2_CR_PARA_WR_EN);
+
+				//phy_exynos_usb_v3p1_ssp_cr_clk_up(info);	// Toggle High
+				//writel(g2phy_crparcon2, base + EXYNOS_USBCON_G2PHY_CRPARCON2);
+			} else {
+				// cr_op==USBCON_CR_READ
+				g2phy_crparcon1 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON1);
+				g2phy_crparcon1 &= ~(G2PHY_CRPARCON1_CR_PARA_RD_EN);
+
+				g2phy_crparcon0 |= phy_exynos_usb_v3p1_ssp_cr_clk_up(info);	// Toggle High
+				writel(g2phy_crparcon1, base + EXYNOS_USBCON_G2PHY_CRPARCON1); // read EN: Low
+			}
+
+			g2phy_crparcon0 &= ~(0x1 << phy_exynos_usb_v3p1_ssp_cr_clk_down(info));	// Toggle Low
+
+		} else {
+			// loop_cnt > 2
+			g2phy_crparcon0 |= phy_exynos_usb_v3p1_ssp_cr_clk_up(info);	// Toggle High and update
+			g2phy_crparcon0 = G2PHY_CRPARCON0_CR_PARA_ACK_GET(readl(base + EXYNOS_USBCON_G2PHY_CRPARCON0));
+			if (g2phy_crparcon0) {
+				g2phy_crparcon1 = readl(base + EXYNOS_USBCON_G2PHY_CRPARCON1);
+				break;
+			}
+			g2phy_crparcon0 &= ~(0x1 << phy_exynos_usb_v3p1_ssp_cr_clk_down(info));	// Toggle Low and update
+		}
+
+		loop_cnt++;
+
+		if (loop_cnt == 0x1000)
+			break;
+	} while (1);
+
+	return (u16) ((g2phy_crparcon1 & (0xffffU << 16)) >> 16);
+}
+
 void phy_exynos_usb_v3p1_cal_cr_write(struct exynos_usbphy_info *info, u16 addr, u16 data)
 {
 	phy_exynos_usb_v3p1_cr_access(info, USBCON_CR_ADDR, addr);
@@ -612,6 +812,21 @@ u16 phy_exynos_usb_v3p1_cal_cr_read(struct exynos_usbphy_info *info, u16 addr)
 	phy_exynos_usb_v3p1_cr_access(info, USBCON_CR_ADDR, addr);
 	return phy_exynos_usb_v3p1_cr_access(info, USBCON_CR_READ, 0);
 }
+
+//For KITT ---------------------------------------------------------------------------------------
+void phy_exynos_usb_v3p1_ssp_cal_cr_write(struct exynos_usbphy_info *info, u16 addr, u16 data)
+{
+	phy_exynos_usb_v3p1_ssp_cr_access(info, USBCON_CR_WRITE, addr, data);
+}
+//--------------------------------------------------------------------------------------------
+
+//For KITT ---------------------------------------------------------------------------------------
+u16 phy_exynos_usb_v3p1_ssp_cal_cr_read(struct exynos_usbphy_info *info, u16 addr)
+{
+	return phy_exynos_usb_v3p1_ssp_cr_access(info, USBCON_CR_READ, addr, 0);
+
+}
+//--------------------------------------------------------------------------------------------
 
 void phy_exynos_usb_v3p1_cal_usb3phy_tune_fix_rxeq(struct exynos_usbphy_info *info)
 {
@@ -792,9 +1007,11 @@ u8 phy_exynos_usb_v3p1_tif_sts_rd(struct exynos_usbphy_info *info, u8 addr)
 void phy_exynos_usb_v3p1_late_enable(struct exynos_usbphy_info *info)
 {
 	u32 version = info->version;
+	bool ss_cap;
 
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
 
-	if (version > EXYNOS_USBCON_VER_05_0_0) {
+	if ((version > EXYNOS_USBCON_VER_05_0_0) && (!ss_cap)) {
 		int tune_val;
 		u16 cr_reg;
 
@@ -802,17 +1019,17 @@ void phy_exynos_usb_v3p1_late_enable(struct exynos_usbphy_info *info)
 		phy_exynos_usb_v3p1_cal_cr_write(info, 0x1010, 0x80);
 
 		tune_val = exynos_usb3p1_get_tune_param(info, "rx_decode_mode");
-		if (tune_val != -1)
-				phy_exynos_usb_v3p1_cal_cr_write(info, 0x1026, 0x1);
+		if (tune_val != -1) {
+			phy_exynos_usb_v3p1_cal_cr_write(info, 0x1026, 0x1);
+		}
 
 		tune_val = exynos_usb3p1_get_tune_param(info, "cr_lvl_ctrl_en");
 		if (tune_val != -1) {
-				/* Enable override los_bias, los_level and
-				 * tx_vboost_lvl, Set los_bias to 0x5 and
-				 * los_level to 0x9
-				 */
-				phy_exynos_usb_v3p1_cal_cr_write(info, 0x15, 0xA409);
-				/* Set TX_VBOOST_LEVLE to tune->tx_boost_level */
+			/* Enable override los_bias, los_level and
+			 * tx_vboost_lvl, Set los_bias to 0x5 and
+			 * los_level to 0x9 */
+			phy_exynos_usb_v3p1_cal_cr_write(info, 0x15, 0xA409);
+			/* Set TX_VBOOST_LEVLE to tune->tx_boost_level */
 			tune_val = exynos_usb3p1_get_tune_param(info, "tx_vboost_lvl");
 			if (tune_val != -1) {
 				cr_reg = phy_exynos_usb_v3p1_cal_cr_read(info, 0x12);
@@ -834,19 +1051,45 @@ void phy_exynos_usb_v3p1_late_enable(struct exynos_usbphy_info *info)
 				cr_reg = 0;
 			if (cr_reg)
 				phy_exynos_usb_v3p1_cal_cr_write(info, 0x1002, cr_reg);
-			}
-			/* to set the charge pump proportional current */
+		}
+		/* to set the charge pump proportional current */
 		tune_val = exynos_usb3p1_get_tune_param(info, "mpll_charge_pump");
 		if (tune_val != -1)
-				phy_exynos_usb_v3p1_cal_cr_write(info, 0x30, 0xC0);
+			phy_exynos_usb_v3p1_cal_cr_write(info, 0x30, 0xC0);
 
 		tune_val = exynos_usb3p1_get_tune_param(info, "rx_eq_fix_val");
 		if (tune_val != -1)
-				phy_exynos_usb_v3p1_cal_usb3phy_tune_fix_rxeq(info);
+			phy_exynos_usb_v3p1_cal_usb3phy_tune_fix_rxeq(info);
 
 		tune_val = exynos_usb3p1_get_tune_param(info, "decrese_ss_tx_imp");
 		if (tune_val != -1)
-				set_ss_tx_impedance(info);
+			set_ss_tx_impedance(info);
+	}
+
+	if (ss_cap) { // KITT Gen2 PHY CR Control
+
+		//For KITT
+		// Read SUP_DIG_IDCODE_LO
+		//pr_info("SNPS Gen2 PHY: SUP_DIG_IDCODE_LO : 0x%x\n",
+		//phy_exynos_usb_v3p1_ssp_cal_cr_read(info, 0x0));
+
+		// TX_VBOOST_LVL: 0x7
+		phy_exynos_usb_v3p1_ssp_cal_cr_write(info, 0xf, 0x03d0);
+
+		// TX_VBOOST_LVL: 0x5
+		//phy_exynos_usb_v3p1_ssp_cal_cr_write(info, 0xf, 0x0350);
+
+		// TX_VBOOST_LVL: 0x3
+		//phy_exynos_usb_v3p1_ssp_cal_cr_write(info, 0xf, 0x02d0);
+
+		pr_info("[SNPS Gen2 PHY] SUP_DIG_LVL_OVRD_IN (0xf) : 0x%x\n",
+				phy_exynos_usb_v3p1_ssp_cal_cr_read(info, 0xf));
+
+		//pr_info("[SNPS Gen2 PHY] SUP_DIG_LVL_ASIC_IN (0x1a) : 0x%x\n",
+				//phy_exynos_usb_v3p1_ssp_cal_cr_read(info, 0x1a));
+
+		//pr_info("[SNPS Gen2 PHY] LANEN_DIG_ASIC_TX_ASIC_IN_1 (0x1012) : 0x%x\n",
+						//phy_exynos_usb_v3p1_ssp_cal_cr_read(info, 0x1012));
 	}
 }
 
@@ -857,6 +1100,8 @@ void phy_exynos_usb_v3p1_disable(struct exynos_usbphy_info *info)
 
 	/* set phy clock & control HS phy */
 	reg = readl(regs_base + EXYNOS_USBCON_UTMI);
+	reg &= ~UTMI_DP_PULLDOWN;
+	reg &= ~UTMI_DM_PULLDOWN;
 	reg |= UTMI_FORCE_SUSPEND;
 	reg |= UTMI_FORCE_SLEEP;
 	writel(reg, regs_base + EXYNOS_USBCON_UTMI);
@@ -866,6 +1111,9 @@ void phy_exynos_usb_v3p1_disable(struct exynos_usbphy_info *info)
 
 	/* clear force q-channel */
 	exynos_cal_usbphy_q_ch(regs_base, 0);
+
+	/* link sw reset is need for USB_DP/DM high-z in host mode: 2019.04.10 by daeman.ko*/
+	phy_exynos_usb_v3p1_link_sw_reset(info);
 }
 
 u64 phy_exynos_usb3p1_get_logic_trace(struct exynos_usbphy_info *info)
@@ -877,6 +1125,34 @@ u64 phy_exynos_usb3p1_get_logic_trace(struct exynos_usbphy_info *info)
 	ret |= ((u64) readl(regs_base + EXYNOS_USBCON_LINK_DEBUG_H)) << 32;
 
 	return ret;
+}
+
+u8 phy_exynos_usb3p1_get_phyclkcnt(struct exynos_usbphy_info *info)
+{
+	u32 hsp_test;
+	u8 phyclkcnt;
+	void __iomem *regs_base = info->regs_base;
+
+	/* phyclkcnt
+	 * HSP_TEST.[31:26] phyclkcnt is top 6bit of [29:0] phyclkcnt.
+	 * 1 count is about 280ms.
+	 */
+	hsp_test = readl(regs_base + EXYNOS_USBCON_HSP_TEST);
+	phyclkcnt = HSP_TEST_PHYCLKCNT_GET(hsp_test);
+
+	return phyclkcnt;
+}
+
+u8 phy_exynos_usb3p1_get_linestate(struct exynos_usbphy_info *info)
+{
+	u32 hsp_test;
+	u8 linestate;
+	void __iomem *regs_base = info->regs_base;
+
+	hsp_test = readl(regs_base + EXYNOS_USBCON_HSP_TEST);
+	linestate = HSP_TEST_LINESTATE_GET(hsp_test);
+
+	return linestate;
 }
 
 void phy_exynos_usb3p1_pcs_reset(struct exynos_usbphy_info *info)
@@ -956,8 +1232,12 @@ void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 	u32 hsp_tune, ssp_tune0, ssp_tune1, ssp_tune2, cnt;
 
 	bool ss_only_cap;
+	//For KITT
+	bool ss_cap;
 
-	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 4;
+	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_ONLY_CAP) >> 4;
+	//For KITT: Gen2 PHY
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
 
 	if (!info->tune_param)
 		return;
@@ -1009,11 +1289,16 @@ void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 			} else if (!strcmp(para_name, "tx_vref")) {
 				hsp_tune &= ~HSP_TUNE_TXVREF_MASK;
 				hsp_tune |= HSP_TUNE_TXVREF_SET(val);
-			} else if (!strcmp(para_name, "tx_res_ovrd"))
+			} else if (!strcmp(para_name, "tx_res_ovrd")) {
 				phy_exynos_usb_v3p1_tif_ov_wr(info, 0x6, val);
+			} else if (!strcmp(para_name, "tx_dis_inc")) {
+				phy_exynos_usb_v3p1_tif_ov_wr(info, 0xb, val);
+			}
 		}
 		writel(hsp_tune, regs_base + EXYNOS_USBCON_HSP_TUNE);
-	} else {
+	}
+	printk("usb: hsp_tune=0x%x\n", hsp_tune);
+	if (ss_only_cap) {
 		/* ssphy tuning */
 		void __iomem *ss_reg_base;
 
@@ -1075,7 +1360,61 @@ void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 		writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_SSP_PARACON0);
 		writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_SSP_PARACON1);
 		writel(ssp_tune2, ss_reg_base + EXYNOS_USBCON_SSP_TEST);
-	} /* else */
+	}
+	//For KITT: Gen2 PHY
+	if (ss_cap) {
+
+		/* ssphy tuning */
+		void __iomem *ss_reg_base;
+
+		if (info->used_phy_port == 1) {
+			ss_reg_base = info->regs_base_2nd;
+		} else {
+			ss_reg_base = info->regs_base;
+		}
+
+		ssp_tune0 = readl(ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+		ssp_tune1 = readl(ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+
+		cnt = 0;
+		for (; info->tune_param[cnt].value != EXYNOS_USB_TUNE_LAST; cnt++) {
+			char *para_name;
+			int val;
+
+			val = info->tune_param[cnt].value;
+			if (val == -1) {
+				continue;
+			}
+			para_name = info->tune_param[cnt].name;
+
+			if (!strcmp(para_name, "tx_vboost_lvl")) {
+				ssp_tune0 &= ~G2PHY_PRTCL1EXT15_TX_VBOOST_LVL_MASK;
+				ssp_tune0 |= G2PHY_PRTCL1EXT15_TX_VBOOST_LVL(val);
+				ssp_tune1 |= G2PHY_CNTL0_EXT_CTRL_SEL;
+				writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+				//writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+
+				udelay(1);
+
+				ssp_tune1 &= (~G2PHY_CNTL0_EXT_CTRL_SEL);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+			} else if (!strcmp(para_name, "tx_iboost_lvl")) {
+				ssp_tune0 &= ~G2PHY_PRTCL1EXT15_TX_IBOOST_LVL_MASK;
+				ssp_tune0 |= G2PHY_PRTCL1EXT15_TX_IBOOST_LVL(val);
+				ssp_tune1 |= G2PHY_CNTL0_EXT_CTRL_SEL;
+				writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+				//writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+
+				udelay(1);
+
+				ssp_tune1 &= (~G2PHY_CNTL0_EXT_CTRL_SEL);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+			}
+		} /* for */
+	}
+
 }
 
 void phy_exynos_usb_v3p1_tune_each(struct exynos_usbphy_info *info,
@@ -1084,8 +1423,11 @@ void phy_exynos_usb_v3p1_tune_each(struct exynos_usbphy_info *info,
 	u32 hsp_tune, ssp_tune0, ssp_tune1;
 
 	bool ss_only_cap;
+	//For KITT
+	bool ss_cap;
 
 	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 4;
+	ss_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 6;
 
 	if (!info->tune_param)
 		return;
@@ -1130,7 +1472,9 @@ void phy_exynos_usb_v3p1_tune_each(struct exynos_usbphy_info *info,
 		} else if (!strcmp(para_name, "tx_res_ovrd"))
 			phy_exynos_usb_v3p1_tif_ov_wr(info, 0x6, val);
 		writel(hsp_tune, regs_base + EXYNOS_USBCON_HSP_TUNE);
-	} else {
+	}
+
+	if (ss_only_cap) {
 		/* ssphy tuning */
 		void __iomem *ss_reg_base;
 
@@ -1169,7 +1513,43 @@ void phy_exynos_usb_v3p1_tune_each(struct exynos_usbphy_info *info,
 		}
 		writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_SSP_PARACON0);
 		writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_SSP_PARACON1);
-	} /* else */
+	} /* ss_only_cap */
+
+	//For KITT: Gen2 PHY
+	if (ss_cap) {
+		/* ssphy tuning */
+		void __iomem *ss_reg_base;
+
+		if (info->used_phy_port == 1) {
+			ss_reg_base = info->regs_base_2nd;
+		} else {
+			ss_reg_base = info->regs_base;
+		}
+
+		ssp_tune0 = readl(ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+		ssp_tune1 = readl(ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+
+		if (!strcmp(para_name, "tx_vboost_lvl")) {
+				ssp_tune0 &= ~G2PHY_PRTCL1EXT15_TX_VBOOST_LVL_MASK;
+				ssp_tune0 |= G2PHY_PRTCL1EXT15_TX_VBOOST_LVL(val);
+				ssp_tune1 |= G2PHY_CNTL0_EXT_CTRL_SEL;
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+				writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+
+				ssp_tune1 &= (~G2PHY_CNTL0_EXT_CTRL_SEL);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+
+		} else if (!strcmp(para_name, "tx_iboost_lvl")) {
+				ssp_tune0 &= ~G2PHY_PRTCL1EXT15_TX_IBOOST_LVL_MASK;
+				ssp_tune0 |= G2PHY_PRTCL1EXT15_TX_IBOOST_LVL(val);
+				ssp_tune1 |= G2PHY_CNTL0_EXT_CTRL_SEL;
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+				writel(ssp_tune0, ss_reg_base + EXYNOS_USBCON_G2PHY_PRTCL1EXT15);
+
+				ssp_tune1 &= (~G2PHY_CNTL0_EXT_CTRL_SEL);
+				writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_G2PHY_CNTL0);
+		}
+	}
 }
 
 void phy_exynos_usb_v3p1_rd_tune_each_from_reg(struct exynos_usbphy_info *info,
@@ -1289,7 +1669,7 @@ int phy_exynos_usb3p1_rewa_enable(struct exynos_usbphy_info *info)
 	writel(reg, regs_base + EXYNOS_USBCON_REWA_ENABLE);
 
 	/* Check Status : Wait ReWA Status is retention enabled */
-	for (cnt = 15; cnt != 0; cnt--) {
+	for (cnt = 10000; cnt != 0; cnt--) {
 
 		reg = readl(regs_base + EXYNOS_USBCON_HSREWA_INT1_EVT);
 
@@ -1360,7 +1740,7 @@ int phy_exynos_usb3p1_rewa_req_sys_valid(struct exynos_usbphy_info *info)
 	reg |= HSREWA_CTRL_HS_SYS_VALID;
 	writel(reg, regs_base + EXYNOS_USBCON_HSREWA_CTRL);
 
-	for (cnt = 15; cnt != 0; cnt--) {
+	for (cnt = 10000; cnt != 0; cnt--) {
 
 		reg = readl(regs_base + EXYNOS_USBCON_HSREWA_INT1_EVT);
 
@@ -1394,7 +1774,7 @@ int phy_exynos_usb3p1_rewa_disable(struct exynos_usbphy_info *info)
 	reg |= HSREWA_CTRL_HS_LINK_READY;
 	writel(reg, regs_base + EXYNOS_USBCON_HSREWA_CTRL);
 	/* Wait Bypass Disable */
-	for (cnt = 15; cnt != 0; cnt--) {
+	for (cnt = 10000; cnt != 0; cnt--) {
 		reg = readl(regs_base + EXYNOS_USBCON_HSREWA_INT1_EVT);
 		/* Success ReWA Enable */
 		if (reg & HSREWA_CTRL_HS_EVT_BYPASS_DIS)
@@ -1404,7 +1784,7 @@ int phy_exynos_usb3p1_rewa_disable(struct exynos_usbphy_info *info)
 	if (!cnt)
 		return -1;
 	/* Wait ReWA Done */
-	for (cnt = 15; cnt != 0; cnt--) {
+	for (cnt = 1000; cnt != 0; cnt--) {
 		reg = readl(regs_base + EXYNOS_USBCON_HSREWA_CTRL);
 
 		/* Success ReWA Enable */
@@ -1447,6 +1827,41 @@ int phy_exynos_usb3p1_rewa_cancel(struct exynos_usbphy_info *info)
 	return ret;
 }
 
+void phy_exynos_usb3p1_u3_rewa_enable(struct exynos_usbphy_info *info, int lfps_overlap_mode)
+{
+	void __iomem *regs_base = info->regs_base;
+	u32 reg;
+	u32 lfpsresp_limit_cnt = 0x39219;	// 9ms
+
+	if (!lfps_overlap_mode) {
+		/* Disable overlap_lfps */
+		reg = readl(regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+		reg &= ~U3REWA_CTRL_OVERLAP_LFPS;
+		reg |= U3REWA_CTRL_U3REWA_BLK_EN;
+		writel(reg, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+
+	} else {
+		/* Enable overlap_lfps */
+		reg = readl(regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+		reg |= U3REWA_CTRL_OVERLAP_LFPS;
+		reg |= U3REWA_CTRL_U3REWA_BLK_EN;
+		writel(reg, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+
+		/* Set lfpsresp_limit_cnt */
+		writel(lfpsresp_limit_cnt, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+	}
+}
+
+void phy_exynos_usb3p1_u3_rewa_disable(struct exynos_usbphy_info *info)
+{
+	void __iomem *regs_base = info->regs_base;
+	u32 reg;
+
+	reg = readl(regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+	reg &= ~U3REWA_CTRL_U3REWA_BLK_EN;
+	writel(reg, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+}
+
 void phy_exynos_usb3p1_usb3phy_dp_altmode_set_ss_disable(
 		struct exynos_usbphy_info *usbphy_info, int dp_phy_port)
 {
@@ -1460,27 +1875,13 @@ void phy_exynos_usb3p1_usb3phy_dp_altmode_set_ss_disable(
 
 	/* Reset Mux Select */
 	/* Assert phy_reset */
-	reg = readl(regs_base + EXYNOS_USBCON_CLKRST);
-#if defined(CONFIG_USB_DP_COMBO_GEN2)
-	reg |= CLKRST_PHY20_SW_RST;
-	reg |= CLKRST_PHY20_RST_SEL;
-#else
-	reg |= CLKRST_PHY_SW_RST;
-	reg |= CLKRST_PHY_RST_SEL;
-#endif
-	writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
-
-	udelay(100);
-
-	/* Deassert test_powerdown_ssp */
-	/* Deassert test_powerdown_hsp */
-	reg = readl(regs_base + EXYNOS_USBCON_PWR);
-
-#if !defined(CONFIG_USB_DP_COMBO_GEN2)
-	reg &= ~(PWR_TEST_POWERDOWN_HSP);
-	reg &= ~(PWR_TEST_POWERDOWN_SSP);
-#endif
-	writel(reg, regs_base + EXYNOS_USBCON_PWR);
+	if (usbphy_info->version == EXYNOS_USBCON_VER_05_3_0) {
+		// only for Ramen
+		reg = readl(regs_base + EXYNOS_USBCON_CLKRST);
+		reg |= CLKRST_PHY_SW_RST;
+		reg |= CLKRST_PHY_RST_SEL;
+		writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
+	}
 
 	udelay(100);
 }
@@ -1496,26 +1897,14 @@ void phy_exynos_usb3p1_usb3phy_dp_altmode_clear_ss_disable(
 	else
 		regs_base = usbphy_info->regs_base_2nd;
 
-	/* Assert test_powerdown_ssp */
-	/* Assert test_powerdown_hsp */
-	reg = readl(regs_base + EXYNOS_USBCON_PWR);
-#if !defined(CONFIG_USB_DP_COMBO_GEN2)
-	reg |= (PWR_TEST_POWERDOWN_HSP);
-	reg |= (PWR_TEST_POWERDOWN_SSP);
-#endif
-	writel(reg, regs_base + EXYNOS_USBCON_PWR);
 
-	udelay(100);
-
-	reg = readl(regs_base + EXYNOS_USBCON_CLKRST);
-#if defined(CONFIG_USB_DP_COMBO_GEN2)
-	reg |= CLKRST_PHY20_RST_SEL;
-	reg &= ~CLKRST_PHY20_SW_RST;
-#else
-	reg |= CLKRST_PHY_RST_SEL;
-	reg &= ~CLKRST_PHY_SW_RST;
-#endif
-	writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
+	if (usbphy_info->version == EXYNOS_USBCON_VER_05_3_0) {
+		// only for Ramen
+		reg = readl(regs_base + EXYNOS_USBCON_CLKRST);
+		reg |= CLKRST_PHY_RST_SEL;
+		reg &= ~CLKRST_PHY_SW_RST;
+		writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
+	}
 
 	udelay(100);
 }
@@ -1532,15 +1921,47 @@ void phy_exynos_usb3p1_set_fs_vplus_vminus(
 			hsp_ctrl |= HSP_FSLS_SPEED_SEL;
 		else
 			hsp_ctrl &= ~HSP_FSLS_SPEED_SEL;
-		hsp_ctrl |= HSP_FSV_OUT_EN;
+		hsp_ctrl |= HSP_FSVP_OUT_EN;
+		hsp_ctrl |= HSP_FSVM_OUT_EN;
 		writel(hsp_ctrl, regs_base + EXYNOS_USBCON_HSP);
 	} else {
 		hsp_ctrl = readl(regs_base + EXYNOS_USBCON_HSP);
 		hsp_ctrl &= ~HSP_FSLS_SPEED_SEL;
-		hsp_ctrl &= ~HSP_FSV_OUT_EN;
+		hsp_ctrl &= ~HSP_FSVP_OUT_EN;
+		hsp_ctrl &= ~HSP_FSVM_OUT_EN;
 		writel(hsp_ctrl, regs_base + EXYNOS_USBCON_HSP);
 	}
 
+}
+
+u8 phy_exynos_usb3p1_get_fs_vplus_vminus(struct exynos_usbphy_info *info)
+{
+	void __iomem *regs_base = info->regs_base;
+	u32 hsp_ctrl;
+	u32 fsvplus, fsvminus;
+
+	hsp_ctrl = readl(regs_base + EXYNOS_USBCON_HSP);
+	fsvplus = HSP_FSVPLUS_GET(hsp_ctrl);
+	fsvminus = HSP_FSVMINUS_GET(hsp_ctrl);
+
+	return ((fsvminus & 0x1) << 1) | (fsvplus & 0x1);
+}
+
+void phy_exynos_usb3p1_set_fsv_out_en(
+		struct exynos_usbphy_info *usbphy_info, u32 fsv_out_en)
+{
+	void __iomem *regs_base = usbphy_info->regs_base;
+	u32 hsp_ctrl;
+
+	hsp_ctrl = readl(regs_base + EXYNOS_USBCON_HSP);
+	if (fsv_out_en) {
+		hsp_ctrl |= HSP_FSVP_OUT_EN;
+		hsp_ctrl |= HSP_FSVM_OUT_EN;
+	} else {
+		hsp_ctrl &= ~HSP_FSVP_OUT_EN;
+		hsp_ctrl &= ~HSP_FSVM_OUT_EN;
+	}
+	writel(hsp_ctrl, regs_base + EXYNOS_USBCON_HSP);
 }
 
 u8 phy_exynos_usb3p1_bc_data_contact_detect(struct exynos_usbphy_info *usbphy_info)

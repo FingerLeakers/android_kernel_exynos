@@ -16,6 +16,7 @@
 #include "mfc_nal_q.h"
 #include "mfc_run.h"
 #include "mfc_sync.h"
+#include "mfc_meminfo.h"
 
 #include "mfc_queue.h"
 #include "mfc_utils.h"
@@ -52,8 +53,8 @@ static int mfc_dec_queue_setup(struct vb2_queue *vq,
 		alloc_devs[0] = dev->device;
 	/* Video capture for decoding (destination)
 	 * this can be set after the header was parsed */
-	} else if (ctx->state == MFCINST_HEAD_PARSED &&
-		   vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+	} else if (ctx->state >= MFCINST_HEAD_PARSED &&
+		vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		mfc_debug(4, "dec dst\n");
 		/* Output plane count is different by the pixel format */
 		*plane_count = ctx->dst_fmt->mem_planes;
@@ -109,8 +110,7 @@ static int mfc_dec_buf_init(struct vb2_buffer *vb)
 	struct vb2_queue *vq = vb->vb2_queue;
 	struct mfc_ctx *ctx = vq->drv_priv;
 	struct mfc_buf *buf = vb_to_mfc_buf(vb);
-	dma_addr_t start_raw;
-	int i, ret;
+	int ret;
 
 	mfc_debug_enter();
 
@@ -118,31 +118,7 @@ static int mfc_dec_buf_init(struct vb2_buffer *vb)
 		ret = mfc_check_vb_with_fmt(ctx->dst_fmt, vb);
 		if (ret < 0)
 			return ret;
-
-		start_raw = mfc_mem_get_daddr_vb(vb, 0);
-		if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_NV12N) {
-			buf->addr[0][0] = start_raw;
-			buf->addr[0][1] = NV12N_CBCR_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-		} else if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_NV12N_10B) {
-			buf->addr[0][0] = start_raw;
-			buf->addr[0][1] = NV12N_10B_CBCR_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-		} else if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420N) {
-			buf->addr[0][0] = start_raw;
-			buf->addr[0][1] = YUV420N_CB_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-			buf->addr[0][2] = YUV420N_CR_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-		} else {
-			for (i = 0; i < ctx->dst_fmt->mem_planes; i++)
-				buf->addr[0][i] = mfc_mem_get_daddr_vb(vb, i);
-		}
-
+		mfc_calc_base_addr(ctx, vb, ctx->dst_fmt);
 		if (call_cop(ctx, init_buf_ctrls, ctx, MFC_CTRL_TYPE_DST,
 					vb->index) < 0)
 			mfc_err_ctx("failed in init_buf_ctrls\n");
@@ -262,9 +238,7 @@ static int mfc_dec_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct mfc_dev *dev = ctx->dev;
 
 	/* If context is ready then dev = work->data;schedule it to run */
-	if (mfc_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
-
+	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
 	mfc_try_run(dev);
 
 	return 0;
@@ -275,7 +249,7 @@ static void __mfc_dec_src_stop_streaming(struct mfc_ctx *ctx)
 	struct mfc_dev *dev = ctx->dev;
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *src_mb;
-	int index, csd, condition = 0;
+	int index = 0, csd, condition = 0;
 	int ret = 0;
 
 	while (1) {
@@ -308,14 +282,10 @@ static void __mfc_dec_src_stop_streaming(struct mfc_ctx *ctx)
 			}
 		}
 
-		src_mb = mfc_get_del_buf(&ctx->buf_queue_lock, &ctx->src_buf_queue, MFC_BUF_NO_TOUCH_USED);
+		src_mb = mfc_get_del_buf(ctx, &ctx->src_buf_queue, MFC_BUF_NO_TOUCH_USED);
 		if (!src_mb)
 			break;
 
-		index = src_mb->vb.vb2_buf.index;
-
-		if (ctx->is_drm)
-			mfc_stream_unprotect(ctx, src_mb, index);
 		vb2_set_plane_payload(&src_mb->vb.vb2_buf, 0, 0);
 		vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 	}
@@ -326,7 +296,9 @@ static void __mfc_dec_src_stop_streaming(struct mfc_ctx *ctx)
 
 	mfc_init_queue(&ctx->src_buf_queue);
 
-	index = 0;
+	if (meminfo_enable == 1)
+		mfc_meminfo_cleanup_inbuf_q(ctx);
+
 	while (index < MFC_MAX_BUFFERS) {
 		index = find_next_bit(&ctx->src_ctrls_avail,
 				MFC_MAX_BUFFERS, index);
@@ -339,24 +311,25 @@ static void __mfc_dec_src_stop_streaming(struct mfc_ctx *ctx)
 static void __mfc_dec_dst_stop_streaming(struct mfc_ctx *ctx)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
-	struct mfc_dev *dev = ctx->dev;
-	int index = 0;
-
-	mfc_cleanup_assigned_fd(ctx);
-	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->ref_buf_queue);
-
-	dec->dynamic_used = 0;
-	dec->err_reuse_flag = 0;
-	dec->dec_only_release_flag = 0;
+	int index = 0, i;
 
 	mfc_cleanup_queue(&ctx->buf_queue_lock, &ctx->dst_buf_queue);
-
+	for (i = 0; i < MFC_MAX_DPBS; i++)
+		dec->dpb[i].queued = 0;
+	dec->queued_dpb = 0;
 	ctx->is_dpb_realloc = 0;
-	dec->available_dpb = 0;
-
 	dec->y_addr_for_pb = 0;
 
-	mfc_cleanup_assigned_dpb(ctx);
+	if (!dec->inter_res_change) {
+		mfc_cleanup_iovmm(ctx);
+
+		dec->dpb_table_used = 0;
+		dec->dynamic_used = 0;
+		dec->available_dpb = 0;
+	} else {
+		mfc_cleanup_iovmm_except_used(ctx);
+		mfc_print_dpb_table(ctx);
+	}
 
 	while (index < MFC_MAX_BUFFERS) {
 		index = find_next_bit(&ctx->dst_ctrls_avail,
@@ -399,7 +372,8 @@ static void mfc_dec_stop_streaming(struct vb2_queue *q)
 	if (ctx->state == MFCINST_FINISHING)
 		mfc_change_state(ctx, MFCINST_RUNNING);
 
-	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE && need_to_dpb_flush(ctx)) {
+	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE && need_to_dpb_flush(ctx)
+			&& !ctx->dec_priv->inter_res_change) {
 		prev_state = ctx->state;
 		mfc_change_state(ctx, MFCINST_DPB_FLUSHING);
 		mfc_set_bit(ctx->num, &dev->work_bits);
@@ -427,8 +401,7 @@ static void mfc_dec_stop_streaming(struct vb2_queue *q)
 	mfc_clear_bit(ctx->num, &dev->work_bits);
 	mfc_release_hwlock_ctx(ctx);
 
-	if (mfc_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
+	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
 	if (mfc_is_work_to_do(dev))
 		queue_work(dev->butler_wq, &dev->butler_work);
 }
@@ -454,11 +427,13 @@ static void mfc_dec_buf_queue(struct vb2_buffer *vb)
 
 		buf->vir_addr = stream_vir;
 
-		mfc_add_tail_buf(&ctx->buf_queue_lock, &ctx->src_buf_queue, buf);
+		mfc_add_tail_buf(ctx, &ctx->src_buf_queue, buf);
 
 		if (debug_ts == 1)
 			mfc_info_ctx("[TS] framerate: %ld, timestamp: %lld\n",
 					ctx->framerate, buf->vb.vb2_buf.timestamp);
+		if (meminfo_enable == 1)
+			mfc_meminfo_add_inbuf(ctx, vb);
 
 		MFC_TRACE_CTX("Q src[%d] fd: %d, %#llx\n",
 				vb->index, vb->planes[0].m.fd, buf->addr[0][0]);
@@ -473,17 +448,15 @@ static void mfc_dec_buf_queue(struct vb2_buffer *vb)
 					&ctx->dst_buf_queue, dec->total_dpb_count))
 			ctx->capture_state = QUEUE_BUFS_MMAPED;
 
-		MFC_TRACE_CTX("Q dst[%d] fd: %d, %#llx / avail %#lx used %#x\n",
-				vb->index, vb->planes[0].m.fd, buf->addr[0][0],
+		MFC_TRACE_CTX("Q dst[%d][%d] fd: %d, %#llx / avail %#lx used %#lx\n",
+				vb->index, buf->dpb_index, vb->planes[0].m.fd, buf->addr[0][0],
 				dec->available_dpb, dec->dynamic_used);
 	} else {
 		mfc_err_ctx("Unsupported buffer type (%d)\n", vq->type);
 	}
 
-	if (mfc_ctx_ready(ctx)) {
-		mfc_set_bit(ctx->num, &dev->work_bits);
+	if (mfc_ctx_ready_set_bit(ctx, &dev->work_bits))
 		mfc_try_run(dev);
-	}
 
 	mfc_debug_leave();
 }

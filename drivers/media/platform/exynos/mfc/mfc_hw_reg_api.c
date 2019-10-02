@@ -20,7 +20,7 @@ void mfc_reset_mfc(struct mfc_dev *dev)
 {
 	int i;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	/* Zero Initialization of MFC registers */
 	MFC_WRITEL(0, MFC_REG_RISC2HOST_CMD);
@@ -33,7 +33,7 @@ void mfc_reset_mfc(struct mfc_dev *dev)
 	MFC_WRITEL(0x1FFF, MFC_REG_MFC_RESET);
 	MFC_WRITEL(0, MFC_REG_MFC_RESET);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 void mfc_set_risc_base_addr(struct mfc_dev *dev,
@@ -47,7 +47,7 @@ void mfc_set_risc_base_addr(struct mfc_dev *dev,
 		fw_buf = &dev->drm_fw_buf;
 
 	MFC_WRITEL(fw_buf->daddr, MFC_REG_RISC_BASE_ADDRESS);
-	mfc_debug(2, "[MEMINFO][F/W] %s Base Address : %#x\n",
+	mfc_debug_dev(2, "[MEMINFO][F/W] %s Base Address : %#x\n",
 			buf_type == MFCBUF_DRM ? "DRM" : "NORMAL", (u32)fw_buf->daddr);
 	MFC_TRACE_DEV("%s F/W Base Address : %#x\n",
 			buf_type == MFCBUF_DRM ? "DRM" : "NORMAL", (u32)fw_buf->daddr);
@@ -55,20 +55,37 @@ void mfc_set_risc_base_addr(struct mfc_dev *dev,
 
 void mfc_cmd_host2risc(struct mfc_dev *dev, int cmd)
 {
-	mfc_debug(1, "Issue the command: %d\n", cmd);
+	int ret = 0;
+
+	mfc_debug_dev(1, "Issue the command: %d%s\n",
+			cmd, dev->cache_flush_flag ? " with cache flush" : "");
 	MFC_TRACE_DEV(">> CMD : %d, (dev:0x%lx, bits:%lx, owned:%d, wl:%d, trans:%d)\n",
 			cmd, dev->hwlock.dev, dev->hwlock.bits, dev->hwlock.owned_by_irq,
 			dev->hwlock.wl_count, dev->hwlock.transfer_owner);
 	MFC_TRACE_LOG_DEV("C%d", cmd);
+
+	if (dev->cache_flush_flag) {
+		MFC_TRACE_DEV(">> CMD : 12 in FW\n");
+		MFC_TRACE_LOG_DEV("C12FW");
+	}
 
 	trace_mfc_frame_start(dev->curr_ctx, cmd, 0, 0);
 	/* Reset RISC2HOST command except nal q stop command */
 	if (cmd != MFC_REG_H2R_CMD_STOP_QUEUE)
 		MFC_WRITEL(0x0, MFC_REG_RISC2HOST_CMD);
 
-	/* Start the timeout watchdog */
-	if ((cmd != MFC_REG_H2R_CMD_NAL_QUEUE) && (cmd != MFC_REG_H2R_CMD_STOP_QUEUE))
+	if ((cmd != MFC_REG_H2R_CMD_NAL_QUEUE) && (cmd != MFC_REG_H2R_CMD_STOP_QUEUE)) {
+		/* Start the timeout watchdog */
 		mfc_watchdog_start_tick(dev);
+		if (cmd != MFC_REG_H2R_CMD_NAL_ABORT) {
+			/* Check the fw status */
+			ret = mfc_wait_fw_status(dev);
+			if (ret != 0) {
+				mfc_err_dev("Failed to wait firmware status\n");
+				call_dop(dev, dump_and_stop_always, dev);
+			}
+		}
+	}
 
 	if (dbg_enable) {
 		/* For FW debugging */
@@ -80,7 +97,13 @@ void mfc_cmd_host2risc(struct mfc_dev *dev, int cmd)
 	dev->last_cmd_time = ktime_to_timeval(ktime_get());
 
 	/* Issue the command */
-	MFC_WRITEL(cmd, MFC_REG_HOST2RISC_CMD);
+	if (!dev->cache_flush_flag)
+		MFC_WRITEL(cmd, MFC_REG_HOST2RISC_CMD);
+	else
+		MFC_WRITEL((cmd | (1 << MFC_REG_H2R_CACHE_FLUSH_FLAG)),
+				MFC_REG_HOST2RISC_CMD);
+	dev->cache_flush_flag = 0;
+
 	MFC_WRITEL(0x1, MFC_REG_HOST2RISC_INT);
 }
 

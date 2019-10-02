@@ -1,18 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /**
  * host.c - DesignWare USB3 DRD Controller Host Glue
  *
  * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com
  *
  * Authors: Felipe Balbi <balbi@ti.com>,
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2  of
- * the License as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/platform_device.h>
@@ -160,7 +152,8 @@ int dwc3_host_init(struct dwc3 *dwc)
 	phy_create_lookup(dwc->usb3_generic_phy, "usb3-phy",
 			  dev_name(dwc->dev));
 
-	phycon_base_addr = ioremap(0x10b00000, SZ_1K);
+	if (phycon_base_addr == NULL)
+		phycon_base_addr = ioremap(0x10c00000, SZ_1K);
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 	usb_audio = kmalloc(sizeof(struct exynos_usb_audio), GFP_KERNEL);
@@ -191,7 +184,6 @@ int dwc3_host_init(struct dwc3 *dwc)
 	}
 
 	return 0;
-
 err2:
 	phy_remove_lookup(dwc->usb2_generic_phy, "usb2-phy",
 			  dev_name(dwc->dev));

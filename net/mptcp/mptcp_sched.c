@@ -2,6 +2,7 @@
 
 #include <linux/module.h>
 #include <net/mptcp.h>
+#include <trace/events/tcp.h>
 
 static DEFINE_SPINLOCK(mptcp_sched_list_lock);
 static LIST_HEAD(mptcp_sched_list);
@@ -88,7 +89,7 @@ static bool mptcp_is_temp_unavailable(struct sock *sk,
 	 * calculated end_seq (because here at this point end_seq is still at
 	 * the meta-level).
 	 */
-	if (skb && !zero_wnd_test &&
+	if (skb && zero_wnd_test &&
 	    after(tp->write_seq + min(skb->len, mss_now), tcp_wnd_end(tp)))
 		return true;
 
@@ -139,9 +140,10 @@ static struct sock
 	u32 min_srtt = 0xffffffff;
 	bool found_unused = false;
 	bool found_unused_una = false;
-	struct sock *sk;
+	struct mptcp_tcp_sock *mptcp;
 
-	mptcp_for_each_sk(mpcb, sk) {
+	mptcp_for_each_sub(mpcb, mptcp) {
+		struct sock *sk = mptcp_to_sock(mptcp);
 		struct tcp_sock *tp = tcp_sk(sk);
 		bool unused = false;
 
@@ -219,18 +221,14 @@ struct sock *get_available_subflow(struct sock *meta_sk, struct sk_buff *skb,
 	struct sock *sk;
 	bool looping = false, force;
 
-	/* if there is only one subflow, bypass the scheduling function */
-	if (mpcb->cnt_subflows == 1) {
-		sk = (struct sock *)mpcb->connection_list;
-		if (!mptcp_is_available(sk, skb, zero_wnd_test))
-			sk = NULL;
-		return sk;
-	}
-
 	/* Answer data_fin on same subflow!!! */
 	if (meta_sk->sk_shutdown & RCV_SHUTDOWN &&
 	    skb && mptcp_is_data_fin(skb)) {
-		mptcp_for_each_sk(mpcb, sk) {
+		struct mptcp_tcp_sock *mptcp;
+
+		mptcp_for_each_sub(mpcb, mptcp) {
+			sk = mptcp_to_sock(mptcp);
+
 			if (tcp_sk(sk)->mptcp->path_index == mpcb->dfin_path_index &&
 			    mptcp_is_available(sk, skb, zero_wnd_test))
 				return sk;
@@ -271,17 +269,14 @@ static struct sk_buff *mptcp_rcv_buf_optimization(struct sock *sk, int penal)
 {
 	struct sock *meta_sk;
 	const struct tcp_sock *tp = tcp_sk(sk);
-	struct tcp_sock *tp_it;
+	struct mptcp_tcp_sock *mptcp;
 	struct sk_buff *skb_head;
-	struct defsched_priv *dsp = defsched_get_priv(tp);
-
-	if (tp->mpcb->cnt_subflows == 1)
-		return NULL;
+	struct defsched_priv *def_p = defsched_get_priv(tp);
 
 	meta_sk = mptcp_meta_sk(sk);
-	skb_head = tcp_write_queue_head(meta_sk);
+	skb_head = tcp_rtx_queue_head(meta_sk);
 
-	if (!skb_head || skb_head == tcp_send_head(meta_sk))
+	if (!skb_head)
 		return NULL;
 
 	/* If penalization is optional (coming from mptcp_next_segment() and
@@ -293,11 +288,13 @@ static struct sk_buff *mptcp_rcv_buf_optimization(struct sock *sk, int penal)
 		goto retrans;
 
 	/* Only penalize again after an RTT has elapsed */
-	if (tcp_jiffies32 - dsp->last_rbuf_opti < usecs_to_jiffies(tp->srtt_us >> 3))
+	if (tcp_jiffies32 - def_p->last_rbuf_opti < usecs_to_jiffies(tp->srtt_us >> 3))
 		goto retrans;
 
-	/* Half the cwnd of the slow flow */
-	mptcp_for_each_tp(tp->mpcb, tp_it) {
+	/* Half the cwnd of the slow flows */
+	mptcp_for_each_sub(tp->mpcb, mptcp) {
+		struct tcp_sock *tp_it = mptcp->tp;
+
 		if (tp_it != tp &&
 		    TCP_SKB_CB(skb_head)->path_mask & mptcp_pi_to_flag(tp_it->mptcp->path_index)) {
 			if (tp->srtt_us < tp_it->srtt_us && inet_csk((struct sock *)tp_it)->icsk_ca_state == TCP_CA_Open) {
@@ -309,9 +306,8 @@ static struct sk_buff *mptcp_rcv_buf_optimization(struct sock *sk, int penal)
 				if (prior_cwnd >= tp_it->snd_ssthresh)
 					tp_it->snd_ssthresh = max(tp_it->snd_ssthresh >> 1U, 2U);
 
-				dsp->last_rbuf_opti = tcp_jiffies32;
+				def_p->last_rbuf_opti = tcp_jiffies32;
 			}
-			break;
 		}
 	}
 
@@ -320,7 +316,9 @@ retrans:
 	/* Segment not yet injected into this path? Take it!!! */
 	if (!(TCP_SKB_CB(skb_head)->path_mask & mptcp_pi_to_flag(tp->mptcp->path_index))) {
 		bool do_retrans = false;
-		mptcp_for_each_tp(tp->mpcb, tp_it) {
+		mptcp_for_each_sub(tp->mpcb, mptcp) {
+			struct tcp_sock *tp_it = mptcp->tp;
+
 			if (tp_it != tp &&
 			    TCP_SKB_CB(skb_head)->path_mask & mptcp_pi_to_flag(tp_it->mptcp->path_index)) {
 				if (tp_it->snd_cwnd <= 4) {
@@ -337,8 +335,10 @@ retrans:
 			}
 		}
 
-		if (do_retrans && mptcp_is_available(sk, skb_head, false))
+		if (do_retrans && mptcp_is_available(sk, skb_head, false)) {
+			trace_mptcp_retransmit(sk, skb_head);
 			return skb_head;
+		}
 	}
 	return NULL;
 }
@@ -452,9 +452,9 @@ static struct sk_buff *mptcp_next_segment(struct sock *meta_sk,
 
 static void defsched_init(struct sock *sk)
 {
-	struct defsched_priv *dsp = defsched_get_priv(tcp_sk(sk));
+	struct defsched_priv *def_p = defsched_get_priv(tcp_sk(sk));
 
-	dsp->last_rbuf_opti = tcp_jiffies32;
+	def_p->last_rbuf_opti = tcp_jiffies32;
 }
 
 struct mptcp_sched_ops mptcp_sched_default = {

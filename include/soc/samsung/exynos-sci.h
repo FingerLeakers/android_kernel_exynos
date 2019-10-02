@@ -11,6 +11,8 @@
 #ifndef __EXYNOS_SCI_H_
 #define __EXYNOS_SCI_H_
 
+#include <linux/module.h>
+
 #define EXYNOS_SCI_MODULE_NAME		"exynos-sci"
 #define LLC_DSS_NAME			"log_llc"
 
@@ -28,9 +30,14 @@
 #define ArrDbgRDataLo				0x074
 #define CCMControl1				0x0A8
 #define PM_SCI_CTL				0x140
+#define SCI_SB_LLCSTATUS			0xA0C
 
 #define LLC_En_Bit				(25)
 #define DisableLlc_Bit				(9)
+
+#define FULL_INV				0xFFFF
+#define TOPWAY					0xFF00
+#define BOTTOMWAY				0x00FF
 
 /* IPC common definition */
 #define SCI_ONE_BIT_MASK			(0x1)
@@ -59,9 +66,12 @@
 
 enum exynos_sci_cmd_index {
 	SCI_LLC_INVAL = 0,
-	SCI_LLC_FLUSH,
+	SCI_LLC_FLUSH_PRE,
+	SCI_LLC_FLUSH_POST,
 	SCI_LLC_REGION_ALLOC,
 	SCI_LLC_EN,
+	SCI_RET_EN,
+	SCI_LLC_REGION_DEALLOC,
 	SCI_CMD_MAX,
 };
 
@@ -79,13 +89,7 @@ enum exynos_sci_ipc_dir {
 enum exynos_sci_llc_region_index {
 	LLC_REGION_DISABLE = 0,
 	LLC_REGION_LIT_MID_ALL,
-	LLC_REGION_CPU_ALL,
-	LLC_REGION_CPU_2_GPU_2,
-	LLC_REGION_BIG_ALL,
-	LLC_REGION_GPU_ALL,
-	LLC_REGION_LIT_MID_GPU_SHARE,
-	LLC_REGION_CPU_GPU_SHARE,
-	LLC_REGION_BIG_GPU_SHARE,
+	LLC_REGION_MFC_DISPLAY,
 	LLC_REGION_MAX,
 };
 
@@ -127,17 +131,21 @@ struct exynos_sci_data {
 	unsigned int			use_init_llc_region;
 	unsigned int			initial_llc_region;
 	unsigned int			llc_enable;
+	unsigned int			ret_enable; /* retention */
 
-	unsigned int 			plugin_init_llc_region;
+	unsigned int			plugin_init_llc_region;
 	unsigned int			llc_region_prio[LLC_REGION_MAX];
+	unsigned int			invway;
+	unsigned int			way_array[LLC_REGION_MAX];
 
 	void __iomem			*sci_base;
 	struct exynos_llc_dump_addr	llc_dump_addr;
+	const char			*region_name[LLC_REGION_MAX];
 };
 
 #ifdef CONFIG_EXYNOS_SCI
-void llc_invalidate(void);
-void llc_flush(void);
+void llc_invalidate(unsigned int invway);
+void llc_flush(unsigned int invway);
 void llc_region_alloc(unsigned int region_index, bool on);
 void llc_dump(void);
 void sci_error_dump(void);

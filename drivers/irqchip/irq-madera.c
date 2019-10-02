@@ -1,11 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Interrupt support for Cirrus Logic Madera codecs
  *
- * Copyright 2016-2017 Cirrus Logic
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright (C) 2015-2018 Cirrus Logic, Inc. and
+ *                         Cirrus Logic International Semiconductor Ltd.
  */
 
 #include <linux/module.h>
@@ -21,22 +19,17 @@
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 #include <linux/irqchip/irq-madera.h>
-#include <linux/irqchip/irq-madera-pdata.h>
 #include <linux/mfd/madera/core.h>
 #include <linux/mfd/madera/pdata.h>
 #include <linux/mfd/madera/registers.h>
 
-struct madera_irq_priv {
-	struct device			*dev;
-	int				irq;
-	struct regmap_irq_chip_data	*irq_data;
-	struct madera			*madera;
-};
+#define MADERA_IRQ(_irq, _reg)					\
+	[MADERA_IRQ_ ## _irq] = {				\
+		.reg_offset = (_reg) - MADERA_IRQ1_STATUS_1,	\
+		.mask = MADERA_ ## _irq ## _EINT1		\
+	}
 
-#define MADERA_IRQ(_irq, _reg)						     \
-	[MADERA_IRQ_ ## _irq] = { .reg_offset = (_reg) - MADERA_IRQ1_STATUS_1, \
-				.mask = MADERA_ ## _irq ## _EINT1 }
-
+/* Mappings are the same for all Madera codecs */
 static const struct regmap_irq madera_irqs[MADERA_NUM_IRQ] = {
 	MADERA_IRQ(FLL1_LOCK,		MADERA_IRQ1_STATUS_2),
 	MADERA_IRQ(FLL2_LOCK,		MADERA_IRQ1_STATUS_2),
@@ -97,7 +90,7 @@ static const struct regmap_irq madera_irqs[MADERA_NUM_IRQ] = {
 	MADERA_IRQ(BOOT_DONE,		MADERA_IRQ1_STATUS_1),
 };
 
-static const struct regmap_irq_chip madera_irq = {
+static const struct regmap_irq_chip madera_irq_chip = {
 	.name		= "madera IRQ",
 	.status_base	= MADERA_IRQ1_STATUS_1,
 	.mask_base	= MADERA_IRQ1_MASK_1,
@@ -108,95 +101,58 @@ static const struct regmap_irq_chip madera_irq = {
 	.num_irqs	= ARRAY_SIZE(madera_irqs),
 };
 
-static int madera_map_irq(struct madera *madera, int irq)
-{
-	struct madera_irq_priv *priv;
-
-	if (!madera->irq_dev)
-		return -ENOENT;
-
-	priv = dev_get_drvdata(madera->irq_dev);
-
-	return regmap_irq_get_virq(priv->irq_data, irq);
-}
-
-int madera_request_irq(struct madera *madera, int irq, const char *name,
-			irq_handler_t handler, void *data)
-{
-	irq = madera_map_irq(madera, irq);
-
-	if (irq < 0)
-		return irq;
-
-	return request_threaded_irq(irq, NULL, handler, IRQF_ONESHOT, name,
-				    data);
-
-}
-EXPORT_SYMBOL_GPL(madera_request_irq);
-
-void madera_free_irq(struct madera *madera, int irq, void *data)
-{
-	irq = madera_map_irq(madera, irq);
-
-	if (irq < 0)
-		return;
-
-	free_irq(irq, data);
-}
-EXPORT_SYMBOL_GPL(madera_free_irq);
-
-int madera_set_irq_wake(struct madera *madera, int irq, int on)
-{
-	irq = madera_map_irq(madera, irq);
-
-	if (irq < 0)
-		return irq;
-
-	return irq_set_irq_wake(irq, on);
-}
-EXPORT_SYMBOL_GPL(madera_set_irq_wake);
-
 #ifdef CONFIG_PM_SLEEP
-static int madera_suspend_noirq(struct device *dev)
+static int madera_suspend(struct device *dev)
 {
-	struct madera_irq_priv *priv = dev_get_drvdata(dev);
+	struct madera *madera = dev_get_drvdata(dev->parent);
 
-	dev_info(priv->dev, "No IRQ suspend, reenabling IRQ\n");
+	dev_dbg(madera->irq_dev, "Suspend, disabling IRQ\n");
 
-	enable_irq(priv->irq);
+	/*
+	 * A runtime resume would be needed to access the chip interrupt
+	 * controller but runtime pm doesn't function during suspend.
+	 * Temporarily disable interrupts until we reach suspend_noirq state.
+	 */
+	disable_irq(madera->irq);
 
 	return 0;
 }
 
-static int madera_suspend(struct device *dev)
+static int madera_suspend_noirq(struct device *dev)
 {
-	struct madera_irq_priv *priv = dev_get_drvdata(dev);
+	struct madera *madera = dev_get_drvdata(dev->parent);
 
-	dev_info(priv->dev, "Suspend, disabling IRQ\n");
+	dev_dbg(madera->irq_dev, "No IRQ suspend, reenabling IRQ\n");
 
-	disable_irq(priv->irq);
+	/* Re-enable interrupts to service wakeup interrupts from the chip */
+	enable_irq(madera->irq);
 
 	return 0;
 }
 
 static int madera_resume_noirq(struct device *dev)
 {
-	struct madera_irq_priv *priv = dev_get_drvdata(dev);
+	struct madera *madera = dev_get_drvdata(dev->parent);
 
-	dev_info(priv->dev, "No IRQ resume, disabling IRQ\n");
+	dev_dbg(madera->irq_dev, "No IRQ resume, disabling IRQ\n");
 
-	disable_irq(priv->irq);
+	/*
+	 * We can't handle interrupts until runtime pm is available again.
+	 * Disable them temporarily.
+	 */
+	disable_irq(madera->irq);
 
 	return 0;
 }
 
 static int madera_resume(struct device *dev)
 {
-	struct madera_irq_priv *priv = dev_get_drvdata(dev);
+	struct madera *madera = dev_get_drvdata(dev->parent);
 
-	dev_info(priv->dev, "Resume, reenabling IRQ\n");
+	dev_dbg(madera->irq_dev, "Resume, reenabling IRQ\n");
 
-	enable_irq(priv->irq);
+	/* Interrupts can now be handled */
+	enable_irq(madera->irq);
 
 	return 0;
 }
@@ -220,26 +176,21 @@ static const struct dev_pm_ops madera_irq_pm_ops = {
 static int madera_irq_probe(struct platform_device *pdev)
 {
 	struct madera *madera = dev_get_drvdata(pdev->dev.parent);
-	struct madera_irq_priv *priv;
 	struct irq_data *irq_data;
-	unsigned int irq_flags = madera->pdata.irqchip.irq_flags;
+	unsigned int irq_flags = 0;
 	int ret;
 
 	dev_dbg(&pdev->dev, "probe\n");
 
-	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
-
-	priv->dev = &pdev->dev;
-	priv->madera = madera;
-	priv->irq = madera->irq;
-
-	/* Read the flags from the interrupt controller if not specified */
+	/*
+	 * Read the flags from the interrupt controller if not specified
+	 * by pdata
+	 */
+	irq_flags = madera->pdata.irq_flags;
 	if (!irq_flags) {
-		irq_data = irq_get_irq_data(priv->irq);
+		irq_data = irq_get_irq_data(madera->irq);
 		if (!irq_data) {
-			dev_err(priv->dev, "Invalid IRQ: %d\n", priv->irq);
+			dev_err(&pdev->dev, "Invalid IRQ: %d\n", madera->irq);
 			return -EINVAL;
 		}
 
@@ -251,15 +202,19 @@ static int madera_irq_probe(struct platform_device *pdev)
 	}
 
 	if (irq_flags & (IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING)) {
-		dev_err(priv->dev, "Host interrupt not level-triggered\n");
+		dev_err(&pdev->dev, "Host interrupt not level-triggered\n");
 		return -EINVAL;
 	}
 
+	/*
+	 * The silicon always starts at active-low, check if we need to
+	 * switch to active-high.
+	 */
 	if (irq_flags & IRQF_TRIGGER_HIGH) {
 		ret = regmap_update_bits(madera->regmap, MADERA_IRQ1_CTRL,
 					 MADERA_IRQ_POL_MASK, 0);
 		if (ret) {
-			dev_err(priv->dev,
+			dev_err(&pdev->dev,
 				"Failed to set IRQ polarity: %d\n", ret);
 			return ret;
 		}
@@ -269,15 +224,15 @@ static int madera_irq_probe(struct platform_device *pdev)
 	 * NOTE: regmap registers this against the OF node of the parent of
 	 * the regmap - that is, against the mfd driver
 	 */
-	ret = regmap_add_irq_chip(madera->regmap, priv->irq, IRQF_ONESHOT, 0,
-				  &madera_irq, &priv->irq_data);
+	ret = regmap_add_irq_chip(madera->regmap, madera->irq, IRQF_ONESHOT, 0,
+				  &madera_irq_chip, &madera->irq_data);
 	if (ret) {
-		dev_err(priv->dev, "add_irq_chip failed: %d\n", ret);
+		dev_err(&pdev->dev, "add_irq_chip failed: %d\n", ret);
 		return ret;
 	}
 
-	platform_set_drvdata(pdev, priv);
-	madera->irq_dev = priv->dev;
+	/* Save dev in parent MFD struct so it is accessible to siblings */
+	madera->irq_dev = &pdev->dev;
 
 	madera_request_irq(madera, MADERA_IRQ_BOOT_DONE, "BOOT_DONE",
 			  madera_boot_done, madera);
@@ -287,33 +242,33 @@ static int madera_irq_probe(struct platform_device *pdev)
 
 static int madera_irq_remove(struct platform_device *pdev)
 {
-	struct madera_irq_priv *priv = platform_get_drvdata(pdev);
+	struct madera *madera = dev_get_drvdata(pdev->dev.parent);
 
 	/*
 	 * The IRQ is disabled by the parent MFD driver before
 	 * it starts cleaning up all child drivers
 	 */
 
-	madera_free_irq(priv->madera, MADERA_IRQ_BOOT_DONE, priv->madera);
+	madera->irq_dev = NULL;
 
-	priv->madera->irq_dev = NULL;
+	madera_free_irq(madera, MADERA_IRQ_BOOT_DONE, madera);
 
-	regmap_del_irq_chip(priv->irq, priv->irq_data);
+	regmap_del_irq_chip(madera->irq, madera->irq_data);
 
 	return 0;
 }
 
 static struct platform_driver madera_irq_driver = {
-	.probe	= madera_irq_probe,
-	.remove = madera_irq_remove,
+	.probe	= &madera_irq_probe,
+	.remove = &madera_irq_remove,
 	.driver = {
 		.name	= "madera-irq",
 		.pm	= &madera_irq_pm_ops,
-		.suppress_bind_attrs = true,
 	}
 };
 module_platform_driver(madera_irq_driver);
 
+MODULE_SOFTDEP("pre: madera");
 MODULE_DESCRIPTION("Madera IRQ driver");
-MODULE_AUTHOR("Richard Fitzgerald <rf@opensource.wolfsonmicro.com>");
+MODULE_AUTHOR("Richard Fitzgerald <rf@opensource.cirrus.com>");
 MODULE_LICENSE("GPL v2");

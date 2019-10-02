@@ -20,6 +20,7 @@
 
 #include "dsms_debug.h"
 #include "dsms_init.h"
+#include "dsms_rate_limit.h"
 
 static int is_dsms_initialized_flag = false;
 
@@ -42,6 +43,7 @@ static __init int dsms_init(void)
 		")"
 #endif //DSMS_DEBUG_ENABLE
 		".");
+	dsms_rate_limit_init();
 	is_dsms_initialized_flag = true;
 	return 0;
 }

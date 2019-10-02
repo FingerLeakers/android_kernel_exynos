@@ -25,15 +25,17 @@
 #include <linux/debug-snapshot.h>
 
 #include <soc/samsung/exynos-cpuhp.h>
+#include <soc/samsung/exynos-cpupm.h>
 
 #include "../../../kernel/sched/sched.h"
 #include "../../cpufreq/exynos-acme.h"
-#include "../../../kernel/sched/ems/ems.h"
 
-#define GCU_BASE_ADDR			(0x1E4C0000)
+#define APB_BASE_ADDR			(0x1D200000)
+#define GCU_BASE			(0x1000)
+#define OCP_BASE			(0x3000)
 
 /* OCP_THROTTLE_CONTROL */
-#define OCPTHROTTCTL			(0x9F0)
+#define OCPTHROTTCTL			(OCP_BASE + 0x6C)
 #define TEW_MASK			(0x1)
 #define TEW_SHIFT			(2)
 #define TRW_MASK			(0x1f)
@@ -50,21 +52,24 @@
 #define OCPTHROTTERRA_SHIFT		(27)
 
 /* GCU_CONTROL_REGISTER */
-#define GCUCTL				(0x22C)
+#define GCUCTL				(GCU_BASE + 0x0)
 #define OCPBPCEN_MASK			(0x1)
 #define OCPBPCEN_SHIFT			(25)
 #define OCPTHROTTERRAEN_MASK		(0x1)
 #define OCPTHROTTERRAEN_SHIFT		(24)
 
 /* OCP_INTEGRATION_TOP_POWER_THRESHOLD */
-#define OCPTOPPWRTHRESH 		(0x83C)
+#define OCPTOPPWRTHRESH 		(OCP_BASE + 0x48)
 #define IRP_MASK			(0x3f)
 #define IRP_SHIFT			(24)
 
 /* OCP_THROTTLE_COUNTER_ALL */
-#define OCPTHROTTCNTA			(0x938)
+#define OCPTHROTTCNTA			(OCP_BASE + 0x80)
 #define TDC_MASK			(0xfff)
 #define TDC_SHIFT			(4)
+
+/* OCP_THROTTLE_COUNTER_M */
+#define OCPTHROTTCNTM			(OCP_BASE + 0x118)
 
 struct ocp_stats {
 	unsigned int		max_state;
@@ -104,16 +109,20 @@ struct exynos_ocp_data {
 	unsigned int		release_mode;
 	unsigned int		release_threshold;
 	unsigned int		release_duration;
+
+	unsigned int		throttle_cnt;
 };
-struct exynos_ocp_data *data;
+struct exynos_ocp_data *ocp_data;
+
+static bool profile_started;
 
 /****************************************************************/
 /*			HELPER FUNCTION				*/
 /****************************************************************/
 
-#define SYS_READ(reg, val)	do { val = __raw_readl(data->base + reg); } while (0);
-#define SYS_WRITE(reg, val)	do { __raw_writel(val, data->base + reg); } while (0);
-#define CONTROL_OCP_WARN(enable)	s2mps19_update_reg(data->i2c, S2MPS19_PMIC_REG_OCP_WARN1,\
+#define SYS_READ(reg, val)	do { val = __raw_readl(ocp_data->base + reg); } while (0);
+#define SYS_WRITE(reg, val)	do { __raw_writel(val, ocp_data->base + reg); } while (0);
+#define CONTROL_OCP_WARN(enable)	s2mps19_update_reg(ocp_data->i2c, S2MPS19_PMIC_REG_OCP_WARN1,\
 		((enable) << S2MPS19_OCP_WARN_EN_SHIFT), (1 << S2MPS19_OCP_WARN_EN_SHIFT));
 
 static int get_ocp_freq_index(struct ocp_stats *stats, unsigned int freq)
@@ -132,7 +141,7 @@ static void update_ocp_stats(struct ocp_stats *stats)
 	unsigned long long cur_time = get_jiffies_64();
 
 	/* If OCP operation is disabled, do not update OCP stats */
-	if (data->enabled == false)
+	if (ocp_data->enabled == false)
 		return;
 
 	stats->time_in_state[stats->last_index] += cur_time - stats->last_time;
@@ -141,11 +150,11 @@ static void update_ocp_stats(struct ocp_stats *stats)
 
 static unsigned int get_ocp_target_max_limit(unsigned int down_step)
 {
-	struct ocp_stats *stats = data->stats;
+	struct ocp_stats *stats = ocp_data->stats;
 	unsigned int index, ret_freq;
 
 	/* Find the position of the current frequency in the frequency table. */
-	index = get_ocp_freq_index(stats, data->clipped_freq);
+	index = get_ocp_freq_index(stats, ocp_data->clipped_freq);
 
 	/* Find target max limit that lower by "down_step" than current max limit */
 	index += down_step;
@@ -160,7 +169,7 @@ static void set_ocp_max_limit(unsigned int down_step)
 {
 	unsigned int target_max;
 
-	if (data->cpu >= nr_cpu_ids) {
+	if (ocp_data->cpu >= nr_cpu_ids) {
 		dbg_snapshot_printk("OCP_cpus_off\n");
 		return;
 	}
@@ -174,27 +183,27 @@ static void set_ocp_max_limit(unsigned int down_step)
 	if (down_step) {
 		target_max = get_ocp_target_max_limit(down_step);
 		if (target_max) {
-			data->clipped_freq = target_max;
-			pr_debug("OCP max limit is set to %u kHz\n", data->clipped_freq);
+			ocp_data->clipped_freq = target_max;
+			pr_debug("OCP max limit is set to %u kHz\n", ocp_data->clipped_freq);
 		} else
 			return;
 	} else {
-		data->clipped_freq = data->max_freq;
+		ocp_data->clipped_freq = ocp_data->max_freq;
 		pr_debug("OCP max limit is released\n");
 	}
 
 	dbg_snapshot_printk("OCP_enter:%ukHz(%s)\n",
-			data->clipped_freq, down_step ? "throttle" : "release");
-	trace_ocp_max_limit(data->clipped_freq, 1);
-	cpufreq_update_policy(data->cpu);
+			ocp_data->clipped_freq, down_step ? "throttle" : "release");
+	trace_ocp_max_limit(ocp_data->clipped_freq, 1);
+	cpufreq_update_policy(ocp_data->cpu);
 	dbg_snapshot_printk("OCP_exit:%ukHz(%s)\n",
-			data->clipped_freq, down_step ? "throttle" : "release");
-	trace_ocp_max_limit(data->clipped_freq, 0);
+			ocp_data->clipped_freq, down_step ? "throttle" : "release");
+	trace_ocp_max_limit(ocp_data->clipped_freq, 0);
 
 	/* Whenever ocp max limit is changed, ocp stats should be updated. */
-	update_ocp_stats(data->stats);
-	data->stats->last_index = get_ocp_freq_index(data->stats, data->clipped_freq);
-	data->stats->total_trans++;
+	update_ocp_stats(ocp_data->stats);
+	ocp_data->stats->last_index = get_ocp_freq_index(ocp_data->stats, ocp_data->clipped_freq);
+	ocp_data->stats->total_trans++;
 }
 
 #define CURRENT_METER_MODE		(0)
@@ -212,11 +221,11 @@ static bool is_currentmeter_condition(void)
 	unsigned int val;
 	unsigned char temp;
 
-	s2mps19_update_reg(data->i2c, S2MPS19_REG_ADC_CTRL3, 1, ADC_PTR_MASK);
-	s2mps19_read_reg(data->i2c, S2MPS19_REG_ADC_DATA, &temp);
+	s2mps19_update_reg(ocp_data->i2c, S2MPS19_REG_ADC_CTRL3, 1, ADC_PTR_MASK);
+	s2mps19_read_reg(ocp_data->i2c, S2MPS19_REG_ADC_DATA, &temp);
 	val = temp * BUCK2_COEFF;
 
-	return val < data->release_threshold;
+	return val < ocp_data->release_threshold;
 }
 
 /*
@@ -224,31 +233,34 @@ static bool is_currentmeter_condition(void)
  * If sum util_avg of each core is lower than configured ratio of capacity,
  * BPC condition is true.
  */
+extern unsigned long cpu_util(int cpu);
+extern unsigned long capacity_orig_of(int cpu);
+
 static bool is_cpuutil_condition(void)
 {
 	unsigned int cpu, count = 0;
 	unsigned long util = 0;
 	unsigned long capacity;
 
-	if (data->cpu >= nr_cpu_ids)
+	if (ocp_data->cpu >= nr_cpu_ids)
 		return true;
 
-	capacity = capacity_orig_of(data->cpu);
+	capacity = capacity_orig_of(ocp_data->cpu);
 
-	for_each_cpu(cpu, &data->cpus) {
-		util += ml_cpu_util(cpu);
+	for_each_cpu(cpu, &ocp_data->cpus) {
+		util += cpu_util(cpu);
 		count++;
 	}
 
 	capacity *= count;
 
 	/* If util < capacity * release_threshold(%), return true */
-	return (util * ONE_HUNDRED) < (capacity * data->release_threshold);
+	return (util * ONE_HUNDRED) <= (capacity * ocp_data->release_threshold);
 }
 
 static bool is_bpc_condition(void)
 {
-	switch (data->release_mode) {
+	switch (ocp_data->release_mode) {
 		case CURRENT_METER_MODE :
 			return is_currentmeter_condition();
 		case CPU_UTIL_MODE :
@@ -260,10 +272,10 @@ static bool is_bpc_condition(void)
 
 static void control_ocp_operation(bool enable)
 {
-	if (data->enabled == enable)
+	if (ocp_data->enabled == enable)
 		return;
 
-	if (data->cpu >= nr_cpu_ids) {
+	if (ocp_data->cpu >= nr_cpu_ids) {
 		pr_info("all OCP releated cpus are off\n");
 		return;
 	}
@@ -278,30 +290,64 @@ static void control_ocp_operation(bool enable)
 		CONTROL_OCP_WARN(1);
 
 		/* Release OCP max limit */
-		data->clipped_freq = data->max_freq;
-		cpufreq_update_policy(data->cpu);
+		ocp_data->clipped_freq = ocp_data->max_freq;
+		cpufreq_update_policy(ocp_data->cpu);
 
 		/* Re-init OCP stats */
-		data->stats->last_index = get_ocp_freq_index(data->stats, data->clipped_freq);
-		data->stats->last_time = cur_time;
+		ocp_data->stats->last_index = get_ocp_freq_index(ocp_data->stats, ocp_data->clipped_freq);
+		ocp_data->stats->last_time = cur_time;
 	} else {
-		cancel_delayed_work_sync(&data->delayed_work);
-		data->flag = false;
+		cancel_delayed_work_sync(&ocp_data->delayed_work);
+		ocp_data->flag = false;
 
 		/* Update OCP stats before disabling OCP operation */
-		update_ocp_stats(data->stats);
+		update_ocp_stats(ocp_data->stats);
 
 		/* Press OCP max limit to max frequency without OCP */
-		data->clipped_freq = data->max_freq_wo_ocp;
-		cpufreq_update_policy(data->cpu);
+		ocp_data->clipped_freq = ocp_data->max_freq_wo_ocp;
+		cpufreq_update_policy(ocp_data->cpu);
 
 		CONTROL_OCP_WARN(0);
 	}
 
-	data->enabled = enable;
+	ocp_data->enabled = enable;
 
 	pr_info("OCP operation is %s\n", (enable)?"enabled":"disabled");
 	dbg_snapshot_printk("OCP_%s\n", (enable)?"enabled":"disabled");
+}
+
+/****************************************************************/
+/*			OCP PROFILER				*/
+/****************************************************************/
+static void ocp_profile_start(void)
+{
+	if (profile_started) {
+		pr_err("OCP: Profile is ongoing\n");
+		return;
+	}
+
+	profile_started = true;
+
+	disable_power_mode(cpumask_any(&ocp_data->cpus), POWERMODE_TYPE_CLUSTER);
+
+	SYS_WRITE(OCPTHROTTCNTM, 0);
+
+	pr_info("OCP: Profile started\n");
+}
+
+static void ocp_profile_end(void)
+{
+	if (!profile_started) {
+		pr_err("OCP: Profile is not ongoing\n");
+		return;
+	}
+	profile_started = false;
+
+	SYS_READ(OCPTHROTTCNTM, ocp_data->throttle_cnt);
+
+	enable_power_mode(cpumask_any(&ocp_data->cpus), POWERMODE_TYPE_CLUSTER);
+
+	pr_info("OCP: Profile finished");
 }
 
 /****************************************************************/
@@ -374,11 +420,11 @@ static void clear_ocp_throttling_duration_counter(void)
 
 static void exynos_ocp_work(struct work_struct *work)
 {
-	if (!cpumask_test_cpu(smp_processor_id(), &data->cpus))
+	if (!cpumask_test_cpu(smp_processor_id(), &ocp_data->cpus))
 		return;
 
-	data->flag = true;
-	set_ocp_max_limit(data->down_step);
+	ocp_data->flag = true;
+	set_ocp_max_limit(ocp_data->down_step);
 
 	/* Before enabling OCP interrupt, clear releated register fields */
 	clear_ocp_throttling_duration_counter();
@@ -388,8 +434,8 @@ static void exynos_ocp_work(struct work_struct *work)
 	/* After finish interrupt handling, enable OCP interrupt. */
 	control_ocp_interrupt(SWI_ENABLE);
 
-	cancel_delayed_work_sync(&data->delayed_work);
-	schedule_delayed_work(&data->delayed_work, msecs_to_jiffies(data->release_duration));
+	cancel_delayed_work_sync(&ocp_data->delayed_work);
+	schedule_delayed_work(&ocp_data->delayed_work, msecs_to_jiffies(ocp_data->release_duration));
 }
 
 static void exynos_ocp_work_release(struct work_struct *work)
@@ -399,11 +445,11 @@ static void exynos_ocp_work_release(struct work_struct *work)
 	 * Otherwise extend ocp max limit as release duration.
 	 */
 	if (is_bpc_condition()) {
-		data->flag = false;
+		ocp_data->flag = false;
 		set_ocp_max_limit(0);
 	}
 	else
-		schedule_delayed_work(&data->delayed_work, msecs_to_jiffies(data->release_duration));
+		schedule_delayed_work(&ocp_data->delayed_work, msecs_to_jiffies(ocp_data->release_duration));
 }
 
 static irqreturn_t exynos_ocp_irq_handler(int irq, void *id)
@@ -419,11 +465,11 @@ static irqreturn_t exynos_ocp_irq_handler(int irq, void *id)
 	 */
 	if (check_dpm_throttset())
 		clear_dpm_throttset();
-	else if (data->cpu < nr_cpu_ids) {
+	else if (ocp_data->cpu < nr_cpu_ids) {
 		/* Before start interrupt handling, disable OCP interrupt. */
 		control_ocp_interrupt(SWI_DISABLE);
 
-		schedule_work_on(data->cpu, &data->work);
+		schedule_work_on(ocp_data->cpu, &ocp_data->work);
 	}
 
 	clear_ocp_throttling_duration_counter();
@@ -441,17 +487,17 @@ static int exynos_ocp_policy_callback(struct notifier_block *nb,
 {
 	struct cpufreq_policy *policy = info;
 
-	if (!data || !data->updated)
+	if (!ocp_data || !ocp_data->updated)
 		return NOTIFY_DONE;
 
-	if (!cpumask_test_cpu(policy->cpu, &data->cpus))
+	if (!cpumask_test_cpu(policy->cpu, &ocp_data->cpus))
 		return NOTIFY_DONE;
 
 	if (event != CPUFREQ_ADJUST)
 		return NOTIFY_DONE;
 
-	if (policy->max > data->clipped_freq)
-		cpufreq_verify_within_limits(policy, 0, data->clipped_freq);
+	if (policy->max > ocp_data->clipped_freq)
+		cpufreq_verify_within_limits(policy, 0, ocp_data->clipped_freq);
 
 	return NOTIFY_OK;
 }
@@ -465,7 +511,7 @@ static void exynos_ocp_irq_work(struct irq_work *irq_work)
 	int irp, val;
 
 	/* Set IRP for current DVFS level to OCP controller */
-	irp = (data->cur_freq * 2)/data->min_freq - 2;
+	irp = (ocp_data->cur_freq * 2)/ocp_data->min_freq - 2;
 	if (irp > IRP_MASK)
 		irp = IRP_MASK;
 
@@ -481,20 +527,20 @@ static int exynos_ocp_cpufreq_callback(struct notifier_block *nb,
 	struct cpufreq_freqs *freq = info;
 	int cpu = freq->cpu;
 
-	if (!data->enabled)
+	if (!ocp_data->enabled)
 		return NOTIFY_DONE;
 
-	if (!cpumask_test_cpu(cpu, &data->cpus))
+	if (!cpumask_test_cpu(cpu, &ocp_data->cpus))
 		return NOTIFY_DONE;
 
 	if (event != CPUFREQ_PRECHANGE)
 		return NOTIFY_DONE;
 
-	if (data->cpu >= nr_cpu_ids)
+	if (ocp_data->cpu >= nr_cpu_ids)
 		return NOTIFY_DONE;
 
-	data->cur_freq = freq->new;
-	irq_work_queue_on(&data->irq_work, data->cpu);
+	ocp_data->cur_freq = freq->new;
+	irq_work_queue_on(&ocp_data->irq_work, ocp_data->cpu);
 
 	return NOTIFY_OK;
 }
@@ -507,24 +553,24 @@ static void ocp_stats_create_table(struct cpufreq_policy *policy);
 
 static int exynos_ocp_update_data(struct cpufreq_policy *policy)
 {
-	if (data->cpu >= nr_cpu_ids)
+	if (ocp_data->cpu >= nr_cpu_ids)
 		return 0;
 
-	if (!cpumask_test_cpu(data->cpu, policy->cpus))
+	if (!cpumask_test_cpu(ocp_data->cpu, policy->cpus))
 		return 0;
 
-	if (data->updated)
+	if (ocp_data->updated)
 		return 0;
 
-	data->enabled = true;
-	data->flag = false;
-	data->min_freq = policy->user_policy.min;
-	data->max_freq = policy->user_policy.max;
-	data->clipped_freq = data->max_freq;
+	ocp_data->enabled = true;
+	ocp_data->flag = false;
+	ocp_data->min_freq = policy->user_policy.min;
+	ocp_data->max_freq = policy->user_policy.max;
+	ocp_data->clipped_freq = ocp_data->max_freq;
 	ocp_stats_create_table(policy);
 	control_ocp_interrupt(1);
 
-	data->updated = true;
+	ocp_data->updated = true;
 
 	pr_info("exynos-ocp: OCP data structure update complete\n");
 
@@ -539,14 +585,14 @@ static int exynos_ocp_cpu_up_callback(unsigned int cpu)
 {
 	struct cpumask mask;
 
-	if (!cpumask_test_cpu(cpu, &data->cpus))
+	if (!cpumask_test_cpu(cpu, &ocp_data->cpus))
 		return 0;
 
 	/* The first incomming cpu in ocp data binds ocp interrupt on data->cpus. */
-	cpumask_and(&mask, &data->cpus, cpu_online_mask);
+	cpumask_and(&mask, &ocp_data->cpus, cpu_online_mask);
 	if (cpumask_weight(&mask) == 1) {
-		data->cpu = cpu;
-		irq_set_affinity_hint(data->irq, &data->cpus);
+		ocp_data->cpu = cpu;
+		irq_set_affinity_hint(ocp_data->irq, &ocp_data->cpus);
 	}
 
 	return 0;
@@ -556,18 +602,23 @@ static int exynos_ocp_cpu_down_callback(unsigned int cpu)
 {
 	struct cpumask mask;
 
-	if (!cpumask_test_cpu(cpu, &data->cpus))
+	if (!cpumask_test_cpu(cpu, &ocp_data->cpus))
 		return 0;
 
 	/* If all data->cpus off, update data->cpu as nr_cpu_ids */
-	cpumask_and(&mask, &data->cpus, cpu_online_mask);
+	cpumask_and(&mask, &ocp_data->cpus, cpu_online_mask);
 	cpumask_clear_cpu(cpu, &mask);
 	if (cpumask_empty(&mask))
-		data->cpu = nr_cpu_ids;
+		ocp_data->cpu = nr_cpu_ids;
 	else
-		data->cpu = cpumask_any(&mask);
+		ocp_data->cpu = cpumask_any(&mask);
 
 	return 0;
+}
+
+unsigned int get_ocp_clipped_freq(void)
+{
+	return ocp_data->clipped_freq;
 }
 
 /****************************************************************/
@@ -578,7 +629,7 @@ static ssize_t
 ocp_enable_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->enabled);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->enabled);
 }
 
 static ssize_t
@@ -599,14 +650,14 @@ static ssize_t
 ocp_flag_show(struct device *dev, struct device_attribute *devattr,
 		char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->flag);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->flag);
 }
 
 static ssize_t
 down_step_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->down_step);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->down_step);
 }
 
 static ssize_t
@@ -617,7 +668,7 @@ down_step_store(struct device *dev, struct device_attribute *devattr,
 
 	if (kstrtos32(buf, 10, &val))
 		return -EINVAL;
-	data->down_step = val;
+	ocp_data->down_step = val;
 
 	return count;
 }
@@ -626,13 +677,13 @@ static ssize_t
 release_mode_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	switch (data->release_mode) {
+	switch (ocp_data->release_mode) {
 		case CURRENT_METER_MODE :
 			return snprintf(buf, PAGE_SIZE, "CURRENT METER MODE (%d)\n", CURRENT_METER_MODE);
 		case CPU_UTIL_MODE :
 			return snprintf(buf, PAGE_SIZE, "CPU UTIL MODE (%d)\n", CPU_UTIL_MODE);
 		default :
-			return snprintf(buf, PAGE_SIZE, "error (%x)\n", data->release_mode);
+			return snprintf(buf, PAGE_SIZE, "error (%x)\n", ocp_data->release_mode);
 	}
 }
 
@@ -640,7 +691,7 @@ static ssize_t
 release_threshold_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->release_threshold);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->release_threshold);
 }
 
 static ssize_t
@@ -651,7 +702,7 @@ release_threshold_store(struct device *dev, struct device_attribute *devattr,
 
 	if (kstrtos32(buf, 10, &val))
 		return -EINVAL;
-	data->release_threshold = val;
+	ocp_data->release_threshold = val;
 
 	return count;
 }
@@ -660,7 +711,7 @@ static ssize_t
 release_duration_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", data->release_duration);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->release_duration);
 }
 
 static ssize_t
@@ -671,7 +722,7 @@ release_duration_store(struct device *dev, struct device_attribute *devattr,
 
 	if (kstrtos32(buf, 10, &val))
 		return -EINVAL;
-	data->release_duration = val;
+	ocp_data->release_duration = val;
 
 	return count;
 }
@@ -680,32 +731,60 @@ static ssize_t
 clipped_freq_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return sprintf(buf, "%d\n", data->clipped_freq);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->clipped_freq);
 }
 
 static ssize_t
 total_trans_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	return sprintf(buf, "%llu\n", data->stats->total_trans);
+	return snprintf(buf, PAGE_SIZE, "%llu\n", ocp_data->stats->total_trans);
 }
 
 static ssize_t
 time_in_state_show(struct device *dev, struct device_attribute *devattr,
 		       char *buf)
 {
-	struct ocp_stats *stats = data->stats;
+	struct ocp_stats *stats = ocp_data->stats;
 	ssize_t len = 0;
 	int i;
 
 	update_ocp_stats(stats);
 
 	for (i = 0; i < stats->max_state; i++) {
-		len += sprintf(buf + len, "%u %llu\n", stats->freq_table[i],
-			(unsigned long long)jiffies_64_to_clock_t(stats->time_in_state[i]));
+		len += snprintf(buf + len, PAGE_SIZE - len, "%u %llu\n",
+				stats->freq_table[i],
+				(unsigned long long)jiffies_64_to_clock_t(stats->time_in_state[i]));
 	}
 
 	return len;
+}
+
+static ssize_t
+ocp_profile_result_show(struct device *dev, struct device_attribute *devattr,
+				char *buf)
+{
+	if (profile_started)
+		return snprintf(buf, PAGE_SIZE, "OCP: Profile is ongoing\n");
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", ocp_data->throttle_cnt);
+}
+
+static ssize_t
+ocp_profile_store(struct device *dev, struct device_attribute *devattr,
+			const char *buf, size_t count)
+{
+	unsigned int input;
+
+	if (kstrtos32(buf, 10, &input))
+		return -EINVAL;
+
+	if (!!input)
+		ocp_profile_start();
+	else
+		ocp_profile_end();
+
+	return count;
 }
 
 static DEVICE_ATTR(enabled, 0644, ocp_enable_show, ocp_enable_store);
@@ -717,6 +796,7 @@ static DEVICE_ATTR(release_duration, 0644, release_duration_show, release_durati
 static DEVICE_ATTR(clipped_freq, 0444, clipped_freq_show, NULL);
 static DEVICE_ATTR(total_trans, 0444, total_trans_show, NULL);
 static DEVICE_ATTR(time_in_state, 0444, time_in_state_show, NULL);
+static DEVICE_ATTR(profiler, 0644, ocp_profile_result_show, ocp_profile_store);
 
 static struct attribute *exynos_ocp_attrs[] = {
 	&dev_attr_enabled.attr,
@@ -728,6 +808,7 @@ static struct attribute *exynos_ocp_attrs[] = {
 	&dev_attr_clipped_freq.attr,
 	&dev_attr_total_trans.attr,
 	&dev_attr_time_in_state.attr,
+	&dev_attr_profiler.attr,
 	NULL,
 };
 
@@ -745,25 +826,25 @@ static int ocp_dt_parsing(struct device_node *dn)
 	const char *buf;
 	int ret = 0;
 
-	ret |= of_property_read_u32(dn, "down-step", &data->down_step);
-	ret |= of_property_read_u32(dn, "max-freq-wo-ocp", &data->max_freq_wo_ocp);
-	ret |= of_property_read_u32(dn, "release-mode", &data->release_mode);
-	ret |= of_property_read_u32(dn, "release-threshold", &data->release_threshold);
-	ret |= of_property_read_u32(dn, "release-duration", &data->release_duration);
+	ret |= of_property_read_u32(dn, "down-step", &ocp_data->down_step);
+	ret |= of_property_read_u32(dn, "max-freq-wo-ocp", &ocp_data->max_freq_wo_ocp);
+	ret |= of_property_read_u32(dn, "release-mode", &ocp_data->release_mode);
+	ret |= of_property_read_u32(dn, "release-threshold", &ocp_data->release_threshold);
+	ret |= of_property_read_u32(dn, "release-duration", &ocp_data->release_duration);
 
 	ret |= of_property_read_string(dn, "sibling-cpus", &buf);
 	if (ret)
 		return ret;
 
-	cpulist_parse(buf, &data->cpus);
-	cpumask_and(&data->cpus, &data->cpus, cpu_possible_mask);
-	cpumask_and(&data->cpus, &data->cpus, cpu_online_mask);
-	if (cpumask_weight(&data->cpus) == 0) {
+	cpulist_parse(buf, &ocp_data->cpus);
+	cpumask_and(&ocp_data->cpus, &ocp_data->cpus, cpu_possible_mask);
+	cpumask_and(&ocp_data->cpus, &ocp_data->cpus, cpu_online_mask);
+	if (cpumask_weight(&ocp_data->cpus) == 0) {
 		CONTROL_OCP_WARN(0);
 		return -ENODEV;
 	}
 
-	data->cpu = cpumask_first(&data->cpus);
+	ocp_data->cpu = cpumask_first(&ocp_data->cpus);
 
 	return 0;
 }
@@ -774,7 +855,10 @@ static void ocp_stats_create_table(struct cpufreq_policy *policy)
 	struct ocp_stats *stats;
 	struct cpufreq_frequency_table *pos, *table;
 
-	if (data && data->stats)
+	if (unlikely(!ocp_data))
+		return;
+
+	if (ocp_data && ocp_data->stats)
 		return;
 
 	table = policy->freq_table;
@@ -802,9 +886,9 @@ static void ocp_stats_create_table(struct cpufreq_policy *policy)
 		stats->freq_table[i++] = pos->frequency;
 
 	stats->last_time = get_jiffies_64();
-	stats->last_index = get_ocp_freq_index(stats, data->clipped_freq);
+	stats->last_index = get_ocp_freq_index(stats, ocp_data->clipped_freq);
 
-	data->stats = stats;
+	ocp_data->stats = stats;
 	return;
 free_stat:
 	kfree(stats);
@@ -815,18 +899,18 @@ static int exynos_ocp_probe(struct platform_device *pdev)
 	struct device_node *dn = pdev->dev.of_node;
 	int ret;
 
-	data = kzalloc(sizeof(struct exynos_ocp_data), GFP_KERNEL);
-	if (!data)
+	ocp_data = kzalloc(sizeof(struct exynos_ocp_data), GFP_KERNEL);
+	if (!ocp_data)
 		return -ENOMEM;
 
-	data->updated = false;
+	ocp_data->updated = false;
 
-	platform_set_drvdata(pdev, data);
+	platform_set_drvdata(pdev, ocp_data);
 
-	data->base = ioremap(GCU_BASE_ADDR, SZ_4K);
+	ocp_data->base = ioremap(APB_BASE_ADDR, SZ_2M);
 
-	get_s2mps19_i2c(&data->i2c);
-	if (data->i2c == NULL) {
+	get_s2mps19_i2c(&ocp_data->i2c);
+	if (ocp_data->i2c == NULL) {
 		dev_err(&pdev->dev, "Failed to get s2mps19 i2c_client\n");
 		goto free_data;
 	}
@@ -840,26 +924,26 @@ static int exynos_ocp_probe(struct platform_device *pdev)
 	cpufreq_register_notifier(&exynos_ocp_policy_notifier, CPUFREQ_POLICY_NOTIFIER);
 	cpufreq_register_notifier(&exynos_ocp_cpufreq_notifier, CPUFREQ_TRANSITION_NOTIFIER);
 
-	data->irq = irq_of_parse_and_map(dn, 0);
-	if (data->irq <= 0) {
+	ocp_data->irq = irq_of_parse_and_map(dn, 0);
+	if (ocp_data->irq <= 0) {
 		dev_err(&pdev->dev, "Failed to get IRQ\n");
 		goto free_data;
 	}
 
 	control_ocp_interrupt(0);
 
-	ret = devm_request_irq(&pdev->dev, data->irq, exynos_ocp_irq_handler,
-			IRQF_TRIGGER_HIGH | IRQF_SHARED, dev_name(&pdev->dev), data);
+	ret = devm_request_irq(&pdev->dev, ocp_data->irq, exynos_ocp_irq_handler,
+			IRQF_TRIGGER_HIGH | IRQF_SHARED, dev_name(&pdev->dev), ocp_data);
 	if (ret) {
-		dev_err(&pdev->dev, "Failed to request IRQ handler: %d\n", data->irq);
+		dev_err(&pdev->dev, "Failed to request IRQ handler: %d\n", ocp_data->irq);
 		goto free_data;
 	}
 
-	INIT_WORK(&data->work, exynos_ocp_work);
-	INIT_DELAYED_WORK(&data->delayed_work, exynos_ocp_work_release);
-	init_irq_work(&data->irq_work, exynos_ocp_irq_work);
+	INIT_WORK(&ocp_data->work, exynos_ocp_work);
+	INIT_DELAYED_WORK(&ocp_data->delayed_work, exynos_ocp_work_release);
+	init_irq_work(&ocp_data->irq_work, exynos_ocp_irq_work);
 
-	irq_set_affinity_hint(data->irq, &data->cpus);
+	irq_set_affinity_hint(ocp_data->irq, &ocp_data->cpus);
 
 	cpuhp_setup_state_nocalls(CPUHP_AP_EXYNOS_OCP,
 					"exynos:ocp",
@@ -876,7 +960,7 @@ static int exynos_ocp_probe(struct platform_device *pdev)
 	return 0;
 
 free_data:
-	kfree(data);
+	kfree(ocp_data);
 	return -ENODEV;
 }
 

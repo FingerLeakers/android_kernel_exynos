@@ -123,7 +123,7 @@ enum {
 #define SX9360_GAINRAWFILT	"sx9360,gainrawfilt_reg"
 #define SX9360_HYST		"sx9360,hyst_reg"
 #define SX9360_PROXTHRESH	"sx9360,proxthresh_reg"
-#define SX9360_PROXTHRESH_MCC	"sx9360,proxthresh_mcc"
+#define SX9360_HALLIC_CERT      "sx9360,hallic_cert_detect"
 
 /*define the value without Phase enable settings for easy changes in driver*/
 #define SX9360_GNRLCTRL0_VAL_PHOFF (0x00)    
@@ -131,7 +131,7 @@ static struct smtc_reg_data setup_reg[] = {
 	/* 0x10~0x12, General Control*/
     {
         .reg = SX9360_GNRLCTRL0_REG,
-        .val = SX9360_GNRLCTRL0_VAL_PHOFF | 0x03,//PHEN
+        .val = SX9360_GNRLCTRL0_VAL_PHOFF | 0x02,//PHEN
     },
     {
         .reg = SX9360_GNRLCTRL1_REG,

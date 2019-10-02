@@ -266,9 +266,7 @@ int exynos_fmp_setkey(struct fmp_crypto_info *ci,
 int exynos_fmp_clearkey(struct fmp_crypto_info *ci);
 void *exynos_fmp_init(struct platform_device *pdev);
 void exynos_fmp_exit(struct exynos_fmp *fmp);
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
 int exynos_fmp_test_crypt(struct fmp_crypto_info *ci,
 		const uint8_t *iv, uint32_t ivlen, uint8_t *src,
 		uint8_t *dst, uint32_t len, bool enc, void *priv);
-#endif
 #endif /* _EXYNOS_FMP_H_ */

@@ -24,9 +24,15 @@
 
 int sysdep_idr_alloc(struct idr *idr, void *mem)
 {
+	return sysdep_idr_alloc_in_range(idr, mem, 1, 0);
+}
+
+int sysdep_idr_alloc_in_range(struct idr *idr, void *mem,
+		unsigned long start, unsigned long end)
+{
 	int res;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
-	res = idr_alloc(idr, mem, 1, 0, GFP_KERNEL);
+	res = idr_alloc(idr, mem, start, end, GFP_KERNEL);
 #else
 	int tmp_id;
 	do {
@@ -36,7 +42,12 @@ int sysdep_idr_alloc(struct idr *idr, void *mem)
 		}
 
 		/* Reserving zero value helps with special case handling elsewhere */
-		res = idr_get_new_above(idr, mem, 1, &tmp_id);
+		res = idr_get_new_above(idr, mem, start, &tmp_id);
+		if (res == 0 && end && tmp_id >= end) {
+			res = -ENOSPC;
+			idr_remove(idr, tmp_id);
+			break;
+		}
 		if (res != -EAGAIN)
 			break;
 	} while (1);
@@ -94,48 +105,9 @@ void sysdep_unregister_cpu_notifier(struct notifier_block* notifier)
 #endif
 }
 
-int sysdep_crypto_sha1(uint8_t* hash, struct scatterlist* sg, char *p, int len)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 6, 0)
-	struct crypto_shash *tfm;
-
-	tfm = crypto_alloc_shash("sha1", 0, 0);
-	if (IS_ERR(tfm))
-		return PTR_ERR(tfm);
-
-	{
-		SHASH_DESC_ON_STACK(desc, tfm);
-
-		desc->tfm = tfm;
-		desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
-
-		crypto_shash_init(desc);
-		crypto_shash_update(desc, (u8 *)p, len);
-
-		crypto_shash_final(desc, hash);
-		shash_desc_zero(desc);
-
-		crypto_free_shash(tfm);
-	}
-#else
-	struct hash_desc hdesc;
-
-	if (IS_ERR(hdesc.tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC)))
-		return PTR_ERR(hdesc.tfm);
-
-	crypto_hash_init(&hdesc);
-	crypto_hash_update(&hdesc, sg, len);
-	crypto_hash_final(&hdesc, hash);
-
-	crypto_free_hash(hdesc.tfm);
-#endif
-	return 0;
-}
-
-
 int sysdep_vfs_getattr(struct file *filp, struct kstat *stat)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0))
 	struct path p;
 
 	p.mnt = filp->f_path.mnt;

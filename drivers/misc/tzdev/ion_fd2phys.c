@@ -29,7 +29,7 @@
 #endif
 
 #include "tz_cdev.h"
-#include "tzdev.h"
+#include "tzdev_internal.h"
 
 #define TZDEV_MAX_PFNS_COUNT	(SIZE_MAX / sizeof(sk_pfn_t))
 
@@ -49,7 +49,7 @@ struct ionfd2phys32 {
 
 #if defined(CONFIG_ARCH_EXYNOS)
 extern struct ion_device *ion_exynos;
-#elif defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_RANCHU)
+#elif defined(CONFIG_ARCH_WHALE)
 extern struct ion_device *idev;
 #elif defined(CONFIG_ARCH_MT6755) || defined(CONFIG_ARCH_MT6735) || defined(CONFIG_MACH_MT6757)
 extern struct ion_device *g_ion_device;
@@ -210,7 +210,7 @@ static struct tz_cdev ionfd2phys_cdev = {
 static ssize_t system_heap_id_show(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
-#if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_RANCHU)
+#if defined(CONFIG_ARCH_EXYNOS)
 	return sprintf(buf, "%d\n", ION_HEAP_TYPE_SYSTEM);
 #elif defined(CONFIG_ARCH_WHALE)
 	/* This is dirty hack for Whale platform. This platform uses
@@ -265,7 +265,7 @@ static int __init ionfd2phys_init(void)
 
 #if defined(CONFIG_ARCH_EXYNOS)
 	struct ion_device *ion_dev = ion_exynos;
-#elif defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_RANCHU)
+#elif defined(CONFIG_ARCH_WHALE)
 	struct ion_device *ion_dev = idev;
 #elif defined(CONFIG_ARCH_MT6755) || defined(CONFIG_ARCH_MT6735) || defined(CONFIG_MACH_MT6757)
 	struct ion_device *ion_dev = g_ion_device;
@@ -273,7 +273,7 @@ static int __init ionfd2phys_init(void)
 	pr_devel("module init\n");
 
 #if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_MT6755) \
- || defined(CONFIG_ARCH_MT6735) || defined(CONFIG_ARCH_RANCHU) || defined(CONFIG_MACH_MT6757)
+ || defined(CONFIG_ARCH_MT6735) || defined(CONFIG_MACH_MT6757)
 	if (!ion_dev) {
 		pr_err("Failed to get ion device\n");
 		return 0;
@@ -332,8 +332,8 @@ static void __exit ionfd2phys_exit(void)
 	ion_client_destroy(client);
 }
 
-#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_RANCHU)
-/* On Whale and Ranchu platforms ION driver starts as module,
+#if defined(CONFIG_ARCH_WHALE)
+/* On Whale platforms ION driver starts as module,
  * so ionfd2phys_init() is executed when there is
  * no idev in the system. To avoid this situation
  * ionfd2phys_init() is moved to late_initcall

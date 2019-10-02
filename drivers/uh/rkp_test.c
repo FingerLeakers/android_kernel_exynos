@@ -412,8 +412,9 @@ static int test_case_kernel_range_rwx(void)
 	u64 ro = 0, rw = 0;
 	u64 xn = 0, x = 0;
 	int i;
-	u64 fixmap_va = __fix_to_virt(FIX_ENTRY_TRAMP_TEXT);
-
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+	u64 fixmap_va = TRAMP_VALIAS;
+#endif
 	struct mem_range_struct test_ranges[] = {
 		{(u64)VMALLOC_START,		((u64)_text) - ((u64)VMALLOC_START),	"VMALLOC -  STEXT", false, true},
 		{((u64)_text),			((u64)_etext) - ((u64)_text),		"STEXT - ETEXT   ", true, false},
@@ -421,6 +422,7 @@ static int test_case_kernel_range_rwx(void)
 		// For STAR, two bit maps are between etext and srodata
 		{((u64)_etext),			((u64) __end_rodata) - ((u64)_etext),	"ETEXT -  ERODATA", true, true},
 		// For STAR, FIMC is after erodata
+#ifdef CONFIG_USE_DIRECT_IS_CONTROL
 		{((u64) __end_rodata),		VRA_START_VA-((u64) __end_rodata),	"ERODATA - S_FIMC", false, true},
 		{VRA_START_VA,			VRA_CODE_SIZE,				"     VRA CODE   ", true, false},
 		{VRA_START_VA+VRA_CODE_SIZE,	VRA_DATA_SIZE,				"     VRA DATA   ", false, true},
@@ -429,8 +431,11 @@ static int test_case_kernel_range_rwx(void)
 		{RTA_START_VA,			RTA_CODE_SIZE,				"     RTA CODE   ", true, false},
 		{RTA_START_VA+RTA_CODE_SIZE,	RTA_DATA_SIZE,				"     RTA DATA   ", false, true},
 		{((u64)FIMC_LIB_END_VA),	fixmap_va - ((u64)FIMC_LIB_END_VA),	"FIMC_END- FIXMAP", false, true},
+#endif
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 		{((u64)fixmap_va),		((u64) PAGE_SIZE),			"     FIXMAP     ", true, false},
 		{((u64)fixmap_va+PAGE_SIZE),	((u64) MEM_END-(fixmap_va+PAGE_SIZE)),	"FIXMAP - MEM_END", false, true},
+#endif
 	};
 
 	int len = sizeof(test_ranges)/sizeof(struct mem_range_struct);

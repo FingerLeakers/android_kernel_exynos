@@ -4,7 +4,6 @@ config ECRYPT_FS
 	select CRYPTO_ECB
 	select CRYPTO_CBC
 	select CRYPTO_MD5
-	select CRYPTO_SHA256
 	help
 	  Encrypted filesystem that operates on the VFS layer.  See
 	  <file:Documentation/filesystems/ecryptfs.txt> to learn more about
@@ -35,4 +34,3 @@ config ECRYPTFS_FEK_INTEGRITY
 	depends on ECRYPT_FS
 	help
 	MDFPP requirements: During file decryption of ecrypts, it should check integrity of FEK(File encrypiton key) via HMAC as per
-

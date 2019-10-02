@@ -8,11 +8,12 @@
  */
 
 #include <linux/clk.h>
+
+#include <linux/smc.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/io.h>
-#include <linux/smc.h>
 
 #include "ufshcd.h"
 #include "unipro.h"
@@ -165,32 +166,33 @@ static struct exynos_ufs_sfr_log ufs_log_sfr[] = {
 
 	{"PMA SFR"			,	LOG_PMA_SFR,			0},
 
-	{"COMN 0x45"			,	(0x0114),			0},
-	{"COMN 0x46"			,	(0x0118),			0},
-	{"COMN 0x47"			,	(0x011C),			0},
-	{"TRSV_L0 0x1C5"		,	(0x0714),			0},
-	{"TRSV_L0 0x1EC"		,	(0x07B0),			0},
-	{"TRSV_L0 0x1ED"		,	(0x07B4),			0},
-	{"TRSV_L0 0x1EE"		,	(0x07B8),			0},
-	{"TRSV_L0 0x1EF"		,	(0x07BC),			0},
+	{"COMN 0x4F"			,	(0x013C),			0},
+	{"COMN 0x50"			,	(0x0140),			0},
+	{"COMN 0x51"			,	(0x0144),			0},
+	{"TRSV_L0 0x308"		,	(0x0C2C),			0},
+	{"TRSV_L0 0x337"		,	(0x0CDC),			0},
+	{"TRSV_L0 0x338"		,	(0x0CE0),			0},
+	{"TRSV_L0 0x339"		,	(0x0CE4),			0},
+	{"TRSV_L0 0x33A"		,	(0x0CE8),			0},
 
-	{"TRSV_L1 0x1C5"		,	(0x0B14),			0},
-	{"TRSV_L1 0x1EC"		,	(0x0BB0),			0},
-	{"TRSV_L1 0x1ED"		,	(0x0BB4),			0},
-	{"TRSV_L1 0x1EE"		,	(0x0BB8),			0},
-	{"TRSV_L1 0x1EF"		,	(0x0BBC),			0},
+	{"TRSV_L1 0x50B"		,	(0x142C),			0},
+	{"TRSV_L1 0x537"		,	(0x14DC),			0},
 
-	{"TRSV_L0 0x152"		,	(0x0548),			0},
-	{"TRSV_L0 0x153"		,	(0x054C),			0},
-	{"TRSV_L0 0x154"		,	(0x0550),			0},
-	{"TRSV_L0 0x159"		,	(0x0564),			0},
-	{"TRSV_L0 0x1F2"		,	(0x07C8),			0},
+	{"TRSV_L1 0x538"		,	(0x14E0),			0},
+	{"TRSV_L1 0x539"		,	(0x14E4),			0},
+	{"TRSV_L1 0x53A"		,	(0x14E8),			0},
 
-	{"TRSV_L1 0x252"		,	(0x0948),			0},
-	{"TRSV_L1 0x253"		,	(0x094C),			0},
-	{"TRSV_L1 0x254"		,	(0x0950),			0},
-	{"TRSV_L1 0x259"		,	(0x0964),			0},
-	{"TRSV_L1 0x2F2"		,	(0x0BC8),			0},
+	{"TRSV_L0 0x23F"		,	(0x08FC),			0},
+	{"TRSV_L0 0x240"		,	(0x0900),			0},
+	{"TRSV_L0 0x260"		,	(0x0980),			0},
+	{"TRSV_L0 0x264"		,	(0x0990),			0},
+	{"TRSV_L0 0x285"		,	(0x0A14),			0},
+
+	{"TRSV_L1 0x43F"		,	(0x10FC),			0},
+	{"TRSV_L1 0x440"		,	(0x1100),			0},
+	{"TRSV_L1 0x460"		,	(0x1180),			0},
+	{"TRSV_L1 0x464"		,	(0x1190),			0},
+	{"TRSV_L1 0x485"		,	(0x1214),			0},
 	{},
 };
 
@@ -363,32 +365,33 @@ static struct exynos_ufs_sfr_log ufs_show_sfr[] = {
 
 	{"PMA SFR"			,	LOG_PMA_SFR,			0},
 
-	{"COMN 0x45"			,	(0x0114),			0},
-	{"COMN 0x46"			,	(0x0118),			0},
-	{"COMN 0x47"			,	(0x011C),			0},
-	{"TRSV_L0 0x1C5"		,	(0x0714),			0},
-	{"TRSV_L0 0x1EC"		,	(0x07B0),			0},
-	{"TRSV_L0 0x1ED"		,	(0x07B4),			0},
-	{"TRSV_L0 0x1EE"		,	(0x07B8),			0},
-	{"TRSV_L0 0x1EF"		,	(0x07BC),			0},
+	{"COMN 0x4F"			,	(0x013C),			0},
+	{"COMN 0x50"			,	(0x0140),			0},
+	{"COMN 0x51"			,	(0x0144),			0},
+	{"TRSV_L0 0x30B"		,	(0x0C2C),			0},
+	{"TRSV_L0 0x337"		,	(0x0CDC),			0},
+	{"TRSV_L0 0x338"		,	(0x0CE0),			0},
+	{"TRSV_L0 0x339"		,	(0x0CE4),			0},
+	{"TRSV_L0 0x33A"		,	(0x0CE8),			0},
 
-	{"TRSV_L1 0x1C5"		,	(0x0B14),			0},
-	{"TRSV_L1 0x1EC"		,	(0x0BB0),			0},
-	{"TRSV_L1 0x1ED"		,	(0x0BB4),			0},
-	{"TRSV_L1 0x1EE"		,	(0x0BB8),			0},
-	{"TRSV_L1 0x1EF"		,	(0x0BBC),			0},
+	{"TRSV_L1 0x50B"		,	(0x142C),			0},
+	{"TRSV_L1 0x537"		,	(0x14DC),			0},
 
-	{"TRSV_L0 0x152"		,	(0x0548),			0},
-	{"TRSV_L0 0x153"		,	(0x054C),			0},
-	{"TRSV_L0 0x154"		,	(0x0550),			0},
-	{"TRSV_L0 0x159"		,	(0x0564),			0},
-	{"TRSV_L0 0x1F2"		,	(0x07C8),			0},
+	{"TRSV_L1 0x538"		,	(0x14E0),			0},
+	{"TRSV_L1 0x539"		,	(0x14E4),			0},
+	{"TRSV_L1 0x53A"		,	(0x14E8),			0},
 
-	{"TRSV_L1 0x252"		,	(0x0948),			0},
-	{"TRSV_L1 0x253"		,	(0x094C),			0},
-	{"TRSV_L1 0x254"		,	(0x0950),			0},
-	{"TRSV_L1 0x259"		,	(0x0964),			0},
-	{"TRSV_L1 0x2F2"		,	(0x0BC8),			0},
+	{"TRSV_L0 0x23F"		,	(0x08FC),			0},
+	{"TRSV_L0 0x240"		,	(0x0900),			0},
+	{"TRSV_L0 0x260"		,	(0x0980),			0},
+	{"TRSV_L0 0x264"		,	(0x0990),			0},
+	{"TRSV_L0 0x285"		,	(0x0A14),			0},
+
+	{"TRSV_L1 0x43F"		,	(0x10FC),			0},
+	{"TRSV_L1 0x440"		,	(0x1100),			0},
+	{"TRSV_L1 0x460"		,	(0x1180),			0},
+	{"TRSV_L1 0x464"		,	(0x1190),			0},
+	{"TRSV_L1 0x485"		,	(0x1214),			0},
 	{},
 };
 
@@ -453,7 +456,7 @@ static void exynos_ufs_get_sfr(struct ufs_hba *hba,
 				cfg->val = ufshcd_readl(hba, cfg->offset);
 			else if (sel_api == LOG_VS_HCI_SFR)
 				cfg->val = hci_readl(ufs, cfg->offset);
-#ifdef CONFIG_SCSI_UFS_FMP_DUMP
+#ifdef CONFIG_EXYNOS_SMC_LOGGING
 			else if (sel_api == LOG_FMP_SFR)
 				cfg->val = exynos_smc(SMC_CMD_FMP_SMU_DUMP, 0, 0, cfg->offset);
 #endif

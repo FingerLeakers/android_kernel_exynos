@@ -12,6 +12,8 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/kdev_t.h>
+#include <linux/fs.h>
 #include <linux/sec_hqm_device.h>
 
 

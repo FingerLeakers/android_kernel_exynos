@@ -16,17 +16,14 @@
 
 #include <linux/ioctl.h>
 
-#define IOC_MAGIC       'h'
-#define TZIRS_NAME      "tzirs"
-#define TZIRS_DEV       "/dev/"TZIRS_NAME
+#define IOC_MAGIC 'h'
+#define IOCTL_IRS_CMD _IOWR(IOC_MAGIC, 1, struct irs_ctx)
 
 typedef struct irs_ctx {
 	uint32_t id;            /* r1 - Flag ID */
 	uint32_t func_cmd;      /* r2 - Function CMD */
 	uint32_t value;         /* r3 - Value or irs_flag.param (IOCTL_ADD_FLAG) */
 } irs_ctx_t;
-
-#define IOCTL_IRS_CMD           _IOWR(IOC_MAGIC, 1, struct irs_ctx)
 
 typedef enum {
 	IRS_SET_FLAG_CMD        =           1,

@@ -33,7 +33,7 @@
 #endif /* CONFIG_BATTERY_NOTIFIER */
 
 #if defined(CONFIG_CCIC_NOTIFIER)
-#include <linux/ccic/ccic_notifier.h>
+#include <linux/usb/typec/common/pdic_notifier.h>
 #endif /* CONFIG_CCIC_NOTIFIER */
 
 #if defined(CONFIG_MUIC_NOTIFIER)

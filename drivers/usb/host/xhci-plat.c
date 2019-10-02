@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * xhci-plat.c - xHCI host controller driver platform Bus Glue.
  *
@@ -5,10 +6,6 @@
  * Author: Sebastian Andrzej Siewior <bigeasy@linutronix.de>
  *
  * A lot of code borrowed from the Linux xHCI driver.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
  */
 
 #include <linux/clk.h>
@@ -16,13 +13,16 @@
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/usb/phy.h>
 #include <linux/slab.h>
 #include <linux/phy/phy.h>
 #include <linux/acpi.h>
 
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 #include <linux/usb/exynos_usb_audio.h>
+#endif
 
 #include "xhci.h"
 #include "xhci-plat.h"
@@ -65,6 +65,16 @@ static int xhci_priv_init_quirk(struct usb_hcd *hcd)
 		return 0;
 
 	return priv->init_quirk(hcd);
+}
+
+static int xhci_priv_resume_quirk(struct usb_hcd *hcd)
+{
+	struct xhci_plat_priv *priv = hcd_to_xhci_priv(hcd);
+
+	if (!priv->resume_quirk)
+		return 0;
+
+	return priv->resume_quirk(hcd);
 }
 
 static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
@@ -184,6 +194,7 @@ static const struct xhci_plat_priv xhci_plat_renesas_rcar_gen2 = {
 };
 
 static const struct xhci_plat_priv xhci_plat_renesas_rcar_gen3 = {
+	.firmware_name = XHCI_RCAR_FIRMWARE_NAME_V3,
 	.init_quirk = xhci_rcar_init_quirk,
 	.plat_start = xhci_rcar_start,
 	.resume_quirk = xhci_rcar_resume_quirk,
@@ -231,6 +242,7 @@ void xhci_portsc_power_off(void __iomem *portsc, u32 on, u32 prt)
 {
 	u32 reg;
 
+#if defined(CONFIG_USB_PORT_POWER_OPTIMIZATION)
 	spin_lock(&xhcioff_lock);
 
 	pr_info("%s, on=%d portsc_control_priority=%d, prt=%d\n",
@@ -248,6 +260,7 @@ void xhci_portsc_power_off(void __iomem *portsc, u32 on, u32 prt)
 		spin_unlock(&xhcioff_lock);
 		return;
 	}
+#endif
 
 	reg = readl(portsc);
 
@@ -262,6 +275,7 @@ void xhci_portsc_power_off(void __iomem *portsc, u32 on, u32 prt)
 	pr_info("power %s portsc, reg = 0x%x addr = %p\n",
 		on ? "on" : "off", reg, portsc);
 
+#if defined(CONFIG_USB_PORT_POWER_OPTIMIZATION)
 	reg = readl(phycon_base_addr+0x70);
 	if (on)
 		reg &= ~DIS_RX_DETECT;
@@ -278,6 +292,7 @@ void xhci_portsc_power_off(void __iomem *portsc, u32 on, u32 prt)
 	pr_info("phycon ess_ctrl = 0x%x\n", readl(phycon_base_addr+0x70));
 
 	spin_unlock(&xhcioff_lock);
+#endif
 }
 
 int xhci_portsc_set(u32 on)
@@ -310,16 +325,40 @@ int xhci_port_power_set(u32 on, u32 prt)
 EXPORT_SYMBOL(xhci_port_power_set);
 #endif
 
+static void xhci_pm_runtime_init(struct device *dev)
+{
+    dev->power.runtime_status = RPM_SUSPENDED;
+    dev->power.idle_notification = false;
+
+    dev->power.disable_depth = 1;
+    atomic_set(&dev->power.usage_count, 0);
+
+    dev->power.runtime_error = 0;
+
+    atomic_set(&dev->power.child_count, 0);
+    pm_suspend_ignore_children(dev, false);
+    dev->power.runtime_auto = true;
+
+    dev->power.request_pending = false;
+    dev->power.request = RPM_REQ_NONE;
+    dev->power.deferred_resume = false;
+    dev->power.accounting_timestamp = jiffies;
+
+    dev->power.timer_expires = 0;
+    init_waitqueue_head(&dev->power.wait_queue);
+}
+
 static int xhci_plat_probe(struct platform_device *pdev)
 {
 	struct device		*parent = pdev->dev.parent;
-	const struct of_device_id *match;
+	const struct xhci_plat_priv *priv_match;
 	const struct hc_driver	*driver;
-	struct device		*sysdev;
+	struct device		*sysdev, *tmpdev;
 	struct xhci_hcd		*xhci;
 	struct resource         *res;
 	struct usb_hcd		*hcd;
 	struct clk              *clk;
+	struct clk              *reg_clk;
 	int			ret;
 	int			irq;
 
@@ -381,6 +420,8 @@ static int xhci_plat_probe(struct platform_device *pdev)
 			return ret;
 	}
 
+	xhci_pm_runtime_init(&pdev->dev);
+
 	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
 	pm_runtime_get_noresume(&pdev->dev);
@@ -422,23 +463,32 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * Not all platforms have a clk so it is not an error if the
-	 * clock does not exists.
+	 * Not all platforms have clks so it is not an error if the
+	 * clock do not exist.
 	 */
-	clk = devm_clk_get(&pdev->dev, NULL);
-	if (!IS_ERR(clk)) {
-		ret = clk_prepare_enable(clk);
+	reg_clk = devm_clk_get(&pdev->dev, "reg");
+	if (!IS_ERR(reg_clk)) {
+		ret = clk_prepare_enable(reg_clk);
 		if (ret)
 			goto put_hcd;
-	} else if (PTR_ERR(clk) == -EPROBE_DEFER) {
+	} else if (PTR_ERR(reg_clk) == -EPROBE_DEFER) {
 		ret = -EPROBE_DEFER;
 		goto put_hcd;
 	}
 
+	clk = devm_clk_get(&pdev->dev, NULL);
+	if (!IS_ERR(clk)) {
+		ret = clk_prepare_enable(clk);
+		if (ret)
+			goto disable_reg_clk;
+	} else if (PTR_ERR(clk) == -EPROBE_DEFER) {
+		ret = -EPROBE_DEFER;
+		goto disable_reg_clk;
+	}
+
 	xhci = hcd_to_xhci(hcd);
-	match = of_match_node(usb_xhci_of_match, pdev->dev.of_node);
-	if (match) {
-		const struct xhci_plat_priv *priv_match = match->data;
+	priv_match = of_device_get_match_data(&pdev->dev);
+	if (priv_match) {
 		struct xhci_plat_priv *priv = hcd_to_xhci_priv(hcd);
 
 		/* Just copy data for now */
@@ -449,6 +499,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	device_wakeup_enable(hcd->self.controller);
 
 	xhci->clk = clk;
+	xhci->reg_clk = reg_clk;
 	xhci->wakelock = wakelock;
 	xhci->main_hcd = hcd;
 	xhci->shared_hcd = __usb_create_hcd(driver, sysdev, &pdev->dev,
@@ -458,11 +509,24 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		goto disable_clk;
 	}
 
-	if (device_property_read_bool(sysdev, "usb3-lpm-capable"))
-		xhci->quirks |= XHCI_LPM_SUPPORT;
+	/* imod_interval is the interrupt moderation value in nanoseconds. */
+	xhci->imod_interval = 40000;
 
-	if (device_property_read_bool(&pdev->dev, "quirk-broken-port-ped"))
-		xhci->quirks |= XHCI_BROKEN_PORT_PED;
+	/* Iterate over all parent nodes for finding quirks */
+	for (tmpdev = &pdev->dev; tmpdev; tmpdev = tmpdev->parent) {
+
+		if (device_property_read_bool(tmpdev, "usb2-lpm-disable"))
+			xhci->quirks |= XHCI_HW_LPM_DISABLE;
+
+		if (device_property_read_bool(tmpdev, "usb3-lpm-capable"))
+			xhci->quirks |= XHCI_LPM_SUPPORT;
+
+		if (device_property_read_bool(tmpdev, "quirk-broken-port-ped"))
+			xhci->quirks |= XHCI_BROKEN_PORT_PED;
+
+		device_property_read_u32(tmpdev, "imod-interval-ns",
+					 &xhci->imod_interval);
+	}
 
 	hcd->usb_phy = devm_usb_get_phy_by_phandle(sysdev, "usb-phy", 0);
 	if (IS_ERR(hcd->usb_phy)) {
@@ -479,8 +543,8 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	/* Get USB3.0 PHY to tune the PHY */
 	if (parent) {
 		xhci->shared_hcd->phy = devm_phy_get(parent, "usb3-phy");
-		if (IS_ERR_OR_NULL(hcd->phy)) {
-			hcd->phy = NULL;
+		if (IS_ERR_OR_NULL(xhci->shared_hcd->phy)) {
+			xhci->shared_hcd->phy = NULL;
 			dev_err(&pdev->dev,
 				"%s: failed to get phy\n", __func__);
 		}
@@ -554,8 +618,10 @@ put_usb3_hcd:
 	usb_put_hcd(xhci->shared_hcd);
 
 disable_clk:
-	if (!IS_ERR(clk))
-		clk_disable_unprepare(clk);
+	clk_disable_unprepare(clk);
+
+disable_reg_clk:
+	clk_disable_unprepare(reg_clk);
 
 put_hcd:
 	usb_put_hcd(hcd);
@@ -573,12 +639,28 @@ static int xhci_plat_remove(struct platform_device *dev)
 	struct usb_hcd	*hcd = platform_get_drvdata(dev);
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct clk *clk = xhci->clk;
-
+	struct clk *reg_clk = xhci->reg_clk;
+	int timeout = 0;
+	
 	dev_info(&dev->dev, "XHCI PLAT REMOVE\n");
 
 	usb3_portsc = NULL;
 	pp_set_delayed = 0;
 
+	/*
+	 * Sometimes deadlock occurred in this function.
+	 * So, below waiting for completion of hub_event was added.
+	 */
+	while (xhci->shared_hcd->is_in_hub_event || hcd->is_in_hub_event) {
+		msleep(10);
+		timeout += 10;
+		if (timeout >= XHCI_HUB_EVENT_TIMEOUT) {
+			xhci_err(xhci,
+				"ERROR: hub_event completion timeout\n");
+			break;
+		}
+	}
+	xhci_dbg(xhci, "%s: waited %dmsec", __func__, timeout);
 #if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 	pr_info("%s\n", __func__);
 	/* In order to prevent kernel panic */
@@ -615,8 +697,8 @@ static int xhci_plat_remove(struct platform_device *dev)
 	usb_remove_hcd(hcd);
 	usb_put_hcd(xhci->shared_hcd);
 
-	if (!IS_ERR(clk))
-		clk_disable_unprepare(clk);
+	clk_disable_unprepare(clk);
+	clk_disable_unprepare(reg_clk);
 	usb_put_hcd(hcd);
 
 	pm_runtime_set_suspended(&dev->dev);
@@ -627,11 +709,8 @@ static int xhci_plat_remove(struct platform_device *dev)
 
 static int __maybe_unused xhci_plat_suspend(struct device *dev)
 {
-	/*
-	 *struct usb_hcd	*hcd = dev_get_drvdata(dev);
-	 *struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
-	 *int ret;
-	 */
+	struct usb_hcd	*hcd = dev_get_drvdata(dev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 
 	pr_info("[%s] \n",__func__);
 
@@ -644,36 +723,22 @@ static int __maybe_unused xhci_plat_suspend(struct device *dev)
 	 * also applies to runtime suspend.
 	 */
 
-	/*
-	 *ret = xhci_suspend(xhci, device_may_wakeup(dev));
-	 *
-	 *if (!device_may_wakeup(dev) && !IS_ERR(xhci->clk))
-	 *	clk_disable_unprepare(xhci->clk);
-	 */
-	return 0;
+	return  xhci_suspend(xhci, device_may_wakeup(dev));
 }
 
 static int __maybe_unused xhci_plat_resume(struct device *dev)
 {
-	/*
-	 *struct usb_hcd	*hcd = dev_get_drvdata(dev);
-	 *struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
-	 *int ret;
-	 */
+	struct usb_hcd	*hcd = dev_get_drvdata(dev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+	int ret;
 
 	pr_info("[%s] \n",__func__);
 
-	/*
-	 *if (!device_may_wakeup(dev) && !IS_ERR(xhci->clk))
-	 *	clk_prepare_enable(xhci->clk);
-	 *
-	 *ret = xhci_priv_resume_quirk(hcd);
-	 *if (ret)
-	 *	return ret;
-	 *
-	 *return xhci_resume(xhci, 0);
-	 */
-	 return 0;
+	ret = xhci_priv_resume_quirk(hcd);
+	if (ret)
+		return ret;
+
+	return xhci_resume(xhci, 0);
 }
 
 static int __maybe_unused xhci_plat_runtime_suspend(struct device *dev)

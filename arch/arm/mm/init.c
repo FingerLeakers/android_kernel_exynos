@@ -36,6 +36,7 @@
 #include <asm/system_info.h>
 #include <asm/tlb.h>
 #include <asm/fixmap.h>
+#include <asm/ptdump.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -235,7 +236,6 @@ static void __init arm_initrd_init(void)
 #ifdef CONFIG_BLK_DEV_INITRD
 	phys_addr_t start;
 	unsigned long size;
-	phys_addr_t start_down, end_up;
 
 	/* FDT scan will populate initrd_start */
 	if (initrd_start && !phys_initrd_size) {
@@ -271,10 +271,7 @@ static void __init arm_initrd_init(void)
 	}
 
 	memblock_reserve(start, size);
-	start_down = phys_initrd_start & PAGE_MASK;
-	end_up = PAGE_ALIGN(phys_initrd_start + phys_initrd_size);
-	record_memsize_reserved("initrd", start_down, end_up - start_down,
-				false, false);
+
 	/* Now convert initrd to virtual addresses */
 	initrd_start = __phys_to_virt(phys_initrd_start);
 	initrd_end = initrd_start + phys_initrd_size;
@@ -284,13 +281,8 @@ static void __init arm_initrd_init(void)
 void __init arm_memblock_init(const struct machine_desc *mdesc)
 {
 	/* Register the kernel text, kernel data and initrd with memblock. */
-	set_memsize_kernel_type(MEMSIZE_KERNEL_KERNEL);
 	memblock_reserve(__pa(KERNEL_START), KERNEL_END - KERNEL_START);
-	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
-	record_memsize_reserved("initmem", __pa(__init_begin),
-				__init_end - __init_begin, false, false);
 
-	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 	arm_initrd_init();
 
 	arm_mm_memblock_reserve();
@@ -300,12 +292,10 @@ void __init arm_memblock_init(const struct machine_desc *mdesc)
 		mdesc->reserve();
 
 	early_init_fdt_reserve_self();
-	set_memsize_kernel_type(MEMSIZE_KERNEL_STOP);
 	early_init_fdt_scan_reserved_mem();
 
 	/* reserve memory for DMA contiguous allocations */
 	dma_contiguous_reserve(arm_dma_limit);
-	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 
 	arm_memblock_steal_permitted = false;
 	memblock_dump_all();
@@ -397,7 +387,6 @@ static void __init free_unused_memmap(void)
 	unsigned long start, prev_end = 0;
 	struct memblock_region *reg;
 
-	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	/*
 	 * This relies on each bank being in address order.
 	 * The banks are sorted previously in bootmem_init().
@@ -441,7 +430,6 @@ static void __init free_unused_memmap(void)
 		free_memmap(prev_end,
 			    ALIGN(prev_end, PAGES_PER_SECTION));
 #endif
-	set_memsize_kernel_type(MEMSIZE_KERNEL_MM_INIT);
 }
 
 #ifdef CONFIG_HIGHMEM
@@ -593,16 +581,6 @@ void __init mem_init(void)
 	BUILD_BUG_ON(PKMAP_BASE + LAST_PKMAP * PAGE_SIZE > PAGE_OFFSET);
 	BUG_ON(PKMAP_BASE + LAST_PKMAP * PAGE_SIZE	> PAGE_OFFSET);
 #endif
-
-	if (PAGE_SIZE >= 16384 && get_num_physpages() <= 128) {
-		extern int sysctl_overcommit_memory;
-		/*
-		 * On a machine this small we won't get
-		 * anywhere without overcommit, so turn
-		 * it on by default.
-		 */
-		sysctl_overcommit_memory = OVERCOMMIT_ALWAYS;
-	}
 }
 
 #ifdef CONFIG_STRICT_KERNEL_RWX
@@ -764,6 +742,7 @@ void mark_rodata_ro(void)
 {
 	kernel_set_to_readonly = 1;
 	stop_machine(__mark_rodata_ro, NULL, NULL);
+	debug_checkwx();
 }
 
 void set_kernel_text_rw(void)
@@ -788,20 +767,9 @@ void set_kernel_text_ro(void)
 static inline void fix_kernmem_perms(void) { }
 #endif /* CONFIG_STRICT_KERNEL_RWX */
 
-void free_tcmmem(void)
-{
-#ifdef CONFIG_HAVE_TCM
-	extern char __tcm_start, __tcm_end;
-
-	poison_init_mem(&__tcm_start, &__tcm_end - &__tcm_start);
-	free_reserved_area(&__tcm_start, &__tcm_end, -1, "TCM link");
-#endif
-}
-
 void free_initmem(void)
 {
 	fix_kernmem_perms();
-	free_tcmmem();
 
 	poison_init_mem(__init_begin, __init_end - __init_begin);
 	if (!machine_is_integrator() && !machine_is_cintegrator())

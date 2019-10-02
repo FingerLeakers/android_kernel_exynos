@@ -107,7 +107,7 @@ static void __mfc_set_default_params(struct mfc_ctx *ctx)
 	mfc_debug(2, "Set default param -  enc_param_num: %d\n", dev->pdata->enc_param_num);
 	for (i = 0; i < dev->pdata->enc_param_num; i++) {
 		if (i >= MFC_MAX_DEFAULT_PARAM) {
-			mfc_err_dev("enc_param_num(%d) is over max number(%d)\n",
+			mfc_err_ctx("enc_param_num(%d) is over max number(%d)\n",
 					dev->pdata->enc_param_num, MFC_MAX_DEFAULT_PARAM);
 			break;
 		}
@@ -195,9 +195,26 @@ static void __mfc_set_enc_params(struct mfc_ctx *ctx)
 	mfc_clear_bits(reg, 0x1, 18);
 	if (nal_q_parallel_disable)
 		mfc_set_bits(reg, 0x1, 18, 0x1);
+	/* compressor ratio of input source */
+	if (dev->pdata->support_sbwcl && ctx->is_sbwc_lossy) {
+		if (ctx->sbwcl_ratio == 50 || ctx->sbwcl_ratio == 60)
+			mfc_clear_set_bits(reg, 0x3, 24, 1);
+		else if (ctx->sbwcl_ratio == 75 || ctx->sbwcl_ratio == 80)
+			mfc_clear_set_bits(reg, 0x3, 24, 2);
+	}
 	MFC_RAW_WRITEL(reg, MFC_REG_E_ENC_OPTIONS);
 
 	mfc_set_pixel_format(ctx, ctx->src_fmt->fourcc);
+
+	if (ctx->src_fmt->type & MFC_FMT_RGB) {
+		reg = MFC_RAW_READL(MFC_REG_PIXEL_FORMAT);
+		mfc_clear_set_bits(reg, 0x1, 8, p->color_range);
+		if (p->transfer_characteristics)
+			mfc_clear_set_bits(reg, 0x3, 6, p->transfer_characteristics);
+		mfc_debug(2, "[RGB] enc color_range %d, transfer %d\n",
+				p->color_range, p->transfer_characteristics);
+		MFC_RAW_WRITEL(reg, MFC_REG_PIXEL_FORMAT);
+	}
 
 	/* padding control & value */
 	MFC_RAW_WRITEL(0x0, MFC_REG_E_PADDING_CTRL);
@@ -815,6 +832,43 @@ static void __mfc_set_enc_params_vp8(struct mfc_ctx *ctx)
 	mfc_debug_leave();
 }
 
+static void __mfc_enc_check_vp9_profile(struct mfc_ctx *ctx)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	struct mfc_enc_params *p = &enc->params;
+	struct mfc_vp9_enc_params *p_vp9 = &p->codec.vp9;
+
+	if (!ctx->is_422 && !ctx->is_10bit) {
+		/* YUV420 8bit format */
+		if (p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE0) {
+			mfc_err_ctx("4:2:0 format is not matched with profile(%d)\n",
+						p_vp9->profile);
+			p_vp9->profile = MFC_REG_E_PROFILE_VP9_PROFILE0;
+		}
+	} else if (ctx->is_422 && !ctx->is_10bit) {
+		/* YUV422 8bit format */
+		if (p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE1) {
+			mfc_err_ctx("4:2:2 format is not matched with profile(%d)\n",
+						p_vp9->profile);
+			p_vp9->profile = MFC_REG_E_PROFILE_VP9_PROFILE1;
+		}
+	} else if (!ctx->is_422 && ctx->is_10bit) {
+		/* YUV420 10bit format */
+		if (p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE2) {
+			mfc_err_ctx("4:2:0 10bit format is not matched with profile(%d)\n",
+						p_vp9->profile);
+			p_vp9->profile = MFC_REG_E_PROFILE_VP9_PROFILE2;
+		}
+	} else if (ctx->is_422 && ctx->is_10bit) {
+		/* YUV422 10bit format */
+		if (p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE3) {
+			mfc_err_ctx("4:2:2 10bit format is not matched with profile(%d)\n",
+						p_vp9->profile);
+			p_vp9->profile = MFC_REG_E_PROFILE_VP9_PROFILE3;
+		}
+	}
+}
+
 static void __mfc_set_enc_params_vp9(struct mfc_ctx *ctx)
 {
 	struct mfc_dev *dev = ctx->dev;
@@ -828,6 +882,7 @@ static void __mfc_set_enc_params_vp9(struct mfc_ctx *ctx)
 
 	p->rc_framerate_res = FRAME_RATE_RESOLUTION;
 	__mfc_set_enc_params(ctx);
+	__mfc_enc_check_vp9_profile(ctx);
 
 	if (p_vp9->num_hier_layer & 0x3) {
 		/* set gop_size without i_frm_ctrl mode */
@@ -848,22 +903,6 @@ static void __mfc_set_enc_params_vp9(struct mfc_ctx *ctx)
 		mfc_set_bits(reg, 0x7, 20, 0x2);
 	}
 	MFC_RAW_WRITEL(reg, MFC_REG_E_PICTURE_PROFILE);
-
-	/* for only information about wrong setting */
-	if (ctx->is_422) {
-		if ((p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE1) &&
-			(p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE3)) {
-			mfc_err_ctx("4:2:2 format is not matched with profile(%d)\n",
-					p_vp9->profile);
-		}
-	}
-	if (ctx->is_10bit) {
-		if ((p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE2) &&
-			(p_vp9->profile != MFC_REG_E_PROFILE_VP9_PROFILE3)) {
-			mfc_err_ctx("[10BIT] format is not matched with profile(%d)\n",
-					p_vp9->profile);
-		}
-	}
 
 	reg = MFC_RAW_READL(MFC_REG_E_VP9_OPTION);
 	/* if num_refs_for_p is 2, the performance falls by half */
@@ -949,6 +988,46 @@ static void __mfc_set_enc_params_vp9(struct mfc_ctx *ctx)
 	mfc_debug_leave();
 }
 
+static void __mfc_enc_check_hevc_profile(struct mfc_ctx *ctx)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	struct mfc_enc_params *p = &enc->params;
+	struct mfc_hevc_enc_params *p_hevc = &p->codec.hevc;
+
+	if (!ctx->is_422 && !ctx->is_10bit) {
+		/* YUV420 8bit format */
+		if ((p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN) &&
+				(p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_10)) {
+			mfc_err_ctx("4:2:0 format is not matched with profile(%d)\n",
+						p_hevc->profile);
+			p_hevc->profile = MFC_REG_E_PROFILE_HEVC_MAIN;
+		}
+	} else if (ctx->is_422 && !ctx->is_10bit) {
+		/* YUV422 8bit format */
+		if ((p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10_INTRA) &&
+				p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10) {
+			mfc_err_ctx("4:2:2 format is not matched with profile(%d)\n",
+						p_hevc->profile);
+			p_hevc->profile = MFC_REG_E_PROFILE_HEVC_MAIN_422_10;
+		}
+	} else if (!ctx->is_422 && ctx->is_10bit) {
+		/* YUV420 10bit format */
+		if (p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_10) {
+			mfc_err_ctx("4:2:0 10bit format is not matched with profile(%d)\n",
+						p_hevc->profile);
+			p_hevc->profile = MFC_REG_E_PROFILE_HEVC_MAIN_10;
+		}
+	} else if (ctx->is_422 && ctx->is_10bit) {
+		/* YUV422 10bit format */
+		if ((p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10_INTRA) &&
+				(p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10)) {
+			mfc_err_ctx("4:2:2 10bit format is not matched with profile(%d)\n",
+						p_hevc->profile);
+			p_hevc->profile = MFC_REG_E_PROFILE_HEVC_MAIN_422_10;
+		}
+	}
+}
+
 static void __mfc_set_enc_params_hevc(struct mfc_ctx *ctx)
 {
 	struct mfc_dev *dev = ctx->dev;
@@ -962,6 +1041,7 @@ static void __mfc_set_enc_params_hevc(struct mfc_ctx *ctx)
 
 	p->rc_framerate_res = FRAME_RATE_RESOLUTION;
 	__mfc_set_enc_params(ctx);
+	__mfc_enc_check_hevc_profile(ctx);
 
 	if (p_hevc->num_hier_layer & 0x7) {
 		/* set gop_size without i_frm_ctrl mode */
@@ -992,23 +1072,6 @@ static void __mfc_set_enc_params_hevc(struct mfc_ctx *ctx)
 		mfc_set_bits(reg, 0x7, 20, 0x2);
 	}
 	MFC_RAW_WRITEL(reg, MFC_REG_E_PICTURE_PROFILE);
-
-	/* for only information about wrong setting */
-	if (ctx->is_422) {
-		if ((p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10_INTRA) &&
-			(p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10)) {
-			mfc_err_ctx("4:2:2 format is not matched with profile(%d)\n",
-					p_hevc->profile);
-		}
-	}
-	if (ctx->is_10bit) {
-		if ((p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10_INTRA) &&
-			(p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_10) &&
-			(p_hevc->profile != MFC_REG_E_PROFILE_HEVC_MAIN_422_10)) {
-			mfc_err_ctx("[10BIT] format is not matched with profile(%d)\n",
-					p_hevc->profile);
-		}
-	}
 
 	/* max partition depth */
 	reg = MFC_RAW_READL(MFC_REG_E_HEVC_OPTIONS);
@@ -1260,7 +1323,6 @@ int mfc_set_enc_params(struct mfc_ctx *ctx)
 
 void mfc_set_test_params(struct mfc_dev *dev)
 {
-
 	unsigned int base_addr = 0xF000;
 	unsigned int i;
 
@@ -1276,6 +1338,10 @@ void mfc_set_test_params(struct mfc_dev *dev)
 				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_FIRST_STRIDE) &&
 				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_SECOND_STRIDE) &&
 				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_THIRD_STRIDE) &&
+				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_FIRST_2BIT_ADDR) &&
+				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_SECOND_2BIT_ADDR) &&
+				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_FIRST_2BIT_STRIDE) &&
+				((base_addr + (i * 4)) != MFC_REG_E_SOURCE_SECOND_2BIT_STRIDE) &&
 				((base_addr + (i * 4)) != MFC_REG_PIXEL_FORMAT))
 			MFC_RAW_WRITEL(dev->reg_val[i], base_addr + (i * 4));
 

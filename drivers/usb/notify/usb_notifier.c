@@ -17,7 +17,7 @@
 #include <linux/of_gpio.h>
 #endif
 #if defined(CONFIG_CCIC_NOTIFIER)
-#include <linux/ccic/ccic_notifier.h>
+#include <linux/usb/typec/common/pdic_notifier.h>
 #endif
 #if defined(CONFIG_MUIC_NOTIFIER)
 #include <linux/muic/muic.h>
@@ -27,7 +27,7 @@
 #include <linux/vbus_notifier.h>
 #endif
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
-#include <linux/usb/manager/usb_typec_manager_notifier.h>
+#include <linux/usb/typec/manager/usb_typec_manager_notifier.h>
 #endif
 #if defined(CONFIG_BATTERY_SAMSUNG_V2)
 #include "../../battery_v2/include/sec_charging_common.h"
@@ -38,9 +38,6 @@
 
 #include <linux/regulator/consumer.h>
 #include <linux/workqueue.h>
-#if defined(CONFIG_COMBO_REDRIVER_PTN36502)
-#include <linux/combo_redriver/ptn36502.h>
-#endif
 
 struct usb_notifier_platform_data {
 #if defined(CONFIG_CCIC_NOTIFIER)
@@ -61,6 +58,7 @@ struct usb_notifier_platform_data {
 #define USB_LDOCONTROL_EXYNOS8895	1 /* legacy */
 #define USB_LDOCONTROL_EXYNOS9810	2
 #define USB_LDOCONTROL_EXYNOS9820	3
+#define USB_LDOCONTROL_EXYNOS9830	4
 	unsigned int usb_ldocontrol;
 	unsigned int usb_ldo_onoff;
 	bool usb_ldo_off_working;
@@ -274,36 +272,11 @@ static void usb_dp_regulator_onoff(struct usb_notifier_platform_data *pdata,
 	regulator_put(vdd3p3_dp);
 }
 
-static void usb_ldo_manual_control(bool on)
-{
-	struct device_node *np = NULL;
-	struct platform_device *pdev = NULL;
-
-	pr_info("%s ldo = %d\n", __func__, on);
-
-	np = exynos_udc_parse_dt();
-	if (np) {
-		pdev = of_find_device_by_node(np);
-		of_node_put(np);
-		if (pdev) {
-			pr_info("%s: get the %s platform_device\n",
-				__func__, pdev->name);
-			dwc3_exynos_start_ldo(&pdev->dev, on);
-			goto end;
-		}
-	}
-
-	pr_err("%s: failed to get the platform_device\n", __func__);
-end:
-	return;
-}
-
 extern int exynos_usbdrd_ldo_manual_control(bool on);
 static void usb_regulator_onoff(void *data, unsigned int onoff)
 {
 	struct usb_notifier_platform_data *pdata =
 		(struct usb_notifier_platform_data *)(data);
-
 	pr_info("usb: %s - Turn %s (ldocontrol=%d, usb_ldo_off_working=%d)\n", __func__,
 		onoff ? "on":"off", pdata->usb_ldocontrol, pdata->usb_ldo_off_working);
 
@@ -330,12 +303,11 @@ static void usb_regulator_onoff(void *data, unsigned int onoff)
 			}
 		}
 		pdata->usb_ldo_onoff = onoff;
-	} else if (pdata->usb_ldocontrol == USB_LDOCONTROL_EXYNOS9810)
-		usb_ldo_manual_control(onoff);
-	else if (pdata->usb_ldocontrol == USB_LDOCONTROL_EXYNOS9820)
+	} else if (pdata->usb_ldocontrol >= USB_LDOCONTROL_EXYNOS9820) {
 		exynos_usbdrd_ldo_manual_control(onoff);
-	else 
+	} else {
 		pr_err("%s: can't control\n", __func__);
+	}
 }
 
 static void usb_ldo_off_control(struct work_struct *work)
@@ -639,9 +611,6 @@ static int exynos_set_host(bool enable)
 #endif
 	} else {
 		pr_info("%s USB_HOST_ATTACHED\n", __func__);
-#if defined(CONFIG_COMBO_REDRIVER_PTN36502)
-		ptn36502_config(USB3_ONLY_MODE, DR_DFP);
-#endif
 #ifdef CONFIG_OF
 		check_usb_id_state(0);
 #endif
@@ -657,9 +626,6 @@ static int exynos_set_peripheral(bool enable)
 {
 	if (enable) {
 		pr_info("%s usb attached\n", __func__);
-#if defined(CONFIG_COMBO_REDRIVER_PTN36502)
-		ptn36502_config(USB3_ONLY_MODE, DR_UFP);
-#endif
 		check_usb_vbus_state(1);
 	} else {
 		pr_info("%s usb detached\n", __func__);
@@ -716,7 +682,7 @@ static struct otg_notify dwc_lsi_notify = {
 	.vbus_detect_gpio = -1,
 	.is_host_wakelock = 1,
 	.is_wakelock = 1,
-	.booting_delay_sec = 10,
+	.booting_delay_sec = 12,
 #if !defined(CONFIG_CCIC_NOTIFIER)
 	.auto_drive_vbus = NOTIFY_OP_POST,
 #endif

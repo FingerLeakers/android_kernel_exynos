@@ -28,6 +28,9 @@ void dsms_log_write(int loglevel, const char* format, ...)
 	case LOG_ERROR:
 		pr_err(DSMS_TAG "%s", log);
 		break;
+	case LOG_DEBUG:
+		pr_debug(DSMS_TAG "%s", log);
+		break;
 	default: /* LOG_INFO or others */
 		pr_info(DSMS_TAG "%s", log);
 		break;

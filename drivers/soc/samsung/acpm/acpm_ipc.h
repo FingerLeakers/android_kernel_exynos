@@ -45,7 +45,6 @@ struct acpm_ipc_info {
 	unsigned int irq;
 	void __iomem *intr;
 	void __iomem *sram_base;
-	bool w_mode;
 	struct acpm_framework *initdata;
 	unsigned int initdata_base;
 	unsigned int intr_status;
@@ -75,8 +74,6 @@ struct acpm_debug_info {
 #define LOG_ID_SHIFT				(28)
 #define LOG_TIME_INDEX				(20)
 #define LOG_LEVEL				(19)
-#define BUSY_WAIT				(0)
-#define SLEEP_WAIT				(1)
 #define INTGR0					0x0008
 #define INTCR0					0x000C
 #define INTMR0					0x0010
@@ -120,6 +117,5 @@ extern void acpm_log_print(void);
 extern void timestamp_write(void);
 extern void acpm_ramdump(void);
 extern void acpm_fw_log_level(unsigned int on);
-extern void acpm_ipc_set_waiting_mode(bool mode);
 
 #endif

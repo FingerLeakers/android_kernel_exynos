@@ -139,6 +139,7 @@ extern void dw_mci_reg_dump(struct dw_mci *host);
 #define SDMMC_HS400_DQS_EN		0x180
 #define SDMMC_HS400_ASYNC_FIFO_CTRL	0x184
 #define SDMMC_HS400_DLINE_CTRL		0x188
+#define SDMMC_BLOCK_DMA_FOR_CI		0x1F8
 
 /* Protector Register */
 #define SDMMC_EMMCP_BASE	0x1000

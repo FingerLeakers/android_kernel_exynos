@@ -12,7 +12,7 @@
 #ifndef __D2_DYNAMIC_FREQ__
 #define __D2_DYNAMIC_FREQ__
 
-#include "../dynamic_freq.h"
+#include "../df/dynamic_freq.h"
 
 struct dynamic_freq_range d2_freq_range_850[] = {
 	DEFINE_FREQ_RANGE(0, 0, 0),

@@ -97,7 +97,6 @@ enum {
 	PHY_PCS_TX_PRD_ROUND_OFF,
 	UNIPRO_ADAPT_LENGTH,
 	PHY_EMB_CDR_WAIT,
-	PHY_EMB_CAL_WAIT,
 };
 
 enum {
@@ -281,9 +280,6 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt0_g3[] = {
 	{0x15A4, 0x3E8, PMD_ALL, UNIPRO_STD_MIB, BRD_ALL},
 	{0x9529, 0x00, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
 
-	{0xA006, 0x80000000, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-	{0x00, 0x7D0, PMD_ALL, COMMON_WAIT, BRD_ALL},
-
 	{0xFC, 0x10, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 
 	{0x6D8, 0xC0, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
@@ -325,9 +321,7 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt0_g3[] = {
 
 	{0xFC, 0x18, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0xFC, 0x00, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
-	{0x7B4, 0x08, PMD_ALL, PHY_EMB_CAL_WAIT, BRD_ALL},
-
-	{0xA006, 0x0, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
+	{0x00, 0xC8, PMD_ALL, COMMON_WAIT, BRD_ALL},
 	{},
 };
 
@@ -338,9 +332,6 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt0_g4[] = {
 	{0x9529, 0x01, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
 	{0x15A4, 0x3E8, PMD_ALL, UNIPRO_STD_MIB, BRD_ALL},
 	{0x9529, 0x00, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-
-	{0xA006, 0x80000000, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-	{0x00, 0x7D0, PMD_ALL, COMMON_WAIT, BRD_ALL},
 
 	{0xFC, 0x10, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0x6D8, 0xC0, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
@@ -375,13 +366,10 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt0_g4[] = {
 	{0x5EC, 0x05, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x5F0, 0x2F, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x5F8, 0x01, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
-	{0x4DC, 0x7F, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 
 	{0xFC, 0x18, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0xFC, 0x00, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
-	{0x7B4, 0x08, PMD_ALL, PHY_EMB_CAL_WAIT, BRD_ALL},
-
-	{0xA006, 0x0, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
+	{0x00, 0xC8, PMD_ALL, COMMON_WAIT, BRD_ALL},
 	{},
 };
 
@@ -392,9 +380,6 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt1_g3[] = {
 	{0x9529, 0x01, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
 	{0x15A4, 0x3E8, PMD_ALL, UNIPRO_STD_MIB, BRD_ALL},
 	{0x9529, 0x00, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-
-	{0xA006, 0x80000000, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-	{0x00, 0x7D0, PMD_ALL, COMMON_WAIT, BRD_ALL},
 
 	{0xFC, 0x10, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 
@@ -442,9 +427,7 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt1_g3[] = {
 
 	{0xFC, 0x18, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0xFC, 0x00, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
-	{0x7B4, 0x08, PMD_ALL, PHY_EMB_CAL_WAIT, BRD_ALL},
-
-	{0xA006, 0x0, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
+	{0x00, 0xC8, PMD_ALL, COMMON_WAIT, BRD_ALL},
 	{},
 };
 
@@ -455,9 +438,6 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt1_g4[] = {
 	{0x9529, 0x1, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
 	{0x15A4, 0x3E8, PMD_ALL, UNIPRO_STD_MIB, BRD_ALL},
 	{0x9529, 0x0, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-
-	{0xA006, 0x80000000, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
-	{0x00, 0x7D0, PMD_ALL, COMMON_WAIT, BRD_ALL},
 
 	{0xFC, 0x10, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 
@@ -480,13 +460,10 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt1_g4[] = {
 	{0x4E0, 0x56, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x54C, 0xFD, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x64C, 0x0A, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
-	{0x4DC, 0x7F, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 
 	{0xFC, 0x18, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0xFC, 0x00, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
-	{0x7B4, 0x08, PMD_ALL, PHY_EMB_CAL_WAIT, BRD_ALL},
-
-	{0xA006, 0x0, PMD_ALL, UNIPRO_DBG_MIB, BRD_ALL},
+	{0x00, 0xC8, PMD_ALL, COMMON_WAIT, BRD_ALL},
 	{},
 };
 
@@ -642,7 +619,7 @@ static const struct ufs_cal_phy_cfg init_cfg_card[] = {
 	{0x134, 0x43, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x16C, 0x20, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x178, 0xC0, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
-	{0x1B0, 0x18, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
+	{0x1B0, 0x94, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0xE0, 0x12, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x164, 0x58, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0x8C, 0xC0, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
@@ -968,23 +945,6 @@ static inline ufs_cal_errno ufs_cal_wait_cdr_afc_check(void *hba,
 
 }
 
-static inline ufs_cal_errno ufs30_cal_done_wait(void *hba,
-					u32 addr, u32 mask, int lane)
-{
-	u32 delay2_us = 40;
-	u32 reg = 0;
-	u32 i;
-
-	for (i = 0; i < 100; i++) {
-		ufs_lld_usleep_delay(delay2_us, delay2_us);
-
-		reg = ufs_lld_pma_read(hba, PHY_PMA_TRSV_ADDR(addr, lane));
-		if (mask == (reg & mask))
-			return UFS_CAL_NO_ERROR;
-	}
-
-	return UFS_CAL_NO_ERROR;
-}
 static ufs_cal_errno ufs_cal_config_uic(struct ufs_cal_param *p,
 				  const struct ufs_cal_phy_cfg *cfg,
 				  struct uic_pwr_mode *pmd)
@@ -1014,18 +974,18 @@ static ufs_cal_errno ufs_cal_config_uic(struct ufs_cal_param *p,
 				break;
 			case UNIPRO_ADAPT_LENGTH:
 				if (i == 0) {
-					u32 value;
+				u32 value;
 
-					ufs_lld_dme_get(hba, UIC_ARG_MIB(cfg->addr), &value);
-					if (value & 0x80) {
-						if ((value & 0x7F) < 2)
-							ufs_lld_dme_set(hba, UIC_ARG_MIB(cfg->addr), 0x82);
+				ufs_lld_dme_get(hba, UIC_ARG_MIB(cfg->addr), &value);
+				if (value & 0x80) {
+					if ((value & 0x7F) < 2)
+						ufs_lld_dme_set(hba, UIC_ARG_MIB(cfg->addr), 0x82);
 					} else {
 						if (((value + 1) % 4) != 0) {
-							do {
-								value++;
-							} while (((value + 1) % 4) != 0);
-							ufs_lld_dme_set(hba, UIC_ARG_MIB(cfg->addr), value);
+						do {
+							value++;
+						} while (((value + 1) % 4) != 0);
+						ufs_lld_dme_set(hba, UIC_ARG_MIB(cfg->addr), value);
 						}
 					}
 				}
@@ -1150,12 +1110,6 @@ static ufs_cal_errno ufs_cal_config_uic(struct ufs_cal_param *p,
 				if (i == 0)
 					ufs_lld_udelay(cfg->val);
 				break;
-			case PHY_EMB_CAL_WAIT:
-				if (ufs30_cal_done_wait(hba,
-					cfg->addr, cfg->val, i) ==
-						UFS_CAL_ERROR)
-					return UFS_CAL_TIMEOUT;
-				break;
 			default:
 				break;
 			}
@@ -1269,6 +1223,8 @@ ufs_cal_errno ufs_cal_post_link(struct ufs_cal_param *p)
 	ufs_cal_errno ret = UFS_CAL_NO_ERROR;
 	static struct ufs_cal_phy_cfg *cfg;
 
+	ufs_cal_calib_hibern8_values(p->host);
+
 	switch (p->max_gear) {
 	case GEAR_1:
 	case GEAR_2:
@@ -1308,9 +1264,6 @@ ufs_cal_errno ufs_cal_post_link(struct ufs_cal_param *p)
 			ret = ufs_cal_config_uic(p, cfg, NULL);
 		}
 	}
-
-	if (ret == UFS_CAL_NO_ERROR)
-		ufs_cal_calib_hibern8_values(p->host);
 
 	return ret;
 }

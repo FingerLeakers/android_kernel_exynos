@@ -205,7 +205,7 @@ extern int task_integrity_copy(struct task_integrity *from,
 extern int five_bprm_check(struct linux_binprm *bprm);
 extern void five_file_free(struct file *file);
 extern int five_file_mmap(struct file *file, unsigned long prot);
-extern int five_file_open(struct file *file, const struct cred *cred);
+extern int five_file_open(struct file *file);
 extern int five_file_verify(struct task_struct *task, struct file *file);
 extern void five_task_free(struct task_struct *task);
 
@@ -298,7 +298,7 @@ static inline int five_file_mmap(struct file *file, unsigned long prot)
 	return 0;
 }
 
-static inline int five_file_open(struct file *file, const struct cred *cred)
+static inline int five_file_open(struct file *file)
 {
 	return 0;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -27,11 +27,12 @@
 #include <linux/version.h>
 
 #include "sysdep.h"
-#include "tzdev.h"
+#include "tzdev_internal.h"
 #include "tzlog.h"
 #include "tz_iwservice.h"
 #include "tz_kthread_pool.h"
 #include "tz_mem.h"
+#include "tz_notifier.h"
 
 enum {
 	KTHREAD_SHOULD_SLEEP,
@@ -40,7 +41,7 @@ enum {
 	KTHREAD_SHOULD_PARK,
 };
 
-static atomic_t tz_kthread_pool_fini_done = ATOMIC_INIT(0);
+static atomic_t tz_kthread_pool_init_done = ATOMIC_INIT(0);
 
 static DEFINE_PER_CPU(struct task_struct *, worker);
 static DECLARE_WAIT_QUEUE_HEAD(tz_cmd_waitqueue);
@@ -61,7 +62,7 @@ static int tz_kthread_pool_should_wake(unsigned long cpu)
 	cpumask_t requested_cpu_mask;
 
 	if (kthread_should_stop()) {
-		tzdev_kthread_info("Requested kthread stop on cpu = %lx\n", cpu);
+		log_debug(tzdev_kthread, "Requested kthread stop on cpu = %lx\n", cpu);
 		return KTHREAD_SHOULD_STOP;
 	}
 
@@ -71,35 +72,31 @@ static int tz_kthread_pool_should_wake(unsigned long cpu)
 	cpumask_and(&cpu_mask, &requested_cpu_mask, &tz_kthread_pool_cpu_mask);
 	cpumask_andnot(&outstanding_cpu_mask, &requested_cpu_mask, &cpu_mask);
 
-	tzdev_kthread_info("cpu mask iwservice = %lx\n",
-			sk_cpu_mask);
-	tzdev_kthread_info("cpu mask requested = %*pb\n",
-			cpumask_pr_args(&requested_cpu_mask));
-	tzdev_kthread_info("cpu mask effective = %*pb\n",
-			cpumask_pr_args(&cpu_mask));
-	tzdev_kthread_info("cpu mask outstanding = %*pb\n",
-			cpumask_pr_args(&outstanding_cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask iwservice = %lx\n", sk_cpu_mask);
+	log_debug(tzdev_kthread, "cpu mask requested = %*pb\n", cpumask_pr_args(&requested_cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask effective = %*pb\n", cpumask_pr_args(&cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask outstanding = %*pb\n", cpumask_pr_args(&outstanding_cpu_mask));
 
 	if (kthread_should_park()) {
 		if (cpu_isset(cpu, cpu_mask))
 			tz_kthread_pool_cmd_send();
 
-		tzdev_kthread_info("Requested kthread park on cpu = %lx\n", cpu);
+		log_debug(tzdev_kthread, "Requested kthread park on cpu = %lx\n", cpu);
 		return KTHREAD_SHOULD_PARK;
 	}
 
 	if (cpu_isset(cpu, cpu_mask)) {
-		tzdev_kthread_debug("Direct cpu hit = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Direct cpu hit = %lu\n", cpu);
 		tz_kthread_pool_cmd_get();
 		return KTHREAD_SHOULD_RUN;
 	} else if (!cpumask_empty(&outstanding_cpu_mask)) {
-		tzdev_kthread_debug("No proper cpus to satisfy requested affinity\n");
+		log_debug(tzdev_kthread, "No proper cpus to satisfy requested affinity\n");
 		tz_kthread_pool_cmd_get();
 		return KTHREAD_SHOULD_RUN;
 	}
 
 	if (tz_kthread_pool_cmd_get()) {
-		tzdev_kthread_debug("Handle initial cmd on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Handle initial cmd on cpu = %lu\n", cpu);
 		return KTHREAD_SHOULD_RUN;
 	}
 
@@ -142,7 +139,7 @@ static void tz_kthread_pool_wake_up_all_but(unsigned long cpu)
 	__wake_up(&tz_cmd_waitqueue, TASK_NORMAL, 0, (void *)cpu);
 }
 
-void tz_kthread_pool_wake_up_all(void)
+static void tz_kthread_pool_wake_up_all(void)
 {
 	tz_kthread_pool_wake_up_all_but(NR_CPUS);
 }
@@ -162,9 +159,9 @@ static void tz_worker_handler(unsigned int cpu)
 			cpumask_clear_cpu(cpu, &tz_kthread_pool_cpu_mask);
 			return;
 		case KTHREAD_SHOULD_RUN:
-			tzdev_kthread_debug("Enter SWd from kthread on cpu = %u\n", cpu);
+			log_debug(tzdev_kthread, "Enter SWd from kthread on cpu = %u\n", cpu);
 			tzdev_smc_schedule();
-			tzdev_kthread_debug("Exit SWd from kthread on cpu = %u\n", cpu);
+			log_debug(tzdev_kthread, "Exit SWd from kthread on cpu = %u\n", cpu);
 			continue;
 		default:
 			BUG();
@@ -194,19 +191,57 @@ static struct smp_hotplug_thread tz_kthread_pool_smp_hotplug = {
 	.thread_comm = "tz_worker_thread/%u",
 };
 
+static int tz_kthread_pool_post_smc_call(struct notifier_block *cb, unsigned long code, void *unused)
+{
+	(void)cb;
+	(void)code;
+	(void)unused;
+
+	if (tz_iwservice_get_cpu_mask())
+		tz_kthread_pool_wake_up_all();
+
+	return NOTIFY_DONE;
+}
+
+
+static struct notifier_block tz_kthread_pool_post_smc_notifier = {
+	.notifier_call = tz_kthread_pool_post_smc_call,
+};
+
 static __init int tz_kthread_pool_init(void)
 {
-	return smpboot_register_percpu_thread(&tz_kthread_pool_smp_hotplug);
+	int rc;
+
+	rc = smpboot_register_percpu_thread(&tz_kthread_pool_smp_hotplug);
+	if (rc) {
+		log_error(tzdev_kthread, "Failed to create tzdev kthreads pool, error=%d\n", rc);
+		return rc;
+	}
+
+	rc = tzdev_atomic_notifier_register(TZDEV_POST_SMC_NOTIFIER, &tz_kthread_pool_post_smc_notifier);
+	if (rc) {
+		log_error(tzdev_kthread, "Failed to register post smc notifier, error=%d\n", rc);
+		return rc;
+	}
+
+	atomic_set(&tz_kthread_pool_init_done, 1);
+
+	log_info(tzdev_kthread, "Kthread pool initialization done.\n");
+
+	return rc;
 }
 
 early_initcall(tz_kthread_pool_init);
 
 void tz_kthread_pool_fini(void)
 {
-	if (atomic_cmpxchg(&tz_kthread_pool_fini_done, 0, 1))
+	if (!atomic_cmpxchg(&tz_kthread_pool_init_done, 1, 0))
 		return;
 
+	tzdev_atomic_notifier_unregister(TZDEV_POST_SMC_NOTIFIER, &tz_kthread_pool_post_smc_notifier);
 	smpboot_unregister_percpu_thread(&tz_kthread_pool_smp_hotplug);
+
+	log_info(tzdev_kthread, "Kthread pool finalization done.\n");
 }
 
 void tz_kthread_pool_cmd_send(void)
@@ -217,6 +252,7 @@ void tz_kthread_pool_cmd_send(void)
 
 void tz_kthread_pool_enter_swd(void)
 {
+#ifdef CONFIG_TZDEV_SK_MULTICORE
 	unsigned long cpu;
 	unsigned long sk_cpu_mask;
 	unsigned long sk_user_cpu_mask;
@@ -235,11 +271,15 @@ void tz_kthread_pool_enter_swd(void)
 			cpu_isset(cpu, requested_cpu_mask)) {
 		tz_kthread_pool_wake_up_all_but(cpu);
 
-		tzdev_kthread_debug("Enter SWd directly on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Enter SWd directly on cpu = %lu\n", cpu);
 		tzdev_smc_schedule();
-		tzdev_kthread_debug("Exit SWd directly on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Exit SWd directly on cpu = %lu\n", cpu);
 	} else {
 		tz_kthread_pool_cmd_send();
 	}
 	put_cpu();
+
+#else /* CONFIG_TZDEV_SK_MULTICORE */
+	tz_kthread_pool_cmd_send();
+#endif /* CONFIG_TZDEV_SK_MULTICORE */
 }

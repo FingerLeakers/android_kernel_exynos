@@ -29,6 +29,8 @@
 #include <asm/barrier.h>
 #include <asm/cacheflush.h>
 
+#include <crypto/hash.h>
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
 #include <uapi/linux/sched/types.h>
 #include <linux/wait.h>
@@ -140,6 +142,44 @@ static inline unsigned int irq_of_parse_and_map(struct device_node *dev, int ind
 #endif /*!defined(CONFIG_OF) */
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
+#define sysdep_kernel_read(file, buf, size, off)	kernel_read(file, buf, size, &off)
+#else
+#define sysdep_kernel_read(file, buf, size, off)	\
+({							\
+	int ret;					\
+	ret = kernel_read(file, off, buf, size);	\
+	off += ret;					\
+	ret;						\
+})
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0)
+static inline void shash_desc_zero(struct shash_desc *desc)
+{
+	memset(desc, 0,
+		sizeof(*desc) + crypto_shash_descsize(desc->tfm));
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+#define SHASH_DESC_ON_STACK(shash, ctx)                           \
+	char __##shash##_desc[sizeof(struct shash_desc) +         \
+		crypto_shash_descsize(ctx)] CRYPTO_MINALIGN_ATTR; \
+	struct shash_desc *shash = (struct shash_desc *)__##shash##_desc
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
+static inline struct inode *file_inode(struct file *f)
+{
+	return f->f_path.dentry->d_inode;
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 6, 0)
+#define INIT_DEFERRABLE_WORK(_work, _func)	INIT_DELAYED_WORK_DEFERRABLE(_work, _func)
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
 /*
  * atomic_dec_if_positive - decrement by 1 if old value positive
@@ -165,6 +205,21 @@ static inline int atomic_dec_if_positive(atomic_t *v)
 }
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 7, 0)
+static inline int atomic_fetch_or(int mask, atomic_t *v)
+{
+	int c, old;
+
+	old = atomic_read(v);
+	do {
+		c = old;
+		old = atomic_cmpxchg((v), c, c | mask);
+	} while(old != c);
+
+	return old;
+}
+#endif
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0)
 static inline void reinit_completion(struct completion *x)
 {
@@ -181,6 +236,8 @@ static inline void reinit_completion(struct completion *x)
 #endif
 
 int sysdep_idr_alloc(struct idr *idr, void *mem);
+int sysdep_idr_alloc_in_range(struct idr *idr, void *mem,
+		unsigned long start, unsigned long end);
 
 long sysdep_get_user_pages(struct task_struct *task,
 		struct mm_struct *mm, unsigned long start, unsigned long nr_pages,
@@ -190,7 +247,7 @@ void sysdep_register_cpu_notifier(struct notifier_block* notifier,
 		int (*startup)(unsigned int cpu),
 		int (*teardown)(unsigned int cpu));
 void sysdep_unregister_cpu_notifier(struct notifier_block* notifier);
-int sysdep_crypto_sha1(uint8_t* hash, struct scatterlist* sg, char *p, int len);
+int sysdep_crypto_file_sha1(uint8_t *hash, struct file *file);
 int sysdep_vfs_getattr(struct file *filp, struct kstat *stat);
 
 #endif /* __SYSDEP_H__ */

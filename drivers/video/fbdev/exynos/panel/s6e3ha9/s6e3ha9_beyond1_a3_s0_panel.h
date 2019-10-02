@@ -12,7 +12,7 @@
 
 #ifndef __S6E3HA9_BEYOND1_A3_S0_PANEL_H__
 #define __S6E3HA9_BEYOND1_A3_S0_PANEL_H__
-#include "../panel.h"
+#include "../panel_drv.h"
 #include "s6e3ha9.h"
 #include "s6e3ha9_dimming.h"
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
@@ -40,6 +40,7 @@
 #endif
 
 #include "s6e3ha9_beyond_irc.h"
+#include "s6e3ha9_beyond_resol.h"
 
 #undef __pn_name__
 #define __pn_name__	beyond1_a3_s0
@@ -1047,11 +1048,6 @@ static u8 BEYOND1_A3_S0_GRAYSPOT_OFF_02[] = {
 };
 #endif
 
-static void *beyond1_a3_s0_check_condition_cmdtbl[] = {
-	&KEYINFO(beyond1_a3_s0_level2_key_enable),
-	&s6e3ha9_dmptbl[DUMP_RDDPM],
-	&KEYINFO(beyond1_a3_s0_level2_key_disable),
-};
 
 #ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
 static u8 BEYOND1_A3_S0_ISC_THRESHOLD[] = {0xF6, 0x43};
@@ -2117,7 +2113,6 @@ static struct seqinfo beyond1_a3_s0_preliminary_seqtbl[MAX_PANEL_SEQ] = {
 	[PANEL_STM_TUNE_SEQ] = SEQINFO_INIT("stm-tune-seq", beyond1_a3_s0_stm_tune_cmdtbl),
 #endif
 	[PANEL_GAMMA_INTER_CONTROL_SEQ] = SEQINFO_INIT("gamma-control-seq", beyond1_a3_s0_gamma_inter_control_cmdtbl),
-	[PANEL_CHECK_CONDITION_SEQ] = SEQINFO_INIT("check-condition-seq", beyond1_a3_s0_check_condition_cmdtbl),
 	[PANEL_DUMP_SEQ] = SEQINFO_INIT("dump-seq", beyond1_a3_s0_dump_cmdtbl),
 	[PANEL_DUMMY_SEQ] = SEQINFO_INIT("dummy-seq", beyond1_a3_s0_dummy_cmdtbl),
 };
@@ -2187,7 +2182,6 @@ static struct seqinfo beyond1_a3_s0_seqtbl[MAX_PANEL_SEQ] = {
 	[PANEL_SPI_IF_OFF_SEQ] = SEQINFO_INIT("spi-if-off-seq", beyond1_a3_s0_spi_if_off_cmdtbl),
 #endif
 	[PANEL_GAMMA_INTER_CONTROL_SEQ] = SEQINFO_INIT("gamma-control-seq", beyond1_a3_s0_gamma_inter_control_cmdtbl),
-	[PANEL_CHECK_CONDITION_SEQ] = SEQINFO_INIT("check-condition-seq", beyond1_a3_s0_check_condition_cmdtbl),
 	[PANEL_DUMP_SEQ] = SEQINFO_INIT("dump-seq", beyond1_a3_s0_dump_cmdtbl),
 	[PANEL_DUMMY_SEQ] = SEQINFO_INIT("dummy-seq", beyond1_a3_s0_dummy_cmdtbl),
 };
@@ -2201,6 +2195,10 @@ struct common_panel_info s6e3ha9_beyond1_a3_s0_preliminary_panel_info = {
 	.rev = 1,
 	.ddi_props = {
 		.gpara = (DDI_SUPPORT_WRITE_GPARA | DDI_SUPPORT_POINT_GPARA),
+	},
+	.mres = {
+		.nr_resol = ARRAY_SIZE(s6e3ha9_beyond_resol),
+		.resol = s6e3ha9_beyond_resol,
 	},
 	.maptbl = beyond1_a3_s0_maptbl,
 	.nr_maptbl = ARRAY_SIZE(beyond1_a3_s0_maptbl),

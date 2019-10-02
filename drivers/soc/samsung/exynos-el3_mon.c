@@ -48,10 +48,10 @@ static int __init exynos_protect_kernel_text(void)
 	ktext_start_pa = (unsigned long)__pa_symbol(_text);
 	ktext_end_pa = (unsigned long)__pa_symbol(_etext);
 
-	pr_info("%s: Kernel text start VA(%pK), PA(%pK)\n",
-			__func__, (void *)ktext_start_va, (void *)ktext_start_pa);
-	pr_info("%s: Kernel text end VA(%pK), PA(%pK)\n",
-			__func__, (void *)ktext_end_va, (void *)ktext_end_pa);
+	pr_info("%s: Kernel text start VA(%#lx), PA(%#lx)\n",
+			__func__, ktext_start_va, ktext_start_pa);
+	pr_info("%s: Kernel text end VA(%#lx), PA(%#lx)\n",
+			__func__, ktext_end_va, ktext_end_pa);
 
 	/* I-cache flush to the PoC */
 	flush_icache_range_poc(ktext_start_va, ktext_end_va);
@@ -106,7 +106,7 @@ static int  __init exynos_set_debug_mem(void)
 	__flush_dcache_area(smc_debug_mem, size);
 
 	phys = (char *)virt_to_phys(smc_debug_mem);
-	pr_err("%s: alloc kmem for smc_dbg virt: 0x%pK phys: 0x%pK size: %d.\n",
+	pr_err("%s: alloc kmem for smc_dbg virt: 0x%p phys: 0x%p size: %d.\n",
 			__func__, smc_debug_mem, phys, size);
 	ret = exynos_smc(SMC_CMD_SET_DEBUG_MEM, (u64)phys, (u64)size, 0);
 
@@ -148,25 +148,6 @@ static void exynos_smart_exception_handler(unsigned int id,
 								sctlr, ttbr);
 		pr_err("tcr_el1   : 0x%016lx, \tlr (EL1) : 0x%016lx\n\n",
 								tcr, x6);
-		if ((offset > 0x0 && offset < (PAGE_SIZE * 2))
-				&& !(offset % 0x8) && (smc_debug_mem)) {
-
-			/* Invalidate smc_debug_mem for cache coherency */
-			__inval_dcache_area(smc_debug_mem, PAGE_SIZE * 2);
-
-			tmp = (unsigned long)smc_debug_mem;
-			tmp += (unsigned long)offset;
-			ptr = (unsigned long *)tmp;
-
-			for (i = 0; i < 15; i++) {
-				pr_err("x%02d : 0x%016lx, \tx%02d : 0x%016lx\n",
-					i * 2, ptr[i * 2],
-					i * 2 + 1, ptr[i * 2 + 1]);
-			}
-			pr_err("x%02d : 0x%016lx\n", i * 2,  ptr[i * 2]);
-		} else {
-			pr_err("GPR dump offset is not valid 0x%x\n", offset);
-		}
 	} else {
 		pr_err("elr_el3   : 0x%016lx, \tesr_el3  : 0x%016lx\n",
 								elr, esr);
@@ -191,8 +172,6 @@ static void exynos_smart_exception_handler(unsigned int id,
 					i * 2 + 1, ptr[i * 2 + 1]);
 			}
 			pr_err("x%02d : 0x%016lx\n", i * 2,  ptr[i * 2]);
-		} else {
-			pr_err("GPR dump offset is not valid 0x%x\n", offset);
 		}
 	}
 

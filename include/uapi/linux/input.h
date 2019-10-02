@@ -37,7 +37,7 @@
 #define INPUT_LOG_BUF_SIZE	512
 
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
-#include <linux/sec_debug.h>
+#include <linux/input/sec_tsp_log.h>
 
 #define input_dbg(mode, dev, fmt, ...)						\
 ({										\
@@ -81,6 +81,35 @@
 		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
 	}									\
 })
+#ifdef CONFIG_TOUCHSCREEN_DUAL_FOLDABLE
+#define MAIN_TOUCH	0
+#define SUB_TOUCH	1
+
+#define input_raw_info(mode, dev, fmt, ...)					\
+({										\
+	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
+	snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", SECLOG, fmt);	\
+	dev_info(dev, input_log_buf, ## __VA_ARGS__);				\
+	if (mode == SUB_TOUCH) {						\
+ 		if (dev)							\
+			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", \
+					dev_driver_string(dev), dev_name(dev)); \
+		else								\
+			snprintf(input_log_buf, sizeof(input_log_buf), "NULL"); \
+		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
+		sec_debug_tsp_raw_data_msg(mode, input_log_buf, fmt, ## __VA_ARGS__);	\
+	} else {						\
+		if (dev)							\
+			snprintf(input_log_buf, sizeof(input_log_buf), "%s %s", \
+					dev_driver_string(dev), dev_name(dev)); \
+		else								\
+			snprintf(input_log_buf, sizeof(input_log_buf), "NULL"); \
+		sec_debug_tsp_log_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
+		sec_debug_tsp_raw_data_msg(mode, input_log_buf, fmt, ## __VA_ARGS__);	\
+	}									\
+})
+#define input_raw_data_clear(mode) sec_tsp_raw_data_clear(mode)
+#else
 #define input_raw_info(mode, dev, fmt, ...)					\
 ({										\
 	static char input_log_buf[INPUT_LOG_BUF_SIZE];				\
@@ -96,8 +125,9 @@
 		sec_debug_tsp_raw_data_msg(input_log_buf, fmt, ## __VA_ARGS__);	\
 	}									\
 })
-#define input_log_fix() {}
 #define input_raw_data_clear() sec_tsp_raw_data_clear()
+#endif
+#define input_log_fix() {}
 #else
 #define input_dbg(mode, dev, fmt, ...)						\
 ({										\
@@ -122,13 +152,27 @@
 #define input_raw_data_clear() {}
 #endif
 
-
 /*
  * The event structure itself
+ * Note that __USE_TIME_BITS64 is defined by libc based on
+ * application's request to use 64 bit time_t.
  */
 
 struct input_event {
+#if (__BITS_PER_LONG != 32 || !defined(__USE_TIME_BITS64)) && !defined(__KERNEL__)
 	struct timeval time;
+#define input_event_sec time.tv_sec
+#define input_event_usec time.tv_usec
+#else
+	__kernel_ulong_t __sec;
+#if defined(__sparc__) && defined(__arch64__)
+	unsigned int __usec;
+#else
+	__kernel_ulong_t __usec;
+#endif
+#define input_event_sec  __sec
+#define input_event_usec __usec
+#endif
 	__u16 type;
 	__u16 code;
 	__s32 value;
@@ -367,10 +411,11 @@ struct input_mask {
 /*
  * MT_TOOL types
  */
-#define MT_TOOL_FINGER		0
-#define MT_TOOL_PEN		1
-#define MT_TOOL_PALM		2
-#define MT_TOOL_MAX		2
+#define MT_TOOL_FINGER		0x00
+#define MT_TOOL_PEN		0x01
+#define MT_TOOL_PALM		0x02
+#define MT_TOOL_DIAL		0x0a
+#define MT_TOOL_MAX		0x0f
 
 /*
  * Values describing the status of a force-feedback effect

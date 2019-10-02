@@ -50,6 +50,14 @@ static struct mfc_fmt *__mfc_enc_find_format(struct mfc_ctx *ctx,
 		mfc_err_ctx("[FRAME] RGB is not supported\n");
 		fmt = NULL;
 	}
+	if (fmt && !dev->pdata->support_sbwc && (fmt->type & MFC_FMT_SBWC)) {
+		mfc_err_ctx("[FRAME] SBWC is not supported\n");
+		fmt = NULL;
+	}
+	if (fmt && !dev->pdata->support_sbwcl && (fmt->type & MFC_FMT_SBWCL)) {
+		mfc_err_ctx("[FRAME] SBWC lossy is not supported\n");
+		fmt = NULL;
+	}
 
 	return fmt;
 }
@@ -136,7 +144,6 @@ static int mfc_enc_querycap(struct file *file, void *priv,
 	strncpy(cap->driver, "MFC", sizeof(cap->driver) - 1);
 	strncpy(cap->card, "encoder", sizeof(cap->card) - 1);
 	cap->bus_info[0] = 0;
-	cap->version = KERNEL_VERSION(1, 0, 0);
 	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE
 			| V4L2_CAP_VIDEO_OUTPUT
 			| V4L2_CAP_VIDEO_CAPTURE_MPLANE
@@ -163,6 +170,8 @@ static int __mfc_enc_enum_fmt(struct mfc_dev *dev, struct v4l2_fmtdesc *f,
 		if (!dev->pdata->support_422 && (enc_formats[i].type & MFC_FMT_422))
 			continue;
 		if (!dev->pdata->support_rgb && (enc_formats[i].type & MFC_FMT_RGB))
+			continue;
+		if (!dev->pdata->support_sbwc && (enc_formats[i].type & MFC_FMT_SBWC))
 			continue;
 
 		if (j == f->index) {
@@ -232,7 +241,7 @@ static int mfc_enc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 			pix_fmt_mp->plane_fmt[i].sizeimage = raw->plane_size[i];
 		}
 	} else {
-		mfc_err_dev("invalid buf type (%d)\n", f->type);
+		mfc_err_ctx("invalid buf type (%d)\n", f->type);
 		return -EINVAL;
 	}
 
@@ -249,7 +258,7 @@ static int mfc_enc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 	fmt = __mfc_enc_find_format(ctx, pix_fmt_mp->pixelformat);
 	if (!fmt) {
-		mfc_err_dev("Unsupported format for %s\n",
+		mfc_err_ctx("Unsupported format for %s\n",
 				V4L2_TYPE_IS_OUTPUT(f->type) ? "source" : "destination");
 		return -EINVAL;
 	}
@@ -259,6 +268,10 @@ static int mfc_enc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 
 static void __mfc_enc_check_format(struct mfc_ctx *ctx)
 {
+	ctx->is_422 = 0;
+	ctx->is_10bit = 0;
+	ctx->is_sbwc = 0;
+
 	switch (ctx->src_fmt->fourcc) {
 	case V4L2_PIX_FMT_NV16M_S10B:
 	case V4L2_PIX_FMT_NV61M_S10B:
@@ -271,7 +284,6 @@ static void __mfc_enc_check_format(struct mfc_ctx *ctx)
 	case V4L2_PIX_FMT_NV16M:
 	case V4L2_PIX_FMT_NV61M:
 		mfc_debug(2, "[FRAME] is 422 format\n");
-		ctx->is_10bit = 0;
 		ctx->is_422 = 1;
 		break;
 	case V4L2_PIX_FMT_NV12M_S10B:
@@ -280,14 +292,36 @@ static void __mfc_enc_check_format(struct mfc_ctx *ctx)
 	case V4L2_PIX_FMT_NV21M_P010:
 		mfc_debug(2, "[FRAME][10BIT] is 10bit format\n");
 		ctx->is_10bit = 1;
-		ctx->is_422 = 0;
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWC_8B:
+	case V4L2_PIX_FMT_NV21M_SBWC_8B:
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+		mfc_debug(2, "[FRAME][SBWC] is SBWC 8bit format\n");
+		ctx->is_sbwc = 1;
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWC_10B:
+	case V4L2_PIX_FMT_NV21M_SBWC_10B:
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+		mfc_debug(2, "[FRAME][SBWC] is SBWC 10bit format\n");
+		ctx->is_10bit = 1;
+		ctx->is_sbwc = 1;
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWCL_8B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_8B:
+		mfc_debug(2, "[FRAME][SBWC] is SBWC Lossy 8bit format\n");
+		ctx->is_sbwc_lossy = 1;
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWCL_10B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_10B:
+		mfc_debug(2, "[FRAME][SBWC] is SBWC Lossy 10bit format\n");
+		ctx->is_10bit = 1;
+		ctx->is_sbwc_lossy = 1;
 		break;
 	default:
-		ctx->is_10bit = 0;
-		ctx->is_422 = 0;
 		break;
 	}
-	mfc_debug(2, "[FRAME] 10bit: %d, 422: %d\n", ctx->is_10bit, ctx->is_422);
+	mfc_debug(2, "[FRAME] 10bit: %d, 422: %d, sbwc: %d lossy: %d\n",
+			ctx->is_10bit, ctx->is_422, ctx->is_sbwc, ctx->is_sbwc_lossy);
 }
 
 static int __mfc_enc_check_resolution(struct mfc_ctx *ctx)
@@ -447,7 +481,7 @@ static int mfc_enc_s_fmt_vid_cap_mplane(struct file *file, void *priv,
 
 	ret = mfc_get_hwlock_ctx(ctx);
 	if (ret < 0) {
-		mfc_err_dev("Failed to get hwlock\n");
+		mfc_err_ctx("Failed to get hwlock\n");
 		mfc_release_instance_context(ctx);
 		mfc_release_enc_roi_buffer(ctx);
 		return -EBUSY;
@@ -478,15 +512,45 @@ static int mfc_enc_s_fmt_vid_cap_mplane(struct file *file, void *priv,
 
 	mfc_debug(2, "Got instance number: %d\n", ctx->inst_no);
 
-	if (mfc_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
-	if (ctx->otf_handle && mfc_otf_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
+	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
+	if (ctx->otf_handle)
+		mfc_otf_ctx_ready_set_bit(ctx, &dev->work_bits);
 	if (mfc_is_work_to_do(dev))
 		queue_work(dev->butler_wq, &dev->butler_work);
 
 	mfc_debug_leave();
 	return 0;
+}
+
+static int __mfc_enc_check_sbwcl(struct mfc_ctx *ctx, u8 pix_flag)
+{
+	int ret = 0;
+
+	ctx->sbwcl_ratio = 0;
+	if (ctx->is_sbwc_lossy && !ctx->is_10bit) {
+		if (pix_flag == MFC_FMT_FLAG_SBWCL_50) {
+			ctx->sbwcl_ratio = 50;
+		} else if (pix_flag == MFC_FMT_FLAG_SBWCL_75) {
+			ctx->sbwcl_ratio = 75;
+		} else {
+			ret = -EINVAL;
+			mfc_err_ctx("sbwc ratio is wrong %#x\n", pix_flag);
+		}
+	} else if (ctx->is_sbwc_lossy && ctx->is_10bit) {
+		if (pix_flag == MFC_FMT_FLAG_SBWCL_60) {
+			ctx->sbwcl_ratio = 60;
+		} else if (pix_flag == MFC_FMT_FLAG_SBWCL_80) {
+			ctx->sbwcl_ratio = 80;
+		} else {
+			ret = -EINVAL;
+			mfc_err_ctx("sbwc ratio is wrong %#x\n", pix_flag);
+		}
+	} else {
+		ret = -EINVAL;
+		mfc_err_ctx("This is not SBWC lossy format %s\n", ctx->src_fmt->name);
+	}
+	mfc_debug(2, "SBWC Lossy ratio is %d\n", ctx->sbwcl_ratio);
+	return ret;
 }
 
 static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
@@ -525,6 +589,9 @@ static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
 	ctx->buf_stride = pix_fmt_mp->plane_fmt[0].bytesperline;
 
 	__mfc_enc_check_format(ctx);
+
+	if (ctx->is_sbwc_lossy && __mfc_enc_check_sbwcl(ctx, pix_fmt_mp->flags))
+		return -EINVAL;
 
 	if (ctx->state == MFCINST_FINISHED) {
 		mfc_change_state(ctx, MFCINST_GOT_INST);
@@ -692,18 +759,18 @@ static int mfc_enc_querybuf(struct file *file, void *priv,
 		mfc_debug(4, "enc dst querybuf, state: %d\n", ctx->state);
 		ret = vb2_querybuf(&ctx->vq_dst, buf);
 		if (ret != 0) {
-			mfc_err_dev("enc dst: error in vb2_querybuf()\n");
+			mfc_err_ctx("enc dst: error in vb2_querybuf()\n");
 			return ret;
 		}
 	} else if (buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		mfc_debug(4, "enc src querybuf, state: %d\n", ctx->state);
 		ret = vb2_querybuf(&ctx->vq_src, buf);
 		if (ret != 0) {
-			mfc_err_dev("enc src: error in vb2_querybuf()\n");
+			mfc_err_ctx("enc src: error in vb2_querybuf()\n");
 			return ret;
 		}
 	} else {
-		mfc_err_dev("invalid buf type (%d)\n", buf->type);
+		mfc_err_ctx("invalid buf type (%d)\n", buf->type);
 		return -EINVAL;
 	}
 
@@ -716,6 +783,7 @@ static int mfc_enc_querybuf(struct file *file, void *priv,
 static int mfc_enc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
+	struct mfc_dev *dev = ctx->dev;
 	int i, ret = -EINVAL;
 
 	mfc_debug_enter();
@@ -753,6 +821,8 @@ static int mfc_enc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 		mfc_debug(4, "enc dst buf[%d] Q\n", buf->index);
 		ret = vb2_qbuf(&ctx->vq_dst, buf);
 	}
+
+	atomic_inc(&dev->queued_cnt);
 
 	mfc_debug_leave();
 	return ret;
@@ -856,6 +926,7 @@ static int mfc_enc_streamoff(struct file *file, void *priv,
 static int mfc_enc_queryctrl(struct file *file, void *priv,
 			    struct v4l2_queryctrl *qc)
 {
+	struct mfc_dev *dev = video_drvdata(file);
 	struct v4l2_queryctrl *c;
 
 	c = __mfc_enc_get_ctrl(qc->id);
@@ -942,7 +1013,10 @@ static int __mfc_enc_get_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 					mfc_debug(5, "[CTRLS] Control value "
 							"is not up to date: "
 							"0x%08x\n", ctrl->id);
-					return -EINVAL;
+					if (ctrl->id == V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG)
+						ctrl->value = IGNORE_TAG;
+					else
+						return -EINVAL;
 				}
 
 				found = 1;
@@ -999,7 +1073,7 @@ static int mfc_enc_g_ctrl(struct file *file, void *priv,
 
 static inline int __mfc_enc_h264_level(enum v4l2_mpeg_video_h264_level lvl)
 {
-	static unsigned int t[V4L2_MPEG_VIDEO_H264_LEVEL_5_1 + 1] = {
+	static unsigned int t[V4L2_MPEG_VIDEO_H264_LEVEL_5_2 + 1] = {
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_1_0   */ 10,
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_1B    */ 9,
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_1_1   */ 11,
@@ -1016,6 +1090,7 @@ static inline int __mfc_enc_h264_level(enum v4l2_mpeg_video_h264_level lvl)
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_4_2   */ 42,
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_5_0   */ 50,
 		/* V4L2_MPEG_VIDEO_H264_LEVEL_5_1   */ 51,
+		/* V4L2_MPEG_VIDEO_H264_LEVEL_5_2   */ 52,
 	};
 	return t[lvl];
 }
@@ -1059,6 +1134,39 @@ static inline int __mfc_enc_vui_sar_idc(enum v4l2_mpeg_video_h264_vui_sar_idc sa
 		/* V4L2_MPEG_VIDEO_H264_VUI_SAR_IDC_EXTENDED        */ 255,
 	};
 	return t[sar];
+}
+
+static int __mfc_enc_get_roi(struct mfc_ctx *ctx, int value)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	int index = 0;
+
+	if (enc->sh_handle_roi.fd == -1) {
+		enc->sh_handle_roi.fd = value;
+		if (mfc_mem_get_user_shared_handle(ctx, &enc->sh_handle_roi))
+			return -EINVAL;
+		mfc_debug(2, "[MEMINFO][ROI] shared handle fd: %d, vaddr: 0x%p\n",
+				enc->sh_handle_roi.fd,
+				enc->sh_handle_roi.vaddr);
+	}
+	index = enc->roi_index;
+
+	/* Copy the ROI info from shared buf */
+	memcpy(&enc->roi_info[index], enc->sh_handle_roi.vaddr,
+			sizeof(struct mfc_enc_roi_info));
+	if (enc->roi_info[index].size > enc->roi_buf[index].size) {
+		mfc_err_ctx("[MEMINFO][ROI] roi info size %d is over\n",
+				enc->roi_info[index].size);
+		return -EINVAL;
+	}
+
+	/* Copy the ROI map buffer from user's map buf */
+	if (copy_from_user(enc->roi_buf[index].vaddr,
+				enc->roi_info[index].addr,
+				enc->roi_info[index].size))
+		return -EFAULT;
+
+	return 0;
 }
 
 static int __mfc_enc_set_param(struct mfc_ctx *ctx, struct v4l2_control *ctrl)
@@ -1613,7 +1721,7 @@ static int __mfc_enc_set_param(struct mfc_ctx *ctx, struct v4l2_control *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_TYPE:
 		p->codec.hevc.hier_qp_type =
-		(enum v4l2_mpeg_video_hevc_hierarchical_coding_type)(ctrl->value);
+		(enum v4l2_mpeg_video_hevc_hier_coding_type)(ctrl->value);
 		break;
 	case V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_LAYER:
 		p->codec.hevc.num_hier_layer = ctrl->value & 0x7;
@@ -1794,7 +1902,6 @@ static int __mfc_enc_set_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 	struct mfc_ctx_ctrl *ctx_ctrl;
 	int ret = 0;
 	int found = 0;
-	int index = 0;
 
 	mfc_debug(5, "[CTRLS] id: %#x, value: %d\n", ctrl->id, ctrl->value);
 
@@ -1893,28 +2000,9 @@ static int __mfc_enc_set_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ctrl
 				if (ctx_ctrl->id == V4L2_CID_MPEG_VIDEO_H264_PROFILE)
 					ctx_ctrl->val = __mfc_enc_h264_profile(ctx, (enum v4l2_mpeg_video_h264_profile)(ctrl->value));
 				if (ctx_ctrl->id == V4L2_CID_MPEG_VIDEO_ROI_CONTROL) {
-					if (enc->sh_handle_roi.fd == -1) {
-						enc->sh_handle_roi.fd = ctrl->value;
-						if (mfc_mem_get_user_shared_handle(ctx,
-									&enc->sh_handle_roi))
-							return -EINVAL;
-						mfc_debug(2, "[MEMINFO][ROI] shared handle fd: %d, vaddr: 0x%p\n",
-								enc->sh_handle_roi.fd,
-								enc->sh_handle_roi.vaddr);
-					}
-					index = enc->roi_index;
-					memcpy(&enc->roi_info[index],
-							enc->sh_handle_roi.vaddr,
-							sizeof(struct mfc_enc_roi_info));
-					if (enc->roi_info[index].size > enc->roi_buf[index].size) {
-						mfc_err_ctx("[MEMINFO][ROI] roi info size %d is over\n",
-							enc->roi_info[index].size);
-						return -EINVAL;
-					}
-					if (copy_from_user(enc->roi_buf[index].vaddr,
-							enc->roi_info[index].addr,
-							enc->roi_info[index].size))
-						return -EFAULT;
+					ret = __mfc_enc_get_roi(ctx, ctrl->value);
+					if (ret)
+						return ret;
 				}
 
 				found = 1;

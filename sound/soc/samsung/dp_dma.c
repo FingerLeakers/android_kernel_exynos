@@ -12,12 +12,15 @@
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/delay.h>
 #include <linux/kthread.h>
 #include <linux/iommu.h>
 #include <linux/dma/dma-pl330.h>
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830)
 #include <linux/switch.h>
+#include <linux/extcon-provider.h>
 #include <sound/samsung/dp_ado.h>
 #endif
 
@@ -27,6 +30,11 @@
 
 #include "dma.h"
 #include "dp_dma.h"
+
+#define DPAUDIO_SAMPLING_RATES (SNDRV_PCM_RATE_KNOT)
+#define DPAUDIO_SAMPLE_FORMATS (SNDRV_PCM_FMTBIT_S16\
+				| SNDRV_PCM_FMTBIT_S24\
+				| SNDRV_PCM_FMTBIT_S32)
 
 #define PERIOD_MIN		4
 #define ST_RUNNING		(1<<0)
@@ -38,13 +46,16 @@
 #define DP_FIFO                        (0x11095818)
 #elif defined(CONFIG_SOC_EXYNOS9820)
 #define DP_FIFO                        (0x130B5818)
+#elif defined(CONFIG_SOC_EXYNOS9830)
+#define DP_FIFO                        (0x10AB5818)
 #endif
 
 #define RX_SRAM_SIZE		(0x2000)	/* 8 KB */
 #define MAX_DEEPBUF_SIZE	(0xA000)	/* 40 KB */
 
-static struct device *g_debug_dev;
 static void __iomem *dp_debug_sfr;
+static struct device *dp_dma_devs[2];
+static void *dp_ado_reserved_mem = NULL;
 
 static const struct snd_pcm_hardware dma_hardware = {
 	.info			= SNDRV_PCM_INFO_INTERLEAVED |
@@ -106,6 +117,44 @@ struct dma_iova {
 
 static LIST_HEAD(iova_list);
 #endif
+
+static struct reserved_mem *dp_ado_rmem;
+
+static void *dp_ado_rmem_vmap(struct reserved_mem *rmem)
+{
+	phys_addr_t phys = rmem->base;
+	size_t size = rmem->size;
+	unsigned int num_pages = (unsigned int)DIV_ROUND_UP(size, PAGE_SIZE);
+	pgprot_t prot = pgprot_writecombine(PAGE_KERNEL);
+	struct page **pages, **page;
+	void *vaddr = NULL;
+
+	pages = kcalloc(num_pages, sizeof(pages[0]), GFP_KERNEL);
+	if (!pages) {
+		pr_err("%s: malloc failed\n", __func__);
+		goto out;
+	}
+
+	for (page = pages; (page - pages < num_pages); page++) {
+		*page = phys_to_page(phys);
+		phys += PAGE_SIZE;
+	}
+
+	vaddr = vmap(pages, num_pages, VM_MAP, prot);
+	kfree(pages);
+out:
+	return vaddr;
+}
+
+static int __init dp_ado_rmem_setup(struct reserved_mem *rmem)
+{
+	pr_info("%s: base=%pa, size=%pa\n", __func__, &rmem->base, &rmem->size);
+	dp_ado_rmem = rmem;
+	return 0;
+}
+
+RESERVEDMEM_OF_DECLARE(dp_ado_rmem, "exynos,dp_ado_rmem", dp_ado_rmem_setup);
+
 
 static void audio_buffdone(void *data);
 
@@ -207,10 +256,12 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct runtime_data *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_dma_buffer *buf = &substream->dma_buffer;
 	unsigned long totbytes = params_buffer_bytes(params);
 	int burst_len;
 	struct samsung_dma_req req;
 	struct samsung_dma_config config;
+	struct dp_audio_pdata *pdata = dev_get_drvdata(dp_dma_devs[rtd->cpu_dai->id]);
 
 	pr_debug("Entered %s\n", __func__);
 
@@ -232,13 +283,13 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 		config.direction = DMA_MEM_TO_DEV;
 		config.width = 4;
 		config.maxburst = burst_len;
-		config.fifo = DP_FIFO;
+		config.fifo = pdata->fifo_addr;
 
 		prtd->params->ch = prtd->params->ops->request(prtd->params->channel,
-				&req, g_debug_dev, "tx");
+				&req, dp_dma_devs[rtd->cpu_dai->id], "tx");
 
 		pr_info("dma_request: ch %d, req %p, dev %p, ch_name [%s]\n",
-			prtd->params->channel, &req, rtd->cpu_dai->dev,
+			prtd->params->channel, &req, dp_dma_devs[rtd->cpu_dai->id],
 			prtd->params->ch_name);
 		prtd->params->ops->config(prtd->params->ch, &config);
 	}
@@ -309,7 +360,13 @@ static int dma_hw_params(struct snd_pcm_substream *substream,
 	else
 		prtd->dp_config.audio_packed_mode = PACKED_MODE2;
 
-	snd_pcm_set_runtime_buffer(substream, &substream->dma_buffer);
+	buf->dev.type = SNDRV_DMA_TYPE_DEV;
+	buf->dev.dev = dp_dma_devs[rtd->cpu_dai->id];
+	buf->private_data = NULL;
+	buf->addr = (dma_addr_t)((unsigned long)dp_ado_rmem->base + (SZ_1M * rtd->cpu_dai->id));
+	buf->area = (unsigned char *)((unsigned long)dp_ado_reserved_mem + (SZ_1M * rtd->cpu_dai->id));
+
+	snd_pcm_set_runtime_buffer(substream, buf);
 
 	runtime->dma_bytes = totbytes;
 
@@ -378,6 +435,8 @@ static int dma_prepare(struct snd_pcm_substream *substream)
 static int dma_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	struct runtime_data *prtd = substream->runtime->private_data;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct dp_audio_pdata *pdata = dev_get_drvdata(dp_dma_devs[rtd->cpu_dai->id]);
 	int ret = 0;
 
 	pr_info("[DP Audio] Entered %s ++\n", __func__);
@@ -387,18 +446,18 @@ static int dma_trigger(struct snd_pcm_substream *substream, int cmd)
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		prtd->state |= ST_RUNNING;
-		pr_info("%s: Start DP DMA request initial status = 0x%08x\n",
+		pr_debug("%s: Start DP DMA request initial status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		prtd->dp_config.audio_enable = AUDIO_ENABLE;
-		displayport_audio_config(&prtd->dp_config);
-		pr_info("%s: Start DP DMA request Low status = 0x%08x\n",
+		displayport_audio_config(pdata->id, &prtd->dp_config);
+		pr_debug("%s: Start DP DMA request Low status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		prtd->params->ops->trigger(prtd->params->ch);
-		pr_info("%s: Start DP DMA request DMA On status = 0x%08x\n",
+		pr_debug("%s: Start DP DMA request DMA On status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		prtd->dp_config.audio_enable = AUDIO_DMA_REQ_HIGH;
-		displayport_audio_config(&prtd->dp_config);
-		pr_info("%s: Start DP DMA request DP Audio En status = 0x%08x\n",
+		displayport_audio_config(pdata->id, &prtd->dp_config);
+		pr_debug("%s: Start DP DMA request DP Audio En status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 
 		break;
@@ -406,17 +465,17 @@ static int dma_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_STOP:
 		prtd->state &= ~ST_RUNNING;
 		prtd->dp_config.audio_enable = AUDIO_WAIT_BUF_FULL;
-		pr_info("%s: Stop DP DMA request WAIT BUF FULL status = 0x%08x\n",
+		pr_debug("%s: Stop DP DMA request WAIT BUF FULL status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
-		displayport_audio_config(&prtd->dp_config);
-		pr_info("%s: Stop DP DMA request DMA Off status = 0x%08x\n",
+		displayport_audio_config(pdata->id, &prtd->dp_config);
+		pr_debug("%s: Stop DP DMA request DMA Off status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		prtd->params->ops->stop(prtd->params->ch);
-		pr_info("%s: Stop DP DMA request DP Audio Dis status = 0x%08x\n",
+		pr_debug("%s: Stop DP DMA request DP Audio Dis status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		prtd->dp_config.audio_enable = AUDIO_DISABLE;
-		displayport_audio_config(&prtd->dp_config);
-		pr_info("%s: Stop DP DMA request End status = 0x%08x\n",
+		displayport_audio_config(pdata->id, &prtd->dp_config);
+		pr_debug("%s: Stop DP DMA request End status = 0x%08x\n",
 			__func__, readl(dp_debug_sfr + 0x580C));
 		break;
 
@@ -586,6 +645,7 @@ static struct snd_pcm_ops pcm_dma_ops = {
 	.mmap		= dma_mmap,
 };
 
+/*
 static int preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 {
 	struct snd_pcm_substream *substream = pcm->streams[stream].substream;
@@ -599,14 +659,13 @@ static int preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	buf->private_data = NULL;
 	buf->area = dma_alloc_coherent(pcm->card->dev, size,
 					&buf->addr, GFP_KERNEL);
-	if (!buf->area) {
-		pr_err("Failed to allocate memory for dp audio buffer\n");
-		return -ENOMEM;
-	}
+	buf->addr = dp_ado_rmem->base;
+	buf->area = dp_ado_rmem->base;
 
 	buf->bytes = size;
 	return 0;
 }
+*/
 
 
 static void dma_free_dma_buffers(struct snd_pcm *pcm)
@@ -645,7 +704,6 @@ static u64 dma_mask = DMA_BIT_MASK(36);
 static int dma_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_card *card = rtd->card->snd_card;
-	struct snd_pcm *pcm = rtd->pcm;
 	int ret = 0;
 
 	pr_debug("Entered %s\n", __func__);
@@ -658,79 +716,208 @@ static int dma_new(struct snd_soc_pcm_runtime *rtd)
 #else
 		card->dev->coherent_dma_mask = DMA_BIT_MASK(36);
 #endif
+	dma_set_mask(card->dev, DMA_BIT_MASK(36));
 
 #if defined(CONFIG_SOC_EXYNOS9810)
 	dp_debug_sfr = ioremap(0x11090000, 0x7000);
 #elif defined(CONFIG_SOC_EXYNOS9820)
 	dp_debug_sfr = ioremap(0x130B0000, 0x7000);
+#elif defined(CONFIG_SOC_EXYNOS9830)
+	dp_debug_sfr = ioremap(0x10AB0000, 0x7000);
 #endif
-
-	if (pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream) {
-		ret = preallocate_dma_buffer(pcm,
-			SNDRV_PCM_STREAM_PLAYBACK);
-		if (ret)
-			goto out;
-	}
-
-	if (pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream) {
-		ret = preallocate_dma_buffer(pcm,
-			SNDRV_PCM_STREAM_CAPTURE);
-		if (ret)
-			goto out;
-	}
-out:
 	return ret;
 }
 
-static struct snd_soc_platform_driver samsung_display_adma = {
-	.ops		= &pcm_dma_ops,
-	.pcm_new	= dma_new,
-	.pcm_free	= dma_free_dma_buffers,
+static struct snd_soc_component_driver dp_dma_cmpnt_drv = {
+	.ops			= &pcm_dma_ops,
+	.pcm_new		= dma_new,
+	.pcm_free		= dma_free_dma_buffers,
 };
 
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+static struct snd_soc_dai_driver dp_dma_dai_drv = {
+	.playback = {
+		.stream_name = "Playback",
+		.channels_min = 1,
+		.channels_max = 8,
+		.rates = DPAUDIO_SAMPLING_RATES,
+		.rate_min = 8000,
+		.rate_max = 384000,
+		.formats = DPAUDIO_SAMPLE_FORMATS,
+	},
+};
+
+static int samsung_dp_dma_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct device_node *np = dev->of_node;
+	struct dp_audio_pdata *pdata;
+	int result;
+
+	dev_info(dev, "%s \n", __func__);
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata) {
+		dev_err(dev, "Failed to allocate memory\n");
+		return -ENOMEM;
+	}
+	platform_set_drvdata(pdev, pdata);
+
+	result = of_property_read_u32_index(np, "id", 0, &pdata->id);
+	if (result < 0) {
+		dev_err(dev, "id property reading fail\n");
+		return result;
+	}
+
+	result = of_property_read_u32_index(np, "fifo_addr", 0, &pdata->fifo_addr);
+	if (result < 0) {
+		dev_err(dev, "fifo_addr property reading fail\n");
+		return result;
+	}
+
+
+	result = devm_snd_soc_register_component(dev, &dp_dma_cmpnt_drv,
+						&dp_dma_dai_drv, 1);
+	if (result < 0)
+		return result;
+
+	dp_dma_devs[pdata->id] = dev;
+	dev_info(dev, "Probed successfully\n");
+
+	return 0;
+}
+
+static int samsung_dp_dma_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_component(&pdev->dev);
+	return 0;
+}
+
+static const struct of_device_id samsung_dp_dma_match[] = {
+	{
+		.compatible = "samsung,dp-dma",
+	},
+	{},
+};
+MODULE_DEVICE_TABLE(of, samsung_dp_dma_match);
+
+static struct platform_driver samsung_dp_dma_driver = {
+	.probe  = samsung_dp_dma_probe,
+	.remove = samsung_dp_dma_remove,
+	.driver = {
+		.name = "samsung-dp-dma",
+		.owner = THIS_MODULE,
+		.of_match_table = of_match_ptr(samsung_dp_dma_match),
+	},
+};
+
+module_platform_driver(samsung_dp_dma_driver);
+
+#ifndef CONFIG_USE_DP_EXTCON_AUDIO/* defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) */
 struct switch_dev dp_ado_switch;
 void dp_ado_switch_set_state(int state)
 {
+	pr_info("%s : dp audio switch event = %d\n", __func__, state);
 	switch_set_state(&dp_ado_switch, state);
 }
+#elif defined(CONFIG_SOC_EXYNOS9830)
+static const unsigned int extcon_id[] = {
+	EXTCON_DISP_HDMI,
+
+	EXTCON_NONE,
+};
+
+struct extcon_dev *dp_ado_extcon = NULL;
+void dp_ado_switch_set_state(int state)
+{
+	pr_info("%s : dp audio switch event = %d\n", __func__, state);
+	extcon_set_state_sync(dp_ado_extcon, EXTCON_DISP_HDMI, (state  < 0) ? 0 : 1);
+}
 #endif
+
+static int dp_ado_component_probe(struct snd_soc_component *component)
+{
+	return 0;
+}
+
+
+static const struct snd_soc_component_driver dp_ado_cmpnt_drv = {
+	.probe = dp_ado_component_probe,
+};
+
+static struct snd_soc_dai_driver dp_ado_dai_drv[] = {
+	{
+		.name = "dp0-ado",
+		.id = 0,
+		.playback = {
+			.stream_name = "Playback",
+			.channels_min = 1,
+			.channels_max = 8,
+			.rates = DPAUDIO_SAMPLING_RATES,
+			.rate_min = 8000,
+			.rate_max = 384000,
+			.formats = DPAUDIO_SAMPLE_FORMATS,
+		},
+	},
+	{
+		.name = "dp1-ado",
+		.id = 1,
+		.playback = {
+			.stream_name = "Playback",
+			.channels_min = 1,
+			.channels_max = 8,
+			.rates = DPAUDIO_SAMPLING_RATES,
+			.rate_min = 8000,
+			.rate_max = 384000,
+			.formats = DPAUDIO_SAMPLE_FORMATS,
+		},
+	},
+};
+
 
 static int samsung_display_adma_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct runtime_data *data;
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+	struct device_node *np = dev->of_node;
 	int ret;
-#endif
 
-	g_debug_dev = dev;
-
-	data = devm_kzalloc(dev, sizeof(struct runtime_data), GFP_KERNEL);
-
-	if (!data) {
-		dev_err(dev, "Failed to allocate memory\n");
-		return -ENOMEM;
-	}
-
-	platform_set_drvdata(pdev, data);
-
-	spin_lock_init(&data->lock);
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+#ifndef CONFIG_USE_DP_EXTCON_AUDIO/* defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)*/
 	dp_ado_switch.name = "ch_hdmi_audio";
 	ret = switch_dev_register(&dp_ado_switch);
 	if (ret) {
 		dev_err(dev, "Failed to register dp audio switch\n");
-		kfree(data);
+		return -EINVAL;
+	}
+#elif defined(CONFIG_SOC_EXYNOS9830)
+	dp_ado_extcon = devm_extcon_dev_allocate(dev, extcon_id);
+	if (IS_ERR(dp_ado_extcon)) {
+		dev_err(dev, "Failed to allocate dp audio extcon\n");
+		return -EINVAL;
+	}
+	ret = devm_extcon_dev_register_by_name(dev, dp_ado_extcon, "hdmi_audio");
+	if (ret) {
+		dev_err(dev, "Failed to register dp audio extcon\n");
 		return -EINVAL;
 	}
 #endif
-	return snd_soc_register_platform(&pdev->dev, &samsung_display_adma);
+
+	ret = snd_soc_register_component(&pdev->dev, &dp_ado_cmpnt_drv,
+						dp_ado_dai_drv, ARRAY_SIZE(dp_ado_dai_drv));
+	if (ret < 0) {
+		dev_err(dev, "Failed to register ASoC component\n");
+#ifdef CONFIG_USE_DP_EXTCON_AUDIO/* defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)*/
+		switch_dev_unregister(&dp_ado_switch);
+#endif
+		return -EINVAL;
+	}
+
+	dp_ado_reserved_mem = dp_ado_rmem_vmap(dp_ado_rmem);
+
+	return of_platform_populate(np, NULL, NULL, dev);
 }
 
 static int samsung_display_adma_remove(struct platform_device *pdev)
 {
-	snd_soc_unregister_platform(&pdev->dev);
+	vunmap(dp_ado_reserved_mem);
+	snd_soc_unregister_component(&pdev->dev);
 	return 0;
 }
 

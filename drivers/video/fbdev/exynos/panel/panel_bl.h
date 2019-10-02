@@ -104,10 +104,6 @@ struct brightness_table {
 	u32 sz_ui_lum;
 	u32 sz_hbm_lum;
 	u32 sz_ext_hbm_lum;
-
-	u32 sz_panel_dim_ui_lum;
-	u32 sz_panel_dim_hbm_lum;
-	u32 sz_panel_dim_ext_hbm_lum;
 	u32 vtotal;
 };
 
@@ -204,6 +200,8 @@ int panel_bl_get_average_and_clear(struct panel_bl_device *panel_bl, size_t inde
 int aor_interpolation(unsigned int *brt_tbl, unsigned int *lum_tbl,
 		u8(*aor_tbl)[2], int size, int size_ui_lum, u32 vtotal, int brightness);
 int panel_bl_aor_interpolation(struct panel_bl_device *panel_bl,
+		int id, u8(*aor_tbl)[2]);
+int panel_bl_aor_interpolation_2(struct panel_bl_device *panel_bl,
 		int id, u8(*aor_tbl)[2]);
 int panel_bl_irc_interpolation(struct panel_bl_device *panel_bl, int id,
 	struct panel_irc_info *irc_info);

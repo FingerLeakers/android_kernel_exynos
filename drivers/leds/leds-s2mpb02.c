@@ -18,11 +18,9 @@
 #include <linux/spinlock.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/mfd/samsung/s2mpb02.h>
-#include <linux/mfd/samsung/s2mpb02-regulator.h>
+#include <linux/mfd/s2mpb02.h>
+#include <linux/mfd/s2mpb02-regulator.h>
 #include <linux/leds-s2mpb02.h>
-#include <linux/mfd/samsung/s2mpb02-regulator.h>
-#include <linux/mfd/samsung/s2mpb02.h>
 #include <linux/ctype.h>
 #include <linux/of_gpio.h>
 

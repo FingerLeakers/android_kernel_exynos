@@ -43,6 +43,216 @@
 
 static void __iomem *usbdp_combo_phy_reg;
 
+
+struct usb_eom_result_s *eom_result;
+
+u32 get_speed_and_disu1u2(void);
+
+static ssize_t
+exynos_usbdrd_eom_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int len = 0;
+	u32 test_cnt = 0;
+	static int current_cnt = 0;
+
+	if (eom_result == NULL) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"eom_result structure is NULL!!!\n");
+		goto exit;
+	}
+
+	while (current_cnt != EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX) {
+		len += snprintf(buf + len, PAGE_SIZE,
+					"phase %d vref %d err %lu\n",
+					eom_result[current_cnt].phase,
+					eom_result[current_cnt].vref,
+					(unsigned long)eom_result[current_cnt].err);
+
+
+		current_cnt++;
+		test_cnt++;
+		if (test_cnt == 100)
+			break;
+	}
+
+	if (current_cnt == EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX)
+		current_cnt = 0;
+
+exit:
+	return len;
+}
+
+static ssize_t
+exynos_usbdrd_eom_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t n)
+{
+	struct exynos_usbdrd_phy *phy_drd = dev_get_drvdata(dev);
+	int speed_val;
+
+	kfree(eom_result);
+
+	eom_result = kzalloc(sizeof(struct usb_eom_result_s) *
+			EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX, GFP_KERNEL);
+	if (eom_result == NULL) {
+		return -ENOMEM;
+	}
+
+	/* Disable U1/U2 & get speed */
+	speed_val = get_speed_and_disu1u2();
+
+	if (speed_val == 0)
+		speed_val = 1; /* Gen2 */
+	else
+		speed_val = 0; /* Gen1 */
+
+	/* Start eom test */
+	phy_exynos_usbdp_g2_v2_eom(&phy_drd->usbphy_sub_info, speed_val, eom_result);
+
+	return n;
+}
+
+static DEVICE_ATTR(eom, S_IWUSR | S_IRUSR | S_IRGRP,
+	exynos_usbdrd_eom_show, exynos_usbdrd_eom_store);
+
+static ssize_t
+exynos_usbdrd_hs_phy_tune_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct exynos_usbdrd_phy *phy_drd = dev_get_drvdata(dev);
+	int len = 0, i, ret;
+	u32 tune_num = 0;
+	struct device_node *tune_node;
+
+	tune_node = of_parse_phandle(dev->of_node, "hs_tune_param", 0);
+
+	ret = of_property_read_u32_array(tune_node, "hs_tune_cnt", &tune_num, 1);
+	if (ret) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"Can't get tune value!!!\n");
+		goto exit;
+	}
+
+	len += snprintf(buf + len, PAGE_SIZE, "\t==== Print USB Tune Value ====\n");
+	len += snprintf(buf + len, PAGE_SIZE, "Tune value count : %d\n", tune_num);
+
+	for (i = 0; i < tune_num; i++) {
+		len += snprintf(buf + len, PAGE_SIZE, "%s\t\t\t: 0x%x, 0x%x\n",
+				phy_drd->usbphy_info.tune_param[i].name,
+				phy_drd->hs_tune_param_value[i][0],
+				phy_drd->hs_tune_param_value[i][1]);
+	}
+
+exit:
+	return len;
+}
+
+static ssize_t
+exynos_usbdrd_hs_phy_tune_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t n)
+{
+	char tune_name[30];
+	u32 tune_val;
+	struct device_node *tune_node;
+	struct exynos_usbdrd_phy *phy_drd = dev_get_drvdata(dev);
+	int ret, i;
+	u32 tune_num = 0;
+
+	if (sscanf(buf, "%s %x", tune_name, &tune_val) != 2){
+		return -EINVAL;
+	}
+
+	tune_node = of_parse_phandle(dev->of_node, "hs_tune_param", 0);
+	ret = of_property_read_u32_array(tune_node, "hs_tune_cnt", &tune_num, 1);
+	if (ret) {
+		pr_err("Can't get hs_tune_cnt!!!\n");
+		goto exit;
+	}
+
+	for (i = 0; i < tune_num; i++) {
+		if (!strncmp(phy_drd->usbphy_info.tune_param[i].name, tune_name,
+			strlen(phy_drd->usbphy_info.tune_param[i].name))) {
+				phy_drd->hs_tune_param_value[i][0] = tune_val;
+				phy_drd->hs_tune_param_value[i][1] = tune_val;
+		}
+	}
+
+exit:
+	return n;
+}
+
+static DEVICE_ATTR(hs_phy_tune, S_IWUSR | S_IRUSR | S_IRGRP,
+	exynos_usbdrd_hs_phy_tune_show, exynos_usbdrd_hs_phy_tune_store);
+
+static ssize_t
+exynos_usbdrd_phy_tune_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct exynos_usbdrd_phy *phy_drd = dev_get_drvdata(dev);
+	int len = 0, i, ret;
+	u32 tune_num = 0;
+	struct device_node *tune_node;
+
+	tune_node = of_parse_phandle(dev->of_node, "ss_tune_param", 0);
+
+	ret = of_property_read_u32_array(tune_node, "ss_tune_cnt", &tune_num, 1);
+	if (ret) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"Can't get tune value!!!\n");
+		goto exit;
+	}
+
+	len += snprintf(buf + len, PAGE_SIZE, "\t==== Print USB Tune Value ====\n");
+	len += snprintf(buf + len, PAGE_SIZE, "Tune value count : %d\n", tune_num);
+
+	for (i = 0; i < tune_num; i++) {
+		len += snprintf(buf + len, PAGE_SIZE, "%s\t\t\t: 0x%x, 0x%x\n",
+				phy_drd->usbphy_sub_info.tune_param[i].name,
+				phy_drd->ss_tune_param_value[i][0],
+				phy_drd->ss_tune_param_value[i][1]);
+	}
+
+exit:
+	return len;
+}
+
+static ssize_t
+exynos_usbdrd_phy_tune_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t n)
+{
+	char tune_name[30];
+	u32 tune_val;
+	struct device_node *tune_node;
+	struct exynos_usbdrd_phy *phy_drd = dev_get_drvdata(dev);
+	int ret, i;
+	u32 tune_num = 0;
+
+	if (sscanf(buf, "%s %x", tune_name, &tune_val) != 2){
+		return -EINVAL;
+	}
+
+	tune_node = of_parse_phandle(dev->of_node, "ss_tune_param", 0);
+	ret = of_property_read_u32_array(tune_node, "ss_tune_cnt", &tune_num, 1);
+	if (ret) {
+		pr_err("Can't get ss_tune_cnt!!!\n");
+		goto exit;
+	}
+
+	for (i = 0; i < tune_num; i++) {
+		if (!strncmp(phy_drd->usbphy_sub_info.tune_param[i].name, tune_name,
+			strlen(phy_drd->usbphy_sub_info.tune_param[i].name))) {
+				phy_drd->ss_tune_param_value[i][0] = tune_val;
+				phy_drd->ss_tune_param_value[i][1] = tune_val;
+		}
+	}
+
+exit:
+	return n;
+}
+
+static DEVICE_ATTR(phy_tune, S_IWUSR | S_IRUSR | S_IRGRP,
+	exynos_usbdrd_phy_tune_show, exynos_usbdrd_phy_tune_store);
+
 static int exynos_usbdrd_clk_prepare(struct exynos_usbdrd_phy *phy_drd)
 {
 	int i;
@@ -532,12 +742,12 @@ static int exynos_usbdrd_fill_hstune(struct exynos_usbdrd_phy *phy_drd,
 		return -EINVAL;
 	}
 
-	ret = of_property_read_u32_array(node, "tx_pre_emp_puls", res, 2);
+	ret = of_property_read_u32_array(node, "tx_pre_emp_plus", res, 2);
 	if (ret == 0) {
-		hs_tune[0].tx_pre_emp_puls = res[0];
-		hs_tune[1].tx_pre_emp_puls = res[1];
+		hs_tune[0].tx_pre_emp_plus = res[0];
+		hs_tune[1].tx_pre_emp_plus = res[1];
 	} else {
-		dev_err(dev, "can't get tx_pre_emp_puls value, error = %d\n", ret);
+		dev_err(dev, "can't get tx_pre_emp_plus value, error = %d\n", ret);
 		return -EINVAL;
 	}
 
@@ -802,7 +1012,7 @@ static int exynos_usbdrd_fill_hstune_param(struct exynos_usbdrd_phy *phy_drd,
 
 	dev_info(dev, "%s hs tune cnt = %d\n", __func__, res[0]);
 
-	hs_tune_param = devm_kzalloc(dev, size*(res[0]+1), GFP_KERNEL);
+	hs_tune_param = devm_kzalloc(dev, size * (res[0] + 1), GFP_KERNEL);
 	if (!hs_tune_param)
 		return -ENOMEM;
 	phy_drd->usbphy_info.tune_param = hs_tune_param;
@@ -851,7 +1061,7 @@ static int exynos_usbdrd_fill_sstune_param(struct exynos_usbdrd_phy *phy_drd,
 
 	dev_info(dev, "%s ss tune cnt = %d\n", __func__, res[0]);
 
-	ss_tune_param = devm_kzalloc(dev, size*(res[0]+1), GFP_KERNEL);
+	ss_tune_param = devm_kzalloc(dev, size * (res[0] + 1), GFP_KERNEL);
 	if (!ss_tune_param)
 		return -ENOMEM;
 	phy_drd->usbphy_sub_info.tune_param = ss_tune_param;
@@ -870,6 +1080,11 @@ static int exynos_usbdrd_fill_sstune_param(struct exynos_usbdrd_phy *phy_drd,
 		if (ret == 0) {
 			phy_drd->ss_tune_param_value[param_index][0] = res[0];
 			phy_drd->ss_tune_param_value[param_index][1] = res[1];
+
+			if (phy_drd->use_default_tune_val) {
+				phy_drd->ss_tune_param_value[param_index][0] = -1;
+				phy_drd->ss_tune_param_value[param_index][1] = -1;
+			}
 		} else {
 			dev_err(dev, "failed to read ss tune value from %s node\n", child->name);
 			return -EINVAL;
@@ -1136,7 +1351,7 @@ static void exynos_usbdrd_utmi_exit(struct exynos_usbdrd_phy *phy_drd)
 		exynos_usbdrd_clk_disable(phy_drd, true);
 	}
 	phy_exynos_usb_v3p1_disable(&phy_drd->usbphy_info);
-	phy_exynos_usbdp_g2_disable(&phy_drd->usbphy_sub_info);
+	phy_exynos_usbdp_g2_v2_disable(&phy_drd->usbphy_sub_info);
 
 	exynos_usbdrd_clk_disable(phy_drd, false);
 }
@@ -1189,52 +1404,8 @@ static void exynos_usbdrd_pipe3_init(struct exynos_usbdrd_phy *phy_drd)
 		}
 	}
 
-	/* Fill USBDP Combo phy init */
 	phy_exynos_usb_v3p1_g2_pma_ready(&phy_drd->usbphy_info);
-
-	phy_exynos_usbdp_g2_enable(&phy_drd->usbphy_sub_info);
-
-	phy_exynos_usb_v3p1_g2_pma_sw_rst_release(&phy_drd->usbphy_info);
-
-	/* [step4] wait for lock done of pll */
-	for (ret = 100; ret != 0; ret--) {
-		int pll_lock;
-
-		pll_lock = phy_exynos_usbdp_g2_check_pll_lock(
-				&phy_drd->usbphy_sub_info);
-		if (!pll_lock)
-			break;
-	}
-	if (!ret) {
-		exynos_usbdrd_utmi_exit(phy_drd);
-		/* UE_TASK: Init Fail, so disable usb dp phy */
-		dev_err(phy_drd->dev, "pll lock is fail!!\n");
-		return;
-	}
-	ret = 0;
-
-	/* [step5] run RX / TX lane */
-	phy_exynos_usbdp_g2_run_lane(&phy_drd->usbphy_sub_info);
-
-	/* [step6] wait for RX CDR lock done */
-	for (ret = 100; ret != 0; ret--) {
-		int pll_lock;
-
-		pll_lock = phy_exynos_usbdp_g2_rx_cdr_pll_lock(
-				&phy_drd->usbphy_sub_info);
-		if (!pll_lock)
-			break;
-	}
-	if (!ret) {
-		exynos_usbdrd_utmi_exit(phy_drd);
-		/* UE_TASK: Init Fail, so disable usb dp phy */
-		dev_err(phy_drd->dev, "pll lock is fail!!\n");
-		return;
-	}
-
-	/* [step7] link_pclk_sel change */
-	phy_exynos_usb_v3p1_g2_link_pclk_sel(&phy_drd->usbphy_info);
-
+	ret = phy_exynos_usbdp_g2_v2_enable(&phy_drd->usbphy_sub_info);
 }
 
 static void exynos_usbdrd_utmi_init(struct exynos_usbdrd_phy *phy_drd)
@@ -1302,7 +1473,7 @@ static int exynos_usbdrd_phy_init(struct phy *phy)
 static void __exynos_usbdrd_phy_shutdown(struct exynos_usbdrd_phy *phy_drd)
 {
 	phy_exynos_usb_v3p1_disable(&phy_drd->usbphy_info);
-	phy_exynos_usbdp_g2_disable(&phy_drd->usbphy_sub_info);
+	phy_exynos_usbdp_g2_v2_disable(&phy_drd->usbphy_sub_info);
 }
 
 static void exynos_usbdrd_utmi_ilbk(struct exynos_usbdrd_phy *phy_drd)
@@ -1320,7 +1491,16 @@ static void exynos_usbdrd_pipe3_ilbk(struct exynos_usbdrd_phy *phy_drd)
 static int exynos_usbdrd_pipe3_vendor_set(struct exynos_usbdrd_phy *phy_drd,
 							int is_enable, int is_cancel)
 {
-	dev_info(phy_drd->dev, "%s \n",__func__);
+	if (is_cancel == 0) {
+		dev_info(phy_drd->dev, "%s - SS ReWA Enable\n",__func__);
+		phy_exynos_usb3p1_u3_rewa_enable(&phy_drd->usbphy_info, 0);
+		enable_irq(phy_drd->usb3_irq_wakeup);
+	} else {
+		dev_info(phy_drd->dev, "%s - SS ReWA Disable\n",__func__);
+		disable_irq_nosync(phy_drd->usb3_irq_wakeup);
+		phy_exynos_usb3p1_u3_rewa_disable(&phy_drd->usbphy_info);
+	}
+
 	return 0;
 }
 
@@ -1403,7 +1583,7 @@ static void exynos_usbdrd_pipe3_tune(struct exynos_usbdrd_phy *phy_drd,
 			ss_tune_param[i].value = phy_drd->ss_tune_param_value[i][USBPHY_MODE_DEV];
 		}
 	}
-	phy_exynos_g2_usbdp_tune(&phy_drd->usbphy_sub_info);
+	phy_exynos_usbdp_g2_v2_tune(&phy_drd->usbphy_sub_info);
 }
 
 static void exynos_usbdrd_utmi_tune(struct exynos_usbdrd_phy *phy_drd,
@@ -1444,7 +1624,7 @@ static int exynos_usbdrd_phy_tune(struct phy *phy, int phy_state)
 
 void exynos_usbdrd_ldo_control(struct exynos_usbdrd_phy *phy_drd, int on)
 {
-	struct regulator *r_ldo10, *r_ldo11, *r_ldo12;	
+	struct regulator *r_ldo10, *r_ldo11, *r_ldo12;
 	int ret1 = 0;
 	int ret2 = 0;
 	int ret3 = 0;
@@ -1461,7 +1641,7 @@ void exynos_usbdrd_ldo_control(struct exynos_usbdrd_phy *phy_drd, int on)
 		ret3 = regulator_enable(r_ldo12);
 		if (ret1 || ret2 || ret3) {
 			dev_err(phy_drd->dev, "Failed to enable USB LDOs: %d %d %d\n",
-				ret1, ret2, ret3);
+					ret1, ret2, ret3);
 		}
 	} else {
 		if (r_ldo10->rdev->use_count > 0)
@@ -1472,7 +1652,7 @@ void exynos_usbdrd_ldo_control(struct exynos_usbdrd_phy *phy_drd, int on)
 			ret3 = regulator_disable(phy_drd->ldo12);
 		if (ret1 || ret2 || ret3) {
 			dev_err(phy_drd->dev, "Failed to disable USB LDOs: %d %d %d\n",
-				ret1, ret2, ret3);
+					ret1, ret2, ret3);
 		}
 	}
 }
@@ -1491,13 +1671,11 @@ static void exynos_usbdrd_phy_conn(struct phy *phy, int is_conn)
 		phy_drd->is_conn = 1;
 
 		exynos_usbdrd_ldo_control(phy_drd, 1);
-		mdelay(1);
 	} else {
 		dev_info(phy_drd->dev, "USB PHY Conn Clear\n");
 		phy_drd->is_conn = 0;
 
 		exynos_usbdrd_ldo_control(phy_drd, 0);
-		mdelay(1);
 	}
 
 	return;
@@ -1558,7 +1736,7 @@ int exynos_usbdrd_phy_link_rst(struct phy *phy)
 	struct exynos_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
 
 	pr_info("%s\n", __func__);
-	phy_exynos_usb_v3p1_link_rst(&phy_drd->usbphy_info);
+	phy_exynos_usb_v3p1_link_sw_reset(&phy_drd->usbphy_info);
 	return 0;
 }
 
@@ -1668,6 +1846,30 @@ int exynos_usbdrd_ldo_manual_control(bool on)
 }
 EXPORT_SYMBOL_GPL(exynos_usbdrd_ldo_manual_control);
 
+int exynos_usbdrd_pipe3_enable(struct phy *phy)
+{
+	struct phy_usb_instance *inst = phy_get_drvdata(phy);
+	struct exynos_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
+
+	phy_exynos_usb_v3p1_g2_pma_ready(&phy_drd->usbphy_info);
+	phy_exynos_usbdp_g2_v2_enable(&phy_drd->usbphy_sub_info);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(exynos_usbdrd_pipe3_enable);
+
+int exynos_usbdrd_pipe3_disable(struct phy *phy)
+{
+	struct phy_usb_instance *inst = phy_get_drvdata(phy);
+	struct exynos_usbdrd_phy *phy_drd = to_usbdrd_phy(inst);
+
+	/* phy_exynos_usb_v3p1_pipe_ovrd(&phy_drd->usbphy_info); */
+	phy_exynos_usbdp_g2_v2_disable(&phy_drd->usbphy_sub_info);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(exynos_usbdrd_pipe3_disable);
+
 static struct phy *exynos_usbdrd_phy_xlate(struct device *dev,
 					struct of_phandle_args *args)
 {
@@ -1677,6 +1879,16 @@ static struct phy *exynos_usbdrd_phy_xlate(struct device *dev,
 		return ERR_PTR(-ENODEV);
 
 	return phy_drd->phys[args->args[0]].phy;
+}
+
+static irqreturn_t exynos_usbdrd_usb3_phy_wakeup_interrupt(int irq, void *_phydrd)
+{
+	struct exynos_usbdrd_phy *phy_drd = (struct exynos_usbdrd_phy *)_phydrd;
+
+	phy_exynos_usb3p1_u3_rewa_disable(&phy_drd->usbphy_info);
+	dev_info(phy_drd->dev, "[%s] USB3 ReWA disabled...\n", __func__);
+
+	return IRQ_HANDLED;
 }
 
 static irqreturn_t exynos_usbdrd_phy_wakeup_interrupt(int irq, void *_phydrd)
@@ -1807,6 +2019,20 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 	}
 	irq_set_irq_wake(phy_drd->irq_conn, 1);
 
+	phy_drd->usb3_irq_wakeup = platform_get_irq(pdev, 2);
+	irq_set_status_flags(phy_drd->usb3_irq_wakeup, IRQ_NOAUTOEN);
+	ret = devm_request_irq(dev, phy_drd->usb3_irq_wakeup,
+					exynos_usbdrd_usb3_phy_wakeup_interrupt,
+					0, "phydrd-conn", phy_drd);
+	if (ret) {
+		dev_err(dev, "failed to request irq #%d --> %d (For SS ReWA)\n",
+				phy_drd->usb3_irq_wakeup, ret);
+		/* Don't return probe failure for compatibility */
+		dev_err(dev, "Don't return probe failure for compatibility.\n");
+	} else {
+		irq_set_irq_wake(phy_drd->usb3_irq_wakeup, 1);
+	}
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	phy_drd->reg_phy = devm_ioremap_resource(dev, res);
 	if (IS_ERR(phy_drd->reg_phy))
@@ -1916,6 +2142,15 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 	if (ret)
 		goto err1;
 
+	if (!of_property_read_u32(dev->of_node, "use_default_tune_val", &ret)) {
+		if (ret) {
+			dev_info(dev, "Use default tune value for SS/SSP\n");
+			phy_drd->use_default_tune_val = 1;
+		} else {
+			phy_drd->use_default_tune_val = 0;
+		}
+	}
+
 	if (!of_property_read_u32(dev->of_node, "has_combo_phy", &ret)) {
 		if (ret) {
 			res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
@@ -1928,6 +2163,18 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 			if (IS_ERR(phy_drd->reg_phy3))
 				return PTR_ERR(phy_drd->reg_phy3);
 
+			res = platform_get_resource(pdev, IORESOURCE_MEM, 3);
+			/* In case of phy driver, we use ioremap() function
+			 * because same address will be used at USB driver.
+			 */
+			phy_drd->reg_link = ioremap(res->start, resource_size(res));
+			if (IS_ERR(phy_drd->reg_link))
+				return PTR_ERR(phy_drd->reg_link);
+
+			phy_drd->usbphy_sub_info.ctrl_base = phy_drd->reg_phy;
+			phy_drd->usbphy_sub_info.pma_base = phy_drd->reg_phy2;
+			phy_drd->usbphy_sub_info.pcs_base = phy_drd->reg_phy3;
+			phy_drd->usbphy_sub_info.link_base = phy_drd->reg_link;
 			exynos_usbdrd_get_sub_phyinfo(phy_drd);
 		} else {
 			dev_err(dev, "It has not combo phy\n");
@@ -1993,7 +2240,6 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 	if (IS_ERR(phy_drd->ldo11) || phy_drd->ldo11 == NULL) {
 		dev_err(dev, "%s - ldo11_usb regulator_get fail %p %d\n",
 			__func__, phy_drd->ldo11, IS_ERR(phy_drd->ldo11));
-		regulator_put(phy_drd->ldo10);
 		return -ENODEV;
 	}
 
@@ -2001,12 +2247,25 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 	if (IS_ERR(phy_drd->ldo12) || phy_drd->ldo12 == NULL) {
 		dev_err(dev, "%s - ldo12_usb regulator_get fail %p %d\n",
 			__func__, phy_drd->ldo12, IS_ERR(phy_drd->ldo12));
-		regulator_put(phy_drd->ldo10);
-		regulator_put(phy_drd->ldo11);
 		return -ENODEV;
 	}
 
 	phy_drd->is_irq_enabled = 0;
+
+	ret = sysfs_create_file(&dev->kobj, &dev_attr_phy_tune.attr);
+	if (ret) {
+		dev_err(dev, "%s - Couldn't create sysfs for PHY tune\n", __func__);
+	}
+
+	ret = sysfs_create_file(&dev->kobj, &dev_attr_hs_phy_tune.attr);
+	if (ret) {
+		dev_err(dev, "%s - Couldn't create sysfs for HS PHY tune\n", __func__);
+	}
+
+	ret = sysfs_create_file(&dev->kobj, &dev_attr_eom.attr);
+	if (ret) {
+		dev_err(dev, "%s - Couldn't create sysfs for PHY EOM\n", __func__);
+	}
 
 	pr_info("%s: ---\n", __func__);
 	return 0;

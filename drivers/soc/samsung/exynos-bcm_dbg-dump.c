@@ -75,8 +75,14 @@ int exynos_bcm_dbg_buffer_dump(struct exynos_bcm_dbg_data *data, bool klog)
 	str_size = snprintf(result, PAGE_SIZE, "last kernel time, %llu\n", last_ktime);
 	vfs_write(fp, result, str_size, &fp->f_pos);
 
-	str_size = snprintf(result, PAGE_SIZE, "seq_no, ip_index, define_event, time, ccnt, "
-			"pmcnt0, pmcnt1, pmcnt2, pmcnt3, pmcnt4, pmcnt5, pmcnt6, pmcnt7\n");
+	if (data->bcm_cnt_nr == 4) {
+		str_size = snprintf(result, PAGE_SIZE, "seq_no, ip_index, define_event, time,	\
+				ccnt, pmcnt0, pmcnt1, pmcnt2, pmcnt3\n");
+	} else if (data->bcm_cnt_nr == 8) {
+		str_size = snprintf(result, PAGE_SIZE, "seq_no, ip_index, define_event, time,	\
+				ccnt, pmcnt0, pmcnt1, pmcnt2, pmcnt3, "
+				"pmcnt4, pmcnt5, pmcnt6, pmcnt7\n");
+	}
 	vfs_write(fp, result, str_size, &fp->f_pos);
 
 	if (klog)
@@ -84,17 +90,25 @@ int exynos_bcm_dbg_buffer_dump(struct exynos_bcm_dbg_data *data, bool klog)
 
 	while ((buff_size - buff_cnt) > dump_entry_size) {
 		defined_event = BCM_CMD_GET(dump_info->dump_header,
-			BCM_EVT_PRE_DEFINE_MASK, BCM_DUMP_PRE_DEFINE_SHIFT);
+				BCM_EVT_PRE_DEFINE_MASK, BCM_DUMP_PRE_DEFINE_SHIFT);
 		ip_index = BCM_CMD_GET(dump_info->dump_header, BCM_IP_MASK, 0);
 
-		str_size = snprintf(result, PAGE_SIZE, "%u, %u, %u, %u, "
-				"%u, %u, %u, %u, %u, %u, %u, %u, %u\n",
-				dump_info->dump_seq_no, ip_index, defined_event,
-				dump_info->dump_time, dump_info->out_data.ccnt,
-				dump_info->out_data.pmcnt[0], dump_info->out_data.pmcnt[1],
-				dump_info->out_data.pmcnt[2], dump_info->out_data.pmcnt[3],
-				dump_info->out_data.pmcnt[4], dump_info->out_data.pmcnt[5],
-				dump_info->out_data.pmcnt[6], dump_info->out_data.pmcnt[7]);
+		if (data->bcm_cnt_nr == 4) {
+			str_size = snprintf(result, PAGE_SIZE, "%u, %u, %u, %u,	%u, %u, %u, %u, %u\n",
+					dump_info->dump_seq_no, ip_index, defined_event,
+					dump_info->dump_time, dump_info->out_data.ccnt,
+					dump_info->out_data.pmcnt[0], dump_info->out_data.pmcnt[1],
+					dump_info->out_data.pmcnt[2], dump_info->out_data.pmcnt[3]);
+		} else if (data->bcm_cnt_nr == 8) {
+			str_size = snprintf(result, PAGE_SIZE, "%u, %u, %u, %u,	%u, %u,	\
+					%u, %u, %u, %u, %u, %u, %u\n",
+					dump_info->dump_seq_no, ip_index, defined_event,
+					dump_info->dump_time, dump_info->out_data.ccnt,
+					dump_info->out_data.pmcnt[0], dump_info->out_data.pmcnt[1],
+					dump_info->out_data.pmcnt[2], dump_info->out_data.pmcnt[3],
+					dump_info->out_data.pmcnt[4], dump_info->out_data.pmcnt[5],
+					dump_info->out_data.pmcnt[6], dump_info->out_data.pmcnt[7]);
+		}
 		vfs_write(fp, result, str_size, &fp->f_pos);
 
 		if (klog)

@@ -1,7 +1,11 @@
 #
 # HDCP driver configuration
 #
+config EXYNOS_ENABLE_HDCP2
+        bool "HDCP2 driver enable"
 
+
+if EXYNOS_ENABLE_HDCP2
 menuconfig EXYNOS_HDCP2
 	bool "HDCP2 driver support"
 	default y
@@ -35,4 +39,5 @@ config HDCP2_FUNC_TEST_MODE
          help
            Enable HDCP2 DP Function test mode.
 
+endif
 endif

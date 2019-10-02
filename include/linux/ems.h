@@ -11,9 +11,9 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/sched.h>
 #include <linux/plist.h>
 #include <linux/sched/idle.h>
-#include <linux/sched/topology.h>
 
 struct gb_qos_request {
 	struct plist_node node;
@@ -21,138 +21,180 @@ struct gb_qos_request {
 	bool active;
 };
 
-#define LEAVE_BAND	0
-
-struct task_band {
-	int id;
-	int sse;
-	pid_t tgid;
-	raw_spinlock_t lock;
-
-	struct list_head members;
-	int member_count;
-	struct cpumask playable_cpus;
-
-	unsigned long util;
-	unsigned long last_update_time;
+struct emst_mode_request {
+	struct plist_node node;
+	bool active;
+	char *func;
+	unsigned int line;
 };
+
+#define emst_update_request(req, new_value)	do {				\
+	__emst_update_request(req, new_value, (char *)__func__, __LINE__);	\
+} while(0);
 
 struct rq;
 
-extern struct kobject *ems_kobj;
-extern unsigned int get_cpu_max_capacity(unsigned int cpu, int sse);
+enum {
+	STATES_FREQ = 0,
+	STATES_PMQOS,
+	NUM_OF_REQUESTS,
+};
+
 #ifdef CONFIG_SCHED_EMS
-/* core */
+/*
+ * core
+ */
+extern int
+exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup);
 extern void init_ems(void);
 
-/* task util initialization */
-extern void exynos_init_entity_util_avg(struct sched_entity *se);
 
-/* wakeup balance */
-extern int
-exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int sync);
+/*
+ * init util
+ */
+extern void post_init_entity_multi_load(struct sched_entity *se, u64 now);
 
-/* ontime migration */
+
+/*
+ * energy model
+ */
+extern void init_sched_energy_table(struct cpumask *cpus, int table_size,
+				unsigned long *f_table, unsigned int *v_table,
+				int max_f, int min_f);
+extern void rebuild_sched_energy_table(struct cpumask *cpus, int clipped_freq,
+						int max_freq, int type);
+
+/*
+ * multi load
+ */
+extern void init_multi_load(struct sched_entity *se);
+
+extern void set_task_rq_multi_load(struct sched_entity *se, struct cfs_rq *prev, struct cfs_rq *next);
+extern void update_tg_cfs_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq *gcfs_rq);
+extern int update_cfs_rq_multi_load(u64 now, struct cfs_rq *cfs_rq);
+extern void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern int update_multi_load_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern void sync_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern void remove_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
+extern void init_cfs_rq_multi_load(struct cfs_rq *cfs_rq);
+extern void migrate_entity_multi_load(struct sched_entity *se);
+
+extern void util_est_enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p);
+extern void util_est_dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep);
+extern void util_est_update(struct task_struct *p, int prev_util_est, int next_util_est);
+extern void set_part_period_start(struct rq *rq);
+extern void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type);
+extern void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu);
+
+
+/*
+ * ontime migration
+ */
+extern int ontime_can_migrate_task(struct task_struct *p, int dst_cpu);
 extern void ontime_migration(void);
-extern int ontime_can_migration(struct task_struct *p, int cpu);
-extern void ontime_update_load_avg(u64 delta, int cpu, unsigned long weight, struct sched_avg *sa);
-extern void ontime_new_entity_load(struct task_struct *parent, struct sched_entity *se);
-extern void ontime_trace_task_info(struct task_struct *p);
 
-/* load balance trigger */
-extern bool lbt_overutilized(int cpu, int level);
-extern void update_lbt_overutil(int cpu, unsigned long capacity);
 
-/* global boost */
+/*
+ * global boost
+ */
 extern void gb_qos_update_request(struct gb_qos_request *req, u32 new_value);
 
-/* task band */
-extern void sync_band(struct task_struct *p, bool join);
-extern void newbie_join_band(struct task_struct *newbie);
-extern void update_band(struct task_struct *p, long old_util);
-extern int band_playing(struct task_struct *p, int cpu);
 
-/* multi load  */
-void update_multi_load(u64 delta, int cpu, struct sched_avg *sa,
-		unsigned long weight, int running, struct cfs_rq *cfs_rq);
-void init_multi_load(struct sched_entity *se);
-void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
-void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
-void remove_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
-void apply_removed_multi_load(struct cfs_rq *cfs_rq);
-void update_tg_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se);
-void cfs_se_util_change_multi_load(struct task_struct *p, struct sched_avg *avg);
-void enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p);
-void dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep);
-
-/* P.A.R.T */
-void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type);
-void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu);
-void set_part_period_start(struct rq *rq);
-
-/* load balance */
+/*
+ * load balance
+ */
+extern struct list_head *lb_cfs_tasks(struct rq *rq, int sse);
 extern void lb_add_cfs_task(struct rq *rq, struct sched_entity *se);
 extern int lb_check_priority(int src_cpu, int dst_cpu);
 extern struct list_head *lb_prefer_cfs_tasks(int src_cpu, int dst_cpu);
 extern int lb_need_active_balance(enum cpu_idle_type idle,
 				struct sched_domain *sd, int src_cpu, int dst_cpu);
+extern bool lb_sibling_overutilized(int dst_cpu, struct sched_domain *sd,
+					struct cpumask *lb_cpus);
+extern bool lbt_overutilized(int cpu, int level);
+extern void update_lbt_overutil(int cpu, unsigned long capacity);
+extern void lb_update_misfit_status(struct task_struct *p, struct rq *rq, unsigned long task_h_load);
 
-/* check the status of energy table */
-extern bool energy_initialized;
-extern void set_energy_table_status(bool status);
-extern bool get_energy_table_status(void);
-#else
-static inline void init_ems(void);
-static inline void exynos_init_entity_util_avg(struct sched_entity *se) { }
+/*
+ * Core sparing
+ */
+extern void ecs_update(void);
+extern int ecs_is_sparing_cpu(int cpu);
 
+/*
+ * EMStune
+ */
+extern void __emst_update_request(struct emst_mode_request *req, s32 new_value, char *func, unsigned int line);
+extern bool emst_can_migrate_task(struct task_struct *p, int dst_cpu);
+#else /* CONFIG_SCHED_EMS */
+
+/*
+ * core
+ */
 static inline int
-exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int sync)
+exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup)
 {
 	return -1;
 }
+static inline void init_ems(void) { }
 
-static inline void ontime_migration(void) { }
-static inline int ontime_can_migration(struct task_struct *p, int cpu)
-{
-	return 1;
-}
-static inline void ontime_update_load_avg(u64 delta, int cpu, unsigned long weight, struct sched_avg *sa) { }
-static inline void ontime_new_entity_load(struct task_struct *p, struct sched_entity *se) { }
-static inline void ontime_trace_task_info(struct task_struct *p) { }
 
-static inline bool lbt_overutilized(int cpu, int level)
-{
-	return false;
-}
-static inline void update_lbt_overutil(int cpu, unsigned long capacity) { }
+/*
+ * init util
+ */
+static inline void post_init_entity_multi_load(struct sched_entity *se, u64 now) { }
 
-static inline void gb_qos_update_request(struct gb_qos_request *req, u32 new_value) { }
 
-static inline void sync_band(struct task_struct *p, bool join) { }
-static inline void newbie_join_band(struct task_struct *newbie) { }
-static inline void update_band(struct task_struct *p, long old_util) { }
-static inline int band_playing(struct task_struct *p, int cpu)
-{
-	return 0;
-}
+/*
+ * energy model
+ */
+static inline void init_sched_energy_table(struct cpumask *cpus, int table_size,
+				unsigned long *f_table, unsigned int *v_table,
+				int max_f, int min_f) { }
+static inline void rebuild_sched_energy_table(struct cpumask *cpus, int clipped_freq,
+						int max_freq, int type) { }
 
-static inline void update_multi_load(u64 delta, int cpu, struct sched_avg *sa,
-		unsigned long weight, int running, struct cfs_rq *cfs_rq) { }
+/*
+ * multi load
+ */
 static inline void init_multi_load(struct sched_entity *se) { }
-static inline void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
-static inline void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
-static inline void remove_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
-static inline void apply_removed_multi_load(struct cfs_rq *cfs_rq) { }
-static inline void update_tg_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
-static inline void cfs_se_util_change_multi_load(struct task_struct *p, struct sched_avg *avg) { }
-static inline void enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p) { }
-static inline void dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep) { }
 
-/* P.A.R.T */
+static inline void set_task_rq_multi_load(struct sched_entity *se, struct cfs_rq *prev, struct cfs_rq *next) { }
+static inline void update_tg_cfs_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se, struct cfs_rq *gcfs_rq) { }
+static inline int update_cfs_rq_multi_load(u64 now, struct cfs_rq *cfs_rq) { return 0; }
+static inline void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
+static inline void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
+static inline int update_multi_load_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se) { return 0; }
+static inline void sync_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
+static inline void remove_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se) { }
+static inline void init_cfs_rq_multi_load(struct cfs_rq *cfs_rq) { }
+static inline void migrate_entity_multi_load(struct sched_entity *se) { }
+
+static inline void util_est_enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p) { }
+static inline void util_est_dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep) { }
+static inline void util_est_update(struct task_struct *p, int prev_util_est, int next_util_est) { }
+static inline void set_part_period_start(struct rq *rq) { }
 static inline void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type) { }
 static inline void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu) { }
-static inline void set_part_period_start(struct rq *rq) { }
 
+
+/*
+ * ontime migration
+ */
+static inline int ontime_can_migrate_task(struct task_struct *p, int dst_cpu) { return 1; }
+static inline void ontime_migration(void) { }
+
+
+/*
+ * global boost
+ */
+static inline void gb_qos_update_request(struct gb_qos_request *req, u32 new_value) { }
+
+
+/*
+ * load balance
+ */
 static inline void lb_add_cfs_task(struct rq *rq, struct sched_entity *se) { }
 static inline int lb_check_priority(int src_cpu, int dst_cpu)
 {
@@ -167,54 +209,74 @@ static inline int lb_need_active_balance(enum cpu_idle_type idle,
 {
 	return 0;
 }
-static inline void set_energy_table_status(bool status) { }
-static inline bool get_energy_table_status(void)
+static inline bool lb_sibling_overutilized(int dst_cpu, struct sched_domain *sd,
+					struct cpumask *lb_cpus)
+{
+	return true;
+}
+static inline bool lbt_overutilized(int cpu, int level)
 {
 	return false;
 }
-#endif /* CONFIG_SCHED_EMS */
-
-#ifdef CONFIG_SIMPLIFIED_ENERGY_MODEL
-extern void init_sched_energy_table(struct cpumask *cpus, int table_size,
-				unsigned long *f_table, unsigned int *v_table,
-				int max_f, int min_f);
-extern void update_qos_capacity(int cpu, unsigned long freq, unsigned long max);
-#else
-static inline void init_sched_energy_table(struct cpumask *cpus, int table_size,
-				unsigned long *f_table, unsigned int *v_table,
-				int max_f, int min_f) { }
-static inline void update_qos_capacity(int cpu, unsigned long freq, unsigned long max) { }
-#endif
-
-/* Fluid Real Time */
-extern unsigned int frt_disable_cpufreq;
+static inline void update_lbt_overutil(int cpu, unsigned long capacity) { }
+static inline void lb_update_misfit_status(struct task_struct *p, struct rq *rq, unsigned long task_h_load) { }
 
 /*
- * Maximum number of boost groups to support
- * When per-task boosting is used we still allow only limited number of
- * boost groups for two main reasons:
- * 1. on a real system we usually have only few classes of workloads which
- *    make sense to boost with different values (e.g. background vs foreground
- *    tasks, interactive vs low-priority tasks)
- * 2. a limited number allows for a simpler and more memory/time efficient
- *    implementation especially for the computation of the per-CPU boost
- *    value
+ * Core sparing
  */
-#define BOOSTGROUPS_COUNT 5
+static inline void ecs_update(void) { }
+static inline int ecs_is_sparing_cpu(int cpu) { return 0; }
 
-struct boost_groups {
-	/* Maximum boost value for all RUNNABLE tasks on a CPU */
-	bool idle;
-	int boost_max;
-	u64 boost_ts;
-	struct {
-		/* The boost for tasks on that boost group */
-		int boost;
-		/* Count of RUNNABLE tasks on that boost group */
-		unsigned tasks;
-		/* Timestamp of boost activation */
-		u64 ts;
-	} group[BOOSTGROUPS_COUNT];
-	/* CPU's boost group locking */
-	raw_spinlock_t lock;
+/*
+ * EMStune
+ */
+static void __emst_update_request(struct emst_mode_request *req, s32 new_value, char *func, unsigned int line) { }
+static bool emst_can_migrate_task(struct task_struct *p, int dst_cpu) { return true; }
+#endif /* CONFIG_SCHED_EMS */
+
+/* Exynos Fluid Real Time Scheduler */
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+extern int frt_find_lowest_rq(struct task_struct *task);
+extern int frt_update_rt_rq_load_avg(struct rq *rq);
+extern void frt_migrate_task_rq_rt(struct task_struct *p, int new_cpu);
+extern void frt_update_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *se, int flags);
+extern void frt_task_change_group_rt(struct task_struct *p, int type);
+extern void frt_attach_task_rt_rq(struct task_struct *p);
+extern void frt_detach_task_rt_rq(struct task_struct *p);
+extern void frt_init_rt_rq_load(struct rt_rq *rt_rq);
+extern void frt_update_available_cpus(void);
+extern void frt_clear_victim_flag(struct task_struct *p);
+extern bool frt_test_victim_flag(struct task_struct *p);
+extern void frt_task_dead_rt(struct task_struct *p);
+extern void frt_set_task_rq_rt(struct sched_rt_entity *se, struct rt_rq *prev, struct rt_rq *next);
+#else
+static inline int frt_update_rt_rq_load_avg(struct rq *rq) { return 0; };
+static inline int frt_find_lowest_rq(struct task_struct *task) { return -1; };
+static inline void frt_migrate_task_rq_rt(struct task_struct *p, int nuew_cpu) { };
+static inline void frt_update_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *se, int flags) { };
+static inline void frt_task_change_group_rt(struct task_struct *p, int type) { };
+static inline void frt_attach_task_rt_rq(struct task_struct *p) { };
+static inline void frt_detach_task_rt_rq(struct task_struct *p) { };
+static inline void frt_init_rt_rq_load(struct rt_rq *rt_rq) { };
+static inline void frt_update_available_cpus(void) { };
+static inline void frt_clear_victim_flag(struct task_struct *p) { };
+static inline bool frt_test_victim_flag(struct task_struct *p) { return false; };
+static inline void frt_task_dead_rt(struct task_struct *p) { };
+static inline void frt_set_task_rq_rt(struct sched_rt_entity *se, struct rt_rq *prev, struct rt_rq *next) { };
+#endif
+
+#if defined(CONFIG_SCHED_EMS) && defined(CONFIG_SCHED_TUNE)
+enum stune_group {
+	STUNE_ROOT,
+	STUNE_FOREGROUND,
+	STUNE_BACKGROUND,
+	STUNE_TOPAPP,
+	STUNE_RT,
+	STUNE_GROUP_COUNT,
 };
+void emst_cpu_update(int cpu, u64 now);
+unsigned long emst_boost(int cpu, unsigned long util);
+#else
+static inline void emst_cpu_update(int cpu, u64 now) { };
+static inline unsigned long emst_boost(int cpu, unsigned long util) { return util; };
+#endif

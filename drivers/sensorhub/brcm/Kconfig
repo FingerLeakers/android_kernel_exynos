@@ -582,134 +582,13 @@ config SENSORS_SSP_HIFI_BATCHING
 	  This feature fit Hifi batching standard.
 	  The mcu has same feature.
 
-config SENSORS_SSP_VLTE
-	tristate "V Project"
+config SENSORS_SSP_PICASSO
+	tristate "PICASSO Project"
 	default n
 	depends on SPI
 	help
 	  Binary file for ssp driver.
-          If you say yes here you get V project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_NOBLELTE
-	tristate "NOBLE Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get NOBLE project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_ZENLTE
-	tristate "ZEN Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get ZEN project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_LUCKY
-	tristate "LUCKY Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get LUCKY project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_GRACE
-	tristate "GRACE Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get GRACE project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_DREAM
-	tristate "DREAM Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get DREAM project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_GREAT
-	tristate "GREAT Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get GREAT project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_STAR
-	tristate "STAR Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get STAR project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-	  
-config SENSORS_SSP_CROWN
-	tristate "CROWN Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get CROWN project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_BEYOND
-	tristate "BEYOND Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get BEYOND project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_DAVINCI
-	tristate "DAVINCI Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get DAVINCI project support for
-	  factory test.
-	  To compile this driver as a module, choose M here: the
-	  module will be called ssp.
-
-config SENSORS_SSP_LUGE
-	tristate "DREAM Project"
-	default n
-	depends on SPI
-	help
-	  Binary file for ssp driver.
-          If you say yes here you get GRACE project support for
+          If you say yes here you get PICASSO project support for
 	  factory test.
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.

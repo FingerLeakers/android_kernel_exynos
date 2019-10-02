@@ -18,8 +18,8 @@
 #include <linux/smc.h>
 #include <asm/cacheflush.h>
 #include <linux/crypto.h>
-#include <crypto/fmp.h>
 #include <linux/scatterlist.h>
+#include <crypto/fmp.h>
 
 #include "fmp_test.h"
 #include "fmp_fips_main.h"
@@ -129,8 +129,7 @@ int fmplib_set_algo_mode(struct fmp_table_setting *table,
 	default:
 		pr_err("%s: Invalid fmp enc mode %d\n", __func__,
 		       crypto->enc_mode);
-		ret = -EINVAL;
-		break;
+		return -EINVAL;
 	}
 	return 0;
 }
@@ -511,7 +510,6 @@ out:
 	return ret;
 }
 
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
 int exynos_fmp_test_crypt(struct fmp_crypto_info *ci,
 			const uint8_t *iv, uint32_t ivlen, uint8_t *src,
 			uint8_t *dst, uint32_t len, bool enc, void *priv)
@@ -555,20 +553,11 @@ err:
 		fmp_test_exit(fmp->test_data);
 	return ret;
 }
-#endif
 
 #define CFG_DESCTYPE_3 0x3
 int exynos_fmp_sec_config(int id)
 {
-	int ret;
-
-	if (id) {
-		pr_err("%s: fails to set set config for %d. only host0\n",
-			__func__, id);
-		return 0;
-	}
-
-	ret = exynos_smc(SMC_CMD_FMP_SECURITY, 0, id, CFG_DESCTYPE_3);
+	int ret = exynos_smc(SMC_CMD_FMP_SECURITY, 0, id, CFG_DESCTYPE_3);
 	if (ret)
 		pr_err("%s: Fail smc call for FMP_SECURITY. ret(%d)\n",
 				__func__, ret);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Samsung Electronics, Inc.
+ * Copyright (C) 2013-2019 Samsung Electronics, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -15,17 +15,17 @@
 #define __TZ_IWLOG_H__
 
 #if defined(CONFIG_TZLOG)
-int tz_iwlog_initialize(void);
-void tz_iwlog_read_buffers(void);
-#else
-static inline int tz_iwlog_initialize(void)
+int tz_iwlog_init(void);
+void tz_iwlog_fini(void);
+#else /*  CONFIG_TZLOG */
+static inline int tz_iwlog_init(void)
 {
 	return 0;
 }
 
-static inline void tz_iwlog_read_buffers(void)
+static inline void tz_iwlog_fini(void)
 {
 }
-#endif
+#endif /* CONFIG_TZLOG  */
 
 #endif /* __TZ_IWLOG_H__ */

@@ -44,12 +44,21 @@ enum g2dsfr_src_register {
 	G2DSFR_SRC_BLEND,
 	G2DSFR_SRC_YCBCRMODE,
 	G2DSFR_SRC_HDRMODE,
+	G2DSFR_SRC_Y_HEADER_STRIDE,
+	G2DSFR_SRC_Y_PAYLOAD_STRIDE,
+	G2DSFR_SRC_C_HEADER_STRIDE,
+	G2DSFR_SRC_C_PAYLOAD_STRIDE,
 
 	G2DSFR_SRC_FIELD_COUNT
 };
 
 enum g2dsfr_dst_register {
 	G2DSFR_DST_YCBCRMODE = G2DSFR_IMG_FIELD_COUNT,
+
+	G2DSFR_DST_Y_HEADER_STRIDE,
+	G2DSFR_DST_Y_PAYLOAD_STRIDE,
+	G2DSFR_DST_C_HEADER_STRIDE,
+	G2DSFR_DST_C_PAYLOAD_STRIDE,
 
 	G2DSFR_DST_FIELD_COUNT,
 };
@@ -60,14 +69,13 @@ struct g2d_reg {
 };
 
 #define G2D_MAX_PLANES		4
-#define G2D_MAX_SFR_COUNT	1024
 #define G2D_MAX_BUFFERS		4
 #define G2D_MAX_IMAGES		16
 #define G2D_MAX_PRIORITY	3
 #define G2D_MAX_RELEASE_FENCES	(G2D_MAX_IMAGES + 1)
 
 struct g2d_commands {
-	__u32		target[G2DSFR_DST_FIELD_COUNT];
+	__u32		*target;
 	__u32		*source[G2D_MAX_IMAGES];
 	struct g2d_reg	*extra;
 	__u32		num_extra_regs;
@@ -269,9 +277,10 @@ struct g2d_performance_data {
 	__u32 reserved;
 };
 
-#define G2D_IOC_PROCESS		_IOWR('M', 4, struct g2d_task_data)
+#define G2D_IOC_PROCESS		_IOWR('M', 3, struct g2d_task_data)
 #define G2D_IOC_PRIORITY		_IOR('M', 5, int32_t)
 #define G2D_IOC_PERFORMANCE	_IOR('M', 6, struct g2d_performance_data)
+#define G2D_IOC_VERSION		_IOR('M', 7, uint32_t)
 
 #endif /* _G2D_UAPI_H_ */
 

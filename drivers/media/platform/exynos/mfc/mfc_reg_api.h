@@ -69,6 +69,10 @@
 #define mfc_get_scratch_change()	((MFC_READL(MFC_REG_D_DISPLAY_STATUS)		\
 						>> MFC_REG_DISP_STATUS_NEED_SCRATCH_CHANGE_SHIFT)	\
 						& MFC_REG_DISP_STATUS_NEED_SCRATCH_CHANGE_MASK)
+#define mfc_get_uncomp()	((MFC_READL(MFC_REG_D_DISPLAY_STATUS)		\
+						>> MFC_REG_DISP_STATUS_UNCOMP_SHIFT)	\
+						& MFC_REG_DISP_STATUS_UNCOMP_MASK)
+
 #define mfc_get_disp_frame_type()	(MFC_READL(MFC_REG_D_DISPLAY_FRAME_TYPE)	\
 						& MFC_REG_DISPLAY_FRAME_MASK)
 #define mfc_get_dec_frame_type()	(MFC_READL(MFC_REG_D_DECODED_FRAME_TYPE)	\
@@ -82,6 +86,10 @@
 #define mfc_is_mbaff_picture()	((MFC_READL(MFC_REG_D_H264_INFO)		\
 						>> MFC_REG_D_H264_INFO_MBAFF_FRAME_FLAG_SHIFT)\
 						& MFC_REG_D_H264_INFO_MBAFF_FRAME_FLAG_MASK)
+#define mfc_is_sbwc_avail()		((MFC_READL(MFC_REG_D_DISPLAY_STATUS)		\
+						>> MFC_REG_DISP_STATUS_COMP_SHIFT)\
+						& MFC_REG_DISP_STATUS_COMP_MASK)
+
 #define mfc_get_img_width()		MFC_READL(MFC_REG_D_DISPLAY_FRAME_WIDTH)
 #define mfc_get_img_height()	MFC_READL(MFC_REG_D_DISPLAY_FRAME_HEIGHT)
 #define mfc_get_disp_y_addr()	MFC_READL(MFC_REG_D_DISPLAY_LUMA_ADDR)
@@ -100,11 +108,16 @@
 #define mfc_get_consumed_stream()		MFC_READL(MFC_REG_D_DECODED_NAL_SIZE)
 #define mfc_get_dpb_count()			MFC_READL(MFC_REG_D_MIN_NUM_DPB)
 #define mfc_get_min_dpb_size(x)		MFC_READL(MFC_REG_D_MIN_FIRST_PLANE_DPB_SIZE + (x * 4))
+#define mfc_get_min_dpb_size_2bit(x)		MFC_READL(MFC_REG_D_FIRST_PLANE_2BIT_DPB_SIZE + (x * 4))
 #define mfc_get_scratch_size()		MFC_READL(MFC_REG_D_MIN_SCRATCH_BUFFER_SIZE)
+#define mfc_get_stride_size(x)		MFC_READL(MFC_REG_D_FIRST_PLANE_DPB_STRIDE_SIZE + (x * 4))
+#define mfc_get_stride_size_2bit(x)		MFC_READL(MFC_REG_D_FIRST_PLANE_2BIT_DPB_STRIDE_SIZE + (x * 4))
 #define mfc_get_mv_count()			MFC_READL(MFC_REG_D_MIN_NUM_MV)
 #define mfc_get_inst_no()			MFC_READL(MFC_REG_RET_INSTANCE_ID)
 #define mfc_get_enc_dpb_count()		MFC_READL(MFC_REG_E_NUM_DPB)
 #define mfc_get_enc_scratch_size()		MFC_READL(MFC_REG_E_MIN_SCRATCH_BUFFER_SIZE)
+#define mfc_get_enc_luma_size()		MFC_READL(MFC_REG_E_MIN_LUMA_DPB_SIZE)
+#define mfc_get_enc_chroma_size()		MFC_READL(MFC_REG_E_MIN_CHROMA_DPB_SIZE)
 #define mfc_get_enc_strm_size()		MFC_READL(MFC_REG_E_STREAM_SIZE)
 #define mfc_get_enc_slice_type()		MFC_READL(MFC_REG_E_SLICE_TYPE)
 #define mfc_get_enc_pic_count()		MFC_READL(MFC_REG_E_PICTURE_COUNT)
@@ -155,7 +168,8 @@
 #define mfc_get_chroma_bit_depth_minus8()	((MFC_READL(MFC_REG_D_DECODED_PICTURE_PROFILE)	\
 						>> MFC_REG_D_BIT_DEPTH_CHROMA_MINUS8_SHIFT)	\
 						& MFC_REG_D_BIT_DEPTH_CHROMA_MINUS8_MASK)
-#define mfc_get_dec_used_flag()		MFC_READL(MFC_REG_D_USED_DPB_FLAG_LOWER)
+#define mfc_get_dec_used_flag()		(((unsigned long)(MFC_READL(MFC_REG_D_USED_DPB_FLAG_UPPER)) << 32) |	\
+						MFC_READL(MFC_REG_D_USED_DPB_FLAG_LOWER))
 #define mfc_get_enc_nal_done_info()		((MFC_READL(MFC_REG_E_NAL_DONE_INFO) & (0x3 << 4)) >> 4)
 #define mfc_get_chroma_format()		(MFC_READL(MFC_REG_D_CHROMA_FORMAT)		\
 						& MFC_REG_D_CHROMA_FORMAT_MASK)
@@ -170,7 +184,9 @@
 						& MFC_REG_DEC_STATUS_NUM_OF_TILE_MASK)
 #define mfc_get_lcu_size()			(MFC_READL(MFC_REG_D_HEVC_INFO)		\
 						& MFC_REG_D_HEVC_INFO_LCU_SIZE_MASK)
-
+#define mfc_get_disp_res_change()		((MFC_READL(MFC_REG_D_VP9_INFO)	\
+						>> MFC_REG_D_VP9_INFO_DISP_RES_SHIFT)	\
+						& MFC_REG_D_VP9_INFO_DISP_RES_MASK)
 
 /* nal queue information */
 #define mfc_get_nal_q_input_count()		MFC_READL(MFC_REG_NAL_QUEUE_INPUT_COUNT)
@@ -274,6 +290,7 @@ void mfc_set_enc_stride(struct mfc_ctx *ctx);
 
 int mfc_set_dynamic_dpb(struct mfc_ctx *ctx, struct mfc_buf *dst_vb);
 
+void mfc_get_img_size(struct mfc_ctx *ctx, enum mfc_get_img_size img_size);
 void mfc_set_pixel_format(struct mfc_ctx *ctx, unsigned int format);
 
 void mfc_print_hdr_plus_info(struct mfc_ctx *ctx, struct hdr10_plus_meta *sei_meta);

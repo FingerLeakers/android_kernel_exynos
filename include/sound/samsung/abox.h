@@ -17,11 +17,6 @@
 #include <sound/soc.h>
 #include <sound/samsung/abox_ipc.h>
 
-#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
-#define CHANGE_DEV_PRINT
-#include <sound/samsung/sec_audio_debug.h>
-#endif
-
 /**
  * abox ipc handler type definition
  * @param[in]	ipc_id	id of ipc
@@ -209,6 +204,26 @@ extern int abox_show_gpr_min(char *buf, int len);
  */
 extern u32 abox_read_gpr(int core_id, int gpr_id);
 
+/**
+ * query call state
+ * @return		call state
+ */
+extern bool abox_get_call_state(void);
+
+/**
+ * set doorbell phys address
+ * @return		error code if any
+ */
+extern bool abox_pci_doorbell_paddr_set(phys_addr_t addr);
+
+enum abox_call_event {
+	ABOX_CALL_EVENT_OFF	= 0,
+	ABOX_CALL_EVENT_ON	= 1,
+	ABOX_CALL_EVENT_UNDEF	= 2,
+};
+
+extern int register_abox_call_event_notifier(struct notifier_block *nb);
+
 #else /* !CONFIG_SND_SOC_SAMSUNG_ABOX */
 
 static inline bool abox_is_on(void)
@@ -290,6 +305,18 @@ static inline int abox_show_gpr_min(char *buf, int len)
 static inline u32 abox_read_gpr(int core_id, int gpr_id)
 {
 	return -ENODEV;
+}
+static bool abox_get_call_state(void)
+{
+	return 0;
+}
+static bool abox_pci_doorbell_paddr_set(phys_addr_t addr)
+{
+	return 0;
+}
+static int register_abox_call_event_notifier(struct notifier_block *nb)
+{
+	return 0;
 }
 
 #endif /* !CONFIG_SND_SOC_SAMSUNG_ABOX */

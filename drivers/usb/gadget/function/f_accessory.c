@@ -149,7 +149,7 @@ static struct usb_endpoint_descriptor acc_superspeed_in_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor acc_superspeed_in_comp_desc = {
@@ -166,7 +166,7 @@ static struct usb_endpoint_descriptor acc_superspeed_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(1024),
+	.wMaxPacketSize         = __constant_cpu_to_le16(1024),
 };
 
 static struct usb_ss_ep_comp_descriptor acc_superspeed_out_comp_desc = {
@@ -184,7 +184,7 @@ static struct usb_endpoint_descriptor acc_highspeed_in_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor acc_highspeed_out_desc = {
@@ -192,7 +192,7 @@ static struct usb_endpoint_descriptor acc_highspeed_out_desc = {
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize         = cpu_to_le16(512),
+	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
 static struct usb_endpoint_descriptor acc_fullspeed_in_desc = {
@@ -716,17 +716,16 @@ static ssize_t acc_write(struct file *fp, const char __user *buf,
 	}
 
 	while (count > 0) {
-		/* get an idle tx request to use */
-		req = 0;
-		ret = wait_event_interruptible(dev->write_wq,
-			((req = req_get(dev, &dev->tx_idle)) || !dev->online));
-
 		if (!dev->online || dev->disconnected) {
 			pr_debug("acc_write dev->error\n");
 			r = -EIO;
 			break;
 		}
 
+		/* get an idle tx request to use */
+		req = 0;
+		ret = wait_event_interruptible(dev->write_wq,
+			((req = req_get(dev, &dev->tx_idle)) || !dev->online));
 		if (!req) {
 			r = ret;
 			break;

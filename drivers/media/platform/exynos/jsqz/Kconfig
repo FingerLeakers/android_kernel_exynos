@@ -2,7 +2,7 @@
 # Exynos multimedia device drivers
 #
 config VIDEO_EXYNOS_JPEG_SQZ
-        bool "Exynos JPEG Squeeze driver"
+        bool "Exynos Jpeg Squeeze driver"
         depends on VIDEO_EXYNOS
         default y
         help

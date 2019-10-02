@@ -31,10 +31,6 @@
 
 #include "../ra.h"
 
-#if defined(CONFIG_SEC_DEBUG)
-#include <soc/samsung/exynos-pm.h>
-#endif
-
 #include <soc/samsung/cmu_ewf.h>
 
 void __iomem *cmu_mmc;
@@ -236,50 +232,6 @@ void exynos9820_cal_data_init(void)
 
 void (*cal_data_init)(void) = exynos9820_cal_data_init;
 
-#if defined(CONFIG_SEC_DEBUG)
-int asv_ids_information(enum ids_info id)
-{
-	int res;
-
-	switch (id) {
-	case tg:
-		res = asv_get_table_ver();
-		break;
-	case lg:
-		res = asv_get_grp(dvfs_cpucl0);
-		break;
-	case mg:
-		res = asv_get_grp(dvfs_cpucl1);
-		break;
-	case bg:
-		res = asv_get_grp(dvfs_cpucl2);
-		break;
-	case g3dg:
-		res = asv_get_grp(dvfs_g3d);
-		break;
-	case mifg:
-		res = asv_get_grp(dvfs_mif);
-		break;
-	case lids:
-		res = asv_get_ids_info(dvfs_cpucl0);
-		break;
-	case mids:
-		res = asv_get_ids_info(dvfs_cpucl1);
-		break;
-	case bids:
-		res = asv_get_ids_info(dvfs_cpucl2);
-		break;
-	case gids:
-		res = asv_get_ids_info(dvfs_g3d);
-		break;
-	default:
-		res = 0;
-		break;
-	};
-	return res;
-}
-#endif
-
 int exynos9820_set_cmuewf(unsigned int index, unsigned int en, void *cmu_cmu, int *ewf_refcnt)
 {
 	unsigned int reg;
@@ -369,50 +321,3 @@ void exynos9820_set_cmu_smpl_warn(void)
 	pr_info("G3D SMPL_WARN enabled.\n");
 }
 void (*cal_set_cmu_smpl_warn)(void) = exynos9820_set_cmu_smpl_warn;
-
-#if defined(CONFIG_SEC_PM_DEBUG) && defined(CONFIG_DEBUG_FS)
-#include <linux/debugfs.h>
-
-#define ASV_SUMMARY_SZ	(dvfs_mfc - dvfs_mif + 1)
-
-static int asv_summary_show(struct seq_file *s, void *d)
-{
-	unsigned int i;
-	const char *label[ASV_SUMMARY_SZ] = { "MIF", "INT", "CL0", "CL1", "CL2",
-		"NPU", "DISP", "SCORE", "AUD", "CP", "G3D", "INTCAM", "CAM",
-		"IVA", "MFC" };
-
-	seq_printf(s, "Table ver: %d\n", asv_get_table_ver());
-
-	for (i = 0; i < ASV_SUMMARY_SZ ; i++)
-		seq_printf(s, "%s: %d\n", label[i], asv_get_grp(dvfs_mif + i));
-
-	seq_printf(s, "IDS (b,m,l,g): %d, %d, %d, %d\n",
-			asv_get_ids_info(dvfs_cpucl2),
-			asv_get_ids_info(dvfs_cpucl1),
-			asv_get_ids_info(dvfs_cpucl0),
-			asv_get_ids_info(dvfs_g3d));
-	return 0;
-}
-
-static int asv_summary_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, asv_summary_show, inode->i_private);
-}
-
-const static struct file_operations asv_summary_fops = {
-	.open		= asv_summary_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
-
-static int __init cal_data_late_init(void)
-{
-	debugfs_create_file("asv_summary", 0444, NULL, NULL, &asv_summary_fops);
-
-	return 0;
-}
-
-late_initcall(cal_data_late_init);
-#endif /* CONFIG_SEC_PM_DEBUG && CONFIG_DEBUG_FS */

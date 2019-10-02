@@ -4,6 +4,7 @@
 
 obj-y := dsms_kernel_api.o
 obj-y += dsms_access_control.o
+obj-y += dsms_rate_limit.o
 obj-y += dsms_policy.o
 obj-y += dsms_init.o
 obj-y += dsms_debug.o
@@ -19,6 +20,7 @@ DEBUG_WHITELIST_ENABLE=false
 ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
 
 ifeq ($(DEBUG_ENABLE), true)
+#    CFLAGS_dsms_debug.o := -DDEBUG
     EXTRA_CFLAGS += -DDSMS_DEBUG_ENABLE
 
     ifeq ($(DEBUG_TRACE_CALLS_ENABLE), true)

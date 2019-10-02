@@ -28,7 +28,7 @@
 #include "exynos_mfc_media.h"
 #include "mfc_data_struct.h"
 
-#define MFC_DRIVER_INFO		180315
+#define MFC_DRIVER_INFO		190719
 
 #define MFC_MAX_REF_BUFS	2
 #define MFC_FRAME_PLANES	2
@@ -58,6 +58,8 @@
 #define FRAME_RATE_RESOLUTION	1000
 
 #define DEFAULT_TAG		(0xE05)
+#define IGNORE_TAG		(0xD5C) /* ex) encoder DRC */
+#define HEADER_TAG		(0xC5D)
 
 #define MFC_NO_INSTANCE_SET	-1
 
@@ -100,6 +102,8 @@
 #define MFC_FMT_10BIT		(1 << 2)
 #define MFC_FMT_422		(1 << 3)
 #define MFC_FMT_RGB		(1 << 4)
+#define MFC_FMT_SBWC		(1 << 5)
+#define MFC_FMT_SBWCL		(1 << 6)
 
 /* node check */
 #define IS_DEC_NODE(n)		((n == EXYNOS_VIDEONODE_MFC_DEC) ||	\
@@ -150,17 +154,27 @@
 #define CODEC_HIGH_PERF(ctx)	(IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx))
 #define ON_RES_CHANGE(ctx)	(((ctx)->state >= MFCINST_RES_CHANGE_INIT) &&	\
 				 ((ctx)->state <= MFCINST_RES_CHANGE_END))
+#define IS_NO_DISPLAY(ctx, err) ((IS_VC1_RCV_DEC(ctx) &&					\
+				mfc_get_warn(err) == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED) ||	\
+				(mfc_get_warn(err) == MFC_REG_ERR_BROKEN_LINK))
 
 #define IS_BUFFER_BATCH_MODE(ctx)	((ctx)->batch_mode == 1)
 
 /* UHD resoluition */
 #define MFC_UHD_RES		(3840 * 2160)
 #define IS_UHD_RES(ctx)		(((ctx)->crop_width * (ctx)->crop_height) == MFC_UHD_RES)
-#define OVER_UHD_ENC60(ctx)	((((ctx)->crop_width * (ctx)->crop_height) == MFC_UHD_RES) && \
-				((ctx)->type == MFCINST_ENCODER) &&	\
-				((ctx)->framerate / 1000) >= 60)
-
 #define IS_SUPER64_BFRAME(ctx, size, type)	((ctx->is_10bit) && (size >= 2) && (type == 3))
+
+#define IS_SBWC_8B(fmt)		((((fmt)->fourcc) == V4L2_PIX_FMT_NV12M_SBWC_8B) ||	\
+				(((fmt)->fourcc) == V4L2_PIX_FMT_NV21M_SBWC_8B) || \
+				(((fmt)->fourcc) == V4L2_PIX_FMT_NV12N_SBWC_8B))
+#define IS_SBWC_10B(fmt)	((((fmt)->fourcc) == V4L2_PIX_FMT_NV12M_SBWC_10B) || \
+				(((fmt)->fourcc) == V4L2_PIX_FMT_NV21M_SBWC_10B) || \
+				(((fmt)->fourcc) == V4L2_PIX_FMT_NV12N_SBWC_10B))
+#define IS_SBWC_FMT(fmt)	(IS_SBWC_8B(fmt) || IS_SBWC_10B(fmt))
+
+#define IS_2BIT_NEED(ctx)	((ctx->is_10bit && !ctx->mem_type_10bit &&	\
+				!ctx->is_sbwc_lossy) || ctx->is_sbwc)
 
 /* Extra information for Decoder */
 #define	DEC_SET_DUAL_DPB		(1 << 0)
@@ -168,6 +182,7 @@
 #define	DEC_SET_LAST_FRAME_INFO		(1 << 2)
 #define	DEC_SET_SKYPE_FLAG		(1 << 3)
 #define	DEC_SET_HDR10_PLUS		(1 << 4)
+#define	DEC_SET_DRV_DPB_MANAGER		(1 << 5)
 
 /* Extra information for Encoder */
 #define	ENC_SET_RGB_INPUT		(1 << 0)
@@ -185,9 +200,6 @@
 #define	ENC_SET_HDR10_PLUS		(1 << 12)
 #define	ENC_SET_VP9_PROFILE_LEVEL	(1 << 13)
 #define	ENC_SET_DROP_CONTROL		(1 << 14)
-
-#define MFC_VER_MAJOR(dev)	((dev->pdata->ip_ver >> 8) & 0xFF)
-#define MFC_VER_MINOR(dev)	(dev->pdata->ip_ver & 0xFF)
 
 #define MFC_FEATURE_SUPPORT(dev, f)	((f).support && ((dev)->fw.date >= (f).version))
 

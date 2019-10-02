@@ -537,6 +537,11 @@ int panel_bl_get_average_and_clear(struct panel_bl_device *panel_bl, size_t inde
 	return avg;
 }
 
+/*
+ * aor interpolation function type 1
+ * A-Dimming : calculate interpolation aor.
+ * S-Dimming : calculate interpolation aor using vbase luminance.
+ */
 int aor_interpolation(unsigned int *brt_tbl, unsigned int *lum_tbl,
 		u8(*aor_tbl)[2], int size, int size_ui_lum, u32 vtotal, int brightness)
 {
@@ -596,6 +601,45 @@ int aor_interpolation(unsigned int *brt_tbl, unsigned int *lum_tbl,
 	return (int)aor;
 }
 
+/*
+ * aor interpolation function type 2
+ * calculate interpolation aor without
+ * distinction of A/S dimming type.
+ */
+int aor_interpolation_2(unsigned int *brt_tbl,
+		u8(*aor_tbl)[2], int size, int size_ui_lum, u32 vtotal, int brightness)
+{
+	int upper_idx, lower_idx;
+	u64 upper_brt, lower_brt;
+	u64 upper_aor, lower_aor, aor;
+	u64 upper_aor_ratio, lower_aor_ratio, aor_ratio;
+
+	upper_idx = search_tbl(brt_tbl, size, SEARCH_TYPE_UPPER, brightness);
+	lower_idx = max(0, (upper_idx - 1));
+	upper_brt = brt_tbl[upper_idx];
+	lower_brt = brt_tbl[lower_idx];
+	upper_aor = aor_tbl[upper_idx][0] << 8 | aor_tbl[upper_idx][1];
+	lower_aor = aor_tbl[lower_idx][0] << 8 | aor_tbl[lower_idx][1];
+	upper_aor_ratio = AOR_TO_RATIO(upper_aor, vtotal);
+	lower_aor_ratio = AOR_TO_RATIO(lower_aor, vtotal);
+
+	if (upper_brt == brightness) {
+		aor = upper_aor;
+	} else {
+		aor_ratio = (interpolation(lower_aor_ratio * disp_pow(10, 3), upper_aor_ratio * disp_pow(10, 3),
+					(s32)((u64)brightness - lower_brt) * disp_pow(10, 2),
+					(s32)(upper_brt - lower_brt) * disp_pow(10, 2)) + 5 * disp_pow(10, 2)) / disp_pow(10, 3);
+		aor = disp_div64(vtotal * aor_ratio + 5 * disp_pow(10, 3), disp_pow(10, 4));
+	}
+
+	pr_debug("aor: brightness %3d.%02d aor([%d]%2lld.%02lld(0x%04X) [%d]%2lld.%02lld(0x%04X)) aor(%2lld.%02lld %3lld %04X) vtotal %d\n",
+			brightness / 100, brightness % 100, upper_idx, upper_aor_ratio / 100, upper_aor_ratio % 100, upper_aor,
+			lower_idx, lower_aor_ratio / 100, lower_aor_ratio % 100, lower_aor,
+			aor_ratio / disp_pow(10, 2), aor_ratio % disp_pow(10, 2), aor, (int)aor, vtotal);
+
+	return (int)aor;
+}
+
 int panel_bl_aor_interpolation(struct panel_bl_device *panel_bl,
 		int id, u8(*aor_tbl)[2])
 {
@@ -610,9 +654,23 @@ int panel_bl_aor_interpolation(struct panel_bl_device *panel_bl,
 
 	return aor_interpolation(brt_tbl->brt, brt_tbl->lum,
 			aor_tbl, brt_tbl->sz_lum,
-			(brt_tbl->sz_panel_dim_ui_lum != 0) ?
-			brt_tbl->sz_panel_dim_ui_lum : brt_tbl->sz_ui_lum,
-			brt_tbl->vtotal, brightness);
+			brt_tbl->sz_ui_lum, brt_tbl->vtotal, brightness);
+}
+
+int panel_bl_aor_interpolation_2(struct panel_bl_device *panel_bl,
+		int id, u8(*aor_tbl)[2])
+{
+	struct panel_bl_sub_dev *subdev;
+	struct brightness_table *brt_tbl;
+	int brightness;
+
+	subdev = &panel_bl->subdev[id];
+	brt_tbl = &subdev->brt_tbl;
+	brightness = subdev->brightness;
+	brightness = get_brightness_of_brt_to_step(panel_bl, id, brightness);
+
+	return aor_interpolation_2(brt_tbl->brt, aor_tbl, brt_tbl->sz_lum,
+			brt_tbl->sz_ui_lum, brt_tbl->vtotal, brightness);
 }
 
 int panel_bl_irc_interpolation(struct panel_bl_device *panel_bl, int id, struct panel_irc_info *irc_info)

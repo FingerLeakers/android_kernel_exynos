@@ -16,6 +16,7 @@
 #include <sound/soc.h>
 
 #include "vts.h"
+#include "vts_dbg.h"
 #include "vts_log.h"
 
 #define VTS_LOG_BUFFER_SIZE (SZ_1M)
@@ -38,18 +39,7 @@ struct vts_log_buffer_info {
 	u32 logbuf_index;
 };
 
-static struct dentry *vts_dbg_root_dir __read_mostly;
 static struct vts_log_buffer_info glogbuf_info;
-
-struct dentry *vts_dbg_get_root_dir(void)
-{
-	pr_debug("%s\n", __func__);
-
-	if (vts_dbg_root_dir == NULL)
-		vts_dbg_root_dir = debugfs_create_dir("vts", NULL);
-
-	return vts_dbg_root_dir;
-}
 
 static ssize_t vts_log_file_index;
 

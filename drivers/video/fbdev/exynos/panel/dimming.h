@@ -411,8 +411,6 @@ int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
 		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step);
 void get_dimming_gamma(struct dimming_info *dim_info, u32 luminance, u8 *output,
 		void (*copy)(u8 *output, u32 value, u32 index, u32 color));
-int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
-		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step);
 /* for debug */
 void print_dimming_info(struct dimming_info *dim_info, int tag);
 #else
@@ -430,8 +428,6 @@ static inline int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MA
 		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step) { return 0; }
 void get_dimming_gamma(struct dimming_info *dim_info, u32 luminance, u8 *output,
 		void (*copy)(u8 *output, u32 value, u32 index, u32 color)) {}
-static inline int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
-		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step) { return 0; }
 /* for debug */
 static inline void print_dimming_info(struct dimming_info *dim_info, int tag) {}
 #endif	/* CONFIG_PANEL_AID_DIMMING */

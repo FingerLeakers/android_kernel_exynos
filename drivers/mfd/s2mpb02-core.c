@@ -27,8 +27,8 @@
 #include <linux/interrupt.h>
 #include <linux/mutex.h>
 #include <linux/mfd/core.h>
-#include <linux/mfd/samsung/s2mpb02.h>
-#include <linux/mfd/samsung/s2mpb02-regulator.h>
+#include <linux/mfd/s2mpb02.h>
+#include <linux/mfd/s2mpb02-regulator.h>
 #include <linux/regulator/machine.h>
 
 #ifdef	CONFIG_OF
@@ -226,7 +226,7 @@ static int s2mpb02_i2c_probe(struct i2c_client *i2c,
 	if (ret < 0)
 		goto err_irq_init;
 
-	ret = mfd_add_devices(s2mpb02->dev, -1, s2mpb02_devs,
+	ret = mfd_add_devices(s2mpb02->dev, PLATFORM_DEVID_AUTO, s2mpb02_devs,
 			ARRAY_SIZE(s2mpb02_devs), NULL, 0, NULL);
 	if (ret < 0)
 		goto err_irq_init;

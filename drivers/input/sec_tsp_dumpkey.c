@@ -12,9 +12,9 @@
 #include <linux/kernel.h>
 #include <linux/input.h>
 #include <linux/gpio_keys.h>
-#include <linux/sec_debug.h>
+#include <linux/input/sec_tsp_dumpkey.h>
 #ifdef CONFIG_SEC_KEY_NOTIFIER
-#include "../samsung/sec_key_notifier.h"
+#include "../samsung/debug/sec_key_notifier.h"
 #endif
 
 /* Input sequence 9530 */

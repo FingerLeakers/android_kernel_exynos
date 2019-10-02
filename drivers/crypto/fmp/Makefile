@@ -20,6 +20,3 @@ endif
 #obj-y += fmp_fips_func_test.o
 obj-$(CONFIG_EXYNOS_FMP_FIPS) += last_file.o
 obj-$(CONFIG_EXYNOS_FMP_FIPS) += fips_out.o
-
-# KASAN White list
-KASAN_SANITIZE_sha256.o := n

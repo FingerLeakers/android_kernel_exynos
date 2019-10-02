@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -26,10 +26,11 @@
 #include <linux/version.h>
 
 #include "sysdep.h"
-#include "tzdev.h"
 #include "tzlog.h"
+#include "tzdev_internal.h"
 #include "tz_iwservice.h"
 #include "tz_mem.h"
+#include "tz_notifier.h"
 
 enum {
 	KTHREAD_SHOULD_SLEEP,
@@ -37,7 +38,7 @@ enum {
 	KTHREAD_SHOULD_STOP,
 };
 
-static atomic_t tz_kthread_pool_fini_done = ATOMIC_INIT(0);
+static atomic_t tz_kthread_pool_init_done = ATOMIC_INIT(0);
 
 static DEFINE_PER_CPU(struct task_struct *, worker);
 static DECLARE_WAIT_QUEUE_HEAD(tz_cmd_waitqueue);
@@ -62,7 +63,7 @@ static int tz_kthread_pool_should_wake(unsigned long cpu)
 	cpumask_t requested_cpu_mask;
 
 	if (kthread_should_stop()) {
-		tzdev_kthread_info("Requested kthread stop on cpu = %lx\n", cpu);
+		log_debug(tzdev_kthread, "Requested kthread stop on cpu = %lx\n", cpu);
 		return KTHREAD_SHOULD_STOP;
 	}
 
@@ -72,27 +73,23 @@ static int tz_kthread_pool_should_wake(unsigned long cpu)
 	cpumask_and(&cpu_mask, &requested_cpu_mask, cpu_online_mask);
 	cpumask_andnot(&outstanding_cpu_mask, &requested_cpu_mask, &cpu_mask);
 
-	tzdev_kthread_info("cpu mask iwservice = %lx\n",
-			sk_cpu_mask);
-	tzdev_kthread_info("cpu mask requested = %*pb\n",
-			cpumask_pr_args(&requested_cpu_mask));
-	tzdev_kthread_info("cpu mask effective = %*pb\n",
-			cpumask_pr_args(&cpu_mask));
-	tzdev_kthread_info("cpu mask outstanding = %*pb\n",
-			cpumask_pr_args(&outstanding_cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask iwservice = %lx\n", sk_cpu_mask);
+	log_debug(tzdev_kthread, "cpu mask requested = %*pb\n", cpumask_pr_args(&requested_cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask effective = %*pb\n", cpumask_pr_args(&cpu_mask));
+	log_debug(tzdev_kthread, "cpu mask outstanding = %*pb\n", cpumask_pr_args(&outstanding_cpu_mask));
 
 	if (cpu_isset(cpu, cpu_mask)) {
-		tzdev_kthread_debug("Direct cpu hit = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Direct cpu hit = %lu\n", cpu);
 		tz_kthread_pool_cmd_get();
 		return KTHREAD_SHOULD_RUN;
 	} else if (!cpumask_empty(&outstanding_cpu_mask)) {
-		tzdev_kthread_debug("No proper cpus to satisfy requested affinity\n");
+		log_debug(tzdev_kthread, "No proper cpus to satisfy requested affinity\n");
 		tz_kthread_pool_cmd_get();
 		return KTHREAD_SHOULD_RUN;
 	}
 
 	if (tz_kthread_pool_cmd_get()) {
-		tzdev_kthread_debug("Handle initial cmd on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Handle initial cmd on cpu = %lu\n", cpu);
 		return KTHREAD_SHOULD_RUN;
 	}
 
@@ -100,7 +97,7 @@ static int tz_kthread_pool_should_wake(unsigned long cpu)
 }
 
 static int tz_kthread_pool_wake_function(wait_queue_t *wait, unsigned int mode, int sync,
-				  void *key)
+				void *key)
 {
 	unsigned long cpu = (unsigned long)key;
 
@@ -135,7 +132,7 @@ static void tz_kthread_pool_wake_up_all_but(unsigned long cpu)
 	__wake_up(&tz_cmd_waitqueue, TASK_NORMAL, 0, (void *)cpu);
 }
 
-void tz_kthread_pool_wake_up_all(void)
+static void tz_kthread_pool_wake_up_all(void)
 {
 	tz_kthread_pool_wake_up_all_but(NR_CPUS);
 }
@@ -144,7 +141,7 @@ static int tz_worker_handler(void *arg)
 {
 	unsigned long cpu = (unsigned long)arg;
 
-	tzdev_kthread_info("Kthread on CPU %lu is alive.\n", cpu);
+	log_info(tzdev_kthread, "Kthread on CPU %lu is alive.\n", cpu);
 
 	while (!kthread_should_stop()) {
 		int ret;
@@ -158,18 +155,18 @@ static int tz_worker_handler(void *arg)
 			if (!kthread_should_stop())
 				WARN_ON(cpu != raw_smp_processor_id());
 			else
-				tzdev_kthread_info("Kthread on CPU %lu should stop but already got command\n", cpu);
+				log_info(tzdev_kthread, "Kthread on CPU %lu should stop but already got command\n", cpu);
 
-			tzdev_kthread_debug("Enter SWd from kthread on cpu = %lu\n", cpu);
+			log_debug(tzdev_kthread, "Enter SWd from kthread on cpu = %lu\n", cpu);
 			tzdev_smc_schedule();
-			tzdev_kthread_debug("Exit SWd from kthread on cpu = %lu\n", cpu);
+			log_debug(tzdev_kthread, "Exit SWd from kthread on cpu = %lu\n", cpu);
 			break;
 		default:
 			BUG();
 		}
 	}
 out:
-	tzdev_kthread_info("Kthread on CPU %lu is stopped.\n", cpu);
+	log_info(tzdev_kthread, "Kthread on CPU %lu is stopped.\n", cpu);
 
 	return 0;
 }
@@ -191,13 +188,13 @@ static int tz_kthread_pool_cpu_callback(struct notifier_block *nfb, unsigned lon
 				hcpu, cpu_to_node(cpu),
 				"worker thread/%ld", cpu);
 		if (IS_ERR(t)) {
-			tzdev_kthread_error("Failed to create worker thread on cpu %ld, error %ld\n",
+			log_error(tzdev_kthread, "Failed to create worker thread on cpu %ld, error %ld\n",
 					cpu, PTR_ERR(t));
 			return notifier_from_errno(PTR_ERR(t));
 		}
 		kthread_bind(t, cpu);
 		per_cpu(worker, cpu) = t;
-		tzdev_kthread_debug("Created kthread on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Created kthread on cpu = %lu\n", cpu);
 		break;
 	case CPU_ONLINE:
 	case CPU_ONLINE_FROZEN:
@@ -207,7 +204,7 @@ static int tz_kthread_pool_cpu_callback(struct notifier_block *nfb, unsigned lon
 	case CPU_UP_CANCELED:
 	case CPU_UP_CANCELED_FROZEN:
 		kthread_bind(per_cpu(worker, cpu), cpumask_any(cpu_online_mask));
-		tzdev_kthread_debug("Unbinded kthread from cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Unbinded kthread from cpu = %lu\n", cpu);
 		/* fall through */
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN:
@@ -215,7 +212,7 @@ static int tz_kthread_pool_cpu_callback(struct notifier_block *nfb, unsigned lon
 			break;
 		kthread_stop(per_cpu(worker, cpu));
 		per_cpu(worker, cpu) = NULL;
-		tzdev_kthread_debug("Request to stop kthread on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Request to stop kthread on cpu = %lu\n", cpu);
 		break;
 #endif /* CONFIG_HOTPLUG_CPU */
 	}
@@ -245,8 +242,26 @@ static int tz_kthread_pool_cpu_down_callback(unsigned int cpu)
 	return 0;
 }
 
+static int tz_kthread_pool_post_smc_call(struct notifier_block *cb, unsigned long code, void *unused)
+{
+	(void)cb;
+	(void)code;
+	(void)unused;
+
+	if (tz_iwservice_get_cpu_mask())
+		tz_kthread_pool_wake_up_all();
+
+	return NOTIFY_DONE;
+}
+
+
+static struct notifier_block tz_kthread_pool_post_smc_notifier = {
+	.notifier_call = tz_kthread_pool_post_smc_call,
+};
+
 static __init int tz_kthread_pool_init(void)
 {
+	int rc;
 	int err;
 	void *cpu = (void *)(long)smp_processor_id();
 
@@ -259,7 +274,17 @@ static __init int tz_kthread_pool_init(void)
 		tz_kthread_pool_cpu_up_callback,
 		tz_kthread_pool_cpu_down_callback);
 
-	return 0;
+	rc = tzdev_atomic_notifier_register(TZDEV_POST_SMC_NOTIFIER, &tz_kthread_pool_post_smc_notifier);
+	if (rc) {
+		log_error(tzdev_kthread, "Failed to register post smc notifier, error=%d\n", rc);
+		return rc;
+	}
+
+	atomic_set(&tz_kthread_pool_init_done, 1);
+
+	log_info(tzdev_kthread, "Kthread pool initialization done.\n");
+
+	return rc;
 }
 
 early_initcall(tz_kthread_pool_init);
@@ -269,9 +294,10 @@ void tz_kthread_pool_fini(void)
 	unsigned int cpu;
 	struct task_struct *t;
 
-	if (atomic_cmpxchg(&tz_kthread_pool_fini_done, 0, 1))
+	if (!atomic_cmpxchg(&tz_kthread_pool_init_done, 1, 0))
 		return;
 
+	tzdev_atomic_notifier_unregister(TZDEV_POST_SMC_NOTIFIER, &tz_kthread_pool_post_smc_notifier);
 	sysdep_unregister_cpu_notifier(&tz_cpu_notifier);
 
 	for_each_possible_cpu(cpu) {
@@ -281,6 +307,7 @@ void tz_kthread_pool_fini(void)
 			kthread_stop(t);
 		}
 	}
+	log_info(tzdev_kthread, "Kthread pool finalization done.\n");
 }
 
 void tz_kthread_pool_cmd_send(void)
@@ -310,9 +337,9 @@ void tz_kthread_pool_enter_swd(void)
 			cpu_isset(cpu, requested_cpu_mask)) {
 		tz_kthread_pool_wake_up_all_but(cpu);
 
-		tzdev_kthread_debug("Enter SWd directly on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Enter SWd directly on cpu = %lu\n", cpu);
 		tzdev_smc_schedule();
-		tzdev_kthread_debug("Exit SWd directly on cpu = %lu\n", cpu);
+		log_debug(tzdev_kthread, "Exit SWd directly on cpu = %lu\n", cpu);
 	} else {
 		tz_kthread_pool_cmd_send();
 	}

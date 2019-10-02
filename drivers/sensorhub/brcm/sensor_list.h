@@ -115,7 +115,7 @@ struct sensor_info {
 #endif
 #define SENSOR_INFO_LIGHT_IR			{"light_ir_sensor", LIGHT_IR_SENSOR, true, REPORT_MODE_ON_CHANGE, 13, 13}
 #ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
-#define SENSOR_INFO_LIGHT_CCT			{"light_cct_sensor", LIGHT_CCT_SENSOR, true, REPORT_MODE_ON_CHANGE, 25, 25}
+#define SENSOR_INFO_LIGHT_CCT			{"light_cct_sensor", LIGHT_CCT_SENSOR, true, REPORT_MODE_ON_CHANGE, 27, 27}
 #else
 #define SENSOR_INFO_LIGHT_CCT			{"light_cct_sensor", LIGHT_CCT_SENSOR, true, REPORT_MODE_ON_CHANGE, 19, 19}
 #endif

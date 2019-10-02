@@ -52,13 +52,23 @@ static const struct snd_pcm_hardware vts_platform_hardware = {
 	.periods_max		= BUFFER_BYTES_MAX / PERIOD_BYTES_MIN,
 };
 
+static struct vts_platform_data *vts_get_drvdata(struct snd_pcm_substream *substream)
+{
+       struct snd_soc_pcm_runtime *rtd = substream->private_data;
+       struct snd_soc_dai *dai = rtd->cpu_dai;
+       struct snd_soc_dai_driver *dai_drv = dai->driver;
+       struct vts_data *data = dev_get_drvdata(dai->dev);
+       struct vts_platform_data *platform_data = platform_get_drvdata(data->pdev_vtsdma[dai_drv->id]);
+       return platform_data;
+}
+
 static int vts_platform_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
+	struct vts_platform_data *data = vts_get_drvdata(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	if (data->type == PLATFORM_VTS_TRIGGER_RECORD) {
@@ -80,8 +90,8 @@ static int vts_platform_hw_params(struct snd_pcm_substream *substream,
 static int vts_platform_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -91,8 +101,8 @@ static int vts_platform_hw_free(struct snd_pcm_substream *substream)
 static int vts_platform_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
 
 	dev_info(dev, "%s\n", __func__);
 
@@ -102,9 +112,9 @@ static int vts_platform_prepare(struct snd_pcm_substream *substream)
 static int vts_platform_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
+	struct vts_platform_data *data = vts_get_drvdata(substream);
 	u32 values[3] = {0,0,0};
 	int result = 0;
 
@@ -145,9 +155,9 @@ static int vts_platform_trigger(struct snd_pcm_substream *substream, int cmd)
 static snd_pcm_uframes_t vts_platform_pointer(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
+	struct vts_platform_data *data = vts_get_drvdata(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	dev_dbg(dev, "%s: pointer=%08x\n", __func__, data->pointer);
@@ -158,9 +168,9 @@ static snd_pcm_uframes_t vts_platform_pointer(struct snd_pcm_substream *substrea
 static int vts_platform_open(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
+	struct vts_platform_data *data = vts_get_drvdata(substream);
 	int result = 0;
 
 	dev_info(dev, "%s\n", __func__);
@@ -171,6 +181,8 @@ static int vts_platform_open(struct snd_pcm_substream *substream)
 		return -EBUSY;
 	}
 
+	dev_info(dev, "vts_platform_open : vts_try_request_firmware\n");
+	/* vts_try_request_firmware_interface(data->vts_data); */
 	pm_runtime_get_sync(dev);
 	snd_soc_set_runtime_hwparams(substream, &vts_platform_hardware);
 	if (data->type == PLATFORM_VTS_NORMAL_RECORD) {
@@ -189,9 +201,9 @@ static int vts_platform_open(struct snd_pcm_substream *substream)
 static int vts_platform_close(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
+	struct vts_platform_data *data = vts_get_drvdata(substream);
 	int result = 0;
 
 	dev_info(dev, "%s\n", __func__);
@@ -200,6 +212,8 @@ static int vts_platform_close(struct snd_pcm_substream *substream)
 		dev_warn(dev, "%s VTS SRAM is Used for CP call\n",
 					__func__);
 		pm_runtime_get_sync(dev);
+		dev_info(dev, "vts_platform_close : vts_try_request_firmware\n");
+		/* vts_try_request_firmware_interface(data->vts_data); */
 		return -EBUSY;
 	}
 
@@ -219,8 +233,8 @@ static int vts_platform_mmap(struct snd_pcm_substream *substream,
 		struct vm_area_struct *vma)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_platform *platform = rtd->platform;
-	struct device *dev = platform->dev;
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+	struct device *dev = dai->dev;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	dev_info(dev, "%s\n", __func__);
@@ -245,9 +259,12 @@ static struct snd_pcm_ops vts_platform_ops = {
 
 static int vts_platform_new(struct snd_soc_pcm_runtime *runtime)
 {
-	struct snd_soc_platform *platform = runtime->platform;
-	struct device *dev = platform->dev;
-	struct vts_platform_data *data = dev_get_drvdata(dev);
+	struct snd_soc_dai *dai = runtime->cpu_dai;
+	struct snd_soc_dai_driver *dai_drv = dai->driver;
+	struct device *dev = dai->dev;
+
+	struct vts_data *vtsdata = dev_get_drvdata(dai->dev);
+	struct vts_platform_data *data = platform_get_drvdata(vtsdata->pdev_vtsdma[dai_drv->id]);
 	struct snd_pcm_substream *substream = runtime->pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream;
 
 	dev_info(dev, "%s \n", __func__);
@@ -263,10 +280,20 @@ static void vts_platform_free(struct snd_pcm *pcm)
 	return;
 }
 
-static const struct snd_soc_platform_driver vts_dma = {
+static const struct snd_soc_component_driver vts_dma = {
 	.ops		= &vts_platform_ops,
 	.pcm_new	= vts_platform_new,
 	.pcm_free	= vts_platform_free,
+};
+
+static struct snd_soc_dai_driver vts_dma_dai_drv = {
+	.capture = {
+		.channels_min = 1,
+		.channels_max = 2,
+		.rates = SNDRV_PCM_RATE_16000,
+		.formats = SNDRV_PCM_FMTBIT_S16,
+		.sig_bits = 16,
+	},
 };
 
 static int samsung_vts_dma_probe(struct platform_device *pdev)
@@ -276,6 +303,7 @@ static int samsung_vts_dma_probe(struct platform_device *pdev)
 	struct device_node *np_vts;
 	struct vts_platform_data *data;
 	int result;
+	int ret = 0;
 	const char *type;
 
 	dev_info(dev, "%s \n", __func__);
@@ -285,6 +313,7 @@ static int samsung_vts_dma_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 	platform_set_drvdata(pdev, data);
+	data->dev = dev;
 
 	np_vts = of_parse_phandle(np, "vts", 0);
 	if (!np_vts) {
@@ -320,12 +349,16 @@ static int samsung_vts_dma_probe(struct platform_device *pdev)
 
 	vts_register_dma(data->vts_data->pdev, pdev, data->id);
 
-	return snd_soc_register_platform(&pdev->dev, &vts_dma);
+	ret = devm_snd_soc_register_component(dev, &vts_dma,
+						&vts_dma_dai_drv, 1);
+	if (ret < 0)
+		return ret;
+
+	return ret;
 }
 
 static int samsung_vts_dma_remove(struct platform_device *pdev)
 {
-	snd_soc_unregister_platform(&pdev->dev);
 	return 0;
 }
 

@@ -49,13 +49,7 @@
 #endif /* CONFIG_MUIC_NOTIFIER */
 
 #if defined(CONFIG_MUIC_SUPPORT_CCIC) && defined(CONFIG_CCIC_NOTIFIER)
-#include <linux/ccic/ccic_notifier.h>
-#endif
-
-#if IS_ENABLED(CONFIG_MUIC_SM5508) && IS_ENABLED(CONFIG_USE_SECOND_MUIC)
-#include "sm5508-muic.h"
-
-struct muic_platform_data muic_pdata2;
+#include <linux/usb/typec/common/pdic_notifier.h>
 #endif
 
 #ifdef CONFIG_ANDROID_SWITCH
@@ -227,7 +221,7 @@ static int muic_handle_cable_data_notification(struct notifier_block *nb,
 		break;
 #if defined(CONFIG_USB_HW_PARAM)
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:
-		if (action == MUIC_NOTIFY_CMD_DETACH && o_notify)
+		if (action == MUIC_NOTIFY_CMD_ATTACH && o_notify)
 			inc_hw_param(o_notify, USB_MUIC_DCD_TIMEOUT_COUNT);
 		break;
 #endif
@@ -481,12 +475,6 @@ static int muic_init_gpio_cb(int switch_sel)
 		pdata->uart_path = MUIC_PATH_UART_CP;
 		uart_mode = "CP";
 	}
-#if IS_ENABLED(CONFIG_MUIC_UART_SWITCH)
-	if (switch_sel & SWITCH_SEL_UART_MASK2) {
-		pdata->uart_path = MUIC_PATH_UART_CP2;
-		uart_mode = "CP2";
-	}
-#endif
 
 	/* These flags MUST be updated again from probe function */
 	pdata->rustproof_on = false;
@@ -505,43 +493,12 @@ static int muic_init_gpio_cb(int switch_sel)
 int muic_afc_set_voltage(int voltage)
 {
 	struct muic_platform_data *pdata = &muic_pdata;
-#if defined(CONFIG_USE_SECOND_MUIC)
-	struct muic_platform_data *pdata2 = &muic_pdata2;
-#endif
-
-	pr_info("%s : %dV\n", __func__, voltage);
-
-#if defined(CONFIG_USE_SECOND_MUIC)
-	if (pdata2->muic_afc_set_voltage_cb)
-		pdata2->muic_afc_set_voltage_cb(voltage);
-#endif
 
 	if (pdata && pdata->muic_afc_set_voltage_cb)
 		return pdata->muic_afc_set_voltage_cb(voltage);
 
 	pr_err("%s: cannot supported\n", __func__);
 	return -ENODEV;
-}
-
-int muic_hv_charger_disable(bool en)
-{
-	struct muic_platform_data *pdata = &muic_pdata;
-#if defined(CONFIG_USE_SECOND_MUIC)
-	struct muic_platform_data *pdata2 = &muic_pdata2;
-#endif
-	int ret = -ENODEV;
-
-	pr_info("%s %sable\n", __func__, en ? "en" : "dis");
-
-#if defined(CONFIG_USE_SECOND_MUIC)
-	if (pdata2->muic_hv_charger_disable_cb)
-		ret = pdata2->muic_hv_charger_disable_cb(en);
-#endif
-
-	if (pdata && pdata->muic_hv_charger_disable_cb)
-		ret = pdata->muic_hv_charger_disable_cb(en);
-
-	return  ret;
 }
 
 int muic_hv_charger_init(void)

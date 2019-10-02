@@ -1,5 +1,6 @@
 config EXYNOS_DECON_LCD
-	depends on EXYNOS_DECON_8895 || EXYNOS_DECON_9810 || CONFIG_EXYNOS_DPU20
+	depends on EXYNOS_DECON_8895 || EXYNOS_DECON_9810 || CONFIG_EXYNOS_DPU20 || EXYNOS_DPU30
+	select BACKLIGHT_CLASS_DEVICE
 	bool "Select LCD panel driver"
 
 config EXYNOS_DECON_MDNIE_LITE
@@ -37,11 +38,6 @@ config EXYNOS_DECON_LCD_TUNING
 	tristate "Support LCD TUNING"
 	default n
 
-config EXYNOS_LCD_ENG
-	depends on EXYNOS_DECON_LCD
-	tristate "Support LCD featue on ENG binary"
-	default n
-
 config PANEL_AID_DIMMING
 	depends on EXYNOS_DECON_LCD
 	tristate "Support AID Dimming"
@@ -63,6 +59,11 @@ config SUPPORT_HMD
 	depends on EXYNOS_DECON_LCD
 	default n
 
+config SUPPORT_DOZE
+	depends on EXYNOS_DECON_LCD
+	tristate "Support Panel AOD"
+	default n
+
 config EXTEND_LIVE_CLOCK
 	tristate "Support Extend Live Clock Functions(For Always On Display)"
 	depends on EXYNOS_DECON_LCD
@@ -72,11 +73,6 @@ config SUPPORT_AOD_BL
 	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
 	tristate "Support AOD(Active On Display) BL(BackLight) Driver"
 	default n
-
-config SUPPORT_DISPLAY_PROFILER
-    	depends on EXYNOS_DECON_LCD
-    	tristate "Support Display Profiler"
-    	default n
 
 config EXYNOS_DECON_LCD_S6E3HF3
 	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
@@ -101,6 +97,14 @@ config EXYNOS_DECON_LCD_S6E3HA9
 config EXYNOS_DECON_LCD_S6E3FA7
 	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
 	tristate "S6E3FA7 AMOLED LCD DRIVER"
+
+config EXYNOS_DECON_LCD_S6E3HAB
+	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
+	tristate "S6E3HAB AMOLED LCD DRIVER"
+
+config EXYNOS_DECON_LCD_S6E3XA0
+	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
+	tristate "S6E3XA0 AMOLED LCD DRIVER"
 
 config ACTIVE_CLOCK
 	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
@@ -161,8 +165,13 @@ config SUPPORT_POC_SPI
 	depends on EXYNOS_DECON_LCD
 	tristate "Support poc SPI connection"
 	default n
-	
+
 config DYNAMIC_FREQ
-    	depends on EXYNOS_DECON_LCD
-    	tristate "Support Dynamic Freq"
-    	default n
+	depends on EXYNOS_DECON_LCD
+	tristate "Support Dynamic Freq"
+	default n
+
+config EXYNOS_LCD_ENG
+	depends on EXYNOS_DECON_LCD
+	tristate "Support LCD featue on ENG binary"
+	default n

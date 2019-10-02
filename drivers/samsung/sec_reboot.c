@@ -17,6 +17,7 @@
 #include <linux/input.h>
 #endif
 #include <linux/sec_ext.h>
+#include "./debug/sec_debug_internal.h" /* include for INFORM# registers, temporary header */
 #include "../battery_v2/include/sec_battery.h"
 #include <linux/sec_batt.h>
 
@@ -130,7 +131,7 @@ static void sec_power_off(void)
 			__func__, ac_val.intval, usb_val.intval, wpc_val.intval, water_val.intval);
 
 	flush_cache_all();
-	llc_flush();
+	llc_flush(LLC_REGION_LIT_MID_ALL);
 
 	while (1) {
 		/* Check reboot charging */
@@ -238,7 +239,7 @@ static void sec_reboot(enum reboot_mode reboot_mode, const char *cmd)
 	}
 
 	flush_cache_all();
-	llc_flush();
+	llc_flush(LLC_REGION_LIT_MID_ALL);
 
 	mach_restart(REBOOT_SOFT, "sw reset");
 

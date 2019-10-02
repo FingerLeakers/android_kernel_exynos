@@ -34,7 +34,7 @@
 #define wmb()		__DMB()
 #endif
 
-#define ABOX_MSG_LEN_CMD	16
+#define ABOX_MSG_LEN_CMD	128
 
 struct abox_msg_cfg {
 	void *tx_addr;

@@ -38,7 +38,7 @@
 
 void page_writeback_init(void);
 
-int do_swap_page(struct vm_fault *vmf);
+vm_fault_t do_swap_page(struct vm_fault *vmf);
 
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *start_vma,
 		unsigned long floor, unsigned long ceiling);
@@ -53,7 +53,7 @@ void unmap_page_range(struct mmu_gather *tlb,
 			     unsigned long addr, unsigned long end,
 			     struct zap_details *details);
 
-extern int __do_page_cache_readahead(struct address_space *mapping,
+extern unsigned int __do_page_cache_readahead(struct address_space *mapping,
 		struct file *filp, pgoff_t offset, unsigned long nr_to_read,
 		unsigned long lookahead_size);
 
@@ -198,6 +198,7 @@ struct compact_control {
 	const int classzone_idx;	/* zone index of a direct compactor */
 	enum migrate_mode mode;		/* Async or sync migration mode */
 	bool ignore_skip_hint;		/* Scan blocks even if marked skip */
+	bool no_set_skip_hint;		/* Don't mark blocks for skipping */
 	bool ignore_block_suitable;	/* Scan blocks considered unsuitable */
 	bool direct_compaction;		/* False from kcompactd or /proc/... */
 	bool whole_zone;		/* Whole zone should/has been scanned */
@@ -388,18 +389,6 @@ static inline struct page *mem_map_next(struct page *iter,
 	return iter + 1;
 }
 
-/*
- * FLATMEM and DISCONTIGMEM configurations use alloc_bootmem_node,
- * so all functions starting at paging_init should be marked __init
- * in those cases. SPARSEMEM, however, allows for memory hotplug,
- * and alloc_bootmem_node is not used.
- */
-#ifdef CONFIG_SPARSEMEM
-#define __paginginit __meminit
-#else
-#define __paginginit __init
-#endif
-
 /* Memory initialisation debug and verification */
 enum mminit_level {
 	MMINIT_WARNING,
@@ -470,7 +459,8 @@ extern unsigned long  __must_check vm_mmap_pgoff(struct file *, unsigned long,
 
 extern void set_pageblock_order(void);
 unsigned long reclaim_clean_pages_from_list(struct zone *zone,
-					    struct list_head *page_list);
+					    struct list_head *page_list,
+					    int ttu_flags);
 /* The ALLOC_WMARK bits are used as an index to zone->watermark */
 #define ALLOC_WMARK_MIN		WMARK_MIN
 #define ALLOC_WMARK_LOW		WMARK_LOW
@@ -526,6 +516,29 @@ extern const struct trace_print_flags pageflag_names[];
 extern const struct trace_print_flags vmaflag_names[];
 extern const struct trace_print_flags gfpflag_names[];
 
+#if defined(CONFIG_PAGE_STEAL)
+int migrate_anon_page(struct page *page, struct page *newpage);
+int reclaim_pages_range(unsigned long start_pfn, unsigned long count,
+			int mode, int reason);
+int steal_pages(unsigned long pfn, unsigned int order);
+#else
+static inline int migrate_anon_page(struct page *page, struct page *newpage)
+{
+	return -EBUSY;
+}
+
+static inline int reclaim_pages_range(unsigned long start_pfn,
+				      unsigned long count, int mode,
+				      int reason)
+{
+	return -EBUSY;
+}
+static inline int steal_pages(unsigned long pfn, unsigned int order)
+{
+	return -EBUSY;
+}
+#endif
+
 static inline bool is_migrate_highatomic(enum migratetype migratetype)
 {
 	return migratetype == MIGRATE_HIGHATOMIC;
@@ -537,6 +550,7 @@ static inline bool is_migrate_highatomic_page(struct page *page)
 }
 
 void setup_zone_pageset(struct zone *zone);
+extern struct page *alloc_new_node_page(struct page *page, unsigned long node);
 
 /*
  * A cached value of the page's pageblock's migratetype, used when the page is
@@ -555,5 +569,4 @@ static inline void set_pcppage_migratetype(struct page *page, int migratetype)
 {
 	page->index = migratetype;
 }
-
 #endif	/* __MM_INTERNAL_H */

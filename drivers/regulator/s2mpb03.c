@@ -33,17 +33,24 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/s2mpb03.h>
 #include <linux/regulator/of_regulator.h>
+#include <linux/regulator/pmic_class.h>
 
 struct s2mpb03_data {
 	struct s2mpb03_dev *iodev;
 	int num_regulators;
 	struct regulator_dev *rdev[S2MPB03_REGULATOR_MAX];
 	int opmode[S2MPB03_REGULATOR_MAX];
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	u8 read_addr;
+	u8 read_val;
+	struct device *dev;
+#endif
 };
 
 int s2mpb03_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 
 	mutex_lock(&s2mpb03->i2c_lock);
@@ -62,7 +69,8 @@ int s2mpb03_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest)
 
 int s2mpb03_bulk_read(struct i2c_client *i2c, u8 reg, int count, u8 *buf)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 
 	mutex_lock(&s2mpb03->i2c_lock);
@@ -76,7 +84,8 @@ int s2mpb03_bulk_read(struct i2c_client *i2c, u8 reg, int count, u8 *buf)
 
 int s2mpb03_read_word(struct i2c_client *i2c, u8 reg)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 
 	mutex_lock(&s2mpb03->i2c_lock);
@@ -90,7 +99,8 @@ int s2mpb03_read_word(struct i2c_client *i2c, u8 reg)
 
 int s2mpb03_write_reg(struct i2c_client *i2c, u8 reg, u8 value)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 
 	mutex_lock(&s2mpb03->i2c_lock);
@@ -105,7 +115,8 @@ int s2mpb03_write_reg(struct i2c_client *i2c, u8 reg, u8 value)
 
 int s2mpb03_bulk_write(struct i2c_client *i2c, u8 reg, int count, u8 *buf)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 
 	mutex_lock(&s2mpb03->i2c_lock);
@@ -119,7 +130,8 @@ int s2mpb03_bulk_write(struct i2c_client *i2c, u8 reg, int count, u8 *buf)
 
 int s2mpb03_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask)
 {
-	struct s2mpb03_dev *s2mpb03 = i2c_get_clientdata(i2c);
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+	struct s2mpb03_dev *s2mpb03 = info->iodev;
 	int ret;
 	u8 old_val, new_val;
 
@@ -356,7 +368,107 @@ static int s2mpb03_pmic_dt_parse_pdata(struct s2mpb03_dev *iodev,
 	return 0;
 }
 #endif /* CONFIG_OF */
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+static ssize_t s2mpb03_read_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t size)
+{
+	struct s2mpb03_data *s2mpb03 = dev_get_drvdata(dev);
+	int ret;
+	u8 val, reg_addr;
 
+	if (buf == NULL) {
+		pr_info("%s: empty buffer\n", __func__);
+		return -1;
+	}
+
+	ret = kstrtou8(buf, 0, &reg_addr);
+	if (ret < 0)
+		pr_info("%s: fail to transform i2c address\n", __func__);
+
+	ret = s2mpb03_read_reg(s2mpb03->iodev->i2c, reg_addr, &val);
+	if (ret < 0)
+		pr_info("%s: fail to read i2c address\n", __func__);
+
+	pr_info("%s: reg(0x%02x) data(0x%02x)\n", __func__, reg_addr, val);
+	s2mpb03->read_addr = reg_addr;
+	s2mpb03->read_val = val;
+
+	return size;
+}
+
+static ssize_t s2mpb03_read_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct s2mpb03_data *s2mpb03 = dev_get_drvdata(dev);
+	return sprintf(buf, "0x%02x: 0x%02x\n", s2mpb03->read_addr,
+		       s2mpb03->read_val);
+}
+
+static ssize_t s2mpb03_write_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t size)
+{
+	struct s2mpb03_data *s2mpb03 = dev_get_drvdata(dev);
+	int ret;
+	u8 reg, data;
+
+	if (buf == NULL) {
+		pr_info("%s: empty buffer\n", __func__);
+		return size;
+	}
+
+	ret = sscanf(buf, "%x %x", &reg, &data);
+	if (ret != 2) {
+		pr_info("%s: input error\n", __func__);
+		return size;
+	}
+
+	pr_info("%s: reg(0x%02x) data(0x%02x)\n", __func__, reg, data);
+
+	ret = s2mpb03_write_reg(s2mpb03->iodev->i2c, reg, data);
+	if (ret < 0)
+		pr_info("%s: fail to write i2c addr/data\n", __func__);
+
+	return size;
+}
+
+static ssize_t s2mpb03_write_show(struct device *dev,
+				  struct device_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "echo (register addr.) (data) > s2mpb03_write\n");
+}
+static DEVICE_ATTR(s2mpb03_write, 0644, s2mpb03_write_show, s2mpb03_write_store);
+static DEVICE_ATTR(s2mpb03_read, 0644, s2mpb03_read_show, s2mpb03_read_store);
+
+int create_s2mpb03_sysfs(struct s2mpb03_data *s2mpb03)
+{
+	struct device *s2mpb03_pmic = s2mpb03->dev;
+	int err = -ENODEV;
+
+	pr_info("%s: display pmic sysfs start\n", __func__);
+	s2mpb03->read_addr = 0;
+	s2mpb03->read_val = 0;
+
+	s2mpb03_pmic = pmic_device_create(s2mpb03, "s2mpb03");
+
+	err = device_create_file(s2mpb03_pmic, &dev_attr_s2mpb03_write);
+	if (err) {
+		pr_err("s2mpb03_sysfs: failed to create device file, %s\n",
+			dev_attr_s2mpb03_write.attr.name);
+	}
+
+	err = device_create_file(s2mpb03_pmic, &dev_attr_s2mpb03_read);
+	if (err) {
+		pr_err("s2mpb03_sysfs: failed to create device file, %s\n",
+			dev_attr_s2mpb03_read.attr.name);
+	}
+
+	return 0;
+}
+#endif
 static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 				const struct i2c_device_id *dev_id)
 {
@@ -405,7 +517,6 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		goto err_pdata;
 	}
 	mutex_init(&iodev->i2c_lock);
-	i2c_set_clientdata(i2c, iodev);
 
 	s2mpb03 = devm_kzalloc(&i2c->dev, sizeof(struct s2mpb03_data),
 				GFP_KERNEL);
@@ -415,6 +526,7 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		goto err_s2mpb03_data;
 	}
 
+	i2c_set_clientdata(i2c, s2mpb03);
 	s2mpb03->iodev = iodev;
 	s2mpb03->num_regulators = pdata->num_regulators;
 
@@ -425,7 +537,8 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 		config.driver_data = s2mpb03;
 		config.of_node = pdata->regulators[i].reg_node;
 		s2mpb03->opmode[id] = regulators[id].enable_mask;
-		s2mpb03->rdev[i] = devm_regulator_register(&i2c->dev, &regulators[id], &config);
+		s2mpb03->rdev[i] = devm_regulator_register(&i2c->dev,
+							   &regulators[id], &config);
 		if (IS_ERR(s2mpb03->rdev[i])) {
 			ret = PTR_ERR(s2mpb03->rdev[i]);
 			dev_err(&i2c->dev, "regulator init failed for %d\n",
@@ -434,14 +547,16 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 			goto err_s2mpb03_data;
 		}
 	}
-
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	/* create sysfs */
+	create_s2mpb03_sysfs(s2mpb03);
+#endif
 	return ret;
 
 err_s2mpb03_data:
 	mutex_destroy(&iodev->i2c_lock);
 err_pdata:
 	pr_info("[%s:%d] err\n", __func__, __LINE__);
-
 	return ret;
 }
 
@@ -454,7 +569,12 @@ static struct of_device_id s2mpb03_i2c_dt_ids[] = {
 
 static int s2mpb03_pmic_remove(struct i2c_client *i2c)
 {
+	struct s2mpb03_data *info = i2c_get_clientdata(i2c);
+
 	dev_info(&i2c->dev, "%s\n", __func__);
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	pmic_device_destroy(info->dev->devt);
+#endif
 	return 0;
 }
 

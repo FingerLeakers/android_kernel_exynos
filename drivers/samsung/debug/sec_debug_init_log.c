@@ -12,13 +12,22 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/sec_debug.h>
+#include "sec_debug_internal.h"
 
+extern void register_init_log_hook_func(void (*func)(const char *buf, size_t size));
 static char *buf_ptr;
 static unsigned long buf_size;
 static unsigned long buf_idx;
 
-static void sec_debug_hook_init_log(const char *str, size_t size)
+size_t secdbg_hook_get_curr_init_ptr(void)
+{
+#ifdef CONFIG_SEC_DEBUG_SYSRQ_KMSG
+	return (size_t)(buf_ptr + buf_idx);
+#endif
+	return 0;
+}
+
+static void secdbg_hook_init_log(const char *str, size_t size)
 {
 	int len;
 
@@ -32,19 +41,20 @@ static void sec_debug_hook_init_log(const char *str, size_t size)
 		buf_idx = (buf_idx + size) % buf_size;
 	}
 }
-	
-static int __init sec_debug_init_init_log(void)
+
+static int __init secdbg_hook_init_log_init(void)
 {
 	pr_err("%s: start\n", __func__);
 
-	buf_ptr = (char *)phys_to_virt((sec_debug_get_buf_base(SDN_MAP_INITTASK_LOG)));
-	buf_size = sec_debug_get_buf_size(SDN_MAP_INITTASK_LOG);
-	pr_err("%s: buffer size 0x%llx at addr 0x%llx\n", __func__, buf_size ,buf_ptr);
+	buf_ptr = (char *)phys_to_virt((secdbg_base_get_buf_base(SDN_MAP_INITTASK_LOG)));
+	buf_size = secdbg_base_get_buf_size(SDN_MAP_INITTASK_LOG);
+	pr_err("%s: buffer size 0x%llx at addr 0x%llx\n", __func__, buf_size, buf_ptr);
 
 	memset(buf_ptr, 0, buf_size);
-	register_init_log_hook_func(sec_debug_hook_init_log);
+	register_init_log_hook_func(secdbg_hook_init_log);
 	pr_err("%s: done\n", __func__);
+
 	return 0;
 }
-late_initcall(sec_debug_init_init_log);
+late_initcall(secdbg_hook_init_log_init);
 

@@ -5,264 +5,184 @@
  * Park Bumgyu <bumgyu.park@samsung.com>
  */
 
-#include <linux/ems.h>
-
-#include "ems.h"
 #include "../sched.h"
-#include "../tune.h"
+#include "ems.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/ems.h>
 
-unsigned long task_util(struct task_struct *p)
+static void select_fit_cpus(struct tp_env *env)
 {
-	if (rt_task(p))
-		return p->rt.avg.util_avg;
-	else
-		return p->se.avg.util_avg;
-}
-
-static int select_proper_cpu(struct task_struct *p, int prev_cpu)
-{
+	struct cpumask *fit_cpus = &env->fit_cpus;
+	struct task_struct *p = env->p;
+	struct cpumask overutil_cpus;
 	int cpu;
-	unsigned long best_min_util = ULONG_MAX;
-	int best_cpu = -1;
-
-	for_each_cpu(cpu, cpu_active_mask) {
-		int i;
-
-		/* visit each coregroup only once */
-		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
-			continue;
-
-		/* skip if task cannot be assigned to coregroup */
-		if (!cpumask_intersects(&p->cpus_allowed, cpu_coregroup_mask(cpu)))
-			continue;
-
-		for_each_cpu_and(i, tsk_cpus_allowed(p), cpu_coregroup_mask(cpu)) {
-			unsigned long capacity_orig = capacity_orig_of(i);
-			unsigned long new_util;
-
-			new_util = ml_task_attached_cpu_util(i, p);
-			new_util = max(new_util, ml_boosted_task_util(p));
-
-			/* skip over-capacity cpu */
-			if (new_util > capacity_orig)
-				continue;
-
-			/*
-			 * Best target) lowest utilization among lowest-cap cpu
-			 *
-			 * If the sequence reaches this function, the wakeup task
-			 * does not require performance and the prev cpu is over-
-			 * utilized, so it should do load balancing without
-			 * considering energy side. Therefore, it selects cpu
-			 * with smallest cpapacity and the least utilization among
-			 * cpu that fits the task.
-			 */
-			if (best_min_util < new_util)
-				continue;
-
-			best_min_util = new_util;
-			best_cpu = i;
-		}
-
-		/*
-		 * if it fails to find the best cpu in this coregroup, visit next
-		 * coregroup.
-		 */
-		if (cpu_selected(best_cpu))
-			break;
-	}
-
-	trace_ems_select_proper_cpu(p, best_cpu, best_min_util);
 
 	/*
-	 * if it fails to find the vest cpu, choosing any cpu is meaningless.
-	 * Return prev cpu.
+	 * Get fit cpus from ontime migration.
+	 * The fit cpus is determined by the size of task runnable.
+	 *
+	 * fit_cpus = fit_cpus from ontime
 	 */
-	return cpu_selected(best_cpu) ? best_cpu : prev_cpu;
+	ontime_select_fit_cpus(p, fit_cpus);
+
+	/*
+	 * Exclude overutilized cpu from fit cpus.
+	 * If assigning a task to a cpu and the cpu becomes overutilized, then
+	 * the cpu may not be able to process the task properly, and
+	 * performance may drop. Therefore, overutil cpu is excluded.
+	 *
+	 * However, if cpu is overutilized but there is no running task on the
+	 * cpu, this cpu is also a candidate because the cpu is likely to become
+	 * idle.
+	 *
+	 * fit_cpus = fit_cpus & ~(running overutilized cpus)
+	 */
+	cpumask_clear(&overutil_cpus);
+	for_each_cpu(cpu, cpu_active_mask) {
+		unsigned long capacity = capacity_cpu(cpu, p->sse);
+		unsigned long new_util = _ml_cpu_util(cpu, p->sse);
+
+		if (task_cpu(p) != cpu)
+			new_util += ml_task_util(p);
+
+		if (cpu_overutilized(capacity, new_util) && cpu_rq(cpu)->nr_running)
+			cpumask_set_cpu(cpu, &overutil_cpus);
+	}
+
+	cpumask_andnot(fit_cpus, fit_cpus, &overutil_cpus);
+
+	/*
+	 * If all fit cpus are overutilized, fit cpus become empty.
+	 * But in task migration sequence, it does not need to consider whether
+	 * fit cpus is empty or not because the cpu is already busy, there is no
+	 * performance gain even if migrating tasks to faster cpu.
+	 */
+	if (!env->wake) {
+		/*
+		 * Do not migrate tasks to cpu that is used more than 12.5%.
+		 * (12.5% : this percentage is heuristically obtained)
+		 *
+		 * fit_cpus = fit_cpus with util < 12.5%
+		 */
+		for_each_cpu(cpu, cpu_active_mask) {
+			int threshold = capacity_cpu(cpu, p->sse) >> 3;
+
+			if (_ml_cpu_util(cpu, p->sse) >= threshold)
+				cpumask_clear_cpu(cpu, fit_cpus);
+		}
+
+		goto skip;
+	}
+
+	/*
+	 * Unfortunately, if all of the cpus are overutilized, significantly
+	 * low-utilized cpus(< ~1.56%) become inevitably candidates.
+	 *
+	 * fit_cpus = cpus with util < 1.56%
+	 */
+	if (unlikely(cpumask_equal(cpu_active_mask, &overutil_cpus))) {
+		cpumask_clear(fit_cpus);
+		for_each_cpu(cpu, cpu_active_mask) {
+			int threshold = capacity_cpu(cpu, p->sse) >> 6;
+
+			if (_ml_cpu_util(cpu, p->sse) < threshold)
+				cpumask_set_cpu(cpu, fit_cpus);
+		}
+
+		goto skip;
+	}
+
+	/*
+	 * If fit cpus are empty, ignore fit cpus found in the previous step
+	 * and all non-overutilized cpus become fit cpus.
+	 *
+	 * fit_cpus = all cpus & ~(overutilized cpus)
+	 */
+	if (cpumask_empty(fit_cpus))
+		cpumask_andnot(fit_cpus, cpu_active_mask, &overutil_cpus);
+
+skip:
+	cpumask_and(fit_cpus, fit_cpus, emst_get_candidate_cpus(env->p));
+	cpumask_and(fit_cpus, fit_cpus, ecs_sparing_cpus());
+	cpumask_and(fit_cpus, fit_cpus, cpu_active_mask);
+	cpumask_and(fit_cpus, fit_cpus, &env->p->cpus_allowed);
+
+	trace_ems_select_fit_cpus(env->p, env->wake,
+		*(unsigned int *)cpumask_bits(fit_cpus),
+		*(unsigned int *)cpumask_bits(&overutil_cpus));
 }
 
 extern void sync_entity_load_avg(struct sched_entity *se);
 
-static int eff_mode;
-
-int exynos_wakeup_balance(struct task_struct *p, int prev_cpu, int sd_flag, int sync)
+int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
+				int sd_flag, int sync, int wake)
 {
 	int target_cpu = -1;
-	char state[30] = "fail";
+	struct tp_env env = {
+		.p = p,
+		.prefer_perf = global_boost() || schedtune_prefer_perf(p),
+		.prefer_idle = schedtune_prefer_idle(p),
+		.wake = wake,
+	};
 
 	/*
-	 * Since the utilization of a task is accumulated before sleep, it updates
-	 * the utilization to determine which cpu the task will be assigned to.
-	 * Exclude new task.
+	 * Update utilization of waking task to apply "sleep" period
+	 * before selecting cpu.
 	 */
-	if (!(sd_flag & SD_BALANCE_FORK)) {
-		unsigned long old_util = ml_task_util(p);
-
+	if (!(sd_flag & SD_BALANCE_FORK))
 		sync_entity_load_avg(&p->se);
-		/* update the band if a large amount of task util is decayed */
-		update_band(p, old_util);
-	}
 
-	target_cpu = select_service_cpu(p);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "service cpu");
-		goto out;
-	}
-
-	/*
-	 * Priority 1 : ontime task
-	 *
-	 * If task which has more utilization than threshold wakes up, the task is
-	 * classified as "ontime task" and assigned to performance cpu. Conversely,
-	 * if heavy task that has been classified as ontime task sleeps for a long
-	 * time and utilization becomes small, it is excluded from ontime task and
-	 * is no longer guaranteed to operate on performance cpu.
-	 *
-	 * Ontime task is very sensitive to performance because it is usually the
-	 * main task of application. Therefore, it has the highest priority.
-	 */
-	target_cpu = ontime_task_wakeup(p, sync);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "ontime migration");
-		goto out;
-	}
-
-	/*
-	 * Priority 2 : prefer-perf
-	 *
-	 * Prefer-perf is a function that operates on cgroup basis managed by
-	 * schedtune. When perfer-perf is set to 1, the tasks in the group are
-	 * preferentially assigned to the performance cpu.
-	 *
-	 * It has a high priority because it is a function that is turned on
-	 * temporarily in scenario requiring reactivity(touch, app laucning).
-	 */
-	target_cpu = prefer_perf_cpu(p);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "prefer-perf");
-		goto out;
-	}
-
-	/*
-	 * Priority 3 : task band
-	 *
-	 * The tasks in a process are likely to interact, and its operations are
-	 * sequential and share resources. Therefore, if these tasks are packed and
-	 * and assign on a specific cpu or cluster, the latency for interaction
-	 * decreases and the reusability of the cache increases, thereby improving
-	 * performance.
-	 *
-	 * The "task band" is a function that groups tasks on a per-process basis
-	 * and assigns them to a specific cpu or cluster. If the attribute "band"
-	 * of schedtune.cgroup is set to '1', task band operate on this cgroup.
-	 */
-	target_cpu = band_play_cpu(p);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "task band");
-		goto out;
-	}
-
-	/*
-	 * Priority 4 : global boosting
-	 *
-	 * Global boost is a function that preferentially assigns all tasks in the
-	 * system to the performance cpu. Unlike prefer-perf, which targets only
-	 * group tasks, global boost targets all tasks. So, it maximizes performance
-	 * cpu utilization.
-	 *
-	 * Typically, prefer-perf operates on groups that contains UX related tasks,
-	 * such as "top-app" or "foreground", so that major tasks are likely to be
-	 * assigned to performance cpu. On the other hand, global boost assigns
-	 * all tasks to performance cpu, which is not as effective as perfer-perf.
-	 * For this reason, global boost has a lower priority than prefer-perf.
-	 */
-	target_cpu = global_boosting(p);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "global boosting");
-		goto out;
-	}
-
-	if (eff_mode) {
-		target_cpu = select_best_cpu(p, prev_cpu, sd_flag, sync);
-		if (cpu_selected(target_cpu)) {
-			strcpy(state, "best");
-			goto out;
+	if (wake) {
+		target_cpu = select_service_cpu(p);
+		if (target_cpu >= 0) {
+			trace_ems_select_task_rq(p, target_cpu, wake, "service");
+			return target_cpu;
 		}
 	}
 
-	/*
-	 * Priority 5 : prefer-idle
-	 *
-	 * Prefer-idle is a function that operates on cgroup basis managed by
-	 * schedtune. When perfer-idle is set to 1, the tasks in the group are
-	 * preferentially assigned to the idle cpu.
-	 *
-	 * Prefer-idle has a smaller performance impact than the above. Therefore
-	 * it has a relatively low priority.
-	 */
-	target_cpu = prefer_idle_cpu(p);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "prefer-idle");
-		goto out;
+	select_fit_cpus(&env);
+
+	if (sysctl_sched_sync_hint_enable && sync) {
+		target_cpu = smp_processor_id();
+		if (cpumask_test_cpu(target_cpu, &env.fit_cpus)) {
+			trace_ems_select_task_rq(p, target_cpu, wake, "sync");
+			return target_cpu;
+		}
 	}
 
-	/*
-	 * Priority 6 : energy cpu
-	 *
-	 * A scheduling scheme based on cpu energy, find the least power consumption
-	 * cpu with energy table when assigning task.
-	 */
-	target_cpu = select_energy_cpu(p, prev_cpu, sd_flag, sync);
-	if (cpu_selected(target_cpu)) {
-		strcpy(state, "energy cpu");
-		goto out;
+	/* There is no fit cpus */
+	if (cpumask_empty(&env.fit_cpus)) {
+		trace_ems_select_task_rq(p, prev_cpu, wake, "no fit cpu");
+		return prev_cpu;
 	}
 
-	/*
-	 * Priority 7 : proper cpu
-	 *
-	 * If the task failed to find a cpu to assign from the above conditions,
-	 * it means that assigning task to any cpu does not have performance and
-	 * power benefit. In this case, select cpu for balancing cpu utilization.
-	 */
-	target_cpu = select_proper_cpu(p, prev_cpu);
-	if (cpu_selected(target_cpu))
-		strcpy(state, "proper cpu");
+	if (!wake) {
+		struct cpumask mask;
 
-out:
-	trace_ems_wakeup_balance(p, target_cpu, state);
+		/*
+		 * 'wake = 0' means that running task is migrated to faster
+		 * cpu by ontime migration. If there are fit faster cpus,
+		 * current coregroup and env.fit_cpus are exclusive.
+		 */
+		cpumask_and(&mask, cpu_coregroup_mask(prev_cpu), &env.fit_cpus);
+		if (cpumask_weight(&mask)) {
+			trace_ems_select_task_rq(p, -1, wake, "no fit faster cpu");
+			return -1;
+		}
+	}
+
+	target_cpu = find_best_cpu(&env);
+	if (target_cpu >= 0) {
+		trace_ems_select_task_rq(p, target_cpu, wake, "best_cpu");
+		return target_cpu;
+	}
+
+	target_cpu = prev_cpu;
+	trace_ems_select_task_rq(p, target_cpu, wake, "no benefit");
+
 	return target_cpu;
 }
-
-static ssize_t show_eff_mode(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	int ret = 0;
-
-	ret += snprintf(buf + ret, 10, "%d\n", eff_mode);
-
-	return ret;
-}
-
-static ssize_t store_eff_mode(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf,
-		size_t count)
-{
-	unsigned int input;
-
-	if (!sscanf(buf, "%d", &input))
-		return -EINVAL;
-
-	eff_mode = input;
-
-	return count;
-}
-
-static struct kobj_attribute eff_mode_attr =
-__ATTR(eff_mode, 0644, show_eff_mode, store_eff_mode);
 
 static ssize_t show_sched_topology(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
@@ -282,15 +202,15 @@ static ssize_t show_sched_topology(struct kobject *kobj,
 		}
 
 		for_each_lower_domain(sd) {
-			ret += snprintf(buf + ret, 50,
-				"[lv%d] cpu%d: sd->span=%#x sg->span=%#x\n",
-				sched_domain_level, cpu,
-				*(unsigned int *)cpumask_bits(sched_domain_span(sd)),
-				*(unsigned int *)cpumask_bits(sched_group_span(sd->groups)));
+			ret += snprintf(buf + ret, 70,
+					"[lv%d] cpu%d: flags=%#x sd->span=%#x sg->span=%#x\n",
+					sched_domain_level, cpu, sd->flags,
+					*(unsigned int *)cpumask_bits(sched_domain_span(sd)),
+					*(unsigned int *)cpumask_bits(sched_group_span(sd->groups)));
 			sched_domain_level--;
 		}
 		ret += snprintf(buf + ret,
-			50, "----------------------------------------\n");
+				50, "----------------------------------------\n");
 	}
 	rcu_read_unlock();
 
@@ -302,20 +222,21 @@ __ATTR(sched_topology, 0444, show_sched_topology, NULL);
 
 struct kobject *ems_kobj;
 
-static int __init init_sysfs(void)
+static int __init init_ems_core(void)
 {
+	int ret;
+
 	ems_kobj = kobject_create_and_add("ems", kernel_kobj);
 
-	sysfs_create_file(ems_kobj, &sched_topology_attr.attr);
-	sysfs_create_file(ems_kobj, &eff_mode_attr.attr);
+	ret = sysfs_create_file(ems_kobj, &sched_topology_attr.attr);
+	if (ret)
+		pr_warn("%s: failed to create sysfs\n", __func__);
 
 	return 0;
 }
-core_initcall(init_sysfs);
+core_initcall(init_ems_core);
 
 void __init init_ems(void)
 {
-	alloc_bands();
-
 	init_part();
 }

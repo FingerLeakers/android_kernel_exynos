@@ -5,16 +5,14 @@
 
 #include <linux/ctype.h>
 
-#define DM_MSG_PREFIX			"verity"
+#define DM_MSG_PREFIX           "verity"
 
-#define DM_VERITY_ENV_LENGTH		42
-#define DM_VERITY_ENV_VAR_NAME		"DM_VERITY_ERR_BLOCK_NR"
+#define DM_VERITY_ENV_LENGTH        42
+#define DM_VERITY_ENV_VAR_NAME      "DM_VERITY_ERR_BLOCK_NR"
 
-#define DM_VERITY_DEFAULT_PREFETCH_SIZE	262144
+#define DM_VERITY_DEFAULT_PREFETCH_SIZE 262144
 
-#define DM_VERITY_MAX_CORRUPTED_ERRS	100
-
-extern int ignore_fs_panic;
+#define DM_VERITY_MAX_CORRUPTED_ERRS    100
 
 struct blks_info* b_info = 0;
 
@@ -69,13 +67,31 @@ int get_fec_off_cnt(void){
     return 0;
 }
 
+int get_dmv_ctr_cnt(void){
+    if(!empty_b_info())
+        return atomic_read(&b_info->dmv_ctr_cnt);
+    return 0;
+}
+
+void add_dmv_ctr_entry(char* dev_name){
+    int idx = get_dmv_ctr_cnt();
+
+    if(!empty_b_info() && idx < MAX_DEV_LIST){
+        snprintf(b_info->dmv_ctr_list[idx],MAX_DEV_NAME,"%s",dev_name);
+        atomic_inc(&b_info->dmv_ctr_cnt);
+    }
+}
+
 struct blks_info * get_b_info(char* dev_name){
     pr_err("dm-verity-debug : dev_name = %s\n",dev_name);
 
-    if(empty_b_info())
+    if(empty_b_info()) {
         b_info = create_b_info();
+        add_dmv_ctr_entry(dev_name);
+    }
     else{
         pr_info("dm-verity-debug : b_info already exists\n");
+        add_dmv_ctr_entry(dev_name);
         return b_info;
     }
 
@@ -136,7 +152,6 @@ void add_fec_off_cnt(char* dev_name){
 void print_blks_cnt(char* dev_name){
     int i,foc = get_fec_off_cnt();
     if(empty_b_info()){
-        pr_err("dm-verity-debug : b_info is empty !\n");
         return;
     }
 
@@ -153,7 +168,6 @@ void print_fc_blks_list(void){
     int i = 0;
 
     if(empty_b_info()){
-        pr_err("ERROR : b_info is empty !\n");
         return;
     }
     if(get_fec_correct_blks() == 0)
@@ -173,8 +187,23 @@ void print_fc_blks_list(void){
     pr_err("====== FC_BLKS_LIST END ======\n");
 }
 
-static void print_block_data(unsigned long long blocknr, unsigned char *data_to_dump
-        , int start, int len)
+void print_dmv_ctr_list(void){
+    int i = 0, ctr_cnt = get_dmv_ctr_cnt();
+
+    if(empty_b_info()){
+        return;
+    }
+
+    pr_err("\n====== DMV_CTR_LIST START ======\n");
+
+    for( ; i < ctr_cnt; i++)
+        pr_err("%s",b_info->dmv_ctr_list[i]);
+
+    pr_err("====== DMV_CTR_LIST END ======\n");
+}
+
+static void print_block_data(unsigned long long blocknr, unsigned char *data_to_dump,
+                            int start, int len)
 {
     int i, j;
     int bh_offset = (start / 16) * 16;
@@ -257,13 +286,18 @@ int verity_handle_err_hex_debug(struct dm_verity *v, enum verity_block_type type
             BUG();
     }
 
-    print_blks_cnt(v->data_dev->name);
-    print_fc_blks_list();
+    if(empty_b_info()) {
+        pr_err("dm-verity-debug : b_info is empty !\n");
+    } else {
+        print_dmv_ctr_list();
+        print_blks_cnt(v->data_dev->name);
+        print_fc_blks_list();
+    }
 
     DMERR("%s: %s block %llu is corrupted", v->data_dev->name, type_str, block);
 
     for(i=0 ; i < v->salt_size; i++){
-        sprintf(hex_str + (i * 2), "%02x", *(v->salt + i)); 	
+        sprintf(hex_str + (i * 2), "%02x", *(v->salt + i));
     }
     DMERR("dm-verity salt: %s", hex_str);
 
@@ -289,7 +323,7 @@ int verity_handle_err_hex_debug(struct dm_verity *v, enum verity_block_type type
         DMERR("%s: reached maximum errors", v->data_dev->name);
 
     snprintf(verity_env, DM_VERITY_ENV_LENGTH, "%s=%d,%llu",
-            DM_VERITY_ENV_VAR_NAME, type, block);
+        DM_VERITY_ENV_VAR_NAME, type, block);
 
     kobject_uevent_env(&disk_to_dev(dm_disk(md))->kobj, KOBJ_CHANGE, envp);
 
@@ -297,9 +331,12 @@ out:
     if (v->mode == DM_VERITY_MODE_LOGGING)
         return 0;
 
-    if (v->mode == DM_VERITY_MODE_RESTART)
+    if (v->mode == DM_VERITY_MODE_RESTART) {
+#ifdef CONFIG_DM_VERITY_AVB
+        dm_verity_avb_error_handler();
+#endif
         kernel_restart("dm-verity device corrupted");
+    }
 
     return 1;
 }
-

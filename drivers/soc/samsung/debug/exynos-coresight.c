@@ -16,6 +16,7 @@
 #include <linux/kallsyms.h>
 #include <linux/of.h>
 #include <linux/io.h>
+#include <linux/device.h>
 #include <linux/debug-snapshot.h>
 
 #include <asm/core_regs.h>
@@ -23,6 +24,7 @@
 #include <asm/smp_plat.h>
 
 #include <soc/samsung/exynos-pmu.h>
+#include <soc/samsung/exynos-coresight.h>
 
 #define CS_READ(base, offset)		__raw_readl(base + offset)
 #define CS_READQ(base, offset)		__raw_readq(base + offset)
@@ -51,8 +53,21 @@ struct cs_dbg_cpu {
 };
 
 struct cs_dbg {
+	struct device *dev;
 	u32			arch;
+	bool			enabled;
 	struct cs_dbg_cpu	cpu[MAX_CPU];
+};
+
+struct cs_core_state {
+	bool			is_hp_out;
+	bool			is_c2;
+	raw_spinlock_t		lock;
+};
+
+static DEFINE_PER_CPU(struct cs_core_state, cs_core_state) =
+{
+	.lock = __RAW_SPIN_LOCK_UNLOCKED(cs_core_state.lock),
 };
 
 static struct cs_dbg dbg;
@@ -91,7 +106,16 @@ static inline void dbg_os_unlock(void __iomem *base)
 	}
 }
 
-#ifdef CONFIG_EXYNOS_CORESIGHT_PC_INFO
+static inline bool is_power_up(int cpu)
+{
+	return CS_READ(dbg.cpu[cpu].base, DBGPRSR) & POWER_UP;
+}
+
+static inline bool is_reset_state(int cpu)
+{
+	return CS_READ(dbg.cpu[cpu].base, DBGPRSR) & RESET_STATE;
+}
+
 struct exynos_cs_pcsr {
 	unsigned long pc;
 	int ns;
@@ -120,6 +144,16 @@ static int exynos_cs_get_pc(int cpu, int iter)
 	if (!base)
 		return -ENOMEM;
 
+	if (!is_power_up(cpu)) {
+		dev_err(dbg.dev, "Power down!\n");
+		return -EACCES;
+	}
+
+	if (is_reset_state(cpu)) {
+		dev_err(dbg.dev, "Power on but reset state!\n");
+		return -EACCES;
+	}
+
 	switch (exynos_cs_get_cpu_part_num(cpu)) {
 	case ARM_CPU_PART_MONGOOSE:
 	case ARM_CPU_PART_MEERKAT:
@@ -142,16 +176,16 @@ static int exynos_cs_get_pc(int cpu, int iter)
 		break;
 	case ARM_CPU_PART_ANANKE:
 	case ARM_CPU_PART_CORTEX_A75:
+	case ARM_CPU_PART_CORTEX_A76:
 	case ARM_CPU_PART_CHEETAH:
+	case ARM_CPU_PART_LION:
 		DBG_UNLOCK(base);
 		dbg_os_unlock(base);
 		DBG_UNLOCK(base + PMU_OFFSET);
 
-
 		val = CS_READQ(base + PMU_OFFSET, PMUPCSR);
 		ns = (val >> 63L) & 0x1;
 		el = (val >> 61L) & 0x3;
-
 		if (MSB_MASKING == (MSB_MASKING & val))
 			val |= MSB_PADDING;
 
@@ -172,37 +206,34 @@ static int exynos_cs_get_pc(int cpu, int iter)
 static int exynos_cs_lockup_handler(struct notifier_block *nb,
 					unsigned long l, void *core)
 {
-	static bool exception = true;
 	unsigned long val = 0, iter;
 	char buf[KSYM_SYMBOL_LEN];
 	unsigned int *cpu = (unsigned int *)core;
 	int ret = 0;
 
-	if (!exception)
-		return 0;
-
 	pr_auto(ASL5, "CPU[%d] saved pc value\n", *cpu);
-
 	for (iter = 0; iter < ITERATION; iter++) {
 #ifdef CONFIG_EXYNOS_PMU
 		if (!exynos_cpu.power_state(*cpu))
 			continue;
 #endif
-		exception = false;
 		ret = exynos_cs_get_pc(*cpu, iter);
 		if (ret < 0)
 			continue;
-		exception = true;
 
 		val = exynos_cs_pc[*cpu][iter].pc;
 		sprint_symbol(buf, val);
-		pr_auto(ASL5, "      0x%016zx : %s\n",	val, buf);
+		pr_auto(ASL5, "      0x%016zx : %s\n", val, buf);
 	}
 
 	pr_auto(ASL5, "\n");
 
 	return 0;
 }
+
+static struct notifier_block exynos_cs_lockup_nb = {
+	.notifier_call = exynos_cs_lockup_handler,
+};
 #endif
 
 static int exynos_cs_panic_handler(struct notifier_block *np,
@@ -234,29 +265,172 @@ static int exynos_cs_panic_handler(struct notifier_block *np,
 
 	local_irq_restore(flags);
 	for (cpu = 0; cpu < CORE_CNT; cpu++) {
-		pr_err("CPU[%d] saved pc value\n", cpu);
+		dev_err(dbg.dev, "CPU[%d] saved pc value\n", cpu);
 		for (iter = 0; iter < ITERATION; iter++) {
 			val = exynos_cs_pc[cpu][iter].pc;
 			if (!val)
 				continue;
 
 			sprint_symbol(buf, val);
-			pr_err("      0x%016zx : %s\n", val, buf);
+			dev_err(dbg.dev, "      0x%016zx : %s\n", val, buf);
 		}
 	}
 	return 0;
 }
 
-#ifdef CONFIG_LOCKUP_DETECTOR
-static struct notifier_block exynos_cs_lockup_nb = {
-	.notifier_call = exynos_cs_lockup_handler,
-};
-#endif
-
 static struct notifier_block exynos_cs_panic_nb = {
 	.notifier_call = exynos_cs_panic_handler,
 };
+
+static ssize_t exynos_cs_pc_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	unsigned long flags, val;
+	unsigned int cpu, iter, curr_cpu;
+	int size = 0;
+
+	local_irq_save(flags);
+	curr_cpu = raw_smp_processor_id();
+	for (iter = 0; iter < ITERATION; iter++) {
+		for (cpu = 0; cpu < CORE_CNT; cpu++) {
+			exynos_cs_pc[cpu][iter].pc = 0;
+#ifdef CONFIG_EXYNOS_PMU
+			if (cpu == curr_cpu || !exynos_cpu.power_state(cpu))
+#else
+			if (cpu == curr_cpu)
 #endif
+				continue;
+
+			if (exynos_cs_get_pc(cpu, iter) < 0)
+				continue;
+		}
+	}
+
+	local_irq_restore(flags);
+	for (cpu = 0; cpu < CORE_CNT; cpu++) {
+		size += scnprintf(buf + size, 80, "CPU[%d] saved pc value\n", cpu);
+		for (iter = 0; iter < ITERATION; iter++) {
+			val = exynos_cs_pc[cpu][iter].pc;
+			if (!val)
+				continue;
+
+			sprint_symbol(buf, val);
+			size += scnprintf(buf + size, 80,
+					"      0x%016zx : %s\n", val, buf);
+		}
+	}
+	return size;
+}
+
+unsigned long exynos_cs_read_pc(int cpu)
+{
+	struct cs_core_state *state;
+	unsigned long flags;
+	unsigned long target_cpu_pc;
+
+	if (!dbg.enabled)
+		return 0;
+
+	state = per_cpu_ptr(&cs_core_state, cpu);
+
+	raw_spin_lock_irqsave(&state->lock, flags);
+	if (cpu_is_offline(cpu) || !exynos_cpu.power_state(cpu) ||
+					state->is_hp_out || state->is_c2) {
+		dev_emerg(dbg.dev, "%s: cpu%d is turned off : "
+			"c2:[%x], hot-plug out:[%x], power:[%x] ,offline:[%ld]\n",
+			__func__, cpu, state->is_c2, state->is_hp_out,
+			exynos_cpu.power_state(cpu), cpu_is_offline(cpu));
+		target_cpu_pc = 0;
+	} else {
+		dev_emerg(dbg.dev, "%s: cpu%d is power on\n", __func__, cpu);
+		exynos_cs_get_pc(cpu, 1);
+		target_cpu_pc = exynos_cs_pc[cpu][1].pc;
+		dev_emerg(dbg.dev, "%s: cpu%d PC = [0x%lx]\n", __func__, cpu, target_cpu_pc);
+	}
+	raw_spin_unlock_irqrestore(&state->lock, flags);
+
+	return target_cpu_pc;
+}
+
+static void exynos_cs_c2_enter(int cpu)
+{
+	struct cs_core_state *state;
+	unsigned long flags;
+
+	state = per_cpu_ptr(&cs_core_state, cpu);
+
+	raw_spin_lock_irqsave(&state->lock, flags);
+	state->is_c2 = 1;
+	raw_spin_unlock_irqrestore(&state->lock, flags);
+}
+
+static void exynos_cs_c2_exit(int cpu)
+{
+	struct cs_core_state *state;
+	unsigned long flags;
+
+	state = per_cpu_ptr(&cs_core_state, cpu);
+
+	raw_spin_lock_irqsave(&state->lock, flags);
+	state->is_c2 = 0;
+	raw_spin_unlock_irqrestore(&state->lock, flags);
+}
+
+static int exynos_cs_c2_pm_notifier(struct notifier_block *self,
+					unsigned long action, void *v)
+{
+	int cpu = raw_smp_processor_id();
+
+	switch (action) {
+	case CPU_PM_ENTER:
+		exynos_cs_c2_enter(cpu);
+		break;
+	case CPU_PM_ENTER_FAILED:
+	case CPU_PM_EXIT:
+		exynos_cs_c2_exit(cpu);
+		break;
+	case CPU_CLUSTER_PM_ENTER:
+		exynos_cs_c2_enter(cpu);
+		break;
+	case CPU_CLUSTER_PM_ENTER_FAILED:
+	case CPU_CLUSTER_PM_EXIT:
+		exynos_cs_c2_exit(cpu);
+		break;
+	}
+	return NOTIFY_OK;
+}
+
+static struct notifier_block exynos_cs_c2_pm_nb = {
+	.notifier_call = exynos_cs_c2_pm_notifier,
+};
+
+static int exynos_cs_start_cpu(unsigned int cpu)
+{
+	struct cs_core_state *state;
+	unsigned long flags;
+
+	state = per_cpu_ptr(&cs_core_state, cpu);
+
+	raw_spin_lock_irqsave(&state->lock, flags);
+	state->is_hp_out = 0;
+	raw_spin_unlock_irqrestore(&state->lock, flags);
+
+	return 0;
+}
+
+static int exynos_cs_stop_cpu(unsigned int cpu)
+{
+	struct cs_core_state *state;
+	unsigned long flags;
+
+	state = per_cpu_ptr(&cs_core_state, cpu);
+
+	raw_spin_lock_irqsave(&state->lock, flags);
+	state->is_hp_out = 1;
+	raw_spin_unlock_irqrestore(&state->lock, flags);
+
+	return 0;
+}
 
 static const struct of_device_id of_exynos_cs_matches[] __initconst= {
 	{.compatible = "exynos,coresight"},
@@ -280,7 +454,7 @@ static int exynos_cs_init_dt(void)
 
 	sj_base = ioremap(cs_reg_base + sj_offset, SZ_8);
 	if (!sj_base) {
-		pr_err("%s: Failed ioremap sj-offset.\n", __func__);
+		dev_err(dbg.dev, "%s: Failed ioremap sj-offset.\n", __func__);
 		return -ENOMEM;
 	}
 
@@ -299,7 +473,7 @@ static int exynos_cs_init_dt(void)
 			return -EINVAL;
 		dbg.cpu[i].base = ioremap(cs_reg_base + offset, SZ_256K);
 		if (!dbg.cpu[i].base) {
-			pr_err("%s: Failed ioremap (%d).\n", __func__, i);
+			dev_err(dbg.dev, "%s: Failed ioremap (%d).\n", __func__, i);
 			return -ENOMEM;
 		}
 
@@ -312,24 +486,69 @@ static int __init exynos_cs_init(void)
 {
 	int ret = 0;
 
+	dbg.dev = create_empty_device();
+	if (!dbg.dev) {
+		pr_err("Exynos: create empty device fail\n");
+		goto err;
+	}
+	dev_set_socdata(dbg.dev, "Exynos", "CS");
+
 	ret = exynos_cs_init_dt();
 	if (ret < 0) {
-		pr_info("[Exynos Coresight] Failed get DT(%d).\n", ret);
+		dev_info(dbg.dev, "Failed get DT(%d).\n", ret);
 		goto err;
 	}
 
 	get_arm_arch_version(0);
 
-#ifdef CONFIG_EXYNOS_CORESIGHT_PC_INFO
 #ifdef CONFIG_LOCKUP_DETECTOR
 	atomic_notifier_chain_register(&hardlockup_notifier_list,
 			&exynos_cs_lockup_nb);
 #endif
 	atomic_notifier_chain_register(&panic_notifier_list,
 			&exynos_cs_panic_nb);
-	pr_info("[Exynos Coresight] Success Init.\n");
-#endif
+	dev_info(dbg.dev, "Success Init.\n");
+
+	/* register cpu pm notifier for C2 */
+	cpu_pm_register_notifier(&exynos_cs_c2_pm_nb);
+
+	/* register cpuhp state for hot plug(non-boot cores) */
+	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "exynos-cs:online",
+				exynos_cs_start_cpu, exynos_cs_stop_cpu);
+
+	if (ret >= 0) {
+		dbg.enabled = 1;
+		dev_info(dbg.dev, "cpuhp setup success\n");
+	}
+
 err:
 	return ret;
 }
 subsys_initcall(exynos_cs_init);
+
+static struct bus_type coresight_subsys = {
+	.name = "exynos-coresight",
+	.dev_name = "exynos-coresight",
+};
+
+static struct device_attribute coresight_show_pc_attr =
+	__ATTR_RO(exynos_cs_pc);
+
+static struct attribute *coresight_sysfs_attrs[] = {
+	&coresight_show_pc_attr.attr,
+	NULL,
+};
+
+ATTRIBUTE_GROUPS(coresight_sysfs);
+
+static int __init exynos_cs_sysfs_init(void)
+{
+	int ret = 0;
+
+	ret = subsys_system_register(&coresight_subsys, coresight_sysfs_groups);
+	if (ret)
+		dev_err(dbg.dev, "fail to register exynos-coresight subsys\n");
+
+	return ret;
+}
+late_initcall(exynos_cs_sysfs_init);

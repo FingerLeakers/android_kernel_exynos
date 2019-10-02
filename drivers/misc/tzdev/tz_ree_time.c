@@ -13,6 +13,8 @@
 
 #include <linux/kthread.h>
 #include <linux/module.h>
+
+#include "tzdev_internal.h"
 #include "tz_iwsock.h"
 #include "tz_ree_time.h"
 
@@ -20,9 +22,9 @@ MODULE_AUTHOR("Konstantin Karasev");
 MODULE_DESCRIPTION("REE Time service");
 MODULE_LICENSE("GPL");
 
-#define ERR(...)		pr_alert("[ree_time] ERR : " __VA_ARGS__)
-
 #define TZ_REE_TIME_SOCK_NAME	"ree_time_socket"
+
+#define ERR(...)		pr_alert("REE_TIME ERR : " __VA_ARGS__)
 
 static struct task_struct *ree_time_kthread;
 
@@ -39,7 +41,7 @@ static int tz_ree_time_kthread(void *data)
 	(void)data;
 
 	/* Create socket */
-	ree_time_listen = tz_iwsock_socket(1);
+	ree_time_listen = tz_iwsock_socket(1, TZ_NON_INTERRUPTIBLE);
 	if (IS_ERR(ree_time_listen))
 		return PTR_ERR(ree_time_listen);
 
@@ -66,7 +68,7 @@ static int tz_ree_time_kthread(void *data)
 
 			getnstimeofday(&ts);
 			ree_time.sec = ts.tv_sec;
-			ree_time.nsec = (unsigned int)ts.tv_nsec;
+			ree_time.nsec = ts.tv_nsec;
 			if ((len = tz_iwsock_write(ree_time_conn, &ree_time,
 							sizeof(ree_time), 0))
 					!= sizeof(ree_time)) {

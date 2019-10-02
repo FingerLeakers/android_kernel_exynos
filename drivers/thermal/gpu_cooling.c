@@ -30,7 +30,6 @@
 #include <soc/samsung/tmu.h>
 #include <trace/events/thermal.h>
 
-#include <soc/samsung/cal-if.h>
 #include <soc/samsung/ect_parser.h>
 #include "samsung/exynos_tmu.h"
 
@@ -71,8 +70,6 @@ struct gpufreq_cooling_device {
 	struct power_table *dyn_power_table;
 	int dyn_power_table_entries;
 	int *var_table;
-	int *var_coeff;
-	int *asv_coeff;
 	unsigned int var_volt_size;
 	unsigned int var_temp_size;
 };
@@ -297,7 +294,7 @@ static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_cdev,
 
 		freq = gpu_dvfs_get_clock(num_opps - i - 1);
 
-		if (freq > gpu_dvfs_get_max_freq())
+		if (freq > gpu_dvfs_get_max_freq() || freq == 0)
 			continue;
 
 		voltage_mv = gpu_dvfs_get_voltage(freq) / 1000;
@@ -320,98 +317,6 @@ static int build_dyn_power_table(struct gpufreq_cooling_device *gpufreq_cdev,
 	gpufreq_cdev->dyn_power_table_entries = cnt;
 
 	return 0;
-}
-
-static int build_static_power_table(struct device_node *np, struct gpufreq_cooling_device *gpufreq_cdev)
-{
-	int i, j;
-	int ratio = 0, asv_group = 0, cal_id = 0, ret = 0;
-	void *gen_block;
-	struct ect_gen_param_table *volt_temp_param = NULL, *asv_param = NULL;
-	int ratio_table[16] = { 0, 25, 29, 35, 41, 48, 57, 67, 79, 94, 110, 130, 151, 162, 162, 162};
-
-	ret = of_property_read_u32(np, "g3d_cmu_cal_id", &cal_id);
-	if (ret) {
-		pr_err("%s: Failed to get cal-id\n", __func__);
-		return -EINVAL;
-	}
-
-	ratio = cal_asv_get_ids_info(cal_id);
-	asv_group = cal_asv_get_grp(cal_id);
-
-	if (asv_group < 0 || asv_group > 15)
-		asv_group = 0;
-
-	if (!ratio)
-		ratio = ratio_table[asv_group];
-
-	gen_block = ect_get_block("GEN");
-	if (gen_block == NULL) {
-		pr_err("%s: Failed to get gen block from ECT\n", __func__);
-		return -EINVAL;
-	}
-
-	volt_temp_param = ect_gen_param_get_table(gen_block, "DTM_G3D_VOLT_TEMP");
-	asv_param = ect_gen_param_get_table(gen_block, "DTM_G3D_ASV");
-
-	if (volt_temp_param && asv_param) {
-		gpufreq_cdev->var_volt_size = volt_temp_param->num_of_row - 1;
-		gpufreq_cdev->var_temp_size = volt_temp_param->num_of_col - 1;
-
-		gpufreq_cdev->var_coeff = kzalloc(sizeof(int) *
-							volt_temp_param->num_of_row *
-							volt_temp_param->num_of_col,
-							GFP_KERNEL);
-		if (!gpufreq_cdev->var_coeff)
-			goto err_mem;
-
-		gpufreq_cdev->asv_coeff = kzalloc(sizeof(int) *
-							asv_param->num_of_row *
-							asv_param->num_of_col,
-							GFP_KERNEL);
-		if (!gpufreq_cdev->asv_coeff)
-			goto free_var_coeff;
-
-		gpufreq_cdev->var_table = kzalloc(sizeof(int) *
-							volt_temp_param->num_of_row *
-							volt_temp_param->num_of_col,
-							GFP_KERNEL);
-		if (!gpufreq_cdev->var_table)
-			goto free_asv_coeff;
-
-		memcpy(gpufreq_cdev->var_coeff, volt_temp_param->parameter,
-			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
-		memcpy(gpufreq_cdev->asv_coeff, asv_param->parameter,
-			sizeof(int) * asv_param->num_of_row * asv_param->num_of_col);
-		memcpy(gpufreq_cdev->var_table, volt_temp_param->parameter,
-			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
-	} else {
-		pr_err("%s: Failed to get param table from ECT\n", __func__);
-		return -EINVAL;
-	}
-
-	for (i = 1; i <= gpufreq_cdev->var_volt_size; i++) {
-		long asv_coeff = (long)gpufreq_cdev->asv_coeff[3 * i + 0] * asv_group * asv_group
-				+ (long)gpufreq_cdev->asv_coeff[3 * i + 1] * asv_group
-				+ (long)gpufreq_cdev->asv_coeff[3 * i + 2];
-		asv_coeff = asv_coeff / 100;
-
-		for (j = 1; j <= gpufreq_cdev->var_temp_size; j++) {
-			long var_coeff = (long)gpufreq_cdev->var_coeff[i * (gpufreq_cdev->var_temp_size + 1) + j];
-			var_coeff =  ratio * var_coeff * asv_coeff;
-			var_coeff = var_coeff / 100000;
-			gpufreq_cdev->var_table[i * (gpufreq_cdev->var_temp_size + 1) + j] = (int)var_coeff;
-		}
-	}
-
-	return 0;
-
-free_asv_coeff:
-	kfree(gpufreq_cdev->asv_coeff);
-free_var_coeff:
-	kfree(gpufreq_cdev->var_coeff);
-err_mem:
-	return -ENOMEM;
 }
 
 static int lookup_static_power(struct gpufreq_cooling_device *gpufreq_cdev,
@@ -848,8 +753,8 @@ __gpufreq_cooling_register(struct device_node *np,
 
 	ret = get_idr(&gpufreq_idr, &gpufreq_cdev->id);
 	if (ret) {
-		kfree(gpufreq_cdev);
-		return ERR_PTR(-EINVAL);
+		ret = -EINVAL;
+		goto err;
 	}
 
 	if (capacitance) {
@@ -861,11 +766,12 @@ __gpufreq_cooling_register(struct device_node *np,
 		ret = build_dyn_power_table(gpufreq_cdev, capacitance);
 
 		if (ret)
-			return ERR_PTR(ret);
+			goto err_release_idr;
 
-		ret = build_static_power_table(np, gpufreq_cdev);
+		ret = exynos_build_static_power_table(np, &gpufreq_cdev->var_table, &gpufreq_cdev->var_volt_size,
+				&gpufreq_cdev->var_temp_size);
 		if (ret)
-			return ERR_PTR(ret);
+			goto err_release_idr;
 	}
 
 	snprintf(dev_name, sizeof(dev_name), "thermal-gpufreq-%d",
@@ -874,10 +780,10 @@ __gpufreq_cooling_register(struct device_node *np,
 	cool_dev = thermal_of_cooling_device_register(np, dev_name, gpufreq_cdev,
 						      &gpufreq_cooling_ops);
 	if (IS_ERR(cool_dev)) {
-		release_idr(&gpufreq_idr, gpufreq_cdev->id);
-		kfree(gpufreq_cdev);
-		return cool_dev;
+		ret = PTR_ERR(cool_dev);
+		goto err_release_idr;
 	}
+
 	gpufreq_cdev->cool_dev = cool_dev;
 	gpufreq_cdev->gpufreq_state = 0;
 	mutex_lock(&cooling_gpu_lock);
@@ -887,6 +793,12 @@ __gpufreq_cooling_register(struct device_node *np,
 	mutex_unlock(&cooling_gpu_lock);
 
 	return cool_dev;
+
+err_release_idr:
+	release_idr(&gpufreq_idr, gpufreq_cdev->id);
+err:
+	kfree(gpufreq_cdev);
+	return ERR_PTR(ret);
 }
 
 /**
@@ -1035,7 +947,7 @@ static int gpu_cooling_table_init(void)
 	for (i = 0; i < num_level; i++) {
 		freq = gpu_dvfs_get_clock(i);
 
-		if (freq > gpu_dvfs_get_max_freq())
+		if (freq > gpu_dvfs_get_max_freq() || freq == 0)
 			continue;
 
 		gpu_freq_table[count].flags = 0;

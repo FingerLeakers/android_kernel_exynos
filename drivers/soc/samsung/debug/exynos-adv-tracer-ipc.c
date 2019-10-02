@@ -400,6 +400,10 @@ static void adv_tracer_ipc_callback(struct adv_tracer_ipc_cmd *cmd, unsigned int
 		adv_tracer_ipc_dbgc_panic();
 		adv_tracer_ipc->recovery = true;
 		break;
+	case EAT_IPC_CMD_SEND_LOG:
+		dev_info(adv_tracer_ipc->dev, "DBGC outputs log [%x][%x][%x]\n",
+				cmd->buffer[1], cmd->buffer[2], cmd->buffer[3]);
+		break;
 	default:
 		break;
 	}
@@ -443,8 +447,6 @@ int adv_tracer_ipc_init(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	dev_info(&pdev->dev, "[EAT +] %s\n", __func__);
-
 	adv_tracer_ipc = devm_kzalloc(&pdev->dev,
 				sizeof(struct adv_tracer_ipc_main), GFP_KERNEL);
 
@@ -478,6 +480,6 @@ int adv_tracer_ipc_init(struct platform_device *pdev)
 		return ret;
 	}
 
-	dev_info(&pdev->dev, "[EAT -] %s\n", __func__);
+	dev_info(&pdev->dev, "%s successful.\n", __func__);
 	return ret;
 }

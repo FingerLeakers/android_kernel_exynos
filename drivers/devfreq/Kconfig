@@ -98,6 +98,12 @@ config EXYNOS_ALT_DVFS
 	  governor decides new frequency for DVFS by comparing current load
 	  and PM QoS requests.
 
+config EXYNOS_ALT_DVFS_DEBUG
+	tristate "ALT(Active Load Tracing) DVFS Debugging Feature"
+	depends on DEVFREQ_GOV_SIMPLE_INTERACTIVE
+	help
+	  For ALT-DVFS Debugging
+
 comment "DEVFREQ Drivers"
 
 config ARM_EXYNOS_DEVFREQ

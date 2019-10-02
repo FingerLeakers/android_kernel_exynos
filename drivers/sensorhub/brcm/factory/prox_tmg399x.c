@@ -493,6 +493,48 @@ static ssize_t proximity_probe_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", probe_pass_fail);
 }
 
+static ssize_t proximity_trim_check_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+	int iRet = 0, iRetries = 0;
+	struct ssp_msg *msg;
+	u8 buffer[8] = {0,};
+	int trim;
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_GET_PROX_TRIM;
+	msg->length = 1;
+	msg->options = AP2HUB_READ;
+	msg->buffer = buffer;
+	msg->free_buffer = 0;
+retries:
+	iRet = ssp_spi_sync(data, msg, 1000);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s fail %d\n", __func__, iRet);
+
+		if (iRetries++ < 2) {
+			pr_err("[SSP] %s fail, retry\n", __func__);
+			mdelay(5);
+			goto retries;
+		}
+		return FAIL;
+	}
+	
+	trim = (int)buffer[0];
+	pr_info("[SSP] %s - %d\n", __func__, trim);
+
+	swtich(trim) {
+		case 0:
+			return snprintf(buf, PAGE_SIZE, "UNTRIM\n");
+		case 1:
+			return snprintf(buf, PAGE_SIZE, "TRIM\n");
+		case 2:
+			return snprintf(buf, PAGE_SIZE, "NG\n");
+	}
+	return snprintf(buf, PAGE_SIZE, "TRIM\n");
+}
+
 static ssize_t barcode_emul_enable_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -537,6 +579,7 @@ static DEVICE_ATTR(thresh_low, 0664,
 static DEVICE_ATTR(prox_offset_pass, 0444, proximity_cancel_pass_show, NULL);
 static DEVICE_ATTR(prox_trim, 0444, proximity_default_trim_show, NULL);
 static DEVICE_ATTR(prox_probe, 0444, proximity_probe_show, NULL);
+static DEVICE_ATTR(trim_check, 0444, proximity_trim_check_show, NULL);
 
 static struct device_attribute *prox_attrs[] = {
 	&dev_attr_vendor,
@@ -551,6 +594,7 @@ static struct device_attribute *prox_attrs[] = {
 	&dev_attr_prox_offset_pass,
 	&dev_attr_prox_trim,
 	&dev_attr_prox_probe,
+	&dev_attr_trim_check,
 	NULL,
 };
 

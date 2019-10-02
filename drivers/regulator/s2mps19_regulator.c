@@ -28,15 +28,13 @@
 #include <linux/mfd/samsung/s2mps19-regulator.h>
 #include <linux/io.h>
 #include <linux/mutex.h>
-#include <linux/debug-snapshot.h>
-#include <linux/debugfs.h>
 #include <linux/interrupt.h>
-
-#include "../soc/samsung/cal-if/cmucal.h"
-
+#include <soc/samsung/exynos-pmu.h>
+#include <linux/regulator/pmic_class.h>
 #ifdef CONFIG_SEC_PM_DEBUG
 #include <linux/cpufreq.h>
-#endif
+#include <linux/sec_pm_debug.h>
+#endif /* CONFIG_SEC_PM_DEBUG */
 #ifdef CONFIG_SEC_PM_BIGDATA
 #include <linux/jiffies.h>
 #include <linux/workqueue.h>
@@ -44,11 +42,8 @@
 #endif /* CONFIG_SEC_PM_BIGDATA */
 #ifdef CONFIG_SEC_PM
 #include <linux/sec_class.h>
-#include <linux/soc/samsung/exynos-soc.h>
 
 #define STATUS1_ACOKB	BIT(2)
-
-struct device *ap_pmic_dev;
 #endif /* CONFIG_SEC_PM */
 
 static struct s2mps19_info *s2mps19_static_info;
@@ -59,16 +54,7 @@ int s2mps19_temp_cnt[2]; /* 0 : 120 degree , 1 : 140 degree */
 
 #ifdef CONFIG_SEC_PM_BIGDATA
 static int hqm_bocp_cnt[12];
-#endif
-
-#ifdef CONFIG_DEBUG_FS
-static u8 i2caddr = 0;
-static u8 i2cdata = 0;
-static struct i2c_client *dbgi2c = NULL;
-static struct dentry *s2mps19_root = NULL;
-static struct dentry *s2mps19_i2caddr = NULL;
-static struct dentry *s2mps19_i2cdata = NULL;
-#endif
+#endif /* CONFIG_SEC_PM_BIGDATA */
 
 struct s2mps19_info {
 	struct regulator_dev *rdev[S2MPS19_REGULATOR_MAX];
@@ -77,15 +63,19 @@ struct s2mps19_info {
 	struct s2mps19_dev *iodev;
 	struct mutex lock;
 	struct i2c_client *i2c;
-	struct i2c_client *debug_i2c;
 	u8 adc_en_val;
 	int buck_ocp_irq[12];	/* BUCK OCP IRQ */
 	int bb_ocp_irq;		/* BUCK-BOOST OCP IRQ */
 	int temp_irq[2];	/* 0 : 120 degree, 1 : 140 degree */
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	u8 read_addr;
+	u8 read_val;
+	struct device *dev;
+#endif
 #ifdef CONFIG_SEC_PM_BIGDATA
 	struct delayed_work hqm_pmtp_work;
 	struct delayed_work hqm_bocp_work;
-#endif
+#endif /* CONFIG_SEC_PM_BIGDATA */
 };
 
 static unsigned int s2mps19_of_map_mode(unsigned int val) {
@@ -432,95 +422,95 @@ static struct regulator_ops s2mps19_bb_ops = {
 	.enable_reg	= e,					\
 	.enable_mask	= S2MPS19_ENABLE_MASK,			\
 	.enable_time	= t,					\
-	.of_map_mode 	= s2mps19_of_map_mode			\
+	.of_map_mode	= s2mps19_of_map_mode			\
 }
 
 static struct regulator_desc regulators[S2MPS19_REGULATOR_MAX] = {
 	/* name, id, ops, group, vsel_reg, enable_reg, ramp_delay */
 	LDO_DESC("LDO1M", _LDO(1), &_ldo_ops(), 3,
-	_REG(_L1CTRL), _REG(_L1CTRL), _TIME(_LDO)),
+		 _REG(_L1CTRL), _REG(_L1CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO2M", _LDO(2), &_ldo_ops(), 2,
-	_REG(_L2CTRL), _REG(_L2CTRL), _TIME(_LDO)),
+		 _REG(_L2CTRL), _REG(_L2CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO3M", _LDO(3), &_ldo_ops(), 3,
-	_REG(_L3CTRL), _REG(_L3CTRL), _TIME(_LDO)),
+		 _REG(_L3CTRL), _REG(_L3CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO4M", _LDO(4), &_ldo_ops(), 1,
-	_REG(_L4CTRL), _REG(_L4CTRL), _TIME(_LDO)),
+		 _REG(_L4CTRL), _REG(_L4CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO5M", _LDO(5), &_ldo_ops(), 5,
-	_REG(_L5CTRL), _REG(_L5CTRL), _TIME(_LDO)),
+		 _REG(_L5CTRL), _REG(_L5CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO6M", _LDO(6), &_ldo_ops(), 5,
-	_REG(_L6CTRL), _REG(_L6CTRL), _TIME(_LDO)),
+		 _REG(_L6CTRL), _REG(_L6CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO7M", _LDO(7), &_ldo_ops(), 5,
-	_REG(_L7CTRL), _REG(_L7CTRL), _TIME(_LDO)),
+		 _REG(_L7CTRL), _REG(_L7CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO8M", _LDO(8), &_ldo_ops(), 5,
-	_REG(_L8CTRL), _REG(_L8CTRL), _TIME(_LDO)),
+		 _REG(_L8CTRL), _REG(_L8CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO9M", _LDO(9), &_ldo_ops(), 3,
-	_REG(_L9CTRL), _REG(_L9CTRL), _TIME(_LDO)),
+		 _REG(_L9CTRL), _REG(_L9CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO10M", _LDO(10), &_ldo_ops(), 3,
-	_REG(_L10CTRL), _REG(_L10CTRL), _TIME(_LDO)),
+		 _REG(_L10CTRL), _REG(_L10CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO11M", _LDO(11), &_ldo_ops(), 1,
-	_REG(_L11CTRL), _REG(_L11CTRL), _TIME(_LDO)),
+		 _REG(_L11CTRL), _REG(_L11CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO12M", _LDO(12), &_ldo_ops(), 2,
-	_REG(_L12CTRL), _REG(_L12CTRL), _TIME(_LDO)),
-/*	LDO_DESC("LDO13M", _LDO(13), &_ldo_ops(), 2,
-	_REG(_L13CTRL), _REG(_L13CTRL), _TIME(_LDO)),
+		 _REG(_L12CTRL), _REG(_L12CTRL), _TIME(_LDO)),
+	LDO_DESC("LDO13M", _LDO(13), &_ldo_ops(), 2,
+		 _REG(_L13CTRL), _REG(_L13CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO14M", _LDO(14), &_ldo_ops(), 2,
-	_REG(_L14CTRL), _REG(_L14CTRL), _TIME(_LDO)),
-*/	LDO_DESC("LDO15M", _LDO(15), &_ldo_ops(), 2,
-	_REG(_L15CTRL), _REG(_L15CTRL), _TIME(_LDO)),
+		 _REG(_L14CTRL), _REG(_L14CTRL), _TIME(_LDO)),
+	LDO_DESC("LDO15M", _LDO(15), &_ldo_ops(), 2,
+		 _REG(_L15CTRL), _REG(_L15CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO16M", _LDO(16), &_ldo_ops(), 2,
-	_REG(_L16CTRL), _REG(_L16CTRL), _TIME(_LDO)),
+		 _REG(_L16CTRL), _REG(_L16CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO17M", _LDO(17), &_ldo_ops(), 1,
-	_REG(_L17CTRL), _REG(_L17CTRL), _TIME(_LDO)),
+		 _REG(_L17CTRL), _REG(_L17CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO18M", _LDO(18), &_ldo_ops(), 3,
-	_REG(_L18CTRL), _REG(_L18CTRL), _TIME(_LDO)),
+		 _REG(_L18CTRL), _REG(_L18CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO19M", _LDO(19), &_ldo_ops(), 1,
-	_REG(_L19CTRL), _REG(_L19CTRL), _TIME(_LDO)),
+		 _REG(_L19CTRL), _REG(_L19CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO20M", _LDO(20), &_ldo_ops(), 2,
-	_REG(_L20CTRL), _REG(_L20CTRL), _TIME(_LDO)),
+		 _REG(_L20CTRL), _REG(_L20CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO21M", _LDO(21), &_ldo_ops(), 1,
-	_REG(_L21CTRL), _REG(_L21CTRL), _TIME(_LDO)),
+		 _REG(_L21CTRL), _REG(_L21CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO22M", _LDO(22), &_ldo_ops(), 1,
-	_REG(_L22CTRL), _REG(_L22CTRL), _TIME(_LDO)),
+		 _REG(_L22CTRL), _REG(_L22CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO23M", _LDO(23), &_ldo_ops(), 3,
-	_REG(_L23CTRL), _REG(_L23CTRL), _TIME(_LDO)),
+		 _REG(_L23CTRL), _REG(_L23CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO24M", _LDO(24), &_ldo_ops(), 2,
-	_REG(_L24CTRL), _REG(_L24CTRL), _TIME(_LDO)),
+		 _REG(_L24CTRL), _REG(_L24CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO25M", _LDO(25), &_ldo_ops(), 1,
-	_REG(_L25CTRL), _REG(_L25CTRL), _TIME(_LDO)),
+		 _REG(_L25CTRL), _REG(_L25CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO26M", _LDO(26), &_ldo_ops(), 2,
-	_REG(_L26CTRL), _REG(_L26CTRL), _TIME(_LDO)),
+		 _REG(_L26CTRL), _REG(_L26CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO27M", _LDO(27), &_ldo_ops(), 2,
-	_REG(_L27CTRL), _REG(_L27CTRL), _TIME(_LDO)),
+		 _REG(_L27CTRL), _REG(_L27CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO28M", _LDO(28), &_ldo_ops(), 1,
-	_REG(_L28CTRL), _REG(_L28CTRL), _TIME(_LDO)),
+		 _REG(_L28CTRL), _REG(_L28CTRL), _TIME(_LDO)),
 	LDO_DESC("LDO29M", _LDO(29), &_ldo_ops(), 2,
-	_REG(_L29CTRL), _REG(_L29CTRL), _TIME(_LDO)),
+		 _REG(_L29CTRL), _REG(_L29CTRL), _TIME(_LDO)),
 	BUCK_DESC("BUCK1M", _BUCK(1), &_buck_ops(), 1,
-	_REG(_B1M_OUT1), _REG(_B1M_CTRL), _TIME(_BUCK)),
+		  _REG(_B1M_OUT1), _REG(_B1M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK2M", _BUCK(2), &_buck_ops(), 1,
-	_REG(_B2M_OUT1), _REG(_B2M_CTRL), _TIME(_BUCK)),
+		  _REG(_B2M_OUT1), _REG(_B2M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK3M", _BUCK(3), &_buck_ops(), 1,
-	_REG(_B3M_OUT1), _REG(_B3M_CTRL), _TIME(_BUCK)),
+		  _REG(_B3M_OUT1), _REG(_B3M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK4M", _BUCK(4), &_buck_ops(), 1,
-	_REG(_B4M_OUT1), _REG(_B4M_CTRL), _TIME(_BUCK)),
+		  _REG(_B4M_OUT1), _REG(_B4M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK5M", _BUCK(5), &_buck_ops(), 1,
-	_REG(_B5M_OUT1), _REG(_B5M_CTRL), _TIME(_BUCK)),
+		  _REG(_B5M_OUT1), _REG(_B5M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK6M", _BUCK(6), &_buck_ops(), 1,
-	_REG(_B6M_OUT), _REG(_B6M_CTRL), _TIME(_BUCK)),
+		  _REG(_B6M_OUT), _REG(_B6M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK7M", _BUCK(7), &_buck_ops(), 1,
-	_REG(_B7M_OUT), _REG(_B7M_CTRL), _TIME(_BUCK)),
+		  _REG(_B7M_OUT), _REG(_B7M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK8M", _BUCK(8), &_buck_ops(), 1,
-	_REG(_B8M_OUT), _REG(_B8M_CTRL), _TIME(_BUCK)),
+		  _REG(_B8M_OUT), _REG(_B8M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK9M", _BUCK(9), &_buck_ops(), 1,
-	_REG(_B9M_OUT), _REG(_B9M_CTRL), _TIME(_BUCK)),
+		  _REG(_B9M_OUT), _REG(_B9M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK10M", _BUCK(10), &_buck_ops(), 1,
-	_REG(_B10M_OUT1), _REG(_B10M_CTRL), _TIME(_BUCK)),
+		  _REG(_B10M_OUT1), _REG(_B10M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK11M", _BUCK(11), &_buck_ops(), 1,
-	_REG(_B11M_OUT), _REG(_B11M_CTRL), _TIME(_BUCK)),
+		  _REG(_B11M_OUT), _REG(_B11M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK12M", _BUCK(12), &_buck_ops(), 2,
-	_REG(_B12M_OUT), _REG(_B12M_CTRL), _TIME(_BUCK)),
+		  _REG(_B12M_OUT), _REG(_B12M_CTRL), _TIME(_BUCK)),
 	BB_DESC("BBM", _BB(), &_bb_ops(), 1,
-	_REG(_BBM_OUT), _REG(_BBM_CTRL), _TIME(_BB)),
+		  _REG(_BBM_OUT), _REG(_BBM_CTRL), _TIME(_BB)),
 };
 #ifdef CONFIG_OF
 static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
@@ -551,16 +541,6 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
 	if (ret)
 		return -EINVAL;
 	pdata->smpl_warn_en = !!val;
-
-	ret = of_property_read_u32(pmic_np, "smpl_warn_dev2", &val);
-	if (ret)
-		return -EINVAL;
-	pdata->smpl_warn_dev2 = !!val;
-
-#ifdef CONFIG_SEC_PM
-	pdata->smpl_warn_en_by_evt =
-		of_property_read_bool(pmic_np, "smpl_warn_en_by_evt");
-#endif /* CONFIG_SEC_PM */
 
 	ret = of_property_read_u32(pmic_np, "smpl_warn_vth", &val);
 	if (ret)
@@ -622,10 +602,6 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
 
 	pdata->adc_sync_mode = val;
 
-	pdata->support_vdd_pll_1p7 = of_property_read_bool(pmic_np, "support_vdd_pll_1p7");
-
-	dev_info(iodev->dev, "support_vdd_pll_1p7 : %d\n", pdata->support_vdd_pll_1p7);
-
 	regulators_np = of_find_node_by_name(pmic_np, "regulators");
 	if (!regulators_np) {
 		dev_err(iodev->dev, "could not find regulators sub-node\n");
@@ -649,8 +625,7 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
 	pdata->regulators = rdata;
 	for_each_child_of_node(regulators_np, reg_np) {
 		for (i = 0; i < ARRAY_SIZE(regulators); i++)
-			if (!of_node_cmp(reg_np->name,
-					regulators[i].name))
+			if (!of_node_cmp(reg_np->name, regulators[i].name))
 				break;
 
 		if (i == ARRAY_SIZE(regulators)) {
@@ -661,9 +636,8 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
 		}
 
 		rdata->id = i;
-		rdata->initdata = of_get_regulator_init_data(
-						iodev->dev, reg_np,
-						&regulators[i]);
+		rdata->initdata = of_get_regulator_init_data(iodev->dev, reg_np,
+							     &regulators[i]);
 		rdata->reg_node = reg_np;
 		rdata++;
 	}
@@ -677,92 +651,6 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_pmic_dev *iodev,
 	return 0;
 }
 #endif /* CONFIG_OF */
-
-#ifdef CONFIG_DEBUG_FS
-static ssize_t s2mps19_i2caddr_read(struct file *file, char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	char buf[10];
-	ssize_t ret;
-
-	ret = snprintf(buf, sizeof(buf), "0x%x\n", i2caddr);
-	if (ret < 0)
-		return ret;
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, ret);
-}
-
-static ssize_t s2mps19_i2caddr_write(struct file *file, const char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	char buf[10];
-	ssize_t len;
-	u8 val;
-
-	len = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, user_buf, count);
-	if (len < 0)
-		return len;
-
-	buf[len] = '\0';
-
-	if (!kstrtou8(buf, 0, &val))
-		i2caddr = val;
-
-	return len;
-}
-
-static ssize_t s2mps19_i2cdata_read(struct file *file, char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	char buf[10];
-	ssize_t ret;
-
-	ret = s2mps19_read_reg(dbgi2c, i2caddr, &i2cdata);
-	if (ret)
-		return ret;
-
-	ret = snprintf(buf, sizeof(buf), "0x%x\n", i2cdata);
-	if (ret < 0)
-		return ret;
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, ret);
-}
-
-static ssize_t s2mps19_i2cdata_write(struct file *file, const char __user *user_buf,
-					size_t count, loff_t *ppos)
-{
-	char buf[10];
-	ssize_t len, ret;
-	u8 val;
-
-	len = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, user_buf, count);
-	if (len < 0)
-		return len;
-
-	buf[len] = '\0';
-
-	if (!kstrtou8(buf, 0, &val)) {
-		ret = s2mps19_write_reg(dbgi2c, i2caddr, val);
-		if (ret < 0)
-			return ret;
-	}
-
-	return len;
-}
-
-static const struct file_operations s2mps19_i2caddr_fops = {
-	.open = simple_open,
-	.read = s2mps19_i2caddr_read,
-	.write = s2mps19_i2caddr_write,
-	.llseek = default_llseek,
-};
-static const struct file_operations s2mps19_i2cdata_fops = {
-	.open = simple_open,
-	.read = s2mps19_i2cdata_read,
-	.write = s2mps19_i2cdata_write,
-	.llseek = default_llseek,
-};
-#endif
 
 #ifdef CONFIG_EXYNOS_OCP
 void get_s2mps19_i2c(struct i2c_client **i2c)
@@ -803,7 +691,7 @@ static irqreturn_t s2mps19_buck_ocp_irq(int irq, void *data)
 			s2mps19_buck_ocp_cnt[i]++;
 #ifdef CONFIG_SEC_PM_BIGDATA
 			hqm_bocp_cnt[i]++;
-#endif
+#endif /* CONFIG_SEC_PM_BIGDATA */
 			pr_info("%s : BUCK[%d] OCP IRQ : %d, %d\n",
 				__func__, i+1, s2mps19_buck_ocp_cnt[i], irq);
 			break;
@@ -836,6 +724,7 @@ static irqreturn_t s2mps19_bb_ocp_irq(int irq, void *data)
 	pr_info("%s : BUCKBOST OCP IRQ : %d, %d\n", __func__, s2mps19_bb_ocp_cnt, irq);
 
 	mutex_unlock(&s2mps19->lock);
+
 	return IRQ_HANDLED;
 }
 
@@ -864,17 +753,6 @@ static irqreturn_t s2mps19_temp_irq(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
-
-#ifdef CONFIG_SEC_PM_DEBUG
-static u8 s2mps19_pwronsrc;
-static u8 s2mps19_offsrc;
-
-void s2mps19_get_pwr_onoffsrc(u8 *onsrc, u8 *offsrc)
-{
-	*onsrc = s2mps19_pwronsrc;
-	*offsrc = s2mps19_offsrc;
-}
-#endif /* CONFIG_SEC_PM_DEBUG */
 
 #ifdef CONFIG_SEC_PM
 static ssize_t show_ap_pmic_th120C_count(struct device *dev,
@@ -1061,7 +939,6 @@ static const struct attribute_group ap_pmic_attr_group = {
 };
 #endif /* CONFIG_SEC_PM */
 
-
 void s2mps19_oi_function(struct s2mps19_dev *iodev)
 {
 	struct i2c_client *i2c = iodev->pmic;
@@ -1093,7 +970,125 @@ void s2mps19_oi_function(struct s2mps19_dev *iodev)
 	pr_info("\n");
 }
 
+static void s2mps19_check_wrstbi(void)
+{
+	unsigned int val;
 
+	exynos_pmu_read(PMUREG_SYSTEM_OUT, &val);
+
+	pr_info("%s: SYSTEM_OUT = %d\n", __func__, val);
+
+	/* If a WRSTBI pin is Low, enter kernel panic */
+	if ((val & WRSTBI_MASK) != WRSTBI_MASK)
+		panic("WRSTBI pin is Low\n");
+}
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+static ssize_t s2mps19_read_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t size)
+{
+	struct s2mps19_info *s2mps19 = dev_get_drvdata(dev);
+	int ret;
+	u8 val, reg_addr;
+
+	if (buf == NULL) {
+		pr_info("%s: empty buffer\n", __func__);
+		return -1;
+	}
+
+	ret = kstrtou8(buf, 0, &reg_addr);
+	if (ret < 0)
+		pr_info("%s: fail to transform i2c address\n", __func__);
+
+	ret = s2mps19_read_reg(s2mps19->i2c, reg_addr, &val);
+	if (ret < 0)
+		pr_info("%s: fail to read i2c address\n", __func__);
+
+	pr_info("%s: reg(0x%02x) data(0x%02x)\n", __func__, reg_addr, val);
+	s2mps19->read_addr = reg_addr;
+	s2mps19->read_val = val;
+
+	return size;
+}
+
+static ssize_t s2mps19_read_show(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct s2mps19_info *s2mps19 = dev_get_drvdata(dev);
+
+	return sprintf(buf, "0x%02x: 0x%02x\n", s2mps19->read_addr,
+		       s2mps19->read_val);
+}
+
+static ssize_t s2mps19_write_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t size)
+{
+	struct s2mps19_info *s2mps19 = dev_get_drvdata(dev);
+	int ret;
+	unsigned int reg, data;
+
+	if (buf == NULL) {
+		pr_info("%s: empty buffer\n", __func__);
+		return size;
+	}
+
+	ret = sscanf(buf, "%x %x", &reg, &data);
+	if (ret != 2) {
+		pr_info("%s: input error\n", __func__);
+		return size;
+	}
+
+	pr_info("%s: reg(0x%02x) data(0x%02x)\n", __func__, reg, data);
+
+	ret = s2mps19_write_reg(s2mps19->i2c, reg, data);
+	if (ret < 0)
+		pr_info("%s: fail to write i2c addr/data\n", __func__);
+
+	return size;
+}
+
+static ssize_t s2mps19_write_show(struct device *dev,
+				  struct device_attribute *attr,
+				  char *buf)
+{
+	return sprintf(buf, "echo (register addr.) (data) > s2mps19_write\n");
+}
+static DEVICE_ATTR(s2mps19_write, 0644, s2mps19_write_show, s2mps19_write_store);
+static DEVICE_ATTR(s2mps19_read, 0644, s2mps19_read_show, s2mps19_read_store);
+
+int create_s2mps19_sysfs(struct s2mps19_info *s2mps19)
+{
+	struct device *s2mps19_pmic = s2mps19->dev;
+	int err = -ENODEV;
+
+	pr_info("%s: master pmic sysfs start\n", __func__);
+	s2mps19->read_addr = 0;
+	s2mps19->read_val = 0;
+
+	s2mps19_pmic = pmic_device_create(s2mps19, "s2mps19");
+
+	err = device_create_file(s2mps19_pmic, &dev_attr_s2mps19_write);
+	if (err) {
+		pr_err("s2mps19_sysfs: failed to create device file, %s\n",
+			dev_attr_s2mps19_write.attr.name);
+		goto err_sysfs;
+	}
+
+	err = device_create_file(s2mps19_pmic, &dev_attr_s2mps19_read);
+	if (err) {
+		pr_err("s2mps19_sysfs: failed to create device file, %s\n",
+			dev_attr_s2mps19_read.attr.name);
+		goto err_sysfs;
+	}
+
+	return 0;
+
+err_sysfs:
+	return err;
+}
+#endif
 static int s2mps19_pmic_probe(struct platform_device *pdev)
 {
 	struct s2mps19_dev *iodev = dev_get_drvdata(pdev->dev.parent);
@@ -1104,10 +1099,13 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	int i, ret, ret1, ret2, ret3;
 	u8 val, val1, val2, val3;
 
+	/* WRSTBI pin check */
+	s2mps19_check_wrstbi();
+
 	if (iodev->dev->of_node) {
 		ret = s2mps19_pmic_dt_parse_pdata(iodev, pdata);
 		if (ret)
-			return ret;
+			goto err_pdata;
 	}
 
 	if (!pdata) {
@@ -1128,7 +1126,6 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 
 	s2mps19->iodev = iodev;
 	s2mps19->i2c = iodev->pmic;
-	s2mps19->debug_i2c = iodev->debug_i2c;
 
 	mutex_init(&s2mps19->lock);
 
@@ -1138,12 +1135,12 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_SEC_PM_DEBUG
 	ret = s2mps19_read_reg(s2mps19->i2c, S2MPS19_PMIC_REG_PWRONSRC,
-			&s2mps19_pwronsrc);
+			&pmic_onsrc);
 	if (ret)
 		dev_err(&pdev->dev, "failed to read PWRONSRC\n");
 
 	ret = s2mps19_read_reg(s2mps19->i2c, S2MPS19_PMIC_REG_OFFSRC,
-			&s2mps19_offsrc);
+			&pmic_offsrc);
 	if (ret)
 		dev_err(&pdev->dev, "failed to read OFFSRC\n");
 
@@ -1159,48 +1156,54 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 		config.init_data = pdata->regulators[i].initdata;
 		config.driver_data = s2mps19;
 		config.of_node = pdata->regulators[i].reg_node;
-		s2mps19->opmode[id] =
-			regulators[id].enable_mask;
-
-		s2mps19->rdev[i] = regulator_register(
-				&regulators[id], &config);
+		s2mps19->opmode[id] = regulators[id].enable_mask;
+		s2mps19->rdev[i] = devm_regulator_register(&pdev->dev,
+							   &regulators[id], &config);
 		if (IS_ERR(s2mps19->rdev[i])) {
 			ret = PTR_ERR(s2mps19->rdev[i]);
-			dev_err(&pdev->dev, "regulator init failed for %d\n",
-				i);
+			dev_err(&pdev->dev, "regulator init failed for %d\n", i);
 			s2mps19->rdev[i] = NULL;
-			goto err;
+			goto err_s2mps19_data;
 		}
 	}
 
 	s2mps19->num_regulators = pdata->num_regulators;
 
 	for (i = 0; i < 12; i++) {
-		s2mps19->buck_ocp_irq[i] = irq_base + S2MPS19_PMIC_IRQ_OCP_B1M_INT4 + i;
+		s2mps19->buck_ocp_irq[i] = irq_base +
+					   S2MPS19_PMIC_IRQ_OCP_B1M_INT4 + i;
 
-		ret = devm_request_threaded_irq(&pdev->dev, s2mps19->buck_ocp_irq[i], NULL,
-			s2mps19_buck_ocp_irq, 0, "BUCK_OCP_IRQ", s2mps19);
+		ret = devm_request_threaded_irq(&pdev->dev,
+						s2mps19->buck_ocp_irq[i], NULL,
+						s2mps19_buck_ocp_irq, 0,
+						"BUCK_OCP_IRQ", s2mps19);
 		if (ret < 0) {
-			dev_err(&pdev->dev, "Failed to request BUCK[%d] OCP IRQ: %d: %d\n",
-				i+1, s2mps19->buck_ocp_irq[i], ret);
+			dev_err(&pdev->dev,
+				"Failed to request BUCK[%d] OCP IRQ: %d: %d\n",
+				i + 1, s2mps19->buck_ocp_irq[i], ret);
 		}
 	}
 
 	s2mps19->bb_ocp_irq = irq_base + S2MPS19_PMIC_IRQ_OCP_BB_INT5;
 	ret = devm_request_threaded_irq(&pdev->dev, s2mps19->bb_ocp_irq, NULL,
-			s2mps19_bb_ocp_irq, 0, "BB_OCP_IRQ", s2mps19);
+					s2mps19_bb_ocp_irq, 0,
+					"BB_OCP_IRQ", s2mps19);
 	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to request BUCKBOOST OCP IRQ: %d: %d\n",
+		dev_err(&pdev->dev,
+			"Failed to request BUCKBOOST OCP IRQ: %d: %d\n",
 			s2mps19->bb_ocp_irq, ret);
 	}
 
 	for (i = 0; i < 2; i++) {
 		s2mps19->temp_irq[i] = irq_base + S2MPS19_PMIC_IRQ_120C_INT3 + i;
 
-		ret = devm_request_threaded_irq(&pdev->dev, s2mps19->temp_irq[i], NULL,
-			s2mps19_temp_irq, 0, "TEMP_IRQ", s2mps19);
+		ret = devm_request_threaded_irq(&pdev->dev,
+						s2mps19->temp_irq[i], NULL,
+						s2mps19_temp_irq, 0,
+						"TEMP_IRQ", s2mps19);
 		if (ret < 0) {
-			dev_err(&pdev->dev, "Failed to request over temperature[%d] IRQ: %d: %d\n",
+			dev_err(&pdev->dev,
+				"Failed to request over temperature[%d] IRQ: %d: %d\n",
 				i, s2mps19->temp_irq[i], ret);
 		}
 	}
@@ -1209,41 +1212,26 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_PWREN_SEL1, 0xBE);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_PWREN_SEL2, 0x07);
 
-#ifdef CONFIG_SEC_PM
-	if (pdata->smpl_warn_en_by_evt) {
-		if (exynos_soc_info.main_rev == 1
-				&& exynos_soc_info.sub_rev == 0) {
-			dev_info(&pdev->dev, "Disable SMPL_WARN for EVT 1.0\n");
-			pdata->smpl_warn_en = false;
-			pdata->smpl_warn_dev2 = false;
-		} else {
-			dev_info(&pdev->dev, "Enable SMPL_WARN for EVT %u.%u\n",
-					exynos_soc_info.main_rev,
-					exynos_soc_info.sub_rev);
-			pdata->smpl_warn_en = true;
-			pdata->smpl_warn_dev2 = true;
-		}
-	}
-#endif /* CONFIG_SEC_PM */
-
 	if (pdata->smpl_warn_en) {
 		ret = s2mps19_update_reg(s2mps19->i2c, S2MPS19_PMIC_REG_CTRL2,
-						pdata->smpl_warn_vth, 0xe0);
+					 pdata->smpl_warn_vth, 0xe0);
 		if (ret) {
-			dev_err(&pdev->dev, "set smpl_warn configuration i2c write error\n");
-			goto err;
+			dev_err(&pdev->dev,
+				"set smpl_warn configuration i2c write error\n");
+			goto err_s2mps19_data;
 		}
 		pr_info("%s: smpl_warn vth is 0x%x\n", __func__,
-							pdata->smpl_warn_vth);
+			pdata->smpl_warn_vth);
 
 		ret = s2mps19_update_reg(s2mps19->i2c, S2MPS19_PMIC_REG_CTRL2,
-						pdata->smpl_warn_hys, 0x18);
+					 pdata->smpl_warn_hys, 0x18);
 		if (ret) {
-			dev_err(&pdev->dev, "set smpl_warn configuration i2c write error\n");
-			goto err;
+			dev_err(&pdev->dev,
+				"set smpl_warn configuration i2c write error\n");
+			goto err_s2mps19_data;
 		}
-		pr_info("%s: smpl_warn hysteresis is 0x%x\n", __func__,
-							pdata->smpl_warn_hys);
+		pr_info("%s: smpl_warn hysteresis is 0x%x\n",
+			__func__, pdata->smpl_warn_hys);
 	}
 
 	/* Check OCP Warn fusing address */
@@ -1252,14 +1240,12 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	ret2 = s2mps19_read_reg(s2mps19->i2c, S2MPS19_PMIC_REG_OCP_WARN1_Y, &val2);
 	ret3 = s2mps19_read_reg(s2mps19->i2c, S2MPS19_PMIC_REG_OCP_WARN1_Z, &val3);
 	if (ret || ret1 || ret2 || ret3) {
-		dev_err(&pdev->dev, "%s : i2c read error for ocp warn1 fusing value\n",
+		dev_err(&pdev->dev, "%s: i2c read error for ocp warn1 fusing value\n",
 			__func__);
-		goto err;
+			goto err_s2mps19_data;
 	}
-	pr_info("%s : OCP Warn 0xA9= 0x%x, [0xAB= 0x%x, 0xAC= 0x%x, 0xAD= 0x%x]\n", __func__, val, val1, val2, val3);
-
-	if (pdata->smpl_warn_dev2 && cal_set_cmu_smpl_warn)
-		cal_set_cmu_smpl_warn();
+	pr_info("%s: OCP Warn 0xA9= 0x%x, " "[0xAB= 0x%x, 0xAC= 0x%x, 0xAD= 0x%x]\n",
+		__func__, val, val1, val2, val3);
 
 	if (pdata->ocp_warn1_en) {
 		val = (pdata->ocp_warn1_en << S2MPS19_OCP_WARN_EN_SHIFT) |
@@ -1270,12 +1256,13 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 		ret = s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_OCP_WARN1, val);
 
 		if (ret) {
-			dev_err(&pdev->dev,"%s : i2c write for ocp warn1 configuration caused error\n",
+			dev_err(&pdev->dev,
+				"%s: i2c write for ocp warn1 configuration caused error\n",
 				__func__);
-			goto err;
+			goto err_s2mps19_data;
 		}
 
-		pr_info("%s : value for ocp warn1 register is 0x%x\n", __func__, val);
+		pr_info("%s: value for ocp warn1 register is 0x%x\n", __func__, val);
 	}
 
 	if (pdata->ocp_warn2_en) {
@@ -1287,30 +1274,25 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 		ret = s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_OCP_WARN2, val);
 
 		if (ret) {
-			dev_err(&pdev->dev,"%s : i2c write for ocp warn2 configuration caused error\n",
+			dev_err(&pdev->dev,
+				"%s: i2c write for ocp warn2 configuration caused error\n",
 				__func__);
-			goto err;
+			goto err_s2mps19_data;
 		}
 
-		pr_info("%s : value for ocp warn2 register is 0x%x\n", __func__, val);
+		pr_info("%s: value for ocp warn2 register is 0x%x\n",
+			__func__, val);
 	}
 
 	s2mps19_oi_function(iodev);
 
 #ifdef CONFIG_SEC_PM
-	ap_pmic_dev = sec_device_create(NULL, "ap_pmic");
+	iodev->ap_pmic_dev = sec_device_create(NULL, "ap_pmic");
 
-	ret = sysfs_create_group(&ap_pmic_dev->kobj, &ap_pmic_attr_group);
+	ret = sysfs_create_group(&iodev->ap_pmic_dev->kobj, &ap_pmic_attr_group);
 	if (ret)
 		dev_err(&pdev->dev, "failed to create ap_pmic sysfs group\n");
 #endif /* CONFIG_SEC_PM */
-
-#ifdef CONFIG_DEBUG_FS
-	dbgi2c = s2mps19->i2c;
-	s2mps19_root = debugfs_create_dir("s2mps19-regs", NULL);
-	s2mps19_i2caddr = debugfs_create_file("i2caddr", 0644, s2mps19_root, NULL, &s2mps19_i2caddr_fops);
-	s2mps19_i2cdata = debugfs_create_file("i2cdata", 0644, s2mps19_root, NULL, &s2mps19_i2cdata_fops);
-#endif
 
 	iodev->adc_mode = pdata->adc_mode;
 	iodev->adc_sync_mode = pdata->adc_sync_mode;
@@ -1322,15 +1304,18 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B3M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B4M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B5M_OUT2, 0x20);
-	if (pdata->support_vdd_pll_1p7)
-		s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_L4CTRL, 0x68);
 #endif
 	/* set BUCK10M output2 as 1.1V --> 0.95V */
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B10M_OUT2, 0x68);
 
-
 	if (iodev->adc_mode > 0)
 		s2mps19_powermeter_init(iodev);
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	/* create sysfs */
+	ret = create_s2mps19_sysfs(s2mps19);
+	if (ret < 0)
+		return ret;
+#endif
 
 #ifdef CONFIG_SEC_PM_BIGDATA
 	INIT_DELAYED_WORK(&s2mps19->hqm_pmtp_work, send_hqm_pmtp_work);
@@ -1338,29 +1323,25 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 #endif /* CONFIG_SEC_PM_BIGDATA */
 
 	return 0;
-err:
-	for (i = 0; i < S2MPS19_REGULATOR_MAX; i++)
-		regulator_unregister(s2mps19->rdev[i]);
 
+err_s2mps19_data:
+	mutex_destroy(&s2mps19->lock);
+err_pdata:
 	return ret;
 }
 
 static int s2mps19_pmic_remove(struct platform_device *pdev)
 {
 	struct s2mps19_info *s2mps19 = platform_get_drvdata(pdev);
-	int i;
-
-#ifdef CONFIG_DEBUG_FS
-	debugfs_remove_recursive(s2mps19_i2cdata);
-	debugfs_remove_recursive(s2mps19_i2caddr);
-	debugfs_remove_recursive(s2mps19_root);
-#endif
-
-	for (i = 0; i < S2MPS19_REGULATOR_MAX; i++)
-		regulator_unregister(s2mps19->rdev[i]);
 
 	s2mps19_powermeter_deinit(s2mps19->iodev);
-
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	pmic_device_destroy(s2mps19->dev->devt);
+#endif
+#ifdef CONFIG_SEC_PM
+	if (!IS_ERR_OR_NULL(s2mps19->iodev->ap_pmic_dev))
+		sec_device_destroy(s2mps19->iodev->ap_pmic_dev->devt);
+#endif /* CONFIG_SEC_PM */
 #ifdef CONFIG_SEC_PM_BIGDATA
 	cancel_delayed_work(&s2mps19->hqm_pmtp_work);
 	cancel_delayed_work(&s2mps19->hqm_bocp_work);
@@ -1379,29 +1360,34 @@ static void s2mps19_pmic_shutdown(struct platform_device *pdev)
 #if defined(CONFIG_PM)
 static int s2mps19_pmic_suspend(struct device *dev)
 {
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
+	struct platform_device *pdev = to_platform_device(dev);
 	struct s2mps19_info *s2mps19 = platform_get_drvdata(pdev);
-	pr_info("%s adc_mode : %d\n", __func__, s2mps19->iodev->adc_mode);
-	if (s2mps19->iodev->adc_mode > 0) {
-		s2mps19_read_reg(s2mps19->i2c, S2MPS19_REG_ADC_CTRL3, &s2mps19->adc_en_val);
-		if (s2mps19->adc_en_val & 0x80)
-			s2mps19_update_reg(s2mps19->i2c, S2MPS19_REG_ADC_CTRL3, 0, ADC_EN_MASK);
-	}
-	return 0;
 
+	pr_info("%s adc_mode : %d\n", __func__, s2mps19->iodev->adc_mode);
+
+	if (s2mps19->iodev->adc_mode > 0) {
+		s2mps19_read_reg(s2mps19->i2c,
+				 S2MPS19_REG_ADC_CTRL3, &s2mps19->adc_en_val);
+		if (s2mps19->adc_en_val & 0x80)
+			s2mps19_update_reg(s2mps19->i2c, S2MPS19_REG_ADC_CTRL3,
+					   0, ADC_EN_MASK);
+	}
+
+	return 0;
 }
 
 static int s2mps19_pmic_resume(struct device *dev)
 {
-	struct platform_device *pdev = container_of(dev, struct platform_device, dev);
+	struct platform_device *pdev = to_platform_device(dev);
 	struct s2mps19_info *s2mps19 = platform_get_drvdata(pdev);
+
 	pr_info("%s adc_mode : %d\n", __func__, s2mps19->iodev->adc_mode);
 
 	if (s2mps19->iodev->adc_mode > 0)
 		s2mps19_update_reg(s2mps19->i2c, S2MPS19_REG_ADC_CTRL3,
 				s2mps19->adc_en_val & 0x80, ADC_EN_MASK);
-	return 0;
 
+	return 0;
 }
 #else
 #define s2mps19_pmic_suspend	NULL

@@ -12,8 +12,8 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef JSQZ_HELPER_H_
-#define JSQZ_HELPER_H_
+#ifndef MMSQZ_HELPER_H_
+#define MMSQZ_HELPER_H_
 
 #include <linux/dma-buf.h>
 #include <linux/ion_exynos.h>

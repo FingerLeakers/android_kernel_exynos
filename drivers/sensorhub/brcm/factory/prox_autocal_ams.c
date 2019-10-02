@@ -751,34 +751,26 @@ static ssize_t proximity_cal_store(struct device *dev,
 	return size;
 }
 #endif
-struct decimal_point {
-	int integer, point;
-};
-
-extern void set_decimal_point(struct decimal_point* dp, int i, int p);
 
 static ssize_t proximity_position_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
-	struct decimal_point x = { 0, }, y = { 0, };
 
-	switch (data->ap_type) {
-	case 0:
-		set_decimal_point(&x, 47, 3);
-		set_decimal_point(&y, 2, 9);
-		break;
-	case 1:
-		set_decimal_point(&x, 49, 8);
-		set_decimal_point(&y, 2, 7);
-		break;
-	case 2:
-		set_decimal_point(&x, 48, 0);
-		set_decimal_point(&y, 2, 9);
-		break;
+	switch(data->ap_type) {
+#if defined(CONFIG_SENSORS_SSP_PICASSO)
+		case 0:
+			return snprintf(buf, PAGE_SIZE, "45.1 8.0 2.4\n");
+		case 1:
+			return snprintf(buf, PAGE_SIZE, "42.6 8.0 2.4\n");
+		case 2:
+			return snprintf(buf, PAGE_SIZE, "43.8 8.0 2.4\n");
+#endif
+		default:
+			return snprintf(buf, PAGE_SIZE, "0.0 0.0 0.0\n");
 	}
-	
-	return snprintf(buf, PAGE_SIZE, "%d.%d %d.%d\n", x.integer, x.point, y.integer, y.point);
+
+	return snprintf(buf, PAGE_SIZE, "0.0 0.0 0.0\n");
 }
 
 static DEVICE_ATTR(vendor, 0440, proximity_vendor_show, NULL);

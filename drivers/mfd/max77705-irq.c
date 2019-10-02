@@ -352,7 +352,7 @@ static irqreturn_t max77705_irq_thread(int irq, void *data)
 	if (max77705->cc_booting_complete) {
 		max77705_read_reg(max77705->muic, REG_CC_STATUS1, &cc_status1);
 		ic_alt_mode = (cc_status1 & BIT_Altmode) >> FFS(BIT_Altmode);
-		if (!ic_alt_mode && max77705->set_altmode)
+		if (!ic_alt_mode && max77705->set_altmode_en)
 			irq_reg[VIR_INT] |= (1 << 0);
 		pr_info("%s ic_alt_mode=%d\n", __func__, ic_alt_mode);
 	}

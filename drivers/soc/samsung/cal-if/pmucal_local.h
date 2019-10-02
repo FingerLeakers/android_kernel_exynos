@@ -3,8 +3,8 @@
 #include "pmucal_common.h"
 #include "pmucal_dbg.h"
 
-/* In Exynos, the number of MAX_POWER_DOMAIN is less than 20 */
-#define PMUCAL_NUM_PDS	20
+/* In Exynos, the number of MAX_POWER_DOMAIN is less than 32 */
+#define PMUCAL_NUM_PDS	32
 
 /* will be a member of struct exynos_pm_domain */
 struct pmucal_pd {

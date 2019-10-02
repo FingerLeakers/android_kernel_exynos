@@ -87,9 +87,9 @@ static ssize_t read_totalcx_show(struct device *dev,
 	}
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d,%d,%d,%d,%d,%d",
-				info->ch_cx_data[1].total, info->ch_cx_data[0].total,
-				info->ch_cx_data[3].total, info->ch_cx_data[2].total,
-				info->ch_cx_data[5].total, info->ch_cx_data[4].total);
+				info->ch_cx_data[0].total, info->ch_cx_data[1].total,
+				info->ch_cx_data[2].total, info->ch_cx_data[3].total,
+				info->ch_cx_data[4].total, info->ch_cx_data[5].total);
 }
 
 static ssize_t read_rawdata_show(struct device *dev,
@@ -101,9 +101,9 @@ static ssize_t read_rawdata_show(struct device *dev,
 
 	fsr_read_frame(info, TYPE_RAW_DATA, &fsr_frame_data, true);
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d,%d,%d,%d,%d,%d",
-				fsr_frame_data.ch06, fsr_frame_data.ch12,
-				fsr_frame_data.ch07, fsr_frame_data.ch14,
-				fsr_frame_data.ch08, fsr_frame_data.ch15);
+				fsr_frame_data.ch12, fsr_frame_data.ch06,
+				fsr_frame_data.ch14, fsr_frame_data.ch07,
+				fsr_frame_data.ch15, fsr_frame_data.ch08);
 }
 
 static ssize_t read_jitter_show(struct device *dev,
@@ -139,9 +139,9 @@ static ssize_t read_jitter_show(struct device *dev,
 		data = (u16 *)&regData[1];
 
 		retcnt += snprintf(buf + retcnt, 30, "%x,%x,%x,%x,%x,%x;",
-				data[1], data[0],
-				data[3], data[2],
-				data[5], data[4]);
+				data[0], data[1],
+				data[2], data[3],
+				data[4], data[5]);
 		fsr_delay(10);
 	}
 
@@ -237,15 +237,15 @@ static ssize_t read_JitterTest_show(struct device *dev,
 	//-------------------------------------------------------------------------
 	//                Jitter              |            Jitter Stdev
 	//-------------------------------------------------------------------------
-	// CH06, CH12, CH07, CH14, CH08, CH15 | CH06, CH12, CH07, CH14, CH08, CH15
+	// CH12, CH06, CH14, CH07, CH15, CH08 | CH12, CH06, CH14, CH07, CH15, CH08
 	//-------------------------------------------------------------------------
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-				result[1][0], result[0][0],
-				result[3][0], result[2][0],
-				result[5][0], result[4][0],
-				result[1][1], result[0][1],
-				result[3][1], result[2][1],
-				result[5][1], result[4][1]);
+				result[0][0], result[1][0],
+				result[2][0], result[3][0],
+				result[4][0], result[5][0],
+				result[0][1], result[1][1],
+				result[2][1], result[3][1],
+				result[4][1], result[5][1]);
 }
 
 static DEVICE_ATTR(vendor, 0444, read_vendor_show, NULL);

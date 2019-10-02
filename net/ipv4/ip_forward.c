@@ -55,7 +55,7 @@ static bool ip_exceeds_mtu(const struct sk_buff *skb, unsigned int mtu)
 	if (skb->ignore_df)
 		return false;
 
-	if (skb_is_gso(skb) && skb_gso_validate_mtu(skb, mtu))
+	if (skb_is_gso(skb) && skb_gso_validate_network_len(skb, mtu))
 		return false;
 
 	return true;
@@ -72,6 +72,7 @@ static int ip_forward_finish(struct net *net, struct sock *sk, struct sk_buff *s
 	if (unlikely(opt->optlen))
 		ip_forward_options(skb);
 
+	skb->tstamp = 0;
 	return dst_output(net, sk, skb);
 }
 
@@ -122,7 +123,6 @@ int ip_forward(struct sk_buff *skb)
 	mtu = ip_dst_mtu_maybe_forward(&rt->dst, true);
 	if (ip_exceeds_mtu(skb, mtu)) {
 		IP_INC_STATS(net, IPSTATS_MIB_FRAGFAILS);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_FRAGFAILS4);
 		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED,
 			  htonl(mtu));
 		goto drop;
@@ -144,7 +144,8 @@ int ip_forward(struct sk_buff *skb)
 	    !skb_sec_path(skb))
 		ip_rt_send_redirect(skb);
 
-	skb->priority = rt_tos2priority(iph->tos);
+	if (net->ipv4.sysctl_ip_fwd_update_priority)
+		skb->priority = rt_tos2priority(iph->tos);
 
 	return NF_HOOK(NFPROTO_IPV4, NF_INET_FORWARD,
 		       net, NULL, skb, skb->dev, rt->dst.dev,
@@ -160,7 +161,6 @@ sr_failed:
 too_many_hops:
 	/* Tell the sender its packet died... */
 	__IP_INC_STATS(net, IPSTATS_MIB_INHDRERRORS);
-	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS14);
 	icmp_send(skb, ICMP_TIME_EXCEEDED, ICMP_EXC_TTL, 0);
 drop:
 	kfree_skb(skb);

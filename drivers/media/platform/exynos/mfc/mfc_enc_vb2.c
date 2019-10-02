@@ -16,6 +16,7 @@
 #include "mfc_nal_q.h"
 #include "mfc_run.h"
 #include "mfc_sync.h"
+#include "mfc_meminfo.h"
 
 #include "mfc_qos.h"
 #include "mfc_queue.h"
@@ -233,30 +234,8 @@ static int mfc_enc_buf_prepare(struct vb2_buffer *vb)
 
 				dma_buf_put(bufcon_dmabuf[i]);
 			} else {
-				dma_addr_t start_raw;
-
 				dma_buf_put(bufcon_dmabuf[i]);
-				start_raw = mfc_mem_get_daddr_vb(vb, 0);
-				if (start_raw == 0) {
-					mfc_err_ctx("Plane mem not allocated\n");
-					return -ENOMEM;
-				}
-				if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12N) {
-					buf->addr[0][0] = start_raw;
-					buf->addr[0][1] = NV12N_CBCR_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-				} else if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_YUV420N) {
-					buf->addr[0][0] = start_raw;
-					buf->addr[0][1] = YUV420N_CB_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-					buf->addr[0][2] = YUV420N_CR_BASE(start_raw,
-							ctx->img_width,
-							ctx->img_height);
-				} else {
-					buf->addr[0][i] = mfc_mem_get_daddr_vb(vb, i);
-				}
+				mfc_calc_base_addr(ctx, vb, ctx->src_fmt);
 			}
 		}
 
@@ -322,9 +301,7 @@ static int mfc_enc_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct mfc_dev *dev = ctx->dev;
 
 	/* If context is ready then dev = work->data;schedule it to run */
-	if (mfc_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
-
+	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
 	mfc_try_run(dev);
 
 	return 0;
@@ -357,6 +334,8 @@ static void mfc_enc_stop_streaming(struct vb2_queue *q)
 
 	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		mfc_cleanup_enc_dst_queue(ctx);
+		if (meminfo_enable == 1)
+			mfc_meminfo_cleanup_outbuf_q(ctx);
 
 		while (index < MFC_MAX_BUFFERS) {
 			index = find_next_bit(&ctx->dst_ctrls_avail,
@@ -370,7 +349,7 @@ static void mfc_enc_stop_streaming(struct vb2_queue *q)
 			mfc_change_state(ctx, MFCINST_FINISHING);
 			mfc_set_bit(ctx->num, &dev->work_bits);
 
-			while (mfc_get_buf(&ctx->buf_queue_lock, &ctx->dst_buf_queue, MFC_BUF_NO_TOUCH_USED)) {
+			while (ctx->state != MFCINST_FINISHED) {
 				ret = mfc_just_run(dev, ctx->num);
 				if (ret) {
 					mfc_err_ctx("Failed to run MFC\n");
@@ -380,16 +359,13 @@ static void mfc_enc_stop_streaming(struct vb2_queue *q)
 					mfc_err_ctx("Waiting for LAST_SEQ timed out\n");
 					break;
 				}
-				if (ctx->state == MFCINST_FINISHED) {
-					mfc_debug(2, "all encoded buffers out\n");
-					break;
-				}
 			}
 		}
 
-		mfc_move_all_bufs(&ctx->buf_queue_lock, &ctx->src_buf_queue,
-				&ctx->ref_buf_queue, MFC_QUEUE_ADD_BOTTOM);
+		mfc_move_all_bufs(ctx, &ctx->src_buf_queue, &ctx->ref_buf_queue, MFC_QUEUE_ADD_BOTTOM);
 		mfc_cleanup_enc_src_queue(ctx);
+		if (meminfo_enable == 1)
+			mfc_meminfo_cleanup_inbuf_q(ctx);
 
 		while (index < MFC_MAX_BUFFERS) {
 			index = find_next_bit(&ctx->src_ctrls_avail,
@@ -430,26 +406,29 @@ static void mfc_enc_buf_queue(struct vb2_buffer *vb)
 				ctx->num, vb->index, buf->addr[0][0]);
 
 		/* Mark destination as available for use by MFC */
-		mfc_add_tail_buf(&ctx->buf_queue_lock, &ctx->dst_buf_queue, buf);
+		mfc_add_tail_buf(ctx, &ctx->dst_buf_queue, buf);
+		mfc_qos_update_framerate(ctx, 0, 1);
+		if (meminfo_enable == 1)
+			mfc_meminfo_add_outbuf(ctx,vb);
 	} else if (vq->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
 		for (i = 0; i < ctx->src_fmt->mem_planes; i++)
 			mfc_debug(2, "[BUFINFO] ctx[%d] add src index: %d, addr[%d]: 0x%08llx\n",
 					ctx->num, vb->index, i, buf->addr[0][i]);
-		mfc_add_tail_buf(&ctx->buf_queue_lock, &ctx->src_buf_queue, buf);
+		mfc_add_tail_buf(ctx, &ctx->src_buf_queue, buf);
 
 		if (debug_ts == 1)
 			mfc_info_ctx("[TS] framerate: %ld, timestamp: %lld\n",
 					ctx->framerate, buf->vb.vb2_buf.timestamp);
+		if (meminfo_enable == 1)
+			mfc_meminfo_add_inbuf(ctx, vb);
 
 		mfc_qos_update_last_framerate(ctx, buf->vb.vb2_buf.timestamp);
-		mfc_qos_update_framerate(ctx, 0);
+		mfc_qos_update_framerate(ctx, 0, 0);
 	} else {
 		mfc_err_ctx("unsupported buffer type (%d)\n", vq->type);
 	}
 
-	if (mfc_ctx_ready(ctx))
-		mfc_set_bit(ctx->num, &dev->work_bits);
-
+	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
 	mfc_try_run(dev);
 
 	mfc_debug_leave();

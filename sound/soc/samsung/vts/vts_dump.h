@@ -15,8 +15,8 @@
 #include <linux/device.h>
 #include "vts.h"
 
-#define VTS_ADUIODUMP_AFTER_MINS	2 // VTS will dump 4.4 sec data after every 2 minutes
-#define VTS_LOGDUMP_AFTER_MINS		1 // VTS will dump available log after every 1 minute
+#define VTS_ADUIODUMP_AFTER_MINS	2	/* VTS will dump 4.4 sec data after every 2 minutes */
+#define VTS_LOGDUMP_AFTER_MINS		1	/* VTS will dump available log after every 1 minute */
 
 enum vts_dump_mode {
 	VTS_AUDIO_DUMP = 0,

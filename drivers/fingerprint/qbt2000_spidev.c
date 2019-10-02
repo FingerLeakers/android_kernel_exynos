@@ -613,7 +613,7 @@ static struct class *fps_qbtspi_class;
 
 static const struct of_device_id fps_qbtspi_dt_ids[] = {
 #if !defined(ENABLE_SENSORS_FPRINT_SECURE)
-	{ .compatible = "qbtspi" },
+	{ .compatible = "qcom,qbtspi" },
 #endif
 	{},
 };

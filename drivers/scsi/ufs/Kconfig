@@ -51,7 +51,6 @@ config SCSI_UFSHCD
 config UFS_UN_18DIGITS
 	bool "The digits of SEC unique number"
 	depends on SCSI_UFSHCD
-
 config SCSI_UFSHCD_PCI
 	tristate "PCI bus based UFS Controller support"
 	depends on SCSI_UFSHCD && PCI
@@ -164,10 +163,6 @@ config SCSI_UFS_FMP_DUMP
 	---help---
 	  This selects the EXYNOS UFS FMP DUMP.
 
-	  If you have a controller with this interface, say Y or M here.
-
-	  If unsure, say N.
-
 config SCSI_UFS_EXYNOS_FMP
 	tristate "EXYNOS Flash Memory Protector for UFS Host"
 	depends on SCSI_UFS_EXYNOS && EXYNOS_FMP
@@ -178,6 +173,14 @@ config SCSI_UFS_EXYNOS_FMP
 	  If you have a controller with this interface, say Y or M here.
 
 	  If unsure, say N.
+
+config SCSI_UFS_HISI
+	tristate "Hisilicon specific hooks to UFS controller platform driver"
+	depends on (ARCH_HISI || COMPILE_TEST) && SCSI_UFSHCD_PLATFORM
+	---help---
+	  This selects the Hisilicon specific additions to UFSHCD platform driver.
+
+	  Select this if you have UFS controller on Hisilicon chipset.
 
 config SCSI_UFS_EXYNOS_SMU
 	tristate "EXYNOS Secure Management Unit for UFS Host"

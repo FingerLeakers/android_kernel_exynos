@@ -52,13 +52,11 @@ enum v4l2_mpeg_mfc51_video_frame_type {
 	V4L2_MPEG_MFC51_VIDEO_FRAME_TYPE_OTHERS		= 5,
 };
 
-enum v4l2_mpeg_video_hevc_hierarchical_coding_type {
-	V4L2_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_B	= 0,
-	V4L2_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_P	= 1,
-};
-
 /* new entry for enum v4l2_mpeg_video_mpeg4_level */
 #define V4L2_MPEG_VIDEO_MPEG4_LEVEL_6			8
+
+/* new entry for enum v4l2_mpeg_video_h264_level */
+#define V4L2_MPEG_VIDEO_H264_LEVEL_5_2			16
 
 /* new entry for enum v4l2_mpeg_video_header_mode */
 #define V4L2_MPEG_VIDEO_HEADER_MODE_AT_THE_READY	2
@@ -265,16 +263,6 @@ enum v4l2_mpeg_video_hevc_hierarchical_coding_type {
 
 /* CIDs for HEVC encoding. Number gaps are for compatibility */
 
-#define V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP				\
-					(V4L2_CID_MPEG_MFC_BASE + 110)
-#define V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP				\
-					(V4L2_CID_MPEG_MFC_BASE + 111)
-#define V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP			\
-					(V4L2_CID_MPEG_MFC_BASE + 112)
-#define V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_QP                     \
-					(V4L2_CID_MPEG_MFC_BASE + 113)
-#define V4L2_CID_MPEG_VIDEO_HEVC_B_FRAME_QP                     \
-					(V4L2_CID_MPEG_MFC_BASE + 114)
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_QP_ENABLE \
 					(V4L2_CID_MPEG_MFC_BASE + 115)
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_TYPE       \
@@ -283,10 +271,7 @@ enum v4l2_mpeg_video_hevc_hierarchical_coding_type {
 					(V4L2_CID_MPEG_MFC_BASE + 117)
 #define V4L2_CID_MPEG_VIDEO_HEVC_HIERARCHICAL_CODING_LAYER_QP   \
 					(V4L2_CID_MPEG_MFC_BASE + 118)
-#define V4L2_CID_MPEG_VIDEO_HEVC_PROFILE			\
-					(V4L2_CID_MPEG_MFC_BASE + 120)
-#define V4L2_CID_MPEG_VIDEO_HEVC_LEVEL				\
-					(V4L2_CID_MPEG_MFC_BASE + 121)
+/* empty number */
 #define V4L2_CID_MPEG_MFC90_VIDEO_HEVC_RC_FRAME_RATE            \
 					(V4L2_CID_MPEG_MFC_BASE + 122)
 #define V4L2_CID_MPEG_MFC90_VIDEO_HEVC_TIER_FLAG                \
@@ -407,10 +392,11 @@ enum v4l2_mpeg_video_hevc_hierarchical_coding_type {
 					(V4L2_CID_MPEG_MFC_BASE + 180)
 #define V4L2_CID_MPEG_VIDEO_DISABLE_IVF_HEADER			\
 					(V4L2_CID_MPEG_MFC_BASE + 181)
-#define V4L2_CID_MPEG_VIDEO_VP9_PROFILE				\
-					(V4L2_CID_MPEG_MFC_BASE + 182)
+/* empty number */
 #define V4L2_CID_MPEG_VIDEO_VP9_LEVEL				\
 					(V4L2_CID_MPEG_MFC_BASE + 183)
+#define V4L2_CID_MPEG_VIDEO_UNCOMP_FMT				\
+					(V4L2_CID_MPEG_MFC_BASE + 184)
 
 /* CIDs for new common interface */
 #define V4L2_CID_MPEG_VIDEO_ROI_CONTROL				\

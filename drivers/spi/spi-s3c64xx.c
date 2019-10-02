@@ -1,17 +1,7 @@
-/*
- * Copyright (C) 2009 Samsung Electronics Ltd.
- *	Jaswinder Singh <jassi.brar@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0+
+//
+// Copyright (c) 2009 Samsung Electronics Co., Ltd.
+//      Jaswinder Singh <jassi.brar@samsung.com>
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -49,15 +39,15 @@ static LIST_HEAD(drvdata_list);
 
 #define S3C64XX_SPI_CH_CFG		0x00
 #define S3C64XX_SPI_CLK_CFG		0x04
-#define S3C64XX_SPI_MODE_CFG	0x08
-#define S3C64XX_SPI_SLAVE_SEL	0x0C
+#define S3C64XX_SPI_MODE_CFG		0x08
+#define S3C64XX_SPI_SLAVE_SEL		0x0C
 #define S3C64XX_SPI_INT_EN		0x10
 #define S3C64XX_SPI_STATUS		0x14
 #define S3C64XX_SPI_TX_DATA		0x18
 #define S3C64XX_SPI_RX_DATA		0x1C
-#define S3C64XX_SPI_PACKET_CNT	0x20
-#define S3C64XX_SPI_PENDING_CLR	0x24
-#define S3C64XX_SPI_SWAP_CFG	0x28
+#define S3C64XX_SPI_PACKET_CNT		0x20
+#define S3C64XX_SPI_PENDING_CLR		0x24
+#define S3C64XX_SPI_SWAP_CFG		0x28
 #define S3C64XX_SPI_FB_CLK		0x2C
 
 #define S3C64XX_SPI_CH_HS_EN		(1<<6)	/* High Speed Enable */
@@ -100,9 +90,9 @@ static LIST_HEAD(drvdata_list);
 #define S3C64XX_SPI_INT_TX_FIFORDY_EN		(1<<0)
 
 #define S3C64XX_SPI_ST_RX_OVERRUN_ERR		(1<<5)
-#define S3C64XX_SPI_ST_RX_UNDERRUN_ERR	(1<<4)
+#define S3C64XX_SPI_ST_RX_UNDERRUN_ERR		(1<<4)
 #define S3C64XX_SPI_ST_TX_OVERRUN_ERR		(1<<3)
-#define S3C64XX_SPI_ST_TX_UNDERRUN_ERR	(1<<2)
+#define S3C64XX_SPI_ST_TX_UNDERRUN_ERR		(1<<2)
 #define S3C64XX_SPI_ST_RX_FIFORDY		(1<<1)
 #define S3C64XX_SPI_ST_TX_FIFORDY		(1<<0)
 
@@ -123,7 +113,7 @@ static LIST_HEAD(drvdata_list);
 #define S3C64XX_SPI_SWAP_TX_BIT			(1<<1)
 #define S3C64XX_SPI_SWAP_TX_EN			(1<<0)
 
-#define S3C64XX_SPI_FBCLK_MSK		(3<<0)
+#define S3C64XX_SPI_FBCLK_MSK			(3<<0)
 
 #define FIFO_LVL_MASK(i) ((i)->port_conf->fifo_lvl_mask[i->port_id])
 #define S3C64XX_SPI_ST_TX_DONE(v, i) (((v) & \
@@ -491,8 +481,10 @@ static int s3c64xx_spi_unprepare_transfer(struct spi_master *spi)
 #ifdef CONFIG_PM
 	pm_runtime_mark_last_busy(&sdd->pdev->dev);
 	ret = pm_runtime_put_autosuspend(&sdd->pdev->dev);
-	if(ret < 0)
+	if (ret < 0) {
+		dev_err(&sdd->pdev->dev, "pm_runtime_put_autosuspend fails. ret: %d", ret);
 		return ret;
+	}
 #endif
 
 	return 0;
@@ -812,11 +804,16 @@ static void s3c64xx_spi_config(struct s3c64xx_spi_driver_data *sdd)
 	writel(val, regs + S3C64XX_SPI_MODE_CFG);
 
 	if (sdd->port_conf->clk_from_cmu) {
+
+		if (clk_get_rate(sdd->src_clk) != (sdd->cur_speed * 4)) {
 		/* There is a quarter-multiplier before the SPI */
-		ret = clk_set_rate(sdd->src_clk, sdd->cur_speed * 4);
-		if (ret < 0)
-			dev_err(&sdd->pdev->dev, "SPI clk set failed\n");
-		else
+			ret = clk_set_rate(sdd->src_clk, sdd->cur_speed * 4);
+			if (ret < 0)
+				dev_err(&sdd->pdev->dev, "SPI clk set failed\n");
+			else
+				dev_err(&sdd->pdev->dev, "Set SPI clock rate: %u(%lu)\n",
+						sdd->cur_speed, clk_get_rate(sdd->src_clk));
+		} else
 			dev_err(&sdd->pdev->dev, "Set SPI clock rate: %u(%lu)\n",
 					sdd->cur_speed, clk_get_rate(sdd->src_clk));
 
@@ -935,11 +932,6 @@ static int s3c64xx_spi_transfer_one_message(struct spi_master *master,
 	u32 speed;
 	u8 bpw;
 
-	if (sdd->suspended) {
-		dev_err(&spi->dev, "SPI is suspended\n");
-		return -EIO;
-	}
-
 	/* If Master's(controller) state differs from that needed by Slave */
 	if (sdd->cur_speed != spi->max_speed_hz
 			|| sdd->cur_mode != spi->mode
@@ -950,9 +942,8 @@ static int s3c64xx_spi_transfer_one_message(struct spi_master *master,
 		s3c64xx_spi_config(sdd);
 	}
 
-	if (!(msg->is_dma_mapped) && (sci->dma_mode == DMA_MODE)){
+	if (!(msg->is_dma_mapped) && (sci->dma_mode == DMA_MODE))
 		s3c64xx_spi_dma_initialize(sdd, msg);
-	}
 
 	/* Configure feedback delay */
 	writel(cs->fb_delay & 0x3, sdd->regs + S3C64XX_SPI_FB_CLK);
@@ -1225,7 +1216,14 @@ static int s3c64xx_spi_setup(struct spi_device *spi)
 		dev_err(&spi->dev, "No CS for SPI(%d)\n", spi->chip_select);
 		return -ENODEV;
 	}
-	
+
+	sci = sdd->cntrlr_info;
+
+	if (sci->secure_mode == SECURE_MODE) {
+		dev_info(&spi->dev,
+				"spi configuration for secure channel is skipped\n");
+		return 0;
+	}
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	if (sdd->port_id == CONFIG_SENSORS_FP_SPI_NUMBER) {
 		dev_info(&spi->dev,
@@ -1234,13 +1232,6 @@ static int s3c64xx_spi_setup(struct spi_device *spi)
 	}
 #endif
 
-#ifdef CONFIG_ESE_SECURE
-	if (sdd->port_id == CONFIG_ESE_SECURE_SPI_PORT) {
-		dev_info(&spi->dev,
-			"spi configuration for secure channel is skipped(eSE)\n");
-		return 0;
-	}
-#endif
 	if (!spi_get_ctldata(spi)) {
 		if(cs->line != 0) {
 			err = gpio_request_one(cs->line, GPIOF_OUT_INIT_HIGH,
@@ -1255,8 +1246,6 @@ static int s3c64xx_spi_setup(struct spi_device *spi)
 
 		spi_set_ctldata(spi, cs);
 	}
-
-	sci = sdd->cntrlr_info;
 
 	spin_lock_irqsave(&sdd->lock, flags);
 
@@ -1404,6 +1393,7 @@ static irqreturn_t s3c64xx_spi_irq(int irq, void *data)
 
 static void exynos_usi_init(struct s3c64xx_spi_driver_data *sdd)
 {
+	struct s3c64xx_spi_info *sci = sdd->cntrlr_info;
 	void __iomem *regs = sdd->regs;
 
 	/* USI_RESET is active High signal.
@@ -1411,10 +1401,9 @@ static void exynos_usi_init(struct s3c64xx_spi_driver_data *sdd)
 	 * Due to this feature, the USI_RESET must be cleared (set as '0')
 	 * before transaction starts.
 	 */
-#ifdef CONFIG_ESE_SECURE
-	if (sdd->port_id == CONFIG_ESE_SECURE_SPI_PORT)
+
+	if (sci->secure_mode == SECURE_MODE)
 		return;
-#endif
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	if (sdd->port_id == CONFIG_SENSORS_FP_SPI_NUMBER)
 		return;
@@ -1429,10 +1418,8 @@ static void s3c64xx_spi_hwinit(struct s3c64xx_spi_driver_data *sdd, int channel)
 	void __iomem *regs = sdd->regs;
 	unsigned int val;
 
-#ifdef CONFIG_ESE_SECURE
-	if (channel == CONFIG_ESE_SECURE_SPI_PORT)
+	if (sci->secure_mode == SECURE_MODE)
 		return;
-#endif
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	if (channel == CONFIG_SENSORS_FP_SPI_NUMBER)
 		return;
@@ -1490,13 +1477,15 @@ static struct s3c64xx_spi_info *s3c64xx_spi_parse_dt(struct device *dev)
 	else
 		sci->dma_mode = CPU_MODE;
 
-	if (of_get_property(dev->of_node, "swap-mode", NULL))
+	if (!of_property_read_u32(dev->of_node, "swap-mode", &temp) && !(temp == 0))
 		sci->swap_mode = SWAP_MODE;
 	else
 		sci->swap_mode = NO_SWAP_MODE;
 
-	if (of_get_property(dev->of_node, "secure-mode", NULL))
+	if (of_get_property(dev->of_node, "secure-mode", NULL)) {
+		dev_info(dev, "secure-mode. Accessing spi register isn't allowed\n");
 		sci->secure_mode = SECURE_MODE;
+	}
 	else
 		sci->secure_mode = NONSECURE_MODE;
 
@@ -1547,7 +1536,7 @@ static inline struct s3c64xx_spi_port_config *s3c64xx_spi_get_port_config(
 			 platform_get_device_id(pdev)->driver_data;
 }
 
-#ifdef CONFIG_CPU_IDLE
+#if defined(CONFIG_CPU_IDLE) && defined(CONFIG_EXYNOS_PM)
 static int s3c64xx_spi_notifier(struct notifier_block *self,
 				unsigned long cmd, void *v)
 {
@@ -1594,7 +1583,7 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-#if !defined(CONFIG_VIDEO_EXYNOS_FIMC_IS) && !defined(CONFIG_VIDEO_EXYNOS_FIMC_IS2)
+#if !defined(CONFIG_VIDEO_EXYNOS_PABLO_ISP)
 	if (sci->domain != DOMAIN_TOP)
 		return -ENODEV;
 #endif
@@ -1629,7 +1618,9 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 	sdd->is_probed = 0;
 	sdd->ops = NULL;
 
+#ifdef CONFIG_EXYNOS_CPUPM
 	sdd->idle_ip_index = exynos_get_idle_ip_index(dev_name(&pdev->dev));
+#endif
 
 	if (pdev->dev.of_node) {
 		ret = of_alias_get_id(pdev->dev.of_node, "spi");
@@ -1739,7 +1730,9 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 		}
 	}
 #else
+#ifdef CONFIG_EXYNOS_CPUPM
 	exynos_update_ip_idle_status(sdd->idle_ip_index, 0);
+#endif
 
 	if (clk_prepare_enable(sdd->clk)) {
 		dev_err(&pdev->dev, "Couldn't enable clock 'spi'\n");
@@ -1777,7 +1770,7 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 	exynos_usi_init(sdd);
 
 	/* Setup Deufult Mode */
-	s3c64xx_spi_hwinit(sdd, sdd->port_id);
+	s3c64xx_spi_hwinit(sdd,sdd->port_id);
 
 	spin_lock_init(&sdd->lock);
 	init_completion(&sdd->xfer_completion);
@@ -1791,17 +1784,14 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 		goto err3;
 	}
 
-	if (1
-#ifdef CONFIG_ESE_SECURE
-			&& (sdd->port_id != CONFIG_ESE_SECURE_SPI_PORT)
-#endif
+	if (sci->secure_mode != SECURE_MODE
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 			&& (sdd->port_id != CONFIG_SENSORS_FP_SPI_NUMBER)
 #endif
-	) {	
+	) {
 		writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
-	       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
-	       sdd->regs + S3C64XX_SPI_INT_EN);
+				S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
+				sdd->regs + S3C64XX_SPI_INT_EN);
 	}
 
 #ifdef CONFIG_PM
@@ -1871,7 +1861,9 @@ static int s3c64xx_spi_remove(struct platform_device *pdev)
 
 	clk_disable_unprepare(sdd->clk);
 
+#ifdef CONFIG_EXYNOS_CPUPM
 	exynos_update_ip_idle_status(sdd->idle_ip_index, 1);
+#endif
 
 	platform_set_drvdata(pdev, NULL);
 	spi_master_put(master);
@@ -1910,7 +1902,9 @@ static int s3c64xx_spi_runtime_suspend(struct device *dev)
 	if (__clk_get_enable_count(sdd->src_clk))
 		clk_disable_unprepare(sdd->src_clk);
 
+#ifdef CONFIG_EXYNOS_CPUPM
 	exynos_update_ip_idle_status(sdd->idle_ip_index, 1);
+#endif
 
 	/* Free DMA channels */
 	if (sci->dma_mode == DMA_MODE && sdd->is_probed && sdd->ops != NULL) {
@@ -1949,14 +1943,18 @@ static int s3c64xx_spi_runtime_resume(struct device *dev)
 	}
 
 	if (sci->domain == DOMAIN_TOP) {
+#ifdef CONFIG_EXYNOS_CPUPM
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 0);
+#endif
 		clk_prepare_enable(sdd->src_clk);
 		clk_prepare_enable(sdd->clk);
 	}
 
-#if defined(CONFIG_VIDEO_EXYNOS_FIMC_IS) || defined(CONFIG_VIDEO_EXYNOS_FIMC_IS2)
+#if defined(CONFIG_VIDEO_EXYNOS_PABLO_ISP)
 	else if (sci->domain == DOMAIN_CAM1 || sci->domain == DOMAIN_ISP) {
+#ifdef CONFIG_EXYNOS_CPUPM
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 0);
+#endif
 		clk_prepare_enable(sdd->src_clk);
 		clk_prepare_enable(sdd->clk);
 
@@ -1989,15 +1987,15 @@ static int s3c64xx_spi_suspend_operation(struct device *dev)
 		/* Disable the clock */
 		clk_disable_unprepare(sdd->src_clk);
 		clk_disable_unprepare(sdd->clk);
+#ifdef CONFIG_EXYNOS_CPUPM
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 1);
+#endif
 	}
 #endif
 	if (!pm_runtime_status_suspended(dev))
 	        s3c64xx_spi_runtime_suspend(dev);
 
 	sdd->cur_speed = 0; /* Output Clock is stopped */
-
-	sdd->suspended = 1;
 
 	return 0;
 }
@@ -2014,7 +2012,9 @@ static int s3c64xx_spi_resume_operation(struct device *dev)
 
 	if (sci->domain == DOMAIN_TOP) {
 		/* Enable the clock */
+#ifdef CONFIG_EXYNOS_CPUPM
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 0);
+#endif
 		clk_prepare_enable(sdd->src_clk);
 		clk_prepare_enable(sdd->clk);
 
@@ -2032,7 +2032,9 @@ static int s3c64xx_spi_resume_operation(struct device *dev)
 		/* Disable the clock */
 		clk_disable_unprepare(sdd->src_clk);
 		clk_disable_unprepare(sdd->clk);
+#ifdef CONFIG_EXYNOS_CPUPM
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 1);
+#endif
 #endif
 	}
 
@@ -2042,8 +2044,6 @@ static int s3c64xx_spi_resume_operation(struct device *dev)
 		dev_err(dev, "problem starting queue (%d)\n", ret);
 	else
 		dev_dbg(dev, "resumed\n");
-
-	sdd->suspended = 0;
 
 	return ret;
 }
@@ -2260,7 +2260,7 @@ MODULE_ALIAS("platform:s3c64xx-spi");
 
 static int __init s3c64xx_spi_init(void)
 {
-#ifdef CONFIG_CPU_IDLE
+#if defined(CONFIG_CPU_IDLE) && defined(CONFIT_EXYNOS_PM)
 	exynos_pm_register_notifier(&s3c64xx_spi_notifier_block);
 #endif
 	return platform_driver_probe(&s3c64xx_spi_driver, s3c64xx_spi_probe);

@@ -1,13 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * linux/kernel/irq/chip.c
- *
  * Copyright (C) 1992, 1998-2006 Linus Torvalds, Ingo Molnar
  * Copyright (C) 2005-2006, Thomas Gleixner, Russell King
  *
- * This file contains the core interrupt handling code, for irq-chip
- * based architectures.
- *
- * Detailed information is available in Documentation/core-api/genericirq.rst
+ * This file contains the core interrupt handling code, for irq-chip based
+ * architectures. Detailed information is available in
+ * Documentation/core-api/genericirq.rst
  */
 
 #include <linux/irq.h>
@@ -207,20 +205,24 @@ __irq_startup_managed(struct irq_desc *desc, struct cpumask *aff, bool force)
 		 * Catch code which fiddles with enable_irq() on a managed
 		 * and potentially shutdown IRQ. Chained interrupt
 		 * installment or irq auto probing should not happen on
-		 * managed irqs either. Emit a warning, break the affinity
-		 * and start it up as a normal interrupt.
+		 * managed irqs either.
 		 */
 		if (WARN_ON_ONCE(force))
-			return IRQ_STARTUP_NORMAL;
+			return IRQ_STARTUP_ABORT;
 		/*
 		 * The interrupt was requested, but there is no online CPU
 		 * in it's affinity mask. Put it into managed shutdown
 		 * state and let the cpu hotplug mechanism start it up once
 		 * a CPU in the mask becomes available.
 		 */
-		irqd_set_managed_shutdown(d);
 		return IRQ_STARTUP_ABORT;
 	}
+	/*
+	 * Managed interrupts have reserved resources, so this should not
+	 * happen.
+	 */
+	if (WARN_ON(irq_domain_activate_irq(d, false)))
+		return IRQ_STARTUP_ABORT;
 	return IRQ_STARTUP_MANAGED;
 }
 #else
@@ -236,7 +238,9 @@ static int __irq_startup(struct irq_desc *desc)
 	struct irq_data *d = irq_desc_get_irq_data(desc);
 	int ret = 0;
 
-	irq_domain_activate_irq(d);
+	/* Warn if this interrupt is not activated but try nevertheless */
+	WARN_ON_ONCE(!irqd_is_activated(d));
+
 	if (d->chip->irq_startup) {
 		ret = d->chip->irq_startup(d);
 		irq_state_clr_disabled(desc);
@@ -269,6 +273,7 @@ int irq_startup(struct irq_desc *desc, bool resend, bool force)
 			ret = __irq_startup(desc);
 			break;
 		case IRQ_STARTUP_ABORT:
+			irqd_set_managed_shutdown(d);
 			return 0;
 		}
 	}
@@ -276,6 +281,22 @@ int irq_startup(struct irq_desc *desc, bool resend, bool force)
 		check_irq_resend(desc);
 
 	return ret;
+}
+
+int irq_activate(struct irq_desc *desc)
+{
+	struct irq_data *d = irq_desc_get_irq_data(desc);
+
+	if (!irqd_affinity_is_managed(d))
+		return irq_domain_activate_irq(d, false);
+	return 0;
+}
+
+int irq_activate_and_startup(struct irq_desc *desc, bool resend)
+{
+	if (WARN_ON(irq_activate(desc)))
+		return 0;
+	return irq_startup(desc, resend, IRQ_START_FORCE);
 }
 
 static void __irq_disable(struct irq_desc *desc, bool mask);
@@ -293,6 +314,12 @@ void irq_shutdown(struct irq_desc *desc)
 		}
 		irq_state_clr_started(desc);
 	}
+}
+
+
+void irq_shutdown_and_deactivate(struct irq_desc *desc)
+{
+	irq_shutdown(desc);
 	/*
 	 * This must be called even if the interrupt was never started up,
 	 * because the activation can happen before the interrupt is
@@ -938,10 +965,8 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 		if (desc->irq_data.chip != &no_irq_chip)
 			mask_ack_irq(desc);
 		irq_state_set_disabled(desc);
-		if (is_chained) {
-			printk("%s : desc action of irq_desc %llx becomes null\n", __func__, (unsigned long long)desc);
+		if (is_chained)
 			desc->action = NULL;
-		}
 		desc->depth = 1;
 	}
 	desc->handle_irq = handle;
@@ -967,7 +992,7 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 		irq_settings_set_norequest(desc);
 		irq_settings_set_nothread(desc);
 		desc->action = &chained_action;
-		irq_startup(desc, IRQ_RESEND, IRQ_START_FORCE);
+		irq_activate_and_startup(desc, IRQ_RESEND);
 	}
 }
 

@@ -26,6 +26,7 @@
 #define MAX_STR_LEN	128
 #define PROC_FILE_NAME	"nfclog"
 #define LOG_PREFIX	"sec-nfc"
+#define PRINT_DATE_FREQ	30
 
 static char log_buf[BUF_SIZE];
 static unsigned int g_curpos;
@@ -39,6 +40,24 @@ void nfc_logger_set_max_count(int count)
 	log_max_count = count;
 }
 
+void nfc_logger_print_date_time(void)
+{
+	char tmp[64] = {0x0, };
+	struct tm tm;
+	u64 time;
+	unsigned long nsec;
+	unsigned long sec;
+
+	time = local_clock();
+	nsec = do_div(time, 1000000000);
+	sec = get_seconds() - (sys_tz.tz_minuteswest * 60);
+	time_to_tm(sec, 0, &tm);
+	snprintf(tmp, sizeof(tmp), "!@[%02d-%02d %02d:%02d:%02d.%03lu]", tm.tm_mon + 1, tm.tm_mday,
+						tm.tm_hour, tm.tm_min, tm.tm_sec, nsec / 1000000);
+
+	nfc_logger_print("%s\n", tmp);
+}
+
 void nfc_logger_print(const char *fmt, ...)
 {
 	int len;
@@ -47,6 +66,7 @@ void nfc_logger_print(const char *fmt, ...)
 	u64 time;
 	unsigned long nsec;
 	volatile unsigned int curpos;
+	static unsigned int log_count = PRINT_DATE_FREQ;
 
 	if (!is_nfc_logger_init)
 		return;
@@ -55,6 +75,11 @@ void nfc_logger_print(const char *fmt, ...)
 		return;
 	else if (log_max_count > 0)
 		log_max_count--;
+
+	if (--log_count == 0) {
+		nfc_logger_print_date_time();
+		log_count = PRINT_DATE_FREQ;
+	}
 
 	time = local_clock();
 	nsec = do_div(time, 1000000000);

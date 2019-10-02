@@ -121,7 +121,7 @@ struct inode *sdcardfs_iget(struct super_block *sb, struct inode *lower_inode, u
 	inode->i_ino = lower_inode->i_ino;
 	sdcardfs_set_lower_inode(inode, lower_inode);
 
-	inode->i_version++;
+	inode_inc_iversion_raw(inode);
 
 	/* use different set of inode ops for symlinks & directories */
 	if (S_ISDIR(lower_inode->i_mode))
@@ -232,7 +232,7 @@ static int sdcardfs_name_match(struct dir_context *ctx, const char *name,
 	struct sdcardfs_name_data *buf = container_of(ctx, struct sdcardfs_name_data, ctx);
 	struct qstr candidate = QSTR_INIT(name, namelen);
 
-	if (qstr_n_case_eq(buf->to_find, &candidate)) {
+	if (qstr_case_eq(buf->to_find, &candidate)) {
 		memcpy(buf->name, name, namelen);
 		buf->name[namelen] = 0;
 		buf->found = true;
@@ -256,6 +256,7 @@ static struct dentry *__sdcardfs_lookup(struct dentry *dentry,
 	struct dentry *lower_dentry;
 	const struct qstr *name;
 	struct path lower_path;
+	struct qstr dname;
 	struct dentry *ret_dentry = NULL;
 	struct sdcardfs_sb_info *sbi;
 
@@ -360,10 +361,23 @@ put_name:
 	if (err && err != -ENOENT)
 		goto out;
 
-	lower_dentry = lookup_one_len_unlocked(dentry->d_name.name,
-			lower_dir_dentry, dentry->d_name.len);
-	if (unlikely(IS_ERR(lower_dentry))) {
-		err =  PTR_ERR(lower_dentry);
+	/* instatiate a new negative dentry */
+	dname.name = name->name;
+	dname.len = name->len;
+
+	/* See if the low-level filesystem might want
+	 * to use its own hash
+	 */
+	lower_dentry = d_hash_and_lookup(lower_dir_dentry, &dname);
+	if (IS_ERR(lower_dentry))
+		return lower_dentry;
+
+	if (!lower_dentry) {
+		/* We called vfs_path_lookup earlier, and did not get a negative
+		 * dentry then. Don't confuse the lower filesystem by forcing
+		 * one on it now...
+		 */
+		err = -ENOENT;
 		goto out;
 	}
 

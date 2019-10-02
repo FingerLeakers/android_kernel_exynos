@@ -22,6 +22,9 @@
 #include <linux/compiler.h>
 
 #include "internal.h"
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
+#include "fips140.h"
+#endif
 
 static const struct crypto_type crypto_shash_type;
 
@@ -120,7 +123,7 @@ int crypto_shash_update(struct shash_desc *desc, const u8 *data,
 	struct shash_alg *shash = crypto_shash_alg(tfm);
 	unsigned long alignmask = crypto_shash_alignmask(tfm);
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -160,7 +163,7 @@ int crypto_shash_final(struct shash_desc *desc, u8 *out)
 	struct shash_alg *shash = crypto_shash_alg(tfm);
 	unsigned long alignmask = crypto_shash_alignmask(tfm);
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -186,7 +189,7 @@ int crypto_shash_finup(struct shash_desc *desc, const u8 *data,
 	struct shash_alg *shash = crypto_shash_alg(tfm);
 	unsigned long alignmask = crypto_shash_alignmask(tfm);
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -212,7 +215,7 @@ int crypto_shash_digest(struct shash_desc *desc, const u8 *data,
 	struct shash_alg *shash = crypto_shash_alg(tfm);
 	unsigned long alignmask = crypto_shash_alignmask(tfm);
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -252,7 +255,7 @@ static int shash_async_init(struct ahash_request *req)
 	struct crypto_shash **ctx = crypto_ahash_ctx(crypto_ahash_reqtfm(req));
 	struct shash_desc *desc = ahash_request_ctx(req);
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -268,7 +271,7 @@ int shash_ahash_update(struct ahash_request *req, struct shash_desc *desc)
 	struct crypto_hash_walk walk;
 	int nbytes;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -296,7 +299,7 @@ int shash_ahash_finup(struct ahash_request *req, struct shash_desc *desc)
 	struct crypto_hash_walk walk;
 	int nbytes;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -335,7 +338,7 @@ int shash_ahash_digest(struct ahash_request *req, struct shash_desc *desc)
 	unsigned int offset;
 	int err;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -400,7 +403,7 @@ int crypto_init_shash_ops_async(struct crypto_tfm *tfm)
 	struct crypto_shash **ctx = crypto_tfm_ctx(tfm);
 	struct crypto_shash *shash;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -540,7 +543,7 @@ int crypto_register_shash(struct shash_alg *alg)
 	struct crypto_alg *base = &alg->base;
 	int err;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -600,7 +603,7 @@ int shash_register_instance(struct crypto_template *tmpl,
 {
 	int err;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif
@@ -624,7 +627,7 @@ int crypto_init_shash_spawn(struct crypto_shash_spawn *spawn,
 			    struct shash_alg *alg,
 			    struct crypto_instance *inst)
 {
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif

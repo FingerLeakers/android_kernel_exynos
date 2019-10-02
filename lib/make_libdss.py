@@ -396,10 +396,8 @@ class Printf:
 
 class ASTdump:
     def __init__(self):
-        if "clang" in os.environ["CC"]:
-            self.clang = os.environ["CC"]
-        elif "clang" in execget("which clang"):
-            self.clang = "clang"
+        expect("clang", execget("which clang"),
+              'Set path of clang int PATH env variable!')
 
     def run_inner(self, i, record):
         depth = record.depth
@@ -416,7 +414,7 @@ class ASTdump:
         return ret
 
     def prepare(self):
-        self.dump = execget("%s -Iinclude -Xclang -ast-dump -fsyntax-only -DDSS_ANALYZER lib/debug-snapshot-log.h" % self.clang)
+        self.dump = execget("clang -Iinclude -Xclang -ast-dump -fsyntax-only -DDSS_ANALYZER lib/debug-snapshot-log.h")
         self.dump = self.dump.strip().split("\n")
         for i, line in enumerate(self.dump):
             if not "RecordDecl" in line:

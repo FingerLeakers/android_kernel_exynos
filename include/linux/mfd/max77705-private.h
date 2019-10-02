@@ -22,7 +22,7 @@
 #define __LINUX_MFD_MAX77705_PRIV_H
 
 #include <linux/i2c.h>
-#include <linux/ccic/max77705.h>
+#include <linux/usb/typec/maxim/max77705.h>
 #define MAX77705_I2C_ADDR		(0x92)
 #define MAX77705_REG_INVALID		(0xff)
 
@@ -385,7 +385,7 @@ struct max77705_dev {
 
 	u8 cc_booting_complete;
 
-	int set_altmode;
+	int set_altmode_en;
 
 	struct max77705_platform_data *pdata;
 };

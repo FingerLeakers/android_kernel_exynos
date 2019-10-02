@@ -12,12 +12,6 @@
 
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
-/* TODO : remove dsim dependent code */
-#if defined(CONFIG_EXYNOS_DPU20)
-#include "../../dpu20/decon.h"
-#else
-#include "../../dpu_9810/decon.h"
-#endif
 #include "../panel.h"
 #include "s6e3ha8.h"
 #include "s6e3ha8_panel.h"
@@ -1188,45 +1182,51 @@ static int getidx_acl_opr_table(struct maptbl *tbl)
 	return maptbl_index(tbl, 0, panel_bl_get_acl_opr(&panel->panel_bl), 0);
 }
 
+
 static int getidx_dsc_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct decon_lcd *lcd_info;
+	struct panel_properties *props;
+	struct panel_mres *mres;
+	int row = 0;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
-	lcd_info = &panel->lcd_info;
+	props = &panel->panel_data.props;
+	mres = &panel->panel_data.mres;
 
-	return maptbl_index(tbl, 0, lcd_info->dsc_enabled ? 1 : 0, 0);
+	if (mres->nr_resol == 0 || mres->resol == NULL)
+		return maptbl_index(tbl, 0, row, 0);
+
+	if (mres->resol[props->mres_mode].comp_type
+			== PN_COMP_TYPE_DSC)
+		row = 1;
+
+	return maptbl_index(tbl, 0, row, 0);
 }
 
 static int getidx_resolution_table(struct maptbl *tbl)
 {
-	int row = 0;
-#ifdef CONFIG_SUPPORT_DSU
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct decon_lcd *lcd_info = &panel->lcd_info;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	struct panel_properties *props = &panel->panel_data.props;
+	int row = 0;
 
-	panel_info("%s : mres_mode : %d\n", __func__, lcd_info->mres_mode);
+	if (mres->nr_resol == 0 || mres->resol == NULL)
+		return maptbl_index(tbl, 0, row, 0);
 
-	switch (lcd_info->mres_mode) {
-	case DSU_MODE_1:
+	if (props->mres_mode >= mres->nr_resol) {
 		row = 0;
-		break;
-	case DSU_MODE_2:
-		row = 1;
-		break;
-	case DSU_MODE_3:
-		row = 2;
-		break;
-	default:
-		panel_err("PANEL:ERR:%s:Invalid dsu mode : %d\n", __func__, lcd_info->mres_mode);
-		row = 0;
-		break;
+		panel_err("%s invalid mres_mode %d, nr_resol %d\n",
+				__func__, props->mres_mode, mres->nr_resol);
+	} else {
+		row = props->mres_mode;
+		panel_info("%s mres_mode %d (%dx%d)\n",
+				__func__, props->mres_mode,
+				mres->resol[row].w, mres->resol[row].h);
 	}
-#endif
 
 	return maptbl_index(tbl, 0, row, 0);
 }
@@ -1350,7 +1350,10 @@ static int s6e3ha8_getidx_gram_img_pattern_table(struct maptbl *tbl)
 	struct panel_properties *props = &panel->panel_data.props;
 
 	pr_info("%s gram img %d\n", __func__, props->gct_pattern);
-	props->gct_valid_chksum = S6E3HA8_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[0] = S6E3HA8_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[1] = S6E3HA8_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[2] = S6E3HA8_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[3] = S6E3HA8_GRAM_CHECKSUM_VALID;
 
 	return maptbl_index(tbl, 0, props->gct_pattern, 0);
 }

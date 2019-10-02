@@ -17,6 +17,7 @@
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 #include <linux/exynos_iovmm.h>
+#include <linux/module.h>
 
 #include "g2d.h"
 #include "g2d_task.h"
@@ -137,11 +138,6 @@ void g2d_finish_task_with_id(struct g2d_device *g2d_dev,
 	if (!task)
 		return;
 
-	if (is_task_state_killed(task)) {
-		perrfndev(g2d_dev, "Killed task ID %d is completed", job_id);
-		success = false;
-	}
-
 	g2d_finish_task(g2d_dev, task, success);
 }
 
@@ -156,8 +152,6 @@ void g2d_flush_all_tasks(struct g2d_device *g2d_dev)
 					struct g2d_task, node);
 
 		perrfndev(g2d_dev, "Flushed task of ID %d", task->sec.job_id);
-
-		mark_task_state_killed(task);
 
 		g2d_finish_task(g2d_dev, task, false);
 	}
@@ -313,10 +307,45 @@ void g2d_fence_callback(struct dma_fence *fence, struct dma_fence_cb *cb)
 	struct g2d_layer *layer = container_of(cb, struct g2d_layer, fence_cb);
 	unsigned long flags;
 
+	g2d_stamp_task(layer->task, G2D_STAMP_STATE_FENCE, (u64)fence);
+
 	spin_lock_irqsave(&layer->task->fence_timeout_lock, flags);
 	/* @fence is released in g2d_put_image() */
 	kref_put(&layer->task->starter, g2d_queuework_task);
 	spin_unlock_irqrestore(&layer->task->fence_timeout_lock, flags);
+}
+
+static bool block_on_contension;
+module_param(block_on_contension, bool, 0644);
+
+static int max_queued;
+module_param(max_queued, int, 0644);
+
+static int g2d_queued_task_count(struct g2d_device *g2d_dev)
+{
+	struct g2d_task *task;
+	int num_queued = 0;
+
+	list_for_each_entry(task, &g2d_dev->tasks_active, node)
+		num_queued++;
+
+	list_for_each_entry(task, &g2d_dev->tasks_prepared, node)
+		num_queued++;
+
+	return num_queued;
+}
+
+void g2d_show_task_status(struct g2d_device *g2d_dev)
+{
+	struct g2d_task *task;
+
+	for (task = g2d_dev->tasks; task; task = task->next) {
+		perrfndev(g2d_dev, "TASK[%d]: state %#lx flags %#x",
+			  task->sec.job_id, task->state, task->flags);
+		perrfndev(g2d_dev, "prio %d begin@%llu end@%llu nr_src %d",
+			  task->sec.priority, ktime_to_us(task->ktime_begin),
+			  ktime_to_us(task->ktime_end), task->num_source);
+	}
 }
 
 struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
@@ -325,6 +354,8 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 	struct g2d_task *task;
 	struct list_head *taskfree;
 	unsigned long flags;
+	int num_queued = 0;
+	ktime_t ktime_pending;
 
 	if (hwfc)
 		taskfree = &g2d_dev->tasks_free_hwfc;
@@ -333,10 +364,35 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 
 	spin_lock_irqsave(&g2d_dev->lock_task, flags);
 
-	if (list_empty(taskfree)) {
-		perrfndev(g2d_dev, "no free task slot found(hwfc? %d)", hwfc);
+	while (list_empty(taskfree) ||
+	       ((num_queued = g2d_queued_task_count(g2d_dev)) >= max_queued)) {
+
 		spin_unlock_irqrestore(&g2d_dev->lock_task, flags);
-		return NULL;
+
+		if (list_empty(taskfree))
+			perrfndev(g2d_dev,
+				  "no free task slot found (hwfc %d)", hwfc);
+		else
+			perrfndev(g2d_dev, "queued %d >= max %d",
+				  num_queued, max_queued);
+
+		g2d_show_task_status(g2d_dev);
+
+		if (!block_on_contension)
+			return NULL;
+
+		ktime_pending = ktime_get();
+
+		g2d_stamp_task(NULL, G2D_STAMP_STATE_PENDING, num_queued);
+		wait_event(g2d_dev->queued_wait,
+			   !list_empty(taskfree) &&
+			   (g2d_queued_task_count(g2d_dev) < max_queued));
+
+		perrfndev(g2d_dev,
+			  "wait to resolve contension for %d us",
+			  (int)ktime_us_delta(ktime_get(), ktime_pending));
+
+		spin_lock_irqsave(&g2d_dev->lock_task, flags);
 	}
 
 	task = list_first_entry(taskfree, struct g2d_task, node);
@@ -352,12 +408,25 @@ struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 
 	spin_unlock_irqrestore(&g2d_dev->lock_task, flags);
 
+	/*
+	 * Inherit qos of device to guarantee while task runs
+	 *
+	 * However, task doesn't get the qos of device atomically
+	 * with mutex because it is only hint to ensure the performance
+	 * of task. Also, The request of performance update and task execution
+	 * doesn't occur at the same time in normal situation.
+	 */
+	task->taskqos = g2d_dev->qos;
+
 	return task;
 }
 
 void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 {
 	unsigned long flags;
+
+	task->taskqos.rbw = task->taskqos.wbw = 0;
+	task->taskqos.devfreq = 0;
 
 	spin_lock_irqsave(&g2d_dev->lock_task, flags);
 
@@ -376,6 +445,8 @@ void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 	g2d_stamp_task(task, G2D_STAMP_STATE_TASK_RESOURCE, 1);
 
 	spin_unlock_irqrestore(&g2d_dev->lock_task, flags);
+
+	wake_up(&g2d_dev->queued_wait);
 }
 
 void g2d_destroy_tasks(struct g2d_device *g2d_dev)
@@ -445,10 +516,8 @@ static struct g2d_task *g2d_create_task(struct g2d_device *g2d_dev, int id)
 	init_completion(&task->completion);
 	spin_lock_init(&task->fence_timeout_lock);
 
-	setup_timer(&task->hw_timer,
-		    g2d_hw_timeout_handler, (unsigned long)task);
-	setup_timer(&task->fence_timer,
-		    g2d_fence_timeout_handler, (unsigned long)task);
+	timer_setup(&task->hw_timer, g2d_hw_timeout_handler, 0);
+	timer_setup(&task->fence_timer, g2d_fence_timeout_handler, 0);
 
 	return task;
 
@@ -488,6 +557,8 @@ int g2d_create_tasks(struct g2d_device *g2d_dev)
 		else
 			list_add(&task->node, &g2d_dev->tasks_free);
 	}
+
+	max_queued = G2D_MAX_JOBS;
 
 	return 0;
 }

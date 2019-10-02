@@ -40,6 +40,8 @@
 #define SCALER_INT_EN_ALL		0x807fffff
 #define SCALER_INT_EN_ALL_v3		0x82ffffff
 #define SCALER_INT_EN_ALL_v4		0xb2ffffff
+#define SCALER_INT_EN_ALL_v5		0xe0ffffff
+#define SCALER_INT_EN_DEFAULT		0xffffffff
 #define SCALER_INT_OK(status)		((status) == SCALER_INT_EN_FRAME_END)
 
 #define SCALER_INT_STATUS		0x0c
@@ -51,8 +53,11 @@
 #define SCALER_CFG_TILE_EN		(1 << 10)
 #define SCALER_CFG_VHALF_PHASE_EN	(1 << 9)
 #define SCALER_CFG_BIG_ENDIAN		(1 << 8)
+#define SCALER_CFG_SBWC_FORMAT		(1 << 9)
 #define SCALER_CFG_10BIT_P010		(1 << 7)
 #define SCALER_CFG_10BIT_S10		(2 << 7)
+#define SCALER_CFG_10BIT_SBWC		(3 << 7)
+#define SCALER_CFG_10BIT_MASK		(3 << 7)
 #define SCALER_CFG_SWAP_MASK		(3 << 5)
 #define SCALER_CFG_BYTE_SWAP		(1 << 5)
 #define SCALER_CFG_HWORD_SWAP		(2 << 5)
@@ -78,6 +83,10 @@
 #define SCALER_CFG_FMT_YCBCR420_3P	(0x14 << 0)
 #define SCALER_CFG_FMT_YCBCR422_3P	(0x16 << 0)
 #define SCALER_CFG_FMT_YCBCR444_3P	(0x17 << 0)
+#define SCALER_CFG_FMT_ARGB2101010	(0x18 << 0)
+#define SCALER_CFG_FMT_ABGR2101010	(0x19 << 0)
+#define SCALER_CFG_FMT_RGBA1010102	(0x1a << 0)
+#define SCALER_CFG_FMT_BGRA1010102	(0x1b << 0)
 
 /* Source Y Base Address */
 #define SCALER_SRC_Y_BASE		0x14
@@ -261,15 +270,11 @@ static inline void sc_hwset_flip_rotation(struct sc_dev *sc, u32 flip_rot_cfg)
 
 static inline void sc_hwset_int_en(struct sc_dev *sc)
 {
-	unsigned int val;
+	unsigned int val = SCALER_INT_EN_DEFAULT;
 
-	if (sc->version < SCALER_VERSION(3, 0, 0))
-		val = SCALER_INT_EN_ALL;
-	else if (sc->version < SCALER_VERSION(4, 0, 1) ||
-			sc->version == SCALER_VERSION(4, 2, 0))
-		val = SCALER_INT_EN_ALL_v3;
-	else
-		val = SCALER_INT_EN_ALL_v4;
+	if (sc->variant->int_en_mask)
+		val = sc->variant->int_en_mask;
+
 	__raw_writel(val, sc->regs + SCALER_INT_EN);
 }
 
@@ -300,6 +305,7 @@ static inline void sc_hwset_init(struct sc_dev *sc)
 {
 	unsigned long cfg;
 
+	sc_hwset_clk_request(sc, true);
 	sc_hwset_bus_idle(sc);
 
 #ifdef SC_NO_SOFTRST

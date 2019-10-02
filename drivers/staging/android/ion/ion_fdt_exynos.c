@@ -32,13 +32,26 @@ struct ion_reserved_mem_struct {
 	unsigned int	alloc_align;
 	unsigned int	protection_id;
 	bool		secure;
-	bool		recyclable;
 	bool		untouchable;
+	bool		recyclable;
 } ion_reserved_mem[ION_NUM_HEAP_IDS - 1] __initdata;
+
+#if defined(CONFIG_CMA)
+#define exynos_cma_init_reserved_mem(base, size, bit, name, cma) \
+	cma_init_reserved_mem(base, size, bit, name, cma)
+#else
+static inline int exynos_cma_init_reserved_mem(phys_addr_t base, phys_addr_t size,
+					       unsigned int order_per_bit,
+					       const char *name,
+					       struct cma **res_cma)
+{
+	return -ENODEV;
+}
+#endif
 
 static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 {
-	bool untch, reusable, secure, recyclable;
+	bool untch, reusable, secure, recyclable = false;
 	size_t alloc_align = PAGE_SIZE;
 	char *heapname;
 	const __be32 *prop;
@@ -48,7 +61,12 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 	reusable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,reusable", NULL);
 	untch = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,untouchable", NULL);
 	secure = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,secure", NULL);
+
+#ifdef CONFIG_ION_RBIN_HEAP
 	recyclable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,recyclable", NULL);
+#endif
+
+	rmem->reusable = (reusable | recyclable);
 
 	prop = of_get_flat_dt_prop(rmem->fdt_node, "ion,protection_id", &len);
 	if (prop)
@@ -85,8 +103,8 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 		struct cma *cma;
 		int ret;
 
-		ret = cma_init_reserved_mem(rmem->base, rmem->size, 0,
-					    heapname, &cma);
+		ret = exynos_cma_init_reserved_mem(rmem->base, rmem->size, 0,
+						   heapname, &cma);
 		if (ret < 0) {
 			perrfn("failed to init cma for '%s'", heapname);
 			return ret;
@@ -95,7 +113,6 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 		ion_reserved_mem[reserved_mem_count].cma = cma;
 
 		kmemleak_ignore_phys(rmem->base);
-		rmem->reusable = true;
 	}
 
 	ion_reserved_mem[reserved_mem_count].base = rmem->base;
@@ -104,8 +121,8 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 	ion_reserved_mem[reserved_mem_count].alloc_align = (unsigned int)alloc_align;
 	ion_reserved_mem[reserved_mem_count].protection_id = protection_id;
 	ion_reserved_mem[reserved_mem_count].secure = secure;
-	ion_reserved_mem[reserved_mem_count].recyclable = recyclable;
 	ion_reserved_mem[reserved_mem_count].untouchable = untch;
+	ion_reserved_mem[reserved_mem_count].recyclable = recyclable;
 	reserved_mem_count++;
 
 	return 0;

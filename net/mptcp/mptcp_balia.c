@@ -78,7 +78,7 @@ static void mptcp_balia_recalc_ai(const struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	const struct mptcp_cb *mpcb = tp->mpcb;
-	const struct sock *sub_sk;
+	struct mptcp_tcp_sock *mptcp;
 	u64 max_rate = 0, rate = 0, sum_rate = 0;
 	u64 alpha, ai = tp->snd_cwnd, md = (tp->snd_cwnd >> 1);
 	int num_scale_down = 0;
@@ -86,12 +86,9 @@ static void mptcp_balia_recalc_ai(const struct sock *sk)
 	if (!mpcb)
 		return;
 
-	/* Only one subflow left - fall back to normal reno-behavior */
-	if (mpcb->cnt_established <= 1)
-		goto exit;
-
 	/* Find max_rate first */
-	mptcp_for_each_sk(mpcb, sub_sk) {
+	mptcp_for_each_sub(mpcb, mptcp) {
+		const struct sock *sub_sk = mptcp_to_sock(mptcp);
 		struct tcp_sock *sub_tp = tcp_sk(sub_sk);
 		u64 tmp;
 
@@ -123,7 +120,8 @@ static void mptcp_balia_recalc_ai(const struct sock *sk)
 
 	if (num_scale_down) {
 		sum_rate = 0;
-		mptcp_for_each_sk(mpcb, sub_sk) {
+		mptcp_for_each_sub(mpcb, mptcp) {
+			const struct sock *sub_sk = mptcp_to_sock(mptcp);
 			struct tcp_sock *sub_tp = tcp_sk(sub_sk);
 			u64 tmp;
 
@@ -186,7 +184,6 @@ static void mptcp_balia_set_state(struct sock *sk, u8 ca_state)
 static void mptcp_balia_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	const struct mptcp_cb *mpcb = tp->mpcb;
 	int snd_cwnd;
 
 	if (!mptcp(tp)) {
@@ -209,10 +206,7 @@ static void mptcp_balia_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		mptcp_set_forced(sk, 0);
 	}
 
-	if (mpcb->cnt_established > 1)
-		snd_cwnd = (int) mptcp_get_ai(sk);
-	else
-		snd_cwnd = tp->snd_cwnd;
+	snd_cwnd = (int)mptcp_get_ai(sk);
 
 	if (tp->snd_cwnd_cnt >= snd_cwnd) {
 		if (tp->snd_cwnd < tp->snd_cwnd_clamp) {
@@ -229,9 +223,8 @@ static void mptcp_balia_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 static u32 mptcp_balia_ssthresh(struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
-	const struct mptcp_cb *mpcb = tp->mpcb;
 
-	if (unlikely(!mptcp(tp) || mpcb->cnt_established <= 1))
+	if (unlikely(!mptcp(tp)))
 		return tcp_reno_ssthresh(sk);
 	else
 		return max((u32)(tp->snd_cwnd - mptcp_get_md(sk)), 1U);

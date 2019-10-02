@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -14,6 +14,8 @@
 #ifndef __TZ_IWIO_H__
 #define __TZ_IWIO_H__
 
+#include <linux/mm.h>
+
 enum {
 	TZ_IWIO_CONNECT_LOG,
 	TZ_IWIO_CONNECT_SERVICE,
@@ -22,7 +24,6 @@ enum {
 	TZ_IWIO_CONNECT_PANIC_DUMP,
 	TZ_IWIO_CONNECT_SOCKET_EVENTS,
 	TZ_IWIO_CONNECT_SOCKET,
-	TZ_IWIO_CONNECT_NWFS,
 	TZ_IWIO_CONNECT_CNT
 };
 
@@ -36,9 +37,9 @@ typedef int (*tz_iwio_callback_t)(void *buf, unsigned long num_pages, void *ext_
 typedef void (*tz_iwio_callback_cleanup_t)(void *buf,
 		unsigned long num_pages, void *ext_data);
 
+int tz_iwio_init(void);
 struct tz_iwio_aux_channel *tz_iwio_get_aux_channel(void);
 void tz_iwio_put_aux_channel(void);
-int tz_iwio_alloc_aux_channel(int cpu);
 void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 		tz_iwio_callback_t pre_callback, tz_iwio_callback_cleanup_t pre_callback_cleanup,
 		void *calback_data);

@@ -94,6 +94,10 @@ extern int sc_log_level;
 #define sc_fmt_is_s10bit_yuv(x)	((x == V4L2_PIX_FMT_NV12M_S10B) || \
 		(x == V4L2_PIX_FMT_NV12N_10B) || (x == V4L2_PIX_FMT_NV16M_S10B) || \
 		(x == V4L2_PIX_FMT_NV61M_S10B))
+#define sc_fmt_is_sbwc(x)	((x == V4L2_PIX_FMT_NV12M_SBWC_8B) || \
+		(x == V4L2_PIX_FMT_NV12M_SBWC_10B) || (x == V4L2_PIX_FMT_NV21M_SBWC_8B) || \
+		(x == V4L2_PIX_FMT_NV21M_SBWC_10B) || (x == V4L2_PIX_FMT_NV12N_SBWC_8B) || \
+		(x == V4L2_PIX_FMT_NV12N_SBWC_10B))
 #define sc_dith_val(a, b, c)	((a << SCALER_DITH_R_SHIFT) |	\
 		(b << SCALER_DITH_G_SHIFT) | (c << SCALER_DITH_B_SHIFT))
 
@@ -242,6 +246,7 @@ struct sc_variant {
 	u32 sc_up_swmax;
 	u32 sc_down_swmin;
 	u32 minsize_srcplane;		/* zero if no limitation exists */
+	u32 int_en_mask;		/* interrupt enable mask */
 	u8 blending:1;
 	u8 prescale:1;
 	u8 ratio_20bit:1;

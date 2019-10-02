@@ -44,7 +44,7 @@ enum flexpmu_debugfs_id {
 	FID_SEQ_COUNT,
 	FID_MIF_ALWAYS_ON,
 	FID_LPM_COUNT,
-	FID_LOG_STOP,
+	FID_APM_REQ_INFO,
 	FID_MAX
 };
 
@@ -56,7 +56,7 @@ char *flexpmu_debugfs_name[FID_MAX] = {
 	"seq_count",
 	"mif_always_on",
 	"lpm_count",
-	"log_stop",
+	"apm_req_info",
 };
 
 /* enum for data lines */
@@ -103,7 +103,12 @@ enum data_id {
 	DID_INT_REG09,
 	DID_INT_REG10,
 	DID_INT_REG11,
-	DID_LOG_STOP,
+	DID_MIFAP0,
+	DID_MIFAP1,
+	DID_MIFAUD0,
+	DID_MIFAUD1,
+	DID_MIFVTS0,
+	DID_MIFVTS1,
 	DID_MAX
 };
 
@@ -122,6 +127,27 @@ struct dbgfs_info *flexpmu_dbg_info;
 void __iomem *flexpmu_dbg_base;
 static struct dentry *flexpmu_dbg_root;
 
+struct flexpmu_apm_req_info {
+	unsigned int active_req_tick;
+	unsigned int last_rel_tick;
+	unsigned int total_count;
+	unsigned int total_time_tick;
+	unsigned long long int active_since_us;
+	unsigned long long int last_rel_us;
+	unsigned long long int total_time_us;
+	bool active_flag;
+};
+
+void __iomem *rtc_base;
+
+#define MIF_MASTER_MAX		3
+char *flexpmu_master_name[MIF_MASTER_MAX] = {
+	"MIF_AP",
+	"MIF_AUD",
+	"MIF_VTS",
+};
+
+struct flexpmu_apm_req_info apm_req[MIF_MASTER_MAX];
 
 u32 acpm_get_mifdn_count(void)
 {
@@ -351,19 +377,66 @@ static ssize_t exynos_flexpmu_dbg_lpm_count_read(int fid, char *buf)
 	return ret;
 }
 
-static ssize_t exynos_flexpmu_dbg_log_stop_read(int fid, char *buf)
+#define RTC_TICK_TO_US		976	/* 1024 Hz : 1tick = 976.5625us */
+#define CURTICCNT_0		0x90
+
+static ssize_t exynos_flexpmu_dbg_apm_req_info_read(int fid, char *buf)
 {
-	ssize_t ret = 0;
-	int data_count = 0;
+	size_t ret = 0;
+	unsigned long long int curr_tick = 0;
+	int i = 0;
 
-	struct flexpmu_dbg_print_arg print_arg[BUF_MAX_LINE] = {
-		{},
-		{"log stopped", DEC_PRINT},
-	};
+	if (!rtc_base) {
+		ret = snprintf(buf + ret, BUF_SIZE - ret,
+				"%s\n", "This node is not supported.\n");
+		return ret;
+	}
 
-	ret = print_dataline_2(DID_LOG_STOP, print_arg, ret, buf, &data_count);
+	curr_tick = __raw_readl(rtc_base + CURTICCNT_0);
+	ret += snprintf(buf + ret, BUF_SIZE - ret,
+			"%s: %lld\n", "curr_time", curr_tick * RTC_TICK_TO_US);
+	ret += snprintf(buf + ret, BUF_SIZE - ret,
+			"%8s   %32s %32s %32s %32s\n", "Master", "active_since(us ago)",
+			"last_rel_time(us ago)", "total_req_time(us)", "req_count");
 
-	return ret;
+	for (i = 0; i < MIF_MASTER_MAX; i++) {
+		apm_req[i].active_req_tick = __raw_readl(flexpmu_dbg_base
+				+ (DATA_LINE * (DID_MIFAP0 + i * 2)) + DATA_IDX);
+		apm_req[i].last_rel_tick = __raw_readl(flexpmu_dbg_base
+				+ (DATA_LINE * (DID_MIFAP0 + i * 2)) + DATA_IDX  + 4);
+		apm_req[i].total_count = __raw_readl(flexpmu_dbg_base
+				+ (DATA_LINE * (DID_MIFAP1 + i * 2)) + DATA_IDX);
+		apm_req[i].total_time_tick = __raw_readl(flexpmu_dbg_base
+				+ (DATA_LINE * (DID_MIFAP1 + i * 2)) + DATA_IDX  + 4);
+
+		if (apm_req[i].last_rel_tick > 0) {
+			apm_req[i].last_rel_us =
+				(curr_tick - apm_req[i].last_rel_tick) * RTC_TICK_TO_US;
+		}
+
+		apm_req[i].total_time_us =
+			apm_req[i].total_time_tick * RTC_TICK_TO_US;
+
+		if (apm_req[i].active_req_tick == 0) {
+			apm_req[i].active_flag = false;
+			apm_req[i].active_since_us = 0;
+		} else {
+			apm_req[i].active_flag = true;
+			apm_req[i].active_since_us =
+				(curr_tick - apm_req[i].active_req_tick) * RTC_TICK_TO_US;
+			apm_req[i].total_time_us += apm_req[i].active_since_us;
+		}
+
+		ret += snprintf(buf + ret, BUF_SIZE - ret,
+				"%8s : %32lld %32lld %32lld %32d\n",
+				flexpmu_master_name[i],
+				apm_req[i].active_since_us,
+				apm_req[i].last_rel_us,
+				apm_req[i].total_time_us,
+				apm_req[i].total_count);
+		}
+
+		return ret;
 }
 
 static ssize_t (*flexpmu_debugfs_read_fptr[FID_MAX])(int, char *) = {
@@ -374,7 +447,7 @@ static ssize_t (*flexpmu_debugfs_read_fptr[FID_MAX])(int, char *) = {
 	FLEXPMU_DBG_FUNC_READ(seq_count),
 	FLEXPMU_DBG_FUNC_READ(mif_always_on),
 	FLEXPMU_DBG_FUNC_READ(lpm_count),
-	FLEXPMU_DBG_FUNC_READ(log_stop),
+	FLEXPMU_DBG_FUNC_READ(apm_req_info),
 };
 
 static ssize_t exynos_flexpmu_dbg_read(struct file *file, char __user *user_buf,
@@ -411,31 +484,11 @@ static ssize_t exynos_flexpmu_dbg_write(struct file *file, const char __user *us
 					(DATA_LINE * DID_MIF_ALWAYS_ON) + 0xC);
 		}
 		break;
-	case FID_LOG_STOP:
-		if (buf[0] == '0') {
-			__raw_writel(0, flexpmu_dbg_base +
-					(DATA_LINE * DID_LOG_STOP) + 0xC);
-		}
-		if (buf[0] == '1') {
-			__raw_writel(1, flexpmu_dbg_base +
-					(DATA_LINE * DID_LOG_STOP) + 0xC);
-		}
-		break;
 	default:
 		break;
 	}
 
 	return ret;
-}
-
-void exynos_flexpmu_dbg_log_stop(void)
-{
-	pr_info("flexpmu log stop\n");
-
-	if (flexpmu_dbg_base)
-		__raw_writel(1, flexpmu_dbg_base + (DATA_LINE * DID_LOG_STOP) + 0xC);
-
-	return ;
 }
 
 static int exynos_flexpmu_dbg_probe(struct platform_device *pdev)
@@ -493,6 +546,12 @@ static int exynos_flexpmu_dbg_probe(struct platform_device *pdev)
 		flexpmu_dbg_info[i].den = debugfs_create_file(flexpmu_debugfs_name[i],
 				0644, flexpmu_dbg_root, &flexpmu_dbg_info[i],
 				&flexpmu_dbg_info[i].fops);
+	}
+
+	rtc_base = of_iomap(pdev->dev.of_node, 0);
+	if (!rtc_base) {
+		dev_info(&pdev->dev,
+				"apm_req_info node is not available!\n");
 	}
 
 	platform_set_drvdata(pdev, flexpmu_dbg_info);

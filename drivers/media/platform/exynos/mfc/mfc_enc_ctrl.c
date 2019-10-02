@@ -719,7 +719,7 @@ static int mfc_enc_init_ctx_ctrls(struct mfc_ctx *ctx)
 	for (i = 0; i < NUM_CTRL_CFGS; i++) {
 		ctx_ctrl = kzalloc(sizeof(struct mfc_ctx_ctrl), GFP_KERNEL);
 		if (ctx_ctrl == NULL) {
-			mfc_err_dev("Failed to allocate context control "
+			mfc_err_ctx("Failed to allocate context control "
 					"id: 0x%08x, type: %d\n",
 					mfc_ctrl_list[i].id,
 					mfc_ctrl_list[i].type);
@@ -774,7 +774,7 @@ static int mfc_enc_init_buf_ctrls(struct mfc_ctx *ctx,
 	struct list_head *head;
 
 	if (index >= MFC_MAX_BUFFERS) {
-		mfc_err_dev("Per-buffer control index is out of range\n");
+		mfc_err_ctx("Per-buffer control index is out of range\n");
 		return -EINVAL;
 	}
 
@@ -795,7 +795,7 @@ static int mfc_enc_init_buf_ctrls(struct mfc_ctx *ctx,
 
 		head = &ctx->dst_ctrls[index];
 	} else {
-		mfc_err_dev("Control type mismatch. type : %d\n", type);
+		mfc_err_ctx("Control type mismatch. type : %d\n", type);
 		return -EINVAL;
 	}
 
@@ -807,7 +807,7 @@ static int mfc_enc_init_buf_ctrls(struct mfc_ctx *ctx,
 
 		buf_ctrl = kzalloc(sizeof(struct mfc_buf_ctrl), GFP_KERNEL);
 		if (buf_ctrl == NULL) {
-			mfc_err_dev("Failed to allocate buffer control "
+			mfc_err_ctx("Failed to allocate buffer control "
 					"id: 0x%08x, type: %d\n",
 					mfc_ctrl_list[i].id,
 					mfc_ctrl_list[i].type);
@@ -851,7 +851,7 @@ static int mfc_enc_cleanup_buf_ctrls(struct mfc_ctx *ctx,
 	struct list_head *head;
 
 	if (index >= MFC_MAX_BUFFERS) {
-		mfc_err_dev("Per-buffer control index is out of range\n");
+		mfc_err_ctx("Per-buffer control index is out of range\n");
 		return -EINVAL;
 	}
 
@@ -868,7 +868,7 @@ static int mfc_enc_cleanup_buf_ctrls(struct mfc_ctx *ctx,
 
 		head = &ctx->dst_ctrls[index];
 	} else {
-		mfc_err_dev("Control type mismatch. type : %d\n", type);
+		mfc_err_ctx("Control type mismatch. type : %d\n", type);
 		return -EINVAL;
 	}
 
@@ -877,13 +877,44 @@ static int mfc_enc_cleanup_buf_ctrls(struct mfc_ctx *ctx,
 	return 0;
 }
 
+static void __mfc_enc_set_roi(struct mfc_ctx *ctx, struct mfc_buf_ctrl *buf_ctrl)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	int index = 0;
+	unsigned int reg = 0;
+
+	index = enc->roi_index;
+	if (enc->roi_info[index].enable) {
+		enc->roi_index = (index + 1) % MFC_MAX_EXTRA_BUF;
+		reg |= enc->roi_info[index].enable;
+		reg &= ~(0xFF << 8);
+		reg |= (enc->roi_info[index].lower_qp << 8);
+		reg &= ~(0xFFFF << 16);
+		reg |= (enc->roi_info[index].upper_qp << 16);
+		/*
+		 * 2bit ROI
+		 * - All codec type: upper_qp and lower_qp is valid
+		 * 8bit ROI
+		 * - H.264/HEVC/MPEG4: upper_qp and lower_qp is invalid
+		 * - VP8/VP9: upper_qp and lower_qp is valid
+		 */
+		mfc_debug(3, "[ROI] buffer[%d] en %d QP lower %d upper %d reg %#x\n",
+				index, enc->roi_info[index].enable,
+				enc->roi_info[index].lower_qp,
+				enc->roi_info[index].upper_qp,
+				reg);
+	} else {
+		mfc_debug(3, "[ROI] buffer[%d] is not enabled\n", index);
+	}
+
+	buf_ctrl->val = reg;
+	buf_ctrl->old_val2 = index;
+}
+
 static int mfc_enc_to_buf_ctrls(struct mfc_ctx *ctx, struct list_head *head)
 {
 	struct mfc_ctx_ctrl *ctx_ctrl;
 	struct mfc_buf_ctrl *buf_ctrl;
-	struct mfc_enc *enc = ctx->enc_priv;
-	int index = 0;
-	unsigned int reg = 0;
 
 	list_for_each_entry(ctx_ctrl, &ctx->ctrls, list) {
 		if (!(ctx_ctrl->type & MFC_CTRL_TYPE_SET) || !ctx_ctrl->has_new)
@@ -900,28 +931,8 @@ static int mfc_enc_to_buf_ctrls(struct mfc_ctx *ctx, struct list_head *head)
 					buf_ctrl->updated = 0;
 
 				ctx_ctrl->has_new = 0;
-				if (buf_ctrl->id == V4L2_CID_MPEG_VIDEO_ROI_CONTROL) {
-					index = enc->roi_index;
-					if (enc->roi_info[index].enable) {
-						enc->roi_index =
-							(index + 1) % MFC_MAX_EXTRA_BUF;
-						reg |= enc->roi_info[index].enable;
-						reg &= ~(0xFF << 8);
-						reg |= (enc->roi_info[index].lower_qp << 8);
-						reg &= ~(0xFFFF << 16);
-						reg |= (enc->roi_info[index].upper_qp << 16);
-						mfc_debug(3, "[ROI] buffer[%d] en %d, "
-								"QP lower %d upper %d reg %#x\n",
-								index, enc->roi_info[index].enable,
-								enc->roi_info[index].lower_qp,
-								enc->roi_info[index].upper_qp,
-								reg);
-					} else {
-						mfc_debug(3, "[ROI] buffer[%d] is not enabled\n", index);
-					}
-					buf_ctrl->val = reg;
-					buf_ctrl->old_val2 = index;
-				}
+				if (buf_ctrl->id == V4L2_CID_MPEG_VIDEO_ROI_CONTROL)
+					__mfc_enc_set_roi(ctx, buf_ctrl);
 				break;
 			}
 		}
@@ -1165,7 +1176,7 @@ static void __mfc_enc_set_buf_ctrls_exception(struct mfc_ctx *ctx,
 		value &= ~(0xFFFF);
 		value |= (p->rc_frame_delta & 0xFFFF);
 		MFC_WRITEL(value, MFC_REG_E_RC_FRAME_RATE);
-		mfc_debug(3, "[DROPCTRL] fps %d -> %d, delta: %d, reg: %#x\n",
+		mfc_debug(3, "[DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
 				p->rc_framerate, USEC_PER_SEC / ctx->ts_last_interval,
 				p->rc_frame_delta, value);
 	}
@@ -1173,8 +1184,8 @@ static void __mfc_enc_set_buf_ctrls_exception(struct mfc_ctx *ctx,
 
 static int mfc_enc_set_buf_ctrls_val(struct mfc_ctx *ctx, struct list_head *head)
 {
-	struct mfc_buf_ctrl *buf_ctrl;
 	struct mfc_dev *dev = ctx->dev;
+	struct mfc_buf_ctrl *buf_ctrl;
 	struct mfc_enc *enc = ctx->enc_priv;
 	unsigned int value = 0;
 	struct mfc_enc_params *p = &enc->params;
@@ -1225,8 +1236,8 @@ static int mfc_enc_set_buf_ctrls_val(struct mfc_ctx *ctx, struct list_head *head
 
 static int mfc_enc_get_buf_ctrls_val(struct mfc_ctx *ctx, struct list_head *head)
 {
-	struct mfc_buf_ctrl *buf_ctrl;
 	struct mfc_dev *dev = ctx->dev;
+	struct mfc_buf_ctrl *buf_ctrl;
 	unsigned int value = 0;
 
 	list_for_each_entry(buf_ctrl, head, list) {
@@ -1486,7 +1497,7 @@ static int mfc_enc_set_buf_ctrls_val_nal_q(struct mfc_ctx *ctx,
 			pInStr->RcFrameRate &= ~(buf_ctrl->mask << buf_ctrl->shft);
 			pInStr->RcFrameRate |=
 				(p->rc_frame_delta & buf_ctrl->mask) << buf_ctrl->shft;
-			mfc_debug(3, "[NALQ][DROPCTRL] fps %d -> %d, delta: %d, reg: %#x\n",
+			mfc_debug(3, "[NALQ][DROPCTRL] fps %d -> %ld, delta: %d, reg: %#x\n",
 					p->rc_framerate, USEC_PER_SEC / ctx->ts_last_interval,
 					p->rc_frame_delta, pInStr->RcFrameRate);
 			break;
@@ -1565,8 +1576,8 @@ static int mfc_enc_get_buf_ctrls_val_nal_q(struct mfc_ctx *ctx,
 static int mfc_enc_recover_buf_ctrls_val(struct mfc_ctx *ctx,
 						struct list_head *head)
 {
-	struct mfc_buf_ctrl *buf_ctrl;
 	struct mfc_dev *dev = ctx->dev;
+	struct mfc_buf_ctrl *buf_ctrl;
 	unsigned int value = 0;
 
 	list_for_each_entry(buf_ctrl, head, list) {

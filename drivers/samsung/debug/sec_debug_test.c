@@ -1,7 +1,7 @@
 /*
- *sec_debug_test.c
+ * sec_debug_test.c
  *
- * Copyright (c) 2016 Samsung Electronics Co., Ltd
+ * Copyright (c) 2019 Samsung Electronics Co., Ltd
  *              http://www.samsung.com
  *
  *  This program is free software; you can redistribute  it and/or modify it
@@ -32,7 +32,15 @@
 //#include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-debug.h>
 
-/* Override the default prefix for the compatibility with other models */
+/* spin_bug somtimes disrupt getting the result really wanted */
+#ifdef CONFIG_SEC_DEBUG_SPINBUG_PANIC
+extern void spin_debug_skip_panic(void);
+#else
+static inline void spin_debug_skip_panic(void)
+{
+}
+#endif
+
 #undef MODULE_PARAM_PREFIX
 #define MODULE_PARAM_PREFIX "sec_debug."
 
@@ -82,6 +90,7 @@ static void simulate_DISK_SLEEP(char *arg);
 static void simulate_CORRUPT_DELAYED_WORK(char *arg);
 static void simulate_MUTEX_AA(char *arg);
 static void simulate_MUTEX_ABBA(char *arg);
+static void simulate_WQ_LOCKUP(char *arg);
 
 enum {
 	FORCE_KERNEL_PANIC = 0,		/* KP */
@@ -128,6 +137,7 @@ enum {
 	FORCE_CORRUPT_DELAYED_WORK,	/* CORRUPT DELAYED WORK */
 	FORCE_MUTEX_AA,			/* MUTEX AA */
 	FORCE_MUTEX_ABBA,		/* MUTEX ABBA */
+	FORCE_WQ_LOCKUP,		/* WORKQUEUE LOCKUP */
 	NR_FORCE_ERROR,
 };
 
@@ -166,7 +176,7 @@ struct force_error force_error_vector = {
 		{"taskhardlockup",	&simulate_TASK_HARD_LOCKUP},
 		{"irqhardlockup",	&simulate_IRQ_HARD_LOCKUP},
 		{"spinlockup",	&simulate_SPIN_LOCKUP},
-		{"spinlock-allcore", 	&simulate_SPINLOCK_ALLCORE},
+		{"spinlock-allcore",	&simulate_SPINLOCK_ALLCORE},
 		{"spinlock-softlockup",	&simulate_SPINLOCK_SOFTLOCKUP},
 		{"spinlock-hardlockup",	&simulate_SPINLOCK_HARDLOCKUP},
 		{"rwlockup",	&simulate_RW_LOCKUP},
@@ -183,9 +193,10 @@ struct force_error force_error_vector = {
 		{"irqstorm",	&simulate_IRQ_STORM},
 		{"syncirqlockup",	&simulate_SYNC_IRQ_LOCKUP},
 		{"disksleep",	&simulate_DISK_SLEEP},
-		{"CDW",	&simulate_CORRUPT_DELAYED_WORK},
+		{"CDW",		&simulate_CORRUPT_DELAYED_WORK},
 		{"mutexaa",	&simulate_MUTEX_AA},
 		{"mutexabba",	&simulate_MUTEX_ABBA},
+		{"wqlockup",	&simulate_WQ_LOCKUP},
 	}
 };
 
@@ -194,6 +205,8 @@ struct debug_delayed_work_info {
 	u32 work_magic;
 	struct delayed_work read_info_work;
 };
+
+static struct work_struct lockup_work;
 
 static DEFINE_SPINLOCK(sec_debug_test_lock);
 static DEFINE_RWLOCK(sec_debug_test_rw_lock);
@@ -228,7 +241,7 @@ static void pull_down_other_cpus(void)
 #ifdef CONFIG_HOTPLUG_CPU
 	int cpu, ret;
 
-	for (cpu = NR_CPUS - 1; cpu > 0 ; cpu--) {
+	for (cpu = num_possible_cpus() - 1; cpu > 0 ; cpu--) {
 		ret = cpu_down(cpu);
 		if (ret)
 			pr_crit("%s: CORE%d ret: %x\n", __func__, cpu, ret);
@@ -473,7 +486,7 @@ static void simulate_SOFTIRQ_LOCKUP(char *arg)
 {
 	int cpu;
 
-	tasklet_init(&sec_debug_tasklet, softirq_lockup_tasklet, (unsigned long)0);
+	tasklet_init(&sec_debug_tasklet, softirq_lockup_tasklet, 0);
 	pr_crit("%s()\n", __func__);
 
 	if (arg) {
@@ -508,9 +521,9 @@ static enum hrtimer_restart softirq_storm_timer_fn(struct hrtimer *hrtimer)
 
 static void simulate_SOFTIRQ_STORM(char *arg)
 {
-	if ((arg && kstrtol(arg, 10, &sample_period)) || !arg) {
+	if ((arg && kstrtol(arg, 10, &sample_period)) || !arg)
 		sample_period = 1000000;
-	}
+
 	pr_crit("%s : set period (%d)\n", __func__, (unsigned int)sample_period);
 
 	tasklet_init(&sec_debug_tasklet, softirq_storm_tasklet, 0);
@@ -643,6 +656,7 @@ static void simulate_SPINLOCK_HARDLOCKUP(char *arg)
 static void simulate_SAFEFAULT(char *arg)
 {
 	pr_crit("%s()\n", __func__);
+	spin_debug_skip_panic();
 
 	make_all_cpu_online();
 	preempt_disable();
@@ -765,7 +779,7 @@ static int recursive_loop(int remaining)
 	char buf[BUFFER_SIZE];
 
 	/*sub sp, sp, #(S_FRAME_SIZE+PRESERVE_STACK_SIZE) = 320+256 = 576 @kernel_ventry*/
-	if((unsigned long)(current->stack)+575 > current_stack_pointer)
+	if (((unsigned long)(current->stack) + 575) > current_stack_pointer)
 		*((volatile unsigned int *)0) = 0;
 
 	/* Make sure compiler does not optimize this away. */
@@ -804,7 +818,8 @@ static void simulate_BAD_SCHED(char *arg)
 		pr_crit("%dth try.\n", tries);
 		for_each_online_cpu(cpu) {
 			if (idle_cpu(cpu))
-				smp_call_function_single(cpu, simulate_BAD_SCHED_handler, &ret, 1);
+				smp_call_function_single(cpu,
+					simulate_BAD_SCHED_handler, &ret, 1);
 			if (ret)
 				return;	/* success */
 		}
@@ -814,6 +829,8 @@ static void simulate_BAD_SCHED(char *arg)
 
 static void simulate_CORRUPT_MAGIC(char *arg)
 {
+	/* TODO: need extra info c */
+#if 0
 	int magic;
 
 	pr_crit("%s()\n", __func__);
@@ -824,6 +841,7 @@ static void simulate_CORRUPT_MAGIC(char *arg)
 	} else {
 		simulate_extra_info_force_error(0);
 	}
+#endif
 }
 
 static void simulate_IRQ_STORM(char *arg)
@@ -835,21 +853,24 @@ static void simulate_IRQ_STORM(char *arg)
 
 	if (arg) {
 		if (!kstrtol(arg, 10, &irq))
-			irq_set_irq_type((unsigned int)irq, IRQF_TRIGGER_HIGH | IRQF_SHARED);
+			irq_set_irq_type((unsigned int)irq,
+					IRQF_TRIGGER_HIGH | IRQF_SHARED);
 		else
-			pr_crit("%s : wrong irq number (%d)\n", __func__, (unsigned int)irq);
+			pr_crit("%s : wrong irq number (%d)\n", __func__,
+						(unsigned int)irq);
 	} else {
-		for_each_irq_nr(i) {			
+		for_each_irq_nr(i) {
 			struct irq_desc *desc = irq_to_desc(i);
 
 			if (desc && desc->action && desc->action->name)
-				if (!strcmp(desc->action->name, "gpio-keys: KEY_WINK")) {
-					irq_set_irq_type(i, IRQF_TRIGGER_HIGH | IRQF_SHARED);
+				if (!strcmp(desc->action->name, "gpio-keys: KEY_VOLUMEDOWN")) {
+					irq_set_irq_type(i,
+						IRQF_TRIGGER_HIGH | IRQF_SHARED);
 					break;
 				}
 		}
 		if (i == nr_irqs)
-			pr_crit("%s : irq (gpio-keys: KEY_WINK) not found\n", __func__);
+			pr_crit("%s : irq (gpio-keys: KEY_VOLUMEDOWN) not found\n", __func__);
 
 	}
 }
@@ -881,18 +902,19 @@ static void simulate_SYNC_IRQ_LOCKUP(char *arg)
 			struct irq_desc *desc = irq_to_desc(i);
 
 			if (desc && desc->action && desc->action->thread_fn)
-				desc->action->thread_fn = dummy_wait_for_completion_irq_handler;	
-		}
-		else {
-			pr_crit("%s : wrong irq number (%d)\n", __func__, (unsigned int)irq);
+				desc->action->thread_fn = dummy_wait_for_completion_irq_handler;
+		} else {
+			pr_crit("%s : wrong irq number (%d)\n", __func__,
+					(unsigned int)irq);
 		}
 	} else {
-		for_each_irq_nr(i) {			
+		for_each_irq_nr(i) {
 			struct irq_desc *desc = irq_to_desc(i);
 
-			if (desc && desc->action && desc->action->name && desc->action->thread_fn)
+			if (desc && desc->action &&
+				desc->action->name && desc->action->thread_fn)
 				if (!strcmp(desc->action->name, "sec_ts")) {
-					desc->action->thread_fn = dummy_wait_for_completion_irq_handler;	
+					desc->action->thread_fn = dummy_wait_for_completion_irq_handler;
 					break;
 				}
 		}
@@ -907,7 +929,7 @@ static void simulate_DISK_SLEEP(char *arg)
 	dummy_wait_for_completion();
 }
 
-static void sec_debug_work(struct work_struct *work)
+static void secdbg_delay_work(struct work_struct *work)
 {
 	struct debug_delayed_work_info *info = container_of(work, struct debug_delayed_work_info,
 							    read_info_work.work);
@@ -915,20 +937,27 @@ static void sec_debug_work(struct work_struct *work)
 	pr_crit("%s info->work_magic : %d\n", __func__, info->work_magic);
 }
 
+static void sec_debug_wq_lockup(struct work_struct *work)
+{
+	pr_crit("%s\n", __func__);
+	asm("b .");
+}
+
 static void simulate_CORRUPT_DELAYED_WORK(char *arg)
 {
 	struct debug_delayed_work_info *info;
 
-	pr_crit("%s()\n", __func__);
-
 	info = kzalloc(sizeof(struct debug_delayed_work_info), GFP_KERNEL);
+
+	pr_crit("%s(): address of info is 0x%p\n", __func__, info);
+
 	if (!info)
 		return;
 
 	info->start = true;
 	info->work_magic = 0xE055E055;
 
-	INIT_DELAYED_WORK(&info->read_info_work, sec_debug_work);
+	INIT_DELAYED_WORK(&info->read_info_work, secdbg_delay_work);
 	schedule_delayed_work(&info->read_info_work, msecs_to_jiffies(5000));
 	kfree(info);
 }
@@ -1028,6 +1057,23 @@ static void simulate_MUTEX_ABBA(char *arg)
 	test_mutex_abba();
 }
 
+static void simulate_WQ_LOCKUP(char *arg)
+{
+	int cpu;
+
+	pr_crit("%s()\n", __func__);
+	INIT_WORK(&lockup_work, sec_debug_wq_lockup);
+
+	if (arg) {
+		cpu = str_to_num(arg);
+
+		if (cpu >= 0 && cpu <= num_possible_cpus() - 1) {
+			pr_crit("Put works into cpu%d\n", cpu);
+			schedule_work_on(cpu, &lockup_work);
+		}
+	}
+}
+
 static int sec_debug_get_force_error(char *buffer, const struct kernel_param *kp)
 {
 	int i;
@@ -1058,8 +1104,8 @@ static int sec_debug_set_force_error(const char *val, const struct kernel_param 
 }
 
 static const struct kernel_param_ops sec_debug_force_error_ops = {
-	.set	= sec_debug_set_force_error,
-	.get	= sec_debug_get_force_error,
+		.set	= sec_debug_set_force_error,
+		.get	= sec_debug_get_force_error,
 };
 
 module_param_cb(force_error, &sec_debug_force_error_ops, NULL, 0600);

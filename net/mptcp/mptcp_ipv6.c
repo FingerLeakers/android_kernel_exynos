@@ -125,11 +125,12 @@ static u32 mptcp_v6_cookie_init_seq(struct request_sock *req, const struct sock 
 }
 #endif
 
-static int mptcp_v6_join_init_req(struct request_sock *req, const struct sock *sk,
+/* May be called without holding the meta-level lock */
+static int mptcp_v6_join_init_req(struct request_sock *req, const struct sock *meta_sk,
 				  struct sk_buff *skb, bool want_cookie)
 {
 	struct mptcp_request_sock *mtreq = mptcp_rsk(req);
-	const struct mptcp_cb *mpcb = tcp_sk(sk)->mpcb;
+	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	union inet_addr addr;
 	int loc_id;
 	bool low_prio = false;
@@ -141,14 +142,14 @@ static int mptcp_v6_join_init_req(struct request_sock *req, const struct sock *s
 	 */
 	mtreq->hash_entry.pprev = NULL;
 
-	tcp_request_sock_ipv6_ops.init_req(req, sk, skb, want_cookie);
+	tcp_request_sock_ipv6_ops.init_req(req, meta_sk, skb, want_cookie);
 
 	mtreq->mptcp_loc_nonce = mptcp_v6_get_nonce(ipv6_hdr(skb)->saddr.s6_addr32,
 						    ipv6_hdr(skb)->daddr.s6_addr32,
 						    tcp_hdr(skb)->source,
 						    tcp_hdr(skb)->dest);
 	addr.in6 = inet_rsk(req)->ir_v6_loc_addr;
-	loc_id = mpcb->pm_ops->get_local_id(AF_INET6, &addr, sock_net(sk), &low_prio);
+	loc_id = mpcb->pm_ops->get_local_id(meta_sk, AF_INET6, &addr, &low_prio);
 	if (loc_id == -1)
 		return -1;
 	mtreq->loc_id = loc_id;
@@ -170,6 +171,9 @@ struct request_sock_ops mptcp6_request_sock_ops __read_mostly = {
 	.syn_ack_timeout =	tcp_syn_ack_timeout,
 };
 
+/* Similar to: tcp_v6_conn_request
+ * May be called without holding the meta-level lock
+ */
 static int mptcp_v6_join_request(struct sock *meta_sk, struct sk_buff *skb)
 {
 	return tcp_conn_request(&mptcp6_request_sock_ops,
@@ -206,12 +210,13 @@ int mptcp_v6_do_rcv(struct sock *meta_sk, struct sk_buff *skb)
 
 	if (sk->sk_state == TCP_NEW_SYN_RECV) {
 		struct request_sock *req = inet_reqsk(sk);
+		bool req_stolen;
 
 		if (!mptcp_can_new_subflow(meta_sk))
 			goto reset_and_discard;
 
 		local_bh_disable();
-		child = tcp_check_req(meta_sk, skb, req, false);
+		child = tcp_check_req(meta_sk, skb, req, false, &req_stolen);
 		if (!child) {
 			reqsk_put(req);
 			local_bh_enable();
@@ -277,8 +282,9 @@ reset_and_discard:
  *
  * We are in user-context and meta-sock-lock is hold.
  */
-int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
-			   struct mptcp_rem6 *rem)
+int __mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
+			     __be16 sport, struct mptcp_rem6 *rem,
+			     struct sock **subsk)
 {
 	struct tcp_sock *tp;
 	struct sock *sk;
@@ -306,7 +312,8 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	lockdep_set_class_and_name(&(sk)->sk_lock.slock, &meta_slock_key, meta_slock_key_name);
 	lockdep_init_map(&(sk)->sk_lock.dep_map, meta_key_name, &meta_key, 0);
 
-	if (mptcp_add_sock(meta_sk, sk, loc->loc6_id, rem->rem6_id, GFP_KERNEL)) {
+	ret = mptcp_add_sock(meta_sk, sk, loc->loc6_id, rem->rem6_id, GFP_KERNEL);
+	if (ret) {
 		net_err_ratelimited("%s mptcp_add_sock failed ret: %d\n",
 				    __func__, ret);
 		goto error;
@@ -316,12 +323,12 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	tp->mptcp->low_prio = loc->low_prio;
 
 	/* Initializing the timer for an MPTCP subflow */
-	setup_timer(&tp->mptcp->mptcp_ack_timer, mptcp_ack_handler, (unsigned long)sk);
+	timer_setup(&tp->mptcp->mptcp_ack_timer, mptcp_ack_handler, 0);
 
 	/** Then, connect the socket to the peer */
 	loc_in.sin6_family = AF_INET6;
 	rem_in.sin6_family = AF_INET6;
-	loc_in.sin6_port = 0;
+	loc_in.sin6_port = sport;
 	if (rem->port)
 		rem_in.sin6_port = rem->port;
 	else
@@ -363,6 +370,9 @@ int mptcp_init6_subsockets(struct sock *meta_sk, const struct mptcp_loc6 *loc,
 	sk_set_socket(sk, meta_sk->sk_socket);
 	sk->sk_wq = meta_sk->sk_wq;
 
+	if (subsk)
+		*subsk = sk;
+
 	return 0;
 
 error:
@@ -376,7 +386,7 @@ error:
 	}
 	return ret;
 }
-EXPORT_SYMBOL(mptcp_init6_subsockets);
+EXPORT_SYMBOL(__mptcp_init6_subsockets);
 
 const struct inet_connection_sock_af_ops mptcp_v6_specific = {
 	.queue_xmit	   = inet6_csk_xmit,

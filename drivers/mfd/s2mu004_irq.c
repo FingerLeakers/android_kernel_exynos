@@ -29,10 +29,9 @@
 #include <linux/mfd/samsung/s2mu004-private.h>
 
 static const u8 s2mu004_mask_reg[] = {
-	/* TODO: Need to check other INTMASK */
 	[CHG_INT1] = S2MU004_REG_SC_INT1_MASK,
 	[CHG_INT2] = S2MU004_REG_SC_INT2_MASK,
-#if defined(CONFIG_HV_MUIC_S2MU004_AFC)
+#if defined(CONFIG_MUIC_S2MU004_HV)
 	[AFC_INT] = S2MU004_REG_AFC_INT_MASK,
 #endif
 	[MUIC_INT1] = S2MU004_REG_MUIC_INT1_MASK,
@@ -163,7 +162,9 @@ static irqreturn_t s2mu004_irq_thread(int irq, void *data)
 	u8 irq_reg[S2MU004_IRQ_GROUP_NR] = {0};
 	int i, ret;
 	u8 temp, temp_2;
+#if defined(CONFIG_MUIC_S2MU004_HV)
 	u8 temp_vdadc;
+#endif
 
 	pr_debug("%s: irq gpio pre-state(0x%02x)\n", __func__,
 			gpio_get_value(s2mu004->irq_gpio));
@@ -171,30 +172,37 @@ static irqreturn_t s2mu004_irq_thread(int irq, void *data)
 	/* CHG_INT1 ~ INT2 */
 	ret = s2mu004_read_reg(s2mu004->i2c, S2MU004_REG_SC_INT1,
 				&irq_reg[CHG_INT1]);
-	pr_info("%s: charger interrupt(0x%02x)\n",
-			__func__, irq_reg[CHG_INT1]);
+	if (irq_reg[CHG_INT1])
+		pr_info("%s: charger interrupt(0x%02x)\n",
+				__func__, irq_reg[CHG_INT1]);
 
 	ret = s2mu004_read_reg(s2mu004->i2c, S2MU004_REG_SC_INT2,
 				&irq_reg[CHG_INT2]);
-	pr_info("%s: charger interrupt(0x%02x)\n",
-			__func__, irq_reg[CHG_INT2]);
+	if (irq_reg[CHG_INT2])
+		pr_info("%s: charger interrupt(0x%02x)\n",
+				__func__, irq_reg[CHG_INT2]);
 
+#if defined(CONFIG_MUIC_S2MU004_HV)
 	/* AFC_INT */
-#if defined(CONFIG_HV_MUIC_S2MU004_AFC)
 	ret = s2mu004_read_reg(s2mu004->i2c, S2MU004_REG_AFC_INT,
 				&irq_reg[AFC_INT]);
-	pr_info("%s: AFC interrupt(0x%02x)\n",
-			__func__, irq_reg[AFC_INT]);
-#endif
-	ret = s2mu004_read_reg(s2mu004->i2c, 0x48,
+	if (irq_reg[AFC_INT]) {
+		pr_info("%s: AFC interrupt(0x%02x)\n",
+				__func__, irq_reg[AFC_INT]);
+
+		ret = s2mu004_read_reg(s2mu004->i2c, 0x48,
 				&temp_vdadc);
-	pr_info("%s: 0x48 (0x%02x)\n",
-			__func__, temp_vdadc);
+		pr_info("%s: 0x48 (0x%02x)\n",
+				__func__, temp_vdadc);
+	}
+#endif
+
 	/* MUIC INT1 ~ INT2 */
 	ret = s2mu004_bulk_read(s2mu004->i2c, S2MU004_REG_MUIC_INT1,
 				S2MU004_NUM_IRQ_MUIC_REGS, &irq_reg[MUIC_INT1]);
-	pr_info("%s: muic interrupt(0x%02x, 0x%02x)\n", __func__,
-			irq_reg[MUIC_INT1], irq_reg[MUIC_INT2]);
+	if (irq_reg[MUIC_INT1] || irq_reg[MUIC_INT2])
+		pr_info("%s: muic interrupt(0x%02x, 0x%02x)\n", __func__,
+				irq_reg[MUIC_INT1], irq_reg[MUIC_INT2]);
 
 	if (s2mu004->pmic_rev == 0) {
 		s2mu004_read_reg(s2mu004->i2c, S2MU004_REG_MUIC_ADC, &temp);

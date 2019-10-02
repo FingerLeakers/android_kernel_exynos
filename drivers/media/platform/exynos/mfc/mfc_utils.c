@@ -13,87 +13,23 @@
 #include <linux/smc.h>
 
 #include "mfc_utils.h"
+#include "mfc_qos.h"
+#include "mfc_mem.h"
 
 int mfc_check_vb_with_fmt(struct mfc_fmt *fmt, struct vb2_buffer *vb)
 {
+	struct mfc_ctx *ctx = vb->vb2_queue->drv_priv;
+
 	if (!fmt)
 		return -EINVAL;
 
 	if (fmt->mem_planes != vb->num_planes) {
-		mfc_err_dev("plane number is different (%d != %d)\n",
+		mfc_err_ctx("plane number is different (%d != %d)\n",
 				fmt->mem_planes, vb->num_planes);
 		return -EINVAL;
 	}
 
 	return 0;
-}
-
-int __mfc_stream_buf_prot(struct mfc_ctx *ctx,
-				struct mfc_buf *buf, bool en)
-{
-	return 0;
-}
-
-int __mfc_raw_buf_prot(struct mfc_ctx *ctx,
-				struct mfc_buf *buf, bool en)
-{
-	return 0;
-}
-
-void mfc_raw_protect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index)
-{
-	if (!test_bit(index, &ctx->raw_protect_flag)) {
-		if (__mfc_raw_buf_prot(ctx, mfc_buf, true)) {
-			mfc_err_ctx("failed to CFW_PROT\n");
-		} else {
-			set_bit(index, &ctx->raw_protect_flag);
-			mfc_debug(2, "[index:%d] raw protect, flag: %#lx\n",
-					index, ctx->raw_protect_flag);
-		}
-	}
-}
-
-void mfc_raw_unprotect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index)
-{
-	if (test_bit(index, &ctx->raw_protect_flag)) {
-		if (__mfc_raw_buf_prot(ctx, mfc_buf, false)) {
-			mfc_err_ctx("failed to CFW_UNPROT\n");
-		} else {
-			clear_bit(index, &ctx->raw_protect_flag);
-			mfc_debug(2, "[index:%d] raw unprotect, flag: %#lx\n",
-					index, ctx->raw_protect_flag);
-		}
-	}
-}
-
-void mfc_stream_protect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index)
-{
-	if (!test_bit(index, &ctx->stream_protect_flag)) {
-		if (__mfc_stream_buf_prot(ctx, mfc_buf, true)) {
-			mfc_err_ctx("failed to CFW_PROT\n");
-		} else {
-			set_bit(index, &ctx->stream_protect_flag);
-			mfc_debug(2, "[index:%d] stream protect, flag: %#lx\n",
-					index, ctx->stream_protect_flag);
-		}
-	}
-}
-
-void mfc_stream_unprotect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index)
-{
-	if (test_bit(index, &ctx->stream_protect_flag)) {
-		if (__mfc_stream_buf_prot(ctx, mfc_buf, false)) {
-			mfc_err_ctx("failed to CFW_UNPROT\n");
-		} else {
-			clear_bit(index, &ctx->stream_protect_flag);
-			mfc_debug(2, "[index:%d] stream unprotect, flag: %#lx\n",
-					index, ctx->stream_protect_flag);
-		}
-	}
 }
 
 static int __mfc_calc_plane(int width, int height, int is_tiled)
@@ -161,22 +97,57 @@ static void __mfc_set_linear_stride_size(struct mfc_ctx *ctx,
 		raw->stride_2bits[2] = 0;
 		break;
 	case V4L2_PIX_FMT_RGB24:
-		ctx->raw_buf.stride[0] = ctx->img_width * 3;
-		ctx->raw_buf.stride[1] = 0;
-		ctx->raw_buf.stride[2] = 0;
-		break;
 	case V4L2_PIX_FMT_RGB565:
-		ctx->raw_buf.stride[0] = ctx->img_width * 2;
-		ctx->raw_buf.stride[1] = 0;
-		ctx->raw_buf.stride[2] = 0;
-		break;
 	case V4L2_PIX_FMT_RGB32X:
 	case V4L2_PIX_FMT_BGR32:
 	case V4L2_PIX_FMT_ARGB32:
-		ctx->raw_buf.stride[0] = (ctx->buf_stride > ctx->img_width) ?
-			(ALIGN(ctx->img_width, 16) * 4) : (ctx->img_width * 4);
-		ctx->raw_buf.stride[1] = 0;
-		ctx->raw_buf.stride[2] = 0;
+		raw->stride[0] = ALIGN(ctx->img_width, 16) * (ctx->rgb_bpp / 8);
+		raw->stride[1] = 0;
+		raw->stride[2] = 0;
+		break;
+	/* for compress format (SBWC) */
+	case V4L2_PIX_FMT_NV12M_SBWC_8B:
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+		raw->stride[0] = SBWC_8B_STRIDE(ctx->img_width);
+		raw->stride[1] = SBWC_8B_STRIDE(ctx->img_width);
+		raw->stride[2] = 0;
+		raw->stride_2bits[0] = SBWC_HEADER_STRIDE(ctx->img_width);
+		raw->stride_2bits[1] = SBWC_HEADER_STRIDE(ctx->img_width);
+		raw->stride_2bits[2] = 0;
+		mfc_debug(2, "[SBWC] 8B stride [0] %d [1] %d header [0] %d [1] %d\n",
+				raw->stride[0], raw->stride[1], raw->stride_2bits[0], raw->stride_2bits[1]);
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWC_10B:
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+		raw->stride[0] = SBWC_10B_STRIDE(ctx->img_width);
+		raw->stride[1] = SBWC_10B_STRIDE(ctx->img_width);
+		raw->stride[2] = 0;
+		raw->stride_2bits[0] = SBWC_HEADER_STRIDE(ctx->img_width);
+		raw->stride_2bits[1] = SBWC_HEADER_STRIDE(ctx->img_width);
+		raw->stride_2bits[2] = 0;
+		mfc_debug(2, "[SBWC] 10B stride [0] %d [1] %d header [0] %d [1] %d\n",
+				raw->stride[0], raw->stride[1], raw->stride_2bits[0], raw->stride_2bits[1]);
+		break;
+	/* for compress lossy format (SBWCL) */
+	case V4L2_PIX_FMT_NV12M_SBWCL_8B:
+		raw->stride[0] = SBWCL_8B_STRIDE(ctx->img_width, ctx->sbwcl_ratio);
+		raw->stride[1] = SBWCL_8B_STRIDE(ctx->img_width, ctx->sbwcl_ratio);
+		raw->stride[2] = 0;
+		raw->stride_2bits[0] = 0;
+		raw->stride_2bits[1] = 0;
+		raw->stride_2bits[2] = 0;
+		mfc_debug(2, "[SBWCL] 8B stride [0] %d [1] %d header [0] %d [1] %d\n",
+				raw->stride[0], raw->stride[1], raw->stride_2bits[0], raw->stride_2bits[1]);
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWCL_10B:
+		raw->stride[0] = SBWCL_10B_STRIDE(ctx->img_width, ctx->sbwcl_ratio);
+		raw->stride[1] = SBWCL_10B_STRIDE(ctx->img_width, ctx->sbwcl_ratio);
+		raw->stride[2] = 0;
+		raw->stride_2bits[0] = 0;
+		raw->stride_2bits[1] = 0;
+		raw->stride_2bits[2] = 0;
+		mfc_debug(2, "[SBWCL] 10B stride [0] %d [1] %d header [0] %d [1] %d\n",
+				raw->stride[0], raw->stride[1], raw->stride_2bits[0], raw->stride_2bits[1]);
 		break;
 	default:
 		break;
@@ -185,8 +156,8 @@ static void __mfc_set_linear_stride_size(struct mfc_ctx *ctx,
 	/* Decoder needs multiple of 16 alignment for stride */
 	if (ctx->type == MFCINST_DECODER) {
 		for (i = 0; i < 3; i++)
-			ctx->raw_buf.stride[i] =
-				ALIGN(ctx->raw_buf.stride[i], 16);
+			raw->stride[i] =
+				ALIGN(raw->stride[i], 16);
 	}
 }
 
@@ -261,6 +232,21 @@ void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx)
 		raw->plane_size[1] = YUV420N_CB_SIZE(ctx->img_width, ctx->img_height);
 		raw->plane_size[2] = YUV420N_CR_SIZE(ctx->img_width, ctx->img_height);
 		break;
+	/* for compress format (SBWC) */
+	case V4L2_PIX_FMT_NV12M_SBWC_8B:
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+		raw->plane_size[0] = SBWC_8B_Y_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size[1] = SBWC_8B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[0] = SBWC_8B_Y_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[1] = SBWC_8B_CBCR_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWC_10B:
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+		raw->plane_size[0] = SBWC_10B_Y_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size[1] = SBWC_10B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[0] = SBWC_10B_Y_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[1] = SBWC_10B_CBCR_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		break;
 	default:
 		mfc_err_ctx("Invalid pixelformat : %s\n", ctx->dst_fmt->name);
 		break;
@@ -268,11 +254,22 @@ void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx)
 
 	__mfc_set_linear_stride_size(ctx, ctx->dst_fmt);
 
+	/*
+	 * In case of 10bit,
+	 * we do not update to min dpb size.
+	 * Because min size may be different from the 10bit mem_type be used.
+	 */
 	for (i = 0; i < raw->num_planes; i++) {
-		if (raw->plane_size[i] < ctx->min_dpb_size[i]) {
-			mfc_info_dev("[FRAME] plane[%d] size is changed %d -> %d\n",
+		if (!ctx->is_10bit && (raw->plane_size[i] < ctx->min_dpb_size[i])) {
+			mfc_info_ctx("[FRAME] plane[%d] size is changed %d -> %d\n",
 					i, raw->plane_size[i], ctx->min_dpb_size[i]);
 			raw->plane_size[i] = ctx->min_dpb_size[i];
+		}
+		if (IS_2BIT_NEED(ctx) &&
+				(raw->plane_size_2bits[i] < ctx->min_dpb_size_2bits[i])) {
+			mfc_info_ctx("[FRAME] 2bit plane[%d] size is changed %d -> %d\n",
+					i, raw->plane_size_2bits[i], ctx->min_dpb_size_2bits[i]);
+			raw->plane_size_2bits[i] = ctx->min_dpb_size_2bits[i];
 		}
 	}
 
@@ -281,10 +278,12 @@ void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx)
 		mfc_debug(2, "[FRAME] Plane[%d] size = %d, stride = %d\n",
 			i, raw->plane_size[i], raw->stride[i]);
 	}
-	if (ctx->is_10bit) {
+	if (IS_2BIT_NEED(ctx)) {
 		for (i = 0; i < raw->num_planes; i++) {
 			raw->total_plane_size += raw->plane_size_2bits[i];
-			mfc_debug(2, "[FRAME][10BIT] Plane[%d] 2bit size = %d, stride = %d\n",
+			mfc_debug(2, "[FRAME]%s%s Plane[%d] 2bit size = %d, stride = %d\n",
+					(ctx->is_10bit ? "[10BIT]" : ""),
+					(ctx->is_sbwc ? "[SBWC]" : ""),
 					i, raw->plane_size_2bits[i],
 					raw->stride_2bits[i]);
 		}
@@ -364,6 +363,52 @@ void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 		raw->plane_size[0] = ALIGN(default_size, 256) * 2 + extra;
 		raw->plane_size[1] = ALIGN(default_size, 256) * 2 + extra;
 		break;
+	case V4L2_PIX_FMT_RGB24:
+		ctx->rgb_bpp = 24;
+		raw->plane_size[0] = ALIGN((default_size * (ctx->rgb_bpp / 8)), 256) + extra;
+		break;
+	case V4L2_PIX_FMT_RGB565:
+		ctx->rgb_bpp = 16;
+		raw->plane_size[0] = ALIGN((default_size * (ctx->rgb_bpp / 8)), 256) + extra;
+		break;
+	case V4L2_PIX_FMT_RGB32X:
+	case V4L2_PIX_FMT_BGR32:
+	case V4L2_PIX_FMT_ARGB32:
+		ctx->rgb_bpp = 32;
+		raw->plane_size[0] = ALIGN((default_size * (ctx->rgb_bpp / 8)), 256) + extra;
+		break;
+	/* for compress format (SBWC) */
+	case V4L2_PIX_FMT_NV12M_SBWC_8B:
+	case V4L2_PIX_FMT_NV21M_SBWC_8B:
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+		raw->plane_size[0] = SBWC_8B_Y_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size[1] = SBWC_8B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[0] = SBWC_8B_Y_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[1] = SBWC_8B_CBCR_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWC_10B:
+	case V4L2_PIX_FMT_NV21M_SBWC_10B:
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+		raw->plane_size[0] = SBWC_10B_Y_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size[1] = SBWC_10B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[0] = SBWC_10B_Y_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size_2bits[1] = SBWC_10B_CBCR_HEADER_SIZE(ctx->img_width, ctx->img_height);
+		break;
+	/* for compress lossy format (SBWCL) */
+	case V4L2_PIX_FMT_NV12M_SBWCL_8B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_8B:
+		raw->plane_size[0] = SBWCL_8B_Y_SIZE(ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		raw->plane_size[1] = SBWCL_8B_CBCR_SIZE(ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		raw->plane_size_2bits[0] = 0;
+		raw->plane_size_2bits[1] = 0;
+		break;
+	case V4L2_PIX_FMT_NV12M_SBWCL_10B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_10B:
+		raw->plane_size[0] = SBWCL_10B_Y_SIZE(ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		raw->plane_size[1] = SBWCL_10B_CBCR_SIZE(ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		raw->plane_size_2bits[0] = 0;
+		raw->plane_size_2bits[1] = 0;
+		break;
 	default:
 		mfc_err_ctx("Invalid pixel format(%d)\n", ctx->src_fmt->fourcc);
 		break;
@@ -372,14 +417,22 @@ void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 	__mfc_set_linear_stride_size(ctx, ctx->src_fmt);
 
 	for (i = 0; i < raw->num_planes; i++) {
+		if (raw->plane_size[i] < ctx->min_dpb_size[i])
+			mfc_info_ctx("[FRAME] plane[%d] size %d / min size %d\n",
+					i, raw->plane_size[i], ctx->min_dpb_size[i]);
+	}
+
+	for (i = 0; i < raw->num_planes; i++) {
 		raw->total_plane_size += raw->plane_size[i];
 		mfc_debug(2, "[FRAME] Plane[%d] size = %d, stride = %d\n",
 			i, raw->plane_size[i], raw->stride[i]);
 	}
-	if (ctx->is_10bit) {
+	if (IS_2BIT_NEED(ctx)) {
 		for (i = 0; i < raw->num_planes; i++) {
 			raw->total_plane_size += raw->plane_size_2bits[i];
-			mfc_debug(2, "[FRAME][10BIT] Plane[%d] 2bit size = %d, stride = %d\n",
+			mfc_debug(2, "[FRAME]%s%s Plane[%d] 2bit size = %d, stride = %d\n",
+					(ctx->is_10bit ? "[10BIT]" : ""),
+					(ctx->is_sbwc ? "[SBWC]" : ""),
 					i, raw->plane_size_2bits[i],
 					raw->stride_2bits[i]);
 		}
@@ -388,92 +441,57 @@ void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 	mfc_debug(2, "[FRAME] total plane size: %d\n", raw->total_plane_size);
 }
 
-void mfc_cleanup_assigned_dpb(struct mfc_ctx *ctx)
+void mfc_calc_base_addr(struct mfc_ctx *ctx, struct vb2_buffer *vb,
+				struct mfc_fmt *fmt)
 {
-	struct mfc_dec *dec;
-	struct mfc_buf *dst_mb;
+	struct mfc_buf *buf = vb_to_mfc_buf(vb);
+	dma_addr_t start_raw;
 	int i;
 
-	if (!ctx) {
-		mfc_err_dev("no mfc context to run\n");
-		return;
-	}
+	start_raw = mfc_mem_get_daddr_vb(vb, 0);
 
-	dec = ctx->dec_priv;
-	if (!dec) {
-		mfc_err_dev("no mfc decoder to run\n");
-		return;
-	}
-
-	if (ctx->is_drm && ctx->raw_protect_flag) {
-		mfc_debug(2, "raw_protect_flag(%#lx) will be released\n",
-				ctx->raw_protect_flag);
-		for (i = 0; i < MFC_MAX_DPBS; i++) {
-			dst_mb = dec->assigned_dpb[i];
-
-			mfc_raw_unprotect(ctx, dst_mb, i);
-		}
-		mfc_clear_assigned_dpb(ctx);
-	}
-}
-
-void mfc_unprotect_released_dpb(struct mfc_ctx *ctx, unsigned int released_flag)
-{
-	struct mfc_dec *dec;
-	struct mfc_buf *dst_mb;
-	int i;
-
-	if (!ctx) {
-		mfc_err_dev("no mfc context to run\n");
-		return;
-	}
-
-	dec = ctx->dec_priv;
-	if (!dec) {
-		mfc_err_dev("no mfc decoder to run\n");
-		return;
-	}
-
-	if (ctx->is_drm) {
-		for (i = 0; i < MFC_MAX_DPBS; i++) {
-			if (released_flag & (1 << i)) {
-				dst_mb = dec->assigned_dpb[i];
-				mfc_raw_unprotect(ctx, dst_mb, i);
-			}
-		}
-	}
-
-}
-
-void mfc_protect_dpb(struct mfc_ctx *ctx, struct mfc_buf *dst_mb)
-{
-	struct mfc_dec *dec;
-	int dst_index;
-
-	if (!ctx) {
-		mfc_err_dev("no mfc context to run\n");
-		return;
-	}
-
-	dec = ctx->dec_priv;
-	if (!dec) {
-		mfc_err_dev("no mfc decoder to run\n");
-		return;
-	}
-
-	dst_index = dst_mb->vb.vb2_buf.index;
-
-	if (ctx->is_drm) {
-		dec->assigned_dpb[dst_index] = dst_mb;
-		mfc_raw_protect(ctx, dst_mb, dst_index);
+	switch (fmt->fourcc) {
+	case V4L2_PIX_FMT_NV12N:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = NV12N_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12N_10B:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = NV12N_10B_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_YUV420N:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = YUV420N_CB_BASE(start_raw, ctx->img_width, ctx->img_height);
+		buf->addr[0][2] = YUV420N_CR_BASE(start_raw, ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = SBWC_8B_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = SBWC_10B_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height);
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWCL_8B:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = SBWCL_8B_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		break;
+	case V4L2_PIX_FMT_NV12N_SBWCL_10B:
+		buf->addr[0][0] = start_raw;
+		buf->addr[0][1] = SBWCL_10B_CBCR_BASE(start_raw, ctx->img_width, ctx->img_height, ctx->sbwcl_ratio);
+		break;
+	default:
+		for (i = 0; i < fmt->mem_planes; i++)
+			buf->addr[0][i] = mfc_mem_get_daddr_vb(vb, i);
+		break;
 	}
 }
 
-void mfc_watchdog_tick(unsigned long arg)
+void mfc_watchdog_tick(struct timer_list *t)
 {
-	struct mfc_dev *dev = (struct mfc_dev *)arg;
+	struct mfc_dev *dev = from_timer(dev, t, watchdog_timer);
 
-	mfc_debug(5, "watchdog is ticking!\n");
+	mfc_debug_dev(5, "watchdog is ticking!\n");
 
 	if (atomic_read(&dev->watchdog_tick_running))
 		atomic_inc(&dev->watchdog_tick_cnt);
@@ -491,17 +509,15 @@ void mfc_watchdog_tick(unsigned long arg)
 		queue_work(dev->watchdog_wq, &dev->watchdog_work);
 	}
 
-	dev->watchdog_timer.expires = jiffies +
-					msecs_to_jiffies(WATCHDOG_TICK_INTERVAL);
-	add_timer(&dev->watchdog_timer);
+	mod_timer(&dev->watchdog_timer, jiffies + msecs_to_jiffies(WATCHDOG_TICK_INTERVAL));
 }
 
 void mfc_watchdog_start_tick(struct mfc_dev *dev)
 {
 	if (atomic_read(&dev->watchdog_tick_running)) {
-		mfc_debug(2, "watchdog timer was already started!\n");
+		mfc_debug_dev(2, "watchdog timer was already started!\n");
 	} else {
-		mfc_debug(2, "watchdog timer is now started!\n");
+		mfc_debug_dev(2, "watchdog timer is now started!\n");
 		atomic_set(&dev->watchdog_tick_running, 1);
 	}
 
@@ -512,10 +528,10 @@ void mfc_watchdog_start_tick(struct mfc_dev *dev)
 void mfc_watchdog_stop_tick(struct mfc_dev *dev)
 {
 	if (atomic_read(&dev->watchdog_tick_running)) {
-		mfc_debug(2, "watchdog timer is now stopped!\n");
+		mfc_debug_dev(2, "watchdog timer is now stopped!\n");
 		atomic_set(&dev->watchdog_tick_running, 0);
 	} else {
-		mfc_debug(2, "watchdog timer was already stopped!\n");
+		mfc_debug_dev(2, "watchdog timer was already stopped!\n");
 	}
 
 	/* Reset the timeout watchdog */
@@ -524,8 +540,43 @@ void mfc_watchdog_stop_tick(struct mfc_dev *dev)
 
 void mfc_watchdog_reset_tick(struct mfc_dev *dev)
 {
-	mfc_debug(2, "watchdog timer reset!\n");
+	mfc_debug_dev(2, "watchdog timer reset!\n");
 
 	/* Reset the timeout watchdog */
 	atomic_set(&dev->watchdog_tick_cnt, 0);
+}
+
+void mfc_idle_checker(struct timer_list *t)
+{
+	struct mfc_dev *dev = from_timer(dev, t, mfc_idle_timer);
+
+	mfc_debug_dev(5, "[MFCIDLE] MFC HW idle checker is ticking!\n");
+
+	if (perf_boost_mode) {
+		mfc_info_dev("[QoS][BOOST][MFCIDLE] skip control\n");
+		return;
+	}
+
+	if (atomic_read(&dev->qos_req_cur) == 0) {
+		mfc_debug_dev(6, "[MFCIDLE] MFC QoS not started yet\n");
+		mfc_idle_checker_start_tick(dev);
+		return;
+	}
+
+	if (atomic_read(&dev->hw_run_cnt)) {
+		atomic_set(&dev->hw_run_cnt, 0);
+		mfc_idle_checker_start_tick(dev);
+		return;
+	}
+
+	if (atomic_read(&dev->queued_cnt)) {
+		atomic_set(&dev->queued_cnt, 0);
+		mfc_idle_checker_start_tick(dev);
+		return;
+	}
+
+#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
+	mfc_change_idle_mode(dev, MFC_IDLE_MODE_RUNNING);
+	queue_work(dev->mfc_idle_wq, &dev->mfc_idle_work);
+#endif
 }

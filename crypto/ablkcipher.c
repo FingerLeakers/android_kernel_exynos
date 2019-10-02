@@ -26,6 +26,10 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
+#include "fips140.h"
+#endif
+
 struct ablkcipher_buffer {
 	struct list_head	entry;
 	struct scatter_walk	dst;
@@ -46,7 +50,7 @@ void __ablkcipher_walk_complete(struct ablkcipher_walk *walk)
 {
 	struct ablkcipher_buffer *p, *tmp;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return;
 #endif
@@ -109,7 +113,7 @@ int ablkcipher_walk_done(struct ablkcipher_request *req,
 	unsigned int n; /* bytes processed */
 	bool more;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif

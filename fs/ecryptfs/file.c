@@ -32,14 +32,12 @@
 #include <linux/compat.h>
 #include <linux/fs_stack.h>
 #include "ecryptfs_kernel.h"
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #include <linux/ctype.h>
 #define ECRYPTFS_IOCTL_GET_ATTRIBUTES	_IOR('l', 0x10, __u32)
 #define ECRYPTFS_WAS_ENCRYPTED 0x0080
 #define ECRYPTFS_WAS_ENCRYPTED_OTHER_DEVICE 0x0100
 #endif
-
 /**
  * ecryptfs_read_update_atime
  *
@@ -104,11 +102,13 @@ ecryptfs_filldir(struct dir_context *ctx, const char *lower_name,
 		 */
 		return 0;
 	}
+
 	buf->caller->pos = buf->ctx.pos;
 	rc = !dir_emit(buf->caller, name, name_size, ino, d_type);
 	kfree(name);
 	if (!rc)
 		buf->entries_written++;
+
 	return rc;
 }
 
@@ -153,7 +153,6 @@ static int read_or_initialize_metadata(struct dentry *dentry)
 	crypt_stat = &ecryptfs_inode_to_private(inode)->crypt_stat;
 	mount_crypt_stat = &ecryptfs_superblock_to_private(
 						inode->i_sb)->mount_crypt_stat;
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	if (crypt_stat->flags & ECRYPTFS_STRUCT_INITIALIZED
 		&& crypt_stat->flags & ECRYPTFS_POLICY_APPLIED

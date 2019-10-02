@@ -43,6 +43,8 @@ struct dbg_snapshot_helper_ops {
 
 	int (*soc_is_power_cpu)(unsigned int);
 	int (*soc_smc_call)(unsigned long, unsigned long, unsigned long, unsigned long);
+
+	void (*soc_do_dpm_policy)(void *);
 };
 
 extern void dbg_snapshot_register_soc_ops(struct dbg_snapshot_helper_ops *ops);
@@ -70,6 +72,8 @@ extern void dbg_snapshot_set_debug_test_run(unsigned int test_id, unsigned int v
 extern unsigned int dbg_snapshot_get_debug_test_run(unsigned int test_id);
 extern void dbg_snapshot_clear_debug_test_runflag(void);
 extern unsigned int dbg_snapshot_get_debug_test_runflag(void);
+extern void dbg_snapshot_set_debug_test_buffer_addr(u64 paddr, unsigned int cpu);
+extern unsigned int dbg_snapshot_get_debug_test_buffer_addr(unsigned int cpu);
 
 #ifdef CONFIG_ARM64
 struct dbg_snapshot_mmu_reg {
@@ -110,35 +114,4 @@ struct dbg_snapshot_mmu_reg {
 	int POTPIDR;
 };
 #endif
-
-
-struct err_variant {
-	u8 fld_end;
-	u8 fld_offset;
-	const char *fld_name;
-};
-
-struct err_variant_data {
-	const struct err_variant *variant;
-	u8 valid_bit;
-	const char *reg_name;
-};
-
-#define ERR_REG(variants, valid, reg)	\
-	{					\
-		.variant	= variants,	\
-		.valid_bit	= valid,	\
-		.reg_name	= reg,		\
-	}
-
-#define ERR_VAR(name, end, offset)	\
-	{					\
-		.fld_end	= end,	\
-		.fld_offset	= offset,	\
-		.fld_name	= name,		\
-	}
-
-
 #endif
-
-extern void exynos_err_parse(u32 reg_idx, u64 reg, struct err_variant_data *exynos_cpu_err);

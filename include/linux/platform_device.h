@@ -12,13 +12,13 @@
 #define _PLATFORM_DEVICE_H_
 
 #include <linux/device.h>
-#include <linux/mod_devicetable.h>
 
 #define PLATFORM_DEVID_NONE	(-1)
 #define PLATFORM_DEVID_AUTO	(-2)
 
 struct mfd_cell;
 struct property_entry;
+struct platform_device_id;
 
 struct platform_device {
 	const char	*name;
@@ -228,17 +228,6 @@ static inline void platform_set_drvdata(struct platform_device *pdev,
 	module_driver(__platform_driver, platform_driver_register, \
 			platform_driver_unregister)
 
-#ifdef CONFIG_DEFERRED_INITCALLS
-/* deferred_module_platform_driver() - Helper macro for drivers that don't do
- * anything special in module init/exit.  This eliminates a lot of
- * boilerplate.  Each module may only use this macro once, and
- * calling it replaces deferred_module_init() and module_exit()
- */
-#define deferred_module_platform_driver(__platform_driver) \
-	deferred_module_driver(__platform_driver, platform_driver_register, \
-			platform_driver_unregister)
-#endif
-
 /* builtin_platform_driver() - Helper macro for builtin drivers that
  * don't do anything special in driver init.  This eliminates some
  * boilerplate.  Each driver may only use this macro once, and
@@ -366,6 +355,8 @@ extern int platform_pm_restore(struct device *dev);
 #define platform_pm_poweroff		NULL
 #define platform_pm_restore		NULL
 #endif
+
+extern int platform_dma_configure(struct device *dev);
 
 #ifdef CONFIG_PM_SLEEP
 #define USE_PLATFORM_PM_SLEEP_OPS \

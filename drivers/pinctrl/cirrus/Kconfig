@@ -1,8 +1,8 @@
+# This is all selected by the Madera MFD driver Kconfig options
 config PINCTRL_MADERA
-	bool
+	tristate
 	select PINMUX
 	select GENERIC_PINCONF
-	default y if MFD_MADERA=y
 
 config PINCTRL_CS47L15
 	bool

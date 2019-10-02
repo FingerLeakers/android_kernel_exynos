@@ -5,7 +5,6 @@
 #include <linux/rcupdate.h>
 #include <linux/vmalloc.h>
 #include <linux/reboot.h>
-#include <linux/suspend.h>
 #include <linux/debug-snapshot.h>
 
 /*

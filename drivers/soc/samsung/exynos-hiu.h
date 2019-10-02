@@ -5,28 +5,30 @@
 #include <linux/interrupt.h>
 
 /* Function Id to Enable HIU in EL3 */
-#define GCU_BASE		(0x1E4C0000)
+#define APB_BASE_ADDR		(0x1D200000)
+#define GCU_BASE		(0x1000)
+#define HIU_BASE		(0x2000)
 
 /* SR1 write monitoring operation mode */
 #define	POLLING_MODE		(0)
 #define	INTERRUPT_MODE		(1)
 
 /* GCU Control Register */
-#define	GCUCTL			(0x22C)
+#define	GCUCTL			(GCU_BASE + 0x0)
 #define	HIUINTR_EN_MASK		(0x1)
 #define	HIUINTR_EN_SHIFT	(3)
 #define	HIUERR_EN_MASK		(0x1)
 #define	HIUERR_EN_SHIFT		(2)
 
 /* GCU ERROR Register */
-#define	GCUERR			(0x26C)
+#define	GCUERR			(GCU_BASE + 0x4)
 #define	HIUINTR_MASK		(0x1)
 #define	HIUINTR_SHIFT		(3)
 #define	HIUERR_MASK		(0x1)
 #define	HIUERR_SHIFT		(2)
 
 /* HIU Top Level Control 1 Register */
-#define	HIUTOPCTL1		(0xE00)
+#define	HIUTOPCTL1		(HIU_BASE + 0x0)
 #define	ACTDVFS_MASK		(0x3F)
 #define	ACTDVFS_SHIFT		(24)
 #define	HIU_MBOX_RESPONSE_MASK	(0x1)
@@ -52,7 +54,7 @@
 #define	ENB_ACPM_COMM_SHIFT	(0)
 
 /* HIU Top Level Control 2 Register */
-#define HIUTOPCTL2		(0xE04)
+#define HIUTOPCTL2		(HIU_BASE + 0x4)
 #define	SEQNUM_MASK		(0x7)
 #define	SEQNUM_SHIFT		(26)
 #define LIMITDVFS_MASK		(0x3F)
@@ -63,7 +65,7 @@
 #define	REQPBL_SHIFT		(0)
 
 /* HIU Turbo Boost Control Register */
-#define	HIUTBCTL		(0xE10)
+#define	HIUTBCTL		(HIU_BASE + 0x10)
 #define	BOOSTED_MASK		(0x1)
 #define	BOOSTED_SHIFT		(31)
 #define	B3_INC_MASK		(0x3)
@@ -80,7 +82,7 @@
 #define	TB_ENB_SHIFT		(0)
 
 /* HIU Turbo Boost Power State Config Registers */
-#define	HIUTBPSCFG_BASE		(0xE14)
+#define	HIUTBPSCFG_BASE		(HIU_BASE + 0x14)
 #define	HIUTBPSCFG_OFFSET	(0x4)
 #define	HIUTBPSCFG_MASK		(0x1 << 31 | 0x7 << 28 | 0xFF << 20 | 0xFFFF << 0x0)
 #define	PB_MASK			(0x1)
@@ -95,7 +97,7 @@
 /* HIU Turbo Boost Power Threshold Register */
 #define	HIUTBPWRTHRESH_NUM	(0x6)
 #define	HIUTBPWRTHRESH_FIELDS	(0x4)
-#define	HIUTBPWRTHRESH_BASE	(0xE34)
+#define	HIUTBPWRTHRESH_BASE	(HIU_BASE + 0x34)
 #define	HIUTBPWRTHRESH_OFFSET	(0x4)
 #define	HIUTBPWRTHRESH_MASK	(0x3F << 24 | 0xF << 20 | 0xF << 16 | 0xFFFF << 0)
 #define	R_MASK			(0x3F)
@@ -106,6 +108,12 @@
 #define	TBPWRTHRESH_EXP_SHIFT	(16)
 #define	TBPWRTHRESH_FRAC_MASK	(0xFFFF)
 #define	TBPWRTHRESH_FRAC_SHIFT	(0)
+
+/* HIU SR0 Debug register */
+#define HIUDBGSR0		(HIU_BASE + 0x7C)
+
+#define SYS_READ(reg, val)      do { val = __raw_readl(hiu_data->base + reg); } while (0);
+#define SYS_WRITE(reg, val)     do { __raw_writel(val, hiu_data->base + reg); } while (0);
 
 struct hiu_stats {
 	unsigned int		last_level;
@@ -124,8 +132,17 @@ struct hiu_cfg {
 	unsigned int		power_threshold_inc;
 };
 
+struct hiu_reg {
+	unsigned int		hiutopctl1;
+	unsigned int		hiutopctl2;
+	unsigned int		hiudbgsr0;
+	unsigned int		hiutbctl;
+};
+
 struct exynos_hiu_data {
 	bool			enabled;
+	bool			pc_enabled;
+	bool			tb_enabled;
 
 	bool			normdvfs_req;
 	bool			normdvfs_done;
@@ -155,8 +172,6 @@ struct exynos_hiu_data {
 	unsigned int		boost_max;
 	unsigned int		level_offset;
 	unsigned int		sw_pbl;
-	unsigned int		pc_enabled;
-	unsigned int		tb_enabled;
 
 	unsigned int		last_req_level;
 	unsigned int		last_req_freq;
@@ -165,6 +180,13 @@ struct exynos_hiu_data {
 
 	struct device_node *	dn;
 	struct hiu_stats *	stats;
+
+	struct hiu_reg		regs;
+	struct hiu_cfg *	cfgs;
+
+	unsigned int		table_size;
+
+	unsigned int		tbpwr_thresh[HIUTBPWRTHRESH_FIELDS];
 };
 
 #if defined(CONFIG_EXYNOS_PSTATE_HAFM) || defined(CONFIG_EXYNOS_PSTATE_HAFM_TB)

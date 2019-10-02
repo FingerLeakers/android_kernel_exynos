@@ -147,3 +147,4 @@ enum {
 
 #endif
 #endif /*  __LINUX_MFD_SEC_RTC_H */
+

@@ -11,19 +11,17 @@
 
 #include <linux/kernel.h>
 #include <linux/uaccess.h>
-#include <linux/slab.h>
 #include <linux/proc_fs.h>
-#include <linux/sec_debug.h>
+#include "sec_debug_internal.h"
 
 static unsigned long dhist_base;
 static unsigned int dhist_size;
 
-static ssize_t sec_dhist_read(struct file *file, char __user *buf,
+static ssize_t secdbg_hist_hist_read(struct file *file, char __user *buf,
 				  size_t len, loff_t *offset)
 {
 	loff_t pos = *offset;
 	ssize_t count, ret = 0;
-	char *dhist_buf = NULL;
 	char *base = NULL;
 
 	if (!dhist_size) {
@@ -45,7 +43,7 @@ static ssize_t sec_dhist_read(struct file *file, char __user *buf,
 	if (pos >= dhist_size) {
 		pr_crit("%s: pos %x , dhist: %x\n", __func__, pos, dhist_size);
 
-		ret = -ENXIO;
+		ret = 0;
 
 		goto fail;
 	}
@@ -61,30 +59,17 @@ static ssize_t sec_dhist_read(struct file *file, char __user *buf,
 		goto fail;
 	}
 
-	dhist_buf = kzalloc(dhist_size, GFP_NOWAIT);
-	if (!dhist_buf) {
-		pr_crit("%s: fail to allocate (%x)\n", __func__, dhist_size);
-
-		ret = -ENOMEM;
-
-		goto fail;
-	}
-
-	/* need to free from here */
-	memcpy(dhist_buf, base, dhist_size);
-
-	if (copy_to_user(buf, dhist_buf + pos, count)) {
+	if (copy_to_user(buf, base + pos, count)) {
 		pr_crit("%s: fail to copy to use\n", __func__);
 
 		ret = -EFAULT;
 	} else {
-		pr_crit("%s: buf: %p base: %p\n", __func__, dhist_buf, base);
+		//pr_crit("%s: buf: %p base: %p\n", __func__, dhist_buf, base);
+		pr_crit("%s: base: %p\n", __func__, base);
 
 		*offset += count;
 		ret = count;
 	}
-
-	kfree(dhist_buf);
 
 fail:
 	return ret;
@@ -92,17 +77,17 @@ fail:
 
 static const struct file_operations dhist_file_ops = {
 	.owner = THIS_MODULE,
-	.read = sec_dhist_read,
+	.read = secdbg_hist_hist_read,
 };
 
-static int __init sec_debug_hist_late_init(void)
+static int __init secdbg_hist_late_init(void)
 {
 	struct proc_dir_entry *entry;
 	char *p, *base;
 
-	dhist_base = sec_debug_get_buf_base(SDN_MAP_DEBUG_PARAM);
+	dhist_base = secdbg_base_get_buf_base(SDN_MAP_DEBUG_PARAM);
 	base = (char *)phys_to_virt((phys_addr_t)dhist_base);
-	dhist_size = sec_debug_get_buf_size(SDN_MAP_DEBUG_PARAM);
+	dhist_size = secdbg_base_get_buf_size(SDN_MAP_DEBUG_PARAM);
 
 	pr_info("%s: base: %p(%lx) size: %x\n", __func__, base, dhist_base, dhist_size);
 
@@ -124,4 +109,4 @@ static int __init sec_debug_hist_late_init(void)
 
 	return 0;
 }
-late_initcall(sec_debug_hist_late_init);
+late_initcall(secdbg_hist_late_init);

@@ -66,8 +66,7 @@ struct dw_mci_dma_slave {
  * @fifo_reg: Pointer to MMIO registers for data FIFO
  * @sg: Scatterlist entry currently being processed by PIO code, if any.
  * @sg_miter: PIO mapping scatterlist iterator.
- * @cur_slot: The slot which is currently using the controller.
- * @mrq: The request currently being processed on @cur_slot,
+ * @mrq: The request currently being processed on @slot,
  *	or NULL if the controller is idle.
  * @cmd: The command currently being sent to the card, or NULL.
  * @data: The data currently being transferred, or NULL if no data
@@ -75,7 +74,8 @@ struct dw_mci_dma_slave {
  * @stop_abort: The command currently prepared for stoping transfer.
  * @prev_blksz: The former transfer blksz record.
  * @timing: Record of current ios timing.
- * @use_dma: Whether DMA channel is initialized or not.
+ * @use_dma: Which DMA channel is in use for the current transfer, zero
+ *	denotes PIO mode.
  * @using_dma: Whether DMA is in use for the current transfer.
  * @dma_64bit_address: Whether DMA supports 64-bit address mode or not.
  * @sg_dma: Bus address of DMA buffer.
@@ -102,7 +102,6 @@ struct dw_mci_dma_slave {
  * @bus_hz: The rate of @mck in Hz. This forms the basis for MMC bus
  *	rate and timeout calculations.
  * @current_speed: Configured rate of the controller.
- * @num_slots: Number of slots available.
  * @fifoth_val: The value of FIFOTH register.
  * @verid: Denote Version ID.
  * @dev: Device associated with the MMC controller.
@@ -134,16 +133,16 @@ struct dw_mci_dma_slave {
  * =======
  *
  * @lock is a softirq-safe spinlock protecting @queue as well as
+ * @slot, @mrq and @state. These must always be updated
  * at the same time while holding @lock.
+ * The @mrq field of struct dw_mci_slot is also protected by @lock,
+ * and must always be written at the same time as the slot is added to
+ * @queue.
  *
  * @irq_lock is an irq-safe spinlock protecting the INTMASK register
  * to allow the interrupt handler to modify it directly.  Held for only long
  * enough to read-modify-write INTMASK and no other locks are grabbed when
  * holding this one.
- *
- * The @mrq field of struct dw_mci_slot is also protected by @lock,
- * and must always be written at the same time as the slot is added to
- * @queue.
  *
  * @pending_events and @completed_events are accessed using atomic bit
  * operations, so they don't need any locking.
@@ -159,99 +158,98 @@ struct dw_mci_dma_slave {
  * using barriers.
  */
 struct dw_mci {
-	spinlock_t lock;
-	spinlock_t irq_lock;
-	void __iomem *regs;
-	void __iomem *fifo_reg;
-	u32 data_addr_override;
-	bool wm_aligned;
+	spinlock_t		lock;
+	spinlock_t		irq_lock;
+	void __iomem		*regs;
+	void __iomem		*fifo_reg;
+	u32			data_addr_override;
+	bool			wm_aligned;
 
-	struct scatterlist *sg;
-	struct sg_mapping_iter sg_miter;
+	struct scatterlist	*sg;
+	struct sg_mapping_iter	sg_miter;
 
-	struct mmc_request *mrq;
-	struct mmc_command *cmd;
-	struct mmc_data *data;
-	struct mmc_command stop_abort;
-	unsigned int prev_blksz;
-	unsigned char timing;
+	struct mmc_request	*mrq;
+	struct mmc_command	*cmd;
+	struct mmc_data		*data;
+	struct mmc_command	stop_abort;
+	unsigned int		prev_blksz;
+	unsigned char		timing;
 	struct workqueue_struct *card_workqueue;
 
-	/* DMA interface members */
-	int use_dma;
-	int using_dma;
-	int dma_64bit_address;
+	/* DMA interface members*/
+	int			use_dma;
+	int			using_dma;
+	int			dma_64bit_address;
 
-	dma_addr_t sg_dma;
-	void *sg_cpu;
-	const struct dw_mci_dma_ops *dma_ops;
+	dma_addr_t		sg_dma;
+	void			*sg_cpu;
+	const struct dw_mci_dma_ops	*dma_ops;
 	/* For idmac */
-	unsigned int ring_size;
+	unsigned int		ring_size;
 
 	/* For edmac */
 	struct dw_mci_dma_slave *dms;
 	/* Registers's physical base address */
-	resource_size_t phy_regs;
+	resource_size_t		phy_regs;
 
 	unsigned int desc_sz;
 	struct pm_qos_request pm_qos_lock;
 	struct delayed_work qos_work;
 	bool qos_cntrl;
-	u32 cmd_status;
-	u32 data_status;
-	u32 stop_cmdr;
-	u32 dir_status;
-	struct tasklet_struct tasklet;
+	u32			cmd_status;
+	u32			data_status;
+	u32			stop_cmdr;
+	u32			dir_status;
+	struct tasklet_struct	tasklet;
 	u32 tasklet_state;
 	struct work_struct card_work;
 	u32			card_detect_cnt;
-	unsigned long pending_events;
-	unsigned long completed_events;
-	enum dw_mci_state state;
-	struct list_head queue;
+	unsigned long		pending_events;
+	unsigned long		completed_events;
+	enum dw_mci_state	state;
+	struct list_head	queue;
 
-	u32 bus_hz;
-	u32 current_speed;
+	u32			bus_hz;
+	u32			current_speed;
 	u32 num_slots;
-	u32 fifoth_val;
+	u32			fifoth_val;
 	u32 cd_rd_thr;
-	u16 verid;
+	u16			verid;
 	u16 data_offset;
-	struct device *dev;
-	struct dw_mci_board *pdata;
-	const struct dw_mci_drv_data *drv_data;
-	void *priv;
-	struct clk *biu_clk;
-	struct clk *ciu_clk;
+	struct device		*dev;
+	struct dw_mci_board	*pdata;
+	const struct dw_mci_drv_data	*drv_data;
+	void			*priv;
+	struct clk		*biu_clk;
+	struct clk		*ciu_clk;
+	struct clk		*ciu_gate;
 	atomic_t biu_clk_cnt;
 	atomic_t ciu_clk_cnt;
 	atomic_t biu_en_win;
 	atomic_t ciu_en_win;
-	struct dw_mci_slot *slot;
+	struct dw_mci_slot	*slot;
 
 	/* FIFO push and pull */
-	int fifo_depth;
-	int data_shift;
-	u8 part_buf_start;
-	u8 part_buf_count;
+	int			fifo_depth;
+	int			data_shift;
+	u8			part_buf_start;
+	u8			part_buf_count;
 	union {
-		u16 part_buf16;
-		u32 part_buf32;
-		u64 part_buf;
+		u16		part_buf16;
+		u32		part_buf32;
+		u64		part_buf;
 	};
-	void (*push_data) (struct dw_mci * host, void *buf, int cnt);
-	void (*pull_data) (struct dw_mci * host, void *buf, int cnt);
+	void (*push_data)(struct dw_mci *host, void *buf, int cnt);
+	void (*pull_data)(struct dw_mci *host, void *buf, int cnt);
 
 	/* Workaround flags */
 	u32 quirks;
 
 	/* S/W reset timer */
-	struct timer_list timer;
-	bool vqmmc_enabled;
-	unsigned long irq_flags;	/* IRQ flags */
-	int irq;
-
-	/* Save request status */
+	struct timer_list sto_timer;
+	bool			vqmmc_enabled;
+	unsigned long		irq_flags; /* IRQ flags */
+	int			irq;
 #define DW_MMC_REQ_IDLE		0
 #define DW_MMC_REQ_BUSY		1
 	unsigned int req_state;
@@ -262,6 +260,8 @@ struct dw_mci {
 
 	/* Support system power mode */
 	int idle_ip_index;
+	atomic_t sicd_active;
+	atomic_t sicd_cnt;
 
 	/* For argos */
 	unsigned int transferred_cnt;
@@ -275,11 +275,13 @@ struct dw_mci {
 	/* Card Clock In */
 	u32 cclk_in;
 
-	int sdio_id0;
+	int			sdio_id0;
 
-	struct timer_list cmd11_timer;
-	struct timer_list cto_timer;
-	struct timer_list dto_timer;
+	struct timer_list       cmd11_timer;
+	struct timer_list       cto_timer;
+	struct timer_list       dto_timer;
+
+	bool extended_tmout;
 
 	/* channel id */
 	u32 ch_id;
@@ -288,13 +290,13 @@ struct dw_mci {
 /* DMA ops for Internal/External DMAC interface */
 struct dw_mci_dma_ops {
 	/* DMA Ops */
-	int (*init) (struct dw_mci * host);
-	int (*start) (struct dw_mci * host, unsigned int sg_len);
-	void (*complete) (void *host);
-	void (*stop) (struct dw_mci * host);
+	int (*init)(struct dw_mci *host);
+	int (*start)(struct dw_mci *host, unsigned int sg_len);
+	void (*complete)(void *host);
+	void (*stop)(struct dw_mci *host);
 	void (*reset) (struct dw_mci * host);
-	void (*cleanup) (struct dw_mci * host);
-	void (*exit) (struct dw_mci * host);
+	void (*cleanup)(struct dw_mci *host);
+	void (*exit)(struct dw_mci *host);
 };
 
 /* IP Quirks/flags. */
@@ -336,11 +338,11 @@ struct dw_mci_board {
 	u32 num_slots;
 
 	u32 quirks;		/* Workaround / Quirk flags */
-	unsigned int bus_hz;	/* Clock speed at the cclk_in pad */
+	unsigned int bus_hz; /* Clock speed at the cclk_in pad */
 
-	u32 caps;		/* Capabilities */
-	u32 caps2;		/* More capabilities */
-	u32 pm_caps;		/* PM capabilities */
+	u32 caps;	/* Capabilities */
+	u32 caps2;	/* More capabilities */
+	u32 pm_caps;	/* PM capabilities */
 	/*
 	 * Override fifo depth. If 0, autodetect it from the FIFOTH register,
 	 * but note that this may not be reliable after a bootloader has used
@@ -355,6 +357,7 @@ struct dw_mci_board {
 	bool tuned;
 	bool extra_tuning;
 	bool only_once_tune;
+	bool prev_all_pass;
 
 	/* INT QOS khz */
 	unsigned int qos_dvfs_level;
@@ -547,7 +550,6 @@ do {	\
 #define DW_MMC_MAX_TRANSFER_SIZE	4096
 #define DW_MMC_SECTOR_SIZE		512
 #define MMC_DW_IDMAC_MULTIPLIER		8
-
 #define DW_MMC_240A		0x240a
 #define DW_MMC_260A		0x260a
 #define DW_MMC_280A		0x280a
@@ -593,6 +595,7 @@ do {	\
 #define SDMMC_RESP_TAT		0x0AC
 #define SDMMC_CDTHRCTL		0x100
 #define SDMMC_UHS_REG_EXT	0x108
+#define SDMMC_DDR_REG		0x10c
 #define SDMMC_ENABLE_SHIFT	0x110
 #define SDMMC_DATA(x)		(x)
 
@@ -639,7 +642,7 @@ do {	\
 #define SDMMC_INT_HLE			BIT(12)
 #define SDMMC_INT_FRUN			BIT(11)
 #define SDMMC_INT_HTO			BIT(10)
-#define SDMMC_INT_VOLT_SWITCH		BIT(10)	/* overloads bit 10! */
+#define SDMMC_INT_VOLT_SWITCH		BIT(10) /* overloads bit 10! */
 #define SDMMC_INT_DRTO			BIT(9)
 #define SDMMC_INT_RTO			BIT(8)
 #define SDMMC_INT_DCRC			BIT(7)
@@ -710,13 +713,19 @@ do {	\
 #define SDMMC_CARD_WR_THR_EN		BIT(2)
 #define SDMMC_CARD_RD_THR_EN		BIT(0)
 /* UHS-1 register defines */
+#define SDMMC_UHS_DDR			BIT(16)
 #define SDMMC_UHS_18V			BIT(0)
+/* DDR register defines */
+#define SDMMC_DDR_HS400			BIT(31)
+/* Enable shift register defines */
+#define SDMMC_ENABLE_PHASE		BIT(0)
 /* All ctrl reset bits */
 #define SDMMC_CTRL_ALL_RESET_FLAGS \
 	(SDMMC_CTRL_RESET | SDMMC_CTRL_FIFO_RESET | SDMMC_CTRL_DMA_RESET)
 
 /* FIFO register access macros. These should not change the data endian-ness
- * as they are written to memory to be dealt with by the upper layers */
+ * as they are written to memory to be dealt with by the upper layers
+ */
 #define mci_fifo_readw(__reg)	__raw_readw(__reg)
 #define mci_fifo_readl(__reg)	__raw_readl(__reg)
 #ifdef CONFIG_MMC_DW_FORCE_32BIT_SFR_RW
@@ -848,19 +857,19 @@ extern int dw_mci_runtime_resume(struct device *device);
  * @last_detect_state: Most recently observed card detect state.
  */
 struct dw_mci_slot {
-	struct mmc_host *mmc;
-	struct dw_mci *host;
+	struct mmc_host		*mmc;
+	struct dw_mci		*host;
 
 	int quirks;
-	u32 ctype;
+	u32			ctype;
 
-	struct mmc_request *mrq;
-	struct list_head queue_node;
+	struct mmc_request	*mrq;
+	struct list_head	queue_node;
 
-	unsigned int clock;
-	unsigned int __clk_old;
+	unsigned int		clock;
+	unsigned int		__clk_old;
 
-	unsigned long flags;
+	unsigned long		flags;
 #define DW_MMC_CARD_PRESENT	0
 #define DW_MMC_CARD_NEED_INIT	1
 #define DW_MMC_CARD_NO_LOW_PWR	2
@@ -960,7 +969,6 @@ struct dw_mci_tuning_data {
 /**
  * dw_mci driver data - dw-mshc implementation specific driver data.
  * @caps: mmc subsystem specified capabilities of the controller(s).
- * @num_caps: number of capabilities specified by @caps.
  * @init: early implementation specific initialization.
  * @set_ios: handle bus specific extensions.
  * @parse_dt: parse implementation specific device tree properties.
@@ -971,11 +979,10 @@ struct dw_mci_tuning_data {
  * is optional as well.
  */
 struct dw_mci_drv_data {
-	unsigned long *caps;
-	u32 num_caps;
-	int (*init) (struct dw_mci * host);
-	void (*set_ios) (struct dw_mci * host, struct mmc_ios * ios);
-	int (*parse_dt) (struct dw_mci * host);
+	unsigned long	*caps;
+	int		(*init)(struct dw_mci *host);
+	void		(*set_ios)(struct dw_mci *host, struct mmc_ios *ios);
+	int		(*parse_dt)(struct dw_mci *host);
 	int (*execute_tuning) (struct dw_mci_slot * slot, u32 opcode,
 			       struct dw_mci_tuning_data * tuning_data);
 	int (*prepare_hs400_tuning) (struct dw_mci * host, struct mmc_ios * ios);
@@ -1053,4 +1060,4 @@ struct dw_mci_sfr_ram_dump {
 	u32 fifo_tx_watermark;
 	u32 fifo_rx_watermark;
 };
-#endif				/* _DW_MMC_H_ */
+#endif /* _DW_MMC_H_ */

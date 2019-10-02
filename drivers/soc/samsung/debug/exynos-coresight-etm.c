@@ -43,6 +43,8 @@ do { mb(); isb(); etm_writel(base, 0x0, LAR); } while (0)
 #define SOFT_UNLOCK(base)			\
 do { etm_writel(base, OSLOCK_MAGIC, LAR); mb(); isb(); } while (0)
 
+static struct device *exynos_etm_dev;
+
 struct cpu_etm_info {
 	void __iomem	*base;
 	u32		enabled;
@@ -274,10 +276,10 @@ static void exynos_etb_enable(void __iomem *etb_base, int src)
 
 	if (src) {
 		etm_writel(etb_base, 0x0, TMCFFCR);
-		pr_info("Data formatter disabled!\n");
+		dev_info(exynos_etm_dev, "Data formatter disabled!\n");
 	} else {
 		etm_writel(etb_base, 0x2001, TMCFFCR);
-		pr_info("Data formatter enabled!\n");
+		dev_info(exynos_etm_dev, "Data formatter enabled!\n");
 	}
 
 	/* ETB trace capture enable */
@@ -292,10 +294,10 @@ static void exynos_etb_disable(void __iomem *etb_base, int src)
 	SOFT_UNLOCK(etb_base);
 	if (src) {
 		etm_writel(etb_base, 0x2001, TMCFFCR);
-		pr_info("Data formatter enabled!\n");
+		dev_info(exynos_etm_dev, "Data formatter enabled!\n");
 	} else {
 		etm_writel(etb_base, 0x0, TMCFFCR);
-		pr_info("Data formatter disabled!\n");
+		dev_info(exynos_etm_dev, "Data formatter disabled!\n");
 	}
 
 	ffcr = etm_readl(etb_base, TMCFFCR);
@@ -467,7 +469,7 @@ extern void exynos_trace_start(void)
 #ifdef CONFIG_EXYNOS_CORESIGHT_ETR
 	exynos_etr_enable();
 #endif
-	pr_info("coresight: %s.\n", __func__);
+	dev_info(exynos_etm_dev, "coresight: %s.\n", __func__);
 }
 
 extern void exynos_trace_stop(void)
@@ -485,7 +487,7 @@ extern void exynos_trace_stop(void)
 	etm_disable(raw_smp_processor_id());
 
 	g_trace_info->enabled = 0;
-	pr_info("coresight: %s.\n", __func__);
+	dev_info(exynos_etm_dev, "coresight: %s.\n", __func__);
 }
 
 static int exynos_etm_dying_cpu(unsigned int cpu)
@@ -699,11 +701,11 @@ static int __init exynos_etm_init(void)
 	cpu_pm_register_notifier(&exynos_c2_etm_pm_nb);
 
 	g_trace_info->enabled = 1;
-	pr_info("coresight: ETM enable.\n");
+	dev_info(exynos_etm_dev, "coresight: ETM enable.\n");
 	return 0;
 err:
 	g_trace_info->enabled = 0;
-	pr_err("coresight: ETM enable FAILED!!! : ret = %d\n", ret);
+	dev_err(exynos_etm_dev, "coresight: ETM enable FAILED!!! : ret = %d\n", ret);
 	return ret;
 }
 early_initcall(exynos_etm_init);
@@ -711,7 +713,7 @@ early_initcall(exynos_etm_init);
 static int __init exynos_tmc_init(void)
 {
 	if (!g_trace_info->enabled) {
-		pr_err("coresight TMC init FAILED!!!\n");
+		dev_err(exynos_etm_dev, "coresight TMC init FAILED!!!\n");
 		return -ENODEV;
 	}
 	exynos_trace_start();
@@ -808,9 +810,14 @@ static int __init exynos_etm_sysfs_init(void)
 {
 	int ret = 0;
 
+	exynos_etm_dev = create_empty_device();
+	if (!exynos_etm_dev)
+		panic("Exynos: create empty device fail\n");
+	dev_set_socdata(exynos_etm_dev, "Exynos", "ETM");
+
 	ret = subsys_system_register(&etm_subsys, etm_sysfs_groups);
 	if (ret)
-		pr_err("fail to register exynos-etm subsys\n");
+		dev_err(exynos_etm_dev, "fail to register exynos-etm subsys\n");
 
 	return ret;
 }

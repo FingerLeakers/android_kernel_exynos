@@ -96,9 +96,9 @@ config USB_GADGET_DEBUG_FS
 	   to conserve kernel memory, say "N".
 
 config USB_GADGET_VBUS_DRAW
-	int "Maximum VBUS Power usage (2-900 mA)"
-	range 2 900
-	default 900
+	int "Maximum VBUS Power usage (2-500 mA)"
+	range 2 500
+	default 2
 	help
 	   Some devices need to draw power from USB when they are
 	   configured, perhaps to operate circuitry or to recharge
@@ -106,7 +106,7 @@ config USB_GADGET_VBUS_DRAW
 	   such as an AC adapter or batteries.
 
 	   Enter the maximum power your device draws through USB, in
-	   milliAmperes.  The permitted range of values is 2 - 900 mA;
+	   milliAmperes.  The permitted range of values is 2 - 500 mA;
 	   0 mA would be legal, but can make some hosts misbehave.
 
 	   This value will be used except for system-specific gadget
@@ -134,6 +134,13 @@ config U_SERIAL_CONSOLE
 	help
 	   It supports the serial gadget can be used as a console.
 
+config USB_OLD_CONFIGFS
+	bool "Old style configfs"
+	depends on USB_CONFIGFS
+	default n
+	help
+	   It supports old style configfs
+
 config USB_G_ANDROID
 	bool "Android Composite Gadget"
 	help
@@ -152,7 +159,7 @@ config USB_ANDROID_SAMSUNG_COMPOSITE
 	  If you enable this option, android composite will be changed.
 
 config USB_DUN_SUPPORT
-	boolean "DUN support function"
+	bool "DUN support function"
 	depends on USB_G_ANDROID
 	help
 	  Provides USB modem serial driver.
@@ -161,13 +168,13 @@ config USB_DUN_SUPPORT
 	  Support fops : open, close, release, read, poll, llseek, ioctl
 
 config USB_RNDIS_MULTIPACKET_WITH_TIMER
-	boolean "RNDIS Multipacket with timer function"
+	bool "RNDIS Multipacket with timer function"
 	depends on USB_ANDROID_SAMSUNG_COMPOSITE
 	help
 	  Improve USB tethering speed for USB Super Speed
 
 config USB_NCM_SUPPORT_MTU_CHANGE
-	boolean "Samsung NCM MTU Change function"
+	bool "Samsung NCM MTU Change function"
 	depends on USB_G_ANDROID
 	help
 	   Provides NCM MTU Change support
@@ -176,7 +183,7 @@ config USB_NCM_SUPPORT_MTU_CHANGE
 	   NCM MTU Change will be able to be used.
 
 config USB_DM_PERFORMANCE_TUNE
-	boolean "Samsung DM PERFORMACE TUNE"
+	bool "Samsung DM PERFORMACE TUNE"
 	depends on USB_G_ANDROID
 	help
 	   Provides tuning point for samsung dm driver
@@ -185,7 +192,7 @@ config USB_DM_PERFORMANCE_TUNE
 	   Get high rate loging performance 
 
 config USB_ANDROID_RNDIS_DWORD_ALIGNED
-	boolean "Use double word aligned"
+	bool "Use double word aligned"
 	depends on USB_G_ANDROID
 	help
 		Provides dword aligned for DMA controller.
@@ -275,12 +282,15 @@ config USB_F_MTP
 	tristate
 
 config USB_F_PTP
-        tristate
+	tristate
 
 config USB_F_AUDIO_SRC
 	tristate
 
 config USB_F_ACC
+	tristate
+
+config USB_F_SIMMIAN
 	tristate
 
 config USB_F_CONN_GADGET
@@ -299,6 +309,14 @@ config USB_CONFIGFS
 	  Associating functions with configurations is done by creating
 	  appropriate symbolic links.
 	  For more information see Documentation/usb/gadget_configfs.txt.
+
+config USB_CONFIGFS_UEVENT
+	bool "Uevent notification of Gadget state"
+	depends on USB_CONFIGFS
+	help
+	  Enable uevent notifications to userspace when the gadget
+	  state changes. The gadget can be in any of the following
+	  three states: "CONNECTED/DISCONNECTED/CONFIGURED"
 
 config USB_CONFIGFS_SERIAL
 	bool "Generic serial bulk in/out"
@@ -440,28 +458,35 @@ config USB_CONFIGFS_F_FS
 	  mass storage) and other are implemented in user space.
 
 config USB_CONFIGFS_F_DM
-        boolean "DM gadget"
-        depends on USB_CONFIGFS
-        select USB_F_DM
-        help
-          USB gadget DM(Diagnosis Monitor) support
+	bool "DM gadget"
+	depends on USB_CONFIGFS
+	select USB_F_DM
+	help
+	  USB gadget DM(Diagnosis Monitor) support
 
 config USB_CONFIGFS_F_ADB
-	boolean "ADB gadget"
+	bool "ADB gadget"
 	depends on USB_CONFIGFS
 	select USB_F_ADB
 	help
 	  USB gadget ADB support
 
+config USB_CONFIGFS_F_SIMMIAN
+       bool "Android gadget SIMMIAN function"
+       depends on USB_CONFIGFS
+       select USB_F_SIMMIAN
+       help
+         Provides SIMMIAN function for android gadget driver.
+
 config USB_CONFIGFS_F_MTP
-	boolean "MTP gadget"
+	bool "MTP gadget"
 	depends on USB_CONFIGFS
 	select USB_F_MTP
 	help
 	  USB gadget MTP support
 
 config USB_CONFIGFS_F_PTP
-	boolean "PTP gadget"
+	bool "PTP gadget"
 	depends on USB_CONFIGFS && USB_CONFIGFS_F_MTP
 	select USB_F_PTP
 	help
@@ -475,34 +500,26 @@ config USB_CONFIGFS_F_CONN_GADGET
           SydeSync
 
 config USB_CONFIGFS_F_ACC
-	boolean "Accessory gadget"
+	bool "Accessory gadget"
 	depends on USB_CONFIGFS
 	select USB_F_ACC
 	help
 	  USB gadget Accessory support
 
 config USB_CONFIGFS_F_AUDIO_SRC
-	boolean "Audio Source gadget"
-	depends on USB_CONFIGFS && USB_CONFIGFS_F_ACC
+	bool "Audio Source gadget"
+	depends on USB_CONFIGFS
 	depends on SND
 	select SND_PCM
 	select USB_F_AUDIO_SRC
 	help
 	  USB gadget Audio Source support
 
-config USB_CONFIGFS_UEVENT
-	boolean "Uevent notification of Gadget state"
-	depends on USB_CONFIGFS
-	help
-	  Enable uevent notifications to userspace when the gadget
-	  state changes. The gadget can be in any of the following
-	  three states: "CONNECTED/DISCONNECTED/CONFIGURED"
-
 config USB_RNDIS_MULTIPACKET
-	boolean "Samsung Rndis Multi Packet support"
+	bool "Samsung Rndis Multi Packet support"
 	depends on USB_CONFIGFS_UEVENT
 	help
-		Rndis Multipacket Support
+	Rndis Multipacket Support.
 
 config USB_CONFIGFS_F_UAC1
 	bool "Audio Class 1.0"

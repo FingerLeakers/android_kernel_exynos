@@ -239,7 +239,7 @@ retry_get_time:
 
 	rtc_tm->tm_mon -= 1;
 
-	return rtc_valid_tm(rtc_tm);
+	return 0;
 }
 
 static int s3c_rtc_settime(struct device *dev, struct rtc_time *tm)
@@ -500,6 +500,8 @@ static int s3c_rtc_probe(struct platform_device *pdev)
 	struct rtc_time rtc_tm;
 	struct resource *res;
 	int ret;
+
+	dev_set_socdata(&pdev->dev, "Exynos", "RTC");
 
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info)

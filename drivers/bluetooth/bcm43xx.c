@@ -75,7 +75,7 @@ struct bcm_bt_gpio {
 	int irq;
 } bt_gpio;
 
-int idle_ip_index;
+int idle_btip_index;
 
 static int bcm43xx_bt_rfkill_set_power(void *data, bool blocked)
 {
@@ -94,7 +94,7 @@ static int bcm43xx_bt_rfkill_set_power(void *data, bool blocked)
 		gpio_set_value(bt_gpio.bt_wake, 1);
 #endif
 		gpio_set_value(bt_gpio.bt_en, 1);
-		exynos_update_ip_idle_status(idle_ip_index, STATUS_BUSY);
+		exynos_update_ip_idle_status(idle_btip_index, STATUS_BUSY);
 
 		msleep(100);
 
@@ -108,7 +108,7 @@ static int bcm43xx_bt_rfkill_set_power(void *data, bool blocked)
 		}
 #endif
 
-		exynos_update_ip_idle_status(idle_ip_index, STATUS_IDLE);
+		exynos_update_ip_idle_status(idle_btip_index, STATUS_IDLE);
 		gpio_set_value(bt_gpio.bt_en, 0);
 	}
 	return 0;
@@ -155,7 +155,7 @@ static enum hrtimer_restart enter_lpm(struct hrtimer *timer)
 		set_wake_locked(0);
 
     if (bt_lpm.host_wake == 0)
-	    exynos_update_ip_idle_status(idle_ip_index, STATUS_IDLE);
+	    exynos_update_ip_idle_status(idle_btip_index, STATUS_IDLE);
 
 	wake_lock_timeout(&bt_lpm.bt_wake_lock, HZ/2);
 
@@ -168,7 +168,7 @@ void bcm_bt_lpm_exit_lpm_locked(struct uart_port *uport)
 
 	hrtimer_try_to_cancel(&bt_lpm.enter_lpm_timer);
 
-	exynos_update_ip_idle_status(idle_ip_index, STATUS_BUSY);
+	exynos_update_ip_idle_status(idle_btip_index, STATUS_BUSY);
 	set_wake_locked(1);
 
 //	pr_info("[BT] bcm_bt_lpm_exit_lpm_locked\n");
@@ -184,7 +184,7 @@ static void update_host_wake_locked(int host_wake)
 	bt_lpm.host_wake = host_wake;
 
 	if (host_wake) {
-        exynos_update_ip_idle_status(idle_ip_index, STATUS_BUSY);
+        exynos_update_ip_idle_status(idle_btip_index, STATUS_BUSY);
 		wake_lock(&bt_lpm.host_wake_lock);
 	} else  {
 		/* Take a timed wakelock, so that upper layers can take it.
@@ -195,7 +195,7 @@ static void update_host_wake_locked(int host_wake)
 		wake_lock_timeout(&bt_lpm.host_wake_lock, HZ);
 
         if (bt_lpm.dev_wake == 0)
-            exynos_update_ip_idle_status(idle_ip_index, STATUS_IDLE);
+            exynos_update_ip_idle_status(idle_btip_index, STATUS_IDLE);
 	}
 }
 
@@ -356,8 +356,8 @@ static int bcm43xx_bluetooth_probe(struct platform_device *pdev)
 		gpio_free(bt_gpio.bt_en);
 	}
 #endif
-	idle_ip_index = exynos_get_idle_ip_index("bluetooth");
-    exynos_update_ip_idle_status(idle_ip_index, STATUS_IDLE);
+	idle_btip_index = exynos_get_idle_ip_index("bluetooth");
+    exynos_update_ip_idle_status(idle_btip_index, STATUS_IDLE);
 
 	pr_info("[BT] bcm43xx_bluetooth_probe End \n");
 

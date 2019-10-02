@@ -27,12 +27,16 @@
 #include <linux/export.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
+#include <linux/swait.h>
 #include <linux/ftrace.h>
 #include <trace/events/power.h>
 #include <linux/compiler.h>
 #include <linux/moduleparam.h>
 #include <linux/wakeup_reason.h>
-#include <linux/sec_debug.h>
+#include <linux/memory_hotplug.h>
+#ifdef CONFIG_SEC_PM_DEBUG
+#include <linux/regulator/machine.h>
+#endif /* CONFIG_SEC_PM_DEBUG */
 
 #include "power.h"
 
@@ -59,10 +63,16 @@ EXPORT_SYMBOL_GPL(pm_suspend_global_flags);
 
 static const struct platform_suspend_ops *suspend_ops;
 static const struct platform_s2idle_ops *s2idle_ops;
-static DECLARE_WAIT_QUEUE_HEAD(s2idle_wait_head);
+static DECLARE_SWAIT_QUEUE_HEAD(s2idle_wait_head);
 
 enum s2idle_states __read_mostly s2idle_state;
 static DEFINE_RAW_SPINLOCK(s2idle_lock);
+
+bool pm_suspend_via_s2idle(void)
+{
+	return mem_sleep_current == PM_SUSPEND_TO_IDLE;
+}
+EXPORT_SYMBOL_GPL(pm_suspend_via_s2idle);
 
 void s2idle_set_ops(const struct platform_s2idle_ops *ops)
 {
@@ -95,8 +105,8 @@ static void s2idle_enter(void)
 	/* Push all the CPUs into the idle loop. */
 	wake_up_all_idle_cpus();
 	/* Make the current CPU wait so it can enter the idle loop too. */
-	wait_event(s2idle_wait_head,
-		   s2idle_state == S2IDLE_STATE_WAKE);
+	swait_event_exclusive(s2idle_wait_head,
+		    s2idle_state == S2IDLE_STATE_WAKE);
 
 	cpuidle_pause();
 	put_online_cpus();
@@ -165,7 +175,7 @@ void s2idle_wake(void)
 	raw_spin_lock_irqsave(&s2idle_lock, flags);
 	if (s2idle_state > S2IDLE_STATE_NONE) {
 		s2idle_state = S2IDLE_STATE_WAKE;
-		wake_up(&s2idle_wait_head);
+		swake_up_one(&s2idle_wait_head);
 	}
 	raw_spin_unlock_irqrestore(&s2idle_lock, flags);
 }
@@ -377,24 +387,6 @@ static int suspend_prepare(suspend_state_t state)
 		goto Finish;
 	}
 
-#ifndef CONFIG_SUSPEND_SKIP_SYNC
-	trace_suspend_resume(TPS("sync_filesystems"), 0, true);
-	dbg_snapshot_suspend("sync_filesystems", sys_sync, NULL, state, DSS_FLAG_IN);
-	pr_info("PM: Syncing filesystems ... ");
-	if (intr_sync(NULL)) {
-		printk("canceled.\n");
-		trace_suspend_resume(TPS("sync_filesystems"), 0, false);
-		error = -EBUSY;
-#ifdef CONFIG_SEC_PM_DEBUG
-		log_suspend_abort_reason("intr_sync failed");
-#endif /* CONFIG_SEC_PM_DEBUG */
-		goto Finish;
-	}
-	pr_cont("done.\n");
-	dbg_snapshot_suspend("sync_filesystems", sys_sync, NULL, state, DSS_FLAG_OUT);
-	trace_suspend_resume(TPS("sync_filesystems"), 0, false);
-#endif
-
 	trace_suspend_resume(TPS("freeze_processes"), 0, true);
 	dbg_snapshot_suspend("freeze_processes", suspend_freeze_processes,
 				NULL, 0, DSS_FLAG_IN);
@@ -411,6 +403,7 @@ static int suspend_prepare(suspend_state_t state)
 	log_suspend_abort_reason("Freezing processes failed: %d", error);
 #endif /* CONFIG_SEC_PM_DEBUG */
  Finish:
+	mem_stop_offline();
 	__pm_notifier_call_chain(PM_POST_SUSPEND, nr_calls, NULL);
 	pm_restore_console();
 	return error;
@@ -453,6 +446,9 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			suspend_stats.failed_devs[last_dev]);
 		goto Platform_finish;
 	}
+#ifdef CONFIG_SEC_PM_DEBUG
+	regulator_show_enabled();
+#endif /* CONFIG_SEC_PM_DEBUG */
 	error = platform_suspend_prepare_late(state);
 	if (error)
 		goto Devices_early_resume;
@@ -487,6 +483,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
 
+	system_state = SYSTEM_SUSPEND;
+
 	error = syscore_suspend();
 	if (!error) {
 		*wakeup = pm_wakeup_pending();
@@ -509,6 +507,8 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		syscore_resume();
 	}
 
+	system_state = SYSTEM_RUNNING;
+
 	arch_suspend_enable_irqs();
 	BUG_ON(irqs_disabled());
 
@@ -516,16 +516,20 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	enable_nonboot_cpus();
 
  Platform_wake:
+	mem_stop_offline();
 	platform_resume_noirq(state);
 	dpm_resume_noirq(PMSG_RESUME);
 
  Platform_early_resume:
+	mem_stop_offline();
 	platform_resume_early(state);
 
  Devices_early_resume:
+	mem_stop_offline();
 	dpm_resume_early(PMSG_RESUME);
 
  Platform_finish:
+	mem_stop_offline();
 	platform_resume_finish(state);
 	return error;
 }
@@ -581,6 +585,7 @@ int suspend_devices_and_enter(suspend_state_t state)
 	return error;
 
  Recover_platform:
+	mem_stop_offline();
 	platform_recover(state);
 	goto Resume_devices;
 }
@@ -622,11 +627,21 @@ static int enter_state(suspend_state_t state)
 	} else if (!valid_state(state)) {
 		return -EINVAL;
 	}
-	if (!mutex_trylock(&pm_mutex))
+	if (!mutex_trylock(&system_transition_mutex))
 		return -EBUSY;
 
 	if (state == PM_SUSPEND_TO_IDLE)
 		s2idle_begin();
+
+#ifndef CONFIG_SUSPEND_SKIP_SYNC
+	trace_suspend_resume(TPS("sync_filesystems"), 0, true);
+	dbg_snapshot_suspend("sync_filesystems", ksys_sync, NULL, state, DSS_FLAG_IN);
+	pr_info("Syncing filesystems ... ");
+	ksys_sync();
+	pr_cont("done.\n");
+	dbg_snapshot_suspend("sync_filesystems", ksys_sync, NULL, state, DSS_FLAG_OUT);
+	trace_suspend_resume(TPS("sync_filesystems"), 0, false);
+#endif
 
 	pm_pr_dbg("Preparing system for sleep (%s)\n", mem_sleep_labels[state]);
 	pm_suspend_clear_flags();
@@ -649,7 +664,7 @@ static int enter_state(suspend_state_t state)
 	pm_pr_dbg("Finishing wakeup.\n");
 	suspend_finish();
  Unlock:
-	mutex_unlock(&pm_mutex);
+	mutex_unlock(&system_transition_mutex);
 	return error;
 }
 
@@ -668,11 +683,7 @@ int pm_suspend(suspend_state_t state)
 		return -EINVAL;
 
 	pr_info("suspend entry (%s)\n", mem_sleep_labels[state]);
-
-	sec_debug_set_task_in_pm_suspend((uint64_t)current);
 	error = enter_state(state);
-	sec_debug_set_task_in_pm_suspend(0);
-
 	if (error) {
 		suspend_stats.fail++;
 		dpm_save_failed_errno(error);

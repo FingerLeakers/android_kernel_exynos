@@ -24,30 +24,25 @@
 #include <linux/mfd/samsung/rtc-s2mp.h>
 #include <linux/mfd/samsung/s2mps19.h>
 #include <linux/mfd/samsung/s2mps19-regulator.h>
-#include <linux/soc/samsung/exynos-soc.h>
+#ifdef CONFIG_SEC_PM
+#include <linux/sec_class.h>
+#endif /* CONFIG_SEC_PM */
+#ifdef CONFIG_SEC_PM_BIGDATA
+#include <linux/sec_hqm_device.h>
+#endif /* CONFIG_SEC_PM_BIGDATA */
 
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 #include <linux/sec_debug.h>
 
-static unsigned long smpl_warn_number = 0;
+static unsigned long smpl_warn_number;
 #endif
 
 /*#define CONFIG_WEEKDAY_ALARM_ENABLE*/
 
-#ifdef CONFIG_SEC_PM_BIGDATA
-#include <linux/sec_hqm_device.h>
-#endif
-
-#ifdef CONFIG_SEC_PM
-#include <linux/sec_class.h>
-
-static struct device *pmic_rtc_dev;
-#endif /* CONFIG_SEC_PM */
-
 struct s2m_rtc_info {
 	struct device		*dev;
-	struct i2c_client   	*i2c;
-	struct i2c_client   	*pmic_i2c;
+	struct i2c_client	*i2c;
+	struct i2c_client	*pmic_i2c;
 	struct s2mps19_dev	*iodev;
 	struct rtc_device	*rtc_dev;
 	struct mutex		lock;
@@ -65,16 +60,20 @@ struct s2m_rtc_info {
 	u8			wudr_mask;
 	u8			audr_mask;
 	int			smpl_warn_info;
+#ifdef CONFIG_SEC_PM
+	struct device		*pmic_rtc_dev;
+	unsigned int		smpl_warn_cnt;
+#endif /* CONFIG_SEC_PM */
 #ifdef CONFIG_SEC_PM_BIGDATA
-	struct delayed_work hqm_spwc_work;
-#endif
+	struct delayed_work	hqm_spwc_work;
+#endif /* CONFIG_SEC_PM_BIGDATA */
 };
 
 static struct wakeup_source *rtc_ws;
 
 #ifdef CONFIG_SEC_PM
 static bool is_rtc_cleared;
-#endif
+#endif /* CONFIG_SEC_PM */
 
 enum S2M_RTC_OP {
 	S2M_RTC_READ,
@@ -526,7 +525,7 @@ static bool s2m_is_jigonb_low(struct s2m_rtc_info *info)
 }
 
 #ifdef CONFIG_SEC_PM_BIGDATA
-void send_hqm_spwc_work(struct work_struct *work)
+static void send_hqm_spwc_work(struct work_struct *work)
 {
 	hqm_device_info hqm_info;
 	char feature[HQM_FEATURE_LEN] ="SPWC";
@@ -536,75 +535,53 @@ void send_hqm_spwc_work(struct work_struct *work)
 }
 #endif /* CONFIG_SEC_PM_BIGDATA */
 
-#ifdef CONFIG_SOC_EXYNOS9820_EVT0
-extern unsigned int get_smpl_irq_num(void);
-
-static unsigned int smpl_irq;
-#endif
-
 static irqreturn_t s2m_smpl_warn_irq_handler(int irq, void *data)
 {
 	struct s2m_rtc_info *info = data;
-	unsigned int polarity;
 
 	if (!info->rtc_dev)
 		return IRQ_HANDLED;
 
-	if (exynos_soc_info.main_rev == 1 && exynos_soc_info.sub_rev == 0)
-		polarity = 0;
-	else
-		polarity = 1;
-
-	if ((gpio_get_value(info->smpl_warn_info) & 0x1) == polarity)
+	if (gpio_get_value(info->smpl_warn_info) & 0x1)
 		return IRQ_HANDLED;
 
 	dev_info(info->dev, "%s: SMPL_WARN \n", __func__);
 
-#ifdef CONFIG_SOC_EXYNOS9820_EVT0
-	disable_irq_nosync(smpl_irq);
-#else
 	disable_irq_nosync(info->smpl_irq);
-#endif
+
 	queue_delayed_work(system_freezable_wq, &info->irq_work,
 			msecs_to_jiffies(100));
 
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_SEC_PM
-atomic_t smpl_warn_cnt = ATOMIC_INIT(0);
+#ifdef CONFIG_SOC_EXYNOS9830_EVT0
+void exynos9830_smpl_warn_sw_release(void);
 #endif
 static void exynos_smpl_warn_work(struct work_struct *work)
 {
 	struct s2m_rtc_info *info = container_of(work,
 			struct s2m_rtc_info, irq_work.work);
 	int state = 0;
-	unsigned int polarity;
-
-	if (exynos_soc_info.main_rev == 1 && exynos_soc_info.sub_rev == 0)
-		polarity = 0;
-	else
-		polarity = 1;
 
 	state = (gpio_get_value(info->smpl_warn_info) & 0x1);
 
-	if (state != polarity) {
+	if (!state) {
 		queue_delayed_work(system_freezable_wq, &info->irq_work,
 				msecs_to_jiffies(100));
 	} else {
 		dev_info(info->dev, "%s: SMPL_WARN polling End!\n", __func__);
-#ifdef CONFIG_SOC_EXYNOS9820_EVT0
-		enable_irq(smpl_irq);
-#else
-		enable_irq(info->smpl_irq);
+#ifdef CONFIG_SOC_EXYNOS9830_EVT0
+		exynos9830_smpl_warn_sw_release();
 #endif
+		enable_irq(info->smpl_irq);
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 		smpl_warn_number++;
-		sec_debug_set_extra_info_smpl(smpl_warn_number);
+		secdbg_exin_set_smpl(smpl_warn_number);
 #endif
 #ifdef CONFIG_SEC_PM
-		atomic_inc(&smpl_warn_cnt);
-#endif
+		info->smpl_warn_cnt++;
+#endif /* CONFIG_SEC_PM */
 #ifdef CONFIG_SEC_PM_BIGDATA
 		cancel_delayed_work(&info->hqm_spwc_work);
 		schedule_delayed_work(&info->hqm_spwc_work, 5 * HZ);
@@ -718,7 +695,7 @@ static int s2m_rtc_init_reg(struct s2m_rtc_info *info,
 
 #ifdef CONFIG_SEC_PM
 	is_rtc_cleared = true;
-#endif
+#endif /* CONFIG_SEC_PM */
 
 	/* Set RTC control register : Binary mode, 24hour mode */
 	data = MODEL24_MASK;
@@ -765,9 +742,10 @@ static DEVICE_ATTR(rtc_status, 0440, show_rtc_status, NULL);
 static ssize_t smpl_warn_cnt_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	int cnt = atomic_read(&smpl_warn_cnt);
+	struct s2m_rtc_info *info = dev_get_drvdata(dev);
+	int cnt = info->smpl_warn_cnt;
 
-	atomic_set(&smpl_warn_cnt, 0);
+	info->smpl_warn_cnt = 0;
 
 	return sprintf(buf, "%d\n", cnt);
 }
@@ -791,7 +769,6 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 	struct s2m_rtc_info *info;
 	int irq_base;
 	int ret = 0;
-	unsigned int intr_flag = IRQF_TRIGGER_LOW;
 
 	info = devm_kzalloc(&pdev->dev, sizeof(struct s2m_rtc_info),
 				GFP_KERNEL);
@@ -857,30 +834,25 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 	if (IS_ERR(info->rtc_dev)) {
 		ret = PTR_ERR(info->rtc_dev);
 		dev_err(&pdev->dev, "Failed to register RTC device: %d\n", ret);
-		goto err_rtc_irq;
+		goto err_rtc_dev_register;
 	}
 
 	if (pdata->smpl_warn_en) {
 		if (!gpio_is_valid(pdata->smpl_warn)) {
 			dev_err(&pdev->dev, "smpl_warn GPIO NOT VALID\n");
-			goto err_rtc_irq;
+			goto err_smpl_warn_pin;
 		}
 
 		INIT_DELAYED_WORK(&info->irq_work, exynos_smpl_warn_work);
 
 		info->smpl_irq = gpio_to_irq(pdata->smpl_warn);
 
-		if (exynos_soc_info.main_rev == 1 && exynos_soc_info.sub_rev == 0)
-			intr_flag = IRQF_TRIGGER_HIGH;
-		else
-			intr_flag = IRQF_TRIGGER_LOW;
-
 		irq_set_status_flags(info->smpl_irq, IRQ_DISABLE_UNLAZY);
 
 		ret = devm_request_threaded_irq(&pdev->dev, info->smpl_irq,
 			s2m_smpl_warn_irq_handler,
 			NULL,
-			intr_flag | IRQF_ONESHOT,
+			IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 			"SMPL WARN", info);
 		if (ret < 0) {
 			dev_err(&pdev->dev, "Failed to request smpl warn IRQ: %d: %d\n",
@@ -891,13 +863,9 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 		info->smpl_warn_info = pdata->smpl_warn;
 #ifdef CONFIG_SEC_PM_BIGDATA
 		INIT_DELAYED_WORK(&info->hqm_spwc_work, send_hqm_spwc_work);
-#endif
+#endif /* CONFIG_SEC_PM_BIGDATA */
 	}
 
-
-#ifdef CONFIG_SOC_EXYNOS9820_EVT0
-	smpl_irq = get_smpl_irq_num();
-#endif
 	enable_irq(info->irq);
 
 #ifdef CONFIG_SEC_PM
@@ -906,9 +874,9 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: failed to create rtc_status(%d)\n",
 				__func__, ret);
 
-	pmic_rtc_dev = sec_device_create(NULL, "rtc");
+	info->pmic_rtc_dev = sec_device_create(info, "rtc");
 
-	ret = sysfs_create_group(&pmic_rtc_dev->kobj, &pmic_rtc_attr_group);
+	ret = sysfs_create_group(&info->pmic_rtc_dev->kobj, &pmic_rtc_attr_group);
 	if (ret)
 		dev_err(&pdev->dev, "failed to create pmic_rtc sysfs group\n");
 #endif /* CONFIG_SEC_PM */
@@ -917,6 +885,11 @@ static int s2m_rtc_probe(struct platform_device *pdev)
 
 err_smpl_warn_irq:
 	destroy_delayed_work_on_stack(&info->irq_work);
+err_smpl_warn_pin:
+err_rtc_dev_register:
+	devm_free_irq(&pdev->dev, info->irq, info);
+	enable_irq(info->irq);
+	enable_irq(info->irq);
 err_rtc_irq:
 	wakeup_source_unregister(rtc_ws);
 err_rtc_init_reg:
@@ -931,7 +904,7 @@ static int s2m_rtc_remove(struct platform_device *pdev)
 	struct s2m_rtc_info *info = platform_get_drvdata(pdev);
 #ifdef CONFIG_SEC_PM_BIGDATA
 	struct s2mps19_platform_data *pdata = dev_get_platdata(info->iodev->dev);
-#endif
+#endif /* CONFIG_SEC_PM_BIGDATA */
 
 	if (!info->alarm_enabled)
 		enable_irq(info->irq);
@@ -941,8 +914,7 @@ static int s2m_rtc_remove(struct platform_device *pdev)
 #ifdef CONFIG_SEC_PM_BIGDATA
 	if (pdata->smpl_warn_en)
 		cancel_delayed_work(&info->hqm_spwc_work);
-#endif
-
+#endif /* CONFIG_SEC_PM_BIGDATA */
 	return 0;
 }
 
@@ -962,10 +934,44 @@ static const struct platform_device_id s2m_rtc_id[] = {
 	{},
 };
 
+static int s2mps19_rtc_suspend(struct device *dev)
+{
+	struct s2m_rtc_info *info = dev_get_drvdata(dev);
+	struct rtc_time tm;
+	int ret;
+
+	ret = s2m_rtc_read_time(dev, &tm);
+	if (ret < 0)
+		dev_err(info->dev, "%s: fail to read rtc time\n",
+			__func__);
+
+	return 0;
+}
+
+static int s2mps19_rtc_resume(struct device *dev)
+{
+	struct s2m_rtc_info *info = dev_get_drvdata(dev);
+	struct rtc_time tm;
+	int ret;
+
+	ret = s2m_rtc_read_time(dev, &tm);
+	if (ret < 0)
+		dev_err(info->dev, "%s: fail to read rtc time\n",
+			__func__);
+
+	return 0;
+}
+
+const struct dev_pm_ops s2mps19_rtc_pm = {
+	.suspend = s2mps19_rtc_suspend,
+	.resume = s2mps19_rtc_resume,
+};
+
 static struct platform_driver s2m_rtc_driver = {
 	.driver		= {
 		.name	= "s2mps19-rtc",
 		.owner	= THIS_MODULE,
+		.pm	= &s2mps19_rtc_pm,
 	},
 	.probe		= s2m_rtc_probe,
 	.remove		= s2m_rtc_remove,

@@ -55,17 +55,43 @@ unsigned int cpuidle_get_target_residency(int cpu, int state)
 {
 	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
 	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
-	struct cpuidle_state *s;
-	unsigned int target_residency = INT_MAX;
 
 	if (!drv)
-		goto exit_func;
+		return INT_MAX;
 
-	s = &drv->states[state];
-	target_residency = s->target_residency;
+	return drv->states[state].target_residency;
+}
 
-exit_func:
-	return target_residency;
+int cpuidle_get_state_size(void)
+{
+	struct cpuidle_device *dev = per_cpu(cpuidle_devices, 0);
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+
+	if (!drv)
+		return INT_MAX;
+
+	return drv->state_count;
+}
+
+unsigned int cpuidle_get_exit_latency(int cpu, int state)
+{
+	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+
+	if (!drv)
+		return INT_MAX;
+
+	return drv->states[state].exit_latency;
+}
+
+bool cpuidle_check_state_enable(unsigned int cpu, int state)
+{
+	struct cpuidle_device *dev = per_cpu(cpuidle_devices, cpu);
+	struct cpuidle_driver *drv = cpuidle_get_cpu_driver(dev);
+	struct cpuidle_state *s = &drv->states[state];
+	struct cpuidle_state_usage *su = &dev->states_usage[state];
+
+	return s->disabled || su->disable;
 }
 
 /**
@@ -148,6 +174,10 @@ int cpuidle_find_deepest_state(struct cpuidle_driver *drv,
 static void enter_s2idle_proper(struct cpuidle_driver *drv,
 				struct cpuidle_device *dev, int index)
 {
+	ktime_t time_start, time_end;
+
+	time_start = ns_to_ktime(local_clock());
+
 	/*
 	 * trace_suspend_resume() called by tick_freeze() for the last CPU
 	 * executing it contains RCU usage regarded as invalid in the idle
@@ -169,6 +199,11 @@ static void enter_s2idle_proper(struct cpuidle_driver *drv,
 	 */
 	RCU_NONIDLE(tick_unfreeze());
 	start_critical_timings();
+
+	time_end = ns_to_ktime(local_clock());
+
+	dev->states_usage[index].s2idle_time += ktime_us_delta(time_end, time_start);
+	dev->states_usage[index].s2idle_usage++;
 }
 
 /**
@@ -414,9 +449,12 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	if (dev->enabled)
 		return 0;
 
+	if (!cpuidle_curr_governor)
+		return -EIO;
+
 	drv = cpuidle_get_cpu_driver(dev);
 
-	if (!drv || !cpuidle_curr_governor)
+	if (!drv)
 		return -EIO;
 
 	if (!dev->registered)
@@ -426,9 +464,11 @@ int cpuidle_enable_device(struct cpuidle_device *dev)
 	if (ret)
 		return ret;
 
-	if (cpuidle_curr_governor->enable &&
-	    (ret = cpuidle_curr_governor->enable(drv, dev)))
-		goto fail_sysfs;
+	if (cpuidle_curr_governor->enable) {
+		ret = cpuidle_curr_governor->enable(drv, dev);
+		if (ret)
+			goto fail_sysfs;
+	}
 
 	smp_wmb();
 
@@ -707,5 +747,5 @@ static int __init cpuidle_init(void)
 	return 0;
 }
 
-module_param(off, int, 0444);
+module_param(off, int, 0644);
 core_initcall(cpuidle_init);

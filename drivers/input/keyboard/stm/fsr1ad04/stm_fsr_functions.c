@@ -373,8 +373,8 @@ static int fsr_check_index(struct fsr_sidekey_info *info)
 
 static void fsr_print_cx(struct fsr_sidekey_info *info)
 {
-	u8 ChannelName[6] = {6,12,7,14,8,15};
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelName[6] = {12,6,14,7,15,8};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	u8 pTmp[16] = { 0 };
 	u8 *pStr = NULL;
 	int i = 0;
@@ -494,9 +494,9 @@ static void run_cx_data_read(void *device_data)
 	}
 
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-			info->ch_cx_data[1].total, info->ch_cx_data[0].total,
-			info->ch_cx_data[3].total, info->ch_cx_data[2].total,
-			info->ch_cx_data[5].total, info->ch_cx_data[4].total);
+			info->ch_cx_data[0].total, info->ch_cx_data[1].total,
+			info->ch_cx_data[2].total, info->ch_cx_data[3].total,
+			info->ch_cx_data[4].total, info->ch_cx_data[5].total);
 
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -509,7 +509,7 @@ err:
 
 static void get_cx_data(void *device_data)
 {
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
@@ -532,8 +532,8 @@ static void get_cx_data(void *device_data)
 
 static void fsr_print_frame(struct fsr_sidekey_info *info, struct fsr_frame_data_info *data)
 {
-	u8 ChannelName[6] = {6,12,7,14,8,15};
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelName[6] = {12,6,14,7,15,8};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	u8 pTmp[16] = { 0 };
 	u8 *pStr = NULL;
 	short *fdata = (short *)data;
@@ -639,7 +639,7 @@ int fsr_read_frame(struct fsr_sidekey_info *info, u16 type, struct fsr_frame_dat
 		short *fdata = (short *)data;
 
 		input_info(true, &info->client->dev, "%s: %5d %5d %5d %5d %5d %5d\n", __func__,
-			fdata[1], fdata[0], fdata[3], fdata[2], fdata[5], fdata[4]);
+			fdata[0], fdata[1], fdata[2], fdata[3], fdata[4], fdata[5]);
 	}
 
 	// Release active mode always
@@ -661,9 +661,9 @@ static void run_rawcap_read(void *device_data)
 
 	fsr_read_frame(info, TYPE_RAW_DATA, fsr_frame_data, true);
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-				(*fsr_frame_data).ch06, (*fsr_frame_data).ch12,
-				(*fsr_frame_data).ch07, (*fsr_frame_data).ch14,
-				(*fsr_frame_data).ch08, (*fsr_frame_data).ch15);
+				(*fsr_frame_data).ch12, (*fsr_frame_data).ch06,
+				(*fsr_frame_data).ch14, (*fsr_frame_data).ch07,
+				(*fsr_frame_data).ch15, (*fsr_frame_data).ch08);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING)
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "RAW_DATA");
@@ -673,7 +673,7 @@ static void run_rawcap_read(void *device_data)
 
 static void get_rawcap(void *device_data)
 {
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
@@ -705,9 +705,9 @@ static void run_delta_read(void *device_data)
 
 	fsr_read_frame(info, TYPE_STRENGTH_DATA, fsr_frame_data, false);
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-				(*fsr_frame_data).ch06, (*fsr_frame_data).ch12,
-				(*fsr_frame_data).ch07, (*fsr_frame_data).ch14,
-				(*fsr_frame_data).ch08, (*fsr_frame_data).ch15);
+				(*fsr_frame_data).ch12, (*fsr_frame_data).ch06,
+				(*fsr_frame_data).ch14, (*fsr_frame_data).ch07,
+				(*fsr_frame_data).ch15, (*fsr_frame_data).ch08);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	input_info(true, &info->client->dev, "%s: %s\n", __func__, buff);
@@ -715,7 +715,7 @@ static void run_delta_read(void *device_data)
 
 static void get_delta(void *device_data)
 {
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
@@ -747,16 +747,16 @@ static void run_reference_read(void *device_data)
 
 	fsr_read_frame(info, TYPE_BASELINE_DATA, fsr_frame_data, true);
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-				(*fsr_frame_data).ch06, (*fsr_frame_data).ch12,
-				(*fsr_frame_data).ch07, (*fsr_frame_data).ch14,
-				(*fsr_frame_data).ch08, (*fsr_frame_data).ch15);
+				(*fsr_frame_data).ch12, (*fsr_frame_data).ch06,
+				(*fsr_frame_data).ch14, (*fsr_frame_data).ch07,
+				(*fsr_frame_data).ch15, (*fsr_frame_data).ch08);
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 	input_info(true, &info->client->dev, "%s: %s\n", __func__, buff);
 }
 static void get_reference(void *device_data)
 {
-	u8 ChannelRemap[6] = {1,0,3,2,5,4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
 	char buff[SEC_CMD_STR_LEN] = { 0 };
@@ -838,13 +838,13 @@ static void run_jitter_read(void *device_data)
 	}
 
 	snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-				result[1][0], result[0][0],
-				result[3][0], result[2][0],
-				result[5][0], result[4][0]);
+				result[0][0], result[1][0],
+				result[2][0], result[3][0],
+				result[4][0], result[5][0]);
 	snprintf(stdev, sizeof(stdev), "%d,%d,%d,%d,%d,%d",
-				result[1][1], result[0][1],
-				result[3][1], result[2][1],
-				result[5][1], result[4][1]);
+				result[0][1], result[1][1],
+				result[2][1], result[3][1],
+				result[4][1], result[5][1]);
 
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -1029,7 +1029,7 @@ out:
 static void get_average_strength(struct fsr_sidekey_info *info, short *avg, int num)
 {
 	struct fsr_frame_data_info *fsr_frame_data = (struct fsr_frame_data_info *)&info->fsr_frame_data_delta;
-	u8 ChannelRemap[6] = {1, 0, 3, 2, 5, 4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	short *data;
 	int sum[6] = {0};
 	int i, j;
@@ -1113,7 +1113,7 @@ out:
 
 static int fsr_set_calibration_strength(struct fsr_sidekey_info *info, short *data, short *target)
 {
-	u8 ChannelRemap[6] = {1, 0, 3, 2, 5, 4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	u8 regAdd[13] = {0};
 	u8 afe[3] = {0};
 	int i, rc;
@@ -1265,7 +1265,7 @@ static void set_calibration_strength(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct fsr_sidekey_info *info = container_of(sec, struct fsr_sidekey_info, sec);
-	u8 ChannelRemap[6] = {1, 0, 3, 2, 5, 4};
+	u8 ChannelRemap[6] = {0,1,2,3,4,5};
 	char buff[SEC_CMD_STR_LEN] = { 0 };
 	int i, rc;
 	short data[6] = {0};
@@ -1358,9 +1358,9 @@ static void get_calibration_strength(void *device_data)
 		sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	} else {
 		snprintf(buff, sizeof(buff), "%d,%d,%d,%d,%d,%d",
-				info->fsr_cal_strength.ch06, info->fsr_cal_strength.ch12,
-				info->fsr_cal_strength.ch07, info->fsr_cal_strength.ch14,
-				info->fsr_cal_strength.ch08, info->fsr_cal_strength.ch15);
+				info->fsr_cal_strength.ch12, info->fsr_cal_strength.ch06,
+				info->fsr_cal_strength.ch14, info->fsr_cal_strength.ch07,
+				info->fsr_cal_strength.ch15, info->fsr_cal_strength.ch08);
 		sec->cmd_state = SEC_CMD_STATUS_OK;
 	}
 

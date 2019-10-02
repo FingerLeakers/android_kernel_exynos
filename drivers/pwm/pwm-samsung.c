@@ -679,6 +679,8 @@ static int pwm_samsung_probe(struct platform_device *pdev)
 	unsigned int chan, reg_tcfg0;
 	int ret;
 
+	dev_set_socdata(&pdev->dev, "Exynos", "PWM");
+
 	chip = devm_kzalloc(&pdev->dev, sizeof(*chip), GFP_KERNEL);
 	if (chip == NULL)
 		return -ENOMEM;

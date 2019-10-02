@@ -1,0 +1,99 @@
+/* SAMSUNG UNIVERSAL9830 board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "battery_data_hubble_common.dtsi"
+
+/ {
+	fragment@battery {
+		target-path = "/";
+		__overlay__ {
+			battery {
+				battery,temp_table_adc = <
+					200 275 336 415 483 551 667 764 903 1054 1189 1384 1575
+					1787 2042 2263 2492 2723 2937 3127 3309 3463 3578>;
+
+				battery,temp_table_data = <
+					900 850 800 750 700 650 600 550 500 450 400 350 300 250
+					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,wpc_temp_table_adc = <
+					200 275 336 415 483 551 667 764 903 1054 1189 1384 1575
+					1787 2042 2263 2492 2723 2937 3127 3309 3463 3578>;
+
+				battery,wpc_temp_table_data = <
+					900 850 800 750 700 650 600 550 500 450 400 350 300 250
+					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				/* swelling current */
+				battery,swelling_low_temp_current = <900>;	/* 0.24C */
+				battery,swelling_low_temp_current_2nd = <350>;	/* 0.1C */
+				battery,swelling_low_temp_current_3rd = <2750>;	/* 0.72C */
+				battery,swelling_low_temp_topoff = <194>;	/* 0.05C */
+				battery,swelling_high_temp_current = <1350>;	/* 0.36C */
+				battery,swelling_high_temp_topoff = <194>;	/* 0.05C */
+				battery,swelling_wc_high_temp_current = <900>;	/* 0.24C */
+				battery,swelling_wc_low_temp_current = <900>;	/* 0.24C */
+ 				battery,swelling_wc_low_temp_current_2nd = <350>;	/* 0.1C */
+				battery,swelling_wc_low_temp_current_3rd = <2750>;	/* 0.72C */
+
+				/* step charging option */
+				battery,step_charging_type = <0x3E>;
+				battery,step_charging_charge_power = <12000>;
+				battery,step_charging_condition = <55 100>;
+				battery,step_charging_condition_curr = <2850 2400>;
+				battery,step_charging_current = <3150 2850>;
+				battery,step_charging_float_voltage = <4210 4380>;
+
+				/* direct step charging option */
+				battery,dc_step_chg_type = <0x6B>; /* origin(0x6B) */
+				battery,dc_step_chg_charge_power = <22000>;
+				battery,dc_step_chg_step = <3>;
+				battery,dc_step_chg_cond_vol = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_VOLTAGE */ 
+				battery,dc_step_chg_cond_iin = <1530 1220 0>; /* STEP_CHARGING_CONDITION_INPUT_CURRENT */
+				battery,dc_step_chg_iin_check_cnt = <3>;
+				battery,dc_step_chg_cond_soc = <25 55 100>; /* STEP_CHARGING_CONDITION_SOC */
+				battery,dc_step_chg_val_vfloat = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
+				battery,dc_step_chg_val_iout = <4690 3600 2880>;
+			};
+
+			max77705-fuelgauge {
+				status = "okay";
+				fuelgauge,v_empty = <0xA7E2>;
+				fuelgauge,qrtable20 = <0x1500>;
+				fuelgauge,qrtable30 = <0x1000>;
+				fuelgauge,capacity = <0x0E2E>;
+			};
+
+			cable-info {
+				full_check_current_1st = <582>;
+				full_check_current_2nd = <194>;
+			};
+
+			wireless-power-info {
+				current_group_0 {
+					fast_charging_current = <2750>;
+					ttf_charge_current = <2750>;
+				};
+				current_group_1 {
+					fast_charging_current = <2750>;
+					ttf_charge_current = <2750>;
+				};
+				current_group_2 {
+					fast_charging_current = <2750>;
+					ttf_charge_current = <2750>;
+				};
+				current_group_3 {
+					fast_charging_current = <2750>;
+					ttf_charge_current = <2750>;
+				};
+			};
+		}; /* end of __overlay__ */
+	}; /* end of fragment */
+};

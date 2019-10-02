@@ -25,6 +25,7 @@ struct exynos_powermode_info {
 	unsigned int	*wakeup_mask_offset;
 	unsigned int	*wakeup_stat_offset;
 	unsigned int	*wakeup_mask[NUM_SYS_POWERDOWN];
+	unsigned int	*usbl2_wakeup_int_en;
 };
 
 static struct exynos_powermode_info *pm_info;
@@ -37,8 +38,10 @@ int exynos_system_idle_enter(void)
 	int ret;
 
 	ret = exynos_prepare_sys_powerdown(SYS_SICD);
-	if (ret)
+	if (ret) {
+		pr_info("failed exynos prepare sys powerdown\n");
 		return ret;
+	}
 
 	exynos_pm_notify(SICD_ENTER);
 
@@ -54,10 +57,12 @@ void exynos_system_idle_exit(int cancel)
 
 #define PMU_EINT_WAKEUP_MASK	0x60C
 #define PMU_EINT_WAKEUP_MASK2	0x61C
+
 static void exynos_set_wakeupmask(enum sys_powerdown mode)
 {
 	int i;
 	u64 eintmask = exynos_get_eint_wake_mask();
+	u32 wakeup_int_en = 0;
 
 	/* Set external interrupt mask */
 	exynos_pmu_write(PMU_EINT_WAKEUP_MASK, (u32)eintmask);
@@ -65,12 +70,12 @@ static void exynos_set_wakeupmask(enum sys_powerdown mode)
 
 	for (i = 0; i < pm_info->num_wakeup_mask; i++) {
 		exynos_pmu_write(pm_info->wakeup_stat_offset[i], 0);
+		wakeup_int_en = pm_info->wakeup_mask[mode][i];
 
-		if ((mode == SYS_SLEEP_USBL2) && (otg_is_connect() != 1) && (i == 1))
-			exynos_pmu_write(pm_info->wakeup_mask_offset[1], 0);
-		else
-			exynos_pmu_write(pm_info->wakeup_mask_offset[i],
-					pm_info->wakeup_mask[mode][i]);
+		if (otg_is_connect() == 2)
+			wakeup_int_en &= ~pm_info->usbl2_wakeup_int_en[i];
+
+		exynos_pmu_write(pm_info->wakeup_mask_offset[i], wakeup_int_en);
 	}
 }
 
@@ -124,6 +129,11 @@ static int alloc_wakeup_mask(int num_wakeup_mask)
 			goto free_reg_offset;
 	}
 
+	pm_info->usbl2_wakeup_int_en = kzalloc(sizeof(unsigned int)
+				* num_wakeup_mask, GFP_KERNEL);
+	if (!pm_info->usbl2_wakeup_int_en)
+		return -ENOMEM;
+
 	return 0;
 
 free_reg_offset:
@@ -142,6 +152,9 @@ static int parsing_dt_wakeup_mask(struct device_node *np)
 	int ret;
 	struct device_node *root, *child;
 	unsigned int mode, mask_index = 0;
+	struct property *prop;
+	const __be32 *cur;
+	u32 val;
 
 	root = of_find_node_by_name(np, "wakeup-masks");
 	pm_info->num_wakeup_mask = of_get_child_count(root);
@@ -167,6 +180,10 @@ static int parsing_dt_wakeup_mask(struct device_node *np)
 				&pm_info->wakeup_stat_offset[mask_index]);
 		if (ret)
 			return ret;
+
+		of_property_for_each_u32(child, "usbl2_wakeup_int_en", prop, cur, val) {
+			pm_info->usbl2_wakeup_int_en[mask_index] |= BIT(val);
+		}
 
 		mask_index++;
 	}

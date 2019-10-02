@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  *  Internal header file for Samsung S3C2410 serial ports (UART0-2)
  *
@@ -10,21 +11,7 @@
  *  Internal header file for MX1ADS serial ports (UART1 & 2)
  *
  *  Copyright (C) 2002 Shane Nay (shane@minirl.com)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-*/
+ */
 
 #ifndef __ASM_ARM_REGS_SERIAL_H
 #define __ASM_ARM_REGS_SERIAL_H
@@ -40,6 +27,9 @@
 #define S3C2410_UERSTAT	  (0x14)
 #define S3C2410_UFSTAT	  (0x18)
 #define S3C2410_UMSTAT	  (0x1C)
+#define S3C2410_UINTP	  (0x30)
+#define S3C2410_UINTS	  (0x34)
+#define S3C2410_UINTM	  (0x38)
 
 #define USI_CON	  		(0xC4)
 #define USI_OPTION		(0xC8)
@@ -265,7 +255,7 @@
 
 #define S5PV210_UFCON_DEFAULT	(S3C2410_UFCON_FIFOMODE |	\
 				 S5PV210_UFCON_TXTRIG4 |	\
-				 S5PV210_UFCON_RXTRIG32)
+				 S5PV210_UFCON_RXTRIG4)
 
 #ifndef __ASSEMBLY__
 

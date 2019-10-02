@@ -15,8 +15,10 @@
 
 #include <linux/types.h>
 #include <linux/kernel.h>
-#include "../panel_poc.h"
 
+#ifdef CONFIG_SUPPORT_DDI_FLASH
+#include "../panel_poc.h"
+#endif
 /*
  * OFFSET ==> OFS means N-param - 1
  * <example>
@@ -372,12 +374,8 @@ enum {
 	ISC_THRESHOLD_MAPTBL,
 	STM_TUNE_MAPTBL,
 #endif
-#ifdef CONFIG_DYNAMIC_FREQ
-	DYN_FFC_MAPTBL,
-#endif
 	GAMMA_INTER_CONTROL_MAPTBL,
 	POC_COMP_MAPTBL,
-	DIA_ONOFF_MAPTBL,
 	MAX_MAPTBL,
 };
 
@@ -817,7 +815,6 @@ static int getidx_elvss_temp_table(struct maptbl *);
 #ifdef CONFIG_SUPPORT_XTALK_MODE
 static int getidx_vgh_table(struct maptbl *);
 #endif
-static int getidx_dia_onoff_table(struct maptbl *tbl);
 static int getidx_hbm_onoff_table(struct maptbl *);
 static int getidx_acl_onoff_table(struct maptbl *);
 static int getidx_acl_opr_table(struct maptbl *);
@@ -857,9 +854,6 @@ static int s6e3ha9_getidx_tdmb_tune_table(struct maptbl *tbl);
 static int init_hmd_gamma_table(struct maptbl *);
 static int getidx_hmd_dimming_mtptbl(struct maptbl *);
 #endif /* CONFIG_SUPPORT_HMD */
-#ifdef CONFIG_DYNAMIC_FREQ
-static int getidx_dyn_ffc_table(struct maptbl *tbl);
-#endif /*CONFIG_DYNAMIC_FREQ*/
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int init_color_blind_table(struct maptbl *tbl);
 static int getidx_mdnie_scenario_maptbl(struct maptbl *tbl);

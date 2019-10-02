@@ -79,7 +79,7 @@ struct fullmesh_priv {
 	u8 rem4_bits;
 	u8 rem6_bits;
 
-	/* Are we established the additional subflows for primary pair? */
+	/* Have we established the additional subflows for primary pair? */
 	u8 first_pair:1;
 };
 
@@ -379,6 +379,9 @@ next_subflow:
 	mutex_lock(&mpcb->mpcb_mutex);
 	lock_sock_nested(meta_sk, SINGLE_DEPTH_NESTING);
 
+	if (!mptcp(tcp_sk(meta_sk)))
+		goto exit;
+
 	iter++;
 
 	if (sock_flag(meta_sk, SOCK_DEAD))
@@ -435,6 +438,7 @@ exit:
 	kfree(mptcp_local);
 	release_sock(meta_sk);
 	mutex_unlock(&mpcb->mpcb_mutex);
+	mptcp_mpcb_put(mpcb);
 	sock_put(meta_sk);
 }
 
@@ -477,7 +481,7 @@ next_subflow:
 	mutex_lock(&mpcb->mpcb_mutex);
 	lock_sock_nested(meta_sk, SINGLE_DEPTH_NESTING);
 
-	if (sock_flag(meta_sk, SOCK_DEAD))
+	if (sock_flag(meta_sk, SOCK_DEAD) || !mptcp(tcp_sk(meta_sk)))
 		goto exit;
 
 	if (mpcb->master_sk &&
@@ -585,6 +589,7 @@ next_subflow:
 
 	if (retry && !delayed_work_pending(&fmp->subflow_retry_work)) {
 		sock_hold(meta_sk);
+		refcount_inc(&mpcb->mpcb_refcnt);
 		queue_delayed_work(mptcp_wq, &fmp->subflow_retry_work,
 				   msecs_to_jiffies(MPTCP_SUBFLOW_RETRY_DELAY));
 	}
@@ -593,6 +598,7 @@ exit:
 	kfree(mptcp_local);
 	release_sock(meta_sk);
 	mutex_unlock(&mpcb->mpcb_mutex);
+	mptcp_mpcb_put(mpcb);
 	sock_put(meta_sk);
 }
 
@@ -872,9 +878,7 @@ duno:
 				goto next;
 
 			if (!mptcp(meta_tp) || !is_meta_sk(meta_sk) ||
-			    mpcb->infinite_mapping_snd ||
-			    mpcb->infinite_mapping_rcv ||
-			    mpcb->send_infinite_mapping)
+			    mptcp_in_infinite_mapping_weak(mpcb))
 				goto next;
 
 			/* May be that the pm has changed in-between */
@@ -903,8 +907,9 @@ duno:
 			}
 
 			if (event->code == MPTCP_EVENT_DEL) {
-				struct sock *sk, *tmpsk;
+				struct mptcp_tcp_sock *mptcp;
 				struct mptcp_loc_addr *mptcp_local;
+				struct hlist_node *tmp;
 				bool found = false;
 
 				mptcp_local = rcu_dereference_bh(fm_ns->local);
@@ -914,7 +919,9 @@ duno:
 					update_addr_bitfields(meta_sk, mptcp_local);
 
 				/* Look for the socket and remove him */
-				mptcp_for_each_sk_safe(mpcb, sk, tmpsk) {
+				mptcp_for_each_sub_safe(mpcb, mptcp, tmp) {
+					struct sock *sk = mptcp_to_sock(mptcp);
+
 					if ((event->family == AF_INET6 &&
 					     (sk->sk_family == AF_INET ||
 					      mptcp_v6_is_v4_mapped(sk))) ||
@@ -964,9 +971,10 @@ duno:
 			}
 
 			if (event->code == MPTCP_EVENT_MOD) {
-				struct sock *sk;
+				struct mptcp_tcp_sock *mptcp;
 
-				mptcp_for_each_sk(mpcb, sk) {
+				mptcp_for_each_sub(mpcb, mptcp) {
+					struct sock *sk = mptcp_to_sock(mptcp);
 					struct tcp_sock *tp = tcp_sk(sk);
 					if (event->family == AF_INET &&
 					    (sk->sk_family == AF_INET ||
@@ -1118,8 +1126,8 @@ static struct notifier_block mptcp_pm_inetaddr_notifier = {
 
 #if IS_ENABLED(CONFIG_IPV6)
 
-static int inet6_addr_event(struct notifier_block *this,
-				     unsigned long event, void *ptr);
+static int inet6_addr_event(struct notifier_block *this, unsigned long event,
+			    void *ptr);
 
 static void addr6_event_handler(const struct inet6_ifaddr *ifa, unsigned long event,
 				struct net *net)
@@ -1169,7 +1177,7 @@ static int inet6_addr_event(struct notifier_block *this, unsigned long event,
 	      event == NETDEV_CHANGE))
 		return NOTIFY_DONE;
 
-		addr6_event_handler(ifa6, event, net);
+	addr6_event_handler(ifa6, event, net);
 
 	return NOTIFY_DONE;
 }
@@ -1347,11 +1355,10 @@ fallback:
 
 static void full_mesh_create_subflows(struct sock *meta_sk)
 {
-	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
+	struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct fullmesh_priv *fmp = fullmesh_get_priv(mpcb);
 
-	if (mpcb->infinite_mapping_snd || mpcb->infinite_mapping_rcv ||
-	    mpcb->send_infinite_mapping ||
+	if (mptcp_in_infinite_mapping_weak(mpcb) ||
 	    mpcb->server_side || sock_flag(meta_sk, SOCK_DEAD))
 		return;
 
@@ -1361,26 +1368,9 @@ static void full_mesh_create_subflows(struct sock *meta_sk)
 
 	if (!work_pending(&fmp->subflow_work)) {
 		sock_hold(meta_sk);
+		refcount_inc(&mpcb->mpcb_refcnt);
 		queue_work(mptcp_wq, &fmp->subflow_work);
 	}
-}
-
-static void full_mesh_subflow_error(struct sock *meta_sk, struct sock *sk)
-{
-	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
-
-	if (!create_on_err)
-		return;
-
-	if (mpcb->infinite_mapping_snd || mpcb->infinite_mapping_rcv ||
-	    mpcb->send_infinite_mapping ||
-	    mpcb->server_side || sock_flag(meta_sk, SOCK_DEAD))
-		return;
-
-	if (sk->sk_err != ETIMEDOUT)
-		return;
-
-	full_mesh_create_subflows(meta_sk);
 }
 
 /* Called upon release_sock, if the socket was owned by the user during
@@ -1392,8 +1382,9 @@ static void full_mesh_release_sock(struct sock *meta_sk)
 	struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct fullmesh_priv *fmp = fullmesh_get_priv(mpcb);
 	const struct mptcp_fm_ns *fm_ns = fm_get_ns(sock_net(meta_sk));
-	struct sock *sk, *tmpsk;
 	bool meta_v4 = meta_sk->sk_family == AF_INET;
+	struct mptcp_tcp_sock *mptcp;
+	struct hlist_node *tmp;
 	int i;
 
 	rcu_read_lock_bh();
@@ -1407,7 +1398,8 @@ static void full_mesh_release_sock(struct sock *meta_sk)
 		struct in_addr ifa = mptcp_local->locaddr4[i].addr;
 		bool found = false;
 
-		mptcp_for_each_sk(mpcb, sk) {
+		mptcp_for_each_sub(mpcb, mptcp) {
+			struct sock *sk = mptcp_to_sock(mptcp);
 			struct tcp_sock *tp = tcp_sk(sk);
 
 			if (sk->sk_family == AF_INET6 &&
@@ -1428,6 +1420,8 @@ static void full_mesh_release_sock(struct sock *meta_sk)
 		}
 
 		if (!found) {
+			struct sock *sk;
+
 			fmp->add_addr++;
 			mpcb->addr_signal = 1;
 
@@ -1448,7 +1442,8 @@ skip_ipv4:
 		struct in6_addr ifa = mptcp_local->locaddr6[i].addr;
 		bool found = false;
 
-		mptcp_for_each_sk(mpcb, sk) {
+		mptcp_for_each_sub(mpcb, mptcp) {
+			struct sock *sk = mptcp_to_sock(mptcp);
 			struct tcp_sock *tp = tcp_sk(sk);
 
 			if (sk->sk_family == AF_INET ||
@@ -1469,6 +1464,8 @@ skip_ipv4:
 		}
 
 		if (!found) {
+			struct sock *sk;
+
 			fmp->add_addr++;
 			mpcb->addr_signal = 1;
 
@@ -1483,7 +1480,8 @@ removal:
 #endif
 
 	/* Now, detect address-removals */
-	mptcp_for_each_sk_safe(mpcb, sk, tmpsk) {
+	mptcp_for_each_sub_safe(mpcb, mptcp, tmp) {
+		struct sock *sk = mptcp_to_sock(mptcp);
 		bool shall_remove = true;
 
 		if (sk->sk_family == AF_INET || mptcp_v6_is_v4_mapped(sk)) {
@@ -1522,11 +1520,12 @@ removal:
 	rcu_read_unlock_bh();
 }
 
-static int full_mesh_get_local_id(sa_family_t family, union inet_addr *addr,
-				  struct net *net, bool *low_prio)
+static int full_mesh_get_local_id(const struct sock *meta_sk,
+				  sa_family_t family, union inet_addr *addr,
+				  bool *low_prio)
 {
 	struct mptcp_loc_addr *mptcp_local;
-	const struct mptcp_fm_ns *fm_ns = fm_get_ns(net);
+	const struct mptcp_fm_ns *fm_ns = fm_get_ns(sock_net(meta_sk));
 	int index, id = -1;
 
 	/* Handle the backup-flows */
@@ -1691,10 +1690,14 @@ static void full_mesh_delete_subflow(struct sock *sk)
 {
 	struct fullmesh_priv *fmp = fullmesh_get_priv(tcp_sk(sk)->mpcb);
 	struct mptcp_fm_ns *fm_ns = fm_get_ns(sock_net(sk));
+	struct sock *meta_sk = mptcp_meta_sk(sk);
 	struct mptcp_loc_addr *mptcp_local;
 	int index, i;
 
 	if (!create_on_err)
+		return;
+
+	if (!mptcp_can_new_subflow(meta_sk))
 		return;
 
 	rcu_read_lock_bh();
@@ -1746,6 +1749,10 @@ static void full_mesh_delete_subflow(struct sock *sk)
 
 out:
 	rcu_read_unlock_bh();
+
+	/* re-schedule the creation of failed subflows */
+	if (tcp_sk(sk)->mptcp->sk_err == ETIMEDOUT || sk->sk_err == ETIMEDOUT)
+		full_mesh_create_subflows(meta_sk);
 }
 
 /* Output /proc/net/mptcp_fullmesh */
@@ -1783,19 +1790,6 @@ static int mptcp_fm_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
-static int mptcp_fm_seq_open(struct inode *inode, struct file *file)
-{
-	return single_open_net(inode, file, mptcp_fm_seq_show);
-}
-
-static const struct file_operations mptcp_fm_seq_fops = {
-	.owner = THIS_MODULE,
-	.open = mptcp_fm_seq_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release_net,
-};
-
 static int mptcp_fm_init_net(struct net *net)
 {
 	struct mptcp_loc_addr *mptcp_local;
@@ -1812,8 +1806,8 @@ static int mptcp_fm_init_net(struct net *net)
 		goto err_mptcp_local;
 	}
 
-	if (!proc_create("mptcp_fullmesh", S_IRUGO, net->proc_net,
-			 &mptcp_fm_seq_fops)) {
+	if (!proc_create_net_single("mptcp_fullmesh", S_IRUGO, net->proc_net,
+			 mptcp_fm_seq_show, NULL)) {
 		err = -ENOMEM;
 		goto err_seq_fops;
 	}
@@ -1873,7 +1867,6 @@ static struct mptcp_pm_ops full_mesh __read_mostly = {
 	.release_sock = full_mesh_release_sock,
 	.fully_established = full_mesh_create_subflows,
 	.new_remote_address = full_mesh_create_subflows,
-	.subflow_error = full_mesh_subflow_error,
 	.get_local_id = full_mesh_get_local_id,
 	.addr_signal = full_mesh_addr_signal,
 	.add_raddr = full_mesh_add_raddr,

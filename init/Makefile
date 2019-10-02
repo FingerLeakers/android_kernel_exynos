@@ -6,16 +6,14 @@
 ccflags-y := -fno-function-sections -fno-data-sections
 
 obj-y                          := main.o version.o mounts.o
+ifneq ($(CONFIG_BLK_DEV_INITRD),y)
 obj-y                          += noinitramfs.o
+else
 obj-$(CONFIG_BLK_DEV_INITRD)   += initramfs.o
-obj-$(CONFIG_GENERIC_CALIBRATE_DELAY) += calibrate.o
-obj-$(CONFIG_RKP_CFP)		+= rkp_cfp.o
-obj-$(CONFIG_UH)              += uh_fault_handler.o
-
-
-ifneq ($(CONFIG_ARCH_INIT_TASK),y)
-obj-y                          += init_task.o
 endif
+obj-$(CONFIG_GENERIC_CALIBRATE_DELAY) += calibrate.o
+
+obj-y                          += init_task.o
 
 mounts-y			:= do_mounts.o
 mounts-$(CONFIG_BLK_DEV_RAM)	+= do_mounts_rd.o

@@ -29,7 +29,7 @@
 #include "fmp_fips_info.h"
 #include "fmp_fips_integrity.h"
 
-#define FIPS_CHECK_INTEGRITY
+#undef FIPS_CHECK_INTEGRITY
 #undef FIPS_DEBUG_INTEGRITY
 
 /* Same as build time */

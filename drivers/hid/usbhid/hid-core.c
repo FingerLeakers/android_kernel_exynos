@@ -44,8 +44,6 @@
 
 #define DRIVER_DESC "USB HID core driver"
 
-#undef dev_dbg
-#define dev_dbg dev_err
 /*
  * Module parameters.
  */
@@ -57,6 +55,10 @@ MODULE_PARM_DESC(mousepoll, "Polling interval of mice");
 static unsigned int hid_jspoll_interval;
 module_param_named(jspoll, hid_jspoll_interval, uint, 0644);
 MODULE_PARM_DESC(jspoll, "Polling interval of joysticks");
+
+static unsigned int hid_kbpoll_interval;
+module_param_named(kbpoll, hid_kbpoll_interval, uint, 0644);
+MODULE_PARM_DESC(kbpoll, "Polling interval of keyboards");
 
 static unsigned int ignoreled;
 module_param_named(ignoreled, ignoreled, uint, 0644);
@@ -107,10 +109,10 @@ static int hid_start_in(struct hid_device *hid)
 }
 
 /* I/O retry timer routine */
-static void hid_retry_timeout(unsigned long _hid)
+static void hid_retry_timeout(struct timer_list *t)
 {
-	struct hid_device *hid = (struct hid_device *) _hid;
-	struct usbhid_device *usbhid = hid->driver_data;
+	struct usbhid_device *usbhid = from_timer(usbhid, t, io_retry);
+	struct hid_device *hid = usbhid->hid;
 
 	dev_dbg(&usbhid->intf->dev, "retrying intr urb\n");
 	if (hid_start_in(hid))
@@ -286,10 +288,11 @@ static void hid_irq_in(struct urb *urb)
 			break;
 		usbhid_mark_busy(usbhid);
 		if (!test_bit(HID_RESUME_RUNNING, &usbhid->iofl)) {
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 			status = hid_input_report(urb->context, HID_INPUT_REPORT,
 					 urb->transfer_buffer,
 					 urb->actual_length, 1);
-#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+
 			if (status == 0) {
 				if (usbhid->in_err_isr) {
 					usbhid->in_err_isr = 0;
@@ -304,6 +307,10 @@ static void hid_irq_in(struct urb *urb)
 					__func__, status, usbhid->in_err_isr
 						, urb->actual_length);
 			}
+#else
+			hid_input_report(urb->context, HID_INPUT_REPORT,
+					 urb->transfer_buffer,
+					 urb->actual_length, 1);
 #endif
 			/*
 			 * autosuspend refused while keys are pressed
@@ -509,6 +516,7 @@ static void hid_ctrl(struct urb *urb)
 {
 	struct hid_device *hid = urb->context;
 	struct usbhid_device *usbhid = hid->driver_data;
+	unsigned long flags;
 	int unplug = 0, status = urb->status;
 
 	switch (status) {
@@ -530,7 +538,7 @@ static void hid_ctrl(struct urb *urb)
 		hid_warn(urb->dev, "ctrl urb status %d received\n", status);
 	}
 
-	spin_lock(&usbhid->lock);
+	spin_lock_irqsave(&usbhid->lock, flags);
 
 	if (unplug) {
 		usbhid->ctrltail = usbhid->ctrlhead;
@@ -540,13 +548,13 @@ static void hid_ctrl(struct urb *urb)
 		if (usbhid->ctrlhead != usbhid->ctrltail &&
 				hid_submit_ctrl(hid) == 0) {
 			/* Successfully submitted next urb in queue */
-			spin_unlock(&usbhid->lock);
+			spin_unlock_irqrestore(&usbhid->lock, flags);
 			return;
 		}
 	}
 
 	clear_bit(HID_CTRL_RUNNING, &usbhid->iofl);
-	spin_unlock(&usbhid->lock);
+	spin_unlock_irqrestore(&usbhid->lock, flags);
 	usb_autopm_put_interface_async(usbhid->intf);
 	wake_up(&usbhid->wait);
 }
@@ -1015,8 +1023,7 @@ static int usbhid_parse(struct hid_device *hid)
 	int num_descriptors;
 	size_t offset = offsetof(struct hid_descriptor, desc);
 
-	quirks = usbhid_lookup_quirk(le16_to_cpu(dev->descriptor.idVendor),
-			le16_to_cpu(dev->descriptor.idProduct));
+	quirks = hid_lookup_quirk(hid);
 
 	if (quirks & HID_QUIRK_IGNORE)
 		return -ENODEV;
@@ -1132,7 +1139,9 @@ static int usbhid_start(struct hid_device *hid)
 				hid->name, endpoint->bInterval, interval);
 		}
 
-		/* Change the polling interval of mice and joysticks. */
+		/* Change the polling interval of mice, joysticks
+		 * and keyboards.
+		 */
 		switch (hid->collection->usage) {
 		case HID_GD_MOUSE:
 			if (hid_mousepoll_interval > 0)
@@ -1141,6 +1150,10 @@ static int usbhid_start(struct hid_device *hid)
 		case HID_GD_JOYSTICK:
 			if (hid_jspoll_interval > 0)
 				interval = hid_jspoll_interval;
+			break;
+		case HID_GD_KEYBOARD:
+			if (hid_kbpoll_interval > 0)
+				interval = hid_kbpoll_interval;
 			break;
 		}
 
@@ -1365,8 +1378,8 @@ static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *
 	hid->bus = BUS_USB;
 	hid->vendor = le16_to_cpu(dev->descriptor.idVendor);
 	hid->product = le16_to_cpu(dev->descriptor.idProduct);
+	hid->version = le16_to_cpu(dev->descriptor.bcdDevice);
 	hid->name[0] = 0;
-	hid->quirks = usbhid_lookup_quirk(hid->vendor, hid->product);
 	if (intf->cur_altsetting->desc.bInterfaceProtocol ==
 			USB_INTERFACE_PROTOCOL_MOUSE)
 		hid->type = HID_TYPE_USBMOUSE;
@@ -1410,7 +1423,7 @@ static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *
 
 	init_waitqueue_head(&usbhid->wait);
 	INIT_WORK(&usbhid->reset_work, hid_reset);
-	setup_timer(&usbhid->io_retry, hid_retry_timeout, (unsigned long) hid);
+	timer_setup(&usbhid->io_retry, hid_retry_timeout, 0);
 	spin_lock_init(&usbhid->lock);
 
 	ret = hid_add_device(hid);
@@ -1420,7 +1433,7 @@ static int usbhid_probe(struct usb_interface *intf, const struct usb_device_id *
 		goto err_free;
 	}
 
-#ifndef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#if !defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 	if (dev->do_remote_wakeup)
 		usb_enable_autosuspend(dev);
 #endif
@@ -1683,7 +1696,7 @@ static int __init hid_init(void)
 {
 	int retval = -ENOMEM;
 
-	retval = usbhid_quirks_init(quirks_param);
+	retval = hid_quirks_init(quirks_param, BUS_USB, MAX_USBHID_BOOT_QUIRKS);
 	if (retval)
 		goto usbhid_quirks_init_fail;
 	retval = usb_register(&hid_driver);
@@ -1693,7 +1706,7 @@ static int __init hid_init(void)
 
 	return 0;
 usb_register_fail:
-	usbhid_quirks_exit();
+	hid_quirks_exit(BUS_USB);
 usbhid_quirks_init_fail:
 	return retval;
 }
@@ -1701,7 +1714,7 @@ usbhid_quirks_init_fail:
 static void __exit hid_exit(void)
 {
 	usb_deregister(&hid_driver);
-	usbhid_quirks_exit();
+	hid_quirks_exit(BUS_USB);
 }
 
 module_init(hid_init);

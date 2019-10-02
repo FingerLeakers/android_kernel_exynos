@@ -266,8 +266,12 @@ bool sec_bat_get_value_by_adc(
 	unsigned int temp_adc_table_size = 0;
 
 	temp_adc = sec_bat_get_adc_data(battery, channel, battery->pdata->adc_check_count);
-	if (temp_adc < 0)
+	if (temp_adc < 0) {
+		if (check_type == SEC_BATTERY_TEMP_CHECK_FAKE)
+			goto temp_by_adc_goto;
+
 		return false;
+	}
 
 	switch (channel) {
 	case SEC_BAT_ADC_CHANNEL_TEMP:

@@ -5,25 +5,15 @@
  * Park Bumgyu <bumgyu.park@samsung.com>
  */
 
-#include <linux/sched.h>
-#include <linux/ems_service.h>
-#include <linux/ems.h>
 #include <trace/events/ems.h>
 
-#include "../tune.h"
 #include "../sched.h"
+#include "../sched-pelt.h"
 #include "ems.h"
 
-extern long schedtune_margin(unsigned long capacity, unsigned long signal, long boost);
-
-static inline int get_sse(struct sched_entity *se)
-{
-	if (se->my_q)
-		return 0;
-
-	return task_of(se)->sse;
-}
-
+/******************************************************************************
+ *                           MULTI LOAD for TASK                              *
+ ******************************************************************************/
 /*
  * ml_task_runnable - task runnable
  *
@@ -33,16 +23,26 @@ static inline int get_sse(struct sched_entity *se)
  */
 unsigned long ml_task_runnable(struct task_struct *p)
 {
+	return READ_ONCE(p->se.ml.runnable_avg);
+}
+
+extern long schedtune_margin(unsigned long capacity, unsigned long signal, long boost);
+
+/*
+ * ml_boosted_task_runnable - task runnable with schedtune boost
+ *
+ * Boosted task runnable utilization.
+ */
+unsigned long ml_boosted_task_runnable(struct task_struct *p)
+{
 	int boost = schedtune_task_boost(p);
-	unsigned long runnable_avg = READ_ONCE(p->se.avg.ml.runnable_avg);
-	unsigned long capacity;
+	unsigned long runnable = ml_task_runnable(p);
 
 	if (boost == 0)
-		return runnable_avg;
+		return runnable;
 
-	capacity = capacity_orig_of_sse(task_cpu(p), p->sse);
-
-	return runnable_avg + schedtune_margin(capacity, runnable_avg, boost);
+	return runnable + schedtune_margin(capacity_cpu(task_cpu(p), p->sse),
+						runnable, boost);
 }
 
 /*
@@ -54,26 +54,25 @@ unsigned long ml_task_runnable(struct task_struct *p)
  */
 unsigned long ml_task_util(struct task_struct *p)
 {
-	return READ_ONCE(p->se.avg.ml.util_avg);
+	return READ_ONCE(p->se.ml.util_avg);
 }
 
 /*
- * _ml_task_util_est/ml_task_util_est - task util with util-est
+ * ml_task_util_est - task util with util-est
  *
  * Task utilization with util-est, The calculation is the same as
  * task_util_est of cfs.
  */
 static unsigned long _ml_task_util_est(struct task_struct *p)
 {
-	struct util_est ue = READ_ONCE(p->se.avg.ml.util_est);
+	struct util_est ue = READ_ONCE(p->se.ml.util_est);
 
-	return schedtune_util_est_en(p) ? max(ue.ewma, ue.enqueued)
-					: ml_task_util(p);
+	return max(ue.ewma, ue.enqueued);
 }
 
 unsigned long ml_task_util_est(struct task_struct *p)
 {
-	return schedtune_util_est_en(p) ? max(READ_ONCE(p->se.avg.ml.util_avg), _ml_task_util_est(p))
+	return schedtune_util_est(p) ? max(ml_task_util(p), _ml_task_util_est(p))
 					: ml_task_util(p);
 }
 
@@ -86,14 +85,44 @@ unsigned long ml_boosted_task_util(struct task_struct *p)
 {
 	int boost = schedtune_task_boost(p);
 	unsigned long util = ml_task_util(p);
-	unsigned long capacity;
 
 	if (boost == 0)
 		return util;
 
-	capacity = capacity_orig_of_sse(task_cpu(p), p->sse);
+	return util + schedtune_margin(capacity_cpu(task_cpu(p), p->sse),
+						util, boost);
+}
 
-	return util + schedtune_margin(capacity, util, boost);
+/******************************************************************************
+ *                            MULTI LOAD for CPU                              *
+ ******************************************************************************/
+/*
+ * __normalize_util - combine sse and uss utilization
+ *
+ * Combine sse and uss utilization and normalize to sse or uss according to "sse"
+ * parameter.
+ */
+static inline unsigned long
+__normalize_util(int cpu, unsigned int sse_util, unsigned int uss_util, int sse)
+{
+	if (sse)
+		return sse_util + ((capacity_ratio(cpu, sse) * uss_util) >> SCHED_CAPACITY_SHIFT);
+	else
+		return uss_util + ((capacity_ratio(cpu, sse) * sse_util) >> SCHED_CAPACITY_SHIFT);
+}
+
+static unsigned long __ml_cpu_util_est(int cpu, int sse)
+{
+	struct cfs_rq *cfs_rq = &cpu_rq(cpu)->cfs;
+
+	return sse ? READ_ONCE(cfs_rq->ml.util_est_s.enqueued) :
+		READ_ONCE(cfs_rq->ml.util_est.enqueued);
+}
+
+static unsigned long ml_cpu_util_est(int cpu)
+{
+	return __normalize_util(cpu, __ml_cpu_util_est(cpu, SSE),
+				__ml_cpu_util_est(cpu, USS), USS);
 }
 
 /*
@@ -106,41 +135,8 @@ unsigned long __ml_cpu_util(int cpu, int sse)
 {
 	struct cfs_rq *cfs_rq = &cpu_rq(cpu)->cfs;
 
-	return sse ? READ_ONCE(cfs_rq->avg.ml.util_avg_s) :
-				READ_ONCE(cfs_rq->avg.ml.util_avg);
-}
-
-unsigned long __ml_cpu_util_est(int cpu, int sse)
-{
-	struct cfs_rq *cfs_rq = &cpu_rq(cpu)->cfs;
-
-	return sse ? READ_ONCE(cfs_rq->avg.ml.util_est_s.enqueued) :
-		READ_ONCE(cfs_rq->avg.ml.util_est.enqueued);
-}
-
-/*
- * __normalize_util - combine sse and uss utilization
- *
- * Combine sse and uss utilization and normalize to sse or uss according to "sse"
- * parameter.
- */
-static inline unsigned long
-__normalize_util(int cpu, unsigned int uss_util, unsigned int sse_util, int sse)
-{
-	if (sse)
-		return sse_util + ((capacity_ratio(cpu, sse) * uss_util) >> SCHED_CAPACITY_SHIFT);
-	else
-		return uss_util + ((capacity_ratio(cpu, sse) * sse_util) >> SCHED_CAPACITY_SHIFT);
-}
-
-/* uss is default because cfs refers uss */
-#define USS	0
-#define SSE	1
-
-static unsigned long ml_cpu_util_est(int cpu)
-{
-	return __normalize_util(cpu, __ml_cpu_util_est(cpu, USS),
-				__ml_cpu_util_est(cpu, SSE), USS);
+	return sse ? READ_ONCE(cfs_rq->ml.util_avg_s) :
+				READ_ONCE(cfs_rq->ml.util_avg);
 }
 
 /*
@@ -153,13 +149,13 @@ unsigned long _ml_cpu_util(int cpu, int sse)
 {
 	unsigned long util;
 
-	util = __normalize_util(cpu, __ml_cpu_util(cpu, USS),
-				__ml_cpu_util(cpu, SSE), sse);
+	util = __normalize_util(cpu, __ml_cpu_util(cpu, SSE),
+				__ml_cpu_util(cpu, USS), sse);
 
 	if (sched_feat(UTIL_EST))
 		util = max_t(unsigned long, util, ml_cpu_util_est(cpu));
 
-	return min_t(unsigned long, util, capacity_orig_of(cpu));
+	return min_t(unsigned long, util, capacity_cpu_orig(cpu, sse));
 }
 
 /*
@@ -177,29 +173,31 @@ unsigned long ml_cpu_util(int cpu)
  * ml_cpu_util_ratio - cpu usuage ratio
  *
  * Cpu usage ratio of sse or uss. The ratio based on a maximum of 1024.
+ * It is used to calculating energy.
  */
 unsigned long ml_cpu_util_ratio(int cpu, int sse)
 {
 	return (__ml_cpu_util(cpu, sse) << SCHED_CAPACITY_SHIFT)
-					/ capacity_orig_of_sse(cpu, sse);
+					/ capacity_cpu_orig(cpu, sse);
 }
 
 #define UTIL_AVG_UNCHANGED 0x1
 
 /*
- * ml_cpu_util_wake - cpu utilization except waking task
+ * ml_cpu_util_without - cpu utilization without waking task
  *
  * Cpu utilization with any contributions from the waking task p removed.
  */
-unsigned long ml_cpu_util_wake(int cpu, struct task_struct *p)
+unsigned long ml_cpu_util_without(int cpu, struct task_struct *p)
 {
-	unsigned long uss_util, sse_util;
+	unsigned long sse_util, uss_util;
 
-	if (cpu != task_cpu(p) || !READ_ONCE(p->se.avg.last_update_time))
+	/* Task has no contribution or is new */
+	if (cpu != task_cpu(p) || !READ_ONCE(p->se.ml.last_update_time))
 		return ml_cpu_util(cpu);
 
-	uss_util = __ml_cpu_util(cpu, USS);
 	sse_util = __ml_cpu_util(cpu, SSE);
+	uss_util = __ml_cpu_util(cpu, USS);
 
 	if (p->sse)
 		sse_util -= min_t(unsigned long, sse_util, ml_task_util(p));
@@ -210,13 +208,31 @@ unsigned long ml_cpu_util_wake(int cpu, struct task_struct *p)
 		unsigned int uss_util_est = __ml_cpu_util_est(cpu, USS);
 		unsigned int sse_util_est = __ml_cpu_util_est(cpu, SSE);
 
-		if (unlikely(task_on_rq_queued(p) || current == p)) {
+		/*
+		 * Despite the following checks we still have a small window
+		 * for a possible race, when an execl's select_task_rq_fair()
+		 * races with LB's detach_task():
+		 *
+		 *   detach_task()
+		 *     p->on_rq = TASK_ON_RQ_MIGRATING;
+		 *     ---------------------------------- A
+		 *     deactivate_task()                   \
+		 *       dequeue_task()                     + RaceTime
+		 *         util_est_dequeue()              /
+		 *     ---------------------------------- B
+		 *
+		 * The additional check on "current == p" it's required to
+		 * properly fix the execl regression and it helps in further
+		 * reducing the chances for the above race.
+		 */
+		if (schedtune_util_est(p) &&
+		    unlikely(task_on_rq_queued(p) || current == p)) {
 			if (p->sse) {
 				sse_util_est -= min_t(unsigned int, sse_util_est,
-						(_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
+					   (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
 			} else {
 				uss_util_est -= min_t(unsigned int, uss_util_est,
-						(_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
+					   (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
 			}
 		}
 
@@ -224,49 +240,46 @@ unsigned long ml_cpu_util_wake(int cpu, struct task_struct *p)
 		sse_util = max_t(unsigned long, sse_util, sse_util_est);
 	}
 
-	uss_util = min_t(unsigned long, uss_util, capacity_orig_of_sse(cpu, USS));
-	sse_util = min_t(unsigned long, sse_util, capacity_orig_of_sse(cpu, SSE));
+	sse_util = min_t(unsigned long, sse_util, capacity_cpu_orig(cpu, SSE));
+	uss_util = min_t(unsigned long, uss_util, capacity_cpu_orig(cpu, USS));
 
-	return __normalize_util(cpu, uss_util, sse_util, USS);
+	return __normalize_util(cpu, sse_util, uss_util, USS);
 }
 
 /*
- * ml_task_attached_cpu_util - cpu utilization including waking task
+ * ml_cpu_util_with - cpu utilization including waking task
  *
- * Cpu utilization when the waking task is attached to this cpu. There is no
- * change in utilizatino for the cpu on which the task is running.
+ * Cpu utilization with any contirubtions from *p
  */
-unsigned long ml_task_attached_cpu_util(int cpu, struct task_struct *p)
+unsigned long __ml_cpu_util_with(int cpu, struct task_struct *p, int sse)
 {
-	unsigned long uss_util, sse_util;
+	unsigned long util = __ml_cpu_util(cpu, sse);
 
-	uss_util = __ml_cpu_util(cpu, USS);
-	sse_util = __ml_cpu_util(cpu, SSE);
-
-	if (READ_ONCE(p->se.avg.last_update_time))
-		return ml_cpu_util(cpu);
-
-	if (cpu != task_cpu(p)) {
-		if (p->sse)
-			sse_util += ml_task_util(p);
-		else
-			uss_util += ml_task_util(p);
-	}
+	/*
+	 * If 1) prev cpu of the waking task is different with cpu of which
+	 * we want to calculate utilization and 2) the waking task is not newbie,
+	 * consider the task's utilization for 'util' which we are calculating.
+	 */
+	if (cpu != task_cpu(p) && READ_ONCE(p->se.ml.last_update_time))
+		if (p->sse == sse)
+			util += ml_task_util(p);
 
 	if (sched_feat(UTIL_EST)) {
-		unsigned int uss_util_est = __ml_cpu_util_est(cpu, USS);
-		unsigned int sse_util_est = __ml_cpu_util_est(cpu, SSE);
+		unsigned long util_est = __ml_cpu_util_est(cpu, sse);
 
-		if (p->sse)
-			sse_util_est += ml_task_util_est(p);
-		else
-			uss_util_est += ml_task_util_est(p);
+		if (schedtune_util_est(p) && p->sse == sse)
+			util_est += (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED);
 
-		uss_util = max_t(unsigned long, uss_util, uss_util_est);
-		sse_util = max_t(unsigned long, sse_util, sse_util_est);
+		util = max_t(unsigned long, util, util_est);
 	}
 
-	return __normalize_util(cpu, uss_util, sse_util, USS);
+	return min_t(unsigned long, util, capacity_cpu_orig(cpu, sse));
+}
+
+unsigned long ml_cpu_util_with(int cpu, struct task_struct *p)
+{
+	return __normalize_util(cpu, __ml_cpu_util_with(cpu, p, SSE),
+			__ml_cpu_util_with(cpu, p, USS), USS);
 }
 
 /*
@@ -274,61 +287,200 @@ unsigned long ml_task_attached_cpu_util(int cpu, struct task_struct *p)
  *
  * Sse and uss combined and uss normalized cpu utilization with schedtune.boost.
  */
-
-extern DEFINE_PER_CPU(struct boost_groups, cpu_boost_groups);
 unsigned long ml_boosted_cpu_util(int cpu)
 {
-	int fv_boost = 0, boost = schedtune_cpu_boost(cpu);
-	struct boost_groups *bg = &per_cpu(cpu_boost_groups, cpu);
+	int boost = schedtune_cpu_boost(cpu);
 	unsigned long util = ml_cpu_util(cpu);
-	unsigned long capacity;
+
 	if (boost == 0)
 		return util;
 
-	capacity = capacity_orig_of(cpu);
-
-	if (bg->group[STUNE_TOPAPP].tasks)
-		fv_boost = freqvar_st_boost_vector(cpu);
-
-	if (fv_boost > boost)
-		boost = fv_boost;
-
-	return util + schedtune_margin(capacity, util, boost);
+	return util + schedtune_margin(capacity_cpu(cpu, USS), util, boost);
 }
 
-static void update_next_balance(int cpu, struct multi_load *ml)
+/******************************************************************************
+ *                       initial utilization of task                          *
+ ******************************************************************************/
+enum {
+	INHERIT_CFS_RQ = 0,
+	INHERIT_PARENT,
+	INHERIT_MAX_NUM,
+};
+
+static u32 inherit_type = INHERIT_CFS_RQ;
+static u32 inherit_ratio = 25;	/* EMS default : 25% (fair : 50%) */
+
+void init_multi_load(struct sched_entity *se)
 {
-	struct sched_avg *sa = container_of(ml, struct sched_avg, ml);
-	struct sched_entity *se = container_of(sa, struct sched_entity, avg);
+	struct multi_load *ml = &se->ml;
+
+	memset(ml, 0, sizeof(*ml));
+
+	ml->runnable_sum = current->se.ml.runnable_sum >> 1;
+	ml->runnable_avg = current->se.ml.runnable_avg >> 1;
+}
+
+static void post_init_inherit_cfs_rq(struct sched_entity *se, u32 inherit_ratio)
+{
+	int sse = get_sse(se);
+	struct cfs_rq *cfs_rq = se->cfs_rq;
+	struct multi_load *ml = &se->ml;
+	unsigned long cpu_scale = capacity_cpu(cpu_of(cfs_rq->rq), sse);
+	long cap = (long)(cpu_scale - _ml_cpu_util(cpu_of(cfs_rq->rq), sse));
+
+	if (cap <= 0)
+		return;
+
+	if (cfs_rq->ml.util_avg != 0) {
+		ml->util_avg  = cfs_rq->ml.util_avg * se->load.weight;
+		ml->util_avg /= (cfs_rq->avg.load_avg + 1);
+		ml->util_avg = ml->util_avg << 1;
+
+		if (ml->util_avg > cap)
+			ml->util_avg = cap;
+	} else {
+		ml->util_avg = cap * inherit_ratio / 100;
+	}
+
+	trace_ems_multi_load_new_task(ml);
+}
+
+static void post_init_inherit_parent(struct sched_entity *se, u32 inherit_ratio)
+{
+	struct multi_load *ml = &se->ml;
+
+	/* initialize util */
+	ml->util_sum = current->se.ml.util_sum;
+	ml->util_avg = current->se.ml.util_avg;
+
+	trace_ems_multi_load_new_task(ml);
+}
+
+void post_init_entity_multi_load(struct sched_entity *se, u64 now)
+{
+	switch(inherit_type) {
+	case INHERIT_CFS_RQ:
+		post_init_inherit_cfs_rq(se, inherit_ratio);
+		break;
+	case INHERIT_PARENT:
+		post_init_inherit_parent(se, inherit_ratio);
+		break;
+	default:
+		pr_info("%s: Not support initial util type %d\n",
+				__func__, inherit_type);
+	}
+
+	if (!se->my_q) {
+		struct task_struct *p = task_of(se);
+		if (p->sched_class != &fair_sched_class)
+			se->ml.last_update_time = now;
+	}
+}
+
+static ssize_t show_inherit_type(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+        return snprintf(buf, 10, "%d\n", inherit_type);
+}
+
+static ssize_t store_inherit_type(struct kobject *kobj,
+                struct kobj_attribute *attr, const char *buf,
+                size_t count)
+{
+        int input;
+
+        if (!sscanf(buf, "%d", &input))
+                return -EINVAL;
+
+        input = min_t(u32, input, INHERIT_CFS_RQ);
+	input = max_t(u32, input, INHERIT_MAX_NUM - 1);
+
+        inherit_type = input;
+
+        return count;
+}
+
+static ssize_t show_inherit_ratio(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+        return snprintf(buf, 10, "%d\n", inherit_ratio);
+}
+
+static ssize_t store_inherit_ratio(struct kobject *kobj,
+                struct kobj_attribute *attr, const char *buf,
+                size_t count)
+{
+        int input;
+
+        if (!sscanf(buf, "%d", &input))
+                return -EINVAL;
+
+        inherit_ratio = !!input;
+
+        return count;
+}
+
+static struct kobj_attribute inherit_type_attr =
+__ATTR(inherit_type, 0644, show_inherit_type, store_inherit_type);
+
+static struct kobj_attribute inherit_ratio_attr =
+__ATTR(inherit_ratio, 0644, show_inherit_ratio, store_inherit_ratio);
+
+static struct attribute *initial_util_attrs[] = {
+	&inherit_type_attr.attr,
+	&inherit_ratio_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group initial_util_attr_group = {
+	.attrs = initial_util_attrs,
+};
+
+static int __init init_initial_util(void)
+{
+	struct kobject *kobj;
+
+	kobj = kobject_create_and_add("init_util", ems_kobj);
+	if (!kobj)
+		return -EINVAL;
+
+	if (sysfs_create_group(kobj, &initial_util_attr_group))
+		return -EINVAL;
+
+	return 0;
+}
+late_initcall(init_initial_util);
+
+/******************************************************************************
+ *                           utilization tracking                             *
+ ******************************************************************************/
+static void update_next_balance(struct multi_load *ml)
+{
+	struct sched_entity *se = container_of(ml, struct sched_entity, ml);
+	struct task_struct *p;
 
 	if (se->my_q)
 		return;
 
-	if (!need_ontime_migration_trigger(cpu, task_of(se)))
-		return;
+	p = task_of(se);
 
 	/*
-	 * Update the next_balance of this cpu because tick is most likely
-	 * to occur first in currently running cpu.
+	 * To migrate heavy task to faster cpu by ontime migration, update
+	 * the next_balance of this cpu because tick is most likely to occur
+	 * first in this cpu.
 	 */
-	cpu_rq(smp_processor_id())->next_balance = jiffies;
+	if (ml->runnable_avg >= get_upper_boundary(task_cpu(p), p))
+		cpu_rq(smp_processor_id())->next_balance = jiffies;
 }
 
 /* declare extern function from cfs */
 extern u64 decay_load(u64 val, u64 n);
-static u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3)
-{
-	u32 c1, c2, c3 = d3;
+extern u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3);
 
-	c1 = decay_load((u64)d1, periods);
-	c2 = LOAD_AVG_MAX - decay_load(LOAD_AVG_MAX, periods) - 1024;
-
-	return c1 + c2 + c3;
-}
+static inline void util_change(struct multi_load *ml);
 
 /*
- * Below 3 functions have same sequence to update load.
- *  - __update_task_runnable,
+ * Below 2 functions have same sequence to update load.
  *  - __update_task_util,
  *  - __update_cpu_util
  *
@@ -336,103 +488,85 @@ static u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3)
  * step 2: accumulate load if the condition is met.
  *	    - runnable : task weight is not 0
  *	    - util : task or cpu is running
- * step 3: update load avg with load sum
+ * step 3: update util avg with util sum
  */
 static void
-__update_task_runnable(struct multi_load *ml, u64 periods, u32 contrib,
-		unsigned long scale_cpu, int weight, int cpu)
+__update_task_util(struct multi_load *ml, u64 periods, u32 contrib,
+		unsigned long scale_cpu, unsigned long load, int running, u64 divider)
 {
-	if (periods)
+	if (periods) {
+		ml->util_sum = decay_load((u64)(ml->util_sum), periods);
 		ml->runnable_sum = decay_load((u64)(ml->runnable_sum), periods);
+	}
 
-	if (weight)
+	if (running)
+		ml->util_sum += contrib * scale_cpu;
+
+	if (load)
 		ml->runnable_sum += contrib * scale_cpu;
 
 	if (!periods)
 		return;
 
-	ml->runnable_avg = div_u64(ml->runnable_sum, LOAD_AVG_MAX - 1024 + ml->period_contrib);
-	update_next_balance(cpu, ml);
-}
+	ml->util_avg = ml->util_sum / divider;
+	ml->runnable_avg = div_u64(ml->runnable_sum, divider);
 
-static void
-__update_task_util(struct multi_load *ml, u64 periods, u32 contrib,
-		unsigned long scale_cpu, int running)
-{
-	if (periods)
-		ml->util_sum = decay_load((u64)(ml->util_sum), periods);
+	update_next_balance(ml);
+	util_change(ml);
 
-	if (running)
-		ml->util_sum += contrib * scale_cpu;
-
-	if (!periods)
-		return;
-
-	ml->util_avg = ml->util_sum / (LOAD_AVG_MAX - 1024 + ml->period_contrib);
+	trace_ems_multi_load_task(ml);
 }
 
 static void
 __update_cpu_util(struct multi_load *ml, u64 periods, u32 contrib,
-		unsigned long scale_cpu, int running, struct cfs_rq *cfs_rq)
+		unsigned long scale_cpu, unsigned long load, int running,
+		u64 divider, int sse)
 {
 	if (periods) {
-		ml->util_sum = decay_load((u64)(ml->util_sum), periods);
 		ml->util_sum_s = decay_load((u64)(ml->util_sum_s), periods);
+		ml->util_sum = decay_load((u64)(ml->util_sum), periods);
+		ml->runnable_sum_s = decay_load((u64)(ml->runnable_sum_s), periods);
+		ml->runnable_sum = decay_load((u64)(ml->runnable_sum), periods);
 	}
 
 	if (running) {
-		if (get_sse(cfs_rq->curr))
+		if (sse)
 			ml->util_sum_s += contrib * scale_cpu;
 		else
 			ml->util_sum += contrib * scale_cpu;
 	}
 
+	if (load) {
+		if (sse)
+			ml->runnable_sum_s += contrib * scale_cpu;
+		else
+			ml->runnable_sum += contrib * scale_cpu;
+	}
+
 	if (!periods)
 		return;
 
-	ml->util_avg = ml->util_sum / (LOAD_AVG_MAX - 1024 + ml->period_contrib);
-	ml->util_avg_s = ml->util_sum_s / (LOAD_AVG_MAX - 1024 + ml->period_contrib);
+	ml->util_avg_s = ml->util_sum_s / divider;
+	ml->util_avg = ml->util_sum / divider;
+	ml->runnable_avg_s = div_u64(ml->runnable_sum_s, divider);
+	ml->runnable_avg = div_u64(ml->runnable_sum, divider);
+
+	trace_ems_multi_load_cpu(ml);
 }
 
-static void
-trace_multi_load(struct multi_load *ml, struct cfs_rq *cfs_rq, struct sched_avg *avg)
+static int
+__update_multi_load(u64 delta, int cpu, struct cfs_rq *cfs_rq,
+		struct multi_load *ml, unsigned long load, int running, int sse)
 {
-	struct rq *rq;
-	struct sched_entity *se;
-
-	if (cfs_rq) {
-		rq = cfs_rq->rq;
-
-		/* trace only cpu root cfs_rq */
-		if (&rq->cfs == cfs_rq)
-			trace_ems_multi_load_cpu(cpu_of(rq), ml->util_avg, ml->util_avg_s);
-	} else {
-		se = container_of(avg, struct sched_entity, avg);
-		if (!se->my_q)
-			trace_ems_multi_load_task(task_of(se), ml->runnable_avg, ml->util_avg);
-	}
-}
-
-void
-update_multi_load(u64 delta, int cpu, struct sched_avg *sa,
-		unsigned long weight, int running, struct cfs_rq *cfs_rq)
-{
-	struct multi_load *ml = &sa->ml;
-	struct sched_entity *se;
 	unsigned long scale_freq, scale_cpu;
 	u32 contrib = (u32)delta;
-	u64 periods;
+	u64 periods, divider;
 
 	/* Obtain scale freq */
-	scale_freq = arch_scale_freq_capacity(NULL, cpu);
+	scale_freq = arch_scale_freq_capacity(cpu);
 
 	/* Obtain scale cpu */
-	if (cfs_rq) {
-		scale_cpu = running ? capacity_orig_of_sse(cpu, get_sse(cfs_rq->curr)) : 0;
-	} else {
-		se = container_of(sa, struct sched_entity, avg);
-		scale_cpu = capacity_orig_of_sse(cpu, get_sse(se));
-	}
+	scale_cpu = capacity_cpu(cpu, sse);
 
 	delta += ml->period_contrib;
 	periods = delta / 1024; /* A period is 1024us (~1ms) */
@@ -445,127 +579,306 @@ update_multi_load(u64 delta, int cpu, struct sched_avg *sa,
 
 	ml->period_contrib = delta;
 	contrib = (contrib * scale_freq) >> SCHED_CAPACITY_SHIFT;
+	divider = LOAD_AVG_MAX - 1024 + ml->period_contrib;
 
 	if (cfs_rq)
-		__update_cpu_util(ml, periods, contrib, scale_cpu, running, cfs_rq);
-	else {
-		__update_task_util(ml, periods, contrib, scale_cpu, running);
-		__update_task_runnable(ml, periods, contrib, scale_cpu, weight, cpu);
+		__update_cpu_util(ml, periods, contrib, scale_cpu, load, running, divider, sse);
+	else
+		__update_task_util(ml, periods, contrib, scale_cpu, load, running, divider);
+
+	return periods;
+}
+
+static void update_multi_load(u64 now, int cpu, struct cfs_rq *cfs_rq, struct sched_entity *se,
+				struct sched_avg *sa, unsigned long load, int running)
+{
+	struct multi_load *ml;
+	u64 delta;
+
+	if (cfs_rq)
+		ml = &cfs_rq->ml;
+	else
+		ml = &se->ml;
+
+	delta = now - ml->last_update_time;
+	if (delta < 0)
+		return;
+
+	delta >>= 10;
+	if (!delta)
+		return;
+
+	ml->last_update_time += delta << 10;
+
+	if (!load)
+		running = 0;
+
+	__update_multi_load(delta, cpu, cfs_rq, ml, load, running, get_sse(se));
+}
+
+static int __update_multi_load_blocked_se(u64 now, struct sched_entity *se)
+{
+	update_multi_load(now, se->cfs_rq->rq->cpu, NULL, se, &se->avg, 0, 0);
+
+	return 0;
+}
+
+static int __update_multi_load_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se)
+{
+	update_multi_load(now, se->cfs_rq->rq->cpu, NULL, se, &se->avg,
+			scale_load_down(se->load.weight) * se->on_rq, cfs_rq->curr == se);
+
+	return 0;
+}
+
+static int __update_multi_load_cfs_rq(u64 now, struct cfs_rq *cfs_rq)
+{
+	update_multi_load(now, cfs_rq->rq->cpu, cfs_rq, cfs_rq->curr, &cfs_rq->avg,
+			scale_load_down(cfs_rq->load.weight), cfs_rq->curr != NULL);
+
+	return 0;
+}
+
+/*
+ * Signed add and clamp on underflow.
+ *
+ * Explicitly do a load-store to ensure the intermediate value never hits
+ * memory. This allows lockless observations without ever seeing the negative
+ * values.
+ */
+#define add_positive(_ptr, _val) do {                           \
+	typeof(_ptr) ptr = (_ptr);                              \
+	typeof(_val) val = (_val);                              \
+	typeof(*ptr) res, var = READ_ONCE(*ptr);                \
+								\
+	res = var + val;                                        \
+								\
+	if (val < 0 && res > var)                               \
+		res = 0;                                        \
+								\
+	WRITE_ONCE(*ptr, res);                                  \
+} while (0)
+
+/*
+ * Unsigned subtract and clamp on underflow.
+ *
+ * Explicitly do a load-store to ensure the intermediate value never hits
+ * memory. This allows lockless observations without ever seeing the negative
+ * values.
+ */
+#define sub_positive(_ptr, _val) do {				\
+	typeof(_ptr) ptr = (_ptr);				\
+	typeof(*ptr) val = (_val);				\
+	typeof(*ptr) res, var = READ_ONCE(*ptr);		\
+	res = var - val;					\
+	if (res > var)						\
+		res = 0;					\
+	WRITE_ONCE(*ptr, res);					\
+} while (0)
+
+/*
+ * set_task_rq_multi_load() is called from
+ *   set_task_rq_fair() in fair.c
+ */
+void set_task_rq_multi_load(struct sched_entity *se,
+				struct cfs_rq *prev, struct cfs_rq *next)
+{
+	u64 p_last_update_time;
+	u64 n_last_update_time;
+
+	/*
+	 * We are supposed to update the task to "current" time, then its up to
+	 * date and ready to go to new CPU/cfs_rq. But we have difficulty in
+	 * getting what current time is, so simply throw away the out-of-date
+	 * time. This will result in the wakee task is less decayed, but giving
+	 * the wakee more load sounds not bad.
+	 */
+	if (!(se->ml.last_update_time && prev))
+		return;
+
+	p_last_update_time = prev->ml.last_update_time;
+	n_last_update_time = next->ml.last_update_time;
+
+	__update_multi_load_blocked_se(p_last_update_time, se);
+	se->ml.last_update_time = n_last_update_time;
+}
+
+/*
+ * update_tg_cfs_multi_load() is called from
+ *   update_tg_cfs_util() in fair.c
+ */
+void
+update_tg_cfs_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se,
+						struct cfs_rq *gcfs_rq)
+{
+	struct multi_load *ml = &se->ml;
+	long delta, delta_s;
+
+	delta_s = gcfs_rq->ml.util_avg_s - ml->util_avg_s;
+	delta = gcfs_rq->ml.util_avg - ml->util_avg;
+
+	if (delta_s) {
+		/* Set new sched_entity's utilization */
+		ml->util_avg_s = gcfs_rq->ml.util_avg_s;
+		ml->util_sum_s = ml->util_avg_s * LOAD_AVG_MAX;
+
+		/* Update parent cfs_rq utilization */
+		add_positive(&cfs_rq->ml.util_avg_s, delta_s);
+		cfs_rq->ml.util_sum_s = cfs_rq->ml.util_avg_s * LOAD_AVG_MAX;
 	}
 
-	if (periods)
-		trace_multi_load(ml, cfs_rq, sa);
+	if (delta) {
+		/* Set new sched_entity's utilization */
+		ml->util_avg = gcfs_rq->ml.util_avg;
+		ml->util_sum = ml->util_avg * LOAD_AVG_MAX;
+
+		/* Update parent cfs_rq utilization */
+		add_positive(&cfs_rq->ml.util_avg, delta);
+		cfs_rq->ml.util_sum = cfs_rq->ml.util_avg * LOAD_AVG_MAX;
+	}
+
+	trace_ems_multi_load_task(ml);
+	trace_ems_multi_load_cpu(&cfs_rq->ml);
 }
 
-void init_multi_load(struct sched_entity *se)
+/*
+ * update_cfs_rq_multi_load() is called from
+ *   update_cfs_rq_load_avg() in fair.c
+ */
+int update_cfs_rq_multi_load(u64 now, struct cfs_rq *cfs_rq)
 {
-	struct multi_load *ml = &se->avg.ml;
+	unsigned long removed_util_s = 0, removed_util = 0;
+	struct multi_load *ml = &cfs_rq->ml;
+	int decayed = 0;
 
-	ml->period_contrib = 1023;
+	if (cfs_rq->ml_removed.nr) {
+		unsigned long r;
+		u32 divider = LOAD_AVG_MAX - 1024 + ml->period_contrib;
 
-	ml->runnable_sum = current->se.avg.ml.runnable_sum >> 1;
-	ml->runnable_avg = current->se.avg.ml.runnable_avg >> 1;
+		raw_spin_lock(&cfs_rq->ml_removed.lock);
+		swap(cfs_rq->ml_removed.util_avg_s, removed_util_s);
+		swap(cfs_rq->ml_removed.util_avg, removed_util);
+		cfs_rq->ml_removed.nr = 0;
+		raw_spin_unlock(&cfs_rq->ml_removed.lock);
 
-	ml->util_sum = 0;
-	ml->util_avg = 0;
-	ml->util_sum_s = 0;
-	ml->util_avg_s = 0;
+		r = removed_util_s;
+		sub_positive(&ml->util_avg_s, r);
+		sub_positive(&ml->util_sum_s, r * divider);
+
+		r = removed_util;
+		sub_positive(&ml->util_avg, r);
+		sub_positive(&ml->util_sum, r * divider);
+
+		cfs_rq->propagate = 1;
+
+		decayed = 1;
+	}
+
+	decayed |= __update_multi_load_cfs_rq(now, cfs_rq);
+
+	return decayed;
 }
 
-/**
- * detach_entity_multi_load - detach this entity from its cfs_rq load avg
- * @cfs_rq: cfs_rq to detach from
- * @se: sched_entity to detach
+/*
+ * attach_entity_multi_load() is called from
+ *   attach_entity_load_avg() in fair.c
+ */
+void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
+{
+	u32 divider = LOAD_AVG_MAX - 1024 + cfs_rq->ml.period_contrib;
+
+	se->ml.last_update_time = cfs_rq->ml.last_update_time;
+	se->ml.period_contrib = cfs_rq->ml.period_contrib;
+	se->ml.util_sum = se->ml.util_avg * divider;
+
+	if (get_sse(se)) {
+		cfs_rq->ml.util_avg_s += se->ml.util_avg;
+		cfs_rq->ml.util_sum_s += se->ml.util_sum;
+	} else {
+		cfs_rq->ml.util_avg += se->ml.util_avg;
+		cfs_rq->ml.util_sum += se->ml.util_sum;
+	}
+
+	trace_ems_multi_load_cpu(&cfs_rq->ml);
+}
+
+/*
+ * detach_entity_multi_load() is called from
+ *   detach_entity_load_avg() in fair.c
  */
 void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	if (get_sse(se)) {
-		sub_positive(&cfs_rq->avg.ml.util_avg_s, se->avg.ml.util_avg);
-		sub_positive(&cfs_rq->avg.ml.util_sum_s, se->avg.ml.util_sum);
+		sub_positive(&cfs_rq->ml.util_avg_s, se->ml.util_avg);
+		sub_positive(&cfs_rq->ml.util_sum_s, se->ml.util_sum);
 	} else {
-		sub_positive(&cfs_rq->avg.ml.util_avg, se->avg.ml.util_avg);
-		sub_positive(&cfs_rq->avg.ml.util_sum, se->avg.ml.util_sum);
+		sub_positive(&cfs_rq->ml.util_avg, se->ml.util_avg);
+		sub_positive(&cfs_rq->ml.util_sum, se->ml.util_sum);
 	}
+
+	trace_ems_multi_load_cpu(&cfs_rq->ml);
 }
 
-/**
- * attach_entity_multi_load - attach this entity to its cfs_rq load avg
- * @cfs_rq: cfs_rq to attach to
- * @se: sched_entity to attach
+/*
+ * update_multi_load_se() is called from
+ *   update_load_avg() in fair.c
  */
-void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
+int update_multi_load_se(u64 now, struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	if (get_sse(se)) {
-		cfs_rq->avg.ml.util_avg_s += se->avg.ml.util_avg;
-		cfs_rq->avg.ml.util_sum_s += se->avg.ml.util_sum;
-	} else {
-		cfs_rq->avg.ml.util_avg += se->avg.ml.util_avg;
-		cfs_rq->avg.ml.util_sum += se->avg.ml.util_sum;
-	}
+	__update_multi_load_se(now, cfs_rq, se);
+
+	return 0;
 }
 
-/**
- * remove_entity_multi_load - apply removed entity's util average to cfs_rq
- * @cfs_rq : cfs_rq to remove from
- * @se : sched_entity to remove
+/*
+ * sync_entity_multi_load() is called from
+ *   sync_entity_load_avg() in fair.c
+ */
+void sync_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
+{
+	__update_multi_load_blocked_se(cfs_rq->ml.last_update_time, se);
+}
+
+/*
+ * remove_entity_multi_load() is called from
+ *   remove_entity_load_avg() in fair.c
  */
 void remove_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&cfs_rq->ml_removed.lock, flags);
+	++cfs_rq->ml_removed.nr;
 	if (get_sse(se))
-		atomic_long_add(se->avg.ml.util_avg, &cfs_rq->ml_q.removed_util_avg_s);
+		cfs_rq->ml_removed.util_avg_s += se->ml.util_avg;
 	else
-		atomic_long_add(se->avg.ml.util_avg, &cfs_rq->ml_q.removed_util_avg);
+		cfs_rq->ml_removed.util_avg += se->ml.util_avg;
+	raw_spin_unlock_irqrestore(&cfs_rq->ml_removed.lock, flags);
 }
 
-/**
- * apply_removed_multi_load - apply removed entity's util average to cfs_rq
- * @cfs_rq : cfs_rq to update
+/*
+ * init_cfs_rq_multi_load() is called from
+ *   init_cfs_rq() in fair.c
  */
-void apply_removed_multi_load(struct cfs_rq *cfs_rq)
+void init_cfs_rq_multi_load(struct cfs_rq *cfs_rq)
 {
-	struct multi_load *ml = &cfs_rq->avg.ml;
-	long r;
-
-	r = atomic_long_xchg(&cfs_rq->ml_q.removed_util_avg, 0);
-	sub_positive(&ml->util_avg, r);
-	sub_positive(&ml->util_sum, r * LOAD_AVG_MAX);
-
-	r = atomic_long_xchg(&cfs_rq->ml_q.removed_util_avg_s, 0);
-	sub_positive(&ml->util_avg_s, r);
-	sub_positive(&ml->util_sum_s, r * LOAD_AVG_MAX);
+	raw_spin_lock_init(&cfs_rq->ml_removed.lock);
 }
 
-/* Take into account change of utilization of a child task group */
-void update_tg_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
+/*
+ * migrate_entity_multi_load() is called from
+ *   migrate_task_rq_fair() in fair.c
+ *   task_move_group_fair() in fair.c
+ */
+void migrate_entity_multi_load(struct sched_entity *se)
 {
-	struct cfs_rq *gcfs_rq = se->my_q;
-	unsigned long *cfs_rq_util_avg;
-	u32 *cfs_rq_util_sum;
-	long delta;
-
-	if (get_sse(se)) {
-		cfs_rq_util_avg = &gcfs_rq->avg.ml.util_avg_s;
-		cfs_rq_util_sum = &gcfs_rq->avg.ml.util_sum_s;
-	} else {
-		cfs_rq_util_avg = &gcfs_rq->avg.ml.util_avg;
-		cfs_rq_util_sum = &gcfs_rq->avg.ml.util_sum;
-	}
-
-	delta = *cfs_rq_util_avg - se->avg.ml.util_avg;
-
-	/* Nothing to update */
-	if (!delta)
-		return;
-
-	/* Set new sched_entity's utilization */
-	se->avg.ml.util_avg = *cfs_rq_util_avg;
-	se->avg.ml.util_sum = se->avg.ml.util_avg * LOAD_AVG_MAX;
-
-	/* Update parent cfs_rq utilization */
-	add_positive(cfs_rq_util_avg, delta);
-	*cfs_rq_util_sum = *cfs_rq_util_avg * LOAD_AVG_MAX;
+	/* Tell new CPU we are migrated */
+	se->ml.last_update_time = 0;
 }
 
+/******************************************************************************
+ *                           MULTI LOAD UTIL-EST                              *
+ ******************************************************************************/
 /*
  * When a task is dequeued, its estimated utilization should not be update if
  * its util_avg has not been updated at least once.
@@ -573,34 +886,29 @@ void update_tg_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
  * We map this information into the LSB bit of the utilization saved at
  * dequeue time (i.e. util_est.dequeued).
  */
-
-void cfs_se_util_change_multi_load(struct task_struct *p, struct sched_avg *avg)
+static inline void util_change(struct multi_load *ml)
 {
 	unsigned int enqueued;
 
 	if (!sched_feat(UTIL_EST))
 		return;
 
-	if (!schedtune_util_est_en(p))
-		return;
-
 	/* Avoid store if the flag has been already set */
-	enqueued = avg->ml.util_est.enqueued;
+	enqueued = ml->util_est.enqueued;
 	if (!(enqueued & UTIL_AVG_UNCHANGED))
 		return;
 
 	/* Reset flag to report util_avg has been updated */
 	enqueued &= ~UTIL_AVG_UNCHANGED;
-	WRITE_ONCE(avg->ml.util_est.enqueued, enqueued);
+	WRITE_ONCE(ml->util_est.enqueued, enqueued);
 }
 
 static inline struct util_est* cfs_rq_util_est(struct cfs_rq *cfs_rq, int sse)
 {
-	return sse ? &cfs_rq->avg.ml.util_est_s : &cfs_rq->avg.ml.util_est;
+	return sse ? &cfs_rq->ml.util_est_s : &cfs_rq->ml.util_est;
 }
 
-void enqueue_multi_load(struct cfs_rq *cfs_rq,
-				    struct task_struct *p)
+void util_est_enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p)
 {
 	unsigned int enqueued;
 	struct util_est *cfs_rq_ue;
@@ -608,16 +916,26 @@ void enqueue_multi_load(struct cfs_rq *cfs_rq,
 	if (!sched_feat(UTIL_EST))
 		return;
 
-	cfs_rq_ue = cfs_rq_util_est(cfs_rq, p->sse);
+	if (schedtune_util_est(p)) {
+		/*
+		 * Skip applying estimated utilization of task to cfs_rq if it
+		 * is already applied.
+		 */
+		if (p->se.ml.util_est_applied)
+			return;
 
-	/* Update root cfs_rq's estimated utilization */
-	enqueued  = cfs_rq_ue->enqueued;
-	enqueued += (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED);
-	WRITE_ONCE(cfs_rq_ue->enqueued, enqueued);
+		cfs_rq_ue = cfs_rq_util_est(cfs_rq, p->sse);
 
-	/* Update plots for Task and CPU estimated utilization */
-	trace_ems_util_est_task(p, &p->se.avg);
-	trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+		/* Update root cfs_rq's estimated utilization */
+		enqueued  = cfs_rq_ue->enqueued;
+		enqueued += (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED);
+		WRITE_ONCE(cfs_rq_ue->enqueued, enqueued);
+		p->se.ml.util_est_applied = 1;
+
+		/* Update plots for Task and CPU estimated utilization */
+		trace_ems_util_est_task(p, &p->se.ml);
+		trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+	}
 }
 
 /*
@@ -632,33 +950,54 @@ static inline bool within_margin(int value, int margin)
 	return ((unsigned int)(value + margin - 1) < (2 * margin - 1));
 }
 
-void
-dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep)
+void util_est_dequeue_multi_load(struct cfs_rq *cfs_rq,
+				struct task_struct *p, bool task_sleep)
 {
 	long last_ewma_diff;
 	struct util_est ue, *cfs_rq_ue;
+	bool updated = false;
 
 	if (!sched_feat(UTIL_EST))
 		return;
 
-	cfs_rq_ue = cfs_rq_util_est(cfs_rq, p->sse);
-
 	/*
-	 * Update root cfs_rq's estimated utilization
-	 *
-	 * If *p is the last task then the root cfs_rq's estimated utilization
-	 * of a CPU is 0 by definition.
+	 * Only the task to which utilization estimation is applied to cfs_rq
+	 * is updated
 	 */
-	ue.enqueued = 0;
-	if (cfs_rq->nr_running) {
+	if (p->se.ml.util_est_applied) {
+		cfs_rq_ue = cfs_rq_util_est(cfs_rq, p->sse);
+
+		/* Update root cfs_rq's estimated utilization */
 		ue.enqueued  = cfs_rq_ue->enqueued;
 		ue.enqueued -= min_t(unsigned int, ue.enqueued,
-				     (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
-	}
-	WRITE_ONCE(cfs_rq_ue->enqueued, ue.enqueued);
+				(_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
+		WRITE_ONCE(cfs_rq_ue->enqueued, ue.enqueued);
+		p->se.ml.util_est_applied = 0;
 
-	/* Update plots for CPU's estimated utilization */
-	trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+		updated = true;
+	}
+
+	/*
+	 * There are some cases that dequeued tasks's util is not subtracted
+	 * from cpu util_est enqueued; it causes cpu util_est to be misleading.
+	 *
+	 * Clear cpu util_est enqueued when cfs_rq->nr_running is 0. It helps
+	 * cpu util_est to be in the right state.
+	 */
+	if (cfs_rq->nr_running == 0) {
+		cfs_rq_ue = cfs_rq_util_est(cfs_rq, SSE);
+		WRITE_ONCE(cfs_rq_ue->enqueued, 0);
+
+		cfs_rq_ue = cfs_rq_util_est(cfs_rq, USS);
+		WRITE_ONCE(cfs_rq_ue->enqueued, 0);
+
+		updated = true;
+	}
+
+	if (updated) {
+		/* Update plots for CPU's estimated utilization */
+		trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+	}
 
 	/*
 	 * Skip update of task's estimated utilization when the task has not
@@ -667,14 +1006,11 @@ dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep
 	if (!task_sleep)
 		return;
 
-	if (!schedtune_util_est_en(p))
-		return;
-
 	/*
 	 * If the PELT values haven't changed since enqueue time,
 	 * skip the util_est update.
 	 */
-	ue = p->se.avg.ml.util_est;
+	ue = p->se.ml.util_est;
 	if (ue.enqueued & UTIL_AVG_UNCHANGED)
 		return;
 
@@ -684,7 +1020,7 @@ dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep
 	 */
 	ue.enqueued = (ml_task_util(p) | UTIL_AVG_UNCHANGED);
 	last_ewma_diff = ue.enqueued - ue.ewma;
-	if (within_margin(last_ewma_diff, capacity_orig_of(task_cpu(p)) / 100))
+	if (within_margin(last_ewma_diff, SCHED_CAPACITY_SCALE / 100))
 		return;
 
 	/*
@@ -707,10 +1043,54 @@ dequeue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p, bool task_sleep
 	ue.ewma <<= UTIL_EST_WEIGHT_SHIFT;
 	ue.ewma  += last_ewma_diff;
 	ue.ewma >>= UTIL_EST_WEIGHT_SHIFT;
-	WRITE_ONCE(p->se.avg.ml.util_est, ue);
+	WRITE_ONCE(p->se.ml.util_est, ue);
 
 	/* Update plots for Task's estimated utilization */
-	trace_ems_util_est_task(p, &p->se.avg);
+	trace_ems_util_est_task(p, &p->se.ml);
+}
+
+void util_est_update(struct task_struct *p,
+			int prev_util_est, int next_util_est)
+{
+	struct rq_flags rq_flags;
+	struct rq *rq;
+	struct util_est ue, *cfs_rq_ue;
+	unsigned int enqueued = 0;
+
+	/*
+	 * If both prev and next util-est are off or on, enqueued of cfs_rq
+	 * does not change.
+	 */
+	if (prev_util_est == next_util_est)
+		return;
+
+	rq = task_rq_lock(p, &rq_flags);
+	if (!p->on_rq) {
+		task_rq_unlock(rq, p, &rq_flags);
+		return;
+	}
+
+	ue = p->se.ml.util_est;
+	cfs_rq_ue = cfs_rq_util_est(&rq->cfs, p->sse);
+
+	enqueued = cfs_rq_ue->enqueued;
+	if (prev_util_est && p->se.ml.util_est_applied) {
+		enqueued -= min_t(unsigned int, enqueued,
+				(_ml_task_util_est(p) | UTIL_AVG_UNCHANGED));
+		p->se.ml.util_est_applied = 0;
+	}
+
+	if (next_util_est && likely(!p->se.ml.util_est_applied)) {
+		enqueued += (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED);
+		p->se.ml.util_est_applied = 1;
+	}
+
+	WRITE_ONCE(cfs_rq_ue->enqueued, enqueued);
+
+	/* Update plots for CPU's estimated utilization */
+	trace_ems_util_est_cpu(cpu_of(rq), &rq->cfs);
+
+	task_rq_unlock(rq, p, &rq_flags);
 }
 
 /****************************************************************/
@@ -737,7 +1117,7 @@ char *part_policy_name[] = {
 };
 
 static __read_mostly unsigned int part_policy_idx = PART_POLICY_MAX_RECENT_LAST;
-static __read_mostly u64 period_size = 8 * NSEC_PER_MSEC;
+static __read_mostly u64 period_size = 4 * NSEC_PER_MSEC;
 static __read_mostly u64 period_hist_size = 10;
 static __read_mostly int high_patten_thres = 700;
 static __read_mostly int high_patten_stdev = 200;
@@ -987,8 +1367,6 @@ void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu)
 		return;
 	}
 
-	update_cpu_active_ratio(rq, NULL, EMS_PART_UPDATE);
-
 	switch (part_policy_idx) {
 	case PART_POLICY_RECENT:
 		demand = pa->active_ratio_recent;
@@ -997,16 +1375,19 @@ void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu)
 		demand = pa->active_ratio_max;
 		break;
 	case PART_POLICY_MAX_RECENT_MAX:
-		demand = max(pa->active_ratio_recent, pa->active_ratio_max);
+		demand = max(pa->active_ratio_recent,
+				pa->active_ratio_max);
 		break;
 	case PART_POLICY_LAST:
 		demand = pa->hist[pa->hist_idx];
 		break;
 	case PART_POLICY_MAX_RECENT_LAST:
-		demand = max(pa->active_ratio_recent, pa->hist[pa->hist_idx]);
+		demand = max(pa->active_ratio_recent,
+				pa->hist[pa->hist_idx]);
 		break;
 	case PART_POLICY_MAX_RECENT_AVG:
-		demand = max(pa->active_ratio_recent, pa->active_ratio_avg);
+		demand = max(pa->active_ratio_recent,
+				pa->active_ratio_avg);
 		break;
 	}
 
@@ -1054,7 +1435,7 @@ static ssize_t store_part_policy(struct kobject *kobj,
 	if (!sscanf(buf, "%ld", &input))
 		return -EINVAL;
 
-	if (input >= PART_POLICY_INVALID || input < 0)
+	if (input >= PART_POLICY_INVALID)
 		return -EINVAL;
 
 	part_policy_idx = input;
@@ -1249,7 +1630,7 @@ static int __init parse_part(void)
 	char name[15];
 	int cpu, cnt = 0, limit = -1, boost = -1;
 
-	dn = of_find_node_by_path("/cpus/ems/part");
+	dn = of_find_node_by_path("/ems/part");
 	if (!dn)
 		return 0;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2016 Samsung Electronics, Inc.
+ * Copyright (C) 2013-2019 Samsung Electronics, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -17,10 +17,12 @@
 #include <linux/printk.h>
 #include <linux/string.h>
 
+#include "tzdev_internal.h"
+#include "tzlog.h"
+#include "tz_cdev.h"
 #include "tz_iw_boot_log.h"
-#include "tzdev.h"
 
-#define TZ_BOOT_LOG_PREFIX		KERN_DEFAULT "SW> "
+#define TZ_BOOT_LOG_PREFIX		KERN_DEFAULT "SW_BOOT> "
 
 static atomic_t tz_iw_boot_log_already_read = ATOMIC_INIT(0);
 
@@ -58,10 +60,8 @@ void tz_iw_boot_log_read(void)
 	order = order_base_2(CONFIG_TZ_BOOT_LOG_PG_CNT);
 
 	pages = alloc_pages(GFP_KERNEL, order);
-	if (!pages) {
-		tzdev_print(0, "pages allocation failed\n");
+	if (!pages)
 		return;
-	}
 
 	nbytes = tzdev_smc_boot_log_read(page_to_pfn(pages), CONFIG_TZ_BOOT_LOG_PG_CNT);
 	if (nbytes > 0)

@@ -284,7 +284,7 @@ static int ion_rbin_heap_create_pools(struct ion_page_pool **pools)
 	int i;
 
 	for (i = 0; i < NUM_ORDERS; i++) {
-		pools[i] = ion_page_pool_create(GFP_KERNEL, orders[i], false);
+		pools[i] = ion_page_pool_create(GFP_KERNEL, orders[i]);
 		if (!pools[i])
 			goto err_create_pool;
 	}

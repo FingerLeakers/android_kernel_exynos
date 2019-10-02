@@ -40,6 +40,17 @@ unsigned char *defex_packed_rules;
 #endif /* DEFEX_INTEGRITY_ENABLE */
 
 static struct kset *defex_kset;
+static int is_recovery = 0;
+
+static int __init bootmode_setup(char *str)
+{
+	if (str && *str == '2') {
+		is_recovery = 1;
+		printk(KERN_ALERT "[DEFEX] recovery mode setup\n");
+	}
+	return 0;
+}
+__setup("bootmode=", bootmode_setup);
 
 
 int check_system_mount(void)
@@ -49,21 +60,25 @@ int check_system_mount(void)
 
 	if (mount_system_root < 0) {
 		fp = filp_open("/sbin/recovery", O_RDONLY, 0);
-		if (IS_ERR(fp)) {
-			printk(KERN_ALERT "[DEFEX] normal mode\n");
-			mount_system_root = 0;
-		} else {
+		if (IS_ERR(fp))
+			fp = filp_open("/system/bin/recovery", O_RDONLY, 0);
+
+		if (!IS_ERR(fp)) {
 			printk(KERN_ALERT "[DEFEX] recovery mode\n");
 			filp_close(fp, NULL);
-			fp = filp_open("/system_root", O_DIRECTORY | O_PATH, 0);
-			if (IS_ERR(fp)) {
-				printk(KERN_ALERT "[DEFEX] system_root=FALSE\n");
-				mount_system_root = 0;
-			} else {
-				printk(KERN_ALERT "[DEFEX] system_root=TRUE\n");
-				filp_close(fp, NULL);
-				mount_system_root = 1;
-			}
+			is_recovery = 1;
+		} else {
+			printk(KERN_ALERT "[DEFEX] normal mode\n");
+		}
+
+		mount_system_root = 0;
+		fp = filp_open("/system_root", O_DIRECTORY | O_PATH, 0);
+		if (!IS_ERR(fp)) {
+			filp_close(fp, NULL);
+			mount_system_root = 1;
+			printk(KERN_ALERT "[DEFEX] system_root=TRUE\n");
+		} else {
+			printk(KERN_ALERT "[DEFEX] system_root=FALSE\n");
 		}
 	}
 	return (mount_system_root > 0);
@@ -112,7 +127,7 @@ static void parse_static_rules(const struct static_rule *rules, size_t max_len, 
 }
 
 #ifdef DEFEX_USE_PACKED_RULES
-struct rule_item_struct *lookup_dir(struct rule_item_struct *base, const char *name, int l)
+struct rule_item_struct *lookup_dir(struct rule_item_struct *base, const char *name, int l, int for_recovery)
 {
 	struct rule_item_struct *item = NULL;
 	unsigned int offset;
@@ -121,7 +136,10 @@ struct rule_item_struct *lookup_dir(struct rule_item_struct *base, const char *n
 		return item;
 	item = GET_ITEM_PTR(base->next_level);
 	do {
-		if (item->size == l && !memcmp(name, item->name, l)) return item;
+		if ((!(item->feature_type & feature_is_file)
+			|| (!!(item->feature_type & feature_for_recovery)) == for_recovery)
+			&& item->size == l
+			&& !memcmp(name, item->name, l)) return item;
 		offset = item->next_file;
 		item = GET_ITEM_PTR(offset);
 	} while(offset);
@@ -133,19 +151,25 @@ int defex_check_integrity(struct file *f, unsigned char *hash)
 {
 	struct crypto_shash *handle = NULL;
 	struct shash_desc* shash = NULL;
+	unsigned char buff_zero[SHA256_DIGEST_SIZE]={0,};
 	unsigned char hash_sha256[SHA256_DIGEST_SIZE];
 	unsigned char *buff = NULL;
 	size_t buff_size = PAGE_SIZE;
 	loff_t file_size = 0;
 	int ret = 0, err = 0, read_size = 0;
-	int i = 0; //TEST
+
+	// A saved hash is zero, skip integrity check
+	if (!memcmp(buff_zero, hash, SHA256_DIGEST_SIZE))
+		return ret;
 
 	if (IS_ERR(f))
 		goto hash_error;
 
 	handle = crypto_alloc_shash("sha256", 0, 0);
-	if (IS_ERR(handle))
-		goto hash_error;
+	if (IS_ERR(handle)) {
+		pr_err("[DEFEX] Can't alloc sha256");
+		return -1;
+	}
 
 	shash = kzalloc(sizeof(struct shash_desc) + crypto_shash_descsize(handle), GFP_KERNEL);
 	if (NULL == shash)
@@ -181,12 +205,6 @@ int defex_check_integrity(struct file *f, unsigned char *hash)
 
 	ret = memcmp(hash_sha256, hash, SHA256_DIGEST_SIZE);
 
-	/* TEST */
-	if (ret){
-		for (i = 0; i < 32; i++){
-			printk("%02x%02x : %d", hash_sha256[i], hash[i], ret);
-		}
-	}
 	goto hash_exit;
 
   hash_error:
@@ -291,7 +309,10 @@ int lookup_tree(const char *file_path, int attribute, struct file *f)
 			l = next_separator - ptr;
 		if (!l)
 			return 0;
-		cur_item = lookup_dir(base, ptr, l);
+		cur_item = lookup_dir(base, ptr, l, is_recovery);
+		if (!cur_item)
+			cur_item = lookup_dir(base, ptr, l, !is_recovery);
+
 		if (!cur_item)
 			break;
 		if (cur_item->feature_type & attribute) {

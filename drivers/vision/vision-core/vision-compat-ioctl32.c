@@ -517,16 +517,12 @@ static int get_vs4l_container32(struct vs4l_container_list *kp, struct vs4l_cont
 
 p_err_container_alloc:
 	for (i = 0; i < kp->count; ++i) {
-		if (kcontainer[i].buffers) {
-			kfree(kcontainer[i].buffers);
-			kcontainer[i].buffers = NULL;
-		}
+		kfree(kcontainer[i].buffers);
+		kcontainer[i].buffers = NULL;
 	}
 
-	if (kp->containers) {
-		kfree(kp->containers);
-		kp->containers = NULL;
-	}
+	kfree(kp->containers);
+	kp->containers = NULL;
 
 p_err:
 	return ret;
@@ -664,7 +660,8 @@ long vertex_compat_ioctl32(struct file *file, unsigned int cmd, unsigned long ar
 		put_vs4l_container32(&karg.vscl, up);
 		break;
 	default:
-		vision_err("%x iocontrol is not supported(%lx, %zd)\n", cmd, VS4L_VERTEXIOC_S_FORMAT, sizeof(struct vs4l_format_list));
+		vision_err("%x iocontrol is not supported(%lx, %zd)\n", cmd, VS4L_VERTEXIOC_S_FORMAT,
+				sizeof(struct vs4l_format_list));
 		break;
 	}
 

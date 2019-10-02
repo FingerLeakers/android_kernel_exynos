@@ -11,7 +11,7 @@
 #include <asm/nmi.h>
 #endif
 
-#ifdef CONFIG_SEC_DEBUG
+#ifdef CONFIG_SEC_DEBUG_LOCKUP_INFO
 #define TASK_COMM_LEN 16
 #define SOFTIRQ_TYPE_LEN 16
 
@@ -76,7 +76,6 @@ struct softlockup_info {
 	};
 };
 #endif
-
 #ifdef CONFIG_LOCKUP_DETECTOR
 void lockup_detector_init(void);
 void lockup_detector_soft_poweroff(void);
@@ -111,19 +110,25 @@ extern void touch_softlockup_watchdog(void);
 extern void touch_softlockup_watchdog_sync(void);
 extern void touch_all_softlockup_watchdogs(void);
 extern unsigned int  softlockup_panic;
-#else
+
+extern int lockup_detector_online_cpu(unsigned int cpu);
+extern int lockup_detector_offline_cpu(unsigned int cpu);
+#else /* CONFIG_SOFTLOCKUP_DETECTOR */
 static inline void touch_softlockup_watchdog_sched(void) { }
 static inline void touch_softlockup_watchdog(void) { }
 static inline void touch_softlockup_watchdog_sync(void) { }
 static inline void touch_all_softlockup_watchdogs(void) { }
-#endif
 
-#if defined(CONFIG_SEC_DEBUG) && defined(CONFIG_SOFTLOCKUP_DETECTOR)
-extern void sl_softirq_entry(const char *, void *);
+#define lockup_detector_online_cpu	NULL
+#define lockup_detector_offline_cpu	NULL
+#endif /* CONFIG_SOFTLOCKUP_DETECTOR */
+
+#if defined(CONFIG_SEC_DEBUG_LOCKUP_INFO) && defined(CONFIG_SOFTLOCKUP_DETECTOR)
+extern void sl_softirq_entry(const char *softirq_type, void *fn);
 extern void sl_softirq_exit(void);
 unsigned long long get_dss_softlockup_thresh(void);
 #else
-static inline void void sl_softirq_entry(const char *, void *) { }
+static inline void sl_softirq_entry(const char *softirq_type, void *fn) { }
 static inline void sl_softirq_exit(void) { }
 #endif
 
@@ -201,10 +206,11 @@ void watchdog_nmi_disable(unsigned int cpu);
 #if defined(CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU)
 extern void touch_nmi_watchdog(void);
 
-#if defined(CONFIG_SEC_DEBUG)
+#if defined(CONFIG_SEC_DEBUG_LOCKUP_INFO)
 extern void update_hardlockup_type(unsigned int cpu);
 unsigned long long get_hardlockup_thresh(void);
 #endif
+
 #else
 static inline void touch_nmi_watchdog(void)
 {
@@ -212,7 +218,6 @@ static inline void touch_nmi_watchdog(void)
 	touch_softlockup_watchdog();
 }
 #endif
-
 /*
  * Create trigger_all_cpu_backtrace() out of the arch-provided
  * base function. Return whether such support was available,

@@ -82,11 +82,71 @@ struct ftb_header {
 	unsigned int hdr_crc;
 };
 
+int fsr_Mi2c_init(struct fsr_sidekey_info *info)
+{
+	unsigned char regAdd[8];
+	
+	//=== Set up Slave Address, 0x4A =============
+	//Set FORMOSA Slave I2C Addr ==> B6 00 8D 4A 02 02
+	regAdd[0] = 0xB6;
+    regAdd[1] = 0x00;
+    regAdd[2] = 0x8D;
+    regAdd[3] = 0x4A;		// Slave Address
+	regAdd[4] = 0x02;		// Write Count
+	regAdd[5] = 0x02;		// Read Count
+	regAdd[6] = 0x00;		// Dummy
+	regAdd[7] = 0x00;		// High Speed Mode
+    fsr_write_reg(info, &regAdd[0], 8);
+//	fsr_delay(5);
+
+	//=== Set up Write Buffer point to address 0x2001_0000 with address 0x00 0x00 (Formosa Chip ID address) =============
+	//=== Set up Read Buffer point to address  0x2001_0100 =============
+	//Set write buffer address ==> B6 00 94 00 00 01 00
+    regAdd[0] = 0xB6;
+	regAdd[1] = 0x00;
+    regAdd[2] = 0x94;
+    regAdd[3] = 0x00;
+	regAdd[4] = 0x00;
+	regAdd[5] = 0x01;
+	regAdd[6] = 0x00;
+    fsr_write_reg(info, &regAdd[0], 7);
+//	fsr_delay(5);
+	
+	//Set write buffer address ==> D0 00 00 00 00
+	regAdd[0] = 0xD0;
+	regAdd[1] = 0x00;
+	regAdd[2] = 0x00;
+	regAdd[3] = 0x00;
+	regAdd[4] = 0x00;
+	fsr_write_reg(info, &regAdd[0], 5);
+//	fsr_delay(5);
+	
+	return 0;
+}
+
+int fsr_Mi2c_read(struct fsr_sidekey_info *info)
+{
+	unsigned char regAdd[8];
+
+	// Start MI2C Read Transaction
+	// Set MI2C Control ==> B6 00 92 21
+    regAdd[0] = 0xB6;
+    regAdd[1] = 0x00;
+    regAdd[2] = 0x92;
+    regAdd[3] = 0x21;
+    fsr_write_reg(info, &regAdd[0], 4);
+//	fsr_delay(5);
+	
+	return 0;
+}
+
 int FSR_Check_DMA_Done(struct fsr_sidekey_info *info)
 {
 	int timeout = 60;
 	unsigned char regAdd[2] = { 0xF9, 0x05};
 	unsigned char val[1];
+
+	fsr_Mi2c_init(info);
 
 	do {
 		fsr_read_reg(info, &regAdd[0], 2, (unsigned char*)val, 1);
@@ -96,6 +156,8 @@ int FSR_Check_DMA_Done(struct fsr_sidekey_info *info)
 
 		fsr_delay(50);
 		timeout--;
+
+		fsr_Mi2c_read(info);
 	} while (timeout != 0);
 
 	if (timeout == 0)
@@ -110,6 +172,8 @@ static int FSR_Check_Erase_Done(struct fsr_sidekey_info *info, unsigned char pag
 	unsigned char regAdd[2] = {0xF9, 0x02};
 	unsigned char val[1];
 
+	fsr_Mi2c_init(info);
+	
 	fsr_read_reg(info, &regAdd[0], 2, (unsigned char*)val, 1);
 	if ((val[0] & 0x80) != 0x80) {
 		input_err(true, &info->client->dev, "%s: Flash erasing mode has been exited while erasing page %d,%d\n",
@@ -125,6 +189,8 @@ static int FSR_Check_Erase_Done(struct fsr_sidekey_info *info, unsigned char pag
 
 		fsr_delay(50);
 		timeout--;
+
+		fsr_Mi2c_read(info);
 	} while (timeout != 0);
 
 	if (timeout == 0) {
@@ -160,6 +226,10 @@ static int fsr_fw_burn_d3(struct fsr_sidekey_info *info, unsigned char *fw_data)
 
 	const struct ftb_header *header;
 	header = (struct ftb_header *)fw_data;
+
+	fsr_Mi2c_init(info);
+	fsr_Mi2c_read(info);
+	fsr_delay(10);
 
 	// Enable warm boot CRC check  (w B6 00 1E 38)
 	input_info(true, &info->client->dev, "%s: Enable warm boot CRC check\n", __func__);
@@ -240,6 +310,9 @@ static int fsr_fw_burn_d3(struct fsr_sidekey_info *info, unsigned char *fw_data)
 	for (i = 0; i < 64; i++) {
 		if ( (i == 61) || (i == 62) )   // skip CX2 area (page 61 and page 62)
 			continue;
+
+		fsr_Mi2c_init(info);
+		fsr_Mi2c_read(info);
 
 		regAdd[0] = 0xFA;
 		regAdd[1] = 0x02;
@@ -336,6 +409,8 @@ static int fsr_fw_burn_d3(struct fsr_sidekey_info *info, unsigned char *fw_data)
 
 			i += WRITE_CHUNK_SIZE_D3;
 			j += WRITE_CHUNK_SIZE_D3;
+
+			fsr_Mi2c_read(info);
 		}
 		input_info(true, &info->client->dev, "%s: Write to Flash - Total %ld bytes\n", __func__, i);
 
@@ -755,7 +830,10 @@ int fsr_fw_update_on_probe(struct fsr_sidekey_info *info)
 		goto done;
 	}
 
-	if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
+	if (info->board->bringup == 3) {
+		input_err(true, &info->client->dev, "%s: force fw_update for bringup\n", __func__);
+		retval = fsr_fw_updater(info, fw_data, restore_cal);
+	}else if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
 		|| (info->config_version_of_ic < info->config_version_of_bin)
 		|| (info->fw_version_of_ic < info->fw_version_of_bin))
 		retval = fsr_fw_updater(info, fw_data, restore_cal);

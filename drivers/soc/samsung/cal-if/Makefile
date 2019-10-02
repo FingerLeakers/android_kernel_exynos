@@ -20,10 +20,11 @@ else
 obj-$(CONFIG_SOC_EMULATOR8895)		+= emulator8895/cal_data.o
 endif
 
+obj-$(CONFIG_SOC_EXYNOS9610)			+= exynos9610/cal_data.o
 obj-$(CONFIG_SOC_EXYNOS9810)            += exynos9810/cal_data.o
-
-ifndef CONFIG_SOC_EXYNOS9820_EVT0
 obj-$(CONFIG_SOC_EXYNOS9820)            += exynos9820/cal_data.o
+ifndef CONFIG_SOC_EXYNOS9830_EVT0
+obj-$(CONFIG_SOC_EXYNOS9830)            += exynos9830/cal_data.o
 else
-obj-$(CONFIG_SOC_EXYNOS9820_EVT0)            += exynos9820_evt0/cal_data.o
+obj-$(CONFIG_SOC_EXYNOS9830_EVT0)            += exynos9830_evt0/cal_data.o
 endif

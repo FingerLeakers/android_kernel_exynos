@@ -162,9 +162,6 @@ static int mmc_bus_suspend(struct device *dev)
 	if (ret)
 		return ret;
 
-	if (mmc_bus_needs_resume(host))
-		return 0;
-
 	ret = host->bus_ops->suspend(host);
 	if (ret)
 		pm_generic_resume(dev);
@@ -178,14 +175,10 @@ static int mmc_bus_resume(struct device *dev)
 	struct mmc_host *host = card->host;
 	int ret;
 
-	if (mmc_bus_manual_resume(host)) {
-		host->bus_resume_flags |= MMC_BUSRESUME_NEEDS_RESUME;
-	} else {
-		ret = host->bus_ops->resume(host);
-		if (ret)
-			pr_warn("%s: error %d during resume (card was removed?)\n",
-					mmc_hostname(host), ret);
-	}
+	ret = host->bus_ops->resume(host);
+	if (ret)
+		pr_warn("%s: error %d during resume (card was removed?)\n",
+			mmc_hostname(host), ret);
 
 	ret = pm_generic_resume(dev);
 	return ret;
@@ -372,8 +365,6 @@ int mmc_add_card(struct mmc_card *card)
 #ifdef CONFIG_DEBUG_FS
 	mmc_add_card_debugfs(card);
 #endif
-	mmc_init_context_info(card->host);
-
 	card->dev.of_node = mmc_of_find_child_device(card->host, 0);
 
 	device_enable_async_suspend(&card->dev);
@@ -393,9 +384,16 @@ int mmc_add_card(struct mmc_card *card)
  */
 void mmc_remove_card(struct mmc_card *card)
 {
+	struct mmc_host *host = card->host;
+
 #ifdef CONFIG_DEBUG_FS
 	mmc_remove_card_debugfs(card);
 #endif
+
+	if (host->cqe_enabled) {
+		host->cqe_ops->cqe_disable(host);
+		host->cqe_enabled = false;
+	}
 
 	if (mmc_card_present(card)) {
 		if (mmc_host_is_spi(card->host)) {

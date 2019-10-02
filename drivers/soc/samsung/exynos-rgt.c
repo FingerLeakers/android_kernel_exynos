@@ -209,9 +209,9 @@ static ssize_t exynos_rgt_volt_read(struct file *file, char __user *user_buf,
 		len = snprintf(buf + ret, PAGE_SIZE - ret,
 				"\t [%s]\t min %4d mV, max %4d mV %s\n",
 				dev,
-				cons->min_uV / 1000,
-				cons->max_uV / 1000,
-				cons->min_uV ? "(requested)" : "");
+				cons->voltage->min_uV / 1000,
+				cons->voltage->max_uV / 1000,
+				cons->voltage->min_uV ? "(requested)" : "");
 		if (len > 0)
 			ret += len;
 
@@ -313,10 +313,10 @@ static u32 get_reg_id(u32 ch, u32 addr)
 	u32 id;
 
 	if (rgt_ss_info.is_reg_map_set == false)
-		return REG_MAP_MAX;
+		return (REG_MAP_MAX + 1);
 
 	if (addr >> 8 != 0x1 || ch >= rgt_ss_info.acpm_pmic_cnt)
-		return REG_MAP_MAX;
+		return (REG_MAP_MAX + 2);
 
 	id = rgt_ss_info.reg_map[ch][addr & 0xff];
 	if (id != 0)
@@ -406,6 +406,9 @@ void exynos_rgt_dbg_snapshot_regulator(u32 val, unsigned long long time)
 	reg_data = (val >> 4) & 0xff;
 	mod_addr = (spd_ch << 12) | reg_addr;
 	reg_id = get_reg_id(spd_ch, reg_addr);
+
+	if (reg_id > REG_MAP_MAX)
+		return ;
 
 	if (reg_id == REG_MAP_MAX)
 		dbg_snapshot_regulator(time, "CHKADDR", mod_addr, reg_data, reg_data, val & 0xF);

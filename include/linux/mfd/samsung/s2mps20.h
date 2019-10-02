@@ -91,11 +91,10 @@ struct s2mps20_platform_data {
 	/* 1 : sync mode, 2 : async mode  */
 	int		adc_sync_mode;
 
-	bool			ocp_warn3_en;
-	int				ocp_warn3_cnt;
-	bool			ocp_warn3_dvs_mask;
-	int				ocp_warn3_lv;
-	bool			buck1s_pwm;
+	bool	ocp_warn3_en;
+	int		ocp_warn3_cnt;
+	bool	ocp_warn3_dvs_mask;
+	int		ocp_warn3_lv;
 
 	bool	use_i2c_speedy;
 };

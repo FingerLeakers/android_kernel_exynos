@@ -20,6 +20,7 @@
 int fps_qbt2000_sec_spi_prepare(int speed)
 {
 	struct clk *fp_spi_pclk, *fp_spi_sclk;
+	int ret;
 
 	fp_spi_pclk = clk_get(NULL, "fp-spi-pclk");
 
@@ -37,12 +38,20 @@ int fps_qbt2000_sec_spi_prepare(int speed)
 
 	clk_prepare_enable(fp_spi_pclk);
 	clk_prepare_enable(fp_spi_sclk);
-#if defined(CONFIG_SOC_EXYNOS9820)
-	/* There is a quarter-multiplier before the SPI */
-	clk_set_rate(fp_spi_sclk, speed * 4);
-#else
-	clk_set_rate(fp_spi_sclk, speed * 2);
-#endif
+
+	if (clk_get_rate(fp_spi_sclk) != (speed * 4)) {
+
+		ret = clk_set_rate(fp_spi_sclk, speed * 4);
+		if (ret < 0)
+			pr_err("%s, SPI clk set failed: %d\n", __func__, ret);
+
+		else
+			pr_info("%s, Set SPI clock rate: %u(%lu)\n",
+				__func__, speed, clk_get_rate(fp_spi_sclk) / 4);
+	} else
+		pr_info("%s, Set SPI clock rate: %u(%lu)\n",
+			__func__, speed, clk_get_rate(fp_spi_sclk) / 4);
+
 	clk_put(fp_spi_pclk);
 	clk_put(fp_spi_sclk);
 

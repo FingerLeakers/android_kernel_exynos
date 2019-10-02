@@ -73,10 +73,18 @@ struct g2d_dvfs_table {
 	u32 freq;
 };
 
+struct g2d_qos {
+	u64	rbw;
+	u64	wbw;
+	u32	devfreq;
+};
+
 /* Proved that G2D does not leak protected conents that it is processing. */
 #define G2D_DEVICE_CAPS_SELF_PROTECTION		1
 /* Separate bitfield to select YCbCr Bitdepth at REG_COLORMODE[29:28] */
 #define G2D_DEVICE_CAPS_YUV_BITDEPTH		2
+/* Support compressed YUV format */
+#define G2D_DEVICE_CAPS_COMPRESSED_YUV		3
 
 struct g2d_device {
 	unsigned long		state;
@@ -105,6 +113,7 @@ struct g2d_device {
 
 	struct notifier_block	pm_notifier;
 	wait_queue_head_t	freeze_wait;
+	wait_queue_head_t	queued_wait;
 
 	struct dentry *debug_root;
 	struct dentry *debug;
@@ -116,6 +125,10 @@ struct g2d_device {
 
 	struct mutex			lock_qos;
 	struct list_head		qos_contexts;
+
+	struct g2d_qos		qos;
+	struct pm_qos_request	req;
+
 	u32 hw_ppc[PPC_END];
 	u32				max_layers;
 
@@ -123,6 +136,11 @@ struct g2d_device {
 	u32 dvfs_table_cnt;
 
 	struct notifier_block	itmon_nb;
+
+	u32 dvfs_int;
+	u32 dvfs_mif;
+
+	struct delayed_work dwork;
 };
 
 #define G2D_AUTHORITY_HIGHUSER 1
@@ -135,13 +153,10 @@ struct g2d_context {
 	int authority;
 	struct task_struct	*owner;
 
-	struct delayed_work dwork;
-
-	struct pm_qos_request req;
 	struct list_head qos_node;
 	struct mutex	lock_hwfc_info;
-	u64	r_bw;
-	u64	w_bw;
+
+	struct g2d_qos	ctxqos;
 };
 
 #define IPPREFIX "[Exynos][G2D] "
@@ -158,6 +173,6 @@ struct g2d_context {
 	dev_err(g2d->dev, IPPREFIX  "%s: " format "\n", __func__, ##arg)
 
 int g2d_device_run(struct g2d_device *g2d_dev, struct g2d_task *task);
-void g2d_hw_timeout_handler(unsigned long arg);
+void g2d_hw_timeout_handler(struct timer_list *arg);
 
 #endif /* __EXYNOS_G2D_H__ */

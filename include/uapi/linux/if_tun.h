@@ -57,10 +57,14 @@
  */
 #define TUNSETVNETBE _IOW('T', 222, int)
 #define TUNGETVNETBE _IOR('T', 223, int)
+#define TUNSETSTEERINGEBPF _IOR('T', 224, int)
+#define TUNSETFILTEREBPF _IOR('T', 225, int)
 
 /* TUNSETIFF ifr flags */
 #define IFF_TUN		0x0001
 #define IFF_TAP		0x0002
+#define IFF_NAPI	0x0010
+#define IFF_NAPI_FRAGS	0x0020
 #define IFF_NO_PI	0x1000
 /* This flag has no real effect */
 #define IFF_ONE_QUEUE	0x2000
@@ -82,15 +86,6 @@
 #define TUN_F_TSO6	0x04	/* I can handle TSO for IPv6 packets */
 #define TUN_F_TSO_ECN	0x08	/* I can handle TSO with ECN bits. */
 #define TUN_F_UFO	0x10	/* I can handle UFO packets */
-
-// ------------- START of KNOX_VPN ------------------//
-#define TUN_META_HDR	0x0020
-#define TUNGETMETAPARAM _IOR('T', 218, int)
-#define IFF_META_HDR	0x0004
-#define TUN_GET_META_HDR_SZ 0
-#define TUN_GET_META_MARK_OFFSET 1
-#define DEFAULT_IHL 5
-// ------------- END of KNOX_VPN -------------------//
 
 /* Protocol info prepended to the packets (when IFF_NO_PI is not set) */
 #define TUN_PKT_STRIP	0x0001

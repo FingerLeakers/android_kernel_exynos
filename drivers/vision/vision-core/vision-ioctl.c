@@ -256,24 +256,18 @@ static int get_vs4l_container64(struct vs4l_container_list *kp, struct vs4l_cont
 	return ret;
 
 p_err_buffer_malloc:
-	if (kbuffer_ptr) {
-		kfree(kbuffer_ptr);
-		kbuffer_ptr = NULL;
-	}
+	kfree(kbuffer_ptr);
+	kbuffer_ptr = NULL;
 
 p_err_buffer:
 	for (i = 0; i < free_buf_num; i++) {
-		if (kp->containers[i].buffers) {
-			kfree(kp->containers[i].buffers);
-			kp->containers[i].buffers = NULL;
-		}
+		kfree(kp->containers[i].buffers);
+		kp->containers[i].buffers = NULL;
 	}
 
 p_err_container:
-	if (kcontainer_ptr) {
-		kfree(kcontainer_ptr);
-		kp->containers = NULL;
-	}
+	kfree(kcontainer_ptr);
+	kp->containers = NULL;
 
 p_err:
 	vision_err("Return with fail... (%d)\n", ret);
@@ -308,10 +302,8 @@ static void put_vs4l_container64(struct vs4l_container_list *kp, struct vs4l_con
 	for (i = 0; i < kp->count; ++i)
 		kfree(kp->containers[i].buffers);
 
-	if (kp->containers) {
-		kfree(kp->containers);
-		kp->containers = NULL;
-	}
+	kfree(kp->containers);
+	kp->containers = NULL;
 }
 
 long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -427,7 +419,7 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		ret = ops->vertexioc_dqbuf(file, &vs4l_kvar.vscl);
 		if (ret != 0 && ret != -EWOULDBLOCK)
-				vision_err("vertexioc_dqbuf failed(%d)\n", ret);
+			vision_err("vertexioc_dqbuf failed(%d)\n", ret);
 
 		put_vs4l_container64(&vs4l_kvar.vscl,
 				(struct vs4l_container_list __user *)arg);

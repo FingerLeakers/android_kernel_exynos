@@ -24,7 +24,7 @@ enum modem_event {
 
 #if IS_ENABLED(CONFIG_SHM_IPC)
 extern int register_modem_event_notifier(struct notifier_block *nb);
-#ifdef CONFIG_SEC_SIPC_DUAL_MODEM_IF
+#ifdef CONFIG_EXYNOS_MODEM_IF
 extern void modem_notify_event(enum modem_event evt, void *mc);
 #else
 extern void modem_notify_event(enum modem_event evt);

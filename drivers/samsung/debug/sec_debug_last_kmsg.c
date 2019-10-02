@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Samsung Electronics Co., Ltd.
+ * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *      http://www.samsung.com
  *
  * Samsung TN debugging code
@@ -18,7 +18,7 @@
 static char *last_kmsg_buffer;
 static size_t last_kmsg_size;
 
-void sec_debug_save_last_kmsg(unsigned char *head_ptr, unsigned char *curr_ptr, size_t buf_size)
+void secdbg_lkmg_store(unsigned char *head_ptr, unsigned char *curr_ptr, size_t buf_size)
 {
 	size_t size;
 	unsigned char *magickey_addr;
@@ -39,21 +39,27 @@ void sec_debug_save_last_kmsg(unsigned char *head_ptr, unsigned char *curr_ptr, 
 	/* provide previous log as last_kmsg */
 	if (*((unsigned long long *)magickey_addr) == SEC_LKMSG_MAGICKEY) {
 		pr_info("%s: sec_log buffer is full\n", __func__);
+
 		last_kmsg_size = (size_t)SZ_2M;
 		last_kmsg_buffer = kzalloc(last_kmsg_size, GFP_NOWAIT);
+
 		if (last_kmsg_size && last_kmsg_buffer) {
 			memcpy(last_kmsg_buffer, curr_ptr, last_kmsg_size - size);
 			memcpy(last_kmsg_buffer + (last_kmsg_size - size), head_ptr, size);
+
 			pr_info("%s: succeeded\n", __func__);
 		} else {
 			pr_err("%s: failed\n", __func__);
 		}
 	} else {
 		pr_info("%s: sec_log buffer is not full\n", __func__);
+
 		last_kmsg_size = size;
 		last_kmsg_buffer = kzalloc(last_kmsg_size, GFP_NOWAIT);
+
 		if (last_kmsg_size && last_kmsg_buffer) {
 			memcpy(last_kmsg_buffer, head_ptr, last_kmsg_size);
+
 			pr_info("%s: succeeded\n", __func__);
 		} else {
 			pr_err("%s: failed\n", __func__);
@@ -61,7 +67,7 @@ void sec_debug_save_last_kmsg(unsigned char *head_ptr, unsigned char *curr_ptr, 
 	}
 }
 
-static ssize_t sec_last_kmsg_read(struct file *file, char __user *buf,
+static ssize_t secdbg_lkmg_read(struct file *file, char __user *buf,
 				  size_t len, loff_t *offset)
 {
 	loff_t pos = *offset;
@@ -75,15 +81,16 @@ static ssize_t sec_last_kmsg_read(struct file *file, char __user *buf,
 		return -EFAULT;
 
 	*offset += count;
+
 	return count;
 }
 
 static const struct file_operations last_kmsg_file_ops = {
 	.owner = THIS_MODULE,
-	.read = sec_last_kmsg_read,
+	.read = secdbg_lkmg_read,
 };
 
-static int __init sec_last_kmsg_late_init(void)
+static int __init secdbg_lkmg_late_init(void)
 {
 	struct proc_dir_entry *entry;
 
@@ -100,7 +107,8 @@ static int __init sec_last_kmsg_late_init(void)
 	pr_info("%s: success to create proc entry\n", __func__);
 
 	proc_set_size(entry, last_kmsg_size);
+
 	return 0;
 }
 
-late_initcall(sec_last_kmsg_late_init);
+late_initcall(secdbg_lkmg_late_init);

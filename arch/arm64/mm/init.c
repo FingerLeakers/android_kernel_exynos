@@ -217,7 +217,7 @@ static void __init reserve_elfcorehdr(void)
 }
 #endif /* CONFIG_CRASH_DUMP */
 /*
- * Return the maximum physical address for ZONE_DMA (DMA_BIT_MASK(32)). It
+ * Return the maximum physical address for ZONE_DMA32 (DMA_BIT_MASK(32)). It
  * currently assumes that for memory starting above 4G, 32-bit devices will
  * use a DMA offset.
  */
@@ -233,8 +233,9 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 {
 	unsigned long max_zone_pfns[MAX_NR_ZONES]  = {0};
 
-	if (IS_ENABLED(CONFIG_ZONE_DMA))
-		max_zone_pfns[ZONE_DMA] = PFN_DOWN(max_zone_dma_phys());
+#ifdef CONFIG_ZONE_DMA32
+	max_zone_pfns[ZONE_DMA32] = PFN_DOWN(max_zone_dma_phys());
+#endif
 	max_zone_pfns[ZONE_NORMAL] = max;
 
 	free_area_init_nodes(max_zone_pfns);
@@ -242,18 +243,91 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 
 #else
 
+unsigned long __initdata required_corepages;
+static int __init cmdline_parse_corememsize(char *p)
+{
+	unsigned long long coremem;
+
+	if (!p)
+		return -EINVAL;
+
+	coremem = memparse(p, &p);
+	required_corepages = coremem >> PAGE_SHIFT;
+
+	/* Paranoid check that UL is enough for the coremem value */
+	WARN_ON((coremem >> PAGE_SHIFT) > ULONG_MAX);
+
+	pr_info("required core pages: %#lx\n", required_corepages);
+
+	return 0;
+}
+early_param("corememsize", cmdline_parse_corememsize);
+
 static void __init zone_sizes_init(unsigned long min, unsigned long max)
 {
 	struct memblock_region *reg;
 	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
 	unsigned long max_dma = min;
+	unsigned long required_movablepages = 0;
 
 	memset(zone_size, 0, sizeof(zone_size));
 
+	if (required_corepages) {
+		unsigned long totalpages = 0;
+
+		for_each_memblock(memory, reg) {
+			unsigned long start =
+				memblock_region_memory_base_pfn(reg);
+			unsigned long end = memblock_region_memory_end_pfn(reg);
+
+			totalpages += end - start;
+		}
+
+		if (totalpages > required_corepages)
+			required_movablepages = totalpages - required_corepages;
+	}
+
+	if (required_movablepages) {
+		unsigned long remained = required_movablepages << PAGE_SHIFT;
+		unsigned long movable_base = 0, align_diff = 0;
+		phys_addr_t start, end;
+		u64 i;
+
+		for_each_mem_range_rev(i, &memblock.memory, NULL, 0,
+				       MEMBLOCK_NONE, &start, &end, NULL) {
+			size_t region_size = end - start;
+
+			if (region_size >= remained) {
+				movable_base = end - remained;
+				remained = 0;
+				break;
+			}
+
+			remained -= region_size;
+			movable_base = start;
+		}
+		movable_base >>= PAGE_SHIFT;
+		remained >>= PAGE_SHIFT;
+
+		align_diff = movable_base -
+			ALIGN_DOWN(movable_base, PAGES_PER_SECTION);
+		movable_base -= align_diff;
+		required_movablepages += align_diff;
+
+		/*
+		 * Available case to set the ZONE_MOVABLE size.
+		 * If remained is not zero, ZONE_MOVABLE is not added.
+		 */
+		if (remained == 0) {
+			zone_size[ZONE_MOVABLE] = max - movable_base;
+			max = movable_base;
+		}
+	}
+
 	/* 4GB maximum for 32-bit only capable devices */
-#ifdef CONFIG_ZONE_DMA
+#ifdef CONFIG_ZONE_DMA32
 	max_dma = PFN_DOWN(arm64_dma_phys_limit);
-	zone_size[ZONE_DMA] = max_dma - min;
+	zone_size[ZONE_DMA32] = max_dma - min;
 #endif
 	zone_size[ZONE_NORMAL] = max - max_dma;
 
@@ -266,10 +340,10 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 		if (start >= max)
 			continue;
 
-#ifdef CONFIG_ZONE_DMA
+#ifdef CONFIG_ZONE_DMA32
 		if (start < max_dma) {
 			unsigned long dma_end = min(end, max_dma);
-			zhole_size[ZONE_DMA] -= dma_end - start;
+			zhole_size[ZONE_DMA32] -= dma_end - start;
 		}
 #endif
 		if (end > max_dma) {
@@ -278,6 +352,8 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 			zhole_size[ZONE_NORMAL] -= normal_end - normal_start;
 		}
 	}
+
+	zhole_size[ZONE_MOVABLE] -= required_movablepages;
 
 	free_area_init_node(0, zone_size, min, zhole_size);
 }
@@ -291,6 +367,14 @@ int pfn_valid(unsigned long pfn)
 
 	if ((addr >> PAGE_SHIFT) != pfn)
 		return 0;
+
+#ifdef CONFIG_SPARSEMEM
+	if (pfn_to_section_nr(pfn) >= NR_MEM_SECTIONS)
+		return 0;
+
+	if (!valid_section(__nr_to_section(pfn_to_section_nr(pfn))))
+		return 0;
+#endif
 	return memblock_is_map_memory(addr);
 }
 EXPORT_SYMBOL(pfn_valid);
@@ -314,7 +398,7 @@ static void __init arm64_memory_present(void)
 }
 #endif
 
-static phys_addr_t memory_limit = (phys_addr_t)ULLONG_MAX;
+static phys_addr_t memory_limit = PHYS_ADDR_MAX;
 
 /*
  * Limit the memory size that was specified via FDT.
@@ -371,6 +455,32 @@ void __init arm64_memblock_init(void)
 	/* Handle linux,usable-memory-range property */
 	fdt_enforce_memory_region();
 
+	if (required_corepages) {
+		struct memblock_region *reg;
+		phys_addr_t limit = memblock_end_of_DRAM();
+		unsigned long remained = required_corepages;
+
+		for_each_memblock(memory, reg) {
+			unsigned long start =
+				memblock_region_memory_base_pfn(reg);
+			unsigned long end = memblock_region_memory_end_pfn(reg);
+			unsigned long region_size = end - start;
+
+			if (region_size >= remained) {
+				limit = ALIGN_DOWN(
+					(start + remained) << PAGE_SHIFT,
+					1 << PA_SECTION_SHIFT);
+				break;
+			}
+			remained -= region_size;
+		}
+
+		memblock_set_current_limit(limit);
+	}
+
+	/* Remove memory above our supported physical address size */
+	memblock_remove(1ULL << PHYS_MASK_SHIFT, ULLONG_MAX);
+
 	/*
 	 * Ensure that the linear region takes up exactly half of the kernel
 	 * virtual address space. This way, we can distinguish a linear address
@@ -403,7 +513,7 @@ void __init arm64_memblock_init(void)
 	 * high up in memory, add back the kernel region that must be accessible
 	 * via the linear mapping.
 	 */
-	if (memory_limit != (phys_addr_t)ULLONG_MAX) {
+	if (memory_limit != PHYS_ADDR_MAX) {
 		memblock_mem_limit_remove_map(memory_limit);
 		memblock_add(__pa_symbol(_text), (u64)(_end - _text));
 	}
@@ -479,7 +589,7 @@ void __init arm64_memblock_init(void)
 	early_init_fdt_scan_reserved_mem();
 
 	/* 4GB maximum for 32-bit only capable devices */
-	if (IS_ENABLED(CONFIG_ZONE_DMA))
+	if (IS_ENABLED(CONFIG_ZONE_DMA32))
 		arm64_dma_phys_limit = max_zone_dma_phys();
 	else
 		arm64_dma_phys_limit = PHYS_MASK + 1;
@@ -490,7 +600,10 @@ void __init arm64_memblock_init(void)
 
 	high_memory = __va(memblock_end_of_DRAM() - 1) + 1;
 
-	dma_contiguous_reserve(arm64_dma_phys_limit);
+	if (required_corepages)
+		dma_contiguous_reserve(memblock_get_current_limit());
+	else
+		dma_contiguous_reserve(arm64_dma_phys_limit);
 	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 
 	memblock_allow_resize();
@@ -615,49 +728,6 @@ void __init mem_init(void)
 
 	mem_init_print_info(NULL);
 
-#define MLK(b, t) b, t, ((t) - (b)) >> 10
-#define MLM(b, t) b, t, ((t) - (b)) >> 20
-#define MLG(b, t) b, t, ((t) - (b)) >> 30
-#define MLK_ROUNDUP(b, t) b, t, DIV_ROUND_UP(((t) - (b)), SZ_1K)
-
-	pr_notice("Virtual kernel memory layout:\n");
-#ifdef CONFIG_KASAN
-	pr_notice("    kasan   : 0x%16lx - 0x%16lx   (%6ld GB)\n",
-		MLG(KASAN_SHADOW_START, KASAN_SHADOW_END));
-#endif
-	pr_notice("    modules : 0x%16lx - 0x%16lx   (%6ld MB)\n",
-		MLM(MODULES_VADDR, MODULES_END));
-	pr_notice("    vmalloc : 0x%16lx - 0x%16lx   (%6ld GB)\n",
-		MLG(VMALLOC_START, VMALLOC_END));
-	pr_notice("      .text : 0x%p" " - 0x%p" "   (%6ld KB)\n",
-		MLK_ROUNDUP(_text, _etext));
-	pr_notice("    .rodata : 0x%p" " - 0x%p" "   (%6ld KB)\n",
-		MLK_ROUNDUP(__start_rodata, __init_begin));
-	pr_notice("      .init : 0x%p" " - 0x%p" "   (%6ld KB)\n",
-		MLK_ROUNDUP(__init_begin, __init_end));
-	pr_notice("      .data : 0x%p" " - 0x%p" "   (%6ld KB)\n",
-		MLK_ROUNDUP(_sdata, _edata));
-	pr_notice("       .bss : 0x%p" " - 0x%p" "   (%6ld KB)\n",
-		MLK_ROUNDUP(__bss_start, __bss_stop));
-	pr_notice("    fixed   : 0x%16lx - 0x%16lx   (%6ld KB)\n",
-		MLK(FIXADDR_START, FIXADDR_TOP));
-	pr_notice("    PCI I/O : 0x%16lx - 0x%16lx   (%6ld MB)\n",
-		MLM(PCI_IO_START, PCI_IO_END));
-#ifdef CONFIG_SPARSEMEM_VMEMMAP
-	pr_notice("    vmemmap : 0x%16lx - 0x%16lx   (%6ld GB maximum)\n",
-		MLG(VMEMMAP_START, VMEMMAP_START + VMEMMAP_SIZE));
-	pr_notice("              0x%16lx - 0x%16lx   (%6ld MB actual)\n",
-		MLM((unsigned long)phys_to_page(memblock_start_of_DRAM()),
-		    (unsigned long)virt_to_page(high_memory)));
-#endif
-	pr_notice("    memory  : 0x%16lx - 0x%16lx   (%6ld MB)\n",
-		MLM(__phys_to_virt(memblock_start_of_DRAM()),
-		    (unsigned long)high_memory));
-
-#undef MLK
-#undef MLM
-#undef MLK_ROUNDUP
-
 	/*
 	 * Check boundaries twice: Some fundamental inconsistencies can be
 	 * detected at build time already.
@@ -703,8 +773,10 @@ static int keep_initrd __initdata;
 
 void __init free_initrd_mem(unsigned long start, unsigned long end)
 {
-	if (!keep_initrd)
+	if (!keep_initrd) {
 		free_reserved_area((void *)start, (void *)end, 0, "initrd");
+		memblock_free(__virt_to_phys(start), end - start);
+	}
 }
 
 static int __init keepinitrd_setup(char *__unused)
@@ -721,7 +793,7 @@ __setup("keepinitrd", keepinitrd_setup);
  */
 static int dump_mem_limit(struct notifier_block *self, unsigned long v, void *p)
 {
-	if (memory_limit != (phys_addr_t)ULLONG_MAX) {
+	if (memory_limit != PHYS_ADDR_MAX) {
 		pr_emerg("Memory Limit: %llu MB\n", memory_limit >> 20);
 	} else {
 		pr_emerg("Memory Limit: none\n");

@@ -1,8 +1,6 @@
 #ifndef __FVMAP_H__
 #define __FVMAP_H__
 
-#define BLOCK_ADDR_SIZE			(3)
-
 /* FV(Frequency Voltage MAP) */
 struct fvmap_header {
 	unsigned char dvfs_type;
@@ -15,7 +13,7 @@ struct fvmap_header {
 	unsigned char init_lv;
 	unsigned char num_of_gate;
 	unsigned char reserved[2];
-	unsigned short block_addr[BLOCK_ADDR_SIZE];
+	unsigned short block_addr[3];
 	unsigned short o_members;
 	unsigned short o_ratevolt;
 	unsigned short o_tables;

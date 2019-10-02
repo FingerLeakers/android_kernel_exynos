@@ -41,6 +41,9 @@
 
 #define DEBUG 1
 
+static const unsigned long USB_LOCK_ID_OUT = 0x4F425355; // ASCII Value : USBO
+static const unsigned long USB_LOCK_ID_IN = 0x49425355; // ASCII Value : USBI
+
 void exynos_usb_audio_set_device(struct usb_device *udev)
 {
 	usb_audio->udev = udev;
@@ -210,7 +213,8 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 	}
 
 	if (DEBUG)
-		dev_info(&udev->dev, "USB_AUDIO_IPC : %s ", __func__);
+		dev_info(&udev->dev, "USB_AUDIO_IPC : %s, alt = %d\n",
+				__func__, alt);
 
 	if (!usb_audio->is_audio || !otg_connection) {
 		dev_info(dev, "USB_AUDIO_IPC : is_audio is 0. return!\n");
@@ -244,6 +248,11 @@ int exynos_usb_audio_setintf(struct usb_device *udev, int iface, int alt, int di
 			if (!left_time)
 				dev_info(dev, "%s: timeout for IN connection done\n");
 		}
+	}
+
+	if (!usb_audio->is_audio || !otg_connection) {
+		dev_info(dev, "USB_AUDIO_IPC : is_audio = 0. return!\n");
+		return -1;
 	}
 
 	mutex_lock(&usb_audio->lock);
@@ -419,7 +428,6 @@ int exynos_usb_audio_hcd(struct usb_device *udev)
 		dev_info(dev, "USB_AUDIO_IPC : SFR MAPPING!\n");
 
 	mutex_lock(&usb_audio->lock);
-
 	ret = abox_iommu_map(dev, USB_AUDIO_XHCI_BASE, USB_AUDIO_XHCI_BASE, PAGE_SIZE * 16, 0);
 	/*
 	 * Check whether usb buffer was unmapped already.
@@ -623,6 +631,16 @@ int exynos_usb_audio_conn(int is_conn)
 
 	}
 
+#if 0
+	if (!is_conn) {
+		/* USB can be disconnected without pcm close.
+		 * To prevent remnant dram request, release all in here.
+		 */
+		abox_request_dram_on(pdev, (void *)USB_LOCK_ID_IN, 0);
+		abox_request_dram_on(pdev, (void *)USB_LOCK_ID_OUT, 0);
+	}
+#endif
+
 	return 0;
 }
 
@@ -645,8 +663,7 @@ int exynos_usb_audio_pcm(int is_open, int direction)
 
 	if (is_open)
 		usb_audio->pcm_open_done = 1;
-	dev_info(dev, "PCM %s dir %s\n", is_open? "OPEN" : "CLOSE",
-				direction ? "IN" : "OUT");
+	dev_info(dev, "PCM  %s\n", is_open? "OPEN" : "CLOSE");
 
 	msg.ipcid = IPC_ERAP;
 	erap_msg->msgtype = REALTIME_USB;
@@ -778,7 +795,7 @@ int exynos_usb_audio_init(struct device *dev, struct platform_device *pdev)
 	usb_audio->is_audio = 0;
 	usb_audio->is_first_probe = 1;
 
-	abox_register_ipc_handler(&pdev_abox->dev, IPC_ERAP,
+	abox_register_irq_handler(&pdev_abox->dev, IPC_ERAP,
 				exynos_usb_audio_irq_handler, &usb_audio);
 
 	return 0;
@@ -895,4 +912,3 @@ int exynos_usb_audio_exit(void)
 	/* future use */
 	return 0;
 }
-

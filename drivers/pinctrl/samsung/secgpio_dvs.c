@@ -18,7 +18,6 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
-#include <linux/sec_class.h>
 #include <linux/gpio.h>
 
 #include "secgpio_dvs.h"
@@ -211,8 +210,8 @@ void gpio_dvs_check_sleepgpio(void)
 
 #ifdef CONFIG_OF
 static const struct of_device_id secgpio_dvs_dt_match[] = {
-	{ .compatible = "samsung,exynos9820-secgpio-dvs",
-		.data = (void *)&exynos9820_secgpio_dvs_data },
+	{ .compatible = "samsung,exynos9830-secgpio-dvs",
+		.data = (void *)&exynos9830_secgpio_dvs_data },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, secgpio_dvs_dt_match);

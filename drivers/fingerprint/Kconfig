@@ -25,11 +25,3 @@ config SENSORS_QBT2000
 	  If you say yes here you get support for Qualcomm's
 	  fingerprint sensor QBT2000.
 
-config SENSORS_ET5XX
-	tristate "ET5XX fingerprint sensor supprot"
-	default n
-	help
-	  Fingerprint sensor driver.
-	  If you say yes here you get support for ET5XX sensor.
-	  ET5XX is the touch type fingerprint sensor.
-	  ET5XX module can support WOF mode.

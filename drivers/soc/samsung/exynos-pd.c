@@ -15,7 +15,7 @@
 #include <soc/samsung/exynos-pd.h>
 #include <soc/samsung/bts.h>
 #include <soc/samsung/cal-if.h>
-#include <linux/apm-exynos.h>
+
 #include <linux/sec_debug.h>
 struct exynos_pm_domain *exynos_pd_lookup_name(const char *domain_name)
 {
@@ -63,7 +63,8 @@ EXPORT_SYMBOL(exynos_pd_status);
  */
 static void exynos_pd_power_on_pre(struct exynos_pm_domain *pd)
 {
-	exynos_update_ip_idle_status(pd->idle_ip_index, 0);
+	if (!pd->skip_idle_ip)
+		exynos_update_ip_idle_status(pd->idle_ip_index, 0);
 
 	if (pd->devfreq_index >= 0) {
 		exynos_bts_scitoken_setting(true);
@@ -72,6 +73,12 @@ static void exynos_pd_power_on_pre(struct exynos_pm_domain *pd)
 
 static void exynos_pd_power_on_post(struct exynos_pm_domain *pd)
 {
+	if (cal_pd_status(pd->cal_pdid)) {
+#if defined(CONFIG_EXYNOS_BCM)
+		if (pd->bcm)
+			bcm_pd_sync(pd->bcm, true);
+#endif
+	}
 }
 
 static void exynos_pd_power_off_pre(struct exynos_pm_domain *pd)
@@ -81,11 +88,18 @@ static void exynos_pd_power_off_pre(struct exynos_pm_domain *pd)
 		exynos_g3d_power_down_noti_apm();
 	}
 #endif /* CONFIG_EXYNOS_CL_DVFS_G3D */
+	if (cal_pd_status(pd->cal_pdid)) {
+#if defined(CONFIG_EXYNOS_BCM)
+		if (pd->bcm)
+			bcm_pd_sync(pd->bcm, false);
+#endif
+	}
 }
 
 static void exynos_pd_power_off_post(struct exynos_pm_domain *pd)
 {
-	exynos_update_ip_idle_status(pd->idle_ip_index, 1);
+	if (!pd->skip_idle_ip)
+		exynos_update_ip_idle_status(pd->idle_ip_index, 1);
 
 	if (pd->devfreq_index >= 0) {
 		exynos_bts_scitoken_setting(false);
@@ -164,12 +178,12 @@ static int exynos_pd_power_off(struct generic_pm_domain *genpd)
 			ret = pd->pd_control(pd->cal_pdid, 0);
 			if (unlikely(ret)) {
 				pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
-				sec_debug_set_extra_info_epd((char *)(genpd->name));
+				secdbg_exin_set_epd((char *)(genpd->name));
 				goto acc_unlock;
 			}
 		} else {
 			pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!!\n", genpd->name);
-			sec_debug_set_extra_info_epd((char *)(genpd->name));
+			secdbg_exin_set_epd((char *)(genpd->name));
 			goto acc_unlock;
 		}
 	}
@@ -359,7 +373,10 @@ static __init int exynos_pd_dt_parse(void)
 			return -EINVAL;
 		}
 
-		pd->idle_ip_index = exynos_get_idle_ip_index(pd->name);
+		if (of_property_read_bool(np, "skip-idle-ip"))
+			pd->skip_idle_ip = true;
+		else
+			pd->idle_ip_index = exynos_get_idle_ip_index(pd->name);
 
 		mutex_init(&pd->access_lock);
 		platform_set_drvdata(pdev, pd);
@@ -485,7 +502,6 @@ static int __init exynos_pd_init(void)
 		pr_info("%s PM Domain Initialize\n", EXYNOS_PD_PREFIX);
 		/* show information of power domain registration */
 		exynos_pd_show_power_domain();
-
 		return 0;
 	}
 #endif

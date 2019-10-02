@@ -17,18 +17,21 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/debug-snapshot.h>
+#include <linux/device.h>
 
 #include <soc/samsung/exynos-cpupm.h>
 #include <soc/samsung/exynos-adv-tracer.h>
 #include <soc/samsung/exynos-adv-tracer-ipc.h>
 
-#define DONE_ARRYDUMP 0xADADADAD
-
 static struct adv_tracer_info *exynos_adv_tracer;
-static int arraydump_done = DONE_ARRYDUMP;
+static int arraydump_done;
+
+#define DONE_ARRYDUMP 0xADADADAD
 
 int adv_tracer_arraydump(void)
 {
+	arraydump_done = DONE_ARRYDUMP;
+#if 0
 	struct adv_tracer_ipc_cmd cmd;
 	int ret = 0;
 	u32 cpu_mask = (1 << CONFIG_NR_CPUS) - 1;
@@ -43,7 +46,7 @@ int adv_tracer_arraydump(void)
 	dev_info(exynos_adv_tracer->dev, "Start Arraydump (0x%x)\n", cpu_mask);
 	cmd.cmd_raw.cmd = EAT_IPC_CMD_ARRAYDUMP;
 	cmd.cmd_raw.id = ARR_IPC_CMD_ID_KERNEL_ARRAYDUMP;
-	cmd.buffer[1] = dbg_snapshot_get_item_paddr("log_arraydump");
+	cmd.buffer[1] = dbg_snapshot_get_item_paddr("log_arrdumppanic");
 	cmd.buffer[2] = cpu_mask;
 	ret = adv_tracer_ipc_send_data_polling_timeout(EAT_FRM_CHANNEL, &cmd, EAT_IPC_TIMEOUT * 100);
 	if (ret < 0)
@@ -53,6 +56,8 @@ int adv_tracer_arraydump(void)
 end:
 	enable_power_mode(6, POWERMODE_TYPE_CLUSTER);
 	return ret;
+#endif
+	return 0;
 }
 
 static int adv_tracer_probe(struct platform_device *pdev)
@@ -60,8 +65,7 @@ static int adv_tracer_probe(struct platform_device *pdev)
 	struct adv_tracer_info *adv_tracer;
 	int ret = 0;
 
-	dev_info(&pdev->dev, "[EAT+] %s\n", __func__);
-
+	dev_set_socdata(&pdev->dev, "Exynos", "EAT");
 	adv_tracer = devm_kzalloc(&pdev->dev,
 				sizeof(struct adv_tracer_info), GFP_KERNEL);
 
@@ -75,7 +79,7 @@ static int adv_tracer_probe(struct platform_device *pdev)
 
 	exynos_adv_tracer = adv_tracer;
 
-	dev_info(&pdev->dev, "[EAT-] %s\n", __func__);
+	dev_info(&pdev->dev, "%s successful.\n", __func__);
 out:
 	return ret;
 }

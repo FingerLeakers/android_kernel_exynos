@@ -1,0 +1,186 @@
+/*
+ * SAMSUNG EXYNOS SoC EMS device tree source
+ *
+ * Copyright (c) 2019 Samsung Electronics Co., Ltd.
+ *             http://www.samsung.com
+ *
+ * SAMSUNG EXYNOS SoC EMS device nodes are listed in this file.
+ * EXYNOS based board files should include this file.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ */
+
+/ {
+	ems {
+		/* Ontime Migration */
+		ontime {
+			/* little cores */
+			coregroup0 {
+				lower-boundary = <0>;
+				upper-boundary = <42>;
+				lower-boundary-s = <0>;
+				upper-boundary-s = <30>;
+			};
+			/* middle cores */
+			coregroup1 {
+				lower-boundary = <13>;
+				upper-boundary = <72>;
+				lower-boundary-s = <10>;
+				upper-boundary-s = <85>;
+			};
+			/* big cores */
+			coregroup2 {
+				lower-boundary = <20>;
+				upper-boundary = <100>;
+				lower-boundary-s = <65>;
+				upper-boundary-s = <100>;
+			};
+		};
+
+		/* Load Balance Trigger */
+		#define DEFAULT_RATIO	80
+		lbt {
+			pre-overutilized-cpus = "0-5";
+
+			overutil-level0 {
+				cpus =	"0-3",
+					"4-5",
+					"6-7";
+				ratio =	<25>,
+					<25>,
+					<30>;
+			};
+			overutil-level1 {
+				cpus =	"0-5",
+					"6-7";
+				ratio =	<DEFAULT_RATIO>,
+					<DEFAULT_RATIO>;
+			};
+			overutil-level2 {
+				cpus = "0-7";
+				ratio = <DEFAULT_RATIO>;
+			};
+		};
+
+		/* FRT Migration */
+		frt {
+			/* little cores */
+			coregroup0 {
+				coverage-ratio = <30>;
+				active-ratio = <25>;
+			};
+			/* middle cores */
+			coregroup1 {
+				coverage-ratio = <30>;
+				active-ratio = <3>;
+			};
+			/* big cores */
+			coregroup2 {
+				coverage-ratio = <30>;
+				active-ratio = <5>;
+			};
+		};
+
+		part {
+			/* little cores */
+			coregroup0 {
+				active-ratio-limit = <43>;
+				active-ratio-boost = <42>;
+			};
+			/* middle cores */
+			coregroup1 {
+				active-ratio-limit = <48>;
+				active-ratio-boost = <35>;
+			};
+			/* big cores */
+			coregroup2 {
+				active-ratio-limit = <30>;
+				active-ratio-boost = <0>;
+			};
+		};
+
+		service {
+			prefer-perf0 {
+				boost = <1>;
+				prefer-cpus =	"4-5",
+						"6-7",
+						"0-3";
+				light-task-threshold = <10>;
+				light-task-threshold-s = <6>;
+				light-prefer-cpus = "4-5";
+			};
+			prefer-perf1 {
+				boost = <2>;
+				prefer-cpus =	"6-7",
+						"4-5",
+						"0-3";
+				light-task-threshold = <10>;
+				light-task-threshold-s = <4>;
+				light-prefer-cpus = "6-7";
+			};
+			prefer-perf2 {
+				boost = <3>;
+				prefer-cpus =	"4-5",
+						"6-7",
+						"0-3";
+				light-task-threshold = <10>;
+				light-task-threshold-s = <6>;
+				light-prefer-cpus = "4-5";
+				heavy-task-threshold = <384>;
+				heavy-task-threshold-s = <250>;
+				heavy-prefer-cpus = "6-7";
+			};
+		};
+
+		ems-tune {
+			mode0 {
+				idx = <0>;
+				desc = "normal";
+
+				/* weight (%) applied to active core's efficiency */
+				weight {                /* LIT MED BIG */
+					root            = <800 200  33>;
+					foreground      = <800 200  33>;
+					background      = <800 200  33>;
+					top-app         = <800 200  33>;
+					rt              = <800 200  33>;
+				};
+
+				/* weight (%) applied to idle core's efficiency */
+				idle-weight {           /*  LIT MED BIG */
+					root            = <1000 250  41>;
+					foreground      = <1000 250  41>;
+					background      = <1000 250  41>;
+					top-app         = <1000 250  41>;
+					rt              = <1000 250  41>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq-boost {            /* LIT MED BIG */
+					root            = <  0   0   0>;
+					foreground      = <  0   0   0>;
+					background      = <  0   0   0>;
+					top-app         = <  5   5   5>;
+					rt              = <  0   0   0>;
+				};
+
+				/* candidate cpus applied to core selection */
+				candidate-cpus {
+					root            = "0-7";
+					foreground      = "0-7";
+					background      = "0-7";
+					top-app         = "0-7";
+					rt              = "0-7";
+				};
+
+				/* gov-data used by CPUFreq governor */
+				gov-data {              /* LIT MED BIG */
+					step            = < 10   8  10>;
+				};
+			};
+		};
+	};
+};

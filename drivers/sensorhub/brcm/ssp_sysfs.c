@@ -16,6 +16,7 @@
 #include <linux/iio/iio.h>
 #include <linux/math64.h>
 #include <linux/string.h>
+
 #include "ssp_iio.h"
 #define BATCH_IOCTL_MAGIC		0xFC
 
@@ -596,6 +597,78 @@ static ssize_t set_mcu_power(struct device *dev,
 	return size;
 }
 
+static unsigned char fsm_setting[2048] = { 0, };
+
+int send_fsm_setting(struct ssp_data *ssp_data_info) {
+	mm_segment_t old_fs;
+	struct file *filp = NULL;
+	struct ssp_msg *msg;
+	int ret = 0, fsize = 0;
+	int fsm_setting_size = 0;
+	unsigned char *read_buffer = NULL;
+	int read_buffer_size = 0;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	filp = filp_open(SSP_FSM_SETTING_PATH, O_RDONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
+	if (IS_ERR(filp)) {
+		pr_err("[SSP] %s: filp_open failed, errno = %d\n", __func__, PTR_ERR(filp));
+		set_fs(old_fs);
+		ret = PTR_ERR(filp);
+		return ret;
+	}
+
+	fsize = i_size_read(file_inode(filp));
+	
+	read_buffer_size = fsize < KMALLOC_MAX_SIZE ? fsize : KMALLOC_MAX_SIZE;
+	read_buffer = kmalloc(read_buffer_size, GFP_KERNEL);	
+
+	ret = vfs_read(filp, read_buffer, read_buffer_size, &filp->f_pos);
+	if (ret > 0) {
+		char *pstr1 = NULL, *pstr2 = NULL, *pstr3 = NULL;
+		unsigned char temp = 0;
+
+		pr_err("[SSP] %s: fsm setting fsize = %d, read_size = %d", __func__, fsize, ret);
+
+		pstr1 = pstr2 = kstrdup(read_buffer, GFP_KERNEL);
+		while (((pstr3 = strsep(&pstr2, ", ")) != NULL) && (fsm_setting_size < sizeof(fsm_setting))) {
+			if(strlen(pstr3) != 0) {
+				if(kstrtou8(pstr3, 16, &temp) >= 0){
+					pr_err("[SSP] %s: %s, fsm_setting[%d] = %d",
+					       	__func__, pstr3, fsm_setting_size, temp);
+
+					fsm_setting[fsm_setting_size++] = temp;
+				}
+			}
+		}
+
+		kfree(pstr1);
+
+	}
+	kfree(read_buffer);
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_SET_FSM_SETTING;
+	msg->length = fsm_setting_size;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(fsm_setting_size, GFP_KERNEL);
+	msg->free_buffer = 1;
+	memcpy(msg->buffer, fsm_setting, fsm_setting_size);
+
+	ret = ssp_spi_async(ssp_data_info, msg);
+	if (ret != SUCCESS) {
+		        pr_err("[SSP] %s - i2c fail %d\n", __func__, ret);
+			        ret = ERROR;
+	}
+
+
+	filp_close(filp, current->files);
+	set_fs(old_fs);
+
+	return ret;
+}
+
 static ssize_t set_ssp_control(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -623,6 +696,9 @@ static ssize_t set_ssp_control(struct device *dev,
 		pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
 			__func__, iRet, data->hall_ic_status);
 
+	}
+	else if (strstr(buf, SSP_FSM_SETTING)){
+		send_fsm_setting(data);
 	}
 	
 	return size;

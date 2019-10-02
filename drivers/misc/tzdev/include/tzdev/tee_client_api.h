@@ -37,6 +37,7 @@
 #define TEEC_ERROR_COMMUNICATION		0xFFFF000E
 #define TEEC_ERROR_SECURITY			0xFFFF000F
 #define TEEC_ERROR_SHORT_BUFFER			0xFFFF0010
+#define TEEC_ERROR_TIMEOUT			0xFFFF3001
 #define TEEC_ERROR_TARGET_DEAD			0xFFFF3024
 #define TEEC_ERROR_SIGNATURE_INVALID		0xFFFF3072
 /* implementation-defined error codes */
@@ -45,6 +46,13 @@
 #define TEEC_ERROR_DEVICE_ACCESS_DENIED		0x80000007
 #define TEEC_ERROR_CORRUPT_OBJECT		0xF0100001
 #define TEEC_ERROR_STORAGE_NOT_AVAILABLE	0xF0100003
+#define TEEC_ERROR_EXTERNAL_CANCEL          0xFFFF0011 /* For TMF: TA was interrupted by external entity. */
+/* The following error codes will be received by client API users when affected by TEE state changes */
+#define TEEC_ERROR_TA_LOCKED                0xFFFF0012 /* TMF */
+#define TEEC_ERROR_SD_BLOCKED               0xFFFF0013 /* TMF */
+#define TEEC_ERROR_TEE_LOCKED               0xFFFF0014 /* TMF */
+#define TEEC_ERROR_TA_UNINSTALLED           0xFFFF0015 /* TMF */
+#define TEEC_ERROR_TEE_FACTORY_RESET        0xFFFF0016 /* TMF */
 
 #define TEEC_ORIGIN_API				0x00000001
 #define TEEC_ORIGIN_COMMS			0x00000002

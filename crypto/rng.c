@@ -15,7 +15,7 @@
 
 #include <linux/atomic.h>
 #include <crypto/internal/rng.h>
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 #include <crypto/drbg.h>
 #endif
 #include <linux/err.h>
@@ -232,7 +232,6 @@ void crypto_unregister_rngs(struct rng_alg *algs, int count)
 		crypto_unregister_rng(algs + i);
 }
 EXPORT_SYMBOL_GPL(crypto_unregister_rngs);
-
 
 #ifdef CONFIG_CRYPTO_FIPS
 int crypto_rng_check_entropy(struct crypto_rng *rng)

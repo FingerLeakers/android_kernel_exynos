@@ -486,7 +486,7 @@ void sec_tclm_initialize(struct sec_tclm_data *data)
 	data->root_of_calibration = CALPOSITION_NONE;
 	data->nvdata.cal_position = 0;
 	data->nvdata.cal_pos_hist_cnt = 0;
-	data->cal_pos_hist_last3[0] = 0;
+	memset(data->cal_pos_hist_last3, 0x00, sizeof(data->cal_pos_hist_last3));
 	data->tclm_string = sec_cal_positions;
 	data->nvdata.cal_count = 0xFF;
 }

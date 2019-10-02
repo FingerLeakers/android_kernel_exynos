@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * driver/base/topology.c - Populate sysfs with cpu topology information
  *
@@ -6,22 +7,6 @@
  * Copyright (C) 2006, Intel Corp.
  *
  * All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, GOOD TITLE or
- * NON INFRINGEMENT.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  */
 #include <linux/mm.h>
 #include <linux/cpu.h>
@@ -58,9 +43,6 @@ static ssize_t name##_list_show(struct device *dev,			\
 define_id_show_func(physical_package_id);
 static DEVICE_ATTR_RO(physical_package_id);
 
-define_id_show_func(coregroup_id);
-static DEVICE_ATTR_RO(coregroup_id);
-
 define_id_show_func(core_id);
 static DEVICE_ATTR_RO(core_id);
 
@@ -71,10 +53,6 @@ static DEVICE_ATTR_RO(thread_siblings_list);
 define_siblings_show_func(core_siblings, core_cpumask);
 static DEVICE_ATTR_RO(core_siblings);
 static DEVICE_ATTR_RO(core_siblings_list);
-
-define_siblings_show_func(cluster_siblings, cluster_cpumask);
-static DEVICE_ATTR_RO(cluster_siblings);
-static DEVICE_ATTR_RO(cluster_siblings_list);
 
 #ifdef CONFIG_SCHED_BOOK
 define_id_show_func(book_id);
@@ -99,9 +77,6 @@ static struct attribute *default_attrs[] = {
 	&dev_attr_thread_siblings_list.attr,
 	&dev_attr_core_siblings.attr,
 	&dev_attr_core_siblings_list.attr,
-	&dev_attr_coregroup_id.attr,
-	&dev_attr_cluster_siblings.attr,
-	&dev_attr_cluster_siblings_list.attr,
 #ifdef CONFIG_SCHED_BOOK
 	&dev_attr_book_id.attr,
 	&dev_attr_book_siblings.attr,
@@ -120,31 +95,18 @@ static const struct attribute_group topology_attr_group = {
 	.name = "topology"
 };
 
-static bool cpu_sys_init[NR_CPUS];
 /* Add/Remove cpu_topology interface for CPU device */
 static int topology_add_dev(unsigned int cpu)
 {
 	struct device *dev = get_cpu_device(cpu);
-	int ret;
 
-	if (cpu_sys_init[cpu])
-		return 0;
-
-	ret = sysfs_create_group(&dev->kobj, &topology_attr_group);
-	if (!ret)
-		cpu_sys_init[cpu] = true;
-
-	return ret;
+	return sysfs_create_group(&dev->kobj, &topology_attr_group);
 }
 
 static int topology_remove_dev(unsigned int cpu)
 {
-	struct device *dev;
+	struct device *dev = get_cpu_device(cpu);
 
-	if (cpu_sys_init[cpu])
-		return 0;
-
-	dev = get_cpu_device(cpu);
 	sysfs_remove_group(&dev->kobj, &topology_attr_group);
 	return 0;
 }

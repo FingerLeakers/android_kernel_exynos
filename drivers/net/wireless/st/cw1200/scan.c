@@ -84,8 +84,11 @@ int cw1200_hw_scan(struct ieee80211_hw *hw,
 
 	frame.skb = ieee80211_probereq_get(hw, priv->vif->addr, NULL, 0,
 		req->ie_len);
-	if (!frame.skb)
+	if (!frame.skb) {
+		mutex_unlock(&priv->conf_mutex);
+		up(&priv->scan.lock);
 		return -ENOMEM;
+	}
 
 	if (req->ie_len)
 		skb_put_data(frame.skb, req->ie, req->ie_len);
@@ -229,9 +232,9 @@ void cw1200_scan_work(struct work_struct *work)
 			scan.type = WSM_SCAN_TYPE_BACKGROUND;
 			scan.flags = WSM_SCAN_FLAG_FORCE_BACKGROUND;
 		}
-		scan.ch = kzalloc(
-			sizeof(struct wsm_scan_ch) * (it - priv->scan.curr),
-			GFP_KERNEL);
+		scan.ch = kcalloc(it - priv->scan.curr,
+				  sizeof(struct wsm_scan_ch),
+				  GFP_KERNEL);
 		if (!scan.ch) {
 			priv->scan.status = -ENOMEM;
 			goto fail;

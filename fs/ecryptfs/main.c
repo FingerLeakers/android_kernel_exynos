@@ -37,11 +37,9 @@
 #include <linux/slab.h>
 #include <linux/magic.h>
 #include "ecryptfs_kernel.h"
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 #include <linux/ctype.h>
 #endif
-
 /**
  * Module parameter that defines the ecryptfs_verbosity level.
  */
@@ -185,7 +183,6 @@ enum { ecryptfs_opt_sig, ecryptfs_opt_ecryptfs_sig,
 #ifdef CONFIG_CRYPTO_FIPS
        ecryptfs_opt_enable_cc,
 #endif
-       ecryptfs_opt_base, ecryptfs_opt_type, ecryptfs_opt_label,
        ecryptfs_opt_err };
 
 static const match_table_t tokens = {
@@ -209,9 +206,6 @@ static const match_table_t tokens = {
 #ifdef CONFIG_CRYPTO_FIPS
 	{ecryptfs_opt_enable_cc, "ecryptfs_enable_cc"},
 #endif
-	{ecryptfs_opt_base, "base=%s"},
-	{ecryptfs_opt_type, "type=%s"},
-	{ecryptfs_opt_label, "label=%s"},
 	{ecryptfs_opt_err, NULL}
 };
 
@@ -252,7 +246,6 @@ static void ecryptfs_init_mount_crypt_stat(
 	mutex_init(&mount_crypt_stat->global_auth_tok_list_mutex);
 	mount_crypt_stat->flags |= ECRYPTFS_MOUNT_CRYPT_STAT_INITIALIZED;
 }
-
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 static int parse_enc_file_filter_parms(
 	struct ecryptfs_mount_crypt_stat *mcs, char *str)
@@ -302,7 +295,6 @@ static int parse_enc_filter_parms(
 	return 0;
 }
 #endif
-
 /**
  * ecryptfs_parse_options
  * @sb: The ecryptfs super block
@@ -352,7 +344,6 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 #ifdef CONFIG_CRYPTO_FIPS
 	char cipher_mode[ECRYPTFS_MAX_CIPHER_MODE_SIZE+1] = ECRYPTFS_AES_ECB_MODE;
 #endif
-
 	*check_ruid = 0;
 
 	if (!options) {
@@ -518,7 +509,7 @@ static int ecryptfs_parse_options(struct ecryptfs_sb_info *sbi, char *options,
 		mount_crypt_stat->global_default_cipher_key_size);
 	if (!cipher_code) {
 		ecryptfs_printk(KERN_ERR,
-				"eCryptfs doesn't support cipher: %s",
+				"eCryptfs doesn't support cipher: %s\n",
 				mount_crypt_stat->global_default_cipher_name);
 		rc = -EINVAL;
 		goto out;
@@ -625,7 +616,7 @@ static struct file_system_type ecryptfs_fs_type;
 static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags,
 			const char *dev_name, void *raw_data)
 {
-	struct super_block *s, *lower_sb;
+	struct super_block *s;
 	struct ecryptfs_sb_info *sbi;
 	struct ecryptfs_mount_crypt_stat *mount_crypt_stat;
 	struct ecryptfs_dentry_info *root_info;
@@ -689,16 +680,14 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 		goto out_free;
 	}
 
-	lower_sb = path.dentry->d_sb;
-	atomic_inc(&lower_sb->s_active);
 	ecryptfs_set_superblock_lower(s, path.dentry->d_sb);
 
 	/**
 	 * Set the POSIX ACL flag based on whether they're enabled in the lower
 	 * mount.
 	 */
-	s->s_flags = flags & ~MS_POSIXACL;
-	s->s_flags |= path.dentry->d_sb->s_flags & MS_POSIXACL;
+	s->s_flags = flags & ~SB_POSIXACL;
+	s->s_flags |= path.dentry->d_sb->s_flags & SB_POSIXACL;
 
 	/**
 	 * Force a read-only eCryptfs mount when:
@@ -706,7 +695,7 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	 *   2) The ecryptfs_encrypted_view mount option is specified
 	 */
 	if (sb_rdonly(path.dentry->d_sb) || mount_crypt_stat->flags & ECRYPTFS_ENCRYPTED_VIEW_ENABLED)
-		s->s_flags |= MS_RDONLY;
+		s->s_flags |= SB_RDONLY;
 
 	s->s_maxbytes = path.dentry->d_sb->s_maxbytes;
 	s->s_blocksize = path.dentry->d_sb->s_blocksize;
@@ -722,28 +711,26 @@ static struct dentry *ecryptfs_mount(struct file_system_type *fs_type, int flags
 	inode = ecryptfs_get_inode(d_inode(path.dentry), s);
 	rc = PTR_ERR(inode);
 	if (IS_ERR(inode))
-		goto out_sput;
+		goto out_free;
 
 	s->s_root = d_make_root(inode);
 	if (!s->s_root) {
 		rc = -ENOMEM;
-		goto out_sput;
+		goto out_free;
 	}
 
 	rc = -ENOMEM;
 	root_info = kmem_cache_zalloc(ecryptfs_dentry_info_cache, GFP_KERNEL);
 	if (!root_info)
-		goto out_sput;
+		goto out_free;
 
 	/* ->kill_sb() will take care of root_info */
 	ecryptfs_set_dentry_private(s->s_root, root_info);
 	root_info->lower_path = path;
 
-	s->s_flags |= MS_ACTIVE;
+	s->s_flags |= SB_ACTIVE;
 	return dget(s->s_root);
 
-out_sput:
-	atomic_dec(&lower_sb->s_active);
 out_free:
 	path_put(&path);
 out1:
@@ -769,10 +756,6 @@ static void ecryptfs_kill_block_super(struct super_block *sb)
 	kill_anon_super(sb);
 	if (!sb_info)
 		return;
-
-	if (sb_info->wsi_sb)
-		atomic_dec(&sb_info->wsi_sb->s_active);
-
 	ecryptfs_destroy_mount_crypt_stat(&sb_info->mount_crypt_stat);
 	kmem_cache_free(ecryptfs_sb_info_cache, sb_info);
 }
@@ -803,7 +786,7 @@ static struct ecryptfs_cache_info {
 	struct kmem_cache **cache;
 	const char *name;
 	size_t size;
-	unsigned long flags;
+	slab_flags_t flags;
 	void (*ctor)(void *obj);
 } ecryptfs_cache_infos[] = {
 	{
@@ -924,7 +907,7 @@ static struct attribute *attributes[] = {
 	NULL,
 };
 
-static struct attribute_group attr_group = {
+static const struct attribute_group attr_group = {
 	.attrs = attributes,
 };
 

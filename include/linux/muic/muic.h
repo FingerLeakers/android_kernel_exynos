@@ -3,8 +3,7 @@
  *
  * header file supporting MUIC common information
  *
- * Copyright (C) 2010 Samsung Electronics
- * Seoyoung Jeong <seo0.jeong@samsung.com>
+ * Copyright (C) 2019 Samsung Electronics
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +24,11 @@
 #ifndef __MUIC_H__
 #define __MUIC_H__
 
+#ifdef CONFIG_IFCONN_NOTIFIER
+#include <linux/ifconn/ifconn_notifier.h>
+#endif
+
+#define MUIC_CORE "MUIC_CORE"
 /* Status of IF PMIC chip (suspend and resume) */
 enum {
 	MUIC_SUSPEND		= 0,
@@ -37,10 +41,12 @@ enum {
 	MUIC_INTR_ATTACH
 };
 
-enum muic_op_mode {
-	OPMODE_MUIC = 0<<0,
-	OPMODE_CCIC = 1<<0,
-};
+#ifndef CONFIG_MUIC_LSI_SOLUTION
+ enum muic_op_mode {
+     OPMODE_MUIC = 0<<0,
+     OPMODE_CCIC = 1<<0,
+ };
+#endif
 
 /* MUIC Dock Observer Callback parameter */
 enum {
@@ -61,7 +67,6 @@ enum {
 	MUIC_PATH_USB_CP,
 	MUIC_PATH_UART_AP,
 	MUIC_PATH_UART_CP,
-	MUIC_PATH_UART_CP2,
 	MUIC_PATH_OPEN,
 	MUIC_PATH_AUDIO,
 };
@@ -77,7 +82,6 @@ enum {
 enum {
 	SWITCH_SEL_USB_MASK	= 0x1,
 	SWITCH_SEL_UART_MASK	= 0x2,
-	SWITCH_SEL_UART_MASK2	= 0x4,
 	SWITCH_SEL_RUSTPROOF_MASK	= 0x8,
 	SWITCH_SEL_AFC_DISABLE_MASK	= 0x100,
 };
@@ -120,6 +124,8 @@ typedef enum {
 	ADC_DONTCARE		= 0xfe, /* ADC don't care for MHL */
 	ADC_ERROR		= 0xff, /* ADC value read error */
 } muic_adc_t;
+
+#define ADC_WATER_THRESHOLD	ADC_OPEN
 
 /* MUIC attached device type */
 typedef enum {
@@ -185,19 +191,40 @@ typedef enum {
 	ATTACHED_DEV_USB_LANHUB_MUIC,
 	ATTACHED_DEV_TYPE1_CHG_MUIC,
 	ATTACHED_DEV_TYPE2_CHG_MUIC,
+	ATTACHED_DEV_TYPE3_MUIC,
+	ATTACHED_DEV_TYPE3_MUIC_TA,
+	ATTACHED_DEV_TYPE3_ADAPTER_MUIC,
+	ATTACHED_DEV_TYPE3_CHARGER_MUIC,
+	ATTACHED_DEV_NONE_TYPE3_MUIC,
+
 	ATTACHED_DEV_UNSUPPORTED_ID_MUIC,
 	ATTACHED_DEV_UNSUPPORTED_ID_VB_MUIC,
-	ATTACHED_DEV_UNDEFINED_RANGE_MUIC,
-	ATTACHED_DEV_RDU_TA_MUIC,
-	ATTACHED_DEV_GAMEPAD_MUIC,
-
 	ATTACHED_DEV_TIMEOUT_OPEN_MUIC,
+	ATTACHED_DEV_WIRELESS_PAD_MUIC,
+	ATTACHED_DEV_CARKIT_MUIC,
+	ATTACHED_DEV_POWERPACK_MUIC,
+	ATTACHED_DEV_UNDEFINED_RANGE_MUIC,
 	ATTACHED_DEV_HICCUP_MUIC,
+	ATTACHED_DEV_CHK_WATER_REQ,
+	ATTACHED_DEV_CHK_WATER_DRY_REQ,
+
+	ATTACHED_DEV_GAMEPAD_MUIC = 71,
+	ATTACHED_DEV_CHECK_OCP,
+	ATTACHED_DEV_RDU_TA_MUIC,
+	ATTACHED_DEV_FACTORY_UART_MUIC,
+#if IS_ENABLED(CONFIG_HV_MUIC_S2MU106_PE)
+	ATTACHED_DEV_PE_CHARGER_PREPARE_MUIC,
+	ATTACHED_DEV_PE_CHARGER_9V_MUIC,
+#endif
+#if IS_ENABLED(CONFIG_HV_MUIC_TURBO_CHARGER)
+	ATTACHED_DEV_TURBO_CHARGER,
+#endif
+#if IS_ENABLED(CONFIG_MUIC_S2MU106_SUPPORT_SPECOUT_CHARGER)
+	ATTACHED_DEV_SPECOUT_CHARGER_MUIC,
+#endif
 	ATTACHED_DEV_UNKNOWN_MUIC,
 	ATTACHED_DEV_NUM,
 } muic_attached_dev_t;
-
-#define SECOND_MUIC_DEV (ATTACHED_DEV_NUM + 1)
 
 #ifdef CONFIG_MUIC_HV_FORCE_LIMIT
 /* MUIC attached device type */
@@ -209,12 +236,44 @@ typedef enum {
 } muic_silent_change_state_t;
 #endif
 
+#if defined(CONFIG_MUIC_HV)
+/* MUIC HV State type */
+typedef enum {
+	HV_STATE_INVALID = -1,
+	HV_STATE_IDLE = 0,
+	HV_STATE_DCP_CHARGER = 1,
+	HV_STATE_FAST_CHARGE_ADAPTOR = 2,
+	HV_STATE_FAST_CHARGE_COMMUNICATION = 3,
+	HV_STATE_AFC_5V_CHARGER = 4,
+	HV_STATE_AFC_9V_CHARGER = 5,
+	HV_STATE_QC_CHARGER = 6,
+	HV_STATE_QC_5V_CHARGER = 7,
+	HV_STATE_QC_9V_CHARGER = 8,
+	HV_STATE_MAX_NUM = 9,
+} muic_hv_state_t;
+
+typedef enum {
+	HV_TRANS_INVALID = -1,
+	HV_TRANS_MUIC_DETACH = 0,
+	HV_TRANS_DCP_DETECTED = 1,
+	HV_TRANS_NO_RESPONSE = 2,
+	HV_TRANS_VDNMON_LOW = 3,
+	HV_TRANS_FAST_CHARGE_PING_RESPONSE = 4,
+	HV_TRANS_VBUS_BOOST = 5,
+	HV_TRANS_VBUS_REDUCE = 6,
+	HV_TRANS_MAX_NUM = 7,
+} muic_hv_transaction_t;
+#endif
 
 /* muic common callback driver internal data structure
  * that setted at muic-core.c file
  */
 struct muic_platform_data {
+	void *drv_data;
+	void *muic_if;
 	int irq_gpio;
+	bool suspended;
+	bool need_to_noti;
 
 	int switch_sel;
 
@@ -223,22 +282,56 @@ struct muic_platform_data {
 	int uart_path;
 
 	int gpio_uart_sel;
+	int gpio_usb_sel;
 
 	bool rustproof_on;
 	bool afc_disable;
+	bool is_new_factory;
+	bool dcd_timeout;
 
 #ifdef CONFIG_MUIC_HV_FORCE_LIMIT
 	int hv_sel;
 	int silent_chg_change_state;
 #endif
+#ifndef CONFIG_MUIC_LSI_SOLUTION
 	enum muic_op_mode opmode;
+#endif
+#ifdef CONFIG_MUIC_SYSFS
+	struct device *switch_device;
+	struct mutex sysfs_mutex;
+#endif
+
+#if defined(CONFIG_MUIC_HV)
+	muic_hv_state_t hv_state;
+#endif
+
+	/* muic current attached device */
+	muic_attached_dev_t	attached_dev;
+
+	bool is_usb_ready;
+	bool is_factory_start;
+	bool is_rustproof;
+	bool is_otg_test;
+
+	bool is_jig_on;
+	bool jig_disable;
+	bool is_factory_uart;
+
+	int vbvolt;
+	int adc;
 
 	/* muic switch dev register function for DockObserver */
 	void (*init_switch_dev_cb)(void);
 	void (*cleanup_switch_dev_cb)(void);
 
+	void (*jig_uart_cb)(int jig_state);
+
 	/* muic GPIO control function */
-	int (*init_gpio_cb)(int switch_sel);
+#if defined(CONFIG_MUIC_LSI_SOLUTION)
+	int (*init_gpio_cb) (void *, int switch_sel);
+#else
+	int (*init_gpio_cb) (int switch_sel);
+#endif
 	int (*set_gpio_usb_sel)(int usb_path);
 	int (*set_gpio_uart_sel)(int uart_path);
 	int (*set_safeout)(int safeout_path);
@@ -250,22 +343,181 @@ struct muic_platform_data {
 	/* muic AFC voltage switching function */
 	int (*muic_afc_set_voltage_cb)(int voltage);
 
-	/* muic hv charger disable function */
-	int (*muic_hv_charger_disable_cb)(bool en);
-
 	/* muic check charger init function */
 	int (*muic_hv_charger_init_cb)(void);
 
 	/* muic set hiccup mode function */
 	int (*muic_set_hiccup_mode_cb)(int on_off);
+
+	/* muic cable data collecting function */
+	void (*init_cable_data_collect_cb)(void);
 };
+
+#define MUIC_PDATA_VOID_FUNC(func, param) \
+{\
+	if (func)	\
+		func(param);	\
+	else	\
+		pr_err("[muic_core] func not defined %s\n", __func__);	\
+}
+
+#define MUIC_PDATA_FUNC(func, param, ret) \
+{\
+	*ret = -1;	\
+	if (func)	\
+		*ret = func(param);	\
+	else	\
+		pr_err("[muic_core] func not defined %s\n", __func__);	\
+}
+
+#define MUIC_PDATA_FUNC_MULTI_PARAM(func, param1, param2, ret) \
+{					\
+	*ret = -1;	\
+	if (func)	\
+		*ret = func(param1, param2);	\
+	else	\
+		pr_err("[muic_core] func not defined %s\n", __func__);	\
+}
+
+#define MUIC_IS_ATTACHED(dev) \
+	(((dev != ATTACHED_DEV_UNKNOWN_MUIC) && (dev != ATTACHED_DEV_NONE_MUIC)) ? (1) : (0))
+
+enum muic_param_en {
+	MUIC_DISABLE = 0,
+	MUIC_ENABLE
+};
+
+#ifdef CONFIG_IFCONN_NOTIFIER
+#define MUIC_SEND_NOTI_ATTACH(dev) \
+{	\
+	int ret;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_MANAGER,	\
+					IFCONN_NOTIFY_ID_ATTACH,	\
+					dev,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					NULL);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+
+#define MUIC_SEND_NOTI_ATTACH_ALL(dev) \
+{	\
+	int ret;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_ALL,	\
+					IFCONN_NOTIFY_ID_ATTACH,	\
+					dev,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					NULL);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+
+#define MUIC_SEND_NOTI_DETACH_ALL(dev) \
+{	\
+	int ret;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_ALL,	\
+					IFCONN_NOTIFY_ID_DETACH,	\
+					dev,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					NULL);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+
+#define MUIC_SEND_NOTI_TO_CCIC_ATTACH(dev) \
+{	\
+	int ret;	\
+	struct ifconn_notifier_template template;	\
+	template.cable_type = dev;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_CCIC,	\
+					IFCONN_NOTIFY_ID_ATTACH,	\
+					IFCONN_NOTIFY_EVENT_ATTACH,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					&template);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+
+#define MUIC_SEND_NOTI_TO_CCIC_DETACH(dev) \
+{	\
+	int ret;	\
+	struct ifconn_notifier_template template;	\
+	template.cable_type = dev;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_CCIC,	\
+					IFCONN_NOTIFY_ID_DETACH,	\
+					IFCONN_NOTIFY_EVENT_DETACH,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					&template);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+
+#define MUIC_SEND_NOTI_DETACH(dev) \
+{	\
+	int ret;	\
+	struct ifconn_notifier_template template;	\
+	template.cable_type = dev;	\
+	ret = ifconn_notifier_notify( \
+					IFCONN_NOTIFY_MUIC,	\
+					IFCONN_NOTIFY_MANAGER,	\
+					IFCONN_NOTIFY_ID_DETACH,	\
+					IFCONN_NOTIFY_EVENT_DETACH,	\
+					IFCONN_NOTIFY_PARAM_DATA,	\
+					&template);	\
+	if (ret < 0) {	\
+		pr_err("%s: Fail to send noti\n", \
+				__func__);	\
+	}	\
+}
+#else
+#define MUIC_SEND_NOTI_ATTACH(dev)	\
+		muic_notifier_attach_attached_dev(dev)
+#define MUIC_SEND_NOTI_DETACH(dev) \
+		muic_notifier_detach_attached_dev(dev)
+#define MUIC_SEND_NOTI_TO_CCIC_ATTACH(dev) \
+		muic_pdic_notifier_attach_attached_dev(dev)
+#define MUIC_SEND_NOTI_TO_CCIC_DETACH(dev) \
+		muic_pdic_notifier_detach_attached_dev(dev)
+#endif
 
 int get_switch_sel(void);
 int get_afc_mode(void);
 int get_ccic_info(void);
 void muic_set_hmt_status(int status);
+int muic_core_handle_attach(struct muic_platform_data *muic_pdata,
+			muic_attached_dev_t new_dev, int adc, u8 vbvolt);
+int muic_core_handle_detach(struct muic_platform_data *muic_pdata);
+bool muic_core_get_ccic_cable_state(struct muic_platform_data *muic_pdata);
+struct muic_platform_data *muic_core_init(void *drv_data);
+void muic_core_exit(struct muic_platform_data *muic_pdata);
+extern void muic_disable_otg_detect(void);
+#if defined(CONFIG_MUIC_HV)
+int muic_core_hv_state_manager(struct muic_platform_data *muic_pdata,
+		muic_hv_transaction_t trans);
+void muic_core_hv_init(struct muic_platform_data *muic_pdata);
+bool muic_core_hv_is_hv_dev(struct muic_platform_data *muic_pdata);
+#endif
 int muic_afc_set_voltage(int voltage);
-extern int muic_hv_charger_disable(bool en);
 int muic_hv_charger_init(void);
 int muic_set_hiccup_mode(int on_off);
 #ifdef CONFIG_SEC_FACTORY

@@ -35,14 +35,13 @@
 
 #include <linux/muic/muic.h>
 #include <linux/muic/max77705-muic.h>
-#include <linux/ccic/max77705_usbc.h>
+#include <linux/usb/typec/maxim/max77705_usbc.h>
 //#include <linux/ccic/max77705_pass2.h>
-#include <linux/ccic/max77705_pass3.h>
-#include <linux/ccic/max77705_pass4.h>
 #if defined(CONFIG_MAX77705_FW_PID03_SUPPORT)
-#include <linux/ccic/max77705C_pass2_PID03.h>
+#include <linux/usb/typec/maxim/max77705C_pass2_PID03.h>
+#include <linux/usb/typec/maxim/max77705_extra.h>
 #else
-#include <linux/ccic/max77705C_pass2.h>
+#include <linux/usb/typec/maxim/max77705C_pass2.h>
 #endif
 
 #include <linux/usb_notify.h>
@@ -85,9 +84,10 @@ static struct mfd_cell max77705_devs[] = {
 #if defined(CONFIG_CHARGER_MAX77705)
 	{ .name = "max77705-charger", },
 #endif
-#if defined(CONFIG_MOTOR_DRV_MAX77705)
-	{ .name = "max77705-haptic", },
-#endif /* CONFIG_MAX77705_HAPTIC */
+#if defined(CONFIG_MAX77705_VIBRATOR)
+	{ .name = "max77705_vibrator",
+	  .of_compatible = "maxim,max77705_vibrator", },
+#endif /* CONFIG_MAX77705_VIBRATOR */
 #if defined(CONFIG_LEDS_MAX77705_RGB)
 	{ .name = "leds-max77705-rgb", },
 #endif /* CONFIG_LEDS_MAX77705_RGB */
@@ -282,12 +282,16 @@ static int of_max77705_dt(struct device *dev, struct max77705_platform_data *pda
 {
 	struct device_node *np_max77705 = dev->of_node;
 	struct device_node *np_battery;
+	int ret, val;
 
 	if (!np_max77705)
 		return -EINVAL;
 
 	pdata->irq_gpio = of_get_named_gpio(np_max77705, "max77705,irq-gpio", 0);
+	pr_info("%s: irq-gpio: %u\n", __func__, pdata->irq_gpio);
+
 	pdata->wakeup = of_property_read_bool(np_max77705, "max77705,wakeup");
+
 	if (of_property_read_u32(np_max77705, "max77705,fw_product_id", &pdata->fw_product_id))
 		pdata->fw_product_id = 0;
 	
@@ -296,7 +300,14 @@ static int of_max77705_dt(struct device *dev, struct max77705_platform_data *pda
 #else
 	pdata->blocking_waterevent = of_property_read_bool(np_max77705, "max77705,blocking_waterevent");
 #endif
-	pr_info("%s: irq-gpio: %u\n", __func__, pdata->irq_gpio);
+	ret = of_property_read_u32(np_max77705, "max77705,extra_fw_enable", &val);
+	if (ret) {
+		pr_info("%s: extra_fw_enable value not specified\n", __func__);
+		pdata->extra_fw_enable = 0;
+	} else {
+		pr_info("%s: extra_fw_enable: %d\n", __func__, val);
+		pdata->extra_fw_enable = val;
+	}
 
 	np_battery = of_find_node_by_name(NULL, "battery");
 	if (!np_battery) {
@@ -852,18 +863,18 @@ EXPORT_SYMBOL_GPL(max77705_usbc_fw_update);
 
 void max77705_usbc_fw_setting(struct max77705_dev *max77705, int enforce_do)
 {
+	if (max77705->pdata->extra_fw_enable) {
+		max77705_usbc_fw_update(max77705, BOOT_FLASH_FW_EXTRA, ARRAY_SIZE(BOOT_FLASH_FW_EXTRA), enforce_do);
+		pr_info("%s: extra fw update\n", __func__);
+		return;
+	}
+
 	switch (max77705->pmic_rev) {
 	case MAX77705_PASS1:
-		pr_info("[MAX77705] Doesn't update the MAX77705_PASS1\n");
-		break;
 	case MAX77705_PASS2:
-		pr_info("[MAX77705] Doesn't update the MAX77705_PASS2\n");
-		break;
 	case MAX77705_PASS3:
-		max77705_usbc_fw_update(max77705, BOOT_FLASH_FW_PASS3,  ARRAY_SIZE(BOOT_FLASH_FW_PASS3), enforce_do);
-		break;
 	case MAX77705_PASS4:
-		max77705_usbc_fw_update(max77705, BOOT_FLASH_FW_PASS4,  ARRAY_SIZE(BOOT_FLASH_FW_PASS4), enforce_do);
+		pr_info("[MAX77705] Couldn't update the MAX77705 FirmWare\n");
 		break;
 	case MAX77705_PASS5:
 		max77705_usbc_fw_update(max77705, BOOT_FLASH_FW_PASS2,  ARRAY_SIZE(BOOT_FLASH_FW_PASS2), enforce_do);

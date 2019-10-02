@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Released under the GPLv2 only.
- * SPDX-License-Identifier: GPL-2.0
  */
 
 #include <linux/usb.h>
@@ -225,7 +225,7 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 				if (d->bEndpointAddress != to_usb_device(ddev)->hwinfo.fb_in_ep) {
 					to_usb_device(ddev)->hwinfo.in_ep =
 						d->bEndpointAddress;
-					dev_info(ddev, " This is IN ISO endpoint #0%x 0x%p\n",
+					dev_info(ddev, " This is IN ISO endpoint #0%x 0x%x\n",
 						d->bEndpointAddress, d->bSynchAddress);
 				} else
 					dev_info(ddev, "IN ISO endpoint is same with FB #0%x\n",
@@ -233,19 +233,18 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 				if ((d->bLength > 7) && (d->bSynchAddress != 0x0)) {
 					to_usb_device(ddev)->hwinfo.fb_out_ep =
 						d->bSynchAddress;
-					dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%p\n",
+					dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%x\n",
 						d->bEndpointAddress, d->bSynchAddress);
 				}
 			} else {
-
 				to_usb_device(ddev)->hwinfo.out_ep =
 					d->bEndpointAddress;
-				dev_info(ddev, " This is OUT ISO endpoint #0%x 0x%p\n",
+				dev_info(ddev, " This is OUT ISO endpoint #0%x 0x%x\n",
 					d->bEndpointAddress, d->bSynchAddress);
 				if ((d->bLength > 7) && (d->bSynchAddress != 0x0)) {
 					to_usb_device(ddev)->hwinfo.fb_in_ep =
 						d->bSynchAddress;
-					dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%p\n",
+					dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%x\n",
 						d->bEndpointAddress, d->bSynchAddress);
 				}
 			}
@@ -254,12 +253,12 @@ static int usb_parse_endpoint(struct device *ddev, int cfgno, int inum,
 			if (d->bEndpointAddress & USB_ENDPOINT_DIR_MASK) {
 				to_usb_device(ddev)->hwinfo.fb_in_ep =
 					d->bEndpointAddress;
-				dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%p\n",
+				dev_info(ddev, "Feedback IN ISO endpoint #0%x 0x%x\n",
 					d->bEndpointAddress, d->bSynchAddress);
 			} else {
 				to_usb_device(ddev)->hwinfo.fb_out_ep =
 					d->bEndpointAddress;
-				dev_info(ddev, "Feedback OUT ISO endpoint #0%x 0x%p\n",
+				dev_info(ddev, "Feedback OUT ISO endpoint #0%x 0x%x\n",
 					d->bEndpointAddress, d->bSynchAddress);
 			}
 		}
@@ -815,21 +814,18 @@ void usb_destroy_configuration(struct usb_device *dev)
 		return;
 
 	if (dev->rawdescriptors) {
-		for (i = 0; i < dev->descriptor.bNumConfigurations &&
-			i < USB_MAXCONFIG; i++)
+		for (i = 0; i < dev->descriptor.bNumConfigurations; i++)
 			kfree(dev->rawdescriptors[i]);
 
 		kfree(dev->rawdescriptors);
 		dev->rawdescriptors = NULL;
 	}
 
-	for (c = 0; c < dev->descriptor.bNumConfigurations &&
-		c < USB_MAXCONFIG; c++) {
+	for (c = 0; c < dev->descriptor.bNumConfigurations; c++) {
 		struct usb_host_config *cf = &dev->config[c];
 
 		kfree(cf->string);
-		for (i = 0; i < cf->desc.bNumInterfaces &&
-			i < USB_MAXINTERFACES; i++) {
+		for (i = 0; i < cf->desc.bNumInterfaces; i++) {
 			if (cf->intf_cache[i])
 				kref_put(&cf->intf_cache[i]->ref,
 					  usb_release_interface_cache);
@@ -993,8 +989,8 @@ int usb_get_bos_descriptor(struct usb_device *dev)
 
 	/* Get BOS descriptor */
 	ret = usb_get_descriptor(dev, USB_DT_BOS, 0, bos, USB_DT_BOS_SIZE);
-	if (ret < USB_DT_BOS_SIZE) {
-		dev_err(ddev, "unable to get BOS descriptor\n");
+	if (ret < USB_DT_BOS_SIZE || bos->bLength < USB_DT_BOS_SIZE) {
+		dev_err(ddev, "unable to get BOS descriptor or descriptor too short\n");
 		if (ret >= 0)
 			ret = -ENOMSG;
 		kfree(bos);

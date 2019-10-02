@@ -11,6 +11,8 @@
  * Does best efforts to allocate required high-order pages.
  */
 
+#define pr_fmt(fmt) "HPA: " fmt
+
 #include <linux/list.h>
 #include <linux/bootmem.h>
 #include <linux/memblock.h>
@@ -29,13 +31,11 @@
 #include <linux/oom.h>
 #include <linux/sched/task.h>
 #include <linux/sched/mm.h>
+#include <linux/random.h>
 
 #include "internal.h"
 
 #define MAX_SCAN_TRY		(2)
-
-static unsigned long start_pfn, end_pfn;
-static unsigned long cached_scan_pfn;
 
 #define HPA_MIN_OOMADJ	100
 
@@ -90,8 +90,7 @@ static int hpa_killer(void)
 
 		tasksize = get_mm_rss(p->mm);
 		tasksize += get_mm_counter(p->mm, MM_SWAPENTS);
-		tasksize += atomic_long_read(&p->mm->nr_ptes);
-		tasksize += mm_nr_pmds(p->mm);
+		tasksize += mm_pgtables_bytes(p->mm) / PAGE_SIZE;
 		current_adj = p->signal->oom_score_adj;
 
 		task_unlock(p);
@@ -112,11 +111,11 @@ static int hpa_killer(void)
 	rcu_read_unlock();
 
 	if (!selected) {
-		pr_info("HPA: no killable task\n");
+		pr_err("no killable task\n");
 		return -ESRCH;
 	}
 
-	pr_info("HPA: Killing '%s' (%d), adj %hd to free %lukB\n",
+	pr_info("Killing '%s' (%d), adj %hd to free %lukB\n",
 		selected->comm, task_pid_nr(selected), selected_adj,
 		selected_tasksize * (PAGE_SIZE / SZ_1K));
 
@@ -125,23 +124,6 @@ static int hpa_killer(void)
 	put_task_struct(selected);
 
 	return 0;
-}
-
-static bool is_movable_chunk(unsigned long pfn, unsigned int order)
-{
-	struct page *page = pfn_to_page(pfn);
-	struct page *page_end = pfn_to_page(pfn + (1 << order));
-
-	while (page != page_end) {
-		if (PageCompound(page) || PageReserved(page))
-			return false;
-		if (!PageLRU(page) && !__PageMovable(page))
-			return false;
-
-		page += PageBuddy(page) ? 1 << page_order(page) : 1;
-	}
-
-	return true;
 }
 
 static int get_exception_of_page(phys_addr_t phys,
@@ -247,13 +229,98 @@ wmark_fail:
 	return count;
 }
 
-static void prep_highorder_pages(unsigned long base_pfn, int order)
+static unsigned long get_scan_pfn(unsigned long base_pfn, unsigned long end_pfn)
 {
-	int nr_pages = 1 << order;
-	unsigned long pfn;
+	unsigned long pfn_pos = get_random_long() %
+				PHYS_PFN(memblock_phys_mem_size());
+	struct memblock_region *region;
+	unsigned long scan_pfn = 0;
 
-	for (pfn = base_pfn + 1; pfn < base_pfn + nr_pages; pfn++)
-		set_page_count(pfn_to_page(pfn), 0);
+	for_each_memblock(memory, region) {
+		if (pfn_pos < PFN_DOWN(region->size)) {
+			scan_pfn = PFN_DOWN(region->base) + pfn_pos;
+			break;
+		}
+
+		pfn_pos -= PFN_DOWN(region->size);
+	}
+
+	if (scan_pfn == 0)
+		scan_pfn = base_pfn;
+
+	return ALIGN_DOWN(scan_pfn, pageblock_nr_pages);
+
+}
+
+static int steal_highorder_pages_block(struct page *pages[], unsigned int order,
+				       int required, unsigned long block_pfn)
+{
+	unsigned long end_pfn = block_pfn + pageblock_nr_pages;
+	int mt = get_pageblock_migratetype(pfn_to_page(block_pfn));
+	unsigned int pfn;
+	int picked = 0;
+
+	/* CMA pages should not be reclaimed. */
+	if (is_migrate_cma(mt))
+		return 0;
+
+	/* We don't care about an error type. Just skip this block */
+	if (start_isolate_page_range(block_pfn, end_pfn, mt, false) < 0)
+		return 0;
+
+	for (pfn = block_pfn; pfn < end_pfn; pfn += 1 << order) {
+		if (!steal_pages(pfn, order)) {
+			pages[picked++] = pfn_to_page(pfn);
+			if (picked == required)
+				break;
+		}
+	}
+
+	undo_isolate_page_range(block_pfn, end_pfn, mt);
+
+	return picked;
+}
+
+static int steal_highorder_pages(struct page *pages[], int required,
+				 unsigned int order,
+				 unsigned long base_pfn, unsigned long end_pfn,
+				 phys_addr_t exception_areas[][2],
+				 int nr_exception)
+{
+	unsigned long pfn;
+	int picked = 0;
+
+	for (pfn = base_pfn; pfn < end_pfn; pfn += pageblock_nr_pages) {
+		int ret;
+
+		ret = get_exception_of_page(pfn << PAGE_SHIFT,
+					    exception_areas, nr_exception);
+		if (ret >= 0) {
+			/*
+			 * skip the whole page block if a page is in a exception
+			 * area. exception_areas[] may have an entry of
+			 * [phys, -1] which means allocation after phys until
+			 * the end of the system memory should is not allowed.
+			 * Since we use pfn, it is okay rounding up pfn of -1
+			 * by pageblock_nr_pages.
+			 */
+			pfn = exception_areas[ret][1] >> PAGE_SHIFT;
+			pfn = ALIGN(pfn, pageblock_nr_pages);
+			/* pageblock_nr_pages is added on the next iteration */
+			pfn -= pageblock_nr_pages;
+			continue;
+		}
+
+		if (!pfn_valid_within(pfn))
+			continue;
+
+		picked += steal_highorder_pages_block(pages + picked, order,
+						      required - picked, pfn);
+		if (picked == required)
+			break;
+	}
+
+	return picked;
 }
 
 /**
@@ -280,112 +347,60 @@ int alloc_pages_highorder_except(int order, struct page **pages, int nents,
 				 phys_addr_t exception_areas[][2],
 				 int nr_exception)
 {
-	struct zone *zone;
-	unsigned int nr_pages = 1 << order;
-	unsigned long total_scanned = 0;
-	unsigned long pfn, tmp;
-	int remained = nents;
-	int ret;
+	unsigned long base_pfn = PHYS_PFN(memblock_start_of_DRAM());
+	unsigned long end_pfn = PHYS_PFN(memblock_end_of_DRAM());
+	unsigned long scan_pfn;
 	int retry_count = 0;
-	int allocated;
+	int picked = 0;
+	int i;
 
-retry:
-	for_each_zone(zone) {
-		if (zone->spanned_pages == 0)
-			continue;
+	while (true) {
+		struct zone *zone;
 
-		allocated = alloc_freepages_range(zone, order,
-					pages + nents - remained, remained,
-					exception_areas, nr_exception);
-		remained -= allocated;
+		for_each_zone(zone) {
+			if (zone->spanned_pages == 0)
+				continue;
 
-		if (remained == 0)
+			picked += alloc_freepages_range(zone, order,
+						pages + picked, nents - picked,
+						exception_areas, nr_exception);
+			if (picked == nents)
+				return 0;
+		}
+
+		scan_pfn = get_scan_pfn(base_pfn, end_pfn);
+
+		migrate_prep();
+
+		picked += steal_highorder_pages(pages + picked, nents - picked,
+						order, scan_pfn, end_pfn,
+						exception_areas, nr_exception);
+		if (picked == nents)
 			return 0;
-	}
 
-	migrate_prep();
+		picked += steal_highorder_pages(pages + picked, nents - picked,
+						order, base_pfn, scan_pfn,
+						exception_areas, nr_exception);
+		if (picked == nents)
+			return 0;
 
-	for (pfn = ALIGN(cached_scan_pfn, nr_pages);
-			(total_scanned < (end_pfn - start_pfn) * MAX_SCAN_TRY)
-			&& (remained > 0);
-			pfn += nr_pages, total_scanned += nr_pages) {
-		int mt;
-
-		if (pfn + nr_pages > end_pfn) {
-			pfn = start_pfn;
-			continue;
-		}
-
-		/* pfn validation check in the range */
-		tmp = pfn;
-		do {
-			if (!pfn_valid(tmp))
-				break;
-		} while (++tmp < (pfn + nr_pages));
-
-		if (tmp < (pfn + nr_pages))
-			continue;
-
-		mt = get_pageblock_migratetype(pfn_to_page(pfn));
-		/*
-		 * CMA pages should not be reclaimed.
-		 * Isolated page blocks should not be tried again because it
-		 * causes isolated page block remained in isolated state
-		 * forever.
-		 */
-		if (is_migrate_cma(mt) || is_migrate_isolate(mt)) {
-			/* nr_pages is added before next iteration */
-			pfn = ALIGN(pfn + 1, pageblock_nr_pages) - nr_pages;
-			continue;
-		}
-
-		ret = get_exception_of_page(pfn << PAGE_SHIFT,
-					    exception_areas, nr_exception);
-		if (ret >= 0) {
-			pfn = (exception_areas[ret][1] + 1) >> PAGE_SHIFT;
-			pfn -= nr_pages;
-			continue;
-		}
-
-		if (!is_movable_chunk(pfn, order))
-			continue;
-
-		ret = alloc_contig_range_fast(pfn, pfn + nr_pages, mt);
-		if (ret == 0)
-			prep_highorder_pages(pfn, order);
-		else
-			continue;
-
-		pages[nents - remained] = pfn_to_page(pfn);
-		remained--;
-	}
-
-	/* save latest scanned pfn */
-	cached_scan_pfn = pfn;
-
-	if (remained) {
-		int i;
-
+		/* picked < nents */
 		drop_slab();
 		count_vm_event(DROP_SLAB);
-		ret = hpa_killer();
-		if (ret == 0) {
-			total_scanned = 0;
-			pr_info("HPA: drop_slab and killer retry %d count\n",
-				retry_count++);
-			goto retry;
-		}
+		if (hpa_killer() < 0)
+			break;
 
-		for (i = 0; i < (nents - remained); i++)
-			__free_pages(pages[i], order);
-
-		pr_info("%s: remained=%d / %d, not enough memory in order %d\n",
-				 __func__, remained, nents, order);
-
-		ret = -ENOMEM;
+		pr_info("discarded slabs and killed a process: %d times\n",
+			retry_count++);
 	}
 
-	return ret;
+	for (i = 0; i < picked; i++)
+		__free_pages(pages[i], order);
+
+	pr_err("grabbed only %d/%d %d-order pages\n",
+	       nents - picked, nents, order);
+
+	return -ENOMEM;
 }
 
 int free_pages_highorder(int order, struct page **pages, int nents)
@@ -397,27 +412,3 @@ int free_pages_highorder(int order, struct page **pages, int nents)
 
 	return 0;
 }
-
-static int __init init_highorder_pages_allocator(void)
-{
-	struct zone *zone;
-
-	for_each_zone(zone) {
-		if (zone->spanned_pages == 0)
-			continue;
-		if (zone_idx(zone) == ZONE_MOVABLE) {
-			start_pfn = zone->zone_start_pfn;
-			end_pfn = start_pfn + zone->present_pages;
-		}
-	}
-
-	if (!start_pfn) {
-		start_pfn = __phys_to_pfn(memblock_start_of_DRAM());
-		end_pfn = max_pfn;
-	}
-
-	cached_scan_pfn = start_pfn;
-
-	return 0;
-}
-late_initcall(init_highorder_pages_allocator);

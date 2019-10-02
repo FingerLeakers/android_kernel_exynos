@@ -16,13 +16,13 @@
 
 void mfc_dbg_enable(struct mfc_dev *dev)
 {
-	mfc_debug(2, "MFC debug info enable\n");
+	mfc_debug_dev(2, "MFC debug info enable\n");
 	MFC_WRITEL(0x1, MFC_REG_DBG_INFO_ENABLE);
 }
 
 void mfc_dbg_disable(struct mfc_dev *dev)
 {
-	mfc_debug(2, "MFC debug info disable\n");
+	mfc_debug_dev(2, "MFC debug info disable\n");
 	MFC_WRITEL(0x0, MFC_REG_DBG_INFO_ENABLE);
 }
 
@@ -74,7 +74,6 @@ void mfc_otf_set_stream_size(struct mfc_ctx *ctx, unsigned int size)
 void mfc_otf_set_hwfc_index(struct mfc_ctx *ctx, int job_id)
 {
 	struct mfc_dev *dev = ctx->dev;
-
 	mfc_debug(2, "[OTF] set hwfc index, %d\n", job_id);
 	HWFC_WRITEL(job_id, HWFC_ENCODING_IDX);
 }
@@ -108,10 +107,12 @@ int mfc_set_dec_codec_buffers(struct mfc_ctx *ctx)
 		MFC_WRITEL(raw->plane_size[i], MFC_REG_D_FIRST_PLANE_DPB_SIZE + (i * 4));
 		MFC_WRITEL(ctx->raw_buf.stride[i],
 				MFC_REG_D_FIRST_PLANE_DPB_STRIDE_SIZE + (i * 4));
-		if (ctx->is_10bit) {
+		if (IS_2BIT_NEED(ctx)) {
 			MFC_WRITEL(raw->stride_2bits[i], MFC_REG_D_FIRST_PLANE_2BIT_DPB_STRIDE_SIZE + (i * 4));
 			MFC_WRITEL(raw->plane_size_2bits[i], MFC_REG_D_FIRST_PLANE_2BIT_DPB_SIZE + (i * 4));
-			mfc_debug(2, "[FRAME][10BIT] 2bits buf[%d] size: %d, stride: %d\n",
+			mfc_debug(2, "[FRAME]%s%s 2bits buf[%d] size: %d, stride: %d\n",
+					(ctx->is_10bit ? "[10BIT]" : ""),
+					(ctx->is_sbwc ? "[SBWC]" : ""),
 					i, raw->plane_size_2bits[i], raw->stride_2bits[i]);
 		}
 	}
@@ -153,16 +154,20 @@ int mfc_set_dec_codec_buffers(struct mfc_ctx *ctx)
 		reg |= (0x1 << MFC_REG_D_INIT_BUF_OPT_COPY_NOT_CODED_SHIFT);
 		mfc_debug(2, "Notcoded frame copy mode start\n");
 	}
-	/* Enable 10bit Dithering when only 8+2 10bit format */
-	if (ctx->is_10bit && !ctx->mem_type_10bit) {
+
+	/* Enable 10bit Dithering when only display device is not support 10bit */
+	if (dev->pdata->dithering_enable)
 		reg |= (0x1 << MFC_REG_D_INIT_BUF_OPT_DITHERING_EN_SHIFT);
+	if (ctx->is_10bit && !ctx->mem_type_10bit && !ctx->is_sbwc)
 		/* 64byte align, It is vaid only for VP9 */
 		reg |= (0x1 << MFC_REG_D_INIT_BUF_OPT_STRIDE_SIZE_ALIGN);
-	} else {
+	else
 		/* 16byte align, It is vaid only for VP9 */
 		reg &= ~(0x1 << MFC_REG_D_INIT_BUF_OPT_STRIDE_SIZE_ALIGN);
+	if (IS_VP9_DEC(ctx) && MFC_FEATURE_SUPPORT(dev, dev->pdata->vp9_stride_align)) {
+		reg &= ~(0x3 << MFC_REG_D_INIT_BUF_OPT_STRIDE_SIZE_ALIGN);
+		reg |= (0x2 << MFC_REG_D_INIT_BUF_OPT_STRIDE_SIZE_ALIGN);
 	}
-
 	MFC_WRITEL(reg, MFC_REG_D_INIT_BUFFER_OPTIONS);
 
 	frame_size_mv = ctx->mv_size;
@@ -287,10 +292,6 @@ int mfc_set_dec_stream_buffer(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
 	MFC_WRITEL(start_num_byte, MFC_REG_D_CPB_BUFFER_OFFSET);
 	ctx->last_src_addr = addr;
 
-	if (mfc_buf)
-		MFC_TRACE_CTX("Set src[%d] fd: %d, %#llx\n",
-				index, mfc_buf->vb.vb2_buf.planes[0].m.fd, addr);
-
 	mfc_debug_leave();
 	return 0;
 }
@@ -348,6 +349,24 @@ buffer_set:
 			mfc_debug(2, "[BUFINFO][10BIT] ctx[%d] set src 2bit addr[%d]: 0x%08llx\n",
 					ctx->num, i, addr_2bit[i]);
 		}
+	} else if (ctx->is_sbwc && !ctx->is_10bit) {
+		addr_2bit[0] = addr[0] + SBWC_8B_Y_SIZE(ctx->img_width, ctx->img_height);
+		addr_2bit[1] = addr[1] + SBWC_8B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+
+		for (i = 0; i < num_planes; i++) {
+			MFC_WRITEL(addr_2bit[i], MFC_REG_E_SOURCE_FIRST_2BIT_ADDR + (i * 4));
+			mfc_debug(2, "[BUFINFO][SBWC] ctx[%d] set src header addr[%d]: 0x%08llx\n",
+				ctx->num, i, addr_2bit[i]);
+		}
+	} else if (ctx->is_sbwc && ctx->is_10bit) {
+		addr_2bit[0] = addr[0] + SBWC_10B_Y_SIZE(ctx->img_width, ctx->img_height);
+		addr_2bit[1] = addr[1] + SBWC_10B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+
+		for (i = 0; i < num_planes; i++) {
+			MFC_WRITEL(addr_2bit[i], MFC_REG_E_SOURCE_FIRST_2BIT_ADDR + (i * 4));
+			mfc_debug(2, "[BUFINFO][10BIT][SBWC] ctx[%d] set src header addr[%d]: 0x%08llx\n",
+				ctx->num, i, addr_2bit[i]);
+		}
 	}
 }
 
@@ -356,14 +375,16 @@ int mfc_set_enc_stream_buffer(struct mfc_ctx *ctx,
 		struct mfc_buf *mfc_buf)
 {
 	struct mfc_dev *dev = ctx->dev;
-	dma_addr_t addr;
-	unsigned int size, offset, index;
+	dma_addr_t addr = 0;
+	unsigned int size = 0, offset = 0, index = -1;
 
-	index = mfc_buf->vb.vb2_buf.index;
-	addr = mfc_buf->addr[0][0];
-	offset = mfc_buf->vb.vb2_buf.planes[0].data_offset;
-	size = (unsigned int)vb2_plane_size(&mfc_buf->vb.vb2_buf, 0);
-	size = ALIGN(size, 512);
+	if (mfc_buf) {
+		index = mfc_buf->vb.vb2_buf.index;
+		addr = mfc_buf->addr[0][0];
+		offset = mfc_buf->vb.vb2_buf.planes[0].data_offset;
+		size = (unsigned int)vb2_plane_size(&mfc_buf->vb.vb2_buf, 0);
+		size = ALIGN(size, 512);
+	}
 
 	MFC_WRITEL(addr, MFC_REG_E_STREAM_BUFFER_ADDR); /* 16B align */
 	MFC_WRITEL(size, MFC_REG_E_STREAM_BUFFER_SIZE);
@@ -405,6 +426,13 @@ void mfc_set_enc_stride(struct mfc_ctx *ctx)
 				MFC_REG_E_SOURCE_FIRST_STRIDE + (i * 4));
 		mfc_debug(2, "[FRAME] enc src plane[%d] stride: %d\n",
 				i, ctx->raw_buf.stride[i]);
+		if (IS_2BIT_NEED(ctx)) {
+			MFC_WRITEL(ctx->raw_buf.stride_2bits[0],
+					MFC_REG_E_SOURCE_FIRST_2BIT_STRIDE + (i * 4));
+
+			mfc_debug(2, "[FRAME] enc src plane[%d] 2bit stride: %d\n",
+					i, ctx->raw_buf.stride_2bits[i]);
+		}
 	}
 }
 
@@ -416,9 +444,10 @@ int mfc_set_dynamic_dpb(struct mfc_ctx *ctx, struct mfc_buf *dst_mb)
 	int dst_index;
 	int i;
 
-	dst_index = dst_mb->vb.vb2_buf.index;
+	dst_index = dst_mb->dpb_index;
+
 	set_bit(dst_index, &dec->available_dpb);
-	dec->dynamic_set = 1 << dst_index;
+	dec->dynamic_set = 1UL << dst_index;
 	mfc_debug(2, "[DPB] ADDING Flag after: 0x%lx\n", dec->available_dpb);
 
 	/* for debugging about black bar detection */
@@ -435,27 +464,62 @@ int mfc_set_dynamic_dpb(struct mfc_ctx *ctx, struct mfc_buf *dst_mb)
 			dec->frame_cnt = 0;
 	}
 
-	/* decoder dst buffer CFW PROT */
-	mfc_protect_dpb(ctx, dst_mb);
-
 	for (i = 0; i < raw->num_planes; i++) {
 		MFC_WRITEL(raw->plane_size[i],
 				MFC_REG_D_FIRST_PLANE_DPB_SIZE + i * 4);
 		MFC_WRITEL(dst_mb->addr[0][i],
 				MFC_REG_D_FIRST_PLANE_DPB0 + (i * 0x100 + dst_index * 4));
 		ctx->last_dst_addr[i] = dst_mb->addr[0][i];
-		if (ctx->is_10bit)
+		if (IS_2BIT_NEED(ctx))
 			MFC_WRITEL(raw->plane_size_2bits[i],
 					MFC_REG_D_FIRST_PLANE_2BIT_DPB_SIZE + (i * 4));
-		mfc_debug(2, "[BUFINFO][DPB] ctx[%d] set dst index: %d, addr[%d]: 0x%08llx\n",
-				ctx->num, dst_index, i, dst_mb->addr[0][i]);
+		mfc_debug(2, "[BUFINFO][DPB] ctx[%d] set dst index: [%d][%d], addr[%d]: 0x%08llx\n",
+				ctx->num, dst_mb->vb.vb2_buf.index, dst_mb->dpb_index,
+				i, dst_mb->addr[0][i]);
 	}
 
-	MFC_TRACE_CTX("Set dst[%d] fd: %d, %#llx / avail %#lx used %#x\n",
+	MFC_TRACE_CTX("Set dst[%d] fd: %d, %#llx / avail %#lx used %#lx\n",
 			dst_index, dst_mb->vb.vb2_buf.planes[0].m.fd, dst_mb->addr[0][0],
 			dec->available_dpb, dec->dynamic_used);
 
 	return 0;
+}
+
+void mfc_get_img_size(struct mfc_ctx *ctx, enum mfc_get_img_size img_size)
+{
+	struct mfc_dev *dev = ctx->dev;
+	unsigned int w, h;
+	int i;
+
+	w = ctx->img_width;
+	h = ctx->img_height;
+
+	ctx->img_width = mfc_get_img_width();
+	ctx->img_height = mfc_get_img_height();
+	ctx->crop_width = ctx->img_width;
+	ctx->crop_height = ctx->img_height;
+
+	for (i = 0; i < ctx->dst_fmt->num_planes; i++) {
+		ctx->raw_buf.stride[i] = mfc_get_stride_size(i);
+		if (IS_2BIT_NEED(ctx))
+			ctx->raw_buf.stride_2bits[i] = mfc_get_stride_size_2bit(i);
+	}
+	mfc_debug(2, "[FRAME] resolution changed, %dx%d => %dx%d (stride: %d)\n", w, h,
+			ctx->img_width, ctx->img_height, ctx->raw_buf.stride[0]);
+
+	if (img_size == MFC_GET_RESOL_DPB_SIZE) {
+		ctx->dpb_count = mfc_get_dpb_count();
+		ctx->scratch_buf_size = mfc_get_scratch_size();
+		for (i = 0; i < ctx->dst_fmt->num_planes; i++) {
+			ctx->min_dpb_size[i] = mfc_get_min_dpb_size(i);
+			if (IS_2BIT_NEED(ctx))
+				ctx->min_dpb_size_2bits[i] = mfc_get_min_dpb_size_2bit(i);
+		}
+
+		mfc_debug(2, "[FRAME] DPB count %d, min_dpb_size %d(%#x) min_dpb_size_2bits %d scratch %zu(%#zx)\n",
+			ctx->dpb_count, ctx->min_dpb_size[0], ctx->min_dpb_size[0], ctx->min_dpb_size_2bits[0],
+			ctx->scratch_buf_size, ctx->scratch_buf_size);
+	}
 }
 
 void mfc_set_pixel_format(struct mfc_ctx *ctx, unsigned int format)
@@ -463,6 +527,7 @@ void mfc_set_pixel_format(struct mfc_ctx *ctx, unsigned int format)
 	struct mfc_dev *dev = ctx->dev;
 	unsigned int reg = 0;
 	unsigned int pix_val;
+	unsigned int sbwc = 0;
 
 	if (dev->pdata->P010_decoding && !ctx->is_drm)
 		ctx->mem_type_10bit = 1;
@@ -507,15 +572,49 @@ void mfc_set_pixel_format(struct mfc_ctx *ctx, unsigned int format)
 		ctx->mem_type_10bit = 1;
 		pix_val = 1;
 		break;
+	case V4L2_PIX_FMT_ARGB32:
+		pix_val = 8;
+		break;
+	case V4L2_PIX_FMT_RGB24:
+		pix_val = 9;
+		break;
+	case V4L2_PIX_FMT_RGB565:
+		pix_val = 10;
+		break;
+	case V4L2_PIX_FMT_RGB32X:
+		pix_val = 12;
+		break;
+	case V4L2_PIX_FMT_BGR32:
+		pix_val = 13;
+		break;
+	/* for compress format (SBWC) */
+	case V4L2_PIX_FMT_NV12M_SBWC_8B:
+	case V4L2_PIX_FMT_NV12N_SBWC_8B:
+	case V4L2_PIX_FMT_NV12M_SBWCL_8B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_8B:
+	case V4L2_PIX_FMT_NV12M_SBWC_10B:
+	case V4L2_PIX_FMT_NV12N_SBWC_10B:
+	case V4L2_PIX_FMT_NV12M_SBWCL_10B:
+	case V4L2_PIX_FMT_NV12N_SBWCL_10B:
+		pix_val = 0;
+		sbwc = 1;
+		break;
 	default:
 		pix_val = 0;
 		break;
 	}
-	reg |= pix_val;
-	reg |= (ctx->mem_type_10bit << 4);
+	mfc_set_bits(reg, 0xf, 0, pix_val);
+
+	/* for YUV format */
+	if (pix_val < 4)
+		mfc_set_bits(reg, 0x3, 4, ctx->mem_type_10bit);
+
+	if (dev->pdata->support_sbwc)
+		mfc_set_bits(reg, 0x1, 9, sbwc);
+
 	MFC_WRITEL(reg, MFC_REG_PIXEL_FORMAT);
-	mfc_debug(2, "[FRAME] pixel format: %d, mem_type_10bit for 10bit: %d (reg: %#x)\n",
-			pix_val, ctx->mem_type_10bit, reg);
+	mfc_debug(2, "[FRAME] pix format: %d, mem_type_10bit: %d, sbwc: %d (reg: %#x)\n",
+			pix_val, ctx->mem_type_10bit, sbwc, reg);
 }
 
 void mfc_print_hdr_plus_info(struct mfc_ctx *ctx, struct hdr10_plus_meta *sei_meta)

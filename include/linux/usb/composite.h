@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * composite.h -- framework for usb gadgets which are composite devices
  *
@@ -56,7 +57,7 @@
 #define USB_GADGET_DELAYED_STATUS       0x7fff	/* Impossibly large value */
 
 /* big enough to hold our biggest descriptor */
-#define USB_COMP_EP0_BUFSIZ	1024
+#define USB_COMP_EP0_BUFSIZ	4096
 
 /* OS feature descriptor length <= 4kB */
 #define USB_COMP_EP0_OS_DESC_BUFSIZ	4096
@@ -224,7 +225,7 @@ struct usb_function {
 	struct module		*mod;
 
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
-	/* Optional function for vendor specific processing */
+	/* OPtional function for vendor specific processing */
 	int			(*ctrlrequest)(struct usb_function *,
 					const struct usb_ctrlrequest *);
 #endif
@@ -519,18 +520,19 @@ struct usb_composite_dev {
 	 */
 	int				delayed_status;
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-		/* used by enable_store function of android.c
-		 * to avoid signalling switch changes
-		 */
+	/* used by enable_store function of android.c
+	 * to avoid signalling switch changes
+	 */
 	bool				mute_switch;
 	bool				force_disconnect;
+	bool				cleanup_flag;
 #endif
 	/* protects deactivations and delayed_status counts*/
 	spinlock_t			lock;
 
 	/* public: */
-	unsigned			setup_pending:1;
-	unsigned			os_desc_pending:1;
+	unsigned int			setup_pending:1;
+	unsigned int			os_desc_pending:1;
 };
 
 extern int usb_string_id(struct usb_composite_dev *c);

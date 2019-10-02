@@ -16,34 +16,44 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/sysctl.h>
-#include "internal.h"
+#include "fips140.h"
 
-/* provide fips_enable always ON */
+/*
+	Notes:
+	1) The revision provides FIPS140ed kernel only
+	2) CONFIG_CRYPTO_FIPS meaning is different comparing to vanilla kernel, "FIPS 200" -> "FIPS 140-2"
+	3) provide fips_enable always ON 
+*/
+
 int fips_enabled = 1;
 EXPORT_SYMBOL_GPL(fips_enabled);
 
-/* 
-	The next peace of code should be cut off. Due to:
-	1) The revision provides FIPSed kernel only 
-	2) CONFIG_CRYPTO_FIPS meaning is different comparing to vanilla kernel, "FIPS 200" -> "FIPS 140-2"
-*/
-#if 0
-/* Process kernel command-line parameter at boot time. fips=0 or fips=1 */
-static int fips_enable(char *str)
-{
-	fips_enabled = !!simple_strtol(str, NULL, 0);
-	printk(KERN_INFO "fips mode: %s\n",
-		fips_enabled ? "enabled" : "disabled");
-	return 1;
-}
+static int IN_FIPS140_ERROR = FIPS140_NO_ERR;
 
-__setup("fips=", fips_enable);
-#endif
+bool in_fips_err(void)
+{
+	return (IN_FIPS140_ERROR == FIPS140_ERR);
+}
+EXPORT_SYMBOL_GPL(in_fips_err);
+
+void set_in_fips_err(void)
+{
+	IN_FIPS140_ERROR = FIPS140_ERR;
+}
+EXPORT_SYMBOL_GPL(set_in_fips_err);
+
+#ifdef CONFIG_CRYPTO_FIPS_FUNC_TEST
+void reset_in_fips_err(void)
+{
+	IN_FIPS140_ERROR = FIPS140_NO_ERR;
+}
+EXPORT_SYMBOL_GPL(reset_in_fips_err);
+#endif /* CONFIG_CRYPTO_FIPS_FUNC_TEST */
 
 static struct ctl_table crypto_sysctl_table[] = {
 	{
 		.procname       = "fips_status",
-		.data           = NULL,
+		.data           = &IN_FIPS140_ERROR,
 		.maxlen         = sizeof(int),
 		.mode           = 0444,
 		.proc_handler   = proc_dointvec
@@ -64,14 +74,12 @@ static struct ctl_table_header *crypto_sysctls;
 
 static void crypto_proc_fips_init(void)
 {
-	crypto_sysctl_table[0].data = (void*)get_pointer_in_fips_err();
 	crypto_sysctls = register_sysctl_table(crypto_dir_table);
 }
 
 static void crypto_proc_fips_exit(void)
 {
-	if (crypto_sysctls)
-		unregister_sysctl_table(crypto_sysctls);
+	unregister_sysctl_table(crypto_sysctls);
 }
 
 static int __init fips_init(void)

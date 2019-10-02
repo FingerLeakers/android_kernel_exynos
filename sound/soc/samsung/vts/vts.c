@@ -24,6 +24,8 @@
 #include <linux/wakelock.h>
 #include <linux/sched/clock.h>
 #include <linux/miscdevice.h>
+#include <linux/pinctrl/consumer.h>
+#include <linux/suspend.h>
 
 #include <asm-generic/delay.h>
 
@@ -41,6 +43,7 @@
 #include "vts.h"
 #include "vts_log.h"
 #include "vts_dump.h"
+#include "vts_s_lif_dump.h"
 
 #undef EMULATOR
 #ifdef EMULATOR
@@ -85,16 +88,63 @@ static void update_mask_value(volatile void __iomem *sfr,
 #define VTS_CPU_LOCAL_PWR_CFG			(0x00000001)
 #define VTS_CPU_IN				(0x2CA4)
 #define VTS_CPU_IN_SLEEPING_MASK		(0x00000002)
+#elif defined(CONFIG_SOC_EXYNOS9830)
+#define PAD_RETENTION_VTS_OPTION		(0x2D20) /* VTS_OUT : PAD__RTO */
+#define VTS_CPU_CONFIGURATION			(0x3080)
+#define VTS_CPU_LOCAL_PWR_CFG			(0x00000001)
+#define VTS_CPU_IN				(0x30A4)
+#define VTS_CPU_IN_SLEEPING_MASK		(0x00000002)
 #endif
 
 #define LIMIT_IN_JIFFIES (msecs_to_jiffies(1000))
 #define DMIC_CLK_RATE (768000)
 #define VTS_TRIGGERED_TIMEOUT_MS (5000)
 
+#define VTS_DUMP_MAGIC "VTS-LOG0" // 0x30474F4C2D535456ull /* VTS-LOG0 */
+
 /* For only external static functions */
 static struct vts_data *p_vts_data;
 static void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 			unsigned int dbg_type);
+
+#ifdef CONFIG_SOC_EXYNOS9830_EVT0
+static struct reserved_mem *vts_rmem;
+
+static void *vts_rmem_vmap(struct reserved_mem *rmem)
+{
+	phys_addr_t phys = rmem->base;
+	size_t size = rmem->size;
+	unsigned int num_pages = (unsigned int)DIV_ROUND_UP(size, PAGE_SIZE);
+	pgprot_t prot = pgprot_writecombine(PAGE_KERNEL);
+	struct page **pages, **page;
+	void *vaddr = NULL;
+
+	pages = kcalloc(num_pages, sizeof(pages[0]), GFP_KERNEL);
+	if (!pages) {
+		pr_err("%s: malloc failed\n", __func__);
+		goto out;
+	}
+
+	for (page = pages; (page - pages < num_pages); page++) {
+		*page = phys_to_page(phys);
+		phys += PAGE_SIZE;
+	}
+
+	vaddr = vmap(pages, num_pages, VM_MAP, prot);
+	kfree(pages);
+out:
+	return vaddr;
+}
+
+static int __init vts_rmem_setup(struct reserved_mem *rmem)
+{
+	pr_info("%s: base=%pa, size=%pa\n", __func__, &rmem->base, &rmem->size);
+	vts_rmem = rmem;
+	return 0;
+}
+
+RESERVEDMEM_OF_DECLARE(vts_rmem, "exynos,vts_rmem", vts_rmem_setup);
+#endif
 
 /* vts mailbox interface functions */
 int vts_mailbox_generate_interrupt(
@@ -344,7 +394,7 @@ static void vts_cpu_power(bool on)
 			on ? VTS_CPU_LOCAL_PWR_CFG : 0);
 #endif
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 	if (!on) {
 #ifndef EMULATOR
 		exynos_pmu_update(VTS_CPU_OPTION,
@@ -359,7 +409,7 @@ static void vts_cpu_power(bool on)
 #endif
 }
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 static int vts_cpu_enable(bool enable)
 {
 	unsigned int mask = VTS_CPU_RESET_OPTION_ENABLE_CPU_MASK;
@@ -418,7 +468,7 @@ static int vts_cpu_enable(bool enable)
 
 static void vts_reset_cpu(void)
 {
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 #ifndef EMULATOR
 	vts_cpu_enable(false);
 	vts_cpu_power(false);
@@ -468,10 +518,10 @@ static int vts_wait_for_fw_ready(struct device *dev)
 	return result;
 }
 
-static void vts_pad_retention(bool retention)
+void vts_pad_retention(bool retention)
 {
 	if (!retention) {
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 		exynos_pmu_update(PAD_RETENTION_VTS_OPTION, 0x10000000, 0x10000000);
 #else
 		exynos_pmu_update(PAD_RETENTION_VTS_OPTION, 0x1 << 11, 0x1 << 11);
@@ -497,7 +547,9 @@ static void vts_cfg_gpio(struct device *dev, const char *name)
 	}
 }
 
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+#if (defined(CONFIG_SOC_EXYNOS9810) || \
+		defined(CONFIG_SOC_EXYNOS9820) || \
+		defined(CONFIG_SOC_EXYNOS9830))
 static u32 vts_set_baaw(void __iomem *sfr_base, u64 base, u32 size)
 {
 	u32 aligned_size = round_up(size, SZ_4M);
@@ -674,6 +726,7 @@ EXPORT_SYMBOL(vts_is_recognitionrunning);
 static struct snd_soc_dai_driver vts_dai[] = {
 	{
 		.name = "vts-tri",
+		.id = 0,
 		.capture = {
 			.stream_name = "VTS Trigger Capture",
 			.channels_min = 1,
@@ -685,6 +738,7 @@ static struct snd_soc_dai_driver vts_dai[] = {
 	},
 	{
 		.name = "vts-rec",
+		.id = 1,
 		.capture = {
 			.stream_name = "VTS Capture",
 			.channels_min = 1,
@@ -754,6 +808,44 @@ static SOC_ENUM_SINGLE_EXT_DECL(vtsvcrecog_mode_enum, vtsvcrecog_mode_text);
 static SOC_ENUM_SINGLE_EXT_DECL(vtsactive_phrase_enum, vtsactive_phrase_text);
 static SOC_ENUM_SINGLE_EXT_DECL(vtsforce_reset_enum, vtsforce_reset_text);
 
+static void vts_complete_firmware_request(const struct firmware *fw, void *context)
+{
+	struct platform_device *pdev = context;
+	struct device *dev = &pdev->dev;
+	struct vts_data *data = platform_get_drvdata(pdev);
+	unsigned int *pversion = NULL;
+
+	if (!fw) {
+		dev_err(dev, "Failed to request firmware\n");
+		return;
+	}
+
+	data->firmware = fw;
+	pversion = (unsigned int*) (fw->data + VTSFW_VERSION_OFFSET);
+	data->vtsfw_version = *pversion;
+	pversion = (unsigned int*) (fw->data + DETLIB_VERSION_OFFSET);
+	data->vtsdetectlib_version = *pversion;
+
+	dev_info(dev, "Firmware loaded at %p (%zu)\n", fw->data, fw->size);
+	dev_info(dev, "Firmware version: 0x%x Detection library version: 0x%x\n", data->vtsfw_version, data->vtsdetectlib_version);
+}
+
+static int vts_try_request_firmware(struct vts_data *data)
+{
+#if 0
+	struct platform_device *pdev = data->pdev;
+	struct device *dev = &pdev->dev;
+	int result = 0;
+	/* ADD Request Firmware / Download Firmware Loading */
+#endif
+	return 0;
+}
+
+int vts_try_request_firmware_interface(struct vts_data *data)
+{
+	return vts_try_request_firmware(data);
+}
+
 static int vts_start_recognization(struct device *dev, int start)
 {
 	struct vts_data *data = dev_get_drvdata(dev);
@@ -775,7 +867,7 @@ static int vts_start_recognization(struct device *dev, int start)
 			if (active_trigger == TRIGGER_SVOICE &&
 				 data->svoice_info.loaded) {
 				/*
-				 * load svoice model.bin @ offset 0xAA800
+				 * load svoice model.bin @ offset 0x2A800
 				 * file before starting recognition
 				 */
 				if (data->svoice_info.actual_sz > SOUND_MODEL_SVOICE_SIZE_MAX) {
@@ -784,20 +876,15 @@ static int vts_start_recognization(struct device *dev, int start)
 					SOUND_MODEL_SVOICE_SIZE_MAX);
 					return -EINVAL;
 				}
-				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820)) {
-					memcpy(data->sram_base + 0xAA800, data->svoice_info.data,
-						data->svoice_info.actual_sz);
-				} else {
-					memcpy(data->sram_base + 0x2A800, data->svoice_info.data,
-						data->svoice_info.actual_sz);
-				}
+				memcpy(data->sram_base + SOUND_MODEL_SVOICE_OFFSET, data->svoice_info.data,
+					data->svoice_info.actual_sz);
 				dev_info(dev, "svoice.bin Binary uploaded size=%zu\n",
 						data->svoice_info.actual_sz);
 
 			} else if (active_trigger == TRIGGER_GOOGLE &&
 				data->google_info.loaded) {
 				/*
-				 * load google model.bin @ offset 0xB2B00
+				 * load google model.bin @ offset 0x32B00
 				 * file before starting recognition
 				 */
 				if (data->google_info.actual_sz > SOUND_MODEL_GOOGLE_SIZE_MAX) {
@@ -806,13 +893,8 @@ static int vts_start_recognization(struct device *dev, int start)
 					SOUND_MODEL_GOOGLE_SIZE_MAX);
 					return -EINVAL;
 				}
-				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820)) {
-					memcpy(data->sram_base + 0xB2B00, data->google_info.data,
-						data->google_info.actual_sz);
-				} else {
-					memcpy(data->sram_base + 0x32B00, data->google_info.data,
-						data->google_info.actual_sz);
-				}
+				memcpy(data->sram_base + SOUND_MODEL_GOOGLE_OFFSET, data->google_info.data,
+					data->google_info.actual_sz);
 				dev_info(dev, "google.bin Binary uploaded size=%zu\n",
 						data->google_info.actual_sz);
 			} else {
@@ -963,6 +1045,8 @@ static int set_vtsvoicerecognize_mode(struct snd_kcontrol *kcontrol,
 		}
 
 		if (vcrecognize_mode <= VTS_SENSORY_TRIGGER_MODE) {
+			dev_info(dev, "vts recognize : vts_try_request_firmware\n");
+			/* vts_try_request_firmware(data); */
 			pm_runtime_get_sync(dev);
 			vts_clk_set_rate(dev, data->syssel_rate);
 			vcrecognize_start = true;
@@ -1332,36 +1416,14 @@ static const struct snd_soc_dapm_route vts_dapm_routes[] = {
 	{"VTS Capture", NULL, "DMIC IF"},
 };
 
-
-static int vts_component_probe(struct snd_soc_component *component)
-{
-	struct device *dev = component->dev;
-	struct vts_data *data = dev_get_drvdata(dev);
-
-	dev_info(dev, "%s\n", __func__);
-
-	data->cmpnt = component;
-	vts_clk_set_rate(component->dev, 0);
-
-	return 0;
-}
-
-static const struct snd_soc_component_driver vts_component = {
-	.probe = vts_component_probe,
-	.controls = vts_controls,
-	.num_controls = ARRAY_SIZE(vts_controls),
-	.dapm_widgets = vts_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(vts_dapm_widgets),
-	.dapm_routes = vts_dapm_routes,
-	.num_dapm_routes = ARRAY_SIZE(vts_dapm_routes),
-};
-
 int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable)
 {
 	struct device *dev = &pdev->dev;
 	struct vts_data *data = platform_get_drvdata(pdev);
 	int ctrl_dmicif = 0;
+#if !(IS_ENABLED(CONFIG_SOC_EXYNOS9830))
 	int dmic_clkctrl = 0;
+#endif
 	int select_dmicclk = 0;
 
 	dev_dbg(dev, "%s-- flag: %d mictype: %d micusagecnt: %d\n",
@@ -1413,11 +1475,12 @@ int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable
 						data->dmic_base + VTS_DMIC_CONTROL_DMIC_IF);
 				}
 			}
-
+#if !(IS_ENABLED(CONFIG_SOC_EXYNOS9830))
 			dmic_clkctrl = readl(data->sfr_base + VTS_DMIC_CLK_CTRL);
 			writel(dmic_clkctrl | (0x1 << VTS_CLK_ENABLE_OFFSET),
 				data->sfr_base + VTS_DMIC_CLK_CTRL);
 			dev_info(dev, "%s Micclk setting ENABLED\n", __func__);
+#endif
 		}
 
 		/* check whether Mic is already configure or not based on VTS
@@ -1443,10 +1506,12 @@ int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable
 		if (!data->micclk_init_cnt) {
 			vts_cfg_gpio(dev, "idle");
 
+#if !(IS_ENABLED(CONFIG_SOC_EXYNOS9830))
 			dmic_clkctrl = readl(data->sfr_base + VTS_DMIC_CLK_CTRL);
 			writel(dmic_clkctrl & ~(0x1 << VTS_CLK_ENABLE_OFFSET),
 				data->sfr_base + VTS_DMIC_CLK_CTRL);
 			writel(0x0, data->sfr_base + VTS_DMIC_CLK_CON);
+#endif
 			/* reset VTS Gain to default */
 			writel(0x0, data->dmic_base + VTS_DMIC_CONTROL_DMIC_IF);
 			dev_info(dev, "%s Micclk setting DISABLED\n", __func__);
@@ -1671,8 +1736,9 @@ static irqreturn_t vts_audiodump_handler(int irq, void *dev_id)
 	struct platform_device *pdev = dev_id;
 	struct device *dev = &pdev->dev;
 	struct vts_data *data = platform_get_drvdata(pdev);
+	u32 pointer;
 
-	dev_info(dev, "%s\n", __func__);
+	dev_dbg(dev, "%s\n", __func__);
 
 	if (data->vts_ready && data->audiodump_enabled) {
 		u32 ackvalues[3] = {0, 0, 0};
@@ -1687,6 +1753,15 @@ static irqreturn_t vts_audiodump_handler(int irq, void *dev_id)
 		/* schedule pcm dump */
 		vts_audiodump_schedule_flush(dev);
 		/* vts_ipc_ack should be sent once dump is completed */
+	} else if (data->vts_ready && data->slif_dump_enabled) {
+		vts_mailbox_read_shared_register(data->pdev_mailbox,
+						 &pointer, 1, 1);
+		dev_info(dev, "audiodump[%08x:%08x][p:%08x]\n",
+			 data->dma_area_vts,
+			 (data->dma_area_vts + BUFFER_BYTES_MAX/2),
+			 pointer);
+		vts_ipc_ack(data, 1);
+		vts_s_lif_dump_period_elapsed(1, pointer);
 	} else {
 		vts_ipc_ack(data, 1);
 	}
@@ -1706,6 +1781,23 @@ static irqreturn_t vts_logdump_handler(int irq, void *dev_id)
 		/* schedule pcm dump */
 		vts_logdump_schedule_flush(dev);
 		/* vts_ipc_ack should be sent once dump is completed */
+	} else {
+		vts_ipc_ack(data, 1);
+	}
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t vts_slif_dump_handler(int irq, void *dev_id)
+{
+	struct platform_device *pdev = dev_id;
+	struct device *dev = &pdev->dev;
+	struct vts_data *data = platform_get_drvdata(pdev);
+
+	dev_dbg(dev, "%s\n", __func__);
+
+	if (data->vts_ready && data->logdump_enabled) {
+		vts_ipc_ack(data, 1);
 	} else {
 		vts_ipc_ack(data, 1);
 	}
@@ -1823,10 +1915,13 @@ void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 			dev_info(dev, "%s is skipped due to no power\n", __func__);
 			return;
 		}
+
 		/* Save VTS firmware log msgs */
 		if (!IS_ERR_OR_NULL(data->p_dump[dbg_type].sram_log) &&
 			!IS_ERR_OR_NULL(data->sramlog_baseaddr)) {
-			memcpy_fromio(data->p_dump[dbg_type].sram_log, data->sramlog_baseaddr, SZ_2K);
+			dev_info(dev, "%s : add MAGIC CODE\n", __func__);
+			memcpy(data->p_dump[dbg_type].sram_log, VTS_DUMP_MAGIC, sizeof(VTS_DUMP_MAGIC));
+			memcpy_fromio(data->p_dump[dbg_type].sram_log + sizeof(VTS_DUMP_MAGIC), data->sramlog_baseaddr, SZ_2K);
 		}
 	} else if (dbg_type == KERNEL_PANIC_DUMP || dbg_type == VTS_FW_NOT_READY ||
 			dbg_type == VTS_IPC_TRANS_FAIL) {
@@ -1896,7 +1991,7 @@ static int vts_runtime_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct vts_data *data = dev_get_drvdata(dev);
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 	int i = 1000;
 	unsigned int status = 0;
 #endif
@@ -1910,9 +2005,12 @@ static int vts_runtime_suspend(struct device *dev)
 	data->vts_state = VTS_STATE_RUNTIME_SUSPENDING;
 	spin_unlock_irqrestore(&data->state_spinlock, flag);
 
+
+	dev_info(dev, "%s save register :%d\n", __func__,__LINE__);
 	vts_save_register(data);
 
 	if (data->running) {
+		dev_info(dev, "RUNNING %s :%d\n", __func__,__LINE__);
 		if (data->audiodump_enabled) {
 			values[0] = VTS_DISABLE_AUDIODUMP;
 			values[1] = 0;
@@ -1963,7 +2061,7 @@ static int vts_runtime_suspend(struct device *dev)
 		/* Dump VTS GPR register & Log messages */
 		vts_dbg_dump_fw_gpr(dev, data, RUNTIME_SUSPEND_DUMP);
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 		/* wait for VTS STANDBYWFI in STATUS SFR */
 		do {
 			exynos_pmu_read(VTS_CPU_STANDBY, &status);
@@ -1987,7 +2085,7 @@ static int vts_runtime_suspend(struct device *dev)
 		data->vts_state = VTS_STATE_RUNTIME_SUSPENDED;
 		spin_unlock_irqrestore(&data->state_spinlock, flag);
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 		vts_cpu_enable(false);
 #endif
 		vts_cpu_power(false);
@@ -1997,6 +2095,7 @@ static int vts_runtime_suspend(struct device *dev)
 		data->vts_state = VTS_STATE_RUNTIME_SUSPENDED;
 		spin_unlock_irqrestore(&data->state_spinlock, flag);
 	}
+
 	data->enabled = false;
 	data->exec_mode = VTS_OFF_MODE;
 	data->active_trigger = TRIGGER_SVOICE;
@@ -2010,6 +2109,7 @@ static int vts_runtime_suspend(struct device *dev)
 #if defined(CONFIG_SOC_EXYNOS9820)
 	exynos_pd_tz_save(0x15410204);
 #endif
+
 	dev_info(dev, "%s Exit \n", __func__);
 	return 0;
 }
@@ -2018,6 +2118,7 @@ static int vts_runtime_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct vts_data *data = dev_get_drvdata(dev);
+
 	u32 values[3];
 	int result;
 
@@ -2048,26 +2149,52 @@ static int vts_runtime_resume(struct device *dev)
 	}
 	dev_info(dev, "dmic clock rate:%lu\n", clk_get_rate(data->clk_dmic));
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 	vts_cpu_power(true);
+#endif
+
+#if defined(CONFIG_SOC_EXYNOS9830)
+	if (!data->firmware) {
+		dev_info(dev, "%s : request_firmware_direct\n", __func__);
+		result = request_firmware_direct((const struct firmware **)&data->firmware, "vts.bin", dev);
+
+		if (result < 0) {
+			dev_err(dev, "Failed to request_firmware_nowait\n");
+			return 0;
+		}
+		else
+		{
+			dev_info(dev, "vts_complete_firmware_request : OK\n");
+			vts_complete_firmware_request(data->firmware, pdev);
+		}
+	}
 #endif
 
 	result = vts_download_firmware(pdev);
 	if (result < 0) {
 		dev_err(dev, "Failed to download firmware\n");
+		data->enabled = false;
 		goto error_firmware;
 	}
 
 	/* Enable CM4 GPR Dump */
 	writel(0x1, data->gpr_base);
 
-#ifndef CONFIG_SOC_EXYNOS9820
+#if !(defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 	vts_cpu_enable(true);
 #endif
-#ifdef CONFIG_SOC_EXYNOS9820
+#if (defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
 	vts_cpu_power(true);
 #endif
-	vts_wait_for_fw_ready(dev);
+	result = vts_wait_for_fw_ready(dev);
+	/* ADD FW READY STATUS */
+	if (result < 0) {
+		dev_err(dev, "Failed to vts_wait_for_fw_ready\n");
+		data->enabled = false;
+		goto error_firmware;
+	}
+
+	dev_info(dev, "%s : %d \n", __func__,__LINE__);
 
 	/* Configure select sys clock rate */
 	vts_clk_set_rate(dev, data->syssel_rate);
@@ -2159,6 +2286,7 @@ error_clk:
 		data->irq_state = false;
 	}
 	data->running = false;
+	data->enabled = false;
 	return 0;
 }
 
@@ -2308,28 +2436,6 @@ static DEVICE_ATTR_RO(vtsfw_version);
 static DEVICE_ATTR_RO(vtsdetectlib_version);
 static DEVICE_ATTR_RW(vts_audiodump);
 static DEVICE_ATTR_RW(vts_logdump);
-
-static void vts_complete_firmware_request(const struct firmware *fw, void *context)
-{
-	struct platform_device *pdev = context;
-	struct device *dev = &pdev->dev;
-	struct vts_data *data = platform_get_drvdata(pdev);
-	unsigned int *pversion = NULL;
-
-	if (!fw) {
-		dev_err(dev, "Failed to request firmware\n");
-		return;
-	}
-
-	data->firmware = fw;
-	pversion = (unsigned int*) (fw->data + VTSFW_VERSION_OFFSET);
-	data->vtsfw_version = *pversion;
-	pversion = (unsigned int*) (fw->data + DETLIB_VERSION_OFFSET);
-	data->vtsdetectlib_version = *pversion;
-
-	dev_info(dev, "Firmware loaded at %pK (%zu)\n", fw->data, fw->size);
-	dev_info(dev, "Firmware version: 0x%x Detection library version: 0x%x\n", data->vtsfw_version, data->vtsdetectlib_version);
-}
 
 static void __iomem *samsung_vts_devm_request_and_map(struct platform_device *pdev, const char *name, size_t *size)
 {
@@ -2506,13 +2612,98 @@ static struct miscdevice vts_fio_miscdev = {
 	.fops =     &vts_fio_fops
 };
 
+#if 0
+static void cache_firmware_simple(const struct firmware *fw, void *context)
+{
+	const struct firmware **p_firmware = context;
+
+	if (*p_firmware)
+		release_firmware(*p_firmware);
+
+	*p_firmware = fw;
+}
+#endif
+
+static int vts_pm_notifier(struct notifier_block *nb,
+		unsigned long action, void *nb_data)
+{
+	struct vts_data *data = container_of(nb, struct vts_data, pm_nb);
+	struct platform_device *pdev = data->pdev;
+	struct device *dev = &pdev->dev;
+
+	dev_info(dev, "%s(%lu)\n", __func__, action);
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		/* Nothing to do */
+		break;
+	default:
+		/* Nothing to do */
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
+static int vts_component_probe(struct snd_soc_component *component)
+{
+	struct device *dev = component->dev;
+	struct vts_data *data = dev_get_drvdata(dev);
+
+	struct platform_device *pdev = data->pdev;
+/*	static const int retry = 10;
+	int i */
+	int result;
+
+	dev_info(dev, "%s\n", __func__);
+	data->cmpnt = component;
+
+#if defined(CONFIG_SOC_EXYNOS9830)
+	if (!data->firmware) {
+		dev_info(dev, "%s : request_firmware_direct\n", __func__);
+		result = request_firmware_direct((const struct firmware **)&data->firmware, "vts.bin", dev);
+/*		for (i = retry; result && i; i--) {
+			msleep(2000);
+			dev_info(dev, "%s : request_firmware_direct (%d)\n", __func__, i);
+			result = request_firmware_direct((const struct firmware **)&data->firmware, "vts.bin", dev);
+		}
+*/
+
+		if (result < 0) {
+			dev_err(dev, "Failed to request_firmware_nowait\n");
+			return 0;
+		}
+		else
+		{
+			dev_info(dev, "vts_complete_firmware_request : OK\n");
+			vts_complete_firmware_request(data->firmware, pdev);
+		}
+	}
+#endif
+
+	dev_info(dev, "%s(%d)\n", __func__, __LINE__);
+
+	return 0;
+}
+
+static const struct snd_soc_component_driver vts_component = {
+	.probe = vts_component_probe,
+	.controls = vts_controls,
+	.num_controls = ARRAY_SIZE(vts_controls),
+	.dapm_widgets = vts_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(vts_dapm_widgets),
+	.dapm_routes = vts_dapm_routes,
+	.num_dapm_routes = ARRAY_SIZE(vts_dapm_routes),
+};
+
 static int samsung_vts_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct vts_data *data;
 	int i, result;
+#if !(IS_ENABLED(CONFIG_SOC_EXYNOS9830))
 	int dmic_clkctrl = 0;
+#endif
 
 	dev_info(dev, "%s \n", __func__);
 	data = devm_kzalloc(dev, sizeof(struct vts_data), GFP_KERNEL);
@@ -2522,6 +2713,7 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		goto error;
 	}
 
+	dma_set_mask(dev, DMA_BIT_MASK(36));
 	/* Model binary memory allocation */
 	data->google_info.max_sz = VTS_MODEL_GOOGLE_BIN_MAXSZ;
 	data->google_info.actual_sz = 0;
@@ -2592,8 +2784,8 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-#if defined(CONFIG_SOC_EXYNOS9820)
-	data->dmic_3rd_base = samsung_vts_devm_request_and_map(pdev, "dmic_3rd", NULL);
+#if defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830)
+	data->dmic_3rd_base = samsung_vts_devm_request_and_map(pdev, "dmic1", NULL);
 	if (IS_ERR(data->dmic_3rd_base)) {
 		result = PTR_ERR(data->dmic_3rd_base);
 		goto error;
@@ -2617,6 +2809,26 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	dev_info(dev, "VTS Tunned Gain value LPSD: %d DMIC: %d AMIC: %d\n",
 			data->lpsdgain, data->dmicgain, data->amicgain);
 
+
+#ifdef CONFIG_SOC_EXYNOS9830_EVT0
+	dev_info(dev, "VTS 9830 evt0 : use reserved memory\n");
+
+	if (vts_rmem) {
+		data->dmab.area = vts_rmem_vmap(vts_rmem);
+	}
+	data->dmab.addr = vts_rmem->base;
+
+	data->dmab.bytes = BUFFER_BYTES_MAX/2;
+	data->dmab.dev.dev = dev;
+	data->dmab.dev.type = SNDRV_DMA_TYPE_DEV;
+
+	data->dmab_rec.area = (data->dmab.area + BUFFER_BYTES_MAX/2);
+	data->dmab_rec.addr = (data->dmab.addr + BUFFER_BYTES_MAX/2);
+	data->dmab_rec.bytes = BUFFER_BYTES_MAX/2;
+	data->dmab_rec.dev.dev = dev;
+	data->dmab_rec.dev.type = SNDRV_DMA_TYPE_DEV;
+#else
+	dev_info(dev, "VTS 9830 evt1 : use dmam_alloc_coherent\n");
 	data->dmab.area = dmam_alloc_coherent(dev, BUFFER_BYTES_MAX, &data->dmab.addr, GFP_KERNEL);
 	if (data->dmab.area == NULL) {
 		result = -ENOMEM;
@@ -2631,6 +2843,7 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	data->dmab_rec.bytes = BUFFER_BYTES_MAX/2;
 	data->dmab_rec.dev.dev = dev;
 	data->dmab_rec.dev.type = SNDRV_DMA_TYPE_DEV;
+#endif
 
 	data->dmab_log.area = dmam_alloc_coherent(dev, LOG_BUFFER_BYTES_MAX,
 				&data->dmab_log.addr, GFP_KERNEL);
@@ -2638,9 +2851,9 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		result = -ENOMEM;
 		goto error;
 	}
-	data->dmab.bytes = LOG_BUFFER_BYTES_MAX;
-	data->dmab.dev.dev = dev;
-	data->dmab.dev.type = SNDRV_DMA_TYPE_DEV;
+	data->dmab_log.bytes = LOG_BUFFER_BYTES_MAX;
+	data->dmab_log.dev.dev = dev;
+	data->dmab_log.dev.type = SNDRV_DMA_TYPE_DEV;
 
 	/* VTSDRV_MISC_MODEL_BIN_MAXSZ = max(VTS_MODEL_GOOGLE_BIN_MAXSZ, VTS_MODEL_SVOICE_BIN_MAXSZ) */
 	data->dmab_model.area = dmam_alloc_coherent(dev, VTSDRV_MISC_MODEL_BIN_MAXSZ,
@@ -2653,7 +2866,9 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	data->dmab_model.dev.dev = dev;
 	data->dmab_model.dev.type = SNDRV_DMA_TYPE_DEV;
 
-#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_SOC_EXYNOS8895) || \
+	defined(CONFIG_SOC_EXYNOS9820) || \
+	defined(CONFIG_SOC_EXYNOS9830)
 	data->clk_rco = devm_clk_get_and_prepare(dev, "rco");
 	if (IS_ERR(data->clk_rco)) {
 		result = PTR_ERR(data->clk_rco);
@@ -2740,6 +2955,11 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	if (result < 0)
 		goto error;
 
+	result = samsung_vts_devm_request_threaded_irq(pdev, "slif_dump",
+			VTS_IRQ_VTS_SLIF_DUMP, vts_slif_dump_handler);
+	if (result < 0)
+		goto error;
+
 	data->irq_state = true;
 
 	data->pdev_mailbox = of_find_device_by_node(of_parse_phandle(np, "mailbox", 0));
@@ -2749,6 +2969,7 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		goto error;
 	}
 
+#if !(defined(CONFIG_SOC_EXYNOS9830))
 	result = request_firmware_nowait(THIS_MODULE,
 			FW_ACTION_HOTPLUG,
 			"vts.bin",
@@ -2760,6 +2981,7 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to request firmware\n");
 		goto error;
 	}
+#endif
 
 	data->regmap_dmic = devm_regmap_init_mmio_clk(dev,
 			NULL,
@@ -2776,10 +2998,14 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	pmu_alive = ioremap(0x16480000, 0x10000);
 #endif
 
+	data->pm_nb.notifier_call = vts_pm_notifier;
+	register_pm_notifier(&data->pm_nb);
+
 	printk("come hear %d\n", __LINE__);
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
 
+	vts_clk_set_rate(dev, 0);
 	vts_cfg_gpio(dev, "idle");
 
 	data->voicecall_enabled = false;
@@ -2792,12 +3018,21 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	data->audiodump_enabled = false;
 	data->logdump_enabled = false;
 
-	dmic_clkctrl = readl(data->sfr_base + VTS_DMIC_CLK_CTRL);
-	writel(dmic_clkctrl & ~(0x1 << VTS_CLK_ENABLE_OFFSET),
-				data->sfr_base + VTS_DMIC_CLK_CTRL);
-	dev_dbg(dev, "DMIC_CLK_CTRL: Before 0x%x After 0x%x \n", dmic_clkctrl,
-			readl(data->sfr_base + VTS_DMIC_CLK_CTRL));
+#if (IS_ENABLED(CONFIG_SOC_EXYNOS9830))
+		dev_info(dev, "Skip VTS_DMI_CLK_CTRL enable");
+#else
+		dmic_clkctrl = readl(data->sfr_base + VTS_DMIC_CLK_CTRL);
+		writel(dmic_clkctrl & ~(0x1 << VTS_CLK_ENABLE_OFFSET),
+					data->sfr_base + VTS_DMIC_CLK_CTRL);
+		dev_dbg(dev, "DMIC_CLK_CTRL: Before 0x%x After 0x%x \n", dmic_clkctrl,
+				readl(data->sfr_base + VTS_DMIC_CLK_CTRL));
+#endif
 
+{
+	unsigned int ttt = 0;
+	ttt = readl(data->dmic_base + 0);
+	dev_info(dev, "ENABLE_DMIC_IF: 0x%x \n", ttt);
+}
 	result = device_create_file(dev, &dev_attr_vtsfw_version);
 	if (result < 0)
 		dev_warn(dev, "Failed to create file: %s\n", "vtsfw_version");
@@ -2828,7 +3063,7 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	/* Allocate Memory for error logging */
 	for (i = 0; i < VTS_DUMP_LAST; i++) {
 		if (i == RUNTIME_SUSPEND_DUMP) {
-			data->p_dump[i].sram_log = kzalloc(SZ_2K, GFP_KERNEL);
+			data->p_dump[i].sram_log = kzalloc(SZ_2K+sizeof(VTS_DUMP_MAGIC), GFP_KERNEL);
 			if (!data->p_dump[i].sram_log) {
 				dev_info(dev, "%s is skipped due to lack of memory for sram log\n", __func__);
 				continue;

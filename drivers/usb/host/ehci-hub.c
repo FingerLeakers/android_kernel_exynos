@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2001-2004 by David Brownell
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- * for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 /* this file is part of ehci-hcd.c */
@@ -525,10 +512,18 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 	return -ESHUTDOWN;
 }
 
+static unsigned long ehci_get_resuming_ports(struct usb_hcd *hcd)
+{
+	struct ehci_hcd		*ehci = hcd_to_ehci(hcd);
+
+	return ehci->resuming_ports;
+}
+
 #else
 
 #define ehci_bus_suspend	NULL
 #define ehci_bus_resume		NULL
+#define ehci_get_resuming_ports	NULL
 
 #endif	/* CONFIG_PM */
 
@@ -588,19 +583,6 @@ static int check_reset_complete (
 				"Failed to enable port %d on root hub TT\n",
 				index+1);
 			return port_status;
-		}
-
-		/* W/A for Synopsys HC HSIC port.
-		 * Return at this point to prevent port owner change
-		 * and retry port reset.
-		 */
-		if (ehci->has_synopsys_hsic_bug) {
-			if ((index + 1) == ehci->hsic_ports) {
-				ehci_err (ehci,
-					"Failed to enable HSIC port %d\n",
-					index + 1);
-				return port_status;
-			}
 		}
 
 		ehci_dbg (ehci, "port %d full speed --> companion\n",
@@ -1251,20 +1233,6 @@ int ehci_hub_control(
 					wIndex + 1);
 				temp |= PORT_OWNER;
 			} else {
-				ehci_vdbg (ehci, "port %d reset\n", wIndex + 1);
-
-				/* W/A for Synopsys HC HSIC port.
-				 * Disable HSIC port to prevent
-				 * the port reset failure.
-				 */
-				if (ehci->has_synopsys_hsic_bug) {
-					if ((wIndex + 1) == ehci->hsic_ports) {
-						ehci_writel(ehci,
-							temp & ~PORT_PE,
-							status_reg);
-					}
-				}
-
 				temp |= PORT_RESET;
 				temp &= ~PORT_PE;
 

@@ -161,7 +161,7 @@ static int g2d_prepare_buffer(struct g2d_device *g2d_dev,
 		for (i = 0; i < data->num_buffers; i++) {
 			payload = (unsigned int)g2d_get_payload_index(
 						cmd, fmt, i, data->num_buffers,
-						g2d_dev->caps);
+						g2d_dev->caps, layer->flags);
 			if (data->buffer[i].length < payload) {
 				buferr_show(g2d_dev, i, payload,
 					    cmd[G2DSFR_IMG_WIDTH].value,
@@ -536,6 +536,10 @@ static void g2d_put_image(struct g2d_device *g2d_dev, struct g2d_layer *layer,
 	layer->buffer_type = G2D_BUFTYPE_NONE;
 }
 
+#define IS_DST_SBWC(task) \
+	(((task)->target.commands[G2DSFR_IMG_COLORMODE].value) & \
+	 G2D_DATAFORMAT_SBWC)
+
 static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 			  struct g2d_layer *layer, struct g2d_layer_data *data,
 			  int index)
@@ -564,6 +568,12 @@ static int g2d_get_source(struct g2d_device *g2d_dev, struct g2d_task *task,
 
 		perrfndev(g2d_dev, "DMA layer %d has no buffer - flags: %#x",
 			  index, layer->flags);
+		return -EINVAL;
+	}
+
+	if ((index == 0) && (IS_HWFC(task->flags) || IS_DST_SBWC(task))) {
+		perrfndev(g2d_dev, "Layer0 can be used as a constant layer %s",
+			  IS_HWFC(task->flags) ? "HWFC" : "SBWC for encoding");
 		return -EINVAL;
 	}
 

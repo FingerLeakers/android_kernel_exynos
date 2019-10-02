@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 obj-$(CONFIG_PHY_EXYNOS_DP_VIDEO)	+= phy-exynos-dp-video.o
 obj-$(CONFIG_PHY_EXYNOS_MIPI_VIDEO)	+= phy-exynos-mipi-video.o
+obj-$(CONFIG_PHY_EXYNOS_MIPI_DSIM)	+= phy-exynos-mipi-dsim.o
 obj-$(CONFIG_PHY_EXYNOS_MIPI)		+= phy-exynos-mipi.o
 obj-$(CONFIG_PHY_EXYNOS_DISPLAYPORT)	+= phy-exynos-displayport.o
 obj-$(CONFIG_PHY_EXYNOS_PCIE)		+= phy-exynos-pcie.o
@@ -16,5 +17,5 @@ obj-$(CONFIG_PHY_EXYNOS_DEBUGFS)       += phy-exynos-dp-debugfs.o
 obj-$(CONFIG_PHY_EXYNOS_USBDRD)                += phy-exynos-usbdrd.o
 obj-$(CONFIG_PHY_EXYNOS_DEBUGFS)	+= phy-exynos-debugfs.o
 obj-$(CONFIG_PHY_SAMSUNG_USB_CAL)      += phy-exynos-usb3p1.o
-obj-$(CONFIG_PHY_SAMSUNG_USB_GEN2)      += phy-exynos-usbdp-gen2.o
+obj-$(CONFIG_PHY_SAMSUNG_USB_GEN2)      += phy-exynos-usbdp-gen2-v2.o
 obj-$(CONFIG_PHY_EXYNOS5250_SATA)	+= phy-exynos5250-sata.o

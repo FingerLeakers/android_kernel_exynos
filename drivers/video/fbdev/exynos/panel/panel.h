@@ -114,9 +114,20 @@ struct delayinfo {
 	u32 type;
 	char *name;
 	u32 usec;
+	ktime_t s_time;
+};
+
+struct timer_delay_begin_info {
+	u32 type;
+	char *name;
+	struct delayinfo *delay;
 };
 
 #define DLYINFO(_name_) (_name_)
+
+#define TIMER_DLYINFO_BEGIN(_name_) PN_CONCAT(begin, _name_)
+#define TIMER_DLYINFO(_name_) (_name_)
+
 #define DEFINE_PANEL_UDELAY_NO_SLEEP(_name_, _usec_)	\
 struct delayinfo DLYINFO(_name_) =		\
 {										\
@@ -149,6 +160,32 @@ struct delayinfo DLYINFO(_name_) =		\
 	.usec = (_msec_) * 1000,			\
 }
 
+#define DEFINE_PANEL_TIMER_BEGIN(_name_, _timer_delay_)		\
+struct timer_delay_begin_info TIMER_DLYINFO_BEGIN(_name_) =	\
+{										\
+	.name = #_name_,					\
+	.type = CMD_TYPE_TIMER_DELAY_BEGIN,	\
+	.delay = (_timer_delay_),			\
+}
+
+#define DEFINE_PANEL_TIMER_UDELAY(_name_, _usec_)	\
+struct delayinfo TIMER_DLYINFO(_name_) =		\
+{										\
+	.name = #_name_,					\
+	.type = CMD_TYPE_TIMER_DELAY,		\
+	.usec = (_msec_),					\
+	.s_time = (0ULL),					\
+}
+
+#define DEFINE_PANEL_TIMER_MDELAY(_name_, _msec_)	\
+struct delayinfo TIMER_DLYINFO(_name_) =		\
+{										\
+	.name = #_name_,					\
+	.type = CMD_TYPE_TIMER_DELAY,		\
+	.usec = (_msec_) * 1000,			\
+	.s_time = (0ULL),					\
+}
+
 /* external pin control command */
 struct pininfo {
 	u32 type;
@@ -162,6 +199,8 @@ enum {
 	CMD_TYPE_NONE,
 	CMD_TYPE_DELAY,
 	CMD_TYPE_DELAY_NO_SLEEP,
+	CMD_TYPE_TIMER_DELAY_BEGIN,
+	CMD_TYPE_TIMER_DELAY,
 	CMD_TYPE_PINCTL,
 	CMD_TYPE_TX_PKT_START,
 	CMD_PKT_TYPE_NONE = CMD_TYPE_TX_PKT_START,
@@ -199,6 +238,10 @@ enum {
 
 #define IS_CMD_TYPE_DELAY(_type_) \
 	((_type_) == CMD_TYPE_DELAY || (_type_) == CMD_TYPE_DELAY_NO_SLEEP)
+
+#define IS_CMD_TYPE_TIMER_DELAY(_type_) \
+	((_type_) == CMD_TYPE_TIMER_DELAY_BEGIN || \
+	 (_type_) == CMD_TYPE_TIMER_DELAY)
 
 
 enum {
@@ -433,6 +476,7 @@ struct maptbl_ops {
 struct maptbl {
 	u32 type;
 	char *name;
+	int nbox;
 	int nlayer;
 	int nrow;
 	int ncol;
@@ -446,6 +490,9 @@ struct maptbl {
 #define MAPINFO(_name_) (_name_)
 
 #define sizeof_maptbl(tbl) \
+	((tbl)->nbox * (tbl)->nlayer * (tbl)->nrow * (tbl)->ncol)
+
+#define sizeof_box(tbl) \
 	((tbl)->nlayer * (tbl)->nrow * (tbl)->ncol)
 
 #define sizeof_layer(tbl) \
@@ -457,6 +504,11 @@ struct maptbl {
 #define for_each_maptbl(tbl, __pos__)		\
 	for ((__pos__) = 0;						\
 		(__pos__) < (sizeof_maptbl(tbl));	\
+		(__pos__)++)
+
+#define for_each_box(tbl, __pos__)		\
+	for ((__pos__) = 0;						\
+		(__pos__) < ((tbl)->nbox);		\
 		(__pos__)++)
 
 #define for_each_layer(tbl, __pos__)		\
@@ -479,6 +531,7 @@ struct maptbl {
 	.type = (CMD_TYPE_MAP),				\
 	.name = _name_,                     \
 	.arr = (u8 *)(_arr_),               \
+	.nbox = 1,                          \
 	.nlayer = (_nlayer_),               \
 	.nrow = (_nrow_),                   \
 	.ncol = (_ncol_),                   \
@@ -496,6 +549,7 @@ struct maptbl {
 	.type = (CMD_TYPE_MAP),				\
 	.name = #_name_,                    \
 	.arr = NULL,                        \
+	.nbox = 0,                          \
 	.nlayer = 0,                        \
 	.nrow = 0,                          \
 	.ncol = 0,                          \
@@ -529,7 +583,8 @@ struct maptbl {
 {                                       \
 	.type = (CMD_TYPE_MAP),				\
 	.name = #_name_,                    \
-	.arr = (u8 *)_name_,                \
+	.arr = (u8 *)(_name_),              \
+	.nbox = 1,                          \
 	.nlayer = 1,                        \
 	.nrow = ARRAY_SIZE(_name_),         \
 	.ncol = ARRAY_SIZE((_name_)[0]),    \
@@ -546,7 +601,8 @@ struct maptbl {
 {                                       \
 	.type = (CMD_TYPE_MAP),				\
 	.name = #_name_,                    \
-	.arr = (u8 *)_name_,                \
+	.arr = (u8 *)(_name_),              \
+	.nbox = 1,                          \
 	.nlayer = ARRAY_SIZE(_name_),       \
 	.nrow = ARRAY_SIZE((_name_)[0]),      \
 	.ncol = ARRAY_SIZE((_name_)[0][0]),   \
@@ -559,7 +615,26 @@ struct maptbl {
 	},                                  \
 }
 
+#define DEFINE_4D_MAPTBL(_name_, f_init, f_getidx, f_copy)  \
+{                                       \
+	.type = (CMD_TYPE_MAP),				\
+	.name = #_name_,                    \
+	.arr = (u8 *)(_name_),              \
+	.nbox = ARRAY_SIZE(_name_),       \
+	.nlayer = ARRAY_SIZE((_name_)[0]),       \
+	.nrow = ARRAY_SIZE((_name_)[0][0]),      \
+	.ncol = ARRAY_SIZE((_name_)[0][0][0]),   \
+	.sz_copy = ARRAY_SIZE((_name_)[0][0][0]),\
+	.pdata = NULL,                      \
+	.ops = {                            \
+		.init = f_init,                 \
+		.getidx = f_getidx,             \
+		.copy = f_copy,                 \
+	},                                  \
+}
+
 u32 maptbl_index(struct maptbl *tbl, int layer, int row, int col);
+u32 maptbl_4d_index(struct maptbl *tbl, int box, int layer, int row, int col);
 int maptbl_init(struct maptbl *tbl);
 int maptbl_getidx(struct maptbl *tbl);
 void maptbl_copy(struct maptbl *tbl, u8 *dst);
@@ -590,6 +665,7 @@ enum PANEL_SEQ {
 #ifdef CONFIG_SUPPORT_DSU
 	PANEL_DSU_SEQ,
 #endif
+	PANEL_FPS_SEQ,
 	PANEL_MCD_ON_SEQ,
 	PANEL_MCD_OFF_SEQ,
 	PANEL_MCD_RS_ON_SEQ,
@@ -637,9 +713,7 @@ enum PANEL_SEQ {
 	PANEL_ISC_THRESHOLD_SEQ,
 	PANEL_STM_TUNE_SEQ,
 #endif
-#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
-	PANEL_FFC_SEQ,
-#endif
+
 #ifdef CONFIG_DYNAMIC_FREQ
 	PANEL_DYNAMIC_FFC_SEQ,
 #endif
@@ -647,6 +721,9 @@ enum PANEL_SEQ {
 	PANEL_PARTIAL_DISP_ON_SEQ,
 	PANEL_PARTIAL_DISP_OFF_SEQ,
 	PANEL_DUMP_SEQ,
+#ifdef CONFIG_SUPPORT_DDI_CMDLOG
+	PANEL_CMDLOG_DUMP_SEQ,
+#endif
 	PANEL_CHECK_CONDITION_SEQ,
 	PANEL_DIA_ONOFF_SEQ,
 	PANEL_DUMMY_SEQ,
@@ -679,6 +756,45 @@ struct brt_map {
 #define DDI_SUPPORT_READ_GPARA	(1U << 1)
 #define DDI_SUPPORT_POINT_GPARA	(1U << 2)
 
+enum {
+	PN_COMP_TYPE_NONE,
+	PN_COMP_TYPE_MIC,
+	PN_COMP_TYPE_DSC,
+	MAX_PN_COMP_TYPE,
+};
+
+struct panel_dsc {
+	u32 slice_w;
+	u32 slice_h;
+};
+
+enum vrr_mode {
+	VRR_NORMAL_MODE,
+	VRR_HS_MODE,
+	MAX_VRR_MODE,
+};
+
+struct panel_vrr {
+	u32 fps;
+	u32 mode;
+};
+
+struct panel_resol {
+	unsigned int w;
+	unsigned int h;
+	unsigned int comp_type;
+	union {
+		struct panel_dsc dsc;
+	} comp_param;
+	struct panel_vrr *available_vrr;
+	unsigned int nr_available_vrr;
+};
+
+struct panel_mres {
+	u32 nr_resol;
+	struct panel_resol *resol;
+};
+
 struct ddi_properties {
 	u32 gpara;
 	bool support_partial_disp;
@@ -692,6 +808,9 @@ struct common_panel_info {
 	u32 id;
 	u32 rev;
 	struct ddi_properties ddi_props;
+	struct panel_mres mres;
+	struct panel_vrr *vrrtbl;
+	int nr_vrrtbl;
 	struct maptbl *maptbl;
 	int nr_maptbl;
 	struct seqinfo *seqtbl;
@@ -715,6 +834,8 @@ struct common_panel_info {
 #endif
 #ifdef CONFIG_SUPPORT_POC_SPI
 	struct spi_data *spi_data;
+	struct spi_data **spi_data_tbl;
+	int nr_spi_data_tbl;
 #endif
 #ifdef CONFIG_DYNAMIC_FREQ
 	struct df_freq_tbl_info *df_freq_tbl;
@@ -904,7 +1025,7 @@ struct panel_properties {
 	u32 gct_on;
 	u32 gct_vddm;
 	u32 gct_pattern;
-	u8 gct_valid_chksum;
+	u8 gct_valid_chksum[4];
 #endif
 #ifdef CONFIG_SUPPORT_GRAYSPOT_TEST
 	u32 grayspot;
@@ -929,13 +1050,12 @@ struct panel_properties {
 	u8 stm_field_info[STM_FIELD_MAX];
 #endif
 	u8* gamma_control_buf;
-#ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
-	u32 cur_ffc_idx;
-#endif
-#ifdef CONFIG_SUPPORT_DSU
 	bool mres_updated;
-#endif
-	int panel_partial_disp;
+	u32 mres_mode;
+	u32 xres;
+	u32 yres;
+	u32 panel_partial_disp;
+	struct panel_vrr vrr;
 	u32 dia_mode;
 	u32 ub_con_cnt;
 	u32 conn_det_enable;
@@ -948,11 +1068,14 @@ struct panel_info {
 	unsigned char coordinate[PANEL_COORD_LEN];
 	struct panel_properties props;
 	struct ddi_properties ddi_props;
+	struct panel_mres mres;
 
 	/* platform dependent data - ex> exynos : dsim_device */
 	void *pdata;
 	void *dim_info[MAX_PANEL_BL_SUBDEV];
 	void *dim_flash_info[MAX_PANEL_BL_SUBDEV];
+	struct panel_vrr *vrrtbl;
+	int nr_vrrtbl;
 	struct maptbl *maptbl;
 	int nr_maptbl;
 	struct seqinfo *seqtbl;
@@ -964,6 +1087,7 @@ struct panel_info {
 	struct resinfo *restbl;
 	int nr_restbl;
 	struct panel_dimming_info *panel_dim_info[MAX_PANEL_BL_SUBDEV];
+	int nr_panel_dim_info;
 	struct panel_lut_info lut_info;
 };
 
@@ -976,12 +1100,42 @@ struct panel_info {
 #define __PANEL_ATTR_RW(_name, _mode) __ATTR(_name, _mode,		\
 			 PN_CONCAT(_name, show), PN_CONCAT(_name, store))
 
+static inline int search_table_u32(u32 *tbl, u32 sz_tbl, u32 value)
+{
+	int i;
+
+	if (!tbl)
+		return -EINVAL;
+
+	for (i = 0; i < sz_tbl; i++)
+		if (tbl[i] == value)
+			return i;
+
+	return -1;
+}
+
+static inline int search_table(void *tbl, int itemsize, u32 sz_tbl, void *value)
+{
+	int i;
+
+	if (!tbl)
+		return -EINVAL;
+
+	for (i = 0; i < sz_tbl; i++)
+		if (!memcmp(tbl + (i * itemsize),
+					value, itemsize))
+			return i;
+
+	return -1;
+}
+
 void print_data(char *data, int size);
 void print_maptbl(struct maptbl *tbl);
 int register_common_panel(struct common_panel_info *info);
 struct common_panel_info *find_panel(struct panel_device *panel, u32 id);
 struct device_node *find_panel_ddi_node(struct panel_device *panel, u32 id);
 void print_panel_lut(struct panel_lut_info *lut_info);
+int check_seqtbl_exist(struct panel_info *panel_data, u32 index);
 struct seqinfo *find_panel_seqtbl(struct panel_info *panel_data, char *name);
 struct seqinfo *find_index_seqtbl(struct panel_info *panel_data, u32 index);
 struct pktinfo *find_packet(struct seqinfo *seqtbl, char *name);
@@ -1009,6 +1163,7 @@ int panel_resource_update_by_name(struct panel_device *panel, char *name);
 int panel_dumpinfo_update(struct panel_device *panel, struct dumpinfo *info);
 int panel_rx_nbytes(struct panel_device *panel, u32 type, u8 *buf, u8 addr, u8 pos, u32 len);
 int panel_tx_nbytes(struct panel_device *panel,	u32 type, u8 *buf, u8 addr, u8 pos, u32 len);
+u16 calc_checksum_16bit(u8 *arr, int size);
 
 int panel_verify_tx_packet(struct panel_device *panel, u8 *src, u8 ofs, u8 len);
 

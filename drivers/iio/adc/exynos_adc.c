@@ -844,7 +844,6 @@ err_unlock:
 static const struct iio_info exynos_adc_iio_info = {
 	.read_raw = &exynos_read_raw,
 	.debugfs_reg_access = &exynos_adc_reg_access,
-	.driver_module = THIS_MODULE,
 };
 
 #define ADC_CHANNEL(_index, _id) {			\
@@ -944,6 +943,8 @@ static int exynos_adc_probe(struct platform_device *pdev)
 	int ret = -ENODEV;
 	int irq;
 	unsigned int sysreg;
+
+	dev_set_socdata(&pdev->dev, "Exynos", "ADC");
 
 	indio_dev = devm_iio_device_alloc(&pdev->dev, sizeof(struct exynos_adc));
 	if (!indio_dev) {

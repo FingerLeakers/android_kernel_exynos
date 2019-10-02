@@ -35,34 +35,6 @@
 #include <asm/unaligned.h>
 #include "ecryptfs_kernel.h"
 
-/* Do not directly use this function. Use ECRYPTFS_OVERRIDE_CRED() instead. */
-const struct cred * ecryptfs_override_fsids(uid_t fsuid, gid_t fsgid)
-{
-	struct cred * cred; 
-	const struct cred * old_cred; 
-
-	cred = prepare_creds(); 
-	if (!cred) 
-		return NULL; 
-
-	cred->fsuid = make_kuid(current_user_ns(), fsuid);
-	cred->fsgid = make_kgid(current_user_ns(), fsgid);
-
-	old_cred = override_creds(cred); 
-
-	return old_cred; 
-}
-
-/* Do not directly use this function, use REVERT_CRED() instead. */
-void ecryptfs_revert_fsids(const struct cred * old_cred)
-{
-	const struct cred * cur_cred; 
-
-	cur_cred = current->cred; 
-	revert_creds(old_cred); 
-	put_cred(cur_cred); 
-}
-
 static struct dentry *lock_parent(struct dentry *dentry)
 {
 	struct dentry *dir;
@@ -92,7 +64,6 @@ static int ecryptfs_inode_set(struct inode *inode, void *opaque)
 	/* i_size will be overwritten for encrypted regular files */
 	fsstack_copy_inode_size(inode, lower_inode);
 	inode->i_ino = lower_inode->i_ino;
-	inode->i_version++;
 	inode->i_mapping->a_ops = &ecryptfs_aops;
 
 	if (S_ISLNK(inode->i_mode))
@@ -270,7 +241,6 @@ int ecryptfs_initialize_file(struct dentry *ecryptfs_dentry,
 			ecryptfs_dentry, rc);
 		goto out;
 	}
-    
 #ifdef CONFIG_WTL_ENCRYPTION_FILTER
 	mutex_lock(&crypt_stat->cs_mutex);
 	if (crypt_stat->flags & ECRYPTFS_ENCRYPTED) {
@@ -396,9 +366,6 @@ static struct dentry *ecryptfs_lookup_interpose(struct dentry *dentry,
 
 	dentry_info = kmem_cache_alloc(ecryptfs_dentry_info_cache, GFP_KERNEL);
 	if (!dentry_info) {
-		printk(KERN_ERR "%s: Out of memory whilst attempting "
-		       "to allocate ecryptfs_dentry_info struct\n",
-			__func__);
 		dput(lower_dentry);
 		return ERR_PTR(-ENOMEM);
 	}
@@ -461,8 +428,7 @@ static struct dentry *ecryptfs_lookup(struct inode *ecryptfs_dir_inode,
 
 	mount_crypt_stat = &ecryptfs_superblock_to_private(
 				ecryptfs_dentry->d_sb)->mount_crypt_stat;
-	if (mount_crypt_stat
-	    && (mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES)) {
+	if (mount_crypt_stat->flags & ECRYPTFS_GLOBAL_ENCRYPT_FILENAMES) {
 		rc = ecryptfs_encrypt_and_encode_filename(
 			&encrypted_and_encoded_name, &len,
 			mount_crypt_stat, name, len);

@@ -24,7 +24,7 @@
 #include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/genalloc.h>
-#include <linux/dma-mapping.h>
+#include <linux/dma-direct.h>
 #include <linux/dma-contiguous.h>
 #include <linux/vmalloc.h>
 #include <linux/swiotlb.h>
@@ -44,7 +44,11 @@ static pgprot_t __get_dma_pgprot(unsigned long attrs, pgprot_t prot,
 
 static struct gen_pool *atomic_pool __ro_after_init;
 
+#ifdef CONFIG_USB_XHCI_ALLOC_FROM_DMA_POOL
+#define DEFAULT_DMA_COHERENT_POOL_SIZE  SZ_4M
+#else
 #define DEFAULT_DMA_COHERENT_POOL_SIZE  SZ_2M
+#endif
 static size_t atomic_pool_size __initdata = DEFAULT_DMA_COHERENT_POOL_SIZE;
 
 static int __init early_coherent_pool(char *p)
@@ -91,46 +95,6 @@ static int __free_from_pool(void *start, size_t size)
 	return 1;
 }
 
-static void *__dma_alloc_coherent(struct device *dev, size_t size,
-				  dma_addr_t *dma_handle, gfp_t flags,
-				  unsigned long attrs)
-{
-	if (IS_ENABLED(CONFIG_ZONE_DMA) &&
-	    dev->coherent_dma_mask <= DMA_BIT_MASK(32))
-		flags |= GFP_DMA;
-	if (dev_get_cma_area(dev) && gfpflags_allow_blocking(flags)) {
-		struct page *page;
-		void *addr;
-
-		page = dma_alloc_from_contiguous(dev, size >> PAGE_SHIFT,
-						 get_order(size), flags);
-		if (!page)
-			return NULL;
-
-		*dma_handle = phys_to_dma(dev, page_to_phys(page));
-		addr = page_address(page);
-		memset(addr, 0, size);
-		return addr;
-	} else {
-		return swiotlb_alloc_coherent(dev, size, dma_handle, flags);
-	}
-}
-
-static void __dma_free_coherent(struct device *dev, size_t size,
-				void *vaddr, dma_addr_t dma_handle,
-				unsigned long attrs)
-{
-	bool freed;
-	phys_addr_t paddr = dma_to_phys(dev, dma_handle);
-
-
-	freed = dma_release_from_contiguous(dev,
-					phys_to_page(paddr),
-					size >> PAGE_SHIFT);
-	if (!freed)
-		swiotlb_free_coherent(dev, size, vaddr, dma_handle);
-}
-
 static void *__dma_alloc(struct device *dev, size_t size,
 			 dma_addr_t *dma_handle, gfp_t flags,
 			 unsigned long attrs)
@@ -152,7 +116,7 @@ static void *__dma_alloc(struct device *dev, size_t size,
 		return addr;
 	}
 
-	ptr = __dma_alloc_coherent(dev, size, dma_handle, flags, attrs);
+	ptr = swiotlb_alloc(dev, size, dma_handle, flags, attrs);
 	if (!ptr)
 		goto no_mem;
 
@@ -173,7 +137,7 @@ static void *__dma_alloc(struct device *dev, size_t size,
 	return coherent_ptr;
 
 no_map:
-	__dma_free_coherent(dev, size, ptr, *dma_handle, attrs);
+	swiotlb_free(dev, size, ptr, *dma_handle, attrs);
 no_mem:
 	return NULL;
 }
@@ -191,7 +155,7 @@ static void __dma_free(struct device *dev, size_t size,
 			return;
 		vunmap(vaddr);
 	}
-	__dma_free_coherent(dev, size, swiotlb_addr, dma_handle, attrs);
+	swiotlb_free(dev, size, swiotlb_addr, dma_handle, attrs);
 }
 
 static dma_addr_t __swiotlb_map_page(struct device *dev, struct page *page,
@@ -303,8 +267,7 @@ static int __swiotlb_mmap_pfn(struct vm_area_struct *vma,
 			      unsigned long pfn, size_t size)
 {
 	int ret = -ENXIO;
-	unsigned long nr_vma_pages = (vma->vm_end - vma->vm_start) >>
-					PAGE_SHIFT;
+	unsigned long nr_vma_pages = vma_pages(vma);
 	unsigned long nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
 	unsigned long off = vma->vm_pgoff;
 
@@ -369,7 +332,7 @@ static int __swiotlb_dma_mapping_error(struct device *hwdev, dma_addr_t addr)
 	return 0;
 }
 
-static const struct dma_map_ops swiotlb_dma_ops = {
+static const struct dma_map_ops arm64_swiotlb_dma_ops = {
 	.alloc = __dma_alloc,
 	.free = __dma_free,
 	.mmap = __swiotlb_mmap,
@@ -416,31 +379,34 @@ static void arm_exynos_dma_mcode_free(struct device *dev, size_t size, void *cpu
 	iounmap(cpu_addr);
 }
 
-#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 #define to_pci_dev_from_dev(dev) container_of((dev), struct pci_dev, dev)
 
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 extern int pcie_iommu_map(int ch_num, unsigned long iova, phys_addr_t paddr,
 		size_t size, int prot);
 extern size_t pcie_iommu_unmap(int ch_num, unsigned long iova, size_t size);
 dma_addr_t dma_pool_start;
-
+#endif
 static void *__exynos_pcie_dma_alloc(struct device *dev, size_t size,
 		dma_addr_t *dma_handle, gfp_t flags,
 		unsigned long attrs)
 {
 	void *coherent_ptr;
-	int ret;
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
 	int ch_num = 0;
-
-	if (epdev == NULL) {
-		pr_err("EP device is NULL!!!\n");
-	} else {
-#ifdef CONFIG_PCI_DOMAINS_GENERIC
-		ch_num = pci_domain_nr(epdev->bus);
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
+	int ret;
 #endif
+
+	dev_info(dev, "[%s] size: 0x%x\n", __func__, (unsigned int)size);
+	if (dev == NULL) {
+		pr_err("EP device is NULL!!!\n");
+		return NULL;
+	} else {
+		ch_num = pci_domain_nr(epdev->bus);
 	}
 	coherent_ptr = __dma_alloc(dev, size, dma_handle, flags, attrs);
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	if (coherent_ptr != NULL) {
 		ret = pcie_iommu_map(ch_num, *dma_handle, *dma_handle, size,
 				DMA_BIDIRECTIONAL);
@@ -451,7 +417,7 @@ static void *__exynos_pcie_dma_alloc(struct device *dev, size_t size,
 			return NULL;
 		}
 	}
-
+#endif
 	return coherent_ptr;
 
 }
@@ -460,11 +426,16 @@ static void __exynos_pcie_dma_free(struct device *dev, size_t size,
 		void *vaddr, dma_addr_t dma_handle,
 		unsigned long attrs)
 {
+#ifdef CONFIG_PCI_DOMAINS_GENERIC
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
+#endif
+#if (defined(CONFIG_PCI_DOMAINS_GENERIC) || defined(CONFIG_EXYNOS_PCIE_IOMMU))
 	int ch_num = 0;
+#endif
 
-	if (epdev == NULL) {
+	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
+		return;
 	} else {
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
 		ch_num = pci_domain_nr(epdev->bus);
@@ -472,7 +443,9 @@ static void __exynos_pcie_dma_free(struct device *dev, size_t size,
 	}
 
 	__dma_free(dev, size, vaddr, dma_handle, attrs);
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	pcie_iommu_unmap(ch_num, dma_handle, size);
+#endif
 }
 
 static dma_addr_t __exynos_pcie_swiotlb_map_page(struct device *dev,
@@ -481,12 +454,20 @@ static dma_addr_t __exynos_pcie_swiotlb_map_page(struct device *dev,
 		unsigned long attrs)
 {
 	dma_addr_t dev_addr;
-	int ret;
+#if (defined(CONFIG_PCI_DOMAINS_GENERIC) || defined(CONFIG_EXYNOS_PCIE_IOMMU))
 	int ch_num = 0;
+#endif
+#ifdef CONFIG_PCI_DOMAINS_GENERIC
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
+#endif
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
+	int ret;
+#endif
 
-	if (epdev == NULL) {
+	dev_info(dev, "[%s] size: 0x%x\n", __func__,(unsigned int)size);
+	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
+		return -EINVAL;
 	} else {
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
 		ch_num = pci_domain_nr(epdev->bus);
@@ -494,12 +475,14 @@ static dma_addr_t __exynos_pcie_swiotlb_map_page(struct device *dev,
 	}
 
 	dev_addr = __swiotlb_map_page(dev, page, offset, size, dir, attrs);
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	ret = pcie_iommu_map(ch_num, dev_addr, dev_addr, size, dir);
 	if (ret != 0) {
 		pr_err("DMA map - Can't map PCIe SysMMU table!!!\n");
 
 		return 0;
 	}
+#endif
 
 	return dev_addr;
 }
@@ -509,26 +492,36 @@ static void __exynos_pcie_swiotlb_unmap_page(struct device *dev,
 		size_t size, enum dma_data_direction dir,
 		unsigned long attrs)
 {
+#if (defined(CONFIG_PCI_DOMAINS_GENERIC) || defined(CONFIG_EXYNOS_PCIE_IOMMU))
 	int ch_num = 0;
+#endif
+#ifdef CONFIG_PCI_DOMAINS_GENERIC
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
+#endif
 
-	if (epdev == NULL) {
+	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
+		return;
 	} else {
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
 		ch_num = pci_domain_nr(epdev->bus);
 #endif
 	}
 	__swiotlb_unmap_page(dev, dev_addr, size, dir, attrs);
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	pcie_iommu_unmap(ch_num, dev_addr, size);
+#endif
+	return;
 }
 
+#ifdef CONFIG_EXYNOS_PCIE_IOMMU
 void get_atomic_pool_info(dma_addr_t *paddr, size_t *size)
 {
 	*paddr = dma_pool_start;
 	*size = gen_pool_size(atomic_pool);
 }
 EXPORT_SYMBOL(get_atomic_pool_info);
+#endif
 
 struct dma_map_ops exynos_pcie_dma_ops = {
 	.alloc = __exynos_pcie_dma_alloc,
@@ -548,8 +541,6 @@ struct dma_map_ops exynos_pcie_dma_ops = {
 };
 EXPORT_SYMBOL(exynos_pcie_dma_ops);
 
-#endif
-
 static int __init atomic_pool_init(void)
 {
 	pgprot_t prot = __pgprot(PROT_NORMAL_NC);
@@ -560,9 +551,9 @@ static int __init atomic_pool_init(void)
 
 	if (dev_get_cma_area(NULL))
 		page = dma_alloc_from_contiguous(NULL, nr_pages,
-						 pool_size_order, GFP_KERNEL);
+						 pool_size_order, false);
 	else
-		page = alloc_pages(GFP_DMA, pool_size_order);
+		page = alloc_pages(GFP_DMA32, pool_size_order);
 
 	if (page) {
 		int ret;
@@ -713,19 +704,14 @@ static int __init arm64_dma_init(void)
 	    max_pfn > (arm64_dma_phys_limit >> PAGE_SHIFT))
 		swiotlb = 1;
 
+	WARN_TAINT(ARCH_DMA_MINALIGN < cache_line_size(),
+		   TAINT_CPU_OUT_OF_SPEC,
+		   "ARCH_DMA_MINALIGN smaller than CTR_EL0.CWG (%d < %d)",
+		   ARCH_DMA_MINALIGN, cache_line_size());
+
 	return atomic_pool_init();
 }
 arch_initcall(arm64_dma_init);
-
-#define PREALLOC_DMA_DEBUG_ENTRIES	4096
-
-static int __init dma_debug_do_init(void)
-{
-	dma_debug_init(PREALLOC_DMA_DEBUG_ENTRIES);
-	return 0;
-}
-fs_initcall(dma_debug_do_init);
-
 
 #ifdef CONFIG_IOMMU_DMA
 #include <linux/dma-iommu.h>
@@ -787,7 +773,7 @@ static void *__iommu_alloc_attrs(struct device *dev, size_t size,
 		struct page *page;
 
 		page = dma_alloc_from_contiguous(dev, size >> PAGE_SHIFT,
-						 get_order(size), gfp);
+					get_order(size), gfp & __GFP_NOWARN);
 		if (!page)
 			return NULL;
 
@@ -878,6 +864,11 @@ static int __iommu_mmap_attrs(struct device *dev, struct vm_area_struct *vma,
 	if (dma_mmap_from_dev_coherent(dev, vma, cpu_addr, size, &ret))
 		return ret;
 
+	if (!is_vmalloc_addr(cpu_addr)) {
+		unsigned long pfn = page_to_pfn(virt_to_page(cpu_addr));
+		return __swiotlb_mmap_pfn(vma, pfn, size);
+	}
+
 	if (attrs & DMA_ATTR_FORCE_CONTIGUOUS) {
 		/*
 		 * DMA_ATTR_FORCE_CONTIGUOUS allocations are always remapped,
@@ -900,6 +891,11 @@ static int __iommu_get_sgtable(struct device *dev, struct sg_table *sgt,
 {
 	unsigned int count = PAGE_ALIGN(size) >> PAGE_SHIFT;
 	struct vm_struct *area = find_vm_area(cpu_addr);
+
+	if (!is_vmalloc_addr(cpu_addr)) {
+		struct page *page = virt_to_page(cpu_addr);
+		return __swiotlb_get_sgtable_page(sgt, page, size);
+	}
 
 	if (attrs & DMA_ATTR_FORCE_CONTIGUOUS) {
 		/*
@@ -1093,7 +1089,7 @@ void arch_setup_dma_ops(struct device *dev, u64 dma_base, u64 size,
 			const struct iommu_ops *iommu, bool coherent)
 {
 	if (!dev->dma_ops)
-		dev->dma_ops = &swiotlb_dma_ops;
+		dev->dma_ops = &arm64_swiotlb_dma_ops;
 
 	dev->archdata.dma_coherent = coherent;
 	__iommu_setup_dma_ops(dev, dma_base, size, iommu);

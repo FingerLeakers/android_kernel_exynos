@@ -1092,18 +1092,6 @@ bool s2mu004_fuelgauge_fuelalert_init(struct i2c_client *client, int soc)
 	return true;
 }
 
-static void s2mu004_fg_reset_capacity_by_jig_connection(struct s2mu004_fuelgauge_data *fuelgauge)
-{
-	u8 data = 0;
-
-	s2mu004_read_reg_byte(fuelgauge->i2c, S2MU004_REG_FG_ID, &data);
-	data &= 0xF0;
-	data |= 0x0F; /* set model data version 0xF for next boot up initializing fuelgague */
-	s2mu004_write_reg_byte(fuelgauge->i2c, S2MU004_REG_FG_ID, data);
-
-	pr_info("%s: set Model data version (0x%x)\n", __func__, data & 0x0F);
-}
-
 static int s2mu004_fg_get_property(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
@@ -1219,9 +1207,6 @@ static int s2mu004_fg_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT:
 		s2mu004_set_temperature(fuelgauge, val->intval);
 		break;
-	case POWER_SUPPLY_PROP_ENERGY_NOW:
-		s2mu004_fg_reset_capacity_by_jig_connection(fuelgauge);
-		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
 		dev_dbg(&fuelgauge->i2c->dev,
 			"%s: capacity_max changed, %d -> %d\n",
@@ -1282,7 +1267,9 @@ static irqreturn_t s2mu004_fg_irq_thread(int irq, void *irq_data)
 	s2mu004_read_reg_byte(fuelgauge->i2c, S2MU004_REG_IRQ, &fg_irq);
 	pr_info("%s: fg_irq(0x%x)\n", __func__, fg_irq);
 
-	if (!fuelgauge->is_fuel_alerted) {
+	if (fuelgauge->is_fuel_alerted) {
+		return IRQ_HANDLED;
+	} else {
 		wake_lock(&fuelgauge->fuel_alert_wake_lock);
 		fuelgauge->is_fuel_alerted = true;
 		schedule_delayed_work(&fuelgauge->isr_work, 0);
@@ -1501,6 +1488,8 @@ static int s2mu004_fuelgauge_probe(struct i2c_client *client,
 			}
 		}
 	}
+
+	s2mu004_restart_gauging(fuelgauge);
 
 	fuelgauge->sleep_initial_update_of_soc = false;
 	fuelgauge->initial_update_of_soc = true;

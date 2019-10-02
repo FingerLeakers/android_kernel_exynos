@@ -123,6 +123,10 @@
 #define SSP_HALL_IC_ON			"SSP:HALL_IC=1"
 #define SSP_HALL_IC_OFF			"SSP:HALL_IC=0"
 
+#define SSP_FSM_SETTING			"SSP:FSM_SETTING=1"
+#define SSP_FSM_SETTING_PATH		"/efs/FactoryApp/fsm_setting.txt"
+
+
 #if 0 //def	CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS 
 #define CONFIG_SENSORS_SSP_PROX_ADC_CAL
 #endif
@@ -237,6 +241,7 @@ enum {
 #define MSG2SSP_AP_GET_BIG_DATA		0xF9
 #define MSG2SSP_AP_SET_BIG_DATA		0xFA
 #define MSG2SSP_AP_START_BIG_DATA		0xFB
+#define MSG2SSP_AP_SET_FSM_SETTING		0xFC
 #define MSG2SSP_AP_SET_MAGNETIC_STATIC_MATRIX	0xFD
 #define MSG2SSP_AP_SET_HALL_THRESHOLD		   0xE9
 #define MSG2SSP_AP_SENSOR_TILT			0xEA
@@ -274,6 +279,8 @@ enum {
 #define MSG2SSP_AP_SET_LIGHT_COEF		0x49
 #define MSG2SSP_AP_GET_LIGHT_COEF		0x50
 #define MSG2SSP_AP_SENSOR_PROX_ALERT_THRESHOLD 0x51
+#define MSG2SSP_AP_GET_LIGHT_CAL		0x52
+#define MSG2SSP_AP_GET_PROX_TRIM		0x53
 
 #define MSG2SSP_AP_REGISTER_DUMP		0x4A
 #define MSG2SSP_AP_REGISTER_SETTING		  0x4B
@@ -498,32 +505,17 @@ struct sensor_value {
 			u8 acc_rot;
 		};
 		struct {
-#ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
 			u32 lux;
 			s32 cct;
-#endif
 			u16 r;
 			u16 g;
 			u16 b;
 			u16 w;
-#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
-#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_ATIME_2BYTE
 			u16 a_gain;
 			u16 a_time;
-#ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
 			u8 brightness;
-#endif
-#ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
 			u32 lux_raw;
-#endif
-#else
-			u16 a_gain;
-			u8 a_time;
-#endif
-#else
-			u8 a_time;
-			u8 a_gain;
-#endif
+			u16 roi;
 		} __attribute__((__packed__));
 
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA

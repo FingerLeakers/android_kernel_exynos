@@ -12,7 +12,7 @@
 
 #ifndef __S6E3HA8_STAR_A3_S1_PANEL_H__
 #define __S6E3HA8_STAR_A3_S1_PANEL_H__
-#include "../panel.h"
+#include "../panel_drv.h"
 #include "s6e3ha8.h"
 #include "s6e3ha8_dimming.h"
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE

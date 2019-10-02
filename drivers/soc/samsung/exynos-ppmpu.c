@@ -33,27 +33,18 @@ static irqreturn_t exynos_ppmpu_irq_handler(int irq, void *dev_id)
 	uint32_t dir = 0;
 	uint32_t irq_idx;
 
-	/*
-	 *	IRQ_Index	PPMPU_INTR
-	 *	    0		 PPMPU0_R
-	 *	    1		 PPMPU0_W
-	 *	    2		 PPMPU1_R
-	 *	    3		 PPMPU1_W
-	 *	    4		 PPMPU2_R
-	 *	    5		 PPMPU2_W
-	 *	    6		 PPMPU3_R
-	 *	    7		 PPMPU3_W
-	 */
 	for (irq_idx = 0; irq_idx < data->irqcnt; irq_idx++) {
 		if (irq == data->irq[irq_idx])
 			break;
 	}
 
-#ifdef CONFIG_EXYNOS_PPMPU_SUPPORT_SMC
+#ifdef CONFIG_EXYNOS_PPMPU_SEPARATE_INTERRUPT
 	if (irq_idx % 2)
 		dir = PPMPU_ILLEGAL_ACCESS_WRITE;
 	else
 		dir = PPMPU_ILLEGAL_ACCESS_READ;
+
+	irq_idx /= 2;
 #endif
 
 	/*
@@ -63,14 +54,12 @@ static irqreturn_t exynos_ppmpu_irq_handler(int irq, void *dev_id)
 	data->need_log = exynos_smc(SMC_CMD_GET_PPMPU_FAIL_INFO,
 				    data->fail_info_pa,
 				    (dir << PPMPU_DIRECTION_SHIFT) |
-				    (irq_idx / 2),
+				    irq_idx,
 				    data->info_flag);
 	if ((data->need_log != PPMPU_NEED_FAIL_INFO_LOGGING) &&
 		(data->need_log != PPMPU_SKIP_FAIL_INFO_LOGGING))
 		pr_err("%s:ppmpu_fail_info buffer is invalid! ret(%#x)\n",
 			__func__, data->need_log);
-
-	pr_info("PPMPU_FAIL_DETECTOR: Implemented PPMPU Fail Detector HardIRQ handler!\n");
 
 	return IRQ_WAKE_THREAD;
 }
@@ -83,7 +72,7 @@ static irqreturn_t exynos_ppmpu_irq_handler_thread(int irq, void *dev_id)
 	int i;
 
 	if (data->need_log == PPMPU_SKIP_FAIL_INFO_LOGGING) {
-		pr_info("PPMPU_FAIL_DETECTOR: Ignore PPMPU illegal reads\n");
+		pr_debug("PPMPU_FAIL_DETECTOR: Ignore PPMPU illegal reads\n");
 		return IRQ_HANDLED;
 	}
 
@@ -121,14 +110,12 @@ static irqreturn_t exynos_ppmpu_irq_handler_thread(int irq, void *dev_id)
 				PPMPU_ILLEGAL_FIELD_FAIL_ID_MASK);
 
 			pr_info("- [READ] Interrupt Status : %s\n",
-				(data->fail_info[i].ppmpu_intr_stat &
-				PPMPU_READ_INTR_STATUS) ?
+				intr_stat & PPMPU_READ_INTR_STATUS ?
 				"Interrupt is asserted" :
 				"Interrupt is not asserted");
 
 			pr_info("- [READ] Interrupt Overrun : %s\n",
-				(data->fail_info[i].ppmpu_intr_stat &
-				PPMPU_READ_INTR_STATUS_OVERRUN) ?
+				intr_stat & PPMPU_READ_INTR_STATUS_OVERRUN ?
 				"Two or more failures occurred" :
 				"Only one failure occurred");
 
@@ -155,14 +142,12 @@ static irqreturn_t exynos_ppmpu_irq_handler_thread(int irq, void *dev_id)
 				PPMPU_ILLEGAL_FIELD_FAIL_ID_MASK);
 
 			pr_info("- [WRITE] Interrupt Status : %s\n",
-				(data->fail_info[i].ppmpu_intr_stat &
-				PPMPU_WRITE_INTR_STATUS) ?
+				intr_stat & PPMPU_WRITE_INTR_STATUS ?
 				"Interrupt is asserted" :
 				"Interrupt is not asserted");
 
 			pr_info("- [WRITE] Interrupt Overrun : %s\n",
-				(data->fail_info[i].ppmpu_intr_stat &
-				PPMPU_WRITE_INTR_STATUS_OVERRUN) ?
+				intr_stat & PPMPU_WRITE_INTR_STATUS_OVERRUN ?
 				"Two or more failures occurred" :
 				"Only one failure occurred");
 
@@ -233,7 +218,7 @@ static int exynos_ppmpu_probe(struct platform_device *pdev)
 			break;
 		case PPMPU_ERROR_INVALID_FAIL_INFO_SIZE:
 			dev_err(data->dev,
-				"The size of struct ppmpu_fail_info(%#x) is invalid\n",
+				"The size of struct ppmpu_fail_info(%#lx) is invalid\n",
 				sizeof(struct ppmpu_fail_info));
 			break;
 		case SMC_CMD_CHECK_PPMPU_CH_NUM:
@@ -264,7 +249,15 @@ static int exynos_ppmpu_probe(struct platform_device *pdev)
 	 * DRM LDFW has mapped Kernel region with non-cacheable,
 	 * so Kernel allocates it by dma_alloc_coherent
 	 */
-	data->fail_info = dma_alloc_coherent(data->dev,
+	ret = dma_set_mask(data->dev, DMA_BIT_MASK(36));
+	if (ret) {
+		dev_err(data->dev,
+			"Fail to dma_set_mask. ret[%d]\n",
+			ret);
+		goto out;
+	}
+
+	data->fail_info = dma_zalloc_coherent(data->dev,
 						sizeof(struct ppmpu_fail_info) *
 						data->ch_num,
 						&data->fail_info_pa,
@@ -279,7 +272,7 @@ static int exynos_ppmpu_probe(struct platform_device *pdev)
 		"VA of ppmpu_fail_info : %lx\n",
 		(unsigned long)data->fail_info);
 	dev_dbg(data->dev,
-		"PA of ppmpu_fail_info : %lx\n",
+		"PA of ppmpu_fail_info : %llx\n",
 		data->fail_info_pa);
 
 	ret = of_property_read_u32(data->dev->of_node, "irqcnt", &data->irqcnt);

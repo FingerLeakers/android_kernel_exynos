@@ -10,7 +10,7 @@
 */
 
 /dts-v1/;
-#include "emulator9820.dts"
+#include "exynos9820.dtsi"
 
 / {
 	model = "Samsung EMULATOR9820 board based on EXYNOS9820";

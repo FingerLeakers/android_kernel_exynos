@@ -12,6 +12,7 @@
 #include "phy-samsung-usb-cal.h"
 #include "phy-exynos-usb3p1.h"
 #include "phy-exynos-usbdp-gen2.h"
+#include "phy-exynos-usbdp-gen2-v2.h"
 
 #define EXYNOS_USBPHY_VER_02_0_0	0x0200	/* Lhotse - USBDP Combo PHY */
 
@@ -148,6 +149,7 @@ struct exynos_usbdrd_phy {
 	void __iomem *reg_phy;
 	void __iomem *reg_phy2;
 	void __iomem *reg_phy3;
+	void __iomem *reg_link;
 	struct clk **clocks;
 	struct clk **phy_clocks;
 	const struct exynos_usbdrd_phy_drvdata *drv_data;
@@ -186,12 +188,14 @@ struct exynos_usbdrd_phy {
 	struct tune_bits *otp_data[OTP_SUPPORT_USBPHY_NUMBER];
 #endif
 	int irq_wakeup;
+	int usb3_irq_wakeup;
 	int irq_conn;
 	int is_conn;
 	int is_irq_enabled;
 	u32 phy_port;
 	u32 reverse_phy_port;
 	spinlock_t lock;
+	u32 use_default_tune_val;
 };
 
 void __iomem *phy_exynos_usbdp_get_address(void);

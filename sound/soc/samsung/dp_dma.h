@@ -48,10 +48,15 @@ struct displayport_audio_config_data {
 	enum audio_dma_word_length audio_word_length;
 };
 
+struct dp_audio_pdata {
+	u32 id;
+	u32 fifo_addr;
+};
+
 #if defined(CONFIG_EXYNOS_MIPI_DISPLAYPORT) || defined (CONFIG_EXYNOS_DISPLAYPORT)
-extern int displayport_audio_config(struct displayport_audio_config_data *audio_config_data);
+extern int displayport_audio_config(u32 sst_id, struct displayport_audio_config_data *audio_config_data);
 #else
-int displayport_audio_config(struct displayport_audio_config_data *audio_config_data)
+int displayport_audio_config(u32 sst_id, struct displayport_audio_config_data *audio_config_data)
 {
 	return -ENODEV;
 }

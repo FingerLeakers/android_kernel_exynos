@@ -12,7 +12,7 @@
 
 #ifndef __S6E3FA7_BEYOND0_A3_S0_PANEL_H__
 #define __S6E3FA7_BEYOND0_A3_S0_PANEL_H__
-#include "../panel.h"
+#include "../panel_drv.h"
 #include "s6e3fa7.h"
 #include "s6e3fa7_dimming.h"
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
@@ -40,6 +40,7 @@
 #endif
 
 #include "s6e3fa7_beyond_irc.h"
+#include "s6e3fa7_beyond_resol.h"
 
 #undef __pn_name__
 #define __pn_name__	beyond0_a3_s0
@@ -1267,12 +1268,6 @@ static void *beyond0_a3_s0_dsu_mode_cmdtbl[] = {
 };
 #endif
 
-static void *beyond0_a3_s0_check_condition_cmdtbl[] = {
-	&KEYINFO(beyond0_a3_s0_level2_key_enable),
-	&s6e3fa7_dmptbl[DUMP_RDDPM],
-	&KEYINFO(beyond0_a3_s0_level2_key_disable),
-};
-
 static void *beyond0_a3_s0_mcd_on_cmdtbl[] = {
 	&KEYINFO(beyond0_a3_s0_level2_key_enable),
 	&PKTINFO(beyond0_a3_s0_mcd_on_01),
@@ -1654,7 +1649,6 @@ static struct seqinfo beyond0_a3_s0_seqtbl[MAX_PANEL_SEQ] = {
 #ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
 	[PANEL_FFC_SEQ] = SEQINFO_INIT("ffc-seq", beyond0_a3_s0_ffc_cmdtbl),
 #endif
-	[PANEL_CHECK_CONDITION_SEQ] = SEQINFO_INIT("check-condition-seq", beyond0_a3_s0_check_condition_cmdtbl),
 	[PANEL_DUMP_SEQ] = SEQINFO_INIT("dump-seq", beyond0_a3_s0_dump_cmdtbl),
 	[PANEL_DUMMY_SEQ] = SEQINFO_INIT("dummy-seq", beyond0_a3_s0_dummy_cmdtbl),
 };
@@ -1668,6 +1662,10 @@ struct common_panel_info s6e3fa7_beyond0_a3_s0_preliminary_panel_info = {
 	.rev = 0,
 	.ddi_props = {
 		.gpara = (DDI_SUPPORT_WRITE_GPARA | DDI_SUPPORT_READ_GPARA),
+	},
+	.mres = {
+		.nr_resol = ARRAY_SIZE(s6e3fa7_beyond_resol),
+		.resol = s6e3fa7_beyond_resol,
 	},
 	.maptbl = beyond0_a3_s0_maptbl,
 	.nr_maptbl = ARRAY_SIZE(beyond0_a3_s0_maptbl),

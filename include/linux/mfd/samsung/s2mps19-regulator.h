@@ -22,6 +22,10 @@
 #define __LINUX_MFD_S2MPS19_REGULATOR_H
 #include <linux/i2c.h>
 
+/* WRSTBI registers */
+#define PMUREG_SYSTEM_OUT		0x3A20
+#define WRSTBI_MASK			(1 << 8)
+
 #define S2MPS19_REG_INVALID             (0xFF)
 #define S2MPS19_IRQSRC_PMIC				(1 << 0)
 
@@ -163,9 +167,9 @@ enum S2MPS19_regulators {
 	S2MPS19_LDO10,
 	S2MPS19_LDO11,
 	S2MPS19_LDO12,
-/*	S2MPS19_LDO13,
+	S2MPS19_LDO13,
 	S2MPS19_LDO14,
-*/	S2MPS19_LDO15,
+	S2MPS19_LDO15,
 	S2MPS19_LDO16,
 	S2MPS19_LDO17,
 	S2MPS19_LDO18,
@@ -396,6 +400,12 @@ struct s2mps19_dev {
 	int adc_sync_mode;
 
 	struct s2mps19_platform_data *pdata;
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	struct device *powermeter_dev;
+#endif
+#ifdef CONFIG_SEC_PM
+	struct device *ap_pmic_dev;
+#endif /* CONFIG_SEC_PM */
 };
 
 enum s2mps19_types {
@@ -424,8 +434,5 @@ extern int s2mps19_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
 extern void get_s2mps19_i2c(struct i2c_client **i2c);
 #endif
 
-#ifdef CONFIG_SEC_PM
-extern struct device *ap_pmic_dev;
-#endif /* CONFIG_SEC_PM */
 #endif /* __LINUX_MFD_S2MPS19_REGULATOR_H */
 

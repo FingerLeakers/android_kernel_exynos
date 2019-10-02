@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /**
  * dwc3-exynos.c - Samsung EXYNOS DWC3 Specific Glue layer
  *
@@ -5,15 +6,6 @@
  *		http://www.samsung.com
  *
  * Author: Anton Tikhomirov <av.tikhomirov@samsung.com>
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2  of
- * the License as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/module.h>
@@ -30,6 +22,9 @@
 #include <linux/of_platform.h>
 #include <linux/regulator/consumer.h>
 #include <linux/workqueue.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
+#include <linux/soc/samsung/exynos-soc.h>
 
 
 #include <linux/io.h>
@@ -158,6 +153,16 @@ static int dwc3_exynos_clk_enable(struct dwc3_exynos *exynos)
 	int i;
 	int ret;
 
+#if defined(CONFIG_SOC_EXYNOS9830)
+	if (exynos_soc_info.main_rev == 1) {
+		pr_info("Set USB ref_clk to 40Mhz.\n");
+		clk_set_rate(exynos->clocks[1],40000000);
+	} else if (exynos_soc_info.main_rev == 0) {
+		pr_info("Set USB ref_clk to 66Mhz.\n");
+		clk_set_rate(exynos->clocks[1], 66625000);
+	}
+#endif
+
 	for (i = 0; exynos->clocks[i] != NULL; i++) {
 		ret = clk_enable(exynos->clocks[i]);
 		if (ret)
@@ -187,6 +192,11 @@ static void dwc3_exynos_clk_unprepare(struct dwc3_exynos *exynos)
 static void dwc3_exynos_clk_disable(struct dwc3_exynos *exynos)
 {
 	int i;
+
+#if defined(CONFIG_SOC_EXYNOS9830)
+	pr_info("Set USB clock set dummy 10Mhz.\n");
+	clk_set_rate(exynos->clocks[1], 10000000);
+#endif
 
 	for (i = 0; exynos->clocks[i] != NULL; i++)
 		clk_disable(exynos->clocks[i]);
@@ -341,34 +351,6 @@ int dwc3_exynos_vbus_event(struct device *dev, bool vbus_active)
 EXPORT_SYMBOL_GPL(dwc3_exynos_vbus_event);
 
 /**
- * dwc3_exynos_start_ldo - received ldo control event.
- */
-int dwc3_exynos_start_ldo(struct device *dev, bool on)
-{
-#if 0 // temp
-	struct dwc3_exynos	*exynos;
-	struct dwc3_exynos_rsw	*rsw;
-	struct otg_fsm		*fsm;
-
-	dev_dbg(dev, "%s, %s\n", __func__, on ? "on" : "off");
-
-	exynos = dev_get_drvdata(dev);
-	if (!exynos)
-		return -ENOENT;
-
-	rsw = &exynos->rsw;
-
-	fsm = rsw->fsm;
-	if (!fsm)
-		return -ENOENT;
-
-	dwc3_otg_ldo_control(fsm, on);
-#endif
-	return 0;
-}
-EXPORT_SYMBOL_GPL(dwc3_exynos_start_ldo);
-
-/**
  * dwc3_exynos_phy_enable - received combo phy control.
  */
 int dwc3_exynos_phy_enable(int owner, bool on)
@@ -489,6 +471,10 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 	struct dwc3_exynos	*exynos;
 	struct device		*dev = &pdev->dev;
 	struct device_node	*node = dev->of_node;
+#ifdef USB_USE_IOCOHERENCY
+	struct regmap *reg_sysreg;
+#endif
+
 	int			ret;
 
 	pr_info("%s: +++\n", __func__);
@@ -504,7 +490,7 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, exynos);
 
-	exynos->dev = dev;
+	exynos->dev	= dev;
 
 	exynos->idle_ip_index = exynos_get_idle_ip_index(dev_name(dev));
 	exynos_update_ip_idle_status(exynos->idle_ip_index, 0);
@@ -569,6 +555,16 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto populate_err;
 	}
+
+#ifdef USB_USE_IOCOHERENCY
+	dev_info(dev,"Configure USB sharability.\n");
+	reg_sysreg = syscon_regmap_lookup_by_phandle(dev->of_node,
+							"samsung,sysreg-hsi0");
+	if (IS_ERR(reg_sysreg)) {
+		dev_err(dev, "Failed to lookup Sysreg regmap\n");
+	}
+	regmap_update_bits(reg_sysreg, 0x704, 0x6, 0x6);
+#endif
 
 	pr_info("%s: ---\n", __func__);
 	return 0;
@@ -667,7 +663,7 @@ static int dwc3_exynos_suspend(struct device *dev)
 		regulator_disable(exynos->vdd10);
 
 	/* inform what USB state is idle to IDLE_IP */
-	//exynos_update_ip_idle_status(exynos->idle_ip_index, 1);
+	/* exynos_update_ip_idle_status(exynos->idle_ip_index, 1); */
 
 	return 0;
 }
@@ -677,10 +673,10 @@ static int dwc3_exynos_resume(struct device *dev)
 	struct dwc3_exynos *exynos = dev_get_drvdata(dev);
 	int ret;
 
-	dev_dbg(dev, "%s\n", __func__);
+	dev_info(dev, "%s\n", __func__);
 
 	/* inform what USB state is not idle to IDLE_IP */
-	//exynos_update_ip_idle_status(exynos->idle_ip_index, 0);
+	/* exynos_update_ip_idle_status(exynos->idle_ip_index, 0); */
 
 	if (exynos->vdd33) {
 		ret = regulator_enable(exynos->vdd33);

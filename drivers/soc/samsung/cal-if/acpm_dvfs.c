@@ -59,7 +59,7 @@ int exynos_acpm_set_init_freq(unsigned int dfs_id, unsigned long freq)
 	config.response = true;
 	config.indirection = false;
 	config.cmd[0] = id;
-	config.cmd[1] = (unsigned int)freq;
+	config.cmd[1] = freq;
 	config.cmd[2] = DATA_INIT;
 	config.cmd[3] = SET_INIT_FREQ;
 
@@ -100,9 +100,11 @@ unsigned long exynos_acpm_get_rate(unsigned int id)
 	return config.cmd[1];
 }
 
-char margin_list[MAX_MARGIN_ID][10] = {"MIF", "INT", "BIG", "MID", "LIT", "G3D",
+const char *margin_list[MAX_MARGIN_ID] = {
+		"MIF", "INT", "BIG", "LIT", "G3D",
 		"INTCAM", "CAM", "DISP", "G3DM",
-		"CP", "FSYS0", "AUD", "IVA", "SCORE", "NPU", "MFC"};
+		"CP", "FSYS0", "AUD", "IVA", "SCORE", "NPU", "MFC", "MID",
+		"DSP", "DNC", "TNR"};
 
 int exynos_acpm_set_volt_margin(unsigned int id, int volt)
 {
@@ -121,7 +123,7 @@ int exynos_acpm_set_volt_margin(unsigned int id, int volt)
 	config.cmd[3] = 0;
 
 	before = sched_clock();
-	ret = acpm_ipc_send_data(acpm_dvfs.ch_num, &config);
+	ret = acpm_ipc_send_data_lazy(acpm_dvfs.ch_num, &config);
 	after = sched_clock();
 	latency = after - before;
 	if (ret)
@@ -151,7 +153,7 @@ int exynos_acpm_set_cold_temp(unsigned int id, bool is_cold_temp)
 	config.cmd[3] = 0;
 
 	before = sched_clock();
-	ret = acpm_ipc_send_data(acpm_dvfs.ch_num, &config);
+	ret = acpm_ipc_send_data_lazy(acpm_dvfs.ch_num, &config);
 	after = sched_clock();
 	latency = after - before;
 	if (ret)

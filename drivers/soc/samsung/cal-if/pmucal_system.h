@@ -33,6 +33,7 @@ enum sys_powerdown {
 	SYS_SLEEP_AUD_ON,
 	SYS_FAPO,
 	SYS_SLEEP_USBL2,
+	SYS_SLEEP_HSI2ON,
 	NUM_SYS_POWERDOWN,
 };
 

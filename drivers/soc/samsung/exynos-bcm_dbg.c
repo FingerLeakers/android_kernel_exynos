@@ -10,8 +10,10 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/of_platform.h>
+#include <linux/uaccess.h>
 #include <linux/clk.h>
 #include <linux/suspend.h>
+#include <linux/memblock.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/of_reserved_mem.h>
@@ -22,17 +24,28 @@
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
 
+#ifdef	CONFIG_EXYNOS_ADV_TRACER
 #include <soc/samsung/exynos-adv-tracer-ipc.h>
+#endif
 #include <soc/samsung/exynos-bcm_dbg.h>
 #include <soc/samsung/exynos-bcm_dbg-dt.h>
 #include <soc/samsung/exynos-bcm_dbg-dump.h>
 #include <soc/samsung/exynos-pd.h>
 #include <soc/samsung/cal-if.h>
+#ifdef	CONFIG_EXYNOS_ITMON
 #include <soc/samsung/exynos-itmon.h>
+#endif
 
 static struct exynos_bcm_dbg_data *bcm_dbg_data = NULL;
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+static struct vm_struct bcm_early_vm;
+static void *bcm_addr;
+static struct bin_system_func *bin_func;
+static struct os_system_func os_func;
+typedef struct bin_system_func*(*start_up_func_t)(void **func);
+#endif
 
-#ifdef CONFIG_EXYNOS_ADV_TRACER
+#if defined(CONFIG_EXYNOS_ADV_TRACER) || defined(CONFIG_EXYNOS_BCM_DBG_GNR)
 static enum exynos_bcm_err_code exynos_bcm_dbg_ipc_err_handle(unsigned int cmd)
 {
 	enum exynos_bcm_err_code err_code;
@@ -76,12 +89,16 @@ static int exynos_bcm_is_running(unsigned int run_state)
 }
 
 static int __exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
-				struct exynos_bcm_dbg_data *data,
-				unsigned int *cmd)
+		struct exynos_bcm_dbg_data *data, unsigned int *cmd)
 {
-#ifdef CONFIG_EXYNOS_ADV_TRACER
-	int i, ret = 0;
+	int ret = 0;
+#if defined(CONFIG_EXYNOS_ADV_TRACER)
+	int i = 0;
 	struct adv_tracer_ipc_cmd config;
+#elif defined(CONFIG_EXYNOS_BCM_DBG_GNR)
+	int i = 0;
+	struct cmd_data config;
+#endif
 	enum exynos_bcm_err_code ipc_err;
 	unsigned int *bcm_cmd;
 
@@ -92,17 +109,23 @@ static int __exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
 		return ret;
 	}
 
-	config.cmd_raw.cmd = BCM_CMD_SET(ipc_type, BCM_CMD_ID_MASK, BCM_CMD_ID_SHIFT);
 	bcm_cmd = cmd;
+#if defined(CONFIG_EXYNOS_ADV_TRACER)
+	config.cmd_raw.cmd = BCM_CMD_SET(ipc_type, BCM_CMD_ID_MASK, BCM_CMD_ID_SHIFT);
 	memcpy(&config.buffer[1], bcm_cmd, sizeof(unsigned int) * CMD_DATA_MAX);
-
 	ret = adv_tracer_ipc_send_data_polling(data->ipc_ch_num, &config);
+#elif defined(CONFIG_EXYNOS_BCM_DBG_GNR)
+	config.raw_cmd = BCM_CMD_SET(ipc_type, BCM_CMD_ID_MASK, BCM_CMD_ID_SHIFT);
+	memcpy(config.cmd, bcm_cmd, sizeof(unsigned int) * CMD_DATA_MAX);
+	ret = bin_func->send_data(&config);
+#endif
 	if (ret) {
-		BCM_ERR("%s: Failed to send IPC(%d:%u) data to dbgc\n",
+		BCM_ERR("%s: Failed to send IPC(%d:%u) data to origin\n",
 			__func__, ipc_type, data->ipc_ch_num);
 		return ret;
 	}
 
+#if defined(CONFIG_EXYNOS_ADV_TRACER)
 	for (i = 0; i < data->ipc_size; i++)
 		BCM_DBG("%s: received data[%d]: 0x%08x\n",
 				__func__, i, config.buffer[i]);
@@ -110,18 +133,26 @@ static int __exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
 	memcpy(bcm_cmd, &config.buffer[1], sizeof(unsigned int) * CMD_DATA_MAX);
 
 	ipc_err = exynos_bcm_dbg_ipc_err_handle(config.cmd_raw.cmd);
+#elif defined(CONFIG_EXYNOS_BCM_DBG_GNR)
+	BCM_DBG("%s: received data raw: 0x%08x\n", __func__, config.raw_cmd);
+	for (i = 0; i < CMD_DATA_MAX; i++)
+		BCM_DBG("%s: received data[%d]: 0x%08x\n",
+				__func__, i, config.cmd[i]);
+
+	memcpy(bcm_cmd, config.cmd, sizeof(unsigned int) * CMD_DATA_MAX);
+
+	ipc_err = exynos_bcm_dbg_ipc_err_handle(config.raw_cmd);
+#endif
 	if (ipc_err) {
 		ret = -EBADMSG;
 		return ret;
 	}
-#endif
 
 	return 0;
 }
 
 int exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
-				struct exynos_bcm_dbg_data *data,
-				unsigned int *cmd)
+		struct exynos_bcm_dbg_data *data, unsigned int *cmd)
 {
 	int ret;
 	unsigned long flags;
@@ -177,7 +208,6 @@ int exynos_bcm_dbg_ipc_channel_request(struct exynos_bcm_dbg_data *data)
 static inline
 void exynos_bcm_dbg_ipc_channel_release(struct exynos_bcm_dbg_data *data)
 {
-	return;
 }
 #endif
 
@@ -235,8 +265,8 @@ int exynos_bcm_dbg_pd_sync(unsigned int cal_pdid, bool on)
 	int i, ret = 0;
 
 	if (!bcm_dbg_data || !bcm_dbg_data->pd_sync_init) {
-		BCM_DBG("%s: do not pd_sync_init(%s)\n",
-			__func__, data->pd_sync_init ? "true" : "false");
+		BCM_DBG("%s: do not pd_sync_init(%s)\n", __func__,
+				bcm_dbg_data->pd_sync_init ? "true" : "false");
 		return 0;
 	}
 
@@ -423,11 +453,13 @@ static int exynos_bcm_dbg_event_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_i
 		cmd[0] |= BCM_CMD_SET(bcm_event->index, BCM_EVT_PRE_DEFINE_MASK,
 					BCM_EVT_PRE_DEFINE_SHIFT);
 
-		for (i = 0; i < (BCM_EVT_EVENT_MAX / 2); i++) {
+		for (i = 0; i < BCM_EVT_EVENT_MAX / 2; i++) {
 			cmd[1] |= BCM_CMD_SET(bcm_event->event[i], BCM_EVT_EVENT_MASK,
 						BCM_EVT_EVENT_SHIFT(i));
-			cmd[2] |= BCM_CMD_SET(bcm_event->event[i + 4], BCM_EVT_EVENT_MASK,
+			if (data->bcm_cnt_nr > 4) {
+				cmd[2] |= BCM_CMD_SET(bcm_event->event[i + 4], BCM_EVT_EVENT_MASK,
 						BCM_EVT_EVENT_SHIFT(i + 4));
+			}
 		}
 	}
 
@@ -442,11 +474,13 @@ static int exynos_bcm_dbg_event_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_i
 		bcm_event->index = BCM_CMD_GET(cmd[0], BCM_EVT_PRE_DEFINE_MASK,
 						BCM_EVT_PRE_DEFINE_SHIFT);
 
-		for (i = 0; i < (BCM_EVT_EVENT_MAX / 2); i++) {
+		for (i = 0; i < BCM_EVT_EVENT_MAX / 2; i++) {
 			bcm_event->event[i] = BCM_CMD_GET(cmd[1], BCM_EVT_EVENT_MASK,
 							BCM_EVT_EVENT_SHIFT(i));
-			bcm_event->event[i + 4] = BCM_CMD_GET(cmd[2], BCM_EVT_EVENT_MASK,
-							BCM_EVT_EVENT_SHIFT(i + 4));
+			if (data->bcm_cnt_nr > 4) {
+				bcm_event->event[i + 4] = BCM_CMD_GET(cmd[2], BCM_EVT_EVENT_MASK,
+						BCM_EVT_EVENT_SHIFT(i + 4));
+			}
 		}
 	}
 
@@ -496,7 +530,7 @@ static int exynos_bcm_dbg_filter_id_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 
 		cmd[1] = filter_id->sm_id_mask;
 		cmd[2] = filter_id->sm_id_value;
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			cmd[3] |= BCM_CMD_SET(filter_id->sm_id_active[i],
 					BCM_ONE_BIT_MASK, BCM_EVT_FLT_ACT_SHIFT(i));
 	}
@@ -511,7 +545,7 @@ static int exynos_bcm_dbg_filter_id_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 	if (ipc_base_info->direction == BCM_EVT_GET) {
 		filter_id->sm_id_mask = cmd[1];
 		filter_id->sm_id_value = cmd[2];
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			filter_id->sm_id_active[i] = BCM_CMD_GET(cmd[3],
 							BCM_ONE_BIT_MASK,
 							BCM_EVT_FLT_ACT_SHIFT(i));
@@ -574,7 +608,7 @@ static int exynos_bcm_dbg_filter_others_ctrl(
 						BCM_EVT_FLT_OTHR_VALUE_SHIFT(i));
 		}
 
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			cmd[2] |= BCM_CMD_SET(filter_others->sm_other_active[i],
 					BCM_ONE_BIT_MASK, BCM_EVT_FLT_ACT_SHIFT(i));
 	}
@@ -599,7 +633,7 @@ static int exynos_bcm_dbg_filter_others_ctrl(
 						BCM_EVT_FLT_OTHR_VALUE_SHIFT(i));
 		}
 
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			filter_others->sm_other_active[i] =
 				BCM_CMD_GET(cmd[2], BCM_ONE_BIT_MASK,
 						BCM_EVT_FLT_ACT_SHIFT(i));
@@ -651,7 +685,7 @@ static int exynos_bcm_dbg_sample_id_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 
 		cmd[1] = sample_id->peak_mask;
 		cmd[2] = sample_id->peak_id;
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			cmd[3] |= BCM_CMD_SET(sample_id->peak_enable[i],
 					BCM_ONE_BIT_MASK, BCM_EVT_FLT_ACT_SHIFT(i));
 	}
@@ -666,7 +700,7 @@ static int exynos_bcm_dbg_sample_id_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 	if (ipc_base_info->direction == BCM_EVT_GET) {
 		sample_id->peak_mask = cmd[1];
 		sample_id->peak_id = cmd[2];
-		for (i = 0; i < BCM_EVT_EVENT_MAX; i++)
+		for (i = 0; i < data->bcm_cnt_nr; i++)
 			sample_id->peak_enable[i] = BCM_CMD_GET(cmd[3],
 							BCM_ONE_BIT_MASK,
 							BCM_EVT_FLT_ACT_SHIFT(i));
@@ -709,9 +743,8 @@ static int exynos_bcm_dbg_run_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_inf
 		run = *bcm_run;
 
 		if (!(run ^ data->bcm_run_state)) {
-			BCM_INFO("%s: same run control command(%u)"
-				"bcm_run_state(%u)\n", __func__,
-				run, data->bcm_run_state);
+			BCM_INFO("%s: same run control command(%u) bcm_run_state(%u)\n",
+					__func__, run, data->bcm_run_state);
 			goto out;
 		}
 
@@ -725,6 +758,11 @@ static int exynos_bcm_dbg_run_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_inf
 							>> EXYNOS_BCM_32BIT_SHIFT);
 			cmd[1] = low_ktime;
 			cmd[2] = high_ktime;
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+			if (data->bcm_mode != BCM_MODE_USERCTRL)
+				hrtimer_try_to_cancel(&data->bcm_hrtimer);
+#endif
 		}
 	}
 
@@ -741,6 +779,11 @@ static int exynos_bcm_dbg_run_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_inf
 		*bcm_run = run;
 	} else if (ipc_base_info->direction == BCM_EVT_SET) {
 		data->bcm_run_state = run;
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+		if (run == BCM_RUN && data->bcm_mode != BCM_MODE_USERCTRL)
+			hrtimer_start(&data->bcm_hrtimer,
+				ms_to_ktime(data->period), HRTIMER_MODE_REL);
+#endif
 	}
 
 	spin_unlock_irqrestore(&data->lock, flags);
@@ -822,6 +865,9 @@ static int exynos_bcm_dbg_period_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_
 		*bcm_period = period;
 	}
 
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	data->period = period;
+#endif
 out:
 	spin_unlock_irqrestore(&data->lock, flags);
 
@@ -889,6 +935,10 @@ static int exynos_bcm_dbg_mode_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_in
 		*bcm_mode = mode;
 	}
 
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	data->bcm_mode = mode;
+#endif
+
 out:
 	spin_unlock_irqrestore(&data->lock, flags);
 
@@ -925,6 +975,11 @@ static int exynos_bcm_dbg_str_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_inf
 		suspend = *ap_suspend;
 		cmd[0] |= BCM_CMD_SET(suspend, BCM_ONE_BIT_MASK,
 					BCM_EVT_STR_STATE_SHIFT);
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+		if (suspend && data->bcm_mode != BCM_MODE_USERCTRL)
+			hrtimer_try_to_cancel(&data->bcm_hrtimer);
+#endif
 	}
 
 	/* send command for BCM STR state */
@@ -939,6 +994,13 @@ static int exynos_bcm_dbg_str_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_inf
 					BCM_EVT_STR_STATE_SHIFT);
 		*ap_suspend = suspend;
 	}
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	if (ipc_base_info->direction == BCM_EVT_SET) {
+		if (!suspend && data->bcm_mode != BCM_MODE_USERCTRL)
+			hrtimer_start(&data->bcm_hrtimer,
+				ms_to_ktime(data->period), HRTIMER_MODE_REL);
+	}
+#endif
 
 out:
 	spin_unlock_irqrestore(&data->lock, flags);
@@ -1017,6 +1079,9 @@ static int exynos_bcm_dbg_dump_addr_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 	unsigned int cmd[4] = {0, 0, 0, 0};
 	int ret = 0;
 	unsigned long flags;
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	u64 v_addr;
+#endif
 
 	spin_lock_irqsave(&data->lock, flags);
 
@@ -1044,6 +1109,20 @@ static int exynos_bcm_dbg_dump_addr_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 		if (ret)
 			goto out;
 
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+		v_addr = (u64)dump_addr->v_addr;
+		if (!v_addr || !dump_addr->buff_size) {
+			BCM_ERR("%s: No dump address info: v_addr(%llu), buff_size(0x%08x)\n",
+					__func__, v_addr, dump_addr->buff_size);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		cmd[1] = (unsigned int)(v_addr & EXYNOS_BCM_U64_LOW_MASK);
+		cmd[2] = (unsigned int)((v_addr & EXYNOS_BCM_U64_HIGH_MASK)
+						>> EXYNOS_BCM_32BIT_SHIFT);
+		cmd[3] = (unsigned int)dump_addr->buff_size;
+#else
 		if (!dump_addr->p_addr || !dump_addr->buff_size) {
 			BCM_ERR("%s: No dump address info: p_addr(0x%08x), buff_size(0x%08x)\n",
 					__func__, dump_addr->p_addr, dump_addr->buff_size);
@@ -1053,6 +1132,7 @@ static int exynos_bcm_dbg_dump_addr_ctrl(struct exynos_bcm_ipc_base_info *ipc_ba
 
 		cmd[1] = (unsigned int)dump_addr->p_addr;
 		cmd[2] = (unsigned int)dump_addr->buff_size;
+#endif
 	}
 
 	/* send command for BCM Dump address info */
@@ -1068,6 +1148,58 @@ out:
 	return ret;
 }
 #endif
+
+static int exynos_bcm_dbg_glb_auto_ctrl(struct exynos_bcm_ipc_base_info *ipc_base_info,
+					unsigned int *glb_auto_en,
+					struct exynos_bcm_dbg_data *data)
+{
+	unsigned int cmd[4] = {0, 0, 0, 0};
+	unsigned int glb_en;
+	int ret = 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&data->lock, flags);
+
+	if (!ipc_base_info) {
+		BCM_ERR("%s: pointer is NULL\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	exynos_bcm_dbg_set_base_cmd(cmd, ipc_base_info);
+
+	if (ipc_base_info->event_id != BCM_EVT_GLBAUTO_CONT) {
+		BCM_ERR("%s: Invalid Event ID(%d)\n", __func__,
+					ipc_base_info->event_id);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	glb_en = *glb_auto_en;
+	if (ipc_base_info->direction == BCM_EVT_SET) {
+		cmd[0] |= BCM_CMD_SET(glb_en, BCM_ONE_BIT_MASK,
+					BCM_EVT_GLBAUTO_SHIFT);
+
+	}
+
+	/* send command for BCM glb en */
+	ret = __exynos_bcm_dbg_ipc_send_data(IPC_BCM_DBG_EVENT, data, cmd);
+	if (ret) {
+		BCM_ERR("%s: Failed send data\n", __func__);
+		goto out;
+	}
+
+	if (ipc_base_info->direction == BCM_EVT_GET) {
+		glb_en = BCM_CMD_GET(cmd[0], BCM_ONE_BIT_MASK,
+					BCM_EVT_GLBAUTO_SHIFT);
+		*glb_auto_en = glb_en;
+	}
+
+out:
+	spin_unlock_irqrestore(&data->lock, flags);
+
+	return ret;
+}
 
 static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 {
@@ -1086,7 +1218,7 @@ static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 
 	default_event = data->default_define_event;
 	bcm_event.index = data->define_event[default_event].index;
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 		bcm_event.event[ev_cnt] =
 			data->define_event[default_event].event[ev_cnt];
 
@@ -1102,7 +1234,7 @@ static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 
 	filter_id.sm_id_mask = data->define_filter_id[default_event].sm_id_mask;
 	filter_id.sm_id_value = data->define_filter_id[default_event].sm_id_value;
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 		filter_id.sm_id_active[ev_cnt] =
 			data->define_filter_id[default_event].sm_id_active[ev_cnt];
 
@@ -1126,7 +1258,7 @@ static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 			data->define_filter_others[default_event].sm_other_value[othr_cnt];
 	}
 
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 		filter_others.sm_other_active[ev_cnt] =
 			data->define_filter_others[default_event].sm_other_active[ev_cnt];
 
@@ -1143,7 +1275,7 @@ static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 
 	sample_id.peak_mask = data->define_sample_id[default_event].peak_mask;
 	sample_id.peak_id = data->define_sample_id[default_event].peak_id;
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 		sample_id.peak_enable[ev_cnt] =
 			data->define_sample_id[default_event].peak_enable[ev_cnt];
 
@@ -1189,6 +1321,17 @@ static int exynos_bcm_dbg_early_init(struct exynos_bcm_dbg_data *data)
 		}
 	}
 
+	/* glb_auto mode set */
+	exynos_bcm_dbg_set_base_info(&ipc_base_info, BCM_EVT_GLBAUTO_CONT,
+					BCM_EVT_SET, 0);
+
+	ret = exynos_bcm_dbg_glb_auto_ctrl(&ipc_base_info,
+					&data->glb_auto_en, data);
+	if (ret) {
+		BCM_ERR("%s: failed set mode\n", __func__);
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -1215,9 +1358,19 @@ void exynos_bcm_dbg_start(void)
 	int ret;
 
 	if (!bcm_dbg_data) {
-		BCM_ERR("%s: bcm_dbg_data is not ready!\n", __func__);
+		BCM_INFO("%s: bcm_dbg_data is not ready!\n", __func__);
 		return;
 	}
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	if (!bcm_dbg_data->bcm_load_bin) {
+		ret = exynos_bcm_dbg_load_bin();
+		if (ret) {
+			BCM_ERR("%s failed to load BCM bin\n", __func__);
+			return;
+		}
+	}
+#endif
 
 	ret = exynos_bcm_dbg_run(BCM_RUN, bcm_dbg_data);
 	if (ret) {
@@ -1234,9 +1387,16 @@ void exynos_bcm_dbg_stop(unsigned int bcm_stop_owner)
 	int ret;
 
 	if (!bcm_dbg_data) {
-		BCM_ERR("%s: bcm_dbg_data is not ready!\n", __func__);
+		BCM_INFO("%s: bcm_dbg_data is not ready!\n", __func__);
 		return;
 	}
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	if (!bcm_dbg_data->bcm_load_bin) {
+		BCM_INFO("BCM bin has not been loaded yet!!\n");
+		return;
+	}
+#endif
 
 	if (bcm_stop_owner >= STOP_OWNER_MAX) {
 		BCM_ERR("Invalid stop owner (%u)\n", bcm_stop_owner);
@@ -1323,7 +1483,7 @@ static ssize_t show_bcm_dbg_data_df_event(struct device *dev,
 		count += snprintf(buf + count, PAGE_SIZE,
 				"Pre-defined Event index: %2u\n",
 				data->define_event[i].index);
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			count += snprintf(buf + count, PAGE_SIZE,
 				" Event[%d]: 0x%02x\n", j, data->define_event[i].event[j]);
 	}
@@ -1358,7 +1518,7 @@ static ssize_t show_bcm_dbg_data_df_filter(struct device *dev,
 				data->define_filter_id[i].sm_id_value);
 		count += snprintf(buf + count, PAGE_SIZE, " Filter ID active\n");
 
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					"  Event[%d]: %u\n", j,
 					data->define_filter_id[i].sm_id_active[j]);
@@ -1384,7 +1544,7 @@ static ssize_t show_bcm_dbg_data_df_filter(struct device *dev,
 
 		count += snprintf(buf + count, PAGE_SIZE, " Filter Others active\n");
 
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					"  Event[%d]: %u\n", j,
 					data->define_filter_others[i].sm_other_active[j]);
@@ -1414,7 +1574,7 @@ static ssize_t show_bcm_dbg_data_df_sample(struct device *dev,
 					data->define_sample_id[i].peak_id);
 		count += snprintf(buf + count, PAGE_SIZE, " Sample ID active\n");
 
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					"  Event[%d]: %u\n", j,
 					data->define_sample_id[i].peak_enable[j]);
@@ -1476,7 +1636,7 @@ static ssize_t show_get_event(struct device *dev,
 		count += snprintf(buf + count, PAGE_SIZE,
 					"bcm[%2d]: def(%2u),",
 					ip_cnt, bcm_event.index);
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					" (0x%02x),", bcm_event.event[ev_cnt]);
 		count += snprintf(buf + count, PAGE_SIZE, "\n");
@@ -1497,9 +1657,9 @@ static ssize_t show_event_ctrl_help(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "\n= event_ctrl set help =\n");
 	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			"echo [ip_range] [ip_index] [define_index] "
-			"[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] > "
-			"event_ctrl\n");
+			"echo [ip_range] [ip_index] [define_index]	\
+			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
+			event_ctrl\n");
 	count += snprintf(buf + count, PAGE_SIZE,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
@@ -1512,8 +1672,8 @@ static ssize_t show_event_ctrl_help(struct device *dev,
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
 	count += snprintf(buf + count, PAGE_SIZE,
-			" evX: event value of counter (if define_index is not 0,"
-			" set to 0\n"
+			" evX: event value of counter (if define_index is not 0,	\
+			set to 0\n"
 			"      event value should be hexa value\n");
 
 	return count;
@@ -1528,27 +1688,50 @@ static ssize_t store_event_ctrl(struct device *dev,
 	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
 	struct exynos_bcm_ipc_base_info ipc_base_info;
 	struct exynos_bcm_event bcm_event;
-	unsigned int bcm_ip_index;
-	unsigned int event_id, ip_range;
-	unsigned int defined_index;
-	unsigned int event[BCM_EVT_EVENT_MAX];
+	unsigned int bcm_ip_index = 0;
+	unsigned int ip_range = 0;
+	unsigned int event_id, defined_index;
+	unsigned int *event;
 	int ev_cnt, dfd_cnt, ret;
 
-	ret = sscanf(buf, "%u %u %u %x %x %x %x %x %x %x %x",
-			&ip_range, &bcm_ip_index, &defined_index,
-			&event[0], &event[1], &event[2], &event[3],
-			&event[4], &event[5], &event[6], &event[7]);
-	if (ret != 11)
+	event = kzalloc(sizeof(int) * data->bcm_cnt_nr, GFP_KERNEL);
+	if (event == NULL) {
+		BCM_ERR("%s: faild allocated of event memory\n", __func__);
+		return -ENOMEM;
+	}
+
+	if (data->bcm_cnt_nr == 4) {
+		ret = sscanf(buf, "%u %u %u %x %x %x %x",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&event[0], &event[1], &event[2], &event[3]);
+	} else if (data->bcm_cnt_nr == 8) {
+		ret = sscanf(buf, "%u %u %u %x %x %x %x %x %x %x %x",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&event[0], &event[1], &event[2], &event[3],
+				&event[4], &event[5], &event[6], &event[7]);
+	} else {
+		BCM_ERR("%s: invalid bcm_cnt_nr\n", __func__);
+		kfree(event);
 		return -EINVAL;
+	}
+
+	/* 3 means is the number of index */
+	if (ret != data->bcm_cnt_nr + 3) {
+		kfree(event);
+		return -EINVAL;
+	}
 
 	ret = exynos_bcm_ip_validate(ip_range, bcm_ip_index, data->bcm_ip_nr);
-	if (ret)
+	if (ret) {
+		kfree(event);
 		return ret;
+	}
 
 	if (defined_index >= data->define_event_max) {
 		BCM_ERR("%s: Invalid defined index(%u),"
 			" defined_max_nr(%u)\n", __func__,
 				defined_index, data->define_event_max - 1);
+		kfree(event);
 		return -EINVAL;
 	}
 
@@ -1564,13 +1747,13 @@ static ssize_t store_event_ctrl(struct device *dev,
 		}
 
 		bcm_event.index = data->define_event[dfd_cnt].index;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			bcm_event.event[ev_cnt] =
 				data->define_event[dfd_cnt].event[ev_cnt];
 	} else {
 		event_id = BCM_EVT_EVENT;
 		bcm_event.index = NO_PRE_DEFINE_EVT;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			bcm_event.event[ev_cnt] = event[ev_cnt];
 	}
 
@@ -1581,9 +1764,11 @@ static ssize_t store_event_ctrl(struct device *dev,
 						bcm_ip_index, data);
 	if (ret) {
 		BCM_ERR("%s:failed set event\n", __func__);
+		kfree(event);
 		return ret;
 	}
 
+	kfree(event);
 	return count;
 }
 
@@ -1642,7 +1827,7 @@ static ssize_t show_get_filter_id_active(struct device *dev,
 		}
 
 		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					" ev%d %u,", ev_cnt,
 					filter_id.sm_id_active[ev_cnt]);
@@ -1664,9 +1849,9 @@ static ssize_t show_filter_id_ctrl_help(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "\n= filter_id_ctrl set help =\n");
 	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			"echo [ip_range] [ip_index] [define_index] [mask] [value] "
-			"[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] > "
-			"filter_id_ctrl\n");
+			"echo [ip_range] [ip_index] [define_index] [mask] [value]	\
+			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
+			filter_id_ctrl\n");
 	count += snprintf(buf + count, PAGE_SIZE,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
@@ -1679,16 +1864,15 @@ static ssize_t show_filter_id_ctrl_help(struct device *dev,
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
 	count += snprintf(buf + count, PAGE_SIZE,
-			" mask: masking for filter id (if define_index is not 0,"
-			" set to 0)\n"
+			" mask: masking for filter id (if define_index is not 0,	\
+			set to 0)\n"
 			"       mask value should be hexa value\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			" value: value of filter id (if define_index is not 0,"
-			" set to 0)\n"
+			" value: value of filter id (if define_index is not 0, set to 0)\n"
 			"        value should be hexa value\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			" evX: event counter alloc for filter id"
-			" (if define_index is not 0, set to 0)\n"
+			" evX: event counter alloc for filter id	\
+			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
 
 	return count;
@@ -1703,25 +1887,49 @@ static ssize_t store_filter_id_ctrl(struct device *dev,
 	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
 	struct exynos_bcm_ipc_base_info ipc_base_info;
 	struct exynos_bcm_filter_id filter_id;
-	unsigned int bcm_ip_index, ip_range;
+	unsigned int bcm_ip_index = 0;
+	unsigned int ip_range = 0;
 	unsigned int defined_index;
 	unsigned int sm_id_mask, sm_id_value;
-	unsigned int sm_id_active[BCM_EVT_EVENT_MAX];
+	unsigned int *sm_id_active;
 	int ev_cnt, ret;
 
-	ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u %u %u %u %u",
-			&ip_range, &bcm_ip_index, &defined_index, &sm_id_mask, &sm_id_value,
-			&sm_id_active[0], &sm_id_active[1], &sm_id_active[2],
-			&sm_id_active[3], &sm_id_active[4], &sm_id_active[5],
-			&sm_id_active[6], &sm_id_active[7]);
-	if (ret != 13)
+	sm_id_active = kzalloc(sizeof(int) * data->bcm_cnt_nr, GFP_KERNEL);
+	if (sm_id_active == NULL) {
+		BCM_ERR("%s: faild allocated of sm_id_active memory\n", __func__);
+		return -ENOMEM;
+	}
+
+	if (data->bcm_cnt_nr == 4) {
+		ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index, &sm_id_mask, &sm_id_value,
+				&sm_id_active[0], &sm_id_active[1], &sm_id_active[2], &sm_id_active[3]);
+	} else if (data->bcm_cnt_nr == 8) {
+		ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index, &sm_id_mask, &sm_id_value,
+				&sm_id_active[0], &sm_id_active[1],
+				&sm_id_active[2], &sm_id_active[3],
+				&sm_id_active[4], &sm_id_active[5],
+				&sm_id_active[6], &sm_id_active[7]);
+	} else {
+		BCM_ERR("%s: invalid bcm_cnt_nr\n", __func__);
+		kfree(sm_id_active);
 		return -EINVAL;
+	}
+
+	/* 5 --> the number of index */
+	if (ret != data->bcm_cnt_nr + 5) {
+		kfree(sm_id_active);
+		return -EINVAL;
+	}
 
 	ret = exynos_bcm_ip_validate(ip_range, bcm_ip_index, data->bcm_ip_nr);
-	if (ret)
+	if (ret) {
+		kfree(sm_id_active);
 		return ret;
+	}
 
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++) {
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++) {
 		if (sm_id_active[ev_cnt])
 			sm_id_active[ev_cnt] = true;
 	}
@@ -1730,6 +1938,7 @@ static ssize_t store_filter_id_ctrl(struct device *dev,
 		BCM_ERR("%s: Invalid defined index(%u),"
 			" defined_max_nr(%u)\n", __func__,
 				defined_index, data->define_event_max - 1);
+		kfree(sm_id_active);
 		return -EINVAL;
 	}
 
@@ -1739,13 +1948,13 @@ static ssize_t store_filter_id_ctrl(struct device *dev,
 	if (defined_index != NO_PRE_DEFINE_EVT) {
 		filter_id.sm_id_mask = data->define_filter_id[defined_index].sm_id_mask;
 		filter_id.sm_id_value = data->define_filter_id[defined_index].sm_id_value;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			filter_id.sm_id_active[ev_cnt] =
 				data->define_filter_id[defined_index].sm_id_active[ev_cnt];
 	} else {
 		filter_id.sm_id_mask = sm_id_mask;
 		filter_id.sm_id_value = sm_id_value;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			filter_id.sm_id_active[ev_cnt] = sm_id_active[ev_cnt];
 	}
 
@@ -1756,9 +1965,11 @@ static ssize_t store_filter_id_ctrl(struct device *dev,
 						bcm_ip_index, data);
 	if (ret) {
 		BCM_ERR("%s:failed set filter ID\n", __func__);
+		kfree(sm_id_active);
 		return ret;
 	}
 
+	kfree(sm_id_active);
 	return count;
 }
 
@@ -1822,7 +2033,7 @@ static ssize_t show_get_filter_others_active(struct device *dev,
 		}
 
 		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					" ev%d %u,", ev_cnt,
 					filter_others.sm_other_active[ev_cnt]);
@@ -1845,10 +2056,10 @@ static ssize_t show_filter_others_ctrl_help(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "\n= filter_others_ctrl set help =\n");
 	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			"echo [ip_range] [ip_index] [define_index] "
-			"[type0] [mask0] [value0] [type1] [mask1] [value1] "
-			"[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] > "
-			"filter_others_ctrl\n");
+			"echo [ip_range] [ip_index] [define_index]	\
+			[type0] [mask0] [value0] [type1] [mask1] [value1]	\
+			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
+			filter_others_ctrl\n");
 	count += snprintf(buf + count, PAGE_SIZE,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
@@ -1862,24 +2073,24 @@ static ssize_t show_filter_others_ctrl_help(struct device *dev,
 				data->define_event_max - 1);
 	for (othr_cnt = 0; othr_cnt < BCM_EVT_FLT_OTHR_MAX; othr_cnt++) {
 		count += snprintf(buf + count, PAGE_SIZE,
-				" type%d: type%d for filter others"
-				" (if define_index is not 0, set to 0)\n"
+				" type%d: type%d for filter others	\
+				(if define_index is not 0, set to 0)\n"
 				"         type%d value should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
 		count += snprintf(buf + count, PAGE_SIZE,
-				" mask%d: mask%d for filter others"
-				" (if define_index is not 0, set to 0)\n"
+				" mask%d: mask%d for filter others	\
+				(if define_index is not 0, set to 0)\n"
 				"         mask%d value should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
 		count += snprintf(buf + count, PAGE_SIZE,
-				" value%d: value%d of filter others"
-				" (if define_index is not 0, set to 0)\n"
+				" value%d: value%d of filter others	\
+				(if define_index is not 0, set to 0)\n"
 				"          value%d should be hexa value\n",
 				othr_cnt, othr_cnt, othr_cnt);
 	}
 	count += snprintf(buf + count, PAGE_SIZE,
-			" evX: event counter alloc for filter others"
-			" (if define_index is not 0, set to 0)\n"
+			" evX: event counter alloc for filter others	\
+			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
 
 	return count;
@@ -1894,29 +2105,56 @@ static ssize_t store_filter_others_ctrl(struct device *dev,
 	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
 	struct exynos_bcm_ipc_base_info ipc_base_info;
 	struct exynos_bcm_filter_others filter_others;
-	unsigned int bcm_ip_index, ip_range;
+	unsigned int bcm_ip_index = 0;
+	unsigned int ip_range = 0;
 	unsigned int defined_index;
 	unsigned int sm_other_type[BCM_EVT_FLT_OTHR_MAX];
 	unsigned int sm_other_mask[BCM_EVT_FLT_OTHR_MAX];
 	unsigned int sm_other_value[BCM_EVT_FLT_OTHR_MAX];
-	unsigned int sm_other_active[BCM_EVT_EVENT_MAX];
+	unsigned int *sm_other_active;
 	int ev_cnt, othr_cnt, ret;
 
-	ret = sscanf(buf, "%u %u %u %x %x %x %x %x %x %u %u %u %u %u %u %u %u",
-			&ip_range, &bcm_ip_index, &defined_index,
-			&sm_other_type[0], &sm_other_mask[0], &sm_other_value[0],
-			&sm_other_type[1], &sm_other_mask[1], &sm_other_value[1],
-			&sm_other_active[0], &sm_other_active[1], &sm_other_active[2],
-			&sm_other_active[3], &sm_other_active[4], &sm_other_active[5],
-			&sm_other_active[6], &sm_other_active[7]);
-	if (ret != 17)
+	sm_other_active = kzalloc(sizeof(int) * data->bcm_cnt_nr, GFP_KERNEL);
+	if (sm_other_active == NULL) {
+		BCM_ERR("%s: faild allocated of sm_other_active memory\n", __func__);
+		return -ENOMEM;
+	}
+
+	if (data->bcm_cnt_nr == 4) {
+		ret = sscanf(buf, "%u %u %u %x %x %x %x %x %x %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&sm_other_type[0], &sm_other_mask[0], &sm_other_value[0],
+				&sm_other_type[1], &sm_other_mask[1], &sm_other_value[1],
+				&sm_other_active[0], &sm_other_active[1],
+				&sm_other_active[2], &sm_other_active[3]);
+	} else if (data->bcm_cnt_nr == 8) {
+		ret = sscanf(buf, "%u %u %u %x %x %x %x %x %x %u %u %u %u %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&sm_other_type[0], &sm_other_mask[0], &sm_other_value[0],
+				&sm_other_type[1], &sm_other_mask[1], &sm_other_value[1],
+				&sm_other_active[0], &sm_other_active[1],
+				&sm_other_active[2], &sm_other_active[3],
+				&sm_other_active[4], &sm_other_active[5],
+				&sm_other_active[6], &sm_other_active[7]);
+	} else {
+		BCM_ERR("%s: invalid bcm_cnt_nr\n", __func__);
+		kfree(sm_other_active);
 		return -EINVAL;
+	}
+
+	/* 9 --> the number of index */
+	if (ret != data->bcm_cnt_nr + 9) {
+		kfree(sm_other_active);
+		return -EINVAL;
+	}
 
 	ret = exynos_bcm_ip_validate(ip_range, bcm_ip_index, data->bcm_ip_nr);
-	if (ret)
+	if (ret) {
+		kfree(sm_other_active);
 		return ret;
+	}
 
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++) {
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++) {
 		if (sm_other_active[ev_cnt])
 			sm_other_active[ev_cnt] = true;
 	}
@@ -1925,6 +2163,7 @@ static ssize_t store_filter_others_ctrl(struct device *dev,
 		BCM_ERR("%s: Invalid defined index(%u),"
 			" defined_max_nr(%u)\n", __func__,
 				defined_index, data->define_event_max - 1);
+		kfree(sm_other_active);
 		return -EINVAL;
 	}
 
@@ -1941,7 +2180,7 @@ static ssize_t store_filter_others_ctrl(struct device *dev,
 				data->define_filter_others[defined_index].sm_other_value[othr_cnt];
 		}
 
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			filter_others.sm_other_active[ev_cnt] =
 				data->define_filter_others[defined_index].sm_other_active[ev_cnt];
 	} else {
@@ -1951,7 +2190,7 @@ static ssize_t store_filter_others_ctrl(struct device *dev,
 			filter_others.sm_other_value[othr_cnt] = sm_other_value[othr_cnt];
 		}
 
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			filter_others.sm_other_active[ev_cnt] = sm_other_active[ev_cnt];
 	}
 
@@ -1962,9 +2201,11 @@ static ssize_t store_filter_others_ctrl(struct device *dev,
 				&filter_others, bcm_ip_index, data);
 	if (ret) {
 		BCM_ERR("%s:failed set filter others\n", __func__);
+		kfree(sm_other_active);
 		return ret;
 	}
 
+	kfree(sm_other_active);
 	return count;
 }
 
@@ -2023,7 +2264,7 @@ static ssize_t show_get_sample_id_active(struct device *dev,
 		}
 
 		count += snprintf(buf + count, PAGE_SIZE, "bcm[%2d]:", ip_cnt);
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			count += snprintf(buf + count, PAGE_SIZE,
 					" ev%d %u,", ev_cnt,
 					sample_id.peak_enable[ev_cnt]);
@@ -2045,9 +2286,9 @@ static ssize_t show_sample_id_ctrl_help(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "\n= sample_id_ctrl set help =\n");
 	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			"echo [ip_range] [ip_index] [define_index] [mask] [id] "
-			"[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] > "
-			"sample_id_ctrl\n");
+			"echo [ip_range] [ip_index] [define_index] [mask] [id]	\
+			[ev0] [ev1] [ev2] [ev3] [ev4] [ev5] [ev6] [ev7] >	\
+			sample_id_ctrl\n");
 	count += snprintf(buf + count, PAGE_SIZE,
 			" ip_range: BCM_EACH(%d), BCM_ALL(%d)\n",
 				BCM_EACH, BCM_ALL);
@@ -2060,16 +2301,16 @@ static ssize_t show_sample_id_ctrl_help(struct device *dev,
 			"               0 means no pre-defined event\n",
 				data->define_event_max - 1);
 	count += snprintf(buf + count, PAGE_SIZE,
-			" mask: masking for sample id"
-			" (if define_index is not 0, set to 0)\n"
+			" mask: masking for sample id	\
+			(if define_index is not 0, set to 0)\n"
 			"       mask value should be hexa value\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			" id: id of sample id"
-			" (if define_index is not 0, set to 0)\n"
+			" id: id of sample id	\
+			(if define_index is not 0, set to 0)\n"
 			"     id should be hexa value\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			" evX: event counter enable for sample id"
-			" (if define_index is not 0, set to 0)\n"
+			" evX: event counter enable for sample id	\
+			(if define_index is not 0, set to 0)\n"
 			"      value should be 0 or 1\n");
 
 	return count;
@@ -2084,26 +2325,50 @@ static ssize_t store_sample_id_ctrl(struct device *dev,
 	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
 	struct exynos_bcm_ipc_base_info ipc_base_info;
 	struct exynos_bcm_sample_id sample_id;
-	unsigned int bcm_ip_index, ip_range;
+	unsigned int bcm_ip_index = 0;
+	unsigned int ip_range = 0;
 	unsigned int defined_index;
 	unsigned int peak_mask, peak_id;
-	unsigned int peak_enable[BCM_EVT_EVENT_MAX];
+	unsigned int *peak_enable;
 	int ev_cnt, ret;
 
-	ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u %u %u %u %u",
-			&ip_range, &bcm_ip_index, &defined_index,
-			&peak_mask, &peak_id,
-			&peak_enable[0], &peak_enable[1], &peak_enable[2],
-			&peak_enable[3], &peak_enable[4], &peak_enable[5],
-			&peak_enable[6], &peak_enable[7]);
-	if (ret != 13)
+	peak_enable = kzalloc(sizeof(int) * data->bcm_cnt_nr, GFP_KERNEL);
+	if (peak_enable == NULL) {
+		BCM_ERR("%s: faild allocated of peak_enable memory\n", __func__);
+		return -ENOMEM;
+	}
+
+	if (data->bcm_cnt_nr == 4) {
+		ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&peak_mask, &peak_id, &peak_enable[0], &peak_enable[1],
+				&peak_enable[2], &peak_enable[3]);
+	} else if (data->bcm_cnt_nr == 8) {
+		ret = sscanf(buf, "%u %u %u %x %x %u %u %u %u %u %u %u %u",
+				&ip_range, &bcm_ip_index, &defined_index,
+				&peak_mask, &peak_id, &peak_enable[0], &peak_enable[1],
+				&peak_enable[2], &peak_enable[3],
+				&peak_enable[4], &peak_enable[5],
+				&peak_enable[6], &peak_enable[7]);
+	} else {
+		BCM_ERR("%s: invalid bcm_cnt_nr\n", __func__);
+		kfree(peak_enable);
 		return -EINVAL;
+	}
+
+	/* 5 --> the number of index */
+	if (ret != data->bcm_cnt_nr + 5) {
+		kfree(peak_enable);
+		return -EINVAL;
+	}
 
 	ret = exynos_bcm_ip_validate(ip_range, bcm_ip_index, data->bcm_ip_nr);
-	if (ret)
+	if (ret) {
+		kfree(peak_enable);
 		return ret;
+	}
 
-	for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++) {
+	for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++) {
 		if (peak_enable[ev_cnt])
 			peak_enable[ev_cnt] = true;
 	}
@@ -2112,6 +2377,7 @@ static ssize_t store_sample_id_ctrl(struct device *dev,
 		BCM_ERR("%s: Invalid defined index(%u),"
 			" defined_max_nr(%u)\n", __func__,
 				defined_index, data->define_event_max - 1);
+		kfree(peak_enable);
 		return -EINVAL;
 	}
 
@@ -2121,13 +2387,13 @@ static ssize_t store_sample_id_ctrl(struct device *dev,
 	if (defined_index != NO_PRE_DEFINE_EVT) {
 		sample_id.peak_mask = data->define_sample_id[defined_index].peak_mask;
 		sample_id.peak_id = data->define_sample_id[defined_index].peak_id;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			sample_id.peak_enable[ev_cnt] =
 				data->define_sample_id[defined_index].peak_enable[ev_cnt];
 	} else {
 		sample_id.peak_mask = peak_mask;
 		sample_id.peak_id = peak_id;
-		for (ev_cnt = 0; ev_cnt < BCM_EVT_EVENT_MAX; ev_cnt++)
+		for (ev_cnt = 0; ev_cnt < data->bcm_cnt_nr; ev_cnt++)
 			sample_id.peak_enable[ev_cnt] = peak_enable[ev_cnt];
 	}
 
@@ -2138,9 +2404,11 @@ static ssize_t store_sample_id_ctrl(struct device *dev,
 						bcm_ip_index, data);
 	if (ret) {
 		BCM_ERR("%s:failed set sample ID\n", __func__);
+		kfree(peak_enable);
 		return ret;
 	}
 
+	kfree(peak_enable);
 	return count;
 }
 
@@ -2257,8 +2525,8 @@ static ssize_t show_period_ctrl_help(struct device *dev,
 	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
 	count += snprintf(buf + count, PAGE_SIZE, "echo [period] > period_ctrl\n");
 	count += snprintf(buf + count, PAGE_SIZE,
-			" period: monitor period (unit: msec),"
-			" min(%d msec) ~ max(%d msec)\n",
+			" period: monitor period (unit: msec),	\
+			min(%d msec) ~ max(%d msec)\n",
 			BCM_TIMER_PERIOD_MIN, BCM_TIMER_PERIOD_MAX);
 
 	return count;
@@ -2357,6 +2625,72 @@ static ssize_t store_mode_ctrl(struct device *dev,
 	ret = exynos_bcm_dbg_mode_ctrl(&ipc_base_info, &bcm_mode, data);
 	if (ret) {
 		BCM_ERR("%s:failed set mode\n", __func__);
+		return ret;
+	}
+
+	return count;
+}
+
+static ssize_t show_get_glbauto(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct platform_device *pdev = container_of(dev,
+					struct platform_device, dev);
+	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
+	struct exynos_bcm_ipc_base_info ipc_base_info;
+	unsigned int glb_en;
+	ssize_t count = 0;
+	int ret;
+
+	exynos_bcm_dbg_set_base_info(&ipc_base_info, BCM_EVT_GLBAUTO_CONT,
+					BCM_EVT_GET, 0);
+
+	ret = exynos_bcm_dbg_glb_auto_ctrl(&ipc_base_info, &glb_en, data);
+	if (ret) {
+		count += snprintf(buf + count, PAGE_SIZE,
+					"failed get glb_en\n");
+		return count;
+	}
+
+	count += snprintf(buf + count, PAGE_SIZE, ": %d\n", glb_en);
+
+	return count;
+}
+
+static ssize_t show_glbauto_ctrl_help(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	ssize_t count = 0;
+
+	/* help store_glbauto_ctrl */
+	count += snprintf(buf + count, PAGE_SIZE, "\n= glbauto_ctrl set help =\n");
+	count += snprintf(buf + count, PAGE_SIZE, "Usage:\n");
+	count += snprintf(buf + count, PAGE_SIZE, "echo [en] > glbauto_ctrl\n");
+
+	return count;
+}
+
+static ssize_t store_glbauto_ctrl(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct platform_device *pdev = container_of(dev,
+					struct platform_device, dev);
+	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
+	struct exynos_bcm_ipc_base_info ipc_base_info;
+	unsigned int glb_en;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &glb_en);
+	if (ret)
+		return ret;
+
+	exynos_bcm_dbg_set_base_info(&ipc_base_info, BCM_EVT_GLBAUTO_CONT,
+					BCM_EVT_SET, 0);
+
+	ret = exynos_bcm_dbg_glb_auto_ctrl(&ipc_base_info, &glb_en, data);
+	if (ret) {
+		BCM_ERR("%s:failed set glb_en\n", __func__);
 		return ret;
 	}
 
@@ -2674,6 +3008,46 @@ static ssize_t store_enable_stop_owner(struct device *dev,
 	return count;
 }
 
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+static ssize_t show_bcm_dbg_load_bin(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct platform_device *pdev = container_of(dev,
+					struct platform_device, dev);
+	struct exynos_bcm_dbg_data *data = platform_get_drvdata(pdev);
+	ssize_t count = 0;
+
+	count += snprintf(buf + count, PAGE_SIZE, "\n= BCM Load Bin =\n");
+	count += snprintf(buf + count, PAGE_SIZE, " bcm load bin: %s\n",
+				data->bcm_load_bin ? "true" : "false");
+
+	return count;
+}
+
+static ssize_t store_bcm_dbg_load_bin(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	unsigned int load;
+	int ret;
+
+	ret = kstrtouint(buf, 0, &load);
+	if (ret)
+		return ret;
+
+	/* loading firmware */
+	if (load) {
+		ret = exynos_bcm_dbg_load_bin();
+		if (ret) {
+			BCM_ERR("%s: failed to load BCM bin\n", __func__);
+			return ret;
+		}
+	}
+
+	return count;
+}
+#endif
+
 static DEVICE_ATTR(bcm_dbg_data_pd, 0440, show_bcm_dbg_data_pd, NULL);
 static DEVICE_ATTR(bcm_dbg_data_df_event, 0440,
 			show_bcm_dbg_data_df_event, NULL);
@@ -2713,6 +3087,9 @@ static DEVICE_ATTR(period_ctrl, 0640, NULL, store_period_ctrl);
 static DEVICE_ATTR(get_mode, 0440, show_get_mode, NULL);
 static DEVICE_ATTR(mode_ctrl_help, 0440, show_mode_ctrl_help, NULL);
 static DEVICE_ATTR(mode_ctrl, 0640, NULL, store_mode_ctrl);
+static DEVICE_ATTR(get_glbauto, 0440, show_get_glbauto, NULL);
+static DEVICE_ATTR(glbauto_ctrl_help, 0440, show_glbauto_ctrl_help, NULL);
+static DEVICE_ATTR(glbauto_ctrl, 0640, NULL, store_glbauto_ctrl);
 static DEVICE_ATTR(get_str, 0440, show_get_str, NULL);
 static DEVICE_ATTR(str_ctrl_help, 0440, show_str_ctrl_help, NULL);
 static DEVICE_ATTR(str_ctrl, 0640, NULL, store_str_ctrl);
@@ -2724,6 +3101,9 @@ static DEVICE_ATTR(dump_addr_info, 0640, show_dump_addr_info, store_dump_addr_in
 #endif
 static DEVICE_ATTR(enable_dump_klog, 0640, show_enable_dump_klog, store_enable_dump_klog);
 static DEVICE_ATTR(enable_stop_owner, 0640, show_enable_stop_owner, store_enable_stop_owner);
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+static DEVICE_ATTR(bcm_dbg_load_bin, 0640, show_bcm_dbg_load_bin, store_bcm_dbg_load_bin);
+#endif
 
 static struct attribute *exynos_bcm_dbg_sysfs_entries[] = {
 	&dev_attr_bcm_dbg_data_pd.attr,
@@ -2755,6 +3135,9 @@ static struct attribute *exynos_bcm_dbg_sysfs_entries[] = {
 	&dev_attr_get_mode.attr,
 	&dev_attr_mode_ctrl_help.attr,
 	&dev_attr_mode_ctrl.attr,
+	&dev_attr_get_glbauto.attr,
+	&dev_attr_glbauto_ctrl_help.attr,
+	&dev_attr_glbauto_ctrl.attr,
 	&dev_attr_get_str.attr,
 	&dev_attr_str_ctrl_help.attr,
 	&dev_attr_str_ctrl.attr,
@@ -2766,6 +3149,9 @@ static struct attribute *exynos_bcm_dbg_sysfs_entries[] = {
 #endif
 	&dev_attr_enable_dump_klog.attr,
 	&dev_attr_enable_stop_owner.attr,
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	&dev_attr_bcm_dbg_load_bin.attr,
+#endif
 	NULL,
 };
 
@@ -2779,10 +3165,10 @@ static int exynos_bcm_dbg_dump_config(struct exynos_bcm_dbg_data *data)
 {
 	int ret;
 
-	data->dump_addr.p_addr = dbg_snapshot_get_item_paddr(BCM_ESS_NAME);
-	data->dump_addr.p_size = dbg_snapshot_get_item_size(BCM_ESS_NAME);
+	data->dump_addr.p_addr = dbg_snapshot_get_item_paddr(BCM_DSS_NAME);
+	data->dump_addr.p_size = dbg_snapshot_get_item_size(BCM_DSS_NAME);
 	data->dump_addr.v_addr =
-		(void __iomem *)dbg_snapshot_get_item_vaddr(BCM_ESS_NAME);
+		(void __iomem *)dbg_snapshot_get_item_vaddr(BCM_DSS_NAME);
 
 	ret = exynos_bcm_dbg_set_dump_info(data);
 	if (ret) {
@@ -2803,9 +3189,9 @@ static int exynos_bcm_dbg_itmon_notifier(struct notifier_block *nb,
 	BCM_INFO("%s: itmon error code %u\n", __func__, itmon_info->errcode);
 
 	if (itmon_info->errcode == ERRCODE_ITMON_TIMEOUT) {
-		BCM_INFO("%s: Note: It can occurred be IPC timeout "		\
-			"because can be trying access to timeout block "	\
-			"from BCMDBG plugin\n", __func__);
+		BCM_INFO("%s: Note: It can occurred be IPC timeout	\
+				because can be trying access to timeout block	\
+				from BCMDBG plugin\n", __func__);
 		exynos_bcm_dbg_stop(ITMON_HANDLE);
 	}
 
@@ -2813,63 +3199,9 @@ static int exynos_bcm_dbg_itmon_notifier(struct notifier_block *nb,
 }
 #endif
 
-static int exynos_bcm_dbg_pm_suspend(struct device *dev)
-{
-	unsigned int suspend = true;
-	int ret;
-
-	BCM_DBG("%s: ++\n", __func__);
-
-	ret = exynos_bcm_dbg_str(suspend, bcm_dbg_data);
-	if (ret) {
-		BCM_ERR("%s: failed set str state\n", __func__);
-		return ret;
-	}
-
-	BCM_DBG("%s: --\n", __func__);
-
-	return 0;
-}
-
-static int exynos_bcm_dbg_pm_resume(struct device *dev)
-{
-	unsigned int suspend = false;
-	int ret;
-
-	BCM_DBG("%s: ++\n", __func__);
-
-	ret = exynos_bcm_dbg_str(suspend, bcm_dbg_data);
-	if (ret) {
-		BCM_ERR("%s: failed set str state\n", __func__);
-		return ret;
-	}
-
-	BCM_DBG("%s: --\n", __func__);
-
-	return 0;
-}
-
-static struct dev_pm_ops exynos_bcm_dbg_pm_ops = {
-	.suspend	= exynos_bcm_dbg_pm_suspend,
-	.resume		= exynos_bcm_dbg_pm_resume,
-};
-
-static int __init exynos_bcm_dbg_probe(struct platform_device *pdev)
+static int exynos_bcm_dbg_init(struct exynos_bcm_dbg_data *data)
 {
 	int ret = 0;
-	struct exynos_bcm_dbg_data *data;
-
-	data = kzalloc(sizeof(struct exynos_bcm_dbg_data), GFP_KERNEL);
-	if (data == NULL) {
-		BCM_ERR("%s: failed to allocate BCM debug device\n", __func__);
-		ret = -ENOMEM;
-		goto err_data;
-	}
-
-	bcm_dbg_data = data;
-	data->dev = &pdev->dev;
-
-	spin_lock_init(&data->lock);
 
 	/* parsing dts data for BCM debug */
 	ret = exynos_bcm_dbg_parse_dt(data->dev->of_node, data);
@@ -2918,6 +3250,286 @@ static int __init exynos_bcm_dbg_probe(struct platform_device *pdev)
 		}
 	}
 
+	return 0;
+
+err_initial_run:
+#ifdef CONFIG_DEBUG_SNAPSHOT
+err_dump_config:
+#endif
+err_pd_sync_init:
+err_early_init:
+	exynos_bcm_dbg_ipc_channel_release(data);
+err_ipc_channel:
+err_parse_dt:
+	return ret;
+}
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+static enum hrtimer_restart bcm_monitor(struct hrtimer *hrtimer)
+{
+	unsigned long flags;
+	u32 period;
+	enum hrtimer_restart ret = HRTIMER_NORESTART;
+
+	spin_lock_irqsave(&bcm_dbg_data->lock, flags);
+	period = bin_func->timer_event();
+	spin_unlock_irqrestore(&bcm_dbg_data->lock, flags);
+
+	if (bcm_dbg_data->bcm_mode == BCM_MODE_ONCE ||
+		bcm_dbg_data->bcm_run_state == BCM_STOP)
+		return ret;
+
+	if (period > 0) {
+		hrtimer_forward_now(hrtimer, ms_to_ktime(period));
+		ret = HRTIMER_RESTART;
+	}
+
+	return ret;
+}
+
+static void __iomem *bcm_ioremap(phys_addr_t phys_addr, size_t size)
+{
+	void __iomem *ret;
+
+	ret = ioremap(phys_addr, size);
+	if (!ret)
+		BCM_ERR("failed to map bcm physical address\n");
+	return ret;
+}
+
+struct page_change_data {
+	pgprot_t set_mask;
+	pgprot_t clear_mask;
+};
+
+static int bcm_change_page_range(pte_t *ptep, pgtable_t token, unsigned long addr,
+			void *data)
+{
+	struct page_change_data *cdata = data;
+	pte_t pte = *ptep;
+
+	pte = clear_pte_bit(pte, cdata->clear_mask);
+	pte = set_pte_bit(pte, cdata->set_mask);
+
+	set_pte(ptep, pte);
+	return 0;
+}
+
+static int bcm_change_memory_common(unsigned long addr, int numpages,
+				pgprot_t set_mask, pgprot_t clear_mask)
+{
+	unsigned long start = addr;
+	unsigned long size = PAGE_SIZE * numpages;
+	unsigned long end = start + size;
+	int ret;
+	struct page_change_data data;
+
+	if (!PAGE_ALIGNED(addr)) {
+		start &= PAGE_MASK;
+		end = start + size;
+		WARN_ON_ONCE(1);
+	}
+
+	if (!numpages)
+		return 0;
+
+	data.set_mask = set_mask;
+	data.clear_mask = clear_mask;
+
+	ret = apply_to_page_range(&init_mm, start, size, bcm_change_page_range,
+					&data);
+
+	flush_tlb_kernel_range(start, end);
+	return ret;
+}
+
+int exynos_bcm_dbg_load_bin(void)
+{
+	int ret = 0;
+	struct file *fp = NULL;
+	long fsize, nread;
+	u8 *buf = NULL;
+	char *lib_bcm = NULL;
+	mm_segment_t old_fs;
+
+	if (bcm_dbg_data->bcm_load_bin)
+		return 0;
+
+	ret = bcm_change_memory_common((unsigned long)bcm_early_vm.addr,
+				BCM_BIN_SIZE, __pgprot(0), __pgprot(PTE_PXN));
+	if (ret) {
+		BCM_ERR("%s: failed to change memory common\n", __func__);
+		goto err_out;
+	}
+
+	os_func.print = printk;
+	os_func.snprint = snprintf;
+	os_func.ioremap = bcm_ioremap;
+	os_func.iounmap = iounmap;
+	os_func.sched_clock = sched_clock;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	fp = filp_open(BCM_BIN_NAME, O_RDONLY, 0);
+	if (IS_ERR(fp)) {
+		BCM_ERR("%s: filp_open fail!!\n", __func__);
+		ret = -EIO;
+		goto err_fopen;
+	}
+
+	fsize = fp->f_path.dentry->d_inode->i_size;
+	BCM_INFO("%s: start, file path %s, size %ld Bytes\n",
+			__func__, BCM_BIN_NAME, fsize);
+	buf = vmalloc(fsize);
+	if (!buf) {
+		BCM_ERR("%s: failed to allocate memory\n", __func__);
+		ret = -ENOMEM;
+		goto err_alloc;
+	}
+
+	nread = vfs_read(fp, (char __user *)buf, fsize, &fp->f_pos);
+	if (nread != fsize) {
+		BCM_ERR("%s: failed to read firmware file, %ld Bytes\n",
+				__func__, nread);
+		ret = -EIO;
+		goto err_vfs_read;
+	}
+
+	lib_bcm = (char *)bcm_addr;
+	memset((char *)bcm_addr, 0x0, fsize);
+
+	flush_icache_range((unsigned long)lib_bcm,
+			   (unsigned long)lib_bcm + BCM_BIN_SIZE);
+	memcpy((void *)lib_bcm, (void *)buf, fsize);
+	flush_cache_all();
+
+	bin_func = ((start_up_func_t)lib_bcm)((void **)&os_func);
+
+	bcm_dbg_data->bcm_load_bin = true;
+
+	hrtimer_init(&bcm_dbg_data->bcm_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	bcm_dbg_data->bcm_hrtimer.function = bcm_monitor;
+
+	ret = exynos_bcm_dbg_init(bcm_dbg_data);
+	if (ret) {
+		BCM_ERR("%s: failed to bcm init\n", __func__);
+		goto err_init;
+	}
+
+err_init:
+err_vfs_read:
+	vfree((void *)buf);
+err_alloc:
+	filp_close(fp, NULL);
+err_fopen:
+	set_fs(old_fs);
+err_out:
+	return ret;
+}
+EXPORT_SYMBOL(exynos_bcm_dbg_load_bin);
+#endif
+
+static int exynos_bcm_dbg_pm_suspend(struct device *dev)
+{
+	unsigned int suspend = true;
+	int ret;
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	if (!bcm_dbg_data->bcm_load_bin)
+		return 0;
+#endif
+	BCM_DBG("%s: ++\n", __func__);
+
+	ret = exynos_bcm_dbg_str(suspend, bcm_dbg_data);
+	if (ret) {
+		BCM_ERR("%s: failed set str state\n", __func__);
+		return ret;
+	}
+
+	BCM_DBG("%s: --\n", __func__);
+
+	return 0;
+}
+
+static int exynos_bcm_dbg_pm_resume(struct device *dev)
+{
+	unsigned int suspend = false;
+	int ret;
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	if (!bcm_dbg_data->bcm_load_bin)
+		return 0;
+#endif
+	BCM_DBG("%s: ++\n", __func__);
+
+	ret = exynos_bcm_dbg_str(suspend, bcm_dbg_data);
+	if (ret) {
+		BCM_ERR("%s: failed set str state\n", __func__);
+		return ret;
+	}
+
+	BCM_DBG("%s: --\n", __func__);
+
+	return 0;
+}
+
+static struct dev_pm_ops exynos_bcm_dbg_pm_ops = {
+	.suspend	= exynos_bcm_dbg_pm_suspend,
+	.resume		= exynos_bcm_dbg_pm_resume,
+};
+
+static int __init exynos_bcm_dbg_probe(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct exynos_bcm_dbg_data *data;
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	int page_size, i;
+	struct page *page;
+	struct page **pages;
+
+	if (!bcm_addr) {
+		BCM_ERR("%s: No virtual address for fd\n", __func__);
+		return -ENOMEM;
+	}
+
+	page_size = bcm_early_vm.size / PAGE_SIZE;
+	pages = kzalloc(sizeof(struct page *) * page_size, GFP_KERNEL);
+	if (!pages) {
+		BCM_ERR("%s: could not alloc pages\n", __func__);
+		return -ENOMEM;
+	}
+	page = phys_to_page(bcm_early_vm.phys_addr);
+	for (i = 0; i < page_size; i++)
+		pages[i] = page++;
+
+	ret = map_vm_area(&bcm_early_vm, PAGE_KERNEL, pages);
+	if (ret) {
+		BCM_ERR("failed to mapping between virt and phys for firmware");
+		kfree(pages);
+		return -ENOMEM;
+	}
+	kfree(pages);
+#endif
+
+	data = kzalloc(sizeof(struct exynos_bcm_dbg_data), GFP_KERNEL);
+	if (data == NULL) {
+		BCM_ERR("%s: failed to allocate BCM debug device\n", __func__);
+		ret = -ENOMEM;
+		goto err_data;
+	}
+
+	bcm_dbg_data = data;
+	data->dev = &pdev->dev;
+
+	spin_lock_init(&data->lock);
+
+#ifndef CONFIG_EXYNOS_BCM_DBG_GNR
+	ret = exynos_bcm_dbg_init(data);
+	if (ret) {
+		BCM_ERR("%s: failed to bcm init\n", __func__);
+		goto err_init;
+	}
+#endif
+
 	platform_set_drvdata(pdev, data);
 
 	ret = sysfs_create_group(&data->dev->kobj, &exynos_bcm_dbg_attr_group);
@@ -2933,15 +3545,9 @@ static int __init exynos_bcm_dbg_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_initial_run:
-#ifdef CONFIG_DEBUG_SNAPSHOT
-err_dump_config:
+#ifndef CONFIG_EXYNOS_BCM_DBG_GNR
+err_init:
 #endif
-err_pd_sync_init:
-err_early_init:
-	exynos_bcm_dbg_ipc_channel_release(data);
-err_ipc_channel:
-err_parse_dt:
 	kfree(data);
 	data = NULL;
 err_data:
@@ -2970,6 +3576,25 @@ static int exynos_bcm_dbg_remove(struct platform_device *pdev)
 
 	return 0;
 }
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+static int __init bcm_setup(char *str)
+{
+	if (kstrtoul(str, 0, (unsigned long *)&bcm_addr))
+		goto out;
+
+	bcm_early_vm.phys_addr = memblock_alloc(BCM_BIN_SIZE, SZ_4K);
+	bcm_early_vm.addr = (void *)bcm_addr;
+	bcm_early_vm.size = BCM_BIN_SIZE + PAGE_SIZE;
+
+	vm_area_add_early(&bcm_early_vm);
+
+	return 0;
+out:
+	return -EINVAL;
+}
+__setup("reserve-fimc=", bcm_setup);
+#endif
 
 static struct platform_device_id exynos_bcm_dbg_driver_ids[] = {
 	{ .name = EXYNOS_BCM_DBG_MODULE_NAME, },

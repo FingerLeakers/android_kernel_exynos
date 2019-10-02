@@ -24,12 +24,6 @@
 #include <soc/samsung/exynos-debug.h>
 #include <soc/samsung/exynos-pd.h>
 #include <linux/debug-snapshot.h>
-#if defined(CONFIG_SEC_SIPC_MODEM_IF)
-#include <soc/samsung/exynos-modem-ctrl.h>
-#endif
-#ifdef CONFIG_SEC_DEBUG
-#include <linux/sec_debug.h>
-#endif
 
 //#define MULTI_IRQ_SUPPORT_ITMON
 
@@ -947,9 +941,7 @@ static void itmon_post_handler_by_master(struct itmon_dev *itmon,
 			/* Disable busmon all interrupts */
 			itmon_init(itmon, false);
 			pdata->crash_in_progress = true;
-#if defined(CONFIG_SEC_SIPC_MODEM_IF)
-			modem_force_crash_exit_ext();
-#endif
+			/* TODO: CP Crash */
 		}
 		pdata->err_fatal = false;
 	} else {
@@ -1098,9 +1090,6 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 	struct itmon_platdata *pdata = itmon->pdata;
 	struct itmon_traceinfo *traceinfo = &pdata->traceinfo[trans_type];
 	struct itmon_nodegroup *group = NULL;
-#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
-	char temp_buf[SZ_128];
-#endif
 
 	if (!traceinfo->dirty)
 		return;
@@ -1120,17 +1109,6 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 		"(BAAW Remapped address)" : "",
 		trans_type == TRANS_TYPE_READ ? "READ" : "WRITE",
 		itmon_errcode[traceinfo->errcode]);
-#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
-	snprintf(temp_buf, SZ_128, "%s %s/ %s/ 0x%zx %s/ %s/ %s",
-		traceinfo->port, traceinfo->master ? traceinfo->master : "",
-		traceinfo->dest ? traceinfo->dest : "Unknown",
-		traceinfo->target_addr,
-		traceinfo->target_addr == INVALID_REMAPPING ?
-		"(by CP maybe)" : "",
-		trans_type == TRANS_TYPE_READ ? "READ" : "WRITE",
-		itmon_errcode[traceinfo->errcode]);
-	sec_debug_set_extra_info_busmon(temp_buf);
-#endif
 
 	if (node) {
 		struct itmon_tracedata *tracedata = &node->tracedata;
@@ -1719,10 +1697,15 @@ static ssize_t itmon_timeout_fix_val_store(struct kobject *kobj,
 {
 	unsigned long val = 0;
 	struct itmon_platdata *pdata = g_itmon->pdata;
+	int ret;
 
-	kstrtoul(buf, 16, &val);
-	if (val > 0 && val <= 0xFFFFF)
-		pdata->sysfs_tmout_val = val;
+	ret = kstrtoul(buf, 16, &val);
+	if (!ret) {
+		if (val > 0 && val <= 0xFFFFF)
+			pdata->sysfs_tmout_val = val;
+	} else {
+		pr_err("%s: kstrtoul return value is %d\n", __func__, ret);
+	}
 
 	return count;
 }
@@ -1745,9 +1728,14 @@ static ssize_t itmon_scandump_store(struct kobject *kobj,
 				const char *buf, size_t count)
 {
 	unsigned long val = 0;
+	int ret;
 
-	kstrtoul(buf, 16, &val);
-	g_itmon->pdata->sysfs_scandump = !!val;
+	ret = kstrtoul(buf, 16, &val);
+	if (!ret) {
+		g_itmon->pdata->sysfs_scandump = !!val;
+	} else {
+		pr_err("%s: kstrtoul return value is %d\n", __func__, ret);
+	}
 
 	return count;
 }
@@ -1770,9 +1758,14 @@ static ssize_t itmon_s2d_store(struct kobject *kobj,
 				const char *buf, size_t count)
 {
 	unsigned long val = 0;
+	int ret;
 
-	kstrtoul(buf, 16, &val);
-	g_itmon->pdata->sysfs_s2d = !!val;
+	ret = kstrtoul(buf, 16, &val);
+	if (!ret) {
+		g_itmon->pdata->sysfs_s2d = !!val;
+	} else {
+		pr_err("%s: kstrtoul return value is %d\n", __func__, ret);
+	}
 
 	return count;
 }

@@ -13,3 +13,4 @@ config VIDEO_EXYNOS_CAMERA_POSTPROCESS
 
 source "drivers/media/platform/exynos/camera-pp/gdc/Kconfig"
 source "drivers/media/platform/exynos/camera-pp/str/Kconfig"
+source "drivers/media/platform/exynos/camera-pp/votf/Kconfig"

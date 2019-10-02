@@ -24,6 +24,9 @@
 		reg |= (value & mask) << shift;		\
 	} while (0)
 
+#define mfc_get_upper(x)	(((unsigned long)(x) >> 32) & 0xffffffff)
+#define mfc_get_lower(x)	((x) & 0xffffffff)
+
 static inline void mfc_clean_dev_int_flags(struct mfc_dev *dev)
 {
 	dev->int_condition = 0;
@@ -40,8 +43,6 @@ static inline void mfc_clean_ctx_int_flags(struct mfc_ctx *ctx)
 
 static inline void mfc_change_state(struct mfc_ctx *ctx, enum mfc_inst_state state)
 {
-	struct mfc_dev *dev = ctx->dev;
-
 	MFC_TRACE_CTX("** state : %d\n", state);
 	ctx->state = state;
 }
@@ -49,14 +50,16 @@ static inline void mfc_change_state(struct mfc_ctx *ctx, enum mfc_inst_state sta
 static inline enum mfc_node_type mfc_get_node_type(struct file *file)
 {
 	struct video_device *vdev = video_devdata(file);
+	struct mfc_dev *dev;
 	enum mfc_node_type node_type;
 
 	if (!vdev) {
-		mfc_err_dev("failed to get video_device\n");
+		mfc_err("failed to get video_device\n");
 		return MFCNODE_INVALID;
 	}
+	dev = video_drvdata(file);
 
-	mfc_debug(2, "video_device index: %d\n", vdev->index);
+	mfc_debug_dev(2, "video_device index: %d\n", vdev->index);
 
 	switch (vdev->index) {
 	case 0:
@@ -129,49 +132,9 @@ static inline int mfc_check_vb_flag(struct mfc_buf *mfc_buf, enum mfc_vb_flag f)
 }
 
 int mfc_check_vb_with_fmt(struct mfc_fmt *fmt, struct vb2_buffer *vb);
-
-void mfc_raw_protect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index);
-void mfc_raw_unprotect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index);
-void mfc_stream_protect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index);
-void mfc_stream_unprotect(struct mfc_ctx *ctx, struct mfc_buf *mfc_buf,
-					int index);
-
 void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx);
 void mfc_enc_calc_src_size(struct mfc_ctx *ctx);
-
-static inline void mfc_cleanup_assigned_fd(struct mfc_ctx *ctx)
-{
-	struct mfc_dec *dec;
-	int i;
-
-	dec = ctx->dec_priv;
-
-	for (i = 0; i < MFC_MAX_DPBS; i++)
-		dec->assigned_fd[i] = MFC_INFO_INIT_FD;
-}
-
-static inline void mfc_clear_assigned_dpb(struct mfc_ctx *ctx)
-{
-	struct mfc_dec *dec;
-	int i;
-
-	if (!ctx) {
-		mfc_err_dev("no mfc context to run\n");
-		return;
-	}
-
-	dec = ctx->dec_priv;
-	if (!dec) {
-		mfc_err_dev("no mfc decoder to run\n");
-		return;
-	}
-
-	for (i = 0; i < MFC_MAX_DPBS; i++)
-		dec->assigned_dpb[i] = NULL;
-}
+void mfc_calc_base_addr(struct mfc_ctx *ctx, struct vb2_buffer *vb, struct mfc_fmt *fmt);
 
 static inline int mfc_dec_status_decoding(unsigned int dst_frame_status)
 {
@@ -190,18 +153,35 @@ static inline int mfc_dec_status_display(unsigned int dst_frame_status)
 	return 0;
 }
 
-void mfc_cleanup_assigned_dpb(struct mfc_ctx *ctx);
-void mfc_unprotect_released_dpb(struct mfc_ctx *ctx, unsigned int released_flag);
-void mfc_protect_dpb(struct mfc_ctx *ctx, struct mfc_buf *dst_mb);
-
 /* Watchdog interval */
 #define WATCHDOG_TICK_INTERVAL   1000
 /* After how many executions watchdog should assume lock up */
 #define WATCHDOG_TICK_CNT_TO_START_WATCHDOG        5
 
-void mfc_watchdog_tick(unsigned long arg);
+void mfc_watchdog_tick(struct timer_list *t);
 void mfc_watchdog_start_tick(struct mfc_dev *dev);
 void mfc_watchdog_stop_tick(struct mfc_dev *dev);
 void mfc_watchdog_reset_tick(struct mfc_dev *dev);
+
+/* MFC idle checker interval */
+#define MFCIDLE_TICK_INTERVAL	1500
+
+void mfc_idle_checker(struct timer_list *t);
+static inline void mfc_idle_checker_start_tick(struct mfc_dev *dev)
+{
+	dev->mfc_idle_timer.expires = jiffies +
+		msecs_to_jiffies(MFCIDLE_TICK_INTERVAL);
+	add_timer(&dev->mfc_idle_timer);
+}
+
+static inline void mfc_change_idle_mode(struct mfc_dev *dev,
+			enum mfc_idle_mode idle_mode)
+{
+	MFC_TRACE_DEV("** idle mode : %d\n", idle_mode);
+	dev->idle_mode = idle_mode;
+
+	if (dev->idle_mode == MFC_IDLE_MODE_NONE)
+		mfc_idle_checker_start_tick(dev);
+}
 
 #endif /* __MFC_UTILS_H */

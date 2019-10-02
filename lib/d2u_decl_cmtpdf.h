@@ -1,11 +1,19 @@
 /**
  *
  * Precalculated gradually delta-to-uniform declining
- * centered-mean, x KAIR_TPDF_CUMSUM-scaled, KAIR_QUANT_STEP-quantized
+ * centered-mean, x FFSI_TPDF_CUMSUM-scaled, FFSI_QUANT_STEP-quantized
  * 0-biased Sunchul TPDF tables.
  *
- **/
-const unsigned int d2u_decl_cmtpdf[KAIR_VARIANCE_SPAN][KAIR_QUANT_STEP] =
+ * Copyright (C) 2019, Samsung Electronics Co. Ltd. All Rights Reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ */
+
+const unsigned int d2u_decl_cmtpdf[FFSI_VARIANCE_SPAN][FFSI_QUANT_STEP] =
 	{{1, 1, 1, 1, 1, 1, 1, 1, 497, 1, 1, 1, 1, 1, 1, 1, 0},
 	 {1, 1, 1, 1, 1, 1, 1, 2, 494, 2, 1, 1, 1, 1, 1, 1, 0},
 	 {1, 1, 1, 1, 1, 1, 1, 16, 467, 16, 1, 1, 1, 1, 1, 1, 0},

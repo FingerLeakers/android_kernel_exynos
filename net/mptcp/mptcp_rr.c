@@ -102,12 +102,14 @@ static struct sock *rr_get_available_subflow(struct sock *meta_sk,
 					     bool zero_wnd_test)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
-	struct sock *sk, *bestsk = NULL, *backupsk = NULL;
+	struct sock *sk = NULL, *bestsk = NULL, *backupsk = NULL;
+	struct mptcp_tcp_sock *mptcp;
 
 	/* Answer data_fin on same subflow!!! */
 	if (meta_sk->sk_shutdown & RCV_SHUTDOWN &&
 	    skb && mptcp_is_data_fin(skb)) {
-		mptcp_for_each_sk(mpcb, sk) {
+		mptcp_for_each_sub(mpcb, mptcp) {
+			sk = mptcp_to_sock(mptcp);
 			if (tcp_sk(sk)->mptcp->path_index == mpcb->dfin_path_index &&
 			    mptcp_rr_is_available(sk, skb, zero_wnd_test, true))
 				return sk;
@@ -115,8 +117,11 @@ static struct sock *rr_get_available_subflow(struct sock *meta_sk,
 	}
 
 	/* First, find the best subflow */
-	mptcp_for_each_sk(mpcb, sk) {
-		struct tcp_sock *tp = tcp_sk(sk);
+	mptcp_for_each_sub(mpcb, mptcp) {
+		struct tcp_sock *tp;
+
+		sk = mptcp_to_sock(mptcp);
+		tp = tcp_sk(sk);
 
 		if (!mptcp_rr_is_available(sk, skb, zero_wnd_test, true))
 			continue;
@@ -177,7 +182,8 @@ static struct sk_buff *mptcp_rr_next_segment(struct sock *meta_sk,
 					     unsigned int *limit)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
-	struct sock *sk_it, *choose_sk = NULL;
+	struct sock *choose_sk = NULL;
+	struct mptcp_tcp_sock *mptcp;
 	struct sk_buff *skb = __mptcp_rr_next_segment(meta_sk, reinject);
 	unsigned char split = num_segments;
 	unsigned char iter = 0, full_subs = 0;
@@ -199,9 +205,10 @@ static struct sk_buff *mptcp_rr_next_segment(struct sock *meta_sk,
 retry:
 
 	/* First, we look for a subflow who is currently being used */
-	mptcp_for_each_sk(mpcb, sk_it) {
+	mptcp_for_each_sub(mpcb, mptcp) {
+		struct sock *sk_it = mptcp_to_sock(mptcp);
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
-		struct rrsched_priv *rsp = rrsched_get_priv(tp_it);
+		struct rrsched_priv *rr_p = rrsched_get_priv(tp_it);
 
 		if (!mptcp_rr_is_available(sk_it, skb, false, cwnd_limited))
 			continue;
@@ -209,20 +216,20 @@ retry:
 		iter++;
 
 		/* Is this subflow currently being used? */
-		if (rsp->quota > 0 && rsp->quota < num_segments) {
-			split = num_segments - rsp->quota;
+		if (rr_p->quota > 0 && rr_p->quota < num_segments) {
+			split = num_segments - rr_p->quota;
 			choose_sk = sk_it;
 			goto found;
 		}
 
 		/* Or, it's totally unused */
-		if (!rsp->quota) {
+		if (!rr_p->quota) {
 			split = num_segments;
 			choose_sk = sk_it;
 		}
 
 		/* Or, it must then be fully used  */
-		if (rsp->quota >= num_segments)
+		if (rr_p->quota >= num_segments)
 			full_subs++;
 	}
 
@@ -233,14 +240,15 @@ retry:
 		/* So, we restart this round by setting quota to 0 and retry
 		 * to find a subflow.
 		 */
-		mptcp_for_each_sk(mpcb, sk_it) {
+		mptcp_for_each_sub(mpcb, mptcp) {
+			struct sock *sk_it = mptcp_to_sock(mptcp);
 			struct tcp_sock *tp_it = tcp_sk(sk_it);
-			struct rrsched_priv *rsp = rrsched_get_priv(tp_it);
+			struct rrsched_priv *rr_p = rrsched_get_priv(tp_it);
 
 			if (!mptcp_rr_is_available(sk_it, skb, false, cwnd_limited))
 				continue;
 
-			rsp->quota = 0;
+			rr_p->quota = 0;
 		}
 
 		goto retry;
@@ -250,7 +258,7 @@ found:
 	if (choose_sk) {
 		unsigned int mss_now;
 		struct tcp_sock *choose_tp = tcp_sk(choose_sk);
-		struct rrsched_priv *rsp = rrsched_get_priv(choose_tp);
+		struct rrsched_priv *rr_p = rrsched_get_priv(choose_tp);
 
 		if (!mptcp_rr_is_available(choose_sk, skb, false, true))
 			return NULL;
@@ -260,9 +268,9 @@ found:
 		*limit = split * mss_now;
 
 		if (skb->len > mss_now)
-			rsp->quota += DIV_ROUND_UP(skb->len, mss_now);
+			rr_p->quota += DIV_ROUND_UP(skb->len, mss_now);
 		else
-			rsp->quota++;
+			rr_p->quota++;
 
 		return skb;
 	}

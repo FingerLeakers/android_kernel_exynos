@@ -20,7 +20,7 @@
 #include <linux/mfd/samsung/s2mu004.h>
 #include <linux/power/s2mu004_charger.h>
 #include <linux/version.h>
-#include <linux/muic/muic.h>
+//#include <linux/muic/muic.h>
 
 #define ENABLE_MIVR 0
 
@@ -79,7 +79,6 @@ static int s2mu004_charger_otg_control(
 		struct s2mu004_charger_data *charger, bool enable)
 {
 	u8 chg_sts2, chg_ctrl0, temp;
-
 	pr_info("%s: called charger otg control : %s\n", __func__,
 			enable ? "ON" : "OFF");
 
@@ -1167,9 +1166,9 @@ static int s2mu004_charger_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_create_wq:
-	destroy_workqueue(charger->charger_wqueue);
 err_reg_irq:
+	destroy_workqueue(charger->charger_wqueue);
+err_create_wq:
 	power_supply_unregister(charger->psy_otg);
 err_power_supply_register_otg:
 	power_supply_unregister(charger->psy_chg);

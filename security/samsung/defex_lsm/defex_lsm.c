@@ -70,6 +70,10 @@ static __init int defex_lsm_init(void)
 	}
 
 	printk(KERN_INFO "DEFEX_LSM started");
+#ifdef DEFEX_LP_ENABLE
+	printk(KERN_INFO "[DEFEX] ADB LP Enabled");
+#endif /* DEFEX_LP_ENABLE */
+
 	return 0;
 }
 

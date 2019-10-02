@@ -14,26 +14,66 @@
 
 #include <linux/device.h>
 #include <sound/soc.h>
+#include "abox.h"
+
+/**
+ * register event notifier for specific widget
+ * @param[in]	data	pointer to abox_data
+ * @param[in]	w	target widget
+ * @param[in]	notify	callback
+ * @param[in]	priv	private data which will be given to callback
+ */
+extern void abox_cmpnt_register_event_notifier(struct abox_data *data,
+		enum abox_widget w, int (*notify)(void *priv, bool en),
+		void *priv);
+
+/**
+ * unregister event notifier for specific widget
+ * @param[in]	data	pointer to abox_data
+ * @param[in]	w	target widget
+ */
+extern void abox_cmpnt_unregister_event_notifier(struct abox_data *data,
+		enum abox_widget w);
+
+/**
+ * get desired format of the sifs or sifm
+ * @param[in]	data	pointer to abox_data
+ * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
+ * @param[in]	id	id of sifs or sifm
+ * @return		format for ABOX
+ */
+extern unsigned int abox_cmpnt_sif_get_dst_format(struct abox_data *data,
+		int stream, int id);
+
+/**
+ * get desired format of the asrc
+ * @param[in]	data	pointer to abox_data
+ * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
+ * @param[in]	id	id of ASRC
+ * @return		format for ABOX
+ */
+extern unsigned int abox_cmpnt_asrc_get_dst_format(struct abox_data *data,
+		int stream, int id);
 
 /**
  * lock specific asrc id to the dma
- * @param[in]	cmpnt	component
+ * @param[in]	data	pointer to abox_data
  * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
  * @param[in]	idx	index of requesting DMA
  * @param[in]	id	id of ASRC
  * @return		0 or error code
  */
-extern int abox_cmpnt_asrc_lock(struct snd_soc_component *cmpnt, int stream,
+extern int abox_cmpnt_asrc_lock(struct abox_data *data, int stream,
 		int idx, int id);
 
 /**
  * release asrc from the dma
- * @param[in]	cmpnt	component
+ * @param[in]	data	pointer to abox_data
  * @param[in]	stream	SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE
  * @param[in]	idx	index of requesting DMA
  * @return		0 or error code
  */
-extern void abox_cmpnt_asrc_release(struct snd_soc_component *cmpnt, int stream,
+extern void abox_cmpnt_asrc_release(struct abox_data *data, int stream,
 		int idx);
 
 /**
@@ -44,13 +84,23 @@ extern void abox_cmpnt_asrc_release(struct snd_soc_component *cmpnt, int stream,
 extern int abox_cmpnt_update_asrc_tick(struct device *adev);
 
 /**
+ * prepare sifsm and sidetone for a RDMA
+ * @param[in]	dev		calling device
+ * @param[in]	data		pointer to abox data
+ * @param[in]	dma_data	pointer to dma data
+ * @return			0 or error code
+ */
+extern int abox_cmpnt_sifsm_prepare(struct device *dev, struct abox_data *data,
+		enum abox_dai dai);
+
+/**
  * adjust sample bank size
- * @param[in]	cmpnt	component
+ * @param[in]	data	pointer to abox_data
  * @param[in]	id	id of ABOX DAI
  * @param[in]	params	hardware paramter
  * @return		sample bank size or error code
  */
-extern int abox_cmpnt_adjust_sbank(struct snd_soc_component *cmpnt,
+extern int abox_cmpnt_adjust_sbank(struct abox_data *data,
 		enum abox_dai id, struct snd_pcm_hw_params *params);
 
 /**
@@ -82,41 +132,39 @@ extern int abox_cmpnt_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 
 /**
  * Register uaif or dsif to abox
- * @param[in]	pdev_abox	pointer to abox platform device
- * @param[in]	pdev_if		pointer to abox if platform device
+ * @param[in]	dev_abox	pointer to abox device
+ * @param[in]	dev		pointer to abox if device
  * @param[in]	id		number
- * @param[in]	dapm		dapm context of the uaif or dsif
  * @param[in]	name		dai name
  * @param[in]	playback	true if dai has playback capability
  * @param[in]	capture		true if dai has capture capability
  * @return	error code if any
  */
-extern int abox_cmpnt_register_if(struct platform_device *pdev_abox,
-		struct platform_device *pdev_if, unsigned int id,
-		struct snd_soc_dapm_context *dapm, const char *name,
+extern int abox_cmpnt_register_if(struct device *dev_abox,
+		struct device *dev, unsigned int id, const char *name,
 		bool playback, bool capture);
 
 /**
  * Register rdma to abox
- * @param[in]	pdev_abox	pointer to abox platform device
- * @param[in]	pdev_rdma	pointer to abox rdma platform device
+ * @param[in]	dev_abox	pointer to abox device
+ * @param[in]	dev		pointer to abox rdma device
  * @param[in]	id		number
+ * @param[in]	name		name of the dai
  * @return	error code if any
  */
-extern int abox_cmpnt_register_rdma(struct platform_device *pdev_abox,
-		struct platform_device *pdev_rdma, unsigned int id,
-		struct snd_soc_dapm_context *dapm, const char *name);
+extern int abox_cmpnt_register_rdma(struct device *dev_abox,
+		struct device *dev, unsigned int id, const char *name);
 
 /**
  * Register wdma to abox
- * @param[in]	pdev_abox	pointer to abox platform device
- * @param[in]	pdev_wdma	pointer to abox wdma platform device
+ * @param[in]	dev_abox	pointer to abox device
+ * @param[in]	dev		pointer to abox wdma device
  * @param[in]	id		number
+ * @param[in]	name		name of the dai
  * @return	error code if any
  */
-extern int abox_cmpnt_register_wdma(struct platform_device *pdev_abox,
-		struct platform_device *pdev_wdma, unsigned int id,
-		struct snd_soc_dapm_context *dapm, const char *name);
+extern int abox_cmpnt_register_wdma(struct device *dev_abox,
+		struct device *dev, unsigned int id, const char *name);
 
 /**
  * restore snd_soc_component object to firmware

@@ -78,7 +78,7 @@ static int firmware_update(struct device *dev, void *fw_base, const char *fw_nam
 
 	dev_info(dev, "Loading %s firmware ... ", fw_name);
 	err = request_firmware(&fw_entry, fw_name, dev);
-	if (err || !fw_entry) {
+	if (err < 0) {
 		dev_err(dev, "firmware request FAIL \n");
 		return err;
 	}
@@ -290,13 +290,10 @@ void exynos_acpm_reboot(void)
 {
 	u32 soc_id, revision;
 
-	acpm_ipc_set_waiting_mode(BUSY_WAIT);
-
 	soc_id = exynos_soc_info.product_id;
 	revision = exynos_soc_info.revision;
 
-	if (!(soc_id == EXYNOS9810_SOC_ID && revision < EXYNOS_MAIN_REV_1))
-		acpm_enter_wfi();
+	acpm_enter_wfi();
 }
 
 static int acpm_send_data(struct device_node *node, unsigned int check_id,
@@ -415,8 +412,6 @@ arch_initcall_sync(exynos_acpm_init);
 static int __init exynos_acpm_binary_update(void)
 {
 	int ret;
-
-	acpm_ipc_set_waiting_mode(BUSY_WAIT);
 
 	ret = plugins_init();
 

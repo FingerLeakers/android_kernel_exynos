@@ -167,7 +167,7 @@ void iovmm_unmap(struct device *dev, dma_addr_t iova);
 static inline dma_addr_t exynos_iovmm_map_userptr(struct device *dev,
 			unsigned long vaddr, size_t size, int prot)
 {
-	return (dma_addr_t)-ENODEV;
+	return -ENOSYS;
 }
 #define exynos_iovmm_unmap_userptr(dev, iova) do { } while (0)
 

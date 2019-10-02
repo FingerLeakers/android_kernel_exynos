@@ -37,8 +37,6 @@
 #include <linux/uio.h>
 #include <linux/atomic.h>
 #include <linux/prefetch.h>
-
-#define __FS_HAS_ENCRYPTION IS_ENABLED(CONFIG_FS_ENCRYPTION)
 #include <linux/fscrypt.h>
 
 /*
@@ -222,6 +220,27 @@ static inline struct page *dio_get_page(struct dio *dio,
 	return dio->pages[sdio->head];
 }
 
+/*
+ * Warn about a page cache invalidation failure during a direct io write.
+ */
+void dio_warn_stale_pagecache(struct file *filp)
+{
+	static DEFINE_RATELIMIT_STATE(_rs, 86400 * HZ, DEFAULT_RATELIMIT_BURST);
+	char pathname[128];
+	struct inode *inode = file_inode(filp);
+	char *path;
+
+	errseq_set(&inode->i_mapping->wb_err, -EIO);
+	if (__ratelimit(&_rs)) {
+		path = file_path(filp, pathname, sizeof(pathname));
+		if (IS_ERR(path))
+			path = "(unknown)";
+		pr_crit("Page cache invalidation failure on direct I/O.  Possible data corruption due to collision with buffered I/O!\n");
+		pr_crit("File: %s PID: %d Comm: %.20s\n", path, current->pid,
+			current->comm);
+	}
+}
+
 /**
  * dio_complete() - called when all DIO BIO I/O has been completed
  * @offset: the byte offset in the file of the completed operation
@@ -293,11 +312,11 @@ static ssize_t dio_complete(struct dio *dio, ssize_t ret, unsigned int flags)
 		err = invalidate_inode_pages2_range(dio->inode->i_mapping,
 					offset >> PAGE_SHIFT,
 					(offset + ret - 1) >> PAGE_SHIFT);
-		WARN_ON_ONCE(err);
+		if (err)
+			dio_warn_stale_pagecache(dio->iocb->ki_filp);
 	}
 
-	if (!(dio->flags & DIO_SKIP_DIO_COUNT))
-		inode_dio_end(dio->inode);
+	inode_dio_end(dio->inode);
 
 	if (flags & DIO_COMPLETE_ASYNC) {
 		/*
@@ -414,8 +433,8 @@ dio_bio_alloc(struct dio *dio, struct dio_submit *sdio,
 	struct bio *bio;
 
 	/*
-	 * bio_alloc() is guaranteed to return a bio when called with
-	 * __GFP_RECLAIM and we request a valid number of vectors.
+	 * bio_alloc() is guaranteed to return a bio when allowed to sleep and
+	 * we request a valid number of vectors.
 	 */
 	bio = bio_alloc(GFP_KERNEL, nr_vecs);
 
@@ -440,6 +459,23 @@ dio_bio_alloc(struct dio *dio, struct dio_submit *sdio,
  *
  * bios hold a dio reference between submit_bio and ->end_io.
  */
+ #ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+static bool is_inode_filesystem_type(const struct inode *inode,
+					const char *fs_type)
+{
+	if (!inode || !fs_type)
+		return false;
+
+	if (!inode->i_sb)
+		return false;
+
+	if (!inode->i_sb->s_type)
+		return false;
+
+	return (strcmp(inode->i_sb->s_type->name, fs_type) == 0);
+}
+#endif
+
 static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 {
 	struct bio *bio = sdio->bio;
@@ -451,13 +487,20 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 	dio->refcount++;
 	spin_unlock_irqrestore(&dio->bio_lock, flags);
 
-#if defined(CONFIG_FS_INLINE_ENCRYPTION)
-	if (fscrypt_inline_encrypted(dio->inode)) {
-		fscrypt_set_bio_cryptd_dun(dio->inode, bio,
-				fscrypt_get_dun(dio->inode,
+#if defined(CONFIG_CRYPTO_DISKCIPHER)
+	if (dio->inode && fscrypt_has_encryption_key(dio->inode)) {
+#if defined(CONFIG_CRYPTO_DISKCIPHER_DUN)
+		 /* device unit number for iv sector */
+		#define PG_DUN(i,p) 										   \
+			((((i)->i_ino & 0xffffffff) << 32) | ((p) & 0xffffffff))
+
+		if (is_inode_filesystem_type(dio->inode, "f2fs"))
+			fscrypt_set_bio(dio->inode, bio, PG_DUN(dio->inode,
 				(sdio->logical_offset_in_bio >> PAGE_SHIFT)));
-#if defined(CONFIG_CRYPTO_DISKCIPHER_DEBUG)
-		crypto_diskcipher_debug(FS_DIO, bio->bi_opf);
+		else
+			fscrypt_set_bio(dio->inode, bio, 0);
+#else
+		fscrypt_set_bio(dio->inode, bio, 0);
 #endif
 	}
 #endif
@@ -466,9 +509,6 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 		bio_set_pages_dirty(bio);
 
 	dio->bio_disk = bio->bi_disk;
-#ifdef CONFIG_DDAR
-	bio->bi_dio_inode = dio->inode;
-#endif
 
 	if (sdio->submit_io) {
 		sdio->submit_io(bio, dio->inode, sdio->logical_offset_in_bio);
@@ -480,20 +520,6 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 	sdio->boundary = 0;
 	sdio->logical_offset_in_bio = 0;
 }
-
-#ifdef CONFIG_DDAR
-struct inode *dio_bio_get_inode(struct bio *bio)
-{
-	struct inode *inode = NULL;
-
-	if (bio == NULL)
-		return NULL;
-
-	inode = bio->bi_dio_inode;
-
-	return inode;
-}
-#endif
 
 /*
  * Release any resources in case of a failure
@@ -528,7 +554,7 @@ static struct bio *dio_await_one(struct dio *dio)
 		dio->waiter = current;
 		spin_unlock_irqrestore(&dio->bio_lock, flags);
 		if (!(dio->iocb->ki_flags & IOCB_HIPRI) ||
-		    !blk_mq_poll(dio->bio_disk->queue, dio->bio_cookie))
+		    !blk_poll(dio->bio_disk->queue, dio->bio_cookie))
 			io_schedule();
 		/* wake up sets us TASK_RUNNING */
 		spin_lock_irqsave(&dio->bio_lock, flags);
@@ -1184,13 +1210,13 @@ do_blockdev_direct_IO(struct kiocb *iocb, struct inode *inode,
 		      get_block_t get_block, dio_iodone_t end_io,
 		      dio_submit_t submit_io, int flags)
 {
-	unsigned i_blkbits = ACCESS_ONCE(inode->i_blkbits);
+	unsigned i_blkbits = READ_ONCE(inode->i_blkbits);
 	unsigned blkbits = i_blkbits;
 	unsigned blocksize_mask = (1 << blkbits) - 1;
 	ssize_t retval = -EINVAL;
-	size_t count = iov_iter_count(iter);
+	const size_t count = iov_iter_count(iter);
 	loff_t offset = iocb->ki_pos;
-	loff_t end = offset + count;
+	const loff_t end = offset + count;
 	struct dio *dio;
 	struct dio_submit sdio = { 0, };
 	struct buffer_head map_bh = { 0, };
@@ -1211,7 +1237,7 @@ do_blockdev_direct_IO(struct kiocb *iocb, struct inode *inode,
 	}
 
 	/* watch out for a 0 len io from a tricksy fs */
-	if (iov_iter_rw(iter) == READ && !iov_iter_count(iter))
+	if (iov_iter_rw(iter) == READ && !count)
 		return 0;
 
 	dio = kmem_cache_alloc(dio_cache, GFP_KERNEL);
@@ -1262,8 +1288,7 @@ do_blockdev_direct_IO(struct kiocb *iocb, struct inode *inode,
 	 */
 	if (is_sync_kiocb(iocb))
 		dio->is_async = false;
-	else if (!(dio->flags & DIO_ASYNC_EXTEND) &&
-		 iov_iter_rw(iter) == WRITE && end > i_size_read(inode))
+	else if (iov_iter_rw(iter) == WRITE && end > i_size_read(inode))
 		dio->is_async = false;
 	else
 		dio->is_async = true;
@@ -1307,8 +1332,7 @@ do_blockdev_direct_IO(struct kiocb *iocb, struct inode *inode,
 	/*
 	 * Will be decremented at I/O completion time.
 	 */
-	if (!(dio->flags & DIO_SKIP_DIO_COUNT))
-		inode_dio_begin(inode);
+	inode_dio_begin(inode);
 
 	retval = 0;
 	sdio.blkbits = blkbits;
@@ -1328,8 +1352,7 @@ do_blockdev_direct_IO(struct kiocb *iocb, struct inode *inode,
 
 	dio->should_dirty = (iter->type == ITER_IOVEC);
 	sdio.iter = iter;
-	sdio.final_block_in_request =
-		(offset + iov_iter_count(iter)) >> blkbits;
+	sdio.final_block_in_request = end >> blkbits;
 
 	/*
 	 * In case of non-aligned buffers, we may need 2 more

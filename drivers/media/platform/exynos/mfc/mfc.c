@@ -11,6 +11,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/of_address.h>
 #include <linux/proc_fs.h>
@@ -34,12 +35,14 @@
 #include "mfc_watchdog.h"
 #include "mfc_debugfs.h"
 #include "mfc_sync.h"
+#include "mfc_meminfo.h"
 
 #include "mfc_pm.h"
 #include "mfc_perf_measure.h"
 #include "mfc_reg_api.h"
 #include "mfc_hw_reg_api.h"
 #include "mfc_mmcache.h"
+#include "mfc_llc.h"
 
 #include "mfc_qos.h"
 #include "mfc_queue.h"
@@ -95,16 +98,16 @@ static void __mfc_deinit_dec_ctx(struct mfc_ctx *ctx)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
 
+	mfc_cleanup_iovmm(ctx);
+
 	mfc_delete_queue(&ctx->src_buf_queue);
 	mfc_delete_queue(&ctx->dst_buf_queue);
 	mfc_delete_queue(&ctx->src_buf_nal_queue);
 	mfc_delete_queue(&ctx->dst_buf_nal_queue);
-	mfc_delete_queue(&ctx->ref_buf_queue);
+	mfc_delete_queue(&ctx->meminfo_inbuf_q);
 
-	mfc_mem_cleanup_user_shared_handle(ctx, &dec->sh_handle_dpb);
 	mfc_mem_cleanup_user_shared_handle(ctx, &dec->sh_handle_hdr);
 	kfree(dec->hdr10_plus_info);
-	kfree(dec->ref_info);
 	kfree(dec);
 }
 
@@ -116,7 +119,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 
 	dec = kzalloc(sizeof(struct mfc_dec), GFP_KERNEL);
 	if (!dec) {
-		mfc_err_dev("failed to allocate decoder private data\n");
+		mfc_err_ctx("failed to allocate decoder private data\n");
 		return -ENOMEM;
 	}
 	ctx->dec_priv = dec;
@@ -127,7 +130,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	mfc_create_queue(&ctx->dst_buf_queue);
 	mfc_create_queue(&ctx->src_buf_nal_queue);
 	mfc_create_queue(&ctx->dst_buf_nal_queue);
-	mfc_create_queue(&ctx->ref_buf_queue);
+	mfc_create_queue(&ctx->meminfo_inbuf_q);
 
 	for (i = 0; i < MFC_MAX_BUFFERS; i++) {
 		INIT_LIST_HEAD(&ctx->src_ctrls[i]);
@@ -147,9 +150,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	mfc_qos_reset_framerate(ctx);
 
 	ctx->qos_ratio = 100;
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	INIT_LIST_HEAD(&ctx->qos_list);
-#endif
 	INIT_LIST_HEAD(&ctx->bitrate_list);
 	INIT_LIST_HEAD(&ctx->ts_list);
 
@@ -157,33 +158,23 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	dec->is_interlaced = 0;
 	dec->immediate_display = 0;
 	dec->is_dts_mode = 0;
-	dec->err_reuse_flag = 0;
-	dec->dec_only_release_flag = 0;
+	dec->inter_res_change = 0;
+	dec->disp_res_change = 0;
 
 	dec->is_dynamic_dpb = 1;
 	dec->dynamic_used = 0;
 	dec->is_dpb_full = 0;
-	mfc_cleanup_assigned_fd(ctx);
-	mfc_clear_assigned_dpb(ctx);
-
-	/* sh_handle: released dpb info */
-	dec->sh_handle_dpb.fd = -1;
-	dec->ref_info = kzalloc(
-		(sizeof(struct dec_dpb_ref_info) * MFC_MAX_DPBS), GFP_KERNEL);
-	if (!dec->ref_info) {
-		mfc_err_dev("failed to allocate decoder information data\n");
-		ret = -ENOMEM;
-		goto fail_dec_init;
-	}
-	for (i = 0; i < MFC_MAX_BUFFERS; i++)
-		dec->ref_info[i].dpb[0].fd[0] = MFC_INFO_INIT_FD;
+	dec->queued_dpb = 0;
+	dec->display_index = -1;
+	dec->dpb_table_used = 0;
+	mutex_init(&dec->dpb_mutex);
 
 	/* sh_handle: HDR10+ HEVC SEI meta */
 	dec->sh_handle_hdr.fd = -1;
 	dec->hdr10_plus_info = kzalloc(
 			(sizeof(struct hdr10_plus_meta) * MFC_MAX_DPBS), GFP_KERNEL);
 	if (!dec->hdr10_plus_info) {
-		mfc_err_dev("[HDR+] failed to allocate HDR10+ information data\n");
+		mfc_err_ctx("[HDR+] failed to allocate HDR10+ information data\n");
 		ret = -ENOMEM;
 		goto fail_dec_init;
 	}
@@ -198,7 +189,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	ctx->vq_src.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	ret = vb2_queue_init(&ctx->vq_src);
 	if (ret) {
-		mfc_err_dev("Failed to initialize videobuf2 queue(output)\n");
+		mfc_err_ctx("Failed to initialize videobuf2 queue(output)\n");
 		goto fail_dec_init;
 	}
 	/* Init videobuf2 queue for CAPTURE */
@@ -211,7 +202,7 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 	ctx->vq_dst.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	ret = vb2_queue_init(&ctx->vq_dst);
 	if (ret) {
-		mfc_err_dev("Failed to initialize videobuf2 queue(capture)\n");
+		mfc_err_ctx("Failed to initialize videobuf2 queue(capture)\n");
 		goto fail_dec_init;
 	}
 
@@ -235,6 +226,8 @@ static void __mfc_deinit_enc_ctx(struct mfc_ctx *ctx)
 	mfc_delete_queue(&ctx->src_buf_nal_queue);
 	mfc_delete_queue(&ctx->dst_buf_nal_queue);
 	mfc_delete_queue(&ctx->ref_buf_queue);
+	mfc_delete_queue(&ctx->meminfo_inbuf_q);
+	mfc_delete_queue(&ctx->meminfo_outbuf_q);
 
 	mfc_mem_cleanup_user_shared_handle(ctx, &enc->sh_handle_svc);
 	mfc_mem_cleanup_user_shared_handle(ctx, &enc->sh_handle_roi);
@@ -252,7 +245,7 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 
 	enc = kzalloc(sizeof(struct mfc_enc), GFP_KERNEL);
 	if (!enc) {
-		mfc_err_dev("failed to allocate encoder private data\n");
+		mfc_err_ctx("failed to allocate encoder private data\n");
 		return -ENOMEM;
 	}
 	ctx->enc_priv = enc;
@@ -264,6 +257,8 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 	mfc_create_queue(&ctx->src_buf_nal_queue);
 	mfc_create_queue(&ctx->dst_buf_nal_queue);
 	mfc_create_queue(&ctx->ref_buf_queue);
+	mfc_create_queue(&ctx->meminfo_inbuf_q);
+	mfc_create_queue(&ctx->meminfo_outbuf_q);
 
 	for (i = 0; i < MFC_MAX_BUFFERS; i++) {
 		INIT_LIST_HEAD(&ctx->src_ctrls[i]);
@@ -285,9 +280,7 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 	p = &enc->params;
 	p->ivf_header_disable = 1;
 
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	INIT_LIST_HEAD(&ctx->qos_list);
-#endif
 	INIT_LIST_HEAD(&ctx->ts_list);
 
 	enc->sh_handle_svc.fd = -1;
@@ -304,7 +297,7 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 	ctx->vq_src.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	ret = vb2_queue_init(&ctx->vq_src);
 	if (ret) {
-		mfc_err_dev("Failed to initialize videobuf2 queue(output)\n");
+		mfc_err_ctx("Failed to initialize videobuf2 queue(output)\n");
 		goto fail_enc_init;
 	}
 
@@ -318,7 +311,7 @@ static int __mfc_init_enc_ctx(struct mfc_ctx *ctx)
 	ctx->vq_dst.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_COPY;
 	ret = vb2_queue_init(&ctx->vq_dst);
 	if (ret) {
-		mfc_err_dev("Failed to initialize videobuf2 queue(capture)\n");
+		mfc_err_ctx("Failed to initialize videobuf2 queue(capture)\n");
 		goto fail_enc_init;
 	}
 
@@ -333,9 +326,12 @@ static int __mfc_init_instance(struct mfc_dev *dev, struct mfc_ctx *ctx)
 {
 	int ret = 0;
 
-	dev->watchdog_timer.expires = jiffies +
-		msecs_to_jiffies(WATCHDOG_TICK_INTERVAL);
-	add_timer(&dev->watchdog_timer);
+	/* set watchdog timer */
+	mod_timer(&dev->watchdog_timer, jiffies + msecs_to_jiffies(WATCHDOG_TICK_INTERVAL));
+
+	/* set MFC idle timer */
+	atomic_set(&dev->hw_run_cnt, 0);
+	mfc_change_idle_mode(dev, MFC_IDLE_MODE_NONE);
 
 	/* Load the FW */
 	if (!dev->fw.status) {
@@ -376,8 +372,8 @@ static int __mfc_init_instance(struct mfc_dev *dev, struct mfc_ctx *ctx)
 
 	ret = mfc_get_hwlock_dev(dev);
 	if (ret < 0) {
-		mfc_err_dev("Failed to get hwlock\n");
-		mfc_err_dev("dev.hwlock.dev = 0x%lx, bits = 0x%lx, owned_by_irq = %d, wl_count = %d, transfer_owner = %d\n",
+		mfc_err_ctx("Failed to get hwlock\n");
+		mfc_err_ctx("dev.hwlock.dev = 0x%lx, bits = 0x%lx, owned_by_irq = %d, wl_count = %d, transfer_owner = %d\n",
 				dev->hwlock.dev, dev->hwlock.bits, dev->hwlock.owned_by_irq,
 				dev->hwlock.wl_count, dev->hwlock.transfer_owner);
 		goto err_hw_lock;
@@ -403,13 +399,15 @@ static int __mfc_init_instance(struct mfc_dev *dev, struct mfc_ctx *ctx)
 	if (dev->has_mmcache && (dev->mmcache.is_on_status == 0))
 		mfc_mmcache_enable(dev);
 
+	if (dev->has_llc && (dev->llc_on_status == 0))
+		mfc_llc_enable(dev);
 
 	mfc_release_hwlock_dev(dev);
 
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->nal_q)) {
 		dev->nal_q_handle = mfc_nal_q_create(dev);
 		if (dev->nal_q_handle == NULL)
-			mfc_err_dev("[NALQ] Can't create nal q\n");
+			mfc_err_ctx("[NALQ] Can't create nal q\n");
 	}
 
 	return ret;
@@ -439,9 +437,10 @@ err_hw_lock:
 
 err_fw_load:
 err_fw_alloc:
-	del_timer_sync(&dev->watchdog_timer);
+	del_timer(&dev->watchdog_timer);
+	del_timer(&dev->mfc_idle_timer);
 
-	mfc_err_dev("failed to init first instance\n");
+	mfc_err_ctx("failed to init first instance\n");
 	return ret;
 }
 
@@ -454,12 +453,12 @@ static int mfc_open(struct file *file)
 	enum mfc_node_type node;
 	struct video_device *vdev = NULL;
 
-	mfc_debug(2, "mfc driver open called\n");
-
 	if (!dev) {
-		mfc_err_dev("no mfc device to run\n");
+		mfc_err("no mfc device to run\n");
 		goto err_no_device;
 	}
+
+	mfc_debug_dev(2, "mfc driver open called\n");
 
 	if (mutex_lock_interruptible(&dev->mfc_mutex))
 		return -ERESTARTSYS;
@@ -519,8 +518,8 @@ static int mfc_open(struct file *file)
 	while (dev->ctx[ctx->num]) {
 		ctx->num++;
 		if (ctx->num >= MFC_NUM_CONTEXTS) {
-			mfc_err_dev("Too many open contexts\n");
-			mfc_err_dev("Print information to check if there was an error or not\n");
+			mfc_err_ctx("Too many open contexts\n");
+			mfc_err_ctx("Print information to check if there was an error or not\n");
 			call_dop(dev, dump_info_context, dev);
 			ret = -EBUSY;
 			goto err_ctx_num;
@@ -530,6 +529,7 @@ static int mfc_open(struct file *file)
 	init_waitqueue_head(&ctx->cmd_wq);
 	mfc_init_listable_wq_ctx(ctx);
 	spin_lock_init(&ctx->buf_queue_lock);
+	spin_lock_init(&ctx->meminfo_queue_lock);
 
 	if (mfc_is_decoder_node(node))
 		ret = __mfc_init_dec_ctx(ctx);
@@ -547,13 +547,6 @@ static int mfc_open(struct file *file)
 #ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	if (mfc_is_drm_node(node)) {
 		if (dev->num_drm_inst < MFC_MAX_DRM_CTX) {
-			if (ctx->raw_protect_flag || ctx->stream_protect_flag) {
-				mfc_err_ctx("protect_flag(%#lx/%#lx) remained\n",
-						ctx->raw_protect_flag,
-						ctx->stream_protect_flag);
-				ret = -EINVAL;
-				goto err_drm_start;
-			}
 			dev->num_drm_inst++;
 			ctx->is_drm = 1;
 
@@ -561,7 +554,7 @@ static int mfc_open(struct file *file)
 					dev->num_drm_inst, dev->num_inst);
 		} else {
 			mfc_err_ctx("Too many instance are opened for DRM\n");
-			mfc_err_dev("Print information to check if there was an error or not\n");
+			mfc_err_ctx("Print information to check if there was an error or not\n");
 			call_dop(dev, dump_info_context, dev);
 			ret = -EINVAL;
 			goto err_drm_start;
@@ -709,7 +702,7 @@ static int mfc_release(struct file *file)
 
 	ret = mfc_get_hwlock_ctx(ctx);
 	if (ret < 0) {
-		mfc_err_dev("Failed to get hwlock\n");
+		mfc_err_ctx("Failed to get hwlock\n");
 		MFC_TRACE_CTX_LT("[ERR][Release] failed to get hwlock (shutdown: %d)\n", dev->shutdown);
 		mutex_unlock(&dev->mfc_mutex);
 		return -EBUSY;
@@ -740,7 +733,8 @@ static int mfc_release(struct file *file)
 		if (perf_boost_mode)
 			mfc_perf_boost_disable(dev);
 
-		del_timer_sync(&dev->watchdog_timer);
+		del_timer(&dev->watchdog_timer);
+		del_timer(&dev->mfc_idle_timer);
 
 		flush_workqueue(dev->butler_wq);
 
@@ -778,6 +772,13 @@ static int mfc_release(struct file *file)
 			mfc_mmcache_disable(dev);
 	}
 
+	if (dev->has_llc && dev->llc_on_status) {
+		mfc_llc_flush(dev);
+
+		if (dev->num_inst == 0)
+			mfc_llc_disable(dev);
+	}
+
 	mfc_release_codec_buffers(ctx);
 	mfc_release_instance_context(ctx);
 
@@ -786,6 +787,10 @@ static int mfc_release(struct file *file)
 	/* Free resources */
 	vb2_queue_release(&ctx->vq_src);
 	vb2_queue_release(&ctx->vq_dst);
+
+	mfc_meminfo_cleanup_inbuf_q(ctx);
+	if (ctx->type == MFCINST_ENCODER)
+		mfc_meminfo_cleanup_outbuf_q(ctx);
 
 	if (ctx->type == MFCINST_DECODER)
 		__mfc_deinit_dec_ctx(ctx);
@@ -878,16 +883,14 @@ static const struct v4l2_file_operations mfc_fops = {
 	.mmap = mfc_mmap,
 };
 
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 static int __mfc_parse_mfc_qos_platdata(struct device_node *np, char *node_name,
-	struct mfc_qos *qosdata)
+	struct mfc_qos *qosdata, struct mfc_dev *dev)
 {
-	int ret = 0;
 	struct device_node *np_qos;
 
 	np_qos = of_find_node_by_name(np, node_name);
 	if (!np_qos) {
-		pr_err("%s: could not find mfc_qos_platdata node\n",
+		dev_err(dev->device, "%s: could not find mfc_qos_platdata node\n",
 			node_name);
 		return -EINVAL;
 	}
@@ -901,21 +904,36 @@ static int __mfc_parse_mfc_qos_platdata(struct device_node *np, char *node_name,
 	of_property_read_u32(np_qos, "mo_uhd_enc60_value", &qosdata->mo_uhd_enc60_value);
 	of_property_read_u32(np_qos, "time_fw", &qosdata->time_fw);
 
-	return ret;
-}
+	of_property_read_string(np_qos, "bts_scen", &qosdata->name);
+	if (!qosdata->name) {
+		pr_err("[QoS] bts_scen is missing in '%s' node", node_name);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_MFC_USE_BTS
+#ifndef CONFIG_MFC_NO_RENEWAL_BTS
+	qosdata->bts_scen_idx = bts_get_scenindex(qosdata->name);
 #endif
+#endif
+
+	return 0;
+}
 
 int mfc_sysmmu_fault_handler(struct iommu_domain *iodmn, struct device *device,
 		unsigned long addr, int id, void *param)
 {
-	struct mfc_dev *dev;
+	struct mfc_dev *dev = (struct mfc_dev *)param;
+	unsigned int trans_info;
 
-	dev = (struct mfc_dev *)param;
+	if (dev->pdata->trans_info_offset)
+		trans_info = dev->pdata->trans_info_offset;
+	else
+		trans_info = MFC_MMU_FAULT_TRANS_INFO;
 
 	/* [OTF] If AxID is 1 in SYSMMU1 fault info, it is TS-MUX fault */
 	if (dev->has_hwfc && dev->has_2sysmmu) {
 		if (MFC_MMU1_READL(MFC_MMU_INTERRUPT_STATUS) &&
-				((MFC_MMU1_READL(MFC_MMU_FAULT_TRANS_INFO) &
+				((MFC_MMU1_READL(trans_info) &
 				  MFC_MMU_FAULT_TRANS_INFO_AXID_MASK) == 1)) {
 			mfc_err_dev("There is TS-MUX page fault. skip SFR dump\n");
 			return 0;
@@ -924,7 +942,7 @@ int mfc_sysmmu_fault_handler(struct iommu_domain *iodmn, struct device *device,
 
 	/* If sysmmu is used with other IPs, it should be checked whether it's an MFC fault */
 	if (dev->pdata->share_sysmmu) {
-		if ((MFC_MMU0_READL(MFC_MMU_FAULT_TRANS_INFO) & dev->pdata->axid_mask)
+		if ((MFC_MMU0_READL(trans_info) & dev->pdata->axid_mask)
 				!= dev->pdata->mfc_fault_num) {
 			mfc_err_dev("This is not a MFC page fault\n");
 			return 0;
@@ -932,22 +950,22 @@ int mfc_sysmmu_fault_handler(struct iommu_domain *iodmn, struct device *device,
 	}
 
 	if (MFC_MMU0_READL(MFC_MMU_INTERRUPT_STATUS)) {
-		if (MFC_MMU0_READL(MFC_MMU_FAULT_TRANS_INFO) & MFC_MMU_FAULT_TRANS_INFO_RW_MASK)
+		if (MFC_MMU0_READL(trans_info) & MFC_MMU_FAULT_TRANS_INFO_RW_MASK)
 			dev->logging_data->cause |= (1 << MFC_CAUSE_0WRITE_PAGE_FAULT);
 		else
 			dev->logging_data->cause |= (1 << MFC_CAUSE_0READ_PAGE_FAULT);
 		dev->logging_data->fault_status = MFC_MMU0_READL(MFC_MMU_INTERRUPT_STATUS);
-		dev->logging_data->fault_trans_info = MFC_MMU0_READL(MFC_MMU_FAULT_TRANS_INFO);
+		dev->logging_data->fault_trans_info = MFC_MMU0_READL(trans_info);
 	}
 
 	if (dev->has_2sysmmu) {
 		if (MFC_MMU1_READL(MFC_MMU_INTERRUPT_STATUS)) {
-			if (MFC_MMU1_READL(MFC_MMU_FAULT_TRANS_INFO) & MFC_MMU_FAULT_TRANS_INFO_RW_MASK)
+			if (MFC_MMU1_READL(trans_info) & MFC_MMU_FAULT_TRANS_INFO_RW_MASK)
 				dev->logging_data->cause |= (1 << MFC_CAUSE_1WRITE_PAGE_FAULT);
 			else
 				dev->logging_data->cause |= (1 << MFC_CAUSE_1READ_PAGE_FAULT);
 			dev->logging_data->fault_status = MFC_MMU1_READL(MFC_MMU_INTERRUPT_STATUS);
-			dev->logging_data->fault_trans_info = MFC_MMU1_READL(MFC_MMU_FAULT_TRANS_INFO);
+			dev->logging_data->fault_trans_info = MFC_MMU1_READL(trans_info);
 		}
 	}
 	dev->logging_data->fault_addr = (unsigned int)addr;
@@ -973,17 +991,17 @@ static void __mfc_create_bitrate_table(struct mfc_dev *dev)
 	}
 }
 
-static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
+static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 {
 	struct mfc_platdata	*pdata = mfc->pdata;
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	struct device_node *np_qos;
 	char node_name[50];
 	int i;
-#endif
 
-	if (!np)
-		return;
+	if (!np) {
+		pr_err("there is no device node\n");
+		return -EINVAL;
+	}
 
 	/* MFC version */
 	of_property_read_u32(np, "ip_ver", &pdata->ip_ver);
@@ -995,6 +1013,10 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32(np, "share_sysmmu", &pdata->share_sysmmu);
 	of_property_read_u32(np, "axid_mask", &pdata->axid_mask);
 	of_property_read_u32(np, "mfc_fault_num", &pdata->mfc_fault_num);
+	of_property_read_u32(np, "trans_info_offset", &pdata->trans_info_offset);
+
+	/* LLC(Last Level Cache) */
+	of_property_read_u32(np, "llc", &mfc->has_llc);
 
 	/* NAL-Q size */
 	of_property_read_u32(np, "nal_q_entry_size", &pdata->nal_q_entry_size);
@@ -1009,14 +1031,23 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32_array(np, "color_aspect_enc", &pdata->color_aspect_enc.support, 2);
 	of_property_read_u32_array(np, "static_info_enc", &pdata->static_info_enc.support, 2);
 	of_property_read_u32_array(np, "hdr10_plus", &pdata->hdr10_plus.support, 2);
+	of_property_read_u32_array(np, "vp9_stride_align", &pdata->vp9_stride_align.support, 2);
+	of_property_read_u32_array(np, "sbwc_uncomp", &pdata->sbwc_uncomp.support, 2);
+	of_property_read_u32_array(np, "mem_clear", &pdata->mem_clear.support, 2);
+	of_property_read_u32_array(np, "wait_fw_status", &pdata->wait_fw_status.support, 2);
 
-	/* Default 10bit format for decoding */
+	/* Default 10bit format for decoding and dithering for display */
 	of_property_read_u32(np, "P010_decoding", &pdata->P010_decoding);
+	of_property_read_u32(np, "dithering_enable", &pdata->dithering_enable);
 
 	/* Formats */
 	of_property_read_u32(np, "support_10bit", &pdata->support_10bit);
 	of_property_read_u32(np, "support_422", &pdata->support_422);
 	of_property_read_u32(np, "support_rgb", &pdata->support_rgb);
+
+	/* SBWC */
+	of_property_read_u32(np, "support_sbwc", &pdata->support_sbwc);
+	of_property_read_u32(np, "support_sbwcl", &pdata->support_sbwcl);
 
 	/* HDR10+ num max window */
 	of_property_read_u32(np, "max_hdr_win", &pdata->max_hdr_win);
@@ -1030,7 +1061,6 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 				pdata->enc_param_val, pdata->enc_param_num);
 	}
 
-#ifdef CONFIG_EXYNOS_BTS
 	of_property_read_u32_array(np, "bw_enc_h264", &pdata->mfc_bw_info.bw_enc_h264.peak, 3);
 	of_property_read_u32_array(np, "bw_enc_hevc", &pdata->mfc_bw_info.bw_enc_hevc.peak, 3);
 	of_property_read_u32_array(np, "bw_enc_hevc_10bit", &pdata->mfc_bw_info.bw_enc_hevc_10bit.peak, 3);
@@ -1045,23 +1075,50 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32_array(np, "bw_dec_vp9", &pdata->mfc_bw_info.bw_dec_vp9.peak, 3);
 	of_property_read_u32_array(np, "bw_dec_vp9_10bit", &pdata->mfc_bw_info.bw_dec_vp9_10bit.peak, 3);
 	of_property_read_u32_array(np, "bw_dec_mpeg4", &pdata->mfc_bw_info.bw_dec_mpeg4.peak, 3);
+
+	if (pdata->support_sbwc) {
+		of_property_read_u32_array(np, "sbwc_bw_enc_h264", &pdata->mfc_bw_info_sbwc.bw_enc_h264.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_hevc", &pdata->mfc_bw_info_sbwc.bw_enc_hevc.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_hevc_10bit", &pdata->mfc_bw_info_sbwc.bw_enc_hevc_10bit.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_vp8", &pdata->mfc_bw_info_sbwc.bw_enc_vp8.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_vp9", &pdata->mfc_bw_info_sbwc.bw_enc_vp9.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_vp9_10bit", &pdata->mfc_bw_info_sbwc.bw_enc_vp9_10bit.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_enc_mpeg4", &pdata->mfc_bw_info_sbwc.bw_enc_mpeg4.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_h264", &pdata->mfc_bw_info_sbwc.bw_dec_h264.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_hevc", &pdata->mfc_bw_info_sbwc.bw_dec_hevc.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_hevc_10bit", &pdata->mfc_bw_info_sbwc.bw_dec_hevc_10bit.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_vp8", &pdata->mfc_bw_info_sbwc.bw_dec_vp8.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_vp9", &pdata->mfc_bw_info_sbwc.bw_dec_vp9.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_vp9_10bit", &pdata->mfc_bw_info_sbwc.bw_dec_vp9_10bit.peak, 3);
+		of_property_read_u32_array(np, "sbwc_bw_dec_mpeg4", &pdata->mfc_bw_info_sbwc.bw_dec_mpeg4.peak, 3);
+	}
+
+#ifdef CONFIG_MFC_USE_BTS
+#ifndef CONFIG_MFC_NO_RENEWAL_BTS
+	pdata->mfc_bw_index = bts_get_bwindex("mfc");
+#endif
 #endif
 
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	/* QoS */
-	of_property_read_u32(np, "num_qos_steps", &pdata->num_qos_steps);
-	of_property_read_u32(np, "max_qos_steps", &pdata->max_qos_steps);
+	of_property_read_u32(np, "num_default_qos_steps", &pdata->num_default_qos_steps);
+	of_property_read_u32(np, "num_encoder_qos_steps", &pdata->num_encoder_qos_steps);
 	of_property_read_u32(np, "max_mb", &pdata->max_mb);
 	of_property_read_u32(np, "mfc_freq_control", &pdata->mfc_freq_control);
 	of_property_read_u32(np, "mo_control", &pdata->mo_control);
 	of_property_read_u32(np, "bw_control", &pdata->bw_control);
 
-	pdata->qos_table = devm_kzalloc(mfc->device,
-			sizeof(struct mfc_qos) * pdata->max_qos_steps, GFP_KERNEL);
+	pdata->default_qos_table = devm_kzalloc(mfc->device,
+			sizeof(struct mfc_qos) * pdata->num_default_qos_steps, GFP_KERNEL);
+	for (i = 0; i < pdata->num_default_qos_steps; i++) {
+		snprintf(node_name, sizeof(node_name), "mfc_d_qos_variant_%d", i);
+		__mfc_parse_mfc_qos_platdata(np, node_name, &pdata->default_qos_table[i], mfc);
+	}
 
-	for (i = 0; i < pdata->max_qos_steps; i++) {
-		snprintf(node_name, sizeof(node_name), "mfc_qos_variant_%d", i);
-		__mfc_parse_mfc_qos_platdata(np, node_name, &pdata->qos_table[i]);
+	pdata->encoder_qos_table = devm_kzalloc(mfc->device,
+			sizeof(struct mfc_qos) * pdata->num_encoder_qos_steps, GFP_KERNEL);
+	for (i = 0; i < pdata->num_encoder_qos_steps; i++) {
+		snprintf(node_name, sizeof(node_name), "mfc_e_qos_variant_%d", i);
+		__mfc_parse_mfc_qos_platdata(np, node_name, &pdata->encoder_qos_table[i], mfc);
 	}
 
 	/* performance boost mode */
@@ -1069,8 +1126,8 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 			sizeof(struct mfc_qos_boost), GFP_KERNEL);
 	np_qos = of_find_node_by_name(np, "mfc_perf_boost_table");
 	if (!np_qos) {
-		pr_err("%s:[QoS][BOOST] could not find mfc_perf_boost_table node\n", node_name);
-		return;
+		dev_err(mfc->device, "[QoS][BOOST] could not find mfc_perf_boost_table node\n");
+		return -EINVAL;
 	}
 	of_property_read_u32(np_qos, "num_cluster", &pdata->qos_boost_table->num_cluster);
 	of_property_read_u32(np_qos, "freq_mfc", &pdata->qos_boost_table->freq_mfc);
@@ -1078,6 +1135,18 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32(np_qos, "freq_mif", &pdata->qos_boost_table->freq_mif);
 	of_property_read_u32_array(np_qos, "freq_cluster", &pdata->qos_boost_table->freq_cluster[0],
 			pdata->qos_boost_table->num_cluster);
+
+	of_property_read_string(np_qos, "bts_scen", &pdata->qos_boost_table->name);
+	if (!pdata->qos_boost_table->name) {
+		pr_err("[QoS][BOOST] bts_scen is missing in qos_boost node");
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_MFC_USE_BTS
+#ifndef CONFIG_MFC_NO_RENEWAL_BTS
+	pdata->qos_boost_table->bts_scen_idx = bts_get_scenindex(pdata->qos_boost_table->name);
+#endif
+#endif
 
 	/* QoS weight */
 	of_property_read_u32(np, "qos_weight_h264_hevc", &pdata->qos_weight.weight_h264_hevc);
@@ -1091,13 +1160,15 @@ static void __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32(np, "qos_weight_gpb", &pdata->qos_weight.weight_gpb);
 	of_property_read_u32(np, "qos_weight_num_of_tile", &pdata->qos_weight.weight_num_of_tile);
 	of_property_read_u32(np, "qos_weight_super64_bframe", &pdata->qos_weight.weight_super64_bframe);
-#endif
+
 	/* Bitrate control for QoS */
 	of_property_read_u32(np, "num_mfc_freq", &pdata->num_mfc_freq);
 	if (pdata->num_mfc_freq)
 		of_property_read_u32_array(np, "mfc_freqs", pdata->mfc_freqs, pdata->num_mfc_freq);
 	of_property_read_u32_array(np, "max_Kbps", pdata->max_Kbps, MAX_NUM_MFC_BPS);
 	__mfc_create_bitrate_table(mfc);
+
+	return 0;
 }
 
 static void *__mfc_get_drv_data(struct platform_device *pdev);
@@ -1184,7 +1255,7 @@ static int __mfc_register_resource(struct platform_device *pdev, struct mfc_dev 
 
 	dev->sysmmu1_base = of_iomap(iommu, 1);
 	if (dev->sysmmu1_base == NULL) {
-		pr_debug("there is only one MFC sysmmu\n");
+		dev_dbg(&pdev->dev, "there is only one MFC sysmmu\n");
 	} else {
 		dev->has_2sysmmu = 1;
 	}
@@ -1273,7 +1344,7 @@ err_ioremap_cmu_mif1:
 err_ioremap_cmu_mif0:
 	if (cmu)
 		iounmap(dev->cmu_busc_base);
-err_ioremap_cmu_busc:	
+err_ioremap_cmu_busc:
 	if (dev->has_mmcache)
 		iounmap(dev->mmcache.base);
 err_ioremap_mmcache:
@@ -1297,36 +1368,38 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 	struct itmon_notifier *itmon_info = nb_data;
 	int is_mfc_itmon = 0, is_master = 0;
 	int is_mmcache_itmon = 0;
+	int ret = NOTIFY_OK;
 
 	dev = container_of(nb, struct mfc_dev, itmon_nb);
 
 	if (IS_ERR_OR_NULL(itmon_info))
-		return NOTIFY_DONE;
+		return ret;
 
 	/* print dump if it is an MFC ITMON error */
 	if (itmon_info->port &&
 			strncmp("MFC", itmon_info->port, sizeof("MFC") - 1) == 0) {
-		if (itmon_info->master &&
+		is_mfc_itmon = 1;
+		is_master = 1;
+	} else if (itmon_info->master &&
 			strncmp("MFC", itmon_info->master, sizeof("MFC") - 1) == 0) {
-			is_mfc_itmon = 1;
-			is_master = 1;
-		}
+		is_mfc_itmon = 1;
+		is_master = 1;
 	} else if (itmon_info->dest &&
 			strncmp("MFC", itmon_info->dest, sizeof("MFC") - 1) == 0) {
 		is_mfc_itmon = 1;
 		is_master = 0;
-	} else if (itmon_info->port &&
+	} else if (itmon_info->port && dev->has_mmcache &&
 			strncmp("M-CACHE", itmon_info->port, sizeof("M-CACHE") - 1) == 0) {
 		is_mmcache_itmon = 1;
 		is_master = 1;
 	}
 
 	if (is_mfc_itmon || is_mmcache_itmon) {
-		pr_err("mfc_itmon_notifier: %s +\n", is_mfc_itmon ? "MFC" : "MMCACHE");
-		pr_err("%s is %s\n", is_mfc_itmon ? "MFC" : "MMCACHE",
+		dev_err(dev->device, "mfc_itmon_notifier: %s +\n", is_mfc_itmon ? "MFC" : "MMCACHE");
+		dev_err(dev->device, "%s is %s\n", is_mfc_itmon ? "MFC" : "MMCACHE",
 				is_master ? "master" : "dest");
 		if (!dev->itmon_notified) {
-			pr_err("dump MFC %s information\n", is_mmcache_itmon ? "MMCACHE" : "");
+			dev_err(dev->device, "dump MFC %s information\n", is_mmcache_itmon ? "MMCACHE" : "");
 			if (is_mmcache_itmon)
 				mfc_mmcache_dump_info(dev);
 			if (is_master || (!is_master && itmon_info->onoff))
@@ -1334,12 +1407,13 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 			else
 				call_dop(dev, dump_info_without_regs, dev);
 		} else {
-			pr_err("MFC notifier has already been called. skip MFC information\n");
+			dev_err(dev->device, "MFC notifier has already been called. skip MFC information\n");
 		}
-		pr_err("mfc_itmon_notifier: %s -\n", is_mfc_itmon ? "MFC" : "MMCACHE");
+		dev_err(dev->device, "mfc_itmon_notifier: %s -\n", is_mfc_itmon ? "MFC" : "MMCACHE");
 		dev->itmon_notified = 1;
+		ret = NOTIFY_BAD;
 	}
-	return NOTIFY_DONE;
+	return ret;
 }
 #endif
 
@@ -1348,9 +1422,9 @@ static int mfc_probe(struct platform_device *pdev)
 {
 	struct mfc_dev *dev;
 	int ret = -ENOENT;
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	int i;
-#endif
+
+	dev_set_socdata(&pdev->dev, "Exynos", "MFC");
 
 	dev_dbg(&pdev->dev, "%s()\n", __func__);
 	dev = devm_kzalloc(&pdev->dev, sizeof(struct mfc_dev), GFP_KERNEL);
@@ -1382,7 +1456,9 @@ static int mfc_probe(struct platform_device *pdev)
 		goto err_pm;
 	}
 
-	__mfc_parse_dt(dev->device->of_node, dev);
+	ret = __mfc_parse_dt(dev->device->of_node, dev);
+	if (ret)
+		goto err_pm;
 
 	atomic_set(&dev->trace_ref, 0);
 	atomic_set(&dev->trace_ref_longterm, 0);
@@ -1471,14 +1547,19 @@ static int mfc_probe(struct platform_device *pdev)
 	atomic_set(&dev->watchdog_tick_running, 0);
 	atomic_set(&dev->watchdog_tick_cnt, 0);
 	atomic_set(&dev->watchdog_run, 0);
-	init_timer(&dev->watchdog_timer);
-	dev->watchdog_timer.data = (unsigned long)dev;
-	dev->watchdog_timer.function = mfc_watchdog_tick;
+	timer_setup(&dev->watchdog_timer, mfc_watchdog_tick, 0);
 
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
+	/* MFC timer for HW idle checking */
+	dev->mfc_idle_wq = create_singlethread_workqueue("mfc/idle");
+	if (!dev->mfc_idle_wq) {
+		dev_err(&pdev->dev, "failed to create workqueue for MFC QoS idle\n");
+		goto err_wq_idle;
+	}
+	INIT_WORK(&dev->mfc_idle_work, mfc_qos_idle_worker);
+	timer_setup(&dev->mfc_idle_timer, mfc_idle_checker, 0);
+	mutex_init(&dev->idle_qos_mutex);
+
 	INIT_LIST_HEAD(&dev->qos_queue);
-	spin_lock_init(&dev->qos_lock);
-#endif
 
 	/* default FW alloc is added */
 	dev->butler_wq = alloc_workqueue("mfc/butler", WQ_UNBOUND
@@ -1492,20 +1573,29 @@ static int mfc_probe(struct platform_device *pdev)
 	/* dump information call-back function */
 	dev->dump_ops = &mfc_dump_ops;
 
-#ifdef CONFIG_MFC_USE_BUS_DEVFREQ
 	atomic_set(&dev->qos_req_cur, 0);
 	mutex_init(&dev->qos_mutex);
 
 	mfc_info_dev("[QoS] control: mfc_freq(%d), mo(%d), bw(%d)\n",
 			dev->pdata->mfc_freq_control, dev->pdata->mo_control, dev->pdata->bw_control);
-	for (i = 0; i < dev->pdata->num_qos_steps; i++) {
-		mfc_info_dev("[QoS] table[%d] mfc: %d, int : %d, mif : %d\n",
+	mfc_info_dev("[QoS]-------------------Default table\n");
+	for (i = 0; i < dev->pdata->num_default_qos_steps; i++)
+		mfc_info_dev("[QoS] table[%d] mfc: %d, int: %d, mif: %d, bts_scen: %s(%d)\n",
 				i,
-				dev->pdata->qos_table[i].freq_mfc,
-				dev->pdata->qos_table[i].freq_int,
-				dev->pdata->qos_table[i].freq_mif);
-	}
-#endif
+				dev->pdata->default_qos_table[i].freq_mfc,
+				dev->pdata->default_qos_table[i].freq_int,
+				dev->pdata->default_qos_table[i].freq_mif,
+				dev->pdata->default_qos_table[i].name,
+				dev->pdata->default_qos_table[i].bts_scen_idx);
+	mfc_info_dev("[QoS]-------------------Encoder only table\n");
+	for (i = 0; i < dev->pdata->num_encoder_qos_steps; i++)
+		mfc_info_dev("[QoS] table[%d] mfc: %d, int: %d, mif: %d, bts_scen: %s(%d)\n",
+				i,
+				dev->pdata->encoder_qos_table[i].freq_mfc,
+				dev->pdata->encoder_qos_table[i].freq_int,
+				dev->pdata->encoder_qos_table[i].freq_mif,
+				dev->pdata->encoder_qos_table[i].name,
+				dev->pdata->encoder_qos_table[i].bts_scen_idx);
 
 	iovmm_set_fault_handler(dev->device,
 		mfc_sysmmu_fault_handler, dev);
@@ -1532,7 +1622,7 @@ static int mfc_probe(struct platform_device *pdev)
 
 	mfc_init_debugfs(dev);
 
-	pr_debug("%s--\n", __func__);
+	dev_dbg(&pdev->dev, "%s--\n", __func__);
 	return 0;
 
 /* Deinit MFC if probe had failed */
@@ -1541,6 +1631,8 @@ err_alloc_debug:
 err_iovmm_active:
 	destroy_workqueue(dev->butler_wq);
 err_butler_wq:
+	destroy_workqueue(dev->mfc_idle_wq);
+err_wq_idle:
 	destroy_workqueue(dev->watchdog_wq);
 err_wq_watchdog:
 	video_unregister_device(dev->vfd_enc_otf_drm);
@@ -1581,9 +1673,14 @@ static int mfc_remove(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "%s++\n", __func__);
 	v4l2_info(&dev->v4l2_dev, "Removing %s\n", pdev->name);
-	del_timer_sync(&dev->watchdog_timer);
+	if (timer_pending(&dev->watchdog_timer))
+		del_timer(&dev->watchdog_timer);
 	flush_workqueue(dev->watchdog_wq);
 	destroy_workqueue(dev->watchdog_wq);
+	if (timer_pending(&dev->mfc_idle_timer))
+		del_timer(&dev->mfc_idle_timer);
+	flush_workqueue(dev->mfc_idle_wq);
+	destroy_workqueue(dev->mfc_idle_wq);
 	flush_workqueue(dev->butler_wq);
 	destroy_workqueue(dev->butler_wq);
 	video_unregister_device(dev->vfd_enc);
@@ -1599,7 +1696,7 @@ static int mfc_remove(struct platform_device *pdev)
 #endif
 	mfc_destroy_listable_wq_dev(dev);
 	iovmm_deactivate(&pdev->dev);
-	mfc_debug(2, "Will now deinit HW\n");
+	mfc_debug_dev(2, "Will now deinit HW\n");
 	mfc_run_deinit_hw(dev);
 	free_irq(dev->irq, dev);
 	if (dev->has_mmcache)
@@ -1651,7 +1748,7 @@ static int mfc_suspend(struct device *device)
 	int ret;
 
 	if (!dev) {
-		mfc_err_dev("no mfc device to run\n");
+		mfc_err("no mfc device to run\n");
 		return -EINVAL;
 	}
 
@@ -1674,6 +1771,11 @@ static int mfc_suspend(struct device *device)
 		mfc_mmcache_disable(dev);
 	}
 
+	if (dev->has_llc && dev->llc_on_status) {
+		mfc_llc_flush(dev);
+		mfc_llc_disable(dev);
+	}
+
 	mfc_release_hwlock_dev(dev);
 
 	return ret;
@@ -1685,7 +1787,7 @@ static int mfc_resume(struct device *device)
 	int ret;
 
 	if (!dev) {
-		mfc_err_dev("no mfc device to run\n");
+		mfc_err("no mfc device to run\n");
 		return -EINVAL;
 	}
 
@@ -1704,6 +1806,9 @@ static int mfc_resume(struct device *device)
 	if (dev->has_mmcache && (dev->mmcache.is_on_status == 0))
 		mfc_mmcache_enable(dev);
 
+	if (dev->has_llc && (dev->llc_on_status == 0))
+		mfc_llc_enable(dev);
+
 	ret = mfc_run_wakeup(dev);
 	mfc_release_hwlock_dev(dev);
 
@@ -1712,9 +1817,11 @@ static int mfc_resume(struct device *device)
 #endif
 
 #ifdef CONFIG_PM
-static int mfc_runtime_suspend(struct device *dev)
+static int mfc_runtime_suspend(struct device *device)
 {
-	mfc_debug(3, "mfc runtime suspend\n");
+	struct mfc_dev *dev = platform_get_drvdata(to_platform_device(device));
+
+	mfc_debug_dev(3, "mfc runtime suspend\n");
 
 	return 0;
 }
@@ -1724,9 +1831,11 @@ static int mfc_runtime_idle(struct device *dev)
 	return 0;
 }
 
-static int mfc_runtime_resume(struct device *dev)
+static int mfc_runtime_resume(struct device *device)
 {
-	mfc_debug(3, "mfc runtime resume\n");
+	struct mfc_dev *dev = platform_get_drvdata(to_platform_device(device));
+
+	mfc_debug_dev(3, "mfc runtime resume\n");
 
 	return 0;
 }
@@ -1749,7 +1858,6 @@ struct mfc_ctx_buf_size mfc_ctx_buf_size = {
 	.h264_enc_ctx	= PAGE_ALIGN(0x19000),	/* 100KB */
 	.hevc_enc_ctx	= PAGE_ALIGN(0xC800),	/*  50KB */
 	.other_enc_ctx	= PAGE_ALIGN(0xC800),	/*  50KB */
-	.shared_buf	= PAGE_ALIGN(0x2000),	/*   8KB */
 	.dbg_info_buf	= PAGE_ALIGN(0x1000),	/* 4KB for DEBUG INFO */
 };
 

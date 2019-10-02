@@ -690,7 +690,7 @@ uts_bind(struct usb_configuration *c, struct usb_function *f)
 	uts_ss_out_desc.bEndpointAddress = uts_fs_out_desc.bEndpointAddress;
 
 	status = usb_assign_descriptors(f, uts_fs_function, uts_hs_function,
-			uts_ss_function, NULL);
+			uts_ss_function, uts_ss_function);
 	if (status)
 		goto fail;
 

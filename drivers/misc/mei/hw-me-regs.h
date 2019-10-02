@@ -139,6 +139,11 @@
 #define MEI_DEV_ID_CNP_H      0xA360  /* Cannon Point H */
 #define MEI_DEV_ID_CNP_H_4    0xA364  /* Cannon Point H 4 (iTouch) */
 
+#define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
+
+#define MEI_DEV_ID_MCC        0x4B70  /* Mule Creek Canyon (EHL) */
+#define MEI_DEV_ID_MCC_4      0x4B75  /* Mule Creek Canyon 4 (EHL) */
+
 /*
  * MEI HW Section
  */

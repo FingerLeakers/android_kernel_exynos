@@ -19,65 +19,62 @@
 #include <crypto/fmp.h>
 #include <crypto/diskcipher.h>
 
-static int fmp_crypt(struct crypto_tfm *tfm, void *priv)
+static int fmp_crypt(struct crypto_diskcipher *tfm, void *priv)
 {
-	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
+	struct fmp_crypto_info *ci = crypto_tfm_ctx(crypto_diskcipher_tfm(tfm));
 
 	return exynos_fmp_crypt(ci, priv);
 }
 
-static int fmp_clear(struct crypto_tfm *tfm, void *priv)
+static int fmp_clear(struct crypto_diskcipher *tfm, void *priv)
 {
-	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
+	struct fmp_crypto_info *ci = crypto_tfm_ctx(crypto_diskcipher_tfm(tfm));
 
 	return exynos_fmp_clear(ci, priv);
 }
 
-static int fmp_setkey(struct crypto_tfm *tfm, const char *in_key, u32 keylen,
+static int fmp_setkey(struct crypto_diskcipher *tfm, const char *in_key, u32 keylen,
 		      bool persistent)
 {
-	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
+	struct fmp_crypto_info *ci = crypto_tfm_ctx(crypto_diskcipher_tfm(tfm));
 
 	return exynos_fmp_setkey(ci, (char *)in_key, keylen, persistent);
 }
 
-static int fmp_clearkey(struct crypto_tfm *tfm)
+static int fmp_clearkey(struct crypto_diskcipher *tfm)
 {
-	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
+	struct fmp_crypto_info *ci = crypto_tfm_ctx(crypto_diskcipher_tfm(tfm));
 
 	return exynos_fmp_clearkey(ci);
 }
 
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
-static int fmp_do_test_crypt(struct crypto_tfm *tfm,
+/* support crypto manager test without CRYPTO_MANAGER_DISABLE_TESTS */
+static int fmp_do_test_crypt(struct crypto_diskcipher *tfm,
 			  struct diskcipher_test_request *req)
 {
-	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
-	struct crypto_diskcipher *diskc = __crypto_diskcipher_cast(tfm);
-
 	if (!req) {
 		pr_err("%s: invalid parameter\n", __func__);
 		return -EINVAL;
 	}
 
-	return exynos_fmp_test_crypt(ci, req->iv, diskc->ivsize,
-			     sg_virt(req->src), sg_virt(req->dst),
-			     req->cryptlen, req->enc ? 1 : 0, diskc);
+	return exynos_fmp_test_crypt(crypto_tfm_ctx(crypto_diskcipher_tfm(tfm)),
+		    req->iv, tfm->ivsize,
+		    sg_virt(req->src), sg_virt(req->dst),
+		    req->cryptlen, req->enc ? 1 : 0, tfm);
 }
-#endif
 
-static void *fmp_ctx;
 
 static inline void fmp_algo_init(struct crypto_tfm *tfm,
 				 enum fmp_crypto_algo_mode algo)
 {
 	struct fmp_crypto_info *ci = crypto_tfm_ctx(tfm);
 	struct crypto_diskcipher *diskc = __crypto_diskcipher_cast(tfm);
+	struct diskcipher_alg *alg = crypto_diskcipher_alg(diskc);
 
 	/* This field's stongly aligned 'fmp_crypto_info->use_diskc' */
 	diskc->algo = (u32)algo;
 	diskc->ivsize = FMP_IV_SIZE_16;
-	ci->ctx = fmp_ctx;
+	ci->ctx = dev_get_drvdata(alg->dev);
 	ci->algo_mode = algo;
 }
 
@@ -116,10 +113,10 @@ static struct diskcipher_alg fmp_algs[] = {{
 static int exynos_fmp_probe(struct platform_device *pdev)
 {
 	struct diskcipher_alg *alg;
+	void *fmp_ctx = exynos_fmp_init(pdev);
 	int ret;
 	int i;
 
-	fmp_ctx = exynos_fmp_init(pdev);
 	if (!fmp_ctx) {
 		dev_err(&pdev->dev,
 			"%s: Fail to register diskciphero\n", __func__);
@@ -129,16 +126,13 @@ static int exynos_fmp_probe(struct platform_device *pdev)
 
 	for (i = 0; i < ARRAY_SIZE(fmp_algs); i++) {
 		alg = &fmp_algs[i];
+		alg->dev = &pdev->dev;
+		alg->init = NULL;
 		alg->setkey = fmp_setkey;
 		alg->clearkey = fmp_clearkey;
 		alg->crypt = fmp_crypt;
 		alg->clear = fmp_clear;
-#ifdef USE_FREE_REQ
-		alg->freectrl.max_io_ms = 3000;
-#endif
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
 		alg->do_crypt = fmp_do_test_crypt;
-#endif
 	}
 	ret = crypto_register_diskciphers(fmp_algs, ARRAY_SIZE(fmp_algs));
 	if (ret) {

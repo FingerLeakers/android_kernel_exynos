@@ -18,6 +18,7 @@
 #include <linux/debugfs.h>
 #include <linux/oom.h>
 #include <linux/sort.h>
+#include <linux/slab.h>
 
 #include "ion.h"
 #include "ion_exynos.h"
@@ -287,9 +288,9 @@ static void ion_debug_buffer_for_heap(struct seq_file *s,
 	struct ion_buffer *buffer;
 	size_t total = 0, peak = 0;
 
-	ion_debug_print(s, "[  id] %15s %8s %5s %8s : %s\n",
+	ion_debug_print(s, "[  id] %15s %8s %5s %8s %16s(%5s) %16s(%5s)\n",
 			"heap", "heaptype", "flags", "size(kb)",
-			"iommu_mapped...");
+			"task_comm", "pid", "thread_comm", "tid");
 
 	mutex_lock(&dev->buffer_lock);
 	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
@@ -300,7 +301,7 @@ static void ion_debug_buffer_for_heap(struct seq_file *s,
 				ARRAY_SIZE(heap_type_name)) ?
 				buffer->heap->type : 0;
 
-			ion_debug_print(s, "[%4d] %15s %8s %#5lx %8zu %16s %16u (%16s %16u)",
+			ion_debug_print(s, "[%4d] %15s %8s %#5lx %8zu %16s(%5u) %16s(%5u)",
 					buffer->id, buffer->heap->name,
 					heap_type_name[heaptype], buffer->flags,
 					buffer->size / SZ_1K,
@@ -372,7 +373,7 @@ void ion_debug_heap_init(struct ion_heap *heap)
 
 		path = dentry_path(heap->dev->heaps_debug_root,
 				   buf, 256);
-		perrfn("failed to create %s/%s", path, heap_file);
+		perrfn("failed to create %s/%s", path, debug_name);
 	}
 }
 

@@ -705,17 +705,12 @@ enum max98506_type {
 
 struct max98506_priv {
 	struct regmap *regmap;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *component;
 	struct max98506_pdata *pdata;
 	struct max98506_pc_active pca;
 	struct max98506_volume_step_info vstep;
-#ifdef USE_DSM_LOG
-	struct class *dev_log_class;
-	struct device *dev_log;
-#endif /* USE_DSM_LOG */
 	struct i2c_client *sub_i2c;
 	struct regmap *sub_regmap;
-	int speaker_dac_enable;
 };
 
 #endif /* _MAX98506_H */

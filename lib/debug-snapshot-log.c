@@ -37,10 +37,10 @@
 #include <linux/irqdesc.h>
 #include <linux/nmi.h>
 
+#include <linux/sec_debug.h>
+
 struct dbg_snapshot_lastinfo {
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
 	atomic_t freq_last_idx[DSS_FLAG_END];
-#endif
 	char log[DSS_NR_CPUS][SZ_1K];
 	char *last_p[DSS_NR_CPUS];
 };
@@ -54,29 +54,37 @@ struct dss_dumper {
 	u32 step;
 };
 
-enum dss_kevent_flag {
-	DSS_FLAG_TASK = 1,
-	DSS_FLAG_WORK,
-	DSS_FLAG_CPUIDLE,
-	DSS_FLAG_SUSPEND,
-	DSS_FLAG_IRQ,
-	DSS_FLAG_IRQ_EXIT,
-	DSS_FLAG_SPINLOCK,
-	DSS_FLAG_IRQ_DISABLE,
-	DSS_FLAG_CLK,
-	DSS_FLAG_FREQ,
-	DSS_FLAG_REG,
-	DSS_FLAG_HRTIMER,
-	DSS_FLAG_REGULATOR,
-	DSS_FLAG_THERMAL,
-	DSS_FLAG_MAILBOX,
-	DSS_FLAG_CLOCKEVENT,
-	DSS_FLAG_PRINTK,
-	DSS_FLAG_PRINTKL,
-	DSS_FLAG_KEVENT,
+struct dbg_snapshot_log_item {
+	int id;
+	char *name;
+	struct dbg_snapshot_base entry;
 };
 
-struct dbg_snapshot_log_idx {
+struct dbg_snapshot_log_item dss_log_items[] = {
+	{DSS_LOG_TASK_ID,	DSS_LOG_TASK,		{0, 0, 0, false, false}, },
+	{DSS_LOG_WORK_ID,	DSS_LOG_WORK,		{0, 0, 0, false, false}, },
+	{DSS_LOG_CPUIDLE_ID,	DSS_LOG_CPUIDLE,	{0, 0, 0, false, false}, },
+	{DSS_LOG_SUSPEND_ID,	DSS_LOG_SUSPEND,	{0, 0, 0, false, false}, },
+	{DSS_LOG_IRQ_ID,	DSS_LOG_IRQ,		{0, 0, 0, false, false}, },
+	{DSS_LOG_SPINLOCK_ID,	DSS_LOG_SPINLOCK,	{0, 0, 0, false, false}, },
+	{DSS_LOG_IRQ_DISABLED_ID,DSS_LOG_IRQ_DISABLED,	{0, 0, 0, false, false}, },
+	{DSS_LOG_REG_ID,	DSS_LOG_REG,		{0, 0, 0, false, false}, },
+	{DSS_LOG_HRTIMER_ID,	DSS_LOG_HRTIMER,	{0, 0, 0, false, false}, },
+	{DSS_LOG_CLK_ID,	DSS_LOG_CLK,		{0, 0, 0, false, false}, },
+	{DSS_LOG_PMU_ID,	DSS_LOG_PMU,		{0, 0, 0, false, false}, },
+	{DSS_LOG_FREQ_ID,	DSS_LOG_FREQ,		{0, 0, 0, false, false}, },
+	{DSS_LOG_DM_ID,		DSS_LOG_DM,		{0, 0, 0, false, false}, },
+	{DSS_LOG_REGULATOR_ID,	DSS_LOG_REGULATOR,	{0, 0, 0, false, false}, },
+	{DSS_LOG_THERMAL_ID,	DSS_LOG_THERMAL,	{0, 0, 0, false, false}, },
+	{DSS_LOG_I2C_ID,	DSS_LOG_I2C,		{0, 0, 0, false, false}, },
+	{DSS_LOG_SPI_ID,	DSS_LOG_SPI,		{0, 0, 0, false, false}, },
+	{DSS_LOG_BINDER_ID,	DSS_LOG_BINDER,		{0, 0, 0, false, false}, },
+	{DSS_LOG_ACPM_ID,	DSS_LOG_ACPM,		{0, 0, 0, false, false}, },
+	{DSS_LOG_PRINTK_ID,	DSS_LOG_PRINTK,		{0, 0, 0, false, false}, },
+	{DSS_LOG_PRINTKL_ID,	DSS_LOG_PRINTKL,	{0, 0, 0, false, false}, },
+};
+
+struct dbg_snapshot_log_misc {
 	atomic_t task_log_idx[DSS_NR_CPUS];
 	atomic_t work_log_idx[DSS_NR_CPUS];
 	atomic_t cpuidle_log_idx[DSS_NR_CPUS];
@@ -91,44 +99,21 @@ struct dbg_snapshot_log_idx {
 #ifdef CONFIG_DEBUG_SNAPSHOT_REG
 	atomic_t reg_log_idx[DSS_NR_CPUS];
 #endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_HRTIMER
 	atomic_t hrtimer_log_idx[DSS_NR_CPUS];
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
 	atomic_t clk_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
 	atomic_t pmu_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
 	atomic_t freq_log_idx;
-	atomic_t freq_misc_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_DM
 	atomic_t dm_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_REGULATOR
 	atomic_t regulator_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_REGULATOR
 	atomic_t thermal_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_I2C
 	atomic_t i2c_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_SPI
 	atomic_t spi_log_idx;
-#endif
 #ifdef CONFIG_DEBUG_SNAPSHOT_BINDER
 	atomic_t binder_log_idx;
 #endif
-#ifndef CONFIG_DEBUG_SNAPSHOT_MINIMIZED_MODE
 	atomic_t printkl_log_idx;
 	atomic_t printk_log_idx;
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_ACPM
 	atomic_t acpm_log_idx;
-#endif
 };
 
 int dbg_snapshot_log_size = sizeof(struct dbg_snapshot_log);
@@ -141,99 +126,98 @@ int dss_irqlog_exlist[DSS_EX_MAX_NUM] = {
 	-1,
 };
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_REG
-struct dss_reg_list {
-	size_t addr;
-	size_t size;
-};
-
-static struct dss_reg_list dss_reg_exlist[] = {
-/*
- *  if it wants to reduce effect enabled reg feautre to system,
- *  you must add these registers - mct, serial
- *  because they are called very often.
- *  physical address, size ex) {0x10C00000, 0x1000},
- */
-	{DSS_REG_MCT_ADDR, DSS_REG_MCT_SIZE},
-	{DSS_REG_UART_ADDR, DSS_REG_UART_SIZE},
-	{0, 0},
-	{0, 0},
-	{0, 0},
-	{0, 0},
-	{0, 0},
-	{0, 0},
-	{0, 0},
-};
-#endif
-
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
 static char *dss_freq_name[] = {
-	"LIT", "MID", "BIG", "INT", "MIF", "ISP", "DISP", "INTCAM", "AUD", "IVA", "SCORE", "FSYS0", "MFC", "NPU", "G3D",
+	"LIT", "MID", "BIG", "INT", "MIF", "ISP", "DISP", "INTCAM", "AUD", "DSP", "DNC", "MFC", "NPU", "TNR",
 };
-#endif
 
 /*  Internal interface variable */
-static struct dbg_snapshot_log_idx dss_idx;
+static struct dbg_snapshot_log_misc dss_log_misc;
 static struct dbg_snapshot_lastinfo dss_lastinfo;
 
 void __init dbg_snapshot_init_log_idx(void)
 {
 	int i;
 
-#ifndef CONFIG_DEBUG_SNAPSHOT_MINIMIZED_MODE
-	atomic_set(&(dss_idx.printk_log_idx), -1);
-	atomic_set(&(dss_idx.printkl_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_REGULATOR
-	atomic_set(&(dss_idx.regulator_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_THERMAL
-	atomic_set(&(dss_idx.thermal_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
-	atomic_set(&(dss_idx.freq_log_idx), -1);
-	atomic_set(&(dss_idx.freq_misc_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_DM
-	atomic_set(&(dss_idx.dm_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
-	atomic_set(&(dss_idx.clk_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
-	atomic_set(&(dss_idx.pmu_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_ACPM
-	atomic_set(&(dss_idx.acpm_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_I2C
-	atomic_set(&(dss_idx.i2c_log_idx), -1);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_SPI
-	atomic_set(&(dss_idx.spi_log_idx), -1);
-#endif
+	atomic_set(&(dss_log_misc.printk_log_idx), -1);
+	atomic_set(&(dss_log_misc.printkl_log_idx), -1);
+	atomic_set(&(dss_log_misc.regulator_log_idx), -1);
+	atomic_set(&(dss_log_misc.thermal_log_idx), -1);
+	atomic_set(&(dss_log_misc.freq_log_idx), -1);
+	atomic_set(&(dss_log_misc.dm_log_idx), -1);
+	atomic_set(&(dss_log_misc.clk_log_idx), -1);
+	atomic_set(&(dss_log_misc.pmu_log_idx), -1);
+	atomic_set(&(dss_log_misc.acpm_log_idx), -1);
+	atomic_set(&(dss_log_misc.i2c_log_idx), -1);
+	atomic_set(&(dss_log_misc.spi_log_idx), -1);
 #ifdef CONFIG_DEBUG_SNAPSHOT_BINDER
-	atomic_set(&(dss_idx.binder_log_idx), -1);
+	atomic_set(&(dss_log_misc.binder_log_idx), -1);
 #endif
-	atomic_set(&(dss_idx.suspend_log_idx), -1);
+	atomic_set(&(dss_log_misc.suspend_log_idx), -1);
 
 	for (i = 0; i < DSS_NR_CPUS; i++) {
-		atomic_set(&(dss_idx.task_log_idx[i]), -1);
-		atomic_set(&(dss_idx.work_log_idx[i]), -1);
-		atomic_set(&(dss_idx.cpuidle_log_idx[i]), -1);
-		atomic_set(&(dss_idx.irq_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.task_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.work_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.cpuidle_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.irq_log_idx[i]), -1);
 #ifdef CONFIG_DEBUG_SNAPSHOT_SPINLOCK
-		atomic_set(&(dss_idx.spinlock_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.spinlock_log_idx[i]), -1);
 #endif
 #ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_DISABLED
-		atomic_set(&(dss_idx.irqs_disabled_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.irqs_disabled_log_idx[i]), -1);
 #endif
 #ifdef CONFIG_DEBUG_SNAPSHOT_REG
-		atomic_set(&(dss_idx.reg_log_idx[i]), -1);
+		atomic_set(&(dss_log_misc.reg_log_idx[i]), -1);
 #endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_HRTIMER
-		atomic_set(&(dss_idx.hrtimer_log_idx[i]), -1);
-#endif
+		atomic_set(&(dss_log_misc.hrtimer_log_idx[i]), -1);
+	}
+}
+
+unsigned long secdbg_base_get_kevent_index_addr(int type)
+{
+	switch (type) {
+	case DSS_KEVENT_TASK:
+		return virt_to_phys(&(dss_log_misc.task_log_idx[0]));
+
+	case DSS_KEVENT_WORK:
+		return virt_to_phys(&(dss_log_misc.work_log_idx[0]));
+
+	case DSS_KEVENT_IRQ:
+		return virt_to_phys(&(dss_log_misc.irq_log_idx[0]));
+
+	case DSS_KEVENT_FREQ:
+		return virt_to_phys(&(dss_log_misc.freq_log_idx));
+
+	case DSS_KEVENT_IDLE:
+		return virt_to_phys(&(dss_log_misc.cpuidle_log_idx[0]));
+
+	case DSS_KEVENT_THRM:
+		return virt_to_phys(&(dss_log_misc.thermal_log_idx));
+
+	case DSS_KEVENT_ACPM:
+		return virt_to_phys(&(dss_log_misc.acpm_log_idx));
+
+	default:
+		return 0;
+	}
+}
+
+void __init dbg_snapshot_early_init_log_enabled(const char *name, int en)
+{
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item;
+	int i;
+
+	if (!item->entry.enabled || !name)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(dss_log_items); i++) {
+		if (!strncmp(dss_log_items[i].name, name, strlen(name))) {
+			log_item = &dss_log_items[i];
+			log_item->entry.enabled = en;
+			pr_info("debug-snapshot: log item - %s is %sabled\n",
+					name, en ? "en" : "dis");
+			break;
+		}
 	}
 }
 
@@ -260,12 +244,12 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 	items = dumper->items;
 
 	switch(items) {
-	case DSS_FLAG_TASK:
+	case DSS_LOG_TASK_ID:
 	{
 		struct task_struct *task;
 		array_size = ARRAY_SIZE(dss_log->task[0]) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.task_log_idx[0]) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.task_log_idx[0]) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -280,7 +264,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						task->se.exec_start);
 		break;
 	}
-	case DSS_FLAG_WORK:
+	case DSS_LOG_WORK_ID:
 	{
 		char work_fn[KSYM_NAME_LEN] = {0,};
 		char *task_comm;
@@ -288,7 +272,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->work[0]) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.work_log_idx[0]) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.work_log_idx[0]) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -305,7 +289,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-	case DSS_FLAG_CPUIDLE:
+	case DSS_LOG_CPUIDLE_ID:
 	{
 		unsigned int delta;
 		int state, num_cpus, en;
@@ -313,7 +297,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->cpuidle[0]) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.cpuidle_log_idx[0]) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.cpuidle_log_idx[0]) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -333,14 +317,14 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-	case DSS_FLAG_SUSPEND:
+	case DSS_LOG_SUSPEND_ID:
 	{
 		char suspend_fn[KSYM_NAME_LEN];
 		int en;
 
 		array_size = ARRAY_SIZE(dss_log->suspend) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.suspend_log_idx) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.suspend_log_idx) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -355,14 +339,14 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						suspend_fn, en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-	case DSS_FLAG_IRQ:
+	case DSS_LOG_IRQ_ID:
 	{
 		char irq_fn[KSYM_NAME_LEN];
 		int en, irq;
 
 		array_size = ARRAY_SIZE(dss_log->irq[0]) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.irq_log_idx[0]) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.irq_log_idx[0]) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -379,16 +363,16 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 		break;
 	}
 #ifdef CONFIG_DEBUG_SNAPSHOT_SPINLOCK
-	case DSS_FLAG_SPINLOCK:
+	case DSS_LOG_SPINLOCK_ID:
 	{
 		unsigned int jiffies_local;
 		char callstack[CONFIG_DEBUG_SNAPSHOT_CALLSTACK][KSYM_NAME_LEN];
 		int en, i;
-		u16 next, owner;
+		u16 locked_pending, tail;
 
 		array_size = ARRAY_SIZE(dss_log->spinlock[0]) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.spinlock_log_idx[0]) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.spinlock_log_idx[0]) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -401,23 +385,22 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 			lookup_symbol_name((unsigned long)dss_log->spinlock[cpu][idx].caller[i],
 						callstack[i]);
 
-		next = dss_log->spinlock[cpu][idx].next;
-		owner = dss_log->spinlock[cpu][idx].owner;
+		locked_pending = dss_log->spinlock[cpu][idx].locked_pending;
+		tail = dss_log->spinlock[cpu][idx].tail;
 
-		*len = snprintf(line, size, "[%8lu.%09lu][%04d:CPU%u] next:%8x,  owner:%8x  jiffies:%12u,  %3s\n"
+		*len = snprintf(line, size, "[%8lu.%09lu][%04d:CPU%u] locked_pending:%8x,  tail:%8x  jiffies:%12u,  %3s\n"
 					    "callstack: %s\n"
 					    "           %s\n"
 					    "           %s\n"
 					    "           %s\n",
 						(unsigned long)ts, rem_nsec / NSEC_PER_USEC, idx, cpu,
-						next, owner, jiffies_local,
+						locked_pending, tail, jiffies_local,
 						en == DSS_FLAG_IN ? "IN" : "OUT",
 						callstack[0], callstack[1], callstack[2], callstack[3]);
 		break;
 	}
 #endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
-	case DSS_FLAG_CLK:
+	case DSS_LOG_CLK_ID:
 	{
 		const char *clk_name;
 		char clk_fn[KSYM_NAME_LEN];
@@ -426,7 +409,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->clk) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.clk_log_idx) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.clk_log_idx) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -444,9 +427,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						clk_name, clk_fn, en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
-	case DSS_FLAG_FREQ:
+	case DSS_LOG_FREQ_ID:
 	{
 		char *freq_name;
 		unsigned int on_cpu;
@@ -455,7 +436,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->freq) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.freq_log_idx) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.freq_log_idx) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -475,9 +456,8 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-#endif
-#ifndef CONFIG_DEBUG_SNAPSHOT_MINIMIZED_MODE
-	case DSS_FLAG_PRINTK:
+#ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
+	case DSS_LOG_PRINTK_ID:
 	{
 		char *log;
 		char callstack[CONFIG_DEBUG_SNAPSHOT_CALLSTACK][KSYM_NAME_LEN];
@@ -486,7 +466,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->printk) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.printk_log_idx) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.printk_log_idx) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -503,7 +483,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						log, callstack[0], callstack[1], callstack[2], callstack[3]);
 		break;
 	}
-	case DSS_FLAG_PRINTKL:
+	case DSS_LOG_PRINTKL_ID:
 	{
 		char callstack[CONFIG_DEBUG_SNAPSHOT_CALLSTACK][KSYM_NAME_LEN];
 		size_t msg, val;
@@ -512,7 +492,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 
 		array_size = ARRAY_SIZE(dss_log->printkl) - 1;
 		if (!dumper->active) {
-			idx = (atomic_read(&dss_idx.printkl_log_idx) + 1) & array_size;
+			idx = (atomic_read(&dss_log_misc.printkl_log_idx) + 1) & array_size;
 			dumper->init_idx = idx;
 			dumper->active = true;
 		}
@@ -592,12 +572,13 @@ static inline void arch_local_irq_restore(unsigned long flags)
 
 void dbg_snapshot_task(int cpu, void *v_task)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_TASK_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
-		unsigned long i = atomic_inc_return(&dss_idx.task_log_idx[cpu]) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.task_log_idx[cpu]) &
 				    (ARRAY_SIZE(dss_log->task[0]) - 1);
 
 		dss_log->task[cpu][i].time = cpu_clock(cpu);
@@ -612,14 +593,14 @@ void dbg_snapshot_task(int cpu, void *v_task)
 
 void dbg_snapshot_work(void *worker, void *v_task, void *fn, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_WORK_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
-
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.work_log_idx[cpu]) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.work_log_idx[cpu]) &
 					(ARRAY_SIZE(dss_log->work[0]) - 1);
 		struct task_struct *task = (struct task_struct *)v_task;
 		dss_log->work[cpu][i].time = cpu_clock(cpu);
@@ -633,13 +614,14 @@ void dbg_snapshot_work(void *worker, void *v_task, void *fn, int en)
 
 void dbg_snapshot_cpuidle(char *modes, unsigned state, int diff, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_CPUIDLE_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.cpuidle_log_idx[cpu]) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.cpuidle_log_idx[cpu]) &
 				(ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
 
 		dss_log->cpuidle[cpu][i].time = cpu_clock(cpu);
@@ -654,14 +636,15 @@ void dbg_snapshot_cpuidle(char *modes, unsigned state, int diff, int en)
 
 void dbg_snapshot_suspend(char *log, void *fn, void *dev, int state, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_SUSPEND_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int len;
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.suspend_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.suspend_log_idx) &
 				(ARRAY_SIZE(dss_log->suspend) - 1);
 
 		dss_log->suspend[i].time = cpu_clock(cpu);
@@ -687,10 +670,10 @@ static void dbg_snapshot_print_calltrace(void)
 {
 	int i;
 
-	pr_info("\n<Call trace>\n");
+	dev_info(dss_desc.dev, "\n<Call trace>\n");
 	for (i = 0; i < DSS_NR_CPUS; i++) {
-		pr_info("CPU ID: %d -----------------------------------------------\n", i);
-		pr_info("%s", dss_lastinfo.log[i]);
+		dev_info(dss_desc.dev, "CPU ID: %d -----------------------------------------------\n", i);
+		dev_info(dss_desc.dev, "\n%s", dss_lastinfo.log[i]);
 	}
 }
 
@@ -707,103 +690,16 @@ void dbg_snapshot_save_log(int cpu, unsigned long where)
 
 }
 
-static void dbg_snapshot_get_sec(unsigned long long ts, unsigned long *sec, unsigned long *msec)
-{
-	*sec = ts / NSEC_PER_SEC;
-	*msec = (ts % NSEC_PER_SEC) / USEC_PER_MSEC;
-}
-
-static void dbg_snapshot_print_last_irq(int cpu)
-{
-	unsigned long idx, sec, msec;
-	char fn_name[KSYM_NAME_LEN];
-
-	idx = atomic_read(&dss_idx.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
-	dbg_snapshot_get_sec(dss_log->irq[cpu][idx].time, &sec, &msec);
-	lookup_symbol_name((unsigned long)dss_log->irq[cpu][idx].fn, fn_name);
-
-	pr_info("%-16s: [%4lu] %10lu.%06lu sec, %10s: %24s, %8s: %8d, %10s: %2d, %s\n",
-			">>> last irq", idx, sec, msec,
-			"handler", fn_name,
-			"irq", dss_log->irq[cpu][idx].irq,
-			"en", dss_log->irq[cpu][idx].en,
-			(dss_log->irq[cpu][idx].en == 1) ? "[Missmatch]" : "");
-}
-
-static void dbg_snapshot_print_last_task(int cpu)
-{
-	unsigned long idx, sec, msec;
-	struct task_struct *task;
-
-	idx = atomic_read(&dss_idx.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
-	dbg_snapshot_get_sec(dss_log->task[cpu][idx].time, &sec, &msec);
-	task = dss_log->task[cpu][idx].task;
-
-	pr_info("%-16s: [%4lu] %10lu.%06lu sec, %10s: %24s, %8s: 0x%-16p, %10s: %16llu\n",
-			">>> last task", idx, sec, msec,
-			"task_comm", (task) ? task->comm : "NULL",
-			"task", task,
-			"exec_start", (task) ? task->se.exec_start : 0);
-}
-
-static void dbg_snapshot_print_last_work(int cpu)
-{
-	unsigned long idx, sec, msec;
-	char fn_name[KSYM_NAME_LEN];
-
-	idx = atomic_read(&dss_idx.work_log_idx[cpu]) & (ARRAY_SIZE(dss_log->work[0]) - 1);
-	dbg_snapshot_get_sec(dss_log->work[cpu][idx].time, &sec, &msec);
-	lookup_symbol_name((unsigned long)dss_log->work[cpu][idx].fn, fn_name);
-
-	pr_info("%-16s: [%4lu] %10lu.%06lu sec, %10s: %24s, %8s: %20s, %3s: %3d %s\n",
-			">>> last work", idx, sec, msec,
-			"task_name", dss_log->work[cpu][idx].task_comm,
-			"work_fn", fn_name,
-			"en", dss_log->work[cpu][idx].en,
-			(dss_log->work[cpu][idx].en == 1) ? "[Missmatch]" : "");
-}
-
-static void dbg_snapshot_print_last_cpuidle(int cpu)
-{
-	unsigned long idx, sec, msec;
-
-	idx = atomic_read(&dss_idx.cpuidle_log_idx[cpu]) & (ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
-	dbg_snapshot_get_sec(dss_log->cpuidle[cpu][idx].time, &sec, &msec);
-
-	pr_info("%-16s: [%4lu] %10lu.%06lu sec, %10s: %24d, %8s: %4s, %6s: %3d, %12s: %2d, %3s: %3d %s\n",
-			">>> last cpuidle", idx, sec, msec,
-			"stay time", dss_log->cpuidle[cpu][idx].delta,
-			"modes", dss_log->cpuidle[cpu][idx].modes,
-			"state", dss_log->cpuidle[cpu][idx].state,
-			"online_cpus", dss_log->cpuidle[cpu][idx].num_online_cpus,
-			"en", dss_log->cpuidle[cpu][idx].en,
-			(dss_log->cpuidle[cpu][idx].en == 1) ? "[Missmatch]" : "");
-}
-
-static void dbg_snapshot_print_lastinfo(void)
-{
-	int cpu;
-
-	pr_info("<last info>\n");
-	for (cpu = 0; cpu < DSS_NR_CPUS; cpu++) {
-		pr_info("CPU ID: %d -----------------------------------------------\n", cpu);
-		dbg_snapshot_print_last_task(cpu);
-		dbg_snapshot_print_last_work(cpu);
-		dbg_snapshot_print_last_irq(cpu);
-		dbg_snapshot_print_last_cpuidle(cpu);
-	}
-}
-
-#ifdef CONFIG_DEBUG_SNAPSHOT_REGULATOR
 void dbg_snapshot_regulator(unsigned long long timestamp, char* f_name, unsigned int addr, unsigned int volt, unsigned int rvolt, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_REGULATOR_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.regulator_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.regulator_log_idx) &
 				(ARRAY_SIZE(dss_log->regulator) - 1);
 		int size = strlen(f_name);
 		if (size >= SZ_16)
@@ -818,36 +714,35 @@ void dbg_snapshot_regulator(unsigned long long timestamp, char* f_name, unsigned
 		dss_log->regulator[i].raw_volt = rvolt;
 	}
 }
-#endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_THERMAL
-void dbg_snapshot_thermal(void *data, unsigned int temp, char *name, unsigned int max_cooling)
+void dbg_snapshot_thermal(void *data, unsigned int temp, char *name, unsigned long long max_cooling)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_THERMAL_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.thermal_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.thermal_log_idx) &
 				(ARRAY_SIZE(dss_log->thermal) - 1);
 
 		dss_log->thermal[i].time = cpu_clock(cpu);
 		dss_log->thermal[i].cpu = cpu;
-		dss_log->thermal[i].data = (struct exynos_tmu_platform_data *)data;
+		dss_log->thermal[i].data = (struct exynos_tmu_data *)data;
 		dss_log->thermal[i].temp = temp;
 		dss_log->thermal[i].cooling_device = name;
 		dss_log->thermal[i].cooling_state = max_cooling;
 	}
 }
-#endif
 
 void dbg_snapshot_irq(int irq, void *fn, void *val, unsigned long long start_time, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_IRQ_ID];
 	unsigned long flags;
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 
 	flags = pure_arch_local_irq_save();
@@ -862,7 +757,7 @@ void dbg_snapshot_irq(int irq, void *fn, void *val, unsigned long long start_tim
 			start_time = time;
 
 		latency = time - start_time;
-		i = atomic_inc_return(&dss_idx.irq_log_idx[cpu]) &
+		i = atomic_inc_return(&dss_log_misc.irq_log_idx[cpu]) &
 				(ARRAY_SIZE(dss_log->irq[0]) - 1);
 
 		dss_log->irq[cpu][i].time = time;
@@ -879,13 +774,14 @@ void dbg_snapshot_irq(int irq, void *fn, void *val, unsigned long long start_tim
 #ifdef CONFIG_DEBUG_SNAPSHOT_SPINLOCK
 void dbg_snapshot_spinlock(void *v_lock, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_SPINLOCK_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned index = atomic_inc_return(&dss_idx.spinlock_log_idx[cpu]);
+		unsigned long index = atomic_inc_return(&dss_log_misc.spinlock_log_idx[cpu]);
 		unsigned long j, i = index & (ARRAY_SIZE(dss_log->spinlock[0]) - 1);
 		raw_spinlock_t *lock = (raw_spinlock_t *)v_lock;
 #ifdef CONFIG_ARM_ARCH_TIMER
@@ -897,8 +793,8 @@ void dbg_snapshot_spinlock(void *v_lock, int en)
 		dss_log->spinlock[cpu][i].jiffies = jiffies_64;
 #ifdef CONFIG_DEBUG_SPINLOCK
 		dss_log->spinlock[cpu][i].lock = lock;
-		dss_log->spinlock[cpu][i].next = lock->raw_lock.next;
-		dss_log->spinlock[cpu][i].owner = lock->raw_lock.owner;
+		dss_log->spinlock[cpu][i].locked_pending = lock->raw_lock.locked_pending;
+		dss_log->spinlock[cpu][i].tail = lock->raw_lock.tail;
 #endif
 		dss_log->spinlock[cpu][i].en = en;
 
@@ -913,17 +809,18 @@ void dbg_snapshot_spinlock(void *v_lock, int en)
 #ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_DISABLED
 void dbg_snapshot_irqs_disabled(unsigned long flags)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_IRQ_DISABLED_ID];
 	int cpu = raw_smp_processor_id();
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 
 	if (unlikely(flags)) {
-		unsigned j, local_flags = pure_arch_local_irq_save();
+		unsigned long j, local_flags = pure_arch_local_irq_save();
 
 		/* If flags has one, it shows interrupt enable status */
-		atomic_set(&dss_idx.irqs_disabled_log_idx[cpu], -1);
+		atomic_set(&dss_log_misc.irqs_disabled_log_idx[cpu], -1);
 		dss_log->irqs_disabled[cpu][0].time = 0;
 		dss_log->irqs_disabled[cpu][0].index = 0;
 		dss_log->irqs_disabled[cpu][0].task = NULL;
@@ -935,7 +832,7 @@ void dbg_snapshot_irqs_disabled(unsigned long flags)
 
 		pure_arch_local_irq_restore(local_flags);
 	} else {
-		unsigned index = atomic_inc_return(&dss_idx.irqs_disabled_log_idx[cpu]);
+		unsigned long index = atomic_inc_return(&dss_log_misc.irqs_disabled_log_idx[cpu]);
 		unsigned long j, i = index % ARRAY_SIZE(dss_log->irqs_disabled[0]);
 
 		dss_log->irqs_disabled[cpu][0].time = jiffies_64;
@@ -951,16 +848,16 @@ void dbg_snapshot_irqs_disabled(unsigned long flags)
 }
 #endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
 void dbg_snapshot_clk(void *clock, const char *func_name, unsigned long arg, int mode)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_CLK_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.clk_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.clk_log_idx) &
 				(ARRAY_SIZE(dss_log->clk) - 1);
 
 		dss_log->clk[i].time = cpu_clock(cpu);
@@ -970,18 +867,17 @@ void dbg_snapshot_clk(void *clock, const char *func_name, unsigned long arg, int
 		dss_log->clk[i].f_name = func_name;
 	}
 }
-#endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
 void dbg_snapshot_pmu(int id, const char *func_name, int mode)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_PMU_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.pmu_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.pmu_log_idx) &
 				(ARRAY_SIZE(dss_log->pmu) - 1);
 
 		dss_log->pmu[i].time = cpu_clock(cpu);
@@ -990,7 +886,6 @@ void dbg_snapshot_pmu(int id, const char *func_name, int mode)
 		dss_log->pmu[i].f_name = func_name;
 	}
 }
-#endif
 
 static struct notifier_block **dss_should_check_nl[] = {
 	(struct notifier_block **)(&panic_notifier_list.head),
@@ -1016,7 +911,7 @@ void dbg_snapshot_print_notifier_call(void **nl, unsigned long func, int en)
 			lookup_symbol_name((unsigned long)nl_org, notifier_name);
 			lookup_symbol_name((unsigned long)func, notifier_func_name);
 
-			pr_info("debug-snapshot: %s -> %s call %s\n",
+			dev_info(dss_desc.dev, "debug-snapshot: %s -> %s call %s\n",
 				notifier_name,
 				notifier_func_name,
 				en == DSS_FLAG_IN ? "+" : "-");
@@ -1025,49 +920,20 @@ void dbg_snapshot_print_notifier_call(void **nl, unsigned long func, int en)
 	}
 }
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
-static void dbg_snapshot_print_freqinfo(void)
-{
-	unsigned long idx, sec, msec;
-	char *freq_name;
-	unsigned int i;
-	unsigned long old_freq, target_freq;
-
-	pr_info("\n<freq info>\n");
-
-	for (i = 0; i < DSS_FLAG_END; i++) {
-		idx = atomic_read(&dss_lastinfo.freq_last_idx[i]) & (ARRAY_SIZE(dss_log->freq) - 1);
-		freq_name = dss_log->freq[idx].freq_name;
-		if ((!freq_name) || strncmp(freq_name, dss_freq_name[i], strlen(dss_freq_name[i]))) {
-			pr_info("%10s: no infomation\n", dss_freq_name[i]);
-			continue;
-		}
-
-		dbg_snapshot_get_sec(dss_log->freq[idx].time, &sec, &msec);
-		old_freq = dss_log->freq[idx].old_freq;
-		target_freq = dss_log->freq[idx].target_freq;
-		pr_info("%10s: [%4lu] %10lu.%06lu sec, %12s: %6luMhz, %12s: %6luMhz, %3s: %3d %s\n",
-					freq_name, idx, sec, msec,
-					"old_freq", old_freq/1000,
-					"target_freq", target_freq/1000,
-					"en", dss_log->freq[idx].en,
-					(dss_log->freq[idx].en == 1) ? "[Missmatch]" : "");
-	}
-}
-
 void dbg_snapshot_freq(int type, unsigned long old_freq, unsigned long target_freq, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_FREQ_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.freq_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.freq_log_idx) &
 				(ARRAY_SIZE(dss_log->freq) - 1);
 
-		if (atomic_read(&dss_idx.freq_log_idx) > atomic_read(&dss_lastinfo.freq_last_idx[type]))
-			atomic_set(&dss_lastinfo.freq_last_idx[type], atomic_read(&dss_idx.freq_log_idx));
+		if (atomic_read(&dss_log_misc.freq_log_idx) > atomic_read(&dss_lastinfo.freq_last_idx[type]))
+			atomic_set(&dss_lastinfo.freq_last_idx[type], atomic_read(&dss_log_misc.freq_log_idx));
 
 		dss_log->freq[i].time = cpu_clock(cpu);
 		dss_log->freq[i].cpu = cpu;
@@ -1076,31 +942,147 @@ void dbg_snapshot_freq(int type, unsigned long old_freq, unsigned long target_fr
 		dss_log->freq[i].old_freq = old_freq;
 		dss_log->freq[i].target_freq = target_freq;
 		dss_log->freq[i].en = en;
-	}
-}
-
-void dbg_snapshot_freq_misc(int type, unsigned long old_freq, unsigned long target_freq, int en)
-{
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
-
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
-		return;
-	{
-		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.freq_misc_log_idx) &
-				(ARRAY_SIZE(dss_log->freq_misc) - 1);
-
-		dss_log->freq_misc[i].time = cpu_clock(cpu);
-		dss_log->freq_misc[i].cpu = cpu;
-		dss_log->freq_misc[i].freq_name = dss_freq_name[type];
-		dss_log->freq_misc[i].freq_type = type;
-		dss_log->freq_misc[i].old_freq = old_freq;
-		dss_log->freq_misc[i].target_freq = target_freq;
-		dss_log->freq_misc[i].en = en;
-	}
-}
-
+#ifdef CONFIG_SEC_DEBUG_FREQ
+		secdbg_freq_check(type, i, target_freq);
 #endif
+	}
+}
+
+static void dbg_snapshot_get_sec(unsigned long long ts, unsigned long *sec, unsigned long *msec)
+{
+	*sec = ts / NSEC_PER_SEC;
+	*msec = (ts % NSEC_PER_SEC) / USEC_PER_MSEC;
+}
+
+static void dbg_snapshot_print_last_irq(int cpu)
+{
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_IRQ_ID];
+	unsigned long idx, sec, msec;
+	char fn_name[KSYM_NAME_LEN];
+
+	if (!log_item->entry.enabled)
+		return;
+
+	idx = atomic_read(&dss_log_misc.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
+	dbg_snapshot_get_sec(dss_log->irq[cpu][idx].time, &sec, &msec);
+	lookup_symbol_name((unsigned long)dss_log->irq[cpu][idx].fn, fn_name);
+
+	dev_info(dss_desc.dev, "%-16s: [%4ld] %10lu.%06lu sec, %10s: %24s, %8s: %8d, %10s: %2d, %s\n",
+			">>> last irq", idx, sec, msec,
+			"handler", fn_name,
+			"irq", dss_log->irq[cpu][idx].irq,
+			"en", dss_log->irq[cpu][idx].en,
+			(dss_log->irq[cpu][idx].en == 1) ? "[Missmatch]" : "");
+}
+
+static void dbg_snapshot_print_last_task(int cpu)
+{
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_TASK_ID];
+	unsigned long idx, sec, msec;
+	struct task_struct *task;
+
+	if (!log_item->entry.enabled)
+		return;
+
+	idx = atomic_read(&dss_log_misc.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
+	dbg_snapshot_get_sec(dss_log->task[cpu][idx].time, &sec, &msec);
+	task = dss_log->task[cpu][idx].task;
+
+	dev_info(dss_desc.dev, "%-16s: [%4lu] %10lu.%06lu sec, %10s: %24s, %8s: 0x%-16p, %10s: %16llu\n",
+			">>> last task", idx, sec, msec,
+			"task_comm", (task) ? task->comm : "NULL",
+			"task", task,
+			"exec_start", (task) ? task->se.exec_start : 0);
+}
+
+static void dbg_snapshot_print_last_work(int cpu)
+{
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_WORK_ID];
+	unsigned long idx, sec, msec;
+	char fn_name[KSYM_NAME_LEN];
+
+	if (!log_item->entry.enabled)
+		return;
+
+	idx = atomic_read(&dss_log_misc.work_log_idx[cpu]) & (ARRAY_SIZE(dss_log->work[0]) - 1);
+	dbg_snapshot_get_sec(dss_log->work[cpu][idx].time, &sec, &msec);
+	lookup_symbol_name((unsigned long)dss_log->work[cpu][idx].fn, fn_name);
+
+	dev_info(dss_desc.dev, "%-16s: [%4lu] %10lu.%06lu sec, %10s: %24s, %8s: %20s, %3s: %3d %s\n",
+			">>> last work", idx, sec, msec,
+			"task_name", dss_log->work[cpu][idx].task_comm,
+			"work_fn", fn_name,
+			"en", dss_log->work[cpu][idx].en,
+			(dss_log->work[cpu][idx].en == 1) ? "[Missmatch]" : "");
+}
+
+static void dbg_snapshot_print_last_cpuidle(int cpu)
+{
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_CPUIDLE_ID];
+	unsigned long idx, sec, msec;
+
+	if (!log_item->entry.enabled)
+		return;
+
+	idx = atomic_read(&dss_log_misc.cpuidle_log_idx[cpu]) & (ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
+	dbg_snapshot_get_sec(dss_log->cpuidle[cpu][idx].time, &sec, &msec);
+
+	dev_info(dss_desc.dev, "%-16s: [%4lu] %10lu.%06lu sec, %10s: %24d, %8s: %4s, %6s: %3d, %12s: %2d, %3s: %3d %s\n",
+			">>> last cpuidle", idx, sec, msec,
+			"stay time", dss_log->cpuidle[cpu][idx].delta,
+			"modes", dss_log->cpuidle[cpu][idx].modes,
+			"state", dss_log->cpuidle[cpu][idx].state,
+			"online_cpus", dss_log->cpuidle[cpu][idx].num_online_cpus,
+			"en", dss_log->cpuidle[cpu][idx].en,
+			(dss_log->cpuidle[cpu][idx].en == 1) ? "[Missmatch]" : "");
+}
+
+static void dbg_snapshot_print_lastinfo(void)
+{
+	int cpu;
+
+	dev_info(dss_desc.dev, "<last info>\n");
+	for (cpu = 0; cpu < DSS_NR_CPUS; cpu++) {
+		dev_info(dss_desc.dev, "CPU ID: %d -----------------------------------------------\n", cpu);
+		dbg_snapshot_print_last_task(cpu);
+		dbg_snapshot_print_last_work(cpu);
+		dbg_snapshot_print_last_irq(cpu);
+		dbg_snapshot_print_last_cpuidle(cpu);
+	}
+}
+
+static void dbg_snapshot_print_freqinfo(void)
+{
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_FREQ_ID];
+	unsigned long idx, sec, msec;
+	char *freq_name;
+	unsigned int i;
+	unsigned long old_freq, target_freq;
+
+	if (!log_item->entry.enabled)
+		return;
+
+	dev_info(dss_desc.dev, "\n<freq info>\n");
+
+	for (i = 0; i < DSS_FLAG_END; i++) {
+		idx = atomic_read(&dss_lastinfo.freq_last_idx[i]) & (ARRAY_SIZE(dss_log->freq) - 1);
+		freq_name = dss_log->freq[idx].freq_name;
+		if ((!freq_name) || strncmp(freq_name, dss_freq_name[i], strlen(dss_freq_name[i]))) {
+			dev_info(dss_desc.dev, "%10s: no infomation\n", dss_freq_name[i]);
+			continue;
+		}
+
+		dbg_snapshot_get_sec(dss_log->freq[idx].time, &sec, &msec);
+		old_freq = dss_log->freq[idx].old_freq;
+		target_freq = dss_log->freq[idx].target_freq;
+		dev_info(dss_desc.dev, "%10s: [%4lu] %10lu.%06lu sec, %12s: %6luMhz, %12s: %6luMhz, %3s: %3d %s\n",
+					freq_name, idx, sec, msec,
+					"old_freq", old_freq/1000,
+					"target_freq", target_freq/1000,
+					"en", dss_log->freq[idx].en,
+					(dss_log->freq[idx].en == 1) ? "[Missmatch]" : "");
+	}
+}
 
 #ifndef arch_irq_stat
 #define arch_irq_stat() 0
@@ -1117,11 +1099,11 @@ static void dbg_snapshot_print_irq(void)
 	}
 	sum += arch_irq_stat();
 
-	pr_info("\n<irq info>\n");
-	pr_info("------------------------------------------------------------------\n");
-	pr_info("\n");
-	pr_info("sum irq : %llu", (unsigned long long)sum);
-	pr_info("------------------------------------------------------------------\n");
+	dev_info(dss_desc.dev, "\n<irq info>\n");
+	dev_info(dss_desc.dev, "------------------------------------------------------------------\n");
+	dev_info(dss_desc.dev, "\n");
+	dev_info(dss_desc.dev, "sum irq : %llu", (unsigned long long)sum);
+	dev_info(dss_desc.dev, "------------------------------------------------------------------\n");
 
 	for_each_irq_nr(j) {
 		unsigned int irq_stat = kstat_irqs(j);
@@ -1131,7 +1113,7 @@ static void dbg_snapshot_print_irq(void)
 			const char *name;
 
 			name = desc->action ? (desc->action->name ? desc->action->name : "???") : "???";
-			pr_info("irq-%-4d(hwirq-%-4d) : %8u %s\n",
+			dev_info(dss_desc.dev, "irq-%-4d(hwirq-%-4d) : %8u %s\n",
 				j, (int)desc->irq_data.hwirq, irq_stat, name);
 		}
 	}
@@ -1139,28 +1121,29 @@ static void dbg_snapshot_print_irq(void)
 
 void dbg_snapshot_print_panic_report(void)
 {
-	pr_info("============================================================\n");
-	pr_info("Panic Report\n");
-	pr_info("============================================================\n");
+	if (unlikely(!dss_base.enabled))
+		return;
+
+	dev_info(dss_desc.dev, "============================================================\n");
+	dev_info(dss_desc.dev, "Panic Report\n");
+	dev_info(dss_desc.dev, "============================================================\n");
 	dbg_snapshot_print_lastinfo();
-#ifdef CONFIG_DEBUG_SNAPSHOT_FREQ
 	dbg_snapshot_print_freqinfo();
-#endif
 	dbg_snapshot_print_calltrace();
 	dbg_snapshot_print_irq();
-	pr_info("============================================================\n");
+	dev_info(dss_desc.dev, "============================================================\n");
 }
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_DM
 void dbg_snapshot_dm(int type, unsigned long min, unsigned long max, s32 wait_t, s32 t)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_DM_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.dm_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.dm_log_idx) &
 				(ARRAY_SIZE(dss_log->dm) - 1);
 
 		dss_log->dm[i].time = cpu_clock(cpu);
@@ -1172,18 +1155,17 @@ void dbg_snapshot_dm(int type, unsigned long min, unsigned long max, s32 wait_t,
 		dss_log->dm[i].do_dmt = t;
 	}
 }
-#endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_HRTIMER
 void dbg_snapshot_hrtimer(void *timer, s64 *now, void *fn, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_HRTIMER_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.hrtimer_log_idx[cpu]) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.hrtimer_log_idx[cpu]) &
 				(ARRAY_SIZE(dss_log->hrtimers[0]) - 1);
 
 		dss_log->hrtimers[cpu][i].time = cpu_clock(cpu);
@@ -1193,18 +1175,17 @@ void dbg_snapshot_hrtimer(void *timer, s64 *now, void *fn, int en)
 		dss_log->hrtimers[cpu][i].en = en;
 	}
 }
-#endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_I2C
 void dbg_snapshot_i2c(struct i2c_adapter *adap, struct i2c_msg *msgs, int num, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_I2C_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.i2c_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.i2c_log_idx) &
 				(ARRAY_SIZE(dss_log->i2c) - 1);
 
 		dss_log->i2c[i].time = cpu_clock(cpu);
@@ -1215,18 +1196,17 @@ void dbg_snapshot_i2c(struct i2c_adapter *adap, struct i2c_msg *msgs, int num, i
 		dss_log->i2c[i].en = en;
 	}
 }
-#endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_SPI
 void dbg_snapshot_spi(struct spi_controller *ctlr, struct spi_message *cur_msg, int en)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_SPI_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.spi_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.spi_log_idx) &
 				(ARRAY_SIZE(dss_log->spi) - 1);
 
 		dss_log->spi[i].time = cpu_clock(cpu);
@@ -1236,24 +1216,25 @@ void dbg_snapshot_spi(struct spi_controller *ctlr, struct spi_message *cur_msg, 
 		dss_log->spi[i].en = en;
 	}
 }
-#endif
 
 #ifdef CONFIG_DEBUG_SNAPSHOT_BINDER
 void dbg_snapshot_binder(struct trace_binder_transaction_base *base,
 			 struct trace_binder_transaction *transaction,
 			 struct trace_binder_transaction_error *error)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_BINDER_ID];
 	int cpu;
 	unsigned long i;
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
+
 	if (base == NULL)
 		return;
 
 	cpu = raw_smp_processor_id();
-	i = atomic_inc_return(&dss_idx.binder_log_idx) &
+	i = atomic_inc_return(&dss_log_misc.binder_log_idx) &
 				(ARRAY_SIZE(dss_log->binder) - 1);
 
 	dss_log->binder[i].time = cpu_clock(cpu);
@@ -1278,16 +1259,16 @@ void dbg_snapshot_binder(struct trace_binder_transaction_base *base,
 }
 #endif
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_ACPM
 void dbg_snapshot_acpm(unsigned long long timestamp, const char *log, unsigned int data)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_ACPM_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long i = atomic_inc_return(&dss_idx.acpm_log_idx) &
+		unsigned long i = atomic_inc_return(&dss_log_misc.acpm_log_idx) &
 				(ARRAY_SIZE(dss_log->acpm) - 1);
 		int len = strlen(log);
 
@@ -1301,98 +1282,43 @@ void dbg_snapshot_acpm(unsigned long long timestamp, const char *log, unsigned i
 		dss_log->acpm[i].data = data;
 	}
 }
-#endif
 
 #ifdef CONFIG_DEBUG_SNAPSHOT_REG
-static phys_addr_t virt_to_phys_high(size_t vaddr)
+void dbg_snapshot_reg(char io_type, char data_type, void *addr)
 {
-	phys_addr_t paddr = 0;
-	pgd_t *pgd;
-	pmd_t *pmd;
-	pte_t *pte;
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_REG_ID];
 
-	if (virt_addr_valid((void *) vaddr)) {
-		paddr = virt_to_phys((void *) vaddr);
-		goto out;
-	}
-
-	pgd = pgd_offset_k(vaddr);
-	if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-		goto out;
-
-	if (pgd_val(*pgd) & 2) {
-		paddr = pgd_val(*pgd) & SECTION_MASK;
-		goto out;
-	}
-
-	pmd = pmd_offset((pud_t *)pgd, vaddr);
-	if (pmd_none_or_clear_bad(pmd))
-		goto out;
-
-	pte = pte_offset_kernel(pmd, vaddr);
-	if (pte_none(*pte))
-		goto out;
-
-	paddr = pte_val(*pte) & PAGE_MASK;
-
-out:
-	return paddr | (vaddr & UL(SZ_4K - 1));
-}
-
-void dbg_snapshot_reg(unsigned int read, size_t val, size_t reg, int en)
-{
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
-	int cpu = raw_smp_processor_id();
-	unsigned long i, j;
-	size_t phys_reg, start_addr, end_addr;
-
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 
-	if (dss_reg_exlist[0].addr == 0)
-		return;
+	{
+		int cpu = raw_smp_processor_id();
+		unsigned long i = atomic_inc_return(&dss_log_misc.reg_log_idx[cpu]) &
+			(ARRAY_SIZE(dss_log->reg[0]) - 1);
 
-	phys_reg = virt_to_phys_high(reg);
-	if (unlikely(!phys_reg))
-		return;
-
-	for (j = 0; j < ARRAY_SIZE(dss_reg_exlist); j++) {
-		if (dss_reg_exlist[j].addr == 0)
-			break;
-		start_addr = dss_reg_exlist[j].addr;
-		end_addr = start_addr + dss_reg_exlist[j].size;
-		if (start_addr <= phys_reg && phys_reg <= end_addr)
-			return;
-	}
-
-	i = atomic_inc_return(&dss_idx.reg_log_idx[cpu]) &
-		(ARRAY_SIZE(dss_log->reg[0]) - 1);
-
-	dss_log->reg[cpu][i].time = cpu_clock(cpu);
-	dss_log->reg[cpu][i].read = read;
-	dss_log->reg[cpu][i].val = val;
-	dss_log->reg[cpu][i].reg = phys_reg;
-	dss_log->reg[cpu][i].en = en;
-
-	for (j = 0; j < dss_desc.callstack; j++) {
-		dss_log->reg[cpu][i].caller[j] =
-			(void *)((size_t)return_address(j + 1));
+		dss_log->reg[cpu][i].time = cpu_clock(cpu);
+		dss_log->reg[cpu][i].io_type = io_type;
+		dss_log->reg[cpu][i].data_type = data_type;
+		dss_log->reg[cpu][i].addr = addr;
+		dss_log->reg[cpu][i].caller = __builtin_return_address(0);
 	}
 }
 #endif
 
-#ifndef CONFIG_DEBUG_SNAPSHOT_MINIMIZED_MODE
+#ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
 void dbg_snapshot_printk(const char *fmt, ...)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_PRINTK_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
 		va_list args;
 		int ret;
-		unsigned long j, i = atomic_inc_return(&dss_idx.printk_log_idx) &
+		unsigned long j, i = atomic_inc_return(&dss_log_misc.printk_log_idx) &
 				(ARRAY_SIZE(dss_log->printk) - 1);
 
 		va_start(args, fmt);
@@ -1412,13 +1338,14 @@ void dbg_snapshot_printk(const char *fmt, ...)
 
 void dbg_snapshot_printkl(size_t msg, size_t val)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_PRINTKL_ID];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
 		return;
 	{
 		int cpu = raw_smp_processor_id();
-		unsigned long j, i = atomic_inc_return(&dss_idx.printkl_log_idx) &
+		unsigned long j, i = atomic_inc_return(&dss_log_misc.printkl_log_idx) &
 				(ARRAY_SIZE(dss_log->printkl) - 1);
 
 		dss_log->printkl[i].time = cpu_clock(cpu);
@@ -1434,135 +1361,12 @@ void dbg_snapshot_printkl(size_t msg, size_t val)
 }
 #endif
 
-#ifdef CONFIG_SEC_PM_DEBUG
-static ssize_t dss_log_work_lookup(char *buf, ssize_t n, int cpu, int idx)
-{
-	char work_fn[KSYM_NAME_LEN];
-	unsigned long sec, msec;
-	u64 ts;
-	int en;
-
-	if (!(dss_log->work[cpu][idx].fn))
-		return n;
-
-	lookup_symbol_name((unsigned long)dss_log->work[cpu][idx].fn, work_fn);
-
-	ts = dss_log->work[cpu][idx].time;
-	sec = ts / NSEC_PER_SEC;
-	msec = (ts % NSEC_PER_SEC) / USEC_PER_MSEC;
-
-	en = dss_log->work[cpu][idx].en;
-
-	n += scnprintf(buf + n, 100,
-			"%d: %10lu.%06lu task:%16s, fn:%32s, %1s\n",
-			cpu, sec, msec, dss_log->work[cpu][idx].task_comm,
-			work_fn, en == DSS_FLAG_IN ? "I" : "O");
-
-	return n;
-}
-
-ssize_t dss_log_work_print(char *buf)
-{
-	int cpu, array_size;
-	ssize_t n = 0;
-
-	if (!dss_log)
-		return 0;
-
-	array_size = ARRAY_SIZE(dss_log->work[0]) - 1;
-
-	for_each_possible_cpu(cpu) {
-		int i, idx;
-
-		idx = atomic_read(&dss_idx.work_log_idx[cpu]);
-
-		for (i = 0; i < 5 && i < array_size; i++, idx--) {
-			idx &= array_size;
-			n = dss_log_work_lookup(buf, n, cpu, idx);
-		}
-	}
-
-	return n;
-}
-#endif /* CONFIG_SEC_PM_DEBUG */
-
-#if defined(CONFIG_DEBUG_SNAPSHOT_THERMAL) && defined(CONFIG_SEC_PM_DEBUG)
-#include <linux/debugfs.h>
-
-static int exynos_ss_thermal_show(struct seq_file *m, void *unused)
-{
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.kevents_num];
-	unsigned long idx, size;
-	unsigned long rem_nsec;
-	u64 ts;
-	int i;
-
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
-		return 0;
-
-	seq_puts(m, "time\t\t\ttemperature\tcooling_device\t\tmax_frequency\n");
-
-	size = ARRAY_SIZE(dss_log->thermal);
-	idx = atomic_read(&dss_idx.thermal_log_idx);
-
-	for (i = 0; i < size; i++, idx--) {
-		idx &= size - 1;
-
-		ts = dss_log->thermal[idx].time;
-		if (!ts)
-			break;
-
-		rem_nsec = do_div(ts, NSEC_PER_SEC);
-
-		seq_printf(m, "[%8lu.%06lu]\t%u\t\t%-16s\t%u\n",
-				(unsigned long)ts, rem_nsec / NSEC_PER_USEC,
-				dss_log->thermal[idx].temp,
-				dss_log->thermal[idx].cooling_device,
-				dss_log->thermal[idx].cooling_state);
-	}
-
-	return 0;
-}
-
-static int exynos_ss_thermal_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, exynos_ss_thermal_show, NULL);
-}
-
-static const struct file_operations thermal_fops = {
-	.owner = THIS_MODULE,
-	.open = exynos_ss_thermal_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-static struct dentry *debugfs_ess_root;
-
-static int __init exynos_ss_debugfs_init(void)
-{
-	debugfs_ess_root = debugfs_create_dir("exynos-ss", NULL);
-	if (!debugfs_ess_root) {
-		pr_err("Failed to create exynos-ss debugfs\n");
-		return 0;
-	}
-
-	debugfs_create_file("thermal", 0444, debugfs_ess_root, NULL,
-			&thermal_fops);
-
-	return 0;
-}
-
-late_initcall(exynos_ss_debugfs_init);
-#endif /* CONFIG_DEBUG_SNAPSHOT_THERMAL && CONFIG_SEC_PM_DEBUG */
-
-#if defined(CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU)			\
-	&& defined(CONFIG_SEC_DEBUG)
-#define for_each_generated_irq_in_snapshot(idx, i, max, base, cpu)							\
+#if defined(CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU) && defined(CONFIG_SEC_DEBUG_LOCKUP_INFO)
+#define for_each_generated_irq_in_snapshot(idx, i, max, base, cpu)	\
 	for (i = 0, idx = base; i < max; ++i, idx = (base - i) & (ARRAY_SIZE(dss_log->irq[0]) - 1))		\
 		if (dss_log->irq[cpu][idx].en == DSS_FLAG_IN)
 
-static inline void dbg_snapshot_get_busiest_irq(struct hardlockup_info *hl_info, unsigned long start_idx, int cpu)
+static inline void secdbg_get_busiest_irq(struct hardlockup_info *hl_info, unsigned long start_idx, int cpu)
 {
 	#define MAX_BUF 5
 	int i, j, idx, max_count = 20;
@@ -1611,7 +1415,7 @@ static inline void dbg_snapshot_get_busiest_irq(struct hardlockup_info *hl_info,
 	hl_info->irq_info.avg_period = i_buf[max_irq_idx].total_duration / i_buf[max_irq_idx].occurrences;
 }
 
-void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
+void secdbg_hardlockup_get_info(unsigned int cpu,  void *info)
 {
 	struct hardlockup_info *hl_info = info;
 	unsigned long cpuidle_idx, irq_idx, task_idx;
@@ -1621,7 +1425,7 @@ void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
 	thresh = get_hardlockup_thresh();
 	curr = local_clock();
 
-	cpuidle_idx = atomic_read(&dss_idx.cpuidle_log_idx[cpu]) & (ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
+	cpuidle_idx = atomic_read(&dss_log_misc.cpuidle_log_idx[cpu]) & (ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
 	cpuidle_delay_time = curr - dss_log->cpuidle[cpu][cpuidle_idx].time;
 
 	if (dss_log->cpuidle[cpu][cpuidle_idx].en == DSS_FLAG_IN
@@ -1632,7 +1436,7 @@ void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
 		return;
 	}
 
-	irq_idx = atomic_read(&dss_idx.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
+	irq_idx = atomic_read(&dss_log_misc.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
 	irq_delay_time = curr - dss_log->irq[cpu][irq_idx].time;
 
 	if (dss_log->irq[cpu][irq_idx].en == DSS_FLAG_IN
@@ -1652,7 +1456,7 @@ void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
 		}
 	}
 
-	task_idx = atomic_read(&dss_idx.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
+	task_idx = atomic_read(&dss_log_misc.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
 	task_delay_time = curr - dss_log->task[cpu][task_idx].time;
 
 	if (task_delay_time > thresh) {
@@ -1665,7 +1469,7 @@ void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
 			hl_info->hl_type = HL_TASK_STUCK;
 			return;
 		} else {
-			dbg_snapshot_get_busiest_irq(hl_info, irq_idx, cpu);
+			secdbg_get_busiest_irq(hl_info, irq_idx, cpu);
 			hl_info->hl_type = HL_IRQ_STORM;
 			return;
 		}
@@ -1674,7 +1478,7 @@ void dbg_snapshot_get_hardlockup_info(unsigned int cpu,  void *info)
 	hl_info->hl_type = HL_UNKNOWN_STUCK;
 }
 
-void dbg_snapshot_get_softlockup_info(unsigned int cpu, void *info)
+void secdbg_softlockup_get_info(unsigned int cpu, void *info)
 {
 	struct softlockup_info *sl_info = info;
 	unsigned long task_idx;
@@ -1683,7 +1487,7 @@ void dbg_snapshot_get_softlockup_info(unsigned int cpu, void *info)
 
 	thresh = get_dss_softlockup_thresh();
 	curr = local_clock();
-	task_idx = atomic_read(&dss_idx.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
+	task_idx = atomic_read(&dss_log_misc.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
 	task_delay_time = curr - dss_log->task[cpu][task_idx].time;
 	sl_info->delay_time = task_delay_time;
 
@@ -1696,5 +1500,23 @@ void dbg_snapshot_get_softlockup_info(unsigned int cpu, void *info)
 		sl_info->sl_type = SL_TASK_STUCK;
 	else
 		sl_info->sl_type = SL_UNKNOWN_STUCK;
+}
+#endif
+
+#ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
+u64 secdbg_snapshot_get_hardlatency_info(unsigned int cpu)
+{
+	u64 ret = 0;
+	unsigned long irq_idx;
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_IRQ_ID];
+
+	if (unlikely(!log_item->entry.enabled))
+		return ret;
+
+	irq_idx = atomic_read(&dss_log_misc.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
+	if (dss_log->irq[cpu][irq_idx].en == DSS_FLAG_IN) {
+		ret = (u64)dss_log->irq[cpu][irq_idx].fn;
+	}
+	return ret;
 }
 #endif

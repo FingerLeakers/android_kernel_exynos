@@ -28,6 +28,7 @@
 #define EXYNOS7872_SOC_ID	0x005E7872
 #define EXYNOS9810_SOC_ID	0xE9810000
 #define EXYNOS9820_SOC_ID	0xE9820000
+#define EXYNOS9830_SOC_ID	0xE9830000
 
 #define EXYNOS_SOC_MASK		0xFFFFF000
 #define EXYNOS_SOC_MASK_V2	0x00FFFFFF
@@ -63,6 +64,7 @@ struct exynos_chipid_info {
 	char *lot_id2;
 	u64 unique_id;
 	struct exynos_chipid_variant *drv_data;
+	struct platform_device *pdev;
 };
 
 extern struct exynos_chipid_info exynos_soc_info;

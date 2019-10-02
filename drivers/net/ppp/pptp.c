@@ -325,11 +325,6 @@ allow_packet:
 			skb_pull(skb, 2);
 		}
 
-		if ((*skb->data) & 1) {
-			/* protocol is compressed */
-			*(u8 *)skb_push(skb, 1) = 0;
-		}
-
 		skb->ip_summed = CHECKSUM_NONE;
 		skb_set_network_header(skb, skb->head-skb->data);
 		ppp_input(&po->chan, skb);
@@ -482,7 +477,7 @@ static int pptp_connect(struct socket *sock, struct sockaddr *uservaddr,
 }
 
 static int pptp_getname(struct socket *sock, struct sockaddr *uaddr,
-	int *usockaddr_len, int peer)
+	int peer)
 {
 	int len = sizeof(struct sockaddr_pppox);
 	struct sockaddr_pppox sp;
@@ -495,9 +490,7 @@ static int pptp_getname(struct socket *sock, struct sockaddr *uaddr,
 
 	memcpy(uaddr, &sp, len);
 
-	*usockaddr_len = len;
-
-	return 0;
+	return len;
 }
 
 static int pptp_release(struct socket *sock)
@@ -627,7 +620,6 @@ static const struct proto_ops pptp_ops = {
 	.socketpair = sock_no_socketpair,
 	.accept     = sock_no_accept,
 	.getname    = pptp_getname,
-	.poll       = sock_no_poll,
 	.listen     = sock_no_listen,
 	.shutdown   = sock_no_shutdown,
 	.setsockopt = sock_no_setsockopt,
@@ -652,7 +644,7 @@ static int __init pptp_init_module(void)
 	int err = 0;
 	pr_info("PPTP driver version " PPTP_DRIVER_VERSION "\n");
 
-	callid_sock = vzalloc((MAX_CALLID + 1) * sizeof(void *));
+	callid_sock = vzalloc(array_size(sizeof(void *), (MAX_CALLID + 1)));
 	if (!callid_sock)
 		return -ENOMEM;
 

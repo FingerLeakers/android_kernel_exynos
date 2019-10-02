@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -17,19 +17,10 @@
 #include <linux/compiler.h>
 
 #ifdef CONFIG_TZDEV_HOTPLUG
-int tz_hotplug_init(void);
-void tz_hotplug_exit(void);
 void tz_hotplug_update_nwd_cpu_mask(unsigned long new_mask);
 void tz_hotplug_notify_swd_cpu_mask_update(void);
 
 #else
-static inline int tz_hotplug_init(void)
-{
-	return 0;
-}
-static inline void tz_hotplug_exit(void)
-{
-}
 static inline void tz_hotplug_update_nwd_cpu_mask(unsigned long new_mask)
 {
 	(void) new_mask;

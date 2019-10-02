@@ -13,8 +13,13 @@
 #include <linux/delay.h>
 #include <linux/export.h>
 
-#ifdef CONFIG_SEC_DEBUG
-#include <linux/sec_debug.h>
+#ifdef CONFIG_SEC_DEBUG_SPINBUG_PANIC
+static int skip_panic;
+
+void spin_debug_skip_panic(void)
+{
+	skip_panic = 1;
+}
 #endif
 
 void __raw_spin_lock_init(raw_spinlock_t *lock, const char *name,
@@ -70,7 +75,8 @@ static void spin_dump(raw_spinlock_t *lock, const char *msg)
 		lock->owner_cpu);
 	dump_stack();
 #ifdef CONFIG_SEC_DEBUG_SPINBUG_PANIC
-	BUG();
+	if (!skip_panic)
+		BUG();
 #endif
 }
 
@@ -152,7 +158,8 @@ static void rwlock_bug(rwlock_t *lock, const char *msg)
 		task_pid_nr(current), lock);
 	dump_stack();
 #ifdef CONFIG_SEC_DEBUG_SPINBUG_PANIC
-	BUG();
+	if (!skip_panic)
+		BUG();
 #endif
 }
 

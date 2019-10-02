@@ -29,7 +29,7 @@ int panel_do_aod_seqtbl_by_index_nolock(struct aod_dev_info *aod, int index)
 	s64 elapsed_usec;
 
 	if (panel == NULL) {
-		panel_err("ERR:PANEL:%s:panel is null\n", __func__);
+		panel_err("AOD:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 
@@ -112,7 +112,7 @@ int panel_do_aod_seqtbl_by_index(struct aod_dev_info *aod, int index)
 	struct panel_device *panel = to_panel_device(aod);
 
 	if (panel == NULL) {
-		panel_err("ERR:PANEL:%s:panel is null\n", __func__);
+		panel_err("AOD:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 
@@ -154,11 +154,11 @@ static int aod_init_panel(struct aod_dev_info *aod_dev)
 	if (props->self_mask_en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MASK_IMG_SEQ);
 		if (ret)
-			panel_err("PANEL:ERR:%s:failed to write self mask image\n", __func__);
+			panel_err("AOD:ERR:%s:failed to write self mask image\n", __func__);
 
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MASK_ENA_SEQ);
 		if (ret)
-			panel_err("PANEL:ERR:%s:failed to enable self mask\n", __func__);
+			panel_err("AOD:ERR:%s:failed to enable self mask\n", __func__);
 	}
 	mutex_unlock(&aod_dev->lock);
 
@@ -175,12 +175,12 @@ static int aod_enter_to_lpm(struct aod_dev_info *aod_dev)
 	if (props->self_mask_en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MASK_DIS_SEQ);
 		if (ret)
-			panel_err("PANEL:ERR:%s:failed to disable self mask\n", __func__);
+			panel_err("AOD:ERR:%s:failed to disable self mask\n", __func__);
 	}
 
 	ret = panel_do_aod_seqtbl_by_index(aod_dev, ENTER_AOD_SEQ);
 	if (ret)
-		panel_err("PANEL:ERR:%s:faield to write aod seq\n", __func__);
+		panel_err("AOD:ERR:%s:failed to write aod seq\n", __func__);
 
 	if ((props->partial.scan_en) || (props->partial.hlpm_scan_en)) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, ENABLE_PARTIAL_SCAN);
@@ -235,7 +235,7 @@ static int aod_enter_to_lpm(struct aod_dev_info *aod_dev)
 #endif
 
 	if (props->analog.en && aod_dev->ac_img.up_flag) {
-		panel_info("PANEL:INFO:%s:analog enable\n", __func__);
+		panel_info("AOD:INFO:%s:analog enable\n", __func__);
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, ANALOG_CTRL_SEQ);
 		if (ret)
 			panel_err("AOD:ERR:%s:failed to seq analog ctrl\n", __func__);
@@ -286,7 +286,7 @@ static int aod_exit_from_lpm(struct aod_dev_info *aod_dev)
 	if (props->self_move_en || props->icon.en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MOVE_OFF_SEQ);
 		if (ret)
-			panel_err("PANEL:ERR:%s:failed to disable self mode\n", __func__);
+			panel_err("AOD:ERR:%s:failed to disable self mode\n", __func__);
 
 		if (props->self_move_en)
 			props->self_move_en = 0;
@@ -304,12 +304,12 @@ static int aod_exit_from_lpm(struct aod_dev_info *aod_dev)
 
 	ret = panel_do_aod_seqtbl_by_index(aod_dev, EXIT_AOD_SEQ);
 	if (ret)
-		panel_err("PANEL:ERR:%s:faield to write exit aod seq\n", __func__);
+		panel_err("AOD:ERR:%s:failed to write exit aod seq\n", __func__);
 
 	if (props->self_mask_en) {
 		ret = panel_do_aod_seqtbl_by_index(aod_dev, SELF_MASK_ENA_SEQ);
 		if (ret)
-			panel_err("PANEL:ERR:%s:failed to enable self mask\n", __func__);
+			panel_err("AOD:ERR:%s:failed to enable self mask\n", __func__);
 	}
 
 	props->first_clk_update = 1;
@@ -374,7 +374,7 @@ static int self_move_pattern_update(struct aod_dev_info *aod)
 	struct panel_device *panel;
 
 	if (aod == NULL) {
-		panel_err("AOD:PANEL:%s:aod_dev_info is null\n", __func__);
+		panel_err("AOD:ERR:%s:aod_dev_info is null\n", __func__);
 		return 0;
 	}
 
@@ -439,7 +439,7 @@ static int __seq_aod_self_move_en(struct aod_dev_info *aod, unsigned long arg)
 		__func__, props->cur_time.interval);
 
 	if (panel == NULL) {
-		panel_err("AOD:PANEL:%s:panel is null\n", __func__);
+		panel_err("AOD:ERR:%s:panel is null\n", __func__);
 		goto move_on_exit;
 	}
 
@@ -472,7 +472,7 @@ static int __seq_aod_self_move_off(struct aod_dev_info *aod)
 	struct panel_device *panel = to_panel_device(aod);
 
 	if (panel == NULL) {
-		panel_err("AOD:PANEL:%s:panel is null\n", __func__);
+		panel_err("AOD:ERR:%s:panel is null\n", __func__);
 		goto move_on_exit;
 	}
 
@@ -498,7 +498,7 @@ static int __seq_aod_self_move_reset(struct aod_dev_info *aod, unsigned long arg
 	struct panel_device *panel = to_panel_device(aod);
 
 	if (panel == NULL) {
-		panel_err("AOD:PANEL:%s:panel is null\n", __func__);
+		panel_err("AOD:ERR:%s:panel is null\n", __func__);
 		goto move_on_exit;
 	}
 
@@ -647,7 +647,7 @@ static int __aod_ioctl_set_grid(struct aod_dev_info *aod, unsigned long arg)
 
 	if (copy_from_user(&grid_info, (struct self_grid_info __user *)arg,
 			sizeof(struct self_grid_info))) {
-		panel_err("PANEL:ERR:%s:failed to get user's icon info\n",
+		panel_err("AOD:ERR:%s:failed to get user's icon info\n",
 			__func__);
 		ret = -EINVAL;
 		goto exit_grid_ioctl;
@@ -673,7 +673,7 @@ static int __aod_ioctl_set_icon(struct aod_dev_info *aod, unsigned long arg)
 
 	if (copy_from_user(&icon_info, (struct self_icon_info __user *)arg,
 			sizeof(struct self_icon_info))) {
-		panel_err("PANEL:ERR:%s:failed to get user's icon info\n",
+		panel_err("AOD:ERR:%s:failed to get user's icon info\n",
 			__func__);
 		ret = -EINVAL;
 		goto exit_icon_ioctl;
@@ -706,7 +706,7 @@ static int __aod_ioctl_set_time(struct aod_dev_info *aod, unsigned long arg)
 
 	if (copy_from_user(&cur_time, (struct aod_cur_time __user *)arg,
 			sizeof(struct aod_cur_time))) {
-		panel_err("PANEL:ERR:%s:failed to get user's curtime\n",
+		panel_err("AOD:ERR:%s:failed to get user's curtime\n",
 			__func__);
 		ret = -EINVAL;
 		goto exit_time_ioctl;
@@ -744,7 +744,7 @@ static int __aod_ioctl_set_analog_clk(struct aod_dev_info *aod, unsigned long ar
 
 	if (copy_from_user(&clk, (struct analog_clk_info __user *)arg,
 		sizeof(struct analog_clk_info))) {
-		panel_err("PANEL:ERR:%s:failed to get user's info\n", __func__);
+		panel_err("AOD:ERR:%s:failed to get user's info\n", __func__);
 		ret = -EINVAL;
 		goto exit_analog_ioctl;
 	}
@@ -788,7 +788,7 @@ static int __aod_ioctl_set_digital_clk(struct aod_dev_info *aod, unsigned long a
 
 	if (copy_from_user(&clk, (struct digital_clk_info __user *)arg,
 		sizeof(struct digital_clk_info))) {
-		panel_err("PANEL:ERR:%s:failed to get user's info\n", __func__);
+		panel_err("AOD:ERR:%s:failed to get user's info\n", __func__);
 		ret = -EINVAL;
 		goto exit_digital_ioctl;
 	}
@@ -830,7 +830,7 @@ exit_digital_ioctl:
 }
 
 
-static __aod_ictl_set_parial_scan(struct aod_dev_info *aod, unsigned long arg)
+static __aod_ioctl_set_parial_scan(struct aod_dev_info *aod, unsigned long arg)
 {
 
 	int ret = 0;
@@ -840,7 +840,7 @@ static __aod_ictl_set_parial_scan(struct aod_dev_info *aod, unsigned long arg)
 
 	if (copy_from_user(&scan_info, (struct partial_scan_info __user *)arg,
 		sizeof(struct partial_scan_info))) {
-		panel_err("PANEL:ERR:%s:failed to get user's info\n", __func__);
+		panel_err("AOD:ERR:%s:failed to get user's info\n", __func__);
 		ret = -EINVAL;
 		goto exit_partial_ioctl;
 	}
@@ -910,7 +910,7 @@ static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned lon
 		props->self_move_en = AOD_DRV_SELF_MOVE_ON;
 		ret = __seq_aod_self_move_en(aod, arg);
 		if (ret) {
-			panel_err("AOD:ERR:%s:faield to seq self move en\n", __func__);
+			panel_err("AOD:ERR:%s:failed to seq self move en\n", __func__);
 			goto exit_ioctl;
 		}
 		break;
@@ -920,15 +920,14 @@ static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned lon
 			props->self_move_en = AOD_DRV_SELF_MOVE_OFF;
 			ret = __seq_aod_self_move_off(aod);
 			if (ret) {
-				panel_err("AOD:ERR:%s:faield to seq self move off\n", __func__);
+				panel_err("AOD:ERR:%s:failed to seq self move off\n", __func__);
 				goto exit_ioctl;
 			}
 		}
 		break;
 
 	case IOCTL_SELF_MOVE_RESET:
-		panel_info(
-"AOD:INFO:%s:IOCTL_SELF_MOVE_RESET\n", __func__);
+		panel_info("AOD:INFO:%s:IOCTL_SELF_MOVE_RESET\n", __func__);
 		ret = __seq_aod_self_move_reset(aod, arg);
 		if (ret) {
 			panel_err("AOD:ERR:%s:failed to seq self move reset\n", __func__);
@@ -963,7 +962,7 @@ static long aod_drv_fops_ioctl(struct file *file, unsigned int cmd, unsigned lon
 
 	case IOCTL_SET_PARTIAL_HLPM_SCAN:
 		panel_info("AOD:INFO:%s:IOCTL_SET_PARTIAL_HLPM_SCAN\n", __func__);
-		ret = __aod_ictl_set_parial_scan(aod, arg);
+		ret = __aod_ioctl_set_parial_scan(aod, arg);
 		break;
 	}
 
@@ -1190,7 +1189,7 @@ int aod_drv_probe(struct panel_device *panel, struct aod_tune *aod_tune)
 	aod->dev.name = AOD_DEV_NAME;
 	ret = misc_register(&aod->dev);
 	if (ret) {
-		panel_err("PANEL:ERR:%s:faield to register for aod_dev\n", __func__);
+		panel_err("AOD:ERR:%s:failed to register for aod_dev\n", __func__);
 		goto rest_init;
 	}
 

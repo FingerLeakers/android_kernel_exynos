@@ -78,6 +78,9 @@ struct acpm_framework {
 	u32 preempt_log_buf_front;
 	u32 preempt_log_data;
 	u32 preempt_log_entry_len;
+	u32 regulator_dbg;
+	unsigned long long timestamps[32];
+	u32 board_info;
 };
 
 /**

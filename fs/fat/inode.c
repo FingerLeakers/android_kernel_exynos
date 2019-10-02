@@ -20,6 +20,7 @@
 #include <linux/blkdev.h>
 #include <linux/backing-dev.h>
 #include <asm/unaligned.h>
+#include <linux/iversion.h>
 #include "fat.h"
 
 #ifndef CONFIG_FAT_DEFAULT_IOCHARSET
@@ -53,7 +54,6 @@ struct fat_bios_param_block {
 	u32	fat32_vol_id;
 };
 
-static struct kset *fat_kset;
 static int fat_default_codepage = CONFIG_FAT_DEFAULT_CODEPAGE;
 static char fat_default_iocharset[] = CONFIG_FAT_DEFAULT_IOCHARSET;
 
@@ -158,8 +158,14 @@ static inline int __fat_get_block(struct inode *inode, sector_t iblock,
 	err = fat_bmap(inode, iblock, &phys, &mapped_blocks, create, false);
 	if (err)
 		return err;
+	if (!phys) {
+		fat_fs_error(sb,
+			     "invalid FAT chain (i_pos %lld, last_block %llu)",
+			     MSDOS_I(inode)->i_pos,
+			     (unsigned long long)last_block);
+		return -EIO;
+	}
 
-	BUG_ON(!phys);
 	BUG_ON(*max_blocks != mapped_blocks);
 	set_buffer_new(bh_result);
 	map_bh(bh_result, sb, phys);
@@ -508,7 +514,7 @@ int fat_fill_inode(struct inode *inode, struct msdos_dir_entry *de)
 	MSDOS_I(inode)->i_pos = 0;
 	inode->i_uid = sbi->options.fs_uid;
 	inode->i_gid = sbi->options.fs_gid;
-	inode->i_version++;
+	inode_inc_iversion(inode);
 	inode->i_generation = get_seconds();
 
 	if ((de->attr & ATTR_DIR) && !IS_FREE(de->name)) {
@@ -591,7 +597,7 @@ struct inode *fat_build_inode(struct super_block *sb,
 		goto out;
 	}
 	inode->i_ino = iunique(sb, MSDOS_ROOT_INO);
-	inode->i_version = 1;
+	inode_set_iversion(inode, 1);
 	err = fat_fill_inode(inode, de);
 	if (err) {
 		iput(inode);
@@ -692,7 +698,7 @@ static void fat_set_state(struct super_block *sb,
 			b->fat16.state &= ~FAT_STATE_DIRTY;
 	}
 
-	mark_buffer_dirty_sync(bh);
+	mark_buffer_dirty(bh);
 	sync_dirty_buffer(bh);
 	brelse(bh);
 }
@@ -719,18 +725,12 @@ static void fat_put_super(struct super_block *sb)
 {
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 
-	fat_msg(sb, KERN_INFO, "trying to unmount...");
-	ST_LOG("<%s> trying to umount... %d:%d", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
-
 	fat_set_state(sb, 0, 0);
 
 	iput(sbi->fsinfo_inode);
 	iput(sbi->fat_inode);
 
 	call_rcu(&sbi->rcu, delayed_free);
-
-	fat_msg(sb, KERN_INFO, "unmounted successfully!");
-	ST_LOG("<%s> unmounted successfully! %d:%d", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
 }
 
 static struct kmem_cache *fat_inode_cachep;
@@ -782,7 +782,7 @@ static int __init fat_init_inodecache(void)
 	return 0;
 }
 
-static void fat_destroy_inodecache(void)
+static void __exit fat_destroy_inodecache(void)
 {
 	/*
 	 * Make sure all delayed rcu free inodes are flushed before we
@@ -796,12 +796,12 @@ static int fat_remount(struct super_block *sb, int *flags, char *data)
 {
 	bool new_rdonly;
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
-	*flags |= MS_NODIRATIME | (sbi->options.isvfat ? 0 : MS_NOATIME);
+	*flags |= SB_NODIRATIME | (sbi->options.isvfat ? 0 : SB_NOATIME);
 
 	sync_filesystem(sb);
 
 	/* make sure we update state on remount. */
-	new_rdonly = *flags & MS_RDONLY;
+	new_rdonly = *flags & SB_RDONLY;
 	if (new_rdonly != sb_rdonly(sb)) {
 		if (new_rdonly)
 			fat_set_state(sb, 0, 0);
@@ -886,7 +886,7 @@ retry:
 				  &raw_entry->adate, NULL);
 	}
 	spin_unlock(&sbi->inode_hash_lock);
-	mark_buffer_dirty_sync(bh);
+	mark_buffer_dirty(bh);
 	err = 0;
 	if (wait)
 		err = sync_dirty_buffer(bh);
@@ -1366,7 +1366,7 @@ out:
 	if (opts->unicode_xlate)
 		opts->utf8 = 0;
 	if (opts->nfs == FAT_NFS_NOSTALE_RO) {
-		sb->s_flags |= MS_RDONLY;
+		sb->s_flags |= SB_RDONLY;
 		sb->s_export_op = &fat_export_ops_nostale;
 	}
 
@@ -1391,7 +1391,7 @@ static int fat_read_root(struct inode *inode)
 	MSDOS_I(inode)->i_pos = MSDOS_ROOT_INO;
 	inode->i_uid = sbi->options.fs_uid;
 	inode->i_gid = sbi->options.fs_gid;
-	inode->i_version++;
+	inode_inc_iversion(inode);
 	inode->i_generation = 0;
 	inode->i_mode = fat_make_mode(sbi, ATTR_DIR, S_IRWXUGO);
 	inode->i_op = sbi->dir_ops;
@@ -1611,8 +1611,6 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	long error;
 	char buf[50];
 
-	fat_msg(sb, KERN_INFO, "trying to mount...");
-	ST_LOG("<%s> trying to mount... %d:%d", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
 	/*
 	 * GFP_KERNEL is ok here, because while we do hold the
 	 * superblock lock, memory pressure can't call back into
@@ -1620,14 +1618,11 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	 * it and have no inodes etc active!
 	 */
 	sbi = kzalloc(sizeof(struct msdos_sb_info), GFP_KERNEL);
-	if (!sbi) {
-		fat_msg(sb, KERN_ERR, "failed to mount! (ENOMEM)");
-		ST_LOG("<%s> failed to mount! %d:%d (ENOMEM)", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
+	if (!sbi)
 		return -ENOMEM;
-	}
 	sb->s_fs_info = sbi;
 
-	sb->s_flags |= MS_NODIRATIME;
+	sb->s_flags |= SB_NODIRATIME;
 	sb->s_magic = MSDOS_SUPER_MAGIC;
 	sb->s_op = &fat_sops;
 	sb->s_export_op = &fat_export_ops;
@@ -1638,8 +1633,6 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	error = parse_options(sb, data, isvfat, silent, &debug, &sbi->options);
 	if (error)
 		goto out_fail;
-
-	setup_fat_xattr_handler(sb);
 
 	setup(sb); /* flavour-specific stuff that needs options */
 
@@ -1849,7 +1842,7 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	if (!root_inode)
 		goto out_fail;
 	root_inode->i_ino = MSDOS_ROOT_INO;
-	root_inode->i_version = 1;
+	inode_set_iversion(root_inode, 1);
 	error = fat_read_root(root_inode);
 	if (error < 0) {
 		iput(root_inode);
@@ -1873,8 +1866,6 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
 	}
 
 	fat_set_state(sb, 1, 0);
-	fat_msg(sb, KERN_INFO, "mounted successfully!");
-	ST_LOG("<%s> mounted successfully! %d:%d", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
 	return 0;
 
 out_invalid:
@@ -1883,8 +1874,6 @@ out_invalid:
 		fat_msg(sb, KERN_INFO, "Can't find a valid FAT filesystem");
 
 out_fail:
-	fat_msg(sb, KERN_ERR, "failed to mount!");
-	ST_LOG("<%s> failed to mount %d:%d", __func__, MAJOR(sb->s_dev), MINOR(sb->s_dev));
 	if (fsinfo_inode)
 		iput(fsinfo_inode);
 	if (fat_inode)
@@ -1957,39 +1946,15 @@ static int __init init_fat_fs(void)
 	if (err)
 		goto failed;
 
-	fat_kset = kset_create_and_add("fat", NULL, fs_kobj);
-	if (!fat_kset) {
-		pr_err("FAT-fs failed to create fat kset\n");
-		err = -ENOMEM;
-		goto failed;
-	}
-
-	err = fat_uevent_init(fat_kset);
-	if (err)
-		goto failed;
-
 	return 0;
 
 failed:
-	fat_uevent_uninit();
-	if (fat_kset) {
-		kset_unregister(fat_kset);
-		fat_kset = NULL;
-	}
 	fat_cache_destroy();
-	fat_destroy_inodecache();
 	return err;
 }
 
 static void __exit exit_fat_fs(void)
 {
-	fat_uevent_uninit();
-
-	if (fat_kset) {
-		kset_unregister(fat_kset);
-		fat_kset = NULL;
-	}
-
 	fat_cache_destroy();
 	fat_destroy_inodecache();
 }

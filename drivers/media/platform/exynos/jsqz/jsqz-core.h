@@ -19,19 +19,20 @@
 #include <linux/wait.h>
 
 #include <linux/hwjsqz.h>
+#include <linux/hwmsqz.h>
 
-#define MODULE_NAME	"exynos-jsqz"
-#define NODE_NAME		"jsqz"
+#define MODULE_NAME     "exynos-jsqz"
+#define NODE_NAME       "jsqz"
 
-#define JSQZ_HEADER_BYTES		16
-#define JSQZ_BYTES_PER_BLOCK	16
+#define JSQZ_HEADER_BYTES       16
+#define JSQZ_BYTES_PER_BLOCK    16
 
 /* jsqz hardware device state */
-#define DEV_RUN			1
-#define DEV_SUSPEND	2
+#define DEV_RUN         1
+#define DEV_SUSPEND     2
 
-#define JSQZ_INPUT_MIN_WIDTH	32
-#define JSQZ_INPUT_MIN_HEIGHT	8
+#define JSQZ_INPUT_MIN_WIDTH    32
+#define JSQZ_INPUT_MIN_HEIGHT   8
 
 /**
  * struct jsqz_dev - the abstraction for jsqz encoder device
@@ -167,8 +168,13 @@ struct jsqz_buffer_plane_dma {
  */
 struct jsqz_buffer_dma {
 	/* pointer to jsqz_task.task.buf_out/cap */
-	const struct hwJSQZ_buffer		*buffer;
+	const struct hwSQZ_buffer		*buffer;
 	struct jsqz_buffer_plane_dma	plane;
+};
+
+enum sqz_type {
+	JPEG_SQZ,
+	MPEG_SQZ,
 };
 
 /**
@@ -188,11 +194,13 @@ struct jsqz_buffer_dma {
  */
 struct jsqz_task {
 	struct hwJSQZ_task		user_task;
+	struct hwMSQZ_task		user_mtask;
 	struct jsqz_ctx			*ctx;
 	struct completion		complete;
 	struct jsqz_buffer_dma	dma_buf_out[2];
 	struct work_struct		work;
 	enum jsqz_state			state;
+	enum sqz_type			type;
 };
 
 #endif /* JSQZ_CORE_H_ */

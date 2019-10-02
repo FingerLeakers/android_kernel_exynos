@@ -61,12 +61,12 @@ extern int gdc_log_level;
 #define CTX_INT_FRAME	7 /* intermediate frame available */
 
 /* GDC grid size (x, y) */
-#if defined(CONFIG_CAMERA_PP_GDC_V2_1_0_OBJ)
-#define GRID_X_SIZE		33
-#define GRID_Y_SIZE		33
-#else
+#if defined(CONFIG_CAMERA_PP_GDC_V1_0_0_OBJ) || defined(CONFIG_CAMERA_PP_GDC_V2_0_0_OBJ)
 #define GRID_X_SIZE		9
 #define GRID_Y_SIZE		7
+#else
+#define GRID_X_SIZE		33
+#define GRID_Y_SIZE		33
 #endif
 
 #define fh_to_gdc_ctx(__fh)	container_of(__fh, struct gdc_ctx, fh)
@@ -164,7 +164,8 @@ struct gdc_frame {
 	__u32			pixelformat;
 	struct gdc_addr			addr;
 	__u32			bytesused[GDC_MAX_PLANES];
-	enum camerapp_pixel_size pixel_size;
+	__u32			pixel_size;
+	__u32			extra;
 };
 
 /*

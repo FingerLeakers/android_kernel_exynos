@@ -131,29 +131,12 @@ static struct bbd_device bbd;
 /*
  * Embedded patch file provided as /dev/bbd_patch
  */
-static unsigned char bbd_patch_old[] = {
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-#include "bbd_patch_file_beyond_old.h"
-#else
-#include "bbd_patch_file_beyond_old.h"
-#endif
-};
-
-static unsigned char bbd_patch_new_old[] = { // hw_rev 20 ~ hw_rev 23
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-#include "bbd_patch_file_beyond_new_old.h"
-#else
-#include "bbd_patch_file_beyond_new_old.h"
-#endif
-};
 
 static unsigned char bbd_patch[] = {
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-#include "bbd_patch_file_beyond.h"
-#elif defined(CONFIG_SENSORS_SSP_DAVINCI)
-#include "bbd_patch_file_davinci.h"
+#if defined(CONFIG_SENSORS_SSP_PICASSO)
+#include "q_os/bbd_patch_file_picasso.h"
 #else
-#include "bbd_patch_file_beyond.h"
+#include "q_os/bbd_patch_file_picasso.h"
 #endif
 };
 
@@ -229,7 +212,7 @@ static void bbd_report_stat(struct work_struct *work)
 	stat1hz.max_rx_dur = 0;
 }
 
-static void bbd_stat_timer_func(unsigned long p)
+static void bbd_stat_timer_func(struct timer_list *p)
 {
 	if (stat1hz.workq)
 		queue_work(stat1hz.workq, &stat1hz.work);
@@ -249,7 +232,7 @@ void bbd_enable_stat(void)
 	}
 
 	INIT_WORK(&stat1hz.work, bbd_report_stat);
-	setup_timer(&stat1hz.timer, bbd_stat_timer_func, 0);
+	timer_setup(&stat1hz.timer, bbd_stat_timer_func, 0);
 	mod_timer(&stat1hz.timer, jiffies + HZ);
 	stat1hz.enabled = true;
 }
@@ -274,7 +257,7 @@ static void bbd_lk_work(struct work_struct *work)
 		bbd_mcu_reset(false);
 }
 
-static void bbd_lk_timer_func(unsigned long p)
+static void bbd_lk_timer_func(struct timer_list *p)
 {
 	if (bbd.lk.workq)
 		queue_work(bbd.lk.workq, &bbd.lk.work);
@@ -289,7 +272,7 @@ static void bbd_enable_lk(void)
 	}
 
 	INIT_WORK(&bbd.lk.work, bbd_lk_work);
-	setup_timer(&bbd.lk.timer, bbd_lk_timer_func, 0);
+	timer_setup(&bbd.lk.timer, bbd_lk_timer_func, 0);
 	mod_timer(&bbd.lk.timer, jiffies + HZ*bbd.lk.timeout_sec);
 	bbd.lk.timer_enabled = true;
 }
@@ -785,10 +768,6 @@ ssize_t bbd_control_write(struct file *filp, const char __user *buf, size_t size
 	/* Process received command string */
 	return bbd_control(bbd.priv[minor].write_buf, len);
 }
-/* bbd patch version define only for beyond*/
-#define bbd_old     0
-#define bbd_new_old     1
-#define bbd_current     2
 
 extern int get_patch_version(int ap_type, int hw_rev);
 
@@ -796,11 +775,7 @@ ssize_t bbd_patch_read(struct file *filp, char __user *buf, size_t size, loff_t 
 {
 	ssize_t rd_size = size;
 	size_t  offset = filp->f_pos;
-	int hw_rev = bbd.ssp_cb->on_control(bbd.ssp_priv, SSP_GET_HW_REV);
-        int ap_type = bbd.ssp_cb->on_control(bbd.ssp_priv, SSP_GET_AP_REV);
-        int patch_ver = get_patch_version(ap_type, hw_rev);
-        int patch_size = (patch_ver == bbd_current ? sizeof(bbd_patch) 
-                                    : (patch_ver == bbd_new_old) ? sizeof(bbd_patch_new_old) : sizeof(bbd_patch_old));
+        int patch_size = sizeof(bbd_patch);
     
 	if (offset >= patch_size) {	   /* signal EOF */
 		*ppos = 0;
@@ -809,8 +784,7 @@ ssize_t bbd_patch_read(struct file *filp, char __user *buf, size_t size, loff_t 
     
 	if (offset+size > patch_size)
 		rd_size = patch_size - offset;
-        if (copy_to_user(buf, (patch_ver == bbd_current ? bbd_patch : 
-                (patch_ver == bbd_new_old) ? bbd_patch_new_old : bbd_patch_old) + offset, rd_size))
+        if (copy_to_user(buf, bbd_patch + offset, rd_size))
 		rd_size = -EFAULT;
 	else
 		*ppos = filp->f_pos + rd_size;
@@ -827,7 +801,7 @@ char urgent_buffer[URGENT_BUFFER_SIZE] = {0, };
 static bool is_signed = false;
 static int urgent_patch_size = 0;
 
-extern int spu_fireware_signature_verify(const char* fw_name, const char* fw_path);
+//extern int spu_fireware_signature_verify(const char* fw_name, const char* fw_path);
 
 ssize_t bbd_urgent_patch_read(struct file *user_filp, char __user *buf, size_t size, loff_t *ppos)
 {
@@ -844,7 +818,7 @@ ssize_t bbd_urgent_patch_read(struct file *user_filp, char __user *buf, size_t s
 	if (offset == 0) {
 		is_signed = false;
 		
-		ret = spu_fireware_signature_verify("SENSORHUB",URGENT_FIRMWARE_PATH);
+		//ret = spu_fireware_signature_verify("SENSORHUB",URGENT_FIRMWARE_PATH);
 		
 		if(ret != 0){
 			pr_err("[SSPBBD] %s : fail to spu_fireware_signature_verify %d", __func__, ret);

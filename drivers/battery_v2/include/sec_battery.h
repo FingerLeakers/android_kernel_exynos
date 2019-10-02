@@ -28,7 +28,7 @@
 #include <linux/jiffies.h>
 
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
-#include <linux/usb/manager/usb_typec_manager_notifier.h>
+#include <linux/usb/typec/manager/usb_typec_manager_notifier.h>
 #else
 #if defined(CONFIG_CCIC_NOTIFIER)
 #include <linux/ccic/ccic_notifier.h>
@@ -65,14 +65,14 @@ extern char *sec_cable_type[];
 #define SEC_BAT_CURRENT_EVENT_AFC					0x000001
 #define SEC_BAT_CURRENT_EVENT_CHARGE_DISABLE		0x000002
 #define SEC_BAT_CURRENT_EVENT_SKIP_HEATING_CONTROL	0x000004
-#define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING		0x000010
+#define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING		0x000080
 #define SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING	0x000020
 #if defined(CONFIG_ENABLE_100MA_CHARGING_BEFORE_USB_CONFIGURED)
 #define SEC_BAT_CURRENT_EVENT_USB_100MA			0x000040
 #else
 #define SEC_BAT_CURRENT_EVENT_USB_100MA			0x000000
 #endif
-#define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND			0x000080
+#define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND			0x000010
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD			0x000008
 #define SEC_BAT_CURRENT_EVENT_SWELLING_MODE		(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND | SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD)
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_MODE		(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD)
@@ -210,35 +210,6 @@ struct adc_sample_info {
 	int index;
 };
 
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-struct cable_info {
-	int cable_type;
-	int muic_cable_type;
-
-	int input_current;
-	int charging_current;
-
-	unsigned int input_voltage;		/* CHGIN/WCIN input voltage (V) */
-	unsigned int charge_power;
-	unsigned int max_charge_power;		/* max charge power (mW) */
-	unsigned int pd_max_charge_power;		/* max charge power for pd (mW) */
-
-#if defined(CONFIG_CCIC_NOTIFIER)
-	bool pdic_attach;
-	bool pdic_ps_rdy;
-	bool hv_pdo;
-
-	struct pdic_notifier_struct pdic_info;
-	struct sec_bat_pdic_list pd_list;
-#endif
-	int pd_usb_attached;
-
-#if defined(CONFIG_AFC_CHARGER_MODE)
-	char *hv_chg_name;
-#endif
-};
-#endif
-
 struct sec_battery_info {
 	struct device *dev;
 	sec_battery_platform_data_t *pdata;
@@ -254,9 +225,6 @@ struct sec_battery_info {
 	int pd_usb_attached;
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	struct notifier_block usb_typec_nb;
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	struct notifier_block usb_typec_main_nb;
-#endif
 #else
 #if defined(CONFIG_CCIC_NOTIFIER)
 	struct notifier_block pdic_nb;
@@ -431,12 +399,6 @@ struct sec_battery_info {
 	bool is_recharging;
 	int wdt_kick_disable;
 
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	struct cable_info *select;
-	struct cable_info *main;
-	struct cable_info *sub;
-#endif
-
 	bool is_jig_on;
 	int cable_type;
 	int muic_cable_type;
@@ -444,9 +406,6 @@ struct sec_battery_info {
 
 	bool auto_mode;
 
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	int charging_port;
-#endif
 	struct wake_lock cable_wake_lock;
 	struct delayed_work cable_work;
 	struct wake_lock vbus_wake_lock;

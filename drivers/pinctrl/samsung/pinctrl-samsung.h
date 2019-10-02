@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * pin-controller/pin-mux/pin-config/gpio-driver for Samsung's SoC's.
  *
@@ -7,11 +8,6 @@
  *		http://www.linaro.org
  *
  * Author: Thomas Abraham <thomas.ab@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #ifndef __PINCTRL_SAMSUNG_H
@@ -231,6 +227,13 @@ struct samsung_retention_data {
  *	interrupts for the controller.
  * @eint_wkup_init: platform specific callback to setup the external wakeup
  *	interrupts for the controller.
+ * @suspend: platform specific suspend callback, executed during pin controller
+ *	device suspend, see samsung_pinctrl_suspend()
+ * @resume: platform specific resume callback, executed during pin controller
+ *	device suspend, see samsung_pinctrl_resume()
+ *
+ * External wakeup interrupts must define at least eint_wkup_init,
+ * retention_data and suspend in order for proper suspend/resume to work.
  */
 struct samsung_pin_ctrl {
 	const struct samsung_pin_bank_data *pin_banks;
@@ -263,6 +266,10 @@ struct samsung_pin_ctrl {
  * @pin_base: starting system wide pin number.
  * @nr_pins: number of pins supported by the controller.
  * @retention_ctrl: retention control runtime data.
+ * @suspend: platform specific suspend callback, executed during pin controller
+ *	device suspend, see samsung_pinctrl_suspend()
+ * @resume: platform specific resume callback, executed during pin controller
+ *	device suspend, see samsung_pinctrl_resume()
  */
 struct samsung_pinctrl_drv_data {
 	struct list_head		node;
@@ -273,7 +280,7 @@ struct samsung_pinctrl_drv_data {
 	struct pinctrl_desc		pctl;
 	struct pinctrl_dev		*pctl_dev;
 
-	const struct samsung_pin_group	*pin_groups;
+	struct samsung_pin_group	*pin_groups;
 	unsigned int			nr_groups;
 	const struct samsung_pmx_func	*pmx_functions;
 	unsigned int			nr_functions;
@@ -305,12 +312,16 @@ struct samsung_pinctrl_of_match_data {
  * @pins: the pins included in this group.
  * @num_pins: number of pins included in this group.
  * @func: the function number to be programmed when selected.
+ * @state: current pin group state.
+ * @state_num: state number in pin group.
  */
 struct samsung_pin_group {
 	const char		*name;
 	const unsigned int	*pins;
 	u8			num_pins;
 	u8			func;
+	unsigned int		state[PINCFG_TYPE_NUM];
+	unsigned int		state_num;
 };
 
 /**
@@ -335,8 +346,6 @@ extern const struct samsung_pinctrl_of_match_data exynos5260_of_data;
 extern const struct samsung_pinctrl_of_match_data exynos5410_of_data;
 extern const struct samsung_pinctrl_of_match_data exynos5420_of_data;
 extern const struct samsung_pinctrl_of_match_data exynos5433_of_data;
-extern const struct samsung_pinctrl_of_match_data exynos9810_of_data;
-extern const struct samsung_pinctrl_of_match_data exynos9820_of_data;
 extern const struct samsung_pinctrl_of_match_data exynos7_of_data;
 extern const struct samsung_pinctrl_of_match_data s3c64xx_of_data;
 extern const struct samsung_pinctrl_of_match_data s3c2412_of_data;
@@ -344,5 +353,7 @@ extern const struct samsung_pinctrl_of_match_data s3c2416_of_data;
 extern const struct samsung_pinctrl_of_match_data s3c2440_of_data;
 extern const struct samsung_pinctrl_of_match_data s3c2450_of_data;
 extern const struct samsung_pinctrl_of_match_data s5pv210_of_data;
+extern const struct samsung_pinctrl_of_match_data exynos9820_of_data;
+extern const struct samsung_pinctrl_of_match_data exynos9830_of_data;
 
 #endif /* __PINCTRL_SAMSUNG_H */

@@ -38,6 +38,9 @@
 #define RTP_HEADER_SIZE     12
 #define TS_PACKET_SIZE      188
 
+#define WATCHDOG_INTERVAL		1000
+#define MAX_WATCHDOG_TICK_CNT		5
+
 static struct tsmux_device *g_tsmux_dev;
 int g_tsmux_debug_level;
 module_param(g_tsmux_debug_level, int, 0600);
@@ -175,6 +178,88 @@ static int increment_rtp_sequence_number(
 	return rtp_packet_count;
 }
 
+void tsmux_watchdog_tick_start(struct tsmux_device *tsmux_dev, int job_id)
+{
+	struct tsmux_watchdog_tick *watchdog_tick;
+
+	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
+
+	watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
+	if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
+		print_tsmux(TSMUX_COMMON, "job id %d tick was already running\n", job_id);
+	} else {
+		print_tsmux(TSMUX_COMMON, "job id %d tick is now running\n", job_id);
+		atomic_set(&watchdog_tick->watchdog_tick_running, 1);
+	}
+
+	/* Reset the timeout watchdog */
+	atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+
+	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
+}
+
+void tsmux_watchdog_tick_stop(struct tsmux_device *tsmux_dev, int job_id)
+{
+	struct tsmux_watchdog_tick *watchdog_tick;
+
+	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
+
+	watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
+	if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
+		print_tsmux(TSMUX_COMMON, "job id %d tick is now stopped\n", job_id);
+		atomic_set(&watchdog_tick->watchdog_tick_running, 0);
+	} else {
+		print_tsmux(TSMUX_COMMON, "job id %d tick was already stopped\n", job_id);
+	}
+
+	/* Reset the timeout watchdog */
+	atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+
+	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
+}
+
+void tsmux_watchdog_work_handler(struct work_struct *work)
+{
+	struct tsmux_device *tsmux_dev;
+
+	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
+
+	tsmux_dev = container_of(work, struct tsmux_device, watchdog_work);
+
+	tsmux_sfr_dump();
+
+	/* If OTF job exists, MFC device driver generates kernel panic */
+	/* Otherwise, TSMUX device driver generates kernel panic */
+	if (atomic_read(&tsmux_dev->watchdog_tick[0].watchdog_tick_running) == 0)
+		BUG();
+
+	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
+}
+
+void tsmux_watchdog(struct timer_list *t)
+{
+	struct tsmux_device *tsmux_dev = from_timer(tsmux_dev, t, watchdog_timer);
+	int i = 0;
+
+	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
+
+	for (i = 0; i < TSMUX_MAX_CMD_QUEUE_NUM; i++) {
+		if (atomic_read(&tsmux_dev->watchdog_tick[i].watchdog_tick_running))
+			atomic_inc(&tsmux_dev->watchdog_tick[i].watchdog_tick_count);
+		else
+			atomic_set(&tsmux_dev->watchdog_tick[i].watchdog_tick_count, 0);
+
+		if (atomic_read(&tsmux_dev->watchdog_tick[i].watchdog_tick_count) >= MAX_WATCHDOG_TICK_CNT) {
+			/* TSMUX H/W is running, but interrupt was not generated */
+			schedule_work(&tsmux_dev->watchdog_work);
+		}
+	}
+
+	mod_timer(&tsmux_dev->watchdog_timer, jiffies + msecs_to_jiffies(WATCHDOG_INTERVAL));
+
+	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
+}
+
 irqreturn_t tsmux_irq(int irq, void *priv)
 {
 	struct tsmux_device *tsmux_dev = priv;
@@ -212,6 +297,7 @@ irqreturn_t tsmux_irq(int irq, void *priv)
 		} else
 			print_tsmux(TSMUX_ERR, "wrong index: %d\n", i);
 
+		tsmux_watchdog_tick_stop(tsmux_dev, job_id);
 		wake_up_interruptible(&ctx->otf_wait_queue);
 	}
 
@@ -220,6 +306,7 @@ irqreturn_t tsmux_irq(int irq, void *priv)
 		print_tsmux(TSMUX_COMMON, "Job ID %d is done\n", job_id);
 		tsmux_clear_job_done(tsmux_dev, job_id);
 		ctx->m2m_job_done[get_m2m_buffer_idx(job_id)] = true;
+		tsmux_watchdog_tick_stop(tsmux_dev, job_id);
 	}
 
 	if (tsmux_is_job_done_id_2(tsmux_dev)) {
@@ -227,6 +314,7 @@ irqreturn_t tsmux_irq(int irq, void *priv)
 		print_tsmux(TSMUX_COMMON, "Job ID %d is done\n", job_id);
 		tsmux_clear_job_done(tsmux_dev, job_id);
 		ctx->m2m_job_done[get_m2m_buffer_idx(job_id)] = true;
+		tsmux_watchdog_tick_stop(tsmux_dev, job_id);
 	}
 
 	if (tsmux_is_job_done_id_3(tsmux_dev)) {
@@ -234,6 +322,7 @@ irqreturn_t tsmux_irq(int irq, void *priv)
 		print_tsmux(TSMUX_COMMON, "Job ID %d is done\n", job_id);
 		tsmux_clear_job_done(tsmux_dev, job_id);
 		ctx->m2m_job_done[get_m2m_buffer_idx(job_id)] = true;
+		tsmux_watchdog_tick_stop(tsmux_dev, job_id);
 	}
 
 	spin_unlock(&tsmux_dev->device_spinlock);
@@ -322,6 +411,11 @@ static int tsmux_open(struct inode *inode, struct file *filp)
 	//print_tsmux_sfr(tsmux_dev);
 	//print_dbg_info_all(tsmux_dev);
 
+	tsmux_dev->hw_version = tsmux_get_hw_version(tsmux_dev);
+
+	if(tsmux_dev->ctx_cnt == 1)
+		mod_timer(&tsmux_dev->watchdog_timer, jiffies + msecs_to_jiffies(1000));
+
 	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
 
 	return ret;
@@ -347,6 +441,9 @@ static int tsmux_release(struct inode *inode, struct file *filp)
 	clk_disable(tsmux_dev->tsmux_clock);
 #endif
 	spin_lock_irqsave(&tsmux_dev->device_spinlock, flags);
+
+	if(tsmux_dev->ctx_cnt == 1)
+		del_timer(&tsmux_dev->watchdog_timer);
 
 	ctx->tsmux_dev->ctx_cnt--;
 	kfree(ctx);
@@ -436,8 +533,7 @@ int tsmux_job_queue(struct tsmux_context *ctx,
 	/* set pkt_ctrl_reg */
 	tsmux_job_queue_pkt_ctrl(tsmux_dev);
 
-	//print_tsmux_sfr(tsmux_dev);
-	//print_dbg_info_all(tsmux_dev);
+	tsmux_watchdog_tick_start(tsmux_dev, pkt_ctrl->id);
 
 	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
 
@@ -1017,7 +1113,7 @@ void tsmux_print_context_info(struct tsmux_context *ctx)
 			ctx->rtp_ts_info.rtp_seq_number, ctx->rtp_ts_info.rtp_seq_override,
 			ctx->rtp_ts_info.ts_pat_cc, ctx->rtp_ts_info.ts_pmt_cc,
 			ctx->rtp_ts_info.ts_video_cc, ctx->rtp_ts_info.ts_audio_cc);
-	print_tsmux(TSMUX_ERR, "audio_frame_cnt: %d, video_frame_cnt: %d\n",
+	print_tsmux(TSMUX_ERR, "audio_frame_cnt: %lld, video_frame_cnt: %lld\n",
 			ctx->audio_frame_count, ctx->video_frame_count);
 }
 
@@ -1328,11 +1424,11 @@ void add_null_ts_packet(uint8_t *ptr, int out_buf_size, struct tsmux_ts_hdr *ts_
 	*ptr++ = 0xff;
 	*ptr++ = 0x80;
 
-	print_tsmux(TSMUX_COMMON, "ts data %0.2x %.2x %.2x %.2x %0.2x %.2x %.2x %.2x\n",
+	print_tsmux(TSMUX_COMMON, "ts data %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
 			ts_data[0], ts_data[1], ts_data[2], ts_data[3],
 			ts_data[4], ts_data[5], ts_data[6], ts_data[7]);
 
-	print_tsmux(TSMUX_COMMON, "pes data %.2x %0.2x %.2x %.2x %.2x %0.2x %.2x %.2x %.2x\n",
+	print_tsmux(TSMUX_COMMON, "pes data %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
 			ts_data[171], ts_data[172], ts_data[173], ts_data[174], ts_data[175],
 			ts_data[176], ts_data[177], ts_data[178], ts_data[179]);
 }
@@ -1828,11 +1924,40 @@ static const struct file_operations tsmux_fops = {
 	.compat_ioctl = tsmux_ioctl,
 };
 
+#ifdef CONFIG_EXYNOS_ITMON
+static int tsmux_itmon_notifier(struct notifier_block *nb, unsigned long action, void *nb_data)
+{
+	struct tsmux_device *tsmux_dev;
+	struct itmon_notifier *itmon_info = nb_data;
+	int is_port = 0, is_master = 0, is_dest = 0;
+
+	tsmux_dev = container_of(nb, struct tsmux_device, itmon_nb);
+
+	if (IS_ERR_OR_NULL(itmon_info))
+		return NOTIFY_DONE;
+
+	if (itmon_info->port && strncmp("WFD", itmon_info->port, sizeof("WFD") - 1) == 0)
+		is_port = 1;
+	if (itmon_info->master && strncmp("WFD", itmon_info->master, sizeof("WFD") - 1) == 0)
+		is_master = 1;
+	if (itmon_info->dest && strncmp("WFD", itmon_info->dest, sizeof("WFD") - 1) == 0)
+		is_dest = 1;
+
+	if (is_port || is_master || is_dest) {
+		tsmux_sfr_dump();
+		return NOTIFY_BAD;
+	} else {
+		return NOTIFY_DONE;
+	}
+}
+#endif
+
 static int tsmux_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct tsmux_device *tsmux_dev;
 	struct resource *res;
+	int i;
 
 	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
 
@@ -1920,7 +2045,17 @@ static int tsmux_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, tsmux_dev);
 
-	tsmux_dev->hw_version = tsmux_get_hw_version(tsmux_dev);
+#ifdef CONFIG_EXYNOS_ITMON
+	tsmux_dev->itmon_nb.notifier_call = tsmux_itmon_notifier;
+	itmon_notifier_chain_register(&tsmux_dev->itmon_nb);
+#endif
+
+	timer_setup(&tsmux_dev->watchdog_timer, tsmux_watchdog, 0);
+	INIT_WORK(&tsmux_dev->watchdog_work, tsmux_watchdog_work_handler);
+	for (i = 0; i < TSMUX_MAX_CMD_QUEUE_NUM; i++) {
+		atomic_set(&tsmux_dev->watchdog_tick[i].watchdog_tick_running, 0);
+		atomic_set(&tsmux_dev->watchdog_tick[i].watchdog_tick_count, 0);
+	}
 
 	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
 

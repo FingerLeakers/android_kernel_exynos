@@ -110,6 +110,48 @@ static struct copr_reg_info copr_reg_v3_list[] = {
 	{ .name = "copr_roi6_y_e=", .offset = offsetof(struct copr_reg_v3, roi[5].roi_ye) },
 };
 
+static struct copr_reg_info copr_reg_v5_list[] = {
+	{ .name = "copr_mask=", .offset = offsetof(struct copr_reg_v3, copr_mask) },
+	{ .name = "copr_cnt_re=", .offset = offsetof(struct copr_reg_v3, cnt_re) },
+	{ .name = "copr_ilc=", .offset = offsetof(struct copr_reg_v3, copr_ilc) },
+	{ .name = "copr_gamma=", .offset = offsetof(struct copr_reg_v3, copr_gamma) },
+
+	{ .name = "copr_en=", .offset = offsetof(struct copr_reg_v3, copr_en) },
+	{ .name = "copr_er=", .offset = offsetof(struct copr_reg_v3, copr_er) },
+	{ .name = "copr_eg=", .offset = offsetof(struct copr_reg_v3, copr_eg) },
+	{ .name = "copr_eb=", .offset = offsetof(struct copr_reg_v3, copr_eb) },
+	{ .name = "copr_erc=", .offset = offsetof(struct copr_reg_v3, copr_erc) },
+	{ .name = "copr_egc=", .offset = offsetof(struct copr_reg_v3, copr_egc) },
+	{ .name = "copr_ebc=", .offset = offsetof(struct copr_reg_v3, copr_ebc) },
+	{ .name = "copr_max_cnt=", .offset = offsetof(struct copr_reg_v3, max_cnt) },
+	{ .name = "copr_roi_ctrl=", .offset = offsetof(struct copr_reg_v3, roi_on) },
+	/* ROI1 */
+	{ .name = "copr_roi1_x_s=", .offset = offsetof(struct copr_reg_v3, roi[0].roi_xs) },
+	{ .name = "copr_roi1_y_s=", .offset = offsetof(struct copr_reg_v3, roi[0].roi_ys) },
+	{ .name = "copr_roi1_x_e=", .offset = offsetof(struct copr_reg_v3, roi[0].roi_xe) },
+	{ .name = "copr_roi1_y_e=", .offset = offsetof(struct copr_reg_v3, roi[0].roi_ye) },
+	/* ROI2 */
+	{ .name = "copr_roi2_x_s=", .offset = offsetof(struct copr_reg_v3, roi[1].roi_xs) },
+	{ .name = "copr_roi2_y_s=", .offset = offsetof(struct copr_reg_v3, roi[1].roi_ys) },
+	{ .name = "copr_roi2_x_e=", .offset = offsetof(struct copr_reg_v3, roi[1].roi_xe) },
+	{ .name = "copr_roi2_y_e=", .offset = offsetof(struct copr_reg_v3, roi[1].roi_ye) },
+	/* ROI3 */
+	{ .name = "copr_roi3_x_s=", .offset = offsetof(struct copr_reg_v3, roi[2].roi_xs) },
+	{ .name = "copr_roi3_y_s=", .offset = offsetof(struct copr_reg_v3, roi[2].roi_ys) },
+	{ .name = "copr_roi3_x_e=", .offset = offsetof(struct copr_reg_v3, roi[2].roi_xe) },
+	{ .name = "copr_roi3_y_e=", .offset = offsetof(struct copr_reg_v3, roi[2].roi_ye) },
+	/* ROI4 */
+	{ .name = "copr_roi4_x_s=", .offset = offsetof(struct copr_reg_v3, roi[3].roi_xs) },
+	{ .name = "copr_roi4_y_s=", .offset = offsetof(struct copr_reg_v3, roi[3].roi_ys) },
+	{ .name = "copr_roi4_x_e=", .offset = offsetof(struct copr_reg_v3, roi[3].roi_xe) },
+	{ .name = "copr_roi4_y_e=", .offset = offsetof(struct copr_reg_v3, roi[3].roi_ye) },
+	/* ROI5 */
+	{ .name = "copr_roi5_x_s=", .offset = offsetof(struct copr_reg_v3, roi[4].roi_xs) },
+	{ .name = "copr_roi5_y_s=", .offset = offsetof(struct copr_reg_v3, roi[4].roi_ys) },
+	{ .name = "copr_roi5_x_e=", .offset = offsetof(struct copr_reg_v3, roi[4].roi_xe) },
+	{ .name = "copr_roi5_y_e=", .offset = offsetof(struct copr_reg_v3, roi[4].roi_ye) },
+};
+
 int get_copr_reg_size(int version)
 {
 	if (version == COPR_VER_0)
@@ -120,6 +162,8 @@ int get_copr_reg_size(int version)
 		return ARRAY_SIZE(copr_reg_v2_list);
 	else if (version == COPR_VER_3)
 		return ARRAY_SIZE(copr_reg_v3_list);
+	else if (version == COPR_VER_5)
+		return ARRAY_SIZE(copr_reg_v5_list);
 	else
 		return 0;
 }
@@ -134,6 +178,8 @@ const char *get_copr_reg_name(int version, int index)
 		return copr_reg_v2_list[index].name;
 	else if (version == COPR_VER_3)
 		return copr_reg_v3_list[index].name;
+	else if (version == COPR_VER_5)
+		return copr_reg_v5_list[index].name;
 	else
 		return NULL;
 }
@@ -148,6 +194,8 @@ int get_copr_reg_offset(int version, int index)
 		return copr_reg_v2_list[index].offset;
 	else if (version == COPR_VER_3)
 		return copr_reg_v3_list[index].offset;
+	else if (version == COPR_VER_5)
+		return copr_reg_v5_list[index].offset;
 	else
 		return -EINVAL;
 }
@@ -167,6 +215,8 @@ u32 *get_copr_reg_ptr(struct copr_reg *reg, int version, int index)
 		return (u32 *)((void *)&reg->v2 + offset);
 	else if (version == COPR_VER_3)
 		return (u32 *)((void *)&reg->v3 + offset);
+	else if (version == COPR_VER_5)
+		return (u32 *)((void *)&reg->v5 + offset);
 	else
 		return NULL;
 }
@@ -363,14 +413,15 @@ static int panel_read_copr_spi(struct copr_info *copr)
 		goto get_copr_error;
 	}
 
-	if (props->version == COPR_VER_3) {
+	if (props->version == COPR_VER_3 ||
+		props->version == COPR_VER_5) {
 		props->copr_ready = buf[0] & 0x01;
 		props->cur_cnt = (buf[1] << 8) | buf[2];
 		props->cur_copr = (buf[3] << 8) | buf[4];
 		props->avg_copr = (buf[5] << 8) | buf[6];
 		props->s_cur_cnt = (buf[7] << 8) | buf[8];
 		props->s_avg_copr = (buf[9] << 8) | buf[10];
-		for (i = 0; i < 6; i++) {
+		for (i = 0; i < 5; i++) {
 			for (c = 0; c < 3; c++) {
 				index = 11 + i * 6 + c * 2;
 				props->copr_roi_r[i][c] = (buf[index] << 8) | buf[index + 1];
@@ -459,7 +510,8 @@ static int panel_read_copr_dsi(struct copr_info *copr)
 		goto get_copr_error;
 	}
 
-	if (props->version == COPR_VER_3) {
+	if (props->version == COPR_VER_3 ||
+		props->version == COPR_VER_5) {
 		props->copr_ready = buf[0] & 0x01;
 		props->cur_cnt = (buf[1] << 8) | buf[2];
 		props->cur_copr = (buf[3] << 8) | buf[4];
@@ -617,8 +669,9 @@ int copr_update_average(struct copr_info *copr)
 		return -EINVAL;
 	}
 
-	if (copr->props.version == COPR_VER_3 ||
-		copr->props.version == COPR_VER_2) {
+	if (copr->props.version == COPR_VER_2 ||
+		copr->props.version == COPR_VER_3 ||
+		copr->props.version == COPR_VER_5) {
 #ifdef CONFIG_SUPPORT_COPR_AVG
 		ret = panel_clear_copr(copr);
 		if (unlikely(ret < 0))
@@ -865,7 +918,8 @@ int copr_roi_set_value(struct copr_info *copr, struct copr_roi *roi, int size)
  */
 int copr_roi_get_value(struct copr_info *copr, struct copr_roi *roi, int size, u32 *out)
 {
-	if (copr->props.version == COPR_VER_3)
+	if (copr->props.version == COPR_VER_3 ||
+		copr->props.version == COPR_VER_5) 
 		return copr_cur_roi_get_value(copr, roi, size, out);
 	else
 		return copr_iter_roi_get_value(copr, roi, size, out);
@@ -1034,9 +1088,10 @@ int copr_enable(struct copr_info *copr)
 	if(copr->props.options.check_avg) {
 		copr_res_init(copr);
 #ifdef CONFIG_SUPPORT_COPR_AVG
-		if (copr->props.version == COPR_VER_3 ||
+		if (copr->props.version == COPR_VER_1 ||
 			copr->props.version == COPR_VER_2 ||
-			copr->props.version == COPR_VER_1) {
+			copr->props.version == COPR_VER_3 ||
+			copr->props.version == COPR_VER_5) {
 			ret = panel_clear_copr(copr);
 			if (unlikely(ret < 0))
 				pr_err("%s, failed to reset copr\n", __func__);
@@ -1222,11 +1277,13 @@ int copr_probe(struct panel_device *panel, struct panel_copr_data *copr_data)
 			get_copr_reg_copr_en(copr)) {
 		copr->props.enable = true;
 		copr->props.state = COPR_UNINITIALIZED;
+		panel_set_copr(copr);
 		atomic_set(&copr->wq.count, 5);
 		if (copr->props.options.thread_on)
 			copr_create_thread(copr);
 	}
 	mutex_unlock(&copr->lock);
+
 	pr_info("%s registered successfully\n", __func__);
 
 	return 0;

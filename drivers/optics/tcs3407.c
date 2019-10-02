@@ -94,6 +94,11 @@ static int als_info;
 module_param(als_debug, int, S_IRUGO | S_IWUSR);
 module_param(als_info, int, S_IRUGO | S_IWUSR);
 
+static u8 irq_flush = 0;
+#define INT_FLUSH_OFF	0		/* INT_FLUSH end 	: tcs3407_irq_handler */
+#define INT_FLUSH_ON	1		/* INT_FLUSH start	: power_ctrl */
+#define WAIT_FLUSH_MAX	500		/* wait irq flushing max 5ms */
+
 static struct tcs3407_device_data *tcs3407_data;
 
 #define AMS_ROUND_SHFT_VAL				4
@@ -310,7 +315,7 @@ static long tcs3407_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	int ret = 0;
 
 	struct tcs3407_device_data *data = container_of(file->private_data,
-	struct tcs3407_device_data, miscdev);
+		struct tcs3407_device_data, miscdev);
 
 	ALS_dbg("%s - ioctl start, %d\n", __func__, cmd);
 	mutex_lock(&data->flickerdatalock);
@@ -1536,6 +1541,7 @@ static void tcs3407_irq_set_state(struct tcs3407_device_data *data, int irq_enab
 	ALS_dbg("%s - irq_enable : %d, irq_state : %d\n",
 		__func__, irq_enable, data->irq_state);
 
+	irq_flush = INT_FLUSH_OFF;		/* initialization */
 	if (irq_enable) {
 		if (data->irq_state++ == 0)
 			enable_irq(data->dev_irq);
@@ -1569,6 +1575,7 @@ static int tcs3407_power_ctrl(struct tcs3407_device_data *data, int onoff)
 		data->regulator_state++;
 		data->pm_state = PM_RESUME;
 	} else {
+		irq_flush = INT_FLUSH_ON;
 		if (data->regulator_state == 0) {
 			ALS_dbg("%s - already off the regulator\n", __func__);
 			return 0;
@@ -1913,22 +1920,35 @@ static ssize_t tcs3407_enable_store(struct device *dev,
 
 		data->mode_cnt.amb_cnt++;
 	} else {
+		int retry_count = WAIT_FLUSH_MAX;
+
 		if (data->regulator_state == 0) {
 			ALS_dbg("%s - already power off - disable skip\n",
 				__func__);
 			goto err_already_off;
 		}
 
-		err = als_enable_set(data, AMSDRIVER_ALS_DISABLE);
-		if (err != 0)
-			ALS_err("%s - disable err : %d\n", __func__, err);
-
-		data->enabled = 0;
-
+		if(data->regulator_state == 1) {
+			err = als_enable_set(data, AMSDRIVER_ALS_DISABLE);
+			if (err != 0)
+				ALS_err("%s - disable err : %d\n", __func__, err);
+			data->enabled = 0;
+		}
 		err = tcs3407_power_ctrl(data, PWR_OFF);
 		if (err < 0)
 			ALS_err("%s - als_regulator_off fail err = %d\n",
 				__func__, err);
+
+		while(retry_count--){
+			if(irq_flush == INT_FLUSH_OFF){
+				ALS_dbg("%s - irq done", __func__);
+				break;
+			}
+			usleep_range(10,10);
+		}
+		ALS_info("%s - %d0usec", __func__, WAIT_FLUSH_MAX - retry_count);
+		if(retry_count <= 0)
+			ALS_err("%s - irq wait timeout", __func__);
 		tcs3407_irq_set_state(data, PWR_OFF);
 	}
 
@@ -2347,19 +2367,20 @@ static int tcs3407_eol_mode(struct tcs3407_device_data *data)
 		s2mpb02_led_en(S2MPB02_TORCH_LED_1, led_curr, S2MPB02_LED_TURN_WAY_GPIO);
 
 		switch (ctx->deviceId) {
-		case AMS_TCS3407:
-		case AMS_TCS3407_UNTRIM:
-			led_curr = S2MPB02_TORCH_OUT_I_100MA;
-			break;
-		case AMS_TCS3408:
-		case AMS_TCS3408_UNTRIM:
-			led_curr = S2MPB02_TORCH_OUT_I_20MA;
-			break;
-		default:
-			led_curr = S2MPB02_TORCH_OUT_I_20MA;
-			break;
+			case AMS_TCS3407:
+			case AMS_TCS3407_UNTRIM:
+				led_curr = S2MPB02_TORCH_OUT_I_100MA;
+				break;
+			case AMS_TCS3408:
+			case AMS_TCS3408_UNTRIM:
+				led_curr = S2MPB02_TORCH_OUT_I_20MA;
+				break;
+			default:
+				led_curr = S2MPB02_TORCH_OUT_I_20MA;
+				break;
 		}
 
+		ALS_dbg("%s - eol_loop start",__func__);
 		while (data->eol_state < EOL_STATE_DONE) {
 			switch (data->eol_state) {
 			case EOL_STATE_INIT:
@@ -2389,6 +2410,7 @@ static int tcs3407_eol_mode(struct tcs3407_device_data *data)
 			}
 			udelay(pulse_duty);
 		}
+		ALS_dbg("%s - eol loop end",__func__);
 		s2mpb02_led_en(S2MPB02_TORCH_LED_1, 0, S2MPB02_LED_TURN_WAY_GPIO);
 		gpio_free(data->pin_led_en);
 	} else {
@@ -2501,12 +2523,11 @@ struct device_attribute *attr, const char *buf, size_t size)
 
 	int err = 0;
 	int mode = 0;
-	u8 preEnalble = data->enabled;
+	u8 preEnable = data->enabled;
 
 	err = kstrtoint(buf, 10, &mode);
 	if (err < 0) {
 		ALS_err("%s - kstrtoint failed.(%d)\n", __func__, err);
-		mutex_unlock(&data->activelock);
 		return err;
 	}
 
@@ -2534,11 +2555,11 @@ struct device_attribute *attr, const char *buf, size_t size)
 	}
 
 	ALS_dbg("%s - mode = %d-%d, gSpec_ir = %d - %d, gSpec_clear = %d - %d, gSpec_icratio = %d - %d\n",	__func__, mode,
-		preEnalble, gSpec_ir_min, gSpec_ir_max, gSpec_clear_min, gSpec_clear_max, gSpec_icratio_min, gSpec_icratio_max);
+		preEnable, gSpec_ir_min, gSpec_ir_max, gSpec_clear_min, gSpec_clear_max, gSpec_icratio_min, gSpec_icratio_max);
 
 	mutex_lock(&data->activelock);
 
-	if (!preEnalble) {
+	if (!preEnable) {
 		tcs3407_irq_set_state(data, PWR_ON);
 
 		err = tcs3407_power_ctrl(data, PWR_ON);
@@ -2566,6 +2587,10 @@ struct device_attribute *attr, const char *buf, size_t size)
 	}
 	AMS_SET_ALS_AUTOGAIN(LOW, err);
 	AMS_SET_ALS_GAIN(EOL_GAIN, err);
+	if(err < 0){
+		ALS_err("%s - Set ALS GAIN fail", __func__);
+		goto err_device_init;
+	}
 	ALS_dbg("%s - fixed ALS GAIN : %d\n", __func__, EOL_GAIN);
 
 	mutex_unlock(&data->activelock);
@@ -2584,7 +2609,7 @@ struct device_attribute *attr, const char *buf, size_t size)
 	if (err != 0)
 		ALS_err("%s - disable err : %d\n", __func__, err);
 
-	if (preEnalble) {
+	if (preEnable) {
 		err = ams_deviceInit(data->deviceCtx, data->client, NULL);
 		if (err < 0) {
 			ALS_err("%s - ams_deviceInit failed.\n", __func__);
@@ -2603,12 +2628,25 @@ struct device_attribute *attr, const char *buf, size_t size)
 			ALS_err("%s - enable error %d\n", __func__, err);
 		}
 	} else {
+		int retry_count = WAIT_FLUSH_MAX;
+
 		data->enabled = 0;
 
 		err = tcs3407_power_ctrl(data, PWR_OFF);
 		if (err < 0)
 			ALS_err("%s - als_regulator_off fail err = %d\n",
 				__func__, err);
+
+		while(retry_count--){
+			if(irq_flush == INT_FLUSH_OFF) {
+				ALS_dbg("%s - irq done", __func__);
+				break;
+			}
+			usleep_range(10,10);
+		}
+		ALS_info("%s - %d0usec", __func__, WAIT_FLUSH_MAX - retry_count);
+		if(retry_count <= 0)
+			ALS_err("%s - irq wait timeout", __func__);
 		tcs3407_irq_set_state(data, PWR_OFF);
 	}
 err_device_init:
@@ -2883,10 +2921,15 @@ irqreturn_t tcs3407_irq_handler(int dev_irq, void *device)
 
 	ALS_info("%s - als_irq = %d\n", __func__, dev_irq);
 
-	if (data->regulator_state == 0 || data->enabled == 0) {
+	if(irq_flush){
+			ALS_dbg("%s - flushing irq (reg_state : %d, enabled : %d)", 
+					__func__, data->regulator_state, data->enabled);
+			irq_flush = INT_FLUSH_OFF;
+			return IRQ_HANDLED;
+	}
+	else if (data->regulator_state == 0 || data->enabled == 0) {
 		ALS_dbg("%s - stop irq handler (reg_state : %d, enabled : %d)\n",
 				__func__, data->regulator_state, data->enabled);
-
 		ams_setByte(data->client, DEVREG_STATUS, (AINT | ASAT_FDSAT));
 		return IRQ_HANDLED;
 	}
@@ -2966,6 +3009,7 @@ static void tcs3407_init_var(struct tcs3407_device_data *data)
 	data->i2c_err_cnt = 0;
 	data->user_ir_data = 0;
 	data->user_flicker_data = 0;
+	irq_flush = INT_FLUSH_OFF;
 #ifdef CONFIG_AMS_OPTICAL_SENSOR_EOL_MODE
 	data->eol_pulse_duty[0] = DEFAULT_DUTY_50HZ;
 	data->eol_pulse_duty[1] = DEFAULT_DUTY_60HZ;
@@ -3596,6 +3640,7 @@ int tcs3407_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	struct amsdriver_i2c_platform_data *pdata = dev->platform_data;
 	ams_deviceInfo_t amsDeviceInfo;
 	ams_deviceIdentifier_e deviceId;
+	int retry_count = WAIT_FLUSH_MAX;
 
 	ALS_dbg("%s - start\n", __func__);
 	/* check to make sure that the adapter supports I2C */
@@ -3770,11 +3815,24 @@ int tcs3407_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto err_setup_irq;
 	}
 
+	tcs3407_irq_set_state(data, PWR_ON); /* For flushing interrupt request */
 	err = tcs3407_power_ctrl(data, PWR_OFF);
 	if (err < 0) {
 		ALS_err("%s - failed to power off ctrl\n", __func__);
 		goto dev_set_drvdata_failed;
 	}
+
+	while(retry_count--){
+		if(irq_flush == INT_FLUSH_OFF){
+			ALS_dbg("%s - irq done", __func__);
+			break;
+		}
+		usleep_range(10,10);
+	}
+	ALS_info("%s - %d0usec", __func__, WAIT_FLUSH_MAX - retry_count);
+	if(retry_count <= 0) 
+		ALS_err("%s - irq wait timeout", __func__);
+	tcs3407_irq_set_state(data, PWR_OFF);
 	ALS_dbg("%s - success\n", __func__);
 	goto done;
 

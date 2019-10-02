@@ -24,9 +24,7 @@ static void __iomem *cmu_cmu;
 static spinlock_t cmuewf_lock;
 static int ewf_refcnt[EWF_MAX_INDEX];
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_CLK
 static struct clk_hw __maybe_unused ewf_clk;
-#endif
 
 int get_cmuewf_index(struct device_node *np, unsigned int *index)
 {
@@ -42,9 +40,31 @@ int get_cmuewf_index(struct device_node *np, unsigned int *index)
 
 }
 
-int set_cmuewf(unsigned int index, unsigned int en)
+static void __set_cmuewf(unsigned int index, unsigned int en)
 {
 	unsigned int reg;
+	unsigned int reg_idx;
+
+	if (index >= 32) {
+		reg_idx = EARLY_WAKEUP_FORCED_ENABLE1;
+		index = index - 32;
+	} else {
+		reg_idx = EARLY_WAKEUP_FORCED_ENABLE0;
+	}
+
+	if (en) {
+		reg = __raw_readl(cmu_cmu + reg_idx);
+		reg |= 1 << index;
+		__raw_writel(reg, cmu_cmu + reg_idx);
+	} else {
+		reg = __raw_readl(cmu_cmu + reg_idx);
+		reg &= ~(1 << index);
+		__raw_writel(reg, cmu_cmu + reg_idx);
+	}
+}
+
+int set_cmuewf(unsigned int index, unsigned int en)
+{
 	int ret = 0;
 	int tmp;
 	unsigned long flags = 0;
@@ -62,18 +82,13 @@ int set_cmuewf(unsigned int index, unsigned int en)
 			dbg_snapshot_clk(&ewf_clk, __func__, 1, DSS_FLAG_ON);
 	} else {
 		if (en) {
-			reg = __raw_readl(cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-			reg |= 1 << index;
-			__raw_writel(reg, cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-
+			__set_cmuewf(index, en);
 			ewf_refcnt[index] += 1;
 		} else {
 			tmp = ewf_refcnt[index] - 1;
 
 			if (tmp == 0) {
-				reg = __raw_readl(cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
-				reg &= ~(1 << index);
-				__raw_writel(reg, cmu_cmu + EARLY_WAKEUP_FORCED_ENABLE);
+				__set_cmuewf(index, en);
 			} else if (tmp < 0) {
 				pr_err("[EWF]%s ref count mismatch. ewf_index:%u\n",__func__,  index);
 

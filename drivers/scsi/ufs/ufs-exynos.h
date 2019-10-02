@@ -13,8 +13,9 @@
 #define _UFS_EXYNOS_H_
 
 #include <linux/pm_qos.h>
-#include <crypto/smu.h>
+
 #include "ufs-cal-9820.h"
+#include <crypto/smu.h>
 
 #define UFS_VER_0004	4
 #define UFS_VER_0005	5
@@ -492,7 +493,6 @@ struct exynos_ufs_phy {
 	void __iomem *reg_pma;
 	struct exynos_ufs_soc *soc;
 };
-
 #define NUM_OF_SYSREG 1
 struct exynos_ufs_sys {
 	void __iomem *reg_sys[NUM_OF_SYSREG];
@@ -652,7 +652,7 @@ struct ufs_cmd_logging_category {
 struct ufs_cmd_info {
 	int 	first;
 	int 	last;
-	struct ufs_cmd_logging_category *addr_per_tag[32];
+	struct ufs_cmd_logging_category *addr_per_tag[16];
 	struct ufs_cmd_logging_category  data[MAX_CMD_LOGS];
 
 };

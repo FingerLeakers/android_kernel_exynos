@@ -73,7 +73,7 @@ config PHY_EXYNOS5_USBDRD
 	depends on USB_DWC3_EXYNOS
 	select GENERIC_PHY
 	select MFD_SYSCON
-	default y
+	default n
 	help
 	  Enable USB DRD PHY support for Exynos 5 SoC series.
 	  This driver provides PHY interface for USB 3.0 DRD controller
@@ -161,4 +161,13 @@ config PHY_EXYNOS_DISPLAYPORT
 	select GENERIC_PHY
 	help
 	  Support for DISPLAYPORT PHY found on Samsung
+	  and EXYNOS SoCs.
+
+config PHY_EXYNOS_MIPI_DSIM
+	tristate "Samsung EXYNOS SoC MIPI DSI D-PHY driver"
+	depends on HAS_IOMEM
+	depends on ARCH_EXYNOS && OF || COMPILE_TEST
+	select GENERIC_PHY
+	help
+	  Support for MIPI DSI DPHY found on Samsung
 	  and EXYNOS SoCs.

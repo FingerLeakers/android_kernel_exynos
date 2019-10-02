@@ -11,7 +11,6 @@
 
 #include "../../../../../include/generated/autoconf.h"
 #include <dt-bindings/soc/samsung/debug-snapshot-table.h>
-#include <dt-bindings/soc/samsung/exynos9820-seclog.h>
 
 / {
 	ion-hpa-heap {
@@ -20,6 +19,7 @@
 		ranges;
 		ion,hpa_limit = <0xA 0x00000000>;
 		ion,hpa_alloc_exception = <0x0 0xF0000000 0x10000000>;
+
 		ion_video_fw {
 			compatible = "exynos9820-ion";
 			ion,heapname = "vfw_heap";
@@ -50,14 +50,6 @@
 			ion,protection_id = <6>;
 			ion,alignment = <0x10000>;
 		};
-
-		ion_gpu_buffer {
-			compatible = "exynos9820-ion";
-			ion,heapname = "gpu_buffer";
-			ion,secure;
-			ion,protection_id = <9>;
-			ion,alignment = <0x10000>;
-		};
 	};
 
 	reserved_memory: reserved-memory {
@@ -86,15 +78,9 @@
 			ion,alignment = <0x10000>;
 		};
 
-		sec_debug_magic {
-			compatible = "exynos,sec_debug_magic";
-			reg = <0x0 0x80000000 0x1000>;
-		};
-
-		sec_rdx_bootdev {
-			compatible = "exynos,sec_rdx_bootdev";
-			no-ship;
-			reg = <0x8 0x80000000 0x0AD00000>;
+		el3mon_reserve {
+			compatible = "exynos,el3mon";
+			reg = <0x0 0xBFF80000 0x00080000>;
 		};
 
 		debug_snapshot {
@@ -161,11 +147,5 @@
 			alloc-ranges = <0x0 0xC0000000 0x20000000>;
 			alignment = <0x0 0x00400000>;
 		};
-
-		seclog_mem {
-			compatible = "exynos,seclog";
-			reg = <0 SECLOG_LOG_BUF_BASE SECLOG_LOG_BUF_TOTAL_SIZE>;
-		};
-
 	};
 };

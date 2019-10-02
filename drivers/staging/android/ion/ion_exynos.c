@@ -19,10 +19,16 @@
 #include <asm/cacheflush.h>
 #include <linux/idr.h>
 #include <linux/ion_exynos.h>
+#include <linux/dma-direct.h>
 
 #include "ion.h"
 #include "ion_exynos.h"
 #include "ion_debug.h"
+
+static inline bool ion_buffer_cached(struct ion_buffer *buffer)
+{
+	return !!(buffer->flags & ION_FLAG_CACHED);
+}
 
 struct dma_buf *ion_alloc_dmabuf(const char *heap_name,
 				 size_t len, unsigned int flags)
@@ -49,6 +55,7 @@ bool ion_hwrender_dmabuf(struct dma_buf *dmabuf)
 	return !!(buffer->flags & ION_FLAG_MAY_HWRENDER);
 }
 
+#if defined(CONFIG_EXYNOS_IOVMM)
 static struct ion_iovm_map *ion_buffer_iova_create(struct ion_buffer *buffer,
 						   struct device *dev,
 						   enum dma_data_direction dir,
@@ -234,7 +241,7 @@ void ion_iovmm_unmap_attr(struct dma_buf_attachment *attachment,
 		__ion_iovmm_unmap(attachment, iova);
 	}
 }
-
+#endif
 #define MAX_BUFFER_IDS 2048
 static DEFINE_IDA(ion_buffer_ida);
 static int last_buffer_id;
@@ -419,7 +426,7 @@ static void exynos_flush_sg(struct device *dev,
 	for_each_sg(sgl, sg, nelems, i) {
 		virt = phys_to_virt(dma_to_phys(dev, sg->dma_address));
 
-		__dma_flush_area(virt, nelems);
+		__dma_flush_area(virt, sg->length);
 	}
 }
 

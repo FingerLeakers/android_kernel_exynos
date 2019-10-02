@@ -77,9 +77,7 @@
 #include <linux/defex.h>
 #endif
 
-#ifdef CONFIG_LOD_SEC
-#include <linux/linux_on_dex.h>
-#endif
+#include "uid16.h"
 
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a, b)	(-EINVAL)
@@ -123,6 +121,12 @@
 #ifndef SET_FP_MODE
 # define SET_FP_MODE(a,b)	(-EINVAL)
 #endif
+#ifndef SVE_SET_VL
+# define SVE_SET_VL(a)		(-EINVAL)
+#endif
+#ifndef SVE_GET_VL
+# define SVE_GET_VL()		(-EINVAL)
+#endif
 
 /*
  * this is where the system-wide overflow UID and GID are defined, for
@@ -141,58 +145,10 @@ EXPORT_SYMBOL(overflowgid);
  */
 
 int fs_overflowuid = DEFAULT_FS_OVERFLOWUID;
-int fs_overflowgid = DEFAULT_FS_OVERFLOWUID;
+int fs_overflowgid = DEFAULT_FS_OVERFLOWGID;
 
 EXPORT_SYMBOL(fs_overflowuid);
 EXPORT_SYMBOL(fs_overflowgid);
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-int sec_check_execpath(struct mm_struct *mm, char *denypath);
-#if defined CONFIG_SEC_RESTRICT_ROOTING_LOG
-#define PRINT_LOG(...)	printk(KERN_ERR __VA_ARGS__)
-#else
-#define PRINT_LOG(...)
-#endif	// End of CONFIG_SEC_RESTRICT_ROOTING_LOG
-
-static int sec_restrict_uid(void)
-{
-	int ret = 0;
-	struct task_struct *parent_tsk;
-	const struct cred *parent_cred;
-
-	read_lock(&tasklist_lock);
-	parent_tsk = current->parent;
-	if (!parent_tsk) {
-		read_unlock(&tasklist_lock);
-		return 0;
-	}
-
-	get_task_struct(parent_tsk);
-	/* holding on to the task struct is enough so just release
-	 * the tasklist lock here */
-	read_unlock(&tasklist_lock);
-
-	parent_cred = get_task_cred(parent_tsk);
-	if (!parent_cred)
-		goto out;
-	if (parent_cred->euid.val == 0 || parent_tsk->pid == 1) {
-		ret = 0;
-	} else if (sec_check_execpath(current->mm, "/system/bin/pppd")) {
-		PRINT_LOG("VPN allowed to use root permission");
-		ret = 0;
-	} else {
-		PRINT_LOG("Restricted changing UID. PID = %d(%s) PPID = %d(%s)\n",
-			current->pid, current->comm,
-			parent_tsk->pid, parent_tsk->comm);
-		ret = 1;
-	}
-	put_cred(parent_cred);
-out:
-	put_task_struct(parent_tsk);
-
-	return ret;
-}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
 
 /*
  * Returns true if current's euid is same as p's uid or euid,
@@ -394,14 +350,14 @@ out_unlock:
  *      operations (as far as semantic preservation is concerned).
  */
 #ifdef CONFIG_MULTIUSER
-SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
+long __sys_setregid(gid_t rgid, gid_t egid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
 	struct cred *new;
 	int retval;
 	kgid_t krgid, kegid;
-	
+
 	krgid = make_kgid(ns, rgid);
 	kegid = make_kgid(ns, egid);
 
@@ -409,24 +365,6 @@ SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
 		return -EINVAL;
 	if ((egid != (gid_t) -1) && !gid_valid(kegid))
 		return -EINVAL;
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (krgid.val == 0 || kegid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!gid_is_LOD(krgid.val))
-			return -EACCES;
-
-		if (!gid_is_LOD(kegid.val))
-			return -EACCES;
-	}
-#endif
 
 	new = prepare_creds();
 	if (!new)
@@ -464,12 +402,17 @@ error:
 	return retval;
 }
 
+SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
+{
+	return __sys_setregid(rgid, egid);
+}
+
 /*
  * setgid() is implemented like SysV w/ SAVED_IDS
  *
  * SMP: Same implicit races as above.
  */
-SYSCALL_DEFINE1(setgid, gid_t, gid)
+long __sys_setgid(gid_t gid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
@@ -480,21 +423,6 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 	kgid = make_kgid(ns, gid);
 	if (!gid_valid(kgid))
 		return -EINVAL;
-	
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kgid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!gid_is_LOD(kgid.val))
-			return -EACCES;
-	}
-#endif
 
 	new = prepare_creds();
 	if (!new)
@@ -514,6 +442,11 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 error:
 	abort_creds(new);
 	return retval;
+}
+
+SYSCALL_DEFINE1(setgid, gid_t, gid)
+{
+	return __sys_setgid(gid);
 }
 
 /*
@@ -560,39 +493,21 @@ static int set_user(struct cred *new)
  * 100% compatible with BSD.  A program which uses just setuid() will be
  * 100% compatible with POSIX with saved IDs.
  */
-SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
+long __sys_setreuid(uid_t ruid, uid_t euid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
 	struct cred *new;
 	int retval;
 	kuid_t kruid, keuid;
-	
+
 	kruid = make_kuid(ns, ruid);
 	keuid = make_kuid(ns, euid);
-	
+
 	if ((ruid != (uid_t) -1) && !uid_valid(kruid))
 		return -EINVAL;
 	if ((euid != (uid_t) -1) && !uid_valid(keuid))
 		return -EINVAL;
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kruid.val == 0 || keuid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!uid_is_LOD(kruid.val))
-			return -EACCES;
-
-		if (!uid_is_LOD(keuid.val))
-			return -EACCES;
-	}
-#endif
 
 	new = prepare_creds();
 	if (!new)
@@ -638,6 +553,11 @@ error:
 	return retval;
 }
 
+SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
+{
+	return __sys_setreuid(ruid, euid);
+}
+
 /*
  * setuid() is implemented like SysV with SAVED_IDS
  *
@@ -649,32 +569,17 @@ error:
  * will allow a root program to temporarily drop privileges and be able to
  * regain them by swapping the real and effective uid.
  */
-SYSCALL_DEFINE1(setuid, uid_t, uid)
+long __sys_setuid(uid_t uid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
 	struct cred *new;
 	int retval;
 	kuid_t kuid;
-	
+
 	kuid = make_kuid(ns, uid);
 	if (!uid_valid(kuid))
 		return -EINVAL;
-	
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if(kuid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!uid_is_LOD(kuid.val))
-			return -EACCES;
-	}
-#endif
 
 	new = prepare_creds();
 	if (!new)
@@ -706,12 +611,17 @@ error:
 	return retval;
 }
 
+SYSCALL_DEFINE1(setuid, uid_t, uid)
+{
+	return __sys_setuid(uid);
+}
+
 
 /*
  * This function implements a generic ability to update ruid, euid,
  * and suid.  This allows you to implement the 4.4 compatible seteuid().
  */
-SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
+long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
@@ -722,7 +632,7 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	kruid = make_kuid(ns, ruid);
 	keuid = make_kuid(ns, euid);
 	ksuid = make_kuid(ns, suid);
-	
+
 	if ((ruid != (uid_t) -1) && !uid_valid(kruid))
 		return -EINVAL;
 
@@ -730,28 +640,7 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 		return -EINVAL;
 
 	if ((suid != (uid_t) -1) && !uid_valid(ksuid))
-		return -EINVAL;	
-	
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if(kruid.val == 0 || keuid.val == 0 || ksuid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!uid_is_LOD(kruid.val))
-			return -EACCES;
-
-		if (!uid_is_LOD(keuid.val))
-			return -EACCES;
-
-		if (!uid_is_LOD(ksuid.val))
-			return -EACCES;
-	}
-#endif
+		return -EINVAL;
 
 	new = prepare_creds();
 	if (!new)
@@ -797,6 +686,11 @@ error:
 	return retval;
 }
 
+SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
+{
+	return __sys_setresuid(ruid, euid, suid);
+}
+
 SYSCALL_DEFINE3(getresuid, uid_t __user *, ruidp, uid_t __user *, euidp, uid_t __user *, suidp)
 {
 	const struct cred *cred = current_cred();
@@ -819,14 +713,14 @@ SYSCALL_DEFINE3(getresuid, uid_t __user *, ruidp, uid_t __user *, euidp, uid_t _
 /*
  * Same as above, but for rgid, egid, sgid.
  */
-SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
+long __sys_setresgid(gid_t rgid, gid_t egid, gid_t sgid)
 {
 	struct user_namespace *ns = current_user_ns();
 	const struct cred *old;
 	struct cred *new;
 	int retval;
 	kgid_t krgid, kegid, ksgid;
-	
+
 	krgid = make_kgid(ns, rgid);
 	kegid = make_kgid(ns, egid);
 	ksgid = make_kgid(ns, sgid);
@@ -836,28 +730,7 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 	if ((egid != (gid_t) -1) && !gid_valid(kegid))
 		return -EINVAL;
 	if ((sgid != (gid_t) -1) && !gid_valid(ksgid))
-		return -EINVAL;	
-
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if(krgid.val == 0 || kegid.val == 0 || ksgid.val == 0)
-	{
-		if(sec_restrict_uid())
-			return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!gid_is_LOD(krgid.val))
-			return -EACCES;
-
-		if (!gid_is_LOD(kegid.val))
-			return -EACCES;
-
-		if (!gid_is_LOD(ksgid.val))
-			return -EACCES;
-	}
-#endif
+		return -EINVAL;
 
 	new = prepare_creds();
 	if (!new)
@@ -892,6 +765,11 @@ error:
 	return retval;
 }
 
+SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
+{
+	return __sys_setresgid(rgid, egid, sgid);
+}
+
 SYSCALL_DEFINE3(getresgid, gid_t __user *, rgidp, gid_t __user *, egidp, gid_t __user *, sgidp)
 {
 	const struct cred *cred = current_cred();
@@ -919,7 +797,7 @@ SYSCALL_DEFINE3(getresgid, gid_t __user *, rgidp, gid_t __user *, egidp, gid_t _
  * whatever uid it wants to). It normally shadows "euid", except when
  * explicitly set by setfsuid() or for access..
  */
-SYSCALL_DEFINE1(setfsuid, uid_t, uid)
+long __sys_setfsuid(uid_t uid)
 {
 	const struct cred *old;
 	struct cred *new;
@@ -932,20 +810,6 @@ SYSCALL_DEFINE1(setfsuid, uid_t, uid)
 	kuid = make_kuid(old->user_ns, uid);
 	if (!uid_valid(kuid))
 		return old_fsuid;
-	
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kuid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID	
-	
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!uid_is_LOD(kuid.val))
-			return -EACCES;
-	}
-#endif
 
 #ifdef CONFIG_SECURITY_DEFEX
 	if (task_defex_enforce(current, NULL, -__NR_setfsuid))
@@ -974,10 +838,15 @@ change_okay:
 	return old_fsuid;
 }
 
+SYSCALL_DEFINE1(setfsuid, uid_t, uid)
+{
+	return __sys_setfsuid(uid);
+}
+
 /*
  * Samma på svenska..
  */
-SYSCALL_DEFINE1(setfsgid, gid_t, gid)
+long __sys_setfsgid(gid_t gid)
 {
 	const struct cred *old;
 	struct cred *new;
@@ -989,21 +858,7 @@ SYSCALL_DEFINE1(setfsgid, gid_t, gid)
 
 	kgid = make_kgid(old->user_ns, gid);
 	if (!gid_valid(kgid))
-		return old_fsgid;	
-	
-#if defined CONFIG_SEC_RESTRICT_SETUID
-	if (kgid.val == 0) {
-	    if (sec_restrict_uid())
-	      return -EACCES;
-	}
-#endif // End of CONFIG_SEC_RESTRICT_SETUID
-
-#ifdef CONFIG_LOD_SEC
-	if (current_is_LOD()) {
-		if (!gid_is_LOD(kgid.val))
-			return -EACCES;
-	}
-#endif
+		return old_fsgid;
 
 #ifdef CONFIG_SECURITY_DEFEX
 	if (task_defex_enforce(current, NULL, -__NR_setfsgid))
@@ -1029,6 +884,11 @@ SYSCALL_DEFINE1(setfsgid, gid_t, gid)
 change_okay:
 	commit_creds(new);
 	return old_fsgid;
+}
+
+SYSCALL_DEFINE1(setfsgid, gid_t, gid)
+{
+	return __sys_setfsgid(gid);
 }
 #endif /* CONFIG_MULTIUSER */
 
@@ -1227,7 +1087,7 @@ out:
 	return err;
 }
 
-SYSCALL_DEFINE1(getpgid, pid_t, pid)
+static int do_getpgid(pid_t pid)
 {
 	struct task_struct *p;
 	struct pid *grp;
@@ -1255,11 +1115,16 @@ out:
 	return retval;
 }
 
+SYSCALL_DEFINE1(getpgid, pid_t, pid)
+{
+	return do_getpgid(pid);
+}
+
 #ifdef __ARCH_WANT_SYS_GETPGRP
 
 SYSCALL_DEFINE0(getpgrp)
 {
-	return sys_getpgid(0);
+	return do_getpgid(0);
 }
 
 #endif
@@ -1303,7 +1168,7 @@ static void set_special_pids(struct pid *pid)
 		change_pid(curr, PIDTYPE_PGID, pid);
 }
 
-SYSCALL_DEFINE0(setsid)
+int ksys_setsid(void)
 {
 	struct task_struct *group_leader = current->group_leader;
 	struct pid *sid = task_pid(group_leader);
@@ -1334,6 +1199,11 @@ out:
 		sched_autogroup_create_attach(group_leader);
 	}
 	return err;
+}
+
+SYSCALL_DEFINE0(setsid)
+{
+	return ksys_setsid();
 }
 
 DECLARE_RWSEM(uts_sem);
@@ -2065,7 +1935,7 @@ static int validate_prctl_map(struct prctl_mm_map *prctl_map)
 	((unsigned long)prctl_map->__m1 __op				\
 	 (unsigned long)prctl_map->__m2) ? 0 : -EINVAL
 	error  = __prctl_check_order(start_code, <, end_code);
-	error |= __prctl_check_order(start_data, <, end_data);
+	error |= __prctl_check_order(start_data,<=, end_data);
 	error |= __prctl_check_order(start_brk, <=, brk);
 	error |= __prctl_check_order(arg_start, <=, arg_end);
 	error |= __prctl_check_order(env_start, <=, env_end);
@@ -2156,7 +2026,11 @@ static int prctl_set_mm_map(int opt, const void __user *addr, unsigned long data
 			return error;
 	}
 
-	down_write(&mm->mmap_sem);
+	/*
+	 * arg_lock protects concurent updates but we still need mmap_sem for
+	 * read to exclude races with sys_brk.
+	 */
+	down_read(&mm->mmap_sem);
 
 	/*
 	 * We don't validate if these members are pointing to
@@ -2170,6 +2044,7 @@ static int prctl_set_mm_map(int opt, const void __user *addr, unsigned long data
 	 *    to any problem in kernel itself
 	 */
 
+	spin_lock(&mm->arg_lock);
 	mm->start_code	= prctl_map.start_code;
 	mm->end_code	= prctl_map.end_code;
 	mm->start_data	= prctl_map.start_data;
@@ -2181,6 +2056,7 @@ static int prctl_set_mm_map(int opt, const void __user *addr, unsigned long data
 	mm->arg_end	= prctl_map.arg_end;
 	mm->env_start	= prctl_map.env_start;
 	mm->env_end	= prctl_map.env_end;
+	spin_unlock(&mm->arg_lock);
 
 	/*
 	 * Note this update of @saved_auxv is lockless thus
@@ -2193,7 +2069,7 @@ static int prctl_set_mm_map(int opt, const void __user *addr, unsigned long data
 	if (prctl_map.auxv_size)
 		memcpy(mm->saved_auxv, user_auxv, sizeof(user_auxv));
 
-	up_write(&mm->mmap_sem);
+	up_read(&mm->mmap_sem);
 	return 0;
 }
 #endif /* CONFIG_CHECKPOINT_RESTORE */
@@ -2387,6 +2263,17 @@ static int propagate_has_child_subreaper(struct task_struct *p, void *data)
 	return 1;
 }
 
+int __weak arch_prctl_spec_ctrl_get(struct task_struct *t, unsigned long which)
+{
+	return -EINVAL;
+}
+
+int __weak arch_prctl_spec_ctrl_set(struct task_struct *t, unsigned long which,
+				    unsigned long ctrl)
+{
+	return -EINVAL;
+}
+
 #ifdef CONFIG_MMU
 static int prctl_update_vma_anon_name(struct vm_area_struct *vma,
 		struct vm_area_struct **prev,
@@ -2533,17 +2420,6 @@ static int prctl_set_vma(unsigned long opt, unsigned long start,
 	return -EINVAL;
 }
 #endif
-
-int __weak arch_prctl_spec_ctrl_get(struct task_struct *t, unsigned long which)
-{
-	return -EINVAL;
-}
-
-int __weak arch_prctl_spec_ctrl_set(struct task_struct *t, unsigned long which,
-				    unsigned long ctrl)
-{
-	return -EINVAL;
-}
 
 SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 		unsigned long, arg4, unsigned long, arg5)
@@ -2747,6 +2623,12 @@ SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,
 	case PR_GET_FP_MODE:
 		error = GET_FP_MODE(me);
 		break;
+	case PR_SVE_SET_VL:
+		error = SVE_SET_VL(arg2);
+		break;
+	case PR_SVE_GET_VL:
+		error = SVE_GET_VL();
+		break;
 	case PR_GET_SPECULATION_CTRL:
 		if (arg3 || arg4 || arg5)
 			return -EINVAL;
@@ -2788,11 +2670,11 @@ static int do_sysinfo(struct sysinfo *info)
 {
 	unsigned long mem_total, sav_total;
 	unsigned int mem_unit, bitcount;
-	struct timespec tp;
+	struct timespec64 tp;
 
 	memset(info, 0, sizeof(struct sysinfo));
 
-	get_monotonic_boottime(&tp);
+	ktime_get_boottime_ts64(&tp);
 	info->uptime = tp.tv_sec + (tp.tv_nsec ? 1 : 0);
 
 	get_avenrun(info->loads, 0, SI_LOAD_SHIFT - FSHIFT);

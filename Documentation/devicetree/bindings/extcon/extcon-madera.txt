@@ -100,20 +100,6 @@ Child node optional properties:
       set to zero (cs47l15, cs47l35, cs47l85, wm1840)
       value of HPn_GND_SEL register field (all other codecs)
 
-  - cirrus,init-delay-ms : Add a delay after jack detection (in milliseconds)
-
-  - cirrus,hs-mic: Specify an input to mute during headset button presses:
-    1 - IN1L, 2 - IN1R, ..., n - IN[n]R
-
-  - cirrus,moisture-pin : The pin on which the moisture detection should be
-    run. For (cs47l35, cs47l85, wm1840) this should be set to
-    MADERA_ACCDET_MODE_HPx, for (cs47l90, cs47l91, cs47l92, cs47l93) this
-    should be set to MADERA_HPD_SENSE_x.
-  - cirrus,moisture-imp : The impedance threshold above which a detection will
-    be considered moisture rather than a valid jack detection.
-  - cirrus,moisture-debounce :  The number of debounce measurements to perform
-    on the moisture detection.
-
 Example:
 
 codec: cs47l85@0 {

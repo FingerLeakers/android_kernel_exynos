@@ -39,11 +39,12 @@ enum npu_system_resume_soc_steps {
 	NPU_SYS_RESUME_SOC_COMPLETED
 };
 
-static int init_baaw_p_npu(struct npu_system *system);
 static int npu_cpu_on(struct npu_system *system);
 static int npu_cpu_off(struct npu_system *system);
+#ifdef CONFIG_NPU_HARDWARE
+static int init_baaw_p_npu(struct npu_system *system);
 static int init_iomem_area(struct npu_system *system);
-
+#endif
 #ifdef CLKGate23_SOC_HWACG
 static __attribute__((unused)) int CLKGate23_SOC_HWACG_read(struct npu_system *system)
 {
@@ -442,7 +443,7 @@ int npu_system_soc_probe(struct npu_system *system, struct platform_device *pdev
 	int ret = 0;
 
 	BUG_ON(!system);
-
+#ifdef CONFIG_NPU_HARDWARE
 	npu_dbg("system soc probe: ioremap areas\n");
 	ret = init_iomem_area(system);
 	if (ret) {
@@ -457,9 +458,21 @@ int npu_system_soc_probe(struct npu_system *system, struct platform_device *pdev
 		probe_err("fail(%d)in init_baaw_p_npu\n", ret);
 		goto p_err;
 	}
-
 	return 0;
 p_err:
+#elif CONFIG_NPU_LOOPBACK
+	system->tcu_sram.vaddr = kmalloc(0x80000, GFP_KERNEL);
+	system->idp_sram.vaddr = kmalloc(0x100000, GFP_KERNEL);
+	system->sfr_npu0.vaddr = kmalloc(0x100000, GFP_KERNEL);
+	system->sfr_npu1.vaddr = kmalloc(0xf0000, GFP_KERNEL);
+	system->pmu_npu.vaddr = kmalloc(0x100, GFP_KERNEL);
+	system->pmu_npu_cpu.vaddr = kmalloc(0x100, GFP_KERNEL);
+	//system->baaw_npu.vaddr = kmalloc(0x100, GFP_KERNEL);
+	system->mbox_sfr.vaddr = kmalloc(0x17c, GFP_KERNEL);
+	system->pwm_npu.vaddr = kmalloc(0x10000, GFP_KERNEL);
+
+#endif
+
 	return ret;
 }
 
@@ -477,6 +490,7 @@ static inline void print_iomem_area(const char *pr_name, const struct npu_iomem_
 
 static void print_all_iomem_area(const struct npu_system *system)
 {
+#ifdef CONFIG_NPU_HARDWARE
 	npu_dbg("start in IOMEM mapping\n");
 	print_iomem_area("TCU_SRAM", &system->tcu_sram);
 	print_iomem_area("IDP_SRAM", &system->idp_sram);
@@ -489,13 +503,17 @@ static void print_all_iomem_area(const struct npu_system *system)
 #endif
 	print_iomem_area("MBOX_SFR", &system->mbox_sfr);
 	print_iomem_area("PWM_NPU", &system->pwm_npu);
+#endif
 	npu_dbg("end in IOMEM mapping\n");
+
 }
 
 int npu_system_soc_resume(struct npu_system *system, u32 mode)
 {
 	int ret = 0;
-
+#ifdef CONFIG_NPU_LOOPBACK
+	return ret;
+#endif
 	BUG_ON(!system);
 
 	/* Clear resume steps */
@@ -544,7 +562,9 @@ p_err:
 int npu_system_soc_suspend(struct npu_system *system)
 {
 	int ret = 0;
-
+#ifdef CONFIG_NPU_LOOPBACK
+	return ret;
+#endif
 	BUG_ON(!system);
 
 	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_COMPLETED, &system->resume_soc_steps, NULL, ;);
@@ -582,7 +602,7 @@ int npu_system_soc_suspend(struct npu_system *system)
 		npu_warn("Missing clean-up steps [%lu] found.\n", system->resume_soc_steps);
 
 	/* Function itself never be failed, even thought there was some error */
-	return 0;
+	return ret;
 }
 
 #ifdef REINIT_NPU_BAAW
@@ -640,10 +660,6 @@ err_exit:
 	npu_info("error(%d) in BAAW initialization\n", ret);
 	return ret;
 }
-#else
-/* Do nothing */
-static int init_baaw_p_npu(struct npu_system *system) {return 0; }
-
 #endif
 
 static __attribute__((unused)) int npu_awwl_checker_en(struct npu_system *system)
@@ -836,9 +852,15 @@ err_exit:
 	return ret;
 
 }
-
+#ifdef CONFIG_NPU_HARDWARE
 static int init_iomem_area(struct npu_system *system)
 {
+	int ret = 0;
+
+
+	int i;
+	void __iomem *iomem;
+	u32 size;
 	const struct npu_iomem_init_data init_data[] = {
 		{NPU_IOMEM_TCUSRAM_START,	NPU_IOMEM_TCUSRAM_END,		&system->tcu_sram},
 		{NPU_IOMEM_IDPSRAM_START,	NPU_IOMEM_IDPSRAM_END,		&system->idp_sram},
@@ -853,10 +875,6 @@ static int init_iomem_area(struct npu_system *system)
 		{NPU_IOMEM_PWM_START,		NPU_IOMEM_PWM_END,		&system->pwm_npu},
 		{OFFSET_END, OFFSET_END, NULL}
 	};
-	int i;
-	int ret;
-	void __iomem *iomem;
-	u32 size;
 
 	BUG_ON(!system);
 	BUG_ON(!system->pdev);
@@ -879,6 +897,12 @@ static int init_iomem_area(struct npu_system *system)
 			   init_data[i].start, init_data[i].end,
 			   init_data[i].area_info->vaddr, init_data[i].area_info->size);
 	}
+
+	system->fw_npu_memory_buffer = (struct npu_memory_buffer *)kcalloc(1, sizeof(struct npu_memory_buffer), GFP_KERNEL);
+	system->fw_npu_memory_buffer->vaddr = system->tcu_sram.vaddr;
+	system->fw_npu_memory_buffer->paddr = system->tcu_sram.paddr;
+	system->fw_npu_memory_buffer->size = system->tcu_sram.size;
+
 	probe_trace("complete in init_iomem_area\n");
 	return 0;
 err_exit:
@@ -886,3 +910,8 @@ err_exit:
 	return ret;
 }
 
+void npu_soc_status_report(struct npu_system *system)
+{
+}
+
+#endif

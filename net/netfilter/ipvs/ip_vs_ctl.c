@@ -135,7 +135,7 @@ static void update_defense_level(struct netns_ipvs *ipvs)
 		} else {
 			atomic_set(&ipvs->dropentry, 0);
 			ipvs->sysctl_drop_entry = 1;
-		};
+		}
 		break;
 	case 3:
 		atomic_set(&ipvs->dropentry, 1);
@@ -301,7 +301,7 @@ static int ip_vs_svc_hash(struct ip_vs_service *svc)
 	unsigned int hash;
 
 	if (svc->flags & IP_VS_SVC_F_HASHED) {
-		pr_err("%s(): request for already hashed, called from %pF\n",
+		pr_err("%s(): request for already hashed, called from %pS\n",
 		       __func__, __builtin_return_address(0));
 		return 0;
 	}
@@ -335,7 +335,7 @@ static int ip_vs_svc_hash(struct ip_vs_service *svc)
 static int ip_vs_svc_unhash(struct ip_vs_service *svc)
 {
 	if (!(svc->flags & IP_VS_SVC_F_HASHED)) {
-		pr_err("%s(): request for unhash flagged, called from %pF\n",
+		pr_err("%s(): request for unhash flagged, called from %pS\n",
 		       __func__, __builtin_return_address(0));
 		return 0;
 	}
@@ -822,6 +822,10 @@ __ip_vs_update_dest(struct ip_vs_service *svc, struct ip_vs_dest *dest,
 	if (add && udest->af != svc->af)
 		ipvs->mixed_address_family_dests++;
 
+	/* keep the last_weight with latest non-0 weight */
+	if (add || udest->weight != 0)
+		atomic_set(&dest->last_weight, udest->weight);
+
 	/* set the weight and the flags */
 	atomic_set(&dest->weight, udest->weight);
 	conn_flags = udest->conn_flags & IP_VS_CONN_F_DEST_MASK;
@@ -836,6 +840,9 @@ __ip_vs_update_dest(struct ip_vs_service *svc, struct ip_vs_dest *dest,
 		 *    For now only for NAT!
 		 */
 		ip_vs_rs_hash(ipvs, dest);
+		/* FTP-NAT requires conntrack for mangling */
+		if (svc->port == FTPPORT)
+			ip_vs_register_conntrack(svc);
 	}
 	atomic_set(&dest->conn_flags, conn_flags);
 
@@ -889,12 +896,13 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest,
 {
 	struct ip_vs_dest *dest;
 	unsigned int atype, i;
-	int ret = 0;
 
 	EnterFunction(2);
 
 #ifdef CONFIG_IP_VS_IPV6
 	if (udest->af == AF_INET6) {
+		int ret;
+
 		atype = ipv6_addr_type(&udest->addr.in6);
 		if ((!(atype & IPV6_ADDR_UNICAST) ||
 			atype & IPV6_ADDR_LINKLOCAL) &&
@@ -1152,9 +1160,9 @@ ip_vs_del_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 	return 0;
 }
 
-static void ip_vs_dest_trash_expire(unsigned long data)
+static void ip_vs_dest_trash_expire(struct timer_list *t)
 {
-	struct netns_ipvs *ipvs = (struct netns_ipvs *)data;
+	struct netns_ipvs *ipvs = from_timer(ipvs, t, dest_trash_timer);
 	struct ip_vs_dest *dest, *next;
 	unsigned long now = jiffies;
 
@@ -1468,6 +1476,7 @@ static void __ip_vs_del_service(struct ip_vs_service *svc, bool cleanup)
  */
 static void ip_vs_unlink_service(struct ip_vs_service *svc, bool cleanup)
 {
+	ip_vs_unregister_conntrack(svc);
 	/* Hold svc to avoid double release from dest_trash */
 	atomic_inc(&svc->refcnt);
 	/*
@@ -2119,20 +2128,6 @@ static const struct seq_operations ip_vs_info_seq_ops = {
 	.show  = ip_vs_info_seq_show,
 };
 
-static int ip_vs_info_open(struct inode *inode, struct file *file)
-{
-	return seq_open_net(inode, file, &ip_vs_info_seq_ops,
-			sizeof(struct ip_vs_iter));
-}
-
-static const struct file_operations ip_vs_info_fops = {
-	.owner	 = THIS_MODULE,
-	.open    = ip_vs_info_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = seq_release_net,
-};
-
 static int ip_vs_stats_show(struct seq_file *seq, void *v)
 {
 	struct net *net = seq_file_single_net(seq);
@@ -2164,19 +2159,6 @@ static int ip_vs_stats_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int ip_vs_stats_seq_open(struct inode *inode, struct file *file)
-{
-	return single_open_net(inode, file, ip_vs_stats_show);
-}
-
-static const struct file_operations ip_vs_stats_fops = {
-	.owner = THIS_MODULE,
-	.open = ip_vs_stats_seq_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release_net,
-};
 
 static int ip_vs_stats_percpu_show(struct seq_file *seq, void *v)
 {
@@ -2233,19 +2215,6 @@ static int ip_vs_stats_percpu_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
-
-static int ip_vs_stats_percpu_seq_open(struct inode *inode, struct file *file)
-{
-	return single_open_net(inode, file, ip_vs_stats_percpu_show);
-}
-
-static const struct file_operations ip_vs_stats_percpu_fops = {
-	.owner = THIS_MODULE,
-	.open = ip_vs_stats_percpu_seq_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release_net,
-};
 #endif
 
 /*
@@ -2413,9 +2382,7 @@ do_ip_vs_set_ctl(struct sock *sk, int cmd, void __user *user, unsigned int len)
 			cfg.syncid = dm->syncid;
 			ret = start_sync_thread(ipvs, &cfg, dm->state);
 		} else {
-			mutex_lock(&ipvs->sync_mutex);
 			ret = stop_sync_thread(ipvs, dm->state);
-			mutex_unlock(&ipvs->sync_mutex);
 		}
 		goto out_dec;
 	}
@@ -3523,10 +3490,8 @@ static int ip_vs_genl_del_daemon(struct netns_ipvs *ipvs, struct nlattr **attrs)
 	if (!attrs[IPVS_DAEMON_ATTR_STATE])
 		return -EINVAL;
 
-	mutex_lock(&ipvs->sync_mutex);
 	ret = stop_sync_thread(ipvs,
 			       nla_get_u32(attrs[IPVS_DAEMON_ATTR_STATE]));
-	mutex_unlock(&ipvs->sync_mutex);
 	return ret;
 }
 
@@ -4049,8 +4014,7 @@ int __net_init ip_vs_control_net_init(struct netns_ipvs *ipvs)
 
 	INIT_LIST_HEAD(&ipvs->dest_trash);
 	spin_lock_init(&ipvs->dest_trash_lock);
-	setup_timer(&ipvs->dest_trash_timer, ip_vs_dest_trash_expire,
-		    (unsigned long) ipvs);
+	timer_setup(&ipvs->dest_trash_timer, ip_vs_dest_trash_expire, 0);
 	atomic_set(&ipvs->ftpsvc_counter, 0);
 	atomic_set(&ipvs->nullsvc_counter, 0);
 	atomic_set(&ipvs->conn_out_counter, 0);
@@ -4068,10 +4032,12 @@ int __net_init ip_vs_control_net_init(struct netns_ipvs *ipvs)
 
 	spin_lock_init(&ipvs->tot_stats.lock);
 
-	proc_create("ip_vs", 0, ipvs->net->proc_net, &ip_vs_info_fops);
-	proc_create("ip_vs_stats", 0, ipvs->net->proc_net, &ip_vs_stats_fops);
-	proc_create("ip_vs_stats_percpu", 0, ipvs->net->proc_net,
-		    &ip_vs_stats_percpu_fops);
+	proc_create_net("ip_vs", 0, ipvs->net->proc_net, &ip_vs_info_seq_ops,
+			sizeof(struct ip_vs_iter));
+	proc_create_net_single("ip_vs_stats", 0, ipvs->net->proc_net,
+			ip_vs_stats_show, NULL);
+	proc_create_net_single("ip_vs_stats_percpu", 0, ipvs->net->proc_net,
+			ip_vs_stats_percpu_show, NULL);
 
 	if (ip_vs_control_net_init_sysctl(ipvs))
 		goto err;

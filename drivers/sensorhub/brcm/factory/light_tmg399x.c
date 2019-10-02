@@ -36,6 +36,12 @@
 #endif
 
 #define CONFIG_PANEL_NOTIFY	1
+
+#define LIGHT_CAL_PARAM_FILE_PATH	"/efs/FactoryApp/gyro_cal_data"
+#define LIGHT_CAL_FILE_INDEX			25
+
+
+
 /*************************************************************************/
 /* factory Sysfs                                                         */
 /*************************************************************************/
@@ -48,15 +54,6 @@ static ssize_t light_vendor_show(struct device *dev,
 static ssize_t light_name_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-	struct ssp_data *data = dev_get_drvdata(dev);
-	char *name[5] = {"TCS3407", "TCS3407", "TCS3407", "TCS3701", "UNKNOWN"};
-	if (data->ap_type >= 0 && data->ap_type < 4) {
-		return sprintf(buf, "%s\n", name[data->ap_type]);
-	} else {
-		return sprintf(buf, "%s\n", name[4]);
-	}
-#endif
 	return sprintf(buf, "%s\n", CHIP_ID);
 }
 
@@ -301,104 +298,25 @@ static ssize_t light_read_copr_store(struct device *dev,
 	return size;
 }
 
-struct decimal_point {
-	int integer, point;
-};
-
-void set_decimal_point(struct decimal_point* dp, int i, int p) {
-	dp->integer = i;
-	dp->point  = p;
-}
-
 static ssize_t light_circle_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
-	struct decimal_point x = { 0, }, y = { 0, }, diameter = { 0, };
 
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-	if(data->ap_type == 3) {
-		set_decimal_point(&x, 26, 9);
-		set_decimal_point(&y, 7,  5);
-		set_decimal_point(&diameter, 2, 2);
-	} else if(data->ap_rev < 20) {
-	// DV 1th
-		switch(data->ap_type) {
-			case 0:
-				set_decimal_point(&x, 47, 3);
-				set_decimal_point(&y, 1,  1);
-				set_decimal_point(&diameter, 2, 3);
-				break;
-			case 1:
-				set_decimal_point(&x, 49, 5);
-				set_decimal_point(&y, 1,  2);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-			case 2:
-				set_decimal_point(&x, 48, 1);
-				set_decimal_point(&y, 1,  0);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-		}
-	} else if(data->ap_rev < 23) {
-	// DV 2th ~ PV 1th
-		switch(data->ap_type) {
-			case 0:
-				set_decimal_point(&x, 47, 3);
-				set_decimal_point(&y, 1,  1);
-				set_decimal_point(&diameter, 2, 3);
-				break;
-			case 1:
-				set_decimal_point(&x, 49, 5);
-				set_decimal_point(&y, 1,  2);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-			case 2:
-				set_decimal_point(&x, 48, 1);
-				set_decimal_point(&y, 1,  0);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-		}
-	} else {
-	// PV 2th ~
-		switch(data->ap_type) {
-			case 0:
-				set_decimal_point(&x, 47, 3);
-				set_decimal_point(&y, 8,  7);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-			case 1:
-				set_decimal_point(&x, 49, 8);
-				set_decimal_point(&y, 8,  5);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-			case 2:
-				set_decimal_point(&x, 48, 0);
-				set_decimal_point(&y, 8,  7);
-				set_decimal_point(&diameter, 2, 2);
-				break;
-		}	
-	}
-#elif defined(CONFIG_SENSORS_SSP_DAVINCI)
 	switch(data->ap_type) {
+#if defined(CONFIG_SENSORS_SSP_PICASSO)
 		case 0:
+			return snprintf(buf, PAGE_SIZE, "45.1 8.2 2.4\n");
 		case 1:
-			set_decimal_point(&x, 41, 3);
-			set_decimal_point(&y, 7,  1);
-			set_decimal_point(&diameter, 2, 4);
-
-			break;
+			return snprintf(buf, PAGE_SIZE, "42.6 8.0 2.4\n");
 		case 2:
-		case 3:
-			set_decimal_point(&x, 43, 8);
-			set_decimal_point(&y, 6,  7);
-			set_decimal_point(&diameter, 2, 4);
-			break;
+			return snprintf(buf, PAGE_SIZE, "44.0 8.0 2.4\n");
+#endif
+		default:
+			return snprintf(buf, PAGE_SIZE, "0.0 0.0 0.0\n");
 	}
-#endif	
 
-	return snprintf(buf, PAGE_SIZE, "%d.%d %d.%d %d.%d\n", x.integer, x.point,
-			y.integer, y.point, diameter.integer, diameter.point);
+	return snprintf(buf, PAGE_SIZE, "0.0 0.0 0.0\n");
 }
 #endif
 
@@ -438,6 +356,94 @@ static ssize_t light_coef_store(struct device *dev,
 }
 #endif
 
+static ssize_t light_cal_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int iRet = 0;
+	mm_segment_t old_fs;
+	struct file *cal_filp = NULL;
+	u32 light_cal_data = 0;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(LIGHT_CAL_PARAM_FILE_PATH, O_CREAT | O_RDONLY | O_NOFOLLOW | O_NONBLOCK, 0660);
+	if (IS_ERR(cal_filp)) {
+		pr_err("[SSP] %s: filp_open failed\n", __func__);
+		set_fs(old_fs);
+		iRet = PTR_ERR(cal_filp);
+
+		return iRet;
+	}
+
+	cal_filp->f_pos = LIGHT_CAL_FILE_INDEX; // gyro_cal : 12 bytes , mag_cal : 7 / 13 bytes
+
+	iRet = vfs_read(cal_filp, (char *)&light_cal_data, sizeof(light_cal_data), &cal_filp->f_pos);
+
+	if (iRet != sizeof(light_cal_data)) {
+		pr_err("[SSP] %s: filp_open read failed, read size = %d", __func__, iRet);
+		iRet = -EIO;
+	} else {
+		iRet = 1;
+	}
+
+	filp_close(cal_filp, current->files);
+	set_fs(old_fs);
+	
+	return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data, light_cal_data);
+}
+
+static ssize_t light_cal_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int iRet = 0;
+	struct file *cal_filp = NULL;
+	mm_segment_t old_fs;
+	u32 light_cal_data = 0;
+	bool update = sysfs_streq(buf, "1");
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(LIGHT_CAL_PARAM_FILE_PATH, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0660);
+
+	if (IS_ERR(cal_filp)) {
+		set_fs(old_fs);
+		iRet = PTR_ERR(cal_filp);
+		pr_err("[SSP]: %s - Can't open light cal file err(%d)\n", __func__, iRet);
+		return -EIO;
+	}
+
+	if (update) {
+ 		struct ssp_data *data = dev_get_drvdata(dev);
+		struct ssp_msg *msg;
+
+		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+		msg->cmd = MSG2SSP_AP_GET_LIGHT_CAL;
+		msg->length = sizeof(light_cal_data);
+		msg->options = AP2HUB_READ;
+		msg->buffer = (u8 *)&light_cal_data;
+		msg->free_buffer = 0;
+
+		iRet = ssp_spi_sync(data, msg, 1000);
+
+	}
+
+	cal_filp->f_pos = LIGHT_CAL_FILE_INDEX; // gyro_cal : 12 bytes , mag_cal : 7 / 13 bytes
+
+	iRet = vfs_write(cal_filp, (char *)&light_cal_data, sizeof(light_cal_data), &cal_filp->f_pos);
+
+	if (iRet != sizeof(light_cal_data)) {
+		pr_err("[SSP]: %s - Can't write light cal to file\n", __func__);
+		iRet = -EIO;
+	}
+
+	filp_close(cal_filp, current->files);
+	set_fs(old_fs);
+
+	return iRet;
+}
+
 static DEVICE_ATTR(vendor, 0440, light_vendor_show, NULL);
 static DEVICE_ATTR(name, 0440, light_name_show, NULL);
 static DEVICE_ATTR(lux, 0440, light_lux_show, NULL);
@@ -457,6 +463,8 @@ static DEVICE_ATTR(read_copr, 0660, light_read_copr_show, light_read_copr_store)
 static DEVICE_ATTR(copr_roix, 0440, light_copr_roix_show, NULL);
 #endif
 
+static DEVICE_ATTR(light_cal, 0660, light_cal_show, light_cal_store);
+
 static struct device_attribute *light_attrs[] = {
 	&dev_attr_vendor,
 	&dev_attr_name,
@@ -470,6 +478,7 @@ static struct device_attribute *light_attrs[] = {
 	&dev_attr_light_circle,
 	&dev_attr_copr_roix,
 #endif
+	&dev_attr_light_cal,
 	NULL,
 };
 

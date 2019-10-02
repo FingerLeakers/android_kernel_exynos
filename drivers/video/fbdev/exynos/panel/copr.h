@@ -56,6 +56,7 @@ enum COPR_VER {
 	COPR_VER_1,
 	COPR_VER_2,
 	COPR_VER_3,
+	COPR_VER_5,
 	MAX_COPR_VER,
 };
 
@@ -146,12 +147,30 @@ struct copr_reg_v3 {
 	struct copr_roi roi[6];
 };
 
+struct copr_reg_v5 {
+	u32 copr_mask;
+	u32 cnt_re;
+	u32 copr_ilc;
+	u32 copr_gamma;		/* 0:GAMMA_1, 1:GAMMA_2.2 */
+	u32 copr_en;
+	u32 copr_er;
+	u32 copr_eg;
+	u32 copr_eb;
+	u32 copr_erc;
+	u32 copr_egc;
+	u32 copr_ebc;
+	u32 max_cnt;
+	u32 roi_on;
+	struct copr_roi roi[5];
+};
+
 struct copr_reg {
 	union {
 		struct copr_reg_v0 v0;
 		struct copr_reg_v1 v1;
 		struct copr_reg_v2 v2;
 		struct copr_reg_v3 v3;
+		struct copr_reg_v5 v5;
 	};
 };
 
@@ -224,6 +243,8 @@ static inline void SET_COPR_REG_GAMMA(struct copr_info *copr, bool copr_gamma)
 		copr->props.reg.v2.copr_gamma = copr_gamma;
 	else if (copr->props.version == COPR_VER_3)
 		copr->props.reg.v3.copr_gamma = copr_gamma;
+	else if (copr->props.version == COPR_VER_5)
+		copr->props.reg.v5.copr_gamma = copr_gamma;
 	else
 		pr_warn("%s unsupprted in ver%d\n",
 				__func__, copr->props.version);
@@ -247,6 +268,10 @@ static inline void SET_COPR_REG_E(struct copr_info *copr, int r, int g, int b)
 		copr->props.reg.v3.copr_er = r;
 		copr->props.reg.v3.copr_eg = g;
 		copr->props.reg.v3.copr_eb = b;
+	} else if (copr->props.version == COPR_VER_5) {
+		copr->props.reg.v5.copr_er = r;
+		copr->props.reg.v5.copr_eg = g;
+		copr->props.reg.v5.copr_eb = b;
 	} else {
 		pr_warn("%s unsupprted in ver%d\n",
 				__func__, copr->props.version);
@@ -269,6 +294,10 @@ static inline void SET_COPR_REG_EC(struct copr_info *copr, int r, int g, int b)
 		copr->props.reg.v3.copr_erc = r;
 		copr->props.reg.v3.copr_egc = g;
 		copr->props.reg.v3.copr_ebc = b;
+	} else if (copr->props.version == COPR_VER_5) {
+		copr->props.reg.v5.copr_erc = r;
+		copr->props.reg.v5.copr_egc = g;
+		copr->props.reg.v5.copr_ebc = b;
 	} else {
 		pr_warn("%s unsupprted in ver%d\n",
 				__func__, copr->props.version);
@@ -286,6 +315,8 @@ static inline void SET_COPR_REG_CNT_RE(struct copr_info *copr, int cnt_re)
 		copr->props.reg.v2.cnt_re = cnt_re;
 	else if (copr->props.version == COPR_VER_3)
 		copr->props.reg.v3.cnt_re = cnt_re;
+	else if (copr->props.version == COPR_VER_5)
+		copr->props.reg.v5.cnt_re = cnt_re;
 	else
 		pr_warn("%s unsupprted in ver%d\n",
 				__func__, copr->props.version);
@@ -324,6 +355,20 @@ static inline void SET_COPR_REG_ROI(struct copr_info *copr, struct copr_roi *roi
 				props->reg.v3.roi_on |= 0x1 << i;
 			}
 		}
+	} else if (copr->props.version == COPR_VER_5) {
+		if (roi == NULL) {
+			props->reg.v5.roi_on = 0;
+			memset(props->reg.v5.roi, 0, sizeof(props->reg.v5.roi));
+		} else {
+			props->reg.v5.roi_on = 0;
+			for (i = 0; i < min((int)ARRAY_SIZE(props->reg.v5.roi), nr_roi); i++) {
+				props->reg.v5.roi[i].roi_xs = roi[i].roi_xs;
+				props->reg.v5.roi[i].roi_ys = roi[i].roi_ys;
+				props->reg.v5.roi[i].roi_xe = roi[i].roi_xe;
+				props->reg.v5.roi[i].roi_ye = roi[i].roi_ye;
+				props->reg.v5.roi_on |= 0x1 << i;
+			}
+		}
 	}
 }
 
@@ -339,6 +384,8 @@ static inline int get_copr_reg_copr_en(struct copr_info *copr)
 		copr_en = copr->props.reg.v2.copr_en;
 	else if (copr->props.version == COPR_VER_3)
 		copr_en = copr->props.reg.v3.copr_en;
+	else if (copr->props.version == COPR_VER_5)
+		copr_en = copr->props.reg.v5.copr_en;
 	else
 		pr_warn("%s unsupprted in ver%d\n",
 				__func__, copr->props.version);

@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * RNDIS MSG parser
  *
  * Authors:	Benedikt Spranger, Pengutronix
  *		Robert Schwebel, Pengutronix
- *
- *              This program is free software; you can redistribute it and/or
- *              modify it under the terms of the GNU General Public License
- *              version 2, as published by the Free Software Foundation.
  *
  *		This software was originally developed in conformance with
  *		Microsoft's Remote NDIS Specification License Agreement.
@@ -52,6 +49,7 @@ module_param(rndis_ul_max_xfer_size_rcvd, int, S_IRUGO);
 MODULE_PARM_DESC(rndis_ul_max_xfer_size_rcvd,
 		"Max size of bus transfer received");
 
+
 /* The driver for your USB chip needs to support ep0 OUT to work with
  * RNDIS, plus all three CDC Ethernet endpoints (interrupt not optional).
  *
@@ -89,8 +87,7 @@ static const struct file_operations rndis_proc_fops;
 #endif /* CONFIG_USB_GADGET_DEBUG_FILES */
 
 /* supported OIDs */
-static const u32 oid_supported_list[] =
-{
+static const u32 oid_supported_list[] = {
 	/* the general stuff */
 	RNDIS_OID_GEN_SUPPORTED_LIST,
 	RNDIS_OID_GEN_HARDWARE_STATUS,
@@ -864,10 +861,11 @@ int rndis_msg_parser(struct rndis_params *params, u8 *buf)
 		 */
 		pr_warn("%s: unknown RNDIS message 0x%08X len %d\n",
 			__func__, MsgType, MsgLength);
-/*
+		/* Garbled message can be huge, so limit what we display */
+		if (MsgLength > 16)
+			MsgLength = 16;
 		print_hex_dump_bytes(__func__, DUMP_PREFIX_OFFSET,
 				     buf, MsgLength);
-*/
 		break;
 	}
 
@@ -1153,7 +1151,6 @@ int rndis_rm_hdr(struct gether *port,
 	skb_queue_tail(list, skb);
 	return 0;
 }
-
 EXPORT_SYMBOL_GPL(rndis_rm_hdr);
 
 #ifdef CONFIG_USB_GADGET_DEBUG_FILES

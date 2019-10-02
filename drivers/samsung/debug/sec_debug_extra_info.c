@@ -1,7 +1,7 @@
 /*
- *sec_debug_extrainfo.c
+ * sec_debug_extra_info.c
  *
- * Copyright (c) 2016 Samsung Electronics Co., Ltd
+ * Copyright (c) 2019 Samsung Electronics Co., Ltd
  *              http://www.samsung.com
  *
  *  This program is free software; you can redistribute  it and/or modify it
@@ -12,31 +12,45 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/sec_debug.h>
-#include <linux/soc/samsung/exynos-soc.h>
+#include <linux/string.h>
+#include <linux/sched.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/sched/clock.h>
+#include <linux/sec_debug.h>
 #include <asm/stacktrace.h>
-#include <asm/esr.h>
 
-#include <soc/samsung/exynos-pmu.h>
-#include <linux/sec_ext.h>
+#include "sec_debug_internal.h"
 
 #define SDEI_DEBUG	(0)
 #define EXTRA_VERSION	"RI25"
 
+#define V3_TEST_PHYS_ADDR		(0x91700000)
+#define OFFSET_SHARED_BUFFER		(0xC00)
+
+#define MAX_EXTRA_INFO_HDR_LEN	6
+#define SEC_DEBUG_BADMODE_MAGIC	0x6261646d
+
+#define SEC_DEBUG_SHARED_MAGIC0 0xFFFFFFFF
+#define SEC_DEBUG_SHARED_MAGIC1 0x95308180
+#define SEC_DEBUG_SHARED_MAGIC2 0x14F014F0
+#define SEC_DEBUG_SHARED_MAGIC3 0x00010001
+
 #include "sec_debug_extra_info_keys.c"
 
+static bool exin_ready;
 static struct sec_debug_shared_buffer *sh_buf;
 static void *slot_end_addr;
 
-char *ftype_items[MAX_ITEM_VAL_LEN] = {
+static char *ftype_items[MAX_ITEM_VAL_LEN] = {
 	"UNDF", "BAD", "WATCH", "KERN", "MEM",
 	"SPPC", "PAGE", "AUF", "EUF", "AUOF",
 	"BUG", "PANIC",
 };
+
+/* get dram info from bootloader by cmdline */
+#define MAX_DRAMINFO	15
+static char dram_info[MAX_DRAMINFO + 1];
 
 /*****************************************************************/
 /*                        UNIT FUNCTIONS                         */
@@ -104,8 +118,8 @@ static void *search_item_by_key(const char *key, int start, int end)
 	char *keyname;
 	unsigned int max;
 
-	if (!sh_buf) {
-		pr_info("%s: extra_info is not ready\n");
+	if (!sh_buf || !exin_ready) {
+		pr_info("%s: (%s) extra_info is not ready\n", __func__, key);
 
 		return NULL;
 	}
@@ -233,7 +247,7 @@ static void set_key_order(const char *key)
 
 	/* keep previous value */
 	len_prev = get_val_len(v);
-	if ((!len_prev) || (MAX_ITEM_VAL_LEN <= len_prev))
+	if ((!len_prev) || (len_prev >= MAX_ITEM_VAL_LEN))
 		len_prev = MAX_ITEM_VAL_LEN - 1;
 
 	snprintf(tmp, len_prev + 1, "%s", v);
@@ -291,7 +305,7 @@ static void set_item_val(const char *key, const char *fmt, ...)
 	}
 }
 
-static void set_bk_item_val(const char *key, int slot, const char *fmt, ...)
+static void __init set_bk_item_val(const char *key, int slot, const char *fmt, ...)
 {
 	va_list args;
 	void *p;
@@ -342,14 +356,12 @@ static void set_bk_item_val(const char *key, int slot, const char *fmt, ...)
 	v = get_bk_item_val(p);
 	if (!v) {
 		pr_crit("%s: fail to find value address for %s\n", __func__, key);
-
 		return;
-	} else {
-		if (get_val_len(v)) {
-			pr_crit("%s: some value is in %s\n", __func__, key);
+	}
 
-			return;
-		}
+	if (get_val_len(v)) {
+		pr_crit("%s: some value is in %s\n", __func__, key);
+		return;
 	}
 
 set_val:
@@ -391,6 +403,11 @@ static void dump_slot(int type, void *ptr)
 	else
 		m = NULL;
 
+	if (!exin_ready) {
+		pr_crit("%s: EXIN is not ready\n", __func__);
+		return;
+	}
+
 	/* temporally for backup slot */
 	cnt = sh_buf->sec_debug_sbidx[type].cnt;
 
@@ -416,12 +433,17 @@ static void dump_slots(int start, int end, void *ptr)
 		dump_slot(i, ptr);
 }
 
-
-static void dump_all_keys(void)
+static void __init dump_all_keys(void)
 {
 	void *p;
 	int s, i;
 	unsigned int cnt;
+
+	if (!exin_ready) {
+		pr_crit("%s: EXIN is not ready\n", __func__);
+
+		return;
+	}
 
 	for (s = 0; s < NR_SLOT; s++) {
 		cnt = sh_buf->sec_debug_sbidx[s].cnt;
@@ -442,12 +464,9 @@ static void dump_all_keys(void)
 	}
 }
 
-/*****************************************************************/
-/*                        INIT FUNCTIONS                         */
-/*****************************************************************/
-static void init_shared_buffer(int type, int nr_keys, void *ptr)
+static void __init init_shared_buffer(int type, int nr_keys, void *ptr)
 {
-	char (* keys)[MAX_ITEM_KEY_LEN];
+	char (*keys)[MAX_ITEM_KEY_LEN];
 	unsigned int base, size, nr;
 	void *addr;
 	int i;
@@ -474,24 +493,24 @@ static void init_shared_buffer(int type, int nr_keys, void *ptr)
 	sh_buf->sec_debug_sbidx[type].cnt = i;
 }
 
-static void sec_debug_extra_info_key_init(void)
+static void __init sec_debug_extra_info_key_init(void)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(key32) / sizeof(key32[0]);
+	nr_keys = ARRAY_SIZE(key32);
 	init_shared_buffer(SLOT_32, nr_keys, (void *)key32);
 
-	nr_keys = sizeof(key64) / sizeof(key64[0]);
+	nr_keys = ARRAY_SIZE(key64);
 	init_shared_buffer(SLOT_64, nr_keys, (void *)key64);
 
-	nr_keys = sizeof(key256) / sizeof(key256[0]);
+	nr_keys = ARRAY_SIZE(key256);
 	init_shared_buffer(SLOT_256, nr_keys, (void *)key256);
 
-	nr_keys = sizeof(key1024) / sizeof(key1024[0]);
+	nr_keys = ARRAY_SIZE(key1024);
 	init_shared_buffer(SLOT_1024, nr_keys, (void *)key1024);
 }
 
-static void sec_debug_extra_info_copy_shared_buffer(bool mflag)
+static void __init sec_debug_extra_info_copy_shared_buffer(bool mflag)
 {
 	int i;
 	unsigned int total_size = 0, slot_base;
@@ -529,7 +548,7 @@ static void sec_debug_extra_info_copy_shared_buffer(bool mflag)
 	}
 }
 
-static void sec_debug_extra_info_dump_sb_index(void)
+static void __init sec_debug_extra_info_dump_sb_index(void)
 {
 	int i;
 
@@ -544,16 +563,13 @@ static void sec_debug_extra_info_dump_sb_index(void)
 	}
 }
 
-static void sec_debug_init_extra_info_sbidx(int type, struct sec_debug_sb_index idx, bool mflag)
+static void __init sec_debug_init_extra_info_sbidx(int type, struct sec_debug_sb_index idx, bool mflag)
 {
-	if ((sh_buf->sec_debug_sbidx[type].paddr != idx.paddr)
-			|| (mflag == false)) {
-		sh_buf->sec_debug_sbidx[type].paddr = idx.paddr;
-		sh_buf->sec_debug_sbidx[type].size = idx.size;
-		sh_buf->sec_debug_sbidx[type].nr = idx.nr;
-		sh_buf->sec_debug_sbidx[type].cnt = idx.cnt;
-		sh_buf->sec_debug_sbidx[type].blmark = 0;
-	}
+	sh_buf->sec_debug_sbidx[type].paddr = idx.paddr;
+	sh_buf->sec_debug_sbidx[type].size = idx.size;
+	sh_buf->sec_debug_sbidx[type].nr = idx.nr;
+	sh_buf->sec_debug_sbidx[type].cnt = idx.cnt;
+	sh_buf->sec_debug_sbidx[type].blmark = 0;
 
 	pr_crit("%s: slot: %d / paddr: 0x%x / size: %d / nr: %d\n",
 					__func__, type,
@@ -562,7 +578,7 @@ static void sec_debug_init_extra_info_sbidx(int type, struct sec_debug_sb_index 
 					sh_buf->sec_debug_sbidx[type].nr);
 }
 
-static bool sec_debug_extra_info_check_magic(void)
+static bool __init sec_debug_extra_info_check_magic(void)
 {
 	if (sh_buf->magic[0] != SEC_DEBUG_SHARED_MAGIC0)
 		return false;
@@ -576,7 +592,7 @@ static bool sec_debug_extra_info_check_magic(void)
 	return true;
 }
 
-static void sec_debug_extra_info_buffer_init(void)
+static void __init sec_debug_extra_info_buffer_init(void)
 {
 	unsigned long tmp_addr;
 	struct sec_debug_sb_index tmp_idx;
@@ -591,7 +607,7 @@ static void sec_debug_extra_info_buffer_init(void)
 	tmp_idx.blmark = 0;
 
 	/* SLOT_32, 32B, 64 items */
-	tmp_addr = sec_debug_get_buf_base(SDN_MAP_EXTRA_INFO);
+	tmp_addr = secdbg_base_get_buf_base(SDN_MAP_EXTRA_INFO);
 	tmp_idx.paddr = (unsigned int)tmp_addr;
 	tmp_idx.size = 32;
 	tmp_idx.nr = 64;
@@ -633,7 +649,7 @@ static void sec_debug_extra_info_buffer_init(void)
 
 #define MAX_EXTRA_INFO_LEN	(MAX_ITEM_KEY_LEN + MAX_ITEM_VAL_LEN)
 
-static void sec_debug_store_extra_info(char (* keys)[MAX_ITEM_KEY_LEN], int nr_keys, char *ptr)
+static void sec_debug_store_extra_info(char (*keys)[MAX_ITEM_KEY_LEN], int nr_keys, char *ptr)
 {
 	int i;
 	unsigned long len, max_len;
@@ -667,7 +683,7 @@ static void sec_debug_store_extra_info(char (* keys)[MAX_ITEM_KEY_LEN], int nr_k
 			ptr += sprintf(ptr, ",");
 	}
 
-	printk("%s: %s\n", __func__, ptr);
+	pr_info("%s: %s\n", __func__, ptr);
 }
 
 /******************************************************************************
@@ -679,68 +695,52 @@ static void sec_debug_store_extra_info(char (* keys)[MAX_ITEM_KEY_LEN], int nr_k
  *	etr_m : mfc error information
  *
  ******************************************************************************/
-
-void sec_debug_store_extra_info_A(char *ptr)
+void secdbg_exin_get_extra_info_A(char *ptr)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(akeys) / sizeof(akeys[0]);
+	nr_keys = ARRAY_SIZE(akeys);
 
 	sec_debug_store_extra_info(akeys, nr_keys, ptr);
 }
 
-void sec_debug_store_extra_info_B(char *ptr)
+void secdbg_exin_get_extra_info_B(char *ptr)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(bkeys) / sizeof(bkeys[0]);
+	nr_keys = ARRAY_SIZE(bkeys);
 
 	sec_debug_store_extra_info(bkeys, nr_keys, ptr);
 }
 
-void sec_debug_store_extra_info_C(char *ptr)
+void secdbg_exin_get_extra_info_C(char *ptr)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(ckeys) / sizeof(ckeys[0]);
+	nr_keys = ARRAY_SIZE(ckeys);
 
 	sec_debug_store_extra_info(ckeys, nr_keys, ptr);
 }
 
-void sec_debug_store_extra_info_M(char *ptr)
+void secdbg_exin_get_extra_info_M(char *ptr)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(mkeys) / sizeof(mkeys[0]);
+	nr_keys = ARRAY_SIZE(mkeys);
 
 	sec_debug_store_extra_info(mkeys, nr_keys, ptr);
 }
 
-void sec_debug_store_extra_info_F(char *ptr)
+void secdbg_exin_get_extra_info_F(char *ptr)
 {
 	int nr_keys;
 
-	nr_keys = sizeof(fkeys) / sizeof(fkeys[0]);
+	nr_keys = ARRAY_SIZE(fkeys);
 
 	sec_debug_store_extra_info(fkeys, nr_keys, ptr);
 }
 
-/* get dram info from bootloader by cmdline */
-#define MAX_DRAMINFO	15
-static char dram_info[MAX_DRAMINFO + 1];
-
-static int __init sec_hw_param_get_dram_info(char *arg)
-{
-	if (strlen(arg) > MAX_DRAMINFO)
-		return 0;
-
-	memcpy(dram_info, arg, (int)strlen(arg));
-
-	return 0;
-}
-early_param("androidboot.dram_info", sec_hw_param_get_dram_info);
-
-static void sec_debug_set_extra_info_id(void)
+static void __init sec_debug_set_extra_info_id(void)
 {
 	struct timespec ts;
 
@@ -753,7 +753,7 @@ static void sec_debug_set_extra_info_id(void)
 	set_item_val("DDRID", "%s", dram_info);
 }
 
-static void sec_debug_set_extra_info_ktime(void)
+static void secdbg_exin_set_ktime(void)
 {
 	u64 ts_nsec;
 
@@ -763,7 +763,7 @@ static void sec_debug_set_extra_info_ktime(void)
 	set_item_val("KTIME", "%lu", (unsigned long)ts_nsec);
 }
 
-void sec_debug_set_extra_info_fault(enum sec_debug_extra_fault_type type,
+void secdbg_exin_set_fault(enum secdbg_exin_fault_type type,
 				    unsigned long addr, struct pt_regs *regs)
 {
 
@@ -790,12 +790,12 @@ void sec_debug_set_extra_info_fault(enum sec_debug_extra_fault_type type,
 	}
 }
 
-void sec_debug_set_extra_info_bug(const char *file, unsigned int line)
+void secdbg_exin_set_bug(const char *file, unsigned int line)
 {
 	set_item_val("BUG", "%s:%u", file, line);
 }
 
-void sec_debug_set_extra_info_panic(char *str)
+void secdbg_exin_set_panic(char *str)
 {
 	if (strstr(str, "\nPC is at"))
 		strcpy(strstr(str, "\nPC is at"), "");
@@ -803,7 +803,7 @@ void sec_debug_set_extra_info_panic(char *str)
 	set_item_val("PANIC", "%s", str);
 }
 
-void sec_debug_set_extra_info_backtrace(struct pt_regs *regs)
+void secdbg_exin_set_backtrace(struct pt_regs *regs)
 {
 	char fbuf[MAX_ITEM_VAL_LEN];
 	char buf[64];
@@ -815,13 +815,11 @@ void sec_debug_set_extra_info_backtrace(struct pt_regs *regs)
 	v = get_item_val("STACK");
 	if (!v) {
 		pr_crit("%s: no STACK in items\n", __func__);
-
 		return;
 	}
 
 	if (get_val_len(v)) {
 		pr_crit("%s: already %s in STACK\n", __func__, v);
-
 		return;
 	}
 
@@ -831,12 +829,10 @@ void sec_debug_set_extra_info_backtrace(struct pt_regs *regs)
 
 	if (regs) {
 		frame.fp = regs->regs[29];
-		//frame.sp = regs->sp;
 		frame.pc = regs->pc;
 	} else {
 		frame.fp = (unsigned long)__builtin_frame_address(0);
-		//frame.sp = current_stack_pointer;
-		frame.pc = (unsigned long)sec_debug_set_extra_info_backtrace;
+		frame.pc = (unsigned long)secdbg_exin_set_backtrace;
 	}
 
 	while (1) {
@@ -847,7 +843,7 @@ void sec_debug_set_extra_info_backtrace(struct pt_regs *regs)
 		if (ret < 0)
 			break;
 
-		snprintf(buf, sizeof(buf), "%pf", (void *)where);
+		snprintf(buf, sizeof(buf), "%ps", (void *)where);
 		sym_name_len = strlen(buf);
 
 		if (offset + sym_name_len > MAX_ITEM_VAL_LEN)
@@ -863,7 +859,7 @@ void sec_debug_set_extra_info_backtrace(struct pt_regs *regs)
 	set_item_val("STACK", fbuf);
 }
 
-void sec_debug_set_extra_info_backtrace_cpu(struct pt_regs *regs, int cpu)
+void secdbg_exin_set_backtrace_cpu(struct pt_regs *regs, int cpu)
 {
 	char fbuf[MAX_ITEM_VAL_LEN];
 	char key[MAX_ITEM_KEY_LEN];
@@ -878,13 +874,11 @@ void sec_debug_set_extra_info_backtrace_cpu(struct pt_regs *regs, int cpu)
 	v = get_item_val(key);
 	if (!v) {
 		pr_crit("%s: no %s in items\n", __func__, key);
-
 		return;
 	}
 
 	if (get_val_len(v)) {
 		pr_crit("%s: already %s in %s\n", __func__, v, key);
-
 		return;
 	}
 
@@ -894,12 +888,10 @@ void sec_debug_set_extra_info_backtrace_cpu(struct pt_regs *regs, int cpu)
 
 	if (regs) {
 		frame.fp = regs->regs[29];
-	//	frame.sp = regs->sp;
 		frame.pc = regs->pc;
 	} else {
 		frame.fp = (unsigned long)__builtin_frame_address(0);
-	//	frame.sp = current_stack_pointer;
-		frame.pc = (unsigned long)sec_debug_set_extra_info_backtrace_cpu;
+		frame.pc = (unsigned long)secdbg_exin_set_backtrace_cpu;
 	}
 
 	while (1) {
@@ -910,7 +902,7 @@ void sec_debug_set_extra_info_backtrace_cpu(struct pt_regs *regs, int cpu)
 		if (ret < 0)
 			break;
 
-		snprintf(buf, sizeof(buf), "%pf", (void *)where);
+		snprintf(buf, sizeof(buf), "%ps", (void *)where);
 		sym_name_len = strlen(buf);
 
 		if (offset + sym_name_len > MAX_ITEM_VAL_LEN)
@@ -920,14 +912,13 @@ void sec_debug_set_extra_info_backtrace_cpu(struct pt_regs *regs, int cpu)
 			offset += sprintf(fbuf + offset, ":");
 
 		snprintf(fbuf + offset, MAX_ITEM_VAL_LEN - offset, "%s", buf);
-
 		offset += sym_name_len;
 	}
 
 	set_item_val(key, fbuf);
 }
 
-void sec_debug_set_extra_info_backtrace_task(struct task_struct *tsk)
+void secdbg_exin_set_backtrace_task(struct task_struct *tsk)
 {
 	char fbuf[MAX_ITEM_VAL_LEN];
 	char buf[64];
@@ -935,30 +926,25 @@ void sec_debug_set_extra_info_backtrace_task(struct task_struct *tsk)
 	int offset = 0;
 	int sym_name_len;
 	char *v;
-	int cnt = 0;
 
 	if (!tsk) {
 		pr_crit("%s: no TASK, quit\n", __func__);
-
 		return;
 	}
 
 	if (!try_get_task_stack(tsk)) {
 		pr_crit("%s: fail to get task stack, quit\n", __func__);
-
 		return;
 	}
 
 	v = get_item_val("STACK");
 	if (!v) {
 		pr_crit("%s: no STACK in items\n", __func__);
-
 		goto out;
 	}
 
 	if (get_val_len(v)) {
 		pr_crit("%s: already %s in STACK\n", __func__, v);
-
 		goto out;
 	}
 
@@ -977,7 +963,7 @@ void sec_debug_set_extra_info_backtrace_task(struct task_struct *tsk)
 		if (ret < 0)
 			break;
 
-		snprintf(buf, sizeof(buf), "%pf", (void *)where);
+		snprintf(buf, sizeof(buf), "%ps", (void *)where);
 		sym_name_len = strlen(buf);
 
 		if (offset + sym_name_len > MAX_ITEM_VAL_LEN)
@@ -988,8 +974,6 @@ void sec_debug_set_extra_info_backtrace_task(struct task_struct *tsk)
 
 		snprintf(fbuf + offset, MAX_ITEM_VAL_LEN - offset, "%s", buf);
 		offset += sym_name_len;
-
-		cnt++;
 	}
 
 	set_item_val("STACK", fbuf);
@@ -999,90 +983,90 @@ out:
 }
 
 
-void sec_debug_set_extra_info_sysmmu(char *str)
+void secdbg_exin_set_sysmmu(char *str)
 {
 	set_item_val("SMU", "%s", str);
 }
 
-void sec_debug_set_extra_info_busmon(char *str)
+void secdbg_exin_set_busmon(char *str)
 {
 	set_item_val("BUS", "%s", str);
 }
 
-void sec_debug_set_extra_info_dpm_timeout(char *devname)
+void secdbg_exin_set_dpm_timeout(char *devname)
 {
 	set_item_val("DPM", "%s", devname);
 }
 
-void sec_debug_set_extra_info_smpl(unsigned long count)
+void secdbg_exin_set_smpl(unsigned long count)
 {
 	clear_item_val("SMP");
 	set_item_val("SMP", "%lu", count);
 }
 
-void sec_debug_set_extra_info_ufs_error(char *str)
+void secdbg_exin_set_esr(unsigned int esr)
+{
+	set_item_val("ESR", "%s (0x%08x)",
+	esr_get_class_string(esr), esr);
+}
+
+void secdbg_exin_set_merr(char *merr)
+{
+	set_item_val("MER", "%s", merr);
+}
+
+void secdbg_exin_set_hint(unsigned long hint)
+{
+	if (hint)
+		set_item_val("HINT", "%llx", hint);
+}
+
+void secdbg_exin_set_decon(unsigned int err)
+{
+	set_item_val("DCN", "%08x", err);
+}
+
+void secdbg_exin_set_batt(int cap, int volt, int temp, int curr)
+{
+	clear_item_val("BAT");
+	set_item_val("BAT", "%03d/%04d/%04d/%06d", cap, volt, temp, curr);
+}
+
+void secdbg_exin_set_ufs_error(char *str)
 {
 	set_item_val("ETC", "%s", str);
 }
 
-void sec_debug_set_extra_info_zswap(char *str)
+void secdbg_exin_set_zswap(char *str)
 {
 	set_item_val("ETC", "%s", str);
 }
 
-void sec_debug_set_extra_info_aud(char *str)
+void secdbg_exin_set_finish(void)
 {
-	set_item_val("AUD", "%s", str);
+	secdbg_exin_set_ktime();
 }
 
-void sec_debug_set_extra_info_epd(char *str)
-{
-	set_item_val("EPD", "%s", str);
-}
-
-void sec_debug_set_extra_info_mfc_error(char *str)
+void secdbg_exin_set_mfc_error(char *str)
 {
 	clear_item_val("STACK");
 	set_item_val("STACK", "MFC ERROR");
 	set_item_val("MFC", "%s", str);
 }
 
-void sec_debug_set_extra_info_esr(unsigned int esr)
+void secdbg_exin_set_aud(char *str)
 {
-	set_item_val("ESR", "%s (0x%08x)",
-						 esr_get_class_string(esr), esr);
+	set_item_val("AUD", "%s", str);
 }
 
-void sec_debug_set_extra_info_merr(char *merr)
+void secdbg_exin_set_epd(char *str)
 {
-	set_item_val("MER", "%s", merr);
-}
-
-void sec_debug_set_extra_info_hint(u64 hint)
-{
-	if (hint)
-		set_item_val("HINT", "%llx", hint);
-}
-
-void sec_debug_set_extra_info_decon(unsigned int err)
-{
-	set_item_val("DCN", "%08x", err);
-}
-
-void sec_debug_set_extra_info_batt(int cap, int volt, int temp, int curr)
-{
-	clear_item_val("BAT");
-	set_item_val("BAT", "%03d/%04d/%04d/%06d", cap, volt, temp, curr);
-}
-
-void sec_debug_finish_extra_info(void)
-{
-	sec_debug_set_extra_info_ktime();
+	set_item_val("EPD", "%s", str);
 }
 
 #define MAX_UNFZ_VAL_LEN (240)
 
-void sec_debug_set_extra_info_unfz(char *comm)
+void secdbg_exin_set_unfz(const char *comm)
 {
 	void *p;
 	char *v;
@@ -1108,7 +1092,7 @@ void sec_debug_set_extra_info_unfz(char *comm)
 
 	/* keep previous value */
 	len_prev = get_val_len(v);
-	if ((!len_prev) || (MAX_UNFZ_VAL_LEN <= len_prev))
+	if ((!len_prev) || (len_prev >= MAX_UNFZ_VAL_LEN))
 		len_prev = MAX_UNFZ_VAL_LEN - 1;
 
 	snprintf(tmp, len_prev + 1, "%s", v);
@@ -1137,12 +1121,13 @@ static void test_v3(void *seqm)
 {
 	struct seq_file *m = (struct seq_file *)seqm;
 
-	seq_printf(m, " -- SEC DEBUG SHARED INFO V3 (SHARED BUFFER) -- \n");
+	seq_printf(m, " -- SEC DEBUG SHARED INFO V3 (SHARED BUFFER) --\n");
 	dump_slots(SLOT_32, NR_MAIN_SLOT, m);
 
-	seq_printf(m, " -- SEC DEBUG SHARED INFO V3 (SHARED BUFFER BK) -- \n");
+	seq_printf(m, " -- SEC DEBUG SHARED INFO V3 (SHARED BUFFER BK) --\n");
 	dump_slots(SLOT_BK_32, NR_SLOT, m);
 }
+
 /*********** TEST V3 **************************************/
 static int set_debug_reset_extra_info_proc_show(struct seq_file *m, void *v)
 {
@@ -1151,7 +1136,7 @@ static int set_debug_reset_extra_info_proc_show(struct seq_file *m, void *v)
 	if (0)
 		test_v3(m);
 
-	sec_debug_store_extra_info_A(buf);
+	secdbg_exin_get_extra_info_A(buf);
 	seq_printf(m, buf);
 
 	return 0;
@@ -1169,24 +1154,45 @@ static const struct file_operations sec_debug_reset_extra_info_proc_fops = {
 	.release = single_release,
 };
 
+static int __init sec_hw_param_get_dram_info(char *arg)
+{
+	if (strlen(arg) > MAX_DRAMINFO)
+		return 0;
+
+	memcpy(dram_info, arg, (int)strlen(arg));
+
+	return 0;
+}
+early_param("androidboot.dram_info", sec_hw_param_get_dram_info);
+
 void simulate_extra_info_force_error(unsigned int magic)
 {
+	if (!exin_ready) {
+		pr_crit("%s: EXIN is not ready\n", __func__);
+		return;
+	}
+
 	sh_buf->magic[0] = magic;
 }
 
-static int __init sec_debug_extra_info_init(void)
+static int __init secdbg_extra_info_init(void)
 {
 	struct proc_dir_entry *entry;
 
-	sh_buf = sec_debug_get_debug_base(SDN_MAP_EXTRA_INFO);
-	if (sh_buf) {
-		sec_debug_extra_info_buffer_init();
-
-		sh_buf->magic[0] = SEC_DEBUG_SHARED_MAGIC0;
-		sh_buf->magic[1] = SEC_DEBUG_SHARED_MAGIC1;
-		sh_buf->magic[2] = SEC_DEBUG_SHARED_MAGIC2;
-		sh_buf->magic[3] = SEC_DEBUG_SHARED_MAGIC3;
+	sh_buf = secdbg_base_get_debug_base(SDN_MAP_EXTRA_INFO);
+	if (!sh_buf) {
+		pr_err("%s: No extra info buffer\n", __func__);
+		return -EFAULT;
 	}
+
+	sec_debug_extra_info_buffer_init();
+
+	sh_buf->magic[0] = SEC_DEBUG_SHARED_MAGIC0;
+	sh_buf->magic[1] = SEC_DEBUG_SHARED_MAGIC1;
+	sh_buf->magic[2] = SEC_DEBUG_SHARED_MAGIC2;
+	sh_buf->magic[3] = SEC_DEBUG_SHARED_MAGIC3;
+
+	exin_ready = true;
 
 	entry = proc_create("reset_reason_extra_info",
 			    0644, NULL, &sec_debug_reset_extra_info_proc_fops);
@@ -1199,4 +1205,4 @@ static int __init sec_debug_extra_info_init(void)
 
 	return 0;
 }
-late_initcall(sec_debug_extra_info_init);
+late_initcall(secdbg_extra_info_init);

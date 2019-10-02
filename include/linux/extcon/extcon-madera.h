@@ -93,23 +93,16 @@ struct madera_extcon {
 	int micd_debounce;
 	int micd_count;
 
-	int moisture_count;
-
-	int mic_impedance;
 	struct completion manual_mic_completion;
 
 	struct delayed_work micd_detect_work;
 
 	bool have_mic;
 	bool detecting;
-	bool wait_for_buttons;
 	int jack_flips;
 
 	const struct madera_jd_state *state;
-	const struct madera_jd_state *old_state;
 	struct delayed_work state_timeout_work;
-
-	struct wakeup_source detection_wake_lock;
 
 	struct madera_micd_bias micd_bias;
 };
@@ -142,7 +135,6 @@ void madera_set_headphone_imp(struct madera_extcon *info, int ohms_x100);
 
 extern const struct madera_jd_state madera_hpdet_left;
 extern const struct madera_jd_state madera_hpdet_right;
-extern const struct madera_jd_state madera_hpdet_moisture;
 extern const struct madera_jd_state madera_micd_button;
 extern const struct madera_jd_state madera_micd_microphone;
 extern const struct madera_jd_state madera_micd_adc_mic;
@@ -153,7 +145,6 @@ void madera_hpdet_stop(struct madera_extcon *info);
 int madera_hpdet_reading(struct madera_extcon *info, int val);
 
 int madera_micd_start(struct madera_extcon *info);
-int madera_micd_button_start(struct madera_extcon *info);
 void madera_micd_stop(struct madera_extcon *info);
 int madera_micd_button_reading(struct madera_extcon *info, int val);
 
@@ -165,5 +156,4 @@ void madera_micd_mic_timeout(struct madera_extcon *info);
 
 void madera_extcon_report(struct madera_extcon *info, int which, bool attached);
 
-int madera_extcon_manual_mic_reading(struct madera_extcon *info);
 #endif

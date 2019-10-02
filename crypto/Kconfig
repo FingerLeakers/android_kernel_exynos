@@ -29,7 +29,6 @@ config CRYPTO_FIPS
 	  This options enables the fips option which is
 	  required if you want to system to operate in a FIPS 140-2
 	  certification. 
-	  depends on !CRYPTO_MANAGER_DISABLE_TESTS
 
 config CRYPTO_ALGAPI
 	tristate
@@ -105,6 +104,7 @@ config CRYPTO_KPP
 config CRYPTO_ACOMP2
 	tristate
 	select CRYPTO_ALGAPI2
+	select SGL_ALLOC
 
 config CRYPTO_ACOMP
 	tristate
@@ -160,7 +160,7 @@ config CRYPTO_USER
 
 config CRYPTO_MANAGER_DISABLE_TESTS
 	bool "Disable run-time self tests"
-	default n
+	default y
 	depends on CRYPTO_MANAGER2
 	help
 	  Disable run-time self tests that normally take place at
@@ -243,10 +243,6 @@ config CRYPTO_TEST
 	help
 	  Quick & dirty crypto test module.
 
-config CRYPTO_ABLK_HELPER
-	tristate
-	select CRYPTO_CRYPTD
-
 config CRYPTO_SIMD
 	tristate
 	select CRYPTO_CRYPTD
@@ -291,6 +287,107 @@ config CRYPTO_CHACHA20POLY1305
 	  with the Poly1305 authenticator. It is defined in RFC7539 for use in
 	  IETF protocols.
 
+config CRYPTO_AEGIS128
+	tristate "AEGIS-128 AEAD algorithm"
+	select CRYPTO_AEAD
+	select CRYPTO_AES  # for AES S-box tables
+	help
+	 Support for the AEGIS-128 dedicated AEAD algorithm.
+
+config CRYPTO_AEGIS128L
+	tristate "AEGIS-128L AEAD algorithm"
+	select CRYPTO_AEAD
+	select CRYPTO_AES  # for AES S-box tables
+	help
+	 Support for the AEGIS-128L dedicated AEAD algorithm.
+
+config CRYPTO_AEGIS256
+	tristate "AEGIS-256 AEAD algorithm"
+	select CRYPTO_AEAD
+	select CRYPTO_AES  # for AES S-box tables
+	help
+	 Support for the AEGIS-256 dedicated AEAD algorithm.
+
+config CRYPTO_AEGIS128_AESNI_SSE2
+	tristate "AEGIS-128 AEAD algorithm (x86_64 AESNI+SSE2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_CRYPTD
+	help
+	 AESNI+SSE2 implementation of the AEGSI-128 dedicated AEAD algorithm.
+
+config CRYPTO_AEGIS128L_AESNI_SSE2
+	tristate "AEGIS-128L AEAD algorithm (x86_64 AESNI+SSE2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_CRYPTD
+	help
+	 AESNI+SSE2 implementation of the AEGSI-128L dedicated AEAD algorithm.
+
+config CRYPTO_AEGIS256_AESNI_SSE2
+	tristate "AEGIS-256 AEAD algorithm (x86_64 AESNI+SSE2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_CRYPTD
+	help
+	 AESNI+SSE2 implementation of the AEGSI-256 dedicated AEAD algorithm.
+
+config CRYPTO_MORUS640
+	tristate "MORUS-640 AEAD algorithm"
+	select CRYPTO_AEAD
+	help
+	  Support for the MORUS-640 dedicated AEAD algorithm.
+
+config CRYPTO_MORUS640_GLUE
+	tristate
+	depends on X86
+	select CRYPTO_AEAD
+	select CRYPTO_CRYPTD
+	help
+	  Common glue for SIMD optimizations of the MORUS-640 dedicated AEAD
+	  algorithm.
+
+config CRYPTO_MORUS640_SSE2
+	tristate "MORUS-640 AEAD algorithm (x86_64 SSE2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_MORUS640_GLUE
+	help
+	  SSE2 implementation of the MORUS-640 dedicated AEAD algorithm.
+
+config CRYPTO_MORUS1280
+	tristate "MORUS-1280 AEAD algorithm"
+	select CRYPTO_AEAD
+	help
+	  Support for the MORUS-1280 dedicated AEAD algorithm.
+
+config CRYPTO_MORUS1280_GLUE
+	tristate
+	depends on X86
+	select CRYPTO_AEAD
+	select CRYPTO_CRYPTD
+	help
+	  Common glue for SIMD optimizations of the MORUS-1280 dedicated AEAD
+	  algorithm.
+
+config CRYPTO_MORUS1280_SSE2
+	tristate "MORUS-1280 AEAD algorithm (x86_64 SSE2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_MORUS1280_GLUE
+	help
+	  SSE2 optimizedimplementation of the MORUS-1280 dedicated AEAD
+	  algorithm.
+
+config CRYPTO_MORUS1280_AVX2
+	tristate "MORUS-1280 AEAD algorithm (x86_64 AVX2 implementation)"
+	depends on X86 && 64BIT
+	select CRYPTO_AEAD
+	select CRYPTO_MORUS1280_GLUE
+	help
+	  AVX2 optimized implementation of the MORUS-1280 dedicated AEAD
+	  algorithm.
+
 config CRYPTO_SEQIV
 	tristate "Sequence Number IV Generator"
 	select CRYPTO_AEAD
@@ -321,6 +418,14 @@ config CRYPTO_CBC
 	help
 	  CBC: Cipher Block Chaining mode
 	  This block cipher algorithm is required for IPSec.
+
+config CRYPTO_CFB
+	tristate "CFB support"
+	select CRYPTO_BLKCIPHER
+	select CRYPTO_MANAGER
+	help
+	  CFB: Cipher FeedBack mode
+	  This block cipher algorithm is required for TPM2 Cryptography.
 
 config CRYPTO_CTR
 	tristate "CTR support"
@@ -387,6 +492,34 @@ config CRYPTO_KEYWRAP
 	help
 	  Support for key wrapping (NIST SP800-38F / RFC3394) without
 	  padding.
+
+config CRYPTO_NHPOLY1305
+	tristate
+	select CRYPTO_HASH
+	select CRYPTO_POLY1305
+
+config CRYPTO_ADIANTUM
+	tristate "Adiantum support"
+	select CRYPTO_CHACHA20
+	select CRYPTO_POLY1305
+	select CRYPTO_NHPOLY1305
+	help
+	  Adiantum is a tweakable, length-preserving encryption mode
+	  designed for fast and secure disk encryption, especially on
+	  CPUs without dedicated crypto instructions.  It encrypts
+	  each sector using the XChaCha12 stream cipher, two passes of
+	  an ε-almost-∆-universal hash function, and an invocation of
+	  the AES-256 block cipher on a single 16-byte block.  On CPUs
+	  without AES instructions, Adiantum is much faster than
+	  AES-XTS.
+
+	  Adiantum's security is provably reducible to that of its
+	  underlying stream and block ciphers, subject to a security
+	  bound.  Unlike XTS, Adiantum is a true wide-block encryption
+	  mode, so it actually provides an even stronger notion of
+	  security than XTS, subject to the security bound.
+
+	  If unsure, say N.
 
 comment "KDF modes"
 
@@ -503,6 +636,15 @@ config CRYPTO_CRC32_PCLMUL
 	  instruction. This option will create 'crc32-plcmul' module,
 	  which will enable any routine to use the CRC-32-IEEE 802.3 checksum
 	  and gain better performance as compared with the table implementation.
+
+config CRYPTO_CRC32_MIPS
+	tristate "CRC32c and CRC32 CRC algorithm (MIPS)"
+	depends on MIPS_CRC_SUPPORT
+	select CRYPTO_HASH
+	help
+	  CRC32c and CRC32 CRC algorithms implemented using mips crypto
+	  instructions, when available.
+
 
 config CRYPTO_CRCT10DIF
 	tristate "CRCT10DIF algorithm"
@@ -869,6 +1011,17 @@ config CRYPTO_SHA3
 	  References:
 	  http://keccak.noekeon.org/
 
+config CRYPTO_SM3
+	tristate "SM3 digest algorithm"
+	select CRYPTO_HASH
+	help
+	  SM3 secure hash function as defined by OSCCA GM/T 0004-2012 SM3).
+	  It is part of the Chinese Commercial Cryptography suite.
+
+	  References:
+	  http://www.oscca.gov.cn/UpFile/20101222141857786.pdf
+	  https://datatracker.ietf.org/doc/html/draft-shen-sm3-hash
+
 config CRYPTO_TGR192
 	tristate "Tiger digest algorithms"
 	select CRYPTO_HASH
@@ -1112,7 +1265,7 @@ config CRYPTO_BLOWFISH_COMMON
 config CRYPTO_BLOWFISH_X86_64
 	tristate "Blowfish cipher algorithm (x86_64)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_BLOWFISH_COMMON
 	help
 	  Blowfish cipher algorithm (x86_64), by Bruce Schneier.
@@ -1143,10 +1296,8 @@ config CRYPTO_CAMELLIA_X86_64
 	tristate "Camellia cipher algorithm (x86_64)"
 	depends on X86 && 64BIT
 	depends on CRYPTO
-	select CRYPTO_ALGAPI
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_GLUE_HELPER_X86
-	select CRYPTO_LRW
-	select CRYPTO_XTS
 	help
 	  Camellia cipher algorithm module (x86_64).
 
@@ -1162,12 +1313,10 @@ config CRYPTO_CAMELLIA_AESNI_AVX_X86_64
 	tristate "Camellia cipher algorithm (x86_64/AES-NI/AVX)"
 	depends on X86 && 64BIT
 	depends on CRYPTO
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
-	select CRYPTO_GLUE_HELPER_X86
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_CAMELLIA_X86_64
-	select CRYPTO_LRW
+	select CRYPTO_GLUE_HELPER_X86
+	select CRYPTO_SIMD
 	select CRYPTO_XTS
 	help
 	  Camellia cipher algorithm module (x86_64/AES-NI/AVX).
@@ -1184,14 +1333,7 @@ config CRYPTO_CAMELLIA_AESNI_AVX2_X86_64
 	tristate "Camellia cipher algorithm (x86_64/AES-NI/AVX2)"
 	depends on X86 && 64BIT
 	depends on CRYPTO
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
-	select CRYPTO_GLUE_HELPER_X86
-	select CRYPTO_CAMELLIA_X86_64
 	select CRYPTO_CAMELLIA_AESNI_AVX_X86_64
-	select CRYPTO_LRW
-	select CRYPTO_XTS
 	help
 	  Camellia cipher algorithm module (x86_64/AES-NI/AVX2).
 
@@ -1236,11 +1378,10 @@ config CRYPTO_CAST5
 config CRYPTO_CAST5_AVX_X86_64
 	tristate "CAST5 (CAST-128) cipher algorithm (x86_64/AVX)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
-	select CRYPTO_CAST_COMMON
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_CAST5
+	select CRYPTO_CAST_COMMON
+	select CRYPTO_SIMD
 	help
 	  The CAST5 encryption algorithm (synonymous with CAST-128) is
 	  described in RFC2144.
@@ -1259,13 +1400,11 @@ config CRYPTO_CAST6
 config CRYPTO_CAST6_AVX_X86_64
 	tristate "CAST6 (CAST-256) cipher algorithm (x86_64/AVX)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
-	select CRYPTO_GLUE_HELPER_X86
-	select CRYPTO_CAST_COMMON
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_CAST6
-	select CRYPTO_LRW
+	select CRYPTO_CAST_COMMON
+	select CRYPTO_GLUE_HELPER_X86
+	select CRYPTO_SIMD
 	select CRYPTO_XTS
 	help
 	  The CAST6 encryption algorithm (synonymous with CAST-256) is
@@ -1292,7 +1431,7 @@ config CRYPTO_DES_SPARC64
 config CRYPTO_DES3_EDE_X86_64
 	tristate "Triple DES EDE cipher algorithm (x86-64)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_DES
 	help
 	  Triple DES EDE (FIPS 46-3) algorithm.
@@ -1335,17 +1474,25 @@ config CRYPTO_SALSA20
 	  Bernstein <djb@cr.yp.to>. See <http://cr.yp.to/snuffle.html>
 
 config CRYPTO_CHACHA20
-	tristate "ChaCha20 cipher algorithm"
+	tristate "ChaCha stream cipher algorithms"
 	select CRYPTO_BLKCIPHER
 	help
-	  ChaCha20 cipher algorithm, RFC7539.
+	  The ChaCha20, XChaCha20, and XChaCha12 stream cipher algorithms.
 
 	  ChaCha20 is a 256-bit high-speed stream cipher designed by Daniel J.
 	  Bernstein and further specified in RFC7539 for use in IETF protocols.
-	  This is the portable C implementation of ChaCha20.
-
-	  See also:
+	  This is the portable C implementation of ChaCha20.  See also:
 	  <http://cr.yp.to/chacha/chacha-20080128.pdf>
+
+	  XChaCha20 is the application of the XSalsa20 construction to ChaCha20
+	  rather than to Salsa20.  XChaCha20 extends ChaCha20's nonce length
+	  from 64 bits (or 96 bits using the RFC7539 convention) to 192 bits,
+	  while provably retaining ChaCha20's security.  See also:
+	  <https://cr.yp.to/snuffle/xsalsa-20081128.pdf>
+
+	  XChaCha12 is XChaCha20 reduced to 12 rounds, with correspondingly
+	  reduced security margin but increased performance.  It can be needed
+	  in some performance-sensitive scenarios.
 
 config CRYPTO_CHACHA20_X86_64
 	tristate "ChaCha20 cipher algorithm (x86_64/SSSE3/AVX2)"
@@ -1392,13 +1539,10 @@ config CRYPTO_SERPENT
 config CRYPTO_SERPENT_SSE2_X86_64
 	tristate "Serpent cipher algorithm (x86_64/SSE2)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_GLUE_HELPER_X86
 	select CRYPTO_SERPENT
-	select CRYPTO_LRW
-	select CRYPTO_XTS
+	select CRYPTO_SIMD
 	help
 	  Serpent cipher algorithm, by Anderson, Biham & Knudsen.
 
@@ -1414,13 +1558,10 @@ config CRYPTO_SERPENT_SSE2_X86_64
 config CRYPTO_SERPENT_SSE2_586
 	tristate "Serpent cipher algorithm (i586/SSE2)"
 	depends on X86 && !64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_GLUE_HELPER_X86
 	select CRYPTO_SERPENT
-	select CRYPTO_LRW
-	select CRYPTO_XTS
+	select CRYPTO_SIMD
 	help
 	  Serpent cipher algorithm, by Anderson, Biham & Knudsen.
 
@@ -1436,12 +1577,10 @@ config CRYPTO_SERPENT_SSE2_586
 config CRYPTO_SERPENT_AVX_X86_64
 	tristate "Serpent cipher algorithm (x86_64/AVX)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_GLUE_HELPER_X86
 	select CRYPTO_SERPENT
-	select CRYPTO_LRW
+	select CRYPTO_SIMD
 	select CRYPTO_XTS
 	help
 	  Serpent cipher algorithm, by Anderson, Biham & Knudsen.
@@ -1458,14 +1597,7 @@ config CRYPTO_SERPENT_AVX_X86_64
 config CRYPTO_SERPENT_AVX2_X86_64
 	tristate "Serpent cipher algorithm (x86_64/AVX2)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
-	select CRYPTO_GLUE_HELPER_X86
-	select CRYPTO_SERPENT
 	select CRYPTO_SERPENT_AVX_X86_64
-	select CRYPTO_LRW
-	select CRYPTO_XTS
 	help
 	  Serpent cipher algorithm, by Anderson, Biham & Knudsen.
 
@@ -1478,17 +1610,28 @@ config CRYPTO_SERPENT_AVX2_X86_64
 	  See also:
 	  <http://www.cl.cam.ac.uk/~rja14/serpent.html>
 
-config CRYPTO_SPECK
-	tristate "Speck cipher algorithm"
+config CRYPTO_SM4
+	tristate "SM4 cipher algorithm"
 	select CRYPTO_ALGAPI
 	help
-	  Speck is a lightweight block cipher that is tuned for optimal
-	  performance in software (rather than hardware).
+	  SM4 cipher algorithms (OSCCA GB/T 32907-2016).
 
-	  Speck may not be as secure as AES, and should only be used on systems
-	  where AES is not fast enough.
+	  SM4 (GBT.32907-2016) is a cryptographic standard issued by the
+	  Organization of State Commercial Administration of China (OSCCA)
+	  as an authorized cryptographic algorithms for the use within China.
 
-	  See also: <https://eprint.iacr.org/2013/404.pdf>
+	  SMS4 was originally created for use in protecting wireless
+	  networks, and is mandated in the Chinese National Standard for
+	  Wireless LAN WAPI (Wired Authentication and Privacy Infrastructure)
+	  (GB.15629.11-2003).
+
+	  The latest SM4 standard (GBT.32907-2016) was proposed by OSCCA and
+	  standardized through TC 260 of the Standardization Administration
+	  of the People's Republic of China (SAC).
+
+	  The input, output, and key of SMS4 are each 128 bits.
+
+	  See also: <https://eprint.iacr.org/2008/329.pdf>
 
 	  If unsure, say N.
 
@@ -1565,12 +1708,10 @@ config CRYPTO_TWOFISH_X86_64
 config CRYPTO_TWOFISH_X86_64_3WAY
 	tristate "Twofish cipher algorithm (x86_64, 3-way parallel)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_TWOFISH_COMMON
 	select CRYPTO_TWOFISH_X86_64
 	select CRYPTO_GLUE_HELPER_X86
-	select CRYPTO_LRW
-	select CRYPTO_XTS
 	help
 	  Twofish cipher algorithm (x86_64, 3-way parallel).
 
@@ -1588,15 +1729,12 @@ config CRYPTO_TWOFISH_X86_64_3WAY
 config CRYPTO_TWOFISH_AVX_X86_64
 	tristate "Twofish cipher algorithm (x86_64/AVX)"
 	depends on X86 && 64BIT
-	select CRYPTO_ALGAPI
-	select CRYPTO_CRYPTD
-	select CRYPTO_ABLK_HELPER
+	select CRYPTO_BLKCIPHER
 	select CRYPTO_GLUE_HELPER_X86
+	select CRYPTO_SIMD
 	select CRYPTO_TWOFISH_COMMON
 	select CRYPTO_TWOFISH_X86_64
 	select CRYPTO_TWOFISH_X86_64_3WAY
-	select CRYPTO_LRW
-	select CRYPTO_XTS
 	help
 	  Twofish cipher algorithm (x86_64/AVX).
 
@@ -1626,11 +1764,11 @@ config CRYPTO_DISKCIPHER_DUN
 	 support Diskcipher use dun(device unit number)
 
 config CRYPTO_DISKCIPHER_DEBUG
-	bool "Diskcipher debug support"
+	bool "Diskcipher debugging"
 	default n
 	depends on CRYPTO_DISKCIPHER
 	help
-	 support Diskcipher debug
+	 support Diskcipher debugging
 
 comment "Compression"
 
@@ -1681,6 +1819,15 @@ config CRYPTO_LZ4HC
 	select LZ4_DECOMPRESS
 	help
 	  This is the LZ4 high compression mode algorithm.
+
+config CRYPTO_ZSTD
+	tristate "Zstd compression algorithm"
+	select CRYPTO_ALGAPI
+	select CRYPTO_ACOMP2
+	select ZSTD_COMPRESS
+	select ZSTD_DECOMPRESS
+	help
+	  This is the zstd algorithm.
 
 comment "Random Number Generation"
 

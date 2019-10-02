@@ -18,7 +18,7 @@
 /* SYSREG_VTS */
 #define VTS_DEBUG			(0x0404)
 #define VTS_DMIC_CLK_CTRL		(0x0408)
-#define VTS_HWACG_CM4_CLKREQ		(0x0428)
+#define VTS_HWACG_CM4_CLKREQ	(0x0428)
 #define VTS_DMIC_CLK_CON		(0x0434)
 #define VTS_SYSPOWER_CTRL		(0x0500)
 #define VTS_SYSPOWER_STATUS		(0x0504)
@@ -92,7 +92,7 @@
 #define VTS_CM4_R(x)			(0x0010 + (x * 0x4))
 #define VTS_CM4_PC			(0x0004)
 
-#if defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830)
 #define VTS_IRQ_VTS_ERROR               (0)
 #define VTS_IRQ_VTS_BOOT_COMPLETED      (1)
 #define VTS_IRQ_VTS_IPC_RECEIVED        (2)
@@ -104,6 +104,7 @@
 #define VTS_IRQ_VTS_AUDIO_DUMP          (8)
 #define VTS_IRQ_VTS_LOG_DUMP            (9)
 #define VTS_IRQ_COUNT                   (10)
+#define VTS_IRQ_VTS_SLIF_DUMP           (11)
 
 #define VTS_IRQ_AP_IPC_RECEIVED         (16)
 #define VTS_IRQ_AP_SET_DRAM_BUFFER      (17)
@@ -149,6 +150,13 @@
 #define VTS_IRQ_AP_TEST_COMMAND		(15)
 #endif
 
+#if defined(CONFIG_SOC_EXYNOS9830)
+#define VTS_DMIC_IF_ENABLE_DMIC_IF		(0x1000)
+#define VTS_DMIC_IF_ENABLE_DMIC_AUD0		(0x6)
+#define VTS_DMIC_IF_ENABLE_DMIC_AUD1		(0x7)
+#define VTS_DMIC_IF_ENABLE_DMIC_AUD2		(0x8)
+#endif
+
 #define VTS_IRQ_LIMIT			(32)
 
 #define VTS_BAAW_BASE			(0x60000000)
@@ -164,13 +172,26 @@
 #define SOUND_MODEL_SIZE_MAX (SZ_32K)
 #define SOUND_MODEL_COUNT (3)
 
+#if (defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830))
+#define SOUND_MODEL_SVOICE_OFFSET	(0xAA800)
+#define SOUND_MODEL_GOOGLE_OFFSET	(0xB2B00)
+#else
+#define SOUND_MODEL_SVOICE_OFFSET	(0x2A800)
+#define SOUND_MODEL_SVOICE_OFFSET	(0x32B00)
+#endif
+
 /* DRAM for copying VTS firmware logs */
 #define LOG_BUFFER_BYTES_MAX	(0x2000)
 #define VTS_SRAMLOG_MSGS_OFFSET (0x59000)
 
 /* VTS firmware version information offset */
+#if defined(CONFIG_SOC_EXYNOS9830)
+#define VTSFW_VERSION_OFFSET	(0x9c)
+#define DETLIB_VERSION_OFFSET	(0x98)
+#else
 #define VTSFW_VERSION_OFFSET	(0x7c)
 #define DETLIB_VERSION_OFFSET	(0x78)
+#endif
 
 /* svoice net(0x8000) & grammar(0x300) binary sizes defined in firmware */
 #define SOUND_MODEL_SVOICE_SIZE_MAX (0x8000 + 0x300)
@@ -242,6 +263,8 @@ enum vts_dump_type {
 };
 
 enum vts_test_command {
+	VTS_START_SLIFDUMP	= 0x00000010,
+	VTS_STOP_SLIFDUMP	= 0x00000020,
 	VTS_DISABLE_LOGDUMP	= 0x01000000,
 	VTS_ENABLE_LOGDUMP	= 0x02000000,
 	VTS_DISABLE_AUDIODUMP	= 0x04000000,
@@ -303,7 +326,7 @@ struct vts_data {
 	void __iomem *baaw_base;
 	void __iomem *sram_base;
 	void __iomem *dmic_base;
-#if defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830)
 	void __iomem *dmic_3rd_base;
 #endif
 	void __iomem *gpr_base;
@@ -359,12 +382,15 @@ struct vts_data {
 	struct vts_model_bin_info svoice_info;
 	struct vts_model_bin_info google_info;
 	spinlock_t state_spinlock;
+	struct notifier_block pm_nb;
 	struct vts_dbg_dump p_dump[VTS_DUMP_LAST];
+	bool slif_dump_enabled;
 };
 
 struct vts_platform_data {
 	unsigned int id;
 	struct platform_device *pdev_vts;
+	struct device *dev;
 	struct vts_data *vts_data;
 	struct snd_pcm_substream *substream;
 	enum vts_platform_type type;
@@ -373,10 +399,11 @@ struct vts_platform_data {
 
 extern int vts_start_ipc_transaction(struct device *dev, struct vts_data *data,
 		int msg, u32 (*values)[3], int atomic, int sync);
-
+extern int vts_try_request_firmware_interface(struct vts_data *data);
 extern int vts_send_ipc_ack(struct vts_data *data, u32 result);
 extern void vts_register_dma(struct platform_device *pdev_vts,
 		struct platform_device *pdev_vts_dma, unsigned int id);
 extern int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable);
 extern int vts_sound_machine_drv_register(void);
+extern void vts_pad_retention(bool retention);
 #endif /* __SND_SOC_VTS_H */

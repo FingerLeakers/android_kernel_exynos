@@ -109,10 +109,33 @@ void writel_phys(unsigned int val, phys_addr_t addr)
 
 bool is_secure_gic(void)
 {
-	pr_debug("%s: %08x, %08x\n", __func__, readl_phys(0x10000000),
-			readl_phys(0x10000010));
-	return (readl_phys(0x10000000) == 0xE8895000) &&
-			(readl_phys(0x10000010) == 0x0);
+	const unsigned int PRODUCT_ID = 0x10000000;
+	const unsigned int CHIPID_REV = 0x10000010;
+	static bool cached, secure;
+	unsigned int pid, rev;
+
+	if (cached)
+		return secure;
+
+	pid = readl_phys(PRODUCT_ID);
+	rev = readl_phys(CHIPID_REV) >> 16;
+
+	pr_debug("%s: %08x, %08x\n", __func__, pid, rev);
+
+	switch (pid) {
+	case 0xe8895000:
+		secure = (rev == 0x0);
+		break;
+	case 0xe9830000:
+		secure = (rev > 0x0);
+		break;
+	default:
+		secure = false;
+		break;
+	}
+	cached = true;
+
+	return secure;
 }
 
 u64 width_range_to_bits(unsigned int width_min, unsigned int width_max)
@@ -141,6 +164,35 @@ u64 width_range_to_bits(unsigned int width_min, unsigned int width_max)
 char substream_to_char(struct snd_pcm_substream *substream)
 {
 	return (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) ? 'p' : 'c';
+}
+
+struct property *of_samsung_find_property(struct device *dev,
+		const struct device_node *np,
+		const char *propname, int *lenp)
+{
+	char *name;
+	struct property *ret;
+
+	name = kasprintf(GFP_KERNEL, "samsung,%s", propname);
+	ret = of_find_property(np, name, lenp);
+	if (IS_ERR_OR_NULL(ret))
+		dev_dbg(dev, "Failed to find %s: %ld\n", name, PTR_ERR(ret));
+	kfree(name);
+
+	return ret;
+}
+
+bool of_samsung_property_read_bool(struct device *dev,
+		const struct device_node *np, const char *propname)
+{
+	char *name;
+	bool ret;
+
+	name = kasprintf(GFP_KERNEL, "samsung,%s", propname);
+	ret = of_property_read_bool(np, name);
+	kfree(name);
+
+	return ret;
 }
 
 int of_samsung_property_read_u32(struct device *dev,
@@ -196,4 +248,28 @@ void cache_firmware_simple(const struct firmware *fw, void *context)
 		release_firmware(*p_firmware);
 
 	*p_firmware = fw;
+}
+
+void *rmem_vmap(const struct reserved_mem *rmem)
+{
+	phys_addr_t phys = rmem->base;
+	size_t size = rmem->size;
+	unsigned int num_pages = (unsigned int)DIV_ROUND_UP(size, PAGE_SIZE);
+	pgprot_t prot = pgprot_writecombine(PAGE_KERNEL);
+	struct page **pages, **page;
+	void *vaddr = NULL;
+
+	pages = kcalloc(num_pages, sizeof(pages[0]), GFP_KERNEL);
+	if (!pages)
+		goto out;
+
+	for (page = pages; (page - pages < num_pages); page++) {
+		*page = phys_to_page(phys);
+		phys += PAGE_SIZE;
+	}
+
+	vaddr = vmap(pages, num_pages, VM_MAP, prot);
+	kfree(pages);
+out:
+	return vaddr;
 }

@@ -18,6 +18,32 @@ static unsigned int margin;
 static unsigned int debug_freq;
 
 extern unsigned int dbg_offset;
+static unsigned int cmu_top_base = 0x0;
+
+/*
+blk_hwacg_feature : It will print all the gate clocks of the specified block.
+parameters:
+addr : address of the block
+*/
+void blk_hwacg_feature(unsigned long addr)
+{
+	struct cmucal_clk *clk;
+	int size, reg;
+	int i;
+
+	size = cmucal_get_list_size(GATE_TYPE);
+	for (i = 0; i < size ; i++) {
+		clk = cmucal_get_node(i | GATE_TYPE);
+		if (clk &&((clk->paddr & 0xFFFF0000) == (addr & 0xFFFF0000)))
+		{
+			reg = readl(clk->offset + dbg_offset);
+			if ((reg & 0x70) != 0x30)
+				printk("name %s : [0x%x] active\n", clk->name, reg);
+			else
+				printk("name %s : [0x%x] idle\n", clk->name, reg);
+		}
+	}
+}
 
 void print_clk_on_blk(void)
 {
@@ -25,14 +51,19 @@ void print_clk_on_blk(void)
 	int size, reg;
 	int i;
 
+	if (cmu_top_base == 0x0) {
+		pr_info("cmu_top_base is NULL\n");
+		return ;
+	}
+
 	size = cmucal_get_list_size(PLL_TYPE);
 	for (i = 0; i < size ; i++) {
 		clk = cmucal_get_node(i | PLL_TYPE);
-		if (!clk || (clk->paddr & 0xFFFF0000) != 0x15a80000)
+		if (!clk || (clk->paddr & 0xFFFF0000) != cmu_top_base)
 			continue;
 
-		reg = readl((clk->pll_con0 - 0xE0) + dbg_offset);
-		if (((reg >> 4) & 0x7) != 0x3)
+		reg = readl(clk->pll_con0);
+		if ((reg >> 29) & 0x1)
 			printk("name %s : [0x%x] active\n", clk->name, reg);
 		else
 			printk("name %s : [0x%x] idle\n", clk->name, reg);
@@ -42,11 +73,11 @@ void print_clk_on_blk(void)
 
 	for (i = 0; i < size ; i++) {
 		clk = cmucal_get_node(i | GATE_TYPE);
-		if (!clk || (clk->paddr & 0xFFFF0000) != 0x15a80000)
+		if (!clk || (clk->paddr & 0xFFFF0000) != cmu_top_base)
 			continue;
 
 		reg = readl(clk->offset + dbg_offset);
-		if ((reg & 0x7) != 0x3)
+		if ((reg & 0x70) != 0x30)
 			printk("name %s : [0x%x] active\n", clk->name, reg);
 		else
 			printk("name %s : [0x%x] idle\n", clk->name, reg);
@@ -67,7 +98,7 @@ static int vclk_table_dump(struct seq_file *s, void *p)
 		clk = cmucal_get_node(vclk->list[i]);
 		if (!clk)
 			continue;
-		seq_printf(s, " [%s] value : %u rate : %u\n",
+		seq_printf(s, " [%s] value : %lu rate : %u\n",
 			   clk->name,
 			   ra_get_value(clk->id),
 			   vclk_debug_clk_get_rate(clk->id));
@@ -124,7 +155,7 @@ vclk_read_clk_info(struct file *filp, char __user *ubuf,
 		r = sprintf(buf, "clk name : %s\n"
 				 " id      : 0x%x\n"
 				 " rate    : %u \n"
-				 " value   : %u\n"
+				 " value   : %lu\n"
 				 " path    :\n", clk->name, clk->id,
 				 vclk_debug_clk_get_rate(clk->id),
 				 ra_get_value(clk->id));
@@ -144,9 +175,12 @@ vclk_write_clk_info(struct file *filp, const char __user *ubuf,
 		   size_t cnt, loff_t *ppos)
 {
 	char buf[MAX_NAME_SIZE + 1];
+	char *c_buf;
 	unsigned int id;
+	unsigned long c_addr;
 	size_t ret;
 
+	c_buf = buf;
 	ret = cnt;
 
 	if (cnt == 0)
@@ -165,6 +199,9 @@ vclk_write_clk_info(struct file *filp, const char __user *ubuf,
 
 	if (!strcmp(buf, "hwacg")) {
 		print_clk_on_blk();
+	} else if(!strcmp(strsep(&c_buf," "),"blk_hwacg")) {
+		if (kstrtol(strsep(&c_buf," "), 16, &c_addr) == 0)
+			blk_hwacg_feature(c_addr);
 	} else {
 		id = cmucal_get_id(buf);
 		clk_info = cmucal_get_node(id);
@@ -249,7 +286,7 @@ vclk_write_set_margin(struct file *filp, const char __user *ubuf,
 		return len;
 
 	buf[len] = '\0';
-	if (!kstrtoint(buf, 0, &volt)) {
+	if (dvfs_domain && !kstrtoint(buf, 0, &volt)) {
 		margin = volt;
 		cal_dfs_set_volt_margin(dvfs_domain->id, volt);
 	}
@@ -282,7 +319,7 @@ vclk_write_set_freq(struct file *filp, const char __user *ubuf,
 		return len;
 
 	buf[len] = '\0';
-	if (!kstrtoint(buf, 0, &freq)) {
+	if (dvfs_domain && !kstrtoint(buf, 0, &freq)) {
 		debug_freq = freq;
 		cal_dfs_set_rate(dvfs_domain->id, freq);
 	}
@@ -381,9 +418,9 @@ unsigned int vclk_debug_clk_get_rate(unsigned int id)
 }
 EXPORT_SYMBOL_GPL(vclk_debug_clk_get_rate);
 
-unsigned int vclk_debug_clk_get_value(unsigned int id)
+unsigned long vclk_debug_clk_get_value(unsigned int id)
 {
-	unsigned int val;
+	unsigned long val;
 
 	val = ra_get_value(id);
 
@@ -401,6 +438,12 @@ int vclk_debug_clk_set_value(unsigned int id, unsigned int params)
 }
 EXPORT_SYMBOL_GPL(vclk_debug_clk_set_value);
 
+void cmucal_dbg_set_cmu_top_base(u32 base_addr)
+{
+	cmu_top_base = base_addr;
+	pr_info("cmu_top_base : 0x%x\n", base_addr);
+}
+EXPORT_SYMBOL_GPL(cmucal_dbg_set_cmu_top_base);
 /**
  * vclk_debug_init - lazily create the debugfs clk tree visualization
  */
@@ -417,6 +460,13 @@ static int __init vclk_debug_init(void)
 
 	for (i = 0; i < cmucal_get_list_size(VCLK_TYPE); i++) {
 		vclk = cmucal_get_node(i | VCLK_TYPE);
+		if (!vclk)
+			continue;
+		vclk_debug_create_one(vclk, rootdir);
+	}
+
+	for (i = 0; i < cmucal_get_list_size(ACPM_VCLK_TYPE); i++) {
+		vclk = cmucal_get_node(i | ACPM_VCLK_TYPE);
 		if (!vclk)
 			continue;
 		vclk_debug_create_one(vclk, rootdir);

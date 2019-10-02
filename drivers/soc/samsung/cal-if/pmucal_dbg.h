@@ -19,6 +19,12 @@ enum PMUCAL_DBG_BLOCK {
 	NUM_BLKS,
 };
 
+struct pmucal_latency {
+	u64 min;
+	u64 avg;
+	u64 max;
+};
+
 struct pmucal_dbg_info {
 	u32 block_id;
 	void *pmucal_data;
@@ -26,15 +32,19 @@ struct pmucal_dbg_info {
 	u32 emul_bit;
 	u32 emul_en;
 	u32 emul_enabled;
+	spinlock_t profile_lock;
+	/* on/off latency profile - Pure PMU latency (FullSWPMU) */
+	bool profile_started;
 	u32 latency_offset;
-	u64 on_latency_min;
-	u64 on_latency_avg;
-	u64 on_latency_max;
-	u64 on_cnt;
-	u64 off_latency_min;
-	u64 off_latency_avg;
-	u64 off_latency_max;
 	u64 off_cnt;
+	struct pmucal_latency on;
+	struct pmucal_latency* on1;
+	struct pmucal_latency off;
+	struct pmucal_latency* off1;
+	/* aux latency profile - Kernel / EL3-Mon / FlexPMU */
+	u32 aux_offset;
+	u32 aux_size;
+	struct pmucal_latency *aux;
 };
 
 #ifdef CONFIG_PMUCAL_DBG

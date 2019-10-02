@@ -42,13 +42,23 @@
 #define IOVA_COMPR_BUFFER(x)		(IOVA_COMPR_BUFFER_BASE + (SZ_1M * x))
 #define IOVA_VDMA_BUFFER_BASE		(0x94000000)
 #define IOVA_VDMA_BUFFER(x)		(IOVA_VDMA_BUFFER_BASE + (SZ_1M * x))
+#define IOVA_DUAL_BUFFER_BASE		(0x95000000)
+#define IOVA_DUAL_BUFFER(x)		(IOVA_DDMA_BUFFER_BASE + (SZ_1M * x))
+#define IOVA_DDMA_BUFFER_BASE		(0x96000000)
+#define IOVA_DDMA_BUFFER(x)		(IOVA_DDMA_BUFFER_BASE + (SZ_1M * x))
 #define IOVA_VSS_FIRMWARE		(0xA0000000)
 #define IOVA_VSS_PARAMETER		(0xA1000000)
+#define IOVA_VSS_PCI			(0xA2000000)
+#define IOVA_VSS_PCI_DOORBELL		(0xA3000000)
 #define IOVA_DUMP_BUFFER		(0xD0000000)
-#define IOVA_PRIVATE			(0xE0000000)
-#define PRIVATE_SIZE			(SZ_8M)
+#define IOVA_SILENT_LOG			(0xE0000000)
 #define PHSY_VSS_FIRMWARE		(0xFEE00000)
 #define PHSY_VSS_SIZE			(SZ_4M + SZ_2M)
+
+#define ABOX_LOG_OFFSET			(0xb00000)
+#define ABOX_LOG_SIZE			(SZ_1M)
+#define ABOX_PCI_DOORBELL_OFFSET	(0x10000)
+#define ABOX_PCI_DOORBELL_SIZE		(SZ_16K)
 
 #define AUD_PLL_RATE_HZ_FOR_48000	(1179648040)
 #define AUD_PLL_RATE_HZ_FOR_44100	(1083801600)
@@ -69,9 +79,7 @@
 #define ABOX_SAMPLING_RATES (SNDRV_PCM_RATE_KNOT)
 #define ABOX_SAMPLE_FORMATS (SNDRV_PCM_FMTBIT_S16\
 		| SNDRV_PCM_FMTBIT_S24\
-		| SNDRV_PCM_FMTBIT_S32)
-#define ABOX_WDMA_SAMPLE_FORMATS (SNDRV_PCM_FMTBIT_S16\
-		| SNDRV_PCM_FMTBIT_S24\
+		| SNDRV_PCM_FMTBIT_S24_3LE\
 		| SNDRV_PCM_FMTBIT_S32)
 
 #define ABOX_SUPPLEMENT_SIZE (SZ_128)
@@ -84,6 +92,9 @@
 		((minor + '0') << 0))
 
 enum abox_dai {
+	ABOX_NONE,
+	ABOX_SIFSM,
+	ABOX_SIFST,
 	ABOX_RDMA0 = 0x10,
 	ABOX_RDMA1,
 	ABOX_RDMA2,
@@ -104,18 +115,55 @@ enum abox_dai {
 	ABOX_WDMA5,
 	ABOX_WDMA6,
 	ABOX_WDMA7,
-	ABOX_UAIF0 = 0x30,
+	ABOX_WDMA0_DUAL,
+	ABOX_WDMA1_DUAL,
+	ABOX_WDMA2_DUAL,
+	ABOX_WDMA3_DUAL,
+	ABOX_WDMA4_DUAL,
+	ABOX_WDMA5_DUAL,
+	ABOX_WDMA6_DUAL,
+	ABOX_WDMA7_DUAL,
+	ABOX_DDMA0 = 0x30,
+	ABOX_DDMA1,
+	ABOX_DDMA2,
+	ABOX_DDMA3,
+	ABOX_DDMA4,
+	ABOX_DDMA5,
+	ABOX_UAIF0 = 0x40,
 	ABOX_UAIF1,
 	ABOX_UAIF2,
 	ABOX_UAIF3,
 	ABOX_UAIF4,
+	ABOX_UAIF5,
+	ABOX_UAIF6,
 	ABOX_DSIF,
-	ABOX_SIFS0 = 0x40, /* Virtual DAI */
+	ABOX_RDMA0_BE = 0x50,
+	ABOX_RDMA1_BE,
+	ABOX_RDMA2_BE,
+	ABOX_RDMA3_BE,
+	ABOX_RDMA4_BE,
+	ABOX_RDMA5_BE,
+	ABOX_RDMA6_BE,
+	ABOX_RDMA7_BE,
+	ABOX_RDMA8_BE,
+	ABOX_RDMA9_BE,
+	ABOX_RDMA10_BE,
+	ABOX_RDMA11_BE,
+	ABOX_WDMA0_BE = 0x60,
+	ABOX_WDMA1_BE,
+	ABOX_WDMA2_BE,
+	ABOX_WDMA3_BE,
+	ABOX_WDMA4_BE,
+	ABOX_WDMA5_BE,
+	ABOX_WDMA6_BE,
+	ABOX_WDMA7_BE,
+	ABOX_SIFS0 = 0x70, /* Virtual DAI */
 	ABOX_SIFS1, /* Virtual DAI */
 	ABOX_SIFS2, /* Virtual DAI */
 	ABOX_SIFS3, /* Virtual DAI */
 	ABOX_SIFS4, /* Virtual DAI */
-	ABOX_RSRC0 = 0x50, /* Virtual DAI */
+	ABOX_SIFS5, /* Virtual DAI */
+	ABOX_RSRC0 = 0x80, /* Virtual DAI */
 	ABOX_RSRC1, /* Virtual DAI */
 	ABOX_NSRC0, /* Virtual DAI */
 	ABOX_NSRC1, /* Virtual DAI */
@@ -124,9 +172,71 @@ enum abox_dai {
 	ABOX_NSRC4, /* Virtual DAI */
 	ABOX_NSRC5, /* Virtual DAI */
 	ABOX_NSRC6, /* Virtual DAI */
+	ABOX_NSRC7, /* Virtual DAI */
+	ABOX_USB = 0x90, /* Virtual DAI */
+	ABOX_BI_PDI0 = 0x100,
+	ABOX_BI_PDI1,
+	ABOX_BI_PDI2,
+	ABOX_BI_PDI3,
+	ABOX_BI_PDI4,
+	ABOX_BI_PDI5,
+	ABOX_BI_PDI6,
+	ABOX_BI_PDI7,
+	ABOX_TX_PDI0 = 0x110,
+	ABOX_TX_PDI1,
+	ABOX_TX_PDI2,
+	ABOX_RX_PDI0 = 0x120,
+	ABOX_RX_PDI1
 };
 
 #define ABOX_DAI_COUNT (ABOX_RSRC0 - ABOX_UAIF0)
+
+enum abox_widget {
+	ABOX_WIDGET_SPUS_IN0,
+	ABOX_WIDGET_SPUS_IN1,
+	ABOX_WIDGET_SPUS_IN2,
+	ABOX_WIDGET_SPUS_IN3,
+	ABOX_WIDGET_SPUS_IN4,
+	ABOX_WIDGET_SPUS_IN5,
+	ABOX_WIDGET_SPUS_IN6,
+	ABOX_WIDGET_SPUS_IN7,
+	ABOX_WIDGET_SPUS_IN8,
+	ABOX_WIDGET_SPUS_IN9,
+	ABOX_WIDGET_SPUS_IN10,
+	ABOX_WIDGET_SPUS_IN11,
+	ABOX_WIDGET_SPUS_ASRC0,
+	ABOX_WIDGET_SPUS_ASRC1,
+	ABOX_WIDGET_SPUS_ASRC2,
+	ABOX_WIDGET_SPUS_ASRC3,
+	ABOX_WIDGET_SPUS_ASRC4,
+	ABOX_WIDGET_SPUS_ASRC5,
+	ABOX_WIDGET_SPUS_ASRC6,
+	ABOX_WIDGET_SPUS_ASRC7,
+	ABOX_WIDGET_SPUS_ASRC8,
+	ABOX_WIDGET_SPUS_ASRC9,
+	ABOX_WIDGET_SPUS_ASRC10,
+	ABOX_WIDGET_SPUS_ASRC11,
+	ABOX_WIDGET_SIFS0,
+	ABOX_WIDGET_SIFS1,
+	ABOX_WIDGET_SIFS2,
+	ABOX_WIDGET_SIFS3,
+	ABOX_WIDGET_SIFS4,
+	ABOX_WIDGET_SIFS5,
+	ABOX_WIDGET_NSRC0,
+	ABOX_WIDGET_NSRC1,
+	ABOX_WIDGET_NSRC2,
+	ABOX_WIDGET_NSRC3,
+	ABOX_WIDGET_NSRC4,
+	ABOX_WIDGET_SPUM_ASRC0,
+	ABOX_WIDGET_SPUM_ASRC1,
+	ABOX_WIDGET_SPUM_ASRC2,
+	ABOX_WIDGET_SPUM_ASRC3,
+	ABOX_WIDGET_SPUM_ASRC4,
+	ABOX_WIDGET_SPUM_ASRC5,
+	ABOX_WIDGET_SPUM_ASRC6,
+	ABOX_WIDGET_SPUM_ASRC7,
+	ABOX_WIDGET_COUNT,
+};
 
 enum calliope_state {
 	CALLIOPE_DISABLED,
@@ -160,15 +270,12 @@ enum qchannel {
 	ABOX_BCLK_UAIF1,
 	ABOX_BCLK_UAIF2,
 	ABOX_BCLK_UAIF3,
+	ABOX_BCLK_UAIF4,
+	ABOX_BCLK_UAIF5,
+	ABOX_BCLK_UAIF6,
 	ABOX_BCLK_DSIF,
-	ABOX_CCLK_ATB,
 	ABOX_CCLK_ASB,
 };
-
-#define ABOX_QUIRK_BIT_TRY_TO_ASRC_OFF	(1 << 0)
-#define ABOX_QUIRK_BIT_SHARE_VTS_SRAM	(1 << 1)
-#define ABOX_QUIRK_STR_TRY_TO_ASRC_OFF	"try to asrc off"
-#define ABOX_QUIRK_STR_SHARE_VTS_SRAM	"share vts sram"
 
 struct abox_ipc {
 	struct device *dev;
@@ -203,11 +310,20 @@ struct abox_dram_request {
 
 struct abox_extra_firmware {
 	struct list_head list;
+	struct mutex lock;
 	const struct firmware *firmware;
-	const char *name;
-	u32 area;
-	u32 offset;
-	int kcontrol;
+	char name[SZ_32];
+	unsigned int idx;
+	unsigned int area;
+	unsigned int offset;
+	unsigned int iova;
+	bool kcontrol;
+	bool changable;
+};
+
+struct abox_event_notifier {
+	void *priv;
+	int (*notify)(void *priv, bool en);
 };
 
 struct abox_component {
@@ -225,7 +341,7 @@ struct abox_component_kcontrol_value {
 };
 
 struct abox_data {
-	struct platform_device *pdev;
+	struct device *dev;
 	struct snd_soc_component *cmpnt;
 	struct regmap *regmap;
 	struct regmap *timer_regmap;
@@ -239,30 +355,27 @@ struct abox_data {
 	dma_addr_t dram_base_phys;
 	void *dump_base;
 	phys_addr_t dump_base_phys;
-	void *priv_base;
-	phys_addr_t priv_base_phys;
+	void *slog_base;
+	phys_addr_t slog_base_phys;
+	size_t slog_size;
 	struct iommu_domain *iommu_domain;
-	unsigned int ipc_tx_offset;
-	unsigned int ipc_rx_offset;
-	unsigned int ipc_tx_ack_offset;
-	unsigned int ipc_rx_ack_offset;
 	void *ipc_tx_addr;
 	size_t ipc_tx_size;
 	void *ipc_rx_addr;
 	size_t ipc_rx_size;
+	void *shm_addr;
+	size_t shm_size;
 	struct abox2host_hndshk_tag *hndshk_tag;
 	int clk_diff_ppb;
-	int ipc_version;
 	unsigned int if_count;
 	unsigned int rdma_count;
 	unsigned int wdma_count;
 	unsigned int calliope_version;
 	struct list_head firmware_extra;
 	struct device *dev_gic;
-	struct platform_device *pdev_if[8];
-	struct platform_device *pdev_rdma[16];
-	struct platform_device *pdev_wdma[16];
-	struct platform_device *pdev_vts;
+	struct device *dev_if[8];
+	struct device *dev_rdma[16];
+	struct device *dev_wdma[16];
 	struct workqueue_struct *ipc_workqueue;
 	struct work_struct ipc_work;
 	struct abox_ipc ipc_queue[ABOX_IPC_QUEUE_SIZE];
@@ -288,10 +401,7 @@ struct abox_data {
 	unsigned int sif_rate[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
 	snd_pcm_format_t sif_format[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
 	unsigned int sif_channels[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
-	unsigned int sif_rate_min[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
-	snd_pcm_format_t sif_format_min[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
-	unsigned int sif_channels_min[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
-	bool sif_auto_config[SET_SIFS0_FORMAT - SET_SIFS0_RATE];
+	struct abox_event_notifier event_notifier[ABOX_WIDGET_COUNT];
 	int apf_coef[2][16];
 	struct work_struct register_component_work;
 	struct abox_component components[16];
@@ -311,76 +421,12 @@ struct abox_data {
 	int pm_qos_aud[5];
 	struct work_struct restore_data_work;
 	struct work_struct boot_done_work;
+	struct delayed_work boot_clear_work;
 	struct delayed_work wdt_work;
 	unsigned long long audio_mode_time;
 	enum audio_mode audio_mode;
 	enum sound_type sound_type;
 	struct wakeup_source ws;
-};
-
-struct abox_compr_data {
-	/* compress offload */
-	struct snd_compr_stream *cstream;
-
-	void *dma_area;
-	size_t dma_size;
-	dma_addr_t dma_addr;
-
-	unsigned int block_num;
-	unsigned int handle_id;
-	unsigned int codec_id;
-	unsigned int channels;
-	unsigned int sample_rate;
-
-	unsigned int byte_offset;
-	u64 copied_total;
-	u64 received_total;
-
-	bool start;
-	bool eos;
-	bool created;
-	bool bespoke_start;
-	bool dirty;
-
-	bool effect_on;
-
-	wait_queue_head_t flush_wait;
-	wait_queue_head_t exit_wait;
-	wait_queue_head_t ipc_wait;
-
-	uint32_t stop_ack;
-	uint32_t exit_ack;
-
-	spinlock_t lock;
-	struct mutex cmd_lock;
-
-	int (*isr_handler)(void *data);
-
-	struct snd_compr_params codec_param;
-
-	/* effect offload */
-	unsigned int out_sample_rate;
-};
-
-enum abox_platform_type {
-	PLATFORM_NORMAL,
-	PLATFORM_CALL,
-	PLATFORM_COMPRESS,
-	PLATFORM_REALTIME,
-	PLATFORM_VI_SENSING,
-	PLATFORM_SYNC,
-};
-
-enum abox_buffer_type {
-	BUFFER_TYPE_DMA,
-	BUFFER_TYPE_ION,
-};
-
-enum abox_rate {
-	RATE_SUHQA,
-	RATE_UHQA,
-	RATE_NORMAL,
-	RATE_COUNT,
 };
 
 /**
@@ -392,21 +438,6 @@ enum abox_rate {
 static inline bool abox_test_quirk(struct abox_data *data, unsigned long quirk)
 {
 	return !!(data->quirks & quirk);
-}
-
-/**
- * Get sampling rate type
- * @param[in]	rate		sampling rate in Hz
- * @return	rate type in enum abox_rate
- */
-static inline enum abox_rate abox_get_rate_type(unsigned int rate)
-{
-	if (rate < 176400)
-		return RATE_NORMAL;
-	else if (rate >= 176400 && rate <= 192000)
-		return RATE_UHQA;
-	else
-		return RATE_SUHQA;
 }
 
 /**
@@ -432,8 +463,6 @@ static inline u32 abox_get_format(u32 width, u32 channels)
 	default:
 		break;
 	}
-
-	pr_debug("%s(%u, %u): %u\n", __func__, width, channels, ret);
 
 	return ret;
 }
@@ -468,57 +497,6 @@ static inline int abox_ipcid_to_stream(enum IPC_ID ipcid)
 		return -EINVAL;
 }
 
-struct abox_dma_of_data {
-	enum abox_dai (*get_dai_id)(int id);
-	const char *(*get_dai_name)(struct device *dev, int id);
-	const char *(*get_str_name)(struct device *dev, int id, int stream);
-	struct snd_soc_dai_driver *base_dai_drv;
-};
-
-struct abox_ion_buf {
-	size_t size;
-	size_t align;
-	void *ctx;
-	void *kvaddr;
-	void *kva;
-	dma_addr_t iova;
-	struct sg_table *sgt;
-
-	struct dma_buf *dma_buf;
-	struct dma_buf_attachment *attachment;
-	enum dma_data_direction direction;
-	int fd;
-
-	void *priv;
-};
-
-struct abox_platform_data {
-	struct platform_device *pdev;
-	void __iomem *sfr_base;
-	void __iomem *mailbox_base;
-	unsigned int id;
-	unsigned int pointer;
-	int pm_qos_cl0[RATE_COUNT];
-	int pm_qos_cl1[RATE_COUNT];
-	int pm_qos_cl2[RATE_COUNT];
-	struct device *dev_abox;
-	struct abox_data *abox_data;
-	struct snd_pcm_substream *substream;
-	enum abox_platform_type type;
-	struct snd_dma_buffer dmab;
-	struct abox_ion_buf ion_buf;
-	struct snd_hwdep *hwdep;
-	bool mmap_fd_state;
-	enum abox_buffer_type buf_type;
-	bool ack_enabled;
-	struct abox_compr_data compr_data;
-	struct regmap *mailbox;
-	struct snd_soc_component *cmpnt;
-	struct snd_soc_dai_driver *dai_drv;
-	const struct abox_dma_of_data *of_data;
-	struct miscdevice misc_dev;
-};
-
 /**
  * test given device is abox or not
  * @param[in]
@@ -531,6 +509,13 @@ extern bool is_abox(struct device *dev);
  * @return		pointer to abox_data
  */
 extern struct abox_data *abox_get_abox_data(void);
+
+/**
+ * get pointer to abox_data
+ * @param[in]	dev	pointer to struct dev which invokes this API
+ * @return		pointer to abox_data
+ */
+extern struct abox_data *abox_get_data(struct device *dev);
 
 /**
  * get physical address from abox virtual address
@@ -655,6 +640,20 @@ static inline int abox_request_cl2_freq_dai(struct device *dev,
 
 	return abox_qos_request_cl2(dev, id, freq, dai->name);
 }
+
+/**
+ * Register an notifier to power change notification chain
+ * @param[in]	nb		new entry in notifier chain
+ * @return	error code if any
+ */
+int abox_power_notifier_register(struct notifier_block *nb);
+
+/**
+ * Unregister an notifier from power change notification chain
+ * @param[in]	nb		entry in notifier chain
+ * @return	error code if any
+ */
+int abox_power_notifier_unregister(struct notifier_block *nb);
 
 /**
  * Register uaif to abox

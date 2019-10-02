@@ -27,11 +27,14 @@
 #include <linux/usb/exynos_usb_audio.h>
 #endif
 #include "dwc3-exynos.h"
+#if defined(CONFIG_IF_CB_MANAGER)
+#include <linux/usb/typec/manager/if_cb_manager.h>
+#endif
 
 struct dwc3_ext_otg_ops {
 	int	(*setup)(struct device *dev, struct otg_fsm *fsm);
 	void	(*exit)(struct device *dev);
-	int	(*start) (struct device *dev);
+	int	(*start)(struct device *dev);
 	void	(*stop)(struct device *dev);
 };
 
@@ -67,12 +70,19 @@ struct dwc3_otg {
 	int			pm_qos_int_val;
 
 	struct dwc3_ext_otg_ops *ext_otg_ops;
-	
-	int			dp_use_informed;
+#if defined(CONFIG_TYPEC)
+	struct intf_typec	*typec;
+#endif
+	struct notifier_block	pm_nb;
 	struct completion	resume_cmpl;
 	int			dwc3_suspended;
-	struct			mutex lock;
-	u32			combo_phy_control;
+
+	struct mutex lock;
+	u32 combo_phy_control;
+#if defined(CONFIG_IF_CB_MANAGER)
+	struct usb_dev 	*usb_d;
+	struct if_cb_manager	*man;
+#endif
 };
 
 static inline int dwc3_ext_otg_setup(struct dwc3_otg *dotg)
@@ -118,6 +128,7 @@ int dwc3_exynos_rsw_setup(struct device *dev, struct otg_fsm *fsm);
 void dwc3_exynos_rsw_exit(struct device *dev);
 int dwc3_exynos_rsw_start(struct device *dev);
 void dwc3_exynos_rsw_stop(struct device *dev);
+void dwc3_otg_qos_lock(struct dwc3 *dwc, int level);
 extern int xhci_portsc_set(int on);
 #if defined(CONFIG_USB_PORT_POWER_OPTIMIZATION)
 extern int xhci_port_power_set(u32 on, u32 prt);

@@ -190,7 +190,7 @@ int abox_ipc_register_handler(struct device *dev, int ipc_id,
 {
 	struct abox_ipc_action *action;
 
-	dev_dbg(dev, "%s(%d, %pf)\n", __func__, ipc_id, handler);
+	dev_dbg(dev, "%s(%d, %ps)\n", __func__, ipc_id, handler);
 
 	list_for_each_entry(action, &ipc_actions, list) {
 		if (action->handler != handler || action->ipc_id != ipc_id ||
@@ -198,7 +198,7 @@ int abox_ipc_register_handler(struct device *dev, int ipc_id,
 			continue;
 
 		action->data = data;
-		dev_info(dev, "%s(%d, %pf) updating data\n",
+		dev_info(dev, "%s(%d, %ps) updating data\n",
 				__func__, ipc_id, handler);
 		return 0;
 	}
@@ -218,7 +218,7 @@ int abox_ipc_unregister_handler(struct device *dev, int ipc_id,
 {
 	struct abox_ipc_action *action;
 
-	dev_dbg(dev, "%s(%d, %pf)\n", __func__, ipc_id, handler);
+	dev_dbg(dev, "%s(%d, %ps)\n", __func__, ipc_id, handler);
 
 	list_for_each_entry(action, &ipc_actions, list) {
 		if (action->handler != handler || action->ipc_id != ipc_id ||
@@ -230,7 +230,7 @@ int abox_ipc_unregister_handler(struct device *dev, int ipc_id,
 		return 0;
 	}
 
-	dev_err(dev, "%s(%d, %pf) handler not exist\n",
+	dev_err(dev, "%s(%d, %ps) handler not exist\n",
 			__func__, ipc_id, handler);
 	return -EINVAL;
 }

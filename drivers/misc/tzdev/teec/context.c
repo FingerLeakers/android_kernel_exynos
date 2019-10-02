@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -31,11 +31,11 @@ static uint32_t tzdev_teec_context_init(TEEC_Context *context)
 	struct tzdev_teec_context *ctx;
 	uint32_t result;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	ctx = kmalloc(sizeof(struct tzdev_teec_context), GFP_KERNEL);
 	if (!ctx) {
-		tzdev_teec_error("Failed to allocate context struct\n");
+		log_error(tzdev_teec, "Failed to allocate context struct\n");
 		result = TEEC_ERROR_OUT_OF_MEMORY;
 		goto out;
 	}
@@ -50,7 +50,7 @@ static uint32_t tzdev_teec_context_init(TEEC_Context *context)
 	result = TEEC_SUCCESS;
 
 out:
-	tzdev_teec_debug("Exit, context = %pK result = %x\n", context, result);
+	log_debug(tzdev_teec, "Exit, context = %pK result = %x\n", context, result);
 
 	return result;
 }
@@ -59,7 +59,7 @@ static void tzdev_teec_context_fini(TEEC_Context *context)
 {
 	struct tzdev_teec_context *ctx = context->imp;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	context->imp = NULL;
 
@@ -67,7 +67,7 @@ static void tzdev_teec_context_fini(TEEC_Context *context)
 
 	kfree(ctx);
 
-	tzdev_teec_debug("Exit, context = %pK\n", context);
+	log_debug(tzdev_teec, "Exit, context = %pK\n", context);
 }
 
 static uint32_t tzdev_teec_initialize_context(TEEC_Context *context, uint32_t *origin)
@@ -78,7 +78,7 @@ static uint32_t tzdev_teec_initialize_context(TEEC_Context *context, uint32_t *o
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -90,14 +90,14 @@ static uint32_t tzdev_teec_initialize_context(TEEC_Context *context, uint32_t *o
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit initialize context, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit initialize context, ret = %d\n", ret);
 		goto out;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_INITIALIZE_CONTEXT,
 			ctx->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check initialize context reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check initialize context reply, ret = %d\n", ret);
 		goto out;
 	}
 
@@ -111,7 +111,7 @@ out:
 
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, context = %pK\n", context);
+	log_debug(tzdev_teec, "Exit, context = %pK\n", context);
 
 	return result;
 }
@@ -124,7 +124,7 @@ static uint32_t tzdev_teec_finalize_context(TEEC_Context *context, uint32_t *ori
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -136,14 +136,14 @@ static uint32_t tzdev_teec_finalize_context(TEEC_Context *context, uint32_t *ori
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit finalize context, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit finalize context, ret = %d\n", ret);
 		goto out;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_FINALIZE_CONTEXT,
 			ctx->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check finalize context reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check finalize context reply, ret = %d\n", ret);
 		goto out;
 	}
 
@@ -155,7 +155,7 @@ out:
 
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, context = %pK\n", context);
+	log_debug(tzdev_teec, "Exit, context = %pK\n", context);
 
 	return result;
 }
@@ -163,12 +163,12 @@ out:
 static uint32_t tzdev_teec_context_check_args(const char *name, TEEC_Context *context)
 {
 	if (!context) {
-		tzdev_teec_error("Null context passed\n");
+		log_error(tzdev_teec, "Null context passed\n");
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
 	if (name && strncmp(name, CONTEXT_NAME_SAMSUNG, sizeof(CONTEXT_NAME_SAMSUNG))) {
-		tzdev_teec_error("Unsupported TEE name = \"%s\"\n", name);
+		log_error(tzdev_teec, "Unsupported TEE name = \"%s\"\n", name);
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
@@ -183,7 +183,7 @@ TEEC_Result TEEC_InitializeContext(const char *name, TEEC_Context *context)
 	uint32_t origin;
 	int ret;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	origin = TEEC_ORIGIN_API;
 
@@ -197,13 +197,13 @@ TEEC_Result TEEC_InitializeContext(const char *name, TEEC_Context *context)
 
 	ctx = context->imp;
 
-	sd = tz_iwsock_socket(1);
+	sd = tz_iwsock_socket(1, TZ_NON_INTERRUPTIBLE);
 	if (IS_ERR(sd))
 		goto out_fini_context;
 
 	ret = tzdev_teec_connect(sd, ROOT_TASK_SOCK, &result, &origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to connect to root task, context = %pK ret = %d\n",
+		log_error(tzdev_teec, "Failed to connect to root task, context = %pK ret = %d\n",
 				context, ret);
 		goto out_disconnect;
 	}
@@ -212,11 +212,11 @@ TEEC_Result TEEC_InitializeContext(const char *name, TEEC_Context *context)
 
 	result = tzdev_teec_initialize_context(context, &origin);
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed to initialize context, context = %pK\n", context);
+		log_error(tzdev_teec, "Failed to initialize context, context = %pK\n", context);
 		goto out_disconnect;
 	}
 
-	tzdev_teec_debug("Success, context = %pK socket = %u id = %u\n",
+	log_debug(tzdev_teec, "Success, context = %pK socket = %u id = %u\n",
 			context, ctx->socket->id, ctx->id);
 	goto out;
 
@@ -225,7 +225,7 @@ out_disconnect:
 out_fini_context:
 	tzdev_teec_context_fini(context);
 out:
-	tzdev_teec_debug("Exit, context = %pK result = %x origin = %u\n", context, result, origin);
+	log_debug(tzdev_teec, "Exit, context = %pK result = %x origin = %u\n", context, result, origin);
 
 	return result;
 }
@@ -236,12 +236,12 @@ void TEEC_FinalizeContext(TEEC_Context *context)
 	uint32_t result;
 	uint32_t origin;
 
-	tzdev_teec_debug("Enter, context = %pK\n", context);
+	log_debug(tzdev_teec, "Enter, context = %pK\n", context);
 
 	origin = TEEC_ORIGIN_API;
 
 	if (!context || !context->imp) {
-		tzdev_teec_error("Null context passed\n");
+		log_error(tzdev_teec, "Null context passed\n");
 		result = TEEC_ERROR_BAD_PARAMETERS;
 		goto out;
 	}
@@ -250,17 +250,17 @@ void TEEC_FinalizeContext(TEEC_Context *context)
 
 	result = tzdev_teec_finalize_context(context, &origin);
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed to finalize context, context = %pK socket = %u id = %u\n",
+		log_error(tzdev_teec, "Failed to finalize context, context = %pK socket = %u id = %u\n",
 				context, ctx->socket->id, ctx->id);
 		goto out_fini;
 	}
 
-	tzdev_teec_debug("Success, context = %pK socket = %u id = %u\n",
+	log_debug(tzdev_teec, "Success, context = %pK socket = %u id = %u\n",
 			context, ctx->socket->id, ctx->id);
 
 out_fini:
 	tzdev_teec_disconnect(ctx->socket);
 	tzdev_teec_context_fini(context);
 out:
-	tzdev_teec_debug("Exit, context = %pK result = %x origin = %u\n", context, result, origin);
+	log_debug(tzdev_teec, "Exit, context = %pK result = %x origin = %u\n", context, result, origin);
 }

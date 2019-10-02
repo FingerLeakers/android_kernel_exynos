@@ -18,42 +18,23 @@
 / {
 	debug-snapshot-soc {
 		compatible = "debug-snapshot-soc";
+		#address-cells = <1>;
+		#size-cells = <1>;
 		use_multistage_wdt_irq = <497>;
+		/* -----------<< Example >>-------------------
 		dump-info@0x0 {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			sfr-dump-list = "sfr-dump-gic-setenable", "sfr-dump-gic-setpend", "sfr-dump-gic-setactive";
-
-			sfr-dump-gic-setenable {
-				reg = <0x10101100 0x100>;
-				addr = <0x10101100 0x10101104 0x10101108 0x1010110C
-					0x10101110 0x10101114 0x10101118 0x1010111C
-					0x10101120 0x10101124 0x10101128 0x1010112C
-					0x10101130 0x10101134 0x10101138 0x1010113C
-					0xFFFFFFFF>;
+			sfr-dump-list = "sfr-dump-cmu-peris", "sfr-dump-cmu-abox";
+			sfr-dump-cmu-peris {
+				reg = <0x10010100 0x4000>;
+				addr = <0x10010100 0x10010104 0x10010108 0xFFFFFFFF>;
 			};
 
-			sfr-dump-gic-setpend {
-				reg = <0x10101200 0x100>;
-				addr = <0x10101200 0x10101204 0x10101208 0x1010120C
-					0x10101210 0x10101214 0x10101218 0x1010121C
-					0x10101220 0x10101224 0x10101228 0x1010122C
-					0x10101230 0x10101234 0x10101238 0x1010123C
-					0xFFFFFFFF>;
+			sfr-dump-cmu-abox {
+				reg = <0x103e0000 0x4000>;
+				addr = <0x103e0100 0x103e0104 0x103e0108 0xFFFFFFFF>;
 			};
-
-			sfr-dump-gic-setactive {
-				reg = <0x10101300 0x100>;
-				addr = <0x10101300 0x10101304 0x10101308 0x1010130C
-					0x10101310 0x10101314 0x10101318 0x1010131C
-					0x10101320 0x10101324 0x10101328 0x1010132C
-					0x10101330 0x10101334 0x10101338 0x1010133C
-					0xFFFFFFFF>;
-			};
-
-
-
 		};
+		*/
 	};
 
 	exynos-helper {
@@ -62,39 +43,39 @@
 
 	exynos-handler {
 		compatible = "samsung,exynos-handler";
-		interrupts = <0 INTREQ__CPUCL0_ERRIRQ_0 0>, /* CPUCL0 L3 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_1 0>, /* CPUCL0_0 L1 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_2 0>, /* CPUCL0_1 L1 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_3 0>, /* CPUCL0_2 L1 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_4 0>, /* CPUCL0_3 L1 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_5 0>, /* CPUCL1_1 L1 ECC */
-			     <0 INTREQ__CPUCL0_ERRIRQ_6 0>, /* CPUCL1_2 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_0 0>, /* CPUCL0_0 L3 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_1 0>, /* CPUCL0_0 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_2 0>, /* CPUCL0_1 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_3 0>, /* CPUCL0_2 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_4 0>, /* CPUCL0_3 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_5 0>, /* CPUCL1_0 L1 ECC */
-			     <0 INTREQ__CPUCL0_FAULTIRQ_6 0>, /* CPUCL1_1 L1 ECC */
-			     <0 INTREQ__CPUCL2_INTERRIRQ 0>; /* CPUCL1 L2, L3 ECC */
+		interrupts = <GIC_SPI INTREQ__CPUCL0_ERRIRQ_0 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0 L3 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_1 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_0 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_2 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_1 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_3 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_2 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_4 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_3 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_5 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL1_1 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_ERRIRQ_6 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL1_2 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_0 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_0 L3 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_1 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_0 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_2 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_1 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_3 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_2 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_4 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL0_3 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_5 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL1_0 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL0_FAULTIRQ_6 IRQ_TYPE_LEVEL_HIGH>, /* CPUCL1_1 L1 ECC */
+			     <GIC_SPI INTREQ__CPUCL2_INTERRIRQ IRQ_TYPE_LEVEL_HIGH>; /* CPUCL1 L2, L3 ECC */
 		handler_nr_irq = <15>;
 	};
 
 	exynos-itmon {
 		compatible = "samsung,exynos-itmon";
-		interrupts = <0 INTREQ__TREX_D0_DEBUG 0>,  		/* DATA_BUS_C */
-			     <0 INTREQ__TREX_D1_DEBUG 0>, 		/* DATA_BUS_C1 */
-			     <0 INTREQ__TREX_D_CORE_debugInterrupt 0>,  /* DATA_CORE */
-			     <0 INTREQ__TREX_P0_CORE_debugInterrupt 0>, /* PERI_CORE_0 */
-			     <0 INTREQ__TREX_P1_CORE_debugInterrupt 0>, /* PERI_CORE_1 */
-			     <0 INTREQ__TREX_P_DEBUG 0>;  		/* PERI_BUS_C */
+		interrupts = <GIC_SPI INTREQ__TREX_D0_DEBUG IRQ_TYPE_LEVEL_HIGH>,  		/* DATA_BUS_C */
+			     <GIC_SPI INTREQ__TREX_D1_DEBUG IRQ_TYPE_LEVEL_HIGH>, 		/* DATA_BUS_C1 */
+			     <GIC_SPI INTREQ__TREX_D_CORE_debugInterrupt IRQ_TYPE_LEVEL_HIGH>,  /* DATA_CORE */
+			     <GIC_SPI INTREQ__TREX_P0_CORE_debugInterrupt IRQ_TYPE_LEVEL_HIGH>, /* PERI_CORE_0 */
+			     <GIC_SPI INTREQ__TREX_P1_CORE_debugInterrupt IRQ_TYPE_LEVEL_HIGH>, /* PERI_CORE_1 */
+			     <GIC_SPI INTREQ__TREX_P_DEBUG IRQ_TYPE_LEVEL_HIGH>;  		/* PERI_BUS_C */
 	};
 
 	exynos-adv_tracer {
 		compatible = "samsung,exynos-adv-tracer";
 		reg = <0x0 0x158d0000 0x1000>;
 		reg-names = "mailbox";
-		interrupts = <0 INTREQ__MAILBOX_DBGCORE2AP 0>;
+		interrupts = <GIC_SPI INTREQ__MAILBOX_DBGCORE2AP IRQ_TYPE_LEVEL_HIGH>;
 		status = "ok";
 	};
 

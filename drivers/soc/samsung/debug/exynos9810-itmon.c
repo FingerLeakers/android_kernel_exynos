@@ -21,11 +21,8 @@
 #include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-itmon.h>
 #include <linux/debug-snapshot.h>
-#if defined(CONFIG_SEC_SIPC_MODEM_IF)
+#if defined(CONFIG_EXYNOS_MODEM_IF)
 #include <soc/samsung/exynos-modem-ctrl.h>
-#endif
-#ifdef CONFIG_SEC_DEBUG
-#include <linux/sec_debug.h>
 #endif
 #ifdef CONFIG_EXYNOS_ACPM_S2D
 #include <soc/samsung/acpm_ipc_ctrl.h>
@@ -900,7 +897,7 @@ static void itmon_post_handler_by_master(struct itmon_dev *itmon,
 		} else {
 			/* Disable busmon all interrupts */
 			itmon_init(itmon, false);
-#if defined(CONFIG_SEC_SIPC_MODEM_IF)
+#if defined(CONFIG_EXYNOS_MODEM_IF)
 			pdata->crash_in_progress = true;
 			modem_force_crash_exit_ext();
 #endif

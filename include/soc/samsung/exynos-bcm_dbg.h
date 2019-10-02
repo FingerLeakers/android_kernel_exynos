@@ -13,10 +13,15 @@
 
 #include <dt-bindings/soc/samsung/exynos-bcm_dbg.h>
 
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+#define BCM_BIN_SIZE				(SZ_32K)
+#define BCM_BIN_NAME				"/data/bcm.bin"
+#endif
+
 #define ERRCODE_ITMON_TIMEOUT			(6)
 
 #define EXYNOS_BCM_DBG_MODULE_NAME		"exynos-bcm_dbg"
-#define BCM_ESS_NAME				"log_bcm"
+#define BCM_DSS_NAME				"log_bcm"
 
 #define EXYNOS_BCM_CMD_LOW_MASK			(0x0000FFFF)
 #define EXYNOS_BCM_CMD_HIGH_MASK		(0xFFFF0000)
@@ -70,6 +75,7 @@
 #define BCM_EVT_MODE_CONT_SHIFT			(7)
 #define BCM_EVT_STR_STATE_SHIFT			BCM_EVT_RUN_CONT_SHIFT
 #define BCM_EVT_IP_CONT_SHIFT			BCM_EVT_RUN_CONT_SHIFT
+#define BCM_EVT_GLBAUTO_SHIFT			BCM_EVT_RUN_CONT_SHIFT
 
 #define BCM_CMD_GET(cmd_data, mask, shift)	((cmd_data & (mask << shift)) >> shift)
 #define BCM_CMD_CLEAR(mask, shift)		(~(mask << shift))
@@ -109,6 +115,7 @@ enum exynos_bcm_event_id {
 	BCM_EVT_IP_CONT,
 	BCM_EVT_PERIOD_CONT,
 	BCM_EVT_MODE_CONT,
+	BCM_EVT_GLBAUTO_CONT,
 	BCM_EVT_EVENT_FLT_ID,
 	BCM_EVT_EVENT_FLT_OTHERS,
 	BCM_EVT_EVENT_SAMPLE_ID,
@@ -194,12 +201,39 @@ struct exynos_bcm_dbg_data {
 	unsigned int			initial_period;
 	unsigned int			initial_bcm_mode;
 	unsigned int			*initial_run_ip;
+	unsigned int			glb_auto_en;
 
 	unsigned int			bcm_run_state;
 	bool				available_stop_owner[STOP_OWNER_MAX];
-
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+	bool				bcm_load_bin;
+	struct hrtimer			bcm_hrtimer;
+	unsigned int			period;
+	unsigned int			bcm_mode;
+#endif
+	unsigned int			bcm_cnt_nr;
 	struct notifier_block		itmon_notifier;
 };
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+struct cmd_data {
+	unsigned int raw_cmd;
+	unsigned int cmd[CMD_DATA_MAX];
+};
+
+struct bin_system_func {
+	int (*send_data)(struct cmd_data *);
+	int (*timer_event)(void);
+};
+
+struct os_system_func {
+	void *(*ioremap)(u64 phys_addr, size_t size);
+	void (*iounmap)(volatile void *addr);
+	int (*snprint)(char *buf, size_t size, const char *fmt, ...);
+	int (*print)(const char *, ...);
+	u64 (*sched_clock)(void);
+};
+#endif
 
 #ifdef CONFIG_EXYNOS_BCM_DBG
 int exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
@@ -213,6 +247,12 @@ void exynos_bcm_dbg_stop(unsigned int bcm_stop_owner);
 #define exynos_bcm_dbg_ipc_send_data(a, b, c) do {} while (0)
 #define exynos_bcm_dbg_start() do {} while (0)
 #define exynos_bcm_dbg_stop(a) do {} while (0)
+#endif
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+int exynos_bcm_dbg_load_bin(void);
+#else
+#define exynos_bcm_dbg_load_bin(a) do {} while (0)
 #endif
 
 #endif	/* __EXYNOS_BCM_DBG_H_ */

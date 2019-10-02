@@ -3,11 +3,11 @@
 # Makefile for nfc devices
 #
 
-obj-$(CONFIG_SEC_NFC_SENN3AB)	+= secnfc/
 obj-$(CONFIG_SEC_NFC)		+= sec_nfc.o
 obj-$(CONFIG_NFC_PN547)		+= pn547.o
 obj-$(CONFIG_NFC_P61)		+= p61.o
 obj-$(CONFIG_ESE_P3_LSI)	+= ese_p3.o
+obj-$(CONFIG_SNVM_K250A)	+= k250a_i2c.o
 ccflags-$(CONFIG_NFC_DEBUG) := -DDEBUG
 
 obj-$(CONFIG_NFC_FDP)		+= fdp/

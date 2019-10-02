@@ -20,15 +20,16 @@
 
 enum feature_types {
 	feature_is_file = 1,
-	feature_ped_path = 2,
-	feature_ped_exception = 4,
-	feature_ped_status = 8,
-	feature_safeplace_path = 16,
-	feature_safeplace_status = 32,
-	feature_immutable_path_open = 64,
-	feature_immutable_path_write = 128,
-	feature_immutable_src_exception = 256,
-	feature_immutable_status = 512
+	feature_for_recovery = 2,
+	feature_ped_path = 4,
+	feature_ped_exception = 8,
+	feature_ped_status = 16,
+	feature_safeplace_path = 32,
+	feature_safeplace_status = 64,
+	feature_immutable_path_open = 128,
+	feature_immutable_path_write = 256,
+	feature_immutable_src_exception = 512,
+	feature_immutable_status = 1024
 };
 
 struct feature_match_entry {

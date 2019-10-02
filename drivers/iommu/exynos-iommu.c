@@ -16,6 +16,7 @@
 #include <linux/io.h>
 #include <linux/iommu.h>
 #include <linux/interrupt.h>
+#include <linux/kmemleak.h>
 #include <linux/list.h>
 #include <linux/of.h>
 #include <linux/of_iommu.h>
@@ -40,6 +41,29 @@
 #define IOVA_END		0xD0000000
 #define IOVA_OVFL(addr, size)	((((addr) + (size)) > 0xFFFFFFFF) ||	\
 				((addr) + (size) < (addr)))
+
+static unsigned int sysmmu_reg_set[MAX_SET_IDX][MAX_REG_IDX] = {
+	/* Default without VM */
+	{
+		/* FLPT base, TLB invalidation, Fault information */
+		0x000C,	0x0010,	0x0014,	0x0018,
+		0x0020,	0x0024,	0x0070,	0x0078,
+		/* TLB information */
+		0x8000,	0x8004,	0x8008,	0x800C,
+		/* SBB information */
+		0x8020,	0x8024,	0x8028,	0x802C,
+	},
+	/* VM */
+	{
+		/* FLPT base, TLB invalidation, Fault information */
+		0x800C,	0x8010,	0x8014,	0x8018,
+		0x8020,	0x8024,	0x1000,	0x1004,
+		/* TLB information */
+		0x3000,	0x3004,	0x3008,	0x300C,
+		/* SBB information */
+		0x3020,	0x3024,	0x3028,	0x302C,
+	},
+};
 
 static struct kmem_cache *lv2table_kmem_cache;
 
@@ -135,16 +159,18 @@ void exynos_sysmmu_tlb_invalidate(struct iommu_domain *iommu_domain,
 static void sysmmu_get_interrupt_info(struct sysmmu_drvdata *data,
 			int *flags, unsigned long *addr, bool is_secure)
 {
-	unsigned long itype;
+	unsigned long itype, vmid;
 	u32 info;
 
 	itype =  __ffs(__sysmmu_get_intr_status(data, is_secure));
+	vmid = itype / 4;
+	itype %= 4;
 	if (WARN_ON(!(itype < SYSMMU_FAULT_UNKNOWN)))
 		itype = SYSMMU_FAULT_UNKNOWN;
 	else
-		*addr = __sysmmu_get_fault_address(data, is_secure);
+		*addr = __sysmmu_get_fault_address(data, is_secure, vmid);
 
-	info = __sysmmu_get_fault_trans_info(data, is_secure);
+	info = __sysmmu_get_fault_trans_info(data, is_secure, vmid);
 	*flags = MMU_IS_READ_FAULT(info) ?
 		IOMMU_FAULT_READ : IOMMU_FAULT_WRITE;
 	*flags |= SYSMMU_FAULT_FLAG(itype);
@@ -201,14 +227,25 @@ static int sysmmu_get_hw_info(struct sysmmu_drvdata *data)
 
 	data->version = __sysmmu_get_hw_version(data);
 
+	/* Default value */
+	data->reg_set = sysmmu_reg_set[REG_IDX_DEFAULT];
+
 	/*
 	 * If CAPA1 doesn't exist, sysmmu uses TLB way dedication.
 	 * If CAPA1[31:28] is zero, sysmmu uses TLB port dedication.
 	 */
-	if (!__sysmmu_has_capa1(data))
+	if (!__sysmmu_has_capa1(data)) {
 		tlb_props->flags |= TLB_TYPE_WAY;
-	else if (__sysmmu_get_capa_type(data) == 0)
-		tlb_props->flags |= TLB_TYPE_PORT;
+	} else {
+		if (__sysmmu_get_capa_type(data) == 0)
+			tlb_props->flags |= TLB_TYPE_PORT;
+		if (__sysmmu_get_capa_vcr_enabled(data)) {
+			data->reg_set = sysmmu_reg_set[REG_IDX_VM];
+			data->has_vcr = true;
+		}
+		if (__sysmmu_get_capa_no_block_mode(data))
+			data->no_block_mode = true;
+	}
 
 	return 0;
 }
@@ -515,18 +552,6 @@ static int __init exynos_sysmmu_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(dev, "Unabled to register handler of irq %d\n", irq);
 		return ret;
-	}
-
-	data->clk = devm_clk_get(dev, "aclk");
-	if (IS_ERR(data->clk)) {
-		dev_err(dev, "Failed to get clock!\n");
-		return PTR_ERR(data->clk);
-	} else  {
-		ret = clk_prepare(data->clk);
-		if (ret) {
-			dev_err(dev, "Failed to prepare clk\n");
-			return ret;
-		}
 	}
 
 	data->sysmmu = dev;
@@ -1292,7 +1317,6 @@ static struct iommu_ops exynos_iommu_ops = {
 	.detach_dev = exynos_iommu_detach_device,
 	.map = exynos_iommu_map,
 	.unmap = exynos_iommu_unmap,
-	.map_sg = default_iommu_map_sg,
 	.iova_to_phys = exynos_iommu_iova_to_phys,
 	.pgsize_bitmap = SECT_SIZE | LPAGE_SIZE | SPAGE_SIZE,
 	.of_xlate = exynos_iommu_of_xlate,
@@ -1467,14 +1491,7 @@ static int __init exynos_iommu_create_domain(void)
 
 static int __init exynos_iommu_init(void)
 {
-	struct device_node *np;
 	int ret;
-
-	np = of_find_matching_node(NULL, sysmmu_of_match);
-	if (!np)
-		return 0;
-
-	of_node_put(np);
 
 	lv2table_kmem_cache = kmem_cache_create("exynos-iommu-lv2table",
 				LV2TABLE_SIZE, LV2TABLE_SIZE, 0, NULL);
@@ -1516,8 +1533,6 @@ err_reg_driver:
 	return ret;
 }
 subsys_initcall_sync(exynos_iommu_init);
-
-IOMMU_OF_DECLARE(exynos_iommu_of, "samsung,exynos-sysmmu", NULL);
 
 static int mm_fault_translate(int fault)
 {

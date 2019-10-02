@@ -22,4 +22,12 @@
 extern int abox_vss_notify_call(struct device *dev, struct abox_data *data,
 		int en);
 
+/**
+ * Notify Call start or stop
+ * @param[in]	evt		call event
+ * @param[in]	data		NULL
+ * @return	none
+ */
+extern void abox_call_notify_event(enum abox_call_event evt, void *data);
+
 #endif /* __SND_SOC_ABOX_VSS_H */

@@ -3625,8 +3625,6 @@ struct vclk_lut cmucal_vclk_div_clk_pericx_usixx_usi_lut[] = {
 	{26000, div_clk_peric_26_lut_params},
 	{25000, div_clk_peric_25_lut_params},
 	{13000, div_clk_peric_13_lut_params},
-	{8600, div_clk_peric_8_lut_params},
-	{6500, div_clk_peric_6_lut_params},
 };
 
 /* COMMON VCLK -> LUT List */

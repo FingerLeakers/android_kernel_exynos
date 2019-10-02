@@ -14,6 +14,12 @@
 int dplink_emul_handler(int cmd);
 #endif
 
+enum dp_state {
+	DP_DISCONNECT,
+	DP_CONNECT,
+	DP_HDCP_READY,
+};
+
 enum auth_state {
 	HDCP_AUTH_PROCESS_IDLE	= 0x1,
 	HDCP_AUTH_PROCESS_STOP	= 0x2,
@@ -30,12 +36,6 @@ enum drm_state {
 	DRM_OFF = 0x0,
 	DRM_ON = 0x1,
 	DRM_SAME_STREAM_TYPE = 0x2	/* If the previous contents and stream_type id are the same flag */
-};
-
-enum dp_state {
-	DP_DISCONNECT,
-	DP_CONNECT,
-	DP_HDCP_READY,
 };
 
 /* Do hdcp2.2 authentication with DP Receiver

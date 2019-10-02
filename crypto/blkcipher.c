@@ -18,7 +18,6 @@
 #include <crypto/internal/skcipher.h>
 #include <crypto/scatterwalk.h>
 #include <linux/errno.h>
-#include <linux/hardirq.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/seq_file.h>
@@ -29,6 +28,10 @@
 #include <net/netlink.h>
 
 #include "internal.h"
+
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
+#include "fips140.h"
+#endif
 
 enum {
 	BLKCIPHER_WALK_PHYS = 1 << 0,
@@ -104,7 +107,7 @@ int blkcipher_walk_done(struct blkcipher_desc *desc,
 	unsigned int n; /* bytes processed */
 	bool more;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return (-EACCES);
 #endif
@@ -327,7 +330,7 @@ EXPORT_SYMBOL_GPL(blkcipher_walk_phys);
 static int blkcipher_walk_first(struct blkcipher_desc *desc,
 				struct blkcipher_walk *walk)
 {
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return (-EACCES);
 #endif
@@ -435,10 +438,11 @@ static int async_encrypt(struct ablkcipher_request *req)
 		.flags = req->base.flags,
 	};
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return (-EACCES);
 #endif
+
 	return alg->encrypt(&desc, req->dst, req->src, req->nbytes);
 }
 
@@ -452,7 +456,7 @@ static int async_decrypt(struct ablkcipher_request *req)
 		.flags = req->base.flags,
 	};
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return (-EACCES);
 #endif

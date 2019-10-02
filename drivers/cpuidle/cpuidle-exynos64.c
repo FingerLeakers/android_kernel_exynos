@@ -25,20 +25,8 @@
 #include <asm/topology.h>
 
 #include <soc/samsung/exynos-cpupm.h>
-#include <linux/cpufreq.h>
-#include <linux/soc/samsung/exynos-soc.h>
 
 #include "dt_idle_states.h"
-
-#define DEFAULT_FREQVAR_IFACTOR 100	/* No more or less for the given constraints */
-unsigned int default_freqvar_ifactor[] = {DEFAULT_FREQVAR_IFACTOR};
-EXPORT_SYMBOL_GPL(default_freqvar_ifactor);
-unsigned int *ank_freqvar_ifactor = default_freqvar_ifactor;
-unsigned int *pmt_freqvar_ifactor = default_freqvar_ifactor;
-unsigned int *cht_freqvar_ifactor = default_freqvar_ifactor;
-
-DEFINE_PER_CPU(struct freqvariant_idlefactor, fv_ifactor);
-DECLARE_PER_CPU(int, clhead_cpu);
 
 /*
  * Exynos cpuidle driver supports the below idle states
@@ -89,73 +77,11 @@ static int enter_idle(unsigned int index)
 	return arm_cpuidle_suspend(index);
 }
 
-DECLARE_PER_CPU(struct cpuidle_info, cpuidle_inf);
-
 static int exynos_enter_idle(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv, int index)
 {
-	int i, idx, triggered = 0;
 	int entry_state, ret = 0;
-	unsigned int bias_target_residency;
-	unsigned int bias_exit_latency;
-	unsigned int bias_index;
-	unsigned long flags;
-	struct freqvariant_idlefactor *pfv_factor = &per_cpu(fv_ifactor, dev->cpu);
-	struct cpuidle_info *idle_info = this_cpu_ptr(&cpuidle_inf);
 
-	if (idle_info->bUse_GovDecision == 1 || pfv_factor->init != 0xdead)
-		goto skip_moce;
-	/* Fetch the criteria for idle state without spinlock
-	 * with the way of Read-Copy-No update
-	 * for lowering the idle transition cost
-	 */
-	spin_lock_irqsave(&pfv_factor->freqvar_if_lock, flags);
-	bias_target_residency = pfv_factor->bias_target_res;
-	bias_exit_latency = pfv_factor->bias_exit_lat;
-	bias_index = pfv_factor->bias_index;
-	spin_unlock_irqrestore(&pfv_factor->freqvar_if_lock, flags);
-
-	/* Re-evaluate the depth of idle in accordance with the freq variation */
-	idx = -1;
-	for (i = idle_info->bfirst_idx; i < drv->state_count; i++) {
-		struct cpuidle_state *s = &drv->states[i];
-		struct cpuidle_state_usage *su = &dev->states_usage[i];
-
-		if (s->disabled || su->disable)
-			continue;
-
-		if (idx == -1)
-			idx = i; /* first enabled state */
-
-		/* Future work:
-		 * If the different biasing timing is applied onto plural idle states, pfv_factor also must have
-		 * the different value for each idle state.
-		 */
-		if (bias_index & 0x1 << i) {
-			if (bias_target_residency > idle_info->predicted_us|| bias_exit_latency > idle_info->latency_req)
-				break;
-
-			triggered = 1;
-
-		} else if (triggered) {
-			if (s->target_residency > idle_info->predicted_us || s->exit_latency > idle_info->latency_req)
-				break;
-		}
-
-		idx = i;
-	}
-
-	/* Update the index /w MOCE */
-	if (idx != -1 && index != idx) {
-		index = idx;
-	}
-
-skip_moce:
-#if defined(CONFIG_SOC_EXYNOS9820)
-	if (exynos_soc_info.revision == 0x10 && dev->cpu <= 5) {
-		index = 0;
-	}
-#endif
 	entry_state = prepare_idle(dev->cpu, index);
 
 	ret = enter_idle(entry_state);
@@ -172,7 +98,6 @@ skip_moce:
 	else
 		return index;
 }
-
 
 /***************************************************************************
  *                            Define notifier call                         *
@@ -194,73 +119,6 @@ static struct notifier_block exynos_cpuidle_reboot_nb = {
 	.notifier_call = exynos_cpuidle_reboot_notifier,
 };
 
-/*
- * cpufreq trans call back function :
- * freq variant value is kept in only pfv_factor of representing core
- * For example, CPU#0 for CPU#0~3, CPU#4 for CPU#4~5
- * CPU#6 for CPU#6~7
- */
-static int exynos_cpuidle_cpufreq_trans_notifier(struct notifier_block *nb,
-				unsigned long val, void *data)
-{
-	struct cpufreq_freqs *freq = data;
-	struct freqvariant_idlefactor *pfv_factor;
-	unsigned int b_target_res, b_exit_lat, b_cur_freqvar_if;
-	int leader_cpu, cpu, i;
-	unsigned long flags;
-
-	if (freq->flags & CPUFREQ_CONST_LOOPS)
-		return NOTIFY_OK;
-
-	if (val != CPUFREQ_POSTCHANGE)
-		return NOTIFY_OK;
-
-	leader_cpu = per_cpu(clhead_cpu, freq->cpu);
-	pfv_factor = &per_cpu(fv_ifactor, leader_cpu);
-
-	if (pfv_factor->init != 0xdead)
-		return NOTIFY_OK;
-
-	spin_lock_irqsave(&pfv_factor->freqvar_if_lock, flags);
-
-	for (i = 0 ; i < pfv_factor->nfreqvar_ifs - 1 &&
-		freq->new >= pfv_factor->freqvar_ifs[i+1]; i += 2)
-		;
-
-	pfv_factor->cur_freqvar_if = pfv_factor->freqvar_ifs[i];
-
-	b_cur_freqvar_if = pfv_factor->cur_freqvar_if;
-	b_target_res = (pfv_factor->orig_target_res * pfv_factor->cur_freqvar_if) / 100;
-	b_exit_lat = (pfv_factor->orig_exit_lat * pfv_factor->cur_freqvar_if) / 100;
-
-	if (b_target_res != pfv_factor->bias_target_res ||
-		b_exit_lat != pfv_factor->bias_exit_lat) {
-		pfv_factor->bias_target_res = b_target_res;
-		pfv_factor->bias_exit_lat = b_exit_lat;
-
-		spin_unlock_irqrestore(&pfv_factor->freqvar_if_lock, flags);
-
-		for_each_possible_cpu(cpu) {
-			if (per_cpu(clhead_cpu, cpu) == leader_cpu) {
-				pfv_factor = &per_cpu(fv_ifactor, cpu);
-
-				spin_lock_irqsave(&pfv_factor->freqvar_if_lock, flags);
-				pfv_factor->cur_freqvar_if = b_cur_freqvar_if;
-				pfv_factor->bias_target_res = b_target_res;
-				pfv_factor->bias_exit_lat = b_exit_lat;
-				spin_unlock_irqrestore(&pfv_factor->freqvar_if_lock, flags);
-			}
-		}
-	} else {
-		spin_unlock_irqrestore(&pfv_factor->freqvar_if_lock, flags);
-	}
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block exynos_cpufreq_trans_nb = {
-	.notifier_call = exynos_cpuidle_cpufreq_trans_notifier,
-};
 /***************************************************************************
  *                         Initialize cpuidle driver                       *
  ***************************************************************************/
@@ -299,9 +157,10 @@ static int __init exynos_idle_driver_init(struct cpuidle_driver *drv,
 	return 0;
 }
 
+struct class *idle_class;
+
 static int __init exynos_idle_init(void)
 {
-	struct freqvariant_idlefactor *pfv_factor;
 	int ret, cpu, i;
 
 	for_each_possible_cpu(cpu) {
@@ -343,45 +202,14 @@ static int __init exynos_idle_init(void)
 			pr_err("failed to register cpuidle for cpu%d\n", cpu);
 			goto out_unregister;
 		}
-
-		pfv_factor = &per_cpu(fv_ifactor, cpu);
-
-		/* HACK */
-		switch (cpu) {
-		case 0 ... 3:
-			pfv_factor->freqvar_ifs = ank_freqvar_ifactor;
-			pfv_factor->nfreqvar_ifs = 1;
-			pfv_factor->cur_freqvar_if = 100;
-			break;
-		case 4 ... 5:
-			pfv_factor->freqvar_ifs = pmt_freqvar_ifactor;
-			pfv_factor->nfreqvar_ifs = 1;
-			pfv_factor->cur_freqvar_if = 100;
-			break;
-		case 6 ... 7:
-			pfv_factor->freqvar_ifs = cht_freqvar_ifactor;
-			pfv_factor->nfreqvar_ifs = 1;
-			pfv_factor->cur_freqvar_if = 100;
-			break;
-		}
-		/* MOCE will concern only C2. (CPD will take care later) */
-		pfv_factor->orig_target_res = exynos_idle_driver[cpu].states[1].target_residency;
-		pfv_factor->orig_exit_lat = exynos_idle_driver[cpu].states[1].exit_latency;
-		pfv_factor->bias_target_res= exynos_idle_driver[cpu].states[1].target_residency;
-		pfv_factor->bias_exit_lat= exynos_idle_driver[cpu].states[1].exit_latency;
-		spin_lock_init(&pfv_factor->freqvar_if_lock);
-		pfv_factor->bias_index = 0x2;	// We only focusing on state index 1 (C2)
-		pfv_factor->init = 0xdead;
 	}
 
 	cpuidle_profile_cpu_idle_register(&exynos_idle_driver[0]);
 
 	register_reboot_notifier(&exynos_cpuidle_reboot_nb);
 
-	cpufreq_register_notifier(&exynos_cpufreq_trans_nb,
-					CPUFREQ_TRANSITION_NOTIFIER);
-
-
+	/* clsss for exynos cpuidle : /sys/class/cpuidle */
+	idle_class = class_create(THIS_MODULE, "cpuidle");
 
 	pr_info("Exynos cpuidle driver Initialized\n");
 

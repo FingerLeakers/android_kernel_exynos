@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -50,13 +50,13 @@ int tzdev_teec_connect(struct sock_desc *socket, char *name,
 		if (ret == 0)
 			return ret;
 
-		tzdev_teec_info("Failed to connect to %s socket, error = %d, retrying...\n",
+		log_info(tzdev_teec, "Failed to connect to %s socket, error = %d, retrying...\n",
 				name, ret);
 
 		msleep(CONNECTION_ATTEMPT_TIMEOUT);
 	}
 
-	tzdev_teec_error("Failed to connect to %s socket after %d retries\n",
+	log_error(tzdev_teec, "Failed to connect to %s socket after %d retries\n",
 			name, MAX_CONNECTION_ATTEMPTS);
 
 	*result = tzdev_teec_error_to_tee_error(ret);
@@ -134,14 +134,14 @@ int tzdev_teec_check_reply(struct cmd_reply *reply, uint32_t cmd, uint32_t seria
 	*result = TEEC_SUCCESS;
 
 	if (reply->base.cmd != cmd) {
-		tzdev_teec_error("Received wrong reply = %u, expected = %u\n",
+		log_error(tzdev_teec, "Received wrong reply = %u, expected = %u\n",
 				reply->base.cmd, cmd);
 		ret = -ECOMM;
 		goto out;
 	}
 
 	if (reply->base.serial != serial) {
-		tzdev_teec_error("Received wrong reply serial = %u, expected = %u\n",
+		log_error(tzdev_teec, "Received wrong reply serial = %u, expected = %u\n",
 				reply->base.serial, serial);
 		ret = -ECOMM;
 		goto out;
@@ -173,7 +173,7 @@ uint32_t tzdev_teec_error_to_tee_error(int error)
 	case -ECANCELED:
 		return TEEC_ERROR_CANCEL;
 	default:
-		tzdev_teec_error("Unknown error code = %d\n", error);
+		log_error(tzdev_teec, "Unknown error code = %d\n", error);
 		return TEEC_ERROR_GENERIC;
 	}
 }

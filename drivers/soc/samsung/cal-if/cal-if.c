@@ -96,7 +96,7 @@ int cal_dfs_set_rate_restore(unsigned int id, unsigned long switch_rate)
 
 unsigned long cal_dfs_cached_get_rate(unsigned int id)
 {
-	int ret;
+	unsigned long ret;
 
 	ret = vclk_get_rate(id);
 
@@ -105,7 +105,7 @@ unsigned long cal_dfs_cached_get_rate(unsigned int id)
 
 unsigned long cal_dfs_get_rate(unsigned int id)
 {
-	int ret;
+	unsigned long ret;
 
 	if (cal_check_hiu_dvfs_id && cal_check_hiu_dvfs_id(id))
 		return exynos_hiu_get_freq(id);
@@ -135,7 +135,7 @@ int cal_clk_setrate(unsigned int id, unsigned long rate)
 
 unsigned long cal_clk_getrate(unsigned int id)
 {
-	int ret = 0;
+	unsigned long ret = 0;
 
 	ret = vclk_recalc_rate(id);
 
@@ -431,6 +431,7 @@ void cal_cp_disable_dump_pc_no_pg(void)
 int __init cal_if_init(void *dev)
 {
 	static int cal_initialized;
+	struct resource res;
 	int ret;
 
 	if (cal_initialized == 1)
@@ -463,9 +464,7 @@ int __init cal_if_init(void *dev)
 	if (ret < 0)
 		return ret;
 
-	ret = pmucal_dbg_init();
-	if (ret < 0)
-		return ret;
+	pmucal_dbg_init();
 
 #ifdef CONFIG_CP_PMUCAL
 	ret = pmucal_cp_initialize();
@@ -474,6 +473,9 @@ int __init cal_if_init(void *dev)
 #endif
 
 	exynos_acpm_set_device(dev);
+
+	if (of_address_to_resource(dev, 0, &res) == 0)
+		cmucal_dbg_set_cmu_top_base(res.start);
 
 	cal_initialized = 1;
 

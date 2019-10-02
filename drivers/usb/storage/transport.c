@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Driver for USB Mass Storage compliant devices
  *
@@ -25,23 +26,6 @@
  *
  * Also, for certain devices, the interrupt endpoint is used to convey
  * status of a command.
- *
- * Please see http://www.one-eyed-alien.net/~mdharm/linux-usb for more
- * information about this driver.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/sched.h>
@@ -63,7 +47,9 @@
 
 #include <linux/blkdev.h>
 #include "../../scsi/sd.h"
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 #include "../core/usb.h"
+#endif
 
 
 /***********************************************************************
@@ -797,8 +783,8 @@ Retry_Sense:
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 			pr_err("usb storage -- auto-sense failure\n");
 #endif
-
-			/* we skip the reset if this happens to be a
+			/*
+			 * we skip the reset if this happens to be a
 			 * multi-target device, since failure of an
 			 * auto-sense is perfectly valid
 			 */
@@ -1489,17 +1475,24 @@ int usb_stor_port_reset(struct us_data *us)
 			result = -EIO;
 			usb_stor_dbg(us, "No reset during disconnect\n");
 		} else {
+#ifdef CONFIG_USB_STORAGE_DETECT
 			if (test_bit(US_FLIDX_TIMED_OUT, &us->dflags)) {
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 				printk(KERN_ERR USB_STORAGE "%s remove device\n",
 					__func__);
 #endif
 				result = usb_remove_device(us->pusb_dev);
+
 			} else {
 				result = usb_reset_device(us->pusb_dev);
 				usb_stor_dbg(us, "usb_reset_device returns %d\n",
 					     result);
 			}
+#else
+			result = usb_reset_device(us->pusb_dev);
+			usb_stor_dbg(us, "usb_reset_device returns %d\n",
+				     result);
+#endif /* CONFIG_USB_STORAGE_DETECT */
 		}
 		usb_unlock_device(us->pusb_dev);
 	}

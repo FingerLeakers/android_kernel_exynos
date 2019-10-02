@@ -143,20 +143,6 @@ enum uic_link_state {
 				    UIC_LINK_TRANS_ACTIVE_STATE)
 #define ufshcd_set_link_trans_hibern8(hba) ((hba)->uic_link_state = \
 				    UIC_LINK_TRANS_HIBERN8_STATE)
-
-enum ufs_tw_state {
-	UFS_TW_OFF_STATE	= 0,	/* turbo write disabled state */
-	UFS_TW_ON_STATE	= 1,		/* turbo write enabled state */
-	UFS_TW_ERR_STATE	= 2, 		/* turbo write error state */
-};
-
-#define ufshcd_is_tw_off(hba) ((hba)->ufs_tw_state == UFS_TW_OFF_STATE)
-#define ufshcd_is_tw_on(hba) ((hba)->ufs_tw_state == UFS_TW_ON_STATE)
-#define ufshcd_is_tw_err(hba) ((hba)->ufs_tw_state == UFS_TW_ERR_STATE)
-#define ufshcd_set_tw_off(hba) ((hba)->ufs_tw_state = UFS_TW_OFF_STATE)
-#define ufshcd_set_tw_on(hba) ((hba)->ufs_tw_state = UFS_TW_ON_STATE)
-#define ufshcd_set_tw_err(hba) ((hba)->ufs_tw_state = UFS_TW_ERR_STATE)
-
 /*
  * UFS Power management levels.
  * Each level is in increasing order of power savings.
@@ -195,6 +181,7 @@ struct ufs_pm_lvl_states {
  * @lun: LUN of the command
  * @intr_cmd: Interrupt command (doesn't participate in interrupt aggregation)
  * @issue_time_stamp: time stamp for debug purposes
+ * @compl_time_stamp: time stamp for statistics
  * @req_abort_skip: skip request abort task flag
  */
 struct ufshcd_lrb {
@@ -218,6 +205,7 @@ struct ufshcd_lrb {
 	u8 lun; /* UPIU LUN id field is only 8-bit wide */
 	bool intr_cmd;
 	ktime_t issue_time_stamp;
+	ktime_t compl_time_stamp;
 
 	bool req_abort_skip;
 };
@@ -264,8 +252,8 @@ struct ufs_desc_size {
 	int interc_desc;
 	int unit_desc;
 	int conf_desc;
-	int str_desc;
 	int hlth_desc;
+	int str_desc;
 };
 
 /**
@@ -303,6 +291,8 @@ struct ufs_pa_layer_attr {
 	u32 hs_rate;
 	u32 peer_available_lane_rx;
 	u32 peer_available_lane_tx;
+	u32 available_lane_rx;
+	u32 available_lane_tx;
 };
 
 struct ufs_pwr_mode_info {
@@ -357,7 +347,7 @@ struct ufs_hba_variant_ops {
 					int, struct scsi_cmnd *);
 	void	(*set_nexus_t_task_mgmt)(struct ufs_hba *, int, u8);
 	void    (*hibern8_notify)(struct ufs_hba *, u8, bool);
-	int	(*hibern8_prepare)(struct ufs_hba *, u8, bool);
+	int		(*hibern8_prepare)(struct ufs_hba *, u8, bool);
 	int     (*reset_ctrl)(struct ufs_hba *, enum ufs_dev_reset);
 	int     (*suspend)(struct ufs_hba *, enum ufs_pm_op);
 	int     (*resume)(struct ufs_hba *, enum ufs_pm_op);
@@ -407,6 +397,7 @@ struct ufs_clk_gating {
 	struct device_attribute enable_attr;
 	bool is_enabled;
 	int active_reqs;
+	struct workqueue_struct *clk_gating_workq;
 };
 
 struct ufs_saved_pwr_info {
@@ -660,6 +651,7 @@ struct SEC_UFS_TW_info {
  * @urgent_bkops_lvl: keeps track of urgent bkops level for device
  * @is_urgent_bkops_lvl_checked: keeps track if the urgent bkops level for
  *  device is known or not.
+ * @scsi_block_reqs_cnt: reference counting for scsi block requests
  */
 struct ufs_hba {
 	void __iomem *mmio_base;
@@ -685,7 +677,6 @@ struct ufs_hba {
 
 	enum ufs_dev_pwr_mode curr_dev_pwr_mode;
 	enum uic_link_state uic_link_state;
-	enum ufs_tw_state ufs_tw_state;
 	/* Desired UFS power management level during runtime PM */
 	enum ufs_pm_level rpm_lvl;
 	/* Desired UFS power management level during system PM */
@@ -694,6 +685,8 @@ struct ufs_hba {
 	struct device_attribute spm_lvl_attr;
 	int pm_op_in_progress;
 	bool async_resume;
+	/* Auto-Hibernate Idle Timer register value */
+	u32 ahit;
 
 	struct ufshcd_lrb *lrb;
 	volatile unsigned long lrb_in_use;
@@ -711,13 +704,13 @@ struct ufs_hba {
 	bool is_irq_enabled;
 
 	/* Interrupt aggregation support is broken */
-	#define UFSHCD_QUIRK_BROKEN_INTR_AGGR			UFS_BIT(0)
+	#define UFSHCD_QUIRK_BROKEN_INTR_AGGR			0x1
 
 	/*
 	 * delay before each dme command is required as the unipro
 	 * layer has shown instabilities
 	 */
-	#define UFSHCD_QUIRK_DELAY_BEFORE_DME_CMDS		UFS_BIT(1)
+	#define UFSHCD_QUIRK_DELAY_BEFORE_DME_CMDS		0x2
 
 	/*
 	 * If UFS host controller is having issue in processing LCC (Line
@@ -726,21 +719,21 @@ struct ufs_hba {
 	 * the LCC transmission on UFS device (by clearing TX_LCC_ENABLE
 	 * attribute of device to 0).
 	 */
-	#define UFSHCD_QUIRK_BROKEN_LCC				UFS_BIT(2)
+	#define UFSHCD_QUIRK_BROKEN_LCC				0x4
 
 	/*
 	 * The attribute PA_RXHSUNTERMCAP specifies whether or not the
 	 * inbound Link supports unterminated line in HS mode. Setting this
 	 * attribute to 1 fixes moving to HS gear.
 	 */
-	#define UFSHCD_QUIRK_BROKEN_PA_RXHSUNTERMCAP		UFS_BIT(3)
+	#define UFSHCD_QUIRK_BROKEN_PA_RXHSUNTERMCAP		0x8
 
 	/*
 	 * This quirk needs to be enabled if the host contoller only allows
 	 * accessing the peer dme attributes in AUTO mode (FAST AUTO or
 	 * SLOW AUTO).
 	 */
-	#define UFSHCD_QUIRK_DME_PEER_ACCESS_AUTO_MODE		UFS_BIT(4)
+	#define UFSHCD_QUIRK_DME_PEER_ACCESS_AUTO_MODE		0x10
 
 	/*
 	 * This quirk needs to be enabled if the host contoller doesn't
@@ -748,23 +741,40 @@ struct ufs_hba {
 	 * is enabled, standard UFS host driver will call the vendor specific
 	 * ops (get_ufs_hci_version) to get the correct version.
 	 */
-	#define UFSHCD_QUIRK_BROKEN_UFS_HCI_VERSION		UFS_BIT(5)
+	#define UFSHCD_QUIRK_BROKEN_UFS_HCI_VERSION		0x20
 
-	#define UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR                UFS_BIT(6)
+	#define UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR                0x40
 	/*
 	 * This quirk needs to be enabled if the host contoller regards
 	 * resolution of the values of PRDTO and PRDTL in UTRD as byte.
 	 */
-	#define UFSHCD_QUIRK_PRDT_BYTE_GRAN			UFS_BIT(7)
+	#define UFSHCD_QUIRK_PRDT_BYTE_GRAN			0x80
 
-	#define UFSHCD_QUIRK_USE_OF_HCE				UFS_BIT(8)
-	#define UFSHCD_QUIRK_GET_UPMCRS_DIRECT			UFS_BIT(9)
-	#define UFSHCI_QUIRK_SKIP_INTR_AGGR			UFS_BIT(10)
-	#define UFSHCD_QUIRK_GET_GENERRCODE_DIRECT		UFS_BIT(11)
-	#define UFSHCD_QUIRK_UNRESET_INTR_AGGR			UFS_BIT(12)
+	/*
+	 * Clear handling for transfer/task request list is just opposite.
+	 */
+	#define UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR		0x100
 
-	#define UFSHCD_QUIRK_DUMP_DEBUG_INFO			UFS_BIT(13)
+	/*
+	 * This quirk needs to be enabled if host controller doesn't allow
+	 * that the interrupt aggregation timer and counter are reset by s/w.
+	 */
+	#define UFSHCI_QUIRK_SKIP_RESET_INTR_AGGR		0x200
 
+	/*
+	 * This quirks needs to be enabled if host controller cannot be
+	 * enabled via HCE register.
+	 */
+	#define UFSHCI_QUIRK_BROKEN_HCE				0x400
+	
+	#define UFSHCD_QUIRK_GET_GENERRCODE_DIRECT		0x800
+
+	#define UFSHCD_QUIRK_UNRESET_INTR_AGGR			0x1000
+
+	#define UFSHCD_QUIRK_GET_UPMCRS_DIRECT			0x2000
+
+	#define UFSHCD_QUIRK_DUMP_DEBUG_INFO			0x4000
+	
 	unsigned int quirks;	/* Deviations from standard UFSHCI spec. */
 
 	/* Device deviations from standard UFS device spec. */
@@ -789,7 +799,6 @@ struct ufs_hba {
 	struct ufs_init_prefetch init_prefetch_data;
 
 	/* Work Queues */
-	struct workqueue_struct *ufshcd_workq;
 	struct work_struct eh_work;
 	struct work_struct eeh_work;
 
@@ -857,16 +866,12 @@ struct ufs_hba {
 	bool is_sys_suspended;
 
 	u32 *cport_addr;
-
 	struct device_attribute unique_number_attr;
 	struct device_attribute manufacturer_id_attr;
 	char unique_number[UFS_UN_MAX_DIGITS];
 	u16 manufacturer_id;
 	u8 lifetime;
 	unsigned int lc_info;
-	bool support_tw;
-	struct SEC_UFS_TW_info SEC_tw_info;
-	struct SEC_UFS_TW_info SEC_tw_info_old;
 
 	struct ufs_monitor monitor;
 
@@ -875,6 +880,7 @@ struct ufs_hba {
 
 	struct rw_semaphore clk_scaling_lock;
 	struct ufs_desc_size desc_size;
+	atomic_t scsi_block_reqs_cnt;
 	struct ufs_secure_log secure_log;
 
 #if defined(SEC_UFS_ERROR_COUNT)
@@ -882,9 +888,11 @@ struct ufs_hba {
 #endif
 	bool UFS_fatal_mode_done;
 	struct work_struct fatal_mode_work;
+
 #if defined(CONFIG_UFS_DATA_LOG)
 	atomic_t	log_count;
 #endif
+	bool dbg_dump_chk;
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
@@ -1002,7 +1010,7 @@ extern int ufshcd_dme_set_attr(struct ufs_hba *hba, u32 attr_sel,
 extern int ufshcd_dme_get_attr(struct ufs_hba *hba, u32 attr_sel,
 			       u32 *mib_val, u8 peer);
 extern int ufshcd_config_pwr_mode(struct ufs_hba *hba,
-		struct ufs_pa_layer_attr *desired_pwr_mode);
+			struct ufs_pa_layer_attr *desired_pwr_mode);
 extern void scsi_softirq_done(struct request *rq);
 
 /* UIC command interfaces for DME primitives */
@@ -1060,8 +1068,24 @@ static inline bool ufshcd_is_hs_mode(struct ufs_pa_layer_attr *pwr_info)
 }
 
 /* Expose Query-Request API */
+int ufshcd_query_descriptor_retry(struct ufs_hba *hba,
+				  enum query_opcode opcode,
+				  enum desc_idn idn, u8 index,
+				  u8 selector,
+				  u8 *desc_buf, int *buf_len);
+int ufshcd_read_desc_param(struct ufs_hba *hba,
+			   enum desc_idn desc_id,
+			   int desc_index,
+			   u8 param_offset,
+			   u8 *param_read_buf,
+			   u8 param_size);
+int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
+		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val);
 int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 	enum flag_idn idn, bool *flag_res);
+int ufshcd_read_string_desc(struct ufs_hba *hba, int desc_index,
+			    u8 *buf, u32 size, bool ascii);
+
 int ufshcd_hold(struct ufs_hba *hba, bool async);
 void ufshcd_release(struct ufs_hba *hba);
 
@@ -1199,7 +1223,28 @@ static inline u8 ufshcd_vops_get_unipro(struct ufs_hba *hba, int num)
 		return hba->vops->get_unipro_result(hba, num);
 	return 0;
 }
+
 int ufshcd_read_health_desc(struct ufs_hba *hba, u8 *buf, u32 size);
+
+extern struct ufs_pm_lvl_states ufs_pm_lvl_states[];
+
+/*
+ * ufshcd_scsi_to_upiu_lun - maps scsi LUN to UPIU LUN
+ * @scsi_lun: scsi LUN id
+ *
+ * Returns UPIU LUN id
+ */
+static inline u8 ufshcd_scsi_to_upiu_lun(unsigned int scsi_lun)
+{
+	if (scsi_is_wlun(scsi_lun))
+		return (scsi_lun & UFS_UPIU_MAX_UNIT_NUM_ID)
+			| UFS_UPIU_WLUN_ID;
+	else
+		return scsi_lun & UFS_UPIU_MAX_UNIT_NUM_ID;
+}
+
+int ufshcd_dump_regs(struct ufs_hba *hba, size_t offset, size_t len,
+		     const char *prefix);
 
 static inline int ufshcd_vops_crypto_engine_cfg(struct ufs_hba *hba,
 					struct ufshcd_lrb *lrbp,

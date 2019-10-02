@@ -74,6 +74,11 @@
 #define ARMV8_CORTEXA53	(0xd03)
 #define ARMV8_CORTEXA57	(0xd07)
 
+
+/* PRSR bit filed */
+#define POWER_UP	(1 << 0)
+#define RESET_STATE	(1 << 2)
+
 /* TMC(ETB/ETF/ETR) registers  */
 #define TMCRSZ		(0x004)
 #define TMCSTS		(0x00c)
@@ -113,6 +118,7 @@
 #define PMU_OFFSET	(0x20000)
 #define ETM_OFFSET	(0x30000)
 #define PMUPCSR		(0x200)
+#define PMUPCSR_HI	(0x204)
 
 /* ETM registers */
 #define ETMCTLR		(0x004)

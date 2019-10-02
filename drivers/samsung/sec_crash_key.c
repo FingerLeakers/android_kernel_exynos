@@ -58,7 +58,7 @@ int __init sec_crash_key_init(void)
 {
 	//spin_lock_init(&key_crash_lock);
 	/* only work when upload enabled*/
-	if (sec_debug_enter_upload()) {
+	if (secdbg_mode_enter_upload()) {
 #ifndef CONFIG_SEC_KEY_NOTIFIER
 		register_gpio_keys_notifier(&nb_gpio_keys);
 #else

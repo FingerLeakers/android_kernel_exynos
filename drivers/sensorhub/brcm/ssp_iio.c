@@ -74,10 +74,6 @@ int info_table_size =  sizeof(info_table)/sizeof(struct sensor_info);
 static struct sensor_info sensors_info[SENSOR_MAX];
 static struct iio_chan_spec indio_channels[SENSOR_MAX];
 
-static const struct iio_info indio_info = {
-	.driver_module = THIS_MODULE,
-};
-
 int initialize_iio_buffer_and_device(struct iio_dev *indio_dev, struct ssp_data *data)
 {
 	int iRet = 0;
@@ -309,25 +305,11 @@ void report_light_cct_data(struct ssp_data *data, int sensor_type, struct sensor
 	report_iio_data(data, LIGHT_CCT_SENSOR, lightdata);
 
 	if (data->light_cct_log_cnt< 3) {
-#ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
-#ifdef CONFIG_SENSORS_SSP_LIGHT_LUX_RAW
-		ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d lux_raw=%d",
+		ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d lux_raw=%d roi=%d",
 			data->buf[LIGHT_CCT_SENSOR].lux, data->buf[LIGHT_CCT_SENSOR].cct,
 			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
 			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain,
-			data->buf[LIGHT_CCT_SENSOR].lux_raw);
-#else
-	ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d",
-			data->buf[LIGHT_CCT_SENSOR].lux, data->buf[LIGHT_CCT_SENSOR].cct,
-			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
-			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain);
-
-#endif
-#else
-		ssp_dbg("[SSP] #>CCT r=%d g=%d b=%d c=%d atime=%d again=%d",
-			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
-			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain);
-#endif
+			data->buf[LIGHT_CCT_SENSOR].lux_raw, data->buf[LIGHT_CCT_SENSOR].roi);
 		data->light_cct_log_cnt++;
 	}
 }
@@ -482,7 +464,13 @@ void report_scontext_data(struct ssp_data *data, int sensor_type,
 	memcpy(printbuf, scontextbuf, 72);
 	memcpy(&start, printbuf+4, sizeof(short));
 	memcpy(&end, printbuf+6, sizeof(short));
-	ssp_sensorhub_log("ssp_AlgoPacket", printbuf + 8, end - start + 1);
+
+	if (end - start + 1 <= 64) {
+		ssp_sensorhub_log("ssp_AlgoPacket", printbuf + 8, end - start + 1);
+	} else {
+		pr_err("[SSP] : ssp_AlgoPacket packet error start:%d end:%d", start, end);
+	}
+
 	mutex_lock(&data->indio_scontext_dev->mlock);
 	iio_push_to_buffers(data->indio_scontext_dev, scontextbuf);
 	mutex_unlock(&data->indio_scontext_dev->mlock);
@@ -625,6 +613,17 @@ static const struct iio_chan_spec indio_scontext_channels[] = {
 	}
 };
 
+static int ssp_read_raw(struct iio_dev *indio_dev, struct iio_chan_spec const *chan,
+		int *val, int *val2, long mask)
+{
+	return 0;
+}
+
+
+static const struct iio_info ssp_iio_info = {
+	.read_raw = &ssp_read_raw,
+};
+
 int initialize_input_dev(struct ssp_data *data)
 {
 	int iRet = 0, i = 0;
@@ -658,7 +657,8 @@ int initialize_input_dev(struct ssp_data *data)
 			indio_dev = iio_device_alloc(0);
 			indio_dev->name = info_table[i].name;
 			indio_dev->dev.parent = &data->spi->dev;
-			indio_dev->info = &indio_info;
+			indio_dev->info = &ssp_iio_info;
+
 			if (index == META_SENSOR)
 				indio_dev->channels = indio_meta_channels;
 			else if (strcmp(info_table[i].name, "scontext_iio") == 0)

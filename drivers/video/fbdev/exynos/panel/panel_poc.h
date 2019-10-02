@@ -16,6 +16,7 @@
 
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <linux/miscdevice.h>
 
 #include "panel.h"
 
@@ -36,9 +37,6 @@
 #define BIT_RATE_DIV_2	(0)
 #define BIT_RATE_DIV_4	(1)
 #define BIT_RATE_DIV_32	(4)
-
-#define PARTITION_NOT_EXIST	(0)
-#define PARTITION_EXISTS	(1)
 
 #ifdef CONFIG_SUPPORT_POC_SPI
 #define POC_SPI_WAIT_WRITE_CNT 100
@@ -87,12 +85,25 @@ enum {
 };
 
 enum {
+	/* IMG PARTITION */
 	POC_IMG_PARTITION,
+	/* DIM PARTITION */
 	POC_DIM_PARTITION,
+	POC_DIM_PARTITION_1,
+	POC_DIM_PARTITION_2,
+	POC_DIM_PARTITION_END = POC_DIM_PARTITION_2,
+	/* MTP PARTITION */
 	POC_MTP_PARTITION,
+	POC_MTP_PARTITION_1,
+	POC_MTP_PARTITION_2,
+	POC_MTP_PARTITION_END = POC_MTP_PARTITION_2,
+	/* MCD PARTITION */
 	POC_MCD_PARTITION,
 	MAX_POC_PARTITION,
 };
+
+#define MAX_NR_DIM_PARTITION	((POC_DIM_PARTITION_END) + 1 - (POC_DIM_PARTITION))
+#define MAX_NR_MTP_PARTITION	((POC_MTP_PARTITION_END) + 1 - (POC_MTP_PARTITION))
 
 enum poc_flash_state {
 	POC_FLASH_STATE_UNKNOWN = -1,
@@ -247,6 +258,20 @@ enum dim_flash_items {
 	MAX_DIM_FLASH,
 };
 
+enum {
+	PARTITION_REGION_DATA,
+	PARTITION_REGION_CHKSUM,
+	PARTITION_REGION_MAGIC,
+	MAX_PARTITION_REGION,
+};
+
+enum {
+	PARTITION_WRITE_CHECK_NONE,
+	PARTITION_WRITE_CHECK_NOK,
+	PARTITION_WRITE_CHECK_OK,
+	MAX_PARTITION_WRITE_CHECK,
+};
+
 struct dim_flash_info {
 	char *name;
 	u32 offset;
@@ -278,6 +303,8 @@ struct poc_partition {
 	/* result */
 	int preload_done:1;
 	int chksum_ok:1;
+	int write_check;
+	bool cache[MAX_PARTITION_REGION];
 };
 
 struct panel_poc_data {
@@ -309,12 +336,17 @@ struct panel_poc_data {
 #define IOC_SET_POC_TEST	_IOR('A', 112, __u32)		/* POC FLASH TEST - ERASE/WRITE/READ/COMPARE */
 
 extern int panel_poc_probe(struct panel_device *panel, struct panel_poc_data *poc_data);
-extern int set_panel_poc(struct panel_poc_device *poc_dev, u32 cmd, const char *cmd_ext);
+extern int set_panel_poc(struct panel_poc_device *poc_dev, u32 cmd, void *arg);
 extern int read_poc_partition(struct panel_poc_device *poc_dev, int index);
 extern int get_poc_partition_size(struct panel_poc_device *poc_dev, int index);
 extern int copy_poc_partition(struct panel_poc_device *poc_dev, u8 *dst,
 		 int index, int offset, int size);
 extern int check_poc_partition_exists(struct panel_poc_device *poc_dev, int index);
+extern int get_poc_partition_chksum(struct panel_poc_device *poc_dev, int index,
+		u32 *chksum_ok, u32 *chksum_by_calc, u32 *chksum_by_read);
+extern int check_poc_partition_chksum(struct panel_poc_device *poc_dev, int index);
+int cmp_poc_partition_data(struct panel_poc_device *poc_dev,
+		int index, u8 *buf, u32 size);
 
 extern void copy_poc_wr_addr_maptbl(struct maptbl *tbl, u8 *dst);
 extern void copy_poc_wr_data_maptbl(struct maptbl *tbl, u8 *dst);

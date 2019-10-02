@@ -18,11 +18,8 @@ struct diskcipher_alg;
 struct crypto_diskcipher {
 	u32 algo;
 	unsigned int ivsize;
-#ifdef USE_FREE_REQ
+	struct inode *inode;
 	/* for crypto_free_req_diskcipher */
-	unsigned long req_jiffies;
-	struct list_head node;
-#endif
 	atomic_t status;
 	struct crypto_tfm base;
 };
@@ -50,29 +47,17 @@ struct diskcipher_test_request {
  * And pass the crypto information to disk host device via bio.
  * Crypt operation executes on inline crypto on disk host device.
  */
-#ifdef USE_FREE_REQ
-struct diskcipher_freectrl {
-	spinlock_t freelist_lock;
-	struct list_head freelist;
-	struct delayed_work freewq;
-	atomic_t freewq_active;
-	u32 max_io_ms;
-};
-#endif
-
 struct diskcipher_alg {
-	int (*setkey)(struct crypto_tfm *tfm, const char *key, u32 keylen,
+	int (*init)(struct crypto_diskcipher *tfm);
+	int (*exit)(struct crypto_diskcipher *tfm);
+	int (*setkey)(struct crypto_diskcipher *tfm, const char *key, u32 keylen,
 		       bool persistent);
-	int (*clearkey)(struct crypto_tfm *tfm);
-	int (*crypt)(struct crypto_tfm *tfm, void *req);
-	int (*clear)(struct crypto_tfm *tfm, void *req);
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
-	int (*do_crypt)(struct crypto_tfm *tfm,
+	int (*clearkey)(struct crypto_diskcipher *tfm);
+	int (*crypt)(struct crypto_diskcipher *tfm, void *req);
+	int (*clear)(struct crypto_diskcipher *tfm, void *req);
+	int (*do_crypt)(struct crypto_diskcipher *tfm,
 		struct diskcipher_test_request *req);
-#endif
-#ifdef USE_FREE_REQ
-	struct diskcipher_freectrl freectrl;
-#endif
+	struct device *dev;
 	struct crypto_alg base;
 };
 
@@ -81,16 +66,21 @@ static inline unsigned int crypto_diskcipher_ivsize(struct crypto_diskcipher *tf
 	return tfm->ivsize;
 }
 
-static inline struct crypto_tfm *crypto_diskcipher_tfm(struct crypto_diskcipher
-						       *tfm)
+static inline struct crypto_tfm *crypto_diskcipher_tfm(
+		struct crypto_diskcipher *tfm)
 {
 	return &tfm->base;
 }
 
-static inline struct diskcipher_alg *crypto_diskcipher_alg(struct crypto_alg
-							   *alg)
+static inline struct diskcipher_alg *__crypto_diskcipher_alg(
+		struct crypto_alg *alg)
 {
 	return container_of(alg, struct diskcipher_alg, base);
+}
+static inline struct diskcipher_alg *crypto_diskcipher_alg(
+		struct crypto_diskcipher *tfm)
+{
+	return __crypto_diskcipher_alg(crypto_diskcipher_tfm(tfm)->__crt_alg);
 }
 
 static inline struct crypto_diskcipher *__crypto_diskcipher_cast(
@@ -128,7 +118,6 @@ struct crypto_diskcipher *crypto_alloc_diskcipher(const char *alg_name,
  * @tfm: cipher handle to be freed
  */
 void crypto_free_diskcipher(struct crypto_diskcipher *tfm);
-void crypto_free_req_diskcipher(struct crypto_diskcipher *tfm);
 
 /**
  * crypto_diskcipher_get() - get diskcipher from bio
@@ -144,7 +133,7 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio);
  * This functions set thm to bio->bi_aux_private to pass it to host driver.
  *
  */
-void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, u64 dun);
+void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, const struct inode *inode, u64 dun);
 
 /**
  * crypto_diskcipher_setkey() - set key for cipher
@@ -185,7 +174,6 @@ int crypto_diskcipher_set_crypt(struct crypto_diskcipher *tfm, void *req);
  */
 int crypto_diskcipher_clear_crypt(struct crypto_diskcipher *tfm, void *req);
 
-#ifndef CONFIG_CRYPTO_MANAGER_DISABLE_TESTS
 /**
  * diskcipher_do_crypt() - execute crypto for test
  * @tfm: cipher handle
@@ -226,36 +214,23 @@ static inline void diskcipher_request_set_crypt(
 	req->iv = iv;
 	req->enc = enc;
 }
-#endif
 
-enum diskcipher_dbg {
-	DISKC_API_ALLOC, DISKC_API_FREE, DISKC_API_FREEREQ, DISKC_API_SETKEY,
-	DISKC_API_SET, DISKC_API_GET, DISKC_API_CRYPT, DISKC_API_CLEAR,
-	DISKC_API_MAX, FS_PAGEIO, FS_READP, FS_DIO, FS_BLOCK_WRITE,
-	FS_ZEROPAGE, BLK_BH, DMCRYPT, DISKC_MERGE, DISKC_MERGE_ERR_INODE, DISKC_MERGE_ERR_DISKC,
-	FS_DEC_WARN, FS_ENC_WARN, DISKC_MERGE_DIO, DISKC_FREE_REQ_WARN,
-	DISKC_FREE_WQ_WARN, DISKC_CRYPT_WARN,
-	DM_CRYPT_NONENCRYPT, DM_CRYPT_CTR, DM_CRYPT_DTR, DM_CRYPT_OVER,
-	F2FS_gc, F2FS_gc_data_page, F2FS_gc_data_page_key, F2FS_gc_data_page_key_FC,
-	F2FS_gc_data_page_FC, F2FS_gc_data_block, F2FS_gc_data_block_key,
-	F2FS_gc_data_block_err1, F2FS_gc_data_block_err2, F2FS_gc_data_block_err3, F2FS_gc_skip,
-	DISKC_ERR, DISKC_NO_KEY_ERR, DISKC_NO_SYNC_ERR, DISKC_NO_CRYPT_ERR, DISKC_NO_DISKC_ERR,
-	DISKC_USER_MAX
-};
+/**
+ * crypto_diskcipher_blk_mergeble() - check the crypt option of bios and decide
+ * whether to merge or not
+ * @bio1: a bio to be mergeable
+ * @bio2: a bio to be mergeable
+ */
+bool crypto_diskcipher_blk_mergeble(struct bio *bio1, struct bio *bio2);
 
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
-void crypto_diskcipher_debug(enum diskcipher_dbg dbg, int idx);
 #else
-#define crypto_diskcipher_debug(a, b) ((void)0)
-#endif
-#else
+
 #define crypto_alloc_diskcipher(a, b, c, d) ((void *)-EINVAL)
 #define crypto_free_diskcipher(a) ((void)0)
-#define crypto_free_req_diskcipher(a) ((void)0)
 #define crypto_diskcipher_get(a) ((void *)NULL)
 #define crypto_diskcipher_set(a, b, c, d) ((void)0)
 #define crypto_diskcipher_clearkey(a) ((void)0)
 #define crypto_diskcipher_setkey(a, b, c, d) (-1)
-#define crypto_diskcipher_debug(a, b) ((void)0)
+#define crypto_diskcipher_blk_mergeble(a, b) ((void) 0)
 #endif
 #endif /* _DISKCIPHER_H_ */

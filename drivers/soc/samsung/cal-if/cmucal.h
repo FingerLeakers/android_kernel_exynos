@@ -144,6 +144,10 @@ struct vclk {
 };
 
 enum clk_pll_type {
+	pll_0732x = 7320,
+	pll_0716x = 7160,
+	pll_0717x = 7170,
+	pll_0718x = 7180,
 	PLL_0831X = 8310,
 	PLL_0817X = 8170,
 	PLL_0818X = 8180,
@@ -192,6 +196,9 @@ enum margin_id {
 	MARGIN_MFC,
 	MARGIN_NPU,
 	MARGIN_MID,
+	MARGIN_DSP,
+	MARGIN_DNC,
+	MARGIN_TNR,
 	MAX_MARGIN_ID,
 };
 
@@ -338,11 +345,11 @@ struct pll_spec {
  * @pdiv, @mdiv, @sdiv, @kdiv: for rate
  */
 struct cmucal_pll_table {
-	unsigned int		rate;
+	unsigned long		rate;
 	unsigned short		pdiv;
 	unsigned short		mdiv;
 	unsigned short		sdiv;
-	signed short		kdiv;
+	signed int		kdiv;
 };
 
 /*
@@ -417,8 +424,8 @@ struct cmucal_clkout {
 	.lut		= _lut,						\
 	.list		= _list,					\
 	.seq		= _seq,						\
-	.num_rates	= (sizeof(_lut) / sizeof((_lut)[0])),		\
-	.num_list	= (sizeof(_list) / sizeof((_list)[0])),		\
+	.num_rates	= (sizeof(_lut) / sizeof(struct vclk_lut)),		\
+	.num_list	= (sizeof(_list) / sizeof(enum clk_id)),		\
 	.switch_info	= _switch,					\
 	.ops		= NULL,						\
 }
@@ -430,8 +437,8 @@ struct cmucal_clkout {
 	.lut		= _lut,						\
 	.list		= _list,					\
 	.seq		= _seq,						\
-	.num_rates	= (sizeof(_lut) / sizeof((_lut)[0])),		\
-	.num_list	= (sizeof(_list) / sizeof((_list)[0])),		\
+	.num_rates	= (sizeof(_lut) / sizeof(struct vclk_lut)),		\
+	.num_list	= (sizeof(_list) / sizeof(enum clk_id)),		\
 	.switch_info	= _switch,					\
 	.ops		= NULL,						\
 	.margin_id	= _margin_id,					\
@@ -489,7 +496,7 @@ struct cmucal_clkout {
 	.clk.status_idx	= _so,				\
 	.clk.enable_idx	= _eo,				\
 	.pid		= _pids,			\
-	.num_parents	= (sizeof(_pids) / sizeof((_pids)[0])), \
+	.num_parents	= (sizeof(_pids) / sizeof(enum clk_id)), \
 }
 
 #define CLK_DIV(_id, _pid, _o, _so, _eo)		\
@@ -607,4 +614,12 @@ extern unsigned int cmucal_get_id_by_addr(unsigned int addr);
 extern void (*cal_data_init)(void);
 extern int (*cal_check_hiu_dvfs_id)(u32 id);
 extern void (*cal_set_cmu_smpl_warn)(void);
+#ifdef CONFIG_CMUCAL_DEBUG
+extern void cmucal_dbg_set_cmu_top_base(u32 base_addr);
+#else
+static inline void cmucal_dbg_set_cmu_top_base(u32 base_addr)
+{
+	return ;
+}
+#endif
 #endif

@@ -46,7 +46,7 @@
 #include <linux/string.h>
 #include <linux/list.h>
 #include <linux/ratelimit.h>
-#include <linux/android_aid.h>
+#include <linux/iversion.h>
 #include "multiuser.h"
 
 /* the file system name */
@@ -192,7 +192,6 @@ struct sdcardfs_inode_data {
 	bool under_android;
 	bool under_cache;
 	bool under_obb;
-
 	bool under_knox;
 };
 
@@ -224,7 +223,9 @@ struct sdcardfs_mount_options {
 	bool multiuser;
 	bool gid_derivation;
 	bool default_normal;
+	bool unshared_obb;
 	unsigned int reserved_mb;
+	bool nocache;
 };
 
 struct sdcardfs_vfsmount_options {
@@ -617,6 +618,8 @@ out_unlock:
 	return err;
 }
 
+#define AID_USE_ROOT_RESERVED KGIDT_INIT(5678)
+
 /*
  * Return 1, if a disk has enough free space, otherwise 0.
  * We assume that any files can not be overwritten.
@@ -636,9 +639,9 @@ static inline int check_min_free_space(struct dentry *dentry, size_t size, int d
 
 	if (sbi->options.reserved_mb) {
 		/* Get fs stat of lower filesystem. */
-		sdcardfs_get_lower_path(dentry->d_sb->s_root, &lower_path);
+		sdcardfs_get_lower_path(dentry, &lower_path);
 		err = vfs_statfs(&lower_path, &statfs);
-		sdcardfs_put_lower_path(dentry->d_sb->s_root, &lower_path);
+		sdcardfs_put_lower_path(dentry, &lower_path);
 
 		if (unlikely(err))
 			goto out_invalid;
@@ -718,11 +721,6 @@ static inline bool str_n_case_eq(const char *s1, const char *s2, size_t len)
 static inline bool qstr_case_eq(const struct qstr *q1, const struct qstr *q2)
 {
 	return q1->len == q2->len && str_n_case_eq(q1->name, q2->name, q2->len);
-}
-
-static inline bool qstr_n_case_eq(const struct qstr *q1, const struct qstr *q2)
-{
-	return q1->len == q2->len && str_n_case_eq(q1->name, q2->name, q1->len);
 }
 
 #define QSTR_LITERAL(string) QSTR_INIT(string, sizeof(string)-1)

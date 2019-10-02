@@ -159,7 +159,7 @@ bool ip_call_ra_chain(struct sk_buff *skb)
 	struct net_device *dev = skb->dev;
 	struct net *net = dev_net(dev);
 
-	for (ra = rcu_dereference(ip_ra_chain); ra; ra = rcu_dereference(ra->next)) {
+	for (ra = rcu_dereference(net->ipv4.ra_chain); ra; ra = rcu_dereference(ra->next)) {
 		struct sock *sk = ra->sk;
 
 		/* If socket is bound to an interface, only report
@@ -167,8 +167,7 @@ bool ip_call_ra_chain(struct sk_buff *skb)
 		 */
 		if (sk && inet_sk(sk)->inet_num == protocol &&
 		    (!sk->sk_bound_dev_if ||
-		     sk->sk_bound_dev_if == dev->ifindex) &&
-		    net_eq(sock_net(sk), net)) {
+		     sk->sk_bound_dev_if == dev->ifindex)) {
 			if (ip_is_fragment(ip_hdr(skb))) {
 				if (ip_defrag(net, skb, IP_DEFRAG_CALL_RA_CHAIN))
 					return true;
@@ -223,7 +222,6 @@ static int ip_local_deliver_finish(struct net *net, struct sock *sk, struct sk_b
 			if (!raw) {
 				if (xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 					__IP_INC_STATS(net, IPSTATS_MIB_INUNKNOWNPROTOS);
-					DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INUNKNOWNPROTOS);
 					icmp_send(skb, ICMP_DEST_UNREACH,
 						  ICMP_PROT_UNREACH, 0);
 				}
@@ -274,7 +272,6 @@ static inline bool ip_rcv_options(struct sk_buff *skb, struct net_device *dev)
 	*/
 	if (skb_cow(skb, skb_headroom(skb))) {
 		__IP_INC_STATS(dev_net(dev), IPSTATS_MIB_INDISCARDS);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INDISCARDS6);
 		goto drop;
 	}
 
@@ -284,7 +281,6 @@ static inline bool ip_rcv_options(struct sk_buff *skb, struct net_device *dev)
 
 	if (ip_options_compile(dev_net(dev), opt, skb)) {
 		__IP_INC_STATS(dev_net(dev), IPSTATS_MIB_INHDRERRORS);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS);
 		goto drop;
 	}
 
@@ -310,20 +306,13 @@ drop:
 	return true;
 }
 
-static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
+static int ip_rcv_finish_core(struct net *net, struct sock *sk,
+			      struct sk_buff *skb, struct net_device *dev)
 {
 	const struct iphdr *iph = ip_hdr(skb);
 	int (*edemux)(struct sk_buff *skb);
-	struct net_device *dev = skb->dev;
 	struct rtable *rt;
 	int err;
-
-	/* if ingress device is enslaved to an L3 master device pass the
-	 * skb to its handler for processing
-	 */
-	skb = l3mdev_ip_rcv(skb);
-	if (!skb)
-		return NET_RX_SUCCESS;
 
 	if (net->ipv4.sysctl_ip_early_demux &&
 	    !skb_dst(skb) &&
@@ -396,27 +385,42 @@ static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 			goto drop;
 	}
 
-	return dst_input(skb);
+	return NET_RX_SUCCESS;
 
 drop:
 	kfree_skb(skb);
 	return NET_RX_DROP;
 
 drop_error:
-	if (err == -EXDEV) {
+	if (err == -EXDEV)
 		__NET_INC_STATS(net, LINUX_MIB_IPRPFILTER);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INTRUNCATEDPKTS2);
-	}
 	goto drop;
+}
+
+static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
+{
+	struct net_device *dev = skb->dev;
+	int ret;
+
+	/* if ingress device is enslaved to an L3 master device pass the
+	 * skb to its handler for processing
+	 */
+	skb = l3mdev_ip_rcv(skb);
+	if (!skb)
+		return NET_RX_SUCCESS;
+
+	ret = ip_rcv_finish_core(net, sk, skb, dev);
+	if (ret != NET_RX_DROP)
+		ret = dst_input(skb);
+	return ret;
 }
 
 /*
  * 	Main IP Receive routine.
  */
-int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, struct net_device *orig_dev)
+static struct sk_buff *ip_rcv_core(struct sk_buff *skb, struct net *net)
 {
 	const struct iphdr *iph;
-	struct net *net;
 	u32 len;
 
 	/* When the interface is in promisc. mode, drop all the crap
@@ -426,7 +430,6 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 		goto drop;
 
 
-	net = dev_net(dev);
 	__IP_UPD_PO_STATS(net, IPSTATS_MIB_IN, skb->len);
 
 	skb = skb_share_check(skb, GFP_ATOMIC);
@@ -472,7 +475,6 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	len = ntohs(iph->tot_len);
 	if (skb->len < len) {
 		__IP_INC_STATS(net, IPSTATS_MIB_INTRUNCATEDPKTS);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INTRUNCATEDPKTS2);
 		goto drop;
 	} else if (len < (iph->ihl*4))
 		goto inhdr_error;
@@ -483,7 +485,6 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 */
 	if (pskb_trim_rcsum(skb, len)) {
 		__IP_INC_STATS(net, IPSTATS_MIB_INDISCARDS);
-		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INDISCARDS7);
 		goto drop;
 	}
 
@@ -497,18 +498,123 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	/* Must drop socket now because of tproxy. */
 	skb_orphan(skb);
 
-	return NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING,
-		       net, NULL, skb, dev, NULL,
-		       ip_rcv_finish);
+	return skb;
 
 csum_error:
 	__IP_INC_STATS(net, IPSTATS_MIB_CSUMERRORS);
-	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_CSUMERRORS);
 inhdr_error:
 	__IP_INC_STATS(net, IPSTATS_MIB_INHDRERRORS);
-	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS1);
 drop:
 	kfree_skb(skb);
 out:
-	return NET_RX_DROP;
+	return NULL;
+}
+
+/*
+ * IP receive entry point
+ */
+int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt,
+	   struct net_device *orig_dev)
+{
+	struct net *net = dev_net(dev);
+
+	skb = ip_rcv_core(skb, net);
+	if (skb == NULL)
+		return NET_RX_DROP;
+	return NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING,
+		       net, NULL, skb, dev, NULL,
+		       ip_rcv_finish);
+}
+
+static void ip_sublist_rcv_finish(struct list_head *head)
+{
+	struct sk_buff *skb, *next;
+
+	list_for_each_entry_safe(skb, next, head, list) {
+		list_del(&skb->list);
+		/* Handle ip{6}_forward case, as sch_direct_xmit have
+		 * another kind of SKB-list usage (see validate_xmit_skb_list)
+		 */
+		skb->next = NULL;
+		dst_input(skb);
+	}
+}
+
+static void ip_list_rcv_finish(struct net *net, struct sock *sk,
+			       struct list_head *head)
+{
+	struct dst_entry *curr_dst = NULL;
+	struct sk_buff *skb, *next;
+	struct list_head sublist;
+
+	INIT_LIST_HEAD(&sublist);
+	list_for_each_entry_safe(skb, next, head, list) {
+		struct net_device *dev = skb->dev;
+		struct dst_entry *dst;
+
+		skb_list_del_init(skb);
+		/* if ingress device is enslaved to an L3 master device pass the
+		 * skb to its handler for processing
+		 */
+		skb = l3mdev_ip_rcv(skb);
+		if (!skb)
+			continue;
+		if (ip_rcv_finish_core(net, sk, skb, dev) == NET_RX_DROP)
+			continue;
+
+		dst = skb_dst(skb);
+		if (curr_dst != dst) {
+			/* dispatch old sublist */
+			if (!list_empty(&sublist))
+				ip_sublist_rcv_finish(&sublist);
+			/* start new sublist */
+			INIT_LIST_HEAD(&sublist);
+			curr_dst = dst;
+		}
+		list_add_tail(&skb->list, &sublist);
+	}
+	/* dispatch final sublist */
+	ip_sublist_rcv_finish(&sublist);
+}
+
+static void ip_sublist_rcv(struct list_head *head, struct net_device *dev,
+			   struct net *net)
+{
+	NF_HOOK_LIST(NFPROTO_IPV4, NF_INET_PRE_ROUTING, net, NULL,
+		     head, dev, NULL, ip_rcv_finish);
+	ip_list_rcv_finish(net, NULL, head);
+}
+
+/* Receive a list of IP packets */
+void ip_list_rcv(struct list_head *head, struct packet_type *pt,
+		 struct net_device *orig_dev)
+{
+	struct net_device *curr_dev = NULL;
+	struct net *curr_net = NULL;
+	struct sk_buff *skb, *next;
+	struct list_head sublist;
+
+	INIT_LIST_HEAD(&sublist);
+	list_for_each_entry_safe(skb, next, head, list) {
+		struct net_device *dev = skb->dev;
+		struct net *net = dev_net(dev);
+
+		skb_list_del_init(skb);
+		skb = ip_rcv_core(skb, net);
+		if (skb == NULL)
+			continue;
+
+		if (curr_dev != dev || curr_net != net) {
+			/* dispatch old sublist */
+			if (!list_empty(&sublist))
+				ip_sublist_rcv(&sublist, curr_dev, curr_net);
+			/* start new sublist */
+			INIT_LIST_HEAD(&sublist);
+			curr_dev = dev;
+			curr_net = net;
+		}
+		list_add_tail(&skb->list, &sublist);
+	}
+	/* dispatch final sublist */
+	ip_sublist_rcv(&sublist, curr_dev, curr_net);
 }

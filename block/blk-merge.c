@@ -7,6 +7,7 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <linux/scatterlist.h>
+#include <crypto/diskcipher.h>
 
 #include <trace/events/block.h>
 
@@ -27,7 +28,8 @@ static struct bio *blk_bio_discard_split(struct request_queue *q,
 	/* Zero-sector (unknown) and one-sector granularities are the same.  */
 	granularity = max(q->limits.discard_granularity >> 9, 1U);
 
-	max_discard_sectors = min(q->limits.max_discard_sectors, UINT_MAX >> 9);
+	max_discard_sectors = min(q->limits.max_discard_sectors,
+			bio_allowed_max_sectors(q));
 	max_discard_sectors -= max_discard_sectors % granularity;
 
 	if (unlikely(!max_discard_sectors)) {
@@ -128,9 +130,7 @@ static struct bio *blk_bio_segment_split(struct request_queue *q,
 				nsegs++;
 				sectors = max_sectors;
 			}
-			if (sectors)
-				goto split;
-			/* Make this single bvec as the 1st segment */
+			goto split;
 		}
 
 		if (bvprvp && blk_queue_cluster(q)) {
@@ -146,13 +146,14 @@ static struct bio *blk_bio_segment_split(struct request_queue *q,
 			bvprvp = &bvprv;
 			sectors += bv.bv_len >> 9;
 
-			if (nsegs == 1 && seg_size > front_seg_size)
-				front_seg_size = seg_size;
 			continue;
 		}
 new_segment:
 		if (nsegs == queue_max_segments(q))
 			goto split;
+
+		if (nsegs == 1 && seg_size > front_seg_size)
+			front_seg_size = seg_size;
 
 		nsegs++;
 		bvprv = bv;
@@ -160,8 +161,6 @@ new_segment:
 		seg_size = bv.bv_len;
 		sectors += bv.bv_len >> 9;
 
-		if (nsegs == 1 && seg_size > front_seg_size)
-			front_seg_size = seg_size;
 	}
 
 	do_split = false;
@@ -174,6 +173,8 @@ split:
 			bio = new;
 	}
 
+	if (nsegs == 1 && seg_size > front_seg_size)
+		front_seg_size = seg_size;
 	bio->bi_seg_front_size = front_seg_size;
 	if (seg_size > bio->bi_seg_back_size)
 		bio->bi_seg_back_size = seg_size;
@@ -189,16 +190,16 @@ void blk_queue_split(struct request_queue *q, struct bio **bio)
 	switch (bio_op(*bio)) {
 	case REQ_OP_DISCARD:
 	case REQ_OP_SECURE_ERASE:
-		split = blk_bio_discard_split(q, *bio, q->bio_split, &nsegs);
+		split = blk_bio_discard_split(q, *bio, &q->bio_split, &nsegs);
 		break;
 	case REQ_OP_WRITE_ZEROES:
-		split = blk_bio_write_zeroes_split(q, *bio, q->bio_split, &nsegs);
+		split = blk_bio_write_zeroes_split(q, *bio, &q->bio_split, &nsegs);
 		break;
 	case REQ_OP_WRITE_SAME:
-		split = blk_bio_write_same_split(q, *bio, q->bio_split, &nsegs);
+		split = blk_bio_write_same_split(q, *bio, &q->bio_split, &nsegs);
 		break;
 	default:
-		split = blk_bio_segment_split(q, *bio, q->bio_split, &nsegs);
+		split = blk_bio_segment_split(q, *bio, &q->bio_split, &nsegs);
 		break;
 	}
 
@@ -210,6 +211,16 @@ void blk_queue_split(struct request_queue *q, struct bio **bio)
 	if (split) {
 		/* there isn't chance to merge the splitted bio */
 		split->bi_opf |= REQ_NOMERGE;
+
+		/*
+		 * Since we're recursing into make_request here, ensure
+		 * that we mark this bio as already having entered the queue.
+		 * If not, and the queue is going away, we can get stuck
+		 * forever on waiting for the queue reference to drop. But
+		 * that will never happen, as we're already holding a
+		 * reference to it.
+		 */
+		bio_set_flag(*bio, BIO_QUEUE_ENTERED);
 
 		bio_chain(split, *bio);
 		trace_block_split(q, split, (*bio)->bi_iter.bi_sector);
@@ -695,7 +706,7 @@ static struct request *attempt_merge(struct request_queue *q,
 	    !blk_write_same_mergeable(req->bio, next->bio))
 		return NULL;
 
-	if (!blk_crypt_mergeable(req->bio, next->bio))
+	if (!crypto_diskcipher_blk_mergeble(req->bio, next->bio))
 		return NULL;
 
 	/*
@@ -732,13 +743,12 @@ static struct request *attempt_merge(struct request_queue *q,
 	}
 
 	/*
-	 * At this point we have either done a back merge
-	 * or front merge. We need the smaller start_time of
-	 * the merged requests to be the current request
-	 * for accounting purposes.
+	 * At this point we have either done a back merge or front merge. We
+	 * need the smaller start_time_ns of the merged requests to be the
+	 * current request for accounting purposes.
 	 */
-	if (time_after(req->start_time, next->start_time))
-		req->start_time = next->start_time;
+	if (next->start_time_ns < req->start_time_ns)
+		req->start_time_ns = next->start_time_ns;
 
 	req->biotail->bi_next = next->bio;
 	req->biotail = next->biotail;
@@ -843,21 +853,15 @@ bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 enum elv_merge blk_try_merge(struct request *rq, struct bio *bio)
 {
 	if (req_op(rq) == REQ_OP_DISCARD &&
-	    queue_max_discard_segments(rq->q) > 1) {
+	    queue_max_discard_segments(rq->q) > 1)
 		return ELEVATOR_DISCARD_MERGE;
-	} else if (blk_rq_pos(rq) + blk_rq_sectors(rq) ==
-						bio->bi_iter.bi_sector) {
-#ifdef CONFIG_BLK_DEV_CRYPT_DUN
-		if (!blk_crypt_mergeable(rq->bio, bio))
+	else if (blk_rq_pos(rq) + blk_rq_sectors(rq) == bio->bi_iter.bi_sector) {
+		if (!crypto_diskcipher_blk_mergeble(rq->bio, bio))
 			return ELEVATOR_NO_MERGE;
-#endif
 		return ELEVATOR_BACK_MERGE;
-	} else if (blk_rq_pos(rq) - bio_sectors(bio) ==
-						bio->bi_iter.bi_sector) {
-#ifdef CONFIG_BLK_DEV_CRYPT_DUN
-		if (!blk_crypt_mergeable(bio, rq->bio))
+	} else if (blk_rq_pos(rq) - bio_sectors(bio) == bio->bi_iter.bi_sector) {
+		if (!crypto_diskcipher_blk_mergeble(bio, rq->bio))
 			return ELEVATOR_NO_MERGE;
-#endif
 		return ELEVATOR_FRONT_MERGE;
 	}
 	return ELEVATOR_NO_MERGE;

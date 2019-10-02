@@ -35,12 +35,11 @@
 /* initialted */
 extern void phy_exynos_usb_v3p1_enable(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb_v3p1_disable(struct exynos_usbphy_info *info);
+extern void phy_exynos_usb_v3p1_link_sw_reset(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb3p1_pcs_reset(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb3p1_sw_rst(struct exynos_usbphy_info *info);
-extern u64 phy_exynos_usb3p1_get_logic_trace(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb_v3p1_enable_dp_pullup(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb_v3p1_disable_dp_pullup(struct exynos_usbphy_info *info);
-extern void phy_exynos_usb_v3p1_link_rst(struct exynos_usbphy_info *info);
 /* USB/DP PHY control */
 extern void phy_exynos_usb_v3p1_pma_ready(struct exynos_usbphy_info *info);
 extern void phy_exynos_usb_v3p1_g2_pma_ready(struct exynos_usbphy_info *info);
@@ -64,6 +63,9 @@ extern int phy_exynos_usb3p1_rewa_enable(struct exynos_usbphy_info *info);
 extern int phy_exynos_usb3p1_rewa_disable(struct exynos_usbphy_info *info);
 extern int phy_exynos_usb3p1_rewa_req_sys_valid(struct exynos_usbphy_info *info);
 extern int phy_exynos_usb3p1_rewa_cancel(struct exynos_usbphy_info *info);
+/* Super Speed Remote Wake-up Advisor(U3 ReWA) */
+void phy_exynos_usb3p1_u3_rewa_enable(struct exynos_usbphy_info *info, int lfps_overlap_mode);
+void phy_exynos_usb3p1_u3_rewa_disable(struct exynos_usbphy_info *info);
 /* 3.0 PHY CR Port Access */
 extern void phy_exynos_usb_v3p1_cal_cr_write(struct exynos_usbphy_info *info, u16 addr, u16 data);
 extern u16 phy_exynos_usb_v3p1_cal_cr_read(struct exynos_usbphy_info *info, u16 addr);
@@ -73,6 +75,9 @@ extern u8 phy_exynos_usb_v3p1_tif_ov_wr(struct exynos_usbphy_info *info, u8 addr
 extern u8 phy_exynos_usb_v3p1_tif_sts_rd(struct exynos_usbphy_info *info, u8 addr);
 /* FS_VPLUS/VMINUS interrupt */
 extern void phy_exynos_usb3p1_set_fs_vplus_vminus(struct exynos_usbphy_info *usbphy_info, u32 fsls_speed_sel, u32 fsv_out_en);
+extern u8 phy_exynos_usb3p1_get_fs_vplus_vminus(struct exynos_usbphy_info *info);
+/* UART/JTAG over USB */
+void phy_exynos_usb3p1_set_fsv_out_en(struct exynos_usbphy_info *usbphy_info, u32 fsv_out_en);
 /* BC 1.2 */
 extern u8 phy_exynos_usb3p1_bc_data_contact_detect(struct exynos_usbphy_info *usbphy_info);
 extern enum exynos_usb_bc phy_exynos_usb3p1_bc_battery_charger_detection(struct exynos_usbphy_info *usbphy_info);

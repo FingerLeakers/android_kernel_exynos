@@ -14,8 +14,6 @@
 #ifndef __TZ_REE_TIME_H__
 #define __TZ_REE_TIME_H__
 
-#define TZ_REE_TIME_SOCK_NAME	"ree_time_socket"
-
 struct tz_ree_time {
 	uint32_t sec;
 	uint32_t nsec;

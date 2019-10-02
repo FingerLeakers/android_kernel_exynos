@@ -105,6 +105,38 @@ struct mfc_fmt dec_formats[] = {
 		.mem_planes = 2,
 	},
 	{
+		.name = "4:2:0 2 Planes 8bit Compress (SBWC)",
+		.fourcc = V4L2_PIX_FMT_NV12M_SBWC_8B,
+		.codec_mode = MFC_FORMATS_NO_CODEC,
+		.type = MFC_FMT_FRAME | MFC_FMT_SBWC,
+		.num_planes = 2,
+		.mem_planes = 2,
+	},
+	{
+		.name = "4:2:0 2 Planes 10bit Compress (SBWC)",
+		.fourcc = V4L2_PIX_FMT_NV12M_SBWC_10B,
+		.codec_mode = MFC_FORMATS_NO_CODEC,
+		.type = MFC_FMT_FRAME | MFC_FMT_SBWC,
+		.num_planes = 2,
+		.mem_planes = 2,
+	},
+	{
+		.name = "4:2:0 2 Planes 8bit Compress single (SBWC)",
+		.fourcc = V4L2_PIX_FMT_NV12N_SBWC_8B,
+		.codec_mode = MFC_FORMATS_NO_CODEC,
+		.type = MFC_FMT_FRAME | MFC_FMT_SBWC,
+		.num_planes = 2,
+		.mem_planes = 1,
+	},
+	{
+		.name = "4:2:0 2 Planes 10bit Compress single (SBWC)",
+		.fourcc = V4L2_PIX_FMT_NV12N_SBWC_10B,
+		.codec_mode = MFC_FORMATS_NO_CODEC,
+		.type = MFC_FMT_FRAME | MFC_FMT_SBWC,
+		.num_planes = 2,
+		.mem_planes = 1,
+	},
+	{
 		.name = "4:2:2 2 Planes Y/CbCr",
 		.fourcc = V4L2_PIX_FMT_NV16M,
 		.codec_mode = MFC_FORMATS_NO_CODEC,
@@ -553,7 +585,15 @@ static struct v4l2_queryctrl controls[] = {
 		.step = 1,
 		.default_value = 0,
 	},
-
+	{
+		.id = V4L2_CID_MPEG_VIDEO_UNCOMP_FMT,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Uncompressed format",
+		.minimum = INT_MIN,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(controls)

@@ -57,7 +57,7 @@
 #include <linux/backing-dev.h>
 #include <linux/sort.h>
 #include <linux/oom.h>
-
+#include <linux/sched/isolation.h>
 #include <linux/uaccess.h>
 #include <linux/atomic.h>
 #include <linux/mutex.h>
@@ -136,8 +136,6 @@ struct cpuset {
 	/* for custom sched domain */
 	int relax_domain_level;
 };
-struct completion cpuset_work_competion;
-extern bool smp_init_done;
 
 static inline struct cpuset *css_cs(struct cgroup_subsys_state *css)
 {
@@ -608,7 +606,7 @@ static inline int nr_cpusets(void)
  * load balancing domains (sched domains) as specified by that partial
  * partition.
  *
- * See "What is sched_load_balance" in Documentation/cgroups/cpusets.txt
+ * See "What is sched_load_balance" in Documentation/cgroup-v1/cpusets.txt
  * for a background explanation of this.
  *
  * Does not return errors, on the theory that the callers of this
@@ -659,7 +657,6 @@ static int generate_sched_domains(cpumask_var_t **domains,
 	int csn;		/* how many cpuset ptrs in csa so far */
 	int i, j, k;		/* indices for partition finding loops */
 	cpumask_var_t *doms;	/* resulting partition; i.e. sched domains */
-	cpumask_var_t non_isolated_cpus;  /* load balanced CPUs */
 	struct sched_domain_attr *dattr;  /* attributes for custom domains */
 	int ndoms = 0;		/* number of sched domains in result */
 	int nslot;		/* next empty doms[] struct cpumask slot */
@@ -668,10 +665,6 @@ static int generate_sched_domains(cpumask_var_t **domains,
 	doms = NULL;
 	dattr = NULL;
 	csa = NULL;
-
-	if (!alloc_cpumask_var(&non_isolated_cpus, GFP_KERNEL))
-		goto done;
-	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
 
 	/* Special case for the 99% of systems with one, full, sched domain */
 	if (is_sched_load_balance(&top_cpuset)) {
@@ -686,12 +679,12 @@ static int generate_sched_domains(cpumask_var_t **domains,
 			update_domain_attr_tree(dattr, &top_cpuset);
 		}
 		cpumask_and(doms[0], top_cpuset.effective_cpus,
-				     non_isolated_cpus);
+			    housekeeping_cpumask(HK_FLAG_DOMAIN));
 
 		goto done;
 	}
 
-	csa = kmalloc(nr_cpusets() * sizeof(cp), GFP_KERNEL);
+	csa = kmalloc_array(nr_cpusets(), sizeof(cp), GFP_KERNEL);
 	if (!csa)
 		goto done;
 	csn = 0;
@@ -710,7 +703,8 @@ static int generate_sched_domains(cpumask_var_t **domains,
 		 */
 		if (!cpumask_empty(cp->cpus_allowed) &&
 		    !(is_sched_load_balance(cp) &&
-		      cpumask_intersects(cp->cpus_allowed, non_isolated_cpus)))
+		      cpumask_intersects(cp->cpus_allowed,
+					 housekeeping_cpumask(HK_FLAG_DOMAIN))))
 			continue;
 
 		if (is_sched_load_balance(cp))
@@ -760,7 +754,8 @@ restart:
 	 * The rest of the code, including the scheduler, can deal with
 	 * dattr==NULL case. No need to abort if alloc fails.
 	 */
-	dattr = kmalloc(ndoms * sizeof(struct sched_domain_attr), GFP_KERNEL);
+	dattr = kmalloc_array(ndoms, sizeof(struct sched_domain_attr),
+			      GFP_KERNEL);
 
 	for (nslot = 0, i = 0; i < csn; i++) {
 		struct cpuset *a = csa[i];
@@ -792,7 +787,7 @@ restart:
 
 			if (apn == b->pn) {
 				cpumask_or(dp, dp, b->effective_cpus);
-				cpumask_and(dp, dp, non_isolated_cpus);
+				cpumask_and(dp, dp, housekeeping_cpumask(HK_FLAG_DOMAIN));
 				if (dattr)
 					update_domain_attr_tree(dattr + nslot, b);
 
@@ -805,7 +800,6 @@ restart:
 	BUG_ON(nslot != ndoms);
 
 done:
-	free_cpumask_var(non_isolated_cpus);
 	kfree(csa);
 
 	/*
@@ -1264,9 +1258,9 @@ done:
 	return retval;
 }
 
-int current_cpuset_is_being_rebound(void)
+bool current_cpuset_is_being_rebound(void)
 {
-	int ret;
+	bool ret;
 
 	rcu_read_lock();
 	ret = task_cs(current) == cpuset_being_rebound;
@@ -2144,7 +2138,6 @@ int __init cpuset_init(void)
 	nodes_setall(top_cpuset.mems_allowed);
 	cpumask_setall(top_cpuset.effective_cpus);
 	nodes_setall(top_cpuset.effective_mems);
-	init_completion(&cpuset_work_competion);
 
 	fmeter_init(&top_cpuset.fmeter);
 	set_bit(CS_SCHED_LOAD_BALANCE, &top_cpuset.flags);
@@ -2375,12 +2368,8 @@ static void cpuset_hotplug_workfn(struct work_struct *work)
 		force_rebuild = false;
 		rebuild_sched_domains();
 	}
-
-	if (smp_init_done)
-		complete(&cpuset_work_competion);
 }
 
-bool cpuset_work_compl_flag;
 void cpuset_update_active_cpus(void)
 {
 	/*
@@ -2388,22 +2377,10 @@ void cpuset_update_active_cpus(void)
 	 * inside cgroup synchronization.  Bounce actual hotplug processing
 	 * to a work item to avoid reverse locking order.
 	 */
-
-	cpuset_work_compl_flag = true;
 	schedule_work(&cpuset_hotplug_work);
 }
 
 void cpuset_wait_for_hotplug(void)
-{
-	if (cpuset_work_compl_flag) {
-		cpuset_work_compl_flag = false;
-		if (smp_init_done)
-			wait_for_completion(&cpuset_work_competion);
-	}
-	flush_work(&cpuset_hotplug_work);
-}
-
-void cpuset_wait_for_hotplug_wo_completion(void)
 {
 	flush_work(&cpuset_hotplug_work);
 }
@@ -2468,10 +2445,23 @@ void cpuset_cpus_allowed(struct task_struct *tsk, struct cpumask *pmask)
 	spin_unlock_irqrestore(&callback_lock, flags);
 }
 
+/**
+ * cpuset_cpus_allowed_fallback - final fallback before complete catastrophe.
+ * @tsk: pointer to task_struct with which the scheduler is struggling
+ *
+ * Description: In the case that the scheduler cannot find an allowed cpu in
+ * tsk->cpus_allowed, we fall back to task_cs(tsk)->cpus_allowed. In legacy
+ * mode however, this value is the same as task_cs(tsk)->effective_cpus,
+ * which will not contain a sane cpumask during cases such as cpu hotplugging.
+ * This is the absolute last resort for the scheduler and it is only used if
+ * _every_ other avenue has been traveled.
+ **/
+
 void cpuset_cpus_allowed_fallback(struct task_struct *tsk)
 {
 	rcu_read_lock();
-	do_set_cpus_allowed(tsk, task_cs(tsk)->effective_cpus);
+	do_set_cpus_allowed(tsk, is_in_v2_mode() ?
+		task_cs(tsk)->cpus_allowed : cpu_possible_mask);
 	rcu_read_unlock();
 
 	/*

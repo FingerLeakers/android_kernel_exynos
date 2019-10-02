@@ -12,12 +12,6 @@
 
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
-/* TODO : remove dsim dependent code */
-#if defined(CONFIG_EXYNOS_DPU20)
-#include "../../dpu20/decon.h"
-#else
-#include "../../dpu_9810/decon.h"
-#endif
 #include "../panel.h"
 #include "s6e3ha9.h"
 #include "s6e3ha9_panel.h"
@@ -866,6 +860,7 @@ static void copy_gamma_inter_control_maptbl(struct maptbl *tbl, u8 *dst)
 	}
 }
 
+
 static int generate_hbm_gamma(struct panel_info *panel_data,
 		struct maptbl *gamma_maptbl, u8 *dst)
 {
@@ -1350,20 +1345,6 @@ static int getidx_acl_onoff_table(struct maptbl *tbl)
 	return maptbl_index(tbl, 0, panel_bl_get_acl_pwrsave(&panel->panel_bl), 0);
 }
 
-static int getidx_dia_onoff_table(struct maptbl *tbl)
-{
-	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_info *panel_data;
-
-	if (panel == NULL) {
-		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
-		return -EINVAL;
-	}
-	panel_data = &panel->panel_data;
-
-	return maptbl_index(tbl, 0, panel_data->props.dia_mode, 0);
-}
-
 static int getidx_hbm_onoff_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
@@ -1395,50 +1376,59 @@ static int getidx_acl_opr_table(struct maptbl *tbl)
 static int getidx_dsc_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct decon_lcd *lcd_info;
+	struct panel_properties *props;
+	struct panel_mres *mres;
+	int row = 0;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
-	lcd_info = &panel->lcd_info;
+	props = &panel->panel_data.props;
+	mres = &panel->panel_data.mres;
 
-	return maptbl_index(tbl, 0, lcd_info->dsc_enabled ? 1 : 0, 0);
+	if (mres->nr_resol == 0 || mres->resol == NULL)
+		return maptbl_index(tbl, 0, row, 0);
+
+	if (mres->resol[props->mres_mode].comp_type
+			== PN_COMP_TYPE_DSC)
+		row = 1;
+
+	return maptbl_index(tbl, 0, row, 0);
 }
 
 static int getidx_resolution_table(struct maptbl *tbl)
 {
-	int row = 0, layer = 0;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct decon_lcd *lcd_info = &panel->lcd_info;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	struct panel_properties *props = &panel->panel_data.props;
+	int row = 0, layer = 0;
+	int xres = 0, yres = 0;
 
-#ifdef CONFIG_SUPPORT_DSU
-	panel_info("%s : mres_mode : %d\n", __func__, lcd_info->mres_mode);
+	if (mres->nr_resol == 0 || mres->resol == NULL)
+		return maptbl_index(tbl, layer, row, 0);
 
-	switch (lcd_info->mres_mode) {
-	case DSU_MODE_1:
-		row = 0;
-		break;
-	case DSU_MODE_2:
-		row = 1;
-		break;
-	case DSU_MODE_3:
-		row = 2;
-		break;
-	default:
-		panel_err("PANEL:ERR:%s:Invalid dsu mode : %d\n", __func__, lcd_info->mres_mode);
-		row = 0;
-		break;
+	if (props->mres_mode >= mres->nr_resol) {
+		xres = mres->resol[0].w;
+		yres = mres->resol[0].h;
+		panel_err("%s invalid mres_mode %d, nr_resol %d\n",
+				__func__, props->mres_mode, mres->nr_resol);
+	} else {
+		xres = mres->resol[props->mres_mode].w;
+		yres = mres->resol[props->mres_mode].h;
+		panel_info("%s mres_mode %d (%dx%d)\n",
+				__func__, props->mres_mode,
+				mres->resol[props->mres_mode].w,
+				mres->resol[props->mres_mode].h);
 	}
-#else
-	if (lcd_info->xres == 1440)
+
+	if (xres == 1440)
 		row = 0;
-	else if (lcd_info->xres == 1080)
+	else if (xres == 1080)
 		row = 1;
-	else if (lcd_info->xres == 720)
+	else if (xres == 720)
 		row = 2;
-#endif
-	layer = !(lcd_info->yres % 740) ? 0 : 1;
+	layer = !(yres % 740) ? 0 : 1;
 
 	return maptbl_index(tbl, layer, row, 0);
 }
@@ -1526,28 +1516,6 @@ static int getidx_lpm_table(struct maptbl *tbl)
 	return maptbl_index(tbl, layer, row, 0);
 }
 
-#ifdef CONFIG_DYNAMIC_FREQ
-static int getidx_dyn_ffc_table(struct maptbl *tbl)
-{
-	int row = 0;
-	struct df_status_info *status;
-	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-
-	if (panel == NULL) {
-		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
-		return -EINVAL;
-	}
-	status = &panel->df_status;
-
-	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d\n", __func__, status->ffc_df);
-
-	row = status->ffc_df;
-
-	return maptbl_index(tbl, 0, row, 0);
-}
-#endif
-
-
 static int getidx_lpm_dyn_vlin_table(struct maptbl *tbl)
 {
 	int row = 0;
@@ -1584,7 +1552,10 @@ static int s6e3ha9_getidx_gram_img_pattern_table(struct maptbl *tbl)
 	struct panel_properties *props = &panel->panel_data.props;
 
 	pr_info("%s gram img %d\n", __func__, props->gct_pattern);
-	props->gct_valid_chksum = S6E3HA9_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[0] = S6E3HA9_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[1] = S6E3HA9_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[2] = S6E3HA9_GRAM_CHECKSUM_VALID;
+	props->gct_valid_chksum[3] = S6E3HA9_GRAM_CHECKSUM_VALID;
 
 	return maptbl_index(tbl, 0, props->gct_pattern, 0);
 }

@@ -37,6 +37,7 @@ static inline char debug_trace_dsms_calls(void)
 enum loglevel {
 	LOG_INFO,
 	LOG_ERROR,
+	LOG_DEBUG,
 };
 
 enum logtype{

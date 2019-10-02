@@ -99,6 +99,7 @@ enum ttu_flags {
 	TTU_RMAP_LOCKED		= 0x80,	/* do not grab rmap lock:
 					 * caller holds it */
 	TTU_SPLIT_FREEZE	= 0x100,		/* freeze pte under splitting thp */
+	TTU_FORCE_BATCH_FLUSH	= 0x200,/* just for page_steal */
 };
 
 #ifdef CONFIG_MMU
@@ -265,9 +266,6 @@ struct rmap_walk_control {
 	 * Return false if page table scanning in rmap_walk should be stopped.
 	 * Otherwise, return true.
 	 */
-#ifdef CONFIG_PAGE_BOOST
-	int ret;
-#endif
 	bool (*rmap_one)(struct page *page, struct vm_area_struct *vma,
 					unsigned long addr, void *arg);
 	int (*done)(struct page *page);

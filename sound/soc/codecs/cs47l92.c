@@ -1,14 +1,14 @@
-/*
- * cs47l92.c  --  ALSA SoC Audio driver for CS47L92/CS47L93 codecs
- *
- * Copyright 2016-2017 Cirrus Logic
- *
- * Author: Stuart Henderson <stuarth@opensource.wolfsonmicro.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// ALSA SoC Audio driver for CS47L92 codec
+//
+// Copyright (C) 2016-2019 Cirrus Logic, Inc. and
+//                         Cirrus Logic International Semiconductor Ltd.
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by the
+// Free Software Foundation; version 2.
+//
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -24,6 +24,7 @@
 #include <sound/soc.h>
 #include <sound/tlv.h>
 
+#include <linux/irqchip/irq-madera.h>
 #include <linux/mfd/madera/core.h>
 #include <linux/mfd/madera/registers.h>
 
@@ -32,6 +33,8 @@
 
 #define CS47L92_NUM_ADSP	1
 #define CS47L92_MONO_OUTPUTS	3
+
+#define DRV_NAME "cs47l92-codec"
 
 struct cs47l92 {
 	struct madera_priv core;
@@ -53,10 +56,13 @@ static const char * const cs47l92_outdemux_texts[] = {
 static int cs47l92_put_demux(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
+	struct snd_soc_component *component =
+		snd_soc_dapm_kcontrol_component(kcontrol);
 	struct snd_soc_dapm_context *dapm =
-					snd_soc_dapm_kcontrol_dapm(kcontrol);
-	struct snd_soc_codec *codec = snd_soc_dapm_kcontrol_codec(kcontrol);
-	struct madera *madera = dev_get_drvdata(codec->dev->parent);
+		snd_soc_component_get_dapm(component);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
+	struct madera_priv *priv = &cs47l92->core;
+	struct madera *madera = priv->madera;
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	unsigned int ep_sel, mux, change, mask, cur;
 	int ret, i;
@@ -70,7 +76,7 @@ static int cs47l92_put_demux(struct snd_kcontrol *kcontrol,
 
 	snd_soc_dapm_mutex_lock(dapm);
 
-	change = snd_soc_test_bits(codec, e->reg, mask, ep_sel);
+	change = snd_soc_component_test_bits(component, e->reg, mask, ep_sel);
 	if (!change)
 		goto end;
 
@@ -110,7 +116,7 @@ static int cs47l92_put_demux(struct snd_kcontrol *kcontrol,
 		dev_err(madera->dev, "Failed to set EP_SEL: %d\n", ret);
 	} else {
 		out_mono = madera->pdata.codec.out_mono[2 + mux];
-		ret = madera_set_output_mode(codec, 3, out_mono);
+		ret = madera_set_output_mode(component, 3, out_mono);
 		if (ret < 0)
 			dev_warn(madera->dev,
 				 "Failed to set output mode: %d\n", ret);
@@ -175,8 +181,9 @@ static int cs47l92_adsp_power_ev(struct snd_soc_dapm_widget *w,
 				 struct snd_kcontrol *kcontrol,
 				 int event)
 {
-	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
-	struct cs47l92 *cs47l92 = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component =
+		snd_soc_dapm_to_component(w->dapm);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
 	struct madera_priv *priv = &cs47l92->core;
 	struct madera *madera = priv->madera;
 	unsigned int freq;
@@ -200,48 +207,6 @@ static int cs47l92_adsp_power_ev(struct snd_soc_dapm_widget *w,
 	}
 
 	return wm_adsp2_early_event(w, kcontrol, event, freq);
-}
-
-static int cs47l92_asrc_ev(struct snd_soc_dapm_widget *w,
-			   struct snd_kcontrol *kcontrol, int event)
-{
-	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
-	struct cs47l92 *cs47l92 = snd_soc_codec_get_drvdata(codec);
-	struct madera_priv *priv = &cs47l92->core;
-	struct madera *madera = priv->madera;
-	unsigned int val;
-	int rate;
-	int ret;
-
-	ret = regmap_read(madera->regmap, w->reg + 2, &val);
-	if (ret)
-		return ret;
-
-	val &= MADERA_ASRC1_RATE1_MASK;
-	val >>= MADERA_ASRC1_RATE1_SHIFT;
-
-	rate = madera_sample_rate_val_to_rate(madera, val);
-	if (rate < 0)
-		return rate;
-
-	if (rate > 192000)
-		dev_err(madera->dev, "Sample rate too high for ASRC\n");
-
-	ret = regmap_read(madera->regmap, w->reg + 3, &val);
-	if (ret)
-		return ret;
-
-	val &= MADERA_ASRC1_RATE1_MASK;
-	val >>= MADERA_ASRC1_RATE1_SHIFT;
-
-	rate = madera_sample_rate_val_to_rate(madera, val);
-	if (rate < 0)
-		return rate;
-
-	if (rate > 192000)
-		dev_err(madera->dev, "Sample rate too high for ASRC\n");
-
-	return 0;
 }
 
 #define CS47L92_NG_SRC(name, base) \
@@ -469,16 +434,6 @@ SOC_DOUBLE_R_TLV("SPKDAT1 Digital Volume", MADERA_DAC_DIGITAL_VOLUME_5L,
 SOC_DOUBLE("SPKDAT1 Switch", MADERA_PDM_SPK1_CTRL_1, MADERA_SPK1L_MUTE_SHIFT,
 	   MADERA_SPK1R_MUTE_SHIFT, 1, 1),
 
-SOC_DOUBLE_EXT("HPOUT1 DRE Switch", MADERA_DRE_ENABLE,
-	       MADERA_DRE1L_ENA_SHIFT, MADERA_DRE1R_ENA_SHIFT, 1, 0,
-	       snd_soc_get_volsw, madera_dre_put),
-SOC_DOUBLE_EXT("HPOUT2 DRE Switch", MADERA_DRE_ENABLE,
-	       MADERA_DRE2L_ENA_SHIFT, MADERA_DRE2R_ENA_SHIFT, 1, 0,
-	       snd_soc_get_volsw, madera_dre_put),
-SOC_DOUBLE_EXT("HPOUT3 DRE Switch", MADERA_DRE_ENABLE,
-	       MADERA_DRE3L_ENA_SHIFT, MADERA_DRE3R_ENA_SHIFT, 1, 0,
-	       snd_soc_get_volsw, madera_dre_put),
-
 SOC_DOUBLE("HPOUT1 EDRE Switch", MADERA_EDRE_ENABLE,
 	   MADERA_EDRE_OUT1L_THR1_ENA_SHIFT,
 	   MADERA_EDRE_OUT1R_THR1_ENA_SHIFT, 1, 0),
@@ -627,6 +582,8 @@ MADERA_MIXER_CONTROLS("SLIMTX8", MADERA_SLIMTX8MIX_INPUT_1_SOURCE),
 
 MADERA_GAINMUX_CONTROLS("SPDIFTX1", MADERA_SPDIF1TX1MIX_INPUT_1_SOURCE),
 MADERA_GAINMUX_CONTROLS("SPDIFTX2", MADERA_SPDIF1TX2MIX_INPUT_1_SOURCE),
+
+WM_ADSP_FW_CONTROL("DSP1", 0),
 };
 
 MADERA_MIXER_ENUMS(EQ1, MADERA_EQ1MIX_INPUT_1_SOURCE);
@@ -1114,18 +1071,14 @@ SND_SOC_DAPM_PGA("LHPF3", MADERA_HPLPF3_1, MADERA_LHPF3_ENA_SHIFT, 0,
 SND_SOC_DAPM_PGA("LHPF4", MADERA_HPLPF4_1, MADERA_LHPF4_ENA_SHIFT, 0,
 		 NULL, 0),
 
-SND_SOC_DAPM_PGA_E("ASRC1IN1L", MADERA_ASRC1_ENABLE,
-		   MADERA_ASRC1_IN1L_ENA_SHIFT, 0, NULL, 0,
-		   cs47l92_asrc_ev, SND_SOC_DAPM_PRE_PMU),
-SND_SOC_DAPM_PGA_E("ASRC1IN1R", MADERA_ASRC1_ENABLE,
-		   MADERA_ASRC1_IN1R_ENA_SHIFT, 0, NULL, 0,
-		   cs47l92_asrc_ev, SND_SOC_DAPM_PRE_PMU),
-SND_SOC_DAPM_PGA_E("ASRC1IN2L", MADERA_ASRC1_ENABLE,
-		   MADERA_ASRC1_IN2L_ENA_SHIFT, 0, NULL, 0,
-		   cs47l92_asrc_ev, SND_SOC_DAPM_PRE_PMU),
-SND_SOC_DAPM_PGA_E("ASRC1IN2R", MADERA_ASRC1_ENABLE,
-		   MADERA_ASRC1_IN2R_ENA_SHIFT, 0, NULL, 0,
-		   cs47l92_asrc_ev, SND_SOC_DAPM_PRE_PMU),
+SND_SOC_DAPM_PGA("ASRC1IN1L", MADERA_ASRC1_ENABLE,
+		MADERA_ASRC1_IN1L_ENA_SHIFT, 0, NULL, 0),
+SND_SOC_DAPM_PGA("ASRC1IN1R", MADERA_ASRC1_ENABLE,
+		MADERA_ASRC1_IN1R_ENA_SHIFT, 0, NULL, 0),
+SND_SOC_DAPM_PGA("ASRC1IN2L", MADERA_ASRC1_ENABLE,
+		MADERA_ASRC1_IN2L_ENA_SHIFT, 0, NULL, 0),
+SND_SOC_DAPM_PGA("ASRC1IN2R", MADERA_ASRC1_ENABLE,
+		MADERA_ASRC1_IN2R_ENA_SHIFT, 0, NULL, 0),
 
 SND_SOC_DAPM_PGA("ISRC1DEC1", MADERA_ISRC_1_CTRL_3,
 		 MADERA_ISRC1_DEC1_ENA_SHIFT, 0, NULL, 0),
@@ -1738,10 +1691,10 @@ static const struct snd_soc_dapm_route cs47l92_dapm_routes[] = {
 	MADERA_MUX_ROUTES("DFC8", "DFC8"),
 };
 
-static int cs47l92_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
-			  unsigned int Fref, unsigned int Fout)
+static int cs47l92_set_fll(struct snd_soc_component *component, int fll_id,
+			   int source, unsigned int Fref, unsigned int Fout)
 {
-	struct cs47l92 *cs47l92 = snd_soc_codec_get_drvdata(codec);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
 
 	switch (fll_id) {
 	case MADERA_FLL1_REFCLK:
@@ -1902,11 +1855,12 @@ static struct snd_soc_dai_driver cs47l92_dai[] = {
 	},
 };
 
-
 static int cs47l92_open(struct snd_compr_stream *stream)
 {
 	struct snd_soc_pcm_runtime *rtd = stream->private_data;
-	struct cs47l92 *cs47l92 = snd_soc_platform_get_drvdata(rtd->platform);
+	struct snd_soc_component *component =
+		snd_soc_rtdcom_lookup(rtd, DRV_NAME);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
 	struct madera_priv *priv = &cs47l92->core;
 	struct madera *madera = priv->madera;
 	int n_adsp;
@@ -1964,17 +1918,21 @@ static const char * const cs47l92_dmic_inputs[] = {
 	"IN4R",
 };
 
-static int cs47l92_codec_probe(struct snd_soc_codec *codec)
+static int cs47l92_component_probe(struct snd_soc_component *component)
 {
-	struct cs47l92 *cs47l92 = snd_soc_codec_get_drvdata(codec);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
 	struct madera *madera = cs47l92->core.madera;
 	struct madera_codec_pdata *pdata = &madera->pdata.codec;
-	int ret;
 	unsigned int val = 0;
+	int ret;
 
-	madera->dapm = snd_soc_codec_get_dapm(codec);
+	snd_soc_component_init_regmap(component, madera->regmap);
 
-	ret = madera_init_inputs(codec,
+	mutex_lock(&madera->dapm_ptr_lock);
+	madera->dapm = snd_soc_component_get_dapm(component);
+	mutex_unlock(&madera->dapm_ptr_lock);
+
+	ret = madera_init_inputs(component,
 				 cs47l92_dmic_inputs,
 				 ARRAY_SIZE(cs47l92_dmic_inputs),
 				 cs47l92_dmic_refs,
@@ -1992,33 +1950,31 @@ static int cs47l92_codec_probe(struct snd_soc_codec *codec)
 			   MADERA_AUXPDM1_TXEDGE_MASK |
 			   MADERA_AUXPDM1_MSTR_MASK, val);
 
-	ret = madera_init_outputs(codec, CS47L92_MONO_OUTPUTS);
+	ret = madera_init_outputs(component, CS47L92_MONO_OUTPUTS);
 	if (ret)
 		return ret;
 
-	ret = madera_init_aif(codec);
+	snd_soc_component_disable_pin(component, "HAPTICS");
+
+	ret = snd_soc_add_component_controls(component,
+					     madera_adsp_rate_controls,
+					     CS47L92_NUM_ADSP);
 	if (ret)
 		return ret;
 
-	snd_soc_dapm_disable_pin(madera->dapm, "HAPTICS");
-
-	ret = snd_soc_add_codec_controls(codec, madera_adsp_rate_controls,
-					 CS47L92_NUM_ADSP);
-	if (ret)
-		return ret;
-
-	return wm_adsp2_codec_probe(&cs47l92->core.adsp[0], codec);
+	return wm_adsp2_component_probe(&cs47l92->core.adsp[0], component);
 }
 
-static int cs47l92_codec_remove(struct snd_soc_codec *codec)
+static void cs47l92_component_remove(struct snd_soc_component *component)
 {
-	struct cs47l92 *cs47l92 = snd_soc_codec_get_drvdata(codec);
+	struct cs47l92 *cs47l92 = snd_soc_component_get_drvdata(component);
+	struct madera *madera = cs47l92->core.madera;
 
-	wm_adsp2_codec_remove(&cs47l92->core.adsp[0], codec);
+	mutex_lock(&madera->dapm_ptr_lock);
+	madera->dapm = NULL;
+	mutex_unlock(&madera->dapm_ptr_lock);
 
-	cs47l92->core.madera->dapm = NULL;
-
-	return 0;
+	wm_adsp2_component_remove(&cs47l92->core.adsp[0], component);
 }
 
 #define CS47L92_DIG_VU 0x0200
@@ -2034,45 +1990,32 @@ static unsigned int cs47l92_digital_vu[] = {
 	MADERA_DAC_DIGITAL_VOLUME_5R,
 };
 
-static struct regmap *cs47l92_get_regmap(struct device *dev)
-{
-	struct cs47l92 *cs47l92 = dev_get_drvdata(dev);
-
-	return cs47l92->core.madera->regmap;
-}
-
-static const struct snd_soc_codec_driver soc_codec_dev_cs47l92 = {
-	.probe = cs47l92_codec_probe,
-	.remove = cs47l92_codec_remove,
-	.get_regmap = cs47l92_get_regmap,
-
-	.idle_bias_off = true,
-
-	.set_sysclk = madera_set_sysclk,
-	.set_pll = cs47l92_set_fll,
-
-	.component_driver = {
-		.controls = cs47l92_snd_controls,
-		.num_controls = ARRAY_SIZE(cs47l92_snd_controls),
-		.dapm_widgets = cs47l92_dapm_widgets,
-		.num_dapm_widgets = ARRAY_SIZE(cs47l92_dapm_widgets),
-		.dapm_routes = cs47l92_dapm_routes,
-		.num_dapm_routes = ARRAY_SIZE(cs47l92_dapm_routes),
-	},
-};
-
 static const struct snd_compr_ops cs47l92_compr_ops = {
-	.open = cs47l92_open,
-	.free = wm_adsp_compr_free,
-	.set_params = wm_adsp_compr_set_params,
-	.get_caps = wm_adsp_compr_get_caps,
-	.trigger = wm_adsp_compr_trigger,
-	.pointer = wm_adsp_compr_pointer,
-	.copy = wm_adsp_compr_copy,
+	.open = &cs47l92_open,
+	.free = &wm_adsp_compr_free,
+	.set_params = &wm_adsp_compr_set_params,
+	.get_caps = &wm_adsp_compr_get_caps,
+	.trigger = &wm_adsp_compr_trigger,
+	.pointer = &wm_adsp_compr_pointer,
+	.copy = &wm_adsp_compr_copy,
 };
 
-static const struct snd_soc_platform_driver cs47l92_compr_platform = {
+static const struct snd_soc_component_driver soc_component_dev_cs47l92 = {
+	.probe = &cs47l92_component_probe,
+	.remove = &cs47l92_component_remove,
+	.set_sysclk = &madera_set_sysclk,
+	.set_pll = &cs47l92_set_fll,
+	.name = DRV_NAME,
 	.compr_ops = &cs47l92_compr_ops,
+	.controls = cs47l92_snd_controls,
+	.num_controls = ARRAY_SIZE(cs47l92_snd_controls),
+	.dapm_widgets = cs47l92_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(cs47l92_dapm_widgets),
+	.dapm_routes = cs47l92_dapm_routes,
+	.num_dapm_routes = ARRAY_SIZE(cs47l92_dapm_routes),
+	.use_pmdown_time = 1,
+	.endianness = 1,
+	.non_legacy_dai_naming = 1,
 };
 
 static int cs47l92_probe(struct platform_device *pdev)
@@ -2161,24 +2104,17 @@ static int cs47l92_probe(struct platform_device *pdev)
 	pm_runtime_enable(&pdev->dev);
 	pm_runtime_idle(&pdev->dev);
 
-	ret = snd_soc_register_platform(&pdev->dev, &cs47l92_compr_platform);
+	ret = devm_snd_soc_register_component(&pdev->dev,
+					      &soc_component_dev_cs47l92,
+					      cs47l92_dai,
+					      ARRAY_SIZE(cs47l92_dai));
 	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to register platform: %d\n", ret);
+		dev_err(&pdev->dev, "Failed to register component: %d\n", ret);
 		goto error_pm_runtime;
-	}
-
-	ret = snd_soc_register_codec(&pdev->dev, &soc_codec_dev_cs47l92,
-				     cs47l92_dai, ARRAY_SIZE(cs47l92_dai));
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to register codec: %d\n", ret);
-		snd_soc_unregister_platform(&pdev->dev);
-		goto error_platform;
 	}
 
 	return ret;
 
-error_platform:
-	snd_soc_unregister_platform(&pdev->dev);
 error_pm_runtime:
 	pm_runtime_disable(&pdev->dev);
 	madera_destroy_bus_error_irq(&cs47l92->core, 0);
@@ -2197,8 +2133,6 @@ static int cs47l92_remove(struct platform_device *pdev)
 {
 	struct cs47l92 *cs47l92 = platform_get_drvdata(pdev);
 
-	snd_soc_unregister_platform(&pdev->dev);
-	snd_soc_unregister_codec(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
 
 	madera_destroy_bus_error_irq(&cs47l92->core, 0);
@@ -2215,15 +2149,15 @@ static int cs47l92_remove(struct platform_device *pdev)
 static struct platform_driver cs47l92_codec_driver = {
 	.driver = {
 		.name = "cs47l92-codec",
-		.suppress_bind_attrs = true,
 	},
-	.probe = cs47l92_probe,
-	.remove = cs47l92_remove,
+	.probe = &cs47l92_probe,
+	.remove = &cs47l92_remove,
 };
 
 module_platform_driver(cs47l92_codec_driver);
 
+MODULE_SOFTDEP("pre: madera irq-madera arizona-micsupp");
 MODULE_DESCRIPTION("ASoC CS47L92 driver");
-MODULE_AUTHOR("Stuart Henderson <stuarth@opensource.wolfsonmicro.com>");
+MODULE_AUTHOR("Stuart Henderson <stuarth@opensource.cirrus.com>");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:cs47l92-codec");

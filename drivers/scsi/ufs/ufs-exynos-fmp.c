@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2016 Samsung Electronics Co., Ltd.
- * Author: Boojin Kim <boojin.kim@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +30,8 @@ int exynos_ufs_smu_init(struct exynos_ufs *ufs)
 		return 0;
 
 	if (ufs->smu == SMU_ID_MAX) {
-		exynos_ufs_smu_entry0_init(ufs);
+		dev_info(ufs->dev, "%s with id:%d isn't initialized\n",
+			__func__, ufs->smu);
 		return 0;
 	}
 
@@ -61,8 +61,14 @@ int exynos_ufs_smu_resume(struct exynos_ufs *ufs)
 
 int exynos_ufs_smu_abort(struct exynos_ufs *ufs)
 {
-	if (!ufs || (ufs->smu == SMU_ID_MAX))
+	if (!ufs)
 		return 0;
+
+	if (ufs->smu == SMU_ID_MAX) {
+		dev_info(ufs->dev, "%s with id:%d isn't initialized\n",
+			__func__, ufs->smu);
+		return 0;
+	}
 
 	dev_info(ufs->dev, "%s with id:%d\n", __func__, ufs->smu);
 	return exynos_smu_abort(ufs->smu, SMU_ABORT);
@@ -74,11 +80,6 @@ int exynos_ufs_fmp_sec_cfg(struct exynos_ufs *ufs)
 {
 	if (!ufs || (ufs->fmp == SMU_ID_MAX))
 		return 0;
-
-	if (ufs->fmp != SMU_EMBEDDED)
-		dev_err(ufs->dev, "%s is fails id:%d\n",
-				__func__, ufs->fmp);
-
 
 	dev_info(ufs->dev, "%s with id:%d\n", __func__, ufs->fmp);
 	return exynos_fmp_sec_config(ufs->fmp);
@@ -106,9 +107,9 @@ static struct bio *get_bio(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 		if (lrbp->cmd->request->bio)
 			dev_err(hba->dev, "Invalid bio:%p\n", lrbp->cmd->request->bio);
 		return NULL;
-	}
-	else
+	} else {
 		return lrbp->cmd->request->bio;
+	}
 }
 
 int exynos_ufs_fmp_cfg(struct ufs_hba *hba,

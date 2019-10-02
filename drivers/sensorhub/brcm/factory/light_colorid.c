@@ -226,37 +226,6 @@ int light_colorid_write_predefined_file(struct ssp_data *data, int color_id, int
 
 	snprintf(file_name, sizeof(file_name), "%s%d", PREDEFINED_FILE_NAME, color_id);
 
-	// this value is temporary. Origainal value is in light_coef_predefine_table array.
-	// we normally use light_coef_predefine_table array.
-	if(data->ap_type == B0) {
-		if(data->ap_rev < 23) {
-			thresh[0]= REV06A_THRESHOLD_HIGH;
-			thresh[1] = REV06A_THRESHOLD_LOW;
-		}
-	}
-	else if(data->ap_type == B1) {
-		if (data->ap_rev < 20) {
-			thresh[0] = L_CUT_THRESHOLD_HIGH_B1;
-			thresh[1] = L_CUT_THRESHOLD_LOW_B1;
-		}
-		else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
-				(data->ap_rev == 24)) {
-			thresh[0]= REV06A_THRESHOLD_HIGH;
-			thresh[1]= REV06A_THRESHOLD_LOW;
-		}
-	}
-	else if (data->ap_type == B2) {
-		if (data->ap_rev <= 1) {
-			thresh[0] = L_CUT_THRESHOLD_HIGH;
-			thresh[1] = L_CUT_THRESHOLD_LOW;
-		}
-		else if((data->ap_rev > 1 && data->ap_rev < 23) || 
-				(data->ap_rev == 24)) {
-			thresh[0]= REV06A_THRESHOLD_HIGH;
-			thresh[1]= REV06A_THRESHOLD_LOW;
-		}
-	}
-
 	crc = coef[0] + coef[1] + coef[2] + coef[3] + coef[4] + coef[5] + coef[6]
 		+ thresh[0] + thresh[1] + thresh_alert;
 
@@ -497,116 +466,10 @@ int initialize_light_colorid(struct ssp_data *data)
 		pr_err("[SSP] %s - read predefined file failed : ret %d\n", __func__, data->light_efs_file_status);
 	}
 
-#if defined(CONFIG_SENSORS_SSP_BEYOND)
-	// if efs file can't open and read
-	if (data->light_efs_file_status < 0) {
-
-		if(data->ap_type == B0) {
-			if(data->ap_rev < 23) {
-				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
-				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
-			}
-			else {
-				data->uProxHiThresh = thresh[0];
-				data->uProxLoThresh = thresh[1];
-			}
-		}
-		else if(data->ap_type == B1) {
-			if (data->ap_rev < 20) {
-				data->uProxHiThresh = L_CUT_THRESHOLD_HIGH_B1;
-				data->uProxLoThresh = L_CUT_THRESHOLD_LOW_B1;
-			}
-			else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
-				(data->ap_rev == 24)) {
-				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
-				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
-			}
-			else {
-				data->uProxHiThresh = thresh[0];
-				data->uProxLoThresh = thresh[1];
-			}
-		}
-		else if (data->ap_type == B2) {
-			if (data->ap_rev <= 1) {
-				data->uProxHiThresh = L_CUT_THRESHOLD_HIGH;
-				data->uProxLoThresh = L_CUT_THRESHOLD_LOW;
-			}
-			else if((data->ap_rev > 1 && data->ap_rev < 23) || 
-					(data->ap_rev == 24)) {
-				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
-				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
-			}
-			else {
-				data->uProxHiThresh = thresh[0];
-				data->uProxLoThresh = thresh[1];
-			}
-		}
-		else {//if(data->ap_type == BX) {
-			if (data->ap_rev < 4) {
-				data->uProxHiThresh = REV06A_THRESHOLD_HIGH;
-				data->uProxLoThresh = REV06A_THRESHOLD_LOW;
-			}
-			else {
-				data->uProxHiThresh = thresh[0];
-				data->uProxLoThresh = thresh[1];
-			}
-		}
-	}
-	else {
-		data->uProxHiThresh = thresh[0];
-		data->uProxLoThresh = thresh[1];
-	}
-
-
-	if(data->ap_type == B0) {
-		data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-		data->uProxLoThresh_detect = data->uProxLoThresh;
-	}
-	else if(data->ap_type == B1) {
-		if (data->ap_rev < 20) {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = L_CUT_THRESHOLD_LOW_B1;
-		}
-		else if((data->ap_rev >= 20 && data->ap_rev < 23) || 
-				(data->ap_rev == 24)) {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
-		}
-		else {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = data->uProxLoThresh;
-		}
-	}
-	else if(data->ap_type == B2) {
-		if(data->ap_rev <= 1) {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD_FOR_LCUT;
-		}
-		else if((data->ap_rev > 1 && data->ap_rev < 23) || 
-				(data->ap_rev == 24)) {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
-		}
-		else {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = data->uProxLoThresh;
-		}
-	} else {
-		if(data->ap_rev < 4) {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = REV06A_THRESHOLD_LOW;
-		}
-		else {
-			data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-			data->uProxLoThresh_detect = data->uProxLoThresh;
-		}
-	}
-#else
-		data->uProxHiThresh = thresh[0];
-		data->uProxLoThresh = thresh[1];
-		data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
-		data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD;
-#endif
+	data->uProxHiThresh = thresh[0];
+	data->uProxLoThresh = thresh[1];
+	data->uProxHiThresh_detect = DEFAULT_DETECT_HIGH_THRESHOLD;
+	data->uProxLoThresh_detect = DEFAULT_DETECT_LOW_THRESHOLD;
 
 	data->uProxAlertHiThresh = thresh_alert;
 

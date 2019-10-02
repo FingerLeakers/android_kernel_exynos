@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/usb/core/usb.c
  *
@@ -13,7 +14,6 @@
  * (C) Copyright Greg Kroah-Hartman 2002-2003
  *
  * Released under the GPLv2 only.
- * SPDX-License-Identifier: GPL-2.0
  *
  * NOTE! This is not actually a driver at all, rather this is
  * just a collection of helper routines that implement the
@@ -561,14 +561,11 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	unsigned raw_port = port1;
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-	if (!dev) {
-		pr_info("%s kzalloc failed\n", __func__);
+	if (!dev)
 		return NULL;
-	}
 
 	if (!usb_get_hcd(usb_hcd)) {
 		kfree(dev);
-		pr_info("%s usb_get_hcd failed\n", __func__);
 		return NULL;
 	}
 	/* Root hubs aren't true devices, so don't allocate HCD resources */
@@ -576,7 +573,6 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 		!usb_hcd->driver->alloc_dev(usb_hcd, dev)) {
 		usb_put_hcd(bus_to_hcd(bus));
 		kfree(dev);
-		pr_info("%s hcd->alloc_dev failed\n", __func__);
 		return NULL;
 	}
 
@@ -651,8 +647,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 			raw_port = usb_hcd_find_raw_port_number(usb_hcd,
 				port1);
 		}
-		dev->dev.of_node = usb_of_get_child_node(parent->dev.of_node,
-				raw_port);
+		dev->dev.of_node = usb_of_get_device_node(parent, raw_port);
 
 		/* hub driver sets up TT records */
 	}
@@ -1174,30 +1169,16 @@ static struct notifier_block usb_bus_nb = {
 struct dentry *usb_debug_root;
 EXPORT_SYMBOL_GPL(usb_debug_root);
 
-static struct dentry *usb_debug_devices;
-
-static int usb_debugfs_init(void)
+static void usb_debugfs_init(void)
 {
 	usb_debug_root = debugfs_create_dir("usb", NULL);
-	if (!usb_debug_root)
-		return -ENOENT;
-
-	usb_debug_devices = debugfs_create_file("devices", 0444,
-						usb_debug_root, NULL,
-						&usbfs_devices_fops);
-	if (!usb_debug_devices) {
-		debugfs_remove(usb_debug_root);
-		usb_debug_root = NULL;
-		return -ENOENT;
-	}
-
-	return 0;
+	debugfs_create_file("devices", 0444, usb_debug_root, NULL,
+			    &usbfs_devices_fops);
 }
 
 static void usb_debugfs_cleanup(void)
 {
-	debugfs_remove(usb_debug_devices);
-	debugfs_remove(usb_debug_root);
+	debugfs_remove_recursive(usb_debug_root);
 }
 
 /*
@@ -1212,9 +1193,7 @@ static int __init usb_init(void)
 	}
 	usb_init_pool_max();
 
-	retval = usb_debugfs_init();
-	if (retval)
-		goto out;
+	usb_debugfs_init();
 
 	usb_acpi_register();
 	retval = bus_register(&usb_bus_type);
@@ -1266,6 +1245,7 @@ static void __exit usb_exit(void)
 	if (usb_disabled())
 		return;
 
+	usb_release_quirk_list();
 	usb_deregister_device_driver(&usb_generic_driver);
 	usb_major_cleanup();
 	usb_deregister(&usbfs_driver);

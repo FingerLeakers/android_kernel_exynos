@@ -20,6 +20,11 @@
 #include <linux/kthread.h>
 #include <linux/pm_opp.h>
 
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+#include <linux/sched/clock.h>
+#include <trace/events/exynos_devfreq.h>
+#endif
+
 #include "governor.h"
 
 static int devfreq_simple_interactive_notifier(struct notifier_block *nb, unsigned long val,
@@ -48,6 +53,10 @@ static unsigned long update_load(struct devfreq_dev_status *stat,
 	unsigned int targetload;
 	unsigned int freq;
 	int i;
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+	struct devfreq_alt_load *cur_load;
+	bool trace_flag = false;
+#endif
 
 	if (!stat->total_time)
 		return stat->current_frequency;
@@ -86,6 +95,15 @@ static unsigned long update_load(struct devfreq_dev_status *stat,
 		ptr->load = alt_data->total ?
 			alt_data->busy * 100 / alt_data->total : 0;
 
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+		cur_load = ptr;
+		cur_load->clock = sched_clock();
+		// Save load data ptr to log buffer when logging is true
+		if (alt_data->load_track) {
+			alt_data->log[alt_data->log_top] = *cur_load;
+		}
+#endif
+
 		alt_data->busy = 0;
 		alt_data->total = 0;
 
@@ -101,6 +119,16 @@ static unsigned long update_load(struct devfreq_dev_status *stat,
 				alt_data->max_load = ptr->load;
 				alt_data->max_spent = 0;
 				data->governor_freq = 0;
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+				if (alt_data->load_track) {
+					alt_data->log[alt_data->log_top].alt_freq = data->governor_freq;
+					if (alt_data->log_top < (MSEC_PER_SEC / alt_data->min_sample_time * MAX_LOG_TIME))
+						alt_data->log_top++;
+					else
+						alt_data->load_track = false;
+				}
+				trace_alt_dvfs_load_tracking(cur_load->delta, cur_load->load, data->governor_freq);
+#endif
 				return 0;
 			}
 		}
@@ -140,15 +168,36 @@ out:
 	/* a few measurement */
 	if (alt_data->max_load == targetload || alt_data->total)
 		freq = data->governor_freq;
-	else
+	else {
 		freq = alt_data->max_load * stat->current_frequency / targetload;
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+		if (alt_data->load_track) {
+			alt_data->log[alt_data->log_top].alt_freq = freq;
+			if (alt_data->log_top < (MSEC_PER_SEC / alt_data->min_sample_time * MAX_LOG_TIME))
+				alt_data->log_top++;
+			else
+				alt_data->load_track = false;
+		}
+		trace_flag = true;
+#endif
+	}
 
 	if (alt_data->max_load > alt_data->hispeed_load &&
-			alt_data->hispeed_freq > freq)
+			alt_data->hispeed_freq > freq) {
 		freq = alt_data->hispeed_freq;
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+		if (alt_data->load_track) {
+			alt_data->log[alt_data->log_top-1].alt_freq = freq;
+		}
+		trace_flag = true;
+#endif
+	}
 
 	data->governor_freq = freq;
-
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+	if (trace_flag == true)
+			trace_alt_dvfs_load_tracking(cur_load->delta, cur_load->load, freq);
+#endif
 	return freq;
 
 }
@@ -283,15 +332,15 @@ static int devfreq_change_freq_task(void *data)
 }
 
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
-static void alt_dvfs_nop_timer(unsigned long data)
+static void alt_dvfs_nop_timer(struct timer_list *timer)
 {
 }
 #endif
 
 /*timer callback function send a signal */
-static void simple_interactive_timer(unsigned long data)
+static void simple_interactive_timer(struct timer_list *timer)
 {
-	struct devfreq_simple_interactive_data *gov_data = (void *)data;
+	struct devfreq_simple_interactive_data *gov_data = from_timer(gov_data, timer, freq_timer);
 
 	wake_up_process(gov_data->change_freq_task);
 }
@@ -323,14 +372,11 @@ static int devfreq_simple_interactive_register_notifier(struct devfreq *df)
 	}
 
 	/* timer of governor for delay time initialize */
-	data->freq_timer.data = (unsigned long)data;
-	data->freq_timer.function = simple_interactive_timer;
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
-	init_timer_deferrable(&data->freq_timer);
-	data->freq_slack_timer.function = alt_dvfs_nop_timer;
-	init_timer(&data->freq_slack_timer);
+	timer_setup(&data->freq_timer, simple_interactive_timer, TIMER_DEFERRABLE);
+	timer_setup(&data->freq_slack_timer, alt_dvfs_nop_timer, 0);
 #else
-	init_timer(&data->freq_timer);
+	timer_setup(&data->freq_timer, simple_interactive_timer, 0);
 #endif
 
 	data->change_freq_task = kthread_create(devfreq_change_freq_task, df, "simpleinteractive");

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Samsung Electronics, Inc.
+ * Copyright (C) 2012-2019 Samsung Electronics, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -20,9 +20,9 @@
 #include <linux/vmalloc.h>
 #include <asm/pgtable.h>
 
-#include "tzdev.h"
-#include "tz_iwio.h"
 #include "tzlog.h"
+#include "tzdev_internal.h"
+#include "tz_iwio.h"
 
 struct iw_channel {
 	struct list_head list;
@@ -58,6 +58,36 @@ static struct tz_iwio_aux_channel *aux_channel_get(struct tz_iwio_aux_channel *c
 
 #endif /* CONFIG_TZDEV_SK_MULTICORE */
 
+static int tz_iwio_alloc_aux_channel(int cpu)
+{
+	struct tz_iwio_aux_channel *ch;
+	struct page *page;
+	int ret;
+
+	page = alloc_page(GFP_KERNEL);
+	if (!page) {
+		log_error(tzdev_iwio, "Failed to allocate aux_channel[%d] page\n", cpu);
+		return -ENOMEM;
+	}
+
+	ch = page_address(page);
+
+	ret = tzdev_smc_connect_aux(page_to_pfn(page));
+	if (ret) {
+		log_error(tzdev_iwio, "Failed to connect aux_channel[%d] page, error=%d\n",
+				cpu, ret);
+		__free_page(page);
+		return ret;
+	}
+
+	if (cpu_possible(cpu))
+		aux_channel_init(aux_channel, cpu) = ch;
+
+	log_debug(tzdev_iwio, "AUX Channel[%d] = 0x%pK\n", cpu, ch);
+
+	return 0;
+}
+
 struct tz_iwio_aux_channel *tz_iwio_get_aux_channel(void)
 {
 	return aux_channel_get(aux_channel);
@@ -66,32 +96,6 @@ struct tz_iwio_aux_channel *tz_iwio_get_aux_channel(void)
 void tz_iwio_put_aux_channel(void)
 {
 	aux_channel_put(aux_channel);
-}
-
-int tz_iwio_alloc_aux_channel(int cpu)
-{
-	struct tz_iwio_aux_channel *ch;
-	struct page *page;
-	int ret;
-
-	page = alloc_page(GFP_KERNEL);
-	if (!page)
-		return -ENOMEM;
-
-	ch = page_address(page);
-
-	pr_debug("AUX Channel[%d] = 0x%pK\n", cpu, ch);
-
-	ret = tzdev_smc_connect_aux(page_to_pfn(page));
-	if (ret) {
-		__free_page(page);
-		return ret;
-	}
-
-	if (cpu_possible(cpu))
-		aux_channel_init(aux_channel, cpu) = ch;
-
-	return 0;
 }
 
 void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
@@ -112,20 +116,20 @@ void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 
 	new_ch = kmalloc(sizeof(struct iw_channel), GFP_KERNEL);
 	if (!new_ch) {
-		tzdev_print(0, "TZDev iw channel structure allocation failed\n");
+		log_error(tzdev_iwio, "IW channel structure allocation failed\n");
 		return ERR_PTR(-ENOMEM);
 	}
 
 	pages = kcalloc(num_pages, sizeof(struct page *), GFP_KERNEL);
 	if (!pages) {
-		tzdev_print(0, "TZDev IW buffer pages allocation failed\n");
+		log_error(tzdev_iwio, "IW channel pages buffer allocation failed\n");
 		ret = -ENOMEM;
 		goto free_iw_channel_structure;
 	}
 
 	pfns = kmalloc(num_pages * sizeof(sk_pfn_t), GFP_KERNEL);
 	if (!pfns) {
-		tzdev_print(0, "TZDev IW buffer pfns allocation failed\n");
+		log_error(tzdev_iwio, "IW channel pfns buffer allocation failed\n");
 		ret = -ENOMEM;
 		goto free_pages_arr;
 	}
@@ -134,7 +138,7 @@ void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 	for (i = 0; i < num_pages; i++) {
 		pages[i] = alloc_page(GFP_KERNEL);
 		if (!pages[i]) {
-			tzdev_print(0, "TZDev IW buffer creation failed\n");
+			log_error(tzdev_iwio, "IW channel pages aloocation failed\n");
 			ret = -ENOMEM;
 			goto free_pfns_arr;
 		}
@@ -143,16 +147,18 @@ void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 
 	buffer = vmap(pages, num_pages, VM_MAP, PAGE_KERNEL);
 	if (!buffer) {
-		tzdev_print(0, "TZDev IW buffer mapping failed\n");
+		log_error(tzdev_iwio, "IW buffer map failed\n");
 		ret = -EINVAL;
 		goto free_pfns_arr;
 	}
 
 	/* Call pre-callback */
-	if (pre_callback &&
-		pre_callback(buffer, num_pages, callback_data)) {
-			ret = -EINVAL;
+	if (pre_callback) {
+		ret = pre_callback(buffer, num_pages, callback_data);
+		if (ret) {
+			log_error(tzdev_iwio, "pre_callback failed, error=%d\n", ret);
 			goto unmap_buffer;
+		}
 	}
 
 	/* Push PFNs list into aux channel */
@@ -166,7 +172,7 @@ void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 
 		if ((ret = tzdev_smc_connect(mode, num_pfns))) {
 			tz_iwio_put_aux_channel();
-			tzdev_print(0, "TZDev IW buffer registration failed\n");
+			log_error(tzdev_iwio, "IW buffer registration failed, error=%d\n", ret);
 			goto pre_callback_cleanup;
 		}
 	}
@@ -174,6 +180,8 @@ void *tz_iwio_alloc_iw_channel(unsigned int mode, unsigned int num_pages,
 	new_ch->pages = pages;
 	new_ch->num_pages = num_pages;
 	new_ch->vaddr = buffer;
+
+	log_debug(tzdev_iwio, "IWIO channel ch=%pK created.\n", new_ch);
 
 	/* Add new channel to global list */
 	spin_lock(&iw_channel_list_lock);
@@ -223,8 +231,12 @@ void tz_iwio_free_iw_channel(void *ch)
 	}
 	spin_unlock(&iw_channel_list_lock);
 
-	if (!found)
+	if (!found) {
+		log_debug(tzdev_iwio, "IWIO channel ch=%pK not found.\n", ch);
 		return;
+	}
+
+	log_debug(tzdev_iwio, "IWIO channel ch=%pK destroyed.\n", ch);
 
 	vunmap(ch);
 
@@ -233,4 +245,22 @@ void tz_iwio_free_iw_channel(void *ch)
 
 	kfree(iw->pages);
 	kfree(iw);
+}
+
+int tz_iwio_init(void)
+{
+	int ret;
+	unsigned int i;
+
+	for (i = 0; i < NR_SW_CPU_IDS; ++i) {
+		ret = tz_iwio_alloc_aux_channel(i);
+		if (ret) {
+			log_info(tzdev_iwio, "Failed to initialize AUX channel[%u], error=%d\n",
+					i, ret);
+			return ret;
+		}
+	}
+	log_info(tzdev_iwio, "IWIO initialization done.\n");
+
+	return 0;
 }

@@ -213,9 +213,9 @@ static irqreturn_t s2mps19_irq_thread(int irq, void *data)
 		}
 
 		pr_info("%s: pmic interrupt(0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x)\n",
-			 __func__, irq_reg[S2MPS19_PMIC_INT1], irq_reg[S2MPS19_PMIC_INT2], 
-			 irq_reg[S2MPS19_PMIC_INT3], irq_reg[S2MPS19_PMIC_INT4], 
-			 irq_reg[S2MPS19_PMIC_INT5], irq_reg[S2MPS19_PMIC_INT6], 
+			 __func__, irq_reg[S2MPS19_PMIC_INT1], irq_reg[S2MPS19_PMIC_INT2],
+			 irq_reg[S2MPS19_PMIC_INT3], irq_reg[S2MPS19_PMIC_INT4],
+			 irq_reg[S2MPS19_PMIC_INT5], irq_reg[S2MPS19_PMIC_INT6],
 			 irq_reg[S2MPS19_PMIC_INT7]);
 	}
 

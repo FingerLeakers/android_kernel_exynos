@@ -44,9 +44,8 @@
 #define CLK_SRC_DAI 0
 #define CLK_SRC_CODEC 1
 
-#define EXYNOS_PMU_PMU_DEBUG_OFFSET	0x0A00
 #define MADERA_DAI_ID			0x4793
-#define AMP_DAI_ID			0x3541
+#define CS35L41_DAI_ID			0x3541
 #define MADERA_CODEC_MAX		32
 #define MADERA_AUX_MAX			2
 #define RDMA_COUNT			12
@@ -156,7 +155,7 @@ static struct snd_soc_pcm_runtime *madera_get_rtd(struct snd_soc_card *card,
 		}
 	}
 
-	if (!rtd)
+	if (!rtd && id < card->num_links)
 		rtd = snd_soc_get_pcm_runtime(card, card->dai_link[id].name);
 
 	return rtd;
@@ -166,7 +165,7 @@ static int madera_start_fll(struct snd_soc_card *card,
 				struct clk_conf *config)
 {
 	struct snd_soc_dai *codec_dai;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *codec;
 	unsigned int fsrc = 0, fin = 0, fout = 0, pll_id;
 	int ret;
 
@@ -174,7 +173,7 @@ static int madera_start_fll(struct snd_soc_card *card,
 		return 0;
 
 	codec_dai = madera_get_rtd(card, MADERA_DAI_ID)->codec_dai;
-	codec = codec_dai->codec;
+	codec = codec_dai->component;
 
 	pll_id = map_fllid_with_name(config->name);
 	switch (pll_id) {
@@ -211,7 +210,7 @@ static int madera_start_fll(struct snd_soc_card *card,
 	dev_dbg(card->dev, "Setting %s fsrc=%d fin=%uHz fout=%uHz\n",
 		config->name, fsrc, fin, fout);
 
-	ret = snd_soc_codec_set_pll(codec, config->id, fsrc, fin, fout);
+	ret = snd_soc_component_set_pll(codec, config->id, fsrc, fin, fout);
 	if (ret)
 		dev_err(card->dev, "Failed to start %s\n", config->name);
 
@@ -222,16 +221,16 @@ static int madera_stop_fll(struct snd_soc_card *card,
 				struct clk_conf *config)
 {
 	struct snd_soc_dai *codec_dai;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *codec;
 	int ret;
 
 	if (!config->valid)
 		return 0;
 
 	codec_dai = madera_get_rtd(card, MADERA_DAI_ID)->codec_dai;
-	codec = codec_dai->codec;
+	codec = codec_dai->component;
 
-	ret = snd_soc_codec_set_pll(codec, config->id, 0, 0, 0);
+	ret = snd_soc_component_set_pll(codec, config->id, 0, 0, 0);
 	if (ret)
 		dev_err(card->dev, "Failed to stop %s\n", config->name);
 
@@ -242,7 +241,7 @@ static int madera_set_clock(struct snd_soc_card *card,
 				struct clk_conf *config)
 {
 	struct snd_soc_dai *aif_dai;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *codec;
 	unsigned int freq = 0, clk_id;
 	int ret;
 	int dir = SND_SOC_CLOCK_IN;
@@ -251,7 +250,7 @@ static int madera_set_clock(struct snd_soc_card *card,
 		return 0;
 
 	aif_dai = madera_get_rtd(card, MADERA_DAI_ID)->codec_dai;
-	codec = aif_dai->codec;
+	codec = aif_dai->component;
 
 	clk_id = map_clkid_with_name(config->name);
 	switch (clk_id) {
@@ -289,7 +288,7 @@ static int madera_set_clock(struct snd_soc_card *card,
 
 	dev_dbg(card->dev, "Setting %s freq to %u Hz\n", config->name, freq);
 
-	ret = snd_soc_codec_set_sysclk(codec, config->id,
+	ret = snd_soc_component_set_sysclk(codec, config->id,
 				       config->source, freq, dir);
 	if (ret)
 		dev_err(card->dev, "Failed to set %s to %u Hz\n",
@@ -302,16 +301,16 @@ static int madera_stop_clock(struct snd_soc_card *card,
 				struct clk_conf *config)
 {
 	struct snd_soc_dai *aif_dai;
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *codec;
 	int ret;
 
 	if (!config->valid)
 		return 0;
 
 	aif_dai = madera_get_rtd(card, MADERA_DAI_ID)->codec_dai;
-	codec = aif_dai->codec;
+	codec = aif_dai->component;
 
-	ret = snd_soc_codec_set_sysclk(codec, config->id, 0, 0, 0);
+	ret = snd_soc_component_set_sysclk(codec, config->id, 0, 0, 0);
 	if (ret)
 		dev_err(card->dev, "Failed to stop %s\n", config->name);
 
@@ -380,24 +379,8 @@ static int madera_hw_params(struct snd_pcm_substream *substream,
 	return ret;
 }
 
-static int madera_prepare(struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-
-	return snd_soc_dai_set_tristate(rtd->cpu_dai, 0);
-}
-
-static void madera_shutdown(struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-
-	snd_soc_dai_set_tristate(rtd->cpu_dai, 1);
-}
-
 static const struct snd_soc_ops uaif0_ops = {
 	.hw_params = madera_hw_params,
-	.prepare = madera_prepare,
-	.shutdown = madera_shutdown,
 };
 
 static int cs35l41_hw_params(struct snd_pcm_substream *substream,
@@ -413,7 +396,7 @@ static int cs35l41_hw_params(struct snd_pcm_substream *substream,
 	/* using bclk for sysclk */
 	clk = snd_soc_params_to_bclk(params);
 	for (i = 0; i < num_codecs; i++) {
-		ret = snd_soc_codec_set_sysclk(codec_dais[i]->codec,
+		ret = snd_soc_component_set_sysclk(codec_dais[i]->component,
 					CLK_SRC_SCLK, 0, clk,
 					SND_SOC_CLOCK_IN);
 		if (ret < 0)
@@ -627,7 +610,7 @@ static int madera_amp_late_probe(struct snd_soc_card *card, int dai)
 	struct madera_drvdata *drvdata = card->drvdata;
 	struct snd_soc_pcm_runtime *rtd;
 	struct snd_soc_dai *amp_dai;
-	struct snd_soc_codec *amp;
+	struct snd_soc_component *amp;
 	int ret;
 
 	if (!dai || !card->dai_link[dai].name)
@@ -641,13 +624,13 @@ static int madera_amp_late_probe(struct snd_soc_card *card, int dai)
 	rtd = snd_soc_get_pcm_runtime(card, card->dai_link[dai].name);
 
 	amp_dai = rtd->codec_dai;
-	amp = amp_dai->codec;
+	amp = amp_dai->component;
 
 	ret = snd_soc_dai_set_tdm_slot(rtd->cpu_dai, 0x3, 0x3, 4, 16);
 	if (ret)
 		dev_err(card->dev, "Failed to set TDM: %d\n", ret);
 
-	ret = snd_soc_codec_set_sysclk(amp, 0, 0, drvdata->opclk.rate,
+	ret = snd_soc_component_set_sysclk(amp, 0, 0, drvdata->opclk.rate,
 				       SND_SOC_CLOCK_IN);
 	if (ret != 0) {
 		dev_err(card->dev, "Failed to set amp SYSCLK: %d\n", ret);
@@ -668,15 +651,14 @@ static int exynos9820_late_probe(struct snd_soc_card *card)
 {
 	struct madera_drvdata *drvdata = card->drvdata;
 	struct snd_soc_dai *aif_dai;
-	struct snd_soc_codec *codec;
-	struct snd_soc_component *cpu;
+	struct snd_soc_component *codec;
 	struct snd_soc_dapm_context *dapm;
 	char name[SZ_32];
 	const char *prefix;
 	int ret, i;
 
 	aif_dai = madera_get_rtd(card, MADERA_DAI_ID)->codec_dai;
-	codec = aif_dai->codec;
+	codec = aif_dai->component;
 
 	if (drvdata->sysclk.valid) {
 		ret = snd_soc_dai_set_sysclk(aif_dai, drvdata->sysclk.id, 0, 0);
@@ -715,30 +697,37 @@ static int exynos9820_late_probe(struct snd_soc_card *card)
 	if (ret)
 		return ret;
 
-	snd_soc_dapm_ignore_suspend(&card->dapm, "HEADSETMIC");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "RECEIVER");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "HEADPHONE");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "SPEAKER");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "BLUETOOTH MIC");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "BLUETOOTH SPK");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "DMIC1");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "DMIC2");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "DMIC3");
-	snd_soc_dapm_ignore_suspend(&card->dapm, "VTS Virtual Output");
-	snd_soc_dapm_sync(&card->dapm);
+	dapm = &card->dapm;
+	snd_soc_dapm_ignore_suspend(dapm, "VOUTPUT");
+	snd_soc_dapm_ignore_suspend(dapm, "VINPUT1");
+	snd_soc_dapm_ignore_suspend(dapm, "VINPUT2");
+	snd_soc_dapm_ignore_suspend(dapm, "VOUTPUTCALL");
+	snd_soc_dapm_ignore_suspend(dapm, "VINPUTCALL");
+	snd_soc_dapm_ignore_suspend(dapm, "HEADSETMIC");
+	snd_soc_dapm_ignore_suspend(dapm, "RECEIVER");
+	snd_soc_dapm_ignore_suspend(dapm, "HEADPHONE");
+	snd_soc_dapm_ignore_suspend(dapm, "SPEAKER");
+	snd_soc_dapm_ignore_suspend(dapm, "BLUETOOTH MIC");
+	snd_soc_dapm_ignore_suspend(dapm, "BLUETOOTH SPK");
+	snd_soc_dapm_ignore_suspend(dapm, "DMIC1");
+	snd_soc_dapm_ignore_suspend(dapm, "DMIC2");
+	snd_soc_dapm_ignore_suspend(dapm, "DMIC3");
+	snd_soc_dapm_ignore_suspend(dapm, "VTS Virtual Output");
+	snd_soc_dapm_sync(dapm);
 
-	snd_soc_dapm_ignore_suspend(snd_soc_codec_get_dapm(codec), "AIF1 Playback");
-	snd_soc_dapm_ignore_suspend(snd_soc_codec_get_dapm(codec), "AIF1 Capture");
-	snd_soc_dapm_ignore_suspend(snd_soc_codec_get_dapm(codec), "AUXPDM1");
-	snd_soc_dapm_sync(snd_soc_codec_get_dapm(codec));
+	dapm = snd_soc_component_get_dapm(codec);
+	snd_soc_dapm_ignore_suspend(dapm, "AIF1 Playback");
+	snd_soc_dapm_ignore_suspend(dapm, "AIF1 Capture");
+	snd_soc_dapm_ignore_suspend(dapm, "AUXPDM1");
+	snd_soc_dapm_sync(dapm);
 
-	if (madera_get_rtd(card, AMP_DAI_ID)) {
+	if (madera_get_rtd(card, CS35L41_DAI_ID)) {
 		struct snd_soc_pcm_runtime *rtd;
 
-		rtd = madera_get_rtd(card, AMP_DAI_ID);
+		rtd = madera_get_rtd(card, CS35L41_DAI_ID);
 		for (i = 0; i < rtd->num_codecs; i++) {
 			aif_dai = rtd->codec_dais[i];
-			dapm = snd_soc_codec_get_dapm(aif_dai->codec);
+			dapm = snd_soc_component_get_dapm(aif_dai->component);
 			prefix = dapm->component->name_prefix;
 			snprintf(name, sizeof(name), "%s AMP Playback", prefix);
 			snd_soc_dapm_ignore_suspend(dapm, name);
@@ -750,8 +739,7 @@ static int exynos9820_late_probe(struct snd_soc_card *card)
 
 	for (i = 0; i < RDMA_COUNT; i++) {
 		aif_dai = madera_get_rtd(card, i)->cpu_dai;
-		cpu = aif_dai->component;
-		dapm = snd_soc_component_get_dapm(cpu);
+		dapm = snd_soc_component_get_dapm(aif_dai->component);
 		prefix = dapm->component->name_prefix;
 		snprintf(name, sizeof(name), "%s RDMA%d Playback", prefix, i);
 		snd_soc_dapm_ignore_suspend(dapm, name);
@@ -760,8 +748,7 @@ static int exynos9820_late_probe(struct snd_soc_card *card)
 
 	for (i = 0; i < WDMA_COUNT; i++) {
 		aif_dai = madera_get_rtd(card, RDMA_COUNT + i)->cpu_dai;
-		cpu = aif_dai->component;
-		dapm = snd_soc_component_get_dapm(cpu);
+		dapm = snd_soc_component_get_dapm(aif_dai->component);
 		prefix = dapm->component->name_prefix;
 		snprintf(name, sizeof(name), "%s WDMA%d Capture", prefix, i);
 		snd_soc_dapm_ignore_suspend(dapm, name);
@@ -770,8 +757,7 @@ static int exynos9820_late_probe(struct snd_soc_card *card)
 
 	for (i = 0; i < UAIF_COUNT; i++) {
 		aif_dai = madera_get_rtd(card, UAIF_START + i)->cpu_dai;
-		cpu = aif_dai->component;
-		dapm = snd_soc_component_get_dapm(cpu);
+		dapm = snd_soc_component_get_dapm(aif_dai->component);
 		prefix = dapm->component->name_prefix;
 		snprintf(name, sizeof(name), "%s UAIF%d Capture", prefix, i);
 		snd_soc_dapm_ignore_suspend(dapm, name);
@@ -1072,7 +1058,6 @@ static struct snd_soc_dai_link exynos9820_dai[] = {
 		.name = "UAIF1",
 		.stream_name = "UAIF1",
 		.platform_name = "snd-soc-dummy",
-		.id = AMP_DAI_ID,
 		.no_pcm = 1,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
@@ -1338,6 +1323,11 @@ static const struct snd_kcontrol_new exynos9820_controls[] = {
 };
 
 static struct snd_soc_dapm_widget exynos9820_widgets[] = {
+	SND_SOC_DAPM_OUTPUT("VOUTPUT"),
+	SND_SOC_DAPM_INPUT("VINPUT1"),
+	SND_SOC_DAPM_INPUT("VINPUT2"),
+	SND_SOC_DAPM_OUTPUT("VOUTPUTCALL"),
+	SND_SOC_DAPM_INPUT("VINPUTCALL"),
 	SND_SOC_DAPM_MIC("DMIC1", NULL),
 	SND_SOC_DAPM_MIC("DMIC2", NULL),
 	SND_SOC_DAPM_MIC("DMIC3", NULL),
@@ -1345,6 +1335,7 @@ static struct snd_soc_dapm_widget exynos9820_widgets[] = {
 	SND_SOC_DAPM_SPK("RECEIVER", NULL),
 	SND_SOC_DAPM_HP("HEADPHONE", NULL),
 	SND_SOC_DAPM_SPK("SPEAKER", NULL),
+	SND_SOC_DAPM_MIC("SPEAKER FB", NULL),
 	SND_SOC_DAPM_MIC("BLUETOOTH MIC", NULL),
 	SND_SOC_DAPM_SPK("BLUETOOTH SPK", NULL),
 	SND_SOC_DAPM_OUTPUT("VTS Virtual Output"),
@@ -1488,6 +1479,16 @@ static int read_codec(struct device_node *np, struct device *dev,
 	return snd_soc_of_get_dai_link_codecs(dev, np, dai_link);
 }
 
+static void exynos9820_register_card_work_func(struct work_struct *work)
+{
+	struct snd_soc_card *card = &exynos9820_madera;
+	int ret;
+
+	ret = devm_snd_soc_register_card(card->dev, card);
+	if (ret)
+		dev_err(card->dev, "sound card register failed: %d\n", ret);
+}
+DECLARE_WORK(exynos9820_register_card_work, exynos9820_register_card_work_func);
 
 static int exynos9820_audio_probe(struct platform_device *pdev)
 {
@@ -1650,9 +1651,7 @@ static int exynos9820_audio_probe(struct platform_device *pdev)
 	}
 	card->num_aux_devs = i;
 
-	ret = devm_snd_soc_register_card(card->dev, card);
-	if (ret)
-		dev_err(card->dev, "snd_soc_register_card() failed:%d\n", ret);
+	schedule_work(&exynos9820_register_card_work);
 
 	return ret;
 }

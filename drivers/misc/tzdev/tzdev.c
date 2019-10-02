@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -18,6 +18,8 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/irqdesc.h>
 #include <linux/ioctl.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
@@ -29,7 +31,6 @@
 #include <linux/of_irq.h>
 #include <linux/pid.h>
 #include <linux/platform_device.h>
-#include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -42,11 +43,11 @@
 #include <asm/uaccess.h>
 
 #include "sysdep.h"
+#include "tzdev_internal.h"
+#include "tzlog.h"
 #include "tz_boost.h"
 #include "tz_cdev.h"
-#include "tz_cma.h"
 #include "tz_deploy_tzar.h"
-#include "tz_fsdev.h"
 #include "tz_iw_boot_log.h"
 #include "tz_iwio.h"
 #include "tz_iwlog.h"
@@ -54,12 +55,9 @@
 #include "tz_iwsock.h"
 #include "tz_kthread_pool.h"
 #include "tz_mem.h"
-#include "tz_panic_dump.h"
+#include "tz_notifier.h"
 #include "tz_platform.h"
-#include "tz_uiwsock.h"
-#include "tzdev.h"
-#include "tzlog.h"
-#include "tzprofiler.h"
+#include "tz_pmf.h"
 
 MODULE_AUTHOR("Jaemin Ryu <jm77.ryu@samsung.com>");
 MODULE_AUTHOR("Vasily Leonenko <v.leonenko@samsung.com>");
@@ -67,32 +65,15 @@ MODULE_AUTHOR("Alex Matveev <alex.matveev@samsung.com>");
 MODULE_DESCRIPTION("TZDEV driver");
 MODULE_LICENSE("GPL");
 
-unsigned int tzdev_verbosity;
-unsigned int tzdev_teec_verbosity;
-unsigned int tzdev_kthread_verbosity;
-unsigned int tzdev_uiwsock_verbosity;
-
-module_param(tzdev_verbosity, uint, 0644);
-MODULE_PARM_DESC(tzdev_verbosity, "0: normal, 1: verbose, 2: debug");
-
-module_param(tzdev_teec_verbosity, uint, 0644);
-MODULE_PARM_DESC(tzdev_teec_verbosity, "0: error, 1: info, 2: debug");
-
-module_param(tzdev_kthread_verbosity, uint, 0644);
-MODULE_PARM_DESC(tzdev_kthread_verbosity, "0: error, 1: info, 2: debug");
-
-module_param(tzdev_uiwsock_verbosity, uint, 0644);
-MODULE_PARM_DESC(tzdev_uiwsock_verbosity, "0: error, 1: info, 2: debug");
-
-enum tzdev_nwd_state {
-	TZDEV_NWD_DOWN,
-	TZDEV_NWD_UP,
-};
-
 enum tzdev_swd_state {
 	TZDEV_SWD_DOWN,
 	TZDEV_SWD_UP,
 	TZDEV_SWD_DEAD
+};
+
+enum tzdev_iwi_id {
+	TZDEV_IWI_EVENT,
+	TZDEV_IWI_PANIC
 };
 
 struct tzdev_shmem {
@@ -100,270 +81,46 @@ struct tzdev_shmem {
 	unsigned int id;
 };
 
-static atomic_t tzdev_nwd_state = ATOMIC_INIT(TZDEV_NWD_DOWN);
+struct tzdev_fd_data {
+	struct list_head shmem_list;
+	spinlock_t shmem_list_lock;
+
+	unsigned int boost_state;
+	struct mutex mutex;
+
+	void *platform_data;
+};
+
 static atomic_t tzdev_swd_state = ATOMIC_INIT(TZDEV_SWD_DOWN);
-
+static int iwi_event, iwi_panic;
 static struct tzio_sysconf tz_sysconf;
+static atomic_t nwd_sysconf_flags = ATOMIC_INIT(0);
 
-static int tzdev_alloc_aux_channels(void)
-{
-	int ret;
-	unsigned int i;
+static irqreturn_t tzdev_event_handler(int irq, void *ptr);
+#if CONFIG_TZDEV_IWI_PANIC != 0
+static irqreturn_t tzdev_panic_handler(int irq, void *ptr);
+#endif
 
-	for (i = 0; i < NR_SW_CPU_IDS; ++i) {
-		ret = tz_iwio_alloc_aux_channel(i);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
-static int tzdev_sysconf(struct tzio_sysconf *sysconf)
+static int tzdev_sysconf_init(void)
 {
 	int ret = 0;
 	struct tz_iwio_aux_channel *ch;
 
+	tz_sysconf.nwd_sysconf.flags = atomic_read(&nwd_sysconf_flags);
+
 	ch = tz_iwio_get_aux_channel();
 
-	sysconf->nwd_sysconf.flags = tzdev_platform_get_sysconf_flags();
-
-#ifdef CONFIG_TZDEV_HOTPLUG
-	sysconf->nwd_sysconf.flags |= SYSCONF_NWD_CPU_HOTPLUG;
-#endif /* CONFIG_TZDEV_HOTPLUG */
-
-#ifdef CONFIG_TZDEV_DEPLOY_TZAR
-	sysconf->nwd_sysconf.flags |= SYSCONF_NWD_TZDEV_DEPLOY_TZAR;
-#endif /* CONFIG_TZDEV_DEPLOY_TZAR */
-
-	memcpy(ch->buffer, &sysconf->nwd_sysconf, sizeof(struct tzio_nwd_sysconf));
+	memcpy(ch->buffer, &tz_sysconf.nwd_sysconf, sizeof(struct tzio_nwd_sysconf));
 
 	ret = tzdev_smc_sysconf();
 	if (ret) {
-		tzdev_print(0, "tzdev_smc_sysconf() failed with %d\n", ret);
+		log_error(tzdev, "tzdev_smc_sysconf() failed with %d\n", ret);
 		goto out;
 	}
 
-	memcpy(&sysconf->swd_sysconf, ch->buffer, sizeof(struct tzio_swd_sysconf));
+	memcpy(&tz_sysconf.swd_sysconf, ch->buffer, sizeof(struct tzio_swd_sysconf));
 out:
 	tz_iwio_put_aux_channel();
-
-	return ret;
-}
-
-static irqreturn_t tzdev_event_handler(int irq, void *ptr)
-{
-	tz_kthread_pool_cmd_send();
-
-	return IRQ_HANDLED;
-}
-
-#if CONFIG_TZDEV_IWI_PANIC != 0
-static void dump_kernel_panic_bh(struct work_struct *work)
-{
-	atomic_set(&tzdev_swd_state, TZDEV_SWD_DEAD);
-	if (atomic_read(&tzdev_nwd_state) == TZDEV_NWD_UP) {
-		tz_iw_boot_log_read();
-		tz_iwlog_read_buffers();
-		tz_iwsock_kernel_panic_handler();
-		tz_kthread_pool_fini();
-		tzdev_mem_release_panic_handler();
-		panic("tzdev: IWI_PANIC raised\n");
-	}
-}
-
-static DECLARE_WORK(dump_kernel_panic, dump_kernel_panic_bh);
-
-static irqreturn_t tzdev_panic_handler(int irq, void *ptr)
-{
-	schedule_work(&dump_kernel_panic);
-	return IRQ_HANDLED;
-}
-#endif
-
-static void tzdev_resolve_iwis_id(unsigned int *iwi_event, unsigned int *iwi_panic)
-{
-	struct device_node *node;
-
-	node = of_find_compatible_node(NULL, NULL, "samsung,blowfish");
-	if (!node)
-		node = of_find_compatible_node(NULL, NULL, "samsung,teegris");
-
-	if (!node) {
-		*iwi_event = CONFIG_TZDEV_IWI_EVENT;
-#if CONFIG_TZDEV_IWI_PANIC != 0
-		*iwi_panic = CONFIG_TZDEV_IWI_PANIC;
-#endif
-		tzdev_print(0, "of_find_compatible_node() failed\n");
-		return;
-	}
-
-	*iwi_event = irq_of_parse_and_map(node, 0);
-	if (!*iwi_event) {
-		*iwi_event = CONFIG_TZDEV_IWI_EVENT;
-		tzdev_print(0, "Use IWI event IRQ number from config %d\n",
-			CONFIG_TZDEV_IWI_EVENT);
-	}
-
-#if CONFIG_TZDEV_IWI_PANIC != 0
-	*iwi_panic = irq_of_parse_and_map(node, 1);
-	if (!*iwi_panic) {
-		*iwi_panic = CONFIG_TZDEV_IWI_PANIC;
-		tzdev_print(0, "Use IWI panic IRQ number from config %d\n",
-			CONFIG_TZDEV_IWI_PANIC);
-	}
-#endif
-	of_node_put(node);
-}
-
-static void tzdev_register_iwis(void)
-{
-	int ret;
-	unsigned int iwi_event;
-	unsigned int iwi_panic;
-
-	tzdev_resolve_iwis_id(&iwi_event, &iwi_panic);
-
-	ret = request_irq(iwi_event, tzdev_event_handler, 0, "tzdev_iwi_event", NULL);
-	if (ret)
-		tzdev_print(0, "TZDEV_IWI_EVENT registration failed: %d\n", ret);
-
-#if CONFIG_TZDEV_IWI_PANIC != 0
-	ret = request_irq(iwi_panic, tzdev_panic_handler, 0, "tzdev_iwi_panic", NULL);
-	if (ret)
-		tzdev_print(0, "TZDEV_IWI_PANIC registration failed: %d\n", ret);
-#endif
-}
-
-int __tzdev_smc_cmd(struct tzdev_smc_data *data)
-{
-	int ret;
-
-	tzprofiler_enter_sw();
-	tz_iwlog_schedule_delayed_work();
-
-	tzdev_print(2, "tzdev_smc_cmd: enter: args={0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x}\n",
-			data->args[0], data->args[1], data->args[2], data->args[3],
-			data->args[4], data->args[5], data->args[6]);
-
-	ret = tzdev_platform_smc_call(data);
-
-	tzdev_print(2, "tzdev_smc_cmd: exit: args={0x%x 0x%x 0x%x 0x%x} ret=%d\n",
-			data->args[0], data->args[1], data->args[2], data->args[3], ret);
-
-	tz_iwlog_cancel_delayed_work();
-	tz_iwlog_read_buffers();
-
-	tzprofiler_wait_for_bufs();
-	tzprofiler_exit_sw();
-
-	tz_iwsock_check_notifications();
-	tz_iwservice_handle_swd_request();
-
-	return ret;
-}
-
-/*  TZDEV interface functions */
-unsigned int tzdev_is_up(void)
-{
-	return atomic_read(&tzdev_swd_state) == TZDEV_SWD_UP;
-}
-
-int tzdev_run_init_sequence(void)
-{
-	int ret = 0;
-
-	if (atomic_read(&tzdev_swd_state) == TZDEV_SWD_DOWN) {
-		/* check kernel and driver version compatibility with TEEGRIS */
-		ret = tzdev_smc_check_version();
-		if (ret == -ENOSYS || ret == -EINVAL) {
-			/* version is not compatibile. Not critical, continue ... */
-			ret = 0;
-		} else if (ret) {
-			tzdev_print(0, "tzdev_smc_check_version() failed\n");
-			goto out;
-		}
-
-		if (tzdev_cma_mem_register()) {
-			tzdev_print(0, "tzdev_cma_mem_register() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tzdev_alloc_aux_channels()) {
-			tzdev_print(0, "tzdev_alloc_AUX_Channels() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tz_iwservice_alloc()) {
-			tzdev_print(0, "tzdev_alloc_service_channel() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tzdev_mem_init()) {
-			tzdev_print(0, "tzdev_mem_init() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tz_iwlog_initialize()) {
-			tzdev_print(0, "tz_iwlog_initialize() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tzprofiler_initialize()) {
-			tzdev_print(0, "tzprofiler_initialize() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tz_panic_dump_alloc_buffer()) {
-			tzdev_print(0, "tz_panic_dump_alloc_buffer() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tzdev_sysconf(&tz_sysconf)) {
-			tzdev_print(0, "tzdev_sysconf() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tz_iwsock_init()) {
-			tzdev_print(0, "tz_iwsock_init failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		tzdev_register_iwis();
-		tz_boost_set_boost_mask(tz_sysconf.swd_sysconf.big_cpus_mask);
-
-		if (tz_fsdev_initialize()) {
-			tzdev_print(0, "tz_fsdev_initialize() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (atomic_cmpxchg(&tzdev_swd_state, TZDEV_SWD_DOWN, TZDEV_SWD_UP)) {
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-
-		if (tzdev_deploy_tzar()) {
-			tzdev_print(0, "tzdev_deploy_tzar() failed\n");
-			ret = -ESHUTDOWN;
-			goto out;
-		}
-	}
-out:
-	if (ret == -ESHUTDOWN) {
-		atomic_set(&tzdev_swd_state, TZDEV_SWD_DEAD);
-		tz_iw_boot_log_read();
-		tz_iwlog_read_buffers();
-	}
 
 	return ret;
 }
@@ -376,6 +133,24 @@ static int tzdev_get_sysconf(struct file *filp, unsigned long arg)
 		return -EFAULT;
 
 	return 0;
+}
+
+static int tzdev_check_version(void)
+{
+	int ret;
+
+	ret = tzdev_smc_check_version();
+	if (ret == -ENOSYS) {
+		log_info(tzdev, "Minor version of TZDev driver is newer than version of"
+			"secure kernel.\nNot critical, continue...\n");
+		ret = 0;
+	} else if (ret == -EINVAL) {
+		log_error(tzdev, "The version of the Linux kernel or "
+			"TZDev driver is not compatible with "
+			"secure kernel\n");
+	}
+
+	return ret;
 }
 
 static int tzdev_register_shared_memory(struct file *filp, unsigned long arg)
@@ -391,11 +166,13 @@ static int tzdev_register_shared_memory(struct file *filp, unsigned long arg)
 
 	shmem = kzalloc(sizeof(struct tzdev_shmem), GFP_KERNEL);
 	if (!shmem) {
-		tzdev_print(0, "Failed to allocate shmem structure\n");
+		log_error(tzdev, "Failed to allocate shmem structure\n");
 		return -ENOMEM;
 	}
 
+	tzdev_pmf_stamp(PMF_TZDEV_MEM_REGISTER);
 	ret = tzdev_mem_register_user(UINT_PTR(s.ptr), s.size, s.write);
+	tzdev_pmf_stamp(PMF_TZDEV_MEM_REGISTER_STOP);
 	if (ret < 0) {
 		kfree(shmem);
 		return ret;
@@ -435,10 +212,10 @@ static int tzdev_release_shared_memory(struct file *filp, unsigned int id)
 	return tzdev_mem_release_user(id);
 }
 
-static int tzdev_boost_control(struct file *filp, unsigned int state)
+static long tzdev_boost_control(struct file *filp, unsigned int state)
 {
-	struct tzdev_fd_data *data = filp->private_data;
 	int ret = 0;
+	struct tzdev_fd_data *data = filp->private_data;
 
 	mutex_lock(&data->mutex);
 
@@ -448,7 +225,7 @@ static int tzdev_boost_control(struct file *filp, unsigned int state)
 			tz_boost_enable();
 			data->boost_state = 1;
 		} else {
-			tzdev_print(0, "Trying to enable boost twice, filp=%pK\n", filp);
+			log_error(tzdev, "Trying to enable boost twice, filp=%pK\n", filp);
 			ret = -EBUSY;
 		}
 		break;
@@ -457,12 +234,12 @@ static int tzdev_boost_control(struct file *filp, unsigned int state)
 			tz_boost_disable();
 			data->boost_state = 0;
 		} else {
-			tzdev_print(0, "Trying to disable boost twice, filp=%pK\n", filp);
+			log_error(tzdev, "Trying to disable boost twice, filp=%pK\n", filp);
 			ret = -EBUSY;
 		}
 		break;
 	default:
-		tzdev_print(0, "Unknown boost request, state=%u filp=%pK\n", state, filp);
+		log_error(tzdev, "Unknown boost request, cmd=%u filp=%pK\n", state, filp);
 		ret = -EINVAL;
 		break;
 	}
@@ -474,14 +251,12 @@ static int tzdev_boost_control(struct file *filp, unsigned int state)
 
 static int tzdev_open(struct inode *inode, struct file *filp)
 {
+	int ret;
 	struct tzdev_fd_data *data;
-
-	if (!tzdev_is_up())
-		return -EPERM;
 
 	data = kzalloc(sizeof(struct tzdev_fd_data), GFP_KERNEL);
 	if (!data) {
-		tzdev_print(0, "Failed to allocate private data\n");
+		log_error(tzdev, "Failed to allocate private data\n");
 		return -ENOMEM;
 	}
 
@@ -489,9 +264,20 @@ static int tzdev_open(struct inode *inode, struct file *filp)
 	spin_lock_init(&data->shmem_list_lock);
 	mutex_init(&data->mutex);
 
+	data->platform_data = tzdev_platform_open();
+	if (IS_ERR(data->platform_data)) {
+		ret = PTR_ERR(data->platform_data);
+		log_error(tzdev, "Failed to create platform data, error=%d\n", ret);
+		goto release;
+	}
 	filp->private_data = data;
 
 	return 0;
+release:
+	mutex_destroy(&data->mutex);
+	kfree(data);
+
+	return ret;
 }
 
 static int tzdev_release(struct inode *inode, struct file *filp)
@@ -499,16 +285,15 @@ static int tzdev_release(struct inode *inode, struct file *filp)
 	struct tzdev_shmem *shmem, *tmp;
 	struct tzdev_fd_data *data = filp->private_data;
 
+	tzdev_platform_release(data->platform_data);
+
 	list_for_each_entry_safe(shmem, tmp, &data->shmem_list, link) {
 		list_del(&shmem->link);
 		tzdev_mem_release_user(shmem->id);
 		kfree(shmem);
 	}
 
-	if (data->boost_state)
-		tzdev_boost_control(filp, TZIO_BOOST_OFF);
-
-	tzdev_fd_platform_close(inode, filp);
+	tzdev_boost_control(filp, TZIO_BOOST_OFF);
 
 	mutex_destroy(&data->mutex);
 
@@ -519,6 +304,8 @@ static int tzdev_release(struct inode *inode, struct file *filp)
 
 static long tzdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+	struct tzdev_fd_data *data = filp->private_data;
+
 	switch (cmd) {
 	case TZIO_GET_SYSCONF:
 		return tzdev_get_sysconf(filp, arg);
@@ -528,9 +315,9 @@ static long tzdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return tzdev_release_shared_memory(filp, arg);
 	case TZIO_BOOST_CONTROL:
 		return tzdev_boost_control(filp, arg);
-	default:
-		return tzdev_fd_platform_ioctl(filp, cmd, arg);
 	}
+
+	return tzdev_platform_ioctl(data->platform_data, cmd, arg);
 }
 
 static const struct file_operations tzdev_fops = {
@@ -549,97 +336,229 @@ static struct tz_cdev tzdev_cdev = {
 	.owner = THIS_MODULE,
 };
 
-struct tz_cdev *tzdev_get_cdev(void)
+static unsigned int tzdev_virq_to_hwirq(unsigned int virq)
 {
-	return &tzdev_cdev;
+	struct irq_desc *desc = irq_to_desc(virq);
+	struct irq_data *data = irq_desc_get_irq_data(desc);
+
+	return irqd_to_hwirq(data);
 }
 
-static int exit_tzdev(struct notifier_block *cb, unsigned long code, void *unused)
+static unsigned int tzdev_get_iwi(unsigned int idx)
 {
-	(void)cb;
-	(void)code;
-	(void)unused;
+	unsigned int iwi;
+	struct device_node *node;
 
-	atomic_set(&tzdev_nwd_state, TZDEV_NWD_DOWN);
+	node = of_find_compatible_node(NULL, NULL, "samsung,blowfish");
+	if (!node)
+		node = of_find_compatible_node(NULL, NULL, "samsung,teegris");
 
-	tzdev_platform_unregister();
-	tz_cdev_unregister(&tzdev_cdev);
-	tzdev_cma_mem_release(tzdev_cdev.device);
-	tz_kthread_pool_fini();
-	tz_hotplug_exit();
+	if (!node)
+		return 0;
 
-	tz_uiwsock_fini();
-	tz_iwsock_fini();
+	iwi = irq_of_parse_and_map(node, idx);
+	of_node_put(node);
 
-	tzdev_print(0, "tzdev exit done.\n");
-
-	return NOTIFY_DONE;
+	return iwi;
 }
 
-static struct notifier_block tzdev_reboot_nb = {
-	.notifier_call = exit_tzdev,
-};
+static int tzdev_register_iwis(void)
+{
+	int ret;
+	unsigned int hw_iwi_event;
+#if CONFIG_TZDEV_IWI_PANIC != 0
+	unsigned int hw_iwi_panic;
+#endif
 
-static int __init init_tzdev(void)
+	iwi_event = tzdev_get_iwi(TZDEV_IWI_EVENT);
+	if (!iwi_event) {
+		iwi_event = CONFIG_TZDEV_IWI_EVENT;
+		hw_iwi_event = iwi_event;
+	} else
+		hw_iwi_event = tzdev_virq_to_hwirq(iwi_event);
+
+	ret = request_irq(iwi_event, tzdev_event_handler, 0, "tzdev_iwi_event", NULL);
+	if (ret) {
+		log_error(tzdev, "Event IWI registration failed: %d\n", ret);
+		return ret;
+	}
+
+#if CONFIG_TZDEV_IWI_PANIC != 0
+	iwi_panic = tzdev_get_iwi(TZDEV_IWI_PANIC);
+	if (!iwi_panic) {
+		iwi_panic = CONFIG_TZDEV_IWI_PANIC;
+		hw_iwi_panic = iwi_panic;
+	} else
+		hw_iwi_panic = tzdev_virq_to_hwirq(iwi_panic);
+
+	ret = request_irq(iwi_panic, tzdev_panic_handler, 0, "tzdev_iwi_panic", NULL);
+	if (ret) {
+		log_error(tzdev, "Panic IWI registration failed: %d\n", ret);
+		free_irq(iwi_event, 0);
+		return ret;
+	}
+	tz_sysconf.nwd_sysconf.iwi_panic = hw_iwi_panic;
+#endif
+	tz_sysconf.nwd_sysconf.iwi_event = hw_iwi_event;
+
+	return ret;
+}
+
+static void tzdev_unregister_iwis(void)
+{
+	if (iwi_event)
+		free_irq(iwi_event, 0);
+
+	if (iwi_panic)
+		free_irq(iwi_panic, 0);
+}
+
+static irqreturn_t tzdev_event_handler(int irq, void *ptr)
+{
+	tz_kthread_pool_cmd_send();
+
+	return IRQ_HANDLED;
+}
+
+#if CONFIG_TZDEV_IWI_PANIC != 0
+static void dump_kernel_panic_bh(struct work_struct *work)
+{
+	tz_iw_boot_log_read();
+	tzdev_run_fini_sequence();
+#if defined(CONFIG_TZDEV_SWD_PANIC_IS_CRITICAL)
+	panic("tzdev: IWI_PANIC raised\n");
+#endif
+}
+
+static DECLARE_WORK(dump_kernel_panic, dump_kernel_panic_bh);
+
+static irqreturn_t tzdev_panic_handler(int irq, void *ptr)
+{
+	schedule_work(&dump_kernel_panic);
+	return IRQ_HANDLED;
+}
+#endif
+
+static int __init tzdev_init(void)
 {
 	int rc;
 
-	rc = tz_cdev_register(&tzdev_cdev);
-	if (rc) {
-		tzdev_print(0, "tz_cdev_register() for device failed with error=%d\n", rc);
-		return rc;
-	}
-
-	rc = tz_uiwsock_init();
-	if (rc) {
-		tzdev_print(0, "tz_uiwsock_init() failed with error=%d\n", rc);
-		goto uiwsock_initialization_failed;
-	}
-
 	rc = tzdev_platform_register();
-	if (rc) {
-		tzdev_print(0, "tzdev_platform_register() failed with error=%d\n", rc);
-		goto platform_driver_registration_failed;
-	}
-
-	rc = tz_hotplug_init();
-	if (rc) {
-		tzdev_print(0, "tzdev_init_hotplug() failed with error=%d\n", rc);
-		goto hotplug_initialization_failed;
-	}
-
-	tzdev_cma_mem_init(tzdev_cdev.device);
-
-	rc = tzdev_platform_init();
-	if (rc) {
-		tzdev_print(0, "tzdev_platform_init() failed with error=%d\n", rc);
-		goto platform_initialization_failed;
-	}
-
-	rc = register_reboot_notifier(&tzdev_reboot_nb);
-	if (rc) {
-		tzdev_print(0, "reboot notifier registration failed() failed with error=%d\n", rc);
-		goto reboot_notifier_registration_failed;
-	}
-
-	atomic_set(&tzdev_nwd_state, TZDEV_NWD_UP);
-
-	return rc;
-
-reboot_notifier_registration_failed:
-	tzdev_platform_fini();
-platform_initialization_failed:
-	tzdev_cma_mem_release(tzdev_cdev.device);
-	tz_hotplug_exit();
-hotplug_initialization_failed:
-	tzdev_platform_unregister();
-platform_driver_registration_failed:
-	tz_uiwsock_fini();
-uiwsock_initialization_failed:
-	tz_cdev_unregister(&tzdev_cdev);
-	panic("tzdev: failed to initialize device, rc=%d\n", rc);
+	if (rc)
+		log_error(tzdev, "tzdev_platform_init() failed with error=%d\n", rc);
 
 	return rc;
 }
 
-module_init(init_tzdev);
+module_init(tzdev_init);
+
+struct tzio_sysconf *tzdev_sysconf(void)
+{
+	return &tz_sysconf;
+}
+
+unsigned int tzdev_is_up(void)
+{
+	return atomic_read(&tzdev_swd_state) == TZDEV_SWD_UP;
+}
+
+int tzdev_smc(struct tzdev_smc_data *data)
+{
+	int ret;
+
+	tzdev_atomic_notifier_run(TZDEV_PRE_SMC_NOTIFIER);
+
+	log_debug(tzdev, "enter: args={0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x}\n",
+			data->args[0], data->args[1], data->args[2], data->args[3],
+			data->args[4], data->args[5], data->args[6]);
+
+	ret = tzdev_platform_smc_call(data);
+
+	log_debug(tzdev, "tzdev_smc_cmd: exit: args={0x%x 0x%x 0x%x 0x%x} ret=%d\n",
+			data->args[0], data->args[1], data->args[2], data->args[3], ret);
+
+	tzdev_atomic_notifier_run(TZDEV_POST_SMC_NOTIFIER);
+
+	return ret;
+}
+
+int tzdev_run_init_sequence(void)
+{
+	int ret = -ESHUTDOWN;
+
+	if (atomic_read(&tzdev_swd_state) != TZDEV_SWD_DOWN)
+		return 0;
+
+	if (tzdev_check_version())
+		goto out;
+	if (tz_iwio_init())
+		goto out;
+	if (tz_iwservice_init())
+		goto out;
+	if (tz_iwlog_init())
+		goto out;
+	/* IW log initialized, time to read boot log */
+	tz_iw_boot_log_read();
+
+	if (tzdev_mem_init())
+		goto tzdev_mem_init_failed;
+	if (tz_iwsock_init())
+		goto tz_iwsock_init_failed;
+	if (tzdev_register_iwis())
+		goto tzdev_register_iwis_failed;
+	if (tzdev_sysconf_init())
+		goto tzdev_sysconf_init_failed;
+
+	ret = tz_cdev_register(&tzdev_cdev);
+	if (ret) {
+		log_error(tzdev, "Failed to register tzdev device, error=%d\n", ret);
+		ret = -ESHUTDOWN;
+		goto tzdev_cdev_register_failed;
+	}
+
+	tzdev_blocking_notifier_run(TZDEV_INIT_NOTIFIER);
+	BUG_ON(atomic_cmpxchg(&tzdev_swd_state, TZDEV_SWD_DOWN, TZDEV_SWD_UP));
+
+	if (tzdev_deploy_tzar()) {
+		ret = -ESHUTDOWN;
+		goto tzdev_deploy_tzar_failed;
+	}
+
+	return 0;
+
+tzdev_deploy_tzar_failed:
+	tzdev_blocking_notifier_run(TZDEV_FINI_NOTIFIER);
+
+	atomic_set(&tzdev_swd_state, TZDEV_SWD_DEAD);
+	tz_cdev_unregister(&tzdev_cdev);
+tzdev_cdev_register_failed:
+	tzdev_unregister_iwis();
+tzdev_sysconf_init_failed:
+tzdev_register_iwis_failed:
+	tz_iwsock_fini();
+tz_iwsock_init_failed:
+	tzdev_mem_fini();
+tzdev_mem_init_failed:
+	tz_iwlog_fini();
+out:
+	return ret;
+}
+
+void tzdev_run_fini_sequence(void)
+{
+	atomic_set(&tzdev_swd_state, TZDEV_SWD_DEAD);
+
+	tzdev_blocking_notifier_run(TZDEV_FINI_NOTIFIER);
+
+	tz_cdev_unregister(&tzdev_cdev);
+	tzdev_unregister_iwis();
+	tz_kthread_pool_fini();
+	tz_iwsock_fini();
+	tzdev_mem_fini();
+	tz_iwlog_fini();
+}
+
+void tzdev_set_nwd_sysconf_flag(unsigned int flag)
+{
+	atomic_or(flag, &nwd_sysconf_flags);
+}

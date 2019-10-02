@@ -47,8 +47,8 @@ extern int dss_irqlog_exlist[DSS_EX_MAX_NUM];
 extern int dss_irqexit_exlist[DSS_EX_MAX_NUM];
 extern unsigned int dss_irqexit_threshold;
 
-static ssize_t dss_enable_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
+static ssize_t dss_enable_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
 {
 	struct dbg_snapshot_item *item;
 	unsigned long i;
@@ -68,8 +68,8 @@ static ssize_t dss_enable_show(struct kobject *kobj,
 	return n;
 }
 
-static ssize_t dss_enable_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
+static ssize_t dss_enable_store(struct device *dev,
+				struct device_attribute *attr,
 				const char *buf, size_t count)
 {
 	int en;
@@ -79,14 +79,16 @@ static ssize_t dss_enable_store(struct kobject *kobj,
 	if (!name)
 		return count;
 
-	en = dbg_snapshot_get_enable(name);
+	name[count - 1] = '\0';
+	en = dbg_snapshot_get_enable_item(name);
+
 	if (en == -1)
-		pr_info("echo name > enabled\n");
+		dev_info(dss_desc.dev, "echo name > enabled\n");
 	else {
 		if (en)
-			dbg_snapshot_set_enable(name, false);
+			dbg_snapshot_set_enable_item(name, false);
 		else
-			dbg_snapshot_set_enable(name, true);
+			dbg_snapshot_set_enable_item(name, true);
 	}
 
 	kfree(name);
@@ -94,8 +96,8 @@ static ssize_t dss_enable_store(struct kobject *kobj,
 	return count;
 }
 
-static ssize_t dss_callstack_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
+static ssize_t dss_callstack_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
 {
 	ssize_t n = 0;
 
@@ -104,23 +106,23 @@ static ssize_t dss_callstack_show(struct kobject *kobj,
 	return n;
 }
 
-static ssize_t dss_callstack_store(struct kobject *kobj, struct kobj_attribute *attr,
+static ssize_t dss_callstack_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
 	unsigned long callstack;
 
 	callstack = simple_strtoul(buf, NULL, 0);
-	pr_info("callstack depth(min 1, max 4) : %lu\n", callstack);
+	dev_info(dss_desc.dev, "callstack depth(min 1, max 4) : %lu\n", callstack);
 
 	if (callstack < 5 && callstack > 0) {
 		dss_desc.callstack = (unsigned int)callstack;
-		pr_info("success inserting %lu to callstack value\n", callstack);
+		dev_info(dss_desc.dev, "success inserting %lu to callstack value\n", callstack);
 	}
 	return count;
 }
 
-static ssize_t dss_irqlog_exlist_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
+static ssize_t dss_irqlog_exlist_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
 {
 	unsigned long i;
 	ssize_t n = 0;
@@ -135,15 +137,15 @@ static ssize_t dss_irqlog_exlist_show(struct kobject *kobj,
 	return n;
 }
 
-static ssize_t dss_irqlog_exlist_store(struct kobject *kobj,
-					struct kobj_attribute *attr,
+static ssize_t dss_irqlog_exlist_store(struct device *dev,
+					struct device_attribute *attr,
 					const char *buf, size_t count)
 {
 	unsigned long i;
 	unsigned long irq;
 
 	irq = simple_strtoul(buf, NULL, 0);
-	pr_info("irq number : %lu\n", irq);
+	dev_info(dss_desc.dev, "irq number : %lu\n", irq);
 
 	for (i = 0; i < ARRAY_SIZE(dss_irqlog_exlist); i++) {
 		if (dss_irqlog_exlist[i] == 0)
@@ -151,177 +153,31 @@ static ssize_t dss_irqlog_exlist_store(struct kobject *kobj,
 	}
 
 	if (i == ARRAY_SIZE(dss_irqlog_exlist)) {
-		pr_err("list is full\n");
+		dev_err(dss_desc.dev, "list is full\n");
 		return count;
 	}
 
 	if (irq != 0) {
 		dss_irqlog_exlist[i] = irq;
-		pr_info("success inserting %lu to list\n", irq);
+		dev_info(dss_desc.dev, "success inserting %lu to list\n", irq);
 	}
 	return count;
 }
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_EXIT
-static ssize_t dss_irqexit_exlist_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
-{
-	unsigned long i;
-	ssize_t n = 0;
-
-	n = scnprintf(buf, 36, "Excluded irq number\n");
-	for (i = 0; i < ARRAY_SIZE(dss_irqexit_exlist); i++) {
-		if (dss_irqexit_exlist[i] == 0)
-			break;
-		n += scnprintf(buf + n, 24, "IRQ num: %-4d\n", dss_irqexit_exlist[i]);
-	}
-	return n;
-}
-
-static ssize_t dss_irqexit_exlist_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				const char *buf, size_t count)
-{
-	unsigned long i;
-	unsigned long irq;
-
-	irq = simple_strtoul(buf, NULL, 0);
-	pr_info("irq number : %lu\n", irq);
-
-	for (i = 0; i < ARRAY_SIZE(dss_irqexit_exlist); i++) {
-		if (dss_irqexit_exlist[i] == 0)
-			break;
-	}
-
-	if (i == ARRAY_SIZE(dss_irqexit_exlist)) {
-		pr_err("list is full\n");
-		return count;
-	}
-
-	if (irq != 0) {
-		dss_irqexit_exlist[i] = irq;
-		pr_info("success inserting %lu to list\n", irq);
-	}
-	return count;
-}
-
-static ssize_t dss_irqexit_threshold_show(struct kobject *kobj,
-					struct kobj_attribute *attr, char *buf)
-{
-	ssize_t n;
-
-	n = scnprintf(buf, 46, "threshold : %12u us\n", dss_irqexit_threshold);
-	return n;
-}
-
-static ssize_t dss_irqexit_threshold_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				const char *buf, size_t count)
-{
-	unsigned long val;
-
-	val = simple_strtoul(buf, NULL, 0);
-	pr_info("threshold value : %lu\n", val);
-
-	if (val != 0) {
-		dss_irqexit_threshold = (unsigned int)val;
-		pr_info("success %lu to threshold\n", val);
-	}
-	return count;
-}
-#endif
-
-#ifdef CONFIG_DEBUG_SNAPSHOT_REG
-static ssize_t dss_reg_exlist_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
-{
-	unsigned long i;
-	ssize_t n = 0;
-
-	n = scnprintf(buf, 36, "excluded register address\n");
-	for (i = 0; i < ARRAY_SIZE(dss_reg_exlist); i++) {
-		if (dss_reg_exlist[i].addr == 0)
-			break;
-		n += scnprintf(buf + n, 40, "register addr: %08zx size: %08zx\n",
-				dss_reg_exlist[i].addr, dss_reg_exlist[i].size);
-	}
-	return n;
-}
-
-static ssize_t dss_reg_exlist_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				const char *buf, size_t count)
-{
-	unsigned long i;
-	size_t addr;
-
-	addr = simple_strtoul(buf, NULL, 0);
-	pr_info("register addr: %zx\n", addr);
-
-	for (i = 0; i < ARRAY_SIZE(dss_reg_exlist); i++) {
-		if (dss_reg_exlist[i].addr == 0)
-			break;
-	}
-	if (addr != 0) {
-		dss_reg_exlist[i].size = SZ_4K;
-		dss_reg_exlist[i].addr = addr;
-		pr_info("success %zx to threshold\n", (addr));
-	}
-	return count;
-}
-#endif
-
-#ifdef CONFIG_SEC_PM_DEBUG
-static ssize_t dss_log_work_show(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
-{
-	return dss_log_work_print(buf);
-}
-#endif /* CONFIG_SEC_PM_DEBUG */
-
-static struct kobj_attribute dss_enable_attr =
+static struct device_attribute dss_enable_attr =
 __ATTR(enabled, 0644, dss_enable_show, dss_enable_store);
 
-static struct kobj_attribute dss_callstack_attr =
+static struct device_attribute dss_callstack_attr =
 __ATTR(callstack, 0644, dss_callstack_show, dss_callstack_store);
 
-static struct kobj_attribute dss_irqlog_attr =
+static struct device_attribute dss_irqlog_attr =
 __ATTR(exlist_irqdisabled, 0644, dss_irqlog_exlist_show,
 					dss_irqlog_exlist_store);
-#ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_EXIT
-static struct kobj_attribute dss_irqexit_attr =
-__ATTR(exlist_irqexit, 0644, dss_irqexit_exlist_show,
-					dss_irqexit_exlist_store);
-
-static struct kobj_attribute dss_irqexit_threshold_attr =
-__ATTR(threshold_irqexit, 0644, dss_irqexit_threshold_show,
-					dss_irqexit_threshold_store);
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_REG
-
-static struct kobj_attribute dss_reg_attr =
-__ATTR(exlist_reg, 0644, dss_reg_exlist_show, dss_reg_exlist_store);
-#endif
-
-#ifdef CONFIG_SEC_PM_DEBUG
-static struct kobj_attribute dss_log_work_attr =
-__ATTR(kworker, 0444, dss_log_work_show, NULL);
-#endif /* CONFIG_SEC_PM_DEBUG */
 
 static struct attribute *dss_sysfs_attrs[] = {
 	&dss_enable_attr.attr,
 	&dss_callstack_attr.attr,
 	&dss_irqlog_attr.attr,
-#ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_EXIT
-	&dss_irqexit_attr.attr,
-	&dss_irqexit_threshold_attr.attr,
-#endif
-#ifdef CONFIG_DEBUG_SNAPSHOT_REG
-	&dss_reg_attr.attr,
-#endif
-#ifdef CONFIG_SEC_PM_DEBUG
-	&dss_log_work_attr.attr,
-#endif /* CONFIG_SEC_PM_DEBUG */
 	NULL,
 };
 
@@ -340,7 +196,7 @@ static int __init dbg_snapshot_sysfs_init(void)
 
 	ret = subsys_system_register(&dss_subsys, dss_sysfs_groups);
 	if (ret)
-		pr_err("fail to register debug-snapshop subsys\n");
+		dev_err(dss_desc.dev, "fail to register debug-snapshop subsys\n");
 
 	return ret;
 }

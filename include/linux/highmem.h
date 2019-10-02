@@ -181,17 +181,6 @@ static inline struct page *
 alloc_zeroed_user_highpage_movable(struct vm_area_struct *vma,
 					unsigned long vaddr)
 {
-#if defined(CONFIG_KZEROD)
-	struct page *page;
-
-	mod_node_page_state(&contig_page_data, ZERO_PAGE_ALLOC_TOTAL, 1);
-	page = alloc_zeroed_page();
-	if (page) {
-		mod_node_page_state(&contig_page_data, ZERO_PAGE_ALLOC_PREZERO,
-				    1);
-		return page;
-	}
-#endif
 	return __alloc_zeroed_user_highpage(__GFP_MOVABLE, vma, vaddr);
 }
 
@@ -248,6 +237,8 @@ static inline void copy_user_highpage(struct page *to, struct page *from,
 
 #endif
 
+#ifndef __HAVE_ARCH_COPY_HIGHPAGE
+
 static inline void copy_highpage(struct page *to, struct page *from)
 {
 	char *vfrom, *vto;
@@ -258,5 +249,7 @@ static inline void copy_highpage(struct page *to, struct page *from)
 	kunmap_atomic(vto);
 	kunmap_atomic(vfrom);
 }
+
+#endif
 
 #endif /* _LINUX_HIGHMEM_H */

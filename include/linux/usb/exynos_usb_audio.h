@@ -16,7 +16,13 @@
 #define USB_AUDIO_PCM_OUTBUF	(USB_AUDIO_MEM_BASE+0x100000)
 #define USB_AUDIO_PCM_INBUF	(USB_AUDIO_MEM_BASE+0x800000)
 
+#if defined(CONFIG_SOC_EXYNOS9820)
 #define USB_AUDIO_XHCI_BASE	0x10c00000
+#elif defined(CONFIG_SOC_EXYNOS9830)
+#define USB_AUDIO_XHCI_BASE	0x10e00000
+#else
+#error
+#endif
 
 struct host_data {
 	dma_addr_t out_data_dma;

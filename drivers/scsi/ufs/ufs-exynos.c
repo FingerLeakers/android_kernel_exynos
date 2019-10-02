@@ -22,7 +22,12 @@
 #include "ufshcd-pltfrm.h"
 #include "ufs-exynos.h"
 #include "ufs-exynos-fmp.h"
+#include <soc/samsung/exynos-fsys0-tcxo.h>
 #include <soc/samsung/exynos-pmu.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
+#include <linux/soc/samsung/exynos-soc.h>
+#include <linux/spinlock.h>
 
 /*
  * Unipro attribute value
@@ -584,7 +589,6 @@ static void exynos_ufs_set_features(struct ufs_hba *hba, u32 hw_rev)
 
 	/* quirks of common driver */
 	hba->quirks = UFSHCD_QUIRK_PRDT_BYTE_GRAN |
-			UFSHCI_QUIRK_SKIP_INTR_AGGR |
 			UFSHCD_QUIRK_UNRESET_INTR_AGGR |
 			UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR;
 
@@ -609,6 +613,7 @@ static int exynos_ufs_init(struct ufs_hba *hba)
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	int ret;
 	int id;
+
 
 	/* set features, such as caps or quirks */
 	exynos_ufs_set_features(hba, ufs->hw_rev);
@@ -710,7 +715,7 @@ static int exynos_ufs_pre_setup_clocks(struct ufs_hba *hba, bool on)
 		/* HWAGC disable */
 		exynos_ufs_set_hwacg_control(ufs, false);
 	} else {
-		pm_qos_update_request(&ufs->pm_qos_int, 0);
+//		pm_qos_update_request(&ufs->pm_qos_int, 0);
 	}
 
 	return ret;
@@ -722,7 +727,7 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on)
 	int ret = 0;
 
 	if (on) {
-		pm_qos_update_request(&ufs->pm_qos_int, ufs->pm_qos_int_value);
+//		pm_qos_update_request(&ufs->pm_qos_int, ufs->pm_qos_int_value);
 	} else {
 		/*
 		 * Now all used blocks would be turned off in a host.
@@ -733,9 +738,64 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on)
 		/* HWAGC enable */
 		exynos_ufs_set_hwacg_control(ufs, true);
 
-#ifdef CONFIG_CPU_IDLE
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 		exynos_update_ip_idle_status(ufs->idle_ip_index, 1);
 #endif
+	}
+
+	return ret;
+}
+
+static int exynos_ufs_get_available_lane(struct ufs_hba *hba)
+{
+	struct ufs_pa_layer_attr *pwr_info = &hba->max_pwr_info.info;
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+
+	/* Get the available lane count */
+	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILRXDATALANES),
+			&pwr_info->available_lane_rx);
+	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILTXDATALANES),
+			&pwr_info->available_lane_tx);
+
+	if (!pwr_info->available_lane_rx || !pwr_info->available_lane_tx) {
+		dev_err(hba->dev, "%s: invalid host available lanes value. rx=%d, tx=%d\n",
+				__func__,
+				pwr_info->available_lane_rx,
+				pwr_info->available_lane_tx);
+		return -EINVAL;
+	}
+
+	if (ufs->num_rx_lanes == 0 || ufs->num_tx_lanes == 0) {
+		ufs->num_rx_lanes = pwr_info->available_lane_rx;
+		ufs->num_tx_lanes = pwr_info->available_lane_tx;
+		WARN(ufs->num_rx_lanes != ufs->num_tx_lanes,
+				"available data lane is not equal(rx:%d, tx:%d)\n",
+				ufs->num_rx_lanes, ufs->num_tx_lanes);
+	}
+
+	return 0;
+
+}
+
+static int exynos_ufs_hce_enable_notify(struct ufs_hba *hba,
+					enum ufs_notify_change_status status)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	int ret = 0;
+
+	switch (status) {
+	case PRE_CHANGE:
+		break;
+	case POST_CHANGE:
+		exynos_ufs_ctrl_clk(ufs, true);
+		exynos_ufs_select_refclk(ufs, true);
+		exynos_ufs_gate_clk(ufs, false);
+		exynos_ufs_set_hwacg_control(ufs, false);
+
+		ret = exynos_ufs_get_available_lane(hba);
+		break;
+	default:
+		break;
 	}
 
 	return ret;
@@ -756,21 +816,6 @@ static int exynos_ufs_link_startup_notify(struct ufs_hba *hba,
 		exynos_ufs_config_intr(ufs, DFES_DEF_DL_ERRS, UNIP_DL_LYR);
 		exynos_ufs_config_intr(ufs, DFES_DEF_N_ERRS, UNIP_N_LYR);
 		exynos_ufs_config_intr(ufs, DFES_DEF_T_ERRS, UNIP_T_LYR);
-
-		exynos_ufs_ctrl_clk(ufs, true);
-		exynos_ufs_select_refclk(ufs, true);
-		exynos_ufs_gate_clk(ufs, false);
-		exynos_ufs_set_hwacg_control(ufs, false);
-
-		if (ufs->num_rx_lanes == 0 || ufs->num_tx_lanes == 0) {
-			ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILRXDATALANES),
-					&ufs->num_rx_lanes);
-			ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILTXDATALANES),
-					&ufs->num_tx_lanes);
-			WARN(ufs->num_rx_lanes != ufs->num_tx_lanes,
-					"available data lane is not equal(rx:%d, tx:%d)\n",
-					ufs->num_rx_lanes, ufs->num_tx_lanes);
-		}
 
 		ufs->mclk_rate = clk_get_rate(ufs->clk_unipro);
 
@@ -918,7 +963,7 @@ static int __exynos_ufs_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 
-	pm_qos_update_request(&ufs->pm_qos_int, 0);
+//	pm_qos_update_request(&ufs->pm_qos_int, 0);
 
 	exynos_ufs_dev_reset_ctrl(ufs, false);
 
@@ -943,11 +988,10 @@ static int __exynos_ufs_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		clk_prepare_enable(ufs->clk_hci);
 	exynos_ufs_ctrl_auto_hci_clk(ufs, false);
 
+	exynos_ufs_ctrl_cport_log(ufs, true, 0);
 	/* FMPSECURITY & SMU resume */
 	exynos_ufs_fmp_sec_cfg(ufs);
 	exynos_ufs_smu_resume(ufs);
-
-	exynos_ufs_ctrl_cport_log(ufs, true, 0);
 
 	if (ufshcd_is_clkgating_allowed(hba))
 		clk_disable_unprepare(ufs->clk_hci);
@@ -997,6 +1041,7 @@ static struct ufs_hba_variant_ops exynos_ufs_ops = {
 	.host_reset = exynos_ufs_host_reset,
 	.pre_setup_clocks = exynos_ufs_pre_setup_clocks,
 	.setup_clocks = exynos_ufs_setup_clocks,
+	.hce_enable_notify = exynos_ufs_hce_enable_notify,
 	.link_startup_notify = exynos_ufs_link_startup_notify,
 	.pwr_change_notify = exynos_ufs_pwr_change_notify,
 	.set_nexus_t_xfer_req = exynos_ufs_set_nexus_t_xfer_req,
@@ -1067,10 +1112,9 @@ static int exynos_ufs_populate_dt_sys(struct device *dev, struct exynos_ufs *ufs
 
 	return ret;
 }
-
 static int exynos_ufs_populate_dt_phy(struct device *dev, struct exynos_ufs *ufs)
 {
-	struct device_node *ufs_phy/* , *phy_sys*/;
+	struct device_node *ufs_phy;
 	struct exynos_ufs_phy *phy = &ufs->phy;
 	struct resource io_res;
 	int ret;
@@ -1086,7 +1130,6 @@ static int exynos_ufs_populate_dt_phy(struct device *dev, struct exynos_ufs *ufs
 		dev_err(dev, "failed to get i/o address phy pma\n");
 		goto err_0;
 	}
-
 
 	phy->reg_pma = devm_ioremap_resource(dev, &io_res);
 	if (!phy->reg_pma) {
@@ -1129,8 +1172,12 @@ static int exynos_ufs_populate_dt(struct device *dev, struct exynos_ufs *ufs)
 		ufs->hw_rev = UFS_VER_0004;
 
 	/* Get exynos-evt version for featuring */
-	if (of_property_read_u8(np, "evt-ver", &ufs->cal_param->evt_ver))
-		ufs->cal_param->evt_ver = 0;
+	if (of_property_read_u8(np, "evt-ver", &ufs->cal_param->evt_ver)) {
+		ufs->cal_param->evt_ver = exynos_soc_info.main_rev;
+	}
+
+	dev_info(dev, "exynos ufs evt version : %d\n",
+			ufs->cal_param->evt_ver);
 
 	ret = exynos_ufs_populate_dt_phy(dev, ufs);
 	if (ret) {
@@ -1146,6 +1193,9 @@ static int exynos_ufs_populate_dt(struct device *dev, struct exynos_ufs *ufs)
 
 	if (of_property_read_u8(np, "brd-for-cal", &ufs->cal_param->board))
 		ufs->cal_param->board = 0;
+
+	dev_info(dev, "exynos ufs board type : %d\n",
+			ufs->cal_param->board);
 
 	if (of_property_read_u32(np, "ufs-pm-qos-int", &ufs->pm_qos_int_value))
 		ufs->pm_qos_int_value = 0;
@@ -1208,7 +1258,7 @@ static int exynos_ufs_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-#ifdef CONFIG_CPU_IDLE
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 	ufs->idle_ip_index = exynos_get_idle_ip_index(dev_name(&pdev->dev));
 	exynos_update_ip_idle_status(ufs->idle_ip_index, 0);
 #endif
@@ -1217,7 +1267,7 @@ static int exynos_ufs_probe(struct platform_device *pdev)
 	dev->platform_data = ufs;
 	dev->dma_mask = &exynos_ufs_dma_mask;
 
-	pm_qos_add_request(&ufs->pm_qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
+//	pm_qos_add_request(&ufs->pm_qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
 
 	ret = ufshcd_pltfrm_init(pdev, &exynos_ufs_ops);
 

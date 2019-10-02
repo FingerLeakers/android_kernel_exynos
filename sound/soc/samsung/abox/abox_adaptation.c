@@ -32,7 +32,7 @@ pr_info("[ABOX_ADAPTATION] %s: " format "\n", __func__, ## args)
 static DECLARE_WAIT_QUEUE_HEAD(wq_read);
 static DECLARE_WAIT_QUEUE_HEAD(wq_write);
 
-struct abox_platform_data *data;
+struct abox_dma_data *data;
 struct maxim_dsm *read_maxdsm;
 
 bool abox_ipc_irq_read_avail;

@@ -28,7 +28,7 @@
 #include <linux/debug-snapshot.h>
 #include <linux/debug-snapshot-helper.h>
 #include <asm-generic/io.h>
-
+#include <asm/cacheflush.h>
 #include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-debug.h>
 
@@ -65,6 +65,7 @@ static void simulate_BUSMON_ERROR(char *arg);
 static void simulate_UNALIGNED(char *arg);
 static void simulate_WRITE_RO(char *arg);
 static void simulate_OVERFLOW(char *arg);
+static void simulate_CACHE_FLUSH(char *arg);
 static void simulate_test_start(char *arg);
 
 static int exynos_debug_test_desc_init(struct device_node *np);
@@ -98,6 +99,7 @@ enum {
 	FORCE_WRITE_RO,			/* WRITE RODATA */
 	FORCE_OVERFLOW,			/* STACK OVERFLOW */
 	FORCE_BAD_SCHEDULING,		/* BAD SCHED */
+	FORCE_CACHE_FLUSH,		/* CACHE FLUSH */
 	FORCE_TEST_START,		/* START TEST */
 	NR_FORCE_ERROR,
 };
@@ -125,6 +127,7 @@ struct debug_test_desc {
 	void (*null_function)(void);
 	struct dentry *exynos_debug_test_debugfs_root;
 	struct device_node *np;
+	struct device *dev;
 	spinlock_t debug_test_lock;
 	struct delayed_work test_work;
 };
@@ -176,6 +179,7 @@ static struct force_error force_error_vector = {
 		{"writero",	&simulate_WRITE_RO},
 		{"overflow",	&simulate_OVERFLOW},
 		{"badsched",	&simulate_BAD_SCHED},
+		{"cacheflush",	&simulate_CACHE_FLUSH},
 		{"all",		&simulate_test_start},
 	}
 };
@@ -209,6 +213,7 @@ static struct force_error_test_item test_vector[] = {
 	{"QDP",				0, REBOOT_REASON_WDT},
 	{"spabort",			0, REBOOT_REASON_NA},
 	{"overflow",			0, REBOOT_REASON_NA},
+	{"cacheflush",			1, REBOOT_REASON_WDT},
 };
 
 static int str_to_num(char *s)
@@ -294,15 +299,15 @@ static void exynos_debug_test_print(unsigned int cnt)
 		return;
 
 	if (cnt >= ARRAY_SIZE(test_vector)) {
-		pr_info("=============== DEBUG TEST RESULT ===============\n");
+		dev_info(exynos_debug_desc.dev, "=============== DEBUG TEST RESULT ===============\n");
 		cnt = ARRAY_SIZE(test_vector);
 	} else {
-		pr_info("================ DEBUG TEST LOG =================\n");
+		dev_info(exynos_debug_desc.dev, "================ DEBUG TEST LOG =================\n");
 	}
 
 	for (i = 0; i < cnt; i++) {
 		if (!test_vector[i].enabled) {
-			pr_info("TestCase%3d: [%30s] disabled\n", i,
+			dev_info(exynos_debug_desc.dev, "TestCase%3d: [%30s] disabled\n", i,
 							test_vector[i].arg);
 			continue;
 		}
@@ -336,15 +341,15 @@ static void exynos_debug_test_print(unsigned int cnt)
 			break;
 		}
 
-		pr_info("TestCase%3d: [%30s] result: [%s]\n",
+		dev_info(exynos_debug_desc.dev, "TestCase%3d: [%30s] result: [%s]\n",
 				i, test_vector[i].arg, pass ? "PASS" : "FAIL");
 	}
-	pr_info("reg info: panic[0x%x] wdt[0x%x] wtsr[0x%x] smpl[0x%x]\n",
+	dev_info(exynos_debug_desc.dev, "reg info: panic[0x%x] wdt[0x%x] wtsr[0x%x] smpl[0x%x]\n",
 						dbg_snapshot_get_debug_test_panic(),
 						dbg_snapshot_get_debug_test_wdt(),
 						dbg_snapshot_get_debug_test_wtsr(),
 						dbg_snapshot_get_debug_test_smpl());
-	pr_info("=================================================\n");
+	dev_info(exynos_debug_desc.dev, "=================================================\n");
 }
 
 static void exynos_debug_test_run_test(struct work_struct *work)
@@ -364,7 +369,7 @@ static void exynos_debug_test_run_test(struct work_struct *work)
 			dbg_snapshot_set_debug_test_case(i);
 			dbg_snapshot_set_debug_test_run(i, 1);
 			test_state = 1 << i;
-			pr_info("DEBUG TEST: test case%d\t:\t%s\n", i, test_vector[i].arg);
+			dev_info(exynos_debug_desc.dev, "test case%d\t:\t%s\n", i, test_vector[i].arg);
 			memcpy(temp, test_vector[i].arg, SZ_128);
 			debug_force_error(temp);
 			kfree(temp);
@@ -389,7 +394,7 @@ static void pull_down_other_cpus(void)
 	for (cpu = exynos_debug_desc.nr_cpu - 1; cpu > 0 ; cpu--) {
 		ret = cpu_down(cpu);
 		if (ret)
-			pr_crit("DEBUG TEST: %s() CORE%d ret: %x\n",
+			dev_crit(exynos_debug_desc.dev, "%s() CORE%d ret: %x\n",
 							__func__, cpu, ret);
 	}
 #endif
@@ -419,7 +424,7 @@ static void simulate_test_start(char *arg)
 			test_cnt--;
 	}
 
-	pr_info("DEBUG TEST: TEST START!(total test case = %d)\n", test_cnt);
+	dev_info(exynos_debug_desc.dev, "TEST START!(total test case = %d)\n", test_cnt);
 	clear_dbg_snapshot_test_regs();
 	dbg_snapshot_set_debug_test_reg(1);
 	dbg_snapshot_set_debug_test_total(test_cnt);
@@ -429,17 +434,17 @@ static void simulate_test_start(char *arg)
 
 static void simulate_KP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	*exynos_debug_desc.null_pointer_ui = 0x0; /* SVACE: intended */
 }
 
 static void simulate_DP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	pull_down_other_cpus();
-	pr_crit("DEBUG TEST: %s() start to hanging\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s() start to hanging\n", __func__);
 	local_irq_disable();
 	mdelay(DELAY_TIME);
 	local_irq_enable();
@@ -448,7 +453,7 @@ static void simulate_DP(char *arg)
 
 static void simulate_QDP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	s3c2410wdt_set_emergency_reset(10, 0);
 	mdelay(DELAY_TIME);
@@ -457,7 +462,7 @@ static void simulate_QDP(char *arg)
 
 static void simulate_SVC(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	asm("svc #0x0");
 	/* should not reach here */
@@ -470,7 +475,7 @@ static void simulate_SFR(char *arg)
 	char *tmp, *tmparg;
 	void __iomem *addr;
 
-	pr_crit("DEBUG TEST: %s() start\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s() start\n", __func__);
 
 	index = find_blank(arg);
 	if (index > PAGE_SIZE)
@@ -483,20 +488,20 @@ static void simulate_SFR(char *arg)
 	ret = kstrtoul(tmp, 16, &reg);
 	addr = ioremap(reg, 0x10);
 	if (!addr) {
-		pr_crit("DEBUG TEST: %s() failed to remap 0x%lx, quit\n", __func__, reg);
+		dev_crit(exynos_debug_desc.dev, "%s() failed to remap 0x%lx, quit\n", __func__, reg);
 		kfree(tmp);
 		return;
 	}
-	pr_crit("DEBUG TEST: %s() 1st parameter: 0x%lx\n", __func__, reg);
+	dev_crit(exynos_debug_desc.dev, "%s() 1st parameter: 0x%lx\n", __func__, reg);
 
 	tmparg = &arg[index + 1];
 	index = find_blank(tmparg);
 	if (index == 0) {
-		pr_crit("DEBUG TEST: %s() there is no 2nd parameter\n", __func__);
-		pr_crit("DEBUG TEST: %s() try to read 0x%lx\n", __func__, reg);
+		dev_crit(exynos_debug_desc.dev, "%s() there is no 2nd parameter\n", __func__);
+		dev_crit(exynos_debug_desc.dev, "%s() try to read 0x%lx\n", __func__, reg);
 
 		ret = __raw_readl(addr);
-		pr_crit("%s() result : 0x%x\n", __func__, ret);
+		dev_crit(exynos_debug_desc.dev, "%s() result : 0x%x\n", __func__, ret);
 
 	} else {
 		if (index > PAGE_SIZE) {
@@ -506,8 +511,8 @@ static void simulate_SFR(char *arg)
 		memcpy(tmp, tmparg, index);
 		tmp[index] = '\0';
 		ret = kstrtoul(tmp, 16, &val);
-		pr_crit("DEBUG TEST: %s() 2nd parameter: 0x%lx\n", __func__, val);
-		pr_crit("DEBUG TEST: %s() try to write 0x%lx to 0x%lx\n", __func__, val, reg);
+		dev_crit(exynos_debug_desc.dev, "%s() 2nd parameter: 0x%lx\n", __func__, val);
+		dev_crit(exynos_debug_desc.dev, "%s() try to write 0x%lx to 0x%lx\n", __func__, val, reg);
 
 		__raw_writel(val, addr);
 	}
@@ -519,7 +524,7 @@ static void simulate_WP(char *arg)
 {
 	unsigned int ps_hold_control;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	exynos_pmu_read(exynos_debug_desc.ps_hold_control_offset, &ps_hold_control);
 	exynos_pmu_write(exynos_debug_desc.ps_hold_control_offset, ps_hold_control & 0xFFFFFEFF);
@@ -527,40 +532,40 @@ static void simulate_WP(char *arg)
 
 static void simulate_TP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 }
 
 static void simulate_PANIC(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	panic("simulate_panic");
 }
 
 static void simulate_BUG(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	BUG();
 }
 
 static void simulate_WARN(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	WARN_ON(1);
 }
 
 static void simulate_DABRT(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	*exynos_debug_desc.null_pointer_si = 0; /* SVACE: intended */
 }
 
 static void simulate_PABRT(char *arg)
 {
-	pr_crit("DEBUG TEST: %s() call address=[%llx]\n", __func__,
+	dev_crit(exynos_debug_desc.dev, "%s() call address=[%llx]\n", __func__,
 			(unsigned long long)exynos_debug_desc.null_function);
 
 	exynos_debug_desc.null_function(); /* SVACE: intended */
@@ -568,7 +573,7 @@ static void simulate_PABRT(char *arg)
 
 static void simulate_UNDEF(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	asm volatile(".word 0xe7f001f2\n\t");
 	unreachable();
@@ -578,7 +583,7 @@ static void simulate_DFREE(char *arg)
 {
 	void *p;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	p = kmalloc(sizeof(unsigned int), GFP_KERNEL);
 	if (p) {
@@ -593,7 +598,7 @@ static void simulate_DREF(char *arg)
 {
 	unsigned int *p;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	p = kmalloc(sizeof(int), GFP_KERNEL);
 	if (p) {
@@ -606,7 +611,7 @@ static void simulate_MCRPT(char *arg)
 {
 	int *ptr;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	ptr = kmalloc(sizeof(int), GFP_KERNEL);
 	if (ptr) {
@@ -620,17 +625,17 @@ static void simulate_LOMEM(char *arg)
 {
 	int i = 0;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
-	pr_crit("Allocating memory until failure!\n");
+	dev_crit(exynos_debug_desc.dev, "Allocating memory until failure!\n");
 	while (kmalloc(128 * 1024, GFP_KERNEL)) /* SVACE: intended */
 		i++;
-	pr_crit("Allocated %d KB!\n", i * 128);
+	dev_crit(exynos_debug_desc.dev, "Allocated %d KB!\n", i * 128);
 }
 
 static void simulate_SOFT_LOCKUP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 #ifdef CONFIG_SOFTLOCKUP_DETECTOR
 	softlockup_panic = 1;
@@ -654,13 +659,13 @@ static void simulate_HARD_LOCKUP(char *arg)
 	int end;
 	int curr_cpu;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	if (arg) {
 		if (!strncmp(arg, "LITTLE", strlen("LITTLE"))) {
 			if (exynos_debug_desc.little_cpu_start < 0 ||
 					exynos_debug_desc.nr_little_cpu < 0) {
-				pr_info("DEBUG TEST: %s() no little cpu info\n", __func__);
+				dev_info(exynos_debug_desc.dev, "%s() no little cpu info\n", __func__);
 				return;
 			}
 			start = exynos_debug_desc.little_cpu_start;
@@ -668,7 +673,7 @@ static void simulate_HARD_LOCKUP(char *arg)
 		} else if (!strncmp(arg, "MID", strlen("MID"))) {
 			if (exynos_debug_desc.mid_cpu_start < 0 ||
 						exynos_debug_desc.nr_mid_cpu < 0) {
-				pr_info("DEBUG TEST: %s() no mid cpu info\n", __func__);
+				dev_info(exynos_debug_desc.dev, "%s() no mid cpu info\n", __func__);
 				return;
 			}
 			start = exynos_debug_desc.mid_cpu_start;
@@ -676,7 +681,7 @@ static void simulate_HARD_LOCKUP(char *arg)
 		} else if (!strncmp(arg, "BIG", strlen("BIG"))) {
 			if (exynos_debug_desc.big_cpu_start < 0 ||
 						exynos_debug_desc.nr_big_cpu < 0) {
-				pr_info("DEBUG TEST: %s() no big cpu info\n", __func__);
+				dev_info(exynos_debug_desc.dev, "%s() no big cpu info\n", __func__);
 				return;
 			}
 			start = exynos_debug_desc.big_cpu_start;
@@ -702,7 +707,7 @@ static void simulate_HARD_LOCKUP(char *arg)
 
 		cpu = str_to_num(arg);
 		if (cpu == -1) {
-			pr_info("DEBUG TEST: %s() input is invalid\n", __func__);
+			dev_info(exynos_debug_desc.dev, "%s() input is invalid\n", __func__);
 			return;
 		}
 		smp_call_function_single(cpu, simulate_HARD_LOCKUP_handler, 0, 0);
@@ -724,7 +729,7 @@ static void simulate_HARD_LOCKUP(char *arg)
 
 static void simulate_SPIN_LOCKUP(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	spin_lock(&exynos_debug_desc.debug_test_lock);
 	spin_lock(&exynos_debug_desc.debug_test_lock);
@@ -732,7 +737,7 @@ static void simulate_SPIN_LOCKUP(char *arg)
 
 static void simulate_PC_ABORT(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	asm("add x30, x30, #0x1\n\t"
 	    "ret");
@@ -740,7 +745,7 @@ static void simulate_PC_ABORT(char *arg)
 
 static void simulate_SP_ABORT(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	asm("mov x29, #0xff00\n\t"
 	    "mov sp, #0xff00\n\t"
@@ -749,7 +754,7 @@ static void simulate_SP_ABORT(char *arg)
 
 static void simulate_JUMP_ZERO(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	asm("mov x0, #0x0\n\t"
 	    "br x0");
@@ -757,7 +762,7 @@ static void simulate_JUMP_ZERO(char *arg)
 
 static void simulate_BUSMON_ERROR(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 }
 
 static void simulate_UNALIGNED(char *arg)
@@ -766,29 +771,24 @@ static void simulate_UNALIGNED(char *arg)
 	u32 *p;
 	u32 val = 0x12345678;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	p = (u32 *)(data + 1);
-	pr_crit("DEBUG TEST: data=[0x%llx] p=[0x%llx]\n",
+	dev_crit(exynos_debug_desc.dev, "data=[0x%llx] p=[0x%llx]\n",
 				(unsigned long long)data, (unsigned long long)p);
 	if (*p == 0)
 		val = 0x87654321;
 	*p = val;
-	pr_crit("DEBUG TEST: val = [0x%x] *p = [0x%x]\n", val, *p);
+	dev_crit(exynos_debug_desc.dev, "val = [0x%x] *p = [0x%x]\n", val, *p);
 }
 
 static void simulate_WRITE_RO(char *arg)
 {
 	unsigned long *ptr;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
-// Write to function addr will triger a warning by JOPP compiler
-#ifdef CONFIG_RKP_CFP_JOPP
-	ptr = (unsigned long *)__start_rodata;
-#else
 	ptr = (unsigned long *)simulate_WRITE_RO;
-#endif
 	*ptr ^= 0x12345678;
 }
 
@@ -798,7 +798,7 @@ static int recursive_loop(int remaining)
 {
 	char buf[BUFFER_SIZE];
 
-	pr_crit("DEBUG TEST: %s() remainig = [%d]\n", __func__, remaining);
+	dev_crit(exynos_debug_desc.dev, "%s() remainig = [%d]\n", __func__, remaining);
 
 	/* Make sure compiler does not optimize this away. */
 	memset(buf, (remaining & 0xff) | 0x1, BUFFER_SIZE);
@@ -810,7 +810,7 @@ static int recursive_loop(int remaining)
 
 static void simulate_OVERFLOW(char *arg)
 {
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	recursive_loop(600);
 }
@@ -829,11 +829,11 @@ static void simulate_BAD_SCHED(char *arg)
 	int ret = 0;
 	int tries = 0;
 
-	pr_crit("DEBUG TEST: %s()\n", __func__);
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
 
 	while (true) {
 		tries++;
-		pr_crit("%dth try.\n", tries);
+		dev_crit(exynos_debug_desc.dev, "%dth try.\n", tries);
 		for_each_online_cpu(cpu) {
 			if (idle_cpu(cpu))
 				smp_call_function_single(cpu,
@@ -843,6 +843,54 @@ static void simulate_BAD_SCHED(char *arg)
 		}
 		mdelay(100);
 	}
+}
+
+static char *buffer[NR_CPUS];
+static void simulate_CACHE_FLUSH_handler(void *info)
+{
+	int cpu = raw_smp_processor_id();
+	u64 addr = virt_to_phys((void *)(buffer[cpu]));
+
+	memset(buffer[cpu], 0x5A, PAGE_SIZE * 2);
+	dbg_snapshot_set_debug_test_buffer_addr(addr, cpu);
+	asm("b .");
+}
+
+static void simulate_CACHE_FLUSH_ALL(void *info)
+{
+	flush_cache_all();
+}
+
+static void simulate_CACHE_FLUSH(char *arg)
+{
+	u64 addr;
+	int cpu;
+
+	dev_crit(exynos_debug_desc.dev, "%s()\n", __func__);
+
+	for_each_possible_cpu(cpu) {
+		dbg_snapshot_set_debug_test_buffer_addr(0, cpu);
+		buffer[cpu] = kmalloc(PAGE_SIZE * 2, GFP_KERNEL);
+		memset(buffer[cpu], 0x3B, PAGE_SIZE * 2);
+	}
+
+	smp_call_function(simulate_CACHE_FLUSH_ALL, NULL, 1);
+	flush_cache_all();
+
+	smp_call_function(simulate_CACHE_FLUSH_handler, NULL, 0);
+	for (cpu = 0; cpu < NR_CPUS; cpu++) {
+		if (cpu == raw_smp_processor_id())
+			continue;
+
+		while (!dbg_snapshot_get_debug_test_buffer_addr(cpu));
+		dev_crit(exynos_debug_desc.dev, "CPU %d STOPPING\n", cpu);
+	}
+
+	cpu = raw_smp_processor_id();
+	addr = virt_to_phys((void *)(buffer[cpu]));
+	memset(buffer[cpu], 0x5A, PAGE_SIZE * 2);
+	dbg_snapshot_set_debug_test_buffer_addr(addr, cpu);
+	s3c2410wdt_set_emergency_reset(10, 0);
 }
 
 static ssize_t exynos_debug_test_write(struct file *file,
@@ -876,7 +924,7 @@ static ssize_t exynos_debug_test_write(struct file *file,
 	if (!strncmp("clear", buf, 5)) {
 		clear_dbg_snapshot_test_regs();
 	} else {
-		pr_info("DEBUG TEST: %s() user_buf=[%s]\n", __func__, buf);
+		dev_info(exynos_debug_desc.dev, "%s() user_buf=[%s]\n", __func__, buf);
 		debug_force_error(buf);
 	}
 
@@ -1010,13 +1058,13 @@ static ssize_t exynos_debug_test_enable_write(struct file *file,
 		if (exynos_debug_desc.np)
 			ret = exynos_debug_test_desc_init(exynos_debug_desc.np);
 		else
-			pr_info("DEBUG TEST: %s() no dvice tree entry\n", __func__);
+			dev_info(exynos_debug_desc.dev, "%s() no dvice tree entry\n", __func__);
 
 		if (ret)
-			pr_info("DEBUG TEST: %s() fail to enable debug test[0x%x]\n",
+			dev_info(exynos_debug_desc.dev, "%s() fail to enable debug test[0x%x]\n",
 									__func__, ret);
 	} else {
-		pr_info("DEBUG TEST: %s() copy count[%lu], input value[%c]\n",
+		dev_info(exynos_debug_desc.dev, "%s() copy count[%lu], input value[%c]\n",
 						__func__, ret_val, ret_val ? buf[0] : '0');
 	}
 
@@ -1060,56 +1108,56 @@ static int exynos_debug_test_desc_init(struct device_node *np)
 	ret = of_property_read_u32(np, "ps_hold_control_offset",
 					&exynos_debug_desc.ps_hold_control_offset);
 	if (ret) {
-		pr_err("DEBUG TEST: %s() no data(ps_hold_control offset)\n", __func__);
+		dev_err(exynos_debug_desc.dev, "%s() no data(ps_hold_control offset)\n", __func__);
 		goto edt_desc_init_out;
 	}
 
 	ret = of_property_read_u32(np, "nr_cpu",
 					&exynos_debug_desc.nr_cpu);
 	if (ret) {
-		pr_err("DEBUG TEST: %s() no data(nr_cpu)\n", __func__);
+		dev_err(exynos_debug_desc.dev, "%s() no data(nr_cpu)\n", __func__);
 		goto edt_desc_init_out;
 	}
 
 	ret = of_property_read_u32(np, "little_cpu_start",
 					&exynos_debug_desc.little_cpu_start);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(little_cpu_start)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(little_cpu_start)\n", __func__);
 		exynos_debug_desc.little_cpu_start = -1;
 	}
 
 	ret = of_property_read_u32(np, "nr_little_cpu",
 					&exynos_debug_desc.nr_little_cpu);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(nr_little_cpu)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(nr_little_cpu)\n", __func__);
 		exynos_debug_desc.nr_little_cpu = -1;
 	}
 
 	ret = of_property_read_u32(np, "mid_cpu_start",
 					&exynos_debug_desc.mid_cpu_start);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(mid_cpu_start)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(mid_cpu_start)\n", __func__);
 		exynos_debug_desc.mid_cpu_start = -1;
 	}
 
 	ret = of_property_read_u32(np, "nr_mid_cpu",
 					&exynos_debug_desc.nr_mid_cpu);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(nr_mid_cpu)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(nr_mid_cpu)\n", __func__);
 		exynos_debug_desc.nr_mid_cpu = -1;
 	}
 
 	ret = of_property_read_u32(np, "big_cpu_start",
 					&exynos_debug_desc.big_cpu_start);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(big_cpu_start)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(big_cpu_start)\n", __func__);
 		exynos_debug_desc.big_cpu_start = -1;
 	}
 
 	ret = of_property_read_u32(np, "nr_big_cpu",
 					&exynos_debug_desc.nr_big_cpu);
 	if (ret) {
-		pr_info("DEBUG TEST: %s() no data(nr_big_cpu)\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() no data(nr_big_cpu)\n", __func__);
 		exynos_debug_desc.nr_big_cpu = -1;
 	}
 
@@ -1138,13 +1186,18 @@ static int __init exynos_debug_test_init(void)
 	const char *enable_str;
 	int ret = 0;
 
-	pr_info("DEBUG TEST: %s() called\n", __func__);
+	exynos_debug_desc.dev = create_empty_device();
+	if (!exynos_debug_desc.dev)
+		panic("Exynos: create empty device fail\n");
+	dev_set_socdata(exynos_debug_desc.dev, "Exynos", "DBG_TEST");
+
+	dev_info(exynos_debug_desc.dev, "%s() called\n", __func__);
 
 	/* find device tree */
 	np = of_find_matching_node(NULL, of_exynos_debug_test_matches);
 	exynos_debug_desc.np = np;
 	if (!np) {
-		pr_err("DEBUG TEST: %s() no device tree\n", __func__);
+		dev_err(exynos_debug_desc.dev, "%s() no device tree\n", __func__);
 		ret = -ENODEV;
 		goto edt_out;
 	}
@@ -1153,7 +1206,7 @@ static int __init exynos_debug_test_init(void)
 	exynos_debug_desc.exynos_debug_test_debugfs_root =
 				debugfs_create_dir("exynos-debug-test", NULL);
 	if (!exynos_debug_desc.exynos_debug_test_debugfs_root) {
-		pr_err("DEBUG TEST: %s() cannot create debugfs dir\n", __func__);
+		dev_err(exynos_debug_desc.dev, "%s() cannot create debugfs dir\n", __func__);
 		ret = -ENOMEM;
 		goto edt_out;
 	}
@@ -1166,13 +1219,13 @@ static int __init exynos_debug_test_init(void)
 	/* checking debug test is enabled */
 	ret = of_property_read_string(np, "enabled", &enable_str);
 	if (ret) {
-		pr_err("DEBUG TEST: %s() no data(enabled)\n", __func__);
+		dev_err(exynos_debug_desc.dev, "%s() no data(enabled)\n", __func__);
 		goto edt_out;
 	}
 
 	if (strncmp(enable_str, "dbg_test", strlen("dbg_test")) &&
 					!dbg_snapshot_debug_test_enabled()) {
-		pr_info("DEBUG TEST: %s() debug test is not enabled\n", __func__);
+		dev_info(exynos_debug_desc.dev, "%s() debug test is not enabled\n", __func__);
 		goto edt_out;
 	}
 
@@ -1193,7 +1246,7 @@ static int __init exynos_debug_test_init(void)
 	}
 
 edt_out:
-	pr_info("DEBUG TEST: %s() ret=[0x%x]\n", __func__, ret);
+	dev_info(exynos_debug_desc.dev, "%s() ret=[0x%x]\n", __func__, ret);
 	return ret;
 }
 late_initcall(exynos_debug_test_init);

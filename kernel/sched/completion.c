@@ -11,10 +11,8 @@
  * typically be used for exclusion which gives rise to priority inversion.
  * Waiting for completion is a typically sync point, but not an exclusion point.
  */
-
-#include <linux/sched/signal.h>
-#include <linux/sched/debug.h>
-#include <linux/completion.h>
+#include "sched.h"
+#include <linux/sec_debug_complete_hint.h>
 
 /**
  * complete: - signals a single thread waiting on this completion
@@ -25,22 +23,20 @@
  *
  * See also complete_all(), wait_for_completion() and related routines.
  *
- * It may be assumed that this function implies a write memory barrier before
- * changing the task state if and only if any tasks are woken up.
+ * If this function wakes up a task, it executes a full memory barrier before
+ * accessing the task state.
  */
 void complete(struct completion *x)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&x->wait.lock, flags);
-
-	/*
-	 * Perform commit of crossrelease here.
-	 */
-	complete_release_commit(x);
-
-	if (x->done != UINT_MAX)
+	if (x->done != UINT_MAX) {
 		x->done++;
+#ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
+		secdbg_hint_save_complete_hint(&x->hint);
+#endif
+	}
 	__wake_up_locked(&x->wait, TASK_NORMAL, 1);
 	spin_unlock_irqrestore(&x->wait.lock, flags);
 }
@@ -52,8 +48,8 @@ EXPORT_SYMBOL(complete);
  *
  * This will wake up all threads waiting on this particular completion event.
  *
- * It may be assumed that this function implies a write memory barrier before
- * changing the task state if and only if any tasks are woken up.
+ * If this function wakes up a task, it executes a full memory barrier before
+ * accessing the task state.
  *
  * Since complete_all() sets the completion of @x permanently to done
  * to allow multiple waiters to finish, a call to reinit_completion()
@@ -68,6 +64,9 @@ void complete_all(struct completion *x)
 
 	spin_lock_irqsave(&x->wait.lock, flags);
 	x->done = UINT_MAX;
+#ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
+	secdbg_hint_save_complete_hint(&x->hint);
+#endif	
 	__wake_up_locked(&x->wait, TASK_NORMAL, 0);
 	spin_unlock_irqrestore(&x->wait.lock, flags);
 }
@@ -109,7 +108,13 @@ __wait_for_common(struct completion *x,
 	complete_acquire(x);
 
 	spin_lock_irq(&x->wait.lock);
+#ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
+	secdbg_hint_add_completion_to_task(x);
+#endif
 	timeout = do_wait_for_common(x, action, timeout, state);
+#ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
+	secdbg_hint_del_completion_to_task(x);
+#endif
 	spin_unlock_irq(&x->wait.lock);
 
 	complete_release(x);
@@ -288,7 +293,7 @@ EXPORT_SYMBOL(wait_for_completion_killable_timeout);
 bool try_wait_for_completion(struct completion *x)
 {
 	unsigned long flags;
-	int ret = 1;
+	bool ret = true;
 
 	/*
 	 * Since x->done will need to be locked only
@@ -297,11 +302,11 @@ bool try_wait_for_completion(struct completion *x)
 	 * return early in the blocking case.
 	 */
 	if (!READ_ONCE(x->done))
-		return 0;
+		return false;
 
 	spin_lock_irqsave(&x->wait.lock, flags);
 	if (!x->done)
-		ret = 0;
+		ret = false;
 	else if (x->done != UINT_MAX)
 		x->done--;
 	spin_unlock_irqrestore(&x->wait.lock, flags);

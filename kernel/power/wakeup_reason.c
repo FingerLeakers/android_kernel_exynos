@@ -34,7 +34,7 @@ static int irqcount;
 static bool suspend_abort;
 static char abort_reason[MAX_SUSPEND_ABORT_LEN];
 static struct kobject *wakeup_reason;
-static DEFINE_SPINLOCK(resume_reason_lock);
+static spinlock_t resume_reason_lock;
 
 #ifdef CONFIG_SEC_PM_DEBUG
 #define MAX_WAKEUP_SRCS 32
@@ -53,7 +53,8 @@ static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribu
 {
 	int irq_no, buf_offset = 0;
 	struct irq_desc *desc;
-	spin_lock(&resume_reason_lock);
+	unsigned long flags;
+	spin_lock_irqsave(&resume_reason_lock, flags);
 	if (suspend_abort) {
 		buf_offset = sprintf(buf, "Abort: %s", abort_reason);
 	} else {
@@ -79,7 +80,7 @@ static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribu
 	}
 #endif /* CONFIG_SEC_PM_DEBUG */
 
-	spin_unlock(&resume_reason_lock);
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 	return buf_offset;
 }
 
@@ -130,6 +131,7 @@ static struct attribute_group attr_group = {
 void log_wakeup_reason(int irq)
 {
 	struct irq_desc *desc;
+	unsigned long flags;
 	desc = irq_to_desc(irq);
 	if (desc && desc->action && desc->action->name)
 		printk(KERN_INFO "Resume caused by IRQ %d, %s\n", irq,
@@ -137,62 +139,50 @@ void log_wakeup_reason(int irq)
 	else
 		printk(KERN_INFO "Resume caused by IRQ %d\n", irq);
 
-	spin_lock(&resume_reason_lock);
+	spin_lock_irqsave(&resume_reason_lock, flags);
 	if (irqcount == MAX_WAKEUP_REASON_IRQS) {
-		spin_unlock(&resume_reason_lock);
+		spin_unlock_irqrestore(&resume_reason_lock, flags);
 		printk(KERN_WARNING "Resume caused by more than %d IRQs\n",
 				MAX_WAKEUP_REASON_IRQS);
 		return;
 	}
 
 	irq_list[irqcount++] = irq;
-	spin_unlock(&resume_reason_lock);
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 }
 
 #ifdef CONFIG_SEC_PM_DEBUG
 void log_wakeup_reason_name(const char *name)
 {
+	unsigned long flags;
+
 	printk(KERN_INFO "Resume caused by wakeup source: %s\n", name);
 
-	spin_lock(&resume_reason_lock);
+	spin_lock_irqsave(&resume_reason_lock, flags);
 	if (wakeup_src_cnt == MAX_WAKEUP_SRCS) {
 		spin_unlock(&resume_reason_lock);
 		printk(KERN_WARNING
 			"Resume caused by more than %d wakeup sources\n",
-			MAX_WAKEUP_REASON_IRQS);
+			MAX_WAKEUP_SRCS);
 		return;
 	}
 
 	wakeup_src_list[wakeup_src_cnt++] = name;
 	wakeup_src_by_name = true;
-	spin_unlock(&resume_reason_lock);
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 }
 #endif /* CONFIG_SEC_PM_DEBUG */
 
-int check_wakeup_reason(int irq)
-{
-	int irq_no;
-	int ret = false;
-
-	spin_lock(&resume_reason_lock);
-	for (irq_no = 0; irq_no < irqcount; irq_no++)
-		if (irq_list[irq_no] == irq) {
-			ret = true;
-			break;
-	}
-	spin_unlock(&resume_reason_lock);
-	return ret;
-}
-
 void log_suspend_abort_reason(const char *fmt, ...)
 {
+	unsigned long flags;
 	va_list args;
 
-	spin_lock(&resume_reason_lock);
+	spin_lock_irqsave(&resume_reason_lock, flags);
 
 	//Suspend abort reason has already been logged.
 	if (suspend_abort) {
-		spin_unlock(&resume_reason_lock);
+		spin_unlock_irqrestore(&resume_reason_lock, flags);
 		return;
 	}
 
@@ -200,23 +190,24 @@ void log_suspend_abort_reason(const char *fmt, ...)
 	va_start(args, fmt);
 	vsnprintf(abort_reason, MAX_SUSPEND_ABORT_LEN, fmt, args);
 	va_end(args);
-	spin_unlock(&resume_reason_lock);
+	spin_unlock_irqrestore(&resume_reason_lock, flags);
 }
 
 /* Detects a suspend and clears all the previous wake up reasons*/
 static int wakeup_reason_pm_event(struct notifier_block *notifier,
 		unsigned long pm_event, void *unused)
 {
+	unsigned long flags;
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
-		spin_lock(&resume_reason_lock);
+		spin_lock_irqsave(&resume_reason_lock, flags);
 		irqcount = 0;
 		suspend_abort = false;
 #ifdef CONFIG_SEC_PM_DEBUG
 		wakeup_src_cnt = 0;
 		wakeup_src_by_name = false;
 #endif /* CONFIG_SEC_PM_DEBUG */
-		spin_unlock(&resume_reason_lock);
+		spin_unlock_irqrestore(&resume_reason_lock, flags);
 		/* monotonic time since boot */
 		last_monotime = ktime_get();
 		/* monotonic time since boot including the time spent in suspend */
@@ -244,7 +235,7 @@ static struct notifier_block wakeup_reason_pm_notifier_block = {
 int __init wakeup_reason_init(void)
 {
 	int retval;
-
+	spin_lock_init(&resume_reason_lock);
 	retval = register_pm_notifier(&wakeup_reason_pm_notifier_block);
 	if (retval)
 		printk(KERN_WARNING "[%s] failed to register PM notifier %d\n",

@@ -12,7 +12,7 @@
 
 #ifndef __S6E3HA8_CROWN_A3_S0_PANEL_H__
 #define __S6E3HA8_CROWN_A3_S0_PANEL_H__
-#include "../panel.h"
+#include "../panel_drv.h"
 #include "s6e3ha8.h"
 #include "s6e3ha8_dimming.h"
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
@@ -40,6 +40,7 @@
 #endif
 
 #include "s6e3ha8_crown_irc.h"
+#include "s6e3ha8_crown_resol.h"
 
 #undef __pn_name__
 #define __pn_name__	crown_a3_s0
@@ -1809,6 +1810,10 @@ struct common_panel_info s6e3ha8_crown_a3_s0_preliminary_panel_info = {
 	.ddi_props = {
 		.gpara = (DDI_SUPPORT_WRITE_GPARA | DDI_SUPPORT_READ_GPARA),
 	},
+	.mres = {
+		.nr_resol = ARRAY_SIZE(s6e3ha8_crown_resol),
+		.resol = s6e3ha8_crown_resol,
+	},
 	.maptbl = crown_a3_s0_maptbl,
 	.nr_maptbl = ARRAY_SIZE(crown_a3_s0_maptbl),
 	.seqtbl = crown_a3_s0_seqtbl,
@@ -1849,6 +1854,10 @@ struct common_panel_info s6e3ha8_crown_a3_s0_default_panel_info = {
 	.rev = 1,
 	.ddi_props = {
 		.gpara = (DDI_SUPPORT_WRITE_GPARA | DDI_SUPPORT_READ_GPARA),
+	},
+	.mres = {
+		.nr_resol = ARRAY_SIZE(s6e3ha8_crown_resol),
+		.resol = s6e3ha8_crown_resol,
 	},
 	.maptbl = crown_a3_s0_maptbl,
 	.nr_maptbl = ARRAY_SIZE(crown_a3_s0_maptbl),

@@ -33,6 +33,10 @@ struct cpuidle_state_usage {
 	unsigned long long	disable;
 	unsigned long long	usage;
 	unsigned long long	time; /* in US */
+#ifdef CONFIG_SUSPEND
+	unsigned long long	s2idle_usage;
+	unsigned long long	s2idle_time; /* in US */
+#endif
 };
 
 struct cpuidle_state {
@@ -61,14 +65,6 @@ struct cpuidle_state {
 			      int index);
 };
 
-struct cpuidle_info {
-	/* MOCE (Min Oppotunaty Cost of Energy) */
-	unsigned int	predicted_us;
-	unsigned int	latency_req;
-	int				bfirst_idx;
-	int				bUse_GovDecision;
-};
-
 /* Idle State Flags */
 #define CPUIDLE_FLAG_NONE       (0x00)
 #define CPUIDLE_FLAG_POLLING	(0x01) /* polling state */
@@ -88,7 +84,6 @@ struct cpuidle_device {
 	unsigned int		cpu;
 
 	int			last_residency;
-	int			first_idx;
 	struct cpuidle_state_usage	states_usage[CPUIDLE_STATE_MAX];
 	struct cpuidle_state_kobj *kobjs[CPUIDLE_STATE_MAX];
 	struct cpuidle_driver_kobj *kobj_driver;
@@ -168,6 +163,9 @@ extern struct cpuidle_driver *cpuidle_get_cpu_driver(struct cpuidle_device *dev)
 static inline struct cpuidle_device *cpuidle_get_device(void)
 {return __this_cpu_read(cpuidle_devices); }
 extern unsigned int cpuidle_get_target_residency(int cpu, int state);
+extern int cpuidle_get_state_size(void);
+extern unsigned int cpuidle_get_exit_latency(int cpu, int state);
+extern bool cpuidle_check_state_enable(unsigned int cpu, int state);
 #else
 static inline void disable_cpuidle(void) { }
 static inline bool cpuidle_not_available(struct cpuidle_driver *drv,
@@ -204,7 +202,10 @@ static inline int cpuidle_play_dead(void) {return -ENODEV; }
 static inline struct cpuidle_driver *cpuidle_get_cpu_driver(
 	struct cpuidle_device *dev) {return NULL; }
 static inline struct cpuidle_device *cpuidle_get_device(void) {return NULL; }
-static inline unsigned int cpuidle_get_target_residency(int cpu, int state) {return UINT_MAX;}
+static inline unsigned int cpuidle_get_target_residency(int cpu, int state) {return UINT_MAX; }
+static inline int cpuidle_get_state_size(void) { return INT_MAX; }
+static inline unsigned int cpuidle_get_exit_latency(int cpu, int state) { return INT_MAX; }
+static inline bool cpuidle_check_state_enable(unsigned int cpu, int state) { return 0; }
 #endif
 
 #ifdef CONFIG_CPU_IDLE
@@ -265,27 +266,36 @@ struct cpuidle_governor {
 
 #ifdef CONFIG_CPU_IDLE
 extern int cpuidle_register_governor(struct cpuidle_governor *gov);
+extern int cpuidle_governor_latency_req(unsigned int cpu);
 #else
 static inline int cpuidle_register_governor(struct cpuidle_governor *gov)
 {return 0;}
 #endif
 
-#define CPU_PM_CPU_IDLE_ENTER(low_level_idle_enter, idx)	\
-({								\
-	int __ret;						\
-								\
-	if (!idx) {						\
-		cpu_do_idle();					\
-		return idx;					\
-	}							\
-								\
-	__ret = cpu_pm_enter();					\
-	if (!__ret) {						\
-		__ret = low_level_idle_enter(idx);		\
-		cpu_pm_exit();					\
-	}							\
-								\
-	__ret ? -1 : idx;					\
+#define __CPU_PM_CPU_IDLE_ENTER(low_level_idle_enter, idx, is_retention) \
+({									\
+	int __ret = 0;							\
+									\
+	if (!idx) {							\
+		cpu_do_idle();						\
+		return idx;						\
+	}								\
+									\
+	if (!is_retention)						\
+		__ret =  cpu_pm_enter();				\
+	if (!__ret) {							\
+		__ret = low_level_idle_enter(idx);			\
+		if (!is_retention)					\
+			cpu_pm_exit();					\
+	}								\
+									\
+	__ret ? -1 : idx;						\
 })
+
+#define CPU_PM_CPU_IDLE_ENTER(low_level_idle_enter, idx)	\
+	__CPU_PM_CPU_IDLE_ENTER(low_level_idle_enter, idx, 0)
+
+#define CPU_PM_CPU_IDLE_ENTER_RETENTION(low_level_idle_enter, idx)	\
+	__CPU_PM_CPU_IDLE_ENTER(low_level_idle_enter, idx, 1)
 
 #endif /* _LINUX_CPUIDLE_H */

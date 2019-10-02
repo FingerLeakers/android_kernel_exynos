@@ -31,8 +31,9 @@
 #define EXYNOS_USBCON_VER_02_1_2	0x0212  /* Katmai EVT0 */
 #define EXYNOS_USBCON_VER_02_MAX	0x02FF
 
-#define EXYNOS_USBCON_VER_03_0_0	0x0300	/* Lhotse, Lassen HS */
+#define EXYNOS_USBCON_VER_03_0_0	0x0300	/* Lhotse, Lassen HS, KITT iROM */
 #define EXYNOS_USBCON_VER_03_0_1	0x0301	/* MK */
+#define EXYNOS_USBCON_VER_03_6_0	0x0360	/* KITT EXCITE */
 #define EXYNOS_USBCON_VER_03_MAX	0x03FF
 
 #define EXYNOS_USBCON_VER_04_0_0	0x0400	/* Lhotse - USB/DP  */
@@ -42,13 +43,16 @@
 #define EXYNOS_USBCON_VER_05_0_0	0x0500	/* High Speed Only	*/
 #define EXYNOS_USBCON_VER_05_1_0	0x0510	/* Super Speed		*/
 #define EXYNOS_USBCON_VER_05_3_0	0x0530	/* Super Speed Dual PHY	*/
+#define EXYNOS_USBCON_VER_05_8_0	0x0580	/* KITT USB3.1 + USB2.0 */
 #define EXYNOS_USBCON_VER_05_MAX	0x05FF
 
 #define EXYNOS_USBCON_VER_F2_0_0	0xF200
 #define EXYNOS_USBCON_VER_F2_MAX	0xF2FF
 
 #define EXYNOS_USBCON_VER_MAJOR_VER_MASK	0xFF00
-#define EXYNOS_USBCON_VER_SS_CAP			0x0010
+#define EXYNOS_USBCON_VER_SS_ONLY_CAP		0x0010
+#define EXYNOS_USBCON_VER_SS_CAP			0x0040
+#define EXYNOS_USBCON_VER_SS_HS_CAP			0x0080
 
 #define EXYNOS_USBCON_VER_MINOR(_x)	((_x) & 0xf)
 #define EXYNOS_USBCON_VER_MID(_x)	((_x) & 0xf0)
@@ -140,7 +144,7 @@ struct exynos_usb_tune_param {
 struct exynos_usbphy_hs_tune {
 	u8 tx_vref;
 	u8 tx_pre_emp;
-	u8 tx_pre_emp_puls;
+	u8 tx_pre_emp_plus;
 	u8 tx_res;
 	u8 tx_rise;
 	u8 tx_hsxv;
@@ -183,6 +187,14 @@ struct exynos_usbphy_ss_tune {
 	u8 rx_decode_mode;
 };
 
+struct usb_eom_result_s {
+	u32 phase;
+	u32 vref;
+	u64 err;
+};
+#define EOM_PH_SEL_MAX		72
+#define EOM_DEF_VREF_MAX	256
+
 /**
  * struct exynos_usbphy_info : USBPHY information to share USBPHY CAL code
  * @version: PHY controller version
@@ -224,6 +236,10 @@ struct exynos_usbphy_info {
 	/* multiple phy */
 	int	hw_version;
 	void __iomem *regs_base_2nd;
+	void __iomem *pma_base;
+	void __iomem *pcs_base;
+	void __iomem *ctrl_base;
+	void __iomem *link_base;
 	int	used_phy_port;
 
 	/* Alternative PHY REF_CLK source */
@@ -231,10 +247,14 @@ struct exynos_usbphy_info {
 
 	/* Remote Wake-up Advisor */
 	unsigned hs_rewa :1;
+	unsigned hs_rewa_src;
+	unsigned u3_rewa;
 
 	/* Dual PHY */
 	bool dual_phy;
+
 };
+
 
 
 #endif	/* __PHY_SAMSUNG_USB_FW_CAL_H__ */

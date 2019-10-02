@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Exynos specific definitions for Samsung pinctrl and gpiolib driver.
  *
@@ -10,11 +11,6 @@
  * pinctrl/gpiolib interface drivers.
  *
  * Author: Thomas Abraham <thomas.ab@samsung.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #ifndef __PINCTRL_SAMSUNG_EXYNOS_H
@@ -110,7 +106,7 @@
 
 #define EXYNOS5433_PIN_BANK_EINTW_EXT(pins, reg, id, offs, pctl_idx) \
 	{							\
-		.type           = &exynos5433_bank_type_alive,	\
+		.type           = &exynos5433_bank_type_off,	\
 		.pctl_offset    = reg,				\
 		.nr_pins        = pins,				\
 		.eint_type      = EINT_TYPE_WKUP,		\
@@ -118,6 +114,35 @@
 		.name           = id,				\
 		.pctl_res_idx   = pctl_idx,			\
 	}							\
+
+#define EXYNOS8_PIN_BANK_EINTN(types, pins, reg, id)	\
+	{						\
+		.type		= &types,		\
+		.pctl_offset	= reg,			\
+		.nr_pins	= pins,			\
+		.eint_type	= EINT_TYPE_NONE,	\
+		.name		= id			\
+	}
+
+#define EXYNOS8_PIN_BANK_EINTG(types, pins, reg, id, offs)	\
+	{						\
+		.type		= &types,		\
+		.pctl_offset	= reg,			\
+		.nr_pins	= pins,			\
+		.eint_type	= EINT_TYPE_GPIO,	\
+		.eint_offset	= offs,			\
+		.name		= id			\
+	}
+
+#define EXYNOS8_PIN_BANK_EINTW(types, pins, reg, id, offs)	\
+	{						\
+		.type		= &types,		\
+		.pctl_offset	= reg,			\
+		.nr_pins	= pins,			\
+		.eint_type	= EINT_TYPE_WKUP,	\
+		.eint_offset	= offs,			\
+		.name		= id			\
+	}
 
 #define EXYNOS9_PIN_BANK_EINTN(types, pins, reg, id)	\
 	{						\

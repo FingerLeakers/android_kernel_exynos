@@ -49,6 +49,7 @@ long vfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
  out:
 	return error;
 }
+EXPORT_SYMBOL(vfs_ioctl);
 
 static int ioctl_fibmap(struct file *filp, int __user *p)
 {
@@ -151,7 +152,7 @@ int fiemap_check_flags(struct fiemap_extent_info *fieinfo, u32 fs_flags)
 }
 EXPORT_SYMBOL(fiemap_check_flags);
 
-int fiemap_check_ranges(struct super_block *sb,
+static int fiemap_check_ranges(struct super_block *sb,
 			       u64 start, u64 len, u64 *new_len)
 {
 	u64 maxbytes = (u64) sb->s_maxbytes;
@@ -172,7 +173,6 @@ int fiemap_check_ranges(struct super_block *sb,
 
 	return 0;
 }
-EXPORT_SYMBOL(fiemap_check_ranges);
 
 static int ioctl_fiemap(struct file *filp, unsigned long arg)
 {
@@ -550,7 +550,7 @@ static int ioctl_fsfreeze(struct file *filp)
 {
 	struct super_block *sb = file_inode(filp)->i_sb;
 
-	if (!capable(CAP_SYS_ADMIN))
+	if (!ns_capable(sb->s_user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
 	/* If filesystem doesn't support freeze feature, return. */
@@ -567,7 +567,7 @@ static int ioctl_fsthaw(struct file *filp)
 {
 	struct super_block *sb = file_inode(filp)->i_sb;
 
-	if (!capable(CAP_SYS_ADMIN))
+	if (!ns_capable(sb->s_user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
 	/* Thaw */
@@ -669,6 +669,9 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 		return ioctl_fiemap(filp, arg);
 
 	case FIGETBSZ:
+		/* anon_bdev filesystems may not have a block size */
+		if (!inode->i_sb->s_blocksize)
+			return -EINVAL;
 		return put_user(inode->i_sb->s_blocksize, argp);
 
 	case FICLONE:
@@ -690,7 +693,7 @@ int do_vfs_ioctl(struct file *filp, unsigned int fd, unsigned int cmd,
 	return error;
 }
 
-SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
+int ksys_ioctl(unsigned int fd, unsigned int cmd, unsigned long arg)
 {
 	int error;
 	struct fd f = fdget(fd);
@@ -702,4 +705,9 @@ SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
 		error = do_vfs_ioctl(f.file, fd, cmd, arg);
 	fdput(f);
 	return error;
+}
+
+SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
+{
+	return ksys_ioctl(fd, cmd, arg);
 }

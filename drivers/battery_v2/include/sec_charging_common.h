@@ -76,6 +76,7 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_SYSOVLO,
 	POWER_SUPPLY_EXT_PROP_VBAT_OVP,
 	POWER_SUPPLY_EXT_PROP_USB_CONFIGURE,
+	POWER_SUPPLY_EXT_PROP_WDT_STATUS,
 	POWER_SUPPLY_EXT_PROP_WATER_DETECT,
 	POWER_SUPPLY_EXT_PROP_SURGE,
 	POWER_SUPPLY_EXT_PROP_SUB_PBA_TEMP_REC,
@@ -99,9 +100,6 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_CURRENT_EVENT,
 	POWER_SUPPLY_EXT_PROP_PAD_VOLT_CTRL,
 	POWER_SUPPLY_EXT_PROP_CURRENT_EVENT_CLEAR,
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	POWER_SUPPLY_EXT_PROP_CHARGE_PORT,
-#endif
 #if defined(CONFIG_WIRELESS_TX_MODE)
 	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_AVG_CURR,
 #endif
@@ -122,6 +120,7 @@ enum power_supply_ext_property {
 #endif
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
+	POWER_SUPPLY_EXT_PROP_MUST_REMOVE_THIS_NODE,
 };
 
 enum rx_device_type {
@@ -527,14 +526,6 @@ enum sec_battery_full_charged {
 	/* charger power supply property, NO additional full condition */
 	SEC_BATTERY_FULLCHARGED_CHGPSY,
 };
-
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-enum charging_port {
-	PORT_NONE = 0,
-	MAIN_PORT,
-	SUB_PORT,
-};
-#endif
 
 enum ta_alert_mode {
 	OCP_NONE = 0,
@@ -1235,6 +1226,7 @@ struct sec_charger_platform_data {
 	unsigned long chg_irq_attr;
 	unsigned int chg_ocp_current;
 	unsigned int chg_ocp_dtc;
+	unsigned int topoff_time;
 
 	/* otg_en setting */
 	int otg_en;
@@ -1440,4 +1432,6 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 #define is_pd_wire_type(cable_type) ( \
 	cable_type == SEC_BATTERY_CABLE_PDIC)
 #endif
+#define is_pd_fpdo_wire_type(cable_type) ( \
+	cable_type == SEC_BATTERY_CABLE_PDIC)
 #endif /* __SEC_CHARGING_COMMON_H */

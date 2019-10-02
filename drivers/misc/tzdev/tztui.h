@@ -14,16 +14,16 @@
 #ifndef __TZTUI_H__
 #define __TZTUI_H__
 
-#include "tzdev.h"
+#include "tzdev_internal.h"
 
 /*#define TZTUI_DEBUG*/
 
 #ifdef TZTUI_DEBUG
-#define DBG(...)    pr_info( "[tztui] DBG : " __VA_ARGS__)
-#define ERR(...)    pr_alert("[tztui] ERR : " __VA_ARGS__)
+#define DBG(...)    pr_info(TZDEV_CREATE_LOG_PREFIX("TZTUI")"DBG : " __VA_ARGS__)
+#define ERR(...)    pr_alert(TZDEV_CREATE_LOG_PREFIX("TZTUI")"ERR : " __VA_ARGS__)
 #else
 #define DBG(...)
-#define ERR(...)    pr_alert("[tztui] ERR : " __VA_ARGS__)
+#define ERR(...)    pr_alert(TZDEV_CREATE_LOG_PREFIX("TZTUI")"ERR : " __VA_ARGS__)
 #endif
 
 

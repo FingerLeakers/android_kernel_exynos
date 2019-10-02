@@ -16,10 +16,7 @@ obj-$(CONFIG_PINCTRL)		+= pinctrl/
 obj-$(CONFIG_GPIOLIB)		+= gpio/
 obj-y				+= pwm/
 
-obj-$(CONFIG_PCI)		+= pci/
-obj-$(CONFIG_PCI_ENDPOINT)	+= pci/endpoint/
-# PCI dwc controller drivers
-obj-y				+= pci/dwc/
+obj-y				+= pci/
 
 obj-$(CONFIG_PARISC)		+= parisc/
 obj-$(CONFIG_RAPIDIO)		+= rapidio/
@@ -66,18 +63,12 @@ obj-y				+= gpu/
 
 obj-$(CONFIG_CONNECTOR)		+= connector/
 
-# mcps module.
-obj-$(CONFIG_MCPS)		+= mcps/
-
 # i810fb and intelfb depend on char/agp/
 obj-$(CONFIG_FB_I810)           += video/fbdev/i810/
 obj-$(CONFIG_FB_INTEL)          += video/fbdev/intelfb/
 
-obj-$(CONFIG_DEV_RIL_BRIDGE)	+= misc/dev_ril_bridge/
 obj-$(CONFIG_USE_MUIC)		+= muic/
-
 obj-$(CONFIG_IFCONN_MANAGER)    += ifconn/
-
 obj-$(CONFIG_PARPORT)		+= parport/
 obj-$(CONFIG_NVM)		+= lightnvm/
 obj-y				+= base/ block/ misc/ mfd/ nfc/
@@ -87,7 +78,7 @@ obj-$(CONFIG_DMA_SHARED_BUFFER) += dma-buf/
 obj-$(CONFIG_NUBUS)		+= nubus/
 obj-y				+= macintosh/
 obj-$(CONFIG_IDE)		+= ide/
-obj-$(CONFIG_SCSI)		+= scsi/
+obj-y				+= scsi/
 obj-y				+= nvme/
 obj-$(CONFIG_ATA)		+= ata/
 obj-$(CONFIG_TARGET_CORE)	+= target/
@@ -95,6 +86,7 @@ obj-$(CONFIG_MTD)		+= mtd/
 obj-$(CONFIG_SPI)		+= spi/
 obj-$(CONFIG_SPMI)		+= spmi/
 obj-$(CONFIG_HSI)		+= hsi/
+obj-$(CONFIG_SLIMBUS)		+= slimbus/
 obj-y				+= net/
 obj-$(CONFIG_ATM)		+= atm/
 obj-$(CONFIG_FUSION)		+= message/
@@ -135,6 +127,7 @@ obj-$(CONFIG_ACCESSIBILITY)	+= accessibility/
 obj-$(CONFIG_ISDN)		+= isdn/
 obj-$(CONFIG_EDAC)		+= edac/
 obj-$(CONFIG_EISA)		+= eisa/
+obj-$(CONFIG_PM_OPP)		+= opp/
 obj-$(CONFIG_CPU_FREQ)		+= cpufreq/
 obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
 obj-y				+= mmc/
@@ -164,13 +157,15 @@ obj-$(CONFIG_MAILBOX)		+= mailbox/
 obj-$(CONFIG_HWSPINLOCK)	+= hwspinlock/
 obj-$(CONFIG_REMOTEPROC)	+= remoteproc/
 obj-$(CONFIG_RPMSG)		+= rpmsg/
+obj-$(CONFIG_SOUNDWIRE)		+= soundwire/
+
+obj-$(CONFIG_ENERGY_MODEL)	+= energy_model/
 
 # Virtualization drivers
 obj-$(CONFIG_VIRT_DRIVERS)	+= virt/
 obj-$(CONFIG_HYPERV)		+= hv/
 
 obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
-obj-$(CONFIG_BATTERY_SAMSUNG)   += battery_v2/
 obj-$(CONFIG_EXTCON)		+= extcon/
 obj-$(CONFIG_MEMORY)		+= memory/
 obj-$(CONFIG_IIO)		+= iio/
@@ -192,21 +187,20 @@ obj-$(CONFIG_FPGA)		+= fpga/
 obj-$(CONFIG_FSI)		+= fsi/
 obj-$(CONFIG_TEE)		+= tee/
 obj-$(CONFIG_MULTIPLEXER)	+= mux/
+obj-$(CONFIG_UNISYS_VISORBUS)	+= visorbus/
+obj-$(CONFIG_SIOX)		+= siox/
+obj-$(CONFIG_GNSS)		+= gnss/
+obj-$(CONFIG_EXYNOS_BTS)        += bts/
 
-# CCIC
-obj-y	+= ccic/
-
-# COMBO REDRIVER
-obj-$(CONFIG_COMBO_REDRIVER_PTN36502)	+= redriver/
-
-obj-$(CONFIG_EXYNOS_BTS)	+= bts/
-
-# Mobicore driver
-obj-$(CONFIG_TRUSTONIC_TEE)     += gud/
+ifeq ($(CONFIG_BATTERY_SAMSUNG_V2), y)
+	obj-$(CONFIG_BATTERY_SAMSUNG)	+= battery_v2/
+else
+	obj-$(CONFIG_BATTERY_SAMSUNG)	+= battery/
+endif
 
 # FIVE TEE driver
 obj-$(CONFIG_FIVE_TEE_DRIVER)	+= five/
-obj-$(CONFIG_ICD)		+= icdrv/
+obj-$(CONFIG_ICD)		+= security/samsung/icdrv/
 
 # vision driver
 obj-$(CONFIG_VISION_SUPPORT)	+= vision/
@@ -214,27 +208,18 @@ obj-$(CONFIG_VISION_SUPPORT)	+= vision/
 #Fingerprint
 obj-$(CONFIG_SENSORS_FINGERPRINT)       += fingerprint/
 
+# Samsung Features
+obj-y				+= samsung/
+
 # Sensorhub driver
 obj-$(CONFIG_SENSORS_SSP)	+= sensorhub/
 
 # optics sensor driver
-obj-$(CONFIG_SENSORS_HRMSENSOR)	+= optics/
-obj-$(CONFIG_SENSORS_MAX86915)	+= optics/
 obj-$(CONFIG_SENSORS_TCS3407)	+= optics/
-obj-$(CONFIG_SENSORS_VD6281)	+= optics/
 
 # Motor
 obj-y                           += motor/
 
 # uH
-obj-$(CONFIG_UH)		+= uh/
-
-# streamline
-#ifeq ($(CONFIG_GATOR), y)
-#	obj-$(CONFIG_GATOR)				+= gator/
-#endif
-
-obj-y				+= kperfmon/
-
-obj-$(CONFIG_SEC_EXT)		+= samsung/
+obj-$(CONFIG_UH)        += uh/
 

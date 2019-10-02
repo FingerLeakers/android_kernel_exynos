@@ -220,9 +220,6 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(wc_auth_adt_sent),
 #endif
 	SEC_BATTERY_ATTR(wc_duo_rx_power),
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	SEC_BATTERY_ATTR(batt_charging_port),
-#endif
 	SEC_BATTERY_ATTR(ext_event),
 	SEC_BATTERY_ATTR(direct_charging_status),
 #if defined(CONFIG_DIRECT_CHARGING)
@@ -234,6 +231,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_factory_mode),
 #endif
 	SEC_BATTERY_ATTR(boot_completed),
+	SEC_BATTERY_ATTR(must_remove_this_node),
 };
 
 void update_external_temp_table(struct sec_battery_info *battery, int temp[])
@@ -452,9 +450,9 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			psy_do_property(battery->pdata->charger_name, get,
 				POWER_SUPPLY_PROP_TEMP, value);
 			battery->dchg_temp = sec_bat_get_direct_chg_temp_adc(battery,
-								value.intval, battery->pdata->adc_check_count);
+						value.intval, battery->pdata->adc_check_count);
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
-				battery->dchg_temp);
+					battery->dchg_temp);
 		}
 		break;
 	case DCHG_TEMP_ADC:
@@ -601,7 +599,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 				else if (is_hv_wire_type(battery->cable_type) ||
 					(is_pd_wire_type(battery->cable_type) &&
 					battery->pd_max_charge_power >= HV_CHARGER_STATUS_STANDARD1 &&
-					battery->pdic_info.sink_status.available_pdo_num > 1) ||
+					battery->hv_pdo) ||
 					battery->wire_status == SEC_BATTERY_CABLE_PREPARE_TA ||
 					battery->max_charge_power >= HV_CHARGER_STATUS_STANDARD1) /* 12000mW */
 					check_val = AFC_9V_OR_15W;
@@ -1157,11 +1155,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		break;
 	case CHECK_PS_READY:
 #if defined(CONFIG_CCIC_NOTIFIER)
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-		value.intval = battery->sub->pdic_ps_rdy;
-#else
 		value.intval = battery->pdic_ps_rdy;
-#endif
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 				value.intval);
 		pr_info("%s : CHECK_PS_READY=%d\n",__func__,value.intval);
@@ -1597,12 +1591,6 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 			value.intval);
 		break;
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	case BATT_CHARGING_PORT:
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
-			battery->charging_port);
-		break;
-#endif
 	case EXT_EVENT:
 		break;
 #if defined(CONFIG_DIRECT_CHARGING)
@@ -1615,11 +1603,16 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			battery->step_charging_status);
 		break;
 	case DIRECT_CHARGING_IIN:
-		value.intval = SEC_BATTERY_IIN_UA;
-		psy_do_property(battery->pdata->charger_name, get,
-			POWER_SUPPLY_EXT_PROP_MEASURE_INPUT, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
-			value.intval);
+		if (is_pd_apdo_wire_type(battery->wire_status)) {
+			value.intval = SEC_BATTERY_IIN_UA;
+			psy_do_property(battery->pdata->charger_name, get,
+				POWER_SUPPLY_EXT_PROP_MEASURE_INPUT, value);
+			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+				value.intval);
+		} else {
+			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+					0);
+		}
 		break;
 #else
 	case DIRECT_CHARGING_STATUS:
@@ -2396,7 +2389,6 @@ ssize_t sec_bat_store_attrs(
 		break;
 	case WC_TX_EN:
 		if (sscanf(buf, "%10d\n", &x) == 1) {
-#if !defined(CONFIG_BATTERY_SAMSUNG_MHS)
 			if (mfc_fw_update) {
 				pr_info("@Tx_Mode %s : skip Tx by mfc_fw_update\n", __func__);
 				return count;
@@ -2419,7 +2411,6 @@ ssize_t sec_bat_store_attrs(
 					battery->cisd.tx_data[TX_ON]++;
 #endif
 			}
-#endif
 			ret = count;
 		}
 		break;
@@ -3195,10 +3186,6 @@ ssize_t sec_bat_store_attrs(
 	case WC_AUTH_ADT_SENT:
 		break;
 #endif
-#if defined(CONFIG_BATTERY_SAMSUNG_MHS)
-	case BATT_CHARGING_PORT:
-		break;
-#endif
 	case EXT_EVENT:
 		if (sscanf(buf, "%10d\n", &x) == 1) {
 			dev_info(battery->dev,
@@ -3232,6 +3219,14 @@ ssize_t sec_bat_store_attrs(
 			psy_do_property(battery->pdata->wireless_charger_name, set,
 					POWER_SUPPLY_EXT_PROP_WIRELESS_PARAM_INFO, value);
 #endif
+			ret = count;
+		}
+		break;
+	case MUST_REMOVE_THIS_NODE:
+		if (sscanf(buf, "%10d\n", &x) == 1) {
+			value.intval = x;
+			psy_do_property(battery->pdata->charger_name, set,
+					POWER_SUPPLY_EXT_PROP_MUST_REMOVE_THIS_NODE, value);		
 			ret = count;
 		}
 		break;

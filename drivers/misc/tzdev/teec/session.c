@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -56,11 +56,11 @@ static uint32_t tzdev_teec_session_init(TEEC_Context *context, TEEC_Session *ses
 	struct tzdev_teec_session *ses;
 	uint32_t result;
 
-	tzdev_teec_debug("Enter, context = %pK session = %pK\n", context, session);
+	log_debug(tzdev_teec, "Enter, context = %pK session = %pK\n", context, session);
 
 	ses = kmalloc(sizeof(struct tzdev_teec_session), GFP_KERNEL);
 	if (!ses) {
-		tzdev_teec_error("Failed to allocate session struct\n");
+		log_error(tzdev_teec, "Failed to allocate session struct\n");
 		result = TEEC_ERROR_OUT_OF_MEMORY;
 		goto out;
 	}
@@ -76,7 +76,7 @@ static uint32_t tzdev_teec_session_init(TEEC_Context *context, TEEC_Session *ses
 	result = TEEC_SUCCESS;
 
 out:
-	tzdev_teec_debug("Exit, context = %pK session = %pK\n", context, session);
+	log_debug(tzdev_teec, "Exit, context = %pK session = %pK\n", context, session);
 
 	return result;
 }
@@ -85,7 +85,7 @@ static void tzdev_teec_session_fini(TEEC_Session *session)
 {
 	struct tzdev_teec_session *ses = session->imp;
 
-	tzdev_teec_debug("Enter, session = %pK\n", session);
+	log_debug(tzdev_teec, "Enter, session = %pK\n", session);
 
 	session->imp = NULL;
 
@@ -93,7 +93,7 @@ static void tzdev_teec_session_fini(TEEC_Session *session)
 
 	kfree(ses);
 
-	tzdev_teec_debug("Exit, session = %pK\n", session);
+	log_debug(tzdev_teec, "Exit, session = %pK\n", session);
 }
 
 static uint32_t tzdev_teec_operation_begin(TEEC_Session *session, TEEC_Operation *operation)
@@ -153,7 +153,7 @@ static uint32_t tzdev_teec_operation_add_to_cancel_list(TEEC_Operation *operatio
 
 	op = kmalloc(sizeof(struct tzdev_teec_operation), GFP_KERNEL);
 	if (!op) {
-		tzdev_teec_error("Failed to allocate operation struct\n");
+		log_error(tzdev_teec, "Failed to allocate operation struct\n");
 		return TEEC_ERROR_OUT_OF_MEMORY;
 	}
 
@@ -181,7 +181,7 @@ static uint32_t tzdev_teec_operation_cancel_begin(TEEC_Operation *operation)
 		result = TEEC_SUCCESS;
 		break;
 	default:
-		tzdev_teec_error("Trying to cancel operation with started = %u\n", old_started);
+		log_error(tzdev_teec, "Trying to cancel operation with started = %u\n", old_started);
 		result = TEEC_ERROR_BAD_STATE;
 		break;
 	}
@@ -217,7 +217,7 @@ static uint32_t tzdev_teec_operation_init(TEEC_Session *session,
 	uint32_t type;
 	uint32_t result;
 
-	tzdev_teec_debug("Enter, session = %pK operation = %pK\n", session, operation);
+	log_debug(tzdev_teec, "Enter, session = %pK operation = %pK\n", session, operation);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -273,7 +273,7 @@ static uint32_t tzdev_teec_operation_init(TEEC_Session *session,
 
 				op->tee_params[i].shared_buffer_description.offset = shm->offset;
 				op->tee_params[i].shared_buffer_description.id = shm->id;
-				op->tee_params[i].shared_buffer_description.size = (unsigned int)ses->tmpref[i].shmem.size;
+				op->tee_params[i].shared_buffer_description.size = ses->tmpref[i].shmem.size;
 			}
 
 			break;
@@ -299,7 +299,7 @@ static uint32_t tzdev_teec_operation_init(TEEC_Session *session,
 
 			op->tee_params[i].shared_buffer_description.offset = shm->offset;
 			op->tee_params[i].shared_buffer_description.id = shm->id;
-			op->tee_params[i].shared_buffer_description.size = (unsigned int)sharedMem->size;
+			op->tee_params[i].shared_buffer_description.size = sharedMem->size;
 			break;
 		case TEEC_MEMREF_PARTIAL_INPUT:
 		case TEEC_MEMREF_PARTIAL_OUTPUT:
@@ -312,9 +312,9 @@ static uint32_t tzdev_teec_operation_init(TEEC_Session *session,
 
 			shm = sharedMem->imp;
 
-			op->tee_params[i].shared_buffer_description.offset = shm->offset + (unsigned int)memref->offset;
+			op->tee_params[i].shared_buffer_description.offset = shm->offset + memref->offset;
 			op->tee_params[i].shared_buffer_description.id = shm->id;
-			op->tee_params[i].shared_buffer_description.size = (unsigned int)memref->size;
+			op->tee_params[i].shared_buffer_description.size = memref->size;
 			break;
 		default:
 			result = TEEC_ERROR_BAD_PARAMETERS;
@@ -333,7 +333,7 @@ out_free_tmpref:
 
 	tzdev_teec_operation_end(operation);
 out:
-	tzdev_teec_debug("Exit, session = %pK operation = %pK\n", session, operation);
+	log_debug(tzdev_teec, "Exit, session = %pK operation = %pK\n", session, operation);
 
 	return result;
 }
@@ -346,7 +346,7 @@ static void tzdev_teec_operation_fini(TEEC_Operation *operation,
 	unsigned int i;
 	uint32_t type;
 
-	tzdev_teec_debug("Enter, operation = %pK\n", operation);
+	log_debug(tzdev_teec, "Enter, operation = %pK\n", operation);
 
 	session = operation->imp;
 	ses = session->imp;
@@ -385,7 +385,7 @@ static void tzdev_teec_operation_fini(TEEC_Operation *operation,
 		}
 	}
 
-	tzdev_teec_debug("Exit, operation = %pK\n", operation);
+	log_debug(tzdev_teec, "Exit, operation = %pK\n", operation);
 }
 
 static uint32_t tzdev_teec_prepare_session(TEEC_Session *session,
@@ -398,7 +398,7 @@ static uint32_t tzdev_teec_prepare_session(TEEC_Session *session,
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, session = %pK\n", session);
+	log_debug(tzdev_teec, "Enter, session = %pK\n", session);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -411,7 +411,7 @@ static uint32_t tzdev_teec_prepare_session(TEEC_Session *session,
 	if (shm && shm_size != 0) {
 		cmd.buf_desc.offset = shm->offset;
 		cmd.buf_desc.id = shm->id;
-		cmd.buf_desc.size = (unsigned int)shm_size;
+		cmd.buf_desc.size = shm_size;
 	}
 
 	tzdev_teec_convert_uuid(&cmd.ta_uuid, destination);
@@ -421,14 +421,14 @@ static uint32_t tzdev_teec_prepare_session(TEEC_Session *session,
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit prepare session, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit prepare session, ret = %d\n", ret);
 		goto out;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_PREPARE_SESSION,
 			ses->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check prepare session reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check prepare session reply, ret = %d\n", ret);
 		goto out;
 	}
 
@@ -440,7 +440,7 @@ out:
 
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, session = %pK\n", session);
+	log_debug(tzdev_teec, "Exit, session = %pK\n", session);
 
 	return result;
 }
@@ -472,7 +472,7 @@ static uint32_t tzdev_teec_open_session(TEEC_Session *session, TEEC_Operation *o
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, session = %pK\n", session);
+	log_debug(tzdev_teec, "Enter, session = %pK\n", session);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -496,14 +496,14 @@ static uint32_t tzdev_teec_open_session(TEEC_Session *session, TEEC_Operation *o
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit open session, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit open session, ret = %d\n", ret);
 		goto out_fini_op;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_OPEN_SESSION,
 			ses->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check open session reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check open session reply, ret = %d\n", ret);
 		goto out_fini_op;
 	}
 
@@ -521,7 +521,7 @@ out_fini_op:
 out:
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, session = %pK\n", session);
+	log_debug(tzdev_teec, "Exit, session = %pK\n", session);
 
 	return result;
 }
@@ -534,7 +534,7 @@ static uint32_t tzdev_teec_close_session(TEEC_Session *session, uint32_t *origin
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, session = %pK\n", session);
+	log_debug(tzdev_teec, "Enter, session = %pK\n", session);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -548,14 +548,14 @@ static uint32_t tzdev_teec_close_session(TEEC_Session *session, uint32_t *origin
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit close session, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit close session, ret = %d\n", ret);
 		goto out;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_CLOSE_SESSION,
 			ses->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check close session reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check close session reply, ret = %d\n", ret);
 		goto out;
 	}
 
@@ -567,7 +567,7 @@ out:
 
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, session = %pK\n", session);
+	log_debug(tzdev_teec, "Exit, session = %pK\n", session);
 
 	return result;
 }
@@ -582,7 +582,7 @@ static uint32_t tzdev_teec_invoke_cmd(TEEC_Session *session, TEEC_Operation *ope
 	uint32_t result;
 	int ret;
 
-	tzdev_teec_debug("Enter, session = %pK operation = %pK\n", session, operation);
+	log_debug(tzdev_teec, "Enter, session = %pK operation = %pK\n", session, operation);
 
 	*origin = TEEC_ORIGIN_API;
 
@@ -604,14 +604,14 @@ static uint32_t tzdev_teec_invoke_cmd(TEEC_Session *session, TEEC_Operation *ope
 			&ack, sizeof(ack), 0x0,
 			&result, origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to xmit invoke command, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to xmit invoke command, ret = %d\n", ret);
 		goto out_fini_op;
 	}
 
 	ret = tzdev_teec_check_reply(&ack.base, CMD_REPLY_INVOKE_COMMAND,
 			ses->serial, &result, origin);
 	if (ret) {
-		tzdev_teec_error("Failed to check invoke command reply, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to check invoke command reply, ret = %d\n", ret);
 		goto out_fini_op;
 	}
 
@@ -629,7 +629,7 @@ out_fini_op:
 out:
 	tzdev_teec_fixup_origin(result, origin);
 
-	tzdev_teec_debug("Exit, session = %pK\n", session);
+	log_debug(tzdev_teec, "Exit, session = %pK\n", session);
 
 	return result;
 }
@@ -650,9 +650,9 @@ static uint32_t tzdev_teec_cancel_cmd(TEEC_Operation *operation, uint32_t *origi
 			&cmd, sizeof(cmd), MSG_OOB,
 			&result, origin);
 	if (ret < 0)
-		tzdev_teec_error("Failed to send cancellation request, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to send cancellation request, ret = %d\n", ret);
 	else if (ret != sizeof(cmd))
-		tzdev_teec_error("Failed to send cancellation request due to invalid size, ret = %d\n", ret);
+		log_error(tzdev_teec, "Failed to send cancellation request due to invalid size, ret = %d\n", ret);
 
 	return result;
 }
@@ -662,17 +662,17 @@ static uint32_t tzdev_teec_session_check_args(TEEC_Context *context,
 		uint32_t connectionMethod, void *connectionData)
 {
 	if (!context) {
-		tzdev_teec_error("Null context passed\n");
+		log_error(tzdev_teec, "Null context passed\n");
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
 	if (!session) {
-		tzdev_teec_error("Null session passed\n");
+		log_error(tzdev_teec, "Null session passed\n");
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
 	if (!destination) {
-		tzdev_teec_error("Null destination passed\n");
+		log_error(tzdev_teec, "Null destination passed\n");
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
@@ -682,19 +682,19 @@ static uint32_t tzdev_teec_session_check_args(TEEC_Context *context,
 	case TEEC_LOGIN_APPLICATION:
 	case TEEC_LOGIN_USER_APPLICATION:
 		if (connectionData) {
-			tzdev_teec_error("Unexpected non-null connection data passed\n");
+			log_error(tzdev_teec, "Unexpected non-null connection data passed\n");
 			return TEEC_ERROR_BAD_PARAMETERS;
 		}
 		break;
 	case TEEC_LOGIN_GROUP:
 	case TEEC_LOGIN_GROUP_APPLICATION:
 		if (!connectionData) {
-			tzdev_teec_error("Unexpected null connection data passed\n");
+			log_error(tzdev_teec, "Unexpected null connection data passed\n");
 			return TEEC_ERROR_BAD_PARAMETERS;
 		}
 		break;
 	default:
-		tzdev_teec_error("Unknown connection method passed = %u\n", connectionMethod);
+		log_error(tzdev_teec, "Unknown connection method passed = %u\n", connectionMethod);
 		return TEEC_ERROR_BAD_PARAMETERS;
 	}
 
@@ -723,7 +723,7 @@ TEEC_Result TEECS_OpenSession(TEEC_Context *context, TEEC_Session *session,
 	uint32_t origin;
 	int ret;
 
-	tzdev_teec_debug("Enter, context = %pK session = %pK operation = %pK\n",
+	log_debug(tzdev_teec, "Enter, context = %pK session = %pK operation = %pK\n",
 			context, session, operation);
 
 	origin = TEEC_ORIGIN_API;
@@ -735,13 +735,13 @@ TEEC_Result TEECS_OpenSession(TEEC_Context *context, TEEC_Session *session,
 
 	tzdev_teec_session_init(context, session);
 
-	sd = tz_iwsock_socket(1);
+	sd = tz_iwsock_socket(1, TZ_NON_INTERRUPTIBLE);
 	if (IS_ERR(sd))
 		goto out_fini_session;
 
 	ret = tzdev_teec_connect(sd, ROOT_TASK_SOCK, &result, &origin);
 	if (ret < 0) {
-		tzdev_teec_error("Failed to connect to root task, session = %pK ret = %d\n",
+		log_error(tzdev_teec, "Failed to connect to root task, session = %pK ret = %d\n",
 				session, ret);
 		goto out_disconnect;
 	}
@@ -757,14 +757,14 @@ TEEC_Result TEECS_OpenSession(TEEC_Context *context, TEEC_Session *session,
 
 		ret = TEEC_RegisterSharedMemory(context, &sharedMem);
 		if (result != TEEC_SUCCESS) {
-			tzdev_teec_error("Failed to allocate shared memory for TA, session = %pK\n", session);
+			log_error(tzdev_teec, "Failed to allocate shared memory for TA, session = %pK\n", session);
 			goto out_disconnect;
 		}
 	}
 
 	result = tzdev_teec_prepare_session(session, destination, (struct tzdev_teec_shared_memory *)sharedMem.imp, sharedMem.size, &origin);
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed to prepare session, session = %pK\n", session);
+		log_error(tzdev_teec, "Failed to prepare session, session = %pK\n", session);
 		goto out_release_shared_memory;
 	}
 	
@@ -774,11 +774,11 @@ TEEC_Result TEECS_OpenSession(TEEC_Context *context, TEEC_Session *session,
 	result = tzdev_teec_open_session(session, operation, connectionMethod,
 			connectionData, &origin);
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed to open session, session = %pK\n", session);
+		log_error(tzdev_teec, "Failed to open session, session = %pK\n", session);
 		goto out_disconnect;
 	}
 
-	tzdev_teec_debug("Success, context = %pK session = %pK socket = %u\n",
+	log_debug(tzdev_teec, "Success, context = %pK session = %pK socket = %u\n",
 			context, session, ses->socket->id);
 	goto out;
 
@@ -794,7 +794,7 @@ out:
 	if (returnOrigin)
 		*returnOrigin = origin;
 
-	tzdev_teec_debug("Exit, context = %pK session = %pK operation = %pK result = %x origin = %u\n",
+	log_debug(tzdev_teec, "Exit, context = %pK session = %pK operation = %pK result = %x origin = %u\n",
 			context, session, operation, result, origin);
 
 	return result;
@@ -806,12 +806,12 @@ void TEEC_CloseSession(TEEC_Session *session)
 	uint32_t result;
 	uint32_t origin;
 
-	tzdev_teec_debug("Enter, session = %pK\n", session);
+	log_debug(tzdev_teec, "Enter, session = %pK\n", session);
 
 	origin = TEEC_ORIGIN_API;
 
 	if (!session || !session->imp) {
-		tzdev_teec_error("Null session passed\n");
+		log_error(tzdev_teec, "Null session passed\n");
 		result = TEEC_ERROR_BAD_PARAMETERS;
 		goto out;
 	}
@@ -820,18 +820,18 @@ void TEEC_CloseSession(TEEC_Session *session)
 
 	result = tzdev_teec_close_session(session, &origin);
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed to close session, session = %pK socket = %u\n",
+		log_error(tzdev_teec, "Failed to close session, session = %pK socket = %u\n",
 				session, ses->socket->id);
 		goto out_fini;
 	}
 
-	tzdev_teec_debug("Success, session = %pK socket = %u\n", session, ses->socket->id);
+	log_debug(tzdev_teec, "Success, session = %pK socket = %u\n", session, ses->socket->id);
 
 out_fini:
 	tzdev_teec_disconnect(ses->socket);
 	tzdev_teec_session_fini(session);
 out:
-	tzdev_teec_debug("Exit, session = %pK result = %x origin = %u\n", session, result, origin);
+	log_debug(tzdev_teec, "Exit, session = %pK result = %x origin = %u\n", session, result, origin);
 }
 
 TEEC_Result TEEC_InvokeCommand(TEEC_Session *session, uint32_t commandID,
@@ -841,12 +841,12 @@ TEEC_Result TEEC_InvokeCommand(TEEC_Session *session, uint32_t commandID,
 	uint32_t result;
 	uint32_t origin;
 
-	tzdev_teec_debug("Enter, session = %pK operation = %pK\n", session, operation);
+	log_debug(tzdev_teec, "Enter, session = %pK operation = %pK\n", session, operation);
 
 	origin = TEEC_ORIGIN_API;
 
 	if (!session || !session->imp) {
-		tzdev_teec_error("Null session passed\n");
+		log_error(tzdev_teec, "Null session passed\n");
 		result = TEEC_ERROR_BAD_PARAMETERS;
 		goto out;
 	}
@@ -858,18 +858,18 @@ TEEC_Result TEEC_InvokeCommand(TEEC_Session *session, uint32_t commandID,
 	mutex_unlock(&ses->mutex);
 
 	if (result != TEEC_SUCCESS) {
-		tzdev_teec_error("Failed request invoke command, session = %pK socket = %u\n",
+		log_error(tzdev_teec, "Failed request invoke command, session = %pK socket = %u\n",
 				session, ses->socket->id);
 		goto out;
 	}
 
-	tzdev_teec_debug("Success, session = %pK socket = %u\n", session, ses->socket->id);
+	log_debug(tzdev_teec, "Success, session = %pK socket = %u\n", session, ses->socket->id);
 
 out:
 	if (returnOrigin)
 		*returnOrigin = origin;
 
-	tzdev_teec_debug("Exit, session = %pK operation = %pK\n", session, operation);
+	log_debug(tzdev_teec, "Exit, session = %pK operation = %pK\n", session, operation);
 
 	return result;
 }
@@ -879,13 +879,13 @@ void TEEC_RequestCancellation(TEEC_Operation *operation)
 	uint32_t origin;
 	uint32_t result;
 
-	tzdev_teec_debug("Enter, operation = %pK\n", operation);
+	log_debug(tzdev_teec, "Enter, operation = %pK\n", operation);
 
 	origin = TEEC_ORIGIN_API;
 	result = TEEC_SUCCESS;
 
 	if (!operation) {
-		tzdev_teec_error("Null operation passed\n");
+		log_error(tzdev_teec, "Null operation passed\n");
 		result = TEEC_ERROR_BAD_PARAMETERS;
 		goto out;
 	}
@@ -899,5 +899,5 @@ void TEEC_RequestCancellation(TEEC_Operation *operation)
 	tzdev_teec_operation_cancel_end(operation);
 
 out:
-	tzdev_teec_debug("Enter, operation = %pK result = %x origin = %u\n", operation, result, origin);
+	log_debug(tzdev_teec, "Enter, operation = %pK result = %x origin = %u\n", operation, result, origin);
 }

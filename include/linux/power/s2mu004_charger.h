@@ -28,7 +28,7 @@
 #include <linux/muic/muic_notifier.h>
 #endif /* CONFIG_MUIC_NOTIFIER */
 
-#include <linux/muic/s2mu004-muic.h>
+//#include <linux/muic/s2mu004-muic.h>
 #include <linux/power/s2mu00x_battery.h>
 
 

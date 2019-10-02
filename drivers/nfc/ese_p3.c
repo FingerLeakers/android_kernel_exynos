@@ -55,7 +55,7 @@
 /* Undef if want to keep eSE Power LDO ALWAYS ON */
 #define FEATURE_ESE_POWER_ON_OFF
 
-#define SPI_DEFAULT_SPEED 6500000L
+#define SPI_DEFAULT_SPEED 12500000L
 
 #ifdef CONFIG_ESE_SECURE
 static TEEC_UUID ese_drv_uuid = {
@@ -75,7 +75,7 @@ enum secure_state {
 };
 #endif
 /* size of maximum read/write buffer supported by driver */
-#define MAX_BUFFER_SIZE   259U
+#define MAX_BUFFER_SIZE   260U
 
 /* Different driver debug lever */
 enum P3_DEBUG_LEVEL {
@@ -84,7 +84,7 @@ enum P3_DEBUG_LEVEL {
 };
 
 /* Variable to store current debug level request by ioctl */
-static unsigned char debug_level = P3_FULL_DEBUG;
+static unsigned char debug_level = P3_DEBUG_OFF;
 
 #define P3_DBG_MSG(msg...) do { \
 		switch (debug_level) { \
@@ -135,7 +135,7 @@ static void p3_pinctrl_config(struct p3_data *data, bool onoff)
 	struct device *spi_dev = spi->dev.parent->parent;
 	struct pinctrl *pinctrl = NULL;
 
-	P3_INFO_MSG("%s: pinctrol - %s\n", __func__, onoff ? "on" : "off");
+	P3_INFO_MSG("%s: %s\n", __func__, onoff ? "on" : "off");
 
 	if (onoff) {
 		/* ON */
@@ -252,19 +252,21 @@ static int p3_regulator_onoff(struct p3_data *data, int onoff)
 	struct regulator *regulator_vdd_1p8;
 
 	if (!data->vdd_1p8) {
-		pr_err("%s No vdd LDO name!\n", __func__);
+		P3_ERR_MSG("%s No vdd LDO name!\n", __func__);
 		return -ENODEV;
+	} else if (!strcmp(data->vdd_1p8, "ALWAYS")) {
+		P3_DBG_MSG("%s always on\n", __func__);
+		return rc;
 	}
 
 	regulator_vdd_1p8 = regulator_get(NULL, data->vdd_1p8);
-	pr_err("%s %s\n", __func__, data->vdd_1p8);
 
 	if (IS_ERR(regulator_vdd_1p8) || regulator_vdd_1p8 == NULL) {
 		P3_ERR_MSG("%s - vdd_1p8 regulator_get fail\n", __func__);
 		return -ENODEV;
 	}
 
-	P3_DBG_MSG("%s - onoff = %d\n", __func__, onoff);
+	P3_INFO_MSG("%s - onoff = %d\n", __func__, onoff);
 	if (onoff == 1) {
 		rc = regulator_enable(regulator_vdd_1p8);
 		if (rc) {
@@ -304,8 +306,10 @@ static int p3_xfer(struct p3_data *p3_device, struct p3_ioctl_transfer *tr)
 	if (p3_device == NULL || tr == NULL)
 		return -EFAULT;
 
-	if (tr->len > DEFAULT_BUFFER_SIZE || !tr->len)
+	if (tr->len > MAX_BUFFER_SIZE || !tr->len) {
+		P3_ERR_MSG("%s invalid size\n", __func__);
 		return -EMSGSIZE;
+	}
 
 	if (tr->tx_buffer != NULL) {
 		if (copy_from_user(tx_buffer,
@@ -334,7 +338,8 @@ static int p3_xfer(struct p3_data *p3_device, struct p3_ioctl_transfer *tr)
 				tr->len = tr->len - missing;
 		}
 	}
-	pr_debug("%s, length=%d\n", __func__, tr->len);
+	P3_INFO_MSG("%s, length=%d\n", __func__, tr->len);
+
 	return status;
 
 } /* vfsspi_xfer */
@@ -466,6 +471,7 @@ static int spip3_release(struct inode *inode, struct file *filp)
 		return 0;
 	}
 
+	P3_INFO_MSG("%s\n", __func__);
 	mutex_lock(&device_list_lock);
 
 #ifdef FEATURE_ESE_WAKELOCK
@@ -500,6 +506,22 @@ static int spip3_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+#ifdef CONFIG_ESE_COLDRESET
+extern int trig_cold_reset(void);
+
+static void p3_power_reset(struct p3_data *data)
+{
+	/*Add Reset Sequence here*/
+
+	P3_INFO_MSG("%s: start\n", __func__);
+
+	trig_cold_reset();
+
+	P3_DBG_MSG("%s: end\n", __func__);
+
+}
+#endif
+
 static long spip3_ioctl(struct file *filp, unsigned int cmd,
 		unsigned long arg)
 {
@@ -518,10 +540,10 @@ static long spip3_ioctl(struct file *filp, unsigned int cmd,
 	switch (cmd) {
 	case P3_SET_DBG:
 		debug_level = (unsigned char)arg;
-		P3_DBG_MSG(KERN_INFO"[NXP-P3] -  Debug level %d", debug_level);
+		P3_INFO_MSG(KERN_INFO"[NXP-P3] -  Debug level %d", debug_level);
 		break;
 	case P3_ENABLE_SPI_CLK:
-		P3_DBG_MSG("%s P3_ENABLE_SPI_CLK\n", __func__);
+		P3_INFO_MSG("%s P3_ENABLE_SPI_CLK\n", __func__);
 #ifdef CONFIG_ESE_SECURE
 		ret = p3_clk_control(data, true);
 		if (ret < 0)
@@ -529,7 +551,7 @@ static long spip3_ioctl(struct file *filp, unsigned int cmd,
 #endif
 		break;
 	case P3_DISABLE_SPI_CLK:
-		P3_DBG_MSG("%s P3_DISABLE_SPI_CLK\n", __func__);
+		P3_INFO_MSG("%s P3_DISABLE_SPI_CLK\n", __func__);
 #ifdef CONFIG_ESE_SECURE
 		ret = p3_clk_control(data, false);
 		if (ret < 0)
@@ -564,6 +586,12 @@ static long spip3_ioctl(struct file *filp, unsigned int cmd,
 		P3_ERR_MSG("%s deprecated IOCTL:0x%X\n", __func__, cmd);
 		break;
 
+#ifdef CONFIG_ESE_COLDRESET
+	case P3_WR_RESET: 
+		P3_DBG_MSG(": %s: ese_ioctl (cmd: %d)\n", __func__, cmd);
+		p3_power_reset(data);
+		break;				
+#endif
 	default:
 		P3_DBG_MSG("%s no matching ioctl! 0x%X\n", __func__, cmd);
 		ret = -EINVAL;
@@ -584,13 +612,13 @@ static ssize_t spip3_write(struct file *filp, const char *buf, size_t count,
 	unsigned char tx_buffer[MAX_BUFFER_SIZE] = {0x0, };
 	unsigned char rx_buffer[MAX_BUFFER_SIZE] = {0x0, };
 
-	P3_INFO_MSG("spip3_write -Enter count %zu\n", count);
-
 	p3_dev = filp->private_data;
 
+	if (count > MAX_BUFFER_SIZE) {
+		P3_ERR_MSG("%s invalid size\n", __func__);
+		return -EMSGSIZE;
+	}
 	mutex_lock(&p3_dev->buffer_mutex);
-	if (count > MAX_BUFFER_SIZE)
-		count = MAX_BUFFER_SIZE;
 
 	if (copy_from_user(&tx_buffer[0], &buf[0], count)) {
 		P3_ERR_MSG("%s : failed to copy from user space\n", __func__);
@@ -609,15 +637,18 @@ static ssize_t spip3_write(struct file *filp, const char *buf, size_t count,
 	spi_message_add_tail(&t, &m);
 
 	gpio_set_value(p3_dev->cs_gpio, 0);
+	udelay(20);
 	ret = spi_sync(p3_dev->spi, &m);
 	gpio_set_value(p3_dev->cs_gpio, 1);
-	if (ret < 0)
+	if (ret < 0) {
+		P3_ERR_MSG("spip3_write error %d\n", ret);
 		ret = -EIO;
-	else
+	} else {
 		ret = count;
+		P3_INFO_MSG("spip3_write count %zu\n", count);
+	}
 
 	mutex_unlock(&p3_dev->buffer_mutex);
-	P3_DBG_MSG(KERN_ALERT "spip3_write ret %d- Exit\n", ret);
 
 	return ret;
 }
@@ -632,7 +663,11 @@ static ssize_t spip3_read(struct file *filp, char *buf, size_t count,
 	unsigned char tx_buffer[MAX_BUFFER_SIZE] = {0x0, };
 	unsigned char rx_buffer[MAX_BUFFER_SIZE] = {0x0, };
 
-	P3_INFO_MSG("spip3_read count %zu - Enter\n", count);
+	if (count > MAX_BUFFER_SIZE) {
+		P3_ERR_MSG("%s invalid size\n", __func__);
+		return -EMSGSIZE;
+	}
+
 	mutex_lock(&p3_dev->buffer_mutex);
 
 	spi_message_init(&m);
@@ -645,23 +680,27 @@ static ssize_t spip3_read(struct file *filp, char *buf, size_t count,
 	spi_message_add_tail(&t, &m);
 
 	gpio_set_value(p3_dev->cs_gpio, 0);
+	udelay(20);
 	ret = spi_sync(p3_dev->spi, &m);
 	gpio_set_value(p3_dev->cs_gpio, 1);
+	if (ret < 0) {
+		P3_ERR_MSG("spip3_read error %d\n", ret);
+	}
 
 	if (copy_to_user(buf, &rx_buffer[0], count)) {
 		P3_ERR_MSG("%s : failed to copy to user space\n", __func__);
 		ret = -EFAULT;
 		goto fail;
 	}
+	if( count > 1 && rx_buffer[0])
+		P3_INFO_MSG("%s count=%zu, ret=%d\n", __func__, count, ret);
 	ret = count;
-	P3_DBG_MSG("%s ret %d Exit\n", __func__, ret);
 
 	mutex_unlock(&p3_dev->buffer_mutex);
 
 	return ret;
 
 fail:
-	P3_ERR_MSG("Error %s ret %d Exit\n", __func__, ret);
 	mutex_unlock(&p3_dev->buffer_mutex);
 	return ret;
 }
@@ -691,10 +730,10 @@ static int p3_parse_dt(struct device *dev, struct p3_data *data)
 
 	if (of_property_read_string(np, "p3-vdd-1p8",
 		&data->vdd_1p8) < 0) {
-		pr_err("%s - getting vdd_1p8 error\n", __func__);
+		P3_ERR_MSG("%s - getting vdd_1p8 error\n", __func__);
 		data->vdd_1p8 = NULL;
 	} else
-		pr_info("%s success vdd:%s\n", __func__, data->vdd_1p8);
+		P3_DBG_MSG("%s success vdd:%s\n", __func__, data->vdd_1p8);
 
 	return ret;
 }
@@ -800,7 +839,7 @@ err_misc_regi:
 p3_parse_dt_failed:
 	kfree(data);
 err_exit:
-	P3_DBG_MSG("ERROR: Exit : %s ret %d\n", __func__, ret);
+	P3_ERR_MSG("ERROR: Exit : %s ret %d\n", __func__, ret);
 	return ret;
 }
 
@@ -849,8 +888,6 @@ static struct spi_driver spip3_driver = {
 
 static int __init spip3_dev_init(void)
 {
-	debug_level = P3_FULL_DEBUG;
-
 	P3_INFO_MSG("Entry : %s\n", __func__);
 #if (!defined(CONFIG_ESE_FACTORY_ONLY) || defined(CONFIG_SEC_FACTORY))
 	return spi_register_driver(&spip3_driver);

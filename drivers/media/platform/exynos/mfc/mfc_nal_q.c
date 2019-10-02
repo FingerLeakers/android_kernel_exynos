@@ -27,54 +27,54 @@
 #define CBR_I_LIMIT_MAX			5
 int mfc_nal_q_check_enable(struct mfc_dev *dev)
 {
-	struct mfc_ctx *temp_ctx;
+	struct mfc_ctx *ctx;
 	struct mfc_dec *dec = NULL;
 	struct mfc_enc *enc = NULL;
 	struct mfc_enc_params *p = NULL;
 	int i;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (nal_q_disable)
 		return 0;
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++) {
-		temp_ctx = dev->ctx[i];
-		if (temp_ctx) {
+		ctx = dev->ctx[i];
+		if (ctx) {
 			/* NAL-Q doesn't support drm */
-			if (temp_ctx->is_drm) {
+			if (ctx->is_drm) {
 				mfc_debug(2, "There is a drm ctx. Can't start NAL-Q\n");
 				return 0;
 			}
 			/* NAL-Q can be enabled when all ctx are in running state */
-			if (temp_ctx->state != MFCINST_RUNNING) {
+			if (ctx->state != MFCINST_RUNNING) {
 				mfc_debug(2, "There is a ctx which is not in running state. "
-						"index: %d, state: %d\n", i, temp_ctx->state);
+						"index: %d, state: %d\n", i, ctx->state);
 				return 0;
 			}
 			/* NAL-Q can't use the command about last frame */
-			if (mfc_check_buf_vb_flag(temp_ctx, MFC_FLAG_LAST_FRAME) == 1) {
+			if (mfc_check_buf_vb_flag(ctx, MFC_FLAG_LAST_FRAME) == 1) {
 				mfc_debug(2, "There is a last frame. index: %d\n", i);
 				return 0;
 			}
 			/* NAL-Q doesn't support OTF mode */
-			if (temp_ctx->otf_handle) {
+			if (ctx->otf_handle) {
 				mfc_debug(2, "There is a OTF node\n");
 				return 0;
 			}
 			/* NAL-Q doesn't support BPG */
-			if (IS_BPG_DEC(temp_ctx) || IS_BPG_ENC(temp_ctx)) {
+			if (IS_BPG_DEC(ctx) || IS_BPG_ENC(ctx)) {
 				mfc_debug(2, "BPG codec type\n");
 				return 0;
 			}
 			/* NAL-Q doesn't support multi-frame, interlaced, black bar */
-			if (temp_ctx->type == MFCINST_DECODER) {
-				dec = temp_ctx->dec_priv;
+			if (ctx->type == MFCINST_DECODER) {
+				dec = ctx->dec_priv;
 				if (!dec) {
 					mfc_debug(2, "There is no dec\n");
 					return 0;
 				}
-				if ((dec->has_multiframe && CODEC_MULTIFRAME(temp_ctx)) || dec->consumed) {
+				if ((dec->has_multiframe && CODEC_MULTIFRAME(ctx)) || dec->consumed) {
 					mfc_debug(2, "[MULTIFRAME] There is a multi frame or consumed header\n");
 					return 0;
 				}
@@ -90,9 +90,13 @@ int mfc_nal_q_check_enable(struct mfc_dev *dev)
 					mfc_debug(2, "[BLACKBAR] black bar detection is enabled\n");
 					return 0;
 				}
+				if (dec->inter_res_change) {
+					mfc_debug(2, "[DRC] interframe resolution is changed\n");
+					return 0;
+				}
 			/* NAL-Q doesn't support fixed byte(slice mode), CBR_VT(rc mode) */
-			} else if (temp_ctx->type == MFCINST_ENCODER) {
-				enc = temp_ctx->enc_priv;
+			} else if (ctx->type == MFCINST_ENCODER) {
+				enc = ctx->enc_priv;
 				if (!enc) {
 					mfc_debug(2, "There is no enc\n");
 					return 0;
@@ -111,9 +115,9 @@ int mfc_nal_q_check_enable(struct mfc_dev *dev)
 		}
 	}
 
-	mfc_debug(2, "All working ctx are in running state!\n");
+	mfc_debug_dev(2, "All working ctx are in running state!\n");
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return 1;
 }
@@ -122,11 +126,11 @@ void mfc_nal_q_clock_on(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
 	unsigned long flags;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	spin_lock_irqsave(&nal_q_handle->lock, flags);
 
-	mfc_debug(2, "[NALQ] continue_clock_on = %d, nal_q_clk_cnt = %d\n",
+	mfc_debug_dev(2, "[NALQ] continue_clock_on = %d, nal_q_clk_cnt = %d\n",
 			dev->continue_clock_on, nal_q_handle->nal_q_clk_cnt);
 
 	if (!dev->continue_clock_on && !nal_q_handle->nal_q_clk_cnt)
@@ -135,22 +139,22 @@ void mfc_nal_q_clock_on(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 	nal_q_handle->nal_q_clk_cnt++;
 	dev->continue_clock_on = false;
 
-	mfc_debug(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
+	mfc_debug_dev(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
 
 	spin_unlock_irqrestore(&nal_q_handle->lock, flags);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 void mfc_nal_q_clock_off(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
 	unsigned long flags;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	spin_lock_irqsave(&nal_q_handle->lock, flags);
 
-	mfc_debug(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
+	mfc_debug_dev(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
 
 	if (!nal_q_handle->nal_q_clk_cnt) {
 		spin_unlock_irqrestore(&nal_q_handle->lock, flags);
@@ -163,18 +167,18 @@ void mfc_nal_q_clock_off(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 	if (!nal_q_handle->nal_q_clk_cnt)
 		mfc_pm_clock_off(dev);
 
-	mfc_debug(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
+	mfc_debug_dev(2, "[NALQ] nal_q_clk_cnt = %d\n", nal_q_handle->nal_q_clk_cnt);
 
 	spin_unlock_irqrestore(&nal_q_handle->lock, flags);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 void mfc_nal_q_cleanup_clock(struct mfc_dev *dev)
 {
 	unsigned long flags;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	spin_lock_irqsave(&dev->nal_q_handle->lock, flags);
 
@@ -182,7 +186,7 @@ void mfc_nal_q_cleanup_clock(struct mfc_dev *dev)
 
 	spin_unlock_irqrestore(&dev->nal_q_handle->lock, flags);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 static int __mfc_nal_q_find_ctx(struct mfc_dev *dev, EncoderOutputStr *pOutputStr)
@@ -201,7 +205,7 @@ static nal_queue_in_handle* __mfc_nal_q_create_in_q(struct mfc_dev *dev,
 {
 	nal_queue_in_handle *nal_q_in_handle;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	nal_q_in_handle = kzalloc(sizeof(*nal_q_in_handle), GFP_KERNEL);
 	if (!nal_q_in_handle) {
@@ -225,7 +229,7 @@ static nal_queue_in_handle* __mfc_nal_q_create_in_q(struct mfc_dev *dev,
 	}
 	nal_q_in_handle->nal_q_in_addr = nal_q_in_handle->in_buf.vaddr;
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return nal_q_in_handle;
 }
@@ -235,7 +239,7 @@ static nal_queue_out_handle* __mfc_nal_q_create_out_q(struct mfc_dev *dev,
 {
 	nal_queue_out_handle *nal_q_out_handle;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	nal_q_out_handle = kzalloc(sizeof(*nal_q_out_handle), GFP_KERNEL);
 	if (!nal_q_out_handle) {
@@ -259,7 +263,7 @@ static nal_queue_out_handle* __mfc_nal_q_create_out_q(struct mfc_dev *dev,
 	}
 	nal_q_out_handle->nal_q_out_addr = nal_q_out_handle->out_buf.vaddr;
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return nal_q_out_handle;
 }
@@ -267,27 +271,27 @@ static nal_queue_out_handle* __mfc_nal_q_create_out_q(struct mfc_dev *dev,
 static void __mfc_nal_q_destroy_in_q(struct mfc_dev *dev,
 			nal_queue_in_handle *nal_q_in_handle)
 {
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (nal_q_in_handle) {
 		mfc_mem_ion_free(dev, &nal_q_in_handle->in_buf);
 		kfree(nal_q_in_handle);
 	}
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 static void __mfc_nal_q_destroy_out_q(struct mfc_dev *dev,
 			nal_queue_out_handle *nal_q_out_handle)
 {
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (nal_q_out_handle) {
 		mfc_mem_ion_free(dev, &nal_q_out_handle->out_buf);
 		kfree(nal_q_out_handle);
 	}
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 /*
@@ -297,7 +301,7 @@ nal_queue_handle *mfc_nal_q_create(struct mfc_dev *dev)
 {
 	nal_queue_handle *nal_q_handle;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	nal_q_handle = kzalloc(sizeof(*nal_q_handle), GFP_KERNEL);
 	if (!nal_q_handle) {
@@ -324,16 +328,16 @@ nal_queue_handle *mfc_nal_q_create(struct mfc_dev *dev)
 
 	nal_q_handle->nal_q_state = NAL_Q_STATE_CREATED;
 	MFC_TRACE_DEV("** NAL Q state : %d\n", nal_q_handle->nal_q_state);
-	mfc_debug(2, "[NALQ] handle created, state = %d\n", nal_q_handle->nal_q_state);
+	mfc_debug_dev(2, "[NALQ] handle created, state = %d\n", nal_q_handle->nal_q_state);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return nal_q_handle;
 }
 
 void mfc_nal_q_destroy(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (nal_q_handle->nal_q_out_handle)
 		__mfc_nal_q_destroy_out_q(dev, nal_q_handle->nal_q_out_handle);
@@ -344,12 +348,12 @@ void mfc_nal_q_destroy(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 	kfree(nal_q_handle);
 	dev->nal_q_handle = NULL;
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 }
 
 void mfc_nal_q_init(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (!nal_q_handle) {
 		mfc_err_dev("[NALQ] There is no nal_q_handle\n");
@@ -367,18 +371,18 @@ void mfc_nal_q_init(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 	nal_q_handle->nal_q_in_handle->in_exe_count = 0;
 	nal_q_handle->nal_q_out_handle->out_exe_count = 0;
 
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_COUNT=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_COUNT=%d\n",
 		mfc_get_nal_q_input_count());
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_COUNT=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_COUNT=%d\n",
 		mfc_get_nal_q_output_count());
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_EXE_COUNT=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_EXE_COUNT=%d\n",
 		mfc_get_nal_q_input_exe_count());
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_INFO=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_INFO=%d\n",
 		mfc_get_nal_q_info());
 
 	nal_q_handle->nal_q_exception = 0;
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return;
 }
@@ -387,7 +391,7 @@ void mfc_nal_q_start(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
 	dma_addr_t addr;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (!nal_q_handle) {
 		mfc_err_dev("[NALQ] There is no nal_q_handle\n");
@@ -403,35 +407,35 @@ void mfc_nal_q_start(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 
 	mfc_update_nal_queue_input(dev, addr, dev->pdata->nal_q_entry_size * NAL_Q_QUEUE_SIZE);
 
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_ADDR=0x%x\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_ADDR=0x%x\n",
 		mfc_get_nal_q_input_addr());
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_SIZE=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_INPUT_SIZE=%d\n",
 		mfc_get_nal_q_input_size());
 
 	addr = nal_q_handle->nal_q_out_handle->out_buf.daddr;
 
 	mfc_update_nal_queue_output(dev, addr, dev->pdata->nal_q_entry_size * NAL_Q_QUEUE_SIZE);
 
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_ADDR=0x%x\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_ADDR=0x%x\n",
 		mfc_get_nal_q_output_addr());
-	mfc_debug(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_SIZE=%d\n",
+	mfc_debug_dev(2, "[NALQ] MFC_REG_NAL_QUEUE_OUTPUT_SIZE=%d\n",
 		mfc_get_nal_q_output_ize());
 
 	nal_q_handle->nal_q_state = NAL_Q_STATE_STARTED;
 	MFC_TRACE_DEV("** NAL Q state : %d\n", nal_q_handle->nal_q_state);
-	mfc_debug(2, "[NALQ] started, state = %d\n", nal_q_handle->nal_q_state);
+	mfc_debug_dev(2, "[NALQ] started, state = %d\n", nal_q_handle->nal_q_state);
 
 	MFC_WRITEL(MFC_TIMEOUT_VALUE, MFC_REG_DEC_TIMEOUT_VALUE);
 	mfc_cmd_host2risc(dev, MFC_REG_H2R_CMD_NAL_QUEUE);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return;
 }
 
 void mfc_nal_q_stop(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 {
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (!nal_q_handle) {
 		mfc_err_dev("[NALQ] There is no nal_q_handle\n");
@@ -445,13 +449,13 @@ void mfc_nal_q_stop(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 
 	nal_q_handle->nal_q_state = NAL_Q_STATE_STOPPED;
 	MFC_TRACE_DEV("** NAL Q state : %d\n", nal_q_handle->nal_q_state);
-	mfc_debug(2, "[NALQ] stopped, state = %d\n", nal_q_handle->nal_q_state);
+	mfc_debug_dev(2, "[NALQ] stopped, state = %d\n", nal_q_handle->nal_q_state);
 
 	mfc_clean_dev_int_flags(dev);
 
 	mfc_cmd_host2risc(dev, MFC_REG_H2R_CMD_STOP_QUEUE);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return;
 }
@@ -460,7 +464,7 @@ void mfc_nal_q_stop_if_started(struct mfc_dev *dev)
 {
 	nal_queue_handle *nal_q_handle;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	nal_q_handle = dev->nal_q_handle;
 	if (!nal_q_handle) {
@@ -469,7 +473,7 @@ void mfc_nal_q_stop_if_started(struct mfc_dev *dev)
 	}
 
 	if (nal_q_handle->nal_q_state != NAL_Q_STATE_STARTED) {
-		mfc_debug(2, "[NALQ] it is not running, state: %d\n",
+		mfc_debug_dev(2, "[NALQ] it is not running, state: %d\n",
 				nal_q_handle->nal_q_state);
 		return;
 	}
@@ -485,7 +489,7 @@ void mfc_nal_q_stop_if_started(struct mfc_dev *dev)
 		call_dop(dev, dump_and_stop_always, dev);
 	}
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 	return;
 }
 
@@ -494,21 +498,19 @@ void mfc_nal_q_cleanup_queue(struct mfc_dev *dev)
 	struct mfc_ctx *ctx;
 	int i;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	for(i = 0; i < MFC_NUM_CONTEXTS; i++) {
 		ctx = dev->ctx[i];
 		if (ctx) {
 			mfc_cleanup_nal_queue(ctx);
-			if (mfc_ctx_ready(ctx)) {
-				mfc_set_bit(ctx->num, &dev->work_bits);
-				mfc_debug(2, "[NALQ] set work_bits after cleanup,"
+			if (mfc_ctx_ready_set_bit(ctx, &dev->work_bits))
+				mfc_debug_dev(2, "[NALQ] set work_bits after cleanup,"
 						" ctx: %d\n", ctx->num);
-			}
 		}
 	}
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return;
 }
@@ -549,7 +551,7 @@ static void __mfc_nal_q_get_hdr_plus_info(struct mfc_ctx *ctx, DecoderOutputStr 
 	int i, j;
 
 	if (dev->pdata->nal_q_entry_size < NAL_Q_ENTRY_SIZE_FOR_HDR10) {
-		mfc_err_dev("[NALQ][HDR+] insufficient NAL-Q entry size\n");
+		mfc_err_ctx("[NALQ][HDR+] insufficient NAL-Q entry size\n");
 		return;
 	}
 
@@ -646,7 +648,7 @@ static void __mfc_nal_q_set_hdr_plus_info(struct mfc_ctx *ctx, EncoderInputStr *
 	int i, j;
 
 	if (dev->pdata->nal_q_entry_size < NAL_Q_ENTRY_SIZE_FOR_HDR10) {
-		mfc_err_dev("[NALQ][HDR+] insufficient NAL-Q entry size\n");
+		mfc_err_ctx("[NALQ][HDR+] insufficient NAL-Q entry size\n");
 		return;
 	}
 
@@ -759,20 +761,19 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 	raw = &ctx->raw_buf;
 
 	if (IS_BUFFER_BATCH_MODE(ctx)) {
-		src_mb = mfc_get_buf(&ctx->buf_queue_lock, &ctx->src_buf_queue, MFC_BUF_SET_USED);
+		src_mb = mfc_get_buf(ctx, &ctx->src_buf_queue, MFC_BUF_SET_USED);
 		if (!src_mb) {
-			mfc_err_dev("[NALQ][BUFCON] no src buffers\n");
+			mfc_err_ctx("[NALQ][BUFCON] no src buffers\n");
 			return -EAGAIN;
 		}
 
 		/* last image in a buffer container */
 		/* move src_queue -> src_queue_nal_q */
 		if (src_mb->next_index == (src_mb->num_valid_bufs - 1)) {
-			src_mb = mfc_get_move_buf(&ctx->buf_queue_lock,
-					&ctx->src_buf_nal_queue, &ctx->src_buf_queue,
+			src_mb = mfc_get_move_buf(ctx, &ctx->src_buf_nal_queue, &ctx->src_buf_queue,
 					MFC_BUF_SET_USED, MFC_QUEUE_ADD_BOTTOM);
 			if (!src_mb) {
-				mfc_err_dev("[NALQ][BUFCON] no src buffers\n");
+				mfc_err_ctx("[NALQ][BUFCON] no src buffers\n");
 				return -EAGAIN;
 			}
 		}
@@ -786,11 +787,10 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 		src_mb->next_index++;
 	} else {
 		/* move src_queue -> src_queue_nal_q */
-		src_mb = mfc_get_move_buf(&ctx->buf_queue_lock,
-				&ctx->src_buf_nal_queue, &ctx->src_buf_queue,
+		src_mb = mfc_get_move_buf(ctx, &ctx->src_buf_nal_queue, &ctx->src_buf_queue,
 				MFC_BUF_SET_USED, MFC_QUEUE_ADD_BOTTOM);
 		if (!src_mb) {
-			mfc_err_dev("[NALQ] no src buffers\n");
+			mfc_err_ctx("[NALQ] no src buffers\n");
 			return -EAGAIN;
 		}
 
@@ -825,6 +825,24 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 			mfc_debug(2, "[NALQ][BUFINFO] ctx[%d] set src index:%d, 2bit addr[%d]: 0x%08llx\n",
 					ctx->num, index, i, addr_2bit[i]);
 		}
+	} else if (ctx->is_sbwc && !ctx->is_10bit) {
+		addr_2bit[0] = src_addr[0] + SBWC_8B_Y_SIZE(ctx->img_width, ctx->img_height);
+		addr_2bit[1] = src_addr[1] + SBWC_8B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+
+		for (i = 0; i < raw->num_planes; i++) {
+			pInStr->Frame2bitAddr[i] = addr_2bit[i];
+			mfc_debug(2, "[NALQ][BUFINFO][SBWC] ctx[%d] set src index:%d, 2bit addr[%d]: 0x%08llx\n",
+					ctx->num, index, i, addr_2bit[i]);
+		}
+	} else if (ctx->is_sbwc && ctx->is_10bit) {
+		addr_2bit[0] = src_addr[0] + SBWC_10B_Y_SIZE(ctx->img_width, ctx->img_height);
+		addr_2bit[1] = src_addr[1] + SBWC_10B_CBCR_SIZE(ctx->img_width, ctx->img_height);
+
+		for (i = 0; i < raw->num_planes; i++) {
+			pInStr->Frame2bitAddr[i] = addr_2bit[i];
+			mfc_debug(2, "[NALQ][BUFINFO][SBWC] ctx[%d] set src index:%d, 2bit addr[%d]: 0x%08llx\n",
+					ctx->num, index, i, addr_2bit[i]);
+		}
 	}
 
 	/* HDR10+ sei meta */
@@ -844,10 +862,10 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 	}
 
 	/* move dst_queue -> dst_queue_nal_q */
-	dst_mb = mfc_get_move_buf(&ctx->buf_queue_lock,
-		&ctx->dst_buf_nal_queue, &ctx->dst_buf_queue, MFC_BUF_SET_USED, MFC_QUEUE_ADD_BOTTOM);
+	dst_mb = mfc_get_move_buf(ctx, &ctx->dst_buf_nal_queue, &ctx->dst_buf_queue,
+			MFC_BUF_SET_USED, MFC_QUEUE_ADD_BOTTOM);
 	if (!dst_mb) {
-		mfc_err_dev("[NALQ] no dst buffers\n");
+		mfc_err_ctx("[NALQ] no dst buffers\n");
 		return -EAGAIN;
 	}
 
@@ -889,12 +907,12 @@ static int __mfc_nal_q_run_in_buf_dec(struct mfc_ctx *ctx, DecoderInputStr *pInS
 	if (mfc_is_queue_count_same(&ctx->buf_queue_lock, &ctx->dst_buf_queue, 0) &&
 			mfc_is_queue_count_smaller(&ctx->buf_queue_lock,
 				&ctx->ref_buf_queue, (ctx->dpb_count + 5))) {
-		mfc_err_dev("[NALQ] no dst buffers\n");
+		mfc_err_ctx("[NALQ] no dst buffers\n");
 		return -EAGAIN;
 	}
 
 	if (mfc_is_queue_count_same(&ctx->buf_queue_lock, &ctx->src_buf_queue, 0)) {
-		mfc_err_dev("[NALQ] no src buffers\n");
+		mfc_err_ctx("[NALQ] no src buffers\n");
 		return -EAGAIN;
 	}
 
@@ -904,18 +922,17 @@ static int __mfc_nal_q_run_in_buf_dec(struct mfc_ctx *ctx, DecoderInputStr *pInS
 	pInStr->NalStartOptions = 0;
 
 	/* Try to use the non-referenced DPB on dst-queue */
-	dst_mb = mfc_search_move_dpb_nal_q(ctx, dec->dynamic_used);
+	dst_mb = mfc_search_move_dpb_nal_q(ctx);
 	if (!dst_mb) {
 		mfc_debug(2, "[NALQ][DPB] couldn't find dst buffers\n");
 		return -EAGAIN;
 	}
 
 	/* move src_queue -> src_queue_nal_q */
-	src_mb = mfc_get_move_buf(&ctx->buf_queue_lock,
-			&ctx->src_buf_nal_queue, &ctx->src_buf_queue,
+	src_mb = mfc_get_move_buf(ctx, &ctx->src_buf_nal_queue, &ctx->src_buf_queue,
 			MFC_BUF_SET_USED, MFC_QUEUE_ADD_BOTTOM);
 	if (!src_mb) {
-		mfc_err_dev("[NALQ] no src buffers\n");
+		mfc_err_ctx("[NALQ] no src buffers\n");
 		return -EAGAIN;
 	}
 
@@ -946,22 +963,19 @@ static int __mfc_nal_q_run_in_buf_dec(struct mfc_ctx *ctx, DecoderInputStr *pInS
 	pInStr->CpbBufferOffset = 0;
 	ctx->last_src_addr = buf_addr;
 
-	MFC_TRACE_CTX("Set src[%d] fd: %d, %#llx\n",
-			src_index, src_mb->vb.vb2_buf.planes[0].m.fd, buf_addr);
-
 	/* dst buffer setting */
-	dst_index = dst_mb->vb.vb2_buf.index;
+	dst_index = dst_mb->dpb_index;
 	set_bit(dst_index, &dec->available_dpb);
-	dec->dynamic_set = 1 << dst_index;
+	dec->dynamic_set = 1UL << dst_index;
 
 	for (i = 0; i < raw->num_planes; i++) {
 		pInStr->FrameSize[i] = raw->plane_size[i];
 		pInStr->FrameAddr[i] = dst_mb->addr[0][i];
 		ctx->last_dst_addr[i] = dst_mb->addr[0][i];
-		if (ctx->is_10bit)
+		if (IS_2BIT_NEED(ctx))
 			pInStr->Frame2BitSize[i] = raw->plane_size_2bits[i];
-		mfc_debug(2, "[NALQ][BUFINFO][DPB] ctx[%d] set dst index: %d, addr[%d]: 0x%08llx\n",
-				ctx->num, dst_index, i, dst_mb->addr[0][i]);
+		mfc_debug(2, "[NALQ][BUFINFO][DPB] ctx[%d] set dst index: [%d][%d], addr[%d]: 0x%08llx\n",
+				ctx->num, dst_mb->vb.vb2_buf.index, dst_mb->dpb_index, i, dst_mb->addr[0][i]);
 	}
 
 	pInStr->ScratchBufAddr = ctx->codec_buf.daddr;
@@ -971,13 +985,15 @@ static int __mfc_nal_q_run_in_buf_dec(struct mfc_ctx *ctx, DecoderInputStr *pInS
 				&ctx->src_ctrls[src_index], pInStr) < 0)
 		mfc_err_ctx("[NALQ] failed in set_buf_ctrls_val\n");
 
-	pInStr->DynamicDpbFlagLower = dec->dynamic_set;
+	pInStr->DynamicDpbFlagUpper = mfc_get_upper(dec->dynamic_set);
+	pInStr->DynamicDpbFlagLower = mfc_get_lower(dec->dynamic_set);
 
 	/* use dynamic_set value to available dpb in NAL Q */
 	// pInStr->AvailableDpbFlagLower = dec->available_dpb;
-	pInStr->AvailableDpbFlagLower = dec->dynamic_set;
+	pInStr->AvailableDpbFlagLower = mfc_get_lower(dec->dynamic_set);
+	pInStr->AvailableDpbFlagUpper = mfc_get_upper(dec->dynamic_set);
 
-	MFC_TRACE_CTX("Set dst[%d] fd: %d, %#llx / avail %#lx used %#x\n",
+	MFC_TRACE_CTX("Set dst[%d] fd: %d, %#llx / avail %#lx used %#lx\n",
 			dst_index, dst_mb->vb.vb2_buf.planes[0].m.fd, dst_mb->addr[0][0],
 			dec->available_dpb, dec->dynamic_used);
 
@@ -1023,7 +1039,7 @@ static void __mfc_nal_q_handle_stream_copy_timestamp(struct mfc_ctx *ctx, struct
 				new_timestamp, interval * src_mb->done_index);
 
 	/* Get the destination buffer */
-	dst_mb = mfc_get_buf(&ctx->buf_queue_lock, &ctx->dst_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+	dst_mb = mfc_get_buf(ctx, &ctx->dst_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 	if (dst_mb)
 		dst_mb->vb.vb2_buf.timestamp = new_timestamp;
 }
@@ -1049,8 +1065,7 @@ static void __mfc_nal_q_handle_stream_input(struct mfc_ctx *ctx, EncoderOutputSt
 				ctx->num, i, enc_addr[i]);
 
 	if (IS_BUFFER_BATCH_MODE(ctx)) {
-		src_mb = mfc_find_first_buf(&ctx->buf_queue_lock,
-				&ctx->src_buf_queue, enc_addr[0]);
+		src_mb = mfc_find_first_buf(ctx, &ctx->src_buf_queue, enc_addr[0]);
 		if (src_mb) {
 			found_in_src_queue = 1;
 
@@ -1058,8 +1073,7 @@ static void __mfc_nal_q_handle_stream_input(struct mfc_ctx *ctx, EncoderOutputSt
 			src_mb->done_index++;
 			mfc_debug(4, "[NALQ][BUFCON] batch buf done_index: %d\n", src_mb->done_index);
 		} else {
-			src_mb = mfc_find_first_buf(&ctx->buf_queue_lock,
-					&ctx->src_buf_nal_queue, enc_addr[0]);
+			src_mb = mfc_find_first_buf(ctx, &ctx->src_buf_nal_queue, enc_addr[0]);
 			if (src_mb) {
 				found_in_src_queue = 1;
 
@@ -1069,8 +1083,7 @@ static void __mfc_nal_q_handle_stream_input(struct mfc_ctx *ctx, EncoderOutputSt
 
 				/* last image in a buffer container */
 				if (src_mb->done_index == src_mb->num_valid_bufs) {
-					src_mb = mfc_find_del_buf(&ctx->buf_queue_lock,
-							&ctx->src_buf_nal_queue, enc_addr[0]);
+					src_mb = mfc_find_del_buf(ctx, &ctx->src_buf_nal_queue, enc_addr[0]);
 					if (src_mb) {
 						for (i = 0; i < raw->num_planes; i++)
 							mfc_bufcon_put_daddr(ctx, src_mb, i);
@@ -1080,16 +1093,14 @@ static void __mfc_nal_q_handle_stream_input(struct mfc_ctx *ctx, EncoderOutputSt
 			}
 		}
 	} else {
-		src_mb = mfc_find_del_buf(&ctx->buf_queue_lock,
-				&ctx->src_buf_nal_queue, enc_addr[0]);
+		src_mb = mfc_find_del_buf(ctx, &ctx->src_buf_nal_queue, enc_addr[0]);
 		if (src_mb) {
 			mfc_debug(3, "[NALQ] find src buf in src_queue\n");
 			found_in_src_queue = 1;
 			vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
 		} else {
 			mfc_debug(3, "[NALQ] no src buf in src_queue\n");
-			ref_mb = mfc_find_del_buf(&ctx->buf_queue_lock,
-					&ctx->ref_buf_queue, enc_addr[0]);
+			ref_mb = mfc_find_del_buf(ctx, &ctx->ref_buf_queue, enc_addr[0]);
 			if (ref_mb) {
 				mfc_debug(3, "[NALQ] find src buf in ref_queue\n");
 				vb2_buffer_done(&ref_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
@@ -1102,10 +1113,9 @@ static void __mfc_nal_q_handle_stream_input(struct mfc_ctx *ctx, EncoderOutputSt
 move_buf:
 	/* move enqueued src buffer: src nal queue -> ref queue */
 	if (!found_in_src_queue) {
-		src_mb = mfc_get_move_buf_used(&ctx->buf_queue_lock,
-				&ctx->ref_buf_queue, &ctx->src_buf_nal_queue);
+		src_mb = mfc_get_move_buf_used(ctx, &ctx->ref_buf_queue, &ctx->src_buf_nal_queue);
 		if (!src_mb)
-			mfc_err_dev("[NALQ] no src buffers\n");
+			mfc_err_ctx("[NALQ] no src buffers\n");
 
 		mfc_debug(2, "[NALQ] enc src_buf_nal_queue(%d) -> ref_buf_queue(%d)\n",
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue),
@@ -1121,25 +1131,24 @@ static void __mfc_nal_q_handle_stream_output(struct mfc_ctx *ctx, int slice_type
 
 	if (strm_size == 0) {
 		mfc_debug(3, "[NALQ] no encoded dst (reuse)\n");
-		dst_mb = mfc_get_move_buf(&ctx->buf_queue_lock,
-				&ctx->dst_buf_queue, &ctx->dst_buf_nal_queue,
+		dst_mb = mfc_get_move_buf(ctx, &ctx->dst_buf_queue, &ctx->dst_buf_nal_queue,
 				MFC_BUF_RESET_USED, MFC_QUEUE_ADD_TOP);
 		if (!dst_mb) {
-			mfc_err_dev("[NALQ] no dst buffers\n");
+			mfc_err_ctx("[NALQ] no dst buffers\n");
 			return;
 		}
 
-		mfc_debug(2, "[NALQ] no output, dst_buf_nal_queue(%d) -> dst_buf_queue(%d) index:%d\n",
+		mfc_debug(2, "[NALQ] no output, dst_buf_nal_queue(%d) -> dst_buf_queue(%d) index:[%d][%d]\n",
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->dst_buf_nal_queue),
 				mfc_get_queue_count(&ctx->buf_queue_lock, &ctx->dst_buf_queue),
-				dst_mb->vb.vb2_buf.index);
+				dst_mb->vb.vb2_buf.index, dst_mb->dpb_index);
 		return;
 	}
 
 	/* at least one more dest. buffers exist always  */
-	dst_mb = mfc_get_del_buf(&ctx->buf_queue_lock, &ctx->dst_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+	dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 	if (!dst_mb) {
-		mfc_err_dev("[NALQ] no dst buffers\n");
+		mfc_err_ctx("[NALQ] no dst buffers\n");
 		return;
 	}
 
@@ -1214,76 +1223,94 @@ static void __mfc_nal_q_handle_stream(struct mfc_ctx *ctx, EncoderOutputStr *pOu
 static void __mfc_nal_q_handle_reuse_buffer(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
-	unsigned int prev_flag, released_flag = 0;
 	struct mfc_buf *dst_mb;
 	dma_addr_t disp_addr;
-	int i;
 
 	/* reuse not used buf: dst_buf_nal_queue -> dst_queue */
 	disp_addr = pOutStr->DisplayAddr[0];
 	if (disp_addr) {
 		mfc_debug(2, "[NALQ][DPB] decoding only but there is disp addr: 0x%llx\n", disp_addr);
-		dst_mb = mfc_get_move_buf_addr(&ctx->buf_queue_lock,
-				&ctx->dst_buf_queue, &ctx->dst_buf_nal_queue,
-				disp_addr);
+		dst_mb = mfc_get_move_buf_addr(ctx, &ctx->dst_buf_queue, &ctx->dst_buf_nal_queue, disp_addr);
 		if (dst_mb) {
-			mfc_debug(2, "[NALQ][DPB] buf[%d] will reused. addr: 0x%08llx\n",
-					dst_mb->vb.vb2_buf.index, disp_addr);
+			mfc_debug(2, "[NALQ][DPB] buf[%d][%d] will reused. addr: 0x%08llx\n",
+					dst_mb->vb.vb2_buf.index, dst_mb->dpb_index, disp_addr);
 			dst_mb->used = 0;
-			clear_bit(dst_mb->vb.vb2_buf.index, &dec->available_dpb);
+			clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+		} else {
+			mfc_err_ctx("[NALQ][DPB] couldn't find DPB 0x%08llx\n",
+								disp_addr);
+			mfc_print_dpb_table(ctx);
 		}
 	}
-
-	/* reuse not referenced buf anymore: ref_queue -> dst_queue */
-	prev_flag = dec->dynamic_used;
-	dec->dynamic_used = pOutStr->UsedDpbFlagLower;
-	released_flag = prev_flag & (~dec->dynamic_used);
-
-	if (!released_flag)
-		return;
-
-	for (i = 0; i < MFC_MAX_DPBS; i++)
-		if (released_flag & (1 << i))
-			if (mfc_move_reuse_buffer(ctx, i))
-				released_flag &= ~(1 << i);
-
-	/* Not reused buffer should be released when there is a display frame */
-	dec->dec_only_release_flag |= released_flag;
-	for (i = 0; i < MFC_MAX_DPBS; i++)
-		if (released_flag & (1 << i))
-			clear_bit(i, &dec->available_dpb);
 }
 
-static void __mfc_nal_q_handle_ref_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
+static void __mfc_nal_q_handle_frame_all_extracted(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_buf *dst_mb;
-	dma_addr_t dec_addr;
-	int index = 0;
+	int index, i, is_first = 1;
 
-	mfc_debug_enter();
+	mfc_debug(2, "[NALQ] Decided to finish\n");
+	ctx->sequence++;
 
-	dec_addr = pOutStr->DecodedAddr[0];
+	while (1) {
+		dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+		if (!dst_mb)
+			break;
 
-	dst_mb = mfc_find_move_buf_used(&ctx->buf_queue_lock,
-		&ctx->ref_buf_queue, &ctx->dst_buf_nal_queue, dec_addr);
-	if (dst_mb) {
-		mfc_debug(2, "[NALQ][DPB] Found in dst queue = 0x%08llx, buf = 0x%08llx\n",
-				dec_addr, dst_mb->addr[0][0]);
+		mfc_debug(2, "[NALQ] Cleaning up buffer: [%d][%d]\n",
+					  dst_mb->vb.vb2_buf.index, dst_mb->dpb_index);
 
 		index = dst_mb->vb.vb2_buf.index;
-		if (!((1 << index) & pOutStr->UsedDpbFlagLower))
-			dec->dynamic_used |= 1 << index;
-	} else {
-		mfc_debug(2, "[NALQ][DPB] Can't find buffer for addr: 0x%08llx\n", dec_addr);
+
+		for (i = 0; i < ctx->dst_fmt->mem_planes; i++)
+			vb2_set_plane_payload(&dst_mb->vb.vb2_buf, i, 0);
+
+		dst_mb->vb.sequence = (ctx->sequence++);
+		mfc_clear_vb_flag(dst_mb);
+
+		clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+
+		if (call_cop(ctx, get_buf_ctrls_val_nal_q_dec, ctx,
+					&ctx->dst_ctrls[index], pOutStr) < 0)
+			mfc_err_ctx("[NALQ] failed in get_buf_ctrls_val\n");
+
+		if (is_first) {
+			call_cop(ctx, get_buf_update_val, ctx,
+				&ctx->dst_ctrls[index],
+				V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG,
+				dec->stored_tag);
+			is_first = 0;
+		} else {
+			call_cop(ctx, get_buf_update_val, ctx,
+				&ctx->dst_ctrls[index],
+				V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG,
+				DEFAULT_TAG);
+			call_cop(ctx, get_buf_update_val, ctx,
+				&ctx->dst_ctrls[index],
+				V4L2_CID_MPEG_VIDEO_H264_SEI_FP_AVAIL,
+				0);
+		}
+
+		mutex_lock(&dec->dpb_mutex);
+
+		index = dst_mb->dpb_index;
+		dec->dpb[index].queued = 0;
+		clear_bit(index, &dec->queued_dpb);
+
+		mutex_unlock(&dec->dpb_mutex);
+
+		vb2_buffer_done(&dst_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
+		mfc_debug(2, "[NALQ][DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
+				index, dec->dynamic_used, dec->queued_dpb);
 	}
 
-	mfc_debug_leave();
+	mfc_debug(2, "[NALQ] After cleanup\n");
 }
 
 static void __mfc_nal_q_handle_frame_copy_timestamp(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 {
-	struct mfc_buf *ref_mb, *src_mb;
+	struct mfc_buf *dst_mb, *src_mb;
 	dma_addr_t dec_y_addr;
 
 	mfc_debug_enter();
@@ -1291,64 +1318,72 @@ static void __mfc_nal_q_handle_frame_copy_timestamp(struct mfc_ctx *ctx, Decoder
 	dec_y_addr = pOutStr->DecodedAddr[0];
 
 	/* Get the next source buffer */
-	src_mb = mfc_get_buf(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+	src_mb = mfc_get_buf(ctx, &ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 	if (!src_mb) {
-		mfc_err_dev("[NALQ][TS] no src buffers\n");
+		mfc_err_ctx("[NALQ][TS] no src buffers\n");
 		return;
 	}
 
-	ref_mb = mfc_find_buf(&ctx->buf_queue_lock, &ctx->ref_buf_queue, dec_y_addr);
-	if (ref_mb)
-		ref_mb->vb.vb2_buf.timestamp = src_mb->vb.vb2_buf.timestamp;
+	dst_mb = mfc_find_buf(ctx, &ctx->dst_buf_nal_queue, dec_y_addr);
+	if (dst_mb)
+		dst_mb->vb.vb2_buf.timestamp = src_mb->vb.vb2_buf.timestamp;
 
 	mfc_debug_leave();
 }
 
-static void __mfc_nal_q_handle_frame_output_move(struct mfc_ctx *ctx,
-			dma_addr_t dspl_y_addr, unsigned int released_flag)
+static void __mfc_nal_q_get_img_size(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr,
+					enum mfc_get_img_size img_size)
 {
-	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_dev *dev = ctx->dev;
-	struct mfc_buf *dst_mb;
-	unsigned int index;
+	unsigned int w, h;
+	int i;
 
-	dst_mb = mfc_find_move_buf(&ctx->buf_queue_lock,
-			&ctx->dst_buf_queue, &ctx->ref_buf_queue, dspl_y_addr, released_flag);
-	if (dst_mb) {
-		index = dst_mb->vb.vb2_buf.index;
+	w = ctx->img_width;
+	h = ctx->img_height;
 
-		/* Check if this is the buffer we're looking for */
-		mfc_debug(2, "[NALQ][DPB] Found buf[%d] 0x%08llx, looking for disp addr 0x%08llx\n",
-				index, dst_mb->addr[0][0], dspl_y_addr);
+	ctx->img_width = pOutStr->DisplayFrameWidth;
+	ctx->img_height = pOutStr->DisplayFrameHeight;
+	ctx->crop_width = ctx->img_width;
+	ctx->crop_height = ctx->img_height;
 
-		if (released_flag & (1 << index)) {
-			dec->available_dpb &= ~(1 << index);
-			released_flag &= ~(1 << index);
-			mfc_debug(2, "[NALQ][DPB] Corrupted frame(%d), it will be re-used(release)\n",
-					mfc_get_warn(mfc_get_int_err()));
-		} else {
-			dec->err_reuse_flag |= 1 << index;
-			mfc_debug(2, "[NALQ][DPB] Corrupted frame(%d), it will be re-used(not released)\n",
-					mfc_get_warn(mfc_get_int_err()));
+	for (i = 0; i < ctx->dst_fmt->num_planes; i++) {
+		ctx->raw_buf.stride[i] = pOutStr->DpbStrideSize[i];
+		if (IS_2BIT_NEED(ctx))
+			ctx->raw_buf.stride_2bits[i] = pOutStr->Dpb2bitStrideSize[i];
+	}
+
+	mfc_debug(2, "[NALQ][FRAME] resolution changed, %dx%d => %dx%d (stride: %d)\n", w, h,
+			ctx->img_width, ctx->img_height, ctx->raw_buf.stride[0]);
+
+	if (img_size == MFC_GET_RESOL_DPB_SIZE) {
+		ctx->scratch_buf_size = mfc_get_scratch_size();
+		for (i = 0; i < ctx->dst_fmt->num_planes; i++) {
+			ctx->min_dpb_size[i] = mfc_get_min_dpb_size(i);
+			if (IS_2BIT_NEED(ctx))
+				ctx->min_dpb_size_2bits[i] = mfc_get_min_dpb_size_2bit(i);
 		}
-		dec->dynamic_used |= released_flag;
+		mfc_debug(2, "[NALQ][FRAME] DPB count %d, min_dpb_size %d(%#x) min_dpb_size_2bits %d scratch %zu(%#zx)\n",
+			ctx->dpb_count, ctx->min_dpb_size[0], ctx->min_dpb_size[0], ctx->min_dpb_size_2bits[0],
+			ctx->scratch_buf_size, ctx->scratch_buf_size);
 	}
 }
 
 static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
-		DecoderOutputStr *pOutStr, unsigned int err, unsigned int released_flag)
+		DecoderOutputStr *pOutStr, unsigned int err)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
 	struct mfc_dev *dev = ctx->dev;
 	struct mfc_raw_info *raw = &ctx->raw_buf;
-	struct mfc_buf *ref_mb;
+	struct mfc_buf *dst_mb;
 	dma_addr_t dspl_y_addr;
 	unsigned int frame_type;
 	unsigned int dst_frame_status;
 	unsigned int is_video_signal_type = 0, is_colour_description = 0;
 	unsigned int is_content_light = 0, is_display_colour = 0;
 	unsigned int is_hdr10_plus_sei = 0;
+	unsigned int is_disp_res_change = 0;
 	unsigned int disp_err;
+	unsigned int is_uncomp = 0;
 	int i, index;
 
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->color_aspect_dec)) {
@@ -1378,75 +1413,108 @@ static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
 		frame_type = pOutStr->DisplayFrameType & MFC_REG_DISPLAY_FRAME_MASK;
 	}
 
-	ref_mb = mfc_find_del_buf(&ctx->buf_queue_lock, &ctx->ref_buf_queue, dspl_y_addr);
-	if (ref_mb) {
-		index = ref_mb->vb.vb2_buf.index;
+	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->sbwc_uncomp) && ctx->is_sbwc)
+		is_uncomp = (pOutStr->DisplayStatus
+				>> MFC_REG_DISP_STATUS_UNCOMP_SHIFT)
+				& MFC_REG_DISP_STATUS_UNCOMP_MASK;
+
+	dst_mb = mfc_find_del_buf(ctx, &ctx->dst_buf_nal_queue, dspl_y_addr);
+	if (!dst_mb) {
+		/*
+		 * A buffer that was not displayed during NAL_START mode
+		 * can be displayed after changing to NAL_QUEUE mode
+		 * and it exists in dst_buf_queue.
+		 * So, here tries to find the buffer also in dst_buf_queue.
+		 */
+		dst_mb = mfc_find_del_buf(ctx, &ctx->dst_buf_queue, dspl_y_addr);
+		mfc_debug(2, "[NALQ][BUFINFO] disp buffer %ssearch in dst_q also\n",
+				dst_mb? "" : "couldn't ");
+	}
+	if (dst_mb) {
+		index = dst_mb->vb.vb2_buf.index;
 
 		/* Check if this is the buffer we're looking for */
-		mfc_debug(2, "[NALQ][BUFINFO][DPB] ctx[%d] get dst index: %d, addr[0]: 0x%08llx\n",
-				ctx->num, index, ref_mb->addr[0][0]);
+		mfc_debug(2, "[NALQ][BUFINFO][DPB] ctx[%d] get dst index: [%d][%d], addr[0]: 0x%08llx\n",
+				ctx->num, index, dst_mb->dpb_index, dst_mb->addr[0][0]);
 
-		ref_mb->vb.sequence = ctx->sequence;
+		dst_mb->vb.sequence = ctx->sequence;
 
 		/* Set reserved2 bits in order to inform SEI information */
-		mfc_clear_vb_flag(ref_mb);
+		mfc_clear_vb_flag(dst_mb);
 
 		if (is_content_light) {
-			mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_CONTENT_LIGHT);
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_CONTENT_LIGHT);
 			mfc_debug(2, "[NALQ][HDR] content light level parsed\n");
 		}
 		if (is_display_colour) {
-			mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_DISPLAY_COLOUR);
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_DISPLAY_COLOUR);
 			mfc_debug(2, "[NALQ][HDR] mastering display colour parsed\n");
 		}
 		if (is_video_signal_type) {
-			mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_VIDEO_SIGNAL_TYPE);
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_VIDEO_SIGNAL_TYPE);
 			mfc_debug(2, "[NALQ][HDR] video signal type parsed\n");
 			if (is_colour_description) {
-				mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_MAXTIX_COEFF);
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_MAXTIX_COEFF);
 				mfc_debug(2, "[NALQ][HDR] matrix coefficients parsed\n");
-				mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_COLOUR_DESC);
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_COLOUR_DESC);
 				mfc_debug(2, "[NALQ][HDR] colour description parsed\n");
 			}
 		}
 
 		if (IS_VP9_DEC(ctx) && MFC_FEATURE_SUPPORT(dev, dev->pdata->color_aspect_dec)) {
 			if (dec->color_space != MFC_REG_D_COLOR_UNKNOWN) {
-				mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_COLOUR_DESC);
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_COLOUR_DESC);
 				mfc_debug(2, "[NALQ][HDR] color space parsed\n");
 			}
-			mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_VIDEO_SIGNAL_TYPE);
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_VIDEO_SIGNAL_TYPE);
 			mfc_debug(2, "[NALQ][HDR] color range parsed\n");
+		}
+
+		if (IS_VP9_DEC(ctx)) {
+			is_disp_res_change = ((pOutStr->Vp9Info
+						>> MFC_REG_D_VP9_INFO_DISP_RES_SHIFT)
+						& MFC_REG_D_VP9_INFO_DISP_RES_MASK);
+			if (is_disp_res_change) {
+				mfc_info_ctx("[NALQ][FRAME] display resolution changed\n");
+				ctx->wait_state = WAIT_G_FMT;
+				__mfc_nal_q_get_img_size(ctx, pOutStr, MFC_GET_RESOL_SIZE);
+				dec->disp_res_change = 1;
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_DISP_RES_CHANGE);
+			}
 		}
 
 		if (is_hdr10_plus_sei) {
 			__mfc_nal_q_get_hdr_plus_info(ctx, pOutStr, &dec->hdr10_plus_info[index]);
-			mfc_set_vb_flag(ref_mb, MFC_FLAG_HDR_PLUS);
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_PLUS);
 			mfc_debug(2, "[NALQ][HDR+] HDR10 plus dyanmic SEI metadata parsed\n");
 		} else {
 			dec->hdr10_plus_info[index].valid = 0;
 		}
 
+		if (is_uncomp) {
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_UNCOMP);
+			mfc_debug(2, "[NALQ][SBWC] Uncompressed\n");
+		}
+
 		for (i = 0; i < raw->num_planes; i++)
-			vb2_set_plane_payload(&ref_mb->vb.vb2_buf, i,
+			vb2_set_plane_payload(&dst_mb->vb.vb2_buf, i,
 					raw->plane_size[i]);
 
-		clear_bit(index, &dec->available_dpb);
-
-		ref_mb->vb.flags &= ~(V4L2_BUF_FLAG_KEYFRAME |
+		clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+		dst_mb->vb.flags &= ~(V4L2_BUF_FLAG_KEYFRAME |
 					V4L2_BUF_FLAG_PFRAME |
 					V4L2_BUF_FLAG_BFRAME |
 					V4L2_BUF_FLAG_ERROR);
 
 		switch (frame_type) {
 			case MFC_REG_DISPLAY_FRAME_I:
-				ref_mb->vb.flags |= V4L2_BUF_FLAG_KEYFRAME;
+				dst_mb->vb.flags |= V4L2_BUF_FLAG_KEYFRAME;
 				break;
 			case MFC_REG_DISPLAY_FRAME_P:
-				ref_mb->vb.flags |= V4L2_BUF_FLAG_PFRAME;
+				dst_mb->vb.flags |= V4L2_BUF_FLAG_PFRAME;
 				break;
 			case MFC_REG_DISPLAY_FRAME_B:
-				ref_mb->vb.flags |= V4L2_BUF_FLAG_BFRAME;
+				dst_mb->vb.flags |= V4L2_BUF_FLAG_BFRAME;
 				break;
 			default:
 				break;
@@ -1456,14 +1524,12 @@ static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
 		if (disp_err) {
 			mfc_err_ctx("[NALQ] Warning for displayed frame: %d\n",
 					disp_err);
-			ref_mb->vb.flags |= V4L2_BUF_FLAG_ERROR;
+			dst_mb->vb.flags |= V4L2_BUF_FLAG_ERROR;
 		}
 
 		if (call_cop(ctx, get_buf_ctrls_val_nal_q_dec, ctx,
 					&ctx->dst_ctrls[index], pOutStr) < 0)
 			mfc_err_ctx("[NALQ] failed in get_buf_ctrls_val\n");
-
-		mfc_handle_released_info(ctx, released_flag, index);
 
 		if (dec->immediate_display == 1) {
 			dst_frame_status = pOutStr->DecodedStatus
@@ -1482,25 +1548,112 @@ static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
 			dec->immediate_display = 0;
 		}
 
-		mfc_qos_update_last_framerate(ctx, ref_mb->vb.vb2_buf.timestamp);
-		vb2_buffer_done(&ref_mb->vb.vb2_buf, disp_err ?
+		mfc_qos_update_last_framerate(ctx, dst_mb->vb.vb2_buf.timestamp);
+
+		mutex_lock(&dec->dpb_mutex);
+
+		dec->dpb[dst_mb->dpb_index].queued = 0;
+		clear_bit(dst_mb->dpb_index, &dec->queued_dpb);
+		dec->display_index = dst_mb->dpb_index;
+
+		mutex_unlock(&dec->dpb_mutex);
+
+		vb2_buffer_done(&dst_mb->vb.vb2_buf, disp_err ?
 				VB2_BUF_STATE_ERROR : VB2_BUF_STATE_DONE);
 	}
 }
 
-static void __mfc_nal_q_handle_frame_new(struct mfc_ctx *ctx, unsigned int err,
+static void __mfc_nal_q_move_released_buf(struct mfc_ctx *ctx, unsigned long released_flag)
+{
+	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_buf *dst_mb;
+	int i;
+
+	if (!released_flag)
+		return;
+
+	for (i = 0; i < MFC_MAX_DPBS; i++) {
+		if (released_flag & (1UL << i) && dec->dpb[i].queued) {
+			dst_mb = mfc_get_move_buf_index(ctx, &ctx->dst_buf_queue, &ctx->dst_buf_nal_queue, i);
+			if (dst_mb) {
+				mfc_debug(2, "[NALQ][DPB] buf[%d][%d] released will be reused. addr: 0x%08llx\n",
+						dst_mb->vb.vb2_buf.index, dst_mb->dpb_index, dst_mb->addr[0][0]);
+				dst_mb->used = 0;
+				clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+			} else {
+				mfc_debug(2, "[NALQ][DPB] buf[%d] couldn't search in dst_nal\n", i);
+			}
+		}
+	}
+}
+
+static void __mfc_nal_q_handle_released_buf(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
+{
+	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_dev *dev = ctx->dev;
+	unsigned long prev_flag, cur_flag, released_flag = 0;
+	unsigned long flag;
+	int i;
+
+	mutex_lock(&dec->dpb_mutex);
+
+	prev_flag = dec->dynamic_used;
+	cur_flag = ((unsigned long)(pOutStr->UsedDpbFlagUpper) << 32) | (pOutStr->UsedDpbFlagLower & 0xffffffff);
+	released_flag = prev_flag & (~cur_flag);
+
+	mfc_debug(2, "[NALQ][DPB] Used flag: old = %#lx, new = %#lx, released = %#lx, queued = %#lx\n",
+			prev_flag, cur_flag, released_flag, dec->queued_dpb);
+
+	__mfc_nal_q_move_released_buf(ctx, released_flag);
+	dec->dynamic_used = cur_flag;
+
+	flag = dec->dynamic_used | released_flag;
+	for (i = __ffs(flag); i < MFC_MAX_DPBS;) {
+		if (dec->dynamic_used & (1UL << i)) {
+			dec->dpb[i].ref = 1;
+			if (dec->dpb[i].mapcnt == 0) {
+				mfc_err_ctx("[DPB] %d index is no dpb table\n", i);
+				call_dop(dev, dump_and_stop_debug_mode, dev);
+			}
+		}
+		if (released_flag & (1UL << i)) {
+			dec->dpb[i].ref = 0;
+			if (!dec->dpb[i].queued) {
+				/* Except queued buffer, the released DPB is deleted from dpb_table */
+				dec->dpb_table_used &= ~(1UL << i);
+				mfc_put_iovmm(ctx, dec->dpb, ctx->dst_fmt->mem_planes, i);
+			}
+		}
+		flag &= ~(1UL << i);
+		if (flag == 0)
+			break;
+		i = __ffs(flag);
+	}
+
+	/* The displayed and not referenced buffer must be freed from dpb_table */
+	if (dec->display_index >= 0) {
+		i = dec->display_index;
+		if (!(dec->dynamic_used & (1UL << i)) && !dec->dpb[i].queued && dec->dpb[i].mapcnt) {
+			dec->dpb_table_used &= ~(1UL << i);
+			mfc_put_iovmm(ctx, dec->dpb, ctx->dst_fmt->mem_planes, i);
+		}
+		dec->display_index = -1;
+	}
+	mfc_print_dpb_table(ctx);
+
+	mutex_unlock(&dec->dpb_mutex);
+}
+
+static void __mfc_nal_q_handle_frame_output(struct mfc_ctx *ctx, unsigned int err,
 					DecoderOutputStr *pOutStr)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
 	dma_addr_t dspl_y_addr;
 	unsigned int frame_type;
-	unsigned int prev_flag, released_flag = 0;
-	unsigned int disp_err;
 
 	mfc_debug_enter();
 
 	frame_type = pOutStr->DisplayFrameType & MFC_REG_DISPLAY_FRAME_MASK;
-	disp_err = mfc_get_warn(pOutStr->ErrorCode);
 
 	ctx->sequence++;
 
@@ -1519,19 +1672,9 @@ static void __mfc_nal_q_handle_frame_new(struct mfc_ctx *ctx, unsigned int err,
 			return;
 	}
 
-	prev_flag = dec->dynamic_used;
-	dec->dynamic_used = pOutStr->UsedDpbFlagLower;
-	released_flag = prev_flag & (~dec->dynamic_used);
-
-	mfc_debug(2, "[NALQ][DPB] Used flag: old = %08x, new = %08x, Released buffer = %08x\n",
-			prev_flag, dec->dynamic_used, released_flag);
-
-	if ((IS_VC1_RCV_DEC(ctx) &&
-			(disp_err == MFC_REG_ERR_SYNC_POINT_NOT_RECEIVED)) ||
-			(disp_err == MFC_REG_ERR_BROKEN_LINK))
-		__mfc_nal_q_handle_frame_output_move(ctx, dspl_y_addr, released_flag);
-	else
-		__mfc_nal_q_handle_frame_output_del(ctx, pOutStr, err, released_flag);
+	/* Dequeued display buffer for user */
+	if (!IS_NO_DISPLAY(ctx, err))
+		__mfc_nal_q_handle_frame_output_del(ctx, pOutStr, err);
 
 	mfc_debug_leave();
 }
@@ -1550,9 +1693,8 @@ static void __mfc_nal_q_handle_frame_input(struct mfc_ctx *ctx, unsigned int err
 	 * We have to return remained stream buffer
 	 */
 	if (dec->consumed) {
-		mfc_err_dev("[NALQ] previous buffer was not fully consumed\n");
-		src_mb = mfc_get_del_buf(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue,
-				MFC_BUF_NO_TOUCH_USED);
+		mfc_err_ctx("[NALQ] previous buffer was not fully consumed\n");
+		src_mb = mfc_get_del_buf(ctx, &ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 		if (src_mb)
 			vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
 	}
@@ -1562,7 +1704,7 @@ static void __mfc_nal_q_handle_frame_input(struct mfc_ctx *ctx, unsigned int err
 	src_mb = mfc_get_del_if_consumed(ctx, &ctx->src_buf_nal_queue,
 			consumed, STUFF_BYTE, err, &deleted);
 	if (!src_mb) {
-		mfc_err_dev("[NALQ] no src buffers\n");
+		mfc_err_ctx("[NALQ] no src buffers\n");
 		return;
 	}
 
@@ -1643,8 +1785,6 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 			pOutStr->DecodedFrameType & MFC_REG_DECODED_FRAME_MASK,
 			pOutStr->DecodedAddr[0]);
 	mfc_debug(4, "[NALQ][HDR] SEI available status: %x\n", sei_avail_status);
-	mfc_debug(2, "[NALQ][DPB] Used flag: old = %08x, new = %08x\n",
-			dec->dynamic_used, pOutStr->UsedDpbFlagLower);
 
 	if (ctx->state == MFCINST_RES_CHANGE_INIT) {
 		mfc_debug(2, "[NALQ][DRC] return until NAL-Q stopped in try_run\n");
@@ -1666,9 +1806,18 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 		goto leave_handle_frame;
 	}
 	if (need_dpb_change || need_scratch_change) {
-		mfc_err_ctx("[NALQ][DRC] Interframe resolution change is not supported\n");
-		dev->nal_q_handle->nal_q_exception = 1;
+		mfc_info_ctx("[NALQ][DRC] Interframe resolution changed\n");
+		ctx->wait_state = WAIT_G_FMT | WAIT_STOP;
+		__mfc_nal_q_get_img_size(ctx, pOutStr, MFC_GET_RESOL_DPB_SIZE);
+		dec->inter_res_change = 1;
 		mfc_info_ctx("[NALQ][DRC] nal_q_exception is set (interframe res change)\n");
+		dev->nal_q_handle->nal_q_exception = 2;
+		goto leave_handle_frame;
+	}
+	if (is_interlaced) {
+		mfc_err_ctx("[NALQ][SBWC] interlace during decoding is not supported\n");
+		dev->nal_q_handle->nal_q_exception = 1;
+		mfc_info_ctx("[NALQ][SBWC] nal_q_exception is set (interlaced)\n");
 		mfc_change_state(ctx, MFCINST_ERROR);
 		goto leave_handle_frame;
 	}
@@ -1687,7 +1836,7 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 
 	if (mfc_is_queue_count_same(&ctx->buf_queue_lock, &ctx->src_buf_nal_queue, 0) &&
 		mfc_is_queue_count_same(&ctx->buf_queue_lock, &ctx->dst_buf_nal_queue, 0)) {
-		mfc_err_dev("[NALQ] Queue count is zero for src/dst\n");
+		mfc_err_ctx("[NALQ] Queue count is zero for src/dst\n");
 		goto leave_handle_frame;
 	}
 
@@ -1707,11 +1856,11 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 
 	switch (dst_frame_status) {
 	case MFC_REG_DEC_STATUS_DECODING_DISPLAY:
-		__mfc_nal_q_handle_ref_frame(ctx, pOutStr);
+		/* copy decoded timestamp */
 		__mfc_nal_q_handle_frame_copy_timestamp(ctx, pOutStr);
 		break;
 	case MFC_REG_DEC_STATUS_DECODING_ONLY:
-		__mfc_nal_q_handle_ref_frame(ctx, pOutStr);
+		/* move dst buffer from dst_nal_queue to dst_queue for reuse */
 		__mfc_nal_q_handle_reuse_buffer(ctx, pOutStr);
 		break;
 	default:
@@ -1720,9 +1869,10 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 
 	/* A frame has been decoded and is in the buffer  */
 	if (mfc_dec_status_display(dst_frame_status))
-		__mfc_nal_q_handle_frame_new(ctx, err, pOutStr);
-	else
-		mfc_debug(2, "[NALQ] No display frame\n");
+		__mfc_nal_q_handle_frame_output(ctx, err, pOutStr);
+
+	/* arrangement of assigned dpb table */
+	__mfc_nal_q_handle_released_buf(ctx, pOutStr);
 
 	/* Mark source buffer as complete */
 	if (dst_frame_status != MFC_REG_DEC_STATUS_DISPLAY_ONLY)
@@ -1732,6 +1882,9 @@ void __mfc_nal_q_handle_frame(struct mfc_ctx *ctx, DecoderOutputStr *pOutStr)
 				dec->is_dpb_full);
 
 leave_handle_frame:
+	if (dev->nal_q_handle->nal_q_exception == 2)
+		__mfc_nal_q_handle_frame_all_extracted(ctx, pOutStr);
+
 	mfc_debug_leave();
 }
 
@@ -1753,14 +1906,13 @@ int __mfc_nal_q_handle_error(struct mfc_ctx *ctx, EncoderOutputStr *pOutStr, int
 	if (ctx->type == MFCINST_DECODER) {
 		dec = ctx->dec_priv;
 		if (!dec) {
-			mfc_err_dev("[NALQ] no mfc decoder to run\n");
+			mfc_err_ctx("[NALQ] no mfc decoder to run\n");
 			goto end;
 		}
-		src_mb = mfc_get_del_buf(&ctx->buf_queue_lock,
-				&ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+		src_mb = mfc_get_del_buf(ctx, &ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 
 		if (!src_mb) {
-			mfc_err_dev("[NALQ] no src buffers\n");
+			mfc_err_ctx("[NALQ] no src buffers\n");
 		} else {
 			dec->consumed = 0;
 			vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
@@ -1768,7 +1920,7 @@ int __mfc_nal_q_handle_error(struct mfc_ctx *ctx, EncoderOutputStr *pOutStr, int
 	} else if (ctx->type == MFCINST_ENCODER) {
 		enc = ctx->enc_priv;
 		if (!enc) {
-			mfc_err_dev("[NALQ] no mfc encoder to run\n");
+			mfc_err_ctx("[NALQ] no mfc encoder to run\n");
 			goto end;
 		}
 
@@ -1777,11 +1929,10 @@ int __mfc_nal_q_handle_error(struct mfc_ctx *ctx, EncoderOutputStr *pOutStr, int
 		 * one input buffer is returned and the NAL-Q mode continues.
 		 */
 		if (err == MFC_REG_ERR_BUFFER_FULL) {
-			src_mb = mfc_get_del_buf(&ctx->buf_queue_lock,
-					&ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
+			src_mb = mfc_get_del_buf(ctx,&ctx->src_buf_nal_queue, MFC_BUF_NO_TOUCH_USED);
 
 			if (!src_mb)
-				mfc_err_dev("[NALQ] no src buffers\n");
+				mfc_err_ctx("[NALQ] no src buffers\n");
 			else
 				vb2_buffer_done(&src_mb->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 
@@ -1803,7 +1954,7 @@ int mfc_nal_q_handle_out_buf(struct mfc_dev *dev, EncoderOutputStr *pOutStr)
 	struct mfc_dec *dec;
 	int ctx_num;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	ctx_num = dev->nal_q_handle->nal_q_out_handle->nal_q_ctx;
 	if (ctx_num < 0) {
@@ -1829,20 +1980,20 @@ int mfc_nal_q_handle_out_buf(struct mfc_dev *dev, EncoderOutputStr *pOutStr)
 	if (ctx->type == MFCINST_ENCODER) {
 		enc = ctx->enc_priv;
 		if (!enc) {
-			mfc_err_dev("[NALQ] no mfc encoder to run\n");
+			mfc_err_ctx("[NALQ] no mfc encoder to run\n");
 			return -EINVAL;
 		}
 		__mfc_nal_q_handle_stream(ctx, pOutStr);
 	} else if (ctx->type == MFCINST_DECODER) {
 		dec = ctx->dec_priv;
 		if (!dec) {
-			mfc_err_dev("[NALQ] no mfc decoder to run\n");
+			mfc_err_ctx("[NALQ] no mfc decoder to run\n");
 			return -EINVAL;
 		}
 		__mfc_nal_q_handle_frame(ctx, (DecoderOutputStr *)pOutStr);
 	}
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return 0;
 }
@@ -1864,12 +2015,12 @@ int mfc_nal_q_enqueue_in_buf(struct mfc_dev *dev, struct mfc_ctx *ctx,
 	mfc_debug_enter();
 
 	if (!nal_q_in_handle) {
-		mfc_err_dev("[NALQ] There is no nal_q_handle\n");
+		mfc_err_ctx("[NALQ] There is no nal_q_handle\n");
 		return -EINVAL;
 	}
 
 	if (nal_q_in_handle->nal_q_handle->nal_q_state != NAL_Q_STATE_STARTED) {
-		mfc_err_dev("[NALQ] State is wrong, state: %d\n",
+		mfc_err_ctx("[NALQ] State is wrong, state: %d\n",
 				nal_q_in_handle->nal_q_handle->nal_q_state);
 		return -EINVAL;
 	}
@@ -1894,7 +2045,7 @@ int mfc_nal_q_enqueue_in_buf(struct mfc_dev *dev, struct mfc_ctx *ctx,
 			input_diff, input_count, input_exe_count);
 
 	if ((input_diff < 0) || (input_diff >= NAL_Q_QUEUE_SIZE)) {
-		mfc_err_dev("[NALQ] No available input slot(%d)\n", input_diff);
+		mfc_err_ctx("[NALQ] No available input slot(%d)\n", input_diff);
 		spin_unlock_irqrestore(&nal_q_in_handle->nal_q_handle->lock, flags);
 		return -EINVAL;
 	}
@@ -1917,7 +2068,7 @@ int mfc_nal_q_enqueue_in_buf(struct mfc_dev *dev, struct mfc_ctx *ctx,
 	}
 
 	if (nal_q_dump == 1) {
-		mfc_err_dev("[NAL-Q][DUMP][%s INPUT][c: %d] diff: %d, count: %d, exe: %d\n",
+		mfc_err_ctx("[NAL-Q][DUMP][%s INPUT][c: %d] diff: %d, count: %d, exe: %d\n",
 				ctx->type == MFCINST_ENCODER ? "ENC" : "DEC", dev->curr_ctx,
 				input_diff, input_count, input_exe_count);
 		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
@@ -1958,7 +2109,7 @@ EncoderOutputStr *mfc_nal_q_dequeue_out_buf(struct mfc_dev *dev,
 	unsigned int index = 0, offset = 0;
 	EncoderOutputStr *pStr = NULL;
 
-	mfc_debug_enter();
+	mfc_debug_dev_enter();
 
 	if (!nal_q_out_handle || !nal_q_out_handle->nal_q_out_addr) {
 		mfc_err_dev("[NALQ] There is no handle\n");
@@ -1980,11 +2131,11 @@ EncoderOutputStr *mfc_nal_q_dequeue_out_buf(struct mfc_dev *dev,
 	 * NAL_Q_QUEUE_SIZE:		number of output slots = NAL_Q_QUEUE_SIZE
 	 */
 
-	mfc_debug(2, "[NALQ] output_diff = %d(out: %d, exe: %d)\n",
+	mfc_debug_dev(2, "[NALQ] output_diff = %d(out: %d, exe: %d)\n",
 			output_diff, output_count, output_exe_count);
 	if ((output_diff <= 0) || (output_diff > NAL_Q_QUEUE_SIZE)) {
 		spin_unlock_irqrestore(&nal_q_out_handle->nal_q_handle->lock, flags);
-		mfc_debug(2, "[NALQ] No available output slot(%d)\n", output_diff);
+		mfc_debug_dev(2, "[NALQ] No available output slot(%d)\n", output_diff);
 		return pStr;
 	}
 
@@ -2001,7 +2152,7 @@ EncoderOutputStr *mfc_nal_q_dequeue_out_buf(struct mfc_dev *dev,
 
 	ctx = dev->ctx[nal_q_out_handle->nal_q_ctx];
 	if (nal_q_dump == 1) {
-		mfc_err_dev("[NALQ][DUMP][%s OUTPUT][c: %d] diff: %d, count: %d, exe: %d\n",
+		mfc_err_ctx("[NALQ][DUMP][%s OUTPUT][c: %d] diff: %d, count: %d, exe: %d\n",
 				ctx->type == MFCINST_ENCODER ? "ENC" : "DEC",
 				nal_q_out_handle->nal_q_ctx,
 				output_diff, output_count, output_exe_count);
@@ -2013,7 +2164,7 @@ EncoderOutputStr *mfc_nal_q_dequeue_out_buf(struct mfc_dev *dev,
 
 	if (pStr->ErrorCode) {
 		*reason = MFC_REG_R2H_CMD_ERR_RET;
-		mfc_err_dev("[NALQ] Error : %d\n", pStr->ErrorCode);
+		mfc_err_ctx("[NALQ] Error : %d\n", pStr->ErrorCode);
 	}
 
 	input_diff = mfc_get_nal_q_input_count() - mfc_get_nal_q_input_exe_count();
@@ -2029,7 +2180,7 @@ EncoderOutputStr *mfc_nal_q_dequeue_out_buf(struct mfc_dev *dev,
 			ctx->type == MFCINST_ENCODER ? "ENC" : "DEC",
 			output_diff, output_count, output_exe_count);
 
-	mfc_debug_leave();
+	mfc_debug_dev_leave();
 
 	return pStr;
 }

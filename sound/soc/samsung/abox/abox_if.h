@@ -14,6 +14,15 @@
 
 #include "abox.h"
 
+#define UAIF_REG_CTRL0	0x0
+#define UAIF_REG_CTRL1	0x4
+#define UAIF_REG_STATUS	0xc
+#define UAIF_REG_MAX	UAIF_REG_STATUS
+
+#define DSIF_REG_CTRL	0x0
+#define DSIF_REG_STATUS	0x4
+#define DSIF_REG_MAX	DSIF_REG_STATUS
+
 enum abox_if_config {
 	ABOX_IF_WIDTH,
 	ABOX_IF_CHANNEL,
@@ -24,15 +33,18 @@ enum abox_if_config {
 struct abox_if_of_data {
 	enum abox_dai (*get_dai_id)(int id);
 	const char *(*get_dai_name)(int id);
-	const char *(*get_str_name)(int id, int stream);
+	unsigned int (*get_reg_base)(int id);
 	struct snd_soc_dai_driver *base_dai_drv;
 };
 
 struct abox_if_data {
 	int id;
+	bool slave;
+	unsigned int base;
 	void __iomem *sfr_base;
 	struct clk *clk_bclk;
 	struct clk *clk_bclk_gate;
+	struct clk *clk_mux;
 	struct snd_soc_component *cmpnt;
 	struct snd_soc_dai_driver *dai_drv;
 	struct abox_data *abox_data;

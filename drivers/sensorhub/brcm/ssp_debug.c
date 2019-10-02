@@ -515,24 +515,21 @@ bool check_wait_event(struct ssp_data *data)
 	int check_sensors[2] = {ACCELEROMETER_SENSOR, LIGHT_SENSOR};
 	int i, sensor;
 	bool res = false;
-	int arrSize = (ANDROID_VERSION < 90000 ? 2 : 1);
 
-	for (i = 0 ; i < arrSize ; i++) { // because light sensor does not check anymore
-		sensor = check_sensors[i];
-		//the sensor is registered
-		if ((atomic64_read(&data->aSensorEnable) & (1 << sensor) && !(data->IsGyroselftest))
-			//non batching mode
-			&& data->IsBypassMode[sensor] == 1
-			//there is no sensor event over 3sec
-			&& data->LastSensorTimeforReset[sensor] + 7000000000ULL < timestamp) {
-			pr_info("[SSP] %s - sensor(%d) last = %lld, cur = %lld\n",
-				__func__, sensor, data->LastSensorTimeforReset[sensor], timestamp);
-			res = true;
-			data->uNoRespSensorCnt++;
-		}
-		//pr_info("[SSP]test %s - sensor(%d mode %d) last = %lld, cur = %lld\n",
-		//__func__,sensor,data->IsBypassMode[sensor],data->LastSensorTimeforReset[sensor],timestamp);
+	sensor = check_sensors[i];
+	//the sensor is registered
+	if ((atomic64_read(&data->aSensorEnable) & (1 << sensor) && !(data->IsGyroselftest))
+		//non batching mode
+		&& data->IsBypassMode[sensor] == 1
+		//there is no sensor event over 3sec
+		&& data->LastSensorTimeforReset[sensor] + 7000000000ULL < timestamp) {
+		pr_info("[SSP] %s - sensor(%d) last = %lld, cur = %lld\n",
+			__func__, sensor, data->LastSensorTimeforReset[sensor], timestamp);
+		res = true;
+		data->uNoRespSensorCnt++;
 	}
+	//pr_info("[SSP]test %s - sensor(%d mode %d) last = %lld, cur = %lld\n",
+	//__func__,sensor,data->IsBypassMode[sensor],data->LastSensorTimeforReset[sensor],timestamp);
 
 	return res;
 }
@@ -584,9 +581,9 @@ exit:
 	data->uIrqCnt = 0;
 }
 
-static void debug_timer_func(unsigned long ptr)
+static void debug_timer_func(struct timer_list *ptr)
 {
-	struct ssp_data *data = (struct ssp_data *)ptr;
+	struct ssp_data *data = from_timer(data, ptr, debug_timer);
 
 	queue_work(data->debug_wq, &data->work_debug);
 	mod_timer(&data->debug_timer,
@@ -607,7 +604,7 @@ void disable_debug_timer(struct ssp_data *data)
 
 int initialize_debug_timer(struct ssp_data *data)
 {
-	setup_timer(&data->debug_timer, debug_timer_func, (unsigned long)data);
+	timer_setup(&data->debug_timer, debug_timer_func, 0);
 
 	data->debug_wq = create_singlethread_workqueue("ssp_debug_wq");
 	if (!data->debug_wq)

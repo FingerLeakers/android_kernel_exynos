@@ -11,7 +11,7 @@
 #ifndef __DPADO_H
 #define __DPADO_H
 
-#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
+#if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9830)
 void dp_ado_switch_set_state(int state);
 #else
 #define dp_ado_switch_set_state(state) do { } while (0)

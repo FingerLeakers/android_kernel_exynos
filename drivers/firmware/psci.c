@@ -447,7 +447,7 @@ static int psci_suspend_customized_finisher(unsigned long index)
 
 	state = psci_power_state_pack(id, type, affinity_level);
 
-	return psci_ops.cpu_suspend(state, __pa_symbol(cpu_resume));
+	return psci_ops.cpu_suspend(state, virt_to_phys(cpu_resume));
 }
 
 int psci_cpu_suspend_enter(unsigned long index)

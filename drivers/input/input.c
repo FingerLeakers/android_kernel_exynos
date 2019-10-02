@@ -29,9 +29,8 @@
 #include <linux/rcupdate.h>
 #include "input-compat.h"
 
-#if !defined(CONFIG_INPUT_BOOSTER) // Input Booster +
-#include <linux/input/input.h>
-#endif // Input Booster -
+// Input Booster +
+#include <linux/input/input_booster.h>
 
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@suse.cz>");
 MODULE_DESCRIPTION("Input core");
@@ -80,7 +79,7 @@ static void input_start_autorepeat(struct input_dev *dev, int code)
 {
 	if (test_bit(EV_REP, dev->evbit) &&
 	    dev->rep[REP_PERIOD] && dev->rep[REP_DELAY] &&
-	    dev->timer.data) {
+	    dev->timer.function) {
 		dev->repeat_key = code;
 		mod_timer(&dev->timer,
 			  jiffies + msecs_to_jiffies(dev->rep[REP_DELAY]));
@@ -183,9 +182,9 @@ static void input_pass_event(struct input_dev *dev,
  * dev->event_lock here to avoid racing with input_event
  * which may cause keys get "stuck".
  */
-static void input_repeat_key(unsigned long data)
+static void input_repeat_key(struct timer_list *t)
 {
-	struct input_dev *dev = (void *) data;
+	struct input_dev *dev = from_timer(dev, t, timer);
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->event_lock, flags);
@@ -412,7 +411,7 @@ static void input_handle_event(struct input_dev *dev,
 
 }
 
-#if !defined(CONFIG_INPUT_BOOSTER) // Input Booster +
+// Input Booster +
 // ********** Define Timeout Functions ********** //
 DECLARE_TIMEOUT_FUNC(touch);
 DECLARE_TIMEOUT_FUNC(multitouch);
@@ -582,11 +581,6 @@ void input_booster(struct input_dev *dev)
 			case KEY_POWER:
 				pr_booster("[Input Booster] KEY EVENT - %s\n", (input_events[i].value) ? "PRESS" : "RELEASE");
 				RUN_BOOSTER(key, (input_events[i].value) ? BOOSTER_ON : BOOSTER_OFF);
-				break;
-
-			case KEY_WINK:
-				pr_booster("[Input Booster] key_two KEY EVENT - %s\n", (input_events[i].value) ? "PRESS" : "RELEASE");
-				RUN_BOOSTER(key_two, (input_events[i].value) ? BOOSTER_ON : BOOSTER_OFF);
 				break;
 
 			default:
@@ -823,7 +817,6 @@ void input_booster_init(void)
 		INIT_SYSFS_DEVICE(key_two)
 	}
 }
-#endif  // Input Booster -
 
 /**
  * input_event() - report new input event
@@ -846,16 +839,17 @@ void input_event(struct input_dev *dev,
 		 unsigned int type, unsigned int code, int value)
 {
 	unsigned long flags;
-#if !defined(CONFIG_INPUT_BOOSTER) // Input Booster +
+
+	// Input Booster +
 	int idx = 0;
-#endif  // Input Booster -
 
 	if (is_event_supported(type, dev->evbit, EV_MAX)) {
 
 		spin_lock_irqsave(&dev->event_lock, flags);
 		input_handle_event(dev, type, code, value);
 		spin_unlock_irqrestore(&dev->event_lock, flags);
-#if !defined(CONFIG_INPUT_BOOSTER) // Input Booster +
+
+		/* Input Booster + */
 		if (device_tree_infor != NULL) {
 			if (type == EV_SYN && input_count > 0) {
 				pr_booster("[Input Booster1] ==============================================\n");
@@ -874,7 +868,7 @@ void input_event(struct input_dev *dev,
 				pr_booster("[Input Booster1] type = %x, code = %x, value =%x   Booster Event Exceeded\n", type, code, value);
 			}
 		}
-#endif  // Input Booster -
+		/* Input Booster */
 	}
 }
 EXPORT_SYMBOL(input_event);
@@ -1544,12 +1538,12 @@ static inline void input_wakeup_procfs_readers(void)
 	wake_up(&input_devices_poll_wait);
 }
 
-static unsigned int input_proc_devices_poll(struct file *file, poll_table *wait)
+static __poll_t input_proc_devices_poll(struct file *file, poll_table *wait)
 {
 	poll_wait(file, &input_devices_poll_wait, wait);
 	if (file->f_version != input_devices_state) {
 		file->f_version = input_devices_state;
-		return POLLIN | POLLRDNORM;
+		return EPOLLIN | EPOLLRDNORM;
 	}
 
 	return 0;
@@ -1912,6 +1906,7 @@ static ssize_t input_dev_store_enabled(struct device *dev,
 
 static DEVICE_ATTR(enabled, S_IRUGO | S_IWUSR,
 		   input_dev_show_enabled, input_dev_store_enabled);
+		   
 static struct attribute *input_dev_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_phys.attr,
@@ -2314,7 +2309,7 @@ struct input_dev *input_allocate_device(void)
 		device_initialize(&dev->dev);
 		mutex_init(&dev->mutex);
 		spin_lock_init(&dev->event_lock);
-		init_timer(&dev->timer);
+		timer_setup(&dev->timer, NULL, 0);
 		INIT_LIST_HEAD(&dev->h_list);
 		INIT_LIST_HEAD(&dev->node);
 
@@ -2577,7 +2572,6 @@ static void devm_input_device_unregister(struct device *dev, void *res)
  */
 void input_enable_softrepeat(struct input_dev *dev, int delay, int period)
 {
-	dev->timer.data = (unsigned long) dev;
 	dev->timer.function = input_repeat_key;
 	dev->rep[REP_DELAY] = delay;
 	dev->rep[REP_PERIOD] = period;
@@ -2963,9 +2957,10 @@ static int __init input_init(void)
 		pr_err("unable to register char major %d", INPUT_MAJOR);
 		goto fail2;
 	}
-#if !defined(CONFIG_INPUT_BOOSTER) // Input Booster +
+
+	/* Input Booster + */
 	input_booster_init();
-#endif  // Input Booster -
+	/* Input Booster */
 
 	return 0;
 

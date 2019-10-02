@@ -24,12 +24,31 @@ static const int E9810_INT_FREQ = 178000;
 static const int E9810_INT_FREQ_SPK = 400000;
 static const unsigned int E9810_INT_ID = ABOX_CPU_GEAR_CALL_KERNEL;
 
+static RAW_NOTIFIER_HEAD(abox_call_event_notifier);
+static atomic_t abox_call_noti = ATOMIC_INIT(0);
+
+int register_abox_call_event_notifier(struct notifier_block *nb)
+{
+	if (!nb)
+		return -ENOENT;
+
+	return raw_notifier_chain_register(&abox_call_event_notifier, nb);
+}
+
+void abox_call_notify_event(enum abox_call_event evt, void *data)
+{
+	pr_debug("abox event notify (%d) ++\n", evt);
+	raw_notifier_call_chain(&abox_call_event_notifier, evt, data);
+	pr_debug("abox event notify (%d) --\n", evt);
+}
+
 int abox_vss_notify_call(struct device *dev, struct abox_data *data, int en)
 {
 	static const char cookie[] = "vss_notify_call";
+	int ref_count = 0;
 	int ret = 0;
 
-	dev_info(dev, "%s(%d)\n", __func__, en);
+	dev_dbg(dev, "%s(%d)\n", __func__, en);
 
 	if (en) {
 		if (IS_ENABLED(CONFIG_SOC_EXYNOS9810)) {
@@ -39,11 +58,26 @@ int abox_vss_notify_call(struct device *dev, struct abox_data *data, int en)
 			else
 				ret = abox_qos_request_int(dev, E9810_INT_ID,
 						E9810_INT_FREQ, cookie);
+		} else if (IS_ENABLED(CONFIG_SOC_EXYNOS9830)) {
+			ref_count = atomic_inc_return(&abox_call_noti);
+			if (ref_count == 1)
+				abox_call_notify_event(ABOX_CALL_EVENT_ON,
+						NULL);
+			dev_info(dev, "%s en(%d) rcnt(%d)\n", __func__, en,
+					ref_count);
 		}
 	} else {
-		if (IS_ENABLED(CONFIG_SOC_EXYNOS9810))
+		if (IS_ENABLED(CONFIG_SOC_EXYNOS9810)) {
 			ret = abox_qos_request_int(dev, E9810_INT_ID, 0,
 					cookie);
+		} else if (IS_ENABLED(CONFIG_SOC_EXYNOS9830)) {
+			ref_count = atomic_dec_return(&abox_call_noti);
+			if (ref_count == 0)
+				abox_call_notify_event(ABOX_CALL_EVENT_OFF,
+						NULL);
+			dev_info(dev, "%s en(%d) rcnt(%d)\n", __func__, en,
+					ref_count);
+		}
 	}
 
 	return ret;
@@ -63,6 +97,7 @@ static int samsung_abox_vss_probe(struct platform_device *pdev)
 		magic_addr = shm_get_vss_region() + MAGIC_OFFSET;
 		writel(0, magic_addr);
 	}
+
 	return 0;
 }
 

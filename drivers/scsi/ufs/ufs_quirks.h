@@ -137,10 +137,16 @@ struct ufs_dev_fix {
 #define UFS_DEVICE_QUIRK_HOST_PA_SAVECONFIGTIME	(1 << 8)
 
 /*
+ * Some UFS devices require VS_DebugSaveConfigTime is 0x10,
+ * enabling this quirk ensure this.
+ */
+#define UFS_DEVICE_QUIRK_HOST_VS_DEBUGSAVECONFIGTIME	(1 << 9)
+
+/*
  * Some UFS devices support the FATAL MODE
  * to gether the debug info.
  */
-#define UFS_DEVICE_QUIRK_SUPPORT_QUERY_FATAL_MODE	(1 << 9)
+#define UFS_DEVICE_QUIRK_SUPPORT_QUERY_FATAL_MODE	(1 << 10)
 
 struct ufs_hba;
 void ufs_set_sec_unique_number(struct ufs_hba *hba, u8 *str_desc_buf, u8 *desc_buf);

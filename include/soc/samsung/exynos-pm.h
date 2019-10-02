@@ -41,6 +41,7 @@ enum exynos_pm_event {
 #define EXYNOS_PM_PREFIX	"EXYNOS-PM:"
 
 int register_usb_is_connect(u32 (*func)(void));
+int register_pcie_is_connect(u32 (*func)(void));
 
 #ifdef CONFIG_CPU_IDLE
 int exynos_pm_register_notifier(struct notifier_block *nb);
@@ -109,6 +110,7 @@ enum ids_info {
 	bids,
 	gids,
 };
+
 
 extern int asv_ids_information(enum ids_info id);
 #endif

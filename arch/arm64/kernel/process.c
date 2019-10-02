@@ -50,6 +50,7 @@
 #include <linux/debug-snapshot.h>
 #include <trace/events/power.h>
 #include <linux/percpu.h>
+#include <linux/thread_info.h>
 
 #include <asm/alternative.h>
 #include <asm/compat.h>
@@ -60,7 +61,7 @@
 #include <asm/processor.h>
 #include <asm/stacktrace.h>
 
-#ifdef CONFIG_CC_STACKPROTECTOR
+#ifdef CONFIG_STACKPROTECTOR
 #include <linux/stackprotector.h>
 unsigned long __stack_chk_guard __read_mostly;
 EXPORT_SYMBOL(__stack_chk_guard);
@@ -175,6 +176,39 @@ void machine_restart(char *cmd)
 	while (1);
 }
 
+static void print_pstate(struct pt_regs *regs)
+{
+	u64 pstate = regs->pstate;
+
+	if (compat_user_mode(regs)) {
+		printk("pstate: %08llx (%c%c%c%c %c %s %s %c%c%c)\n",
+			pstate,
+			pstate & PSR_AA32_N_BIT ? 'N' : 'n',
+			pstate & PSR_AA32_Z_BIT ? 'Z' : 'z',
+			pstate & PSR_AA32_C_BIT ? 'C' : 'c',
+			pstate & PSR_AA32_V_BIT ? 'V' : 'v',
+			pstate & PSR_AA32_Q_BIT ? 'Q' : 'q',
+			pstate & PSR_AA32_T_BIT ? "T32" : "A32",
+			pstate & PSR_AA32_E_BIT ? "BE" : "LE",
+			pstate & PSR_AA32_A_BIT ? 'A' : 'a',
+			pstate & PSR_AA32_I_BIT ? 'I' : 'i',
+			pstate & PSR_AA32_F_BIT ? 'F' : 'f');
+	} else {
+		printk("pstate: %08llx (%c%c%c%c %c%c%c%c %cPAN %cUAO)\n",
+			pstate,
+			pstate & PSR_N_BIT ? 'N' : 'n',
+			pstate & PSR_Z_BIT ? 'Z' : 'z',
+			pstate & PSR_C_BIT ? 'C' : 'c',
+			pstate & PSR_V_BIT ? 'V' : 'v',
+			pstate & PSR_D_BIT ? 'D' : 'd',
+			pstate & PSR_A_BIT ? 'A' : 'a',
+			pstate & PSR_I_BIT ? 'I' : 'i',
+			pstate & PSR_F_BIT ? 'F' : 'f',
+			pstate & PSR_PAN_BIT ? '+' : '-',
+			pstate & PSR_UAO_BIT ? '+' : '-');
+	}
+}
+
 #ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
 extern unsigned long long incorrect_addr;
 #endif
@@ -224,6 +258,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	nbytes += (addr & (sizeof(u32) - 1));
 	nlines = (nbytes + 31) / 32;
 
+
 	for (i = 0; i < nlines; i++) {
 		/*
 		 * just display low 16 bits of address to keep
@@ -232,7 +267,6 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 		printk("%04lx :", (unsigned long)p & 0xffff);
 		for (j = 0; j < 8; j++) {
 			u32	data;
-
 #ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
 			if ((incorrect_addr != 0) && (((unsigned long long)p >= (incorrect_addr - nbytes_offset)) && ((unsigned long long)p <= (incorrect_addr + nbytes_offset)))) {
 				if (j == 7)
@@ -248,6 +282,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 					pr_cont(" ********\n");
 				else
 					pr_cont(" ********");
+
 			} else {
 				if (j == 7)
 					pr_cont(" %08X\n", data);
@@ -299,7 +334,7 @@ void __show_regs(struct pt_regs *regs)
 		 *  you should modify dbg_snapshot_set_enable's function 2nd parameter
 		 *  to true.
 		 */
-		dbg_snapshot_set_enable("log_kevents", false);
+		dbg_snapshot_set_enable_item("log_kevents", false);
 	}
 
 	pr_info("TIF_FOREIGN_FPSTATE: %d, FP/SIMD depth %d, cpu: %d\n",
@@ -308,6 +343,9 @@ void __show_regs(struct pt_regs *regs)
 			current->thread.fpsimd_kernel_state.cpu);
 
 	show_regs_print_info(KERN_DEFAULT);
+	print_pstate(regs);
+
+
 	print_symbol("PC is at %s\n", instruction_pointer(regs));
 	print_symbol("LR is at %s\n", lr);
 	printk("pc : [<%016llx>] lr : [<%016llx>] pstate: %08llx\n",
@@ -327,8 +365,8 @@ void __show_regs(struct pt_regs *regs)
 
 		pr_cont("\n");
 	}
-	if (!user_mode(regs))
-		show_extra_register_data(regs, 256);
+	if (!user_mode(regs) && !dbg_snapshot_is_hardlockup())
+		show_extra_register_data(regs, 128);
 	printk("\n");
 }
 
@@ -343,7 +381,7 @@ static void tls_thread_flush(void)
 	write_sysreg(0, tpidr_el0);
 
 	if (is_compat_task()) {
-		current->thread.tp_value = 0;
+		current->thread.uw.tp_value = 0;
 
 		/*
 		 * We need to ensure ordering between the shadow state and the
@@ -366,11 +404,27 @@ void release_thread(struct task_struct *dead_task)
 {
 }
 
+void arch_release_task_struct(struct task_struct *tsk)
+{
+	fpsimd_release_task(tsk);
+}
+
+/*
+ * src and dst may temporarily have aliased sve_state after task_struct
+ * is copied.  We cannot fix this properly here, because src may have
+ * live SVE state and dst's thread_info may not exist yet, so tweaking
+ * either src's or dst's TIF_SVE is not safe.
+ *
+ * The unaliasing is done in copy_thread() instead.  This works because
+ * dst is not schedulable or traceable until both of these functions
+ * have been called.
+ */
 int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 {
 	if (current->mm)
 		fpsimd_preserve_current_state();
 	*dst = *src;
+
 	return 0;
 }
 
@@ -382,6 +436,13 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	struct pt_regs *childregs = task_pt_regs(p);
 
 	memset(&p->thread.cpu_context, 0, sizeof(struct cpu_context));
+
+	/*
+	 * Unalias p->thread.sve_state (if any) from the parent task
+	 * and disable discard SVE state for p:
+	 */
+	clear_tsk_thread_flag(p, TIF_SVE);
+	p->thread.sve_state = NULL;
 
 	/*
 	 * In case p was allocated the same task_struct pointer as some
@@ -414,7 +475,7 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 		 * for the new thread.
 		 */
 		if (clone_flags & CLONE_SETTLS)
-			p->thread.tp_value = childregs->regs[3];
+			p->thread.uw.tp_value = childregs->regs[3];
 	} else {
 		memset(childregs, 0, sizeof(struct pt_regs));
 		childregs->pstate = PSR_MODE_EL1h;
@@ -442,7 +503,7 @@ static void tls_thread_switch(struct task_struct *next)
 	tls_preserve_current_state();
 
 	if (is_compat_thread(task_thread_info(next)))
-		write_sysreg(next->thread.tp_value, tpidrro_el0);
+		write_sysreg(next->thread.uw.tp_value, tpidrro_el0);
 	else if (!arm64_kernel_unmapped_at_el0())
 		write_sysreg(0, tpidrro_el0);
 
@@ -556,3 +617,25 @@ void arch_setup_new_exec(void)
 {
 	current->mm->context.flags = is_compat_task() ? MMCF_AARCH32 : 0;
 }
+
+#ifdef CONFIG_GCC_PLUGIN_STACKLEAK
+void __used stackleak_check_alloca(unsigned long size)
+{
+	unsigned long stack_left;
+	unsigned long current_sp = current_stack_pointer;
+	struct stack_info info;
+
+	BUG_ON(!on_accessible_stack(current, current_sp, &info));
+
+	stack_left = current_sp - info.low;
+
+	/*
+	 * There's a good chance we're almost out of stack space if this
+	 * is true. Using panic() over BUG() is more likely to give
+	 * reliable debugging output.
+	 */
+	if (size >= stack_left)
+		panic("alloca() over the kernel stack boundary\n");
+}
+EXPORT_SYMBOL(stackleak_check_alloca);
+#endif

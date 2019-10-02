@@ -96,7 +96,7 @@ void abox_core_flush(void)
 void abox_core_power(int on)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev = &data->pdev->dev;
+	struct device *dev = data->dev;
 	struct abox_core *core;
 
 	dev_info(dev, "%s(%d)\n", __func__, on);
@@ -113,7 +113,7 @@ void abox_core_power(int on)
 void abox_core_enable(int enable)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev = &data->pdev->dev;
+	struct device *dev = data->dev;
 	struct abox_core *core;
 
 	dev_info(dev, "%s(%d)\n", __func__, enable);
@@ -131,7 +131,7 @@ void abox_core_standby(void)
 {
 	static const u64 timeout = NSEC_PER_MSEC * 100;
 	struct abox_data *data = get_abox_data();
-	struct device *dev = &data->pdev->dev;
+	struct device *dev = data->dev;
 	struct abox_core *core;
 	u64 limit;
 
@@ -158,7 +158,8 @@ void abox_core_standby(void)
 			if (local_clock() > limit) {
 				char *reason;
 
-				reason = kasprintf(GFP_KERNEL, "standby timeout(%d)",
+				reason = kasprintf(GFP_KERNEL,
+						"standby timeout(%d)",
 						core->id);
 				dev_err(dev, "%s\n", reason);
 				abox_dbg_dump_gpr_mem(dev, data,
@@ -173,8 +174,8 @@ void abox_core_standby(void)
 void abox_core_print_gpr(void)
 {
 	struct abox_data *data = get_abox_data();
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
-	struct device *dev;
 	u32 __iomem *gpr;
 	char *ver;
 	int i;
@@ -182,7 +183,6 @@ void abox_core_print_gpr(void)
 	if (!data)
 		return;
 
-	dev = &data->pdev->dev;
 	ver = (char *)(&data->calliope_version);
 
 	dev_info(dev, "========================================\n");
@@ -207,8 +207,8 @@ void abox_core_print_gpr(void)
 void abox_core_print_gpr_dump(unsigned int *dump)
 {
 	struct abox_data *data = get_abox_data();
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
-	struct device *dev;
 	u32 a, b, *gpr = dump;
 	char *ver;
 	int i;
@@ -216,7 +216,6 @@ void abox_core_print_gpr_dump(unsigned int *dump)
 	if (!data)
 		return;
 
-	dev = &data->pdev->dev;
 	ver = (char *)(&data->calliope_version);
 
 	dev_info(dev, "========================================\n");
@@ -244,14 +243,12 @@ void abox_core_dump_gpr(unsigned int *tgt)
 {
 	struct abox_data *data = get_abox_data();
 	struct abox_core *core;
-	struct device *dev;
 	u32 __iomem *gpr;
 	int i;
 
 	if (!data)
 		return;
 
-	dev = &data->pdev->dev;
 	list_for_each_entry(core, &cores, list) {
 		gpr = core->gpr;
 		for (i = 0; i < core->gpr_count; i++)
@@ -265,13 +262,11 @@ void abox_core_dump_gpr_dump(unsigned int *tgt, unsigned int *dump)
 {
 	struct abox_data *data = get_abox_data();
 	struct abox_core *core;
-	struct device *dev;
 	int i;
 
 	if (!data)
 		return;
 
-	dev = &data->pdev->dev;
 	list_for_each_entry(core, &cores, list) {
 		for (i = 0; i < core->gpr_count; i++)
 			*tgt++ = *dump++;
@@ -318,7 +313,7 @@ int abox_core_show_gpr(char *buf)
 int abox_core_show_gpr_min(char *buf, int len)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev;
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
 	u32 __iomem *gpr;
 	int i, total = 0;
@@ -326,7 +321,6 @@ int abox_core_show_gpr_min(char *buf, int len)
 	if (!data)
 		return 0;
 
-	dev = &data->pdev->dev;
 	if (pm_runtime_get_if_in_use(dev) > 0) {
 		list_for_each_entry(core, &cores, list) {
 			gpr = core->gpr;
@@ -346,14 +340,13 @@ int abox_core_show_gpr_min(char *buf, int len)
 u32 abox_core_read_gpr(int core_id, int gpr_id)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev;
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
 	u32 ret = 0;
 
 	if (!data)
 		return 0;
 
-	dev = &data->pdev->dev;
 	if (pm_runtime_get_if_in_use(dev) > 0) {
 		list_for_each_entry(core, &cores, list) {
 			if (core->id == core_id) {
@@ -370,28 +363,20 @@ u32 abox_core_read_gpr(int core_id, int gpr_id)
 u32 abox_core_read_gpr_dump(int core_id, int gpr_id, unsigned int *dump)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev = &data->pdev->dev;
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
-	u32 *gpr = dump;
-	u32 ret = 0;
-
-	if (core_id > 2) {
-		dev_err(dev, "%s: wrong core_id(%d)\n", __func__, core_id);
-		return 0;
-	}
 
 	list_for_each_entry(core, &cores, list) {
-		if (core->id == core_id) {
-			if (gpr_id > core->gpr_count - 1)
-				break;
-			ret = *(gpr + gpr_id);
-			break;
-		}
+		if ((core_id == core->id) && (gpr_id < core->gpr_count))
+			return *(dump + gpr_id);
 
-		gpr += core->gpr_count;
+		dump += core->gpr_count;
 	}
 
-	return ret;
+	dev_err(dev, "%s(%d, %d, %p): invalid argument\n", __func__,
+			core_id, gpr_id, dump);
+
+	return 0;
 }
 
 static int abox_core_load_firmware(struct abox_core *core,
@@ -415,16 +400,15 @@ static int abox_core_load_firmware(struct abox_core *core,
 int abox_core_download_firmware(void)
 {
 	struct abox_data *data = get_abox_data();
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core;
 	struct abox_core_firmware *fw;
-	struct device *dev;
 	size_t left;
 
 	if (!data)
 		return -EAGAIN;
 
-	dev = &data->pdev->dev;
-	dev_dbg(dev, "%s\n", __func__);
+	dev_info(dev, "%s\n", __func__);
 
 	list_for_each_entry(core, &cores, list) {
 		size_t len = ARRAY_SIZE(core->fw);
@@ -433,7 +417,7 @@ int abox_core_download_firmware(void)
 			if (!fw->firmware && abox_core_load_firmware(core, fw))
 				return -EAGAIN;
 
-			dev_info(dev, "%s: download %s\n", __func__, fw->name);
+			dev_dbg(dev, "%s: download %s\n", __func__, fw->name);
 			left = fw->offset + fw->firmware->size;
 			switch (fw->area) {
 			default:
@@ -464,7 +448,7 @@ int abox_core_download_firmware(void)
 static void abox_core_check_firmware(const struct firmware *fw, void *context)
 {
 	struct abox_data *data = get_abox_data();
-	struct device *dev = &data->pdev->dev;
+	struct device *dev = data->dev;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -475,13 +459,12 @@ static int abox_core_wait_for_firmware(void *context,
 		void (*cont)(const struct firmware *fw, void *context))
 {
 	struct abox_data *data = get_abox_data();
+	struct device *dev = data ? data->dev : NULL;
 	struct abox_core *core = context;
-	struct device *dev;
 
 	if (!data)
 		return -EAGAIN;
 
-	dev = &data->pdev->dev;
 	dev_dbg(dev, "%s\n", __func__);
 
 	if (!core || !core->fw[0].name)

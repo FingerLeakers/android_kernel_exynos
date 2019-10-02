@@ -373,13 +373,14 @@ static void exynos_hdcp_worker(struct work_struct *work)
 	}
 
 	hdcp_info("Exynos HDCP interrupt occur by LDFW.\n");
+	dp_logger_print("soc HDCP2 interrupt occur by LDFW.\n");
 	ret = hdcp_dplink_auth_check(HDCP_DRM_ON);
 }
 
 static irqreturn_t exynos_hdcp_irq_handler(int irq, void *dev_id)
 {
 	if (h_ctx.enabled) {
-		if (dp_hdcp_state == DP_HDCP_READY) 
+		if (dp_hdcp_state == DP_HDCP_READY)
 			schedule_delayed_work(&h_ctx.work, msecs_to_jiffies(0));
 		else
 			schedule_delayed_work(&h_ctx.work, msecs_to_jiffies(2500));
@@ -475,7 +476,6 @@ static int __init hdcp_init(void)
 static void __exit hdcp_exit(void)
 {
 	/* todo: do clear sequence */
-
 	cancel_delayed_work_sync(&h_ctx.work);
 
 	misc_deregister(&hdcp);

@@ -70,7 +70,7 @@ static ssize_t esmc_log_threshold_store(struct kobject *kobj,
 	if (err != 0) {
 		pr_err("can't read threshold value with err 0x%x\n", err);
 	} else {
-		esmc_log_threshold = (unsigned int)val;
+		esmc_log_threshold = val;
 		pr_info("threshold value : %lu\n", val);
 	}
 

@@ -29,7 +29,9 @@
 #define G2D_MAX_IMAGES		16
 #define G2D_MAX_IMAGES_HALF	8
 #define G2D_MAX_JOBS		16
-#define G2D_CMD_LIST_SIZE	8192
+#define G2D_MAX_COMMAND		2048
+// Command consists of 32bit offset and data
+#define G2D_CMD_LIST_SIZE	(G2D_MAX_COMMAND * 8)
 
 struct g2d_buffer_prot_info {
 	unsigned int chunk_count;
@@ -74,7 +76,6 @@ struct g2d_layer {
 #define G2D_TASKSTATE_ACTIVE		(1 << 4)
 #define G2D_TASKSTATE_PROCESSED		(1 << 5)
 #define G2D_TASKSTATE_ERROR		(1 << 6)
-#define G2D_TASKSTATE_KILLED		(1 << 7)
 #define G2D_TASKSTATE_TIMEOUT		(1 << 8)
 
 struct g2d_context;
@@ -124,6 +125,8 @@ struct g2d_task {
 #ifdef CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
 	struct g2d_buffer_prot_info prot_info;
 #endif
+	/* inherit device qos when task allocates */
+	struct g2d_qos		taskqos;
 };
 
 /* The below macros should be called with g2d_device.lock_tasks held */
@@ -139,7 +142,6 @@ struct g2d_task {
 
 #define change_task_state_finished(task) do {		\
 	(task)->state &= ~(G2D_TASKSTATE_ACTIVE |	\
-			   G2D_TASKSTATE_KILLED |	\
 			   G2D_TASKSTATE_TIMEOUT);	\
 	(task)->state |= G2D_TASKSTATE_PROCESSED;	\
 } while (0)
@@ -147,11 +149,6 @@ struct g2d_task {
 static inline void mark_task_state_error(struct g2d_task *task)
 {
 	task->state |= G2D_TASKSTATE_ERROR;
-}
-
-static inline void mark_task_state_killed(struct g2d_task *task)
-{
-	task->state |= G2D_TASKSTATE_KILLED;
 }
 
 static inline void init_task_state(struct g2d_task *task)
@@ -166,7 +163,6 @@ static inline void clear_task_state(struct g2d_task *task)
 
 #define is_task_state_idle(task)   ((task)->state == 0)
 #define is_task_state_active(task) (((task)->state & G2D_TASKSTATE_ACTIVE) != 0)
-#define is_task_state_killed(task) (((task)->state & G2D_TASKSTATE_KILLED) != 0)
 #define is_task_state_error(task)  (((task)->state & G2D_TASKSTATE_ERROR) != 0)
 
 static inline bool g2d_task_wait_completion(struct g2d_task *task)
@@ -199,5 +195,7 @@ void g2d_suspend_finish(struct g2d_device *g2d_dev);
 void g2d_fence_callback(struct dma_fence *fence, struct dma_fence_cb *cb);
 
 void g2d_queuework_task(struct kref *kref);
+
+void g2d_show_task_status(struct g2d_device *g2d_dev);
 
 #endif /*__EXYNOS_G2D_TASK_H__*/

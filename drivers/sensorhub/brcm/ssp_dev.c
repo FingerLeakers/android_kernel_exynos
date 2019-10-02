@@ -765,32 +765,6 @@ int send_panel_information(struct panel_bl_event_data *evdata){
 	return iRet;
 }
 
-int send_hall_ic_status(bool enable) {
-	struct ssp_msg *msg;
-	int iRet = 0;
-
-	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-
-	msg->cmd = MSG2SSP_HALL_IC_ON_OFF;
-	msg->length = 1;
-	msg->options = AP2HUB_WRITE;
-	msg->buffer = kzalloc(1, GFP_KERNEL);
-
-	msg->free_buffer = 1;
-	msg->buffer[0] = enable;
-	iRet = ssp_spi_async(ssp_data_info, msg);
-
-	if (iRet != SUCCESS) {
-	pr_err("[SSP]: %s - hall ic command, failed %d\n", __func__, iRet);
-		return iRet;
-	}
-
-	pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
-		__func__, iRet, enable);
-
-	return iRet;
-}
-
 static int panel_notifier_callback(struct notifier_block *self, unsigned long event, void *data){
 	struct panel_bl_event_data *evdata = data;
 
@@ -839,6 +813,32 @@ skip_to_send_cmd:
 	return 0;
 }
 #endif
+
+int send_hall_ic_status(bool enable) {
+	struct ssp_msg *msg;
+	int iRet = 0;
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+
+	msg->cmd = MSG2SSP_HALL_IC_ON_OFF;
+	msg->length = 1;
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = kzalloc(1, GFP_KERNEL);
+
+	msg->free_buffer = 1;
+	msg->buffer[0] = enable;
+	iRet = ssp_spi_async(ssp_data_info, msg);
+
+	if (iRet != SUCCESS) {
+	pr_err("[SSP]: %s - hall ic command, failed %d\n", __func__, iRet);
+		return iRet;
+	}
+
+	pr_info("[SSP] %s HALL IC ON/OFF, %d enabled %d\n",
+		__func__, iRet, enable);
+
+	return iRet;
+}
 
 void ssp_timestamp_sync_work_func(struct work_struct *work)
 {

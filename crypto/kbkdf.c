@@ -14,7 +14,9 @@
 #include <linux/kernel.h>
 #include <crypto/kbkdf.h>
 #include <crypto/hash.h>
-#include "internal.h"
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
+#include "fips140.h"
+#endif
 
 #define HMAC_SHA512_BACKEND_CRA_NAME "hmac(sha512-generic)"
 
@@ -121,7 +123,7 @@ int crypto_calc_kdf_hmac_sha512_ctr(uint8_t mode, size_t rlen,
     uint8_t        *tmp_ptr;
     size_t          fixed_data_length;
 
-#ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS /* FIPS_140_2 */
 	if (unlikely(in_fips_err()))
 		return -EACCES;
 #endif

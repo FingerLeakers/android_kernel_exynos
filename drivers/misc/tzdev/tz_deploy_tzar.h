@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Samsung Electronics, Inc.
+ * Copyright (C) 2012-2019 Samsung Electronics, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -13,7 +13,6 @@
 
 #ifndef __TZ_DEPLOY_TZAR_H__
 #define __TZ_DEPLOY_TZAR_H__
-
 
 #ifdef CONFIG_TZDEV_DEPLOY_TZAR
 int tzdev_deploy_tzar(void);

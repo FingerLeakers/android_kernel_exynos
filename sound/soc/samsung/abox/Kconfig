@@ -2,6 +2,7 @@ config SND_SOC_SAMSUNG_ABOX
 	tristate "ASoC support for Samsung ABOX Audio"
 	select REGMAP_MMIO
 	select SND_SOC_COMPRESS
+	select SND_SOC_TOPOLOGY
 	select SND_HWDEP
 	help
 	  Say Y or M if you want to add support for codecs attached to
@@ -18,6 +19,8 @@ config SND_SOC_SAMSUNG_ABOX_VERSION
 	default 0x12300 if SOC_EXYNOS7885
 	default 0x20000 if SOC_EXYNOS9820 && SOC_EXYNOS9820_EVT0
 	default 0x20001 if SOC_EXYNOS9820
+	default 0x30000 if SOC_EXYNOS9830 && SOC_EXYNOS9830_EVT0
+	default 0x30001 if SOC_EXYNOS9830
 	help
 	  Version of ABOX IP.
 	  Value = 0x10000 * major + 0x100 * minor + rev.
@@ -33,12 +36,20 @@ config SND_SOC_SAMSUNG_ABOX_V2
 	bool
 	depends on SND_SOC_SAMSUNG_ABOX
 	default n if SND_SOC_SAMSUNG_ABOX_VERSION < 0x20000
-	default y if SND_SOC_SAMSUNG_ABOX_VERSION >= 0x20000
+	default y if SND_SOC_SAMSUNG_ABOX_VERSION >= 0x20000 \
+		&& SND_SOC_SAMSUNG_ABOX_VERSION < 0x30000
+
+config SND_SOC_SAMSUNG_ABOX_V3
+	bool
+	depends on SND_SOC_SAMSUNG_ABOX
+	default n if SND_SOC_SAMSUNG_ABOX_VERSION < 0x30000
+	default y if SND_SOC_SAMSUNG_ABOX_VERSION >= 0x30000
 
 config SND_SOC_SAMSUNG_ABOX_DRAM_SIZE
 	hex "Size of DRAM for ABOX firmware"
 	default 0x1200000 if SND_SOC_SAMSUNG_ABOX_V1
 	default 0x1A00000 if SND_SOC_SAMSUNG_ABOX_V2
+	default 0x2800000 if SND_SOC_SAMSUNG_ABOX_V3
 
 config SEC_SND_ADAPTATION
 	tristate "Samsung ABOX Adaptation for Audio"

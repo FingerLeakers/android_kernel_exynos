@@ -6,6 +6,8 @@
 PED_ENABLE=true
 SAFEPLACE_ENABLE=true
 IMMUTABLE_ENABLE=true
+LP_ENABLE=true
+
 ifneq ($(wildcard $(srctree)/include/crypto/internal/rsa.h),)
     $(warning [DEFEX] INTEGRITY_ENABLE)
     INTEGRITY_ENABLE=true
@@ -13,6 +15,9 @@ endif
 
 # caches to enable
 CACHES_ENABLE=true
+
+# OEM Unlock dependency
+OEM_UNLOCK_DEPENDENCY=true
 
 obj-y := defex_lsm.o
 obj-y += defex_catch_list.o
@@ -49,17 +54,30 @@ ifeq ($(IMMUTABLE_ENABLE), true)
     EXTRA_CFLAGS += -DDEFEX_IMMUTABLE_ENABLE
 endif
 
+ifeq ($(LP_ENABLE), true)
+    EXTRA_CFLAGS += -DDEFEX_LP_ENABLE
+endif
+
 ifeq ($(CACHES_ENABLE), true)
     obj-y += defex_caches.o
     EXTRA_CFLAGS += -DDEFEX_CACHES_ENABLE
+endif
+
+ifeq ($(OEM_UNLOCK_DEPENDENCY), true)
+    EXTRA_CFLAGS += -DDEFEX_DEPENDING_ON_OEMUNLOCK
 endif
 
 ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
     obj-y += defex_debug.o
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_IM
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_LP
     EXTRA_CFLAGS += -DDEFEX_DEBUG_ENABLE
     EXTRA_CFLAGS += -DDEFEX_SYSFS_ENABLE
+else
+    ifeq ($(CONFIG_SECURITY_DSMS), y)
+        EXTRA_CFLAGS += -DDEFEX_DSMS_ENABLE
+    endif
 endif
 
 ifeq ($(SEC_BUILD_OPTION_VTS), true)
@@ -67,6 +85,7 @@ ifeq ($(SEC_BUILD_OPTION_VTS), true)
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_SP
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_PED
     EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_IM
+    EXTRA_CFLAGS += -DDEFEX_PERMISSIVE_LP
 else
     $(warning [DEFEX] VTS false $(SEC_BUILD_OPTION_VTS))
 endif

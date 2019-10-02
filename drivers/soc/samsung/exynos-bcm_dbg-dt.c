@@ -34,7 +34,7 @@ static void print_bcm_dbg_data(struct exynos_bcm_dbg_data *data)
 
 	for (i = 0; i < data->define_event_max; i++) {
 		BCM_DBG("Pre-defined Event index: %u\n", data->define_event[i].index);
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			BCM_DBG(" Event[%d]: 0x%02x\n", j, data->define_event[i].event[j]);
 	}
 	BCM_DBG("\n");
@@ -48,7 +48,7 @@ static void print_bcm_dbg_data(struct exynos_bcm_dbg_data *data)
 		BCM_DBG(" Filter ID mask: 0x%08x\n", data->define_filter_id[i].sm_id_mask);
 		BCM_DBG(" Filter ID value: 0x%08x\n", data->define_filter_id[i].sm_id_value);
 		BCM_DBG(" Filter ID active\n");
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			BCM_DBG("  Event[%d]: %u\n", j, data->define_filter_id[i].sm_id_active[j]);
 	}
 	BCM_DBG("\n");
@@ -64,7 +64,7 @@ static void print_bcm_dbg_data(struct exynos_bcm_dbg_data *data)
 					j, data->define_filter_others[i].sm_other_value[j]);
 		}
 		BCM_DBG(" Filter others active\n");
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			BCM_DBG("  Event[%d]: %u\n",
 					j, data->define_filter_others[i].sm_other_active[j]);
 	}
@@ -75,7 +75,7 @@ static void print_bcm_dbg_data(struct exynos_bcm_dbg_data *data)
 		BCM_DBG(" Sample ID peak mask: 0x%08x\n", data->define_sample_id[i].peak_mask);
 		BCM_DBG(" Sample ID peak id: 0x%08x\n", data->define_sample_id[i].peak_id);
 		BCM_DBG(" Sample ID active\n");
-		for (j = 0; j < BCM_EVT_EVENT_MAX; j++)
+		for (j = 0; j < data->bcm_cnt_nr; j++)
 			BCM_DBG("  Event[%d]: %u\n", j, data->define_sample_id[i].peak_enable[j]);
 	}
 	BCM_DBG("\n");
@@ -98,6 +98,7 @@ static void print_bcm_dbg_data(struct exynos_bcm_dbg_data *data)
 }
 
 #ifdef CONFIG_OF
+#ifndef CONFIG_EXYNOS_BCM_DBG_GNR
 static int exynos_bcm_ipc_node_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
@@ -118,7 +119,7 @@ static int exynos_bcm_ipc_node_parse_dt(struct device_node *np,
 
 	return 0;
 }
-
+#endif
 static int exynos_bcm_pd_info_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
@@ -205,16 +206,21 @@ static int exynos_bcm_init_run_ip_parse_dt(struct device_node *np,
 static int exynos_bcm_define_event_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
-	int size, ret;
+	int i, size, ret;
 	int event_cnt, nr_event;
 	const unsigned int *event_addr;
-	unsigned int i;
 	unsigned int event_get_len, event_len;
 	unsigned int *event_data;
 
 	ret = of_property_read_u32(np, "max_define_event", &data->define_event_max);
 	if (ret) {
 		BCM_ERR("%s: Failed get max define event\n", __func__);
+		return ret;
+	}
+
+	ret = of_property_read_u32(np, "bcm_cnt_nr", &data->bcm_cnt_nr);
+	if (ret) {
+		BCM_ERR("%s: Failed get bcm cnt nr\n", __func__);
 		return ret;
 	}
 
@@ -225,10 +231,10 @@ static int exynos_bcm_define_event_parse_dt(struct device_node *np,
 		return size;
 	}
 
-	event_len = BCM_EVT_EVENT_MAX + 1;
+	event_len = data->bcm_cnt_nr + 1;
 
 	/*
-	 * Element number of define_event is (BCM_EVT_EVENT_MAX + 1).
+	 * Element number of define_event is (bcm_cnt_nr + 1).
 	 * calculation number of array
 	 */
 	if (size % event_len) {
@@ -260,7 +266,7 @@ static int exynos_bcm_define_event_parse_dt(struct device_node *np,
 		}
 
 		data->define_event[i].index = be32_to_cpu(event_data[0]);
-		for (event_cnt = 0; event_cnt < BCM_EVT_EVENT_MAX; event_cnt++)
+		for (event_cnt = 0; event_cnt < data->bcm_cnt_nr; event_cnt++)
 			data->define_event[i].event[event_cnt] =
 					be32_to_cpu(event_data[event_cnt + 1]);
 	}
@@ -289,11 +295,10 @@ static int exynos_bcm_define_event_parse_dt(struct device_node *np,
 static int exynos_bcm_filter_id_info_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
-	int size;
+	int i, size;
 	int active_cnt;
 	const unsigned int *filter_id_addr;
 	const unsigned int *filter_id_active_addr;
-	unsigned int i;
 	unsigned int filter_id_len, active_len;
 	unsigned int filter_id_get_len, active_get_len;
 	unsigned int *id_data;
@@ -342,7 +347,7 @@ static int exynos_bcm_filter_id_info_parse_dt(struct device_node *np,
 		return -ENODEV;
 	}
 
-	active_len = BCM_EVT_EVENT_MAX + 1;
+	active_len = data->bcm_cnt_nr + 1;
 
 	for (i = 0; i < PRE_DEFINE_EVT_MAX; i++) {
 		active_data = (unsigned int *)&filter_id_active_addr[i * active_len];
@@ -352,7 +357,7 @@ static int exynos_bcm_filter_id_info_parse_dt(struct device_node *np,
 			return -EINVAL;
 		}
 
-		for (active_cnt = 0; active_cnt < BCM_EVT_EVENT_MAX; active_cnt++)
+		for (active_cnt = 0; active_cnt < data->bcm_cnt_nr; active_cnt++)
 			data->define_filter_id[i].sm_id_active[active_cnt] =
 					be32_to_cpu(active_data[active_cnt + 1]);
 	}
@@ -363,12 +368,11 @@ static int exynos_bcm_filter_id_info_parse_dt(struct device_node *np,
 static int exynos_bcm_filter_others_info_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
-	int size;
+	int i, size;
 	int active_cnt;
 	const unsigned int *filter_other_0_addr;
 	const unsigned int *filter_other_1_addr;
 	const unsigned int *filter_other_active_addr;
-	unsigned int i;
 	unsigned int filter_other_0_len, filter_other_1_len, active_len;
 	unsigned int filter_other_0_get_len, filter_other_1_get_len, active_get_len;
 	unsigned int *other0_data;
@@ -455,7 +459,7 @@ static int exynos_bcm_filter_others_info_parse_dt(struct device_node *np,
 		return -ENODEV;
 	}
 
-	active_len = BCM_EVT_EVENT_MAX + 1;
+	active_len = data->bcm_cnt_nr + 1;
 
 	for (i = 0; i < PRE_DEFINE_EVT_MAX; i++) {
 		active_data = (unsigned int *)&filter_other_active_addr[i * active_len];
@@ -465,7 +469,7 @@ static int exynos_bcm_filter_others_info_parse_dt(struct device_node *np,
 			return -EINVAL;
 		}
 
-		for (active_cnt = 0; active_cnt < BCM_EVT_EVENT_MAX; active_cnt++)
+		for (active_cnt = 0; active_cnt < data->bcm_cnt_nr; active_cnt++)
 			data->define_filter_others[i].sm_other_active[active_cnt] =
 					be32_to_cpu(active_data[active_cnt + 1]);
 	}
@@ -476,11 +480,10 @@ static int exynos_bcm_filter_others_info_parse_dt(struct device_node *np,
 static int exynos_bcm_sample_id_info_parse_dt(struct device_node *np,
 				struct exynos_bcm_dbg_data *data)
 {
-	int size;
+	int i, size;
 	int active_cnt;
 	const unsigned int *sample_id_addr;
 	const unsigned int *sample_active_addr;
-	unsigned int i;
 	unsigned int sample_id_len, active_len;
 	unsigned int sample_id_get_len, active_get_len;
 	unsigned int *id_data;
@@ -529,7 +532,7 @@ static int exynos_bcm_sample_id_info_parse_dt(struct device_node *np,
 		return -ENODEV;
 	}
 
-	active_len = BCM_EVT_EVENT_MAX + 1;
+	active_len = data->bcm_cnt_nr + 1;
 
 	for (i = 0; i < PRE_DEFINE_EVT_MAX; i++) {
 		active_data = (unsigned int *)&sample_active_addr[i * active_len];
@@ -539,7 +542,7 @@ static int exynos_bcm_sample_id_info_parse_dt(struct device_node *np,
 			return -EINVAL;
 		}
 
-		for (active_cnt = 0; active_cnt < BCM_EVT_EVENT_MAX; active_cnt++)
+		for (active_cnt = 0; active_cnt < data->bcm_cnt_nr; active_cnt++)
 			data->define_sample_id[i].peak_enable[active_cnt] =
 					be32_to_cpu(active_data[active_cnt + 1]);
 	}
@@ -618,6 +621,12 @@ static int exynos_bcm_init_control_parse_dt(struct device_node *np,
 		data->available_stop_owner[owner_index] = true;
 	}
 
+	ret = of_property_read_u32(np, "glb_auto_en", &data->glb_auto_en);
+	if (ret) {
+		BCM_ERR("%s: Failed get glb_auto_en \n", __func__);
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -628,14 +637,14 @@ int exynos_bcm_dbg_parse_dt(struct device_node *np,
 
 	if (!np)
 		return -ENODEV;
-
+#ifndef CONFIG_EXYNOS_BCM_DBG_GNR
 	/* get IPC type */
 	ret = exynos_bcm_ipc_node_parse_dt(np, data);
 	if (ret) {
 		BCM_ERR("%s: Failed parse IPC node\n", __func__);
 		return ret;
 	}
-
+#endif
 	/* get Local Power domain names and set power domain index */
 	ret = exynos_bcm_pd_info_parse_dt(np, data);
 	if (ret) {

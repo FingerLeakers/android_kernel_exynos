@@ -197,6 +197,7 @@ static inline u8 dw_mci_exynos_get_ciu_div(struct dw_mci *host)
 static int dw_mci_exynos_priv_init(struct dw_mci *host)
 {
 	struct dw_mci_exynos_priv_data *priv = host->priv;
+	u32 temp;
 
 	priv->saved_strobe_ctrl = mci_readl(host, HS400_DLINE_CTRL);
 	priv->saved_dqs_en = mci_readl(host, HS400_DQS_EN);
@@ -213,6 +214,13 @@ static int dw_mci_exynos_priv_init(struct dw_mci *host)
 		mci_writel(host, AXI_BURST_LEN, reg);
 	}
 #endif
+	temp = mci_readl(host, BLOCK_DMA_FOR_CI);
+	temp &= ~(0x1 << 29);
+
+	if (!host->extended_tmout)
+		temp |= (0x1 << 29);
+	mci_writel(host, BLOCK_DMA_FOR_CI, temp);
+
 	return 0;
 }
 
@@ -270,6 +278,21 @@ static int dw_mci_exynos_runtime_resume(struct device *dev)
 {
 	return dw_mci_runtime_resume(dev);
 }
+#endif /* CONFIG_PM */
+
+#ifdef CONFIG_PM_SLEEP
+#if 0
+/**
+ * dw_mci_exynos_suspend_noirq - Exynos-specific suspend code
+ *
+ * This ensures that device will be in runtime active state in
+ * dw_mci_exynos_resume_noirq after calling pm_runtime_force_resume()
+ */
+static int dw_mci_exynos_suspend_noirq(struct device *dev)
+{
+	pm_runtime_get_noresume(dev);
+	return pm_runtime_force_suspend(dev);
+}
 
 /**
  * dw_mci_exynos_resume_noirq - Exynos-specific resume code
@@ -294,9 +317,8 @@ static int dw_mci_exynos_resume_noirq(struct device *dev)
 
 	return 0;
 }
-#else
-#define dw_mci_exynos_resume_noirq	NULL
-#endif				/* CONFIG_PM */
+#endif
+#endif /* CONFIG_PM_SLEEP */
 
 static void dw_mci_card_int_hwacg_ctrl(struct dw_mci *host, u32 flag)
 {
@@ -453,7 +475,6 @@ static void dw_mci_exynos_set_ios(struct dw_mci *host, struct mmc_ios *ios)
 		break;
 	default:
 		clksel = priv->sdr_timing;
-
 	}
 
 	if (host->pdata->quirks & DW_MCI_QUIRK_USE_SSC) {
@@ -543,6 +564,8 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 	else
 		priv->cd_gpio = -1;
 
+	/* Swapping clock drive strength */
+	of_property_read_u32(np, "clk-drive-number", &priv->clk_drive_number);
 	if (of_get_property(np, "sec-sd-slot-type", NULL))
 		of_property_read_u32(np,
 				"sec-sd-slot-type", &priv->sec_sd_slot_type);
@@ -552,9 +575,6 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 		else
 			priv->sec_sd_slot_type = -1;
 	}
-
-	/* Swapping clock drive strength */
-	of_property_read_u32(np, "clk-drive-number", &priv->clk_drive_number);
 
 	priv->pinctrl = devm_pinctrl_get(host->dev);
 
@@ -573,9 +593,10 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 			if (IS_ERR(priv->clk_drive_str[i]))
 				priv->clk_drive_str[i] = NULL;
 		}
+
 		priv->pins_config[0] = pinctrl_lookup_state(priv->pinctrl, "pins-as-pdn");
 		priv->pins_config[1] = pinctrl_lookup_state(priv->pinctrl, "pins-as-func");
-		
+
 		for (i = 0; i < 2; i++) {
 			if (IS_ERR(priv->pins_config[i]))
 				priv->pins_config[i] = NULL;
@@ -605,6 +626,11 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 		priv->ctrl_flag |= DW_MMC_EXYNOS_BYPASS_FOR_ALL_PASS;
 	if (of_find_property(np, "use-enable-shift", NULL))
 		priv->ctrl_flag |= DW_MMC_EXYNOS_ENABLE_SHIFT;
+
+	if (of_find_property(np, "extended_tmout", NULL))
+		host->extended_tmout = true;
+	else
+		host->extended_tmout = false;
 
 	id = of_alias_get_id(host->dev->of_node, "mshc");
 	switch (id) {
@@ -1057,8 +1083,15 @@ static int dw_mci_exynos_execute_tuning(struct dw_mci_slot *slot, u32 opcode,
 
 			if (bypass) {
 				dev_info(host->dev, "Bypassed for all pass at %d times\n",
-					 priv->clk_drive_number);
+						priv->clk_drive_number);
 				sample_good = abnormal_result & 0xFFFF;
+				/*
+				   previous tuning was all passed but retune triggered.
+				   selected phase, 0x9, was marginal. remove from pass window.
+				 */
+				if (mmc->doing_retune && host->pdata->prev_all_pass)
+					sample_good = sample_good & 0xFDFF;
+				host->pdata->prev_all_pass = true;
 				tuned = true;
 			}
 
@@ -1121,6 +1154,9 @@ static int dw_mci_exynos_execute_tuning(struct dw_mci_slot *slot, u32 opcode,
 		dw_mci_exynos_set_sample(host, orig_sample, false);
 		ret = -EIO;
 	}
+
+	if (!bypass)
+		host->pdata->prev_all_pass = false;
 
 	/* Rollback Clock drive strength */
 	if (priv->pinctrl && priv->clk_drive_base)
@@ -1361,6 +1397,29 @@ static ssize_t sd_data_show(struct device *dev,
 out:
 	return len;
 }
+
+static ssize_t sd_cid_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct dw_mci *host = dev_get_drvdata(dev);
+	struct mmc_card *cur_card = NULL;
+	int len = 0;
+
+	if (host->slot && host->slot->mmc && host->slot->mmc->card)
+		cur_card = host->slot->mmc->card;
+	else {
+		len = snprintf(buf, PAGE_SIZE, "No Card\n");
+		goto out;
+	}
+
+	len = snprintf(buf, PAGE_SIZE,
+			"%08x%08x%08x%08x\n",
+			cur_card->raw_cid[0], cur_card->raw_cid[1],
+			cur_card->raw_cid[2], cur_card->raw_cid[3]);
+out:
+	return len;
+}
+
 static DEVICE_ATTR(status, 0444, sd_detection_cmd_show, NULL);
 static DEVICE_ATTR(cd_cnt, 0444, sd_detection_cnt_show, NULL);
 static DEVICE_ATTR(max_mode, 0444, sd_detection_maxmode_show, NULL);
@@ -1368,6 +1427,7 @@ static DEVICE_ATTR(current_mode, 0444, sd_detection_curmode_show, NULL);
 static DEVICE_ATTR(sdcard_summary, 0444, sdcard_summary_show, NULL);
 static DEVICE_ATTR(sd_count, 0444, sd_count_show, NULL);
 static DEVICE_ATTR(sd_data, 0444, sd_data_show, NULL);
+static DEVICE_ATTR(data, 0444, sd_cid_show, NULL);
 
 /* Callback function for SD Card IO Error */
 static int sdcard_uevent(struct mmc_card *card)
@@ -1480,6 +1540,10 @@ static void dw_mci_exynos_add_sysfs(struct dw_mci *host)
 			if (device_create_file(sd_info_cmd_dev,
 						&dev_attr_sd_count) < 0)
 				pr_err("Fail to create status sysfs file\n");
+
+			if (device_create_file(sd_info_cmd_dev,
+						&dev_attr_data) < 0)
+				pr_err("Fail to create status sysfs file\n");
 		}
 
 		if (!sd_data_cmd_dev) {
@@ -1517,7 +1581,7 @@ static int dw_mci_exynos_misc_control(struct dw_mci *host,
 	case CTRL_CHECK_CD:
 		ret = dw_mci_exynos_check_cd(host);
 		break;
-		case CTRL_ADD_SYSFS:
+	case CTRL_ADD_SYSFS:
 			dw_mci_exynos_add_sysfs(host);
 			break;
 	default:
@@ -1569,14 +1633,13 @@ static int dw_mci_exynos_access_control_resume(struct dw_mci *host)
 
 static const struct dw_mci_drv_data exynos_drv_data = {
 	.caps = exynos_dwmmc_caps,
-	.num_caps		= ARRAY_SIZE(exynos_dwmmc_caps),
 	.init = dw_mci_exynos_priv_init,
 	.set_ios = dw_mci_exynos_set_ios,
 	.parse_dt = dw_mci_exynos_parse_dt,
 	.execute_tuning = dw_mci_exynos_execute_tuning,
 	.hwacg_control = dw_mci_card_int_hwacg_ctrl,
-	.pins_control = dw_mci_set_pins_state,
 	.misc_control = dw_mci_exynos_misc_control,
+	.pins_control = dw_mci_set_pins_state,
 #ifdef CONFIG_MMC_DW_EXYNOS_FMP
 	.crypto_engine_cfg = dw_mci_exynos_crypto_engine_cfg,
 	.crypto_engine_clear = dw_mci_exynos_crypto_engine_clear,
@@ -1633,24 +1696,19 @@ static int dw_mci_exynos_remove(struct platform_device *pdev)
 
 static const struct dev_pm_ops dw_mci_exynos_pmops = {
 	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
-				pm_runtime_force_resume)
-	    SET_RUNTIME_PM_OPS(dw_mci_runtime_suspend,
-			       dw_mci_exynos_runtime_resume,
-			       NULL)
-	    .resume_noirq = dw_mci_exynos_resume_noirq,
-	.thaw_noirq = dw_mci_exynos_resume_noirq,
-	.restore_noirq = dw_mci_exynos_resume_noirq,
+			pm_runtime_force_resume)
+	SET_RUNTIME_PM_OPS(dw_mci_runtime_suspend,
+			dw_mci_exynos_runtime_resume, NULL)
 };
 
 static struct platform_driver dw_mci_exynos_pltfm_driver = {
-	.probe = dw_mci_exynos_probe,
-	.remove = dw_mci_exynos_remove,
-	.driver = {
-		   .name = "dwmmc_exynos",
-		   .of_match_table = dw_mci_exynos_match,
-		   .pm = &dw_mci_exynos_pmops,
-		   .suppress_bind_attrs = true,
-		   },
+	.probe		= dw_mci_exynos_probe,
+	.remove		= dw_mci_exynos_remove,
+	.driver		= {
+		.name		= "dwmmc_exynos",
+		.of_match_table	= dw_mci_exynos_match,
+		.pm		= &dw_mci_exynos_pmops,
+	},
 };
 
 module_platform_driver(dw_mci_exynos_pltfm_driver);

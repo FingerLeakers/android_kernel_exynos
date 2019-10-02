@@ -10,16 +10,22 @@
 
 #include <linux/pm_qos.h>
 #include <soc/samsung/exynos-dm.h>
-#include "exynos-ufc.h"
+#include <linux/timer.h>
+
+#define CPUFREQ_RESTART 0x1 << 0
+#define CPUFREQ_SUSPEND 0x1 << 1
+
+struct exynos_slack_timer {
+	/* for slack timer */
+	unsigned long min;
+	int enabled;
+	int expired_time;
+	struct timer_list timer;
+};
 
 struct exynos_cpufreq_dm {
 	struct list_head		list;
 	struct exynos_dm_constraint	c;
-};
-
-struct exynos_ufc {
-	struct list_head		list;
-	struct exynos_ufc_info		info;
 };
 
 typedef int (*target_fn)(struct cpufreq_policy *policy,
@@ -67,16 +73,11 @@ struct exynos_cpufreq_domain {
 	unsigned int			pm_qos_max_class;
 	struct pm_qos_request		min_qos_req;
 	struct pm_qos_request		max_qos_req;
-	struct pm_qos_request		user_min_qos_req;
-	struct pm_qos_request		user_max_qos_req;
-	struct pm_qos_request		user_min_qos_wo_boost_req;
 	struct notifier_block		pm_qos_min_notifier;
 	struct notifier_block		pm_qos_max_notifier;
 
 	/* for sysfs */
-	int				user_boost;
-	int				user_boost_game;
-	unsigned int			user_default_qos;
+	unsigned int			user_boost;
 
 	/* freq boost */
 	bool				boost_supported;
@@ -85,9 +86,6 @@ struct exynos_cpufreq_domain {
 
 	/* list head of DVFS Manager constraints */
 	struct list_head		dm_list;
-
-	/* list head of User cpuFreq Ctrl (UFC) */
-	struct list_head		ufc_list;
 
 	bool				need_awake;
 
@@ -101,9 +99,6 @@ struct exynos_cpufreq_domain {
 extern struct exynos_cpufreq_domain
 		*find_domain_cpumask(const struct cpumask *mask);
 extern struct list_head *get_domain_list(void);
-extern struct exynos_cpufreq_domain *first_domain(void);
-extern struct exynos_cpufreq_domain *last_domain(void);
-extern int exynos_cpufreq_domain_count(void);
 
 /*
  * the time it takes on this CPU to switch between
@@ -116,11 +111,3 @@ extern int exynos_cpufreq_domain_count(void);
  */
 extern void exynos_cpufreq_ready_list_add(struct exynos_cpufreq_ready_block *rb);
 extern unsigned int exynos_pstate_get_boost_freq(int cpu);
-#ifdef CONFIG_ARM_EXYNOS_UFC
-extern int ufc_domain_init(struct exynos_cpufreq_domain *domain);
-#else
-static inline int ufc_domain_init(struct exynos_cpufreq_domain *domain)
-{
-	return 0;
-}
-#endif

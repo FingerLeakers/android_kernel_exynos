@@ -110,11 +110,9 @@ void abox_failsafe_report_reset(struct device *dev)
 
 static int abox_failsafe_reset(struct device *dev, struct abox_data *data)
 {
-	struct device *dev_abox = &data->pdev->dev;
-
 	dev_dbg(dev, "%s\n", __func__);
 
-	return abox_failsafe_start(dev_abox, data);
+	return abox_failsafe_start(data->dev, data);
 }
 
 static ssize_t reset_store(struct device *dev, struct device_attribute *attr,

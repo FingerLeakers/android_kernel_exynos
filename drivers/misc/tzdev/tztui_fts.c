@@ -46,10 +46,10 @@
 MODULE_AUTHOR("Egor Uleyskiy <e.uleyskiy@samsung.com>");
 MODULE_DESCRIPTION("TZTUI driver"); /* TrustZone Trusted User Interface */
 MODULE_LICENSE("GPL");
-int tztui_verbosity = 2;
-module_param(tztui_verbosity, int, 0644);
-MODULE_PARM_DESC(tztui_verbosity, "0: normal, 1: verbose, 2: debug");
 
+int tzdev_tui_verbosity = 2;
+module_param(tzdev_tui_verbosity, int, 0644);
+MODULE_PARM_DESC(tzdev_tui_verbosity, "0: normal, 1: verbose, 2: debug");
 
 #define TUI_OFFLINE                 0x0
 #define TUI_ONLINE                  0x1
@@ -504,7 +504,7 @@ static int __init tztui_init(void)
 	(void)irq_wait_queue;
 
 	wake_lock_init(&wakelock, WAKE_LOCK_SUSPEND, "tztui_wakelock");
-	ts = kthread_create(thread_handler, NULL, "per_cpu_thread");
+	ts = kthread_create(thread_handler, NULL, "tztui_cpu_thread");
 	kthread_bind(ts, cpu_num);
 	if (!IS_ERR(ts))
 		wake_up_process(ts);

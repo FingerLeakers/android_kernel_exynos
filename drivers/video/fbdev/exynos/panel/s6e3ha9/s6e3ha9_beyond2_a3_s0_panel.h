@@ -12,7 +12,7 @@
 
 #ifndef __S6E3HA9_BEYOND2_A3_S0_PANEL_H__
 #define __S6E3HA9_BEYOND2_A3_S0_PANEL_H__
-#include "../panel.h"
+#include "../panel_drv.h"
 #include "s6e3ha9.h"
 #include "s6e3ha9_dimming.h"
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
@@ -39,13 +39,8 @@
 #include "../aod/aod_drv.h"
 #endif
 
-#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
-#include "s6e3ha9_profiler_panel.h"
-#include "../display_profiler/display_profiler.h"
-#endif
-
-
 #include "s6e3ha9_beyond_irc.h"
+#include "s6e3ha9_beyond_resol.h"
 
 #undef __pn_name__
 #define __pn_name__	beyond2_a3_s0
@@ -1571,12 +1566,6 @@ static void *beyond2_a3_s0_gamma_inter_control_cmdtbl[] = {
 	&KEYINFO(beyond2_a3_s0_level2_key_disable),
 };
 
-static void *beyond2_a3_s0_check_condition_cmdtbl[] = {
-	&KEYINFO(beyond2_a3_s0_level2_key_enable),
-	&s6e3ha9_dmptbl[DUMP_RDDPM],
-	&KEYINFO(beyond2_a3_s0_level2_key_disable),
-};
-
 #ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
 static void *beyond2_a3_s0_isc_threshold_cmdtbl[] = {
 	&KEYINFO(beyond2_a3_s0_level2_key_enable),
@@ -2123,7 +2112,6 @@ static struct seqinfo beyond2_a3_s0_preliminary_seqtbl[MAX_PANEL_SEQ] = {
 	[PANEL_STM_TUNE_SEQ] = SEQINFO_INIT("stm-tune-seq", beyond2_a3_s0_stm_tune_cmdtbl),
 #endif
 	[PANEL_GAMMA_INTER_CONTROL_SEQ] = SEQINFO_INIT("gamma-control-seq", beyond2_a3_s0_gamma_inter_control_cmdtbl),
-	[PANEL_CHECK_CONDITION_SEQ] = SEQINFO_INIT("check-condition-seq", beyond2_a3_s0_check_condition_cmdtbl),
 	[PANEL_DUMP_SEQ] = SEQINFO_INIT("dump-seq", beyond2_a3_s0_dump_cmdtbl),
 	[PANEL_DUMMY_SEQ] = SEQINFO_INIT("dummy-seq", beyond2_a3_s0_dummy_cmdtbl),
 };
@@ -2193,7 +2181,6 @@ static struct seqinfo beyond2_a3_s0_seqtbl[MAX_PANEL_SEQ] = {
 	[PANEL_STM_TUNE_SEQ] = SEQINFO_INIT("stm-tune-seq", beyond2_a3_s0_stm_tune_cmdtbl),
 #endif
 	[PANEL_GAMMA_INTER_CONTROL_SEQ] = SEQINFO_INIT("gamma-control-seq", beyond2_a3_s0_gamma_inter_control_cmdtbl),
-	[PANEL_CHECK_CONDITION_SEQ] = SEQINFO_INIT("check-condition-seq", beyond2_a3_s0_check_condition_cmdtbl),
 	[PANEL_DUMP_SEQ] = SEQINFO_INIT("dump-seq", beyond2_a3_s0_dump_cmdtbl),
 	[PANEL_DUMMY_SEQ] = SEQINFO_INIT("dummy-seq", beyond2_a3_s0_dummy_cmdtbl),
 };
@@ -2207,6 +2194,10 @@ struct common_panel_info s6e3ha9_beyond2_a3_s0_preliminary_panel_info = {
 	.rev = 1,
 	.ddi_props = {
 		.gpara = (DDI_SUPPORT_WRITE_GPARA | DDI_SUPPORT_POINT_GPARA),
+	},
+	.mres = {
+		.nr_resol = ARRAY_SIZE(s6e3ha9_beyond_resol),
+		.resol = s6e3ha9_beyond_resol,
 	},
 	.maptbl = beyond2_a3_s0_maptbl,
 	.nr_maptbl = ARRAY_SIZE(beyond2_a3_s0_maptbl),
@@ -2237,10 +2228,6 @@ struct common_panel_info s6e3ha9_beyond2_a3_s0_preliminary_panel_info = {
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 	.poc_data = &s6e3ha9_beyond_poc_data,
 #endif
-#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
-	.profile_tune = &ha9_profiler_tune,
-#endif
-
 };
 
 struct common_panel_info s6e3ha9_beyond2_a3_s0_utype_panel_info = {
@@ -2282,10 +2269,6 @@ struct common_panel_info s6e3ha9_beyond2_a3_s0_utype_panel_info = {
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 	.poc_data = &s6e3ha9_beyond_poc_data,
 #endif
-#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
-	.profile_tune = &ha9_profiler_tune,
-#endif
-
 };
 
 struct common_panel_info s6e3ha9_beyond2_a3_s0_default_panel_info = {
@@ -2327,10 +2310,6 @@ struct common_panel_info s6e3ha9_beyond2_a3_s0_default_panel_info = {
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 	.poc_data = &s6e3ha9_beyond_poc_data,
 #endif
-#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
-	.profile_tune = &ha9_profiler_tune,
-#endif
-
 };
 
 static int __init s6e3ha9_beyond2_a3_s0_panel_init(void)

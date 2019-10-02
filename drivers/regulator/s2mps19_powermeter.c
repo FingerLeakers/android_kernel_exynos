@@ -1,5 +1,5 @@
 /*
- * s2mps19.c
+ * s2mps19-powermeter.c
  *
  * Copyright (c) 2015 Samsung Electronics Co., Ltd
  *              http://www.samsung.com
@@ -16,15 +16,14 @@
 #include <linux/mfd/samsung/s2mps19.h>
 #include <linux/mfd/samsung/s2mps19-regulator.h>
 #include <linux/platform_device.h>
+#include <linux/regulator/pmic_class.h>
 
 #define CURRENT_METER		1
-#define POWER_METER 		2
+#define POWER_METER		2
 #define SYNC_MODE	1
 #define ASYNC_MODE	2
 
 static struct adc_info *adc_meter;
-struct device *s2mps19_adc_dev;
-struct class *s2mps19_adc_class;
 
 struct adc_info {
 	struct i2c_client *i2c;
@@ -38,6 +37,7 @@ struct adc_info {
 	struct mutex adc_lock;
 };
 
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
 static const unsigned int current_buck_coeffs[S2MPS19_BUCK_CNT] =
 	{CURRENT_BS, CURRENT_BD, CURRENT_BS, CURRENT_BS, CURRENT_BS, CURRENT_BD,
 	 CURRENT_BS, CURRENT_BS, CURRENT_BS, CURRENT_BS, CURRENT_BS, CURRENT_BV};
@@ -104,7 +104,8 @@ static void s2m_adc_read_data(struct device *dev, int channel)
 
 	/* ASYNCRD bit '1' --> 2ms delay --> read  in case of ADC Async mode */
 	if (adc_meter->adc_sync_mode == ASYNC_MODE) {
-		s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL2, ADC_ASYNCRD_MASK, ADC_ASYNCRD_MASK);
+		s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL2,
+				   ADC_ASYNCRD_MASK, ADC_ASYNCRD_MASK);
 		usleep_range(2000, 2100);
 	}
 
@@ -112,70 +113,143 @@ static void s2m_adc_read_data(struct device *dev, int channel)
 		/* current */
 		for (i = 0; i < S2MPS19_MAX_ADC_CHANNEL; i++) {
 			s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-				(i + CURRENT_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
-			s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_l);
+					   (i + CURRENT_PTR_BASE) | ADC_EN_MASK,
+					   ADC_PTR_MASK | ADC_EN_MASK);
+			s2mps19_read_reg(adc_meter->i2c,
+					 S2MPS19_REG_ADC_DATA, &data_l);
 			adc_meter->current_val[i] = data_l;
 		}
 		/* power */
 		for (i = 0; i < S2MPS19_MAX_ADC_CHANNEL; i++) {
 			s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-				(2*i + POWER_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
-			s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_l);
+					   (2 * i + POWER_PTR_BASE) | ADC_EN_MASK,
+					   ADC_PTR_MASK | ADC_EN_MASK);
+			s2mps19_read_reg(adc_meter->i2c,
+					 S2MPS19_REG_ADC_DATA, &data_l);
 
 			s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-				(2*i+1 + POWER_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
-			s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_h);
+					   (2 * i + 1 + POWER_PTR_BASE) |
+					   ADC_EN_MASK, ADC_PTR_MASK |
+					   ADC_EN_MASK);
+			s2mps19_read_reg(adc_meter->i2c,
+					 S2MPS19_REG_ADC_DATA, &data_h);
 
-			adc_meter->power_val[i] = ((data_h & 0xff) << 8) | (data_l & 0xff);
+			adc_meter->power_val[i] = ((data_h & 0xff) << 8) |
+						  (data_l & 0xff);
 		}
 	} else {
 		/* current */
 		s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-			(channel + CURRENT_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
+				   (channel + CURRENT_PTR_BASE) |
+				   ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
 		s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_l);
 		adc_meter->current_val[channel] = data_l;
 
 		/* power */
 		s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-			(2*channel + POWER_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
+				   (2 * channel + POWER_PTR_BASE) |
+				   ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
 		s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_l);
 
 		s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
-			(2*channel+1 + POWER_PTR_BASE) | ADC_EN_MASK, ADC_PTR_MASK | ADC_EN_MASK);
+				   (2 * channel + 1 + POWER_PTR_BASE) | ADC_EN_MASK,
+				   ADC_PTR_MASK | ADC_EN_MASK);
 		s2mps19_read_reg(adc_meter->i2c, S2MPS19_REG_ADC_DATA, &data_h);
 
-		adc_meter->power_val[channel] = ((data_h & 0xff) << 8) | (data_l & 0xff);
+		adc_meter->power_val[channel] = ((data_h & 0xff) << 8) |
+						(data_l & 0xff);
 	}
 
 	mutex_unlock(&adc_meter->adc_lock);
 }
 
-static ssize_t adc_val_power_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_power_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
 {
-		s2m_adc_read_data(dev, -1);
-		return snprintf(buf, PAGE_SIZE, "CH0[%x]:%d uW (%d), CH1[%x]:%d uW (%d), CH2[%x]:%d uW (%d), CH3[%x]:%d uW (%d)\nCH4[%x]:%d uW (%d), CH5[%x]:%d uW (%d), CH6[%x]:%d uW (%d), CH7[%x]:%d uW (%d)\n",
-			adc_meter->adc_reg[0], ((adc_meter->power_val[0] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[0])), adc_meter->power_val[0],
-			adc_meter->adc_reg[1], ((adc_meter->power_val[1] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[1])), adc_meter->power_val[1],
-			adc_meter->adc_reg[2], ((adc_meter->power_val[2] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[2])), adc_meter->power_val[2],
-			adc_meter->adc_reg[3], ((adc_meter->power_val[3] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[3])), adc_meter->power_val[3],
-			adc_meter->adc_reg[4], ((adc_meter->power_val[4] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[4])), adc_meter->power_val[4],
-			adc_meter->adc_reg[5], ((adc_meter->power_val[5] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[5])), adc_meter->power_val[5],
-			adc_meter->adc_reg[6], ((adc_meter->power_val[6] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[6])), adc_meter->power_val[6],
-			adc_meter->adc_reg[7], ((adc_meter->power_val[7] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[7])), adc_meter->power_val[7]);
+	int i;
+
+	for(i = 0; i <= 7; i++) {
+		if((adc_meter->adc_reg[i] >= S2MPS19_LDO_START) &&
+		   (adc_meter->adc_reg[i] <= S2MPS19_LDO_END))
+			return snprintf(buf, PAGE_SIZE,
+					"Power-Meter Function for LDOs Not Supported\n");
+	}
+
+	s2m_adc_read_data(dev, -1);
+
+	return snprintf(buf, PAGE_SIZE,
+			"CH0[%x]:%d uW (%d), CH1[%x]:%d uW (%d), CH2[%x]:%d uW (%d), CH3[%x]:%d uW (%d)\nCH4[%x]:%d uW (%d), CH5[%x]:%d uW (%d), CH6[%x]:%d uW (%d), CH7[%x]:%d uW (%d)\n",
+			adc_meter->adc_reg[0],
+			((adc_meter->power_val[0] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[0])),
+			adc_meter->power_val[0],
+
+			adc_meter->adc_reg[1],
+			((adc_meter->power_val[1] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[1])),
+			adc_meter->power_val[1],
+
+			adc_meter->adc_reg[2],
+			((adc_meter->power_val[2] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[2])),
+			adc_meter->power_val[2],
+
+			adc_meter->adc_reg[3],
+			((adc_meter->power_val[3] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[3])),
+			adc_meter->power_val[3],
+
+			adc_meter->adc_reg[4],
+			((adc_meter->power_val[4] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[4])),
+			adc_meter->power_val[4],
+
+			adc_meter->adc_reg[5],
+			((adc_meter->power_val[5] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[5])),
+			adc_meter->power_val[5],
+
+			adc_meter->adc_reg[6],
+			((adc_meter->power_val[6] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[6])),
+			adc_meter->power_val[6],
+
+			adc_meter->adc_reg[7],
+			((adc_meter->power_val[7] >> 8) * get_coeff_p(dev, adc_meter->adc_reg[7])),
+			adc_meter->power_val[7]);
 }
 
-static ssize_t adc_val_current_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_current_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
 {
-		s2m_adc_read_data(dev, -1);
-		return snprintf(buf, PAGE_SIZE, "CH0[%x]:%d uA (%d), CH1[%x]:%d uA (%d), CH2[%x]:%d uA (%d), CH3[%x]:%d uA (%d)\nCH4[%x]:%d uA (%d), CH5[%x]:%d uA (%d), CH6[%x]:%d uA (%d), CH7[%x]:%d uA (%d)\n",
-			adc_meter->adc_reg[0], adc_meter->current_val[0] * get_coeff_c(dev, adc_meter->adc_reg[0])/1000, adc_meter->current_val[0],
-			adc_meter->adc_reg[1], adc_meter->current_val[1] * get_coeff_c(dev, adc_meter->adc_reg[1])/1000, adc_meter->current_val[1],
-			adc_meter->adc_reg[2], adc_meter->current_val[2] * get_coeff_c(dev, adc_meter->adc_reg[2])/1000, adc_meter->current_val[2],
-			adc_meter->adc_reg[3], adc_meter->current_val[3] * get_coeff_c(dev, adc_meter->adc_reg[3])/1000, adc_meter->current_val[3],
-			adc_meter->adc_reg[4], adc_meter->current_val[4] * get_coeff_c(dev, adc_meter->adc_reg[4])/1000, adc_meter->current_val[4],
-			adc_meter->adc_reg[5], adc_meter->current_val[5] * get_coeff_c(dev, adc_meter->adc_reg[5])/1000, adc_meter->current_val[5],
-			adc_meter->adc_reg[6], adc_meter->current_val[6] * get_coeff_c(dev, adc_meter->adc_reg[6])/1000, adc_meter->current_val[6],
-			adc_meter->adc_reg[7], adc_meter->current_val[7] * get_coeff_c(dev, adc_meter->adc_reg[7])/1000, adc_meter->current_val[7]);
+	s2m_adc_read_data(dev, -1);
+
+	return snprintf(buf, PAGE_SIZE,
+			"CH0[%x]:%d uA (%d), CH1[%x]:%d uA (%d), CH2[%x]:%d uA (%d), CH3[%x]:%d uA (%d)\nCH4[%x]:%d uA (%d), CH5[%x]:%d uA (%d), CH6[%x]:%d uA (%d), CH7[%x]:%d uA (%d)\n",
+			adc_meter->adc_reg[0],
+			adc_meter->current_val[0] * get_coeff_c(dev, adc_meter->adc_reg[0]) / 1000,
+			adc_meter->current_val[0],
+
+			adc_meter->adc_reg[1],
+			adc_meter->current_val[1] * get_coeff_c(dev, adc_meter->adc_reg[1]) / 1000,
+			adc_meter->current_val[1],
+
+			adc_meter->adc_reg[2],
+			adc_meter->current_val[2] * get_coeff_c(dev, adc_meter->adc_reg[2]) / 1000,
+			adc_meter->current_val[2],
+
+			adc_meter->adc_reg[3],
+			adc_meter->current_val[3] * get_coeff_c(dev, adc_meter->adc_reg[3]) / 1000,
+			adc_meter->current_val[3],
+
+			adc_meter->adc_reg[4],
+			adc_meter->current_val[4] * get_coeff_c(dev, adc_meter->adc_reg[4]) / 1000,
+			adc_meter->current_val[4],
+
+			adc_meter->adc_reg[5],
+			adc_meter->current_val[5] * get_coeff_c(dev, adc_meter->adc_reg[5]) / 1000,
+			adc_meter->current_val[5],
+
+			adc_meter->adc_reg[6],
+			adc_meter->current_val[6] * get_coeff_c(dev, adc_meter->adc_reg[6]) / 1000,
+			adc_meter->current_val[6],
+
+			adc_meter->adc_reg[7],
+			adc_meter->current_val[7] * get_coeff_c(dev, adc_meter->adc_reg[7]) / 1000,
+			adc_meter->current_val[7]);
 }
 
 static ssize_t adc_en_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -212,17 +286,21 @@ static ssize_t adc_en_store(struct device *dev, struct device_attribute *attr,
 		}
 	}
 
-	s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3, val, ADC_EN_MASK);
+	s2mps19_update_reg(adc_meter->i2c,
+			   S2MPS19_REG_ADC_CTRL3, val, ADC_EN_MASK);
 	return count;
 }
 
-static ssize_t adc_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_mode_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
 {
 	switch (adc_meter->adc_mode) {
 		case CURRENT_METER :
-			return snprintf(buf, PAGE_SIZE, "CURRENT MODE (%d)\n", CURRENT_METER);
+			return snprintf(buf, PAGE_SIZE,
+					"CURRENT MODE (%d)\n", CURRENT_METER);
 		case POWER_METER :
-			return snprintf(buf, PAGE_SIZE, "POWER MODE (%d)\n", POWER_METER);
+			return snprintf(buf, PAGE_SIZE,
+					"POWER MODE (%d)\n", POWER_METER);
 		default :
 			return snprintf(buf, PAGE_SIZE, "error\n");
 	}
@@ -257,16 +335,20 @@ static ssize_t adc_mode_store(struct device *dev, struct device_attribute *attr,
 	}
 }
 
-static ssize_t adc_sync_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_sync_mode_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
 {
 
 	switch (adc_meter->adc_sync_mode) {
 	case SYNC_MODE:
-		return snprintf(buf, PAGE_SIZE, "SYNC_MODE (%d)\n", adc_meter->adc_sync_mode);
+		return snprintf(buf, PAGE_SIZE,
+				"SYNC_MODE (%d)\n", adc_meter->adc_sync_mode);
 	case ASYNC_MODE:
-		return snprintf(buf, PAGE_SIZE, "ASYNC_MODE (%d)\n", adc_meter->adc_sync_mode);
+		return snprintf(buf, PAGE_SIZE,
+				"ASYNC_MODE (%d)\n", adc_meter->adc_sync_mode);
 	default:
-		return snprintf(buf, PAGE_SIZE, "error (%x)\n", adc_meter->adc_sync_mode);
+		return snprintf(buf, PAGE_SIZE,
+				"error (%x)\n", adc_meter->adc_sync_mode);
 	}
 }
 
@@ -294,138 +376,132 @@ static ssize_t adc_sync_mode_store(struct device *dev, struct device_attribute *
 	return count;
 }
 
-static ssize_t adc_val_0_show(struct device *dev, struct device_attribute *attr, char *buf)
+static int adc_val_show_function(char *buf, unsigned int coeff_c, int channel)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[0]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[0]);
+	if((adc_meter->adc_mode == POWER_METER) &&
+	   (adc_meter->adc_reg[channel] >= S2MPS19_LDO_START) &&
+	   (adc_meter->adc_reg[channel] <= S2MPS19_LDO_END))
+		return snprintf(buf, PAGE_SIZE,
+				"[CH%d] Power-Meter for LDOs Not Supported, "
+				"%d(0x%x) uA\n", channel,
+				adc_meter->current_val[channel] * coeff_c / 1000,
+				adc_meter->current_val[channel]);
 
-	s2m_adc_read_data(dev, 0);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[0] * coeff_c / 1000, adc_meter->current_val[0],
-	(adc_meter->power_val[0] >> 8) * coeff_p, adc_meter->power_val[0]);
+	return 0;
 }
 
-static ssize_t adc_val_1_show(struct device *dev, struct device_attribute *attr, char *buf)
+static int convert_adc_val(struct device *dev, char *buf, int channel)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[1]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[1]);
+	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[channel]);
+	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[channel]);
+	int ret;
 
-	s2m_adc_read_data(dev, 1);
+	s2m_adc_read_data(dev, channel);
 
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[1] * coeff_c / 1000, adc_meter->current_val[1],
-	(adc_meter->power_val[1] >> 8) * coeff_p, adc_meter->power_val[1]);
+	ret = adc_val_show_function(buf, coeff_c, channel);
+	if (ret)
+		return ret;
+
+	return snprintf(buf, PAGE_SIZE, "[CH%d] %d(0x%x)uA, %d(0x%x) uW\n",
+			channel,
+			adc_meter->current_val[channel] * coeff_c / 1000,
+			adc_meter->current_val[channel],
+			(adc_meter->power_val[channel] >> 8) * coeff_p,
+			adc_meter->power_val[channel]);
 }
 
-static ssize_t adc_val_2_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_0_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[2]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[2]);
-
-	s2m_adc_read_data(dev, 2);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[2] * coeff_c / 1000, adc_meter->current_val[2],
-	(adc_meter->power_val[2] >> 8) * coeff_p, adc_meter->power_val[2]);
+	return convert_adc_val(dev, buf, 0);
 }
 
-static ssize_t adc_val_3_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_1_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[3]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[3]);
-
-	s2m_adc_read_data(dev, 3);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[3] * coeff_c / 1000, adc_meter->current_val[3],
-	(adc_meter->power_val[3] >> 8) * coeff_p, adc_meter->power_val[3]);
+	return convert_adc_val(dev, buf, 1);
 }
 
-static ssize_t adc_val_4_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_2_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[4]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[4]);
-
-	s2m_adc_read_data(dev, 4);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[4] * coeff_c / 1000, adc_meter->current_val[4],
-	(adc_meter->power_val[4] >> 8) * coeff_p, adc_meter->power_val[4]);
+	return convert_adc_val(dev, buf, 2);
 }
 
-static ssize_t adc_val_5_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_3_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[5]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[5]);
-
-	s2m_adc_read_data(dev, 5);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[5] * coeff_c / 1000, adc_meter->current_val[5],
-	(adc_meter->power_val[5] >> 8) * coeff_p, adc_meter->power_val[5]);
+	return convert_adc_val(dev, buf, 3);
 }
 
-static ssize_t adc_val_6_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_4_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[6]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[6]);
-
-	s2m_adc_read_data(dev, 6);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[6] * coeff_c / 1000, adc_meter->current_val[6],
-	(adc_meter->power_val[6] >> 8) * coeff_p, adc_meter->power_val[6]);
+	return convert_adc_val(dev, buf, 4);
 }
 
-static ssize_t adc_val_7_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_5_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
-	unsigned int coeff_p = get_coeff_p(dev, adc_meter->adc_reg[7]);
-	unsigned int coeff_c = get_coeff_c(dev, adc_meter->adc_reg[7]);
-
-	s2m_adc_read_data(dev, 7);
-
-	return snprintf(buf, PAGE_SIZE, "[CH0] %d(0x%x)uA, %d(0x%x) uW\n", 
-	adc_meter->current_val[7] * coeff_c / 1000, adc_meter->current_val[7],
-	(adc_meter->power_val[7] >> 8) * coeff_p, adc_meter->power_val[7]);
+	return convert_adc_val(dev, buf, 5);
 }
 
-static ssize_t adc_reg_0_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_val_6_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	return convert_adc_val(dev, buf, 6);
+}
+
+static ssize_t adc_val_7_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	return convert_adc_val(dev, buf, 7);
+}
+
+static ssize_t adc_reg_0_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[0]);
 }
 
-static ssize_t adc_reg_1_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_1_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[1]);
 }
 
-static ssize_t adc_reg_2_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_2_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[2]);
 }
 
-static ssize_t adc_reg_3_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_3_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[3]);
 }
 
-static ssize_t adc_reg_4_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_4_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[4]);
 }
 
-static ssize_t adc_reg_5_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_5_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[5]);
 }
 
-static ssize_t adc_reg_6_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_6_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[6]);
 }
 
-static ssize_t adc_reg_7_show(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t adc_reg_7_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "0x%2x\n", adc_meter->adc_reg[7]);
 }
@@ -479,105 +555,62 @@ static u8 buf_to_adc_reg(const char *buf)
 		return 0;
 }
 
-static ssize_t adc_reg_0_store(struct device *dev, struct device_attribute *attr,
-				const char *buf, size_t count)
+static ssize_t assign_adc_reg(struct device *dev, const char *buf,
+			      size_t count, int channel)
 {
 	u8 adc_reg_num = buf_to_adc_reg(buf);
 	if (!adc_reg_num)
 		return -EINVAL;
 	else {
-		adc_meter->adc_reg[0] = adc_reg_num;
+		adc_meter->adc_reg[channel] = adc_reg_num;
 		adc_reg_update(dev);
 		return count;
 	}
+}
+
+static ssize_t adc_reg_0_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	return assign_adc_reg(dev, buf, count, 0);
 }
 
 static ssize_t adc_reg_1_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[1] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 1);
 }
 
 static ssize_t adc_reg_2_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[2] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 2);
 }
 
 static ssize_t adc_reg_3_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[3] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 3);
 }
 
 static ssize_t adc_reg_4_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[4] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 4);
 }
 static ssize_t adc_reg_5_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[5] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 5);
 }
 static ssize_t adc_reg_6_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[6] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 6);
 }
 static ssize_t adc_reg_7_store(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t count)
 {
-	u8 adc_reg_num = buf_to_adc_reg(buf);
-	if (!adc_reg_num)
-		return -EINVAL;
-	else {
-		adc_meter->adc_reg[7] = adc_reg_num;
-		adc_reg_update(dev);
-		return count;
-	}
+	return assign_adc_reg(dev, buf, count, 7);
 }
 
 static void adc_ctrl1_update(struct device *dev)
@@ -638,153 +671,95 @@ static DEVICE_ATTR(adc_reg_6, 0644, adc_reg_6_show, adc_reg_6_store);
 static DEVICE_ATTR(adc_reg_7, 0644, adc_reg_7_show, adc_reg_7_store);
 static DEVICE_ATTR(adc_ctrl1, 0644, adc_ctrl1_show, adc_ctrl1_store);
 
-void s2mps19_powermeter_init(struct s2mps19_dev *s2mps19)
+int create_s2mps19_powermeter_sysfs(struct s2mps19_dev *s2mps19)
 {
-	int i, ret;
+	struct device *s2mps19_adc_dev;
+	int err = -ENODEV;
 
-	adc_meter = kzalloc(sizeof(struct adc_info), GFP_KERNEL);
-	if (!adc_meter) {
-		pr_err("%s: adc_meter alloc fail.\n", __func__);
-		return;
-	}
+	pr_info("%s: master pmic powermeter sysfs start\n", __func__);
 
-	adc_meter->current_val = kzalloc(sizeof(u16)*S2MPS19_MAX_ADC_CHANNEL, GFP_KERNEL);
-	adc_meter->power_val = kzalloc(sizeof(u16)*S2MPS19_MAX_ADC_CHANNEL, GFP_KERNEL);
-	adc_meter->adc_reg = kzalloc(sizeof(u8)*S2MPS19_MAX_ADC_CHANNEL, GFP_KERNEL);
-
-	pr_info("%s: s2mps19 power meter init start\n", __func__);
-
-	/* initial regulators : BUCK 1,2,3,4,5,6,11(LLDO3),12(MLDO) */
-	adc_meter->adc_reg[0] = 0x1;
-	adc_meter->adc_reg[1] = 0x2;
-	adc_meter->adc_reg[2] = 0x3;
-	adc_meter->adc_reg[3] = 0x4;
-	adc_meter->adc_reg[4] = 0x5;
-	adc_meter->adc_reg[5] = 0x6;
-	adc_meter->adc_reg[6] = 0xB;
-	adc_meter->adc_reg[7] = 0xC;
-
-	adc_meter->adc_mode = s2mps19->adc_mode;
-	adc_meter->adc_sync_mode = s2mps19->adc_sync_mode;
-	mutex_init(&adc_meter->adc_lock);
-
-	/* SMP_NUM=1011(16384), RATIO=10(125khz), (8us x 16384 x 16 x 8ch)=~16s in case of async mode */
-	if (adc_meter->adc_sync_mode == ASYNC_MODE) {
-		adc_meter->adc_ctrl1 = 0x2B;
-		s2mps19_write_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL1, adc_meter->adc_ctrl1);
-	}
-
-	/* enable DC offset calibration */
-	s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL2, ADC_CAL_EN_MASK, ADC_CAL_EN_MASK);
-
-	/* CHANNEL setting */
-	for (i = 0; i < S2MPS19_MAX_ADC_CHANNEL; i++) {
-		s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL3, i + MUX_PTR_BASE, ADC_PTR_MASK);
-		s2mps19_write_reg(s2mps19->pmic, S2MPS19_REG_ADC_DATA, adc_meter->adc_reg[i]);
-	}
-
-	/* set ptr_base according to adc_mode */
-	switch (adc_meter->adc_mode) {
-		case CURRENT_METER :
-			adc_meter->ptr_base = CURRENT_PTR_BASE;
-			break;
-		case POWER_METER :
-			adc_meter->ptr_base = POWER_PTR_BASE;
-			break;
-		default :
-			adc_meter->adc_mode = CURRENT_METER;
-			adc_meter->ptr_base = CURRENT_PTR_BASE;
-			break;
-	}
-
-	/* turn on ADC */
-	s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL3, ADC_EN_MASK, ADC_EN_MASK);
-
-	adc_meter->i2c = s2mps19->pmic;
-
-	s2mps19_adc_class = class_create(THIS_MODULE, "s2mps19_adc_meter");
-	s2mps19_adc_dev = device_create(s2mps19_adc_class, NULL, 0, NULL, "s2mps19_adc");
+	s2mps19_adc_dev = pmic_device_create(s2mps19, "s2mps19_adc");
+	s2mps19->powermeter_dev = s2mps19_adc_dev;
 
 	/* create sysfs entries */
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_en);
-	if (ret)
-		goto err_free;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_mode);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_en);
+	if (err)
+		goto remove_pmic_device;
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_mode);
+	if (err)
 		goto remove_adc_en;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_sync_mode);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_sync_mode);
+	if (err)
 		goto remove_adc_mode;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_power_val_all);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_power_val_all);
+	if (err)
 		goto remove_adc_sync_mode;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_current_val_all);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_current_val_all);
+	if (err)
 		goto remove_power_val_all;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_0);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_0);
+	if (err)
 		goto remove_current_val_all;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_1);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_1);
+	if (err)
 		goto remove_adc_val_0;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_2);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_2);
+	if (err)
 		goto remove_adc_val_1;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_3);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_3);
+	if (err)
 		goto remove_adc_val_2;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_4);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_4);
+	if (err)
 		goto remove_adc_val_3;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_5);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_5);
+	if (err)
 		goto remove_adc_val_4;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_6);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_6);
+	if (err)
 		goto remove_adc_val_5;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_7);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_val_7);
+	if (err)
 		goto remove_adc_val_6;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_0);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_0);
+	if (err)
 		goto remove_adc_val_7;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_1);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_1);
+	if (err)
 		goto remove_adc_reg_0;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_2);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_2);
+	if (err)
 		goto remove_adc_reg_1;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_3);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_3);
+	if (err)
 		goto remove_adc_reg_2;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_4);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_4);
+	if (err)
 		goto remove_adc_reg_3;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_5);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_5);
+	if (err)
 		goto remove_adc_reg_4;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_6);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_6);
+	if (err)
 		goto remove_adc_reg_5;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_7);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_reg_7);
+	if (err)
 		goto remove_adc_reg_6;
-	ret = device_create_file(s2mps19_adc_dev, &dev_attr_adc_ctrl1);
-	if (ret)
+	err = device_create_file(s2mps19_adc_dev, &dev_attr_adc_ctrl1);
+	if (err)
 		goto remove_adc_reg_7;
 
 #ifdef CONFIG_SEC_PM
-	if (!IS_ERR_OR_NULL(ap_pmic_dev)) {
-		ret = sysfs_create_link(&ap_pmic_dev->kobj,
+	if (!IS_ERR_OR_NULL(s2mps19->ap_pmic_dev)) {
+		err = sysfs_create_link(&s2mps19->ap_pmic_dev->kobj,
 				&s2mps19_adc_dev->kobj, "power_meter");
-		if (ret)
+		if (err)
 			pr_err("%s: fail to create link for power_meter(%d)\n",
-					__func__, ret);
+					__func__, err);
 	}
 #endif /* CONFIG_SEC_PM */
 
-	pr_info("%s: s2mps19 power meter init end\n", __func__);
-	return ;
+	return 0;
 
 remove_adc_reg_7:
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_reg_7);
@@ -828,14 +803,104 @@ remove_adc_mode:
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_mode);
 remove_adc_en:
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_en);
-err_free:
-	kfree(adc_meter->adc_reg);
-	dev_info(s2mps19->dev, "%s : fail to create sysfs\n",__func__);
-	return ;
+remove_pmic_device:
+	pmic_device_destroy(s2mps19->dev->devt);
+
+	return 1;
+}
+#endif
+void s2mps19_powermeter_init(struct s2mps19_dev *s2mps19)
+{
+	int i;
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	int ret;
+#endif
+
+	adc_meter = kzalloc(sizeof(struct adc_info), GFP_KERNEL);
+	if (!adc_meter) {
+		pr_err("%s: adc_meter alloc fail.\n", __func__);
+		return;
+	}
+
+	adc_meter->current_val = kzalloc(sizeof(u16) * S2MPS19_MAX_ADC_CHANNEL,
+					 GFP_KERNEL);
+	adc_meter->power_val = kzalloc(sizeof(u16) * S2MPS19_MAX_ADC_CHANNEL,
+				       GFP_KERNEL);
+	adc_meter->adc_reg = kzalloc(sizeof(u8) * S2MPS19_MAX_ADC_CHANNEL,
+				     GFP_KERNEL);
+
+	pr_info("%s: s2mps19 power meter init start\n", __func__);
+
+	/* initial regulators : BUCK 1,2,3,4,5,6,7,8 */
+	adc_meter->adc_reg[0] = 0x1;
+	adc_meter->adc_reg[1] = 0x2;
+	adc_meter->adc_reg[2] = 0x3;
+	adc_meter->adc_reg[3] = 0x4;
+	adc_meter->adc_reg[4] = 0x5;
+	adc_meter->adc_reg[5] = 0x6;
+	adc_meter->adc_reg[6] = 0x7;
+	adc_meter->adc_reg[7] = 0x8;
+
+	adc_meter->adc_mode = s2mps19->adc_mode;
+	adc_meter->adc_sync_mode = s2mps19->adc_sync_mode;
+	mutex_init(&adc_meter->adc_lock);
+
+	/* SMP_NUM=1011(16384), RATIO=10(125khz), (8us x 16384 x 16 x 8ch)=~16s in case of async mode */
+	if (adc_meter->adc_sync_mode == ASYNC_MODE) {
+		adc_meter->adc_ctrl1 = 0x2B;
+		s2mps19_write_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL1,
+				  adc_meter->adc_ctrl1);
+	}
+
+	/* enable DC offset calibration */
+	s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL2,
+			   ADC_CAL_EN_MASK, ADC_CAL_EN_MASK);
+
+	/* CHANNEL setting */
+	for (i = 0; i < S2MPS19_MAX_ADC_CHANNEL; i++) {
+		s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL3,
+				   i + MUX_PTR_BASE, ADC_PTR_MASK);
+		s2mps19_write_reg(s2mps19->pmic, S2MPS19_REG_ADC_DATA,
+				  adc_meter->adc_reg[i]);
+	}
+
+	/* set ptr_base according to adc_mode */
+	switch (adc_meter->adc_mode) {
+		case CURRENT_METER :
+			adc_meter->ptr_base = CURRENT_PTR_BASE;
+			break;
+		case POWER_METER :
+			adc_meter->ptr_base = POWER_PTR_BASE;
+			break;
+		default :
+			adc_meter->adc_mode = CURRENT_METER;
+			adc_meter->ptr_base = CURRENT_PTR_BASE;
+			break;
+	}
+
+	/* turn on ADC */
+	s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL3,
+			   ADC_EN_MASK, ADC_EN_MASK);
+
+	adc_meter->i2c = s2mps19->pmic;
+
+	/* create sysfs entries */
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	ret = create_s2mps19_powermeter_sysfs(s2mps19);
+	if (ret) {
+		pr_info("%s: failed to create sysfs\n", __func__);
+		kfree(adc_meter->adc_reg);
+
+		return;
+	}
+#endif
+	pr_info("%s: s2mps19 power meter init end\n", __func__);
 }
 
 void s2mps19_powermeter_deinit(struct s2mps19_dev *s2mps19)
 {
+#ifdef CONFIG_DRV_SAMSUNG_PMIC
+	struct device *s2mps19_adc_dev = s2mps19->powermeter_dev;
 	/* remove sysfs entries */
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_en);
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_mode);
@@ -859,6 +924,8 @@ void s2mps19_powermeter_deinit(struct s2mps19_dev *s2mps19)
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_reg_6);
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_reg_7);
 	device_remove_file(s2mps19_adc_dev, &dev_attr_adc_ctrl1);
+	pmic_device_destroy(s2mps19->dev->devt);
+#endif
 	/* ADC turned off */
 	s2mps19_update_reg(s2mps19->pmic, S2MPS19_REG_ADC_CTRL3, 0, ADC_EN_MASK);
 	kfree(adc_meter->adc_reg);

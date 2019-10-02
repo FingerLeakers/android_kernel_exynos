@@ -19,6 +19,8 @@
 struct panel_dimming_info {
 	char *name;
 	struct dimming_init_info dim_init_info;
+	struct dimming_init_info dim_120hz_init_info;
+	struct dimming_init_info dim_60hz_hs_init_info;
 	struct dimming_info *dim_info;
 	s32 extend_hbm_target_luminance;
 	s32 nr_extend_hbm_luminance;

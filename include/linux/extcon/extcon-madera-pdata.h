@@ -62,9 +62,6 @@ struct madera_accdet_pdata {
 	/** which output this accdet is for (1 = OUT1, ...) */
 	u32 output;
 
-	/** Time in milliseconds to keep wake lock during jack detection */
-	u32 jd_wake_time;
-
 	/** Set whether JD2 is used for jack detection */
 	bool jd_use_jd2;
 
@@ -145,22 +142,6 @@ struct madera_accdet_pdata {
 	 * >0xffff = set to 0
 	 */
 	u32 hpd_pins[4];
-
-	/** Delay between jack detection and any further action (milliseconds) */
-	u32 init_delay;
-
-	/**
-	 * Specify an input to mute during headset button presses:
-	 * 1 - IN1L, 2 - IN1R, ..., n - IN[n]R
-	 */
-	u32 hs_mic;
-
-	/** Moisture detection pin */
-	u32 moisture_pin;
-	/** Moisture detection impedance threshold */
-	u32 moisture_imp;
-	/** Number of debounces to perform on moisture detection */
-	u32 moisture_debounce;
 
 	/** Override the normal jack detection */
 	const struct madera_jd_state *custom_jd;

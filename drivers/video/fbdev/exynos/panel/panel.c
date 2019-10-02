@@ -35,6 +35,8 @@ const char *cmd_type_name[] = {
 	[CMD_TYPE_NONE] = "NONE",
 	[CMD_TYPE_DELAY] = "DELAY",
 	[CMD_TYPE_DELAY_NO_SLEEP] = "DELAY_NO_SLEEP",
+	[CMD_TYPE_TIMER_DELAY] = "TIMER_DELAY",
+	[CMD_TYPE_TIMER_DELAY_BEGIN] = "TIMER_DELAY_BEGIN",
 	[CMD_TYPE_PINCTL] = "PINCTL",
 	[CMD_PKT_TYPE_NONE] = "PKT_NONE",
 	[SPI_PKT_TYPE_WR] = "SPI_WR",
@@ -95,26 +97,27 @@ void print_maptbl(struct maptbl *tbl)
 {
 	char strbuf[100];
 	char *space[3] = {"", "\t", "\t\t"};
-	int layer, row, col, len;
+	int box, layer, row, col, len;
 	int depth = 0;
 
-	pr_info("MAPTBL %s (%d layer, %d row, %d col)\n",
-			tbl->name, tbl->nlayer, tbl->nrow, tbl->ncol);
-	for_each_layer(tbl, layer) {
-		for_each_row(tbl, row) {
-			depth++;
-			len = snprintf(strbuf, sizeof(strbuf),
-					"%s[%3d] : ", space[depth], row);
-			for_each_col(tbl, col) {
-				len += snprintf(strbuf + len,
-						max((int)sizeof(strbuf) - len, 0), "%02X ",
-						tbl->arr[sizeof_layer(tbl) * layer +
-						sizeof_row(tbl) * row + col]);
+	pr_info("MAPTBL %s (%d box %d layer, %d row, %d col)\n",
+			tbl->name, tbl->nbox, tbl->nlayer, tbl->nrow, tbl->ncol);
+	for_each_box(tbl, box) {
+		for_each_layer(tbl, layer) {
+			for_each_row(tbl, row) {
+				depth++;
+				len = snprintf(strbuf, sizeof(strbuf),
+						"%s[%3d] : ", space[depth], row);
+				for_each_col(tbl, col) {
+					len += snprintf(strbuf + len,
+							max((int)sizeof(strbuf) - len, 0), "%02X ",
+							tbl->arr[maptbl_4d_index(tbl, box, layer, row, col)]);
+				}
+				pr_info("%s\n", strbuf);
+				depth--;
 			}
-			pr_info("%s\n", strbuf);
-			depth--;
+			pr_info("\n");
 		}
-		pr_info("\n");
 	}
 }
 
@@ -293,6 +296,25 @@ struct seqinfo *find_panel_seqtbl(struct panel_info *panel_data, char *name)
 	return NULL;
 }
 
+int check_seqtbl_exist(struct panel_info *panel_data, u32 index)
+{
+	if (unlikely(!panel_data->seqtbl)) {
+		panel_err("%s, seqtbl not exist\n", __func__);
+		return -EINVAL;
+	}
+
+	if (unlikely(index >= MAX_PANEL_SEQ)) {
+		panel_err("%s, invalid paramter (index %d)\n",
+				__func__, index);
+		return -EINVAL;
+	}
+
+
+	if (panel_data->seqtbl[index].cmdtbl != NULL)
+		return 1;
+
+	return 0;
+}
 
 struct seqinfo *find_index_seqtbl(struct panel_info *panel_data, u32 index)
 {
@@ -314,7 +336,6 @@ struct seqinfo *find_index_seqtbl(struct panel_info *panel_data, u32 index)
 		pr_debug("%s, found %s panel seqtbl\n", __func__, tbl->name);
 
 	return tbl;
-
 }
 
 
@@ -439,7 +460,15 @@ find_panel_dimming(struct panel_info *panel_data, char *name)
 
 u32 maptbl_index(struct maptbl *tbl, int layer, int row, int col)
 {
-	return (tbl->nrow * tbl->ncol * layer) + (tbl->ncol * row) + col;
+	return ((sizeof_layer(tbl) * layer) +
+			(sizeof_row(tbl) * row) + col);
+}
+
+u32 maptbl_4d_index(struct maptbl *tbl, int box, int layer, int row, int col)
+{
+	return ((sizeof_box(tbl) * box) +
+			(sizeof_layer(tbl) * layer) +
+			(sizeof_row(tbl) * row) + col);
 }
 
 int maptbl_init(struct maptbl *tbl)
@@ -495,8 +524,11 @@ void maptbl_copy(struct maptbl *tbl, u8 *dst)
 
 void maptbl_memcpy(struct maptbl *dst, struct maptbl *src)
 {
-	if (!dst || !src || dst->nlayer != src->nlayer ||
-		dst->nrow != src->nrow || dst->ncol != src->ncol) {
+	if (!dst || !src ||
+		dst->nbox != src->nbox ||
+		dst->nlayer != src->nlayer ||
+		dst->nrow != src->nrow ||
+		dst->ncol != src->ncol) {
 		pr_err("%s failed to copy from:%s to:%s size:%d\n",
 				__func__, (!src || !src->name ) ? "" : src->name,
 				(!dst || !dst->name ) ? "" : dst->name,
@@ -640,6 +672,59 @@ static int panel_do_delay_no_sleep(struct panel_device *panel, struct delayinfo 
 	return 0;
 }
 
+static int panel_do_timer_begin(struct panel_device *panel,
+		struct timer_delay_begin_info *begin_info, ktime_t s_time)
+{
+	struct delayinfo *info;
+
+	if (unlikely(!panel || !begin_info || !begin_info->delay)) {
+		panel_err("%s, invalid paramter (panel %p, begin_info %p, delay %p)\n",
+				__func__, panel, begin_info, begin_info ? begin_info->delay : NULL);
+		return -EINVAL;
+	}
+
+	info = begin_info->delay;
+	info->s_time = s_time;
+
+	return 0;
+}
+
+static int panel_do_timer_delay(struct panel_device *panel, struct delayinfo *info, ktime_t s_time)
+{
+	ktime_t e_time = ktime_get();
+	int remained_usec = 0;
+
+	if (unlikely(!panel || !info)) {
+		panel_err("%s, invalid paramter (panel %p, info %p)\n",
+				__func__, panel, info);
+		return -EINVAL;
+	}
+
+	if (ktime_to_ns(info->s_time) == 0) {
+		panel_err("%s, timer(%s) not initialied\n", 
+				__func__, info->name);
+	} else {
+		s_time = info->s_time;
+	}
+
+	if (ktime_after(e_time, ktime_add_us(s_time, info->usec))) {
+		pr_debug("%s skip delay (elapsed %lld usec >= requested %d usec)\n",
+				__func__, ktime_to_us(ktime_sub(e_time, s_time)), info->usec);
+		return 0;
+	}
+
+	if (info->usec >= (u32)ktime_to_us(ktime_sub(e_time, s_time)))
+		remained_usec = info->usec - (u32)ktime_to_us(ktime_sub(e_time, s_time));
+
+	if (remained_usec > 0) {
+		usleep_range(remained_usec, remained_usec + 1);
+		pr_info("%s timer_elapsed %lld usec, usleep %d usec\n",
+				__func__, ktime_to_us(ktime_sub(e_time, info->s_time)), remained_usec);
+	}
+
+	return 0;
+}
+
 static int panel_do_pinctl(struct panel_device *panel, struct pininfo *info)
 {
 	if (unlikely(!panel || !info)) {
@@ -670,7 +755,7 @@ static int panel_spi_read_data(struct panel_device *panel,
 	if (!spi_dev)
 		return -EINVAL;
 
-	return spi_dev->ops->read(spi_dev, cmd_id, buf, size);
+	return spi_dev->pdrv_ops->pdrv_read(spi_dev, cmd_id, buf, size);
 }
 #endif
 
@@ -689,26 +774,8 @@ static int panel_dsi_write_data(struct panel_device *panel,
 	if (block)
 		option |= DSIM_OPTION_WAIT_TX_DONE;
 
-	return panel->mipi_drv.write(panel->dsi_id, cmd_id, buf, ofs, size, option, true);
+	return panel->mipi_drv.write(panel->dsi_id, cmd_id, buf, ofs, size, option);
 }
-static int panel_dsi_write_data_no_wakable(struct panel_device *panel,
-		u8 cmd_id, const u8 *buf, u8 ofs, int size, bool block)
-{
-	u32 option = 0;
-
-	if (unlikely(!panel || !panel->mipi_drv.write))
-		return -EINVAL;
-
-	if ((panel->panel_data.ddi_props.gpara &
-					DDI_SUPPORT_POINT_GPARA))
-		option |= DSIM_OPTION_POINT_GPARA;
-
-	if (block)
-		option |= DSIM_OPTION_WAIT_TX_DONE;
-
-	return panel->mipi_drv.write(panel->dsi_id, cmd_id, buf, ofs, size, option, false);
-}
-
 
 /* Todo need to move dt file */
 #define SRAM_BYTE_ALIGN	16
@@ -965,9 +1032,6 @@ static int panel_do_tx_packet(struct panel_device *panel, struct pktinfo *info, 
 			cmd_id == MIPI_DSI_WR_SRAM_CMD)
 		ret = panel_dsi_write_mem(panel, cmd_id,
 				info->data, info->offset, info->dlen);
-	else if (cmd_id == MIPI_DSI_WR_CMD_NO_WAKE)
-		ret = panel_dsi_write_data_no_wakable(panel, cmd_id,
-				info->data, info->offset, info->dlen, block);
 	else
 		ret = panel_dsi_write_data(panel, cmd_id,
 				info->data, info->offset, info->dlen, block);
@@ -1014,18 +1078,18 @@ static int panel_spi_packet(struct panel_device *panel, struct pktinfo *info)
 	type = info->type;
 	switch (type) {
 		case SPI_PKT_TYPE_WR:
-			if (!spi_dev->ops->cmd) {
+			if (!spi_dev->pdrv_ops->pdrv_cmd) {
 				ret = -ENOSYS;
 				break;
 			}
-			ret = spi_dev->ops->cmd(spi_dev, info->data, info->dlen, NULL, 0);
+			ret = spi_dev->pdrv_ops->pdrv_cmd(spi_dev, info->data, info->dlen, NULL, 0);
 			break;
 		case SPI_PKT_TYPE_SETPARAM:
-			if (!spi_dev->ops->setparam) {
+			if (!spi_dev->pdrv_ops->pdrv_read_param) {
 				ret = -ENOSYS;
 				break;
 			}
-			ret = spi_dev->ops->setparam(spi_dev, info->data, info->dlen);
+			ret = spi_dev->pdrv_ops->pdrv_read_param(spi_dev, info->data, info->dlen);
 			break;
 		default:
 			break;
@@ -1173,6 +1237,12 @@ int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
 			break;
 		case CMD_TYPE_DELAY_NO_SLEEP:
 			ret = panel_do_delay_no_sleep(panel, (struct delayinfo *)cmdtbl[i], s_time);
+			break;
+		case CMD_TYPE_TIMER_DELAY_BEGIN:
+			ret = panel_do_timer_begin(panel, (struct timer_delay_begin_info *)cmdtbl[i], s_time);
+			break;
+		case CMD_TYPE_TIMER_DELAY:
+			ret = panel_do_timer_delay(panel, (struct delayinfo *)cmdtbl[i], s_time);
 			break;
 		case CMD_TYPE_PINCTL:
 			ret = panel_do_pinctl(panel, (struct pininfo *)cmdtbl[i]);
@@ -1532,7 +1602,7 @@ int get_resource_size_by_name(struct panel_info *panel_data, char *name)
 	return get_panel_resource_size(res);
 }
 
-#define MAX_READ_BYTES  (40)
+#define MAX_READ_BYTES  (128)
 int panel_rx_nbytes(struct panel_device *panel,
 		u32 type, u8 *buf, u8 addr, u8 pos, u32 len)
 {
@@ -1856,6 +1926,17 @@ int panel_dumpinfo_update(struct panel_device *panel, struct dumpinfo *info)
 	info->callback(info);
 
 	return 0;
+}
+
+u16 calc_checksum_16bit(u8 *arr, int size)
+{
+	u16 chksum = 0;
+	int i;
+
+	for (i = 0; i < size; i++)
+		chksum += arr[i];
+
+	return chksum;
 }
 
 int check_panel_active(struct panel_device *panel, const char *caller)

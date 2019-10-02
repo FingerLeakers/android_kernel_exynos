@@ -36,10 +36,13 @@
 #include <trace/events/thermal.h>
 
 #include <soc/samsung/tmu.h>
-#include <soc/samsung/cal-if.h>
 #include <soc/samsung/ect_parser.h>
+#include "samsung/exynos_tmu.h"
 
-#include <dt-bindings/clock/exynos9820.h>
+#include <dt-bindings/clock/exynos9830.h>
+
+extern int exynos_build_static_power_table(struct device_node *np, int **var_table,
+		unsigned int *var_volt_size, unsigned int *var_temp_size);
 /*
  * Cooling state <-> CPUFreq frequency
  *
@@ -266,109 +269,6 @@ static int update_freq_table(struct cpufreq_cooling_device *cpufreq_cdev,
 	}
 
 	return 0;
-}
-
-static int build_static_power_table(struct device_node *np, struct cpufreq_cooling_device *cpufreq_cdev)
-{
-	int i, j;
-	int ratio, asv_group, cal_id, ret = 0;
-
-	void *gen_block;
-	struct ect_gen_param_table *volt_temp_param = NULL, *asv_param = NULL;
-	int ratio_table[16] = { 0, 18, 22, 27, 33, 40, 49, 60, 73, 89, 108, 131, 159, 194, 232, 250};
-
-	ret = of_property_read_u32(np, "cal-id", &cal_id);
-	if (ret) {
-		pr_err("%s: Failed to get cal-id\n", __func__);
-		return -EINVAL;
-	}
-
-	ratio = cal_asv_get_ids_info(cal_id);
-	asv_group = cal_asv_get_grp(cal_id);
-
-	if (asv_group < 0 || asv_group > 15)
-		asv_group = 0;
-
-	if (!ratio)
-		ratio = ratio_table[asv_group];
-
-	gen_block = ect_get_block("GEN");
-	if (gen_block == NULL) {
-		pr_err("%s: Failed to get gen block from ECT\n", __func__);
-		return -EINVAL;
-	}
-
-#if defined(CONFIG_SOC_EXYNOS9820)
-	if (cal_id == ACPM_DVFS_CPUCL1) {
-		volt_temp_param = ect_gen_param_get_table(gen_block, "DTM_MID_VOLT_TEMP");
-		asv_param = ect_gen_param_get_table(gen_block, "DTM_MID_ASV");
-	} else if (cal_id == ACPM_DVFS_CPUCL2) {
-		volt_temp_param = ect_gen_param_get_table(gen_block, "DTM_BIG_VOLT_TEMP");
-		asv_param = ect_gen_param_get_table(gen_block, "DTM_BIG_ASV");
-	}
-#else
-	volt_temp_param = ect_gen_param_get_table(gen_block, "DTM_BIG_VOLT_TEMP");
-	asv_param = ect_gen_param_get_table(gen_block, "DTM_BIG_ASV");
-#endif
-
-	if (volt_temp_param && asv_param) {
-		cpufreq_cdev->var_volt_size = volt_temp_param->num_of_row - 1;
-		cpufreq_cdev->var_temp_size = volt_temp_param->num_of_col - 1;
-
-		cpufreq_cdev->var_coeff = kzalloc(sizeof(int) *
-							volt_temp_param->num_of_row *
-							volt_temp_param->num_of_col,
-							GFP_KERNEL);
-		if (!cpufreq_cdev->var_coeff)
-			goto err_mem;
-
-		cpufreq_cdev->asv_coeff = kzalloc(sizeof(int) *
-							asv_param->num_of_row *
-							asv_param->num_of_col,
-							GFP_KERNEL);
-		if (!cpufreq_cdev->asv_coeff)
-			goto free_var_coeff;
-
-		cpufreq_cdev->var_table = kzalloc(sizeof(int) *
-							volt_temp_param->num_of_row *
-							volt_temp_param->num_of_col,
-							GFP_KERNEL);
-		if (!cpufreq_cdev->var_table)
-			goto free_asv_coeff;
-
-		memcpy(cpufreq_cdev->var_coeff, volt_temp_param->parameter,
-			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
-		memcpy(cpufreq_cdev->asv_coeff, asv_param->parameter,
-			sizeof(int) * asv_param->num_of_row * asv_param->num_of_col);
-		memcpy(cpufreq_cdev->var_table, volt_temp_param->parameter,
-			sizeof(int) * volt_temp_param->num_of_row * volt_temp_param->num_of_col);
-	} else {
-		pr_err("%s: Failed to get param table from ECT\n", __func__);
-		return -EINVAL;
-	}
-
-	for (i = 1; i <= cpufreq_cdev->var_volt_size; i++) {
-		long asv_coeff = (long)cpufreq_cdev->asv_coeff[3 * i + 0] * asv_group * asv_group
-				+ (long)cpufreq_cdev->asv_coeff[3 * i + 1] * asv_group
-				+ (long)cpufreq_cdev->asv_coeff[3 * i + 2];
-		asv_coeff = asv_coeff / 100;
-
-		for (j = 1; j <= cpufreq_cdev->var_temp_size; j++) {
-			long var_coeff = (long)cpufreq_cdev->var_coeff[i * (cpufreq_cdev->var_temp_size + 1) + j];
-			var_coeff =  ratio * var_coeff * asv_coeff;
-			var_coeff = var_coeff / 100000;
-			cpufreq_cdev->var_table[i * (cpufreq_cdev->var_temp_size + 1) + j] = (int)var_coeff;
-		}
-	}
-
-	return 0;
-
-free_asv_coeff:
-	kfree(cpufreq_cdev->asv_coeff);
-free_var_coeff:
-	kfree(cpufreq_cdev->var_coeff);
-err_mem:
-	return -ENOMEM;
 }
 
 static int lookup_static_power(struct cpufreq_cooling_device *cpufreq_cdev,
@@ -929,7 +829,7 @@ __cpufreq_cooling_register(struct device_node *np,
 	bool first;
 
 	if (IS_ERR_OR_NULL(policy)) {
-		pr_err("%s: cpufreq policy isn't valid: %p", __func__, policy);
+		pr_err("%s: cpufreq policy isn't valid: %p\n", __func__, policy);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -994,7 +894,8 @@ __cpufreq_cooling_register(struct device_node *np,
 			goto remove_ida;
 		}
 
-		ret = build_static_power_table(np, cpufreq_cdev);
+		ret = exynos_build_static_power_table(np, &cpufreq_cdev->var_table, &cpufreq_cdev->var_volt_size,
+				&cpufreq_cdev->var_temp_size);
 		if (ret) {
 			cdev = ERR_PTR(ret);
 			goto remove_ida;
@@ -1056,7 +957,6 @@ EXPORT_SYMBOL_GPL(cpufreq_cooling_register);
 
 /**
  * of_cpufreq_cooling_register - function to create cpufreq cooling device.
- * @np: a valid struct device_node to the cooling device device tree node
  * @policy: cpufreq policy
  *
  * This interface function registers the cpufreq cooling device with the name
@@ -1064,86 +964,46 @@ EXPORT_SYMBOL_GPL(cpufreq_cooling_register);
  * cooling devices. Using this API, the cpufreq cooling device will be
  * linked to the device tree node provided.
  *
- * Return: a valid struct thermal_cooling_device pointer on success,
- * on failure, it returns a corresponding ERR_PTR().
- */
-struct thermal_cooling_device *
-of_cpufreq_cooling_register(struct device_node *np,
-			    struct cpufreq_policy *policy)
-{
-	if (!np)
-		return ERR_PTR(-EINVAL);
-
-	return __cpufreq_cooling_register(np, policy, 0, NULL);
-}
-EXPORT_SYMBOL_GPL(of_cpufreq_cooling_register);
-
-/**
- * cpufreq_power_cooling_register() - create cpufreq cooling device with power extensions
- * @policy:		cpufreq policy
- * @capacitance:	dynamic power coefficient for these cpus
- * @plat_static_func:	function to calculate the static power consumed by these
- *			cpus (optional)
- *
- * This interface function registers the cpufreq cooling device with
- * the name "thermal-cpufreq-%x".  This api can support multiple
- * instances of cpufreq cooling devices.  Using this function, the
- * cooling device will implement the power extensions by using a
- * simple cpu power model.  The cpus must have registered their OPPs
- * using the OPP library.
- *
- * An optional @plat_static_func may be provided to calculate the
- * static power consumed by these cpus.  If the platform's static
- * power consumption is unknown or negligible, make it NULL.
- *
- * Return: a valid struct thermal_cooling_device pointer on success,
- * on failure, it returns a corresponding ERR_PTR().
- */
-struct thermal_cooling_device *
-cpufreq_power_cooling_register(struct cpufreq_policy *policy, u32 capacitance,
-			       get_static_t plat_static_func)
-{
-	return __cpufreq_cooling_register(NULL, policy, capacitance,
-				plat_static_func);
-}
-EXPORT_SYMBOL(cpufreq_power_cooling_register);
-
-/**
- * of_cpufreq_power_cooling_register() - create cpufreq cooling device with power extensions
- * @np:	a valid struct device_node to the cooling device device tree node
- * @policy: cpufreq policy
- * @capacitance:	dynamic power coefficient for these cpus
- * @plat_static_func:	function to calculate the static power consumed by these
- *			cpus (optional)
- *
- * This interface function registers the cpufreq cooling device with
- * the name "thermal-cpufreq-%x".  This api can support multiple
- * instances of cpufreq cooling devices.  Using this API, the cpufreq
- * cooling device will be linked to the device tree node provided.
  * Using this function, the cooling device will implement the power
  * extensions by using a simple cpu power model.  The cpus must have
  * registered their OPPs using the OPP library.
  *
- * An optional @plat_static_func may be provided to calculate the
- * static power consumed by these cpus.  If the platform's static
- * power consumption is unknown or negligible, make it NULL.
+ * It also takes into account, if property present in policy CPU node, the
+ * static power consumed by the cpu.
  *
  * Return: a valid struct thermal_cooling_device pointer on success,
- * on failure, it returns a corresponding ERR_PTR().
+ * and NULL on failure.
  */
 struct thermal_cooling_device *
-of_cpufreq_power_cooling_register(struct device_node *np,
-				  struct cpufreq_policy *policy,
-				  u32 capacitance,
-				  get_static_t plat_static_func)
+of_cpufreq_cooling_register(struct cpufreq_policy *policy)
 {
-	if (!np)
-		return ERR_PTR(-EINVAL);
+	struct device_node *np = of_get_cpu_node(policy->cpu, NULL);
+	struct thermal_cooling_device *cdev = NULL;
+	u32 capacitance = 0;
 
-	return __cpufreq_cooling_register(np, policy, capacitance,
-				plat_static_func);
+	if (!np) {
+		pr_err("cpu_cooling: OF node not available for cpu%d\n",
+		       policy->cpu);
+		return NULL;
+	}
+
+	if (of_find_property(np, "#cooling-cells", NULL)) {
+		of_property_read_u32(np, "dynamic-power-coefficient",
+				     &capacitance);
+
+		cdev = __cpufreq_cooling_register(np, policy, capacitance,
+						  NULL);
+		if (IS_ERR(cdev)) {
+			pr_err("cpu_cooling: cpu%d is not running as cooling device: %ld\n",
+			       policy->cpu, PTR_ERR(cdev));
+			cdev = NULL;
+		}
+	}
+
+	of_node_put(np);
+	return cdev;
 }
-EXPORT_SYMBOL(of_cpufreq_power_cooling_register);
+EXPORT_SYMBOL_GPL(of_cpufreq_cooling_register);
 
 /**
  * cpufreq_cooling_unregister - function to remove cpufreq cooling device.

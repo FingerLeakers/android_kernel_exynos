@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #ifndef __SAMSUNG_H
 #define __SAMSUNG_H
 
@@ -6,10 +7,6 @@
  *
  * Ben Dooks, Copyright (c) 2003-2008 Simtec Electronics
  *	http://armlinux.simtec.co.uk/
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
 */
 
 #include <linux/pm_qos.h>
@@ -99,6 +96,10 @@ struct s3c24xx_uart_port {
 	unsigned int dbg_mode;
 	unsigned int			uart_logging;
 	struct uart_local_buf		uart_local_buf;
+
+	unsigned int dbg_uart_ch;
+	unsigned int dbg_uart_baud;
+	unsigned int dbg_word_len;
 };
 
 /* conversion functions */
@@ -116,7 +117,5 @@ struct s3c24xx_uart_port {
 
 #define wr_regb(port, reg, val) writeb_relaxed(val, portaddr(port, reg))
 #define wr_regl(port, reg, val) writel_relaxed(val, portaddr(port, reg))
-static void uart_copy_to_local_buf(int dir, struct uart_local_buf *local_buf, unsigned char *trace_buf, int len);
-#define SS_UART_LOG(dir, local_buf, trace_buf) uart_copy_to_local_buf(dir, local_buf, trace_buf, sizeof(trace_buf))
 
 #endif

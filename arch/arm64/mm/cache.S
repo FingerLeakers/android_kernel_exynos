@@ -95,8 +95,6 @@ ENTRY(flush_cache_all)
 	bl	__flush_dcache_all
 	mov	x0, #0
 	ic	ialluis				// I+BTB cache invalidate
-	dsb	ish
-	isb
 	ret	x12
 ENDPROC(flush_cache_all)
 
@@ -117,8 +115,6 @@ ENTRY(flush_cache_louis)
         bl      __flush_dcache_louis
         mov     x0, #0
         ic      ialluis
-        dsb	ish
-        isb
         ret     x12
 ENDPROC(flush_cache_louis)
 
@@ -132,7 +128,7 @@ ENDPROC(flush_cache_louis)
  *	- start   - virtual start address of region
  *	- end     - virtual end address of region
  */
-ENTRY(flush_icache_range)
+ENTRY(__flush_icache_range)
 	/* FALLTHROUGH */
 
 /*
@@ -147,40 +143,34 @@ ENTRY(flush_icache_range)
  */
 ENTRY(__flush_cache_user_range)
 	uaccess_ttbr0_enable x2, x3, x4
+alternative_if ARM64_HAS_CACHE_IDC
+	dsb	ishst
+	b	7f
+alternative_else_nop_endif
 	dcache_line_size x2, x3
 	sub	x3, x2, #1
 	bic	x4, x0, x3
 1:
-#ifndef	CONFIG_SOC_EXYNOS9810
 user_alt 9f, "dc cvau, x4",  "dc civac, x4",  ARM64_WORKAROUND_CLEAN_CACHE
-#else
-user_alt 9f, "dc civac, x4",  "dc civac, x4",  ARM64_WORKAROUND_CLEAN_CACHE
-#endif
 	add	x4, x4, x2
 	cmp	x4, x1
 	b.lo	1b
 	dsb	ish
 
-	icache_line_size x2, x3
-	sub	x3, x2, #1
-	bic	x4, x0, x3
-1:
-USER(9f, ic	ivau, x4	)		// invalidate I line PoU
-	dsb	ish
+7:
+alternative_if ARM64_HAS_CACHE_DIC
 	isb
-	add	x4, x4, x2
-	cmp	x4, x1
-	b.lo	1b
-	dsb	ish
-	isb
-	mov	x0, #0
+	b	8f
+alternative_else_nop_endif
+	invalidate_icache_by_line x0, x1, x2, x3, 9f
+8:	mov	x0, #0
 1:
 	uaccess_ttbr0_disable x1, x2
 	ret
 9:
 	mov	x0, #-EFAULT
 	b	1b
-ENDPROC(flush_icache_range)
+ENDPROC(__flush_icache_range)
 ENDPROC(__flush_cache_user_range)
 
 /*
@@ -192,7 +182,6 @@ ENDPROC(__flush_cache_user_range)
  *	- start   - virtual start address of region
  *	- end     - virtual end address of region
  */
-
 ENTRY(flush_icache_range_poc)
 	uaccess_ttbr0_enable x2, x3, x4
 	dcache_line_size x2, x3
@@ -227,6 +216,33 @@ USER(9f, ic	ivau, x4	)	// invalidate I line PoU
 ENDPROC(flush_icache_range_poc)
 
 /*
+ *	invalidate_icache_range(start,end)
+ *
+ *	Ensure that the I cache is invalid within specified region.
+ *
+ *	- start   - virtual start address of region
+ *	- end     - virtual end address of region
+ */
+ENTRY(invalidate_icache_range)
+alternative_if ARM64_HAS_CACHE_DIC
+	mov	x0, xzr
+	isb
+	ret
+alternative_else_nop_endif
+
+	uaccess_ttbr0_enable x2, x3, x4
+
+	invalidate_icache_by_line x0, x1, x2, x3, 2f
+	mov	x0, xzr
+1:
+	uaccess_ttbr0_disable x1, x2
+	ret
+2:
+	mov	x0, #-EFAULT
+	b	1b
+ENDPROC(invalidate_icache_range)
+
+/*
  *	__flush_dcache_area(kaddr, size)
  *
  *	Ensure that any D-cache lines for the interval [kaddr, kaddr+size)
@@ -250,11 +266,11 @@ ENDPIPROC(__flush_dcache_area)
  *	- size    - size in question
  */
 ENTRY(__clean_dcache_area_pou)
-#ifndef	CONFIG_SOC_EXYNOS9810
+alternative_if ARM64_HAS_CACHE_IDC
+	dsb	ishst
+	ret
+alternative_else_nop_endif
 	dcache_by_line_op cvau, ish, x0, x1, x2, x3
-#else
-	dcache_by_line_op civac, ish, x0, x1, x2, x3
-#endif
 	ret
 ENDPROC(__clean_dcache_area_pou)
 

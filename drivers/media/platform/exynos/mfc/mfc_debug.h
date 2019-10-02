@@ -27,44 +27,64 @@ extern unsigned int otf_dump;
 extern unsigned int sfr_dump;
 extern unsigned int mmcache_dump;
 extern unsigned int mmcache_disable;
+extern unsigned int llc_disable;
 extern unsigned int perf_boost_mode;
+extern unsigned int drm_predict_disable;
 extern unsigned int reg_test;
+extern unsigned int meminfo_enable;
 
 #define mfc_debug(level, fmt, args...)				\
 	do {							\
 		if (debug_level >= level)				\
-			printk(KERN_DEBUG "%s:%d: " fmt,	\
+			dev_info(ctx->dev->device, "%s:%d: " fmt,	\
+				__func__, __LINE__, ##args);	\
+	} while (0)
+
+#define mfc_debug_dev(level, fmt, args...)				\
+	do {							\
+		if (debug_level >= level)				\
+			dev_info(dev->device, "%s:%d: " fmt,	\
 				__func__, __LINE__, ##args);	\
 	} while (0)
 #else
 #define mfc_debug(fmt, args...)
+#define mfc_debug_dev(fmt, args...)
 #endif
 
 #define mfc_debug_enter() mfc_debug(5, "enter\n")
 #define mfc_debug_leave() mfc_debug(5, "leave\n")
 
+#define mfc_debug_dev_enter() mfc_debug_dev(5, "enter\n")
+#define mfc_debug_dev_leave() mfc_debug_dev(5, "leave\n")
+
+#define mfc_err(fmt, args...)			\
+	do {						\
+		printk(KERN_ERR "[Exynos][MFC][ ERROR]: %s:%d: " fmt,		\
+		       __func__, __LINE__, ##args);	\
+	} while (0)
+
 #define mfc_err_dev(fmt, args...)			\
 	do {						\
-		printk(KERN_ERR "%s:%d: " fmt,		\
+		dev_err(dev->device, "%s:%d: " fmt,		\
 		       __func__, __LINE__, ##args);	\
 	} while (0)
 
 #define mfc_err_ctx(fmt, args...)			\
 	do {						\
-		printk(KERN_ERR "[c:%d] %s:%d: " fmt,	\
+		dev_err(ctx->dev->device, "[c:%d] %s:%d: " fmt,	\
 			ctx->num,			\
 		       __func__, __LINE__, ##args);	\
 	} while (0)
 
 #define mfc_info_dev(fmt, args...)			\
 	do {						\
-		printk(KERN_INFO "%s:%d: " fmt,		\
+		dev_info(dev->device, "%s:%d: " fmt,		\
 			__func__, __LINE__, ##args);	\
 	} while (0)
 
 #define mfc_info_ctx(fmt, args...)			\
 	do {						\
-		printk(KERN_INFO "[c:%d] %s:%d: " fmt,	\
+		dev_info(ctx->dev->device, "[c:%d] %s:%d: " fmt,	\
 			ctx->num,			\
 			__func__, __LINE__, ##args);	\
 	} while (0)
@@ -75,6 +95,7 @@ extern unsigned int reg_test;
 #define MFC_TRACE_LOG_STR_LEN		25
 #define MFC_TRACE_LOG_COUNT_MAX		256
 #define MFC_TRACE_LOG_COUNT_PRINT	20
+#define MFC_TRACE_NAL_QUEUE_PRINT	25
 
 
 struct _mfc_trace {
@@ -103,9 +124,9 @@ struct _mfc_trace_logging {
 	do {											\
 		int cpu = raw_smp_processor_id();						\
 		int cnt;									\
-		cnt = atomic_inc_return(&dev->trace_ref) & (MFC_TRACE_COUNT_MAX - 1);		\
-		dev->mfc_trace[cnt].time = cpu_clock(cpu);					\
-		snprintf(dev->mfc_trace[cnt].str, MFC_TRACE_STR_LEN,				\
+		cnt = atomic_inc_return(&ctx->dev->trace_ref) & (MFC_TRACE_COUNT_MAX - 1);		\
+		ctx->dev->mfc_trace[cnt].time = cpu_clock(cpu);					\
+		snprintf(ctx->dev->mfc_trace[cnt].str, MFC_TRACE_STR_LEN,				\
 				"[c:%d] " fmt, ctx->num, ##args);				\
 	} while (0)
 
@@ -126,9 +147,9 @@ struct _mfc_trace_logging {
 	do {											\
 		int cpu = raw_smp_processor_id();						\
 		int cnt;									\
-		cnt = atomic_inc_return(&dev->trace_ref_longterm) & (MFC_TRACE_COUNT_MAX - 1);	\
-		dev->mfc_trace_longterm[cnt].time = cpu_clock(cpu);				\
-		snprintf(dev->mfc_trace_longterm[cnt].str, MFC_TRACE_STR_LEN,			\
+		cnt = atomic_inc_return(&ctx->dev->trace_ref_longterm) & (MFC_TRACE_COUNT_MAX - 1);	\
+		ctx->dev->mfc_trace_longterm[cnt].time = cpu_clock(cpu);				\
+		snprintf(ctx->dev->mfc_trace_longterm[cnt].str, MFC_TRACE_STR_LEN,			\
 				"[c:%d] " fmt, ctx->num, ##args);				\
 	} while (0)
 
@@ -149,8 +170,8 @@ struct _mfc_trace_logging {
 		int cpu = raw_smp_processor_id();						\
 		int cnt;									\
 		cnt = atomic_inc_return(&dev->trace_ref_log) & (MFC_TRACE_LOG_COUNT_MAX - 1);	\
-		dev->mfc_trace_logging[cnt].time = cpu_clock(cpu);				\
-		snprintf(dev->mfc_trace_logging[cnt].str, MFC_TRACE_LOG_STR_LEN,		\
+		ctx->dev->mfc_trace_logging[cnt].time = cpu_clock(cpu);				\
+		snprintf(ctx->dev->mfc_trace_logging[cnt].str, MFC_TRACE_LOG_STR_LEN,		\
 				"%d:" fmt, ctx->num, ##args);					\
 	} while (0)
 

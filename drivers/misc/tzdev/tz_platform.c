@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -11,65 +11,77 @@
  * GNU General Public License for more details.
  */
 #include <linux/errno.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
 #include <linux/fs.h>
 
-#include "tzdev.h"
+#include "tzdev_internal.h"
+#include "tzlog.h"
 
-/* TZDEV platform specific functions */
-int __weak tzdev_platform_register(void)
-{
-	return 0;
-}
+static struct platform_device *tzdev_pdev;
 
-void __weak tzdev_platform_unregister(void)
+static int tzdev_probe(struct platform_device *pdev)
 {
-	return;
-}
+	int ret;
 
-int __weak tzdev_platform_init(void)
-{
-	return tzdev_run_init_sequence();
-}
+	(void) pdev;
 
-int __weak tzdev_platform_fini(void)
-{
-	return 0;
-}
+	ret = tzdev_run_init_sequence();
+	if (ret) {
+		log_error(tzdev_platform, "tzdev initialization failed, error=%d.\n", ret);
+		return ret;
+	}
 
-int __weak tzdev_platform_open(struct inode *inode, struct file *filp)
-{
-	(void)inode;
-	(void)filp;
+	log_info(tzdev_platform, "tzdev initialization done.\n");
 
 	return 0;
 }
 
-int __weak tzdev_platform_close(struct inode *inode, struct file *filp)
+static void tzdev_shutdown(struct platform_device *pdev)
 {
-	(void)inode;
-	(void)filp;
+	(void) pdev;
+
+	tzdev_run_fini_sequence();
+
+	log_info(tzdev_platform, "tzdev finalization done.\n");
+}
+
+struct platform_driver tzdev_pdrv = {
+	.probe = tzdev_probe,
+	.shutdown = tzdev_shutdown,
+
+	.driver = {
+		.name = "tzdev",
+		.owner = THIS_MODULE,
+	},
+};
+
+int tzdev_platform_register(void)
+{
+	int ret;
+
+	ret = platform_driver_register(&tzdev_pdrv);
+	if (ret) {
+		log_error(tzdev_platform, "failed to register tzdev platform driver, error=%d\n", ret);
+		return ret;
+	}
+
+	tzdev_pdev = platform_device_register_resndata(NULL, "tzdev", -1, NULL, 0, NULL, 0);
+	if (IS_ERR(tzdev_pdev)) {
+		ret = PTR_ERR(tzdev_pdev);
+		log_error(tzdev_platform, "failed to register tzdev platform device, error=%d\n", ret);
+		return ret;
+	}
 
 	return 0;
 }
 
-long __weak tzdev_fd_platform_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+void tzdev_platform_unregister(void)
 {
-	(void)filp;
-	(void)cmd;
-	(void)arg;
-
-	return -ENOTTY;
+	platform_driver_unregister(&tzdev_pdrv);
 }
 
-int __weak tzdev_fd_platform_close(struct inode *inode, struct file *filp)
-{
-	(void)inode;
-	(void)filp;
-
-	return 0;
-}
-
-int __weak tzdev_platform_smc_call(struct tzdev_smc_data *data)
+int tzdev_platform_smc_call(struct tzdev_smc_data *data)
 {
 	register unsigned long _r0 __asm__(REGISTERS_NAME "0") = data->args[0] | TZDEV_SMC_MAGIC;
 	register unsigned long _r1 __asm__(REGISTERS_NAME "1") = data->args[1];
@@ -88,15 +100,29 @@ int __weak tzdev_platform_smc_call(struct tzdev_smc_data *data)
 	__asm__ __volatile("ldr %0, [sp]\n"
 			"add sp, sp, #16\n" : : "r" (data));
 
-	data->args[0] = (uint32_t)_r0;
-	data->args[1] = (uint32_t)_r1;
-	data->args[2] = (uint32_t)_r2;
-	data->args[3] = (uint32_t)_r3;
+	data->args[0] = _r0;
+	data->args[1] = _r1;
+	data->args[2] = _r2;
+	data->args[3] = _r3;
 
 	return 0;
 }
 
-uint32_t __weak tzdev_platform_get_sysconf_flags(void)
+void *tzdev_platform_open(void)
 {
-	return 0;
+	return NULL;
+}
+
+void tzdev_platform_release(void *data)
+{
+	return;
+}
+
+long tzdev_platform_ioctl(void *data, unsigned int cmd, unsigned long arg)
+{
+	(void) data;
+	(void) cmd;
+	(void) arg;
+
+	return -ENOTTY;
 }

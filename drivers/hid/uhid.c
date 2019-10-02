@@ -12,6 +12,7 @@
 
 #include <linux/atomic.h>
 #include <linux/compat.h>
+#include <linux/cred.h>
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/hid.h>
@@ -499,6 +500,7 @@ static int uhid_dev_create2(struct uhid_device *uhid,
 		goto err_free;
 	}
 
+	/* @hid is zero-initialized, strncpy() is correct, strlcpy() not */
 	len = min(sizeof(hid->name), sizeof(ev->u.create2.name)) - 1;
 	strncpy(hid->name, ev->u.create2.name, len);
 	len = min(sizeof(hid->phys), sizeof(ev->u.create2.phys)) - 1;
@@ -725,6 +727,17 @@ static ssize_t uhid_char_write(struct file *file, const char __user *buffer,
 
 	switch (uhid->input_buf.type) {
 	case UHID_CREATE:
+		/*
+		 * 'struct uhid_create_req' contains a __user pointer which is
+		 * copied from, so it's unsafe to allow this with elevated
+		 * privileges (e.g. from a setuid binary) or via kernel_write().
+		 */
+		if (file->f_cred != current_cred() || uaccess_kernel()) {
+			pr_err_once("UHID_CREATE from different security context by process %d (%s), this is not allowed.\n",
+				    task_tgid_vnr(current), current->comm);
+			ret = -EACCES;
+			goto unlock;
+		}
 		ret = uhid_dev_create(uhid, &uhid->input_buf);
 		break;
 	case UHID_CREATE2:
@@ -756,14 +769,14 @@ unlock:
 	return ret ? ret : count;
 }
 
-static unsigned int uhid_char_poll(struct file *file, poll_table *wait)
+static __poll_t uhid_char_poll(struct file *file, poll_table *wait)
 {
 	struct uhid_device *uhid = file->private_data;
 
 	poll_wait(file, &uhid->waitq, wait);
 
 	if (uhid->head != uhid->tail)
-		return POLLIN | POLLRDNORM;
+		return EPOLLIN | EPOLLRDNORM;
 
 	return 0;
 }
@@ -783,7 +796,6 @@ static struct miscdevice uhid_misc = {
 	.minor		= UHID_MINOR,
 	.name		= UHID_NAME,
 };
-
 static int fb_state_change(struct notifier_block *nb,
     unsigned long val, void *data)
 {
@@ -823,7 +835,6 @@ static void __exit uhid_exit(void)
 	fb_unregister_client(&fb_block);
 	misc_deregister(&uhid_misc);
 }
-
 module_init(uhid_init);
 module_exit(uhid_exit);
 

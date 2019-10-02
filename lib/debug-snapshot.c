@@ -25,25 +25,27 @@
 #include <linux/of_address.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/sched/clock.h>
+#include <linux/of.h>
+#include <linux/of_fdt.h>
+#include <linux/libfdt.h>
 
 #include "debug-snapshot-local.h"
 
 /* To Support Samsung SoC */
-#include <dt-bindings/soc/samsung/debug-snapshot-table.h>
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
 #include <soc/samsung/cal-if.h>
-#endif
-#ifdef CONFIG_SEC_DEBUG
-#include <linux/sec_debug.h>
-#endif
 #ifdef CONFIG_SEC_PM_DEBUG
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
 #endif
 
+/* 1. last kmsg hooking */
 #include <linux/sec_debug.h>
 
-extern void register_hook_logbuf(void (*)(const char *, size_t));
+#ifdef CONFIG_SEC_PM_DEBUG
+static bool sec_log_full;
+#endif
+
+extern void register_hook_logbuf(void (*)(const char *, size_t, int fatal));
 extern void register_hook_logger(void (*)(const char *, const char *, size_t));
 
 struct dbg_snapshot_interface {
@@ -51,7 +53,6 @@ struct dbg_snapshot_interface {
 	struct dbg_snapshot_item info_log[DSS_ITEM_MAX_NUM];
 };
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
 struct dbg_snapshot_ops {
         int (*pd_status)(unsigned int id);
 };
@@ -59,28 +60,23 @@ struct dbg_snapshot_ops {
 struct dbg_snapshot_ops dss_ops = {
 	.pd_status = cal_pd_status,
 };
-#endif
-
-const char *debug_level_val[] = {
-	"low",
-	"mid",
-};
 
 struct dbg_snapshot_bl *dss_bl;
 struct dbg_snapshot_item dss_items[] = {
-	{"header",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_kernel",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_platform",	{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_sfr",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_s2d",		{0, 0, 0, false, false}, NULL, NULL, 0, },
-	{"log_cachedump",	{0, 0, 0, false, false}, NULL, NULL, 0, },
-	{"log_arraydump",	{0, 0, 0, false, false}, NULL, NULL, 0, },
-	{"log_etm",		{0, 0, 0, true, false}, NULL ,NULL, 0, },
-	{"log_bcm",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_llc",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_dbgc",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
-	{"log_pstore",		{0, 0, 0, true, false}, NULL ,NULL, 0, },
-	{"log_kevents",		{0, 0, 0, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_HEADER_ID,	DSS_ITEM_HEADER,	{0, 0, 0, false, true, true}, NULL ,NULL, 0, },
+	{DSS_ITEM_KERNEL_ID,	DSS_ITEM_KERNEL,	{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_PLATFORM_ID,	DSS_ITEM_PLATFORM,	{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_FATAL_ID,	DSS_ITEM_FATAL,		{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_KEVENTS_ID,	DSS_ITEM_KEVENTS,	{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_PSTORE_ID,	DSS_ITEM_PSTORE,	{0, 0, 0, true,  false, true}, NULL ,NULL, 0, },
+	{DSS_ITEM_SFR_ID,	DSS_ITEM_SFR,		{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_S2D_ID,	DSS_ITEM_S2D,		{0, 0, 0, false, false, true}, NULL, NULL, 0, },
+	{DSS_ITEM_ARRDUMP_RESET_ID, DSS_ITEM_ARRDUMP_RESET,{0, 0, 0, false, false, false}, NULL, NULL, 0, },
+	{DSS_ITEM_ARRDUMP_PANIC_ID, DSS_ITEM_ARRDUMP_PANIC,{0, 0, 0, false, false, false}, NULL, NULL, 0, },
+	{DSS_ITEM_ETM_ID,	DSS_ITEM_ETM,		{0, 0, 0, true, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_BCM_ID,	DSS_ITEM_BCM,		{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_LLC_ID,	DSS_ITEM_LLC,		{0, 0, 0, false, false, false}, NULL ,NULL, 0, },
+	{DSS_ITEM_DBGC_ID,	DSS_ITEM_DBGC,		{0, 0, 0, false, false, true}, NULL ,NULL, 0, },
 };
 
 /*  External interface variable for trace debugging */
@@ -92,46 +88,70 @@ struct dbg_snapshot_base ess_base;
 struct dbg_snapshot_log *dss_log = NULL;
 struct dbg_snapshot_desc dss_desc;
 
-void sec_debug_get_kevent_info(int type, unsigned long *paddr, unsigned int *nr)
+void secdbg_base_get_kevent_info(struct ess_info_offset *p, int type)
 {
-	unsigned long kevent_base = (unsigned long)(dss_log->task);
+	unsigned long kevent_base_va = (unsigned long)(dss_log->task);
+	unsigned long kevent_base_pa = dss_items[DSS_ITEM_KEVENTS_ID].entry.paddr;
 
 	switch (type) {
-	case DSS_KEVENT_PA:
-		(*paddr) = dss_items[dss_desc.kevents_num].entry.paddr;
-		(*nr) = 0;
+	case DSS_KEVENT_TASK:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->task) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __task_log);
+		p->per_core = 1;
 		break;
 
-	case DSS_TASK_OFF:
-		(*paddr) = (unsigned int)((unsigned long)(dss_log->task) - kevent_base);
-		(*nr) = DSS_LOG_MAX_NUM;
+	case DSS_KEVENT_WORK:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->work) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __work_log);
+		p->per_core = 1;
 		break;
 
-	case DSS_WORK_OFF:
-		(*paddr) = (unsigned int)((unsigned long)(dss_log->work) - kevent_base);
-		(*nr) = DSS_LOG_MAX_NUM;
+	case DSS_KEVENT_IRQ:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->irq) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM * 2;
+		p->size = sizeof(struct __irq_log);
+		p->per_core = 1;
 		break;
 
-	case DSS_IRQ_OFF:
-		(*paddr) = (unsigned int)((unsigned long)(dss_log->irq) - kevent_base);
-		(*nr) = DSS_LOG_MAX_NUM * 2;
+	case DSS_KEVENT_FREQ:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->freq) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __freq_log);
+		p->per_core = 0;
 		break;
 
-	case DSS_FREQ_OFF:
-		(*paddr) = (unsigned int)((unsigned long)(dss_log->freq) - kevent_base);
-		(*nr) = DSS_LOG_MAX_NUM;
+	case DSS_KEVENT_IDLE:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->cpuidle) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __cpuidle_log);
+		p->per_core = 1;
 		break;
 
-	case DSS_IDLE_OFF:
-		(*paddr) = (unsigned int)((unsigned long)(dss_log->cpuidle) - kevent_base);
-		(*nr) = DSS_LOG_MAX_NUM;
+	case DSS_KEVENT_THRM:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->thermal) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __thermal_log);
+		p->per_core = 0;
+		break;
+
+	case DSS_KEVENT_ACPM:
+		p->base = kevent_base_pa + (unsigned long)(dss_log->acpm) - kevent_base_va;
+		p->nr = DSS_LOG_MAX_NUM;
+		p->size = sizeof(struct __acpm_log);
+		p->per_core = 0;
 		break;
 
 	default:
-		(*paddr) = 0;
-		(*nr) = 0;
+		p->base = 0;
+		p->nr = 0;
+		p->size = 0;
+		p->per_core = 0;
 		break;
 	}
+
+	p->last = secdbg_base_get_kevent_index_addr(type);
 }
 
 int dbg_snapshot_get_debug_level(void)
@@ -141,8 +161,11 @@ int dbg_snapshot_get_debug_level(void)
 
 int dbg_snapshot_add_bl_item_info(const char *name, unsigned int paddr, unsigned int size)
 {
-	if (dss_bl->item_count >= SZ_16)
-		return -1;
+	if (!dbg_snapshot_get_enable())
+		return -ENODEV;
+
+	if (dss_bl->item_count >= DSS_MAX_BL_SIZE)
+		return -ENOMEM;
 
 	memcpy(dss_bl->item[dss_bl->item_count].name, name, strlen(name) + 1);
 	dss_bl->item[dss_bl->item_count].paddr = paddr;
@@ -153,29 +176,53 @@ int dbg_snapshot_add_bl_item_info(const char *name, unsigned int paddr, unsigned
 	return 0;
 }
 
-int dbg_snapshot_set_enable(const char *name, int en)
+int dbg_snapshot_set_enable_item(const char *name, int en)
 {
 	struct dbg_snapshot_item *item = NULL;
 	unsigned long i;
 
-	if (!strncmp(name, "base", strlen(name))) {
-		dss_base.enabled = en;
-		pr_info("debug-snapshot: %sabled\n", en ? "en" : "dis");
-	} else {
+	if (!name)
+		return -ENODEV;
+
+	if (!dss_dpm.enabled || !dss_dpm.enabled_debug)
+		return -EACCES;
+
+	if (dss_dpm.enabled_dump_mode) {
+		/* This is default for debug-mode */
 		for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
 			if (!strncmp(dss_items[i].name, name, strlen(name))) {
 				item = &dss_items[i];
 				item->entry.enabled = en;
-				item->time = local_clock();
 				pr_info("debug-snapshot: item - %s is %sabled\n",
 						name, en ? "en" : "dis");
+
+				break;
+			}
+		}
+	} else {
+		for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
+			if (!strncmp(dss_items[i].name, name, strlen(name))) {
+				item = &dss_items[i];
+				if (item->entry.enabled_no_dump) {
+					item->entry.enabled = en;
+					pr_info("debug-snapshot: item - %s is %sabled\n",
+							name, en ? "en" : "dis");
+				}
 				break;
 			}
 		}
 	}
 	return 0;
 }
-EXPORT_SYMBOL(dbg_snapshot_set_enable);
+EXPORT_SYMBOL(dbg_snapshot_set_enable_item);
+
+int __init dbg_snapshot_set_enable(int en)
+{
+	dss_base.enabled = en;
+	dev_info(dss_desc.dev, "debug-snapshot: %sabled\n", en ? "en" : "dis");
+
+	return 0;
+}
 
 int dbg_snapshot_try_enable(const char *name, unsigned long long duration)
 {
@@ -185,7 +232,7 @@ int dbg_snapshot_try_enable(const char *name, unsigned long long duration)
 	int ret = -1;
 
 	/* If DSS was disabled, just return */
-	if (unlikely(!dss_base.enabled) || !dbg_snapshot_get_enable("header"))
+	if (!dbg_snapshot_get_enable())
 		return ret;
 
 	for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
@@ -193,7 +240,7 @@ int dbg_snapshot_try_enable(const char *name, unsigned long long duration)
 			item = &dss_items[i];
 
 			/* We only interest in disabled */
-			if (!item->entry.enabled) {
+			if (!item->entry.enabled && item->time) {
 				time = local_clock() - item->time;
 				if (time > duration) {
 					item->entry.enabled = true;
@@ -208,14 +255,17 @@ int dbg_snapshot_try_enable(const char *name, unsigned long long duration)
 }
 EXPORT_SYMBOL(dbg_snapshot_try_enable);
 
-int dbg_snapshot_get_enable(const char *name)
+int dbg_snapshot_get_enable(void)
+{
+	return dss_base.enabled;
+}
+EXPORT_SYMBOL(dbg_snapshot_get_enable);
+
+int dbg_snapshot_get_enable_item(const char *name)
 {
 	struct dbg_snapshot_item *item = NULL;
 	unsigned long i;
 	int ret = 0;
-
-	if (!strncmp(name, "base", strlen(name)))
-		return dss_base.enabled;
 
 	for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
 		if (!strncmp(dss_items[i].name, name, strlen(name))) {
@@ -224,9 +274,10 @@ int dbg_snapshot_get_enable(const char *name)
 			break;
 		}
 	}
+
 	return ret;
 }
-EXPORT_SYMBOL(dbg_snapshot_get_enable);
+EXPORT_SYMBOL(dbg_snapshot_get_enable_item);
 
 static inline int dbg_snapshot_check_eob(struct dbg_snapshot_item *item,
 						size_t size)
@@ -245,49 +296,69 @@ static inline int dbg_snapshot_check_eob(struct dbg_snapshot_item *item,
 static inline void dbg_snapshot_hook_logger(const char *name,
 					 const char *buf, size_t size)
 {
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.log_platform_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_PLATFORM_ID];
 
-	if (likely(dss_base.enabled && item->entry.enabled)) {
-		if (unlikely((dbg_snapshot_check_eob(item, size))))
-			item->curr_ptr = item->head_ptr;
-		memcpy(item->curr_ptr, buf, size);
-		item->curr_ptr += size;
-	}
-}
-
-#ifdef CONFIG_SEC_PM_DEBUG
-static bool sec_log_full;
-#endif
-
-static inline void dbg_snapshot_hook_logbuf(const char *buf, size_t size)
-{
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.log_kernel_num];
-
-	if (likely(dss_base.enabled && item->entry.enabled)) {
+	if (likely(dbg_snapshot_get_enable() && item->entry.enabled)) {
 		size_t last_buf;
 
-		if (dbg_snapshot_check_eob(item, size)) {
+		if (unlikely((dbg_snapshot_check_eob(item, size))))
 			item->curr_ptr = item->head_ptr;
-#ifdef CONFIG_SEC_DEBUG_LAST_KMSG
-			*((unsigned long long *)(item->head_ptr + item->entry.size - (size_t)0x08)) = SEC_LKMSG_MAGICKEY;
-#endif
-#ifdef CONFIG_SEC_PM_DEBUG
-			if (unlikely(!sec_log_full))
-				sec_log_full = true;
-#endif
-		}
 
 		memcpy(item->curr_ptr, buf, size);
 		item->curr_ptr += size;
 		/*  save the address of last_buf to physical address */
 		last_buf = (size_t)item->curr_ptr;
 
-		__raw_writel(item->entry.paddr + (last_buf - item->entry.vaddr),
-				dbg_snapshot_get_base_vaddr() + DSS_OFFSET_LAST_LOGBUF);
+		__raw_writel_no_log(item->entry.paddr + (last_buf - item->entry.vaddr),
+			dbg_snapshot_get_base_vaddr() + DSS_OFFSET_LAST_PLATFORM_LOGBUF);
 	}
 }
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
+size_t dbg_snapshot_get_curr_ptr_for_sysrq(void)
+{
+#ifdef CONFIG_SEC_DEBUG_SYSRQ_KMSG
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KERNEL_ID];
+
+	return (size_t)item->curr_ptr;
+#else
+	return 0;
+#endif
+}
+
+static inline void dbg_snapshot_hook_logbuf(const char *buf, size_t size, int fatal)
+{
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KERNEL_ID];
+
+	do {
+		if (likely(dbg_snapshot_get_enable() && item->entry.enabled)) {
+			size_t last_buf;
+
+			if (dbg_snapshot_check_eob(item, size)) {
+				item->curr_ptr = item->head_ptr;
+#ifdef CONFIG_SEC_DEBUG_LAST_KMSG
+				*((unsigned long long *)(item->head_ptr + item->entry.size - (size_t)0x08)) = SEC_LKMSG_MAGICKEY;
+#endif
+#ifdef CONFIG_SEC_PM_DEBUG
+				if (!sec_log_full)
+					sec_log_full = true;
+#endif
+			}
+
+			memcpy(item->curr_ptr, buf, size);
+			item->curr_ptr += size;
+			/*  save the address of last_buf to physical address */
+			last_buf = (size_t)item->curr_ptr;
+
+			if (item == (struct dbg_snapshot_item *)&dss_items[DSS_ITEM_KERNEL_ID])
+				__raw_writel_no_log(item->entry.paddr + (last_buf - item->entry.vaddr),
+					dbg_snapshot_get_header_vaddr() + DSS_OFFSET_LAST_LOGBUF);
+
+			if (fatal == 1)
+				item = &dss_items[DSS_ITEM_FATAL_ID];
+		}
+	} while(fatal-- > 0);
+}
+
 static bool dbg_snapshot_check_pmu(struct dbg_snapshot_sfrdump *sfrdump,
 						const struct device_node *np)
 {
@@ -301,33 +372,61 @@ static bool dbg_snapshot_check_pmu(struct dbg_snapshot_sfrdump *sfrdump,
 	for (i = 0; i < count; i++) {
 		ret = of_property_read_u32_index(np, "cal-pd-id", i, &val);
 		if (ret < 0) {
-			pr_err("failed to get pd-id - %s\n", sfrdump->name);
+			dev_err(dss_desc.dev, "failed to get pd-id - %s\n", sfrdump->name);
 			return false;
 		}
 		ret = dss_ops.pd_status(val);
 		if (ret < 0) {
-			pr_err("not powered - %s (pd-id: %d)\n", sfrdump->name, i);
+			dev_err(dss_desc.dev, "not powered - %s (pd-id: %d)\n", sfrdump->name, i);
 			return false;
 		}
 	}
 	return true;
 }
 
+static int dbg_snapshot_output(void)
+{
+	unsigned long i, size = 0;
+
+	dev_info(dss_desc.dev, "debug-snapshot physical / virtual memory layout:\n");
+	for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
+		if (dss_items[i].entry.enabled)
+			dev_info(dss_desc.dev, "%-12s: phys:0x%zx / virt:0x%zx / size:0x%zx / en:%d\n",
+				dss_items[i].name,
+				dss_items[i].entry.paddr,
+				dss_items[i].entry.vaddr,
+				dss_items[i].entry.size,
+				dss_items[i].entry.enabled);
+		size += dss_items[i].entry.size;
+	}
+
+	dev_info(dss_desc.dev, "total_item_size: %ldKB, dbg_snapshot_log struct size: %dKB\n",
+			size / SZ_1K, dbg_snapshot_log_size / SZ_1K);
+
+	return 0;
+}
+
 void dbg_snapshot_dump_sfr(void)
 {
 	struct dbg_snapshot_sfrdump *sfrdump;
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.log_sfr_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_SFR_ID];
 	struct list_head *entry;
 	struct device_node *np;
 	unsigned int reg, offset, val, size;
 	int i, ret;
 	static char buf[SZ_64];
 
-	if (unlikely(!dss_base.enabled || !item->entry.enabled))
+	dbg_snapshot_output();
+
+	if (unlikely(!dbg_snapshot_get_enable() || !item->entry.enabled)) {
+		dev_emerg(dss_desc.dev, "debug-snapshot: %s is disabled, %d\n", item->name, item->entry.enabled);
 		return;
+	} else {
+		dev_emerg(dss_desc.dev, "debug-snapshot: %s is enabled, %d\n", item->name, item->entry.enabled);
+	}
 
 	if (list_empty(&dss_desc.sfrdump_list)) {
-		pr_emerg("debug-snapshot: %s: No information\n", __func__);
+		dev_emerg(dss_desc.dev, "debug-snapshot: %s: No information\n", __func__);
 		return;
 	}
 
@@ -339,22 +438,11 @@ void dbg_snapshot_dump_sfr(void)
 			/* may off */
 			continue;
 
-		for (i = 0; i < sfrdump->num; i++) {
-			ret = of_property_read_u32_index(np, "addr", i, &reg);
-			if (ret < 0) {
-				pr_err("debug-snapshot: failed to get address information - %s\n",
-					sfrdump->name);
-				break;
-			}
-			if (reg == 0xFFFFFFFF || reg == 0)
-				break;
-			offset = reg - sfrdump->phy_reg;
-			if (reg < offset) {
-				pr_err("debug-snapshot: invalid address information - %s: 0x%08x\n",
-				sfrdump->name, reg);
-				break;
-			}
-			val = __raw_readl(sfrdump->reg + offset);
+		for (i = 0; i < (int)(sfrdump->size >> 2); i++) {
+			offset = i * 4;
+			reg = sfrdump->phy_reg + offset;
+
+			val = __raw_readl_no_log(sfrdump->reg + offset);
 			snprintf(buf, SZ_64, "0x%X = 0x%0X\n",reg, val);
 			size = (unsigned int)strlen(buf);
 			if (unlikely((dbg_snapshot_check_eob(item, size))))
@@ -363,7 +451,7 @@ void dbg_snapshot_dump_sfr(void)
 			item->curr_ptr += strlen(buf);
 		}
 		of_node_put(np);
-		pr_info("debug-snapshot: complete to dump %s\n", sfrdump->name);
+		dev_info(dss_desc.dev, "debug-snapshot: complete to dump %s\n", sfrdump->name);
 	}
 
 }
@@ -372,42 +460,23 @@ static int dbg_snapshot_sfr_dump_init(struct device_node *np)
 {
 	struct device_node *dump_np;
 	struct dbg_snapshot_sfrdump *sfrdump;
-	char *dump_str;
-	int count, ret, i;
 	u32 phy_regs[2];
-
-	ret = of_property_count_strings(np, "sfr-dump-list");
-	if (ret < 0) {
-		pr_err("failed to get sfr-dump-list\n");
-		return ret;
-	}
-	count = ret;
+	int ret = 0;
 
 	INIT_LIST_HEAD(&dss_desc.sfrdump_list);
-	for (i = 0; i < count; i++) {
-		ret = of_property_read_string_index(np, "sfr-dump-list", i,
-						(const char **)&dump_str);
-		if (ret < 0) {
-			pr_err("failed to get sfr-dump-list\n");
-			continue;
-		}
-
-		dump_np = of_get_child_by_name(np, dump_str);
-		if (!dump_np) {
-			pr_err("failed to get %s node, count:%d\n", dump_str, count);
-			continue;
-		}
+	for_each_child_of_node(np, dump_np) {
 
 		sfrdump = kzalloc(sizeof(struct dbg_snapshot_sfrdump), GFP_KERNEL);
 		if (!sfrdump) {
-			pr_err("failed to get memory region of dbg_snapshot_sfrdump\n");
+			dev_err(dss_desc.dev, "failed to get memory region of dbg_snapshot_sfrdump\n");
 			of_node_put(dump_np);
-			continue;
+			ret = -ENOMEM;
+			break;
 		}
 
 		ret = of_property_read_u32_array(dump_np, "reg", phy_regs, 2);
 		if (ret < 0) {
-			pr_err("failed to get register information\n");
+			dev_err(dss_desc.dev, "failed to get register information\n");
 			of_node_put(dump_np);
 			kfree(sfrdump);
 			continue;
@@ -415,22 +484,24 @@ static int dbg_snapshot_sfr_dump_init(struct device_node *np)
 
 		sfrdump->reg = ioremap(phy_regs[0], phy_regs[1]);
 		if (!sfrdump->reg) {
-			pr_err("failed to get i/o address %s node\n", dump_str);
+			dev_err(dss_desc.dev, "failed to get i/o address %s node\n", dump_np->name);
 			of_node_put(dump_np);
 			kfree(sfrdump);
 			continue;
 		}
-		sfrdump->name = dump_str;
 
-		ret = of_property_count_u32_elems(dump_np, "addr");
-		if (ret < 0) {
-			pr_err("failed to get addr count\n");
+		/* check 4 bytes alignment */
+		if ((phy_regs[0] & 0x3) ||(phy_regs[1] & 0x3)) {
+			dev_err(dss_desc.dev, "(%s) Invalid alignments (4 bytes)\n", dump_np->name);
 			of_node_put(dump_np);
 			kfree(sfrdump);
 			continue;
 		}
+
 		sfrdump->phy_reg = phy_regs[0];
-		sfrdump->num = ret;
+		sfrdump->size = phy_regs[1];
+		sfrdump->name = dump_np->name;
+		sfrdump->node = dump_np;
 
 		ret = of_property_count_u32_elems(dump_np, "cal-pd-id");
 		if (ret < 0)
@@ -438,16 +509,18 @@ static int dbg_snapshot_sfr_dump_init(struct device_node *np)
 		else
 			sfrdump->pwr_mode = true;
 
-		sfrdump->node = dump_np;
 		list_add(&sfrdump->list, &dss_desc.sfrdump_list);
 
-		pr_info("success to regsiter %s\n", sfrdump->name);
+		dev_info(dss_desc.dev, "success to regsiter %s\n", sfrdump->name);
 		of_node_put(dump_np);
 		ret = 0;
 	}
+
+	if (!ret && list_empty(&dss_desc.sfrdump_list))
+		dev_info(dss_desc.dev, "There is no sfr dump list\n");
+
 	return ret;
 }
-#endif
 
 static int __init dbg_snapshot_remap(void)
 {
@@ -461,12 +534,11 @@ static int __init dbg_snapshot_remap(void)
 	void *vaddr;
 
 	for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
-		if (dss_items[i].entry.enabled) {
+		if (dss_items[i].entry.enabled && dss_items[i].entry.paddr && dss_items[i].entry.size) {
 			enabled_count++;
 			page_size = dss_items[i].entry.size / PAGE_SIZE;
 			pages = kzalloc(sizeof(struct page *) * page_size, GFP_KERNEL);
 			page = phys_to_page(dss_items[i].entry.paddr);
-			pr_info("%s: %2d: paddr: 0x%x\n", __func__, i, dss_items[i].entry.paddr);
 
 			for (j = 0; j < page_size; j++)
 				pages[j] = page++;
@@ -474,7 +546,11 @@ static int __init dbg_snapshot_remap(void)
 			vaddr = vmap(pages, page_size, flags, prot);
 			kfree(pages);
 			if (!vaddr) {
-				pr_err("debug-snapshot: failed to mapping between virt and phys");
+				dev_err(dss_desc.dev,
+				"debug-snapshot: %s: paddr:%lx page_size:%lx  failed to mapping between virt and phys\n",
+				dss_items[i].name,
+				(unsigned long)dss_items[i].entry.paddr,
+				(unsigned long)dss_items[i].entry.size);
 				return -ENOMEM;
 			}
 
@@ -486,37 +562,23 @@ static int __init dbg_snapshot_remap(void)
 				dss_base.vaddr = dss_items[i].entry.vaddr;
 		}
 	}
-	dss_desc.log_cnt = ARRAY_SIZE(dss_items);
 	return enabled_count;
 }
 
 static int __init dbg_snapshot_init_desc(void)
 {
-	unsigned int i;
-	unsigned long len;
-
 	/* initialize dss_desc */
 	memset((struct dbg_snapshot_desc *)&dss_desc, 0, sizeof(struct dbg_snapshot_desc));
 	dss_desc.callstack = CONFIG_DEBUG_SNAPSHOT_CALLSTACK;
 	raw_spin_lock_init(&dss_desc.ctrl_lock);
 	raw_spin_lock_init(&dss_desc.nmi_lock);
+	dss_desc.dev = create_empty_device();
 
-	for (i = 0; i < (unsigned int)ARRAY_SIZE(dss_items); i++) {
-		len = strlen(dss_items[i].name);
-		if (!strncmp(dss_items[i].name, "header", len))
-			dss_desc.header_num = i;
-		else if (!strncmp(dss_items[i].name, "log_kevents", len))
-			dss_desc.kevents_num = i;
-		else if (!strncmp(dss_items[i].name, "log_kernel", len))
-			dss_desc.log_kernel_num = i;
-		else if (!strncmp(dss_items[i].name, "log_platform", len))
-			dss_desc.log_platform_num = i;
-		else if (!strncmp(dss_items[i].name, "log_sfr", len))
-			dss_desc.log_sfr_num = i;
-		else if (!strncmp(dss_items[i].name, "log_pstore", len))
-			dss_desc.log_pstore_num = i;
-	}
+	if (!dss_desc.dev)
+		panic("Exynos: create empty device fail");
+	dev_set_socdata(dss_desc.dev, "Exynos", "DSS");
 
+	dss_desc.log_cnt = ARRAY_SIZE(dss_items);
 #ifdef CONFIG_S3C2410_WATCHDOG
 	dss_desc.no_wdt_dev = false;
 #else
@@ -526,6 +588,35 @@ static int __init dbg_snapshot_init_desc(void)
 }
 
 #ifdef CONFIG_OF_RESERVED_MEM
+int __init dbg_snapshot_reserved_mem_check(unsigned long node, unsigned long size)
+{
+	const char *name;
+	unsigned int i;
+	int ret = 0;
+
+	name = of_get_flat_dt_prop(node, "compatible", NULL);
+	if (!name)
+		goto out;
+
+	if (!strstr(name, "debug-snapshot"))
+		goto out;
+
+	if (size == 0) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	for (i = 0; i < (unsigned int)ARRAY_SIZE(dss_items); i++) {
+		if (strnstr(name, dss_items[i].name, strlen(name)))
+			break;
+	}
+
+	if (i == ARRAY_SIZE(dss_items) || !dss_items[i].entry.enabled)
+		ret = -EINVAL;
+out:
+	return ret;
+}
+
 static int __init dbg_snapshot_item_reserved_mem_setup(struct reserved_mem *remem)
 {
 	unsigned int i;
@@ -538,14 +629,15 @@ static int __init dbg_snapshot_item_reserved_mem_setup(struct reserved_mem *reme
 	if (i == ARRAY_SIZE(dss_items))
 		return -ENODEV;
 
+	if (!dss_items[i].entry.enabled)
+		return -ENODEV;
+
 	dss_items[i].entry.paddr = remem->base;
 	dss_items[i].entry.size = remem->size;
-	dss_items[i].entry.enabled = true;
 
 	if (strnstr(remem->name, "header", strlen(remem->name))) {
 		dss_base.paddr = remem->base;
 		ess_base = dss_base;
-		dss_base.enabled = false;
 	}
 	dss_base.size += remem->size;
 	return 0;
@@ -559,45 +651,16 @@ DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_kernel);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_platform);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_sfr);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_s2d);
-DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_cachedump);
-DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_arraydump);
+DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_arrdumpreset);
+DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_arrdumppanic);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_etm);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_bcm);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_llc);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_dbgc);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_pstore);
 DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_kevents);
+DECLARE_DBG_SNAPSHOT_RESERVED_REGION("debug-snapshot,", log_fatal);
 #endif
-
-/*
- *  ---------------------------------------------------------------------
- *  - dummy data:phy_addr, virtual_addr, buffer_size, magic_key(4K)	-
- *  ---------------------------------------------------------------------
- *  -		Cores MMU register(4K)					-
- *  ---------------------------------------------------------------------
- *  -		Cores CPU register(4K)					-
- *  ---------------------------------------------------------------------
- */
-static int __init dbg_snapshot_output(void)
-{
-	unsigned long i, size = 0;
-
-	pr_info("debug-snapshot physical / virtual memory layout:\n");
-	for (i = 0; i < ARRAY_SIZE(dss_items); i++) {
-		if (dss_items[i].entry.enabled)
-			pr_info("%-12s: phys:0x%zx / virt:0x%zx / size:0x%zx\n",
-				dss_items[i].name,
-				dss_items[i].entry.paddr,
-				dss_items[i].entry.vaddr,
-				dss_items[i].entry.size);
-		size += dss_items[i].entry.size;
-	}
-
-	pr_info("total_item_size: %ldKB, dbg_snapshot_log struct size: %dKB\n",
-			size / SZ_1K, dbg_snapshot_log_size / SZ_1K);
-
-	return 0;
-}
 
 /*	Header dummy data(4K)
  *	-------------------------------------------------------------------------
@@ -614,32 +677,33 @@ static void __init dbg_snapshot_fixmap_header(void)
 	size_t vaddr, paddr, size;
 	size_t *addr;
 
-	vaddr = dss_items[dss_desc.header_num].entry.vaddr;
-	paddr = dss_items[dss_desc.header_num].entry.paddr;
-	size = dss_items[dss_desc.header_num].entry.size;
+	vaddr = dss_items[DSS_ITEM_HEADER_ID].entry.vaddr;
+	paddr = dss_items[DSS_ITEM_HEADER_ID].entry.paddr;
+	size = dss_items[DSS_ITEM_HEADER_ID].entry.size;
 
 	/*  set to confirm debug-snapshot */
 	addr = (size_t *)vaddr;
 	memcpy(addr, &dss_base, sizeof(struct dbg_snapshot_base));
 
-	if (!dbg_snapshot_get_enable("header"))
+	if (!dbg_snapshot_get_enable_item("header"))
 		return;
 
 	/*  initialize kernel event to 0 except only header */
 	memset((size_t *)(vaddr + DSS_KEEP_HEADER_SZ), 0, size - DSS_KEEP_HEADER_SZ);
 
-	dss_bl = dbg_snapshot_get_base_vaddr() + DSS_OFFSET_ITEM_INFO;
+	dss_bl = dbg_snapshot_get_header_vaddr() + DSS_OFFSET_ITEM_INFO;
 	memset(dss_bl, 0, sizeof(struct dbg_snapshot_bl));
+
 	dss_bl->magic1 = 0x01234567;
 	dss_bl->magic2 = 0x89ABCDEF;
 	dss_bl->item_count = ARRAY_SIZE(dss_items);
-	memcpy(dss_bl->item[dss_desc.header_num].name,
-			dss_items[dss_desc.header_num].name,
-			strlen(dss_items[dss_desc.header_num].name) + 1);
-	dss_bl->item[dss_desc.header_num].paddr = paddr;
-	dss_bl->item[dss_desc.header_num].size = size;
-	dss_bl->item[dss_desc.header_num].enabled =
-		dss_items[dss_desc.header_num].entry.enabled;
+	memcpy(dss_bl->item[DSS_ITEM_HEADER_ID].name,
+			dss_items[DSS_ITEM_HEADER_ID].name,
+			strlen(dss_items[DSS_ITEM_HEADER_ID].name) + 1);
+	dss_bl->item[DSS_ITEM_HEADER_ID].paddr = paddr;
+	dss_bl->item[DSS_ITEM_HEADER_ID].size = size;
+	dss_bl->item[DSS_ITEM_HEADER_ID].enabled =
+		dss_items[DSS_ITEM_HEADER_ID].entry.enabled;
 }
 
 static void __init dbg_snapshot_fixmap(void)
@@ -663,9 +727,9 @@ static void __init dbg_snapshot_fixmap(void)
 		vaddr = dss_items[i].entry.vaddr;
 		size = dss_items[i].entry.size;
 
-		if (i == dss_desc.log_kernel_num) {
+		if (i == DSS_ITEM_KERNEL_ID) {
 			/*  load last_buf address value(phy) by virt address */
-			last_buf = (size_t)__raw_readl(dbg_snapshot_get_base_vaddr() +
+			last_buf = (size_t)__raw_readl(dbg_snapshot_get_header_vaddr() +
 							DSS_OFFSET_LAST_LOGBUF);
 			/*  check physical address offset of kernel logbuf */
 			if (last_buf >= dss_items[i].entry.paddr &&
@@ -679,10 +743,21 @@ static void __init dbg_snapshot_fixmap(void)
 				/*  initialize logbuf to 0 */
 				memset((size_t *)vaddr, 0, size);
 			}
+		} else if (i == DSS_ITEM_PLATFORM_ID) {
+				last_buf = (size_t)__raw_readl(dbg_snapshot_get_header_vaddr() +
+							DSS_OFFSET_LAST_PLATFORM_LOGBUF);
+			if (last_buf >= dss_items[i].entry.vaddr &&
+				(last_buf) <= (dss_items[i].entry.vaddr + dss_items[i].entry.size)) {
+				dss_items[i].curr_ptr = (unsigned char *)(last_buf);
+			} else {
+				dss_items[i].curr_ptr = (unsigned char *)vaddr;
+				memset((size_t *)vaddr, 0, size);
+			}
 		} else {
 			/*  initialized log to 0 if persist == false */
-			if (!dss_items[i].entry.persist)
+			if (!dss_items[i].entry.persist) {
 				memset((size_t *)vaddr, 0, size);
+			}
 		}
 		dss_info.info_log[i - 1].name = kstrdup(dss_items[i].name, GFP_KERNEL);
 		dss_info.info_log[i - 1].head_ptr = (unsigned char *)dss_items[i].entry.vaddr;
@@ -694,7 +769,7 @@ static void __init dbg_snapshot_fixmap(void)
 		dss_bl->item[i].size = size;
 	}
 
-	dss_log = (struct dbg_snapshot_log *)(dss_items[dss_desc.kevents_num].entry.vaddr);
+	dss_log = (struct dbg_snapshot_log *)(dss_items[DSS_ITEM_KEVENTS_ID].entry.vaddr);
 
 	/*  set fake translation to virtual address to debug trace */
 	dss_info.info_event = dss_log;
@@ -702,12 +777,10 @@ static void __init dbg_snapshot_fixmap(void)
 
 	/* output the information of debug-snapshot */
 	dbg_snapshot_output();
-	
-#ifdef CONFIG_SEC_DEBUG
-	sec_debug_save_last_kmsg(dss_items[dss_desc.log_kernel_num].head_ptr,
-			dss_items[dss_desc.log_kernel_num].curr_ptr,
-			dss_items[dss_desc.log_kernel_num].entry.size);
-#endif
+
+	secdbg_lkmg_store(dss_items[DSS_ITEM_KERNEL_ID].head_ptr,
+			dss_items[DSS_ITEM_KERNEL_ID].curr_ptr,
+			dss_items[DSS_ITEM_KERNEL_ID].entry.size);
 }
 
 static int dbg_snapshot_init_dt_parse(struct device_node *np)
@@ -718,32 +791,32 @@ static int dbg_snapshot_init_dt_parse(struct device_node *np)
 	if (of_property_read_u32(np, "use_multistage_wdt_irq",
 				&dss_desc.multistage_wdt_irq)) {
 		dss_desc.multistage_wdt_irq = 0;
-		pr_err("debug-snapshot: no support multistage_wdt\n");
+		dev_err(dss_desc.dev, "debug-snapshot: no support multistage_wdt\n");
 	}
 
-	sfr_dump_np = of_get_child_by_name(np, "dump-info");
-	if (!sfr_dump_np) {
-		pr_err("debug-snapshot: failed to get dump-info node\n");
-		ret = -ENODEV;
-	} else {
-#ifdef CONFIG_DEBUG_SNAPSHOT_PMU
-		ret = dbg_snapshot_sfr_dump_init(sfr_dump_np);
-		if (ret < 0) {
-			pr_err("debug-snapshot: failed to register sfr dump node\n");
+	if (dbg_snapshot_get_enable_item(DSS_ITEM_SFR)) {
+		sfr_dump_np = of_get_child_by_name(np, "dump-info");
+		if (!sfr_dump_np) {
+			dev_info(dss_desc.dev, "debug-snapshot: failed to get dump-info node\n");
 			ret = -ENODEV;
-			of_node_put(sfr_dump_np);
+		} else {
+			ret = dbg_snapshot_sfr_dump_init(sfr_dump_np);
+			if (ret < 0) {
+				dev_err(dss_desc.dev, "debug-snapshot: failed to register sfr dump node\n");
+				ret = -ENODEV;
+				of_node_put(sfr_dump_np);
+			}
 		}
-#endif
+		if (ret < 0)
+			dbg_snapshot_set_enable_item(DSS_ITEM_SFR, false);
 	}
-	if (ret < 0)
-		dbg_snapshot_set_enable("log_sfr", false);
 
 	of_node_put(np);
 	return ret;
 }
 
 static const struct of_device_id dss_of_match[] __initconst = {
-	{ .compatible 	= "debug-snapshot-soc",
+	{ .compatible	= "debug-snapshot-soc",
 	  .data		= dbg_snapshot_init_dt_parse},
 	{},
 };
@@ -757,8 +830,7 @@ static int __init dbg_snapshot_init_dt(void)
 	np = of_find_matching_node_and_match(NULL, dss_of_match, &matched_np);
 
 	if (!np) {
-		pr_info("debug-snapshot: couldn't find device tree file of debug-snapshot\n");
-		dbg_snapshot_set_enable("log_sfr", false);
+		dev_info(dss_desc.dev, "debug-snapshot: couldn't find device tree file of debug-snapshot\n");
 		return -ENODEV;
 	}
 
@@ -768,27 +840,50 @@ static int __init dbg_snapshot_init_dt(void)
 
 static int __init dbg_snapshot_init_value(void)
 {
-	dss_desc.debug_level = dbg_snapshot_get_debug_level_reg();
-
-	pr_info("debug-snapshot: debug_level [%s]\n",
-		debug_level_val[dss_desc.debug_level]);
-
-	if (dss_desc.debug_level != DSS_DEBUG_LEVEL_LOW)
+	if (dss_dpm.enabled_dump_mode)
 		dbg_snapshot_scratch_reg(DSS_SIGN_SCRATCH);
 
 	dbg_snapshot_set_sjtag_status();
 
 	/* copy linux_banner, physical address of
 	 * kernel log / platform log / kevents to DSS header */
-	strncpy(dbg_snapshot_get_base_vaddr() + DSS_OFFSET_LINUX_BANNER,
+	strncpy(dbg_snapshot_get_header_vaddr() + DSS_OFFSET_LINUX_BANNER,
 		linux_banner, strlen(linux_banner));
 
 	return 0;
 }
 
+static void __init dbg_snapshot_boot_cnt(void)
+{
+	unsigned int reg;
+
+	reg = __raw_readl(dbg_snapshot_get_header_vaddr() +
+				DSS_OFFSET_KERNEL_BOOT_CNT_MAGIC);
+	if (reg == DSS_BOOT_CNT_MAGIC) {
+		reg = __raw_readl(dbg_snapshot_get_header_vaddr() +
+					DSS_OFFSET_KERNEL_BOOT_CNT);
+		reg += 1;
+		writel(reg, dbg_snapshot_get_header_vaddr() +
+					DSS_OFFSET_KERNEL_BOOT_CNT);
+	} else {
+		reg = 1;
+		writel(reg, dbg_snapshot_get_header_vaddr() +
+					DSS_OFFSET_KERNEL_BOOT_CNT);
+		writel(DSS_BOOT_CNT_MAGIC, dbg_snapshot_get_header_vaddr() +
+						DSS_OFFSET_KERNEL_BOOT_CNT_MAGIC);
+
+	}
+
+	dev_info(dss_desc.dev, "Kernel Booting SEQ #%u\n", reg);
+}
+
 static int __init dbg_snapshot_init(void)
 {
+	if (!dbg_snapshot_get_enable_item(DSS_ITEM_HEADER))
+		return 0;
+
 	dbg_snapshot_init_desc();
+
 	if (dbg_snapshot_remap() > 0) {
 	/*
 	 *  for debugging when we don't know the virtual address of pointer,
@@ -799,17 +894,19 @@ static int __init dbg_snapshot_init(void)
 	 */
 		dbg_snapshot_init_log_idx();
 		dbg_snapshot_fixmap();
+
+		dbg_snapshot_set_enable(true);
+
+		dbg_snapshot_boot_cnt();
 		dbg_snapshot_init_dt();
 		dbg_snapshot_init_helper();
 		dbg_snapshot_init_utils();
 		dbg_snapshot_init_value();
 
-		dbg_snapshot_set_enable("base", true);
-
 		register_hook_logbuf(dbg_snapshot_hook_logbuf);
 		register_hook_logger(dbg_snapshot_hook_logger);
 	} else
-		pr_err("debug-snapshot: %s failed\n", __func__);
+		dev_err(dss_desc.dev, "debug-snapshot: %s failed\n", __func__);
 
 	return 0;
 }
@@ -822,7 +919,7 @@ static ssize_t sec_log_read_all(struct file *file, char __user *buf,
 	loff_t pos = *offset;
 	ssize_t count;
 	size_t size;
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.log_kernel_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KERNEL_ID];
 
 	if (sec_log_full)
 		size = item->entry.size;
@@ -852,7 +949,7 @@ static const struct file_operations sec_log_file_ops = {
 static int __init sec_log_late_init(void)
 {
 	struct proc_dir_entry *entry;
-	struct dbg_snapshot_item *item = &dss_items[dss_desc.log_kernel_num];
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KERNEL_ID];
 
 	if (!item->head_ptr)
 		return 0;

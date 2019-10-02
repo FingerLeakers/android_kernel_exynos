@@ -44,14 +44,11 @@ static inline void exynos_rgt_dbg_snapshot_regulator(u32 val, unsigned long long
 	return ;
 }
 #endif
+
 static bool is_rt_dl_task_policy(void)
 {
-	return current->policy == SCHED_FIFO || current->policy == SCHED_RR || current->policy == SCHED_DEADLINE;
-}
-
-void acpm_ipc_set_waiting_mode(bool mode)
-{
-	acpm_ipc->w_mode = mode;
+	return current->policy == SCHED_FIFO || current->policy == SCHED_RR
+		|| current->policy == SCHED_DEADLINE;
 }
 
 void acpm_fw_log_level(unsigned int on)
@@ -61,7 +58,7 @@ void acpm_fw_log_level(unsigned int on)
 
 void acpm_ramdump(void)
 {
-#ifdef CONFIG_DEBUG_SNAPSHOT_ACPM
+#ifdef CONFIG_DEBUG_SNAPSHOT
 	if (acpm_debug->dump_size)
 		memcpy(acpm_debug->dump_dram_base, acpm_debug->dump_base, acpm_debug->dump_size);
 #endif
@@ -88,6 +85,7 @@ void timestamp_write(void)
 		tmp_index = 0;
 
 	acpm_debug->timestamps[tmp_index] = cur_clk;
+	acpm_initdata->timestamps[tmp_index] = cur_clk;
 
 	__raw_writel(tmp_index, acpm_debug->time_index);
 	exynos_acpm_timer_clear();
@@ -565,6 +563,7 @@ int __acpm_ipc_send_data(unsigned int channel_id, struct ipc_config *cfg, bool w
 
 	apm_interrupt_gen(channel->id);
 	spin_unlock(&channel->tx_lock);
+
 	if (channel->polling && cfg->response) {
 retry:
 		timeout = sched_clock() + IPC_TIMEOUT;
@@ -695,7 +694,7 @@ static void log_buffer_init(struct device *dev, struct device_node *node)
 	if (prop)
 		acpm_debug->period = be32_to_cpup(prop);
 
-#ifdef CONFIG_DEBUG_SNAPSHOT_ACPM
+#ifdef CONFIG_DEBUG_SNAPSHOT
 	acpm_debug->dump_dram_base = kzalloc(acpm_debug->dump_size, GFP_KERNEL);
 	dbg_snapshot_printk("[ACPM] acpm framework SRAM dump to dram base: 0x%x\n",
 			virt_to_phys(acpm_debug->dump_dram_base));
@@ -808,6 +807,24 @@ static int acpm_ipc_probe(struct platform_device *pdev)
 	acpm_ipc->initdata = (struct acpm_framework *)(acpm_ipc->sram_base + acpm_ipc->initdata_base);
 	acpm_initdata = acpm_ipc->initdata;
 	acpm_srambase = acpm_ipc->sram_base;
+
+	prop = of_get_property(node, "board-id", &len);
+	if (prop) {
+		acpm_initdata->board_info = be32_to_cpup(prop) & 0xff;
+	} else {
+		dev_err(&pdev->dev, "Parsing board-id failed.\n");
+		return -EINVAL;
+	}
+
+	prop = of_get_property(node, "board-rev", &len);
+	if (prop) {
+		acpm_initdata->board_info |= ((be32_to_cpup(prop) & 0xff) << 8);
+	} else {
+		dev_err(&pdev->dev, "Parsing board-rev failed.\n");
+		return -EINVAL;
+	}
+
+	dev_info(&pdev->dev, "board_info = 0x%x\n", acpm_initdata->board_info);
 
 	acpm_ipc->dev = &pdev->dev;
 

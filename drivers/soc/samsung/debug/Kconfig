@@ -12,32 +12,16 @@ menuconfig EXYNOS_CORESIGHT
         bool "Enable Coresight of exynos"
         depends on ARCH_EXYNOS && EXYNOS_DEBUG
         default n
-
-config EXYNOS_CORESIGHT_PC_INFO
-        bool "Show Porgram Counter information"
-        depends on EXYNOS_CORESIGHT
-        default y
         help
-          Show Program Counter information When kernel panic.
+          Show Program Counter information When hard lockup kernel panic.
 
 config PC_ITERATION
         int "Number of Program Coutner information"
-        depends on EXYNOS_CORESIGHT_PC_INFO
+        depends on EXYNOS_CORESIGHT
         range 1 10
         default 5
         help
           Print out Program Counter as iteration value.
-
-config EXYNOS_CORESIGHT_MAINTAIN_DBG_REG
-        bool "Save/Restore Debug Registers"
-        depends on EXYNOS_CORESIGHT
-        default n
-        help
-          When core power is down, debug registers are not mainained data
-          and OS-lock is set. To maintain data, debug registers's data must
-          save in /restore from memory. If OS-lock is set, debugging to use
-          trace32 is impossible. So OS-lock must clear when core power is up.
-          This config must enable only using iTSP program.
 
 config EXYNOS_ADV_TRACER
         bool "Exynos Advanced Tracer"
@@ -46,6 +30,11 @@ config EXYNOS_ADV_TRACER
 
 config EXYNOS_ADV_TRACER_S2D
         bool "Exynos Advanced Tracer: Plug-in - S2D"
+	default n
+	depends on EXYNOS_ADV_TRACER
+
+config EXYNOS_ADV_TRACER_EHLD
+        bool "Exynos Advanced Tracer: Plug-in - EHLD(Early HardLockup Detector)"
 	default n
 	depends on EXYNOS_ADV_TRACER
 
@@ -97,7 +86,7 @@ config EXYNOS_CORESIGHT_ETM_SYSFS
 config EXYNOS_DEBUG_TEST
         bool "Exynos debug feature regression test"
         default y
-        depends on ARCH_EXYNOS && EXYNOS_DEBUG
+        depends on ARCH_EXYNOS && EXYNOS_DEBUG && DEBUG_SNAPSHOT
 
 config EXYNOS_SAVELOGS
 	bool "Exynos support savelogs"
@@ -109,5 +98,10 @@ config EXYNOS_SAVELOGS
 
 config EXYNOS_EHLD
 	bool "Exynos support Early Hardlockup Detector"
+	default n
+	depends on ARCH_EXYNOS && EXYNOS_DEBUG
+
+config EXYNOS_HALT
+	bool "Exynos support HALT"
 	default n
 	depends on ARCH_EXYNOS && EXYNOS_DEBUG

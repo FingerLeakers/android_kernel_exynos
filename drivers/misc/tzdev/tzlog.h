@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017, Samsung Electronics Co., Ltd.
+ * Copyright (C) 2012-2019, Samsung Electronics Co., Ltd.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -14,10 +14,26 @@
 #ifndef __TZLOG_H__
 #define __TZLOG_H__
 
+#include "tzdev_internal.h"
+
 extern unsigned int tzdev_verbosity;
+extern unsigned int tzdev_platform_verbosity;
+extern unsigned int tzdev_iwlog_verbosity;
+extern unsigned int tzdev_iwio_verbosity;
+extern unsigned int tzdev_iwservice_verbosity;
+extern unsigned int tzdev_hotplug_verbosity;
+extern unsigned int tzdev_boost_verbosity;
+extern unsigned int tzdev_panic_dump_verbosity;
+extern unsigned int tzdev_scma_verbosity;
 extern unsigned int tzdev_teec_verbosity;
 extern unsigned int tzdev_kthread_verbosity;
+extern unsigned int tzdev_iwsock_verbosity;
 extern unsigned int tzdev_uiwsock_verbosity;
+extern unsigned int tzdev_deploy_tzar_verbosity;
+extern unsigned int tzdev_mem_verbosity;
+extern unsigned int tzdev_profiler_verbosity;
+extern unsigned int tzdev_nwfs_verbosity;
+extern unsigned int tzdev_pmf_verbosity;
 
 enum {
 	TZDEV_LOG_LEVEL_ERROR,
@@ -39,26 +55,16 @@ static inline const char *tz_print_prefix(unsigned int lvl)
 	}
 }
 
-#define tz_print(lvl, param, fmt, ...)						\
-	do {									\
-		if (lvl <= param)						\
-			printk("TZDEV> %s %s(%d): "fmt,				\
-					tz_print_prefix(lvl),			\
-					__func__, __LINE__, ##__VA_ARGS__);	\
+#define tz_print(lvl, param, fmt, ...)							\
+	do {										\
+		if (lvl <= param)							\
+			printk("TZDEV %s %s(%d): "fmt,					\
+					tz_print_prefix(lvl),				\
+					__func__, __LINE__, ##__VA_ARGS__);		\
 	} while (0)
 
-#define tzdev_print(lvl, fmt, ...)	tz_print(lvl, tzdev_verbosity, fmt,  ##__VA_ARGS__)
-
-#define tzdev_teec_debug(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_DEBUG, tzdev_teec_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_teec_info(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_INFO, tzdev_teec_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_teec_error(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_ERROR, tzdev_teec_verbosity, fmt, ##__VA_ARGS__)
-
-#define tzdev_kthread_debug(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_DEBUG, tzdev_kthread_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_kthread_info(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_INFO, tzdev_kthread_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_kthread_error(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_ERROR, tzdev_kthread_verbosity, fmt, ##__VA_ARGS__)
-
-#define tzdev_uiwsock_debug(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_DEBUG, tzdev_uiwsock_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_uiwsock_info(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_INFO, tzdev_uiwsock_verbosity, fmt, ##__VA_ARGS__)
-#define tzdev_uiwsock_error(fmt, ...)	tz_print(TZDEV_LOG_LEVEL_ERROR, tzdev_uiwsock_verbosity, fmt, ##__VA_ARGS__)
+#define log_debug(module, fmt, ...)	tz_print(TZDEV_LOG_LEVEL_DEBUG, module##_verbosity, fmt, ##__VA_ARGS__)
+#define log_info(module, fmt, ...)	tz_print(TZDEV_LOG_LEVEL_INFO, module##_verbosity, fmt, ##__VA_ARGS__)
+#define log_error(module, fmt, ...)	tz_print(TZDEV_LOG_LEVEL_ERROR, module##_verbosity, fmt, ##__VA_ARGS__)
 
 #endif /* __TZLOG_H__ */

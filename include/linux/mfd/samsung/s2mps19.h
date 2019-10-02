@@ -100,13 +100,9 @@ struct s2mps19_platform_data {
 	int	buck_ramp_delay;
 
 	int				smpl_warn;
-	bool				smpl_warn_en;
-	bool				smpl_warn_dev2;
-#ifdef CONFIG_SEC_PM
-	bool				smpl_warn_en_by_evt;
-#endif
-	unsigned int                    smpl_warn_vth;
-	unsigned int                    smpl_warn_hys;
+	bool			smpl_warn_en;
+	unsigned int    smpl_warn_vth;
+	unsigned int    smpl_warn_hys;
 	bool			ocp_warn1_en;
 	bool			ocp_warn2_en;
 	int				ocp_warn1_cnt;
@@ -115,7 +111,7 @@ struct s2mps19_platform_data {
 	bool			ocp_warn2_dvs_mask;
 	int				ocp_warn1_lv;
 	int				ocp_warn2_lv;
-	bool			support_vdd_pll_1p7;
+
 	/* adc_mode
 	 * 0 : not use
 	 * 1 : current meter

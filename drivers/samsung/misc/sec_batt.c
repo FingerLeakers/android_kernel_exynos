@@ -46,13 +46,10 @@ static int __init charging_mode(char *str)
 	 */
 	if (get_option(&str, &mode)) {
 		charging_night_mode = mode & 0x000000FF;
-
-		printk(KERN_ERR "charging_night_mode : 0x%x(%d)\n", charging_night_mode, charging_night_mode);
+		printk(KERN_ERR "charging_mode() : 0x%x(%d)\n", charging_night_mode, charging_night_mode);
 
 		temp_control_test = (mode & 0x00FF0000) >> 16;
-
 		printk(KERN_ERR "temp_control_test : 0x%x(%d)\n", temp_control_test, temp_control_test);
-
 		return 0;
 	}
 
@@ -72,6 +69,7 @@ static int sec_bat_get_fg_reset(char *val)
 	return 1;
 }
 __setup("fg_reset=", sec_bat_get_fg_reset);
+#endif
 
 #if defined(CONFIG_WIRELESS_IC_PARAM)
 unsigned long wireless_offset;
@@ -126,5 +124,4 @@ static int sec_bat_get_factory_mode(char *val)
 	return 1;
 }
 __setup("factory_mode=", sec_bat_get_factory_mode);
-#endif
 #endif
