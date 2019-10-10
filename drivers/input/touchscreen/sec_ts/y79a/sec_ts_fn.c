@@ -55,6 +55,7 @@ static void run_rawdata_read_all(void *device_data);
 static void run_force_calibration(void *device_data);
 static void get_force_calibration(void *device_data);
 static void run_miscalibration(void *device_data);
+static void run_factory_miscalibration(void *device_data);
 static void get_gap_data_all(void *device_data);
 static void get_gap_data_x_all(void *device_data);
 static void get_gap_data_y_all(void *device_data);
@@ -160,6 +161,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("run_force_calibration", run_force_calibration),},
 	{SEC_CMD("get_force_calibration", get_force_calibration),},
 	{SEC_CMD("run_miscalibration", run_miscalibration),},
+	{SEC_CMD("run_factory_miscalibration", run_factory_miscalibration),},
 	{SEC_CMD("get_gap_data_all", get_gap_data_all),},
 	{SEC_CMD("get_gap_data_x_all", get_gap_data_x_all),},
 	{SEC_CMD("get_gap_data_y_all", get_gap_data_y_all),},
@@ -1637,6 +1639,7 @@ static int execute_p2ptest(struct sec_ts_data *ts)
 				ts->cm_raw_key_p2p_diff = (tBuff[7] & 0xC0) << 2 | (tBuff[6] & 0xFF);
 			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_RX_NODE_GAP_TEST_DONE) {
 				ts->cm_raw_set_p2p_gap_y = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
+				ts->cm_raw_set_p2p_gap_y_result = (tBuff[4] & 0x01);
 			}
 		}
 
@@ -5326,6 +5329,74 @@ err:
 	input_info(true, &ts->client->dev, "%s: %s\n", __func__, buff);
 }
 
+static void run_factory_miscalibration(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+
+	int ret = 0;
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	char para = TO_TOUCH_MODE;
+
+	sec_cmd_set_default_result(sec);
+
+	if (ts->power_status == SEC_TS_STATE_POWER_OFF) {
+		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n",
+				__func__);
+		goto error_power_state;
+	}
+
+	input_info(true, &ts->client->dev, "%s: start\n", __func__);
+
+	disable_irq(ts->client->irq);
+	ret = sec_ts_p2p_tmode(ts);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: failed to fix p2p tmode\n",
+				__func__);
+		goto error_tmode_fail;
+	}
+
+	ret = execute_p2ptest(ts);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: failed to fix p2p test\n",
+				__func__);
+		goto error_test_fail;
+	}
+
+	if (ts->cm_raw_set_p2p_gap_y_result)
+		snprintf(buff, sizeof(buff), "NG,0,%d", ts->cm_raw_set_p2p_gap_y);
+	else
+		snprintf(buff, sizeof(buff), "OK,0,%d", ts->cm_raw_set_p2p_gap_y);
+
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+
+	sec_ts_locked_release_all_finger(ts);
+
+	sec_ts_delay(30);
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "%s: set rawdata type failed!\n", __func__);
+
+	enable_irq(ts->client->irq);
+
+	return;
+
+error_test_fail:
+	sec_ts_locked_release_all_finger(ts);
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_POWER_MODE, &para, 1);
+	if (ret < 0)
+		input_err(true, &ts->client->dev, "%s: set rawdata type failed!\n", __func__);
+
+error_tmode_fail:
+	enable_irq(ts->client->irq);
+error_power_state:
+	snprintf(buff, sizeof(buff), "NG");
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	return;
+}
 static void factory_cmd_result_all(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;

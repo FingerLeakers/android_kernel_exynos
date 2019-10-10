@@ -125,6 +125,23 @@
 				sbi_ap2cp_kerneltime_usec_mask = <0xfffff>;
 				sbi_ap2cp_kerneltime_usec_pos = <0>;
 
+				/* Packet processor */
+				pktproc_support = <1>;
+				pktproc_version = <2>;
+
+				pktproc_cp_base = <0x20800000>;
+				pktproc_info_rgn_offset = <0x00000000>;
+				pktproc_info_rgn_size = <0x00000100>;
+				pktproc_desc_rgn_offset = <0x00000100>;
+				pktproc_desc_rgn_size = <0x000FFF00>;
+				pktproc_data_rgn_offset = <0x00100000>;
+				/* Size of data region is defined by reserved mem size */
+
+				pktproc_desc_mode = <1>;	/* Descriptor structure mode. 0:ringbuf mode, 1:sktbuf mode */
+				pktproc_num_queue = <1>;
+				pktproc_use_exclusive_irq = <0>;
+				pktproc_use_hw_iocc = <0>;	/* H/W IO cache coherency */
+
 				/* IO devices */
 				mif,num_iodevs = <22>;
 				iodevs {
@@ -412,6 +429,14 @@
 						region,rmem = <1>;
 						region,offset = <0x00000000>;
 						region,size = <0x00001000>;
+						region,cached = <0>;
+					};
+					pktproc {
+						region,name = "PKTPROC";
+						region,index = <SHMEM_PKTPROC>;
+						region,rmem = <2>;
+						region,offset = <0x00000000>;
+						region,size = <0x08000000>;
 						region,cached = <0>;
 					};
 				};

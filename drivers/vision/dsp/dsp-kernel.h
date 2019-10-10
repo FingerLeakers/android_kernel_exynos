@@ -48,8 +48,9 @@ void dsp_kernel_free(struct dsp_kernel *kernel);
 
 int dsp_kernel_load(struct dsp_kernel_manager *kmgr,
 		struct dsp_dl_lib_info *dl_libs, unsigned int kernel_count);
-int dsp_kernel_unload(struct dsp_kernel_manager *kmsg,
+int dsp_kernel_unload(struct dsp_kernel_manager *kmgr,
 		struct dsp_dl_lib_info *dl_libs, unsigned int kernel_count);
+void dsp_kernel_dump(struct dsp_kernel_manager *kmgr);
 
 int dsp_kernel_manager_open(struct dsp_kernel_manager *kmgr);
 void dsp_kernel_manager_close(struct dsp_kernel_manager *kmgr);

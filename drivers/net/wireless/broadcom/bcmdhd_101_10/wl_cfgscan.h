@@ -39,7 +39,7 @@
 #else
 #define GET_SCAN_WDEV(scan_request) \
 	scan_request ? scan_request->wdev : NULL;
-#endif // endif
+#endif
 #ifdef WL_SCHED_SCAN
 #define GET_SCHED_SCAN_WDEV(scan_request) \
 	(scan_request && scan_request->dev) ? scan_request->dev->ieee80211_ptr : NULL;

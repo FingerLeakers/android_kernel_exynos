@@ -70,10 +70,10 @@
 
 				battery,battery_full_capacity = <4500>;
 
-				battery,dc_step_chg_cond_vol = <4120 4210 4380>; /*<25w 3step> STEP_CHARGING_CONDITION_VOLTAGE */ 
+				battery,dc_step_chg_cond_vol = <4120 4215 4380>; /*<25w 3step> STEP_CHARGING_CONDITION_VOLTAGE */ 
 				battery,dc_step_chg_cond_iin = <2030 1635 0>; /* <25w 3step> STEP_CHARGING_CONDITION_INPUT_CURRENT */
-				battery,dc_step_chg_val_vfloat = <4120 4210 4380>; /* <25w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
-				battery,dc_step_chg_val_iout = <5280 4060 3250>; /* <25w 3step> */
+				battery,dc_step_chg_val_vfloat = <4120 4250 4380>; /* <25w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
+				battery,dc_step_chg_val_iout = <5000 4060 3650>; /* <25w 3step> */
 				battery,dc_step_chg_cond_soc = <20 50 100>; /* <25w 3step> STEP_CHARGING_CONDITION_SOC */
 			};
 

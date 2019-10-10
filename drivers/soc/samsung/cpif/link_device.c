@@ -485,18 +485,18 @@ static void cmd_init_start_handler(struct mem_link_device *mld)
 		ld->name, mc->name, mc->name, mc_state(mc),
 		atomic_read(&mld->cp_boot_done));
 
-	if (!ld->sbd_ipc) {
-		mif_err("%s: LINK_ATTR_SBD_IPC is NOT set\n", ld->name);
-		return;
-	}
-
 #if defined(CONFIG_CP_PKTPROC) || defined(CONFIG_CP_PKTPROC_V2)
 	err = pktproc_init(&mld->pktproc);
 	if (err < 0) {
-		mif_err("pktproc.init() error %d\n", err);
+		mif_err("pktproc_init() error %d\n", err);
 		return;
 	}
 #endif
+
+	if (!ld->sbd_ipc) {
+		mif_err("%s: LINK_ATTR_SBD_IPC is NOT set\n", ld->name);
+		goto init_exit;
+	}
 
 	err = init_sbd_link(&mld->sbd_link_dev);
 	if (err < 0) {
@@ -510,6 +510,8 @@ static void cmd_init_start_handler(struct mem_link_device *mld)
 		ld->aligned = false;
 
 	sbd_activate(&mld->sbd_link_dev);
+
+init_exit:
 	send_ipc_irq(mld, cmd2int(CMD_PIF_INIT_DONE));
 
 	mif_err("%s: PIF_INIT_DONE -> %s\n", ld->name, mc->name);
@@ -1756,8 +1758,12 @@ static int legacy_ipc_rx_func_napi(struct mem_link_device *mld, struct legacy_ip
 		 * in pass_skb_to_demux().
 		 */
 		rcvd += skb->len;
-		*work_done += 1;
-		budget--;
+
+		if (ld->is_ps_ch(ch)) {
+			budget--;
+			*work_done += 1;
+		}
+
 		pass_skb_to_demux(mld, skb);
 	}
 
@@ -2162,8 +2168,7 @@ unsigned long shmem_calculate_CRC32(const unsigned char *buf, unsigned long len)
 		return 0L;
 
 	ul_crc = CRC32_XINIT;
-	while (len--)
-	{
+	while (len--) {
 		ul_crc = CRC32_TABLE[(ul_crc ^ *buf++) & 0xFF] ^ (ul_crc >> 8);
 	}
 
@@ -2371,15 +2376,15 @@ static int sbd_link_rx_func_napi(struct sbd_link_device *sl, struct link_device 
 		int ps_rcvd = 0;
 		if (unlikely(rb_empty(rb)))
 			continue;
-		if (budget <= 0)
-			break;
-		if (i < sl->ps_channel_start)
+		if ((budget <= 0) && ld->is_ps_ch(sbd_id2ch(sl, i)))
+			continue;
+		if (!ld->is_ps_ch(sbd_id2ch(sl, i)))
 			ret = rx_ipc_frames_from_rb(rb);
 		else /* ps channels */
 			ret = sbd_ipc_rx_func_napi(ld, rb->iod, budget, &ps_rcvd);
 		if ((ret == -EBUSY) || (ret == -ENOMEM))
 			break;
-		if (i >= sl->ps_channel_start) {
+		if (ld->is_ps_ch(sbd_id2ch(sl, i))) {
 			/* count budget only for ps frames */
 			budget -= ps_rcvd;
 			*work_done += ps_rcvd;
@@ -3106,7 +3111,7 @@ static int shmem_register_pcie(struct link_device *ld)
 {
 	struct modem_ctl *mc = ld->mc;
 	struct platform_device *pdev = to_platform_device(mc->dev);
-	static int is_registered = 0;
+	static int is_registered;
 	struct mem_link_device *mld = to_mem_link_device(ld);
 
 	mif_err("CP EP driver initialization start.\n");

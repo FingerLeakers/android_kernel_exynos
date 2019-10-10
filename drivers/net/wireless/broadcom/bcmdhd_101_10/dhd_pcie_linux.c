@@ -77,7 +77,7 @@
 #include <linux/platform_device.h>
 #endif /* USE_SMMU_ARCH_MSM */
 
-#define PCI_CFG_RETRY 		10
+#define PCI_CFG_RETRY 		10	/* PR15065: retry count for pci cfg accesses */
 #define OS_HANDLE_MAGIC		0x1234abcd	/* Magic # to recognize osh */
 #define BCM_MEM_FILENAME_LEN 	24		/* Mem. filename length */
 
@@ -229,9 +229,6 @@ static struct pci_driver dhdpcie_driver = {
 	id_table:	dhdpcie_pci_devid,
 	probe:		dhdpcie_pci_probe,
 	remove:		dhdpcie_pci_remove,
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
-	save_state:	NULL,
-#endif // endif
 #if defined(DHD_PCIE_RUNTIMEPM) || defined(DHD_PCIE_NATIVE_RUNTIMEPM)
 	.driver.pm = &dhd_pcie_pm_ops,
 #else
@@ -1006,9 +1003,7 @@ static int dhdpcie_suspend_dev(struct pci_dev *dev)
 	pch->state = pci_store_saved_state(dev);
 #endif /* OEM_ANDROID && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
 	pci_enable_wake(dev, PCI_D0, TRUE);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 31))
 	if (pci_is_enabled(dev))
-#endif // endif
 		pci_disable_device(dev);
 
 	ret = pci_set_power_state(dev, PCI_D3hot);
@@ -1112,6 +1107,11 @@ static int dhdpcie_suspend_host_dev(dhd_bus_t *bus)
 {
 	int bcmerror = 0;
 #ifdef USE_EXYNOS_PCIE_RC_PMPATCH
+	/*
+	 * XXX : SWWLAN-82173, SWWLAN-82183 WAR for SS PCIe RC
+	 * SS PCIe RC/EP is 1 to 1 mapping using different channel
+	 * RC0 - LTE, RC1 - WiFi RC0-1 is working independently
+	 */
 	if (bus->rc_dev) {
 		pci_save_state(bus->rc_dev);
 	} else {
@@ -1274,7 +1274,7 @@ int dhdpcie_pci_suspend_resume(dhd_bus_t *bus, bool state)
 		dhdpcie_config_save_restore_coherent(bus, state);
 #if !defined(BCMPCIE_OOB_HOST_WAKE)
 		dhdpcie_pme_active(bus->osh, state);
-#endif // endif
+#endif
 		rc = dhdpcie_suspend_dev(dev);
 		if (!rc) {
 			dhdpcie_suspend_host_dev(bus);
@@ -1294,10 +1294,9 @@ int dhdpcie_pci_suspend_resume(dhd_bus_t *bus, bool state)
 			}
 #if !defined(BCMPCIE_OOB_HOST_WAKE)
 			dhdpcie_pme_active(bus->osh, state);
-#endif // endif
+#endif
 		}
 		dhdpcie_config_save_restore_coherent(bus, state);
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 #if defined(DHD_HANG_SEND_UP_TEST)
 		if (bus->is_linkdown ||
 			bus->dhd->req_hang_type == HANG_REASON_PCIE_RC_LINK_UP_FAIL) {
@@ -1307,12 +1306,10 @@ int dhdpcie_pci_suspend_resume(dhd_bus_t *bus, bool state)
 			bus->dhd->hang_reason = HANG_REASON_PCIE_RC_LINK_UP_FAIL;
 			dhd_os_send_hang_message(bus->dhd);
 		}
-#endif // endif
 	}
 	return rc;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 0))
 static int dhdpcie_device_scan(struct device *dev, void *data)
 {
 	struct pci_dev *pcidev;
@@ -1333,19 +1330,12 @@ static int dhdpcie_device_scan(struct device *dev, void *data)
 
 	return 0;
 }
-#endif /* LINUX_VERSION >= 2.6.0 */
 
 int
 dhdpcie_bus_register(void)
 {
 	int error = 0;
 
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
-	if (!(error = pci_module_init(&dhdpcie_driver)))
-		return 0;
-
-	DHD_ERROR(("%s: pci_module_init failed 0x%x\n", __FUNCTION__, error));
-#else
 	if (!(error = pci_register_driver(&dhdpcie_driver))) {
 		bus_for_each_dev(dhdpcie_driver.driver.bus, NULL, &error, dhdpcie_device_scan);
 		if (!error) {
@@ -1359,7 +1349,6 @@ dhdpcie_bus_register(void)
 		pci_unregister_driver(&dhdpcie_driver);
 		error = BCME_ERROR;
 	}
-#endif /* LINUX_VERSION < 2.6.0 */
 
 	return error;
 }
@@ -1467,9 +1456,8 @@ dhdpcie_pci_remove(struct pci_dev *pdev)
 
 		dhdpcie_bus_release(bus);
 	}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 31))
+
 	if (pci_is_enabled(pdev))
-#endif // endif
 		pci_disable_device(pdev);
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	/* pcie os info detach */
@@ -1502,7 +1490,7 @@ dhdpcie_enable_msi(struct pci_dev *pdev, unsigned int min_vecs, unsigned int max
 	return pci_enable_msi_range(pdev, min_vecs, max_vecs);
 #else
 	return pci_enable_msi_block(pdev, max_vecs);
-#endif // endif
+#endif
 }
 
 /* Disable Linux Msi */
@@ -1515,7 +1503,7 @@ dhdpcie_disable_msi(struct pci_dev *pdev)
 	pci_disable_msi(pdev);
 #else
 	pci_disable_msi(pdev);
-#endif // endif
+#endif
 	return;
 }
 
@@ -1588,7 +1576,7 @@ dhdpcie_get_pcieirq(struct dhd_bus *bus, unsigned int *irq)
 #define PRINTF_RESOURCE	"0x%016llx"
 #else
 #define PRINTF_RESOURCE	"0x%08x"
-#endif // endif
+#endif
 
 #ifdef EXYNOS_PCIE_MODULE_PATCH
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
@@ -2147,14 +2135,9 @@ dhdpcie_enable_irq(dhd_bus_t *bus)
 int
 dhdpcie_irq_disabled(dhd_bus_t *bus)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28))
 	struct irq_desc *desc = irq_to_desc(bus->dev->irq);
 	/* depth will be zero, if enabled */
 	return desc->depth;
-#else
-	/* return ERROR by default as there is no support for lower versions */
-	return BCME_ERROR;
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
 }
 
 int
@@ -2257,9 +2240,7 @@ dhdpcie_disable_device(dhd_bus_t *bus)
 		return BCME_ERROR;
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 31))
 	if (pci_is_enabled(bus->dev))
-#endif // endif
 		pci_disable_device(bus->dev);
 
 	return 0;
@@ -2688,6 +2669,11 @@ int dhdpcie_oob_intr_register(dhd_bus_t *bus)
 		 * ENXIO (No such device or address). This is because the callback function
 		 * irq_set_wake() is not registered in kernel, hence returning BCME_OK.
 		 */
+#ifdef BOARD_HIKEY
+		DHD_ERROR(("%s: continue eventhough enable_irq_wake failed: %d\n",
+				__FUNCTION__, err));
+		err = BCME_OK;
+#endif /* BOARD_HIKEY */
 		}
 		dhdpcie_osinfo->oob_irq_enabled = TRUE;
 	}

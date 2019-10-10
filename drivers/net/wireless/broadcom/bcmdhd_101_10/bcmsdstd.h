@@ -101,7 +101,7 @@ typedef struct glom_buf {
 	dmaaddr_t dma_phys_arr[SDIOH_MAXGLOM_SIZE]; /* DMA_MAPed address of frames */
 	uint16 nbytes[SDIOH_MAXGLOM_SIZE];	/* Size of each frame */
 } glom_buf_t;
-#endif // endif
+#endif
 
 struct sdioh_info {
 	uint cfg_bar;				/* pci cfg address for bar */
@@ -177,7 +177,7 @@ struct sdioh_info {
 #ifdef BCMSDIOH_TXGLOM
 	glom_buf_t glom_info;		/* pkt information used for glomming */
 	uint	txglom_mode;		/* Txglom mode: 0 - copy, 1 - multi-descriptor */
-#endif // endif
+#endif
 };
 
 #define DMA_MODE_NONE	0
@@ -204,7 +204,7 @@ struct sdioh_info {
 #ifdef DHD_DEBUG
 #define SD_DHD_DISABLE_PERIODIC_TUNING 0x01
 #define SD_DHD_ENABLE_PERIODIC_TUNING  0x00
-#endif // endif
+#endif
 
 /************************************************************
  * Internal interfaces: per-port references into bcmsdstd.c

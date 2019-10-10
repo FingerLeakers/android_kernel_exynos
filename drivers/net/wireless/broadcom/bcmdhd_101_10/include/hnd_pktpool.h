@@ -30,14 +30,14 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif // endif
+#endif
 
 /* mutex macros for thread safe */
 #ifdef HND_PKTPOOL_THREAD_SAFE
 #define HND_PKTPOOL_MUTEX_DECL(mutex)		OSL_EXT_MUTEX_DECL(mutex)
 #else
 #define HND_PKTPOOL_MUTEX_DECL(mutex)
-#endif // endif
+#endif
 
 #ifdef BCMPKTPOOL
 #define POOL_ENAB(pool)		((pool) && (pool)->inited)
@@ -140,7 +140,7 @@ typedef struct pktpool {
 	pktpool_cbinfo_t dbg_cbs[PKTPOOL_CB_MAX];
 	uint16 dbg_qlen;
 	pktpool_dbg_t dbg_q[PKTPOOL_LEN_MAX + 1];
-#endif // endif
+#endif
 } pktpool_t;
 
 pktpool_t *get_pktpools_registry(int id);
@@ -232,7 +232,7 @@ extern pktpool_t *pktpool_shared;
 #ifdef BCMFRAGPOOL
 #define SHARED_FRAG_POOL	(pktpool_shared_lfrag)
 extern pktpool_t *pktpool_shared_lfrag;
-#endif // endif
+#endif
 
 #ifdef BCMRESVFRAGPOOL
 #define RESV_FRAG_POOL		(pktpool_resv_lfrag)
@@ -280,6 +280,6 @@ extern uint16 hnd_pktpool_get_min_bkup_buf(pktpool_t *pktp);
 
 #ifdef __cplusplus
 	}
-#endif // endif
+#endif
 
 #endif /* _hnd_pktpool_h_ */

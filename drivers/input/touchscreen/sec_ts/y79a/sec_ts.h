@@ -320,6 +320,7 @@
 #define SEC_TS_VENDOR_ACK_LOWPOWER_SELF_TEST_DONE	0x58
 #define SEC_TS_VENDOR_STATE_CHANGED			0x61
 #define SEC_TS_VENDOR_ACK_NOISE_STATUS_NOTI		0x64
+#define SEC_TS_VENDOR_ACK_CHARGER_STATUS_NOTI		0x6E
 
 /* SEC_TS_ERROR : Error event */
 #define SEC_TS_ERR_EVNET_CORE_ERR	0x0
@@ -864,6 +865,7 @@ struct sec_ts_data {
 	short cm_raw_key_p2p_diff;
 	short cm_raw_key_p2p_diff_data[2][3];	/* key : max support key is 3 */
 	short cm_raw_set_p2p_gap_y;
+	short cm_raw_set_p2p_gap_y_result;	/* mis_cal pass/fail */
 
 	u32	defect_probability;
 #ifdef MINORITY_REPORT

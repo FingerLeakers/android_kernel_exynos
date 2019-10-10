@@ -255,7 +255,7 @@ static int mcd_config_wcg(struct mcd_hdr_device *hdr, struct wcg_config *config)
 
 	params.dst_gamma = __colorspace_to_gamma_wcg(config->color_mode);
 	params.dst_gamut = __colorspace_to_gamut(config->color_mode);
-    
+
 	mcd_cm_reg_set_params(hdr, &params);
 
 	return ret;
@@ -294,7 +294,7 @@ static int mcd_config_hdr(struct mcd_hdr_device *hdr, struct hdr10_config *confi
 #ifdef HDR_DEBUG
 	hdr_info("** MCD Dynamic Meta Data After **\n");
 	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
-		hdr->regs + DPP_MCD_CM_DM_ADDR(0), sizeof(unsigned int) * 41, false);
+		hdr->regs + DPP_MCD_CM_TM_DYNAMIC_ADDR(0), sizeof(unsigned int) * 41, false);
 #endif
 
 	return 0;

@@ -267,6 +267,7 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 vc, struct is_frame_cfg *cfg,
 
 	switch (hwformat) {
 	case HW_FORMAT_RAW8:
+	case HW_FORMAT_RAW10_SDC:
 		if (dma_pack == CSIS_REG_DMA_PACK)
 			dma_format = CSIS_DMA_FMT_U8BIT_PACK;
 		else
@@ -318,8 +319,6 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 vc, struct is_frame_cfg *cfg,
 	val = is_hw_get_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_RESOL]);
 	val = is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_HRESOL], cfg->width);
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_RESOL], val);
-
-	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ], 0);
 
 p_err:
 	return ret;
@@ -449,6 +448,12 @@ int csi_hw_g_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear
 	return 0;
 }
 
+void csi_hw_dma_reset(u32 __iomem *base_reg)
+{
+	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], 0);
+	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ], 0);
+}
+
 void csi_hw_s_frameptr(u32 __iomem *base_reg, u32 vc, u32 number, bool clear)
 {
 	u32 frame_ptr = 0;
@@ -521,20 +526,6 @@ bool csi_hw_g_output_cur_dma_enable(u32 __iomem *base_reg, u32 vc)
 	bool dma_enable = is_hw_get_field_value(val, &csi_vcdma_fields[CSIS_F_ACTIVE_DMA_N_ENABLE]);
 
 	return dma_enable;
-}
-
-void csi_hw_set_start_addr(u32 __iomem *base_reg, u32 number, u32 addr)
-{
-	u32 __iomem *target_reg;
-
-	if (number == 0) {
-		target_reg = base_reg + TO_WORD_OFFSET(0x30);
-	} else {
-		number--;
-		target_reg = base_reg + TO_WORD_OFFSET(0x200 + (0x4*number));
-	}
-
-	writel(addr, target_reg);
 }
 
 int csi_hw_dma_common_reset(void)

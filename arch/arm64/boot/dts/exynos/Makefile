@@ -28,7 +28,8 @@ dtb-$(CONFIG_SOC_EXYNOS9830) += \
 	exynos9830-smdk9830_r02.dtbo \
 	exynos9830-universal9830_r04.dtbo \
 	exynos9830-universal9830_r05.dtbo \
-	exynos9830-universal9830_r06.dtbo
+	exynos9830-universal9830_r06.dtbo \
+	exynos9830-universal9830_r10.dtbo
 endif
 
 # always	:= $(dtb-y) $(dtbo-y)

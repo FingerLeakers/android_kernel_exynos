@@ -13,7 +13,7 @@
 #include <dt-bindings/clock/exynos9830.h>
 
 #include "camera/module_2ld.dtsi"
-#include "camera/module_3j1_cphy.dtsi"
+#include "camera/module_gh1.dtsi"
 #include "camera/module_2l3.dtsi"
 #include "camera/module_imx516.dtsi"
 #include "camera/module_imx586.dtsi"
@@ -317,7 +317,7 @@
 			};
 
 			/* FRONT CAMERA */
-			is_sensor_3j1: is_sensor_3j1@10 {
+			is_sensor_gh1: is_sensor_gh1@10 {
 				pinctrl-names = "pin0", "pin1", "pin2", "release";
 				pinctrl-0 = <>;
 				pinctrl-1 = <&sensor_mclk2_out>;
@@ -576,12 +576,12 @@
 		rev_reg = <0x0002 2 0xA301>;
 	};
 
-	is-3j1@10 {
-		compatible = "samsung,exynos-is-cis-3j1";
+	is-gh1@10 {
+		compatible = "samsung,exynos-is-cis-gh1";
 		reg = <0x10>; /* 1 bit right shift */
 		id = <1>; /* matching is_sensor id */
-		setfile = "setB";
-		rev_reg = <0x0002 2 0xA101>;
+		setfile = "setA";
+		rev_reg = <0x0002 2 0xA000>;
 	};
 };
 
@@ -630,45 +630,6 @@
 
 	front_eeprom@51 {
 		compatible = "samsung,front-eeprom-i2c";
-		reg = <0x51>;
-		rom_power_position = <1>;
-		rom_size = <0x4000>;
-		cal_map_es_version = <4>;
-		camera_module_es_version = "A";
-		/*skip_cal_loading;*/
-		/* Beyond_Front_Cal_Map_V004_20180801_for_LSI */
-		/* 0 header */
-		header_crc_check_list = <0x0000 0x015F 0x01FC>;
-		/* 0 master */
-		crc_check_list = <0x0200 0x34DF 0x34FC>;
-		/* 0 dual */
-		dual_crc_check_list = <0x3500 0x39DF 0x39FC>;
-		/* Master */
-		rom_header_version_start_addr = <0x30>;
-		rom_header_cal_data_start_addr = <0x200>;
-		rom_header_cal_map_ver_start_addr = <0x50>;
-		/* rom_header_isp_setfile_ver_start_addr = <>; */
-		rom_header_project_name_start_addr = <0x5C>;
-		rom_header_module_id_addr = <0xAE>; /* 0xA8 + reserved bytes */
-		rom_header_sensor_id_addr = <0x70>;
-		rom_header_mtf_data_addr = <0xE0>;
-		rom_awb_master_addr = <0x1A40>;
-		rom_awb_module_addr = <0x1A4C>;
-		rom_af_cal_macro_addr = <0x1A20>;
-		rom_af_cal_pan_addr = <0x1A14>;
-		/* Slave 0 */
-		rom_header_sensor2_version_start_addr = <0x40>;
-		rom_header_sensor2_id_addr = <0x80>;
-		rom_header_sensor2_mtf_data_addr = <0x116>;
-		/* rom_sensor2_awb_master_addr = <0x0>;*/ /* use default awb cal */
-		/* rom_sensor2_awb_module_addr = <0x0>;*/ /* use default awb cal */
-		/* Dual cal slave 0 - Front sub */
-		rom_dualcal_slave0_start_addr = <0x3500>;
-		rom_dualcal_slave0_size = <0x400>; /* 1024 */
-		/* x y z sx sy */
-		/* range max_err avg_err dll_version*/
-		rom_dualcal_slave0_tilt_list = <0x3560 0x3564 0x3568 0x35C0 0x35C4
-						0x38E4 0x38E8 0x38EC 0x3500>;
 	};
 
 	rear-tof-eeprom@53 {
@@ -799,6 +760,7 @@
 		0 1 2 3>;
 	flite_ch = <FLITE_ID_NOTHING>;
 	is_bns = <0>;
+	use_ssvc3_internal;
 	status = "okay";
 	use_cphy = <1>;
 
@@ -1066,7 +1028,7 @@
 	non_secure_mem_info = <0x98800000 0x1B800000>;
 	vender {
 		rear_sensor_id = <52>;	/* 2LD */
-		front_sensor_id = <38>; /* 3J1 */
+		front_sensor_id = <55>; /* GH1 */
 		rear2_sensor_id = <117>;	/* IMX586 */
 		rear3_sensor_id = <36>; /* 2L3 */
 		rear_tof_sensor_id = <119>; /* IMX516 */
@@ -1237,7 +1199,7 @@
 		#define DVFS_MIF_L11 421000
 
 		table0 {
-			desc = "dvfs table v0.2.3 v0.7 for 12M/16M";
+			desc = "dvfs table v0.2.3 v0.8 for 12M/16M";
 
 			default_int_cam = <DVFS_INT_CAM_L3>;
 			default_tnr = <DVFS_TNR_L3>;
@@ -1276,63 +1238,63 @@
 
 			front_preview_int_cam = <DVFS_INT_CAM_L5>;
 			front_preview_tnr = <DVFS_TNR_L5>;
-			front_preview_cam = <DVFS_CAM_L4>;
+			front_preview_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_preview_mif = <DVFS_MIF_L1>;
 			front_preview_int = <DVFS_INT_L3>;
 			front_preview_hpg = <1>;
 
 			front_preview_full_int_cam = <DVFS_INT_CAM_L5>;
 			front_preview_full_tnr = <DVFS_TNR_L5>;
-			front_preview_full_cam = <DVFS_CAM_L4>;
+			front_preview_full_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_preview_full_mif = <DVFS_MIF_L1>;
 			front_preview_full_int = <DVFS_INT_L3>;
 			front_preview_full_hpg = <1>;
 
 			front_capture_int_cam = <DVFS_INT_CAM_L3>;
 			front_capture_tnr = <DVFS_TNR_L3>;
-			front_capture_cam = <DVFS_CAM_L4>;
+			front_capture_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_capture_mif = <DVFS_MIF_L1>;
 			front_capture_int = <DVFS_INT_L3>;
 			front_capture_hpg = <1>;
 
 			front_video_int_cam = <DVFS_INT_CAM_L5>;
 			front_video_tnr = <DVFS_TNR_L5>;
-			front_video_cam = <DVFS_CAM_L4>;
+			front_video_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_mif = <DVFS_MIF_L1>;
 			front_video_int = <DVFS_INT_L3>;
 			front_video_hpg = <1>;
 
 			front_video_whd_int_cam = <DVFS_INT_CAM_L5>;
 			front_video_whd_tnr = <DVFS_TNR_L5>;
-			front_video_whd_cam = <DVFS_CAM_L4>;
+			front_video_whd_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_whd_mif = <DVFS_MIF_L1>;
 			front_video_whd_int = <DVFS_INT_L3>;
 			front_video_whd_hpg = <1>;
 
 			front_video_uhd_int_cam = <DVFS_INT_CAM_L5>;
 			front_video_uhd_tnr = <DVFS_TNR_L5>;
-			front_video_uhd_cam = <DVFS_CAM_L4>;
+			front_video_uhd_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_uhd_mif = <DVFS_MIF_L1>;
 			front_video_uhd_int = <DVFS_INT_L3>;
 			front_video_uhd_hpg = <1>;
 
 			front_video_capture_int_cam = <DVFS_INT_CAM_L3>;
 			front_video_capture_tnr = <DVFS_TNR_L3>;
-			front_video_capture_cam = <DVFS_CAM_L4>;
+			front_video_capture_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_capture_mif = <DVFS_MIF_L1>;
 			front_video_capture_int = <DVFS_INT_L3>;
 			front_video_capture_hpg = <1>;
 
 			front_video_whd_capture_int_cam = <DVFS_INT_CAM_L3>;
 			front_video_whd_capture_tnr = <DVFS_TNR_L3>;
-			front_video_whd_capture_cam = <DVFS_CAM_L4>;
+			front_video_whd_capture_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_whd_capture_mif = <DVFS_MIF_L1>;
 			front_video_whd_capture_int = <DVFS_INT_L3>;
 			front_video_whd_capture_hpg = <1>;
 
 			front_video_uhd_capture_int_cam = <DVFS_INT_CAM_L3>;
 			front_video_uhd_capture_tnr = <DVFS_TNR_L3>;
-			front_video_uhd_capture_cam = <DVFS_CAM_L4>;
+			front_video_uhd_capture_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_video_uhd_capture_mif = <DVFS_MIF_L1>;
 			front_video_uhd_capture_int = <DVFS_INT_L3>;
 			front_video_uhd_capture_hpg = <1>;
@@ -1388,7 +1350,7 @@
 
 			front_preview_high_speed_fps_int_cam = <DVFS_INT_CAM_L3>;
 			front_preview_high_speed_fps_tnr = <DVFS_TNR_L3>;
-			front_preview_high_speed_fps_cam = <DVFS_CAM_L4>;
+			front_preview_high_speed_fps_cam = <DVFS_CAM_L3>;	/* TEMP_2020 */
 			front_preview_high_speed_fps_mif = <DVFS_MIF_L3>;
 			front_preview_high_speed_fps_int = <DVFS_INT_L3>;
 			front_preview_high_speed_fps_hpg = <1>;
@@ -1402,21 +1364,21 @@
 
 			rear3_capture_int_cam = <DVFS_INT_CAM_L3>;
 			rear3_capture_tnr = <DVFS_TNR_L3>;
-			rear3_capture_cam = <DVFS_CAM_L2>;
+			rear3_capture_cam = <DVFS_CAM_L2>;		/* OTF */
 			rear3_capture_mif = <DVFS_MIF_L1>;
 			rear3_capture_int = <DVFS_INT_L1>;
 			rear3_capture_hpg = <1>;
 
 			rear3_video_fhd_int_cam = <DVFS_INT_CAM_L5>;
 			rear3_video_fhd_tnr = <DVFS_TNR_L5>;
-			rear3_video_fhd_cam = <DVFS_CAM_L2>;
+			rear3_video_fhd_cam = <DVFS_CAM_L2>;	/* OTF */
 			rear3_video_fhd_mif = <DVFS_MIF_L1>;
 			rear3_video_fhd_int = <DVFS_INT_L1>;
 			rear3_video_fhd_hpg = <1>;
 
 			rear3_video_fhd_capture_int_cam = <DVFS_INT_CAM_L3>;
 			rear3_video_fhd_capture_tnr = <DVFS_TNR_L3>;
-			rear3_video_fhd_capture_cam = <DVFS_CAM_L2>;
+			rear3_video_fhd_capture_cam = <DVFS_CAM_L2>;	/* OTF */
 			rear3_video_fhd_capture_mif = <DVFS_MIF_L1>;
 			rear3_video_fhd_capture_int = <DVFS_INT_L1>;
 			rear3_video_fhd_capture_hpg = <1>;
@@ -1442,12 +1404,26 @@
 			rear2_video_fhd_int = <DVFS_INT_L1>;
 			rear2_video_fhd_hpg = <1>;
 
+			rear2_video_uhd_8k_int_cam = <DVFS_INT_CAM_L2>;
+			rear2_video_uhd_8k_tnr = <DVFS_TNR_L2>;
+			rear2_video_uhd_8k_cam = <DVFS_CAM_L1>;	/* OTF */
+			rear2_video_uhd_8k_mif = <DVFS_MIF_L1>;
+			rear2_video_uhd_8k_int = <DVFS_INT_L1>;
+			rear2_video_uhd_8k_hpg = <1>;
+
 			rear2_video_fhd_capture_int_cam = <DVFS_INT_CAM_L3>;
 			rear2_video_fhd_capture_tnr = <DVFS_TNR_L3>;
 			rear2_video_fhd_capture_cam = <DVFS_CAM_L1>;	/* OTF */
 			rear2_video_fhd_capture_mif = <DVFS_MIF_L1>;
 			rear2_video_fhd_capture_int = <DVFS_INT_L1>;
 			rear2_video_fhd_capture_hpg = <1>;
+
+			rear2_video_uhd_8k_capture_int_cam = <DVFS_INT_CAM_L2>;
+			rear2_video_uhd_8k_capture_tnr = <DVFS_TNR_L2>;
+			rear2_video_uhd_8k_capture_cam = <DVFS_CAM_L1>;	/* OTF */
+			rear2_video_uhd_8k_capture_mif = <DVFS_MIF_L1>;
+			rear2_video_uhd_8k_capture_int = <DVFS_INT_L1>;
+			rear2_video_uhd_8k_capture_hpg = <1>;
 
 			rear_preview_fhd_int_cam = <DVFS_INT_CAM_L5>;
 			rear_preview_fhd_tnr = <DVFS_TNR_L5>;
@@ -1682,7 +1658,7 @@
 
 			video_high_speed_60fps_int_cam = <DVFS_INT_CAM_L5>;
 			video_high_speed_60fps_tnr = <DVFS_TNR_L5>;
-			video_high_speed_60fps_cam = <DVFS_CAM_L2>;
+			video_high_speed_60fps_cam = <DVFS_CAM_L2>;		/* VOTF */
 			video_high_speed_60fps_mif = <DVFS_MIF_L1>;
 			video_high_speed_60fps_int = <DVFS_INT_L1>;
 			video_high_speed_60fps_hpg = <1>;

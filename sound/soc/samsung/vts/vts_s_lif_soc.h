@@ -86,6 +86,11 @@ int vts_s_lif_soc_dmic_aud_control_hpf_en_get(struct vts_s_lif_data *data,
 int vts_s_lif_soc_dmic_aud_control_hpf_en_put(struct vts_s_lif_data *data,
 		unsigned int id, unsigned int val);
 
+int vts_s_lif_soc_dmic_en_get(struct vts_s_lif_data *data,
+		unsigned int id, unsigned int *val);
+int vts_s_lif_soc_dmic_en_put(struct vts_s_lif_data *data,
+		unsigned int id, unsigned int val);
+
 void vts_s_lif_debug_pad_en(int en);
 
 #endif /* __SND_SOC_VTS_S_LIF_SOC_H */

@@ -118,6 +118,9 @@ static void mpage_end_io(struct bio *bio)
 static void
 ext4_submit_bio_read(struct bio *bio)
 {
+#if EXT4_HPB_PROTOTYPE
+	struct inode *inode = bio->bi_io_vec[0].bv_page->mapping->host;
+#endif
 	if (trace_android_fs_dataread_start_enabled()) {
 		struct page *first_page = bio->bi_io_vec[0].bv_page;
 
@@ -136,6 +139,10 @@ ext4_submit_bio_read(struct bio *bio)
 				current->comm);
 		}
 	}
+#if EXT4_HPB_PROTOTYPE
+	if(ext4_test_inode_state(inode, EXT4_STATE_HPB))
+		bio->bi_opf |= REQ_RT_PINNED;
+#endif
 	submit_bio(bio);
 }
 

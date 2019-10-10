@@ -82,7 +82,7 @@ extern void osl_assert(const char *exp, const char *file, int line);
 			#define ASSERT(exp)
 		#endif /* GCC_VERSION > 30100 */
 	#endif /* __GNUC__ */
-#endif // endif
+#endif
 #endif /* ASSERT */
 
 /* microsecond delay */
@@ -120,7 +120,7 @@ typedef struct {
 	bool mmbus;		/**< Bus supports memory-mapped register accesses */
 	pktfree_cb_fn_t tx_fn;  /**< Callback function for PKTFREE */
 	void *tx_ctx;		/**< Context to the callback function */
-	void	*unused[3];
+	void	*unused[3];	/**< XXX temp fix for USBAP cftpool handle currption */
 	void (*rx_fn)(void *rx_ctx, void *p);
 	void *rx_ctx;
 } osl_pubinfo_t;
@@ -199,10 +199,10 @@ extern void osl_dma_unmap(osl_t *osh, dmaaddr_t pa, uint size, int direction);
 
 #ifndef PHYS_TO_VIRT
 #define	PHYS_TO_VIRT(pa)	osl_phys_to_virt(pa)
-#endif // endif
+#endif
 #ifndef VIRT_TO_PHYS
 #define	VIRT_TO_PHYS(va)	osl_virt_to_phys(va)
-#endif // endif
+#endif
 extern void * osl_phys_to_virt(void * pa);
 extern void * osl_virt_to_phys(void * va);
 
@@ -253,7 +253,8 @@ extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
 		osl_bpt_rreg(osh, (uintptr)(r), &__osl_v, sizeof(*(r))); \
 		__osl_v; \
 	})
-#endif // endif
+#endif
+/* XXX REVISIT  Is there suppose to be a #else definition of OSL_READ/WRITE_REG? johnvb */
 
 #if defined(AXI_TIMEOUTS_NIC)
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
@@ -285,14 +286,9 @@ extern int osl_error(int bcmerror);
 #include <linuxver.h>           /* use current 2.4.x calling conventions */
 #include <linux/kernel.h>       /* for vsn/printf's */
 #include <linux/string.h>       /* for mem*, str* */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 4, 29)
 extern uint64 osl_sysuptime_us(void);
 #define OSL_SYSUPTIME()		((uint32)jiffies_to_msecs(jiffies))
 #define OSL_SYSUPTIME_US()	osl_sysuptime_us()
-#else
-#define OSL_SYSUPTIME()		((uint32)jiffies * (1000 / HZ))
-#error "OSL_SYSUPTIME_US() may need to be defined"
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 4, 29) */
 extern uint64 osl_localtime_ns(void);
 extern void osl_get_localtime(uint64 *sec, uint64 *usec);
 extern uint64 osl_systztime_us(void);
@@ -419,6 +415,9 @@ extern uint64 osl_systztime_us(void);
 /* Because the non BINOSL implemenation of the PKT OSL routines are macros (for
  * performance reasons),  we need the Linux headers.
  */
+/* XXX REVISIT  Is there a more specific header file we should be including for the
+ * struct/definitions we need? johnvb
+ */
 #include <linuxver.h>		/* use current 2.4.x calling conventions */
 
 #define OSL_RAND()		osl_rand()
@@ -430,6 +429,14 @@ extern uint32 osl_rand(void);
 	osl_dma_map((osh), (va), (size), (direction), (p), (dmah))
 
 #else /* ! BCMDRIVER */
+
+/* XXX  Non BCMDRIVER code "OSL".
+ *   There are only a very limited number of OSL API's made available here:
+ *     mem*'s, str*'s, b*'s, *printf's, MALLOC/MFREE and ASSERT.  All others are
+ *   missing.  This doesn't really seem like an OSL implementation.  I am wondering
+ *   if non BCMDRIVER code should be using a different header file defined for that
+ *   purpose.  johnvb.
+ */
 
 /* ASSERT */
 	#define ASSERT(exp)	do {} while (0)
@@ -490,7 +497,7 @@ typedef atomic_t osl_atomic_t;
 #else
 #define OSL_ATOMIC_OR(osh, v, x)	atomic_set_mask(x, v)
 #define OSL_ATOMIC_AND(osh, v, x)	atomic_clear_mask(~x, v)
-#endif // endif
+#endif
 #endif /* BCMDRIVER */
 
 extern void *osl_spin_lock_init(osl_t *osh);

@@ -128,6 +128,11 @@ int is_itf_open_wrap(struct is_device_ischain *device, u32 module_id,
 	sensor   = device->sensor;
 	instance = device->instance;
 	hardware = device->hardware;
+
+	/*
+	 * CAUTION: The path has physical group id.
+	 * And physical group is must be used at open commnad.
+	 */
 	path = (struct is_path_info *)&device->is_region->shared[offset_path];
 	rsccount = atomic_read(&hardware->rsccount);
 
@@ -232,6 +237,11 @@ int is_itf_close_wrap(struct is_device_ischain *device)
 
 	hardware = device->hardware;
 	instance = device->instance;
+
+	/*
+	 * CAUTION: The path has physical group id.
+	 * And physical group is must be used at close commnad.
+	 */
 	offset_path = (sizeof(struct sensor_open_extended) / 4) + 1;
 	path = (struct is_path_info *)&device->is_region->shared[offset_path];
 	rsccount = atomic_read(&hardware->rsccount);

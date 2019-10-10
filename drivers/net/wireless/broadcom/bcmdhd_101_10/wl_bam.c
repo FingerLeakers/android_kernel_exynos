@@ -75,6 +75,11 @@ wl_bad_ap_mngr_tm2ts(struct timespec *ts, const struct tm tm)
 	ts->tv_nsec = 0;
 }
 
+/* Ignore compiler warnings due to -Werror=cast-qual */
+#if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#endif
 static int
 wl_bad_ap_mngr_timecmp(void *priv, struct list_head *a, struct list_head *b)
 {
@@ -112,16 +117,19 @@ wl_bad_ap_mngr_update(struct bcm_cfg80211 *cfg, wl_bad_ap_info_t *bad_ap_info)
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	entry = list_first_entry(&cfg->bad_ap_mngr.list, wl_bad_ap_info_entry_t, list);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 	if (entry != NULL) {
 		memcpy(&entry->bad_ap, bad_ap_info, sizeof(entry->bad_ap));
 	}
 	WL_CFG_BAM_UNLOCK(&cfg->bad_ap_mngr.lock, flags);
 }
+#if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 static inline int
 wl_bad_ap_mngr_fread_bad_ap_info(char *buf, int buf_len, wl_bad_ap_info_t *bad_ap)
@@ -287,7 +295,7 @@ wl_bad_ap_mngr_fwrite(struct bcm_cfg80211 *cfg, const char *fname)
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	list_for_each_entry(entry, &cfg->bad_ap_mngr.list, list) {
 		bad_ap = &entry->bad_ap;
 		ret = wl_bad_ap_mngr_fread_bad_ap_info(&tmp[len], sizeof(tmp) - len, bad_ap);
@@ -300,7 +308,7 @@ wl_bad_ap_mngr_fwrite(struct bcm_cfg80211 *cfg, const char *fname)
 	}
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 
 	ret = vfs_write(fp, tmp, len, &fp->f_pos);
 	if (ret < 0) {
@@ -336,7 +344,7 @@ wl_bad_ap_mngr_find(wl_bad_ap_mngr_t *bad_ap_mngr, const struct ether_addr *bssi
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	spin_lock_irqsave(&bad_ap_mngr->lock, flags);
 	list_for_each_entry(entry, &bad_ap_mngr->list, list) {
 		if (!memcmp(&entry->bad_ap.bssid.octet, bssid->octet, ETHER_ADDR_LEN)) {
@@ -347,7 +355,7 @@ wl_bad_ap_mngr_find(wl_bad_ap_mngr_t *bad_ap_mngr, const struct ether_addr *bssi
 	spin_unlock_irqrestore(&bad_ap_mngr->lock, flags);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 	return NULL;
 }
 
@@ -399,7 +407,7 @@ wl_bad_ap_mngr_deinit(struct bcm_cfg80211 *cfg)
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	WL_CFG_BAM_LOCK(&cfg->bad_ap_mngr.lock, flags);
 	while (!list_empty(&cfg->bad_ap_mngr.list)) {
 		entry = list_entry(cfg->bad_ap_mngr.list.next, wl_bad_ap_info_entry_t, list);
@@ -411,7 +419,7 @@ wl_bad_ap_mngr_deinit(struct bcm_cfg80211 *cfg)
 	WL_CFG_BAM_UNLOCK(&cfg->bad_ap_mngr.lock, flags);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 #if !defined(DHD_ADPS_BAM_EXPORT)
 	mutex_destroy(&cfg->bad_ap_mngr.fs_lock);
 #endif	/* !DHD_ADPS_BAM_EXPORT */
@@ -497,20 +505,12 @@ wl_event_adps_bad_ap_mngr(struct bcm_cfg80211 *cfg, void *data)
 	return ret;
 }
 
-/*
- * Return value:
- *  Disabled: 0
- *  Enabled: WLC_BAND_2G, WLC_BAND_5G, WLC_BAND_ALL
- *
- */
-int
-wl_adps_enabled(struct bcm_cfg80211 *cfg, struct net_device *ndev)
+static int
+wl_adps_get_mode(struct net_device *ndev, uint8 band)
 {
 	int len;
-	int ret = 0;
+	int ret;
 
-	uint8 i;
-	uint8 band;
 	uint8 *pdata;
 	char buf[WLC_IOCTL_SMLEN];
 
@@ -524,31 +524,40 @@ wl_adps_enabled(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 	iov_buf.version = WL_ADPS_IOV_VER;
 	iov_buf.len = sizeof(band);
 	iov_buf.id = WL_ADPS_IOV_MODE;
-
-	band = 0;
 	pdata = (uint8 *)iov_buf.data;
-	for (i = 1; i <= MAX_BANDS; i++) {
-		*pdata = i;
-		ret = wldev_iovar_getbuf(ndev, "adps", &iov_buf, len, buf, WLC_IOCTL_SMLEN, NULL);
-		if (ret < 0) {
-			WL_ERR(("%s - fail to get adps for band %d (%d)\n",
-				__FUNCTION__, i, ret));
-			return 0;
-		}
-		resp = (bcm_iov_buf_t *)buf;
-		data = (wl_adps_params_v1_t *)resp->data;
+	*pdata = band;
 
-		if (data->mode) {
-			if (data->band == IEEE80211_BAND_2GHZ) {
-				band += WLC_BAND_2G;
-			}
-			else if (data->band == IEEE80211_BAND_5GHZ) {
-				band += WLC_BAND_5G;
-			}
+	ret = wldev_iovar_getbuf(ndev, "adps", &iov_buf, len, buf, WLC_IOCTL_SMLEN, NULL);
+	if (ret < 0) {
+		return ret;
+	}
+	resp = (bcm_iov_buf_t *)buf;
+	data = (wl_adps_params_v1_t *)resp->data;
+
+	return data->mode;
+}
+
+/*
+ * Return value:
+ *  Disabled: 0
+ *  Enabled: bitmap of WLC_BAND_2G or WLC_BAND_5G when ADPS is enabled at each BAND
+ *
+ */
+int
+wl_adps_enabled(struct bcm_cfg80211 *cfg, struct net_device *ndev)
+{
+	uint8 i;
+	int mode;
+	int ret = 0;
+
+	for (i = 1; i <= MAX_BANDS; i++) {
+		mode = wl_adps_get_mode(ndev, i);
+		if (mode > 0) {
+			ret |= (1 << i);
 		}
 	}
 
-	return band;
+	return ret;
 }
 
 int
@@ -570,7 +579,7 @@ wl_adps_set_suspend(struct bcm_cfg80211 *cfg, struct net_device *ndev, uint8 sus
 	}
 
 	iov_buf->version = WL_ADPS_IOV_VER;
-	iov_buf->len = buf_len;
+	iov_buf->len = sizeof(*data);
 	iov_buf->id = WL_ADPS_IOV_SUSPEND;
 
 	data = (wl_adps_suspend_v1_t *)iov_buf->data;

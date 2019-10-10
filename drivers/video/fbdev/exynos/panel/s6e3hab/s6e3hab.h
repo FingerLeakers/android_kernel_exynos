@@ -82,7 +82,7 @@
 #define S6E3HAB_ELVSS_TEMP_1_LEN		1
 
 #define S6E3HAB_GAMMA_INTER_REG			0xB1
-#define S6E3HAB_GAMMA_INTER_OFS			0x95
+#define S6E3HAB_GAMMA_INTER_OFS			0x5D
 #define S6E3HAB_GAMMA_INTER_LEN			6
 
 #define S6E3HAB_OCTA_ID_REG			0xC9
@@ -550,6 +550,10 @@ enum {
 	POC_ONOFF_MAPTBL,
 #ifdef CONFIG_SUPPORT_TDMB_TUNE
 	TDMB_TUNE_MAPTBL,
+#endif
+#ifdef CONFIG_DYNAMIC_FREQ
+	OSC_96_5M_DYN_FFC_MAPTBL,
+	DYN_FFC_MAPTBL,
 #endif
 	MCD_RESISTANCE_MAPTBL,
 #ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
@@ -1307,6 +1311,9 @@ static int s6e3hab_getidx_gram_img_pattern_table(struct maptbl *tbl);
 #endif
 #ifdef CONFIG_SUPPORT_TDMB_TUNE
 static int s6e3hab_getidx_tdmb_tune_table(struct maptbl *tbl);
+#endif
+#ifdef CONFIG_DYNAMIC_FREQ
+static int getidx_dyn_ffc_table(struct maptbl *tbl);
 #endif
 #ifdef CONFIG_SUPPORT_HMD
 static int init_hmd_gamma_table(struct maptbl *);

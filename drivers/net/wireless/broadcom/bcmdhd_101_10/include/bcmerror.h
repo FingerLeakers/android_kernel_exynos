@@ -147,7 +147,7 @@ typedef int bcmerror_t;
 #define BCME_IOCTL_PATCH_UNSUPPORTED	-9999
 #if (BCME_LAST <= BCME_IOCTL_PATCH_UNSUPPORTED)
 	#error "BCME_LAST <= BCME_IOCTL_PATCH_UNSUPPORTED"
-#endif // endif
+#endif
 
 /* These are collection of BCME Error strings */
 #define BCMERRSTRINGTABLE {		\
@@ -360,6 +360,7 @@ enum {
 	WL_NAN_E_INVALID_MAC		= -2049,
 	WL_NAN_E_BAD_INSTANCE		= -2048,
 	/* NAN status code reserved from -2048 to -3071 */
+	/* XXX: Do NOT add new status below -2048 */
 	WL_NAN_E_ERROR			= -1,
 	WL_NAN_E_OK			= 0
 };

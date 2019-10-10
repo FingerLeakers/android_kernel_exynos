@@ -873,6 +873,14 @@ out:
 	#endif
 	return rc;
 }
+static void get_random_key(u8 *data, unsigned int len)
+{
+#ifdef CONFIG_CRYPTO_FIPS
+	crypto_cc_rng_get_bytes(data, len);
+#else
+	get_random_bytes(data, len);
+#endif
+}
 static void ecryptfs_generate_new_key(struct ecryptfs_crypt_stat *crypt_stat)
 {
 #ifdef CONFIG_CRYPTO_FIPS
@@ -1097,7 +1105,7 @@ static void write_ecryptfs_marker(char *page_virt, size_t *written)
 {
 	u32 m_1, m_2;
 
-	get_random_bytes(&m_1, (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2));
+	get_random_key((u8*)&m_1, (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2));
 	m_2 = (m_1 ^ MAGIC_ECRYPTFS_MARKER);
 	put_unaligned_be32(m_1, page_virt);
 	page_virt += (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2);
@@ -1810,7 +1818,8 @@ ecryptfs_process_key_cipher(struct crypto_skcipher **key_tfm,
 	crypto_skcipher_set_flags(*key_tfm, CRYPTO_TFM_REQ_WEAK_KEY);
 	if (*key_size == 0)
 		*key_size = crypto_skcipher_default_keysize(*key_tfm);
-	get_random_bytes(dummy_key, *key_size);
+
+	get_random_key(dummy_key, *key_size);
 	rc = crypto_skcipher_setkey(*key_tfm, dummy_key, *key_size);
 	if (rc) {
 		printk(KERN_ERR "Error attempting to set key of size [%zd] for "

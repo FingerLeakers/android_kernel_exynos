@@ -41,7 +41,7 @@
 #endif /* defined(CONFIG_HAS_EARLYSUSPEND) && defined(DHD_USE_EARLYSUSPEND) */
 #if defined(CONFIG_WIFI_CONTROL_FUNC)
 #include <linux/wlan_plat.h>
-#endif // endif
+#endif
 
 #ifdef BCMPCIE
 #include <bcmmsgbuf.h>
@@ -67,7 +67,7 @@ struct wifi_platform_data {
 	int (*get_mac_addr)(unsigned char *buf);
 #ifdef BCMSDIO
 	int (*get_wake_irq)(void);
-#endif // endif
+#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 58)) || defined(CUSTOM_COUNTRY_CODE)
 	void *(*get_country_code)(char *ccode, u32 flags);
 #else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 58)) || defined (CUSTOM_COUNTRY_CODE) */
@@ -133,12 +133,13 @@ typedef enum {
 #include <linux/workqueue.h>
 #include <asm/atomic.h>
 
+/* FIXME: Make this a module param or a sysfs. */
 #if !defined(DHD_LB_PRIMARY_CPUS)
 #define DHD_LB_PRIMARY_CPUS     0x0 /* Big CPU coreids mask */
-#endif // endif
+#endif
 #if !defined(DHD_LB_SECONDARY_CPUS)
 #define DHD_LB_SECONDARY_CPUS   0xFE /* Little CPU coreids mask */
-#endif // endif
+#endif
 
 #define HIST_BIN_SIZE	9
 
@@ -178,7 +179,7 @@ typedef struct dhd_tx_lb_pkttag_fr {
 #if defined(SOFTAP)
 extern bool ap_cfg_running;
 extern bool ap_fw_loaded;
-#endif // endif
+#endif
 
 #if defined(BCMPCIE)
 extern int dhd_get_suspend_bcn_li_dtim(dhd_pub_t *dhd, int *dtim_period, int *bcn_interval);
@@ -200,9 +201,6 @@ extern char version_info[MAX_VERSION_LEN];
 #endif /* DHD_EXPORT_CNTL_FILE */
 extern uint32 sec_save_wlinfo(char *firm_ver, char *dhd_ver, char *nvram_p, char *clm_ver);
 #endif /* WRITE_WLANINFO */
-#ifdef DHD_OF_SUPPORT
-extern void interrupt_set_cpucore(int set, unsigned int dpc_cpucore, unsigned int primary_cpucore);
-#endif /* DHD_OF_SUPPORT */
 #ifdef LOGTRACE_FROM_FILE
 extern int dhd_logtrace_from_file(dhd_pub_t *dhd);
 #ifdef DHD_EXPORT_CNTL_FILE
@@ -231,6 +229,10 @@ extern void set_irq_cpucore(unsigned int irq, cpumask_var_t default_cpu_mask,
 	cpumask_var_t affinity_cpu_mask);
 #endif /* ARGOS_CPU_SCHEDULER && !DHD_LB_IRQSET */
 
+/* XXX WAR: Sometimes Exynos 5433 can't schedule Rx traffic after push packet to stack queue
+*  if activated rps_cpus kernel feature. To avoid this problem, Need to disable rps_cpus
+*  if current tput is low than the TPUT_THRESHOLD
+*/
 #if (defined(ARGOS_CPU_SCHEDULER) && defined(ARGOS_RPS_CPU_CTL)) || \
 	defined(ARGOS_NOTIFY_CB)
 int argos_register_notifier_init(struct net_device *net);
@@ -278,7 +280,7 @@ extern void wl_android_set_wifi_on_flag(bool enable);
 	LOG_DUMP_PRESERVE_MAX_BUFSIZE + LOG_DUMP_ECNTRS_MAX_BUFSIZE + LOG_DUMP_RTT_MAX_BUFSIZE \
 	+ LOG_DUMP_FILTER_MAX_BUFSIZE)
 #error "LOG_DUMP_TOTAL_BUFSIZE is lesser than sum of all rings"
-#endif // endif
+#endif
 
 /* Special buffer is allocated as separately in prealloc */
 #define LOG_DUMP_SPECIAL_MAX_BUFSIZE (8 * 1024)
@@ -345,7 +347,7 @@ typedef struct dhd_if {
 #endif /* DHD_L2_FILTER */
 #ifdef DHD_MCAST_REGEN
 	bool mcast_regen_bss_enable;
-#endif // endif
+#endif
 	bool rx_pkt_chainable;		/* set all rx packet to chainable config by default */
 	cumm_ctr_t cumm_ctr;		/* cummulative queue length of child flowrings */
 	uint8 tx_paths_active;

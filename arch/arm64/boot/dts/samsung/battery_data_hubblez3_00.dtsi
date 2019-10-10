@@ -77,9 +77,9 @@
 
 			max77705-fuelgauge {
 				fuelgauge,fg_resistor = <5>;
-				fuelgauge,qrtable20 = <0x0D00>;
+				fuelgauge,qrtable20 = <0x1000>;
 				fuelgauge,qrtable30 = <0x0B00>;
-				fuelgauge,capacity = <0x0758>;
+				fuelgauge,capacity = <0x0708>;
 				fuelgauge,ttf_capacity = <5000>;
 			};
 

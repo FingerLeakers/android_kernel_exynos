@@ -44,8 +44,7 @@ struct dentry *abox_dbg_get_root_dir(void)
 
 static void abox_dbg_remove_root_dir(void)
 {
-	if (abox_dbg_root_dir)
-		debugfs_remove_recursive(abox_dbg_root_dir);
+	debugfs_remove_recursive(abox_dbg_root_dir);
 }
 
 void abox_dbg_print_gpr_from_addr(struct device *dev, struct abox_data *data,

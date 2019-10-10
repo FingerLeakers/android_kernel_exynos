@@ -2409,4 +2409,35 @@ static const u32 sensor_imx516_setfile_A_tof_sensor_mode_size[SENSOR_IMX516_MODE
 	sizeof(sensor_imx516_setfile_A_tof_sensor_mode_QQVGA),
 };
 #endif
+static const struct sensor_imx516_laser_test sensor_imx516_laser_testcases[] = {
+	{
+		SENSOR_IMX516_LASER_ERROR_OC_EM,
+		0x10,	0x04,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_OC_EM,
+		0x11,	0x80,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_TEMP_EM,
+		0x11,	0x01,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_LDVCC_EM,
+		0x11,	0x10,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_SHORT_EM,
+		0x13,	0xff,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_ITO_EM,
+		0x14,	0x20,
+	},
+	{
+		SENSOR_IMX516_LASER_ERROR_LVDS_EM,
+		0x13,	0x40,
+	},
+};
+
 #endif

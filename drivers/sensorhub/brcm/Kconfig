@@ -562,6 +562,34 @@ config SUPPORT_MCC_THRESHOLD_CHANGE
 	  according to the mcc value.
 	  Say N here if you do not need to check mcc.
 
+config SENSORS_A96T3X6
+	tristate "a96t3x6 Grip sensor"
+	default n
+	help
+	  Say Y here if you use a96t3x6.
+	  This option enables grip sensors using
+	  SemTech a96t3x6 device driver.
+	  Say N here if you do not use a96t3x6.
+
+config SENSORS_FW_VENDOR
+	bool "Locate the Firmware on Vendor"
+	default n
+	help
+	  To use the module automatic system, 
+	  locate the firmware on vendor side.
+
+config SENSORS_A96T365IF
+	bool "Choose A96T365IF"
+	default n
+	help
+	  If a96t365 supports, active this feature
+
+config SENSORS_A96T3X6_CRC_CHECK
+	bool "crc check by fw ver"
+	default n
+	help
+	  To use crc check by fw not checking checksum, active this feature
+
 config SENSORS_SSP_INTERRUPT_GYRO_SENSOR
          tristate "Sensors ssp interrpt gyro"
          default n

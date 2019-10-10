@@ -773,6 +773,46 @@ static ssize_t proximity_position_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "0.0 0.0 0.0\n");
 }
 
+static ssize_t proximity_trim_check_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ssp_data *data = dev_get_drvdata(dev);
+	int iRet = 0, iRetries = 0;
+	struct ssp_msg *msg;
+	u8 buffer[8] = {0,};
+	int trim;
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_GET_PROX_TRIM;
+	msg->length = 1;
+	msg->options = AP2HUB_READ;
+	msg->buffer = buffer;
+	msg->free_buffer = 0;
+retries:
+	iRet = ssp_spi_sync(data, msg, 1000);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s fail %d\n", __func__, iRet);
+
+		if (iRetries++ < 2) {
+			pr_err("[SSP] %s fail, retry\n", __func__);
+			mdelay(5);
+			goto retries;
+		}
+		return snprintf(buf, PAGE_SIZE, "NG\n");
+	}
+	
+	trim = (int)buffer[0];
+	pr_info("[SSP] %s - %d\n", __func__, trim);
+
+	switch(trim) {
+		case 0:
+			return snprintf(buf, PAGE_SIZE, "UNTRIM\n");
+		case 1:
+			return snprintf(buf, PAGE_SIZE, "TRIM\n");			
+	}
+	return snprintf(buf, PAGE_SIZE, "NG\n");
+}
+
 static DEVICE_ATTR(vendor, 0440, proximity_vendor_show, NULL);
 static DEVICE_ATTR(name, 0440, proximity_name_show, NULL);
 static DEVICE_ATTR(prox_probe, 0440, proximity_probe_show, NULL);
@@ -796,6 +836,7 @@ static DEVICE_ATTR(dhr_sensor_info, 0440, prox_light_get_dhr_sensor_info_show, N
 static DEVICE_ATTR(prox_cal, 0660, proximity_cal_show, proximity_cal_store);
 #endif
 static DEVICE_ATTR(prox_position, 0440, proximity_position_show, NULL);
+static DEVICE_ATTR(trim_check, 0444, proximity_trim_check_show, NULL);
 
 static struct device_attribute *prox_attrs[] = {
 	&dev_attr_vendor,
@@ -818,6 +859,7 @@ static struct device_attribute *prox_attrs[] = {
 	&dev_attr_prox_cal,
 #endif
 	&dev_attr_prox_position,
+	&dev_attr_trim_check,
 	NULL,
 };
 

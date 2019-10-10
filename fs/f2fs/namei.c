@@ -309,6 +309,12 @@ static int f2fs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	if (IS_DIRSYNC(dir))
 		f2fs_sync_fs(sbi->sb, 1);
 
+#if HPB_PROTOTYPE
+	if(is_hpb_extension(dentry->d_name.name) ||
+		is_hpb_permission(inode))
+		set_inode_flag(inode, FI_HPB_INODE);
+#endif
+
 	f2fs_balance_fs(sbi, true);
 	return 0;
 out:
@@ -490,6 +496,14 @@ static struct dentry *f2fs_lookup(struct inode *dir, struct dentry *dentry,
 		err = -EPERM;
 		goto out_iput;
 	}
+
+#if HPB_PROTOTYPE
+	if(is_hpb_extension(dentry->d_name.name) ||
+		is_hpb_permission(inode)) {
+		set_inode_flag(inode, FI_HPB_INODE);
+	}
+#endif
+
 out_splice:
 	new = d_splice_alias(inode, dentry);
 	if (IS_ERR(new))
@@ -840,6 +854,9 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct f2fs_dir_entry *new_entry;
 	bool is_old_inline = f2fs_has_inline_dentry(old_dir);
 	int err;
+#if HPB_PROTOTYPE
+	struct inode *hpb_inode;
+#endif
 
 	if (unlikely(f2fs_cp_error(sbi)))
 		return -EIO;
@@ -998,6 +1015,16 @@ static int f2fs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			f2fs_add_ino_entry(sbi, old_inode->i_ino,
 							TRANS_DIR_INO);
 	}
+#if HPB_PROTOTYPE
+	hpb_inode = (new_inode)? : old_inode;
+	if(is_hpb_extension(new_dentry->d_name.name) ||
+		is_hpb_permission(hpb_inode)) {
+		set_inode_flag(hpb_inode, FI_HPB_INODE);
+	}
+	else {
+		clear_inode_flag(hpb_inode, FI_HPB_INODE);
+	}
+#endif
 
 	f2fs_unlock_op(sbi);
 

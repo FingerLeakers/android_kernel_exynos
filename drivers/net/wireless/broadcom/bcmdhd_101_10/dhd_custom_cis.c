@@ -577,6 +577,11 @@ dhd_check_module_mac(dhd_pub_t *dhdp)
 }
 #endif /* GET_MAC_FROM_OTP */
 
+/*
+ * XXX:SWWLAN-210178 SysFS MAC ADDR export
+ * framework controls mac addr with sysfs mac_addr kernel object without file system
+ * For this reason, DHD doesn't need to write mac address to file system directly
+ */
 #ifndef DHD_MAC_ADDR_EXPORT
 #ifdef WRITE_MACADDR
 int
@@ -1064,6 +1069,11 @@ dhd_check_module_b90(void)
 
 #define CID_FEM_MURATA	"_mur_"
 /* extract module type from cid information */
+/* XXX: extract string by delimiter '_' at specific counting position.
+ * it would be used for module type information.
+ * for example, cid information is 'semco_sky_r02a_e30a_a1',
+ * then output (module type) is 'r02a_e30a_a1' when index is 3.
+ */
 int
 dhd_check_module_bcm(char *module_type, int index, bool *is_murata_fem)
 {

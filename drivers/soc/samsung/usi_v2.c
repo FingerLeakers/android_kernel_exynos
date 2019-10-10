@@ -102,6 +102,14 @@ static int usi_v2_probe(struct platform_device *pdev)
 		return 0;
 	}
 
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
+		dev_info(&pdev->dev,
+				"usi configuration for secure channel is skipped(FP)\n");
+		return 0;
+	}
+#endif
+
 	writel(data->mode, data->base);
 
 	dev_info(&pdev->dev, "usi_v2_probe() mode:%d\n", data->mode);
@@ -127,6 +135,14 @@ static int usi_v2_resume_noirq(struct device *dev)
 			"usi configuration for secure channel is skipped\n");
 		return 0;
 	}
+
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (data->ch_id == CONFIG_SENSORS_FP_USI_NUMBER) {
+		dev_info(&pdev->dev,
+				"usi configuration for secure channel is skipped(FP)\n");
+		return 0;
+	}
+#endif
 
 	if (data->mode && data->base) {
 		writel(data->mode, data->base);

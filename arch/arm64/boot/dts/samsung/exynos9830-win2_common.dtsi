@@ -18,12 +18,18 @@
 #include "exynos9830-win2_sound.dtsi"
 #include "exynos9830-win2_input_common.dtsi"
 #include "exynos9830-hubble_vib.dtsi"
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/exynos9830.h>
+#include <dt-bindings/display/exynos-display.h>
+#include <dt-bindings/clock/exynos9830.h>
+#include "../exynos/exynos9830-display-lcd.dtsi"
 
 / {
 	compatible = "samsung,exynos9830", "samsung,UNIVERSAL9830";
 
 	fragment@model {
 		target-path = "/";
+
 		__overlay__ {
 			#address-cells = <2>;
 			#size-cells = <1>;
@@ -315,6 +321,52 @@
 					};
 				};
 			};
+
+			mipi_phy_dsim1_m4m4: dphy_m4m4_dsim1@0x190E0000 {
+				compatible = "samsung,mipi-phy-m4m4-mod";
+				samsung,pmu-syscon = <&pmu_system_controller>;
+				isolation = <0x0710>;
+				owner = <1>; /* 0: DSI_0 1: DSI_1 */
+				#phy-cells = <1>;
+			};
+
+			dsim_1: dsim@0x190D0000 {
+				compatible = "samsung,exynos9-dsim";
+				id = <1>;
+
+				/* DSIM1, DCPHY_M4M4_MOD, DCPHY_M4M4_COMMON */
+				reg = <0x0 0x190D0000 0x300>, <0x0 0x190E0900 0x700>, <0x0 0x190E0000 0x100>;
+				interrupts = <GIC_SPI INTREQ__DPU_DSIM1 IRQ_TYPE_LEVEL_HIGH>;
+				iommus = <&sysmmu_dpu0>, <&sysmmu_dpu1>, <&sysmmu_dpu2>;
+
+				/* clock */
+				clock-names = "aclk";
+				clocks = <&clock GATE_DPU_DPU>;
+
+				phys = <&mipi_phy_dsim1_m4m4 0>;
+				phy-names = "dsim_dphy";
+			};
+
+			panel_1: panel_1 {
+				compatible = "samsung,exynos-panel-drv";
+				id = <1>;
+				ddi_id = <0xdddddd>;
+				lcd_info = <&s6e3ha8>, <&s6e3ha9>, <&s6e3fa7>;
+				gpios = <&gpb0 2 0x1>;
+				regulator_3p3v = "fold-s2dos05-ldo4";
+				regulator_1p8v = "fold-s2dos05-ldo1";
+				regulator_1p6v = "fold-s2dos05-buck1";
+			};
+
+			iommu-domain_dpu {
+				compatible = "samsung,exynos-iommu-bus";
+				#address-cells = <2>;
+				#size-cells = <1>;
+				ranges;
+
+				domain-clients = <&dsim_0>, <&dsim_1>, <&displayport>, <&dpp_6>;
+			};
+
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
 }; /* end of root */
@@ -620,6 +672,112 @@
 	};
 };
 
+&decon_f {
+	compatible = "samsung,exynos9-decon";
+	#pb-id-cells = <4>;
+	reg = <0x0 0x19050000 0x10000>;
+
+	/* interrupt num : FRAME_START, FRMAE_DONE, EXTRA, GPIO_PERIC1(EXT_INT_TE: GPD0[0]) */
+	interrupts = <GIC_SPI INTREQ__DPU_DECON0_FRAME_START IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__DPU_DECON0_FRAME_DONE IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__DPU_DECON0_EXTRA IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__GPIO_PERIC1 IRQ_TYPE_LEVEL_HIGH>;
+
+	/* pinctrl */
+
+	pinctrl-names = "hw_te_on", "hw_te_off";
+	pinctrl-0 = <&decon_f_te_on>;
+	pinctrl-1 = <&decon_f_te_off>;
+
+	max_win = <6>;
+	default_win = <4>;
+	default_ch = <0>;
+	psr_mode = <2>;         /* 0: video mode, 1: DP command mode, 2: MIPI command mode */
+	trig_mode = <0>;        /* 0: hw trigger, 1: sw trigger */
+	dsi_mode = <0>;         /* 0: single dsi, 1: dual dsi */
+
+	/* 0: DSI, 1: eDP, 2:HDMI, 3: WB */
+	out_type = <0>;
+	/* 0: DSI0, 1: DSI1, 2: DSI2 */
+	out_idx = <0>;
+
+	/* pixel per clock */
+	ppc = <2>;
+	line_mem_cnt = <4>;
+	cycle_per_line = <8>;   /* 4ppc */
+
+	chip_ver = <9830>;
+
+	dpp_cnt = <7>;
+	dsim_cnt = <2>;
+	decon_cnt = <3>;
+	cursor_margin = <5>;
+
+	#address-cells = <2>;
+	#size-cells = <1>;
+	ranges;
+
+	/* EINT for TE */
+	 gpios = <&gpc0 4 0xf>;
+	/* sw te pending register */
+	te_eint {
+		/* NWEINT_GPC0_PEND */
+		reg = <0x0 0x10730a14 0x4>;
+	};
+};
+
+&decon_s {
+	compatible = "samsung,exynos9-decon";
+	#pb-id-cells = <4>;
+	reg = <0x0 0x19060000 0x10000>;
+
+	/* interrupt num : FRAME_START, FRMAE_DONE, EXTRA */
+	interrupts = <GIC_SPI INTREQ__DPU_DECON1_FRAME_START IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__DPU_DECON1_FRAME_DONE IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__DPU_DECON1_EXTRA IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI INTREQ__GPIO_PERIC1 IRQ_TYPE_LEVEL_HIGH>;
+
+	/* pinctrl */
+	pinctrl-names = "hw_te_on", "hw_te_off";
+	pinctrl-0 = <&decon_s_te_on>;
+	pinctrl-1 = <&decon_s_te_off>;
+
+	max_win = <6>;
+	default_win = <5>;
+	default_ch = <3>;
+	psr_mode = <2>;         /* 0: video mode, 1: DP command mode, 2: MIPI command mode */
+	trig_mode = <0>;        /* 0: hw trigger, 1: sw trigger */
+	dsi_mode = <0>;         /* 0: single dsi, 1: dual dsi */
+
+	/* 0: DSI, 1: eDP, 2:DP */
+	out_type = <0>;
+	/* 0: DSI0, 1: DSI1, 2: DSI2 */
+	out_idx = <1>;
+
+	/* pixel per clock */
+	ppc = <2>;
+	line_mem_cnt = <4>;
+	cycle_per_line = <8>;   /* 4ppc */
+
+	chip_ver = <9830>;
+
+	dpp_cnt = <7>;
+	dsim_cnt = <2>;
+	decon_cnt = <3>;
+	cursor_margin = <40>;
+
+	#address-cells = <2>;
+	#size-cells = <1>;
+	ranges;
+
+	/* EINT for TE */
+	gpios = <&gpc0 5 0xf>;
+	/* sw te pending register */
+	te_eint {
+		/* NWEINT_GPC0_PEND */
+		reg = <0x0 0x10730a14 0x5>;
+	};
+};
 &pinctrl_0 {
 	dwmmc2_cd_ext_irq: dwmmc2_cd_ext_irq {
 		samsung,pins = "gpa1-5";

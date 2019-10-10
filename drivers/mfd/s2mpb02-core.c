@@ -135,6 +135,7 @@ static int of_s2mpb02_dt(struct device *dev,
 	if (!np_s2mpb02)
 		return -EINVAL;
 
+	pdata->irq_gpio = of_get_named_gpio(np_s2mpb02, "s2mpb02,irq-gpio", 0);
 	pdata->wakeup = of_property_read_bool(np_s2mpb02, "s2mpb02,wakeup");
 
 	return 0;
@@ -227,7 +228,7 @@ static int s2mpb02_i2c_probe(struct i2c_client *i2c,
 		goto err_irq_init;
 
 	ret = mfd_add_devices(s2mpb02->dev, PLATFORM_DEVID_AUTO, s2mpb02_devs,
-			ARRAY_SIZE(s2mpb02_devs), NULL, 0, NULL);
+			      ARRAY_SIZE(s2mpb02_devs), NULL, 0, NULL);
 	if (ret < 0)
 		goto err_irq_init;
 

@@ -155,7 +155,7 @@ dhd_os_attach_pktlog(dhd_pub_t *dhdp)
 	dhdp->pktlog->pktlog_filter = dhd_pktlog_filter_init(MAX_DHD_PKTLOG_FILTER_LEN);
 #ifdef DHD_COMPACT_PKT_LOG
 	dhd_cpkt_log_init_tt(dhdp);
-#endif // endif
+#endif
 
 	DHD_ERROR(("%s(): dhd_os_attach_pktlog attach\n", __FUNCTION__));
 

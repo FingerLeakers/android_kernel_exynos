@@ -552,22 +552,6 @@
 			samsung,area = <1>;
 			samsung,offset = <0x13b0000>;
 		};
-		/* It's an example. Replace or remove it in the final device. */
-		ext_bin_6: ext-bin@6 {
-			compatible = "samsung,abox-ext-bin";
-			samsung,name = "test_params1.bin";
-			samsung,area = <1>;
-			samsung,offset = <0x1fff100>;
-			samsung,changable;
-		};
-		/* It's an example. Replace or remove it in the final device. */
-		ext_bin_7: ext-bin@7 {
-			compatible = "samsung,abox-ext-bin";
-			samsung,name = "test_params2.bin";
-			samsung,area = <1>;
-			samsung,offset = <0x1fff200>;
-			samsung,changable;
-		};
 	};
 
 	mailbox_vts: mailbox@0x155a0000 {
@@ -589,13 +573,23 @@
 		#address-cells = <2>;
 		#size-cells = <1>;
 		ranges;
-		pinctrl-names = "dmic_default", "amic_default", "s_lif_default", "idle";
+		pinctrl-names = "dmic_default", "amic_default",
+			"s_lif_0_default", "s_lif_0_idle",
+			"s_lif_1_default", "s_lif_1_idle",
+			"s_lif_2_default", "s_lif_2_idle",
+			"s_lif_default", "idle";
 		pinctrl-0 = <&dmic_bus_clk &dmic_pdm>;
 		pinctrl-1 = <&dmic_bus_clk1 &amic_pdm>;
-		pinctrl-2 = <&dmic_bus_clk &dmic_bus_clk1
+		pinctrl-2 = <&dmic_bus_clk &dmic_pdm>;
+		pinctrl-3 = <&dmic_bus_clk_idle &dmic_pdm_idle>;
+		pinctrl-4 = <&dmic_bus_clk1 &dmic_pdm1_bus>;
+		pinctrl-5 = <&dmic_bus_clk1_idle &dmic_pdm1_idle>;
+		pinctrl-6 = <&dmic_bus_clk2 &dmic_pdm2_bus>;
+		pinctrl-7 = <&dmic_bus_clk2_idle &dmic_pdm2_idle>;
+		pinctrl-8 = <&dmic_bus_clk &dmic_bus_clk1
 			&dmic_bus_clk2 &dmic_pdm
 			&dmic_pdm1_bus &dmic_pdm2_bus>;
-		pinctrl-3 = <&dmic_bus_clk_idle &dmic_bus_clk1_idle
+		pinctrl-9 = <&dmic_bus_clk_idle &dmic_bus_clk1_idle
 			&dmic_bus_clk2_idle &dmic_pdm_idle
 			&dmic_pdm1_idle &dmic_pdm2_idle>;
 		power-domains = <&pd_vts>;
@@ -667,6 +661,7 @@
 			dmas = <&pdma0 28>;
 			dma-names = "tx";
 			fifo_addr = <0x10AB5818>;
+			sound-name-prefix = "DP AUDIO0";
 		};
 		dp_dma1: dp_dma@1 {
 			compatible = "samsung,dp-dma";
@@ -674,6 +669,7 @@
 			dmas = <&pdma0 29>;
 			dma-names = "tx";
 			fifo_addr = <0x10AB6818>;
+			sound-name-prefix = "DP AUDIO1";
 		};
 	};
 };

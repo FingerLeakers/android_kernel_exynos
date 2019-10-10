@@ -9,11 +9,9 @@
 #ifndef __DEFEX_RULES_H
 #define __DEFEX_RULES_H
 
-#define STATIC_RULES_MAX_STR 32
-#ifdef DEFEX_INTEGRITY_ENABLE
-#define INTEGRITY_LENGTH 32
-#endif /* DEFEX_INTEGRITY_ENABLE */
-#define FEATURE_NAME_MAX_STR 32
+#define STATIC_RULES_MAX_STR 		32
+#define INTEGRITY_LENGTH 		32
+#define FEATURE_NAME_MAX_STR 		32
 
 #define GET_ITEM_OFFSET(item_ptr)	(((char*)item_ptr) - ((char*)defex_packed_rules))
 #define GET_ITEM_PTR(offset)		((struct rule_item_struct *)(((char*)defex_packed_rules) + (offset)))
@@ -43,9 +41,14 @@ struct static_rule {
 };
 
 struct rule_item_struct {
-	unsigned short int next_file;
 	unsigned short int next_level;
-	unsigned short int feature_type;
+        union {
+		struct {
+			unsigned short int next_file;
+			unsigned short int feature_type;
+		} __attribute__((packed));
+		unsigned int data_size;
+        } __attribute__((packed));
 	unsigned char size;
 #ifdef DEFEX_INTEGRITY_ENABLE
 	unsigned char integrity[INTEGRITY_LENGTH];

@@ -10,6 +10,9 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/kernel.h>
+#include <linux/soc/samsung/exynos-soc.h>
+
 #include "is-device-ischain.h"
 #include "is-device-sensor.h"
 #include "is-subdev-ctrl.h"
@@ -199,10 +202,18 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 				hw_bitwidth, hw_msb);
 		}
 
-		if (hw_format == DMA_INPUT_FORMAT_BAYER_PACKED && flag_extra == COMP) {
-			msinfo("in_crop[fmt: %d ->%d: BAYER_COMP]\n", device, leader,
-				hw_format, DMA_INPUT_FORMAT_BAYER_COMP);
-			hw_format = DMA_INPUT_FORMAT_BAYER_COMP;
+		/* SBWC need to be activated over EVT1 */
+		if ((hw_format == DMA_INPUT_FORMAT_BAYER_PACKED) && (flag_extra == COMP || flag_extra == COMP_LOSS)) {
+			if (exynos_soc_info.main_rev >= 1) {
+				u32 comp_format =
+				(flag_extra == COMP) ? DMA_INPUT_FORMAT_BAYER_COMP : DMA_INPUT_FORMAT_BAYER_COMP_LOSSY;
+				msinfo("in_crop[fmt: %d ->%d: BAYER_COMP]\n", device, leader,
+					hw_format, comp_format);
+				hw_format = comp_format;
+			} else {
+				mdbgd_ischain("SBWC not supported in EVT%d.%d\n",
+					device, exynos_soc_info.main_rev, exynos_soc_info.sub_rev);
+			}
 		}
 	}
 

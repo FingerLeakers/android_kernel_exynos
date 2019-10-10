@@ -38,6 +38,15 @@ extern void sec_bootstat_add_initcall(const char *name);
 
 extern void sec_bootstat_get_cpuinfo(int *freq, int *online);
 extern void sec_bootstat_get_thermal(int *temp);
+
+#define DEVICE_INIT_TIME_100MS 100000
+extern struct list_head device_init_time_list;
+
+struct device_init_time_entry {
+	struct list_head next;
+	char *buf;
+	unsigned long long duration;
+};
 #else
 #define sec_bootstat_mct_start(a)		do { } while (0)
 #define sec_bootstat_add(a)			do { } while (0)
@@ -81,7 +90,10 @@ extern int sec_get_param_str(unsigned long offset, char *val);
 #else
 #define sec_set_param(a, b)			(-1)
 #define sec_set_param_u32(a, b)			(-1)
+#define sec_set_param_str(a, b, c)		(-1)
+#define sec_set_param_extra(a, b, c)		(-1)
 #define sec_get_param_u32(a, b)			(-1)
+#define sec_get_param_str(a, b)			(-1)
 #endif /* CONFIG_SEC_PARAM */
 
 #endif /* CONFIG_SEC_EXT */

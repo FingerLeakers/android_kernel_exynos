@@ -573,6 +573,6 @@ extern int dhd_pno_set_epno(dhd_pub_t *dhd);
 extern int dhd_pno_flush_fw_epno(dhd_pub_t *dhd);
 extern void dhd_pno_set_epno_auth_flag(uint32 *wpa_auth);
 #endif /* GSCAN_SUPPORT */
-#endif // endif
+#endif
 
 #endif /* __DHD_PNO_H__ */

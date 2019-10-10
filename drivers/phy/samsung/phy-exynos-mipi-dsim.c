@@ -587,7 +587,11 @@ static struct exynos_mipi_phy_data mipi_phy_m4m4 = {
 
 static const struct of_device_id exynos_mipi_phy_of_table[] = {
 	{
-		.compatible = "samsung,mipi-phy-m4m4",
+		.compatible = "samsung,mipi-phy-m4m4-top",
+		.data = &mipi_phy_m4m4,
+	},
+	{
+		.compatible = "samsung,mipi-phy-m4m4-mod",
 		.data = &mipi_phy_m4m4,
 	},
 	{ },

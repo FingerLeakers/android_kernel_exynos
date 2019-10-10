@@ -3784,6 +3784,11 @@ static ssize_t ext4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 		get_block_func = ext4_dio_get_block_unwritten_async;
 		dio_flags = DIO_LOCKING;
 	}
+#if EXT4_HPB_PROTOTYPE
+	if (ext4_test_inode_state(inode, EXT4_STATE_HPB))
+		dio_flags |= DIO_HPB_IO;
+#endif
+
 	ret = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev, iter,
 				   get_block_func, ext4_end_io_dio, NULL,
 				   dio_flags);
@@ -3866,6 +3871,11 @@ static ssize_t ext4_direct_IO_read(struct kiocb *iocb, struct iov_iter *iter)
 	struct inode *inode = mapping->host;
 	size_t count = iov_iter_count(iter);
 	ssize_t ret;
+	int dio_flags = 0;
+#if EXT4_HPB_PROTOTYPE
+	if (ext4_test_inode_state(inode, EXT4_STATE_HPB))
+		dio_flags |= DIO_HPB_IO;
+#endif
 
 	/*
 	 * Shared inode_lock is enough for us - it protects against concurrent
@@ -3878,7 +3888,7 @@ static ssize_t ext4_direct_IO_read(struct kiocb *iocb, struct iov_iter *iter)
 	if (ret)
 		goto out_unlock;
 	ret = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev,
-				   iter, ext4_dio_get_block, NULL, NULL, 0);
+				   iter, ext4_dio_get_block, NULL, NULL, dio_flags);
 out_unlock:
 	inode_unlock_shared(inode);
 	return ret;
@@ -5748,8 +5758,16 @@ int ext4_setattr(struct dentry *dentry, struct iattr *attr)
 	if (orphan && inode->i_nlink)
 		ext4_orphan_del(NULL, inode);
 
-	if (!error && (ia_valid & ATTR_MODE))
+	if (!error && (ia_valid & ATTR_MODE)) {
 		rc = posix_acl_chmod(inode, inode->i_mode);
+#if EXT4_HPB_PROTOTYPE
+		if(__is_hpb_permission(inode) ||
+				__is_hpb_extension(dentry->d_name.name))
+			ext4_set_inode_state(inode, EXT4_STATE_HPB);
+		else
+			ext4_clear_inode_state(inode, EXT4_STATE_HPB);
+#endif
+	}
 
 err_out:
 	ext4_std_error(inode->i_sb, error);

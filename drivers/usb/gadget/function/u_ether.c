@@ -22,6 +22,9 @@
 #include "u_ether.h"
 #include "rndis.h"
 
+#ifdef CONFIG_HW_FORWARD
+#include <soc/samsung/hw_forward.h>
+#endif
 
 /*
  * This component encapsulates the Ethernet link glue needed to provide
@@ -461,8 +464,26 @@ process_frame:
 		dev->net->stats.rx_packets++;
 		dev->net->stats.rx_bytes += skb->len;
 
+#ifdef CONFIG_HW_FORWARD
+		if (!(skb->pkt_type == PACKET_BROADCAST
+			|| skb->pkt_type == PACKET_MULTICAST
+			|| skb->pkt_type == PACKET_OTHERHOST)
+			&& is_hw_forward_enable()
+			&& ((skb->protocol == htons(ETH_P_IP))
+			|| (skb->protocol == htons(ETH_P_IPV6))))
+			hw_forward_enqueue_to_backlog(HW_FOWARD_TX__DIR, skb);
+		else
+			status = netif_rx_ni(skb);
+#else
 		status = netif_rx_ni(skb);
+#endif
+
 	}
+
+#ifdef CONFIG_HW_FORWARD
+	if (is_hw_forward_enable())
+		hw_forward_schedule(HW_FOWARD_BACKLOG_SKB);
+#endif
 
 	if (netif_running(dev->net))
 		rx_fill(dev, GFP_KERNEL);
@@ -485,6 +506,7 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	struct sk_buff	*skb = req->context;
 	struct eth_dev	*dev = ep->driver_data;
+	int pkts_compl;
 	/* struct usb_ep *in; */
 
 	switch (req->status) {
@@ -501,9 +523,14 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 			dev->net->stats.tx_bytes += req->length-1;
 		else
 			dev->net->stats.tx_bytes += req->length;
-		dev_consume_skb_any(skb);
+
+		if (skb)
+			dev_consume_skb_any(skb);
 	}
 	dev->net->stats.tx_packets++;
+
+	pkts_compl = dev->port_usb->multi_pkt_xfer ? dev->dl_max_pkts_per_xfer : 1;
+	netdev_completed_queue(dev->net, pkts_compl, req->length);
 
 	spin_lock(&dev->tx_req_lock);
 	list_add_tail(&req->list, &dev->tx_reqs);
@@ -573,6 +600,8 @@ static int tx_task(struct eth_dev *dev, struct usb_request *req)
 		length++;
 	}
 	req->length = length;
+
+	netdev_sent_queue(dev->net, length);
 
 #ifdef HS_THROTTLE_IRQ
 	/* throttle highspeed IRQ rate back slightly */
@@ -679,6 +708,8 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
 
+	/* ERROR(dev, "xmit_more=%d\n", skb->xmit_more); */
+
 	if (skb && !in) {
 		dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
@@ -753,10 +784,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		}
 	}
 
-	spin_lock_irqsave(&dev->tx_req_lock, flags);
-	dev->tx_skb_hold_count++;
-	spin_unlock_irqrestore(&dev->tx_req_lock, flags);
-
 	if (dev->port_usb->multi_pkt_xfer) {
 		/* Add RNDIS Header */
 		memcpy(req->buf + req->length, dev->port_usb->header,
@@ -769,9 +796,10 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		req->length = req->length + skb->len;
 		length = req->length;
 		dev_kfree_skb_any(skb);
+		req->context = NULL;
 
 		spin_lock_irqsave(&dev->tx_req_lock, flags);
-		if (dev->tx_skb_hold_count < dev->dl_max_pkts_per_xfer) {
+		if (req->length < (dev->tx_req_bufsize - (dev->net->mtu + 80)) ) {
 			list_add(&req->list, &dev->tx_reqs);
 			spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 
@@ -785,10 +813,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		}
 
 		spin_unlock_irqrestore(&dev->tx_req_lock, flags);
-
-		spin_lock_irqsave(&dev->lock, flags);
-		dev->tx_skb_hold_count = 0;
-		spin_unlock_irqrestore(&dev->lock, flags);
 	} else {
 		length = skb->len;
 		req->buf = skb->data;
@@ -861,6 +885,8 @@ static int eth_open(struct net_device *net)
 	netdev_store_rps_dev_flow_table_cnt(&(net->_rx[0]), USBNET_FLOW_CNT,
 			sizeof(USBNET_FLOW_CNT));
 	*/
+
+	netdev_reset_queue(net);
 
 	return 0;
 }

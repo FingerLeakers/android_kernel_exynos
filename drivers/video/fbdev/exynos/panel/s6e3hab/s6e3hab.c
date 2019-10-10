@@ -1838,6 +1838,27 @@ static int s6e3hab_getidx_tdmb_tune_table(struct maptbl *tbl)
 }
 #endif
 
+#ifdef CONFIG_DYNAMIC_FREQ
+static int getidx_dyn_ffc_table(struct maptbl *tbl)
+{
+	int row = 0; 
+	struct df_status_info *status;
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}    
+	status = &panel->df_status;
+
+	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d\n", __func__, status->ffc_df);
+
+	row = status->ffc_df;
+
+	return maptbl_index(tbl, 0, row, 0);
+}
+#endif
+
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static void copy_dummy_maptbl(struct maptbl *tbl, u8 *dst)
 {
@@ -2818,12 +2839,15 @@ static void show_self_diag(struct dumpinfo *info)
 
 	panel_info("========== SHOW PANEL [0Fh:SELF_DIAG] INFO ==========\n");
 	panel_info("* Reg Value : 0x%02x, Result : %s\n",
-			self_diag[0], (self_diag[0] & 0x80) ? "GOOD" : "NG");
+			self_diag[0], (self_diag[0] & 0x40) ? "GOOD" : "NG");
 	if ((self_diag[0] & 0x80) == 0)
-		panel_info("* OTP Reg Loading Error\n");
+		panel_info("* OTP value is changed\n");
+	if ((self_diag[0] & 0x40) == 0)
+		panel_info("* Panel Boosting Error\n");
+
 	panel_info("=====================================================\n");
 
-	inc_dpui_u32_field(DPUI_KEY_PNSDRE, (self_diag[0] & 0x80) ? 0 : 1);
+	inc_dpui_u32_field(DPUI_KEY_PNSDRE, (self_diag[0] & 0x40) ? 0 : 1);
 }
 
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG

@@ -128,6 +128,10 @@ enum wl_cfgp2p_status {
 /* dword align allocation */
 #define WLC_IOCTL_MAXLEN 8192
 
+/* XXX Samsung want to print INFO2 instead of ERROR
+ * because most of case, ERROR message is not a real ERROR.
+ * but it can be regarded as real error case for Tester
+ */
 #ifdef CUSTOMER_HW4_DEBUG
 #define CFGP2P_ERROR_TEXT		"CFGP2P-INFO2) "
 #else
@@ -209,11 +213,11 @@ enum wl_cfgp2p_status {
 
 #ifdef WL_ENABLE_P2P_IF
 #undef WL_ENABLE_P2P_IF
-#endif // endif
+#endif
 
 #ifdef WL_SUPPORT_BACKPORTED_KPATCHES
 #undef WL_SUPPORT_BACKPORTED_KPATCHES
-#endif // endif
+#endif
 #else
 #ifdef WLP2P
 #ifndef WL_ENABLE_P2P_IF
@@ -226,7 +230,7 @@ enum wl_cfgp2p_status {
 #ifndef WL_CFG80211_P2P_DEV_IF
 #ifdef WL_NEWCFG_PRIVCMD_SUPPORT
 #undef WL_NEWCFG_PRIVCMD_SUPPORT
-#endif // endif
+#endif
 #endif /* WL_CFG80211_P2P_DEV_IF */
 
 #if defined(WL_ENABLE_P2P_IF) && (defined(WL_CFG80211_P2P_DEV_IF) || \
@@ -245,6 +249,10 @@ enum wl_cfgp2p_status {
 #define bcm_struct_cfgdev	struct net_device
 #endif /* WL_CFG80211_P2P_DEV_IF */
 
+/* XXX: If we take 10 or 30 as count value, operation
+ * may failed due to full scan and noisy environments.
+ * So, we choose 50 as the optimum value for P2P ECSA.
+ */
 #define P2P_ECSA_CNT 50
 
 extern void

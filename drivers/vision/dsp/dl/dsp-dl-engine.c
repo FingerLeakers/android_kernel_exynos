@@ -29,7 +29,8 @@ enum dsp_dl_status dsp_dl_init(struct dsp_dl_param *param)
 	memcpy(dl_param, param, sizeof(*dl_param));
 
 	DL_DEBUG(DL_BORDER);
-	DL_DEBUG("Global Kernel table init\n");
+	DL_DEBUG("Global Kernel table init(addr:%p, size:%u\n",
+		dl_param->gkt.mem, dl_param->gkt.size);
 	dsp_xml_parser_init();
 	ret = dsp_xml_parser_parse(&dl_param->gkt);
 	if (ret == -1) {
@@ -40,15 +41,17 @@ enum dsp_dl_status dsp_dl_init(struct dsp_dl_param *param)
 	DL_DEBUG("LIB manager init\n");
 	dsp_lib_manager_init(dl_param->lib_path);
 
-	DL_DEBUG("Linker init\n");
+	DL_DEBUG("Linker init(addr:%p, size:%u\n",
+		dl_param->rule.mem, dl_param->rule.size);
 	ret = dsp_linker_init(&dl_param->rule);
 	if (ret == -1) {
 		DL_ERROR("[%s] CHK_ERR\n", __func__);
 		return DSP_DL_FAIL;
 	}
 
-	DL_INFO("PM init(size:%zu, ivp main:%u)\n",
-		dl_param->pm.size, dl_param->pm_offset);
+	DL_INFO("PM init(addr:0x%lx, size:%zu, ivp main:%u)\n",
+		dl_param->pm.addr, dl_param->pm.size,
+		dl_param->pm_offset);
 	ret = dsp_pm_manager_init(dl_param->pm.addr, dl_param->pm.size,
 			dl_param->pm_offset);
 	if (ret == -1) {
@@ -56,14 +59,16 @@ enum dsp_dl_status dsp_dl_init(struct dsp_dl_param *param)
 		return DSP_DL_FAIL;
 	}
 
-	DL_INFO("GPT init(size:%zu)\n", dl_param->gpt.size);
+	DL_INFO("GPT init(addr:0x%lx, size:%zu)\n",
+		dl_param->gpt.addr, dl_param->gpt.size);
 	ret = dsp_gpt_manager_init(dl_param->gpt.addr, dl_param->gpt.size);
 	if (ret == -1) {
 		DL_ERROR("GPT initialize is failed\n");
 		return DSP_DL_FAIL;
 	}
 
-	DL_INFO("DL out init(size:%zu)\n", dl_param->dl_out.size);
+	DL_INFO("DL out init(addr:0x%lx, size:%zu)\n",
+		dl_param->dl_out.addr, dl_param->dl_out.size);
 	ret = dsp_dl_out_manager_init(dl_param->dl_out.addr,
 			dl_param->dl_out.size);
 	if (ret == -1) {
@@ -232,4 +237,12 @@ enum dsp_dl_status dsp_dl_unload_libraries(
 	dsp_lib_manager_unload_libs(libs, size);
 	dsp_dl_free(libs);
 	return DSP_DL_SUCCESS;
+}
+
+void dsp_dl_print_status(void)
+{
+	dsp_pm_manager_print();
+	dsp_gpt_manager_print();
+	dsp_dl_out_manager_print();
+	dsp_lib_manager_print();
 }

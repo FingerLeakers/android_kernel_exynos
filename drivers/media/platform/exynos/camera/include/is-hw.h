@@ -154,6 +154,7 @@ struct csis_irq_src {
 struct is_vci_config {
 	u32			map;
 	u32			hwformat;
+	u32			extformat;
 	u32			type;
 	u32			width;
 	u32			height;
@@ -228,6 +229,7 @@ int csi_hw_vcdma_cmn_cdump(u32 __iomem *base_reg);
 int csi_hw_phy_cdump(u32 __iomem *base_reg, u32 instance);
 int csi_hw_common_dma_cdump(u32 __iomem *base_reg);
 #endif
+void csi_hw_dma_reset(u32 __iomem *base_reg);
 void csi_hw_s_frameptr(u32 __iomem *base_reg, u32 vc, u32 number, bool clear);
 u32 csi_hw_g_frameptr(u32 __iomem *base_reg, u32 vc);
 void csi_hw_s_dma_addr(u32 __iomem *base_reg, u32 vc, u32 number, u32 addr);

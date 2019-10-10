@@ -532,7 +532,7 @@ static int __init rkp_test_init(void)
 		return -1;
 	}
 
-	ret = uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, 1, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, (u64)&ret, 1, 0, 0);
 	ha1 = (u64 *)(__va(ret));
 	ha2 = (u64 *)(__va(ret) + 8);
 

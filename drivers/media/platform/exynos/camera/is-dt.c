@@ -727,6 +727,7 @@ static int parse_modes_data(struct exynos_platform_is_module *pdata, struct devi
 	int idx_dt;
 	char *str_vc;
 	struct is_sensor_cfg *cfg;
+	u32 format;
 
 	str_vc = __getname();
 	if (unlikely(!str_vc)) {
@@ -766,10 +767,20 @@ static int parse_modes_data(struct exynos_platform_is_module *pdata, struct devi
 			idx_dt = 0;
 			snprintf(str_vc, PATH_MAX,  "%s%d", "vc", idx_vc);
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->input[idx_vc].map);
-			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->input[idx_vc].hwformat);
+
+			/* input format pasing */
+			of_property_read_u32_index(next, str_vc, idx_dt++, &format);
+			cfg->input[idx_vc].hwformat = format & HW_FORMAT_MASK;
+			cfg->input[idx_vc].extformat = format & HW_EXT_FORMAT_MASK;
+
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->input[idx_vc].width);
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->input[idx_vc].height);
-			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->output[idx_vc].hwformat);
+
+			/* output format pasing */
+			of_property_read_u32_index(next, str_vc, idx_dt++, &format);
+			cfg->output[idx_vc].hwformat = format & HW_FORMAT_MASK;
+			cfg->output[idx_vc].extformat = format & HW_EXT_FORMAT_MASK;
+
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->output[idx_vc].type);
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->output[idx_vc].width);
 			of_property_read_u32_index(next, str_vc, idx_dt++, &cfg->output[idx_vc].height);

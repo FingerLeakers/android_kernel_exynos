@@ -578,6 +578,7 @@ int vts_s_lif_soc_channel_map_get(struct vts_s_lif_data *data,
 	dev_dbg(dev, "%s(%d, 0x%08x)\n", __func__, id, channel_map);
 
 	*val = channel_map;
+	data->channel_map = ctrl;
 
 	return ret;
 #endif
@@ -607,7 +608,8 @@ int vts_s_lif_soc_channel_map_put(struct vts_s_lif_data *data,
 		dev_err(dev, "%s failed(%d): %d\n",
 			__func__, __LINE__, ret);
 
-	dev_dbg(dev, "%s(0x%08x, %u)\n", __func__, id, val);
+	snd_soc_component_read(cmpnt, VTS_S_CHANNEL_MAP_BASE, &data->channel_map);
+	dev_info(dev, "%s(0x%08x, 0x%x)\n", __func__, id, data->channel_map);
 
 	return ret;
 #endif
@@ -713,6 +715,57 @@ int vts_s_lif_soc_dmic_aud_control_hpf_en_put(struct vts_s_lif_data *data,
 
 	return ret;
 }
+
+int vts_s_lif_soc_dmic_en_get(struct vts_s_lif_data *data,
+		unsigned int id, unsigned int *val)
+{
+	int ret = 0;
+
+	*val = data->dmic_en[id];
+
+	return ret;
+}
+
+int vts_s_lif_soc_dmic_en_put(struct vts_s_lif_data *data,
+		unsigned int id, unsigned int val)
+{
+	struct device *dev = data->dev;
+	const char *pin_name;
+
+	data->dmic_en[id] = val;
+
+	switch (id) {
+	case 0:
+		if (!!val)
+			pin_name = "s_lif_0_default";
+		else
+			pin_name = "s_lif_0_idle";
+		break;
+	case 1:
+		if (!!val)
+			pin_name = "s_lif_1_default";
+		else
+			pin_name = "s_lif_1_idle";
+		break;
+	case 2:
+		if (!!val)
+			pin_name = "s_lif_2_default";
+		else
+			pin_name = "s_lif_2_idle";
+		break;
+	default:
+		dev_err(dev, "%s failed(%d): %d\n", __func__, __LINE__, -EINVAL);
+		return -EINVAL;
+	}
+
+	if (!test_bit(VTS_S_STATE_OPENED, &data->state)) {
+		dev_info(dev, "%s not powered(%d)\n", __func__, __LINE__);
+		return 0;
+	} else {
+		return vts_s_lif_cfg_gpio(data->dev_vts, pin_name);
+	}
+}
+
 int vts_s_lif_soc_dmic_aud_control_sys_sel_put(struct vts_s_lif_data *data,
 		unsigned int id, unsigned int val)
 {
@@ -1092,6 +1145,7 @@ int vts_s_lif_soc_startup(struct snd_pcm_substream *substream,
 #endif
 
 	vts_s_lif_restore_register(data);
+	set_bit(VTS_S_STATE_OPENED, &data->state);
 
 	return 0;
 
@@ -1125,6 +1179,7 @@ void vts_s_lif_soc_shutdown(struct snd_pcm_substream *substream,
 	}
 	clk_disable(data->clk_src);
 
+	clear_bit(VTS_S_STATE_OPENED, &data->state);
 	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_sync(dev);
 }
@@ -1214,10 +1269,16 @@ int vts_s_lif_soc_dma_en(int enable,
 		dev_err(dev, "%s failed(%d): %d\n", __func__, __LINE__, ret);
 	dev_info(dev, "%s ctrl(0x%08x)\n", __func__, ctrl);
 
-	if (enable)
-		vts_s_lif_cfg_gpio(data->dev_vts, "s_lif_default");
-	else
-		vts_s_lif_cfg_gpio(data->dev_vts, "idle");
+	if (enable) {
+		vts_s_lif_soc_dmic_en_put(data, 0, data->dmic_en[0]);
+		vts_s_lif_soc_dmic_en_put(data, 1, data->dmic_en[1]);
+		vts_s_lif_soc_dmic_en_put(data, 2, data->dmic_en[2]);
+	} else {
+		/* make default pin state as idle to prevent conflict with vts */
+		vts_s_lif_soc_dmic_en_put(data, 0, 0);
+		vts_s_lif_soc_dmic_en_put(data, 1, 0);
+		vts_s_lif_soc_dmic_en_put(data, 2, 0);
+	}
 
 	/* PAD configuration */
 	vts_s_lif_soc_set_sel_pad(data, enable);

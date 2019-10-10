@@ -79,7 +79,7 @@ typedef struct wlfc_hanger_item {
 	void*	pkt;
 #ifdef PROP_TXSTATUS_DEBUG
 	uint32	push_time;
-#endif // endif
+#endif
 	struct wlfc_hanger_item *next;
 } wlfc_hanger_item_t;
 
@@ -92,6 +92,7 @@ typedef struct wlfc_hanger {
 	uint32 failed_to_pop;
 	uint32 failed_slotfind;
 	uint32 slot_pos;
+	/** XXX: items[1] should be the last element here. Do not add new elements below it. */
 	wlfc_hanger_item_t items[1];
 } wlfc_hanger_t;
 
@@ -114,7 +115,7 @@ typedef struct wlfc_hanger {
 #define WLFC_FLOWCONTROL_HIWATER	(WLFC_PSQ_LEN - 256)
 #undef WLFC_FLOWCONTROL_LOWATER
 #define WLFC_FLOWCONTROL_LOWATER	(WLFC_FLOWCONTROL_HIWATER / 4)
-#endif // endif
+#endif
 
 #define WLFC_LOG_BUF_SIZE		(1024*1024)
 
@@ -156,7 +157,7 @@ typedef struct wlfc_mac_descriptor {
 	uint32 dstncredit_acks;
 	uint32 opened_ct;
 	uint32 closed_ct;
-#endif // endif
+#endif
 	struct wlfc_mac_descriptor* prev;
 	struct wlfc_mac_descriptor* next;
 } wlfc_mac_descriptor_t;
@@ -225,7 +226,7 @@ typedef struct athost_wl_stat_counters {
 	uint32	dropped_qfull[6];
 	uint32	signal_only_pkts_sent;
 	uint32	signal_only_pkts_freed;
-#endif // endif
+#endif
 	uint32	cleanup_txq_cnt;
 	uint32	cleanup_psq_cnt;
 	uint32	cleanup_fw_cnt;
@@ -242,7 +243,7 @@ typedef struct athost_wl_stat_counters {
 #define WLFC_HOST_FIFO_CREDIT_INC_SENTCTRS(ctx, ac) do {} while (0)
 #define WLFC_HOST_FIFO_CREDIT_INC_BACKCTRS(ctx, ac) do {} while (0)
 #define WLFC_HOST_FIFO_DROPPEDCTR_INC(ctx, ac) do {} while (0)
-#endif // endif
+#endif
 #define WLFC_PACKET_BOUND              10
 #define WLFC_FCMODE_NONE				0
 #define WLFC_FCMODE_IMPLIED_CREDIT		1
@@ -383,6 +384,7 @@ typedef struct dhd_pkttag {
 			uint32 thing2;
 		} sd;
 
+		/* XXX: using the USB typedef here will complicate life for anybody using dhd.h */
 		struct {
 			void *bus;
 			void *urb;
@@ -500,7 +502,7 @@ typedef struct dhd_pkttag {
 #else
 #define DHD_WLFC_CTRINC_MAC_CLOSE(entry)	do {} while (0)
 #define DHD_WLFC_CTRINC_MAC_OPEN(entry)		do {} while (0)
-#endif // endif
+#endif
 
 #ifdef BCM_OBJECT_TRACE
 #define DHD_PKTTAG_SET_SN(tag, val)		((dhd_pkttag_t*)(tag))->sn = (val)

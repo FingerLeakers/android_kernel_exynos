@@ -48,7 +48,7 @@
 #define HND_PKTPOOL_MUTEX_DELETE(mutex)		OSL_EXT_SUCCESS
 #define HND_PKTPOOL_MUTEX_ACQUIRE(mutex, msec)	OSL_EXT_SUCCESS
 #define HND_PKTPOOL_MUTEX_RELEASE(mutex)	OSL_EXT_SUCCESS
-#endif // endif
+#endif
 
 /* Registry size is one larger than max pools, as slot #0 is reserved */
 #define PKTPOOLREG_RSVD_ID				(0U)
@@ -292,7 +292,7 @@ pktpool_init(osl_t *osh,
 		}
 	}
 	pktp->is_heap_pool = is_heap_pool;
-#endif // endif
+#endif
 	if (HND_PKTPOOL_MUTEX_CREATE("pktpool", &pktp->mutex) != OSL_EXT_SUCCESS) {
 		return BCME_ERROR;
 	}
@@ -324,7 +324,7 @@ pktpool_init(osl_t *osh,
 
 #ifdef BCMDBG_POOL
 		pktp->dbg_q[pktp->dbg_qlen++].p = p;
-#endif // endif
+#endif
 	}
 
 exit:
@@ -357,7 +357,7 @@ pktpool_deinit(osl_t *osh, pktpool_t *pktp)
 			pktp->dbg_q[i].p = NULL;
 		}
 	}
-#endif // endif
+#endif
 
 	while (pktp->freelist != NULL) {
 		void * p = pktp->freelist;
@@ -415,7 +415,7 @@ pktpool_fill(osl_t *osh, pktpool_t *pktp, bool minimal)
 	 */
 	n_pkts += pktp->is_heap_pool ?
 		pktp->poolheap_count : 0;
-#endif // endif
+#endif
 	for (; n_pkts < psize; n_pkts++) {
 
 		p = PKTGET(osh, pktp->n_pkts, TRUE);
@@ -512,7 +512,7 @@ d11hdr_pool_init(osl_t *osh,
 		}
 	}
 	pktp->is_heap_pool = is_heap_pool;
-#endif // endif
+#endif
 	if (HND_PKTPOOL_MUTEX_CREATE("pktpool", &pktp->mutex) != OSL_EXT_SUCCESS) {
 		return BCME_ERROR;
 	}
@@ -612,7 +612,7 @@ d11hdr_pool_fill(osl_t *osh, pktpool_t *pktp, bool minimal)
 	 * as part of pool size
 	 */
 	n_pkts += pktp->is_heap_pool ? pktp->poolheap_count : 0;
-#endif // endif
+#endif
 	for (; n_pkts < psize; n_pkts++) {
 		p = MALLOC_ALIGN_CALLSITE(osh, pktp->max_pkt_bytes, 0, CALL_SITE);
 		if (p == NULL) {
@@ -784,7 +784,7 @@ pktpool_empty(osl_t *osh, pktpool_t *pktp)
 			pktp->dbg_q[i].p = NULL;
 		}
 	}
-#endif // endif
+#endif
 
 	while (pktp->freelist != NULL) {
 		void * p = pktp->freelist;
@@ -1380,7 +1380,7 @@ pktpool_free(pktpool_t *pktp, void *p)
 	ASSERT(p != NULL);
 #ifdef BCMDBG_POOL
 	/* pktpool_stop_trigger(pktp, p); */
-#endif // endif
+#endif
 
 	pktpool_enq(pktp, p);
 
@@ -1440,7 +1440,7 @@ pktpool_add(pktpool_t *pktp, void *p)
 
 #ifdef BCMDBG_POOL
 	pktp->dbg_q[pktp->dbg_qlen++].p = p;
-#endif // endif
+#endif
 
 done:
 	/* protect shared resource */
@@ -1604,7 +1604,7 @@ hnd_pktpool_init(osl_t *osh)
 		err = BCME_NOMEM;
 		goto error3;
 	}
-#endif // endif
+#endif
 
 #if defined(BCMD11HDRPOOL) && !defined(BCMD11HDRPOOL_DISABLED)
 	pktpool_d11hdr = MALLOCZ(osh, sizeof(pktpool_t));
@@ -1636,7 +1636,7 @@ hnd_pktpool_init(osl_t *osh)
 #else
 	if ((err = pktpool_init(osh, pktpool_shared,
 			&n, PKTBUFSZ, FALSE, lbuf_basic, FALSE, 0, 0)) != BCME_OK) {
-#endif // endif
+#endif
 		ASSERT(0);
 		goto error5;
 	}
@@ -1659,7 +1659,7 @@ hnd_pktpool_init(osl_t *osh)
 	pktpool_setmaxlen(pktpool_shared_lfrag, SHARED_FRAG_POOL_LEN);
 #else
 	pktpool_shared_lfrag->type = lbuf_frag;
-#endif // endif
+#endif
 
 #if defined(BCMRESVFRAGPOOL) && !defined(BCMRESVFRAGPOOL_DISABLED) && !defined(HWA)
 	n = 0; /* IMPORTANT: DO NOT allocate any packets in resv pool */
@@ -1740,7 +1740,7 @@ hnd_pktpool_init(osl_t *osh)
 
 #ifdef POOL_HEAP_RECONFIG
 	lbuf_free_cb_set(hnd_pktpool_lbuf_free_cb);
-#endif // endif
+#endif
 
 	return BCME_OK;
 
@@ -1758,17 +1758,17 @@ error81:
 #if defined(BCMRXFRAGPOOL) && !defined(BCMRXFRAGPOOL_DISABLED)
 	pktpool_deinit(osh, pktpool_shared_rxlfrag);
 error8:
-#endif // endif
+#endif
 
 #if defined(BCMFRAGPOOL) && !defined(BCMFRAGPOOL_DISABLED) && !defined(HWA)
 	pktpool_deinit(osh, pktpool_shared_lfrag);
 error6:
-#endif // endif
+#endif
 
 #if (defined(BCMRXFRAGPOOL) && !defined(BCMRXFRAGPOOL_DISABLED)) || \
 	(defined(BCMFRAGPOOL) && !defined(BCMFRAGPOOL_DISABLED))
 	pktpool_deinit(osh, pktpool_shared);
-#endif // endif
+#endif
 error5:
 
 #if defined(BCMD11HDRPOOL) && !defined(BCMD11HDRPOOL_DISABLED)
@@ -1838,7 +1838,7 @@ hnd_pktpool_refill(bool minimal)
 	if (POOL_ENAB(pktpool_shared_rxlfrag)) {
 		pktpool_fill(pktpool_osh, pktpool_shared_rxlfrag, minimal);
 	}
-#endif // endif
+#endif
 #if defined(BCMFRAGPOOL) && defined(BCMRESVFRAGPOOL)
 	if (POOL_ENAB(pktpool_resv_lfrag)) {
 		int resv_size = (pktpool_resv_lfrag->max_pkt_bytes + LBUFFRAGSZ) *

@@ -129,15 +129,6 @@
 				regulator-initial-mode = <2>;
 			};
 
-			buck4_reg: BUCK4M {
-				regulator-name = "m_vdd_buck4";
-				regulator-min-microvolt = <450000>;
-				regulator-max-microvolt = <1300000>;
-				regulator-always-on;
-				regulator-ramp-delay = <6000>;
-				regulator-initial-mode = <0>;
-			};
-
 			buck5_reg: BUCK5M {
 				regulator-name = "m_vdd_buck5";
 				regulator-min-microvolt = <450000>;
@@ -370,9 +361,9 @@
 			};
 
 			ldo24_reg: LDO24M {
-				regulator-name = "VDD_GRIP_3P0";
-				regulator-min-microvolt = <3000000>;
-				regulator-max-microvolt = <3000000>;
+				regulator-name = "VDD_GRIP_3P3";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
 				regulator-ramp-delay = <12000>;
 				regulator-always-on;
 				regulator-initial-mode = <3>;

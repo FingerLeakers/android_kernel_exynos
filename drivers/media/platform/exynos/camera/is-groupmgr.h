@@ -34,6 +34,7 @@ enum is_group_state {
 	IS_GROUP_SEMI_PIPE_OUTPUT,
 	IS_GROUP_VOTF_INPUT,
 	IS_GROUP_VOTF_OUTPUT,
+	IS_GROUP_STANDBY,
 };
 
 enum is_group_input_type {

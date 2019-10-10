@@ -46,7 +46,7 @@
 
 #ifndef BIT
 #define BIT(x) (1 << (x))
-#endif // endif
+#endif
 
 /* DSSS, CCK and 802.11n rates in [500kbps] units */
 #define WL_MAXRATE	108	/* in 500kbps units */

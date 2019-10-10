@@ -510,6 +510,10 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 
 	dio->bio_disk = bio->bi_disk;
 
+	if (dio->flags & DIO_HPB_IO) {
+		bio->bi_opf |= REQ_RT_PINNED;
+	}
+
 	if (sdio->submit_io) {
 		sdio->submit_io(bio, dio->inode, sdio->logical_offset_in_bio);
 		dio->bio_cookie = BLK_QC_T_NONE;

@@ -58,10 +58,8 @@ static void __mfc_dump_regs(struct mfc_dev *dev)
 
 	dev_err(dev->device, "-----------dumping MFC registers\n");
 
-	if (!mfc_pm_get_pwr_ref_cnt(dev) || !mfc_pm_get_clk_ref_cnt(dev)) {
-		dev_err(dev->device, "Power(%d) or clock(%d) is not enabled\n",
-				mfc_pm_get_pwr_ref_cnt(dev),
-				mfc_pm_get_clk_ref_cnt(dev));
+	if (!mfc_pm_get_pwr_ref_cnt(dev)) {
+		dev_err(dev->device, "Power(%d) is not enabled\n", mfc_pm_get_pwr_ref_cnt(dev));
 		return;
 	}
 
@@ -362,10 +360,11 @@ static void __mfc_dump_state(struct mfc_dev *dev, int curr_ctx)
 
 	for (i = 0; i < MFC_NUM_CONTEXTS; i++)
 		if (dev->ctx[i])
-			dev_err(dev->device, "MFC ctx[%d] %s(%scodec_type:%d) state:%d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d), interrupt(cond:%d, type:%d, err:%d)\n",
+			dev_err(dev->device, "MFC ctx[%d] %s(%scodec_type:%d) %s, state:%d, queue_cnt(src:%d, dst:%d, ref:%d, qsrc:%d, qdst:%d), interrupt(cond:%d, type:%d, err:%d)\n",
 				dev->ctx[i]->num,
 				dev->ctx[i]->type == MFCINST_DECODER ? "DEC" : "ENC",
 				curr_ctx == i ? "curr_ctx! " : "",
+				dev->ctx[i]->is_drm ? "DRM" : "Normal",
 				dev->ctx[i]->codec_mode, dev->ctx[i]->state,
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->src_buf_queue),
 				mfc_get_queue_count(&dev->ctx[i]->buf_queue_lock, &dev->ctx[i]->dst_buf_queue),
@@ -656,10 +655,8 @@ static void __mfc_dump_info(struct mfc_dev *dev)
 {
 	__mfc_dump_info_without_regs(dev);
 
-	if (!mfc_pm_get_pwr_ref_cnt(dev) || !mfc_pm_get_clk_ref_cnt(dev)) {
-		dev_err(dev->device, "Power(%d) or clock(%d) is not enabled\n",
-				mfc_pm_get_pwr_ref_cnt(dev),
-				mfc_pm_get_clk_ref_cnt(dev));
+	if (!mfc_pm_get_pwr_ref_cnt(dev)) {
+		dev_err(dev->device, "Power(%d) is not enabled\n", mfc_pm_get_pwr_ref_cnt(dev));
 		return;
 	}
 

@@ -468,6 +468,20 @@ static void dpp_reg_set_scale_ratio(u32 id, struct dpp_params_info *p)
 			prev_h_ratio, p->h_ratio, prev_v_ratio, p->v_ratio);
 }
 
+
+#ifdef CONFIG_EXYNOS_MCD_HDR
+void dpp_reg_sel_hdr(u32 id, enum hdr_path path)
+{
+	dpp_write_mask(id, DPP_ENABLE, DPP_SET_HDR_SEL(path), DPP_HDR_SEL_MASK);
+}
+
+u32 dpp_read_hdr_path(u32 id)
+{
+	return(dpp_read(id, DPP_ENABLE) & DPP_HDR_SEL_MASK);
+}
+#endif
+
+
 static void dpp_reg_set_img_size(u32 id, u32 w, u32 h)
 {
 	dpp_write(id, DPP_IMG_SIZE, DPP_IMG_HEIGHT(h) | DPP_IMG_WIDTH(w));
@@ -478,6 +492,8 @@ static void dpp_reg_set_scaled_img_size(u32 id, u32 w, u32 h)
 	dpp_write(id, DPP_SCALED_IMG_SIZE,
 			DPP_SCALED_IMG_HEIGHT(h) | DPP_SCALED_IMG_WIDTH(w));
 }
+
+#ifndef CONFIG_EXYNOS_MCD_HDR
 
 static void dpp_reg_set_eotf_lut(u32 id, struct dpp_params_info *p)
 {
@@ -576,6 +592,8 @@ static void dpp_reg_set_tm_lut(u32 id, struct dpp_params_info *p)
 	}
 }
 
+
+
 static void dpp_reg_set_hdr_params(u32 id, struct dpp_params_info *p)
 {
 	u32 val, val2, mask;
@@ -593,6 +611,7 @@ static void dpp_reg_set_hdr_params(u32 id, struct dpp_params_info *p)
 		dpp_reg_set_tm_lut(id, p);
 	}
 }
+#endif
 
 /****************** WB MUX CAL functions ******************/
 static void wb_mux_reg_set_sw_reset(u32 id)
@@ -1049,6 +1068,9 @@ u32 pattern_data[] = {
 };
 #endif
 
+
+
+
 void dpp_reg_configure_params(u32 id, struct dpp_params_info *p,
 		const unsigned long attr)
 {
@@ -1076,8 +1098,11 @@ void dpp_reg_configure_params(u32 id, struct dpp_params_info *p,
 	/* configure image format of IDMA, DPP, ODMA and WB MUX */
 	dma_dpp_reg_set_format(id, p, attr);
 
+#ifndef CONFIG_EXYNOS_MCD_HDR
+	//make ignore s.lis's hdr
 	if (test_bit(DPP_ATTR_HDR, &attr))
 		dpp_reg_set_hdr_params(id, p);
+#endif
 
 	if (test_bit(DPP_ATTR_AFBC, &attr))
 		idma_reg_set_afbc(id, p->comp_type, p->rcv_num);

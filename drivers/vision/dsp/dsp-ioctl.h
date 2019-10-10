@@ -56,6 +56,7 @@ enum dsp_ioc_version {
 	DSP_IOC_VBASE,
 	DSP_IOC_V1,
 	DSP_IOC_V2,
+	DSP_IOC_V3,
 };
 
 union dsp_ioc_arg {

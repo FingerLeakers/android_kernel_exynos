@@ -307,7 +307,7 @@ static void log_session_ref(void)
 			npu_info("Entry[%d] : Session UID[%u] PID[%llu] frame_id[%u]\n",
 				session_cnt, sess->uid, u_pid, sess->frame_id);
 		} else {
-			npu_info("Entry[%d] : NULL Session\n");
+			npu_info("Entry[%d] : NULL Session\n", session_cnt);
 		}
 
 		session_cnt++;

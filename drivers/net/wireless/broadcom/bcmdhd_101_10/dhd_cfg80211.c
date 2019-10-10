@@ -34,13 +34,13 @@
 #ifdef PKT_FILTER_SUPPORT
 #include <dngl_stats.h>
 #include <dhd.h>
-#endif // endif
+#endif
 
 #ifdef PKT_FILTER_SUPPORT
 extern uint dhd_pkt_filter_enable;
 extern uint dhd_master_mode;
 extern void dhd_pktfilter_offload_enable(dhd_pub_t * dhd, char *arg, int enable, int master_mode);
-#endif // endif
+#endif
 
 static int dhd_dongle_up = FALSE;
 #define PKT_FILTER_BUF_SIZE 64
@@ -95,6 +95,15 @@ s32 dhd_cfg80211_set_p2p_info(struct bcm_cfg80211 *cfg, int val)
 	dhd_pub_t *dhd =  (dhd_pub_t *)(cfg->pub);
 	dhd->op_mode |= val;
 	WL_ERR(("Set : op_mode=0x%04x\n", dhd->op_mode));
+#ifdef ARP_OFFLOAD_SUPPORT
+	if (dhd->arp_version == 1) {
+		/* IF P2P is enabled, disable arpoe */
+		/* XXX: need to save current arp status */
+		dhd_arp_offload_set(dhd, 0);
+		dhd_arp_offload_enable(dhd, false);
+	}
+#endif /* ARP_OFFLOAD_SUPPORT */
+
 	return 0;
 }
 
@@ -107,6 +116,7 @@ s32 dhd_cfg80211_clean_p2p_info(struct bcm_cfg80211 *cfg)
 #ifdef ARP_OFFLOAD_SUPPORT
 	if (dhd->arp_version == 1) {
 		/* IF P2P is disabled, enable arpoe back for STA mode. */
+		/* XXX: need to check previous status */
 		dhd_arp_offload_set(dhd, dhd_arp_mode);
 		dhd_arp_offload_enable(dhd, true);
 	}
@@ -137,11 +147,20 @@ int wl_cfg80211_register_if(struct bcm_cfg80211 *cfg,
 int wl_cfg80211_remove_if(struct bcm_cfg80211 *cfg,
 	int ifidx, struct net_device* ndev, bool rtnl_lock_reqd)
 {
+#ifdef DHD_PCIE_RUNTIMEPM
+	dhdpcie_runtime_bus_wake(cfg->pub, CAN_SLEEP(), __builtin_return_address(0));
+#endif /* DHD_PCIE_RUNTIMEPM */
 	return dhd_remove_if(cfg->pub, ifidx, rtnl_lock_reqd);
 }
 
 void wl_cfg80211_cleanup_if(struct net_device *net)
 {
+	struct bcm_cfg80211 *cfg = wl_get_cfg(net);
+#ifdef DHD_PCIE_RUNTIMEPM
+	dhdpcie_runtime_bus_wake(cfg->pub, CAN_SLEEP(), __builtin_return_address(0));
+#else
+	BCM_REFERENCE(cfg);
+#endif /* DHD_PCIE_RUNTIMEPM */
 	dhd_cleanup_if(net);
 }
 
@@ -166,7 +185,7 @@ void dhd_netdev_free(struct net_device *ndev)
 {
 #ifdef WL_CFG80211
 	ndev = dhd_cfg80211_netdev_free(ndev);
-#endif // endif
+#endif
 	if (ndev)
 		free_netdev(ndev);
 }
@@ -224,7 +243,7 @@ s32 dhd_config_dongle(struct bcm_cfg80211 *cfg)
 {
 #ifndef DHD_SDALIGN
 #define DHD_SDALIGN	32
-#endif // endif
+#endif
 	struct net_device *ndev;
 	s32 err = 0;
 

@@ -1266,9 +1266,8 @@ static void exynos_pcie_rc_send_pme_turn_off(struct exynos_pcie *exynos_pcie)
 {
 	struct dw_pcie *pci = exynos_pcie->pci;
 	struct device *dev = pci->dev;
-	int __maybe_unused count = 0;
-	int __maybe_unused retry_cnt = 0;
-	u32 __maybe_unused val;
+	int count = 0;
+	u32 val;
 
 	/* L1.2 enable check */
 	dev_info(dev, "Current PM state(PCS + 0x188) : 0x%x \n",
@@ -1288,11 +1287,6 @@ static void exynos_pcie_rc_send_pme_turn_off(struct exynos_pcie *exynos_pcie)
 	val &= ~APP_REQ_EXIT_L1_MODE;
 	val |= L1_REQ_NAK_CONTROL_MASTER;
 	exynos_elbi_write(exynos_pcie, val, PCIE_APP_REQ_EXIT_L1_MODE);
-
-retry_pme_turnoff:
-	val = exynos_elbi_read(exynos_pcie, PCIE_ELBI_RDLH_LINKUP) & 0x1f;
-	dev_err(dev, "Current LTSSM State is 0x%x with retry_cnt =%d.\n",
-								val, retry_cnt);
 
 	exynos_elbi_write(exynos_pcie, 0x1, XMIT_PME_TURNOFF);
 
@@ -1324,13 +1318,8 @@ retry_pme_turnoff:
 		count++;
 	} while (count < MAX_L2_TIMEOUT);
 
-	if (count >= MAX_L2_TIMEOUT) {
-		if (retry_cnt < 10) {
-			retry_cnt++;
-			goto retry_pme_turnoff;
-		}
+	if (count >= MAX_L2_TIMEOUT)
 		dev_err(dev, "cannot receive L23_READY DLLP packet(0x%x)\n", val);
-	}
 }
 
 static int exynos_pcie_rc_establish_link(struct pcie_port *pp)
@@ -1453,6 +1442,7 @@ retry:
 	        dev_info(dev, "%s: %s(0x%x)\n", __func__,
 			                        LINK_STATE_DISP(val), val);
 			                        
+
 		dev_info(dev, "%s: (phy+0xC08)=0x%x, (phy+0x1408=0x%x), (phy+0xC6C=0x%x), (phy+0x146C=0x%x)\n",
 				__func__, exynos_phy_read(exynos_pcie, 0xC08),
 				exynos_phy_read(exynos_pcie, 0x1408),
@@ -2164,8 +2154,8 @@ int exynos_pcie_rc_itmon_notifier(struct notifier_block *nb,
 	int i;
 
 	dev_info(dev, "### EXYNOS PCIE ITMON ### \n");
-	if(itmon_info->dest != NULL) {
-	    if(!strcmp(itmon_info->dest, "HSI2")) {
+	if(itmon_info->port != NULL) {
+	    if(!strcmp(itmon_info->port, "HSI2")) {
 		regmap_read(exynos_pcie->pmureg, exynos_pcie->pmu_offset, &val1);
 		dev_info(dev, "### PMU PHY Isolation : 0x%x\n", val1);
 
@@ -2189,6 +2179,9 @@ int exynos_pcie_rc_itmon_notifier(struct notifier_block *nb,
 		    dev_info(dev, "0x%02x:  %08x  %08x  %08x  %08x\n",
 			    i, val1, val2, val3, val4);
 		}
+
+		dev_info(dev, "### PCIE dump stack ### \n");
+		dump_stack();
 	    }
 	}
 

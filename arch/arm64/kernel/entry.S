@@ -866,6 +866,9 @@ el0_undef:
 	enable_daif
 	ct_user_exit
 	mov	x0, sp
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+	mrs	x1, esr_el1			// read the syndrome register
+#endif
 	bl	do_undefinstr
 	b	ret_to_user
 el0_sys:

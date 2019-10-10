@@ -470,7 +470,11 @@ int is_sensor_mode_change(struct is_cis *cis, u32 mode)
 
 	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
 
+	/* set or init before mode changed */
+	cis->dual_sync_mode = DUAL_SYNC_NONE;
+	cis->dual_sync_work_mode = DUAL_SYNC_NONE;
 	CALL_CISOPS(cis, cis_data_calculation, cis->subdev, cis->cis_data->sens_config_index_cur);
+
 	kthread_queue_work(&sensor_peri->mode_change_worker, &sensor_peri->mode_change_work);
 
 	return ret;
@@ -1119,6 +1123,10 @@ int is_sensor_peri_notify_vsync(struct v4l2_subdev *subdev, void *arg)
 			cis->long_term_mode.frame_interval--;
 	}
 
+	/* operate work about dual sync */
+	if (cis->dual_sync_work_mode)
+		schedule_work(&sensor_peri->cis.dual_sync_mode_work);
+
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION_RUNTIME
 	if (cis->long_term_mode.sen_strm_off_on_enable)
 		do_mipi_clock_change_work = false;
@@ -1573,6 +1581,44 @@ void is_sensor_factory_dramtest_work(struct work_struct *data)
 }
 #endif
 
+void is_sensor_dual_sync_mode_work(struct work_struct *data)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	struct is_device_sensor_peri *sensor_peri;
+	struct v4l2_subdev *subdev_cis;
+
+	cis = container_of(data, struct is_cis, dual_sync_mode_work);
+	FIMC_BUG_VOID(!cis);
+	FIMC_BUG_VOID(!cis->cis_data);
+
+	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+	FIMC_BUG_VOID(!sensor_peri);
+
+	subdev_cis = sensor_peri->subdev_cis;
+	FIMC_BUG_VOID(!subdev_cis);
+
+	switch (cis->dual_sync_work_mode) {
+	case DUAL_SYNC_MASTER:
+	case DUAL_SYNC_SLAVE:
+	case DUAL_SYNC_STANDALONE:
+		ret = CALL_CISOPS(cis, cis_set_dual_setting, subdev_cis, cis->dual_sync_work_mode);
+		if (ret)
+			err("[%s]: cis_set_dual_setting fail\n", __func__);
+		break;
+	case DUAL_SYNC_STREAMOFF:
+		ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
+		if (ret < 0)
+			err("[%s] stream off fail\n", __func__);
+		break;
+	default:
+		err("[%s] wrong dual_sync_work_mode(%d)\n", __func__, cis->dual_sync_work_mode);
+	}
+
+	/* after finished working, clear value */
+	cis->dual_sync_work_mode = DUAL_SYNC_NONE;
+}
+
 void is_sensor_peri_init_work(struct is_device_sensor_peri *sensor_peri)
 {
 	FIMC_BUG_VOID(!sensor_peri);
@@ -1607,6 +1653,8 @@ void is_sensor_peri_init_work(struct is_device_sensor_peri *sensor_peri)
 	if (sensor_peri->ois)
 		INIT_WORK(&sensor_peri->ois->init_work, is_sensor_ois_init_work);
 #endif
+
+	INIT_WORK(&sensor_peri->cis.dual_sync_mode_work, is_sensor_dual_sync_mode_work);
 }
 
 void is_sensor_peri_probe(struct is_device_sensor_peri *sensor_peri)
@@ -1620,6 +1668,137 @@ void is_sensor_peri_probe(struct is_device_sensor_peri *sensor_peri)
 	clear_bit(IS_SENSOR_APERTURE_AVAILABLE, &sensor_peri->peri_state);
 
 	mutex_init(&sensor_peri->cis.control_lock);
+}
+
+static struct is_cis *get_streaming_cis_dual(struct is_device_sensor *device, enum cis_dual_sync_mode mode)
+{
+	int i;
+	struct is_core *core = (struct is_core *)device->private_data;
+	struct v4l2_subdev *subdev_module;
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	struct v4l2_subdev *subdev_cis = NULL;
+	struct is_cis *cis = NULL, *cis_dual = NULL;
+
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		if (test_bit(IS_SENSOR_FRONT_START, &(core->sensor[i].state))) {
+			subdev_module = core->sensor[i].subdev_module;
+			if (!subdev_module) {
+				err("subdev_module is NULL");
+				return NULL;
+			}
+
+			module = v4l2_get_subdevdata(subdev_module);
+			if (!module) {
+				err("module is NULL");
+				return NULL;
+			}
+
+			sensor_peri = (struct is_device_sensor_peri *)module->private_data;
+
+			subdev_cis = sensor_peri->subdev_cis;
+			if (!subdev_cis) {
+				err("subdev_cis is NULL");
+				return NULL;
+			}
+
+			cis = (struct is_cis *)v4l2_get_subdevdata(subdev_cis);
+			if (!cis) {
+				err("cis is NULL");
+				return NULL;
+			}
+
+			if (cis->dual_sync_mode == mode) {
+				dbg_sensor(1, "[%s] MOD:%d is operating as dual %s\n",
+						__func__, cis->id,
+						mode == DUAL_SYNC_MASTER ? "Master" : "Slave");
+				cis_dual = cis;
+				break;
+			}
+		}
+	}
+
+	if (i == IS_SENSOR_COUNT)
+		dbg_sensor(1, "[%s] not found for cis dual\n", __func__);
+
+	return cis_dual;
+}
+
+static void is_sensor_peri_ctl_dual_sync(struct is_device_sensor *device, bool on)
+{
+	int ret = 0;
+	struct v4l2_subdev *subdev_module;
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	struct v4l2_subdev *subdev_cis = NULL;
+	struct is_cis *cis = NULL, *cis_dual = NULL;
+
+	subdev_module = device->subdev_module;
+	if (!subdev_module) {
+		err("subdev_module is NULL");
+		return;
+	}
+
+	module = v4l2_get_subdevdata(subdev_module);
+	if (!module) {
+		err("module is NULL");
+		return;
+	}
+
+	sensor_peri = (struct is_device_sensor_peri *)module->private_data;
+
+	subdev_cis = sensor_peri->subdev_cis;
+	if (!subdev_cis) {
+		err("[SEN:%d] no subdev_cis", module->sensor_id);
+		return;
+	}
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev_cis);
+	FIMC_BUG_VOID(!cis);
+	FIMC_BUG_VOID(!cis->cis_data);
+
+	if (on) {
+		if (cis->dual_sync_mode == DUAL_SYNC_MASTER) {
+			ret = CALL_CISOPS(cis, cis_set_dual_setting, subdev_cis, DUAL_SYNC_MASTER);
+			if (ret)
+				err("[%s]: cis_set_dual_setting fail\n", __func__);
+
+			/*
+			 * Check if slave sensor is working.
+			 * If works, notify slave sensor for dual mode setting.
+			 */
+			cis_dual = get_streaming_cis_dual(device, DUAL_SYNC_SLAVE);
+			if (cis_dual) {
+				cis_dual->dual_sync_work_mode = DUAL_SYNC_SLAVE;
+				info("[%s]: dual slave mode requested to MOD:%d", __func__, cis_dual->id);
+			}
+
+		} else if (cis->dual_sync_mode == DUAL_SYNC_SLAVE) {
+			/*
+			 * Check if master sensor is working.
+			 * If works, set slave mode.
+			 */
+			cis_dual = get_streaming_cis_dual(device, DUAL_SYNC_MASTER);
+			if (cis_dual) {
+				ret = CALL_CISOPS(cis, cis_set_dual_setting, subdev_cis, DUAL_SYNC_SLAVE);
+				if (ret)
+					err("[%s]: cis_set_dual_setting fail\n", __func__);
+			}
+		}
+	} else {
+		if (cis->dual_sync_mode == DUAL_SYNC_MASTER) {
+			/*
+			 * Check if slave sensor is working.
+			 * If works, master stream off will be
+			 * next frame start timing for guarantee slave standalone margin
+			 */
+			cis_dual = get_streaming_cis_dual(device, DUAL_SYNC_SLAVE);
+			if (cis_dual) {
+				cis_dual->dual_sync_work_mode = DUAL_SYNC_STANDALONE;
+				cis->dual_sync_work_mode = DUAL_SYNC_STREAMOFF;
+				info("[%s]: standalone mode requested to MOD:%d", __func__, cis_dual->id);
+			}
+		}
+	}
 }
 
 int is_sensor_peri_s_stream(struct is_device_sensor *device,
@@ -1700,6 +1879,11 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 
 		if (sensor_peri->mcu && sensor_peri->mcu->ois) {
 			mutex_lock(&core->ois_mode_lock);
+#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
+			ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_init, sensor_peri->subdev_mcu);
+			if (ret < 0)
+				err("v4l2_subdev_call(ois_init) is fail(%d)", ret);
+#endif
 			ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_set_mode, sensor_peri->subdev_mcu,
 				OPTICAL_STABILIZATION_MODE_STILL);
 			if (ret < 0)
@@ -1739,6 +1923,9 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 			}
 		}
 
+		if (cis->dual_sync_mode)
+			is_sensor_peri_ctl_dual_sync(device, on);
+
 		ret = CALL_CISOPS(cis, cis_stream_on, subdev_cis);
 		if (ret < 0) {
 			err("[%s]: sensor stream on fail\n", __func__);
@@ -1760,7 +1947,12 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 	} else {
 		/* stream off sequence */
 		mutex_lock(&cis->control_lock);
-		ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
+
+		if (cis->dual_sync_mode)
+			is_sensor_peri_ctl_dual_sync(device, on);
+
+		if (cis->dual_sync_work_mode != DUAL_SYNC_STREAMOFF)
+			ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
 		if (ret == 0)
 			ret = CALL_CISOPS(cis, cis_wait_streamoff, subdev_cis);
 

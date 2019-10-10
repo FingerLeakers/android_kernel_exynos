@@ -29,11 +29,11 @@
 /* For now, protect the bcmerror.h */
 #ifdef BCMUTILS_ERR_CODES
 #include <bcmerror.h>
-#endif // endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
-#endif // endif
+#endif
 
 #define bcm_strncpy_s(dst, noOfElements, src, count)    strncpy((dst), (src), (count))
 #ifdef FREEBSD
@@ -128,7 +128,7 @@ struct bcmstrbuf {
  */
 #ifndef SPINWAIT_POLL_PERIOD
 #define SPINWAIT_POLL_PERIOD	10U
-#endif // endif
+#endif
 
 #define SPINWAIT(exp, us) { \
 	uint countdown = (us) + (SPINWAIT_POLL_PERIOD - 1U); \
@@ -193,6 +193,8 @@ extern void *pktoffset(osl_t *osh, void *p,  uint offset);
 #define DSCP_EF		0x2E
 /* CS6: Network Control (RFC2474) */
 #define DSCP_CS6	0x30
+/* CS7: Network Control (RFC2474) */
+#define DSCP_CS7	0x38
 
 extern uint pktsetprio(void *pkt, bool update_vtag);
 extern uint pktsetprio_qms(void *pkt, uint8* up_table, bool update_vtag);
@@ -310,7 +312,7 @@ typedef struct wlc_ioctl_cmd {
 #if defined(WLTINYDUMP) || defined(WLMSG_INFORM) || defined(WLMSG_ASSOC) || \
 	defined(WLMSG_PRPKT) || defined(WLMSG_WSEC)
 extern int bcm_format_ssid(char* buf, const uchar ssid[], uint ssid_len);
-#endif // endif
+#endif
 #endif	/* BCMDRIVER */
 
 /* string */
@@ -472,7 +474,7 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 #define BCME_IOCTL_PATCH_UNSUPPORTED	-9999
 #if (BCME_LAST <= BCME_IOCTL_PATCH_UNSUPPORTED)
 	#error "BCME_LAST <= BCME_IOCTL_PATCH_UNSUPPORTED"
-#endif // endif
+#endif
 
 /* These are collection of BCME Error strings */
 #define BCMERRSTRINGTABLE {		\
@@ -614,7 +616,7 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 #ifndef STRUCT_SIZE_THROUGH
 #define STRUCT_SIZE_THROUGH(sptr, fname) \
 	(((uint8*)&((sptr)->fname) - (uint8*)(sptr)) + sizeof((sptr)->fname))
-#endif // endif
+#endif
 
 /* Extracting the size of element in a structure */
 #define SIZE_OF(type, field) sizeof(((type *)0)->field)
@@ -624,11 +626,11 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(a)		(uint32)(sizeof(a) / sizeof(a[0]))
-#endif // endif
+#endif
 
 #ifndef ARRAYLAST /* returns pointer to last array element */
 #define ARRAYLAST(a)		(&a[ARRAYSIZE(a)-1])
-#endif // endif
+#endif
 
 /* Calculates the required pad size. This is mainly used in register structures */
 #define PADSZ(start, end)       ((((end) - (start)) / 4) + 1)
@@ -652,7 +654,7 @@ extern bool isclr(const void *array, uint bit);
 #define	clrbit(a, i)	(((uint8 *)a)[(i) / NBBY] &= ~(1 << ((i) % NBBY)))
 #define	isset(a, i)	(((const uint8 *)a)[(i) / NBBY] & (1 << ((i) % NBBY)))
 #define	isclr(a, i)	((((const uint8 *)a)[(i) / NBBY] & (1 << ((i) % NBBY))) == 0)
-#endif // endif
+#endif
 #endif /* setbit */
 
 /* read/write/clear field in a consecutive bits in an octet array.
@@ -757,6 +759,10 @@ DECLARE_MAP_API(8, 2, 3, 3U, 0x00FF) /* setbit8() and getbit8() */
 				(ea).octet[3], \
 				(ea).octet[4], \
 				(ea).octet[5]
+/* XXX use only for debug, the string length can be changed
+ * If you want to use this macro to the logic,
+ * USE MACF instead
+ */
 #if !defined(SIMPLE_MAC_PRINT)
 #define MACDBG "%02x:%02x:%02x:%02x:%02x:%02x"
 #define MAC2STRDBG(ea)	((const uint8*)(ea))[0], \
@@ -813,7 +819,7 @@ xor_128bit_block(const uint8 *src1, const uint8 *src2, uint8 *dst)
 	if (
 #ifdef __i386__
 	    1 ||
-#endif // endif
+#endif
 	    (((uintptr)src1 | (uintptr)src2 | (uintptr)dst) & 3) == 0) {
 		/* ARM CM3 rel time: 1229 (727 if alignment check could be omitted) */
 		/* x86 supports unaligned.  This version runs 6x-9x faster on x86. */
@@ -1010,6 +1016,7 @@ bcm_count_leading_zeros(uint32 u32arg)
  * Macro to count leading zeroes
  *
  */
+/* XXX Merge this and above! */
 #if defined(__GNUC__)
 #define CLZ(x) __builtin_clzl(x)
 #elif defined(__arm__)
@@ -1271,7 +1278,7 @@ uint16 ipv6_tcp_hdr_cksum(uint8 *ipv6, uint8 *tcp, uint16 tcp_len);
 
 #ifdef __cplusplus
 	}
-#endif // endif
+#endif
 
 /* #define DEBUG_COUNTER */
 #ifdef DEBUG_COUNTER
@@ -1285,6 +1292,31 @@ typedef struct _counter_tbl_t {
 	bool enabled;				/* Whether to enable printing log */
 } counter_tbl_t;
 
+/*	XXX: How to use
+	Eg.: In dhd_linux.c
+	cnt[0]: How many times dhd_start_xmit() was called in every 1sec.
+	cnt[1]: How many bytes were requested to be sent in every 1sec.
+
+++	static counter_tbl_t xmit_tbl = {"xmit", 0, 1000, 2, {0,}, 1};
+
+	int
+	dhd_start_xmit(struct sk_buff *skb, struct net_device *net)
+	{
+		..........
+++		counter_printlog(&xmit_tbl);
+++		xmit_tbl.cnt[0]++;
+
+		ifp = dhd->iflist[ifidx];
+		datalen  = PKTLEN(dhdp->osh, skb);
+
+++		xmit_tbl.cnt[1] += datalen;
+		............
+
+		ret = dhd_sendpkt(&dhd->pub, ifidx, pktbuf);
+		...........
+	}
+*/
+
 void counter_printlog(counter_tbl_t *ctr_tbl);
 #endif /* DEBUG_COUNTER */
 
@@ -1292,7 +1324,7 @@ void counter_printlog(counter_tbl_t *ctr_tbl);
 #define CALL_SITE __builtin_return_address(0)
 #else
 #define CALL_SITE ((void*) 0)
-#endif // endif
+#endif
 #ifdef SHOW_LOGTRACE
 #define TRACE_LOG_BUF_MAX_SIZE 1700
 #define RTT_LOG_BUF_MAX_SIZE 1700
@@ -1388,7 +1420,7 @@ void varbuf_init(varbuf_t *b, char *buf, uint size);
 int varbuf_append(varbuf_t *b, const char *fmt, ...);
 #if defined(BCMDRIVER)
 int initvars_table(osl_t *osh, char *start, char *end, char **vars, uint *count);
-#endif // endif
+#endif
 
 /* Count the number of trailing zeros in uint32 val
  * Applying unary minus to unsigned value is intentional,

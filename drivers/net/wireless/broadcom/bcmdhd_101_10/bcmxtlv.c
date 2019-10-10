@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #ifndef ASSERT
 #define ASSERT(exp)
-#endif // endif
+#endif
 #endif /* !BCMDRIVER */
 
 #include <bcmtlv.h>
@@ -55,7 +55,7 @@ bool
 bcm_valid_xtlv(const bcm_xtlv_t *elt, int buf_len, bcm_xtlv_opts_t opts)
 {
 	return elt != NULL &&
-		buf_len >= bcm_xtlv_hdr_size(opts) &&
+	        buf_len >= bcm_xtlv_hdr_size(opts) &&
 		buf_len  >= bcm_xtlv_size(elt, opts);
 }
 
@@ -125,9 +125,27 @@ bcm_next_xtlv(const bcm_xtlv_t *elt, int *buflen, bcm_xtlv_opts_t opts)
 	COV_TAINTED_DATA_SINK(buflen);
 	COV_NEG_SINK(buflen);
 
+	/* validate current elt */
+	if (!bcm_valid_xtlv(elt, *buflen, opts))
+		return NULL;
+
 	/* advance to next elt */
 	sz = BCM_XTLV_SIZE_EX(elt, opts);
 	elt = (const bcm_xtlv_t*)((const uint8 *)elt + sz);
+
+#if defined(__COVERITY__)
+	/* The check below is completely redundant since the elt has been verified by
+	 * bcm_valid_xtlv(). bcm_valid_xtlv() verifies that the elt pointer it is given
+	 * is a valid element, so its size, sz = BCM_XTLV_SIZE_EX(), is in the bounds
+	 * of the buffer.
+	 * The following redundant check prevents Coverity from flagging the
+	 * (*buflen -= sz) statement below as "Assigning: *buflen = sz, which taints *buflen"
+	 */
+	if (sz > *buflen) {
+		return NULL;
+	}
+#endif /* __COVERITY__ */
+
 	*buflen -= sz;
 
 	/* validate next elt */
@@ -551,7 +569,7 @@ bcm_unpack_xtlv_buf_to_mem(const uint8 *tlv_buf, int *buflen, xtlv_desc_t *items
 		}
 	}
 
-	if (res == BCME_OK && *buflen != 0)
+	if (res == BCME_OK && *buflen != 0)		/* XXX this does not look right */
 		res =  BCME_BUFTOOSHORT;
 
 	return res;

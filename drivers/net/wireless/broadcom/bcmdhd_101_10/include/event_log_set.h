@@ -33,11 +33,21 @@
 /* MSCH logging */
 #define EVENT_LOG_SET_MSCH_PROFILER	(4u)
 
+/* XXX: A particular customer uses sets 5, 6, and 7. There is a request
+ * to not name these log sets as that could limit their ability to
+ * use different log sets in future.
+ * Sets 5, 6, and 7 are instantiated by host
+ * In such case, ecounters could be mapped to any set that host
+ * configures. They may or may not use set 5.
+ */
 #define EVENT_LOG_SET_5			(5u)
 #define EVENT_LOG_SET_ECOUNTERS		(EVENT_LOG_SET_5)
 #define EVENT_LOG_SET_6			(6u)
 #define EVENT_LOG_SET_7			(7u)
 
+/* XXX: Temporary change to satisfy compilation across branches
+ * Will be removed after checkin
+ */
 #define EVENT_LOG_SET_8			(8u)
 #define EVENT_LOG_SET_PRSRV		(EVENT_LOG_SET_8)
 
@@ -95,6 +105,9 @@
 /* flush if host is in D0 at every period */
 #define EVENT_LOG_SET_PRSV_PERIODIC	(25u)
 
+/* AMT logging and other related information */
+#define EVENT_LOG_SET_AMT		(26u)
+
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
  * efficiency of the EVENT_LOG calls. Old branches could define
@@ -103,15 +116,15 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (26u)
+#define NUM_EVENT_LOG_SETS (27u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (26)
+#define NUM_EVENT_LOG_SETS (27)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 
 /* send delayed logs when >= 50% of buffer is full */
 #ifndef ECOUNTERS_DELAYED_FLUSH_PERCENTAGE
 #define ECOUNTERS_DELAYED_FLUSH_PERCENTAGE	(50)
-#endif // endif
+#endif
 
 #endif /* _EVENT_LOG_SET_H_ */

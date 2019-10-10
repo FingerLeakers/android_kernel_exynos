@@ -1005,6 +1005,95 @@ p_err:
 	return ret;
 }
 
+int sensor_imx518_cis_set_laser_error(struct v4l2_subdev *subdev, u32 mode)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	struct i2c_client *client;
+	int i=0;
+	struct sensor_imx518_laser_test test;
+
+	FIMC_BUG(!subdev);
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->i2c_lock);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	for(i=0; i < sizeof(sensor_imx518_laser_testcases)/sizeof(sensor_imx518_laser_testcases[0]); i++){
+		test = sensor_imx518_laser_testcases[i];
+
+		if(test.error == mode){
+			I2C_MUTEX_LOCK(cis->i2c_lock);
+
+			is_sensor_write8(client, 0x0403, 0x20);
+			is_sensor_write8(client, 0x0405, 0x00);
+			is_sensor_write8(client, 0x0407, 0x00);		/*send buf CXA4026 config */
+			is_sensor_write8(client, 0x0500, 0x02);
+			is_sensor_write8(client, 0x0501, test.addr);		/* CXA4026 addr */
+			is_sensor_write8(client, 0x0502, test.data);		/* Data to send */
+			is_sensor_write8(client, 0x0401, 0x01);		/* Send start*/
+			is_sensor_write8(client, 0x0400, 0x01);
+			is_sensor_write8(client, 0x0401, 0x00);		/* Send end */
+
+			I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+			info("%s - Set err: %d (0x%x):0x%x", __func__, test.error, test.addr, test.data);
+		}
+	}
+p_err:
+	return ret;
+}
+
+int sensor_imx518_cis_get_laser_error_flag(struct v4l2_subdev *subdev, int *value)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	struct i2c_client *client;
+	u8 err_flag[2] = { 0 };
+
+	FIMC_BUG(!subdev);
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->i2c_lock);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+
+	is_sensor_read8(client, 0x0590, &err_flag[0]);	/* 0x0590 for CSA4026 error flag(0x27) */
+	is_sensor_read8(client, 0x0591, &err_flag[1]);	/* 0x0591 for CSA4026 error flag(0x28) */
+
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+	*value = (((int)err_flag[0] << 6) | err_flag[1]);
+	info("%s - err : %x (err[0] : %x, err[1] : %x)", __func__, *value, err_flag[0], err_flag[1]); 
+
+p_err:
+	return ret;
+}
+
+int sensor_imx518_cis_laser_error_req(struct v4l2_subdev *subdev, u32 mode, int *value){
+	int ret = 0;
+	if(mode)
+		ret =sensor_imx518_cis_set_laser_error(subdev, mode);
+	else
+		ret = sensor_imx518_cis_get_laser_error_flag(subdev, value);
+	return ret;
+}
+
 int sensor_imx518_cis_get_vcsel_photo_diode(struct v4l2_subdev *subdev, u16 *value)
 {
 	int ret = 0;
@@ -1094,6 +1183,7 @@ static struct is_cis_ops cis_ops_imx518 = {
 	.cis_set_frame_rate = sensor_imx518_cis_set_frame_rate,
 #if defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION) || defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE)
 	.cis_get_tof_tx_freq = sensor_imx518_cis_get_tx_freq,
+	.cis_get_tof_laser_error_flag = sensor_imx518_cis_laser_error_req, 
 #endif
 };
 

@@ -30,11 +30,11 @@
  */
 #if defined(BT_WIFI_HANDOVER)
 #define WL_GENL
-#endif // endif
+#endif
 
 #ifdef WL_GENL
 #include <net/genetlink.h>
-#endif // endif
+#endif
 
 typedef struct _android_wifi_priv_cmd {
     char *buf;
@@ -104,7 +104,7 @@ enum {
 	BCM_E_DEV_LOST,
 #ifdef BT_WIFI_HANDOVER
 	BCM_E_DEV_BT_WIFI_HO_REQ,
-#endif // endif
+#endif
 	BCM_E_MAX
 };
 

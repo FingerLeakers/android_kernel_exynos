@@ -79,8 +79,9 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 	struct dsp_system *sys;
 	void *kernel_name;
 	struct dsp_mailbox_pool *pool;
-	struct dsp_common_graph_info_v2 *ginfo1;
+	struct dsp_common_graph_info_v1 *ginfo1;
 	struct dsp_common_graph_info_v2 *ginfo2;
+	struct dsp_common_graph_info_v3 *ginfo3;
 	struct dsp_graph *graph;
 	unsigned int version;
 
@@ -116,6 +117,13 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 		if (ret)
 			goto p_err_info;
 		SET_COMMON_CONTEXT_ID(&ginfo2->global_id, dctx->id);
+	} else if (version == DSP_IOC_V3) {
+		ginfo3 = pool->kva;
+		ret = __dsp_context_get_graph_info(dctx, args, ginfo3,
+				kernel_name);
+		if (ret)
+			goto p_err_info;
+		SET_COMMON_CONTEXT_ID(&ginfo3->global_id, dctx->id);
 	} else {
 		ret = -EINVAL;
 		dsp_err("Failed to load graph due to invalid version(%u)\n",
@@ -137,6 +145,8 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 		__dsp_context_put_graph_info(dctx, ginfo1);
 	else if (version == DSP_IOC_V2)
 		__dsp_context_put_graph_info(dctx, ginfo2);
+	else if (version == DSP_IOC_V3)
+		__dsp_context_put_graph_info(dctx, ginfo3);
 	dsp_leave();
 	return 0;
 p_err_graph:
@@ -144,6 +154,8 @@ p_err_graph:
 		__dsp_context_put_graph_info(dctx, ginfo1);
 	else if (version == DSP_IOC_V2)
 		__dsp_context_put_graph_info(dctx, ginfo2);
+	else if (version == DSP_IOC_V3)
+		__dsp_context_put_graph_info(dctx, ginfo3);
 p_err_info:
 	dsp_mailbox_free_pool(pool);
 p_err_pool:
@@ -236,6 +248,7 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 	struct dsp_mailbox_pool *pool;
 	struct dsp_common_execute_info_v1 *einfo1;
 	struct dsp_common_execute_info_v2 *einfo2;
+	struct dsp_common_execute_info_v3 *einfo3;
 	struct dsp_graph *graph;
 	unsigned int version;
 	unsigned int einfo_global_id;
@@ -264,6 +277,13 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 			goto p_err_info;
 		SET_COMMON_CONTEXT_ID(&einfo2->global_id, dctx->id);
 		einfo_global_id = einfo2->global_id;
+	} else if (version == DSP_IOC_V3) {
+		einfo3 = pool->kva;
+		ret = __dsp_context_get_execute_info(dctx, args, einfo3);
+		if (ret)
+			goto p_err_info;
+		SET_COMMON_CONTEXT_ID(&einfo3->global_id, dctx->id);
+		einfo_global_id = einfo3->global_id;
 	} else {
 		ret = -EINVAL;
 		dsp_err("Failed to execute msg due to invalid version(%u)\n",
@@ -296,6 +316,8 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 		__dsp_context_put_execute_info(dctx, einfo1);
 	else if (version == DSP_IOC_V2)
 		__dsp_context_put_execute_info(dctx, einfo2);
+	else if (version == DSP_IOC_V3)
+		__dsp_context_put_execute_info(dctx, einfo3);
 
 	dsp_mailbox_free_pool(pool);
 
@@ -308,6 +330,8 @@ p_err_graph_get:
 		__dsp_context_put_execute_info(dctx, einfo1);
 	else if (version == DSP_IOC_V2)
 		__dsp_context_put_execute_info(dctx, einfo2);
+	else if (version == DSP_IOC_V3)
+		__dsp_context_put_execute_info(dctx, einfo3);
 p_err_info:
 	dsp_mailbox_free_pool(pool);
 p_err_pool:

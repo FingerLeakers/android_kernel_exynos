@@ -678,7 +678,7 @@
 					};
 				};
 				uaif2 {
-					format = "i2s";
+					format = "dsp_a";
 					cpu {
 						sound-dai = <&abox_uaif_2>;
 					};
@@ -1174,7 +1174,7 @@
 	snps,quirk-frame-length-adjustment = <0x20>;
 	/* snps,u1u2_exitfail_quirk; */
 	/* ux_exit_in_px should be defined in MK, LT */
-	/* snps,ux_exit_in_px_quirk; */
+	snps,ux_exit_in_px_quirk;
 	/* elastic_buf_mode_quirk should be defined in MK */
 	snps,elastic_buf_mode_quirk;
 	usb3-lpm-capable;
@@ -1372,6 +1372,118 @@
 		reg = <0>;
 		bus-width = <4>;
 		disable-wp;
+	};
+};
+
+&abox {
+	ext_bin_0: ext-bin@0 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "APDV_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x502000>;
+		samsung,changable;
+	};
+
+	ext_bin_1: ext-bin@1 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "APSV_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x582000>;
+		samsung,changable;
+	};
+
+	ext_bin_2: ext-bin@2 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "AP_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x5ea000>;
+		samsung,changable;
+	};
+
+	ext_bin_3: ext-bin@3 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "APBargeIn_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x652000>;
+	};
+
+	ext_bin_4: ext-bin@4 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "APBiBF_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x655000>;
+	};
+
+	ext_bin_5: ext-bin@5 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "a2dpcom.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x656000>;
+	};
+
+	ext_bin_6: ext-bin@6 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "txse1.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1800000>;
+		/delete-property/ samsung,changable;
+	};
+
+	ext_bin_7: ext-bin@7 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "txse2.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1980000>;
+		/delete-property/ samsung,changable;
+	};
+
+	ext_bin_8: ext-bin@8 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "bidirmic.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x19b2000>;
+	};
+
+	ext_bin_9: ext-bin@9 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "sv.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1a2f000>;
+	};
+
+	ext_bin_10: ext-bin@10 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "rxse.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1e4f000>;
+	};
+
+	ext_bin_11: ext-bin@11 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "sb_music.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1eff000>;
+	};
+
+	ext_bin_12: ext-bin@12 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "sb_others.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x1fdd000>;
+	};
+
+	ext_bin_13: ext-bin@13 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "sb_ll.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x20bb000>;
+	};
+
+	ext_bin_14: ext-bin@14 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "listenbackeffect.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x2199000>;
 	};
 };
 

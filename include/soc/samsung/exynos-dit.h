@@ -19,6 +19,7 @@
 #include <linux/netdevice.h>
 #include <uapi/linux/in.h>
 #include <uapi/linux/if_ether.h>
+#include <soc/samsung/exynos-dit-offload.h>
 
 #define DIT_NETDEV_EVENT	1
 #define DIT_SYSFS			1
@@ -28,7 +29,7 @@
 #define DIT_CLAT_PROCESS	1
 
 //#define DIT_FEATURE_USE_WIFI
-//#define DIT_FEATURE_MANDATE
+#define DIT_FEATURE_MANDATE
 #define DIT_IOCC
 
 #define DIT_CHECK_PERF
@@ -45,7 +46,6 @@
 #endif
 
 #define KOBJ_DIT "dit"
-#define KOBJ_CLAT "clat"
 
 /* HW dependent */
 #define DIT_MAX_TABLE_ENTRY	2048
@@ -71,7 +71,7 @@
 /* Scheduling */
 #define DIT_BUDGET			762		/* (MAX_UNITS_IN_BANK * (3/4) - 6) -- '6' MAX padding */
 #define DIT_MAX_BACKLOG		10000
-#define DIT_SCHED_BACKOFF_TIME(pkts)	 ((pkts) << 8) /* pkts * 1/4 us */
+#define DIT_SCHED_BACKOFF_TIME(pkts)	 ((u64)((pkts) << 8)) /* pkts * 1/4 us */
 
 #define THRESHOLD_HW_FORWARD	50  /* Threshold for hw_forward */
 
@@ -328,7 +328,9 @@ struct dit_dev_info_t {
 	int if2Dst[DIT_MAX_FORWARD][DIT_IF_MAX];
 	int Dst2if[DIT_MAX_FORWARD][DIT_MAX_DST];
 
+#ifdef DIT_FEATURE_USE_WIFI
 	int last_host;
+#endif
 	struct dit_host_t host[DIT_MAX_HOST];
 	u32 ue_addr; /* UE IP addr */
 
@@ -344,6 +346,9 @@ struct dit_dev_info_t {
 #ifdef DIT_CHECK_PERF
 	struct dit_stat_perf_t perf;
 #endif
+
+	/* offload interface */
+	struct dit_offload_ctl_t *offload;
 };
 
 struct dit_priv_t {
@@ -352,14 +357,14 @@ struct dit_priv_t {
 } __packed;
 
 /* LOG print */
-#define LOG_TAG	"dit: "
+#define LOG_TAG_DIT	"dit: "
 
 #define dit_err(fmt, ...) \
-	pr_err(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+	pr_err(LOG_TAG_DIT "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
 #define dit_err_limited(fmt, ...) \
-	printk_ratelimited(KERN_ERR LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+	printk_ratelimited(KERN_ERR LOG_TAG_DIT "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
 #define dit_info(fmt, ...) \
-	pr_info(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+	pr_info(LOG_TAG_DIT "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
 #ifdef DIT_DEBUG
 #define dit_debug(fmt, ...) dit_info(fmt, ##__VA_ARGS__)
 #ifdef DIT_DEBUG_LOW
@@ -618,6 +623,16 @@ enum {
 	DIT_ERR_INT_PENDING,
 };
 
+enum {
+	DIT_DEINIT_REASON_RUNTIME,
+	DIT_DEINIT_REASON_FAIL,
+};
+
+enum {
+	DIT_INIT_REASON_RUNTIME,
+	DIT_INIT_REASON_FAIL,
+};
+
 #define DIT_TX_DST_INT_MASK	((0x1 << DIT_TX_DST0_INT_PENDING) \
 							| (0x1 << DIT_TX_DST1_INT_PENDING) \
 							| (0x1 << DIT_TX_DST2_INT_PENDING))
@@ -630,45 +645,42 @@ enum {
 #define DIT_PTABLE_IDX_MASK	0x7ff /* 11 [10:0] bits */
 #define PTABLE_IDX(port)	(((port) & DIT_PTABLE_IDX_MASK) * 4)
 
-static inline bool circ_empty(unsigned int in, unsigned int out)
+
+/* LAN0: USB network, LAN1: WiFi network
+ * dit_init and dit_deinit called by LAN0
+ */
+static inline int isLAN0device(struct net_device *ndev)
 {
-	return (in == out);
+	if (strstr(ndev->name, "rndis") || strstr(ndev->name, "ncm"))
+		return 1;
+	return 0;
 }
 
-static inline unsigned int circ_get_space(unsigned int qsize,
-					  unsigned int in,
-					  unsigned int out)
+static inline int isLAN1device(struct net_device *ndev)
 {
-	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
+	if (strstr(ndev->name, "wlan"))
+		return 1;
+	return 0;
 }
 
-static inline bool circ_full(unsigned int qsize, unsigned int in,
-			     unsigned int out)
+static inline int isLANdevice(struct net_device *ndev)
 {
-	return (circ_get_space(qsize, in, out) == 0);
+	if (isLAN0device(ndev) || isLAN1device(ndev))
+		return 1;
+	return 0;
 }
 
-static inline unsigned int circ_get_usage(unsigned int qsize,
-					  unsigned int in,
-					  unsigned int out)
+/* RAN: Radio Access Network */
+static inline int isRANdevice(struct net_device *ndev)
 {
-	return (in >= out) ? (in - out) : (qsize - out + in);
-}
-
-static inline unsigned int circ_new_ptr(unsigned int qsize,
-					unsigned int p,
-					unsigned int len)
-{
-	unsigned int np = (p + len);
-
-	while (np >= qsize)
-		np -= qsize;
-	return np;
+	if (strstr(ndev->name, "rmnet"))
+		return 1;
+	return 0;
 }
 
 /* DIT functions */
-int dit_init(void);
-int dit_deinit(void);
+int dit_init(int reason);
+int dit_deinit(int reason);
 int dit_init_hw(void);
 
 
@@ -682,21 +694,23 @@ irqreturn_t dit_rx_irq_handler(int irq, void *arg);
 irqreturn_t dit_tx_irq_handler(int irq, void *arg);
 irqreturn_t dit_errbus_irq_handler(int irq, void *arg);
 
-static inline int dit_enable_irq(struct dit_irq_t *irq);
-static inline int dit_disable_irq(struct dit_irq_t *irq);
-
 int dit_forward_add(__be16 reply_port, __be16 org_port, int ifnet);
 int dit_forward_delete(__be16 reply_port, __be16 org_port, int ifnet);
 
-static inline int isLAN0device(struct net_device *ndev);
-static inline int isLAN1device(struct net_device *ndev);
-static inline int isLANdevice(struct net_device *ndev);
-static inline int isRANdevice(struct net_device *ndev);
-
-inline int dit_check_enable(struct net_device  *ndev);
+void dit_setup_upstream_device(struct net_device *ndev);
+void dit_setup_downstream_device(struct net_device *ndev);
+void dit_clear_upstream_device(struct net_device *ndev);
+void dit_clear_downstream_device(struct net_device *ndev);
 
 int dit_enqueue_to_backlog(int DIR, struct sk_buff *skb);
 int dit_schedule(int type);
+
+void dit_get_plat_prefix(u32 id, struct in6_addr *paddr);
+void dit_set_plat_prefix(u32 id, struct in6_addr addr);
+void dit_get_clat_addr(u32 id, struct in6_addr *paddr);
+void dit_set_clat_addr(u32 id, struct in6_addr addr);
+void dit_get_v4_filter(u32 id, u32 *paddr);
+void dit_set_v4_filter(u32 id, u32 addr);
 
 /* extern functions */
 extern void gether_get_host_addr_u8(struct net_device *net, u8 host_mac[ETH_ALEN]);

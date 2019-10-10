@@ -23,8 +23,6 @@ static const char * const tz_drm_list[] = {
 	"/system/bin/qseecomd",
 	"/system/bin/taadaemon",
 	"/system/bin/tzdaemon",
-	"/system/bin/icd_tz_drm",
-	"/vendor/bin/icd_tz_drm_vendor",
 	"/vendor/bin/nwfs_daemon",
 	"/vendor/bin/proxy_daemon",
 	"/vendor/bin/taadaemon",
@@ -39,7 +37,6 @@ static const char * const fido_list[] = {
 	"/system/bin/mcDriverDaemon_static",
 	"/system/bin/irisd",
 	"/system/bin/faced",
-	"/system/bin/icd_fido",
 	"/system/vendor/bin/qseecomd",
 	"/system/vendor/bin/mcDriverDaemon",
 	"/system/vendor/bin/mcDriverDaemon_static",
@@ -53,7 +50,6 @@ static const char * const fido_list[] = {
 	"/vendor/bin/taadaemon",
 	"/vendor/bin/tzdaemon",
 	"/vendor/bin/tzts_daemon",
-	"/vendor/bin/icd_fido_vendor",
 	NULL,
 };
 
@@ -74,7 +70,6 @@ static const char * const cc_list[] = {
 	"/system/bin/hw/macloader",
 	"/system/bin/hw/mfgloader",
 	"/system/bin/hw/wpa_supplicant",
-	"/system/bin/icd_cc",
 	"/system/vendor/bin/qseecomd",
 	"/system/vendor/bin/mcDriverDaemon",
 	"/system/vendor/bin/secure_storage_daemon",
@@ -89,13 +84,10 @@ static const char * const cc_list[] = {
 	"/vendor/bin/hw/macloader",
 	"/vendor/bin/hw/mfgloader",
 	"/vendor/bin/hw/wpa_supplicant",
-	"/vendor/bin/icd_cc_vendor",
 	NULL,
 };
 
 static const char * const etc_list[] = {
-	"/system/bin/icd_etc",
-	"/vendor/bin/icd_etc_vendor",
 	NULL,
 };
 

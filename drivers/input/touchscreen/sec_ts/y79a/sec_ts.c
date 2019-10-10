@@ -330,7 +330,7 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	memcpy(buf + 1, data, len);
 
 	msg.addr = ts->client->addr;
-	msg.flags = 0;
+	msg.flags = 0 | I2C_M_DMA_SAFE;
 	msg.len = len + 1;
 	msg.buf = buf;
 
@@ -434,12 +434,12 @@ int sec_ts_i2c_read(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 	buf[0] = reg;
 
 	msg[0].addr = ts->client->addr;
-	msg[0].flags = 0;
+	msg[0].flags = 0 | I2C_M_DMA_SAFE;
 	msg[0].len = 1;
 	msg[0].buf = buf;
 
 	msg[1].addr = ts->client->addr;
-	msg[1].flags = I2C_M_RD;
+	msg[1].flags = I2C_M_RD | I2C_M_DMA_SAFE;
 	msg[1].buf = buff;
 
 	mutex_lock(&ts->i2c_mutex);
@@ -588,7 +588,7 @@ static int sec_ts_i2c_write_burst(struct sec_ts_data *ts, u8 *data, int len)
 	mutex_lock(&ts->i2c_mutex);
 
 	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-		ret = i2c_master_send(ts->client, buf , len);
+		ret = i2c_master_send_dmasafe(ts->client, buf , len);
 		if (ret == len)
 			break;
 
@@ -643,7 +643,7 @@ static int sec_ts_i2c_read_bulk(struct sec_ts_data *ts, u8 *data, int len)
 		return -ENOMEM;
 
 	msg.addr = ts->client->addr;
-	msg.flags = I2C_M_RD;
+	msg.flags = I2C_M_RD | I2C_M_DMA_SAFE;
 	msg.buf = buff;
 
 	mutex_lock(&ts->i2c_mutex);
@@ -1209,6 +1209,12 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 				if (ts->touch_noise_status)
 					ts->noise_count++;
+			}
+
+			if ((p_event_status->stype == TYPE_STATUS_EVENT_VENDOR_INFO) &&
+					(p_event_status->status_id == SEC_TS_VENDOR_ACK_CHARGER_STATUS_NOTI)) {
+				input_info(true, &ts->client->dev, "%s: TSP CHARGER MODE:%d\n",
+						__func__, p_event_status->status_data_1);
 			}
 
 			if(ts->plat_data->support_ear_detect && ts->ed_enable){

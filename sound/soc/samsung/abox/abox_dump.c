@@ -26,6 +26,8 @@
 struct abox_dump_info {
 	struct device *dev;
 	struct list_head list;
+	int c_gid;
+	int c_id;
 	int id;
 	char name[NAME_LENGTH];
 	bool registered;
@@ -87,8 +89,9 @@ static void abox_dump_request_dump(int id)
 
 	msg.ipcid = IPC_SYSTEM;
 	system->msgtype = ABOX_REQUEST_DUMP;
-	system->param1 = id;
+	system->param1 = info->c_id;
 	system->param2 = start ? 1 : 0;
+	system->param3 = info->c_gid;
 	abox_request_ipc(abox_dump_dev_abox, msg.ipcid, &msg, sizeof(msg),
 			1, 0);
 }
@@ -96,43 +99,57 @@ static void abox_dump_request_dump(int id)
 static ssize_t abox_dump_auto_read(struct file *file, char __user *data,
 		size_t count, loff_t *ppos, bool enable)
 {
+	const size_t sz_buffer = PAGE_SIZE;
 	struct abox_dump_info *info;
-	char buffer[SZ_256] = {0,}, *buffer_p = buffer;
-
-	dev_dbg(abox_dump_dev_abox, "%s(%zu, %lld, %d)\n", __func__, count,
-			*ppos, enable);
-
-	list_for_each_entry(info, &abox_dump_list_head, list) {
-		if (info->auto_started == enable) {
-			buffer_p += snprintf(buffer_p, sizeof(buffer) -
-					(buffer_p - buffer),
-					"%d(%s) ", info->id, info->name);
-		}
-	}
-	snprintf(buffer_p, 2, "\n");
-
-	return simple_read_from_buffer(data, count, ppos, buffer,
-			buffer_p - buffer);
-}
-
-static ssize_t abox_dump_auto_write(struct file *file, const char __user *data,
-		size_t count, loff_t *ppos, bool enable)
-{
-	char buffer[SZ_256] = {0,}, name[NAME_LENGTH];
-	char *p_buffer = buffer, *token = NULL;
-	unsigned int id;
-	struct abox_dump_info *info;
+	char *buffer, *p_buffer;
 	ssize_t ret;
 
 	dev_dbg(abox_dump_dev_abox, "%s(%zu, %lld, %d)\n", __func__, count,
 			*ppos, enable);
 
-	ret = simple_write_to_buffer(buffer, sizeof(buffer), ppos, data, count);
+	p_buffer = buffer = kmalloc(sz_buffer, GFP_KERNEL);
+	if (!buffer)
+		return -ENOMEM;
+
+	list_for_each_entry(info, &abox_dump_list_head, list) {
+		if (info->auto_started == enable) {
+			p_buffer += snprintf(p_buffer, sz_buffer -
+					(p_buffer - buffer),
+					"%d(%s) ", info->id, info->name);
+		}
+	}
+	snprintf(p_buffer, 2, "\n");
+
+	ret = simple_read_from_buffer(data, count, ppos, buffer,
+			p_buffer - buffer);
+	kfree(buffer);
+	return ret;
+}
+
+static ssize_t abox_dump_auto_write(struct file *file, const char __user *data,
+		size_t count, loff_t *ppos, bool enable)
+{
+	const size_t sz_buffer = PAGE_SIZE;
+	struct abox_dump_info *info;
+	char *buffer, *p_buffer, *token;
+	ssize_t ret;
+
+	dev_dbg(abox_dump_dev_abox, "%s(%zu, %lld, %d)\n", __func__, count,
+			*ppos, enable);
+
+	p_buffer = buffer = kmalloc(sz_buffer, GFP_KERNEL);
+	if (!buffer)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buffer, sz_buffer, ppos, data, count);
 	if (ret < 0)
-		return ret;
+		goto err;
 
 	while ((token = strsep(&p_buffer, " ")) != NULL) {
-		if (sscanf(token, "%11u", &id) == 1)
+		char name[NAME_LENGTH];
+		int id;
+
+		if (sscanf(token, "%11d", &id) == 1)
 			info = abox_dump_get_info(id);
 		else if (sscanf(token, "%31s", name) == 1)
 			info = abox_dump_get_info_by_name(name);
@@ -145,12 +162,10 @@ static ssize_t abox_dump_auto_write(struct file *file, const char __user *data,
 		}
 
 		if (info->auto_started != enable) {
-			struct device *dev = info->dev;
-
 			if (enable)
-				pm_runtime_get_sync(dev);
+				pm_runtime_get_sync(info->dev);
 			else
-				pm_runtime_put(dev);
+				pm_runtime_put(info->dev);
 		}
 
 		info->auto_started = enable;
@@ -161,8 +176,9 @@ static ssize_t abox_dump_auto_write(struct file *file, const char __user *data,
 
 		abox_dump_request_dump(info->id);
 	}
-
-	return count;
+err:
+	kfree(buffer);
+	return ret;
 }
 
 static ssize_t abox_dump_auto_start_read(struct file *file,
@@ -643,13 +659,33 @@ static void abox_dump_register_work_func(struct work_struct *work)
 {
 	dev_dbg(abox_dump_dev_abox, "%s\n", __func__);
 
-	while (abox_dump_register_work_single() >= 0) {}
+	do {} while (abox_dump_register_work_single() >= 0);
 }
 
 static DECLARE_WORK(abox_dump_register_work, abox_dump_register_work_func);
 
-int abox_dump_register(struct abox_data *data, int id, const char *name,
-		void *area, phys_addr_t addr, size_t bytes)
+static int abox_dump_allocate_id(int gid, int id)
+{
+	struct abox_dump_info *info;
+	unsigned long flags;
+	int ret = id;
+
+	do {
+		spin_lock_irqsave(&abox_dump_lock, flags);
+		list_for_each_entry(info, &abox_dump_list_head, list) {
+			if (info->id == ret) {
+				ret++;
+				break;
+			}
+		}
+		spin_unlock_irqrestore(&abox_dump_lock, flags);
+	} while (&info->list != &abox_dump_list_head);
+
+	return ret;
+}
+
+int abox_dump_register(struct abox_data *data, int gid, int id,
+		const char *name, void *area, phys_addr_t addr, size_t bytes)
 {
 	struct device *dev = data->dev;
 	struct abox_dump_info *info;
@@ -670,7 +706,9 @@ int abox_dump_register(struct abox_data *data, int id, const char *name,
 		return -ENOMEM;
 
 	mutex_init(&info->lock);
-	info->id = id;
+	info->c_gid = gid;
+	info->c_id = id;
+	info->id = abox_dump_allocate_id(info->c_gid, info->c_id);
 	strlcpy(info->name, name, sizeof(info->name));
 	info->buffer.area = area;
 	info->buffer.addr = addr;
@@ -722,10 +760,15 @@ static int abox_dump_add_dai_link(struct device *dev)
 
 	cancel_delayed_work_sync(&abox_dump_register_card_work);
 
-	if (abox_dump_card.num_dai_links <= id)
-		abox_dump_card.dai_link = krealloc(abox_dump_card.dai_link,
+	if (abox_dump_card.num_dai_links <= id) {
+		link = krealloc(abox_dump_card.dai_link,
 				sizeof(abox_dump_card.dai_link[0]) * (id + 1),
 				GFP_KERNEL | __GFP_ZERO);
+		if (!link)
+			return -ENOMEM;
+
+		abox_dump_card.dai_link = link;
+	}
 
 	link = &abox_dump_card.dai_link[id];
 	kfree(link->name);

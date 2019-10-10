@@ -23,6 +23,9 @@
 #include <soc/samsung/exynos-pmu.h>
 #include <sound/samsung/abox.h>
 
+#include <linux/mfd/cs35l41/big_data.h>
+#include "bigdata_cirrus_sysfs_cb.h"
+
 #define MADERA_BASECLK_48K	49152000
 #define MADERA_BASECLK_44K1	45158400
 
@@ -670,6 +673,9 @@ static int picasso_late_probe(struct snd_soc_card *card)
 		snd_soc_dapm_ignore_suspend(dapm, name);
 		snd_soc_dapm_sync(dapm);
 	}
+
+	aif_dai = get_rtd(card, CS35L41_DAI_ID)->codec_dai;
+	register_cirrus_bigdata_cb(aif_dai->component);
 
 	return 0;
 }
@@ -1526,6 +1532,108 @@ static struct snd_soc_dai_link picasso_dai[100] = {
 	},
 };
 
+static int picasso_dmic1(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_dmic2(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_dmic3(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_l_speaker(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMD:
+		cirrus_bd_store_values("");
+		break;
+	}
+
+	return 0;
+}
+
+static int picasso_r_speaker(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMD:
+		cirrus_bd_store_values("_r");
+		break;
+	}
+
+	return 0;
+}
+
+static int picasso_btsco_mic(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_btsco_out(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_usb_mic(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
+static int picasso_usb_out(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *kcontrol, int event)
+{
+	struct snd_soc_card *card = w->dapm->card;
+
+	dev_info(card->dev, "%s ev: %d\n", __func__, event);
+
+	return 0;
+}
+
 static const char * const vts_output_texts[] = {
 	"None",
 	"DMIC1",
@@ -1553,19 +1661,19 @@ static const struct snd_soc_dapm_widget picasso_widgets[] = {
 	SND_SOC_DAPM_INPUT("VINPUT2"),
 	SND_SOC_DAPM_OUTPUT("VOUTPUTCALL"),
 	SND_SOC_DAPM_INPUT("VINPUTCALL"),
-	SND_SOC_DAPM_MIC("DMIC1", NULL),
-	SND_SOC_DAPM_MIC("DMIC2", NULL),
-	SND_SOC_DAPM_MIC("DMIC3", NULL),
+	SND_SOC_DAPM_MIC("DMIC1", picasso_dmic1),
+	SND_SOC_DAPM_MIC("DMIC2", picasso_dmic2),
+	SND_SOC_DAPM_MIC("DMIC3", picasso_dmic3),
 	SND_SOC_DAPM_MIC("DMIC4", NULL),
 	SND_SOC_DAPM_MIC("HEADSETMIC", NULL),
-	SND_SOC_DAPM_SPK("RECEIVER", NULL),
 	SND_SOC_DAPM_HP("HEADPHONE", NULL),
-	SND_SOC_DAPM_SPK("SPEAKER", NULL),
+	SND_SOC_DAPM_SPK("RECEIVER", picasso_l_speaker),
+	SND_SOC_DAPM_SPK("SPEAKER", picasso_r_speaker),
 	SND_SOC_DAPM_MIC("SPEAKER FB", NULL),
-	SND_SOC_DAPM_MIC("BLUETOOTH MIC", NULL),
-	SND_SOC_DAPM_SPK("BLUETOOTH SPK", NULL),
-	SND_SOC_DAPM_MIC("USB MIC", NULL),
-	SND_SOC_DAPM_SPK("USB SPK", NULL),
+	SND_SOC_DAPM_MIC("BLUETOOTH MIC", picasso_btsco_mic),
+	SND_SOC_DAPM_SPK("BLUETOOTH SPK", picasso_btsco_out),
+	SND_SOC_DAPM_MIC("USB MIC", picasso_usb_mic),
+	SND_SOC_DAPM_SPK("USB SPK", picasso_usb_out),
 	SND_SOC_DAPM_OUTPUT("VTS Virtual Output"),
 	SND_SOC_DAPM_MUX("VTS Virtual Output Mux", SND_SOC_NOPM, 0, 0,
 			&vts_output_mux[0]),

@@ -26,6 +26,8 @@
  * $Id$
  */
 
+/** XXX Twiki: [PCIeFullDongleArchitecture] */
+
 #include <typedefs.h>
 #include <bcmutils.h>
 #include <bcmendian.h>
@@ -393,7 +395,7 @@ dhd_flow_rings_init(dhd_pub_t *dhdp, uint32 num_flow_rings)
 
 #ifdef DHD_LOSSLESS_ROAMING
 	dhdp->dequeue_prec_map = ALLPRIO;
-#endif // endif
+#endif
 	/* Now populate into dhd pub */
 	DHD_FLOWID_LOCK(lock, flags);
 	dhdp->num_flow_rings = num_flow_rings;
@@ -1204,10 +1206,10 @@ int dhd_update_flow_prio_map(dhd_pub_t *dhdp, uint8 map)
 /** Inform firmware on updated flow priority mapping, called on IOVAR */
 int dhd_flow_prio_map(dhd_pub_t *dhd, uint8 *map, bool set)
 {
-	uint8 iovbuf[24];
+	uint8 iovbuf[WLC_IOCTL_SMLEN];
 	int len;
 	if (!set) {
-		memset(&iovbuf, 0, sizeof(iovbuf));
+		bzero(&iovbuf, sizeof(iovbuf));
 		len = bcm_mkiovar("bus:fl_prio_map", NULL, 0, (char*)iovbuf, sizeof(iovbuf));
 		if (len == 0) {
 			return BCME_BUFTOOSHORT;

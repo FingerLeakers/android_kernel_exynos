@@ -118,16 +118,16 @@ void dsp_dl_hash_print(void)
 	unsigned int *node;
 	struct dsp_dl_out *next;
 
-	DL_INFO(DL_BORDER);
-
 	for (idx = 0; idx < DL_HASH_SIZE; idx++) {
 		node = dl_hash + idx;
 
 		while (*node != DL_HASH_END) {
-			DL_INFO("Key : %u(%u)\n", idx, *node);
+			DL_INFO("\n");
+			DL_INFO("Hash node: key(%u) offset(%u)\n", idx, *node);
 			next = (struct dsp_dl_out *)(
 					(unsigned long)dl_hash + *node);
-			dsp_dl_out_print(next);
+			DL_INFO("Library name: %s\n", next->data);
+			DL_INFO("Hash next offset: 0x%x\n", next->hash_next);
 			node = &next->hash_next;
 		}
 	}
@@ -246,43 +246,47 @@ static void __dsp_dl_out_print_kernel_table(struct dsp_dl_out *dl_out)
 
 static void __dsp_dl_out_print_data(struct dsp_dl_out *dl_out)
 {
-	DL_INFO("Kernel table\n");
+	DL_INFO("Kernel address table\n");
+	DL_INFO("    Pre        Exe       Post\n");
 	__dsp_dl_out_print_kernel_table(dl_out);
 
-	DL_INFO("DM sh\n");
+	DL_INFO("DM shared data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->DM_sh);
 
-	DL_INFO("DM local\n");
+	DL_INFO("DM thread local data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->DM_local);
 
-	DL_INFO("TCM sh\n");
+	DL_INFO("TCM shared data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->TCM_sh);
 
-	DL_INFO("TCM local\n");
+	DL_INFO("TCM thread local data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->TCM_local);
 
-	DL_INFO("Shared mem\n");
+	DL_INFO("Shared memory data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->sh_mem);
 }
 
 void dsp_dl_out_print(struct dsp_dl_out *dl_out)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("name : %s\n", dl_out->data);
-	DL_INFO("hash_next : 0x%x\n", dl_out->hash_next);
-	DL_INFO("gpt_addr : 0x%x\n", dl_out->gpt_addr);
-	DL_INFO("Kernel table offset : %u, size : %u\n",
+	DL_INFO("Library name: %s\n", dl_out->data);
+	DL_INFO("Hash next offset: 0x%x\n", dl_out->hash_next);
+	DL_INFO("Gpt address: 0x%x\n", dl_out->gpt_addr);
+	DL_INFO("\n");
+	DL_INFO("Data offsets\n");
+	DL_INFO("Kernel table: offset(%u) size(%u)\n",
 		dl_out->kernel_table.offset, dl_out->kernel_table.size);
-	DL_INFO("DM_sh offset : %u, size : %u\n",
+	DL_INFO("DM shared data: offset(%u) size(%u\n",
 		dl_out->DM_sh.offset, dl_out->DM_sh.size);
-	DL_INFO("DM_local offset : %u, size : %u\n",
+	DL_INFO("DM thread local data: offset(%u) size(%u)\n",
 		dl_out->DM_local.offset, dl_out->DM_local.size);
-	DL_INFO("TCM_sh offset : %u, size : %u\n",
+	DL_INFO("TCM shared data: offset(%u) size(%u)\n",
 		dl_out->TCM_sh.offset, dl_out->TCM_sh.size);
-	DL_INFO("TCM_local offset : %u, size : %u\n",
+	DL_INFO("TCM thread local data: offset(%u) size(%u)\n",
 		dl_out->TCM_local.offset, dl_out->TCM_local.size);
-	DL_INFO("sh_mem offset : %u, size : %u\n",
+	DL_INFO("Shared memory data: offset(%u) size(%u)\n",
 		dl_out->sh_mem.offset, dl_out->sh_mem.size);
+	DL_INFO("\n");
+	DL_INFO("Data loaded\n");
 	__dsp_dl_out_print_data(dl_out);
 }
 
@@ -322,9 +326,12 @@ int dsp_dl_out_manager_free(void)
 void dsp_dl_out_manager_print(void)
 {
 	DL_INFO(DL_BORDER);
-	DL_INFO("DL out manager\n");
-	dsp_dl_hash_print();
+	DL_INFO("Dynamic loader output manager\n");
+	DL_INFO("\n");
 	dsp_tlsf_print(out_manager);
+	DL_INFO("\n");
+	DL_INFO("Output hash table\n");
+	dsp_dl_hash_print();
 }
 
 int dsp_dl_out_manager_alloc_libs(struct dsp_lib **libs, int libs_size,

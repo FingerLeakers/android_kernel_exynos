@@ -40,6 +40,16 @@
 				num-acpm-pmic = <2>;
 			};
 
+			firmware {
+				android: android {
+					compatible = "android,firmware";
+					vbmeta {
+						compatible = "android,vbmeta";
+						parts = "vbmeta,boot,system,vendor,product,odm,prism,optics,vbmeta_samsung,recovery,dtbo,keystorage";
+					};
+				};
+			};
+
 			usb_hs_tune:hs_tune {
 				status = "disabled";
 				hs_tune_cnt = <5>;
@@ -340,6 +350,80 @@
 						};
 					};
 				};
+				boot_device@2 {
+					net_boost,label="WIFI TX";
+					net_boost,node="wlan0";
+					net_boost,slowdown;
+					net_boost,table {
+						level_0 {
+							threshold = <60>;
+							mid_min = <1456000>;
+							lit_min = <1456000>;
+						};
+						level_1 {
+							threshold = <150>;
+							mid_min = <1690000>;
+							lit_min = <1742000>;
+						};
+						level_2 {
+							threshold = <200>;
+							mid_min = <1898000>;
+							lit_min = <1742000>;
+							mif = <1352000>;
+							int = <400000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+						level_3 {
+							threshold = <300>;
+							mid_min = <2106000>;
+							lit_min = <1742000>;
+							mif = <1716000>;
+							int = <533000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+					};
+				};
+				boot_device@3 {
+					net_boost,label="WIFI RX";
+					net_boost,node="wlan0";
+					net_boost,slowdown;
+					net_boost,table {
+						level_0 {
+							threshold = <100>;
+							mid_min = <1053000>;
+							lit_min = <1053000>;
+						};
+						level_1 {
+							threshold = <150>;
+							mid_min = <1404000>;
+							lit_min = <1300000>;
+						};
+						level_2 {
+							threshold = <200>;
+							mid_min = <1690000>;
+							lit_min = <1300000>;
+							mif = <1352000>;
+							int = <400000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+						level_3 {
+							threshold = <300>;
+							mid_min = <1898000>;
+							lit_min = <1456000>;
+							mif = <1716000>;
+							int = <533000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+					};
+				};
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
@@ -599,7 +683,7 @@
 
 &panel_drv_0 {
     status = "okay";
-	ddi_info = <&s6e3ha9>;
+	ddi_info = <&s6e3hab>;
 
 	#address-cells = <2>;
 	#size-cells = <1>;
@@ -655,8 +739,8 @@
 
 		short-detect {
 			regulator = <&dp_elvss>;
-			def-current = <2000>;
-			lpm-current = <8000>;
+			from-off = <2000>;
+			from-lpm = <0>;
 		};
 	};
 	panel-lookup {
@@ -668,12 +752,12 @@
 			"s6e3hab_hubble1_a3_s0_preliminary",
 			"s6e3hab_hubble2_a3_s0_preliminary",
 			"s6e3hab_hubble3_a3_s0_preliminary",
-			"s6e3hab_hubble1_a3_s0_preliminary_no_osc",
-			"s6e3hab_hubble2_a3_s0_preliminary_no_osc",
-			"s6e3hab_hubble3_a3_s0_preliminary_no_osc",
-			"s6e3hab_hubble1_a3_s0_default_no_osc",
-			"s6e3hab_hubble2_a3_s0_default_no_osc",
-			"s6e3hab_hubble3_a3_s0_default_no_osc";
+			"s6e3hab_hubble1_a3_s0_preliminary_osc_96_5m",
+			"s6e3hab_hubble2_a3_s0_preliminary_osc_96_5m",
+			"s6e3hab_hubble3_a3_s0_preliminary_osc_96_5m",
+			"s6e3hab_hubble1_a3_s0_default_osc_96_5m",
+			"s6e3hab_hubble2_a3_s0_default_osc_96_5m",
+			"s6e3hab_hubble3_a3_s0_default_osc_96_5m";
 		panel-ddi-info = <&s6e3ha9 &s6e3hab>;
 		panel-lut = <
 			0xa10013 0xff00ff 0x0 0x0  /* S6E3HA9 1440x3040 PANEL*/
@@ -827,7 +911,7 @@
 		sx9360,refgainrawfilt_reg = <0x22>; /* same as gainrawfilt_reg */
 		sx9360,gainrawfilt_reg = <0x22>; /* rawfilter : 1-1/4, gain : x8 */
 		sx9360,hyst_reg = <0x15>; /* hysteresis : +/-6 %, debouncer : 2 samples */
-		sx9360,proxthresh_reg = <0x3C>; /* threshhold : 1800 */
+		sx9360,proxthresh_reg = <0x35>; /* threshhold : 612 */
 		sx9360,hallic_cert_detect = <1>;
 	};
 };

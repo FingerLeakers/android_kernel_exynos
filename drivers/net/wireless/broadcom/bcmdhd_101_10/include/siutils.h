@@ -31,7 +31,7 @@
 #ifndef D11_CORE_UNIT_MASK
 /* By default we allow all d11 cores to be used */
 #define D11_CORE_UNIT_MASK 0xFFFFFFFFu
-#endif // endif
+#endif
 
 /* Generic interrupt bit mask definitions */
 enum bcm_int_reg_idx {
@@ -194,7 +194,7 @@ typedef struct si_pub si_t;
 #define PMUCTL_ENAB(sih)	(BCMPMUCTL)
 #else
 #define PMUCTL_ENAB(sih)	((sih)->cccaps & CC_CAP_PMU)
-#endif // endif
+#endif
 
 #if defined(BCMAOBENAB)
 #define AOB_ENAB(sih)  (BCMAOBENAB)
@@ -210,7 +210,7 @@ typedef struct si_pub si_t;
 #else
 #define CCCTL_ENAB(sih)		((sih)->cccaps & CC_CAP_PWR_CTL)
 #define CCPLL_ENAB(sih)		((sih)->cccaps & CC_CAP_PLL_MASK)
-#endif // endif
+#endif
 
 typedef void (*gci_gpio_handler_t)(uint32 stat, void *arg);
 
@@ -397,7 +397,7 @@ extern uint si_pcie_writereg(void *sih, uint addrtype, uint offset, uint val);
 
 #ifdef BCMSDIO
 extern void si_sdio_init(si_t *sih);
-#endif // endif
+#endif
 
 extern uint16 si_d11_devid(si_t *sih);
 extern int si_corepciid(si_t *sih, uint func, uint16 *pcivendor, uint16 *pcidevice,
@@ -493,11 +493,11 @@ struct bcmstrbuf;
 extern int si_dump_pcieinfo(const si_t *sih, struct bcmstrbuf *b);
 extern void si_dump_pmuregs(si_t *sih, struct bcmstrbuf *b);
 extern int si_dump_pcieregs(const si_t *sih, struct bcmstrbuf *b);
-#endif // endif
+#endif
 
 #if defined(BCMDBG_PHYDUMP)
 extern void si_dumpregs(si_t *sih, struct bcmstrbuf *b);
-#endif // endif
+#endif
 
 extern uint32 si_ccreg(si_t *sih, uint32 offset, uint32 mask, uint32 val);
 extern uint32 si_pciereg(const si_t *sih, uint32 offset, uint32 mask, uint32 val, uint type);
@@ -554,7 +554,7 @@ extern void si_ercx_init(si_t *sih, uint32 ltecx_mux, uint32 ltecx_padnum,
 #if defined(BCMLTECOEX)
 extern int si_wci2_rxfifo_handler_register(si_t *sih, wci2_handler_t rx_cb, void *ctx);
 extern void si_wci2_rxfifo_handler_unregister(si_t *sih);
-#endif // endif
+#endif
 extern void si_gci_seci_init(si_t *sih);
 extern void si_wci2_init(si_t *sih, uint8 baudrate, uint32 ltecx_mux, uint32 ltecx_padnum,
 	uint32 ltecx_fnsel, uint32 ltecx_gcigpio, uint32 xtalfreq);

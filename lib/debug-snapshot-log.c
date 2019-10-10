@@ -1361,6 +1361,128 @@ void dbg_snapshot_printkl(size_t msg, size_t val)
 }
 #endif
 
+#ifdef CONFIG_SEC_PM_DEBUG
+static ssize_t dss_log_work_lookup(char *buf, ssize_t n, int cpu, int idx)
+{
+	char work_fn[KSYM_NAME_LEN];
+	unsigned long sec, msec;
+	u64 ts;
+	int en;
+
+	if (!(dss_log->work[cpu][idx].fn))
+		return n;
+
+	lookup_symbol_name((unsigned long)dss_log->work[cpu][idx].fn, work_fn);
+
+	ts = dss_log->work[cpu][idx].time;
+	sec = ts / NSEC_PER_SEC;
+	msec = (ts % NSEC_PER_SEC) / USEC_PER_MSEC;
+
+	en = dss_log->work[cpu][idx].en;
+
+	n += scnprintf(buf + n, 100,
+			"%d: %10lu.%06lu task:%16s, fn:%32s, %1s\n",
+			cpu, sec, msec, dss_log->work[cpu][idx].task_comm,
+			work_fn, en == DSS_FLAG_IN ? "I" : "O");
+
+	return n;
+}
+
+ssize_t dss_log_work_print(char *buf)
+{
+	int cpu, array_size;
+	ssize_t n = 0;
+
+	if (!dss_log)
+		return 0;
+
+	array_size = ARRAY_SIZE(dss_log->work[0]) - 1;
+
+	for_each_possible_cpu(cpu) {
+		int i, idx;
+
+		idx = atomic_read(&dss_log_misc.work_log_idx[cpu]);
+
+		for (i = 0; i < 5 && i < array_size; i++, idx--) {
+			idx &= array_size;
+			n = dss_log_work_lookup(buf, n, cpu, idx);
+		}
+	}
+
+	return n;
+}
+#endif /* CONFIG_SEC_PM_DEBUG */
+
+#ifdef CONFIG_SEC_PM_DEBUG
+#include <linux/debugfs.h>
+
+static int exynos_ss_thermal_show(struct seq_file *m, void *unused)
+{
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_THERMAL_ID];
+	unsigned long idx, size;
+	unsigned long rem_nsec;
+	u64 ts;
+	int i;
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
+		return 0;
+
+	seq_puts(m, "time\t\t\ttemperature\tcooling_device\t\tmax_frequency\n");
+
+	size = ARRAY_SIZE(dss_log->thermal);
+	idx = atomic_read(&dss_log_misc.thermal_log_idx);
+
+	for (i = 0; i < size; i++, idx--) {
+		idx &= size - 1;
+
+		ts = dss_log->thermal[idx].time;
+		if (!ts)
+			break;
+
+		rem_nsec = do_div(ts, NSEC_PER_SEC);
+
+		seq_printf(m, "[%8lu.%06lu]\t%-12u\t%-16s\t%u\n",
+				(unsigned long)ts, rem_nsec / NSEC_PER_USEC,
+				dss_log->thermal[idx].temp,
+				dss_log->thermal[idx].cooling_device,
+				dss_log->thermal[idx].cooling_state);
+	}
+
+	return 0;
+}
+
+static int exynos_ss_thermal_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, exynos_ss_thermal_show, NULL);
+}
+
+static const struct file_operations thermal_fops = {
+	.owner = THIS_MODULE,
+	.open = exynos_ss_thermal_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static struct dentry *debugfs_ess_root;
+
+static int __init exynos_ss_debugfs_init(void)
+{
+	debugfs_ess_root = debugfs_create_dir("exynos-ss", NULL);
+	if (!debugfs_ess_root) {
+		pr_err("Failed to create exynos-ss debugfs\n");
+		return 0;
+	}
+
+	debugfs_create_file("thermal", 0444, debugfs_ess_root, NULL,
+			&thermal_fops);
+
+	return 0;
+}
+
+late_initcall(exynos_ss_debugfs_init);
+#endif /* CONFIG_SEC_PM_DEBUG */
+
 #if defined(CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU) && defined(CONFIG_SEC_DEBUG_LOCKUP_INFO)
 #define for_each_generated_irq_in_snapshot(idx, i, max, base, cpu)	\
 	for (i = 0, idx = base; i < max; ++i, idx = (base - i) & (ARRAY_SIZE(dss_log->irq[0]) - 1))		\

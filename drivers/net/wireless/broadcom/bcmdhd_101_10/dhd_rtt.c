@@ -356,8 +356,14 @@ rate_mcs2rate(uint mcs, uint nss, uint bw, int sgi)
 
 		/* find the number of complex numbers per symbol */
 		if (RSPEC_IS20MHZ(bw)) {
+			/* XXX 4360 TODO: eliminate Phy const in rspec bw, then just compare
+			 * as in 80 and 160 case below instead of RSPEC_IS20MHZ(bw)
+			 */
 			rate = Nsd_20MHz;
 		} else if (RSPEC_IS40MHZ(bw)) {
+			/* XXX 4360 TODO: eliminate Phy const in rspec bw, then just compare
+			 * as in 80 and 160 case below instead of RSPEC_IS40MHZ(bw)
+			 */
 			rate = Nsd_40MHz;
 		} else if (bw == WL_RSPEC_BW_80MHZ) {
 			rate = Nsd_80MHz;
@@ -709,7 +715,7 @@ dhd_rtt_common_get_handler(dhd_pub_t *dhd, ftm_subcmd_info_t *p_subcmd_info,
 	DHD_RTT(("enter %s: method=%d, session_id=%d, cmdid=%d(%s)\n",
 		__FUNCTION__, method, session_id, p_subcmd_info->cmdid,
 		ftm_cmdid_to_str(p_subcmd_info->cmdid)));
-#endif // endif
+#endif
 	/* alloc mem for ioctl headr + reserved 0 bufsize for tlvs (initialize to zero) */
 	p_proxd_iov = rtt_alloc_getset_buf(method, session_id, p_subcmd_info->cmdid,
 		0, &proxd_iovsize);
@@ -754,7 +760,7 @@ dhd_rtt_common_set_handler(dhd_pub_t *dhd, const ftm_subcmd_info_t *p_subcmd_inf
 	DHD_RTT(("enter %s: method=%d, session_id=%d, cmdid=%d(%s)\n",
 		__FUNCTION__, method, session_id, p_subcmd_info->cmdid,
 		ftm_cmdid_to_str(p_subcmd_info->cmdid)));
-#endif // endif
+#endif
 
 	/* allocate and initialize a temp buffer for 'set proxd' iovar */
 	proxd_iovsize = 0;
@@ -769,7 +775,7 @@ dhd_rtt_common_set_handler(dhd_pub_t *dhd, const ftm_subcmd_info_t *p_subcmd_inf
 	if (ret != BCME_OK) {
 		DHD_RTT(("error: IOVAR failed, status=%d\n", ret));
 	}
-#endif // endif
+#endif
 	/* clean up */
 	kfree(p_proxd_iov);
 
@@ -1000,6 +1006,9 @@ rtt_unpack_xtlv_cbfn(void *ctx, const uint8 *p_data, uint16 tlvid, uint16 len)
 		break;
 	case WL_PROXD_TLV_ID_COLLECT_DATA:
 		DHD_RTT(("WL_PROXD_TLV_ID_COLLECT_DATA\n"));
+		/* XXX: we do not have handle to wl in the context of
+		 * xtlv callback without changing the xtlv API.
+		 */
 		rtt_collect_event_data_display(
 			rtt_collect_data_event_ver(len),
 			ctx, p_data, len);
@@ -1075,7 +1084,7 @@ rtt_handle_config_options(wl_proxd_session_id_t session_id, wl_proxd_tlv_t **p_t
 #ifdef RTT_DEBUG
 			DHD_RTT(("%s: bcm_pack_xltv_entry() for flags failed, status=%d\n",
 				__FUNCTION__, ret));
-#endif // endif
+#endif
 		}
 exit:
 	return ret;
@@ -1949,11 +1958,11 @@ dhd_rtt_retry_work(struct work_struct *work)
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	rtt_status = container_of(work, rtt_status_info_t, rtt_retry_timer.work);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 
 	dhd = rtt_status->dhd;
 	if (dhd == NULL) {
@@ -2191,11 +2200,11 @@ dhd_rtt_timeout_work(struct work_struct *work)
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	rtt_status = container_of(work, rtt_status_info_t, proxd_timeout.work);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 
 	dhd = rtt_status->dhd;
 	if (dhd == NULL) {
@@ -3640,6 +3649,7 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 	rtt_status_info_t *rtt_status;
 	rtt_results_header_t *rtt_results_header = NULL;
 	bool is_new = TRUE;
+	rtt_target_info_t *target = NULL;
 #endif /* WL_CFG80211 */
 
 	DHD_RTT(("Enter %s \n", __FUNCTION__));
@@ -3716,6 +3726,16 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 			goto exit;
 		}
 	}
+
+	/* check current target_mac and event_mac are matching */
+	target = &rtt_status->rtt_config.target_info[rtt_status->cur_idx];
+	if (memcmp(&target->addr, &event->addr, ETHER_ADDR_LEN)) {
+		DHD_RTT(("Ignore Proxd event for the unexpected peer "MACDBG
+			" expected peer "MACDBG"\n", MAC2STRDBG(&event->addr),
+			MAC2STRDBG(&target->addr)));
+		goto exit;
+	}
+
 #endif /* WL_CFG80211 */
 
 #ifdef WL_CFG80211
@@ -4195,6 +4215,7 @@ dhd_rtt_init(dhd_pub_t *dhd)
 	ret = dhd_rtt_get_version(dhd, &version);
 	if (ret == BCME_OK && (version == WL_PROXD_API_VERSION)) {
 		DHD_RTT_ERR(("%s : FTM is supported\n", __FUNCTION__));
+		/* XXX : TODO :  need to find a way to check rtt capability */
 		/* rtt_status->rtt_capa.proto |= RTT_CAP_ONE_WAY; */
 		rtt_status->rtt_capa.proto |= RTT_CAP_FTM_WAY;
 

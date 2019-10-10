@@ -49,6 +49,7 @@ extern void abox_dump_unregister_file(struct dentry *file);
 /**
  * Register abox dump
  * @param[in]	data		abox data
+ * @param[in]	gid		unique buffer gid
  * @param[in]	id		unique buffer id
  * @param[in]	name		unique buffer name
  * @param[in]	area		virtual address of the buffer
@@ -56,8 +57,24 @@ extern void abox_dump_unregister_file(struct dentry *file);
  * @param[in]	bytes		buffer size in bytes
  * @return	error code if any
  */
-extern int abox_dump_register(struct abox_data *data, int id,
+extern int abox_dump_register(struct abox_data *data, int gid, int id,
 		const char *name, void *area, phys_addr_t addr, size_t bytes);
+
+/**
+ * Register abox dump (legacy version)
+ * @param[in]	data		abox data
+ * @param[in]	id		unique buffer id
+ * @param[in]	name		unique buffer name
+ * @param[in]	area		virtual address of the buffer
+ * @param[in]	addr		pysical address of the buffer
+ * @param[in]	bytes		buffer size in bytes
+ * @return	error code if any
+ */
+static inline int abox_dump_register_legacy(struct abox_data *data, int id,
+		const char *name, void *area, phys_addr_t addr, size_t bytes)
+{
+	return abox_dump_register(data, 0, id, name, area, addr, bytes);
+}
 
 /**
  * Initialize abox dump module

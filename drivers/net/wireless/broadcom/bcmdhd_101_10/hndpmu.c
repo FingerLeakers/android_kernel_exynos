@@ -47,7 +47,7 @@
 #include <sbgci.h>
 #ifdef EVENT_LOG_COMPILE
 #include <event_log.h>
-#endif // endif
+#endif
 #include <sbgci.h>
 #include <lpflags.h>
 
@@ -55,7 +55,7 @@
 
 #ifdef BCM_AVS
 #include <bcm_avs.h>
-#endif // endif
+#endif
 
 #define	PMU_ERROR(args)
 
@@ -96,7 +96,7 @@ bool	_pmustatsenab = FALSE;
 	#define FASTLPO_ENAB()	(TRUE)
 #else
 	#define FASTLPO_ENAB()	(FALSE)
-#endif // endif
+#endif
 
 /* Disable the power optimization feature */
 bool	_bcm_pwr_opt_dis = FALSE;

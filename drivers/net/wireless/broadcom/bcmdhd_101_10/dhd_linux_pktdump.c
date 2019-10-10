@@ -1104,7 +1104,14 @@ dhd_check_arp(uint8 *pktdata)
 }
 
 #ifdef DHD_ARP_DUMP
+#ifdef BOARD_HIKEY
+/* On Hikey, due to continuous ARP prints
+ * DPC not scheduled. Hence rate limit the prints.
+ */
+#define DHD_PKTDUMP_ARP DHD_ERROR_RLMT
+#else
 #define DHD_PKTDUMP_ARP DHD_PKTDUMP
+#endif /* BOARD_HIKEY */
 
 #define ARP_PRINT(str) \
 	do { \

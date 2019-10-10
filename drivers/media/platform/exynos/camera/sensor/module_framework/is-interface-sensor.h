@@ -464,12 +464,14 @@ struct is_cis_ops {
 	int (*cis_set_laser_current)(struct v4l2_subdev *subdev, u32 value);
 	int (*cis_get_laser_photo_diode)(struct v4l2_subdev *subdev, u16 *value);
 	int (*cis_get_tof_tx_freq)(struct v4l2_subdev *subdev, u32 *value);
+	int (*cis_get_tof_laser_error_flag)(struct v4l2_subdev *subdev, u32 mode, int *value);
 	int (*cis_set_wb_gains)(struct v4l2_subdev *subdev, struct wb_gains wb_gains);
 	int (*cis_set_roi_stat)(struct v4l2_subdev *subdev, struct roi_setting_t roi_control);
 	int (*cis_set_3hdr_stat)(struct v4l2_subdev *subdev, bool streaming, void *data);
 	void (*cis_check_wdr_mode)(struct v4l2_subdev *subdev, u32 mode_idx);
 	int (*cis_check_model_id)(struct v4l2_subdev *subdev);
 	int (*cis_active_test)(struct v4l2_subdev *subdev);
+	int (*cis_set_dual_setting)(struct v4l2_subdev *subdev, u32 mode);
 };
 
 struct is_sensor_ctl

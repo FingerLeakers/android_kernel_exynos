@@ -35,7 +35,8 @@ static int __init abox_pci_rmem_setup(struct reserved_mem *rmem)
 
 RESERVEDMEM_OF_DECLARE(abox_rmem, "exynos,abox_pci_rmem", abox_pci_rmem_setup);
 
-static void *abox_rmem_pci_phys_addr_vmap(phys_addr_t addr_phys, size_t addr_size)
+static void *abox_rmem_pci_phys_addr_vmap(phys_addr_t addr_phys,
+		size_t addr_size)
 {
 	phys_addr_t phys = addr_phys;
 	size_t size = addr_size;
@@ -97,8 +98,8 @@ bool abox_pci_doorbell_paddr_set(phys_addr_t addr)
 	dev_info(data->dev, "%s\n", __func__);
 
 	data->pci_doorbell_base_phys = addr + ABOX_PCI_DOORBELL_OFFSET;
-	data->pci_dram_base = devm_ioremap(data->dev_abox, data->pci_doorbell_base_phys,
-			ABOX_PCI_DOORBELL_SIZE);
+	data->pci_dram_base = devm_ioremap(data->dev_abox,
+			data->pci_doorbell_base_phys, ABOX_PCI_DOORBELL_SIZE);
 	abox_iommu_map(data->dev_abox, IOVA_VSS_PCI_DOORBELL,
 			data->pci_doorbell_base_phys,
 			ABOX_PCI_DOORBELL_SIZE, data->pci_dram_base);

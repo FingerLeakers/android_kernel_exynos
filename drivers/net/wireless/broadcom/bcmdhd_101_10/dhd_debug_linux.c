@@ -425,6 +425,7 @@ int
 dhd_os_dbg_get_feature(dhd_pub_t *dhdp, int32 *features)
 {
 	int ret = BCME_OK;
+	/* XXX : we need to find a way to get the features for dbg */
 	*features = 0;
 #ifdef DEBUGABILITY
 	*features |= DBG_MEMORY_DUMP_SUPPORTED;

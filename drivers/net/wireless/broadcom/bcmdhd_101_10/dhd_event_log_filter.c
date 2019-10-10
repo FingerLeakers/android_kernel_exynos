@@ -97,6 +97,9 @@
 #define EWPF_REPORT_MINUTES		60
 #define EWPF_REPORT_YEAR_BASE	1900
 
+#define EWPF_NO_ABS		FALSE
+#define EWPF_NEED_ABS		TRUE
+
 #define EWPF_MAX_INFO_TYPE	5
 #define EWPF_INFO_VER		0
 #define EWPF_INFO_TYPE		1
@@ -130,6 +133,7 @@ typedef struct {
 	wl_if_mgt_stats_t mgmt_stat;
 	wl_if_state_compact_t if_comp_stat;
 	wl_adps_dump_summary_v2_t adps_dump_summary;
+	wl_adps_energy_gain_v1_t adps_energy_gain;
 	wl_roam_stats_v1_t roam_stat;
 } EWPF_ifc_elem_t;
 
@@ -175,6 +179,7 @@ static int evt_xtlv_copy_cb(void *ctx, const uint8 *data, uint16 type, uint16 le
 static int evt_xtlv_idx_cb(void *ctx, const uint8 *data, uint16 type, uint16 len);
 static int evt_xtlv_type_cb(void *ctx, const uint8 *data, uint16 type, uint16 len);
 static int filter_main_cb(void *ctx, const uint8 *data, uint16 type, uint16 len);
+static int evt_xtlv_roam_cb(void *ctx, const uint8 *data, uint16 type, uint16 len);
 
 /* ========= Event Handler functions and its callbacks: ============= */
 typedef struct _EWPF_tbl {
@@ -235,6 +240,29 @@ static EWPF_tbl_t EWPF_if_periodic[] =
 		WL_STATE_IF_ADPS_STATE,
 		evt_xtlv_copy_cb,
 		IFACE_INFO(adps_dump_summary),
+		NULL
+	},
+	{
+		WL_STATE_IF_ADPS_ENERGY_GAIN,
+		evt_xtlv_copy_cb,
+		IFACE_INFO(adps_energy_gain),
+		NULL
+	},
+	{EWPF_XTLV_INVALID, NULL, NONE_INFO(0), NULL}
+};
+
+static EWPF_tbl_t EWPF_roam[] =
+{
+	{
+		WL_IFSTATS_XTLV_ROAM_STATS_EVENT,
+		evt_xtlv_print_cb,
+		NONE_INFO(0),
+		NULL
+	},
+	{
+		WL_IFSTATS_XTLV_ROAM_STATS_PERIODIC,
+		evt_xtlv_copy_cb,
+		IFACE_INFO(roam_stat),
 		NULL
 	},
 	{EWPF_XTLV_INVALID, NULL, NONE_INFO(0), NULL}
@@ -344,15 +372,15 @@ static EWPF_tbl_t EWPF_main[] =
 	},
 	{
 		WL_IFSTATS_XTLV_ROAM_STATS_EVENT,
-		evt_xtlv_print_cb,
+		evt_xtlv_roam_cb,
 		NONE_INFO(0),
-		NULL
+		EWPF_roam
 	},
 	{
 		WL_IFSTATS_XTLV_ROAM_STATS_PERIODIC,
-		evt_xtlv_copy_cb,
+		evt_xtlv_roam_cb,
 		IFACE_INFO(roam_stat),
-		NULL
+		EWPF_roam
 	},
 
 	{EWPF_XTLV_INVALID, NULL, NONE_INFO(0), NULL}
@@ -690,14 +718,13 @@ evt_xtlv_print_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 	EWP_filter_t *filter = (EWP_filter_t *)cur_ctx->dhdp->event_log_filter;
 	uint32 armcycle = 0;
 	uint8 bssid[ETHER_ADDR_LEN];
-	uint16	misdeauth = 0;
-	uint32	timestamp = 0;
-	int16 cur_bsscfg_rssi = 0, deauth_rssi = 0;
 	uint32 initial_assoc_time = 0;
 	uint32 prev_roam_time = 0;
 	uint32 last_roam_event_type = 0;
 	uint32 last_roam_event_status = 0;
 	uint32 last_roam_event_reason = 0;
+	wl_wips_event_info_t wips_event;
+	bzero(&wips_event, sizeof(wips_event));
 
 	DHD_FILTER_TRACE(("%s type:%d %x len:%d %x\n", __FUNCTION__, type, type, len, len));
 
@@ -718,20 +745,20 @@ evt_xtlv_print_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 			wl_event_based_statistics_v2_t *elem_v2;
 
 			elem_v2 = (wl_event_based_statistics_v2_t *)(uintptr_t)data;
-			memcpy(bssid, &elem_v2->last_deauth, ETHER_ADDR_LEN);
-			misdeauth = elem_v2->misdeauth;
-			cur_bsscfg_rssi = elem_v2->cur_rssi;
-			deauth_rssi = elem_v2->deauth_rssi;
-			timestamp = elem_v2->timestamp;
+			memcpy(&wips_event.bssid, &elem_v2->last_deauth, ETHER_ADDR_LEN);
+			wips_event.misdeauth = elem_v2->misdeauth;
+			wips_event.current_RSSI = elem_v2->cur_rssi;
+			wips_event.deauth_RSSI = elem_v2->deauth_rssi;
+			wips_event.timestamp = elem_v2->timestamp;
 		} else if (elem->version == WL_EVENT_STATISTICS_VER_3) {
 			wl_event_based_statistics_v3_t *elem_v3;
 
 			elem_v3 = (wl_event_based_statistics_v3_t *)(uintptr_t)data;
-			memcpy(bssid, &elem_v3->last_deauth, ETHER_ADDR_LEN);
-			misdeauth = elem_v3->misdeauth;
-			cur_bsscfg_rssi = elem_v3->cur_rssi;
-			deauth_rssi = elem_v3->deauth_rssi;
-			timestamp = elem_v3->timestamp;
+			memcpy(&wips_event.bssid, &elem_v3->last_deauth, ETHER_ADDR_LEN);
+			wips_event.misdeauth = elem_v3->misdeauth;
+			wips_event.current_RSSI = elem_v3->cur_rssi;
+			wips_event.deauth_RSSI = elem_v3->deauth_rssi;
+			wips_event.timestamp = elem_v3->timestamp;
 			/* roam statistics */
 			initial_assoc_time = elem_v3->initial_assoc_time;
 			prev_roam_time = elem_v3->prev_roam_time;
@@ -742,17 +769,21 @@ evt_xtlv_print_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 			wl_event_based_statistics_v4_t *elem_v4;
 
 			elem_v4 = (wl_event_based_statistics_v4_t *)(uintptr_t)data;
-			memcpy(bssid, &elem_v4->last_deauth, ETHER_ADDR_LEN);
-			misdeauth = elem_v4->misdeauth;
-			cur_bsscfg_rssi = elem_v4->cur_rssi;
-			deauth_rssi = elem_v4->deauth_rssi;
-			timestamp = elem_v4->timestamp;
+			memcpy(&wips_event.bssid, &elem_v4->last_deauth, ETHER_ADDR_LEN);
+			wips_event.misdeauth = elem_v4->misdeauth;
+			wips_event.current_RSSI = elem_v4->cur_rssi;
+			wips_event.deauth_RSSI = elem_v4->deauth_rssi;
+			wips_event.timestamp = elem_v4->timestamp;
 		}
-		if (misdeauth > 1) {
+		if (wips_event.misdeauth > 1) {
 			DHD_ERROR(("WIPS attack!! cnt=%d, curRSSI=%d, deauthRSSI=%d "
 				", time=%d, MAC="MACDBG"\n",
-				misdeauth, cur_bsscfg_rssi, deauth_rssi,
-				timestamp, MAC2STRDBG(bssid)));
+				wips_event.misdeauth, wips_event.current_RSSI,
+				wips_event.deauth_RSSI,	wips_event.timestamp,
+				MAC2STRDBG(&wips_event.bssid)));
+#if defined(WL_CFG80211) && defined(WL_WIPSEVT)
+			wl_cfg80211_wips_event_ext(&wips_event);
+#endif /* WL_CFG80211 && WL_WIPSEVT */
 		}
 	} else if (type == WL_IFSTATS_XTLV_ROAM_STATS_EVENT) {
 		wl_roam_stats_v1_t *roam_elem;
@@ -944,17 +975,17 @@ evt_xtlv_copy_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 		ring = filter->i_ring[filter->xtlv_idx];
 		elem_size = sizeof(EWPF_ifc_elem_t);
 	} else if (filter->idx_type == EWPF_IDX_TYPE_EVENT) {
-		DHD_FILTER_ERR(("%s: EWPF_IDX_TYPE_EVENT FOUND\n",
+		DHD_FILTER_TRACE(("%s: EWPF_IDX_TYPE_EVENT FOUND\n",
 		__FUNCTION__));
 		ring = filter->e_ring[filter->xtlv_idx];
 		elem_size = sizeof(EWPF_event_elem_t);
 	} else if (filter->idx_type == EWPF_IDX_TYPE_KEY_INFO) {
-		DHD_FILTER_ERR(("%s: EWPF_IDX_TYPE_KEY_INFO FOUND\n",
+		DHD_FILTER_TRACE(("%s: EWPF_IDX_TYPE_KEY_INFO FOUND\n",
 		__FUNCTION__));
 		ring = filter->k_ring[filter->xtlv_idx];
 		elem_size = sizeof(EWPF_key_info_elem_t);
 	} else {
-		DHD_FILTER_ERR(("%s unsupported idx_type:%d\n",
+		DHD_FILTER_TRACE(("%s unsupported idx_type:%d\n",
 			__FUNCTION__, filter->idx_type));
 		return BCME_OK;
 	}
@@ -988,9 +1019,9 @@ evt_xtlv_copy_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 	}
 
 #ifdef EWPF_DEBUG
-	DHD_FILTER_ERR(("idx:%d write_:%p %d %d\n",
+	DHD_FILTER_ERR(("idx:%d write_:%p %u %u\n",
 		filter->xtlv_idx, target, *armcycle, filter->tmp_armcycle));
-#endif // endif
+#endif
 
 	/* Additionally put updated armcycle for event based EWP */
 	if (filter->idx_type == EWPF_IDX_TYPE_EVENT ||
@@ -1024,6 +1055,7 @@ evt_xtlv_copy_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 	} else
 #endif /* DHD_EWPR_VER2 */
 	{
+		/* XXX multiversion shall be use same structure of old version */
 		if (len > cur_ctx->tbl[tbl_idx].member_length) {
 			DHD_FILTER_TRACE(("data Length is too big to save: (alloc = %d), "
 				"(data = %d)\n", cur_ctx->tbl[tbl_idx].member_length, len));
@@ -1087,6 +1119,42 @@ evt_xtlv_type_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 }
 
 static int
+evt_xtlv_roam_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
+{
+
+	EWPF_ctx_t *cur_ctx = (EWPF_ctx_t *)ctx;
+	EWPF_tbl_t *new_tbl = EWPF_roam;
+	EWPF_ctx_t sub_ctx;
+	int idx;
+
+	for (idx = 0; ; idx++) {
+		if (new_tbl[idx].xtlv_id == EWPF_XTLV_INVALID) {
+			DHD_FILTER_TRACE(("%s NOT SUPPORTED TYPE(%d)\n", __FUNCTION__, type));
+			return BCME_OK;
+		}
+		if (new_tbl[idx].xtlv_id == type) {
+			break;
+		}
+	}
+
+	/* MULTI version may not applied */
+	if (len > sizeof(cur_ctx->dhdp->roam_evt)) {
+		DHD_FILTER_ERR(("data length is too big :max= %d, cur=%d\n",
+				(int)sizeof(cur_ctx->dhdp->roam_evt), len));
+		len = sizeof(cur_ctx->dhdp->roam_evt);
+	}
+
+	/* save latest roam event to report via get_bss_info */
+	(void)memcpy_s((char *)&cur_ctx->dhdp->roam_evt, sizeof(cur_ctx->dhdp->roam_evt),
+			data, len);
+
+	sub_ctx.dhdp = cur_ctx->dhdp;
+	sub_ctx.tbl = new_tbl;
+	new_tbl[idx].cb_func(&sub_ctx, data, type, len);
+	return BCME_OK;
+}
+
+static int
 filter_main_cb(void *ctx, const uint8 *data, uint16 type, uint16 len)
 {
 	EWPF_ctx_t *cur_ctx = (EWPF_ctx_t *)ctx;
@@ -1135,6 +1203,7 @@ dhd_event_log_filter_event_handler(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_h
 	}
 
 	if (!plog_hdr || !data) {
+		/* XXX Validation check is done by caller */
 		DHD_FILTER_ERR(("INVALID PARAMETER\n"));
 		return;
 	}
@@ -1183,6 +1252,8 @@ dhd_event_log_filter_event_handler(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_h
 	}
 }
 /* ========= Private Command(Serialize) ============= */
+/* XXX REPORT MODULE will be done after discuss with customer */
+/* XXX Current implementation is temporal to verify FILTER MODULE works */
 //#define EWPR_DEBUG
 #ifdef EWPR_DEBUG
 #undef DHD_FILTER_TRACE
@@ -1194,7 +1265,7 @@ dhd_event_log_filter_event_handler(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_h
 #define EWP_REPORT_NAME_MAX		64
 
 #ifdef DHD_EWPR_VER2
-#define EWP_REPORT_VERSION	0x20190404
+#define EWP_REPORT_VERSION	0x20190514
 #define EWP_REPORT_SET_DEFAULT	0x01
 #define EWPR_CSDCLIENT_DIFF	10
 #define EWPR_INTERVAL	3
@@ -1295,6 +1366,7 @@ typedef struct {
 					 * 0 or 1 : no conversion, put data as is
 					 * greater than 1, divide value by unit_convert
 					 */
+	bool need_abs;			/* need absolute function for negative value */
 #endif /* DHD_EWPR_VER2 */
 } ewpr_serial_info_t;
 
@@ -1485,34 +1557,34 @@ typedef struct {
 	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 #define EWPR_SERIAL_IOVAR_BIT(a, b) {\
 	#a, 0, 0, .offset = 0, \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_IOVAR, b, 1, EWPR_SINGLE_DEFAULT}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_IOVAR, b, 1, EWPR_SINGLE_DEFAULT}
 #define EWPR_SERIAL_VERSION_BIT(a, b) {\
 	#a, 0, 0, .offset = 0, \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_VER, b, 1, EWPR_SINGLE_DEFAULT}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_VER, b, 1, EWPR_SINGLE_DEFAULT}
 #define EWPR_SERIAL_TYPE_BIT(a, b) {\
 	#a, 0, 0, .offset = 0, \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_TYPE, b, 1, EWPR_SINGLE_DEFAULT}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_TYPE, b, 1, EWPR_SINGLE_DEFAULT}
 #define EWPR_SERIAL_CPLOG_BIT(a, b, c) {\
 	#a, 0, 0, .offset = 0, \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_CPLOG, b, c, EWPR_SINGLE_DEFAULT}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_CPLOG, b, c, EWPR_SINGLE_DEFAULT}
 #define EWPR_SERIAL_DHDSTAT_BIT(a, b, c, d) {\
 	#a, 0, 0, .offset = 0, \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_DHDSTAT, b, c, d}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_DHDSTAT, b, c, d}
 #define EWPR_SERIAL_TX_TOSS_HIST_BIT(a, b, c, d) {\
 	#a, EWPF_IDX_TYPE_SLICE, FALSE, .offset = EWPR_TX_TOSS_HIST_OFFSET(a), \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 #define EWPR_SERIAL_RX_TOSS_HIST_BIT(a, b, c, d) {\
 	#a, EWPF_IDX_TYPE_SLICE, FALSE, .offset = EWPR_RX_TOSS_HIST_OFFSET(a), \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 #define EWPR_SERIAL_BTC_STAT_16_BIT(a, b, c, d) {\
 	#a, EWPF_IDX_TYPE_SLICE, FALSE, .offset = EWPR_BTC_STAT_OFFSET(a), \
-	EWP_INT16, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
+	EWP_UINT16, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 #define EWPR_SERIAL_BTC_STAT_32_BIT(a, b, c, d) {\
 	#a, EWPF_IDX_TYPE_SLICE, FALSE, .offset = EWPR_BTC_STAT_OFFSET(a), \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 #define EWPR_SERIAL_COMPACT_HE_CNT_BIT(a, b, c, d) {\
 	#a, EWPF_IDX_TYPE_SLICE, FALSE, .offset = EWPR_COMPACT_HE_CNT_OFFSET(a), \
-	EWP_INT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
+	EWP_UINT32, EWP_BIN, EWP_BIT, EWPF_INFO_ECNT, b, c, d}
 
 #define EWPR_SERIAL_NONE_BIT {"", EWPF_INVALID, FALSE, {0, }, 0, 0, 0, 0, 0, 0, 0}
 
@@ -1671,6 +1743,8 @@ ewpr_serial_bit_unwanted_network_default_tbl[] = {
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(min_roam_target_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(max_cached_ch_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(min_cached_ch_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
+	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(partial_roam_scan_cnt, 11, 1, EWPR_SINGLE_DEFAULT),
+	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(full_roam_scan_cnt, 11, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_rxtrig_myaid, 10, 6, EWPR_DIFF_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_colormiss_cnt, 10, 6, EWPR_DIFF_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_rxmsta_back, 10, 6, EWPR_DIFF_DEFAULT),
@@ -1855,6 +1929,8 @@ ewpr_serial_bit_abnormal_disconnect_default_tbl[] = {
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(min_roam_target_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(max_cached_ch_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(min_cached_ch_cnt, 5, 1, EWPR_SINGLE_DEFAULT),
+	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(partial_roam_scan_cnt, 11, 1, EWPR_SINGLE_DEFAULT),
+	EWPR_SERIAL_ROAM_STAT_PERIODIC_16_BIT(full_roam_scan_cnt, 11, 1, EWPR_SINGLE_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_rxtrig_myaid, 10, 6, EWPR_DIFF_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_colormiss_cnt, 10, 6, EWPR_DIFF_DEFAULT),
 	EWPR_SERIAL_COMPACT_HE_CNT_BIT(he_rxmsta_back, 10, 6, EWPR_DIFF_DEFAULT),
@@ -2029,6 +2105,7 @@ ewpr_single_serial(ewpr_serial_info_t *info, char *buf, int buf_len, void *_ptr,
 		case EWP_UINT32:
 			sval = *(uint32 *)ptr;
 			break;
+		/* XXX UINT64 is used only for debug */
 #ifdef EWPR_DEBUG
 		case EWP_UINT64:
 			sval = (uint32)(*(uint64 *)ptr);
@@ -2211,10 +2288,11 @@ dhd_event_log_filter_serialize(dhd_pub_t *dhdp, char *in_buf, uint32 tot_len, in
 	bytes_written = 0;
 	last_print = ret_buf;
 
+	/* XXX Counters BIG DATA not matched to file yet */
 	get_debug_dump_time(cookie_str);
 #ifdef DHD_LOG_DUMP
 	dhd_logdump_cookie_save(dhdp, cookie_str, "ECNT");
-#endif // endif
+#endif
 
 	/* KEY DATA */
 	bytes_written += scnprintf(&ret_buf[bytes_written],
@@ -2243,6 +2321,7 @@ dhd_event_log_filter_serialize(dhd_pub_t *dhdp, char *in_buf, uint32 tot_len, in
 	}
 
 	/* RAW DATA */
+	/* XXX FIRST data shall use space:KEY delimiter */
 	bytes_written += scnprintf(&ret_buf[bytes_written],
 		tot_len - bytes_written, "%c%08x", KEY_DEL, EWP_REPORT_VERSION);
 	bytes_written += scnprintf(&ret_buf[bytes_written],
@@ -2366,7 +2445,7 @@ ewpr_set_period_lock(ewpr_lock_param_t *param)
 	}
 
 	if (last_armcycle != param->max_armcycle) {
-		DHD_FILTER_TRACE(("MAX ARMCYCLE IS CHANGEd new:%d prev:%d\n",
+		DHD_FILTER_TRACE(("MAX ARMCYCLE IS CHANGEd new:%u prev:%u\n",
 			last_armcycle, param->max_armcycle));
 		param->max_armcycle = last_armcycle;
 	}
@@ -2385,17 +2464,17 @@ ewpr_set_period_lock(ewpr_lock_param_t *param)
 		}
 		cur_armcycle = *(uint32 *)cur;
 		if (cur_armcycle >= first_armcycle) {
-			DHD_FILTER_TRACE(("case 1: %d %d\n", first_armcycle, cur_armcycle));
+			DHD_FILTER_TRACE(("case 1: %u %u\n", first_armcycle, cur_armcycle));
 			/* dongle is rebooted */
 			break;
 		}
 		if (cur_armcycle + EWPF_EPOCH < param->min_armcycle) {
-			DHD_FILTER_TRACE(("case 2: %d %d\n", param->min_armcycle, cur_armcycle));
+			DHD_FILTER_TRACE(("case 2: %u %u\n", param->min_armcycle, cur_armcycle));
 			/* Reach Limitation */
 			break;
 		}
 		if (cur_armcycle + param->max_period + EWPF_EPOCH < last_armcycle) {
-			DHD_FILTER_TRACE(("case 3: %d %d\n", param->max_period, cur_armcycle));
+			DHD_FILTER_TRACE(("case 3: %u %u\n", param->max_period, cur_armcycle));
 			/* exceed max period */
 			break;
 		}
@@ -2404,12 +2483,12 @@ ewpr_set_period_lock(ewpr_lock_param_t *param)
 	}
 
 	if (first_armcycle != param->min_armcycle) {
-		DHD_FILTER_TRACE(("MIN ARMCYCLE IS CHANGEd new:%d prev:%d %d\n",
+		DHD_FILTER_TRACE(("MIN ARMCYCLE IS CHANGEd new:%u prev:%u %u\n",
 			first_armcycle, param->min_armcycle, cur_armcycle));
 		param->min_armcycle = first_armcycle;
 	}
 
-	DHD_FILTER_TRACE(("ARM CYCLE of first(%d), last(%d)\n", first_armcycle, last_armcycle));
+	DHD_FILTER_TRACE(("ARM CYCLE of first(%u), last(%u)\n", first_armcycle, last_armcycle));
 
 	dhd_ring_lock(ring, first, last);
 
@@ -2459,6 +2538,7 @@ ewpr_single_bit_pack(ewpr_serial_info_t * info, char * buf, int buf_len,
 	char *ptr = (char *)_ptr;
 	uint32 offset = EWPF_INVALID;
 	uint16	version;
+	bool is_signed = FALSE;
 
 	if (info->is_multi_version == TRUE) {
 		version = *(uint16 *)((char *)_ptr + info->v_info.version_offset);
@@ -2477,18 +2557,21 @@ ewpr_single_bit_pack(ewpr_serial_info_t * info, char * buf, int buf_len,
 	switch (info->data_type) {
 		case EWP_INT8:
 			sval = *(int8 *)ptr;
+			is_signed = TRUE;
 			break;
 		case EWP_UINT8:
 			sval = *(uint8 *)ptr;
 			break;
 		case EWP_INT16:
 			sval = *(int16 *)ptr;
+			is_signed = TRUE;
 			break;
 		case EWP_UINT16:
 			sval = *(uint16 *)ptr;
 			break;
 		case EWP_INT32:
 			sval = *(int32 *)ptr;
+			is_signed = TRUE;
 			break;
 		case EWP_UINT32:
 			sval = *(uint32 *)ptr;
@@ -2503,17 +2586,26 @@ ewpr_single_bit_pack(ewpr_serial_info_t * info, char * buf, int buf_len,
 			return 0;
 	}
 
-	if (sval < 0) {
-		DHD_FILTER_TRACE(("convert to positive value %d\n", sval));
-		sval = ABS(sval);
+	/* convert negative value to positive before bit packing */
+	if (is_signed) {
+		if (sval < 0) {
+			DHD_FILTER_TRACE(("convert to positive value %d\n", sval));
+			sval = ABS(sval);
+		}
 	}
+
 	if (info->unit_convert > 1) {
 		DHD_FILTER_TRACE(("convert unit %d / %d\n", sval, info->unit_convert));
 		sval = sval / info->unit_convert;
 	}
 
-	DHD_FILTER_TRACE(("%s : value : %d, bit length: %d",
-		info->name, sval, info->display_bit_length));
+	if (is_signed) {
+		DHD_FILTER_TRACE(("%s : signed value : %d, bit length: %d",
+			info->name, sval, info->display_bit_length));
+	} else {
+		DHD_FILTER_TRACE(("%s : unsigned value : %u, bit length: %d",
+			info->name, sval, info->display_bit_length));
+	}
 
 	return ewpr_bit_pack_basic(buf, buf_len, sval, info->display_format,
 			info->display_type, info->display_bit_length, bit_offset);
@@ -2564,10 +2656,12 @@ ewpr_diff_bit_pack(ewpr_serial_info_t *info, char *buf, int buf_len,
 			DHD_FILTER_ERR(("INVALID TYPE to DIFF:%d", info->data_type));
 			return 0;
 	}
+
 	if (diff < 0) {
 		DHD_FILTER_TRACE(("convert to positive value %d\n", diff));
 		diff = ABS(diff);
 	}
+
 	if (info->unit_convert > 1) {
 		DHD_FILTER_TRACE(("convert unit %d / %d\n", diff, info->unit_convert));
 		diff = diff / info->unit_convert;
@@ -2793,6 +2887,7 @@ dhd_event_log_filter_serialize_bit(dhd_pub_t *dhdp, char *in_buf, uint32 tot_len
 	bytes_written = 0;
 	bits_written = 0;
 
+	/* XXX Counters BIG DATA not matched to file yet */
 	get_debug_dump_time(cookie_str);
 #ifdef DHD_LOG_DUMP
 	dhd_logdump_cookie_save(dhdp, cookie_str, "ECNT");
@@ -2829,7 +2924,7 @@ dhd_event_log_filter_serialize_bit(dhd_pub_t *dhdp, char *in_buf, uint32 tot_len
 		DHD_FILTER_TRACE(("DHD status index: %d, timestamp: %llu, stat: %d\n",
 			idx, dhd_stat[idx].ts, dhd_stat[idx].stat));
 	}
-#endif // endif
+#endif
 	bytes_written += ewpr_scnprintf(&ret_buf[bytes_written],
 		tot_len - bytes_written, DELIMITER_LEN + DHD_STAT_STR_SIZE,
 		"current dhd status", "%c%02x", KEY_DEL, dhd_stat[0].stat);
@@ -3056,3 +3151,60 @@ ewpr_base64_encode(dhd_pub_t *dhdp, char* input, int32 length)
 	return output;
 }
 #endif /* DHD_EWPR_VER2 */
+
+#ifdef WLADPS_ENERGY_GAIN
+#define ADPS_GAIN_ENERGY_CONV_UNIT	100000	/* energy unit(10^-2) * dur unit(10^-3) */
+static int
+dhd_calculate_adps_energy_gain(wl_adps_energy_gain_v1_t *data)
+{
+	int i;
+	int energy_gain = 0;
+
+	/* energy unit: (uAh * 10^-2)/sec */
+	int pm0_idle_energy[MAX_BANDS] =
+		{ADPS_GAIN_2G_PM0_IDLE, ADPS_GAIN_5G_PM0_IDLE};
+	int txpspoll_energy[MAX_BANDS] =
+		{ADPS_GAIN_2G_TX_PSPOLL, ADPS_GAIN_5G_TX_PSPOLL};
+
+	/* dur unit: mSec */
+	for (i = 0; i < MAX_BANDS; i++) {
+		energy_gain += (data->gain_data[i].pm_dur_gain * pm0_idle_energy[i]);
+		energy_gain -= (data->gain_data[i].step0_dur * txpspoll_energy[i]);
+	}
+	energy_gain /= ADPS_GAIN_ENERGY_CONV_UNIT;
+
+	return energy_gain;
+}
+
+int dhd_event_log_filter_adps_energy_gain(dhd_pub_t *dhdp)
+{
+	int ret;
+
+	void *last_elem;
+	EWP_filter_t *filter;
+	EWPF_ifc_elem_t *ifc_elem;
+
+	if (!dhdp || !dhdp->event_log_filter) {
+		return 0;
+	}
+
+	filter = (EWP_filter_t *)dhdp->event_log_filter;
+
+	if (filter->enabled != TRUE) {
+		DHD_FILTER_ERR(("%s - EWP Filter is not enabled\n", __FUNCTION__));
+		return 0;
+	}
+
+	/* Refer to STA interface */
+	last_elem = dhd_ring_get_last(filter->i_ring[0]);
+	if (last_elem == NULL) {
+		DHD_FILTER_ERR(("%s - last_elem is NULL\n", __FUNCTION__));
+		return 0;
+	}
+
+	ifc_elem = (EWPF_ifc_elem_t *)last_elem;
+	ret = dhd_calculate_adps_energy_gain(&ifc_elem->adps_energy_gain);
+
+	return ret;
+}
+#endif /* WLADPS_ENERGY_GAIN */

@@ -210,15 +210,18 @@ static inline u64 uh_call_static(u64 app_id, u64 cmd_id, u64 arg1){
 }
 
 // void *rkp_ro_alloc(void);
-static inline void *rkp_ro_alloc(void){
-	u64 addr = (u64)uh_call_static(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, 0);
+static inline void *rkp_ro_alloc(void)
+{
+	u64 addr = 0;
+	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, (u64)&addr, 0, 0, 0);
 	if(!addr)
 		return 0;
 	return (void *)__phys_to_virt(addr);
 }
 
-static inline void rkp_ro_free(void *free_addr){
-	uh_call_static(UH_APP_RKP, RKP_RKP_ROBUFFER_FREE, (u64)free_addr);
+static inline void rkp_ro_free(void *free_addr)
+{
+	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_FREE, (u64)free_addr, 0, 0, 0);
 }
 
 

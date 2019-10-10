@@ -144,7 +144,14 @@ config CAMERA_CIS_3M5_OBJ
 		help
 		  Use to build 3M5 camera sensor.
 
-  config CAMERA_CIS_GW2_OBJ
+config CAMERA_CIS_GH1_OBJ
+		bool "Use GH1 camera cis"
+	depends on CAMERA_CIS_SELECT
+		default n
+		help
+		  Use to build GH1 camera sensor.
+
+config CAMERA_CIS_GW2_OBJ
 		bool "Use GW2 camera cis"
 	depends on CAMERA_CIS_SELECT
 		default n

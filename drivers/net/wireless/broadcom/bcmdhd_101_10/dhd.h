@@ -45,9 +45,9 @@
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_HAS_WAKELOCK)
+#if defined(CONFIG_HAS_WAKELOCK)
 #include <linux/wakelock.h>
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined (CONFIG_HAS_WAKELOCK) */
+#endif /* defined CONFIG_HAS_WAKELOCK */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/types.h>
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0) */
@@ -296,7 +296,7 @@ enum dhd_bus_devreset_type {
 
 #ifndef USEC_PER_SEC
 #define USEC_PER_SEC (1000 * 1000)
-#endif // endif
+#endif
 /* (u64)result = (u64)dividend / (u64)divisor */
 #define DIV_U64_BY_U64(dividend, divisor)	div64_u64(dividend, divisor)
 
@@ -338,6 +338,7 @@ typedef enum download_type {
 #define DHD_DEL_IF			-0xE
 #define DHD_BAD_IF			-0xF
 #define DHD_DUMMY_INFO_IF	0xDEAF	/* Hack i/f to handle events from INFO Ring */
+/* XXX to avoid build error for NDIS for timebeing */
 #define DHD_EVENT_IF DHD_DUMMY_INFO_IF
 
 enum dhd_op_flags {
@@ -349,6 +350,7 @@ enum dhd_op_flags {
 	DHD_FLAG_CONCURR_SINGLE_CHAN_MODE = (DHD_FLAG_STA_MODE | DHD_FLAG_P2P_MODE),
 	/* STA + SoftAP */
 	DHD_FLAG_CONCURR_STA_HOSTAP_MODE = (DHD_FLAG_STA_MODE | DHD_FLAG_HOSTAP_MODE),
+	/* XXX MULTI_CHAN mode is meaningful only if it is conccurncy mode */
 	DHD_FLAG_CONCURR_MULTI_CHAN_MODE		= (1 << (4)), /* STA + P2P */
 	/* Current P2P mode for P2P connection */
 	DHD_FLAG_P2P_GC_MODE				= (1 << (5)),
@@ -386,10 +388,10 @@ enum dhd_op_flags {
 
 #ifndef POWERUP_MAX_RETRY
 #define POWERUP_MAX_RETRY	3 /* how many times we retry to power up the chip */
-#endif // endif
+#endif
 #ifndef POWERUP_WAIT_MS
 #define POWERUP_WAIT_MS		2000 /* ms: time out in waiting wifi to come up */
-#endif // endif
+#endif
 /*
  * MAX_NVRAMBUF_SIZE determines the size of the Buffer in the DHD that holds
  * the NVRAM data. That is the size of the buffer pointed by bus->vars
@@ -511,7 +513,8 @@ enum dhd_dongledump_type {
 	DUMP_TYPE_CTO_RECOVERY			= 27,
 	DUMP_TYPE_SEQUENTIAL_PRIVCMD_ERROR	= 28,
 	DUMP_TYPE_PROXD_TIMEOUT			= 29,
-	DUMP_TYPE_INBAND_DEVICE_WAKE_FAILURE	= 30
+	DUMP_TYPE_INBAND_DEVICE_WAKE_FAILURE	= 30,
+	DUMP_TYPE_PKTID_POOL_DEPLETED		= 31
 };
 
 enum dhd_hang_reason {
@@ -530,6 +533,8 @@ enum dhd_hang_reason {
 	HANG_REASON_D3_ACK_TIMEOUT_SCHED_ERROR		= 0x800D,
 	HANG_REASON_SEQUENTIAL_PRIVCMD_ERROR		= 0x800E,
 	HANG_REASON_SCAN_BUSY				= 0x800F,
+	HANG_REASON_BSS_UP_FAILURE			= 0x8010,
+	HANG_REASON_BSS_DOWN_FAILURE			= 0x8011,
 	HANG_REASON_IOCTL_SUSPEND_ERROR			= 0x8012,
 	HANG_REASON_PCIE_LINK_DOWN_RC_DETECT		= 0x8805,
 	HANG_REASON_INVALID_EVENT_OR_DATA		= 0x8806,
@@ -580,12 +585,12 @@ enum dhd_rsdb_scan_features {
 #ifdef DHD_EWPR_VER2
 #define HANG_INFO_BIGDATA_EXTRA_KEY 4
 #define HANG_INFO_TRAP_T_EXTRA_KEY_IDX 5
-#endif // endif
+#endif
 
 /* Packet alignment for most efficient SDIO (can change based on platform) */
 #ifndef DHD_SDALIGN
 #define DHD_SDALIGN	32
-#endif // endif
+#endif
 
 #define DHD_TX_CONTEXT_MASK 0xff
 #define DHD_TX_START_XMIT   0x01
@@ -762,6 +767,10 @@ typedef enum {
 #error "Duplicate rings will be created since both the features are enabled"
 #endif /* DEBUGABILITY && EWP_ECNTRS_LOGGING */
 
+/*
+ * XXX: Always add new enums at the end to compatible with parser,
+ * also add new section in split_ret of EWP_config.py
+ */
 typedef enum {
 	LOG_DUMP_SECTION_GENERAL = 0,
 	LOG_DUMP_SECTION_ECNTRS,
@@ -836,6 +845,8 @@ extern void copy_debug_dump_time(char *dest, char *src);
 #ifndef DHD_COMMON_DUMP_PATH
 #define DHD_COMMON_DUMP_PATH	"/data/log/wifi/"
 #endif /* !DHD_COMMON_DUMP_PATH */
+#elif defined(BOARD_HIKEY)
+#define DHD_COMMON_DUMP_PATH	"/data/misc/wifi/"
 #elif defined(__ARM_ARCH_7A__)
 #define DHD_COMMON_DUMP_PATH	"/data/vendor/wifi/"
 #else
@@ -1027,7 +1038,7 @@ typedef struct dhd_pub {
 #ifdef PKT_FILTER_SUPPORT
 	int early_suspended;	/* Early suspend status */
 	int dhcp_in_progress;	/* DHCP period */
-#endif // endif
+#endif
 
 	/* Pkt filter defination */
 	char * pktfilter[100];
@@ -1044,10 +1055,8 @@ typedef struct dhd_pub {
 	char eventmask[WL_EVENTING_MASK_LEN];
 	int	op_mode;				/* STA, HostAPD, WFD, SoftAP */
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
-	struct mutex 	wl_start_stop_lock; /* lock/unlock for Android start/stop */
-	struct mutex 	wl_softap_lock;		 /* lock/unlock for any SoftAP/STA settings */
-#endif // endif
+	struct mutex wl_start_stop_lock; /* lock/unlock for Android start/stop */
+	struct mutex wl_softap_lock;		 /* lock/unlock for any SoftAP/STA settings */
 
 #ifdef PROP_TXSTATUS
 	bool	wlfc_enabled;
@@ -1087,13 +1096,13 @@ typedef struct dhd_pub {
 #endif /* PROP_TXSTATUS */
 #ifdef PNO_SUPPORT
 	void *pno_state;
-#endif // endif
+#endif
 #ifdef RTT_SUPPORT
 	void *rtt_state;
-#endif // endif
+#endif
 #ifdef ROAM_AP_ENV_DETECTION
 	bool	roam_env_detection;
-#endif // endif
+#endif
 	bool	dongle_isolation;
 	bool	is_pcie_watchdog_reset;
 
@@ -1111,7 +1120,7 @@ typedef struct dhd_pub {
 	bool	scan_busy_occurred;	/* flag to indicate scan busy occurred */
 #ifdef BT_OVER_SDIO
 	bool	is_bt_recovery_required;
-#endif // endif
+#endif
 	bool	smmu_fault_occurred;	/* flag to indicate SMMU Fault */
 /*
  * Add any new variables to track Bus errors above
@@ -1137,7 +1146,7 @@ typedef struct dhd_pub {
 #endif /* CONFIG_BCM_DETECT_CONSECUTIVE_HANG */
 #ifdef WLTDLS
 	bool tdls_enable;
-#endif // endif
+#endif
 	struct reorder_info *reorder_bufs[WLHOST_REORDERDATA_MAXFLOWS];
 	#define WLC_IOCTL_MAXBUF_FWCAP	1024
 	char  fw_capabilities[WLC_IOCTL_MAXBUF_FWCAP];
@@ -1154,10 +1163,10 @@ typedef struct dhd_pub {
 #if defined(ARP_OFFLOAD_SUPPORT)
 	uint32 arp_version;
 	bool hmac_updated;
-#endif // endif
+#endif
 #if defined(BCMSUP_4WAY_HANDSHAKE)
 	bool fw_4way_handshake;		/* Whether firmware will to do the 4way handshake. */
-#endif // endif
+#endif
 #ifdef DEBUG_DPC_THREAD_WATCHDOG
 	bool dhd_bug_on;
 #endif /* DEBUG_DPC_THREAD_WATCHDOG */
@@ -1243,22 +1252,23 @@ typedef struct dhd_pub {
 	uint8 tx_in_progress;
 #endif /* PCIE_FULL_DONGLE */
 #ifdef KEEP_JP_REGREV
+/* XXX Needed by customer's request */
 	char vars_ccode[WLC_CNTRY_BUF_SZ];
 	uint vars_regrev;
 #endif /* KEEP_JP_REGREV */
 #ifdef WLTDLS
 	uint32 tdls_mode;
-#endif // endif
+#endif
 #ifdef GSCAN_SUPPORT
 	bool lazy_roam_enable;
-#endif // endif
+#endif
 #if defined(PKT_FILTER_SUPPORT) && defined(APF)
 	bool apf_set;
 #endif /* PKT_FILTER_SUPPORT && APF */
 	void *macdbg_info;
 #ifdef DHD_WET
 	void *wet_info;
-#endif // endif
+#endif
 	bool	h2d_phase_supported;
 	bool	force_dongletrap_on_bad_h2d_phase;
 	uint32	dongle_trap_data;
@@ -1268,7 +1278,7 @@ typedef struct dhd_pub {
 #ifdef DHD_LOSSLESS_ROAMING
 	uint8 dequeue_prec_map;
 	uint8 prio_8021x;
-#endif // endif
+#endif
 #ifdef WL_NATOE
 	struct dhd_nfct_info *nfct;
 	spinlock_t nfct_lock;
@@ -1295,13 +1305,13 @@ typedef struct dhd_pub {
 	int logdump_periodic_flush;
 #ifdef EWP_ECNTRS_LOGGING
 	void *ecntr_dbg_ring;
-#endif // endif
+#endif
 #ifdef EWP_RTT_LOGGING
 	void *rtt_dbg_ring;
-#endif // endif
+#endif
 #ifdef DNGL_EVENT_SUPPORT
 	uint8 health_chk_event_data[HEALTH_CHK_BUF_SIZE];
-#endif // endif
+#endif
 	void *logdump_cookie;
 #endif /* DHD_LOG_DUMP */
 	uint32 dhd_console_ms; /** interval for polling the dongle for console (log) messages */
@@ -1358,9 +1368,11 @@ typedef struct dhd_pub {
 	struct dhd_pktlog *pktlog;
 	char debug_dump_time_pktlog_str[DEBUG_DUMP_TIME_BUF_LEN];
 #endif /* DHD_PKT_LOGGING */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
+#ifdef EWP_EDL
+	bool dongle_edl_support;
+	dhd_dma_buf_t edl_ring_mem;
+#endif /* EWP_EDL */
 	struct mutex ndev_op_sync;
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) */
 	bool debug_buf_dest_support;
 	uint32 debug_buf_dest_stat[DEBUG_BUF_DEST_MAX];
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
@@ -1419,7 +1431,12 @@ typedef struct dhd_pub {
 	void *pktcnts;
 #endif /* DHD_PKTDUMP_ROAM */
 	dhd_db7_info_t db7_trap;
+	bool fw_preinit;
 	bool ring_attached;
+	bool disable_dtim_in_suspend;	/* Disable set bcn_li_dtim in suspend */
+	union {
+		wl_roam_stats_v1_t v1;
+	} roam_evt;
 } dhd_pub_t;
 
 typedef struct {
@@ -1444,6 +1461,10 @@ typedef struct {
 } wake_counts_t;
 
 #if defined(PCIE_FULL_DONGLE)
+/*
+ * XXX: WARNING: dhd_wlfc.h also defines a dhd_pkttag_t
+ * making wlfc incompatible with PCIE_FULL DONGLE
+ */
 
 /* Packet Tag for PCIE Full Dongle DHD */
 typedef struct dhd_pkttag_fd {
@@ -1461,7 +1482,7 @@ typedef struct dhd_pkttag_fd {
 #endif /* !DHD_PCIE_PKTID */
 #if defined(TX_STATUS_LATENCY_STATS)
 	uint64	   q_time_us; /* time when tx pkt queued to flowring */
-#endif // endif
+#endif
 } dhd_pkttag_fd_t;
 
 /* Packet Tag for DHD PCIE Full Dongle */
@@ -1495,7 +1516,7 @@ typedef struct dhd_pkttag_fd {
 #define DHD_PKT_GET_QTIME(pkt)    ((DHD_PKTTAG_FD(pkt))->q_time_us)
 #define DHD_PKT_SET_QTIME(pkt, pkt_q_time_us) \
 	DHD_PKTTAG_FD(pkt)->q_time_us = (uint64)(pkt_q_time_us)
-#endif // endif
+#endif
 #endif /* PCIE_FULL_DONGLE */
 
 #if defined(BCMWDF)
@@ -1506,7 +1527,7 @@ typedef struct {
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(dhd_workitem_context_t, dhd_get_dhd_workitem_context)
 #endif /* (BCMWDF)  */
 
-	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_PM_SLEEP)
+	#if defined(CONFIG_PM_SLEEP)
 
 	#define DHD_PM_RESUME_WAIT_INIT(a) DECLARE_WAIT_QUEUE_HEAD(a);
 	#define _DHD_PM_RESUME_WAIT(a, b) do {\
@@ -1554,7 +1575,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(dhd_workitem_context_t, dhd_get_dhd_workitem_
 		} \
 	} while (0)
 
-	#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && defined(CONFIG_PM_SLEEP) */
+	#endif /* CONFIG_PM_SLEEP */
 
 #define DHD_IF_VIF	0x01	/* Virtual IF (Hidden from user) */
 
@@ -1591,23 +1612,17 @@ extern void dhd_os_scan_wake_unlock(dhd_pub_t *pub);
 
 inline static void MUTEX_LOCK_SOFTAP_SET_INIT(dhd_pub_t * dhdp)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
 	mutex_init(&dhdp->wl_softap_lock);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) */
 }
 
 inline static void MUTEX_LOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
 	mutex_lock(&dhdp->wl_softap_lock);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) */
 }
 
 inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
 	mutex_unlock(&dhdp->wl_softap_lock);
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) */
 }
 
 #ifdef DHD_DEBUG_WAKE_LOCK
@@ -1782,9 +1797,9 @@ void dhd_net_if_lock(struct net_device *dev);
 void dhd_net_if_unlock(struct net_device *dev);
 
 #if defined(MULTIPLE_SUPPLICANT)
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) && defined(BCMSDIO)
+#if defined(BCMSDIO)
 extern struct mutex _dhd_sdio_mutex_lock_;
-#endif // endif
+#endif
 #endif /* MULTIPLE_SUPPLICANT */
 
 typedef enum dhd_attach_states
@@ -1978,7 +1993,7 @@ extern void dhd_wakeup_ioctl_event(dhd_pub_t *pub, dhd_ioctl_recieved_status_t r
 #else
 static INLINE void dhd_wakeup_ioctl_event(dhd_pub_t *pub, dhd_ioctl_recieved_status_t reason)
 { printf("%s is NOT implemented for SDIO", __FUNCTION__); return; }
-#endif // endif
+#endif
 #ifdef SHOW_LOGTRACE
 /* Bound and delay are fine tuned after several experiments and these
  * are the best case values to handle bombarding of console logs.
@@ -2063,6 +2078,11 @@ void dhd_schedule_axi_error_dump(dhd_pub_t *dhdp, void *type);
 #ifdef BCMPCIE
 void dhd_schedule_cto_recovery(dhd_pub_t *dhdp);
 #endif /* BCMPCIE */
+
+#ifdef EWP_EDL
+#define EDL_SCHEDULE_DELAY 500 /* 500ms */
+void dhd_schedule_edl_work(dhd_pub_t *dhdp, uint delay_ms);
+#endif /* EWP_EDL */
 
 #ifdef PKT_FILTER_SUPPORT
 #define DHD_UNICAST_FILTER_NUM		0
@@ -2219,6 +2239,9 @@ extern void dhd_sendup_event(dhd_pub_t *dhdp, wl_event_msg_t *event, void *data)
 #ifdef LOG_INTO_TCPDUMP
 extern void dhd_sendup_log(dhd_pub_t *dhdp, void *data, int len);
 #endif /* LOG_INTO_TCPDUMP */
+#if defined(SHOW_LOGTRACE) && defined(EWP_EDL)
+void dhd_sendup_info_buf(dhd_pub_t *dhdp, uint8 *msg);
+#endif
 extern int dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag);
 extern uint dhd_bus_status(dhd_pub_t *dhdp);
 extern int  dhd_bus_start(dhd_pub_t *dhdp);
@@ -2297,7 +2320,7 @@ extern int dhd_getiovar(dhd_pub_t *pub, int ifidx, char *name, char *cmd_buf,
 #ifdef DHD_MCAST_REGEN
 extern int dhd_get_mcast_regen_bss_enable(dhd_pub_t *dhdp, uint32 idx);
 extern int dhd_set_mcast_regen_bss_enable(dhd_pub_t *dhdp, uint32 idx, int val);
-#endif // endif
+#endif
 typedef enum cust_gpio_modes {
 	WLAN_RESET_ON,
 	WLAN_RESET_OFF,
@@ -2387,7 +2410,7 @@ extern uint dhd_force_tx_queueing;
 #define DEFAULT_BCN_TIMEOUT_VALUE	4
 #ifndef CUSTOM_BCN_TIMEOUT_SETTING
 #define CUSTOM_BCN_TIMEOUT_SETTING	DEFAULT_BCN_TIMEOUT_VALUE
-#endif // endif
+#endif
 
 /* Default KEEP_ALIVE Period is 55 sec to prevent AP from sending Keep Alive probe frame */
 #define DEFAULT_KEEP_ALIVE_VALUE 	55000 /* msec */
@@ -2401,21 +2424,21 @@ extern uint dhd_force_tx_queueing;
 #define DEFAULT_GLOM_VALUE 	-1
 #ifndef CUSTOM_GLOM_SETTING
 #define CUSTOM_GLOM_SETTING 	DEFAULT_GLOM_VALUE
-#endif // endif
+#endif
 #define WL_AUTO_ROAM_TRIGGER -75
 /* hooks for custom Roaming Trigger  setting via Makefile */
 #define DEFAULT_ROAM_TRIGGER_VALUE -75 /* dBm default roam trigger all band */
 #define DEFAULT_ROAM_TRIGGER_SETTING 	-1
 #ifndef CUSTOM_ROAM_TRIGGER_SETTING
 #define CUSTOM_ROAM_TRIGGER_SETTING 	DEFAULT_ROAM_TRIGGER_VALUE
-#endif // endif
+#endif
 
 /* hooks for custom Roaming Romaing  setting via Makefile */
 #define DEFAULT_ROAM_DELTA_VALUE  10 /* dBm default roam delta all band */
 #define DEFAULT_ROAM_DELTA_SETTING 	-1
 #ifndef CUSTOM_ROAM_DELTA_SETTING
 #define CUSTOM_ROAM_DELTA_SETTING 	DEFAULT_ROAM_DELTA_VALUE
-#endif // endif
+#endif
 
 /* hooks for custom PNO Event wake lock to guarantee enough time
 	for the Platform to detect Event before system suspended
@@ -2423,12 +2446,12 @@ extern uint dhd_force_tx_queueing;
 #define DEFAULT_PNO_EVENT_LOCK_xTIME 	2 	/* multiplay of DHD_PACKET_TIMEOUT_MS */
 #ifndef CUSTOM_PNO_EVENT_LOCK_xTIME
 #define CUSTOM_PNO_EVENT_LOCK_xTIME	 DEFAULT_PNO_EVENT_LOCK_xTIME
-#endif // endif
+#endif
 /* hooks for custom dhd_dpc_prio setting option via Makefile */
 #define DEFAULT_DHP_DPC_PRIO  1
 #ifndef CUSTOM_DPC_PRIO_SETTING
 #define CUSTOM_DPC_PRIO_SETTING 	DEFAULT_DHP_DPC_PRIO
-#endif // endif
+#endif
 
 #ifndef CUSTOM_LISTEN_INTERVAL
 #define CUSTOM_LISTEN_INTERVAL 		LISTEN_INTERVAL
@@ -2437,15 +2460,15 @@ extern uint dhd_force_tx_queueing;
 #define DEFAULT_SUSPEND_BCN_LI_DTIM		3
 #ifndef CUSTOM_SUSPEND_BCN_LI_DTIM
 #define CUSTOM_SUSPEND_BCN_LI_DTIM		DEFAULT_SUSPEND_BCN_LI_DTIM
-#endif // endif
+#endif
 
 #ifndef BCN_TIMEOUT_IN_SUSPEND
 #define BCN_TIMEOUT_IN_SUSPEND			6 /* bcn timeout value in suspend mode */
-#endif // endif
+#endif
 
 #ifndef CUSTOM_RXF_PRIO_SETTING
 #define CUSTOM_RXF_PRIO_SETTING		MAX((CUSTOM_DPC_PRIO_SETTING - 1), 1)
-#endif // endif
+#endif
 
 #define DEFAULT_WIFI_TURNOFF_DELAY		0
 #ifndef WIFI_TURNOFF_DELAY
@@ -2480,19 +2503,19 @@ extern uint dhd_force_tx_queueing;
 #ifdef WLTDLS
 #ifndef CUSTOM_TDLS_IDLE_MODE_SETTING
 #define CUSTOM_TDLS_IDLE_MODE_SETTING  60000 /* 60sec to tear down TDLS of not active */
-#endif // endif
+#endif
 #ifndef CUSTOM_TDLS_RSSI_THRESHOLD_HIGH
 #define CUSTOM_TDLS_RSSI_THRESHOLD_HIGH -70 /* rssi threshold for establishing TDLS link */
-#endif // endif
+#endif
 #ifndef CUSTOM_TDLS_RSSI_THRESHOLD_LOW
 #define CUSTOM_TDLS_RSSI_THRESHOLD_LOW -80 /* rssi threshold for tearing down TDLS link */
-#endif // endif
+#endif
 #ifndef CUSTOM_TDLS_PCKTCNT_THRESHOLD_HIGH
 #define CUSTOM_TDLS_PCKTCNT_THRESHOLD_HIGH 100 /* pkt/sec threshold for establishing TDLS link */
-#endif // endif
+#endif
 #ifndef CUSTOM_TDLS_PCKTCNT_THRESHOLD_LOW
 #define CUSTOM_TDLS_PCKTCNT_THRESHOLD_LOW 10 /* pkt/sec threshold for tearing down TDLS link */
-#endif // endif
+#endif
 #endif /* WLTDLS */
 
 #if defined(VSDB) || defined(ROAM_ENABLE)
@@ -2503,16 +2526,16 @@ extern uint dhd_force_tx_queueing;
 
 #ifndef CUSTOM_BCN_TIMEOUT
 #define CUSTOM_BCN_TIMEOUT             DEFAULT_BCN_TIMEOUT
-#endif // endif
+#endif
 
 #define MAX_DTIM_SKIP_BEACON_INTERVAL	100 /* max allowed associated AP beacon for DTIM skip */
 #ifndef MAX_DTIM_ALLOWED_INTERVAL
 #define MAX_DTIM_ALLOWED_INTERVAL 600 /* max allowed total beacon interval for DTIM skip */
-#endif // endif
+#endif
 
 #ifndef MIN_DTIM_FOR_ROAM_THRES_EXTEND
 #define MIN_DTIM_FOR_ROAM_THRES_EXTEND	600 /* minimum dtim interval to extend roam threshold */
-#endif // endif
+#endif
 
 #define NO_DTIM_SKIP 1
 #ifdef SDTEST
@@ -2522,7 +2545,7 @@ extern uint dhd_pktgen;
 /* Echo packet len (0 => sawtooth, max 1800) */
 extern uint dhd_pktgen_len;
 #define MAX_PKTGEN_LEN 1800
-#endif // endif
+#endif
 
 /* optionally set by a module_param_string() */
 #define MOD_PARAM_PATHLEN	2048
@@ -2531,7 +2554,7 @@ extern uint dhd_pktgen_len;
 
 #ifdef SOFTAP
 extern char fw_path2[MOD_PARAM_PATHLEN];
-#endif // endif
+#endif
 
 #if defined(ANDROID_PLATFORM_VERSION)
 #if (ANDROID_PLATFORM_VERSION < 7)
@@ -2929,8 +2952,7 @@ int custom_rps_map_set(struct netdev_rx_queue *queue, char *buf, size_t len);
 void custom_rps_map_clear(struct netdev_rx_queue *queue);
 #define PRIMARY_INF 0
 #define VIRTUAL_INF 1
-#if defined(CONFIG_MACH_UNIVERSAL5433) || defined(CONFIG_MACH_UNIVERSAL7420) || \
-	defined(CONFIG_SOC_EXYNOS8890)
+#if defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_SOC_EXYNOS8890)
 #define RPS_CPUS_MASK "10"
 #define RPS_CPUS_MASK_P2P "10"
 #define RPS_CPUS_MASK_IBSS "10"
@@ -2939,7 +2961,7 @@ void custom_rps_map_clear(struct netdev_rx_queue *queue);
 #define RPS_CPUS_MASK "6"
 #define RPS_CPUS_MASK_P2P "6"
 #define RPS_CPUS_MASK_IBSS "6"
-#endif /* CONFIG_MACH_UNIVERSAL5433 || CONFIG_MACH_UNIVERSAL7420 || CONFIG_SOC_EXYNOS8890 */
+#endif /* CONFIG_MACH_UNIVERSAL7420 || CONFIG_SOC_EXYNOS8890 */
 #endif /* SET_RPS_CPUS || ARGOS_RPS_CPU_CTL */
 
 int dhd_get_download_buffer(dhd_pub_t	*dhd, char *file_path, download_type_t component,
@@ -3163,19 +3185,9 @@ do { \
 extern bool dhd_prot_is_cmpl_ring_empty(dhd_pub_t *dhd, void *prot_info);
 extern void dhd_prot_dump_ring_ptrs(void *prot_info);
 
-/*
- * Enable this macro if you want to track the calls to wake lock
- * This records can be printed using the following command
- * cat /sys/bcm-dhd/wklock_trace
- * DHD_TRACE_WAKE_LOCK supports over linux 2.6.0 version
- */
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
-#undef DHD_TRACE_WAKE_LOCK
-#endif /* KERNEL_VER < KERNEL_VERSION(2, 6, 0) */
-
 #if defined(DHD_TRACE_WAKE_LOCK)
 void dhd_wk_lock_stats_dump(dhd_pub_t *dhdp);
-#endif // endif
+#endif
 
 extern bool dhd_query_bus_erros(dhd_pub_t *dhdp);
 void dhd_clear_bus_errors(dhd_pub_t *dhdp);
@@ -3188,7 +3200,7 @@ void dhd_clear_bus_errors(dhd_pub_t *dhdp);
 extern void dhd_schedule_reset(dhd_pub_t *dhdp);
 #else
 static INLINE void dhd_schedule_reset(dhd_pub_t *dhdp) {;}
-#endif // endif
+#endif
 
 extern void init_dhd_timeouts(dhd_pub_t *pub);
 extern void deinit_dhd_timeouts(dhd_pub_t *pub);
@@ -3203,7 +3215,7 @@ typedef enum timeout_resons {
 #if defined(PCIE_INB_DW)
 extern int dhd_bus_set_device_wake(struct dhd_bus *bus, bool val);
 extern void dhd_bus_dw_deassert(dhd_pub_t *dhd);
-#endif // endif
+#endif
 extern void dhd_prhex(const char *msg, volatile uchar *buf, uint nbytes, uint8 dbg_level);
 int dhd_tput_test(dhd_pub_t *dhd, tput_test_t *tput_data);
 void dhd_tput_test_rx(dhd_pub_t *dhd, void *pkt);
@@ -3247,7 +3259,7 @@ int dhd_get_preserve_log_numbers(dhd_pub_t *dhd, uint32 *logset_mask);
 #ifdef DHD_LOG_DUMP
 void dhd_schedule_log_dump(dhd_pub_t *dhdp, void *type);
 void dhd_log_dump_trigger(dhd_pub_t *dhdp, int subcmd);
-#endif // endif
+#endif
 
 #ifdef DHD_LOG_DUMP
 int dhd_log_dump_ring_to_file(dhd_pub_t *dhdp, void *ring_ptr, void *file,
@@ -3386,16 +3398,29 @@ typedef struct dhd_gdb_proxy_probe_data {
 extern void dhd_pktfilter_offload_set(dhd_pub_t * dhd, char *arg);
 extern void dhd_pktfilter_offload_enable(dhd_pub_t * dhd, char *arg, int enable, int master_mode);
 extern void dhd_pktfilter_offload_delete(dhd_pub_t *dhd, int id);
-#endif // endif
+#endif
 
 #ifdef DHD_DUMP_PCIE_RINGS
 extern int dhd_d2h_h2d_ring_dump(dhd_pub_t *dhd, void *file, const void *user_buf,
 	unsigned long *file_posn, bool file_write);
 #endif /* DHD_DUMP_PCIE_RINGS */
 
+#ifdef EWP_EDL
+#define DHD_EDL_RING_SIZE (D2HRING_EDL_MAX_ITEM * D2HRING_EDL_ITEMSIZE)
+int dhd_event_logtrace_process_edl(dhd_pub_t *dhdp, uint8 *data,
+		void *evt_decode_data);
+int dhd_edl_mem_init(dhd_pub_t *dhd);
+void dhd_edl_mem_deinit(dhd_pub_t *dhd);
+void dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd);
+#define DHD_EDL_MEM_INIT(dhdp) dhd_edl_mem_init(dhdp)
+#define DHD_EDL_MEM_DEINIT(dhdp) dhd_edl_mem_deinit(dhdp)
+#define DHD_EDL_RING_TCM_RD_UPDATE(dhdp) \
+	dhd_prot_edl_ring_tcm_rd_update(dhdp)
+#else
 #define DHD_EDL_MEM_INIT(dhdp) do { /* noop */ } while (0)
 #define DHD_EDL_MEM_DEINIT(dhdp) do { /* noop */ } while (0)
 #define DHD_EDL_RING_TCM_RD_UPDATE(dhdp) do { /* noop */ } while (0)
+#endif /* EWP_EDL */
 
 #ifdef BIGDATA_SOFTAP
 void dhd_schedule_gather_ap_stadata(void *bcm_cfg, void *ndev, const wl_event_msg_t *e);
@@ -3487,4 +3512,10 @@ uint8 dhd_d11_slices_num_get(dhd_pub_t *dhdp);
 #ifdef WL_AUTO_QOS
 extern void dhd_wl_sock_qos_set_status(dhd_pub_t *dhdp, unsigned long on_off);
 #endif /* WL_AUTO_QOS */
+
+void *dhd_get_roam_evt(dhd_pub_t *dhdp);
+#if defined(DISABLE_HE_ENAB) || defined(CUSTOM_CONTROL_HE_ENAB)
+extern int dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab);
+extern uint8 control_he_enab;
+#endif /* DISABLE_HE_ENAB  || CUSTOM_CONTROL_HE_ENAB */
 #endif /* _dhd_h_ */

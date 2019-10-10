@@ -20,21 +20,6 @@
 #include "is-hw-api-ois-mcu.h"
 #include "is-binary.h"
 
-static noinline_for_stack long __get_file_size(struct file *file)
-{
-	struct kstat st;
-	u32 request_mask = (STATX_MODE | STATX_SIZE);
-
-	if (vfs_getattr(&file->f_path, &st, request_mask, KSTAT_QUERY_FLAGS))
-		return -1;
-	if (!S_ISREG(st.mode))
-		return -1;
-	if (st.size != (long)st.size)
-		return -1;
-
-	return st.size;
-}
-
 int __is_mcu_core_control(void __iomem *base, int on)
 {
 	u32 val;
@@ -115,11 +100,36 @@ int __is_mcu_hw_set_init_peri(void __iomem *base)
 	return ret;
 }
 
-int __is_mcu_hw_enable_peri(void __iomem *base)
+int __is_mcu_hw_set_clear_peri(void __iomem *base)
 {
 	int ret = 0;
 
-	is_hw_set_reg_u8(base, &ois_mcu_peri_regs[R_OIS_PERI_USI_CON], 0x0);
+	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PERI_CON_CTRL], 0x00000000);
+	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL], 0x00000000);
+
+	return ret;
+}
+
+int __is_mcu_hw_reset_peri(void __iomem *base, int onoff)
+{
+	int ret = 0;
+	u8 val = 0;
+
+	if (onoff)
+		val = 0x1;
+	else
+		val = 0x0;
+
+	is_hw_set_reg_u8(base, &ois_mcu_peri_regs[R_OIS_PERI_USI_CON], val);
+
+	return ret;
+}
+
+int __is_mcu_hw_clear_peri(void __iomem *base)
+{
+	int ret = 0;
+
+	is_hw_set_reg_u8(base, &ois_mcu_peri_regs[R_OIS_PERI_USI_CON_CLEAR], 0x05);
 
 	return ret;
 }
@@ -155,90 +165,31 @@ int __is_mcu_hw_disable(void __iomem *base)
 
 long  __is_mcu_load_fw(void __iomem *base, struct device *dev)
 {
+	long ret = 0;
 	struct is_binary mcu_bin;
-	mm_segment_t old_fs;
-	struct file *fp;
-	char *filename;
-	u8 *buf = NULL;
-	long ret = 0, fsize, nread;
-	loff_t file_offset = 0;
 
 	BUG_ON(!base);
 
-	info("%s started", __func__);
+	info_mcu("%s started", __func__);
 
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	filename = __getname();
-	if (unlikely(!filename))
-		return -ENOMEM;
-
-	snprintf(filename, PATH_MAX, "%s%s",
-		IS_MCU_SDCARD_PATH, IS_MCU_FW_NAME);
-	fp = filp_open(filename, O_RDONLY, 0);
-	if (IS_ERR_OR_NULL(fp)) {
-		__putname(filename);
-		set_fs(old_fs);
-		goto request_fw;
-	}
-
-	fsize = __get_file_size(fp);
-	if (fsize <= 0) {
-		pr_err("[@][OIS MCU] __get_file_size fail(%ld)\n",
-			fsize);
-		ret = -EBADF;
-		goto p_err2;
-	}
-
-	buf = vmalloc(fsize);
-	if (!buf) {
-		ret = -ENOMEM;
-		goto p_err2;
-	}
-
-	nread = kernel_read(fp, buf, fsize, &file_offset);
-	if (nread != fsize) {
-		pr_err("[@][OIS MCU] kernel_read was failed(%ld != %ld)n",
-			nread, fsize);
-		ret = -EIO;
-		goto p_err1;
-	}
-
-	memcpy((void *)base, (void *)buf, fsize);
-
-	info_mcu("Load FW was done (%s, %ld)\n",
-		filename, fsize);
-	ret = fsize;
-p_err1:
-	vfree(buf);
-p_err2:
-	__putname(filename);
-	filp_close(fp, current->files);
-	set_fs(old_fs);
-
-	info("%s %d end", __func__, __LINE__);
-
-	return ret;
-
-request_fw:
+	setup_binary_loader(&mcu_bin, 3, -EAGAIN, NULL, NULL);
 	ret = request_binary(&mcu_bin, IS_MCU_PATH, IS_MCU_FW_NAME, dev);
 	if (ret) {
 		err_mcu("request_firmware was failed(%ld)\n", ret);
-		ret = -EINVAL;
+		ret = 0;
 		goto request_err;
 	}
 
 	memcpy((void *)(base), (void *)mcu_bin.data, mcu_bin.size);
-
 	info_mcu("Request FW was done (%s%s, %ld)\n",
 		IS_MCU_PATH, IS_MCU_FW_NAME, mcu_bin.size);
 
-	ret = fsize;
+	ret = mcu_bin.size;
+
 request_err:
 	release_binary(&mcu_bin);
 
-	info("%s %d end", __func__, __LINE__);
+	info_mcu("%s %d end", __func__, __LINE__);
 
 	return ret;
 }

@@ -150,7 +150,7 @@ struct rule_item_struct *add_file_path(const char *file_path, int for_recovery)
 			printf("WARNING: Can not create the new item!\n");
 			exit(-1);
 		}
-		create_file_item("HEAD", 4);
+		create_file_item("DEFEX_RULES_FILE", 16);
 	}
 	base = defex_packed_rules;
 	ptr = file_path + 1;
@@ -323,7 +323,11 @@ int store_tree(FILE *f, FILE *f_bin)
 	static char work_str[4096];
 	int i, offset = 0, index = 0;
 
+	if (packfiles_size)
+		defex_packed_rules->data_size = packfiles_size;
+
 	work_str[0] = 0;
+	fprintf(f, "#ifndef DEFEX_RAMDISK_ENABLE\n\n");
 	fprintf(f, "const unsigned char defex_packed_rules[] = {\n");
 	for (i = 0; i < packfiles_size; i++) {
 		if (index)
@@ -339,6 +343,8 @@ int store_tree(FILE *f, FILE *f_bin)
 	if (index)
 		fprintf(f, "\t%s\n", work_str);
 	fprintf(f, "};\n");
+	fprintf(f, "\n#endif /* DEFEX_RAMDISK_ENABLE */\n\n");
+	fprintf(f, "#define DEFEX_RULES_ARRAY_SIZE\t\t%d\n", packfiles_size);
 	if (f_bin)
 		fwrite(defex_packed_rules, 1, packfiles_size, f_bin);
 	return 0;
@@ -612,35 +618,44 @@ do_close2:
 
 int main(int argc, char **argv)
 {
-	static char param1[PATH_MAX], param2[PATH_MAX], param3[PATH_MAX];
+	static char param[4][PATH_MAX];
+	char *src_file = NULL, *packed_file = NULL, *packed_bin_file = NULL;
+	char *reduced_file = NULL, *list_file = NULL;
+	int i;
 
-	if (argc >= 4 && argc <= 5) {
-		SAFE_STRCOPY(param1, argv[2]);
-		SAFE_STRCOPY(param2, argv[3]);
-		if (argc == 5) {
-			SAFE_STRCOPY(param3, argv[4]);
-		}
-		if (argc == 5 && !strncmp(argv[1], "-r", 2)) {
-			if (reduce_rules(param1, param2, param3) != 0)
-				goto show_help;
-		}
+	if (argc < 4 || argc > 5)
+		goto show_help;
 
-		if (argc == 4 && !strncmp(argv[1], "-p", 2)) {
-			if (pack_rules(param1, param2, NULL) != 0)
-				goto show_help;
+	for(i = 0; i < (argc - 2); i++) {
+		SAFE_STRCOPY(param[i], argv[i + 2]);
+		switch(i) {
+			case 0:
+				src_file = param[i];
+				break;
+			case 1:
+				packed_file = reduced_file = param[i];
+				break;
+			case 2:
+				packed_bin_file = list_file = param[i];
+				break;
 		}
+	}
 
-		if (argc == 5 && !strncmp(argv[1], "-p", 2)) {
-			if (pack_rules(param1, param2, param3) != 0)
-				goto show_help;
-		}
+	if (!strncmp(argv[1], "-p", 2)) {
+		if (pack_rules(src_file, packed_file, packed_bin_file) != 0)
+			goto show_help;
+		return 0;
+
+	} else if (!strncmp(argv[1], "-r", 2)) {
+		if (reduce_rules(src_file, reduced_file, list_file) != 0)
+			goto show_help;
 		return 0;
 	}
 
 show_help:
 	printf("Defex rules processing utility.\nUSAGE:\n%s <CMD> <PARAMS>\n"
 		"Commands:\n"
-		"  -p - Pack rules file to the tree. Params: <SOURCE_FILE> <PACKED_FILE>\n"
+		"  -p - Pack rules file to the tree. Params: <SOURCE_FILE> <PACKED_FILE> [PACKED_BIN_FILE]\n"
 		"  -r - Reduce rules file (remove unexistent files). Params: <SOURCE_FILE> <REDUCED_FILE> <FILE_LIST>\n",
 		argv[0]);
 	return -1;

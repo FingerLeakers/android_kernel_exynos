@@ -33,7 +33,7 @@
 #include <sbgci.h>
 #ifndef BCMSDIO
 #include <pcie_core.h>
-#endif // endif
+#endif
 #ifdef BCMPCIEDEV
 #include <pcieregsoffs.h>
 #include <pciedev.h>
@@ -66,10 +66,10 @@
 #include <lpflags.h>
 #ifdef BCM_SH_SFLASH
 #include <sh_sflash.h>
-#endif // endif
+#endif
 #ifdef BCMGCISHM
 #include <hnd_gcishm.h>
-#endif // endif
+#endif
 #include "siutils_priv.h"
 #include "sbhndarm.h"
 
@@ -130,7 +130,7 @@ static void si_oob_war_BT_F1(si_t *sih);
 
 #if defined(BCMLTECOEX)
 static void si_wci2_rxfifo_intr_handler_process(si_t *sih, uint32 intstatus);
-#endif // endif
+#endif
 
 /* global variable to indicate reservation/release of gpio's */
 static uint32 si_gpioreservation = 0;
@@ -197,7 +197,7 @@ si_attach(uint devid, osl_t *osh, volatile void *regs,
 
 #if defined(BCM_SH_SFLASH) && !defined(BCM_SH_SFLASH_DISABLED)
 	sh_sflash_attach(osh, (si_t *)sii);
-#endif // endif
+#endif
 
 	return (si_t *)sii;
 }
@@ -265,6 +265,11 @@ si_buscore_prep(si_info_t *sii, uint bustype, uint devid, void *sdh)
 	BCM_REFERENCE(devid);
 
 #if defined(BCMSDIO) && !defined(BCMSDIOLITE)
+	/* PR 39902, 43618, 44891, 41539 -- avoid backplane accesses that may
+	 * cause SDIO clock requests before a stable ALP clock.  Originally had
+	 * this later (just before srom_var_init() below) to guarantee ALP for
+	 * CIS read, but due to these PRs moving it here before backplane use.
+	 */
 	/* As it precedes any backplane access, can't check chipid; but may
 	 * be able to qualify with devid if underlying SDIO allows.  But should
 	 * be ok for all our SDIO (4318 doesn't support clock and pullup regs,
@@ -295,6 +300,7 @@ si_buscore_prep(si_info_t *sii, uint bustype, uint devid, void *sdh)
 				clkset = SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_FORCE_ALP;
 				bcmsdh_cfg_write(sdh, SDIO_FUNC_1, SBSDIO_FUNC1_CHIPCLKCSR,
 					clkset, &err);
+				/* PR 40613: account for possible ALP delay */
 				OSL_DELAY(65);
 			}
 		}
@@ -371,7 +377,7 @@ si_buscore_setup(si_info_t *sii, chipcregs_t *cc, uint bustype, uint32 savewin,
 #if defined(AXI_TIMEOUTS_NIC) || defined(AXI_TIMEOUTS)
 	/* first, enable backplane timeouts */
 	si_slave_wrapper_add(&sii->pub);
-#endif // endif
+#endif
 	sii->curidx = 0;
 
 	cc = si_setcoreidx(&sii->pub, SI_CC_IDX);
@@ -388,7 +394,7 @@ si_buscore_setup(si_info_t *sii, chipcregs_t *cc, uint bustype, uint32 savewin,
 	sii->pub.cccaps = R_REG(sii->osh, &cc->capabilities);
 	/* get chipcommon extended capabilities */
 
-	if (CCREV(sii->pub.ccrev) >= 35)
+	if (CCREV(sii->pub.ccrev) >= 35) /* PR77565 */
 		sii->pub.cccaps_ext = R_REG(sii->osh, &cc->capabilities_ext);
 
 	/* get pmu rev and caps */
@@ -464,7 +470,7 @@ si_buscore_setup(si_info_t *sii, chipcregs_t *cc, uint bustype, uint32 savewin,
 				pcie = TRUE;
 				pcie_gen2 = TRUE;
 			}
-#endif // endif
+#endif
 			/* rest fill it up here */
 
 		} else if (BUSTYPE(bustype) == PCI_BUS) {
@@ -627,7 +633,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 	uint origidx;
 #ifdef NVSRCX
 	char *sromvars;
-#endif // endif
+#endif
 
 	ASSERT(GOODREGS(regs));
 
@@ -665,6 +671,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 	/* find Chipcommon address */
 	if (bustype == PCI_BUS) {
 		savewin = OSL_PCI_READ_CONFIG(sii->osh, PCI_BAR0_WIN, sizeof(uint32));
+		/* PR 29857: init to core0 if bar0window is not programmed properly */
 		if (!GOODCOREADDR(savewin, SI_ENUM_BASE(sih)))
 			savewin = SI_ENUM_BASE(sih);
 		OSL_PCI_WRITE_CONFIG(sii->osh, PCI_BAR0_WIN, 4, SI_ENUM_BASE(sih));
@@ -674,7 +681,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 #ifdef BCMSDIO
 	} else if ((bustype == SDIO_BUS) || (bustype == SPI_BUS)) {
 		cc = (chipcregs_t *)sii->curmap;
-#endif // endif
+#endif
 	} else {
 		cc = (chipcregs_t *)REG_MAP(SI_ENUM_BASE(sih), SI_CORE_SIZE);
 	}
@@ -686,7 +693,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 			bustype, BUSTYPE(bustype)));
 		return NULL;
 	}
-#endif // endif
+#endif
 
 	/* bus/core/clk setup for register access */
 	if (!si_buscore_prep(sii, bustype, devid, sdh)) {
@@ -770,6 +777,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 		goto exit;
 	}
 
+	/* JIRA: SWWLAN-98321: SPROM read showing wrong values */
 	/* Set the clkdiv2 divisor bits (2:0) to 0x4 if srom is present */
 	if (bustype == SI_BUS) {
 		uint32 clkdiv2, sromprsnt, capabilities, srom_supported;
@@ -841,7 +849,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 #ifdef BOOTLOADER_CONSOLE_OUTPUT
 	/* Enable console prints */
 	si_muxenab(sii, 3);
-#endif // endif
+#endif
 
 	if (((PCIECOREREV(sih->buscorerev) == 66) || (PCIECOREREV(sih->buscorerev) == 68)) &&
 		CST4378_CHIPMODE_BTOP(sih->chipst)) {
@@ -871,7 +879,7 @@ si_detach(si_t *sih)
 	if (BCM_SH_SFLASH_ENAB()) {
 		sh_sflash_detach(sii->osh, sih);
 	}
-#endif // endif
+#endif
 
 	if (BUSTYPE(sih->bustype) == SI_BUS) {
 		for (idx = 0; idx < SI_MAXCORES; idx++) {
@@ -2002,6 +2010,7 @@ si_watchdog(si_t *sih, uint ticks)
 		else
 			maxt = ((1 << nb) - 1);
 
+		/* PR43821: PMU watchdog timer needs min. of 2 ticks */
 		if (ticks == 1)
 			ticks = 2;
 		else if (ticks > maxt)
@@ -2167,6 +2176,7 @@ si_clkctl_init(si_t *sih)
 
 	si_clkctl_setdelay(sii, (void *)(uintptr)cc);
 
+	/* PR 110294 */
 	OSL_DELAY(20000);
 
 	if (!fast)
@@ -2786,6 +2796,14 @@ done:
 	return memsize;
 }
 
+/**
+ * For boards that use GPIO(8) is used for Bluetooth Coex TX_WLAN pin,
+ * when GPIOControl for Pin 8 is with ChipCommon core,
+ * if UART_TX_1 (bit 5: Chipc capabilities) strapping option is set, then
+ * GPIO pin 8 is driven by Uart0MCR:2 rather than GPIOOut:8. To drive this pin
+ * low, one has to set Uart0MCR:2 to 1. This is required when the BTC is disabled,
+ * or the driver goes down. Refer to PR35488.
+ */
 void
 si_btcgpiowar(si_t *sih)
 {
@@ -3223,11 +3241,7 @@ si_slave_wrapper_add(si_t *sih)
 		return;
 	}
 
-	if (CCREV(sih->ccrev) >= 62) {
-		axi_to = AXI_TO_VAL_25;
-	} else {
-		axi_to = AXI_TO_VAL;
-	}
+	axi_to = AXI_TO_VAL;
 
 	/* All required slave wrappers are added in ai_scan */
 	ai_update_backplane_timeouts(sih, TRUE, axi_to, 0);
@@ -3235,7 +3249,7 @@ si_slave_wrapper_add(si_t *sih)
 #ifdef DISABLE_PCIE2_AXI_TIMEOUT
 	ai_update_backplane_timeouts(sih, FALSE, 0, PCIE_CORE_ID);
 	ai_update_backplane_timeouts(sih, FALSE, 0, PCIE2_CORE_ID);
-#endif // endif
+#endif
 
 #endif /* AXI_TIMEOUTS  || AXI_TIMEOUTS_NIC */
 
@@ -3292,7 +3306,7 @@ si_pll_closeloop(si_t *sih)
 			/* any unsupported chip bail */
 			return;
 	}
-#endif // endif
+#endif
 }
 
 uint32 si_findcoreidx_by_axiid(const si_t *sih, uint32 axiid)
@@ -3328,7 +3342,7 @@ si_get_axi_timeout_reg(const si_t *sih)
 bool _bcmsrpwr = TRUE;
 #else
 bool _bcmsrpwr = FALSE;
-#endif // endif
+#endif
 
 #define PWRREQ_OFFSET(sih)	OFFSETOF(chipcregs_t, powerctl)
 

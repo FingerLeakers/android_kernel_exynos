@@ -63,7 +63,7 @@ extern void dhd_bus_setidletime(dhd_pub_t *dhdp, int idle_time);
 extern int dhd_bus_txdata(struct dhd_bus *bus, void *txp, uint8 ifidx);
 #else
 extern int dhd_bus_txdata(struct dhd_bus *bus, void *txp);
-#endif // endif
+#endif
 
 #ifdef BCMPCIE
 extern void dhdpcie_cto_recovery_handler(dhd_pub_t *dhd);
@@ -122,7 +122,7 @@ extern void dhd_bus_set_dotxinrx(struct dhd_bus *bus, bool val);
 extern uint8 dhd_bus_is_ioready(struct dhd_bus *bus);
 #else
 #define dhd_bus_set_dotxinrx(a, b) do {} while (0)
-#endif // endif
+#endif
 
 #define DHD_SET_BUS_STATE_DOWN(_bus)  do { \
 	(_bus)->dhd->busstate = DHD_BUS_DOWN; \
@@ -290,7 +290,7 @@ static INLINE int dhd_bus_get_cto(dhd_pub_t *dhdp) { return 0; }
 #if defined(BCMPCIE) && defined(EWP_ETD_PRSRV_LOGS)
 void dhdpcie_get_etd_preserve_logs(dhd_pub_t *dhd, uint8 *ext_trap_data,
 		void *event_decode_data);
-#endif // endif
+#endif
 
 extern uint16 dhd_get_chipid(dhd_pub_t *dhd);
 

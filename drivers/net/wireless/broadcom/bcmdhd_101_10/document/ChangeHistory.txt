@@ -1,0 +1,7 @@
+BCM4375 DHD 101.10.145.1 for Android Hubble Project
+
+- Initial Release for Hubble Project
+
+Vendor HAL Library
+ - HAL_REL_1_59_3
+

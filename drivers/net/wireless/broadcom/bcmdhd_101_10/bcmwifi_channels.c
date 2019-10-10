@@ -35,16 +35,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+/* XXX Why isn't ASSERT always available as part of a non BCMDRIVER build?
+ * It seems like there ought to be a non BCMDRIVER osl.
+ */
 #ifndef ASSERT
 #define ASSERT(exp)
-#endif // endif
+#endif
 #endif /* BCMDRIVER */
 
 #include <bcmwifi_channels.h>
 
 #if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL))
 #include <bcmstdlib.h> 	/* For wlexe/Makefile.wlm_dll */
-#endif // endif
+#endif
 
 #include <802.11.h>
 
@@ -165,7 +168,7 @@ static bool wf_chanspec_iter_next_6g(wf_chanspec_iter_t *iter);
 #ifdef WL11AC_80P80
 static int wf_chanspec_iter_next_8080_range(wf_chanspec_iter_t *iter, chanspec_band_t band);
 static int wf_chanspec_iter_next_8080_pair(wf_chanspec_iter_t *iter, chanspec_band_t band);
-#endif // endif
+#endif
 
 /**
  * Return the chanspec bandwidth in MHz
@@ -2046,6 +2049,10 @@ wf_chspec_primary20_chspec(chanspec_t chspec)
 	return pri_chspec;
 }
 
+/* return chanspec given primary 20MHz channel and bandwidth
+ * return 0 on error
+ * XXX: does not support 6G
+ */
 uint16
 wf_channel2chspec(uint pri_ch, uint bw)
 {
@@ -2286,6 +2293,19 @@ static const uint16 sidebands[] = {
 	WL_CHANSPEC_CTL_SB_UUL, WL_CHANSPEC_CTL_SB_UUU
 };
 
+/*
+ * Returns the chanspec 80Mhz channel corresponding to the following input
+ * parameters
+ *
+ *	primary_channel - primary 20Mhz channel
+ *	center_channel   - center frequecny of the 80Mhz channel
+ *
+ * The center_channel can be one of {42, 58, 106, 122, 138, 155}
+ *
+ * returns INVCHANSPEC in case of error
+ *
+ * XXX: does not support 6G
+ */
 chanspec_t
 wf_chspec_80(uint8 center_channel, uint8 primary_channel)
 {
@@ -2308,6 +2328,23 @@ wf_chspec_80(uint8 center_channel, uint8 primary_channel)
 	return chanspec;
 }
 
+/*
+ * Returns the 80+80 chanspec corresponding to the following input parameters
+ *
+ *    primary_20mhz - Primary 20 MHz channel
+ *    chan0 - center channel number of one frequency segment
+ *    chan1 - center channel number of the other frequency segment
+ *
+ * Parameters chan0 and chan1 are channel numbers in {42, 58, 106, 122, 138, 155}.
+ * The primary channel must be contained in one of the 80MHz channels. This routine
+ * will determine which frequency segment is the primary 80 MHz segment.
+ *
+ * Returns INVCHANSPEC in case of error.
+ *
+ * Refer to 802.11-2016 section 22.3.14 "Channelization".
+ *
+ * XXX: does not support 6G
+ */
 chanspec_t
 wf_chspec_get8080_chspec(uint8 primary_20mhz, uint8 chan0, uint8 chan1)
 {

@@ -540,12 +540,6 @@ void is_scaler_set_poly_src_size(void __iomem *base_addr, u32 output_id,
 {
 	u32 reg_val = 0;
 
-	if (pos_x % MCSC_WIDTH_ALIGN != 0)
-		err_hw("SC%d_SRC_HPOS(%d) should be multiple of 4", output_id, pos_x);
-
-	if (width % MCSC_WIDTH_ALIGN != 0)
-		err_hw("SC%d_SRC_WIDTH(%d) should be multiple of 4", output_id, width);
-
 	switch (output_id) {
 	case MCSC_OUTPUT0:
 		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC0_SRC_HPOS], pos_x);
@@ -643,9 +637,6 @@ void is_scaler_get_poly_src_size(void __iomem *base_addr, u32 output_id, u32 *wi
 void is_scaler_set_poly_dst_size(void __iomem *base_addr, u32 output_id, u32 width, u32 height)
 {
 	u32 reg_val = 0;
-
-	if (width % MCSC_WIDTH_ALIGN != 0)
-		err_hw("SC%d_DST_WIDTH(%d) should be multiple of 4", output_id, width);
 
 	switch (output_id) {
 	case MCSC_OUTPUT0:
@@ -1180,9 +1171,6 @@ void is_scaler_set_post_img_size(void __iomem *base_addr, u32 output_id, u32 wid
 {
 	u32 reg_val = 0;
 
-	if (width % MCSC_WIDTH_ALIGN != 0)
-		err_hw("PC%d_IMG_WIDTH(%d) should be multiple of 4", output_id, width);
-
 	switch (output_id) {
 	case MCSC_OUTPUT0:
 		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC0_IMG_HSIZE], width);
@@ -1245,9 +1233,6 @@ void is_scaler_get_post_img_size(void __iomem *base_addr, u32 output_id, u32 *wi
 void is_scaler_set_post_dst_size(void __iomem *base_addr, u32 output_id, u32 width, u32 height)
 {
 	u32 reg_val = 0;
-
-	if (width % MCSC_WIDTH_ALIGN != 0)
-		err_hw("PC%d_DST_WIDTH(%d) should be multiple of 4", output_id, width);
 
 	switch (output_id) {
 	case MCSC_OUTPUT0:

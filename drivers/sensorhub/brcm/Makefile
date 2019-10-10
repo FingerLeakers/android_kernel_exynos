@@ -50,6 +50,7 @@ obj-$(CONFIG_SENSORS_SX9310)		+= sx9310.o
 obj-$(CONFIG_SENSORS_SX9320)		+= sx9320.o
 obj-$(CONFIG_SENSORS_SX9330)		+= sx9330.o
 obj-$(CONFIG_SENSORS_SX9360)		+= sx9360.o
+obj-$(CONFIG_SENSORS_A96T3X6)		+= a96t3x6.o
 
 obj-$(CONFIG_SENSORS_SSP_BBD)           += ssp_bbd.o factory/mcu_bcm4774.o
 obj-$(CONFIG_SENSORS_SSP_BBD)           += bbdpl/

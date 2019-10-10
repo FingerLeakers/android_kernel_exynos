@@ -225,6 +225,7 @@ static struct device_attribute sec_battery_attrs[] = {
 #if defined(CONFIG_DIRECT_CHARGING)
 	SEC_BATTERY_ATTR(direct_charging_step),
 	SEC_BATTERY_ATTR(direct_charging_iin),
+	SEC_BATTERY_ATTR(direct_charging_chg_status),
 #endif
 	SEC_BATTERY_ATTR(charging_type),
 #if defined(CONFIG_SEC_FACTORY)
@@ -1613,6 +1614,12 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 					0);
 		}
+		break;
+	case DIRECT_CHARGING_CHG_STATUS:
+		psy_do_property(battery->pdata->charger_name, get,
+			POWER_SUPPLY_EXT_PROP_DIRECT_CHARGER_CHG_STATUS, value);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n",
+			value.strval);
 		break;
 #else
 	case DIRECT_CHARGING_STATUS:
@@ -3202,6 +3209,8 @@ ssize_t sec_bat_store_attrs(
 	case DIRECT_CHARGING_STEP:
 		break;
 	case DIRECT_CHARGING_IIN:
+		break;
+	case DIRECT_CHARGING_CHG_STATUS:
 		break;
 #endif
 	case CHARGING_TYPE:

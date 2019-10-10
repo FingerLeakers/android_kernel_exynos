@@ -390,6 +390,11 @@ enum mfc_sfr_dump_type {
 	MFC_DUMP_WARN_INT		= (1 << 7),
 };
 
+enum mfc_feature_option {
+	MFC_OPTION_NONE			= 0,
+	MFC_OPTION_RECON_SBWC_DISABLE	= (1 << 0),
+};
+
 enum mfc_get_img_size {
 	MFC_GET_RESOL_SIZE		= 0,
 	MFC_GET_RESOL_DPB_SIZE		= 1,
@@ -419,6 +424,7 @@ struct mfc_debugfs {
 	struct dentry *drm_predict_disable;
 	struct dentry *meminfo_enable;
 	struct dentry *meminfo;
+	struct dentry *feature_option;
 };
 
 /**
@@ -1564,6 +1570,8 @@ struct mfc_enc {
 	unsigned int slice_size_bits;
 	unsigned int in_slice;
 	unsigned int buf_full;
+
+	int sbwc_option;
 
 	int stored_tag;
 	int roi_index;

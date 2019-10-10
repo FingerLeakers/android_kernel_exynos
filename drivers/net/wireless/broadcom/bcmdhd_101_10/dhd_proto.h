@@ -33,7 +33,7 @@
 #include <wlioctl.h>
 #ifdef BCMPCIE
 #include <dhd_flowring.h>
-#endif // endif
+#endif
 
 #define DEFAULT_IOCTL_RESP_TIMEOUT	(5 * 1000) /* 5 seconds */
 #ifndef IOCTL_RESP_TIMEOUT
@@ -165,7 +165,12 @@ extern int dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ring
 extern int dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node);
 #endif /* IDLE_TX_FLOW_MGMT */
 extern int dhd_prot_init_info_rings(dhd_pub_t *dhd);
-
+extern int dhd_prot_check_tx_resource(dhd_pub_t *dhd);
+extern void dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd);
+extern void dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd);
+#else
+static INLINE void dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd) { return; }
+static INLINE void dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd) { return; }
 #endif /* BCMPCIE */
 
 #ifdef DHD_LB
@@ -190,6 +195,12 @@ extern bool dhd_prot_pkt_fixed_rate(dhd_pub_t *dhd, bool enable, bool set);
 #endif /* BCMPCIE */
 
 extern void dhd_prot_dma_indx_free(dhd_pub_t *dhd);
+
+#ifdef EWP_EDL
+int dhd_prot_init_edl_rings(dhd_pub_t *dhd);
+bool dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd);
+int dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data);
+#endif /* EWP_EDL  */
 
 /* APIs for managing a DMA-able buffer */
 int  dhd_dma_buf_alloc(dhd_pub_t *dhd, dhd_dma_buf_t *dma_buf, uint32 buf_len);

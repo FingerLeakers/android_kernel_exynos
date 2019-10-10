@@ -76,6 +76,7 @@ enum is_hw_ois_mcu_peri_reg_name {
 	R_OIS_PERI_CON_CTRL,
 	R_OIS_PUD_CTRL,
 	R_OIS_PERI_USI_CON,
+	R_OIS_PERI_USI_CON_CLEAR,
 };
 
 static const struct is_reg ois_mcu_peri_regs[] = {
@@ -85,6 +86,7 @@ static const struct is_reg ois_mcu_peri_regs[] = {
 	{0x0080, "OIS_PERI_CON_CTRL"},
 	{0x0088, "OIS_PERI_PUD_CTRL"},
 	{0x00c4, "OIS_PERI_USI_CON"},
+	{0x00c8, "OIS_PERI_USI_CON_CLEAR"},
 };
 
 enum is_hw_ois_mcu_cmd_name {

@@ -207,6 +207,23 @@ static SOC_VALUE_ENUM_SINGLE_DECL(vts_s_lif_hpf_en1, 1, 0, 0,
 static SOC_VALUE_ENUM_SINGLE_DECL(vts_s_lif_hpf_en2, 2, 0, 0,
 		vts_s_lif_hpf_en_texts, vts_s_lif_hpf_en_enum_values);
 
+static const char *vts_s_lif_dmic_en_texts[] = {"disable", "enable"};
+enum dmic_en_val {
+	DMIC_EN_DISABLE = 0x0,
+	DMIC_EN_ENABLE = 0x1,
+};
+static const unsigned int vts_s_lif_dmic_en_enum_values[] = {
+	DMIC_EN_DISABLE,
+	DMIC_EN_ENABLE,
+};
+
+static SOC_VALUE_ENUM_SINGLE_DECL(vts_s_lif_dmic_en0, 0, 0, 0,
+		vts_s_lif_dmic_en_texts, vts_s_lif_dmic_en_enum_values);
+static SOC_VALUE_ENUM_SINGLE_DECL(vts_s_lif_dmic_en1, 1, 0, 0,
+		vts_s_lif_dmic_en_texts, vts_s_lif_dmic_en_enum_values);
+static SOC_VALUE_ENUM_SINGLE_DECL(vts_s_lif_dmic_en2, 2, 0, 0,
+		vts_s_lif_dmic_en_texts, vts_s_lif_dmic_en_enum_values);
+
 static int vts_s_lif_gain_mode_get(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
@@ -597,6 +614,52 @@ static int vts_s_lif_dmic_aud_control_hpf_en_put(
 	return vts_s_lif_soc_dmic_aud_control_hpf_en_put(data, reg, val);
 }
 
+static int vts_s_lif_dmic_en_get(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct vts_s_lif_data *data = dev_get_drvdata(dev);
+	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
+	unsigned int reg = e->reg;
+	unsigned int item;
+	unsigned int val = 0;
+
+	vts_s_lif_soc_dmic_en_get(data, reg, &val);
+
+	dev_dbg(dev, "%s(%#x): %u\n", __func__, reg, val);
+
+	item = snd_soc_enum_val_to_item(e, val);
+	ucontrol->value.enumerated.item[0] = item;
+
+	return 0;
+}
+
+static int vts_s_lif_dmic_en_put(
+		struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct vts_s_lif_data *data = dev_get_drvdata(dev);
+	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
+	unsigned int reg = e->reg;
+	unsigned int *item = ucontrol->value.enumerated.item;
+	enum hpf_en_val type;
+	unsigned int val;
+
+	if (item[0] >= e->items)
+		return -EINVAL;
+
+	type = snd_soc_enum_item_to_val(e, item[0]);
+	val = (unsigned int)type;
+
+	dev_dbg(dev, "%s(%#x, %u)\n", __func__, reg, val);
+
+	return vts_s_lif_soc_dmic_en_put(data, reg, val);
+}
+
 #ifdef VTS_S_LIF_PAD_ROUTE
 static int vts_s_lif_debug_pad_en_get(
 		struct snd_kcontrol *kcontrol,
@@ -751,6 +814,15 @@ static const struct snd_kcontrol_new vts_s_lif_controls[] = {
 	SOC_VALUE_ENUM_EXT("VTS HPF EN2", vts_s_lif_hpf_en2,
 			vts_s_lif_dmic_aud_control_hpf_en_get,
 			vts_s_lif_dmic_aud_control_hpf_en_put),
+	SOC_VALUE_ENUM_EXT("VTS DMIC EN0", vts_s_lif_dmic_en0,
+			vts_s_lif_dmic_en_get,
+			vts_s_lif_dmic_en_put),
+	SOC_VALUE_ENUM_EXT("VTS DMIC EN1", vts_s_lif_dmic_en1,
+			vts_s_lif_dmic_en_get,
+			vts_s_lif_dmic_en_put),
+	SOC_VALUE_ENUM_EXT("VTS DMIC EN2", vts_s_lif_dmic_en2,
+			vts_s_lif_dmic_en_get,
+			vts_s_lif_dmic_en_put),
 
 #ifdef VTS_S_LIF_PAD_ROUTE
 	SOC_SINGLE_EXT("VTS DEBUG PAD EN", 0,

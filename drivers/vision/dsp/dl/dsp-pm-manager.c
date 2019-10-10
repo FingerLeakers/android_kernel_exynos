@@ -72,7 +72,9 @@ void dsp_pm_manager_free(void)
 void dsp_pm_manager_print(void)
 {
 	DL_INFO(DL_BORDER);
-	DL_INFO("PM manager\n");
+	DL_INFO("Program memory manager\n");
+	DL_INFO("Start address: 0x%lx\n", dsp_pm_start_addr);
+	DL_INFO("\n");
 	dsp_tlsf_print(pm_manager);
 }
 
@@ -152,14 +154,13 @@ void dsp_pm_print(struct dsp_lib *lib)
 	unsigned long offset = ((unsigned long)text - dsp_pm_start_addr) / 4;
 	unsigned int idx;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("Program memory\n");
-
 	for (idx = 0; idx < lib->pm->size / sizeof(unsigned int);
 		idx++, offset++) {
 		if (idx % 4 == 0) {
-			DL_BUF_STR("\n");
-			DL_PRINT_BUF(INFO);
+			if (idx != 0) {
+				DL_BUF_STR("\n");
+				DL_PRINT_BUF(INFO);
+			}
 			DL_BUF_STR("0x%lx : ", offset);
 		}
 

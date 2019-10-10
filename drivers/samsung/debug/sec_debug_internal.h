@@ -193,6 +193,13 @@ struct bad_stack_info {
 	unsigned long ovf_stk;
 };
 
+struct suspend_dev_info {
+	uint64_t suspend_func;
+	uint64_t suspend_device;
+	uint64_t shutdown_func;
+	uint64_t shutdown_device;
+};
+
 struct sec_debug_kernel_data {
 	uint64_t task_in_pm_suspend;
 	uint64_t task_in_sys_reboot;
@@ -218,6 +225,7 @@ struct sec_debug_kernel_data {
 	unsigned long sysrq_ptr;
 	struct watchdogd_info wddinfo;
 	struct bad_stack_info bsi;
+	struct suspend_dev_info sdi;
 };
 
 /* some buffers to use in sec debug module */

@@ -99,6 +99,10 @@
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#ifdef CONFIG_SEC_EXT
+#include <linux/sec_ext.h>
+#endif
+
 #ifdef CONFIG_UH
 #include <linux/uh.h>
 #endif
@@ -109,6 +113,11 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
+
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+void __init __weak defex_load_rules(void) { }
+#endif
 
 static int kernel_init(void *);
 
@@ -583,10 +592,8 @@ static void __init rkp_init(void)
 	rkp_init_data.init_mm_pgd = (u64)__pa(swapper_pg_dir);
 	rkp_init_data.id_map_pgd = (u64)__pa(idmap_pg_dir);
 	rkp_init_data.zero_pg_addr = (u64)__pa(empty_zero_page);
-	rkp_s_bitmap_ro = (sparse_bitmap_for_kernel_t *)
-		uh_call(UH_APP_RKP, RKP_GET_RO_BITMAP, 0, 0, 0, 0);
-	rkp_s_bitmap_dbl = (sparse_bitmap_for_kernel_t *)
-		uh_call(UH_APP_RKP, RKP_GET_DBL_BITMAP, 0, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_GET_RO_BITMAP, (u64)&rkp_s_bitmap_ro, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_GET_DBL_BITMAP, (u64)&rkp_s_bitmap_dbl, 0, 0, 0);
 	
 	uh_call(UH_APP_RKP, RKP_START, (u64)&rkp_init_data, (u64)kimage_voffset, 0, 0);
 	rkp_started = 1;
@@ -594,8 +601,7 @@ static void __init rkp_init(void)
 
 static void __init rkp_robuffer_init(void)
 {
-	rkp_s_bitmap_buffer = (sparse_bitmap_for_kernel_t *)
-		uh_call(UH_APP_RKP, RKP_GET_RKP_GET_BUFFER_BITMAP, 0, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_GET_RKP_GET_BUFFER_BITMAP, (u64)&rkp_s_bitmap_buffer, 0, 0, 0);
 }
 #endif
 
@@ -945,6 +951,40 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 #endif
 __setup("initcall_blacklist=", initcall_blacklist);
 
+#ifdef CONFIG_SEC_BOOTSTAT
+static bool __init_or_module initcall_sec_debug = true;
+
+static int __init_or_module do_one_initcall_sec_debug(initcall_t fn)
+{
+	ktime_t calltime, delta, rettime;
+	unsigned long long duration;
+	int ret;
+	struct device_init_time_entry *entry;
+
+	calltime = ktime_get();
+	ret = fn();
+	rettime = ktime_get();
+	delta = ktime_sub(rettime, calltime);
+	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+	if (duration > DEVICE_INIT_TIME_100MS) {
+		entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+		if (!entry)
+			return -ENOMEM;
+		entry->buf = kasprintf(GFP_KERNEL, "%pf", fn);
+		if (!entry->buf) {
+			kfree(entry);
+			return -ENOMEM;
+		}
+		entry->duration = duration;
+		list_add(&entry->next, &device_init_time_list);
+		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
+			 fn, ret, duration);
+	}
+
+	return ret;
+}
+#endif
+
 static __init_or_module void
 trace_initcall_start_cb(void *data, initcall_t fn)
 {
@@ -1008,7 +1048,14 @@ int __init_or_module do_one_initcall(initcall_t fn)
 		return -EPERM;
 
 	do_trace_initcall_start(fn);
+#ifdef CONFIG_SEC_BOOTSTAT
+	if (!initcall_debug && initcall_sec_debug)
+		ret = do_one_initcall_sec_debug(fn);
+	else
+		ret = fn();
+#else
 	ret = fn();
+#endif
 	do_trace_initcall_finish(fn, ret);
 
 	msgbuf[0] = 0;
@@ -1077,6 +1124,10 @@ static void __init do_initcall_level(int level)
 	trace_initcall_level(initcall_level_names[level]);
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+
+#ifdef CONFIG_SEC_BOOTSTAT
+	sec_bootstat_add_initcall(initcall_level_names[level]);
+#endif
 }
 
 static void __init do_initcalls(void)
@@ -1318,4 +1369,7 @@ static noinline void __init kernel_init_freeable(void)
 
 	integrity_load_keys();
 	load_default_modules();
+#ifdef CONFIG_SECURITY_DEFEX
+	defex_load_rules();
+#endif
 }

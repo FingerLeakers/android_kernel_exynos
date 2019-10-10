@@ -40,7 +40,7 @@
 #define EVENT_LOG_MAX_BLOCK_SIZE	1648
 #else
 #define EVENT_LOG_MAX_BLOCK_SIZE	1400
-#endif // endif
+#endif
 
 #define EVENT_LOG_BLOCK_SIZE_1K		0x400u
 #define EVENT_LOG_WL_BLOCK_SIZE		0x200
@@ -271,7 +271,7 @@ extern bool d3_preserve_enab;
 	#define D3_PRESERVE_ENAB()   (0)
 #else
 	#define D3_PRESERVE_ENAB()   (1)
-#endif // endif
+#endif
 
 #if defined(EVENTLOG_PRSV_PERIODIC)
 extern bool prsv_periodic_enab;
@@ -281,7 +281,7 @@ extern bool prsv_periodic_enab;
 	#define PRSV_PRD_ENAB()   (0)
 #else
 	#define PRSV_PRD_ENAB()   (1)
-#endif // endif
+#endif
 #endif /* EVENTLOG_PRSV_PERIODIC */
 
 /*
@@ -629,7 +629,7 @@ extern int event_log_get_set_for_buffer(void *buf);
 
 #endif /* EVENT_LOG_COMPILE */
 
-#endif // endif
+#endif
 
 #endif /* BCMDRIVER */
 

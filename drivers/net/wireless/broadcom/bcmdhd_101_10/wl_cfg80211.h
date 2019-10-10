@@ -75,7 +75,7 @@ struct wl_ibss;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && !defined(WL_SAE))
 #define WL_SAE
-#endif // endif
+#endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0) && !defined(WL_SCAN_TYPE))
 #define WL_SCAN_TYPE
@@ -87,18 +87,18 @@ struct wl_ibss;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)) && !defined(WL_FILS_ROAM_OFFLD)
 #define WL_FILS_ROAM_OFFLD
-#endif // endif
+#endif
 
 #ifdef WL_SAE
 #define IS_AKM_SAE(akm) (akm == WLAN_AKM_SUITE_SAE)
 #else
 #define IS_AKM_SAE(akm) FALSE
-#endif // endif
+#endif
 #ifdef WL_OWE
 #define IS_AKM_OWE(akm) (akm == WLAN_AKM_SUITE_OWE)
 #else
 #define IS_AKM_OWE(akm) FALSE
-#endif // endif
+#endif
 
 #define htod32(i) (i)
 #define htod16(i) (i)
@@ -144,6 +144,11 @@ extern char *dhd_log_dump_get_timestamp(void);
 #endif /* !_DHD_LOG_DUMP_DEFINITIONS_ */
 #endif /* DHD_LOG_DUMP */
 
+/* XXX On some MSM platform, it uses different version
+ * of linux kernel and cfg code as not synced.
+ * MSM defined CFG80211_DISCONNECTED_V2 as the flag
+ * when they uses different kernel/cfg version.
+ */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)) || (defined(CONFIG_ARCH_MSM) && \
 	defined(CFG80211_DISCONNECTED_V2))
 #define CFG80211_DISCONNECTED(dev, reason, ie, len, loc_gen, gfp) \
@@ -158,6 +163,10 @@ extern char *dhd_log_dump_get_timestamp(void);
 #define WL_DBG_LEVEL 0xFF
 
 #define CFG80211_INFO_TEXT		"CFG80211-INFO) "
+/* XXX Samsung want to print INFO2 instead of ERROR
+ * because most of case, ERROR message is not a real ERROR.
+ * but it can be regarded as real error case for Tester
+ */
 #ifdef CUSTOMER_HW4_DEBUG
 #define CFG80211_ERROR_TEXT		"CFG80211-INFO2) "
 #else
@@ -277,7 +286,7 @@ do {	\
 
 #ifdef WL_INFORM
 #undef WL_INFORM
-#endif // endif
+#endif
 
 #define	WL_INFORM(args)									\
 do {										\
@@ -289,7 +298,7 @@ do {										\
 
 #ifdef WL_SCAN
 #undef WL_SCAN
-#endif // endif
+#endif
 #define	WL_SCAN(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_SCAN) {			\
@@ -299,7 +308,7 @@ do {									\
 } while (0)
 #ifdef WL_TRACE
 #undef WL_TRACE
-#endif // endif
+#endif
 #define	WL_TRACE(args)								\
 do {									\
 	if (wl_dbg_level & WL_DBG_TRACE) {			\
@@ -309,7 +318,7 @@ do {									\
 } while (0)
 #ifdef WL_TRACE_HW4
 #undef WL_TRACE_HW4
-#endif // endif
+#endif
 #ifdef CUSTOMER_HW4_DEBUG
 #define	WL_TRACE_HW4(args)					\
 do {										\
@@ -342,6 +351,10 @@ do {									\
 #define WL_SCAN_IE_LEN_MAX  2048
 #define WL_BSS_INFO_MAX     2048
 #define WL_ASSOC_INFO_MAX   512
+/* XXX the length of pmkid_info iovar is 1416
+ * It exceed the original 1024 limitation
+ * so change WL_EXTRA_LEN_MAX to 2048
+ */
 #define WL_IOCTL_LEN_MAX        2048
 #define WL_EXTRA_BUF_MAX        2048
 #define WL_SCAN_ERSULTS_LAST    (WL_SCAN_RESULTS_NO_MEM+1)
@@ -367,40 +380,36 @@ do {									\
 #ifdef WL_NAN
 #define WL_SCAN_TIMER_INTERVAL_MS_NAN	15000 /* Scan timeout */
 #endif /* WL_NAN */
-#ifdef WL_6G_BAND
-/* additional scan timeout for 6GHz, 15*110msec, rounded to 3000msec */
-#define WL_SCAN_TIMER_INTERVAL_MS_6G	3000
-#endif /* WL_6G_BAND */
 #define WL_CHANNEL_SYNC_RETRY	5
 #define WL_INVALID		-1
 
 #ifdef DHD_LOSSLESS_ROAMING
 #define WL_ROAM_TIMEOUT_MS	1000 /* Roam timeout */
-#endif // endif
+#endif
 /* Bring down SCB Timeout to 20secs from 60secs default */
 #ifndef WL_SCB_TIMEOUT
 #define WL_SCB_TIMEOUT	20
-#endif // endif
+#endif
 
 #if defined(ROAM_ENABLE) || defined(ROAM_CHANNEL_CACHE)
 #define  ESCAN_CHANNEL_CACHE
-#endif // endif
+#endif
 
 #ifndef WL_SCB_ACTIVITY_TIME
 #define WL_SCB_ACTIVITY_TIME	5
-#endif // endif
+#endif
 
 #ifndef WL_SCB_MAX_PROBE
 #define WL_SCB_MAX_PROBE	3
-#endif // endif
+#endif
 
 #ifndef WL_PSPRETEND_RETRY_LIMIT
 #define WL_PSPRETEND_RETRY_LIMIT 1
-#endif // endif
+#endif
 
 #ifndef WL_MIN_PSPRETEND_THRESHOLD
 #define WL_MIN_PSPRETEND_THRESHOLD	2
-#endif // endif
+#endif
 
 /* Cipher suites */
 #ifndef WLAN_CIPHER_SUITE_PMK
@@ -486,7 +495,7 @@ do {									\
 
 #ifndef FILS_INDICATION_IE_TAG_FIXED_LEN
 #define FILS_INDICATION_IE_TAG_FIXED_LEN		2
-#endif // endif
+#endif
 
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == \
 	4 && __GNUC_MINOR__ >= 6))
@@ -939,7 +948,7 @@ struct wl_pmk_list {
 #define WL_MAX_IFS DHD_MAX_IFS
 #else
 #define WL_MAX_IFS 16
-#endif // endif
+#endif
 
 #define MAC_RAND_BYTES	3
 #define ESCAN_BUF_SIZE (64 * 1024)
@@ -1017,10 +1026,10 @@ typedef struct {
 #ifdef WL11U
 /* Max length of Interworking element */
 #define IW_IES_MAX_BUF_LEN 		8
-#endif // endif
+#endif
 #ifdef WLFBT
 #define FBT_KEYLEN		32
-#endif // endif
+#endif
 #define MAX_EVENT_BUF_NUM 16
 typedef struct wl_eventmsg_buf {
 	u16 num;
@@ -1225,6 +1234,25 @@ typedef enum
 	WIFI_POWER_SCENARIO_ON_BODY_BT = 5
 } wifi_power_scenario;
 
+/* Log timestamp */
+#define LOG_TS(cfg, ts)	cfg->tsinfo.ts = OSL_LOCALTIME_NS();
+#define CLR_TS(cfg, ts)	cfg->tsinfo.ts = 0;
+#define GET_TS(cfg, ts)	cfg->tsinfo.ts;
+typedef struct wl_ctx_tsinfo {
+	uint64 scan_start;
+	uint64 scan_enq;             /* scan event enqueue time       */
+	uint64 scan_deq;
+	uint64 scan_hdlr_cmplt;
+	uint64 scan_cmplt;           /* scan event handler completion */
+	uint64 conn_start;
+	uint64 conn_cmplt;
+	uint64 wl_evt_deq;
+	uint64 authorize_start;
+	uint64 authorize_cmplt;
+	uint64 wl_evt_hdlr_entry;
+	uint64 wl_evt_hdlr_exit;
+} wl_ctx_tsinfo_t;
+
 /* private data of cfg80211 interface */
 struct bcm_cfg80211 {
 	struct wireless_dev *wdev;	/* representing cfg cfg80211 device */
@@ -1256,14 +1284,14 @@ struct bcm_cfg80211 {
 	struct wl_ie *ie;
 #else
 	struct wl_ie ie;
-#endif // endif
+#endif
 
 	/* association information container */
 #if defined(STATIC_WL_PRIV_STRUCT)
 	struct wl_connect_info *conn_info;
 #else
 	struct wl_connect_info conn_info;
-#endif // endif
+#endif
 #ifdef DEBUGFS_CFG80211
 	struct dentry		*debugfs;
 #endif /* DEBUGFS_CFG80211 */
@@ -1289,7 +1317,7 @@ struct bcm_cfg80211 {
 	bool scan_tried;	/* indicates if first scan attempted */
 #if defined(BCMSDIO) || defined(BCMPCIE)
 	bool wlfc_on;
-#endif // endif
+#endif
 	bool vsdb_mode;
 #define WL_ROAM_OFF_ON_CONCURRENT 	0x0001
 #define WL_ROAM_REVERT_STATUS		0x0002
@@ -1319,7 +1347,7 @@ struct bcm_cfg80211 {
 #endif /* WL_CFG80211_GON_COLLISION */
 #if defined(P2P_IE_MISSING_FIX)
 	bool p2p_prb_noti;
-#endif // endif
+#endif
 	s32(*state_notifier) (struct bcm_cfg80211 *cfg,
 		struct net_info *_net_info, enum wl_status state, bool set);
 	unsigned long interrested_state;
@@ -1359,7 +1387,7 @@ struct bcm_cfg80211 {
 	bool bss_pending_op;		/* indicate where there is a pending IF operation */
 #ifdef WLFBT
 	uint8 fbt_key[FBT_KEYLEN];
-#endif // endif
+#endif
 	int roam_offload;
 #ifdef WL_NAN
 	wl_nancfg_t *nancfg;
@@ -1394,10 +1422,10 @@ struct bcm_cfg80211 {
 #endif /* SUPPORT_RANDOM_MAC_SCAN */
 #ifdef DHD_LOSSLESS_ROAMING
 	timer_list_compat_t roam_timeout;   /* Timer for catch roam timeout */
-#endif // endif
+#endif
 #ifndef DUAL_ESCAN_RESULT_BUFFER
 	uint16 escan_sync_id_cntr;
-#endif // endif
+#endif
 #ifdef WLTDLS
 	uint8 tdls_supported;
 	struct mutex tdls_sync;	/* protect tdls config operations */
@@ -1428,13 +1456,6 @@ struct bcm_cfg80211 {
 	spinlock_t vndr_oui_sync;	/* to protect vndr_oui_list */
 	bool rssi_sum_report;
 	int rssi;	/* previous RSSI (backup) of get_station */
-	uint64 scan_enq_time;
-	uint64 scan_deq_time;
-	uint64 scan_hdlr_cmplt_time;
-	uint64 scan_cmplt_time;
-	uint64 wl_evt_deq_time;
-	uint64 wl_evt_hdlr_entry_time;
-	uint64 wl_evt_hdlr_exit_time;
 #ifdef WL_WPS_SYNC
 	wl_wps_session_t wps_session[WPS_MAX_SESSIONS];
 	spinlock_t wps_sync;	/* to protect wps states (and others if needed) */
@@ -1460,12 +1481,6 @@ struct bcm_cfg80211 {
 #ifdef SUPPORT_AP_BWCTRL
 	u32 bw_cap_5g;
 #endif /* SUPPORT_AP_BWCTRL */
-#ifdef WL_6G_BAND
-	bool band_6g_supported;
-#endif /* WL_6G_BAND */
-	u16 ds_skip_reason;
-	u16 ds_skip_cnt;
-	unsigned long ds_skip_ts;
 	wl_loc_info_t loc;    /* listen on channel state info */
 	int roamscan_mode;
 	int wes_mode;
@@ -1473,9 +1488,12 @@ struct bcm_cfg80211 {
 #ifdef WL_SAR_TX_POWER
 	wifi_power_scenario wifi_tx_power_mode;
 #endif /* WL_SAR_TX_POWER */
+	wl_ctx_tsinfo_t tsinfo;
+	struct wl_pmk_list *spmk_info_list;	/* single pmk info list */
 };
 
 #define WL_DS_SKIP_THRESHOLD_MSECS  30000
+#define WL_DS_SKIP_THRESHOLD_USECS  (30000 * 1000)
 #define WL_DS_SKIP_THRESHOLD_CNT    30
 enum wl_state_type {
 	WL_STATE_IDLE,
@@ -1585,7 +1603,7 @@ wl_dealloc_netinfo_by_wdev(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev)
 
 #ifdef DHD_IFDEBUG
 	WL_INFORM_MEM(("dealloc_netinfo enter wdev=%p \n", OSL_OBFUSCATE_BUF(wdev)));
-#endif // endif
+#endif
 	WL_CFG_NET_LIST_SYNC_LOCK(&cfg->net_list_sync, flags);
 	GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
 	BCM_LIST_FOR_EACH_ENTRY_SAFE(_net_info, next, &cfg->net_list, list) {
@@ -1617,7 +1635,7 @@ wl_dealloc_netinfo_by_wdev(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev)
 	WL_CFG_NET_LIST_SYNC_UNLOCK(&cfg->net_list_sync, flags);
 #ifdef DHD_IFDEBUG
 	WL_INFORM_MEM(("dealloc_netinfo exit iface_cnt=%d \n", cfg->iface_cnt));
-#endif // endif
+#endif
 }
 
 static inline s32
@@ -1630,7 +1648,7 @@ wl_alloc_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #ifdef DHD_IFDEBUG
 	WL_INFORM_MEM(("alloc_netinfo enter bssidx=%d wdev=%p\n",
 		bssidx, OSL_OBFUSCATE_BUF(wdev)));
-#endif // endif
+#endif
 	/* Check whether there is any duplicate entry for the
 	 *  same bssidx && ifidx.
 	 */
@@ -1669,7 +1687,7 @@ wl_alloc_netinfo(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	}
 #ifdef DHD_IFDEBUG
 	WL_DBG(("alloc_netinfo exit iface_cnt=%d \n", cfg->iface_cnt));
-#endif // endif
+#endif
 	return err;
 }
 
@@ -2109,7 +2127,7 @@ wl_iftype_to_str(int wl_iftype)
 #else
 #define wl_to_ie(w) (&w->ie)
 #define wl_to_conn(w) (&w->conn_info)
-#endif // endif
+#endif
 #define wl_to_fils_info(w) (&w->fils_info)
 #define wiphy_from_scan(w) (w->escan_info.wiphy)
 #define wl_get_drv_status_all(cfg, stat) \
@@ -2352,7 +2370,7 @@ extern int wl_cfg80211_set_mgmt_vndr_ies(struct bcm_cfg80211 *cfg,
 
 #ifdef WLFBT
 extern int wl_cfg80211_get_fbt_key(struct net_device *dev, uint8 *key, int total_len);
-#endif // endif
+#endif
 
 /* Action frame specific functions */
 extern u8 wl_get_action_category(void *frame, u32 frame_len);

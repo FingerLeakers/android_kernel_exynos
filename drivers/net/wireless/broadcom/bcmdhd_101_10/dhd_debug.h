@@ -353,6 +353,11 @@ struct log_level_table {
 	} while (0);								\
 }
 
+/*
+ * Packet logging - HAL specific data
+ * XXX: These should be moved to wl_cfgvendor.h
+ */
+
 #define MD5_PREFIX_LEN				4
 #define MAX_FATE_LOG_LEN			32
 #define MAX_FRAME_LEN_ETHERNET		1518
@@ -848,4 +853,6 @@ extern void dhd_iov_li_delete(dhd_pub_t *dhd, dll_t *list_head);
 #ifdef DHD_DEBUG
 extern void dhd_mw_list_delete(dhd_pub_t *dhd, dll_t *list_head);
 #endif /* DHD_DEBUG */
+
+void print_roam_enhanced_log(prcd_event_log_hdr_t *plog_hdr);
 #endif /* _dhd_debug_h_ */

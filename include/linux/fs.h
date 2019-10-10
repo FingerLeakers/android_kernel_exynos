@@ -926,7 +926,7 @@ struct file {
 #endif /* #ifdef CONFIG_EPOLL */
 	struct address_space	*f_mapping;
 	errseq_t		f_wb_err;
-#ifdef CONFIG_FIVE_PA_FEATURE
+#if defined(CONFIG_FIVE_PA_FEATURE) || defined(CONFIG_PROCA)
 	void *f_signature;
 #endif
 } __randomize_layout
@@ -3063,6 +3063,9 @@ enum {
 
 	/* filesystem does not support filling holes */
 	DIO_SKIP_HOLES	= 0x02,
+
+	/* HPB FLAG */
+	DIO_HPB_IO      = 0x10,
 };
 
 void dio_end_io(struct bio *bio);

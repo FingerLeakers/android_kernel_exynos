@@ -50,7 +50,7 @@ asmlinkage int defex_syscall_enter(long int syscallno, struct pt_regs *regs)
 }
 
 //INIT/////////////////////////////////////////////////////////////////////////
-static __init int defex_lsm_init(void)
+static int __init defex_lsm_init(void)
 {
 	int ret;
 

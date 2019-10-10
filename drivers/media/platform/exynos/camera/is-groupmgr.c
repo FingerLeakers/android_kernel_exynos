@@ -1710,6 +1710,7 @@ int is_group_probe(struct is_groupmgr *groupmgr,
 	clear_bit(IS_GROUP_OTF_OUTPUT, &group->state);
 	clear_bit(IS_GROUP_PIPE_INPUT, &group->state);
 	clear_bit(IS_GROUP_SEMI_PIPE_INPUT, &group->state);
+	clear_bit(IS_GROUP_STANDBY, &group->state);
 
 	if (group->device) {
 		group->device_type = IS_DEVICE_ISCHAIN;
@@ -1761,6 +1762,7 @@ int is_group_open(struct is_groupmgr *groupmgr,
 	clear_bit(IS_GROUP_OTF_OUTPUT, &group->state);
 	clear_bit(IS_GROUP_PIPE_INPUT, &group->state);
 	clear_bit(IS_GROUP_SEMI_PIPE_INPUT, &group->state);
+	clear_bit(IS_GROUP_STANDBY, &group->state);
 
 	group->prev = NULL;
 	group->next = NULL;
@@ -2616,7 +2618,6 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 #ifdef CHAIN_USE_STRIPE_PROCESSING
 		/* Trigger stripe processing for remosaic capture request. */
 		if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING)
-			&& test_bit(IS_ISCHAIN_REPROCESSING, &device->state)
 			&& (frame->shot_ext->node_group.leader.input.cropRegion[2] > group->leader.constraints_width)) {
 			/* Find max_width in group */
 			max_width = frame->shot_ext->node_group.leader.input.cropRegion[2];
@@ -2934,15 +2935,12 @@ static int is_group_check_post(struct is_groupmgr *groupmgr,
 
 	if (gprev && !gnext) {
 		/* tailer */
-#ifdef CHAIN_USE_STRIPE_PROCESSING
-		if (!(test_bit(IS_ISCHAIN_REPROCESSING, &device->state) && frame->state == FS_STRIPE_PROCESS))
+		if (frame->state != FS_STRIPE_PROCESS) {
 			ret = is_gframe_trans_grp_to_fre(gframemgr, gframe, group);
-#else
-		ret = is_gframe_trans_grp_to_fre(gframemgr, gframe, group);
-#endif
-		if (ret) {
-			mgerr("is_gframe_trans_grp_to_fre is fail(%d)", device, group, ret);
-			BUG();
+			if (ret) {
+				mgerr("is_gframe_trans_grp_to_fre is fail(%d)", device, group, ret);
+				BUG();
+			}
 		}
 	} else if (!gprev && gnext) {
 		/* leader */
@@ -3020,6 +3018,12 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 	atomic_dec(&group->rcount);
 	device = group->device;
 	gtask = &groupmgr->gtask[group->id];
+
+	if (unlikely(test_bit(IS_GROUP_STANDBY, &group->state))) {
+		mgwarn(" cancel by standby", group, group);
+		ret = -EINVAL;
+		goto p_err_cancel;
+	}
 
 	if (unlikely(test_bit(IS_GROUP_FORCE_STOP, &group->state))) {
 		mgwarn(" cancel by fstop1", group, group);
@@ -3538,5 +3542,7 @@ int is_group_change_chain(struct is_groupmgr *groupmgr, struct is_group *group, 
 	}
 
 p_err:
+	clear_bit(IS_GROUP_STANDBY, &group->state);
+
 	return ret;
 }

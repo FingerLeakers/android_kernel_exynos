@@ -43,6 +43,7 @@
 
 #include "modem_prj.h"
 #include "modem_utils.h"
+#include "modem_ctrl.h"
 #include "link_device.h"
 #include "link_device_memory.h"
 #include "s51xx_pcie.h"
@@ -138,12 +139,15 @@ static void voice_call_on_work(struct work_struct *ws)
 	struct modem_ctl *mc = container_of(ws, struct modem_ctl, call_on_work);
 
 	mutex_lock(&mc->pcie_onoff_lock);
+	if (!mc->pcie_voice_call_on)
+		goto exit;
+
 	if (mc->pcie_powered_on) {
 		if (wake_lock_active(&mc->mc_wake_lock))
 			wake_unlock(&mc->mc_wake_lock);
 	}
-	mc->pcie_voice_call_on = true;
 
+exit:
 	mif_info("wakelock active = %d, voice status = %d\n",
 		wake_lock_active(&mc->mc_wake_lock), mc->pcie_voice_call_on);
 	mutex_unlock(&mc->pcie_onoff_lock);
@@ -154,12 +158,15 @@ static void voice_call_off_work(struct work_struct *ws)
 	struct modem_ctl *mc = container_of(ws, struct modem_ctl, call_off_work);
 
 	mutex_lock(&mc->pcie_onoff_lock);
+	if (mc->pcie_voice_call_on)
+		goto exit;
+
 	if (mc->pcie_powered_on) {
 		if (!wake_lock_active(&mc->mc_wake_lock))
 			wake_lock(&mc->mc_wake_lock);
 	}
-	mc->pcie_voice_call_on = false;
 
+exit:
 	mif_info("wakelock active = %d, voice status = %d\n",
 		wake_lock_active(&mc->mc_wake_lock), mc->pcie_voice_call_on);
 	mutex_unlock(&mc->pcie_onoff_lock);
@@ -952,7 +959,7 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 		goto exit;
 	}
 
-	if(mif_gpio_get_value(mc->s5100_gpio_ap_wakeup, true) == 0) {
+	if (mif_gpio_get_value(mc->s5100_gpio_ap_wakeup, true) == 0) {
 		mif_err("skip pci power on : condition not met\n");
 		goto exit;
 	}
@@ -1026,7 +1033,7 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 	mc->pcie_powered_on = true;
 
 #if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
-	if (mc->pcie_voice_call_on) {
+	if (mc->pcie_voice_call_on && (mc->phone_state != STATE_CRASH_EXIT)) {
 		if (wake_lock_active(&mc->mc_wake_lock))
 			wake_unlock(&mc->mc_wake_lock);
 
@@ -1056,10 +1063,18 @@ static int suspend_cp(struct modem_ctl *mc)
 	if (!mc)
 		return 0;
 
-	if (mif_gpio_get_value(mc->s5100_gpio_ap_wakeup, true) == 1) {
-		mif_err("abort suspend");
-		return -EBUSY;
-	}
+	modem_ctrl_set_kerneltime(mc);
+	do {
+#if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
+		if (mc->pcie_voice_call_on)
+			break;
+#endif
+
+		if (mif_gpio_get_value(mc->s5100_gpio_ap_wakeup, true) == 1) {
+			mif_err("abort suspend");
+			return -EBUSY;
+		}
+	} while (0);
 
 	mif_gpio_set_value(mc->s5100_gpio_ap_status, 0, 0);
 	mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
@@ -1071,6 +1086,8 @@ static int resume_cp(struct modem_ctl *mc)
 {
 	if (!mc)
 		return 0;
+
+	modem_ctrl_set_kerneltime(mc);
 
 	mif_gpio_set_value(mc->s5100_gpio_ap_status, 1, 0);
 	mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
@@ -1084,7 +1101,7 @@ static int s5100_pm_notifier(struct notifier_block *notifier,
 	struct modem_ctl *mc;
 	unsigned long flags;
 	int gpio_val;
-	
+
 	mc = container_of(notifier, struct modem_ctl, pm_notifier);
 
 	switch (pm_event) {
@@ -1297,10 +1314,12 @@ static int s5100_abox_call_state_notifier(struct notifier_block *nb,
 
 	switch (action) {
 	case ABOX_CALL_EVENT_OFF:
+		mc->pcie_voice_call_on = false;
 		queue_work_on(RUNTIME_PM_AFFINITY_CORE, mc->wakeup_wq,
 			&mc->call_off_work);
 		break;
 	case ABOX_CALL_EVENT_ON:
+		mc->pcie_voice_call_on = true;
 		queue_work_on(RUNTIME_PM_AFFINITY_CORE, mc->wakeup_wq,
 			&mc->call_on_work);
 		break;

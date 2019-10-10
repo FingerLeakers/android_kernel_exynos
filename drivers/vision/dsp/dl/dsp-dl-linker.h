@@ -12,8 +12,16 @@
 #include "dl/dsp-elf-loader.h"
 #include "dl/dsp-rule-reader.h"
 #include "dl/dsp-common.h"
+#include "dl/dsp-list.h"
 
 struct dsp_lib;
+
+struct dsp_reloc_sym {
+	const char *sym_str;
+	unsigned int value;
+	unsigned int align;
+	struct dsp_list_node node;
+};
 
 struct dsp_link_info {
 	unsigned long text;
@@ -32,6 +40,7 @@ struct dsp_link_info {
 	size_t SFRw_size;
 	unsigned long *sec;
 	struct dsp_elf32 *elf;
+	struct dsp_list_head reloc_sym;
 };
 
 struct dsp_reloc_info {

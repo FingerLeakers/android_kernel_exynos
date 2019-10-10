@@ -356,6 +356,10 @@ void ext4_io_submit(struct ext4_io_submit *io)
 		if (ext4_encrypted_inode(io->io_end->inode) &&
 				S_ISREG(io->io_end->inode->i_mode))
 			fscrypt_set_bio(io->io_end->inode, io->io_bio, 0);
+#if EXT4_HPB_PROTOTYPE
+		if(ext4_test_inode_state(io->io_end->inode, EXT4_STATE_HPB))
+			io->io_bio->bi_opf |= REQ_RT_PINNED;
+#endif
 		submit_bio(io->io_bio);
 	}
 	io->io_bio = NULL;

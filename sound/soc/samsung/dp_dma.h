@@ -6,6 +6,11 @@
 #define AUDIO_WAIT_BUF_FULL 2
 #define AUDIO_DMA_REQ_HIGH 3
 
+#define DP_AUDIO_COUNT 2
+#define DP_AUDIO_PARAM_CHANNEL_OFFSET 0
+#define DP_AUDIO_PARAM_WIDTH_OFFSET 16
+#define DP_AUDIO_PARAM_RATE_OFFSET 19
+
 enum audio_sampling_frequency {
 	FS_32KHZ	= 0,
 	FS_44KHZ	= 1,
@@ -39,6 +44,13 @@ enum audio_dma_word_length {
 	WORD_LENGTH_8,
 };
 
+enum audio_param {
+	DPADO_RATE,
+	DPADO_WIDTH,
+	DPADO_CHANNEL,
+	DPADO_PARAM_COUNT,
+};
+
 struct displayport_audio_config_data {
 	u32 audio_enable;
 	u32 audio_channel_cnt;
@@ -51,6 +63,9 @@ struct displayport_audio_config_data {
 struct dp_audio_pdata {
 	u32 id;
 	u32 fifo_addr;
+	u32 rate;
+	u32 width;
+	u32 channel;
 };
 
 #if defined(CONFIG_EXYNOS_MIPI_DISPLAYPORT) || defined (CONFIG_EXYNOS_DISPLAYPORT)

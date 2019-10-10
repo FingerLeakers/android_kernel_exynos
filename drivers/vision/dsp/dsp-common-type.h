@@ -49,6 +49,7 @@ enum dsp_common_addr_type {
 enum dsp_common_mem_attr {
 	DSP_COMMON_CACHEABLE,
 	DSP_COMMON_NON_CACHEABLE,
+	DSP_COMMON_UNKNOWN_CACHEABLE,
 };
 
 enum dsp_common_mem_type {
@@ -104,6 +105,24 @@ struct dsp_common_mem_v2 {
 	};
 };
 
+struct dsp_common_mem_v3 {
+	unsigned char			addr_type;
+	unsigned char			mem_attr;
+	unsigned char			mem_type;
+	unsigned char			is_mandatory;
+	unsigned int			size;
+	unsigned int			offset;
+	unsigned int			reserved;
+	unsigned int			param[6];
+	union {
+		struct {
+			int		fd;
+			unsigned int	iova;
+		};
+		void			*not_use;
+	};
+};
+
 struct dsp_common_param_v1 {
 	unsigned int			param_type;
 	union {
@@ -120,6 +139,15 @@ struct dsp_common_param_v2 {
 		unsigned int		kernel_id;
 	};
 	struct dsp_common_mem_v2	param_mem;
+};
+
+struct dsp_common_param_v3 {
+	unsigned int			param_type;
+	union {
+		unsigned int		param_index;
+		unsigned int		kernel_id;
+	};
+	struct dsp_common_mem_v3	param_mem;
 };
 
 union dsp_common_global_id {
@@ -149,6 +177,14 @@ struct dsp_common_graph_info_v2 {
 	struct dsp_common_param_v2	param_list[0];
 };
 
+struct dsp_common_graph_info_v3 {
+	unsigned int			global_id;
+	unsigned int			n_tsgd;
+	unsigned int			n_param;
+	unsigned int			n_kernel;
+	struct dsp_common_param_v3	param_list[0];
+};
+
 struct dsp_common_execute_info_v1 {
 	unsigned int			global_id;
 	unsigned int			n_update_param;
@@ -159,6 +195,12 @@ struct dsp_common_execute_info_v2 {
 	unsigned int			global_id;
 	unsigned int			n_update_param;
 	struct dsp_common_param_v2	param_list[0];
+};
+
+struct dsp_common_execute_info_v3 {
+	unsigned int			global_id;
+	unsigned int			n_update_param;
+	struct dsp_common_param_v3	param_list[0];
 };
 
 #endif

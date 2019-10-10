@@ -280,10 +280,10 @@ typedef volatile struct {
 
 #ifndef D64_USBBURSTLEN
 #define D64_USBBURSTLEN	DMA_BL_64
-#endif // endif
+#endif
 #ifndef D64_SDIOBURSTLEN
 #define D64_SDIOBURSTLEN	DMA_BL_32
-#endif // endif
+#endif
 
 /* transmit channel control */
 #define	D64_XC_XE		0x00000001	/**< transmit enable */
@@ -371,7 +371,9 @@ typedef volatile struct {
 #define DMA_CTRL_ROC		(1u << 1u)	/**< rx overflow continue */
 #define DMA_CTRL_RXMULTI	(1u << 2u)	/**< allow rx scatter to multiple descriptors */
 #define DMA_CTRL_UNFRAMED	(1u << 3u)	/**< Unframed Rx/Tx data */
-#define DMA_CTRL_USB_BOUNDRY4KB_WAR (1u << 4u)
+#define DMA_CTRL_USB_BOUNDRY4KB_WAR (1u << 4u)	/**< USB core REV9's SETUP dma channel's
+						*  buffer can not crossed 4K boundary PR80468
+						*/
 #define DMA_CTRL_DMA_AVOIDANCE_WAR (1u << 5u)	/**< DMA avoidance WAR for 4331 */
 #define DMA_CTRL_RXSINGLE	(1u << 6u)	/**< always single buffer */
 #define DMA_CTRL_SDIO_RXGLOM	(1u << 7u)	/**< DMA Rx glome is enabled */

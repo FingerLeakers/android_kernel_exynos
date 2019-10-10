@@ -611,10 +611,23 @@ void arm64_notify_segfault(unsigned long addr)
 	force_signal_inject(SIGSEGV, code, addr);
 }
 
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+asmlinkage void __exception do_undefinstr(struct pt_regs *regs, unsigned int esr)
+#else
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
+#endif
 {
 	if (!user_mode(regs))
 		adv_tracer_arraydump();
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		secdbg_exin_set_fault(UNDEF_FAULT, (unsigned long)regs->pc, regs);
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+		secdbg_exin_set_esr(esr);
+#endif
+	}
+#endif /* CONFIG_SEC_DEBUG_EXTRA_INFO */
 
 	/* check for AArch32 breakpoint instructions */
 	if (!aarch32_break_handler(regs))
@@ -622,6 +635,15 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 
 	if (call_undef_hook(regs) == 0)
 		return;
+
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+	if (!user_mode(regs)) {
+		pr_auto(ASL1, "%s: pc=0x%016llx (esr=0x%08x)\n",
+			"undefined instruction", regs->pc, esr);
+		dump_instr(KERN_INFO, regs);
+		die("undefined instruction", regs, esr);
+	}
+#endif
 
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
 	BUG_ON(!user_mode(regs));
@@ -762,7 +784,11 @@ asmlinkage void __exception do_sysinstr(unsigned int esr, struct pt_regs *regs)
 	 * back to our usual undefined instruction handler so that we handle
 	 * these consistently.
 	 */
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+	do_undefinstr(regs, esr);
+#else
 	do_undefinstr(regs);
+#endif
 }
 
 static const char *esr_class_str[] = {
@@ -916,8 +942,14 @@ void __noreturn arm64_serror_panic(struct pt_regs *regs, u32 esr)
 	console_verbose();
 	printk_nmi_exit();
 
-	pr_crit("SError Interrupt on CPU%d, code 0x%08x -- %s\n",
+	pr_auto(ASL1, "SError Interrupt on CPU%d, code 0x%08x -- %s\n",
 		smp_processor_id(), esr, esr_get_class_string(esr));
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		secdbg_exin_set_fault(SERROR_FAULT, (unsigned long)regs->pc, regs);
+		secdbg_exin_set_esr(esr);
+	}
+#endif
 	if (regs)
 		__show_regs(regs);
 

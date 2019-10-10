@@ -834,28 +834,16 @@ out:
 }
 #endif
 
-static u32 is_itf_g_group_info(struct is_device_ischain *device,
-	struct is_path_info *path)
+static u32 is_itf_g_logical_group_id(struct is_device_ischain *device)
 {
 	u32 group = 0;
+	struct is_group *next;
 
-	if (path->group[GROUP_SLOT_PAF] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_PAF]) & GROUP_ID_PARM_MASK);
-
-	if (path->group[GROUP_SLOT_3AA] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_3AA]) & GROUP_ID_PARM_MASK);
-
-	if (path->group[GROUP_SLOT_ISP] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_ISP]) & GROUP_ID_PARM_MASK);
-
-	if (path->group[GROUP_SLOT_MCS] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_MCS]) & GROUP_ID_PARM_MASK);
-
-	if (path->group[GROUP_SLOT_VRA] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_VRA]) & GROUP_ID_PARM_MASK);
-
-	if (path->group[GROUP_SLOT_CLH] != GROUP_ID_MAX)
-		group |= (GROUP_ID(path->group[GROUP_SLOT_CLH]) & GROUP_ID_PARM_MASK);
+	next = get_ischain_leader_group(device);
+	while (next) {
+		group |= GROUP_ID(next->id) & GROUP_ID_PARM_MASK;
+		next = next->next;
+	}
 
 	return group;
 }
@@ -964,10 +952,8 @@ static int is_itf_f_param(struct is_device_ischain *device)
 {
 	int ret = 0;
 	u32 group = 0;
-	struct is_path_info *path;
 
-	path = &device->path;
-	group = is_itf_g_group_info(device, path);
+	group = is_itf_g_logical_group_id(device);
 
 	ret = is_itf_f_param_wrap(device, group);
 
@@ -1307,10 +1293,8 @@ static int is_itf_init_process_start(struct is_device_ischain *device)
 {
 	int ret = 0;
 	u32 group = 0;
-	struct is_path_info *path;
 
-	path = &device->path;
-	group = is_itf_g_group_info(device, path);
+	group = is_itf_g_logical_group_id(device);
 
 	ret = is_itf_process_on_wrap(device, group);
 
@@ -2293,14 +2277,10 @@ static int is_ischain_chg_setfile(struct is_device_ischain *device)
 {
 	int ret = 0;
 	u32 group = 0;
-	struct is_path_info *path;
-	u32 indexes, lindex, hindex;
 
 	FIMC_BUG(!device);
 
-	indexes = lindex = hindex = 0;
-	path = &device->path;
-	group = is_itf_g_group_info(device, path);
+	group = is_itf_g_logical_group_id(device);
 
 	ret = is_itf_process_stop(device, group);
 	if (ret) {
@@ -3051,9 +3031,6 @@ static int is_ischain_init_wrap(struct is_device_ischain *device,
 			ret = -EINVAL;
 			goto p_err;
 		}
-
-		device->path.sensor_name = module_id;
-		device->path.mipi_csi = sensor->pdata->csi_ch;
 
 		if (stream_type) {
 			set_bit(IS_ISCHAIN_REPROCESSING, &device->state);

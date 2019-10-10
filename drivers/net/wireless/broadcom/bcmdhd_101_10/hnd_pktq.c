@@ -248,7 +248,7 @@ BCMFASTPATH(pktq_pdeq)(struct pktq *pq, int prec)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	PKTSETLINK(p, NULL);
 
@@ -282,7 +282,7 @@ BCMFASTPATH(spktq_deq)(struct spktq *spq)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	PKTSETLINK(p, NULL);
 
@@ -326,7 +326,7 @@ BCMFASTPATH(pktq_pdeq_tail)(struct pktq *pq, int prec)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 done:
 	/* protect shared resource */
 	if (HND_PKTQ_MUTEX_RELEASE(&pq->mutex) != OSL_EXT_SUCCESS)
@@ -363,7 +363,7 @@ BCMFASTPATH(spktq_deq_tail)(struct spktq *spq)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 done:
 	/* protect shared resource */
 	if (HND_PKTQ_MUTEX_RELEASE(&spq->mutex) != OSL_EXT_SUCCESS)
@@ -443,7 +443,7 @@ BCMFASTPATH(pktq_append)(struct pktq *pq, int prec, struct spktq *list)
 
 #ifdef WL_TXQ_STALL
 	list_q->dequeue_count += list_q->n_pkts;
-#endif // endif
+#endif
 
 	list_q->head = NULL;
 	list_q->tail = NULL;
@@ -490,7 +490,7 @@ BCMFASTPATH(spktq_append)(struct spktq *spq, struct spktq *list)
 
 #ifdef WL_TXQ_STALL
 	list_q->dequeue_count += list_q->n_pkts;
-#endif // endif
+#endif
 
 	list_q->head = NULL;
 	list_q->tail = NULL;
@@ -549,7 +549,7 @@ BCMFASTPATH(pktq_prepend)(struct pktq *pq, int prec, struct spktq *list)
 
 #ifdef WL_TXQ_STALL
 	list_q->dequeue_count += list_q->n_pkts;
-#endif // endif
+#endif
 
 	list_q->head = NULL;
 	list_q->tail = NULL;
@@ -602,7 +602,7 @@ BCMFASTPATH(spktq_prepend)(struct spktq *spq, struct spktq *list)
 
 #ifdef WL_TXQ_STALL
 	list_q->dequeue_count += list_q->n_pkts;
-#endif // endif
+#endif
 
 	list_q->head = NULL;
 	list_q->tail = NULL;
@@ -640,7 +640,7 @@ BCMFASTPATH(pktq_pdeq_prev)(struct pktq *pq, int prec, void *prev_p)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 	PKTSETLINK(prev_p, PKTLINK(p));
 	PKTSETLINK(p, NULL);
 
@@ -695,7 +695,7 @@ BCMFASTPATH(pktq_pdeq_with_fn)(struct pktq *pq, int prec, ifpkt_cb_t fn, int arg
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 	PKTSETLINK(p, NULL);
 
 done:
@@ -744,7 +744,7 @@ BCMFASTPATH(pktq_pdel)(struct pktq *pq, void *pktbuf, int prec)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	PKTSETLINK(pktbuf, NULL);
 	ret = TRUE;
@@ -780,7 +780,7 @@ _pktq_pfilter(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count += wq.n_pkts;
-#endif // endif
+#endif
 
 	pq->n_pkts_tot -= wq.n_pkts;
 
@@ -797,7 +797,7 @@ _pktq_pfilter(struct pktq *pq, int prec, pktq_filter_t fltr, void* fltr_ctx,
 
 #ifdef WL_TXQ_STALL
 		wq.dequeue_count++;
-#endif // endif
+#endif
 
 		/* call the filter function on current packet */
 		ASSERT(fltr != NULL);
@@ -897,7 +897,7 @@ spktq_filter(struct spktq *spq, pktq_filter_t fltr, void* fltr_ctx,
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count += wq.n_pkts;
-#endif // endif
+#endif
 
 	/* protect shared resource */
 	if (HND_PKTQ_MUTEX_RELEASE(&spq->mutex) != OSL_EXT_SUCCESS)
@@ -913,7 +913,7 @@ spktq_filter(struct spktq *spq, pktq_filter_t fltr, void* fltr_ctx,
 
 #ifdef WL_TXQ_STALL
 		wq.dequeue_count++;
-#endif // endif
+#endif
 
 		/* call the filter function on current packet */
 		ASSERT(fltr != NULL);
@@ -1067,7 +1067,7 @@ BCMFASTPATH(pktq_deq)(struct pktq *pq, int *prec_out)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	if (prec_out)
 		*prec_out = prec;
@@ -1120,7 +1120,7 @@ BCMFASTPATH(pktq_deq_tail)(struct pktq *pq, int *prec_out)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	if (prec_out)
 		*prec_out = prec;
@@ -1226,6 +1226,7 @@ typedef struct {
 static spktq_cbinfo_t spktq_cbinfo = {NULL, NULL};
 static spktq_cbinfo_t *spktq_cbinfo_get(void);
 
+/* XXX: Accessor function forced into RAM to keep spktq_cbinfo out of shdat */
 static spktq_cbinfo_t*
 BCMRAMFN(spktq_cbinfo_get)(void)
 {
@@ -1372,7 +1373,7 @@ BCMFASTPATH(pktq_mdeq)(struct pktq *pq, uint prec_bmp, int *prec_out)
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	if (prec_out)
 		*prec_out = prec;

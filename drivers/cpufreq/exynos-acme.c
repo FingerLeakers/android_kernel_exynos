@@ -28,6 +28,7 @@
 
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/ect_parser.h>
+#include <soc/samsung/exynos-dm.h>
 #include <soc/samsung/exynos-cpuhp.h>
 #include <soc/samsung/exynos-cpupm.h>
 #include <soc/samsung/exynos-alt.h>
@@ -938,6 +939,32 @@ unsigned int __weak exynos_pstate_get_boost_freq(int cpu)
 	return 0;
 }
 EXPORT_SYMBOL(exynos_pstate_get_boost_freq);
+
+#ifdef CONFIG_SEC_BOOTSTAT
+void sec_bootstat_get_cpuinfo(int *freq, int *online)
+{
+	int cpu;
+	int cluster;
+	struct exynos_cpufreq_domain *domain;
+
+	get_online_cpus();
+	*online = cpumask_bits(cpu_online_mask)[0];
+	for_each_online_cpu(cpu) {
+		domain = find_domain(cpu);
+		if (!domain)
+			continue;
+		pr_err("%s, dm type = %d\n", __func__, domain->dm_type);
+		cluster = 0;
+		if (domain->dm_type == DM_CPU_CL1)
+			cluster = 1;
+		else if (domain->dm_type == DM_CPU_CL2)
+			cluster = 2;
+
+		freq[cluster] = get_freq(domain);
+	}
+	put_online_cpus();
+}
+#endif
 
 /*********************************************************************
  *                  INITIALIZE EXYNOS CPUFREQ DRIVER                 *

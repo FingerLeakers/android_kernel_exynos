@@ -57,9 +57,8 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	frame->pc = READ_ONCE_NOCHECK(*(unsigned long *)(fp + 8));
 
 #ifdef CONFIG_SEC_DEBUG_LIMIT_BACKTRACE
-	if (fp == frame->fp) {
+	if (frame->fp == fp)
 		return -EINVAL;
-	}
 #endif
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER

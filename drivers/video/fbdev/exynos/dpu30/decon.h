@@ -573,14 +573,14 @@ struct decon_reg_data {
 	bool is_cursor_win[MAX_DECON_WIN];
 	int cursor_win;
 
-	bool mres_update;
+	bool mode_update;
 	u32 lcd_width;
 	u32 lcd_height;
 
 	u32 fps;
 	u32 fps_update;
 
-	int mres_idx;
+	int mode_idx;
 #ifdef CONFIG_DYNAMIC_FREQ
 	int df_update;
 #endif
@@ -699,6 +699,10 @@ typedef enum dpu_event_type {
 	DPU_EVT_MEM_MAP,
 	DPU_EVT_MEM_UNMAP,
 
+	DPU_EVT_ACQUIRE_RSC,
+	DPU_EVT_RELEASE_RSC,
+	DPU_EVT_STORE_RSC,
+
 	DPU_EVT_MAX, /* End of EVENT */
 } dpu_event_t;
 
@@ -766,6 +770,15 @@ struct disp_log_memmap {
 	int dpp_ch;
 };
 
+struct disp_log_rsc {
+	unsigned long prev_used_dpp;
+	unsigned long cur_using_dpp;
+	unsigned long prev_req_win;
+	unsigned long cur_req_win;
+	unsigned int hw_ch_info;  /* DPP channels actually occupied by HW */
+	unsigned int hw_win_info; /* windows actually occupied by HW */
+};
+
 /**
  * struct dpu_log - Display Subsystem Log
  * This struct includes DECON/DSIM/DPP
@@ -782,6 +795,7 @@ struct dpu_log {
 		struct disp_log_cursor cursor;
 		struct disp_log_winup winup;
 		struct disp_log_memmap memmap;
+		struct disp_log_rsc rsc;
 	} data;
 };
 
@@ -1194,6 +1208,9 @@ struct decon_device {
 	unsigned long cur_using_dpp;
 	unsigned long dpp_err_stat;
 
+	unsigned long prev_req_win;
+	unsigned long cur_req_win;
+
 	struct mutex lock;
 	struct mutex pm_lock;
 	spinlock_t slock;
@@ -1263,6 +1280,8 @@ struct decon_device {
 	bool mres_enabled;
 	bool low_persistence;
 
+	int color_mode;
+
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	struct v4l2_subdev *panel_sd;
 	struct panel_state *panel_state;
@@ -1274,7 +1293,6 @@ struct decon_device {
 #endif
 
 #ifdef CONFIG_EXYNOS_MCD_HDR
-	int color_mode;
 	struct lcd_hdr_info hdr_info;
 #endif
 

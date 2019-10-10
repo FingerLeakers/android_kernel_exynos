@@ -30,7 +30,6 @@
 #include <linux/pm_qos.h>
 #include <linux/exynos-pci-ctrl.h>
 #include <dt-bindings/pci/pci.h>
-
 #ifdef CONFIG_CPU_IDLE
 #include <soc/samsung/exynos-powermode.h>
 #include <soc/samsung/exynos-pm.h>

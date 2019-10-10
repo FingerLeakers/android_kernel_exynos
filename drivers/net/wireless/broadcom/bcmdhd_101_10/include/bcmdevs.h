@@ -146,6 +146,9 @@
 #define BCM4362_D11AX_ID	0x4490		/* 4362 802.11ax dualband device */
 #define BCM4362_D11AX2G_ID	0x4491		/* 4362 802.11ax 2.4G device */
 #define BCM4362_D11AX5G_ID	0x4492		/* 4362 802.11ax 5G device */
+#define BCM43751_D11AX_ID	0x449a		/* 43751 802.11ac dualband device */
+#define BCM43751_D11AX2G_ID	0x449b		/* 43751 802.11ac 2.4G device */
+#define BCM43751_D11AX5G_ID	0x449c		/* 43751 802.11ac 5G device */
 #define BCM43752_D11AX_ID	0x449d		/* 43752 802.11ax dualband device */
 #define BCM43752_D11AX2G_ID	0x449e		/* 43752 802.11ax 2.4G device */
 #define BCM43752_D11AX5G_ID	0x449f		/* 43752 802.11ax 5G device */
@@ -215,6 +218,7 @@
 
 #define BCM4362_CHIP_ID		0x4362          /* 4362 chipcommon chipid */
 #define BCM43751_CHIP_ID	0xAAE7          /* 43751 chipcommon chipid */
+#define BCM43752_CHIP_ID	0xAAE8          /* 43752 chipcommon chipid */
 #define BCM4369_CHIP_ID		0x4369          /* 4369 chipcommon chipid */
 #define BCM4377_CHIP_ID		0x4377          /* 4377 chipcommon chipid */
 #define BCM4378_CHIP_ID		0x4378          /* 4378 chipcommon chipid */
@@ -352,7 +356,9 @@
 #define BFL2_DAC_SPUR_IMPROVEMENT 0x00008000       /* Reducing DAC Spurs */
 #define BFL2_GPLL_WAR2	        0x00010000  /* Flag to widen G-band PLL loop b/w */
 #define BFL2_REDUCED_PA_TURNONTIME 0x00010000  /* Flag to reduce PA turn on Time */
-#define BFL2_IPALVLSHIFT_3P3    0x00020000
+#define BFL2_IPALVLSHIFT_3P3    0x00020000  /* Flag to Activate the PR 74115 PA Level Shift
+					     * Workaround where the gpaio pin is connected to 3.3V
+					     */
 #define BFL2_INTERNDET_TXIQCAL  0x00040000  /* Use internal envelope detector for TX IQCAL */
 #define BFL2_XTALBUFOUTEN       0x00080000  /* Keep the buffered Xtal output from radio on */
 				/* Most drivers will turn it off without this flag */

@@ -32,7 +32,7 @@
 #define LOG_BUF_LEN	(16 * 1024)
 #else
 #define LOG_BUF_LEN	1024
-#endif // endif
+#endif
 #endif /* LOG_BUF_LEN */
 
 #ifdef BOOTLOADER_CONSOLE_OUTPUT
@@ -42,7 +42,7 @@
 #define RWL_MAX_DATA_LEN (4 * 1024 + 8)
 #define CBUF_LEN	(RWL_MAX_DATA_LEN + 64)
 #define LOG_BUF_LEN (16 * 1024)
-#endif // endif
+#endif
 
 typedef struct {
 	uint32		buf;		/* Can't be pointer on (64-bit) hosts */

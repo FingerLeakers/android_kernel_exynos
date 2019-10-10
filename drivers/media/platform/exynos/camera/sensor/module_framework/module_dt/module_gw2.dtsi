@@ -64,28 +64,28 @@
 					mode2 {
 						common = <4880 3660 30 0 2 CSI_DATA_LANES_3 2964 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_NONE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 4880 3660 	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4880 3660>;
-						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0     	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc1 = </* in */ 1 HW_FORMAT_RAW10 608 920     	/* out */ HW_FORMAT_RAW10 VC_TAILPDAF 608 920>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0     	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0     	/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 					};
 					mode3{
 						common = <4880 3660 22 0 3 CSI_DATA_LANES_3 2964 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 4880 3660	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4880 3660>;
-						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc1 = </* in */ 1 HW_FORMAT_RAW10 608 920     	/* out */ HW_FORMAT_RAW10 VC_TAILPDAF 608 920>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 					};
 					mode4 {
 						common = <4880 2736 30 0 4 CSI_DATA_LANES_3 2964 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 4880 2736	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4880 2736>;
-						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc1 = </* in */ 1 HW_FORMAT_RAW10 608 688		/* out */ HW_FORMAT_RAW10 VC_TAILPDAF 608 688>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 					};
 					mode5 {
 						common = <4880 2736 22 0 5 CSI_DATA_LANES_3 2964 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 4880 2736	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4880 2736>;
-						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc1 = </* in */ 1 HW_FORMAT_RAW10 608 688		/* out */ HW_FORMAT_RAW10 VC_TAILPDAF 608 688>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 					};

@@ -55,7 +55,7 @@ dhd_ring_proc_open(struct inode *inode, struct file *file)
 #else
 		/* This feature is not supported for lower kernel versions */
 		ret = single_open(file, 0, NULL);
-#endif // endif
+#endif
 	} else {
 		DHD_ERROR(("%s: inode is NULL\n", __FUNCTION__));
 	}
@@ -386,308 +386,6 @@ ecounter_onoff(struct dhd_info *dev, const char *buf, size_t count)
 	return count;
 }
 
-#if defined(DHD_QOS_ON_SOCK_FLOW)
-#include <dhd_linux_sock_qos.h>
-
-static ssize_t
-show_sock_qos_onoff(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned long onoff;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	onoff = dhd_sock_qos_get_status(dhd);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu \n",
-		onoff);
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_onoff(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned long onoff;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	onoff = bcm_strtoul(buf, NULL, 10);
-
-	sscanf(buf, "%lu", &onoff);
-	if (onoff != 0 && onoff != 1) {
-		return -EINVAL;
-	}
-
-	dhd_sock_qos_set_status(dhd, onoff);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_upgrade(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned long onoff;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	onoff = dhd_sock_qos_get_force_upgrade(dhd);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu \n",
-		onoff);
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_upgrade(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned long onoff;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	onoff = bcm_strtoul(buf, NULL, 10);
-
-	sscanf(buf, "%lu", &onoff);
-	if (onoff != 0 && onoff != 1) {
-		return -EINVAL;
-	}
-
-	dhd_sock_qos_set_force_upgrade(dhd, onoff);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_numfl_upgrd_thresh(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	int upgrade_thresh;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	upgrade_thresh = dhd_sock_qos_get_numfl_upgrd_thresh(dhd);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d \n",
-		upgrade_thresh);
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_numfl_upgrd_thresh(struct dhd_info *dev, const char *buf, size_t count)
-{
-	int upgrade_thresh;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%d", &upgrade_thresh);
-	if (upgrade_thresh < 0) {
-		return -EINVAL;
-	}
-
-	dhd_sock_qos_set_numfl_upgrd_thresh(dhd, upgrade_thresh);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_avgpktsize_thresh(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned long avgpktsize_low, avgpktsize_high;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	dhd_sock_qos_get_avgpktsize_thresh(dhd, &avgpktsize_low, &avgpktsize_high);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu %lu\n",
-		avgpktsize_low, avgpktsize_high);
-
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_avgpktsize_thresh(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned long avgpktsize_low, avgpktsize_high;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%lu %lu", &avgpktsize_low, &avgpktsize_high);
-
-	dhd_sock_qos_set_avgpktsize_thresh(dhd, avgpktsize_low, avgpktsize_high);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_numpkts_thresh(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned long numpkts_low, numpkts_high;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	dhd_sock_qos_get_numpkts_thresh(dhd, &numpkts_low, &numpkts_high);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%lu %lu\n",
-		numpkts_low, numpkts_high);
-
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_numpkts_thresh(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned long numpkts_low, numpkts_high;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%lu %lu", &numpkts_low, &numpkts_high);
-
-	dhd_sock_qos_set_numpkts_thresh(dhd, numpkts_low, numpkts_high);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_detectcnt_thresh(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned char detectcnt_inc, detectcnt_dec;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	dhd_sock_qos_get_detectcnt_thresh(dhd, &detectcnt_inc, &detectcnt_dec);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d %d\n",
-		detectcnt_inc, detectcnt_dec);
-
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_detectcnt_thresh(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned int detectcnt_inc, detectcnt_dec;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%u %u", &detectcnt_inc, &detectcnt_dec);
-
-	dhd_sock_qos_set_detectcnt_thresh(dhd, detectcnt_inc, detectcnt_dec);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_detectcnt_upgrd_thresh(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned int detectcnt_upgrd_thresh;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	detectcnt_upgrd_thresh = dhd_sock_qos_get_detectcnt_upgrd_thresh(dhd);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d \n", detectcnt_upgrd_thresh);
-
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_detectcnt_upgrd_thresh(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned int detectcnt_upgrd_thresh;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%u", &detectcnt_upgrd_thresh);
-
-	dhd_sock_qos_set_detectcnt_upgrd_thresh(dhd, detectcnt_upgrd_thresh);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_maxfl(struct dhd_info *dev, char *buf)
-{
-	ssize_t ret = 0;
-	unsigned int maxfl;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	maxfl = dhd_sock_qos_get_maxfl(dhd);
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%u \n", maxfl);
-
-	return ret;
-}
-
-static ssize_t
-update_sock_qos_maxfl(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned int maxfl;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	sscanf(buf, "%u", &maxfl);
-
-	dhd_sock_qos_set_maxfl(dhd, maxfl);
-
-	return count;
-}
-
-static ssize_t
-show_sock_qos_stats(struct dhd_info *dev, char *buf)
-{
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	dhd_sock_qos_show_stats(dhd, buf, PAGE_SIZE);
-
-	return PAGE_SIZE - 1;
-}
-
-static ssize_t
-clear_sock_qos_stats(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned long clear;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-
-	clear = bcm_strtoul(buf, NULL, 10);
-
-	sscanf(buf, "%lu", &clear);
-	if (clear != 0) {
-		return -EINVAL;
-	}
-
-	dhd_sock_qos_clear_stats(dhd);
-
-	return count;
-}
-
-#ifdef DHD_QOS_ON_SOCK_FLOW_UT
-
-/*
- * test_id sub_id  Description
- * ------  ------  -----------
- *   1      0     psk_qos->sk_fl
- *				  The number of free sk_fl entries in the Table is exhausted
- *				  and more sockets are still getting created
- *
- *	1      1	  psk_qos->sk_fl
- *				  is Full for more than x seconds, there are lot of periodic
- *				  flows, but none of them are detected for upgrade for more
- *				  than 'x' seconds
- *
- *	2			  Force upgrade the socket flows to reach skfl_upgrade_thresh
- *				  check the behaviour
- *
- *				  Downgrade one of the sk_fls and check if the 'next' pending
- *				  sk_fl is getting upgraded. The sk_fl getting upgraded
- *				  should follow FIFO scheme.
- *
- *   3			  Upgrade a socket flow ... after some time downgrade the
- *				  same and check if the sk_fl is actually getting downgraded
- *				  Keep switching the behavior every 'x' seconds and observe
- *				  the switches
- */
-static ssize_t
-do_sock_qos_unit_test(struct dhd_info *dev, const char *buf, size_t count)
-{
-	unsigned int test_id = 0;
-	unsigned int sub_id = 0;
-	dhd_info_t *dhd = (dhd_info_t *)dev;
-	int ret;
-
-	BCM_REFERENCE(dhd);
-
-	ret = sscanf(buf, "%d %d", &test_id, &sub_id);
-	if (ret < 1) {
-		return -EINVAL;
-	}
-
-	return count;
-}
-
-#endif /* DHD_QOS_ON_SOCK_FLOW_UT */
-#endif /* DHD_QOS_ON_SOCK_FLOW */
-
 #ifdef DHD_SSSR_DUMP
 extern uint support_sssr_dump;
 
@@ -809,45 +507,6 @@ static struct dhd_attr dhd_attr_logdump_ecntr =
 static struct dhd_attr dhd_attr_ecounters =
 	__ATTR(ecounters, 0660, show_enable_ecounter, ecounter_onoff);
 
-#if defined(DHD_QOS_ON_SOCK_FLOW)
-static struct dhd_attr dhd_attr_sock_qos_onoff =
-	__ATTR(sock_qos_onoff, 0660, show_sock_qos_onoff, update_sock_qos_onoff);
-
-static struct dhd_attr dhd_attr_sock_qos_stats =
-	__ATTR(sock_qos_stats, 0660, show_sock_qos_stats, clear_sock_qos_stats);
-
-static struct dhd_attr dhd_attr_sock_qos_upgrade =
-	__ATTR(sock_qos_upgrade, 0660, show_sock_qos_upgrade, update_sock_qos_upgrade);
-
-static struct dhd_attr dhd_attr_sock_qos_numfl_upgrd_thresh =
-	__ATTR(sock_qos_numfl_upgrd_thresh, 0660, show_sock_qos_numfl_upgrd_thresh,
-	update_sock_qos_numfl_upgrd_thresh);
-
-static struct dhd_attr dhd_attr_sock_qos_avgpktsize_thresh =
-	__ATTR(sock_qos_avgpktsize_thresh, 0660, show_sock_qos_avgpktsize_thresh,
-	update_sock_qos_avgpktsize_thresh);
-
-static struct dhd_attr dhd_attr_sock_qos_numpkts_thresh =
-	__ATTR(sock_qos_numpkts_thresh, 0660, show_sock_qos_numpkts_thresh,
-	update_sock_qos_numpkts_thresh);
-
-static struct dhd_attr dhd_attr_sock_qos_detectcnt_thresh =
-	__ATTR(sock_qos_detectcnt_thresh, 0660, show_sock_qos_detectcnt_thresh,
-	update_sock_qos_detectcnt_thresh);
-
-static struct dhd_attr dhd_attr_sock_qos_detectcnt_upgrd_thresh =
-	__ATTR(sock_qos_detectcnt_upgrd_thresh, 0660, show_sock_qos_detectcnt_upgrd_thresh,
-	update_sock_qos_detectcnt_upgrd_thresh);
-
-static struct dhd_attr dhd_attr_sock_qos_maxfl =
-	__ATTR(sock_qos_maxfl, 0660, show_sock_qos_maxfl,
-	update_sock_qos_maxfl);
-#if defined(DHD_QOS_ON_SOCK_FLOW_UT)
-static struct dhd_attr dhd_attr_sock_qos_unit_test =
-	__ATTR(sock_qos_unit_test, 0660, NULL, do_sock_qos_unit_test);
-#endif // endif
-#endif /* DHD_QOS_ON_SOCK_FLOW */
-
 #ifdef DHD_SSSR_DUMP
 static struct dhd_attr dhd_attr_sssr_support =
 	__ATTR(sssr_support, 0660, show_sssr_support, sssr_support_onoff);
@@ -895,9 +554,17 @@ static struct dhd_attr dhd_attr_macaddr =
 #endif /* DHD_MAC_ADDR_EXPORT */
 
 #ifdef DHD_FW_COREDUMP
+/*
+ * XXX The filename to store memdump is defined for each platform.
+ * - The default path of CUSTOMER_HW4 device is "PLATFORM_PATH/.memdump.info"
+ * - Brix platform will take default path "/installmedia/.memdump.info"
+ * New platforms can add their ifdefs accordingly below.
+ */
 
 #ifdef CUSTOMER_HW4_DEBUG
 #define MEMDUMPINFO PLATFORM_PATH".memdump.info"
+#elif defined(BOARD_HIKEY)
+#define MEMDUMPINFO "/data/misc/wifi/.memdump.info"
 #elif defined(__ARM_ARCH_7A__)
 #define MEMDUMPINFO "/data/misc/wifi/.memdump.info"
 #else
@@ -1020,8 +687,14 @@ static struct dhd_attr dhd_attr_memdump =
 #endif /* DHD_FW_COREDUMP */
 
 #ifdef BCMASSERT_LOG
+/*
+ * XXX The filename to store assert type is defined for each platform.
+ * New platforms can add their ifdefs accordingly below.
+ */
 #ifdef CUSTOMER_HW4_DEBUG
 #define ASSERTINFO PLATFORM_PATH".assert.info"
+#elif defined(BOARD_HIKEY)
+#define ASSERTINFO "/data/misc/wifi/.assert.info"
 #else
 #define ASSERTINFO "/installmedia/.assert.info"
 #endif /* CUSTOMER_HW4_DEBUG */
@@ -1646,6 +1319,35 @@ static struct dhd_attr dhd_attr_control_logtrace =
 __ATTR(control_logtrace, 0660, show_control_logtrace, set_control_logtrace);
 #endif /* CUSTOM_CONTROL_LOGTRACE & SHOW_LOGTRACE */
 
+#if defined(DISABLE_HE_ENAB) || defined(CUSTOM_CONTROL_HE_ENAB)
+uint8 control_he_enab = 1;
+#endif /* DISABLE_HE_ENAB || CUSTOM_CONTROL_HE_ENAB */
+
+#if defined(CUSTOM_CONTROL_HE_ENAB)
+static ssize_t
+show_control_he_enab(struct dhd_info *dev, char *buf)
+{
+	ssize_t ret = 0;
+
+	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", control_he_enab);
+	return ret;
+}
+
+static ssize_t
+set_control_he_enab(struct dhd_info *dev, const char *buf, size_t count)
+{
+	uint32 val;
+
+	val = bcm_atoi(buf);
+
+	control_he_enab = val ? 1 : 0;
+	DHD_ERROR(("%s: Set control he enab: %d\n", __FUNCTION__, control_he_enab));
+	return count;
+}
+
+static struct dhd_attr dhd_attr_control_he_enab=
+__ATTR(control_he_enab, 0660, show_control_he_enab, set_control_he_enab);
+#endif /* CUSTOM_CONTROL_HE_ENAB */
 /* Attribute object that gets registered with "wifi" kobject tree */
 static struct attribute *default_file_attrs[] = {
 #ifdef DHD_MAC_ADDR_EXPORT
@@ -1703,7 +1405,7 @@ static struct attribute *default_file_attrs[] = {
 #endif /* CUSTOM_CONTROL_LOGTRACE && SHOW_LOGTRACE */
 #if defined(DHD_TRACE_WAKE_LOCK)
 	&dhd_attr_wklock.attr,
-#endif // endif
+#endif
 #if defined(DHD_LB_TXP)
 	&dhd_attr_lbtxp.attr,
 #endif /* DHD_LB_TXP */
@@ -1713,27 +1415,16 @@ static struct attribute *default_file_attrs[] = {
 #ifdef DHD_LOG_DUMP
 	&dhd_attr_logdump_periodic_flush.attr,
 	&dhd_attr_logdump_ecntr.attr,
-#endif // endif
+#endif
 	&dhd_attr_ecounters.attr,
-#ifdef DHD_QOS_ON_SOCK_FLOW
-	&dhd_attr_sock_qos_onoff.attr,
-	&dhd_attr_sock_qos_stats.attr,
-	&dhd_attr_sock_qos_upgrade.attr,
-	&dhd_attr_sock_qos_numfl_upgrd_thresh.attr,
-	&dhd_attr_sock_qos_avgpktsize_thresh.attr,
-	&dhd_attr_sock_qos_numpkts_thresh.attr,
-	&dhd_attr_sock_qos_detectcnt_thresh.attr,
-	&dhd_attr_sock_qos_detectcnt_upgrd_thresh.attr,
-	&dhd_attr_sock_qos_maxfl.attr,
-#ifdef DHD_QOS_ON_SOCK_FLOW_UT
-	&dhd_attr_sock_qos_unit_test.attr,
-#endif /* DHD_QOS_ON_SOCK_FLOW_UT */
-#endif /* DHD_QOS_ON_SOCK_FLOW */
 #ifdef DHD_SSSR_DUMP
 	&dhd_attr_sssr_support.attr,
 #endif /* DHD_SSSR_DUMP */
 	&dhd_attr_firmware_path.attr,
 	&dhd_attr_nvram_path.attr,
+#if defined(CUSTOM_CONTROL_HE_ENAB)
+	&dhd_attr_control_he_enab.attr,
+#endif /* CUSTOM_CONTROL_HE_ENAB */
 	NULL
 };
 

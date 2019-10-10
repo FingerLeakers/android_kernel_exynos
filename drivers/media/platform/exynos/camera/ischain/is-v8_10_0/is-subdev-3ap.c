@@ -10,6 +10,9 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/kernel.h>
+#include <linux/soc/samsung/exynos-soc.h>
+
 #include "is-device-ischain.h"
 #include "is-device-sensor.h"
 #include "is-subdev-ctrl.h"
@@ -129,10 +132,18 @@ static int is_ischain_3ap_start(struct is_device_ischain *device,
 			hw_bitwidth, hw_msb);
 	}
 
-	if (hw_format == DMA_OUTPUT_FORMAT_BAYER_PACKED && flag_extra == COMP) {
-		mdbg_pframe("ot_crop[fmt: %d -> %d: BAYER_COMP]\n", device, subdev, frame,
-			hw_format, DMA_OUTPUT_FORMAT_BAYER_COMP);
-		hw_format = DMA_OUTPUT_FORMAT_BAYER_COMP;
+	/* SBWC need to be activated over EVT1 */
+	if ((hw_format == DMA_OUTPUT_FORMAT_BAYER_PACKED) && (flag_extra == COMP || flag_extra == COMP_LOSS)) {
+		if (exynos_soc_info.main_rev >= 1) {
+			u32 comp_format =
+			(flag_extra == COMP) ? DMA_OUTPUT_FORMAT_BAYER_COMP : DMA_OUTPUT_FORMAT_BAYER_COMP_LOSSY;
+			mdbg_pframe("ot_crop[fmt: %d -> %d: BAYER_COMP]\n", device, subdev, frame,
+				hw_format, comp_format);
+			hw_format = comp_format;
+		} else {
+			mdbgd_ischain("SBWC not supported in EVT%d.%d\n",
+				device, exynos_soc_info.main_rev, exynos_soc_info.sub_rev);
+		}
 	}
 
 	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame && frame->stripe_info.region_num)
@@ -321,6 +332,7 @@ static int is_ischain_3ap_tag(struct is_subdev *subdev,
 
 	if (node->request) {
 		if (!COMPARE_CROP(otcrop, &otparm) ||
+			CHECK_STRIPE_CFG(&ldr_frame->stripe_info) ||
 			!test_bit(IS_SUBDEV_RUN, &subdev->state) ||
 			test_bit(IS_SUBDEV_FORCE_SET, &leader->state)) {
 			ret = is_ischain_3ap_start(device,
@@ -354,7 +366,6 @@ static int is_ischain_3ap_tag(struct is_subdev *subdev,
 		}
 	} else {
 		if (!COMPARE_CROP(otcrop, &otparm) ||
-			CHECK_STRIPE_CFG(&ldr_frame->stripe_info) ||
 			test_bit(IS_SUBDEV_RUN, &subdev->state) ||
 			test_bit(IS_SUBDEV_FORCE_SET, &leader->state)) {
 			ret = is_ischain_3ap_stop(device,

@@ -32,19 +32,13 @@ void pdp_hw_s_wdma_enable(void __iomem *base, dma_addr_t address)
 {
 }
 
-void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize, u32 rmo)
+void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize,
+	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma)
 {
 }
 
-void pdp_hw_s_af_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 rmo)
-{
-}
-
-void pdp_hw_s_rdma_enable(void __iomem *base, dma_addr_t *address, u32 num_buffers, u32 en_votf, u32 en_sdc)
-{
-}
-
-void pdp_hw_s_af_rdma_enable(void __iomem *base, dma_addr_t *address, u32 num_buffers, u32 en_votf)
+void pdp_hw_s_af_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 rmo,
+	u32 en_votf, u32 en_dma)
 {
 }
 

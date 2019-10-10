@@ -1007,7 +1007,8 @@ static int __tz_iwsock_read(struct sock_desc *sd, struct circ_buf_desc *read_buf
 				sizeof(struct tz_cmsghdr_swd_cred),
 				mode);
 		if (IS_ERR_VALUE(ret)) {
-			log_error(tzdev_iwsock, "Failed to read socket, error=%ld\n", ret);
+			if (ret != -EAGAIN)
+				log_error(tzdev_iwsock, "Failed to read socket, error=%ld\n", ret);
 			goto recheck;
 		} else if (ret != sizeof(struct tz_cmsghdr_swd_cred)) {
 			ret = -EINVAL;
@@ -1017,7 +1018,8 @@ static int __tz_iwsock_read(struct sock_desc *sd, struct circ_buf_desc *read_buf
 	} else {
 		ret = circ_buf_drop_packet(read_buf);
 		if (IS_ERR_VALUE(ret)) {
-			log_error(tzdev_iwsock, "Failed to read socket, drop packed failed, error=%ld\n", ret);
+			if (ret != -EAGAIN)
+				log_error(tzdev_iwsock, "Failed to read socket, drop packet failed, error=%ld\n", ret);
 			goto recheck;
 		}
 	}

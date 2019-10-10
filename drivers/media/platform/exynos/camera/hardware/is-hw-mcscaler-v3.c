@@ -1505,6 +1505,19 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	out_width = output->width;
 	out_height = output->height;
 
+	if (src_pos_x % MCSC_WIDTH_ALIGN) {
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_pos_x should be multiple of %d(%d->%d)\n",
+			instance, hw_ip, output_id, src_pos_x, src_pos_x,
+			ALIGN(src_pos_x, MCSC_WIDTH_ALIGN));
+		src_pos_x = ALIGN(src_pos_x, MCSC_WIDTH_ALIGN);
+	}
+	if (src_width % MCSC_WIDTH_ALIGN) {
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_width should be multiple of %d(%d->%d)\n",
+			instance, hw_ip, output_id, src_width, src_width,
+			ALIGN(src_width, MCSC_WIDTH_ALIGN));
+		src_width = ALIGN(src_width, MCSC_WIDTH_ALIGN);
+	}
+
 	is_scaler_set_poly_src_size(hw_ip->regs[REG_SETA], output_id, src_pos_x, src_pos_y,
 		src_width, src_height);
 
@@ -1568,6 +1581,13 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 			instance, hw_ip, output_id, poly_dst_width, poly_dst_height);
 	}
 #endif
+
+	if (poly_dst_width % MCSC_WIDTH_ALIGN) {
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: poly_dst_width should be multiple of %d(%d->%d)\n",
+			instance, hw_ip, output_id, poly_dst_width, poly_dst_width,
+			ALIGN(poly_dst_width, MCSC_WIDTH_ALIGN));
+		poly_dst_width = ALIGN(poly_dst_width, MCSC_WIDTH_ALIGN);
+	}
 
 	is_scaler_set_poly_dst_size(hw_ip->regs[REG_SETA], output_id,
 		poly_dst_width, poly_dst_height);
@@ -1635,6 +1655,19 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	dst_width = output->width;
 	dst_height = output->height;
+
+	if (img_width % MCSC_WIDTH_ALIGN) {
+		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: img_width should be multiple of %d(%d->%d)\n",
+			instance, hw_ip, output_id, img_width, img_width,
+			ALIGN(img_width, MCSC_WIDTH_ALIGN));
+		img_width = ALIGN(img_width, MCSC_WIDTH_ALIGN);
+	}
+	if (dst_width % MCSC_WIDTH_ALIGN) {
+		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: dst_width should be multiple of %d(%d->%d)\n",
+			instance, hw_ip, output_id, dst_width, dst_width,
+			ALIGN(dst_width, MCSC_WIDTH_ALIGN));
+		dst_width = ALIGN(dst_width, MCSC_WIDTH_ALIGN);
+	}
 
 	/* if x1 ~ x1/4 scaling, post scaler bypassed */
 	if ((img_width == dst_width) && (img_height == dst_height))

@@ -601,14 +601,16 @@ static int common_panel_doze_suspend(struct exynos_panel_device *panel)
 }
 #endif
 
-static int common_panel_mres(struct exynos_panel_device *panel, int mres_idx)
+static int common_panel_mres(struct exynos_panel_device *panel, u32 mode_idx)
 {
 	struct exynos_panel_info *info;
-	struct lcd_res_info *res;
+	struct exynos_display_mode *mode;
+	struct exynos_display_mode_info *mode_info;
 	int i, ret;
 
 	info = &panel->lcd_info;
-	res = &info->mres.res_info[mres_idx];
+	mode_info = &panel->lcd_info.display_mode[mode_idx];
+	mode = &panel->lcd_info.display_mode[mode_idx].mode;
 
 	if (mres->nr_resol == 0 || mres->resol == NULL) {
 		pr_err("%s:panel doesn't support multi-resolution\n",
@@ -617,14 +619,14 @@ static int common_panel_mres(struct exynos_panel_device *panel, int mres_idx)
 	}
 
 	for (i = 0; i < mres->nr_resol; i++) {
-		if ((mres->resol[i].w == res->width) &&
-			(mres->resol[i].h == res->height))
+		if ((mres->resol[i].w == mode->width) &&
+			(mres->resol[i].h == mode->height))
 			break;
 	}
 
 	if (i == mres->nr_resol) {
 		pr_err("%s:unsupported resolution(%dx%d)\n",
-				__func__, res->width, res->height);
+				__func__, mode->width, mode->height);
 		return -EINVAL;
 	}
 	
@@ -634,15 +636,14 @@ static int common_panel_mres(struct exynos_panel_device *panel, int mres_idx)
 		goto mres_exit;
 	}
 
-	info->mres_mode = i;
-	info->xres = mres->resol[i].w;
-	info->yres = mres->resol[i].h;
-	info->dsc.en = !(mres->resol[i].comp_type == PN_COMP_TYPE_NONE);
-	info->dsc.slice_num = info->xres / mres->resol[i].comp_param.dsc.slice_w;
-	info->dsc.slice_h = mres->resol[i].comp_param.dsc.slice_h;
-	info->dsc.enc_sw = exynos_panel_calc_slice_width(info->dsc.cnt,
-			info->dsc.slice_num, info->xres);
-	info->dsc.dec_sw = mres->resol[i].comp_param.dsc.slice_w;
+	info->cur_mode_idx = mode_idx;
+	info->xres = mode->width;
+	info->yres = mode->height;
+	info->dsc.en = mode_info->dsc_en;
+	info->dsc.slice_num = info->xres / mode_info->dsc_width;
+	info->dsc.slice_h = mode_info->dsc_height;
+	info->dsc.enc_sw = mode_info->dsc_enc_sw;
+	info->dsc.dec_sw = mode_info->dsc_dec_sw;
 
 	pr_info("%s update resolution resol(%dx%d) dsc(en:%d slice(%d):%dx%d)\n",
 			__func__, info->xres, info->yres, info->dsc.en,

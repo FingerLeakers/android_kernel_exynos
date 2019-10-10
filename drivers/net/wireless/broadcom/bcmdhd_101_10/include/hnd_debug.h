@@ -38,7 +38,7 @@
 
 #ifdef FWID
 extern uint32 gFWID;
-#endif // endif
+#endif
 
 enum hnd_debug_reloc_entry_type {
 	HND_DEBUG_RELOC_ENTRY_TYPE_ROM		= 0u,

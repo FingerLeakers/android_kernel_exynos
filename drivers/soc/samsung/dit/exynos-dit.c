@@ -31,6 +31,9 @@
 #include <net/sch_generic.h>
 #include <uapi/linux/ip.h>
 
+#include <soc/samsung/exynos-dit-ioctl.h>
+#include <soc/samsung/exynos-dit-offload.h>
+
 #ifdef DIT_CHECK_PERF
 #include <uapi/linux/sched/types.h>
 #include <linux/kthread.h>
@@ -59,11 +62,11 @@ unsigned char padd_packet[SZ_PAD_PACKET+SZ_HW_FWD_IFINFO] = { /* padding for ifi
 
 struct dit_dev_info_t dit_dev = {
 	.irq = {
-		{"RxDst0", -1, dit_rx_irq_handler, DIT_DST0, 0},
-		{"RxDst1", -1, dit_rx_irq_handler, DIT_DST1, 0},
-		{"RxDst2", -1, dit_rx_irq_handler, DIT_DST2, 0},
-		{"Tx", -1, dit_tx_irq_handler, DIT_DST0|DIT_DST1|DIT_DST2, 0},
-		{"Err", -1, dit_errbus_irq_handler, -1, 0},
+		{"DIT-RxDst0", -1, dit_rx_irq_handler, DIT_DST0, 0},
+		{"DIT-RxDst1", -1, dit_rx_irq_handler, DIT_DST1, 0},
+		{"DIT-RxDst2", -1, dit_rx_irq_handler, DIT_DST2, 0},
+		{"DIT-Tx", -1, dit_tx_irq_handler, DIT_DST0|DIT_DST1|DIT_DST2, 0},
+		{"DIT-Err", -1, dit_errbus_irq_handler, -1, 0},
 	},
 	.handle = {
 		{	.num_desc = DIT_MAX_DESC,
@@ -159,11 +162,96 @@ void pktproc_update_done_ptr(int qnum, unsigned int done_ptr)
 }
 #endif
 
-int dit_init_hw(void)
+static inline bool circ_empty(unsigned int in, unsigned int out)
 {
-	int DIR, dst, cnt = 0;
+	return (in == out);
+}
 
-	dit_debug("++\n");
+static inline unsigned int circ_get_space(unsigned int qsize,
+					  unsigned int in,
+					  unsigned int out)
+{
+	return (in < out) ? (out - in - 1) : (qsize + out - in - 1);
+}
+
+static inline bool circ_full(unsigned int qsize, unsigned int in,
+			     unsigned int out)
+{
+	return (circ_get_space(qsize, in, out) == 0);
+}
+
+static inline unsigned int circ_get_usage(unsigned int qsize,
+					  unsigned int in,
+					  unsigned int out)
+{
+	return (in >= out) ? (in - out) : (qsize - out + in);
+}
+
+static inline unsigned int circ_new_ptr(unsigned int qsize,
+					unsigned int p,
+					unsigned int len)
+{
+	unsigned int np = (p + len);
+
+	while (np >= qsize)
+		np -= qsize;
+	return np;
+}
+
+static inline int dit_enable_irq(struct dit_irq_t *irq)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&irq->lock, flags);
+
+	if (irq->active) {
+		spin_unlock_irqrestore(&irq->lock, flags);
+		return 0;
+	}
+
+	enable_irq(irq->num);
+	irq->active = 1;
+
+	spin_unlock_irqrestore(&irq->lock, flags);
+
+	return 0;
+}
+
+static inline int dit_disable_irq(struct dit_irq_t *irq)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&irq->lock, flags);
+
+	if (!irq->active) {
+		spin_unlock_irqrestore(&irq->lock, flags);
+		return 0;
+	}
+
+	disable_irq_nosync(irq->num);
+	irq->active = 0;
+
+	spin_unlock_irqrestore(&irq->lock, flags);
+
+	return 0;
+}
+
+static inline void *dit_free_irq(struct dit_irq_t *irq)
+{
+	char *name = NULL;
+
+	if (irq->num > 0 && irq->registered) {
+		name = (char *)free_irq(irq->num, &irq->dst);
+		irq->registered = 0;
+		dit_debug("%s freed\n", name);
+	}
+
+	return name;
+}
+
+int dit_init_hw_port(void)
+{
+	int cnt = 0;
 
 	writel(0x1, dit_dev.reg_base + DIT_NAT_RX_PORT_INIT_START);
 	writel(0x1, dit_dev.reg_base + DIT_NAT_TX_PORT_INIT_START);
@@ -186,6 +274,17 @@ int dit_init_hw(void)
 			return -1;
 		}
 	}
+
+	return 0;
+}
+
+int dit_init_hw(void)
+{
+	int DIR, dst;
+
+	dit_debug("++\n");
+
+	dit_init_hw_port();
 
 	writel(0x4020, dit_dev.reg_base + DIT_DMA_INIT_DATA);
 	writel(0x1 << DIT_INIT_CMD, dit_dev.reg_base + DIT_SW_COMMAND);
@@ -377,7 +476,7 @@ static inline void __attach_ifinfo_skb(struct sk_buff *skb)
 	priv->ndev = skb->dev;
 	priv->status = 0x10; /* [4] IGNR */
 
-	skb->len += sizeof(struct dit_priv_t);
+	skb->len += (uint32_t) sizeof(struct dit_priv_t);
 }
 
 static inline void __dettach_ifinfo(struct sk_buff *skb, int size, int DIR)
@@ -476,6 +575,8 @@ inline int dit_padd_desc_skb(struct dit_dev_info_t *dit, int DIR, int cnt)
 
 	for (i = 0; i < cnt; i++) {
 		skb = dev_alloc_skb(DIT_BUFFER_DSIZE);
+		if (!skb)
+			break;
 		skb_put_data(skb, padd_packet, SZ_PAD_PACKET);
 		skb->dev = NULL;
 		dit_make_desc_skb(dit, DIR, skb);
@@ -617,6 +718,7 @@ int dit_enqueue_to_backlog(int DIR, struct sk_buff *skb)
 	skb_queue_tail(&dit->handle[DIR].backlog_q, skb);
 
 	dit->stat[DIR].injectpkt++;
+	offload_update_reqst(DIR, skb->len);
 
 	return NETDEV_TX_OK;
 }
@@ -654,12 +756,15 @@ int dit_kick(struct dit_dev_info_t *dit, int DIR, int start)
 	struct dit_desc_t *pdesc = h->desc[DIT_SRC];
 	int end = (h->w_key[DIT_SRC] - 1);
 	int ret;
+	unsigned long flags;
 
 	end = (end >= 0) ? end : DIT_MAX_DESC - 1;
 
 	ret = is_dit_busy(dit, DIR, start, end);
 	if (ret < 0)
 		return ret;
+
+	spin_lock_irqsave(&dit_dev.lock, flags);
 
 	pdesc[start].src.control |= (0x1 << DIT_DESC_C_HEAD);
 	pdesc[end].src.control |= (0x1 << DIT_DESC_C_TAIL) | (0x1 << DIT_DESC_C_INT);
@@ -671,6 +776,7 @@ int dit_kick(struct dit_dev_info_t *dit, int DIR, int start)
 	writel(DIR ? 0x01 << DIT_TX_CMD : 0x1 << DIT_RX_CMD, dit->reg_base + DIT_SW_COMMAND);
 
 	dit->stat[DIR].kick_cnt++;
+	spin_unlock_irqrestore(&dit_dev.lock, flags);
 
 	return end;
 }
@@ -1049,6 +1155,7 @@ int dit_forward_queue_xmit(struct sk_buff *skb, int DIR)
 
 	switch (rc) {
 	case NET_XMIT_SUCCESS:
+		offload_update_stat(DIR, skb->len);
 		break;
 	case NETDEV_TX_BUSY:
 		dit->stat[DIR].droppkt_busy++;
@@ -1135,6 +1242,7 @@ int dit_forward_skb(struct sk_buff *skb, int DIR, int dst)
 	case DIT_DST0: /* AP */
 	default:
 		ndev = skb->dev;
+		skb_reset_mac_header(skb);
 		skb_reset_transport_header(skb);
 		ret = netif_receive_skb(skb);
 		if (ret != NET_RX_SUCCESS)
@@ -1411,57 +1519,6 @@ int pass_skb_to_netdev(int DIR, int dst, int start, char *tag)
 	return ret;
 }
 
-static inline int dit_enable_irq(struct dit_irq_t *irq)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&irq->lock, flags);
-
-	if (irq->active) {
-		spin_unlock_irqrestore(&irq->lock, flags);
-		return 0;
-	}
-
-	enable_irq(irq->num);
-	irq->active = 1;
-
-	spin_unlock_irqrestore(&irq->lock, flags);
-
-	return 0;
-}
-
-static inline int dit_disable_irq(struct dit_irq_t *irq)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&irq->lock, flags);
-
-	if (!irq->active) {
-		spin_unlock_irqrestore(&irq->lock, flags);
-		return 0;
-	}
-
-	disable_irq_nosync(irq->num);
-	irq->active = 0;
-
-	spin_unlock_irqrestore(&irq->lock, flags);
-
-	return 0;
-}
-
-static inline void *dit_free_irq(struct dit_irq_t *irq)
-{
-	char *name = NULL;
-
-	if (irq->num > 0 && irq->registered) {
-		name = (char *)free_irq(irq->num, &irq->dst);
-		irq->registered = 0;
-		dit_debug("%s freed\n", name);
-	}
-
-	return name;
-}
-
 /* IRQ handlers */
 irqreturn_t dit_errbus_irq_handler(int irq, void *arg)
 {
@@ -1476,9 +1533,9 @@ irqreturn_t dit_errbus_irq_handler(int irq, void *arg)
 
 	writel(0x3, dit->reg_base + DIT_BUS_ERROR);
 
-	dit_deinit();
+	dit_deinit(DIT_DEINIT_REASON_FAIL);
 
-	if (dit_init() < 0)
+	if (dit_init(DIT_INIT_REASON_FAIL) < 0)
 		dit_err("dit_init failed\n");
 
 	return IRQ_HANDLED;
@@ -1870,14 +1927,15 @@ static inline bool dit_check_ue_addr(__be32 addr)
 bool is_hw_forward_enable(void)
 {
 #ifdef DIT_FEATURE_MANDATE
-	return true;
+	if (dit_dev.enable)
+		return offload_config_enabled() ? offload_keeping_bw() : true;
 #else
-	if (dit_dev.ifdev[DIT_IF_RMNET].enabled
-		&& (dit_dev.ifdev[DIT_IF_USB].enabled|| dit_dev.ifdev[DIT_IF_WLAN].enabled))
+	if (dit_dev.enable
+		&& offload_keeping_bw())
 		return true;
+#endif
 
 	return false;
-#endif
 }
 EXPORT_SYMBOL(is_hw_forward_enable);
 
@@ -1889,6 +1947,9 @@ int hw_forward_add(struct nf_conn *ct)
 	struct nf_conntrack_tuple *orgin = &org_h->tuple;
 
 	int ifnet;
+
+	if (!is_hw_forward_enable())
+		return -1;
 
 #ifndef DIT_DEBUG_TEST_UDP
 	/* Check TCP Protocol */
@@ -1929,6 +1990,9 @@ int hw_forward_delete(struct nf_conn *ct)
 	struct nf_conntrack_tuple *orgin = &org_h->tuple;
 
 	int ifnet;
+
+	if (!offload_config_enabled())
+		return -1;
 
 	if (!ct->forward_registered)
 		return -1;
@@ -2217,6 +2281,10 @@ void __perftest_gen_skb(int DIR, int budget)
 	}
 
 	while (i < budget) {
+		if (!dit_dev.perf.ndev) {
+			dit_info("testing perf.ndev is NOT set\n");
+			return;
+		}
 		skb = napi_alloc_skb(&dit_dev.napi.backlog_skb, DIT_BUFFER_DSIZE);
 		if (!skb) {
 			dit_info("fail to gen skb\n");
@@ -2344,139 +2412,14 @@ static void perftest_gen_skb(int DIR)
 /*
  * sysfs interfaces
  */
-static ssize_t xlat_plat_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	struct in6_addr addr = IN6ADDR_ANY_INIT;
-	ssize_t count = 0;
-
-	dit_get_plat_prefix(0, &addr);
-	count += sprintf(buf, "plat prefix: %pI6\n", &addr);
-
-	dit_get_plat_prefix(1, &addr);
-	count += sprintf(buf + count, "plat prefix: %pI6\n", &addr);
-
-	return count;
-}
-
-static ssize_t xlat_plat_store(struct kobject *kobj,
-		struct kobj_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct in6_addr val;
-	char *ptr = NULL;
-
-	dit_info("-- plat prefix: %s\n", buf);
-
-	ptr = strstr(buf, "@");
-	if (!ptr)
-		return -EINVAL;
-	*ptr++ = '\0';
-
-	if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
-		return -EINVAL;
-
-	if (strstr(ptr, "rmnet0"))
-		dit_set_plat_prefix(0, val);
-	else if (strstr(ptr, "rmnet1"))
-		dit_set_plat_prefix(1, val);
-	else
-		dit_err("-- unhandled plat prefix for %s\n", ptr);
-
-	return count;
-}
-
-static ssize_t xlat_addr_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	struct in6_addr addr = IN6ADDR_ANY_INIT;
-	ssize_t count = 0;
-
-	dit_get_clat_addr(0, &addr);
-	count += sprintf(buf, "clat addr: %pI6\n", &addr);
-
-	dit_get_clat_addr(1, &addr);
-	count += sprintf(buf + count, "clat addr: %pI6\n", &addr);
-
-	return count;
-}
-
-static ssize_t xlat_addr_store(struct kobject *kobj,
-		struct kobj_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct in6_addr val;
-	char *ptr = NULL;
-
-	dit_info("-- v6 addr: %s\n", buf);
-
-	ptr = strstr(buf, "@");
-	if (!ptr)
-		return -EINVAL;
-	*ptr++ = '\0';
-
-	if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
-		return -EINVAL;
-
-	if (strstr(ptr, "rmnet0"))
-		dit_set_clat_addr(0, val);
-	else if (strstr(ptr, "rmnet1"))
-		dit_set_clat_addr(1, val);
-	else
-		dit_err("-- unhandled clat addr for %s\n", ptr);
-
-	return count;
-}
-
-static ssize_t xlat_v4addr_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	u32 addr = INADDR_ANY;
-	ssize_t count = 0;
-
-	dit_get_v4_filter(0, &addr);
-	count += sprintf(buf, "v4addr: %pI4\n", &addr);
-
-	dit_get_v4_filter(1, &addr);
-	count += sprintf(buf + count, "v4addr: %pI4\n", &addr);
-
-	return count;
-}
-
-static ssize_t xlat_v4addr_store(struct kobject *kobj,
-		struct kobj_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct in_addr val;
-	char *ptr = NULL;
-
-	dit_info("-- v4 addr: %s\n", buf);
-
-	ptr = strstr(buf, "@");
-	if (!ptr)
-		return -EINVAL;
-	*ptr++ = '\0';
-
-	if (in4_pton(buf, strlen(buf), (u8 *)&val.s_addr, '\0', NULL) == 0)
-		return -EINVAL;
-
-	if (strstr(ptr, "rmnet0"))
-		dit_set_v4_filter(0, val.s_addr);
-	else if (strstr(ptr, "rmnet1"))
-		dit_set_v4_filter(1, val.s_addr);
-	else
-		dit_err("-- unhandled clat v4 addr for %s\n", ptr);
-
-	return count;
-}
-
 static ssize_t dit_enable_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "enable: %d\n", dit_dev.enable);
+	return sprintf(buf, "enable: %d (offload:%d, status=%d)\n", dit_dev.enable,
+		offload_config_enabled(), offload_get_status());
 }
 
-/* force dit_init */
+/* Test purpose */
 static ssize_t dit_enable_store(struct kobject *kobj,
 		struct kobj_attribute *attr,
 		const char *buf, size_t count)
@@ -2488,8 +2431,8 @@ static ssize_t dit_enable_store(struct kobject *kobj,
 	if (err)
 		return -EINVAL;
 
-	if (val && (dit_init() < 0))
-		dit_err("dit_init failed\n");
+	if (val && (dit_init(DIT_INIT_REASON_FAIL) < 0))
+		dit_err("dit init failed\n");
 
 	return count;
 }
@@ -2823,30 +2766,6 @@ static ssize_t perftest_store(struct kobject *kobj,
 
 #endif
 
-static struct kobject *clat_kobject;
-static struct kobj_attribute xlat_plat_attribute = {
-	.attr = {.name = "xlat_plat", .mode = 0660},
-	.show = xlat_plat_show,
-	.store = xlat_plat_store,
-};
-static struct kobj_attribute xlat_addr_attribute = {
-	.attr = {.name = "xlat_addrs", .mode = 0660},
-	.show = xlat_addr_show,
-	.store = xlat_addr_store,
-};
-static struct kobj_attribute xlat_v4addr_attribute = {
-	.attr = {.name = "xlat_v4_addrs", .mode = 0660},
-	.show = xlat_v4addr_show,
-	.store = xlat_v4addr_store,
-};
-static struct attribute *clat_attrs[] = {
-	&xlat_plat_attribute.attr,
-	&xlat_addr_attribute.attr,
-	&xlat_v4addr_attribute.attr,
-	NULL,
-};
-ATTRIBUTE_GROUPS(clat);
-
 static struct kobject *dit_kobject;
 static struct kobj_attribute dit_enable_attribute = {
 	.attr = {.name = "enable", .mode = 0660},
@@ -2904,171 +2823,96 @@ bool dit_get_ifaddr(struct net_device *ndev, u32 *addr)
 	return false;
 }
 
-static const char * const netdev_event_strings[] = {
-	"netdev_unknown",
-	"NETDEV_UP",
-	"NETDEV_DOWN",
-	"NETDEV_REBOOT",
-	"NETDEV_CHANGE",
-	"NETDEV_REGISTER",
-	"NETDEV_UNREGISTER",
-	"NETDEV_CHANGEMTU",
-	"NETDEV_CHANGEADDR",
-	"NETDEV_GOING_DOWN",
-	"NETDEV_CHANGENAME",
-	"NETDEV_FEAT_CHANGE",
-	"NETDEV_BONDING_FAILOVER",
-	"NETDEV_PRE_UP",
-	"NETDEV_PRE_TYPE_CHANGE",
-	"NETDEV_POST_TYPE_CHANGE",
-	"NETDEV_POST_INIT",
-	"NETDEV_UNREGISTER_BATCH",
-	"NETDEV_RELEASE",
-	"NETDEV_NOTIFY_PEERS",
-	"NETDEV_JOIN",
-	"NETDEV_CHANGEUPPER",
-	"NETDEV_RESEND_IGMP",
-	"NETDEV_PRECHANGEMTU",
-	"NETDEV_CHANGEINFODATA",
-	"NETDEV_BONDING_INFO",
-	"NETDEV_PRECHANGEUPPER",
-	"NETDEV_CHANGELOWERSTATE",
-	"NETDEV_UDP_TUNNEL_PUSH_INFO",
-	"NETDEV_UDP_TUNNEL_DROP_INFO",
-	"NETDEV_CHANGE_TX_QUEUE_LEN",
-	"NETDEV_CVLAN_FILTER_PUSH_INFO",
-	"NETDEV_CVLAN_FILTER_DROP_INFO",
-	"NETDEV_SVLAN_FILTER_PUSH_INFO",
-	"NETDEV_SVLAN_FILTER_DROP_INFO",
-};
-
-/* LAN0: USB network, LAN1: WiFi network
- * dit_init and dit_deinit called by LAN0
- */
-static inline int isLAN0device(struct net_device *ndev)
-{
-	if (strstr(ndev->name, "rndis") || strstr(ndev->name, "ncm"))
-		return 1;
-	return 0;
-}
-
-static inline int isLAN1device(struct net_device *ndev)
-{
-	if (strstr(ndev->name, "wlan"))
-		return 1;
-	return 0;
-}
-
-static inline int isLANdevice(struct net_device *ndev)
-{
-	if (isLAN0device(ndev) || isLAN1device(ndev))
-		return 1;
-	return 0;
-}
-
-/* RAN: Radio Access Network */
-static inline int isRANdevice(struct net_device *ndev)
-{
-	if (strcmp(ndev->name, "rmnet0") == 0) /* SHOULD BE SAME */
-		return 1;
-	return 0;
-}
-
-static int netdev_event(struct notifier_block *this,
-					  unsigned long event, void *ptr)
+void dit_setup_upstream_device(struct net_device *ndev)
 {
 	u32 addr;
-	struct net_device *ndev = netdev_notifier_info_to_dev(ptr);
 
-	dit_info("%s:%s\n", ndev->name, netdev_event_strings[event]);
+	dit_info("%s\n", __func__);
 
-	if (isLANdevice(ndev) || isRANdevice(ndev)) {
-		switch (event) {
-		case NETDEV_UP:
-			if (isLAN0device(ndev)) {
-				if (dit_init() < 0) {
-					dit_err("dit_init failed\n");
-					return NOTIFY_DONE;
-				}
-				gether_get_host_addr_u8(ndev, dit_dev.host[0].hostmac);
-				dit_set_local_mac(dit_dev.host[0].hostmac);
-				memcpy(dit_dev.host[0].ifmac, ndev->dev_addr, ETH_ALEN);
-				dit_set_devif_mac(dit_dev.host[0].ifmac);
+	if (dit_get_ifaddr(ndev, &addr))
+		dit_set_nat_local_addr(DIT_IF_RMNET, addr);
+	dit_forward_set(DIT_IF_RMNET, ndev, true);
 
-				dit_info("HOST MAC %pM\n", dit_dev.host[0].hostmac);
-				dit_info("DEV MAC %pM\n", dit_dev.host[0].ifmac);
+}
+void dit_setup_downstream_device(struct net_device *ndev)
+{
+	dit_info("%s\n", __func__);
 
-				dit_forward_set(DIT_IF_USB, ndev, true);
+	if (isLAN0device(ndev)) {
+		gether_get_host_addr_u8(ndev, dit_dev.host[0].hostmac);
+		dit_set_local_mac(dit_dev.host[0].hostmac);
+		memcpy(dit_dev.host[0].ifmac, ndev->dev_addr, ETH_ALEN);
+		dit_set_devif_mac(dit_dev.host[0].ifmac);
+
+		dit_info("HOST MAC %pM\n", dit_dev.host[0].hostmac);
+		dit_info("DEV MAC %pM\n", dit_dev.host[0].ifmac);
+
+		dit_forward_set(DIT_IF_USB, ndev, true);
 #ifdef DIT_CHECK_PERF
-				dit_dev.perf.ndev = ndev;
+		dit_dev.perf.ndev = ndev;
 #endif
 #ifdef DIT_DEBUG_TEST_UDP
-				{
-					__be16 reply_port, org_port;
+		{
+			__be16 reply_port, org_port;
 
-					reply_port = htons(5001);
-					org_port = htons(0x1fb0);
+			reply_port = htons(5001);
+			org_port = htons(0x1fb0);
 
-					writel(0x5, dit_dev.reg_base + DIT_NAT_ZERO_CHK_OFF); /* for TEST UDP only */
+			writel(0x5, dit_dev.reg_base + DIT_NAT_ZERO_CHK_OFF); /* for TEST UDP only */
 
-					dit_dev.perf.test_case = DIT_PERF_TEST_SKB_RXGEN;
-					dit_dev.perf.host_ip.s_addr = htonl(PERF_PC_IP_ADDR);
-					dit_set_nat_local_addr(DIT_IF_USB, dit_dev.perf.host_ip.s_addr);
-					dit_forward_add(reply_port, org_port, DIT_IF_USB);
-				}
-#endif
-
-#ifdef DIT_FEATURE_USE_WIFI
-			} else if (isLAN1device(ndev)) {
-				wlan_get_host_addr(ndev, hostmac);
-				dit_set_local_mac(DIT_IF_WLAN, hostmac);
-
-				memcpy(ifmac, ndev->dev_addr, ETH_ALEN);
-				dit_set_devif_mac(DIT_IF_WLAN, ifmac);
-
-				dit_forward_set(DIT_IF_WLAN, ndev, true);
-#endif
-			} else if (isRANdevice(ndev)) {
-				if (dit_get_ifaddr(ndev, &addr))
-					dit_set_nat_local_addr(DIT_IF_RMNET, addr);
-				dit_forward_set(DIT_IF_RMNET, ndev, true);
-			}
-			break;
-
-		case NETDEV_DOWN:
-			if (isLAN0device(ndev)) {
-				dit_clear_nat_local_addr(DIT_IF_USB);
-				dit_clear_local_mac();
-				dit_clear_devif_mac();
-				dit_forward_set(DIT_IF_USB, ndev, false);
-				dit_deinit();
-#ifdef DIT_FEATURE_USE_WIFI
-			} else if (isLAN1device(ndev)) {
-				dit_clear_nat_local_addr(DIT_IF_WLAN);
-				dit_clear_local_mac(DIT_IF_WLAN);
-				dit_clear_devif_mac();
-				dit_forward_set(DIT_IF_WLAN, ndev, false);
-#endif
-			} else if (isRANdevice(ndev)) {
-				dit_clear_nat_local_addr(DIT_IF_RMNET);
-				dit_forward_set(DIT_IF_RMNET, ndev, false);
-			}
-			break;
-
-		case NETDEV_CHANGE:
-			break;
-
-		default:
-			break;
+			dit_dev.perf.test_case = DIT_PERF_TEST_SKB_RXGEN;
+			dit_dev.perf.host_ip.s_addr = htonl(PERF_PC_IP_ADDR);
+			dit_set_nat_local_addr(DIT_IF_USB, dit_dev.perf.host_ip.s_addr);
+			dit_forward_add(reply_port, org_port, DIT_IF_USB);
 		}
+#endif
+#ifdef DIT_FEATURE_USE_WIFI
+	} else if (isLAN1device(ndev)) {
+		wlan_get_host_addr(ndev, hostmac);
+		dit_set_local_mac(DIT_IF_WLAN, hostmac);
+
+		memcpy(ifmac, ndev->dev_addr, ETH_ALEN);
+		dit_set_devif_mac(DIT_IF_WLAN, ifmac);
+
+		dit_forward_set(DIT_IF_WLAN, ndev, true);
+#endif
 	}
 
-	return NOTIFY_DONE;
 }
 
-static struct notifier_block netdev_notifier = {
-	.notifier_call	= netdev_event,
-};
+void dit_clear_upstream_device(struct net_device *ndev)
+{
+	dit_info("%s\n", __func__);
+
+	dit_clear_nat_local_addr(DIT_IF_RMNET);
+	dit_forward_set(DIT_IF_RMNET, ndev, false);
+}
+
+void dit_clear_downstream_device(struct net_device *ndev)
+{
+	dit_info("%s\n", __func__);
+
+	if (isLAN0device(ndev)) {
+		dit_deinit(DIT_DEINIT_REASON_RUNTIME);
+		dit_clear_nat_local_addr(DIT_IF_USB);
+		dit_clear_local_mac();
+		dit_clear_devif_mac();
+		dit_forward_set(DIT_IF_USB, ndev, false);
+#ifdef DIT_CHECK_PERF
+		dit_dev.perf.ndev = NULL;
+#endif
+#ifdef DIT_FEATURE_USE_WIFI
+	} else if (isLAN1device(ndev)) {
+		dit_clear_nat_local_addr(DIT_IF_WLAN);
+		dit_clear_local_mac(DIT_IF_WLAN);
+		dit_clear_devif_mac();
+		dit_forward_set(DIT_IF_WLAN, ndev, false);
+#ifdef DIT_CHECK_PERF
+		dit_dev.perf.ndev = NULL;
+#endif
+#endif
+	}
+}
 #endif
 
 static int dit_alloc_dst_buffers(void)
@@ -3116,12 +2960,19 @@ static int dit_free_dst_buffers(void)
 	return 0;
 }
 
-int dit_init(void)
+int dit_init(int reason)
 {
 	int irqch, DIR, dst, dsize, i, ret;
 	unsigned long flags;
 
 	dit_info("++");
+
+	dit_dev.offload = offload_init_ctrl();
+
+#ifdef DIT_FEATURE_MANDATE
+	if (reason == DIT_INIT_REASON_RUNTIME)
+		return 0;
+#endif
 
 	if (dit_dev.enable) {
 		dit_info("already initialized\n");
@@ -3221,8 +3072,11 @@ int dit_init(void)
 	hrtimer_init(&dit_dev.sched_fwd_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dit_dev.sched_fwd_timer.function = dit_sched_fwd_func;
 
+#ifdef DIT_FEATURE_USE_WIFI
 	dit_dev.last_host = 0;
+#endif
 	memset(&dit_dev.stat[0], 0, sizeof(dit_dev.stat)*2);
+
 #ifdef DIT_CHECK_PERF
 	memset(&dit_dev.perf, 0, sizeof(dit_dev.perf));
 	dit_dev.perf.cp_pktproc.num_queue = 4;
@@ -3245,23 +3099,44 @@ init_error:
 
 	dit_info("--");
 
-	dit_deinit();
+	dit_deinit(DIT_DEINIT_REASON_FAIL);
 
 	return ret;
 }
 
-int dit_deinit(void)
+int dit_deinit(int reason)
 {
 	int irqch;
 	int DIR, dst, dsize;
 	unsigned long flags;
+	int status;
 
 	dit_info("++");
+
+	offload_reset();
+
+	spin_lock_irqsave(&dit_dev.lock, flags);
+	status = readl(dit_dev.reg_base + DIT_STATUS);
+	while (status & (DIT_TX_STATUS_MASK | DIT_RX_STATUS_MASK))
+		udelay(1);
+	dit_init_hw_port();
+	spin_unlock_irqrestore(&dit_dev.lock, flags);
+
+#ifdef DIT_FEATURE_MANDATE
+	if (reason == DIT_DEINIT_REASON_RUNTIME)
+		return 0;
+#endif
 
 	if (!dit_dev.enable) {
 		dit_info("already deinited\n");
 		goto exit;
 	}
+
+	spin_lock_irqsave(&dit_dev.lock, flags);
+	dit_dev.enable = 0;
+	spin_unlock_irqrestore(&dit_dev.lock, flags);
+
+	mdelay(10);
 
 	for (irqch = 0; irqch < NUM_INTREQ_DIT; irqch++) {
 		dit_debug("disable_irq[%d]: num = %d\n", irqch, dit_dev.irq[irqch].num);
@@ -3281,10 +3156,6 @@ int dit_deinit(void)
 		napi_disable(&dit_dev.napi.forward_dst[dst]);
 		netif_napi_del(&dit_dev.napi.forward_dst[dst]);
 	}
-
-	spin_lock_irqsave(&dit_dev.lock, flags);
-	dit_dev.enable = 0;
-	spin_unlock_irqrestore(&dit_dev.lock, flags);
 
 	for (DIR = 0; DIR < DIT_MAX_FORWARD; DIR++) {
 		struct dit_handle_t *h = &dit_dev.handle[DIR];
@@ -3373,8 +3244,6 @@ static int exynos_dit_probe(struct platform_device *pdev)
 		dit_info("irqhandler[%d]: num = %d\n", i, irq->num);
 	}
 
-	register_netdevice_notifier(&netdev_notifier);
-
 	dit_kobject = kobject_create_and_add(KOBJ_DIT, kernel_kobj);
 	if (!dit_kobject)
 		dit_err("%s: done ---\n", KOBJ_DIT);
@@ -3382,17 +3251,12 @@ static int exynos_dit_probe(struct platform_device *pdev)
 	if (sysfs_create_groups(dit_kobject, dit_groups))
 		dit_err("failed to create clat groups node\n");
 
-	clat_kobject = kobject_create_and_add(KOBJ_CLAT, kernel_kobj);
-	if (!clat_kobject)
-		dit_err("%s: done ---\n", KOBJ_CLAT);
-
-	if (sysfs_create_groups(clat_kobject, clat_groups))
-		dit_err("failed to create clat groups node\n");
+	offload_initialize();
 
 	dit_dev.pdev = pdev;
 
 #ifdef DIT_FEATURE_MANDATE
-	if (dit_init() < 0)
+	if (dit_init(DIT_INIT_REASON_FAIL) < 0)
 		dit_err("dit_init failed\n");
 #endif
 

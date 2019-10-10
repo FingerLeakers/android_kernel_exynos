@@ -50,9 +50,6 @@
 
 extern struct pdic_notifier_struct pd_noti;
 extern void (*fp_select_pdo)(int num);
-#if defined(CONFIG_VDIVIDER)
-extern int hw_rev_batt;
-#endif
 #if defined(CONFIG_PDIC_PD30)
 extern int (*fp_sec_pd_select_pps)(int num, int ppsVol, int ppsCur);
 extern int (*fp_sec_pd_get_apdo_max_power)(unsigned int *pdo_pos, unsigned int *taMaxVol, unsigned int *taMaxCur, unsigned int *taMaxPwr);
@@ -983,7 +980,7 @@ static void max77705_pd_check_pdmsg(struct max77705_usbc_platform_data *usbc_dat
 		value.write_length = 1;
 		value.read_length = 32;
 		max77705_usbc_opcode_write(usbc_data, &value);
-		msg_maxim("Status Receviced : [%x]", pd_msg);
+		msg_maxim("@TA_ALERT: Status Receviced : [%x]", pd_msg);
 		break;
 	case Alert_Message:
 		value.opcode = OPCODE_SAMSUNG_READ_MESSAGE;
@@ -1312,11 +1309,6 @@ int max77705_pd_init(struct max77705_usbc_platform_data *usbc_data)
 #if defined(CONFIG_PDIC_PD30)
 	fp_sec_pd_select_pps = max77705_select_pps;
 	fp_sec_pd_get_apdo_max_power = max77705_get_apdo_max_power;
-#endif
-#if defined(CONFIG_VDIVIDER)
-	pr_info("%s: hw_rev_batt (%d)\n", __func__, hw_rev_batt);
-	if (hw_rev_batt == 19)
-		max77705_set_gpio5_control(0, 1); /* DIRECTION 0(INPUT), OUTPUT 1(HIGH) */
 #endif
 	wake_lock_init(&pd_data->pdmsg_wake_lock, WAKE_LOCK_SUSPEND,
 			   "pd->pdmsg");

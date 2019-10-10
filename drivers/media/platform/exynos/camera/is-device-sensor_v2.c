@@ -2148,6 +2148,8 @@ int is_sensor_s_input(struct is_device_sensor *device,
 	device->sensor_id = sensor_id;
 	device->position = module->position;
 	device->image.framerate = min_t(u32, SENSOR_DEFAULT_FRAMERATE, module->max_framerate);
+	device->image.window.offs_h = 0;
+	device->image.window.offs_v = 0;
 	device->image.window.width = module->pixel_width;
 	device->image.window.height = module->pixel_height;
 	device->image.window.o_width = device->image.window.width;
@@ -2523,8 +2525,6 @@ static int is_sensor_s_format(void *qdevice,
 	height = device->sensor_height;
 
 	memcpy(&device->image.format, format, sizeof(struct is_fmt));
-	device->image.window.offs_h = 0;
-	device->image.window.offs_v = 0;
 	device->image.window.width = width;
 	device->image.window.o_width = width;
 	device->image.window.height = height;
@@ -2997,8 +2997,8 @@ int is_sensor_g_bratio(struct is_device_sensor *device)
 		goto p_err;
 	}
 
-	binning = min(BINNING(module->active_width, device->image.window.width),
-		BINNING(module->active_height, device->image.window.height));
+	binning = min(BINNING(module->active_width, (device->image.window.width + device->image.window.offs_h * 2)),
+		BINNING(module->active_height, device->image.window.height + (device->image.window.offs_v * 2)));
 	/* sensor binning only support natural number */
 	binning = (binning / 1000) * 1000;
 
@@ -3424,6 +3424,7 @@ int is_sensor_standby_flush(struct is_device_sensor *device)
 
 	group = &device->group_sensor;
 
+	set_bit(IS_GROUP_STANDBY, &group->state);
 	set_bit(IS_GROUP_REQUEST_FSTOP, &group->state);
 	ret = is_group_stop(device->groupmgr, group);
 	if (ret == -EPERM) {

@@ -139,6 +139,8 @@ static int ois_mcu_runtime_resume(struct device *dev)
 	struct ois_mcu_dev *mcu = dev_get_drvdata(dev);
 	int ret = 0;
 
+	info_mcu("%s E\n", __func__);
+
 	ret = ois_mcu_clk_get(mcu);
 	if (ret)
 		return ret;
@@ -147,12 +149,14 @@ static int ois_mcu_runtime_resume(struct device *dev)
 
 	ret = __is_mcu_hw_enable(mcu->regs[OM_REG_CORE]);
 
-	ret |= __is_mcu_hw_enable_peri(mcu->regs[OM_REG_PERI1]); /* clear USI reset reg USI17 */
-	ret |= __is_mcu_hw_enable_peri(mcu->regs[OM_REG_PERI2]); /* clear USI reset reg USI18 */
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 0); /* clear USI reset reg USI17 */
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 0); /* clear USI reset reg USI18 */
 	ret |= __is_mcu_hw_set_init_peri(mcu->regs[OM_REG_PERI_SETTING]); /*GPP9 setting */
 	ret |= __is_mcu_hw_set_clock_peri(mcu->regs[OM_REG_PERI1]); /* set i2c clock to 1MH */
 
 	clear_bit(OM_HW_SUSPENDED, &mcu->state);
+
+	info_mcu("%s X\n", __func__);
 
 	return ret;
 }
@@ -162,12 +166,22 @@ static int ois_mcu_runtime_suspend(struct device *dev)
 	struct ois_mcu_dev *mcu = dev_get_drvdata(dev);
 	int ret = 0;
 
+	info_mcu("%s E\n", __func__);
+
 	ret = __is_mcu_hw_disable(mcu->regs[OM_REG_CORE]);
+	ret |= __is_mcu_hw_set_clear_peri(mcu->regs[OM_REG_PERI_SETTING]); /*GPP9 clear */
+	msleep(10); //TEMP_2020 Need to be checked
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 1); /* clear USI reset reg USI17 */
+	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 1); /* clear USI reset reg USI18 */
+	ret |= __is_mcu_hw_clear_peri(mcu->regs[OM_REG_PERI1]);
+	ret |= __is_mcu_hw_clear_peri(mcu->regs[OM_REG_PERI2]);
 
 	ois_mcu_clk_disable(mcu);
 	ois_mcu_clk_put(mcu);
 
 	set_bit(OM_HW_SUSPENDED, &mcu->state);
+
+	info_mcu("%s X\n", __func__);
 
 	return ret;
 }
@@ -235,6 +249,8 @@ int ois_mcu_power_ctrl(struct ois_mcu_dev *mcu, int on)
 #endif
 	BUG_ON(!mcu);
 
+	info_mcu("%s E\n", __func__);
+
 	if (on) {
 		if (!test_bit(OM_HW_SUSPENDED, &mcu->state)) {
 			warning_mcu("already power on\n");
@@ -265,7 +281,7 @@ int ois_mcu_power_ctrl(struct ois_mcu_dev *mcu, int on)
 		clear_bit(OM_HW_RUN, &mcu->state);
 	}
 
-	info_mcu("%s: (%d) done\n", __func__, on);
+	info_mcu("%s: (%d) X\n", __func__, on);
 
 p_err:
 	return ret;
@@ -298,6 +314,8 @@ int ois_mcu_core_ctrl(struct ois_mcu_dev *mcu, int on)
 
 	BUG_ON(!mcu);
 
+	info_mcu("%s E\n", __func__);
+
 	if (on) {
 		if (test_bit(OM_HW_RUN, &mcu->state)) {
 			warning_mcu("already started\n");
@@ -315,7 +333,7 @@ int ois_mcu_core_ctrl(struct ois_mcu_dev *mcu, int on)
 
 	ret = __is_mcu_core_control(mcu->regs[OM_REG_CORE], on);
 
-	info_mcu("%s: %d\n", __func__, on);
+	info_mcu("%s: %d X\n", __func__, on);
 
 	return ret;
 }
@@ -373,30 +391,32 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 
 	WARN_ON(!subdev);
 
+	info_mcu("%s E\n", __func__);
+
 	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
 	if(!mcu) {
-		err("%s, mcu is NULL", __func__);
+		err_mcu("%s, mcu is NULL", __func__);
 		ret = -EINVAL;
 		return ret;
 	}
 
 	is_mcu = (struct is_mcu *)v4l2_get_subdev_hostdata(subdev);
 	if(!is_mcu) {
-		err("%s, is_mcu is NULL", __func__);
+		err_mcu("%s, is_mcu is NULL", __func__);
 		ret = -EINVAL;
 		return ret;
 	}
 
 	sensor_peri = is_mcu->sensor_peri;
 	if (!sensor_peri) {
-		err("%s, sensor_peri is NULL", __func__);
+		err_mcu("%s, sensor_peri is NULL", __func__);
 		ret = -EINVAL;
 		return ret;
 	}
 
 	module = sensor_peri->module;
 	if (!module) {
-		err("%s, module is NULL", __func__);
+		err_mcu("%s, module is NULL", __func__);
 		ret = -EINVAL;
 		return ret;
 	}
@@ -419,17 +439,17 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 
 	if ((ois_wide_init == true && module->position == SENSOR_POSITION_REAR) ||
 		(ois_tele_init == true && module->position == SENSOR_POSITION_REAR2)) {
-		info("%s %d sensor(%d) is already initialized.\n", __func__, __LINE__, ois->device);
+		info_mcu("%s %d sensor(%d) is already initialized.\n", __func__, __LINE__, ois->device);
 		ois_wide_init = ois_tele_init = true;
 		ois->ois_shift_available = true;
 	}
 
-	if (!ois_hw_check) {
+	if (!ois_hw_check && test_bit(OM_HW_RUN, &mcu->state)) {
 		do {
 			val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_STATUS);
 			msleep(3);
 			if (--retries < 0) {
-				err("Read status failed!!!!, data = 0x%04x\n", val);
+				err_mcu("Read status failed!!!!, data = 0x%04x\n", val);
 				break;
 			}
 		} while (val != 0x01);
@@ -488,19 +508,19 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 			is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_POLA_X_M2, tx_pole);
 			is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_POLA_Y_M2, ty_pole);
 #endif
-			info("%s gyro init data applied\n", __func__);
+			info_mcu("%s gyro init data applied\n", __func__);
+
+			ois_hw_check = true;
+
+			if (module->position == SENSOR_POSITION_REAR2) {
+				ois_tele_init = true;
+			} else if (module->position == SENSOR_POSITION_REAR) {
+				ois_wide_init = true;
+			}
 		}
-
-		ois_hw_check = true;
 	}
 
-	if (module->position == SENSOR_POSITION_REAR2) {
-		ois_tele_init = true;
-	} else if (module->position == SENSOR_POSITION_REAR) {
-		ois_wide_init = true;
-	}
-
-	info("%s\n", __func__);
+	info_mcu("%s X\n", __func__);
 	return ret;
 }
 
@@ -510,6 +530,8 @@ int ois_mcu_deinit(struct v4l2_subdev *subdev)
 	struct ois_mcu_dev *mcu = NULL;
 
 	WARN_ON(!subdev);
+
+	info_mcu("%s E\n", __func__);
 
 	mcu = (struct ois_mcu_dev *)v4l2_get_subdevdata(subdev);
 	if(!mcu) {
@@ -527,7 +549,7 @@ int ois_mcu_deinit(struct v4l2_subdev *subdev)
 	ois_fadeupdown = false;
 	ois_hw_check = false;
 
-	dbg_ois("%s\n", __func__);
+	info_mcu("%s X\n", __func__);
 
 	return ret;
 }
@@ -609,7 +631,7 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	/* if camera is already started, skip VDIS setting */
 	read_sensorStart = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_LOG_Y);
 	if (read_sensorStart == 0x03) {
-		info("%s camera is already running.\n", __func__);
+		info_mcu("%s camera is already running.\n", __func__);
 		return ret;
 	}
 #endif
@@ -683,7 +705,7 @@ int ois_mcu_set_mode(struct v4l2_subdev *subdev, int mode)
 	}
 
 	ois->pre_ois_mode = mode;
-	info("%s: ois_mode value(%d)\n", __func__, mode);
+	info_mcu("%s: ois_mode value(%d)\n", __func__, mode);
 
 	switch(mode) {
 		case OPTICAL_STABILIZATION_MODE_STILL:
@@ -796,7 +818,7 @@ int ois_mcu_self_test(struct is_core *core)
 	int retries = 30;
 	struct ois_mcu_dev *mcu = NULL;
 
-	info("%s : E\n", __func__);
+	info_mcu("%s : E\n", __func__);
 
 	mcu = core->mcu;
 
@@ -824,9 +846,9 @@ int ois_mcu_self_test(struct is_core *core)
 	reg_val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_LOG_Y);
 	y_gyro_log = (reg_val << 8) | y;
 
-	info("%s(GSTLOG0=%d, GSTLOG1=%d)\n", __func__, x_gyro_log, y_gyro_log);
+	info_mcu("%s(GSTLOG0=%d, GSTLOG1=%d)\n", __func__, x_gyro_log, y_gyro_log);
 
-	info("%s(%d) : X\n", __func__, val);
+	info_mcu("%s(%d) : X\n", __func__, val);
 	return (int)val;
 }
 
@@ -842,7 +864,7 @@ bool ois_mcu_sine_wavecheck(struct is_core *core,
 
 	mcu = core->mcu;
 
-	info("%s autotest started", __func__);
+	info_mcu("%s autotest started", __func__);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_THRESH_ERR_LEV, (u8)threshold); /* error threshold level. */
 
@@ -896,7 +918,7 @@ bool ois_mcu_sine_wavecheck(struct is_core *core,
 		*siny = -((*siny ^ 0xFFFF) + 1);
 	}
 
-	info("threshold = %d, sinx = %d, siny = %d, sinx_count = %d, syny_count = %d\n",
+	info_mcu("threshold = %d, sinx = %d, siny = %d, sinx_count = %d, syny_count = %d\n",
 		threshold, *sinx, *siny, sinx_count, siny_count);
 
 	if (buf == 0x0) {
@@ -918,7 +940,7 @@ bool ois_mcu_auto_test(struct is_core *core,
 	msleep(100);
 #endif
 
-	info("%s autotest started", __func__);
+	info_mcu("%s autotest started", __func__);
 
 	mcu = core->mcu;
 
@@ -1042,10 +1064,10 @@ bool ois_mcu_sine_wavecheck_rear2(struct is_core *core,
 		*siny_2nd = -((*siny_2nd ^ 0xFFFF) + 1);
 	}
 
-	info("threshold = %d, sinx = %d, siny = %d, sinx_count = %d, syny_count = %d\n",
+	info_mcu("threshold = %d, sinx = %d, siny = %d, sinx_count = %d, syny_count = %d\n",
 		threshold, *sinx, *siny, sinx_count, siny_count);
 
-	info("threshold = %d, sinx_2nd = %d, siny_2nd = %d, sinx_count_2nd = %d, syny_count_2nd = %d\n",
+	info_mcu("threshold = %d, sinx_2nd = %d, siny_2nd = %d, sinx_count_2nd = %d, syny_count_2nd = %d\n",
 		threshold, *sinx_2nd, *siny_2nd, sinx_count_2nd, siny_count_2nd);
 
 	if (buf == 0x0) {
@@ -1190,7 +1212,7 @@ int ois_mcu_set_power_mode(struct v4l2_subdev *subdev)
 		ois->ois_power_mode = OIS_POWER_MODE_SINGLE;
 	}
 
-	info("%s ois power setting is %d\n", __func__, ois->ois_power_mode);
+	info_mcu("%s ois power setting is %d\n", __func__, ois->ois_power_mode);
 
 	return 0;
 }
@@ -1202,13 +1224,13 @@ void ois_mcu_enable(struct is_core *core)
 
 	mcu = core->mcu;
 
-	info("%s : E\n", __func__);
+	info_mcu("%s : E\n", __func__);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_MODE, 0x00);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_START, 0x01);
 
-	info("%s : X\n", __func__);
+	info_mcu("%s : X\n", __func__);
 }
 
 bool ois_mcu_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_y)
@@ -1223,7 +1245,7 @@ bool ois_mcu_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_
 
 	mcu = core->mcu;
 
-	info("%s : E\n", __func__);
+	info_mcu("%s : E\n", __func__);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_CAL, 0x01);
 
@@ -1241,10 +1263,10 @@ bool ois_mcu_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_
 	val = (u8)is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_RESULT);
 
 	if ((val & 0x23) == 0x0) {
-		info("[%s] Gyro result check success. Result is OK.", __func__);
+		info_mcu("[%s] Gyro result check success. Result is OK.", __func__);
 		result = true;
 	} else {
-		info("[%s] Gyro result check fail. Result is NG.", __func__);
+		info_mcu("[%s] Gyro result check fail. Result is NG.", __func__);
 		result = false;
 	}
  
@@ -1279,7 +1301,7 @@ bool ois_mcu_offset_test(struct is_core *core, long *raw_data_x, long *raw_data_
 	*raw_data_y = sum * 1000 / scale_factor / 10;
 
 	//is_mcu_fw_version(core); // TEMP_2020
-	info("%s : X raw_x = %ld, raw_y = %ld\n", __func__, *raw_data_x, *raw_data_y);
+	info_mcu("%s : X raw_x = %ld, raw_y = %ld\n", __func__, *raw_data_x, *raw_data_y);
 
 	return result;
 }
@@ -1300,7 +1322,7 @@ void ois_mcu_get_offset_data(struct is_core *core, long *raw_data_x, long *raw_d
 
 	mcu = core->mcu;
 
-	info("%s : E\n", __func__);
+	info_mcu("%s : E\n", __func__);
 
 	/* check ois status */
 	retries = avg_count;
@@ -1398,7 +1420,7 @@ void ois_mcu_get_offset_data(struct is_core *core, long *raw_data_x, long *raw_d
 	kstrtol(efs_data_post, 10, &raw_post);
 	*raw_data_y = sign * (raw_pre * 1000 + raw_post);
 
-	info("%s : X raw_x = %ld, raw_y = %ld\n", __func__, *raw_data_x, *raw_data_y);
+	info_mcu("%s : X raw_x = %ld, raw_y = %ld\n", __func__, *raw_data_x, *raw_data_y);
 
 p_err:
 	vfree(buf);
@@ -1647,7 +1669,7 @@ bool ois_mcu_gyro_cal(struct is_core *core, long *x_value, long *y_value)
 
 	mcu = core->mcu;
 
-	info("%s : E\n", __func__);
+	info_mcu("%s : E\n", __func__);
 
 	/* check ois status */
 	do {
@@ -1676,10 +1698,10 @@ bool ois_mcu_gyro_cal(struct is_core *core, long *x_value, long *y_value)
 	val = (u8)is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_GYRO_RESULT);
 
 	if ((val & 0x23) == 0x0) {
-		info("[%s] Written cal is OK. val = 0x%02x.", __func__, val);
+		info_mcu("[%s] Written cal is OK. val = 0x%02x.", __func__, val);
 		result = true;
 	} else {
-		info("[%s] Written cal is NG. val = 0x%02x.", __func__, val);
+		info_mcu("[%s] Written cal is NG. val = 0x%02x.", __func__, val);
 		result = false;
 	}
 
@@ -1702,43 +1724,22 @@ bool ois_mcu_gyro_cal(struct is_core *core, long *x_value, long *y_value)
 	*x_value = x_sum * 1000 / scale_factor;
 	*y_value = y_sum * 1000 / scale_factor;
 
-	info("%s X (x = %ld/y = %ld) : result = %d\n", __func__, *x_value, *y_value, result);
+	info_mcu("%s X (x = %ld/y = %ld) : result = %d\n", __func__, *x_value, *y_value, result);
 
 	return result;
 }
 
-static noinline_for_stack long get_file_size(struct file *file)
-{
-	struct kstat st;
-	u32 request_mask = (STATX_MODE | STATX_SIZE);
-
-	if (vfs_getattr(&file->f_path, &st, request_mask, KSTAT_QUERY_FLAGS))
-		return -1;
-	if (!S_ISREG(st.mode))
-		return -1;
-	if (st.size != (long)st.size)
-		return -1;
-
-	return st.size;
-}
-
-int ois_mcu_open_fw(struct is_core *core)
-{
-	struct is_binary mcu_bin;
-	mm_segment_t old_fs;
-	struct file *fp;
-	char *filename;
-	u8 *buf = NULL;
-	long fsize, nread;
-	loff_t file_offset = 0;
+long ois_mcu_open_fw(struct is_core *core)
+{	
 	int ret = 0;
+	struct is_binary mcu_bin;
 	struct is_mcu *is_mcu = NULL;
 	struct is_device_sensor *device = NULL;	
 	struct ois_mcu_dev *mcu = NULL;
 	struct is_ois_info *ois_minfo = NULL;
 	struct is_ois_info *ois_pinfo = NULL;
 
-	info("%s started", __func__);
+	info_mcu("%s started", __func__);
 
 	mcu = core->mcu;
 
@@ -1748,68 +1749,7 @@ int ois_mcu_open_fw(struct is_core *core)
 	is_ois_get_module_version(&ois_minfo);
 	is_ois_get_phone_version(&ois_pinfo);
 
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	filename = __getname();
-	if (unlikely(!filename))
-		return -ENOMEM;
-
-	snprintf(filename, PATH_MAX, "%s%s",
-		IS_MCU_SDCARD_PATH, IS_MCU_FW_NAME);
-	fp = filp_open(filename, O_RDONLY, 0);
-	if (IS_ERR_OR_NULL(fp)) {
-		__putname(filename);
-		set_fs(old_fs);
-		goto request_fw;
-	}
-
-	fsize = get_file_size(fp);
-	if (fsize <= 0) {
-		pr_err("[@][OIS MCU] __get_file_size fail(%ld)\n",
-			fsize);
-		ret = 0;
-		goto p_err2;
-	}
-
-	buf = vmalloc(fsize);
-	if (!buf) {
-		ret = 0;
-		goto p_err2;
-	}
-
-	nread = kernel_read(fp, buf, fsize, &file_offset);
-	if (nread != fsize) {
-		pr_err("[@][OIS MCU] kernel_read was failed(%ld != %ld)n",
-			nread, fsize);
-		ret = 0;
-		goto p_err1;
-	}
-
-	memcpy(&is_mcu->vdrinfo_bin[0], buf + 0x787C, sizeof(is_mcu->vdrinfo_bin));
-	is_mcu->hw_bin[0] = *(buf + 0x78FB);
-	is_mcu->hw_bin[1] = *(buf + 0x78FA);
-	is_mcu->hw_bin[2] = *(buf + 0x78F9);
-	is_mcu->hw_bin[3] = *(buf + 0x78F8);
-	memcpy(ois_pinfo->header_ver, is_mcu->hw_bin, 4);
-	memcpy(&ois_pinfo->header_ver[4], buf + 0x787C, 4);
-	memcpy(ois_minfo->header_ver, ois_pinfo->header_ver, sizeof(ois_pinfo->header_ver));
-
-	info_mcu("Load FW was done (%s, %ld)\n",
-		filename, fsize);
-	ret = sizeof(ois_pinfo->header_ver);
-p_err1:
-	vfree(buf);
-p_err2:
-	__putname(filename);
-	filp_close(fp, current->files);
-	set_fs(old_fs);
-
-	info("%s  %d end", __func__, __LINE__);
-
-	return ret;
-
-request_fw:
+	setup_binary_loader(&mcu_bin, 3, -EAGAIN, NULL, NULL);
 	ret = request_binary(&mcu_bin, IS_MCU_PATH, IS_MCU_FW_NAME, mcu->dev);
 	if (ret) {
 		err_mcu("request_firmware was failed(%ld)\n", ret);
@@ -1829,22 +1769,24 @@ request_fw:
 	info_mcu("Request FW was done (%s%s, %ld)\n",
 		IS_MCU_PATH, IS_MCU_FW_NAME, mcu_bin.size);
 
-	ret = sizeof(ois_pinfo->header_ver);
+	ret = mcu_bin.size;
+
 request_err:
 	release_binary(&mcu_bin);
 
-	info("%s %d end", __func__, __LINE__);
+	info_mcu("%s %d end", __func__, __LINE__);
 
 	return ret;
 }
 
 bool ois_mcu_check_fw(struct is_core *core)
 {
-	int ret = 0;
+	long ret = 0;
 
 	ret = ois_mcu_open_fw(core);
-	if (ret < 0) {
+	if (ret == 0) {
 		err("mcu fw open failed");
+		return false;
 	}
 
 	return true;
@@ -1920,7 +1862,7 @@ static int __init ois_mcu_probe(struct platform_device *pdev)
 		ret = of_property_read_u32_array(dnode, "ois_gyro_list",
 		        mcu_init.ois_gyro_list, mcu_init.ois_gyro_list_len);
 		if (ret)
-		        info("ois_gyro_list read is fail(%d)", ret);
+		        info_mcu("ois_gyro_list read is fail(%d)", ret);
 	}
 
 	for (i = 0; i < sensor_id_len; i++) {

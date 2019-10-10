@@ -153,6 +153,10 @@ struct osl_info {
 	uint bustype;
 	osl_cmn_t *cmn; /* Common OSL related data shred between two OSH's */
 
+	/* for host drivers, a bus handle is needed when reading from and/or writing to dongle
+	 * registeres, however ai/si utilities only passes osh handle to R_REG and W_REG. as
+	 * a work around, save the bus handle here
+	 */
 	void *bus_handle;
 #if defined(AXI_TIMEOUTS_NIC)
 	bpt_cb_fn bpt_cb;

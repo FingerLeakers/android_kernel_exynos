@@ -1090,7 +1090,9 @@ inline int __s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index,
 	if (!wdt)
 		return -ENODEV;
 
+#if defined(CONFIG_SEC_DEBUG_EMERG_WDT_CALLER)
 	secdbg_wdd_set_emerg_addr(addr);
+#endif
 
 	/* emergency reset with wdt reset */
 	wtcon = readl(wdt->reg_base + S3C2410_WTCON);

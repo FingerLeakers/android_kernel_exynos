@@ -32,6 +32,15 @@
 #define IS_CIS_REV_MAX_LIST		3
 #define VENDOR_SOFT_LANDING_STEP_MAX	2
 
+enum cis_dual_sync_mode {
+	DUAL_SYNC_NONE = 0,
+	DUAL_SYNC_MASTER,
+	DUAL_SYNC_SLAVE,
+	DUAL_SYNC_STANDALONE,
+	DUAL_SYNC_STREAMOFF,
+	DUAL_SYNC_MAX,
+};
+
 struct is_cis {
 	u32				id;
 	struct v4l2_subdev		*subdev; /* connected module subdevice */
@@ -113,6 +122,11 @@ struct is_cis {
 
 	/* settings for sensor stat */
 	void				*sensor_stats;
+
+	/* dual sync mode */
+	u32				dual_sync_mode;
+	u32				dual_sync_work_mode;
+	struct work_struct		dual_sync_mode_work;
 };
 
 struct is_actuator_data {

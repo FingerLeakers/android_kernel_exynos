@@ -507,7 +507,7 @@ osl_pktfree_static(osl_t *osh, void *p, bool send)
 		up(&bcm_static_skb->osl_pkt_sem);
 		return;
 	}
-#endif // endif
+#endif
 	up(&bcm_static_skb->osl_pkt_sem);
 #endif /* DHD_USE_STATIC_CTRLBUF */
 	linux_pktfree(osh, p, send);
@@ -571,6 +571,12 @@ osl_pkt_orphan_partial(struct sk_buff *skb)
 		return;
 
 	if (unlikely(!p_tcp_wfree)) {
+		/* XXX: this is a hack to get tcp_wfree pointer since it's not
+		 * exported. There are two possible call back function pointer
+		 * stored in skb->destructor: tcp_wfree and sock_wfree.
+		 * This expansion logic should only apply to TCP traffic which
+		 * uses tcp_wfree as skb destructor
+		 */
 		char sym[KSYM_SYMBOL_LEN];
 		sprint_symbol(sym, (unsigned long)skb->destructor);
 		sym[9] = 0;

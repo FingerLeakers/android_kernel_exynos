@@ -252,6 +252,8 @@
 #define VOTF_ONESHOT		/* oneshot mode is used when using VOTF in PDP input.  */
 #define VOTF_BACK_FIRST_OFF	/* This is only for v8.1. next AP don't have to use thie. */
 
+#define SDC_HEADER_GEN
+
 /*
  * ======================================================
  * CONFIG - Interface version configs

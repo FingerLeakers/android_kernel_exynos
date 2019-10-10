@@ -855,7 +855,11 @@ asmlinkage void do_fpsimd_exc(unsigned int esr, struct pt_regs *regs)
 	send_sig_info(SIGFPE, &info, current);
 }
 
+#if defined(CONFIG_SEC_DEBUG_FPSIMD_CHECK_CONTEXT)
+static bool fpsimd_check_context_forced = true;
+#else
 static bool fpsimd_check_context_forced;
+#endif
 
 static int __init parse_fpsimd_check_context(char *str)
 {
@@ -879,15 +883,21 @@ static void fpsimd_check_context(struct task_struct *next)
 
 	fpsimd_save_state(&this_cpu_st);
 	for (i = 0; i < 32; i++) {
-		if (this_cpu_st.vregs[i] != nxt_st->vregs[i])
-			pr_auto(ASL4, "fpsimd regs were not restored properly #1 curr: %s, next: %s\n",
-				current->comm, next->comm);
+		if (this_cpu_st.vregs[i] != nxt_st->vregs[i]) {
+			pr_auto(ASL4, "fpsimd regs were not restored properly #1 curr: (%s:%d), next: (%s:%d)\n",
+				current->comm, current->pid, next->comm, next->pid);
+			if (IS_ENABLED(CONFIG_SEC_DEBUG_FPSIMD_CHECK_CONTEXT))
+				dump_stack();
+		}
 	}
 
 	if ((this_cpu_st.fpsr != nxt_st->fpsr) ||
-			(this_cpu_st.fpcr != nxt_st->fpcr))
-		pr_auto(ASL4, "fpsimd regs were not restored properly #2 curr: %s, next: %s\n",
-			current->comm, next->comm);
+			(this_cpu_st.fpcr != nxt_st->fpcr)) {
+		pr_auto(ASL4, "fpsimd regs were not restored properly #2 curr: (%s:%d), next: (%s:%d)\n",
+			current->comm, current->pid, next->comm, next->pid);
+		if (IS_ENABLED(CONFIG_SEC_DEBUG_FPSIMD_CHECK_CONTEXT))
+			dump_stack();
+	}
 }
 
 void fpsimd_thread_switch(struct task_struct *next)

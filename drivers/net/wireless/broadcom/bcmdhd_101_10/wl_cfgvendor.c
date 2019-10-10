@@ -80,7 +80,7 @@
 #include <wl_cfgvendor.h>
 #ifdef PROP_TXSTATUS
 #include <dhd_wlfc.h>
-#endif // endif
+#endif
 #include <brcm_nl80211.h>
 
 char*
@@ -1527,40 +1527,6 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 	return BCME_OK;
 }
 #endif /* WL_CFG80211 */
-
-#ifdef WL_LATENCY_MODE
-static int
-wl_cfgvendor_set_latency_mode(struct wiphy *wiphy,
-	struct wireless_dev *wdev, const void *data, int len)
-{
-	int err = BCME_ERROR, rem, type;
-	u32 latency_mode;
-	const struct nlattr *iter;
-#ifdef WL_AUTO_QOS
-	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(wdev->netdev);
-#endif /* WL_AUTO_QOS */
-
-	nla_for_each_attr(iter, data, len, rem) {
-		type = nla_type(iter);
-		switch (type) {
-			case ANDR_WIFI_ATTRIBUTE_LATENCY_MODE:
-				latency_mode = nla_get_u32(iter);
-				WL_DBG(("%s,Setting latency mode %u\n", __FUNCTION__,
-					latency_mode));
-#ifdef WL_AUTO_QOS
-				/* Enable/Disable qos monitoring */
-				dhd_wl_sock_qos_set_status(dhdp, latency_mode);
-#endif /* WL_AUTO_QOS */
-				break;
-			default:
-				WL_ERR(("Unknown type: %d\n", type));
-				return err;
-		}
-	}
-
-	return BCME_OK;
-}
-#endif /* WL_LATENCY_MODE */
 
 #ifdef RTT_SUPPORT
 void
@@ -4697,6 +4663,9 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				ret = -EINVAL;
 				goto exit;
 			}
+			/* XXX:run time nmi rand not supported as of now.
+			* Only during nan enable/iface-create rand mac is used
+			*/
 			cmd_data->nmi_rand_intvl = nla_get_u8(iter);
 			if (cmd_data->nmi_rand_intvl > 0) {
 				cfg->nancfg->mac_rand = true;
@@ -6398,6 +6367,9 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 
 	CHK_CNTBUF_DATALEN(iovar_buf, WLC_IOCTL_MAXLEN);
 	/* Translate traditional (ver <= 10) counters struct to new xtlv type struct */
+	/* XXX: traditional(ver<=10)counters will use WL_CNT_XTLV_CNTV_LE10_UCODE.
+	 * Other cases will use its xtlv type accroding to corerev
+	 */
 	err = wl_cntbuf_to_xtlv_format(NULL, iovar_buf, WLC_IOCTL_MAXLEN, revinfo.corerev);
 	if (err != BCME_OK) {
 		WL_ERR(("wl_cntbuf_to_xtlv_format ERR %d\n", err));
@@ -6605,7 +6577,7 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 				ret = dhd_print_health_chk_data(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len, &pos);
 				break;
-#endif // endif
+#endif
 			case DUMP_BUF_ATTR_COOKIE :
 				ret = dhd_print_cookie_data(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len, &pos);
@@ -6615,7 +6587,7 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 				ret = dhd_print_flowring_data(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len, &pos);
 				break;
-#endif // endif
+#endif
 			case DUMP_BUF_ATTR_GENERAL_LOG :
 				ret = dhd_get_dld_log_dump(bcmcfg_to_prmry_ndev(cfg), NULL,
 					buf->data_buf[0], NULL, (uint32)buf->len,
@@ -7219,7 +7191,7 @@ static int wl_cfgvendor_nla_put_debug_dump_data(struct sk_buff *skb,
 			goto exit;
 		}
 	}
-#endif // endif
+#endif
 
 	len = dhd_get_dld_len(DLD_BUF_TYPE_PRESERVE);
 	if (len) {
@@ -7247,7 +7219,7 @@ static int wl_cfgvendor_nla_put_debug_dump_data(struct sk_buff *skb,
 			goto exit;
 		}
 	}
-#endif // endif
+#endif
 #ifdef DHD_STATUS_LOGGING
 	len = dhd_get_status_log_len(ndev, NULL);
 	if (len) {
@@ -8714,16 +8686,6 @@ static const struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.doit = wl_cfgvendor_stop_hal
 	},
 #endif /* WL_CFG80211 */
-#ifdef WL_LATENCY_MODE
-	{
-		{
-			.vendor_id = OUI_GOOGLE,
-			.subcmd = WIFI_SUBCMD_SET_LATENCY_MODE
-		},
-		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = wl_cfgvendor_set_latency_mode
-	},
-#endif /* WL_LATENCY_MODE */
 #ifdef WL_P2P_RAND
 	{
 		{
@@ -8880,6 +8842,7 @@ wl_cfgvendor_send_hang_event(struct net_device *dev, u16 reason, char *string, i
 			copy_debug_dump_time(dhd->debug_dump_time_str,
 					dhd->debug_dump_time_hang_str);
 		}
+		/* XXX: Fill bigdata key with */
 		bytes_written += scnprintf(&hang_info[bytes_written], len,
 				"%d %d %s %08x %08x %08x %08x %08x %08x %08x",
 				reason, VENDOR_SEND_HANG_EXT_INFO_VER,

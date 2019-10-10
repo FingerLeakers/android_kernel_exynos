@@ -27,3 +27,4 @@ obj-$(CONFIG_SEC_DEBUG)		+= sec_crash_key_user.o
 
 # Samsung Throughput monitoring Feature
 obj-$(CONFIG_ARGOS)		+= sec_argos.o
+obj-$(CONFIG_SEC_BOOTSTAT)	+= sec_bootstat.o

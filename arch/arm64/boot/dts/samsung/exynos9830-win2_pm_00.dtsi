@@ -138,15 +138,6 @@
 				regulator-initial-mode = <2>;
 			};
 
-			buck4_reg: BUCK4M {
-				regulator-name = "m_vdd_buck4";
-				regulator-min-microvolt = <450000>;
-				regulator-max-microvolt = <1300000>;
-				regulator-always-on;
-				regulator-ramp-delay = <6000>;
-				regulator-initial-mode = <0>;
-			};
-
 			buck5_reg: BUCK5M {
 				regulator-name = "m_vdd_buck5";
 				regulator-min-microvolt = <450000>;
@@ -764,14 +755,14 @@
 		regulators {
 			fold_s2dos05_buck: s2dos05-buck1 {
 				regulator-name = "fold-s2dos05-buck1";
-				regulator-min-microvolt = <850000>;
-				regulator-max-microvolt = <2100000>;
+				regulator-min-microvolt = <1600000>;
+				regulator-max-microvolt = <1600000>;
 			};
 
 			fold_s2dos05_ldo1: s2dos05-ldo1 {
 				regulator-name = "fold-s2dos05-ldo1";
-				regulator-min-microvolt = <1500000>;
-				regulator-max-microvolt = <2000000>;
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
 			};
 
 			fold_s2dos05_ldo2: s2dos05-ldo2 {

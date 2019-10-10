@@ -70,11 +70,13 @@ static int __dsp_graph_map_buffer(struct dsp_graph *graph, void *ubuf)
 	struct dsp_buffer *buf;
 	struct dsp_common_param_v1 *ubuf1;
 	struct dsp_common_param_v2 *ubuf2;
+	struct dsp_common_param_v3 *ubuf3;
 	int ubuf_param_mem_fd;
 	int ubuf_param_mem_size;
 	unsigned int *ubuf_param_mem_iova;
 	unsigned char ubuf_param_mem_attr;
 	unsigned int ubuf_param_type;
+	unsigned int ubuf_param_offset;
 
 	dsp_enter();
 	mem = &graph->owner->core->dspdev->system.memory;
@@ -86,6 +88,7 @@ static int __dsp_graph_map_buffer(struct dsp_graph *graph, void *ubuf)
 		ubuf_param_mem_iova = &ubuf1->param_mem.iova;
 		ubuf_param_mem_attr = ubuf1->param_mem.mem_attr;
 		ubuf_param_type = ubuf1->param_type;
+		ubuf_param_offset = 0;
 	} else if (graph->version == DSP_IOC_V2) {
 		ubuf2 = ubuf;
 		ubuf_param_mem_fd = ubuf2->param_mem.fd;
@@ -93,6 +96,15 @@ static int __dsp_graph_map_buffer(struct dsp_graph *graph, void *ubuf)
 		ubuf_param_mem_iova = &ubuf2->param_mem.iova;
 		ubuf_param_mem_attr = ubuf2->param_mem.mem_attr;
 		ubuf_param_type = ubuf2->param_type;
+		ubuf_param_offset = 0;
+	} else if (graph->version == DSP_IOC_V3) {
+		ubuf3 = ubuf;
+		ubuf_param_mem_fd = ubuf3->param_mem.fd;
+		ubuf_param_mem_size = ubuf3->param_mem.size;
+		ubuf_param_mem_iova = &ubuf3->param_mem.iova;
+		ubuf_param_mem_attr = ubuf3->param_mem.mem_attr;
+		ubuf_param_type = ubuf3->param_type;
+		ubuf_param_offset = ubuf3->param_mem.offset;
 	} else {
 		ret = -EINVAL;
 		dsp_err("Failed to map buffer due to invalid version(%u)\n",
@@ -112,7 +124,7 @@ static int __dsp_graph_map_buffer(struct dsp_graph *graph, void *ubuf)
 
 	buf->fd = ubuf_param_mem_fd;
 	buf->size = ubuf_param_mem_size;
-	buf->offset = 0;
+	buf->offset = ubuf_param_offset;
 	buf->dir = DMA_BIDIRECTIONAL;
 
 	ret = dsp_memory_map_buffer(mem, buf);
@@ -165,6 +177,7 @@ static int __dsp_graph_map_list(struct dsp_graph *graph,
 	int idx;
 	struct dsp_common_param_v1 *list1;
 	struct dsp_common_param_v2 *list2;
+	struct dsp_common_param_v3 *list3;
 
 	dsp_enter();
 
@@ -211,6 +224,29 @@ static int __dsp_graph_map_list(struct dsp_graph *graph,
 			}
 
 			ret = __dsp_graph_map_buffer(graph, &list2[idx]);
+			if (ret)
+				goto p_err_map;
+		}
+	} else if (graph->version == DSP_IOC_V3) {
+		list3 = list;
+		for (idx = 0; idx < count; ++idx) {
+			if (list3[idx].param_type == DSP_COMMON_PARAM_EMPTY)
+				continue;
+
+			if (((param_type == DSP_COMMON_PARAM_UPDATE) &&
+					(list3[idx].param_type !=
+						DSP_COMMON_PARAM_UPDATE)) ||
+				((param_type != DSP_COMMON_PARAM_UPDATE) &&
+					(list3[idx].param_type ==
+						DSP_COMMON_PARAM_UPDATE))) {
+				ret = -EINVAL;
+				dsp_err("param type is invalid(%u/%u)\n",
+						list3[idx].param_type,
+						param_type);
+				goto p_err_map;
+			}
+
+			ret = __dsp_graph_map_buffer(graph, &list3[idx]);
 			if (ret)
 				goto p_err_map;
 		}
@@ -414,6 +450,7 @@ struct dsp_graph *dsp_graph_load(struct dsp_graph_manager *gmgr,
 	struct dsp_graph *graph, *temp;
 	struct dsp_common_graph_info_v1 *ginfo1;
 	struct dsp_common_graph_info_v2 *ginfo2;
+	struct dsp_common_graph_info_v3 *ginfo3;
 	unsigned int ginfo_global_id;
 	void *ginfo_param_list;
 	unsigned int ginfo_n_tsgd;
@@ -435,6 +472,13 @@ struct dsp_graph *dsp_graph_load(struct dsp_graph_manager *gmgr,
 		ginfo_n_tsgd     = ginfo2->n_tsgd;
 		ginfo_n_param    = ginfo2->n_param;
 		ginfo_n_kernel   = ginfo2->n_kernel;
+	} else if (version == DSP_IOC_V3) {
+		ginfo3 = pool->kva;
+		ginfo_global_id  = ginfo3->global_id;
+		ginfo_param_list = ginfo3->param_list;
+		ginfo_n_tsgd     = ginfo3->n_tsgd;
+		ginfo_n_param    = ginfo3->n_param;
+		ginfo_n_kernel   = ginfo3->n_kernel;
 	} else {
 		ret = -EINVAL;
 		dsp_err("Failed to load graph due to invalid version(%u)\n",
@@ -535,7 +579,8 @@ int dsp_graph_execute(struct dsp_graph *graph, struct dsp_mailbox_pool *pool)
 	int ret;
 	struct dsp_graph_manager *gmgr;
 	struct dsp_common_execute_info_v1 *einfo1;
-	struct dsp_common_execute_info_v1 *einfo2;
+	struct dsp_common_execute_info_v2 *einfo2;
+	struct dsp_common_execute_info_v3 *einfo3;
 	unsigned int einfo_n_update_param;
 	void *einfo_param_list;
 
@@ -550,6 +595,10 @@ int dsp_graph_execute(struct dsp_graph *graph, struct dsp_mailbox_pool *pool)
 		einfo2 = pool->kva;
 		einfo_n_update_param = einfo2->n_update_param;
 		einfo_param_list = einfo2->param_list;
+	} else if (graph->version == DSP_IOC_V3) {
+		einfo3 = pool->kva;
+		einfo_n_update_param = einfo3->n_update_param;
+		einfo_param_list = einfo3->param_list;
 	} else {
 		ret = -EINVAL;
 		dsp_err("Failed to execute graph due to invalid version(%u)\n",

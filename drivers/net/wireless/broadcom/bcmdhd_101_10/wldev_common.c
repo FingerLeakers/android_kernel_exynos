@@ -82,11 +82,11 @@ s32 wldev_ioctl_set(
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-qual"
-#endif // endif
+#endif
 	return wldev_ioctl(dev, cmd, (void *)arg, len, 1);
 #if defined(STRICT_GCC_WARNINGS) && defined(__GNUC__)
 #pragma GCC diagnostic pop
-#endif // endif
+#endif
 
 }
 

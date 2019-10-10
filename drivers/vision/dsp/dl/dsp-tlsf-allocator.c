@@ -132,7 +132,7 @@ void dsp_tlsf_mem_init(struct dsp_tlsf_mem *mem)
 
 void dsp_tlsf_mem_print(struct dsp_tlsf_mem *mem)
 {
-	DL_BUF_STR("[0x%lx] %s(%zu) idx(%u, %u)", mem->start_addr,
+	DL_BUF_STR("[0x%lx] %s size(%zu) idx(fl:%u, sl:%u)", mem->start_addr,
 		__dsp_tlsf_mem_type_to_str(mem->type), mem->size,
 		mem->tlsf_idx.fl, mem->tlsf_idx.sl);
 
@@ -449,22 +449,28 @@ void dsp_tlsf_print(struct dsp_tlsf *tlsf)
 	int idx, jdx;
 	struct dsp_list_node *node;
 
-	DL_INFO(DL_BORDER);
-	DL_BUF_STR("TLSF fl : ");
+	DL_INFO("TLSF table\n");
+	DL_BUF_STR("First level: ");
 
-	for (idx = __get_fl_size(tlsf) - 1; idx >= 0; idx--)
+	for (idx = __get_fl_size(tlsf) - 1; idx >= 0; idx--) {
 		DL_BUF_STR("%d ", (tlsf->fl & (1 << idx)) >> idx);
+		if (idx % 4 == 0 && idx != 0)
+			DL_BUF_STR(" ");
+	}
 
 	DL_BUF_STR("\n");
 	DL_PRINT_BUF(INFO);
 
-	DL_INFO("TLSF sl\n");
+	DL_INFO("Second level\n");
 
 	for (idx = __get_fl_size(tlsf) - 1; idx >= 0; idx--) {
-		DL_BUF_STR("[%d] : ", idx);
+		DL_BUF_STR("[%d] ", idx);
 
-		for (jdx = TLSF_SL_SIZE - 1; jdx >= 0; jdx--)
+		for (jdx = TLSF_SL_SIZE - 1; jdx >= 0; jdx--) {
 			DL_BUF_STR("%d ", (tlsf->sl[idx] & (1 << jdx)) >> jdx);
+			if (jdx % 4 == 0 && jdx != 0)
+				DL_BUF_STR(" ");
+		}
 
 		DL_BUF_STR("\n");
 		DL_PRINT_BUF(INFO);
@@ -472,13 +478,13 @@ void dsp_tlsf_print(struct dsp_tlsf *tlsf)
 
 	DL_INFO("\n");
 
+	DL_INFO("Memory remained\n");
 	for (idx = 0; idx < __get_fl_size(tlsf); idx++) {
 		for (jdx = 0; jdx < TLSF_SL_SIZE; jdx++) {
 			if (tlsf->sl[idx] & (1 << jdx)) {
 				struct dsp_tlsf_idx tlsf_idx;
 				struct dsp_list_head *head;
 
-				DL_INFO("TLSF (%d, %d)\n", idx, jdx);
 				tlsf_idx.fl = idx;
 				tlsf_idx.sl = jdx;
 				head = __get_head_from_idx(tlsf, &tlsf_idx);
@@ -496,7 +502,7 @@ void dsp_tlsf_print(struct dsp_tlsf *tlsf)
 
 	DL_INFO("\n");
 
-	DL_INFO("TLSF mem list\n");
+	DL_INFO("Memory list\n");
 	dsp_list_for_each(node, &tlsf->mem_list) {
 		struct dsp_tlsf_mem *mem =
 			container_of(node, struct dsp_tlsf_mem, mem_list_node);

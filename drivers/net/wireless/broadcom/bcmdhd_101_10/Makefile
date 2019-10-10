@@ -1,12 +1,12 @@
 #
 # Copyright (C) 2019, Broadcom.
-#
+# 
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
 # under the terms of the GNU General Public License version 2 (the "GPL"),
 # available at http://www.broadcom.com/licenses/GPLv2.php, with the
 # following added to such license:
-#
+# 
 #      As a special exception, the copyright holders of this software give you
 # permission to link this software with independent modules, and to copy and
 # distribute the resulting executable under terms of your choice, provided that
@@ -122,6 +122,7 @@ endif
 	DHDCFLAGS += -DCUSTOM_DHD_WATCHDOG_MS=0
 endif
 
+
 #################
 # Common feature
 #################
@@ -148,6 +149,9 @@ DHDCFLAGS += -DDHD_TRACE_WAKE_LOCK
 DHDCFLAGS += -DBCMASSERT_LOG
 # Collect Current Assoc/Reject Status for Big Data logging
 DHDCFLAGS += -DDHD_ENABLE_BIGDATA_LOGGING
+# Collect roaming related information for Big Data logging
+DHDCFLAGS += -DDHD_PUB_ROAM_EVT
+
 # Enable SI utility error log
 DHDCFLAGS += -DSI_ERROR_ENFORCE
 
@@ -189,6 +193,7 @@ DHDCFLAGS += -DROAM_ENABLE -DROAM_CHANNEL_CACHE -DROAM_API
 DHDCFLAGS += -DENABLE_FW_ROAM_SUSPEND
 DHDCFLAGS += -DDHD_LOSSLESS_ROAMING
 DHDCFLAGS += -DSKIP_ROAM_TRIGGER_RESET
+DHDCFLAGS += -DROAM_EVT_DISABLE
 
 # Enable Roam time thresh
 DHDCFLAGS += -DENABLE_MAX_DTIM_IN_SUSPEND
@@ -394,6 +399,7 @@ DHDCFLAGS :=$(filter-out -DLINKSTAT_SUPPORT,$(DHDCFLAGS))
 DHDCFLAGS :=$(filter-out -DWL_VENDOR_EXT_SUPPORT,$(DHDCFLAGS))
 endif
 
+
 ##########################
 # driver type
 # m: module type driver
@@ -446,6 +452,9 @@ ifeq ($(BUS_IFACE_PCIE),y)
   DHDCFLAGS += -DDHDTCPACK_SUPPRESS
 endif
 
+# NAN-Ranging BW private command
+ DHDCFLAGS += -DSUPPORT_NAN_RANGING_TEST_BW
+
 ifeq ($(CONFIG_ARCH_QCOM),y)
   DHDCFLAGS += -DCONFIG_ARCH_MSM
   DHDCFLAGS := $(filter-out -DDHDTCPACK_SUPPRESS,$(DHDCFLAGS))
@@ -482,6 +491,11 @@ endif
 #  DHDCFLAGS += -DADPS_MODE_FROM_FILE
 #  DHDCFLAGS += -DWLADPS_SEAK_AP_WAR
   DHDCFLAGS += -DWLADPS_PRIVATE_CMD
+  DHDCFLAGS += -DWLADPS_ENERGY_GAIN
+  DHDCFLAGS += -DADPS_GAIN_2G_PM0_IDLE=0
+  DHDCFLAGS += -DADPS_GAIN_2G_TX_PSPOLL=0
+  DHDCFLAGS += -DADPS_GAIN_5G_PM0_IDLE=1996
+  DHDCFLAGS += -DADPS_GAIN_5G_TX_PSPOLL=644
   DHDCFLAGS += -DWL_RELMCAST
   DHDCFLAGS += -DSUPPORT_LTECX
   DHDCFLAGS += -DSUPPORT_2G_VHT -DSUPPORT_5G_1024QAM_VHT
@@ -511,6 +525,7 @@ endif
   DHDCFLAGS += -DWBTEXT
   DHDCFLAGS += -DWBTEXT_BTMDELTA=0
   DHDCFLAGS += -DWBTEXT_SCORE_V2
+  DHDCFLAGS += -DRRM_BCNREQ_MAX_CHAN_TIME=5
 # LOGTRACE_EVENT
   DHDCFLAGS += -DSHOW_LOGTRACE
   DHDCFLAGS += -DLOGTRACE_FROM_FILE
@@ -519,6 +534,10 @@ endif
   DHDCFLAGS += -DSUPPORT_AP_HIGHER_BEACONRATE
 # Enhanced radio power save with NOA at softAP
   DHDCFLAGS += -DSUPPORT_AP_RADIO_PWRSAVE
+# SoftAP BW control for power save
+  DHDCFLAGS += -DSUPPORT_AP_BWCTRL
+# SoftAP suspend for power save
+  DHDCFLAGS += -DSUPPORT_AP_SUSPEND
 # Expand TCP tx queue to 10 times of default size
   DHDCFLAGS += -DTSQ_MULTIPLIER=10
 # HANG simulation
@@ -571,6 +590,10 @@ endif
   DHDCFLAGS += -DDHD_DUMP_MNGR
 # Silent roam
   DHDCFLAGS += -DCONFIG_SILENT_ROAM
+# Control he enab
+  DHDCFLAGS += -DCUSTOM_CONTROL_HE_ENAB
+# Get ROAM Channel Cache
+  DHDCFLAGS += -DWL_GET_RCC
   DHDCFLAGS += -DCUSTOM_SCAN_PASSIVE_TIME=110
 
 # Basic types and constants relating to 802.11ax
@@ -581,12 +604,25 @@ ifeq ($(CONFIG_SEC_FACTORY),y)
   DHDCFLAGS += -DDHD_NON_DMA_M2M_CORRUPTION
 # Detect FW Memory Corruption
   DHDCFLAGS += -DDHD_FW_MEM_CORRUPTION
+# Detect turn on failure
+  DHDCFLAGS += -DBCM_DETECT_TURN_ON_FAILURE
 endif # CONFIG_SEC_FACTORY
 
 ifeq ($(CONFIG_BCM4375),y)
   DHDCFLAGS += -DENABLE_INSMOD_NO_FW_LOAD
   DHDCFLAGS += -DUSE_LATE_INITCALL_SYNC
   DRIVER_TYPE = y
+endif
+# Undef for BCM4375
+  DHDCFLAGS += -UWIFI_TURNOFF_DELAY
+# Latency critical data
+  DHDCFLAGS += -DSUPPORT_LATENCY_CRITICAL_DATA
+# Update WIPS event to framework
+  DHDCFLAGS += -DWL_WIPSEVT
+  DHDCFLAGS += -DSUPPORT_SOFTAP_ELNA_BYPASS
+ifeq ($(filter y,$(CONFIG_ARCH_SM8150) $(CONFIG_ARCH_SM8250)),y)
+ DHDCFLAGS += -DDHD_CONTROL_PCIE_ASPM_WIFI_TURNON
+ DHDCFLAGS += -DDHD_CONTROL_PCIE_CPUCORE_WIFI_TURNON
 endif
 endif
 
@@ -628,6 +664,8 @@ DHDCFLAGS += -DWL_FILS_ROAM_OFFLD
 endif
 # ADDTS
  DHDCFLAGS += -DWL_CAC_TS
+# Channel Utilization
+  DHDCFLAGS += -DWL_GET_CU
 # tput enhancement for PCIE
 ifeq ($(BUS_IFACE_PCIE),y)
   DHDCFLAGS += -DCUSTOM_TCPACK_SUPP_RATIO=15
@@ -686,6 +724,7 @@ endif
 ifneq ($(CUSTOM_LOG_DUMP_BUFSIZE_MB),)
   DHDCFLAGS += -DCUSTOM_LOG_DUMP_BUFSIZE_MB=$(CUSTOM_LOG_DUMP_BUFSIZE_MB)
 endif
+  DHDCFLAGS += -DDISABLE_DTIM_IN_SUSPEND
   DHDCFLAGS += -DWL_SUPP_EVENT
   DHDCFLAGS += -DFILTER_IE
 # WBTEXT (11kv) feature
@@ -698,9 +737,11 @@ endif
   DHDCFLAGS += -DSUPPORT_AP_HIGHER_BEACONRATE
 # Enhanced radio power save with NOA at softAP
   DHDCFLAGS += -DSUPPORT_AP_RADIO_PWRSAVE
+# SoftAP suspend for power save
+  DHDCFLAGS += -DSUPPORT_AP_SUSPEND
 # Expand TCP tx queue to 10 times of default size
 ifeq ($(CONFIG_WLAN_TSQ_MULTIPLIER),y)
-  DHDCFLAGS += -DTSQ_MULTIPLIER=10
+  DHDCFLAGS += -DTSQ_MULTIPLIER=200
 endif
 # HANG simulation
   DHDCFLAGS += -DDHD_HANG_SEND_UP_TEST
@@ -727,7 +768,6 @@ endif
 ifeq ($(filter y,$(CONFIG_WLAN_GREAT) $(CONFIG_SEC_GREATQLTE_PROJECT) $(CONFIG_SOC_EXYNOS9810) $(CONFIG_ARCH_SDM845)),y)
 # Debugaility
   DHDCFLAGS += -DDHD_EVENT_LOG_FILTER
-  DHDCFLAGS += -DDBG_PKT_MON
   DHDCFLAGS += -DDHD_PKT_LOGGING
 # Debug Wakeup pkt reason
   DHDCFLAGS += -DDHD_WAKE_STATUS -DDHD_WAKE_RX_STATUS -DDHD_WAKE_EVENT_STATUS
@@ -764,6 +804,8 @@ ifeq ($(CONFIG_SEC_FACTORY),y)
   DHDCFLAGS += -DDHD_NON_DMA_M2M_CORRUPTION
 # Detect FW Memory Corruption
   DHDCFLAGS += -DDHD_FW_MEM_CORRUPTION
+# Detect turn on failure
+  DHDCFLAGS += -DBCM_DETECT_TURN_ON_FAILURE
 endif # CONFIG_SEC_FACTORY
 
 ifeq ($(CONFIG_BCM4361),y)
@@ -965,6 +1007,7 @@ ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 endif
 
+
 #Iface force dev close
 DHDCFLAGS += -DIFACE_HANG_FORCE_DEV_CLOSE
 
@@ -974,6 +1017,7 @@ ifeq ($(BUS_IFACE_PCIE),y)
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=32
   DHDCFLAGS += -DCUSTOM_AMPDU_RELEASE=16
 endif
+
 
 # New Features
   DHDCFLAGS += -DWL11U -DMFP
@@ -1258,6 +1302,7 @@ ifeq ($(DRIVER_TYPE),y)
   DHDCFLAGS += -DBCM_USE_PLATFORM_STRLCPY
 endif
 
+
 #############################
 # Platform dependent feature
 #############################
@@ -1360,12 +1405,6 @@ ifneq ($(CONFIG_SOC_EXYNOS9810),)
 DHDCFLAGS += -DDHD_OF_SUPPORT
 DHDCFLAGS += -DBCMPCIE_OOB_HOST_WAKE
 endif
-ifneq ($(CONFIG_MACH_UNIVERSAL5430),)
-DHDCFLAGS += -DDHD_OF_SUPPORT
-endif
-ifneq ($(CONFIG_MACH_UNIVERSAL5422),)
-DHDCFLAGS += -DDHD_OF_SUPPORT
-endif
 ifneq ($(CONFIG_ARCH_MSM8994),)
 DHDCFLAGS += -DDHD_OF_SUPPORT
 endif
@@ -1389,18 +1428,9 @@ ifeq ($(CONFIG_ARCH_KONA),y)
 DHDCFLAGS += -DDHD_OF_SUPPORT
 DHDCFLAGS += -DBCMPCIE_OOB_HOST_WAKE
 endif
-ifneq ($(CONFIG_MACH_UNIVERSAL3475),)
-DHDCFLAGS += -DDHD_OF_SUPPORT
-endif
-ifneq ($(CONFIG_ARCH_SWA100),)
-DHDCFLAGS += -DDHD_OF_SUPPORT
-endif
 ifneq ($(CONFIG_SOC_EXYNOS7870),)
 DHDCFLAGS += -DDHD_OF_SUPPORT
 DHDCFLAGS += -Wno-date-time
-endif
-ifneq ($(CONFIG_SOC_EXYNOS7570),)
-DHDCFLAGS += -DDHD_OF_SUPPORT
 endif
 ifeq ($(CONFIG_SOC_EXYNOS9820),y)
 DHDCFLAGS += -DDHD_OF_SUPPORT
@@ -1482,6 +1512,7 @@ DHDOFILES += bcmsdspi_linux.o bcmspibrcm.o
 DHDOFILES :=$(filter-out bcmsdh_sdmmc.o,$(DHDOFILES))
 DHDOFILES :=$(filter-out bcmsdh_sdmmc_linux.o,$(DHDOFILES))
 endif
+
 
 #RTT
 DHDCFLAGS += -DRTT_SUPPORT -DRTT_DEBUG

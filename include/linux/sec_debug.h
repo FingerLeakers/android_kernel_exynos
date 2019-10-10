@@ -92,7 +92,7 @@ enum secdbg_exin_fault_type {
 	EXE_USER_FAULT,
 	ACCESS_USER_OUTSIDE_FAULT,
 	BUG_FAULT,
-	PANIC_FAULT,
+	SERROR_FAULT,
 	FAULT_MAX,
 };
 
@@ -168,5 +168,14 @@ extern void secdbg_base_set_task_in_soft_lockup(uint64_t task);
 extern void secdbg_base_set_cpu_in_soft_lockup(uint64_t cpu);
 extern void secdbg_base_set_task_in_hard_lockup(uint64_t task);
 extern void secdbg_base_set_cpu_in_hard_lockup(uint64_t cpu);
+
+/* unfrozen task */
+#ifdef CONFIG_SEC_DEBUG_UNFROZEN_TASK
+extern void secdbg_base_set_unfrozen_task(uint64_t task);
+extern void secdbg_base_set_unfrozen_task_count(uint64_t count);
+#else
+static inline void secdbg_base_set_unfrozen_task(uint64_t task) {}
+static inline void secdbg_base_set_unfrozen_task_count(uint64_t count) {}
+#endif /* CONFIG_SEC_DEBUG_UNFROZEN_TASK */
 
 #endif /* SEC_DEBUG_H */

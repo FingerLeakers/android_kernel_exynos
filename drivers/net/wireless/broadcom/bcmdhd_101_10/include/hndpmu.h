@@ -35,7 +35,7 @@
 #if defined(EDV)
 extern uint32 si_pmu_get_backplaneclkspeed(si_t *sih);
 extern void si_pmu_update_backplane_clock(si_t *sih, osl_t *osh, uint reg, uint32 mask, uint32 val);
-#endif // endif
+#endif
 
 extern uint32 si_pmu_rsrc_macphy_clk_deps(si_t *sih, osl_t *osh, int maccore_index);
 extern uint32 si_pmu_rsrc_ht_avail_clk_deps(si_t *sih, osl_t *osh);
@@ -81,11 +81,7 @@ extern uint si_pmu_get_mac_rsrc_req_tmr_cnt(si_t *sih);
 extern uint si_pmu_get_pmu_interrupt_rcv_cnt(si_t *sih);
 
 extern bool _bcm_pwr_opt_dis;
-#ifdef BCMINTERNAL_PWR_OPT
-#define BCM_PWR_OPT_ENAB()	(!_bcm_pwr_opt_dis)
-#else
 #define BCM_PWR_OPT_ENAB()	(FALSE)
-#endif // endif
 
 extern int si_pmu_mem_pwr_off(si_t *sih, int core_idx);
 #endif /* _hndpmu_h_ */

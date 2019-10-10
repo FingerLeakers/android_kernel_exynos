@@ -26,6 +26,9 @@
 #include <linux/clocksource.h>
 #include <linux/sched_clock.h>
 #include <linux/notifier.h>
+#ifdef CONFIG_SEC_EXT
+#include <linux/sec_ext.h>
+#endif
 
 #define EXYNOS4_MCTREG(x)		(x)
 #define EXYNOS4_MCT_G_CNT_L		EXYNOS4_MCTREG(0x100)
@@ -638,6 +641,10 @@ static int __init mct_init_dt(struct device_node *np, unsigned int int_type)
 	ret = exynos4_clocksource_init();
 	if (ret)
 		return ret;
+
+#ifdef CONFIG_SEC_BOOTSTAT
+	sec_bootstat_mct_start(exynos4_read_count_64());
+#endif
 
 	return exynos4_clockevent_init();
 }

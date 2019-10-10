@@ -617,6 +617,10 @@
 #define DPP_ENABLE				0x0000
 #define DPP_SRSET				(1 << 24)
 #define DPP_HDR_SEL				(1 << 11)
+#ifdef CONFIG_EXYNOS_MCD_HDR
+#define DPP_SET_HDR_SEL(_v)			((_v) << 11)
+#define DPP_HDR_SEL_MASK				(1 << 11)
+#endif
 #define DPP_SFR_CLOCK_GATE_EN			(1 << 10)
 #define DPP_SRAM_CLOCK_GATE_EN			(1 << 9)
 #define DPP_INT_CLOCK_GATE_EN			(1 << 8)

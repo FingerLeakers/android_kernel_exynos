@@ -427,6 +427,8 @@ struct vts_s_lif_data {
 	unsigned int gain_mode[VTS_S_LIF_DMIC_AUD_NUM];
 	unsigned int max_scale_gain[VTS_S_LIF_DMIC_AUD_NUM];
 	unsigned int control_dmic_aud[VTS_S_LIF_DMIC_AUD_NUM];
+	unsigned int dmic_en[VTS_S_LIF_DMIC_AUD_NUM];
+	unsigned int channel_map;
 	unsigned int channels;
 	unsigned int rate;
 	unsigned int width;

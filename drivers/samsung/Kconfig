@@ -92,6 +92,11 @@ config ARGOS_CLUSTER_NUM
 	help
 	  This option enables that argos supports 3 clusters in SMP nodes.
 
+config SEC_BOOTSTAT
+	bool "Enable TN Bootstat logging"
+	depends on SEC_EXT
+	default y
+
 source "drivers/samsung/debug/Kconfig"
 source "drivers/samsung/misc/Kconfig"
 source "drivers/samsung/pm/Kconfig"

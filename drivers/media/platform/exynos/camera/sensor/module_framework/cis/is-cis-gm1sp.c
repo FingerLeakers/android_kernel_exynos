@@ -1514,6 +1514,88 @@ int sensor_gm1sp_cis_long_term_exposure(struct v4l2_subdev *subdev)
 	return ret;
 }
 
+static int sensor_gm1sp_cis_set_dual_master_setting(struct is_cis *cis)
+{
+	int ret = 0;
+	struct i2c_client *client;
+
+	FIMC_BUG(!cis);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		return -EINVAL;
+	}
+
+	info("[MOD:D:%d] %s\n", cis->id, __func__);
+
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+
+	/* page 0x2000*/
+	ret = is_sensor_write16(client, 0x6028, 0x4000);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x6028, 0x4000, ret);
+	/* dual sync enable */
+	ret = is_sensor_write16(client, 0x0A70, 0x0001);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x0A70, 0x0001, ret);
+	/* master mode select */
+	ret = is_sensor_write16(client, 0x0A72, 0x0100);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x0A72, 0x0100, ret);
+	/* page 0x2000*/
+	ret = is_sensor_write16(client, 0x6028, 0x2000);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x6028, 0x2000, ret);
+	/* dual sync out index */
+	ret = is_sensor_write16(client, 0x602A, 0x106A);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x602A, 0x106A, ret);
+	ret = is_sensor_write16(client, 0x6F12, 0x0003);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x6F12, 0x0003, ret);
+	/* master vsync out sel */
+	ret = is_sensor_write16(client, 0x602A, 0x2BC2);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x602A, 0x2BC2, ret);
+	ret = is_sensor_write16(client, 0x6F12, 0x0003);
+	if (unlikely(ret))
+		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x6F12, 0x0003, ret);
+
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+	return ret;
+}
+
+int sensor_gm1sp_cis_set_dual_setting(struct v4l2_subdev *subdev, u32 mode)
+{
+	int ret = 0;
+	struct is_cis *cis;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+
+	switch (mode) {
+	case DUAL_SYNC_MASTER:
+		ret = sensor_gm1sp_cis_set_dual_master_setting(cis);
+		if (ret)
+			err("gm1sp dual master setting fail");
+		break;
+	case DUAL_SYNC_SLAVE:
+		break;
+	case DUAL_SYNC_STANDALONE:
+		break;
+	default:
+		err("%s: invalid mode(%d)\n", __func__, mode);
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+
 static struct is_cis_ops cis_ops = {
 	.cis_init = sensor_gm1sp_cis_init,
 	.cis_log_status = sensor_gm1sp_cis_log_status,
@@ -1545,6 +1627,7 @@ static struct is_cis_ops cis_ops = {
 	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 	.cis_active_test = sensor_cis_active_test,
 	.cis_set_long_term_exposure = sensor_gm1sp_cis_long_term_exposure,
+	.cis_set_dual_setting = sensor_gm1sp_cis_set_dual_setting,
 };
 
 static int cis_gm1sp_probe(struct i2c_client *client,

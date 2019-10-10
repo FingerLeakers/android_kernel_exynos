@@ -782,6 +782,12 @@
 					};
 				};
 			};
+
+			sec-audio-sysfs {
+				compatible = "samsung,audio-sysfs";
+
+				audio,no-earjack;
+			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
 }; /* end of root */

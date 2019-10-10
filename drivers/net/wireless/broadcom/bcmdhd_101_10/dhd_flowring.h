@@ -28,6 +28,8 @@
  * $Id$
  */
 
+/** XXX Twiki: [PCIeFullDongleArchitecture] */
+
 /****************
  * Common types *
  */

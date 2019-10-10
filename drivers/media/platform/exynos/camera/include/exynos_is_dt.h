@@ -134,6 +134,8 @@
 #define CSI_MODE_VC_DT		3
 
 /* CSIS Data Type */
+#define SDC_EN_BIT		(8)
+#define SDC_EN(x)		((x) | 1 << SDC_EN_BIT)
 #define DECOMP_PREDICT_BIT	(7)
 #define DECOMP_EN_BIT		(6)
 #define DECOMP_SIMPLE(x)	((x) | 1 << DECOMP_EN_BIT | 0 << DECOMP_PREDICT_BIT)
@@ -154,10 +156,14 @@
 #define HW_FORMAT_RAW8_DS	DECOMP_SIMPLE(HW_FORMAT_RAW8) /* 8 -> 10 */
 #define HW_FORMAT_RAW10		0x2B
 #define HW_FORMAT_RAW10_DA	DECOMP_ADVANC(HW_FORMAT_RAW10) /* 10 -> 14 */
+#define HW_FORMAT_RAW10_SDC	SDC_EN(HW_FORMAT_RAW10) /* = SBI */
 #define HW_FORMAT_RAW12		0x2C
 #define HW_FORMAT_RAW14		0x2D
 #define HW_FORMAT_USER		0x30
 #define HW_FORMAT_UNKNOWN	0x3F
+
+#define HW_FORMAT_MASK		0x3F
+#define HW_EXT_FORMAT_MASK	0x1FF
 
 /* PD MODE */
 #define PD_MSPD			0

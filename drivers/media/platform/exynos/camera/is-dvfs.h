@@ -52,6 +52,7 @@
 #define SIZE_FHD (1920 * 1080)
 #define SIZE_WHD (2560 * 1440)
 #define SIZE_UHD (3840 * 2160)
+#define SIZE_8K (7680 * 4320)
 #define SIZE_16MP_FHD_BDS (3072 * 2304) /* based a 4:3 */
 #define SIZE_12MP_FHD_BDS (2688 * 2016) /* based a 4:3 */
 #define SIZE_12MP_QHD_BDS (3072 * 2304)

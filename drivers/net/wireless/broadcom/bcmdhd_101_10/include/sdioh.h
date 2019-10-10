@@ -25,11 +25,25 @@
 #ifndef	_SDIOH_H
 #define	_SDIOH_H
 
+/* XXX
+ * Standard SD Host Control Register Map.
+ *
+ * Reference definitions from:
+ *  SD Specification, Part A2: SD Host Controller Standard Specification
+ *  Version 1.00
+ *  February, 2004
+ *  http://www.sdcard.org
+ *
+ *  One set for each SDIO slot on the controller board.
+ *  In PCI, each set is mapped into a BAR.  Since PCI only
+ *  has six BARS, spec compliant PCI SDIO host controllers are
+ *  limited to 6 slots.
+ */
 #define SD_SysAddr			0x000
 #define SD_BlockSize			0x004
 #define SD_BlockCount 			0x006
 #define SD_Arg0				0x008
-#define SD_Arg1 			0x00A
+#define SD_Arg1 			0x00A /* XXX Not really in spec, remove? */
 #define SD_TransferMode			0x00C
 #define SD_Command 			0x00E
 #define SD_Response0			0x010
@@ -47,11 +61,11 @@
 #define SD_PwrCntrl			0x029
 #define SD_BlockGapCntrl 		0x02A
 #define SD_WakeupCntrl 			0x02B
-#define SD_ClockCntrl			0x02C
-#define SD_TimeoutCntrl 		0x02E
+#define SD_ClockCntrl			0x02C /* XXX Add (and use) bitdefs */
+#define SD_TimeoutCntrl 		0x02E /* XXX Add (and use) bitdefs */
 #define SD_SoftwareReset		0x02F
 #define SD_IntrStatus			0x030
-#define SD_ErrorIntrStatus 		0x032
+#define SD_ErrorIntrStatus 		0x032 /* XXX Add (and use) bitdefs */
 #define SD_IntrStatusEnable		0x034
 #define SD_ErrorIntrStatusEnable 	0x036
 #define SD_IntrSignalEnable		0x038
@@ -313,6 +327,7 @@
 #define HOST_CONTR_VER_3		(2)
 
 /* misc defines */
+/* XXX Driver uses of these should be replaced! */
 #define SD1_MODE 		0x1	/* SD Host Cntrlr Spec */
 #define SD4_MODE 		0x2	/* SD Host Cntrlr Spec */
 

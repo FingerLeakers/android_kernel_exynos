@@ -37,7 +37,7 @@
 #include <bcmeth.h>
 #if defined(DNGL_EVENT_SUPPORT)
 #include <dnglevent.h>
-#endif // endif
+#endif
 
 /* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
@@ -100,7 +100,7 @@ typedef union bcm_event_msg_u {
 	wl_event_msg_t		event;
 #if defined(DNGL_EVENT_SUPPORT)
 	bcm_dngl_event_msg_t	dngl_event;
-#endif // endif
+#endif
 
 	/* add new event here */
 } bcm_event_msg_u_t;
@@ -169,7 +169,7 @@ typedef union bcm_event_msg_u {
 #define WLC_E_ACTION_FRAME_COMPLETE	60	/* Action frame Tx complete */
 #define WLC_E_PRE_ASSOC_IND	61	/* assoc request received */
 #define WLC_E_PRE_REASSOC_IND	62	/* re-assoc request received */
-#define WLC_E_CHANNEL_ADOPTED	63
+#define WLC_E_CHANNEL_ADOPTED	63	/* channel adopted (xxx: obsoleted) */
 #define WLC_E_AP_STARTED	64	/* AP started */
 #define WLC_E_DFS_AP_STOP	65	/* AP stopped due to DFS */
 #define WLC_E_DFS_AP_RESUME	66	/* AP resumed due to DFS */
@@ -180,6 +180,7 @@ typedef union bcm_event_msg_u {
 #define WLC_E_PROBRESP_MSG	71	/* probe response received */
 #define WLC_E_P2P_PROBREQ_MSG	72	/* P2P Probe request received */
 #define WLC_E_DCS_REQUEST	73
+/* XXX: will enable this after proptxstatus code is merged back to ToT */
 #define WLC_E_FIFO_CREDIT_MAP	74	/* credits for D11 FIFOs. [AC0,AC1,AC2,AC3,BC_MC,ATIM] */
 #define WLC_E_ACTION_FRAME_RX	75	/* Received action frame event WITH
 					 * wl_event_rx_frame_data_t header
@@ -312,6 +313,12 @@ extern int is_wlc_event_frame(void *pktdata, uint pktlen, uint16 exp_usr_subtype
 void wl_event_to_host_order(wl_event_msg_t * evt);
 void wl_event_to_network_order(wl_event_msg_t * evt);
 
+/* xxx:
+ * Please do not insert/delete events in the middle causing renumbering.
+ * It is a problem for host-device compatibility, especially with ROMmed chips.
+ */
+
+/* XXX Translate between internal and exported status codes */
 /* Event status codes */
 #define WLC_E_STATUS_SUCCESS		0	/* operation was successful */
 #define WLC_E_STATUS_FAIL		1	/* operation failed */
@@ -399,14 +406,13 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_REASON_DISASSOC		3	/* roamed due to DISASSOC indication */
 #define WLC_E_REASON_BCNS_LOST		4	/* roamed due to lost beacons */
 
+/* xxx Roam codes (5-7) used primarily by CCX */
 #define WLC_E_REASON_FAST_ROAM_FAILED	5	/* roamed due to fast roam failure */
 #define WLC_E_REASON_DIRECTED_ROAM	6	/* roamed due to request by AP */
 #define WLC_E_REASON_TSPEC_REJECTED	7	/* roamed due to TSPEC rejection */
 #define WLC_E_REASON_BETTER_AP		8	/* roamed due to finding better AP */
 #define WLC_E_REASON_MINTXRATE		9	/* roamed because at mintxrate for too long */
 #define WLC_E_REASON_TXFAIL		10	/* We can hear AP, but AP can't hear us */
-/* retained for precommit auto-merging errors; remove once all branches are synced */
-#define WLC_E_REASON_REQUESTED_ROAM	11
 #define WLC_E_REASON_BSSTRANS_REQ	11	/* roamed due to BSS Transition request by AP */
 #define WLC_E_REASON_LOW_RSSI_CU	12	/* roamed due to low RSSI and Channel Usage */
 #define WLC_E_REASON_RADAR_DETECTED	13	/* roamed due to radar detection by STA */
@@ -558,7 +564,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_event_rx_frame_data_v1 {
 #ifndef WL_EVENT_RX_FRAME_DATA_ALIAS
 #define BCM_RX_FRAME_DATA_VERSION BCM_RX_FRAME_DATA_VERSION_1
 typedef wl_event_rx_frame_data_v1_t wl_event_rx_frame_data_t;
-#endif // endif
+#endif
 
 /* WLC_E_IF event data */
 typedef struct wl_event_data_if {
@@ -662,7 +668,7 @@ typedef BWL_PRE_PACKED_STRUCT struct ndis_link_parms {
 #define WLAN_TDLS_SET_SETUP_WFD_IE	12
 #define WLAN_TDLS_SET_WFD_ENABLED	13
 #define WLAN_TDLS_SET_WFD_DISABLED	14
-#endif // endif
+#endif
 
 /* WLC_E_RANGING_EVENT subtypes */
 #define WLC_E_RANGING_RESULTS	0
@@ -869,9 +875,11 @@ typedef enum wl_nan_events {
 	WL_NAN_EVENT_RX_MGMT_FRM		= 45,	/* NAN management frame received */
 	WL_NAN_EVENT_DISC_CACHE_TIMEOUT		= 46,	/* Disc cache timeout */
 
+	/* XXX: keep WL_NAN_EVENT_INVALID as the last element */
 	WL_NAN_EVENT_INVALID				/* delimiter for max value */
 } nan_app_events_e;
 
+/* XXX remove after precommit */
 #define NAN_EV_MASK(ev)	(1 << (ev - 1))
 #define IS_NAN_EVT_ON(var, evt) ((var & (1 << (evt-1))) != 0)
 

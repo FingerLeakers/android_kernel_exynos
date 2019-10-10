@@ -39,7 +39,7 @@
 #define UNUSED_VAR     __attribute__ ((unused))
 #else
 #define UNUSED_VAR
-#endif // endif
+#endif
 
 /* GNU GCC 4.6+ supports selectively turning off a warning.
  * Define these diagnostic macros to help suppress cast-qual warning
@@ -146,13 +146,13 @@ extern bool bcm_postattach_part_reclaimed;
 #define BCMPREATTACHFNSR(_fn)		BCMPREATTACHFN(_fn)
 #define BCMATTACHDATASR(_data)		_data
 #define BCMATTACHFNSR(_fn)		_fn
-#endif // endif
+#endif
 
 #define _data	_data
 #define _fn		_fn
 #ifndef CONST
 #define CONST	const
-#endif // endif
+#endif
 
 /* Non-manufacture or internal attach function/dat */
 #define	BCMNMIATTACHFN(_fn)	_fn
@@ -164,7 +164,7 @@ extern bool bcm_postattach_part_reclaimed;
 #else
 #define	BCMCISDUMPATTACHFN(_fn)		BCMNMIATTACHFN(_fn)
 #define	BCMCISDUMPATTACHDATA(_data)	BCMNMIATTACHDATA(_data)
-#endif // endif
+#endif
 
 /* SROM with OTP support */
 #if defined(BCMOTPSROM)
@@ -283,20 +283,20 @@ extern bool bcm_postattach_part_reclaimed;
 #define BUSTYPE(bus)	(BCMBUSTYPE)
 #else
 #define BUSTYPE(bus)	(bus)
-#endif // endif
+#endif
 
 #ifdef BCMBUSCORETYPE
 #define BUSCORETYPE(ct)		(BCMBUSCORETYPE)
 #else
 #define BUSCORETYPE(ct)		(ct)
-#endif // endif
+#endif
 
 /* Allows size optimization for single-backplane image */
 #ifdef BCMCHIPTYPE
 #define CHIPTYPE(bus)	(BCMCHIPTYPE)
 #else
 #define CHIPTYPE(bus)	(bus)
-#endif // endif
+#endif
 
 /* Allows size optimization for SPROM support */
 #if defined(BCMSPROMBUS)
@@ -305,26 +305,30 @@ extern bool bcm_postattach_part_reclaimed;
 #define SPROMBUS	(PCMCIA_BUS)
 #else
 #define SPROMBUS	(PCI_BUS)
-#endif // endif
+#endif
 
 /* Allows size optimization for single-chip image */
+/* XXX These macros are NOT meant to encourage writing chip-specific code.
+ * Use them only when it is appropriate for example in PMU PLL/CHIP/SWREG
+ * controls and in chip-specific workarounds.
+ */
 #ifdef BCMCHIPID
 #define CHIPID(chip)	(BCMCHIPID)
 #else
 #define CHIPID(chip)	(chip)
-#endif // endif
+#endif
 
 #ifdef BCMCHIPREV
 #define CHIPREV(rev)	(BCMCHIPREV)
 #else
 #define CHIPREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef BCMPCIEREV
 #define PCIECOREREV(rev)	(BCMPCIEREV)
 #else
 #define PCIECOREREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef HWA
 #ifdef BCMHWAREV
@@ -352,19 +356,19 @@ extern bool bcm_postattach_part_reclaimed;
 #define PMUREV(rev)	(BCMPMUREV)
 #else
 #define PMUREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef BCMCCREV
 #define CCREV(rev)	(BCMCCREV)
 #else
 #define CCREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef BCMGCIREV
 #define GCIREV(rev)	(BCMGCIREV)
 #else
 #define GCIREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef BCMCR4REV
 #define CR4REV(rev)	(BCMCR4REV)
@@ -372,19 +376,19 @@ extern bool bcm_postattach_part_reclaimed;
 #else
 #define CR4REV(rev)	(rev)
 #define CR4REV_GE(rev, val)	((rev) >= (val))
-#endif // endif
+#endif
 
 #ifdef BCMLHLREV
 #define LHLREV(rev)	(BCMLHLREV)
 #else
 #define LHLREV(rev)	(rev)
-#endif // endif
+#endif
 
 #ifdef BCMSPMISREV
 #define SPMISREV(rev)	(BCMSPMISREV)
 #else
 #define	SPMISREV(rev)	(0)
-#endif // endif
+#endif
 
 /* Defines for DMA Address Width - Shared between OSL and HNDDMA */
 #define DMADDR_MASK_32 0x0		/* Address mask for 32-bits */
@@ -461,12 +465,12 @@ typedef struct {
 
 #ifndef BCMEXTRAHDROOM
 #define BCMEXTRAHDROOM 204
-#endif // endif
+#endif
 
 /* Packet alignment for most efficient SDIO (can change based on platform) */
 #ifndef SDALIGN
 #define SDALIGN	32
-#endif // endif
+#endif
 
 /* Headroom required for dongle-to-host communication.  Packets allocated
  * locally in the dongle (e.g. for CDC ioctls or RNDIS messages) should
@@ -474,6 +478,11 @@ typedef struct {
  * be needed to get across the dongle bus to the host.  (These messages
  * don't go over the network, so room for the full WL header above would
  * be a waste.).
+*/
+/*
+ * XXX: set the numbers to be MAX of all the devices, to avoid problems with ROM builds
+ * USB BCMDONGLEHDRSZ and BCMDONGLEPADSZ is 0
+ * SDIO BCMDONGLEHDRSZ 12 and BCMDONGLEPADSZ 16
 */
 #define BCMDONGLEHDRSZ 12
 #define BCMDONGLEPADSZ 16
@@ -483,11 +492,11 @@ typedef struct {
 #if defined(NO_BCMDBG_ASSERT)
 # undef BCMDBG_ASSERT
 # undef BCMASSERT_LOG
-#endif // endif
+#endif
 
 #if defined(BCMASSERT_LOG)
 #define BCMASSERT_SUPPORT
-#endif // endif
+#endif
 
 /* Macros for doing definition and get/set of bitfields
  * Usage example, e.g. a three-bit field (bits 4-6):
@@ -514,7 +523,7 @@ typedef struct {
 #else
 #define	BCMSPACE
 #define bcmspace	TRUE	/* if (bcmspace) code is retained */
-#endif // endif
+#endif
 
 /* ROM_ENAB_RUNTIME_CHECK may be set based upon the #define below (for ROM builds). It may also
  * be defined via makefiles (e.g. ROM auto abandon unoptimized compiles).
@@ -677,7 +686,7 @@ extern uint32 gFWID;
 #define _PADLINE(line)  pad ## line
 #define _XSTR(line)     _PADLINE(line)
 #define PAD             _XSTR(__LINE__)
-#endif // endif
+#endif
 
 #define MODULE_DETACH(var, detach_func)\
 	if (var) { \
@@ -727,5 +736,10 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
  * helps comparison/hashing scripts find and ignore them.
  */
 #define TIMESTAMP_SUFFIX "<TIMESTAMP>"
+
+#ifdef STK_PRT_MMU
+/* MMU main thread stack data */
+#define BCM_MMU_MTH_STK_DATA(_data) __attribute__ ((__section__ (".mmu_mth_stack." #_data))) _data
+#endif /* STK_PRT_MMU */
 
 #endif /* _bcmdefs_h_ */

@@ -1734,10 +1734,8 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 	struct crypto_skcipher *tfm;
 	struct skcipher_request *req = NULL;
 	int rc = 0;
-#ifdef CONFIG_CRYPTO_FIPS
 	char *hash_key = NULL;
 	char *iv = NULL;
-#endif
 #ifdef CONFIG_ECRYPTFS_FEK_INTEGRITY
 	unsigned char hmac_hash[FEK_HASH_SIZE];
 	int rz = 0;
@@ -1837,7 +1835,7 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 #endif
 	skcipher_request_set_crypt(req, src_sg, dst_sg,
 				   auth_tok->session_key.encrypted_key_size,
-				   NULL);
+				   iv);
 	rc = crypto_skcipher_decrypt(req);
 	mutex_unlock(tfm_mutex);
 	if (unlikely(rc)) {
@@ -1888,6 +1886,11 @@ decrypt_passphrase_encrypted_session_key(struct ecryptfs_auth_tok *auth_tok,
 	}
 out:
 	skcipher_request_free(req);
+	kfree(hash_key);
+	if (iv)
+		memset(iv, 0, ECRYPTFS_DEFAULT_IV_BYTES);
+	kfree(iv);
+
 	return rc;
 }
 
@@ -1929,7 +1932,13 @@ int ecryptfs_parse_packet_set(struct ecryptfs_crypt_stat *crypt_stat,
 	 * added the our &auth_tok_list */
 	next_packet_is_auth_tok_packet = 1;
 	while (next_packet_is_auth_tok_packet) {
-		size_t max_packet_size = ((PAGE_SIZE - 8) - i);
+		size_t max_packet_size;
+		if ((PAGE_SIZE - 8) < i) {
+			printk(KERN_WARNING "%s: Invalid max packet size\n", __func__);
+			rc = -EINVAL;
+			goto out;
+		}
+		max_packet_size = ((PAGE_SIZE - 8) - i);
 
 		switch (src[i]) {
 		case ECRYPTFS_TAG_3_PACKET_TYPE:
@@ -2511,7 +2520,7 @@ write_tag_3_packet(char *dest, size_t *remaining_bytes,
 	}
 #endif
 	skcipher_request_set_crypt(req, src_sg, dst_sg,
-				   (*key_rec).enc_key_size, NULL);
+				   (*key_rec).enc_key_size, iv);
 	rc = crypto_skcipher_encrypt(req);
 	mutex_unlock(tfm_mutex);
 	skcipher_request_free(req);

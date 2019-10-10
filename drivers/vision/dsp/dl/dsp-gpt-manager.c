@@ -60,18 +60,22 @@ void dsp_gpt_manager_print(void)
 
 	DL_INFO(DL_BORDER);
 	DL_INFO("Global pointer table manager\n");
-	DL_INFO("start_address : 0x%lx\n", gpt_manager->start_addr);
-	DL_INFO("max_size : %zu\n", gpt_manager->max_size);
-	DL_INFO("bitmap_size : %zu\n", gpt_manager->bitmap_size);
+	DL_INFO("Start address: 0x%lx\n", gpt_manager->start_addr);
+	DL_INFO("Table memory size: %zu\n", gpt_manager->max_size);
+	DL_INFO("Table max: %zu\n", gpt_manager->max_size / DL_GPT_SIZE);
+	DL_INFO("Table rows: %zu\n", gpt_manager->bitmap_size);
 	DL_INFO("\n");
-	DL_INFO("bitmap\n");
+	DL_INFO("Bitmap table\n");
 
 	for (idx = gpt_manager->bitmap_size - 1; idx >= 0; idx--) {
+		DL_BUF_STR("[%d] ", idx);
 		for (jdx = DL_BIT_PER_BITMAP - 1; jdx >= 0; jdx--) {
 			unsigned int mask = 1 << jdx;
 
 			DL_BUF_STR("%d ", (gpt_manager->bitmap[idx] & mask) >>
 				jdx);
+			if (jdx % 4 == 0 && jdx != 0)
+				DL_BUF_STR(" ");
 		}
 
 		DL_BUF_STR("\n");
@@ -153,8 +157,6 @@ void dsp_gpt_free(struct dsp_lib *lib)
 
 void dsp_gpt_print(struct dsp_gpt *gpt)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Global pointer table\n");
-	DL_INFO("addr : 0x%lx\n", gpt->addr);
-	DL_INFO("offset : %u\n", gpt->offset);
+	DL_INFO("Address: 0x%lx\n", gpt->addr);
+	DL_INFO("Offset: %u\n", gpt->offset);
 }

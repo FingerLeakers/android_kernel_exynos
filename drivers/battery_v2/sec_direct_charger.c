@@ -377,6 +377,10 @@ static int sec_direct_chg_get_property(struct power_supply *psy,
 			psy_do_property(charger->pdata->direct_charger_name, get, ext_psp, value);
 			val->intval = value.intval;
 			break;
+		case POWER_SUPPLY_EXT_PROP_DIRECT_CHARGER_CHG_STATUS:
+			psy_do_property(charger->pdata->direct_charger_name, get, ext_psp, value);
+			val->strval = value.strval;
+			break;
 		default:
 			ret = psy_do_property(charger->pdata->main_charger_name, get, ext_psp, value);
 			val->intval = value.intval;

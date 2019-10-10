@@ -140,6 +140,7 @@
 		phy-clk-num = <0>;
 		pcie-pm-qos-int = <0>;
 		use-cache-coherency = "false";
+		use-pcieon-sleep = "false";
 		use-msi = "false";
 		use-sicd = "true";
 		use-sysmmu = "false";

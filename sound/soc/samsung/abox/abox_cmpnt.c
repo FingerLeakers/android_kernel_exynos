@@ -563,7 +563,7 @@ static int audio_mode_put(struct snd_kcontrol *kcontrol,
 	if (IS_ENABLED(CONFIG_SOC_EXYNOS9830)) {
 		if (mode == MODE_IN_CALL)
 			abox_vss_notify_call(dev, data, 1);
-		else if(mode == MODE_NORMAL)
+		else if (mode == MODE_NORMAL)
 			abox_vss_notify_call(dev, data, 0);
 	}
 
@@ -3260,7 +3260,7 @@ unsigned int abox_cmpnt_asrc_get_dst_format(struct abox_data *data,
 		snd_soc_component_read(cmpnt, ABOX_SPUS_ASRC_CTRL(id), &val);
 	else
 		snd_soc_component_read(cmpnt, ABOX_SPUM_ASRC_CTRL(id), &val);
-	width = val & ABOX_ASRC_BIT_WIDTH_MASK >> ABOX_ASRC_BIT_WIDTH_L;
+	width = (val & ABOX_ASRC_BIT_WIDTH_MASK) >> ABOX_ASRC_BIT_WIDTH_L;
 
 	return (width << 0x3) | (channels - 1);
 }

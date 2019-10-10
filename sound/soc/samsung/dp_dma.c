@@ -728,7 +728,57 @@ static int dma_new(struct snd_soc_pcm_runtime *rtd)
 	return ret;
 }
 
+int dp_ado_hw_params_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct dp_audio_pdata *pdata = dev_get_drvdata(dev);
+	struct soc_mixer_control *mc =
+		(struct soc_mixer_control *)kcontrol->private_value;
+	enum audio_param param = mc->reg;
+	long value;
+
+	switch (param) {
+	case DPADO_RATE:
+		value = pdata->rate;
+		break;
+	case DPADO_WIDTH:
+		value = pdata->width;
+		break;
+	case DPADO_CHANNEL:
+		value = pdata->channel;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	dev_info(dev, "%s(%d), (%ld)\n", __func__, param, value);
+	ucontrol->value.integer.value[0] = value;
+
+	return 0;
+}
+
+int dp_ado_hw_params_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	/* Nothing to do */
+	return 0;
+}
+
+static const struct snd_kcontrol_new dp_ado_controls[] = {
+	SOC_SINGLE_EXT("Rate", DPADO_RATE, 0, 384000, 0,
+			dp_ado_hw_params_get, dp_ado_hw_params_put),
+	SOC_SINGLE_EXT("Width", DPADO_WIDTH, 0, 24, 0,
+			dp_ado_hw_params_get, dp_ado_hw_params_put),
+	SOC_SINGLE_EXT("Channel", DPADO_CHANNEL, 0, 8, 0,
+			dp_ado_hw_params_get, dp_ado_hw_params_put),
+};
+
+
 static struct snd_soc_component_driver dp_dma_cmpnt_drv = {
+	.controls		= dp_ado_controls,
+	.num_controls		= ARRAY_SIZE(dp_ado_controls),
 	.ops			= &pcm_dma_ops,
 	.pcm_new		= dma_new,
 	.pcm_free		= dma_free_dma_buffers,
@@ -828,7 +878,27 @@ static const unsigned int extcon_id[] = {
 struct extcon_dev *dp_ado_extcon = NULL;
 void dp_ado_switch_set_state(int state)
 {
+	struct dp_audio_pdata *pdata;
+	int i;
+
 	pr_info("%s : dp audio switch event = %d\n", __func__, state);
+
+	if (state < 0) {
+		for (i = 0; i < DP_AUDIO_COUNT; i++) {
+			pdata = dev_get_drvdata(dp_dma_devs[i]);
+			pdata->channel = 0;
+			pdata->width = 0;
+			pdata->rate = 0;
+		}
+	} else {
+		for (i = 0; i < DP_AUDIO_COUNT; i++) {
+			pdata = dev_get_drvdata(dp_dma_devs[i]);
+			pdata->channel = ((state >> DP_AUDIO_PARAM_CHANNEL_OFFSET) & 0xff);
+			pdata->width = ((state >> DP_AUDIO_PARAM_WIDTH_OFFSET) & 0x7);
+			pdata->rate = ((state >> DP_AUDIO_PARAM_RATE_OFFSET) & 0x7f);
+		}
+	}
+
 	extcon_set_state_sync(dp_ado_extcon, EXTCON_DISP_HDMI, (state  < 0) ? 0 : 1);
 }
 #endif
@@ -837,7 +907,6 @@ static int dp_ado_component_probe(struct snd_soc_component *component)
 {
 	return 0;
 }
-
 
 static const struct snd_soc_component_driver dp_ado_cmpnt_drv = {
 	.probe = dp_ado_component_probe,

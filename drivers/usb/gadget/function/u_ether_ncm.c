@@ -29,7 +29,9 @@ static inline int is_promisc(u16 cdc_filter)
 #ifdef NCM_WITH_TIMER
 static void tx_complete_ncm_timer(struct usb_ep *ep, struct usb_request *req)
 {
+	struct sk_buff	*skb = req->context;
 	struct eth_dev	*dev = ep->driver_data;
+	int pkts_compl;
 
 	switch (req->status) {
 	default:
@@ -47,8 +49,14 @@ static void tx_complete_ncm_timer(struct usb_ep *ep, struct usb_request *req)
 			dev->net->stats.tx_bytes += req->length-1;
 		else
 			dev->net->stats.tx_bytes += req->length;
+
+		if (skb)
+			dev_consume_skb_any(skb);
 	}
 	dev->net->stats.tx_packets++;
+
+	pkts_compl = dev->port_usb->multi_pkt_xfer ? dev->dl_max_pkts_per_xfer : 1;
+	netdev_completed_queue(dev->net, pkts_compl, req->length);
 
 	spin_lock(&dev->tx_req_lock);
 
@@ -87,6 +95,8 @@ static int tx_task_ncm(struct eth_dev *dev, struct usb_request *req)
 		length++;
 	}
 	req->length = length;
+
+	netdev_sent_queue(dev->net, length);
 
 #ifdef HS_THROTTLE_IRQ
 	/* throttle highspeed IRQ rate back slightly */
@@ -285,6 +295,7 @@ netdev_tx_t eth_start_xmit_ncm_timer(struct sk_buff *skb,
 		skb_len = skb->len;
 		length = req->length;
 		dev_kfree_skb_any(skb);
+		req->context = NULL;
 
 		spin_lock_irqsave(&dev->tx_req_lock, flags);
 
@@ -346,6 +357,8 @@ static void tx_complete_ncm(struct usb_ep *ep, struct usb_request *req)
 	struct usb_ep *in;
 	int length;
 	int retval;
+	int pkts_compl;
+
 	switch (req->status) {
 	default:
 		dev->net->stats.tx_errors++;
@@ -362,8 +375,14 @@ static void tx_complete_ncm(struct usb_ep *ep, struct usb_request *req)
 			dev->net->stats.tx_bytes += req->length-1;
 		else
 			dev->net->stats.tx_bytes += req->length;
+
+		if (skb)
+			dev_consume_skb_any(skb);
 	}
 	dev->net->stats.tx_packets++;
+
+	pkts_compl = dev->port_usb->multi_pkt_xfer ? dev->dl_max_pkts_per_xfer : 1;
+	netdev_completed_queue(dev->net, pkts_compl, req->length);
 
 	spin_lock(&dev->tx_req_lock);
 
@@ -566,6 +585,7 @@ netdev_tx_t eth_start_xmit_ncm(struct sk_buff *skb,
 		skb_len = skb->len;
 		length = req->length;
 		dev_kfree_skb_any(skb);
+		req->context = NULL;
 
 		spin_lock_irqsave(&dev->tx_req_lock, flags);
 
@@ -621,6 +641,8 @@ netdev_tx_t eth_start_xmit_ncm(struct sk_buff *skb,
 	}
 
 	req->length = length;
+
+	netdev_sent_queue(dev->net, length);
 
 #ifdef HS_THROTTLE_IRQ
 	/* throttle highspeed IRQ rate back slightly */

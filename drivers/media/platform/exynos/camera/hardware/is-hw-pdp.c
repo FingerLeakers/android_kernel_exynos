@@ -62,7 +62,15 @@ static void pdp_s_one_shot_enable(void *data, unsigned long id)
 		return;
 	}
 
-	pdp_hw_s_one_shot_enable(pdp->base);
+	if (test_and_clear_bit(IS_PDP_VOTF_ONESHOT_FIRST_FRAME, &pdp->state)) {
+		pdp_hw_s_path(pdp->base, DMA);
+		pdp_hw_s_corex_enable(pdp->base, true);
+
+		if (pdp_hw_g_idle_state(pdp->base))
+			pdp_hw_s_one_shot_enable(pdp->base);
+	} else {
+		pdp_hw_s_one_shot_enable(pdp->base);
+	}
 }
 #endif
 
@@ -445,7 +453,7 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 	for (i = 0; i < regs_size; i++) {
 		dbg_pdp(1, "[%d] ofs: 0x%x, val: 0x%x\n", pdp,
 				i, regs[i].reg_addr, regs[i].reg_data);
-		writel(regs[i].reg_data, pdp->base + regs[i].reg_addr);
+		writel(regs[i].reg_data, pdp->base + regs[i].reg_addr + COREX_OFFSET);
 	}
 
 	/* CAUTION: WDMA size must be set after PDSTAT_ROI block setting. */
@@ -607,10 +615,12 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 	u32 pd_width, pd_height, pd_hwformat;
 	u32 path;
 	u32 en_votf;
+	u32 en_sdc;
 	struct is_hardware *hardware;
 	struct is_module_enum *module;
 	u32 fps;
 	ulong flags = 0;
+	u32 extformat;
 
 	FIMC_BUG(!hw_ip);
 
@@ -710,6 +720,8 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 			frame_manager_print_queues(stat_framemgr);
 			framemgr_x_barrier_irqr(stat_framemgr, FMGR_IDX_30, flags);
 		}
+	} else {
+		pdp_hw_s_wdma_disable(pdp->base);
 	}
 
 	if (path == OTF || en_votf) {
@@ -723,9 +735,14 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 		pdp->prev_instance = instance;
 	}
 
+	extformat = sensor_cfg->input[CSI_VIRTUAL_CH_0].extformat;
+	if (extformat == HW_FORMAT_RAW10_SDC)
+		en_sdc = 1;
+	else
+		en_sdc = 0;
+
 	/* VOTF RDMA settings */
 	if (en_votf == OTF_INPUT_COMMAND_ENABLE) {
-		u32 en_sdc = 0;
 		struct is_frame *votf_frame;
 		struct is_framemgr *votf_fmgr;
 
@@ -745,8 +762,8 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 				mswarn_hw("votf_fmgr_call(slave) is fail(%d)",
 					instance, hw_ip, ret);
 
-			pdp_hw_s_rdma_enable(pdp->base, votf_frame->dvaddr_buffer,
-				votf_frame->num_buffers, en_votf, en_sdc);
+			pdp_hw_s_rdma_addr(pdp->base, votf_frame->dvaddr_buffer,
+				votf_frame->num_buffers);
 		}
 
 		votf_frame = is_votf_get_frame(group, TRS, ENTRY_PDAF);
@@ -766,8 +783,8 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 					instance, hw_ip, ret);
 
 			if (enable)
-				pdp_hw_s_af_rdma_enable(pdp->base, votf_frame->dvaddr_buffer,
-					votf_frame->num_buffers, en_votf);
+				pdp_hw_s_af_rdma_addr(pdp->base, votf_frame->dvaddr_buffer,
+					votf_frame->num_buffers);
 		}
 	}
 
@@ -800,7 +817,8 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 	/* PDP context setting */
 	pdp_hw_s_sensor_type(pdp->base, sensor_type);
 	pdp_hw_s_core(pdp->base, enable, img_width, img_height, img_hwformat, img_pixelsize,
-		pd_width, pd_height, pd_hwformat, sensor_type, path, pdp->vc_ext_sensor_mode, fps);
+		pd_width, pd_height, pd_hwformat, sensor_type, path, pdp->vc_ext_sensor_mode,
+		fps, en_sdc, en_votf);
 
 #if 0 // TEMP_2020 - RTA should fix for PDAF windows
 	if (enable)
@@ -844,13 +862,31 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 		msinfo_hw("[NS]CSI(%d) --> PDP(%d)\n", instance, hw_ip, csi_ch, pdp->id);
 	}
 
-	if (path == OTF || en_votf) {
+	switch (path) {
+	case OTF:
+	case STRGEN:
+		/* This path selection must be set at the end. */
+		pdp_hw_s_path(pdp->base, path);
+		pdp_hw_s_global_enable(pdp->base, true);
+		break;
+		break;
+	case DMA:
 #if defined(VOTF_ONESHOT)
 		if (en_votf)
-			pdp_hw_s_corex_enable(pdp->base, true);
+			set_bit(IS_PDP_VOTF_ONESHOT_FIRST_FRAME, &pdp->state);
 		else
-#endif
+			pdp_hw_s_path(pdp->base, DMA);
+#else
+		/* This path selection must be set at the end. */
+		pdp_hw_s_path(pdp->base, path);
+		if (en_votf)
 			pdp_hw_s_global_enable(pdp->base, true);
+#endif
+		break;
+	default:
+		mserr_hw("Invalid input path(%d)\n", instance, hw_ip, path);
+		ret = -EINVAL;
+		break;
 	}
 
 	if (debug_pdp >= 2)
@@ -1189,6 +1225,16 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 
 		pdp_hw_s_init(pdp->cmn_base);
 		pdp_hw_s_global(pdp->cmn_base, pdp->id, path, lic_lut);
+
+		/*
+		 * Due to limitation, mapping between LIC and core need to do sequencially.
+		 * So, If other PDP uses first time, need to map LIC0 - Core0 first
+		 */
+		if (hw_ip->id != DEV_HW_PAF0) {
+			pdp_hw_s_pdstat_path(pdp->cmn_base, false);
+			msinfo_hw("Need to map LIC0 - Core0\n", instance, hw_ip);
+		}
+
 		msinfo_hw("first enterance pdp ch%d\n", instance, hw_ip, pdp->id);
 	}
 
@@ -1243,6 +1289,11 @@ static int is_hw_pdp_disable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 			stat_frame = get_frame(stat_framemgr, FS_REQUEST);
 		}
 		framemgr_x_barrier_irqr(stat_framemgr, FMGR_IDX_30, flags);
+	}
+
+	if (atomic_read(&hw_ip->run_rsccount) == 0) {
+		mswarn_hw("run_rsccount is not paired.\n", instance, hw_ip);
+		return 0;
 	}
 
 	if (atomic_dec_return(&hw_ip->run_rsccount) > 0)
@@ -1334,7 +1385,6 @@ static int is_hw_pdp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	if ((param->dma_input.cmd == DMA_INPUT_COMMAND_ENABLE)
 		&& (en_votf == OTF_INPUT_COMMAND_DISABLE)) {
 		int i;
-		u32 en_sdc = 0;
 
 		for (i = 0; i < num_buffers; i++) {
 			if (frame->dvaddr_buffer[i] == 0) {
@@ -1344,8 +1394,8 @@ static int is_hw_pdp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 			}
 		}
 
-		pdp_hw_s_rdma_enable(pdp->base, frame->dvaddr_buffer,
-			num_buffers, en_votf, en_sdc);
+		pdp_hw_s_rdma_addr(pdp->base, frame->dvaddr_buffer, num_buffers);
+		pdp_hw_s_one_shot_enable(pdp->base);
 	}
 
 	set_bit(hw_ip->id, &frame->core_flag);

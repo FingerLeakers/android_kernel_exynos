@@ -36,6 +36,8 @@
 #endif
 #include <linux/smc.h>
 #include <linux/exynos_iovmm.h>
+#include <linux/switch.h>
+
 
 #if defined(CONFIG_PHY_EXYNOS_USBDRD)
 #include "../../../drivers/phy/samsung/phy-exynos-usbdrd.h"
@@ -86,11 +88,36 @@ void displayport_dump_registers(struct displayport_device *displayport)
 			displayport->res.link_regs + 0x6400, 0x46C, false);
 }
 
+#ifdef CONFIG_SWITCH
+static struct switch_dev switch_secdp_hpd = {
+	.name = "hdmi",
+};
+static struct switch_dev switch_secdp_msg = {
+	.name = "secdp_msg",
+};
+static int switch_state = 0;
+#endif
+static void displayport_set_switch_poor_connect(void)
+{
+#ifdef CONFIG_SWITCH
+	displayport_err("set poor connect switch event\n");
+	switch_set_state(&switch_secdp_msg, 1);
+	switch_set_state(&switch_secdp_msg, 0);
+#else
+	displayport_err("poor connect switch event disabled\n");
+#endif
+}
+
 static int displayport_remove(struct platform_device *pdev)
 {
 	struct displayport_device *displayport = platform_get_drvdata(pdev);
 
 	pm_runtime_disable(&pdev->dev);
+#ifdef CONFIG_SWITCH
+		switch_dev_unregister(&switch_secdp_msg);
+		switch_dev_unregister(&switch_secdp_hpd);
+#endif
+
 #if defined(CONFIG_EXTCON)
 	devm_extcon_dev_unregister(displayport->dev, displayport->extcon_displayport);
 #else
@@ -995,6 +1022,17 @@ static void displayport_set_extcon_state(u32 sst_id,
 #else
 	displayport_info("Not compiled EXTCON driver\n");
 #endif
+#ifdef CONFIG_SWITCH
+	if (state) {
+		switch_state ++;
+		switch_set_state(&switch_secdp_hpd, state);
+	} else {
+		switch_state --;
+		if (switch_state == 0)
+			switch_set_state(&switch_secdp_hpd, state);
+	}
+#endif
+
 	displayport_info("SST%d HPD status = %d\n", sst_id + 1, state);
 }
 
@@ -1261,6 +1299,7 @@ void displayport_hpd_changed(int state)
 
 		/* for Link CTS : (4.2.2.3) EDID Read */
 		if (displayport_link_status_read(sst_id)) {
+			displayport_set_switch_poor_connect();
 			displayport_err("link_status_read fail\n");
 			goto HPD_FAIL;
 		}
@@ -1271,6 +1310,7 @@ void displayport_hpd_changed(int state)
 		displayport_info("link training in hpd_changed\n");
 		ret = displayport_link_training(sst_id);
 		if (ret < 0) {
+			displayport_set_switch_poor_connect();
 			displayport_dbg("link training fail\n");
 			goto HPD_FAIL;
 		}
@@ -3735,6 +3775,17 @@ static int displayport_probe(struct platform_device *pdev)
 #else
 	displayport_info("Not compiled EXTCON driver\n");
 #endif
+
+#ifdef CONFIG_SWITCH
+	ret = switch_dev_register(&switch_secdp_msg);
+	if (ret)
+		displayport_err("Failed to register dp msg switch\n");
+
+	ret = switch_dev_register(&switch_secdp_hpd);
+	if (ret)
+		displayport_err("Failed to register dp hpd switch\n");
+#endif
+
 
 	pm_runtime_enable(dev);
 

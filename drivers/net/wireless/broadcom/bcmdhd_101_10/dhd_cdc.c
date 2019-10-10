@@ -43,7 +43,7 @@
 #ifdef PROP_TXSTATUS
 #include <wlfc_proto.h>
 #include <dhd_wlfc.h>
-#endif // endif
+#endif
 
 #define RETRIES 2		/* # of retries to retrieve matching ioctl response */
 #define BUS_HEADER_LEN	(24+DHD_SDALIGN)	/* Must be at least SDPCM_RESERVE
@@ -118,6 +118,7 @@ dhdcdc_cmplt(dhd_pub_t *dhd, uint32 id, uint32 len)
 	return ret;
 }
 
+/* XXX: due to overlays this should not be called directly; call dhd_wl_ioctl_cmd() instead */
 static int
 dhdcdc_query_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8 action)
 {
@@ -215,6 +216,7 @@ done:
 extern bool g_pm_control;
 #endif /* DHD_PM_CONTROL_FROM_FILE */
 
+/* XXX: due to overlays this should not be called directly; call dhd_wl_ioctl_cmd() instead */
 static int
 dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8 action)
 {
@@ -306,6 +308,7 @@ done:
 	return ret;
 }
 
+/* XXX: due to overlays this should not be called directly; call dhd_wl_ioctl() instead */
 int
 dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 {
@@ -389,7 +392,7 @@ dhd_prot_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "Protocol CDC: reqid %d\n", dhdp->prot->reqid);
 #ifdef PROP_TXSTATUS
 	dhd_wlfc_dump(dhdp, strbuf);
-#endif // endif
+#endif
 }
 
 /*	The FreeBSD PKTPUSH could change the packet buf pinter
@@ -431,7 +434,7 @@ dhd_prot_hdrlen(dhd_pub_t *dhd, void *PKTBUF)
 #ifdef BDC
 	/* Length of BDC(+WLFC) headers pushed */
 	hdrlen = BDC_HEADER_LEN + (((struct bdc_header *)PKTBUF)->dataOffset * 4);
-#endif // endif
+#endif
 	return hdrlen;
 }
 
@@ -441,7 +444,7 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 {
 #ifdef BDC
 	struct bdc_header *h;
-#endif // endif
+#endif
 	uint8 data_offset = 0;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
@@ -524,7 +527,7 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	dhd->prot = cdc;
 #ifdef BDC
 	dhd->hdrlen += BDC_HEADER_LEN;
-#endif // endif
+#endif
 	dhd->maxctl = WLC_IOCTL_MAXLEN + sizeof(cdc_ioctl_t) + ROUND_UP_MARGIN;
 	return 0;
 
@@ -540,7 +543,7 @@ dhd_prot_detach(dhd_pub_t *dhd)
 {
 #ifdef PROP_TXSTATUS
 	dhd_wlfc_deinit(dhd);
-#endif // endif
+#endif
 	DHD_OS_PREFREE(dhd, dhd->prot, sizeof(dhd_prot_t));
 	dhd->prot = NULL;
 }
@@ -590,6 +593,7 @@ dhd_sync_with_dongle(dhd_pub_t *dhd)
 	/* Always assumes wl for now */
 	dhd->iswl = TRUE;
 
+	/* XXX Could use WLC_GET_REVINFO to get driver version? */
 done:
 	return ret;
 }
@@ -732,6 +736,7 @@ dhd_process_pkt_reorder_info(dhd_pub_t *dhd, uchar *reorder_info_buf, uint reord
 		ptr->p = (void *)(ptr+1);
 		ptr->max_idx = max_idx;
 	}
+	/* XXX: validate cur, exp indices */
 	if (flags & WLHOST_REORDERDATA_NEW_HOLE)  {
 		DHD_REORDER(("%s: new hole, so cleanup pending buffers\n", __FUNCTION__));
 		if (ptr->pend_pkts) {

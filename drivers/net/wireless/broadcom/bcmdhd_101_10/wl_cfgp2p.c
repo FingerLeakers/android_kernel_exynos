@@ -131,6 +131,11 @@ bool wl_cfgp2p_is_p2p_action(void *frame, u32 frame_len)
 	return false;
 }
 
+/*
+* XXX Currently Action frame just pass to P2P interface regardless real dst.
+* but GAS Action can be used for Hotspot2.0 as well
+* Need to distingush that it's for P2P or HS20
+*/
 #define GAS_RESP_OFFSET		4
 #define GAS_CRESP_OFFSET	5
 bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
@@ -151,6 +156,10 @@ bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
 	}
 
 #ifdef WL11U
+	/* XXX Hotspot2.0 STA mode can receive only response
+	*  SoftAP mode cannot run Hotspot2.0 compliant Ap because
+	*  Hotspot2.0 support only Enterprise mode
+	*/
 	if (sd_act_frm->action == P2PSD_ACTION_ID_GAS_IRESP) {
 		return wl_cfg80211_find_gas_subtype(P2PSD_GAS_OUI_SUBTYPE, P2PSD_GAS_NQP_INFOID,
 			(u8 *)sd_act_frm->query_data + GAS_RESP_OFFSET,
@@ -444,7 +453,7 @@ wl_cfgp2p_ifadd(struct bcm_cfg80211 *cfg, struct ether_addr *mac, u8 if_type,
 	err = wldev_iovar_setbuf(ndev, "p2p_ifadd", &ifreq, sizeof(ifreq),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
 	if (unlikely(err < 0)) {
-		printk("'cfg p2p_ifadd' error %d\n", err);
+		WL_ERR(("'cfg p2p_ifadd' error %d\n", err));
 		return err;
 	}
 
@@ -467,7 +476,7 @@ wl_cfgp2p_ifdisable(struct bcm_cfg80211 *cfg, struct ether_addr *mac)
 	ret = wldev_iovar_setbuf(netdev, "p2p_ifdis", mac, sizeof(*mac),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
 	if (unlikely(ret < 0)) {
-		printk("'cfg p2p_ifdis' error %d\n", ret);
+		WL_ERR(("'cfg p2p_ifdis' error %d\n", ret));
 	}
 	return ret;
 }
@@ -491,7 +500,7 @@ wl_cfgp2p_ifdel(struct bcm_cfg80211 *cfg, struct ether_addr *mac)
 	ret = wldev_iovar_setbuf(netdev, "p2p_ifdel", mac, sizeof(*mac),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
 	if (unlikely(ret < 0)) {
-		printk("'cfg p2p_ifdel' error %d\n", ret);
+		WL_ERR(("'cfg p2p_ifdel' error %d\n", ret));
 	}
 #ifdef WL_DISABLE_HE_P2P
 	if ((bssidx = wl_get_bssidx_by_wdev(cfg, netdev->ieee80211_ptr)) < 0) {
@@ -501,9 +510,6 @@ wl_cfgp2p_ifdel(struct bcm_cfg80211 *cfg, struct ether_addr *mac)
 	}
 	WL_DBG(("Enabling back HE for P2P\n"));
 	wl_cfg80211_set_he_mode(netdev, cfg, bssidx, WL_IF_TYPE_P2P_DISC, TRUE);
-	if (ret < 0) {
-		WL_ERR(("failed to set he features, error=%d\n", ret));
-	}
 #endif /* WL_DISABLE_HE_P2P */
 
 	return ret;
@@ -536,7 +542,7 @@ wl_cfgp2p_ifchange(struct bcm_cfg80211 *cfg, struct ether_addr *mac, u8 if_type,
 	err = wldev_iovar_setbuf(netdev, "p2p_ifupd", &ifreq, sizeof(ifreq),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
 	if (unlikely(err < 0)) {
-		printk("'cfg p2p_ifupd' error %d\n", err);
+		WL_ERR(("'cfg p2p_ifupd' error %d\n", err));
 	} else if (if_type == WL_P2P_IF_GO) {
 		cfg->p2p->p2p_go_count++;
 	}
@@ -885,7 +891,7 @@ wl_cfgp2p_disable_discovery(struct bcm_cfg80211 *cfg)
 #ifdef DHD_IFDEBUG
 	WL_ERR(("%s: bssidx: %d\n",
 		__FUNCTION__, (cfg)->p2p->bss[P2PAPI_BSSCFG_DEVICE].bssidx));
-#endif // endif
+#endif
 	bssidx = wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE);
 	if (bssidx <= 0) {
 		CFGP2P_ERR((" do nothing, not initialized\n"));
@@ -903,7 +909,7 @@ wl_cfgp2p_disable_discovery(struct bcm_cfg80211 *cfg)
 	if (wl_get_p2p_status(cfg, SCANNING)) {
 		p2pwlu_scan_abort(hdl, FALSE);
 	}
-#endif // endif
+#endif
 	wl_clr_p2p_status(cfg, DISCOVERY_ON);
 	ret = wl_cfgp2p_deinit_discovery(cfg);
 	return ret;
@@ -1168,7 +1174,7 @@ exit:
 /* Check whether the given IE looks like WFA WFDisplay IE. */
 #ifndef WFA_OUI_TYPE_WFD
 #define WFA_OUI_TYPE_WFD	0x0a			/* WiFi Display OUI TYPE */
-#endif // endif
+#endif
 #define wl_cfgp2p_is_wfd_ie(ie, tlvs, len)	wl_cfgp2p_has_ie(ie, tlvs, len, \
 		(const uint8 *)WFA_OUI, WFA_OUI_LEN, WFA_OUI_TYPE_WFD)
 
@@ -1438,6 +1444,7 @@ wl_cfgp2p_listen_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #if defined(WL_CFG80211_P2P_DEV_IF)
 				if (cfgdev && ((struct wireless_dev *)cfgdev)->wiphy &&
 				    bcmcfg_to_p2p_wdev(cfg)) {
+					/* XXX: JIRA:SWWLAN-81873. It may be invalid cfgdev. */
 					/*
 					 * To prevent kernel panic,
 					 * if cfgdev->wiphy may be invalid, adding explicit check
@@ -1510,6 +1517,7 @@ wl_cfgp2p_cancel_listen(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	 * the LISTEN state.
 	 */
 #ifdef NOT_YET
+/* XXX WAR : it is temporal workaround before resolving the root cause of kernel panic */
 	wl_cfgp2p_set_p2p_mode(cfg, WL_P2P_DISC_ST_SCAN, 0, 0,
 		wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE));
 #endif /* NOT_YET */
@@ -1656,6 +1664,9 @@ wl_cfgp2p_action_tx_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev
 				} else {
 					CFGP2P_ACTION(("TX actfrm : NO ACK\n"));
 				}
+				/* XXX if there is no ack, we don't need to wait for
+				 * WLC_E_ACTION_FRAME_OFFCHAN_COMPLETE event for ucast
+				 */
 				if (cfg->afx_hdl && !ETHER_ISBCAST(&cfg->afx_hdl->tx_dst_addr)) {
 					wl_stop_wait_next_action_frame(cfg, ndev, bsscfgidx);
 				}
@@ -1939,6 +1950,10 @@ wl_cfgp2p_set_p2p_noa(struct bcm_cfg80211 *cfg, struct net_device *ndev, char* b
 			/* Continuous NoA interval. */
 			dongle_noa.action = WL_P2P_SCHED_ACTION_DOZE;
 			dongle_noa.type = WL_P2P_SCHED_TYPE_ABS;
+			/* XXX If the NoA interval is equal to the beacon interval, use
+			 * the percentage based NoA API to work-around driver issues
+			 * (PR #88043). Otherwise, use the absolute duration/interval API.
+			 */
 			if ((cfg->p2p->noa.desc[0].interval == 102) ||
 				(cfg->p2p->noa.desc[0].interval == 100)) {
 				cfg->p2p->noa.desc[0].start = 100 -
@@ -2292,6 +2307,9 @@ wl_cfgp2p_retreive_p2p_dev_addr(wl_bss_info_t *bi, u32 bi_length)
 static void
 wl_cfgp2p_ethtool_get_drvinfo(struct net_device *net, struct ethtool_drvinfo *info)
 {
+	/* XXX to prevent kernel panic, add dummy value.
+	 * some kernel calls drvinfo even if ethtool is not registered.
+	 */
 	snprintf(info->driver, sizeof(info->driver), "p2p");
 	snprintf(info->version, sizeof(info->version), "%lu", (unsigned long)(0));
 }
@@ -2346,7 +2364,7 @@ wl_cfgp2p_register_ndev(struct bcm_cfg80211 *cfg)
 #else
 	ASSERT(!net->netdev_ops);
 	net->netdev_ops = &wl_cfgp2p_if_ops;
-#endif // endif
+#endif
 
 	/* Register with a dummy MAC addr */
 	memcpy(net->dev_addr, temp_addr, ETHER_ADDR_LEN);
@@ -2594,7 +2612,7 @@ wl_cfgp2p_start_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	p2p_on(cfg) = true;
 #if defined(P2P_IE_MISSING_FIX)
 	cfg->p2p_prb_noti = false;
-#endif // endif
+#endif
 
 	CFGP2P_DBG(("P2P interface started\n"));
 

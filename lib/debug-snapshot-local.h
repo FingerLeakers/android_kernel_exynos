@@ -137,4 +137,8 @@ extern struct dbg_snapshot_item dss_items[];
 extern struct dbg_snapshot_dpm_item dpm_items[];
 extern struct dbg_snapshot_dpm dss_dpm;
 extern int dbg_snapshot_log_size;
+
+#ifdef CONFIG_SEC_PM_DEBUG
+extern ssize_t dss_log_work_print(char *buf);
+#endif /* CONFIG_SEC_PM_DEBUG */
 #endif

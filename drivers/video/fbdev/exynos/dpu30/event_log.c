@@ -84,6 +84,23 @@ static inline void dpu_event_log_decon
 		log->data.cursor.ypos = decon->cursor.ypos;
 		log->data.cursor.elapsed = ktime_sub(ktime_get(), log->time);
 		break;
+	case DPU_EVT_ACQUIRE_RSC:
+	case DPU_EVT_RELEASE_RSC:
+	case DPU_EVT_STORE_RSC:
+		log->data.rsc.prev_used_dpp = decon->prev_used_dpp;
+		log->data.rsc.cur_using_dpp = decon->cur_using_dpp;
+		log->data.rsc.prev_req_win = decon->prev_req_win;
+		log->data.rsc.cur_req_win = decon->cur_req_win;
+		if (IS_DECON_ON_STATE(decon)) {
+			log->data.rsc.hw_ch_info =
+				decon_read(decon->id, RESOURCE_OCCUPANCY_INFO_1);
+			log->data.rsc.hw_win_info =
+				decon_read(decon->id, RESOURCE_OCCUPANCY_INFO_2);
+		} else {
+			log->data.rsc.hw_ch_info = 0xFFFFFFFF;
+			log->data.rsc.hw_win_info = 0xFFFFFFFF;
+		}
+		break;
 	default:
 		/* Any remaining types will be log just time and type */
 		break;
@@ -255,6 +272,9 @@ void DPU_EVENT_LOG(dpu_event_t type, struct v4l2_subdev *sd, ktime_t time)
 	case DPU_EVT_RSC_CONFLICT:
 	case DPU_EVT_DECON_FRAMESTART:
 	case DPU_EVT_CURSOR_POS:	/* cursor async */
+	case DPU_EVT_ACQUIRE_RSC:
+	case DPU_EVT_RELEASE_RSC:
+	case DPU_EVT_STORE_RSC:
 		dpu_event_log_decon(type, sd, time);
 		break;
 	case DPU_EVT_DSIM_FRAMEDONE:
@@ -504,6 +524,55 @@ static void dpu_print_log_update_handler(struct seq_file *s,
 	}
 }
 
+#define RSC_BUF_CNT	16
+static void dpu_print_log_resource_info(struct decon_device *decon,
+				struct seq_file *s, struct disp_log_rsc *rsc)
+{
+	char buf_prev_dpp[RSC_BUF_CNT] = {0, };
+	char buf_cur_dpp[RSC_BUF_CNT] = {0, };
+	char buf_prev_win[RSC_BUF_CNT] = {0, };
+	char buf_cur_win[RSC_BUF_CNT] = {0, };
+	int i;
+	int len = 0;
+
+	len = 0;
+	for (i = 0; i < decon->dt.dpp_cnt; ++i) {
+		if (!test_bit(i, &rsc->prev_used_dpp))
+			continue;
+
+		len += snprintf(buf_prev_dpp + len, RSC_BUF_CNT - len, " %d", i);
+	}
+
+	len = 0;
+	for (i = 0; i < decon->dt.dpp_cnt; ++i) {
+		if (!test_bit(i, &rsc->cur_using_dpp))
+			continue;
+
+		len += snprintf(buf_cur_dpp + len, RSC_BUF_CNT - len, " %d", i);
+	}
+
+	len = 0;
+	for (i = 0; i < decon->dt.max_win; ++i) {
+		if (!test_bit(i, &rsc->prev_req_win))
+			continue;
+
+		len += snprintf(buf_prev_win + len, RSC_BUF_CNT - len, " %d", i);
+	}
+
+	len = 0;
+	for (i = 0; i < decon->dt.max_win; ++i) {
+		if (!test_bit(i, &rsc->cur_req_win))
+			continue;
+
+		len += snprintf(buf_cur_win + len, RSC_BUF_CNT - len, " %d", i);
+	}
+
+	seq_printf(s, "\t\t\tCH: PREV[%s] CUR[%s], WIN: PREV[%s] CUR[%s]\n",
+			buf_prev_dpp, buf_cur_dpp, buf_prev_win, buf_cur_win);
+	seq_printf(s, "\t\t\tRSC_CH[0x%x], RSC_WIN[0x%x]\n",
+			rsc->hw_ch_info, rsc->hw_win_info);
+}
+
 /* display logged events related with DECON */
 void DPU_EVENT_SHOW(struct seq_file *s, struct decon_device *decon)
 {
@@ -701,6 +770,18 @@ void DPU_EVENT_SHOW(struct seq_file *s, struct decon_device *decon)
 			break;
 		case DPU_EVT_DMA_RECOVERY:
 			seq_printf(s, "%20s  %20s", "DMA_FRAMEDONE", "-\n");
+			break;
+		case DPU_EVT_ACQUIRE_RSC:
+			seq_printf(s, "%20s  ", "ACQUIRE_RSC\n");
+			dpu_print_log_resource_info(decon, s, &log->data.rsc);
+			break;
+		case DPU_EVT_RELEASE_RSC:
+			seq_printf(s, "%20s  ", "RELEASE_RSC\n");
+			dpu_print_log_resource_info(decon, s, &log->data.rsc);
+			break;
+		case DPU_EVT_STORE_RSC:
+			seq_printf(s, "%20s  ", "STORE_RSC\n");
+			dpu_print_log_resource_info(decon, s, &log->data.rsc);
 			break;
 		case DPU_EVT_CURSOR_POS:
 			tv = ktime_to_timeval(log->data.cursor.elapsed);
@@ -1040,11 +1121,11 @@ static int decon_debug_cmd_lp_ref_show(struct seq_file *s, void *unused)
 	struct dsim_device *dsim = get_dsim_drvdata(0);
 	int i;
 
-	/* DSU_MODE_1 is used in stead of 1 in MCD */
-	seq_printf(s, "%u\n", dsim->panel->lcd_info.mres_mode);
+	seq_printf(s, "%u\n", dsim->panel->lcd_info.cur_mode_idx);
 
-	for (i = 0; i < dsim->panel->lcd_info.mres.number; i++)
-		seq_printf(s, "%u\n", dsim->panel->lcd_info.cmd_underrun_cnt[i]);
+	for (i = 0; i < dsim->panel->lcd_info.display_mode_count; i++)
+		seq_printf(s, "%u\n",
+				dsim->panel->lcd_info.display_mode[i].cmd_lp_ref);
 
 	return 0;
 }
@@ -1061,7 +1142,7 @@ static ssize_t decon_debug_cmd_lp_ref_write(struct file *file, const char __user
 	int ret;
 	unsigned int cmd_lp_ref;
 	struct dsim_device *dsim;
-	int idx;
+	u32 idx;
 
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
@@ -1077,8 +1158,8 @@ static ssize_t decon_debug_cmd_lp_ref_write(struct file *file, const char __user
 
 	dsim = get_dsim_drvdata(0);
 
-	idx = dsim->panel->lcd_info.mres_mode;
-	dsim->panel->lcd_info.cmd_underrun_cnt[idx] = cmd_lp_ref;
+	idx = dsim->panel->lcd_info.cur_mode_idx;
+	dsim->panel->lcd_info.display_mode[idx].cmd_lp_ref = cmd_lp_ref;
 
 out:
 	kfree(buf_data);

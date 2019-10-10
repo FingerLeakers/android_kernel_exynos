@@ -154,6 +154,7 @@ int dsp_kernel_load(struct dsp_kernel_manager *kmgr,
 	if (ret.status) {
 		dsp_err("Failed to load kernel libraries(%u/%d)\n",
 				kernel_count, ret.status);
+		dsp_kernel_dump(kmgr);
 		goto p_err;
 	}
 
@@ -182,6 +183,14 @@ int dsp_kernel_unload(struct dsp_kernel_manager *kmgr,
 	return 0;
 p_err:
 	return ret;
+}
+
+void dsp_kernel_dump(struct dsp_kernel_manager *kmgr)
+{
+	dsp_enter();
+	if (kmgr->dl_init)
+		dsp_dl_print_status();
+	dsp_leave();
 }
 
 static int __dsp_kernel_manager_dl_init(struct dsp_kernel_manager *kmgr)

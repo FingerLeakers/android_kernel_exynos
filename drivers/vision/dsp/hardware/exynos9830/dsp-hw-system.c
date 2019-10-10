@@ -123,6 +123,7 @@ p_err:
 	task->owner->error_count++;
 	dsp_mailbox_dump_pool(task->pool);
 	dsp_task_manager_dump_count(task->owner);
+	dsp_kernel_dump(&sys->dspdev->core.graph_manager.kernel_manager);
 	return ret;
 }
 
@@ -131,6 +132,7 @@ void dsp_system_iovmm_fault_dump(struct dsp_system *sys)
 	dsp_enter();
 	dsp_ctrl_dump();
 	dsp_task_manager_dump_count(&sys->task_manager);
+	dsp_kernel_dump(&sys->dspdev->core.graph_manager.kernel_manager);
 	dsp_leave();
 }
 
@@ -222,6 +224,15 @@ static void __dsp_system_init(struct dsp_system *sys)
 	chip_id = readl(sys->chip_id);
 	dsp_ctrl_sm_writel(DSP_SM_RESERVED(CHIPID_REV), chip_id);
 	dsp_info("CHIPID : %#x\n", chip_id);
+
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(PRODUCT_ID), 0xE9830);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FD4), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FD8), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FDC), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FE0), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FE4), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FE8), 0x0);
+	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TEMP_1FEC), 0x0);
 	dsp_leave();
 }
 

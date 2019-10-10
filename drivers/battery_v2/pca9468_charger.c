@@ -4076,6 +4076,10 @@ static int pca9468_chg_get_property(struct power_supply *psy,
 					val->intval = ret;
 			}
 			break;
+		case POWER_SUPPLY_EXT_PROP_DIRECT_CHARGER_CHG_STATUS:
+			val->strval = charging_state_str[pca9468->charging_state];
+			pr_info("%s: CHARGER_STATUS(%s)\n", __func__, val->strval);
+			break;
 		default:
 			return -EINVAL;
 		}

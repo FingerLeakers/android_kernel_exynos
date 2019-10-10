@@ -1492,40 +1492,25 @@ int sensor_3j1_cis_get_min_analog_gain(struct v4l2_subdev *subdev, u32 *min_agai
 {
 	int ret = 0;
 	struct is_cis *cis;
-	struct i2c_client *client;
 	cis_shared_data *cis_data;
-
-	u16 read_value = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
+
 	do_gettimeofday(&st);
 #endif
 
-	FIMC_BUG(!subdev);
-	FIMC_BUG(!min_again);
+	WARN_ON(!subdev);
+	WARN_ON(!min_again);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
 
 	cis_data = cis->cis_data;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	is_sensor_read16(client, 0x0084, &read_value);
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	cis_data->min_analog_gain[0] = read_value;
-
-	cis_data->min_analog_gain[1] = sensor_cis_calc_again_permile(read_value);
+	cis_data->min_analog_gain[0] = 0x20; /* x1, gain=x/0x20 */
+	cis_data->min_analog_gain[1] = sensor_cis_calc_again_permile(cis_data->min_analog_gain[0]);
 
 	*min_again = cis_data->min_analog_gain[1];
 
@@ -1537,7 +1522,6 @@ int sensor_3j1_cis_get_min_analog_gain(struct v4l2_subdev *subdev, u32 *min_agai
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
 
-p_err:
 	return ret;
 }
 
@@ -1545,40 +1529,24 @@ int sensor_3j1_cis_get_max_analog_gain(struct v4l2_subdev *subdev, u32 *max_agai
 {
 	int ret = 0;
 	struct is_cis *cis;
-	struct i2c_client *client;
 	cis_shared_data *cis_data;
-
-	u16 read_value = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
 	do_gettimeofday(&st);
 #endif
 
-	FIMC_BUG(!subdev);
-	FIMC_BUG(!max_again);
+	WARN_ON(!subdev);
+	WARN_ON(!max_again);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
 
 	cis_data = cis->cis_data;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	is_sensor_read16(client, 0x0086, &read_value);
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	cis_data->max_analog_gain[0] = read_value;
-
-	cis_data->max_analog_gain[1] = sensor_cis_calc_again_permile(read_value);
+	cis_data->max_analog_gain[0] = 0x200; /* x16, gain=x/0x20 */
+	cis_data->max_analog_gain[1] = sensor_cis_calc_again_permile(cis_data->max_analog_gain[0]);
 
 	*max_again = cis_data->max_analog_gain[1];
 
@@ -1590,7 +1558,6 @@ int sensor_3j1_cis_get_max_analog_gain(struct v4l2_subdev *subdev, u32 *max_agai
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
 
-p_err:
 	return ret;
 }
 
@@ -1759,40 +1726,24 @@ int sensor_3j1_cis_get_min_digital_gain(struct v4l2_subdev *subdev, u32 *min_dga
 {
 	int ret = 0;
 	struct is_cis *cis;
-	struct i2c_client *client;
 	cis_shared_data *cis_data;
-
-	u16 read_value = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
 	do_gettimeofday(&st);
 #endif
 
-	FIMC_BUG(!subdev);
-	FIMC_BUG(!min_dgain);
+	WARN_ON(!subdev);
+	WARN_ON(!min_dgain);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
 
 	cis_data = cis->cis_data;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	is_sensor_read16(client, 0x1084, &read_value);
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	cis_data->min_digital_gain[0] = read_value;
-
-	cis_data->min_digital_gain[1] = sensor_cis_calc_dgain_permile(read_value);
+	cis_data->min_digital_gain[0] = 0x100;
+	cis_data->min_digital_gain[1] = sensor_cis_calc_dgain_permile(cis_data->min_digital_gain[0]);
 
 	*min_dgain = cis_data->min_digital_gain[1];
 
@@ -1804,7 +1755,6 @@ int sensor_3j1_cis_get_min_digital_gain(struct v4l2_subdev *subdev, u32 *min_dga
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
 
-p_err:
 	return ret;
 }
 
@@ -1812,40 +1762,24 @@ int sensor_3j1_cis_get_max_digital_gain(struct v4l2_subdev *subdev, u32 *max_dga
 {
 	int ret = 0;
 	struct is_cis *cis;
-	struct i2c_client *client;
 	cis_shared_data *cis_data;
-
-	u16 read_value = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
 	do_gettimeofday(&st);
 #endif
 
-	FIMC_BUG(!subdev);
-	FIMC_BUG(!max_dgain);
+	WARN_ON(!subdev);
+	WARN_ON(!max_dgain);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
 
 	cis_data = cis->cis_data;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	is_sensor_read16(client, 0x1086, &read_value);
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	cis_data->max_digital_gain[0] = read_value;
-
-	cis_data->max_digital_gain[1] = sensor_cis_calc_dgain_permile(read_value);
+	cis_data->max_digital_gain[0] = 0x1000;
+	cis_data->max_digital_gain[1] = sensor_cis_calc_dgain_permile(cis_data->max_digital_gain[0]);
 
 	*max_dgain = cis_data->max_digital_gain[1];
 
@@ -1857,7 +1791,6 @@ int sensor_3j1_cis_get_max_digital_gain(struct v4l2_subdev *subdev, u32 *max_dga
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
 
-p_err:
 	return ret;
 }
 

@@ -52,7 +52,7 @@ typedef enum {
 	HANG_START_STATE		= 1,
 	HANG_RECOVERY_STATE	= 2
 } dhd_hang_state_t;
-#endif // endif
+#endif
 
 extern bcmsdh_info_t *bcmsdh_attach(osl_t *osh, void *sdioh, ulong *regsva);
 /**
@@ -89,7 +89,7 @@ extern void bcmsdh_intr_forward(void *sdh, bool pass);
 #if defined(DHD_DEBUG)
 /* Query pending interrupt status from the host controller */
 extern bool bcmsdh_intr_pending(void *sdh);
-#endif // endif
+#endif
 
 /* Register a callback to be called if and when bcmsdh detects
  * device removal. No-op in the case of non-removable/hardwired devices.
@@ -130,6 +130,7 @@ extern uint32 bcmsdh_reg_write(void *sdh, uintptr addr, uint size, uint32 data);
 extern int bcmsdhsdio_set_sbaddr_window(void *sdh, uint32 address, bool force_set);
 
 /* Indicate if last reg read/write failed */
+/* XXX Replace this with status pointers in reg_read/write */
 extern bool bcmsdh_regfail(void *sdh);
 
 /* Buffer transfer to/from device (client) core via cmd53.
@@ -186,6 +187,11 @@ extern int bcmsdh_stop(void *sdh);
 /* Wait system lock free */
 extern int bcmsdh_waitlockfree(void *sdh);
 
+/* XXX Bogosity alert. This should only know about devids gleaned through
+ * the standard CIS (versus some client dependent method), and we already
+ * have an interface for the CIS.
+ * Remove me.
+ */
 /* Returns the "Device ID" of target device on the SDIO bus. */
 extern int bcmsdh_query_device(void *sdh);
 

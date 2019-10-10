@@ -866,8 +866,7 @@ static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 		raw_spin_unlock(&stop_lock);
 	}
 
-	if (system_state != SYSTEM_POWER_OFF &&
-	    system_state != SYSTEM_RESTART)
+	if (in_panic)
 		dbg_snapshot_save_context(regs);
 
 	set_cpu_online(cpu, false);

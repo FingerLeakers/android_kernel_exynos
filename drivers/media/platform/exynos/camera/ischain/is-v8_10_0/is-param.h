@@ -123,13 +123,14 @@ enum otf_input_command {
 };
 
 enum otf_input_format {
-	OTF_INPUT_FORMAT_BAYER		= 0, /* 1 Channel */
-	OTF_INPUT_FORMAT_YUV444		= 1, /* 3 Channel */
-	OTF_INPUT_FORMAT_YUV422		= 2, /* 3 Channel */
-	OTF_INPUT_FORMAT_YUV420		= 3, /* 3 Channel */
-	OTF_INPUT_FORMAT_Y		= 7,
-	OTF_INPUT_FORMAT_BAYER_PLUS	= 10,
-	OTF_INPUT_FORMAT_BAYER_COMP	= 11,
+	OTF_INPUT_FORMAT_BAYER			= 0, /* 1 Channel */
+	OTF_INPUT_FORMAT_YUV444			= 1, /* 3 Channel */
+	OTF_INPUT_FORMAT_YUV422			= 2, /* 3 Channel */
+	OTF_INPUT_FORMAT_YUV420			= 3, /* 3 Channel */
+	OTF_INPUT_FORMAT_Y			= 7,
+	OTF_INPUT_FORMAT_BAYER_PLUS		= 10,
+	OTF_INPUT_FORMAT_BAYER_COMP		= 11,
+	OTF_INPUT_FORMAT_BAYER_COMP_LOSSY	= 12,
 };
 
 enum otf_input_bitwidth {
@@ -174,6 +175,7 @@ enum dma_input_format {
 	DMA_INPUT_FORMAT_Y			= 7,
 	DMA_INPUT_FORMAT_BAYER_PLUS		= 10,
 	DMA_INPUT_FORMAT_BAYER_COMP		= 11,
+	DMA_INPUT_FORMAT_BAYER_COMP_LOSSY	= 12,
 };
 
 enum dma_input_bitwidth {
@@ -248,6 +250,7 @@ enum otf_output_format {
 	OTF_OUTPUT_FORMAT_Y			= 9,
 	OTF_OUTPUT_FORMAT_BAYER_PLUS		= 10,
 	OTF_OUTPUT_FORMAT_BAYER_COMP		= 11,
+	OTF_OUTPUT_FORMAT_BAYER_COMP_LOSSY	= 12,
 };
 
 enum otf_output_bitwidth {
@@ -288,6 +291,7 @@ enum dma_output_format {
 	DMA_OUTPUT_FORMAT_Y			= 9,
 	DMA_OUTPUT_FORMAT_BAYER_PLUS		= 10,
 	DMA_OUTPUT_FORMAT_BAYER_COMP		= 11,
+	DMA_OUTPUT_FORMAT_BAYER_COMP_LOSSY	= 12,
 };
 
 enum dma_output_bitwidth {

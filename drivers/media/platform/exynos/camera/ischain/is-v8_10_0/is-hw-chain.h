@@ -271,18 +271,18 @@ enum sysreg_vra_reg_field {
 /* RTA HEAP: 6MB */
 #define IS_RESERVE_LIB_SIZE	(0x00600000)
 
-/* ME/DRC DMA: 3768 kB = 3.67 MB */
-/* 40192 * 32 bytes per 1 3AA */
-/* Max 3 3AAs can be used at the same time */
-#define TAAISP_MEDRC_SIZE	(0x003AE000)
+/* ME/DRC DMA: 16384 kB = 16 MB */
+/* (4 * 256 * 256) * 32 bytes per 1 3AA */
+/* Max 2 3AAs can be used at the same time */
+#define TAAISP_MEDRC_SIZE	(0x01000000)
 
 /* ORBMCH DMA:  14.38 MB*/
 /* Keypoint: 16 byte * 300 point * 9 regions */
 /* Descriptor: 32 byte * 300 point * 9 regions */
 /* ORB tot = Keypoint + descriptor + 16 byte for DMA align */
 /* ORB DS: 3732496 bytes */
-/* Max 3 3AAs can be used at the same time */
-#define TAAISP_ORBMCH_SIZE	(0x00E62FE0)
+/* Max 2 3AAs can be used at the same time */
+#define TAAISP_ORBMCH_SIZE	(0x00997540)
 
 /* DDK DMA: 10.793MB */
 /* 247840 bytes per 1 3AA */
@@ -291,13 +291,13 @@ enum sysreg_vra_reg_field {
 /* 100K x 32(num of descriptor) x 3(num of 3AA */
 #define IS_TAAISP_SIZE		(0x00ACB0C0)
 
-/* TNR DMA: 146.51 MB*/
+/* TNR DMA: 182.64 MB*/
 /* Image: ((Max width * Max height * 14 / 8) + 16) * 2 * 3 */
 /* Weight: ((Max width * Max height / 2 / 2) * 2 * 3) */
-/* Max width: 4032, Max height: 3024 depends on scenario */
+/* Max width: 4608, Max height: 3456 depends on scenario */
 /* Max 3 instances are supported with SBWC margin (1.05) */
 /* not used for reprocessing instance */
-#define TAAISP_TNR_SIZE		(0x9283196)
+#define TAAISP_TNR_SIZE		(0x0B6A54C0)
 
 /* CLAHE DMA: 8.44MB :  */
 /* (234912 * 8) bytes per 1 normal instance */

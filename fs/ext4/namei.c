@@ -1608,6 +1608,14 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 			return ERR_PTR(-EPERM);
 		}
 	}
+
+#if EXT4_HPB_PROTOTYPE
+	if(inode && 
+		(__is_hpb_extension(dentry->d_name.name) ||
+			__is_hpb_permission(inode)))
+		ext4_set_inode_state(inode, EXT4_STATE_HPB);
+#endif
+
 	return d_splice_alias(inode, dentry);
 }
 
@@ -2481,6 +2489,11 @@ retry:
 		err = ext4_add_nondir(handle, dentry, inode);
 		if (!err && IS_DIRSYNC(dir))
 			ext4_handle_sync(handle);
+#if EXT4_HPB_PROTOTYPE
+		if(__is_hpb_extension(dentry->d_name.name) ||
+				__is_hpb_permission(inode))
+			ext4_set_inode_state(inode, EXT4_STATE_HPB);
+#endif
 	}
 	if (handle)
 		ext4_journal_stop(handle);
@@ -3547,6 +3560,9 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct inode *whiteout = NULL;
 	int credits;
 	u8 old_file_type;
+#if EXT4_HPB_PROTOTYPE
+	struct inode *hpb_inode;
+#endif
 
 	if (new.inode && new.inode->i_nlink == 0) {
 		EXT4_ERROR_INODE(new.inode,
@@ -3687,6 +3703,17 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 		 */
 		ext4_rename_delete(handle, &old, force_reread);
 	}
+
+#if EXT4_HPB_PROTOTYPE
+	hpb_inode = (new.inode)? : old.inode;
+	if(__is_hpb_extension(new_dentry->d_name.name) ||
+			__is_hpb_permission(hpb_inode)) {
+		ext4_set_inode_state(hpb_inode, EXT4_STATE_HPB);
+	}
+	else {
+		ext4_clear_inode_state(hpb_inode, EXT4_STATE_HPB);
+	}
+#endif
 
 	if (new.inode) {
 		ext4_dec_count(handle, new.inode);

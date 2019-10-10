@@ -778,7 +778,8 @@ static int __init is_reserved_mem_setup(struct reserved_mem *rmem)
 	rkp_dyn.binary_base = is_lib_vm.phys_addr;
 	rkp_dyn.binary_size = LIB_SIZE;
 	rkp_dyn.type = RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT;
-	ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT,(u64)&rkp_dyn, 0, 0);
+	uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT, (u64)&rkp_dyn,
+			(u64)&ret, 0);
 	if (ret) {
 		err_lib("fail to break-before-init FIMC in EL2");
 	}
@@ -831,7 +832,8 @@ static int __init is_lib_mem_alloc(char *str)
 	rkp_dyn.binary_base = is_lib_vm.phys_addr;
 	rkp_dyn.binary_size = LIB_SIZE;
 	rkp_dyn.type = RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT;
-	ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT, (u64)&rkp_dyn, 0, 0);
+	uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT, (u64)&rkp_dyn,
+			(u64)&ret, 0);
 	if (ret) {
 		err_lib("fail to break-before-init FIMC in EL2");
 	}

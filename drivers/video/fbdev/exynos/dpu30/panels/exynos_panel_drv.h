@@ -59,6 +59,7 @@ extern struct exynos_panel_device *panel_drvdata[MAX_PANEL_DRV_SUPPORT];
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 extern struct exynos_panel_ops common_panel_ops;
 #else
+extern struct exynos_panel_ops panel_s6e3hab_ops;
 extern struct exynos_panel_ops panel_s6e3ha9_ops;
 extern struct exynos_panel_ops panel_s6e3ha8_ops;
 extern struct exynos_panel_ops panel_s6e3fa0_ops;
@@ -74,7 +75,7 @@ struct exynos_panel_ops {
 	u32 id[MAX_PANEL_ID_NUM];
 	int (*suspend)(struct exynos_panel_device *panel);
 	int (*displayon)(struct exynos_panel_device *panel);
-	int (*mres)(struct exynos_panel_device *panel, int mres_idx);
+	int (*mres)(struct exynos_panel_device *panel, u32 mode_idx);
 	int (*doze)(struct exynos_panel_device *panel);
 	int (*doze_suspend)(struct exynos_panel_device *panel);
 	int (*dump)(struct exynos_panel_device *panel);

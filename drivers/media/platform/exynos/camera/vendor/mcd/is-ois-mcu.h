@@ -88,18 +88,18 @@ extern int debug_ois_mcu;
 #define __mcu_log(fmt, ...)	pr_info(fmt, ##__VA_ARGS__)
 
 #define err_mcu(fmt, args...) \
-	__mcu_err("[@][MCU]" fmt, ##args)
+	__mcu_err("[@][OIS_MCU]" fmt, ##args)
 
 #define warning_mcu(fmt, args...) \
-	__mcu_warning("[@][MCU]" fmt, ##args)
+	__mcu_warning("[@][OIS_MCU]" fmt, ##args)
 
 #define info_mcu(fmt, args...) \
-	__mcu_log("[@][MCU]" fmt, ##args)
+	__mcu_log("[@][OIS_MCU]" fmt, ##args)
 
 #define dbg_mcu(level, fmt, args...)			\
 	do {						\
 		if (unlikely(debug_ois_mcu >= level))	\
-			__mcu_log("[@][MCU]" fmt, ##args);	\
+			__mcu_log("[@][OIS_MCU]" fmt, ##args);	\
 	} while (0)
 
 #endif

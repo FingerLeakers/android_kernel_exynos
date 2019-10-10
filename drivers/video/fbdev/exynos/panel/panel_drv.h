@@ -82,7 +82,7 @@ typedef struct decon_lcd EXYNOS_PANEL_INFO;
 extern void parse_lcd_info(struct device_node *node, EXYNOS_PANEL_INFO *lcd_info);
 extern int panel_log_level;
 
-//#define CONFIG_DISP_PMIC_SSD
+#define CONFIG_DISP_PMIC_SSD
 
 void clear_pending_bit(int irq);
 
@@ -121,6 +121,12 @@ enum {
 	PANEL_REGULATOR_DDI_VDD3,
 	PANEL_REGULATOR_DDR_VDDR,
 	PANEL_REGULATOR_SSD,
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+	PANEL_SUB_REGULATOR_DDI_VCI,
+	PANEL_SUB_REGULATOR_DDI_VDD3,
+	PANEL_SUB_REGULATOR_DDR_VDDR,
+	PANEL_SUB_REGULATOR_SSD,
+#endif
 	PANEL_REGULATOR_MAX
 };
 
@@ -144,6 +150,13 @@ enum panel_gpio_lists {
 #define PANEL_REGULATOR_NAME_DDR_VDDR ("ddr-vddr")
 #define PANEL_REGULATOR_NAME_SSD 	 ("short-detect")
 
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+#define PANEL_SUB_REGULATOR_NAME_DDI_VCI ("ddi-sub-vci")
+#define PANEL_SUB_REGULATOR_NAME_DDI_VDD3 ("ddi-sub-vdd3")
+#define PANEL_SUB_REGULATOR_NAME_DDR_VDDR ("ddr-sub-vddr")
+#define PANEL_SUB_REGULATOR_NAME_SSD 	 ("short-sub-detect")
+#endif
+
 struct panel_gpio {
 	const char *name;
 	int num;
@@ -161,8 +174,8 @@ struct panel_regulator {
 	int type;
 	int def_voltage;
 	int lpm_voltage;
-	int def_current;
-	int lpm_current;
+	int from_off_current;
+	int from_lpm_current;
 };
 
 #define DSIM_OPTION_WAIT_TX_DONE	(1U << 0)

@@ -21,6 +21,11 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
+/*
+ * xxx New vendor interface additon to nl80211/cfg80211 to allow vendors
+ * to implement proprietary features over the cfg80211 stack.
+ */
+
 #ifndef _wl_cfgvendor_h_
 #define _wl_cfgvendor_h_
 

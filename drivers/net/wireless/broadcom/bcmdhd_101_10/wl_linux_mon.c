@@ -45,6 +45,9 @@ typedef enum monitor_states
 	MONITOR_STATE_INTERFACE_ADDED = 0x2,
 	MONITOR_STATE_INTERFACE_DELETED = 0x4
 } monitor_states_t;
+/* XXX
+ * Some external functions, TODO: move them to dhd_linux.h
+ */
 int dhd_add_monitor(const char *name, struct net_device **new_ndev);
 extern int dhd_start_xmit(struct sk_buff *skb, struct net_device *net);
 int dhd_del_monitor(struct net_device *ndev);
@@ -56,7 +59,7 @@ int dhd_monitor_uninit(void);
  */
 #ifndef DHD_MAX_IFS
 #define DHD_MAX_IFS 16
-#endif // endif
+#endif
 #define MON_PRINT(format, ...) printk("DHD-MON: %s " format, __func__, ##__VA_ARGS__)
 #define MON_TRACE MON_PRINT
 
@@ -91,7 +94,7 @@ static const struct net_device_ops dhd_mon_if_ops = {
 	.ndo_set_rx_mode = dhd_mon_if_set_multicast_list,
 #else
 	.ndo_set_multicast_list = dhd_mon_if_set_multicast_list,
-#endif // endif
+#endif
 	.ndo_set_mac_address 	= dhd_mon_if_change_mac,
 };
 

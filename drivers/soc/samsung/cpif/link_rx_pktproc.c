@@ -165,9 +165,13 @@ static int pktproc_fill_data_addr(struct pktproc_queue *q)
 			spin_unlock_irqrestore(&q->lock, flags);
 			return -ENOMEM;
 		}
+		if (!q->ppa->use_hw_iocc)
+			__inval_dcache_area(addr, MIF_BUFF_DEFAULT_CELL_SIZE);
+
 		desc[*q->fore_ptr].data_addr = (u32)(addr - q->data) +
 						q->q_info->data_base +
 						(NET_SKB_PAD + NET_IP_ALIGN);
+		desc[*q->fore_ptr].data_addr_msb = 0;
 
 		if (*q->fore_ptr == 0)
 			desc[*q->fore_ptr].control |= (1 << 7);	/* HEAD */
@@ -228,7 +232,8 @@ static int pktproc_get_pkt_from_sktbuf_mode(struct pktproc_queue *q, struct sk_b
 		goto rx_error_on_desc;
 	}
 	if (!q->ppa->use_hw_iocc)
-		__inval_dcache_area(src + NET_SKB_PAD + NET_IP_ALIGN, len);
+		__inval_dcache_area(src, MIF_BUFF_DEFAULT_CELL_SIZE);
+	pp_debug("len:%d ch_id:%d src:%pK\n", len, ch_id, src);
 
 	/* Build skb */
 	if (q->use_memcpy) {
@@ -245,7 +250,7 @@ static int pktproc_get_pkt_from_sktbuf_mode(struct pktproc_queue *q, struct sk_b
 	} else {
 		tmp_len = SKB_DATA_ALIGN(len + NET_SKB_PAD + NET_IP_ALIGN);
 		tmp_len += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
-		skb = build_skb(src, tmp_len);
+		skb = __build_skb(src, tmp_len);
 		if (unlikely(!skb)) {
 			mif_err_limited("__build_skb() error\n");
 			q->stat.err_nomem++;
@@ -719,20 +724,6 @@ int pktproc_create(struct platform_device *pdev, struct mem_link_device *mld, u3
 	mif_info("Total data buffer size:0x%08x Queue:%d Size by queue:0x%08x\n",
 					data_size, ppa->num_queue, data_size_by_q);
 
-	/* Buffer manager */
-	switch (ppa->desc_mode) {
-	case DESC_MODE_SKTBUF:
-		ppa->manager = init_mif_buff_mng(ppa->data_base, data_size, MIF_BUFF_DEFAULT_CELL_SIZE);
-		if (ppa->manager == NULL) {
-			mif_err("init_mif_buff_mng() error\n");
-			ret = -ENOMEM;
-			goto create_error;
-		}
-		break;
-	default:
-		break;
-	}
-
 	/* Create queue */
 	for (i = 0; i < ppa->num_queue; i++) {
 		struct pktproc_queue *q;
@@ -766,14 +757,13 @@ int pktproc_create(struct platform_device *pdev, struct mem_link_device *mld, u3
 			goto create_error;
 		}
 
-		/* Data buffer region */
-		q->data = ppa->data_base;
-		q->q_info->data_base = ppa->cp_base + ppa->data_rgn_offset;
-		q->data_size = data_size;
-
-		/* Descriptor region */
+		/* Descriptor, data buffer region */
 		switch (ppa->desc_mode) {
 		case DESC_MODE_RINGBUF:
+			q->data = ppa->data_base + (i * data_size_by_q);
+			q->q_info->data_base = ppa->cp_base + ppa->data_rgn_offset + (i * data_size_by_q);
+			q->data_size = data_size_by_q;
+
 			q->q_info->num_desc = data_size_by_q / PKTPROC_MAX_PACKET_SIZE;
 
 			q->desc_ringbuf = ppa->desc_base +
@@ -785,7 +775,20 @@ int pktproc_create(struct platform_device *pdev, struct mem_link_device *mld, u3
 			q->get_packet = pktproc_get_pkt_from_ringbuf_mode;
 			break;
 		case DESC_MODE_SKTBUF:
+			/* Use only one buffer manager for all queues */
+			if (ppa->manager == NULL) {
+				ppa->manager = init_mif_buff_mng(ppa->data_base, data_size, MIF_BUFF_DEFAULT_CELL_SIZE);
+				if (ppa->manager == NULL) {
+					mif_err("init_mif_buff_mng() error\n");
+					ret = -ENOMEM;
+					goto create_error;
+				}
+			}
 			q->manager = ppa->manager;
+			q->data = ppa->data_base;
+			q->q_info->data_base = ppa->cp_base + ppa->data_rgn_offset;
+			q->data_size = data_size;
+
 			q->use_memcpy = 0;
 			q->stat.use_memcpy_cnt = 0;
 
@@ -803,6 +806,12 @@ int pktproc_create(struct platform_device *pdev, struct mem_link_device *mld, u3
 		default:
 			mif_err("Unsupported version:%d\n", ppa->version);
 			ret = -EINVAL;
+			goto create_error;
+		}
+
+		if ((q->q_info->desc_base + q->desc_size) > q->q_info->data_base) {
+			mif_err("Descriptor overflow:0x%08x 0x%08x 0x%08x\n",
+				q->q_info->desc_base, q->desc_size, q->q_info->data_base);
 			goto create_error;
 		}
 

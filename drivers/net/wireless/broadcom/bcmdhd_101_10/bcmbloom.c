@@ -34,7 +34,7 @@
 #include <string.h>
 #ifndef ASSERT
 #define ASSERT(exp)
-#endif // endif
+#endif
 #endif /* !BCMDRIVER */
 #include <bcmutils.h>
 

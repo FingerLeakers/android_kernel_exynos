@@ -636,12 +636,61 @@ void record_memsize_size_only(enum memsize_kernel_type type, long size)
 	rmem_reg->size += size;
 }
 
+static int memsize_get_valid_name_size(const char *name)
+{
+	char *found;
+	int name_size;
+
+	name_size = strlen(name);
+	found = strstr(name, "_region");
+	if (found)
+		name_size = found - name;
+	found = strchr(name, '@');
+	if (found && (name_size > found - name))
+		name_size = found - name;
+	if (name_size > NAME_SIZE - 1)
+		name_size = NAME_SIZE - 1;
+
+	return name_size;
+}
+
+/* The memory region can be added into memblock reserved even after the same
+ * memory region was already removed out of memblock memory. Let's skip the
+ * addition to memblock reserved and just update the name for that.
+ */
+static bool memsize_has_same_nomap_region(const char *name, phys_addr_t base,
+				phys_addr_t size, bool nomap)
+{
+	int i;
+	struct reserved_mem_reg *rmem_reg;
+	int name_size;
+
+	if (!name || nomap)
+		return false;
+
+	for (i = 0; i < reserved_mem_reg_count; i++)
+	{
+		rmem_reg = &reserved_mem_reg[i];
+		if (!rmem_reg->nomap)
+			continue;
+		if (rmem_reg->base != base || rmem_reg->size != size)
+			continue;
+		name_size = memsize_get_valid_name_size(name);
+		strncpy(rmem_reg->name, name, name_size);
+		rmem_reg->name[NAME_SIZE - 1] = '\0';
+		return true;
+	}
+	return false;
+}
+
 void record_memsize_reserved(const char *name, phys_addr_t base,
 			     phys_addr_t size, bool nomap, bool reusable)
 {
 	struct reserved_mem_reg *rmem_reg;
-	char *found;
 	int name_size;
+
+	if (memsize_has_same_nomap_region(name, base, size, nomap))
+		return;
 
 	if (reserved_mem_reg_count == ARRAY_SIZE(reserved_mem_reg)) {
 		pr_err("not enough space on reserved_mem_reg\n");
@@ -657,15 +706,7 @@ void record_memsize_reserved(const char *name, phys_addr_t base,
 	if (!name) {
 		strcpy(rmem_reg->name, "unknown");
 	} else {
-		name_size = strlen(name);
-		found = strstr(name, "_region");
-		if (found)
-			name_size = found - name;
-		found = strchr(name, '@');
-		if (found && (name_size > found - name))
-			name_size = found - name;
-		if (name_size > NAME_SIZE - 1)
-			name_size = NAME_SIZE - 1;
+		name_size = memsize_get_valid_name_size(name);
 		strncpy(rmem_reg->name, name, name_size);
 		rmem_reg->name[NAME_SIZE - 1] = '\0';
 	}

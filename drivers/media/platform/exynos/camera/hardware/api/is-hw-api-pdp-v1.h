@@ -14,6 +14,8 @@
 #include "is-device-sensor.h"
 #include "is-hw-api-common.h"
 
+#define COREX_OFFSET 0x8000
+
 enum pdp_event_type {
 	PE_START,
 	PE_END,
@@ -30,6 +32,9 @@ enum pdp_input_path_type {
 	DMA = 2,
 };
 
+/* status */
+unsigned int pdp_hw_g_idle_state(void __iomem *base);
+
 /* config */
 void pdp_hw_s_global_enable(void __iomem *base, bool enable);
 void pdp_hw_s_one_shot_enable(void __iomem *base);
@@ -37,19 +42,20 @@ void pdp_hw_s_corex_enable(void __iomem *base, bool enable);
 void pdp_hw_s_core(void __iomem *base, bool pd_enable,
 	u32 img_width, u32 img_height, u32 img_hwformat, u32 img_pixelsize,
 	u32 pd_width, u32 pd_height, u32 pd_hwformat,
-	u32 sensor_type, u32 path, int sensor_mode, u32 fps);
+	u32 sensor_type, u32 path, int sensor_mode, u32 fps, u32 en_sdc, u32 en_votf);
 void pdp_hw_s_init(void __iomem *base);
 void pdp_hw_s_global(void __iomem *base, u32 ch, u32 path, void *data);
 void pdp_hw_s_context(void __iomem *base, u32 curr_ch, u32 curr_path);
 void pdp_hw_s_path(void __iomem *base, u32 path);
 void pdp_hw_s_wdma_init(void __iomem *base);
 void pdp_hw_s_wdma_enable(void __iomem *base, dma_addr_t address);
-void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize, u32 rmo);
-void pdp_hw_s_af_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 rmo);
+void pdp_hw_s_wdma_disable(void __iomem *base);
+void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize,
+	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma);
+void pdp_hw_s_af_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 rmo,
+	u32 en_votf, u32 en_dma);
 void pdp_hw_s_rdma_addr(void __iomem *base, dma_addr_t *address, u32 num_buffers);
 void pdp_hw_s_af_rdma_addr(void __iomem *base, dma_addr_t *address, u32 num_buffers);
-void pdp_hw_s_rdma_enable(void __iomem *base, dma_addr_t *address, u32 num_buffers, u32 en_votf, u32 en_sdc);
-void pdp_hw_s_af_rdma_enable(void __iomem *base, dma_addr_t *address, u32 num_buffers, u32 en_votf);
 void pdp_hw_s_post_frame_gap(void __iomem *base, u32 interval);
 int pdp_hw_wait_idle(void __iomem *base);
 

@@ -557,8 +557,8 @@ static int dpp_mcd_config_wcg(struct dpp_device *dpp, struct dpp_params_info *pa
 	struct wcg_config color_config;
 
 #if 0
-	dpp_info("dpp-%d : eq_mode : %d(%x), hdr_std : %d(%x)\n",
-		dpp->id,
+	dpp_info("dpp-%d wcg: %d, eq_mode : %d(%x), hdr_std : %d(%x)\n",
+		dpp->id, params->wcg_mode,
 		params->eq_mode, params->eq_mode,
 		params->hdr, params->hdr);
 #endif
@@ -600,6 +600,19 @@ static int dpp_mcd_reset(struct dpp_device *dpp)
 	return ret;
 }
 
+
+static bool using_mcd_hdr(struct dpp_params_info *params)
+{
+	bool ret = false;
+	
+	if (params->wcg_mode != HAL_COLOR_MODE_NATIVE
+		|| IS_HDR_FMT(params->hdr))
+		ret = true;
+
+	return ret;
+}
+
+
 #if 0
 static int dpp_mcd_dump(struct dpp_device *dpp)
 {
@@ -635,6 +648,9 @@ err:
 	return ret;
 }
 
+
+
+
 static int dpp_set_config(struct dpp_device *dpp)
 {
 	struct dpp_params_info params;
@@ -664,9 +680,11 @@ static int dpp_set_config(struct dpp_device *dpp)
 	/* set all parameters to dpp hw */
 	dpp_reg_configure_params(dpp->id, &params, dpp->attr);
 
-
 #ifdef CONFIG_EXYNOS_MCD_HDR
-	dpp_mcd_reset(dpp);
+	if (using_mcd_hdr(&params)) {
+		dpp_mcd_reset(dpp);
+		dpp_reg_sel_hdr(dpp->id, HDR_PATH_MCD);
+	}
 
 	if (params.wcg_mode != HAL_COLOR_MODE_NATIVE) {
 		ret = dpp_mcd_config_wcg(dpp, &params);

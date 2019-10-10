@@ -103,7 +103,7 @@
 
 #ifndef strtoul
 #define strtoul(nptr, endptr, base) bcm_strtoul((nptr), (endptr), (base))
-#endif // endif
+#endif
 
 #define NAN_MAC_ADDR_LEN 6u
 #define NAN_DP_MAX_APP_INFO_LEN	512u

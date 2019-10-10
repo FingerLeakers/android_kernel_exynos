@@ -19,6 +19,12 @@
 #define __LINUX_FIVE_PORTING_H
 
 #include <linux/version.h>
+#include <linux/magic.h>
+
+/* OVERLAYFS_SUPER_MAGIC is defined since v4.5.0 */
+#ifndef OVERLAYFS_SUPER_MAGIC
+#define OVERLAYFS_SUPER_MAGIC 0x794c7630
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 21)
 /* d_backing_inode is absent on some Linux Kernel 3.x. but it back porting for
@@ -111,12 +117,17 @@ static inline int integrity_kernel_read(struct file *file, loff_t offset,
 	mm_segment_t old_fs;
 	char __user *buf = (char __user *)addr;
 	ssize_t ret;
+	struct inode *inode = file_inode(file);
 
 	if (!(file->f_mode & FMODE_READ))
 		return -EBADF;
 
 	old_fs = get_fs();
 	set_fs(get_ds());
+
+	if (inode->i_sb->s_magic == OVERLAYFS_SUPER_MAGIC && file->private_data)
+		file = (struct file *)file->private_data;
+
 	ret = __vfs_read(file, buf, count, &offset);
 	set_fs(old_fs);
 
@@ -140,6 +151,35 @@ inode_query_iversion(struct inode *inode)
 }
 #else
 #include <linux/iversion.h>
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
+static inline struct dentry *d_real_comp(struct dentry *dentry)
+{
+	return d_real(dentry);
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+static inline struct dentry *d_real_comp(struct dentry *dentry)
+{
+	return d_real(dentry, NULL, 0);
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
+static inline struct dentry *d_real_comp(struct dentry *dentry)
+{
+	return d_real(dentry, NULL, 0, 0);
+}
+#else
+static inline struct dentry *d_real_comp(struct dentry *dentry)
+{
+	return d_real(dentry, NULL);
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 16)
+static inline struct inode *d_real_inode(struct dentry *dentry)
+{
+	return d_backing_inode(d_real_comp(dentry));
+}
 #endif
 
 #endif /* __LINUX_FIVE_PORTING_H */

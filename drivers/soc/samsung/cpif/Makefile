@@ -8,7 +8,7 @@ obj-$(CONFIG_SHM_IPC) += shm_ipc.o
 
 obj-$(CONFIG_BOOT_DEVICE_SPI) += boot_device_spi.o
 
-obj-y += modem_main.o modem_variation.o modem_io_device.o net_io_device.o bootdump_io_device.o ipc_io_device.o modem_utils.o modem_dump.o
+obj-y += modem_main.o modem_variation.o modem_io_device.o net_io_device.o bootdump_io_device.o ipc_io_device.o modem_utils.o modem_dump.o cpif_clat_info.o
 
 obj-$(CONFIG_LINK_DEVICE_SHMEM) += link_device.o \
 				   link_device_memory_snapshot.o \
@@ -27,8 +27,8 @@ obj-$(CONFIG_LINK_DEVICE_PCIE) += link_device.o \
 				   link_device_memory_legacy.o \
 				   modem_notifier.o
 
-obj-$(CONFIG_SEC_MODEM_S5000AP) += modem_ctrl_s5000ap.o
-obj-$(CONFIG_SEC_MODEM_S5100) += modem_ctrl_s5100.o
+obj-$(CONFIG_SEC_MODEM_S5000AP) += modem_ctrl_s5000ap.o modem_ctrl.o
+obj-$(CONFIG_SEC_MODEM_S5100) += modem_ctrl_s5100.o modem_ctrl.o
 
 obj-$(CONFIG_CP_ZEROCOPY) += link_rx_zerocopy.o
 obj-$(CONFIG_CP_PKTPROC) += link_rx_pktproc.o

@@ -1893,6 +1893,7 @@ int is_video_prepare(struct file *file,
 	int index = 0;
 	struct is_device_ischain *device;
 	struct is_queue *queue;
+	struct vb2_queue *vbq;
 	struct vb2_buffer *vb;
 	struct is_video *video;
 #ifdef ENABLE_BUFFER_HIDING
@@ -1905,6 +1906,7 @@ int is_video_prepare(struct file *file,
 
 	device = GET_DEVICE_ISCHAIN(vctx);
 	queue = GET_QUEUE(vctx);
+	vbq = queue->vbq;
 	video = GET_VIDEO(vctx);
 	index = buf->index;
         vb = queue->vbq->bufs[index];
@@ -1964,7 +1966,21 @@ int is_video_prepare(struct file *file,
 		}
 	}
 #endif
-	ret = vb2_prepare_buf(queue->vbq, buf);
+
+	if (!vbq) {
+		mverr("vbq is NULL", vctx, video);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	vb = vbq->bufs[buf->index];
+	if (!vb) {
+		mverr("vb is NULL", vctx, video);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	ret = vb2_prepare_buf(vbq, buf);
 	if (ret) {
 		mverr("vb2_prepare_buf is fail(index : %d, %d)", vctx, video, buf->index, ret);
 		goto p_err;

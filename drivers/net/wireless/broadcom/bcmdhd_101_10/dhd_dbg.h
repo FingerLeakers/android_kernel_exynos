@@ -204,7 +204,7 @@ do {	\
 			DHD_LOG_DUMP_WRITE args; \
 		} \
 	} while (0)
-#endif // endif
+#endif
 #else /* DHD_LOG_DUMP */
 #define DHD_FWLOG(args)		do {if (dhd_msg_level & DHD_FWLOG_VAL) printf args;} while (0)
 #endif /* DHD_LOG_DUMP */
@@ -326,7 +326,7 @@ do {	\
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 #define DHD_RPM_ON()		0
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
-#endif // endif
+#endif
 
 #define PRINT_RATE_LIMIT_PERIOD 5000000u /* 5s in units of us */
 #define DHD_ERROR_RLMT(args) \

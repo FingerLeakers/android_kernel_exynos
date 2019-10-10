@@ -372,6 +372,33 @@ static int exynos_get_temp(void *p, int *temp)
 	return 0;
 }
 
+#ifdef CONFIG_SEC_BOOTSTAT
+void sec_bootstat_get_thermal(int *temp)
+{
+	struct exynos_tmu_data *data;
+
+	list_for_each_entry(data, &dtm_dev_list, node) {
+		if (!strncasecmp(data->tmu_name, "BIG", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[0]);
+			temp[0] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "MID", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[1]);
+			temp[1] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "LITTLE", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[2]);
+			temp[2] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "G3D", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[3]);
+			temp[3] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "ISP", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[4]);
+			temp[4] /= 1000;
+		} else
+			continue;
+	}
+}
+#endif
+
 static int exynos_get_trend(void *p, int trip, enum thermal_trend *trend)
 {
 	struct exynos_tmu_data *data = p;

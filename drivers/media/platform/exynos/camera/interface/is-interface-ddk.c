@@ -473,6 +473,7 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
 		break;
 	case LIB_EVENT_FRAME_END:
+	case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY:
 		index = hw_ip->debug_index[1];
 		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
 		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();
@@ -501,7 +502,7 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 		wake_up(&hw_ip->status.wait_queue);
 		break;
-	case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY:
+	/* case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY: */ /* FIXME: This will be restored after fix DDK. */
 		index = hw_ip->debug_index[1];
 		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
 		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();

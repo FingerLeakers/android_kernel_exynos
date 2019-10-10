@@ -114,6 +114,12 @@ static char *panel_regulator_names[PANEL_REGULATOR_MAX] = {
 	[PANEL_REGULATOR_DDI_VDD3] = PANEL_REGULATOR_NAME_DDI_VDD3,
 	[PANEL_REGULATOR_DDR_VDDR] = PANEL_REGULATOR_NAME_DDR_VDDR,
 	[PANEL_REGULATOR_SSD] = PANEL_REGULATOR_NAME_SSD,
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+	[PANEL_SUB_REGULATOR_DDI_VCI] = PANEL_SUB_REGULATOR_NAME_DDI_VCI,
+	[PANEL_SUB_REGULATOR_DDI_VDD3] = PANEL_SUB_REGULATOR_NAME_DDI_VDD3,
+	[PANEL_SUB_REGULATOR_DDR_VDDR] = PANEL_SUB_REGULATOR_NAME_DDR_VDDR,
+	[PANEL_SUB_REGULATOR_SSD] = PANEL_SUB_REGULATOR_NAME_SSD,
+#endif
 };
 
 static int boot_panel_id = 0;
@@ -315,27 +321,28 @@ static int panel_regulator_set_voltage(struct panel_device *panel, int state)
 static int panel_regulator_set_short_detection(struct panel_device *panel, int state)
 {
 	struct panel_regulator *regulator = panel->regulator;
-	int i, ret, new_ua;
+	int i, ret, new_ua = 0;
+	bool en = true;
 
 	for (i = 0; i < PANEL_REGULATOR_MAX; i++) {
 		if (regulator[i].type != PANEL_REGULATOR_TYPE_SSD)
 			continue;
 
 		new_ua = (state == PANEL_STATE_ALPM) ?
-			regulator[i].lpm_current : regulator[i].def_current;
+			regulator[i].from_lpm_current : regulator[i].from_off_current;
 		if (new_ua == 0)
-			continue;
+			en = false;
 
-		ret = regulator_set_short_detection(regulator[i].reg, true, new_ua);
+		ret = regulator_set_short_detection(regulator[i].reg, en, new_ua);
 		if (ret < 0) {
-			panel_err("PANEL:%s:faield to set short detection regulator(%d:%s), ret:%d\n",
-					__func__, i, regulator[i].name, new_ua);
+			panel_err("PANEL:%s:faield to set short detection regulator(%d:%s), ret:%d state:%d enable:%s\n",
+					__func__, i, regulator[i].name, new_ua, state, (en ? "true" : "false"));
 			regulator_put(regulator[i].reg);
 			return ret;
 		}
 
-		panel_info("PANEL:INFO:%s:set regulator(%s) SSD:%duA, state:%d\n",
-				__func__, regulator[i].name, new_ua, state);
+		panel_info("PANEL:INFO:%s:set regulator(%s) SSD:%duA, state:%d enable:%s\n",
+				__func__, regulator[i].name, new_ua, state, (en ? "true" : "false"));
 	}
 
 	return 0;
@@ -557,6 +564,10 @@ static int __panel_seq_exit_alpm(struct panel_device *panel)
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
 	panel_info("PANEL:INFO:%s:was called\n", __func__);
 
+	ret = panel_regulator_set_short_detection(panel, PANEL_STATE_ALPM);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set ssd current, ret:%d\n", __func__, ret);
+
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	ret = panel_aod_exit_from_lpm(panel);
 	if (ret)
@@ -625,10 +636,6 @@ static int __panel_seq_set_alpm(struct panel_device *panel)
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
 
 	panel_info("PANEL:INFO:%s:was called\n", __func__);
-	ret = panel_regulator_set_short_detection(panel, PANEL_STATE_ALPM);
-	if (ret < 0)
-		panel_err("PANEL:ERR:%s:failed to set ssd current, ret:%d\n",
-				__func__, ret);
 	__delay_normal_alpm(panel);
 
 	mutex_lock(&panel_bl->lock);
@@ -2449,7 +2456,7 @@ static int panel_drv_set_regulators(struct panel_device *panel)
 
 		ret = panel_regulator_enable(panel);
 		if (ret < 0) {
-			panel_err("PANEL:ERR:%s:faield to panel_regulator_enable, ret:%d\n",
+			panel_err("PANEL:ERR:%s:failed to panel_regulator_enable, ret:%d\n",
 					__func__, ret);
 			return ret;
 		}
@@ -2457,7 +2464,7 @@ static int panel_drv_set_regulators(struct panel_device *panel)
 		if (panel->state.connect_panel == PANEL_DISCONNECT) {
 			ret = panel_regulator_disable(panel);
 			if (ret < 0) {
-				panel_err("PANEL:ERR:%s:faield to panel_regulator_disable, ret:%d\n",
+				panel_err("PANEL:ERR:%s:failed to panel_regulator_disable, ret:%d\n",
 						__func__, ret);
 				return ret;
 			}
@@ -2607,8 +2614,8 @@ static int of_get_panel_regulator(struct device_node *np,
 
 	of_property_read_u32(np, "def-voltage", &regulator->def_voltage);
 	of_property_read_u32(np, "lpm-voltage", &regulator->lpm_voltage);
-	of_property_read_u32(np, "def-current", &regulator->def_current);
-	of_property_read_u32(np, "lpm-current", &regulator->lpm_current);
+	of_property_read_u32(np, "from-off", &regulator->from_off_current);
+	of_property_read_u32(np, "from-lpm", &regulator->from_lpm_current);
 
 	return 0;
 }
@@ -3301,7 +3308,11 @@ static void __exit panel_drv_exit(void)
 	platform_driver_unregister(&panel_driver);
 }
 
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+device_initcall_sync(panel_drv_init);
+#else
 module_init(panel_drv_init);
+#endif
 module_exit(panel_drv_exit);
 MODULE_DESCRIPTION("Samsung's Panel Driver");
 MODULE_AUTHOR("<minwoo7945.kim@samsung.com>");

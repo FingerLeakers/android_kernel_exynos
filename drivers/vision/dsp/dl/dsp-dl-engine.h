@@ -11,7 +11,7 @@
 
 #include "dl/dsp-common.h"
 
-#define DL_COMMIT_HASH			"05f77d36"
+#define DL_COMMIT_HASH			"f26859bd"
 
 enum dsp_dl_status {
 	DSP_DL_FAIL = -1,
@@ -49,5 +49,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 
 enum dsp_dl_status dsp_dl_unload_libraries(
 	struct dsp_dl_lib_info *libs, int size);
+
+void dsp_dl_print_status(void);
 
 #endif

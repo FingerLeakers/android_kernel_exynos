@@ -2132,6 +2132,64 @@ static ssize_t lpm_opr_show(struct device *dev,
 	return strlen(buf);
 }
 
+
+static ssize_t conn_det_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value, rc;
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	rc = kstrtoint(buf, 0, &value);
+	if (rc < 0) {
+		pr_warn("%s invalid param (ret %d)\n",
+				__func__, rc);
+		return rc;
+	}
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	if (!panel_gpio_valid(&panel->gpio[PANEL_GPIO_CONN_DET])) {
+		panel_err("%s conn det is unsupported\n", __func__);
+		return -EINVAL;
+	}
+
+	if (panel->panel_data.props.conn_det_enable != value) {
+		panel->panel_data.props.conn_det_enable = value;
+		pr_info("%s set %d %s\n",
+			__func__, panel->panel_data.props.conn_det_enable,
+			panel->panel_data.props.conn_det_enable ? "enable" : "disable");
+		if (panel->panel_data.props.conn_det_enable) {
+			if (ub_con_disconnected(panel))
+				panel_send_ubconn_uevent(panel);
+		}
+	} else {
+		pr_info("%s already set %d %s\n",
+			__func__, panel->panel_data.props.conn_det_enable,
+			panel->panel_data.props.conn_det_enable ? "enable" : "disable");
+	}
+	return size;
+}
+
+static ssize_t conn_det_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+
+	if (panel_gpio_valid(&panel->gpio[PANEL_GPIO_CONN_DET]))
+		snprintf(buf, PAGE_SIZE, "%s\n", ub_con_disconnected(panel) ? "disconnected" : "connected");
+	else
+		snprintf(buf, PAGE_SIZE, "%d\n", -1);
+	pr_info("%s %s", __func__, buf);
+	return strlen(buf);
+}
+
 #ifdef CONFIG_PANEL_AID_DIMMING_DEBUG
 char *normal_tbl_names[] = {
 	"gamma_table",
@@ -3730,6 +3788,7 @@ struct device_attribute panel_attrs[] = {
 	__PANEL_ATTR_RW(spi_flash_ctrl, 0660),
 #endif
 	__PANEL_ATTR_RW(vrr, 0664),
+	__PANEL_ATTR_RW(conn_det, 0664),
 };
 
 int panel_sysfs_probe(struct panel_device *panel)

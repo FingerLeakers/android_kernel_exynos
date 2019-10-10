@@ -285,7 +285,7 @@ bcmsdh_unregister(void)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
 		if (bcmsdh_pci_driver.node.next == NULL)
 			return;
-#endif // endif
+#endif
 
 	bcmsdh_unregister_client_driver();
 }
@@ -423,6 +423,7 @@ void bcmsdh_oob_intr_unregister(bcmsdh_info_t *bcmsdh)
 #endif /* defined(OOB_INTR_ONLY) || defined(BCMSPI_ANDROID) */
 
 /* Module parameters specific to each host-controller driver */
+/* XXX Need to move these to where they really belong! */
 
 extern uint sd_msglevel;	/* Debug message level */
 module_param(sd_msglevel, uint, 0);
@@ -460,7 +461,7 @@ module_param(sd_delay_value, uint, 0);
 extern char dhd_sdiod_uhsi_ds_override[2];
 module_param_string(dhd_sdiod_uhsi_ds_override, dhd_sdiod_uhsi_ds_override, 2, 0);
 
-#endif // endif
+#endif
 
 #ifdef BCMSDH_MODULE
 EXPORT_SYMBOL(bcmsdh_attach);
@@ -473,7 +474,7 @@ EXPORT_SYMBOL(bcmsdh_intr_dereg);
 
 #if defined(DHD_DEBUG)
 EXPORT_SYMBOL(bcmsdh_intr_pending);
-#endif // endif
+#endif
 
 #if defined(BT_OVER_SDIO)
 EXPORT_SYMBOL(bcmsdh_btsdio_interface_init);

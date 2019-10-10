@@ -140,12 +140,12 @@
 		qos_weight_vp8_vp9 = <100>;
 		qos_weight_other_codec = <25>;
 		qos_weight_3plane = <80>;
-		qos_weight_10bit = <60>;
+		qos_weight_10bit = <75>;
 		qos_weight_422 = <70>;
 		qos_weight_bframe = <50>;
 		qos_weight_num_of_ref = <60>;
 		qos_weight_gpb = <50>;
-		qos_weight_num_of_tile = <85>;
+		qos_weight_num_of_tile = <75>;
 		qos_weight_super64_bframe = <60>;
 
 		/* Sub nodes for sysmmu, hwfc and mmcache */

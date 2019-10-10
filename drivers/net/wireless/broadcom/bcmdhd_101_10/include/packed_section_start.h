@@ -35,6 +35,8 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
+/* XXX EFI does not support STATIC_ASSERT */
+
 #ifndef _alignment_test_
 #define _alignment_test_
 
@@ -61,7 +63,7 @@ typedef struct T4 {
 #define VARIABLE_IS_NOT_USED __attribute__ ((unused))
 #else
 #define VARIABLE_IS_NOT_USED
-#endif // endif
+#endif
 static void alignment_test(void);
 static void
 VARIABLE_IS_NOT_USED alignment_test(void)
@@ -79,7 +81,7 @@ VARIABLE_IS_NOT_USED alignment_test(void)
 	#error "BWL_PACKED_SECTION is already defined!"
 #else
 	#define BWL_PACKED_SECTION
-#endif // endif
+#endif
 
 #if defined(BWL_DEFAULT_PACKING)
 	/* generate an error if BWL_DEFAULT_PACKING is defined */
@@ -95,4 +97,4 @@ VARIABLE_IS_NOT_USED alignment_test(void)
 	#define	BWL_POST_PACKED_STRUCT
 #else
 	#error "Unknown compiler!"
-#endif // endif
+#endif

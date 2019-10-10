@@ -2325,15 +2325,25 @@ static void sc_set_framerate(struct sc_ctx *ctx, int framerate)
 	if (!ctx->sc_dev->qos_table)
 		return;
 
+	mutex_lock(&ctx->pm_qos_lock);
 	if (framerate == 0) {
+		cancel_delayed_work(&ctx->qos_work);
 		sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
 		ctx->framerate = 0;
-	} else if (framerate != ctx->framerate) {
-		ctx->framerate = framerate;
-		if (sc_get_pm_qos_level(ctx, ctx->framerate))
+	} else {
+		if (framerate != ctx->framerate) {
+			ctx->framerate = framerate;
+			if (!sc_get_pm_qos_level(ctx, ctx->framerate)) {
+				mutex_unlock(&ctx->pm_qos_lock);
+				return;
+			}
 			sc_request_devfreq(&ctx->pm_qos,
 					ctx->sc_dev->qos_table, ctx->pm_qos_lv);
+		}
+		mod_delayed_work(system_wq,
+				&ctx->qos_work, msecs_to_jiffies(50));
 	}
+	mutex_unlock(&ctx->pm_qos_lock);
 }
 
 static int sc_s_ctrl(struct v4l2_ctrl *ctrl)
@@ -2594,6 +2604,19 @@ static int sc_ctrl_protection(struct sc_dev *sc, struct sc_ctx *ctx, bool en)
 }
 #endif
 
+static void sc_timeout_qos_work(struct work_struct *work)
+{
+	struct sc_ctx *ctx = container_of(work, struct sc_ctx,
+						qos_work.work);
+
+	mutex_lock(&ctx->pm_qos_lock);
+
+	sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
+	ctx->framerate = 0;
+
+	mutex_unlock(&ctx->pm_qos_lock);
+}
+
 static int sc_open(struct file *file)
 {
 	struct sc_dev *sc = video_drvdata(file);
@@ -2650,7 +2673,9 @@ static int sc_open(struct file *file)
 		goto err_ctx;
 	}
 
+	INIT_DELAYED_WORK(&ctx->qos_work, sc_timeout_qos_work);
 	ctx->pm_qos_lv = -1;
+	mutex_init(&ctx->pm_qos_lock);
 
 	return 0;
 
@@ -2684,10 +2709,8 @@ static int sc_release(struct file *file)
 
 	destroy_intermediate_frame(ctx);
 
-	if (ctx->framerate) {
-		sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
-		ctx->framerate = 0;
-	}
+	if (ctx->framerate)
+		flush_delayed_work(&ctx->qos_work);
 
 	if (!IS_ERR(sc->aclk))
 		clk_unprepare(sc->aclk);
@@ -3515,6 +3538,8 @@ static int sc_m2m1shot_init_context(struct m2m1shot_context *m21ctx)
 
 	m21ctx->priv = ctx;
 	ctx->m21_ctx = m21ctx;
+
+	INIT_DELAYED_WORK(&ctx->qos_work, sc_timeout_qos_work);
 	ctx->pm_qos_lv = -1;
 
 	return 0;
@@ -3537,10 +3562,8 @@ static int sc_m2m1shot_free_context(struct m2m1shot_context *m21ctx)
 		clk_unprepare(ctx->sc_dev->pclk);
 	BUG_ON(!list_empty(&ctx->node));
 	destroy_intermediate_frame(ctx);
-	if (ctx->framerate) {
-		sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
-		ctx->framerate = 0;
-	}
+	if (ctx->framerate)
+		flush_delayed_work(&ctx->qos_work);
 
 	kfree(ctx);
 	return 0;

@@ -289,7 +289,9 @@ static void dbg_snapshot_dump_one_task_info(struct task_struct *tsk, bool is_mai
 			task_cpu(tsk), wchan, pc, (unsigned long)tsk,
 			is_main ? '*' : ' ', tsk->comm, symname);
 
-	if (tsk->state == TASK_RUNNING || tsk->state == TASK_UNINTERRUPTIBLE) {
+	if (tsk->state == TASK_RUNNING ||
+	    tsk->state == TASK_UNINTERRUPTIBLE ||
+	    tsk->state == TASK_KILLABLE) {
 		show_stack(tsk, NULL);
 		dev_info(dss_desc.dev, "\n");
 	}

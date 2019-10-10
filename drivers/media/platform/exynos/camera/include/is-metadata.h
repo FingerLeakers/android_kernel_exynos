@@ -45,7 +45,7 @@ struct rational {
 
 #define CAMERA2_MAX_STRIPE_REGION_NUM		5
 
-#define OPEN_MAGIC_NUMBER		0x20192005
+#define OPEN_MAGIC_NUMBER		0x20192007
 #define SHOT_MAGIC_NUMBER		0x56789234
 
 /*
@@ -733,6 +733,9 @@ enum aa_capture_intent {
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL0 = 90000,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL1 = 90001,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL2 = 90002,
 };
 
 enum aa_mode {
@@ -807,6 +810,7 @@ enum aa_scene_mode {
 	AA_SCENE_MODE_FAST_AE,
 	AA_SCENE_MODE_ILLUMINANCE,
 	AA_SCENE_MODE_SUPER_NIGHT,
+	AA_SCENE_MODE_BOKEH_VIDEO,
 };
 
 enum aa_effect_mode {
@@ -1072,6 +1076,11 @@ enum aa_aemode_state {
 	AA_AE_TOUCH,
 };
 
+struct camera2_video_output_size {
+	uint16_t			width;
+	uint16_t			height;
+};
+
 struct camera2_aa_ctl {
 	enum aa_ae_antibanding_mode	aeAntibandingMode;
 	int32_t				aeExpCompensation;
@@ -1115,7 +1124,10 @@ struct camera2_aa_ctl {
 	float				vendor_expBracketing[15];
 	float				vendor_expBracketingCapture;
 	enum aa_supernightmode		vendor_superNightShotMode;
-	uint32_t			vendor_reserved[7];
+	int16_t				vendor_artificialLightSource;
+	int16_t				vendor_flickerDetect;
+	struct camera2_video_output_size vendor_videoOutputSize;
+	uint32_t			vendor_reserved[39];
 };
 
 struct aa_apexInfo {
@@ -2040,7 +2052,8 @@ struct camera2_uctl {
 	enum camera_motion_state	motionState;
 	uint32_t			cameraClientIndex;
 	uint32_t			remosaicHighResolutionMode;
-	uint32_t			reserved[6];
+	uint32_t			frame_id;	
+	uint32_t			reserved[5];
 };
 
 struct camera2_udm {

@@ -386,9 +386,22 @@ static int gdc_v4l2_try_fmt_mplane(struct file *file, void *fh,
 					pixm->plane_fmt[i].sizeimage =
 						NV16M_CBCR_SIZE(pixm->width, pixm->height)
 						+ NV16M_CBCR_2B_SIZE(pixm->width, pixm->height);
-			} else
+			} else if ((gdc_fmt->pixelformat == V4L2_PIX_FMT_NV12M_P010)
+				|| (gdc_fmt->pixelformat == V4L2_PIX_FMT_NV21M_P010)) {
+				if ((i % 2) == 0)
+					pixm->plane_fmt[i].sizeimage =
+						ALIGN(pixm->plane_fmt[i].bytesperline, 16) * pixm->height;
+				else if ((i % 2) == 1)
+					pixm->plane_fmt[i].sizeimage =
+						(ALIGN(pixm->plane_fmt[i].bytesperline, 16) * pixm->height) >> 1;
+			} else if ((gdc_fmt->pixelformat == V4L2_PIX_FMT_NV16M_P210)
+				|| (gdc_fmt->pixelformat == V4L2_PIX_FMT_NV61M_P210)) {
+				pixm->plane_fmt[i].sizeimage =
+					ALIGN(pixm->plane_fmt[i].bytesperline, 16) * pixm->height;
+			} else {
 				pixm->plane_fmt[i].sizeimage =
 					pixm->plane_fmt[i].bytesperline * pixm->height;
+			}
 		}
 
 		v4l2_dbg(1, gdc_log_level, &ctx->gdc_dev->m2m.v4l2_dev,

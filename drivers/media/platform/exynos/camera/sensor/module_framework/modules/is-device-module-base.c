@@ -216,6 +216,7 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 	}
 #endif
 
+#if !defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 	if (sensor_peri->mcu && sensor_peri->mcu->ois != NULL) {
 		ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_init, sensor_peri->subdev_mcu);
 		if (ret < 0) {
@@ -223,6 +224,7 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 			return ret;
 		}
 	}
+#endif
 #endif
 #ifdef CONFIG_CAMERA_USE_APERTURE
 	subdev_aperture = sensor_peri->subdev_aperture;
@@ -817,6 +819,16 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			}
 		}
 		break;
+	case V4L2_CID_IS_HW_SYNC_CAMERA:
+		if (ctrl->value >= AA_SENSORPLACE_END) {
+			err("wrong value for hw sync:%d\n", ctrl->value);
+			goto p_err;
+		}
+		sensor_peri->cis.dual_sync_mode =
+			ctrl->value == module->position ? DUAL_SYNC_MASTER : DUAL_SYNC_SLAVE;
+		info("[MOD:%s] Dual sync mode set to %s", module->sensor_name,
+			sensor_peri->cis.dual_sync_mode == DUAL_SYNC_MASTER ? "Master" : "Slave");
+		break;
 	default:
 		err("err!!! Unknown CID(%#x)", ctrl->id);
 		ret = -EINVAL;
@@ -1080,6 +1092,10 @@ int sensor_module_s_format(struct v4l2_subdev *subdev,
 					module->sensor_name, ret);
 			goto p_err;
 		}
+
+		/* get crop coordinates from cis */
+		device->image.window.offs_h = cis->cis_data->crop_x;
+		device->image.window.offs_v = cis->cis_data->crop_y;
 	}
 
 	dbg_sensor(1, "[%s] set format done, size(%dx%d), code(%#x)\n", __func__,

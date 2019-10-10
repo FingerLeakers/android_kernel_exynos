@@ -1025,6 +1025,7 @@ typedef struct he_bsscolor_change_ie he_bsscolor_change_ie_t;
 #include <packed_section_end.h>
 
 /* HE Action Frame */
+/* FIXME: use temporary Offsets until the spec assigns them */
 #define HE_AF_CAT_OFF	0
 #define HE_AF_ACT_OFF	1
 
@@ -1039,6 +1040,7 @@ typedef struct he_bsscolor_change_ie he_bsscolor_change_ie_t;
 #define HE_AF_TWT_INFO_OFF	2
 
 /* HE Action ID */
+/* FIXME: use temporary IDs until ANA assigns them */
 #define HE_ACTION_TWT_SETUP	1
 #define HE_ACTION_TWT_TEARDOWN	2
 #define HE_ACTION_TWT_INFO	3

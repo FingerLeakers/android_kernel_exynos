@@ -15,6 +15,7 @@
 
 #include "abox.h"
 #include "abox_ipc.h"
+#include "abox_dump.h"
 #include "abox_dma.h"
 #include "abox_vdma.h"
 #include "abox_tplg.h"
@@ -63,6 +64,14 @@ struct abox_tplg_dai_data {
 	struct snd_soc_dai_driver *dai_drv;
 	struct device *dev_platform;
 };
+
+static int abox_tplg_register_dump(struct device *dev, int gid, int id,
+		const char *name)
+{
+	struct abox_data *data = dev_get_drvdata(dev_abox);
+
+	return abox_dump_register(data, gid, id, name, NULL, 0, 0);
+}
 
 static int abox_tplg_request_ipc(ABOX_IPC_MSG *msg)
 {
@@ -295,6 +304,7 @@ static int abox_tplg_widget_ready(struct snd_soc_component *cmpnt, int index,
 {
 	struct device *dev = cmpnt->dev;
 	struct abox_tplg_widget_data *wdata;
+	struct snd_soc_dapm_route route;
 	int id, gid, ret = 0;
 
 	dev_dbg(dev, "%s(%d, %d, %s)\n", __func__,
@@ -323,15 +333,18 @@ static int abox_tplg_widget_ready(struct snd_soc_component *cmpnt, int index,
 	w->dobj.private = wdata;
 	list_add_tail(&wdata->list, &widget_list);
 
-	if (tplg_w->id == SND_SOC_TPLG_DAPM_MUX) {
-		struct snd_soc_dapm_route route;
-
+	switch (tplg_w->id) {
+	case SND_SOC_TPLG_DAPM_MUX:
 		/* Add none route in here. */
 		route.sink = tplg_w->name;
 		route.control = "None";
 		route.source = "None";
 		route.connected = NULL;
 		ret = snd_soc_dapm_add_routes(w->dapm, &route, 1);
+		break;
+	case SND_SOC_TPLG_DAPM_MIXER:
+		abox_tplg_register_dump(dev, gid, id, tplg_w->name);
+		break;
 	}
 
 	return ret;

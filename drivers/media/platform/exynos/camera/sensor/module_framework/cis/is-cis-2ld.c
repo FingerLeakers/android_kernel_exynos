@@ -1640,22 +1640,22 @@ int sensor_2ld_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 80000) {
 				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 16);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
-				target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
-				target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
 			}
+			target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+			target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
 			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
 			break;
 		default:
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 160000) {
 				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 16);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
-				target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
-				target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
 			}
+			target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+			target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
 			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
 			break;
 		}
@@ -2874,7 +2874,7 @@ int sensor_2ld_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 		break;
 	case FRS_SSM_STOP:
 		pr_info("[%s] SUPER_SLOW_MOTION_STOP\n", __func__);
-		ret |= is_sensor_write8(cis->client, 0x0A53, 0x01); /* stop_user_record */
+		ret |= is_sensor_write8(cis->client, 0x0A51, 0x01); /* stop_user_record */
 		break;
 	case FRS_SSM_MODE_AUTO_MANUAL_CUE_16:
 		pr_info("[%s] SUPER_SLOW_MOTION_MODE_AUTO_MANUAL_CUE_16\n", __func__);
@@ -2903,14 +2903,50 @@ int sensor_2ld_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 		break;
 	case FRS_SSM_MODE_FACTORY_TEST:
 		pr_info("[%s] SUPER_SLOW_MOTION_MODE_FACTORY_TEST\n", __func__);
-		ret |= is_sensor_write8(cis->client, 0x0A50, 0x01);    /* Enable Manual Q Only */
-		ret |= is_sensor_write16(cis->client, 0x0A58, 0x0000); /* q_mask_frames */
-		ret |= is_sensor_write16(cis->client, 0x0A5A, 0x0010); /* before_q_frames = 16 */
-		ret |= is_sensor_write8(cis->client, 0x0A52, 0x01); /* start_user_record */
-		ret |= is_sensor_write16(cis->client, 0xF40A, 0x0009); /* test */
-		ret |= is_sensor_write16(cis->client, 0xF404, 0xFFF7); /* test */
-
-		//ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
+		/* TEMP_2020 */
+		break;
+	case FRS_SSM_MODE_FLICKER_DETECT_OFF:
+		pr_info("[%s] FRS_SSM_MODE_FLICKER_DETECT_OFF\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0120, 0x01); /* flicker mode 1:enable 0:disable */
+		ret |= is_sensor_write8(cis->client, 0x1982, 0x00); /* 0 : not detected */
+		break;
+	case FRS_SSM_MODE_FLICKER_DETECT_50:
+		pr_info("[%s] FRS_SSM_MODE_FLICKER_DETECT_50\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0120, 0x01); /* flicker mode 1:enable 0:disable */
+		ret |= is_sensor_write8(cis->client, 0x1982, 0x01); /* 1 : 50Hz */
+		break;
+	case FRS_SSM_MODE_FLICKER_DETECT_60:
+		pr_info("[%s] FRS_SSM_MODE_FLICKER_DETECT_60\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0120, 0x01); /* flicker mode 1:enable 0:disable */
+		ret |= is_sensor_write8(cis->client, 0x1982, 0x02); /* 2 : 60Hz */
+		break;
+	case FRS_SSM_MODE_FLICKER_DETECT_50_60:
+		pr_info("[%s] FRS_SSM_MODE_FLICKER_DETECT_50_60\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0120, 0x01); /* flicker mode 1:enable 0:disable */
+		ret |= is_sensor_write8(cis->client, 0x1982, 0x03); /* 3 : both(50Hz and 60Hz) */
+		break;
+	case FRS_SSM_MODE_FPS_960:
+		pr_info("[%s] SUPER_SLOW_MOTION_MODE__FPS_960\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0A53, 0x02); /* ssm fps = 960 */
+		break;
+	case FRS_SSM_MODE_FPS_480:
+		pr_info("[%s] SUPER_SLOW_MOTION_MODE__FPS_480\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0A53, 0x01); /* ssm fps = 480 */
+		break;
+	case FRS_SSM_MANUAL_MODE_START:
+		pr_info("[%s] SUPER_SLOW_MOTION_MANUAL_MODE_START\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0A52, 0x01); /* Start Manual Q Only */ 
+		break;
+	case FRS_SSM_AUTO_MODE_START:
+		pr_info("[%s] SUPER_SLOW_MOTION_AUTO_MODE_START\n", __func__);
+		ret |= is_sensor_write8(cis->client, 0x0A50, 0x01); /* Start Auto Q Only */
+		break;
+	case FRS_SSM_MODE_MITIGATION_ENABLE:
+		pr_info("[%s] SUPER_SLOW_MOTION_MODE_MITIGATION_ENABLE\n", __func__);
+		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x2000);
+		ret |= is_sensor_write8(cis->client, 0xC350, 0x03); /* 0:off 1:case1 2:case2 3:case3 */
+		ret |= is_sensor_write8(cis->client, 0xC26E, 0x01); /* 0 : on, 1 : bypass */
+		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
 		break;
 	default:
 		pr_info("[%s] not support command(%d)\n", __func__, command);

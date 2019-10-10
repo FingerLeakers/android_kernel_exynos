@@ -472,7 +472,7 @@ typedef enum ring_config_subtype {
 	D2H_RING_CONFIG_SUBTYPE_MSI_DOORBELL = 2   /* MSI configuration */
 } ring_config_subtype_t;
 
-typedef struct ring_config_req {
+typedef struct ring_config_req { /* XXX: pulled from upcoming rev6 ... */
 	cmn_msg_hdr_t	msg;
 	uint16	subtype;
 	uint16	ring_id;
@@ -1126,7 +1126,7 @@ typedef struct ioct_reqst_hdr {
 	ioctl_hdr_t ioct_hdr;
 #else
 	ioctl_req_hdr_t ioct_hdr;
-#endif // endif
+#endif
 	ret_buf_t ret_buf;
 } ioct_reqst_hdr_t;
 
@@ -1136,7 +1136,7 @@ typedef struct ioctptr_reqst_hdr {
 	ioctlptr_hdr_t ioct_hdr;
 #else
 	ioctl_req_hdr_t ioct_hdr;
-#endif // endif
+#endif
 	ret_buf_t ret_buf;
 	ret_buf_t ioct_buf;
 } ioctptr_reqst_hdr_t;
@@ -1148,7 +1148,7 @@ typedef struct ioct_resp_hdr {
 	uint32	cmd_id;
 #else
 	uint32	pkt_id;
-#endif // endif
+#endif
 	uint32	status;
 	uint32	ret_len;
 	uint32  inline_data;
@@ -1156,7 +1156,7 @@ typedef struct ioct_resp_hdr {
 #else
 	uint16	xt_id;	/**< transaction ID */
 	uint16	rsvd[1];
-#endif // endif
+#endif
 } ioct_resp_hdr_t;
 
 /* ioct resp header used in dongle */
@@ -1318,6 +1318,7 @@ typedef struct tx_idle_flowring_resume_response {
 
 /* timesync related additions */
 
+/* XXX: defined similar to bcm_xtlv_t */
 typedef struct _bcm_xtlv {
 	uint16		id; /* TLV idenitifier */
 	uint16		len; /* TLV length in bytes */

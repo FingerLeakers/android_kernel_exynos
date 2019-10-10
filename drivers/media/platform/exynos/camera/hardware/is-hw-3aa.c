@@ -152,6 +152,9 @@ static int is_hw_3aa_init(struct is_hw_ip *hw_ip, u32 instance,
 		}
 	}
 
+	group->hw_ip = hw_ip;
+	msinfo_hw("[%s] Binding\n", instance, hw_ip, group_id_name[group->id]);
+
 	set_bit(HW_INIT, &hw_ip->state);
 	return ret;
 }
@@ -307,19 +310,25 @@ static int is_hw_3aa_disable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 	}
 
 	param_set->fcount = 0;
-	if (test_bit(HW_RUN, &hw_ip->state)) {
-		/* TODO: need to divide each task index */
-		for (i = 0; i < TASK_INDEX_MAX; i++) {
-			FIMC_BUG(!hw_3aa->lib_support);
-			if (hw_3aa->lib_support->task_taaisp[i].task == NULL)
-				serr_hw("task is null", hw_ip);
-			else
-				kthread_flush_worker(&hw_3aa->lib_support->task_taaisp[i].worker);
-		}
 
-		is_lib_isp_stop(hw_ip, &hw_3aa->lib[instance], instance);
-	} else {
-		msdbg_hw(2, "already disabled\n", instance, hw_ip);
+	/* TODO: need to divide each task index */
+	for (i = 0; i < TASK_INDEX_MAX; i++) {
+		FIMC_BUG(!hw_3aa->lib_support);
+		if (hw_3aa->lib_support->task_taaisp[i].task == NULL)
+			serr_hw("task is null", hw_ip);
+		else
+			kthread_flush_worker(&hw_3aa->lib_support->task_taaisp[i].worker);
+	}
+
+	/*
+	 * It doesn't matter, if object_stop command is always called.
+	 * That is becuase DDK can prevent object_stop that is over called.
+	 */
+	is_lib_isp_stop(hw_ip, &hw_3aa->lib[instance], instance);
+
+	if (atomic_read(&hw_ip->run_rsccount) == 0) {
+		mswarn_hw("run_rsccount is not paired.\n", instance, hw_ip);
+		return 0;
 	}
 
 	if (atomic_dec_return(&hw_ip->run_rsccount) > 0)
@@ -395,9 +404,17 @@ static int __is_hw_3aa_change_sram_offset(struct is_hw_ip *hw_ip, int instance, 
 	case SRAM_CFG_BLOCK:
 		return ret;
 	case SRAM_CFG_N:
-		/* TODO: sensor width exceeds offset0 */
 		offset0 = IS_MAX_HW_3AA_SRAM / 2;
 		offset1 = IS_MAX_HW_3AA_SRAM;
+		target_w = param_set->otf_input.width;
+		/* 3AA2 is not considered */
+		if (hw_ip->id == DEV_HW_3AA0) {
+			if (target_w > offset0)
+				offset0 = target_w;
+		} else if (hw_ip->id == DEV_HW_3AA1) {
+			if (target_w > (IS_MAX_HW_3AA_SRAM - offset0))
+				offset0 = IS_MAX_HW_3AA_SRAM - target_w;
+		}
 		break;
 	case SRAM_CFG_R:
 	case SRAM_CFG_MODE_CHANGE_R:

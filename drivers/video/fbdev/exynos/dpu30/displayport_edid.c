@@ -578,6 +578,11 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 		struct fb_monspecs *specs, int modedb_len, u8 *edid)
 {
 	int i;
+#ifdef FEATURE_USE_PREFERRED_TIMING_1ST
+	int matched_timing_idx = 0;
+	int matched_resolution_idx = 0;
+	int max_dex_support_idx = 0;
+#endif
 	struct fb_videomode *mode = NULL;
 	u64 pixelclock = 0;
 	u8 *block = edid + DETAILED_TIMING_DESCRIPTIONS_START;
@@ -598,38 +603,72 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 			mode->xres, mode->yres, mode->refresh, pixelclock, mode->pixclock);
 
 	for (i = 0; i < supported_videos_pre_cnt; i++) {
+#ifdef FEATURE_USE_PREFERRED_TIMING_1ST
 		if (mode->vmode == FB_VMODE_NONINTERLACED &&
-			(mode->refresh == supported_videos[i].fps ||
-			 mode->refresh == supported_videos[i].fps - 1) &&
-			mode->xres == supported_videos[i].dv_timings.bt.width &&
-			mode->yres == supported_videos[i].dv_timings.bt.height) {
+				mode->xres == supported_videos[i].dv_timings.bt.width &&
+				mode->yres == supported_videos[i].dv_timings.bt.height) {
+			if (!matched_resolution_idx) {
+				matched_resolution_idx = i;
+				displayport_info("found matched resolution:%d\n", i);
+			}
+			if ((mode->refresh == supported_videos[i].fps ||
+					mode->refresh == supported_videos[i].fps - 1) &&
+					!matched_timing_idx) {
+				matched_timing_idx = i;
+				displayport_info("found matched timing:%d\n", i);
+			}
+			if (supported_videos[i].dex_support != DEX_NOT_SUPPORT)
+				max_dex_support_idx = i;
+		}
+#else
+		if (mode->vmode == FB_VMODE_NONINTERLACED &&
+				(mode->refresh == supported_videos[i].fps ||
+				mode->refresh == supported_videos[i].fps - 1) &&
+				mode->xres == supported_videos[i].dv_timings.bt.width &&
+				mode->yres == supported_videos[i].dv_timings.bt.height) {
 			if (supported_videos[i].edid_support_match == true) {
 				displayport_info("already found timing:%d\n", i);
 				return;
 			}
-
 			break; /* matched but not found */
 		}
+#endif
 	}
 
+	if (supported_videos[V640X480P60].dv_timings.bt.pixelclock > pixelclock ||
+			HBR2_PIXEL_CLOCK_PER_LANE * 4 < pixelclock) {
+		displayport_info("EDID: invalid pixel clock\n");
+		return;
+	}
+
+/*use every prefered timing as top priority*/
+#ifdef FEATURE_USE_PREFERRED_TIMING_1ST
+	if (matched_timing_idx < VDUMMYTIMING) {
+		/* copy dex_support and ratio if found the same timing at table */
+		supported_videos[VDUMMYTIMING].ratio = supported_videos[i].ratio;
+		supported_videos[VDUMMYTIMING].dex_support = supported_videos[i].dex_support;
+	} else if ((matched_resolution_idx < VDUMMYTIMING) &&
+				(supported_videos[i].ratio == RATIO_16_9 ||
+				supported_videos[i].ratio == RATIO_16_10 ||
+				supported_videos[i].ratio == RATIO_21_9) ) {
+		supported_videos[VDUMMYTIMING].ratio = supported_videos[i].ratio;
+		/* needed to reduce high fps? try to reduce by pixelclock*/
+		if (pixelclock <= supported_videos[max_dex_support_idx].dv_timings.bt.pixelclock)
+			supported_videos[VDUMMYTIMING].dex_support = supported_videos[i].dex_support;
+	}
+#else
 	/* check if index is valid and index is bigger than best video */
 	if (i >= supported_videos_pre_cnt || i <= displayport->sst[sst_id]->best_video) {
 		displayport_info("invalid timing i:%d, best:%d\n",
 				i, displayport->sst[sst_id]->best_video);
 		return;
 	}
-
-	displayport_info("find same supported timing: %d*%d@%d (%lld)\n",
+	displayport_info("found same supported timing: %d*%d@%d (%lld)\n",
 			supported_videos[i].dv_timings.bt.width,
 			supported_videos[i].dv_timings.bt.height,
 			supported_videos[i].fps,
 			supported_videos[i].dv_timings.bt.pixelclock);
-
-	if (supported_videos[V640X480P60].dv_timings.bt.pixelclock >= pixelclock ||
-			supported_videos[V4096X2160P60].dv_timings.bt.pixelclock <= pixelclock) {
-		displayport_info("EDID: invalid pixel clock\n");
-		return;
-	}
+#endif
 
 	displayport->sst[sst_id]->best_video = VDUMMYTIMING;
 	supported_videos[VDUMMYTIMING].dv_timings.bt.width = mode->xres;
@@ -876,6 +915,8 @@ int edid_update(u32 sst_id, struct displayport_device *displayport)
 	supported_videos[0].edid_support_match = true; /*default support VGA*/
 	supported_videos[VDUMMYTIMING].dv_timings.bt.width = 0;
 	supported_videos[VDUMMYTIMING].dv_timings.bt.height = 0;
+	supported_videos[VDUMMYTIMING].dex_support = 0;
+	supported_videos[VDUMMYTIMING].ratio = 0;
 	for (i = 1; i < supported_videos_pre_cnt; i++)
 		supported_videos[i].edid_support_match = false;
 	block_cnt = edid_read(sst_id, displayport);

@@ -517,12 +517,12 @@
 				current_group_6 {
 					cable_number = <10 12 15 27 33 35>;
 					input_current = <800>;
-					charging_current = <1400>;
+					charging_current = <3150>;
 				};
 				current_group_7 {
 					cable_number = <13>;
 					input_current = <700>;
-					charging_current = <1400>;
+					charging_current = <3150>;
 				};
 				current_group_8 {
 					cable_number = <24>;
@@ -537,7 +537,7 @@
 				current_group_10 {
 					cable_number = <11 14 16 28>;
 					input_current = <750>;
-					charging_current = <1400>;
+					charging_current = <3150>;
 				};
 				current_group_11 {
 					cable_number = <29 36 37>;
@@ -569,7 +569,7 @@
 					vout = <10000>;
 					input_current_limit = <750>;
 					fast_charging_current = <3150>;
-					ttf_charge_current = <3150>;
+					ttf_charge_current = <1550>;
 					rx_power = <7500>;
 				};
 				current_group_2 {
@@ -577,7 +577,7 @@
 					vout = <11000>;
 					input_current_limit = <1100>;
 					fast_charging_current = <3150>;
-					ttf_charge_current = <3150>;
+					ttf_charge_current = <2350>;
 					rx_power = <12000>;
 				};
 				current_group_3 {
@@ -585,7 +585,7 @@
 					vout = <11000>;
 					input_current_limit = <1300>;
 					fast_charging_current = <3150>;
-					ttf_charge_current = <3150>;
+					ttf_charge_current = <2650>;
 					rx_power = <14000>;
 				};
 			};
@@ -699,8 +699,8 @@
 		battery,charger_name = "max77705-charger";
 		battery,fuelgauge_name = "max77705-fuelgauge";
 		battery,wireless_charger_name = "mfc-charger";
-		battery,fod_data = <150 64 142 54 150 41 150 40 155 27 156 24>;
-		battery,fod_data_cv = <150 94 142 84 150 71 150 70 155 57 156 54>;
+		battery,fod_data = <150 64 142 53 150 33 150 29 155 11 156 10>;
+		battery,fod_data_cv = <150 94 142 83 150 63 150 59 155 41 156 40>;
 		battery,fod_hero_5v_data = <150 2 142 (-6) 150 (-20) 150 (-28) 165 185 156 (-39)>;
 		battery,wc_cover_rpp = <0x44>;
 		battery,phone_fod_threshold = <0x3b>;

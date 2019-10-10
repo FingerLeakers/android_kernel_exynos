@@ -36,7 +36,7 @@
 
 #ifndef _TYPEDEFS_H_
 #include <typedefs.h>
-#endif // endif
+#endif
 #include <bcmeth.h>
 #include <ethernet.h>
 
@@ -115,6 +115,7 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_dngl_pcie_hc {
 	uint32			pcie_config_regs[HC_PCIEDEV_CONFIG_REGLIST_MAX];
 } BWL_POST_PACKED_STRUCT bcm_dngl_pcie_hc_t;
 
+/* XXX define to avoid compile issues in older branches which define hchk_sw_entity_t */
 #ifdef HCHK_COMMON_SW_EVENT
 /* Enumerating top level SW entities for use by health check */
 typedef enum {

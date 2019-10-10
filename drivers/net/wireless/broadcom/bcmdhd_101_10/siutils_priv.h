@@ -28,7 +28,7 @@
 #define	SI_ERROR(args)	printf args
 #else
 #define	SI_ERROR(args)
-#endif // endif
+#endif
 
 #if defined(ENABLE_CORECAPTURE)
 
@@ -46,7 +46,7 @@
 #define	SI_VMSG(args)	printf args
 #else
 #define	SI_VMSG(args)
-#endif // endif
+#endif
 
 #define	IS_SIM(chippkg)	((chippkg == HDLSIM_PKG_ID) || (chippkg == HWSIM_PKG_ID))
 
@@ -277,7 +277,7 @@ typedef struct si_info {
 
 #ifndef DEFAULT_GPIOTIMERVAL
 #define DEFAULT_GPIOTIMERVAL  ((DEFAULT_GPIO_ONTIME << GPIO_ONTIME_SHIFT) | DEFAULT_GPIO_OFFTIME)
-#endif // endif
+#endif
 
 /* Silicon Backplane externs */
 extern void sb_scan(si_t *sih, volatile void *regs, uint devid);
@@ -303,11 +303,14 @@ extern uint32 sb_addrspace(const si_t *sih, uint asidx);
 extern uint32 sb_addrspacesize(const si_t *sih, uint asidx);
 extern int sb_numaddrspaces(const si_t *sih);
 
+/* XXX Mogrifier hack alert- BCMINTERNAL should not be the last in the following
+ * if defined string
+ */
 extern bool sb_taclear(si_t *sih, bool details);
 
 #if defined(BCMDBG_PHYDUMP)
 extern void sb_dumpregs(si_t *sih, struct bcmstrbuf *b);
-#endif // endif
+#endif
 
 /* AMBA Interconnect exported externs */
 extern si_t *ai_attach(uint pcidev, osl_t *osh, void *regs, uint bustype,
@@ -357,7 +360,7 @@ extern uint32 ai_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreun
 
 #if defined(BCMDBG_PHYDUMP)
 extern void ai_dumpregs(const si_t *sih, struct bcmstrbuf *b);
-#endif // endif
+#endif
 
 extern uint32 ai_wrapper_dump_buf_size(const si_t *sih);
 extern uint32 ai_wrapper_dump_binary(const si_t *sih, uchar *p);

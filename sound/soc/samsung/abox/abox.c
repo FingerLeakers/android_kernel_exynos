@@ -1797,13 +1797,18 @@ static void abox_system_ipc_handler(struct device *dev,
 	case ABOX_REPORT_DUMP:
 		area = abox_addr_to_kernel_addr(data, system_msg->param2);
 		addr = abox_addr_to_phys_addr(data, system_msg->param2);
-		ret = abox_dump_register(data, system_msg->param1,
+		ret = abox_dump_register_legacy(data, system_msg->param1,
 				system_msg->bundle.param_bundle, area, addr,
 				system_msg->param3);
 		if (ret < 0) {
 			dev_err(dev, "dump buffer registration failed: %u, %u\n",
 					system_msg->param1, system_msg->param2);
 		}
+		break;
+	case ABOX_COPY_DUMP:
+		area = (void *)system_msg->bundle.param_bundle;
+		abox_dump_transfer(system_msg->param1, area,
+				system_msg->param3);
 		break;
 	case ABOX_TRANSFER_DUMP:
 		area = abox_addr_to_kernel_addr(data, system_msg->param2);

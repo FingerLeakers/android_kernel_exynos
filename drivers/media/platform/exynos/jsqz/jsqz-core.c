@@ -1678,6 +1678,10 @@ static long jsqz_ioctl(struct file *filp,
     		dev_dbg(jsqz_device->dev
     			, "%s: user data copied, now launching processing...\n"
     			, __func__);
+    			
+    		dev_dbg(jsqz_device->dev,
+    		    "%s: buffer size - 0 : %zu, 1 : %zu\n", __func__,
+    		    data.user_task.buf_out[0].len, data.user_task.buf_out[1].len);
 
     		/*
     		 * jsqz_process() does not wake up
@@ -1686,6 +1690,13 @@ static long jsqz_ioctl(struct file *filp,
     		HWJSQZ_PROFILE(ret = jsqz_process(ctx, &data),
     			       "WHOLE PROCESS TIME",
     			       jsqz_device->dev);
+    		
+    		if (ret) {
+    			dev_err(jsqz_device->dev,
+    			    "%s: Failed to process task, error %d\n"
+    			    , __func__, ret);
+    			return ret;
+    		}
 
     		dev_dbg(jsqz_device->dev
     			, "%s: processing done! Copying data back to user space...\n", __func__);
@@ -1693,13 +1704,6 @@ static long jsqz_ioctl(struct file *filp,
     		if (copy_to_user((void __user *)arg, &data.user_task, sizeof(data.user_task))) {
     			dev_err(jsqz_device->dev,
     				"%s: Failed to write userdata\n", __func__);
-    		}
-
-    		if (ret) {
-    			dev_err(jsqz_device->dev,
-    				"%s: Failed to process task, error %d\n"
-    				, __func__, ret);
-    			return ret;
     		}
 
     		return ret;

@@ -390,6 +390,50 @@ static const struct attribute_group *chipid_sysfs_groups[] = {
 	NULL,
 };
 
+static ssize_t svc_ap_show(struct kobject *kobj,
+			struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 20, "%010llX\n",
+			(exynos_soc_info.unique_id));
+}
+
+static struct kobj_attribute svc_ap_attr =
+		__ATTR(SVC_AP, 0644, svc_ap_show, NULL);
+
+extern struct kset *devices_kset;
+
+void sysfs_create_svc_ap(void)
+{
+	struct kernfs_node *svc_sd;
+	struct kobject *data;
+	struct kobject *ap;
+
+	/* To find svc kobject */
+	svc_sd = sysfs_get_dirent(devices_kset->kobj.sd, "svc");
+	if (IS_ERR_OR_NULL(svc_sd)) {
+		/* try to create svc kobject */
+		data = kobject_create_and_add("svc", &devices_kset->kobj);
+		if (IS_ERR_OR_NULL(data))
+			pr_info("Existing path sys/devices/svc : 0x%pK\n", data);
+		else
+			pr_info("Created sys/devices/svc svc : 0x%pK\n", data);
+	} else {
+		data = (struct kobject *)svc_sd->priv;
+		pr_info("Found svc_sd : 0x%pK svc : 0x%pK\n", svc_sd, data);
+	}
+
+	ap = kobject_create_and_add("AP", data);
+	if (IS_ERR_OR_NULL(ap))
+		pr_info("Failed to create sys/devices/svc/AP : 0x%pK\n", ap);
+	else
+		pr_info("Success to create sys/devices/svc/AP : 0x%pK\n", ap);
+
+	if (sysfs_create_file(ap, &svc_ap_attr.attr) < 0) {
+		pr_err("failed to create sys/devices/svc/AP/SVC_AP, %s\n",
+		svc_ap_attr.attr.name);
+	}
+}
+
 static int __init chipid_sysfs_init(void)
 {
 	int ret = 0;
@@ -403,6 +447,8 @@ static int __init chipid_sysfs_init(void)
 			pr_err("fail to register chip-id subsys\n");
 		}
 	}
+
+	sysfs_create_svc_ap();
 
 	return ret;
 }

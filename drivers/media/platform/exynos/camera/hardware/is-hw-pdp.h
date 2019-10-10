@@ -20,6 +20,7 @@ extern int debug_pdp;
 
 enum is_pdp_state {
 	IS_PDP_SET_PARAM,
+	IS_PDP_VOTF_ONESHOT_FIRST_FRAME,
 };
 
 enum pdp_work_map {

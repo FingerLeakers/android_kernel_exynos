@@ -74,6 +74,10 @@
 #include "ufshci.h"
 #include "ufs_quirks.h"
 
+#if defined(CONFIG_UFSFEATURE)
+#include "ufsfeature.h"
+#endif
+
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.2"
 
@@ -143,6 +147,20 @@ enum uic_link_state {
 				    UIC_LINK_TRANS_ACTIVE_STATE)
 #define ufshcd_set_link_trans_hibern8(hba) ((hba)->uic_link_state = \
 				    UIC_LINK_TRANS_HIBERN8_STATE)
+
+enum ufs_tw_state {
+	UFS_TW_OFF_STATE	= 0,	/* turbo write disabled state */
+	UFS_TW_ON_STATE	= 1,		/* turbo write enabled state */
+	UFS_TW_ERR_STATE	= 2, 		/* turbo write error state */
+};
+
+#define ufshcd_is_tw_off(hba) ((hba)->ufs_tw_state == UFS_TW_OFF_STATE)
+#define ufshcd_is_tw_on(hba) ((hba)->ufs_tw_state == UFS_TW_ON_STATE)
+#define ufshcd_is_tw_err(hba) ((hba)->ufs_tw_state == UFS_TW_ERR_STATE)
+#define ufshcd_set_tw_off(hba) ((hba)->ufs_tw_state = UFS_TW_OFF_STATE)
+#define ufshcd_set_tw_on(hba) ((hba)->ufs_tw_state = UFS_TW_ON_STATE)
+#define ufshcd_set_tw_err(hba) ((hba)->ufs_tw_state = UFS_TW_ERR_STATE)
+
 /*
  * UFS Power management levels.
  * Each level is in increasing order of power savings.
@@ -208,6 +226,9 @@ struct ufshcd_lrb {
 	ktime_t compl_time_stamp;
 
 	bool req_abort_skip;
+#if defined(CONFIG_UFSFEATURE) && defined(CONFIG_UFSHPB)
+	int hpb_ctx_id;
+#endif
 };
 
 /**
@@ -677,6 +698,7 @@ struct ufs_hba {
 
 	enum ufs_dev_pwr_mode curr_dev_pwr_mode;
 	enum uic_link_state uic_link_state;
+	enum ufs_tw_state ufs_tw_state;
 	/* Desired UFS power management level during runtime PM */
 	enum ufs_pm_level rpm_lvl;
 	/* Desired UFS power management level during system PM */
@@ -766,7 +788,7 @@ struct ufs_hba {
 	 * enabled via HCE register.
 	 */
 	#define UFSHCI_QUIRK_BROKEN_HCE				0x400
-	
+
 	#define UFSHCD_QUIRK_GET_GENERRCODE_DIRECT		0x800
 
 	#define UFSHCD_QUIRK_UNRESET_INTR_AGGR			0x1000
@@ -774,7 +796,7 @@ struct ufs_hba {
 	#define UFSHCD_QUIRK_GET_UPMCRS_DIRECT			0x2000
 
 	#define UFSHCD_QUIRK_DUMP_DEBUG_INFO			0x4000
-	
+
 	unsigned int quirks;	/* Deviations from standard UFSHCI spec. */
 
 	/* Device deviations from standard UFS device spec. */
@@ -871,6 +893,9 @@ struct ufs_hba {
 	char unique_number[UFS_UN_MAX_DIGITS];
 	u16 manufacturer_id;
 	u8 lifetime;
+	bool support_tw;
+	struct SEC_UFS_TW_info SEC_tw_info;
+	struct SEC_UFS_TW_info SEC_tw_info_old;
 	unsigned int lc_info;
 
 	struct ufs_monitor monitor;
@@ -893,6 +918,9 @@ struct ufs_hba {
 	atomic_t	log_count;
 #endif
 	bool dbg_dump_chk;
+#if defined(CONFIG_UFSFEATURE)
+	struct ufsf_feature ufsf;
+#endif
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
@@ -1093,6 +1121,11 @@ int ufshcd_map_desc_id_to_length(struct ufs_hba *hba, enum desc_idn desc_id,
 	int *desc_length);
 
 u32 ufshcd_get_local_unipro_ver(struct ufs_hba *hba);
+
+#if defined(CONFIG_UFSFEATURE)
+int ufshcd_comp_scsi_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
+int ufshcd_map_sg(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
+#endif
 
 /* Wrapper functions for safely calling variant operations */
 static inline const char *ufshcd_get_var_name(struct ufs_hba *hba)

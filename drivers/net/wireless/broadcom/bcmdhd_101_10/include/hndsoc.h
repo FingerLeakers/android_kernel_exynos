@@ -41,11 +41,11 @@
 
 #ifndef SI_ENUM_BASE_DEFAULT
 #define SI_ENUM_BASE_DEFAULT		0x18000000	/* Enumeration space base */
-#endif // endif
+#endif
 
 #ifndef SI_WRAP_BASE_DEFAULT
 #define SI_WRAP_BASE_DEFAULT		0x18100000	/* Wrapper space base */
-#endif // endif
+#endif
 
 /** new(er) chips started locating their chipc core at a different BP address than 0x1800_0000 */
 // NIC and DHD driver binaries should support both old(er) and new(er) chips at the same time
@@ -102,7 +102,7 @@
 #define	SI_ARMCA7_ROM		0x00000000	/* ARM Cortex-A7 ROM */
 #ifndef SI_ARMCA7_RAM
 #define	SI_ARMCA7_RAM		0x00200000	/* ARM Cortex-A7 RAM */
-#endif // endif
+#endif
 #define	SI_ARM_FLASH1		0xffff0000	/* ARM Flash Region 1 */
 #define	SI_ARM_FLASH1_SZ	0x00010000	/* ARM Size of Flash Region 1 */
 

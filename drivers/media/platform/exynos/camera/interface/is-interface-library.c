@@ -2488,7 +2488,7 @@ int __nocfi is_load_ddk_bin(int loadType)
 		}
 
 #ifdef CONFIG_UH_RKP
-		ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS, (u64)&rkp_dyn, 0, 0);
+		uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS, (u64)&rkp_dyn, (u64)&ret, 0);
 		if (ret) {
 			err_lib("fail to load verify FIMC in EL2");
 		}
@@ -2680,7 +2680,7 @@ int __nocfi is_load_rta_bin(int loadType)
 			goto fail;
 		}
 #ifdef CONFIG_UH_RKP
-		ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS,(u64)&rkp_dyn, 0, 0);
+		uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS,(u64)&rkp_dyn, (u64)&ret, 0);
 		if (ret) {
 			err_lib("fail to load verify FIMC in EL2");
 		}

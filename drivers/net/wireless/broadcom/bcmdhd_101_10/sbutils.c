@@ -157,7 +157,7 @@ _sb_coresba(const si_info_t *sii)
 	case SDIO_BUS:
 		sbaddr = (uint32)(uintptr)sii->curmap;
 		break;
-#endif // endif
+#endif
 
 	default:
 		sbaddr = BADCOREADDR;
@@ -449,6 +449,7 @@ _sb_scan(si_info_t *sii, uint32 sba, volatile void *regs, uint bus,
 	uint i;
 	si_cores_info_t *cores_info = (si_cores_info_t *)sii->cores_info;
 
+	/* XXX bail out in case it is too deep to scan at the specified bus level */
 	if (bus >= SB_MAXBUSES) {
 		SI_ERROR(("_sb_scan: bus 0x%08x at level %d is too deep to scan\n", sbba, bus));
 		return 0;
@@ -725,6 +726,11 @@ sb_core_disable(const si_t *sih, uint32 bits)
 	if (R_SBREG(sii, &sb->sbtmstatehigh) & SBTMH_BUSY)
 		SI_ERROR(("sb_core_disable: target state still busy\n"));
 
+	/*
+	 * If core is initiator, set the Reject bit and allow Busy to clear.
+	 * sonicsrev < 2.3 chips don't have the Reject and Busy bits (nops).
+	 * Don't assert - dma engine might be stuck (PR4871).
+	 */
 	if (R_SBREG(sii, &sb->sbidlow) & SBIDL_INIT) {
 		OR_SBREG(sii, &sb->sbimstate, SBIM_RJ);
 		dummy = R_SBREG(sii, &sb->sbimstate);
@@ -783,6 +789,7 @@ sb_core_reset(const si_t *sih, uint32 bits, uint32 resetbits)
 	BCM_REFERENCE(dummy);
 	OSL_DELAY(1);
 
+	/* PR3158 - clear any serror */
 	if (R_SBREG(sii, &sb->sbtmstatehigh) & SBTMH_SERR) {
 		W_SBREG(sii, &sb->sbtmstatehigh, 0);
 	}
@@ -887,4 +894,4 @@ sb_dumpregs(si_t *sih, struct bcmstrbuf *b)
 	sb_setcoreidx(sih, origidx);
 	INTR_RESTORE(sii, &intr_val);
 }
-#endif // endif
+#endif

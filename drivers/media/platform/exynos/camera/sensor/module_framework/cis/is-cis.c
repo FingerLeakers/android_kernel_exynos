@@ -104,6 +104,7 @@ int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const 
 			if (ret < 0) {
 				err("is_sensor_write16_burst fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
+				goto p_err;
 			}
 			burst_num = 1;
 			break;
@@ -116,12 +117,14 @@ int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const 
 				if (ret < 0) {
 					err("is_sensor_write8 fail, ret(%d), addr(%#x), data(%#x)",
 							ret, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
+					goto p_err;
 				}
 			} else if (regs[i + I2C_BYTE] == 0x2) {
 				ret = is_sensor_write16(client, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
 				if (ret < 0) {
 					err("is_sensor_write16 fail, ret(%d), addr(%#x), data(%#x)",
 						ret, regs[i + I2C_ADDR], regs[i + I2C_DATA]);
+					goto p_err;
 				}
 			}
 		}

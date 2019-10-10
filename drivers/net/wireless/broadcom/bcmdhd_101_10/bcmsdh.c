@@ -69,7 +69,7 @@ bcmsdh_enable_hw_oob_intr(bcmsdh_info_t *sdh, bool enable)
 {
 	sdioh_enable_hw_oob_intr(sdh->sdioh, enable);
 }
-#endif // endif
+#endif
 
 #if defined(BT_OVER_SDIO)
 void bcmsdh_btsdio_process_hang_state(dhd_hang_state_t new_state)
@@ -296,7 +296,7 @@ bcmsdh_intr_pending(void *sdh)
 	ASSERT(sdh);
 	return sdioh_interrupt_pending(bcmsdh->sdioh);
 }
-#endif // endif
+#endif
 
 int
 bcmsdh_devremove_reg(void *sdh, bcmsdh_cb_fn_t fn, void *argh)
@@ -322,7 +322,7 @@ bcmsdh_cfg_read(void *sdh, uint fnc_num, uint32 addr, int *err)
 	SDIOH_API_RC status;
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	int32 retry = 0;
-#endif // endif
+#endif
 	uint8 data = 0;
 
 	if (!bcmsdh)
@@ -334,11 +334,11 @@ bcmsdh_cfg_read(void *sdh, uint fnc_num, uint32 addr, int *err)
 	do {
 		if (retry)	/* wait for 1 ms till bus get settled down */
 			OSL_DELAY(1000);
-#endif // endif
+#endif
 	status = sdioh_cfg_read(bcmsdh->sdioh, fnc_num, addr, (uint8 *)&data);
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	} while (!SDIOH_API_SUCCESS(status) && (retry++ < SDIOH_API_ACCESS_RETRY_LIMIT));
-#endif // endif
+#endif
 	if (err)
 		*err = (SDIOH_API_SUCCESS(status) ? 0 : BCME_SDIO_ERROR);
 
@@ -355,7 +355,7 @@ bcmsdh_cfg_write(void *sdh, uint fnc_num, uint32 addr, uint8 data, int *err)
 	SDIOH_API_RC status;
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	int32 retry = 0;
-#endif // endif
+#endif
 
 	if (!bcmsdh)
 		bcmsdh = l_bcmsdh;
@@ -366,11 +366,11 @@ bcmsdh_cfg_write(void *sdh, uint fnc_num, uint32 addr, uint8 data, int *err)
 	do {
 		if (retry)	/* wait for 1 ms till bus get settled down */
 			OSL_DELAY(1000);
-#endif // endif
+#endif
 	status = sdioh_cfg_write(bcmsdh->sdioh, fnc_num, addr, (uint8 *)&data);
 #ifdef SDIOH_API_ACCESS_RETRY_LIMIT
 	} while (!SDIOH_API_SUCCESS(status) && (retry++ < SDIOH_API_ACCESS_RETRY_LIMIT));
-#endif // endif
+#endif
 	if (err)
 		*err = SDIOH_API_SUCCESS(status) ? 0 : BCME_SDIO_ERROR;
 
@@ -520,6 +520,7 @@ bcmsdh_reg_read(void *sdh, uintptr addr, uint size)
 	BCMSDH_INFO(("uint32data = 0x%x\n", word));
 
 	/* if ok, return appropriately masked word */
+	/* XXX Masking was put in for NDIS port, remove if not needed */
 	if (SDIOH_API_SUCCESS(status)) {
 		switch (size) {
 			case sizeof(uint8):
@@ -734,6 +735,7 @@ bcmsdh_reset(bcmsdh_info_t *sdh)
 	return sdioh_sdio_reset(bcmsdh->sdioh);
 }
 
+/* XXX For use by NDIS port, remove if not needed. */
 void *bcmsdh_get_sdioh(bcmsdh_info_t *sdh)
 {
 	ASSERT(sdh);
@@ -809,7 +811,7 @@ bcmsdh_sleep(void *sdh, bool enab)
 	return sdioh_sleep(sd, enab);
 #else
 	return BCME_UNSUPPORTED;
-#endif // endif
+#endif
 }
 
 int

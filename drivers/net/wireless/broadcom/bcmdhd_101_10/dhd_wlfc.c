@@ -24,6 +24,8 @@
  *
  */
 
+/** XXX Twiki [PropTxStatus] */
+
 #include <typedefs.h>
 #include <osl.h>
 
@@ -40,7 +42,7 @@
 #ifdef PROP_TXSTATUS /* a form of flow control between host and dongle */
 #include <wlfc_proto.h>
 #include <dhd_wlfc.h>
-#endif // endif
+#endif
 
 #ifdef DHDTCPACK_SUPPRESS
 #include <dhd_ip.h>
@@ -490,7 +492,7 @@ _dhd_wlfc_deque_afq(athost_wl_status_info_t* ctx, uint16 hslot, uint8 hcnt, uint
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	PKTSETLINK(p, NULL);
 
@@ -965,6 +967,7 @@ _dhd_wlfc_flow_control_check(athost_wl_status_info_t* ctx, struct pktq* pq, uint
 	return;
 } /* _dhd_wlfc_flow_control_check */
 
+/** XXX: Warning: this function directly accesses bus-transmit function */
 static int
 _dhd_wlfc_send_signalonly_packet(athost_wl_status_info_t* ctx, wlfc_mac_descriptor_t* entry,
 	uint8 ta_bmp)
@@ -989,13 +992,14 @@ _dhd_wlfc_send_signalonly_packet(athost_wl_status_info_t* ctx, wlfc_mac_descript
 		DHD_PKTTAG_WLFCPKT_SET(PKTTAG(p), 1);
 #ifdef PROP_TXSTATUS_DEBUG
 		ctx->stats.signal_only_pkts_sent++;
-#endif // endif
+#endif
 
 #if defined(BCMPCIE)
+		/* XXX : RAHUL : Verify the ifidx */
 		rc = dhd_bus_txdata(dhdp->bus, p, ctx->host_ifidx);
 #else
 		rc = dhd_bus_txdata(dhdp->bus, p);
-#endif // endif
+#endif
 		if (rc != BCME_OK) {
 			_dhd_wlfc_pullheader(ctx, p);
 			PKTFREE(ctx->osh, p, TRUE);
@@ -1048,6 +1052,10 @@ _dhd_wlfc_traffic_pending_check(athost_wl_status_info_t* ctx, wlfc_mac_descripto
 		/* request a TIM update to firmware at the next piggyback opportunity */
 		if (entry->traffic_lastreported_bmp != entry->traffic_pending_bmp) {
 			entry->send_tim_signal = 1;
+			/*
+			XXX: send a header only packet from the same context.
+			--this should change to sending from a timeout or similar.
+			*/
 			_dhd_wlfc_send_signalonly_packet(ctx, entry, entry->traffic_pending_bmp);
 			entry->traffic_lastreported_bmp = entry->traffic_pending_bmp;
 			entry->send_tim_signal = 0;
@@ -1203,7 +1211,7 @@ _dhd_wlfc_pretx_pktprocess(athost_wl_status_info_t* ctx,
 #ifdef PROP_TXSTATUS_DEBUG
 					h->items[hslot].push_time =
 						OSL_SYSUPTIME();
-#endif // endif
+#endif
 				} else {
 					DHD_ERROR(("%s() hanger_pushpkt() failed, rc: %d\n",
 						__FUNCTION__, rc));
@@ -1255,6 +1263,7 @@ _dhd_wlfc_is_destination_open(athost_wl_status_info_t* ctx,
 		destination-specific-credit left send packets. This is because the
 		firmware storing the destination-specific-requested packet in queue.
 		*/
+		/* XXX: This behavior will change one PM1 protocol mod is complete */
 		if ((entry->state == WLFC_STATE_CLOSE) && (entry->requested_credit == 0) &&
 			(entry->requested_packet == 0)) {
 			return 0;
@@ -1342,7 +1351,7 @@ _dhd_wlfc_deque_delayedq(athost_wl_status_info_t* ctx, int prec,
 					entry->requested_credit--;
 #ifdef PROP_TXSTATUS_DEBUG
 					entry->dstncredit_sent_packets++;
-#endif // endif
+#endif
 				} else if (entry->requested_packet > 0) {
 					entry->requested_packet--;
 					DHD_PKTTAG_SETONETIMEPKTRQST(PKTTAG(p));
@@ -1596,7 +1605,7 @@ _dhd_wlfc_pktq_flush(athost_wl_status_info_t* ctx, struct pktq *pq,
 				pq->n_pkts_tot--;
 #ifdef WL_TXQ_STALL
 				q->dequeue_count++;
-#endif // endif
+#endif
 
 				p = (head ? q->head : PKTLINK(prev));
 			} else {
@@ -1658,7 +1667,7 @@ _dhd_wlfc_pktq_pdeq_with_fn(struct pktq *pq, int prec, f_processpkt_t fn, void *
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	PKTSETLINK(p, NULL);
 
@@ -2178,7 +2187,7 @@ dhd_wlfc_suppressed_acked_update(dhd_pub_t *dhd, uint16 hslot, uint8 prec, uint8
 
 #ifdef WL_TXQ_STALL
 	q->dequeue_count++;
-#endif // endif
+#endif
 
 	ctx->pkt_cnt_in_q[DHD_PKTTAG_IF(PKTTAG(p))][prec]--;
 	ctx->pkt_cnt_per_ac[prec]--;
@@ -2347,7 +2356,7 @@ _dhd_wlfc_compressed_txstatus_update(dhd_pub_t *dhd, uint8* pkt_info, uint8 len,
 			}
 #ifdef PROP_TXSTATUS_DEBUG
 			entry->dstncredit_acks++;
-#endif // endif
+#endif
 		}
 
 		if ((status_flag == WLFC_CTL_PKTFLAG_D11SUPPRESS) ||
@@ -2428,7 +2437,7 @@ _dhd_wlfc_fifocreditback_indicate(dhd_pub_t *dhd, uint8* credits)
 	for (i = 0; i < WLFC_CTL_VALUE_LEN_FIFO_CREDITBACK; i++) {
 #ifdef PROP_TXSTATUS_DEBUG
 		wlfc->stats.fifo_credits_back[i] += credits[i];
-#endif // endif
+#endif
 
 		/* update FIFO credits */
 		if (dhd->proptxstatus_mode == WLFC_FCMODE_EXPLICIT_CREDIT)
@@ -2745,6 +2754,7 @@ _dhd_wlfc_interface_update(dhd_pub_t *dhd, uint8* value, uint8 type)
 	}
 	wlfc->stats.interface_update_failed++;
 
+	/* XXX: what is an appropriate error? */
 	return BCME_OK;
 }
 
@@ -2766,6 +2776,7 @@ _dhd_wlfc_credit_request(dhd_pub_t *dhd, uint8* value)
 	if (desc->occupied) {
 		desc->requested_credit = credit;
 
+		/* XXX: toggle AC prec bitmap based on received bmp, exclude ac/bc pkt */
 		desc->ac_bitmap = value[2] & (~(1<<AC_COUNT));
 		_dhd_wlfc_add_requested_entry(wlfc, desc);
 #if defined(DHD_WLFC_THREAD)
@@ -2798,6 +2809,7 @@ _dhd_wlfc_packet_request(dhd_pub_t *dhd, uint8* value)
 	if (desc->occupied) {
 		desc->requested_packet = packet_count;
 
+		/* XXX: toggle AC prec bitmap based on received bmp, exclude ac/bc pkt */
 		desc->ac_bitmap = value[2] & (~(1<<AC_COUNT));
 		_dhd_wlfc_add_requested_entry(wlfc, desc);
 #if defined(DHD_WLFC_THREAD)
@@ -3192,7 +3204,7 @@ dhd_wlfc_transfer_packets(void *data)
 					no_credit = FALSE;
 				}
 			}
-#endif // endif
+#endif
 			commit_info.needs_hdr = 1;
 			commit_info.mac_entry = NULL;
 			commit_info.p = _dhd_wlfc_deque_delayedq(ctx, ac,
@@ -3208,7 +3220,7 @@ dhd_wlfc_transfer_packets(void *data)
 				if (lender != -1 && dhdp->wlfc_borrow_allowed) {
 					_dhd_wlfc_return_credit(ctx, lender, ac);
 				}
-#endif // endif
+#endif
 				break;
 			}
 
@@ -3231,13 +3243,13 @@ dhd_wlfc_transfer_packets(void *data)
 					dhdp->wlfc_borrow_allowed) {
 					_dhd_wlfc_return_credit(ctx, lender, ac);
 				}
-#endif // endif
+#endif
 			} else {
 #ifdef LIMIT_BORROW
 				if (lender != -1 && dhdp->wlfc_borrow_allowed) {
 					_dhd_wlfc_return_credit(ctx, lender, ac);
 				}
-#endif // endif
+#endif
 				bus_retry_count++;
 				if (bus_retry_count >= BUS_RETRIES) {
 					DHD_ERROR(("%s: bus error %d\n", __FUNCTION__, rc));
@@ -3310,7 +3322,7 @@ dhd_wlfc_transfer_packets(void *data)
 		}
 		else
 			break;
-#endif // endif
+#endif
 		commit_info.p = _dhd_wlfc_deque_delayedq(ctx, ac,
 			&(commit_info.ac_fifo_credit_spent),
 			&(commit_info.needs_hdr),
@@ -3320,7 +3332,7 @@ dhd_wlfc_transfer_packets(void *data)
 			/* before borrow only one ac exists and now this only ac is empty */
 #ifdef LIMIT_BORROW
 			_dhd_wlfc_return_credit(ctx, lender, ac);
-#endif // endif
+#endif
 			break;
 		}
 
@@ -3336,16 +3348,16 @@ dhd_wlfc_transfer_packets(void *data)
 			if (commit_info.ac_fifo_credit_spent) {
 #ifndef LIMIT_BORROW
 				ctx->FIFO_credit[ac]--;
-#endif // endif
+#endif
 			} else {
 #ifdef LIMIT_BORROW
 				_dhd_wlfc_return_credit(ctx, lender, ac);
-#endif // endif
+#endif
 			}
 		} else {
 #ifdef LIMIT_BORROW
 			_dhd_wlfc_return_credit(ctx, lender, ac);
-#endif // endif
+#endif
 			bus_retry_count++;
 			if (bus_retry_count >= BUS_RETRIES) {
 				DHD_ERROR(("%s: bus error %d\n", __FUNCTION__, rc));
@@ -3487,7 +3499,7 @@ dhd_wlfc_txcomplete(dhd_pub_t *dhd, void *txp, bool success)
 	if (DHD_PKTTAG_SIGNALONLY(PKTTAG(txp))) {
 #ifdef PROP_TXSTATUS_DEBUG
 		wlfc->stats.signal_only_pkts_freed++;
-#endif // endif
+#endif
 		/* is this a signal-only packet? */
 		_dhd_wlfc_pullheader(wlfc, txp);
 		PKTFREE(wlfc->osh, txp, TRUE);
@@ -3569,6 +3581,9 @@ dhd_wlfc_init(dhd_pub_t *dhd)
 		WLFC_FLAGS_HOST_PROPTXSTATUS_ACTIVE |
 		WLFC_FLAGS_HOST_RXRERODER_ACTIVE;
 
+	/* XXX dhd->wlfc_state = NULL; */
+	/* XXX ANDREY:may erase pointer to already created wlfc_state, PR#97824  */
+
 	/*
 	try to enable/disable signaling by sending "tlv" iovar. if that fails,
 	fallback to no flow control? Print a message for now.
@@ -3617,7 +3632,7 @@ dhd_wlfc_init(dhd_pub_t *dhd)
 	DHD_INFO(("dhd_wlfc_init(): wlfc_mode=0x%x, ret=%d\n", dhd->wlfc_mode, ret));
 #ifdef LIMIT_BORROW
 	dhd->wlfc_borrow_allowed = TRUE;
-#endif // endif
+#endif
 	dhd_os_wlfc_unblock(dhd);
 
 	if (dhd->plat_init)
@@ -4022,7 +4037,7 @@ dhd_wlfc_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 #ifdef PROP_TXSTATUS_DEBUG
 			bcm_bprintf(strbuf, "MAC_table[%d]: (opened, closed) = (%d, %d)\n",
 				i, mac_table[i].opened_ct, mac_table[i].closed_ct);
-#endif // endif
+#endif
 			bcm_bprintf(strbuf, "MAC_table[%d].PSQ"
 				"(delay0,sup0,afq0),(delay1,sup1,afq1),(delay2,sup2,afq2),"
 				"(delay3,sup3,afq3),(delay4,sup4,afq4) =(%d,%d,%d),"

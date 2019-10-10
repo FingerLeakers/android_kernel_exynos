@@ -33,6 +33,8 @@
 #include <asm/core_regs.h>
 #include "system-regs.h"
 
+#include <linux/sec_debug.h>
+
 #if defined(CONFIG_EXYNOS_MODEM_IF)
 #include <soc/samsung/exynos-modem-ctrl.h>
 #endif
@@ -69,7 +71,7 @@ static void exynos_post_panic_entry(void *val)
 	flush_cache_all();
 
 #ifdef CONFIG_EXYNOS_SDM
-	if (dbg_snapshot_is_scratch())
+	if (dbg_snapshot_is_scratch() && secdbg_mode_enter_upload())
 		exynos_sdm_dump_secure_region();
 #endif
 }
@@ -382,7 +384,11 @@ static void exynos_start_watchdog(void *val)
 
 static void exynos_expire_watchdog(void *val)
 {
+#ifdef CONFIG_SEC_DEBUG_EMERG_WDT_CALLER
+	__s3c2410wdt_set_emergency_reset(100, 0, (unsigned long)val);
+#else
 	s3c2410wdt_set_emergency_reset(100, 0);
+#endif
 }
 
 static void exynos_stop_watchdog(void *val)

@@ -70,12 +70,12 @@ struct mcd_hdr_device {
 };
 
 enum {
-	MCD_GF0 = 0,
-	MCD_VGRFS,
-	MCD_GF1,
-	MCD_VGF,
-	MCD_VG,
-	MCD_VGS
+	MCD_L0 = 0,
+	MCD_L1,
+	MCD_L2,
+	MCD_L3,
+	MCD_L4,
+	MCD_L5
 };
 
 

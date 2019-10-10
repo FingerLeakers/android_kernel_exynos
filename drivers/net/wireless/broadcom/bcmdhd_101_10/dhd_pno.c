@@ -24,7 +24,7 @@
 
 #if defined(GSCAN_SUPPORT) && !defined(PNO_SUPPORT)
 #error "GSCAN needs PNO to be enabled!"
-#endif // endif
+#endif
 
 #ifdef PNO_SUPPORT
 #include <typedefs.h>
@@ -783,7 +783,7 @@ _dhd_pno_convert_format(dhd_pub_t *dhd, struct dhd_pno_batch_params *params_batc
 #ifdef PNO_DEBUG
 	char *_base_bp;
 	char msg[150];
-#endif // endif
+#endif
 	dhd_pno_bestnet_entry_t *iter, *next;
 	dhd_pno_scan_results_t *siter, *snext;
 	dhd_pno_best_header_t *phead, *pprev;
@@ -829,7 +829,7 @@ _dhd_pno_convert_format(dhd_pub_t *dhd, struct dhd_pno_batch_params *params_batc
 #ifdef PNO_DEBUG
 				_base_bp = bp;
 				memset(msg, 0, sizeof(msg));
-#endif // endif
+#endif
 				/* BSSID info */
 				bp += nreadsize = snprintf(bp, nleftsize, "bssid=%s\n",
 				bcm_ether_ntoa((const struct ether_addr *)&iter->BSSID, eabuf));
@@ -866,7 +866,7 @@ _dhd_pno_convert_format(dhd_pub_t *dhd, struct dhd_pno_batch_params *params_batc
 #ifdef PNO_DEBUG
 				memcpy(msg, _base_bp, bp - _base_bp);
 				DHD_PNO(("Entry : \n%s", msg));
-#endif // endif
+#endif
 			}
 			bp += nreadsize = snprintf(bp, nleftsize, "%s", SCAN_END_MARKER);
 			DHD_PNO(("%s", SCAN_END_MARKER));
@@ -1550,7 +1550,7 @@ dhd_pno_set_for_batch(dhd_pub_t *dhd, struct dhd_pno_batch_params *batch_params)
 		}
 		DHD_PNO(("\n"));
 }
-#endif // endif
+#endif
 	if (_params->params_batch.nchan) {
 		/* copy the channel list into local array */
 		memcpy(_chan_list, _params->params_batch.chan_list, sizeof(_chan_list));
@@ -3502,7 +3502,7 @@ dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 			     msecs_to_jiffies(GSCAN_BATCH_GET_MAX_WAIT));
 		}
 	} else
-#endif // endif
+#endif
 	{
 		if (!(_pno_state->pno_mode & DHD_PNO_BATCH_MODE)) {
 			DHD_ERROR(("%s: Batching SCAN mode is not enabled\n", __FUNCTION__));
@@ -3522,7 +3522,7 @@ dhd_pno_get_for_batch(dhd_pub_t *dhd, char *buf, int bufsize, int reason)
 
 #ifdef GSCAN_SUPPORT
 	if (!(_pno_state->pno_mode & DHD_PNO_GSCAN_MODE))
-#endif // endif
+#endif
 	err = params_batch->get_batch.bytes_written;
 exit:
 	return err;
@@ -3557,7 +3557,7 @@ dhd_pno_stop_for_batch(dhd_pub_t *dhd)
 		DHD_PNO(("Gscan is ongoing, nothing to stop here\n"));
 		return err;
 	}
-#endif // endif
+#endif
 
 	if (!(_pno_state->pno_mode & DHD_PNO_BATCH_MODE)) {
 		DHD_ERROR(("%s : PNO BATCH MODE is not enabled\n", __FUNCTION__));
@@ -3708,7 +3708,7 @@ dhd_pno_set_for_hotlist(dhd_pub_t *dhd, wl_pfn_bssid_t *p_pfn_bssid,
 		}
 		DHD_PNO(("\n"));
 }
-#endif // endif
+#endif
 	if (_params->params_hotlist.nchan) {
 		/* copy the channel list into local array */
 		memcpy(_chan_list, _params->params_hotlist.chan_list,
@@ -4307,6 +4307,7 @@ dhd_pno_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 	switch (event_type) {
 	case WLC_E_PFN_BSSID_NET_FOUND:
 	case WLC_E_PFN_BSSID_NET_LOST:
+		/* XXX : how can we inform this to framework ? */
 		/* TODO : need to implement event logic using generic netlink */
 		break;
 	case WLC_E_PFN_BEST_BATCHING:

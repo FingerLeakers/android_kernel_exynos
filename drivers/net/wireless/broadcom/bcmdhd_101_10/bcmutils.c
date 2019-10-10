@@ -36,11 +36,11 @@
 
 #if defined(BCMEXTSUP)
 #include <bcm_osl.h>
-#endif // endif
+#endif
 
 #ifndef ASSERT
 #define ASSERT(exp)
-#endif // endif
+#endif
 
 #endif /* !BCMDRIVER */
 
@@ -85,7 +85,7 @@ void print_backtrace(int depth);
 void (*const print_btrace_fn)(int depth) = print_backtrace;
 void print_backtrace_int(int depth, uint32 pc, uint32 lr, uint32 sp);
 void (*const print_btrace_int_fn)(int depth, uint32 pc, uint32 lr, uint32 sp) = print_backtrace_int;
-#endif // endif
+#endif
 
 /* return total length of buffer chain */
 uint
@@ -104,7 +104,7 @@ BCMFASTPATH(pkttotlen)(osl_t *osh, void *p)
 				total += PKTFRAGTOTLEN(osh, p);
 			}
 		}
-#endif // endif
+#endif
 	}
 
 	return (total);
@@ -298,7 +298,7 @@ prpkt(const char *msg, osl_t *osh, void *p0)
 	for (p = p0; p; p = PKTNEXT(osh, p))
 		prhex(NULL, PKTDATA(osh, p), PKTLEN(osh, p));
 }
-#endif // endif
+#endif
 
 /* Takes an Ethernet frame and sets out-of-bound PKTPRIO.
  * Also updates the inplace vlan tag if requested.
@@ -388,6 +388,7 @@ BCMFASTPATH(pktsetprio)(void *pkt, bool update_vtag)
 			priority = PRIO_8021D_BE;
 			break;
 		case DSCP_CS6:
+		case DSCP_CS7:
 			priority = PRIO_8021D_NC;
 			break;
 		default:
@@ -557,6 +558,7 @@ static char bcm_undeferrstr[32];
 static const char *bcmerrorstrtable[] = BCMERRSTRINGTABLE;
 
 /* Convert the error codes into related error strings  */
+/* XXX: BCMRAMFN for BCME_LAST usage */
 const char *
 BCMRAMFN(bcmerrorstr)(int bcmerror)
 {
@@ -981,7 +983,7 @@ BCMFASTPATH(bcm_mwbmap_free)(struct bcm_mwbmap * mwbmap_hdl, uint32 bitix)
 
 #if !defined(BCM_MWBMAP_USE_CNTSETBITS)
 	mwbmap_p->wd_count[bitix]++;
-#endif // endif
+#endif
 
 #if defined(BCM_MWBMAP_DEBUG)
 	{
@@ -1672,7 +1674,7 @@ bcm_format_ssid(char* buf, const uchar ssid[], uint ssid_len)
 
 	return (int)(p - buf);
 }
-#endif // endif
+#endif
 
 #endif /* BCMDRIVER || WL_UNITTEST */
 
@@ -1718,7 +1720,7 @@ bcm_addrmask_get(int *val)
 #else
 	BCM_REFERENCE(val);
 	return BCME_UNSUPPORTED;
-#endif // endif
+#endif
 }
 
 char *
@@ -2160,6 +2162,7 @@ bcm_ether_atoe(const char *p, struct ether_addr *ea)
 	return (i == 6);
 }
 
+/* parse a xxx.xxx.xxx.xxx format IPV4 address */
 int
 bcm_atoipv4(const char *p, struct ipv4_addr *ip)
 {
@@ -3621,7 +3624,7 @@ static const char *crypto_algo_names[] = {
 	"WAPI",
 #else
 	"UNDEF",
-#endif // endif
+#endif
 	"PMK",
 	"BIP",
 	"AES_GCM",
@@ -3661,7 +3664,7 @@ bcm_brev_str(uint32 brev, char *buf)
 	return (buf);
 }
 
-#define BUFSIZE_TODUMP_ATONCE 512 /* Buffer size */
+#define BUFSIZE_TODUMP_ATONCE 128 /* Buffer size */
 
 /* dump large strings to console */
 void

@@ -43,27 +43,6 @@
 				board-rev = <BOARD_REV>;
 			};
 
-			firmware {
-				android: android {
-					compatible = "android,firmware";
-					vbmeta {
-						compatible = "android,vbmeta";
-						parts = "vbmeta,boot,system,vendor";
-					};
-					fstab {
-						compatible = "android,fstab";
-						vendor: vendor {
-							compatible = "android,vendor";
-							dev = "/dev/block/platform/13100000.ufs/by-name/vendor";
-							type = "ext4";
-							mnt_flags = "ro";
-							fsmgr_flags = "wait,avb";
-							status = "disabled";
-						};
-					};
-				};
-			};
-
 			pinctrl@15850000 {
 				bt_hostwake: bt-hostwake {
 					samsung,pins = "gpa2-3";
@@ -178,7 +157,6 @@
 	use-sysmmu = "false";
 	use-cache-coherency = "false";
 	use-msi = "true";
-	use-pcieon-sleep = "false";
 	phy-power-off = "false";
 	ep-device-type = <EP_SAMSUNG_MODEM>;
 };
@@ -188,10 +166,39 @@
 	evt-ver = /bits/ 8 <1>;
 };
 
+&hsi2c_39 { /* 15D10000 */
+	#address-cells = <1>;
+	#size-cells = <0>;
+	gpios = <&gpm2 0 0 &gpm3 0 0>;
+	status = "okay";
+	clock-frequency = <400000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&grip_i2c>;
+
+
+	a96t3x6-i2c@20{
+		compatible = "a96t3x6";
+		reg = <0x20>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&grip_irq>;
+		interrupt-parent = <&gpa3>;
+		interrupts = <0 0 0>;
+
+		a96t3x6,irq_gpio = <&gpa3 0 0>;
+		a96t3x6,ldo_en = <&gpp9 3 0>;
+		a96t3x6,fw_path = "a96t365_z3s_eur.bin";
+		a96t3x6,firmup_cmd = <0x60>;
+	};
+};
+
 &spi_14 {
 	BCM4773@0 {
 		ssp-acc-position = <5>;
-		ssp-mag-position = <5>;
+		ssp-mag-position = <1>;
+		ssp-mag-array = /bits/ 8 <237 83 137 137 10 183 0 182 210 53 240 65 93 15 1 254 0 200 137 115
+					190 253 245 202 10 215 241>;
 	};
 };
 

@@ -89,8 +89,8 @@
 #define OLD_NRATE_STF_STBC	2		/* stf mode STBC */
 #define OLD_NRATE_STF_SDM	3		/* stf mode SDM */
 
-#define WLC_11N_N_PROP_MCS	6
-#define WLC_11N_FIRST_PROP_MCS	87
+#define WLC_11N_N_PROP_MCS	6		/* xxx number of proprietary 11n MCS'es */
+#define WLC_11N_FIRST_PROP_MCS	87		/* xxx first Broadcom proprietary MCS */
 #define WLC_11N_LAST_PROP_MCS	102
 
 #define MAX_CCA_CHANNELS 38	/* Max number of 20 Mhz wide channels */
@@ -592,7 +592,7 @@
 #define WLC_SAMPLECOLLECT_MAXLEN	8192	/* Max Sample Collect buffer */
 #else
 #define WLC_SAMPLECOLLECT_MAXLEN	10240	/* Max Sample Collect buffer for two cores */
-#endif // endif
+#endif
 #define WLC_SAMPLECOLLECT_MAXLEN_LCN40  8192
 
 #define WLC_IOCTL_NANRESP_MAXLEN        4096u    /* "max" length nan ioctl resp buffer required */
@@ -917,9 +917,9 @@
 /* #define WLC_LAST				310 */	/* Never used - can be reused */
 #define WLC_SET_INTERFERENCE_OVERRIDE_MODE	311	/* set inter mode override */
 #define WLC_GET_INTERFERENCE_OVERRIDE_MODE	312	/* get inter mode override */
-/* #define WLC_GET_WAI_RESTRICT	313 */
-/* #define WLC_SET_WAI_RESTRICT	314 */
-/* #define WLC_SET_WAI_REKEY	315 */
+/* #define WLC_GET_WAI_RESTRICT	313 */	/* xxx for WAPI, deprecated use iovar instead */
+/* #define WLC_SET_WAI_RESTRICT	314 */	/* xxx for WAPI, deprecated use iovar instead */
+/* #define WLC_SET_WAI_REKEY	315 */	/* xxx for WAPI, deprecated use iovar instead */
 #define WLC_SET_NAT_CONFIG			316	/* for configuring NAT filter driver */
 #define WLC_GET_NAT_STATE			317
 #define WLC_GET_TXBF_RATESET			318
@@ -940,7 +940,7 @@
  */
 #ifndef EPICTRL_COOKIE
 #define EPICTRL_COOKIE		0xABADCEDE
-#endif // endif
+#endif
 
 /* vx wlc ioctl's offset */
 #define CMN_IOCTL_OFF 0x180
@@ -1002,6 +1002,12 @@
 #define WL_AUTH_FILS_SHARED		4	/* d11 fils shared key authentication */
 #define WL_AUTH_FILS_SHARED_PFS		5	/* d11 fils shared key w/ pfs authentication */
 #define WL_AUTH_FILS_PUBLIC		6	/* d11 fils public key authentication */
+/* xxx: Some branch use different define for WL_AUTH_OPEN_SHARED
+ * for example, PHOENIX2 Branch defined WL_AUTH_OPEN_SHARED as 3
+ * But other branch defined WL_AUTH_OPEN_SHARED as 2
+ * if it is mismatch, WEP association can be failed.
+ * More information - RB:5320
+ */
 
 /* a large TX Power as an init value to factor out of MIN() calculations,
  * keep low enough to fit in an int8, units are .25 dBm
@@ -1255,7 +1261,7 @@
 #define WL_RSSI_ANT_MAX		4	/* max possible rx antennas */
 #elif WL_RSSI_ANT_MAX != 4
 #error "WL_RSSI_ANT_MAX does not match"
-#endif // endif
+#endif
 
 /* dfs_status iovar-related defines */
 
@@ -1589,14 +1595,14 @@
 #define WL_NUMCHANSPECS 446
 #else
 #define WL_NUMCHANSPECS 350
-#endif // endif
+#endif
 #else
 /* max number of chanspecs (used by the iovar to calc. buf space) */
 #ifdef WL11AC_80P80
 #define WL_NUMCHANSPECS 206
 #else
 #define WL_NUMCHANSPECS 110
-#endif // endif
+#endif
 #endif /* WL_BAND6G */
 
 /* WDS link local endpoint WPA role */
@@ -1668,7 +1674,7 @@
 #define WL_PKTENG_MAXPKTSZ				PKTENG_LONGPKTSZ
 #else
 #define WL_PKTENG_MAXPKTSZ				16384
-#endif // endif
+#endif
 
 #define NUM_80211b_RATES	4
 #define NUM_80211ag_RATES	8
@@ -1842,6 +1848,9 @@
 #define CCASTATS_GDTXDUR        7
 #define CCASTATS_BDTXDUR        8
 
+/* FIXME: CCASTATS_MAX is 9 for existing chips and 10 for new ones.
+ * This is to avoid rom invalidation of existing chips.
+ */
 #ifndef WLCHANIM_V2
 #define CCASTATS_MAX    9
 #else /* WLCHANIM_V2 */
@@ -2195,11 +2204,11 @@
 
 #ifndef BESTN_MAX
 #define BESTN_MAX			10
-#endif // endif
+#endif
 
 #ifndef MSCAN_MAX
 #define MSCAN_MAX			32
-#endif // endif
+#endif
 
 /* TCP Checksum Offload error injection for testing */
 #define TOE_ERRTEST_TX_CSUM	0x00000001

@@ -76,9 +76,9 @@ static int is_ischain_3af_start(struct is_device_ischain *device,
 	dma_output->crop_enable = 1;
 	dma_output->width = otcrop->w;
 	dma_output->height = otcrop->h;
-	dma_output->stride_plane0 = otcrop->w;
-	dma_output->stride_plane1 = otcrop->w;
-	dma_output->stride_plane2 = otcrop->w;
+	dma_output->stride_plane0 = queue->framecfg.width;
+	dma_output->stride_plane1 = queue->framecfg.width;
+	dma_output->stride_plane2 = queue->framecfg.width;
 	*lindex |= LOWBIT_OF(subdev->param_dma_ot);
 	*hindex |= HIGHBIT_OF(subdev->param_dma_ot);
 	(*indexes)++;
@@ -194,8 +194,8 @@ static int is_ischain_3af_tag(struct is_subdev *subdev,
 		}
 
 		ret = is_ischain_buf_tag(device,
-			subdev, ldr_frame, pixelformat, otcrop->w, otcrop->h,
-			ldr_frame->efdTargetAddress);
+			subdev, ldr_frame, pixelformat, queue->framecfg.width,
+			queue->framecfg.height, ldr_frame->efdTargetAddress);
 		if (ret) {
 			mswarn("%d frame is drop", device, subdev, ldr_frame->fcount);
 			node->request = 0;

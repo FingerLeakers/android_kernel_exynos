@@ -902,6 +902,7 @@ wl_cfgnan_config_eventmask(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 				(uint8*)&evmask->evmask, WL_NAN_EVMASK_EXTN_LEN);
 
 		if (event_ind_flag) {
+			/* FIXME:BIT0 - Disable disc mac addr change event indication */
 			if (CHECK_BIT(event_ind_flag, WL_NAN_EVENT_DIC_MAC_ADDR_BIT)) {
 				WL_DBG(("Need to add disc mac addr change event\n"));
 			}
@@ -2520,8 +2521,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		/* config sync/discovery beacons on 5G band */
 		cfg_ctrl1_flags |= (WL_NAN_CTRL_DISC_BEACON_TX_5G | WL_NAN_CTRL_SYNC_BEACON_TX_5G);
 	}
-	/* Setting warm up time */
-	cmd_data->warmup_time = 1;
+
 	if (cmd_data->warmup_time) {
 		ret = wl_cfgnan_warmup_time_handler(cmd_data, nan_iov_data);
 		if (unlikely(ret)) {
@@ -7224,7 +7224,7 @@ wl_cfgnan_process_range_report(struct bcm_cfg80211 *cfg,
 #ifdef NAN_RTT_DBG
 	DUMP_NAN_RTT_INST(rng_inst);
 	DUMP_NAN_RTT_RPT(range_res);
-#endif // endif
+#endif
 	range_res->rng_id = rng_inst->range_id;
 	bzero(&nan_event_data, sizeof(nan_event_data));
 	if (status == BCME_OK) {
@@ -7359,6 +7359,11 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 		rtt_status->geofence_cfg.geofence_rtt_interval));
 	cur_idx = dhd_rtt_get_geofence_cur_target_idx(dhd);
 	if (cur_idx == -1) {
+		/*
+		 * FixMe:
+		 * No Geofence target
+		 * Remove all valid ranging inst
+		 */
 		WL_INFORM_MEM(("wl_cfgnan_reset_geofence_ranging, "
 			"Removing Ranging Instance " MACDBG "\n",
 			MAC2STRDBG(&(rng_inst->peer_addr))));
@@ -7649,6 +7654,9 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 		WL_TRACE(("Service Type: %d\n", pev->svctype));
 
 #ifdef WL_NAN_DISC_CACHE
+		/* XXX: if we have to store disc_res even after sub_cancel
+		* donot call below api..but need to device on the criteria to expire
+		*/
 		if (pev->svctype == NAN_SC_SUBSCRIBE) {
 			wl_cfgnan_remove_disc_result(cfg, pev->instance_id);
 		}

@@ -65,7 +65,9 @@ DECLARE_DVFS_DT(IS_SN_END,
 		{"rear2_preview_fhd_"			, IS_SN_REAR2_PREVIEW_FHD},
 		{"rear2_capture_"			, IS_SN_REAR2_CAPTURE},
 		{"rear2_video_fhd_"			, IS_SN_REAR2_CAMCORDING_FHD},
+		{"rear2_video_uhd_8k_"			, IS_SN_REAR2_CAMCORDING_UHD_8K},
 		{"rear2_video_fhd_capture_"		, IS_SN_REAR2_CAMCORDING_FHD_CAPTURE},
+		{"rear2_video_uhd_8k_capture_"		, IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE},
 		{"rear_preview_full_"			, IS_SN_REAR_PREVIEW_FULL},
 		{"rear_preview_fhd_"			, IS_SN_REAR_PREVIEW_FHD},
 		{"rear_preview_whd_"			, IS_SN_REAR_PREVIEW_WHD},
@@ -144,7 +146,9 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR3_CAMCORDING_FHD_CAPTURE);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_PREVIEW_FHD);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAPTURE);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD);
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD_CAPTURE);
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE);
 
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_FULL);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_FHD);
@@ -275,6 +279,26 @@ struct is_dvfs_scenario static_scenarios[] = {
 		.scenario_nm		= DVFS_SN_STR(IS_SN_VIDEO_HIGH_SPEED_DUALFPS),
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_VIDEO_HIGH_SPEED_DUALFPS),
 	}, {
+		.scenario_id		= IS_SN_REAR2_CAMCORDING_UHD_8K,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_CAMCORDING_UHD_8K),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K),
+	}, {
+		.scenario_id		= IS_SN_REAR2_CAMCORDING_FHD,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_CAMCORDING_FHD),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD),
+	}, {
+		.scenario_id		= IS_SN_REAR2_PREVIEW_FHD,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_PREVIEW_FHD),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_PREVIEW_FHD),
+	}, {
+		.scenario_id		= IS_SN_REAR3_CAMCORDING_FHD,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR3_CAMCORDING_FHD),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR3_CAMCORDING_FHD),
+	}, {
+		.scenario_id		= IS_SN_REAR3_PREVIEW_FHD,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR3_PREVIEW_FHD),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR3_PREVIEW_FHD),
+	}, {
 		.scenario_id		= IS_SN_REAR_CAMCORDING_FHD,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_CAMCORDING_FHD),
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_FHD),
@@ -310,22 +334,6 @@ struct is_dvfs_scenario static_scenarios[] = {
 		.scenario_id		= IS_SN_REAR_PREVIEW_UHD_60FPS,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_PREVIEW_UHD_60FPS),
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_UHD_60FPS),
-	}, {
-		.scenario_id		= IS_SN_REAR3_CAMCORDING_FHD,
-		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR3_CAMCORDING_FHD),
-		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR3_CAMCORDING_FHD),
-	}, {
-		.scenario_id		= IS_SN_REAR3_PREVIEW_FHD,
-		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR3_PREVIEW_FHD),
-		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR3_PREVIEW_FHD),
-	}, {
-		.scenario_id		= IS_SN_REAR2_CAMCORDING_FHD,
-		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_CAMCORDING_FHD),
-		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD),
-	}, {
-		.scenario_id		= IS_SN_REAR2_PREVIEW_FHD,
-		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_PREVIEW_FHD),
-		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_PREVIEW_FHD),
 	}, {
 		.scenario_id		= IS_SN_FRONT_VT1,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_VT1),
@@ -420,6 +428,10 @@ static struct is_dvfs_scenario dynamic_scenarios[] = {
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR3_CAPTURE),
 		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
 		.check_func 		= GET_DVFS_CHK_FUNC(IS_SN_REAR3_CAPTURE),
+	}, {
+		.scenario_id		= IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE),
 	}, {
 		.scenario_id		= IS_SN_REAR2_CAMCORDING_FHD_CAPTURE,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR2_CAMCORDING_FHD_CAPTURE),
@@ -923,6 +935,24 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD)
 		return 0;
 }
 
+/* rear2 camcording 8K UHD*/
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K)
+{
+	u32 mask = (device->setfile & IS_SETFILE_MASK);
+	bool setfile_flag = ((mask == ISS_SUB_SCENARIO_VIDEO) ||
+			(mask == ISS_SUB_SCENARIO_VIDEO_WDR_ON) ||
+			(mask == ISS_SUB_SCENARIO_VIDEO_WDR_AUTO));
+
+	if ((position == SENSOR_POSITION_REAR2) &&
+			(fps <= 30) &&
+			(resol > SIZE_UHD) &&
+			(resol <= SIZE_8K) &&
+			setfile_flag)
+		return 1;
+	else
+		return 0;
+}
+
 /* rear camcording FHD*/
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_FHD)
 {
@@ -1411,6 +1441,18 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_FHD_CAPTURE)
 	if ((position == SENSOR_POSITION_REAR2) &&
 		test_bit(IS_ISCHAIN_REPROCESSING, &device->state) &&
 		(static_ctrl->cur_scenario_id == IS_SN_REAR2_CAMCORDING_FHD))
+		return 1;
+	else
+		return 0;
+}
+
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR2_CAMCORDING_UHD_8K_CAPTURE)
+{
+	struct is_dvfs_scenario_ctrl *static_ctrl = device->resourcemgr->dvfs_ctrl.static_ctrl;
+
+	if ((position == SENSOR_POSITION_REAR2) &&
+		test_bit(IS_ISCHAIN_REPROCESSING, &device->state) &&
+		(static_ctrl->cur_scenario_id == IS_SN_REAR2_CAMCORDING_UHD_8K))
 		return 1;
 	else
 		return 0;

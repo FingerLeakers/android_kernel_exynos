@@ -340,3 +340,50 @@ void exynos9830_set_cmu_smpl_warn(void)
 {
 }
 void (*cal_set_cmu_smpl_warn)(void) = exynos9830_set_cmu_smpl_warn;
+
+#if defined(CONFIG_SEC_PM_DEBUG) && defined(CONFIG_DEBUG_FS)
+#include <linux/debugfs.h>
+
+#define ASV_SUMMARY_SZ	(MFC - MIF + 1)
+
+static int asv_summary_show(struct seq_file *s, void *d)
+{
+	unsigned int i;
+	const char *label[ASV_SUMMARY_SZ] = { "MIF", "INT", "CL0", "CL1", "CL2",
+		"NPU", "DISP", "DSP", "AUD", "CP", "G3D", "INTCAM", "CAM",
+		"TNR", "DNC", "MFC" };
+
+	seq_printf(s, "Table ver: %d\n", asv_get_table_ver());
+
+	for (i = 0; i < ASV_SUMMARY_SZ ; i++)
+		seq_printf(s, "%s: %d\n", label[i], asv_get_grp(MIF + i));
+
+	seq_printf(s, "IDS (b,m,l,g): %d, %d, %d, %d\n",
+			asv_get_ids_info(CPUCL2),
+			asv_get_ids_info(CPUCL1),
+			asv_get_ids_info(CPUCL0),
+			asv_get_ids_info(G3D));
+	return 0;
+}
+
+static int asv_summary_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, asv_summary_show, inode->i_private);
+}
+
+const static struct file_operations asv_summary_fops = {
+	.open		= asv_summary_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int __init cal_data_late_init(void)
+{
+	debugfs_create_file("asv_summary", 0444, NULL, NULL, &asv_summary_fops);
+
+	return 0;
+}
+
+late_initcall(cal_data_late_init);
+#endif /* CONFIG_SEC_PM_DEBUG && CONFIG_DEBUG_FS */

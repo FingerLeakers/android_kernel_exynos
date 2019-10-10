@@ -1556,10 +1556,8 @@ int is_hardware_sensor_stop(struct is_hardware *hardware, u32 instance,
 	hw_ip = &hardware->hw_ip[hw_slot];
 
 	ret = CALL_HW_OPS(hw_ip, sensor_stop, instance);
-	if (ret) {
+	if (ret)
 		mserr_hw("sensor_stop fail (%d)", instance, hw_ip, hw_slot);
-		return ret;
-	}
 
 	msdbg_hw(2, "hw_sensor_stop [P:0x%lx]\n", instance, hw_ip, hw_map);
 

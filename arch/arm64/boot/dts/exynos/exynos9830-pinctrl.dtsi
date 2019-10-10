@@ -1997,10 +1997,19 @@
 		};
 
 		decon_f_te_off: decon_f_te_off {
-			samsung,pins = "gpc0-5";
+			samsung,pins = "gpc0-4";
 			samsung,pin-function = <0>;
 		};
 
+		decon_s_te_on: decon_s_te_on {
+			samsung,pins = "gpc0-5";
+			samsung,pin-function = <0xf>;
+		};
+
+		decon_s_te_off: decon_s_te_off {
+			samsung,pins = "gpc0-5";
+			samsung,pin-function = <0>;
+		};
 		aud_i2s0_bus: aud-i2s0-bus {
 			samsung,pins = "gpb0-0", "gpb0-1", "gpb0-2", "gpb0-3";
 			samsung,pin-function = <2>;
@@ -2096,6 +2105,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk1_out: sensor-mclk1-out {
@@ -2103,6 +2113,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk2_out: sensor-mclk2-out {
@@ -2110,6 +2121,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk3_out: sensor-mclk3-out {
@@ -2117,6 +2129,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk4_out: sensor-mclk4-out {
@@ -2124,6 +2137,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk5_out: sensor-mclk5-out {
@@ -2131,6 +2145,7 @@
 			samsung,pin-function = <1>;
 			samsung,pin-pud = <1>;
 			samsung,pin-drv = <0>;
+			samsung,pin-val = <0>;
 		};
 
 		sensor_mclk0_fn: sensor-mclk0-fn {

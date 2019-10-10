@@ -486,8 +486,8 @@ void dsp_elf32_hdr_print(struct dsp_elf32 *elf)
 	int idx;
 	struct dsp_elf32_hdr *header = elf->hdr;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf header\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf header\n");
 
 	DL_BUF_STR("Elf Magic number : ");
 
@@ -495,26 +495,26 @@ void dsp_elf32_hdr_print(struct dsp_elf32 *elf)
 		DL_BUF_STR("%x ", header->e_ident[idx]);
 
 	DL_BUF_STR("\n");
-	DL_PRINT_BUF(INFO);
+	DL_PRINT_BUF(DEBUG);
 
-	DL_INFO("Class : %s\n", elf_class[header->e_ident[EI_CLASS]]);
-	DL_INFO("Endian : %s\n", elf_endian[header->e_ident[EI_DATA]]);
-	DL_INFO("Version : %d\n", header->e_ident[EI_VERSION]);
-	DL_INFO("OS ABI : %s\n", elf_os[header->e_ident[EI_OSABI]]);
-	DL_INFO("ABI VERSION : %d\n", header->e_ident[EI_ABIVERSION]);
-	DL_INFO("OBJ Type : %s\n", elf_type[header->e_type]);
-	DL_INFO("Machine id : %#x\n", header->e_machine);
-	DL_INFO("Elf version : %d\n", header->e_version);
-	DL_INFO("Entry point : %#x\n", header->e_entry);
-	DL_INFO("Program header address : %#x\n", header->e_phoff);
-	DL_INFO("Section header address : %#x\n", header->e_shoff);
-	DL_INFO("Flag : %d\n", header->e_flags);
-	DL_INFO("Header Size : %d\n", header->e_ehsize);
-	DL_INFO("Program header size : %d\n", header->e_phentsize);
-	DL_INFO("Program header entry : %d\n", header->e_phnum);
-	DL_INFO("Section header size : %d\n", header->e_shentsize);
-	DL_INFO("Section header entry : %d\n", header->e_shnum);
-	DL_INFO("Section header string table index : %d\n",
+	DL_DEBUG("Class : %s\n", elf_class[header->e_ident[EI_CLASS]]);
+	DL_DEBUG("Endian : %s\n", elf_endian[header->e_ident[EI_DATA]]);
+	DL_DEBUG("Version : %d\n", header->e_ident[EI_VERSION]);
+	DL_DEBUG("OS ABI : %s\n", elf_os[header->e_ident[EI_OSABI]]);
+	DL_DEBUG("ABI VERSION : %d\n", header->e_ident[EI_ABIVERSION]);
+	DL_DEBUG("OBJ Type : %s\n", elf_type[header->e_type]);
+	DL_DEBUG("Machine id : %#x\n", header->e_machine);
+	DL_DEBUG("Elf version : %d\n", header->e_version);
+	DL_DEBUG("Entry point : %#x\n", header->e_entry);
+	DL_DEBUG("Program header address : %#x\n", header->e_phoff);
+	DL_DEBUG("Section header address : %#x\n", header->e_shoff);
+	DL_DEBUG("Flag : %d\n", header->e_flags);
+	DL_DEBUG("Header Size : %d\n", header->e_ehsize);
+	DL_DEBUG("Program header size : %d\n", header->e_phentsize);
+	DL_DEBUG("Program header entry : %d\n", header->e_phnum);
+	DL_DEBUG("Section header size : %d\n", header->e_shentsize);
+	DL_DEBUG("Section header entry : %d\n", header->e_shnum);
+	DL_DEBUG("Section header string table index : %d\n",
 		header->e_shstrndx);
 }
 
@@ -524,8 +524,8 @@ void dsp_elf32_shdr_print(struct dsp_elf32 *elf)
 	struct dsp_elf32_shdr *shdr = elf->shdr;
 	char *shstrtab = elf->shstrtab;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("section header\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("section header\n");
 	for (idx = 0; idx < elf->shdr_num; idx++) {
 		DL_BUF_STR("[%d] ", idx);
 		DL_BUF_STR("%s ", shstrtab + shdr[idx].sh_name);
@@ -538,7 +538,7 @@ void dsp_elf32_shdr_print(struct dsp_elf32 *elf)
 		DL_BUF_STR("info:%d ", shdr[idx].sh_info);
 		DL_BUF_STR("align:%d ", shdr[idx].sh_addralign);
 		DL_BUF_STR("entsz:%d\n", shdr[idx].sh_entsize);
-		DL_PRINT_BUF(INFO);
+		DL_PRINT_BUF(DEBUG);
 	}
 }
 
@@ -550,15 +550,15 @@ static void __dsp_elf32_print_sym(struct dsp_elf32_sym *sym, char *strtab)
 	DL_BUF_STR("info:%d ", sym->st_info);
 	DL_BUF_STR("other:%d ", sym->st_other);
 	DL_BUF_STR("ndx:%d\n", sym->st_shndx);
-	DL_PRINT_BUF(INFO);
+	DL_PRINT_BUF(DEBUG);
 }
 
 void dsp_elf32_symtab_print(struct dsp_elf32 *elf)
 {
 	unsigned int idx;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("symbol table\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("symbol table\n");
 
 	for (idx = 0; idx < elf->symtab_num; idx++) {
 		DL_BUF_STR("[%d]: ", idx);
@@ -570,8 +570,8 @@ void dsp_elf32_bss_sym_print(struct dsp_elf32 *elf)
 {
 	struct dsp_list_node *node;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("bss symbols\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("bss symbols\n");
 	dsp_list_for_each(node, &elf->bss_sym) {
 		struct dsp_elf32_idx_node *symnode =
 			container_of(node, struct dsp_elf32_idx_node, node);
@@ -586,8 +586,8 @@ void dsp_elf32_extern_sym_print(struct dsp_elf32 *elf)
 {
 	struct dsp_list_node *node;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("extern symbols\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("extern symbols\n");
 	dsp_list_for_each(node, &elf->extern_sym) {
 		struct dsp_elf32_idx_node *symnode =
 			container_of(node, struct dsp_elf32_idx_node, node);
@@ -603,8 +603,8 @@ void dsp_elf32_symhash_print(struct dsp_elf32 *elf)
 	int idx;
 	struct dsp_list_node *node;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("symbol hash table\n");
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("symbol hash table\n");
 
 	for (idx = 0; idx < DSP_HASH_MAX; idx++) {
 		dsp_list_for_each(node, &elf->symhash.list[idx]) {
@@ -632,7 +632,7 @@ static void __dsp_elf32_print_rela(struct dsp_list_head *rela_list,
 		rela_node = container_of(node,
 				struct dsp_elf32_rela_node, node);
 
-		DL_INFO(".rela[%d]\n", rela_node->idx);
+		DL_DEBUG(".rela[%d]\n", rela_node->idx);
 		rela = rela_node->rela;
 
 		for (idx = 0; idx < rela_node->rela_num; idx++) {
@@ -645,10 +645,10 @@ static void __dsp_elf32_print_rela(struct dsp_list_head *rela_list,
 				elf->symtab[r_info >> 8].st_name);
 			DL_BUF_STR("reltype:%d ", r_info & 0xff);
 			DL_BUF_STR("r_addend:%d\n", rela[idx].r_addend);
-			DL_PRINT_BUF(INFO);
+			DL_PRINT_BUF(DEBUG);
 		}
 
-		DL_INFO("\n");
+		DL_DEBUG("\n");
 	}
 }
 
@@ -658,8 +658,8 @@ void dsp_elf32_text_print(struct dsp_elf32 *elf)
 	int jdx;
 	struct dsp_list_node *node;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : text(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : text(%u)\n",
 		dsp_elf32_get_text_size(elf));
 	dsp_list_for_each(node, &elf->text.text) {
 		struct dsp_elf32_idx_node *idx_node =
@@ -670,11 +670,11 @@ void dsp_elf32_text_print(struct dsp_elf32 *elf)
 		size_t size = __dsp_elf32_align_4byte(text_hdr->sh_size) /
 			sizeof(unsigned int);
 
-		DL_INFO(".text[%d]\n", idx_node->idx);
+		DL_DEBUG(".text[%d]\n", idx_node->idx);
 		for (idx = 0; idx < size; idx++) {
 			if (idx != 0 && idx % 4 == 0) {
 				DL_BUF_STR("\n");
-				DL_PRINT_BUF(INFO);
+				DL_PRINT_BUF(DEBUG);
 			}
 
 			DL_BUF_STR("0x");
@@ -686,8 +686,8 @@ void dsp_elf32_text_print(struct dsp_elf32 *elf)
 		}
 
 		DL_BUF_STR("\n");
-		DL_PRINT_BUF(INFO);
-		DL_INFO("\n");
+		DL_PRINT_BUF(DEBUG);
+		DL_DEBUG("\n");
 	}
 	__dsp_elf32_print_rela(&elf->text.rela, elf);
 }
@@ -703,7 +703,7 @@ static void __dsp_elf32_print_mem(struct dsp_elf32_mem *mem,
 			container_of(node, struct dsp_elf32_idx_node, node);
 		struct dsp_elf32_shdr *bss_hdr = elf->shdr + idx_node->idx;
 
-		DL_INFO("robss[%d] : %d\n", idx_node->idx, bss_hdr->sh_size);
+		DL_DEBUG("robss[%d] : %d\n", idx_node->idx, bss_hdr->sh_size);
 	}
 
 	dsp_list_for_each(node, &mem->rodata) {
@@ -715,19 +715,19 @@ static void __dsp_elf32_print_mem(struct dsp_elf32_mem *mem,
 		size_t size = __dsp_elf32_align_4byte(rodata_hdr->sh_size) /
 			sizeof(unsigned int);
 
-		DL_INFO("\n");
-		DL_INFO("rodata[%d]\n", idx_node->idx);
+		DL_DEBUG("\n");
+		DL_DEBUG("rodata[%d]\n", idx_node->idx);
 		for (idx = 0; idx < size; idx++) {
 			if (idx != 0 && idx % 4 == 0) {
 				DL_BUF_STR("\n");
-				DL_PRINT_BUF(INFO);
+				DL_PRINT_BUF(DEBUG);
 			}
 
 			DL_BUF_STR("0x%08x ", rodata[idx]);
 		}
 
 		DL_BUF_STR("\n");
-		DL_PRINT_BUF(INFO);
+		DL_PRINT_BUF(DEBUG);
 	}
 
 	dsp_list_for_each(node, &mem->bss) {
@@ -735,7 +735,7 @@ static void __dsp_elf32_print_mem(struct dsp_elf32_mem *mem,
 			container_of(node, struct dsp_elf32_idx_node, node);
 		struct dsp_elf32_shdr *bss_hdr = elf->shdr + idx_node->idx;
 
-		DL_INFO("bss[%d] : %d\n", idx_node->idx, bss_hdr->sh_size);
+		DL_DEBUG("bss[%d] : %d\n", idx_node->idx, bss_hdr->sh_size);
 	}
 
 	dsp_list_for_each(node, &mem->data) {
@@ -747,19 +747,19 @@ static void __dsp_elf32_print_mem(struct dsp_elf32_mem *mem,
 		size_t size = __dsp_elf32_align_4byte(data_hdr->sh_size) /
 			sizeof(unsigned int);
 
-		DL_INFO("\n");
-		DL_INFO("data[%d]\n", idx_node->idx);
+		DL_DEBUG("\n");
+		DL_DEBUG("data[%d]\n", idx_node->idx);
 		for (idx = 0; idx < size; idx++) {
 			if (idx != 0 && idx % 4 == 0) {
 				DL_BUF_STR("\n");
-				DL_PRINT_BUF(INFO);
+				DL_PRINT_BUF(DEBUG);
 			}
 
 			DL_BUF_STR("0x%08x ", data[idx]);
 		}
 
 		DL_BUF_STR("\n");
-		DL_PRINT_BUF(INFO);
+		DL_PRINT_BUF(DEBUG);
 	}
 
 	__dsp_elf32_print_rela(&mem->rela, elf);
@@ -767,48 +767,48 @@ static void __dsp_elf32_print_mem(struct dsp_elf32_mem *mem,
 
 void dsp_elf32_DMb_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : DMb(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : DMb(%u)\n",
 		dsp_elf32_get_mem_size(&elf->DMb, elf));
 	__dsp_elf32_print_mem(&elf->DMb, elf);
 }
 
 void dsp_elf32_DMb_local_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : DMb_local(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : DMb_local(%u)\n",
 		dsp_elf32_get_mem_size(&elf->DMb_local, elf));
 	__dsp_elf32_print_mem(&elf->DMb_local, elf);
 }
 
 void dsp_elf32_DRAMb_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : DRAMb(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : DRAMb(%u)\n",
 		dsp_elf32_get_mem_size(&elf->DRAMb, elf));
 	__dsp_elf32_print_mem(&elf->DRAMb, elf);
 }
 
 void dsp_elf32_TCMb_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : TCMb(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : TCMb(%u)\n",
 		dsp_elf32_get_mem_size(&elf->TCMb, elf));
 	__dsp_elf32_print_mem(&elf->TCMb, elf);
 }
 
 void dsp_elf32_TCMb_local_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : TCMb_local(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : TCMb_local(%u)\n",
 		dsp_elf32_get_mem_size(&elf->TCMb_local, elf));
 	__dsp_elf32_print_mem(&elf->TCMb_local, elf);
 }
 
 void dsp_elf32_SFRw_print(struct dsp_elf32 *elf)
 {
-	DL_INFO(DL_BORDER);
-	DL_INFO("Elf32 mem : SFRw(%u)\n",
+	DL_DEBUG(DL_BORDER);
+	DL_DEBUG("Elf32 mem : SFRw(%u)\n",
 		dsp_elf32_get_mem_size(&elf->SFRw, elf));
 	__dsp_elf32_print_mem(&elf->SFRw, elf);
 }

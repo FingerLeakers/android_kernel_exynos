@@ -178,7 +178,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"KR", "KR", 70},
 #else
 	{"KR", "KR", 48},
-#endif // endif
+#endif
 	{"RU", "RU", 13},
 	{"UA", "UA", 8},
 	{"GT", "GT", 1},
@@ -235,6 +235,9 @@ void get_customized_country_code(void *adapter, char *country_iso_code, wl_count
 #define SOFTAPINFO		PLATFORM_PATH".softap.info"
 
 #ifdef DHD_PM_CONTROL_FROM_FILE
+/* XXX This function used for setup PM related value control by read from file.
+ * Normally, PM related value Turn Offed for MFG process
+ */
 extern bool g_pm_control;
 extern uint32 pmmode_val;
 void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
@@ -283,11 +286,12 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 #ifdef DHD_EXPORT_CNTL_FILE
 	if (power_val == 0) {
 #else
+	/* XXX: power_val is compared with character type read from .psm.info file */
 	if (power_val == '0') {
 #endif /* DHD_EXPORT_CNTL_FILE */
 #ifdef ROAM_ENABLE
 		uint roamvar = 1;
-#endif // endif
+#endif
 		uint32 wl_updown = 1;
 
 		*power_mode = PM_OFF;
@@ -304,7 +308,7 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 		/* Roaming off of dongle */
 		ret = dhd_iovar(dhd, 0, "roam_off", (char *)&roamvar, sizeof(roamvar), NULL,
 				0, TRUE);
-#endif // endif
+#endif
 #ifdef DHD_ENABLE_LPC
 		/* Set lpc 0 */
 		ret = dhd_iovar(dhd, 0, "lpc", (char *)&lpc, sizeof(lpc), NULL, 0, TRUE);
@@ -964,6 +968,9 @@ uint32 sec_save_softap_info(void)
 #endif /* GEN_SOFTAP_INFO_FILE */
 #endif /* CUSTOMER_HW4 || CUSTOMER_HW40 */
 
+/* XXX WAR: disable pm_bcnrx , scan_ps for BCM4354 WISOL module.
+ * WISOL module have ANT_1 Rx sensitivity issue.
+*/
 #if defined(FORCE_DISABLE_SINGLECORE_SCAN)
 void
 dhd_force_disable_singlcore_scan(dhd_pub_t *dhd)

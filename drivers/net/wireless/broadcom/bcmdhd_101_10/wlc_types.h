@@ -84,13 +84,6 @@ typedef struct wlc_scan_info wlc_scan_info_t;
 typedef struct wlc_scan_cmn_info wlc_scan_cmn_t;
 typedef struct wlc_slotted_bss_info wlc_slotted_bss_info_t;
 typedef struct wl_bcn_report_cfg wl_bcn_report_cfg_t;
-#ifdef BCMPCIE_HP2P
-typedef struct wlc_hp2p_info wlc_hp2p_info_t;
-typedef struct wlc_hp2p_cmn wlc_hp2p_cmn_t;
-#endif // endif
-#ifdef WLDFSP
-typedef struct wlc_dfsp_info wlc_dfsp_info_t;
-#endif /* WLDFSP */
 typedef struct tdls_info tdls_info_t;
 typedef struct dls_info dls_info_t;
 typedef struct l2_filter_info l2_filter_info_t;
@@ -447,6 +440,7 @@ typedef wl_pfn_lscanresults_v2_t wl_pfn_lscanresults_t;
 typedef wl_pfn_scanresults_v2_t wl_pfn_scanresults_t;
 typedef wl_pfn_scanresult_v2_1_t wl_pfn_scanresult_t;
 
+/* XXX: 13_10 uses interface_create_v3 */
 #define WL_INTERFACE_CREATE_VER		WL_INTERFACE_CREATE_VER_3
 typedef wl_interface_create_v3_t wl_interface_create_t;
 
@@ -465,7 +459,7 @@ typedef wlc_btc_stats_v3_t wlc_btc_stats_t;
 #else
 #define BTCX_STATS_VER BTCX_STATS_VER_4
 typedef wlc_btc_stats_v4_t wlc_btc_stats_t;
-#endif // endif
+#endif
 
 #define WL_BTC_WIFI_PROT_VER WL_BTC_WIFI_PROT_VER_1
 typedef wl_btc_wifi_prot_v1_t wl_btc_wifi_prot_t;
@@ -516,7 +510,7 @@ typedef tdmtx_cnt_shm_v2_t tdmtx_cnt_shm_t;
 typedef wl_tdmtx_ecounters_v2_t wl_tdmtx_ecounters_t;
 #define WL_CNT_TDMTX_STRUCT_SZ (sizeof(tdmtx_cnt_t))
 #define WL_CNT_TDMTX_SHM_SZ (sizeof(tdmtx_cnt_shm_t))
-#endif // endif
+#endif
 typedef struct wlc_tvpm_info wlc_tvpm_info_t;
 
 #define WL_HEB_CURRENT_VER WL_HEB_VER_1
@@ -570,7 +564,7 @@ typedef uint8 dot11_mbsp_sel_t;
 
 #ifdef WL_PKTENG_RU_VER
 typedef wl_pkteng_ru_v2_t wl_pkteng_ru_fill_t;
-#endif // endif
+#endif
 
 typedef wl_msglevel_v1_t wl_msglevel_t;
 #define WL_MSGLEVEL_STRUCT_VERSION WL_MSGLEVEL_STRUCT_VERSION_1
@@ -588,7 +582,7 @@ typedef struct wlc_obj_registry wlc_obj_registry_t;
 #ifdef WL_EVENT_RX_FRAME_DATA_ALIAS
 #define BCM_RX_FRAME_DATA_VERSION BCM_RX_FRAME_DATA_VERSION_2
 typedef wl_event_rx_frame_data_v2_t wl_event_rx_frame_data_t;
-#endif // endif
+#endif
 
 #ifdef ECOUNTERS_COMPACT
 typedef wl_periodic_compact_cntrs_v3_t wl_periodic_compact_cntrs_t;
@@ -628,7 +622,7 @@ typedef struct wlc_hw_macint_regs wlc_hw_macint_regs_t;
 
 #ifdef WL_SAE
 typedef struct wlc_sae_info wlc_sae_info_t;
-#endif // endif
+#endif
 #if defined(BCM_EWP) || defined(BCM_SDC)
 typedef wl_hist_compact_toss_stats_v2_t wl_hist_compact_toss_stats_t;
 #endif /* BCM_EWP */
@@ -692,7 +686,7 @@ typedef struct wl_bssid_prune_evt_info wl_bssid_pruned_evt_info_t;
 typedef struct hnd_ext_trap_phydbg_v3 hnd_etd_phydbg_t;
 typedef struct hnd_ext_trap_wlc_mem_err_v3 hnd_ext_trap_wlc_mem_err_info_t;
 #define HND_EXT_TRAP_WLC_MEM_ERR_VER HND_EXT_TRAP_WLC_MEM_ERR_VER_V3
-#endif // endif
+#endif
 typedef key_update_info_v1_t key_update_info_t;
 typedef wl_omi_req_v1_t wl_omi_req_t;
 typedef wl_omi_status_v1_t wl_omi_status_t;

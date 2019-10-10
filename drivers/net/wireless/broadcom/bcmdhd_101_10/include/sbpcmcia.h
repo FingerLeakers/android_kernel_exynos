@@ -357,6 +357,7 @@
 					 * plus extra info appended.
 					 */
 #define HNBU_RESERVED		0x81	/* Reserved for non-BRCM post-mfg additions */
+					/* XXX Added for 'Olympic' OTP management */
 #define HNBU_CUSTOM1		0x82	/* 4 byte; For non-BRCM post-mfg additions */
 #define HNBU_CUSTOM2		0x83	/* Reserved; For non-BRCM post-mfg additions */
 #define HNBU_ACPAPARAM		0x84	/* ACPHY PAPARAM */

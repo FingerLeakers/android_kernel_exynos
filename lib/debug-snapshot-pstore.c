@@ -21,6 +21,9 @@
 #include <linux/pstore_ram.h>
 #include <linux/sched/clock.h>
 #include <linux/ftrace.h>
+#ifdef CONFIG_SEC_EXT
+#include <linux/sec_ext.h>
+#endif
 
 #include "debug-snapshot-local.h"
 #include <asm/irq.h>
@@ -153,6 +156,10 @@ static int dbg_snapshot_combine_pmsg(char *buffer, size_t count, unsigned int le
 				 */
 				buffer[count - 1] = '\0';
 				pr_info("%s\n", buffer);
+#ifdef CONFIG_SEC_BOOTSTAT
+				if (count > 5 && strncmp(buffer, "!@Boot", 6) == 0)
+					sec_bootstat_add(buffer);
+#endif /* CONFIG_SEC_BOOTSTAT */
 			}
 #endif /* CONFIG_SEC_EXT */
 		}

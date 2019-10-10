@@ -28,7 +28,7 @@
 		/*  8 columns      freq  down   up  stay  mif    little  middle   big  */
 		gpu_dvfs_table = <
 			897000    78  100   9  2730000 1716000       0 1664000
-			800000    78   98   9  2730000 1716000       0 1664000
+			800000    78  100   9  2730000 1716000       0 1664000
 			702000    78   98   5  2535000 1716000       0       0
 			598000    78   95   5  2028000 1716000       0       0
 			572000    78   95   5  1716000       0       0       0
@@ -42,7 +42,7 @@
 		gpu_pmu_status_reg_offset = <0x2204>;
 		gpu_pmu_status_local_pwr_mask = <0x1>; /*0x1 << 0*/
 		gpu_max_clock = <897000>;
-		gpu_max_clock_limit = <897000>;
+		gpu_max_clock_limit = <800000>;
 		gpu_min_clock = <156000>;
 		gpu_dvfs_start_clock = <260000>;
 		gpu_dvfs_bl_config_clock = <156000>;

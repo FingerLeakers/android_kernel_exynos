@@ -43,27 +43,6 @@
 				board-rev = <BOARD_REV>;
 			};
 
-			firmware {
-				android: android {
-					compatible = "android,firmware";
-					vbmeta {
-						compatible = "android,vbmeta";
-						parts = "vbmeta,boot,system,vendor";
-					};
-					fstab {
-						compatible = "android,fstab";
-						vendor: vendor {
-							compatible = "android,vendor";
-							dev = "/dev/block/platform/13100000.ufs/by-name/vendor";
-							type = "ext4";
-							mnt_flags = "ro";
-							fsmgr_flags = "wait,avb";
-							status = "disabled";
-						};
-					};
-				};
-			};
-            
 			pinctrl@15C30000 {
 				bt_en: bt-en {
 					samsung,pins = "gpm16-0";
@@ -151,7 +130,6 @@
 
 &pcie_2 {
 	chip-ver = <1>;
-	use-pcieon-sleep = "false";
 };
 
 &ufs {

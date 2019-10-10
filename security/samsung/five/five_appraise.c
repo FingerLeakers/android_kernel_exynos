@@ -173,7 +173,7 @@ static int five_fix_xattr(struct task_struct *task,
 			int count = 1;
 
 			do {
-				rc = __vfs_setxattr_noperm(dentry,
+				rc = __vfs_setxattr_noperm(d_real_comp(dentry),
 							XATTR_NAME_FIVE,
 							*raw_cert,
 							*raw_cert_len,
@@ -238,7 +238,8 @@ static bool dmverity_protected(struct file *file)
 static bool bad_fs(struct inode *inode)
 {
 	if (inode->i_sb->s_magic == EXT4_SUPER_MAGIC ||
-	    inode->i_sb->s_magic == F2FS_SUPER_MAGIC)
+	    inode->i_sb->s_magic == F2FS_SUPER_MAGIC ||
+	    inode->i_sb->s_magic == OVERLAYFS_SUPER_MAGIC)
 		return false;
 
 	return true;

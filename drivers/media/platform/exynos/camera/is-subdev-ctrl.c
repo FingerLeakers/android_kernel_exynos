@@ -16,6 +16,9 @@
 #include "is-param.h"
 #include "is-device-ischain.h"
 #include "is-debug.h"
+#if defined(SDC_HEADER_GEN)
+#include "is-sdc-header.h"
+#endif
 
 struct is_subdev * video2subdev(enum is_subdev_device_type device_type,
 	void *device, u32 vid)
@@ -1087,6 +1090,32 @@ static int is_subdev_internal_alloc_buffer(struct is_subdev *subdev,
 		frame->kvaddr_buffer[0] = CALL_BUFOP(subdev->pb_subdev[i], kvaddr, subdev->pb_subdev[i]);
 
 		set_bit(FRAME_MEM_INIT, &frame->mem_state);
+
+#if defined(SDC_HEADER_GEN)
+		if (subdev->id == ENTRY_PAF) {
+			const u32 *header = NULL;
+			u32 byte_per_line;
+			u32 header_size;
+			u32 width = subdev->output.width;
+
+			if (width == SDC_WIDTH_HD)
+				header = is_sdc_header_hd;
+			else if (width == SDC_WIDTH_FHD)
+				header = is_sdc_header_fhd;
+			else
+				mserr("invalid SDC size: width(%d)", subdev, subdev, width);
+
+			if (header) {
+				byte_per_line = ALIGN(width / 2 * 10 / BITS_PER_BYTE, 16);
+				header_size = byte_per_line * SDC_HEADER_LINE;
+
+				memcpy((void *)frame->kvaddr_buffer[0], header, header_size);
+
+				msinfo("Write SDC header: width(%d) size(%d)\n",
+					subdev, subdev, width, header_size);
+			}
+		}
+#endif
 	}
 
 	msinfo(" %s (size: %d, buffernum: %d)",

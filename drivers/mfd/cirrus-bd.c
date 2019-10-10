@@ -54,8 +54,43 @@ struct cirrus_bd_t {
 	unsigned long long int last_update;
 };
 
+struct cirrus_bd_ext cirrus_bd_data;
+EXPORT_SYMBOL_GPL(cirrus_bd_data);
+
 struct cirrus_bd_t *cirrus_bd;
 static struct attribute_group cirrus_bd_attr_grp;
+
+int cirrus_bd_get_index_from_suffix(const char *suffix)
+{
+	int i;
+
+	if (cirrus_bd == NULL || cirrus_bd->amps == NULL)
+		return -EINVAL;
+
+	dev_dbg(cirrus_bd->dev, "%s: suffix = %s\n", __func__, suffix);
+
+	for (i = 0; i < cirrus_bd->num_amps; i++) {
+		if (cirrus_bd->bd_suffixes[i]){
+			dev_dbg(cirrus_bd->dev, "(bd) comparing %s & %s\n",
+				cirrus_bd->bd_suffixes[i],
+				suffix);
+			if (strcmp(cirrus_bd->bd_suffixes[i], suffix) == 0) {
+				return i;
+			}
+		}
+	}
+
+	for (i = 0; i < cirrus_bd->num_amps; i++) {
+		dev_dbg(cirrus_bd->dev, "comparing %s & %s\n",
+				cirrus_bd->amps[i].mfd_suffix,
+				suffix);
+		if (strcmp(cirrus_bd->amps[i].mfd_suffix, suffix) == 0)
+			return i;
+	}
+
+	return -EINVAL;
+}
+EXPORT_SYMBOL_GPL(cirrus_bd_get_index_from_suffix);
 
 struct cirrus_mfd_amp *cirrus_bd_get_amp_from_suffix(const char *suffix)
 {
@@ -503,6 +538,13 @@ int cirrus_bd_init(struct class *cirrus_amp_class, int num_amps,
 		cirrus_bd->over_temp_count[i] = 0;
 		cirrus_bd->abnm_mute[i] = 0;
 	}
+
+	cirrus_bd_data.max_exc = cirrus_bd->max_exc;
+	cirrus_bd_data.over_exc_count = cirrus_bd->over_exc_count;
+	cirrus_bd_data.max_temp = cirrus_bd->max_temp;
+	cirrus_bd_data.max_temp_keep = cirrus_bd->max_temp_keep;
+	cirrus_bd_data.over_temp_count = cirrus_bd->over_temp_count;
+	cirrus_bd_data.abnm_mute = cirrus_bd->abnm_mute;
 
 	cirrus_bd->bd_class = cirrus_amp_class;
 

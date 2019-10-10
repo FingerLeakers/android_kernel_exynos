@@ -211,3 +211,41 @@ config SEC_DEBUG_OBJECTS_FIXUP
 	default y
 	help
 	  This option enalbles to debug abnormal state transition of debug_object.
+
+config SEC_DEBUG_FPSIMD_CHECK_CONTEXT
+	bool "Detect for fpsimd has corruption"
+	depends on SEC_DEBUG
+	default y
+	help
+	  If FPSIMD has corruption, use this feature for detect problem.
+
+config SEC_DEBUG_FAIL_TO_FREEZE_PANIC
+	bool "Panic on fail to freeze tasks"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to panic on fail to freeze tasks
+
+config SEC_DEBUG_UNFROZEN_TASK
+	bool "Set unfrozen task information"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to set unfrozen task information
+
+config SEC_DEBUG_FAULT_MSG_ADV
+	bool "Print fault message for all kernel fault"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to print fault message and print
+	  physical fault address when synchronous external abort happen and
+	  add esr argument for undef function.
+
+config SEC_DEBUG_EMERG_WDT_CALLER
+	bool "Mark a caller for emergency watchdog caller"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to indicate a caller of emergency
+	  watchdog caller.

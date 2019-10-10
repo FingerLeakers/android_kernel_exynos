@@ -378,37 +378,56 @@ void g2d_dump_info(struct g2d_device *g2d_dev, struct g2d_task *task)
 }
 
 #ifdef CONFIG_G2D_SYSTRACE
+
+#define CREATE_TRACE_POINTS
+#include <trace/events/systrace.h>
+
 static bool g2d_systrace_on;
 module_param(g2d_systrace_on, bool, 0644);
 
 #define G2D_TRACE_BUFSIZE 32
-static void tracing_mark_write(struct g2d_task *task, u32 stampid, s32 val)
+static void g2d_tracing_mark_write(struct g2d_task *task, u32 stampid, s32 val)
 {
+	char buffer[G2D_TRACE_BUFSIZE];
+	int pid = 0;
+
 	if (!g2d_systrace_on)
 		return;
 
 	switch (stampid) {
 	case G2D_STAMP_STATE_TASK_RESOURCE:
-		trace_printk((val) ?
-			     "C|0|g2d_frame_run#%d|0\n" :
-			     "C|0|g2d_frame_wait#%d|1\n",
-			     task->sec.job_id);
+
+		if (val)
+			snprintf(buffer, G2D_TRACE_BUFSIZE, "C|%d|%s#%d|0",
+				 pid, "g2d_frame_run", task->sec.job_id);
+		else
+			snprintf(buffer, G2D_TRACE_BUFSIZE, "C|%d|%s#%d|1",
+				 pid, "g2d_frame_wait", task->sec.job_id);
+
+		trace_tracing_mark_write(buffer);
 	break;
 	case G2D_STAMP_STATE_PUSH:
-		trace_printk("C|0|g2d_frame_wait#%d|0\n", task->sec.job_id);
-		trace_printk("C|0|g2d_frame_run#%d|1\n", task->sec.job_id);
+		snprintf(buffer, G2D_TRACE_BUFSIZE, "C|%d|%s#%d|0",
+			 pid, "g2d_frame_wait", task->sec.job_id);
+
+		trace_tracing_mark_write(buffer);
+
+		snprintf(buffer, G2D_TRACE_BUFSIZE, "C|%d|%s#%d|1",
+				 pid, "g2d_frame_run", task->sec.job_id);
+
+		trace_tracing_mark_write(buffer);
 	break;
 	}
 }
 #else
-#define tracing_mark_write(task, stampid, val)	do { } while (0)
+#define g2d_tracing_mark_write(task, stampid, val)	do { } while (0)
 #endif
 void g2d_stamp_task(struct g2d_task *task, u32 stampid, u64 val)
 {
 	int idx = G2D_STAMP_CLAMP_ID(atomic_inc_return(&g2d_stamp_id));
 	struct g2d_stamp *stamp = &g2d_stamp_list[idx];
 
-	tracing_mark_write(task, stampid, val);
+	g2d_tracing_mark_write(task, stampid, val);
 
 	if (task) {
 		stamp->state = task->state;

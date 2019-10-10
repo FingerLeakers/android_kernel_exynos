@@ -86,7 +86,7 @@ typedef struct {
 #define TPK_FTM_LEN		16
 #ifndef INTF_NAME_SIZ
 #define INTF_NAME_SIZ	16
-#endif // endif
+#endif
 
 #define WL_ASSOC_START_EVT_DATA_VERSION      1
 
@@ -287,6 +287,10 @@ typedef struct ulp_shm_info {
 	uint32 m_ulp_wakeevt_ind;
 	uint32 m_ulp_wakeind;
 } ulp_shm_info_t;
+
+/* Note: Due to unpredictable size, bool type should not be used in any ioctl argument structure
+ * Cf PR53622
+ */
 
 /* Legacy structure to help keep backward compatible wl tool and tray app */
 
@@ -524,7 +528,7 @@ typedef struct wl_bss_info_v109_2 {
 
 #ifndef WL_BSS_INFO_TYPEDEF_HAS_ALIAS
 typedef wl_bss_info_v109_t wl_bss_info_t;
-#endif // endif
+#endif
 
 #define WL_GSCAN_FULL_RESULT_VERSION	2	/* current version of wl_gscan_result_t struct */
 
@@ -545,7 +549,7 @@ typedef struct wl_gscan_bss_info_v3 {
 #ifndef WL_BSS_INFO_TYPEDEF_HAS_ALIAS
 typedef wl_gscan_bss_info_v2_t wl_gscan_bss_info_t;
 #define WL_GSCAN_INFO_FIXED_FIELD_SIZE   (sizeof(wl_gscan_bss_info_t) - sizeof(wl_bss_info_t))
-#endif // endif
+#endif
 
 typedef struct wl_bsscfg {
 	uint32  bsscfg_idx;
@@ -580,11 +584,11 @@ typedef struct wl_bss_config {
 /* Number of Bsscolor supported per core */
 #ifndef HE_MAX_BSSCOLOR_RES
 #define HE_MAX_BSSCOLOR_RES		2
-#endif // endif
+#endif
 
 #ifndef HE_MAX_STAID_PER_BSSCOLOR
 #define HE_MAX_STAID_PER_BSSCOLOR	4
-#endif // endif
+#endif
 
 /* BSSColor indices */
 #define BSSCOLOR0_IDX	0
@@ -854,7 +858,7 @@ typedef struct wl_scan_results_v2 {
 typedef wl_scan_results_v109_t wl_scan_results_t;
 /** size of wl_scan_results not including variable length array */
 #define WL_SCAN_RESULTS_FIXED_SIZE (sizeof(wl_scan_results_t) - sizeof(wl_bss_info_t))
-#endif // endif
+#endif
 
 #if defined(SIMPLE_ISCAN)
 /** the buf lengh can be WLC_IOCTL_MAXLEN (8K) to reduce iteration */
@@ -901,7 +905,7 @@ typedef struct wl_scan_params wl_scan_params_t;
 typedef struct wl_escan_params wl_escan_params_t;
 typedef struct wl_iscan_params wl_iscan_params_t;
 #define WL_SCAN_PARAMS_FIXED_SIZE	64
-#endif // endif
+#endif
 
 /** event scan reduces amount of SOC memory needed to store scan results */
 typedef struct wl_escan_result {
@@ -924,7 +928,7 @@ typedef struct wl_escan_result_v2 {
 #ifndef WL_BSS_INFO_TYPEDEF_HAS_ALIAS
 typedef wl_escan_result_v109_t wl_escan_result_t;
 #define WL_ESCAN_RESULTS_FIXED_SIZE (sizeof(wl_escan_result_t) - sizeof(wl_bss_info_t))
-#endif // endif
+#endif
 
 typedef struct wl_gscan_result {
 	uint32 buflen;
@@ -943,7 +947,7 @@ typedef struct wl_gscan_result_v2_1 {
 #ifndef WL_BSS_INFO_TYPEDEF_HAS_ALIAS
 typedef wl_gscan_result_v2_t wl_gscan_result_t;
 #define WL_GSCAN_RESULTS_FIXED_SIZE (sizeof(wl_gscan_result_t) - sizeof(wl_gscan_bss_info_t))
-#endif // endif
+#endif
 
 /** incremental scan results struct */
 typedef struct wl_iscan_results {
@@ -962,7 +966,7 @@ typedef wl_iscan_results_v109_t wl_iscan_results_t;
 /** size of wl_iscan_results not including variable length array */
 #define WL_ISCAN_RESULTS_FIXED_SIZE \
 	(WL_SCAN_RESULTS_FIXED_SIZE + OFFSETOF(wl_iscan_results_t, results))
-#endif // endif
+#endif
 
 typedef struct wl_probe_params {
 	wlc_ssid_t ssid;
@@ -1644,7 +1648,7 @@ typedef struct _pmkid_v3 {
 	uint8			pmk[PMK_LEN_MAX];
 	uint8			pmk_len;
 	uint16			fils_cache_id; /* 2-byte length */
-	uint8			pad;
+	uint8			akm;
 	uint8			ssid_len;
 	uint8			ssid[DOT11_MAX_SSID_LEN]; /* For FILS, to save ESSID */
 							  /* one pmkid used in whole ESS */
@@ -1664,11 +1668,15 @@ typedef struct _pmkid_list_v2 {
 	pmkid_v2_t	pmkid[1];
 } pmkid_list_v2_t;
 
+#define PMKDB_SET_IOVAR 1u
+#define PMKDB_GET_IOVAR 2u
+#define PMKDB_CLEAR_IOVAR 4u
+
 typedef struct _pmkid_list_v3 {
 	uint16		version;
 	uint16		length;
 	uint16		count;
-	uint16          pad;
+	uint16          flag;
 	pmkid_v3_t	pmkid[];
 } pmkid_list_v3_t;
 
@@ -3827,7 +3835,7 @@ typedef struct {
 	/* transmit chip error counters */
 	uint32	txuflo;		/**< tx fifo underflows */
 	uint32	txphyerr;	/**< tx phy errors (indicated in tx status) */
-	uint32	txphycrs;
+	uint32	txphycrs;	/**< PR8861/8963 counter */
 
 	/* receive stat counters */
 	uint32	rxframe;	/**< rx data frames */
@@ -3861,7 +3869,7 @@ typedef struct {
 	uint32	dmape;		/**< tx/rx dma descriptor protocol errors */
 	uint32	reset;		/**< reset count */
 	uint32	tbtt;		/**< cnts the TBTT int's */
-	uint32	txdmawar;
+	uint32	txdmawar;	/**< # occurrences of PR15420 workaround */
 	uint32	pkt_callback_reg_fail;	/**< callbacks register failure */
 
 	/* 802.11 MIB counters, pp. 614 of 802.11 reaff doc. */
@@ -4418,8 +4426,15 @@ typedef struct {
 	uint32	bcntxcancl;	/**< transmit beacons canceled due to receipt of beacon (IBSS) */
 	uint32	rxnodelim;	/**< number of no valid delimiter detected by ampdu parser */
 	uint32	rxf0ovfl;	/**< number of receive fifo 0 overflows */
-	uint32	dbgoff46;
-	uint32	dbgoff47;
+	uint32	dbgoff46;	/**< BTCX protection failure count,
+				 * getting RX antenna in PHY DEBUG,
+				 * PR84273 timeout count
+				 */
+	uint32	dbgoff47;	/**< BTCX preemption failure count,
+				 * getting RX antenna in PHY DEBUG,
+				 * PR84273 reset CCA count,
+				 * RATEENGDBG
+				 */
 	uint32	dbgoff48;	/**< Used for counting txstatus queue overflow (corerev <= 4)  */
 	uint32	pmqovfl;	/**< number of PMQ overflows */
 	uint32	rxcgprqfrm;	/**< number of received Probe requests that made it into
@@ -4440,7 +4455,9 @@ typedef struct {
 	uint32	rxback;		/**< blockack rxcnt */
 	uint32	txback;		/**< blockack txcnt */
 	uint32	bphy_rxcrsglitch;	/**< PHY count of bphy glitches */
-	uint32	phywatch;
+	uint32	phywatch;	/**< number of phywatchdog to kill any pending transmissions.
+				 * (PR 38187 corerev == 11)
+				 */
 	uint32	rxtoolate;	/**< receive too late */
 	uint32  bphy_badplcp;	/**< number of bad PLCP reception on BPHY rate */
 	/* All counter variables have to be of uint32. */
@@ -4679,7 +4696,7 @@ typedef struct {
 	/* transmit chip error counters */
 	uint32	txuflo;		/**< tx fifo underflows */
 	uint32	txphyerr;	/**< tx phy errors (indicated in tx status) */
-	uint32	txphycrs;
+	uint32	txphycrs;	/**< PR8861/8963 counter */
 
 	/* receive stat counters */
 	uint32	rxframe;	/**< rx data frames */
@@ -4713,7 +4730,7 @@ typedef struct {
 	uint32	dmape;		/**< tx/rx dma descriptor protocol errors */
 	uint32	reset;		/**< reset count */
 	uint32	tbtt;		/**< cnts the TBTT int's */
-	uint32	txdmawar;
+	uint32	txdmawar;	/**< # occurrences of PR15420 workaround */
 	uint32	pkt_callback_reg_fail;	/**< callbacks register failure */
 
 	/* MAC counters: 32-bit version of d11.h's macstat_t */
@@ -4985,7 +5002,7 @@ typedef struct {
 	/* transmit chip error counters */
 	uint32	txuflo;		/* tx fifo underflows */
 	uint32	txphyerr;	/* tx phy errors (indicated in tx status) */
-	uint32	txphycrs;
+	uint32	txphycrs;	/* PR8861/8963 counter */
 
 	/* receive stat counters */
 	uint32	rxframe;	/* rx data frames */
@@ -5019,7 +5036,7 @@ typedef struct {
 	uint32	dmape;		/* tx/rx dma descriptor protocol errors */
 	uint32	reset;		/* reset count */
 	uint32	tbtt;		/* cnts the TBTT int's */
-	uint32	txdmawar;
+	uint32	txdmawar;	/* # occurrences of PR15420 workaround */
 	uint32	pkt_callback_reg_fail;	/* callbacks register failure */
 
 	/* MAC counters: 32-bit version of d11.h's macstat_t */
@@ -5218,7 +5235,7 @@ typedef struct {
 	/* transmit chip error counters */
 	uint32  txuflo;     /**< tx fifo underflows */
 	uint32  txphyerr;   /**< tx phy errors (indicated in tx status) */
-	uint32  txphycrs;
+	uint32  txphycrs;   /**< PR8861/8963 counter */
 
 	/* receive stat counters */
 	uint32  rxframe;    /**< rx data frames */
@@ -5252,7 +5269,7 @@ typedef struct {
 	uint32  dmape;      /**< tx/rx dma descriptor protocol errors */
 	uint32  reset;      /**< reset count */
 	uint32  tbtt;       /**< cnts the TBTT int's */
-	uint32  txdmawar;
+	uint32  txdmawar;   /**< # occurrences of PR15420 workaround */
 	uint32  pkt_callback_reg_fail;  /**< callbacks register failure */
 
 	/* MAC counters: 32-bit version of d11.h's macstat_t */
@@ -6259,11 +6276,11 @@ typedef struct wl_pfn_ssid_ext_result {
 
 #ifndef BESTN_MAX
 #define BESTN_MAX			10
-#endif // endif
+#endif
 
 #ifndef MSCAN_MAX
 #define MSCAN_MAX			90
-#endif // endif
+#endif
 
 /* Dynamic scan configuration for motion profiles */
 
@@ -6656,71 +6673,6 @@ typedef struct rssi_struct {
 	uint8	idx;			/**< next rssi location */
 } rssi_struct_t;
 
-#ifdef WLDFSP
-#define DFSP_EVT_OFFSET			OFFSETOF(dfsp_event_data_t, ie)
-#define DFSP_EVT_FLAGS_AP_ASSOC		(1 << 0)
-#define DFSP_EVT_FLAGS_AP_BCNMON	(1 << 1)
-#define DFSP_EVT_FLAGS_PROXY_BCSA	(1 << 2)
-#define DFSP_EVT_FLAGS_PROXY_UCSA	(1 << 3)
-#define DFSP_EVT_FLAGS_PROXY_PCSA	(1 << 4)
-
-typedef struct dfsp_event_data {
-	uint16 flags;	/* indicate what triggers the event */
-	uint16 ie_len;
-	uint8 ie[];    /* variable length */
-} dfsp_event_data_t;
-
-/* Proxy Channel Switch Announcement is a collection of IEs */
-typedef struct dfsp_pcsa {
-	dot11_ext_csa_ie_t		ecsa;
-	dot11_mesh_csp_ie_t		mcsp;
-	dot11_wide_bw_chan_switch_ie_t	wbcs;
-} dfsp_pcsa_t;
-
-/* DFS Proxy */
-#define DFSP_CFG_VERSION	1
-#define DFSP_FLAGS_ENAB		0x1
-typedef struct dfsp_cfg {
-	uint16 version;
-	uint16 len;
-	uint16 flags;			/**< bit 1 to enable/disable the feature */
-	uint16 max_bcn_miss_dur;        /**< maximum beacon miss duration before ceasing data tx */
-	uint8 mcsp_ttl;                 /**< remaining number of hops allowed for pcsa message */
-	uint8 bcsa_cnt;                 /**< repeat numbers of broadcast CSA */
-	chanspec_t mon_chan;            /**< passive monitoring channel spec */
-	struct ether_addr mon_bssid;    /**< broadcast means monitoring all */
-	uint16 max_bcn_miss_dur_af;	/**< maximum beacon miss duration before ceasing AF tx */
-} dfsp_cfg_t;
-
-#define DFSP_UCSA_VERSION	1
-typedef struct dfsp_ucsa {
-	uint16 version;
-	uint16 len;
-	struct ether_addr address;
-	uint8 enable;
-	uint8 retry_cnt;		/**< just in case host needs to control the value */
-} dfsp_ucsa_t;
-
-typedef struct dfsp_ucsa_tbl {
-	uint8 tbl_num;
-	uint8 tbl[];
-} dfsp_ucsa_tbl_t;
-
-typedef struct dfsp_stats {
-	uint32  dfsp_csainfra;
-	uint32  dfsp_csabcnmon;
-	uint32  dfsp_bcsarx;
-	uint32  dfsp_ucsarx;
-	uint32  dfsp_pcsarx;
-	uint32  dfsp_bcsatx;
-	uint32  dfsp_ucsatx;
-	uint32  dfsp_pcsatx;
-	uint32  dfsp_ucsatxfail;
-	uint32  dfsp_evtnotif;
-	uint32  dfsp_evtsuspect;
-	uint32  dfsp_evtresume;
-} dfsp_stats_t;
-#endif /* WLDFSP */
 //MOG-ON: WLAWDL
 //MOG-OFF: WLAWDL
 
@@ -6804,7 +6756,7 @@ typedef enum wl_pkt_filter_type {
 	WL_PKT_FILTYER_TYPE_MAX = 7,	/* Pkt filter type MAX */
 } wl_pkt_filter_type_t;
 
-#define WL_PKT_FILTER_TYPE wl_pkt_filter_type_t
+#define WL_PKT_FILTER_TYPE wl_pkt_filter_type_t	/* xxx backward compatibility; remove */
 
 /* String mapping for types that may be used by applications or debug */
 #define WL_PKT_FILTER_TYPE_NAMES \
@@ -7058,7 +7010,7 @@ typedef struct wl_pkteng_ru_v2 {
 #ifndef WL_PKTENG_RU_VER
 /* App uses the latest version - source picks it up from wlc_types.h */
 typedef wl_pkteng_ru_v2_t wl_pkteng_ru_fill_t;
-#endif // endif
+#endif
 
 typedef struct wl_trig_frame_info {
 	/* Structure versioning and structure length params */
@@ -14014,7 +13966,8 @@ typedef enum wl_gpaio_option {
 	GPAIO_PMU_MMDLDO,
 	GPAIO_PMU_VCOCORELDO,
 	GPAIO_PMU_PLLLDO,
-	GPAIO_PMU_RXLDO
+	GPAIO_PMU_RXLDO,
+	GPAIO_IQDAC_DC_TP
 } wl_gpaio_option_t;
 
 /** IO Var Operations - the Value of iov_op In wlc_ap_doiovar */
@@ -14227,7 +14180,7 @@ typedef struct wl_scan_version {
 enum {
 	WL_PROXD_METHOD_NONE	= 0,
 	WL_PROXD_METHOD_RSVD1	= 1, /**< backward compatibility - RSSI, not supported */
-	WL_PROXD_METHOD_TOF	= 2,
+	WL_PROXD_METHOD_TOF	= 2, /**< xxx 11v+BCM proprietary */
 	WL_PROXD_METHOD_RSVD2	= 3, /**< 11v only - if needed */
 	WL_PROXD_METHOD_FTM	= 4, /**< IEEE rev mc/2014 */
 	WL_PROXD_METHOD_MAX
@@ -17626,8 +17579,6 @@ typedef enum wl_hc_dd_type {
 	WL_HC_DD_REINIT		= 6,	/* Reinit due to other reasons */
 	WL_HC_DD_TXQ_STALL	= 7,	/* TXQ stall */
 	WL_HC_DD_RX_STALL_V2	= 8,	/* RX stall check v2 */
-// MOG-ON: WLAWDL
-// MOG-OFF: WLAWDL
 	WL_HC_DD_SBSS		=10,	/* Slotted bss health check */
 	WL_HC_DD_NAN		=11,	/* NAN health check */
 	WL_HC_DD_MAX
@@ -18371,6 +18322,32 @@ typedef struct {
 #define OTP_ECC_ENAB(val) \
 	(bcm_bitcount((uint8 *)&(val), sizeof(uint8)) > 1)
 
+/* otp command details */
+#define WL_OTP_IOV_MAJOR_VER		1u
+#define WL_OTP_IOV_MINOR_VER		1u
+#define WL_OTP_IOV_MAJOR_VER_SHIFT	8u
+#define WL_OTP_IOV_VERSION \
+		((WL_OTP_IOV_MAJOR_VER << WL_OTP_IOV_MAJOR_VER_SHIFT) | WL_OTP_IOV_MINOR_VER)
+
+#define OTP_RGN_NONE	0x0u
+#define OTP_RGN_HW	0x1u
+#define OTP_RGN_SW	0x2u
+
+enum wl_otp_cmd_ids {
+	WL_OTP_CMD_RGNSTATUS	= 0x1,
+	WL_OTP_CMD_RGNDUMP	= 0x2,
+	WL_OTP_CMD_RGNWRITE	= 0x3,
+	/* Add before this !!! */
+	WL_OTP_CMD_LAST
+};
+
+enum wl_otp_xtlv_id {
+	WL_OTP_XTLV_RGN		= 0x1,
+	WL_OTP_XTLV_ADDR	= 0x2,
+	WL_OTP_XTLV_SIZE	= 0x3,
+	WL_OTP_XTLV_DATA	= 0x4
+};
+
 #define WL_LEAKY_AP_STATS_GT_TYPE	0
 #define WL_LEAKY_AP_STATS_PKT_TYPE	1
 typedef struct wlc_leaked_infra_guard_marker {
@@ -18683,7 +18660,7 @@ typedef struct sssr_reg_info_v2 {
 #ifndef SSSR_REG_INFO_HAS_ALIAS
 typedef sssr_reg_info_v0_t sssr_reg_info_t;
 #define SSSR_REG_INFO_VER SSSR_REG_INFO_VER_0
-#endif // endif
+#endif
 
 /* A wrapper structure for all versions of SSSR register information structures */
 typedef union sssr_reg_info {
@@ -19673,7 +19650,7 @@ typedef tdmtx_cnt_shm_v1_t tdmtx_cnt_shm_t;
 typedef wl_tdmtx_ecounters_v1_t wl_tdmtx_ecounters_t;
 #define WL_CNT_TDMTX_STRUCT_SZ (sizeof(tdmtx_cnt_t))
 #define WL_CNT_TDMTX_SHM_SZ (sizeof(tdmtx_cnt_shm_t))
-#endif // endif
+#endif
 
 /** chanctxt related statistics */
 #define CHANCTXT_STATS_VERSION_1 1
@@ -19968,7 +19945,7 @@ enum wl_slice_hist_stats_xtlv_id {
 
 #ifndef WLC_HIST_TOSS_LEN
 #define WLC_HIST_TOSS_LEN   (8u)
-#endif // endif
+#endif
 #define WL_HIST_COMPACT_TOSS_STATS_TX_VER_1	(1u)
 #define WL_HIST_COMPACT_TOSS_STATS_RX_VER_1	(1u)
 

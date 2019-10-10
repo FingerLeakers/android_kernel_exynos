@@ -23,6 +23,8 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
+/** XXX Twiki: [PCIeFullDongleArchitecture] */
+
 #ifndef	_bcmpcie_h_
 #define	_bcmpcie_h_
 
@@ -505,6 +507,7 @@ typedef struct {
 #define CHECK_NOWRITE_SPACE(r, w, d) \
 	(((uint32)(r) == (uint32)((w) + 1)) || (((r) == 0) && ((w) == ((d) - 1))))
 
+/* XXX: --- These should be moved into pciedev.h --- */
 #define WRT_PEND(x)	((x)->wr_pending)
 #define DNGL_RING_WPTR(msgbuf)		(*((msgbuf)->tcm_rs_w_ptr)) /**< advanced by producer */
 #define BCMMSGBUF_RING_SET_W_PTR(msgbuf, a)	(DNGL_RING_WPTR(msgbuf) = (a))

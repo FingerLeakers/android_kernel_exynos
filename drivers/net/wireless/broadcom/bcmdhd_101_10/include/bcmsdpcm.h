@@ -102,6 +102,7 @@
 /*
  * Software-defined protocol header
  */
+/* XXX Replace all this with packed struct */
 
 /* Current protocol version */
 #define SDPCM_PROT_VERSION	4
@@ -153,7 +154,7 @@
 
 #define SDPCM_FLAG_RESVD0	0x01
 #define SDPCM_FLAG_RESVD1	0x02
-#define SDPCM_FLAG_GSPI_TXENAB	0x04
+#define SDPCM_FLAG_GSPI_TXENAB	0x04	/* GSPI Tx enable (PR55150 only) */
 #define SDPCM_FLAG_GLOMDESC	0x08	/* Superframe descriptor mask */
 
 /* For GLOM_CHANNEL frames, use a flag to indicate descriptor frame */

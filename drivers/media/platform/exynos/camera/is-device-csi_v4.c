@@ -85,10 +85,38 @@ static inline void csi_frame_end_inline(struct is_device_csi *csi)
 }
 static inline void csi_s_buf_addr(struct is_device_csi *csi, struct is_frame *frame, u32 index, u32 vc)
 {
+	u32 dvaddr;
+
 	FIMC_BUG_VOID(!frame);
 
+	dvaddr = (u32)frame->dvaddr_buffer[0];
+
+#if defined(SDC_HEADER_GEN)
+	if (vc == CSI_VIRTUAL_CH_0) {
+		struct is_sensor_cfg *sensor_cfg;
+		struct is_vci_config *vci_cfg;
+		u32 width;
+		u32 pixelsize;
+		u32 byte_per_line;
+		u32 header_size;
+
+		sensor_cfg = csi->sensor_cfg;
+		vci_cfg = &sensor_cfg->output[vc];
+
+		if (vci_cfg->extformat == HW_FORMAT_RAW10_SDC) {
+			width = vci_cfg->width;
+			pixelsize = 10;
+
+			byte_per_line = ALIGN(width * pixelsize / BITS_PER_BYTE, 16);
+			header_size = byte_per_line * 2;
+
+			dvaddr += header_size;
+		}
+	}
+#endif
+
 	csi_hw_s_dma_addr(csi->vc_reg[csi->scm][vc], vc, index,
-				(u32)frame->dvaddr_buffer[0]);
+				dvaddr);
 }
 
 static inline void csi_s_output_dma(struct is_device_csi *csi, u32 vc, bool enable)
@@ -150,19 +178,22 @@ static inline void csi_s_config_dma(struct is_device_csi *csi, struct is_vci_con
 			}
 		}
 
+		if (vci_config[vc].width)
+			framecfg.width = vci_config[vc].width;
+
 		if (test_bit(IS_SUBDEV_VOTF_USE, &dma_subdev->state)) {
 			struct is_device_csi_dma *csi_dma = csi->csi_dma;
 
 			csi_hw_s_dma_common_votf_enable(csi_dma->base_reg,
-				dma_subdev->output.width,
+				framecfg.width,
 				dma_subdev->dma_ch[csi->scm],
 				dma_subdev->vc_ch[csi->scm]);
 
 			minfo("[CSI%d][VC%d] VOTF config (width: %d)\n", csi, csi->ch, vc,
-				dma_subdev->output.width);
+				framecfg.width);
 		}
 
-		csi_hw_s_config_dma(csi->vc_reg[csi->scm][vc], vc, &framecfg, vci_config[vc].hwformat);
+		csi_hw_s_config_dma(csi->vc_reg[csi->scm][vc], vc, &framecfg, vci_config[vc].extformat);
 
 		/* vc: determine for vc0 img format for otf path
 		 * dma_subdev->vc_ch[csi->scm]: actual channel at each vc used,
@@ -956,7 +987,7 @@ static void wq_csis_dma_vc3(struct work_struct *data)
 	struct is_device_csi *csi;
 	struct is_framemgr *framemgr = NULL;
 
-	csi = container_of(data, struct is_device_csi, wq_csis_dma[CSI_VIRTUAL_CH_2]);
+	csi = container_of(data, struct is_device_csi, wq_csis_dma[CSI_VIRTUAL_CH_3]);
 	if (!csi) {
 		err("[CSI] csi is NULL");
 		BUG();
@@ -1991,7 +2022,7 @@ static int csi_s_format(struct v4l2_subdev *subdev,
 		struct is_vci_config *vci_cfg;
 		const char *type_name;
 
-		csi_s_output_dma(csi, vc, false);
+		csi_hw_dma_reset(csi->vc_reg[csi->scm][vc]);
 
 		dma_subdev = csi->dma_subdev[vc];
 

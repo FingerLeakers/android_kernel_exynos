@@ -22,6 +22,8 @@
 
 /** WL flow control for PROP_TXSTATUS. Related to host AMPDU reordering. */
 
+/** XXX Twiki: [PropTxStatus] */
+
 #ifndef __wlfc_proto_definitions_h__
 #define __wlfc_proto_definitions_h__
 
@@ -152,6 +154,21 @@ typedef enum {
 
 #define WLFC_CTL_VALUE_LEN_REQUEST_CREDIT	3	/* credit, MAC-handle, prec_bitmap */
 #define WLFC_CTL_VALUE_LEN_REQUEST_PACKET	3	/* credit, MAC-handle, prec_bitmap */
+
+/* XXX:
+	WLFC packet identifier: b[31:0] (WLFC_CTL_TYPE_PKTTAG)
+
+	Generation	: b[31]		=> generation number for this packet [host->fw]
+	                           OR, current generation number [fw->host]
+	Flags		: b[30:27]	=> command, status flags
+	FIFO-AC		: b[26:24]	=> AC-FIFO id
+
+	h-slot		: b[23:8]	=> hanger-slot
+	freerun		: b[7:0]	=> A free running counter?
+
+	As far as the firmware is concerned, host generated b[23:0] should be just
+	reflected back on txstatus.
+*/
 
 #ifndef WLFC_PKTFLAG_COMPAT
 #define WLFC_PKTFLAG_PKTFROMHOST	0x01

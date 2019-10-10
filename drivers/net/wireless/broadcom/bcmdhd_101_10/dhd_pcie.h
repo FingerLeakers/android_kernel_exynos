@@ -403,7 +403,7 @@ typedef struct dhd_bus {
 	uint32  hostready_count; /* Number of hostready issued */
 #if defined(BCMPCIE_OOB_HOST_WAKE)
 	bool	oob_presuspend;
-#endif // endif
+#endif
 	dhdpcie_config_save_t saved_config;
 	ulong resume_intr_enable_count;
 	ulong dpc_intr_enable_count;
@@ -462,7 +462,7 @@ typedef struct dhd_bus {
 #endif /* PCIE_INB_DW */
 #if defined(PCIE_INB_DW)
 	bool  ds_enabled;
-#endif // endif
+#endif
 #ifdef DHD_PCIE_RUNTIMEPM
 	bool chk_pm;	/* To avoid counting of wake up from Runtime PM */
 #endif /* DHD_PCIE_RUNTIMEPM */
@@ -700,7 +700,7 @@ uint32 dhdpcie_os_rtcm32(dhd_bus_t *bus, ulong offset);
 #ifdef DHD_SUPPORT_64BIT
 void dhdpcie_os_wtcm64(dhd_bus_t *bus, ulong offset, uint64 data);
 uint64 dhdpcie_os_rtcm64(dhd_bus_t *bus, ulong offset);
-#endif // endif
+#endif
 
 extern int dhdpcie_enable_device(dhd_bus_t *bus);
 
@@ -714,14 +714,15 @@ extern int dhdpcie_get_oob_irq_level(void);
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 #if defined(PCIE_INB_DW)
 extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
-#endif // endif
+#endif
 
+/* XXX: SWWLAN-82173 Making PCIe RC D3cold by force during system PM
+ * exynos_pcie_pm_suspend : RC goes to suspend status & assert PERST
+ * exynos_pcie_pm_resume : de-assert PERST & RC goes to resume status
+ */
 #if defined(CONFIG_ARCH_EXYNOS)
 #define SAMSUNG_PCIE_VENDOR_ID 0x144d
-#if defined(CONFIG_MACH_UNIVERSAL5433)
-#define SAMSUNG_PCIE_DEVICE_ID 0xa5e3
-#define SAMSUNG_PCIE_CH_NUM
-#elif defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_SOC_EXYNOS7420)
+#if defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_SOC_EXYNOS7420)
 #define SAMSUNG_PCIE_DEVICE_ID 0xa575
 #define SAMSUNG_PCIE_CH_NUM 1
 #elif defined(CONFIG_SOC_EXYNOS8890)
@@ -751,7 +752,7 @@ extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
 #define MSM_PCIE_DEVICE_ID 0x0106
 #else
 #error "Not supported platform"
-#endif // endif
+#endif
 #endif /* CONFIG_ARCH_MSM */
 
 #if defined(CONFIG_X86)
@@ -763,6 +764,11 @@ extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
 #define TEGRA_PCIE_VENDOR_ID 0x14e4
 #define TEGRA_PCIE_DEVICE_ID 0x4347
 #endif /* CONFIG_ARCH_TEGRA */
+
+#if defined(BOARD_HIKEY)
+#define HIKEY_PCIE_VENDOR_ID 0x19e5
+#define HIKEY_PCIE_DEVICE_ID 0x3660
+#endif /* BOARD_HIKEY */
 
 #define DUMMY_PCIE_VENDOR_ID 0xffff
 #define DUMMY_PCIE_DEVICE_ID 0xffff
@@ -779,6 +785,9 @@ extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
 #elif defined(CONFIG_ARCH_TEGRA)
 #define PCIE_RC_VENDOR_ID TEGRA_PCIE_VENDOR_ID
 #define PCIE_RC_DEVICE_ID TEGRA_PCIE_DEVICE_ID
+#elif defined(BOARD_HIKEY)
+#define PCIE_RC_VENDOR_ID HIKEY_PCIE_VENDOR_ID
+#define PCIE_RC_DEVICE_ID HIKEY_PCIE_DEVICE_ID
 #else
 /* Use dummy vendor and device IDs */
 #define PCIE_RC_VENDOR_ID DUMMY_PCIE_VENDOR_ID
@@ -789,13 +798,8 @@ extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
 #define DHD_HP2P_RING    1
 
 #ifdef USE_EXYNOS_PCIE_RC_PMPATCH
-#ifdef CONFIG_MACH_UNIVERSAL5433
-extern int exynos_pcie_pm_suspend(void);
-extern int exynos_pcie_pm_resume(void);
-#else
 extern int exynos_pcie_pm_suspend(int ch_num);
 extern int exynos_pcie_pm_resume(int ch_num);
-#endif /* CONFIG_MACH_UNIVERSAL5433 */
 #endif /* USE_EXYNOS_PCIE_RC_PMPATCH */
 
 #ifdef CONFIG_ARCH_TEGRA

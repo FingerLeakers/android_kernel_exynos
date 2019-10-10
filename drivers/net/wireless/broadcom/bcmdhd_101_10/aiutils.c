@@ -37,7 +37,7 @@
 
 #if defined(ETD)
 #include <etd.h>
-#endif // endif
+#endif
 
 #define PMU_DMP() (0)
 #define GCI_DMP() (0)
@@ -242,7 +242,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 		         mfg, cid, crev, OSL_OBFUSCATE_BUF(eromptr - 1), nmw, nsw, nmp, nsp));
 #else
 		BCM_REFERENCE(crev);
-#endif // endif
+#endif
 
 		/* Include Default slave wrapper for timeout monitoring */
 		if ((nsp == 0) ||
@@ -258,6 +258,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 
 		if ((nmw + nsw == 0)) {
 			/* A component which is not a core */
+			/* XXX: Should record some info */
 			if (cid == OOB_ROUTER_CORE_ID) {
 				asd = get_asd(sih, &eromptr, 0, 0, AD_ST_SLAVE,
 					&addrl, &addrh, &sizel, &sizeh);
@@ -283,6 +284,10 @@ ai_scan(si_t *sih, void *regs, uint devid)
 		cores_info->cib[idx] = cib;
 		cores_info->coreid[idx] = cid;
 
+		/* workaround the fact the variable buscoretype is used in _ai_set_coreidx()
+		 * when checking PCIE_GEN2() for PCI_BUS case before it is setup later...,
+		 * both use and setup happen in si_buscore_setup().
+		 */
 		if (BUSTYPE(sih->bustype) == PCI_BUS &&
 		    (cid == PCI_CORE_ID || cid == PCIE_CORE_ID || cid == PCIE2_CORE_ID)) {
 			sii->pub.buscoretype = (uint16)cid;
@@ -294,6 +299,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 				SI_ERROR(("Not enough MP entries for component 0x%x\n", cid));
 				goto error;
 			}
+			/* XXX: Record something? */
 			SI_VMSG(("  Master port %d, mp: %d id: %d\n", i,
 			         (mpd & MPD_MP_MASK) >> MPD_MP_SHIFT,
 			         (mpd & MPD_MUI_MASK) >> MPD_MUI_SHIFT));
@@ -316,6 +322,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 					}
 					else if ((addrh != 0) || (sizeh != 0) ||
 						(sizel != SI_CORE_SIZE)) {
+						/* XXX: Could we have sizel != 4KB? */
 						SI_ERROR(("addrh = 0x%x\t sizeh = 0x%x\t size1 ="
 							"0x%x\n", addrh, sizeh, sizel));
 						SI_ERROR(("First Slave ASD for"
@@ -469,7 +476,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 		/* Don't record bridges */
 		if (br)
 			continue;
-#endif // endif
+#endif
 
 		/* Done with core */
 		sii->numcores++;
@@ -560,6 +567,10 @@ _ai_setcoreidx(si_t *sih, uint coreidx, uint use_wrapn)
 		}
 
 		/* Use BAR0 Window to support dual mac chips... */
+
+		/* XXX: http://hwnbu-twiki.broadcom.com/bin/view/Mwgroup/
+		 *		CurrentPcieGen2ProgramGuide#BAR0_Space
+		 */
 
 		/* TODO: the other mac unit can't be supportd by the current BAR0 window.
 		 * need to find other ways to access these cores.
@@ -1226,7 +1237,7 @@ _ai_core_reset(const si_t *sih, uint32 bits, uint32 resetbits)
 	const si_info_t *sii = SI_INFO(sih);
 #if defined(UCM_CORRUPTION_WAR)
 	const si_cores_info_t *cores_info = (const si_cores_info_t *)sii->cores_info;
-#endif // endif
+#endif
 	aidmp_t *ai;
 	volatile uint32 dummy;
 	uint loop_counter = 10;
@@ -1472,7 +1483,7 @@ ai_dumpregs(const si_t *sih, struct bcmstrbuf *b)
 		}
 	}
 }
-#endif // endif
+#endif
 
 void
 ai_update_backplane_timeouts(const si_t *sih, bool enable, uint32 timeout_exp, uint32 cid)
@@ -1638,12 +1649,6 @@ ai_ignore_errlog(const si_info_t *sii, const aidmp_t *ai,
 			address_check = FALSE;
 			ignore_errsts_2 = AIELS_DECODE;
 			break;
-#ifdef USE_HOSTMEM
-		case BCM43602_CHIP_ID:
-			axi_id = BCM43602_BT_AXI_ID;
-			address_check = FALSE;
-			break;
-#endif /* USE_HOSTMEM */
 		default:
 			return FALSE;
 	}
@@ -1900,10 +1905,6 @@ ai_clear_backplane_to_per_core(si_t *sih, uint coreid, uint coreunit, void *wrap
 
 			case AIELS_DECODE:
 				SI_PRINT(("AXI decode error\n"));
-#ifdef USE_HOSTMEM
-				if ((errlog_id & (BCM_AXI_ID_MASK | BCM_AXI_ACCESS_TYPE_MASK)) !=
-					(BCM43xx_AXI_ACCESS_TYPE_PREFETCH | BCM43xx_CR4_AXI_ID))
-#endif // endif
 				{
 					ret |= AXI_WRAP_STS_DECODE_ERR;
 				}
@@ -2064,7 +2065,7 @@ ai_clear_backplane_to(si_t *sih)
 	if ((sii->axi_num_wrappers == 0) || (!PCIE(sii)))
 #else
 	if (sii->axi_num_wrappers == 0)
-#endif // endif
+#endif
 	{
 		SI_VMSG(("ai_clear_backplane_to, axi_num_wrappers:%d, Is_PCIE:%d, BUS_TYPE:%d,"
 			" ID:%x\n",

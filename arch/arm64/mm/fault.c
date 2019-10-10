@@ -133,6 +133,17 @@ static void mem_abort_decode(unsigned int esr)
 		data_abort_decode(esr);
 }
 
+static inline phys_addr_t show_virt_to_phys(unsigned long addr)
+{
+	if (!is_vmalloc_addr((void *)addr) ||
+		(addr >= (unsigned long) KERNEL_START &&
+		 addr <= (unsigned long) KERNEL_END))
+		return __pa(addr);
+	else
+		return page_to_phys(vmalloc_to_page((void *)addr)) +
+		       offset_in_page(addr);
+}
+
 /*
  * Dump out the page tables associated with 'addr' in the currently active mm.
  */
@@ -672,6 +683,9 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 
 	inf = esr_to_fault_info(esr);
 
+	if (IS_ENABLED(CONFIG_SEC_DEBUG_FAULT_MSG_ADV))
+		pr_auto(ASL1, "%s (0x%08x) at 0x%016lx[0x%09lx]\n",
+			      inf->name, esr, addr, show_virt_to_phys(addr));
 	/*
 	 * Synchronous aborts may interrupt code which had interrupts masked.
 	 * Before calling out into the wider kernel tell the interested
@@ -839,6 +853,12 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 
 	clear_siginfo(&info);
 
+#if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
+	if (!user_mode(regs))
+		pr_auto(ASL1, "%s exception: pc=0x%016llx sp=0x%016llx\n",
+			esr_get_class_string(esr),
+			(void *)regs->pc, (void *)regs->sp);
+#endif
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 	if (!user_mode(regs)) {
 		secdbg_exin_set_fault(SP_PC_ABORT_FAULT, addr, regs);

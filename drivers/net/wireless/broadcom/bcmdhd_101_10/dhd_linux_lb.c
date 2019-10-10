@@ -61,6 +61,7 @@ dhd_cpumasks_init(dhd_info_t *dhd)
 	DHD_ERROR(("%s CPU masks primary(big)=0x%x secondary(little)=0x%x\n", __FUNCTION__,
 		DHD_LB_PRIMARY_CPUS, DHD_LB_SECONDARY_CPUS));
 
+	/* FIXME: If one alloc fails we must free_cpumask_var the previous */
 	if (!alloc_cpumask_var(&dhd->cpumask_curr_avail, GFP_KERNEL) ||
 	    !alloc_cpumask_var(&dhd->cpumask_primary, GFP_KERNEL) ||
 	    !alloc_cpumask_var(&dhd->cpumask_primary_new, GFP_KERNEL) ||
@@ -265,6 +266,7 @@ dhd_cpu_callback(struct notifier_block *nfb, unsigned long action, void *hcpu)
 		return NOTIFY_BAD;
 	}
 
+	/* XXX: Do we need other action types ? */
 	switch (action)
 	{
 		case CPU_ONLINE:
@@ -321,7 +323,7 @@ int dhd_unregister_cpuhp_callback(dhd_info_t *dhd)
 	if (dhd->cpu_notifier.notifier_call != NULL) {
 		unregister_cpu_notifier(&dhd->cpu_notifier);
 	}
-#endif // endif
+#endif
 	return ret;
 }
 
@@ -1135,6 +1137,13 @@ dhd_lb_rx_napi_dispatch(dhd_pub_t *dhdp)
 	preempt_disable();
 	on_cpu = atomic_read(&dhd->rx_napi_cpu);
 #ifdef DHD_LB_IRQSET
+	/* XXX :  SWWLAN-163963
+	 * Migration CPU from little to big has Tput degradation in NAS download
+	 * scenario, and changing IRQ affinity from little to big shows
+	 * the best performance without migration,
+	 * so, if curr_cpu (from IRQ) is set from big core,
+	 * it won't schedule to dedicated cpu.
+	 */
 	if (cpumask_and(&cpus, cpumask_of(curr_cpu), dhd->cpumask_primary) ||
 			(!cpu_online(on_cpu))) {
 #else
@@ -1174,36 +1183,6 @@ dhd_read_lb_rxp(dhd_pub_t *dhdp)
 }
 #endif /* DHD_LB_RXP */
 
-#ifdef DHD_LB_IRQSET
-void
-dhd_irq_set_affinity(dhd_pub_t *dhdp)
-{
-	unsigned int irq = (unsigned int)-1;
-	int err = BCME_OK;
-
-	if (!dhdp) {
-		DHD_ERROR(("%s : dhdp is NULL\n", __FUNCTION__));
-		return;
-	}
-
-	if (!dhdp->bus) {
-		DHD_ERROR(("%s : bus is NULL\n", __FUNCTION__));
-		return;
-	}
-
-	dhdpcie_get_pcieirq(dhdp->bus, &irq);
-
-#ifdef BCMDHD_MODULAR
-	err = irq_set_affinity_hint(irq, dhdp->info->cpumask_primary);
-#else
-	err = irq_set_affinity(irq, dhdp->info->cpumask_primary);
-#endif /* BCMDHD_MODULAR */
-
-	if (err)
-		DHD_ERROR(("%s : irq set affinity is failed cpu:0x%lx\n",
-			__FUNCTION__, *cpumask_bits(dhdp->info->cpumask_primary)));
-}
-#endif /* DHD_LB_IRQSET */
 #if defined(DHD_LB_TXP)
 int
 BCMFASTPATH(dhd_lb_sendpkt)(dhd_info_t *dhd, struct net_device *net,
@@ -1299,3 +1278,35 @@ dhd_lb_tx_handler(unsigned long data)
 #endif /* DHD_LB_TXP */
 
 #endif /* DHD_LB */
+
+#if defined(DHD_LB_IRQSET) || defined(DHD_CONTROL_PCIE_CPUCORE_WIFI_TURNON)
+void
+dhd_irq_set_affinity(dhd_pub_t *dhdp, const struct cpumask *cpumask)
+{
+	unsigned int irq = (unsigned int)-1;
+	int err = BCME_OK;
+
+	if (!dhdp) {
+		DHD_ERROR(("%s : dhdp is NULL\n", __FUNCTION__));
+		return;
+	}
+
+	if (!dhdp->bus) {
+		DHD_ERROR(("%s : bus is NULL\n", __FUNCTION__));
+		return;
+	}
+
+	DHD_ERROR(("%s : irq set affinity cpu:0x%lx\n",
+			__FUNCTION__, *cpumask_bits(cpumask)));
+
+	dhdpcie_get_pcieirq(dhdp->bus, &irq);
+#ifdef BCMDHD_MODULAR
+	err = irq_set_affinity_hint(irq, cpumask);
+#else
+	err = irq_set_affinity(irq, cpumask);
+#endif /* BCMDHD_MODULAR */
+	if (err)
+		DHD_ERROR(("%s : irq set affinity is failed cpu:0x%lx\n",
+				__FUNCTION__, *cpumask_bits(cpumask)));
+}
+#endif /* DHD_LB_IRQSET || DHD_CONTROL_PCIE_CPUCORE_WIFI_TURNON */

@@ -547,34 +547,16 @@ static int sensor_gw2_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		return 0;
 	}
 
-#if 0 //TEMP_2020
 	switch (select->mode) {
-	case SENSOR_GW2_4032X3024_30FPS:
-	case SENSOR_GW2_2016X1512_30FPS:
-		width = 504;
-		height = 744;
+	case SENSOR_GW2_4880X3660_30FPS:
+	case SENSOR_GW2_4880X3660_22FPS:
+		width = 608;
+		height = 920;
 		break;
-	case SENSOR_GW2_4032X1960_30FPS:
-		width = 504;
-		height = 488;
-		break;
-	case SENSOR_GW2_3024X3024_30FPS:
-	case SENSOR_GW2_1504X1504_30FPS:
-		width = 376;
-		height = 744;
-		break;
-	case SENSOR_GW2_4032X2268_30FPS:
-	case SENSOR_GW2_2016X1134_30FPS:
-		width = 504;
-		height = 560;
-		break;
-	case SENSOR_GW2_4032X1908_30FPS:
-		width = 504;
-		height = 472;
-		break;
-	case SENSOR_GW2_1920X1080_60FPS:
-		width = 240;
-		height = 264;
+	case SENSOR_GW2_4880X2736_30FPS:
+	case SENSOR_GW2_4880X2736_22FPS:
+		width = 608;
+		height = 688;
 		break;
 	default:
 		warn("[%s] Don't change pdaf tail size\n", __func__);
@@ -585,7 +567,7 @@ static int sensor_gw2_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 	select->input[CSI_VIRTUAL_CH_1].height = height;
 	select->output[CSI_VIRTUAL_CH_1].width = width;
 	select->output[CSI_VIRTUAL_CH_1].height = height;
-#endif
+
 	info("[%s] PDAF tail size (%d x %d)\n",
 		__func__, width, height);
 
@@ -598,13 +580,13 @@ static void sensor_gw2_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_da
 	WARN_ON(!cis_data);
 
 	switch (mode) {
-	case SENSOR_GW2_9280X6944_21FPS:
-#if 0 //TEMP_2020
-	case SENSOR_GW2_7680X4320_30FPS:
 	case SENSOR_GW2_4880X3660_30FPS:
 	case SENSOR_GW2_4880X3660_22FPS:
 	case SENSOR_GW2_4880X2736_30FPS:
 	case SENSOR_GW2_4880X2736_22FPS:
+#if 0 //TEMP_2020	
+	case SENSOR_GW2_9280X6944_21FPS:
+	case SENSOR_GW2_7680X4320_30FPS:
 	case SENSOR_GW2_4640X3472_30FPS:
 	case SENSOR_GW2_4640X2610_30FPS:
 #endif
@@ -1050,6 +1032,12 @@ int sensor_gw2_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	u16 short_coarse_int = 0;
 	u32 line_length_pck = 0;
 	u32 min_fine_int = 0;
+	u16 coarse_integration_time_shifter = 0;
+
+	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u16 cit_shifter_val = 0;
+	int cit_shifter_idx = 0;
+	u8 cit_denom_array[6] = {1, 2, 4, 8, 16, 32};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1079,6 +1067,34 @@ int sensor_gw2_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	}
 
 	cis_data = cis->cis_data;
+
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		switch(cis_data->sens_config_index_cur) {
+		case SENSOR_GW2_1920X1080_120FPS:
+		case SENSOR_GW2_1920X1080_240FPS:
+			if (MAX(target_exposure->long_val, target_exposure->short_val) > 80000) {
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 16);
+				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
+			} else {
+				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
+			}
+			target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+			target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
+			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
+			break;
+		default:
+			if (MAX(target_exposure->long_val, target_exposure->short_val) > 160000) {
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 16);
+				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
+			} else {
+				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
+			}
+			target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+			target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
+			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
+			break;
+		}
+	}
 
 	dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), target long(%d), short(%d)\n", cis->id, __func__,
 			cis_data->sen_vsync_count, target_exposure->long_val, target_exposure->short_val);
@@ -1140,6 +1156,13 @@ int sensor_gw2_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	/* Long exposure */
 	if (is_vender_wdr_mode_on(cis_data)) {
 		ret = is_sensor_write16(client, 0x0226, long_coarse_int);
+		if (ret < 0)
+			goto p_err_i2c_unlock;
+	}
+
+	/* CIT shifter */
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		ret = is_sensor_write16(client, 0x0704, coarse_integration_time_shifter);
 		if (ret < 0)
 			goto p_err_i2c_unlock;
 	}
@@ -1343,6 +1366,11 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	u64 vt_pic_clk_freq_khz = 0;
 	u32 line_length_pck = 0;
 	u16 frame_length_lines = 0;
+	u8 frame_length_lines_shifter = 0;
+
+	u8 fll_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	int fll_shifter_idx = 0;
+	u8 fll_denom_array[6] = {1, 2, 4, 8, 16, 32};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1364,6 +1392,29 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	}
 
 	cis_data = cis->cis_data;
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		switch(cis_data->sens_config_index_cur) {
+		case SENSOR_GW2_1920X1080_120FPS:
+		case SENSOR_GW2_1920X1080_240FPS:
+			if (frame_duration > 80000) {
+				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 16);
+				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
+				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
+			} else {
+				frame_length_lines_shifter = 0x0;
+			}
+			break;
+		default:
+			if (frame_duration > 160000) {
+				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 16);
+				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
+				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
+			} else {
+				frame_length_lines_shifter = 0x0;
+			}
+			break;
+		}
+	}
 
 	if (frame_duration < cis_data->min_frame_us_time) {
 		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
@@ -1391,9 +1442,17 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	if (ret < 0)
 		goto p_err_i2c_unlock;
 
+	/* frame duration shifter */
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		ret = is_sensor_write8(client, 0x0702, frame_length_lines_shifter);
+		if (ret < 0)
+			goto p_err_i2c_unlock;
+	}
+
 	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
+	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;
 
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);

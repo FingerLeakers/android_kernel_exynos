@@ -366,14 +366,14 @@ bcm_l2_filter_parp_modifyentry(arp_table_t* arp_tbl, struct ether_addr *ea,
 			entry->used = entry_tickcnt;
 #ifdef DHD_DUMP_ARPTABLE
 			bcm_l2_parp_dump_table(arp_tbl);
-#endif // endif
+#endif
 			return BCME_OK;
 		}
 		entry = entry->next;
 	}
 #ifdef DHD_DUMP_ARPTABLE
 	bcm_l2_parp_dump_table(arp_tbl);
-#endif // endif
+#endif
 	return BCME_ERROR;
 }
 
@@ -421,7 +421,7 @@ bcm_l2_filter_parp_addentry(osl_t *osh, arp_table_t* arp_tbl, struct ether_addr 
 	}
 #ifdef DHD_DUMP_ARPTABLE
 	bcm_l2_parp_dump_table(arp_tbl);
-#endif // endif
+#endif
 	return BCME_OK;
 }
 
@@ -476,7 +476,7 @@ bcm_l2_filter_parp_delentry(osl_t* osh, arp_table_t *arp_tbl, struct ether_addr 
 		MFREE(osh, entry, sizeof(parp_entry_t) + ip_len);
 #ifdef DHD_DUMP_ARPTABLE
 	bcm_l2_parp_dump_table(arp_tbl);
-#endif // endif
+#endif
 	return BCME_OK;
 }
 

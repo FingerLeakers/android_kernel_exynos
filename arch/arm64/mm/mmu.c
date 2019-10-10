@@ -114,7 +114,7 @@ static phys_addr_t __init early_pgtable_alloc(void)
 static phys_addr_t rkp_ro_alloc_phys(void)
 {
 	phys_addr_t ret = 0;
-	ret = uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, 0, 0, 0, 0);
+	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, (u64)&ret, 0, 0, 0);
 	return ret;
 }
 #endif

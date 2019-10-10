@@ -835,6 +835,8 @@
 			pm_qos-min-class = <7>;
 			pm_qos-max-class = <8>;
 
+                        pm_qos-booting = <2002000>;
+
 			user-default-qos = <962000>;
 			user-boost = <2>;
 
@@ -1493,6 +1495,20 @@
 		itmon,dest = "G2D";
 		dma-coherent;
 		iommus = <&sysmmu_g2d2>;
+
+		/* MIF | INT | datasize (not used) */
+		mscl_qos_table = < 2028000 533000 0
+				   1539000 400000 0
+				   1014000 266000 0
+				    676000 200000 0 >;
+		/* bpp means, YUV420(12), 8P2(15), YUV422(16), P010(24), RGB(32), SBWC(100) */
+		/* bpp | ppc * 100 | ppc * 100 with rotation */
+		mscl_ppc_table = <  12  474 444
+				    15  461 459
+				    16  346 338
+				    24  364 320
+				    32  180 185
+				   100  199 190	>;
 	};
 
 	smfc: smfc@18B00000 {
@@ -1851,8 +1867,8 @@
 				<GIC_SPI INTREQ__DIT_RxDst2 IRQ_TYPE_LEVEL_HIGH>,
 				<GIC_SPI INTREQ__DIT_Tx IRQ_TYPE_LEVEL_HIGH>,
 				<GIC_SPI INTREQ__DIT_Err IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-names = "RxDst0", "RxDst1",
-			"RxDst2", "Tx", "Err";
+		interrupt-names = "DIT-RxDst0", "DIT-RxDst1",
+			"DIT-RxDst2", "DIT-Tx", "DIT-Err";
 
 		reg = <0x0 0x1A570000 0x10000>, <0x0 0x1A420000 0x2000>;
 		reg-names = "dit", "sysreg_bus";
@@ -1860,10 +1876,10 @@
 		sharability_offset = <0x102C>;
 		sharability_value = <0x6>;
 
-		RxDst0_irq_affinity = <5>;
+		RxDst0_irq_affinity = <1>;
 		RxDst1_irq_affinity = <0>;
-		RxDst2_irq_affinity = <5>;
-		Tx_irq_affinity = <5>;
+		RxDst2_irq_affinity = <2>;
+		Tx_irq_affinity = <3>;
 		Err_irq_affinity = <0>;
 	};
 
@@ -2845,12 +2861,17 @@
 		bit_field = <24 5>;
 		/* start bit, width */
 		basecnt = <4>;
-		irqcnt = <4>;
+		irqcnt = <8>;
+		trip_work_delay = <50>;
 
 		interrupts = <GIC_SPI INTREQ__DMC_TEMPERR_MIF0 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF1 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF2 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF3 IRQ_TYPE_LEVEL_HIGH>;
+			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF3 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF0 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF1 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF2 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF3 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	dwmmc_2: dwmmc2@132E0000 {

@@ -52,6 +52,12 @@ int dsim_log_level = 6;
 struct dsim_device *dsim_drvdata[MAX_DSIM_CNT];
 EXPORT_SYMBOL(dsim_drvdata);
 
+/*
+ * This global mutex lock protects to initialize or de-initialize DSIM and DPHY
+ * hardware when multi display is in operation
+ */
+DEFINE_MUTEX(g_dsim_lock);
+
 static char *dsim_state_names[] = {
 	"INIT",
 	"ON",
@@ -811,6 +817,7 @@ static int dsim_set_df_default(struct dsim_device *dsim)
 static int _dsim_enable(struct dsim_device *dsim, enum dsim_state state)
 {
 	bool panel_ctrl;
+	int ret = 0;
 
 	if (IS_DSIM_ON_STATE(dsim)) {
 		dsim_warn("%s dsim already on(%s)\n",
@@ -830,18 +837,22 @@ static int _dsim_enable(struct dsim_device *dsim, enum dsim_state state)
 	/* DPHY power on : iso release */
 	dsim_phy_power_on(dsim);
 
+	mutex_lock(&g_dsim_lock);
+
 	panel_ctrl = (state == DSIM_STATE_ON || state == DSIM_STATE_DOZE) ? true : false;
-	dsim_reg_init(dsim->id, &dsim->panel->lcd_info, &dsim->clks, panel_ctrl);
+	ret = dsim_reg_init(dsim->id, &dsim->panel->lcd_info, &dsim->clks, panel_ctrl);
 #ifdef CONFIG_DYNAMIC_FREQ
 	dsim->df_mode = DSIM_MODE_POWER_OFF;
 	dsim_set_df_default(dsim);
 #endif
 	dsim_reg_start(dsim->id);
 
+	mutex_unlock(&g_dsim_lock);
+
 	dsim->state = state;
 	enable_irq(dsim->res.irq);
 
-	return 0;
+	return ret;
 }
 
 static int dsim_enable(struct dsim_device *dsim)
@@ -940,10 +951,15 @@ static int _dsim_disable(struct dsim_device *dsim, enum dsim_state state)
 	dsim->state = state;
 	mutex_unlock(&dsim->cmd_lock);
 
+	mutex_lock(&g_dsim_lock);
+
 	if (dsim_reg_stop(dsim->id, dsim->data_lane) < 0) {
 		dsim_to_regs_param(dsim, &regs);
 		__dsim_dump(dsim->id, &regs);
 	}
+
+	mutex_unlock(&g_dsim_lock);
+
 	disable_irq(dsim->res.irq);
 
 	/* HACK */
@@ -1036,8 +1052,13 @@ static int dsim_enter_ulps(struct dsim_device *dsim)
 	mutex_unlock(&dsim->cmd_lock);
 
 	disable_irq(dsim->res.irq);
+
+	mutex_lock(&g_dsim_lock);
+
 	ret = dsim_reg_stop_and_enter_ulps(dsim->id, dsim->panel->lcd_info.ddi_type,
 			dsim->data_lane);
+
+	mutex_unlock(&g_dsim_lock);
 
 	dsim_phy_power_off(dsim);
 
@@ -1073,6 +1094,8 @@ static int dsim_exit_ulps(struct dsim_device *dsim)
 	/* DPHY power on : iso release */
 	dsim_phy_power_on(dsim);
 
+	mutex_lock(&g_dsim_lock);
+
 	dsim_reg_init(dsim->id, &dsim->panel->lcd_info, &dsim->clks, false);
 #ifdef CONFIG_DYNAMIC_FREQ
 	dsim->df_mode = DSIM_MODE_HIBERNATION;
@@ -1082,6 +1105,8 @@ static int dsim_exit_ulps(struct dsim_device *dsim)
 			dsim->data_lane);
 	if (ret < 0)
 		dsim_dump(dsim, false);
+
+	mutex_unlock(&g_dsim_lock);
 
 	enable_irq(dsim->res.irq);
 

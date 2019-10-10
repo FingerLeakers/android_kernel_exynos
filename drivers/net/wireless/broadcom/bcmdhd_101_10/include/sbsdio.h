@@ -127,6 +127,9 @@
 #define SBSDIO_Rev8_ALP_AVAIL		0x80
 #define SBSDIO_CSR_MASK			0x1F
 
+/* WAR for PR 40695: determine HT/ALP regardless of actual bit order.  Need to use
+ * before we know corerev.  (Can drop if all supported revs have same bit order.)
+ */
 #define SBSDIO_AVBITS			(SBSDIO_HT_AVAIL | SBSDIO_ALP_AVAIL)
 #define SBSDIO_ALPAV(regval)		((regval) & SBSDIO_AVBITS)
 #define SBSDIO_HTAV(regval)		(((regval) & SBSDIO_AVBITS) == SBSDIO_AVBITS)

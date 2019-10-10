@@ -56,10 +56,10 @@
 #define TYPEDEF_BOOL
 #ifndef FALSE
 #define FALSE	false
-#endif // endif
+#endif
 #ifndef TRUE
 #define TRUE	true
-#endif // endif
+#endif
 
 #else	/* ! __cplusplus */
 
@@ -69,7 +69,7 @@
 #if defined(__LP64__)
 #define TYPEDEF_UINTPTR
 typedef unsigned long long int uintptr;
-#endif // endif
+#endif
 #endif /* TYPEDEF_UINTPTR */
 
 /* float_t types conflict with the same typedefs from the standard ANSI-C
@@ -82,11 +82,11 @@ typedef unsigned long long int uintptr;
 
 #if defined(_NEED_SIZE_T_)
 typedef long unsigned int size_t;
-#endif // endif
+#endif
 
 #if defined(__sparc__)
 #define TYPEDEF_ULONG
-#endif // endif
+#endif
 
 /*
  * If this is either a Linux hybrid build or the per-port code of a hybrid build
@@ -110,7 +110,7 @@ typedef long unsigned int size_t;
 #include <linux/compiler.h>
 #ifdef noinline_for_stack
 #define TYPEDEF_BOOL
-#endif // endif
+#endif
 #endif	/* == 2.6.18 */
 #endif	/* __KERNEL__ */
 
@@ -129,7 +129,7 @@ typedef long unsigned int size_t;
 
 #if defined(__STDC__)
 #define TYPEDEF_UINT64
-#endif // endif
+#endif
 
 #endif /* __ICL */
 
@@ -147,7 +147,7 @@ typedef long unsigned int size_t;
 
 #endif /* linux && __KERNEL__ */
 
-#endif // endif
+#endif
 
 /* use the default typedefs in the next section of this file */
 #define USE_TYPEDEF_DEFAULTS
@@ -169,67 +169,67 @@ typedef	/* @abstract@ */ unsigned char	bool;
 
 #ifndef TYPEDEF_UCHAR
 typedef unsigned char	uchar;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_USHORT
 typedef unsigned short	ushort;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_UINT
 typedef unsigned int	uint;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_ULONG
 typedef unsigned long	ulong;
-#endif // endif
+#endif
 
 /* define [u]int8/16/32/64, uintptr */
 
 #ifndef TYPEDEF_UINT8
 typedef unsigned char	uint8;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_UINT16
 typedef unsigned short	uint16;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_UINT32
 typedef unsigned int	uint32;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_UINT64
 typedef unsigned long long uint64;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_UINTPTR
 typedef unsigned int	uintptr;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_INT8
 typedef signed char	int8;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_INT16
 typedef signed short	int16;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_INT32
 typedef signed int	int32;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_INT64
 typedef signed long long int64;
-#endif // endif
+#endif
 
 /* define float32/64, float_t */
 
 #ifndef TYPEDEF_FLOAT32
 typedef float		float32;
-#endif // endif
+#endif
 
 #ifndef TYPEDEF_FLOAT64
 typedef double		float64;
-#endif // endif
+#endif
 
 /*
  * abstracted floating point type allows for compile time selection of
@@ -243,7 +243,7 @@ typedef double		float64;
 typedef float32 float_t;
 #else /* default to double precision floating point */
 typedef float64 float_t;
-#endif // endif
+#endif
 
 #endif /* TYPEDEF_FLOAT_T */
 
@@ -251,23 +251,23 @@ typedef float64 float_t;
 
 #ifndef FALSE
 #define FALSE	0
-#endif // endif
+#endif
 
 #ifndef TRUE
 #define TRUE	1  /* TRUE */
-#endif // endif
+#endif
 
 #ifndef NULL
 #define	NULL	0
-#endif // endif
+#endif
 
 #ifndef OFF
 #define	OFF	0
-#endif // endif
+#endif
 
 #ifndef ON
 #define	ON	1  /* ON = 1 */
-#endif // endif
+#endif
 
 #define	AUTO	(-1) /* Auto = -1 */
 
@@ -275,7 +275,7 @@ typedef float64 float_t;
 
 #ifndef PTRSZ
 #define	PTRSZ	sizeof(char*)
-#endif // endif
+#endif
 
 /* Detect compiler type. */
 #if defined(__GNUC__) || defined(__lint)
@@ -284,7 +284,7 @@ typedef float64 float_t;
 	#define BWL_COMPILER_ARMCC
 #else
 	#error "Unknown compiler!"
-#endif // endif
+#endif
 
 #ifndef INLINE
 	#if defined(BWL_COMPILER_MICROSOFT)
@@ -333,7 +333,7 @@ typedef float64 float_t;
 #ifdef stderr
 #undef stderr
 #define stderr stdout
-#endif // endif
+#endif
 
 typedef UINT8   uint8;
 typedef UINT16  uint16;

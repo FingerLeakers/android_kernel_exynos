@@ -60,7 +60,7 @@
 				battery,dc_step_chg_iin_check_cnt = <3>;
 				battery,dc_step_chg_cond_soc = <25 55 100>; /* STEP_CHARGING_CONDITION_SOC */
 				battery,dc_step_chg_val_vfloat = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
-				battery,dc_step_chg_val_iout = <4690 3600 2880>;
+				battery,dc_step_chg_val_iout = <4690 3600 3220>;
 			};
 
 			max77705-fuelgauge {

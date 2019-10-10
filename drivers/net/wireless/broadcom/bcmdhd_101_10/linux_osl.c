@@ -47,7 +47,7 @@
 #endif /* BCM_OBJECT_TRACE */
 #include "linux_osl_priv.h"
 
-#define PCI_CFG_RETRY		10
+#define PCI_CFG_RETRY		10	/* PR15065: retry count for pci cfg accesses */
 
 #define DUMPBUFSZ 1024
 
@@ -155,7 +155,7 @@ static int16 linuxbcmerrormap[] =
 #if BCME_LAST != -72
 #error "You need to add a OS error translation in the linuxbcmerrormap \
 	for new error code defined in bcmutils.h"
-#endif // endif
+#endif
 };
 uint lmtest = FALSE;
 
@@ -429,7 +429,7 @@ uint32
 osl_pci_read_config(osl_t *osh, uint offset, uint size)
 {
 	uint val = 0;
-	uint retry = PCI_CFG_RETRY;
+	uint retry = PCI_CFG_RETRY;	 /* PR15065: faulty cardbus controller bug */
 
 	ASSERT((osh && (osh->magic == OS_HANDLE_MAGIC)));
 
@@ -448,7 +448,7 @@ osl_pci_read_config(osl_t *osh, uint offset, uint size)
 void
 osl_pci_write_config(osl_t *osh, uint offset, uint size, uint val)
 {
-	uint retry = PCI_CFG_RETRY;
+	uint retry = PCI_CFG_RETRY;	 /* PR15065: faulty cardbus controller bug */
 
 	ASSERT((osh && (osh->magic == OS_HANDLE_MAGIC)));
 
@@ -457,6 +457,9 @@ osl_pci_write_config(osl_t *osh, uint offset, uint size, uint val)
 
 	do {
 		pci_write_config_dword(osh->pdev, offset, val);
+		/* PR15065: PCI_BAR0_WIN is believed to be the only pci cfg write that can occur
+		 * when dma activity is possible
+		 */
 		if (offset != PCI_BAR0_WIN)
 			break;
 		if (osl_pci_read_config(osh, offset, size) == val)
@@ -471,11 +474,11 @@ osl_pci_bus(osl_t *osh)
 {
 	ASSERT(osh && (osh->magic == OS_HANDLE_MAGIC) && osh->pdev);
 
-#if defined(__ARM_ARCH_7A__) && LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 35)
+#if defined(__ARM_ARCH_7A__)
 	return pci_domain_nr(((struct pci_dev *)osh->pdev)->bus);
 #else
 	return ((struct pci_dev *)osh->pdev)->bus->number;
-#endif // endif
+#endif
 }
 
 /* return slot # for the pci device pointed by osh->pdev */
@@ -484,11 +487,11 @@ osl_pci_slot(osl_t *osh)
 {
 	ASSERT(osh && (osh->magic == OS_HANDLE_MAGIC) && osh->pdev);
 
-#if defined(__ARM_ARCH_7A__) && LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 35)
+#if defined(__ARM_ARCH_7A__)
 	return PCI_SLOT(((struct pci_dev *)osh->pdev)->devfn) + 1;
 #else
 	return PCI_SLOT(((struct pci_dev *)osh->pdev)->devfn);
-#endif // endif
+#endif
 }
 
 /* return domain # for the pci device pointed by osh->pdev */
@@ -769,7 +772,6 @@ osl_virt_to_phys(void *va)
 	return (void *)(uintptr)virt_to_phys(va);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
 #include <asm/cacheflush.h>
 void
 BCMFASTPATH(osl_dma_flush)(osl_t *osh, void *va, uint size, int direction, void *p,
@@ -777,7 +779,6 @@ BCMFASTPATH(osl_dma_flush)(osl_t *osh, void *va, uint size, int direction, void 
 {
 	return;
 }
-#endif /* LINUX_VERSION_CODE >= 2.6.36 */
 
 dmaaddr_t
 BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p,
@@ -795,13 +796,8 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 
 	map_addr = pci_map_single(osh->pdev, va, size, dir);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 	ret = pci_dma_mapping_error(osh->pdev, map_addr);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 5))
-	ret = pci_dma_mapping_error(map_addr);
-#else
-	ret = 0;
-#endif // endif
+
 	if (ret) {
 		printk("%s: Failed to map memory\n", __FUNCTION__);
 		PHYSADDRLOSET(ret_addr, 0);
@@ -902,7 +898,7 @@ osl_assert(const char *exp, const char *file, int line)
 		break;
 	}
 }
-#endif // endif
+#endif
 
 void
 osl_delay(uint usec)
@@ -920,12 +916,10 @@ void
 osl_sleep(uint ms)
 {
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
 	if (ms < 20)
 		usleep_range(ms*1000, ms*1000 + 1000);
 	else
-#endif // endif
-	msleep(ms);
+		msleep(ms);
 }
 
 uint64
@@ -945,9 +939,12 @@ osl_localtime_ns(void)
 {
 	uint64 ts_nsec = 0;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
+	/* XXX: Some Linux based platform cannot use local_clock()
+	 * since it is defined by EXPORT_SYMBOL_GPL().
+	 * GPL-incompatible module (NIC builds wl.ko)
+	 * cannnot use the GPL-only symbol.
+	 */
 	ts_nsec = local_clock();
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36) */
 	return ts_nsec;
 }
 
@@ -957,10 +954,13 @@ osl_get_localtime(uint64 *sec, uint64 *usec)
 	uint64 ts_nsec = 0;
 	unsigned long rem_nsec = 0;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
+	/* XXX: Some Linux based platform cannot use local_clock()
+	 * since it is defined by EXPORT_SYMBOL_GPL().
+	 * GPL-incompatible module (NIC builds wl.ko) can
+	 * not use the GPL-only symbol.
+	 */
 	ts_nsec = local_clock();
 	rem_nsec = do_div(ts_nsec, NSEC_PER_SEC);
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36) */
 	*sec = (uint64)ts_nsec;
 	*usec = (uint64)(rem_nsec / MSEC_PER_SEC);
 }
@@ -1344,6 +1344,14 @@ osl_mutex_unlock(void *lock, unsigned long flags)
 static void
 osl_dma_lock(osl_t *osh)
 {
+	/* XXX: The conditional check is to avoid the scheduling bug.
+	 * If the spin_lock_bh is used under the spin_lock_irqsave,
+	 * Kernel triggered the warning message as the spin_lock_irqsave
+	 * disables the interrupt and the spin_lock_bh doesn't use in case
+	 * interrupt is disabled.
+	 * Please refer to the __local_bh_enable_ip() function
+	 * in kernel/softirq.c to understand the condtion.
+	 */
 	if (likely(in_irq() || irqs_disabled())) {
 		spin_lock(&osh->dma_lock);
 	} else {

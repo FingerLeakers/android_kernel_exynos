@@ -67,7 +67,7 @@
 #include <wl_cfgvendor.h>
 #ifdef BCMPCIE
 #include <dhd_flowring.h>
-#endif // endif
+#endif
 #ifdef PNO_SUPPORT
 #include <dhd_pno.h>
 #endif /* PNO_SUPPORT */
@@ -708,7 +708,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 				WL_ERR(("scan list is changed"));
 				cfg->bss_list = wl_escan_get_buf(cfg, FALSE);
 			} else
-#endif // endif
+#endif
 				cfg->bss_list = wl_escan_get_buf(cfg, TRUE);
 
 			if (!scan_req_match(cfg)) {
@@ -741,6 +741,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			/* If there is no pending host initiated scan, do nothing */
 			WL_DBG(("ESCAN ABORT: No pending scans. Ignoring event.\n"));
 		}
+		/* XXX : scan aborted, need to set previous success result */
 		wl_escan_increment_sync_id(cfg, SCAN_BUF_CNT);
 	} else if (status == WLC_E_STATUS_TIMEOUT) {
 		WL_ERR(("WLC_E_STATUS_TIMEOUT : scan_request[%p]\n", cfg->scan_request));
@@ -769,6 +770,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			wl_inform_bss(cfg);
 			wl_notify_escan_complete(cfg, ndev, true, false);
 		}
+		/* XXX : scan aborted, need to set previous success result */
 		wl_escan_increment_sync_id(cfg, 2);
 	}
 #else /* WL_DRV_AVOID_SCANCACHE */
@@ -927,7 +929,7 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 #define IS_RADAR_CHAN(flags) (flags & (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_PASSIVE_SCAN))
 #else
 #define IS_RADAR_CHAN(flags) (flags & (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_NO_IR))
-#endif // endif
+#endif
 static void
 wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	struct ieee80211_channel **channels, u32 n_channels,
@@ -1271,6 +1273,7 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		WL_SCAN((" LEGACY E-SCAN START\n"));
 
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
+		/* XXX see RB:6008: request maybe empty and zero. */
 		if (!request) {
 			err = -EINVAL;
 			goto exit;
@@ -1446,9 +1449,10 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #else
 						(IEEE80211_CHAN_RADAR
 						| IEEE80211_CHAN_PASSIVE_SCAN))
-#endif // endif
+#endif
 						continue;
 #ifdef P2P_SKIP_DFS
+					/* XXX WAR to skip DFS channels explicitly */
 					if (channel >= 52 && channel <= 144) {
 						if (is_printed == false) {
 							WL_ERR(("SKIP DFS CHANs(52~144)\n"));
@@ -1621,11 +1625,6 @@ wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 	}
 #endif /* WL_NAN */
 	/* Additional time to scan 6GHz band channels */
-#ifdef WL_6G_BAND
-	if (cfg->band_6g_supported) {
-		scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_6G;
-	}
-#endif /* WL_6G_BAND */
 	WL_MEM(("scan_timer_interval_ms %d\n", scan_timer_interval_ms));
 	return scan_timer_interval_ms;
 }
@@ -1654,6 +1653,7 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 		scanbusy_err = -EAGAIN;
 	}
 
+	/* XXX if continuous busy state, clear assoc type in FW by disassoc cmd */
 	if (scanbusy_err == -EBUSY) {
 		/* Flush FW preserve buffer logs for checking failure */
 		if (busy_count++ > (SCAN_EBUSY_RETRY_LIMIT/5)) {
@@ -1701,6 +1701,9 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 				WL_ERR(("GET BSSID failed with %d\n", ret));
 			}
 
+			/* XXX To support GO, wl_cfg80211_scan_abort()
+			 * is needed instead of wl_cfg80211_disconnect()
+			 */
 			wl_cfg80211_scan_abort(cfg);
 
 		} else {
@@ -1728,7 +1731,7 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 	bool p2p_ssid;
 #ifdef WL11U
 	bcm_tlv_t *interworking_ie;
-#endif // endif
+#endif
 	s32 err = 0;
 	s32 bssidx = -1;
 	s32 i;
@@ -1738,7 +1741,7 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 	unsigned long flags;
 #ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
 	struct net_device *remain_on_channel_ndev = NULL;
-#endif // endif
+#endif
 	/*
 	 * Hostapd triggers scan before starting automatic channel selection
 	 * to collect channel characteristics. However firmware scan engine
@@ -1821,7 +1824,7 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 					wl_cfgp2p_set_firm_p2p(cfg);
 #if defined(P2P_IE_MISSING_FIX)
 					cfg->p2p_prb_noti = false;
-#endif // endif
+#endif
 				}
 				wl_clr_p2p_status(cfg, GO_NEG_PHASE);
 				WL_DBG(("P2P: GO_NEG_PHASE status cleared \n"));
@@ -1931,6 +1934,7 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 scan_success:
 	wl_cfgscan_handle_scanbusy(cfg, ndev, BCME_OK);
 	cfg->scan_request = request;
+	LOG_TS(cfg, scan_start);
 	wl_set_drv_status(cfg, SCANNING, ndev);
 	/* Arm the timer */
 	mod_timer(&cfg->scan_timeout,
@@ -2168,7 +2172,9 @@ s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 		wl_cfg80211_scan_abort(cfg);
 	if (timer_pending(&cfg->scan_timeout))
 		del_timer_sync(&cfg->scan_timeout);
-	cfg->scan_enq_time = 0;
+	/* clear scan enq time on complete */
+	CLR_TS(cfg, scan_enq);
+	CLR_TS(cfg, scan_start);
 #if defined(ESCAN_RESULT_PATCH)
 	if (likely(cfg->scan_request)) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
@@ -2177,7 +2183,7 @@ s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 			WL_ERR(("scan list is changed"));
 			cfg->bss_list = wl_escan_get_buf(cfg, !aborted);
 		} else
-#endif // endif
+#endif
 			cfg->bss_list = wl_escan_get_buf(cfg, aborted);
 
 		wl_inform_bss(cfg);
@@ -2211,6 +2217,7 @@ s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 	if (p2p_is_on(cfg))
 		wl_clr_p2p_status(cfg, SCANNING);
 	wl_clr_drv_status(cfg, SCANNING, dev);
+	CLR_TS(cfg, scan_start);
 
 	DHD_OS_SCAN_WAKE_UNLOCK((dhd_pub_t *)(cfg->pub));
 	DHD_ENABLE_RUNTIME_PM((dhd_pub_t *)(cfg->pub));
@@ -2267,7 +2274,7 @@ _wl_notify_scan_done(struct bcm_cfg80211 *cfg, bool aborted)
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0))
 	struct cfg80211_scan_info info;
-#endif // endif
+#endif
 
 	if (!cfg->scan_request) {
 		return;
@@ -2279,7 +2286,7 @@ _wl_notify_scan_done(struct bcm_cfg80211 *cfg, bool aborted)
 	cfg80211_scan_done(cfg->scan_request, &info);
 #else
 	cfg80211_scan_done(cfg->scan_request, aborted);
-#endif // endif
+#endif
 	cfg->scan_request = NULL;
 }
 
@@ -2538,7 +2545,7 @@ void wl_notify_scan_done(struct bcm_cfg80211 *cfg, bool aborted)
 	cfg80211_scan_done(cfg->scan_request, &info);
 #else
 	cfg80211_scan_done(cfg->scan_request, aborted);
-#endif // endif
+#endif
 }
 
 #if defined(SUPPORT_RANDOM_MAC_SCAN)
@@ -2996,6 +3003,10 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		}
 
 		if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
+			/*
+			 * XXX: purposefully logging here to make sure that
+			 * firmware configuration was successful
+			 */
 			for (i = 0; i < ssid_cnt; i++) {
 				payload_len = sizeof(log_conn_event_t);
 				event_data->event = WIFI_EVENT_DRIVER_PNO_ADD;
@@ -3066,6 +3077,10 @@ wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 	if (dhd_dev_pno_stop_for_ssid(dev) < 0) {
 		WL_ERR(("PNO Stop for SSID failed"));
 	} else {
+		/*
+		 * XXX: purposefully logging here to make sure that
+		 * firmware configuration was successful
+		 */
 		DBG_EVENT_LOG(dhdp, WIFI_EVENT_DRIVER_PNO_REMOVE);
 	}
 
@@ -3186,8 +3201,17 @@ static void wl_scan_timeout(unsigned long data)
 		return;
 	}
 #if defined(DHD_KERNEL_SCHED_DEBUG) && defined(DHD_FW_COREDUMP)
+	/* XXX DHD triggers Kernel panic if the SCAN timeout occurrs
+	 * due to tasklet or workqueue scheduling problems in the Linux Kernel.
+	 * Customer informs that it is hard to find any clue from the
+	 * host memory dump since the important tasklet or workqueue information
+	 * is already disappered due the latency while printing out the timestamp
+	 * logs for debugging scan timeout issue.
+	 * For this reason, customer requestes us to trigger Kernel Panic rather than
+	 * taking a SOCRAM dump.
+	 */
 	if (dhdp->memdump_enabled == DUMP_MEMFILE_BUGON &&
-		((cfg->scan_deq_time < cfg->scan_enq_time) ||
+		((cfg->tsinfo.scan_deq < cfg->tsinfo.scan_enq) ||
 		dhd_bus_query_dpc_sched_errors(dhdp))) {
 		WL_ERR(("****SCAN event timeout due to scheduling problem\n"));
 		/* change g_assert_type to trigger Kernel panic */
@@ -3200,12 +3224,15 @@ static void wl_scan_timeout(unsigned long data)
 			"\nscan_deq_time:"SEC_USEC_FMT" scan_hdlr_cmplt_time:"SEC_USEC_FMT
 			" scan_cmplt_time:"SEC_USEC_FMT" evt_hdlr_exit_time:"SEC_USEC_FMT
 			"\ncurrent_time:"SEC_USEC_FMT"\n", work_busy(&cfg->event_work),
-			GET_SEC_USEC(cfg->scan_enq_time), GET_SEC_USEC(cfg->wl_evt_hdlr_entry_time),
-			GET_SEC_USEC(cfg->wl_evt_deq_time), GET_SEC_USEC(cfg->scan_deq_time),
-			GET_SEC_USEC(cfg->scan_hdlr_cmplt_time), GET_SEC_USEC(cfg->scan_cmplt_time),
-			GET_SEC_USEC(cfg->wl_evt_hdlr_exit_time), GET_SEC_USEC(cur_time)));
-		if (cfg->scan_enq_time) {
-			WL_ERR(("Elapsed time(ns): %llu\n", (cur_time - cfg->scan_enq_time)));
+			GET_SEC_USEC(cfg->tsinfo.scan_enq),
+			GET_SEC_USEC(cfg->tsinfo.wl_evt_hdlr_entry),
+			GET_SEC_USEC(cfg->tsinfo.wl_evt_deq),
+			GET_SEC_USEC(cfg->tsinfo.scan_deq),
+			GET_SEC_USEC(cfg->tsinfo.scan_hdlr_cmplt),
+			GET_SEC_USEC(cfg->tsinfo.scan_cmplt),
+			GET_SEC_USEC(cfg->tsinfo.wl_evt_hdlr_exit), GET_SEC_USEC(cur_time)));
+		if (cfg->tsinfo.scan_enq) {
+			WL_ERR(("Elapsed time(ns): %llu\n", (cur_time - cfg->tsinfo.scan_enq)));
 		}
 		WL_ERR(("lock_states:[%d:%d:%d:%d:%d:%d]\n",
 			mutex_is_locked(&cfg->if_sync),
@@ -3380,6 +3407,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 			for (i = 0; i < n_pfn_results; i++) {
 				netinfo = &pnetinfo[i];
+				/* XXX This looks useless, shouldn't Coverity complain? */
 				if (!netinfo) {
 					WL_ERR(("Invalid netinfo ptr. index:%d", i));
 					err = -EINVAL;
@@ -3472,6 +3500,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				}
 				p2p_scan(cfg) = false;
 			}
+			LOG_TS(cfg, scan_start);
 			wl_set_drv_status(cfg, SCANNING, ndev);
 #if FULL_ESCAN_ON_PFN_NET_FOUND
 			WL_PNO((">>> Doing Full ESCAN on PNO event\n"));
@@ -3479,7 +3508,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #else
 			WL_PNO((">>> Doing targeted ESCAN on PNO event\n"));
 			err = wl_do_escan(cfg, wiphy, ndev, request);
-#endif // endif
+#endif
 			if (err) {
 				WL_ERR(("targeted escan failed. err:%d\n", err));
 				goto out_err;
@@ -3542,6 +3571,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 			for (i = 0; i < n_pfn_results; i++) {
 				netinfo_v2 = &pnetinfo_v2[i];
+				/* XXX This looks useless, shouldn't Coverity complain? */
 				if (!netinfo_v2) {
 					WL_ERR(("Invalid netinfo ptr. index:%d", i));
 					err = -EINVAL;
@@ -3624,6 +3654,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				p2p_scan(cfg) = false;
 			}
 
+			LOG_TS(cfg, scan_start);
 			wl_set_drv_status(cfg, SCANNING, ndev);
 #if FULL_ESCAN_ON_PFN_NET_FOUND
 			WL_PNO((">>> Doing Full ESCAN on PNO event\n"));
@@ -3631,7 +3662,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #else
 			WL_PNO((">>> Doing targeted ESCAN on PNO event\n"));
 			err = wl_do_escan(cfg, wiphy, ndev, request);
-#endif // endif
+#endif
 			if (err) {
 				WL_ERR(("targeted scan failure. err:%d\n", err));
 				goto out_err;
@@ -3666,6 +3697,8 @@ out_err:
 			WL_ERR(("sched scan req null!\n"));
 		}
 		cfg->sched_scan_running = FALSE;
+		wl_clr_drv_status(cfg, SCANNING, ndev);
+		CLR_TS(cfg, scan_start);
 	}
 
 	if (request) {
@@ -3720,8 +3753,10 @@ wl_notify_pfn_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #endif /* GSCAN_SUPPORT */
 
 #ifndef WL_SCHED_SCAN
+	/* XXX CUSTOMER_HW4 has other PNO wakelock time by RB:5911 */
 	mutex_lock(&cfg->usr_sync);
 	/* TODO: Use cfg80211_sched_scan_results(wiphy); */
+	/* XXX GregG : WAR as to supplicant busy and not allowed Kernel to suspend */
 	CFG80211_DISCONNECTED(ndev, 0, NULL, 0, false, GFP_KERNEL);
 	mutex_unlock(&cfg->usr_sync);
 #else

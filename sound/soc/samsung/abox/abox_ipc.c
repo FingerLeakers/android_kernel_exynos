@@ -19,9 +19,11 @@
 #include "abox_ipc.h"
 
 #define ABOX_IPC_IRQ	15
+#define ABOX_IPC_SIZE	SZ_64K
 
 static struct device *dev_abox;
 static struct device *dev_gic;
+static char ipc_buf[ABOX_IPC_SIZE];
 
 static DEFINE_SPINLOCK(lock_tx);
 static DEFINE_SPINLOCK(lock_rx);
@@ -237,21 +239,21 @@ int abox_ipc_unregister_handler(struct device *dev, int ipc_id,
 
 static irqreturn_t abox_ipc_irq_handler(int irq, void *dev_id)
 {
-	ABOX_IPC_MSG ipc;
 	struct device *dev = dev_id;
 	irqreturn_t ret = IRQ_NONE;
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	while (abox_msg_recv(NULL, &ipc, sizeof(ipc)) >= 0) {
-		enum IPC_ID ipc_id = ipc.ipcid;
+	while (abox_msg_recv(NULL, ipc_buf, sizeof(ipc_buf)) >= 0) {
+		ABOX_IPC_MSG *ipc = (ABOX_IPC_MSG *)ipc_buf;
+		enum IPC_ID ipc_id = ipc->ipcid;
 		struct abox_ipc_action *action;
 
 		list_for_each_entry(action, &ipc_actions, list) {
 			if (action->ipc_id != ipc_id)
 				continue;
 
-			ret |= action->handler(ipc_id, action->data, &ipc);
+			ret |= action->handler(ipc_id, action->data, ipc);
 		}
 	}
 

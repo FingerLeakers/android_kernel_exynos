@@ -2858,6 +2858,7 @@ int get_vc_dma_buf_info(struct is_sensor_interface *itf,
 	struct is_module_enum *module;
 	struct v4l2_subdev *subdev_module;
 	struct is_device_sensor *sensor;
+	int ch;
 
 	memset(buf_info, 0, sizeof(struct vc_buf_info_t));
 	buf_info->stat_type = VC_STAT_TYPE_INVALID;
@@ -2879,6 +2880,37 @@ int get_vc_dma_buf_info(struct is_sensor_interface *itf,
 	if (!sensor) {
 		err("failed to get sensor device");
 		return -ENODEV;
+	}
+
+	switch (request_data_type) {
+	case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+	case VC_BUF_DATA_TYPE_SENSOR_STAT2:
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == VC_TAILPDAF)
+				break;
+		}
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == VC_PRIVATE)
+				break;
+		}
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == VC_MIPISTAT)
+				break;
+		}
+		break;
+	default:
+		err("invalid data type(%d)", request_data_type);
+		return -EINVAL;
+	}
+	
+	if (ch == CSI_VIRTUAL_CH_MAX) {
+		err("requested stat. type(%d) is not supported with current config",
+								request_data_type);
+		return -EINVAL;
 	}
 
 	buf_info->stat_type = module->vc_extra_info[request_data_type].stat_type;

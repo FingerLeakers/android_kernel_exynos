@@ -43,27 +43,6 @@
 				board-rev = <BOARD_REV>;
 			};
 
-			firmware {
-				android: android {
-					compatible = "android,firmware";
-					vbmeta {
-						compatible = "android,vbmeta";
-						parts = "vbmeta,boot,system,vendor";
-					};
-					fstab {
-						compatible = "android,fstab";
-						vendor: vendor {
-							compatible = "android,vendor";
-							dev = "/dev/block/platform/13100000.ufs/by-name/vendor";
-							type = "ext4";
-							mnt_flags = "ro";
-							fsmgr_flags = "wait,avb";
-							status = "disabled";
-						};
-					};
-				};
-			};
-
 			pinctrl@15850000 {
 				bt_hostwake: bt-hostwake {
 					samsung,pins = "gpa2-3";
@@ -185,7 +164,6 @@
 	use-sysmmu = "false";
 	use-cache-coherency = "false";
 	use-msi = "true";
-	use-pcieon-sleep = "false";
 	phy-power-off = "false";
 	ep-device-type = <EP_SAMSUNG_MODEM>;
 };

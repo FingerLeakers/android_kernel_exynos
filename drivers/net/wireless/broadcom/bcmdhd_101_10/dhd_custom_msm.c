@@ -137,8 +137,6 @@ dhd_wifi_init_gpio(void)
 int
 dhd_wlan_power(int onoff)
 {
-	printk(KERN_INFO"------------------------------------------------");
-	printk(KERN_INFO"------------------------------------------------\n");
 	printk(KERN_INFO"%s Enter: power %s\n", __func__, onoff ? "on" : "off");
 
 	if (onoff) {

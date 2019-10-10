@@ -68,46 +68,42 @@ void dsp_lib_free(struct dsp_lib *lib)
 void dsp_lib_print(struct dsp_lib *lib)
 {
 	DL_INFO(DL_BORDER);
-	DL_INFO("name : %s\n", lib->name);
-	DL_INFO("ref_cnt : %u\n", lib->ref_cnt);
-	DL_INFO("loaded : %d\n", lib->loaded);
+	DL_INFO("Library name(%s) ref_cnt(%u) %s\n",
+		lib->name, lib->ref_cnt,
+		(lib->loaded) ? "loaded" : "unloaded");
 
 	if (lib->elf) {
-		DL_INFO("Print Elf\n");
+		DL_DEBUG("\n");
+		DL_DEBUG("ELF information\n");
 		dsp_elf32_print(lib->elf);
-	} else
-		DL_INFO("No ELF\n");
+	}
 
 	if (lib->pm) {
-		DL_INFO("Print PM\n");
+		DL_INFO("\n");
+		DL_INFO("Program memory\n");
 		dsp_tlsf_mem_print(lib->pm);
+		DL_INFO("\n");
 		dsp_pm_print(lib);
-	} else
-		DL_INFO("No PM\n");
-
-	if (lib->gpt) {
-		DL_INFO("Print GPT\n");
-		dsp_gpt_print(lib->gpt);
-	} else
-		DL_INFO("No GPT\n");
-
-	if (lib->dl_out_mem) {
-		DL_INFO("Print DL out mem\n");
-		dsp_tlsf_mem_print(lib->dl_out_mem);
-	} else
-		DL_INFO("No DL out mem\n");
+	}
 
 	if (lib->link_info) {
-		DL_INFO("Print link info\n");
+		DL_INFO("\n");
+		DL_INFO("Linking information\n");
 		dsp_link_info_print(lib->link_info);
-	} else
-		DL_INFO("No link info\n");
+	}
 
-	if (lib->dl_out) {
-		DL_INFO("Print DL out\n");
+	if (lib->gpt) {
+		DL_INFO("\n");
+		DL_INFO("Global pointer\n");
+		dsp_gpt_print(lib->gpt);
+	}
+
+	if (lib->dl_out_mem) {
+		DL_INFO("\n");
+		DL_INFO("Loader output\n");
+		dsp_tlsf_mem_print(lib->dl_out_mem);
 		dsp_dl_out_print(lib->dl_out);
-	} else
-		DL_INFO("No DL out\n");
+	}
 }
 
 void dsp_lib_manager_init(const char *lib_path)
@@ -153,7 +149,7 @@ void dsp_lib_manager_print(void)
 	unsigned int idx;
 
 	DL_INFO(DL_BORDER);
-	DL_INFO("DL lib_manager print\n");
+	DL_INFO("Library manager\n");
 
 	for (idx = 0; idx < DSP_HASH_MAX; idx++) {
 		struct dsp_list_node *cur, *next;
@@ -168,7 +164,6 @@ void dsp_lib_manager_print(void)
 
 			next = cur->next;
 			dsp_lib_print(lib);
-			DL_INFO("\n");
 			cur = next;
 		}
 	}
@@ -311,9 +306,9 @@ static int __dsp_lib_manager_load_kernel_table(struct dsp_lib *lib,
 		}
 
 		kernel_table[idx].pre = ret;
+
 		ret = dsp_link_info_get_kernel_addr(lib->link_info,
 				kernel->exe);
-
 		if (ret == (unsigned int) -1) {
 			DL_ERROR("[%s] exe CHK_ERR\n", __func__);
 			return -1;

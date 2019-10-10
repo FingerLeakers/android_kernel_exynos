@@ -25,6 +25,8 @@
  * $Id$
  */
 
+/** XXX Twiki: [PCIeFullDongleArchitecture] */
+
 #include <typedefs.h>
 #include <osl.h>
 
@@ -110,6 +112,12 @@ extern char fw_version[];
 #define DHD_IOCTL_REQ_PKTBUFSZ		2048
 #define MSGBUF_IOCTL_MAX_RQSTLEN	(DHD_IOCTL_REQ_PKTBUFSZ - H2DRING_CTRL_SUB_ITEMSIZE)
 
+/**
+ * XXX: DMA_ALIGN_LEN use is overloaded:
+ * - as align bits: in DMA_ALLOC_CONSISTENT 1 << 4
+ * - in ensuring that a buffer's va is 4 Byte aligned
+ * - in rounding up a buffer length to 4 Bytes.
+ */
 #define DMA_ALIGN_LEN		4
 
 #define DMA_D2H_SCRATCH_BUF_LEN	8
@@ -118,7 +126,7 @@ extern char fw_version[];
 #ifdef BCM_HOST_BUF
 #ifndef DMA_HOST_BUFFER_LEN
 #define DMA_HOST_BUFFER_LEN	0x200000
-#endif // endif
+#endif
 #endif /* BCM_HOST_BUF */
 
 #define DHD_FLOWRING_IOCTL_BUFPOST_PKTSZ		8192
@@ -194,6 +202,10 @@ typedef uint8 (* d2h_sync_cb_t)(dhd_pub_t *dhd, struct msgbuf_ring *ring,
  * On success: return cmn_msg_hdr_t::msg_type
  * On failure: return 0 (invalid msg_type)
  */
+#ifdef EWP_EDL
+typedef int (* d2h_edl_sync_cb_t)(dhd_pub_t *dhd, struct msgbuf_ring *ring,
+                                volatile cmn_msg_hdr_t *msg);
+#endif /* EWP_EDL */
 
 /*
  * +----------------------------------------------------------------------------
@@ -287,6 +299,17 @@ typedef uint8 (* d2h_sync_cb_t)(dhd_pub_t *dhd, struct msgbuf_ring *ring,
 #define DHD_D2H_RINGID(offset) \
 	((offset) + BCMPCIE_H2D_COMMON_MSGRINGS)
 
+/* XXX: The ringid and flowid and dma indices array index idiosyncracy is error
+ * prone. While a simplification is possible, the backward compatability
+ * requirement (DHD should operate with any PCIE rev version of firmware),
+ * limits what may be accomplished.
+ *
+ * At the minimum, implementation should use macros for any conversions
+ * facilitating introduction of future PCIE FD revs that need more "common" or
+ * other dynamic rings.
+ */
+
+/* XXX: Presently there is no need for maintaining both a dmah and a secdmah */
 #define DHD_DMAH_NULL      ((void*)NULL)
 
 /*
@@ -300,7 +323,7 @@ typedef uint8 (* d2h_sync_cb_t)(dhd_pub_t *dhd, struct msgbuf_ring *ring,
 #define DHD_DMA_PAD        (L1_CACHE_BYTES)
 #else
 #define DHD_DMA_PAD        (128)
-#endif // endif
+#endif
 
 /*
  * +----------------------------------------------------------------------------
@@ -489,13 +512,16 @@ typedef struct dhd_prot {
 	uint32			flowring_num;
 
 	d2h_sync_cb_t d2h_sync_cb; /* Sync on D2H DMA done: SEQNUM or XORCSUM */
+#ifdef EWP_EDL
+	d2h_edl_sync_cb_t d2h_edl_sync_cb; /* Sync on EDL D2H DMA done: SEQNUM or XORCSUM */
+#endif /* EWP_EDL */
 	ulong d2h_sync_wait_max; /* max number of wait loops to receive one msg */
 	ulong d2h_sync_wait_tot; /* total wait loops */
 
 	dhd_dmaxfer_t	dmaxfer; /* for test/DMA loopback */
 
 	uint16		ioctl_seq_no;
-	uint16		data_seq_no;
+	uint16		data_seq_no;  /* XXX this field is obsolete */
 	uint16		ioctl_trans_id;
 	void		*pktid_ctrl_map; /* a pktid maps to a packet and its metadata */
 	void		*pktid_rx_map;	/* pktid map for rx path */
@@ -506,7 +532,11 @@ typedef struct dhd_prot {
 	void		*pktid_dma_map;	/* pktid map for DMA MAP */
 	void		*pktid_dma_unmap; /* pktid map for DMA UNMAP */
 #endif /* DHD_MAP_PKTID_LOGGING */
-
+	uint32		pktid_depleted_cnt;	/* pktid depleted count */
+	/* netif tx queue stop count */
+	uint8		pktid_txq_stop_cnt;
+	/* netif tx queue start count */
+	uint8		pktid_txq_start_cnt;
 	uint64		ioctl_fillup_time;	/* timestamp for ioctl fillup */
 	uint64		ioctl_ack_time;		/* timestamp for ioctl ack */
 	uint64		ioctl_cmplt_time;	/* timestamp for ioctl completion */
@@ -545,16 +575,22 @@ typedef struct dhd_prot {
 	bool no_aggr;
 	bool fixed_rate;
 	dhd_dma_buf_t	host_scb_buf; /* scb host offload buffer */
+	bool no_tx_resource;
 } dhd_prot_t;
 
 #ifdef DHD_EWPR_VER2
 #define HANG_INFO_BASE64_BUFFER_SIZE 640
-#endif // endif
+#endif
 
 #ifdef DHD_DUMP_PCIE_RINGS
 static
 int dhd_ring_write(dhd_pub_t *dhd, msgbuf_ring_t *ring, void *file,
 	const void *user_buf, unsigned long *file_posn);
+#ifdef EWP_EDL
+static
+int dhd_edl_ring_hdr_write(dhd_pub_t *dhd, msgbuf_ring_t *ring, void *file, const void *user_buf,
+	unsigned long *file_posn);
+#endif /* EWP_EDL */
 #endif /* DHD_DUMP_PCIE_RINGS */
 extern bool dhd_timesync_delay_post_bufs(dhd_pub_t *dhdp);
 extern void dhd_schedule_dmaxfer_free(dhd_pub_t* dhdp, dmaxref_mem_map_t *dmmap);
@@ -671,6 +707,9 @@ static void dhd_prot_process_h2d_ring_create_complete(dhd_pub_t *dhd, void *buf)
 static void dhd_prot_process_infobuf_complete(dhd_pub_t *dhd, void* buf);
 static void dhd_prot_process_d2h_mb_data(dhd_pub_t *dhd, void* buf);
 static void dhd_prot_detach_info_rings(dhd_pub_t *dhd);
+#ifdef EWP_EDL
+static void dhd_prot_detach_edl_rings(dhd_pub_t *dhd);
+#endif
 static void dhd_prot_process_d2h_host_ts_complete(dhd_pub_t *dhd, void* buf);
 static void dhd_prot_process_snapshot_complete(dhd_pub_t *dhd, void *buf);
 
@@ -839,8 +878,6 @@ dhd_prot_d2h_sync_livelock(dhd_pub_t *dhd, uint32 msg_seqnum, msgbuf_ring_t *rin
 
 	dhd_prhex("D2H MsgBuf Failure", msg, msglen, DHD_ERROR_VAL);
 
-	dhd->livelock_occured = TRUE;
-
 	/* Try to resume if already suspended or suspend in progress */
 #ifdef DHD_PCIE_RUNTIMEPM
 	dhdpcie_runtime_bus_wake(dhd, CAN_SLEEP(), __builtin_return_address(0));
@@ -871,9 +908,11 @@ exit:
 #ifdef CONFIG_ARCH_MSM
 	dhd->bus->no_cfg_restore = 1;
 #endif /* CONFIG_ARCH_MSM */
+	/* XXX Trigger HANG event for recovery */
 	dhd->hang_reason = HANG_REASON_MSGBUF_LIVELOCK;
 	dhd_os_send_hang_message(dhd);
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
+	dhd->livelock_occured = TRUE;
 }
 
 /**
@@ -1063,6 +1102,176 @@ BCMFASTPATH(dhd_prot_d2h_sync_none)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 	}
 }
 
+#ifdef EWP_EDL
+/**
+ * dhd_prot_d2h_sync_edl - Sync on a D2H DMA completion by validating the cmn_msg_hdr_t
+ * header values at both the beginning and end of the payload.
+ * The cmn_msg_hdr_t is placed at the start and end of the payload
+ * in each work item in the EDL ring.
+ * Dongle will place a seqnum inside the cmn_msg_hdr_t 'epoch' field
+ * and the length of the payload in the 'request_id' field.
+ * Structure of each work item in the EDL ring:
+ * | cmn_msg_hdr_t | payload (var len) | cmn_msg_hdr_t |
+ * NOTE: - it was felt that calculating xorcsum for the entire payload (max length of 1648 bytes) is
+ * too costly on the dongle side and might take up too many ARM cycles,
+ * hence the xorcsum sync method is not being used for EDL ring.
+ */
+static int
+BCMFASTPATH(dhd_prot_d2h_sync_edl)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
+                          volatile cmn_msg_hdr_t *msg)
+{
+	uint32 tries;
+	int msglen = 0, len = 0;
+	uint32 ring_seqnum = ring->seqnum % D2H_EPOCH_MODULO;
+	dhd_prot_t *prot = dhd->prot;
+	uint32 step = 0;
+	uint32 delay = PCIE_D2H_SYNC_DELAY;
+	uint32 total_tries = 0;
+	volatile cmn_msg_hdr_t *trailer = NULL;
+	volatile uint8 *buf = NULL;
+	bool valid_msg = FALSE;
+
+	BCM_REFERENCE(delay);
+	/*
+	 * For retries we have to make some sort of stepper algorithm.
+	 * We see that every time when the Dongle comes out of the D3
+	 * Cold state, the first D2H mem2mem DMA takes more time to
+	 * complete, leading to livelock issues.
+	 *
+	 * Case 1 - Apart from Host CPU some other bus master is
+	 * accessing the DDR port, probably page close to the ring
+	 * so, PCIE does not get a change to update the memory.
+	 * Solution - Increase the number of tries.
+	 *
+	 * Case 2 - The 50usec delay given by the Host CPU is not
+	 * sufficient for the PCIe RC to start its work.
+	 * In this case the breathing time of 50usec given by
+	 * the Host CPU is not sufficient.
+	 * Solution: Increase the delay in a stepper fashion.
+	 * This is done to ensure that there are no
+	 * unwanted extra delay introdcued in normal conditions.
+	 */
+	for (step = 1; step <= PCIE_D2H_SYNC_NUM_OF_STEPS; step++) {
+		for (tries = 0; tries < PCIE_D2H_SYNC_WAIT_TRIES; tries++) {
+			/* First verify if the seqnumber has been updated,
+			 * if yes, only then validate the header and trailer.
+			 * Once seqnum, header and trailer have been validated, it means
+			 * that the complete message has arrived.
+			 */
+			valid_msg = FALSE;
+			if (msg->epoch == ring_seqnum &&
+				msg->msg_type == MSG_TYPE_INFO_PYLD &&
+				msg->request_id > 0 &&
+				msg->request_id <= ring->item_len) {
+				/* proceed to check trailer only if header is valid */
+				buf = (volatile uint8 *)msg;
+				msglen = sizeof(cmn_msg_hdr_t) + msg->request_id;
+				buf += msglen;
+				if (msglen + sizeof(cmn_msg_hdr_t) <= ring->item_len) {
+					trailer = (volatile cmn_msg_hdr_t *)buf;
+					valid_msg = (trailer->epoch == ring_seqnum) &&
+						(trailer->msg_type == msg->msg_type) &&
+						(trailer->request_id == msg->request_id);
+					if (!valid_msg) {
+						DHD_TRACE(("%s:invalid trailer! seqnum=%u;reqid=%u"
+						" expected, seqnum=%u; reqid=%u. Retrying... \n",
+						__FUNCTION__, trailer->epoch, trailer->request_id,
+						msg->epoch, msg->request_id));
+					}
+				} else {
+					DHD_TRACE(("%s: invalid payload length (%u)! Retrying.. \n",
+						__FUNCTION__, msg->request_id));
+				}
+
+				if (valid_msg) {
+					/* data is OK */
+					ring->seqnum++; /* next expected sequence number */
+					if (dhd->dhd_induce_error != DHD_INDUCE_LIVELOCK) {
+						goto dma_completed;
+					}
+				}
+			} else {
+				DHD_TRACE(("%s: wrong hdr, seqnum expected %u, got %u."
+					" msg_type=0x%x, request_id=%u."
+					" Retrying...\n",
+					__FUNCTION__, ring_seqnum, msg->epoch,
+					msg->msg_type, msg->request_id));
+			}
+
+			total_tries = ((step-1) * PCIE_D2H_SYNC_WAIT_TRIES) + tries;
+
+			if (total_tries > prot->d2h_sync_wait_max)
+				prot->d2h_sync_wait_max = total_tries;
+
+			OSL_CACHE_INV(msg, msglen); /* invalidate and try again */
+			OSL_CPU_RELAX(); /* CPU relax for msg_seqnum  value to update */
+			OSL_DELAY(delay * step); /* Add stepper delay */
+
+		} /* for PCIE_D2H_SYNC_WAIT_TRIES */
+	} /* for PCIE_D2H_SYNC_NUM_OF_STEPS */
+
+	DHD_ERROR(("%s: EDL header check fails !\n", __FUNCTION__));
+	DHD_ERROR(("%s: header: seqnum=%u; expected-seqnum=%u"
+		" msgtype=0x%x; expected-msgtype=0x%x"
+		" length=%u; expected-max-length=%u", __FUNCTION__,
+		msg->epoch, ring_seqnum, msg->msg_type, MSG_TYPE_INFO_PYLD,
+		msg->request_id, ring->item_len));
+	dhd_prhex("msg header bytes: ", (volatile uchar *)msg, sizeof(*msg), DHD_ERROR_VAL);
+	if (trailer && msglen > 0 &&
+			(msglen + sizeof(cmn_msg_hdr_t)) <= ring->item_len) {
+		DHD_ERROR(("%s: trailer: seqnum=%u; expected-seqnum=%u"
+			" msgtype=0x%x; expected-msgtype=0x%x"
+			" length=%u; expected-length=%u", __FUNCTION__,
+			trailer->epoch, ring_seqnum, trailer->msg_type, MSG_TYPE_INFO_PYLD,
+			trailer->request_id, msg->request_id));
+		dhd_prhex("msg trailer bytes: ", (volatile uchar *)trailer,
+			sizeof(*trailer), DHD_ERROR_VAL);
+	}
+
+	if ((msglen + sizeof(cmn_msg_hdr_t)) <= ring->item_len)
+		len = msglen + sizeof(cmn_msg_hdr_t);
+	else
+		len = ring->item_len;
+
+	dhd_prot_d2h_sync_livelock(dhd, msg->epoch, ring, total_tries,
+		(volatile uchar *) msg, len);
+
+	ring->seqnum++; /* skip this message */
+	return BCME_ERROR; /* invalid msg_type 0 -> noop callback */
+
+dma_completed:
+	DHD_TRACE(("%s: EDL header check pass, seqnum=%u; reqid=%u\n", __FUNCTION__,
+		msg->epoch, msg->request_id));
+
+	prot->d2h_sync_wait_tot += tries;
+	return BCME_OK;
+}
+
+/**
+ * dhd_prot_d2h_sync_edl_none - Dongle ensure that the DMA will complete and host
+ * need to try to sync. This noop sync handler will be bound when the dongle
+ * advertises that neither the SEQNUM nor XORCSUM mode of DMA sync is required.
+ */
+static int BCMFASTPATH
+(dhd_prot_d2h_sync_edl_none)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
+                       volatile cmn_msg_hdr_t *msg)
+{
+	/* Check for LIVELOCK induce flag, which is set by firing
+	* dhd iovar to induce LIVELOCK error. If flag is set,
+	* MSG_TYPE_INVALID is returned, which results in to LIVELOCK error.
+	*/
+	if (dhd->dhd_induce_error == DHD_INDUCE_LIVELOCK) {
+		DHD_ERROR(("%s: Inducing livelock\n", __FUNCTION__));
+		return BCME_ERROR;
+	} else {
+		if (msg->msg_type == MSG_TYPE_INFO_PYLD)
+			return BCME_OK;
+		else
+			return msg->msg_type;
+	}
+}
+#endif /* EWP_EDL */
+
 INLINE void
 dhd_wakeup_ioctl_event(dhd_pub_t *dhd, dhd_ioctl_recieved_status_t reason)
 {
@@ -1096,12 +1305,21 @@ dhd_prot_d2h_sync_init(dhd_pub_t *dhd)
 
 	if (dhd->d2h_sync_mode & PCIE_SHARED_D2H_SYNC_SEQNUM) {
 		prot->d2h_sync_cb = dhd_prot_d2h_sync_seqnum;
+#ifdef EWP_EDL
+		prot->d2h_edl_sync_cb = dhd_prot_d2h_sync_edl;
+#endif /* EWP_EDL */
 		DHD_ERROR(("%s(): D2H sync mechanism is SEQNUM \r\n", __FUNCTION__));
 	} else if (dhd->d2h_sync_mode & PCIE_SHARED_D2H_SYNC_XORCSUM) {
 		prot->d2h_sync_cb = dhd_prot_d2h_sync_xorcsum;
+#ifdef EWP_EDL
+		prot->d2h_edl_sync_cb = dhd_prot_d2h_sync_edl;
+#endif /* EWP_EDL */
 		DHD_ERROR(("%s(): D2H sync mechanism is XORCSUM \r\n", __FUNCTION__));
 	} else {
 		prot->d2h_sync_cb = dhd_prot_d2h_sync_none;
+#ifdef EWP_EDL
+		prot->d2h_edl_sync_cb = dhd_prot_d2h_sync_edl_none;
+#endif /* EWP_EDL */
 		DHD_ERROR(("%s(): D2H sync mechanism is NONE \r\n", __FUNCTION__));
 	}
 }
@@ -1408,13 +1626,17 @@ dhd_pktid_logging_dump(dhd_pub_t *dhd)
 #define DHD_PCIE_PKTID
 #define MAX_CTRL_PKTID		(1024) /* Maximum number of pktids supported */
 #define MAX_RX_PKTID		(1024)
-#define MAX_TX_PKTID		(3072 * 2)
+#define MAX_TX_PKTID		(3072 * 12)
 
 /* On Router, the pktptr serves as a pktid. */
 
+/* XXX: PROP_TXSTATUS: WLFS defines a private pkttag layout.
+ * Hence cannot store the dma parameters in the pkttag and the pktidmap locker
+ * is required.
+ */
 #if defined(PROP_TXSTATUS) && !defined(DHD_PCIE_PKTID)
 #error "PKTIDMAP must be supported with PROP_TXSTATUS/WLFC"
-#endif // endif
+#endif
 
 /* Enum for marking the buffer color based on usage */
 typedef enum dhd_pkttype {
@@ -1428,6 +1650,8 @@ typedef enum dhd_pkttype {
 	PKTTYPE_TSBUF_RX
 } dhd_pkttype_t;
 
+#define DHD_PKTID_MIN_AVAIL_COUNT		512U
+#define DHD_PKTID_DEPLETED_MAX_COUNT		(DHD_PKTID_MIN_AVAIL_COUNT * 2U)
 #define DHD_PKTID_INVALID			(0U)
 #define DHD_IOCTL_REQ_PKTID			(0xFFFE)
 #define DHD_FAKE_PKTID				(0xFACE)
@@ -2245,6 +2469,7 @@ BCMFASTPATH(dhd_pktid_map_free)(dhd_pub_t *dhd, dhd_pktid_map_handle_t *handle, 
 
 	DHD_PKTID_LOCK(map->pktid_lock, flags);
 
+	/* XXX PLEASE DO NOT remove this ASSERT, fix the bug in caller. */
 	if ((nkey == DHD_PKTID_INVALID) || (nkey > DHD_PKIDMAP_ITEMS(map->items))) {
 		DHD_ERROR(("%s:%d: Error! Try to free invalid pktid<%u>, pkttype<%d>\n",
 		           __FUNCTION__, __LINE__, nkey, pkttype));
@@ -2272,6 +2497,7 @@ BCMFASTPATH(dhd_pktid_map_free)(dhd_pub_t *dhd, dhd_pktid_map_handle_t *handle, 
 		DHD_ERROR(("%s:%d: Error! freeing already freed invalid pktid<%u>\n",
 		           __FUNCTION__, __LINE__, nkey));
 		DHD_PKTID_UNLOCK(map->pktid_lock, flags);
+		/* XXX PLEASE DO NOT remove this ASSERT, fix the bug in caller. */
 #ifdef DHD_FW_COREDUMP
 		if (dhd->memdump_enabled) {
 			/* collect core dump */
@@ -2481,6 +2707,7 @@ dhd_native_to_pktid(dhd_pktid_map_handle_t *map, void *pktptr32,
 	DHD_PKT_SET_PA(pktptr32, pa);
 	DHD_PKT_SET_SECDMA(pktptr32, secdma);
 
+	/* XXX optimize these branch conditionals */
 	if (pkttype == PKTTYPE_DATA_TX) {
 		PKTLIST_ENQ(handle->tx_pkt_list,  pktptr32);
 	} else if (pkttype == PKTTYPE_DATA_RX) {
@@ -2508,6 +2735,7 @@ dhd_pktid_to_native(dhd_pktid_map_handle_t *map, uint32 pktid32,
 	*pa = DHD_PKT_GET_PA(pktptr32);
 	*secdma = DHD_PKT_GET_SECDMA(pktptr32);
 
+	/* XXX optimize these branch conditionals */
 	if (pkttype == PKTTYPE_DATA_TX) {
 		PKTLIST_UNLINK(handle->tx_pkt_list,  pktptr32);
 	} else if (pkttype == PKTTYPE_DATA_RX) {
@@ -2707,7 +2935,7 @@ dhd_prot_attach(dhd_pub_t *dhd)
 
 #ifdef DHD_RX_CHAINING
 	dhd_rxchain_reset(&prot->rxchain);
-#endif // endif
+#endif
 
 	prot->pktid_ctrl_map = DHD_NATIVE_TO_PKTID_INIT(dhd, MAX_CTRL_PKTID);
 	if (prot->pktid_ctrl_map == NULL) {
@@ -2917,11 +3145,23 @@ dhd_set_host_cap(dhd_pub_t *dhd)
 			dhd->dar_inited = TRUE;
 		}
 
+		/* FW Checks for HOSTCAP_UR_FW_NO_TRAP and Does not TRAP if set
+		 * Radar 36403220 JIRA SWWLAN-182145
+		 */
 		data |= HOSTCAP_UR_FW_NO_TRAP;
 
 		if (dhd->hscb_enable) {
 			data |= HOSTCAP_HSCB;
 		}
+
+#ifdef EWP_EDL
+		if (dhd->dongle_edl_support) {
+			data |= HOSTCAP_EDL_RING;
+			DHD_ERROR(("Enable EDL host cap\n"));
+		} else {
+			DHD_ERROR(("DO NOT SET EDL host cap\n"));
+		}
+#endif /* EWP_EDL */
 
 #ifdef DHD_DB0TS
 		if (dhd->db0ts_capable) {
@@ -3026,6 +3266,7 @@ dhd_prot_init(dhd_pub_t *dhd)
 
 	prot->device_ipc_version = dhd->bus->api.fw_rev;
 	prot->host_ipc_version = PCIE_SHARED_VERSION;
+	prot->no_tx_resource = FALSE;
 
 	/* Init the host API version */
 	dhd_set_host_cap(dhd);
@@ -3177,7 +3418,11 @@ dhd_prot_init(dhd_pub_t *dhd)
 	/* See if info rings could be created, info rings should be created
 	* only if dongle does not support EDL
 	*/
+#ifdef EWP_EDL
+	if (dhd->bus->api.fw_rev >= PCIE_SHARED_VERSION_6 && !dhd->dongle_edl_support) {
+#else
 	if (dhd->bus->api.fw_rev >= PCIE_SHARED_VERSION_6) {
+#endif /* EWP_EDL */
 		if ((ret = dhd_prot_init_info_rings(dhd)) != BCME_OK) {
 			/* For now log and proceed, further clean up action maybe necessary
 			 * when we have more clarity.
@@ -3186,6 +3431,16 @@ dhd_prot_init(dhd_pub_t *dhd)
 				__FUNCTION__, ret));
 		}
 	}
+
+#ifdef EWP_EDL
+		/* Create Enhanced Debug Lane rings (EDL) if dongle supports it */
+		if (dhd->dongle_edl_support) {
+			if ((ret = dhd_prot_init_edl_rings(dhd)) != BCME_OK) {
+				DHD_ERROR(("%s EDL rings couldn't be created: Err Code%d",
+					__FUNCTION__, ret));
+			}
+		}
+#endif /* EWP_EDL */
 
 	return BCME_OK;
 } /* dhd_prot_init */
@@ -3232,6 +3487,10 @@ void dhd_prot_detach(dhd_pub_t *dhd)
 		/* detach info rings */
 		dhd_prot_detach_info_rings(dhd);
 
+#ifdef EWP_EDL
+		dhd_prot_detach_edl_rings(dhd);
+#endif
+
 		/* if IOCTLRESP_USE_CONSTMEM is defined IOCTL PKTs use pktid_map_handle_ioctl
 		 * handler and PKT memory is allocated using alloc_ioctl_return_buffer(), Otherwise
 		 * they will be part of pktid_ctrl_map handler and PKT memory is allocated using
@@ -3246,7 +3505,7 @@ void dhd_prot_detach(dhd_pub_t *dhd)
 		DHD_NATIVE_TO_PKTID_FINI(dhd, prot->pktid_tx_map);
 #ifdef IOCTLRESP_USE_CONSTMEM
 		DHD_NATIVE_TO_PKTID_FINI_IOCTL(dhd, prot->pktid_map_handle_ioctl);
-#endif // endif
+#endif
 #ifdef DHD_MAP_PKTID_LOGGING
 		DHD_PKTID_LOG_FINI(dhd, prot->pktid_dma_map);
 		DHD_PKTID_LOG_FINI(dhd, prot->pktid_dma_unmap);
@@ -3308,6 +3567,12 @@ dhd_prot_reset(dhd_pub_t *dhd)
 		dhd_prot_ring_reset(dhd, prot->d2hring_info_cpln);
 	}
 
+#ifdef EWP_EDL
+	if (prot->d2hring_edl) {
+		dhd_prot_ring_reset(dhd, prot->d2hring_edl);
+	}
+#endif /* EWP_EDL */
+
 	/* Reset all DMA-able buffers allocated during prot attach */
 	dhd_dma_buf_reset(dhd, &prot->d2h_dma_scratch_buf);
 	dhd_dma_buf_reset(dhd, &prot->retbuf);
@@ -3324,6 +3589,8 @@ dhd_prot_reset(dhd_pub_t *dhd)
 	dhd_dma_buf_reset(dhd, &prot->h2d_dma_indx_wr_buf);
 	dhd_dma_buf_reset(dhd, &prot->d2h_dma_indx_rd_buf);
 	dhd_dma_buf_reset(dhd, &prot->d2h_dma_indx_wr_buf);
+
+	/* XXX: dmaxfer src and dst? */
 
 	prot->rx_metadata_offset = 0;
 	prot->tx_metadata_offset = 0;
@@ -3465,7 +3732,7 @@ dhd_lb_tx_compl_handler(unsigned long data)
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
 		dhd_eap_txcomplete(dhd, pkt, TRUE, txstatus->cmn_hdr.if_id);
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
-#endif // endif
+#endif
 
 		PKTFREE(dhd->osh, pkt, TRUE);
 		count++;
@@ -3650,6 +3917,97 @@ dhd_prot_detach_info_rings(dhd_pub_t *dhd)
 		MFREE(dhd->prot->osh, dhd->prot->d2hring_info_cpln, sizeof(msgbuf_ring_t));
 	}
 }
+
+#ifdef EWP_EDL
+static int
+dhd_check_create_edl_rings(dhd_pub_t *dhd)
+{
+	dhd_prot_t *prot = dhd->prot;
+	int ret = BCME_ERROR;
+	uint16 ringid;
+
+	{
+		/* dongle may increase max_submission_rings so keep
+		 * ringid at end of dynamic rings (re-use info ring cpl ring id)
+		 */
+		ringid = dhd->bus->max_tx_flowrings +
+			(dhd->bus->max_submission_rings - dhd->bus->max_tx_flowrings) +
+			BCMPCIE_H2D_COMMON_MSGRINGS + 1;
+	}
+
+	if (prot->d2hring_edl) {
+		prot->d2hring_edl->inited = FALSE;
+		return BCME_OK; /* dhd_prot_init rentry after a dhd_prot_reset */
+	}
+
+	if (prot->d2hring_edl == NULL) {
+		prot->d2hring_edl = MALLOCZ(prot->osh, sizeof(msgbuf_ring_t));
+
+		if (prot->d2hring_edl == NULL) {
+			DHD_ERROR(("%s: couldn't alloc memory for d2hring_edl\n",
+				__FUNCTION__));
+			return BCME_NOMEM;
+		}
+
+		DHD_ERROR(("%s: about to create EDL ring, ringid: %u \n", __FUNCTION__,
+			ringid));
+		ret = dhd_prot_ring_attach(dhd, prot->d2hring_edl, "d2hring_edl",
+			D2HRING_EDL_MAX_ITEM, D2HRING_EDL_ITEMSIZE,
+			ringid);
+		if (ret != BCME_OK) {
+			DHD_ERROR(("%s: couldn't alloc resources for EDL ring\n",
+				__FUNCTION__));
+			goto err;
+		}
+	}
+
+	return ret;
+err:
+	MFREE(prot->osh, prot->d2hring_edl, sizeof(msgbuf_ring_t));
+	prot->d2hring_edl = NULL;
+
+	return ret;
+} /* dhd_check_create_btlog_rings */
+
+int
+dhd_prot_init_edl_rings(dhd_pub_t *dhd)
+{
+	dhd_prot_t *prot = dhd->prot;
+	int ret = BCME_ERROR;
+
+	if ((ret = dhd_check_create_edl_rings(dhd)) != BCME_OK) {
+		DHD_ERROR(("%s: EDL rings aren't created! \n",
+			__FUNCTION__));
+		return ret;
+	}
+
+	if ((prot->d2hring_edl->inited) || (prot->d2hring_edl->create_pending)) {
+		DHD_INFO(("EDL completion ring was created!\n"));
+		return ret;
+	}
+
+	DHD_ERROR(("trying to send create d2h edl ring: idx %d\n", prot->d2hring_edl->idx));
+	ret = dhd_send_d2h_ringcreate(dhd, prot->d2hring_edl,
+		BCMPCIE_D2H_RING_TYPE_EDL, DHD_D2H_DBGRING_REQ_PKTID);
+	if (ret != BCME_OK)
+		return ret;
+
+	prot->d2hring_edl->seqnum = D2H_EPOCH_INIT_VAL;
+	prot->d2hring_edl->current_phase = BCMPCIE_CMNHDR_PHASE_BIT_INIT;
+
+	return BCME_OK;
+} /* dhd_prot_init_btlog_rings */
+
+static void
+dhd_prot_detach_edl_rings(dhd_pub_t *dhd)
+{
+	if (dhd->prot->d2hring_edl) {
+		dhd_prot_ring_detach(dhd, dhd->prot->d2hring_edl);
+		MFREE(dhd->prot->osh, dhd->prot->d2hring_edl, sizeof(msgbuf_ring_t));
+		dhd->prot->d2hring_edl = NULL;
+	}
+}
+#endif	/* EWP_EDL */
 
 /**
  * Initialize protocol: sync w/dongle state.
@@ -3922,7 +4280,7 @@ BCMFASTPATH(dhd_prot_ioctl_ret_buffer_get)(dhd_pub_t *dhd, uint32 pktid, dhd_dma
 
 	return;
 }
-#endif // endif
+#endif
 
 #ifdef PCIE_INB_DW
 static int
@@ -4029,7 +4387,7 @@ BCMFASTPATH(dhd_prot_rxbuf_post)(dhd_pub_t *dhd, uint16 count, bool use_rsv_pkti
 		DHD_ERROR(("%s: local scratch buffer allocation failed\n", __FUNCTION__));
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return 0;
 	}
 	pktbuf = lcl_buf;
@@ -4156,7 +4514,7 @@ alloc_pkt_id:
 		rxbuf_post_tmp = rxbuf_post_tmp + ring->item_len;
 #ifdef DHD_LBUF_AUDIT
 		PKTAUDIT(dhd->osh, p);
-#endif // endif
+#endif
 	}
 
 	if (i < alloced) {
@@ -4193,7 +4551,7 @@ cleanup:
 	MFREE(dhd->osh, lcl_buf, lcl_buf_size);
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return alloced;
 } /* dhd_prot_rxbufpost */
@@ -4253,7 +4611,7 @@ dhd_prot_infobufpost(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return -1;
 	}
 
@@ -4336,7 +4694,7 @@ dhd_prot_infobufpost(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 		infobuf_post_tmp = infobuf_post_tmp + ring->item_len;
 #ifdef DHD_LBUF_AUDIT
 		PKTAUDIT(dhd->osh, p);
-#endif // endif
+#endif
 	}
 
 	if (i < alloced) {
@@ -4365,7 +4723,7 @@ dhd_prot_infobufpost(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return alloced;
 } /* dhd_prot_infobufpost */
 
@@ -4434,6 +4792,7 @@ dhd_prot_rxbufpost_ctrl(dhd_pub_t *dhd, uint8 msg_type)
 		buf_type = PKTTYPE_TSBUF_RX;
 	else {
 		DHD_ERROR(("invalid message type to be posted to Ctrl ring %d\n", msg_type));
+		/* XXX: may be add an assert */
 		return -1;
 	}
 #ifdef PCIE_INB_DW
@@ -4608,7 +4967,7 @@ dhd_prot_rxbufpost_ctrl(dhd_pub_t *dhd, uint8 msg_type)
 #ifdef DHD_LBUF_AUDIT
 	if (non_ioctl_resp_buf)
 		PKTAUDIT(dhd->osh, p);
-#endif // endif
+#endif
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, rxbuf_post, 1);
 
@@ -4616,7 +4975,7 @@ dhd_prot_rxbufpost_ctrl(dhd_pub_t *dhd, uint8 msg_type)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return 1;
 
 free_pkt_return:
@@ -4633,7 +4992,7 @@ free_pkt_return:
 fail:
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return -1;
 } /* dhd_prot_rxbufpost_ctrl */
 
@@ -4757,6 +5116,282 @@ BCMFASTPATH(dhd_prot_process_msgbuf_infocpl)(dhd_pub_t *dhd, uint bound)
 
 	return more;
 }
+
+#ifdef EWP_EDL
+bool
+dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd)
+{
+	dhd_prot_t *prot = dhd->prot;
+	msgbuf_ring_t *ring = prot->d2hring_edl;
+	unsigned long flags = 0;
+	uint32 items = 0;
+	uint16 rd = 0;
+	uint16 depth = 0;
+
+	if (ring == NULL)
+		return FALSE;
+	if (ring->inited != TRUE)
+		return FALSE;
+	if (ring->item_len == 0) {
+		DHD_ERROR(("%s: Bad ring ! ringidx %d, item_len %d \n",
+			__FUNCTION__, ring->idx, ring->item_len));
+		return FALSE;
+	}
+
+	if (dhd_query_bus_erros(dhd)) {
+		return FALSE;
+	}
+
+	if (dhd->hang_was_sent) {
+		return FALSE;
+	}
+
+	/* in this DPC context just check if wr index has moved
+	 * and schedule deferred context to actually process the
+	 * work items.
+	*/
+
+	/* update the write index */
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	if (dhd->dma_d2h_ring_upd_support) {
+		/* DMAing write/read indices supported */
+		ring->wr = dhd_prot_dma_indx_get(dhd, D2H_DMA_INDX_WR_UPD, ring->idx);
+	} else {
+		dhd_bus_cmn_readshared(dhd->bus, &ring->wr, RING_WR_UPD, ring->idx);
+	}
+	rd = ring->rd;
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
+
+	depth = ring->max_items;
+	/* check for avail space, in number of ring items */
+	items = READ_AVAIL_SPACE(ring->wr, rd, depth);
+	if (items == 0) {
+		/* no work items in edl ring */
+		return FALSE;
+	}
+	if (items > ring->max_items) {
+		DHD_ERROR(("\r\n======================= \r\n"));
+		DHD_ERROR(("%s(): ring %p, ring->name %s, ring->max_items %d, items %d \r\n",
+			__FUNCTION__, ring, ring->name, ring->max_items, items));
+		DHD_ERROR(("wr: %d,  rd: %d,  depth: %d  \r\n",
+			ring->wr, ring->rd, depth));
+		DHD_ERROR(("dhd->busstate %d bus->wait_for_d3_ack %d \r\n",
+			dhd->busstate, dhd->bus->wait_for_d3_ack));
+		DHD_ERROR(("\r\n======================= \r\n"));
+#ifdef SUPPORT_LINKDOWN_RECOVERY
+		if (ring->wr >= ring->max_items) {
+			dhd->bus->read_shm_fail = TRUE;
+		}
+#else
+#ifdef DHD_FW_COREDUMP
+		if (dhd->memdump_enabled) {
+			/* collect core dump */
+			dhd->memdump_type = DUMP_TYPE_RESUMED_ON_INVALID_RING_RDWR;
+			dhd_bus_mem_dump(dhd);
+
+		}
+#endif /* DHD_FW_COREDUMP */
+#endif /* SUPPORT_LINKDOWN_RECOVERY */
+		dhd_schedule_reset(dhd);
+
+		return FALSE;
+	}
+
+	if (items > D2HRING_EDL_WATERMARK) {
+		DHD_ERROR_RLMT(("%s: WARNING! EDL watermark hit, num items=%u;"
+			" rd=%u; wr=%u; depth=%u;\n", __FUNCTION__, items,
+			ring->rd, ring->wr, depth));
+	}
+
+	dhd_schedule_logtrace(dhd->info);
+
+	return FALSE;
+}
+
+/*
+ * This is called either from work queue context of 'event_log_dispatcher_work' or
+ * from the kthread context of dhd_logtrace_thread
+ */
+int
+dhd_prot_process_edl_complete(dhd_pub_t *dhd, void *evt_decode_data)
+{
+	dhd_prot_t *prot = NULL;
+	msgbuf_ring_t *ring = NULL;
+	int err = 0;
+	unsigned long flags = 0;
+	cmn_msg_hdr_t *msg = NULL;
+	uint8 *msg_addr = NULL;
+	uint32 max_items_to_process = 0, n = 0;
+	uint32 num_items = 0, new_items = 0;
+	uint16 depth = 0;
+	volatile uint16 wr = 0;
+
+	if (!dhd || !dhd->prot)
+		return 0;
+
+	prot = dhd->prot;
+	ring = prot->d2hring_edl;
+
+	if (!ring || !evt_decode_data) {
+		return 0;
+	}
+
+	if (dhd->hang_was_sent) {
+		return FALSE;
+	}
+
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	ring->curr_rd = ring->rd;
+	wr = ring->wr;
+	depth = ring->max_items;
+	/* check for avail space, in number of ring items
+	 * Note, that this will only give the # of items
+	 * from rd to wr if wr>=rd, or from rd to ring end
+	 * if wr < rd. So in the latter case strictly speaking
+	 * not all the items are read. But this is OK, because
+	 * these will be processed in the next doorbell as rd
+	 * would have wrapped around. Processing in the next
+	 * doorbell is acceptable since EDL only contains debug data
+	 */
+	num_items = READ_AVAIL_SPACE(wr, ring->rd, depth);
+
+	if (num_items == 0) {
+		/* no work items in edl ring */
+		DHD_RING_UNLOCK(ring->ring_lock, flags);
+		return 0;
+	}
+
+	DHD_INFO(("%s: EDL work items [%u] available \n",
+			__FUNCTION__, num_items));
+
+	/* if space is available, calculate address to be read */
+	msg_addr = (char*)ring->dma_buf.va + (ring->rd * ring->item_len);
+
+	max_items_to_process = MIN(num_items, DHD_EVENT_LOGTRACE_BOUND);
+
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
+
+	/* Prefetch data to populate the cache */
+	OSL_PREFETCH(msg_addr);
+
+	n = max_items_to_process;
+	while (n > 0) {
+		msg = (cmn_msg_hdr_t *)msg_addr;
+		/* wait for DMA of work item to complete */
+		if ((err = dhd->prot->d2h_edl_sync_cb(dhd, ring, msg)) != BCME_OK) {
+			DHD_ERROR(("%s: Error waiting for DMA to cmpl in EDL ring; err = %d\n",
+				__FUNCTION__, err));
+		}
+		/*
+		 * Update the curr_rd to the current index in the ring, from where
+		 * the work item is fetched. This way if the fetched work item
+		 * fails in LIVELOCK, we can print the exact read index in the ring
+		 * that shows up the corrupted work item.
+		 */
+		if ((ring->curr_rd + 1) >= ring->max_items) {
+			ring->curr_rd = 0;
+		} else {
+			ring->curr_rd += 1;
+		}
+
+		if (err != BCME_OK) {
+			return 0;
+		}
+
+		/* process the edl work item, i.e, the event log */
+		err = dhd_event_logtrace_process_edl(dhd, msg_addr, evt_decode_data);
+
+		/* Dummy sleep so that scheduler kicks in after processing any logprints */
+		OSL_SLEEP(0);
+
+		/* Prefetch data to populate the cache */
+		OSL_PREFETCH(msg_addr + ring->item_len);
+
+		msg_addr += ring->item_len;
+		--n;
+	}
+
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	/* update host ring read pointer */
+	if ((ring->rd + max_items_to_process) >= ring->max_items)
+		ring->rd = 0;
+	else
+		ring->rd += max_items_to_process;
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
+
+	/* Now after processing max_items_to_process update dongle rd index.
+	 * The TCM rd index is updated only if bus is not
+	 * in D3. Else, the rd index is updated from resume
+	 * context in - 'dhdpcie_bus_suspend'
+	 */
+	DHD_GENERAL_LOCK(dhd, flags);
+	if (DHD_BUS_CHECK_SUSPEND_OR_ANY_SUSPEND_IN_PROGRESS(dhd)) {
+		DHD_INFO(("%s: bus is in suspend(%d) or suspending(0x%x) state!!\n",
+			__FUNCTION__, dhd->busstate, dhd->dhd_bus_busy_state));
+		DHD_GENERAL_UNLOCK(dhd, flags);
+	} else {
+		DHD_GENERAL_UNLOCK(dhd, flags);
+		DHD_EDL_RING_TCM_RD_UPDATE(dhd);
+	}
+
+	/* if num_items > bound, then anyway we will reschedule and
+	 * this function runs again, so that if in between the DPC has
+	 * updated the wr index, then the updated wr is read. But if
+	 * num_items <= bound, and if DPC executes and updates the wr index
+	 * when the above while loop is running, then the updated 'wr' index
+	 * needs to be re-read from here, If we don't do so, then till
+	 * the next time this function is scheduled
+	 * the event logs will not be processed.
+	*/
+	if (num_items <= DHD_EVENT_LOGTRACE_BOUND) {
+		/* read the updated wr index if reqd. and update num_items */
+		DHD_RING_LOCK(ring->ring_lock, flags);
+		if (wr != (volatile uint16)ring->wr) {
+			wr = (volatile uint16)ring->wr;
+			new_items = READ_AVAIL_SPACE(wr, ring->rd, depth);
+			DHD_INFO(("%s: new items [%u] avail in edl\n",
+				__FUNCTION__, new_items));
+			num_items += new_items;
+		}
+		DHD_RING_UNLOCK(ring->ring_lock, flags);
+	}
+
+	/* if # of items processed is less than num_items, need to re-schedule
+	* the deferred ctx
+	*/
+	if (max_items_to_process < num_items) {
+		DHD_INFO(("%s: EDL bound hit / new items found, "
+				"items processed=%u; remaining=%u, "
+				"resched deferred ctx...\n",
+				__FUNCTION__, max_items_to_process,
+				num_items - max_items_to_process));
+		return (num_items - max_items_to_process);
+	}
+
+	return 0;
+
+}
+
+void
+dhd_prot_edl_ring_tcm_rd_update(dhd_pub_t *dhd)
+{
+	dhd_prot_t *prot = NULL;
+	unsigned long flags = 0;
+	msgbuf_ring_t *ring = NULL;
+
+	if (!dhd)
+		return;
+
+	prot = dhd->prot;
+	if (!prot || !prot->d2hring_edl)
+		return;
+
+	ring = prot->d2hring_edl;
+	DHD_RING_LOCK(ring->ring_lock, flags);
+	dhd_prot_upd_read_idx(dhd, ring);
+	DHD_RING_UNLOCK(ring->ring_lock, flags);
+}
+#endif /* EWP_EDL */
 
 static void
 dhd_prot_rx_frame(dhd_pub_t *dhd, void *pkt, int ifidx, uint pkt_count)
@@ -4934,7 +5569,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, uint bound, int ringt
 
 #ifdef DHD_LBUF_AUDIT
 			PKTAUDIT(dhd->osh, pkt);
-#endif // endif
+#endif
 		}
 
 		/* roll back read pointer for unprocessed message */
@@ -4976,7 +5611,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, uint bound, int ringt
 
 #ifdef DHD_RX_CHAINING
 		dhd_rxchain_commit(dhd);
-#endif // endif
+#endif
 
 		/* After batch processing, check RX bound */
 		n += pkt_cnt;
@@ -5274,7 +5909,7 @@ done:
 
 #ifdef DHD_RX_CHAINING
 	dhd_rxchain_commit(dhd);
-#endif // endif
+#endif
 
 	return ret;
 } /* dhd_prot_process_msgtype */
@@ -5301,12 +5936,14 @@ dhd_prot_ringstatus_process(dhd_pub_t *dhd, void *msg)
 		return;
 	if (status == BCMPCIE_BAD_PHASE) {
 		/* bad phase report from */
+		/* XXX: if the request is ioctl request finish the ioctl, rather than timing out */
 		DHD_ERROR(("Bad phase\n"));
 	}
 	if (status != BCMPCIE_BADOPTION)
 		return;
 
 	if (request_id == DHD_H2D_DBGRING_REQ_PKTID) {
+		/* XXX: see if the debug ring create is pending */
 		if (dhd->prot->h2dring_info_subn != NULL) {
 			if (dhd->prot->h2dring_info_subn->create_pending == TRUE) {
 				DHD_ERROR(("H2D ring create failed for info ring\n"));
@@ -5319,6 +5956,7 @@ dhd_prot_ringstatus_process(dhd_pub_t *dhd, void *msg)
 		}
 	}
 	else if (request_id == DHD_D2H_DBGRING_REQ_PKTID) {
+		/* XXX: see if the debug ring create is pending */
 		if (dhd->prot->d2hring_info_cpln != NULL) {
 			if (dhd->prot->d2hring_info_cpln->create_pending == TRUE) {
 				DHD_ERROR(("D2H ring create failed for info ring\n"));
@@ -5361,7 +5999,7 @@ dhd_prot_ioctack_process(dhd_pub_t *dhd, void *msg)
 	unsigned long flags;
 #if defined(DHD_PKTID_AUDIT_RING)
 	uint32 pktid = ltoh32(ioct_ack->cmn_hdr.request_id);
-#endif // endif
+#endif
 
 #if defined(DHD_PKTID_AUDIT_RING)
 	/* Skip audit for ADHD_IOCTL_REQ_PKTID = 0xFFFE */
@@ -5374,7 +6012,7 @@ dhd_prot_ioctack_process(dhd_pub_t *dhd, void *msg)
 			DHD_TEST_IS_ALLOC, msg, D2HRING_CTRL_CMPLT_ITEMSIZE);
 #endif /* !IOCTLRESP_USE_CONSTMEM */
 	}
-#endif // endif
+#endif
 
 	dhd->prot->ioctl_ack_time = OSL_LOCALTIME_NS();
 
@@ -5395,6 +6033,7 @@ dhd_prot_ioctack_process(dhd_pub_t *dhd, void *msg)
 		ioct_ack->compl_hdr.flow_ring_id));
 	if (ioct_ack->compl_hdr.status != 0)  {
 		DHD_ERROR(("got an error status for the ioctl request...need to handle that\n"));
+		/* FIXME: should we fail the pending IOCTL compelteion wait process... */
 	}
 }
 
@@ -5430,7 +6069,7 @@ dhd_prot_ioctcmplt_process(dhd_pub_t *dhd, void *msg)
 	DHD_PKTID_AUDIT_RING_DEBUG(dhd, prot->pktid_map_handle_ioctl, pkt_id,
 		DHD_DUPLICATE_FREE, msg, D2HRING_CTRL_CMPLT_ITEMSIZE);
 #endif /* !IOCTLRESP_USE_CONSTMEM */
-#endif // endif
+#endif
 
 	DHD_GENERAL_LOCK(dhd, flags);
 	if ((prot->ioctl_state & MSGBUF_IOCTL_ACK_PENDING) ||
@@ -5514,6 +6153,24 @@ exit:
 	dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd);
 }
 
+int
+dhd_prot_check_tx_resource(dhd_pub_t *dhd)
+{
+	return dhd->prot->no_tx_resource;
+}
+
+void
+dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd)
+{
+	dhd->prot->pktid_txq_stop_cnt++;
+}
+
+void
+dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd)
+{
+	dhd->prot->pktid_txq_start_cnt++;
+}
+
 /** called on MSG_TYPE_TX_STATUS message received from dongle */
 static void
 BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
@@ -5536,12 +6193,12 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 #if defined(TX_STATUS_LATENCY_STATS)
 	flow_ring_node_t *flow_ring_node;
 	uint16 flowid;
-#endif // endif
+#endif
 	txstatus = (host_txbuf_cmpl_t *)msg;
 #if defined(TX_STATUS_LATENCY_STATS)
 	flowid = txstatus->compl_hdr.flow_ring_id;
 	flow_ring_node = DHD_FLOW_RING(dhd, flowid);
-#endif // endif
+#endif
 
 	/* locks required to protect circular buffer accesses */
 	DHD_RING_LOCK(ring->ring_lock, flags);
@@ -5570,7 +6227,7 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 #if defined(DHD_PKTID_AUDIT_RING)
 	DHD_PKTID_AUDIT_RING_DEBUG(dhd, dhd->prot->pktid_tx_map, pktid,
 			DHD_DUPLICATE_FREE, msg, D2HRING_TXCMPLT_ITEMSIZE);
-#endif // endif
+#endif
 
 	DHD_INFO(("txstatus for pktid 0x%04x\n", pktid));
 	if (OSL_ATOMIC_DEC_RETURN(dhd->osh, &prot->active_tx_count) < 0) {
@@ -5594,6 +6251,11 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 		ASSERT(0);
 #endif /* DHD_FW_COREDUMP */
 		return;
+	}
+
+	if (DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map) == DHD_PKTID_MIN_AVAIL_COUNT) {
+		dhd->prot->no_tx_resource = FALSE;
+		dhd_bus_start_queue(dhd->bus);
 	}
 
 	DMA_UNMAP(dhd->osh, pa, (uint) len, DMA_RX, 0, dmah);
@@ -5621,6 +6283,7 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 		/* fetch next available slot in workq */
 		elem_ix = bcm_ring_prod(WORKQ_RING(workq), DHD_LB_WORKQ_SZ);
 
+		/* FIXME FABIAN remove this from locker! */
 		DHD_PKTTAG_SET_PA((dhd_pkttag_fr_t *)PKTTAG(pkt), pa);
 		DHD_PKTTAG_SET_PA_LEN((dhd_pkttag_fr_t *)PKTTAG(pkt), len);
 
@@ -5673,7 +6336,7 @@ workq_ring_full:
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
 	dhd_eap_txcomplete(dhd, pkt, pkt_fate, txstatus->cmn_hdr.if_id);
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
-#endif // endif
+#endif
 
 #if DHD_DBG_SHOW_METADATA
 	if (dhd->prot->metadata_dbg &&
@@ -5691,7 +6354,7 @@ workq_ring_full:
 
 #ifdef DHD_LBUF_AUDIT
 	PKTAUDIT(dhd->osh, pkt);
-#endif // endif
+#endif
 	DHD_FLOWRING_TXSTATUS_CNT_UPDATE(dhd->bus, txstatus->compl_hdr.flow_ring_id,
 		txstatus->tx_status);
 	DHD_RING_UNLOCK(ring->ring_lock, flags);
@@ -5700,6 +6363,7 @@ workq_ring_full:
 	return;
 } /* dhd_prot_txstatus_process */
 
+/* FIXME: assuming that it is getting inline data related to the event data */
 /** called on MSG_TYPE_WL_EVENT message received from dongle */
 static void
 dhd_prot_event_process(dhd_pub_t *dhd, void *msg)
@@ -5718,11 +6382,12 @@ dhd_prot_event_process(dhd_pub_t *dhd, void *msg)
 #if defined(DHD_PKTID_AUDIT_RING)
 	DHD_PKTID_AUDIT_RING_DEBUG(dhd, dhd->prot->pktid_ctrl_map, bufid,
 			DHD_DUPLICATE_FREE, msg, D2HRING_CTRL_CMPLT_ITEMSIZE);
-#endif // endif
+#endif
 
 	buflen = ltoh16(evnt->event_data_len);
 
 	ifidx = BCMMSGBUF_API_IFIDX(&evnt->cmn_hdr);
+	/* FIXME: check the event status */
 
 	/* Post another rxbuf to the device */
 	if (prot->cur_event_bufs_posted)
@@ -5736,6 +6401,7 @@ dhd_prot_event_process(dhd_pub_t *dhd, void *msg)
 		return;
 	}
 
+	/* FIXME: make sure the length is more than dataoffset */
 	/* DMA RX offset updated through shared area */
 	if (dhd->prot->rx_dataoffset)
 		PKTPULL(dhd->osh, pkt, dhd->prot->rx_dataoffset);
@@ -5743,7 +6409,7 @@ dhd_prot_event_process(dhd_pub_t *dhd, void *msg)
 	PKTSETLEN(dhd->osh, pkt, buflen);
 #ifdef DHD_LBUF_AUDIT
 	PKTAUDIT(dhd->osh, pkt);
-#endif // endif
+#endif
 	dhd_bus_rx_frame(dhd->bus, pkt, ifidx, 1);
 }
 
@@ -5779,6 +6445,7 @@ BCMFASTPATH(dhd_prot_process_infobuf_complete)(dhd_pub_t *dhd, void* buf)
 	if (!pkt)
 		return;
 
+	/* FIXME: make sure the length is more than dataoffset */
 	/* DMA RX offset updated through shared area */
 	if (dhd->prot->rx_dataoffset)
 		PKTPULL(dhd->osh, pkt, dhd->prot->rx_dataoffset);
@@ -5786,7 +6453,7 @@ BCMFASTPATH(dhd_prot_process_infobuf_complete)(dhd_pub_t *dhd, void* buf)
 	PKTSETLEN(dhd->osh, pkt, buflen);
 #ifdef DHD_LBUF_AUDIT
 	PKTAUDIT(dhd->osh, pkt);
-#endif // endif
+#endif
 	/* info ring "debug" data, which is not a 802.3 frame, is sent/hacked with a
 	 * special ifidx of -1.  This is just internal to dhd to get the data to
 	 * dhd_linux.c:dhd_rx_frame() from here (dhd_prot_infobuf_cmplt_process).
@@ -5863,6 +6530,19 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 		goto fail;
 	}
 
+#ifdef DHD_PCIE_PKTID
+		if (!DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map)) {
+			if (dhd->prot->pktid_depleted_cnt == DHD_PKTID_DEPLETED_MAX_COUNT) {
+				dhd_bus_stop_queue(dhd->bus);
+				dhd->prot->no_tx_resource = TRUE;
+			}
+			dhd->prot->pktid_depleted_cnt++;
+			goto err_no_res;
+		} else {
+			dhd->prot->pktid_depleted_cnt = 0;
+		}
+#endif /* DHD_PCIE_PKTID */
+
 	if (dhd->dhd_induce_error == DHD_INDUCE_TX_BIG_PKT) {
 		if ((big_pktbuf = PKTGET(dhd->osh, DHD_FLOWRING_TX_BIG_PKT_SIZE, TRUE)) == NULL) {
 			DHD_ERROR(("%s:%d: PKTGET for txbuf failed\n", __FUNCTION__, __LINE__));
@@ -5884,6 +6564,20 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 	flow_ring_node = (flow_ring_node_t *)&flow_ring_table[flowid];
 
 	ring = (msgbuf_ring_t *)flow_ring_node->prot_info;
+
+	/*
+	 * XXX:
+	 * JIRA SW4349-436:
+	 * Copying the TX Buffer to an SKB that lives in the DMA Zone
+	 * is done here. Previously this was done from dhd_stat_xmit
+	 * On conditions where the Host is pumping heavy traffic to
+	 * the dongle, we see that the Queue that is backing up the
+	 * flow rings is getting full and holds the precious memory
+	 * from DMA Zone, leading the host to run out of memory in DMA
+	 * Zone. So after this change the back up queue would continue to
+	 * hold the pointers from Network Stack, just before putting
+	 * the PHY ADDR in the flow rings, we'll do the copy.
+	 */
 
 	if (dhd->dhd_induce_error == DHD_INDUCE_TX_BIG_PKT && big_pktbuf) {
 		PKTFREE(dhd->osh, PKTBUF, TRUE);
@@ -5921,6 +6615,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 	pktdata = PKTDATA(dhd->osh, PKTBUF);
 	pktlen  = PKTLEN(dhd->osh, PKTBUF);
 
+	/* TODO: XXX: re-look into dropped packets */
 	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
 #ifdef DHD_PKT_LOGGING
 	DHD_PKTLOG_TX(dhd, PKTBUF, pktid);
@@ -5943,6 +6638,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 		DHD_ERROR(("%s: Something really bad, unless 0 is "
 			"a valid phyaddr for pa\n", __FUNCTION__));
 		ASSERT(0);
+		/* XXX if ASSERT() doesn't work like as Android platform,
+		 * try to requeue the packet to the backup queue.
+		 */
 		goto err_rollback_idx;
 	}
 
@@ -5958,7 +6656,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 	if (ring->pend_items_count == 0)
 		ring->start_addr = (void *)txdesc;
 	ring->pend_items_count++;
-#endif // endif
+#endif
 
 	/* Form the Tx descriptor message buffer */
 
@@ -6008,6 +6706,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 			DHD_ERROR(("%s: Something really bad, unless 0 is "
 				"a valid phyaddr for meta_pa\n", __FUNCTION__));
 			ASSERT(0);
+			/* XXX if ASSERT() doesn't work like as Android platform,
+			 * try to requeue the packet to the backup queue.
+			 */
 			goto err_rollback_idx;
 		}
 
@@ -6036,7 +6737,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 
 #ifdef DHD_LBUF_AUDIT
 	PKTAUDIT(dhd->osh, PKTBUF);
-#endif // endif
+#endif
 
 	/* Update the write pointer in TCM & ring bell */
 #if defined(TXP_FLUSH_NITEMS)
@@ -6049,7 +6750,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 #else
 	/* update ring's WR index and ring doorbell to dongle */
 	dhd_prot_ring_write_complete(dhd, ring, txdesc, 1);
-#endif // endif
+#endif
 #ifdef TX_STATUS_LATENCY_STATS
 	/* set the time when pkt is queued to flowring */
 	DHD_PKT_SET_QTIME(PKTBUF, OSL_SYSUPTIME_US());
@@ -6067,7 +6768,7 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 #ifdef TX_STATUS_LATENCY_STATS
 	flow_ring_node->flow_info.num_tx_pkts++;
 #endif /* TX_STATUS_LATENCY_STATS */
@@ -6104,8 +6805,8 @@ err_no_res_pktfree:
 fail:
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
-
+#endif
+err_no_res:
 	return BCME_NORESOURCE;
 } /* dhd_prot_txdata */
 
@@ -6148,6 +6849,7 @@ BCMFASTPATH(dhd_prot_hdrpull)(dhd_pub_t *dhd, int *ifidx, void *pkt, uchar *buf,
 /** post a set of receive buffers to the dongle */
 static void
 BCMFASTPATH(dhd_prot_return_rxbuf)(dhd_pub_t *dhd, uint32 pktid, uint32 rxcnt)
+/* XXX function name could be more descriptive, eg dhd_prot_post_rxbufs */
 {
 	dhd_prot_t *prot = dhd->prot;
 #if defined(DHD_LB_RXC)
@@ -6184,6 +6886,9 @@ BCMFASTPATH(dhd_prot_return_rxbuf)(dhd_pub_t *dhd, uint32 pktid, uint32 rxcnt)
 	if (prot->rxbufpost >= rxcnt) {
 		prot->rxbufpost -= (uint16)rxcnt;
 	} else {
+		/* XXX: I have seen this assert hitting.
+		 * Will be removed once rootcaused.
+		 */
 		/* ASSERT(0); */
 		prot->rxbufpost = 0;
 	}
@@ -6313,6 +7018,12 @@ done:
 
 /** test / loopback */
 
+/*
+ * XXX: This will fail with new PCIe Split header Full Dongle using fixed
+ * sized messages in control submission ring. We seem to be sending the lpbk
+ * data via the control message, wherein the lpbk data may be larger than 1
+ * control message that is being committed.
+ */
 int
 dhdmsgbuf_lpbk_req(dhd_pub_t *dhd, uint len)
 {
@@ -6343,7 +7054,7 @@ dhdmsgbuf_lpbk_req(dhd_pub_t *dhd, uint len)
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return 0;
 	}
 
@@ -6351,7 +7062,7 @@ dhdmsgbuf_lpbk_req(dhd_pub_t *dhd, uint len)
 		uint8 *ptr;
 		uint16 i;
 
-		ptr = (uint8 *)ioct_rqst;
+		ptr = (uint8 *)ioct_rqst; /* XXX: failure!!! */
 		for (i = 0; i < msglen; i++) {
 			ptr[i] = i % 256;
 		}
@@ -6374,7 +7085,7 @@ dhdmsgbuf_lpbk_req(dhd_pub_t *dhd, uint len)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return 0;
 }
@@ -6575,6 +7286,7 @@ dhdmsgbuf_dmaxfer_req(dhd_pub_t *dhd, uint len, uint srcdelay, uint destdelay,
 	uint16 alloced = 0;
 	msgbuf_ring_t *ring = &prot->h2dring_ctrl_subn;
 
+	/* XXX: prot->dmaxfer.in_progress is not protected by lock */
 	if (prot->dmaxfer.in_progress) {
 		DHD_ERROR(("DMA is in progress...\n"));
 		return BCME_ERROR;
@@ -6598,7 +7310,7 @@ dhdmsgbuf_dmaxfer_req(dhd_pub_t *dhd, uint len, uint srcdelay, uint destdelay,
 		prot->dmaxfer.in_progress = FALSE;
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return ret;
 	}
 	DHD_RING_LOCK(ring->ring_lock, flags);
@@ -6611,7 +7323,7 @@ dhdmsgbuf_dmaxfer_req(dhd_pub_t *dhd, uint len, uint srcdelay, uint destdelay,
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -6644,7 +7356,7 @@ dhdmsgbuf_dmaxfer_req(dhd_pub_t *dhd, uint len, uint srcdelay, uint destdelay,
 	DHD_ERROR(("DMA loopback Started... on core[%d]\n", core_num));
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return BCME_OK;
 } /* dhdmsgbuf_dmaxfer_req */
@@ -6755,6 +7467,15 @@ dhd_msgbuf_iovar_timeout_dump(dhd_pub_t *dhd)
 		dhd->rxcnt_timeout, prot->curr_ioctl_cmd, prot->ioctl_trans_id,
 		prot->ioctl_state, dhd->busstate, prot->ioctl_received));
 #if defined(DHD_KERNEL_SCHED_DEBUG) && defined(DHD_FW_COREDUMP)
+		/* XXX DHD triggers Kernel panic if the resumed on timeout occurrs
+		 * due to tasklet or workqueue scheduling problems in the Linux Kernel.
+		 * Customer informs that it is hard to find any clue from the
+		 * host memory dump since the important tasklet or workqueue information
+		 * is already disappered due the latency while printing out the timestamp
+		 * logs for debugging scan timeout issue.
+		 * For this reason, customer requestes us to trigger Kernel Panic rather than
+		 * taking a SOCRAM dump.
+		 */
 		if (dhd->is_sched_error && dhd->memdump_enabled == DUMP_MEMFILE_BUGON) {
 			/* change g_assert_type to trigger Kernel panic */
 			g_assert_type = 2;
@@ -7003,7 +7724,16 @@ int dhd_d2h_h2d_ring_dump(dhd_pub_t *dhd, void *file, const void *user_buf,
 		}
 	}
 
+#ifdef EWP_EDL
+	if (dhd->dongle_edl_support) {
+		ring = prot->d2hring_edl;
+		if ((ret = dhd_edl_ring_hdr_write(dhd, ring, file, user_buf, file_posn)) < 0)
+			goto exit;
+	}
+	else if (dhd->bus->api.fw_rev >= PCIE_SHARED_VERSION_6 && !dhd->dongle_edl_support)
+#else
 	if (dhd->bus->api.fw_rev >= PCIE_SHARED_VERSION_6)
+#endif /* EWP_EDL */
 	{
 		ring = prot->h2dring_info_subn;
 		if ((ret = dhd_ring_write(dhd, ring, file, user_buf, file_posn)) < 0)
@@ -7044,6 +7774,57 @@ int dhd_ring_write(dhd_pub_t *dhd, msgbuf_ring_t *ring, void *file,
 	return ret;
 }
 
+#ifdef EWP_EDL
+/* Write to file */
+static
+int dhd_edl_ring_hdr_write(dhd_pub_t *dhd, msgbuf_ring_t *ring, void *file, const void *user_buf,
+	unsigned long *file_posn)
+{
+	int ret = 0, nitems = 0;
+	char *buf = NULL, *ptr = NULL;
+	uint8 *msg_addr = NULL;
+	uint16	rd = 0;
+
+	if (ring == NULL) {
+		DHD_ERROR(("%s: Ring not initialised, failed to dump ring contents\n",
+			__FUNCTION__));
+		ret = BCME_ERROR;
+		goto done;
+	}
+
+	buf = MALLOCZ(dhd->osh, (D2HRING_EDL_MAX_ITEM * D2HRING_EDL_HDR_SIZE));
+	if (buf == NULL) {
+		DHD_ERROR(("%s: buffer allocation failed\n", __FUNCTION__));
+		ret = BCME_ERROR;
+		goto done;
+	}
+	ptr = buf;
+
+	for (; nitems < D2HRING_EDL_MAX_ITEM; nitems++, rd++) {
+		msg_addr = (uint8 *)ring->dma_buf.va + (rd * ring->item_len);
+		memcpy(ptr, (char *)msg_addr, D2HRING_EDL_HDR_SIZE);
+		ptr += D2HRING_EDL_HDR_SIZE;
+	}
+	if (file) {
+		ret = dhd_os_write_file_posn(file, file_posn, buf,
+				(D2HRING_EDL_HDR_SIZE * D2HRING_EDL_MAX_ITEM));
+		if (ret < 0) {
+			DHD_ERROR(("%s: write file error !\n", __FUNCTION__));
+			goto done;
+		}
+	}
+	else {
+		ret = dhd_export_debug_data(buf, NULL, user_buf,
+			(D2HRING_EDL_HDR_SIZE * D2HRING_EDL_MAX_ITEM), file_posn);
+	}
+
+done:
+	if (buf) {
+		MFREE(dhd->osh, buf, (D2HRING_EDL_MAX_ITEM * D2HRING_EDL_HDR_SIZE));
+	}
+	return ret;
+}
+#endif /* EWP_EDL */
 #endif /* DHD_DUMP_PCIE_RINGS */
 
 /** Add prot dump output to a buffer */
@@ -7065,6 +7846,9 @@ void dhd_prot_dump(dhd_pub_t *dhd, struct bcmstrbuf *b)
 		dhd->prot->rw_index_sz);
 	bcm_bprintf(b, "h2d_max_txpost: %d, prot->h2d_max_txpost: %d\n",
 		h2d_max_txpost, dhd->prot->h2d_max_txpost);
+	bcm_bprintf(b, "pktid_txq_start_cnt: %d\n", dhd->prot->pktid_txq_start_cnt);
+	bcm_bprintf(b, "pktid_txq_stop_cnt: %d\n", dhd->prot->pktid_txq_stop_cnt);
+	bcm_bprintf(b, "pktid_depleted_cnt: %d\n", dhd->prot->pktid_depleted_cnt);
 }
 
 /* Update local copy of dongle statistics */
@@ -7104,7 +7888,7 @@ dhd_post_dummy_msg(dhd_pub_t *dhd)
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return -1;
 	}
 
@@ -7127,7 +7911,7 @@ dhd_post_dummy_msg(dhd_pub_t *dhd)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return 0;
 }
@@ -7224,7 +8008,7 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_BUSY;
 	} else {
 		prot->ioctl_state = MSGBUF_IOCTL_ACK_PENDING | MSGBUF_IOCTL_RESP_PENDING;
@@ -7241,7 +8025,7 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 		DHD_RING_UNLOCK(ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return -1;
 	}
 
@@ -7287,7 +8071,7 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return 0;
 } /* dhd_fillup_ioct_reqst */
@@ -7352,6 +8136,18 @@ dhd_prot_ring_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring, const char *name,
 
 		(void)dhd_dma_buf_audit(dhd, &ring->dma_buf);
 	} else {
+#ifdef EWP_EDL
+		if (ring == dhd->prot->d2hring_edl) {
+			/* For EDL ring, memory is alloced during attach,
+			* so just need to copy the dma_buf to the ring's dma_buf
+			*/
+			memcpy(&ring->dma_buf, &dhd->edl_ring_mem, sizeof(ring->dma_buf));
+			dma_buf = &ring->dma_buf;
+			if (dma_buf->va == NULL) {
+				return BCME_NOMEM;
+			}
+		} else
+#endif /* EWP_EDL */
 		{
 			/* Allocate a dhd_dma_buf */
 			dma_buf_alloced = dhd_dma_buf_alloc(dhd, &ring->dma_buf, dma_buf_len);
@@ -7447,6 +8243,14 @@ dhd_prot_ring_detach(dhd_pub_t *dhd, msgbuf_ring_t *ring)
 		(void)dhd_dma_buf_audit(dhd, &ring->dma_buf);
 		memset(&ring->dma_buf, 0, sizeof(dhd_dma_buf_t));
 	} else {
+#ifdef EWP_EDL
+		if (ring == dhd->prot->d2hring_edl) {
+			/* For EDL ring, do not free ring mem here,
+			* it is done in dhd_detach
+			*/
+			memset(&ring->dma_buf, 0, sizeof(ring->dma_buf));
+		} else
+#endif /* EWP_EDL */
 		{
 			dhd_dma_buf_free(dhd, &ring->dma_buf);
 		}
@@ -7534,6 +8338,9 @@ dhd_prot_flowrings_pool_attach(dhd_pub_t *dhd)
 	return BCME_OK;
 
 attach_fail:
+	/* XXX: On a per project basis, one may decide whether to continue with
+	 * "fewer" flowrings, and what value of fewer suffices.
+	 */
 	dhd_prot_flowrings_pool_detach(dhd); /* Free entire pool of flowrings */
 
 fail:
@@ -7675,6 +8482,7 @@ dhd_prot_flowrings_pool_release(dhd_pub_t *dhd, uint16 flowid, void *flow_ring)
 }
 
 /* Assumes only one index is updated at a time */
+/* FIXME Need to fix it */
 /* If exactly_nitems is true, this function will allocate space for nitems or fail */
 /*    Exception: when wrap around is encountered, to prevent hangup (last nitems of ring buffer) */
 /* If exactly_nitems is false, this function will allocate space for nitems or less */
@@ -7915,6 +8723,18 @@ dhd_send_d2h_ringcreate(dhd_pub_t *dhd, msgbuf_ring_t *ring_to_create,
 		ctrl_ring->seqnum % H2D_EPOCH_MODULO;
 	ctrl_ring->seqnum++;
 
+#ifdef EWP_EDL
+	if (ring_type == BCMPCIE_D2H_RING_TYPE_EDL) {
+		DHD_ERROR(("%s: sending d2h EDL ring create: "
+			"\n max items=%u; len_item=%u; ring_id=%u; low_addr=0x%x; high_addr=0x%x\n",
+			__FUNCTION__, ltoh16(d2h_ring->max_items),
+			ltoh16(d2h_ring->len_item),
+			ltoh16(d2h_ring->ring_id),
+			d2h_ring->ring_ptr.low_addr,
+			d2h_ring->ring_ptr.high_addr));
+	}
+#endif /* EWP_EDL */
+
 	/* Update the flow_ring's WRITE index */
 	dhd_prot_ring_write_complete(dhd, ctrl_ring, d2h_ring,
 		DHD_FLOWRING_DEFAULT_NITEMS_POSTED_H2D);
@@ -7923,7 +8743,7 @@ dhd_send_d2h_ringcreate(dhd_pub_t *dhd, msgbuf_ring_t *ring_to_create,
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return ret;
 err:
@@ -7931,7 +8751,7 @@ err:
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return ret;
 }
 
@@ -8003,14 +8823,14 @@ dhd_send_h2d_ringcreate(dhd_pub_t *dhd, msgbuf_ring_t *ring_to_create, uint8 rin
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return ret;
 err:
 	DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return ret;
 }
 
@@ -8052,6 +8872,7 @@ dhd_prot_dma_indx_set(dhd_pub_t *dhd, uint16 new_index, uint8 type, uint16 ringi
 	ASSERT(prot->rw_index_sz != 0);
 	ptr += offset * prot->rw_index_sz;
 
+	/* XXX: Test casting ptr to uint16* for 32bit indices case on Big Endian */
 	*(uint16*)ptr = htol16(new_index);
 
 	OSL_CACHE_FLUSH((void *)ptr, prot->rw_index_sz);
@@ -8108,6 +8929,7 @@ dhd_prot_dma_indx_get(dhd_pub_t *dhd, uint8 type, uint16 ringid)
 
 	OSL_CACHE_INV((void *)ptr, prot->rw_index_sz);
 
+	/* XXX: Test casting ptr to uint16* for 32bit indices case on Big Endian */
 	data = LTOH16(*((uint16*)ptr));
 
 	DHD_TRACE(("%s: data %d type %d ringid %d ptr 0x%p offset %d\n",
@@ -8305,6 +9127,7 @@ dhd_prot_get_read_addr(dhd_pub_t *dhd, msgbuf_ring_t *ring, uint32 *available_le
 	/* convert items to bytes : available_len must be 32bits */
 	*available_len = (uint32)(items * ring->item_len);
 
+	/* XXX Double cache invalidate for ARM with L2 cache/prefetch */
 	OSL_CACHE_INV(read_addr, *available_len);
 
 	/* return read address */
@@ -8433,7 +9256,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -8490,7 +9313,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return BCME_OK;
 } /* dhd_prot_flow_ring_create */
 
@@ -8555,6 +9378,9 @@ dhd_prot_process_d2h_ring_create_complete(dhd_pub_t *dhd, void *buf)
 		return;
 	}
 	if (ltoh32(resp->cmn_hdr.request_id) == DHD_D2H_DBGRING_REQ_PKTID) {
+#ifdef EWP_EDL
+		if (!dhd->dongle_edl_support)
+#endif
 		{
 
 			if (!dhd->prot->d2hring_info_cpln->create_pending) {
@@ -8570,6 +9396,22 @@ dhd_prot_process_d2h_ring_create_complete(dhd_pub_t *dhd, void *buf)
 			dhd->prot->d2hring_info_cpln->create_pending = FALSE;
 			dhd->prot->d2hring_info_cpln->inited = TRUE;
 		}
+#ifdef EWP_EDL
+		else {
+			if (!dhd->prot->d2hring_edl->create_pending) {
+				DHD_ERROR(("edl ring create status for not pending cpl ring\n"));
+				return;
+			}
+
+			if (ltoh16(resp->cmplt.status) != BCMPCIE_SUCCESS) {
+				DHD_ERROR(("edl cpl ring create failed with status %d\n",
+					ltoh16(resp->cmplt.status)));
+				return;
+			}
+			dhd->prot->d2hring_edl->create_pending = FALSE;
+			dhd->prot->d2hring_edl->inited = TRUE;
+		}
+#endif /* EWP_EDL */
 	}
 
 }
@@ -8727,7 +9569,7 @@ dhd_prot_flow_ring_delete(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		DHD_ERROR(("%s: Flow Delete Req - failure ring space\n", __FUNCTION__));
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -8756,7 +9598,7 @@ dhd_prot_flow_ring_delete(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return BCME_OK;
 }
 
@@ -8866,7 +9708,7 @@ dhd_prot_flow_ring_flush(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		DHD_ERROR(("%s: Flow Flush Req - failure ring space\n", __FUNCTION__));
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -8890,7 +9732,7 @@ dhd_prot_flow_ring_flush(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return BCME_OK;
 } /* dhd_prot_flow_ring_flush */
 
@@ -8940,7 +9782,7 @@ dhd_msgbuf_ring_config_d2h_soft_doorbell(dhd_pub_t *dhd)
 		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return;
 	}
 
@@ -8991,7 +9833,7 @@ dhd_msgbuf_ring_config_d2h_soft_doorbell(dhd_pub_t *dhd)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 #endif /* DHD_D2H_SOFT_DOORBELL_SUPPORT */
 }
 
@@ -9075,7 +9917,9 @@ static hang_info_trap_t hang_info_trap_tbl[] = {
 #endif /* DHD_EWPR_VER2 */
 
 #define TAG_TRAP_IS_STATE(tag) \
-	((tag == TAG_TRAP_MEMORY) || (tag == TAG_TRAP_PCIE_Q) || (tag == TAG_TRAP_WLC_STATE))
+	((tag == TAG_TRAP_MEMORY) || (tag == TAG_TRAP_PCIE_Q) || \
+	(tag == TAG_TRAP_WLC_STATE) || (tag == TAG_TRAP_LOG_DATA) || \
+	(tag == TAG_TRAP_CODE))
 
 static void
 copy_hang_info_head(char *dest, trap_t *src, int len, int field_name,
@@ -9633,6 +10477,35 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 		}
 		DHD_ERROR(("InfoCpl: Expected seq num: %d \r\n", ring->seqnum % D2H_EPOCH_MODULO));
 	}
+#ifdef EWP_EDL
+	ring = prot->d2hring_edl;
+	if (ring) {
+		ring_tcm_rd_addr = dhd->bus->ring_sh[ring->idx].ring_state_r;
+		ring_tcm_wr_addr = dhd->bus->ring_sh[ring->idx].ring_state_w;
+		dma_buf_len = ring->max_items * ring->item_len;
+		DHD_ERROR(("EdlRing: Mem Info: BASE(VA) %p BASE(PA) %x:%x tcm_rd_wr 0x%lx:0x%lx "
+			"SIZE %d \r\n",
+			ring->dma_buf.va, ltoh32(ring->base_addr.high_addr),
+			ltoh32(ring->base_addr.low_addr), ring_tcm_rd_addr, ring_tcm_wr_addr,
+			dma_buf_len));
+		DHD_ERROR(("EdlRing: From Host mem: RD: %d WR %d \r\n", ring->rd, ring->wr));
+		if (dhd->dma_d2h_ring_upd_support) {
+			drd = dhd_prot_dma_indx_get(dhd, D2H_DMA_INDX_RD_UPD, ring->idx);
+			dwr = dhd_prot_dma_indx_get(dhd, D2H_DMA_INDX_WR_UPD, ring->idx);
+			DHD_ERROR(("EdlRing: From Host DMA mem: RD: %d WR %d \r\n", drd, dwr));
+		}
+		if (dhd->bus->is_linkdown) {
+			DHD_ERROR(("EdlRing: From Shared Mem: RD and WR are invalid"
+				" due to PCIe link down\r\n"));
+		} else {
+			dhd_bus_cmn_readshared(dhd->bus, &rd, RING_RD_UPD, ring->idx);
+			dhd_bus_cmn_readshared(dhd->bus, &wr, RING_WR_UPD, ring->idx);
+			DHD_ERROR(("EdlRing: From Shared Mem: RD: %d WR %d \r\n", rd, wr));
+		}
+		DHD_ERROR(("EdlRing: Expected seq num: %d \r\n",
+			ring->seqnum % D2H_EPOCH_MODULO));
+	}
+#endif /* EWP_EDL */
 
 	ring = &prot->d2hring_tx_cpln;
 	if (ring) {
@@ -9721,6 +10594,11 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 	DHD_ERROR(("%s: multi_client_flow_rings:%d max_multi_client_flow_rings:%d\n",
 		__FUNCTION__, dhd->multi_client_flow_rings, dhd->max_multi_client_flow_rings));
 #endif /* DHD_LIMIT_MULTI_CLIENT_FLOWRINGS */
+
+	DHD_ERROR(("pktid_txq_start_cnt: %d\n", prot->pktid_txq_start_cnt));
+	DHD_ERROR(("pktid_txq_stop_cnt: %d\n", prot->pktid_txq_stop_cnt));
+	DHD_ERROR(("pktid_depleted_cnt: %d\n", prot->pktid_depleted_cnt));
+
 	dhd_pcie_debug_info_dump(dhd);
 	return 0;
 }
@@ -9784,7 +10662,7 @@ dhd_prot_metadata_dbg_set(dhd_pub_t *dhd, bool val)
 	dhd_prot_t *prot = dhd->prot;
 #if DHD_DBG_SHOW_METADATA
 	prot->metadata_dbg = val;
-#endif // endif
+#endif
 	return (uint32)prot->metadata_dbg;
 }
 
@@ -9947,7 +10825,7 @@ dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -9985,7 +10863,7 @@ dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 	return BCME_OK;
 } /* dhd_prot_flow_ring_create */
 
@@ -10015,7 +10893,7 @@ dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ringid, uint16 
 		DHD_ERROR(("%s: Flow suspend Req - failure ring space\n", __FUNCTION__));
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 		return BCME_NOMEM;
 	}
 
@@ -10043,7 +10921,7 @@ dhd_prot_flow_ring_batch_suspend_request(dhd_pub_t *dhd, uint16 *ringid, uint16 
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhd->bus);
-#endif // endif
+#endif
 
 	return BCME_OK;
 }
@@ -10188,6 +11066,7 @@ int dhd_prot_dump_extended_trap(dhd_pub_t *dhdp, struct bcmstrbuf *b, bool raw)
 			bcm_bprintf(b, "Tag: %d (%s), Length: %d\n", i, etd_trap_name(i), tlv->len);
 	}
 
+	/* XXX debug dump */
 	if (raw)
 	{
 		raw_len = sizeof(hnd_ext_trap_hdr_t) + (hdr->len / 4) + (hdr->len % 4 ? 1 : 0);
@@ -10544,7 +11423,7 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus);
-#endif // endif
+#endif
 		return -1;
 	}
 
@@ -10556,7 +11435,7 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 		DHD_RING_UNLOCK(ctrl_ring->ring_lock, flags);
 #ifdef PCIE_INB_DW
 		dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus);
-#endif // endif
+#endif
 		return -1;
 	}
 
@@ -10598,7 +11477,7 @@ dhd_prot_send_host_timestamp(dhd_pub_t *dhdp, uchar *tlvs, uint16 tlv_len,
 
 #ifdef PCIE_INB_DW
 	dhd_prot_dec_hostactive_ack_pending_dsreq(dhdp->bus);
-#endif // endif
+#endif
 	return 0;
 } /* dhd_prot_send_host_timestamp */
 

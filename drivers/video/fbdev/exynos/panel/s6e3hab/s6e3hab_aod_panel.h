@@ -625,7 +625,7 @@ static void *s6e3hab_aod_digital_img_cmdtbl[] = {
 /* setting for aod porch */
 static char S6E3HAB_AOD_PORCH[] = {
 	0x76,
-	0x08, 0x0F
+	0x13, 0x10
 };
 static DEFINE_STATIC_PACKET(s6e3hab_aod_porch, DSI_PKT_TYPE_WR, S6E3HAB_AOD_PORCH, 0);
 
@@ -742,8 +742,8 @@ static void *s6e3hab_aod_self_move_reset_cmdtbl[] = {
 
 static char S6E3HAB_PARTIAL_MODE[] = {
 	0x85,
-	0x22, /*enable partial scan & enable partial hlpm*/
-	0x00, /*enable partial hlpm area*/
+	0x33, /*enable partial scan & enable partial hlpm*/
+	0x1B, /*enable partial hlpm area*/
 	0x0F, 0x0F
 };
 static DEFINE_PKTUI(s6e3hab_aod_partial_mode, &s6e3hab_aod_maptbl[SET_PARTIAL_MODE], 0);

@@ -407,6 +407,11 @@ void dwc3_core_config(struct dwc3 *dwc)
 		reg = dwc3_readl(dwc->regs, DWC3_BU31RHBDBG);
 		reg |= DWC3_BU31RHBDBG_TOUTCTL;
 		dwc3_writel(dwc->regs, DWC3_BU31RHBDBG, reg);
+
+		reg = dwc3_readl(dwc->regs, DWC3_GUCTL1);
+		reg &= ~DWC3_GUCTL1_IP_GAP_ADD_ON_MASK;
+		reg |= DWC3_GUCTL1_IP_GAP_ADD_ON(0x1);
+		dwc3_writel(dwc->regs, DWC3_GUCTL1, reg);
 #endif
 	}
 

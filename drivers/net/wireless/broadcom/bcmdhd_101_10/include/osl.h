@@ -36,7 +36,7 @@ enum {
 #define OSL_PKTTAG_SZ	56
 #else
 #define OSL_PKTTAG_SZ   48 /* standard linux pkttag size is 48 bytes */
-#endif // endif
+#endif
 
 /* Drivers use PKTFREESETCB to register a callback function when a packet is freed by OSL */
 typedef void (*pktfree_cb_fn_t)(void *ctx, void *pkt, unsigned int status);
@@ -50,15 +50,15 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #else
 #include <linux_osl.h>
 #include <linux_pkt.h>
-#endif // endif
+#endif
 
 #ifndef PKTDBG_TRACE
 #define PKTDBG_TRACE(osh, pkt, bit)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 #ifndef BCM_UPTIME_PROFILE
 #define OSL_GETCYCLES_PROF(x)
-#endif // endif
+#endif
 
 /* --------------------------------------------------------------------------
 ** Register manipulation macros.
@@ -113,7 +113,7 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 
 #ifndef OSL_SYS_HALT
 #define OSL_SYS_HALT()	do {} while (0)
-#endif // endif
+#endif
 
 #ifndef DMB
 #define DMB()	do {} while (0)
@@ -121,7 +121,7 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 
 #ifndef OSL_MEM_AVAIL
 #define OSL_MEM_AVAIL()	(0xffffffff)
-#endif // endif
+#endif
 
 #ifndef OSL_OBFUSCATE_BUF
 #define OSL_OBFUSCATE_BUF(x) (x)
@@ -164,137 +164,137 @@ do { \
 		(h) = (t) = (p); \
 	} \
 } while (0)
-#endif // endif
+#endif
 
 #ifndef PKTSETCHAINED
 #define PKTSETCHAINED(osh, skb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTCLRCHAINED
 #define PKTCLRCHAINED(osh, skb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTISCHAINED
 #define PKTISCHAINED(skb)		FALSE
-#endif // endif
+#endif
 
 /* Lbuf with fraglist */
 #ifndef PKTFRAGPKTID
 #define PKTFRAGPKTID(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGPKTID
 #define PKTSETFRAGPKTID(osh, lb, id)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTFRAGTOTNUM
 #define PKTFRAGTOTNUM(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGTOTNUM
 #define PKTSETFRAGTOTNUM(osh, lb, tot)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTFRAGTOTLEN
 #define PKTFRAGTOTLEN(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGTOTLEN
 #define PKTSETFRAGTOTLEN(osh, lb, len)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTIFINDEX
 #define PKTIFINDEX(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETIFINDEX
 #define PKTSETIFINDEX(osh, lb, idx)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTGETLF
 #define	PKTGETLF(osh, len, send, lbuf_type)	(0)
-#endif // endif
+#endif
 
 /* in rx path, reuse totlen as used len */
 #ifndef PKTFRAGUSEDLEN
 #define PKTFRAGUSEDLEN(osh, lb)			(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGUSEDLEN
 #define PKTSETFRAGUSEDLEN(osh, lb, len)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTFRAGLEN
 #define PKTFRAGLEN(osh, lb, ix)			(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGLEN
 #define PKTSETFRAGLEN(osh, lb, ix, len)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTFRAGDATA_LO
 #define PKTFRAGDATA_LO(osh, lb, ix)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGDATA_LO
 #define PKTSETFRAGDATA_LO(osh, lb, ix, addr)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTFRAGDATA_HI
 #define PKTFRAGDATA_HI(osh, lb, ix)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETFRAGDATA_HI
 #define PKTSETFRAGDATA_HI(osh, lb, ix, addr)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 #ifndef PKTFRAGMOVE
 #define PKTFRAGMOVE(osh, dst, src) (BCM_REFERENCE(osh), BCM_REFERENCE(dst), BCM_REFERENCE(src))
-#endif // endif
+#endif
 
 /* RX FRAG */
 #ifndef PKTISRXFRAG
 #define PKTISRXFRAG(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETRXFRAG
 #define PKTSETRXFRAG(osh, lb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTRESETRXFRAG
 #define PKTRESETRXFRAG(osh, lb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 /* TX FRAG */
 #ifndef PKTISTXFRAG
 #define PKTISTXFRAG(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTSETTXFRAG
 #define PKTSETTXFRAG(osh, lb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 /* Need Rx completion used for AMPDU reordering */
 #ifndef PKTNEEDRXCPL
 #define PKTNEEDRXCPL(osh, lb)           (TRUE)
-#endif // endif
+#endif
 #ifndef PKTSETNORXCPL
 #define PKTSETNORXCPL(osh, lb)          BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTRESETNORXCPL
 #define PKTRESETNORXCPL(osh, lb)        BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTISFRAG
 #define PKTISFRAG(osh, lb)		(0)
-#endif // endif
+#endif
 #ifndef PKTFRAGISCHAINED
 #define PKTFRAGISCHAINED(osh, i)	(0)
-#endif // endif
+#endif
 #ifndef PKTISHDRCONVTD
 #define PKTISHDRCONVTD(osh, lb)		(0)
-#endif // endif
+#endif
 
 /* Forwarded pkt indication */
 #ifndef PKTISFRWDPKT
 #define PKTISFRWDPKT(osh, lb)		0
-#endif // endif
+#endif
 #ifndef PKTSETFRWDPKT
 #define PKTSETFRWDPKT(osh, lb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTRESETFRWDPKT
 #define PKTRESETFRWDPKT(osh, lb)	BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 /* Forwarded pkt indication */
 #ifndef PKTISUSEDTOTLEN
 #define PKTISUSEDTOTLEN(osh, lb)		0
-#endif // endif
+#endif
 #ifndef PKTSETUSEDTOTLEN
 #define PKTSETUSEDTOTLEN(osh, lb)		BCM_REFERENCE(osh)
-#endif // endif
+#endif
 #ifndef PKTRESETUSEDTOTLEN
 #define PKTRESETUSEDTOTLEN(osh, lb)             BCM_REFERENCE(osh)
-#endif // endif
+#endif
 
 #ifndef ROMMABLE_ASSERT
 #define ROMMABLE_ASSERT(exp) ASSERT(exp)

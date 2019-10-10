@@ -483,7 +483,7 @@ static void process_file(struct task_struct *task,
 			int function,
 			struct file_verification_result *result)
 {
-	struct inode *inode = file_inode(file);
+	struct inode *inode = d_real_inode(file_dentry(file));
 	struct integrity_iint_cache *iint = NULL;
 	struct five_cert cert = { {0} };
 	struct five_cert *pcert = NULL;

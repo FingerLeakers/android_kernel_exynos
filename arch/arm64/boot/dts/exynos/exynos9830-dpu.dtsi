@@ -258,7 +258,7 @@
 	};
 
 	mipi_phy_dsim0_m4m4: dphy_m4m4_dsim0@0x190E0000 {
-		compatible = "samsung,mipi-phy-m4m4";
+		compatible = "samsung,mipi-phy-m4m4-top";
 		samsung,pmu-syscon = <&pmu_system_controller>;
 		isolation = <0x0710>;
 		owner = <0>; /* 0: DSI_0 1: DSI_1 */
@@ -283,7 +283,7 @@
 	panel_0: panel_0 {
 		compatible = "samsung,exynos-panel";
 		ddi_id = <0x000001>;
-		lcd_info = <&s6e3ha8>, <&s6e3ha9>;
+		lcd_info = <&s6e3hab>, <&s6e3ha8>, <&s6e3ha9>;
 	};
 
 	panel_drv_0: panel_drv@0 {

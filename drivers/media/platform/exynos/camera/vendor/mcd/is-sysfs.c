@@ -1909,6 +1909,76 @@ static ssize_t camera_rear_tof_moduleid_show(struct device *dev,
 }
 #endif
 
+static int camera_tof_laser_error_flag(int position, u32 mode, int *value)
+{
+	struct is_core *core;
+	struct is_device_sensor *device;
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri;
+	struct is_cis *cis = NULL;
+	int i;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("%s: core is NULL", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		device = &core->sensor[i];
+		is_search_sensor_module_with_position(&core->sensor[i],
+				position, &module);
+		if (module)
+			break;
+	}
+
+	WARN_ON(!module);
+
+	sensor_peri = (struct is_device_sensor_peri *)module->private_data;
+
+	WARN_ON(!sensor_peri);
+
+	if (sensor_peri->subdev_cis) {
+		cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
+		CALL_CISOPS(cis, cis_get_tof_laser_error_flag, sensor_peri->subdev_cis, mode, value);
+	}
+	return *value;
+}
+
+static ssize_t camera_rear_tof_laser_error_flag_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int value;
+
+	if (!is_dev) {
+		dev_err(dev, "%s: is_dev is not yet probed", __func__);
+		return -ENODEV;
+	}
+
+	if (camera_tof_laser_error_flag(SENSOR_POSITION_REAR_TOF, 0, &value) < 0) {
+		return sprintf(buf, "NG\n");
+	}
+
+	return sprintf(buf, "%x\n", value);
+}
+
+static ssize_t camera_rear_tof_laser_error_flag_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	u16 mode;
+	int value;
+	int ret_count;
+
+	if (!is_dev) {
+		dev_err(dev, "%s: is_dev is not yet probed", __func__);
+		return -ENODEV;
+	}
+
+	ret_count = sscanf(buf, "%d", &mode);
+	camera_tof_laser_error_flag(SENSOR_POSITION_REAR_TOF, mode, &value);
+	return count;
+}
+
 #ifdef CAMERA_REAR_TOF_CAL
 static ssize_t camera_rear_tof_get_validation_data_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1940,8 +2010,8 @@ static ssize_t camera_rear_tof_get_validation_data_show(struct device *dev,
 	is_sec_get_sysfs_finfo(&finfo, rom_id);
 	is_sec_get_cal_buf(&cal_buf, rom_id);
 
-	val_data[0] = *(u16*)&cal_buf[finfo->rom_tof_cal_validation_addr[1]]; 		/* 2Byte from 121E (300mm validation) */
-	val_data[1] = *(u16*)&cal_buf[finfo->rom_tof_cal_validation_addr[0]];		/* 2Byte from 1200 (500mm validation) */
+	val_data[0] = *(u16*)&cal_buf[finfo->rom_tof_cal_validation_addr[1]]; 		/* 2Byte from 11EE (300mm validation) */
+	val_data[1] = *(u16*)&cal_buf[finfo->rom_tof_cal_validation_addr[0]];		/* 2Byte from 11D0 (500mm validation) */
 
 	return sprintf(buf, "%d,%d", val_data[0]/100, val_data[1]/100);
 
@@ -4232,6 +4302,7 @@ static DEVICE_ATTR(rear_tof_camfw, S_IRUGO, camera_rear_tof_camfw_show, camera_r
 static DEVICE_ATTR(rear_tof_camfw_full, S_IRUGO, camera_rear_tof_camfw_full_show, NULL);
 static DEVICE_ATTR(rear_tof_checkfw_factory, S_IRUGO, camera_rear_tof_checkfw_factory_show, NULL);
 static DEVICE_ATTR(rear_tof_sensorid_exif, S_IRUGO, camera_rear_tof_sensorid_exif_show, NULL);
+static DEVICE_ATTR(rear_tof_laser_error_flag, 0644, camera_rear_tof_laser_error_flag_show, camera_rear_tof_laser_error_flag_store);
 #ifdef CAMERA_REAR4_TOF_MODULEID
 static DEVICE_ATTR(rear4_moduleid, S_IRUGO, camera_rear_tof_moduleid_show, NULL);
 static DEVICE_ATTR(SVC_rear_module4, S_IRUGO, camera_rear_tof_moduleid_show, NULL);
@@ -4954,6 +5025,10 @@ int is_create_sysfs(struct is_core *core)
 					dev_attr_SVC_rear_module4.attr.name);
 		}
 #endif
+		if (device_create_file(camera_rear_dev, &dev_attr_rear_tof_laser_error_flag) < 0) {
+			pr_err("failed to create rear device file, %s\n",
+					dev_attr_rear_tof_laser_error_flag.attr.name);
+		}
 #ifdef CAMERA_REAR_TOF_CAL
 		if (device_create_file(camera_rear_dev, &dev_attr_rear_tofcal) < 0) {
 			pr_err("failed to create rear device file, %s\n",
@@ -5393,6 +5468,7 @@ int is_destroy_sysfs(struct is_core *core)
 #ifdef CAMERA_REAR4_TOF_MODULEID
 		device_remove_file(camera_rear_dev, &dev_attr_rear4_moduleid);
 #endif
+		device_remove_file(camera_rear_dev, &dev_attr_rear_tof_laser_error_flag);
 #ifdef CAMERA_REAR_TOF_CAL
 		device_remove_file(camera_rear_dev, &dev_attr_rear_tofcal);
 		device_remove_file(camera_rear_dev, &dev_attr_rear_tofcal_extra);

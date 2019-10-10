@@ -983,7 +983,7 @@ static int abox_ddma_set_buffer(struct abox_dma_data *data)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	if(dump->area)
+	if (dump->area)
 		dev_err(dev, "memory leak suspected\n");
 
 	dump->bytes = ABOX_DDMA_BUFFER_SIZE;

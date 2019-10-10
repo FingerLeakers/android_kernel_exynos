@@ -12,6 +12,7 @@
 #define IS_HW_PDP_V1_0_0_H
 
 #include "is-hw-api-common.h"
+#include "is-common-config.h"
 
 #define SENSOR_TYPE_MSPD		(0)
 #define SENSOR_TYPE_MOD1		(1)
@@ -74,6 +75,8 @@ enum pdp_int1 {
 	DMACLIENTS_ERROR_IRQ		= 31, /* AXI encapsulated errors */
 	PDP_INT1_CNT,
 };
+
+#if defined(VOTF_ONESHOT)
 #define INT1_EN_MASK	((0)\
 			|(1 << FRAME_START)\
 			|(1 << FRAME_END_INTERRUPT)\
@@ -104,6 +107,22 @@ enum pdp_int1 {
 			|(1 << LIC_COLUMNS_ERROR_INT)\
 			|(1 << LIC_STREAM_OVERFLOW_SIG)\
 			|(1 << DMACLIENTS_ERROR_IRQ))
+#else
+#define INT1_EN_MASK   ((0)\
+			|(1 << FRAME_END_INTERRUPT)\
+			|(1 << FRAME_INT_ON_ROW_COL_INFO)\
+			|(1 << IRQ_CORRUPTED)\
+			|(1 << COREX_ERROR_INT)\
+			|(1 << PRE_FRAME_END_INTERRUPT)\
+			|(1 << COUTFIFO_SIZE_ERROR)\
+			|(1 << COUTFIFO_LINE_ERROR)\
+			|(1 << COUTFIFO_COL_ERROR)\
+			|(1 << COUTFIFO_OVERFLOW_ERROR)\
+			|(1 << LIC_LINES_ERROR_INT)\
+			|(1 << LIC_COLUMNS_ERROR_INT)\
+			|(1 << LIC_STREAM_OVERFLOW_SIG)\
+			|(1 << DMACLIENTS_ERROR_IRQ))
+#endif
 
 #define INT1_ERR_MASK	((0)\
 			/* |(1 << FRAME_START) */\
@@ -10260,6 +10279,95 @@ const struct is_pdp_reg pdp_global_init_table[] =  {
 	/* {0x00000001, 0x0084}, */
 	/* {0x00000001, 0x0110}, */ /* CONTINT */
 	/* {0x00000002, 0x0110}, */ /* CONTINT */
+};
+
+#define SDC_WIDTH_HD	(1280)
+#define SDC_WIDTH_FHD	(2016)
+
+const struct is_pdp_reg pdp_sdc_setfile_hd[] =  {
+	{0x00094301, 0x2c00},
+	{0x01400140, 0x2c04},
+	{0x000000c8, 0x2c08},
+	{0x00c800c8, 0x2c0c},
+#if defined(SDC_HEADER_GEN)
+	{0x050002d2, 0x2c10},
+#else
+	{0x050002d0, 0x2c10},
+#endif
+	{0x07080902, 0x2c14},
+	{0x0000000c, 0x2c18},
+#if defined(SDC_HEADER_GEN)
+	{0x0b480004, 0x2c1c},
+#else
+	{0x0b400004, 0x2c1c},
+#endif
+	{0x000001c0, 0x2c20},
+	{0x000000a0, 0x2c24},
+	{0x000000c0, 0x2c28},
+	{0x76654444, 0x2c2c},
+	{0x44445667, 0x2c30},
+	{0x65544433, 0x2c34},
+	{0x33444556, 0x2c38},
+	{0x65443333, 0x2c3c},
+	{0x33334456, 0x2c40},
+	{0x54443332, 0x2c44},
+	{0x23334445, 0x2c48},
+	{0x54433311, 0x2c4c},
+	{0x11333445, 0x2c50},
+	{0x54433210, 0x2c54},
+	{0x01233445, 0x2c58},
+	{0x54433210, 0x2c5c},
+	{0x01233445, 0x2c60},
+	{0x54433311, 0x2c64},
+	{0x11333445, 0x2c68},
+	{0x54443332, 0x2c6c},
+	{0x23334445, 0x2c70},
+	{0x65443333, 0x2c74},
+	{0x33334456, 0x2c78},
+	{0x65544433, 0x2c7c},
+	{0x33444556, 0x2c80},
+	{0x76654444, 0x2c84},
+	{0x44445667, 0x2c88},
+	{0x00000000, 0x2c8c},
+	{0x00000400, 0x2c90},
+	{0x8fffffff, 0x2c94},
+	{0xffffffff, 0x2c98},
+	{0x00000000, 0x2c9c},
+	{0x00000801, 0x2ca0},
+	{0x0fffffff, 0x2ca4},
+	{0xffffffff, 0x2ca8},
+	{0x00000000, 0x2cac},
+	{0x00000802, 0x2cb0},
+	{0x0fffffff, 0x2cb4},
+	{0xffffffff, 0x2cb8},
+	{0x00000000, 0x2cbc},
+	{0x00001002, 0x2cc0},
+	{0x0fffffff, 0x2cc4},
+	{0xffffffff, 0x2cc8},
+	{0x00000000, 0x2ccc},
+	{0x00002004, 0x2cd0},
+	{0x0fffffff, 0x2cd4},
+	{0xffffffff, 0x2cd8},
+	{0x000000ff, 0x2cdc},
+	{0x000000ff, 0x2ce0},
+	{0x000000ff, 0x2ce4},
+	{0x000000ff, 0x2ce8},
+	{0x000000ff, 0x2cec},
+	{0x00120028, 0x2cf0},
+	{0x0000003c, 0x2cf4},
+	{0x00000000, 0x2cf8},
+	{0x00000000, 0x2cfc},
+	{0x00000000, 0x2d00},
+	{0x00000000, 0x2d04},
+	{0x00000000, 0x2d08},
+	{0x00000000, 0x2d0c},
+	{0x00000000, 0x2d10},
+	{0x00000000, 0x2d14},
+	{0x00000000, 0x2d18},
+};
+
+const struct is_pdp_reg pdp_sdc_setfile_fhd[] =  {
+	/* TODO */
 };
 
 #endif

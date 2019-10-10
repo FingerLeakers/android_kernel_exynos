@@ -126,6 +126,7 @@ typedef volatile struct {
 	uint32	clk_ctl_st;		/* 0x1e0 */
 	uint32	workaround;		/* 0x1e4 */
 	uint32  powerctl;		/* 0x1e8 */
+	uint32  powerctl2;		/* 0x1ec */
 } ca7regs_t;
 #define ARM_CA7_REG(regs, reg)	(&((ca7regs_t *)regs)->reg)
 

@@ -236,8 +236,8 @@ static int is_ischain_mxp_adjust_crop(struct is_device_ischain *device,
 
 	if (*output_crop_w > input_crop_w * MXP_RATIO_UP) {
 		mwarn("Cannot be scaled up beyond %d times(%d -> %d)",
-			device, MXP_RATIO_UP, input_crop_h, *output_crop_h);
-		*output_crop_h = input_crop_h * MXP_RATIO_UP;
+			device, MXP_RATIO_UP, input_crop_w, *output_crop_w);
+		*output_crop_w = input_crop_w * MXP_RATIO_UP;
 		changed |= 0x01;
 	}
 

@@ -43,43 +43,46 @@ struct dsp_link_info *dsp_link_info_create(struct dsp_elf32 *elf)
 		l_info->sec[idx] = -1;
 
 	l_info->elf = elf;
+	dsp_list_head_init(&l_info->reloc_sym);
 	return l_info;
 }
 
 void dsp_link_info_free(struct dsp_link_info *info)
 {
 	dsp_dl_free(info->sec);
+	dsp_list_free(&info->reloc_sym,
+		struct dsp_reloc_sym, node);
 }
 
 void dsp_link_info_print(struct dsp_link_info *info)
 {
 	struct dsp_elf32 *elf = info->elf;
+	struct dsp_list_node *node;
 	int idx;
 
-	DL_INFO(DL_BORDER);
-	DL_INFO("text start address : 0x%lx\n", info->text);
-	DL_INFO("text size : %zu(0x%x)\n", info->text_size,
+	DL_DEBUG("text start address : 0x%lx\n", info->text);
+	DL_DEBUG("text size : %zu(0x%x)\n", info->text_size,
 		(unsigned int)info->text_size);
-	DL_INFO("DMb start address : 0x%lx\n", info->DMb);
-	DL_INFO("DMb size : %zu(0x%x)\n", info->DMb_size,
+	DL_DEBUG("DMb start address : 0x%lx\n", info->DMb);
+	DL_DEBUG("DMb size : %zu(0x%x)\n", info->DMb_size,
 		(unsigned int)info->DMb_size);
-	DL_INFO("DMb_local start address : 0x%lx\n", info->DMb_local);
-	DL_INFO("DMb_local size : %zu(0x%x)\n", info->DMb_local_size,
+	DL_DEBUG("DMb_local start address : 0x%lx\n", info->DMb_local);
+	DL_DEBUG("DMb_local size : %zu(0x%x)\n", info->DMb_local_size,
 		(unsigned int)info->DMb_local_size);
-	DL_INFO("DRAMb start address : 0x%lx\n", info->DRAMb);
-	DL_INFO("DRAMb size : %zu(0x%x)\n", info->DRAMb_size,
+	DL_DEBUG("DRAMb start address : 0x%lx\n", info->DRAMb);
+	DL_DEBUG("DRAMb size : %zu(0x%x)\n", info->DRAMb_size,
 		(unsigned int)info->DRAMb_size);
-	DL_INFO("TCMb start address : 0x%lx\n", info->TCMb);
-	DL_INFO("TCMb size : %zu(0x%x)\n", info->TCMb_size,
+	DL_DEBUG("TCMb start address : 0x%lx\n", info->TCMb);
+	DL_DEBUG("TCMb size : %zu(0x%x)\n", info->TCMb_size,
 		(unsigned int)info->TCMb_size);
-	DL_INFO("TCMb_local start address : 0x%lx\n", info->TCMb_local);
-	DL_INFO("TCMb_local size : %zu(0x%x)\n", info->TCMb_local_size,
+	DL_DEBUG("TCMb_local start address : 0x%lx\n", info->TCMb_local);
+	DL_DEBUG("TCMb_local size : %zu(0x%x)\n", info->TCMb_local_size,
 		(unsigned int)info->TCMb_local_size);
-	DL_INFO("SFRw start address : 0x%lx\n", info->SFRw);
-	DL_INFO("SFRw size : %zu(0x%x)\n", info->SFRw_size,
+	DL_DEBUG("SFRw start address : 0x%lx\n", info->SFRw);
+	DL_DEBUG("SFRw size : %zu(0x%x)\n", info->SFRw_size,
 		(unsigned int)info->SFRw_size);
 
-	DL_INFO("Section address\n");
+	DL_DEBUG("Section address\n");
 
 	for (idx = 0; idx < elf->hdr->e_shnum; idx++) {
 		struct dsp_elf32_shdr *shdr = &elf->shdr[idx];
@@ -87,7 +90,15 @@ void dsp_link_info_print(struct dsp_link_info *info)
 		DL_BUF_STR("[%d] ", idx);
 		DL_BUF_STR("%s ", elf->shstrtab + shdr->sh_name);
 		DL_BUF_STR("0x%lx\n", info->sec[idx]);
-		DL_PRINT_BUF(INFO);
+		DL_PRINT_BUF(DEBUG);
+	}
+
+	dsp_list_for_each(node, &info->reloc_sym) {
+		struct dsp_reloc_sym *sym_info = container_of(node,
+				struct dsp_reloc_sym, node);
+		DL_INFO("Symbol(%s) value(0x%x) addr(0x%x)\n",
+			sym_info->sym_str, sym_info->value,
+			sym_info->value * sym_info->align);
 	}
 }
 
@@ -237,7 +248,10 @@ unsigned int dsp_link_info_get_kernel_addr(struct dsp_link_info *info,
 	int ret;
 	struct dsp_elf32 *elf = info->elf;
 	struct dsp_elf32_sym *sym;
+	struct dsp_reloc_sym *reloc_sym;
+	unsigned int sym_align;
 	unsigned long sec_addr;
+	unsigned int kernel_addr;
 
 	if (kernel_name == NULL)
 		return 0;
@@ -248,16 +262,27 @@ unsigned int dsp_link_info_get_kernel_addr(struct dsp_link_info *info,
 		return (unsigned int) -1;
 	}
 
-	sec_addr = info->sec[sym->st_shndx];
-	DL_DEBUG("sh ndx: %u, sec addr: %lu, sym value: %u, align value: %u\n",
-		sym->st_shndx, sec_addr, sym->st_value,
-		elf->shdr[sym->st_shndx].sh_addralign);
+	sym_align = elf->shdr[sym->st_shndx].sh_addralign;
 
-	DL_INFO("kernel name : %s(0x%x)\n", kernel_name,
-		(unsigned int)(sec_addr /
-			elf->shdr[sym->st_shndx].sh_addralign));
-	return (unsigned int)(sec_addr / elf->shdr[sym->st_shndx].sh_addralign +
-			sym->st_value);
+	sec_addr = info->sec[sym->st_shndx];
+	kernel_addr = (unsigned int)(sec_addr /
+			sym_align + sym->st_value);
+
+	DL_DEBUG("sh ndx: %u, sec addr: %lu, sym value: %u, align value: %u\n",
+		sym->st_shndx, sec_addr, sym->st_value, sym_align);
+	DL_INFO("kernel name(%s) value(0x%x) addr(0x%x)\n",
+		kernel_name, kernel_addr, kernel_addr * sym_align);
+
+	reloc_sym = (struct dsp_reloc_sym *)dsp_dl_malloc(
+			sizeof(struct dsp_reloc_sym),
+			"Information of symbol of kernel");
+	reloc_sym->sym_str = kernel_name;
+	reloc_sym->value = kernel_addr;
+	reloc_sym->align = sym_align;
+	dsp_list_node_init(&reloc_sym->node);
+	dsp_list_node_push_back(&info->reloc_sym, &reloc_sym->node);
+
+	return kernel_addr;
 }
 
 void dsp_linker_alloc_bss(struct dsp_elf32 *elf)
@@ -717,37 +742,50 @@ static int __calc_link_value(struct dsp_lib *lib, unsigned int *value,
 	struct dsp_link_info *sym_info = NULL;
 	struct dsp_elf32_sym *real_sym = NULL;
 
+	unsigned int sym_align = 1;
+	struct dsp_reloc_sym *reloc_sym;
+
 	ret = __calc_gp_link_value(lib, value, sym_str);
-	if (!ret) {
-		DL_DEBUG("value : %u\n", *value);
-		return 0;
-	}
-
-	rela_info = lib->link_info;
-	ruleidx = dsp_elf32_rela_get_rule_idx(rela);
-	rule = rules->list[ruleidx];
-
-	ret = dsp_hash_get(&rela_info->elf->symhash, sym_str,
-			(void **)&real_sym);
 	if (ret == -1) {
-		DL_DEBUG("Sym(%s) is external variable\n", sym_str);
+		rela_info = lib->link_info;
+		ruleidx = dsp_elf32_rela_get_rule_idx(rela);
+		rule = rules->list[ruleidx];
 
-		__find_real_sym(&real_sym, &sym_info, sym_str, rela_info,
-			libs, libs_size);
+		ret = dsp_hash_get(&rela_info->elf->symhash, sym_str,
+				(void **)&real_sym);
+		if (ret == -1) {
+			DL_DEBUG("Sym(%s) is external variable\n", sym_str);
 
-		if (!sym_info) {
-			DL_ERROR("Symbol(%s) is not found at all libraries\n",
-				sym_str);
-			return -1;
+			__find_real_sym(&real_sym, &sym_info, sym_str,
+				rela_info, libs, libs_size);
+
+			if (!sym_info) {
+				DL_ERROR("Symbol(%s) is not found\n",
+					sym_str);
+				return -1;
+			}
+		} else {
+			DL_DEBUG("Sym(%s) is internal variable\n", sym_str);
+			sym_info = rela_info;
 		}
-	} else {
-		DL_DEBUG("Sym(%s) is internal variable\n", sym_str);
-		sym_info = rela_info;
+
+		*value = __rule_get_value(rule, sym_info, rela_info, rela_shdr,
+				real_sym, rela);
 	}
 
-	*value = __rule_get_value(rule, sym_info, rela_info, rela_shdr,
-			real_sym, rela);
+	if (real_sym)
+		sym_align = lib->elf->shdr[real_sym->st_shndx].sh_addralign;
+
 	DL_DEBUG("value : %u\n", *value);
+
+	reloc_sym = (struct dsp_reloc_sym *)dsp_dl_malloc(
+			sizeof(struct dsp_reloc_sym),
+			"Information of symbol relocated");
+	reloc_sym->sym_str = sym_str;
+	reloc_sym->value = *value;
+	reloc_sym->align = sym_align;
+	dsp_list_node_init(&reloc_sym->node);
+	dsp_list_node_push_back(&lib->link_info->reloc_sym, &reloc_sym->node);
 
 	return 0;
 }
@@ -921,7 +959,8 @@ static int __rela_relocation(struct dsp_lib *lib, struct dsp_elf32_rela *rela,
 		return -1;
 	}
 
-	DL_DEBUG("Symbol(%s) Link value : %x\n", sym_str, value);
+	DL_DEBUG("Symbol(%s) Link value(%x)", sym_str, value);
+
 
 	__process_rule(lib, rule, rela_shdr, value, rela);
 	return 0;

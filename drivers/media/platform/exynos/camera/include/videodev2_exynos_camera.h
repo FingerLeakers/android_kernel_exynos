@@ -207,6 +207,7 @@ enum is_fw_boot_mode {
 
 #define V4L2_CID_IS_S_NFD_DATA			(V4L2_CID_FIMC_IS_BASE + 79)
 #define V4L2_CID_IS_G_SETFILE_VERSION	(V4L2_CID_FIMC_IS_BASE + 80)
+#define V4L2_CID_IS_HW_SYNC_CAMERA	(V4L2_CID_FIMC_IS_BASE + 81)
 
 #define V4L2_CID_IS_SCENE_MODE			(V4L2_CID_FIMC_IS_BASE + 667)
 
@@ -299,16 +300,25 @@ enum v4l2_is_hal_version {
 /* for FRS */
 #define V4L2_CID_SENSOR_SET_FRS_CONTROL			(V4L2_CID_SENSOR_BASE + 120)
 enum v4l2_cis_frs_command {
-	FRS_SSM_START = 0,
-	FRS_SSM_MANUAL_CUE_ENABLE,
+	FRS_SSM_START = 0,			/* Only used in 3statck sensor */
+	FRS_SSM_MANUAL_CUE_ENABLE,		/* Only used in 3statck sensor */
 	FRS_SSM_STOP,
-	FRS_SSM_MODE_AUTO_MANUAL_CUE_16,
-	FRS_SSM_MODE_AUTO_MANUAL_CUE_32,
-	FRS_SSM_MODE_AUTO_MANUAL_CUE_48,
-	FRS_SSM_MODE_AUTO_MANUAL_CUE_64,
-	FRS_SSM_MODE_ONLY_MANUAL_CUE,
+	FRS_SSM_MODE_AUTO_MANUAL_CUE_16,	/* Only used in 3statck sensor */
+	FRS_SSM_MODE_AUTO_MANUAL_CUE_32,	/* Only used in 3statck sensor */
+	FRS_SSM_MODE_AUTO_MANUAL_CUE_48,	/* Only used in 3statck sensor */
+	FRS_SSM_MODE_AUTO_MANUAL_CUE_64,	/* Only used in 3statck sensor */
+	FRS_SSM_MODE_ONLY_MANUAL_CUE,		/* Only used in 3statck sensor */
 	FRS_SSM_MODE_FACTORY_TEST,
 	FRS_DRAM_TEST_SECTION2,
+	FRS_SSM_MODE_FLICKER_DETECT_OFF,  	/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FLICKER_DETECT_50,   	/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FLICKER_DETECT_60,   	/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FLICKER_DETECT_50_60,	/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FPS_960, 			/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FPS_480, 			/* Only used in 2statck sensor */
+	FRS_SSM_MANUAL_MODE_START, 		/* Only used in 2statck sensor */
+	FRS_SSM_AUTO_MODE_START, 		/* Only used in 2statck sensor */
+	FRS_SSM_MODE_MITIGATION_ENABLE, 	/* Only used in 2statck sensor */
 	FRS_CMD_MAX,
 };
 #define V4L2_CID_SENSOR_SET_SSM_ROI			(V4L2_CID_SENSOR_BASE + 121)

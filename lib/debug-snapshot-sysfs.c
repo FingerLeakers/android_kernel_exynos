@@ -164,6 +164,14 @@ static ssize_t dss_irqlog_exlist_store(struct device *dev,
 	return count;
 }
 
+#ifdef CONFIG_SEC_PM_DEBUG
+static ssize_t dss_log_work_show(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return dss_log_work_print(buf);
+}
+#endif /* CONFIG_SEC_PM_DEBUG */
+
 static struct device_attribute dss_enable_attr =
 __ATTR(enabled, 0644, dss_enable_show, dss_enable_store);
 
@@ -174,10 +182,18 @@ static struct device_attribute dss_irqlog_attr =
 __ATTR(exlist_irqdisabled, 0644, dss_irqlog_exlist_show,
 					dss_irqlog_exlist_store);
 
+#ifdef CONFIG_SEC_PM_DEBUG
+static struct kobj_attribute dss_log_work_attr =
+__ATTR(kworker, 0444, dss_log_work_show, NULL);
+#endif /* CONFIG_SEC_PM_DEBUG */
+
 static struct attribute *dss_sysfs_attrs[] = {
 	&dss_enable_attr.attr,
 	&dss_callstack_attr.attr,
 	&dss_irqlog_attr.attr,
+#ifdef CONFIG_SEC_PM_DEBUG
+	&dss_log_work_attr.attr,
+#endif /* CONFIG_SEC_PM_DEBUG */
 	NULL,
 };
 
