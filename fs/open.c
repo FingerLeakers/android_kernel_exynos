@@ -38,6 +38,879 @@
 #include <linux/defex.h>
 #endif
 
+#include <linux/../../fs/proc/internal.h>
+#include <linux/configfs.h>
+#include <linux/../../fs/configfs/configfs_internal.h>
+#include <linux/fb.h>
+#include <linux/list.h>
+#include <linux/../../fs/sdcardfs/sdcardfs.h>
+#include <media/v4l2-dev.h>
+#include <sound/hwdep.h>
+#include <linux/cpuidle.h>
+#include <linux/../../block/blk-mq-debugfs.h>
+#include <linux/f2fs_fs.h> // without this header, header below will give errors
+#include <linux/../../fs/f2fs/f2fs.h>
+#include <linux/debugfs.h>
+
+struct function_entry {
+	char name[128]; // for now it is enough length, but it is possible that in the future function name can be longer then 128
+	void *ptr;
+	int branch_nr;
+	unsigned int count;
+	struct list_head list;
+};
+
+struct slab_attribute {
+	struct attribute attr;
+	ssize_t (*show)(struct kmem_cache *s, char *buf);
+	ssize_t (*store)(struct kmem_cache *s, const char *x, size_t count);
+};
+
+struct queue_sysfs_entry {
+	struct attribute attr;
+	ssize_t (*show)(struct request_queue *, char *);
+	ssize_t (*store)(struct request_queue *, const char *, size_t);
+};
+
+struct param_attribute
+{
+	struct module_attribute mattr;
+	const struct kernel_param *param;
+};
+
+struct cpuidle_state_attr {
+	struct attribute attr;
+	ssize_t (*show)(struct cpuidle_state *, struct cpuidle_state_usage *, char *);
+	ssize_t (*store)(struct cpuidle_state *, struct cpuidle_state_usage *, const char *, size_t);
+};
+
+struct f2fs_attr {
+	struct attribute attr;
+	ssize_t (*show)(struct f2fs_attr *, struct f2fs_sb_info *, char *);
+	ssize_t (*store)(struct f2fs_attr *, struct f2fs_sb_info *,
+			 const char *, size_t);
+	int struct_type;
+	int offset;
+	int id;
+};
+
+struct simple_attr {
+	int (*get)(void *, u64 *);
+	int (*set)(void *, u64);
+	char get_buf[24];	/* enough to store a u64 and "\n\0" */
+	char set_buf[24];
+	void *data;
+	const char *fmt;	/* format for read operation */
+	struct mutex mutex;	/* protects access to these buffers */
+};
+
+#define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
+
+#define to_slab_attr(n) container_of(n, struct slab_attribute, attr)
+
+#define to_queue(atr) container_of((atr), struct queue_sysfs_entry, attr)
+
+#define to_drv_attr(_attr) container_of(_attr, struct driver_attribute, attr)
+
+#define to_module_attr(n) container_of(n, struct module_attribute, attr)
+
+#define to_param_attr(n) container_of(n, struct param_attribute, mattr)
+
+#define to_elv(atr) container_of((atr), struct elv_fs_entry, attr)
+
+#define attr_to_stateattr(a) container_of(a, struct cpuidle_state_attr, attr)
+
+#define to_bus_attr(_attr) container_of(_attr, struct bus_attribute, attr)
+
+static struct kernfs_open_file *kernfs_of(struct file *file)
+{
+	return ((struct seq_file *)file->private_data)->private;
+}
+
+static const struct kernfs_ops *kernfs_ops(struct kernfs_node *kn)
+{
+	if (kn->flags & KERNFS_LOCKDEP)
+		lockdep_assert_held(kn);
+	return kn->attr.ops;
+}
+
+static const struct sysfs_ops *sysfs_file_ops(struct kernfs_node *kn)
+{
+	struct kobject *kobj = kn->parent->priv;
+	if (kn->flags & KERNFS_LOCKDEP)
+		lockdep_assert_held(kn);
+	return kobj->ktype ? kobj->ktype->sysfs_ops : NULL;
+}
+
+static struct fb_info *file_fb_info(struct file *file)
+{
+	struct inode *inode = file_inode(file);
+	int fbidx = iminor(inode);
+	struct fb_info *info = registered_fb[fbidx];
+	if (info != file->private_data)
+		info = NULL;
+	return info;
+}
+
+extern int FOKA_log(char *dev_name, struct list_head *read_backtrace, struct list_head *write_backtrace, 
+			struct list_head *mmap_backtrace, struct list_head *ioctl_backtrace, struct list_head *ioctl_c_backtrace);
+
+void secutool_trace_device(struct filename *fname, struct file *file) 
+{
+	// below are my variables to store info about fops
+	char *file_name = vmalloc(256);
+	struct list_head *read_list = vmalloc(sizeof(struct list_head));
+	struct list_head *write_list = vmalloc(sizeof(struct list_head));
+	struct list_head *mmap_list = vmalloc(sizeof(struct list_head));
+	struct list_head *ioctl_list = vmalloc(sizeof(struct list_head));
+	struct list_head *ioctl_c_list = vmalloc(sizeof(struct list_head));
+	struct function_entry *entry_read = NULL;
+	struct function_entry *entry_write = NULL;
+	struct function_entry *entry_mmap = NULL;
+	struct function_entry *entry_ioctl = NULL;
+	struct function_entry *entry_ioctl_c = NULL;
+	// here ends my variables to store info about fops
+	///////////////////////////////////////////////////
+	// below variables are for reversing fops
+	struct kernfs_open_file *of;
+	const struct kernfs_ops *ops_kern;
+	struct bin_attribute *battr;
+	struct seq_file *m;
+	const struct sysfs_ops *ops_sys;
+	struct kernfs_open_file *of_seq;
+	struct device_attribute *dev_attr;
+	struct slab_attribute *slab_attr;
+	struct inode *inode;
+	struct ctl_table *table;
+	struct kobj_attribute *kattr;
+	struct configfs_attribute * configfs_attr;
+	struct queue_sysfs_entry *queue_entry;
+	struct cftype *cft;
+	struct fb_info *info;
+	struct fb_ops *fb;
+	struct proc_dir_entry *pde;
+	struct file *lower_file;
+	struct video_device *vdev;
+	struct snd_hwdep *hw;
+	const struct file_operations *real_fops;
+	struct driver_attribute *drv_attr;
+	struct module_attribute *mattr;
+	const struct blk_mq_debugfs_attr *attr;
+	struct param_attribute *attribute;
+	struct elv_fs_entry *entry;
+	struct cpuidle_state_attr *cattr;
+	struct bus_attribute *bus_attr;
+	struct f2fs_attr *a;
+	struct simple_attr *sim_attr;
+	// struct io_device *iod; - i comment out this variables, because header with this structure is fucked up
+	// struct link_device *ld; - i comment out this variables, because header with this structure is fucked up
+	// here ends variables for reversing fops
+	//////////////////////////////////////////////////
+	// below are some temporary variables to simplify my code
+	unsigned int temp_count = 0;
+	// here ends temporary variables
+	INIT_LIST_HEAD(read_list);
+	INIT_LIST_HEAD(write_list);
+	INIT_LIST_HEAD(mmap_list);
+	INIT_LIST_HEAD(ioctl_list);
+	INIT_LIST_HEAD(ioctl_c_list);
+	if (IS_ERR_OR_NULL(fname->name) || IS_ERR_OR_NULL(file)){
+		pr_info("FOKA: invalid name or file pointer");
+		return;
+	} 
+	else{
+		strncpy(file_name, fname->name, 255);
+		// below i initialise all lists with first layer functions (functions from file_operations)
+		entry_read = vmalloc(sizeof(struct function_entry));
+		entry_write = vmalloc(sizeof(struct function_entry));
+		entry_mmap = vmalloc(sizeof(struct function_entry));
+		entry_ioctl = vmalloc(sizeof(struct function_entry));
+		entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+		if(!entry_read || !entry_write || !entry_mmap || !entry_ioctl || !entry_ioctl_c) {
+			vfree(entry_read);
+			vfree(entry_write);
+			vfree(entry_mmap);
+			vfree(entry_ioctl);
+			vfree(entry_ioctl_c);
+			return;
+		}
+		snprintf(entry_read->name, 127, "%ps", (void *) file->f_op->read);
+		snprintf(entry_write->name, 127, "%ps", (void *) file->f_op->write);
+		snprintf(entry_mmap->name, 127, "%ps", (void *) file->f_op->mmap);
+		snprintf(entry_ioctl->name, 127, "%ps", (void *) file->f_op->unlocked_ioctl);
+		snprintf(entry_ioctl_c->name, 127, "%ps", (void *) file->f_op->compat_ioctl);
+		entry_read->ptr = (void *) file->f_op->read;
+		entry_write->ptr = (void *) file->f_op->write;
+		entry_mmap->ptr = (void *) file->f_op->mmap;
+		entry_ioctl->ptr = (void *) file->f_op->unlocked_ioctl;
+		entry_ioctl_c->ptr = (void *) file->f_op->compat_ioctl;
+		entry_read->branch_nr = -1;
+		entry_write->branch_nr = -1;
+		entry_mmap->branch_nr = -1;
+		entry_ioctl->branch_nr = -1;
+		entry_ioctl_c->branch_nr = -1;
+		entry_read->count = 1;
+		entry_write->count = 1;
+		entry_mmap->count = 1;
+		entry_ioctl->count = 1;
+		entry_ioctl_c->count = 1;
+		list_add_tail(&entry_read->list, read_list);
+		list_add_tail(&entry_write->list, write_list);
+		list_add_tail(&entry_mmap->list, mmap_list);
+		list_add_tail(&entry_ioctl->list, ioctl_list);
+		list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+		// we finished initialising all lists
+		temp_count = 1; // we set our function count to 1, because we already have one function on out "stack"
+		////////////////////////////////////////////////
+		// below we start "reversing" read function
+		if(strstr(entry_read->name, "kernfs_fop_read")){
+			of = kernfs_of(file);
+			if(of->kn->flags & KERNFS_HAS_SEQ_SHOW) {	// this condition is copied from kernfs_fop_read function			
+				m = file->private_data;
+				if(m && m->op && m->op->show) {
+					entry_read = vmalloc(sizeof(struct function_entry));
+					if(!entry_read)
+						goto vmalloc_failed;
+					snprintf(entry_read->name, 127, "%ps", (void *) m->op->show);
+					entry_read->ptr = (void *) m->op->show;
+					entry_read->branch_nr = -1;
+					entry_read->count = ++temp_count;
+					list_add_tail(&entry_read->list, read_list);
+					if(strstr(entry_read->name, "kernfs_seq_show")) {
+						of_seq = m->private;
+						if(of_seq->kn->attr.ops->seq_show){ // this reverse was copied from kernfs_seq_show
+							entry_read = vmalloc(sizeof(struct function_entry));
+							if(!entry_read)
+								goto vmalloc_failed;
+							snprintf(entry_read->name, 127, "%ps", (void *) of_seq->kn->attr.ops->seq_show);
+							entry_read->ptr = (void *) of_seq->kn->attr.ops->seq_show;
+							entry_read->branch_nr = -1;
+							entry_read->count = ++temp_count;
+							list_add_tail(&entry_read->list, read_list);
+							if(strstr(entry_read->name, "sysfs_kf_seq_show")) {
+								ops_sys = sysfs_file_ops(of_seq->kn);
+								if(ops_sys && ops_sys->show){
+									entry_read = vmalloc(sizeof(struct function_entry));
+									if(!entry_read)
+										goto vmalloc_failed;
+									snprintf(entry_read->name, 127, "%ps", (void *) ops_sys->show);
+									entry_read->ptr = (void *) ops_sys->show;
+									entry_read->branch_nr = -1;
+									entry_read->count = ++temp_count;
+									list_add_tail(&entry_read->list, read_list);
+									if(strstr(entry_read->name, "dev_attr_show")) {
+										dev_attr = to_dev_attr(of_seq->kn->priv);
+										if(dev_attr && dev_attr->show){
+											entry_read = vmalloc(sizeof(struct function_entry));
+											if(!entry_read)
+												goto vmalloc_failed;
+											snprintf(entry_read->name, 127, "%ps", (void *) dev_attr->show);
+											entry_read->ptr = (void *) dev_attr->show;
+											entry_read->branch_nr = -1;
+											entry_read->count = ++temp_count;
+											list_add_tail(&entry_read->list, read_list);
+										}	
+									}	
+								}
+							}
+						}
+					}
+				}
+			}
+			else{
+				ops_kern = kernfs_ops(of->kn);
+				if(ops_kern && ops_kern->read){
+					entry_read = vmalloc(sizeof(struct function_entry));
+					if(!entry_read)
+						goto vmalloc_failed;
+					snprintf(entry_read->name, 127, "%ps", (void *) ops_kern->read);
+					entry_read->ptr = (void *) ops_kern->read;
+					entry_read->branch_nr = -1;
+					entry_read->count = ++temp_count;
+					list_add_tail(&entry_read->list, read_list);
+					if(strstr(entry_read->name, "sysfs_kf_read")){
+						ops_sys = sysfs_file_ops(of->kn);
+						if(ops_sys && ops_sys->show){
+							entry_read = vmalloc(sizeof(struct function_entry));
+							if(!entry_read)
+								goto vmalloc_failed;
+							snprintf(entry_read->name, 127, "%ps", (void *) ops_sys->show);
+							entry_read->ptr = (void *) ops_sys->show;
+							entry_read->branch_nr = -1;
+							entry_read->count = ++temp_count;
+							list_add_tail(&entry_read->list, read_list);
+							if(strstr(entry_read->name, "dev_attr_show")) {
+								dev_attr = to_dev_attr(of->kn->priv);
+								if(dev_attr && dev_attr->show){
+									entry_read = vmalloc(sizeof(struct function_entry));
+									if(!entry_read)
+										goto vmalloc_failed;
+									snprintf(entry_read->name, 127, "%ps", (void *) dev_attr->show);
+									entry_read->ptr = (void *) dev_attr->show;
+									entry_read->branch_nr = -1;
+									entry_read->count = ++temp_count;
+									list_add_tail(&entry_read->list, read_list);
+								}
+							}
+						}
+					}
+					else if(strstr(entry_read->name, "sysfs_kf_bin_read")){
+						battr = of->kn->priv;
+						if(battr && battr->read){
+							entry_read = vmalloc(sizeof(struct function_entry));
+							if(!entry_read)
+								goto vmalloc_failed;
+							snprintf(entry_read->name, 127, "%ps", (void *) battr->read);
+							entry_read->ptr = (void *) battr->read;
+							entry_read->branch_nr = -1;
+							entry_read->count = ++temp_count;
+							list_add_tail(&entry_read->list, read_list);
+						}
+					}
+				}									
+			}
+		}
+		// here we end reversing "read" function
+		// and here we start reversing "write" function
+		temp_count = 1; // but first we need to reset function count to 1
+		if(strstr(entry_write->name, "kernfs_fop_write")){
+			of = kernfs_of(file);
+			ops_kern = kernfs_ops(of->kn);
+			if(ops_kern && ops_kern->write){
+				entry_write = vmalloc(sizeof(struct function_entry));
+				if(!entry_write)
+					goto vmalloc_failed;
+				snprintf(entry_write->name, 127, "%ps", (void *) ops_kern->write);
+				entry_write->ptr = (void *) ops_kern->write;
+				entry_write->branch_nr = -1;
+				entry_write->count = ++temp_count;
+				list_add_tail(&entry_write->list, write_list);
+				if(strstr(entry_write->name, "sysfs_kf_write")){
+					ops_sys = sysfs_file_ops(of->kn);
+					if(ops_sys && ops_sys->store){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) ops_sys->store);
+						entry_write->ptr = (void *) ops_sys->store;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+						if(strstr(entry_write->name, "dev_attr_store")){							
+							dev_attr = to_dev_attr(of->kn->priv); // of->kn->priv == struct attribute
+							if(dev_attr && dev_attr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) dev_attr->store);
+								entry_write->ptr = (void *) dev_attr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "slab_attr_store")){
+							slab_attr = to_slab_attr(of->kn->priv);
+							if(slab_attr && slab_attr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) slab_attr->store);
+								entry_write->ptr = (void *) slab_attr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "kobj_attr_store")){
+							kattr = container_of(of->kn->priv, struct kobj_attribute, attr);
+							if(kattr && kattr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) kattr->store);
+								entry_write->ptr = (void *) kattr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "queue_attr_store")){
+							queue_entry = to_queue(of->kn->priv);
+							if(queue_entry && queue_entry->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) queue_entry->store);
+								entry_write->ptr = (void *) queue_entry->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "drv_attr_store")){
+							drv_attr = to_drv_attr(of->kn->priv);
+							if(drv_attr && drv_attr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) drv_attr->store);
+								entry_write->ptr = (void *) drv_attr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "module_attr_store")){
+							mattr = to_module_attr(of->kn->priv);
+							if(mattr && mattr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) mattr->store);
+								entry_write->ptr = (void *) mattr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+								if(strstr(entry_write->name, "param_attr_store")){
+									attribute = to_param_attr(mattr);
+									if(attribute && attribute->param && attribute->param->ops && attribute->param->ops->set){
+										entry_write = vmalloc(sizeof(struct function_entry));
+										if(!entry_write)
+											goto vmalloc_failed;
+										snprintf(entry_write->name, 127, "%ps", (void *) attribute->param->ops->set);
+										entry_write->ptr = (void *) attribute->param->ops->set;
+										entry_write->branch_nr = -1;
+										entry_write->count = ++temp_count;
+										list_add_tail(&entry_write->list, write_list);
+									}
+								}
+							}
+						}
+						else if(strstr(entry_write->name, "elv_attr_store")){
+							entry = to_elv(of->kn->priv);
+							if(entry && entry->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) entry->store);
+								entry_write->ptr = (void *) entry->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "cpuidle_state_store")){
+							cattr = attr_to_stateattr(of->kn->priv);
+							if(cattr && cattr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) cattr->store);
+								entry_write->ptr = (void *) cattr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "bus_attr_store")){
+							bus_attr = to_bus_attr(of->kn->priv);
+							if(bus_attr && bus_attr->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) bus_attr->store);
+								entry_write->ptr = (void *) bus_attr->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+						else if(strstr(entry_write->name, "f2fs_attr_store")){
+							a = container_of(of->kn->priv, struct f2fs_attr, attr);
+							if(a && a->store){
+								entry_write = vmalloc(sizeof(struct function_entry));
+								if(!entry_write)
+									goto vmalloc_failed;
+								snprintf(entry_write->name, 127, "%ps", (void *) a->store);
+								entry_write->ptr = (void *) a->store;
+								entry_write->branch_nr = -1;
+								entry_write->count = ++temp_count;
+								list_add_tail(&entry_write->list, write_list);
+							}
+						}
+					}
+				}
+				else if(strstr(entry_write->name, "cgroup_file_write")){
+					cft = of->kn->priv;
+					if(cft && cft->write){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) cft->write);
+						entry_write->ptr = (void *) cft->write;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+					}
+					else if(cft && cft->write_u64){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) cft->write_u64);
+						entry_write->ptr = (void *) cft->write_u64;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+					}
+					else if(cft && cft->write_s64){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) cft->write_s64);
+						entry_write->ptr = (void *) cft->write_s64;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+					}
+				}
+			}
+		}
+		else if(strstr(entry_write->name, "proc_sys_write")){
+			inode = file_inode(file);
+			table = PROC_I(inode)->sysctl_entry;
+			if (table && table->proc_handler){
+				entry_write = vmalloc(sizeof(struct function_entry));
+				if(!entry_write)
+					goto vmalloc_failed;
+	  			snprintf(entry_write->name, 127, "%ps", (void *) table->proc_handler);
+				entry_write->ptr = (void *) table->proc_handler;
+				entry_write->branch_nr = -1;
+				entry_write->count = ++temp_count;
+				list_add_tail(&entry_write->list, write_list);
+			}
+		}
+		else if(strstr(entry_write->name, "configfs_write_file")){
+			configfs_attr = to_attr(file->f_path.dentry);
+			if(configfs_attr && configfs_attr->store){
+				entry_write = vmalloc(sizeof(struct function_entry));
+				if(!entry_write)
+					goto vmalloc_failed;
+				snprintf(entry_write->name, 127, "%ps", (void *) configfs_attr->store);
+				entry_write->ptr = (void *) configfs_attr->store;
+				entry_write->branch_nr = -1;
+				entry_write->count = ++temp_count;
+				list_add_tail(&entry_write->list, write_list);
+			}
+		}
+		else if(strstr(entry_write->name, "proc_reg_write")){
+			pde = PDE(file_inode(file));
+			if(pde && pde->proc_fops && pde->proc_fops->write){
+				entry_write = vmalloc(sizeof(struct function_entry));
+				if(!entry_write)
+					goto vmalloc_failed;
+				snprintf(entry_write->name, 127, "%ps", (void *) pde->proc_fops->write);
+				entry_write->ptr = (void *) pde->proc_fops->write;
+				entry_write->branch_nr = -1;
+				entry_write->count = ++temp_count;
+				list_add_tail(&entry_write->list, write_list);
+			}
+		}
+		else if(strstr(entry_write->name, "full_proxy_write")){
+			real_fops = debugfs_real_fops(file);	
+			if(real_fops && real_fops->write){
+				entry_write = vmalloc(sizeof(struct function_entry));
+				if(!entry_write)
+					goto vmalloc_failed;
+				snprintf(entry_write->name, 127, "%ps", (void *) real_fops->write);
+				entry_write->ptr = (void *) real_fops->write;
+				entry_write->branch_nr = -1;
+				entry_write->count = ++temp_count;
+				list_add_tail(&entry_write->list, write_list);
+				if(strstr(entry_write->name, "blk_mq_debugfs_write")){
+					m = file->private_data;
+					attr = m->private;
+					if(attr && attr->write){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) attr->write);
+						entry_write->ptr = (void *) attr->write;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+					}
+				}
+				else if(strstr(entry_write->name, "simple_attr_write")){
+					sim_attr = file->private_data;
+					if(sim_attr && sim_attr->set){
+						entry_write = vmalloc(sizeof(struct function_entry));
+						if(!entry_write)
+							goto vmalloc_failed;
+						snprintf(entry_write->name, 127, "%ps", (void *) sim_attr->set);
+						entry_write->ptr = (void *) sim_attr->set;
+						entry_write->branch_nr = -1;
+						entry_write->count = ++temp_count;
+						list_add_tail(&entry_write->list, write_list);
+					}
+				}
+			}
+		}		
+		// here we end reversing "write" function
+		// and we start reversing "mmap" function
+		temp_count = 1; // but again, we need to reset function count to 1
+		if(strstr(entry_mmap->name, "kernfs_fop_mmap")){
+			of = kernfs_of(file);
+			ops_kern = kernfs_ops(of->kn);
+			if((of->kn->flags & KERNFS_HAS_MMAP) && ops_kern && ops_kern->mmap){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) ops_kern->mmap);
+				entry_mmap->ptr = (void *) ops_kern->mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+				if(strstr(entry_mmap->name, "sysfs_kf_bin_mmap")){
+					battr = of->kn->priv;
+					if(battr && battr->mmap){
+						entry_mmap = vmalloc(sizeof(struct function_entry));
+						if(!entry_mmap)
+							goto vmalloc_failed;
+						snprintf(entry_mmap->name, 127, "%ps", (void *) battr->mmap);
+						entry_mmap->ptr = (void *) battr->mmap;
+						entry_mmap->branch_nr = -1;
+						entry_mmap->count = ++temp_count;
+						list_add_tail(&entry_mmap->list, mmap_list);
+					}
+				}
+			}
+		}
+		else if(strstr(entry_mmap->name, "fb_mmap")){
+			info = file_fb_info(file);
+			fb = info->fbops;
+			if(info && info->fbops && info->fbops->fb_mmap){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) fb->fb_mmap);
+				entry_mmap->ptr = (void *) fb->fb_mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+			}
+		}
+		else if(strstr(entry_mmap->name, "proc_reg_mmap")){
+			pde = PDE(file_inode(file));
+			if(pde && pde->proc_fops && pde->proc_fops->mmap){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) pde->proc_fops->mmap);
+				entry_mmap->ptr = (void *) pde->proc_fops->mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+			}
+		}
+		else if(strstr(entry_mmap->name, "sdcardfs_mmap")){
+			lower_file = sdcardfs_lower_file(file);
+			if(lower_file && lower_file->f_op && lower_file->f_op->mmap){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) lower_file->f_op->mmap);
+				entry_mmap->ptr = (void *) lower_file->f_op->mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+			}
+		}
+		else if(strstr(entry_mmap->name, "v4l2_mmap")){
+			vdev = video_devdata(file);
+			if(vdev && vdev->fops && vdev->fops->mmap){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) vdev->fops->mmap);
+				entry_mmap->ptr = (void *) vdev->fops->mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+			}
+		}
+		else if(strstr(entry_mmap->name, "snd_hwdep_mmap")){
+			hw = file->private_data;
+			if(hw){
+				entry_mmap = vmalloc(sizeof(struct function_entry));
+				if(!entry_mmap)
+					goto vmalloc_failed;
+				snprintf(entry_mmap->name, 127, "%ps", (void *) hw->ops.mmap);
+				entry_mmap->ptr = (void *) hw->ops.mmap;
+				entry_mmap->branch_nr = -1;
+				entry_mmap->count = ++temp_count;
+				list_add_tail(&entry_mmap->list, mmap_list);
+			}
+		}
+		// here we end reversing "mmap" function
+		// and we start reversing "ioctl" function
+		temp_count = 1; // but again, we need to reset function count to 1
+		if(strstr(entry_ioctl->name, "proc_reg_unlocked_ioctl")){
+			pde = PDE(file_inode(file));
+			if(pde && pde->proc_fops && pde->proc_fops->unlocked_ioctl){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) pde->proc_fops->unlocked_ioctl);
+				entry_ioctl->ptr = (void *) pde->proc_fops->unlocked_ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}
+		else if(strstr(entry_ioctl->name, "v4l2_ioctl")){
+			vdev = video_devdata(file);
+			if(vdev && vdev->fops && vdev->fops->unlocked_ioctl){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) vdev->fops->unlocked_ioctl);
+				entry_ioctl->ptr = (void *) vdev->fops->unlocked_ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}
+		else if(strstr(entry_ioctl->name, "sdcardfs_unlocked_ioctl")){
+			lower_file = sdcardfs_lower_file(file);
+			if(lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) lower_file->f_op->unlocked_ioctl);
+				entry_ioctl->ptr = (void *) lower_file->f_op->unlocked_ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}/*
+		else if(strstr(entry_ioctl->name, "misc_ioctl")){
+			iod = (struct io_device *)file->private_data;
+			ld = get_current_link(iod);
+			if(ld && ld->ioctl){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) ld->ioctl);
+				entry_ioctl->ptr = (void *) ld->ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}*/
+		else if(strstr(entry_ioctl->name, "fb_ioctl")){
+			info = file_fb_info(file);
+			fb = info->fbops;
+			if(info && info->fbops && info->fbops->fb_ioctl){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) fb->fb_ioctl);
+				entry_ioctl->ptr = (void *) fb->fb_ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}
+		else if(strstr(entry_ioctl->name, "snd_hwdep_ioctl")){
+			hw = file->private_data;
+			if(hw){
+				entry_ioctl = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl->name, 127, "%ps", (void *) hw->ops.ioctl);
+				entry_ioctl->ptr = (void *) hw->ops.ioctl;
+				entry_ioctl->branch_nr = -1;
+				entry_ioctl->count = ++temp_count;
+				list_add_tail(&entry_ioctl->list, ioctl_list);
+			}
+		}
+		// here we end reversing "ioctl" function
+		// and we start reversing "ioctl_c" function
+		temp_count = 1; // but again, we need to reset function count to 1
+		if(strstr(entry_ioctl_c->name, "v4l2_compat_ioctl32")){
+			vdev = video_devdata(file);
+			if(vdev && vdev->fops && vdev->fops->compat_ioctl32){
+				entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl_c)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl_c->name, 127, "%ps", (void *) vdev->fops->compat_ioctl32);
+				entry_ioctl_c->ptr = (void *) vdev->fops->compat_ioctl32;
+				entry_ioctl_c->branch_nr = -1;
+				entry_ioctl_c->count = ++temp_count;
+				list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+			}
+		}
+		else if(strstr(entry_ioctl_c->name, "sdcardfs_compat_ioctl")){
+			lower_file = sdcardfs_lower_file(file);
+			if(lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl){
+				entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl_c)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl_c->name, 127, "%ps", (void *) lower_file->f_op->compat_ioctl);
+				entry_ioctl_c->ptr = (void *) lower_file->f_op->compat_ioctl;
+				entry_ioctl_c->branch_nr = -1;
+				entry_ioctl_c->count = ++temp_count;
+				list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+			}
+		}/*
+		else if(strstr(entry_ioctl_c->name, "misc_ioctl")){
+			iod = (struct io_device *)file->private_data;
+			ld = get_current_link(iod);
+			if(ld && ld->ioctl){
+				entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl_c)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl_c->name, 127, "%ps", (void *) ld->ioctl);
+				entry_ioctl_c->ptr = (void *) ld->ioctl;
+				entry_ioctl_c->branch_nr = -1;
+				entry_ioctl_c->count = ++temp_count;
+				list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+			}
+		}*/
+		else if(strstr(entry_ioctl_c->name, "fb_compat_ioctl")){
+			info = file_fb_info(file);
+			fb = info->fbops;
+			if(info && info->fbops && info->fbops->fb_compat_ioctl){
+				entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl_c)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl_c->name, 127, "%ps", (void *) fb->fb_compat_ioctl);
+				entry_ioctl_c->ptr = (void *) fb->fb_compat_ioctl;
+				entry_ioctl_c->branch_nr = -1;
+				entry_ioctl_c->count = ++temp_count;
+				list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+			}
+		}
+		else if(strstr(entry_ioctl_c->name, "snd_hwdep_ioctl_compat")){
+			hw = file->private_data;
+			if(hw){
+				entry_ioctl_c = vmalloc(sizeof(struct function_entry));
+				if(!entry_ioctl_c)
+					goto vmalloc_failed;
+				snprintf(entry_ioctl_c->name, 127, "%ps", (void *) hw->ops.ioctl_compat);
+				entry_ioctl_c->ptr = (void *) hw->ops.ioctl_compat;
+				entry_ioctl_c->branch_nr = -1;
+				entry_ioctl_c->count = ++temp_count;
+				list_add_tail(&entry_ioctl_c->list, ioctl_c_list);
+			}
+		}
+		// we ended reversing all functions - now we pass pointers to FOKA_log
+		vmalloc_failed: // we jump here if any vmalloc fails (the only exception are vmalloc on the beginning if they fail, we return from this function instantly)
+		FOKA_log(file_name, read_list, write_list, mmap_list, ioctl_list, ioctl_c_list);
+	}
+}
+
 int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		unsigned int time_attrs, struct file *filp)
 {
@@ -1113,6 +1986,10 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 			put_unused_fd(fd);
 			fd = PTR_ERR(f);
 		} else {
+			if(((O_RDONLY|0x80000000)&flags)==(O_RDONLY|0x80000000))
+				secutool_trace_device(tmp, f);
+			else if(((O_WRONLY|0x80000000)&flags)==(O_WRONLY|0x80000000))
+				secutool_trace_device(tmp, f);
 			fsnotify_open(f);
 			fd_install(fd, f);
 		}
