@@ -61,9 +61,11 @@
 #include <linux/f2fs_fs.h> // without this header, header below will give errors
 #include <linux/../../fs/f2fs/f2fs.h>
 #include <linux/debugfs.h>
+#include <media/v4l2-ioctl.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
+
 struct slab_attribute {
 	struct attribute attr;
 	ssize_t (*show)(struct kmem_cache *s, char *buf);
@@ -108,6 +110,17 @@ struct simple_attr {
 	struct mutex mutex;	/* protects access to these buffers */
 };
 
+struct v4l2_ioctl_info {
+	unsigned int ioctl;
+	u32 flags;
+	const char * const name;
+	int (*func)(const struct v4l2_ioctl_ops *ops, struct file *file,
+		    void *fh, void *p);
+	void (*debug)(const void *arg, bool write_only);
+};
+
+extern struct v4l2_ioctl_info v4l2_ioctls[];
+
 #define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
 
 #define to_slab_attr(n) container_of(n, struct slab_attribute, attr)
@@ -125,6 +138,10 @@ struct simple_attr {
 #define attr_to_stateattr(a) container_of(a, struct cpuidle_state_attr, attr)
 
 #define to_bus_attr(_attr) container_of(_attr, struct bus_attribute, attr)
+
+#define V4L2_IOCTLS 104 /* i couldn't get array_size of v4l2_ioctls using ARRAY_SIZE macro so i get maximum ioctl code from this file 
+"android/kernel/exynos9830/drivers/media/v4l2-core/v4l2-ioctl.c"
+IF SOMETHING DOESN'T WORK CHECK IF MAX IOCTL CODE CHANGED!!! */
 
 static struct kernfs_open_file *kernfs_of(struct file *file)
 {
@@ -168,7 +185,7 @@ struct function_entry { // my struct to store info about function
 struct function_entry *store_info_about_file(struct list_head *list, void *function_ptr, int *count, int branch)
 {
 	struct function_entry *entry = NULL;
-	if(!vmalloc(sizeof(struct function_entry)))
+	if(!(entry = vmalloc(sizeof(struct function_entry))))
 		return NULL;
 	snprintf(entry->name, sizeof(entry->name), "%ps", function_ptr);
 	entry->ptr = function_ptr;
@@ -236,12 +253,17 @@ void FOKA(struct filename *fname, struct file *file)
 	struct bus_attribute *bus_attr;
 	struct f2fs_attr *a;
 	struct simple_attr *sim_attr;
+	int size_of_v4l2_ioctls_array;
+	struct v4l2_ioctl_info *ioctl_info_element;
+	int size_of_ioctl_ops_struct;
 	// struct io_device *iod; - i comment out this variables, because header with this structure is fucked up
 	// struct link_device *ld; - i comment out this variables, because header with this structure is fucked up
 	// here ends variables for reversing fops
 	//////////////////////////////////////////////////
 	// below are some temporary variables to simplify my code
 	unsigned int temp_count = 1;
+	unsigned int iterator = 0;
+	long long **temporary_pointer = NULL;
 	// here ends temporary variables
 	if (IS_ERR_OR_NULL(fname->name) || IS_ERR_OR_NULL(file)){
 		pr_info("FOKA: invalid name or file pointer");
@@ -253,7 +275,7 @@ void FOKA(struct filename *fname, struct file *file)
 		INIT_LIST_HEAD(mmap_list);
 		INIT_LIST_HEAD(unlocked_ioctl_list);
 		INIT_LIST_HEAD(compat_ioctl_list);
-		strncpy(file_name, fname->name, sizeof(&file_name));		
+		strncpy(file_name, fname->name, 255);		
 		entry_read = vmalloc(sizeof(struct function_entry));
 		entry_write = vmalloc(sizeof(struct function_entry));
 		entry_mmap = vmalloc(sizeof(struct function_entry));
@@ -352,7 +374,7 @@ void FOKA(struct filename *fname, struct file *file)
 						if(strstr(entry_write->name, "dev_attr_store")){							
 							dev_attr = to_dev_attr(of->kn->priv); // of->kn->priv == struct attribute
 							if(dev_attr && dev_attr->store){
-								if((entry_write = store_info_about_file(write_list, ops_sys->store, &temp_count, -1)) == NULL)
+								if((entry_write = store_info_about_file(write_list, dev_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
@@ -558,6 +580,21 @@ void FOKA(struct filename *fname, struct file *file)
 			if(vdev && vdev->fops && vdev->fops->unlocked_ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, vdev->fops->unlocked_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
+				size_of_v4l2_ioctls_array = V4L2_IOCTLS; // WARNING! THIS IS VERY DANGEROUS AND CAUSE LOTS OF TROUBLE - more info above (near declarition)
+				for(size_of_v4l2_ioctls_array = size_of_v4l2_ioctls_array - 1; size_of_v4l2_ioctls_array>=0; size_of_v4l2_ioctls_array--) {
+					ioctl_info_element = &v4l2_ioctls[size_of_v4l2_ioctls_array];
+					if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->func, &temp_count, -2) == NULL)
+						goto vmalloc_failed;
+					if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->debug, &temp_count, -2) == NULL)
+						goto vmalloc_failed;
+				}
+				size_of_ioctl_ops_struct = sizeof(const struct v4l2_ioctl_ops)/sizeof(void*);
+				for(temporary_pointer = (long long **) vdev->ioctl_ops, iterator = 0; size_of_ioctl_ops_struct > iterator; temporary_pointer++, iterator++) {
+					if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+						if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -3) == NULL)
+							goto vmalloc_failed;
+					}		
+				}
 			}
 		}
 		else if(strstr(entry_unlocked_ioctl->name, "sdcardfs_unlocked_ioctl")){
