@@ -8,6 +8,7 @@
  * published by the Free Software Foundation.
 */
 
+#include <linux/of.h>
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
@@ -40,21 +41,12 @@
 
 #define _PMU_COUNT_64
 #include "exynos_perf_pmufunc.h"
-
-#if defined(CONFIG_SOC_EXYNOS8895)
-#include <dt-bindings/clock/exynos8895.h>
-#elif defined(CONFIG_SOC_EXYNOS9810)
-#include <dt-bindings/clock/exynos9810.h>
-#elif defined(CONFIG_SOC_EXYNOS9820)
-#include <dt-bindings/clock/exynos9820.h>
-#elif defined(CONFIG_SOC_EXYNOS9830)
-#include <dt-bindings/clock/exynos9830.h>
-#endif
 #include <soc/samsung/cal-if.h>
 
 #define EVENT_MAX	7
 
 struct device *memcpy_dev;
+static uint cal_id_mif = 0;
 
 enum memtype {
 	MT_CACHE = 1,
@@ -106,7 +98,6 @@ static uint level = 2;
 static uint setway = 1;
 
 static int events[7] = {0x50,0x51,0x52,0x53,0x60,0x61,0};
-//static int events[7] = {0xf,0x2DC,0x2DD,0x2DE,0x0,0x0,0};
 
 #define GiB	(1024*1024*1024LL)
 #define GB	1000000000LL
@@ -143,9 +134,9 @@ static u64 nano_time(void)
 	return (t.tv_sec * NS_PER_SEC + t.tv_nsec);
 }
 
-static void memset_ptrn(ulong *p, size_t count)
+static void memset_ptrn(ulong *p, uint count)
 {
-	int j, idx;
+	uint j, idx;
 	for (j = 0; j < count; j += sizeof(p)) {
 		idx = j % ARRAY_SIZE(patterns);
 		*p++ = patterns[idx];
@@ -310,7 +301,7 @@ void func_perf(void *src, void *dst)
 {
 	u64 start_ns, end_ns, bw, sum_ns, avg_us;
 	ulong chk_sum;
-	size_t total_size;
+	uint total_size;
 	uint iter;
 	int i, k;
 	uint xfer_size = start_size;
@@ -361,7 +352,7 @@ void func_perf(void *src, void *dst)
 		chk_sum = 0;
 		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = 0;
 		cpufreq = cpufreq_quick_get(core) / 1000;
-		mif = (uint)cal_dfs_get_rate(ACPM_DVFS_MIF) / 1000;
+		mif = (uint)cal_dfs_get_rate(cal_id_mif) / 1000;
 		switch (func) {
 			case FT_MEMCPY:
 				MEMCPY_FUNC(memcpy(dst, src + align, xfer_size), flush, 0, pmu, chk, 0);
@@ -403,204 +394,6 @@ void func_perf(void *src, void *dst)
 	nc_memcpy_done = 1;
 }
 
-/*
-void func_perf(void *src, void *dst, struct file *file)
-{
-	u64 start_ns, end_ns, bw, sum_ns, avg_us;
-	ulong chk_sum;
-	size_t total_size;
-	uint iter;
-	int i, k;
-	uint xfer_size = start_size;
-	size_t ret;
-	ulong src_align;
-	ulong dst_align;
-	ccnt_t v[7] = {0,};
-	ccnt_t ccnt;
-	char filename[255];
-	char buf[255];
-	int fd = -1;
-	ulong d1, d2;
-	ulong d3;
-	uint buf_size;
-	void __iomem *dst_remap;
-	uint cpufreq;
-	uint mif = 0;
-	bool is_need_warm_up = true;
-
-	// FILE open
-	snprintf(filename, sizeof(filename), "%s/nc_memcpy_result.txt", path);
-	fd = sys_open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0777);
-	if (fd < 0) {
-		pr_info("file open failed: %s\n", filename);
-		return;
-	}
-
-	// HEADER
-	if (pmu) {
-		snprintf(buf, sizeof(buf), "%-20s %5s %8s %7s %7s %10s %10s %15s %10s %15s "
-			"%8s(0x%x) %8s(0x%x) %8s(0x%x) %8s(0x%x) %8s(0x%x) %8s(0x%x) %8s(0x%x) %15s %7s %5s\n",
-			"name", "core", "type", "cpufreq", "mif", "size", "MiB/s", "iter", "total_ns", "total_ccnt",
-			"e0", events[0],
-			"e1", events[1],
-			"e2", events[2],
-			"e3", events[3],
-			"e4", events[4],
-			"e5", events[5],
-			"e6", events[6],
-			"src+align", "flush", "chk");
-	} else if (func == FT_MEMSET) {
-		snprintf(buf, sizeof(buf), "%-20s %5s %8s %7s %7s %10s %10s %15s %10s %15s\n",
-			"name", "core", "type", "cpufreq", "mif", "size", "MiB/s", "iter", "total_ns", "dst+align");
-	} else if (func == FT_CACHE_FLUSH) {
-		snprintf(buf, sizeof(buf), "%-20s %5s %8s %7s %7s %10s %10s %7s %10s %5s %5s %8s %10s\n",
-			"name", "core", "type", "cpufreq", "mif", "size", "avg_us", "iter", "total_ns", "flush", "chk", "setway", "level");
-	} else {
-		snprintf(buf, sizeof(buf), "%-20s %5s %8s %7s %7s %10s %10s %15s %15s %15s %7s %5s\n",
-			"name", "core", "type", "cpufreq", "mif", "size", "MiB/s", "iter", "total_ns", "src+align", "flush", "chk");
-	}
-	if (sys_write(fd, buf, strlen(buf)) < 0) {
-		pr_info("file write failed: %s\n", filename);
-		sys_close(fd);
-		return;
-	}
-
-	if (chk == 1 && (func == FT_CACHE_FLUSH)) {
-		buf_size = (align == 0)? end_size : end_size + 64;
-		dst_remap = ioremap_wc(virt_to_phys(dst), buf_size);
-		if (dst_remap == NULL) {
-			pr_info("ioremap failed\n");
-			return;
-		}
-	}
-
-	// BODY - START
-	bw = 0;
-	while (xfer_size <= end_size) {
-		ret = 0;
-		sum_ns = 0;
-		ccnt = 0;
-		chk_sum = 0;
-		v[0] = v[1] = v[2] = v[3] = v[4] = v[5] = v[6] = 0;
-		cpufreq = cpufreq_quick_get(core) / 1000;
-		mif = (uint)cal_dfs_get_rate(ACPM_DVFS_MIF) / 1000;
-		switch (func) {
-			case FT_MEMCPY:
-				MEMCPY_FUNC(memcpy(dst, src + align, xfer_size), flush, 0, pmu, chk, 0);
-				break;
-			case FT_MEMSET:
-				MEMSET_FUNC(memset(dst, val, xfer_size));
-				break;
-			case FT_CPYTOUSR:
-				MEMCPY_FUNC(ret += __copy_to_user(dst, src + align, xfer_size), flush, 1, pmu, chk, 0);
-				break;
-			case FT_CPYFRMUSR:
-				MEMCPY_FUNC(ret += __copy_from_user(dst, src + align, xfer_size), flush, 1, pmu, chk, 0);
-				break;
-			case FT_CACHE_FLUSH:
-				if (setway == 0) {
-					CACHE_FLUSH_TEST(__dma_flush_area(src + align, xfer_size), flush, chk);
-				} else {
-					switch (level) {
-						case 1: CACHE_FLUSH_TEST(flush_cache_louis(), flush, chk); break;
-						case 2: CACHE_FLUSH_TEST(flush_cache_all(), flush, chk); break;
-					}
-				}
-				break;
-			default:
-				pr_info("func type = %d invalid!\n", func);
-				break;
-		}
-
-		if (is_need_warm_up) {	// run first iteration 2 times for warm up
-			is_need_warm_up = false;
-		} else {
-			if (sys_write(fd, buf, strlen(buf)) < 0) {
-				pr_info("----------> file write failed: %s\n", filename);
-				sys_close(fd);
-				return;
-			}
-			xfer_size *= 2;
-		}
-	}
-
-	sys_close(fd);
-	// BODY - END
-
-	if (chk && dump) {
-		snprintf(filename, sizeof(filename), "%s/memcpy_chk_dump.txt", path);
-		fd = sys_open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0777);
-		if (fd < 0) {
-			pr_info("file open failed: %s\n", filename);
-			return;
-		}
-		for (i = 0; i < end_size; i += sizeof(ulong)) {
-			d1 = *((ulong *)src);
-			d2 = *((ulong *)dst);
-			snprintf(buf, sizeof(buf), "%p 0x%lx 0x%lx %d\n",
-					src, d1, d2, (d1 == d2)? 0:-1);
-			if (sys_write(fd, buf, strlen(buf)) < 0) {
-				pr_info("file write failed: %s\n", filename);
-				sys_close(fd);
-				return;
-			}
-			src += sizeof(ulong);
-			dst += sizeof(ulong);
-		}
-		sys_close(fd);
-	}
-
-	if (dump == 1 && (func == FT_CACHE_FLUSH)) {
-		snprintf(filename, sizeof(filename), "%s/cache_chk_dump.txt", path);
-		sys_open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0777);
-		if (fd < 0) {
-			pr_info("file open failed: %s\n", filename);
-			return;
-		}
-		snprintf(buf, sizeof(buf), " dst=%p dst_remap=%p\nsrc dst dst_remap\n", dst, dst_remap);
-		if (sys_write(fd, buf, strlen(buf)) < 0) {
-			pr_info("file write failed: %s\n", filename);
-			sys_close(fd);
-			return;
-		}
-		for (i = 0; i < end_size; i += sizeof(ulong)) {
-			d1 = *((ulong *)src);
-			d2 = *((ulong *)dst);
-			d3 = *((ulong *)dst_remap);
-			snprintf(buf, sizeof(buf), "%p 0x%lx 0x%lx 0x%lx %d\n",
-					src, d1, d2, d3, (d2 == d3)? 0:-1);
-			if (sys_write(fd, buf, strlen(buf)) < 0) {
-				pr_info("file write failed: %s\n", filename);
-				sys_close(fd);
-				return;
-			}
-			src += sizeof(ulong);
-			dst += sizeof(ulong);
-			dst_remap += sizeof(ulong);
-		}
-		sys_close(fd);
-	}
-
-	if (dst_remap != NULL && (func == FT_CACHE_FLUSH))
-		iounmap(dst_remap);
-
-	// create marking file for job done
-	snprintf(filename, sizeof(filename), "%s/nc_memcpy_done.txt", path);
-	fd = sys_open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0777);
-	if (fd < 0) {
-		pr_info("file open failed: %s\n", filename);
-		return;
-	}
-	snprintf(buf, sizeof(buf), "nc_memcpy_done");
-	if (sys_write(fd, buf, strlen(buf)) < 0) {
-		pr_info("file write failed: %s\n", filename);
-		sys_close(fd);
-		return;
-	}
-	sys_close(fd);
-}
-*/
-
 static int perf_main(void)
 {
 	struct device *dev = memcpy_dev;
@@ -609,16 +402,14 @@ static int perf_main(void)
 	gfp_t gfp;
 	uint buf_size;
 	u64 start_ns, end_ns;
-//	void *alloc_ctx, *cookie;
 	start_ns = nano_time();
 
 	/* dma address */
-	/*
 	if (!dma_set_mask(dev, DMA_BIT_MASK(64))) {
 		pr_info("[%s] dma_mask: 64-bits ok\n", prefix);
 	} else if (!dma_set_mask(dev, DMA_BIT_MASK(32))) {
 		pr_info("[%s] dma_mask: 32-bits ok\n", prefix);
-	}*/
+	}
 
 	buf_size = (align == 0)? end_size : end_size + 64;
 	gfp = GFP_KERNEL;
@@ -1034,8 +825,17 @@ static struct platform_driver memcpy_driver = {
 //-------------------
 static int __init perf_init(void)
 {
+	struct device_node *dn = NULL;
 	struct dentry *root, *d;
 	int ret;
+
+	dn = of_find_node_by_name(dn, "exynos_perf_ncmemcpy");
+	if (!dn) {
+		printk("%s: exynos_perf_ncmemcpy node is not exist\n", __FILE__);
+		return -EINVAL;
+	}
+
+	of_property_read_u32(dn, "cal-id-mif", &cal_id_mif);
 
 	root = debugfs_create_dir("exynos_perf_ncmemcpy", NULL);
 	if (!root) {

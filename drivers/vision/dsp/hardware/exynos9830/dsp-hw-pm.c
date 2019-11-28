@@ -65,6 +65,24 @@ static int __dsp_pm_check_valid(struct dsp_pm_devfreq *devfreq, int val)
 	}
 }
 
+static void __dsp_pm_update_freq_info(struct dsp_pm *pm, int id)
+{
+	struct dsp_pm_devfreq *devfreq;
+
+	dsp_enter();
+	devfreq = &pm->devfreq[id];
+
+	if (id == DSP_DEVFREQ_DNC)
+		dsp_ctrl_sm_writel(DSP_SM_RESERVED(DNC_FREQUENCY),
+				devfreq->table[devfreq->current_qos] / 1000);
+	else if (id == DSP_DEVFREQ_DSP)
+		dsp_ctrl_sm_writel(DSP_SM_RESERVED(DSP_FREQUENCY),
+				devfreq->table[devfreq->current_qos] / 1000);
+	else if (id != DSP_DEVFREQ_MIF)
+		dsp_err("Failed to update freq info as invalid id(%d)\n", id);
+	dsp_leave();
+}
+
 static int __dsp_pm_update_devfreq(struct dsp_pm_devfreq *devfreq, int val)
 {
 	int ret;
@@ -110,6 +128,8 @@ int dsp_pm_update_devfreq_nolock(struct dsp_pm *pm, int id, int val)
 	ret = __dsp_pm_update_devfreq(&pm->devfreq[id], val);
 	if (ret)
 		goto p_err;
+
+	__dsp_pm_update_freq_info(pm, id);
 
 	dsp_leave();
 	return 0;
@@ -290,8 +310,10 @@ int dsp_pm_enable(struct dsp_pm *pm)
 	dsp_enter();
 	mutex_lock(&pm->lock);
 
-	for (idx = 0; idx < DSP_DEVFREQ_COUNT; ++idx)
+	for (idx = 0; idx < DSP_DEVFREQ_COUNT; ++idx) {
 		__dsp_pm_enable(&pm->devfreq[idx]);
+		__dsp_pm_update_freq_info(pm, idx);
+	}
 
 	mutex_unlock(&pm->lock);
 	dsp_leave();

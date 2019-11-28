@@ -9,8 +9,6 @@
 #ifndef __EXYNOS_CPUPM_H
 #define __EXYNOS_CPUPM_H __FILE__
 
-extern int exynos_cpu_pm_enter(int cpu, int index);
-extern void exynos_cpu_pm_exit(int cpu, int cancel);
 
 enum {
 	POWERMODE_TYPE_CLUSTER = 0,
@@ -18,6 +16,22 @@ enum {
 };
 
 extern bool exynos_cpuhp_last_cpu(unsigned int cpu);
+
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
+extern void exynos_update_ip_idle_status(int index, int idle);
+extern int exynos_get_idle_ip_index(const char *name);
+extern void disable_power_mode(int cpu, int type);
+extern void enable_power_mode(int cpu, int type);
+extern int exynos_cpu_pm_enter(int cpu, int index);
+extern void exynos_cpu_pm_exit(int cpu, int cancel);
+#else
+static inline void exynos_update_ip_idle_status(int index, int idle) { return; }
+static inline int exynos_get_idle_ip_index(const char *name) { return 0; }
+static inline void disable_power_mode(int cpu, int type) { return; }
+static inline void enable_power_mode(int cpu, int type) { return; }
+static inline int exynos_cpu_pm_enter(int cpu, int index) { return 0; }
+static inline void exynos_cpu_pm_exit(int cpu, int cancel) { return; }
+#endif
 
 struct fix_idle_ip {
 	/* name of fix-idle-ip */
@@ -38,11 +52,6 @@ struct idle_ip {
 	/* non-idle count for cpuidle-profiler */
 	unsigned int		count;
 };
-
-void exynos_update_ip_idle_status(int index, int idle);
-int exynos_get_idle_ip_index(const char *name);
-extern void disable_power_mode(int cpu, int type);
-extern void enable_power_mode(int cpu, int type);
 
 #ifdef CONFIG_SMP
 extern DEFINE_PER_CPU(bool, pending_ipi);

@@ -13,31 +13,33 @@
 
 #define DSP_MEMORY_MAX_SIZE	(SZ_16M)
 
-#define DSP_MASTER_FW_NAME	"dsp_master.bin"
+#define DSP_MASTER_FW_NAME	"dsp_master"
 
 #define DSP_FW_STACK_IOVA	(0x10000000)
 #define DSP_FW_STACK_SIZE	(SZ_1M)
 
-#define DSP_FW_NAME		"dsp.bin"
+#define DSP_FW_EXTENSION	"bin"
+
+#define DSP_FW_NAME		"dsp"
 #define DSP_FW_IOVA		(DSP_FW_STACK_IOVA + DSP_FW_STACK_SIZE)
 #define DSP_FW_SIZE		(SZ_1M * 3)
 
 #define DSP_FW_LOG_IOVA		(DSP_FW_STACK_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_FW_LOG_SIZE		(SZ_1M)
 
-#define DSP_IVP_PM_NAME		"dsp_ivp_pm.bin"
+#define DSP_IVP_PM_NAME		"dsp_ivp_pm"
 #define DSP_IVP_PM_IOVA		(DSP_FW_LOG_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_IVP_PM_SIZE		(SZ_16M)
 
-#define DSP_IVP_DM_NAME		"dsp_ivp_dm.bin"
+#define DSP_IVP_DM_NAME		"dsp_ivp_dm"
 #define DSP_IVP_DM_IOVA		(DSP_IVP_PM_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_IVP_DM_SIZE		(SZ_128K)
 
-#define DSP_IAC_PM_NAME		"dsp_iac_pm.bin"
+#define DSP_IAC_PM_NAME		"dsp_iac_pm"
 #define DSP_IAC_PM_IOVA		(DSP_IVP_DM_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_IAC_PM_SIZE		(SZ_32K)
 
-#define DSP_IAC_DM_NAME		"dsp_iac_dm.bin"
+#define DSP_IAC_DM_NAME		"dsp_iac_dm"
 #define DSP_IAC_DM_IOVA		(DSP_IAC_PM_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_IAC_DM_SIZE		(SZ_32K)
 
@@ -50,7 +52,7 @@
 #define DSP_DL_OUT_IOVA		(DSP_MBOX_POOL_IOVA + DSP_MEMORY_MAX_SIZE)
 #define DSP_DL_OUT_SIZE		(SZ_1M)
 
-#define DSP_NPU_FW_NAME		"npu.bin" // test fw
+#define DSP_NPU_FW_NAME		"npu" // test fw
 #define DSP_NPU_FW_SIZE		(SZ_16K)
 
 #define DSP_HW_BASE_ADDR	(0x40000000)
@@ -102,13 +104,17 @@ enum dsp_sm_used_count {
 	/* 0x4005_1FC8 */ DEBUG_LAYER_END,
 	/* 0x4005_1FCC */ CHIPID_REV,
 	/* 0x4005_1FD0 */ PRODUCT_ID,
-	/* 0x4005_1FD4 */ TEMP_1FD4,
-	/* 0x4005_1FD8 */ TEMP_1FD8,
+	/* 0x4005_1FD4 */ DNC_FREQUENCY,
+	/* 0x4005_1FD8 */ DSP_FREQUENCY,
 	/* 0x4005_1FDC */ TEMP_1FDC,
 	/* 0x4005_1FE0 */ TEMP_1FE0,
 	/* 0x4005_1FE4 */ TEMP_1FE4,
 	/* 0x4005_1FE8 */ TEMP_1FE8,
 	/* 0x4005_1FEC */ TEMP_1FEC,
+	/* 0x4005_1FF0 */ TEMP_1FF0,
+	/* 0x4005_1FF4 */ TEMP_1FF4,
+	/* 0x4005_1FF8 */ TEMP_1FF8,
+	/* 0x4005_1FFC */ TEMP_1FFC,
 	DSP_SM_USED_COUNT
 };
 

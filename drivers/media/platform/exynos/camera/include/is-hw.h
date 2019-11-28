@@ -65,29 +65,9 @@ enum ratio_size {
 	RATIO_16_9		= 17,
 };
 
-/*
- * This enum will be used for masking each interrupt masking.
- * The irq_ids params which masked by shifting this bit(id)
- * was sended to csi_hw_irq_msk.
- */
-enum csis_hw_irq_id {
-	CSIS_IRQ_ID			= 0,
-	CSIS_IRQ_CRC			= 1,
-	CSIS_IRQ_ECC			= 2,
-	CSIS_IRQ_WRONG_CFG		= 3,
-	CSIS_IRQ_OVERFLOW_VC		= 4,
-	CSIS_IRQ_LOST_FE_VC		= 5,
-	CSIS_IRQ_LOST_FS_VC		= 6,
-	CSIS_IRQ_SOT_VC			= 7,
-	CSIS_IRQ_FRAME_END_VC		= 8,
-	CSIS_IRQ_FRAME_START_VC		= 9,
-	CSIS_IRQ_LINE_END_VC		= 10,
-	CSIS_IRQ_DMA_FRM_START_VC	= 11,
-	CSIS_IRQ_DMA_FRM_END_VC		= 12,
-	CSIS_IRQ_ABORT_ERROR		= 13,
-	CSIS_IRQ_ABORT_DONE		= 14,
-	CSIS_IRQ_OTF_OVERLAP		= 15,
-	CSIS_IRQ_END,
+enum csis_hw_type {
+	CSIS_LINK			= 0,
+	CSIS_WDMA			= 1,
 };
 
 /*
@@ -213,7 +193,7 @@ int csi_hw_s_lane(u32 __iomem *base_reg, struct is_image *img, u32 lanes, u32 mi
 int csi_hw_s_control(u32 __iomem *base_reg, u32 id, u32 value);
 int csi_hw_s_config(u32 __iomem *base_reg, u32 channel, struct is_vci_config *config,
 	u32 width, u32 height, bool potf);
-int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on);
+int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on, bool f_id_dec);
 int csi_hw_g_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear);
 int csi_hw_enable(u32 __iomem *base_reg, u32 use_cphy);
 int csi_hw_disable(u32 __iomem *base_reg);
@@ -242,12 +222,16 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct is_frame_cfg 
 #else
 int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct is_image *image, u32 hwformat);
 #endif
-int csi_hw_dma_common_reset(void);
+int csi_hw_dma_common_reset(u32 __iomem *base_reg);
 int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, u32 dma_ch);
 int csi_hw_s_dma_common(u32 __iomem *base_reg);
 int csi_hw_s_dma_common_pattern_enable(u32 __iomem *base_reg, u32 width, u32 height, u32 fps, u32 clk);
 void csi_hw_s_dma_common_pattern_disable(u32 __iomem *base_reg);
 int csi_hw_s_dma_common_votf_enable(u32 __iomem *base_reg, u32 width, u32 dma_ch, u32 vc);
+int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable);
+int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id);
+int csi_hw_clear_fro_count(u32 __iomem *dma_top_reg, u32 __iomem *vc_reg);
+int csi_hw_s_fro_count(u32 __iomem *vc_cmn_reg, u32 batch_num, u32 vc);
 
 int csi_hw_s_dma_irq_msk(u32 __iomem *base_reg, bool on);
 int csi_hw_g_dma_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear);

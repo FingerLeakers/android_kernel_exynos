@@ -24,6 +24,7 @@
 #include <linux/wakelock.h>
 #include <linux/kthread.h>
 #include <linux/usb_notify.h>
+#include <sound/core.h>
 #include "dock_notify.h"
 #include "usb_notify_sysfs.h"
 
@@ -884,6 +885,32 @@ int set_notify_disable(struct usb_notify_dev *udev, int disable)
 skip:
 	return 0;
 }
+
+void send_usb_mdm_uevent(void)
+{
+	struct otg_notify *o_notify = get_otg_notify();
+	char *envp[4];
+	char *type = {"TYPE=usbmdm"};
+	char *state = {"STATE=ADD"};
+	char *words = {"WORDS=no_whitelist"};
+	int index = 0;
+
+	envp[index++] = type;
+	envp[index++] = state;
+
+	envp[index++] = words;
+
+	envp[index++] = NULL;
+
+	if (send_usb_notify_uevent(o_notify, envp)) {
+		pr_err("%s error\n", __func__);
+		goto err;
+	}
+	pr_info("%s\n", __func__);
+err:
+	return;
+}
+EXPORT_SYMBOL(send_usb_mdm_uevent);
 
 int get_class_index(int ch9_class_num)
 {
@@ -1882,6 +1909,117 @@ bool is_snkdfp_usb_device_connected(struct otg_notify *n)
 }
 EXPORT_SYMBOL(is_snkdfp_usb_device_connected);
 
+struct dev_table {
+	struct usb_device_id dev;
+	int index;
+};
+
+static struct dev_table known_usbaudio_device_table[] = {
+	{ .dev = { USB_DEVICE(0x04e8, 0xa051), },
+	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa054), },
+	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa05b), },
+	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa058), },
+	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa057), },
+	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa059), },
+	},
+	{}
+};
+
+static int is_known_usbaudio(struct usb_device *dev)
+{
+	struct dev_table *id;
+	int ret = 0;
+
+	/* check VID, PID */
+	for (id = known_usbaudio_device_table; id->dev.match_flags; id++) {
+		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct)) {
+			ret = 1;
+			break;
+		}
+	}
+	return ret;
+}
+
+void send_usb_audio_uevent(struct usb_device *dev)
+{
+	struct otg_notify *o_notify = get_otg_notify();
+	char *envp[6];
+	char *type = {"TYPE=usbaudio"};
+	char *state = {"STATE=ADD"};
+	char vidpid_vuf[15];
+	char path_buf[50];
+	int index = 0;
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	char cardnum_buf[10];
+	int cardnum = 0;
+#endif
+
+	if (!is_known_usbaudio(dev))
+		goto err;
+
+	envp[index++] = type;
+	envp[index++] = state;
+
+	snprintf(vidpid_vuf, sizeof(vidpid_vuf),
+		"ID=%04X/%04X", le16_to_cpu(dev->descriptor.idVendor),
+				le16_to_cpu(dev->descriptor.idProduct));
+
+	envp[index++] = vidpid_vuf;
+
+	snprintf(path_buf, sizeof(path_buf),
+		"PATH=/dev/bus/usb/%03d/%03d", dev->bus->busnum, dev->devnum);
+
+	envp[index++] = path_buf;
+
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	cardnum = get_next_snd_card_number(THIS_MODULE);
+	if (cardnum < 0) {
+		pr_err("%s cardnum error\n", __func__);
+		goto err;
+	}
+	snprintf(cardnum_buf, sizeof(cardnum_buf),
+		"CARDNUM=%d", cardnum);
+
+	envp[index++] = cardnum_buf;
+#endif
+
+	envp[index++] = NULL;
+
+	if (send_usb_notify_uevent(o_notify, envp)) {
+		pr_err("%s error\n", __func__);
+		goto err;
+	}
+	pr_info("%s\n", __func__);
+err:
+	return;
+}
+EXPORT_SYMBOL(send_usb_audio_uevent);
+
+int send_usb_notify_uevent(struct otg_notify *n, char *envp_ext[])
+{
+	struct usb_notify *u_notify = (struct usb_notify *)(n->u_notify);
+	int ret = 0;
+
+	if (!u_notify) {
+		pr_err("%s u_notify is null\n", __func__);
+		ret = -EFAULT;
+		goto err;
+	}
+
+	ret = usb_notify_dev_uevent(&u_notify->udev, envp_ext);
+err:
+	return ret;
+}
+EXPORT_SYMBOL(send_usb_notify_uevent);
+
 #if defined(CONFIG_USB_HW_PARAM)
 unsigned long long *get_hw_param(struct otg_notify *n,
 	enum usb_hw_param index)
@@ -2071,6 +2209,7 @@ int set_otg_notify(struct otg_notify *n)
 	if (!n->unsupport_host) {
 		u_notify->ndev.name = "usb_otg";
 		u_notify->ndev.set_booster = n->vbus_drive;
+		u_notify->ndev.set_mode = n->set_host;
 		ret = host_notify_dev_register(&u_notify->ndev);
 		if (ret < 0) {
 			pr_err("host_notify_dev_register is failed\n");

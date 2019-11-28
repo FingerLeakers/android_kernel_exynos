@@ -646,7 +646,7 @@ int main(int argc, char **argv)
 			goto show_help;
 		return 0;
 
-	} else if (!strncmp(argv[1], "-r", 2)) {
+	} else if (!strncmp(argv[1], "-r", 2) && list_file) {
 		if (reduce_rules(src_file, reduced_file, list_file) != 0)
 			goto show_help;
 		return 0;

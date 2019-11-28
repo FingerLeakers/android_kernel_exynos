@@ -90,6 +90,7 @@
 						90 { pname = "pin"; pin = <PIN_FUNCTION 2 0>; };
 						100 { pname = "MCLK"; pin = <PIN_MCLK 1 100>; };
 						110 { pname = "rst_high"; pin = <PIN_OUTPUT 1 1000>; gpio = <&gpp5 2 0x1>; };
+						120 { pname = "ldo_on"; pin = <PIN_OUTPUT 1 0>; gpio = <&gpc0 5 0x1>; };
 					};
 
 					scenario_normal_off {

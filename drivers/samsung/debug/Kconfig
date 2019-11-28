@@ -63,7 +63,7 @@ config SEC_DEBUG_INIT_LOG
 	depends on SEC_DEBUG
 	default y
 	help
-	  This option enables hooking of init task log. 
+	  This option enables hooking of init task log.
 	  It can be used for debugging purpose in case of booting failure or something else.
 
 config SEC_DEBUG_HIST_LOG
@@ -249,3 +249,42 @@ config SEC_DEBUG_EMERG_WDT_CALLER
 	help
 	  This option enables the kernel to indicate a caller of emergency
 	  watchdog caller.
+
+config SEC_DEBUG_BAD_STACK_INFO
+	bool "Set bak stack informaion"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to save additional information when
+	  kernel run into handle_bad_stack.
+
+config SEC_DEBUG_DTASK
+	bool "Support uninterruptible sleep task debugging"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables getting information of task with TASK_UNINTERRUPTIBLE.
+
+config SEC_DEBUG_PM_DEVICE_INFO
+	bool "Set suspend/shutdown device informaion"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to save a device information while the
+	  device is suspending/shutting down.
+
+config SEC_DEBUG_TASK_IN_STATE_INFO
+	bool "Set task information in important system state"
+	depends on SEC_DEBUG
+	default y
+	help
+	  This option enables the kernel to save a task information while the
+	  task enter in important system state.
+
+config SEC_PERF_LATENCYCHECKER
+	bool "Enable Samsung latenychecker"
+	depends on SEC_DEBUG
+	default n
+	help
+	  This option enables Samsung Latencychecker.
+          Select the option if the kernel should check latency point.

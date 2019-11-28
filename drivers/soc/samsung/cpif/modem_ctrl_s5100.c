@@ -25,7 +25,6 @@
 #include <linux/of_gpio.h>
 #include <linux/smc.h>
 #include <linux/modem_notifier.h>
-#include <linux/sec_class.h>
 #include <linux/clk.h>
 #include <linux/pci.h>
 #include <linux/regulator/consumer.h>
@@ -56,7 +55,17 @@
 #include <sound/samsung/abox.h>
 #endif
 
-#define MIF_INIT_TIMEOUT	(300 * HZ)
+#ifdef CONFIG_LINK_DEVICE_PCIE_S2MPU
+#include <soc/samsung/exynos-s2mpu.h>
+#endif
+
+#ifdef CONFIG_CP_LCD_NOTIFIER
+#include "../../../video/fbdev/exynos/dpu30/decon.h"
+static int s5100_lcd_notifier(struct notifier_block *notifier,
+		unsigned long event, void *v);
+#endif /* CONFIG_CP_LCD_NOTIFIER */
+
+#define MIF_INIT_TIMEOUT	(15 * HZ)
 
 #define msecs_to_loops(t) (loops_per_jiffy / 1000 * HZ * t)
 
@@ -267,6 +276,8 @@ static irqreturn_t cp_active_handler(int irq, void *data)
 	if (timer_pending(&mld->crash_ack_timer))
 		del_timer(&mld->crash_ack_timer);
 
+	mif_set_snapshot(false);
+
 	old_state = mc->phone_state;
 	new_state = STATE_CRASH_EXIT;
 
@@ -410,6 +421,7 @@ static int init_control_messages(struct modem_ctl *mc)
 	int ds_det;
 
 	set_ctrl_msg(&mld->ap2cp_united_status, 0);
+	set_ctrl_msg(&mld->cp2ap_united_status, 0);
 
 	ds_det = get_ds_detect();
 	if (ds_det < 0) {
@@ -441,6 +453,8 @@ static int power_on_cp(struct modem_ctl *mc)
 	if (!wake_lock_active(&mc->mc_wake_lock))
 		wake_lock(&mc->mc_wake_lock);
 
+	mif_set_snapshot(true);
+
 	mc->phone_state = STATE_OFFLINE;
 	pcie_clean_dislink(mc);
 
@@ -456,6 +470,7 @@ static int power_on_cp(struct modem_ctl *mc)
 	print_mc_state(mc);
 
 	mif_gpio_set_value(mc->s5100_gpio_cp_reset, 0, 0);
+	mif_gpio_set_value(mc->s5100_gpio_cp_pwr, 0, 50);
 	mif_gpio_set_value(mc->s5100_gpio_cp_pwr, 1, 50);
 	mif_gpio_set_value(mc->s5100_gpio_cp_reset, 1, 50);
 
@@ -698,6 +713,11 @@ static int complete_normal_boot(struct modem_ctl *mc)
 	int err = 0;
 	unsigned long remain;
 	struct io_device *iod;
+#ifdef CONFIG_CP_LCD_NOTIFIER
+	int __maybe_unused ret;
+	struct modem_data __maybe_unused *modem = mc->mdm_data;
+	struct mem_link_device __maybe_unused *mld = modem->mld;
+#endif
 
 	mif_info("+++\n");
 
@@ -708,6 +728,9 @@ static int complete_normal_boot(struct modem_ctl *mc)
 		err = -EAGAIN;
 		goto exit;
 	}
+
+	/* Enable L1.2 after CP boot */
+	s51xx_pcie_l1ss_ctrl(1);
 
 	/* Read cp_active before enabling irq */
 	mif_gpio_get_value(mc->s5100_gpio_phone_active, true);
@@ -732,6 +755,21 @@ static int complete_normal_boot(struct modem_ctl *mc)
 	}
 
 	print_mc_state(mc);
+
+#if defined(CONFIG_CPIF_TP_MONITOR)
+	tpmon_start(1);
+#endif
+#ifdef CONFIG_CP_LCD_NOTIFIER
+	if (mc->lcd_notifier.notifier_call == NULL) {
+		mif_info("Register lcd notifier\n");
+		mc->lcd_notifier.notifier_call = s5100_lcd_notifier;
+		ret = register_lcd_status_notifier(&mc->lcd_notifier);
+		if (ret) {
+			mif_err("failed to register LCD notifier");
+			return ret;
+		}
+	}
+#endif /* CONFIG_CP_LCD_NOTIFIER */
 
 	mif_info("---\n");
 
@@ -762,7 +800,11 @@ static int trigger_cp_crash(struct modem_ctl *mc)
 		mif_err("do not need to set dump_noti\n");
 	}
 
-	ld->link_trigger_cp_crash(mld, crash_type, "Forced crash is called");
+	if (ld->protocol == PROTOCOL_SIT &&
+			crash_type == CRASH_REASON_RIL_TRIGGER_CP_CRASH)
+		ld->link_trigger_cp_crash(mld, crash_type, ld->crash_reason.string);
+	else
+		ld->link_trigger_cp_crash(mld, crash_type, "Forced crash is called");
 
 exit:
 	mif_err("---\n");
@@ -889,6 +931,8 @@ int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off)
 		goto exit;
 	}
 
+	mc->pcie_powered_on = false;
+
 	if (mc->s51xx_pdev != NULL && (mc->phone_state == STATE_ONLINE ||
 				mc->phone_state == STATE_BOOTING)) {
 		mif_info("save s5100_status - phone_state:%d\n",
@@ -901,7 +945,6 @@ int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off)
 	mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 0, 20);
 	print_mc_state(mc);
 
-	mc->pcie_powered_on = false;
 	exynos_pcie_host_v1_poweroff(mc->pcie_ch_num);
 
 	if (wake_lock_active(&mc->mc_wake_lock))
@@ -931,8 +974,11 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 	struct link_device *ld;
 	struct mem_link_device *mld;
 	unsigned long flags;
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
 	int ret;
 	u32 cp_num;
+	u32 shmem_idx;
+#endif
 
 	if (mc == NULL) {
 		mif_info("Skip pci power on : mc is NULL\n");
@@ -973,38 +1019,29 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 	if (exynos_pcie_host_v1_poweron(mc->pcie_ch_num) != 0)
 		goto exit;
 
-	if (mc->s5100_iommu_map_enabled == false) {
-		mc->s5100_iommu_map_enabled = true;
+	mc->pcie_powered_on = true;
+
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
+	if (!mc->s5100_s2mpu_enabled) {
+		mc->s5100_s2mpu_enabled = true;
 		cp_num = ld->mdm_data->cp_num;
 
-		ret = pcie_iommu_map(mc->pcie_ch_num,
-			cp_shmem_get_base(cp_num, SHMEM_IPC),
-			cp_shmem_get_base(cp_num, SHMEM_IPC),
-			cp_shmem_get_size(cp_num, SHMEM_IPC), 7);
-		mif_info("pcie_iommu_map ipc - addr:0x%08lx size:0x%08x ret:%d\n",
-			cp_shmem_get_base(cp_num, SHMEM_IPC),
-			cp_shmem_get_size(cp_num, SHMEM_IPC), ret);
+		for (shmem_idx = 0 ; shmem_idx < MAX_CP_SHMEM ; shmem_idx++) {
+			if (shmem_idx == SHMEM_MSI)
+				continue;
 
-#ifdef CONFIG_CP_PKTPROC_V2
-		ret = pcie_iommu_map(mc->pcie_ch_num,
-			cp_shmem_get_base(cp_num, SHMEM_PKTPROC),
-			cp_shmem_get_base(cp_num, SHMEM_PKTPROC),
-			cp_shmem_get_size(cp_num, SHMEM_PKTPROC), 7);
-		mif_info("pcie_iommu_map pktproc - addr:0x%08lx size:0x%08x ret:%d\n",
-			cp_shmem_get_base(cp_num, SHMEM_PKTPROC),
-			cp_shmem_get_size(cp_num, SHMEM_PKTPROC), ret);
-#endif
-
-#if defined(CONFIG_SEC_MODEM_S5000AP) && defined(CONFIG_SEC_MODEM_S5100)
-		ret = pcie_iommu_map(mc->pcie_ch_num,
-			cp_shmem_get_base(cp_num, SHMEM_C2C),
-			cp_shmem_get_base(cp_num, SHMEM_C2C),
-			cp_shmem_get_size(cp_num, SHMEM_C2C), 7);
-		mif_info("pcie_iommu_map cp2cp - addr:0x%08lx size:0x%X ret:%d\n",
-			cp_shmem_get_base(cp_num, SHMEM_C2C),
-			cp_shmem_get_size(cp_num, SHMEM_C2C), ret);
-#endif
+			if (cp_shmem_get_base(cp_num, shmem_idx)) {
+				ret = (int) exynos_set_dev_stage2_ap("hsi2", 0,
+					cp_shmem_get_base(cp_num, shmem_idx),
+					cp_shmem_get_size(cp_num, shmem_idx), ATTR_RW);
+				mif_info("pcie s2mpu idx:%d - addr:0x%08lx size:0x%08x ret:%d\n",
+					shmem_idx,
+					cp_shmem_get_base(cp_num, shmem_idx),
+					cp_shmem_get_size(cp_num, shmem_idx), ret);
+			}
+		}
 	}
+#endif
 
 	if (mc->s51xx_pdev != NULL) {
 		s51xx_pcie_restore_state(mc->s51xx_pdev);
@@ -1030,8 +1067,6 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 		}
 	}
 
-	mc->pcie_powered_on = true;
-
 #if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
 	if (mc->pcie_voice_call_on && (mc->phone_state != STATE_CRASH_EXIT)) {
 		if (wake_lock_active(&mc->mc_wake_lock))
@@ -1041,6 +1076,17 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 			wake_lock_active(&mc->mc_wake_lock), mc->pcie_voice_call_on);
 	}
 #endif
+
+	/* using PCIE 1 lane at usual tput */
+	if (exynos_pcie_rc_lanechange(1, 1)) {
+		mif_info("fail to change PCI lane 1\n");
+	} else {
+		mif_info("change to PCI lane 1\n");
+	}
+
+	/* Dynamic GEN2<->3 */
+	if (exynos_pcie_rc_speedchange(1, 2))
+		mif_info("fail to change PCI GEN 2\n");
 
 exit:
 	mif_info("---\n");
@@ -1063,7 +1109,6 @@ static int suspend_cp(struct modem_ctl *mc)
 	if (!mc)
 		return 0;
 
-	modem_ctrl_set_kerneltime(mc);
 	do {
 #if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
 		if (mc->pcie_voice_call_on)
@@ -1076,8 +1121,11 @@ static int suspend_cp(struct modem_ctl *mc)
 		}
 	} while (0);
 
+#ifndef CONFIG_CP_LCD_NOTIFIER
+	modem_ctrl_set_kerneltime(mc);
 	mif_gpio_set_value(mc->s5100_gpio_ap_status, 0, 0);
 	mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
+#endif
 
 	return 0;
 }
@@ -1087,11 +1135,11 @@ static int resume_cp(struct modem_ctl *mc)
 	if (!mc)
 		return 0;
 
+#ifndef CONFIG_CP_LCD_NOTIFIER
 	modem_ctrl_set_kerneltime(mc);
-
 	mif_gpio_set_value(mc->s5100_gpio_ap_status, 1, 0);
 	mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
-
+#endif
 	return 0;
 }
 
@@ -1354,6 +1402,37 @@ static int s5100_modem_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 #endif
+
+#ifdef CONFIG_CP_LCD_NOTIFIER
+static int s5100_lcd_notifier(struct notifier_block *notifier,
+		unsigned long event, void *v)
+{
+	struct modem_ctl *mc =
+		container_of(notifier, struct modem_ctl, lcd_notifier);
+
+	switch (event) {
+	case LCD_OFF:
+		mif_info("LCD_OFF Notification\n");
+		modem_ctrl_set_kerneltime(mc);
+		mif_gpio_set_value(mc->s5100_gpio_ap_status, 0, 0);
+		mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
+		break;
+
+	case LCD_ON:
+		mif_info("LCD_ON Notification\n");
+		modem_ctrl_set_kerneltime(mc);
+		mif_gpio_set_value(mc->s5100_gpio_ap_status, 1, 0);
+		mif_gpio_get_value(mc->s5100_gpio_ap_status, true);
+		break;
+
+	default:
+		mif_info("lcd_event %ld\n", event);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+#endif /* CONFIG_CP_LCD_NOTIFIER */
 
 int s5100_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 {

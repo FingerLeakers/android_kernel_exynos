@@ -15,6 +15,7 @@ struct sec_ts_data *tsp_info;
 #include "sec_ts.h"
 
 struct sec_ts_data *ts_dup;
+bool shutdown_is_on_going_tsp;
 
 #ifdef USE_POWER_RESET_WORK
 static void sec_ts_reset_work(struct work_struct *work);
@@ -366,7 +367,7 @@ int sec_ts_i2c_write(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		input_err(true, &ts->client->dev, "%s: I2C write over retry limit\n", __func__);
 		ret = -EIO;
 #ifdef USE_POR_AFTER_I2C_RETRY
-		if (ts->probe_done && !ts->reset_is_on_going)
+		if (ts->probe_done && !ts->reset_is_on_going && !shutdown_is_on_going_tsp)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #endif
 	}
@@ -526,7 +527,7 @@ int sec_ts_i2c_read(struct sec_ts_data *ts, u8 reg, u8 *data, int len)
 		input_err(true, &ts->client->dev, "%s: I2C read over retry limit\n", __func__);
 		ret = -EIO;
 #ifdef USE_POR_AFTER_I2C_RETRY
-		if (ts->probe_done && !ts->reset_is_on_going)
+		if (ts->probe_done && !ts->reset_is_on_going && !shutdown_is_on_going_tsp)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #endif
 	}
@@ -788,7 +789,9 @@ static void dump_tsp_log(void)
 		pr_err("%s: %s %s: ignored ## tsp probe fail!!\n", SEC_TS_I2C_NAME, SECLOG, __func__);
 		return;
 	}
-	schedule_delayed_work(p_ghost_check, msecs_to_jiffies(100));
+
+	if (!shutdown_is_on_going_tsp)
+		schedule_delayed_work(p_ghost_check, msecs_to_jiffies(100));
 }
 #endif
 
@@ -810,7 +813,8 @@ int sec_ts_set_touch_function(struct sec_ts_data *ts)
 		input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
 				__func__, SEC_TS_CMD_SET_TOUCHFUNCTION);
 
-	schedule_delayed_work(&ts->work_read_functions, msecs_to_jiffies(30));
+	if (!shutdown_is_on_going_tsp)
+		schedule_delayed_work(&ts->work_read_functions, msecs_to_jiffies(30));
 
 	return ret;
 }
@@ -900,6 +904,7 @@ void sec_ts_reinit(struct sec_ts_data *ts)
 		__func__, ts->charger_mode, ts->touch_functions, ts->power_status);
 
 	ts->touch_noise_status = 0;
+	ts->touch_pre_noise_status = 0;
 	ts->wet_mode = 0;
 
 	/* charger mode */
@@ -990,6 +995,12 @@ void sec_ts_reinit(struct sec_ts_data *ts)
 
 void sec_ts_print_info(struct sec_ts_data *ts)
 {
+	if (!ts)
+		return;
+
+	if (!ts->client)
+		return;
+
 	ts->print_info_cnt_open++;
 
 	if (ts->print_info_cnt_open > 0xfff0)
@@ -999,11 +1010,13 @@ void sec_ts_print_info(struct sec_ts_data *ts)
 		ts->print_info_cnt_release++;
 
 	input_info(true, &ts->client->dev,
-			"mode:%04X tc:%d noise:%x wet:%d wc:%x lp:(%x) fod:%d D%05X fn:%04X/%04X // v:%02X%02X cal:%02X(%02X) C%02XT%04X.%4s%s Cal_flag:%s fail_cnt:%d // sp:%d id(%d,%d) tmp(%d)// #%d %d\n",
+			"mode:%04X tc:%d noise:%d%d ext_n:%d wet:%d wc:%x(%d) lp:(%x) fod:%d D%05X fn:%04X/%04X ED:%d // v:%02X%02X cal:%02X(%02X) C%02XT%04X.%4s%s Cal_flag:%s fail_cnt:%d // sip:%d id(%d,%d) tmp(%d)// #%d %d\n",
 			ts->print_info_currnet_mode, ts->touch_count,
-			ts->touch_noise_status, ts->wet_mode,
-			ts->charger_mode, ts->lowpower_mode, ts->fod_set_val, ts->defect_probability,
-			ts->touch_functions, ts->ic_status,
+			ts->touch_noise_status, ts->touch_pre_noise_status,
+			ts->external_noise_mode, ts->wet_mode,
+			ts->charger_mode, ts->force_charger_mode,
+			ts->lowpower_mode, ts->fod_set_val, ts->defect_probability,
+			ts->touch_functions, ts->ic_status, ts->ed_enable,
 			ts->plat_data->img_version_of_ic[2], ts->plat_data->img_version_of_ic[3],
 			ts->cal_status, ts->nv,
 #ifdef TCLM_CONCEPT
@@ -1015,9 +1028,9 @@ void sec_ts_print_info(struct sec_ts_data *ts)
 #else
 			0,0," "," "," ",0,
 #endif
-			ts->tspid_val, ts->tspicid_val, ts->print_info_cnt_open,
+			ts->sip_mode, ts->tspid_val, ts->tspicid_val,
 			ts->tsp_temp_data,
-			ts->print_info_cnt_release);
+			ts->print_info_cnt_open, ts->print_info_cnt_release);
 }
 
 /************************************************************
@@ -1068,6 +1081,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 	if (ts->power_status == SEC_TS_STATE_LPM) {
 		wake_lock_timeout(&ts->wakelock, msecs_to_jiffies(500));
+
 		/* waiting for blsp block resuming, if not occurs i2c error */
 		ret = wait_for_completion_interruptible_timeout(&ts->resume_done, msecs_to_jiffies(500));
 		if (ret == 0) {
@@ -1101,6 +1115,21 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 	if (read_event_buff[0][0] == 0) {
 		input_info(true, &ts->client->dev, "%s: event buffer is empty\n", __func__);
+		return;
+	}
+
+	if((read_event_buff[0][0] & 0x3) == 0x3) {
+		input_err(true, &ts->client->dev, "%s: event buffer not vaild %02X %02X %02X %02X %02X %02X %02X %02X\n",
+				__func__, read_event_buff[0][0], read_event_buff[0][1],
+				read_event_buff[0][2], read_event_buff[0][3],
+				read_event_buff[0][4], read_event_buff[0][5],
+				read_event_buff[0][6], read_event_buff[0][7]);
+
+		ret = sec_ts_i2c_write(ts, SEC_TS_CMD_CLEAR_EVENT_STACK, NULL, 0);
+		if (ret < 0)
+			input_err(true, &ts->client->dev, "%s: i2c write clear event failed\n", __func__);
+
+		sec_ts_unlocked_release_all_finger(ts);
 		return;
 	}
 
@@ -1174,7 +1203,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 					(p_event_status->status_id == SEC_TS_ERR_EVENT_ESD)) {
 				input_err(true, &ts->client->dev, "%s: ESD detected. run reset\n", __func__);
 #ifdef USE_RESET_DURING_POWER_ON
-				schedule_work(&ts->reset_work.work);
+				if (!shutdown_is_on_going_tsp)
+					schedule_work(&ts->reset_work.work);
 #endif
 			}
 
@@ -1209,6 +1239,13 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 				if (ts->touch_noise_status)
 					ts->noise_count++;
+			}
+			
+			if ((p_event_status->stype == TYPE_STATUS_EVENT_VENDOR_INFO) &&
+					(p_event_status->status_id == SEC_TS_VENDOR_ACK_PRE_NOISE_STATUS_NOTI)) {
+				ts->touch_pre_noise_status = !!p_event_status->status_data_1;
+				input_info(true, &ts->client->dev, "%s: TSP PRE NOISE MODE %s\n",
+						__func__, ts->touch_pre_noise_status == 0 ? "OFF" : "ON");
 			}
 
 			if ((p_event_status->stype == TYPE_STATUS_EVENT_VENDOR_INFO) &&
@@ -1268,6 +1305,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 				ts->coord[t_id].noise_level = max(ts->coord[t_id].noise_level, p_event_coord->noise_level);
 				ts->coord[t_id].max_strength = max(ts->coord[t_id].max_strength, p_event_coord->max_strength);
 				ts->coord[t_id].hover_id_num = max(ts->coord[t_id].hover_id_num, (u8)p_event_coord->hover_id_num);
+				ts->coord[t_id].noise_status = p_event_coord->noise_status;
 
 				if (ts->coord[t_id].z <= 0)
 					ts->coord[t_id].z = 1;
@@ -1296,7 +1334,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 						location_detect(ts, location, ts->coord[t_id].x, ts->coord[t_id].y);
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 						input_info(true, &ts->client->dev,
-								"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d mx:%d my:%d p:%d noise:%x, nlvl:%d, maxS:%d, hid:%d\n",
+								"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d mx:%d my:%d p:%d noise:(%x,%d%d) nlvl:%d, maxS:%d, hid:%d\n",
 								t_id, location,
 								ts->coord[t_id].x - ts->coord[t_id].p_x,
 								ts->coord[t_id].y - ts->coord[t_id].p_y,
@@ -1304,11 +1342,11 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 								ts->coord[t_id].x, ts->coord[t_id].y,
 								ts->coord[t_id].max_energy_x, ts->coord[t_id].max_energy_y,
 								ts->coord[t_id].palm_count,
-								ts->touch_noise_status, ts->coord[t_id].noise_level,
-								ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+								ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+								ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #else
 						input_info(true, &ts->client->dev,
-								"[R] tID:%d loc:%s dd:%d,%d mp:%d,%d mc:%d tc:%d p:%d noise:%x, nlvl:%d, maxS:%d, hid:%d\n",
+								"[R] tID:%d loc:%s dd:%d,%d mp:%d,%d mc:%d tc:%d p:%d noise:(%x,%d%d) nlvl:%d, maxS:%d, hid:%d\n",
 								t_id, location,
 								ts->coord[t_id].x - ts->coord[t_id].p_x,
 								ts->coord[t_id].y - ts->coord[t_id].p_y,
@@ -1316,8 +1354,8 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 								ts->coord[t_id].max_energy_y - ts->coord[t_id].p_y,
 								ts->coord[t_id].mcount, ts->touch_count,
 								ts->coord[t_id].palm_count,
-								ts->touch_noise_status, ts->coord[t_id].noise_level,
-								ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+								ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+								ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #endif
 						ts->coord[t_id].action = SEC_TS_COORDINATE_ACTION_NONE;
 						ts->coord[t_id].mcount = 0;
@@ -1367,23 +1405,23 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 						input_info(true, &ts->client->dev,
-								"[P] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:%x,%d, nlvl:%d, maxS:%d, hid:%d\n",
+								"[P] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:(%x,%d%d), nlvl:%d, maxS:%d, hid:%d\n",
 								t_id, (ts->input_dev->mt->trkid - 1) & TRKID_MAX,
 								ts->coord[t_id].x, ts->coord[t_id].y, ts->coord[t_id].z,
 								ts->coord[t_id].major, ts->coord[t_id].minor,
 								location, ts->touch_count,
 								ts->coord[t_id].ttype,
-								ts->touch_noise_status, ts->external_noise_mode, ts->coord[t_id].noise_level,
-								ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+								ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+								ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #else
 						input_info(true, &ts->client->dev,
-								"[P] tID:%d.%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:%x,%d, nlvl:%d, maxS:%d, hid:%d\n",
+								"[P] tID:%d.%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:(%x,%d%d), nlvl:%d, maxS:%d, hid:%d\n",
 								t_id, (ts->input_dev->mt->trkid - 1) & TRKID_MAX,
 								ts->coord[t_id].z, ts->coord[t_id].major,
 								ts->coord[t_id].minor, location, ts->touch_count,
 								ts->coord[t_id].ttype,
-								ts->touch_noise_status, ts->external_noise_mode, ts->coord[t_id].noise_level,
-								ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+								ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+								ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #endif
 					} else if (ts->coord[t_id].action == SEC_TS_COORDINATE_ACTION_MOVE) {
 						if (p_event_coord->max_energy_flag) {
@@ -1395,19 +1433,19 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 							location_detect(ts, location, ts->coord[t_id].x, ts->coord[t_id].y);
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 							input_info(true, &ts->client->dev,
-									"[M] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:%x, nlvl:%d, maxS:%d, hid:%d\n",
+									"[M] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:(%x,%d%d), nlvl:%d, maxS:%d, hid:%d\n",
 									t_id, ts->input_dev->mt->trkid & TRKID_MAX,
 									ts->coord[t_id].x, ts->coord[t_id].y, ts->coord[t_id].z,
 									ts->coord[t_id].major, ts->coord[t_id].minor, location, ts->touch_count,
-									ts->coord[t_id].ttype, ts->touch_noise_status, ts->coord[t_id].noise_level,
-									ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+									ts->coord[t_id].ttype, ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+									ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #else
 							input_info(true, &ts->client->dev,
-									"[M] tID:%d.%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:%x, nlvl:%d, maxS:%d, hid:%d\n",
+									"[M] tID:%d.%d z:%d major:%d minor:%d loc:%s tc:%d type:%X noise:(%x,%d%d), nlvl:%d, maxS:%d, hid:%d\n",
 									t_id, ts->input_dev->mt->trkid & TRKID_MAX, ts->coord[t_id].z, 
 									ts->coord[t_id].major, ts->coord[t_id].minor, location, ts->touch_count,
-									ts->coord[t_id].ttype, ts->touch_noise_status, ts->coord[t_id].noise_level,
-									ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
+									ts->coord[t_id].ttype, ts->coord[t_id].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status,
+									ts->coord[t_id].noise_level, ts->coord[t_id].max_strength, ts->coord[t_id].hover_id_num);
 #endif
 						}
 
@@ -1574,8 +1612,9 @@ int sec_ts_set_cover_type(struct sec_ts_data *ts, bool enable)
 	case SEC_TS_LED_COVER:
 	case SEC_TS_MONTBLANC_COVER:
 	case SEC_TS_CLEAR_FLIP_COVER:
-	case SEC_TS_QWERTY_KEYBOARD_EUR:
 	case SEC_TS_QWERTY_KEYBOARD_KOR:
+	case SEC_TS_QWERTY_KEYBOARD_US:
+	case SEC_TS_CLEAR_SIDE_VIEW_COVER:
 		ts->cover_cmd = (u8)ts->cover_type;
 		break;
 	case SEC_TS_CHARGER_COVER:
@@ -1650,6 +1689,286 @@ void sec_ts_set_grip_type(struct sec_ts_data *ts, u8 set_type)
 		set_grip_data_to_ic(ts, mode);
 }
 
+struct sec_ts_data *g_ts;
+
+static ssize_t sec_ts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
+					size_t len, loff_t *offset)
+{
+	struct sec_ts_data *ts;
+	static ssize_t retlen = 0;
+	ssize_t retlen_sdc = 0, retlen_miscal = 0, retlen_main = 0;
+	ssize_t count = 0;
+	loff_t pos = *offset;
+#if defined(CONFIG_SEC_FACTORY)
+	int ret;
+#endif
+
+	if (!g_ts) {
+		pr_err("%s %s: dev is null\n", SECLOG, __func__);
+		return 0;
+	}
+	ts = g_ts;
+
+	if (ts->proc_cmoffset_size == 0) {
+		pr_err("%s %s: proc_cmoffset_size is 0\n", SECLOG, __func__);
+		return 0;
+	}
+
+	if (pos == 0) {
+#if defined(CONFIG_SEC_FACTORY)
+		ret = get_cmoffset_dump_all(ts, ts->cmoffset_sdc_proc, OFFSET_FW_SDC);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : sec_ts_get_cmoffset_dump SDC fail use boot time value\n", __func__);
+		ret = get_cmoffset_dump_all(ts, ts->cmoffset_main_proc, OFFSET_FW_MAIN);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : sec_ts_get_cmoffset_dump MAIN fail use boot time value\n", __func__);
+
+		ret = get_miscal_dump(ts, ts->miscal_proc);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : get_miscal fail use boot time value\n", __func__);
+#endif
+		retlen_sdc = strlen(ts->cmoffset_sdc_proc);
+		retlen_main = strlen(ts->cmoffset_main_proc);
+		retlen_miscal = strlen(ts->miscal_proc);
+
+		ts->cmoffset_all_proc = kzalloc(ts->proc_cmoffset_all_size, GFP_KERNEL);
+		if (!ts->cmoffset_all_proc){
+			input_err(true, &ts->client->dev, "%s : kzalloc fail (cmoffset_all_proc)\n", __func__);
+			return count;
+		}
+
+		strlcat(ts->cmoffset_all_proc, ts->cmoffset_sdc_proc, ts->proc_cmoffset_all_size);
+		strlcat(ts->cmoffset_all_proc, ts->cmoffset_main_proc, ts->proc_cmoffset_all_size);
+		strlcat(ts->cmoffset_all_proc, ts->miscal_proc, ts->proc_cmoffset_all_size);
+
+		retlen = strlen(ts->cmoffset_all_proc);
+
+		input_info(true, &ts->client->dev, "%s : retlen[%d], retlen_sdc[%d], retlen_main[%d] retlen_miscal[%d]\n",
+						__func__, retlen, retlen_sdc, retlen_main, retlen_miscal);
+	}
+
+	if (pos >= retlen)
+		return 0;
+
+	count = min(len, (size_t)(retlen - pos));
+
+	input_info(true, &ts->client->dev, "%s : total:%d pos:%d count:%d\n", __func__, retlen, pos, count);
+
+	if (copy_to_user(buf, ts->cmoffset_all_proc + pos, count)) {
+		input_err(true, &ts->client->dev, "%s : copy_to_user error!\n", __func__, retlen, pos);
+		return -EFAULT;
+	}
+
+	*offset += count;
+
+	if (count < len) {
+		input_info(true, &ts->client->dev, "%s : print all & free cmoffset_all_proc [%d][%d]\n",
+					__func__, retlen, offset);
+		if (ts->cmoffset_all_proc)
+			kfree(ts->cmoffset_all_proc);
+		retlen = 0;
+	}
+
+	return count;
+}
+
+static ssize_t sec_ts_tsp_fail_hist_all_read(struct file *file, char __user *buf,
+					size_t len, loff_t *offset)
+{
+	struct sec_ts_data *ts;
+
+	static ssize_t retlen = 0;
+	ssize_t retlen_sdc = 0, retlen_sub = 0, retlen_main = 0;
+	ssize_t count = 0;
+	loff_t pos = *offset;
+#if defined(CONFIG_SEC_FACTORY)
+	int ret;
+#endif
+
+	if (!g_ts) {
+		pr_err("%s %s: dev is null\n", SECLOG, __func__);
+		return 0;
+	}
+	ts = g_ts;
+
+	if (ts->proc_fail_hist_size == 0) {
+		pr_err("%s %s: proc_fail_hist_size is 0\n", SECLOG, __func__);
+		return 0;
+	}
+
+	if (pos == 0) {
+#if defined(CONFIG_SEC_FACTORY)
+		ret = get_selftest_fail_hist_dump_all(ts, ts->fail_hist_sdc_proc, OFFSET_FW_SDC);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : sec_ts_get_fail_hist_dump SDC fail use boot time value\n", __func__);
+		ret = get_selftest_fail_hist_dump_all(ts, ts->fail_hist_sub_proc, OFFSET_FW_SUB);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : sec_ts_get_fail_hist_dump SUB fail use boot time value\n", __func__);
+		ret = get_selftest_fail_hist_dump_all(ts, ts->fail_hist_main_proc, OFFSET_FW_MAIN);
+		if (ret < 0)
+			input_err(true, &ts->client->dev,
+				"%s : sec_ts_get_fail_hist_dump MAIN fail use boot time value\n", __func__);
+#endif
+		retlen_sdc = strlen(ts->fail_hist_sdc_proc);
+		retlen_sub = strlen(ts->fail_hist_sub_proc);
+		retlen_main = strlen(ts->fail_hist_main_proc);
+
+		ts->fail_hist_all_proc = kzalloc(ts->proc_fail_hist_all_size, GFP_KERNEL);
+		if (!ts->fail_hist_all_proc){
+			input_err(true, &ts->client->dev, "%s : kzalloc fail (fail_hist_all_proc)\n", __func__);
+			return count;
+		}
+
+		strlcat(ts->fail_hist_all_proc, ts->fail_hist_sdc_proc, ts->proc_fail_hist_all_size);
+		strlcat(ts->fail_hist_all_proc, ts->fail_hist_sub_proc, ts->proc_fail_hist_all_size);
+		strlcat(ts->fail_hist_all_proc, ts->fail_hist_main_proc, ts->proc_fail_hist_all_size);
+
+		retlen = strlen(ts->fail_hist_all_proc);
+
+		input_info(true, &ts->client->dev, "%s : retlen[%d], retlen_sdc[%d], retlen_sub[%d], retlen_main[%d]\n",
+						__func__, retlen, retlen_sdc, retlen_sub, retlen_main);
+	}
+
+	if (pos >= retlen)
+		return 0;
+
+	count = min(len, (size_t)(retlen - pos));
+
+	input_info(true, &ts->client->dev, "%s : total:%d pos:%d count:%d\n", __func__, retlen, pos, count);
+
+	if (copy_to_user(buf, ts->fail_hist_all_proc + pos, count)) {
+		input_err(true, &ts->client->dev, "%s : copy_to_user error!\n", __func__, retlen, pos);
+		return -EFAULT;
+	}
+
+	*offset += count;
+
+	if (count < len) {
+		input_info(true, &ts->client->dev, "%s : print all & free fail_hist_all_proc [%d][%d]\n",
+					__func__, retlen, offset);
+		if (ts->fail_hist_all_proc)
+			kfree(ts->fail_hist_all_proc);
+		retlen = 0;
+	}
+
+	return count;
+}
+
+static ssize_t sec_ts_tsp_cmoffset_read(struct file *file, char __user *buf,
+					size_t len, loff_t *offset)
+{
+	pr_info("[sec_input] %s called offset:%d\n", __func__, (int)*offset);
+	return sec_ts_tsp_cmoffset_all_read(file, buf, len, offset);
+}
+
+static ssize_t sec_ts_tsp_fail_hist_read(struct file *file, char __user *buf,
+					size_t len, loff_t *offset)
+{
+	pr_info("[sec_input] %s called fail_hist:%d\n", __func__, (int)*offset);
+	return sec_ts_tsp_fail_hist_all_read(file, buf, len, offset);
+}
+
+static const struct file_operations tsp_cmoffset_all_file_ops = {
+	.owner = THIS_MODULE,
+	.read = sec_ts_tsp_cmoffset_read,
+	.llseek = generic_file_llseek,
+};
+
+static const struct file_operations tsp_fail_hist_all_file_ops = {
+	.owner = THIS_MODULE,
+	.read = sec_ts_tsp_fail_hist_read,
+	.llseek = generic_file_llseek,
+};
+
+static void sec_ts_init_proc(struct sec_ts_data *ts)
+{
+	struct proc_dir_entry *entry_cmoffset_all;
+	struct proc_dir_entry *entry_fail_hist_all;
+
+	ts->proc_cmoffset_size = (ts->tx_count * ts->rx_count * 4 + 100) * 4;	/* cm1 cm2 cm3 miscal*/
+	ts->proc_cmoffset_all_size = ts->proc_cmoffset_size * 2;	/* sdc main */
+
+	ts->proc_fail_hist_size = ((ts->tx_count + ts->rx_count) * 4 + 100) * 6;	/* have to check */
+	ts->proc_fail_hist_all_size = ts->proc_fail_hist_size * 3;	/* sdc sub main */
+
+	ts->cmoffset_sdc_proc = kzalloc(ts->proc_cmoffset_size, GFP_KERNEL);
+	if (!ts->cmoffset_sdc_proc)
+		return;
+
+	ts->cmoffset_main_proc = kzalloc(ts->proc_cmoffset_size, GFP_KERNEL);
+	if (!ts->cmoffset_main_proc)
+		goto err_alloc_main;
+	
+	ts->miscal_proc= kzalloc(ts->proc_cmoffset_size, GFP_KERNEL);
+	if (!ts->miscal_proc)
+		goto err_alloc_miscal;
+
+	ts->fail_hist_sdc_proc = kzalloc(ts->proc_fail_hist_size, GFP_KERNEL);
+	if (!ts->fail_hist_sdc_proc)
+		goto err_alloc_fail_hist_sdc;
+
+	ts->fail_hist_sub_proc = kzalloc(ts->proc_fail_hist_size, GFP_KERNEL);
+	if (!ts->fail_hist_sub_proc)
+		goto err_alloc_fail_hist_sub;
+
+	ts->fail_hist_main_proc = kzalloc(ts->proc_fail_hist_size, GFP_KERNEL);
+	if (!ts->fail_hist_main_proc)
+		goto err_alloc_fail_hist_main;
+
+	entry_cmoffset_all = proc_create("tsp_cmoffset_all", S_IFREG | S_IRUGO, NULL, &tsp_cmoffset_all_file_ops);
+	if (!entry_cmoffset_all) {
+		input_err(true, &ts->client->dev, "%s: failed to create /proc/tsp_cmoffset_all\n", __func__);
+		goto err_cmoffset_proc_create;
+	}
+	proc_set_size(entry_cmoffset_all, ts->proc_cmoffset_all_size);
+
+	entry_fail_hist_all = proc_create("tsp_fail_hist_all", S_IFREG | S_IRUGO, NULL, &tsp_fail_hist_all_file_ops);
+	if (!entry_fail_hist_all) {
+		input_err(true, &ts->client->dev, "%s: failed to create /proc/tsp_fail_hist_all\n", __func__);
+		goto err_fail_hist_proc_create;
+	}
+	proc_set_size(entry_fail_hist_all, ts->proc_fail_hist_all_size);
+
+	g_ts = ts;
+	input_info(true, &ts->client->dev, "%s: done\n", __func__);
+	return;
+
+err_fail_hist_proc_create:
+	proc_remove(entry_cmoffset_all);
+err_cmoffset_proc_create:
+	kfree(ts->fail_hist_main_proc);
+err_alloc_fail_hist_main:
+	kfree(ts->fail_hist_sub_proc);
+err_alloc_fail_hist_sub:
+	kfree(ts->fail_hist_sdc_proc);
+err_alloc_fail_hist_sdc:
+	kfree(ts->miscal_proc);
+err_alloc_miscal:
+	kfree(ts->cmoffset_main_proc);
+err_alloc_main:
+	kfree(ts->cmoffset_sdc_proc);
+
+	ts->cmoffset_sdc_proc = NULL;
+	ts->cmoffset_main_proc = NULL;
+	ts->miscal_proc = NULL;
+	ts->cmoffset_all_proc = NULL;
+	ts->proc_cmoffset_size = 0;
+	ts->proc_cmoffset_all_size = 0;
+
+	ts->fail_hist_sdc_proc = NULL;
+	ts->fail_hist_sub_proc = NULL;
+	ts->fail_hist_main_proc = NULL;
+	ts->fail_hist_all_proc = NULL;
+	ts->proc_fail_hist_size = 0;
+	ts->proc_fail_hist_all_size = 0;
+
+	input_err(true, &ts->client->dev, "%s: failed\n", __func__);
+}
 /* for debugging--------------------------------------------------------------------------------------*/
 static int sec_ts_pinctrl_configure(struct sec_ts_data *ts, bool enable)
 {
@@ -1745,7 +2064,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	int count = 0;
 	u32 ic_match_value;
 	int lcdtype = 0;
-#if defined(CONFIG_EXYNOS_DPU20)
+#if defined(CONFIG_EXYNOS_DPU30)
 	int connected;
 #endif
 	u32 px_zone[3] = { 0 };
@@ -1832,7 +2151,7 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	}
 #endif
 
-#if defined(CONFIG_EXYNOS_DPU20)
+#if defined(CONFIG_EXYNOS_DPU30)
 	connected = get_lcd_info("connected");
 	if (connected < 0) {
 		input_err(true, dev, "%s: Failed to get lcd info\n", __func__);
@@ -1872,6 +2191,8 @@ static int sec_ts_parse_dt(struct i2c_client *client)
 	pdata->enable_settings_aot = of_property_read_bool(np, "enable_settings_aot");
 	pdata->sync_reportrate_120 = of_property_read_bool(np, "sync-reportrate-120");
 	pdata->support_ear_detect = of_property_read_bool(np, "support_ear_detect_mode");
+	pdata->support_open_short_test = of_property_read_bool(np, "support_open_short_test");
+	pdata->support_mis_calibration_test = of_property_read_bool(np, "support_mis_calibration_test");
 
 	if (of_property_read_u32_array(np, "sec,area-size", px_zone, 3)) {
 		input_info(true, &client->dev, "Failed to get zone's size\n");
@@ -2341,6 +2662,8 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto err_allocate_frame;
 	}
 
+	sec_ts_init_proc(ts);
+
 	if (ts->plat_data->support_dex) {
 		ts->input_dev_pad->name = "sec_touchpad";
 		sec_ts_set_input_prop(ts, ts->input_dev_pad, INPUT_PROP_POINTER);
@@ -2409,7 +2732,8 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	device_init_wakeup(&client->dev, true);
 
-	schedule_delayed_work(&ts->work_read_info, msecs_to_jiffies(50));
+	if (!shutdown_is_on_going_tsp)
+		schedule_delayed_work(&ts->work_read_info, msecs_to_jiffies(50));
 
 #if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
 	dump_callbacks.inform_dump = dump_tsp_log;
@@ -2518,28 +2842,31 @@ void sec_ts_unlocked_release_all_finger(struct sec_ts_data *ts)
 
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 			input_info(true, &ts->client->dev,
-					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d p:%d noise:%x\n",
+					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d p:%d noise:(%x,%d%d)\n",
 					i, location,
 					ts->coord[i].x - ts->coord[i].p_x,
 					ts->coord[i].y - ts->coord[i].p_y,
 					ts->coord[i].mcount, ts->touch_count,
 					ts->coord[i].x, ts->coord[i].y,
 					ts->coord[i].palm_count,
-					ts->touch_noise_status);
+					ts->coord[i].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status);
 #else
 			input_info(true, &ts->client->dev,
-					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d p:%d noise:%x\n",
+					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d p:%d noise:(%x,%d%d)\n",
 					i, location,
 					ts->coord[i].x - ts->coord[i].p_x,
 					ts->coord[i].y - ts->coord[i].p_y,
 					ts->coord[i].mcount, ts->touch_count,
 					ts->coord[i].palm_count,
-					ts->touch_noise_status);
+					ts->coord[i].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status);
 #endif
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 		}
 		ts->coord[i].mcount = 0;
 		ts->coord[i].palm_count = 0;
+		ts->coord[i].noise_level = 0;
+		ts->coord[i].max_strength = 0;
+		ts->coord[i].hover_id_num = 0;
 	}
 
 	input_mt_slot(ts->input_dev, 0);
@@ -2570,23 +2897,23 @@ void sec_ts_locked_release_all_finger(struct sec_ts_data *ts)
 			location_detect(ts, location, ts->coord[i].x, ts->coord[i].y);
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 			input_info(true, &ts->client->dev,
-					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d p:%d noise:%x\n",
+					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d p:%d noise:(%x,%d%d)\n",
 					i, location,
 					ts->coord[i].x - ts->coord[i].p_x,
 					ts->coord[i].y - ts->coord[i].p_y,
 					ts->coord[i].mcount, ts->touch_count,
 					ts->coord[i].x, ts->coord[i].y,
 					ts->coord[i].palm_count,
-					ts->touch_noise_status);
+					ts->coord[i].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status);
 #else
 			input_info(true, &ts->client->dev,
-					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d p:%d noise:%x\n",
+					"[RA] tID:%d loc:%s dd:%d,%d mc:%d tc:%d p:%d noise:(%x,%d%d)\n",
 					i, location,
 					ts->coord[i].x - ts->coord[i].p_x,
 					ts->coord[i].y - ts->coord[i].p_y,
 					ts->coord[i].mcount, ts->touch_count,
 					ts->coord[i].palm_count,
-					ts->touch_noise_status);
+					ts->coord[i].noise_status, ts->touch_noise_status, ts->touch_pre_noise_status);
 #endif
 			ts->coord[i].action = SEC_TS_COORDINATE_ACTION_RELEASE;
 		}
@@ -2643,7 +2970,8 @@ static void sec_ts_reset_work(struct work_struct *work)
 		input_err(true, &ts->client->dev, "%s: failed to reset, ret:%d\n", __func__, ret);
 		ts->reset_is_on_going = false;
 		cancel_delayed_work(&ts->reset_work);
-		schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+		if (!shutdown_is_on_going_tsp)
+			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 		mutex_unlock(&ts->modechange);
 
 		if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
@@ -2667,7 +2995,8 @@ static void sec_ts_reset_work(struct work_struct *work)
 				input_err(true, &ts->client->dev, "%s: failed to reset, ret:%d\n", __func__, ret);
 				ts->reset_is_on_going = false;
 				cancel_delayed_work(&ts->reset_work);
-				schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+				if (!shutdown_is_on_going_tsp)
+					schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 				mutex_unlock(&ts->modechange);
 				wake_unlock(&ts->wakelock);
 				return;
@@ -2715,8 +3044,8 @@ static void sec_ts_print_info_work(struct work_struct *work)
 			sec_ts_set_temp(ts, false);
 		}
 	}
-	
-	schedule_delayed_work(&ts->work_print_info, msecs_to_jiffies(TOUCH_PRINT_INFO_DWORK_TIME));
+	if (!shutdown_is_on_going_tsp)
+		schedule_delayed_work(&ts->work_print_info, msecs_to_jiffies(TOUCH_PRINT_INFO_DWORK_TIME));
 }
 
 static void sec_ts_read_info_work(struct work_struct *work)
@@ -2738,9 +3067,33 @@ static void sec_ts_read_info_work(struct work_struct *work)
 	input_log_fix();
 
 	sec_ts_run_rawdata_all(ts, false);
+
+	/* read cmoffset & fail history data at booting time */
+	if (ts->proc_cmoffset_size) {
+		get_cmoffset_dump_all(ts, ts->cmoffset_sdc_proc, OFFSET_FW_SDC);
+		get_cmoffset_dump_all(ts, ts->cmoffset_main_proc, OFFSET_FW_MAIN);
+		get_miscal_dump(ts, ts->miscal_proc);
+	} else {
+		input_err(true, &ts->client->dev, "%s: read cmoffset fail : alloc fail\n", __func__);
+	}
+
+	if (ts->proc_fail_hist_size) {
+		get_selftest_fail_hist_dump_all(ts, ts->fail_hist_sdc_proc, OFFSET_FW_SDC);
+		get_selftest_fail_hist_dump_all(ts, ts->fail_hist_sub_proc, OFFSET_FW_SUB);
+		get_selftest_fail_hist_dump_all(ts, ts->fail_hist_main_proc, OFFSET_FW_MAIN);
+	} else {
+		input_err(true, &ts->client->dev, "%s: read fail-history fail : alloc fail\n", __func__);
+	}
+
 	ts->info_work_done = true;
 
-	schedule_work(&ts->work_print_info.work);
+	if (ts->shutdown_is_on_going) {
+		input_err(true, &ts->client->dev, "%s done, do not run work\n", __func__);
+		return;
+	}
+
+	if (!shutdown_is_on_going_tsp)
+		schedule_work(&ts->work_print_info.work);
 
 }
 
@@ -2763,7 +3116,8 @@ int sec_ts_set_lowpowermode(struct sec_ts_data *ts, u8 mode)
 		if (ret < 0)
 			goto i2c_error;
 	} else {
-		schedule_work(&ts->work_read_functions.work);
+		if (!shutdown_is_on_going_tsp)
+			schedule_work(&ts->work_read_functions.work);
 		sec_ts_set_prox_power_off(ts, 0);
 	}
 
@@ -2841,7 +3195,8 @@ static int sec_ts_input_open(struct input_dev *dev)
 
 	if (ts->power_status == SEC_TS_STATE_LPM) {
 #ifdef USE_RESET_EXIT_LPM
-		schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
+		if (!shutdown_is_on_going_tsp)
+			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 #else
 		sec_ts_set_lowpowermode(ts, TO_TOUCH_MODE);
 		sec_ts_set_grip_type(ts, ONLY_EDGE_HANDLER);
@@ -2862,7 +3217,8 @@ static int sec_ts_input_open(struct input_dev *dev)
 	cancel_delayed_work(&ts->work_print_info);
 	ts->print_info_cnt_open = 0;
 	ts->print_info_cnt_release = 0;
-	schedule_work(&ts->work_print_info.work);
+	if (!shutdown_is_on_going_tsp)
+		schedule_work(&ts->work_print_info.work);
 	return 0;
 }
 
@@ -2874,10 +3230,15 @@ static void sec_ts_input_close(struct input_dev *dev)
 		input_err(true, &ts->client->dev, "%s not finished info work\n", __func__);
 		return;
 	}
+	if (ts->shutdown_is_on_going) {
+		input_err(true, &ts->client->dev, "%s shutdown was called\n", __func__);
+		return;
+	}
 
 	mutex_lock(&ts->modechange);
 
 	ts->input_closed = true;
+	ts->sip_mode = 0;
 
 #ifdef TCLM_CONCEPT
 	sec_tclm_debug_info(ts->tdata);
@@ -2912,13 +3273,15 @@ static int sec_ts_remove(struct i2c_client *client)
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
+	ts->shutdown_is_on_going = true;
+	shutdown_is_on_going_tsp = true;
 
 	sec_ts_ioctl_remove(ts);
 
+	disable_irq_nosync(ts->client->irq);
 	cancel_delayed_work_sync(&ts->work_read_info);
 	cancel_delayed_work_sync(&ts->work_print_info);
 	cancel_delayed_work_sync(&ts->work_read_functions);
-	disable_irq_nosync(ts->client->irq);
 	free_irq(ts->client->irq, ts);
 	input_info(true, &ts->client->dev, "%s: irq disabled\n", __func__);
 
@@ -3030,6 +3393,7 @@ int sec_ts_start_device(struct sec_ts_data *ts)
 	sec_ts_delay(TOUCH_POWER_ON_DWORK_TIME);
 	ts->power_status = SEC_TS_STATE_POWER_ON;
 	ts->touch_noise_status = 0;
+	ts->touch_pre_noise_status = 0;
 
 	ret = sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
 	if (ret < 0) {

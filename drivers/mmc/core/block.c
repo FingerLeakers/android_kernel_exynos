@@ -2225,6 +2225,7 @@ static inline void mmc_blk_rw_reset_success(struct mmc_queue *mq,
 static void mmc_blk_mq_complete_rq(struct mmc_queue *mq, struct request *req)
 {
 	struct mmc_queue_req *mqrq = req_to_mmc_queue_req(req);
+	struct mmc_card *card = mq->card;
 	unsigned int nr_bytes = mqrq->brq.data.bytes_xfered;
 
 	if (nr_bytes) {
@@ -2234,7 +2235,7 @@ static void mmc_blk_mq_complete_rq(struct mmc_queue *mq, struct request *req)
 			__blk_mq_end_request(req, BLK_STS_OK);
 	} else if (!blk_rq_bytes(req)) {
 		__blk_mq_end_request(req, BLK_STS_IOERR);
-	} else if (mqrq->retries++ < MMC_MAX_RETRIES) {
+	} else if (mqrq->retries++ < MMC_MAX_RETRIES && card && !mmc_card_sd(card)) {
 		blk_mq_requeue_request(req, true);
 	} else {
 		if (mmc_card_removed(mq->card))
@@ -2523,6 +2524,14 @@ enum mmc_issued mmc_blk_mq_issue_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = md->queue.card;
 	struct mmc_host *host = card->host;
 	int ret;
+
+	if (mmc_tot_in_flight(mq) == 1) {
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+		if (mmc_bus_needs_resume(card->host)) {
+			mmc_resume_bus(card->host);
+		}
+#endif
+	}
 
 	ret = mmc_blk_part_switch(card, md->part_type);
 	if (ret)
@@ -3250,6 +3259,10 @@ static int mmc_blk_probe(struct mmc_card *card)
 
 	dev_set_drvdata(&card->dev, md);
 
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	if (card && mmc_card_sd(card))
+		mmc_set_bus_resume_policy(card->host, 1);
+#endif
 	if (mmc_add_disk(md))
 		goto out;
 
@@ -3319,7 +3332,16 @@ static int _mmc_blk_suspend(struct mmc_card *card)
 
 static void mmc_blk_shutdown(struct mmc_card *card)
 {
+	struct mmc_blk_data *md = dev_get_drvdata(&card->dev);
+	struct mmc_blk_data *part_md;
+
 	_mmc_blk_suspend(card);
+
+	if (md) {
+		list_for_each_entry(part_md, &md->part, part)
+			mmc_cleanup_queue(&part_md->queue);
+		mmc_cleanup_queue(&md->queue);
+	}
 }
 
 #ifdef CONFIG_PM_SLEEP

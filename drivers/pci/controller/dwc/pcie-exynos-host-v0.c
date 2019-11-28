@@ -45,6 +45,7 @@
 #include <linux/random.h>
 
 /* #define CONFIG_DYNAMIC_PHY_OFF */
+/* #define CONFIG_SEC_PANIC_PCIE_ERR */
 
 #if defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 /*
@@ -609,8 +610,13 @@ static int exynos_pcie_clock_enable(struct pcie_port *pp, int enable)
 	int ret = 0;
 
 	if (enable) {
-		for (i = 0; i < exynos_pcie->pcie_clk_num; i++)
+		for (i = 0; i < exynos_pcie->pcie_clk_num; i++) {
 			ret = clk_prepare_enable(clks->pcie_clks[i]);
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+			if (ret)
+				panic("[PCIe Case#2] pcie clk fail! %s\n", exynos_pcie->ep_device_name);
+#endif
+		}
 	} else {
 		for (i = 0; i < exynos_pcie->pcie_clk_num; i++)
 			clk_disable_unprepare(clks->pcie_clks[i]);
@@ -628,8 +634,13 @@ static int exynos_pcie_phy_clock_enable(struct pcie_port *pp, int enable)
 	int ret = 0;
 
 	if (enable) {
-		for (i = 0; i < exynos_pcie->phy_clk_num; i++)
+		for (i = 0; i < exynos_pcie->phy_clk_num; i++) {
 			ret = clk_prepare_enable(clks->phy_clks[i]);
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+			if (ret)
+				panic("[PCIe Case#2] PHY clk fail! %s\n", exynos_pcie->ep_device_name);
+#endif
+		}
 	} else {
 		for (i = 0; i < exynos_pcie->phy_clk_num; i++)
 			clk_disable_unprepare(clks->phy_clks[i]);
@@ -895,6 +906,9 @@ retry:
 			goto retry;
 		} else {
 			exynos_pcie_print_link_history(pp);
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+			panic("[PCIe Case#1] PCIe Link up fail! %s\n", exynos_pcie->ep_device_name);
+#endif
 			if ((exynos_pcie->ip_ver >= 0x889000) &&
 				(exynos_pcie->ep_device_type == EP_BCM_WIFI)) {
 				return -EPIPE;
@@ -944,6 +958,10 @@ void exynos_pcie_dislink_work(struct work_struct *work)
 	exynos_pcie->linkdown_cnt++;
 	dev_info(dev, "link down and recovery cnt: %d\n",
 			exynos_pcie->linkdown_cnt);
+
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+	panic("[PCIe Case#4] PCIe Link down occurred! %s\n", exynos_pcie->ep_device_name);
+#endif
 
 	exynos_pcie_notify_callback(pp, EXYNOS_PCIE_EVENT_LINKDOWN);
 }
@@ -1562,6 +1580,15 @@ static int exynos_pcie_parse_dt(struct device_node *np, struct pcie_port *pp)
 		exynos_pcie->use_cache_coherency = false;
 	}
 
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+	if (!of_property_read_string(np, "ep-device-name", (const char**)&exynos_pcie->ep_device_name)) {
+		dev_info(pci->dev, "EP device name is %s\n", exynos_pcie->ep_device_name);
+	} else {
+		dev_err(pci->dev, "EP device name is NOT defined, device node name is %s\n", np->name);
+		exynos_pcie->ep_device_name = np->name;
+	}
+#endif
+
 	if (!of_property_read_string(np, "use-msi", &use_msi)) {
 		if (!strcmp(use_msi, "true")) {
 			exynos_pcie->use_msi = true;
@@ -2039,6 +2066,9 @@ void exynos_pcie_config_l1ss(struct pcie_port *pp)
 	if (ep_pci_dev == NULL) {
 		dev_err(pci->dev,
 			"Failed to set L1SS Enable (pci_dev == NULL)!!!\n");
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR			
+		panic("[PCIe Case#3] No ep_pci_dev found! %s\n", exynos_pcie->ep_device_name);
+#endif
 		return ;
 	}
 
@@ -2118,14 +2148,13 @@ int exynos_pcie_poweron(int ch_num)
 		ret = exynos_pcie_clock_enable(pp, PCIE_ENABLE_CLOCK);
 		dev_err(pci->dev, "pcie clk enable, ret value = %d\n", ret);
 
-		/* It's not able to use current 9820 SW PMU */
-#if !defined(CONFIG_SOC_EXYNOS9820)
-		/* Release wakeup maks */
-		regmap_update_bits(exynos_pcie->pmureg,
-			WAKEUP_MASK,
-			(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)),
-			(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)));
-#endif
+		/* It's not able to use after exynos9810, PMU is chagned to SW PMU */
+		if (exynos_pcie->ip_ver < 0x982000) {
+			/* Release wakeup maks */
+			regmap_update_bits(exynos_pcie->pmureg, WAKEUP_MASK,
+				(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)),
+				(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)));
+		}
 
 #ifdef CONFIG_CPU_IDLE
 		if (exynos_pcie->use_sicd)
@@ -2323,14 +2352,14 @@ void exynos_pcie_poweroff(int ch_num)
 #endif
 	}
 
-	/* It's not able to use current 9820 SW PMU */
-#if !defined(CONFIG_SOC_EXYNOS9820)
-	/* Set wakeup mask */
-	regmap_update_bits(exynos_pcie->pmureg,
-			WAKEUP_MASK,
-			(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)),
-			(0x0 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)));
-#endif
+	/* It's not able to use after exynos9810, PMU is chagned to SW PMU */
+	if (exynos_pcie->ip_ver < 0x982000) {
+		/* Set wakeup mask */
+		regmap_update_bits(exynos_pcie->pmureg,
+				WAKEUP_MASK,
+				(0x1 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)),
+				(0x0 << (WAKEUP_MASK_PCIE_WIFI + exynos_pcie->ch_num)));
+	}
 
 	dev_info(pci->dev, "%s, end of poweroff, pcie state: %d\n",  __func__,
 		 exynos_pcie->state);
@@ -2395,11 +2424,14 @@ retry_pme_turnoff:
 	} while (count < MAX_L2_TIMEOUT);
 
 	if (count >= MAX_L2_TIMEOUT) {
-		if (retry_cnt < 10) {
+		if (retry_cnt < 5) {
 			retry_cnt++;
 			goto retry_pme_turnoff;
 		}
 		dev_err(dev, "cannot receive L23_READY DLLP packet(0x%x)\n", val);
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+		panic("[PCIe Case#5] L2/3 READY fail! %s\n", exynos_pcie->ep_device_name);
+#endif
 	}
 }
 

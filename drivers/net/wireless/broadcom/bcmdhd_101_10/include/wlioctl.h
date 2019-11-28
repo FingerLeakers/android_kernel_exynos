@@ -2894,6 +2894,7 @@ enum {
 	PPRTYPE_RU_REGLIMITS    =       4,
 	PPRTYPE_RU_BOARDLIMITS  =       5,
 	PPRTYPE_RU_TARGETPOWER  =       6,
+	PPRTYPE_DYNAMIC_INFO	=       7,
 	PPRTYPE_LAST
 };
 
@@ -3311,6 +3312,9 @@ typedef struct wl_psbw_status_v1 {
 #define WL_PSBW_DISA_ASSOC			0x00000080 /* assoc state is active/or unassoc */
 #define WL_PSBW_DISA_SCAN			0x00000100 /* scan state is active */
 #define WL_PSBW_DISA_CAL			0x00000200 /* cal pending or active */
+#define WL_PSBW_DISA_BCN_OFFLOAD		0x00000400 /* PSBW disabled due to scan
+							    * core beacon offload
+							    */
 /* following are not part of disable reasons */
 #define WL_PSBW_EXIT_PM				0x00001000 /* Out of PM */
 #define WL_PSBW_EXIT_TIM			0x00002000 /* unicast TIM bit present */
@@ -8864,7 +8868,8 @@ typedef struct sc_chanim_stats_v1 {
 	uint32 sc_rx_ac_rx_dur;		/* Rx on SC when AC is active, in ms */
 	uint32 sc_rx_mc_tx_dur;		/* sc rx with MC tx, in ms */
 	uint32 sc_rx_ac_bt_tx_dur;	/* sc rx with AC-BT tx, in ms */
-	uint32 sc_rx_bt_rx_dur;		/* sc rx when BT is active, in ms */
+	uint32 sc_rx_bt_rx_dur;		/* sc rx when BT Main is active, in ms */
+	uint32 sc_rx_btsc_rx_dur;	/* BT sc and wlan SC rx is active, in ms */
 } sc_chanim_stats_v1_t;
 
 typedef struct {
@@ -9405,17 +9410,18 @@ typedef struct wl_tfs_term {
 
 /* Definitions for WNM/NPS Directed Multicast Service */
 enum {
-	DMS_STATUS_DISABLED = 0,	/**< DMS desc disabled by user */
-	DMS_STATUS_ACCEPTED = 1,	/**< Request accepted by AP */
-	DMS_STATUS_NOT_ASSOC = 2,	/**< STA not associated */
-	DMS_STATUS_NOT_SUPPORT = 3,	/**< DMS not supported by AP */
-	DMS_STATUS_DENIED = 4,		/**< Request denied by AP */
-	DMS_STATUS_TERM = 5,		/**< Request terminated by AP */
-	DMS_STATUS_REMOVING = 6,	/**< Remove request just sent */
-	DMS_STATUS_ADDING = 7,		/**< Add request just sent */
-	DMS_STATUS_ERROR = 8,		/**< Non compliant AP behvior */
-	DMS_STATUS_IN_PROGRESS = 9,	/**< Request just sent */
-	DMS_STATUS_REQ_MISMATCH = 10	/**< Conditions for sending DMS req not met */
+	DMS_STATUS_DISABLED     = 0,	/**< DMS desc disabled by user */
+	DMS_STATUS_ACCEPTED     = 1,	/**< Request accepted by AP */
+	DMS_STATUS_NOT_ASSOC    = 2,	/**< STA not associated */
+	DMS_STATUS_NOT_SUPPORT  = 3,	/**< DMS not supported by AP */
+	DMS_STATUS_DENIED       = 4,	/**< Request denied by AP */
+	DMS_STATUS_TERM         = 5,	/**< Request terminated by AP */
+	DMS_STATUS_REMOVING     = 6,	/**< Remove request just sent */
+	DMS_STATUS_ADDING       = 7,	/**< Add request just sent */
+	DMS_STATUS_ERROR        = 8,	/**< Non compliant AP behvior */
+	DMS_STATUS_IN_PROGRESS  = 9,	/**< Request just sent */
+	DMS_STATUS_REQ_MISMATCH = 10,	/**< Conditions for sending DMS req not met */
+	DMS_STATUS_TIMEOUT      = 11	/**< Request Time out */
 };
 
 typedef struct wl_dms_desc {
@@ -9775,8 +9781,11 @@ typedef struct wl_proxd_params_rssi_method {
 
 #define Q1_NS			25	/**< Q1 time units */
 
-#define TOF_BW_NUM		3	/**< number of bandwidth that the TOF can support */
-#define TOF_BW_SEQ_NUM		(TOF_BW_NUM+2)	/* number of total index */
+/* Number of bandwidth that the TOF can support */
+#define TOF_BW_NUM		3
+/* Number of total index including seq tx/rx idx */
+#define TOF_BW_SEQ_NUM          5
+
 enum tof_bw_index {
 	TOF_BW_20MHZ_INDEX = 0,
 	TOF_BW_40MHZ_INDEX = 1,
@@ -9785,16 +9794,36 @@ enum tof_bw_index {
 	TOF_BW_SEQRX_INDEX = 4
 };
 
+/*
+ * Version 2 of above bw defines
+ * and enum tof_bw_index,
+ * with advent of 160 MHz
+ */
+#define TOF_BW_NUM_V2		4u
+#define TOF_BW_SEQ_NUM_V2	6u
+
+enum tof_bw_index_v2 {
+	TOF_BW_20MHZ_INDEX_V2 = 0,
+	TOF_BW_40MHZ_INDEX_V2 = 1,
+	TOF_BW_80MHZ_INDEX_V2 = 2,
+	TOF_BW_160MHZ_INDEX_V2 = 3,
+	TOF_BW_SEQTX_INDEX_V2 = 4,
+	TOF_BW_SEQRX_INDEX_V2 = 5
+};
+
 #define BANDWIDTH_BASE	20	/**< base value of bandwidth */
-#define TOF_BW_20MHZ    (BANDWIDTH_BASE << TOF_BW_20MHZ_INDEX)
-#define TOF_BW_40MHZ    (BANDWIDTH_BASE << TOF_BW_40MHZ_INDEX)
-#define TOF_BW_80MHZ    (BANDWIDTH_BASE << TOF_BW_80MHZ_INDEX)
+#define TOF_BW_20MHZ    (BANDWIDTH_BASE << TOF_BW_20MHZ_INDEX_V2)
+#define TOF_BW_40MHZ    (BANDWIDTH_BASE << TOF_BW_40MHZ_INDEX_V2)
+#define TOF_BW_80MHZ    (BANDWIDTH_BASE << TOF_BW_80MHZ_INDEX_V2)
+#define TOF_BW_160MHZ    (BANDWIDTH_BASE << TOF_BW_160MHZ_INDEX_V2)
+
 #define TOF_BW_10MHZ    10
 
 #define NFFT_BASE		64	/**< base size of fft */
-#define TOF_NFFT_20MHZ  (NFFT_BASE << TOF_BW_20MHZ_INDEX)
-#define TOF_NFFT_40MHZ  (NFFT_BASE << TOF_BW_40MHZ_INDEX)
-#define TOF_NFFT_80MHZ  (NFFT_BASE << TOF_BW_80MHZ_INDEX)
+#define TOF_NFFT_20MHZ  (NFFT_BASE << TOF_BW_20MHZ_INDEX_V2)
+#define TOF_NFFT_40MHZ  (NFFT_BASE << TOF_BW_40MHZ_INDEX_V2)
+#define TOF_NFFT_80MHZ  (NFFT_BASE << TOF_BW_80MHZ_INDEX_V2)
+#define TOF_NFFT_160MHZ  (NFFT_BASE << TOF_BW_160MHZ_INDEX_V2)
 
 typedef struct wl_proxd_params_tof_method {
 	chanspec_t	chanspec;	/**< chanspec for home channel */
@@ -9950,6 +9979,48 @@ typedef struct wl_proxd_params_tof_tune_v3 {
 	uint8		PAD[3];
 } wl_proxd_params_tof_tune_v3_t;
 
+/*
+ * tof tune with 160 MHz support
+ */
+#define WL_PROXD_TUNE_VERSION_4		4u
+typedef struct wl_proxd_params_tof_tune_v4 {
+	uint16	version;
+	uint16	len;
+	uint8	core;		/**< core to use for tx */
+	uint8	setflags;	/* set flags of K, N. S values  */
+	uint8	totalfrmcnt;	/**< total count of transfered measurement frames */
+	uint8	sw_adj;		/**< enable sw assisted timestamp adjustment */
+	uint8	hw_adj;		/**< enable hw assisted timestamp adjustment */
+	uint8	seq_en;		/**< enable ranging sequence */
+	uint8	smooth_win_en;
+	uint8	core_mask;	/* core mask selection */
+	int8	recv_2g_thresh;	/* 2g recieve sensitivity threshold */
+	int8	acs_rssi_thresh;
+	int8	acs_delta_rssi_thresh;
+	uint8	ftm_cnt[TOF_BW_SEQ_NUM_V2];	/**< no. of ftm frames based on bw */
+	uint8	PAD[3];		/* Use this for any int8/16 uint8/16 ext in future */
+	uint16	rsv_media;	/**< reserve media value for TOF */
+	uint16	bitflip_thresh;	/* bitflip threshold */
+	uint16	snr_thresh;	/* SNR threshold */
+	int16	vhtack;		/**< enable/disable VHT ACK */
+	int16	N_log2_2g;	/**< simple threshold crossing for 2g channel */
+	int16	N_scale_2g;	/**< simple threshold crossing for 2g channel */
+	int16	N_log2[TOF_BW_SEQ_NUM_V2];	/**< simple threshold crossing */
+	int16	w_offset[TOF_BW_NUM_V2];	/**< offset of thresh crossing window(per BW) */
+	int16	w_len[TOF_BW_NUM_V2];		/**< length of thresh crossing window(per BW) */
+	int16	N_scale[TOF_BW_SEQ_NUM_V2];	/**< simple threshold crossing */
+	uint32	Ki;		/**< h/w delay K factor for initiator */
+	uint32	Kt;		/**< h/w delay K factor for target */
+	uint32	flags;		/**< flags */
+	uint32	acs_gdv_thresh;
+	int32	maxDT;		/**< max time difference of T4/T1 or T3/T2 */
+	int32	minDT;		/**< min time difference of T4/T1 or T3/T2 */
+	int32	acs_gdmm_thresh;
+	int32	emu_delay;
+	wl_proxd_seq_config_t seq_5g20;		/* Thresh crossing params for 2G Sequence */
+	wl_proxd_seq_config_t seq_2g20;		/* Thresh crossing params for 2G Sequence */
+} wl_proxd_params_tof_tune_v4_t;
+
 typedef struct wl_proxd_params_iovar {
 	uint16	method;			/**< Proximity Detection method */
 	uint8	PAD[2];
@@ -9963,6 +10034,27 @@ typedef struct wl_proxd_params_iovar {
 		wl_proxd_params_tof_tune_v3_t	tof_tune;	/**< TOF tune parameters */
 	} u;				/**< Method specific optional parameters */
 } wl_proxd_params_iovar_t;
+
+/*
+ * proxd param iov with 160 MHz support
+ */
+#define WL_PROXD_IOVAR_VERSION_2	2u
+typedef struct wl_proxd_params_iovar_v2 {
+	uint16	version;
+	uint16	len;
+	uint16  method;                 /**< Proximity Detection method */
+	uint16  PAD;
+	union {
+		/* common params for pdsvc */
+		wl_proxd_params_common_t        cmn_params;     /**< common parameters */
+		/*  method specific */
+		wl_proxd_params_rssi_method_t   rssi_params;    /**< RSSI method parameters */
+		wl_proxd_params_tof_method_t    tof_params;     /**< TOF method parameters */
+		/* tune parameters */
+		wl_proxd_params_tof_tune_v4_t   tof_tune;       /**< TOF tune parameters */
+	} u;                            /**< Method specific optional parameters */
+	uint8 tlv_params[];     /* xtlvs for variable ext params */
+} wl_proxd_params_iovar_v2_t;
 
 #define PROXD_COLLECT_GET_STATUS	0
 #define PROXD_COLLECT_SET_STATUS	1
@@ -10017,6 +10109,38 @@ typedef BWL_PRE_PACKED_STRUCT struct wl_proxd_collect_header {
 	wl_proxd_params_tof_tune_v3_t params;
 } BWL_POST_PACKED_STRUCT wl_proxd_collect_header_t;
 #include <packed_section_end.h>
+
+/*
+ * proxd collect header with 160 MHz support
+ */
+#define WL_PROXD_COLLECT_HEADER_VERSION_2	2u
+typedef struct wl_proxd_collect_header_v2 {
+	uint16	version;
+	uint16	len;
+	uint8	chiprev;	/**< chip revision */
+	uint8	phyver;		/**< phy version */
+	uint8	PAD[2];		/* Use this for any int8/16 uint8/16 ext in future */
+	uint16	total_frames;	/**< The total frames for this collect. */
+	uint16	nfft;		/**< nfft value */
+	uint16	bandwidth;	/**< bandwidth */
+	uint16	channel;	/**< channel number */
+	uint16	fpfactor_shift;	/**< avb timer value shift bits */
+	uint16	chipnum;	/**< chip type */
+	uint32	chanspec;	/**< channel spec */
+	uint32	fpfactor;	/**< avb timer value factor */
+	uint32	meanrtt;	/**< mean of RTTs */
+	uint32	modertt;	/**< mode of RTTs */
+	uint32	medianrtt;	/**< median of RTTs */
+	uint32	sdrtt;		/**< standard deviation of RTTs */
+	uint32	clkdivisor;	/**< clock divisor */
+	int32	distance;	/**< distance calculated by fw */
+	struct ether_addr localMacAddr;		/**< local mac address */
+	uint16	PAD;		/* Use this for any int8/16 uint8/16 ext in future */
+	struct ether_addr remoteMacAddr;	/**< remote mac address */
+	uint16	PAD;		/* Use this for any int8/16 uint8/16 ext in future */
+	wl_proxd_params_tof_tune_v4_t params;	/* TOF tune params */
+	uint8 tlv_params[];     /* xtlvs for variable ext params */
+} wl_proxd_collect_header_v2_t;
 
 /* ifdef WL_NAN */
 /*  ********************** NAN wl interface struct types and defs ******************** */
@@ -12494,13 +12618,24 @@ typedef struct wl_nan_ev_rng_rpt_ind {
 typedef uint8 wl_nan_range_idle_count_t;
 
 /* nan ranging termination reason codes */
-#define NAN_RNG_TERM_UNSPECIFIED	0
-#define NAN_RNG_TERM_IDLE_TIMEOUT	1u /* no ftms from peer */
-#define NAN_RNG_TERM_PEER_REQ		2u
-#define NAN_RNG_TERM_USER_REQ		3u
-#define NAN_RNG_TERM_RNG_RESP_TIMEOUT	4u /* On FSM Timeout, waiting for Resp from peer */
-#define NAN_RNG_TERM_RNG_RESP_REJ	5u /* On range resp, reject from peer */
-#define NAN_RNG_TERM_RNG_TXS_FAIL	6u /* On range req/resp txs fail */
+#define NAN_RNG_TERM_REASON_CODE_BASE		100u
+#define NAN_RNG_TERM_REASON_CODE(reason_code) \
+	(NAN_RNG_TERM_REASON_CODE_BASE + (reason_code))
+
+/* Reason Code Unspecified */
+#define NAN_RNG_TERM_UNSPECIFIED	NAN_RNG_TERM_REASON_CODE(0u)
+/* no ftms from peer */
+#define NAN_RNG_TERM_IDLE_TIMEOUT	NAN_RNG_TERM_REASON_CODE(1u)
+/* On Peer Termination */
+#define NAN_RNG_TERM_PEER_REQ		NAN_RNG_TERM_REASON_CODE(2u)
+/* On User or Host Termination */
+#define NAN_RNG_TERM_USER_REQ		NAN_RNG_TERM_REASON_CODE(3u)
+/* On FSM Timeout, waiting for Resp from peer */
+#define NAN_RNG_TERM_RNG_RESP_TIMEOUT	NAN_RNG_TERM_REASON_CODE(4u)
+/* On range resp, reject from peer */
+#define NAN_RNG_TERM_RNG_RESP_REJ	NAN_RNG_TERM_REASON_CODE(5u)
+/* On range req/resp txs fail */
+#define NAN_RNG_TERM_RNG_TXS_FAIL	NAN_RNG_TERM_REASON_CODE(6u)
 
 typedef struct wl_nan_ev_rng_term_ind {
 	struct ether_addr peer_m_addr;
@@ -16325,8 +16460,9 @@ typedef struct ecounters_config_request_v2 {
 #define ECOUNTERS_STATS_TYPES_DEFAULT		0x8
 
 /* Slice mask bits */
-#define ECOUNTERS_STATS_TYPES_SLICE_MASK_SLICE0	0x1
-#define ECOUNTERS_STATS_TYPES_SLICE_MASK_SLICE1	0x2
+#define ECOUNTERS_STATS_TYPES_SLICE_MASK_SLICE0		0x1u
+#define ECOUNTERS_STATS_TYPES_SLICE_MASK_SLICE1		0x2u
+#define ECOUNTERS_STATS_TYPES_SLICE_MASK_SLICE_SC	0x4u
 
 typedef struct ecounters_stats_types_report_req {
 	/* flags: bit0 = slice, bit1 = iface, bit2 = global,
@@ -20540,6 +20676,7 @@ typedef struct wlc_rcroam_info_v1 {
 	uint16	roam_scan_timeout;
 	uint16	periodic_roam_scan_timeout;
 	uint8	roam_trig_step; /* roaming trigger step value */
+	bool enab;
 } wlc_rcroam_info_v1_t;
 
 #define WLC_RC_ROAM_CUR_VER		WLC_RC_ROAM_VER_1
@@ -20688,6 +20825,31 @@ typedef struct hp2p_counters_hdr {
 	uint8 counters[];
 } hp2p_counters_hdr_t;
 
+/* HP2P RLLW Stats */
+#define WL_HP2P_RLLW_STATS_VER	1u
+typedef struct hp2p_rllw_stats_hdr {
+	uint16	version;	/* version of hptp_rllw_stats structure */
+	uint16	len;		/* length of the payload */
+	uint8	slice_idx;	/* Slice idx BAND_2G_INDEX - 0 / BAND_5G_INDEX - 1 */
+	uint8	pad[3];
+	uint8 stats[];		/* rllw_stats instance */
+} hp2p_rllw_stats_hdr_t;
+
+/*
+ * rllw stats common & per band
+ *
+ */
+typedef struct hp2p_rllw_stats_v1 {
+	/* Slice Specific Stats */
+	uint16	n_hnav_intrs;			/* # of high nav interrupts */
+	uint16	n_switches;			/* # of Switches to band n */
+	/* Stats on wlc_trig */
+	uint16	n_override_pkts;		/* # of pkts enqd with ovrd bit set */
+	uint16	n_overrides;			/* # of overrides - this is only trig_wlc */
+	uint16	n_override_pkts_acked;		/* # of ovrd pkts that got an ACK */
+	uint16	n_override_pkts_not_acked;	/* # of ovrd pkts that werent ACKed */
+} hp2p_rllw_stats_v1_t;
+
 /* TX enable flags */
 #define WL_HP2P_TX_AMPDU				0x0001u
 #define WL_HP2P_TX_AMSDU				0x0002u
@@ -20708,6 +20870,9 @@ typedef struct hp2p_counters_hdr {
 #define WL_HP2P_MAX_UCODE_LATENCY_THR		500u
 #define WL_HP2P_MAX_UCODE_RECOV_TO		500u
 #define WL_HP2P_MAX_UCODE_NAV_THR		50000u
+
+#define WLC_HP2P_MIN_NAV_THRESH			0u
+#define WLC_HP2P_MAX_NAV_THRESH			35u
 
 #define WL_HP2P_VERSION		1u
 typedef struct hp2p_tx_config {
@@ -20739,6 +20904,11 @@ typedef struct hp2p_udbg_config {
 	uint16 nav_thresh;		/* in usec */
 } hp2p_udbg_config_t;
 
+typedef struct hp2p_rllw_cfg {
+	uint8 nav_thresh;	/* NAV threshold in ms */
+	uint8 pad[3];
+} hp2p_rllw_cfg_t;
+
 typedef struct hp2p_cmd {
 	uint16 type;
 	uint16 len;
@@ -20757,7 +20927,9 @@ typedef enum hp2p_cmd_id {
 	WL_HP2P_CMD_TX_CONFIG = 1,
 	WL_HP2P_CMD_RX_CONFIG = 2,
 	WL_HP2P_CMD_COUNTERS = 3,
-	WL_HP2P_CMD_UDBG_CONFIG = 4
+	WL_HP2P_CMD_UDBG_CONFIG = 4,
+	WL_HP2P_CMD_RLLW_CFG = 5,
+	WL_HP2P_CMD_RLLW_STATS = 6
 } hp2p_cmd_id_t;
 
 typedef enum wl_rffe_cmd_type {
@@ -20890,4 +21062,73 @@ typedef struct wlc_nr5gcx_status_v1 {
 					* event whose dur is max
 					*/
 } wlc_nr5gcx_status_v1_t;
+
+/* ifdef (WLC_OBSS_HW) */
+/* OBSS HW specific Macros */
+#define WLC_OBSS_HW_CMD_VERSION_1	1u
+
+/* OBSS HW config sub command identification flag */
+#define OBSS_HW_CFG_SUB_CMD_ENABLE		(1u << 0u)
+#define OBSS_HW_CFG_SUB_CMD_SW_CACHE_INTVL	(1u << 1u)
+#define OBSS_HW_CFG_SUB_CMD_PHY_SENSE_DUR	(1u << 2u)
+#define OBSS_HW_CFG_SUB_CMD_MASK		(OBSS_HW_CFG_SUB_CMD_ENABLE | \
+						OBSS_HW_CFG_SUB_CMD_SW_CACHE_INTVL | \
+						OBSS_HW_CFG_SUB_CMD_PHY_SENSE_DUR)
+
+#define WLC_OBSS_HW_DEF_SW_CACHE_INTVL		1u /* 1 sec */
+#define WLC_OBSS_HW_MAX_SW_CACHE_INTVL		5u /* 5 sec */
+#define WLC_OBSS_HW_DEF_PHY_SENSE_DUR		30 /* 30 msec */
+#define WLC_OBSS_HW_MAX_PHY_SENSE_DUR		500 /* 500 msec */
+
+/* OBSS HW test sub command identification flag */
+#define WLC_OBSS_HW_TEST_SUB_CMD_TEST_MODE	(1u << 0u)
+#define WLC_OBSS_HW_TEST_SUB_CMD_MITI_MODE	(1u << 1u)
+#define WLC_OBSS_HW_TEST_SUB_CMD_MASK		(WLC_OBSS_HW_TEST_SUB_CMD_TEST_MODE |\
+							WLC_OBSS_HW_TEST_SUB_CMD_MITI_MODE)
+
+/* Test mode values */
+#define WLC_OBSS_HW_TEST_MODE_STOP		0u /* Stop the test */
+#define WLC_OBSS_HW_TEST_MODE_TRIGGER		1u /* Trigger mode */
+#define WLC_OBSS_HW_TEST_MODE_FREE_RUNNING	2u /* Free running stats collection */
+
+#define WLC_OBSS_HW_TEST_MITI_TX_RX_DISABLE	0u /* Both Tx and Rx mitigation disabled */
+#define WLC_OBSS_HW_TEST_MITI_RX_FILT_PKTENG	1u /* Rx mitigation via filter override enabled */
+							/* All Tx miti disabled; Only pkteng */
+#define WLC_OBSS_HW_TEST_MITI_TX_ONLY		2u /* Rx mitigation disabled, Tx mitigation */
+#define WLC_OBSS_HW_TEST_MITI_TX_RX_FILT	3u /* Rx Tx mitigation enabled */
+#define WLC_OBSS_HW_TEST_MITI_CHAN_CHANGE	4u /* Mitigation by chanspec change */
+
+#define WL_OBSS_ANT_MAX			2u	/* Max Antennas */
+#define ACPHY_OBSS_STATS_BIN_CNT	8u	/* min 1 for default */
+#define ACPHY_OBSS_SUBBAND_CNT		8u	/* Max sub band counts i.e., 160Mhz = 8 * 20MHZ */
+
+enum wlc_obss_hw_cmd_id {
+	WLC_OBSS_HW_CMD_VER		= 1u,
+	WLC_OBSS_HW_CMD_CONFIG		= 2u,
+	WLC_OBSS_HW_CMD_DUMP_STATS	= 3u,
+	WLC_OBSS_HW_CMD_TEST		= 4u,
+	WLC_OBSS_HW_CMD_LAST
+};
+
+/* OBSS HW specific structures */
+typedef struct wlc_obss_hw_cfg_v1 {
+	uint16 sub_cmd_flags;		/* Flag bits to Identify configuring sub command */
+	uint8 is_enable;		/* Feature is enabled or not */
+	uint8 sw_cache_interval;	/* SW cache interval to cache OBSS stats in sec */
+	uint16 phy_sensing_duration;	/* PHY OBSS sensing duration in msec */
+} wlc_obss_hw_cfg_v1_t;
+
+typedef struct  wlc_obss_hw_stats_v1 {
+	uint16 avg_obss_stats[WL_OBSS_ANT_MAX][ACPHY_OBSS_SUBBAND_CNT][ACPHY_OBSS_STATS_BIN_CNT];
+	uint16 obss_det_stats[ACPHY_OBSS_SUBBAND_CNT];
+	uint16 stats_cnt;		/* Stats count */
+	uint8 obss_mit_status;		/* OBSS mitigation status */
+	uint8 mit_bw;			/* Mitigation BW that got selected */
+} wlc_obss_hw_stats_v1_t;
+
+typedef struct wlc_obss_hw_test_v1 {
+	uint16 sub_cmd_flags;		/* Flag bits to Identify configuring sub command */
+	uint8 test_mode;		/* To stop/start respective test mode */
+	uint8 mitigation_mode;		/* mitigation enabling/disabling options */
+} wlc_obss_hw_test_v1_t;
 #endif /* _wlioctl_h_ */

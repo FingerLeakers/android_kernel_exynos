@@ -79,6 +79,11 @@ config ACPM_DVFS
 	default y
 	help
 	Support ACPM DVFS for Exynos SoC.
+
+config EXYNOS_PM_DVS
+	bool "Enable Exynos dynamic voltage setting"
+	default n
+
 config PMUCAL
 	bool "Exynos PMU Chip Abstraction Layer"
 	depends on CAL_IF

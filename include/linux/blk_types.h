@@ -173,7 +173,7 @@ struct bio {
 
 	void			*bi_private;
 	void			*bi_aux_private;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	 int bi_crypt_skip;
 #endif
 #ifdef CONFIG_BLK_CGROUP
@@ -205,6 +205,10 @@ struct bio {
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 
 	struct bio_set		*bi_pool;
+
+#ifdef CONFIG_DDAR
+	struct inode		*bi_dio_inode;
+#endif
 
 	/*
 	 * We can inline a number of vecs at the end of the bio, to avoid

@@ -202,7 +202,7 @@ int is_itf_open_wrap(struct is_device_ischain *device, u32 module_id,
 hardware_close:
 	group_slot_c = group_slot;
 
-	for (group_slot = GROUP_SLOT_3AA; group_slot <= group_slot_c; group_slot++) {
+	for (group_slot = GROUP_SLOT_PAF; group_slot <= group_slot_c; group_slot++) {
 		group_id = path->group[group_slot];
 		hw_maxnum = is_get_hw_list(group_id, hw_list);
 		for (hw_index = 0; hw_index < hw_maxnum; hw_index++) {

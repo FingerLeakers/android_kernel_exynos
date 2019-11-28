@@ -81,6 +81,7 @@ struct votf_table_info {
 };
 
 struct votf_dev {
+	bool				ring_create;
 	int				ring_request;
 	int				ring_pair[SERVICE_CNT][IP_MAX][ID_MAX];		/* to check 1:1 mapping */
 	void __iomem			*votf_addr[IP_MAX];

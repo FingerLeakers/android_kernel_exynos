@@ -14,6 +14,7 @@
 #include "hardware/dsp-ctrl.h"
 #include "hardware/dsp-system.h"
 #include "hardware/dsp-interface.h"
+#include "hardware/dsp-dump.h"
 
 enum dsp_to_host_int_num {
 	DSP_TO_HOST_INT_BOOT,
@@ -97,7 +98,7 @@ static void __dsp_interface_isr(struct dsp_interface *itf)
 		__dsp_interface_isr_reset_request(itf);
 	} else {
 		dsp_err("interrupt status is invalid\n");
-		dsp_ctrl_dump();
+		dsp_dump_ctrl();
 	}
 	dsp_ctrl_sm_writel(DSP_SM_RESERVED(TO_HOST_INT_STATUS), 0x0);
 	dsp_leave();
@@ -115,7 +116,7 @@ static irqreturn_t dsp_interface_isr0(int irq, void *data)
 	status = dsp_ctrl_readl(DSPC_TO_HOST_MAILBOX_INTR_NS);
 	if (!(status >> 8)) {
 		dsp_err("interrupt occurred incorrectly\n");
-		dsp_ctrl_dump();
+		dsp_dump_ctrl();
 		goto p_end;
 	}
 
@@ -135,7 +136,7 @@ static irqreturn_t dsp_interface_isr1(int irq, void *data)
 
 	dsp_enter();
 	dsp_info("GIC IRQ\n");
-	dsp_ctrl_dump();
+	dsp_dump_ctrl();
 	dsp_leave();
 	return IRQ_HANDLED;
 }
@@ -147,7 +148,7 @@ static irqreturn_t dsp_interface_isr2(int irq, void *data)
 
 	dsp_enter();
 	dsp_info("Mailbox or SWI (secure)\n");
-	dsp_ctrl_dump();
+	dsp_dump_ctrl();
 	dsp_leave();
 	return IRQ_HANDLED;
 }
@@ -159,7 +160,7 @@ static irqreturn_t dsp_interface_isr3(int irq, void *data)
 
 	dsp_enter();
 	dsp_info("GIC FIQ\n");
-	dsp_ctrl_dump();
+	dsp_dump_ctrl();
 	dsp_leave();
 	return IRQ_HANDLED;
 }
@@ -171,7 +172,7 @@ static irqreturn_t dsp_interface_isr4(int irq, void *data)
 
 	dsp_enter();
 	dsp_info("WDT reset request\n");
-	dsp_ctrl_dump();
+	dsp_dump_ctrl();
 	dsp_leave();
 	return IRQ_HANDLED;
 }

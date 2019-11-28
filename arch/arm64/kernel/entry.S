@@ -1075,8 +1075,10 @@ alternative_insn isb, nop, ARM64_WORKAROUND_QCOM_FALKOR_E1003
 
 	.align	11
 ENTRY(tramp_vectors)
-	.space	0x400
+	.space	0x200
+	b	.
 
+	.space	0x19c
 	tramp_ventry
 	tramp_ventry
 	tramp_ventry

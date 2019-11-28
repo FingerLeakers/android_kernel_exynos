@@ -505,14 +505,16 @@ static void exynos_panel_get_display_modes(struct exynos_panel_info *info,
 		info->display_mode[i].mode.mm_height = info->height;
 		info->display_mode[i].cmd_lp_ref = be32_to_cpu(mode_item[3]);
 		info->display_mode[i].dsc_en = be32_to_cpu(mode_item[4]);
-		info->display_mode[i].dsc_width = be32_to_cpu(mode_item[5]);
-		info->display_mode[i].dsc_height = be32_to_cpu(mode_item[6]);
-		info->display_mode[i].dsc_enc_sw =
-			exynos_panel_calc_slice_width(info->dsc.cnt,
-					info->dsc.slice_num,
-					info->display_mode[i].mode.width);
-		info->display_mode[i].dsc_dec_sw =
-			info->display_mode[i].mode.width / info->dsc.slice_num;
+		if (info->display_mode[i].dsc_en) {
+			info->display_mode[i].dsc_width = be32_to_cpu(mode_item[5]);
+			info->display_mode[i].dsc_height = be32_to_cpu(mode_item[6]);
+			info->display_mode[i].dsc_enc_sw =
+				exynos_panel_calc_slice_width(info->dsc.cnt,
+						info->dsc.slice_num,
+						info->display_mode[i].mode.width);
+			info->display_mode[i].dsc_dec_sw =
+				info->display_mode[i].mode.width / info->dsc.slice_num;
+		}
 
 		DPU_INFO_PANEL("display mode[%d] : %dx%d@%d, %dmm x %dmm, lp_ref(%d)\n",
 				info->display_mode[i].mode.index,
@@ -748,8 +750,8 @@ static long exynos_panel_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *a
 	case EXYNOS_PANEL_IOC_SET_LIGHT:
 		call_panel_ops(panel, set_light, panel, *(int *)arg);
 		break;
-	case EXYNOS_PANEL_IOC_SET_VREFRESH:
-		call_panel_ops(panel, set_vrefresh, panel, *(int *)arg);
+	case EXYNOS_PANEL_IOC_SET_VRRFRESH:
+		call_panel_ops(panel, set_vrefresh, panel, (struct vrr_config_data*)arg);
 		break;
 	default:
 		DPU_ERR_PANEL("not supported ioctl by panel driver\n");

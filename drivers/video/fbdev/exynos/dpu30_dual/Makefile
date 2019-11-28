@@ -28,4 +28,3 @@ obj-$(CONFIG_EXYNOS_DPU30) += decon.o
 obj-$(CONFIG_EXYNOS_BTS) += bts.o
 decon-y += decon_core.o decon_dsi.o decon_wb.o helper.o win_update.o cursor.o fence.o event_log.o format.o
 obj-y += panels/
-obj-y += dp_logger/

@@ -237,9 +237,10 @@ struct is_sysfs_actuator {
 struct is_dual_info {
 	int pre_mode;
 	int mode;
-	int max_fps_master;
-	int max_fps_slave;
+	int max_fps[SENSOR_POSITION_MAX];
 	int tick_count;
+	int max_bds_width;
+	int max_bds_height;
 };
 
 #ifdef FIXED_SENSOR_DEBUG

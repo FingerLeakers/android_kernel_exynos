@@ -23,6 +23,7 @@ struct abox_pci_data {
 	phys_addr_t pci_doorbell_base_phys;
 	struct pinctrl *pinctrl;
 	struct abox_data *abox_data;
+	u32 abox_pci_s2mpu_vts_mailbox_base;
 };
 
 #endif /* __SND_SOC_ABOX_PCI_H */

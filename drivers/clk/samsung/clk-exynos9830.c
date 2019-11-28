@@ -556,6 +556,7 @@ struct init_vclk exynos9830_top_vclks[] __initdata = {
 	VCLK(CIS_CLK4, CLKCMU_CIS_CLK4, "CIS_CLK4", 0, 0, NULL),
 	VCLK(CIS_CLK5, CLKCMU_CIS_CLK5, "CIS_CLK5", 0, 0, NULL),
 	VCLK(PLL_OUT_MMC, PLL_MMC, "PLL_OUT_MMC", 0, 0, NULL),
+	VCLK(DOUT_CLK_TOP_HSI0_BUS, VCLK_DIV_CLK_TOP_HSI0_BUS, "DOUT_CLK_TOP_HSI0_BUS", 0, 0, NULL),
 };
 
 struct init_vclk exynos9830_peric0_vclks[] __initdata = {

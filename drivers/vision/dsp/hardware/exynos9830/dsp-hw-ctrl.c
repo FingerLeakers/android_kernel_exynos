@@ -13,6 +13,7 @@
 #include "dsp-log.h"
 #include "hardware/dsp-reg.h"
 #include "hardware/dsp-system.h"
+#include "hardware/dsp-dump.h"
 #include "dsp-device.h"
 #include "dsp-debug.h"
 
@@ -154,7 +155,7 @@ static struct dsp_reg_format sfr_reg[] = {
 	{ 0x3000, 0x0000, 0, 0, "DSPC_WTCON" },
 	{ 0x3000, 0x0004, 0, 0, "DSPC_WTDAT" },
 	{ 0x3000, 0x0008, 0, 0, "DSPC_WTCNT" },
-	{ 0x3000, 0x000C, 0, 0, "DSPC_WTCLRINT" },
+	{ 0x3000, 0x000C, REG_WRONLY, 0, "DSPC_WTCLRINT" },
 	{ 0x3000, 0x0010, 0, 0, "DSPC_WTMINCNT" },
 #endif // ENABLE_REG_WDT
 #ifdef ENABLE_REG_SDMA_SS
@@ -1184,9 +1185,9 @@ static struct dsp_reg_format sfr_reg[] = {
 	{ 0x18000, 0x1000, 0, 0, "GICD_CTLR" },
 	{ 0x18000, 0x1004, 0, 0, "GICD_TYPER" },
 	{ 0x18000, 0x1008, 0, 0, "GICD_IIDR" },
-	{ 0x18000, 0x1080, 0, /*16,*/ 0, "GICD_IGROUPR" },
-	{ 0x18000, 0x1100, 0, /*16,*/ 0, "GICD_ISENABLER" },
-	{ 0x18000, 0x1180, 0, /*16,*/ 0, "GICD_ICENABLER" },
+	{ 0x18000, 0x1080, 0, /*16,*/ 4, "GICD_IGROUPR" },
+	{ 0x18000, 0x1100, 0, /*16,*/ 4, "GICD_ISENABLER" },
+	{ 0x18000, 0x1180, 0, /*16,*/ 4, "GICD_ICENABLER" },
 	{ 0x18000, 0x1200, 0, /*16,*/ 0, "GICD_ISPENDR" },
 	{ 0x18000, 0x1280, 0, /*16,*/ 0, "GICD_ICPENDR" },
 	{ 0x18000, 0x1300, 0, /*16,*/ 0, "GICD_ISACTIVER" },
@@ -1195,10 +1196,10 @@ static struct dsp_reg_format sfr_reg[] = {
 	{ 0x18000, 0x1418, 0, 0, "GICD_IPRIORITYR_PPI0" },
 	{ 0x18000, 0x141c, 0, 0, "GICD_IPRIORITYR_PPI1" },
 	{ 0x18000, 0x1420, 0, /*120,*/ 0, "GICD_IPRIORITYR_SPI" },
-	{ 0x18000, 0x1800, 0, /*4,*/ 0, "GICD_ITARGETSR_SGI" },
+	{ 0x18000, 0x1800, 0, 4, "GICD_ITARGETSR_SGI" },
 	{ 0x18000, 0x1818, 0, 0, "GICD_ITARGETSR_PPI0" },
 	{ 0x18000, 0x181c, 0, 0, "GICD_ITARGETSR_PPI1" },
-	{ 0x18000, 0x1820, 0, /*120,*/ 0, "GICD_ITARGETSR_SPI" },
+	{ 0x18000, 0x1820, 0, /*120,*/ 20, "GICD_ITARGETSR_SPI" },
 	{ 0x18000, 0x1c00, 0, 0, "GICD_ICFGR_SGI" },
 	{ 0x18000, 0x1c04, 0, 0, "GICD_ICFGR_PPI" },
 	{ 0x18000, 0x1c08, 0, /*30,*/ 0, "GICD_ICFGR_SPI" },
@@ -1514,12 +1515,25 @@ int dsp_ctrl_writel(unsigned int reg_id, int val)
 	return 0;
 }
 
-int dsp_ctrl_boot_init(struct dsp_ctrl *ctrl)
+int dsp_ctrl_common_init(struct dsp_ctrl *ctrl)
 {
 	dsp_enter();
 	/* change secure flag */
 	dsp_ctrl_writel(DSPC_SEC_MEMORY_FLAG, 0xf5);
 	dsp_ctrl_writel(DSPC_SEC_SLAVE_FLAG, 0x7d1);
+
+	/* remap */
+	dsp_ctrl_writel(DSPC_CPU_REMAPS1, 0x1);
+	dsp_ctrl_writel(DSPC_CPU_REMAPD1, 0x40340000);
+
+	dsp_leave();
+	return 0;
+}
+
+int dsp_ctrl_init(struct dsp_ctrl *ctrl)
+{
+	dsp_enter();
+	dsp_ctrl_writel(DSPC_MCGEN, 0xfffcffff);
 
 	/*
 	 * cache coherence
@@ -1536,19 +1550,6 @@ int dsp_ctrl_boot_init(struct dsp_ctrl *ctrl)
 	/* enable debug monitor */
 	dsp_ctrl_writel(DSPC_DBG_INTR_ENABLE, 0xffffffff);
 	dsp_ctrl_writel(DSPC_DBG_DINTR_ENABLE, 0xffffffff);
-
-	/* remap */
-	dsp_ctrl_writel(DSPC_CPU_REMAPS1, 0x1);
-	dsp_ctrl_writel(DSPC_CPU_REMAPD1, 0x40340000);
-
-	dsp_leave();
-	return 0;
-}
-
-int dsp_ctrl_debug_init(struct dsp_ctrl *ctrl)
-{
-	dsp_enter();
-	/* enable debug monitor */
 	dsp_ctrl_writel(DSPC_DBG_MON_ENABLE, 0x3);
 	dsp_ctrl_writel(DSP0_DBG_MON_ENABLE, 0xf);
 	dsp_ctrl_writel(DSP0_DBG_INTR_ENABLE, 0x3ffe);
@@ -1563,8 +1564,8 @@ int dsp_ctrl_debug_init(struct dsp_ctrl *ctrl)
 int dsp_ctrl_all_init(struct dsp_ctrl *ctrl)
 {
 	dsp_enter();
-	dsp_ctrl_boot_init(ctrl);
-	dsp_ctrl_debug_init(ctrl);
+	dsp_ctrl_common_init(ctrl);
+	dsp_ctrl_init(ctrl);
 	dsp_leave();
 	return 0;
 }
@@ -1603,7 +1604,7 @@ int dsp_ctrl_reset(struct dsp_ctrl *ctrl)
 	if (!(wfi & 0x1 || wfe & 0x1)) {
 		dsp_err("status of device is not idle(%#x/%#x)\n", wfi, wfe);
 		ret = -ETIMEDOUT;
-		dsp_ctrl_dump();
+		dsp_dump_ctrl();
 		goto p_err;
 	}
 

@@ -191,10 +191,20 @@ static ssize_t name_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(name);
 
+static ssize_t tpf_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct vision_device *vdev = container_of(dev, struct vision_device, dev);
+
+	return sprintf(buf, "%d\n", vdev->tpf);
+}
+static DEVICE_ATTR_RO(tpf);
+
 static struct attribute *vision_device_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_debug.attr,
 	&dev_attr_index.attr,
+	&dev_attr_tpf.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(vision_device);

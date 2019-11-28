@@ -405,7 +405,7 @@ static int get_vst_result(void)
 }
 #endif
 
-
+#ifdef SEC_NAD_CURRENT_INFO
 static int get_vst_temperature(int block)
 {
 	int temperature_sum;
@@ -427,7 +427,7 @@ static int get_vst_operation_time(int block)
 	NAD_PRINT("operation_time : %d\n", operation_time);
 	return operation_time;
 }
-
+#endif
 
 static ssize_t show_nad_stat(struct device *dev,
 		struct device_attribute *attr,
@@ -1029,7 +1029,9 @@ static ssize_t show_nad_stat(struct device *dev,
 				"FN(%s_%s_%d_%s),FD(0x%08llx_0x%08llx_0x%08llx),"
 #if defined(CONFIG_SEC_SUPPORT_VST)
 				"FNS(%s_%s_%d_%s),FDS(0x%08llx_0x%08llx_0x%08llx),VRES(%d),VADJ(%d),FRES(%d),"
-				"AVT(%d),BIG_L11(%d),BIG_L16(%d),"
+				"AVT(%d),"
+#ifdef SEC_NAD_CURRENT_INFO
+				"BIG_L11(%d),BIG_L16(%d),"
 				"MID_L6(%d),MID_L10(%d),"
 				"LIT_L4(%d),LIT_L6(%d),"
 				"MIF_L1(%d),MIF_L3(%d),"
@@ -1037,7 +1039,20 @@ static ssize_t show_nad_stat(struct device *dev,
 				"MID_V_TEMP(%d),MID_V_TIME(%d),"
 				"LIT_V_TEMP(%d),LIT_V_TIME(%d),"
 				"MIF_V_TEMP(%d),MIF_V_TIME(%d),"
-				"INT_V_TEMP(%d),INT_V_TIME(%d)",
+				"INT_V_TEMP(%d),INT_V_TIME(%d),"
+#endif
+				"ASB_B0(%d),ASB_B1(%d),ASB_B2(%d),"
+				"ASB_M0(%d),ASB_M1(%d),ASB_M2(%d),"
+				"ASB_G0(%d),ASB_G1(%d),"
+				"PBA_B0(%d),PBA_B1(%d),PBA_B2(%d),"
+				"PBA_M0(%d),PBA_M1(%d),PBA_M2(%d),"
+				"PBA_G0(%d),PBA_G1(%d),"
+				"NAD_B0(%d),NAD_B1(%d),NAD_B2(%d),"
+				"NAD_M0(%d),NAD_M1(%d),NAD_M2(%d),"
+				"NAD_G0(%d),NAD_G1(%d),"
+				"ONC_B0(%d),ONC_B1(%d),ONC_B2(%d),"
+				"ONC_M0(%d),ONC_M1(%d),ONC_M2(%d),"
+				"ONC_G0(%d),ONC_G1(%d)",
 #else
 				"FNS(%s_%s_%d_%s),FDS(0x%08llx_0x%08llx_0x%08llx)",
 #endif
@@ -1067,6 +1082,7 @@ static ssize_t show_nad_stat(struct device *dev,
 				/* VST */
 				get_vst_result(), get_vst_adjust(), sec_nad_env.vst_info.vst_f_res,
 				sec_nad_env.nAsv_TABLE,
+#ifdef SEC_NAD_CURRENT_INFO
 				sec_nad_env.nad_ave_current_info.current_list[VST_BIG_UNZIP_L11].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_BIG_UNZIP_L16].vst_current,
 				sec_nad_env.nad_ave_current_info.current_list[VST_MIDD_UNZIP_L6].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_MIDD_UNZIP_L10].vst_current,
 				sec_nad_env.nad_ave_current_info.current_list[VST_LITT_UNZIP_L4].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_LITT_UNZIP_L6].vst_current,
@@ -1075,7 +1091,20 @@ static ssize_t show_nad_stat(struct device *dev,
 				get_vst_temperature(NAD_MIDD),get_vst_operation_time(NAD_MIDD),
 				get_vst_temperature(NAD_LITT),get_vst_operation_time(NAD_LITT),
 				get_vst_temperature(NAD_MIF),get_vst_operation_time(NAD_MIF),
-				get_vst_temperature(NAD_INT),get_vst_operation_time(NAD_INT));
+				get_vst_temperature(NAD_INT),get_vst_operation_time(NAD_INT),
+#endif
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[2] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[2] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[1]);
 #else
 				sec_nad_env.nad_second_dram_fail_information.nad_dram_fail_info[0].expected_val);
 #endif
@@ -1112,7 +1141,9 @@ static ssize_t show_nad_stat(struct device *dev,
 				buf += sprintf(buf, "OK_3.1_L_0x%x_0x%x_0x%x_0x%x,IT(%d),MT(%d),OT(0x%x),"
 #if defined(CONFIG_SEC_SUPPORT_VST)
 				"TN(%d),VRES(%d),VADJ(%d),FRES(%d),"
-				"AVT(%d),BIG_L11(%d),BIG_L16(%d),"
+				"AVT(%d),"
+#ifdef SEC_NAD_CURRENT_INFO
+				"BIG_L11(%d),BIG_L16(%d),"
 				"MID_L6(%d),MID_L10(%d),"
 				"LIT_L4(%d),LIT_L6(%d),"
 				"MIF_L1(%d),MIF_L3(%d),"
@@ -1120,7 +1151,20 @@ static ssize_t show_nad_stat(struct device *dev,
 				"MID_V_TEMP(%d),MID_V_TIME(%d),"
 				"LIT_V_TEMP(%d),LIT_V_TIME(%d),"
 				"MIF_V_TEMP(%d),MIF_V_TIME(%d),"
-				"INT_V_TEMP(%d),INT_V_TIME(%d)",
+				"INT_V_TEMP(%d),INT_V_TIME(%d),"
+#endif
+				"ASB_B0(%d),ASB_B1(%d),ASB_B2(%d),"
+				"ASB_M0(%d),ASB_M1(%d),ASB_M2(%d),"
+				"ASB_G0(%d),ASB_G1(%d),"
+				"PBA_B0(%d),PBA_B1(%d),PBA_B2(%d),"
+				"PBA_M0(%d),PBA_M1(%d),PBA_M2(%d),"
+				"PBA_G0(%d),PBA_G1(%d),"
+				"NAD_B0(%d),NAD_B1(%d),NAD_B2(%d),"
+				"NAD_M0(%d),NAD_M1(%d),NAD_M2(%d),"
+				"NAD_G0(%d),NAD_G1(%d),"
+				"ONC_B0(%d),ONC_B1(%d),ONC_B2(%d),"
+				"ONC_M0(%d),ONC_M1(%d),ONC_M2(%d),"
+				"ONC_G0(%d),ONC_G1(%d)",
 #else
 				"TN(%d)",
 #endif
@@ -1136,6 +1180,7 @@ static ssize_t show_nad_stat(struct device *dev,
 				/* VST */
 				get_vst_result(), get_vst_adjust(), sec_nad_env.vst_info.vst_f_res,
 				sec_nad_env.nAsv_TABLE,
+#ifdef SEC_NAD_CURRENT_INFO
 				sec_nad_env.nad_ave_current_info.current_list[VST_BIG_UNZIP_L11].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_BIG_UNZIP_L16].vst_current,
 				sec_nad_env.nad_ave_current_info.current_list[VST_MIDD_UNZIP_L6].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_MIDD_UNZIP_L10].vst_current,
 				sec_nad_env.nad_ave_current_info.current_list[VST_LITT_UNZIP_L4].vst_current,sec_nad_env.nad_ave_current_info.current_list[VST_LITT_UNZIP_L6].vst_current,
@@ -1144,7 +1189,20 @@ static ssize_t show_nad_stat(struct device *dev,
 				get_vst_temperature(NAD_MIDD),get_vst_operation_time(NAD_MIDD),
 				get_vst_temperature(NAD_LITT),get_vst_operation_time(NAD_LITT),
 				get_vst_temperature(NAD_MIF),get_vst_operation_time(NAD_MIF),
-				get_vst_temperature(NAD_INT),get_vst_operation_time(NAD_INT));
+				get_vst_temperature(NAD_INT),get_vst_operation_time(NAD_INT),
+#endif
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.pba_otp_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[1],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[2] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[1],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[2] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[2],
+				sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[0] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[0],sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.g3d[1] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.g3d[1]);
 #else
 				sec_nad_env.nad_inform3_data & 0xFF);
 #endif

@@ -949,7 +949,6 @@ static ssize_t prox_power_off_store(struct device *dev,
 	return count;
 }
 
-#if 0 // for bringup
 /* SELFTEST FAIL HISTORY : 34 byte * 6 EA */
 static int get_selftest_fail_hist_dump(struct fts_ts_info *info, char *buf, u8 position)
 {
@@ -1174,7 +1173,6 @@ err_read:
 
 	return 0;
 }
-#endif
 
 static DEVICE_ATTR(ito_check, 0444, read_ito_check_show, NULL);
 static DEVICE_ATTR(raw_check, 0444, read_raw_check_show, NULL);
@@ -1221,7 +1219,6 @@ static struct attribute_group sec_touch_factory_attr_group = {
 	.attrs = sec_touch_facotry_attributes,
 };
 
-#if 0 // for bringup
 static int fts_get_cmoffset_dump(struct fts_ts_info *info, char *buf, u8 position)
 {
 	u8 *rbuff;
@@ -1395,7 +1392,6 @@ out:
 	//strlen(buf);
 	return 0;
 }
-#endif
 
 static void enter_factory_mode(struct fts_ts_info *info, bool fac_mode)
 {

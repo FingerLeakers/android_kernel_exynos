@@ -158,17 +158,19 @@ static ssize_t secgpio_read_request_gpio(
         struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int val = -1;
+	bool is_gpio_requested = false;
 	struct gpio_dvs_t *gdvs = dev_get_drvdata(dev);
 
-	if (gpio_request(gdvs->gpio_num, NULL)) {
-		pr_info("[secgpio_dvs] %s: fail to request gpio %d\n", __func__, gdvs->gpio_num);
-		goto err_gpio_request;
+	if (!gpio_request(gdvs->gpio_num, NULL)) {
+		is_gpio_requested = true;
+		pr_info("[secgpio_dvs] %s: request gpio %d\n", __func__, gdvs->gpio_num);
 	}
 
 	val = gpio_get_value(gdvs->gpio_num);
-	gpio_free(gdvs->gpio_num);
+
+	if (is_gpio_requested)
+		gpio_free(gdvs->gpio_num);
         
-err_gpio_request:
 	return snprintf(buf, PAGE_SIZE, "GPIO[%d] : [%x]", gdvs->gpio_num, val);
 }
 

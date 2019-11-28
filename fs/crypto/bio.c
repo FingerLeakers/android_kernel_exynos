@@ -181,7 +181,7 @@ void fscrypt_set_bio(const struct inode *inode, struct bio *bio, u64 dun)
 {
 #ifdef CONFIG_CRYPTO_DISKCIPHER
 	if (__fscrypt_disk_encrypted(inode))
-		crypto_diskcipher_set(bio, inode->i_crypt_info->ci_dtfm, inode, dun);
+		crypto_diskcipher_set(bio, inode->i_crypt_info->ci_dtfm, dun);
 #endif
 }
 

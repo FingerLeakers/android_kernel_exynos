@@ -764,11 +764,33 @@ int panel_bl_set_brightness(struct panel_bl_device *panel_bl, int id, int force)
 	if (id == PANEL_BL_SUBDEV_TYPE_AOD)
 		index = PANEL_ALPM_ENTER_SEQ;
 #endif
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	if (index == PANEL_SET_BL_SEQ &&
+			((panel->panel_data.props.vrr_target_fps !=
+			  panel->panel_data.props.vrr_fps) ||
+			 (panel->panel_data.props.vrr_target_mode !=
+			  panel->panel_data.props.vrr_mode))) {
+		ret = panel_set_vrr_nolock(panel,
+				panel->panel_data.props.vrr_target_fps,
+				panel->panel_data.props.vrr_target_mode, false);
+		if (unlikely(ret < 0)) {
+			pr_err("%s, failed to write seqtbl\n", __func__);
+			goto set_br_exit;
+		}
+	} else {
+		ret = panel_do_seqtbl_by_index_nolock(panel, index);
+		if (unlikely(ret < 0)) {
+			pr_err("%s, failed to write seqtbl\n", __func__);
+			goto set_br_exit;
+		}
+	}
+#else
 	ret = panel_do_seqtbl_by_index_nolock(panel, index);
 	if (unlikely(ret < 0)) {
 		pr_err("%s, failed to write seqtbl\n", __func__);
 		goto set_br_exit;
 	}
+#endif
 	panel_bl_update_average(panel_bl, 0);
 	panel_bl_update_average(panel_bl, 1);
 

@@ -85,7 +85,7 @@
 #define HEAP_SIZE		(IS_HEAP_SIZE)
 
 /* reserved memory for FIMC-IS */
-#define SETFILE_SIZE		(0x00382000)
+#define SETFILE_SIZE		(IS_SETFILE_SIZE)
 #define CALDATA_SIZE		(0x00010000)
 #define LED_CAL_SIZE		(0x00000400)
 #define TOTAL_CAL_DATA_SIZE	(CALDATA_SIZE + LED_CAL_SIZE)
@@ -95,7 +95,7 @@
 #define DATA_REGION_SIZE	(0x00010000)
 #define PARAM_REGION_SIZE	(0x00005000)	/* 20KB * instance(4) */
 
-#define HEAP_RTA_START		(HEAP_START + SZ_64M)		/* HEAP_SIZE(for DDK) should be smaller than 64MB */
+#define HEAP_RTA_START		(HEAP_START + SZ_64M + SZ_32M)		/* HEAP_SIZE(for DDK) should be smaller than 96MB */
 #define HEAP_RTA_SIZE		(IS_RESERVE_LIB_SIZE)	/* 6MB ~ */
 #define TAAISP_DMA_SIZE		(IS_TAAISP_SIZE)	/* 512KB */
 #define MEDRC_DMA_SIZE		(TAAISP_MEDRC_SIZE)

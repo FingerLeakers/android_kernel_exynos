@@ -224,31 +224,18 @@ static void get_step_det_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	*iDataIdx += 1;
 }
 
+static void get_uncal_light_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata){
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 21);
+	*iDataIdx += 21;
+}
+
+
 static void get_light_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
-#ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
-#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_GAIN_2BYTE
-#ifdef CONFIG_SENSORS_SSP_LIGHT_MAX_ATIME_2BYTE
-#ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 21);
-	*iDataIdx += 21;
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 20);
-	*iDataIdx += 20;
-#endif
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 19);
-	*iDataIdx += 19;
-#endif
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 18);
-	*iDataIdx += 18;
-#endif
-#else
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 10);
-	*iDataIdx += 10;
-#endif
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 22);
+	*iDataIdx += 22;
 }
 
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
@@ -893,6 +880,10 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 			report_scontext_data(data, sensor_type, &sensorsdata);
 			iDataIdx += SCONTEXT_DATA_SIZE;
 				break;
+		case MSG2AP_INST_PROX_CAL_DONE:
+			proximity_save_calibration((int *)(pchRcvDataFrame + iDataIdx), 2 * sizeof(int));
+			iDataIdx += 2 * sizeof(int);
+			break;
 		default:
 			goto error_return;
 		}
@@ -936,7 +927,7 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->get_sensor_data[GRIP_SENSOR] = get_grip_sensordata;
 #endif
 	data->get_sensor_data[LIGHT_SENSOR] = get_light_sensordata;
-	data->get_sensor_data[UNCAL_LIGHT_SENSOR] = get_light_sensordata;
+	data->get_sensor_data[UNCAL_LIGHT_SENSOR] = get_uncal_light_sensordata;
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 	data->get_sensor_data[LIGHT_IR_SENSOR] = get_light_ir_sensordata;
 #endif

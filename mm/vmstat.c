@@ -1163,6 +1163,10 @@ const char * const vmstat_text[] = {
 	"nr_vmscan_immediate_reclaim",
 	"nr_dirtied",
 	"nr_written",
+#ifdef CONFIG_KZEROD
+	"zero_page_alloc_total",
+	"zero_page_alloc_prezero",
+#endif
 	"", /* nr_indirectly_reclaimable */
 
 	/* enum writeback_stat_item counters */

@@ -178,13 +178,13 @@ static int __get_next_token(unsigned short *type, char *buf,
 			break;
 		case SXML_ERROR_BUFFERDRY:
 			DL_ERROR("Larger than buf size\n");
-			return -1;
+			return TOKEN_END;
 		case SXML_ERROR_XMLINVALID:
 			DL_ERROR("XML is invalid\n");
-			return -1;
+			return TOKEN_END;
 		default:
 			DL_ERROR("Error code is invalid\n");
-			return -1;
+			return TOKEN_END;
 		}
 	}
 

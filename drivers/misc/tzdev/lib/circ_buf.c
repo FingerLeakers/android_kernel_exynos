@@ -15,7 +15,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-#include "circ_buf.h"
+#include "lib/circ_buf.h"
 
 struct circ_buf_desc *circ_buf_create(unsigned long size)
 {

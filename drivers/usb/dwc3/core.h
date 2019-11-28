@@ -1293,6 +1293,7 @@ struct dwc3 {
 
 	unsigned		no_extra_delay:1; /* Added for exynos9830 */
 	unsigned		force_gen1:1; /* Force GEN1 */
+	unsigned		vbus_state:1;
 	u32			usb_host_device_timeout;
 
 	struct workqueue_struct	*int_qos_lock_wq;

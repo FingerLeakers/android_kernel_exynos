@@ -235,18 +235,13 @@ static int call_device_notify(struct usb_device *dev, int connect)
 					NOTIFY_EVENT_LANHUB_CONNECT, 1);
 			else
 				;
-#ifdef CONFIG_USB_NOTIFY_PROC_LOG
 			store_usblog_notify(NOTIFY_PORT_CONNECT,
 				(void *)&dev->descriptor.idVendor,
 				(void *)&dev->descriptor.idProduct);
-#endif
-		}
-#ifdef CONFIG_USB_NOTIFY_PROC_LOG
-		else
+		} else
 			store_usblog_notify(NOTIFY_PORT_DISCONNECT,
 				(void *)&dev->descriptor.idVendor,
 				(void *)&dev->descriptor.idProduct);
-#endif
 	} else {
 		if (connect)
 			pr_info("%s root hub\n", __func__);

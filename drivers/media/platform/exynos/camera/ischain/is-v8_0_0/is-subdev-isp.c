@@ -185,12 +185,7 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 			hw_bitwidth = DMA_INPUT_BIT_WIDTH_13BIT;
 		} else if (hw_format == DMA_INPUT_FORMAT_BAYER) {
 			/* consider signed format only */
-			if (flag_pixel_size == CAMERA_PIXEL_SIZE_13BIT)
-				hw_msb = MSB_OF_3AA_DMA_OUT + 1;
-			else if (flag_pixel_size == CAMERA_PIXEL_SIZE_14BIT)
-				hw_msb = MSB_OF_3AA_DMA_OUT + 2;
-			else if (flag_pixel_size == CAMERA_PIXEL_SIZE_15BIT)
-				hw_msb = MSB_OF_3AA_DMA_OUT + 3;
+			hw_msb = hw_bitwidth;
 
 			hw_bitwidth = DMA_INPUT_BIT_WIDTH_16BIT;
 			msinfo("in_crop[unpack bitwidth: %d, msb: %d]\n", device, leader,

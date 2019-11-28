@@ -27,6 +27,7 @@ static DEFINE_STATIC_PACKET(s6e3hab_hubble2_aod_self_mask_img_pkt, DSI_PKT_TYPE_
 static void *s6e3hab_hubble2_aod_self_mask_img_cmdtbl[] = {
 	&KEYINFO(s6e3hab_aod_l2_key_enable),
 	&PKTINFO(s6e3hab_aod_self_mask_sd_path),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_hubble2_aod_self_mask_img_pkt),
 	&PKTINFO(s6e3hab_aod_reset_sd_path),
 	&KEYINFO(s6e3hab_aod_l2_key_disable),

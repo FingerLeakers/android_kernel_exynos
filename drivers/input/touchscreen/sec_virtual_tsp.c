@@ -33,7 +33,7 @@ static struct sec_cmd_data *sub_sec;
 #define PATH_SUB_SEC_CMD_RESULT_ALL	"/sys/class/sec/tsp2/cmd_result_all"
 
 #if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
-#include <linux/sec_debug.h>
+#include <linux/input/sec_tsp_dumpkey.h>
 extern struct tsp_dump_callbacks dump_callbacks;
 struct tsp_dump_callbacks *tsp_callbacks;
 EXPORT_SYMBOL(tsp_callbacks);

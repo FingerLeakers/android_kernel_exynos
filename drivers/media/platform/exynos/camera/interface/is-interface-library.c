@@ -882,7 +882,7 @@ int is_lib_logdump(void)
 
 void is_assert(void)
 {
-	BUG_ON(1);
+	is_debug_s2d(false, "DDK/RTA ASSERT");
 }
 
 /*
@@ -2442,6 +2442,12 @@ int __nocfi is_load_ddk_bin(int loadType)
 		return ret;
 	}
 
+#ifdef USE_CDH_BINARY
+	lib_addr = lib_vra;		/* DDK start Addr */
+	bin.data = bin.data + CDH_SIZE;
+	bin.size = bin.size - CDH_SIZE;
+#endif
+
 	if (loadType == BINARY_LOAD_ALL) {
 #ifdef CONFIG_UH_RKP
 		memset(&rkp_dyn, 0, sizeof(rkp_dyn));
@@ -2814,7 +2820,7 @@ int is_load_bin(void)
 
 	lib->binary_load_flg = true;
 
-#if defined(SECURE_CAMERA_FACE)
+#if defined(SECURE_CAMERA_MEM_SHARE)
 	if (core && core->scenario == IS_SCENARIO_SECURE) {
 		mblk_init(&lib->mb_dma_taaisp, lib->minfo->pb_taaisp_s,
 				MT_TYPE_MB_DMA_TAAISP, "DMA_TAAISP_S");
@@ -2829,7 +2835,9 @@ int is_load_bin(void)
 				MT_TYPE_MB_DMA_MEDRC, "DMA_MEDRC");
 	}
 
+#ifdef ENABLE_TNR
 	mblk_init(&lib->mb_dma_tnr, lib->minfo->pb_tnr, MT_TYPE_MB_DMA_TNR, "DMA_TNR");
+#endif
 #if (ORBMCH_DMA_SIZE > 0)
 	mblk_init(&lib->mb_dma_orbmch, lib->minfo->pb_orbmch, MT_TYPE_MB_DMA_ORBMCH, "DMA_ORB");
 #endif

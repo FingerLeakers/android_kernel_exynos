@@ -8,6 +8,7 @@
 #include <dt-bindings/soc/samsung/exynos-ecs.h>
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "ems.h"
@@ -101,9 +102,6 @@ static bool ecs_update_system_status(void)
 	list_for_each_entry(domain, &ecs_gov.domains, list)
 		__ecs_update_system_status(domain);
 
-	trace_ecs_update_system_status(*(unsigned int *)&ecs_gov.heavy_cpus,
-				       *(unsigned int *)&ecs_gov.busy_cpus);
-
 	if (cpumask_equal(&prev_busy_cpus, &ecs_gov.busy_cpus) &&
 		cpumask_equal(&prev_heavy_cpus, &ecs_gov.heavy_cpus))
 		return 0;
@@ -147,8 +145,6 @@ static int ecs_update_spared_cpus(struct ecs_mode *target_mode)
 	if (!ecs_gov.enabled)
 		goto unlock;
 
-	trace_ecs_update_spared_cpus(*(unsigned int *)&ecs_gov.cpus,
-				     *(unsigned int *)&target_mode->cpus);
 	ecs_gov.cur_mode = target_mode;
 	cpumask_copy(&ecs_gov.cpus, &target_mode->cpus);
 
@@ -183,6 +179,10 @@ void ecs_update(void)
 		ecs_update_spared_cpus(target_mode);
 
 unlock:
+	trace_ecs_update(*(unsigned int *)&ecs_gov.heavy_cpus,
+			 *(unsigned int *)&ecs_gov.busy_cpus,
+			 *(unsigned int *)&ecs_gov.cpus);
+
 	raw_spin_unlock_irqrestore(&ecs_load_lock, flags);
 }
 
@@ -194,7 +194,7 @@ int ecs_is_sparing_cpu(int cpu)
 	return !cpumask_test_cpu(cpu, &ecs_gov.cpus);
 }
 
-struct cpumask *ecs_sparing_cpus(void)
+struct cpumask *ecs_cpus_allowed(void)
 {
 	return &ecs_gov.cpus;
 }

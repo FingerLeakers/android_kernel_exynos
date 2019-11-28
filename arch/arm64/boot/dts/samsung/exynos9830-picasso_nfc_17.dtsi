@@ -47,13 +47,21 @@ hsi2c25_nfc: hsi2c25-nfc {
 	     };
 
 	     /* peric1 usi11 */
-hsi2c22_nvm: hsi2c22-nvm {
+hsi2c22_nvm_on: hsi2c22-nvm-on {
 		     samsung,pins = "gpp7-4", "gpp7-5";
 		     samsung,pin-function = <2>;
 		     samsung,pin-pud = <0>;
 		     samsung,pin-drv = <0>;
 		     samsung,pin-con-pdn = <2>;
 		     samsung,pin-pud-pdn = <0>;
+	     };
+hsi2c22_nvm_off: hsi2c22-nvm-off {
+		     samsung,pins = "gpp7-4", "gpp7-5";
+		     samsung,pin-function = <0>;
+		     samsung,pin-pud = <1>;
+		     samsung,pin-drv = <0>;
+		     samsung,pin-con-pdn = <2>;
+		     samsung,pin-pud-pdn = <1>;
 	     };
 };
 /* PERIC1 USI12_I2C */
@@ -90,14 +98,16 @@ hsi2c22_nvm: hsi2c22-nvm {
 
 &hsi2c_22 {
 	status = "okay";
-	pinctrl-names = "default";
-	pinctrl-0 = <&hsi2c22_nvm>;
+	pinctrl-names = "default", "nvm_off";
+	pinctrl-0 = <&hsi2c22_nvm_on>;
+	pinctrl-1 = <&hsi2c22_nvm_off>;
 
 	k250a@23 {
 		status = "ok";
 		compatible = "snvm_k250a";
 		1p8_pvdd-supply = <&ldo26_reg>;
 		reg = <0x23>;
+		k250a-i2c_node = <&hsi2c_22>;
 	};
 };
 
@@ -105,11 +115,10 @@ hsi2c22_nvm: hsi2c22-nvm {
 spi10_bus_suspend: spi10-bus-suspend {
 			   samsung,pins = "gpp7-2", "gpp7-1", "gpp7-0";
 			   samsung,pin-function = <0>;	/* INPUT */
-			   samsung,pin-pud = <0>;		/* NONE */
+			   samsung,pin-pud = <1>;		/* NONE */
 			   samsung,pin-drv = <0>;
-			   samsung,pin-val = <0>;
 			   samsung,pin-con-pdn = <2>;
-			   samsung,pin-pud-pdn = <0>;
+			   samsung,pin-pud-pdn = <1>;
 		   };
 spi10_cs_suspend: spi10-cs-suspend {
 			  samsung,pins = "gpp7-3";
@@ -141,9 +150,9 @@ spi10_cs_suspend: spi10-cs-suspend {
 		reg = <0>;
 		spi-max-frequency = <13000000>;
 		gpio-controller;
-#gpio-cells = <2>;
+		#gpio-cells = <2>;
 
-		p3-vdd-1p8= "ALWAYS";
+		p3-vdd-1p8= "VDD_ESE_SEN4";
 
 		clocks = <&clock GATE_PERIC1_TOP1_QCH_USI10_USI>, <&clock DOUT_CLK_PERIC1_USI10_USI>;
 		clock-names = "pclk", "sclk";

@@ -169,6 +169,9 @@ enum sysreg_isphq_reg_field {
 /* DDK HEAP: 60MB */
 #define IS_HEAP_SIZE		(0x03C00000)
 
+/* SETFILE: 3.5MB */
+#define IS_SETFILE_SIZE		(0x00382000)
+
 #define SYSREG_ISPPRE_BASE_ADDR		(0x17020000)
 #define SYSREG_ISPLP_BASE_ADDR		(0x17420000)
 #define SYSREG_ISPHQ_BASE_ADDR		(0x17720000)

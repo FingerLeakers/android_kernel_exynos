@@ -16,6 +16,7 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -55,6 +56,10 @@
 #include "modem_variation.h"
 #include "modem_utils.h"
 #include "cpif_clat_info.h"
+
+#ifdef CONFIG_MODEM_IF_LEGACY_QOS
+#include "cpif_qos_info.h"
+#endif
 
 #define FMT_WAKE_TIME   (HZ/2)
 #define RAW_WAKE_TIME   (HZ*6)
@@ -309,11 +314,7 @@ static int parse_dt_common_pdata(struct device_node *np,
 	if (pdata->link_type == LINKDEV_SHMEM)
 		mif_dt_read_u32(np, "ulpath_offset", pdata->ulpath_offset);
 #endif
-	/* srinfo settings */
-	mif_dt_read_u32_noerr(np, "srinfo_offset", pdata->srinfo_offset);
-	mif_dt_read_u32_noerr(np, "srinfo_size", pdata->srinfo_size);
-	/* clk_table offset */
-	mif_dt_read_u32_noerr(np, "clk_table_offset", pdata->clk_table_offset);
+
 
 	return 0;
 }
@@ -341,6 +342,8 @@ static int parse_dt_mbox_pdata(struct device *dev, struct device_node *np,
 	mif_dt_read_u32(np, "mif,int_ap2cp_wakeup", mbox->int_ap2cp_wakeup);
 	mif_dt_read_u32(np, "mif,int_ap2cp_status", mbox->int_ap2cp_status);
 	mif_dt_read_u32(np, "mif,int_ap2cp_active", mbox->int_ap2cp_active);
+	mif_dt_read_u32(np, "mif,int_ap2cp_lcd_status",
+			mbox->int_ap2cp_lcd_status);
 	mif_dt_read_u32(np, "mif,int_ap2cp_uart_noti", mbox->int_ap2cp_uart_noti);
 
 	mif_dt_read_u32(np, "mif,irq_cp2ap_msg", mbox->irq_cp2ap_msg);
@@ -361,12 +364,44 @@ static int parse_dt_ipc_region_pdata(struct device *dev, struct device_node *np,
 {
 	int ret = 0;
 
+	/* legacy buffer (fmt, raw) setting */
+	mif_dt_read_u32(np, "legacy_fmt_head_tail_offset",
+			pdata->legacy_fmt_head_tail_offset);
+	mif_dt_read_u32(np, "legacy_fmt_buffer_offset", pdata->legacy_fmt_buffer_offset);
+	mif_dt_read_u32(np, "legacy_fmt_txq_size", pdata->legacy_fmt_txq_size);
+	mif_dt_read_u32(np, "legacy_fmt_rxq_size", pdata->legacy_fmt_rxq_size);
+	mif_dt_read_u32(np, "legacy_raw_head_tail_offset",
+			pdata->legacy_raw_head_tail_offset);
+	mif_dt_read_u32(np, "legacy_raw_buffer_offset", pdata->legacy_raw_buffer_offset);
+	mif_dt_read_u32(np, "legacy_raw_txq_size", pdata->legacy_raw_txq_size);
+	mif_dt_read_u32(np, "legacy_raw_rxq_size", pdata->legacy_raw_rxq_size);
+
 	mif_dt_read_u32_noerr(np, "offset_ap_version", pdata->offset_ap_version);
 	mif_dt_read_u32_noerr(np, "offset_cp_version", pdata->offset_cp_version);
 	mif_dt_read_u32_noerr(np, "offset_cmsg_offset", pdata->offset_cmsg_offset);
 	mif_dt_read_u32_noerr(np, "offset_srinfo_offset", pdata->offset_srinfo_offset);
 	mif_dt_read_u32_noerr(np, "offset_clk_table_offset", pdata->offset_clk_table_offset);
 	mif_dt_read_u32_noerr(np, "offset_buff_desc_offset", pdata->offset_buff_desc_offset);
+
+#ifdef CONFIG_MODEM_IF_LEGACY_QOS
+	/* legacy priority queue setting */
+	mif_dt_read_u32(np, "legacy_raw_qos_head_tail_offset",
+			pdata->legacy_raw_qos_head_tail_offset);
+	mif_dt_read_u32(np, "legacy_raw_qos_buffer_offset", pdata->legacy_raw_qos_buffer_offset);
+	mif_dt_read_u32(np, "legacy_raw_qos_txq_size", pdata->legacy_raw_qos_txq_size);
+	mif_dt_read_u32(np, "legacy_raw_qos_rxq_size", pdata->legacy_raw_qos_rxq_size);
+#endif
+
+	/* control message offset setting (optional)*/
+	mif_dt_read_u32_noerr(np, "cmsg_offset", pdata->cmsg_offset);
+	/* srinfo settings */
+	mif_dt_read_u32(np, "srinfo_offset", pdata->srinfo_offset);
+	mif_dt_read_u32(np, "srinfo_size", pdata->srinfo_size);
+	/* clk_table offset (optional)*/
+	mif_dt_read_u32_noerr(np, "clk_table_offset", pdata->clk_table_offset);
+	/* offset setting for new SIT buffer descriptors (optional) */
+	mif_dt_read_u32_noerr(np, "buff_desc_offset", pdata->buff_desc_offset);
+
 	of_property_read_u32_array(np, "ap2cp_msg", pdata->ap2cp_msg, 2);
 	of_property_read_u32_array(np, "cp2ap_msg", pdata->cp2ap_msg, 2);
 	of_property_read_u32_array(np, "cp2ap_united_status", pdata->cp2ap_united_status, 2);
@@ -374,7 +409,6 @@ static int parse_dt_ipc_region_pdata(struct device *dev, struct device_node *np,
 	of_property_read_u32_array(np, "ap2cp_kerneltime", pdata->ap2cp_kerneltime, 2);
 	of_property_read_u32_array(np, "ap2cp_kerneltime_sec", pdata->ap2cp_kerneltime_sec, 2);
 	of_property_read_u32_array(np, "ap2cp_kerneltime_usec", pdata->ap2cp_kerneltime_usec, 2);
-
 
 	/* Status Bit Info */
 	mif_dt_read_u32(np, "sbi_lte_active_mask", pdata->sbi_lte_active_mask);
@@ -391,6 +425,8 @@ static int parse_dt_ipc_region_pdata(struct device *dev, struct device_node *np,
 	mif_dt_read_u32(np, "sbi_ap_status_pos", pdata->sbi_ap_status_pos);
 	mif_dt_read_u32(np, "sbi_crash_type_mask", pdata->sbi_crash_type_mask);
 	mif_dt_read_u32(np, "sbi_crash_type_pos", pdata->sbi_crash_type_pos);
+	mif_dt_read_u32(np, "sbi_lcd_status_mask", pdata->sbi_lcd_status_mask);
+	mif_dt_read_u32(np, "sbi_lcd_status_pos", pdata->sbi_lcd_status_pos);
 	mif_dt_read_u32(np, "sbi_uart_noti_mask", pdata->sbi_uart_noti_mask);
 	mif_dt_read_u32(np, "sbi_uart_noti_pos", pdata->sbi_uart_noti_pos);
 	mif_dt_read_u32(np, "sbi_ds_det_mask", pdata->sbi_ds_det_mask);
@@ -760,6 +796,82 @@ static struct attribute *clat_attrs[] = {
 };
 ATTRIBUTE_GROUPS(clat);
 
+#ifdef CONFIG_MODEM_IF_LEGACY_QOS
+static ssize_t hiprio_uid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	struct hiprio_uid_list *hiprio_list;
+	struct hiprio_uid *node;
+	ssize_t count = 0;
+	int i = 0;
+
+	hiprio_list = cpif_qos_get_list();
+	if (!hiprio_list) {
+		mif_err("-- hiprio uid list does not exist\n");
+		return -EINVAL;
+	}
+
+	if (hash_empty(hiprio_list->uid_map)) {
+		mif_err("-- there is no hiprio uid\n");
+		return count;
+	}
+
+	mif_info("-- uid list --\n");
+	hash_for_each(hiprio_list->uid_map, i, node, h_node) {
+		count += sprintf(buf + count, "%d\n", node->uid);
+		mif_info("index %d: %d\n", i, node->uid);
+	}
+
+	return count;
+}
+
+static ssize_t hiprio_uid_store(struct kobject *kobj, struct kobj_attribute *attr,
+		const char *buf, size_t count)
+{
+	long uid = 0;
+
+	mif_info("cpif_qos command input:  %s\n", buf);
+
+	if (strstr(buf, "add")) {
+		if (kstrtol(buf + 4, 10, &uid)) {
+			mif_err("-- failed to parse uid\n");
+			return -EINVAL;
+		}
+		mif_info("-- user requires addition of uid: %d\n", uid);
+		if (!cpif_qos_add_uid((u32)uid)) {
+			mif_err("-- Adding uid %d to hiprio list failed\n", uid);
+			return -EINVAL;
+		}
+	} else if (strstr(buf, "rm")) {
+		if (kstrtol(buf + 3, 10, &uid)) {
+			mif_err("-- failed to parse uid\n");
+			return -EINVAL;
+		}
+		mif_info("-- user requires removal of uid: %d\n", uid);
+		if (!cpif_qos_remove_uid((u32)uid)) {
+			mif_err("-- Removing uid %d from hiprio list failed\n", uid);
+			return -EINVAL;
+		}
+	} else {
+		mif_err("-- command not valid\n");
+		return -EINVAL;
+	}
+
+	return count;
+}
+
+static struct kobject *cpif_qos_kobject;
+static struct kobj_attribute hiprio_uid_attribute = {
+	.attr = {.name = "hiprio_uid", .mode = 0660},
+	.show = hiprio_uid_show,
+	.store = hiprio_uid_store,
+};
+static struct attribute *cpif_qos_attrs[] = {
+	&hiprio_uid_attribute.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(cpif_qos);
+#endif /* End of CONFIG_MODEM_IF_LEGACY_QOS */
+
 static int cpif_probe(struct platform_device *pdev)
 {
 	int i;
@@ -856,10 +968,26 @@ static int cpif_probe(struct platform_device *pdev)
 
         clat_kobject = kobject_create_and_add("clat", kernel_kobj);
         if (!clat_kobject)
-                mif_err("clat: kobject_create done ---\n");
+		mif_err("clat: kobject_create failed ---\n");
 
         if (sysfs_create_groups(clat_kobject, clat_groups))
                 mif_err("failed to create clat groups node\n");
+
+	err = cpif_init_clat_info();
+	if (err < 0)
+		mif_err("failed to initialize clat_info(%d)\n", err);
+
+#ifdef CONFIG_MODEM_IF_LEGACY_QOS
+	cpif_qos_kobject = kobject_create_and_add("cpif_qos", kernel_kobj);
+	if (!cpif_qos_kobject)
+		mif_err("cpif_qos: kobject_create failed ---\n");
+
+	if (sysfs_create_groups(cpif_qos_kobject, cpif_qos_groups))
+		mif_err("failed to create cpif_qos groups node\n");
+	err = cpif_qos_init_list();
+	if (err < 0)
+		mif_err("failed to initialize hiprio list(%d)\n", err);
+#endif
 
 	err = mif_init_argos_notifier();
 	if (err < 0)

@@ -137,9 +137,9 @@
 	status = "okay";
 	chip-ver = <0>;
 	use-sysmmu = "false";
-	use-cache-coherency = "false";
+	use-cache-coherency = "true";
 	use-msi = "true";
-	use-pcieon-sleep = "false";
+	use-pcieon-sleep = "true";
 	phy-power-off = "false";
 	ep-device-type = <EP_SAMSUNG_MODEM>;
 };

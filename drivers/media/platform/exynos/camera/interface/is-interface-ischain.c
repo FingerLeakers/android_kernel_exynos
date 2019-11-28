@@ -22,6 +22,7 @@
 
 #include "is-interface.h"
 #include "is-debug.h"
+#include "is-work.h"
 
 #include "is-interface-ischain.h"
 #include "is-interface-library.h"
@@ -477,109 +478,6 @@ int is_interface_ischain_probe(struct is_interface_ischain *this,
 	dbg_itfc("interface ishchain probe done (hw_id: %d)(ret: %d)", hw_id, ret);
 
 	return ret;
-}
-
-int print_fre_work_list(struct is_work_list *this)
-{
-	struct is_work *work, *temp;
-
-	if (!(this->id & TRACE_WORK_ID_MASK))
-		return 0;
-
-	printk(KERN_ERR "[INF] fre(%02X, %02d) :", this->id, this->work_free_cnt);
-
-	list_for_each_entry_safe(work, temp, &this->work_free_head, list) {
-		printk(KERN_CONT "%X(%d)->", work->msg.command, work->fcount);
-	}
-
-	printk(KERN_CONT "X\n");
-
-	return 0;
-}
-
-static int set_free_work(struct is_work_list *this, struct is_work *work)
-{
-	int ret = 0;
-	ulong flags;
-
-	if (work) {
-		spin_lock_irqsave(&this->slock_free, flags);
-
-		list_add_tail(&work->list, &this->work_free_head);
-		this->work_free_cnt++;
-#ifdef TRACE_WORK
-		print_fre_work_list(this);
-#endif
-
-		spin_unlock_irqrestore(&this->slock_free, flags);
-	} else {
-		ret = -EFAULT;
-		err("item is null ptr\n");
-	}
-
-	return ret;
-}
-
-int print_req_work_list(struct is_work_list *this)
-{
-	struct is_work *work, *temp;
-
-	if (!(this->id & TRACE_WORK_ID_MASK))
-		return 0;
-
-	printk(KERN_ERR "[INF] req(%02X, %02d) :", this->id, this->work_request_cnt);
-
-	list_for_each_entry_safe(work, temp, &this->work_request_head, list) {
-		printk(KERN_CONT "%X([%d][G%X][F%d])->", work->msg.command,
-				work->msg.instance, work->msg.group, work->fcount);
-	}
-
-	printk(KERN_CONT "X\n");
-
-	return 0;
-}
-
-static int get_req_work(struct is_work_list *this,
-	struct is_work **work)
-{
-	int ret = 0;
-	ulong flags;
-
-	if (work) {
-		spin_lock_irqsave(&this->slock_request, flags);
-
-		if (this->work_request_cnt) {
-			*work = container_of(this->work_request_head.next,
-					struct is_work, list);
-			list_del(&(*work)->list);
-			this->work_request_cnt--;
-		} else
-			*work = NULL;
-
-		spin_unlock_irqrestore(&this->slock_request, flags);
-	} else {
-		ret = -EFAULT;
-		err("item is null ptr\n");
-	}
-
-	return ret;
-}
-
-static void init_work_list(struct is_work_list *this, u32 id, u32 count)
-{
-	u32 i;
-
-	this->id = id;
-	this->work_free_cnt	= 0;
-	this->work_request_cnt	= 0;
-	INIT_LIST_HEAD(&this->work_free_head);
-	INIT_LIST_HEAD(&this->work_request_head);
-	spin_lock_init(&this->slock_free);
-	spin_lock_init(&this->slock_request);
-	for (i = 0; i < count; ++i)
-		set_free_work(this, &this->work[i]);
-
-	init_waitqueue_head(&this->wait_queue);
 }
 
 static inline void wq_func_schedule(struct is_interface *itf,
@@ -1159,25 +1057,225 @@ p_err:
 	}
 }
 
+static void wq_func_ixt(struct work_struct *data, u32 wq_id)
+{
+	u32 instance, fcount, rcount, status;
+	struct is_interface *itf;
+	struct is_device_ischain *device;
+	struct is_subdev *leader, *subdev;
+	struct is_work *work;
+	struct is_msg *msg;
+
+	itf = container_of(data, struct is_interface, work_wq[wq_id]);
+
+	get_req_work(&itf->work_list[wq_id], &work);
+	while (work) {
+		msg = &work->msg;
+		instance = msg->instance;
+		fcount = msg->param1;
+		rcount = msg->param2;
+		status = msg->param3;
+
+		if (instance >= IS_STREAM_COUNT) {
+			err("instance is invalid(%d)", instance);
+			goto p_err;
+		}
+
+		device = &((struct is_core *)itf->core)->ischain[instance];
+		if (!test_bit(IS_ISCHAIN_OPEN, &device->state)) {
+			merr("device is not open", device);
+			goto p_err;
+		}
+
+		subdev = &device->ixt;
+		if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
+			merr("subdev is not start", device);
+			goto p_err;
+		}
+
+		leader = subdev->leader;
+		if (!leader) {
+			merr("leader is NULL", device);
+			goto p_err;
+		}
+
+		wq_func_frame(leader, subdev, fcount, rcount, status);
+
+p_err:
+		set_free_work(&itf->work_list[wq_id], work);
+		get_req_work(&itf->work_list[wq_id], &work);
+	}
+}
+
+static void wq_func_ixg(struct work_struct *data, u32 wq_id)
+{
+	u32 instance, fcount, rcount, status;
+	struct is_interface *itf;
+	struct is_device_ischain *device;
+	struct is_subdev *leader, *subdev;
+	struct is_work *work;
+	struct is_msg *msg;
+
+	itf = container_of(data, struct is_interface, work_wq[wq_id]);
+
+	get_req_work(&itf->work_list[wq_id], &work);
+	while (work) {
+		msg = &work->msg;
+		instance = msg->instance;
+		fcount = msg->param1;
+		rcount = msg->param2;
+		status = msg->param3;
+
+		if (instance >= IS_STREAM_COUNT) {
+			err("instance is invalid(%d)", instance);
+			goto p_err;
+		}
+
+		device = &((struct is_core *)itf->core)->ischain[instance];
+		if (!test_bit(IS_ISCHAIN_OPEN, &device->state)) {
+			merr("device is not open", device);
+			goto p_err;
+		}
+
+		subdev = &device->ixg;
+		if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
+			merr("subdev is not start", device);
+			goto p_err;
+		}
+
+		leader = subdev->leader;
+		if (!leader) {
+			merr("leader is NULL", device);
+			goto p_err;
+		}
+
+		wq_func_frame(leader, subdev, fcount, rcount, status);
+
+p_err:
+		set_free_work(&itf->work_list[wq_id], work);
+		get_req_work(&itf->work_list[wq_id], &work);
+	}
+}
+
+static void wq_func_ixv(struct work_struct *data, u32 wq_id)
+{
+	u32 instance, fcount, rcount, status;
+	struct is_interface *itf;
+	struct is_device_ischain *device;
+	struct is_subdev *leader, *subdev;
+	struct is_work *work;
+	struct is_msg *msg;
+
+	itf = container_of(data, struct is_interface, work_wq[wq_id]);
+
+	get_req_work(&itf->work_list[wq_id], &work);
+	while (work) {
+		msg = &work->msg;
+		instance = msg->instance;
+		fcount = msg->param1;
+		rcount = msg->param2;
+		status = msg->param3;
+
+		if (instance >= IS_STREAM_COUNT) {
+			err("instance is invalid(%d)", instance);
+			goto p_err;
+		}
+
+		device = &((struct is_core *)itf->core)->ischain[instance];
+		if (!test_bit(IS_ISCHAIN_OPEN, &device->state)) {
+			merr("device is not open", device);
+			goto p_err;
+		}
+
+		subdev = &device->ixv;
+		if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
+			merr("subdev is not start", device);
+			goto p_err;
+		}
+
+		leader = subdev->leader;
+		if (!leader) {
+			merr("leader is NULL", device);
+			goto p_err;
+		}
+
+		wq_func_frame(leader, subdev, fcount, rcount, status);
+
+p_err:
+		set_free_work(&itf->work_list[wq_id], work);
+		get_req_work(&itf->work_list[wq_id], &work);
+	}
+}
+
+static void wq_func_ixw(struct work_struct *data, u32 wq_id)
+{
+	u32 instance, fcount, rcount, status;
+	struct is_interface *itf;
+	struct is_device_ischain *device;
+	struct is_subdev *leader, *subdev;
+	struct is_work *work;
+	struct is_msg *msg;
+
+	itf = container_of(data, struct is_interface, work_wq[wq_id]);
+
+	get_req_work(&itf->work_list[wq_id], &work);
+	while (work) {
+		msg = &work->msg;
+		instance = msg->instance;
+		fcount = msg->param1;
+		rcount = msg->param2;
+		status = msg->param3;
+
+		if (instance >= IS_STREAM_COUNT) {
+			err("instance is invalid(%d)", instance);
+			goto p_err;
+		}
+
+		device = &((struct is_core *)itf->core)->ischain[instance];
+		if (!test_bit(IS_ISCHAIN_OPEN, &device->state)) {
+			merr("device is not open", device);
+			goto p_err;
+		}
+
+		subdev = &device->ixw;
+		if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
+			merr("subdev is not start", device);
+			goto p_err;
+		}
+
+		leader = subdev->leader;
+		if (!leader) {
+			merr("leader is NULL", device);
+			goto p_err;
+		}
+
+		wq_func_frame(leader, subdev, fcount, rcount, status);
+
+p_err:
+		set_free_work(&itf->work_list[wq_id], work);
+		get_req_work(&itf->work_list[wq_id], &work);
+	}
+}
+
 #if defined(SOC_TNR_MERGER)
 static void wq_func_i0t(struct work_struct *data)
 {
-	wq_func_ixp(data, WORK_I0T_FDONE);
+	wq_func_ixt(data, WORK_I0T_FDONE);
 }
 
 static void wq_func_i0g(struct work_struct *data)
 {
-	wq_func_ixp(data, WORK_I0G_FDONE);
+	wq_func_ixg(data, WORK_I0G_FDONE);
 }
 
 static void wq_func_i0v(struct work_struct *data)
 {
-	wq_func_ixp(data, WORK_I0V_FDONE);
+	wq_func_ixv(data, WORK_I0V_FDONE);
 }
 
 static void wq_func_i0w(struct work_struct *data)
 {
-	wq_func_ixp(data, WORK_I0W_FDONE);
+	wq_func_ixw(data, WORK_I0W_FDONE);
 }
 #endif
 
@@ -2072,17 +2170,10 @@ IS_TIMER_FUNC(interface_timer)
 
 			/* framemgr spinlock check */
 			print_framemgr_spinlock_usage(core);
-#ifdef FW_PANIC_ENABLE
-			/* if panic happened, fw log dump should be happened by panic handler */
-			mdelay(2000);
-			panic("[@] camera firmware panic!!!");
-#else
-#if defined(ENABLE_CLOG_RESERVED_MEM)
-			is_resource_cdump();
-#else
-			is_resource_dump();
-#endif
-#endif
+
+			merr("[@] camera firmware panic!!!", device);
+			is_debug_s2d(true, "IS_SHOT_CMD_TIMEOUT");
+
 			return;
 		}
 	}
@@ -2139,7 +2230,7 @@ int is_interface_probe(struct is_interface *this,
 	u32 irq,
 	void *core_data)
 {
-	int ret = 0;
+	int ret = 0, work_id;
 	struct is_core *core = (struct is_core *)core_data;
 
 	dbg_interface(1, "%s\n", __func__);
@@ -2201,40 +2292,8 @@ int is_interface_probe(struct is_interface *this,
 	clear_bit(IS_IF_STATE_READY, &this->state);
 	clear_bit(IS_IF_STATE_LOGGING, &this->state);
 
-	init_work_list(&this->work_list[WORK_SHOT_DONE], TRACE_WORK_ID_SHOT, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_30C_FDONE], TRACE_WORK_ID_30C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_30P_FDONE], TRACE_WORK_ID_30P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_30F_FDONE], TRACE_WORK_ID_30F, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_30G_FDONE], TRACE_WORK_ID_30G, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_31C_FDONE], TRACE_WORK_ID_31C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_31P_FDONE], TRACE_WORK_ID_31P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_31F_FDONE], TRACE_WORK_ID_31F, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_31G_FDONE], TRACE_WORK_ID_31G, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_32C_FDONE], TRACE_WORK_ID_32C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_32P_FDONE], TRACE_WORK_ID_32P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_32F_FDONE], TRACE_WORK_ID_32F, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_32G_FDONE], TRACE_WORK_ID_32G, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_ORB0C_FDONE], TRACE_WORK_ID_ME0C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_ORB1C_FDONE], TRACE_WORK_ID_ME1C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0C_FDONE], TRACE_WORK_ID_I0C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0P_FDONE], TRACE_WORK_ID_I0P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0T_FDONE], TRACE_WORK_ID_I0T, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0G_FDONE], TRACE_WORK_ID_I0G, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0V_FDONE], TRACE_WORK_ID_I0V, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I0W_FDONE], TRACE_WORK_ID_I0W, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I1C_FDONE], TRACE_WORK_ID_I1C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_I1P_FDONE], TRACE_WORK_ID_I1P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_ME0C_FDONE], TRACE_WORK_ID_ME0C, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_ME1C_FDONE], TRACE_WORK_ID_ME1C, MAX_WORK_COUNT);
-
-	init_work_list(&this->work_list[WORK_M0P_FDONE], TRACE_WORK_ID_M0P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_M1P_FDONE], TRACE_WORK_ID_M1P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_M2P_FDONE], TRACE_WORK_ID_M2P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_M3P_FDONE], TRACE_WORK_ID_M3P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_M4P_FDONE], TRACE_WORK_ID_M4P, MAX_WORK_COUNT);
-	init_work_list(&this->work_list[WORK_M5P_FDONE], TRACE_WORK_ID_M5P, MAX_WORK_COUNT);
-
-	init_work_list(&this->work_list[WORK_CL0C_FDONE], TRACE_WORK_ID_CL0C, MAX_WORK_COUNT);
+	for (work_id = WORK_SHOT_DONE; work_id < WORK_MAX_MAP; work_id++)
+		init_work_list(&this->work_list[work_id], work_id, MAX_WORK_COUNT);
 
 	this->err_report_vendor = NULL;
 

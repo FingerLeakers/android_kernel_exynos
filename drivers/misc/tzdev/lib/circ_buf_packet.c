@@ -7,8 +7,8 @@
  */
 
 #include <linux/err.h>
-#include "circ_buf.h"
-#include "circ_buf_packet.h"
+#include "lib/circ_buf.h"
+#include "lib/circ_buf_packet.h"
 
 struct circ_buf_packet_header {
 	uint32_t packet_size;

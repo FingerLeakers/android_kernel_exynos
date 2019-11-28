@@ -35,7 +35,11 @@ extern struct pm_qos_request exynos_isp_qos_cam;
 extern struct pm_qos_request exynos_isp_qos_hpg;
 
 #if defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+extern struct emstune_mode_request emstune_req;
+#else
 extern struct gb_qos_request gb_req;
+#endif
 #endif
 
 static inline int is_get_start_sensor_cnt(struct is_core *core)
@@ -50,7 +54,7 @@ static inline int is_get_start_sensor_cnt(struct is_core *core)
 }
 
 #ifdef BDS_DVFS
-static int is_get_bds_size(struct is_device_ischain *device)
+static int is_get_bds_size(struct is_device_ischain *device, struct is_dual_info *dual_info)
 {
 	int resol = 0;
 	struct is_group *group;
@@ -60,7 +64,10 @@ static int is_get_bds_size(struct is_device_ischain *device)
 	if (!test_bit(IS_GROUP_INIT, &group->state))
 		return resol;
 
-	resol = device->txp.output.width * device->txp.output.height;
+	if (dual_info->mode == IS_DUAL_MODE_SYNC)
+		resol = dual_info->max_bds_width * dual_info->max_bds_height;
+	else
+		resol = device->txp.output.width * device->txp.output.height;
 
 	return resol;
 }
@@ -224,15 +231,15 @@ int is_dvfs_sel_static(struct is_device_ischain *device)
 	scenarios = static_ctrl->scenarios;
 	scenario_cnt = static_ctrl->scenario_cnt;
 	position = is_sensor_g_position(device->sensor);
-#ifdef BDS_DVFS
-	resol = is_get_bds_size(device);
-#else
-	resol = is_get_target_resol(device);
-#endif
 	fps = is_sensor_g_framerate(device->sensor);
 	stream_cnt = is_get_start_sensor_cnt(core);
 	sensor_map = core->sensor_map;
 	dual_info = &core->dual_info;
+#ifdef BDS_DVFS
+	resol = is_get_bds_size(device, dual_info);
+#else
+	resol = is_get_target_resol(device);
+#endif
 
 	for (i = 0; i < scenario_cnt; i++) {
 		if (!scenarios[i].check_func) {
@@ -246,6 +253,13 @@ int is_dvfs_sel_static(struct is_device_ischain *device)
 			static_ctrl->cur_scenario_id = scenario_id;
 			static_ctrl->cur_scenario_idx = i;
 			static_ctrl->cur_frame_tick = scenarios[i].keep_frame_tick;
+			dbg_dvfs(1, "%s: pos(%d), res(%d), fps(%d), sc(%d), map(%d), dual(%d, %d, %d), scenario(%d)\n",
+				device, __func__, position, resol, fps,
+				stream_cnt, sensor_map,
+				dual_info->max_fps[SENSOR_POSITION_REAR],
+				dual_info->max_fps[SENSOR_POSITION_REAR2],
+				dual_info->max_fps[SENSOR_POSITION_REAR3],
+				(device->setfile & IS_SETFILE_MASK));
 			return scenario_id;
 		}
 	}
@@ -318,14 +332,14 @@ int is_dvfs_sel_dynamic(struct is_device_ischain *device, struct is_group *group
 		return -EAGAIN;
 
 	position = is_sensor_g_position(device->sensor);
-#ifdef BDS_DVFS
-	resol = is_get_bds_size(device);
-#else
-	resol = is_get_target_resol(device);
-#endif
 	fps = is_sensor_g_framerate(device->sensor);
 	sensor_map = core->sensor_map;
 	dual_info = &core->dual_info;
+#ifdef BDS_DVFS
+	resol = is_get_bds_size(device, dual_info);
+#else
+	resol = is_get_target_resol(device);
+#endif
 
 	for (i = 0; i < scenario_cnt; i++) {
 		if (!scenarios[i].check_func) {
@@ -558,7 +572,8 @@ int is_set_dvfs(struct is_core *core, struct is_device_ischain *device, u32 scen
 
 #if defined(ENABLE_HMP_BOOST)
 	/* hpg_qos : number of minimum online CPU */
-	if (hpg_qos && dvfs_ctrl->cur_hpg_qos != hpg_qos) {
+	if (hpg_qos && dvfs_ctrl->cur_hpg_qos != hpg_qos
+		&& !test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
 		pm_qos_update_request(&exynos_isp_qos_hpg, hpg_qos);
 		dvfs_ctrl->cur_hpg_qos = hpg_qos;
 
@@ -579,12 +594,20 @@ int is_set_dvfs(struct is_core *core, struct is_device_ischain *device, u32 scen
 		/* for migration to big core */
 		if (hpg_qos > 4) {
 			if (!dvfs_ctrl->cur_hmp_bst) {
+#if defined(CONFIG_SCHED_EMS_TUNE)
+				emstune_boost(&emstune_req, 1);
+#else
 				gb_qos_update_request(&gb_req, 100);
+#endif
 				dvfs_ctrl->cur_hmp_bst = 1;
 			}
 		} else {
 			if (dvfs_ctrl->cur_hmp_bst) {
+#if defined(CONFIG_SCHED_EMS_TUNE)
+				emstune_boost(&emstune_req, 0);
+#else
 				gb_qos_update_request(&gb_req, 0);
+#endif
 				dvfs_ctrl->cur_hmp_bst = 0;
 			}
 		}
@@ -621,6 +644,7 @@ void is_dual_mode_update(struct is_device_ischain *device,
 	struct is_core *core = (struct is_core *)device->interface->core;
 	struct is_dual_info *dual_info = &core->dual_info;
 	struct is_device_sensor *sensor = device->sensor;
+	int i, streaming_cnt = 0;
 
 	/* Continue if wide and tele/s-wide complete is_sensor_s_input(). */
 	if (!(test_bit(SENSOR_POSITION_REAR, &core->sensor_map) &&
@@ -632,17 +656,7 @@ void is_dual_mode_update(struct is_device_ischain *device,
 		return;
 
 	/* Update max fps of dual sensor device with reference to shot meta. */
-	switch (sensor->position) {
-	case SENSOR_POSITION_REAR:
-		dual_info->max_fps_master = frame->shot->ctl.aa.aeTargetFpsRange[1];
-		break;
-	case SENSOR_POSITION_REAR2:
-	case SENSOR_POSITION_REAR3:
-		dual_info->max_fps_slave = frame->shot->ctl.aa.aeTargetFpsRange[1];
-		break;
-	default:
-		return;
-	}
+	dual_info->max_fps[sensor->position] = frame->shot->ctl.aa.aeTargetFpsRange[1];
 
 	/*
 	 * bypass - master_max_fps : 30fps, slave_max_fps : 0fps (sensor standby)
@@ -650,14 +664,27 @@ void is_dual_mode_update(struct is_device_ischain *device,
 	 * switch - master_max_fps : 5ps, slave_max_fps : 30fps (post standby)
 	 * nothing - invalid mode
 	 */
-	if (dual_info->max_fps_master >= 24 && dual_info->max_fps_slave == 0)
+	for (i = 0; i < SENSOR_POSITION_MAX; i++) {
+		if (dual_info->max_fps[i] >= 24)
+			streaming_cnt++;
+	}
+
+	if (streaming_cnt == 1)
 		dual_info->mode = IS_DUAL_MODE_BYPASS;
-	else if (dual_info->max_fps_master >= 24 && dual_info->max_fps_slave >= 24)
+	else if (streaming_cnt >= 2)
 		dual_info->mode = IS_DUAL_MODE_SYNC;
-	else if (dual_info->max_fps_master <= 5 && dual_info->max_fps_slave >= 24)
-		dual_info->mode = IS_DUAL_MODE_SWITCH;
 	else
 		dual_info->mode = IS_DUAL_MODE_NOTHING;
+
+	if (dual_info->mode == IS_DUAL_MODE_SYNC) {
+		dual_info->max_bds_width =
+			max_t(int, dual_info->max_bds_width, device->txp.output.width);
+		dual_info->max_bds_height =
+			max_t(int, dual_info->max_bds_height, device->txp.output.height);
+	} else {
+		dual_info->max_bds_width = device->txp.output.width;
+		dual_info->max_bds_height = device->txp.output.height;
+	}
 }
 
 void is_dual_dvfs_update(struct is_device_ischain *device,

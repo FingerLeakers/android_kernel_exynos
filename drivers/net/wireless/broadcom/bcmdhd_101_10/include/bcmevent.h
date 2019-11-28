@@ -295,9 +295,10 @@ typedef union bcm_event_msg_u {
 						 *  dwell time complete
 						 */
 #define WLC_E_WSEC			186	/* wsec keymgmt event */
-#define WLC_E_LAST			187	/* highest val + 1 for range checking */
-#if (WLC_E_LAST > 187)
-#error "WLC_E_LAST: Invalid value for last event; must be <= 187."
+#define WLC_E_OBSS_DETECTION		187	/* OBSS HW event */
+#define WLC_E_LAST			188	/* highest val + 1 for range checking */
+#if (WLC_E_LAST > 188)
+#error "WLC_E_LAST: Invalid value for last event; must be <= 188."
 #endif /* WLC_E_LAST */
 
 /* define an API for getting the string name of an event */
@@ -1290,5 +1291,14 @@ typedef struct wl_event_adps {
 typedef wl_event_adps_v1_t wl_event_adps_t;
 
 #define WLC_USER_E_KEY_UPDATE	1 /* Key add/remove */
+
+/* OBSS HW event data */
+typedef struct wlc_obss_hw_event_data {
+	uint16 available_chanspec;	/* Contains band, channel and BW info */
+} wlc_obss_hw_event_data_t;
+
+/* status when WLC_E_OBSS_DETECTION */
+#define WLC_OBSS_BW_UPDATED	1 /* Sent when BW is update at SW */
+#define WLC_OBSS_BW_AVAILABLE	2 /* Sent When a change in BW is detected / noticed */
 
 #endif /* _BCMEVENT_H_ */

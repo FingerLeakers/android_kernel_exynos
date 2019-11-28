@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (C) 2017 Samsung Electronics Co., Ltd.
  *
@@ -15,6 +16,11 @@
 
 struct diskcipher_alg;
 
+enum iv_mode {
+	IV_MODE_LBA, /* dm-dcrypt/ext4 uses it for more blk merge */
+	IV_MODE_DUN, /* f2fs should use it for garbeage colloection */
+};
+
 struct crypto_diskcipher {
 	u32 algo;
 	unsigned int ivsize;
@@ -22,6 +28,7 @@ struct crypto_diskcipher {
 	/* for crypto_free_req_diskcipher */
 	atomic_t status;
 	struct crypto_tfm base;
+	enum iv_mode ivmode;
 };
 
 struct diskcipher_test_request {
@@ -33,7 +40,7 @@ struct diskcipher_test_request {
 };
 
 /**
- * struct diskcipher_alg - symmetric key cipher definition
+ * struct diskcipher_alg - disk cipher definition
  * for inline crypto engine on disk host device
  *
  * @setkey
@@ -50,18 +57,19 @@ struct diskcipher_test_request {
 struct diskcipher_alg {
 	int (*init)(struct crypto_diskcipher *tfm);
 	int (*exit)(struct crypto_diskcipher *tfm);
-	int (*setkey)(struct crypto_diskcipher *tfm, const char *key, u32 keylen,
-		       bool persistent);
+	int (*setkey)(struct crypto_diskcipher *tfm, const char *key,
+			u32 keylen, bool persistent);
 	int (*clearkey)(struct crypto_diskcipher *tfm);
 	int (*crypt)(struct crypto_diskcipher *tfm, void *req);
 	int (*clear)(struct crypto_diskcipher *tfm, void *req);
 	int (*do_crypt)(struct crypto_diskcipher *tfm,
-		struct diskcipher_test_request *req);
+			struct diskcipher_test_request *req);
 	struct device *dev;
 	struct crypto_alg base;
 };
 
-static inline unsigned int crypto_diskcipher_ivsize(struct crypto_diskcipher *tfm)
+static inline unsigned int crypto_diskcipher_ivsize(
+		struct crypto_diskcipher *tfm)
 {
 	return tfm->ivsize;
 }
@@ -96,7 +104,7 @@ void crypto_unregister_diskciphers(struct diskcipher_alg *algs, int count);
 
 #if defined(CONFIG_CRYPTO_DISKCIPHER)
 /**
- * crypto_alloc_diskcipher() - allocate symmetric cipher running on disk device
+ * crypto_alloc_diskcipher() - allocate disk cipher running on disk device
  * @alg_name: is the cra_name / name or cra_driver_name / driver name of the
  *	      skcipher cipher
  * @type: specifies the type of the cipher
@@ -111,7 +119,7 @@ void crypto_unregister_diskciphers(struct diskcipher_alg *algs, int count);
  *	   of an error, PTR_ERR() returns the error code.
  */
 struct crypto_diskcipher *crypto_alloc_diskcipher(const char *alg_name,
-			  u32 type, u32 mask, bool force);
+				  u32 type, u32 mask, bool force);
 
 /**
  * crypto_free_diskcipher() - zeroize and free cipher handle
@@ -133,7 +141,8 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio);
  * This functions set thm to bio->bi_aux_private to pass it to host driver.
  *
  */
-void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, const struct inode *inode, u64 dun);
+void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm,
+				u64 dun);
 
 /**
  * crypto_diskcipher_setkey() - set key for cipher
@@ -148,7 +157,8 @@ void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, const
  * Return: 0 if the setting of the key was successful; < 0 if an error occurred
  */
 int crypto_diskcipher_setkey(struct crypto_diskcipher *tfm, const char *key,
-			     u32 keylen, bool persistent);
+				u32 keylen, bool persistent,
+				const struct inode *inode);
 
 /**
  * crypto_diskcipher_clearkey() - clear key
@@ -225,12 +235,12 @@ bool crypto_diskcipher_blk_mergeble(struct bio *bio1, struct bio *bio2);
 
 #else
 
-#define crypto_alloc_diskcipher(a, b, c, d) ((void *)-EINVAL)
+#define crypto_alloc_diskcipher(a, b, c, d) ((void *)NULL)
 #define crypto_free_diskcipher(a) ((void)0)
 #define crypto_diskcipher_get(a) ((void *)NULL)
-#define crypto_diskcipher_set(a, b, c, d) ((void)0)
+#define crypto_diskcipher_set(a, b, d) ((void)0)
 #define crypto_diskcipher_clearkey(a) ((void)0)
-#define crypto_diskcipher_setkey(a, b, c, d) (-1)
-#define crypto_diskcipher_blk_mergeble(a, b) ((void) 0)
+#define crypto_diskcipher_setkey(a, b, c, d, e) (-EINVAL)
+#define crypto_diskcipher_blk_mergeble(a, b) (0)
 #endif
-#endif /* _DISKCIPHER_H_ */
+#endif	/* _DISKCIPHER_H_ */

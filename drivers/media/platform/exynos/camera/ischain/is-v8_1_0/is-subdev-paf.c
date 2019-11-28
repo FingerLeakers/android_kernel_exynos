@@ -57,10 +57,10 @@ void is_ischain_paf_stripe_cfg(struct is_subdev *subdev,
 
 	frame->dvaddr_buffer[0] += dma_offset;
 
-	mdbg_pframe("stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			incrop->x, incrop->y, incrop->w, incrop->h, dma_offset);
-	mdbg_pframe("stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 }

@@ -28,9 +28,6 @@
 enum {
 	CHIP_ID = 0,
 	DATA,
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	CPU_MAX_FREQ,
-#endif
 };
 
 extern unsigned int lpcharge;
@@ -325,14 +322,6 @@ ssize_t max77705_chg_store_attrs(struct device *dev,
 #define WC_CURRENT_STEP		100
 #define WC_CURRENT_START	480
 
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-enum max77705_otg_limit_step {
-	MAX77705_LIMIT_STEP_DEFAULT,
-	MAX77705_LIMIT_STEP_OTG_ON,
-	MAX77705_LIMIT_STEP_NUM,
-};
-#endif
-
 struct max77705_charger_data {
 	struct device           *dev;
 	struct i2c_client       *i2c;
@@ -423,10 +412,6 @@ struct max77705_charger_data {
 	bool is_mdock;
 	bool otg_on;
 	bool uno_on;
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	int otg_limit_step;
-	int cpu_max_freq[MAX77705_LIMIT_STEP_NUM];
-#endif
 
 	int pmic_ver;
 	int input_curr_limit_step;

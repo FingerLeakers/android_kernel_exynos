@@ -69,6 +69,7 @@
 				mif,int_ap2cp_wakeup = <1>;
 				mif,int_ap2cp_status = <2>;
 				mif,int_ap2cp_active = <3>;
+				mif,int_ap2cp_lcd_status = <4>;
 				mif,int_ap2cp_pcie_link_ack = <14>;
 				mif,int_ap2cp_uart_noti = <15>;
 
@@ -78,6 +79,16 @@
 				mif,irq_cp2ap_active = <3>;
 				mif,irq_cp2ap_wakelock = <8>;
 				mif,irq_cp2ap_ratmode = <9>;
+
+				/* Legacy Buffers (FMT, RAW) */
+				legacy_fmt_head_tail_offset = <0x8>;
+				legacy_fmt_buffer_offset = <0x1000>;
+				legacy_fmt_txq_size = <0x1000>;
+				legacy_fmt_rxq_size = <0x1000>;
+				legacy_raw_head_tail_offset = <0x18>;
+				legacy_raw_buffer_offset = <0x3000>;
+				legacy_raw_txq_size = <0x1FD000>;
+				legacy_raw_rxq_size = <0x200000>;
 
 				/*
 				 * Control messages containing two elements
@@ -98,6 +109,8 @@
 				clk_table_offset = <40>;
 
 				/* Status bit info for mbx_ap2cp_united_status */
+				sbi_lcd_status_mask = <0x1>;
+				sbi_lcd_status_pos = <27>;
 				sbi_crash_type_mask = <0xf>;
 				sbi_crash_type_pos = <23>;
 				sbi_uart_noti_mask = <0x1>;
@@ -129,7 +142,7 @@
 				pktproc_support = <1>;
 				pktproc_version = <2>;
 
-				pktproc_cp_base = <0x20800000>;
+				pktproc_cp_base = <0x28000000>;
 				pktproc_info_rgn_offset = <0x00000000>;
 				pktproc_info_rgn_size = <0x00000100>;
 				pktproc_desc_rgn_offset = <0x00000100>;
@@ -138,9 +151,29 @@
 				/* Size of data region is defined by reserved mem size */
 
 				pktproc_desc_mode = <1>;	/* Descriptor structure mode. 0:ringbuf mode, 1:sktbuf mode */
+				pktproc_desc_num_ratio_percent = <20>;
 				pktproc_num_queue = <1>;
 				pktproc_use_exclusive_irq = <0>;
-				pktproc_use_hw_iocc = <0>;	/* H/W IO cache coherency */
+				pktproc_use_hw_iocc = <1>;	/* H/W IO cache coherency */
+
+				/* Throughput monitor */
+				enable_rps_boost = <1>;
+				tp_rps_threshold = <300 600>;
+				tp_rps_cpu_mask = <0x0E 0x30 0xC0>;
+
+				enable_gro_boost = <1>;
+				tp_gro_threshold = <100 200>;
+				tp_gro_flush_usec = <0 10000 100000>;
+
+				enable_irq_affinity_boost = <1>;
+				tp_irq_affinity_threshold = <500>;
+				tp_irq_affinity_cpu = <0 5>;
+
+				enable_mif_boost = <0>;
+
+				enable_pci_low_power_boost = <1>;
+				tp_pci_low_power_threshold = <500>;
+				tp_pci_low_power_enable = <1 0>;
 
 				/* IO devices */
 				mif,num_iodevs = <20>;
@@ -322,7 +355,7 @@
 						region,rmem = <0>;
 						region,offset = <0x00000000>;
 						region,size = <0x00400000>;
-						region,cached = <0>;
+						region,cached = <1>;
 					};
 					msi {
 						region,name = "MSI";
@@ -338,7 +371,7 @@
 						region,rmem = <2>;
 						region,offset = <0x00000000>;
 						region,size = <0x08000000>;
-						region,cached = <0>;
+						region,cached = <1>;	/* set pktproc_use_hw_iocc instead of this */
 					};
 				};
 			}; /* end of cp_shmem */
@@ -355,7 +388,7 @@
 	cpboot_spi@0 {
 		compatible = "samsung,exynos-cp-spi";
 		reg = <0x0>;
-		spi-max-frequency = <4000000>;
+		spi-max-frequency = <2150000>;
 		controller-data {
 			samsung,spi-feedback-delay = <0>;
 			samsung,spi-chip-select-mode = <1>;
@@ -374,6 +407,7 @@
 	s5100_ap2cp_cp_pwr_on: s5100_ap2cp_cp_pwr_on {
 		samsung,pins = "gpm20-0";
 		samsung,pin-pud = <0>;
+		samsung,pin-pud-pdn = <0>;
 	};
 
 	s5100_ap2cp_dump_noti: s5100_ap2cp_dump_noti {

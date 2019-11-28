@@ -268,10 +268,6 @@ extern void dhd_enable_oob_intr(struct dhd_bus *bus, bool enable);
 static void dhd_hang_process(struct work_struct *work_data);
 MODULE_LICENSE("GPL and additional rights");
 
-#ifdef CONFIG_BCM_DETECT_CONSECUTIVE_HANG
-#define MAX_CONSECUTIVE_HANG_COUNTS 5
-#endif /* CONFIG_BCM_DETECT_CONSECUTIVE_HANG */
-
 #include <dhd_bus.h>
 
 /* XXX Set up an MTU change notifier per linux/notifier.h? */
@@ -630,6 +626,11 @@ module_param(dhd_napi_weight, int, 0644);
 extern int h2d_max_txpost;
 module_param(h2d_max_txpost, int, 0644);
 
+#if defined(DHD_HTPUT_TUNABLES)
+extern int h2d_htput_max_txpost;
+module_param(h2d_htput_max_txpost, int, 0644);
+#endif /* DHD_HTPUT_TUNABLES */
+
 extern uint dma_ring_indices;
 module_param(dma_ring_indices, uint, 0644);
 
@@ -845,7 +846,7 @@ int dhd_monitor_uninit(void);
 #ifdef DHD_PM_CONTROL_FROM_FILE
 bool g_pm_control;
 #ifdef DHD_EXPORT_CNTL_FILE
-int pmmode_val;
+uint32 pmmode_val = 0xFF;
 #endif /* DHD_EXPORT_CNTL_FILE */
 void sec_control_pm(dhd_pub_t *dhd, uint *);
 #endif /* DHD_PM_CONTROL_FROM_FILE */
@@ -2574,6 +2575,19 @@ _dhd_set_mac_address(dhd_info_t *dhd, int ifidx, uint8 *addr)
 	return ret;
 }
 
+int dhd_update_rand_mac_addr(dhd_pub_t *dhd)
+{
+	struct ether_addr mac_addr;
+	dhd_generate_rand_mac_addr(&mac_addr);
+	if (_dhd_set_mac_address(dhd->info, 0, mac_addr.octet) != 0) {
+		DHD_ERROR(("randmac setting failed\n"));
+#ifdef STA_RANDMAC_ENFORCED
+		return  BCME_BADADDR;
+#endif /* STA_RANDMAC_ENFORCED */
+	}
+	return BCME_OK;
+}
+
 #ifdef SOFTAP
 extern struct net_device *ap_net_dev;
 extern tsk_ctl_t ap_eth_ctl; /* ap netdev heper thread ctl */
@@ -3170,8 +3184,6 @@ BCMFASTPATH(__dhd_sendpkt)(dhd_pub_t *dhdp, int ifidx, void *pktbuf)
 		}
 		if (ntoh16(eh->ether_type) == ETHER_TYPE_IP) {
 			if (dhd_check_dhcp(pktdata)) {
-				dhd_udr = TRUE;
-			} else if (dhd_check_icmp(pktdata)) {
 				dhd_udr = TRUE;
 			} else if (dhd_check_dns(pktdata)) {
 				dhd_udr = TRUE;
@@ -4399,7 +4411,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 
 		ifp = dhd->iflist[ifidx];
 		if (ifp == NULL) {
-			DHD_ERROR(("%s: ifp is NULL. drop packet\n",
+			DHD_ERROR_RLMT(("%s: ifp is NULL. drop packet\n",
 				__FUNCTION__));
 			if (ntoh16(eh->ether_type) == ETHER_TYPE_BRCM) {
 #ifdef DHD_USE_STATIC_CTRLBUF
@@ -4749,11 +4761,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 				 * and wl events are enabled, make a copy, free the
 				 * local one and send the copy up.
 				 */
-				void *npkt = PKTDUP(dhdp->osh, skb);
-				/* Clone event and send it up */
+				struct sk_buff *nskb = skb_copy(skb, GFP_ATOMIC);
+				/* Copy event and send it up */
 				PKTFREE_STATIC(dhdp->osh, pktbuf, FALSE);
-				if (npkt) {
-					skb = npkt;
+				if (nskb) {
+					skb = nskb;
 				} else {
 					DHD_ERROR(("skb clone failed. dropping event.\n"));
 					continue;
@@ -10096,7 +10108,7 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 	uint power_mode = PM_FAST;
 #endif /* DHD_PM_CONTROL_FROM_FILE */
 #if defined(ARP_OFFLOAD_SUPPORT)
-	int arpoe = 0;
+	int arpoe = 1;
 #endif
 	char buf[WLC_IOCTL_SMLEN];
 	char *ptr;
@@ -10531,20 +10543,17 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 #endif /* defined(BCMPCIE) && defined(EAPOL_PKT_PRIO) */
 
 #ifdef ARP_OFFLOAD_SUPPORT
-	/* Get arp version */
+	/* Set and enable ARP offload feature for STA only  */
 	if (arpoe) {
-		uint32 version;
-		ret = dhd_wl_ioctl_get_intiovar(dhd, "arp_version",
-			&version, WLC_GET_VAR, FALSE, 0);
-		if (ret) {
-			DHD_INFO(("%s: fail to get version (maybe version 1:ret = %d\n",
-				__FUNCTION__, ret));
-			dhd->arp_version = 1;
-		}
-		else {
-			DHD_INFO(("%s: ARP Version= %x\n", __FUNCTION__, version));
-			dhd->arp_version = version;
-		}
+		dhd_arp_offload_enable(dhd, TRUE);
+		dhd_arp_offload_set(dhd, dhd_arp_mode);
+	} else {
+		/*
+		 * XXX andrey in any falcon f/w, AOE feature is always present by default
+		 *	so we need to explicitly disable it for SOFTAP, see PR#97072
+		*/
+		dhd_arp_offload_enable(dhd, FALSE);
+		dhd_arp_offload_set(dhd, 0);
 	}
 	dhd_arp_enable = arpoe;
 #endif /* ARP_OFFLOAD_SUPPORT */
@@ -10853,7 +10862,7 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 	uint retry_max = CUSTOM_ASSOC_RETRY_MAX;
 #if defined(ARP_OFFLOAD_SUPPORT)
-	int arpoe = 0;
+	int arpoe = 1;
 #endif
 	int scan_assoc_time = DHD_SCAN_ASSOC_ACTIVE_TIME;
 	int scan_unassoc_time = DHD_SCAN_UNASSOC_ACTIVE_TIME;
@@ -11136,24 +11145,18 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 		(void)memcpy_s(dhd_linux_get_primary_netdev(dhd)->perm_addr, ETHER_ADDR_LEN,
 			dhd->mac.octet, ETHER_ADDR_LEN);
 	}
-
-#ifdef WL_STA_ASSOC_RAND
+#if defined(WL_STA_ASSOC_RAND) && defined(WL_STA_INIT_RAND)
 	/* Set cur_etheraddr of primary interface to randomized address to ensure
 	 * that any action frame transmission will happen using randomized macaddr
 	 * primary netdev->perm_addr will hold the original factory MAC.
 	 */
 	{
-		struct ether_addr mac_addr;
-		dhd_generate_rand_mac_addr(&mac_addr);
-		if (_dhd_set_mac_address(dhd->info, 0, mac_addr.octet) != 0) {
-			DHD_ERROR(("randmac setting failed\n"));
-#ifdef STA_RANDMAC_ENFORCED
-			ret = BCME_BADADDR;
+		if ((ret = dhd_update_rand_mac_addr(dhd)) < 0) {
+			DHD_ERROR(("%s: failed to set macaddress\n", __FUNCTION__));
 			goto done;
-#endif /* STA_RANDMAC_ENFORCED */
 		}
 	}
-#endif /* WL_STA_ASSOC_RAND */
+#endif /* WL_STA_ASSOC_RAND && WL_STA_INIT_RAND */
 
 	if ((ret = dhd_apply_default_clm(dhd, clm_path)) < 0) {
 		DHD_ERROR(("%s: CLM set failed. Abort initialization.\n", __FUNCTION__));
@@ -11184,9 +11187,6 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 		uint rand_mac;
 #endif /* SET_RANDOM_MAC_SOFTAP */
 		dhd->op_mode = DHD_FLAG_HOSTAP_MODE;
-#if defined(ARP_OFFLOAD_SUPPORT)
-			arpoe = 0;
-#endif
 #ifdef PKT_FILTER_SUPPORT
 			dhd_pkt_filter_enable = FALSE;
 #endif
@@ -11259,9 +11259,6 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 		uint32 concurrent_mode = 0;
 		if ((!op_mode && dhd_get_fw_mode(dhd->info) == DHD_FLAG_P2P_MODE) ||
 			(op_mode == DHD_FLAG_P2P_MODE)) {
-#if defined(ARP_OFFLOAD_SUPPORT)
-			arpoe = 0;
-#endif
 #ifdef PKT_FILTER_SUPPORT
 			dhd_pkt_filter_enable = FALSE;
 #endif
@@ -11274,9 +11271,6 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #if !defined(AP) && defined(WLP2P)
 		if (dhd->op_mode != DHD_FLAG_IBSS_MODE &&
 			(concurrent_mode = dhd_get_concurrent_capabilites(dhd))) {
-#if defined(ARP_OFFLOAD_SUPPORT)
-			arpoe = 1;
-#endif
 			dhd->op_mode |= concurrent_mode;
 		}
 
@@ -11972,11 +11966,7 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 
 #ifdef ARP_OFFLOAD_SUPPORT
 	/* Set and enable ARP offload feature for STA only  */
-#if defined(SOFTAP)
-	if (arpoe && !ap_fw_loaded) {
-#else
 	if (arpoe) {
-#endif
 		dhd_arp_offload_enable(dhd, TRUE);
 		dhd_arp_offload_set(dhd, dhd_arp_mode);
 	} else {
@@ -16109,14 +16099,6 @@ int dhd_os_send_hang_message(dhd_pub_t *dhdp)
 #endif /* DHD_HANG_SEND_UP_TEST */
 
 	if (!dhdp->hang_was_sent) {
-#if defined(CONFIG_BCM_DETECT_CONSECUTIVE_HANG)
-		dhdp->hang_counts++;
-		if (dhdp->hang_counts >= MAX_CONSECUTIVE_HANG_COUNTS) {
-			DHD_ERROR(("%s, Consecutive hang from Dongle :%u\n",
-			__func__, dhdp->hang_counts));
-			BUG_ON(1);
-		}
-#endif /* CONFIG_BCM_DETECT_CONSECUTIVE_HANG */
 #ifdef DHD_DEBUG_UART
 		/* If PCIe lane has broken, execute the debug uart application
 		 * to gether a ramdump data from dongle via uart
@@ -16492,11 +16474,11 @@ dhd_convert_memdump_type_to_str(uint32 type, char *buf, size_t buf_len, int subs
 			break;
 		case DUMP_TYPE_BY_SYSDUMP:
 			if (substr_type == CMD_UNWANTED) {
-				type_str = "BY_SYSDUMP_USER_unwanted";
+				type_str = "BY_SYSDUMP_FORUSER_unwanted";
 			} else if (substr_type == CMD_DISCONNECTED) {
-				type_str = "BY_SYSDUMP_USER_disconnected";
+				type_str = "BY_SYSDUMP_FORUSER_disconnected";
 			} else {
-				type_str = "BY_SYSDUMP_USER";
+				type_str = "BY_SYSDUMP_FORUSER";
 			}
 			break;
 		case DUMP_TYPE_BY_LIVELOCK:
@@ -18100,7 +18082,7 @@ exit:
 	DHD_GENERAL_UNLOCK(dhdp, flags);
 	dhd->scheduled_memdump = FALSE;
 
-	if (dhdp->dhd_watchdog_ms_backup) {
+	if (!dhd_query_bus_erros(dhdp) && dhdp->dhd_watchdog_ms_backup) {
 		DHD_ERROR(("%s: Enabling wdtick after dhd finished dump\n",
 			__FUNCTION__));
 		dhd_os_wd_timer(dhdp, dhdp->dhd_watchdog_ms_backup);
@@ -18838,10 +18820,10 @@ dhd_get_health_chk_len(void *ndev, dhd_pub_t *dhdp)
 uint32
 dhd_get_dhd_dump_len(void *ndev, dhd_pub_t *dhdp)
 {
-	int length = 0;
+	uint32 length = 0;
 	log_dump_section_hdr_t sec_hdr;
 	dhd_info_t *dhd_info;
-	uint32 remain_len = 0;
+	int remain_len = 0;
 
 	if (ndev) {
 		dhd_info = *(dhd_info_t **)netdev_priv((struct net_device *)ndev);
@@ -18853,18 +18835,16 @@ dhd_get_dhd_dump_len(void *ndev, dhd_pub_t *dhdp)
 
 	if (dhdp->concise_dbg_buf) {
 		remain_len = dhd_dump(dhdp, (char *)dhdp->concise_dbg_buf, CONCISE_DUMP_BUFLEN);
-		 if (remain_len <= 0) {
+		 if (remain_len <= 0 || remain_len >= CONCISE_DUMP_BUFLEN) {
 			DHD_ERROR(("%s: error getting concise debug info !\n",
 					__FUNCTION__));
 			return length;
 		}
-		if (remain_len < CONCISE_DUMP_BUFLEN) {
-			length = strlen(DHD_DUMP_LOG_HDR) + sizeof(sec_hdr) +
-				(CONCISE_DUMP_BUFLEN - remain_len);
-		} else {
-			DHD_ERROR(("%s: Invalid length !\n", __FUNCTION__));
-		}
+
+		length += (uint32)(CONCISE_DUMP_BUFLEN - remain_len);
 	}
+
+	length += (strlen(DHD_DUMP_LOG_HDR) + sizeof(sec_hdr));
 	return length;
 }
 
@@ -18909,21 +18889,19 @@ dhd_get_flowring_len(void *ndev, dhd_pub_t *dhdp)
 
 	if (dhdp->concise_dbg_buf) {
 		remain_len = dhd_dump(dhdp, (char *)dhdp->concise_dbg_buf, CONCISE_DUMP_BUFLEN);
-		if (remain_len <= 0) {
+		if (remain_len <= 0 || remain_len >= CONCISE_DUMP_BUFLEN) {
 			DHD_ERROR(("%s: error getting concise debug info !\n",
 				__FUNCTION__));
 		   return length;
 		}
+
+		length += (uint32)(CONCISE_DUMP_BUFLEN - remain_len);
 	}
 
 	length += strlen(FLOWRING_DUMP_HDR);
-	length += (remain_len >= CONCISE_DUMP_BUFLEN) ? CONCISE_DUMP_BUFLEN :
-		(CONCISE_DUMP_BUFLEN - remain_len);
 	length += sizeof(sec_hdr);
 	h2d_flowrings_total = dhd_get_max_flow_rings(dhdp);
-	length += ((H2DRING_TXPOST_ITEMSIZE
-				* H2DRING_TXPOST_MAX_ITEM * h2d_flowrings_total)
-				+ (D2HRING_TXCMPLT_ITEMSIZE * D2HRING_TXCMPLT_MAX_ITEM)
+	length += ((D2HRING_TXCMPLT_ITEMSIZE * D2HRING_TXCMPLT_MAX_ITEM)
 				+ (H2DRING_RXPOST_ITEMSIZE * H2DRING_RXPOST_MAX_ITEM)
 				+ (D2HRING_RXCMPLT_ITEMSIZE * D2HRING_RXCMPLT_MAX_ITEM)
 				+ (H2DRING_CTRL_SUB_ITEMSIZE * H2DRING_CTRL_SUB_MAX_ITEM)
@@ -18934,6 +18912,18 @@ dhd_get_flowring_len(void *ndev, dhd_pub_t *dhdp)
 				+ (H2DRING_INFO_BUFPOST_ITEMSIZE * H2DRING_DYNAMIC_INFO_MAX_ITEM)
 				+ (D2HRING_INFO_BUFCMPLT_ITEMSIZE * D2HRING_DYNAMIC_INFO_MAX_ITEM));
 #endif /* EWP_EDL */
+
+#if defined(DHD_HTPUT_TUNABLES)
+	/* flowring lengths are different for HTPUT rings, handle accordingly */
+	length += ((H2DRING_TXPOST_ITEMSIZE * dhd_prot_get_h2d_htput_max_txpost(dhdp) *
+		HTPUT_TOTAL_FLOW_RINGS) +
+		(H2DRING_TXPOST_ITEMSIZE * dhd_prot_get_h2d_max_txpost(dhdp) *
+		(h2d_flowrings_total - HTPUT_TOTAL_FLOW_RINGS)));
+#else
+	length += (H2DRING_TXPOST_ITEMSIZE * dhd_prot_get_h2d_max_txpost(dhdp) *
+		h2d_flowrings_total);
+#endif /* DHD_HTPUT_TUNABLES */
+
 	return length;
 }
 #endif /* DHD_DUMP_PCIE_RINGS */
@@ -19351,7 +19341,7 @@ dhd_print_flowring_data(void *dev, dhd_pub_t *dhdp, const void *user_buf,
 	dhd_init_sec_hdr(&sec_hdr);
 
 	remain_len = dhd_dump(dhdp, (char *)dhdp->concise_dbg_buf, CONCISE_DUMP_BUFLEN);
-	if (remain_len <= 0) {
+	if (remain_len <= 0 || remain_len >= CONCISE_DUMP_BUFLEN) {
 		DHD_ERROR(("%s: error getting concise debug info !\n",
 			__FUNCTION__));
 	   return BCME_ERROR;
@@ -19366,7 +19356,6 @@ dhd_print_flowring_data(void *dev, dhd_pub_t *dhdp, const void *user_buf,
 
 	/* Write the ring summary */
 	ret = dhd_export_debug_data(dhdp->concise_dbg_buf, fp, user_buf,
-		(remain_len >= CONCISE_DUMP_BUFLEN) ? CONCISE_DUMP_BUFLEN :
 		(CONCISE_DUMP_BUFLEN - remain_len), pos);
 	if (ret < 0)
 		goto exit;

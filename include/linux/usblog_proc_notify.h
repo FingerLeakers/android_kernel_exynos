@@ -168,6 +168,7 @@ enum extra {
 	NOTIFY_EXTRA_UVDM_TIMEOUT,
 	NOTIFY_EXTRA_CCOPEN_REQ_SET,
 	NOTIFY_EXTRA_CCOPEN_REQ_CLEAR,
+	NOTIFY_EXTRA_USB_ANALOGAUDIO,
 };
 
 #define ALTERNATE_MODE_NOT_READY	(1 << 0)
@@ -180,19 +181,18 @@ enum extra {
 extern void store_usblog_notify(int type, void *param1, void *param2);
 extern void store_ccic_version(unsigned char *hw, unsigned char *sw_main,
 			unsigned char *sw_boot);
+extern unsigned long long show_ccic_version(void);
 extern void store_ccic_bin_version(const unsigned char *sw_main,
 					const unsigned char *sw_boot);
-extern unsigned long long show_ccic_version(void);
 extern int register_usblog_proc(void);
 extern void unregister_usblog_proc(void);
 #else
 static inline void store_usblog_notify(int type, void *param1, void *param2) {}
 static inline void store_ccic_version(unsigned char *hw, unsigned char *sw_main,
 			unsigned char *sw_boot) {}
+static inline unsigned long long show_ccic_version(void) {return 0; }
 static inline void store_ccic_bin_version(const unsigned char *sw_main,
 			const unsigned char *sw_boot) {}
-static inline unsigned long long show_ccic_version(void)
-			{return 0; }
 static inline int register_usblog_proc(void)
 			{return 0; }
 static inline void unregister_usblog_proc(void) {}

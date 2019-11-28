@@ -342,6 +342,29 @@ unsigned int div_clk_peric_26_lut_params[] = {
 unsigned int div_clk_peric_13_lut_params[] = {
 	1, 0,
 };
+unsigned int div_clk_peric_8_lut_params[] = {
+	2, 0,
+};
+unsigned int div_clk_peric_6_lut_params[] = {
+	3, 0,
+};
+
+unsigned int div_clk_top_hsi0_bus_266_params[] = {
+	1, 0,
+};
+unsigned int div_clk_top_hsi0_bus_177_params[] = {
+	2, 0,
+};
+unsigned int div_clk_top_hsi0_bus_106_params[] = {
+	4, 0,
+};
+unsigned int div_clk_top_hsi0_bus_80_params[] = {
+	4, 1,
+};
+unsigned int div_clk_top_hsi0_bus_66_params[] = {
+	5, 1,
+};
+
 
 /* COMMON VCLK -> LUT Parameter List */
 unsigned int blk_cmu_uud_lut_params[] = {

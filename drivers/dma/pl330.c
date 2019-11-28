@@ -1223,18 +1223,17 @@ static inline int _ldst_peripheral(struct pl330_dmac *pl330,
 	if (pl330->quirks & PL330_QUIRK_BROKEN_NO_FLUSHP)
 		cond = BURST;
 
-	/*
-	 * do FLUSHP at beginning to clear any stale dma requests before the
-	 * first WFP.
-	 */
-	if (!(pl330->quirks & PL330_QUIRK_BROKEN_NO_FLUSHP))
-		off += _emit_FLUSHP(dry_run, &buf[off], pxs->desc->peri);
 	while (cyc--) {
 		off += _emit_WFP(dry_run, &buf[off], cond, pxs->desc->peri);
 		off += _emit_load(dry_run, &buf[off], cond, pxs->desc->rqtype,
 			pxs->desc->peri);
 		off += _emit_store(dry_run, &buf[off], cond, pxs->desc->rqtype,
 			pxs->desc->peri);
+
+		if (pxs->desc->rqtype == DMA_MEM_TO_DEV) {
+			if (!(pl330->quirks & PL330_QUIRK_BROKEN_NO_FLUSHP))
+				off += _emit_FLUSHP(dry_run, &buf[off], pxs->desc->peri);
+		}
 	}
 
 	return off;

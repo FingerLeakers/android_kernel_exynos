@@ -18,7 +18,7 @@
 #include "npu-log.h"
 #include "npu-common.h"
 #include "npu-session.h"
-#include "npu-log.h"
+#include "npu-scheduler.h"
 
 #include <asm/cacheflush.h>
 
@@ -99,6 +99,7 @@ static int npu_session_put_nw_req(struct npu_session *session, nw_cmd_e nw_cmd)
 	int ret = 0;
 	struct npu_nw req = {
 		.uid = session->uid,
+		.bound_id = session->sched_param.bound_id,
 		.npu_req_id = 0,
 		.result_code = 0,
 		.session = session,
@@ -132,6 +133,7 @@ int npu_session_put_frame_req(
 		.result_code = 0,
 		.session = session,
 		.cmd = frame_cmd,
+		.priority = session->sched_param.priority,
 		.priority = 0,		/* Not used */
 		.src_queue = queue,
 		.input = incl,
@@ -300,6 +302,10 @@ int npu_session_open(struct npu_session **session, void *cookie, void *memory)
 
 	(*session)->qbuf_IOFM_idx = -1;
 	(*session)->dqbuf_IOFM_idx = -1;
+
+	/* Set default scheduling parameters */
+	(*session)->sched_param.bound_id = NPU_BOUND_UNBOUND;
+	(*session)->sched_param.priority = NPU_PRIORITY_MAX_VAL; /* lower priority */
 
 	(*session)->pid	= task_pid_nr(current);
 
@@ -1592,6 +1598,7 @@ p_err:
 typedef npu_s_param_ret (*fn_s_param_handler)(struct npu_session *, struct vs4l_param *, int *);
 fn_s_param_handler s_param_handlers[] = {
 	fw_test_s_param_handler,
+	npu_scheduler_param_handler,
 	npu_qos_param_handler,
 	NULL	/* NULL termination is required to denote EOL */
 };
@@ -1634,6 +1641,48 @@ const struct vb_ops vb_ops = {
 	.buf_prepare = npu_session_prepare,
 	.buf_unprepare = npu_session_unprepare
 };
+
+int npu_session_nw_sched_param(struct npu_session *session, struct vs4l_sched_param *param)
+{
+	struct npu_vertex_ctx *vctx;
+	struct npu_vertex *vertex;
+	struct npu_device *device;
+
+	int		retval = 0;
+	u32		priority;
+	u32		bound_id;
+	u32		max_npu_core;
+
+	vctx = &(session->vctx);
+	vertex = vctx->vertex;
+	device = container_of(vertex, struct npu_device, vertex);
+
+	priority = param->priority;
+	bound_id = param->bound_id;
+	max_npu_core = session->sched_param.max_npu_core;
+	/* Check priority range */
+	if ((priority >= NPU_PRIORITY_MIN_VAL) && (priority <= NPU_PRIORITY_MAX_VAL)) {
+		session->sched_param.priority = priority;
+	} else {
+		retval = -EINVAL;
+	}
+	/* Check boundness to the core */
+	if (((bound_id >= NPU_BOUND_CORE0) && (bound_id < max_npu_core)) ||
+			(bound_id == NPU_BOUND_UNBOUND)) {
+		session->sched_param.bound_id = bound_id;
+	} else {
+		retval = -EINVAL;
+	}
+	/* Set the default value if anything is wrong */
+	if(retval != 0) {
+		session->sched_param.priority = NPU_PRIORITY_MAX_VAL;
+		session->sched_param.bound_id = NPU_BOUND_UNBOUND;
+	}
+
+	npu_scheduler_update_sched_param(device, session);
+
+	return retval;
+}
 
 int npu_session_register_undo_cb(struct npu_session *session, session_cb cb)
 {

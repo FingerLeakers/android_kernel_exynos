@@ -15,6 +15,7 @@
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/irq.h>
 
 /*
  * SEC DEBUG PANIC HANDLING 
@@ -52,6 +53,7 @@ enum {
 	DSS_KEVENT_IDLE,
 	DSS_KEVENT_THRM,
 	DSS_KEVENT_ACPM,
+	DSS_KEVENT_MFRQ,
 };
 
 #define SD_ESSINFO_KEY_SIZE	(32)
@@ -93,6 +95,7 @@ enum secdbg_exin_fault_type {
 	ACCESS_USER_OUTSIDE_FAULT,
 	BUG_FAULT,
 	SERROR_FAULT,
+	SEABORT_FAULT,
 	FAULT_MAX,
 };
 
@@ -177,5 +180,42 @@ extern void secdbg_base_set_unfrozen_task_count(uint64_t count);
 static inline void secdbg_base_set_unfrozen_task(uint64_t task) {}
 static inline void secdbg_base_set_unfrozen_task_count(uint64_t count) {}
 #endif /* CONFIG_SEC_DEBUG_UNFROZEN_TASK */
+
+/* CONFIG_SEC_DEBUG_BAD_STACK_INFO */
+extern void secdbg_base_set_bs_info_phase(int phase);
+
+#ifdef CONFIG_SEC_DEBUG_DTASK
+extern void secdbg_dtsk_print_info(struct task_struct *task, bool raw);
+extern void secdbg_dtsk_set_data(int type, void *data);
+#else
+#define secdbg_dtsk_print_info(a, b)		do { } while (0)
+#define secdbg_dtsk_set_data(a, b)		do { } while (0)
+#endif /* CONFIG_SEC_DEBUG_DTASK */
+
+#ifdef CONFIG_SEC_DEBUG_PM_DEVICE_INFO
+extern void secdbg_base_set_device_shutdown_timeinfo(uint64_t start, uint64_t end, uint64_t duration, uint64_t func);
+extern void secdbg_base_clr_device_shutdown_timeinfo(void);
+extern void secdbg_base_set_shutdown_device(const char *fname, const char *dname);
+extern void secdbg_base_set_suspend_device(const char *fname, const char *dname);
+#else
+#define secdbg_base_set_device_shutdown_timeinfo(a, b, c, d)	do { } while (0)
+#define secdbg_base_clr_device_shutdown_timeinfo()	do { } while (0)
+#define secdbg_base_set_shutdown_device(a, b)		do { } while (0)
+#define secdbg_base_set_suspend_device(a, b)		do { } while (0)
+#endif /* CONFIG_SEC_DEBUG_PM_DEVICE_INFO */
+
+#ifdef CONFIG_SEC_DEBUG_TASK_IN_STATE_INFO
+extern void secdbg_base_set_task_in_pm_suspend(uint64_t task);
+extern void secdbg_base_set_task_in_sys_reboot(uint64_t task);
+extern void secdbg_base_set_task_in_sys_shutdown(uint64_t task);
+extern void secdbg_base_set_task_in_dev_shutdown(uint64_t task);
+extern void secdbg_base_set_task_in_sync_irq(uint64_t task, unsigned int irq, const char *name, struct irq_desc *desc);
+#else
+#define secdbg_base_set_task_in_pm_suspend(a)		do { } while (0)
+#define secdbg_base_set_task_in_sys_reboot(a)		do { } while (0)
+#define secdbg_base_set_task_in_sys_shutdown(a)		do { } while (0)
+#define secdbg_base_set_task_in_dev_shutdown(a)		do { } while (0)
+#define secdbg_base_set_task_in_sync_irq(a, b, c, d)	do { } while (0)
+#endif /* CONFIG_SEC_DEBUG_PM_DEVICE_INFO */
 
 #endif /* SEC_DEBUG_H */

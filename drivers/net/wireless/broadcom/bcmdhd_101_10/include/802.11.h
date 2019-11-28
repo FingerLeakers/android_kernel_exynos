@@ -3887,11 +3887,12 @@ BWL_PRE_PACKED_STRUCT struct brcm_ie {
 	uint8	flags;		/* misc flags */
 	uint8	flags1;		/* misc flags */
 	uint16	amsdu_mtu_pref;	/* preferred A-MSDU MTU */
+	uint8	flags2;		/* Bit 0: DTPC TX cap, Bit 1: DTPC Recv Cap */
 } BWL_POST_PACKED_STRUCT;
 typedef	struct brcm_ie brcm_ie_t;
-#define BRCM_IE_LEN		11	/* BRCM IE length */
-#define BRCM_IE_VER		2	/* BRCM IE version */
-#define BRCM_IE_LEGACY_AES_VER	1	/* BRCM IE legacy AES version */
+#define BRCM_IE_LEN		12u	/* BRCM IE length */
+#define BRCM_IE_VER		2u	/* BRCM IE version */
+#define BRCM_IE_LEGACY_AES_VER	1u	/* BRCM IE legacy AES version */
 
 /* brcm_ie flags */
 #define	BRF_ABCAP		0x1	/* afterburner is obsolete,  defined for backward compat */
@@ -3919,6 +3920,11 @@ typedef	struct brcm_ie brcm_ie_t;
 #define BRF1_RFAWARE_DCS	0x20    /* RFAWARE dynamic channel selection (DCS) */
 #define BRF1_SOFTAP		0x40    /* Configure as Broadcom SOFTAP */
 #define BRF1_DWDS		0x80    /* DWDS capable */
+
+/* brcm_ie flags2 */
+#define BRF2_DTPC_TX		0x1u	/* DTPC: DTPC TX Cap */
+#define BRF2_DTPC_RX		0x2u	/* DTPC: DTPC RX Cap */
+#define BRF2_DTPC_TX_RX		0x3u	/* DTPC: Enable Both DTPC TX and RX Cap */
 
 /** Vendor IE structure */
 BWL_PRE_PACKED_STRUCT struct vndr_ie {
@@ -4559,6 +4565,8 @@ typedef struct vht_features_ie_hdr vht_features_ie_hdr_t;
 #define RSN_AKM_PSK_SHA384		20
 /* OSEN authenticated key managment suite */
 #define OSEN_AKM_UNSPECIFIED	RSN_AKM_UNSPECIFIED	/* Over 802.1x */
+/* WFA DPP RSN authenticated key managment */
+#define RSN_AKM_DPP			02u	/* DPP RSN */
 
 /* Key related defines */
 #define DOT11_MAX_DEFAULT_KEYS	4	/* number of default keys */

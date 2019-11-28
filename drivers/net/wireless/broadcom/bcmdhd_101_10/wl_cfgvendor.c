@@ -1510,9 +1510,29 @@ wl_cfgvendor_set_hal_started(struct wiphy *wiphy,
 		struct wireless_dev *wdev, const void  *data, int len)
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+#ifdef WL_STA_ASSOC_RAND
+	struct ether_addr primary_mac;
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
+	int ret;
+#endif /* WL_STA_ASSOC_RAND */
 	WL_INFORM(("%s,[DUMP] HAL STARTED\n", __FUNCTION__));
 
 	cfg->hal_started = true;
+#ifdef WL_STA_ASSOC_RAND
+	/* If mac randomization is enabled and primary macaddress is not
+	 * randomized, randomize it from HAL init context
+	 */
+	get_primary_mac(cfg, &primary_mac);
+	if ((!ETHER_IS_LOCALADDR(&primary_mac)) &&
+		(!wl_get_drv_status(cfg, CONNECTED, wdev_to_ndev(wdev)))) {
+		WL_DBG_MEM(("%s, Local admin bit not set, randomize"
+			"STA MAC address \n", __FUNCTION__));
+		if ((ret = dhd_update_rand_mac_addr(dhd)) < 0) {
+			WL_ERR(("%s: failed to set macaddress, ret = %d\n", __FUNCTION__, ret));
+			return ret;
+		}
+	}
+#endif /* WL_STA_ASSOC_RAND */
 	return BCME_OK;
 }
 
@@ -7543,7 +7563,8 @@ static int wl_cfgvendor_start_mkeep_alive(struct wiphy *wiphy, struct wireless_d
 	int ret = BCME_OK, rem, type;
 	uint8 mkeep_alive_id = 0;
 	uint8 *ip_pkt = NULL;
-	uint16 ip_pkt_len = 0, ether_type = 0;
+	uint16 ip_pkt_len = 0;
+	uint16 ether_type = ETHERTYPE_IP;
 	uint8 src_mac[ETHER_ADDR_LEN];
 	uint8 dst_mac[ETHER_ADDR_LEN];
 	uint32 period_msec = 0;

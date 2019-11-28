@@ -213,6 +213,8 @@ enum {
 #define MSG2SSP_AP_STATUS_RESET		0xD5
 #define MSG2SSP_AP_STATUS_POW_CONNECTED	0xD6
 #define MSG2SSP_AP_STATUS_POW_DISCONNECTED	0xD7
+#define MSG2SSP_AP_STATUS_SCONTEXT_WAKEUP	0x97
+#define MSG2SSP_AP_STATUS_SCONTEXT_SLEEP	0x98
 #define MSG2SSP_AP_TEMPHUMIDITY_CAL_DONE	0xDA
 #define MSG2SSP_AP_MCU_SET_DUMPMODE		0xDB
 #define MSG2SSP_AP_MCU_DUMP_CHECK		0xDC
@@ -263,6 +265,8 @@ enum {
 #define MSG2SSP_AP_IRDATA_SEND_RESULT 0x39
 #define MSG2SSP_AP_PROX_GET_TRIM	0x40
 #define MSG2SSP_AP_PROX_GET_THRESHOLD	0x47
+#define MSG2SSP_AP_PROX_CAL_START	0x94
+#define MSG2AP_INST_PROX_CAL_DONE	0x97
 
 #define SH_MSG2AP_GYRO_CALIBRATION_START   0x43
 #define SH_MSG2AP_GYRO_CALIBRATION_STOP	0x44
@@ -281,6 +285,7 @@ enum {
 #define MSG2SSP_AP_SENSOR_PROX_ALERT_THRESHOLD 0x51
 #define MSG2SSP_AP_GET_LIGHT_CAL		0x52
 #define MSG2SSP_AP_GET_PROX_TRIM		0x53
+#define MSG2SSP_AP_SET_LIGHT_CAL		0x54
 
 #define MSG2SSP_AP_REGISTER_DUMP		0x4A
 #define MSG2SSP_AP_REGISTER_SETTING		  0x4B
@@ -292,8 +297,7 @@ enum {
 #define MSG2SSP_GET_DDI_COPR		0x90
 #define MSG2SSP_PANEL_INFORMATION	0x91
 #define MSG2SSP_GET_TEST_COPR		0x92
-#define MSG2SSP_GET_READ_COPR		0x93
-#define MSG2SSP_READ_COPR_ON_OFF	0x94
+#define MSG2SSP_GET_LIGHT_TEST		0x93
 #define MSG2SSP_GET_COPR_ROIX		0x95
 #define MSG2SSP_HALL_IC_ON_OFF		0x96
 /* voice data */
@@ -483,7 +487,7 @@ struct sensor_value {
 			s16 cal_z;
 			u8 accuracy;
 #ifdef CONFIG_SSP_SUPPORT_MAGNETIC_OVERFLOW
-						u8 overflow;
+			u8 overflow;
 #endif
 		};
 		struct {		/*uncalibrated mag, gyro*/
@@ -494,7 +498,7 @@ struct sensor_value {
 			s16 offset_y;
 			s16 offset_z;
 #ifdef CONFIG_SSP_SUPPORT_MAGNETIC_OVERFLOW
-						u8 uncaloverflow;
+			u8 uncaloverflow;
 #endif
 		};
 		struct {		/* rotation vector */
@@ -504,6 +508,20 @@ struct sensor_value {
 			s32 quat_d;
 			u8 acc_rot;
 		};
+
+		struct {
+			u32 lux;
+			s32 cct;
+			u16 r;
+			u16 g;
+			u16 b;
+			u16 w;
+			u16 a_gain;
+			u16 a_time;
+			u8 brightness;
+			u8 min_lux_flag;
+		} __attribute__((__packed__)) light_t;
+
 		struct {
 			u32 lux;
 			s32 cct;
@@ -516,7 +534,7 @@ struct sensor_value {
 			u8 brightness;
 			u32 lux_raw;
 			u16 roi;
-		} __attribute__((__packed__));
+		} __attribute__((__packed__)) light_cct_t;
 
 #ifdef CONFIG_SENSORS_SSP_IRDATA_FOR_CAMERA
 		struct {
@@ -763,7 +781,6 @@ struct ssp_data {
 #ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
 	struct device *hiddenhole_device;
 	int light_efs_file_status;
-	struct delayed_work work_ssp_light_efs_file_init;
 #endif
 	struct device *temphumidity_device;
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
@@ -1094,6 +1111,7 @@ int proximity_open_calibration(struct ssp_data *data);
 int load_magnetic_cal_param_from_nvm(u8 *data, u8 length);
 int set_magnetic_cal_param_to_ssp(struct ssp_data *data);
 int save_magnetic_cal_param_to_nvm(struct ssp_data *data, char *pchRcvDataFrame, int *iDataIdx);
+int set_light_cal_param_to_ssp(struct ssp_data *data);
 void remove_input_dev(struct ssp_data *data);
 void remove_sysfs(struct ssp_data *data);
 void remove_event_symlink(struct ssp_data *data);
@@ -1136,7 +1154,6 @@ void set_light_coef(struct ssp_data *data);
 int initialize_light_colorid(struct ssp_data *data);
 void initialize_hiddenhole_factorytest(struct ssp_data *data);
 void remove_hiddenhole_factorytest(struct ssp_data *data);
-void initialize_light_colorid_do_task(struct work_struct *work);
 #endif
 int get_msdelay(int64_t dDelayRate);
 #if defined(CONFIG_SSP_MOTOR_CALLBACK)
@@ -1267,4 +1284,6 @@ void set_GyroCalibrationInfoData(char *pchRcvDataFrame, int *iDataIdx);
 int send_vdis_flag(struct ssp_data *data, bool bFlag);
 void initialize_super_vdis_setting(void);
 
+int proximity_save_calibration(int *cal_data, int size);
+int set_prox_cal_to_ssp(struct ssp_data *data);
 #endif

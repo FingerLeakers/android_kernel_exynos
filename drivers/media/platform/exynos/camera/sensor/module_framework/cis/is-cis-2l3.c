@@ -56,8 +56,6 @@ static u32 sensor_2l3_TnP2_size;
 
 static const u32 *sensor_2l3_global;
 static u32 sensor_2l3_global_size;
-static const u32 *sensor_2l3_dram_test_global;
-static u32 sensor_2l3_dram_test_global_size;
 static const u32 **sensor_2l3_setfiles;
 static const u32 *sensor_2l3_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_2l3_pllinfos;
@@ -93,9 +91,54 @@ static bool sensor_2l3_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 }
 
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static const struct cam_mipi_sensor_mode *sensor_2l3_mipi_sensor_mode;
+static u32 sensor_2l3_mipi_sensor_mode_size;
+static const int *sensor_2l3_verify_sensor_mode;
+static int sensor_2l3_verify_sensor_mode_size;
+
 static int sensor_2l3_cis_set_mipi_clock(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
+	struct is_cis *cis = NULL;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int mode = 0;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	mode = cis->cis_data->sens_config_index_cur;
+
+	dbg_sensor(1, "%s : mipi_clock_index_cur(%d), new(%d)\n", __func__,
+		cis->mipi_clock_index_cur, cis->mipi_clock_index_new);
+
+	if (mode >= sensor_2l3_mipi_sensor_mode_size) {
+		err("sensor mode is out of bound");
+		return -1;
+	}
+
+	if (cis->mipi_clock_index_cur != cis->mipi_clock_index_new
+		&& cis->mipi_clock_index_new >= 0) {
+		cur_mipi_sensor_mode = &sensor_2l3_mipi_sensor_mode[mode];
+
+		if (cur_mipi_sensor_mode->sensor_setting == NULL) {
+			dbg_sensor(1, "no mipi setting for current sensor mode\n");
+		} else if (cis->mipi_clock_index_new < cur_mipi_sensor_mode->sensor_setting_size) {
+			info("%s: change mipi clock [%d %d]\n", __func__, mode, cis->mipi_clock_index_new);
+			sensor_cis_set_registers(subdev,
+				cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].setting,
+				cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].setting_size);
+
+			cis->mipi_clock_index_cur = cis->mipi_clock_index_new;
+		} else {
+			err("sensor setting index is out of bound %d %d",
+				cis->mipi_clock_index_new, cur_mipi_sensor_mode->sensor_setting_size);
+		}
+	}
+
 	return ret;
 }
 #endif
@@ -615,32 +658,6 @@ p_err:
 	return ret;
 }
 
-int sensor_2l3_cis_set_global_setting_dramtest(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	info("[%s] sensor_2l3_dram_test_global start\n", __func__);
-	ret = sensor_cis_set_registers(subdev, sensor_2l3_dram_test_global, sensor_2l3_dram_test_global_size);
-
-	if (ret < 0) {
-		err("sensor_2l3_set_registers fail!!");
-		goto p_err;
-	}
-
-	info("[%s] sensor_2l3_dram_test_global done\n", __func__);
-
-p_err:
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-	return ret;
-}
-
 int sensor_2l3_cis_set_global_setting_internal(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -657,7 +674,7 @@ int sensor_2l3_cis_set_global_setting_internal(struct v4l2_subdev *subdev)
 	ret |= sensor_cis_set_registers(subdev, sensor_2l3_reset, sensor_2l3_reset_size);
 	if ( cis->cis_data->cis_rev	!= 0xA701)
 		ret |= sensor_cis_set_registers(subdev, sensor_2l3_TnP1, sensor_2l3_TnP1_size);
-	
+
 	ret |= sensor_cis_set_registers(subdev, sensor_2l3_TnP2, sensor_2l3_TnP2_size);
 	ret |= sensor_cis_set_registers(subdev, sensor_2l3_global, sensor_2l3_global_size);
 	if (ret < 0) {
@@ -1254,7 +1271,7 @@ int sensor_2l3_cis_stream_on(struct v4l2_subdev *subdev)
 
 	/* Sensor stream on */
 	info("%s\n", __func__);
-	is_sensor_write16(client, 0x0100, 0x0100);
+	is_sensor_write16(client, 0x0100, 0x0103);
 
 	ret = sensor_2l3_cis_group_param_hold_func(subdev, 0x00);
 	if (ret < 0)
@@ -2411,8 +2428,101 @@ int sensor_2l3_cis_long_term_exposure(struct v4l2_subdev *subdev)
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 static int sensor_2l3_cis_update_mipi_info(struct v4l2_subdev *subdev)
 {
+	struct is_cis *cis = NULL;
+	struct is_device_sensor *device;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int found = -1;
+
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (device == NULL) {
+		err("device is NULL");
+		return -1;
+	}
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+	if (cis == NULL) {
+		err("cis is NULL");
+		return -1;
+	}
+
+	if (device->cfg->mode >= sensor_2l3_mipi_sensor_mode_size) {
+		err("sensor mode is out of bound");
+		return -1;
+	}
+
+	cur_mipi_sensor_mode = &sensor_2l3_mipi_sensor_mode[device->cfg->mode];
+
+	if (cur_mipi_sensor_mode->mipi_channel_size == 0 ||
+		cur_mipi_sensor_mode->mipi_channel == NULL) {
+		dbg_sensor(1, "skip select mipi channel\n");
+		return -1;
+	}
+
+	found = is_vendor_select_mipi_by_rf_channel(cur_mipi_sensor_mode->mipi_channel,
+				cur_mipi_sensor_mode->mipi_channel_size);
+	if (found != -1) {
+		if (found < cur_mipi_sensor_mode->sensor_setting_size) {
+			device->cfg->mipi_speed = cur_mipi_sensor_mode->sensor_setting[found].mipi_rate;
+			cis->mipi_clock_index_new = found;
+			info("%s - update mipi rate : %d\n", __func__, device->cfg->mipi_speed);
+		} else {
+			err("sensor setting size is out of bound");
+		}
+	}
+
 	return 0;
 }
+
+static int sensor_2l3_cis_get_mipi_clock_string(struct v4l2_subdev *subdev, char *cur_mipi_str)
+{
+	struct is_cis *cis = NULL;
+	struct is_device_sensor *device;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int mode = 0;
+
+	cur_mipi_str[0] = '\0';
+
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (device == NULL) {
+		err("device is NULL");
+		return -1;
+	}
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+	if (cis == NULL) {
+		err("cis is NULL");
+		return -1;
+	}
+
+	if (cis->cis_data->stream_on) {
+		mode = cis->cis_data->sens_config_index_cur;
+
+		if (mode >= sensor_2l3_mipi_sensor_mode_size) {
+			err("sensor mode is out of bound");
+			return -1;
+		}
+
+		cur_mipi_sensor_mode = &sensor_2l3_mipi_sensor_mode[mode];
+
+		if (cur_mipi_sensor_mode->sensor_setting_size == 0 ||
+			cur_mipi_sensor_mode->sensor_setting == NULL) {
+			err("sensor_setting is not available");
+			return -1;
+		}
+
+		if (cis->mipi_clock_index_new < 0 ||
+			cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].str_mipi_clk == NULL) {
+			err("mipi_clock_index_new is not available");
+			return -1;
+		}
+
+		sprintf(cur_mipi_str, "%s",
+			cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].str_mipi_clk);
+	}
+
+	return 0;
+}
+
 #endif
 
 int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
@@ -2553,6 +2663,7 @@ static struct is_cis_ops cis_ops_2l3 = {
 	.cis_set_long_term_exposure = sensor_2l3_cis_long_term_exposure,
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 	.cis_update_mipi_info = sensor_2l3_cis_update_mipi_info,
+	.cis_get_mipi_clock_string = sensor_2l3_cis_get_mipi_clock_string,
 #endif
 #ifdef USE_CAMERA_EMBEDDED_HEADER
 	.cis_get_frame_id = sensor_2l3_cis_get_frame_id,
@@ -2580,6 +2691,9 @@ static int cis_2l3_probe(struct i2c_client *client,
 	struct device *dev;
 	struct device_node *dnode;
 	int i;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		int index;
+#endif
 
 	WARN_ON(!client);
 	WARN_ON(!is_dev);
@@ -2642,6 +2756,10 @@ static int cis_2l3_probe(struct i2c_client *client,
 		sensor_peri->module->client = cis->client;
 		cis->i2c_lock = NULL;
 		cis->ctrl_delay = N_PLUS_TWO_FRAME;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+		cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 #ifdef USE_CAMERA_FACTORY_DRAM_TEST
 		cis->factory_dramtest_section2_fcount = SENSOR_2L3_DRAMTEST_SECTION2_FCOUNT;
 #endif
@@ -2701,12 +2819,16 @@ static int cis_2l3_probe(struct i2c_client *client,
 		sensor_2l3_TnP2_size = ARRAY_SIZE(sensor_2l3_setfile_A_TnP2);
 		sensor_2l3_global = sensor_2l3_setfile_A_Global;
 		sensor_2l3_global_size = ARRAY_SIZE(sensor_2l3_setfile_A_Global);
-		sensor_2l3_dram_test_global = sensor_2l3_setfile_A_Reset;
-		sensor_2l3_dram_test_global_size = ARRAY_SIZE(sensor_2l3_setfile_A_Reset);
 		sensor_2l3_setfiles = sensor_2l3_setfiles_A;sensor_2l3_setfile_A_Reset;
 		sensor_2l3_setfile_sizes = sensor_2l3_setfile_A_sizes;
 		sensor_2l3_pllinfos = sensor_2l3_pllinfos_A;
 		sensor_2l3_max_setfile_num = ARRAY_SIZE(sensor_2l3_setfiles_A);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		sensor_2l3_mipi_sensor_mode = sensor_2l3_setfile_A_mipi_sensor_mode;
+		sensor_2l3_mipi_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_mipi_sensor_mode);
+		sensor_2l3_verify_sensor_mode = sensor_2l3_setfile_A_verify_sensor_mode;
+		sensor_2l3_verify_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_verify_sensor_mode);
+#endif
 #ifdef CONFIG_SENSOR_RETENTION_USE
 		sensor_2l3_global_retention = sensor_2l3_setfile_A_Global_retention;
 		sensor_2l3_global_retention_size = ARRAY_SIZE(sensor_2l3_setfile_A_Global_retention);
@@ -2718,16 +2840,20 @@ static int cis_2l3_probe(struct i2c_client *client,
 #endif
 	} else if (strcmp(setfile, "setB") == 0) {
 		probe_info("%s setfile_B\n", __func__);
-		sensor_2l3_reset = sensor_2l3_setfile_B_Reset_TnP;
-		sensor_2l3_reset_size = ARRAY_SIZE(sensor_2l3_setfile_B_Reset_TnP);
+		sensor_2l3_reset = sensor_2l3_setfile_B_Reset;
+		sensor_2l3_reset_size = ARRAY_SIZE(sensor_2l3_setfile_B_Reset);
 		sensor_2l3_global = sensor_2l3_setfile_B_Global;
 		sensor_2l3_global_size = ARRAY_SIZE(sensor_2l3_setfile_B_Global);
-		sensor_2l3_dram_test_global = sensor_2l3_setfile_B_dram_test_Global;
-		sensor_2l3_dram_test_global_size = ARRAY_SIZE(sensor_2l3_setfile_B_dram_test_Global);
 		sensor_2l3_setfiles = sensor_2l3_setfiles_B;
 		sensor_2l3_setfile_sizes = sensor_2l3_setfile_B_sizes;
 		sensor_2l3_pllinfos = sensor_2l3_pllinfos_B;
 		sensor_2l3_max_setfile_num = ARRAY_SIZE(sensor_2l3_setfiles_B);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		sensor_2l3_mipi_sensor_mode = sensor_2l3_setfile_A_mipi_sensor_mode;
+		sensor_2l3_mipi_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_mipi_sensor_mode);
+		sensor_2l3_verify_sensor_mode = sensor_2l3_setfile_A_verify_sensor_mode;
+		sensor_2l3_verify_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_verify_sensor_mode);
+#endif
 #ifdef CONFIG_SENSOR_RETENTION_USE
 		sensor_2l3_global_retention = sensor_2l3_setfile_B_Global_retention;
 		sensor_2l3_global_retention_size = ARRAY_SIZE(sensor_2l3_setfile_B_Global_retention);
@@ -2739,16 +2865,20 @@ static int cis_2l3_probe(struct i2c_client *client,
 #endif
 	} else {
 		err("%s setfile index out of bound, take default (setfile_B)", __func__);
-		sensor_2l3_reset = sensor_2l3_setfile_B_Reset_TnP;
-		sensor_2l3_reset_size = ARRAY_SIZE(sensor_2l3_setfile_B_Reset_TnP);
+		sensor_2l3_reset = sensor_2l3_setfile_B_Reset;
+		sensor_2l3_reset_size = ARRAY_SIZE(sensor_2l3_setfile_B_Reset);
 		sensor_2l3_global = sensor_2l3_setfile_B_Global;
 		sensor_2l3_global_size = ARRAY_SIZE(sensor_2l3_setfile_B_Global);
-		sensor_2l3_dram_test_global = sensor_2l3_setfile_B_dram_test_Global;
-		sensor_2l3_dram_test_global_size = ARRAY_SIZE(sensor_2l3_setfile_B_dram_test_Global);
 		sensor_2l3_setfiles = sensor_2l3_setfiles_B;
 		sensor_2l3_setfile_sizes = sensor_2l3_setfile_B_sizes;
 		sensor_2l3_pllinfos = sensor_2l3_pllinfos_B;
 		sensor_2l3_max_setfile_num = ARRAY_SIZE(sensor_2l3_setfiles_B);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		sensor_2l3_mipi_sensor_mode = sensor_2l3_setfile_A_mipi_sensor_mode;
+		sensor_2l3_mipi_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_mipi_sensor_mode);
+		sensor_2l3_verify_sensor_mode = sensor_2l3_setfile_A_verify_sensor_mode;
+		sensor_2l3_verify_sensor_mode_size = ARRAY_SIZE(sensor_2l3_setfile_A_verify_sensor_mode);
+#endif
 #ifdef CONFIG_SENSOR_RETENTION_USE
 		sensor_2l3_global_retention = sensor_2l3_setfile_B_Global_retention;
 		sensor_2l3_global_retention_size = ARRAY_SIZE(sensor_2l3_setfile_B_Global_retention);
@@ -2759,6 +2889,17 @@ static int cis_2l3_probe(struct i2c_client *client,
 		sensor_2l3_load_sram_size = sensor_2l3_setfile_B_sizes_load_sram;
 #endif
 	}
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		for (i = 0; i < sensor_2l3_verify_sensor_mode_size; i++) {
+			index = sensor_2l3_verify_sensor_mode[i];
+
+			if (is_vendor_verify_mipi_channel(sensor_2l3_mipi_sensor_mode[index].mipi_channel,
+						sensor_2l3_mipi_sensor_mode[index].mipi_channel_size)) {
+				panic("wrong mipi channel");
+				break;
+			}
+		}
+#endif
 
 	probe_info("%s done\n", __func__);
 

@@ -968,9 +968,13 @@ static void __abox_rdma_compr_set_hw_params_legacy(struct device *dev,
 		if (width >= 24) {
 			upscale = 2;
 			dev_info(dev, "%s: 48kHz 24bit\n", __func__);
+			rate = 48000;
+			width = 24;
 		} else {
 			upscale = 0;
 			dev_info(dev, "%s: 48kHz 16bit\n", __func__);
+			rate = 48000;
+			width = 16;
 		}
 	} else {
 		if (rate != 192000)
@@ -978,11 +982,14 @@ static void __abox_rdma_compr_set_hw_params_legacy(struct device *dev,
 
 		upscale = 1;
 		dev_info(dev, "%s: 192kHz 24bit\n", __func__);
+		rate = 192000;
+		width = 24;
 	}
 
 	if (abox_rdma_mailbox_read(dev, COMPR_UPSCALE) != upscale) {
 		abox_rdma_mailbox_write(dev, COMPR_UPSCALE, upscale);
 		cdata->dirty = true;
+		abox_dma_hw_params_set(dev, rate, width, 2, 0, 0, 0);
 	}
 }
 
@@ -1004,6 +1011,7 @@ static void __abox_rdma_compr_set_hw_params(struct device *dev,
 	if (abox_rdma_mailbox_read(dev, COMPR_UPSCALE) != upscale) {
 		abox_rdma_mailbox_write(dev, COMPR_UPSCALE, upscale);
 		cdata->dirty = true;
+		abox_dma_hw_params_set(dev, rate, bit, ch, 0, 0, 0);
 	}
 
 	dev_info(dev, "%s: %ubit %uch %uHz\n", __func__, bit, ch, rate);
@@ -1221,6 +1229,9 @@ static irqreturn_t abox_rdma_ipc_handler(int ipc, void *dev_id,
 		break;
 	case PCM_PLTDAI_ACK:
 		data->ack_enabled = !!pcmtask_msg->param.trigger;
+		break;
+	case PCM_PLTDAI_CLOSED:
+		complete(&data->closed);
 		break;
 	default:
 		dev_warn(dev, "unknown message: %d\n", pcmtask_msg->msgtype);
@@ -1572,6 +1583,7 @@ static int abox_rdma_close(struct snd_pcm_substream *substream)
 	struct abox_data *abox_data = data->abox_data;
 	int id = data->id;
 	int ret;
+	long time;
 	ABOX_IPC_MSG msg;
 	struct IPC_PCMTASK_MSG *pcmtask_msg = &msg.msg.pcmtask;
 
@@ -1592,6 +1604,11 @@ static int abox_rdma_close(struct snd_pcm_substream *substream)
 		if (ret < 0)
 			dev_warn(dev, "call notify failed: %d\n", ret);
 	}
+
+	time = wait_for_completion_timeout(&data->closed,
+			nsecs_to_jiffies(ABOX_DMA_TIMEOUT_NS));
+	if (time == 0)
+		dev_warn(dev, "close timeout\n", __func__);
 
 	/* Release ASRC to reuse it in other DMA */
 	abox_cmpnt_asrc_release(abox_data, SNDRV_PCM_STREAM_PLAYBACK, id);
@@ -2258,6 +2275,7 @@ static int samsung_abox_rdma_probe(struct platform_device *pdev)
 	init_completion(&data->compr_data.flushed);
 	init_completion(&data->compr_data.destroyed);
 	init_completion(&data->compr_data.created);
+	init_completion(&data->closed);
 	data->compr_data.isr_handler = abox_rdma_compr_isr_handler;
 
 	abox_register_ipc_handler(data->dev_abox, IPC_PCMPLAYBACK,

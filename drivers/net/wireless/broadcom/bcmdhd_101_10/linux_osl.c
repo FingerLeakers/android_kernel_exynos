@@ -733,6 +733,7 @@ osl_dma_alloc_consistent(osl_t *osh, uint size, uint16 align_bits, uint *alloced
 #else
 		flags = CAN_SLEEP() ? GFP_KERNEL: GFP_ATOMIC;
 #endif /* DHD_ALLOC_COHERENT_MEM_FROM_ATOMIC_POOL */
+        flags |= __GFP_COMP;
 		va = dma_alloc_coherent(&hwdev->dev, size, &pap_lin, flags);
 #ifdef BCMDMA64OSL
 		PHYSADDRLOSET(*pap, pap_lin & 0xffffffff);

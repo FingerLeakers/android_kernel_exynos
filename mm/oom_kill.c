@@ -442,6 +442,20 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 			heaviest_pid, heaviest_rss_sum);
 }
 
+static BLOCKING_NOTIFIER_HEAD(oom_debug_notify_list);
+
+int register_oom_debug_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&oom_debug_notify_list, nb);
+}
+EXPORT_SYMBOL_GPL(register_oom_debug_notifier);
+
+int unregister_oom_debug_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&oom_debug_notify_list, nb);
+}
+EXPORT_SYMBOL_GPL(unregister_oom_debug_notifier);
+
 static void dump_header(struct oom_control *oc, struct task_struct *p)
 {
 	pr_warn("%s invoked oom-killer: gfp_mask=%#x(%pGg), nodemask=%*pbl, order=%d, oom_score_adj=%hd\n",
@@ -462,6 +476,8 @@ static void dump_header(struct oom_control *oc, struct task_struct *p)
 	}
 	if (sysctl_oom_dump_tasks)
 		dump_tasks(oc->memcg, oc->nodemask);
+
+	blocking_notifier_call_chain(&oom_debug_notify_list, 0, NULL);
 }
 
 /*

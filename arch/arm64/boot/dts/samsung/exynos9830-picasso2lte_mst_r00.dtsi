@@ -42,7 +42,7 @@
 		samsung,pins ="gpp7-7";
 		samsung,pin-function = <1>;
 		samsung,pin-pud = <1>;
-		samsung,pin-con-pdn = <1>;
+		samsung,pin-con-pdn = <0>;
 		samsung,pin-pud-pdn = <1>;
 	};
 
@@ -50,7 +50,7 @@
 		samsung,pins ="gpp7-6";
 		samsung,pin-function = <1>;
 		samsung,pin-pud = <1>;
-		samsung,pin-con-pdn = <1>;
+		samsung,pin-con-pdn = <0>;
 		samsung,pin-pud-pdn = <1>;
 	};
 };

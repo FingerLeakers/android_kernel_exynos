@@ -149,6 +149,16 @@ static void dsim_long_data_wr(struct dsim_device *dsim, unsigned long d0, u32 d1
 	dsim->pl_cnt += d1;
 }
 
+static void dsim_wr_payload(struct dsim_device *dsim, unsigned char *buf, u32 size)
+{
+	unsigned int data_cnt = 0;
+
+	for (data_cnt = 0; data_cnt < size; data_cnt += 4) {
+		dsim_reg_wr_tx_payload(dsim->id, *((unsigned int *)(buf + data_cnt)));
+	}
+	dsim->pl_cnt += size;
+}
+
 static int dsim_wait_for_cmd_fifo_empty(struct dsim_device *dsim, bool must_wait)
 {
 	int ret = 0;
@@ -193,6 +203,13 @@ int dsim_wait_for_cmd_done(struct dsim_device *dsim)
 	decon_hiber_block_exit(decon);
 
 	mutex_lock(&dsim->cmd_lock);
+	if (IS_DSIM_OFF_STATE(dsim)) {
+		dsim_err("%s dsim%d not ready (%s)\n",
+				__func__, dsim->id, dsim_state_names[dsim->state]);
+		mutex_unlock(&dsim->cmd_lock);
+		decon_hiber_unblock(decon);
+		return -EINVAL;
+	}
 	ret = dsim_wait_for_cmd_fifo_empty(dsim, true);
 	mutex_unlock(&dsim->cmd_lock);
 
@@ -280,6 +297,7 @@ int dsim_write_data(struct dsim_device *dsim, u32 id, unsigned long d0, u32 d1, 
 	int ret = 0;
 	struct decon_device *decon = get_decon_drvdata(0);
 	int cnt = 5000; /* for wating empty status during 50ms */
+
 
 	decon_hiber_block_exit(decon);
 
@@ -389,6 +407,96 @@ err_exit:
 	return ret;
 }
 
+
+#define SIDE_RAM_ALIGN 16
+
+int dsim_sr_write_data(struct dsim_device *dsim, const u8 *cmd, u32 size)
+{
+	int cnt;
+	u8 c_start = 0, c_next = 0;
+	/* TODO: 512 NEED TO CHANGE AS DSIM_FIFO_SIZE */
+	u8 cmdbuf[2048];
+	int tx_size, ret = 0, len = 0;
+	int remained = size;
+
+
+	mutex_lock(&dsim->cmd_lock);
+	if (!IS_DSIM_ON_STATE(dsim)) {
+		dsim_err("%s dsim%d not ready (%s)\n",
+				__func__, dsim->id, dsim_state_names[dsim->state]);
+		ret = -EINVAL;
+		goto err_exit;
+	}
+
+	dsim_reg_clear_int(dsim->id, DSIM_INTSRC_SFR_PH_FIFO_EMPTY);
+
+	/* Check available status of PH FIFO before writing command */
+	if (!dsim_check_ph_threshold(dsim)) {
+		ret = -EINVAL;
+		dsim_err("ID(%d): DSIM cmd wr timeout @ don't available ph 0x%lx\n",
+			dsim->id, cmd[0]);
+		goto err_exit;
+	}
+
+	/* Check linecount value for seperating idle and active range */
+	if (!dsim_check_linecount(dsim)) {
+		ret = -EINVAL;
+		dsim_err("ID(%d): DSIM cmd wr timeout @ line count '0' pl_cnt = %d\n",
+			dsim->id, dsim->pl_cnt);
+		goto err_exit;
+	}
+
+	dsim_info("%s : size : %d\n", __func__, size);
+
+	c_start = MIPI_DCS_WRITE_SIDE_RAM_START;
+	c_next = MIPI_DCS_WRITE_SIDE_RAM_CONTINUE;
+
+	do {
+		cmdbuf[0] = (size == remained) ? c_start : c_next;
+		tx_size = min(remained, 2047);
+
+		if ((tx_size % SIDE_RAM_ALIGN) > 0) {
+			if (tx_size > SIDE_RAM_ALIGN) {
+				tx_size -= (tx_size % SIDE_RAM_ALIGN);
+			} else {
+				panel_warn("%s: byte align mismatch! data %d align %d\n",
+					__func__, tx_size, SIDE_RAM_ALIGN);
+			}
+		}
+
+		memcpy(cmdbuf + 1, cmd + len, tx_size);
+
+		dsim_reg_enable_packetgo(dsim->id, true);
+		//decon_systrace(get_decon_drvdata(0), 'C', "mafpc", 1);
+		dsim_wr_payload(dsim, cmdbuf, tx_size + 1);
+		//decon_systrace(get_decon_drvdata(0), 'C', "mafpc", 0);
+		dsim_reg_wr_tx_header(dsim->id, MIPI_DSI_DCS_LONG_WRITE, (tx_size + 1) & 0xff,
+				((tx_size + 1) & 0xff00) >> 8, false);
+		dsim_reg_enable_packetgo(dsim->id, false);
+
+		len += tx_size;
+		remained -= tx_size;
+
+		cnt = 5000;
+		do {
+			if (dsim_is_fifo_empty_status(dsim))
+				break;
+			udelay(1);
+		} while (cnt--);
+
+		if (!cnt) {
+			dsim_err("ID(%d): DSIM command(%lx) fail\n", dsim->id, cmd[0]);
+			ret = -EINVAL;
+		}
+	} while (remained > 0);
+
+err_exit:
+	mutex_unlock(&dsim->cmd_lock);
+	return ret;
+}
+
+
+
 int dsim_read_data(struct dsim_device *dsim, u32 id, u32 addr, u32 cnt, u8 *buf)
 {
 	u32 rx_fifo, rx_size = 0;
@@ -399,17 +507,19 @@ int dsim_read_data(struct dsim_device *dsim, u32 id, u32 addr, u32 cnt, u8 *buf)
 
 	decon_hiber_block_exit(decon);
 
+	mutex_lock(&dsim->cmd_lock);
 	if (IS_DSIM_OFF_STATE(dsim)) {
 		dsim_err("%s dsim%d not ready (%s)\n",
 				__func__, dsim->id, dsim_state_names[dsim->state]);
-		decon_hiber_unblock(decon);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exit;
 	}
 
 	reinit_completion(&dsim->rd_comp);
 
 	/* Init RX FIFO before read and clear DSIM_INTSRC */
 	dsim_reg_clear_int(dsim->id, DSIM_INTSRC_RX_DATA_DONE);
+	mutex_unlock(&dsim->cmd_lock);
 
 	/* Set the maximum packet size returned */
 	dsim_write_data(dsim,
@@ -418,26 +528,36 @@ int dsim_read_data(struct dsim_device *dsim, u32 id, u32 addr, u32 cnt, u8 *buf)
 	/* Read request */
 	dsim_write_data(dsim, id, addr, 0, true);
 
-	dsim_wait_for_cmd_done(dsim);
+	/* already executed inside of dsim_write_data, skip */
+	//dsim_wait_for_cmd_done(dsim);
 
-	if (!wait_for_completion_timeout(&dsim->rd_comp, MIPI_RD_TIMEOUT)) {
-		dsim_err("MIPI DSIM read Timeout!\n");
-		if (dsim_reg_get_datalane_status(dsim->id) == DSIM_DATALANE_STATUS_BTA) {
+	ret = wait_for_completion_timeout(&dsim->rd_comp, MIPI_RD_TIMEOUT);
+
+	mutex_lock(&dsim->cmd_lock);
+	if (IS_DSIM_OFF_STATE(dsim)) {
+		dsim_err("%s dsim%d not ready (%s) read t/o %d\n",
+				__func__, dsim->id, dsim_state_names[dsim->state], ret);
+		ret = -EINVAL;
+		goto exit;
+	}
+	if (!ret) {
+		dsim_err("%s MIPI DSIM read Timeout!\n", __func__);
+		ret = dsim_reg_get_datalane_status(dsim->id);
+		if (ret == DSIM_DATALANE_STATUS_BTA) {
 			if (decon_reg_get_run_status(decon->id)) {
-				dsim_reset_panel(dsim);
+				//dsim_reset_panel(dsim);
 				dpu_hw_recovery_process(decon);
 			} else {
-				dsim_reset_panel(dsim);
+				//dsim_reset_panel(dsim);
 				dsim_reg_recovery_process(dsim);
 			}
 		} else
-			dsim_err("datalane status is %d\n", dsim_reg_get_datalane_status(dsim->id));
+			dsim_err("datalane status is %d\n", ret);
 
-		decon_hiber_unblock(decon);
-		return -ETIMEDOUT;
+		ret = -ETIMEDOUT;
+		goto exit;
 	}
 
-	mutex_lock(&dsim->cmd_lock);
 	DPU_EVENT_LOG_CMD(&dsim->sd, id, (char)addr, 0);
 
 	do {
@@ -1874,6 +1994,13 @@ static int dsim_probe(struct platform_device *pdev)
 
 #ifdef DPHY_LOOP
 	dsim_reg_set_dphy_loop_back_test(dsim->id);
+#endif
+
+#ifdef CONFIG_SUPPORT_MCD_MOTTO_TUNE
+	ret = dsim_motto_probe(dsim);
+	if (unlikely(ret)) {
+		pr_err("%s, failed to probe motto driver\n", __func__);
+	}
 #endif
 
 	dsim_info("dsim%d driver(%s mode) has been probed.\n", dsim->id,

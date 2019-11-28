@@ -68,7 +68,7 @@
 
 	chosen: chosen {
 //		bootargs = "earlycon=exynos4210,0x10540000 console=ttySAC0,115200n8 root=/dev/ram0 rw ramdisk=8192 initrd=0x84000000,8M init=/linuxrc mem=512M clk_ignore_unused";
-		bootargs = "androidboot.hardware=exynos9830 androidboot.dtbo_idx=0 bcm_setup=0xffffff80f8e00000 firmware_class.path=/vendor/firmware reserve-fimc=0xffffff90f9fe0000 nohugeiomap epx_activate=true fpsimd_check_context=y corememsize=8G";
+		bootargs = "androidboot.hardware=exynos990 androidboot.dtbo_idx=0 bcm_setup=0xffffff80f8e00000 firmware_class.path=/vendor/firmware reserve-fimc=0xffffff90f9fe0000 nohugeiomap epx_activate=true fpsimd_check_context=y rcupdate.rcu_expedited=1 corememsize=8G";
 		linux,initrd-start = <0x84000000>;
 		linux,initrd-end = <0x841FFFFF>;
 	};
@@ -402,7 +402,7 @@
 			ANANKE_ENERGY: ananke-energy {
 				mips-per-mhz = <270>;
 				power-coefficient = <120>;
-				mips-per-mhz-s = <214>;
+				mips-per-mhz-s = <184>;
 				power-coefficient-s = <106>;
 				static-power-coefficient = <39>;
 
@@ -412,7 +412,7 @@
 			ENYO_ENERGY: enyo-energy {
 				mips-per-mhz = <673>;
 				power-coefficient = <370>;
-				mips-per-mhz-s = <420>;
+				mips-per-mhz-s = <335>;
 				power-coefficient-s = <288>;
 				static-power-coefficient = <81>;
 
@@ -422,7 +422,7 @@
 			LION_ENERGY: lion-energy {
 				mips-per-mhz = <806>;
 				power-coefficient = <860>;
-				mips-per-mhz-s = <400>;
+				mips-per-mhz-s = <285>;
 				power-coefficient-s = <559>;
 				static-power-coefficient = <270>;
 
@@ -448,18 +448,21 @@
 		domain@0 {
 			device_type = "ufc_domain";
 			shared-cpus = "0-3";
+			table-idx = <3>;	/* index to ref ufc-table */
 			pm_qos-min-class = <3>;
 			pm_qos-max-class = <4>;
 		};
 		domain@1 {
 			device_type = "ufc_domain";
 			shared-cpus = "4-5";
+			table-idx = <2>;	/* index to ref ufc-table */
 			pm_qos-min-class = <5>;
 			pm_qos-max-class = <6>;
 		};
 		domain@2 {
 			device_type = "ufc_domain";
 			shared-cpus = "6-7";
+			table-idx = <1>;	/* index to ref ufc-table */
 			pm_qos-min-class = <7>;
 			pm_qos-max-class = <8>;
 		};
@@ -467,7 +470,7 @@
 			device_type = "ufc_table";
 			ctrl-type = <PM_QOS_MAX_LIMIT>;
 			sse-mode = <AARCH64_MODE>;
-			      /* Vfreq    big      Med	Lit */
+			      /* Vfreq  big(1)  Med(2)  Lit(3) */
 			table = <
 				2730000	2730000	2600000	2002000
 				2623359	2626000	2600000	2002000
@@ -718,7 +721,7 @@
 			cal-id = <ACPM_DVFS_CPUCL0>;
 			dm-type = <DM_CPU_CL0>;
 
-			max-freq = <1950000>;
+			max-freq = <2002000>;
 			min-freq = <442000>;
 
 			/* PM QoS Class ID*/
@@ -767,7 +770,7 @@
 			cal-id = <ACPM_DVFS_CPUCL1>;
 			dm-type = <DM_CPU_CL1>;
 
-			max-freq = <2314000>;
+			max-freq = <2600000>;
 			min-freq = <507000>;
 
 			/* PM QoS Class ID*/
@@ -784,13 +787,13 @@
 					const-type = <CONSTRAINT_MIN>;
 					dm-type = <DM_MIF>;
 						/* cpu     mif */
-					table = < 2600000 1794000
-						2504000 1794000
-						2400000 1794000
-						2314000 1794000
-						2210000 1794000
-						2106000 1539000
-						2002000 1539000
+					table = < 2600000 2730000
+						2504000 2730000
+						2400000 2535000
+						2314000 2535000
+						2210000 2288000
+						2106000 2288000
+						2002000 2288000
 						1898000 0
 						1794000 0
 						1690000 0
@@ -828,7 +831,7 @@
 			dm-type = <DM_CPU_CL2>;
 			need-awake;
 
-			max-freq = <2314000>;
+			max-freq = <2730000>;
 			min-freq = <546000>;
 
 			/* PM QoS Class ID*/
@@ -847,15 +850,15 @@
 					const-type = <CONSTRAINT_MIN>;
 					dm-type = <DM_MIF>;
 					/*  cpu     mif  */
-					table = < 3016000 1794000
-						2834000 1794000
-						2730000 1794000
-						2626000 1794000
-						2522000 1794000
-						2418000 1794000
-						2314000 1794000
-						2210000 1794000
-						2002000 1539000
+					table = < 3016000 2730000
+						2834000 2730000
+						2730000 2730000
+						2626000 2730000
+						2522000 2730000
+						2418000 2535000
+						2314000 2535000
+						2210000 2288000
+						2002000 2288000
 						1898000 0
 						1794000 0
 						1690000 0
@@ -893,24 +896,23 @@
 		compatible = "samsung,exynos-hiu";
 		interrupts = <GIC_SPI INTREQ__CPUCL2_GCUIRQ IRQ_TYPE_LEVEL_HIGH>;
 		boost-threshold = <2002000>;
-		boost-max = <2314000>;
+		boost-max = <2730000>;
 		cal-id = <ACPM_DVFS_CPUCL2>;
-		sw-pbl = <0x57>;
+		sw-pbl = <0xff>;
 		bl1-inc = <0>;
 		bl2-inc = <0>;
 		bl3-inc = <0>;
-		tb-enabled;
 		operation-mode = <0>;
 		sibling-cpus = "6-7";
 				/* PB  BL  PBL  PWR_THR_INC */
-		config-table = <0x0 0x0 0x57 0x0        /* config A */
-				0x1 0x2 0x79 0x0        /* config B */
-				0x0 0x0 0x57 0x0        /* config C */
-				0x0 0x0 0x57 0x0        /* config D */
-				0x1 0x2 0x79 0x0        /* config E */
-				0x0 0x0 0x57 0x0        /* config F */
-				0x0 0x0 0x57 0x0        /* config G */
-				0x1 0x2 0x79 0x0>;      /* config H */
+		config-table = <0x0 0x0 0xff 0x0        /* config A */
+				0x1 0x2 0xff 0x0        /* config B */
+				0x0 0x0 0xff 0x0        /* config C */
+				0x0 0x0 0xff 0x0        /* config D */
+				0x1 0x2 0xff 0x0        /* config E */
+				0x0 0x0 0xff 0x0        /* config F */
+				0x0 0x0 0xff 0x0        /* config G */
+				0x1 0x2 0xff 0x0>;      /* config H */
 	};
 
 	exynos-ocp {
@@ -1284,6 +1286,7 @@
 			type = <POWERMODE_TYPE_CLUSTER>;
 			siblings = "6-7";
 			entry-allowed = "6-7";
+			sicd-block;
 		};
 
 		vcpu_topology {
@@ -1339,9 +1342,6 @@
 			"GATE_UFS_EMBD",
 			/* unipro clocks */
 			"UFS_EMBD";
-
-		/* PM QoS for INT power domain */
-		ufs-pm-qos-int = <400000>;
 
 		/* DMA coherent callback, should be coupled with 'ufs-sys' */
 		dma-coherent;
@@ -1421,6 +1421,9 @@
 
 	iommu-domain_isp {
 		compatible = "samsung,exynos-iommu-bus";
+		#dma-address-cells = <1>;
+		#dma-size-cells = <1>;
+		dma-window = <0x10000000 0xEFFF0000>;
 		#address-cells = <2>;
 		#size-cells = <1>;
 		ranges;
@@ -1450,13 +1453,15 @@
 			3200 2000 1900 3300 5200 7000 /* yuv2p rotated */
 			2400 1900 1900 2700 3100 4100 /* 8+2 non-rotated */
 			2500 900 900 2200 2900 3700 /* 8+2 rotated */
+			2800 3000 1600 1600 2400 3200 /* afbc non-rotated */
+			2800 3000 1600 1600 2400 3200 /* afbc rotated */
 			2800>; /* colorfill */
 
-		g2d_dvfs_table = <534000 711000
-				400000 534000
-				336000 400000
-				267000 356000
-				178000 200000
+		g2d_dvfs_table = <533000 711000
+				400000 400000
+				333000 400000
+				266000 266000
+				200000 200000
 				107000 134000
 				>;
 
@@ -1526,7 +1531,7 @@
 		compatible = "samsung,exynos-jsqz";
 		//dma-coherent;
 		reg = <0x0 0x18B30000 0x0200>;
-		interrupts = <0 INTREQ__JSQZ 0>;
+		interrupts = <0 INTREQ__JSQZ IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clock GATE_JSQZ>;
 		clock-names = "gate";
 		iommus = <&sysmmu_g2d2>;
@@ -1620,49 +1625,26 @@
 		/* use HWACG, no need GATEs */
 		clocks = <&clock UMUX_CLKCMU_DNC_BUS>,
 			 <&clock UMUX_CLKCMU_DNC_BUSM>,
-			 <&clock DOUT_CLK_DNC_BUS>,
-			 <&clock DOUT_CLK_DNC_BUSP>,
 
 			 <&clock UMUX_CLKCMU_NPUC_BUS>,
-			 <&clock DOUT_CLK_NPUC_BUS>,
-			 <&clock DOUT_CLK_NPUC_BUSP>,
 
 			 <&clock UMUX_CLKCMU_NPU_BUS>,
-			 <&clock DOUT_CLK_NPU_BUS>,
-			 <&clock DOUT_CLK_NPU_BUSP>,
 
 			 <&clock UMUX_CLKCMU_NPU10_BUS>,
-			 <&clock DOUT_CLK_NPU10_BUS>,
-			 <&clock DOUT_CLK_NPU10_BUSP>,
 
-			 <&clock UMUX_CLKCMU_NPU11_BUS>,
-			 <&clock DOUT_CLK_NPU11_BUS>,
-			 <&clock DOUT_CLK_NPU11_BUSP>;
-
+			 <&clock UMUX_CLKCMU_NPU11_BUS>;
 		clock-names =
 			"dnc_bus",
 			"dnc_busm",
-			"dnc_bus_out",
-			"dnc_busp_out",
 
 			"npu00_bus",
-			"npu00_bus_out",
-			"npu00_busp_out",
 
 			"npu01_bus",
-			"npu01_bus_out",
-			"npu01_busp_out",
 
 			"npu10_bus",
-			"npu10_bus_out",
-			"npu10_busp_out",
 
-			"npu11_bus",
-			"npu11_bus_out",
-			"npu11_busp_out";
-
+			"npu11_bus";
 		power-domains = <&pd_npu11>;
-		npu_default_qos_rate = <933000>;
 
 		samsung,npumem-address = /* 0 start      size */
 			<0 0x17800000 0x100000>,
@@ -1694,6 +1676,72 @@
 				"FW_DRAM",
 				"FW_UNITTEST",
 				"FW_LOG";
+
+		samsung,npusched-tpf-others = <500>;	/* time in device driver, us */
+		samsung,npusched-dvfs =
+			/* devfreq	init	delay	up	delay	down	delay
+			 * hispeed_idle_delay hispeed_delay hispeed_freq lowspeed_idle_delay	: exynos-interactive
+			 * normal	npu	cpu				: mode minlock freq
+			 */
+			<&devfreq_9	933000	30	99	0	85	0
+				30	0	100	30
+				933000	933000	0>,
+			<&devfreq_7	800000	30	99	0	85	0
+				30	0	100	30
+				800000	800000	0>,
+			<&devfreq_1	533000	30	150	50	95	0
+				30	0	100	30
+				533000	533000	533000>,
+			<&devfreq_0	2028000	30	150	50	95	0
+				30	0	100	30
+				2028000	2730000	2028000>
+			;
+		samsung,npusched-names =
+			"NPU",	"exynos-interactive",
+			"DNC",	"exynos-interactive",
+			"INT",	"exynos-interactive",
+			"MIF",	"exynos-interactive"
+			;
+
+		status = "ok";
+	};
+
+	npuc0: npu_core0 {
+		compatible = "samsung,exynos-npu-core";
+
+		samsung,npucore-id = < 0 >;
+
+		clocks =
+			 <&clock UMUX_CLKCMU_NPUC_BUS>,
+
+			 <&clock UMUX_CLKCMU_NPU_BUS>;
+
+		clock-names =
+			"npu00_bus",
+
+			"npu01_bus";
+
+		power-domains = <&pd_npu01>;
+
+		status = "ok";
+	};
+
+	npuc1: npu_core1 {
+		compatible = "samsung,exynos-npu-core";
+
+		samsung,npucore-id = < 1 >;
+
+		clocks =
+			 <&clock UMUX_CLKCMU_NPU10_BUS>,
+
+			 <&clock UMUX_CLKCMU_NPU11_BUS>;
+
+		clock-names =
+			"npu10_bus",
+
+			"npu11_bus";
+
+		power-domains = <&pd_npu11>;
 
 		status = "ok";
 	};
@@ -1765,8 +1813,11 @@
 
 	udc: usb@10E00000 {
 		compatible = "samsung,exynos-dwusb";
-		clocks = <&clock GATE_USB31DRD_SLV_LINK>, <&clock UMUX_CLKCMU_HSI0_USB31DRD>;
-		clock-names = "aclk", "sclk";
+		clocks = <&clock GATE_USB31DRD_SLV_LINK>,
+			<&clock UMUX_CLKCMU_HSI0_USB31DRD>,
+			<&clock DOUT_CLK_TOP_HSI0_BUS>;
+		/* Bus clock should be defined at the end*/
+		clock-names = "aclk", "sclk", "bus";
 		reg = <0x0 0x10E00000 0x10000>;
 		#address-cells = <2>;
 		#size-cells = <1>;
@@ -1793,8 +1844,6 @@
 			/* support USB L2 sleep */
 			ldos = <3>;
 			ldo_number = <10 11 12>;
-			/* INT min lock support */
-			usb-pm-qos-int = <400000>;
 		};
 	};
 
@@ -1876,11 +1925,11 @@
 		sharability_offset = <0x102C>;
 		sharability_value = <0x6>;
 
-		RxDst0_irq_affinity = <1>;
-		RxDst1_irq_affinity = <0>;
-		RxDst2_irq_affinity = <2>;
-		Tx_irq_affinity = <3>;
-		Err_irq_affinity = <0>;
+		DIT-RxDst0_irq_affinity = <1>;
+		DIT-RxDst1_irq_affinity = <0>;
+		DIT-RxDst2_irq_affinity = <2>;
+		DIT-Tx_irq_affinity = <3>;
+		DIT-Err_irq_affinity = <0>;
 	};
 
 	seclog {
@@ -1910,12 +1959,6 @@
 			     <GIC_SPI INTREQ__DMC_TZCINT_MIF3 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
-	/* tbase */
-        tee {
-                compatible = "samsung,exynos-tee";
-                interrupts = <GIC_SPI INTREQ__TBASE IRQ_TYPE_LEVEL_HIGH>;
-        };
-
 	/* TEEGRIS */
 	teegris {
 		compatible = "samsung,teegris";
@@ -1931,7 +1974,7 @@
 	/* HDCP */
 	hdcp {
 		compatible = "samsung,exynos-hdcp";
-//		interrupts = <GIC_SPI INTREQ__HDCP IRQ_TYPE_LEVEL_HIGH>;
+		interrupts = <GIC_SPI INTREQ__HDCP IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	ssp {
@@ -1982,12 +2025,15 @@
 		compatible = "samsung,exynos-sci";
 		acpm-ipc-channel = <10>;
 		use_init_llc_region = <1>;
-		initial_llc_region = <1>;	/* LLC_REGION_LIT_MID_ALL */
+		initial_llc_region = <2>;	/* LLC_REGION_LIT_MID_ALL */
 		ret_enable = <1>;
 		llc_enable = <1>;
-		region_name = "LLC_REGION_DISABLE", "LLC_REGION_LIT_MID_ALL",
-			    "LLC_REGION_MFC_DISPLAY";
-		region_way = <0x0 0xFFFF 0x3>;
+		region_name = "LLC_REGION_DISABLE",
+			    "LLC_REGION_CALL",
+			    "LLC_REGION_LIT_MID_ALL", /* default policy */
+			    "LLC_REGION_MFC_DISPLAY",
+			    "LLC_REGION_NPU";
+		region_way = <0x0 0xFFFF 0xFFFF 0x3 0xFF>;
 	};
 
 	exynos_dm: exynos-dm@17000000 {
@@ -2127,9 +2173,9 @@
 
 			/* ALT-DVFS */
 			use_get_dev = "true";
-			um_count = <10>;
-			um_list = <0x1A100000 0x1A110000 0x1A220000 0x1A230000 0x1A120000 0x1A130000 0x1A140000 0x1A150000 0x1A160000 0x1A170000>;
-			/* PPC_CPUCL2_0, PPC_CPUCL2_1, PPC_CPUCL0_0, PPC_CPUCL0_1, PPC_G3D0, PPC_G3D1, PPC_G3D2, PPCG3D3, PPC_IRPS0, PPC_IRPS1 */
+			um_count = <8>;
+			um_list = <0x1A100000 0x1A110000 0x1A220000 0x1A230000 0x1A120000 0x1A130000 0x1A140000 0x1A150000>;
+			/* PPC_CPUCL2_0, PPC_CPUCL2_1, PPC_CPUCL0_0, PPC_CPUCL0_1, PPC_G3D0, PPC_G3D1, PPC_G3D2, PPCG3D3 */
 
 			use_alt_dvfs;
 			polling_ms = <0>;
@@ -2381,7 +2427,7 @@
 			/* Delay time */
 			use_delay_time = "false";
 
-			freq_info = <100000 100000 100000 100000 10660000 100000>;
+			freq_info = <100000 100000 100000 100000 933000 100000>;
 			/* <initial, default_qos, suspend_freq, min, max, reboot_freq> */
 
 			/* Booting value */
@@ -2861,17 +2907,12 @@
 		bit_field = <24 5>;
 		/* start bit, width */
 		basecnt = <4>;
-		irqcnt = <8>;
-		trip_work_delay = <50>;
+		irqcnt = <4>;
 
 		interrupts = <GIC_SPI INTREQ__DMC_TEMPERR_MIF0 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF1 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF2 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF3 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF0 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF1 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF2 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI INTREQ__DMC_TEMPHOT_MIF3 IRQ_TYPE_LEVEL_HIGH>;
+			     <GIC_SPI INTREQ__DMC_TEMPERR_MIF3 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	dwmmc_2: dwmmc2@132E0000 {

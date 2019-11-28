@@ -102,24 +102,21 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 		mserr_hw("Disabeld interrupt occurred! WDAM FINISH!! (0x%x)", instance, hw_ip, status);
 
 	if (status & (1 << INTR_MC_SCALER_FRAME_START)) {
-		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
-		hw_ip->cur_s_int++;
+		atomic_add(1, &hw_ip->count.fs);
 
-		if (hw_ip->cur_s_int == 1) {
-			hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
-			index = hw_ip->debug_index[1];
-			hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
-			hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
-			hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
-			if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
-				msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
+		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
+		index = hw_ip->debug_index[1];
+		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
+		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
+		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
+		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
+			msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
 
-			if (param->input.dma_cmd == DMA_INPUT_COMMAND_ENABLE) {
-				is_hardware_frame_start(hw_ip, instance);
-			} else {
-				clear_bit(HW_CONFIG, &hw_ip->state);
-				atomic_set(&hw_ip->status.Vvalid, V_VALID);
-			}
+		if (param->input.dma_cmd == DMA_INPUT_COMMAND_ENABLE) {
+			is_hardware_frame_start(hw_ip, instance);
+		} else {
+			clear_bit(HW_CONFIG, &hw_ip->state);
+			atomic_set(&hw_ip->status.Vvalid, V_VALID);
 		}
 
 		/* for set shadow register write start */
@@ -127,24 +124,7 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 		if (test_bit(IS_GROUP_OTF_INPUT, &head->state))
 			is_scaler_set_shadow_ctrl(hw_ip->regs[REG_SETA], hw_ip->id, SHADOW_WRITE_START);
 
-		if ((hw_ip->cur_s_int < hw_ip->num_buffers) && (!hardware->hw_fro_en)) {
-			if (hw_ip->mframe) {
-				struct is_frame *mframe = hw_ip->mframe;
-				mframe->cur_buf_index = hw_ip->cur_s_int;
-
-				is_hw_mcsc_wdma_cfg(hw_ip, mframe);
-
-				ret = is_hw_mcsc_rdma_cfg(hw_ip, mframe, &param->input);
-				if (ret) {
-					mserr_hw("[F:%d]mcsc rdma_cfg failed\n",
-						mframe->instance, hw_ip, mframe->fcount);
-					return ret;
-				}
-			} else {
-				serr_hw("mframe is null(s:%d, e:%d, t:%d)", hw_ip,
-					hw_ip->cur_s_int, hw_ip->cur_e_int, hw_ip->num_buffers);
-			}
-		} else {
+		}
 			struct is_group *group;
 			group = hw_ip->group[instance];
 			/*
@@ -160,29 +140,22 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 	}
 
 	if (status & (1 << INTR_MC_SCALER_FRAME_END)) {
-		atomic_add(hw_ip->num_buffers, &hw_ip->count.fe);
-		if (hardware->hw_fro_en)
-			hw_ip->cur_e_int += hw_ip->num_buffers;
-		else
-			hw_ip->cur_e_int++;
+		atomic_add(1, &hw_ip->count.fe);
 
-		if (hw_ip->cur_e_int >= hw_ip->num_buffers) {
-			is_hw_mcsc_frame_done(hw_ip, NULL, IS_SHOT_SUCCESS);
+		is_hw_mcsc_frame_done(hw_ip, NULL, IS_SHOT_SUCCESS);
 
-			if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
-				msinfo_hw("[F:%d]F.E\n", instance, hw_ip, hw_fcount);
+		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
+			msinfo_hw("[F:%d]F.E\n", instance, hw_ip, hw_fcount);
 
-			atomic_set(&hw_ip->status.Vvalid, V_BLANK);
-			if (atomic_read(&hw_ip->count.fs) < atomic_read(&hw_ip->count.fe)) {
-				mserr_hw("fs(%d), fe(%d), dma(%d), status(0x%x)", instance, hw_ip,
-					atomic_read(&hw_ip->count.fs),
-					atomic_read(&hw_ip->count.fe),
-					atomic_read(&hw_ip->count.dma), status);
-			}
-
-			wake_up(&hw_ip->status.wait_queue);
-			hw_ip->mframe = NULL;
+		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
+		if (atomic_read(&hw_ip->count.fs) < atomic_read(&hw_ip->count.fe)) {
+			mserr_hw("fs(%d), fe(%d), dma(%d), status(0x%x)", instance, hw_ip,
+				atomic_read(&hw_ip->count.fs),
+				atomic_read(&hw_ip->count.fe),
+				atomic_read(&hw_ip->count.dma), status);
 		}
+
+		wake_up(&hw_ip->status.wait_queue);
 	}
 
 	/* for handle chip dependant intr */
@@ -305,7 +278,6 @@ static int is_hw_mcsc_open(struct is_hw_ip *hw_ip, u32 instance,
 	is_hw_mcsc_hw_info(hw_ip, instance, cap);
 
 	hw_ip->subblk_ctrl = debug_subblk_ctrl;
-	hw_ip->mframe = NULL;
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 	set_bit(HW_OPEN, &hw_ip->state);
 	msdbg_hw(2, "open: [G:0x%x], framemgr[%s]", instance, hw_ip,
@@ -509,7 +481,6 @@ static int is_hw_mcsc_disable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map
 	} else {
 		msdbg_hw(2, "already disabled\n", instance, hw_ip);
 	}
-	hw_ip->mframe = NULL;
 
 	if (check_sc_core_running(hw_ip, cap))
 		return 0;
@@ -837,12 +808,8 @@ static int is_hw_mcsc_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 config:
 	/* multi-buffer */
-	hw_ip->cur_s_int = 0;
-	hw_ip->cur_e_int = 0;
 	if (frame->num_buffers)
 		hw_ip->num_buffers = frame->num_buffers;
-	if (frame->num_buffers > 1)
-		hw_ip->mframe = frame;
 
 	/* RDMA cfg */
 	ret = is_hw_mcsc_rdma_cfg(hw_ip, frame, &mcs_param->input);

@@ -26,7 +26,7 @@ static int dsp_context_boot(struct dsp_context *dctx, struct dsp_ioc_boot *args)
 
 	mutex_lock(&dctx->lock);
 
-	ret = dsp_device_start(core->dspdev);
+	ret = dsp_device_start(core->dspdev, args->pm_level);
 	if (ret) {
 		mutex_unlock(&dctx->lock);
 		goto p_err_device;

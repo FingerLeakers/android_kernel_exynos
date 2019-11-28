@@ -19,3 +19,8 @@ inline s64 npu_get_time_ns(void)
 {
 	return ktime_to_ns(ktime_get_boottime());
 }
+
+inline s64 npu_get_time_us(void)
+{
+	return ktime_to_us(ktime_get_boottime());
+}

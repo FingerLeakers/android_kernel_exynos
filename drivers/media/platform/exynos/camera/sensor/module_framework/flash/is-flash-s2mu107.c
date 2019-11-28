@@ -71,6 +71,7 @@ static int sensor_s2mu107_flash_control(struct v4l2_subdev *subdev, enum flash_m
 
 	if (mode == CAM2_FLASH_MODE_OFF) {
 		ret = s2mu107_led_mode_ctrl(S2MU107_FLED_MODE_OFF);
+		if (ret)
 			err("torch/flash off fail");
 	} else if (mode == CAM2_FLASH_MODE_SINGLE) {
 		ret = s2mu107_led_mode_ctrl(S2MU107_FLED_MODE_FLASH);

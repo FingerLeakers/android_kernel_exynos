@@ -30,6 +30,7 @@ static DEFINE_STATIC_PACKET(s6e3fa7_aod_level2_key_disable, DSI_PKT_TYPE_WR, S6E
 static DEFINE_STATIC_PACKET(s6e3fa7_aod_level3_key_enable, DSI_PKT_TYPE_WR, S6E3FA7_AOD_KEY3_ENABLE, 0);
 static DEFINE_STATIC_PACKET(s6e3fa7_aod_level3_key_disable, DSI_PKT_TYPE_WR, S6E3FA7_AOD_KEY3_DISABLE, 0);
 
+static DEFINE_PANEL_UDELAY(s6e3fa7_aod_self_spsram_sel_delay, 1);
 static DEFINE_PANEL_MDELAY(s6e3fa7_aod_move_off_delay, 17);
 
 static DEFINE_PANEL_KEY(s6e3fa7_aod_level2_key_enable, CMD_LEVEL_2,
@@ -239,6 +240,7 @@ static DEFINE_STATIC_PACKET(s6e3fa7_aod_self_icon_img, DSI_PKT_TYPE_WR_SR, S6E3F
 static void *s6e3fa7_aod_self_icon_img_cmdtbl[] = {
 	&KEYINFO(s6e3fa7_aod_level2_key_enable),
 	&PKTINFO(s6e3fa7_aod_self_icon_sd_path),
+	&DLYINFO(s6e3fa7_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3fa7_aod_self_icon_img),
 	&KEYINFO(s6e3fa7_aod_level2_key_disable),
 };
@@ -296,6 +298,7 @@ static DEFINE_STATIC_PACKET(s6e3fa7_aod_analog_img, DSI_PKT_TYPE_WR_SR, S6E3FA7_
 static void *s6e3fa7_aod_analog_img_cmdtbl[] = {
 	&KEYINFO(s6e3fa7_aod_level2_key_enable),
 	&PKTINFO(s6e3fa7_aod_init_side_ram),
+	&DLYINFO(s6e3fa7_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3fa7_aod_analog_sd_path),
 	&PKTINFO(s6e3fa7_aod_analog_img),
 	&KEYINFO(s6e3fa7_aod_level2_key_disable),
@@ -387,6 +390,7 @@ static void *s6e3fa7_aod_digital_img_cmdtbl[] = {
 	&KEYINFO(s6e3fa7_aod_level2_key_enable),
 	&PKTINFO(s6e3fa7_aod_init_side_ram),
 	&PKTINFO(s6e3fa7_aod_digital_sd_path),
+	&DLYINFO(s6e3fa7_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3fa7_aod_digital_img),
 	&KEYINFO(s6e3fa7_aod_level2_key_disable),
 };

@@ -78,6 +78,7 @@
 /* PRSR bit filed */
 #define POWER_UP	(1 << 0)
 #define RESET_STATE	(1 << 2)
+#define OS_LOCK		(1 << 5)
 
 /* TMC(ETB/ETF/ETR) registers  */
 #define TMCRSZ		(0x004)

@@ -370,6 +370,13 @@ int initialize_mcu(struct ssp_data *data)
 		pr_err("[SSP]: %s - initialize thermistor table failed\n",
 			__func__);
 
+	if (set_light_cal_param_to_ssp(data) < 0)
+		pr_err("[SSP]: %s - sending light calibration data failed\n", __func__);
+
+	if (set_prox_cal_to_ssp(data) < 0)
+		pr_err("[SSP]: %s - sending proximity calibration data failed\n",
+			__func__);
+
 	data->uCurFirmRev = get_firmware_rev(data);
 	pr_info("[SSP] MCU Firm Rev : New = %8u\n",
 		data->uCurFirmRev);
@@ -394,7 +401,6 @@ int initialize_mcu(struct ssp_data *data)
         
 	pr_err("[SSP]: %s - data->light_efs_file_status %d\n",
 			__func__, data->light_efs_file_status);
-	schedule_delayed_work(&data->work_ssp_light_efs_file_init, msecs_to_jiffies(2000));
 
 out:
 	return iRet;
@@ -767,14 +773,14 @@ int send_panel_information(struct panel_bl_event_data *evdata){
 
 static int panel_notifier_callback(struct notifier_block *self, unsigned long event, void *data){
 	struct panel_bl_event_data *evdata = data;
-
+/*
 	if (event == PANEL_EVENT_BL_CHANGED) {
 		pr_info("[SSP] %s PANEL_EVENT_BL_CHANGED %d %d\n",
 				__func__, evdata->brightness, evdata->aor_ratio);
 	} else {
 		pr_info("[SSP] %s unknown event %d\n", __func__, event);
 	}
-
+*/
 	// store these values for reset
 	memcpy(&ssp_data_info->panel_event_data, evdata, sizeof(struct panel_bl_event_data));
 
@@ -1099,14 +1105,6 @@ static int ssp_probe(struct spi_device *spi)
 	INIT_DELAYED_WORK(&data->work_ssp_tiemstamp_sync, ssp_timestamp_sync_work_func);
 	INIT_DELAYED_WORK(&data->work_ssp_reset, ssp_reset_work_func);
 
-#ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
-	INIT_DELAYED_WORK(&data->work_ssp_light_efs_file_init, initialize_light_colorid_do_task);
-	//if (data->light_efs_file_status < 0) {
-		//pr_err("[SSP]: %s - data->light_efs_file_status %d\n",
-		//	__func__, data->light_efs_file_status);
-		//schedule_delayed_work(&data->work_ssp_light_efs_file_init, msecs_to_jiffies(5000));
-	//}
-#endif
 
 	goto exit;
 
@@ -1228,10 +1226,6 @@ static void ssp_shutdown(struct spi_device *spi)
 	mutex_destroy(&data->enable_mutex);
 	mutex_destroy(&data->ssp_enable_mutex);
 
-#ifdef CONFIG_SENSORS_SSP_LIGHT_COLORID
-	cancel_delayed_work_sync(&data->work_ssp_light_efs_file_init);
-#endif
-	
 	pr_info("[SSP] %s done\n", __func__);
 exit:
 	kfree(data);

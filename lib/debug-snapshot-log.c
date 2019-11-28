@@ -73,6 +73,7 @@ struct dbg_snapshot_log_item dss_log_items[] = {
 	{DSS_LOG_CLK_ID,	DSS_LOG_CLK,		{0, 0, 0, false, false}, },
 	{DSS_LOG_PMU_ID,	DSS_LOG_PMU,		{0, 0, 0, false, false}, },
 	{DSS_LOG_FREQ_ID,	DSS_LOG_FREQ,		{0, 0, 0, false, false}, },
+	{DSS_LOG_FREQ_MISC_ID,	DSS_LOG_FREQ_MISC,	{0, 0, 0, false, false}, },
 	{DSS_LOG_DM_ID,		DSS_LOG_DM,		{0, 0, 0, false, false}, },
 	{DSS_LOG_REGULATOR_ID,	DSS_LOG_REGULATOR,	{0, 0, 0, false, false}, },
 	{DSS_LOG_THERMAL_ID,	DSS_LOG_THERMAL,	{0, 0, 0, false, false}, },
@@ -103,6 +104,7 @@ struct dbg_snapshot_log_misc {
 	atomic_t clk_log_idx;
 	atomic_t pmu_log_idx;
 	atomic_t freq_log_idx;
+	atomic_t freq_misc_log_idx;
 	atomic_t dm_log_idx;
 	atomic_t regulator_log_idx;
 	atomic_t thermal_log_idx;
@@ -127,7 +129,7 @@ int dss_irqlog_exlist[DSS_EX_MAX_NUM] = {
 };
 
 static char *dss_freq_name[] = {
-	"LIT", "MID", "BIG", "INT", "MIF", "ISP", "DISP", "INTCAM", "AUD", "DSP", "DNC", "MFC", "NPU", "TNR",
+	"LIT", "MID", "BIG", "INT", "MIF", "ISP", "DISP", "INTCAM", "AUD", "DSP", "DNC", "MFC", "NPU", "TNR", "G3D",
 };
 
 /*  Internal interface variable */
@@ -143,6 +145,7 @@ void __init dbg_snapshot_init_log_idx(void)
 	atomic_set(&(dss_log_misc.regulator_log_idx), -1);
 	atomic_set(&(dss_log_misc.thermal_log_idx), -1);
 	atomic_set(&(dss_log_misc.freq_log_idx), -1);
+	atomic_set(&(dss_log_misc.freq_misc_log_idx), -1);
 	atomic_set(&(dss_log_misc.dm_log_idx), -1);
 	atomic_set(&(dss_log_misc.clk_log_idx), -1);
 	atomic_set(&(dss_log_misc.pmu_log_idx), -1);
@@ -195,6 +198,9 @@ unsigned long secdbg_base_get_kevent_index_addr(int type)
 
 	case DSS_KEVENT_ACPM:
 		return virt_to_phys(&(dss_log_misc.acpm_log_idx));
+
+	case DSS_KEVENT_MFRQ:
+		return virt_to_phys(&(dss_log_misc.freq_misc_log_idx));
 
 	default:
 		return 0;
@@ -948,6 +954,28 @@ void dbg_snapshot_freq(int type, unsigned long old_freq, unsigned long target_fr
 	}
 }
 
+void dbg_snapshot_freq_misc(int type, unsigned long old_freq, unsigned long target_freq, int en)
+{
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_FREQ_ID];
+
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
+		return;
+	{
+		int cpu = raw_smp_processor_id();
+		unsigned long i = atomic_inc_return(&dss_log_misc.freq_misc_log_idx) &
+				(ARRAY_SIZE(dss_log->freq_misc) - 1);
+
+		dss_log->freq_misc[i].time = cpu_clock(cpu);
+		dss_log->freq_misc[i].cpu = cpu;
+		dss_log->freq_misc[i].freq_name = dss_freq_name[type];
+		dss_log->freq_misc[i].freq_type = type;
+		dss_log->freq_misc[i].old_freq = old_freq;
+		dss_log->freq_misc[i].target_freq = target_freq;
+		dss_log->freq_misc[i].en = en;
+	}
+}
+
 static void dbg_snapshot_get_sec(unsigned long long ts, unsigned long *sec, unsigned long *msec)
 {
 	*sec = ts / NSEC_PER_SEC;
@@ -1304,6 +1332,7 @@ void dbg_snapshot_reg(char io_type, char data_type, void *addr)
 		dss_log->reg[cpu][i].caller = __builtin_return_address(0);
 	}
 }
+EXPORT_SYMBOL(dbg_snapshot_reg);
 #endif
 
 #ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
@@ -1548,7 +1577,8 @@ void secdbg_hardlockup_get_info(unsigned int cpu,  void *info)
 	curr = local_clock();
 
 	cpuidle_idx = atomic_read(&dss_log_misc.cpuidle_log_idx[cpu]) & (ARRAY_SIZE(dss_log->cpuidle[0]) - 1);
-	cpuidle_delay_time = curr - dss_log->cpuidle[cpu][cpuidle_idx].time;
+	cpuidle_delay_time = curr > dss_log->cpuidle[cpu][cpuidle_idx].time ?
+		curr - dss_log->cpuidle[cpu][cpuidle_idx].time : dss_log->cpuidle[cpu][cpuidle_idx].time - curr;
 
 	if (dss_log->cpuidle[cpu][cpuidle_idx].en == DSS_FLAG_IN
 		&& cpuidle_delay_time > thresh) {
@@ -1559,7 +1589,8 @@ void secdbg_hardlockup_get_info(unsigned int cpu,  void *info)
 	}
 
 	irq_idx = atomic_read(&dss_log_misc.irq_log_idx[cpu]) & (ARRAY_SIZE(dss_log->irq[0]) - 1);
-	irq_delay_time = curr - dss_log->irq[cpu][irq_idx].time;
+	irq_delay_time = curr > dss_log->irq[cpu][irq_idx].time ?
+		curr - dss_log->irq[cpu][irq_idx].time :  dss_log->irq[cpu][irq_idx].time - curr;
 
 	if (dss_log->irq[cpu][irq_idx].en == DSS_FLAG_IN
 		&& irq_delay_time > thresh) {
@@ -1579,7 +1610,8 @@ void secdbg_hardlockup_get_info(unsigned int cpu,  void *info)
 	}
 
 	task_idx = atomic_read(&dss_log_misc.task_log_idx[cpu]) & (ARRAY_SIZE(dss_log->task[0]) - 1);
-	task_delay_time = curr - dss_log->task[cpu][task_idx].time;
+	task_delay_time = curr > dss_log->task[cpu][task_idx].time ?
+		curr - dss_log->task[cpu][task_idx].time : dss_log->task[cpu][task_idx].time - curr;
 
 	if (task_delay_time > thresh) {
 		hl_info->delay_time = task_delay_time;

@@ -399,8 +399,8 @@ int dsp_tlsf_free(struct dsp_tlsf_mem *mem, struct dsp_tlsf *tlsf)
 
 	merge = mem;
 
-	if (dsp_tlsf_is_prev_empty(mem)) {
-		struct dsp_list_node *node = &mem->mem_list_node;
+	if (dsp_tlsf_is_prev_empty(merge)) {
+		struct dsp_list_node *node = &merge->mem_list_node;
 		struct dsp_tlsf_mem *prev_mem = container_of(node->prev,
 				struct dsp_tlsf_mem, mem_list_node);
 
@@ -417,8 +417,8 @@ int dsp_tlsf_free(struct dsp_tlsf_mem *mem, struct dsp_tlsf *tlsf)
 		}
 	}
 
-	if (dsp_tlsf_is_next_empty(mem)) {
-		struct dsp_list_node *node = &mem->mem_list_node;
+	if (dsp_tlsf_is_next_empty(merge)) {
+		struct dsp_list_node *node = &merge->mem_list_node;
 		struct dsp_tlsf_mem *next_mem = container_of(node->next,
 				struct dsp_tlsf_mem, mem_list_node);
 

@@ -304,6 +304,7 @@ static int sensor_eeprom_gm1_probe(struct i2c_client *client,
 	struct is_device_sensor *device;
 	struct device *dev;
 	struct device_node *dnode;
+	struct is_device_sensor_peri *sensor_peri = NULL;
 	u32 sensor_id = 0;
 
 	FIMC_BUG(!client);
@@ -329,6 +330,12 @@ static int sensor_eeprom_gm1_probe(struct i2c_client *client,
 		err("sensor device is NULL");
 		ret = -ENOMEM;
 		goto p_err;
+	}
+
+	sensor_peri = find_peri_by_eeprom_id(device, EEPROM_NAME_GM1);
+	if (!sensor_peri) {
+		probe_info("sensor peri is net yet probed");
+		return -EPROBE_DEFER;
 	}
 
 	eeprom = devm_kzalloc(dev, sizeof(struct is_eeprom), GFP_KERNEL);

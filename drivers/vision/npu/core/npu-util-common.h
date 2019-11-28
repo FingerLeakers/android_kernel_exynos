@@ -16,5 +16,6 @@
 #include <linux/ktime.h>
 
 s64 npu_get_time_ns(void);
+s64 npu_get_time_us(void);
 
 #endif	/* _NPU_UTILL_COMMON_H_ */

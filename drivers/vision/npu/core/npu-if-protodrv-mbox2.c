@@ -142,7 +142,7 @@ int npu_frame_mbox_ops_get(struct msgid_pool *pool, struct proto_req_frame **tar
 		*target = msgid_claim_get_ref(pool, msgid, PROTO_DRV_REQ_TYPE_FRAME);
 
 		if (*target != NULL) {
-			npu_ufinfo("mbox->protodrv : frame msgid(%d)\n", &(*target)->frame, msgid);
+			npu_uftrace("mbox->protodrv : frame msgid(%d)\n", &(*target)->frame, msgid);
 			(*target)->frame.msgid = -1;
 			(*target)->frame.result_code = frame.result_code;
 			return 1;
@@ -160,7 +160,7 @@ int npu_frame_mbox_ops_put(struct msgid_pool *pool, struct proto_req_frame *src)
 
 	msgid = msgid_issue_save_ref(pool, PROTO_DRV_REQ_TYPE_FRAME, src);
 	src->frame.msgid = msgid;
-	npu_ufinfo("protodrv-> : FRAME msgid(%d)\n", &src->frame, msgid);
+	npu_uftrace("protodrv-> : FRAME msgid(%d)\n", &src->frame, msgid);
 	if (msgid < 0) {
 		npu_ufwarn("no message ID available. Posting message is not temporally available.\n", &src->frame);
 		return 0;

@@ -72,6 +72,9 @@
 /* CLAHE */
 #define SOC_CLH
 
+/* Frame id decoder */
+#define SYSREG_FRAME_ID_DEC		(0x17020440)
+
 /*
  * =================================================================================================
  * CONFIG - SW configurations
@@ -148,6 +151,7 @@
 #define DISABLE_CHECK_PERFRAME_FMT_SIZE
 #define IS_MAX_TASK		(40)
 
+#define HW_TIMEOUT_PANIC_ENABLE
 #define OVERFLOW_PANIC_ENABLE_ISCHAIN
 #define OVERFLOW_PANIC_ENABLE_CSIS
 #if defined(CONFIG_ARM_EXYNOS_DEVFREQ)
@@ -181,9 +185,9 @@
 #endif
 
 /* #define MULTI_SHOT_KTHREAD */
-/* #define MULTI_SHOT_TASKLET */
+#define MULTI_SHOT_TASKLET
 /* #define ENABLE_EARLY_SHOT */
-#define ENABLE_HW_FAST_READ_OUT
+/* #define ENABLE_HW_FAST_READ_OUT */
 #define FULL_OTF_TAIL_GROUP_ID		GROUP_ID_MCS0
 
 #if defined(USE_I2C_LOCK)
@@ -201,15 +205,15 @@
 #ifdef SECURE_CAMERA_IRIS
 #undef SECURE_CAMERA_IRIS
 #endif
-/* #define SECURE_CAMERA_FACE */	/* For face Detection and face authentication */
+#define SECURE_CAMERA_FACE	/* For face Detection and face authentication */
 #define SECURE_CAMERA_CH		((1 << CSI_ID_C) | (1 << CSI_ID_E))
 #define SECURE_CAMERA_HEAP_ID		(11)
-#define SECURE_CAMERA_MEM_ADDR		(0xA1000000)	/* secure_camera_heap */
-#define SECURE_CAMERA_MEM_SIZE		(0x02B00000)
-#define NON_SECURE_CAMERA_MEM_ADDR	(0xA3B00000)	/* camera_heap */
-#define NON_SECURE_CAMERA_MEM_SIZE	(0x18C00000)
+#define SECURE_CAMERA_MEM_ADDR		(0x96000000)	/* secure_camera_heap */
+#define SECURE_CAMERA_MEM_SIZE		(0x02800000)
+#define NON_SECURE_CAMERA_MEM_ADDR	(0x0)	/* camera_heap */
+#define NON_SECURE_CAMERA_MEM_SIZE	(0x0)
 
-#define SECURE_CAMERA_FACE_SEQ_CHK	/* To check sequence before applying secure protection */
+#undef SECURE_CAMERA_FACE_SEQ_CHK	/* To check sequence before applying secure protection */
 #endif
 
 #define QOS_INTCAM
@@ -224,7 +228,7 @@
 
 /* #define ENABLE_PDP_STAT_DMA */
 
-#define USE_PDP_LINE_INTR_FOR_PDAF	0
+#define USE_PDP_LINE_INTR_FOR_PDAF	1
 
 #define FAST_FDAE
 #undef RESERVED_MEM_IN_DT
@@ -235,8 +239,12 @@
 #define INIT_AWB_COUNT_REAR	(3)
 #define INIT_AWB_COUNT_FRONT	(8)
 
+/* use CIS global work for enhance launching time */
+#define USE_CIS_GLOBAL_WORK	0
+
 #define USE_CAMIF_FIX_UP	1
-#define CHAIN_USE_VC_TASKLET	0
+#define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
+#define CHAIN_TAG_VC0_DMA_IN_HARDIRQ_CONTEXT	1
 
 /* default LIC value for 9830 */
 /*
@@ -251,8 +259,6 @@
 
 #define VOTF_ONESHOT		/* oneshot mode is used when using VOTF in PDP input.  */
 #define VOTF_BACK_FIRST_OFF	/* This is only for v8.1. next AP don't have to use thie. */
-
-#define SDC_HEADER_GEN
 
 /*
  * ======================================================

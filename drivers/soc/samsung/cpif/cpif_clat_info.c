@@ -13,11 +13,17 @@
  */
 #include "cpif_clat_info.h"
 #ifdef CONFIG_HW_FORWARD
-#include <soc/samsung/exynos-dit.h>
+#include <soc/samsung/hw_forward.h>
 #endif
 #include "modem_v1.h"
 
 static struct clat_info g_clat_info;
+
+int cpif_init_clat_info()
+{
+	spin_lock_init(&g_clat_info.lock);
+	return 0;
+}
 
 void cpif_get_plat_prefix(u32 id, struct in6_addr *paddr)
 {

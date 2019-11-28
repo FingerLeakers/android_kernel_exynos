@@ -955,18 +955,22 @@ typedef volatile struct {
  * Bits 0 MonEn
  *   Enable monitor, interrupt and watermark functions
  */
-#define MONCTRLN_TARGETRO_PMU_ALP_CLK	0x0u
-#define MONCTRLN_TARGETRO_PCIE_ALP_CLK	0x1u
-#define MONCTRLN_TARGETRO_CB_BP_CLK	0x2u
-#define MONCTRLN_TARGETRO_ARMCR4_CLK	0x3u
-#define MONCTRLN_TARGETRO_SHIFT		8u
-#define MONCTRLN_TARGETRO_MASK		(0xffu << MONCTRLN_TARGETRO_SHIFT)
-#define MONCTRLN_TARGETROEXT		0x2u
-#define MONCTRLN_TARGETROEXT_SHIFT	6u
-#define MONCTRLN_TARGETROEXT_MASK	(0x3u << MONCTRLN_TARGETROEXT_SHIFT)
-#define MONCTRLN_MONEN			0x1u
-#define MONCTRLN_MONEN_SHIFT		0u
-#define MONCTRLN_MONEN_MASK		(0x1u << MONCTRLN_MONENEXT_SHIFT)
+#define MONCTRLN_TARGETRO_PMU_ALP_CLK		0u
+#define MONCTRLN_TARGETRO_PCIE_ALP_CLK		1u
+#define MONCTRLN_TARGETRO_CB_BP_CLK		2u
+#define MONCTRLN_TARGETRO_ARMCR4_CLK_4387B0	3u
+#define MONCTRLN_TARGETRO_ARMCR4_CLK_4387C0	20u
+#define MONCTRLN_TARGETRO_SHIFT			8u
+#define MONCTRLN_TARGETRO_MASK			(0xffu << MONCTRLN_TARGETRO_SHIFT)
+#define MONCTRLN_TARGETROMAX			64u
+#define MONCTRLN_TARGETROHI			32u
+#define MONCTRLN_TARGETROEXT			0x2u
+#define MONCTRLN_TARGETROHIEXT			0x3u
+#define MONCTRLN_TARGETROEXT_SHIFT		6u
+#define MONCTRLN_TARGETROEXT_MASK		(0x3u << MONCTRLN_TARGETROEXT_SHIFT)
+#define MONCTRLN_MONEN				0x1u
+#define MONCTRLN_MONEN_SHIFT			0u
+#define MONCTRLN_MONEN_MASK			(0x1u << MONCTRLN_MONENEXT_SHIFT)
 
 /* DvfsCoreCtrlN
  * Bits 10 Request_override_PDn
@@ -1056,15 +1060,19 @@ typedef volatile struct {
 #define DVFS_VOLTAGE_LDV_MASK		(0x7Fu << DVFS_VOLTAGE_LDV_SHIFT)
 
 /* DVFS_Status (PMU_BASE + 0x81C)
+ * Bits 27:26 Raw_Core_Reqn
+ * Bits 25:24 Active_Core_Reqn
  * Bits 12:11 Core_dvfs_status
- *   00 - LDV
- *   01 - NDV
  * Bits 9:8 Dvfs_clk_sel
  *   00 - LDV
  *   01 - NDV
  * Bits 6:0 Dvfs Voltage
  *   The real time voltage that is being output from the dvfs controller
  */
+#define DVFS_RAW_CORE_REQ_SHIFT	26u
+#define DVFS_RAW_CORE_REQ_MASK	(0x3u << DVFS_RAW_CORE_REQ_SHIFT)
+#define DVFS_ACT_CORE_REQ_SHIFT	24u
+#define DVFS_ACT_CORE_REQ_MASK	(0x3u << DVFS_ACT_CORE_REQ_SHIFT)
 #define DVFS_CORE_STATUS_SHIFT	11u
 #define DVFS_CORE_STATUS_MASK	(0x3u << DVFS_CORE_STATUS_SHIFT)
 #define DVFS_CLK_SEL_SHIFT	8u
@@ -1094,7 +1102,7 @@ typedef volatile struct {
 #else
 #define DVFS_DELAY	DVFS_LPO_DELAY
 #define DVFS_NDV_DELAY	DVFS_NDV_LPO_DELAY
-# endif /* BCM_FASTLPO && !BCM_FASTLPO_DISABLED */
+#endif /* BCM_FASTLPO && !BCM_FASTLPO_DISABLED */
 
 #define DVFS_LDV	0u
 #define DVFS_NDV	1u
@@ -1139,8 +1147,8 @@ typedef volatile struct {
 #define GCI_SWDIV_ANT_VALID_DISABLE 0x0
 #endif
 
-/* Indicate NAN active to BT */
-#define GCI_WL2BT_NAN_ACTIVE_MASK 0x8000000
+/* Indicate to BT that WL is scheduling ACL based ble scan grant */
+#define GCI_WL2BT_ACL_BSD_BLE_SCAN_GRNT_MASK 0x8000000
 
 /* WL Strobe to BT */
 #define GCI_WL_STROBE_BIT_MASK	(0x0020)
@@ -2228,6 +2236,7 @@ typedef volatile struct {
 
 /* PMU chip control6 register */
 #define PMU_CHIPCTL6                    6
+#define PMU_CC6_RX4_CLK_SEQ_SELECT_MASK	BCM_MASK32(1u, 0u)
 #define PMU_CC6_ENABLE_DMN1_WAKEUP      (1 << 3)
 #define PMU_CC6_ENABLE_CLKREQ_WAKEUP    (1 << 4)
 #define PMU_CC6_ENABLE_PMU_WAKEUP_ALP   (1 << 6)
@@ -2274,7 +2283,10 @@ typedef volatile struct {
 #define PMU_CC10_PCIE_RESET1_CNT_SLOW_MASK	(0xFu << 12u)
 
 #define PMU_CHIPCTL11			11
+
+/* PMU chip control12 register */
 #define PMU_CHIPCTL12			12
+#define PMU_CC12_DISABLE_LQ_CLK_ON	(1u << 31u) /* HW4387-254 */
 
 /* PMU chip control13 register */
 #define PMU_CHIPCTL13			13
@@ -3327,6 +3339,11 @@ typedef volatile struct {
 
 #define PMU_4387_VREG6_WL_PMU_LV_MODE_MASK		(0x00000002u)
 
+#define PMU_4389_VREG6_WL_PMU_LV_MODE_SHIFT		(1u)
+#define PMU_4389_VREG6_WL_PMU_LV_MODE_MASK		(1u << PMU_4389_VREG6_WL_PMU_LV_MODE_SHIFT)
+#define PMU_4389_VREG6_MEMLDO_PU_SHIFT			(3u)
+#define PMU_4389_VREG6_MEMLDO_PU_MASK			(1u << PMU_4389_VREG6_MEMLDO_PU_SHIFT)
+
 #define PMU_VREG13_ASR_OVADJ_PWM_MASK			(0x001F0000u)
 #define PMU_VREG13_ASR_OVADJ_PWM_SHIFT			(16u)
 
@@ -3513,6 +3530,40 @@ typedef volatile struct {
 #define RES4387_MACPHY_CLK_AUX		29
 #define RES4387_MACPHY_CLK_MAIN		30
 #define RES4387_RESERVED_31		31
+
+/* 4388 PMU Resources */
+#define RES4388_DUMMY			0u
+#define RES4388_FAST_LPO_AVAIL		1u
+#define RES4388_PMU_LP			2u
+#define RES4388_MISC_LDO		3u
+#define RES4388_SERDES_AFE_RET		4u
+#define RES4388_XTAL_HQ			5u
+#define RES4388_XTAL_PU			6u
+#define RES4388_XTAL_STABLE		7u
+#define RES4388_PWRSW_DIG		8u
+#define RES4388_BTMC_TOP_RDY		9u
+#define RES4388_BTSC_TOP_RDY		10u
+#define RES4388_PWRSW_AUX		11u
+#define RES4388_PWRSW_SCAN		12u
+#define RES4388_CORE_RDY_SCAN		13u
+#define RES4388_PWRSW_MAIN		14u
+#define RES4388_RESERVED_15		15u
+#define RES4388_RESERVED_16		16u
+#define RES4388_CORE_RDY_DIG		17u
+#define RES4388_CORE_RDY_AUX		18u
+#define RES4388_ALP_AVAIL		19u
+#define RES4388_RADIO_PU_AUX		20u
+#define RES4388_RADIO_PU_SCAN		21u
+#define RES4388_CORE_RDY_MAIN		22u
+#define RES4388_RADIO_PU_MAIN		23u
+#define RES4388_MACPHY_CLK_SCAN		24u
+#define RES4388_CORE_RDY_CB		25u
+#define RES4388_PWRSW_CB		26u
+#define RES4388_ARMCLKAVAIL		27u
+#define RES4388_HT_AVAIL		28u
+#define RES4388_MACPHY_CLK_AUX		29u
+#define RES4388_MACPHY_CLK_MAIN		30u
+#define RES4388_RESERVED_31		31u
 
 /* 4389 PMU Resources */
 #define RES4389_DUMMY			0u
@@ -3724,6 +3775,18 @@ typedef volatile struct {
 #define SR_ASM_ADDR_DIG_4387C0		(0x931000)
 #define SR_ASM_ADDR_DIG_4387_C0		(0x931000)
 
+#define SR_ASM_ADDR_MAIN_4388		BM_ADDR_TO_SR_ADDR(0xC00)
+#define SR_ASM_ADDR_AUX_4388		BM_ADDR_TO_SR_ADDR(0xC00)
+#define SR_ASM_ADDR_SCAN_4388		BM_ADDR_TO_SR_ADDR(0)
+#define SR_ASM_ADDR_DIG_4388		(0x18520000)
+#define SR_ASM_SIZE_DIG_4388		(65536u)
+
+#define SR_ASM_ADDR_MAIN_4389C0		BM_ADDR_TO_SR_ADDR(0xC00)
+#define SR_ASM_ADDR_AUX_4389C0		BM_ADDR_TO_SR_ADDR(0xC00)
+#define SR_ASM_ADDR_SCAN_4389C0		BM_ADDR_TO_SR_ADDR(0x000)
+#define SR_ASM_ADDR_DIG_4389C0		(0x18520000)
+#define SR_ASM_SIZE_DIG_4389C0		(8192u * 8u)
+
 #define SR_ASM_ADDR_MAIN_4389		BM_ADDR_TO_SR_ADDR(0xC00)
 #define SR_ASM_ADDR_AUX_4389		BM_ADDR_TO_SR_ADDR(0xC00)
 #define SR_ASM_ADDR_SCAN_4389		BM_ADDR_TO_SR_ADDR(0xC00)
@@ -3800,6 +3863,20 @@ typedef volatile struct {
 #define SR0_4387_ENABLE_SR_HT		(1 << 19)
 #define SR0_4387_ALLOW_PIC		(3 << 20)
 #define SR0_4387_ENB_PMU_MEM_DISABLE	(1 << 30)
+
+/* SR Control0 bits for 4388 */
+#define SR0_4388_SR_ENG_EN_MASK		0x1u
+#define SR0_4388_SR_ENG_EN_SHIFT	0
+#define SR0_4388_SR_ENG_CLK_EN		(1u << 1u)
+#define SR0_4388_RSRC_TRIGGER		(0xCu << 2u)
+#define SR0_4388_WD_MEM_MIN_DIV		(0x2u << 6u)
+#define SR0_4388_INVERT_SR_CLK		(1u << 11u)
+#define SR0_4388_MEM_STBY_ALLOW		(1u << 16u)
+#define SR0_4388_ENABLE_SR_ILP		(1u << 17u)
+#define SR0_4388_ENABLE_SR_ALP		(1u << 18u)
+#define SR0_4388_ENABLE_SR_HT		(1u << 19u)
+#define SR0_4388_ALLOW_PIC		(3u << 20u)
+#define SR0_4388_ENB_PMU_MEM_DISABLE	(1u << 30u)
 
 /* SR Control0 bits for 4389 */
 #define SR0_4389_SR_ENG_EN_MASK		0x1
@@ -4464,10 +4541,39 @@ typedef volatile struct {
 #define CC_GCI_CHIPCTRL_23_BTMAIN_BTSC_PRISEL_VAL_MASK	(1u <<\
 				CC_GCI_CHIPCTRL_23_BTMAIN_BTSC_PRISEL_VAL_NBIT)
 
+/*	2G core0/core1 Pulse width register (offset : 0x47C)
+*	wl_rx_long_pulse_width_2g_core0 [4:0];
+*	wl_rx_short_pulse_width_2g_core0 [9:5];
+*	wl_rx_long_pulse_width_2g_core1  [20:16];
+*	wl_rx_short_pulse_width_2g_core1 [25:21];
+*/
 #define CC_GCI_CNCB_RESET_PULSE_WIDTH_2G_CORE1_NBIT	(16u)
 #define CC_GCI_CNCB_RESET_PULSE_WIDTH_2G_CORE0_MASK	(0x1Fu)
 #define CC_GCI_CNCB_RESET_PULSE_WIDTH_2G_CORE1_MASK	(0x1Fu <<\
 				CC_GCI_CNCB_RESET_PULSE_WIDTH_2G_CORE1_NBIT)
+
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE0_NBIT	(5u)
+#define CC_GCI_CNCB_LONG_RESET_PULSE_WIDTH_2G_CORE1_NBIT	(16u)
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE1_NBIT	(21u)
+
+#define CC_GCI_CNCB_LONG_RESET_PULSE_WIDTH_2G_CORE0_MASK	(0x1Fu)
+#define CC_GCI_CNCB_LONG_RESET_PULSE_WIDTH_2G_CORE1_MASK	(0x1Fu <<\
+				CC_GCI_CNCB_LONG_RESET_PULSE_WIDTH_2G_CORE1_NBIT)
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE0_MASK	(0x1Fu <<\
+				CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE0_NBIT)
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE1_MASK	(0x1Fu <<\
+				CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_2G_CORE1_NBIT)
+
+/*	5G core0/Core1 (offset : 0x480)
+*	wl_rx_long_pulse_width_5g[4:0];
+*	wl_rx_short_pulse_width_5g[9:5]
+*/
+
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_5G_NBIT	(5u)
+
+#define CC_GCI_CNCB_LONG_RESET_PULSE_WIDTH_5G_MASK	(0x1Fu)
+#define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_5G_MASK	(0x1Fu <<\
+				CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_5G_NBIT)
 
 #define CC_GCI_06_JTAG_SEL_SHIFT	4
 #define CC_GCI_06_JTAG_SEL_MASK		(1 << 4)

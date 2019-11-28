@@ -678,8 +678,10 @@ static void vb2_dma_sg_detach_dmabuf(void *mem_priv)
 	if (WARN_ON(buf->dma_sgt))
 		vb2_dma_sg_unmap_dmabuf(buf, 0);
 
-	if (dmabuf_container_get_count(buf->db_attach->dmabuf) < 0)
-		ion_iovmm_unmap(buf->db_attach, buf->iova);
+	if (dmabuf_container_get_count(buf->db_attach->dmabuf) < 0) {
+		if (buf->iova != 0 && !IS_ERR_VALUE(buf->iova))
+			ion_iovmm_unmap(buf->db_attach, buf->iova);
+	}
 
 	/* detach this attachment */
 	dma_buf_detach(buf->db_attach->dmabuf, buf->db_attach);

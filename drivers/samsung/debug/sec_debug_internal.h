@@ -138,6 +138,8 @@ struct struct_task_struct {
 	member_type_longlong sched_info__run_delay;
 	member_type_longlong sched_info__last_arrival;
 	member_type_longlong sched_info__last_queued;
+	member_type_int ssdbg_wait__type;
+	member_type_ptr ssdbg_wait__data;
 };
 
 struct irq_stack_info {

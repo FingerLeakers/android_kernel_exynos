@@ -127,9 +127,6 @@ struct modem_sec_req {
 /* Crash Reason */
 #define CP_CRASH_INFO_SIZE	512
 #define CP_CRASH_TAG		"CP Crash "
-#define CP_CRASH_TAG_RILD	"RILD trigger CP reset - "
-#define CP_CRASH_TAG_CPIF	"AP trigger CP reset - "
-#define CP_CRASH_TAG_CP		"CP malfunction - "
 
 enum crash_type {
 	CRASH_REASON_CP_ACT_CRASH = 0,
@@ -322,6 +319,9 @@ struct io_device {
 	struct miscdevice  miscdev;
 	struct net_device *ndev;
 	struct list_head node_ndev;
+#if defined(CONFIG_CPIF_TP_MONITOR)
+	struct list_head node_all_ndev;
+#endif
 
 	/* CH and Format for channel on the link */
 	unsigned int ch;
@@ -532,6 +532,10 @@ struct link_device {
 #endif
 };
 
+#if defined(CONFIG_MODEM_IF_NET_GRO)
+extern long gro_flush_time;
+#endif
+
 #define pm_to_link_device(pm)	container_of(pm, struct link_device, pm)
 
 static inline struct sk_buff *rx_alloc_skb(unsigned int length,
@@ -635,6 +639,9 @@ struct modem_ctl {
 	/* for checking aliveness of CP */
 	unsigned int irq_phone_active;
 
+	/* for broadcasting AP LCD state */
+	unsigned int int_lcd_status;
+
 #ifdef CONFIG_LINK_DEVICE_SHMEM
 	unsigned int mbx_pda_active;
 	unsigned int mbx_phone_active;
@@ -667,6 +674,9 @@ struct modem_ctl {
 
 	unsigned int sbi_crash_type_mask;
 	unsigned int sbi_crash_type_pos;
+
+	unsigned int sbi_lcd_status_mask;
+	unsigned int sbi_lcd_status_pos;
 
 	unsigned int ap2cp_cfg_addr;
 	void __iomem *ap2cp_cfg_ioaddr;
@@ -722,6 +732,9 @@ struct modem_ctl {
 
 	bool s5100_cp_reset_required;
 	bool s5100_iommu_map_enabled;
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
+	bool s5100_s2mpu_enabled;
+#endif
 
 	struct notifier_block pm_notifier;
 #endif
@@ -757,6 +770,7 @@ struct modem_ctl {
 	void (*gpio_revers_bias_restore)(void);
 	void (*modem_complete)(struct modem_ctl *mc);
 
+	struct notifier_block lcd_notifier;
 	int receive_first_ipc;
 };
 

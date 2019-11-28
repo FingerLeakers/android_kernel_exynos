@@ -31,7 +31,6 @@ static int abox_if_startup(struct snd_pcm_substream *substream,
 {
 	struct device *dev = dai->dev;
 	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
-	struct snd_soc_component *cmpnt = data->cmpnt;
 	struct abox_data *abox_data = data->abox_data;
 	int ret;
 
@@ -50,12 +49,6 @@ static int abox_if_startup(struct snd_pcm_substream *substream,
 		dev_err(dev, "Failed to enable bclk_gate: %d\n", ret);
 		goto err;
 	}
-
-	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
-		snd_soc_component_update_bits(cmpnt, UAIF_REG_CTRL0,
-				ABOX_DATA_MODE_MASK | ABOX_IRQ_MODE_MASK,
-				(1 << ABOX_DATA_MODE_L) |
-				(0 << ABOX_IRQ_MODE_L));
 err:
 	return ret;
 }
@@ -90,6 +83,18 @@ static int abox_if_hw_free(struct snd_pcm_substream *substream,
 	abox_register_bclk_usage(dev, abox_data, dai->id, 0, 0, 0);
 
 	return 0;
+}
+
+static int abox_spdy_digital_mute(struct snd_soc_dai *dai, int mute)
+{
+	struct device *dev = dai->dev;
+	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
+	struct snd_soc_component *cmpnt = data->cmpnt;
+
+	dev_info(dev, "%s(%d)\n", __func__, mute);
+
+	return snd_soc_component_update_bits(cmpnt, SPDY_REG_CTRL,
+				ABOX_ENABLE_MASK, !mute << ABOX_ENABLE_L);
 }
 
 static int abox_dsif_set_bclk_ratio(struct snd_soc_dai *dai, unsigned int ratio)
@@ -314,6 +319,26 @@ static int abox_uaif_set_tristate(struct snd_soc_dai *dai, int tristate)
 	return abox_disable_qchannel(dev, abox_data, clk, !tristate);
 }
 
+static int abox_uaif_startup(struct snd_pcm_substream *substream,
+		struct snd_soc_dai *dai)
+{
+	struct device *dev = dai->dev;
+	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
+	struct snd_soc_component *cmpnt = data->cmpnt;
+
+	dev_dbg(dev, "%s[%c]\n", __func__,
+			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
+			'C' : 'P');
+
+	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE)
+		snd_soc_component_update_bits(cmpnt, UAIF_REG_CTRL0,
+				ABOX_DATA_MODE_MASK | ABOX_IRQ_MODE_MASK,
+				(1 << ABOX_DATA_MODE_L) |
+				(0 << ABOX_IRQ_MODE_L));
+
+	return abox_if_startup(substream, dai);
+}
+
 static void abox_uaif_shutdown(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
@@ -445,6 +470,26 @@ static int abox_uaif_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
 				mask, !mute << shift);
 }
 
+static const struct snd_soc_dai_ops abox_spdy_dai_ops = {
+	.startup	= abox_if_startup,
+	.shutdown	= abox_if_shutdown,
+	.hw_free	= abox_if_hw_free,
+	.digital_mute	= abox_spdy_digital_mute,
+};
+
+static struct snd_soc_dai_driver abox_spdy_dai_drv = {
+	.capture = {
+		.stream_name = "Capture",
+		.channels_min = 2,
+		.channels_max = 2,
+		.rates = ABOX_SAMPLING_RATES,
+		.rate_min = 40000,
+		.rate_max = 40000,
+		.formats = SNDRV_PCM_FMTBIT_S16,
+	},
+	.ops = &abox_spdy_dai_ops,
+};
+
 static const struct snd_soc_dai_ops abox_dsif_dai_ops = {
 	.set_bclk_ratio	= abox_dsif_set_bclk_ratio,
 	.set_fmt	= abox_dsif_set_fmt,
@@ -472,7 +517,7 @@ static struct snd_soc_dai_driver abox_dsif_dai_drv = {
 static const struct snd_soc_dai_ops abox_uaif_dai_ops = {
 	.set_fmt	= abox_uaif_set_fmt,
 	.set_tristate	= abox_uaif_set_tristate,
-	.startup	= abox_if_startup,
+	.startup	= abox_uaif_startup,
 	.shutdown	= abox_uaif_shutdown,
 	.hw_params	= abox_uaif_hw_params,
 	.hw_free	= abox_if_hw_free,
@@ -590,6 +635,9 @@ static int abox_if_cmpnt_probe(struct snd_soc_component *cmpnt)
 	case ABOX_DSIF:
 		/* nothing to add now */
 		break;
+	case ABOX_SPDY:
+		/* nothing to add now */
+		break;
 	default:
 		dev_err(dev, "invalid dai id: %d\n", data->dai_drv->id);
 		break;
@@ -649,6 +697,21 @@ static const struct snd_soc_component_driver abox_if_cmpnt = {
 	.write		= abox_if_write,
 };
 
+static enum abox_dai abox_spdy_get_dai_id(int id)
+{
+	return ABOX_SPDY;
+}
+
+static const char *abox_spdy_get_dai_name(int id)
+{
+	return "SPDY";
+}
+
+static unsigned int abox_spdy_get_reg_base(int id)
+{
+	return ABOX_SPDYIF_CTRL;
+}
+
 static enum abox_dai abox_dsif_get_dai_id(int id)
 {
 	return ABOX_DSIF;
@@ -701,6 +764,15 @@ static const struct of_device_id samsung_abox_if_match[] = {
 			.get_dai_name = abox_dsif_get_dai_name,
 			.get_reg_base = abox_dsif_get_reg_base,
 			.base_dai_drv = &abox_dsif_dai_drv,
+		},
+	},
+	{
+		.compatible = "samsung,abox-spdy",
+		.data = (void *)&(struct abox_if_of_data){
+			.get_dai_id = abox_spdy_get_dai_id,
+			.get_dai_name = abox_spdy_get_dai_name,
+			.get_reg_base = abox_spdy_get_reg_base,
+			.base_dai_drv = &abox_spdy_dai_drv,
 		},
 	},
 	{},

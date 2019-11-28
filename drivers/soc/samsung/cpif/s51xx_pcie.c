@@ -202,11 +202,7 @@ void s51xx_pcie_save_state(struct pci_dev *pdev)
 	/* pci_pme_active(s51xx_pcie.s51xx_pdev, 0); */
 
 	/* Disable L1.2 before PCIe power off */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_MODEM_IF);
-#else
-	exynos_pcie_host_v1_l1ss_ctrl(0, PCIE_L1SS_CTRL_MODEM_IF);
-#endif
+	s51xx_pcie_l1ss_ctrl(0);
 
 	pci_clear_master(pdev);
 
@@ -264,22 +260,23 @@ void s51xx_pcie_restore_state(struct pci_dev *pdev)
 
 #ifdef CONFIG_DISABLE_PCIE_CP_L1_2
 	/* Disable L1.2 after PCIe power on */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_MODEM_IF);
-#else
-	exynos_pcie_host_v1_l1ss_ctrl(0, PCIE_L1SS_CTRL_MODEM_IF);
-#endif
+	s51xx_pcie_l1ss_ctrl(0);
 #else
 	/* Enable L1.2 after PCIe power on */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-	exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_MODEM_IF);
-#else
-	exynos_pcie_host_v1_l1ss_ctrl(1, PCIE_L1SS_CTRL_MODEM_IF);
-#endif
+	s51xx_pcie_l1ss_ctrl(1);
 #endif
 
 	s51xx_pcie->link_status = 1;
 	/* pci_pme_active(s51xx_pcie.s51xx_pdev, 1); */
+}
+
+void s51xx_pcie_l1ss_ctrl(int enable)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+	exynos_pcie_rc_l1ss_ctrl(enable, PCIE_L1SS_CTRL_MODEM_IF);
+#else
+	exynos_pcie_host_v1_l1ss_ctrl(enable, PCIE_L1SS_CTRL_MODEM_IF);
+#endif
 }
 
 void disable_msi_int(struct pci_dev *pdev)
@@ -326,11 +323,18 @@ int s51xx_pcie_request_msi_int(struct pci_dev *pdev, int int_num)
 
 static void s51xx_pcie_linkdown_cb(struct exynos_pcie_notify *noti)
 {
-	struct pci_dev __maybe_unused *pdev = (struct pci_dev *)noti->user;
+	struct pci_dev *pdev = (struct pci_dev *)noti->user;
+	struct pci_driver *driver = pdev->driver;
+	struct modem_ctl *mc = container_of(driver, struct modem_ctl, pci_driver);
 
 	pr_err("s51xx Link-Down notification callback function!!!\n");
 
-	s5100_force_crash_exit_ext();
+	if(mc->pcie_powered_on == false) {
+		pr_info("%s: skip cp crash during dislink sequence\n", __func__);
+		exynos_pcie_set_perst_gpio(mc->pcie_ch_num, 0);
+	} else {
+		s5100_force_crash_exit_ext();
+	}
 }
 
 static int s51xx_pcie_probe(struct pci_dev *pdev,
@@ -426,6 +430,7 @@ static int s51xx_pcie_probe(struct pci_dev *pdev,
 
 void print_msi_register(struct pci_dev *pdev)
 {
+	struct s51xx_pcie *s51xx_pcie = pci_get_drvdata(pdev);
 	u32 msi_val;
 
 	pci_read_config_dword(pdev, 0x50, &msi_val);
@@ -437,7 +442,13 @@ void print_msi_register(struct pci_dev *pdev)
 
 	if (msi_val == 0x0) {
 		mif_info("MSI Message Reg == 0x0 - set MSI again!!!\n");
-		pci_restore_msi_state(pdev);
+
+		if (s51xx_pcie->pci_saved_configs != NULL) {
+			mif_info("msi restore\n");
+			pci_restore_msi_state(pdev);
+		} else {
+			mif_info("[skip] msi restore: saved configs is NULL\n");
+		}
 
 		mif_info("exynos_pcie_msi_init_ext is not implemented\n");
 		/* exynos_pcie_msi_init_ext(s51xx_pcie.pcie_channel_num); */

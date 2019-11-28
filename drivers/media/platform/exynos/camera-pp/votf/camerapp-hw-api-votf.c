@@ -163,3 +163,21 @@ void camerapp_hw_votf_set_irq_clear(void __iomem *votf_addr, u32 offset, u32 irq
 {
 	writel(irq, votf_addr + offset);
 }
+
+bool camerapp_check_votf_ring(void __iomem *base_addr, int module)
+{
+	u32 ring_enable = 0x0;
+	u32 clk_enable = 0x0;
+
+	if (module == C2SERV) {
+		ring_enable = is_hw_get_reg(base_addr, &c2serv_regs[C2SERV_R_C2COM_RING_CLK_EN]);
+		clk_enable = is_hw_get_reg(base_addr, &c2serv_regs[C2SERV_R_C2COM_RING_ENABLE]);
+	} else {
+		ring_enable = is_hw_get_reg(base_addr, &c2agent_regs[C2AGENT_R_C2COM_RING_CLK_EN]);
+		clk_enable = is_hw_get_reg(base_addr, &c2agent_regs[C2AGENT_R_C2COM_RING_ENABLE]);
+	}
+
+	if (ring_enable && clk_enable)
+		return true;
+	return false;
+}

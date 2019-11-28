@@ -8066,10 +8066,7 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 
 	lockdep_assert_held(&env->src_rq->lock);
 
-	if (!ontime_can_migrate_task(p, env->dst_cpu))
-		return 0;
-
-	if (!emst_can_migrate_task(p, env->dst_cpu))
+	if (!ems_can_migrate_task(p, env->dst_cpu))
 		return 0;
 
 	/*
@@ -11119,10 +11116,12 @@ static void attach_task_cfs_rq(struct task_struct *p)
 static void switched_from_fair(struct rq *rq, struct task_struct *p)
 {
 	detach_task_cfs_rq(p);
+	frt_store_sched_avg(p, &p->se.avg);
 }
 
 static void switched_to_fair(struct rq *rq, struct task_struct *p)
 {
+	frt_sync_sched_avg(p, &p->se.avg);
 	attach_task_cfs_rq(p);
 
 	if (task_on_rq_queued(p)) {

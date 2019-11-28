@@ -138,7 +138,7 @@ int dsp_device_power_active(struct dsp_device *dspdev)
 	return dsp_system_power_active(&dspdev->system);
 }
 
-int dsp_device_power_on(struct dsp_device *dspdev)
+int dsp_device_power_on(struct dsp_device *dspdev, unsigned int pm_level)
 {
 	int ret;
 
@@ -188,7 +188,7 @@ void dsp_device_power_off(struct dsp_device *dspdev)
 	dsp_leave();
 }
 
-int dsp_device_start(struct dsp_device *dspdev)
+int dsp_device_start(struct dsp_device *dspdev, unsigned int pm_level)
 {
 	int ret;
 
@@ -212,7 +212,7 @@ int dsp_device_start(struct dsp_device *dspdev)
 	if (ret)
 		goto p_err_system;
 
-	ret = dsp_device_power_on(dspdev);
+	ret = dsp_device_power_on(dspdev, pm_level);
 	if (ret)
 		goto p_err_power;
 
@@ -300,6 +300,7 @@ int dsp_device_open(struct dsp_device *dspdev)
 
 	dspdev->open_count = 1;
 	dspdev->start_count = 0;
+	dsp_info("device TAG : OFI_SDK_BETA_1_2_6\n");
 	dsp_info("device is opened(%u/%u)\n",
 			dspdev->open_count, dspdev->start_count);
 	mutex_unlock(&dspdev->lock);

@@ -33,7 +33,6 @@
 #include "npu-device.h"
 #include "npu-session.h"
 #include "npu-common.h"
-#include "npu-profile.h"
 
 const struct vision_file_ops npu_vertex_fops;
 const struct vertex_ioctl_ops npu_vertex_ioctl_ops;
@@ -184,6 +183,9 @@ static int npu_vertex_open(struct file *file)
 		__vref_put(&vertex->open_cnt);
 		goto ErrorExit;
 	}
+
+	/* set max npu core for the SOC */
+	session->sched_param.max_npu_core = device->system.max_npu_core;
 
 	vctx			= &session->vctx;
 	vctx->id		= session->uid;
@@ -453,6 +455,41 @@ static int npu_vertex_s_param(struct file *file, struct vs4l_param_list *plist)
 	ret = npu_session_param(session, plist);
 	if (ret) {
 		npu_err("fail(%d) in npu_session_param\n", ret);
+		goto p_err;
+	}
+
+p_err:
+	npu_iinfo("%s: (%d)\n", vctx, __func__, ret);
+	mutex_unlock(lock);
+	return ret;
+}
+
+static int npu_vertex_sched_param(struct file *file, struct vs4l_sched_param *param)
+{
+	int ret = 0;
+	struct npu_vertex_ctx *vctx = file->private_data;
+	struct npu_session *session = container_of(vctx, struct npu_session, vctx);
+	struct mutex *lock = &vctx->lock;
+
+	/* check npu_device emergency error */
+	ret = check_emergency_vctx(vctx);
+	if (ret)
+		return ret;
+
+	if (mutex_lock_interruptible(lock)) {
+		npu_ierr("fail in mutex_lock_interruptible\n", vctx);
+		return -ERESTARTSYS;
+	}
+
+	if (!(vctx->state & BIT(NPU_VERTEX_OPEN))) {
+		npu_ierr("invalid state(%X)\n", vctx, vctx->state);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	ret = npu_session_nw_sched_param(session, param);
+	if (ret) {
+		npu_err("fail(%d) in npu_vertex_sched_param\n", ret);
 		goto p_err;
 	}
 
@@ -794,6 +831,7 @@ const struct vertex_ioctl_ops npu_vertex_ioctl_ops = {
 	.vertexioc_s_format     = npu_vertex_s_format,
 	.vertexioc_s_param      = npu_vertex_s_param,
 	.vertexioc_s_ctrl       = npu_vertex_s_ctrl,
+	.vertexioc_sched_param	= npu_vertex_sched_param,
 	.vertexioc_qbuf         = npu_vertex_qbuf,
 	.vertexioc_dqbuf        = npu_vertex_dqbuf,
 	.vertexioc_prepare      = npu_vertex_prepare,

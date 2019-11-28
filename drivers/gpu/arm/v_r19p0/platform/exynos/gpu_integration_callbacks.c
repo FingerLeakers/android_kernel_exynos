@@ -31,9 +31,13 @@
 
 #if defined(CONFIG_SCHED_EMS)
 #include <linux/ems.h>
+#if defined(CONFIG_SCHED_EMS_TUNE)
+static struct emstune_mode_request emstune_req;
+#else
 static struct gb_qos_request gb_req = {
 	.name = "ems_boost",
 };
+#endif
 #elif defined(CONFIG_SCHED_EHMP)
 #include <linux/ehmp.h>
 static struct gb_qos_request gb_req = {
@@ -130,7 +134,11 @@ void gpu_destroy_context(void *ctx)
 	if (platform->ctx_need_qos)
 	{
 		platform->ctx_need_qos = false;
+#if defined(CONFIG_SCHED_EMS_TUNE)
+		emstune_boost(&emstune_req, 0);
+#else
 		gb_qos_update_request(&gb_req, 0);
+#endif
 	}
 
 	mutex_unlock(&platform->gpu_sched_hmp_lock);
@@ -201,7 +209,11 @@ int gpu_vendor_dispatch(struct kbase_context *kctx, u32 flags)
 			if (!platform->ctx_need_qos) {
 				platform->ctx_need_qos = true;
 				/* set hmp boost */
+#if defined(CONFIG_SCHED_EMS_TUNE)
+				emstune_boost(&emstune_req, 1);
+#else
 				gb_qos_update_request(&gb_req, 100);
+#endif
 			}
 			mutex_unlock(&platform->gpu_sched_hmp_lock);
 			gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_EGL_SET);
@@ -231,7 +243,11 @@ int gpu_vendor_dispatch(struct kbase_context *kctx, u32 flags)
 			if (platform->ctx_need_qos) {
 				platform->ctx_need_qos = false;
 				/* unset hmp boost */
+#if defined(CONFIG_SCHED_EMS_TUNE)
+				emstune_boost(&emstune_req, 0);
+#else
 				gb_qos_update_request(&gb_req, 0);
+#endif
 			}
 			mutex_unlock(&platform->gpu_sched_hmp_lock);
 			gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_EGL_RESET);

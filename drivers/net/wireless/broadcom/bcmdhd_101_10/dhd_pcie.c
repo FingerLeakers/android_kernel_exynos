@@ -269,8 +269,6 @@ static int dhdpcie_cto_error_recovery(struct dhd_bus *bus);
 static int dhdpcie_init_d11status(struct dhd_bus *bus);
 
 static int dhdpcie_wrt_rnd(struct dhd_bus *bus);
-extern uint16 dhd_prot_get_h2d_max_txpost(dhd_pub_t *dhd);
-extern void dhd_prot_set_h2d_max_txpost(dhd_pub_t *dhd, uint16 max_txpost);
 
 #define NUM_PATTERNS 2
 static bool dhd_bus_tcm_test(struct dhd_bus *bus);
@@ -319,6 +317,9 @@ enum {
 	IOV_H2D_PHASE,
 	IOV_H2D_ENABLE_TRAP_BADPHASE,
 	IOV_H2D_TXPOST_MAX_ITEM,
+#if defined(DHD_HTPUT_TUNABLES)
+	IOV_H2D_HTPUT_TXPOST_MAX_ITEM,
+#endif /* DHD_HTPUT_TUNABLES */
 	IOV_TRAPDATA,
 	IOV_TRAPDATA_RAW,
 	IOV_CTO_PREVENTION,
@@ -394,6 +395,9 @@ const bcm_iovar_t dhdpcie_iovars[] = {
 	{"force_trap_bad_h2d_phase", IOV_H2D_ENABLE_TRAP_BADPHASE,    0, 0,
 	IOVT_UINT32,    0 },
 	{"h2d_max_txpost",   IOV_H2D_TXPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
+#if defined(DHD_HTPUT_TUNABLES)
+	{"h2d_htput_max_txpost", IOV_H2D_HTPUT_TXPOST_MAX_ITEM,    0, 0,      IOVT_UINT32,    0 },
+#endif /* DHD_HTPUT_TUNABLES */
 	{"trap_data",	IOV_TRAPDATA,	0, 0,	IOVT_BUFFER,	0 },
 	{"trap_data_raw",	IOV_TRAPDATA_RAW,	0, 0,	IOVT_BUFFER,	0 },
 	{"cto_prevention",	IOV_CTO_PREVENTION,	0, 0,	IOVT_UINT32,	0 },
@@ -3584,13 +3588,6 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 #if defined(DHD_FW_COREDUMP)
 		/* save core dump or write to a file */
 		if (bus->dhd->memdump_enabled) {
-			bus->dhd->dhd_watchdog_ms_backup = dhd_watchdog_ms;
-			if (bus->dhd->dhd_watchdog_ms_backup) {
-				DHD_ERROR(("%s: Disabling wdtick before dhd dump\n",
-					__FUNCTION__));
-				dhd_os_wd_timer(bus->dhd, 0);
-			}
-
 #ifdef DHD_SSSR_DUMP
 			bus->dhd->collect_sssr = TRUE;
 #endif /* DHD_SSSR_DUMP */
@@ -3743,6 +3740,12 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 	dhd_pub_t *dhdp;
 	int ret;
 
+	bus->dhd->dhd_watchdog_ms_backup = dhd_watchdog_ms;
+	if (bus->dhd->dhd_watchdog_ms_backup) {
+		DHD_ERROR(("%s: Disabling wdtick before dhd dump\n",
+				__FUNCTION__));
+		dhd_os_wd_timer(bus->dhd, 0);
+	}
 #ifdef EXYNOS_PCIE_DEBUG
 	exynos_pcie_register_dump(1);
 #endif /* EXYNOS_PCIE_DEBUG */
@@ -4071,7 +4074,7 @@ BCMFASTPATH(dhd_bus_txdata)(struct dhd_bus *bus, void *txp, uint8 ifidx)
 		__FUNCTION__, flowid, flow_ring_node->status, flow_ring_node->active));
 
 	DHD_FLOWRING_LOCK(flow_ring_node->lock, flags);
-	if ((flowid >= bus->dhd->num_flow_rings) ||
+	if ((flowid > bus->dhd->max_tx_flowid) ||
 #ifdef IDLE_TX_FLOW_MGMT
 		(!flow_ring_node->active))
 #else
@@ -6302,6 +6305,23 @@ dhdpcie_bus_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, cons
 		bcopy(&int_val, arg, val_size);
 		break;
 
+#if defined(DHD_HTPUT_TUNABLES)
+	case IOV_SVAL(IOV_H2D_HTPUT_TXPOST_MAX_ITEM):
+		if (bus->dhd->busstate != DHD_BUS_DOWN) {
+			DHD_ERROR(("%s: Can change only when bus down (before FW download)\n",
+				__FUNCTION__));
+			bcmerror = BCME_NOTDOWN;
+			break;
+		}
+		dhd_prot_set_h2d_htput_max_txpost(bus->dhd, (uint16)int_val);
+		break;
+
+	case IOV_GVAL(IOV_H2D_HTPUT_TXPOST_MAX_ITEM):
+		int_val = dhd_prot_get_h2d_htput_max_txpost(bus->dhd);
+		bcopy(&int_val, arg, val_size);
+		break;
+#endif /* DHD_HTPUT_TUNABLES */
+
 	case IOV_GVAL(IOV_RXBOUND):
 		int_val = (int32)dhd_rxbound;
 		bcopy(&int_val, arg, val_size);
@@ -7917,6 +7937,11 @@ dhdpcie_bus_write_vars(dhd_bus_t *bus)
 		/* Compare the org NVRAM with the one read from RAM */
 		if (memcmp(vbuffer, nvram_ularray, varsize)) {
 			DHD_ERROR(("%s: Downloaded NVRAM image is corrupted.\n", __FUNCTION__));
+			prhex("nvram file", vbuffer, varsize);
+			prhex("downloaded nvram", nvram_ularray, varsize);
+			MFREE(bus->dhd->osh, nvram_ularray, varsize);
+			MFREE(bus->dhd->osh, vbuffer, varsize);
+			return BCME_ERROR;
 		} else
 			DHD_ERROR(("%s: Download, Upload and compare of NVRAM succeeded.\n",
 			__FUNCTION__));
@@ -8405,10 +8430,15 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "multi_client_flow_rings:%d max_multi_client_flow_rings:%d\n",
 		dhdp->multi_client_flow_rings, dhdp->max_multi_client_flow_rings);
 #endif /* DHD_LIMIT_MULTI_CLIENT_FLOWRINGS */
+#if defined(DHD_HTPUT_TUNABLES)
+	bcm_bprintf(strbuf, "htput_flow_ring_start:%d total_htput:%d client_htput=%d\n",
+		dhdp->htput_flow_ring_start, HTPUT_TOTAL_FLOW_RINGS, dhdp->htput_client_flow_rings);
+#endif /* DHD_HTPUT_TUNABLES */
 	bcm_bprintf(strbuf,
-		"%4s %4s %2s %4s %17s %4s %4s %6s %10s %17s %17s ",
+		"%4s %4s %2s %4s %17s %4s %4s %6s %10s %17s %17s %17s %17s %14s %14s %10s ",
 		"Num:", "Flow", "If", "Prio", ":Dest_MacAddress:", "Qlen", "CLen", "L2CLen",
-		" Overflows", "TRD: HLRD: HDRD", "TWR: HLWR: HDWR");
+		" Overflows", "TRD: HLRD: HDRD", "TWR: HLWR: HDWR", "BASE(VA)", "BASE(PA)",
+		"WORK_ITEM_SIZE", "MAX_WORK_ITEMS", "TOTAL_SIZE");
 
 #ifdef TX_STATUS_LATENCY_STATS
 	/* Average Tx status/Completion Latency in micro secs */
@@ -8417,7 +8447,7 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 
 	bcm_bprintf(strbuf, "\n");
 
-	for (flowid = 0; flowid < dhdp->num_flow_rings; flowid++) {
+	for (flowid = 0; flowid < dhdp->num_h2d_rings; flowid++) {
 		flow_ring_node = DHD_FLOW_RING(dhdp, flowid);
 		if (!flow_ring_node->active)
 			continue;
@@ -8432,7 +8462,7 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 			DHD_CUMM_CTR_READ(DHD_FLOW_QUEUE_L2CLEN_PTR(&flow_ring_node->queue)),
 			DHD_FLOW_QUEUE_FAILURES(&flow_ring_node->queue));
 		dhd_prot_print_flow_ring(dhdp, flow_ring_node->prot_info, TRUE, strbuf,
-			"%5d:%5d:%5d %5d:%5d:%5d");
+			"%5d:%5d:%5d %5d:%5d:%5d %17p %8x:%8x %14d %14d %10d");
 
 #ifdef TX_STATUS_LATENCY_STATS
 		bcm_bprintf(strbuf, "%16llu %16llu ",
@@ -10058,8 +10088,10 @@ dhdpcie_readshared(dhd_bus_t *bus)
 			}
 		}
 
-		if (bus->dhd->dma_d2h_ring_upd_support)
-			bus->dhd->d2h_sync_mode = 0;
+		if (bus->dhd->dma_d2h_ring_upd_support && bus->dhd->d2h_sync_mode) {
+			DHD_ERROR(("%s: ERROR COMBO: sync (0x%x) enabled for DMA indices\n",
+				__FUNCTION__, bus->dhd->d2h_sync_mode));
+		}
 
 		DHD_INFO(("%s: Host support DMAing indices: H2D:%d - D2H:%d. FW supports it\n",
 			__FUNCTION__,
@@ -10892,9 +10924,9 @@ dhd_bus_flow_ring_create_response(dhd_bus_t *bus, uint16 flowid, int32 status)
 	DHD_INFO(("%s :Flow Response %d \n", __FUNCTION__, flowid));
 
 	/* Boundary check of the flowid */
-	if (flowid >= bus->dhd->num_flow_rings) {
-		DHD_ERROR(("%s: flowid is invalid %d, max %d\n", __FUNCTION__,
-			flowid, bus->dhd->num_flow_rings));
+	if (flowid > bus->dhd->max_tx_flowid) {
+		DHD_ERROR(("%s: flowid is invalid %d, max id %d\n", __FUNCTION__,
+			flowid, bus->dhd->max_tx_flowid));
 		return;
 	}
 
@@ -10999,9 +11031,9 @@ dhd_bus_flow_ring_delete_response(dhd_bus_t *bus, uint16 flowid, uint32 status)
 	DHD_INFO(("%s :Flow Delete Response %d \n", __FUNCTION__, flowid));
 
 	/* Boundary check of the flowid */
-	if (flowid >= bus->dhd->num_flow_rings) {
-		DHD_ERROR(("%s: flowid is invalid %d, max %d\n", __FUNCTION__,
-			flowid, bus->dhd->num_flow_rings));
+	if (flowid > bus->dhd->max_tx_flowid) {
+		DHD_ERROR(("%s: flowid is invalid %d, max id %d\n", __FUNCTION__,
+			flowid, bus->dhd->max_tx_flowid));
 		return;
 	}
 
@@ -11082,9 +11114,9 @@ dhd_bus_flow_ring_flush_response(dhd_bus_t *bus, uint16 flowid, uint32 status)
 	}
 
 	/* Boundary check of the flowid */
-	if (flowid >= bus->dhd->num_flow_rings) {
-		DHD_ERROR(("%s: flowid is invalid %d, max %d\n", __FUNCTION__,
-			flowid, bus->dhd->num_flow_rings));
+	if (flowid > bus->dhd->max_tx_flowid) {
+		DHD_ERROR(("%s: flowid is invalid %d, max id %d\n", __FUNCTION__,
+			flowid, bus->dhd->max_tx_flowid));
 		return;
 	}
 
@@ -13126,7 +13158,7 @@ dhd_pcie_dump_wrapper_regs(dhd_pub_t *dhd)
 	DHD_ERROR(("%s: Master wrapper Reg\n", __FUNCTION__));
 
 	if (si_setcore(sih, PCIE2_CORE_ID, 0) != NULL) {
-		for (i = 0; i < sizeof(wrapper_dump_list) / 4; i++) {
+		for (i = 0; i < (uint32)sizeof(wrapper_dump_list) / 4; i++) {
 			val = si_wrapperreg(sih, wrapper_dump_list[i], 0, 0);
 			DHD_ERROR(("sbreg: addr:0x%x val:0x%x\n", wrapper_dump_list[i], val));
 		}
@@ -13134,7 +13166,7 @@ dhd_pcie_dump_wrapper_regs(dhd_pub_t *dhd)
 
 	if ((cr4regs = si_setcore(sih, ARMCR4_CORE_ID, 0)) != NULL) {
 		DHD_ERROR(("%s: ARM CR4 wrapper Reg\n", __FUNCTION__));
-		for (i = 0; i < sizeof(wrapper_dump_list) / 4; i++) {
+		for (i = 0; i < (uint32)sizeof(wrapper_dump_list) / 4; i++) {
 			val = si_wrapperreg(sih, wrapper_dump_list[i], 0, 0);
 			DHD_ERROR(("sbreg: addr:0x%x val:0x%x\n", wrapper_dump_list[i], val));
 		}
@@ -13631,4 +13663,18 @@ dhd_bus_tcm_test(struct dhd_bus *bus)
 
 	DHD_ERROR(("%s: Success iter : %d\n", __FUNCTION__, num));
 	return TRUE;
+}
+
+#define PCI_CFG_LINK_SPEED_SHIFT	16
+int
+dhd_get_pcie_linkspeed(dhd_pub_t *dhd)
+{
+	uint32 pcie_lnkst;
+	uint32 pcie_lnkspeed;
+	pcie_lnkst = OSL_PCI_READ_CONFIG(dhd->osh, PCIECFGREG_LINK_STATUS_CTRL,
+		sizeof(pcie_lnkst));
+
+	pcie_lnkspeed = (pcie_lnkst >> PCI_CFG_LINK_SPEED_SHIFT) & PCI_LINK_SPEED_MASK;
+	DHD_INFO(("%s: Link speed: %d\n", __FUNCTION__, pcie_lnkspeed));
+	return pcie_lnkspeed;
 }

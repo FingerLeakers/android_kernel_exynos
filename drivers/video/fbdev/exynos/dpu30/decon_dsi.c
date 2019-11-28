@@ -263,6 +263,16 @@ int decon_get_out_sd(struct decon_device *decon)
 			decon->lcd_info->xres, decon->lcd_info->yres);
 
 #ifdef CONFIG_EXYNOS_COMMON_PANEL
+	ret = v4l2_subdev_call(decon->panel_sd, core, ioctl,
+			PANEL_IOC_GET_PANEL_STATE, NULL);
+
+	decon->panel_state = (struct panel_state *)
+		v4l2_get_subdev_hostdata(decon->panel_sd);	
+	if (IS_ERR_OR_NULL(decon->panel_state)) {
+		decon_err("DECON:ERR:%s:failed to get lcd information\n", __func__);
+		return -EINVAL;
+	}
+
 	v4l2_subdev_call(decon->out_sd[0], core, ioctl,
 			DSIM_IOC_SET_ERROR_CB, &decon_error_cb_info);
 #endif
@@ -1252,24 +1262,47 @@ int decon_mmap(struct fb_info *info, struct vm_area_struct *vma)
 }
 EXPORT_SYMBOL(decon_mmap);
 
+
+#define GET_HIBER_TIME(decon)	(ktime_to_us(ktime_sub(ktime_get(), decon->exit_hiber_time)))
+#define TIME_HIBER_LOCK		1000
+#define TIME_HIBER_DSIM		1000
+#define TIME_HIBER_EXIT		2000
+
+
+
 int decon_exit_hiber(struct decon_device *decon)
 {
 	int ret = 0;
 	struct decon_param p;
 	struct decon_mode_info psr;
 	enum decon_state prev_state = decon->state;
-
+#ifdef CONFIG_PROFILE_WINCONFIG
+	s64 hiber_lock_time;
+	s64 hiber_dsim_time;
+	s64 hiber_exit_time;
+#endif
 	DPU_EVENT_START();
 
 	if (!decon->hiber.enabled)
 		return 0;
 
+#ifdef CONFIG_PROFILE_WINCONFIG
+	decon->exit_hiber_time = ktime_get();
+#endif
 	decon_hiber_block(decon);
 
 	if (atomic_read(&decon->hiber.remaining_hiber))
 		kthread_flush_worker(&decon->hiber.worker);
 
 	mutex_lock(&decon->hiber.lock);
+
+#ifdef CONFIG_PROFILE_WINCONFIG
+	hiber_lock_time = GET_HIBER_TIME(decon);
+	if (hiber_lock_time > TIME_HIBER_LOCK) {
+		decon_info("[DECON:PROFILE]%s time hiber exit lock %lld :%d\n",
+			__func__, hiber_lock_time);
+	}
+#endif
 
 	if (decon->state != DECON_STATE_HIBER)
 		goto err;
@@ -1281,6 +1314,14 @@ int decon_exit_hiber(struct decon_device *decon)
 		decon_err("%s decon-%d failed to set subdev EXIT_ULPS state\n",
 				__func__, decon->id);
 	}
+
+#ifdef CONFIG_PROFILE_WINCONFIG
+	hiber_dsim_time = GET_HIBER_TIME(decon) - hiber_lock_time;
+	if (hiber_dsim_time > TIME_HIBER_DSIM) {
+		decon_info("[DECON:PROFILE]%s time hiber exit for dsim %lld :%d\n",
+			__func__, hiber_dsim_time);
+	}
+#endif
 
 	decon_to_init_param(decon, &p);
 	decon_reg_init(decon->id, decon->dt.out_idx[0], &p);
@@ -1316,7 +1357,21 @@ int decon_exit_hiber(struct decon_device *decon)
 			decon->id, __func__, prev_state, decon->state);
 	decon->hiber.exit_cnt++;
 	DPU_EVENT_LOG(DPU_EVT_EXIT_HIBER, &decon->sd, start);
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	if (decon->profile_sd != NULL && decon->id == 0) {
+		v4l2_subdev_call(decon->profile_sd, core, ioctl,
+			PROFILE_HIBER_EXIT, (void *)ktime_to_us(ktime_get()));
+	}
+#endif
 	decon_hiber_finish(decon);
+
+#ifdef CONFIG_PROFILE_WINCONFIG
+	hiber_exit_time = GET_HIBER_TIME(decon);
+	if (hiber_exit_time > TIME_HIBER_EXIT) {
+		decon_info("[DECON:PROFILE]%s time hiber exit  %lld :%d\n",
+			__func__, hiber_exit_time);
+	}
+#endif
 
 err:
 	decon_hiber_unblock(decon);
@@ -1391,6 +1446,13 @@ int decon_enter_hiber(struct decon_device *decon)
 
 	decon->hiber.enter_cnt++;
 	DPU_EVENT_LOG(DPU_EVT_ENTER_HIBER, &decon->sd, start);
+
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	if (decon->profile_sd != NULL && decon->id == 0) {
+		v4l2_subdev_call(decon->profile_sd, core, ioctl,
+			PROFILE_HIBER_ENTER, (void *)ktime_to_us(ktime_get()));
+	}
+#endif
 	decon_hiber_start(decon);
 
 err:

@@ -254,7 +254,7 @@ void hard_reset_delay(void)
 	 * Add delay to keep the 7 seconds
 	 */
 	if (hard_reset_occurred) {
-		pr_err("wait until PMIC reset occurred");
+		pr_err("wait until warm or manual reset is triggered\n");
 		mdelay(2000);
 	}
 }

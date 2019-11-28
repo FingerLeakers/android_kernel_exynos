@@ -263,24 +263,11 @@ void report_light_data(struct ssp_data *data, int sensor_type, struct sensor_val
 	report_iio_data(data, sensor_type, lightdata);
 	if (data->light_log_cnt < 8) {
 		char *header = sensor_type == UNCAL_LIGHT_SENSOR ? "#>UL" : "#>L";
-#ifdef CONFIG_SENSORS_SSP_LIGHT_REPORT_LUX
-#ifdef CONFIG_SENSORS_SSP_LIGHT_ADDING_LUMINANCE
-		ssp_dbg("[SSP] %s lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d brightness=%d",
-			header, data->buf[sensor_type].lux, data->buf[sensor_type].cct,
-			data->buf[sensor_type].r, data->buf[sensor_type].g, data->buf[sensor_type].b,
-			data->buf[sensor_type].w, data->buf[sensor_type].a_time, data->buf[sensor_type].a_gain,
-			data->buf[sensor_type].brightness);
-#else
-		ssp_dbg("[SSP] %s lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d",
-			header, data->buf[sensor_type].lux, data->buf[sensor_type].cct,
-			data->buf[sensor_type].r, data->buf[sensor_type].g, data->buf[sensor_type].b,
-			data->buf[sensor_type].w, data->buf[sensor_type].a_time, data->buf[sensor_type].a_gain);
-#endif
-#else
-		ssp_dbg("[SSP] %s r=%d g=%d b=%d c=%d atime=%d again=%d",
-			header, data->buf[sensor_type].r, data->buf[sensor_type].g, data->buf[sensor_type].b,
-			data->buf[sensor_type].w, data->buf[sensor_type].a_time, data->buf[sensor_type].a_gain);
-#endif
+		ssp_dbg("[SSP] %s lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d brightness=%d min_lux_flag=%d",
+			header, data->buf[sensor_type].light_t.lux, data->buf[sensor_type].light_t.cct,
+			data->buf[sensor_type].light_t.r, data->buf[sensor_type].light_t.g, data->buf[sensor_type].light_t.b,
+			data->buf[sensor_type].light_t.w, data->buf[sensor_type].light_t.a_time, data->buf[sensor_type].light_t.a_gain,
+			data->buf[sensor_type].light_t.brightness, data->buf[sensor_type].light_t.min_lux_flag);
 		data->light_log_cnt++;
 	}
 }
@@ -306,10 +293,11 @@ void report_light_cct_data(struct ssp_data *data, int sensor_type, struct sensor
 
 	if (data->light_cct_log_cnt< 3) {
 		ssp_dbg("[SSP] #>CCT lux=%u cct=%d r=%d g=%d b=%d c=%d atime=%d again=%d lux_raw=%d roi=%d",
-			data->buf[LIGHT_CCT_SENSOR].lux, data->buf[LIGHT_CCT_SENSOR].cct,
-			data->buf[LIGHT_CCT_SENSOR].r, data->buf[LIGHT_CCT_SENSOR].g, data->buf[LIGHT_CCT_SENSOR].b,
-			data->buf[LIGHT_CCT_SENSOR].w, data->buf[LIGHT_CCT_SENSOR].a_time, data->buf[LIGHT_CCT_SENSOR].a_gain,
-			data->buf[LIGHT_CCT_SENSOR].lux_raw, data->buf[LIGHT_CCT_SENSOR].roi);
+			data->buf[LIGHT_CCT_SENSOR].light_cct_t.lux, data->buf[LIGHT_CCT_SENSOR].light_cct_t.cct,
+			data->buf[LIGHT_CCT_SENSOR].light_cct_t.r, data->buf[LIGHT_CCT_SENSOR].light_cct_t.g,
+		       	data->buf[LIGHT_CCT_SENSOR].light_cct_t.b, data->buf[LIGHT_CCT_SENSOR].light_cct_t.w,
+		       	data->buf[LIGHT_CCT_SENSOR].light_cct_t.a_time, data->buf[LIGHT_CCT_SENSOR].light_cct_t.a_gain,
+			data->buf[LIGHT_CCT_SENSOR].light_cct_t.lux_raw, data->buf[LIGHT_CCT_SENSOR].light_cct_t.roi);
 		data->light_cct_log_cnt++;
 	}
 }
@@ -365,6 +353,8 @@ void report_prox_raw_data(struct ssp_data *data, int sensor_type,
 	}
 
 	data->buf[PROXIMITY_RAW].prox_raw[0] = proxrawdata->prox_raw[0];
+
+	report_iio_data(data, PROXIMITY_RAW, proxrawdata);
 }
 
 void report_proximity_pocket_data(struct ssp_data *data, int sensor_type, struct sensor_value *proximity_pocket)

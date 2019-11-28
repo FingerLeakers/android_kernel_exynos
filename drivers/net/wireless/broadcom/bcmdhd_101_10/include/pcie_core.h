@@ -99,11 +99,12 @@ typedef struct pcie_doorbell {
 } pcie_doorbell_t;
 
 /* Flow Ring Manager */
-#define IFRM_FR_IDX_MAX	256
-#define IFRM_FR_GID_MAX 4
-#define IFRM_FR_DEV_MAX 8
-#define IFRM_FR_TID_MAX 8
-#define IFRM_FR_DEV_VALID 2
+#define IFRM_FR_IDX_MAX		256
+#define IFRM_FR_CONFIG_GID	2
+#define IFRM_FR_GID_MAX		4
+#define IFRM_FR_DEV_MAX		8
+#define IFRM_FR_TID_MAX		8
+#define IFRM_FR_DEV_VALID	2
 
 #define IFRM_VEC_REG_BITS	32
 
@@ -116,6 +117,8 @@ typedef struct pcie_doorbell {
 /* IFRM_DEV_0 : d11AC, IFRM_DEV_1 : d11AD */
 #define IFRM_DEV_0	0
 #define IFRM_DEV_1	1
+#define IHRM_FR_SW_MASK (1u << IFRM_DEV_0)
+#define IHRM_FR_HW_MASK (1u << IFRM_DEV_1)
 
 #define IFRM_FR_GID_0 0
 #define IFRM_FR_GID_1 1
@@ -1414,6 +1417,10 @@ uint32 pcie_cto_to_thresh_default(uint corerev);
 #define PD_DB_INDEX_VAL_MASK		(0xFFFFu)	/* bits 31:16 */
 
 /* PWI LUT entry fields */
+#define PWI_FLOW_VALID_MASK		(0x1u)
+#define PWI_FLOW_VALID_SHIFT		(22u)
+#define PWI_FLOW_RING_GROUP_ID_MASK	(0x3u)
+#define PWI_FLOW_RING_GROUP_ID_SHIFT	(20u)
 #define PWI_HOST_RINGIDX_MASK	(0xFFu) /* Host Ring Index Number[19:12] */
 #define PWI_HOST_RINGIDX_SHIFT	(12u)
 #define PWI_HWA_RINGTYPE_MASK	(0xFu)	/* HWA Ring Type Mapping-[11:8] */

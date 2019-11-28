@@ -69,9 +69,9 @@ class IntegrityRoutine(ELF):
         """
         all_altinstr = self.get_altinstructions(start_addr, end_addr)
         altinstr_gaps = list()
-        for addr in all_altinstr:
-            altinstr_gaps.append(addr)
-            altinstr_gaps.append(addr + 4)
+        for alinstr_item in all_altinstr:
+            altinstr_gaps.append(alinstr_item[0])
+            altinstr_gaps.append(alinstr_item[0] + alinstr_item[1])
         self.__remove_all_dublicates(altinstr_gaps)
         altinstr_gaps = [[addr1, addr2] for addr1, addr2 in self.utils.pairwise(altinstr_gaps)]
         return altinstr_gaps

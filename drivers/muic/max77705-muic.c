@@ -1855,6 +1855,17 @@ static void max77705_muic_afc_work(struct work_struct *work)
 	}
 }
 
+static int max77705_muic_hv_charger_disable(bool en)
+{
+	struct max77705_muic_data *muic_data = g_muic_data;
+
+	muic_data->is_charger_mode = en;
+
+	schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(0));
+
+	return 0;
+}
+
 static int max77705_muic_afc_set_voltage(int voltage)
 {
 	struct max77705_muic_data *muic_data = g_muic_data;
@@ -2319,6 +2330,7 @@ int max77705_muic_probe(struct max77705_usbc_platform_data *usbc_data)
 	muic_data->is_otg_test = false;
 	muic_data->is_factory_start = false;
 	muic_data->switch_val = COM_OPEN;
+	muic_data->is_charger_mode = false;
 
 	usbc_data->muic_data = muic_data;
 	g_muic_data = muic_data;
@@ -2383,6 +2395,7 @@ int max77705_muic_probe(struct max77705_usbc_platform_data *usbc_data)
 
 	/* set MUIC afc voltage switching function */
 	muic_data->pdata->muic_afc_set_voltage_cb = max77705_muic_afc_set_voltage;
+	muic_data->pdata->muic_hv_charger_disable_cb = max77705_muic_hv_charger_disable;
 
 	/* set MUIC check charger init function */
 	muic_data->pdata->muic_hv_charger_init_cb = max77705_muic_hv_charger_init;

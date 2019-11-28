@@ -39,6 +39,7 @@ enum {
 	MIPI_DSI_WR_PPS_CMD,
 	MIPI_DSI_WR_GRAM_CMD,
 	MIPI_DSI_WR_SRAM_CMD,
+	MIPI_DSI_WR_SR_FAST_CMD,
 	MAX_MIPI_DSI_CMD_TYPE,
 };
 
@@ -84,6 +85,7 @@ enum {
 #define UNDER_MINUS_15(temperature)	(temperature <= -15)
 #define UNDER_0(temperature)	(temperature <= 0)
 #define CAPS_IS_ON(level)	(level >= 41)
+#define PANEL_WAIT_VSYNC_TIMEOUT_MSEC	(50)
 
 struct maptbl;
 struct mdnie_info;
@@ -114,6 +116,7 @@ struct delayinfo {
 	u32 type;
 	char *name;
 	u32 usec;
+	u32 nframe;
 	ktime_t s_time;
 };
 
@@ -160,6 +163,22 @@ struct delayinfo DLYINFO(_name_) =		\
 	.usec = (_msec_) * 1000,			\
 }
 
+#define DEFINE_PANEL_FRAME_DELAY(_name_, _nframe_)	\
+struct delayinfo DLYINFO(_name_) =		\
+{										\
+	.name = #_name_,					\
+	.type = CMD_TYPE_FRAME_DELAY,		\
+	.nframe = (_nframe_),				\
+}
+
+#define DEFINE_PANEL_VSYNC_DELAY(_name_, _nvsync_)	\
+struct delayinfo DLYINFO(_name_) =		\
+{										\
+	.name = #_name_,					\
+	.type = CMD_TYPE_VSYNC_DELAY,		\
+	.nframe = (_nvsync_),				\
+}
+
 #define DEFINE_PANEL_TIMER_BEGIN(_name_, _timer_delay_)		\
 struct timer_delay_begin_info TIMER_DLYINFO_BEGIN(_name_) =	\
 {										\
@@ -199,6 +218,8 @@ enum {
 	CMD_TYPE_NONE,
 	CMD_TYPE_DELAY,
 	CMD_TYPE_DELAY_NO_SLEEP,
+	CMD_TYPE_FRAME_DELAY,
+	CMD_TYPE_VSYNC_DELAY,
 	CMD_TYPE_TIMER_DELAY_BEGIN,
 	CMD_TYPE_TIMER_DELAY,
 	CMD_TYPE_PINCTL,
@@ -207,11 +228,13 @@ enum {
 	DSI_PKT_TYPE_WR,
 	DSI_PKT_TYPE_WR_NO_WAKE,
 	DSI_PKT_TYPE_COMP,
-/*Command to write ddi side ram */
-	DSI_PKT_TYPE_WR_SR,
-	DSI_PKT_TYPE_WR_MEM,
 	DSI_PKT_TYPE_PPS,
-	CMD_TYPE_TX_PKT_END = DSI_PKT_TYPE_PPS,
+	/* Command to write ddi side ram */
+	DSI_PKT_TYPE_WR_SR,
+	/*write command to side ram with busy wait*/
+	DSI_PKT_TYPE_SR_FAST,
+	DSI_PKT_TYPE_WR_MEM,
+	CMD_TYPE_TX_PKT_END = DSI_PKT_TYPE_WR_MEM,
 	CMD_TYPE_RX_PKT_START,
 	SPI_PKT_TYPE_RD = CMD_TYPE_RX_PKT_START,
 #ifdef CONFIG_SUPPORT_DDI_FLASH
@@ -229,6 +252,9 @@ enum {
 	MAX_CMD_TYPE,
 };
 
+#define IS_CMD_TYPE_TX_MEM_PKT(_type_) \
+	(DSI_PKT_TYPE_WR_SR <= (_type_) && (_type_) <= DSI_PKT_TYPE_WR_MEM)
+
 #define IS_CMD_TYPE_TX_PKT(_type_) \
 	((CMD_TYPE_TX_PKT_START <= (_type_) && (_type_) <= CMD_TYPE_TX_PKT_END) ||\
 	 (_type_) == CMD_TYPE_KEY)
@@ -237,7 +263,7 @@ enum {
 	(CMD_TYPE_RX_PKT_START <= (_type_) && (_type_) <= CMD_TYPE_RX_PKT_END)
 
 #define IS_CMD_TYPE_DELAY(_type_) \
-	((_type_) == CMD_TYPE_DELAY || (_type_) == CMD_TYPE_DELAY_NO_SLEEP)
+	((_type_) >= CMD_TYPE_DELAY && (_type_) <= CMD_TYPE_FRAME_DELAY)
 
 #define IS_CMD_TYPE_TIMER_DELAY(_type_) \
 	((_type_) == CMD_TYPE_TIMER_DELAY_BEGIN || \
@@ -666,16 +692,12 @@ enum PANEL_SEQ {
 	PANEL_DSU_SEQ,
 #endif
 	PANEL_FPS_SEQ,
+	PANEL_BLACK_AND_FPS_SEQ,
 	PANEL_MCD_ON_SEQ,
 	PANEL_MCD_OFF_SEQ,
 	PANEL_MCD_RS_ON_SEQ,
 	PANEL_MCD_RS_OFF_SEQ,
 	PANEL_MCD_RS_READ_SEQ,
-#ifdef CONFIG_ACTIVE_CLOCK
-	PANEL_ACTIVE_CLK_IMG_SEQ,
-	PANEL_ACTIVE_CLK_CTRL_SEQ,
-	PANEL_ACTIVE_CLK_UPDATE_SEQ,
-#endif
 #ifdef CONFIG_SUPPORT_MST
 	PANEL_MST_ON_SEQ,
 	PANEL_MST_OFF_SEQ,
@@ -717,6 +739,12 @@ enum PANEL_SEQ {
 #ifdef CONFIG_DYNAMIC_FREQ
 	PANEL_DYNAMIC_FFC_SEQ,
 #endif
+#ifdef CONFIG_SUPPORT_MAFPC
+	PANEL_MAFC_IMG_SEQ,
+	PANEL_MAFC_ON_SEQ,
+	PANEL_MAFC_OFF_SEQ,
+	PANEL_MAFPC_FAC_CHECKSUM,
+#endif
 	PANEL_GAMMA_INTER_CONTROL_SEQ,
 	PANEL_PARTIAL_DISP_ON_SEQ,
 	PANEL_PARTIAL_DISP_OFF_SEQ,
@@ -747,6 +775,9 @@ struct seqinfo {
 	.size = ARRAY_SIZE((_cmdtbl_)),		\
 }
 
+#define DEFINE_SEQINFO(_name_, _cmdtbl_) \
+struct seqinfo SEQINFO(_name_) = SEQINFO_INIT((#_name_), (_cmdtbl_))
+
 struct brt_map {
 	int brt;
 	int lum;
@@ -774,8 +805,33 @@ enum vrr_mode {
 	MAX_VRR_MODE,
 };
 
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+struct vrr_bridge_step {
+	int fps;
+	int frame_delay;
+};
+
+struct panel_vrr_bridge {
+	int nr_fps_table;
+	int origin_fps;
+	int origin_mode;
+	int target_fps;
+	int target_mode;
+	int min_actual_brt;
+	int max_actual_brt;
+	struct vrr_bridge_step *step;
+	int nr_step;
+};
+#endif
+
 struct panel_vrr {
-	u32 fps;
+	u32 def_fps;
+	u32 min_fps;
+	u32 max_fps;
+	u32 base_fps;
+	u32 base_vactive;
+	u32 base_vfp;
+	u32 base_vbp;
 	u32 mode;
 };
 
@@ -786,8 +842,12 @@ struct panel_resol {
 	union {
 		struct panel_dsc dsc;
 	} comp_param;
-	struct panel_vrr *available_vrr;
+	struct panel_vrr **available_vrr;
 	unsigned int nr_available_vrr;
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	struct panel_vrr_bridge *bridge_rr;
+	unsigned int nr_bridge_rr;
+#endif
 };
 
 struct panel_mres {
@@ -798,6 +858,7 @@ struct panel_mres {
 struct ddi_properties {
 	u32 gpara;
 	bool support_partial_disp;
+	bool err_fg_recovery;
 };
 
 struct common_panel_info {
@@ -809,7 +870,7 @@ struct common_panel_info {
 	u32 rev;
 	struct ddi_properties ddi_props;
 	struct panel_mres mres;
-	struct panel_vrr *vrrtbl;
+	struct panel_vrr **vrrtbl;
 	int nr_vrrtbl;
 	struct maptbl *maptbl;
 	int nr_maptbl;
@@ -1055,7 +1116,18 @@ struct panel_properties {
 	u32 xres;
 	u32 yres;
 	u32 panel_partial_disp;
-	struct panel_vrr vrr;
+	/* variable refresh rate */
+	u32 vrr_fps;
+	u32 vrr_mode;
+	u32 vrr_idx;
+	u32 vrr_origin_fps;
+	u32 vrr_origin_mode;
+	u32 vrr_origin_idx;
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	u32 vrr_target_fps;
+	u32 vrr_target_mode;
+	struct panel_vrr_bridge *bridge;
+#endif
 	u32 dia_mode;
 	u32 ub_con_cnt;
 	u32 conn_det_enable;
@@ -1074,7 +1146,7 @@ struct panel_info {
 	void *pdata;
 	void *dim_info[MAX_PANEL_BL_SUBDEV];
 	void *dim_flash_info[MAX_PANEL_BL_SUBDEV];
-	struct panel_vrr *vrrtbl;
+	struct panel_vrr **vrrtbl;
 	int nr_vrrtbl;
 	struct maptbl *maptbl;
 	int nr_maptbl;

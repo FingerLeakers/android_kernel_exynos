@@ -21,6 +21,93 @@
 #endif
 #include "../panel_drv.h"
 
+
+static bool is_supported_vrr(struct panel_info *panel_data,
+		struct panel_vrr *vrr)
+{
+	int i;
+
+	if (!panel_data || !vrr) {
+		pr_err("%s invalid parameter\n", __func__);
+		return false;
+	}
+
+	for (i = 0; i < panel_data->nr_vrrtbl; i++) {
+		if (!memcmp(panel_data->vrrtbl[i], vrr, sizeof(struct panel_vrr)))
+			return true;
+	}
+
+	return false;
+}
+
+static int search_vrr_table(struct panel_vrr *vrrtbl,
+		int nr_vrrtbl, u32 fps, u32 mode)
+{
+	int i;
+
+	if (!vrrtbl)
+		return -EINVAL;
+
+	if (nr_vrrtbl <= 0)
+		return -EINVAL;
+
+	for (i = 0; i < nr_vrrtbl; i++) {
+		if ((vrrtbl[i].min_fps <= fps && vrrtbl[i].max_fps >= fps)
+				&& vrrtbl[i].mode == mode)
+			return i;
+	}
+
+	return -1;
+}
+
+static int search_vrr_fps_table(u32 fps)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(S6E3HAB_VRR_FPS); i++) {
+		if (S6E3HAB_VRR_FPS[i] == fps)
+			return i;
+	}
+
+	return -1;
+}
+
+static int search_vrr_mode_table(u32 mode)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(S6E3HAB_VRR_MODE); i++) {
+		if (S6E3HAB_VRR_MODE[i] == mode)
+			return i;
+	}
+
+	return -1;
+}
+
+static int calc_vfp(struct panel_vrr *vrr, int fps)
+{
+	int vfp, base_fps, base_vbp, base_vfp, base_vactive;
+
+	if (!vrr)
+		return -EINVAL;
+
+	base_fps = vrr->base_fps;
+	base_vbp = vrr->base_vbp;
+	base_vfp = vrr->base_vfp;
+	base_vactive = vrr->base_vactive;
+
+	if (base_fps == fps)
+		vfp = base_vfp;
+	else
+		vfp = (((base_vbp + base_vactive + base_vfp) * base_fps) / fps)
+			- (base_vbp + base_vactive);
+
+	pr_debug("%s fps:%d vfp:%d base(fps:%d vbp:%d vfp:%d vactive:%d)\n",
+			__func__, fps, vfp, base_fps, base_vbp, base_vfp, base_vactive);
+
+	return vfp;
+}
+
 #ifdef CONFIG_PANEL_AID_DIMMING
 static int gamma_ctoi(s32 (*dst)[MAX_COLOR], u8 *src, int nr_tp)
 {
@@ -191,8 +278,7 @@ static void print_gamma_table(struct panel_info *panel_data, int id)
 		return;
 
 	for (vrr_idx = 0; vrr_idx < MAX_S6E3HAB_VRR; vrr_idx++) {
-		if (panel_data->nr_vrrtbl <= vrr_idx ||
-			panel_data->vrrtbl[vrr_idx].fps == 0)
+		if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[vrr_idx]))
 			continue;
 
 		for (i = 0; i < brt_tbl->sz_lum; i++) {
@@ -238,8 +324,7 @@ static int generate_hbm_gamma_table(struct panel_info *panel_data, int id)
 	nor_gamma_tbl = kmalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 	hbm_gamma_tbl = kmalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
 	for (vrr_idx = 0; vrr_idx < MAX_S6E3HAB_VRR; vrr_idx++) {
-		if (panel_data->nr_vrrtbl <= vrr_idx ||
-			panel_data->vrrtbl[vrr_idx].fps == 0)
+		if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[vrr_idx]))
 			continue;
 
 		memset(out_gamma_tbl, 0, sizeof(s32) * nr_tp * MAX_COLOR);
@@ -326,8 +411,7 @@ static int generate_gamma_table_using_lut(struct panel_info *panel_data, int id)
 	dim_init_info[S6E3HAB_VRR_60_HS] = &panel_dim_info->dim_60hz_hs_init_info;
 
 	for (vrr_idx = 0; vrr_idx < MAX_S6E3HAB_VRR; vrr_idx++) {
-		if (panel_data->nr_vrrtbl <= vrr_idx ||
-			panel_data->vrrtbl[vrr_idx].fps == 0)
+		if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[vrr_idx]))
 			continue;
 
 		nr_tp = dim_init_info[vrr_idx]->nr_tp;
@@ -488,8 +572,7 @@ static int generate_gamma_table_using_flash(struct panel_info *panel_data, int i
 	}
 
 	for (vrr_idx = 0; vrr_idx < MAX_S6E3HAB_VRR; vrr_idx++) {
-		if (panel_data->nr_vrrtbl <= vrr_idx ||
-			panel_data->vrrtbl[vrr_idx].fps == 0)
+		if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[vrr_idx]))
 			continue;
 
 		if (!dim_flash_is_valid(panel_data,
@@ -648,6 +731,34 @@ int init_common_table(struct maptbl *tbl)
 	return 0;
 }
 
+static int init_mtp_table(struct maptbl *tbl)
+{
+	struct panel_device *panel = tbl->pdata;
+	struct resinfo *res;
+	int ret, size;
+
+	res = find_panel_resource(&panel->panel_data, "mtp");
+	if (unlikely(!res)) {
+		pr_warn("%s resource(mtp) not found\n", __func__);
+		return -EINVAL;
+	}
+
+	size = get_panel_resource_size(res);
+	if (size <= 0 || size != sizeof_maptbl(tbl)) {
+		pr_err("%s invalid resource size(%d) maptbl_size(%d)\n",
+				__func__, size, sizeof_maptbl(tbl));
+		return -EINVAL;
+	}
+	ret = resource_copy(tbl->arr, res);
+	if (unlikely(ret < 0)) {
+		pr_err("%s failed to copy mtp resource\n",
+				__func__);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int init_gamma_table(struct maptbl *tbl)
 {
 #ifdef CONFIG_SUPPORT_DIM_FLASH
@@ -674,7 +785,25 @@ static int getidx_dimming_maptbl(struct maptbl *tbl)
 {
 	struct panel_bl_device *panel_bl;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+	int index;
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_bl = &panel->panel_bl;
+	index = get_actual_brightness_index(panel_bl,
+			panel_bl->props.brightness);
+
+	return maptbl_index(tbl, 0, index, 0);
+}
+
+static int getidx_dimming_vrr_maptbl(struct maptbl *tbl)
+{
+	struct panel_bl_device *panel_bl;
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 	struct panel_info *panel_data = &panel->panel_data;
+	struct panel_vrr *vrr;
 	int layer, row;
 
 	if (panel == NULL) {
@@ -685,12 +814,13 @@ static int getidx_dimming_maptbl(struct maptbl *tbl)
 	row = get_actual_brightness_index(panel_bl,
 			panel_bl->props.brightness);
 
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
 	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &panel_data->props.vrr);
+			ARRAY_SIZE(S6E3HAB_VRR), vrr);
 	if (layer < 0) {
 		pr_err("%s vrr(fps:%d mode:%d) not found\n",
-				__func__, panel_data->props.vrr.fps,
-				panel_data->props.vrr.mode);
+				__func__, panel_data->props.vrr_fps,
+				panel_data->props.vrr_mode);
 		layer = 0;
 	}
 
@@ -702,7 +832,7 @@ static int getidx_dimming_vrr_60hz_maptbl(struct maptbl *tbl)
 	struct panel_bl_device *panel_bl;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 	struct panel_info *panel_data;
-	struct panel_vrr vrr;
+	struct panel_vrr *vrr;
 	int row, layer;
 
 	if (panel == NULL) {
@@ -711,14 +841,16 @@ static int getidx_dimming_vrr_60hz_maptbl(struct maptbl *tbl)
 	}
 
 	panel_data = &panel->panel_data;
-	vrr.fps = 60;
-	vrr.mode = VRR_NORMAL_MODE;
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	if (vrr->def_fps == 120)
+		layer = S6E3HAB_VRR_60_NORMAL;
+	else
+		layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
+				ARRAY_SIZE(S6E3HAB_VRR), vrr);
 
-	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &vrr);
 	if (layer < 0) {
-		panel_err("PANEL:ERR:%s:failed to find vrr(fps:%d mode:%d)\n",
-				__func__, vrr.fps, vrr.mode);
+		panel_err("PANEL:ERR:%s:failed to find vrr\n",
+				__func__);
 		layer = 0;
 	}
 
@@ -734,7 +866,7 @@ static int getidx_dimming_vrr_120hz_maptbl(struct maptbl *tbl)
 	struct panel_bl_device *panel_bl;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 	struct panel_info *panel_data;
-	struct panel_vrr vrr;
+	struct panel_vrr *vrr;
 	int row, layer;
 
 	if (panel == NULL) {
@@ -743,14 +875,14 @@ static int getidx_dimming_vrr_120hz_maptbl(struct maptbl *tbl)
 	}
 
 	panel_data = &panel->panel_data;
-	vrr.fps = 120;
-	vrr.mode = VRR_HS_MODE;
-
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	if (vrr->def_fps == 60)
+		layer = S6E3HAB_VRR_120_HS;
+	else
 	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &vrr);
+				ARRAY_SIZE(S6E3HAB_VRR), vrr);
 	if (layer < 0) {
-		panel_err("PANEL:ERR:%s:failed to find vrr(fps:%d mode:%d)\n",
-				__func__, vrr.fps, vrr.mode);
+		panel_err("PANEL:ERR:%s:failed to find vrr\n", __func__);
 		layer = 0;
 	}
 
@@ -795,8 +927,8 @@ static int getidx_hmd_dimming_maptbl(struct maptbl *tbl)
 			PANEL_BL_SUBDEV_TYPE_HMD,
 			panel_bl->subdev[PANEL_BL_SUBDEV_TYPE_HMD].brightness);
 
-	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &panel_data->props.vrr);
+	layer = search_vrr_table(S6E3HAB_VRR, ARRAY_SIZE(S6E3HAB_VRR),
+			panel_data->props.vrr_fps, panel_data->props.vrr_mode);
 	if (layer < 0)
 		layer = 0;
 
@@ -991,6 +1123,7 @@ static int get_dimming_type(struct panel_device *panel)
 {
 	struct panel_info *panel_data;
 	struct panel_bl_device *panel_bl;
+	struct panel_vrr *vrr;
 	struct maptbl *tbl;
 	int id, layer;
 	int upper_idx, lower_idx;
@@ -1011,8 +1144,9 @@ static int get_dimming_type(struct panel_device *panel)
 		return -EINVAL;
 	}
 
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
 	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &panel_data->props.vrr);
+			ARRAY_SIZE(S6E3HAB_VRR), vrr);
 	if (layer < 0)
 		layer = 0;
 
@@ -1029,6 +1163,163 @@ static int get_dimming_type(struct panel_device *panel)
 	else
 		return S_DIMMING;
 }
+
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+static int generate_interpolation_vrr_gamma(struct panel_info *panel_data,
+		struct maptbl *gamma_maptbl, int dimtype,
+		int lower_vrr_idx, int upper_vrr_idx, int fps, u8 *dst)
+{
+	struct panel_device *panel = to_panel_device(panel_data);
+	struct panel_bl_device *panel_bl = &panel->panel_bl;
+	struct panel_dimming_info *panel_dim_info;
+	struct resinfo *hbm_gamma_res[2];
+	struct brightness_table *brt_tbl;
+	s32 (*out_vrr_gamma_tbl)[MAX_COLOR];
+	s32 (*(out_gamma_tbl[2]))[MAX_COLOR];
+	s32 (*(lower_gamma_tbl[2]))[MAX_COLOR];
+	s32 (*(upper_gamma_tbl[2]))[MAX_COLOR];
+	int luminance, nr_luminance, nr_hbm_luminance, nr_extend_hbm_luminance;
+	int id, nr_tp, brightness, ret = 0;
+	int upper_idx, lower_idx, nor_max_idx, hbm_max_idx;
+	u32 upper_lum, lower_lum, nor_max_lum, hbm_max_lum;
+	u32 upper_brt, lower_brt, nor_max_brt, hbm_max_brt;
+	char *hbm_gamma_resource_names[MAX_S6E3HAB_VRR] = {
+		[S6E3HAB_VRR_60_NORMAL] = "hbm_gamma",
+		[S6E3HAB_VRR_60_HS] = "hbm_gamma_60hz_hs",
+		[S6E3HAB_VRR_120_HS] = "hbm_gamma_120hz",
+	};
+
+	if (lower_vrr_idx < 0 || lower_vrr_idx >= MAX_S6E3HAB_VRR ||
+		!is_supported_vrr(panel_data, &S6E3HAB_VRR[lower_vrr_idx]))
+		return -EINVAL;
+
+	if (upper_vrr_idx < 0 || upper_vrr_idx >= MAX_S6E3HAB_VRR ||
+		!is_supported_vrr(panel_data, &S6E3HAB_VRR[upper_vrr_idx]))
+		return -EINVAL;
+
+	id = panel_bl->props.id;
+	panel_dim_info = panel_data->panel_dim_info[id];
+	brt_tbl = &panel_bl->subdev[id].brt_tbl;
+	brightness = panel_bl->props.brightness_of_step;
+
+	nr_tp = panel_dim_info->dim_init_info.nr_tp;
+	nr_luminance = panel_dim_info->nr_luminance;
+	nr_hbm_luminance = panel_dim_info->nr_hbm_luminance;
+	nr_extend_hbm_luminance = panel_dim_info->nr_extend_hbm_luminance;
+
+	upper_idx = panel_bl->props.actual_brightness_index;
+	lower_idx = max(0, (upper_idx - 1));
+	upper_lum = brt_tbl->lum[upper_idx];
+	lower_lum = brt_tbl->lum[lower_idx];
+	upper_brt = brt_tbl->brt[upper_idx];
+	lower_brt = brt_tbl->brt[lower_idx];
+
+	hbm_max_idx = nr_luminance + nr_hbm_luminance - 1;
+	nor_max_idx = nr_luminance - 1;
+	hbm_max_lum = brt_tbl->lum[hbm_max_idx];
+	nor_max_lum = brt_tbl->lum[nor_max_idx];
+	hbm_max_brt = brt_tbl->brt[hbm_max_idx];
+	nor_max_brt = brt_tbl->brt[nor_max_idx];
+
+	hbm_gamma_res[0] = find_panel_resource(panel_data,
+			hbm_gamma_resource_names[lower_vrr_idx]);
+	if (unlikely(!hbm_gamma_res[0])) {
+		pr_warn("%s panel_bl-%d %s not found\n",
+				__func__, id, hbm_gamma_resource_names[lower_vrr_idx]);
+		return -EIO;
+	}
+
+	hbm_gamma_res[1] = find_panel_resource(panel_data,
+			hbm_gamma_resource_names[upper_vrr_idx]);
+	if (unlikely(!hbm_gamma_res[1])) {
+		pr_warn("%s panel_bl-%d %s not found\n",
+				__func__, id, hbm_gamma_resource_names[upper_vrr_idx]);
+		return -EIO;
+	}
+
+	out_vrr_gamma_tbl = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+
+	out_gamma_tbl[0] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+	upper_gamma_tbl[0] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+	lower_gamma_tbl[0] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+
+	out_gamma_tbl[1] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+	upper_gamma_tbl[1] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+	lower_gamma_tbl[1] = kzalloc(sizeof(s32) * nr_tp * MAX_COLOR, GFP_KERNEL);
+
+	luminance = interpolation(lower_lum, upper_lum,
+			(s32)((u64)brightness - lower_brt), (s32)(upper_brt - lower_brt));
+
+	if (dimtype == A_DIMMING) {
+		gamma_ctoi(upper_gamma_tbl[0], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, lower_vrr_idx, upper_idx, 0)], nr_tp);
+		gamma_ctoi(upper_gamma_tbl[1], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, upper_vrr_idx, upper_idx, 0)], nr_tp);
+
+		gamma_table_interpolation(upper_gamma_tbl[0], upper_gamma_tbl[1], out_vrr_gamma_tbl, nr_tp,
+				panel_data->props.vrr_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps,
+				(S6E3HAB_VRR[upper_vrr_idx].def_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps));
+	} else if (luminance <= panel_dim_info->target_luminance) {
+		/* ~ UI MAX BRIGHTNESS */
+		gamma_ctoi(lower_gamma_tbl[0], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, lower_vrr_idx, lower_idx, 0)], nr_tp);
+		gamma_ctoi(upper_gamma_tbl[0], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, lower_vrr_idx, upper_idx, 0)], nr_tp);
+		gamma_table_interpolation(lower_gamma_tbl[0], upper_gamma_tbl[0], out_gamma_tbl[0],
+				nr_tp, luminance - lower_lum, upper_lum - lower_lum);
+
+		gamma_ctoi(lower_gamma_tbl[1], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, upper_vrr_idx, lower_idx, 0)], nr_tp);
+		gamma_ctoi(upper_gamma_tbl[1], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, upper_vrr_idx, upper_idx, 0)], nr_tp);
+		gamma_table_interpolation(lower_gamma_tbl[1], upper_gamma_tbl[1], out_gamma_tbl[1],
+				nr_tp, luminance - lower_lum, upper_lum - lower_lum);
+
+		gamma_table_interpolation(out_gamma_tbl[0], out_gamma_tbl[1], out_vrr_gamma_tbl, nr_tp,
+				panel_data->props.vrr_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps,
+				(S6E3HAB_VRR[upper_vrr_idx].def_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps));
+	} else if (luminance <= panel_dim_info->hbm_target_luminance) {
+		/* UI MAX BRIGHTNESS ~ HBM MAX BRIGHTNESS */
+		gamma_ctoi(lower_gamma_tbl[0], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, lower_vrr_idx, nor_max_idx, 0)], nr_tp);
+		gamma_ctoi(upper_gamma_tbl[0], hbm_gamma_res[0]->data, nr_tp);
+		gamma_table_interpolation(lower_gamma_tbl[0], upper_gamma_tbl[0], out_gamma_tbl[0],
+				nr_tp, luminance - nor_max_lum, hbm_max_lum - nor_max_lum);
+
+		gamma_ctoi(lower_gamma_tbl[1], &gamma_maptbl->arr[
+				maptbl_index(gamma_maptbl, upper_vrr_idx, nor_max_idx, 0)], nr_tp);
+		gamma_ctoi(upper_gamma_tbl[1], hbm_gamma_res[1]->data, nr_tp);
+		gamma_table_interpolation(lower_gamma_tbl[1], upper_gamma_tbl[1], out_gamma_tbl[1],
+				nr_tp, luminance - nor_max_lum, hbm_max_lum - nor_max_lum);
+
+		gamma_table_interpolation(out_gamma_tbl[0], out_gamma_tbl[1], out_vrr_gamma_tbl, nr_tp,
+				panel_data->props.vrr_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps,
+				(S6E3HAB_VRR[upper_vrr_idx].def_fps - S6E3HAB_VRR[lower_vrr_idx].def_fps));
+	} else {
+		/* UI MAX BRIGHTNESS ~ EXTENDED HBM MAX BRIGHTNESS */
+		memcpy(out_gamma_tbl, upper_gamma_tbl, sizeof(s32) * nr_tp * MAX_COLOR);
+	}
+
+	gamma_itoc(dst, out_vrr_gamma_tbl, nr_tp);
+
+	kfree(out_gamma_tbl[0]);
+	kfree(lower_gamma_tbl[0]);
+	kfree(upper_gamma_tbl[0]);
+
+	kfree(out_gamma_tbl[1]);
+	kfree(lower_gamma_tbl[1]);
+	kfree(upper_gamma_tbl[1]);
+
+	kfree(out_vrr_gamma_tbl);
+
+#ifdef DEBUG_PANEL
+	pr_info("%s dimtype:%d brightness:%d fps:%d\n",
+			__func__, dimtype, brightness, fps);
+#endif
+
+	return ret;
+}
+#endif
 
 static int generate_interpolation_gamma(struct panel_info *panel_data,
 		struct maptbl *gamma_maptbl, u8 *dst)
@@ -1051,7 +1342,7 @@ static int generate_interpolation_gamma(struct panel_info *panel_data,
 		[S6E3HAB_VRR_60_HS] = "hbm_gamma_60hz_hs",
 		[S6E3HAB_VRR_120_HS] = "hbm_gamma_120hz",
 	};
-	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_vrr *vrr;
 	int vrr_idx = 0;
 
 	id = panel_bl->props.id;
@@ -1078,9 +1369,10 @@ static int generate_interpolation_gamma(struct panel_info *panel_data,
 	hbm_max_brt = brt_tbl->brt[hbm_max_idx];
 	nor_max_brt = brt_tbl->brt[nor_max_idx];
 
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
 	vrr_idx = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &props->vrr);
-	if (vrr_idx < 0 || vrr_idx >= MAX_S6E3HAB_VRR)
+			ARRAY_SIZE(S6E3HAB_VRR), vrr);
+	if (vrr_idx < 0)
 		vrr_idx = 0;
 
 	hbm_gamma_res = find_panel_resource(panel_data,
@@ -1124,12 +1416,18 @@ static int generate_interpolation_gamma(struct panel_info *panel_data,
 	kfree(lower_gamma_tbl);
 	kfree(upper_gamma_tbl);
 
+#ifdef DEBUG_PANEL
+	pr_info("%s brightness:%d\n",
+			__func__, brightness);
+#endif
+
 	return ret;
 }
 
 static void copy_gamma_maptbl(struct maptbl *tbl, u8 *dst)
 {
 	struct panel_device *panel;
+	struct panel_info *panel_data;
 	int ret, dimtype;
 
 	if (!tbl || !dst || !tbl->pdata) {
@@ -1139,6 +1437,7 @@ static void copy_gamma_maptbl(struct maptbl *tbl, u8 *dst)
 	}
 
 	panel = (struct panel_device *)tbl->pdata;
+	panel_data = &panel->panel_data;
 
 	dimtype = get_dimming_type(panel);
 	if (dimtype < 0) {
@@ -1148,14 +1447,36 @@ static void copy_gamma_maptbl(struct maptbl *tbl, u8 *dst)
 		return;
 	}
 
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	if (panel_data->props.vrr_fps > 60 && panel_data->props.vrr_fps < 120 &&
+		is_supported_vrr(panel_data, &S6E3HAB_VRR[S6E3HAB_VRR_60_HS]) &&
+		is_supported_vrr(panel_data, &S6E3HAB_VRR[S6E3HAB_VRR_120_HS]) &&
+		panel_data->props.vrr_fps != 96 && panel_data->props.vrr_fps != 104 &&
+		panel_data->props.vrr_fps != 112) {
+		generate_interpolation_vrr_gamma(panel_data, tbl,
+				dimtype, S6E3HAB_VRR_60_HS, S6E3HAB_VRR_120_HS,
+				panel_data->props.vrr_fps, dst);
+		if (ret < 0) {
+			pr_err("%s failed to generate_interpolation_vrr_gamma (ret %d)\n",
+					__func__, ret);
+			return;
+		}
+		return;
+	}
+#endif
+
 	if (dimtype == A_DIMMING) {
+#ifdef DEBUG_PANEL
+		pr_info("%s copy_common_maptbl\n", __func__);
+#endif
 		copy_common_maptbl(tbl, dst);
 		return;
 	}
 
 	ret = generate_interpolation_gamma(&panel->panel_data, tbl, dst);
 	if (ret < 0) {
-		pr_err("%s, invalid gamma (ret %d)\n", __func__, ret);
+		pr_err("%s failed to generate_interpolation_gamma (ret %d)\n",
+				__func__, ret);
 		return;
 	}
 
@@ -1168,7 +1489,8 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	struct panel_bl_device *panel_bl;
 	struct brightness_table *brt_tbl;
 	struct panel_info *panel_data;
-	int id, aor, layer;
+	struct panel_vrr *vrr;
+	int id, old_aor, aor, layer, vfp, vtotal, base_vtotal;
 	u8(*aor_tbl)[2];
 
 	if (!tbl || !dst) {
@@ -1183,10 +1505,13 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	id = panel_bl->props.id;
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
 
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
 	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &panel_data->props.vrr);
-	if (layer < 0)
+			ARRAY_SIZE(S6E3HAB_VRR), vrr);
+	if (layer < 0) {
+		pr_err("%s failed to search vrr\n", __func__);
 		layer = 0;
+	}
 
 	aor_tbl = (u8 (*)[2])(tbl->arr + maptbl_index(tbl, layer, 0, 0));
 	aor = panel_bl_aor_interpolation_2(panel_bl, id, aor_tbl);
@@ -1194,10 +1519,40 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 		pr_err("%s, invalid aor %d\n", __func__, aor);
 		return;
 	}
+
+	old_aor = aor;
+	/* aor interpolation fps : [60 ~ 48] && [120 ~ 96] */
+	if (panel_data->props.vrr_fps < 60 || panel_data->props.vrr_fps == 96 ||
+		panel_data->props.vrr_fps == 104 || panel_data->props.vrr_fps == 112) {
+		/* gamma & aor interpolation */
+		vfp = calc_vfp(vrr, panel_data->props.vrr_fps);
+		if (vfp < 0) {
+			pr_err("%s, invalid vfp %d\n", __func__, vfp);
+			return;
+		}
+		vtotal = vrr->base_vbp + vrr->base_vactive + vfp;
+		base_vtotal = vrr->base_vbp + vrr->base_vactive + vrr->base_vfp;
+		aor = (aor * vtotal) / base_vtotal;
+#ifdef DEBUG_PANEL
+		pr_info("%s aor interpolation(aor:%d fps:%d vfp:%d vtotal:%d)\n",
+				__func__, aor, panel_data->props.vrr_fps, vfp, vtotal);
+#endif
+	} else {
+		vfp = vrr->base_vfp;
+		vtotal = vrr->base_vbp + vrr->base_vactive + vrr->base_vfp;
+#ifdef DEBUG_PANEL
+		pr_info("%s aor from table(aor:%d fps:%d vfp:%d vtotal:%d)\n",
+				__func__, aor, panel_data->props.vrr_fps, vfp, vtotal);
+#endif
+	}
+
 	dst[0] = (aor >> 8) & 0xFF;
 	dst[1] = aor & 0xFF;
 
-	panel_bl->props.aor_ratio = AOR_TO_RATIO(aor, brt_tbl->vtotal);
+	panel_bl->props.aor_ratio = AOR_TO_RATIO(aor, vtotal);
+
+	pr_debug("aor %d->%d(%d), vfp %d\n",
+			old_aor, aor, panel_bl->props.aor_ratio, vfp);
 }
 
 static void copy_irc_maptbl(struct maptbl *tbl, u8 *dst)
@@ -1332,16 +1687,14 @@ static int init_maptbl_from_flash(struct maptbl *tbl, enum dim_flash_items item)
 					continue;
 
 				if (item == DIM_FLASH_ELVSS) {
-					if (panel_data->nr_vrrtbl <= box ||
-						panel_data->vrrtbl[box].fps == 0)
+					if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[box]))
 						continue;
 
 					ret = copy_from_dim_flash(panel_data,
 							tbl->arr + maptbl_4d_index(tbl, box, layer, row, 0),
 							item, box, row, layer, tbl->sz_copy);
 				} else {
-					if (panel_data->nr_vrrtbl <= layer ||
-						panel_data->vrrtbl[layer].fps == 0)
+					if (!is_supported_vrr(panel_data, &S6E3HAB_VRR[layer]))
 						continue;
 
 					ret = copy_from_dim_flash(panel_data,
@@ -1503,6 +1856,7 @@ static int getidx_elvss_temp_table(struct maptbl *tbl)
 	int row, layer, box;
 	struct panel_info *panel_data;
 	struct panel_bl_device *panel_bl;
+	struct panel_vrr *vrr;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 
 	if (panel == NULL) {
@@ -1513,8 +1867,9 @@ static int getidx_elvss_temp_table(struct maptbl *tbl)
 	panel_data = &panel->panel_data;
 	panel_bl = &panel->panel_bl;
 
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
 	box = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &panel_data->props.vrr);
+			ARRAY_SIZE(S6E3HAB_VRR), vrr);
 	if (box < 0)
 		box = 0;
 
@@ -1651,16 +2006,15 @@ static int getidx_resolution_table(struct maptbl *tbl)
 static int getidx_vrr_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_properties *props = &panel->panel_data.props;
-	int row = 0, layer = 0, index;
+	struct panel_info *panel_data;
+	int row = 0, layer = 0;
 
-	layer = search_table(S6E3HAB_VRR, sizeof(struct panel_vrr),
-			ARRAY_SIZE(S6E3HAB_VRR), &props->vrr);
+	panel_data = &panel->panel_data;
 
-	if (index < 0)
+	row = search_vrr_table(S6E3HAB_VRR, ARRAY_SIZE(S6E3HAB_VRR),
+			panel_data->props.vrr_fps, panel_data->props.vrr_mode);
+	if (row < 0)
 		row = 0;
-	else
-		row = index;
 
 	return maptbl_index(tbl, layer, row, 0);
 }
@@ -1669,12 +2023,12 @@ static int getidx_vrr_table(struct maptbl *tbl)
 static int getidx_vrr_fps_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_info *panel_data = &panel->panel_data;
+	struct panel_vrr *vrr;
 	int row = 0, layer = 0, index;
 
-	index = search_table_u32(S6E3HAB_VRR_FPS,
-			ARRAY_SIZE(S6E3HAB_VRR_FPS), props->vrr.fps);
-
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	index = search_vrr_fps_table(vrr->def_fps);
 	if (index < 0)
 		row = 0;
 	else
@@ -1683,19 +2037,55 @@ static int getidx_vrr_fps_table(struct maptbl *tbl)
 	return maptbl_index(tbl, layer, row, 0);
 }
 
+#ifdef CONFIG_PANEL_VRR_AID_CYCLE_CTRL
+static int getidx_vrr_aid_cycle_table(struct maptbl *tbl)
+{
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+	struct panel_info *panel_data = &panel->panel_data;
+	int row = 0, layer = 0;
+
+	if (panel_data->props.vrr_mode == VRR_NORMAL_MODE) {
+		row = S6E3HAB_AID_4_CYCLE;
+	} else {
+		if (panel_data->props.vrr_fps > 60 &&
+			panel_data->props.vrr_fps <= 90)
+			row = S6E3HAB_AID_4_CYCLE;
+		else
+			row = S6E3HAB_AID_2_CYCLE;
+	}
+
+	return maptbl_index(tbl, layer, row, 0);
+}
+#endif
+
 static int getidx_vrr_mode_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_properties *props = &panel->panel_data.props;
-	int row = 0, layer = 0, index;
+	struct panel_info *panel_data = &panel->panel_data;
+	struct panel_vrr *vrr;
+	int row = 0, layer = 0;
 
-	index = search_table_u32(S6E3HAB_VRR_MODE,
-			ARRAY_SIZE(S6E3HAB_VRR_MODE), props->vrr.mode);
-
-	if (index < 0)
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	row = search_vrr_mode_table(vrr->mode);
+	if (row < 0) {
+		pr_err("%s failed to search_vrr_mode_table(mode:%d)\n",
+				__func__, vrr->mode);
 		row = 0;
-	else
-		row = index;
+	}
+
+	return maptbl_index(tbl, layer, row, 0);
+}
+
+static int getidx_vrr_async_table(struct maptbl *tbl)
+{
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+	struct panel_info *panel_data = &panel->panel_data;
+	struct panel_vrr *vrr;
+	int row = 0, layer = 0;
+
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	/* adaptive sync fps (i.e. 48HZ, 96HZ) */
+	row = (vrr->def_fps != panel_data->props.vrr_fps);
 
 	return maptbl_index(tbl, layer, row, 0);
 }
@@ -1841,14 +2231,14 @@ static int s6e3hab_getidx_tdmb_tune_table(struct maptbl *tbl)
 #ifdef CONFIG_DYNAMIC_FREQ
 static int getidx_dyn_ffc_table(struct maptbl *tbl)
 {
-	int row = 0; 
+	int row = 0;
 	struct df_status_info *status;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
-	}    
+	}
 	status = &panel->df_status;
 
 	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d\n", __func__, status->ffc_df);
@@ -1974,46 +2364,45 @@ static void copy_copr_maptbl(struct maptbl *tbl, u8 *dst)
 }
 #endif
 
-#ifdef CONFIG_ACTIVE_CLOCK
-#define SELF_CLK_ANA_CLOCK_EN	0x10
-#define SELF_CLK_BLINK_EN		0x01
-#define TIME_UPDATE				0x80
-
-static void copy_self_clk_update_maptbl(struct maptbl *tbl, u8 *dst)
+static void copy_vfp_nm_maptbl(struct maptbl *tbl, u8 *dst)
 {
 	struct panel_device *panel;
-	struct act_clk_info *act_info;
+	struct panel_info *panel_data;
+	struct panel_vrr *vrr;
+	int vfp;
 
 	if (!tbl || !dst)
 		return;
-
-	panel_info("active clock update\n");
 
 	panel = (struct panel_device *)tbl->pdata;
 	if (unlikely(!panel))
 		return;
 
-	act_info = &panel->act_clk_dev.act_info;
-
-	dst[1] = 0;
-
-	if (act_info->en) {
-		dst[1] = SELF_CLK_ANA_CLOCK_EN;
-		panel_info("PANEL:INFO:%s:active clock enable\n", __func__);
-		if (act_info->interval == 100) {
-			dst[8] = 0x03;
-			dst[9] = 0x41;
-		} else {
-			dst[8] = 0x1E;
-			dst[9] = 0x4A;
+	panel_data = &panel->panel_data;
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	if (vrr->def_fps == 60) {
+		vfp = calc_vfp(vrr, panel_data->props.vrr_fps);
+		if (vfp < 0) {
+			pr_err("%s failed to calc_vfp %d\n", __func__, vfp);
+			return;
 		}
+	} else {
+		vfp = S6E3HAB_VRR[S6E3HAB_VRR_60_NORMAL].base_vfp;
 	}
+
+	pr_debug("%s fps:%d mode:%d, vfp:%d\n", __func__,
+			panel_data->props.vrr_fps, panel_data->props.vrr_mode, vfp);
+
+	dst[0] = (vfp >> 8) & 0xFF;
+	dst[1] = vfp & 0xFF;
 }
-static void copy_self_clk_maptbl(struct maptbl *tbl, u8 *dst)
+
+static void copy_vfp_hs_maptbl(struct maptbl *tbl, u8 *dst)
 {
 	struct panel_device *panel;
-	struct act_clk_info *act_info;
-	struct act_blink_info *blink_info;
+	struct panel_info *panel_data;
+	struct panel_vrr *vrr;
+	int vfp;
 
 	if (!tbl || !dst)
 		return;
@@ -2022,123 +2411,25 @@ static void copy_self_clk_maptbl(struct maptbl *tbl, u8 *dst)
 	if (unlikely(!panel))
 		return;
 
-	act_info = &panel->act_clk_dev.act_info;
-	blink_info = &panel->act_clk_dev.blink_info;
+	panel_data = &panel->panel_data;
 
-	dst[1] = 0;
-
-	if (act_info->en) {
-		dst[1] = SELF_CLK_ANA_CLOCK_EN;
-		panel_info("PANEL:INFO:%s:active clock enable\n", __func__);
-		if (act_info->interval == 100) {
-			dst[8] = 0x03;
-			dst[9] = 0x41;
-		} else {
-			dst[8] = 0x1E;
-			dst[9] = 0x4A;
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	if (vrr->def_fps == 120) {
+		vfp = calc_vfp(vrr, panel_data->props.vrr_fps);
+		if (vfp < 0) {
+			pr_err("%s failed to calc_vfp %d\n", __func__, vfp);
+			return;
 		}
-
-		dst[15] = act_info->time_hr % 12;
-		dst[16] = act_info->time_min % 60;
-		dst[17] = act_info->time_sec % 60;
-		dst[18] = act_info->time_ms;
-
-		panel_info("PANEL:INFO:%s:active clock %d:%d:%d\n", __func__,
-			dst[15], dst[16], dst[17]);
-
-		if (act_info->update_time)
-			dst[9] |= TIME_UPDATE;
-
-		dst[19] = (act_info->pos_x >> 8) & 0xff;
-		dst[20] = act_info->pos_x & 0xff;
-
-		dst[21] = (act_info->pos_y >> 8) & 0xff;
-		dst[22] = act_info->pos_y & 0xff;
-		panel_info("PANEL:INFO:%s:active clock pos %d,%d\n", __func__,
-			act_info->pos_x, act_info->pos_y);
+	} else {
+		vfp = S6E3HAB_VRR[S6E3HAB_VRR_120_HS].base_vfp;
 	}
 
-	if (blink_info->en) {
-		dst[1] = SELF_CLK_BLINK_EN;
+	pr_debug("%s fps:%d mode:%d, vfp:%d\n", __func__,
+			panel_data->props.vrr_fps, panel_data->props.vrr_mode, vfp);
 
-		dst[32] = blink_info->interval;
-		dst[33] = blink_info->radius;
-		/* blink color : Red */
-		dst[34] = (unsigned char)(blink_info->color >> 16) & 0xff;
-		/* blink color : Blue */
-		dst[35] = (unsigned char)(blink_info->color >> 8) & 0xff;
-		/* blink color : Green */
-		dst[36] = (unsigned char)(blink_info->color & 0xff);
-
-		dst[37] = 0x05;
-
-		dst[38] = (blink_info->pos1_x >> 8) & 0xff;
-		dst[39] = (blink_info->pos1_x & 0xff);
-
-		dst[40] = (blink_info->pos1_y >> 8) & 0xff;
-		dst[41] = (blink_info->pos1_y & 0xff);
-
-		dst[42] = (blink_info->pos2_x >> 8) & 0xff;
-		dst[43] = (blink_info->pos2_x & 0xff);
-
-		dst[44] = (blink_info->pos2_y >> 8) & 0xff;
-		dst[45] = (blink_info->pos2_y & 0xff);
-
-	}
-	print_data(dst, 46);
+	dst[0] = (vfp >> 8) & 0xFF;
+	dst[1] = vfp & 0xFF;
 }
-
-static void copy_self_drawer(struct maptbl *tbl, u8 *dst)
-{
-	struct panel_device *panel;
-	struct act_clk_info *act_info;
-	struct act_drawer_info *draw_info;
-
-	if (!tbl || !dst)
-		return;
-
-	panel = (struct panel_device *)tbl->pdata;
-	if (unlikely(!panel))
-		return;
-
-	draw_info = &panel->act_clk_dev.draw_info;
-	act_info = &panel->act_clk_dev.act_info;
-
-	dst[1] = 0;
-
-	if (!act_info->en) {
-		panel_info("ACT-CLK:INFO:disable act_clk\n");
-		return;
-	}
-
-	dst[1] = 0x01;
-	panel_info("PANEL:INFO:%s:self drawer\n", __func__);
-
-	dst[29] = (act_info->pos_x >> 8) & 0xff;
-	dst[30] = act_info->pos_x & 0xff;
-
-	dst[31] = (act_info->pos_y >> 8) & 0xff;
-	dst[32] = act_info->pos_y & 0xff;
-	panel_info("PANEL:INFO:%s:active clock pos %d,%d\n", __func__,
-		act_info->pos_x, act_info->pos_y);
-
-	/* SD color : Red */
-	dst[39] = (unsigned char)(draw_info->sd_line_color >> 16) & 0xff;
-	/* SD color : Blue */
-	dst[40] = (unsigned char)(draw_info->sd_line_color >> 8) & 0xff;
-	/* SD color : Green */
-	dst[41] = (unsigned char)(draw_info->sd_line_color & 0xff);
-
-	/* SD2 color : Red */
-	dst[42] = (unsigned char)(draw_info->sd2_line_color >> 16) & 0xff;
-	/* SD2 color : Blue */
-	dst[43] = (unsigned char)(draw_info->sd2_line_color >> 8) & 0xff;
-	/* SD2 color : Green */
-	dst[44] = (unsigned char)(draw_info->sd2_line_color & 0xff);
-
-	dst[45] = (unsigned char)(draw_info->sd_radius & 0xff);
-}
-#endif
 
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int init_color_blind_table(struct maptbl *tbl)
@@ -2868,3 +3159,84 @@ static void show_cmdlog(struct dumpinfo *info)
 	print_data(cmdlog, ARRAY_SIZE(cmdlog));
 }
 #endif
+
+#ifdef CONFIG_SUPPORT_MAFPC
+void copy_mafpc_enable_maptbl(struct maptbl *tbl, u8 *dst)
+{
+	struct panel_device *panel = tbl->pdata;
+	struct mafpc_device *mafpc = NULL;
+
+	v4l2_subdev_call(panel->mafpc_sd, core, ioctl,
+		V4L2_IOCTL_MAFPC_GET_INFO, NULL);
+
+	mafpc = (struct mafpc_device *)v4l2_get_subdev_hostdata(panel->mafpc_sd);
+	if (mafpc == NULL) {
+		panel_err("[DECON:INFO]:%s failed to get mafpc info\n", __func__);
+		goto err_enable;
+	}
+
+	if (mafpc->enable)
+		dst[0] = 0x01;
+
+	panel_info("%s : %x %x %x\n", __func__, dst[5], dst[6], dst[7]);
+
+	if (mafpc->written)
+		memcpy(&dst[MAFPC_CTRL_CMD_OFFSET], mafpc->ctrl_cmd, MAFPC_CTRL_CMD_SIZE);
+
+	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
+			dst, MAFPC_CTRL_CMD_SIZE + 1, false);
+
+err_enable:
+	return;
+}
+
+static void show_mafpc_log(struct dumpinfo *info)
+{
+	int ret;
+	struct resinfo *res = info->res;
+	u8 mfapc[S6E3HAB_MAFPC_LEN] = {0, };
+
+	if (!res || ARRAY_SIZE(mfapc) != res->dlen) {
+		pr_err("%s invalid resource\n", __func__);
+		return;
+	}
+
+	ret = resource_copy(mfapc, info->res);
+	if (unlikely(ret < 0)) {
+		pr_err("%s, failed to copy rddpm resource\n", __func__);
+		return;
+	}
+
+	panel_info("========== SHOW PANEL [87h:MAFPC_EN] INFO ==========\n");
+	panel_info("* Reg Value : 0x%02x, Result : %s\n",
+			mfapc[0], (mfapc[0] & 0x01) ? "ON" : "OFF");
+	panel_info("====================================================\n");
+
+}
+static void show_mafpc_flash_log(struct dumpinfo *info)
+{
+	int ret;
+	struct resinfo *res = info->res;
+	u8 mfapc_flash[S6E3HAB_MAFPC_FLASH_LEN] = {0, };
+
+	if (!res || ARRAY_SIZE(mfapc_flash) != res->dlen) {
+		pr_err("%s invalid resource\n", __func__);
+		return;
+	}
+
+	ret = resource_copy(mfapc_flash, info->res);
+	if (unlikely(ret < 0)) {
+		pr_err("%s, failed to copy rddpm resource\n", __func__);
+		return;
+	}
+
+	panel_info("========== SHOW PANEL [FEh(0x09):MAFPC_FLASH] INFO ==========\n");
+	panel_info("* Reg Value : 0x%02x, Result : %s\n",
+			mfapc_flash[0], (mfapc_flash[0] & 0x02) ? "BYPASS" : "POC");
+	panel_info("====================================================\n");
+	
+}
+
+
+#endif
+

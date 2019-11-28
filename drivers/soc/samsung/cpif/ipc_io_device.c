@@ -185,18 +185,11 @@ static long ipc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			ld->crash_reason.type =
 				CRASH_REASON_RIL_TRIGGER_CP_CRASH;
 
-			strcpy(buff, CP_CRASH_TAG_RILD);
-			buff = buff + strlen(CP_CRASH_TAG_RILD);
-
 			if (arg) {
-				if (copy_from_user(buff, user_buff, CP_CRASH_INFO_SIZE
-							- strlen(CP_CRASH_TAG_RILD))) {
-					mif_err("%s: copy_from_user() error\n", iod->name);
+				if (copy_from_user(buff, user_buff, CP_CRASH_INFO_SIZE))
 					mif_info("No argument from USER\n");
-				}
-			} else {
+			} else
 				mif_info("No argument from USER\n");
-			}
 
 			mif_info("Crash Reason:%s\n", buff);
 			break;
@@ -291,8 +284,19 @@ static ssize_t ipc_write(struct file *filp, const char __user *data,
 
 	while (copied < cnt) {
 		remains = cnt - copied;
-		alloc_size = min_t(unsigned int, remains + headroom,
-			iod->max_tx_size ?: remains + headroom);
+
+		switch (ld->protocol) {
+		case PROTOCOL_SIPC:
+			alloc_size = min_t(unsigned int, remains + headroom,
+				iod->max_tx_size ?: remains + headroom);
+		break;
+		case PROTOCOL_SIT:
+			alloc_size = min_t(unsigned int, remains + headroom, SZ_2K);
+		break;
+		default:
+			mif_err("protocol error %d\n", ld->protocol);
+			return -EINVAL;
+		}
 
 		/* Calculate tailroom for padding size */
 		if (iod->link_header && ld->aligned)
@@ -354,6 +358,10 @@ static ssize_t ipc_write(struct file *filp, const char __user *data,
 			break;
 			case PROTOCOL_SIT:
 				exynos_build_header(iod, ld, buff, cfg_sit, 0, tx_bytes);
+				/* modify next link header for multiframe */
+				if (((cfg_sit >> 8) & EXYNOS_SINGLE_MASK) != EXYNOS_SINGLE_MASK)
+					cfg_sit = modify_next_frame(cfg_sit);
+
 			break;
 			default:
 				mif_err("protocol error %d\n", ld->protocol);

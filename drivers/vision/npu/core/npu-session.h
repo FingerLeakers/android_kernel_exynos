@@ -23,6 +23,7 @@
 #include "npu-queue.h"
 #include "npu-config.h"
 #include "npu-common.h"
+#include "npu-scheduler.h"
 #include "npu-if-session-protodrv.h"
 #include "ncp_header.h"
 #include "drv_usr_if.h"
@@ -89,6 +90,8 @@ struct npu_session {
 
 	u32 FIRMWARE_DRAM_TRANSFER; // dram transfer or sram transfer for firmware
 
+	struct npu_nw_sched_param sched_param;/* For NW priority and boundness */
+
 	struct nw_result nw_result;
 	wait_queue_head_t wq;
 
@@ -121,6 +124,7 @@ int npu_session_open(struct npu_session **session, void *cookie, void *memory);
 int npu_session_close(struct npu_session *session);
 int npu_session_s_graph(struct npu_session *session, struct vs4l_graph *info);
 int npu_session_param(struct npu_session *session, struct vs4l_param_list *plist);
+int npu_session_nw_sched_param(struct npu_session *session, struct vs4l_sched_param *param);
 int npu_session_NW_CMD_LOAD(struct npu_session *session);
 int npu_session_NW_CMD_UNLOAD(struct npu_session *session);
 int npu_session_NW_CMD_STREAMON(struct npu_session *session);

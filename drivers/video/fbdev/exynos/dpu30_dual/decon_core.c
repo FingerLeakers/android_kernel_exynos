@@ -4647,6 +4647,11 @@ static int decon_probe(struct platform_device *pdev)
 		goto err_esd;
 #endif
 
+	//Disable display hibernation for temporary
+	decon->hiber.enabled = false;
+	if (decon->id != 0)
+		decon->fsync.active = false;
+
 	decon_info("decon%d registered successfully", decon->id);
 
 	return 0;

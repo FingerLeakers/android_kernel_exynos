@@ -262,10 +262,11 @@
 		/* DPHY 2.5 Gbps 4lane or DPHY 2.5 Gbps 2lane */
 		compatible = "samsung,mipi-phy-m0s4s4s4s4s2";
 		samsung,pmu-syscon = <&pmu_system_controller>;
-		isolation = <0x710>; /* PMU address offset */
+		isolation = <0x710 0x710>; /* PMU address offset */
 		samsung,reset-sysreg = <&sysreg_isppre_reset>;
-		reset = <3>; /* reset bit */
-		reg = <0x0 0x150D2B00 0x500>;
+		reset = <3 4>; /* reset bit */
+		reg = <0x0 0x150D2B00 0x500>,
+			<0x0 0x150D3B00 0x100>;
 		owner = <1>; /* 0: DSI,  1: CSI */
 		#phy-cells = <1>;
 	};
@@ -578,7 +579,7 @@
 			<0 INTREQ__CSIS_DMA0 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "csi",
 			"mode0_VC0", "mode0_VC1","mode0_VC2","mode0_VC3";
-		phys = <&mipi_phy_csis3_m0s4s4s4s4s2 0>;
+		phys = <&mipi_phy_csis3_m0s4s4s4s4s2 1>;
 		phy-names = "csis_dphy";
 		clocks = <&clock CIS_CLK0>,
 			<&clock CIS_CLK1>,

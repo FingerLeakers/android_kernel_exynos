@@ -23,7 +23,7 @@
 enum sensor_imx516_mode_enum {
 	SENSOR_IMX518_1280x3840_30FPS = 0,  /* VGA : 640 * 2, 480 * 8 */
 	SENSOR_IMX518_640x1920_30FPS,       /* QVGA : 320 * 2, 240 * 8  */
-	SENSOR_IMX518_320x960_30FPS,       /* QVGA : 160 * 2, 120 * 8  */
+	SENSOR_IMX518_320x960_30FPS,	    /* QQVGA : 160 * 2, 120 * 8  */
 	SENSOR_IMX518_MODE_MAX,
 };
 
@@ -60,6 +60,10 @@ enum {
 	CAM_IMX518_SET_A_REAR_TX_99p9_MHZ = 0, /* 100Mhz */
 	CAM_IMX518_SET_A_REAR_TX_95p8_MHZ = 1, /* 96Mhz */
 	CAM_IMX518_SET_A_REAR_TX_102p6_MHZ = 2, /* 101Mhz */
+};
+
+static const u32 sensor_imx518_supported_tx_freq[] = {
+	100, 96, 101,
 };
 
 #endif

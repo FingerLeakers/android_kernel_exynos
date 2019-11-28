@@ -381,7 +381,7 @@ int nw_req_manager(int msgid, struct npu_nw *nw)
 		break;
 	case NPU_NW_CMD_LOAD:
 		cmd.c.load.oid = nw->uid;
-		cmd.c.load.tid = NPU_MAILBOX_DEFAULT_TID;
+		cmd.c.load.tid = nw->bound_id;
 		hdr_size = get_ncp_hdr_size(nw);
 		if (hdr_size <= 0) {
 			npu_info("fail in get_ncp_hdr_size: (%zd)", hdr_size);
@@ -465,6 +465,7 @@ int fr_req_manager(int msgid, struct npu_frame *frame)
 	case NPU_FRAME_CMD_Q:
 		cmd.c.process.oid = frame->uid;
 		cmd.c.process.fid = frame->frame_id;
+		cmd.c.process.priority = frame->priority;
 		cmd.length = frame->mbox_process_dat.address_vector_cnt;
 		cmd.payload = frame->mbox_process_dat.address_vector_start_daddr;
 		msg.command = COMMAND_PROCESS;
@@ -574,7 +575,7 @@ int fr_rslt_manager(int *ret_msgid, struct npu_frame *frame)
 		return FALSE;
 
 	if (msg.command == COMMAND_DONE) {
-		npu_info("COMMAND_DONE for mid: (%d)\n", msg.mid);
+		npu_trace("COMMAND_DONE for mid: (%d)\n", msg.mid);
 		frame->result_code = NPU_ERR_NO_ERROR;
 		makeStructToString(&(cmd.c.done));
 	} else if (msg.command == COMMAND_NDONE) {

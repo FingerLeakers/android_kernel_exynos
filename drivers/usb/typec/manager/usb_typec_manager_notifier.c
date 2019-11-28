@@ -112,12 +112,19 @@ static int manager_notifier_notify(void *data)
 		if (typec_manager.ccic_drp_state == manager_noti.sub2)
 			return 0;
 		typec_manager.ccic_drp_state = manager_noti.sub2;
-		if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_DFP) {
-			pr_info("%s: call manager_cable_type_check\n", __func__);
+		switch (typec_manager.ccic_drp_state) {
+		case USB_STATUS_NOTIFY_ATTACH_UFP:
+			manager_cable_type_check(true, 60);
+			break;
+		case USB_STATUS_NOTIFY_ATTACH_DFP:
 			manager_cable_type_check(true, 0);
-		}
-		if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_DETACH)
+			break;
+		case USB_STATUS_NOTIFY_DETACH:
 			set_usb_enumeration_state(0);
+			break;
+		default:
+			break;
+		}
 	}
 
 	if (manager_noti.dest == CCIC_NOTIFY_DEV_BATTERY
@@ -490,11 +497,8 @@ void set_usb_enable_state(void)
 {
 	if (!typec_manager.usb_enable_state) {
 		typec_manager.usb_enable_state = true;
-		if (typec_manager.pd_con_state)
+		if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP)
 			manager_cable_type_check(true, 120);
-		else if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP &&
-			typec_manager.cable_type == MANAGER_NOTIFY_MUIC_TIMEOUT_OPEN_DEVICE)
-			manager_cable_type_check(true, 10);
 	}
 }
 EXPORT_SYMBOL(set_usb_enable_state);
@@ -677,14 +681,9 @@ static int manager_handle_ccic_notification(struct notifier_block *nb,
 
 	switch (p_noti.id) {
 	case CCIC_NOTIFY_ID_POWER_STATUS:
-		if(p_noti.sub1) { /*attach*/
+		if(p_noti.sub1)	/*attach*/
 			typec_manager.pd_con_state = 1;	// PDIC_NOTIFY_EVENT_PD_SINK
-			if( (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP) &&
-				!typec_manager.is_MPSM){
-				pr_info("%s: PD charger + UFP\n", __func__);
-				manager_cable_type_check(true, 60);
-			}
-		}
+
 		p_noti.dest = CCIC_NOTIFY_DEV_BATTERY;
 		if(typec_manager.pd == NULL)
 			typec_manager.pd = p_noti.pd;

@@ -87,6 +87,8 @@ int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const 
 	/* Need to delay for sensor setting */
 	usleep_range(3000, 3000);
 
+	cis->stream_state = CIS_STREAM_INIT;
+
 	for (i = 0; i < size; i += I2C_NEXT) {
 		switch (regs[i + I2C_ADDR]) {
 		case I2C_MODE_BURST_ADDR:
@@ -133,10 +135,15 @@ int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const 
 #if (CIS_TEST_PATTERN_MODE != 0)
 	ret = is_sensor_write8(client, 0x0601, CIS_TEST_PATTERN_MODE);
 #endif
-
+	cis->stream_state = CIS_STREAM_SET_DONE;
 	dbg_sensor(1, "[%s] sensor setting done\n", __func__);
 
 p_err:
+	if (ret) {
+		cis->stream_state = CIS_STREAM_SET_ERR;
+		err("[%s] global/mode setting fail(%d)", __func__, ret);
+	}
+
 	return ret;
 }
 

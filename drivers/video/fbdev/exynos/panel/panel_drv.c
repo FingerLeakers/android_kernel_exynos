@@ -32,9 +32,11 @@
 #include <linux/regulator/consumer.h>
 
 #include "../../../../../kernel/irq/internals.h"
-
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+#include "../dpu30_dual/decon.h"
+#else
 #include "../dpu30/decon.h"
-
+#endif
 #include "panel.h"
 #include "panel_drv.h"
 #include "dpui.h"
@@ -42,15 +44,16 @@
 #ifdef CONFIG_EXYNOS_DECON_LCD_SPI
 #include "spi.h"
 #endif
-#ifdef CONFIG_ACTIVE_CLOCK
-#include "active_clock.h"
-#endif
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 #include "panel_poc.h"
 #endif
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "./aod/aod_drv.h"
 #endif
+#ifdef CONFIG_SUPPORT_MAFPC
+#include "./mafpc/mafpc_drv.h"
+#endif
+
 #ifdef CONFIG_SUPPORT_POC_SPI
 #include "panel_spi.h"
 #endif
@@ -68,6 +71,7 @@ static char *panel_state_names[] = {
 	"NORMAL",	/* SLEEP OUT */
 	"LPM",		/* LPM */
 };
+
 /* panel workqueue */
 static char *panel_work_names[] = {
 	[PANEL_WORK_DISP_DET] = "disp-det",
@@ -97,6 +101,23 @@ static panel_wq_handler panel_wq_handlers[] = {
 	[PANEL_WORK_DIM_FLASH] = dim_flash_handler,
 #endif
 	[PANEL_WORK_CHECK_CONDITION] = panel_condition_handler,
+};
+
+static char *panel_thread_names[PANEL_THREAD_MAX] = {
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	[PANEL_THREAD_VRR_BRIDGE] = "panel-vrr-bridge",
+#endif
+};
+
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+static int panel_vrr_bridge_thread(void *data);
+static int panel_find_vrr(struct panel_device *panel, int fps, int mode);
+#endif
+
+static panel_thread_fn panel_thread_fns[PANEL_THREAD_MAX] = {
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	[PANEL_THREAD_VRR_BRIDGE] = panel_vrr_bridge_thread,
+#endif
 };
 
 /* panel gpio */
@@ -158,7 +179,7 @@ EXPORT_SYMBOL(get_lcd_info);
 
 bool panel_gpio_valid(struct panel_gpio *gpio)
 {
-	if ((!gpio) || (gpio->num <= 0))
+	if ((!gpio) || (gpio->num < 0))
 		return false;
 	if (!gpio->name || !gpio_is_valid(gpio->num)) {
 		pr_err("%s invalid gpio(%d)\n", __func__, gpio->num);
@@ -190,6 +211,20 @@ static int panel_disp_det_state(struct panel_device *panel)
 
 	return state;
 }
+
+#ifdef CONFIG_SUPPORT_ERRFG_RECOVERY
+static int panel_err_fg_state(struct panel_device *panel)
+{
+	int state;
+
+	state = panel_gpio_state(&panel->gpio[PANEL_GPIO_ERR_FG]);
+	if (state >= 0)
+		pr_info("%s err_fg:%s\n",
+				__func__, state ? "ERR_FG OK" : "ERR_FG NOK");
+
+	return state;
+}
+#endif
 
 static int panel_conn_det_state(struct panel_device *panel)
 {
@@ -400,6 +435,8 @@ static int __panel_seq_display_on(struct panel_device *panel)
 {
 	int ret;
 
+	panel_info("PANEL_DISPLAY_ON_SEQ\n");
+
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DISPLAY_ON_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s:failed to seqtbl(PANEL_DISPLAY_ON_SEQ)\n",
@@ -459,7 +496,13 @@ static int __panel_seq_init(struct panel_device *panel)
 {
 	int ret = 0;
 	int retry = 20;
+	s64 time_diff;
+	ktime_t timestamp = ktime_get();
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	int vrr_idx;
+
+#endif
 
 	if (panel_disp_det_state(panel) == PANEL_STATE_OK) {
 		panel_warn("PANEL:WARN:%s:panel already initialized\n", __func__);
@@ -476,14 +519,38 @@ static int __panel_seq_init(struct panel_device *panel)
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	vrr_idx = panel_find_vrr(panel,
+			panel->panel_data.props.vrr_target_fps,
+			panel->panel_data.props.vrr_target_mode);
+	if (vrr_idx < 0) {
+		pr_err("%s bridge_target vrr(fps:%d mode:%d) not found\n",
+				__func__, panel->panel_data.props.vrr_target_fps,
+				panel->panel_data.props.vrr_target_mode);
+	} else {
+		panel->panel_data.props.vrr_fps =
+			panel->panel_data.props.vrr_target_fps;
+		panel->panel_data.props.vrr_mode =
+			panel->panel_data.props.vrr_target_mode;
+		panel->panel_data.props.vrr_idx = vrr_idx;
+		pr_info("%s set vrr(fps:%d mode:%d)\n", __func__,
+				panel->panel_data.props.vrr_fps,
+				panel->panel_data.props.vrr_mode);
+	}
+#endif
+
 #ifdef CONFIG_SUPPORT_AOD_BL
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_DISP);
 #endif
+
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_INIT_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
 		goto err_init_seq;
 	}
+	time_diff = ktime_to_us(ktime_sub(ktime_get(), timestamp));
+	panel_info("PANEL:INFO:%s:Time for Panel Init : %llu\n", __func__, time_diff);
+
 	mutex_unlock(&panel->op_lock);
 	mutex_unlock(&panel_bl->lock);
 
@@ -495,6 +562,8 @@ check_disp_det:
 		panel_err("PANEL:ERR:%s:check disp det .. not ok\n", __func__);
 		return -EAGAIN;
 	}
+	time_diff = ktime_to_us(ktime_sub(ktime_get(), timestamp));
+	panel_info("PANEL:INFO:%s:check disp det .. success %llu\n", __func__, time_diff);
 
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	ret = panel_aod_init_panel(panel);
@@ -502,10 +571,6 @@ check_disp_det:
 		panel_err("PANEL:ERR:%s:failed to aod init_panel\n", __func__);
 #endif
 
-	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-
-	panel_info("PANEL:INFO:%s:check disp det .. success\n", __func__);
 	return 0;
 
 err_init_seq:
@@ -663,47 +728,6 @@ static int __panel_seq_set_alpm(struct panel_device *panel)
 #endif
 
 	return 0;
-}
-#endif
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static int __panel_seq_active_clock(struct panel_device *panel, int send_img)
-{
-	int ret = 0;
-	struct act_clock_dev *act_dev = &panel->act_clk_dev;
-	struct act_clk_info *act_info = &act_dev->act_info;
-	struct act_blink_info *blink_info = &act_dev->blink_info;
-
-	if (act_info->en) {
-		panel_dbg("PANEL:DBG:%s:active clock was enabed\n", __func__);
-		if (send_img) {
-			panel_dbg("PANEL:DBG:%s:send active clock's image\n", __func__);
-
-			if (act_info->update_img == IMG_UPDATE_NEED) {
-				ret = panel_do_seqtbl_by_index(panel, PANEL_ACTIVE_CLK_IMG_SEQ);
-				if (unlikely(ret < 0)) {
-					panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
-				}
-				act_info->update_img = IMG_UPDATE_DONE;
-			}
-		}
-		usleep_range(5, 5);
-
-		ret = panel_do_seqtbl_by_index(panel, PANEL_ACTIVE_CLK_CTRL_SEQ);
-		if (unlikely(ret < 0)) {
-			panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
-		}
-	}
-
-	if (blink_info->en) {
-		panel_dbg("PANEL:DBG:%s:active blink was enabed\n", __func__);
-
-		ret = panel_do_seqtbl_by_index(panel, PANEL_ACTIVE_CLK_CTRL_SEQ);
-		if (unlikely(ret < 0)) {
-			panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
-		}
-	}
-	return ret;
 }
 #endif
 
@@ -1366,6 +1390,55 @@ static void panel_check_start(struct panel_device *panel)
 	mutex_unlock(&pw->lock);
 }
 
+
+#ifdef CONFIG_SUPPORT_MAFPC
+static int cmd_v4l2_mafpc_dev(struct panel_device *panel, int cmd, void *param)
+{
+	int ret = 0;
+	if (panel->mafpc_sd) {
+		ret = v4l2_subdev_call(panel->mafpc_sd, core, ioctl, cmd, param);
+		if (ret)
+			panel_err("[PANEL:ERR]:%s failed to v4l2 subdev call\n", __func__);
+	}
+
+	return ret;
+}
+
+
+static int __mafpc_match_dev(struct device *dev, void *data)
+{
+	struct mafpc_device *mafpc;
+	struct panel_device *panel = (struct panel_device *)data;
+	mafpc = (struct mafpc_device *)dev_get_drvdata(dev);
+
+	if (mafpc != NULL) {
+		panel->mafpc_sd = &mafpc->sd;
+		cmd_v4l2_mafpc_dev(panel, V4L2_IOCTL_MAFPC_PROBE, panel);
+	} else {
+		panel_err("[PANEL:ERR]:%s failed to get mafpc\n", __func__);
+	}
+	return 0;
+}
+
+
+static int panel_get_v4l2_mafpc_dev(struct panel_device *panel)
+{
+	struct device_driver *drv;
+	struct device *dev;
+
+	drv = driver_find(MAFPC_DEV_NAME, &platform_bus_type);
+	if (IS_ERR_OR_NULL(drv)) {
+		panel_err("failed to find driver\n");
+		return -ENODEV;
+	}
+
+	dev = driver_find_device(drv, NULL, panel, __mafpc_match_dev);
+
+	return 0;
+}
+#endif
+
+
 int panel_probe(struct panel_device *panel)
 {
 	int i, ret = 0;
@@ -1443,8 +1516,17 @@ int panel_probe(struct panel_device *panel)
 	panel_data->props.ub_con_cnt = 0;
 	panel_data->props.conn_det_enable = 0;
 
-	panel_data->props.vrr.fps = 60;
-	panel_data->props.vrr.mode = VRR_NORMAL_MODE;
+	panel_data->props.vrr_fps = 60;
+	panel_data->props.vrr_mode = VRR_NORMAL_MODE;
+	panel_data->props.vrr_idx = 0;
+	panel_data->props.vrr_origin_fps = 60;
+	panel_data->props.vrr_origin_mode = VRR_NORMAL_MODE;
+	panel_data->props.vrr_origin_idx = 0;
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	panel_data->props.bridge = NULL;
+	panel_data->props.vrr_target_fps = 60;
+	panel_data->props.vrr_target_mode = VRR_NORMAL_MODE;
+#endif
 
 	ret = panel_prepare(panel, info);
 	if (unlikely(ret)) {
@@ -1515,6 +1597,10 @@ int panel_probe(struct panel_device *panel)
 		BUG();
 		return -ENODEV;
 	}
+#endif
+
+#ifdef CONFIG_SUPPORT_MAFPC
+	panel_get_v4l2_mafpc_dev(panel);
 #endif
 
 #ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
@@ -1660,9 +1746,6 @@ static int panel_power_off(struct panel_device *panel)
 	int ret = -EINVAL;
 	struct panel_state *state = &panel->state;
 	enum panel_active_state prev_state = state->cur_state;
-#ifdef CONFIG_ACTIVE_CLOCK
-	struct act_clock_dev *act_clk;
-#endif
 
 	if (state->connect_panel == PANEL_DISCONNECT) {
 		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
@@ -1692,11 +1775,6 @@ static int panel_power_off(struct panel_device *panel)
 	}
 
 	state->cur_state = PANEL_STATE_OFF;
-#ifdef CONFIG_ACTIVE_CLOCK
-    /*clock image for active clock on ddi side ram was remove when ddi was turned off */
-	act_clk = &panel->act_clk_dev;
-	act_clk->act_info.update_img = IMG_UPDATE_NEED;
-#endif
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	ret = panel_aod_power_off(panel);
 	if (ret)
@@ -1797,6 +1875,10 @@ static int panel_sleep_out(struct panel_device *panel)
 			pr_err("%s : fail to set hmd brightness\n", __func__);
 	}
 #endif
+
+#ifdef CONFIG_SUPPORT_MAFPC
+	cmd_v4l2_mafpc_dev(panel, V4L2_IOCTL_MAFPC_UDPATE_REQ, NULL);
+#endif
 	panel_info("%s panel_state:%s -> %s\n", __func__,
 			panel_state_names[prev_state],
 			panel_state_names[state->cur_state]);
@@ -1832,13 +1914,6 @@ static int panel_doze(struct panel_device *panel, unsigned int cmd)
 			goto do_exit;
 		}
 	case PANEL_STATE_NORMAL:
-#ifdef CONFIG_ACTIVE_CLOCK
-		ret = __panel_seq_active_clock(panel, 1);
-		if (ret) {
-			panel_err("PANEL:ERR:%s, failed to write active seqtbl\n",
-			__func__);
-		}
-#endif
 		ret = __panel_seq_set_alpm(panel);
 		if (ret) {
 			panel_err("PANEL:ERR:%s, failed to write alpm\n",
@@ -1861,38 +1936,56 @@ do_exit:
 }
 #endif //CONFIG_SUPPORT_DOZE
 
-int panel_set_vrr(struct panel_device *panel, int fps, int mode)
+static int panel_set_vrr_cb(struct v4l2_subdev *sd)
 {
+	struct panel_device *panel = container_of(sd, struct panel_device, sd);
+	struct disp_cb_info *vrr_cb_info;
+
+	vrr_cb_info = (struct disp_cb_info *)v4l2_get_subdev_hostdata(sd);
+	if (!vrr_cb_info) {
+		panel_err("PANEL:ERR:%s:error vrr_cb_info is null\n", __func__);
+		return -EINVAL;
+	}
+	panel->vrr_cb_info.cb = vrr_cb_info->cb;
+	panel->vrr_cb_info.data = vrr_cb_info->data;
+
+	return 0;
+}
+
+static int panel_vrr_cb(struct panel_device *panel)
+{
+	struct disp_cb_info *vrr_cb_info = &panel->vrr_cb_info;
+	struct vrr_config_data vrr_info;
 	int ret = 0;
-	int i, mres_idx;
-	struct panel_properties *props;
-	struct panel_mres *mres;
-	struct panel_vrr *available_vrr;
+
+	vrr_info.fps = panel->panel_data.props.vrr_fps;
+	vrr_info.mode = panel->panel_data.props.vrr_mode;
+
+	if (vrr_cb_info->cb) {
+		ret = vrr_cb_info->cb(vrr_cb_info->data, &vrr_info);
+		if (ret)
+			panel_err("PANEL:ERR:%s:failed to vrr callback\n",
+					__func__);
+	}
+
+	return ret;
+}
+
+static int panel_find_vrr(struct panel_device *panel, int fps, int mode)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	struct panel_vrr **available_vrr;
 	u32 nr_available_vrr;
+	int i, mres_idx;
 
-	if (unlikely(!panel)) {
-		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
-		ret = -EINVAL;
-		goto do_exit;
-	}
-
-	props = &panel->panel_data.props;
-	mres = &panel->panel_data.mres;
 	mres_idx = props->mres_mode;
-
-	if (panel->state.cur_state != PANEL_STATE_NORMAL) {
-		panel_err("PANEL:ERR:%s:variable fps not supported in %s state\n",
-				__func__, panel_state_names[panel->state.cur_state]);
-		ret = -EINVAL;
-		goto do_exit;
-	}
 
 	if (mres->nr_resol == 0 || mres->resol == NULL ||
 		mres_idx >= mres->nr_resol) {
 		panel_err("PANEL:ERR:%s:vrr(fps:%d mode:%d) not supported in mres_idx %d\n",
 				__func__, fps, mode, mres_idx);
-		ret = -EINVAL;
-		goto do_exit;
+		return -EINVAL;
 	}
 
 	nr_available_vrr = mres->resol[mres_idx].nr_available_vrr;
@@ -1901,48 +1994,613 @@ int panel_set_vrr(struct panel_device *panel, int fps, int mode)
 	if (nr_available_vrr == 0 || available_vrr == NULL) {
 		panel_err("PANEL:ERR:%s:vrr(fps:%d mode:%d) not supported in %dx%d\n",
 				__func__, fps, mode, mres->resol[mres_idx].w, mres->resol[mres_idx].h);
-		ret = -EINVAL;
-		goto do_exit;
+		return -EINVAL;
 	}
 
+#ifdef DEBUG_PANEL
 	for (i = 0; i < nr_available_vrr; i++)
-		pr_info("%s res:%dx%d available_vrr[%d]:%d:%d\n",
+		pr_info("%s res:%dx%d available_vrr[%d]fps:%d~%d(base:%d) mode:%d\n",
 				__func__, mres->resol[mres_idx].w,
 				mres->resol[mres_idx].h, i,
-				available_vrr[i].fps, available_vrr[i].mode);
+				available_vrr[i]->min_fps, available_vrr[i]->max_fps,
+				available_vrr[i]->base_fps, available_vrr[i]->mode);
+#endif
 
 	for (i = 0; i < nr_available_vrr; i++)
-		if (available_vrr[i].fps == fps &&
-			available_vrr[i].mode == mode) {
-			pr_info("%s found available_vrr[%d](fps:%d mode:%d)\n",
-					__func__, i, fps, mode);
+		if (available_vrr[i]->min_fps <= fps &&
+			available_vrr[i]->max_fps >= fps &&
+			available_vrr[i]->mode == mode) {
+#ifdef DEBUG_PANEL
+			pr_info("%s vrr(fps:%d mode:%d resol:%dx%d) found\n",
+					__func__, fps, mode, mres->resol[mres_idx].w,
+					mres->resol[mres_idx].h);
+#endif
 			break;
 		}
 
 	if (i == nr_available_vrr) {
-		panel_err("PANEL:ERR:%s:vrr(fps%d mode:%d) not found\n",
+		pr_info("%s vrr(fps:%d mode:%d resol:%dx%d) not found\n",
+				__func__, fps, mode, mres->resol[mres_idx].w,
+				mres->resol[mres_idx].h);
+		return -EINVAL;
+	}
+
+	return i;
+}
+
+int panel_set_vrr_nolock(struct panel_device *panel, int fps, int mode, bool black)
+{
+	int ret = 0, vrr_idx;
+
+	if (unlikely(!panel)) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_SEC_FACTORY
+	if (panel->panel_data.props.alpm_mode != ALPM_OFF) {
+		panel_err("PANEL:ERR:%s:variable fps not supported in lpm(%d) state\n",
+			__func__, panel->panel_data.props.alpm_mode);
+		ret = -EINVAL;
+		goto do_exit;
+	}
+#else
+	if (panel->state.cur_state != PANEL_STATE_NORMAL) {
+		panel_err("PANEL:ERR:%s:variable fps not supported in %s state\n",
+			__func__, panel_state_names[panel->state.cur_state]);
+		ret = -EINVAL;
+		goto do_exit;
+	}
+#endif
+
+	vrr_idx = panel_find_vrr(panel, fps, mode);
+	if (vrr_idx < 0) {
+		pr_err("%s vrr(fps:%d mode:%d) not found\n",
 				__func__, fps, mode);
 		ret = -EINVAL;
 		goto do_exit;
 	}
 
-	mutex_lock(&panel->op_lock);
-	panel->panel_data.props.vrr.fps = fps;
-	panel->panel_data.props.vrr.mode = mode;
-	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_FPS_SEQ);
-	mutex_unlock(&panel->op_lock);
+
+	panel->panel_data.props.vrr_origin_fps =
+		panel->panel_data.props.vrr_fps;
+	panel->panel_data.props.vrr_origin_mode =
+		panel->panel_data.props.vrr_mode;
+	panel->panel_data.props.vrr_origin_idx =
+		panel->panel_data.props.vrr_idx;
+
+	panel->panel_data.props.vrr_fps = fps;
+	panel->panel_data.props.vrr_mode = mode;
+	panel->panel_data.props.vrr_idx = vrr_idx;
+	ret = panel_do_seqtbl_by_index_nolock(panel,
+			(black == true) ? PANEL_BLACK_AND_FPS_SEQ : PANEL_FPS_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write fps seqtbl\n", __func__);
+		panel->panel_data.props.vrr_fps = panel->panel_data.props.vrr_origin_fps;
+		panel->panel_data.props.vrr_mode = panel->panel_data.props.vrr_origin_mode;
+		panel->panel_data.props.vrr_idx = panel->panel_data.props.vrr_origin_idx;
 		goto do_exit;
 	}
 
-	return 0;
+	panel->panel_data.props.vrr_origin_fps =
+		panel->panel_data.props.vrr_fps;
+	panel->panel_data.props.vrr_origin_mode =
+		panel->panel_data.props.vrr_mode;
+	panel->panel_data.props.vrr_origin_idx =
+		panel->panel_data.props.vrr_idx;
 
 do_exit:
+	panel_vrr_cb(panel);
+
 	return ret;
 }
 
+int panel_set_vrr(struct panel_device *panel, int fps, int mode, bool black)
+{
+	int ret;
+
+	mutex_lock(&panel->op_lock);
+	ret = panel_set_vrr_nolock(panel, fps, mode, black);
+	mutex_unlock(&panel->op_lock);
+
+	return ret;
+}
+
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+static struct panel_vrr_bridge *panel_get_vrr_bridge(struct panel_device *panel,
+		int origin_fps, int origin_mode, int target_fps, int target_mode, int actual_br,
+		int depth)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	static struct panel_vrr_bridge *bridge_rr;
+	int i, mres_idx, nr_bridge_rr, fps, mode;
+	int j;
+
+	mres_idx = props->mres_mode;
+	bridge_rr = mres->resol[mres_idx].bridge_rr;
+	nr_bridge_rr = mres->resol[mres_idx].nr_bridge_rr;
+	fps = props->vrr_fps;
+	mode = props->vrr_mode;
+
+	for (i = 0; i < nr_bridge_rr; i++) {
+		if (origin_fps == bridge_rr[i].origin_fps &&
+				origin_mode == bridge_rr[i].origin_mode &&
+				target_fps == bridge_rr[i].target_fps &&
+				target_mode == bridge_rr[i].target_mode &&
+				actual_br >= bridge_rr[i].min_actual_brt &&
+				actual_br <= bridge_rr[i].max_actual_brt)
+			break;
+	}
+
+	if (i != nr_bridge_rr)
+		return &bridge_rr[i];
+
+	if (depth == 2) {
+		for (i = 0; i < nr_bridge_rr; i++) {
+			if (origin_fps != bridge_rr[i].origin_fps ||
+					origin_mode != bridge_rr[i].origin_mode ||
+					actual_br < (int)bridge_rr[i].min_actual_brt ||
+					actual_br >(int)bridge_rr[i].max_actual_brt)
+				continue;
+
+			for (j = 0; j < nr_bridge_rr; j++) {
+				if (i == j)
+					continue;
+
+				if (bridge_rr[i].target_fps != bridge_rr[j].origin_fps ||
+						bridge_rr[i].target_mode != bridge_rr[j].origin_mode ||
+						actual_br < (int)bridge_rr[j].min_actual_brt ||
+						actual_br >(int)bridge_rr[j].max_actual_brt)
+					continue;
+
+				if (target_fps == bridge_rr[j].target_fps &&
+						target_mode == bridge_rr[j].target_mode) {
+					break;
+				}
+			}
+
+			if (j != nr_bridge_rr)
+				break;
+		}
+
+		if (i != nr_bridge_rr)
+			return &bridge_rr[i];
+	}
+
+	return NULL;
+}
+
+
+static struct panel_vrr_bridge *
+panel_find_vrr_bridge(struct panel_device *panel, int fps, int mode)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_bl_device *panel_bl = &panel->panel_bl;
+	int cur_fps, cur_mode, new_fps, new_mode, actual_br;
+	enum {
+		VRR_BRIDGE_DIR_NONE,
+		VRR_BRIDGE_DIR_FORWARD,
+		VRR_BRIDGE_DIR_BACKWARD,
+		MAX_VRR_BRIDGE_DIR
+	};
+	int bridge_dir = VRR_BRIDGE_DIR_NONE;
+	struct panel_vrr_bridge *bridge;
+
+	/* initialize local variables */
+	cur_fps = props->vrr_fps;
+	cur_mode = props->vrr_mode;
+	new_fps = fps;
+	new_mode = mode;
+	actual_br = panel_bl->props.actual_brightness;
+
+	/* already bridge-rr has been completed */
+	if (cur_fps == new_fps && cur_mode == new_fps)
+		return NULL;
+
+	if (props->bridge == NULL) {
+		/* fixed-rr */
+		bridge = panel_get_vrr_bridge(panel,
+				cur_fps, cur_mode, new_fps, new_mode, actual_br, 2);
+	} else {
+		/* bridge-rr */
+		if (new_fps == props->bridge->target_fps &&
+			new_mode == props->bridge->target_mode) {
+			/* forward path */
+			bridge_dir = VRR_BRIDGE_DIR_FORWARD;
+		} else if (new_fps == props->bridge->origin_fps &&
+				new_mode == props->bridge->origin_mode) {
+			/* backward path */
+			bridge_dir = VRR_BRIDGE_DIR_BACKWARD;
+		} else if (panel_get_vrr_bridge(panel,
+					props->bridge->target_fps,
+					props->bridge->target_mode,
+					new_fps, new_mode, actual_br, 1) != NULL) {
+			/* forward connected path */
+			bridge_dir = VRR_BRIDGE_DIR_FORWARD;
+		} else if (panel_get_vrr_bridge(panel,
+					props->bridge->origin_fps,
+					props->bridge->origin_mode,
+					new_fps, new_mode, actual_br, 1) != NULL) {
+			/* backward connected path */
+			bridge_dir = VRR_BRIDGE_DIR_BACKWARD;
+		} else {
+			/* uneachable path */
+			bridge_dir = VRR_BRIDGE_DIR_NONE;
+		}
+
+		if (bridge_dir == VRR_BRIDGE_DIR_FORWARD) {
+			bridge = panel_get_vrr_bridge(panel,
+					props->bridge->origin_fps,
+					props->bridge->origin_mode,
+					props->bridge->target_fps,
+					props->bridge->target_mode, actual_br, 1);
+		} else if (bridge_dir == VRR_BRIDGE_DIR_BACKWARD) {
+			bridge = panel_get_vrr_bridge(panel,
+					props->bridge->target_fps,
+					props->bridge->target_mode,
+					props->bridge->origin_fps,
+					props->bridge->origin_mode, actual_br, 1);
+		} else {
+			bridge = NULL;
+		}
+	}
+
+#ifdef DEBUG_PANEL
+	if (bridge) {
+		pr_info("%s (%d %d)->(%d %d) br(%d) type(%s)\n",
+				__func__, bridge->origin_fps, bridge->origin_mode,
+				bridge->target_fps, bridge->target_mode, actual_br,
+				(props->bridge == NULL) ? "fixed-rr" : "bridge-rr");
+	} else {
+		pr_info("%s none br(%d) type(%s)\n", __func__, actual_br,
+				(props->bridge == NULL) ? "fixed-rr" : "bridge-rr");
+	}
+#endif
+
+	return bridge;
+}
+
+int panel_vrr_brige_next_fps_and_delay(struct panel_device *panel,
+		int *bridge_fps, int *bridge_frame_delay)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_vrr_bridge *bridge;
+	int i = 0, cur_fps, next_fps, next_frame_delay;
+
+	bridge = props->bridge;
+	cur_fps = props->vrr_fps;
+
+	if (bridge == NULL) {
+		pr_info("%s ERROR:bridge is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	if (bridge->nr_step <= 0) {
+		pr_err("%s invalid bridge_steps(%d)\n",
+				__func__, bridge->nr_step);
+		return -EINVAL;
+	}
+
+	if (cur_fps == bridge->origin_fps) {
+		next_fps = bridge->step[0].fps;
+		next_frame_delay = bridge->step[0].frame_delay;
+	} else {
+		for (i = 0; i < bridge->nr_step; i++) {
+			pr_debug("%s step[%d]:%d, cur_fps:%d\n",
+					__func__, i, bridge->step[i].fps, cur_fps);
+			if (bridge->step[i].fps == cur_fps)
+				break;
+		}
+
+		if (i == bridge->nr_step) {
+			next_fps = bridge->target_fps;
+			next_frame_delay = 1;
+		} else {
+			next_fps = bridge->step[i + 1].fps;
+			next_frame_delay = bridge->step[i + 1].frame_delay;
+		}
+	}
+
+	*bridge_fps = next_fps;
+	*bridge_frame_delay = next_frame_delay;
+
+	pr_debug("%s index:%d bridge_fps:%d bridge_frame_delay:%d\n",
+			__func__, i, next_fps, next_frame_delay);
+
+	return 0;
+}
+
+int panel_set_vrr_bridge(struct panel_device *panel)
+{
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	struct panel_bl_device *panel_bl = &panel->panel_bl;
+	int cur_fps, cur_mode, new_fps, new_mode, actual_br;
+	int mres_idx, bridge_fps, bridge_frame_delay;
+	int ret = 0, usec = 0;
+
+	mutex_lock(&panel_bl->lock);
+
+	/* initialize local variables */
+	mres_idx = panel->panel_data.props.mres_mode;
+	cur_fps = props->vrr_fps;
+	cur_mode = props->vrr_mode;
+	new_fps = props->vrr_target_fps;
+	new_mode = props->vrr_target_mode;
+	actual_br = panel_bl->props.actual_brightness;
+
+	/* already bridge-rr has been completed */
+	if (cur_fps == new_fps && cur_mode == new_fps) {
+		props->bridge = NULL;
+		goto out;
+	}
+
+	props->bridge = panel_find_vrr_bridge(panel, new_fps, new_mode);
+	if (props->bridge == NULL) {
+		bridge_fps = new_fps;
+		bridge_frame_delay = 1;
+	} else {
+		ret = panel_vrr_brige_next_fps_and_delay(panel,
+				&bridge_fps, &bridge_frame_delay);
+		if (ret < 0) {
+			bridge_fps = new_fps;
+			bridge_frame_delay = 1;
+		}
+	}
+
+	pr_debug("%s bridge_fps:%d bridge_frame_delay:%d\n",
+			__func__, bridge_fps, bridge_frame_delay);
+
+	if (bridge_frame_delay > 0) {
+		usec = (1000000 / cur_fps);
+		usec += (1000000 / bridge_fps) * (bridge_frame_delay - 1) + 1;
+	}
+
+	ret = panel_set_vrr(panel, bridge_fps, new_mode, false);
+	if (ret < 0) {
+		pr_info("[VRR:ERR]:%s failed to set bridge_rr(fps:%d mode:%d) in resol(%dx%d)\n",
+				__func__, new_fps, new_mode,
+				mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+		goto err;
+	}
+
+out:
+	/* arrived at bridge target */
+	if (props->bridge &&
+		props->vrr_fps == props->bridge->target_fps &&
+		props->vrr_mode == props->bridge->target_mode)
+		props->bridge = NULL;
+
+	mutex_unlock(&panel_bl->lock);
+
+	usleep_range(usec, usec + 10);
+
+	return 0;
+
+err:
+	props->bridge = NULL;
+	mutex_unlock(&panel_bl->lock);
+
+	return ret;
+}
+
+static int panel_vrr_bridge_thread(void *data)
+{
+	struct panel_device *panel = data;
+	struct panel_properties *props;
+	int ret;
+
+	if (unlikely(!panel)) {
+		panel_warn("panel is null\n");
+		return 0;
+	}
+
+	if (panel->state.connect_panel == PANEL_DISCONNECT) {
+		panel_warn("PANEL:WARN:%s:panel no use\n", __func__);
+		return -ENODEV;
+	}
+
+	props = &panel->panel_data.props;
+	while (!kthread_should_stop()) {
+		ret = wait_event_interruptible(panel->thread[PANEL_THREAD_VRR_BRIDGE].wait,
+				(panel->state.cur_state == PANEL_STATE_NORMAL) &&
+				(props->vrr_target_fps != props->vrr_fps ||
+				 props->vrr_target_mode != props->vrr_mode));
+
+		panel_wake_lock(panel);
+		ret = panel_set_vrr_bridge(panel);
+		if (ret < 0) {
+			props->vrr_fps = props->vrr_target_fps;
+			props->vrr_mode = props->vrr_target_mode;
+			pr_err("%s ERROR:failed to set bridge fps\n", __func__);
+		}
+		panel_wake_unlock(panel);
+	}
+
+	return 0;
+}
+#endif
+
+int panel_set_vrr_info(struct panel_device *panel, void *arg)
+{
+	struct vrr_config_data *vrr_info;
+	struct panel_mres *mres = &panel->panel_data.mres;
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_bl_device *panel_bl = &panel->panel_bl;
+	int mres_idx = panel->panel_data.props.mres_mode;
+	int new_fps, new_mode, cur_fps, cur_mode, vrr_idx;
+	bool black;
+	int ret;
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	struct panel_vrr_bridge *bridge;
+#endif
+
+	if (!arg) {
+		panel_err("[VRR:ERR]:%s invalid arg\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&panel_bl->lock);
+	vrr_info = (struct vrr_config_data *)arg;
+	cur_fps = props->vrr_fps;
+	cur_mode = props->vrr_mode;
+	new_fps = vrr_info->fps;
+	new_mode = vrr_info->mode;
+
+	if (new_fps > 60 && new_mode == VRR_NORMAL_MODE) {
+		pr_warn("[VRR:WARN]:%s fps %d should be HS mode\n",
+				__func__, new_fps);
+		new_mode = VRR_HS_MODE;
+	} else if (new_fps < 60 && new_mode == VRR_HS_MODE) {
+		pr_warn("[VRR:WARN]:%s fps %d should be normal mode\n",
+				__func__, new_fps);
+		new_mode = VRR_NORMAL_MODE;
+	}
+
+	if (cur_fps == new_fps && cur_mode == new_mode) {
+		panel_info("[VRR:INFO]:%s skip same vrr(fps:%d mode:%d)\n",
+			__func__, new_fps, new_mode);
+		mutex_unlock(&panel_bl->lock);
+		return 0;
+	}
+
+	vrr_idx = panel_find_vrr(panel, new_fps, new_mode);
+	if (vrr_idx < 0) {
+		/* try to set vrr with another vrr mode */
+		new_mode = (new_mode == VRR_HS_MODE) ? VRR_NORMAL_MODE : VRR_HS_MODE;
+		vrr_idx = panel_find_vrr(panel, new_fps, new_mode);
+		if (vrr_idx < 0) {
+			pr_err("%s vrr(fps:%d mode:%d resol:%dx%d) not found\n",
+				__func__, new_fps, new_mode,
+				mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+			mutex_unlock(&panel_bl->lock);
+			return -EINVAL;
+		}
+	}
+
+	if (panel->state.cur_state != PANEL_STATE_NORMAL) {
+		mutex_lock(&panel->op_lock);
+		pr_info("%s store vrr(%d %d) value in (panel_state:%s)\n",
+				__func__, new_fps, new_mode,
+				panel_state_names[panel->state.cur_state]);
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+		props->vrr_target_fps = new_fps;
+		props->vrr_target_mode = new_mode;
+#endif
+		props->vrr_fps = new_fps;
+		props->vrr_mode = new_mode;
+		props->vrr_idx = vrr_idx;
+		panel->panel_data.props.vrr_origin_fps = new_fps;
+		panel->panel_data.props.vrr_origin_mode = new_mode;
+		panel->panel_data.props.vrr_origin_idx = vrr_idx;
+		mutex_unlock(&panel->op_lock);
+		mutex_unlock(&panel_bl->lock);
+		return 0;
+	}
+
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	props->vrr_target_fps = new_fps;
+	props->vrr_target_mode = new_mode;
+	bridge = panel_find_vrr_bridge(panel, new_fps, new_mode);
+	if (bridge) {
+		panel_info("[VRR:INFO]:%s run bridge-rr(%d %d)\n",
+				__func__, new_fps, new_mode);
+		wake_up_interruptible_all(&panel->thread[PANEL_THREAD_VRR_BRIDGE].wait);
+		mutex_unlock(&panel_bl->lock);
+		return 0;
+	}
+	props->bridge = NULL;
+#endif
+	/* when vrr mode change black frame insertion */
+	black = new_mode != props->vrr_mode;
+	ret = panel_set_vrr(panel, new_fps, new_mode, black);
+	if (ret < 0) {
+		panel_err("[VRR:ERR]:%s failed to set vrr(fps:%d mode:%d) in resol(%dx%d)\n",
+				__func__, new_fps, new_mode,
+				mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+		mutex_unlock(&panel_bl->lock);
+		return ret;
+	}
+	mutex_unlock(&panel_bl->lock);
+
+	panel_info("[VRR:INFO]:%s vrr req(%d %d) changed(%d %d)->(%d %d) black(%d) in resol(%dx%d)\n",
+			__func__, vrr_info->fps, vrr_info->mode, cur_fps, cur_mode,
+			props->vrr_fps, props->vrr_mode, black,
+			mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+
+	return 0;
+}
+
 #ifdef CONFIG_SUPPORT_DSU
+static int panel_update_mres_vrr(struct panel_device *panel, int mres_idx)
+{
+	struct panel_properties *props;
+	struct panel_mres *mres;
+	struct panel_vrr **available_vrr;
+	u32 nr_available_vrr;
+	int idx, vrr_idx, old_fps, old_mode, old_mres_idx, fps, mode, ret;
+	int vrr_table[4][2];
+	bool black;
+
+	props = &panel->panel_data.props;
+	mres = &panel->panel_data.mres;
+	nr_available_vrr = mres->resol[mres_idx].nr_available_vrr;
+	available_vrr = mres->resol[mres_idx].available_vrr;
+	old_fps = props->vrr_fps;
+	old_mode = props->vrr_mode;
+	old_mres_idx = props->mres_mode;
+
+	vrr_table[0][0] = old_fps;
+	vrr_table[0][1] = old_mode;
+	vrr_table[1][0] = old_fps;
+	vrr_table[1][1] = VRR_NORMAL_MODE;
+	vrr_table[2][0] = 60;
+	vrr_table[2][1] = old_mode;
+	vrr_table[3][0] = 60;
+	vrr_table[3][1] = VRR_NORMAL_MODE;
+
+	if (nr_available_vrr == 0)
+		return -EINVAL;
+
+	/* find new resolution's vrr fps & mode */
+	for (idx = 0; idx < ARRAY_SIZE(vrr_table); idx++) {
+		fps = vrr_table[idx][0];
+		mode = vrr_table[idx][1];
+		vrr_idx = panel_find_vrr(panel, fps, mode);
+		if (vrr_idx >= 0)
+			break;
+	}
+
+	if (idx == 0) {
+		pr_debug("%s skip same vrr(fps:%d mode:%d) in resol(%dx%d)\n",
+				__func__, old_fps, old_mode,
+				mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+		return 0;
+	}
+
+	if (idx == ARRAY_SIZE(vrr_table)) {
+		pr_err("%s failed to find vrr of resol(%dx%d)\n",
+				__func__, mres->resol[mres_idx].w, mres->resol[mres_idx].h);
+		return -EINVAL;
+	}
+
+	black = mode != old_mode;
+	ret = panel_set_vrr(panel, fps, mode, black);
+	if (ret < 0) {
+		pr_err("%s failed to set_vrr(fps:%d mode:%d)\n",
+				__func__, fps, mode);
+		return ret;
+	}
+
+	panel_info("[VRR:INFO]:%s mres:req(%dx%d)->(%dx%d), vrr:changed(%d %d)->(%d %d) black(%d)\n",
+			__func__, mres->resol[old_mres_idx].w, mres->resol[old_mres_idx].h,
+			mres->resol[mres_idx].w, mres->resol[mres_idx].h,
+			old_fps, old_mode, fps, mode, black);
+
+	return 0;
+}
+
 static int panel_set_mres(struct panel_device *panel, int *arg)
 {
 	int ret = 0;
@@ -1976,9 +2634,13 @@ static int panel_set_mres(struct panel_device *panel, int *arg)
 
 	props->mres_mode = mres_idx;
 	props->mres_updated = true;
+	ret = panel_update_mres_vrr(panel, mres_idx);
+	if (unlikely(ret < 0))
+		panel_err("PANEL:ERR:%s, failed to write vrr seqtbl\n", __func__);
+
 	ret = panel_do_seqtbl_by_index(panel, PANEL_DSU_SEQ);
 	if (unlikely(ret < 0)) {
-		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
+		panel_err("PANEL:ERR:%s, failed to write dsu seqtbl\n", __func__);
 		goto do_exit;
 	}
 	props->xres = mres->resol[mres_idx].w;
@@ -1990,21 +2652,6 @@ do_exit:
 	return ret;
 }
 #endif /* CONFIG_SUPPORT_DSU */
-
-static int panel_set_fps(struct panel_device *panel, void *arg)
-{
-	int *fps = (int *)arg;
-	int mode = VRR_NORMAL_MODE;
-
-	panel_info("[VRR:INFO]:%s setting fps : %d", __func__, *fps);
-
-	if (*fps == 120)
-		mode = VRR_HS_MODE;
-
-	panel_set_vrr(panel, *fps, mode);
-
-	return 0;
-}
 
 static int panel_ioctl_dsim_probe(struct v4l2_subdev *sd, void *arg)
 {
@@ -2042,11 +2689,7 @@ static int panel_ioctl_dsim_ops(struct v4l2_subdev *sd)
 		panel_err("PANEL:ERR:%s:mipi_ops is null\n", __func__);
 		return -EINVAL;
 	}
-	panel->mipi_drv.read = mipi_ops->read;
-	panel->mipi_drv.write = mipi_ops->write;
-	panel->mipi_drv.get_state = mipi_ops->get_state;
-	panel->mipi_drv.parse_dt = mipi_ops->parse_dt;
-	panel->mipi_drv.get_lcd_info = mipi_ops->get_lcd_info;
+	memcpy(&panel->mipi_drv, mipi_ops, sizeof(struct mipi_drv_ops));
 
 	return 0;
 }
@@ -2190,6 +2833,21 @@ static int panel_set_finger_layer(struct panel_device *panel, void *arg)
 	return ret;
 }
 #endif
+
+
+
+#ifdef CONFIG_SUPPORT_MAFPC
+static int panel_wait_mafpc_complate(struct panel_device *panel)
+{
+	int ret = 0;
+	ret = cmd_v4l2_mafpc_dev(panel, V4L2_IOCTL_MAFPC_WAIT_COMP, panel);
+
+	return ret;
+}
+
+#endif
+
+
 static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
 	int ret = 0;
@@ -2214,6 +2872,11 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 		case PANEL_IOC_REG_RESET_CB:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_REG_PANEL_RESET\n", __func__);
 			ret = panel_set_error_cb(sd);
+			break;
+
+		case PANEL_IOC_REG_VRR_CB:
+			panel_info("PANEL:INFO:%s:PANEL_IOC_REG_PANEL_RESET\n", __func__);
+			ret = panel_set_vrr_cb(sd);
 			break;
 
 		case PANEL_IOC_GET_PANEL_STATE:
@@ -2261,11 +2924,17 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			break;
 #endif
 
+#ifdef CONFIG_SUPPORT_MAFPC
+		case PANEL_IOC_WAIT_MAFPC:
+			panel_info("PANEL:INFO:%s:PANEL_IOC_WAIT_MAFPC\n", __func__);
+			ret = panel_wait_mafpc_complate(panel);
+			break;
+#endif
 		case PANEL_IOC_GET_MRES:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_GET_MRES\n", __func__);
 			v4l2_set_subdev_hostdata(sd, &panel->panel_data.mres);
 			break;
-			
+
 #if 0
 		case PANEL_IOC_SET_ACTIVE:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_SET_ACTIVE\n", __func__);
@@ -2274,12 +2943,12 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 
 		case PANEL_IOC_GET_ACTIVE:
 			panel_info("PANEL:INFO:%s:PANEL_IOC_GET_ACTIVE\n", __func__);
-			v4l2_set_subdev_hostdata(sd, &panel->panel_data.props.vrr.fps);
+			v4l2_set_subdev_hostdata(sd, &panel->panel_data.props.vrr_fps);
 			break;
 #endif
-		case PANEL_IOC_SET_FPS:
-			panel_info("PANEL:INFO:%s:PANEL_IOC_SET_VRR\n", __func__);
-			ret = panel_set_fps(panel, arg);
+		case PANEL_IOC_SET_VRR_INFO:
+			panel_info("PANEL:INFO:%s:PANEL_IOC_SET_VRR_INFO\n", __func__);
+			ret = panel_set_vrr_info(panel, arg);
 			break;
 
 		case PANEL_IOC_DISP_ON:
@@ -2300,6 +2969,8 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 				panel_info("PANEL:INFO:%s:FRAME_DONE (panel_state:%s, display on)\n",
 						__func__, panel_state_names[panel->state.cur_state]);
 				ret = panel_display_on(panel);
+				clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+				enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
 				panel_check_ready(panel);
 			}
 			copr_update_start(&panel->copr, 3);
@@ -2314,7 +2985,7 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 				panel_check_start(panel);
 			break;
 		case PANEL_IOC_EVT_VSYNC:
-			//panel_dbg("PANEL:INFO:%s:PANEL_IOC_EVT_VSYNC\n", __func__);
+			panel_info("PANEL:INFO:%s:PANEL_IOC_EVT_VSYNC\n", __func__);
 			break;
 #ifdef CONFIG_SUPPORT_INDISPLAY
 		case PANEL_IOC_SET_FINGER_SET:
@@ -2575,8 +3246,8 @@ static int panel_parse_gpio(struct panel_device *panel)
 			pr_err("%s failed to get gpio %s\n",
 					__func__, np->name);
 
-		pr_info("gpio[%d] name:%s active:%s dir:%d irq_type:%d\n",
-				i, gpio[i].name, gpio[i].active_low ? "low" : "high",
+		pr_info("gpio[%d] num:%d name:%s active:%s dir:%d irq_type:%d\n",
+				i, gpio[i].num, gpio[i].name, gpio[i].active_low ? "low" : "high",
 				gpio[i].dir, gpio[i].irq_type);
 	}
 	of_node_put(gpios_np);
@@ -2972,6 +3643,46 @@ void conn_det_handler(struct work_struct * data)
 
 void err_fg_handler(struct work_struct * data)
 {
+#ifdef CONFIG_SUPPORT_ERRFG_RECOVERY
+	int ret, err_fg_state;
+	bool err_fg_recovery = false;
+	struct panel_work *w = container_of(to_delayed_work(data),
+			struct panel_work, dwork);
+	struct panel_device *panel =
+		container_of(w, struct panel_device, work[PANEL_WORK_ERR_FG]);
+	struct panel_gpio *gpio = panel->gpio;
+	struct panel_state *state = &panel->state;
+
+	err_fg_state = panel_err_fg_state(panel);
+	panel_info("PANEL:INFO:%s: err_fg_state:%s\n",
+			__func__, err_fg_state == PANEL_STATE_OK ? "OK" : "NOK");
+
+	err_fg_recovery = panel->panel_data.ddi_props.err_fg_recovery;
+
+	if (err_fg_recovery) {
+		switch (state->cur_state) {
+		case PANEL_STATE_ALPM:
+		case PANEL_STATE_NORMAL:
+			if (err_fg_state == PANEL_STATE_NOK) {
+				disable_irq(gpio[PANEL_GPIO_ERR_FG].irq);
+				/* delay for disp_det deboundce */
+				usleep_range(10000, 11000);
+
+				panel_err("PANEL:ERR:%s:disp_det is abnormal state\n",
+					__func__);
+				ret = panel_error_cb(panel);
+				if (ret)
+					panel_err("PANEL:ERR:%s:failed to recover panel\n",
+							__func__);
+				clear_pending_bit(panel->gpio[PANEL_GPIO_ERR_FG].irq);
+				enable_irq(gpio[PANEL_GPIO_ERR_FG].irq);
+			}
+			break;
+		default:
+			break;
+		}
+	}
+#endif
 	pr_info("%s\n", __func__);
 	return ;
 }
@@ -3195,6 +3906,30 @@ static int panel_drv_init_work(struct panel_device *panel)
 	return 0;
 }
 
+static int panel_create_thread(struct panel_device *panel)
+{
+	int i;
+
+	if (unlikely(!panel)) {
+		panel_warn("panel is null\n");
+		return 0;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(panel->thread); i++) {
+		init_waitqueue_head(&panel->thread[i].wait);
+
+		panel->thread[i].thread =
+			kthread_run(panel_thread_fns[i], panel, panel_thread_names[i]);
+		if (IS_ERR_OR_NULL(panel->thread[i].thread)) {
+			panel_err("%s failed to run panel bridge-rr thread\n", __func__);
+			panel->thread[i].thread = NULL;
+			return PTR_ERR(panel->thread[i].thread);
+		}
+	}
+
+	return 0;
+}
+
 static int panel_drv_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3221,9 +3956,6 @@ static int panel_drv_probe(struct platform_device *pdev)
 #endif
 #if 0
 #endif
-#ifdef CONFIG_ACTIVE_CLOCK
-	panel->act_clk_dev.act_info.update_img = IMG_UPDATE_NEED;
-#endif
 
 	mutex_init(&panel->op_lock);
 	mutex_init(&panel->data_lock);
@@ -3241,6 +3973,7 @@ static int panel_drv_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, panel);
 
 	panel_drv_init_work(panel);
+	panel_create_thread(panel);
 
 	panel->fb_notif.notifier_call = panel_fb_notifier;
 	ret = fb_register_client(&panel->fb_notif);

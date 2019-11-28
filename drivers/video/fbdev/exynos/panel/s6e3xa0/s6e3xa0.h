@@ -425,17 +425,6 @@ enum {
 	LPM_DYN_VLIN_MAPTBL,
 	LPM_OFF_MAPTBL,
 	LPM_AOR_OFF_MAPTBL,
-#ifdef CONFIG_ACTIVE_CLOCK
-	ACTIVE_CLK_CTRL_MAPTBL,
-	ACTIVE_CLK_SELF_DRAWER,
-	ACTIVE_CLK_CTRL_UPDATE_MAPTBL,
-#endif
-#ifdef CONFIG_SUPPORT_DDI_FLASH
-	POC_ON_MAPTBL,
-	POC_WR_ADDR_MAPTBL,
-	POC_RD_ADDR_MAPTBL,
-	POC_WR_DATA_MAPTBL,
-#endif
 #ifdef CONFIG_SUPPORT_POC_FLASH
 	POC_ER_ADDR_MAPTBL,
 #endif
@@ -974,10 +963,37 @@ static u32 S6E3XA0_SCALER_1440x3200[][2] = {
 };
 
 /* Variable Refresh Rate */
+/* Variable Refresh Rate */
+enum {
+	S6E3XA0_VRR_MODE_NORMAL,
+	S6E3XA0_VRR_MODE_HS,
+	MAX_S6E3HAB_VRR_MODE,
+};
+
+enum {
+	S6E3XA0_VRR_60_NORMAL,
+	S6E3XA0_VRR_60_HS,
+	S6E3XA0_VRR_120_HS,
+	MAX_S6E3XA0_VRR,
+};
+
 enum {
 	S6E3XA0_VRR_FPS_60,
 	S6E3XA0_VRR_FPS_120,
 	MAX_S6E3XA0_VRR_FPS,
+};
+
+struct panel_vrr S6E3XA0_VRR[] = {
+	[S6E3XA0_VRR_MODE_NORMAL] = {
+		.def_fps = 60,
+		.min_fps = 48,
+		.max_fps = 60,
+		.base_fps = 60,
+		.base_vactive = 3200,
+		.base_vfp = 16,
+		.base_vbp = 16,
+		.mode = VRR_NORMAL_MODE,
+	},
 };
 
 static u32 S6E3XA0_VRR_FPS[] = {
@@ -1036,11 +1052,6 @@ static void copy_isc_threshold_maptbl(struct maptbl *tbl, u8 *dst);
 static void copy_gamma_inter_control_maptbl(struct maptbl *tbl, u8 *dst);
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
 static void copy_copr_maptbl(struct maptbl *, u8 *);
-#endif
-#ifdef CONFIG_ACTIVE_CLOCK
-static void copy_self_clk_update_maptbl(struct maptbl *tbl, u8 *dst);
-static void copy_self_clk_maptbl(struct maptbl *, u8 *);
-static void copy_self_drawer(struct maptbl *tbl, u8 *dst);
 #endif
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
 static int s6e3xa0_getidx_vddm_table(struct maptbl *);

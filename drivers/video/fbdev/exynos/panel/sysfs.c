@@ -443,6 +443,167 @@ static ssize_t lcd_type_show(struct device *dev,
 	return strlen(buf);
 }
 
+#ifdef CONFIG_SUPPORT_MAFPC
+
+#define MAFPC_CRC_LEN	2
+
+static ssize_t mafpc_time_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+
+	snprintf(buf, PAGE_SIZE, "MAC : %lld usec", panel->mafpc_write_time);
+
+	return strlen(buf);
+}
+
+static void prepare_mafpc_check_mode(struct panel_device *panel)
+{
+	//struct panel_info *panel_data = &panel->panel_data;
+	int ret;
+
+	decon_bypass_on_global(0);
+	usleep_range(90000, 100000);
+	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	
+	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_EXIT_SEQ);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed exit-seq\n", __func__);
+
+	ret = __set_panel_power(panel, PANEL_POWER_OFF);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set power off\n", __func__);
+
+	ret = __set_panel_power(panel, PANEL_POWER_ON);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set power on\n", __func__);
+
+	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_INIT_SEQ);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed init-seq\n", __func__);
+
+	
+}
+
+
+static void clear_mafpc_check_mode(struct panel_device *panel)
+{
+	//struct panel_info *panel_data = &panel->panel_data;
+ 
+	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	//enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq); 
+	panel->state.cur_state = PANEL_STATE_NORMAL;
+	panel->state.disp_on = PANEL_DISPLAY_OFF;
+	decon_bypass_off_global(0);
+	msleep(20);
+}
+
+
+static int mafpc_get_target_crc(struct panel_device *panel, u8 *crc)
+{
+
+	struct mafpc_device *mafpc = NULL;
+	
+	v4l2_subdev_call(panel->mafpc_sd, core, ioctl,
+		V4L2_IOCTL_MAFPC_GET_INFO, NULL);
+
+	mafpc = (struct mafpc_device *)v4l2_get_subdev_hostdata(panel->mafpc_sd);
+	if (mafpc == NULL) {
+		panel_err("[DECON:INFO]:%s failed to get mafpc info\n", __func__);
+		return -EINVAL;
+	}
+
+	memcpy(crc, mafpc->factory_crc, MAFPC_CRC_LEN);
+
+	return 0;
+}
+
+
+static ssize_t mafpc_check_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int size = 0;
+	int ret = 0;
+	u8 target_crc[2] = {0, };
+	u8 origin_crc[2] = {1, };
+	struct panel_info *panel_data;
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	panel_info("[PANEL:INFO]:+%s\n", __func__);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+
+	panel_data = &panel->panel_data;
+
+	mutex_lock(&panel->io_lock);
+	if (!IS_PANEL_ACTIVE(panel)) {
+		panel_err("[PANEL:ERR]:%s:panel is not active\n", __func__);
+		goto exit;
+	}
+
+	if (panel->state.cur_state == PANEL_STATE_ALPM) {
+		panel_err("[PANEL:ERR]:%s gct not supported on LPM\n", __func__);
+		goto exit;
+	}
+
+	copr_disable(&panel->copr);
+	mdnie_disable(&panel->mdnie);
+
+	mutex_lock(&panel->mdnie.lock);
+	mutex_lock(&panel->op_lock);
+	prepare_mafpc_check_mode(panel);
+
+	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_MAFPC_FAC_CHECKSUM);
+	if (unlikely(ret < 0)) {
+		panel_err("[PANEL:ERR]:%s:failed to write panel_mafpc_crc seq\n", __func__);
+		goto out;
+	}
+
+	ret = resource_copy_n_clear_by_name(panel_data,	target_crc, "mafpc_crc");
+	if (unlikely(ret < 0)) {
+		panel_err("[PANEL:ERR]:%s:failed to read mafpc crc\n", __func__);
+		goto out;
+	}
+
+	ret  = mafpc_get_target_crc(panel, origin_crc);
+	if (ret) {
+		panel_err("[PANEL:ERR]:%s: faied to get target mAFPC crc value\n");
+	}
+
+	panel_info("%s target crc : %x :%x\n", __func__, target_crc[0], target_crc[1]);
+	panel_info("%s origin crc : %x :%x\n", __func__, origin_crc[0], origin_crc[1]);
+
+out:
+	clear_mafpc_check_mode(panel);
+	mutex_unlock(&panel->op_lock);
+	mutex_unlock(&panel->mdnie.lock);
+
+#ifdef CONFIG_EXTEND_LIVE_CLOCK
+	ret = panel_aod_init_panel(panel);
+	if (ret)
+		panel_err("PANEL:ERR:%s:failed to aod init_panel\n", __func__);
+#endif
+
+exit:
+	size = snprintf(buf, PAGE_SIZE, "%01d %02x %02x\n",
+				memcmp(target_crc, origin_crc, MAFPC_CRC_LEN) == 0 ? 1 : 0,
+				target_crc[0], target_crc[1]);
+
+	mutex_unlock(&panel->io_lock);
+
+	return size;
+}
+
+#endif
+
 static ssize_t window_type_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -481,6 +642,12 @@ static ssize_t manufacture_code_show(struct device *dev,
 		code[0], code[1], code[2], code[3], code[4]);
 
 	return strlen(buf);
+}
+
+static ssize_t SVC_OCTA_DDI_CHIPID_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	return manufacture_code_show(dev, attr, buf);
 }
 
 static ssize_t cell_id_show(struct device *dev,
@@ -3534,6 +3701,10 @@ static ssize_t dynamic_freq_store(struct device *dev,
 	if (rc < 0)
 		return rc;
 
+	if (value < 0 ) {
+		panel_err("PANEL:ERR:%s:value is negative : %d\n", __func__, value);
+		return -EINVAL;
+	}
 	dynamic_freq_update(panel, value);
 
 	return size;
@@ -3553,8 +3724,8 @@ static ssize_t vrr_show(struct device *dev,
 	panel_data = &panel->panel_data;
 
 	snprintf(buf, PAGE_SIZE, "%d %d\n",
-			panel_data->props.vrr.fps,
-			panel_data->props.vrr.mode);
+			panel_data->props.vrr_fps,
+			panel_data->props.vrr_mode);
 
 	return strlen(buf);
 }
@@ -3563,9 +3734,10 @@ static ssize_t vrr_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	int rc, ret;
-	int fps, mode;
+	int old_fps, old_mode, fps, mode;
 	struct panel_info *panel_data;
 	struct panel_device *panel = dev_get_drvdata(dev);
+	struct vrr_config_data vrr_info;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
@@ -3577,15 +3749,24 @@ static ssize_t vrr_store(struct device *dev,
 	if (rc != 2)
 		return EINVAL;
 
-	ret = panel_set_vrr(panel, fps, mode);
+	mutex_lock(&panel->io_lock);
+	old_fps = panel_data->props.vrr_fps;
+	old_mode = panel_data->props.vrr_mode;
+	vrr_info.fps = fps;
+	vrr_info.mode = mode;
+	ret = panel_set_vrr_info(panel, &vrr_info);
 	if (ret < 0) {
-		pr_info("%s: failed to set vrr(fps:%d mode:%d)\n",
+		pr_err("%s: failed to set vrr(fps:%d mode:%d)\n",
 				__func__, fps, mode);
-	} else {
-		pr_info("%s: fps:%d->%d mode:%d->%d\n",
-				__func__, panel_data->props.vrr.fps, fps,
-				panel_data->props.vrr.mode, mode);
+		mutex_unlock(&panel->io_lock);
+		return ret;
 	}
+	mutex_unlock(&panel->io_lock);
+
+	pr_info("%s vrr req:(%d %d) changed:(%d %d)->(%d %d)\n",
+			__func__, fps, mode, old_fps, old_mode, 
+			panel_data->props.vrr_fps,
+			panel_data->props.vrr_mode);
 
 	return size;
 }
@@ -3691,6 +3872,7 @@ struct device_attribute panel_attrs[] = {
 	__PANEL_ATTR_RO(octa_id, 0444),
 	__PANEL_ATTR_RO(SVC_OCTA, 0444),
 	__PANEL_ATTR_RO(SVC_OCTA_CHIPID, 0444),
+	__PANEL_ATTR_RO(SVC_OCTA_DDI_CHIPID, 0444),
 #ifdef CONFIG_SUPPORT_XTALK_MODE
 	__PANEL_ATTR_RW(xtalk_mode, 0664),
 #endif
@@ -3745,12 +3927,6 @@ struct device_attribute panel_attrs[] = {
 	__PANEL_ATTR_RW(alpm, 0664),
 	__PANEL_ATTR_RW(lpm_opr, 0664),
 	__PANEL_ATTR_RW(fingerprint, 0644),
-#if 0
-#ifdef CONFIG_ACTIVE_CLOCK
-	__PANEL_ATTR_RW(active_clock, 0644),
-	__PANEL_ATTR_RW(active_blink, 0644),
-#endif
-#endif
 #ifdef CONFIG_SUPPORT_HMD
 	__PANEL_ATTR_RW(hmt_bright, 0664),
 	__PANEL_ATTR_RW(hmt_on, 0664),
@@ -3789,6 +3965,10 @@ struct device_attribute panel_attrs[] = {
 #endif
 	__PANEL_ATTR_RW(vrr, 0664),
 	__PANEL_ATTR_RW(conn_det, 0664),
+#ifdef CONFIG_SUPPORT_MAFPC
+	__PANEL_ATTR_RO(mafpc_time, 0444),
+	__PANEL_ATTR_RO(mafpc_check, 0440),
+#endif
 };
 
 int panel_sysfs_probe(struct panel_device *panel)

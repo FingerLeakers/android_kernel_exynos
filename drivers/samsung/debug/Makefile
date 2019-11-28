@@ -26,4 +26,6 @@ obj-$(CONFIG_SEC_DEBUG_FIRST2M_LOG)	+= sec_debug_first2M_log.o
 obj-$(CONFIG_SEC_DEBUG_INIT_LOG)	+= sec_debug_init_log.o
 obj-$(CONFIG_SEC_DEBUG_WATCHDOGD_FOOTPRINT)	+= sec_debug_wdd_info.o
 obj-$(CONFIG_SEC_DEBUG_FREQ)		+= sec_debug_freq.o
-obj-$(CONFIG_SEC_DEBUG_COMPLETE_HINT)		+= sec_debug_complete_hint.o
+obj-$(CONFIG_SEC_DEBUG_COMPLETE_HINT)	+= sec_debug_complete_hint.o
+obj-$(CONFIG_SEC_DEBUG_DTASK)		+= sec_debug_dtask.o
+obj-$(CONFIG_SEC_PERF_LATENCYCHECKER)   += sec_perf_latencychecker.o

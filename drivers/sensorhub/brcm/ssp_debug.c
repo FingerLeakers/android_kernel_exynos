@@ -304,6 +304,7 @@ void sync_sensor_state(struct ssp_data *data)
 		send_instruction(data, ADD_SENSOR, PROXIMITY_RAW, uBuf, 4);
 	}
 
+	initialize_light_colorid(data);
 	set_proximity_threshold(data);
 	set_light_coef(data);
 
@@ -374,9 +375,9 @@ static void print_sensordata(struct ssp_data *data, unsigned int uSensor)
 	case LIGHT_SENSOR:
 	case UNCAL_LIGHT_SENSOR:
 		ssp_dbg("[SSP] %u : %u, %u, %u, %u, %u, %u (%ums)\n", uSensor,
-			data->buf[uSensor].r, data->buf[uSensor].g,
-			data->buf[uSensor].b, data->buf[uSensor].w,
-			data->buf[uSensor].a_time, data->buf[uSensor].a_gain,
+			data->buf[uSensor].light_t.r, data->buf[uSensor].light_t.g,
+			data->buf[uSensor].light_t.b, data->buf[uSensor].light_t.w,
+			data->buf[uSensor].light_t.a_time, data->buf[uSensor].light_t.a_gain,
 			get_msdelay(data->adDelayBuf[uSensor]));
 		break;
 	case LIGHT_FLICKER_SENSOR:
@@ -385,9 +386,9 @@ static void print_sensordata(struct ssp_data *data, unsigned int uSensor)
 		break;
 	case LIGHT_CCT_SENSOR:
 		ssp_dbg("[SSP] %u : %u, %u, %u, %u, %u, %u (%ums)\n", uSensor,
-			data->buf[uSensor].r, data->buf[uSensor].g,
-			data->buf[uSensor].b, data->buf[uSensor].w,
-			data->buf[uSensor].a_time, data->buf[uSensor].a_gain,
+			data->buf[uSensor].light_cct_t.r, data->buf[uSensor].light_cct_t.g,
+			data->buf[uSensor].light_cct_t.b, data->buf[uSensor].light_cct_t.w,
+			data->buf[uSensor].light_cct_t.a_time, data->buf[uSensor].light_cct_t.a_gain,
 			get_msdelay(data->adDelayBuf[uSensor]));
 		break;
 	case PROXIMITY_SENSOR:

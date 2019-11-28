@@ -40,6 +40,9 @@
 #include <linux/threads.h>
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
+#if defined(CONFIG_MST_V2)
+#include "../drivers/battery_v2/include/charger/mfc_charger.h"
+#endif
 
 #include "mstdrv.h"
 
@@ -68,6 +71,15 @@
 #endif
 
 #if defined(CONFIG_MFC_CHARGER)
+#define MST_MODE_ON                     1                   // ON Message to MFC ic
+#define MST_MODE_OFF                    0                   // OFF Message to MFC ic
+#if defined(CONFIG_MST_V2)
+extern int mfc_reg_read(struct i2c_client *client, u16 reg, u8 *val);
+extern int mfc_reg_write(struct i2c_client *client, u16 reg, u8 val);
+extern int mfc_reg_multi_write(struct i2c_client *client, u16 reg, const u8 * val, int size);
+extern int mfc_get_firmware_version(struct mfc_charger_data *charger, int firm_mode);
+extern void mfc_set_cmd_l_reg(struct mfc_charger_data *charger, u8 val, u8 mask);
+#else
 static inline struct power_supply *get_power_supply_by_name(char *name)
 {
 	if (!name)
@@ -96,6 +108,7 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 		}    \
 	}    \
 }
+#endif
 #endif
 
 /* global variables */
@@ -188,6 +201,44 @@ static int boost_disable(void)
 			__func__, ss_mst_bus_hdl);
 	}
 	return ss_mst_bus_hdl;
+}
+#endif
+
+#if defined(CONFIG_MST_V2)
+static int mfc_get_property(union power_supply_propval *val) {
+        struct power_supply *psy;
+        struct mfc_charger_data *charger;
+        u8 mst_mode, reg_data;
+
+        psy = get_power_supply_by_name("mfc-charger");
+        charger = power_supply_get_drvdata(psy);
+        if (charger == NULL) {
+                pr_err("%s cannot get charger drvdata!\n", __func__);
+                return -1;
+        }
+
+        val->intval = mfc_reg_read(charger->client, MFC_MST_MODE_SEL_REG, &mst_mode);
+        if (val->intval < 0) {
+                pr_info("%s mst mode(0x2) i2c write failed, val->intval = %d\n",
+                                __func__, val->intval);
+                return -ENODATA;
+        }
+
+        val->intval = mfc_reg_read(charger->client, MFC_SYS_OP_MODE_REG, &reg_data);
+        if (val->intval < 0) {
+                pr_info("%s mst mode change irq(0x4) read failed, val->intval = %d\n",
+                                __func__, val->intval);
+                return -ENODATA;
+        }
+        reg_data &= 0x0C; /* use only [3:2]bit of sys_op_mode register for MST */
+
+        pr_info("%s mst mode check: mst_mode = %d, reg_data = %d\n",
+                        __func__, mst_mode, reg_data);
+        val->intval = 0;
+        if (reg_data == 0x4)
+                val->intval = mst_mode;
+
+        return 0;
 }
 #endif
 
@@ -360,8 +411,12 @@ static void of_mst_hw_onoff(bool on)
 
 #if defined(CONFIG_MFC_CHARGER)
 		while (--retry_cnt) {
+#if defined(CONFIG_MST_V2)
+                        mfc_get_property(&value);
+#else
 			psy_do_property("mfc-charger", get,
 					POWER_SUPPLY_PROP_TECHNOLOGY, value);
+#endif
 			if (value.intval == 0x02) {
 				mst_info("%s: mst mode set!!! : %d\n", __func__,
 					 value.intval);
@@ -786,6 +841,112 @@ static ssize_t store_mfc(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR(mfc, 0770, show_mfc, store_mfc);
+
+#if defined(CONFIG_MST_V2)
+static ssize_t show_mst_switch_test(struct device *dev,
+                struct device_attribute *attr, char *buf)
+{
+        struct power_supply *psy;
+        struct mfc_charger_data *charger;
+        int ret = 0;
+
+        psy = get_power_supply_by_name("mfc-charger");
+        charger = power_supply_get_drvdata(psy);
+        if (charger == NULL) {
+                pr_err("%s cannot get charger drvdata!\n", __func__);
+                return -1;
+        }
+
+        if (!dev)
+                return -ENODEV;
+
+        /* This is the WA codes that reduces VRECT invalid case. */
+        if (gpio_is_valid(charger->pdata->mst_pwr_en)) {
+                charger->mst_off_lock = 1;
+                gpio_direction_output(charger->pdata->mst_pwr_en, 1);
+                usleep_range(3600, 4000);
+                gpio_direction_output(charger->pdata->mst_pwr_en, 0);
+                mdelay(50);
+                charger->mst_off_lock = 0;
+    
+                gpio_direction_output(charger->pdata->mst_pwr_en, 1);
+                msleep(charger->pdata->mst_switch_delay);
+                ret = mfc_get_firmware_version(charger, MFC_RX_FIRMWARE);
+                pr_info("%s: check f/w revision, mst power on (0x%x)\n", __func__, ret);
+                gpio_direction_output(charger->pdata->mst_pwr_en, 0);
+        } else {
+                pr_info("%s: MST_SWITCH_VERIFY, invalid gpio(mst_pwr_en)\n", __func__);
+                ret = -1;
+        }
+
+        return sprintf(buf, "%d\n", ret);
+}
+
+static ssize_t store_mst_switch_test(struct device *dev,
+                struct device_attribute *attr, const char *buf,
+                size_t count)
+{
+        return count;
+}
+static DEVICE_ATTR(mst_switch_test, 0664, show_mst_switch_test, store_mst_switch_test);
+
+int mfc_send_mst_cmd(int cmd, struct mfc_charger_data *charger, u8 irq_src_l, u8 irq_src_h) {
+#if defined(CONFIG_MFC_LDO_COMMAND)
+        u8 sBuf[2] = {0, };
+#endif
+        pr_info("%s: (called by %ps)\n", __func__,  __builtin_return_address(0));
+        pr_info("%s: TEST_cmd = %d\n", __func__, cmd);
+
+        switch(cmd) {
+        case MST_MODE_ON:
+                /* clear intterupt */
+                mfc_reg_write(charger->client, MFC_INT_A_CLEAR_L_REG, irq_src_l); // clear int
+                mfc_reg_write(charger->client, MFC_INT_A_CLEAR_H_REG, irq_src_h); // clear int
+                mfc_set_cmd_l_reg(charger, 0x20, MFC_CMD_CLEAR_INT_MASK); // command
+#if defined(CONFIG_MFC_LDO_COMMAND)
+                pr_info("%s: Execute i2c command for LDO\n", __func__);
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_1, 0xA5); /* MST LDO config 1 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_2, 0x03); /* MST LDO config 2 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_3, 0x14); /* MST LDO config 3 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_4, 0x0A); /* MST LDO config 4 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_5, 0x02); /* MST LDO config 5 */
+                /* MST LDO config 6 */
+                sBuf[0] = 0xFF;
+                sBuf[1] = 0x01;
+                mfc_reg_multi_write(charger->client, MFC_MST_LDO_CONFIG_6, sBuf, sizeof(sBuf));
+                mfc_reg_write(charger->client, MFC_MST_LDO_TURN_ON, 0x08); /* MST LDO config 7 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_TURN_ON, 0x09); /* MST LDO turn on */
+                mdelay(10);
+                mfc_reg_write(charger->client, MFC_MST_MODE_SEL_REG, 0x02); /* set MST mode2 */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_8, 0x08); /* MST LDO config 8 */
+                mfc_reg_write(charger->client, MFC_MST_OVER_TEMP_INT, 0x04); /* Enable Over temperature INT */
+#else
+                mfc_reg_write(charger->client, MFC_MST_MODE_SEL_REG, 0x02); /* set MST mode2 */
+#endif
+                pr_info("%s 2AC Missing ! : MST on REV : %d\n", __func__, charger->pdata->wc_ic_rev);
+    
+                /* clear intterupt */
+                mfc_reg_write(charger->client, MFC_INT_A_CLEAR_L_REG, irq_src_l); // clear int
+                mfc_reg_write(charger->client, MFC_INT_A_CLEAR_H_REG, irq_src_h); // clear int
+                mfc_set_cmd_l_reg(charger, 0x20, MFC_CMD_CLEAR_INT_MASK); // command
+    
+                mdelay(10);
+                break;
+        case MST_MODE_OFF:
+#if defined(CONFIG_MFC_LDO_COMMAND)
+                mfc_reg_write(charger->client, MFC_MST_MODE_SEL_REG, 0x00); /* Exit MST mode */
+                mfc_reg_write(charger->client, MFC_MST_LDO_CONFIG_1, 0x00); /* MST LDO config 7 */
+#endif
+                pr_info("%s: set MST mode off\n", __func__);
+                break;
+        default:
+                break;
+        }
+
+        return 0;
+}
+EXPORT_SYMBOL(mfc_send_mst_cmd);
+#endif
 #endif
 
 /**
@@ -980,6 +1141,16 @@ static int mst_ldo_device_probe(struct platform_device *pdev)
 	retval = device_create_file(mst_drv_dev, &dev_attr_mfc);
 	if (retval)
 		goto error_destroy;
+
+#if defined(CONFIG_MST_V2)
+        retval = device_create_file(mst_drv_dev, &dev_attr_mst_switch_test);
+        if (retval) {
+                kfree(mst_drv_dev);
+                device_destroy(mst_drv_class, 0);
+                printk(KERN_ERR "[MST] %s: (mst_switch_test)driver initialization failed, retval : %d\n", __FILE__, retval);
+                goto error_destroy;
+        }
+#endif
 #endif
 
 	mst_info("%s: MST driver(%s) initialized\n", __func__, MST_DRV_DEV);

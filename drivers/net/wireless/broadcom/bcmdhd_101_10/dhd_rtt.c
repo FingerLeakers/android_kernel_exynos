@@ -1017,7 +1017,7 @@ rtt_unpack_xtlv_cbfn(void *ctx, const uint8 *p_data, uint16 tlvid, uint16 len)
 		GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
 		DHD_RTT(("WL_PROXD_TLV_ID_COLLECT_CHAN_DATA\n"));
 		DHD_RTT(("\tchan est %u\n", (uint32) (len / sizeof(uint32))));
-		for (i = 0; (uint16)i < (len/sizeof(chan_data_entry)); i++) {
+		for (i = 0; (uint16)i < (uint16)(len/sizeof(chan_data_entry)); i++) {
 			uint32 *p = (uint32*)p_data;
 			chan_data_entry = ltoh32_ua(p + i);
 			DHD_RTT(("\t%u\n", chan_data_entry));
@@ -1246,13 +1246,10 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 	struct wireless_dev *wdev = ndev_to_wdev(dev);
 	struct wiphy *wiphy = wdev->wiphy;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	wl_nan_ev_rng_rpt_ind_t range_res;
 	nan_ranging_inst_t *ranging_inst = NULL;
 	rtt_status_info_t *rtt_status = GET_RTTSTATE(dhd);
 
 	NAN_MUTEX_LOCK();
-
-	bzero(&range_res, sizeof(range_res));
 
 	if (!rtt_status) {
 		err = BCME_NOTENABLED;
@@ -1288,9 +1285,11 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 	}
 	ranging_inst->range_type = RTT_TYPE_NAN_DIRECTED;
 	ranging_inst->range_role = NAN_RANGING_ROLE_INITIATOR;
+
 	/* schedule proxd timeout */
 	schedule_delayed_work(&rtt_status->proxd_timeout,
 		msecs_to_jiffies(DHD_NAN_RTT_TIMER_INTERVAL_MS));
+
 done:
 	if (err) { /* notify failure RTT event to host */
 		DHD_RTT_ERR(("Failed to issue Nan Ranging Request err %d\n", err));
@@ -1324,7 +1323,7 @@ dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 	subcmd_info.cmdid = WL_PROXD_CMD_CONFIG;
 
 	p_proxd_iov = rtt_alloc_getset_buf(WL_PROXD_METHOD_FTM, session_id, subcmd_info.cmdid,
-		FTM_IOC_BUFSZ, &proxd_iovsize);
+			FTM_IOC_BUFSZ, &proxd_iovsize);
 
 	if (p_proxd_iov == NULL) {
 		DHD_RTT_ERR(("%s : failed to allocate the iovar (size :%d)\n",
@@ -1350,7 +1349,7 @@ dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 		ret = dhd_iovar(dhd, 0, "proxd", (char *)p_proxd_iov,
 				all_tlvsize + WL_PROXD_IOV_HDR_SIZE, NULL, 0, TRUE);
 		if (ret != BCME_OK) {
-			DHD_RTT_ERR(("%s : failed to set config\n", __FUNCTION__));
+			DHD_RTT_ERR(("%s : failed to set config err %d\n", __FUNCTION__, ret));
 		}
 	}
 	/* clean up */
@@ -2408,11 +2407,18 @@ dhd_rtt_set_ftm_config_param(ftm_config_param_info_t *ftm_params,
 				ftm_param_cnt, rtt_target);
 			break;
 		case WL_PROXD_TLV_ID_EVENT_MASK:
-			/* set burst end and session end in ev mask by def */
-			ftm_params[*ftm_param_cnt].event_mask = ((1 << WL_PROXD_EVENT_BURST_END) |
-					(1 << WL_PROXD_EVENT_SESSION_END));
-			ftm_params[*ftm_param_cnt].tlvid = WL_PROXD_TLV_ID_EVENT_MASK;
-			*ftm_param_cnt = *ftm_param_cnt + 1;
+			{
+				/* set burst end and session end in ev mask by def */
+				uint32 event_mask = ((1 << WL_PROXD_EVENT_BURST_END) |
+						(1 << WL_PROXD_EVENT_SESSION_END));
+				/* only burst end for directed nan-rtt target */
+				if (rtt_target && (rtt_target->peer == RTT_PEER_NAN)) {
+					event_mask = (1 << WL_PROXD_EVENT_BURST_END);
+				}
+				ftm_params[*ftm_param_cnt].event_mask = event_mask;
+				ftm_params[*ftm_param_cnt].tlvid = WL_PROXD_TLV_ID_EVENT_MASK;
+				*ftm_param_cnt = *ftm_param_cnt + 1;
+			}
 			break;
 		default:
 			DHD_RTT_ERR(("Invalid FTM Param Config, tlvid = %d\n", tlvid));
@@ -2427,7 +2433,6 @@ dhd_rtt_start(dhd_pub_t *dhd)
 {
 	int err = BCME_OK;
 	int err_at = 0;
-	int pm = PM_OFF;
 	int ftm_cfg_cnt = 0;
 	int ftm_param_cnt = 0;
 	ftm_config_options_info_t ftm_configs[FTM_MAX_CONFIGS];
@@ -2464,20 +2469,6 @@ dhd_rtt_start(dhd_pub_t *dhd)
 		goto exit;
 	}
 
-	rtt_status->pm = PM_OFF;
-	err = wldev_ioctl_get(dev, WLC_GET_PM, &rtt_status->pm, sizeof(rtt_status->pm));
-	if (err) {
-		DHD_RTT_ERR(("Failed to get the PM value\n"));
-	} else {
-		err = wldev_ioctl_set(dev, WLC_SET_PM, &pm, sizeof(pm));
-		if (err) {
-			DHD_RTT_ERR(("Failed to set the PM\n"));
-			rtt_status->pm_restore = FALSE;
-		} else {
-			rtt_status->pm_restore = TRUE;
-		}
-	}
-
 	mutex_lock(&rtt_status->rtt_mutex);
 	/* Get a target information */
 	rtt_target = &rtt_status->rtt_config.target_info[rtt_status->cur_idx];
@@ -2500,24 +2491,28 @@ dhd_rtt_start(dhd_pub_t *dhd)
 		goto exit;
 	}
 
+	/* enable ftm */
+	err = dhd_rtt_ftm_enable(dhd, TRUE);
+	if (err) {
+		DHD_RTT_ERR(("failed to enable FTM (%d)\n", err));
+		err_at = 4;
+		goto exit;
+	}
+	rtt_status->status = RTT_ENABLED;
+
 #ifdef WL_NAN
 	if (rtt_target->peer == RTT_PEER_NAN) {
 		rtt_sched_type = RTT_TYPE_NAN_DIRECTED;
-		rtt_status->status = RTT_ENABLED;
+		/* apply event mask */
+		DHD_RTT_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
+			rtt_target, WL_PROXD_TLV_ID_EVENT_MASK);
+		dhd_rtt_ftm_config(dhd, 0, FTM_CONFIG_CAT_GENERAL,
+			ftm_params, ftm_param_cnt);
 		/* Ignore return value..failure taken care inside the API */
 		dhd_rtt_nan_start_session(dhd, rtt_target);
 		goto exit;
 	}
 #endif /* WL_NAN */
-	if (!RTT_IS_ENABLED(rtt_status)) {
-		/* enable ftm */
-		err = dhd_rtt_ftm_enable(dhd, TRUE);
-		if (err) {
-			DHD_RTT_ERR(("failed to enable FTM (%d)\n", err));
-			err_at = 4;
-			goto exit;
-		}
-	}
 
 	/* delete session of index default sesession  */
 	err = dhd_rtt_delete_session(dhd, FTM_DEFAULT_SESSION);
@@ -2526,7 +2521,7 @@ dhd_rtt_start(dhd_pub_t *dhd)
 		err_at = 5;
 		goto exit;
 	}
-	rtt_status->status = RTT_ENABLED;
+
 	memset(ftm_configs, 0, sizeof(ftm_configs));
 	memset(ftm_params, 0, sizeof(ftm_params));
 
@@ -2610,6 +2605,7 @@ dhd_rtt_start(dhd_pub_t *dhd)
 		rtt_target, WL_PROXD_TLV_ID_EVENT_MASK);
 
 #if !defined(WL_USE_RANDOMIZED_SCAN)
+	/* legacy rtt randmac */
 	dhd_set_rand_mac_oui(dhd);
 #endif /* !defined(WL_USE_RANDOMIZED_SCAN */
 	dhd_rtt_ftm_config(dhd, FTM_DEFAULT_SESSION, FTM_CONFIG_CAT_GENERAL,
@@ -2649,17 +2645,6 @@ exit:
 		rtt_status->status = RTT_STOPPED;
 		/* disable FTM */
 		dhd_rtt_ftm_enable(dhd, FALSE);
-		if (rtt_status->pm_restore) {
-			pm = PM_FAST;
-			DHD_RTT_ERR(("pm_restore =%d func =%s \n",
-				rtt_status->pm_restore, __FUNCTION__));
-			err = wldev_ioctl_set(dev, WLC_SET_PM, &pm, sizeof(pm));
-			if (err) {
-				DHD_RTT_ERR(("Failed to set PM \n"));
-			} else {
-				rtt_status->pm_restore = FALSE;
-			}
-		}
 	}
 	mutex_unlock(&rtt_status->rtt_work_mutex);
 	return err;
@@ -3279,7 +3264,7 @@ dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd)
 		DHD_INFO(("restart to measure rtt\n"));
 		schedule_work(&rtt_status->work);
 	} else {
-		DHD_RTT(("RTT_STOPPED\n"));
+		DHD_RTT_MEM(("RTT_STOPPED\n"));
 		rtt_status->status = RTT_STOPPED;
 		/* notify the completed information to others */
 		GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
@@ -3395,6 +3380,7 @@ dhd_rtt_handle_nan_rtt_session_end(dhd_pub_t *dhd, struct ether_addr *peer)
 	if (is_new) { /* no FTM result..create failure result */
 		dhd_rtt_create_failure_result(rtt_status, peer);
 	}
+	DHD_RTT_MEM(("RTT Session End for NAN peer "MACDBG"\n", MAC2STRDBG(peer)));
 	dhd_rtt_handle_rtt_session_end(dhd);
 	mutex_unlock(&rtt_status->rtt_mutex);
 	return BCME_OK;
@@ -3517,7 +3503,6 @@ dhd_rtt_nan_range_report(struct bcm_cfg80211 *cfg,
 
 	UNUSED_PARAMETER(range_res);
 	bzero(&range_res, sizeof(range_res));
-	range_res.indication = 0;
 	range_res.dist_mm = rtt_result->report.distance;
 	/* same src and header len, ignoring ret val here */
 	(void)memcpy_s(&range_res.peer_m_addr, ETHER_ADDR_LEN,
@@ -3772,15 +3757,6 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 		break;
 	case WL_PROXD_EVENT_SESSION_END:
 		DHD_RTT(("WL_PROXD_EVENT_SESSION_END\n"));
-#ifdef WL_NAN
-		if (dhd_rtt_is_nan_peer(dhd, &event->addr)) {
-			/*
-			 * Nothing to do for session end for nan peer
-			 * All taken care in burst end and nan rng rep
-			 */
-			break;
-		}
-#endif /* WL_NAN */
 #ifdef WL_CFG80211
 		if (!RTT_IS_ENABLED(rtt_status)) {
 			DHD_RTT(("Ignore the session end evt\n"));
@@ -3803,7 +3779,8 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 		if (is_new) {
 			dhd_rtt_create_failure_result(rtt_status, &event->addr);
 		}
-		DHD_RTT(("\n Not Nan peer..proceed to notify result and restart\n"));
+		DHD_RTT_MEM(("RTT Session End for Legacy peer "MACDBG"\n",
+			MAC2STRDBG(&event->addr)));
 		dhd_rtt_handle_rtt_session_end(dhd);
 #endif /* WL_CFG80211 */
 		break;
@@ -4205,8 +4182,6 @@ dhd_rtt_init(dhd_pub_t *dhd)
 	int ret;
 	int32 version;
 	rtt_status_info_t *rtt_status;
-	ftm_config_param_info_t ftm_params[FTM_MAX_PARAMS];
-	int ftm_param_cnt = 0;
 
 	NULL_CHECK(dhd, "dhd is NULL", err);
 	rtt_status = GET_RTTSTATE(dhd);
@@ -4242,11 +4217,6 @@ dhd_rtt_init(dhd_pub_t *dhd)
 	}
 	/* cancel all of RTT request once we got the cancel request */
 	rtt_status->all_cancel = TRUE;
-	/* Global proxd config */
-	DHD_RTT_CHK_SET_PARAM(ftm_params, ftm_param_cnt,
-		NULL, WL_PROXD_TLV_ID_EVENT_MASK);
-	dhd_rtt_ftm_config(dhd, 0, FTM_CONFIG_CAT_GENERAL,
-			ftm_params, ftm_param_cnt);
 
 exit:
 #endif /* WL_CFG80211 */

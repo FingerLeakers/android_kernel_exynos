@@ -71,6 +71,7 @@
 	} \
 }
 #elif defined USE_EHMP_BOOST
+/*
 #include <linux/ems.h>
 #include <linux/ems_service.h>
 
@@ -103,6 +104,7 @@ static struct kpp kpp_fg;
 	} \
 	mutex_unlock(&input_lock); \
 }
+*/
 #else
 #define set_hmp(enable)
 #endif
@@ -115,7 +117,6 @@ static struct kpp kpp_fg;
 	if (value == INPUT_BOOSTER_NULL) { \
 		value = 0; \
 	} \
-	set_hmp(value); \
 	set_qos(&_this->cpu2_qos, PM_QOS_CLUSTER2_FREQ_MIN/*PM_QOS_CPU_FREQ_MIN*/, _this->param[_this->index].cpu2_freq);  \
 	set_qos(&_this->cpu1_qos, PM_QOS_CLUSTER1_FREQ_MIN/*PM_QOS_CPU_FREQ_MIN*/, _this->param[_this->index].cpu1_freq);  \
 	set_qos(&_this->kfc_qos, PM_QOS_CLUSTER0_FREQ_MIN/*PM_QOS_KFC_FREQ_MIN*/, _this->param[_this->index].kfc_freq);  \
@@ -130,7 +131,6 @@ static struct kpp kpp_fg;
 	if (value == INPUT_BOOSTER_NULL) { \
 		value = 0; \
 	} \
-	set_hmp(value); \
 	remove_qos(&_this->cpu2_qos);  \
 	remove_qos(&_this->cpu1_qos);  \
 	remove_qos(&_this->kfc_qos);  \

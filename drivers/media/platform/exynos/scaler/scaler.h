@@ -27,6 +27,10 @@
 #include <media/v4l2-ctrls.h>
 #include <soc/samsung/exynos-itmon.h>
 
+#include "giant_mscl_uapi.h"
+
+struct sc_ext_dev;
+
 extern int sc_log_level;
 #define sc_dbg(fmt, args...)						\
 	do {								\
@@ -408,6 +412,7 @@ struct sc_dev {
 	const struct sc_variant		*variant;
 	struct sc_m2m_device		m2m;
 	struct m2m1shot_device		*m21dev;
+	struct sc_ext_dev		*xdev;
 	struct clk			*aclk;
 	struct clk			*pclk;
 	struct clk			*clk_chld;
@@ -439,7 +444,8 @@ struct sc_dev {
 
 enum SC_CONTEXT_TYPE {
 	SC_CTX_V4L2_TYPE,
-	SC_CTX_M2M1SHOT_TYPE
+	SC_CTX_M2M1SHOT_TYPE,
+	SC_CTX_EXT_TYPE
 };
 
 struct sc_qos_request {
@@ -546,5 +552,13 @@ void sc_hwset_vcoef(struct sc_dev *sc, unsigned int coef);
 
 void sc_hwregs_dump(struct sc_dev *sc);
 void sc_ctx_dump(struct sc_ctx *ctx);
+
+/* Added for scaler-ext */
+struct sc_ext_dev *create_scaler_ext_device(struct device *dev);
+void destroy_scaler_ext_device(struct sc_ext_dev *ext_dev);
+int sc_ext_device_run(struct sc_ctx *ctx);
+int sc_ext_run_job(struct sc_ctx *ctx);
+void sc_ext_current_task_finish(struct sc_ext_dev *ext_dev, bool success);
+bool sc_ext_job_finished(struct sc_ctx *ctx);
 
 #endif /* SCALER__H_ */

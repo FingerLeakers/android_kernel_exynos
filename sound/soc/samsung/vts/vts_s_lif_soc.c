@@ -1147,6 +1147,10 @@ int vts_s_lif_soc_startup(struct snd_pcm_substream *substream,
 	vts_s_lif_restore_register(data);
 	set_bit(VTS_S_STATE_OPENED, &data->state);
 
+	vts_s_lif_soc_dmic_en_put(data, 0, data->dmic_en[0]);
+	vts_s_lif_soc_dmic_en_put(data, 1, data->dmic_en[1]);
+	vts_s_lif_soc_dmic_en_put(data, 2, data->dmic_en[2]);
+
 	return 0;
 
 err:
@@ -1162,6 +1166,11 @@ void vts_s_lif_soc_shutdown(struct snd_pcm_substream *substream,
 	dev_dbg(dev, "%s[%c]\n", __func__,
 			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
 			'C' : 'P');
+
+	/* make default pin state as idle to prevent conflict with vts */
+	vts_s_lif_soc_dmic_en_put(data, 0, 0);
+	vts_s_lif_soc_dmic_en_put(data, 1, 0);
+	vts_s_lif_soc_dmic_en_put(data, 2, 0);
 
 	vts_s_lif_save_register(data);
 
@@ -1268,17 +1277,6 @@ int vts_s_lif_soc_dma_en(int enable,
 	if (ret < 0)
 		dev_err(dev, "%s failed(%d): %d\n", __func__, __LINE__, ret);
 	dev_info(dev, "%s ctrl(0x%08x)\n", __func__, ctrl);
-
-	if (enable) {
-		vts_s_lif_soc_dmic_en_put(data, 0, data->dmic_en[0]);
-		vts_s_lif_soc_dmic_en_put(data, 1, data->dmic_en[1]);
-		vts_s_lif_soc_dmic_en_put(data, 2, data->dmic_en[2]);
-	} else {
-		/* make default pin state as idle to prevent conflict with vts */
-		vts_s_lif_soc_dmic_en_put(data, 0, 0);
-		vts_s_lif_soc_dmic_en_put(data, 1, 0);
-		vts_s_lif_soc_dmic_en_put(data, 2, 0);
-	}
 
 	/* PAD configuration */
 	vts_s_lif_soc_set_sel_pad(data, enable);

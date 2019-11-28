@@ -400,6 +400,9 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	skb->dev = ndev;
 	ndev->stats.rx_packets++;
 	ndev->stats.rx_bytes += skb->len;
+#if defined(CONFIG_CPIF_TP_MONITOR)
+	tpmon_add_rx_bytes(skb->len);
+#endif
 
 	/* check the version of IP */
 	iphdr = (struct iphdr *)skb->data;
@@ -417,6 +420,7 @@ static int rx_multi_pdp(struct sk_buff *skb)
 
 	skb_reset_transport_header(skb);
 	skb_reset_network_header(skb);
+	skb_reset_mac_header(skb);
 
 	if (!l2forward && check_gro_support(skb) && !is_heading_toward_clat(skb)) {
 		ret = napi_gro_receive(napi_get_current(), skb);
@@ -788,6 +792,10 @@ jump_reg:
 		mif_debug("vnet 0x%pK\n", vnet);
 		vnet->iod = iod;
 
+#if defined(CONFIG_CPIF_TP_MONITOR)
+		INIT_LIST_HEAD(&iod->node_all_ndev);
+		tpmon_add_net_node(&iod->node_all_ndev);
+#endif
 		break;
 
 	case IODEV_DUMMY:

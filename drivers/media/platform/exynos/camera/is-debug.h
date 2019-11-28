@@ -82,6 +82,7 @@ void is_dmsg_concate(const char *fmt, ...);
 char *is_dmsg_print(void);
 void is_print_buffer(char *buffer, size_t len);
 int is_debug_dma_dump(struct is_queue *queue, u32 index, u32 vid, u32 type);
+int is_debug_dma_dump_by_frame(struct is_frame *queue, u32 vid, u32 type);
 #ifdef DBG_DRAW_DIGIT
 void is_draw_digit(ulong addr, int width, int height, u32 pixelformat,
 		u32 bitwidth, int row_index, int col_index, u64 digit);
@@ -143,4 +144,7 @@ void is_debug_event_print(u32 event_type, void (*callfunc)(void *), void *ptrdat
 void is_debug_event_count(u32 event_type);
 void is_dbg_print(char *fmt, ...);
 int is_debug_info_dump(struct seq_file *s, struct is_debug_event *debug_event);
+
+extern int debug_s2d;
+void is_debug_s2d(bool en_s2d, const char *fmt, ...);
 #endif

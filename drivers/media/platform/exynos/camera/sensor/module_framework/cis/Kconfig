@@ -249,6 +249,13 @@ config CAMERA_CIS_2LD_OBJ
 		help
 		  Use to build 2LD camera sensor.
 
+config CAMERA_CIS_HM1_OBJ
+		bool "Use HM1 camera cis"
+	depends on CAMERA_CIS_SELECT
+		default n
+		help
+		  Use to build HM1 camera sensor.
+
 config CAMERA_CIS_IMX260_OBJ
 		bool "Use IMX260 camera cis"
 	depends on CAMERA_CIS_SELECT
@@ -396,3 +403,10 @@ config CAMERA_CIS_IMX586_OBJ
 	default n
 	help
 	  Use to build IMX586 camera sensor.
+
+config CAMERA_CIS_GD1_OBJ
+	bool "Use GD1 camera cis"
+	depends on CAMERA_CIS_SELECT
+	default n
+	help
+	  Use to build GD1 camera sensor.

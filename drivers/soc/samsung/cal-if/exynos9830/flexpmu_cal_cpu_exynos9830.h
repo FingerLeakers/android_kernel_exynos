@@ -120,13 +120,6 @@ struct pmucal_seq cluster1_status[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_READ, "CLUSTER0_NONCPU_STATUS", 0x15860000, 0x1204, (0x1 << 0), 0, 0, 0, 0xffffffff, 0),
 };
 struct pmucal_seq cluster2_on[] = {
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_IDLE_CON", 0x1d200000, 0x00a8, (0x1 << 7), (0x1 << 7), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_IDLE_CON", 0x1d200000, 0x00a8, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_IDLE_CON", 0x1d200000, 0x00a8, (0x7 << 1), (0x1 << 1), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_SMPL_WARN_CFG", 0x1d200000, 0x009c, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_SMPL_WARN_CFG", 0x1d200000, 0x009c, (0x1 << 25), (0x1 << 25), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_OCP_WARN_CFG", 0x1d200000, 0x00a0, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_TEMP_WARN_CFG", 0x1d200000, 0x00a4, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "SYSREG_CPUCL2_BUS_COMPONENT_DRCG_EN", 0x1D100000, 0x0104, (0xffffffff << 0), (0xffffffff << 0), 0, 0, 0xffffffff, 0),
 };
 struct pmucal_seq cluster2_status[] = {

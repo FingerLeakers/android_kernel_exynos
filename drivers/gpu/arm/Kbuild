@@ -10,7 +10,7 @@
 #
 
 ifeq ($(CONFIG_MALI_DDK_VERSION),y)
-		ifeq ($(CONFIG_MALI_VALHALL_R19P0),y)
-			obj-y += v_r19p0/
+		ifeq ($(CONFIG_MALI_VALHALL_R20P0),y)
+			obj-y += v_r20p0/
 		endif
 endif

@@ -6,6 +6,7 @@
  */
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "ems.h"
@@ -90,6 +91,9 @@ static inline unsigned int
 __compute_energy(unsigned long util, unsigned long cap,
 				unsigned long dp, unsigned long sp)
 {
+	if (!util)
+		util = 1;
+
 	return 1 + (dp * ((util << SCHED_CAPACITY_SHIFT) / cap))
 				+ (sp << SCHED_CAPACITY_SHIFT);
 }
@@ -117,7 +121,7 @@ compute_efficiency(struct task_struct *p, int target_cpu, unsigned int eff_weigh
 {
 	struct energy_table *table = get_energy_table(target_cpu);
 	unsigned long next_cap = 0;
-	unsigned long capacity, energy;
+	unsigned long capacity, util, energy;
 	unsigned int eff;
 	unsigned int cap_idx;
 	int i;
@@ -140,35 +144,71 @@ compute_efficiency(struct task_struct *p, int target_cpu, unsigned int eff_weigh
 		}
 	}
 
-	if (p->sse)
-		capacity = table->states[cap_idx].cap_s;
-	else
-		capacity = table->states[cap_idx].cap;
+	capacity = table->states[cap_idx].cap;
+	util = ml_cpu_util_with(target_cpu, p);
+	energy = compute_energy(table, p, target_cpu, cap_idx);
 
 	/*
 	 * Compute performance efficiency
-	 *  efficiency = capacity / energy
+	 *  efficiency = (capacity / util) / energy
 	 */
-	capacity = (capacity * eff_weight) << (SCHED_CAPACITY_SHIFT * 2);
-	energy = compute_energy(table, p, target_cpu, cap_idx);
-	eff = capacity / energy;
+	eff = (capacity << SCHED_CAPACITY_SHIFT * 3) / (1 + util) / energy;
+	eff *= eff_weight;
 
-	trace_ems_compute_eff(p, target_cpu, ml_cpu_util_with(target_cpu, p),
-				eff_weight, capacity, energy, eff);
+	trace_ems_compute_eff(p, target_cpu, util, eff_weight,
+						capacity, energy, eff);
 
 	return eff;
 }
 
-static int find_best_eff(struct tp_env *env, unsigned int *eff, int idle)
+static unsigned int
+compute_performance(struct task_struct *p, int target_cpu)
 {
+	struct energy_table *table = get_energy_table(target_cpu);
+	unsigned long next_cap = 0;
+	unsigned int cap_idx;
+	int i, idle_state_idx;
+
+	/* energy table does not exist */
+	if (!table->nr_states)
+		return 0;
+
+	/* Get next capacity of cpu in coregroup with task */
+	next_cap = get_gov_next_cap(target_cpu, p);
+	if ((int)next_cap < 0)
+		next_cap = default_get_next_cap(target_cpu, p);
+
+	/* Find the capacity index according to next capacity */
+	cap_idx = table->nr_states - 1;
+	for (i = 0; i < table->nr_states; i++) {
+		if (table->states[i].cap >= next_cap) {
+			cap_idx = i;
+			break;
+		}
+	}
+
+	rcu_read_lock();
+	idle_state_idx = idle_get_state_idx(cpu_rq(target_cpu));
+	rcu_read_unlock();
+
+	trace_ems_compute_perf(p, target_cpu, table->states[cap_idx].cap, idle_state_idx);
+
+	return table->states[cap_idx].cap - idle_state_idx;
+}
+
+static int
+find_best_eff(struct tp_env *env, int *eff, int idle)
+{
+	struct cpumask candidates;
 	unsigned int best_eff = 0;
 	int best_cpu = -1;
 	int cpu;
-	struct cpumask candidates;
+	int prefer_idle = 0;
 
-	if (idle)
+	if (idle) {
 		cpumask_copy(&candidates, &env->idle_candidates);
-	else
+		prefer_idle = env->prefer_idle;
+	} else
 		cpumask_copy(&candidates, &env->candidates);
 
 	if (cpumask_empty(&candidates))
@@ -178,7 +218,11 @@ static int find_best_eff(struct tp_env *env, unsigned int *eff, int idle)
 	for_each_cpu(cpu, &candidates) {
 		unsigned int eff;
 
-		eff = compute_efficiency(env->p, cpu, env->eff_weight[cpu]);
+		if (prefer_idle)
+			eff = compute_performance(env->p, cpu);
+		else
+			eff = compute_efficiency(env->p, cpu, env->eff_weight[cpu]);
+
 		if (eff > best_eff) {
 			best_eff = eff;
 			best_cpu = cpu;
@@ -187,87 +231,33 @@ static int find_best_eff(struct tp_env *env, unsigned int *eff, int idle)
 
 	*eff = best_eff;
 
-	trace_ems_best_eff(env->p, *(unsigned int *)cpumask_bits(&candidates),
-						idle, best_cpu, best_eff);
-
 	return best_cpu;
-}
-
-static void get_ready_env(struct tp_env *env)
-{
-	int cpu;
-
-	for_each_cpu(cpu, cpu_active_mask) {
-		/*
-		 * The weight is pre-defined in EMSTune.
-		 * We can get weight depending on current emst mode.
-		 */
-		env->eff_weight[cpu] = emst_get_weight(env->p, cpu, idle_cpu(cpu));
-	}
-
-	cpumask_copy(&env->candidates, &env->fit_cpus);
-	cpumask_clear(&env->idle_candidates);
-
-	for_each_cpu(cpu, &env->fit_cpus) {
-		/*
-		 * Basically, all active cpus are candidates. But if
-		 * env->prefer_idle is set to '1', the idle cpus are included in
-		 * env->idle_candidates and * the running cpus are included in
-		 * the env->candidate. Both candidates are exclusive.
-		 */
-		if (env->prefer_idle && idle_cpu(cpu)) {
-			cpumask_set_cpu(cpu, &env->idle_candidates);
-			cpumask_clear_cpu(cpu, &env->candidates);
-		}
-	}
-
-	trace_ems_candidates(env->p,
-		*(unsigned int *)cpumask_bits(&env->candidates),
-		*(unsigned int *)cpumask_bits(&env->idle_candidates));
 }
 
 int find_best_cpu(struct tp_env *env)
 {
-	unsigned int best_eff = 0;
-	int best_cpu;
-	bool best_idle = false;
+	unsigned int best_eff = 0, best_idle_eff = 0;
+	int best_cpu, best_idle_cpu;
 
 	/*
-	 * Get ready to find best cpu.
-	 * Depending on the state of the task, the candidate cpus and C/E
-	 * weight are decided.
+	 * Find best cpu among idle cpus.
+	 * If prefer-idle is enabled in the current EMS mode, the idle cpu is
+	 * selected first.
 	 */
-	get_ready_env(env);
+	best_idle_cpu = find_best_eff(env, &best_idle_eff, 1);
+	if (env->prefer_idle && best_idle_cpu >= 0)
+		return best_idle_cpu;
 
 	/*
-	 * Find best cpu among the running cpu and idle cpu.
-	 * The best idle cpu  is meaningful only if task.prefer_idle
-	 * is set to '1'. If prefer idle is not set, best_idle_cpu
-	 * has a negative number and it is ignored.
-	 */
+	 * Find best cpu among running cpus.
+	  */
 	best_cpu = find_best_eff(env, &best_eff, 0);
-	if (env->prefer_idle) {
-		unsigned int best_idle_eff = 0;
-		int best_idle_cpu;
 
-		best_idle_cpu = find_best_eff(env, &best_idle_eff, 1);
-		if (best_idle_cpu < 0)
-			goto out;
-
-		/*
-		 * Multiply best idle efficiency by 1.25 to increase the idle cpu
-		 * selection probability.
-		 */
-		best_idle_eff = best_idle_eff + (best_idle_eff >> 2);
-		if (best_idle_eff >= best_eff) {
-			best_eff = best_idle_eff;
-			best_cpu = best_idle_cpu;
-			best_idle = true;
-		}
-	}
-
-out:
-	trace_ems_best_cpu(env->p, best_cpu, best_eff, best_idle);
+	/*
+	 * Pick more efficient cpu between best_cpu and best_idle_cpu
+	 */
+	if (best_idle_eff >= best_eff)
+		best_cpu = best_idle_cpu;
 
 	return best_cpu;
 }

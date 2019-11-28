@@ -719,17 +719,11 @@ retry:
 		max77705_read_reg(max77705->muic, REG_UIC_FW_MINOR, &max77705->FW_Minor_Revision);
 		max77705->FW_Minor_Revision &= MINOR_VERSION_MASK;
 		msg_maxim("Start FW updating (%02X.%02X)", max77705->FW_Revision, max77705->FW_Minor_Revision);
-		if (max77705->FW_Revision != 0xFF && try_command < 3) {
-			try_command++;
-			max77705_reset_ic(max77705);
-			msleep(1000);
-			goto retry;
-		}
 
 		if (max77705->FW_Revision != 0xFF) {
-			if (++try_count < FW_VERIFY_TRY_COUNT) {
+			if (++try_command < FW_SECURE_MODE_TRY_COUNT) {
 				msg_maxim("the Fail to enter secure mode %d",
-						try_count);
+						try_command);
 				max77705_reset_ic(max77705);
 				msleep(1000);
 				goto retry;
@@ -743,6 +737,8 @@ retry:
 				goto out;
 			}
 		}
+
+		try_command = 0;
 
 		for (offset = FW_HEADER_SIZE;
 				offset < fw_bin_len && size != FW_UPDATE_END;) {

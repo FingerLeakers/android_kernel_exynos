@@ -92,7 +92,8 @@
 #define FW_MODULE_COMPANY_DI		'D'
 
 #define FW_2L4_L		"L12XL"		/* BSS DNS */
-#define FW_2LD_L		"M12XL"		/* PST */
+#define FW_2LD_L		"R12LL"		/* HST1 HST2 */
+#define FW_HM1_L		"SA8XL"		/* HST3 */
 #define FW_3J1_X		"X10LL"		/* BSS DNS PST */
 
 #define SDCARD_FW
@@ -104,6 +105,7 @@
 /* Rear setfile */
 #define IS_2L4_SETF			"setfile_2l4.bin"
 #define IS_2LD_SETF			"setfile_2ld.bin"
+#define IS_HM1_SETF			"setfile_hm1.bin"
 #define IS_3M3_SETF			"setfile_3m3.bin"
 #define IS_3M5_SETF			"setfile_3m5.bin"
 
@@ -267,6 +269,9 @@ struct is_rom_info {
 	int32_t		rom_dualcal_slave1_size;
 	int32_t		rom_dualcal_slave2_start_addr;
 	int32_t		rom_dualcal_slave2_size;
+	int32_t		rom_pdxtc_cal_data_start_addr;
+	int32_t		rom_pdxtc_cal_data_coef_size;
+	int32_t		rom_pdxtc_cal_data_val_size;
 
 	int32_t		rom_tof_cal_size_addr[TOF_CAL_SIZE_MAX];
 	int32_t		rom_tof_cal_size_addr_len;

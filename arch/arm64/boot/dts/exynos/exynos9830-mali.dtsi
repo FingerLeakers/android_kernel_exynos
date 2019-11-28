@@ -19,29 +19,32 @@
 				   <GIC_SPI INTREQ__G3D_IRQGPU IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "JOB", "MMU", "GPU";
 		g3d_cmu_cal_id = <ACPM_DVFS_G3D>;
+		system-coherency = <0>;
 		power-domains = <&pd_embedded_g3d>;
 		g3d_genpd_name = "pd-embedded_g3d";
 		#cooling-cells = <2>; /* min followed by max */
 		governor = "interactive";
-		interactive_info = <260000 94 0>;
-		gpu_dvfs_table_size = <10 8>; /*<row col>*/
-		/*  8 columns      freq  down   up  stay  mif    little  middle   big  */
+		interactive_info = <377000 94 0>;
+		gpu_dvfs_table_size = <12 8>; /*<row col>*/
+		/*  8 columns      freq  down   up  stay  mif   little  middle   big  */
 		gpu_dvfs_table = <
-			897000    78  100   9  2730000 1716000       0 1664000
-			800000    78  100   9  2730000 1716000       0 1664000
-			702000    78   98   5  2535000 1716000       0       0
-			598000    78   95   5  2028000 1716000       0       0
-			572000    78   95   5  1716000       0       0       0
-			455000    78   95   1  1539000       0       0       0
-			377000    78   90   1  1539000       0       0       0
-			325000    78   85   1  1014000       0       0       0
-			260000    78   85   1   676000       0       0       0
-			156000     0   85   1   676000       0       0       0 >;
-		gpu_sustainable_info = <377000 95 949000 1690000 520000>;
+			832000    78  100   5  2730000  1300000 1404000 1898000
+			800000    78  100   5  2730000  1300000 1404000 1898000
+			767000    78   95   5  2730000  1300000 1404000 1690000
+			702000    78   90   5  2535000  1300000 1404000       0
+			598000    78   90   1  2028000  1300000 1404000       0
+			572000    78   90   1  2028000  1300000 1404000       0
+			507000    78   90   5  1539000  1300000 1404000       0
+			481000    78   90   5  1539000  1300000 1404000       0
+			455000    75   85   1  1539000  1300000 1404000       0
+			377000    78   90   1  1539000   650000 1222000       0
+			260000    78   93   1  1352000        0       0       0
+			156000     0   93   1  1014000        0       0       0 >;
+		gpu_sustainable_info = <507000 85 0 0 0>;
 		gpu_pmqos_cpu_cluster_num = <3>;
 		gpu_pmu_status_reg_offset = <0x2204>;
 		gpu_pmu_status_local_pwr_mask = <0x1>; /*0x1 << 0*/
-		gpu_max_clock = <897000>;
+		gpu_max_clock = <800000>;
 		gpu_max_clock_limit = <800000>;
 		gpu_min_clock = <156000>;
 		gpu_dvfs_start_clock = <260000>;
@@ -51,7 +54,7 @@
 		gpu_voltage_offset_margin = <37500>;
 		gpu_tmu_control = <1>;
 		gpu_temp_throttling_level_num = <6>;
-		gpu_temp_throttling = <800000 702000 598000 572000 455000 377000>;
+		gpu_temp_throttling = <800000 702000 598000 572000 507000 481000>;
 		gpu_power_coeff = <625>;
 		gpu_dvfs_time_interval = <5>; /*1 tick : 10ms*/
 		gpu_default_wakeup_lock = <1>;
@@ -68,7 +71,7 @@
 		gpu_cl_dvfs_start_base = <377000>;
 		gpu_debug_level = <3>; /*DEBUG(1) INFO(2) WARNING(3) ERROR(4)*/
 		gpu_trace_level = <8>; /*TRACE_ALL*/
-		gpu_mo_min_clock = <260000>;
+		gpu_mo_min_clock = <377000>;
 		gpu_boost_gpu_min_lock = <0>;
 		gpu_boost_egl_min_lock = <1872000>;
 		gpu_vk_boost_max_lock = <325000>;

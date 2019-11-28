@@ -28,6 +28,15 @@
 #define	FW_PROJECT				3
 #define	FW_CORE_VERSION		4
 #define	OIS_BIN_LEN				45056
+#define	MCU_AF_MODE_STANDBY			0x40
+#define	MCU_AF_MODE_ACTIVE			0x00
+#define	MCU_ACT_POS_SIZE_BIT		ACTUATOR_POS_SIZE_9BIT
+#define	MCU_ACT_POS_MAX_SIZE		((1 <<MCU_ACT_POS_SIZE_BIT) - 1)
+#define	MCU_ACT_POS_DIRECTION		ACTUATOR_RANGE_INF_TO_MAC
+#define	MCU_ACT_DEFAULT_FIRST_POSITION		120
+#define	MCU_ACT_DEFAULT_FIRST_DELAY		2000
+#define	MCU_SHARED_SRC_ON_COUNT		1
+#define	MCU_SHARED_SRC_OFF_COUNT		0
 
 enum is_ois_power_mode {
 	OIS_POWER_MODE_SINGLE = 0,
@@ -57,6 +66,10 @@ enum ois_mcu_base_reg_index {
 	OM_REG_MAX
 };
 
+struct is_common_mcu_info {
+	int ois_gyro_direction[6];
+};
+
 struct ois_mcu_dev {
 	struct platform_device	*pdev;
 	struct device		*dev;
@@ -68,6 +81,7 @@ struct ois_mcu_dev {
 	resource_size_t		regs_end[OM_REG_MAX];
 
 	unsigned long		state;
+	atomic_t 		shared_rsc_count;
 };
 
 /*
@@ -77,6 +91,8 @@ int ois_mcu_power_ctrl(struct ois_mcu_dev *mcu, int on);
 int ois_mcu_load_binary(struct ois_mcu_dev *mcu);
 int ois_mcu_core_ctrl(struct ois_mcu_dev *mcu, int on);
 int ois_mcu_dump(struct ois_mcu_dev *mcu, int type);
+void ois_mcu_device_ctrl(struct ois_mcu_dev *mcu);
+void is_get_common_mcu_info(struct is_common_mcu_info **mcuinfo);
 
 /*
  * log

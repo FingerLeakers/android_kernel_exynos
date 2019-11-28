@@ -37,6 +37,13 @@ config WC_OFFSET
 	help
 	  set Wireless Charging IC Info Offset.
 
+config FMM_LOCK_OFFSET
+	int "FMM lock Offset"
+	default 0
+	depends on SEC_PARAM
+	help
+	  set FMM lock Offset when you enable SEC_PARAM.
+
 comment "Samsung sysfs Feature"
 config DRV_SAMSUNG
 	bool "Samsung sec class/sysfs Feature"
@@ -96,6 +103,12 @@ config SEC_BOOTSTAT
 	bool "Enable TN Bootstat logging"
 	depends on SEC_EXT
 	default y
+
+config SEC_SYSUP
+	bool "Samsung System Update"
+	default n
+	help
+	  Samsung system update Feature
 
 source "drivers/samsung/debug/Kconfig"
 source "drivers/samsung/misc/Kconfig"

@@ -65,7 +65,11 @@ extern u32 __iomem *notify_fcount_sen2;
 extern u32 __iomem *notify_fcount_sen3;
 
 #if defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+extern struct emstune_mode_request emstune_req;
+#else
 extern struct gb_qos_request gb_req;
+#endif
 #endif
 
 int is_sensor_runtime_suspend(struct device *dev);
@@ -2696,8 +2700,13 @@ int is_sensor_runtime_suspend(struct device *dev)
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			set_hmp_boost(0);
 #elif defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
+			emstune_boost(&emstune_req, 0);
+#else
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			gb_qos_update_request(&gb_req, 0);
+#endif
 #endif
 	}
 #endif

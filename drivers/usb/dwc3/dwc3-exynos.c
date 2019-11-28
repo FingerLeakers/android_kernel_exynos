@@ -33,13 +33,10 @@
 #include <soc/samsung/exynos-cpupm.h>
 
 /* -------------------------------------------------------------------------- */
-
 struct dwc3_exynos_rsw {
 	struct otg_fsm		*fsm;
 	struct work_struct	work;
 };
-
-
 
 struct dwc3_exynos {
 	struct platform_device	*usb2_phy;
@@ -47,6 +44,7 @@ struct dwc3_exynos {
 	struct device		*dev;
 
 	struct clk		**clocks;
+	struct clk		*bus_clock;
 
 	struct regulator	*vdd33;
 	struct regulator	*vdd10;
@@ -99,7 +97,20 @@ static int dwc3_exynos_clk_get(struct dwc3_exynos *exynos)
 					i, dev->of_node->name);
 			return ret;
 		}
+		/*
+		 * Check Bus clock to get clk node from DT.
+		 * CAUTION : Bus clock SHOULD be defiend at the last.
+		 */
+		if (!strncmp(clk_ids[i], "bus", 3)) {
+			dev_info(dev, "BUS clock is defined.\n");
+			exynos->bus_clock = devm_clk_get(exynos->dev, clk_ids[i]);
+			if (IS_ERR_OR_NULL(exynos->bus_clock))
+				dev_err(dev, "Can't get Bus clock.\n");
+			else
+				clk_count--;
+		}
 	}
+
 	clk_ids[clk_count] = NULL;
 
 	exynos->clocks = (struct clk **) devm_kmalloc(exynos->dev,
@@ -248,6 +259,31 @@ int dwc3_exynos_rsw_start(struct device *dev)
 void dwc3_exynos_rsw_stop(struct device *dev)
 {
 	dev_info(dev, "%s\n", __func__);
+}
+
+int dwc3_exynos_set_bus_clock(struct device *dev, int clk_level)
+{
+	struct dwc3_exynos *exynos = dev_get_drvdata(dev);
+
+	if (!IS_ERR_OR_NULL(exynos->bus_clock)) {
+		if (clk_level < 0) {
+			dev_info(dev, "Set USB Bus clock to 66Mhz\n");
+			clk_set_rate(exynos->bus_clock, 66666666);
+		} else if (clk_level == 1) {
+			dev_info(dev, "Set USB Bus clock to 177Mhz\n");
+			clk_set_rate(exynos->bus_clock, 177750000);
+		} else if (clk_level == 0) {
+			dev_info(dev, "Set USB Bus clock to 266Mhz\n");
+			clk_set_rate(exynos->bus_clock, 266625000);
+		} else {
+			dev_info(dev, "Unsupported clock level");
+		}
+
+		dev_info(dev, "Changed USB Bus clock %d\n",
+					clk_get_rate(exynos->bus_clock));
+	}
+
+	return 0;
 }
 
 static void dwc3_exynos_rsw_work(struct work_struct *w)
@@ -493,6 +529,8 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 	exynos->dev	= dev;
 
 	exynos->idle_ip_index = exynos_get_idle_ip_index(dev_name(dev));
+	pr_info("%s, usb idle ip = %d\n", __func__,
+			exynos->idle_ip_index);
 	exynos_update_ip_idle_status(exynos->idle_ip_index, 0);
 
 	ret = dwc3_exynos_clk_get(exynos);

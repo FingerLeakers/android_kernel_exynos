@@ -498,8 +498,8 @@ static long exynos_panel_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *a
 	case EXYNOS_PANEL_IOC_READ_STATE:
 		ret = call_panel_ops(panel, read_state, panel);
 		break;
-	case EXYNOS_PANEL_IOC_SET_VREFRESH:
-		call_panel_ops(panel, set_vrefresh, panel, *(u32 *)arg);
+	case EXYNOS_PANEL_IOC_SET_VRRFRESH:
+		call_panel_ops(panel, set_vrefresh, panel, (struct vrr_config_data*)arg);
 		break;
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	case EXYNOS_PANEL_IOC_INIT:

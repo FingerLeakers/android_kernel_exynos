@@ -654,15 +654,26 @@ static int memsize_get_valid_name_size(const char *name)
 	return name_size;
 }
 
+static inline struct reserved_mem_reg *memsize_get_new_reg(void)
+{
+	if (reserved_mem_reg_count == ARRAY_SIZE(reserved_mem_reg)) {
+		pr_err("not enough space on reserved_mem_reg\n");
+		return NULL;
+	}
+	return &reserved_mem_reg[reserved_mem_reg_count++];
+}
+
 /* The memory region can be added into memblock reserved even after the same
- * memory region was already removed out of memblock memory. Let's skip the
- * addition to memblock reserved and just update the name for that.
+ * memory region was already removed out of memblock memory. Let's assume that
+ * additions to memblock reserved are valid information to be clear. Get the
+ * new address as a new region and remove the new address out of the existing
+ * region.
  */
-static bool memsize_has_same_nomap_region(const char *name, phys_addr_t base,
-				phys_addr_t size, bool nomap)
+static bool memsize_update_nomap_region(const char *name, phys_addr_t base,
+					phys_addr_t size, bool nomap)
 {
 	int i;
-	struct reserved_mem_reg *rmem_reg;
+	struct reserved_mem_reg *rmem_reg, *new_reg;
 	int name_size;
 
 	if (!name || nomap)
@@ -671,15 +682,50 @@ static bool memsize_has_same_nomap_region(const char *name, phys_addr_t base,
 	for (i = 0; i < reserved_mem_reg_count; i++)
 	{
 		rmem_reg = &reserved_mem_reg[i];
+
 		if (!rmem_reg->nomap)
 			continue;
-		if (rmem_reg->base != base || rmem_reg->size != size)
+		if (base < rmem_reg->base)
 			continue;
+		if (base + size > rmem_reg->base + rmem_reg->size)
+			continue;
+
 		name_size = memsize_get_valid_name_size(name);
-		strncpy(rmem_reg->name, name, name_size);
-		rmem_reg->name[NAME_SIZE - 1] = '\0';
+		if (base == rmem_reg->base && size == rmem_reg->size) {
+			strncpy(rmem_reg->name, name, name_size);
+			rmem_reg->name[NAME_SIZE - 1] = '\0';
+			return true;
+		}
+		new_reg = memsize_get_new_reg();
+		if (!new_reg)
+			return true;
+		new_reg->base = base;
+		new_reg->size = size;
+		new_reg->nomap = nomap;
+		new_reg->reusable = false;
+		strncpy(new_reg->name, name, name_size);
+		new_reg->name[NAME_SIZE - 1] = '\0';
+
+		if (base == rmem_reg->base && size < rmem_reg->size) {
+			rmem_reg->base = base + size;
+			rmem_reg->size -= size;
+		} else if (base + size == rmem_reg->base + rmem_reg->size) {
+			rmem_reg->size -= size;
+		} else {
+			new_reg = memsize_get_new_reg();
+			if (!new_reg)
+				return true;
+			new_reg->base = base + size;
+			new_reg->size = (rmem_reg->base + rmem_reg->size)
+					- (base + size);
+			new_reg->nomap = nomap;
+			new_reg->reusable = false;
+			strcpy(new_reg->name, "unknown");
+			rmem_reg->size = base - rmem_reg->base;
+		}
 		return true;
 	}
+
 	return false;
 }
 
@@ -689,14 +735,12 @@ void record_memsize_reserved(const char *name, phys_addr_t base,
 	struct reserved_mem_reg *rmem_reg;
 	int name_size;
 
-	if (memsize_has_same_nomap_region(name, base, size, nomap))
+	if (memsize_update_nomap_region(name, base, size, nomap))
 		return;
 
-	if (reserved_mem_reg_count == ARRAY_SIZE(reserved_mem_reg)) {
-		pr_err("not enough space on reserved_mem_reg\n");
+	rmem_reg = memsize_get_new_reg();
+	if (!rmem_reg)
 		return;
-	}
-	rmem_reg = &reserved_mem_reg[reserved_mem_reg_count++];
 
 	rmem_reg->base = base;
 	rmem_reg->size = size;
@@ -709,6 +753,52 @@ void record_memsize_reserved(const char *name, phys_addr_t base,
 		name_size = memsize_get_valid_name_size(name);
 		strncpy(rmem_reg->name, name, name_size);
 		rmem_reg->name[NAME_SIZE - 1] = '\0';
+	}
+}
+
+/* This function will be called to by early_init_dt_scan_nodes */
+void record_memsize_memory_hole(void)
+{
+	phys_addr_t base, end;
+	phys_addr_t prev_end, hole_s;
+	int idx;
+	struct memblock_region *rgn;
+	int memblock_cnt = (int)memblock.memory.cnt;
+
+	/* assume that the hole size is less than 256 MB */
+	for_each_memblock_type(idx, (&memblock.memory), rgn) {
+		if (idx == 0)
+			prev_end = round_down(base, SZ_256M);
+		else
+			prev_end = end;
+		base = rgn->base;
+		end = rgn->base + rgn->size;
+
+		/* only for the last */
+		if (idx + 1 == memblock_cnt) {
+			hole_s = round_up(end, SZ_256M) - end;
+			if (hole_s)
+				record_memsize_reserved(NULL, end, hole_s, 1, 0);
+		}
+
+		/* for each region */
+		hole_s = base - prev_end;
+		if (!hole_s)
+			continue;
+		if (hole_s < SZ_256M) {
+			record_memsize_reserved(NULL, prev_end, hole_s, 1, 0);
+		} else {
+			phys_addr_t hole_s1, hole_s2;
+
+			hole_s1 = round_up(prev_end, SZ_256M) - prev_end;
+			if (hole_s1)
+				record_memsize_reserved(NULL, prev_end,
+							hole_s1, 1, 0);
+			hole_s2 = base % SZ_256M;
+			if (hole_s2)
+				record_memsize_reserved(NULL, base - hole_s2,
+							hole_s2, 1, 0);
+		}
 	}
 }
 

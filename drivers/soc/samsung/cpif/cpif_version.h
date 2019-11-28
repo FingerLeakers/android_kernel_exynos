@@ -15,6 +15,6 @@
 #ifndef __CPIF_VERSION_H__
 #define __CPIF_VERSION_H__
 
-const char cpif_driver_version[] = "CPIF-20190909R1";
+const char cpif_driver_version[] = "CPIF-20191021R1";
 
 #endif /* __CPIF_VERSION_H__ */

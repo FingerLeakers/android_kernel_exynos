@@ -44,7 +44,7 @@ struct bvec_iter {
 
 	unsigned int            bi_bvec_done;	/* number of bytes completed in
 						   current bvec */
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	u64                     bi_dun;
 #endif
 };

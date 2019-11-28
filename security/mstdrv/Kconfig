@@ -9,13 +9,19 @@
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details. 
+# GNU General Public License for more details.
 
 config MST_LDO
 	bool "MST LDO kernel driver"
 	default n
 	help
 	This enables the MST LDO kernel driver
+
+config MST_V2
+	bool "MST V2"
+	default n
+	help
+	This enables the MST V2 codes
 
 config MST_REGULATOR
 	bool "MST uses regulator API"

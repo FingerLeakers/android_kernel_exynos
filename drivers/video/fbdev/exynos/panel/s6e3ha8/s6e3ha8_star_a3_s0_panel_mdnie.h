@@ -2166,9 +2166,9 @@ static struct mdnie_tune s6e3ha8_star_a3_s0_mdnie_tune = {
 			[CCRD_PT_9] = { 0xff, 0xfe, 0xf6 }, /* Tune_9 */
 		},
 	},
-	.num_ldu_mode = 5,
-	.num_night_level = 10,
-	.num_color_lens_color = 11,
-	.num_color_lens_level = 8,
+	.num_ldu_mode = MAX_LDU_MODE,
+	.num_night_level = MAX_NIGHT_LEVEL,
+	.num_color_lens_color = COLOR_LENS_COLOR_MAX,
+	.num_color_lens_level = COLOR_LENS_LEVEL_MAX,
 };
 #endif /* __S6E3HA8_STAR_A3_S0_PANEL_MDNIE_H__ */

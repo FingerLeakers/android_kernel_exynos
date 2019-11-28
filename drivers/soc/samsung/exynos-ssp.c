@@ -27,6 +27,8 @@
 #include <linux/debugfs.h>
 #include <linux/timer.h>
 #include <soc/samsung/exynos-pd.h>
+#include <soc/samsung/exynos-itmon.h>
+#include <linux/soc/samsung/exynos-soc.h>
 
 #define SSP_RET_OK		0
 #define SSP_RETRY_MAX_COUNT	1000000
@@ -46,8 +48,9 @@
 
 spinlock_t ssp_lock;
 struct mutex ssp_ioctl_lock;
-int ssp_power_count;
-int idle_ip_index;
+static int ssp_power_count;
+static int ssp_idle_ip_index;
+extern struct exynos_chipid_info exynos_soc_info;
 
 struct ssp_device {
 	struct device *dev;
@@ -123,13 +126,13 @@ static int exynos_ssp_boot(struct device *dev)
 	reg2 = 0;
 	reg3 = 0;
 
-	exynos_update_ip_idle_status(idle_ip_index, 0);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 0);
 
 	spin_lock_irqsave(&ssp_lock, flag);
 	ret = exynos_cm_smc(&reg0, &reg1, &reg2, &reg3);
 	spin_unlock_irqrestore(&ssp_lock, flag);
 
-	exynos_update_ip_idle_status(idle_ip_index, 1);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 1);
 
 	if (ret != SSP_RET_OK)
 		dev_err(dev, "%s: fail to boot at ldfw. ret = 0x%x\n", __func__, ret);
@@ -155,13 +158,13 @@ static int exynos_ssp_backup(struct device *dev)
 	reg2 = 0;
 	reg3 = 0;
 
-	exynos_update_ip_idle_status(idle_ip_index, 0);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 0);
 
 	spin_lock_irqsave(&ssp_lock, flag);
 	ret = exynos_cm_smc(&reg0, &reg1, &reg2, &reg3);
 	spin_unlock_irqrestore(&ssp_lock, flag);
 
-	exynos_update_ip_idle_status(idle_ip_index, 1);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 1);
 
 	if (ret != SSP_RET_OK)
 		dev_err(dev, "%s: fail to backup at ldfw. ret = 0x%x\n", __func__, ret);
@@ -187,13 +190,13 @@ static int exynos_ssp_restore(struct device *dev)
 	reg2 = 0;
 	reg3 = 0;
 
-	exynos_update_ip_idle_status(idle_ip_index, 0);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 0);
 
 	spin_lock_irqsave(&ssp_lock, flag);
 	ret = exynos_cm_smc(&reg0, &reg1, &reg2, &reg3);
 	spin_unlock_irqrestore(&ssp_lock, flag);
 
-	exynos_update_ip_idle_status(idle_ip_index, 1);
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 1);
 
 	if (ret != SSP_RET_OK)
 		dev_err(dev, "%s: fail to restore at ldfw. ret = 0x%x\n", __func__, ret);
@@ -212,7 +215,7 @@ static int exynos_ssp_self_test(struct device *dev, uint64_t test_mode)
 	uint64_t reg3;
 	unsigned long flag;
 
-	dev_info(dev, "ssp test_mode: %d\n", (int)test_mode);
+	dev_info(dev, "call ssp function: %d\n", (int)test_mode);
 
 	reg0 = SMC_CMD_SSP;
 	reg1 = SSP_CMD_SELF_TEST;
@@ -223,12 +226,45 @@ static int exynos_ssp_self_test(struct device *dev, uint64_t test_mode)
 	ret = exynos_cm_smc(&reg0, &reg1, &reg2, &reg3);
 	spin_unlock_irqrestore(&ssp_lock, flag);
 
-	if (ret != SSP_RET_OK)
-		dev_err(dev, "%s: ssp test fail at ldfw. ret = 0x%x\n", __func__, ret);
-	else
-		dev_info(dev, "ssp test done\n");
+	dev_info(dev, "return from ldfw: 0x%x\n", ret);
 
 	return ret;
+}
+
+static void exynos_ssp_itmon_enable(struct device *dev, uint64_t enable)
+{
+	static int ssp_itmon_enable_flag = 1;
+
+	if (!(exynos_soc_info.main_rev && exynos_soc_info.sub_rev))
+		return;
+
+	if (enable) {
+		if (ssp_itmon_enable_flag)
+			return;
+
+		dev_info(dev, "enable itmon\n");
+		itmon_wa_enable("SSP", M_NODE, true);
+		itmon_wa_enable("BUS0_CORE", T_S_NODE, true);
+		itmon_wa_enable("BUS0_CORE", T_M_NODE, true);
+		itmon_wa_enable("ALIVE", S_NODE, true);
+		itmon_wa_enable("BUS0_DP", M_NODE, true);
+		itmon_wa_enable("BUS0_DP", S_NODE, true);
+
+		ssp_itmon_enable_flag = 1;
+	} else {
+		if (!ssp_itmon_enable_flag)
+			return;
+
+		dev_info(dev, "disable itmon\n");
+		itmon_wa_enable("SSP", M_NODE, false);
+		itmon_wa_enable("BUS0_CORE", T_S_NODE, false);
+		itmon_wa_enable("BUS0_CORE", T_M_NODE, false);
+		itmon_wa_enable("ALIVE", S_NODE, false);
+		itmon_wa_enable("BUS0_DP", M_NODE, false);
+		itmon_wa_enable("BUS0_DP", S_NODE, false);
+
+		ssp_itmon_enable_flag = 0;
+	}
 }
 
 static int exynos_ssp_enable(struct ssp_device *sspdev)
@@ -243,25 +279,35 @@ static int exynos_ssp_enable(struct ssp_device *sspdev)
 
 		ret = exynos_ssp_power_on(sspdev);
 		if (unlikely(ret))
-			goto OUT;
+			goto ERR_OUT1;
+
+		exynos_ssp_itmon_enable(sspdev->dev, 0);
 
 		if (!ssp_boot_flag) {
 			ret = exynos_ssp_boot(sspdev->dev);
+			exynos_ssp_itmon_enable(sspdev->dev, 1);
 			if (unlikely(ret))
-				goto OUT;
+				goto ERR_OUT2;
 			ssp_boot_flag = 1;
 		} else {
 			ret = exynos_ssp_restore(sspdev->dev);
+			exynos_ssp_itmon_enable(sspdev->dev, 1);
 			if (unlikely(ret))
-				goto OUT;
+				goto ERR_OUT2;
 		}
 	}
 
 	dev_info(sspdev->dev, "ssp enable: count: %d\n", ssp_power_count);
 
 	return ret;
-OUT:
+
+ERR_OUT2:
+	exynos_ssp_power_off(sspdev);
+
+ERR_OUT1:
 	pm_relax(sspdev->dev);
+	--ssp_power_count;
+
 	return ret;
 }
 
@@ -279,11 +325,11 @@ static int exynos_ssp_disable(struct ssp_device *sspdev)
 	if (ssp_power_count == 0) {
 		ret = exynos_ssp_backup(sspdev->dev);
 		if (unlikely(ret))
-			return ret;
+			goto ERR_OUT1;
 
 		ret = exynos_ssp_power_off(sspdev);
 		if (unlikely(ret))
-			return ret;
+			goto ERR_OUT2;
 
 		/* keep the wake-up lock when above two functions fail */
 		/* for debugging purpose */
@@ -292,6 +338,14 @@ static int exynos_ssp_disable(struct ssp_device *sspdev)
 	}
 
 	dev_info(sspdev->dev, "ssp disable: count: %d\n", ssp_power_count);
+
+	return ret;
+
+ERR_OUT1:
+	exynos_ssp_power_off(sspdev);
+
+ERR_OUT2:
+	pm_relax(sspdev->dev);
 
 	return ret;
 }
@@ -373,8 +427,8 @@ static int exynos_ssp_probe(struct platform_device *pdev)
 
 	/* enable runtime PM */
 	exynos_ssp_pm_enable(sspdev);
-	idle_ip_index = exynos_get_idle_ip_index(dev_name(sspdev->dev));
-	exynos_update_ip_idle_status(idle_ip_index, 1);
+	ssp_idle_ip_index = exynos_get_idle_ip_index(dev_name(sspdev->dev));
+	exynos_update_ip_idle_status(ssp_idle_ip_index, 1);
 
 	/* set misc driver */
 	memset((void *)&sspdev->misc_device, 0, sizeof(struct miscdevice));

@@ -6,20 +6,21 @@
  * as published by the Free Software Foundation.
  */
 
+#include <linux/async.h>
+#include <linux/delay.h>
+#include <linux/fcntl.h>
+#include <linux/file.h>
+#include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/initrd.h>
-#include <linux/fs.h>
-#include <linux/file.h>
-#include <linux/fcntl.h>
+#include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/syscalls.h>
 #include <linux/sysfs.h>
-#include <linux/async.h>
-#include <linux/delay.h>
-#include <linux/jiffies.h>
+#include <linux/version.h>
 #include "include/defex_debug.h"
 #include "include/defex_internal.h"
 #include "include/defex_rules.h"
@@ -69,6 +70,27 @@ static unsigned char defex_packed_rules[DEFEX_RULES_ARRAY_SIZE] __ro_after_init 
 
 static struct kset *defex_kset;
 static int is_recovery = 0;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0)
+#include <linux/uaccess.h>
+
+static inline ssize_t __vfs_read(struct file *file, char __user *buf,
+				 size_t count, loff_t *pos)
+{
+	ssize_t ret;
+
+	if (file->f_op->read)
+		ret = file->f_op->read(file, buf, count, pos);
+	else if (file->f_op->aio_read)
+		ret = do_sync_read(file, buf, count, pos);
+	else if (file->f_op->read_iter)
+		ret = new_sync_read(file, buf, count, pos);
+	else
+		ret = -EINVAL;
+
+	return ret;
+}
+#endif
 
 static int __init bootmode_setup(char *str)
 {
@@ -159,6 +181,11 @@ static void parse_static_rules(const struct static_rule *rules, size_t max_len, 
 #endif /* DEFEX_PERMISSIVE_PED */
 			task_defex_privesc_store_status(global_privesc_obj, NULL, current_rule, count);
 			break;
+#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
+		case feature_ped_tgid:
+			task_defex_privesc_store_tgid(global_privesc_obj, NULL, current_rule, count);
+			break;
+#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 #endif /* DEFEX_PED_ENABLE */
 #ifdef DEFEX_SAFEPLACE_ENABLE
 		case feature_safeplace_status:
@@ -511,7 +538,7 @@ static int __init do_load_rules(void)
 void __init defex_load_rules(void)
 {
 #if defined(DEFEX_RAMDISK_ENABLE)
-	if (do_load_rules() != 0) {
+	if ( !boot_state_unlocked && do_load_rules() != 0) {
 #if !defined(DEFEX_DEBUG_ENABLE)
 		panic("[DEFEX] Signature mismatch.\n");
 #endif

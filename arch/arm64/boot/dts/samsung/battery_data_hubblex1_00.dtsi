@@ -16,20 +16,26 @@
 		__overlay__ {
 			battery {
 				battery,temp_table_adc = <
-					200 275 336 415 483 551 667 764 903 1054 1189 1384 1575
-					1787 2042 2263 2492 2723 2937 3127 3309 3463 3578>;
+					314 364 421 489 570 666 780 898 1044 1208 1396 1598 1817
+					2049 2286 2518 2752 2965 3159 3341 3494 3606 3704>;
 
 				battery,temp_table_data = <
 					900 850 800 750 700 650 600 550 500 450 400 350 300 250
 					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
 
 				battery,wpc_temp_table_adc = <
-					200 275 336 415 483 551 667 764 903 1054 1189 1384 1575
-					1787 2042 2263 2492 2723 2937 3127 3309 3463 3578>;
+					314 364 421 489 570 666 780 898 1044 1208 1396 1598 1817
+					2049 2286 2518 2752 2965 3159 3341 3494 3606 3704>;
 
 				battery,wpc_temp_table_data = <
 					900 850 800 750 700 650 600 550 500 450 400 350 300 250
 					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,wpc_high_temp = <400>;
+				battery,wpc_high_temp_recovery = <380>;
+
+				battery,swelling_high_temp_block = <410>;
+				battery,swelling_high_temp_recov = <390>;
 
 				/* swelling current */
 				battery,swelling_low_temp_current = <700>;	/* 0.3C */
@@ -66,7 +72,6 @@
 
 			max77705-fuelgauge {
 				status = "okay";
-				fuelgauge,v_empty = <0xA7E2>;
 				fuelgauge,qrtable20 = <0x0B82>;
 				fuelgauge,qrtable30 = <0x0902>;
 				fuelgauge,capacity = <0x0F12>;
@@ -97,4 +102,11 @@
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
+};
+
+&hsi2c_6 {
+	mfc-charger@3b {
+		battery,fod_dream_data = <150 44 142 33 150 13 150 9 155 (-9) 156 (-10)>;
+		battery,fod_dream_cv_data = <150 74 142 63 150 43 150 39 155 21 156 20>;
+	};
 };

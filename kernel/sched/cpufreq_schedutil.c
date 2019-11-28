@@ -407,7 +407,7 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 	sg_cpu->max = max;
 	sg_cpu->bw_dl = cpu_bw_dl(rq);
 
-	util = emst_boost(sg_cpu->cpu, util);
+	util = emstune_freq_boost(sg_cpu->cpu, util);
 
 	part_cpu_active_ratio(&util, &max, sg_cpu->cpu);
 

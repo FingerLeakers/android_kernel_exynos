@@ -24,6 +24,7 @@
 	aliases {
 		panel0 = &panel_0;
 		panel_drv0 = &panel_drv_0;
+       		mafpc0 = &mafpc_0;
 		dpp0 = &dpp_0;
 		dpp1 = &dpp_1;
 		dpp2 = &dpp_2;
@@ -385,7 +386,7 @@
 
 		chip_ver = <9830>;
 
-		dpp_cnt = <6>;
+		dpp_cnt = <7>;
 		dsim_cnt = <2>;
 		decon_cnt = <3>;
 		cursor_margin = <40>;
@@ -424,12 +425,17 @@
 
 		chip_ver = <9830>;
 
-		dpp_cnt = <6>;
+		dpp_cnt = <7>;
 		dsim_cnt = <2>;
 		decon_cnt = <3>;
 
 		#address-cells = <2>;
 		#size-cells = <1>;
 		ranges;
+	};
+
+	mafpc_0: mafpc_0 {
+		compatible = "samsung,panel-mafpc";
+		status = "disabled";
 	};
 };

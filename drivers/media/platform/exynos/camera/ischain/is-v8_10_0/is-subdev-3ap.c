@@ -29,6 +29,7 @@ void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
 	unsigned long flags;
+	u32 region_id = ldr_frame->stripe_info.region_id;
 	u32 stripe_x, stripe_w, dma_offset = 0;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
@@ -40,7 +41,7 @@ void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 	frame = peek_frame(framemgr, ldr_frame->state);
 	if (frame) {
 		/* Output crop & WDMA offset configuration */
-		if (!ldr_frame->stripe_info.region_id) {
+		if (!region_id) {
 			/* Left region */
 			stripe_x = otcrop->x;
 			stripe_w = ldr_frame->stripe_info.out.h_pix_num;
@@ -61,6 +62,7 @@ void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 			dma_offset *= otcrop->h;
 		}
 
+		frame->stream->stripe_h_pix_nums[region_id] = stripe_w;
 		stripe_w += STRIPE_MARGIN_WIDTH;
 
 		otcrop->x = stripe_x;
@@ -68,9 +70,8 @@ void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 
 		frame->dvaddr_buffer[0] += dma_offset;
 
-		mdbg_pframe("stripe_ot_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
-				otcrop->x, otcrop->y, otcrop->w, otcrop->h, dma_offset);
+		msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, ldr_frame,
+				region_id, otcrop->x, otcrop->y, otcrop->w, otcrop->h, dma_offset);
 	}
 
 	framemgr_x_barrier_irqr(framemgr, FMGR_IDX_24, flags);

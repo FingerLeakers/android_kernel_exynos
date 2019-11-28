@@ -1909,7 +1909,7 @@ static struct request *blk_old_get_request(struct request_queue *q,
 	/* q->queue_lock is unlocked at this point */
 	rq->__data_len = 0;
 	rq->__sector = (sector_t) -1;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	rq->__dun = 0;
 #endif
 	rq->bio = rq->biotail = NULL;
@@ -2295,7 +2295,7 @@ void blk_init_request_from_bio(struct request *req, struct bio *bio)
 	else
 		req->ioprio = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, 0);
 	req->write_hint = bio->bi_write_hint;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	req->__dun = bio->bi_iter.bi_dun;
 #endif
 	blk_rq_bio_prep(req->q, req, bio);
@@ -3063,10 +3063,15 @@ void blk_account_io_done(struct request *req, u64 now)
 		part_stat_add(cpu, part, nsecs[sgrp], now - req->start_time_ns);
 		part_round_stats(req->q, cpu, part);
 		part_dec_in_flight(req->q, part, rq_data_dir(req));
+		if (!(req->rq_flags & RQF_STARTED))
+			part_stat_inc(cpu, part, flush_ios);
 
 		hd_struct_put(part);
 		part_stat_unlock();
 	}
+
+	if (req->rq_flags & RQF_FLUSH_SEQ)
+		req->q->flush_ios++;
 }
 
 #ifdef CONFIG_PM
@@ -3287,8 +3292,11 @@ static void blk_dequeue_request(struct request *rq)
 	 * and to it is freed is accounted as io that is in progress at
 	 * the driver side.
 	 */
-	if (blk_account_rq(rq))
+	if (blk_account_rq(rq)) {
+		if (!queue_in_flight(q))
+			q->in_flight_stamp = ktime_get();
 		q->in_flight[rq_is_sync(rq)]++;
+	}
 
 	blk_queue_io_vol_del(q, rq->cmd_flags, blk_rq_bytes(rq));
 }
@@ -3448,7 +3456,7 @@ bool blk_update_request(struct request *req, blk_status_t error,
 	/* update sector only for requests with clear definition of sector */
 	if (!blk_rq_is_passthrough(req)) {
 		req->__sector += total_bytes >> 9;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 		if (req->__dun)
 			req->__dun += total_bytes >> 12;
 #endif
@@ -3817,7 +3825,7 @@ static void __blk_rq_prep_clone(struct request *dst, struct request *src)
 	dst->cpu = src->cpu;
 	dst->__sector = blk_rq_pos(src);
 	dst->__data_len = blk_rq_bytes(src);
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	dst->__dun = blk_rq_dun(src);
 #endif
 	if (src->rq_flags & RQF_SPECIAL_PAYLOAD) {

@@ -128,6 +128,8 @@ struct p3_data {
 #endif
 };
 
+extern unsigned int lpcharge; /*for power off charge*/
+
 #ifndef CONFIG_ESE_SECURE
 static void p3_pinctrl_config(struct p3_data *data, bool onoff)
 {
@@ -254,9 +256,14 @@ static int p3_regulator_onoff(struct p3_data *data, int onoff)
 	if (!data->vdd_1p8) {
 		P3_ERR_MSG("%s No vdd LDO name!\n", __func__);
 		return -ENODEV;
-	} else if (!strcmp(data->vdd_1p8, "ALWAYS")) {
-		P3_DBG_MSG("%s always on\n", __func__);
-		return rc;
+	} else if (!strcmp(data->vdd_1p8, "VDD_ESE_SEN4")) {
+		if (onoff == 3) {
+			onoff = 1;
+		}
+		else {
+			P3_DBG_MSG("%s always on\n", __func__);
+			return rc;
+		}
 	}
 
 	regulator_vdd_1p8 = regulator_get(NULL, data->vdd_1p8);
@@ -759,6 +766,13 @@ static int spip3_probe(struct spi_device *spi)
 		goto p3_parse_dt_failed;
 	}
 
+	if (!strcmp(data->vdd_1p8, "VDD_ESE_SEN4") && !lpcharge) {
+		ret = p3_regulator_onoff(data, 3);
+		if (ret) {
+			P3_ERR_MSG("%s - Failed to enable regulator\n", __func__);
+			goto p3_parse_dt_failed;
+		}
+	}
 	ret = p3_regulator_onoff(data, 1);
 	if (ret) {
 		P3_ERR_MSG("%s - Failed to enable regulator\n", __func__);

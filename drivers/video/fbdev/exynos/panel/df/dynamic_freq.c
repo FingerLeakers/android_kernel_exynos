@@ -11,8 +11,11 @@
 #include "../panel.h"
 #include "../panel_drv.h"
 #include "dynamic_freq.h"
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+#include "../../dpu30_dual/panels/exynos_panel.h"
+#else
 #include "../../dpu30/panels/exynos_panel.h"
-
+#endif
 #include <linux/dev_ril_bridge.h>
 
 static int search_dynamic_freq_idx(struct panel_device *panel, int band_idx, int freq)

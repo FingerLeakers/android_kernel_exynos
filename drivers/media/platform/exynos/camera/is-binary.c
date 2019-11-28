@@ -329,8 +329,7 @@ int was_loaded_by(struct is_binary *bin)
 void carve_binary_version(enum is_bin_type type, unsigned int hint, struct is_binary *bin)
 {
 	int ofs, len;
-	char *buf = NULL;
-	char *data = NULL;
+	char *buf;
 
 	if (type >= ARRAY_SIZE(bin_ver_info)) {
 		pr_err("unknown type binary(%d)\n", type);
@@ -357,8 +356,7 @@ void carve_binary_version(enum is_bin_type type, unsigned int hint, struct is_bi
 	}
 
 	buf = bin_ver_info[type].get_buf(&bin_ver_info[type], hint);
-	data = (char *)bin->data;
-	memcpy(buf, &data[ofs], len);
+	memcpy(buf, (char *)bin->data + ofs, len);
 	buf[len] = '\0';
 
 	info("%s version: %s\n",

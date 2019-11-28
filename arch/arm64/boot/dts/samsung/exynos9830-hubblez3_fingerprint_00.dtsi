@@ -51,6 +51,10 @@
 &spi_4 {
 	status = "okay";
 
+	dma-mode;
+	dmas = <&pdma0 9 &pdma0 8>;
+	dma-names = "tx", "rx";
+
 	qbtspi@0 {
 		compatible = "qcom,qbtspi";
 		reg = <0>;

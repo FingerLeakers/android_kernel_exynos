@@ -89,6 +89,11 @@ struct wl_ibss;
 #define WL_FILS_ROAM_OFFLD
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+/* Use driver managed regd */
+#define WL_SELF_MANAGED_REGDOM
+#endif /* KERNEL >= 3.14 */
+
 #ifdef WL_SAE
 #define IS_AKM_SAE(akm) (akm == WLAN_AKM_SUITE_SAE)
 #else
@@ -450,6 +455,7 @@ do {									\
 #define WLAN_AKM_SUITE_OWE                0X000FAC12
 #endif /* WPA_KEY_MGMT_OWE */
 #endif /* WL_OWE */
+#define WLAN_AKM_SUITE_DPP                0X506F9A02
 
 /*
  * BRCM local.
@@ -1253,6 +1259,17 @@ typedef struct wl_ctx_tsinfo {
 	uint64 wl_evt_hdlr_exit;
 } wl_ctx_tsinfo_t;
 
+typedef struct wlcfg_assoc_info {
+	bool targeted_join;     /* Unicast bssid. Host selected bssid for join */
+	bool reassoc;
+	u8 bssid[ETH_ALEN];
+	u16 ssid_len;
+	u8 ssid[DOT11_MAX_SSID_LEN];
+	s32 bssidx;
+	u32 chan_cnt;
+	chanspec_t chanspecs[MAX_ROAM_CHANNEL];
+} wlcfg_assoc_info_t;
+
 /* private data of cfg80211 interface */
 struct bcm_cfg80211 {
 	struct wireless_dev *wdev;	/* representing cfg cfg80211 device */
@@ -1468,6 +1485,7 @@ struct bcm_cfg80211 {
 	struct wl_ap_sta_info *ap_sta_info;
 #endif /* BIGDATA_SOFTAP */
 	uint8 scanmac_enabled;
+	bool scanmac_config;
 #ifdef WL_BCNRECV
 	/* structure used for fake ap detection info */
 	struct mutex bcn_sync;  /* mainly for bcn resume/suspend synchronization */
@@ -1485,9 +1503,11 @@ struct bcm_cfg80211 {
 	int roamscan_mode;
 	int wes_mode;
 	int ncho_mode;
+	int ncho_band;
 #ifdef WL_SAR_TX_POWER
 	wifi_power_scenario wifi_tx_power_mode;
 #endif /* WL_SAR_TX_POWER */
+	struct mutex connect_sync;  /* For assoc/resssoc state sync */
 	wl_ctx_tsinfo_t tsinfo;
 	struct wl_pmk_list *spmk_info_list;	/* single pmk info list */
 };
@@ -2448,10 +2468,7 @@ extern s32 wl_cfgvendor_send_as_rtt_legacy_event(struct wiphy *wiphy,
 #ifdef WL_CFG80211_P2P_DEV_IF
 extern void wl_cfg80211_del_p2p_wdev(struct net_device *dev);
 #endif /* WL_CFG80211_P2P_DEV_IF */
-#if defined(WL_SUPPORT_AUTO_CHANNEL)
-extern int wl_cfg80211_set_spect(struct net_device *dev, int spect);
 extern int wl_cfg80211_get_sta_channel(struct bcm_cfg80211 *cfg);
-#endif /* WL_SUPPORT_AUTO_CHANNEL */
 #ifdef WL_CFG80211_SYNC_GON
 #define WL_DRV_STATUS_SENDING_AF_FRM_EXT(cfg) \
 	(wl_get_drv_status_all(cfg, SENDING_ACT_FRM) || \
@@ -2581,6 +2598,9 @@ bool wl_cfg80211_check_in_progress(struct net_device *dev);
 #ifdef WL_GET_RCC
 extern int wl_android_get_roam_scan_chanlist(struct bcm_cfg80211 *cfg);
 #endif /* WL_GET_RCC */
+#ifdef WES_SUPPORT
+extern int wl_android_set_ncho_mode(struct net_device *dev, int mode);
+#endif /* WES_SUPPORT */
 #ifdef KEEP_ALIVE
 extern int wl_cfg80211_start_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_alive_id,
 	uint16 ether_type, uint8 *ip_pkt, uint16 ip_pkt_len, uint8* src_mac_addr,
@@ -2592,4 +2612,16 @@ bool wl_cfg80211_is_dpp_frame(void *frame, u32 frame_len);
 const char *get_dpp_pa_ftype(enum wl_dpp_ftype ftype);
 bool wl_cfg80211_is_dpp_gas_action(void *frame, u32 frame_len);
 extern bool wl_cfg80211_find_gas_subtype(u8 subtype, u16 adv_id, u8* data, u32 len);
+#ifdef ESCAN_CHANNEL_CACHE
+extern void wl_update_rcc_list(struct net_device *dev);
+#endif /* ESCAN_CHANNEL_CACHE */
+
+#define WL_CHANNEL_ARRAY_INIT(band_chan_arr)	\
+do {	\
+	u32 arr_size, k;	\
+	arr_size = ARRAYSIZE(band_chan_arr);	\
+	for (k = 0; k < arr_size; k++) {	\
+		band_chan_arr[k].flags = IEEE80211_CHAN_DISABLED;	\
+	}	\
+} while (0)
 #endif /* _wl_cfg80211_h_ */

@@ -28,9 +28,6 @@
 #if defined(CONFIG_SEC_FACTORY)
 #include <linux/sec_batt.h>
 #endif
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-#include <linux/pm_qos.h>
-#endif
 #include <linux/sec_debug.h>
 
 #define ENABLE 1
@@ -55,14 +52,7 @@ static enum power_supply_property max77705_otg_props[] = {
 static struct device_attribute max77705_charger_attrs[] = {
 	MAX77705_CHARGER_ATTR(chip_id),
 	MAX77705_CHARGER_ATTR(data),
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	MAX77705_CHARGER_ATTR(cpu_max_freq),
-#endif
 };
-
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-static struct pm_qos_request ifpmic_cpu_limit_request;
-#endif
 
 static void max77705_charger_initialize(struct max77705_charger_data *charger);
 static int max77705_get_vbus_state(struct max77705_charger_data *charger);
@@ -504,6 +494,9 @@ static void reduce_input_current(struct max77705_charger_data *charger, int curr
 		max_value = 3200;
 	}
 
+	input_current -= curr;
+	input_current = (input_current > max_value) ? max_value :
+		((input_current < MINIMUM_INPUT_CURRENT) ? MINIMUM_INPUT_CURRENT : input_current);
 
 	set_value |= (input_current / curr_step) - 0x01;
 	max77705_update_reg(charger->i2c, set_reg, set_value, set_mask);
@@ -548,35 +541,6 @@ static void max77705_check_cnfg12_reg(struct max77705_charger_data *charger)
 		}
 	}
 }
-
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-static void max77705_set_otg_limit(struct max77705_charger_data *charger, int step)
-{
-	if (step < MAX77705_LIMIT_STEP_DEFAULT || step >= MAX77705_LIMIT_STEP_NUM)
-		step = MAX77705_LIMIT_STEP_DEFAULT;
-
-	if (!charger->otg_on && step != MAX77705_LIMIT_STEP_DEFAULT) {
-		pr_info("%s : otg is off, but requested %d.\n", __func__, step);
-		step = MAX77705_LIMIT_STEP_DEFAULT;
-	}
-
-	if (charger->otg_limit_step == step)
-		return;
-
-	if (step == MAX77705_LIMIT_STEP_DEFAULT || charger->cpu_max_freq[step] == 0) {
-		pr_info("%s : max_freq(default)(%d)\n", __func__, step);
-		pm_qos_update_request(&ifpmic_cpu_limit_request,
-				PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
-	} else {
-		pr_info("%s : max_freq(%dKHz)(%d)\n", __func__,
-			charger->cpu_max_freq[step], step);
-		pm_qos_update_request(&ifpmic_cpu_limit_request,
-			charger->cpu_max_freq[step]);
-	}
-
-	charger->otg_limit_step = step;
-}
-#endif
 
 static void max77705_change_charge_path(struct max77705_charger_data *charger,
 					int path)
@@ -861,10 +825,6 @@ static int max77705_set_otg(struct max77705_charger_data *charger, int enable)
 		psy_do_property("wireless", set,
 			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
 
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-		max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_OTG_ON);
-#endif
-
 		max77705_read_reg(charger->i2c, MAX77705_CHG_REG_INT_MASK,
 			&chg_int_state);
 
@@ -887,10 +847,6 @@ static int max77705_set_otg(struct max77705_charger_data *charger, int enable)
 
 		psy_do_property("wireless", set,
 			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, value);
-
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-		max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_DEFAULT);
-#endif
 	}
 	max77705_read_reg(charger->i2c, MAX77705_CHG_REG_INT_MASK, &chg_int_state);
 	max77705_read_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00, &reg);
@@ -969,17 +925,10 @@ static void max77705_charger_initialize(struct max77705_charger_data *charger)
 	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00,
 			0, CHG_CNFG_00_OTG_CTRL);
 
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
 	/* otg current limit 900mA */
 	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_02,
 			MAX77705_OTG_ILIM_900 << CHG_CNFG_02_OTG_ILIM_SHIFT,
 			CHG_CNFG_02_OTG_ILIM_MASK);
-#else
-	/* otg current limit 1500mA */
-	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_02,
-			MAX77705_OTG_ILIM_1500 << CHG_CNFG_02_OTG_ILIM_SHIFT,
-			CHG_CNFG_02_OTG_ILIM_MASK);
-#endif
 
 	/* UNO ILIM 1.0A */
 	max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_05,
@@ -1126,17 +1075,6 @@ ssize_t max77705_chg_show_attrs(struct device *dev,
 				       "0x%02x : 0x%02x\n", addr, data);
 		}
 		break;
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	case CPU_MAX_FREQ:
-		{
-			int j = 0;
-
-			for (j = 0; j < MAX77705_LIMIT_STEP_NUM; ++j)
-				i += scnprintf(buf + i, PAGE_SIZE - i,
-						"[%d]%d\n", j, charger->cpu_max_freq[j]);
-		}
-		break;
-#endif
 	default:
 		return -EINVAL;
 	}
@@ -1172,20 +1110,6 @@ ssize_t max77705_chg_store_attrs(struct device *dev,
 		}
 		ret = count;
 		break;
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	case CPU_MAX_FREQ:
-		if (sscanf(buf, "%10d %10d\n", &x, &y) == 2) {
-			if (x < MAX77705_LIMIT_STEP_DEFAULT || x >= MAX77705_LIMIT_STEP_NUM)
-				pr_info("%s: cpu_max_freq index is wrong(%d)\n", __func__, x);
-			else {
-				charger->cpu_max_freq[x] = y;
-				pr_info("%s: changed cpu_max_freq[%d]:%d\n", __func__,
-					x, charger->cpu_max_freq[y]);
-			}
-			ret = count;
-		}
-		break;
-#endif
 	default:
 		ret = -EINVAL;
 	}
@@ -1642,10 +1566,6 @@ static int max77705_chg_set_property(struct power_supply *psy,
 		charger->slow_charging = false;
 		charger->input_current = max77705_get_input_current(charger);
 		max77705_change_charge_path(charger, charger->cable_type);
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-		if (!charger->otg_on)
-			max77705_set_otg_limit(charger, MAX77705_LIMIT_STEP_DEFAULT);
-#endif
 		if (!max77705_get_autoibus(charger))
 			max77705_set_fw_noautoibus(MAX77705_AUTOIBUS_AT_OFF);
 
@@ -2515,25 +2435,6 @@ static int max77705_charger_parse_dt(struct max77705_charger_data *charger)
 		}
 	}
 
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	np = of_find_node_by_name(NULL, "max77705-charger");
-	if (!np) {
-		pr_err("%s: np(max77705-charger) NULL\n", __func__);
-	} else {
-		unsigned int i = 0;
-
-		for (i = 0; i < MAX77705_LIMIT_STEP_NUM; ++i) {
-			ret = of_property_read_u32_index(np, "charger,cpu_max_freq",
-					i, &charger->cpu_max_freq[i]);
-			if (ret) {
-				pr_info("%s: charger,cpu_max_freq[%d] is Empty\n", __func__, i);
-				charger->cpu_max_freq[i] = PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE;
-			} else if (charger->cpu_max_freq[i] == 0)
-				charger->cpu_max_freq[i] = PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE;
-			}
-	}
-#endif
-
 	return ret;
 }
 #endif
@@ -2656,12 +2557,6 @@ static int max77705_charger_probe(struct platform_device *pdev)
 		pr_err("%s: Failed to Register otg_chg\n", __func__);
 		goto err_power_supply_register_otg;
 	}
-
-#if defined(CONFIG_CHARGER_MAX77705_OTG_LIMIT)
-	charger->otg_limit_step = MAX77705_LIMIT_STEP_DEFAULT;
-	pm_qos_add_request(&ifpmic_cpu_limit_request,
-			PM_QOS_CLUSTER1_FREQ_MAX, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
-#endif
 
 	if (charger->pdata->chg_irq) {
 		INIT_DELAYED_WORK(&charger->isr_work, max77705_chg_isr_work);

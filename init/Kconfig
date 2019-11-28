@@ -1061,6 +1061,14 @@ config SCHED_EMS
 
 	  If unsure, say N.
 
+config SCHED_EMS_TUNE
+	bool "Tuner for Exynos Mobile Scheduler"
+	depends on SCHED_EMS
+	help
+	  This option supports tuner for Exynos mobile scheduler.
+
+	  If unsure, say N.
+
 config SCHED_USE_FLUID_RT
 	bool "Enable Fluid RT scheduler feature"
 	depends on SCHED_EMS

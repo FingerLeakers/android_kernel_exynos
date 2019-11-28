@@ -1331,6 +1331,7 @@ static int get_vtsforce_reset(struct snd_kcontrol *kcontrol,
 static int set_vtsforce_reset(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
 {
+#if defined(CONFIG_SOC_EXYNOS8895)
 	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
 	struct device *dev = component->dev;
 	struct vts_data *data = p_vts_data;
@@ -1341,7 +1342,7 @@ static int set_vtsforce_reset(struct snd_kcontrol *kcontrol,
 		dev_warn(dev, "%s Clear active models\n", __func__);
 		pm_runtime_put_sync(dev);
 	}
-
+#endif
 	return  0;
 }
 
@@ -1805,6 +1806,16 @@ static irqreturn_t vts_slif_dump_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t vts_cpwakeup_handler(int irq, void *dev_id)
+{
+	struct platform_device *pdev = dev_id;
+	struct device *dev = &pdev->dev;
+
+	dev_info(dev, "%s\n", __func__);
+
+	return IRQ_HANDLED;
+}
+
 void vts_register_dma(struct platform_device *pdev_vts,
 		struct platform_device *pdev_vts_dma, unsigned int id)
 {
@@ -1844,6 +1855,9 @@ static int vts_suspend(struct device *dev)
 		/* enable vts wakeup source interrupts */
 		enable_irq_wake(data->irq[VTS_IRQ_VTS_VOICE_TRIGGERED]);
 		enable_irq_wake(data->irq[VTS_IRQ_VTS_ERROR]);
+#ifdef TEST_WAKEUP
+		enable_irq_wake(data->irq[VTS_IRQ_VTS_CP_WAKEUP]);
+#endif
 		if (data->audiodump_enabled)
 			enable_irq_wake(data->irq[VTS_IRQ_VTS_AUDIO_DUMP]);
 		if (data->logdump_enabled)
@@ -1864,6 +1878,9 @@ static int vts_resume(struct device *dev)
 		/* disable vts wakeup source interrupts */
 		disable_irq_wake(data->irq[VTS_IRQ_VTS_VOICE_TRIGGERED]);
 		disable_irq_wake(data->irq[VTS_IRQ_VTS_ERROR]);
+#ifdef TEST_WAKEUP
+		disable_irq_wake(data->irq[VTS_IRQ_VTS_CP_WAKEUP]);
+#endif
 		if (data->audiodump_enabled)
 			disable_irq_wake(data->irq[VTS_IRQ_VTS_AUDIO_DUMP]);
 		if (data->logdump_enabled)
@@ -1889,6 +1906,13 @@ static void vts_irq_enable(struct platform_device *pdev, bool enable)
 		else
 			disable_irq(data->irq[irqidx]);
 	}
+#ifdef TEST_WAKEUP
+	if (enable)
+		enable_irq(data->irq[VTS_IRQ_VTS_CP_WAKEUP]);
+	else
+		disable_irq(data->irq[VTS_IRQ_VTS_CP_WAKEUP]);
+#endif
+
 }
 
 static void vts_save_register(struct vts_data *data)
@@ -2957,6 +2981,11 @@ static int samsung_vts_probe(struct platform_device *pdev)
 
 	result = samsung_vts_devm_request_threaded_irq(pdev, "slif_dump",
 			VTS_IRQ_VTS_SLIF_DUMP, vts_slif_dump_handler);
+	if (result < 0)
+		goto error;
+
+	result = samsung_vts_devm_request_threaded_irq(pdev, "cp_wakeup",
+			VTS_IRQ_VTS_CP_WAKEUP, vts_cpwakeup_handler);
 	if (result < 0)
 		goto error;
 

@@ -21,6 +21,7 @@
 #include "usb_power_notify.h"
 #include "../core/hub.h"
 #include "core.h"
+#include "otg.h"
 
 enum usb_port_state {
 	PORT_EMPTY = 0,		/* OTG only */
@@ -142,11 +143,13 @@ static void set_usb3_port_power(struct usb_device *dev, bool on)
 		pr_info("Port check empty\n");
 		is_otg_only = 1;
 		usb_power_phy_control(1);
+		dwc3_otg_qos_lock(g_dwc, 1);
 		break;
 	case PORT_USB2:
 		pr_info("Port check usb2\n");
 		is_otg_only = 0;
 		usb_power_phy_control(0);
+		dwc3_otg_qos_lock(g_dwc, -1);
 		break;
 	case PORT_USB3:
 		/* xhci_port_power_set(1, 1); */

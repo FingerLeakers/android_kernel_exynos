@@ -14,7 +14,11 @@
 #include "qbt2000_common.h"
 
 #if defined(CONFIG_TZDEV_BOOST) && defined(ENABLE_SENSORS_FPRINT_SECURE)
+#if defined(CONFIG_TEEGRIS_VERSION) && (CONFIG_TEEGRIS_VERSION >= 4)
+#include <../drivers/misc/tzdev/extensions/boost.h>
+#else
 #include <../drivers/misc/tzdev/tz_boost.h>
+#endif
 #endif
 
 int fps_qbt2000_sec_spi_prepare(int speed)
@@ -46,10 +50,10 @@ int fps_qbt2000_sec_spi_prepare(int speed)
 			pr_err("%s, SPI clk set failed: %d\n", __func__, ret);
 
 		else
-			pr_info("%s, Set SPI clock rate: %u(%lu)\n",
+			pr_debug("%s, Set SPI clock rate: %u(%lu)\n",
 				__func__, speed, clk_get_rate(fp_spi_sclk) / 4);
 	} else
-		pr_info("%s, Set SPI clock rate: %u(%lu)\n",
+		pr_debug("%s, Set SPI clock rate: %u(%lu)\n",
 			__func__, speed, clk_get_rate(fp_spi_sclk) / 4);
 
 	clk_put(fp_spi_pclk);

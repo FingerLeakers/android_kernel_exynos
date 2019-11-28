@@ -15,7 +15,8 @@
 #include "is-metadata.h"
 #include "is-param.h"
 #include "is-config.h"
-#if defined(CONFIG_PABLO_V8_0_0) || defined(CONFIG_PABLO_V8_1_0) || defined(CONFIG_PABLO_V7_0_0) || defined(CONFIG_PABLO_V8_10_0)
+#if defined(CONFIG_PABLO_V8_0_0) || defined(CONFIG_PABLO_V8_1_0) || defined(CONFIG_PABLO_V7_0_0) \
+	|| defined(CONFIG_PABLO_V8_10_0) || defined(CONFIG_PABLO_V8_20_0)
 #include "is-lib-vra_v1_4.h"
 #else
 #include "is-lib-vra_v1_10.h"

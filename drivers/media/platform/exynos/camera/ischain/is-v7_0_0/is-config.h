@@ -163,6 +163,7 @@
 #define SECURE_CAMERA_FACE	/* For face Detection and face authentication */
 #define SECURE_CAMERA_CH		((1 << CSI_ID_C) | (1 << CSI_ID_E))
 #define SECURE_CAMERA_HEAP_ID		(11)
+#define SECURE_CAMERA_MEM_SHARE
 #define SECURE_CAMERA_MEM_ADDR		(0xA1000000)	/* secure_camera_heap */
 #define SECURE_CAMERA_MEM_SIZE		(0x02B00000)
 #define NON_SECURE_CAMERA_MEM_ADDR	(0xA3B00000)	/* camera_heap */
@@ -195,8 +196,12 @@
 #define INIT_AWB_COUNT_REAR	(3)
 #define INIT_AWB_COUNT_FRONT	(8)
 
+/* use CIS global work for enhance launching time */
+#define USE_CIS_GLOBAL_WORK	0
+
 #define USE_CAMIF_FIX_UP	1
-#define CHAIN_USE_VC_TASKLET	0
+#define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
+#define CHAIN_TAG_VC0_DMA_IN_HARDIRQ_CONTEXT	1
 
 #undef OVERFLOW_PANIC_ENABLE_ISCHAIN
 #undef OVERFLOW_PANIC_ENABLE_CSIS

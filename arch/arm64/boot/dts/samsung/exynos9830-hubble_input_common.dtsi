@@ -88,15 +88,6 @@
 	};
 };
 
-&pinctrl_1 {
-	tsp_id: tsp-id {
-		samsung,pins = "gpm21-0";
-		samsung,pin-function = <0>;
-		samsung,pin-pud = <0>;
-		samsung,pin-drv = <0>;
-	};
-};
-
 &hsi2c_15 {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -109,8 +100,8 @@
 		compatible = "sec,sec_ts";
 		reg = <0x48>;
 		pinctrl-names = "on_state", "off_state";
-		pinctrl-0 = <&attn_irq &tsp_id>;
-		pinctrl-1 = <&attn_input &tsp_id>;
+		pinctrl-0 = <&attn_irq>;
+		pinctrl-1 = <&attn_input>;
 		sec,irq_gpio = <&gpa1 0 0>;
 		sec,irq_type = <8200>;
 		sec,max_coords = <4096 4096>;

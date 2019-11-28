@@ -15,8 +15,9 @@
 
 #include <linux/platform_device.h>
 #include <linux/wakelock.h>
-#include "npu-profile.h"
+#include "npu-scheduler.h"
 #include "npu-qos.h"
+#include "npu-clock.h"
 
 #ifdef CONFIG_NPU_HARDWARE
 #include "npu-interface.h"
@@ -29,6 +30,9 @@
 
 #endif
 
+#ifdef CONFIG_NPU_USE_SPROFILER
+#include "npu-profile.h"
+#endif
 
 #include "npu-exynos.h"
 #if 0
@@ -57,9 +61,6 @@ struct npu_system {
 	struct npu_iomem_area	sfr_npu[4];
 	struct npu_iomem_area	pmu_npu;
 	struct npu_iomem_area	pmu_npu_cpu;
-#ifdef REINIT_NPU_BAAW
-	struct npu_iomem_area	baaw_npu;
-#endif
 	struct npu_iomem_area	mbox_sfr;
 	struct npu_iomem_area	pwm_npu;
 	struct npu_fw_test_handler	npu_fw_test_handler;
@@ -68,16 +69,13 @@ struct npu_system {
 	struct npu_memory_buffer	*fw_npu_unittest_buffer;
 	struct npu_memory_buffer	*fw_npu_log_buffer;
 
-
 	int			irq0;
 	int			irq1;
 
-	struct clk		**clocks;
-	int			clk_count;
+	struct npu_qos_setting	qos_setting;
 
-	u32			cam_qos;
-	u32			mif_qos;
-
+	u32			max_npu_core;
+	struct npu_clocks	clks;
 #ifdef CONFIG_PM_SLEEP
 	/* maintain to be awake */
 	struct wake_lock 	npu_wake_lock;
@@ -90,9 +88,9 @@ struct npu_system {
 	volatile struct mailbox_hdr	*mbox_hdr;
 	volatile struct npu_interface	*interface;
 
+#ifdef CONFIG_NPU_USE_SPROFILER
 	struct npu_profile_control	profile_ctl;
-	struct npu_qos_setting		qos_setting;
-
+#endif
 	/* Open status (Bitfield of npu_system_resume_steps) */
 	unsigned long			resume_steps;
 	unsigned long			resume_soc_steps;

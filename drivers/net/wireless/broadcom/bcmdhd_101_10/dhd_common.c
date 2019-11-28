@@ -2907,8 +2907,8 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		break;
 
 	case WLC_E_LINK:
-		DHD_EVENT(("MACEVENT: %s %s flags:0x%x status:%d\n",
-			event_name, link?"UP":"DOWN", flags, status));
+		DHD_EVENT(("MACEVENT: %s %s flags:0x%x status:%d reason:%d\n",
+			event_name, link?"UP":"DOWN", flags, status, reason));
 		BCM_REFERENCE(link);
 		break;
 
@@ -4394,18 +4394,9 @@ void
 dhd_arp_offload_enable(dhd_pub_t * dhd, int arp_enable)
 {
 	int retcode;
-#ifdef WL_CFG80211
-	/* Do not enable arp offload in case of non-STA interfaces active */
-	if (arp_enable &&
-		(wl_cfg80211_check_vif_in_use(dhd_linux_get_primary_netdev(dhd)))) {
-		DHD_TRACE(("%s: Virtual interfaces active, ignore arp offload request \n",
-			__FUNCTION__));
-		return;
-	}
-#endif /* WL_CFG80211 */
+
 	retcode = dhd_wl_ioctl_set_intiovar(dhd, "arpoe",
 		arp_enable, WLC_SET_VAR, TRUE, 0);
-
 	retcode = retcode >= 0 ? 0 : retcode;
 	if (retcode)
 		DHD_ERROR(("%s: failed to enabe ARP offload to %d, retcode = %d\n",

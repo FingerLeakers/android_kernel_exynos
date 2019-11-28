@@ -161,16 +161,6 @@ static struct snd_soc_pcm_runtime *get_rtd(struct snd_soc_card *card, int id)
 	return rtd;
 }
 
-static struct snd_soc_pcm_runtime *get_rtd_at(struct snd_soc_card *card, int i)
-{
-	struct snd_soc_pcm_runtime *rtd = NULL;
-
-	if (i < card->num_links)
-		rtd = snd_soc_get_pcm_runtime(card, card->dai_link[i].name);
-
-	return rtd;
-}
-
 static int madera_start_fll(struct snd_soc_card *card,
 				struct clk_conf *config)
 {
@@ -672,10 +662,11 @@ static int madera_amp_late_probe(struct snd_soc_card *card, int dai)
 static int exynos9830_late_probe(struct snd_soc_card *card)
 {
 	struct madera_drvdata *drvdata = card->drvdata;
+	struct snd_soc_pcm_runtime *rtd;
 	struct snd_soc_dai *aif_dai;
 	struct snd_soc_dapm_context *dapm;
-	char name[SZ_32];
-	const char *prefix;
+	struct snd_soc_dai_link *link;
+	const char *name;
 	int ret, i;
 
 	aif_dai = get_rtd(card, MADERA_DAI_ID)->codec_dai;
@@ -732,6 +723,7 @@ static int exynos9830_late_probe(struct snd_soc_card *card)
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC1");
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC2");
 	snd_soc_dapm_ignore_suspend(dapm, "DMIC3");
+	snd_soc_dapm_ignore_suspend(dapm, "DMIC4");
 	snd_soc_dapm_ignore_suspend(dapm, "VTS Virtual Output");
 	snd_soc_dapm_sync(dapm);
 
@@ -752,49 +744,46 @@ static int exynos9830_late_probe(struct snd_soc_card *card)
 		madera_register_notifier(codec, &drvdata->nb);
 	}
 
-	if (get_rtd(card, CS35L41_DAI_ID)) {
-		struct snd_soc_pcm_runtime *rtd;
+	list_for_each_entry(link, &card->dai_link_list, list) {
+		rtd = snd_soc_get_pcm_runtime(card, link->name);
+		if (!rtd)
+			continue;
 
-		rtd = get_rtd(card, CS35L41_DAI_ID);
 		for (i = 0; i < rtd->num_codecs; i++) {
+			aif_dai = rtd->cpu_dai;
+			dapm = snd_soc_component_get_dapm(aif_dai->component);
+			if (aif_dai->playback_widget) {
+				name = aif_dai->playback_widget->name;
+				dev_dbg(card->dev, "ignore suspend: %s\n",
+						name);
+				snd_soc_dapm_ignore_suspend(dapm, name);
+				snd_soc_dapm_sync(dapm);
+			}
+			if (aif_dai->capture_widget) {
+				name = aif_dai->capture_widget->name;
+				dev_dbg(card->dev, "ignore suspend: %s\n",
+						name);
+				snd_soc_dapm_ignore_suspend(dapm, name);
+				snd_soc_dapm_sync(dapm);
+			}
+
 			aif_dai = rtd->codec_dais[i];
 			dapm = snd_soc_component_get_dapm(aif_dai->component);
-			prefix = dapm->component->name_prefix;
-			snprintf(name, sizeof(name), "%s AMP Playback", prefix);
-			snd_soc_dapm_ignore_suspend(dapm, name);
-			snprintf(name, sizeof(name), "%s AMP Capture", prefix);
-			snd_soc_dapm_ignore_suspend(dapm, name);
-			snd_soc_dapm_sync(dapm);
+			if (aif_dai->playback_widget) {
+				name = aif_dai->playback_widget->name;
+				dev_dbg(card->dev, "ignore suspend: %s\n",
+						name);
+				snd_soc_dapm_ignore_suspend(dapm, name);
+				snd_soc_dapm_sync(dapm);
+			}
+			if (aif_dai->capture_widget) {
+				name = aif_dai->capture_widget->name;
+				dev_dbg(card->dev, "ignore suspend: %s\n",
+						name);
+				snd_soc_dapm_ignore_suspend(dapm, name);
+				snd_soc_dapm_sync(dapm);
+			}
 		}
-	}
-
-	for (i = 0; i < RDMA_COUNT; i++) {
-		aif_dai = get_rtd_at(card, i)->cpu_dai;
-		dapm = snd_soc_component_get_dapm(aif_dai->component);
-		prefix = dapm->component->name_prefix;
-		snprintf(name, sizeof(name), "%s Playback", prefix);
-		snd_soc_dapm_ignore_suspend(dapm, name);
-		snd_soc_dapm_sync(dapm);
-	}
-
-	for (i = 0; i < WDMA_COUNT; i++) {
-		aif_dai = get_rtd_at(card, RDMA_COUNT + i)->cpu_dai;
-		dapm = snd_soc_component_get_dapm(aif_dai->component);
-		prefix = dapm->component->name_prefix;
-		snprintf(name, sizeof(name), "%s Capture", prefix);
-		snd_soc_dapm_ignore_suspend(dapm, name);
-		snd_soc_dapm_sync(dapm);
-	}
-
-	for (i = 0; i < UAIF_COUNT; i++) {
-		aif_dai = get_rtd_at(card, UAIF_START + i)->cpu_dai;
-		dapm = snd_soc_component_get_dapm(aif_dai->component);
-		prefix = dapm->component->name_prefix;
-		snprintf(name, sizeof(name), "%s Capture", prefix);
-		snd_soc_dapm_ignore_suspend(dapm, name);
-		snprintf(name, sizeof(name), "%s Playback", prefix);
-		snd_soc_dapm_ignore_suspend(dapm, name);
-		snd_soc_dapm_sync(dapm);
 	}
 
 	return 0;

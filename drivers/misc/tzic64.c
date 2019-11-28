@@ -40,8 +40,13 @@
 #include <linux/moduleparam.h>
 #include <linux/printk.h>
 #include <linux/miscdevice.h>
+#if defined(CONFIG_TEEGRIS_VERSION) && (CONFIG_TEEGRIS_VERSION >= 4)
+#include "tzdev/extensions/irs.h"
+#include "tzdev/core/cdev.h"
+#else
 #include "tzdev/tzirs.h"
 #include "tzdev/tz_cdev.h"
+#endif
 #endif /* CONFIG_TZDEV */
 
 static int gotoCpu0(void);

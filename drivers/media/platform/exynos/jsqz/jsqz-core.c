@@ -1117,7 +1117,8 @@ static int jsqz_buffer_setup(struct jsqz_ctx *ctx,
 		, __func__, dma_buffer, dir == DMA_TO_DEVICE);
 
 	/* the callback function should fill 'dma_addr' field */
-	ret = jsqz_buffer_map(ctx, dma_buffer, dir == DMA_TO_DEVICE);
+	ret = jsqz_buffer_map(ctx, dma_buffer, dir);
+	//ret = jsqz_buffer_map(ctx, dma_buffer, dir == DMA_TO_DEVICE);
 	if (ret) {
 		dev_err(jsqz_device->dev, "%s: Failed to prepare plane"
 			, __func__);
@@ -1334,23 +1335,14 @@ static int jsqz_task_setup(struct jsqz_dev *jsqz_device,
         ret = jsqz_buffer_setup(ctx, &task->user_mtask.buf_in, &task->dma_buf_out[0], DMA_TO_DEVICE);
         if (ret) {
             dev_err(jsqz_device->dev, "%s: Failed to get output buffer\n", __func__);
-    		if (i > 0) {
-                jsqz_buffer_teardown(jsqz_device, ctx,
-                    &task->dma_buf_out[i-1], DMA_TO_DEVICE);
-                dev_err(jsqz_device->dev, "%s: Failed to get capture buffer\n",
-                    __func__);
-            }
             return ret;
         }
         ret = jsqz_buffer_setup(ctx, &task->user_mtask.buf_out, &task->dma_buf_out[1], DMA_FROM_DEVICE);
         if (ret) {
             dev_err(jsqz_device->dev, "%s: Failed to get output buffer\n", __func__);
-    		if (i > 0) {
-                jsqz_buffer_teardown(jsqz_device, ctx,
-                    &task->dma_buf_out[i-1], DMA_TO_DEVICE);
-                dev_err(jsqz_device->dev, "%s: Failed to get capture buffer\n",
+            jsqz_buffer_teardown(jsqz_device, ctx, &task->dma_buf_out[0], DMA_TO_DEVICE);
+            dev_err(jsqz_device->dev, "%s: Failed to get capture buffer\n",
                     __func__);
-            }
             return ret;
         }
     }
@@ -1377,11 +1369,17 @@ static void jsqz_task_teardown(struct jsqz_dev *jsqz_dev,
 {
 	int i;
 	dev_dbg(jsqz_dev->dev, "%s: BEGIN\n", __func__);
-
-	for (i = 0; i < task->user_task.num_of_buf; i++)
-	{
-		jsqz_buffer_teardown(jsqz_dev, ctx, &task->dma_buf_out[i],
+	
+	if (task->type == JPEG_SQZ) {
+		for (i = 0; i < task->user_task.num_of_buf; i++)
+		{
+			jsqz_buffer_teardown(jsqz_dev, ctx, &task->dma_buf_out[i],
 			     DMA_TO_DEVICE);
+		}
+	}
+	else if (task->type == MPEG_SQZ) {
+		jsqz_buffer_teardown(jsqz_dev, ctx, &task->dma_buf_out[0], DMA_TO_DEVICE);
+		jsqz_buffer_teardown(jsqz_dev, ctx, &task->dma_buf_out[1], DMA_FROM_DEVICE);
 	}
 
 	dev_dbg(jsqz_dev->dev, "%s: END\n", __func__);
@@ -1996,14 +1994,13 @@ static long jsqz_compat_ioctl32(struct file *filp,
 			return ret;
 		}
 		
-		
-		dev_dbg(jsqz_device->dev
-			, "%s: processing done! Copying data back to user space...\n", __func__);
-
-        data.frame_dqp = task.user_mtask.frame_dqp;
+		data.frame_dqp = task.user_mtask.frame_dqp;
         
         dev_dbg(jsqz_device->dev
     			, "%s: MSQZ Frame DQP is %d\n", __func__, data.frame_dqp);
+		
+		dev_dbg(jsqz_device->dev
+			, "%s: processing done! Copying data back to user space...\n", __func__);
 
 		if (copy_to_user(compat_ptr(arg), &data, sizeof(data))) {
 			dev_err(jsqz_device->dev,

@@ -165,8 +165,7 @@ config SCSI_UFS_FMP_DUMP
 
 config SCSI_UFS_EXYNOS_FMP
 	tristate "EXYNOS Flash Memory Protector for UFS Host"
-	depends on SCSI_UFS_EXYNOS && EXYNOS_FMP
-	select SCSI_UFS_EXYNOS_SMU
+	depends on SCSI_UFS_EXYNOS
 	---help---
 	  This selects the EXYNOS UFS FMP Driver.
 
@@ -182,16 +181,6 @@ config SCSI_UFS_HISI
 
 	  Select this if you have UFS controller on Hisilicon chipset.
 
-config SCSI_UFS_EXYNOS_SMU
-	tristate "EXYNOS Secure Management Unit for UFS Host"
-	depends on SCSI_UFS_EXYNOS && EXYNOS_SMU
-	---help---
-	  This selects the EXYNOS UFS SMU Driver.
-
-	  If you have a controller with this interface, say Y or M here.
-
-	  If unsure, say N.
-
 config UFSFEATURE
 	bool "UFS feature activate"
 	depends on SCSI_UFSHCD
@@ -204,9 +193,23 @@ config UFSHPB
 	---help---
 	UFS HPB Feature Enable
 
+config HPB_DEBUG
+	bool "HPB Debug Log Enable"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	default n
+	---help---
+	UFS HPB Debug Enable (dmesg log[=if set debug sysfs] & BLK_TRACE msg)
+
 config HPB_DEBUG_SYSFS
 	bool "HPB Debug sysfs"
 	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
 	default n
 	---help---
 	UFS HPB Debug Sysfs Enable
+
+config HPB_RELEASE_CHECK
+	bool "HPB Release Check"
+	depends on SCSI_UFSHCD && UFSFEATURE && UFSHPB
+	default n
+	---help---
+	The kernel panic occurs when hpb feature disabled by abnormal behavior.

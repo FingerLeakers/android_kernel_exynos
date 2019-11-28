@@ -434,20 +434,6 @@ int light_colorid_write_all_predefined_data(struct ssp_data *data)
 	return iRet;
 }
 
-void initialize_light_colorid_do_task(struct work_struct *work)
-{
-	struct ssp_data *data = container_of((struct delayed_work *)work,
-	                                     struct ssp_data, work_ssp_light_efs_file_init);
-
-	pr_info("[SSP] %s, is called efs file status %d \n", __func__, data->light_efs_file_status);
-
-	if (data->light_efs_file_status < 0) {
-		if (initialize_light_colorid(data) < 0)
-			pr_err("[SSP]: %s - initialize light colorid failed\n", __func__);
-	}
-	
-}
-
 int initialize_light_colorid(struct ssp_data *data)
 {
 	int color_id, ret;

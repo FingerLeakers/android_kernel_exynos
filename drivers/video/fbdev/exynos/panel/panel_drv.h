@@ -25,10 +25,17 @@
 #include <linux/miscdevice.h>
 
 #if defined(CONFIG_EXYNOS_DPU30)
+#ifdef CONFIG_EXYNOS_DPU30_DUAL
+#include "../dpu30_dual/disp_err.h"
+#include "../dpu30_dual/dsim.h"
+#include "../dpu30_dual/decon.h"
+#include "../dpu30_dual/panels/exynos_panel.h"
+#else
 #include "../dpu30/disp_err.h"
 #include "../dpu30/dsim.h"
 #include "../dpu30/decon.h"
 #include "../dpu30/panels/exynos_panel.h"
+#endif
 #elif defined(CONFIG_EXYNOS_DPU20)
 #include "../dpu20/disp_err.h"
 #include "../dpu20/dsim.h"
@@ -49,12 +56,12 @@
 #include "panel_poc.h"
 #endif
 
-#ifdef CONFIG_ACTIVE_CLOCK
-#include "active_clock.h"
-#endif
-
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "./aod/aod_drv.h"
+#endif
+
+#ifdef CONFIG_SUPPORT_MAFPC
+#include "./mafpc/mafpc_drv.h"
 #endif
 
 #ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
@@ -83,6 +90,7 @@ extern void parse_lcd_info(struct device_node *node, EXYNOS_PANEL_INFO *lcd_info
 extern int panel_log_level;
 
 #define CONFIG_DISP_PMIC_SSD
+// #define CONFIG_SUPPORT_ERRFG_RECOVERY
 
 void clear_pending_bit(int irq);
 
@@ -184,9 +192,11 @@ struct panel_regulator {
 struct mipi_drv_ops {
 	int (*read)(u32 id, u8 addr, u8 ofs, u8 *buf, int size, u32 option);
 	int (*write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size, u32 option);
+	int (*sr_write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size, u32 option);
 	enum dsim_state(*get_state)(u32 id);
 	void (*parse_dt)(struct device_node *, EXYNOS_PANEL_INFO *);
 	EXYNOS_PANEL_INFO *(*get_lcd_info)(u32 id);
+	int (*wait_for_vsync)(u32 id, u32 timeout);
 };
 
 #define PANEL_INIT_KERNEL 		0
@@ -248,6 +258,11 @@ enum {
 	PANEL_WORK_DIM_FLASH,
 	PANEL_WORK_CHECK_CONDITION,
 	PANEL_WORK_MAX,
+};
+
+enum {
+	PANEL_THREAD_VRR_BRIDGE,
+	PANEL_THREAD_MAX,
 };
 
 struct panel_state {
@@ -328,6 +343,14 @@ struct panel_work {
 	int ret;
 };
 
+typedef int (*panel_thread_fn)(void *data);
+
+struct panel_thread {
+	wait_queue_head_t wait;
+	atomic_t count;
+	struct task_struct *thread;
+};
+
 #ifdef CONFIG_DYNAMIC_FREQ
 #define MAX_DYNAMIC_FREQ	5
 #define DF_CONTEXT_RIL		1
@@ -369,6 +392,7 @@ struct panel_device {
 	struct panel_state state;
 
 	struct panel_work work[PANEL_WORK_MAX];
+	struct panel_thread thread[PANEL_THREAD_MAX];
 
 	struct notifier_block fb_notif;
 #ifdef CONFIG_DISPLAY_USE_INFO
@@ -376,13 +400,16 @@ struct panel_device {
 #endif
 	struct panel_info panel_data;
 
-#ifdef CONFIG_ACTIVE_CLOCK
-	struct act_clock_dev act_clk_dev;
-#endif
-
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 	struct aod_dev_info aod;
 #endif
+
+#ifdef CONFIG_SUPPORT_MAFPC
+	struct mafpc_device mafc;
+	struct v4l2_subdev *mafpc_sd;
+	s64 mafpc_write_time;
+#endif
+
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 	struct panel_poc_device poc_dev;
 #endif
@@ -393,6 +420,7 @@ struct panel_device {
 	struct notifier_block tdmb_notif;
 #endif
 	struct disp_error_cb_info error_cb_info;
+	struct disp_cb_info vrr_cb_info;
 
 	ktime_t ktime_panel_on;
 	ktime_t ktime_panel_off;
@@ -412,6 +440,8 @@ struct panel_device {
 #ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
 	struct profiler_device profiler;
 #endif
+
+
 };
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
@@ -479,7 +509,9 @@ void panel_wake_unlock(struct panel_device *panel);
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 int panel_seq_cmdlog_dump(struct panel_device *panel);
 #endif
-int panel_set_vrr(struct panel_device *panel, int fps, int mode);
+int panel_set_vrr(struct panel_device *panel, int fps, int mode, bool black);
+int panel_set_vrr_nolock(struct panel_device *panel, int fps, int mode, bool black);
+int panel_set_vrr_info(struct panel_device *panel, void *arg);
 bool panel_gpio_valid(struct panel_gpio *gpio);
 void panel_send_ubconn_uevent(struct panel_device* panel);
 
@@ -517,11 +549,17 @@ void panel_send_ubconn_uevent(struct panel_device* panel);
 #define PANEL_IOC_GET_ACTIVE			_IOR(PANEL_IOC_BASE, 44, void *)
 #endif
 
-#define PANEL_IOC_SET_FPS				_IOW(PANEL_IOC_BASE, 45, int *)
+#define PANEL_IOC_SET_VRR_INFO			_IOW(PANEL_IOC_BASE, 45, struct vrr_config_data *)
 
 #define PANEL_IOC_REG_RESET_CB			_IOR(PANEL_IOC_BASE, 51, struct host_cb *)
+#define PANEL_IOC_REG_VRR_CB			_IOR(PANEL_IOC_BASE, 52, struct host_cb *)
 #ifdef CONFIG_SUPPORT_INDISPLAY
 #define PANEL_IOC_SET_FINGER_SET		_IO(PANEL_IOC_BASE, 61)
+#endif
+
+
+#ifdef CONFIG_SUPPORT_MAFPC
+#define PANEL_IOC_WAIT_MAFPC			_IO(PANEL_IOC_BASE, 71)
 #endif
 
 

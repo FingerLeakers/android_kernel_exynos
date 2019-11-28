@@ -831,7 +831,9 @@ BCMFASTPATH(bcm_mwbmap_alloc)(struct bcm_mwbmap * mwbmap_hdl)
 			bitmap_p = &mwbmap_p->wd_bitmap[wordix];
 
 			/* clear all except trailing 1 */
-			bitmap   = (uint32)(((int)(bitmap)) & (-((int)(bitmap))));
+			if (bitmap != (1u << 31u)) {
+				bitmap = (uint32)(((int)(bitmap)) & (-((int)(bitmap))));
+			}
 			MWBMAP_ASSERT(C_bcm_count_leading_zeros(bitmap) ==
 			              bcm_count_leading_zeros(bitmap));
 			bitix    = (BCM_MWBMAP_BITS_WORD - 1)
@@ -865,7 +867,9 @@ BCMFASTPATH(bcm_mwbmap_alloc)(struct bcm_mwbmap * mwbmap_hdl)
 			MWBMAP_ASSERT(bitmap != 0U);
 
 			/* clear all except trailing 1 */
-			bitmap   = (uint32)(((int)(bitmap)) & (-((int)(bitmap))));
+			if (bitmap != (1u << 31u)) {
+				bitmap = (uint32)(((int)(bitmap)) & (-((int)(bitmap))));
+			}
 			MWBMAP_ASSERT(C_bcm_count_leading_zeros(bitmap) ==
 			              bcm_count_leading_zeros(bitmap));
 			bitix    = BCM_MWBMAP_MULOP(wordix)
@@ -3053,9 +3057,19 @@ bcm_next_tlv(const bcm_tlv_t *elt, uint *buflen)
 	}
 
 	/* advance to next elt */
-	len = elt->len;
-	elt = (const  bcm_tlv_t*)(elt->data + len);
-	*buflen -= (TLV_HDR_LEN + len);
+	len = TLV_HDR_LEN + elt->len;
+	elt = (const  bcm_tlv_t*)((const uint8 *)elt + len);
+
+#if defined(__COVERITY__)
+	/* The 'len' value is tainted in Coverity because it is read from the tainted data pointed
+	 * to by 'elt'.  However, bcm_valid_tlv() verifies that the elt pointer is a valid element,
+	 * so its length, len = (TLV_HDR_LEN + elt->len), is in the bounds of the buffer.
+	 * Clearing the tainted attribute of 'len' for Coverity.
+	 */
+	__coverity_tainted_data_sanitize__(len);
+#endif /* __COVERITY__ */
+
+	*buflen -= len;
 
 	/* validate next elt */
 	if (!bcm_valid_tlv(elt, *buflen)) {
@@ -3978,6 +3992,100 @@ clr_bitrange(void *array, uint start, uint end, uint maxbit)
 	} else {
 		clr_bitrange(array, start, maxbit, maxbit);
 		clr_bitrange(array, 0, end, maxbit);
+	}
+}
+
+/*
+ * This api (set_bitrange_int_access) as same as set_bitrange but uses int32 operation
+ * This api can be used in the place of set_bitrange but array should be word (32bit) alligned.
+ * This api has to be used when the memory being accessed has restrictions of
+ * not using them in 8bit (byte) mode and needing 32bit (word) mode.
+ */
+void
+set_bitrange_u32(void *array, uint start, uint end, uint maxbit)
+{
+	uint startword = start/(NBBY * sizeof(uint32));
+	uint endword = end/(NBBY * sizeof(uint32));
+	uint startwordstartbit = start % (NBBY * sizeof(uint32));
+	uint endwordlastbit = end % (NBBY * sizeof(uint32));
+	uint u32msbnum = NBBY * sizeof(uint32) - 1U; /* Used to caluculate bit number from MSB */
+	uint i;
+	uint32 setbitsword;
+	uint32 u32max = ~0U;
+
+	ASSERT(ISALIGNED(array, sizeof(uint32))); /* array should be alligned for this API */
+
+	if (start > end) {
+		set_bitrange_u32(array, start, maxbit, maxbit);
+		set_bitrange_u32(array, 0U, end, maxbit);
+		return;
+	}
+
+	if (endword - startword) {
+		/* Setting MSB bits including startwordstartbit */
+		setbitsword = u32max << startwordstartbit;
+		((uint32 *)array)[startword] |= setbitsword;
+
+		/* Setting all bits in 'startword + 1' to 'endword - 1' */
+		for (i = startword + 1U; i <= endword - 1U; i++) {
+			((uint32 *)array)[i] = u32max;
+		}
+
+		/* Setting LSB bits including endwordlastbit */
+		setbitsword = u32max >> (u32msbnum - endwordlastbit);
+		((uint32 *)array)[endword] |= setbitsword;
+	} else { /* start and end are in same word */
+		/* Setting start bit to end bit including start and end bits */
+		setbitsword =
+			(u32max << startwordstartbit) & (u32max >> (u32msbnum - endwordlastbit));
+		((uint32 *)array)[startword] |= setbitsword;
+	}
+}
+
+/*
+ * This api (clr_bitrange_u32) as same as clr_bitrange but uses int32 operation
+ * This api can be used in the place of clr_bitrange but array should be word (32bit) alligned.
+ * This api has to be used when the memory being accessed has restrictions of
+ * not using them in 8bit (byte) mode and needing 32bit (word) mode.
+ */
+void
+clr_bitrange_u32(void *array, uint start, uint end, uint maxbit)
+{
+	uint startword = start/(NBBY * sizeof(uint32));
+	uint endword = end/(NBBY * sizeof(uint32));
+	uint startwordstartbit = start % (NBBY * sizeof(uint32));
+	uint endwordlastbit = end % (NBBY * sizeof(uint32));
+	uint u32msbnum = NBBY * sizeof(uint32) - 1U; /* Used to caluculate bit number from MSB */
+	uint i;
+	uint32 clrbitsword;
+	uint32 u32max = ~0U;
+
+	ASSERT(ISALIGNED(array, sizeof(uint32))); /* array should be alligned for this API */
+
+	if (start > end) {
+		clr_bitrange_u32(array, start, maxbit, maxbit);
+		clr_bitrange_u32(array, 0U, end, maxbit);
+		return;
+	}
+
+	if (endword - startword) {
+		/* Clearing MSB bits including startwordstartbit */
+		clrbitsword = ~(u32max << startwordstartbit);
+		((uint32 *)array)[startword] &= clrbitsword;
+
+		/* Clearing all bits in 'startword + 1' to 'endword - 1' */
+		for (i = startword + 1U; i <= endword - 1U; i++) {
+			((uint32 *)array)[i] = 0U;
+		}
+
+		/* Clearing LSB bits including endwordlastbit */
+		clrbitsword = ~(u32max >> (u32msbnum - endwordlastbit));
+		((uint32 *)array)[endword] &= clrbitsword;
+	} else { /* start and end are in same word */
+		/* Clearing start bit to end bit including start and end bits */
+		clrbitsword =
+			~(u32max << startwordstartbit) | ~(u32max >> (u32msbnum - endwordlastbit));
+		((uint32 *)array)[startword] &= clrbitsword;
 	}
 }
 

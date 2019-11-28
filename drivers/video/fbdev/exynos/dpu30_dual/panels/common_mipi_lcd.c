@@ -146,6 +146,44 @@ static int panel_drv_get_mres(struct exynos_panel_device *panel)
 	return ret;
 }
 
+static int common_panel_vrr_changed(struct exynos_panel_device *panel, void *arg)
+{
+	struct exynos_panel_info *info;
+	struct vrr_config_data *vrr_info = arg;
+
+	if (!panel || !arg)
+		return -EINVAL;
+
+	info = &panel->lcd_info;
+	vrr_info = arg;
+
+	info->fps = vrr_info->fps;
+	info->vrr_mode = vrr_info->mode;
+
+	pr_info("%s vrr(fps:%d mode:%d) changed\n",
+			__func__, info->fps, info->vrr_mode);
+
+	return 0;
+}
+
+static int panel_drv_set_vrr_cb(struct exynos_panel_device *panel)
+{
+	int ret;
+	struct disp_cb_info vrr_cb_info = {
+		.cb = (disp_cb *)common_panel_vrr_changed,
+		.data = panel,
+	};
+
+	v4l2_set_subdev_hostdata(panel->panel_drv_sd, &vrr_cb_info);
+	ret = panel_drv_ioctl(panel, PANEL_IOC_REG_VRR_CB, NULL);
+	if (ret < 0) {
+		pr_err("ERR:%s:failed to set panel error callback\n", __func__);
+		return ret;
+	}
+
+	return 0;
+}
+
 int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
 {
 	int ret, retry = 3;
@@ -352,6 +390,11 @@ static int panel_drv_init(struct exynos_panel_device *panel)
 	ret = panel_drv_get_mres(panel);
 	if (ret) {
 		pr_err("ERR:%s:failed to get panel mres\n", __func__);
+		goto do_exit;
+	}
+	ret = panel_drv_set_vrr_cb(panel);
+	if (ret) {
+		pr_err("ERR:%s:failed to set vrr callback\n", __func__);
 		goto do_exit;
 	}
 
@@ -627,7 +670,7 @@ static int common_panel_mres(struct exynos_panel_device *panel, int mres_idx)
 				__func__, res->width, res->height);
 		return -EINVAL;
 	}
-	
+
 	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_MRES, &i);
 	if (ret) {
 		pr_err("ERR:%s:failed to set multi-resolution\n", __func__);
@@ -652,13 +695,12 @@ mres_exit:
 	return ret;
 }
 
-
 static int common_panel_fps(struct exynos_panel_device *panel, u32 fps)
 {
 	int ret = 0;
 	struct exynos_panel_info *info = &panel->lcd_info;
 
-	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_FPS, &fps);
+	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_VRR_INFO, &fps);
 	if (ret) {
 		pr_err("ERR:%s:failed to set fps\n", __func__);
 	}

@@ -477,34 +477,33 @@ err_unregister:
 	return ret;
 }
 
-
 static int dmabuf_oom_notifier_fn(struct notifier_block *nb,
 				  unsigned long action, void *data)
 {
 	struct dmabuf_trace_task *task = &head_task;
 	struct dmabuf_trace_ref *ref;
+	int count = 0;
 
 	if (!mutex_trylock(&trace_lock))
 		return 0;
 
+	pr_err("Dmabuf trace between process and buffers : \n");
 	do {
-		pr_err("\nTask %s@%d Objects:\n",
+		pr_err("%10s(%4d) :\n",
 		       (task->task) ? task->task->comm : "Kernel",
 		       (task->task) ? task->task->pid : 0);
-		pr_err("%10s %12s %12s %10s\n",
-		       "exp_name", "size", "share", "refcount");
 
 		list_for_each_entry(ref, &task->ref_list, task_node) {
-			pr_err("%10s %12zu %12zu %10d\n",
-			       ref->buffer->dmabuf->exp_name,
-			       ref->buffer->dmabuf->size,
-			       ref->buffer->dmabuf->size /
-			       ref->buffer->shared_count,
-			       ref->refcount);
+			pr_cont("%10s(%d)",
+				ref->buffer->dmabuf->exp_name, ref->refcount);
+			if (++count % 8 == 0)
+				pr_cont("\n");
 		}
 
 		task = list_next_entry(task, node);
 	} while (&task->node != &head_task.node);
+
+	pr_err("\n");
 
 	mutex_unlock(&trace_lock);
 
@@ -542,7 +541,7 @@ static int __init dmabuf_trace_create(void)
 	INIT_LIST_HEAD(&head_task.node);
 	INIT_LIST_HEAD(&head_task.ref_list);
 
-	register_oom_notifier(&dmabuf_oom_notifier);
+	register_oom_debug_notifier(&dmabuf_oom_notifier);
 
 	pr_info("Initialized dma-buf trace successfully.\n");
 

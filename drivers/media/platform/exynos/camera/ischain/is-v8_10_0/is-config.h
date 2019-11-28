@@ -74,6 +74,9 @@
 /* #define SOC_MCS1 */
 /* #define SOC_VRA */
 
+/* Frame id decoder */
+#define SYSREG_FRAME_ID_DEC		(0x0)
+
 /*
  * =================================================================================================
  * CONFIG - SW configurations
@@ -248,11 +251,15 @@
 #define INIT_AWB_COUNT_REAR	(3)
 #define INIT_AWB_COUNT_FRONT	(8)
 
+/* use CIS global work for enhance launching time */
+#define USE_CIS_GLOBAL_WORK	1
+
 /* use OIS init thread option */
 #define USE_OIS_INIT_WORK
 
 /* #define USE_CAMIF_FIX_UP	1 */
-#define CHAIN_USE_VC_TASKLET	0
+#define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
+#define CHAIN_TAG_VC0_DMA_IN_HARDIRQ_CONTEXT	1
 
 /* default LIC value for 9630 */
 /*

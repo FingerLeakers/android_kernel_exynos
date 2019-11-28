@@ -248,6 +248,9 @@ static ssize_t otg_speed_show(struct device *dev,
 	char *speed;
 
 	switch (n->speed) {
+	case USB_SPEED_SUPER_PLUS:
+		speed = "SUPER PLUS";
+		break;
 	case USB_SPEED_SUPER:
 		speed = "SUPER";
 		break;
@@ -363,9 +366,9 @@ static ssize_t usb_hw_param_show(struct device *dev,
 		*p_param += manager_hw_param_update
 					(USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_VERSION);
-#endif
 	if (p_param)
 		*p_param = show_ccic_version();
+#endif
 	for (index = 0; index < USB_CCIC_HW_PARAM_MAX - 1; index++) {
 		p_param = get_hw_param(n, index);
 		if (p_param)
@@ -471,9 +474,9 @@ static ssize_t hw_param_show(struct device *dev,
 		*p_param += manager_hw_param_update
 					(USB_CCIC_WATER_LPM_VBUS_TIME_DURATION);
 	p_param = get_hw_param(n, USB_CCIC_VERSION);
-#endif
 	if (p_param)
 		*p_param = show_ccic_version();
+#endif
 	for (index = 0; index < USB_CCIC_HW_PARAM_MAX - 1; index++) {
 		p_param = get_hw_param(n, index);
 		if (p_param)
@@ -578,13 +581,13 @@ int set_usb_whitelist_array(const char *buf, int *whitelist_array)
 	while ((ptr = strsep(&source, ":")) != NULL) {
 		pr_info("%s token = %c%c%c!\n", __func__,
 			ptr[0], ptr[1], ptr[2]);
-		for (i = 1; i <= USB_CLASS_VENDOR_SPEC; i++) {
-			if (!strncmp(ptr, interface_class_name[i-1], 3))
+		for (i = U_CLASS_PER_INTERFACE; i <= U_CLASS_VENDOR_SPEC; i++) {
+			if (!strncmp(ptr, interface_class_name[i], 3))
 				whitelist_array[i] = 1;
 		}
 	}
 
-	for (i = 1; i <= U_CLASS_VENDOR_SPEC; i++) {
+	for (i = U_CLASS_PER_INTERFACE; i <= U_CLASS_VENDOR_SPEC; i++) {
 		if (whitelist_array[i])
 			valid_class_count++;
 	}
@@ -673,6 +676,38 @@ error1:
 error:
 	return ret;
 }
+
+int usb_notify_dev_uevent(struct usb_notify_dev *udev, char *envp_ext[])
+{
+	int ret = 0;
+
+	if (!udev || !udev->dev) {
+		pr_err("%s udev or udev->dev NULL\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	if (strncmp("TYPE", envp_ext[0], 4)) {
+		pr_err("%s error.first array must be filled TYPE\n",
+				__func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	if (strncmp("STATE", envp_ext[1], 5)) {
+		pr_err("%s error.second array must be filled STATE\n",
+				__func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	kobject_uevent_env(&udev->dev->kobj, KOBJ_CHANGE, envp_ext);
+	pr_info("%s\n", __func__);
+
+err:
+	return ret;
+}
+EXPORT_SYMBOL_GPL(usb_notify_dev_uevent);
 
 static DEVICE_ATTR(disable, 0664, disable_show, disable_store);
 static DEVICE_ATTR(support, 0444, support_show, NULL);

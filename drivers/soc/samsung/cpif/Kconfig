@@ -10,10 +10,9 @@ config SEC_MODEM_S5000AP
 	bool "Exynos ModAP S5xxxAP"
 	select LINK_DEVICE_SHMEM
 	select CP_SECURE_BOOT
-	select CP_BTL
-	select CP_ZEROCOPY
-	select MODEM_IF_NET_GRO
-	select CP_LINEAR_WA
+	select MCU_IPC
+	select SHM_IPC
+	select CP_PMUCAL
 	default n
 
 config SEC_MODEM_S5100
@@ -22,6 +21,8 @@ config SEC_MODEM_S5100
 	select LINK_DEVICE_PCIE
 	select MODEM_IF_QOS
 	select CP_PKTPROC_V2
+	select SUSPEND_DURING_VOICE_CALL
+	select MODEM_IF_NET_GRO
 	default n
 
 menu "Configuration Description"
@@ -110,11 +111,16 @@ config MODEM_IF_QOS
 	bool "Implement QoS for sbd"
 	default n
 	---help---
-	  This enables Qos for SBD model
+	  This enables QoS for SBD model
+
+config MODEM_IF_LEGACY_QOS
+	bool "Implement QoS for legacy buffer"
+	default n
+	---help---
+	  This enables QoS for legacy buffer model
 
 config MODEM_IF_NET_GRO
 	bool "enable GRO feature"
-	depends on LINK_DEVICE_SHMEM
 	default n
 	---help---
 	 This enables GRO(Generic Receive Offload) feature
@@ -128,6 +134,30 @@ config SUSPEND_DURING_VOICE_CALL
 config CACHED_LEGACY_RAW_RX_BUFFER
 	bool "Set cached RX RAW buffer for high data performance"
 	default n
+
+config CPIF_TP_MONITOR
+	bool "Support CP network throughput monitor"
+	default n
+	---help---
+	  This enables CP network throughput monitor
+
+config LINK_DEVICE_PCIE_S2MPU
+	bool "Use PCIE S2MPU"
+	default n
+	---help---
+	  Gate some addresses AP and CP shared
+
+config CPIF_CHECK_SJTAG_STATUS
+	bool "Check secure JTAG status to disable CP memory dump"
+	default n
+	---help---
+	  Check secure JTAG status to disable CP memory dump
+
+config CP_LCD_NOTIFIER
+	bool "Enable LCD notifier for CP"
+	default n
+	---help---
+	  This enables LCD notifier for CP
 
 endmenu
 endif

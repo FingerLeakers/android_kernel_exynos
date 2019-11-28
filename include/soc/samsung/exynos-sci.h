@@ -88,8 +88,10 @@ enum exynos_sci_ipc_dir {
 
 enum exynos_sci_llc_region_index {
 	LLC_REGION_DISABLE = 0,
+	LLC_REGION_CALL,
 	LLC_REGION_LIT_MID_ALL,
 	LLC_REGION_MFC_DISPLAY,
+	LLC_REGION_NPU,
 	LLC_REGION_MAX,
 };
 

@@ -195,8 +195,8 @@ exit:
 		fsb[TEMPERATURE_HUMIDITY_SENSOR].x,
 		fsb[TEMPERATURE_HUMIDITY_SENSOR].y,
 		fsb[TEMPERATURE_HUMIDITY_SENSOR].z,
-		fsb[LIGHT_SENSOR].r, fsb[LIGHT_SENSOR].g, fsb[LIGHT_SENSOR].b,
-		fsb[LIGHT_SENSOR].w, fsb[LIGHT_SENSOR].a_time, fsb[LIGHT_SENSOR].a_gain
+		fsb[LIGHT_SENSOR].light_t.r, fsb[LIGHT_SENSOR].light_t.g, fsb[LIGHT_SENSOR].light_t.b,
+		fsb[LIGHT_SENSOR].light_t.w, fsb[LIGHT_SENSOR].light_t.a_time, fsb[LIGHT_SENSOR].light_t.a_gain
 		);
 
 	return sprintf(buf, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d\n",
@@ -207,8 +207,8 @@ exit:
 		fsb[GEOMAGNETIC_SENSOR].cal_x, fsb[GEOMAGNETIC_SENSOR].cal_y,
 		fsb[GEOMAGNETIC_SENSOR].cal_z, fsb[PRESSURE_SENSOR].pressure,
 		fsb[PRESSURE_SENSOR].temperature, fsb[PROXIMITY_SENSOR].prox_adc,
-		fsb[LIGHT_SENSOR].r, fsb[LIGHT_SENSOR].g, fsb[LIGHT_SENSOR].b,
-		fsb[LIGHT_SENSOR].w, fsb[LIGHT_SENSOR].a_time, fsb[LIGHT_SENSOR].a_gain,
+		fsb[LIGHT_SENSOR].light_t.r, fsb[LIGHT_SENSOR].light_t.g, fsb[LIGHT_SENSOR].light_t.b,
+		fsb[LIGHT_SENSOR].light_t.w, fsb[LIGHT_SENSOR].light_t.a_time, fsb[LIGHT_SENSOR].light_t.a_gain,
 
 		fsb[GESTURE_SENSOR].data[0], fsb[GESTURE_SENSOR].data[1],
 		fsb[GESTURE_SENSOR].data[2], fsb[GESTURE_SENSOR].data[3],

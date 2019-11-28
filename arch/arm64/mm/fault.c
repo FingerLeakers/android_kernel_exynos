@@ -701,6 +701,13 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 			nmi_exit();
 	}
 
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		secdbg_exin_set_fault(SEABORT_FAULT, addr, regs);
+		secdbg_exin_set_esr(esr);
+	}
+#endif
+
 	clear_siginfo(&info);
 	info.si_signo = inf->sig;
 	info.si_errno = 0;

@@ -61,6 +61,8 @@ static struct device_attribute ccic_attributes[] = {
 	CCIC_SYSFS_ATTR(cc_pin_status),
 	CCIC_SYSFS_ATTR(ram_test),
 	CCIC_SYSFS_ATTR(sbu_adc),
+	CCIC_SYSFS_ATTR(vsafe0v_status),
+	CCIC_SYSFS_ATTR(ovp_ic_shutdown),
 };
 
 static ssize_t ccic_sysfs_show_property(struct device *dev,
@@ -135,7 +137,10 @@ static umode_t ccic_sysfs_attr_is_visible(struct kobject *kobj,
 					pccic_sysfs->property_is_writeable(
 					pccic_data, property) > 0)
 				mode |= 0200;
-
+			if (pccic_sysfs->property_is_writeonly &&
+			    pccic_sysfs->property_is_writeonly(pccic_data, property)
+			    > 0)
+				mode = 0200;
 			return mode;
 		}
 	}

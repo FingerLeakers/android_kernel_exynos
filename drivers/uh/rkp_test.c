@@ -21,11 +21,18 @@
 #define RKP_PA_READ	0
 #define RKP_PA_WRITE	1
 
+#define RKP_ROBUFFER_ARG_TEST 1
+
 /**********************************************************
  *			FIMC defines
  **********************************************************/
+#define CONFIG_USE_DIRECT_IS_CONTROL
 #ifdef CONFIG_USE_DIRECT_IS_CONTROL //which means FIMC
+#ifdef CONFIG_KASAN
 #define FIMC_LIB_OFFSET_VA		(VMALLOC_START + 0xF6000000 - 0x8000000)
+#else
+#define FIMC_LIB_OFFSET_VA		(VMALLOC_START + 0x1000000000UL + 0xF6000000 - 0x8000000)
+#endif
 #define FIMC_LIB_START_VA		(FIMC_LIB_OFFSET_VA + 0x04000000)
 
 #define VRA_START_VA	FIMC_LIB_START_VA
@@ -67,6 +74,7 @@ static DEFINE_RAW_SPINLOCK(par_lock);
 
 char rkp_test_buf[RKP_BUF_SIZE];
 unsigned long rkp_test_len = 0;
+unsigned long prot_user_l2 = 1;
 
 u64 *ha1;
 u64 *ha2;
@@ -177,6 +185,8 @@ static int test_case_user_pgtable_ro(void)
 	}
 
 	//L1 and L2 pgtable should be RO
+	if ((!prot_user_l2) && (0 == test[0].write))
+		return 0;
 	if ((0 == test[0].write) && (0 == test[1].write))
 		return 0; //pass
 	else
@@ -343,6 +353,8 @@ static void walk_pud(pgd_t *pgd, int level, struct test_data_struct *test)
 	}
 }
 
+#define rkp_pgd_table		(_AT(pgdval_t, 1) << 1)
+#define rkp_pgd_bad(pgd)		(!(pgd_val(pgd) & rkp_pgd_table))
 static void walk_pgd(struct mm_struct *mm, int level, struct test_data_struct *test)
 {
 	pgd_t *pgd = pgd_offset(mm, 0UL);
@@ -350,10 +362,9 @@ static void walk_pgd(struct mm_struct *mm, int level, struct test_data_struct *t
 	unsigned long prot;
 
 	for (i = 0; i < PTRS_PER_PGD; i++, pgd++) {
-		if (pgd_none(*pgd)) {
+		if (rkp_pgd_bad(*pgd)) {
 			continue;
 		} else { //table
-			BUG_ON(pgd_bad(*pgd));
 			prot = pgd_val(*pgd) & L012_TABLE_PXN;
 			count_pxn(prot, level, test);
 
@@ -387,7 +398,16 @@ static int test_case_user_pxn(void)
 	}
 
 	//all 2nd level entries should be PXN
-	return (0 == test[1].no_pxn) ? 0 : 1;
+	if (0 == test[0].no_pxn) {
+		prot_user_l2 = 0;
+		return 0;
+	}
+	else if (0 == test[1].no_pxn) {
+		prot_user_l2 = 1;
+		return 0;
+	}
+	else
+		return 1;
 }
 
 static void range_pxn_set(unsigned long va_start, unsigned long count, u64 *xn, u64 *x)
@@ -414,6 +434,8 @@ static int test_case_kernel_range_rwx(void)
 	int i;
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	u64 fixmap_va = TRAMP_VALIAS;
+#else
+	u64 fixmap_va = MEM_END;
 #endif
 	struct mem_range_struct test_ranges[] = {
 		{(u64)VMALLOC_START,		((u64)_text) - ((u64)VMALLOC_START),	"VMALLOC -  STEXT", false, true},
@@ -532,7 +554,7 @@ static int __init rkp_test_init(void)
 		return -1;
 	}
 
-	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, (u64)&ret, 1, 0, 0);
+	uh_call(UH_APP_RKP, RKP_RKP_ROBUFFER_ALLOC, (u64)&ret | (u64)RKP_ROBUFFER_ARG_TEST, 0, 0, 0);
 	ha1 = (u64 *)(__va(ret));
 	ha2 = (u64 *)(__va(ret) + 8);
 

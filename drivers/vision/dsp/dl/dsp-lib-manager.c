@@ -82,7 +82,7 @@ void dsp_lib_print(struct dsp_lib *lib)
 		DL_INFO("\n");
 		DL_INFO("Program memory\n");
 		dsp_tlsf_mem_print(lib->pm);
-		DL_INFO("\n");
+		DL_DEBUG("\n");
 		dsp_pm_print(lib);
 	}
 
@@ -455,40 +455,52 @@ int dsp_lib_manager_load_libs(struct dsp_lib **libs, size_t libs_size)
 		if (!libs[idx]->loaded) {
 			struct dsp_dl_out *dl_out = libs[idx]->dl_out;
 
-			DL_DEBUG("DL out data addr : %p\n", dl_out->data);
+			if (dl_out) {
+				DL_DEBUG("DL out data addr : %p\n",
+					dl_out->data);
 
-			DL_DEBUG("Load Kernel table\n");
-			ret = __dsp_lib_manager_load_kernel_table(libs[idx],
-					dl_out->kernel_table);
-			if (ret == -1) {
-				DL_ERROR("[%s] CHK_ERR\n", __func__);
-				return -1;
+				DL_DEBUG("Load Kernel table\n");
+				ret = __dsp_lib_manager_load_kernel_table(
+						libs[idx],
+						dl_out->kernel_table);
+				if (ret == -1) {
+					DL_ERROR("[%s] CHK_ERR\n", __func__);
+					return -1;
+				}
 			}
 
-			DL_DEBUG("Load GPT\n");
-			__dsp_lib_manager_load_gpt(libs[idx]);
-			DL_DEBUG("Load PM\n");
-			__dsp_lib_manager_load_pm(libs[idx]);
-			DL_DEBUG("Load DM\n");
-			__dsp_lib_manager_load_mem(libs[idx],
-				&libs[idx]->elf->DMb,
-				dl_out->DM_sh, 0);
-			DL_DEBUG("Load DM_local\n");
-			__dsp_lib_manager_load_mem(libs[idx],
-				&libs[idx]->elf->DMb_local,
-				dl_out->DM_local, 0);
-			DL_DEBUG("Load TCM\n");
-			__dsp_lib_manager_load_mem(libs[idx],
-				&libs[idx]->elf->TCMb,
-				dl_out->TCM_sh, 0);
-			DL_DEBUG("Load TCM_local\n");
-			__dsp_lib_manager_load_mem(libs[idx],
-				&libs[idx]->elf->TCMb_local,
-				dl_out->TCM_local, 0);
-			DL_DEBUG("Load Shared mem\n");
-			__dsp_lib_manager_load_mem(libs[idx],
-				&libs[idx]->elf->SFRw,
-				dl_out->sh_mem, 1);
+			if (libs[idx]->pm) {
+				DL_DEBUG("Load PM\n");
+				__dsp_lib_manager_load_pm(libs[idx]);
+			}
+
+			if (libs[idx]->gpt) {
+				DL_DEBUG("Load GPT\n");
+				__dsp_lib_manager_load_gpt(libs[idx]);
+			}
+
+			if (libs[idx]->dl_out_mem) {
+				DL_DEBUG("Load DM\n");
+				__dsp_lib_manager_load_mem(libs[idx],
+					&libs[idx]->elf->DMb,
+					dl_out->DM_sh, 0);
+				DL_DEBUG("Load DM_local\n");
+				__dsp_lib_manager_load_mem(libs[idx],
+					&libs[idx]->elf->DMb_local,
+					dl_out->DM_local, 0);
+				DL_DEBUG("Load TCM\n");
+				__dsp_lib_manager_load_mem(libs[idx],
+					&libs[idx]->elf->TCMb,
+					dl_out->TCM_sh, 0);
+				DL_DEBUG("Load TCM_local\n");
+				__dsp_lib_manager_load_mem(libs[idx],
+					&libs[idx]->elf->TCMb_local,
+					dl_out->TCM_local, 0);
+				DL_DEBUG("Load Shared mem\n");
+				__dsp_lib_manager_load_mem(libs[idx],
+					&libs[idx]->elf->SFRw,
+					dl_out->sh_mem, 1);
+			}
 			libs[idx]->loaded = 1;
 		}
 	}

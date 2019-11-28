@@ -11,7 +11,6 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/completion.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
@@ -24,10 +23,11 @@
 
 #include "iw_messages.h"
 #include "misc.h"
-#include "sysdep.h"
 #include "types.h"
-#include "tz_iwsock.h"
-#include "tzlog.h"
+#include "core/iwsock.h"
+#include "core/log.h"
+#include "core/sysdep.h"
+#include "core/wait.h"
 
 enum {
 	TZDEV_TEEC_OPERATION_NOT_STARTED,
@@ -66,7 +66,8 @@ static uint32_t tzdev_teec_session_init(TEEC_Context *context, TEEC_Session *ses
 	}
 
 	mutex_init(&ses->mutex);
-	init_completion(&ses->cancel);
+	init_waitqueue_head(&ses->wq);
+	ses->cancel = 0;
 	ses->context = context;
 	ses->socket = NULL;
 	ses->serial = 0;
@@ -112,7 +113,7 @@ static uint32_t tzdev_teec_operation_begin(TEEC_Session *session, TEEC_Operation
 		}
 	}
 
-	reinit_completion(&ses->cancel);
+	ses->cancel = 0;
 	operation->imp = session;
 
 	set_mb(operation->started, TZDEV_TEEC_OPERATION_COMMAND_BEGIN);
@@ -139,7 +140,7 @@ static void tzdev_teec_operation_end(TEEC_Operation *operation)
 			&& old_started != TZDEV_TEEC_OPERATION_CANCEL_END);
 
 	if (unlikely(old_started == TZDEV_TEEC_OPERATION_CANCEL_BEGIN))
-		wait_for_completion(&ses->cancel);
+		wait_event_uninterruptible_freezable_nested(ses->wq, ses->cancel == 1);
 }
 
 static uint32_t tzdev_teec_operation_add_to_cancel_list(TEEC_Operation *operation)
@@ -202,7 +203,8 @@ static void tzdev_teec_operation_cancel_end(TEEC_Operation *operation)
 	BUG_ON(old_started != TZDEV_TEEC_OPERATION_COMMAND_END
 			&& old_started != TZDEV_TEEC_OPERATION_CANCEL_BEGIN);
 
-	complete(&ses->cancel);
+	ses->cancel = 1;
+	wake_up(&ses->wq);
 }
 
 static uint32_t tzdev_teec_operation_init(TEEC_Session *session,

@@ -152,11 +152,11 @@ int fiemap_check_flags(struct fiemap_extent_info *fieinfo, u32 fs_flags)
 }
 EXPORT_SYMBOL(fiemap_check_flags);
 
-static int fiemap_check_ranges(struct super_block *sb,
+int fiemap_check_ranges(struct super_block *sb,
 			       u64 start, u64 len, u64 *new_len)
 {
 	u64 maxbytes = (u64) sb->s_maxbytes;
-
+printk("%s: parameter1: maxbytes(%lu), start(%lu), len(%lu), new_len(%lu)\n", __func__, maxbytes, start, len, *new_len);
 	*new_len = len;
 
 	if (len == 0)
@@ -170,9 +170,10 @@ static int fiemap_check_ranges(struct super_block *sb,
 	 */
 	if (len > maxbytes || (maxbytes - len) < start)
 		*new_len = maxbytes - start;
-
+printk("%s: parameter2: maxbytes(%lu), start(%lu), len(%lu), new_len(%lu)\n", __func__, maxbytes, start, len, *new_len);
 	return 0;
 }
+EXPORT_SYMBOL(fiemap_check_ranges);
 
 static int ioctl_fiemap(struct file *filp, unsigned long arg)
 {

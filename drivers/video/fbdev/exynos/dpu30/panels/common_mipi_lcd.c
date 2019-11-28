@@ -146,6 +146,44 @@ static int panel_drv_get_mres(struct exynos_panel_device *panel)
 	return ret;
 }
 
+static int common_panel_vrr_changed(struct exynos_panel_device *panel, void *arg)
+{
+	struct exynos_panel_info *info;
+	struct vrr_config_data *vrr_info = arg;
+
+	if (!panel || !arg)
+		return -EINVAL;
+
+	info = &panel->lcd_info;
+	vrr_info = arg;
+
+	info->fps = vrr_info->fps;
+	info->vrr_mode = vrr_info->mode;
+
+	pr_info("%s vrr(fps:%d mode:%d) changed\n",
+			__func__, info->fps, info->vrr_mode);
+
+	return 0;
+}
+
+static int panel_drv_set_vrr_cb(struct exynos_panel_device *panel)
+{
+	int ret;
+	struct disp_cb_info vrr_cb_info = {
+		.cb = (disp_cb *)common_panel_vrr_changed,
+		.data = panel,
+	};
+
+	v4l2_set_subdev_hostdata(panel->panel_drv_sd, &vrr_cb_info);
+	ret = panel_drv_ioctl(panel, PANEL_IOC_REG_VRR_CB, NULL);
+	if (ret < 0) {
+		pr_err("ERR:%s:failed to set panel error callback\n", __func__);
+		return ret;
+	}
+
+	return 0;
+}
+
 int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
 {
 	int ret, retry = 3;
@@ -203,14 +241,11 @@ int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option
 			}
 		}
 
-		if (dsim_write_data(dsim, type, d0, d1, false)) {
+		if (dsim_write_data(dsim, type, d0, d1, block)) {
 			pr_err("%s failed to write cmd %02X size %d(retry %d)\n",
 					__func__, cmd[0], size, retry);
 			continue;
 		}
-
-		if (block)
-			dsim_wait_for_cmd_done(dsim);
 
 		break;
 	}
@@ -230,6 +265,22 @@ error:
 	mutex_unlock(&cmd_lock);
 	return ret;
 }
+
+
+int mipi_sr_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
+{
+	int ret = 0;
+	struct dsim_device *dsim = get_dsim_drvdata(id);
+	
+	mutex_lock(&cmd_lock);
+
+	ret = dsim_sr_write_data(dsim, cmd, size);
+
+	mutex_unlock(&cmd_lock);
+	return ret;
+}
+
+
 
 int mipi_read(u32 id, u8 addr, u8 offset, u8 *buf, int size, u32 option)
 {
@@ -305,6 +356,21 @@ static struct exynos_panel_info *get_lcd_info(u32 id)
 	return &get_panel_drvdata(id)->lcd_info;
 }
 
+static int wait_for_vsync(u32 id, u32 timeout)
+{
+	struct decon_device *decon = get_decon_drvdata(0);
+	int ret;
+
+	if (!decon)
+		return -EINVAL;
+
+	decon_hiber_block_exit(decon);
+	ret = decon_wait_for_vsync(decon, timeout);
+	decon_hiber_unblock(decon);
+
+	return ret;
+}
+
 static int panel_drv_put_ops(struct exynos_panel_device *panel)
 {
 	int ret = 0;
@@ -312,9 +378,11 @@ static int panel_drv_put_ops(struct exynos_panel_device *panel)
 
 	mipi_ops.read = mipi_read;
 	mipi_ops.write = mipi_write;
+	mipi_ops.sr_write = mipi_sr_write;
 	mipi_ops.get_state = get_dsim_state;
 	mipi_ops.parse_dt = parse_lcd_info;
 	mipi_ops.get_lcd_info = get_lcd_info;
+	mipi_ops.wait_for_vsync = wait_for_vsync;
 
 	v4l2_set_subdev_hostdata(panel->panel_drv_sd, &mipi_ops);
 
@@ -352,6 +420,12 @@ static int panel_drv_init(struct exynos_panel_device *panel)
 	ret = panel_drv_get_mres(panel);
 	if (ret) {
 		pr_err("ERR:%s:failed to get panel mres\n", __func__);
+		goto do_exit;
+	}
+
+	ret = panel_drv_set_vrr_cb(panel);
+	if (ret) {
+		pr_err("ERR:%s:failed to set vrr callback\n", __func__);
 		goto do_exit;
 	}
 
@@ -484,7 +558,7 @@ static int common_panel_setarea(struct exynos_panel_device *panel, u32 l, u32 r,
 
 	retry = 2;
 	while (dsim_write_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
-				(unsigned long)page, ARRAY_SIZE(page), false) != 0) {
+				(unsigned long)page, ARRAY_SIZE(page), true) != 0) {
 		pr_err("failed to write PAGE_ADDRESS\n");
 		if (--retry <= 0) {
 			pr_err("PAGE_ADDRESS is failed: exceed retry count\n");
@@ -492,8 +566,6 @@ static int common_panel_setarea(struct exynos_panel_device *panel, u32 l, u32 r,
 			goto error;
 		}
 	}
-
-	dsim_wait_for_cmd_done(dsim);
 
 	pr_debug("RECT [l:%d r:%d t:%d b:%d w:%d h:%d]\n",
 			l, r, t, b, r - l + 1, b - t + 1);
@@ -629,7 +701,7 @@ static int common_panel_mres(struct exynos_panel_device *panel, u32 mode_idx)
 				__func__, mode->width, mode->height);
 		return -EINVAL;
 	}
-	
+
 	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_MRES, &i);
 	if (ret) {
 		pr_err("ERR:%s:failed to set multi-resolution\n", __func__);
@@ -653,20 +725,30 @@ mres_exit:
 	return ret;
 }
 
-
-static int common_panel_fps(struct exynos_panel_device *panel, u32 fps)
+static int common_panel_fps(struct exynos_panel_device *panel, struct vrr_config_data *vrr_info)
 {
-	int ret = 0;
+	int ret, old_fps;
 	struct exynos_panel_info *info = &panel->lcd_info;
 
-	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_FPS, &fps);
+	old_fps = info->fps;
+	/*
+	 * lcd_info's fps is used in bts calculation.
+	 * To prevent underrun, update fps first
+	 * if target fps is bigger than previous fps.
+	 */
+	if (info->fps < vrr_info->fps)
+		info->fps = vrr_info->fps;
+	panel_info("[VRR:INFO]:%s, fps:%d, mode:%d\n",
+			__func__, vrr_info->fps, vrr_info->mode);
+
+	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_VRR_INFO, vrr_info);
 	if (ret) {
+		info->fps = old_fps;
 		pr_err("ERR:%s:failed to set fps\n", __func__);
+		return ret;
 	}
 
-	info->fps = fps;
-
-	return ret;
+	return 0;
 }
 
 struct exynos_panel_ops common_panel_ops = {

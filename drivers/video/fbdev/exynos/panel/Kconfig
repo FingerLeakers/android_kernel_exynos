@@ -74,6 +74,11 @@ config SUPPORT_AOD_BL
 	tristate "Support AOD(Active On Display) BL(BackLight) Driver"
 	default n
 
+config SUPPORT_DISPLAY_PROFILER
+    	depends on EXYNOS_DECON_LCD
+    	tristate "Support Display Profiler"
+    	default n
+
 config EXYNOS_DECON_LCD_S6E3HF3
 	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
 	tristate "S6E3HF3 AMOLED LCD DRIVER"
@@ -106,11 +111,6 @@ config EXYNOS_DECON_LCD_S6E3XA0
 	depends on EXYNOS_DECON_LCD && EXYNOS_MIPI_DSIM
 	tristate "S6E3XA0 AMOLED LCD DRIVER"
 
-config ACTIVE_CLOCK
-	depends on EXYNOS_DECON_LCD && SUPPORT_DOZE
-	tristate "Support DDI Active Clock Feature"
-	default n
-
 config SUPPORT_DDI_FLASH
 	depends on EXYNOS_DECON_LCD
 	tristate "Support display ddi flash"
@@ -119,6 +119,11 @@ config SUPPORT_DDI_FLASH
 config SUPPORT_POC_FLASH
 	depends on EXYNOS_DECON_LCD && SUPPORT_DDI_FLASH
 	tristate "Support display poc flash"
+	default n
+
+
+config SUPPORT_MAFPC
+	tristate "SUPPORT_S6E3HAB_MAFPC"
 	default n
 
 config SUPPORT_DIM_FLASH
@@ -169,6 +174,11 @@ config SUPPORT_POC_SPI
 config DYNAMIC_FREQ
 	depends on EXYNOS_DECON_LCD
 	tristate "Support Dynamic Freq"
+	default n
+
+config PANEL_VRR_BRIDGE
+	depends on EXYNOS_DECON_LCD
+	tristate "Support panel vrr bridge"
 	default n
 
 config EXYNOS_LCD_ENG

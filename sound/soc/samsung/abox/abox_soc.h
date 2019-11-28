@@ -26,6 +26,8 @@
 
 #if (ABOX_SOC_VERSION(3, 0, 0) <= CONFIG_SND_SOC_SAMSUNG_ABOX_VERSION)
 #include "abox_soc_3.h"
+#elif (ABOX_SOC_VERSION(2, 1, 0) <= CONFIG_SND_SOC_SAMSUNG_ABOX_VERSION)
+#include "abox_soc_21.h"
 #else
 #include "abox_soc_2.h"
 #endif

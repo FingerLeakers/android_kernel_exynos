@@ -309,6 +309,9 @@ enum sysreg_vra_reg_field {
 /* DDK HEAP: 60MB */
 #define IS_HEAP_SIZE		(0x03C00000)
 
+/* SETFILE: 6.0MB */
+#define IS_SETFILE_SIZE		(0x00600000)
+
 #define SYSREG_CSIS_BASE_ADDR	(0x15020000)
 #define SYSREG_IPP_BASE_ADDR	(0x15220000)
 #define SYSREG_ITP_BASE_ADDR	(0x15420000)
@@ -360,13 +363,14 @@ enum base_reg_index {
 /* Specific interrupt map belonged to each IP */
 
 /* MC-Scaler */
-#define USE_DMA_BUFFER_INDEX	(0) /* 0 ~ 7 */
-#define MCSC_WIDTH_ALIGN	(4)
-#define MCSC_HEIGHT_ALIGN	(2)
-#define MCSC_PRECISION		(20)
-#define MCSC_POLY_RATIO_UP	(14)
-#define MCSC_POLY_RATIO_DOWN	(16)
-#define MCSC_POST_RATIO_DOWN	(16)
+#define USE_DMA_BUFFER_INDEX		(0) /* 0 ~ 7 */
+#define MCSC_WIDTH_ALIGN		(4)
+#define MCSC_HEIGHT_ALIGN		(2)
+#define MCSC_PRECISION			(20)
+#define MCSC_POLY_RATIO_UP		(14)
+#define MCSC_POLY_RATIO_DOWN		(16)
+#define MCSC_POLY_MAX_RATIO_DOWN	(256)
+#define MCSC_POST_RATIO_DOWN		(16)
 /* #define MCSC_POST_WA */
 /* #define MCSC_POST_WA_SHIFT	(8)*/	/* 256 = 2^8 */
 #define MCSC_USE_DEJAG_TUNING_PARAM	(true)

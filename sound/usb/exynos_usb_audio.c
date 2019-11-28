@@ -47,7 +47,6 @@ static const unsigned long USB_LOCK_ID_IN = 0x49425355; // ASCII Value : USBI
 void exynos_usb_audio_set_device(struct usb_device *udev)
 {
 	usb_audio->udev = udev;
-	usb_audio->is_audio = 1;
 }
 
 int exynos_usb_audio_map_buf(struct usb_device *udev)
@@ -663,8 +662,10 @@ int exynos_usb_audio_pcm(int is_open, int direction)
 
 	if (is_open)
 		usb_audio->pcm_open_done = 1;
-	dev_info(dev, "PCM  %s\n", is_open? "OPEN" : "CLOSE");
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(dev, "PCM %s dir %s\n", is_open? "OPEN" : "CLOSE",
+				direction ? "IN" : "OUT");
+#endif
 	msg.ipcid = IPC_ERAP;
 	erap_msg->msgtype = REALTIME_USB;
 	erap_usb->type = IPC_USB_PCM_OPEN;

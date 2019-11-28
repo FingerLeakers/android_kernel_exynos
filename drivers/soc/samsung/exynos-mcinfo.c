@@ -27,11 +27,6 @@ struct mcinfo_data {
 	u32		basecnt;
 	u32		irqcnt;
 	u32		bit_array[2];
-
-	struct delayed_work mc_trip_work;
-	u32		trip_work_delay;
-	u32		*trip_irq;
-	bool	*trip_irq_enabled;
 };
 
 #if defined(CONFIG_MCINFO_SYSFS)
@@ -89,66 +84,6 @@ static irqreturn_t exynos_mc_irq_handler(int irq, void *p)
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t exynos_mc_trip_handler(int irq, void *p)
-{
-	struct mcinfo_data *data = p;
-	int i;
-
-	if (!data->base)
-		return IRQ_HANDLED;
-
-	// disable interrupt
-	disable_irq_nosync(irq);
-	for (i = 0; i < data->irqcnt / 2; i++)
-		if (data->trip_irq[i] == irq) data->trip_irq_enabled[i] = false;
-	pr_info("[MCINFO] DMC TEMP HOT interrupt raised by irq %d\n", irq);
-
-	// raise polling work
-	if (schedule_delayed_work(&data->mc_trip_work, 0))
-		pr_info("[MCINFO] Now running mc_trip_work from irq %d\n", irq);
-
-	return IRQ_HANDLED;
-}
-
-static void exynos_mc_trip_work(struct work_struct *work)
-{
-	struct delayed_work *dwork = to_delayed_work(work);
-	struct mcinfo_data *data = container_of(dwork,
-			struct mcinfo_data, mc_trip_work);
-	unsigned int tmp, value = 0;
-	int i;
-
-	// check mc register vaule
-	for (i = 0; i < data->basecnt; i++) {
-		tmp = __raw_readl(data->base[i])
-			<< (31 - data->bit_array[0] - data->bit_array[1])
-			>> (31 - data->bit_array[1]);
-
-		// if interrupt of this chanel is enabled, and less or equal than 0xb interrupt enable
-		if (!data->trip_irq_enabled[i] && tmp <= 0xb) {
-			data->trip_irq_enabled[i] = true;
-			enable_irq(data->trip_irq[i]);
-		}
-
-		if (value < tmp)
-			value = tmp;
-	}
-
-	if (value <= 0xb) {
-		pr_info("[MCINFO] Stop mc_trip_work\n");
-	}
-
-	// if one or more values are higher than 14(0xe), trigger kernel panic
-	else if (value >= 0xe) {
-		panic("[SW Trip] Memory temperature is too high\n");
-	}
-
-	// sleep few ms
-	else {
-		schedule_delayed_work(dwork, msecs_to_jiffies(data->trip_work_delay));
-	}
-}
-
 struct mcinfo_data *ext_data;
 unsigned int get_mcinfo_base_count(void)
 {
@@ -198,12 +133,6 @@ static int exynos_mcinfo_parse_dt(struct device_node *np, struct mcinfo_data *da
 				(size_t)(ARRAY_SIZE(data->bit_array)));
 	if (ret) {
 		dev_err(data->dev, "Failed to get bit field information!\n");
-		return ret;
-	}
-
-	ret = of_property_read_u32(np, "trip_work_delay", (u32 *)&data->trip_work_delay);
-	if (ret) {
-		dev_err(data->dev, "Failed to get trip work delay information!\n");
 		return ret;
 	}
 
@@ -259,7 +188,7 @@ static int exynos_mcinfo_probe(struct platform_device *pdev)
 	}
 
 	/* Register IRQ for SW trip */
-	for (i = 0; i < data->irqcnt / 2; i++) {
+	for (i = 0; i < data->irqcnt; i++) {
 		irqnum = irq_of_parse_and_map(data->dev->of_node, i);
 		if (!irqnum) {
 			dev_err(data->dev, "Failed to get IRQ map\n");
@@ -271,26 +200,6 @@ static int exynos_mcinfo_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
-
-	/* Register IRQ for Thermal Throttling and panic */
-	data->trip_irq = kzalloc(sizeof(u32) * data->irqcnt / 2, GFP_KERNEL);
-	data->trip_irq_enabled = kzalloc(sizeof(bool) * data->irqcnt / 2, GFP_KERNEL);
-	for (i = data->irqcnt / 2; i < data->irqcnt; i++) {
-		irqnum = irq_of_parse_and_map(data->dev->of_node, i);
-		if (!irqnum) {
-			dev_err(data->dev, "Failed to get IRQ map\n");
-			return -EINVAL;
-		}
-		ret = devm_request_irq(data->dev, irqnum,
-			exynos_mc_trip_handler,
-			IRQF_SHARED, dev_name(data->dev), data);
-		if (ret)
-			return ret;
-		data->trip_irq[i - data->irqcnt / 2] = irqnum;
-		data->trip_irq_enabled[i - data->irqcnt / 2] = true;
-	}
-
-	INIT_DELAYED_WORK(&data->mc_trip_work, exynos_mc_trip_work);
 
 #if defined(CONFIG_MCINFO_SYSFS)
 	ret = sysfs_create_group(&data->dev->kobj,

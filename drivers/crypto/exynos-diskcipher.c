@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Exynos FMP driver
+ * Exynos FMP crypt interface
  *
  * Copyright (C) 2018 Samsung Electronics Co., Ltd.
  *
@@ -14,10 +15,87 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/slab.h>
+#include <linux/bio.h>
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
 #include <crypto/fmp.h>
 #include <crypto/diskcipher.h>
+
+int exynos_fmp_crypt_clear(struct bio *bio, void *table_addr)
+{
+	struct crypto_diskcipher *dtfm = crypto_diskcipher_get(bio);
+	struct fmp_crypto_info *ci;
+	struct fmp_request req;
+	int ret = 0;
+
+	if (unlikely(IS_ERR(dtfm))) {
+		pr_warn("%s: fails to get crypt\n", __func__);
+		return -EINVAL;
+	} else if (dtfm) {
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+	/* check fips flag. use fmp without diskcipher */
+	if (!dtfm->algo) {
+		req.table = table_addr;
+		ret = exynos_fmp_clear((void *)dtfm, &req);
+		if (ret) {
+			pr_warn("%s: fails to clear fips\n",
+			__func__);
+			return ret;
+		}
+		return 0;
+	}
+#endif
+
+		ci = crypto_tfm_ctx(crypto_diskcipher_tfm(dtfm));
+		if (ci)
+			if (ci->enc_mode == EXYNOS_FMP_FILE_ENC) {
+				req.table = table_addr;
+				ret = crypto_diskcipher_clear_crypt(dtfm, &req);
+			}
+	}
+	if (ret)
+		pr_err("%s: fail to config desc (bio:%p, tfm:%p, ci:%p ret:%d)\n",
+				__func__, bio, dtfm, ci, ret);
+	return ret;
+}
+
+int exynos_fmp_crypt_cfg(struct bio *bio, void *table_addr,
+			u32 page_idx, u32 sector_unit)
+{
+	struct crypto_diskcipher *dtfm = crypto_diskcipher_get(bio);
+	u64 iv;
+	struct fmp_request req;
+	int ret = 0;
+
+	if (unlikely(IS_ERR(dtfm))) {
+		pr_warn("%s: fails to get crypt\n", __func__);
+		return -EINVAL;
+	} else if (dtfm) {
+		req.table = table_addr;
+		req.cmdq_enabled = 0;
+		req.iv = &iv;
+		req.ivsize = sizeof(iv);
+		iv = (dtfm->ivmode == IV_MODE_DUN) ? (bio_dun(bio) + page_idx) :
+			(bio->bi_iter.bi_sector + (sector_t)sector_unit);
+
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+		/* check fips flag. use fmp without diskcipher */
+		if (!dtfm->algo) {
+			if (exynos_fmp_crypt((void *)dtfm, &req))
+				pr_warn("%s: fails to test fips\n", __func__);
+			return 0;
+		}
+#endif
+		ret = crypto_diskcipher_set_crypt(dtfm, &req);
+		if (ret)
+			pr_err("%s: fail to config desc (bio:%p, tfm:%p, ret:%d)\n",
+					__func__, bio, dtfm, ret);
+		return ret;
+	}
+
+	exynos_fmp_bypass(table_addr, 0);
+	return 0;
+}
 
 static int fmp_crypt(struct crypto_diskcipher *tfm, void *priv)
 {
@@ -33,8 +111,8 @@ static int fmp_clear(struct crypto_diskcipher *tfm, void *priv)
 	return exynos_fmp_clear(ci, priv);
 }
 
-static int fmp_setkey(struct crypto_diskcipher *tfm, const char *in_key, u32 keylen,
-		      bool persistent)
+static int fmp_setkey(struct crypto_diskcipher *tfm, const char *in_key,
+			u32 keylen, bool persistent)
 {
 	struct fmp_crypto_info *ci = crypto_tfm_ctx(crypto_diskcipher_tfm(tfm));
 
@@ -159,7 +237,7 @@ static int exynos_fmp_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id exynos_fmp_match[] = {
-	{.compatible = "samsung,exynos-fmp"},
+	{ .compatible = "samsung,exynos-fmp" },
 	{},
 };
 

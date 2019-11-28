@@ -550,6 +550,10 @@ int is_sensor_parse_dt(struct platform_device *pdev)
 
 	info("use_module_sel = %d\n", pdata->use_module_sel);
 
+	ret = of_property_read_u32(dnode, "i2c_dummy_enable", &pdata->i2c_dummy_enable);
+	if (ret)
+		probe_info("i2c_dummy_enable is false(%d)", ret);
+
 	/* used to Runtime module selection */
 	if (pdata->use_module_sel) {
 		int i;
@@ -721,7 +725,7 @@ static int parse_vc_extra_data(struct exynos_platform_is_module *pdata, struct d
 static int parse_modes_data(struct exynos_platform_is_module *pdata, struct device_node *dnode)
 {
 	int ret = 0;
-	struct device_node *next;
+	struct device_node *next, *opt_np;
 	int idx_mode;
 	int idx_vc;
 	int idx_dt;
@@ -762,6 +766,30 @@ static int parse_modes_data(struct exynos_platform_is_module *pdata, struct devi
 		of_property_read_u32_index(next, "common", idx_dt++, &cfg->lrte);
 		of_property_read_u32_index(next, "common", idx_dt++, &cfg->pd_mode);
 		of_property_read_u32_index(next, "common", idx_dt++, (u32 *)&cfg->ex_mode);
+
+		opt_np = of_get_child_by_name(next, "option");
+		if (opt_np) {
+			if (of_find_property(opt_np, "votf", NULL))
+				of_property_read_u32(opt_np, "votf", &cfg->votf);
+			else
+				cfg->votf = 0;
+
+			if (of_find_property(opt_np, "scm", NULL))
+				of_property_read_u32(opt_np, "scm", &cfg->scm);
+			else
+				cfg->scm = 0;
+
+			if (of_find_property(opt_np, "max_fps", NULL))
+				of_property_read_u32(opt_np, "max_fps", &cfg->max_fps);
+			else
+				cfg->max_fps = cfg->framerate;
+
+			if (of_find_property(opt_np, "binning", NULL))
+				of_property_read_u32(opt_np, "binning", &cfg->binning);
+			else
+				cfg->binning = min(BINNING(pdata->active_width, cfg->width),
+						BINNING(pdata->active_height, cfg->height));
+		}
 
 		for (idx_vc = 0; idx_vc < CSI_VIRTUAL_CH_MAX; idx_vc++) {
 			idx_dt = 0;
@@ -967,6 +995,53 @@ static int parse_laser_af_data(struct exynos_platform_is_module *pdata, struct d
 	return 0;
 }
 
+static int parse_match_seq_data(struct exynos_platform_is_module *pdata, struct device_node *dnode)
+{
+	int ret = 0;
+	struct device_node *group_np;
+	struct is_core *core;
+	int num_entry;
+	int i, j;
+	int idx_prop;
+	struct exynos_sensor_module_match *entry;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		probe_err("core is NULL");
+		return -EINVAL;
+	}
+
+	/*
+	 * A match seq node is divided into group and entry.
+	 * Group can be configured as many as MATCH_GROUP_MAX,
+	 * and each group can have as many entries as MATCH_ENTRY_MAX.
+	 * Each entry consists of a slave_addr, reg offset, number of byte, and expected value
+	 * to compare the result with i2c transfer.
+	 */
+	i = 0;
+	for_each_child_of_node(dnode, group_np) {
+		j = 0;
+		num_entry = of_property_count_elems_of_size((group_np),
+				"entry", sizeof(u32)) / 5;
+		for (j = 0; j < num_entry; j++) {
+			entry = &pdata->match_entry[i][j];
+			idx_prop = j * 5;
+			of_property_read_u32_index(group_np, "entry", idx_prop++, &entry->slave_addr);
+			of_property_read_u32_index(group_np, "entry", idx_prop++, &entry->reg);
+			of_property_read_u32_index(group_np, "entry", idx_prop++, &entry->reg_type);
+			of_property_read_u32_index(group_np, "entry", idx_prop++, &entry->expected_data);
+			of_property_read_u32_index(group_np, "entry", idx_prop++, &entry->data_type);
+			probe_info("%s: slave_addr(0x%04x), reg(0x%04x), reg_type(%d), expected_data(0x%04x), data_type(%d)\n",
+					__func__, entry->slave_addr, entry->reg, entry->reg_type, entry->expected_data, entry->data_type);
+		}
+		pdata->num_of_match_entry[i] = num_entry;
+		i++;
+	}
+	pdata->num_of_match_groups = i;
+
+	return ret;
+}
+
 int is_module_parse_dt(struct device *dev,
 	is_moudle_callback module_callback)
 {
@@ -983,6 +1058,7 @@ int is_module_parse_dt(struct device *dev,
 	struct device_node *power_np;
 	struct device_node *eeprom_np;
 	struct device_node *laser_af_np;
+	struct device_node *match_np;
 	u32 use = 0;
 
 	FIMC_BUG(!dev);
@@ -1066,6 +1142,10 @@ int is_module_parse_dt(struct device *dev,
 	ret = of_property_read_u32(dnode, "use_retention_mode", &pdata->use_retention_mode);
 	if (ret)
 		probe_warn("use_retention_mode read is skipped(%d)", ret);
+
+	ret = of_property_read_u32(dnode, "use_binning_ratio_table", &pdata->use_binning_ratio_table);
+	if (ret)
+		probe_warn("use_binning_ratio_table read is skipped(%d)", ret);
 
 	ret = of_property_read_string(dnode, "sensor_maker", (const char **)&pdata->sensor_maker);
 	if (ret)
@@ -1209,6 +1289,15 @@ int is_module_parse_dt(struct device *dev,
 		pdata->laser_af_product_name = LASER_AF_NAME_NOTHING;
 	else
 		parse_laser_af_data(pdata, laser_af_np);
+
+	match_np = of_get_child_by_name(dnode, "match_seq");
+	if (match_np) {
+		ret = parse_match_seq_data(pdata, match_np);
+		if (ret) {
+			probe_err("%s: parse_match_seq_data(%d)", match_np->full_name, ret);
+			goto p_err;
+		}
+	}
 
 	pdata->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR(pdata->pinctrl)) {

@@ -45,7 +45,7 @@ static void *slot_end_addr;
 static char *ftype_items[MAX_ITEM_VAL_LEN] = {
 	"UNDF", "BAD", "WATCH", "KERN", "MEM",
 	"SPPC", "PAGE", "AUF", "EUF", "AUOF",
-	"BUG", "SERR",
+	"BUG", "SERR", "SEA"
 };
 
 /* get dram info from bootloader by cmdline */

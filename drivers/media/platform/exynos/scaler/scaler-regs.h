@@ -287,7 +287,7 @@ static inline void sc_clear_aux_power_cfg(struct sc_dev *sc)
 
 static inline void sc_hwset_bus_idle(struct sc_dev *sc)
 {
-	if (sc->version == SCALER_VERSION(5, 0, 1)) {
+	if (sc->version >= SCALER_VERSION(5, 0, 1)) {
 		int cnt = 1000;
 
 		__raw_writel(SCALER_CFG_STOP_REQ, sc->regs + SCALER_CFG);

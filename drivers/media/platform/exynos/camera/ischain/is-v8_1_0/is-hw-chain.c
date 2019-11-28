@@ -1398,6 +1398,12 @@ int is_hw_query_cap(void *cap_data, int hw_id)
 			cap->out_otf[5] = MCSC_CAP_NOT_SUPPORT;
 			cap->out_hwfc[3] = MCSC_CAP_SUPPORT;
 			cap->out_hwfc[4] = MCSC_CAP_SUPPORT;
+			cap->out_post[0] = MCSC_CAP_SUPPORT;
+			cap->out_post[1] = MCSC_CAP_SUPPORT;
+			cap->out_post[2] = MCSC_CAP_SUPPORT;
+			cap->out_post[3] = MCSC_CAP_NOT_SUPPORT;
+			cap->out_post[4] = MCSC_CAP_NOT_SUPPORT;
+			cap->out_post[5] = MCSC_CAP_NOT_SUPPORT;
 			cap->enable_shared_output = true;
 			cap->tdnr = MCSC_CAP_NOT_SUPPORT;
 			cap->djag = MCSC_CAP_SUPPORT;
@@ -1887,7 +1893,7 @@ void is_hw_djag_adjust_out_size(struct is_device_ischain *ischain,
 	}
 }
 
-void is_hw_interrupt_relay(struct is_group *group, void *hw_ip_data)
+void __nocfi is_hw_interrupt_relay(struct is_group *group, void *hw_ip_data)
 {
 	struct is_group *child;
 	struct is_hw_ip *hw_ip = (struct is_hw_ip *)hw_ip_data;

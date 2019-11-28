@@ -332,6 +332,7 @@ struct modem_mbox {
 	unsigned int int_ap2cp_active;
 	unsigned int int_ap2cp_wakeup;
 	unsigned int int_ap2cp_status;
+	unsigned int int_ap2cp_lcd_status;
 	unsigned int int_ap2cp_uart_noti;
 
 	unsigned int irq_cp2ap_msg;
@@ -376,6 +377,16 @@ struct modem_data {
 	/* SIM Detect polarity */
 	bool sim_polarity;
 
+	/* legacy buffer setting */
+	u32 legacy_fmt_head_tail_offset;
+	u32 legacy_fmt_buffer_offset;
+	u32 legacy_fmt_txq_size;
+	u32 legacy_fmt_rxq_size;
+	u32 legacy_raw_head_tail_offset;
+	u32 legacy_raw_buffer_offset;
+	u32 legacy_raw_txq_size;
+	u32 legacy_raw_rxq_size;
+
 	/* several 4 byte length info in ipc region */
 	u32 offset_ap_version;
 	u32 offset_cp_version;
@@ -419,17 +430,32 @@ struct modem_data {
 	unsigned int sbi_crash_type_pos;
 	unsigned int sbi_ds_det_mask;
 	unsigned int sbi_ds_det_pos;
+	unsigned int sbi_lcd_status_mask;
+	unsigned int sbi_lcd_status_pos;
 
 	/* ulpath offset for 2CP models */
 	u32 ulpath_offset;
 
-	/* srinfo settings (deprecated) */
+	/* control message offset */
+	u32 cmsg_offset;
+
+	/* srinfo settings */
 	u32 srinfo_offset;
 	u32 srinfo_size;
 
-	/* clk_table offset (deprecated) */
+	/* clk_table offset */
 	u32 clk_table_offset;
 
+	/* new SIT buffer descriptor offset */
+	u32 buff_desc_offset;
+
+#ifdef CONFIG_MODEM_IF_LEGACY_QOS
+	/* SIT priority queue info */
+	u32 legacy_raw_qos_head_tail_offset;
+	u32 legacy_raw_qos_buffer_offset;
+	u32 legacy_raw_qos_txq_size;
+	u32 legacy_raw_qos_rxq_size; /* unused for now */
+#endif
 	struct cp_btl btl;	/* CP background trace log */
 
 	void (*gpio_revers_bias_clear)(void);

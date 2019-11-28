@@ -17,14 +17,14 @@
 #include <crypto/algapi.h>
 #include <crypto/diskcipher.h>
 #include <linux/delay.h>
+#include <linux/mm_types.h>
+#include <linux/fs.h>
+#include <linux/fscrypt.h>
 
 #include "internal.h"
 
 #ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
 #include <crypto/fmp.h>
-#include <linux/mm_types.h>
-#include <linux/fs.h>
-#include <linux/fscrypt.h>
 
 #define DUMP_MAX 5
 
@@ -39,16 +39,7 @@ enum diskcipher_dbg { /* for DISKCIPHER_DEBUG */
 	DISKC_USER_MAX
 };
 
-struct dump_err {
-	struct page *page;
-	struct bio bio;
-	struct fmp_crypto_info ci;
-	enum diskcipher_dbg api;
-};
-
 struct diskc_debug_info {
-	struct dump_err dump[DUMP_MAX];
-	int err;
 	int cnt[DISKC_USER_MAX][2];
 };
 
@@ -59,44 +50,6 @@ static void crypto_diskcipher_debug(enum diskcipher_dbg api, bool err)
 	struct diskc_debug_info *dbg = &diskc_dbg;
 
 	dbg->cnt[api][err]++;
-}
-
-static void print_err(void)
-{
-	int i, j;
-	struct bio_vec *bv;	/* bio page list */
-	struct bio *bio;
-	struct fmp_crypto_info *ci;
-	struct diskc_debug_info *dbg = &diskc_dbg;
-
-	for (j = 0; j < dbg->err; j++) {
-		bio = &dbg->dump[j].bio;
-		ci = &dbg->dump[j].ci;
-
-		if (bio) {
-			pr_info("%s(%d/%d): bio:%pK ci:%pK page:%pK flag:%x,"
-					"opf:%x, crypt:%pK\n",
-					__func__, j, dbg->err,
-					bio, ci, &dbg->dump[j].page,
-					bio->bi_flags,
-					bio->bi_opf,
-					bio->bi_aux_private);
-			print_hex_dump(KERN_CONT, "bio:", DUMP_PREFIX_OFFSET,
-					16, 1, bio, sizeof(struct bio), false);
-			for (i = 0; i < bio->bi_max_vecs; i++) {
-				bv = &bio->bi_io_vec[i];
-				pr_info("bv[%d] page:%pK len:%d offset:%d\n",
-					i, bv->bv_page,
-					bv->bv_len, bv->bv_offset);
-			}
-		}
-		if (ci) {
-			pr_info("[ci] key_size:%d algo_mode:%d\n",
-					ci->key_size, ci->algo_mode);
-			print_hex_dump(KERN_CONT, "key:", DUMP_PREFIX_OFFSET,
-					16, 1, ci->key, sizeof(ci->key), false);
-		}
-	}
 }
 
 static void disckipher_log_show(struct seq_file *m)
@@ -115,40 +68,17 @@ static void disckipher_log_show(struct seq_file *m)
 		if (dbg->cnt[i][0] || dbg->cnt[i][1])
 			seq_printf(m, "%s\t: %6u(err:%u)\n",
 				name[i], dbg->cnt[i][0], dbg->cnt[i][1]);
-
-	if (dbg->err)
-		print_err();
 }
-
-/* check diskcipher for FBE */
-static void dump_err(struct crypto_diskcipher *ci, enum diskcipher_dbg api,
-					struct bio *bio, struct page *page)
-{
-	struct diskc_debug_info *dbg = &diskc_dbg;
-
-	if ((dbg->err < DUMP_MAX) && ci) {
-		struct crypto_tfm *tfm = crypto_diskcipher_tfm(ci);
-
-		dbg->dump[dbg->err].api = api;
-		memcpy(&dbg->dump[dbg->err].ci, crypto_tfm_ctx(tfm),
-		       sizeof(struct fmp_crypto_info));
-
-		if (page)
-			dbg->dump[dbg->err].page = page;
-		if (bio)
-			memcpy(&dbg->dump[dbg->err].bio, bio,
-				sizeof(struct bio));
-	} else
-		panic("%s: %d\n", __func__);
-	dbg->err++;
-}
+#else
+#define disckipher_log_show(a)			do { } while (0)
+#define crypto_diskcipher_debug(a, b)		do { } while (0)
+#endif
 
 static int crypto_diskcipher_check(struct bio *bio)
 {
 	struct crypto_diskcipher *ci = NULL;
 	struct inode *inode = NULL;
 	struct page *page = NULL;
-	enum diskcipher_dbg err = 0;
 
 	if (!bio) {
 		pr_err("%s: doesn't exist bio\n", __func__);
@@ -168,36 +98,26 @@ static int crypto_diskcipher_check(struct bio *bio)
 
 	inode = page->mapping->host;
 	if (ci->inode != inode) {
-		err = DISKC_INODE_SYNC_ERR;
-		goto out;
+		pr_err("%s: fails to invalid inode\n", __func__);
+		return -EINVAL;
 	}
 
 	if (!fscrypt_has_encryption_key(inode)) {
-		err = DISKC_NO_KEY_ERR;
-		goto out;
+		pr_err("%s: fails to invalid key\n", __func__);
+		return -EINVAL;
 	}
 
 	ci = fscrypt_get_diskcipher(inode);
-	if (!ci)
-		err = DISKC_NO_DISKC_ERR;
-	else if ((bio->bi_aux_private != ci) &&
-			!(bio->bi_flags & REQ_OP_DISCARD))
-		err = DISKC_NO_SYNC_ERR;
-out:
-	if (err) {
-		crypto_diskcipher_debug(err, true);
-		pr_err("%s: err:%d: bio:%pK, inode:%pK, ci:%pK\n",
-			__func__, err, bio, inode, ci);
-		dump_err(ci, err, bio, page);
+	if (!ci) {
+		pr_err("%s: fails to invalid crypto info\n", __func__);
+		return -EINVAL;
+	} else if ((bio->bi_aux_private != ci) &&
+			!(bio->bi_flags & REQ_OP_DISCARD)) {
+		pr_err("%s: fails to async crypto info\n", __func__);
 		return -EINVAL;
 	}
 	return 0;
 }
-#else
-#define crypto_diskcipher_check(a) (0)
-#define disckipher_log_show(a)			do { } while (0)
-#define crypto_diskcipher_debug(a, b)		do { } while (0)
-#endif
 
 struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio)
 {
@@ -212,11 +132,13 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio)
 			if (!crypto_diskcipher_check(bio)) {
 				diskc = bio->bi_aux_private;
 			} else {
-				pr_err("%s: fails to check diskcipher bio:%pK\n", __func__, bio);
+				pr_err("%s: fail to check diskcipher bio:%pK\n",
+						__func__, bio);
 				diskc = ERR_PTR(-EINVAL);
 			}
 		} else {
-			pr_err("%s: doesn't have diskcipher on bio:%pK\n", __func__, bio);
+			pr_err("%s: no diskcipher on bio:%pK\n",
+					__func__, bio);
 			diskc = ERR_PTR(-EINVAL);
 		}
 	}
@@ -231,98 +153,73 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio)
 		} else {
 			crypto_diskcipher_debug(DISKC_API_GET, true);
 		}
+		if ((diskc->ivmode != IV_MODE_DUN) && bio_dun(bio))
+			panic("invalid ivmode:%d, %d\n",
+				diskc->ivmode, bio_dun(bio));
 	}
 #endif
 
 	return diskc;
 }
 
- #ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
-static bool is_inode_filesystem_type(const struct inode *inode,
-					const char *fs_type)
-{
-	if (!inode || !fs_type)
-		return false;
-
-	if (!inode->i_sb)
-		return false;
-
-	if (!inode->i_sb->s_type)
-		return false;
-
-	return (strcmp(inode->i_sb->s_type->name, fs_type) == 0);
-}
-#endif
-
 bool crypto_diskcipher_blk_mergeble(struct bio *bio1, struct bio *bio2)
 {
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
 	if (!bio_has_crypt(bio1) && !bio_has_crypt(bio2))
 		return true;
 
 	if (bio_has_crypt(bio1) == bio_has_crypt(bio2)) {
 		struct crypto_diskcipher *tfm1 = bio1->bi_aux_private;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
 		struct crypto_diskcipher *tfm2 = bio2->bi_aux_private;
+#ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
 		struct inode *inode1 = tfm1->inode;
 		struct inode *inode2 = tfm2->inode;
 
 		if (inode1 != inode2)
-			panic("%s: no same inode:%p,%p, tfm:%p,%p, bi_opf:%x,%x\n",
+			panic("%s: no same inode:%pK, %pK, tfm:%pK,%pK, bi_opf:%x,%x\n",
 				__func__, inode1, inode2, tfm1, tfm2, bio1->bi_opf, bio2->bi_opf);
 
 		if ((!inode1 && bio_dun(bio1)) || (!inode2 && bio_dun(bio2)))
-			panic("%s: inval inode:%p,%p, tfm:%p,%p, bio:%p,%p, bi_opf:%x,%x\n",
+			panic("%s: inval inode:%pK,%pK, tfm:%pK,%pK, bio:%pK,%pK, bi_opf:%x,%x\n",
 				__func__, inode1, inode2, tfm1, tfm2, bio1, bio2, bio1->bi_opf, bio2->bi_opf);
 #endif
+
 		/* no inode for DM-crypt and DM-default-key */
 		if (!tfm1->inode) {
 			crypto_diskcipher_debug(DISKC_MERGE_DM, false);
 			return true;
 		}
 
-		/* without DUN for ext4*/
-		if (!bio_dun(bio1) && !bio_dun(bio2)) {
-			if (is_inode_filesystem_type(tfm1->inode, "f2fs"))
-				panic("err:%d\n");
-			crypto_diskcipher_debug(DISKC_MERGE, false);
-			return true;
-		}
-
-		/* DUN for F2FS */
-		if (bio_dun(bio1) && bio_dun(bio2) &&
+		if ((tfm1->ivmode == IV_MODE_DUN) &&
+			(tfm2->ivmode == IV_MODE_DUN)) {
+			if (bio_dun(bio1) && bio_dun(bio2) &&
 				(bio_end_dun(bio1) == bio_dun(bio2))) {
-			crypto_diskcipher_debug(DISKC_MERGE_DUN, false);
+				crypto_diskcipher_debug(DISKC_MERGE_DUN, false);
+				return true;
+			}
+		} else if ((tfm1->ivmode == IV_MODE_LBA) &&
+			(tfm2->ivmode == IV_MODE_LBA)) {
+			crypto_diskcipher_debug(DISKC_MERGE, false);
 			return true;
 		}
 		crypto_diskcipher_debug(DISKC_MERGE_NO, false);
 	}
-#else
-	if (bio_has_crypt(bio1) == bio_has_crypt(bio2))
-		return true;
-#endif
 	return false;
 }
 
-void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm,
-				const struct inode *inode, u64 dun)
+void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, u64 dun)
 {
 	if (bio && tfm) {
 		bio->bi_opf |= REQ_CRYPT;
 		bio->bi_aux_private = tfm;
-		tfm->inode = (struct inode *)inode;
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
 		if (dun)
 			bio->bi_iter.bi_dun = dun;
-#endif
 	}
 	crypto_diskcipher_debug(DISKC_API_SET, false);
 }
 
-/* debug freerq */
-
 int crypto_diskcipher_setkey(struct crypto_diskcipher *tfm, const char *in_key,
-				unsigned int key_len, bool persistent)
+				unsigned int key_len, bool persistent,
+				const struct inode *inode)
 {
 	struct crypto_tfm *base = crypto_diskcipher_tfm(tfm);
 	struct diskcipher_alg *cra = __crypto_diskcipher_alg(base->__crt_alg);
@@ -333,7 +230,19 @@ int crypto_diskcipher_setkey(struct crypto_diskcipher *tfm, const char *in_key,
 	else
 		pr_err("%s: doesn't exist cra. base:%pK", __func__, base);
 
+	tfm->inode = (struct inode *)inode;
+	tfm->ivmode = IV_MODE_LBA;
+	if (inode) {
+		/* check the filesystem for fscrypt */
+		if (inode->i_sb) {
+			if (inode->i_sb->s_type) {
+				if (!strcmp(inode->i_sb->s_type->name, "f2fs"))
+					tfm->ivmode = IV_MODE_DUN;
+			}
+		}
+	}
 	crypto_diskcipher_debug(DISKC_API_SETKEY, ret ? true : false);
+
 	return ret;
 }
 
@@ -461,13 +370,16 @@ static const struct crypto_type crypto_diskcipher_type = {
 struct crypto_diskcipher *crypto_alloc_diskcipher(const char *alg_name,
 					u32 type, u32 mask, bool force)
 {
+	int alg_name_len;
+
 	if (!force) {
 		crypto_diskcipher_debug(DISKC_API_ALLOC, false);
 		return crypto_alloc_tfm(alg_name,
 				&crypto_diskcipher_type, type, mask);
 	}
 
-	if (strlen(alg_name) + DISKC_NAME_SIZE < CRYPTO_MAX_ALG_NAME) {
+	alg_name_len = strlen(alg_name);
+	if (alg_name_len + DISKC_NAME_SIZE < CRYPTO_MAX_ALG_NAME) {
 		char diskc_name[CRYPTO_MAX_ALG_NAME];
 
 		strcpy(diskc_name, alg_name);

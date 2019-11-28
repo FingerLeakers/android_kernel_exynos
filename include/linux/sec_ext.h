@@ -75,6 +75,7 @@ extern void sec_initcall_debug_add(initcall_t fn, unsigned long long t);
 #define CM_OFFSET_LIMIT				8
 #define WC_OFFSET				CONFIG_WC_OFFSET
 #define WC_OFFSET_LIMIT				0
+#define FMM_LOCK_OFFSET				CONFIG_FMM_LOCK_OFFSET
 
 enum {
 	PARAM_OFF = '0',

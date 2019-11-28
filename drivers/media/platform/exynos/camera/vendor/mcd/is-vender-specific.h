@@ -56,7 +56,7 @@ struct is_vender_specific {
 	u32			rear4_sensor_id;
 	u32			rear_tof_sensor_id;
 	u32			front_tof_sensor_id;
-#ifdef SECURE_CAMERA_IRIS
+#ifdef CONFIG_SECURE_CAMERA_USE
 	u32			secure_sensor_id;
 #endif
 	u32			ois_sensor_index;

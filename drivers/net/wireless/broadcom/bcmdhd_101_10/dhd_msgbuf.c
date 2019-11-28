@@ -95,9 +95,15 @@ extern char fw_version[];
 
 #define RETRIES 2		/* # of retries to retrieve matching ioctl response */
 
-#define DEFAULT_RX_BUFFERS_TO_POST	256
-#define RXBUFPOST_THRESHOLD			32
+#if defined(DHD_HTPUT_TUNABLES)
+#define DEFAULT_RX_BUFFERS_TO_POST		1024
+#define RX_BUF_BURST				64 /* Rx buffers for MSDU Data */
+#else
+#define DEFAULT_RX_BUFFERS_TO_POST		256
 #define RX_BUF_BURST				32 /* Rx buffers for MSDU Data */
+#endif /* DHD_HTPUT_TUNABLES */
+
+#define RXBUFPOST_THRESHOLD			32
 
 #define DHD_STOP_QUEUE_THRESHOLD	200
 #define DHD_START_QUEUE_THRESHOLD	100
@@ -444,7 +450,10 @@ typedef struct msgbuf_ring {
 /* This can be overwritten by module parameter defined in dhd_linux.c
  * or by dhd iovar h2d_max_txpost.
  */
-int h2d_max_txpost = H2DRING_TXPOST_MAX_ITEM;
+int h2d_max_txpost = DHD_H2DRING_TXPOST_MAX_ITEM;
+#if defined(DHD_HTPUT_TUNABLES)
+int h2d_htput_max_txpost = DHD_HTPUT_H2DRING_TXPOST_MAX_ITEM;
+#endif /* DHD_HTPUT_TUNABLES */
 
 /** DHD protocol handle. Is an opaque type to other DHD software layers. */
 typedef struct dhd_prot {
@@ -466,6 +475,9 @@ typedef struct dhd_prot {
 	/* Flow control mechanism based on active transmits pending */
 	osl_atomic_t active_tx_count; /* increments/decrements on every packet tx/tx_status */
 	uint16 h2d_max_txpost;
+#if defined(DHD_HTPUT_TUNABLES)
+	uint16 h2d_htput_max_txpost;
+#endif /* DHD_HTPUT_TUNABLES */
 	uint16 txp_threshold;  /* optimization to write "n" tx items at a time to ring */
 
 	/* MsgBuf Ring info: has a dhd_dma_buf that is dynamically allocated */
@@ -828,6 +840,19 @@ dhd_prot_set_h2d_max_txpost(dhd_pub_t *dhd, uint16 max_txpost)
 {
 	h2d_max_txpost = max_txpost;
 }
+#if defined(DHD_HTPUT_TUNABLES)
+uint16
+dhd_prot_get_h2d_htput_max_txpost(dhd_pub_t *dhd)
+{
+	return (uint16)h2d_htput_max_txpost;
+}
+void
+dhd_prot_set_h2d_htput_max_txpost(dhd_pub_t *dhd, uint16 htput_max_txpost)
+{
+	h2d_htput_max_txpost = htput_max_txpost;
+}
+
+#endif /* DHD_HTPUT_TUNABLES */
 /**
  * D2H DMA to completion callback handlers. Based on the mode advertised by the
  * dongle through the PCIE shared region, the appropriate callback will be
@@ -3211,12 +3236,17 @@ dhd_prot_init(dhd_pub_t *dhd)
 	 * A user defined value can be assigned to global variable h2d_max_txpost via
 	 * 1. DHD IOVAR h2d_max_txpost, before firmware download
 	 * 2. module parameter h2d_max_txpost
-	 * prot->h2d_max_txpost is assigned with H2DRING_TXPOST_MAX_ITEM,
+	 * prot->h2d_max_txpost is assigned with DHD_H2DRING_TXPOST_MAX_ITEM,
 	 * if user has not defined any buffers by one of the above methods.
 	 */
 	prot->h2d_max_txpost = (uint16)h2d_max_txpost;
-
 	DHD_ERROR(("%s:%d: h2d_max_txpost = %d\n", __FUNCTION__, __LINE__, prot->h2d_max_txpost));
+
+#if defined(DHD_HTPUT_TUNABLES)
+	prot->h2d_htput_max_txpost = (uint16)h2d_htput_max_txpost;
+	DHD_ERROR(("%s:%d: h2d_htput_max_txpost = %d\n",
+		__FUNCTION__, __LINE__, prot->h2d_htput_max_txpost));
+#endif /* DHD_HTPUT_TUNABLES */
 
 	/* Read max rx packets supported by dongle */
 	dhd_bus_cmn_readshared(dhd->bus, &prot->max_rxbufpost, MAX_HOST_RXBUFS, 0);
@@ -4016,6 +4046,7 @@ dhd_prot_detach_edl_rings(dhd_pub_t *dhd)
 int dhd_sync_with_dongle(dhd_pub_t *dhd)
 {
 	int ret = 0;
+	uint len = 0;
 	wlc_rev_info_t revinfo;
 	char buf[128];
 	dhd_prot_t *prot = dhd->prot;
@@ -4030,14 +4061,21 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	/* query for 'wlc_ver' to get version info from firmware */
 	/* memsetting to zero */
 	bzero(buf, sizeof(buf));
-	bcm_mkiovar("wlc_ver", NULL, 0, buf, sizeof(buf));
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), FALSE, 0);
-	if (ret < 0)
-		DHD_ERROR(("%s failed %d\n", __FUNCTION__, ret));
-	else {
-		dhd->wlc_ver_major = ((wl_wlc_version_t*)buf)->wlc_ver_major;
-		dhd->wlc_ver_minor = ((wl_wlc_version_t*)buf)->wlc_ver_minor;
+	len = bcm_mkiovar("wlc_ver", NULL, 0, buf, sizeof(buf));
+	if (len == 0) {
+		DHD_ERROR(("%s failed in calling bcm_mkiovar %u\n", __FUNCTION__, len));
+		ret = BCME_ERROR;
+		goto done;
 	}
+	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), FALSE, 0);
+	if (ret < 0) {
+		DHD_ERROR(("%s failed %d\n", __FUNCTION__, ret));
+		goto done;
+	}
+
+	dhd->wlc_ver_major = ((wl_wlc_version_t*)buf)->wlc_ver_major;
+	dhd->wlc_ver_minor = ((wl_wlc_version_t*)buf)->wlc_ver_minor;
+
 	DHD_ERROR(("\nwlc_ver_major %d, wlc_ver_minor %d", dhd->wlc_ver_major, dhd->wlc_ver_minor));
 
 #ifdef DHD_FW_COREDUMP
@@ -4059,21 +4097,30 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 		revinfo.deviceid, revinfo.vendorid, revinfo.chipnum));
 
 	/* Get the RxBuf post size */
+	/* Use default value in case of failure */
+	prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
 	memset(buf, 0, sizeof(buf));
 	bcm_mkiovar("rxbufpost_sz", NULL, 0, buf, sizeof(buf));
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), FALSE, 0);
-	if (ret < 0) {
-		DHD_ERROR(("%s: GET RxBuf post FAILED, default to %d\n",
-			__FUNCTION__, DHD_FLOWRING_RX_BUFPOST_PKTSZ));
-		prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
+	if (len == 0) {
+		DHD_ERROR(("%s failed in calling bcm_mkiovar %u\n", __FUNCTION__, len));
 	} else {
-		memcpy_s(&(prot->rxbufpost_sz), sizeof(prot->rxbufpost_sz), buf, sizeof(uint16));
-		if (prot->rxbufpost_sz > DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX) {
-			DHD_ERROR(("%s: Invalid RxBuf post size : %d, default to %d\n",
-				__FUNCTION__, prot->rxbufpost_sz, DHD_FLOWRING_RX_BUFPOST_PKTSZ));
-			prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
+		ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), FALSE, 0);
+		if (ret < 0) {
+			DHD_ERROR(("%s: GET RxBuf post FAILED, use default %d\n",
+				__FUNCTION__, DHD_FLOWRING_RX_BUFPOST_PKTSZ));
 		} else {
-			DHD_ERROR(("%s: RxBuf Post : %d\n", __FUNCTION__, prot->rxbufpost_sz));
+			memcpy_s(&(prot->rxbufpost_sz), sizeof(prot->rxbufpost_sz),
+				buf, sizeof(uint16));
+
+			if (prot->rxbufpost_sz > DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX) {
+				DHD_ERROR(("%s: Invalid RxBuf post size : %d, default to %d\n",
+					__FUNCTION__, prot->rxbufpost_sz,
+					DHD_FLOWRING_RX_BUFPOST_PKTSZ));
+					prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
+			} else {
+				DHD_ERROR(("%s: RxBuf Post : %d\n",
+					__FUNCTION__, prot->rxbufpost_sz));
+			}
 		}
 	}
 
@@ -4322,26 +4369,17 @@ BCMFASTPATH(dhd_msgbuf_rxbuf_post)(dhd_pub_t *dhd, bool use_rsv_pktid)
 {
 	dhd_prot_t *prot = dhd->prot;
 	int16 fillbufs;
-	uint16 cnt = 256;
 	int retcount = 0;
 
 	fillbufs = prot->max_rxbufpost - prot->rxbufpost;
 	while (fillbufs >= RX_BUF_BURST) {
-		cnt--;
-		if (cnt == 0) {
-			/* find a better way to reschedule rx buf post if space not available */
-			DHD_ERROR(("h2d rx post ring not available to post host buffers \n"));
-			DHD_ERROR(("Current posted host buf count %d \n", prot->rxbufpost));
-			break;
-		}
-
 		/* Post in a burst of 32 buffers at a time */
 		fillbufs = MIN(fillbufs, RX_BUF_BURST);
 
 		/* Post buffers */
 		retcount = dhd_prot_rxbuf_post(dhd, fillbufs, use_rsv_pktid);
 
-		if (retcount >= 0) {
+		if (retcount > 0) {
 			prot->rxbufpost += (uint16)retcount;
 #ifdef DHD_LB_RXC
 			/* dhd_prot_rxbuf_post returns the number of buffers posted */
@@ -6677,8 +6715,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 
 	/* Move data pointer to keep ether header in local PKTBUF for later reference */
 	PKTPUSH(dhd->osh, PKTBUF, ETHER_HDR_LEN);
+	txdesc->ext_flags = 0;
 
-	DHD_SBN_SET_FLAGS_FRAME_UDR((dhd_pkttag_fr_t *)PKTTAG(PKTBUF), txdesc->ext_flags)
+	DHD_SBN_SET_FLAGS_FRAME_UDR((dhd_pkttag_fr_t *)PKTTAG(PKTBUF), txdesc->ext_flags);
 
 	/* Handle Tx metadata */
 	headroom = (uint16)PKTHEADROOM(dhd->osh, PKTBUF);
@@ -7846,6 +7885,10 @@ void dhd_prot_dump(dhd_pub_t *dhd, struct bcmstrbuf *b)
 		dhd->prot->rw_index_sz);
 	bcm_bprintf(b, "h2d_max_txpost: %d, prot->h2d_max_txpost: %d\n",
 		h2d_max_txpost, dhd->prot->h2d_max_txpost);
+#if defined(DHD_HTPUT_TUNABLES)
+	bcm_bprintf(b, "h2d_htput_max_txpost: %d, prot->h2d_htput_max_txpost: %d\n",
+		h2d_htput_max_txpost, dhd->prot->h2d_htput_max_txpost);
+#endif /* DHD_HTPUT_TUNABLES */
 	bcm_bprintf(b, "pktid_txq_start_cnt: %d\n", dhd->prot->pktid_txq_start_cnt);
 	bcm_bprintf(b, "pktid_txq_stop_cnt: %d\n", dhd->prot->pktid_txq_stop_cnt);
 	bcm_bprintf(b, "pktid_depleted_cnt: %d\n", dhd->prot->pktid_depleted_cnt);
@@ -8092,7 +8135,7 @@ dhd_prot_ring_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring, const char *name,
 	uint16 max_items, uint16 item_len, uint16 ringid)
 {
 	int dma_buf_alloced = BCME_NOMEM;
-	uint32 dma_buf_len = max_items * item_len;
+	uint32 dma_buf_len;
 	dhd_prot_t *prot = dhd->prot;
 	uint16 max_flowrings = dhd->bus->max_tx_flowrings;
 	dhd_dma_buf_t *dma_buf = NULL;
@@ -8105,6 +8148,16 @@ dhd_prot_ring_attach(dhd_pub_t *dhd, msgbuf_ring_t *ring, const char *name,
 	strlcpy((char *)ring->name, name, sizeof(ring->name));
 
 	ring->idx = ringid;
+
+#if defined(DHD_HTPUT_TUNABLES)
+	/* Use HTPUT max items */
+	if (DHD_IS_FLOWRING(ringid, max_flowrings) &&
+		DHD_IS_FLOWID_HTPUT(dhd, DHD_RINGID_TO_FLOWID(ringid))) {
+		max_items = prot->h2d_htput_max_txpost;
+	}
+#endif /* DHD_HTPUT_TUNABLES */
+
+	dma_buf_len = max_items * item_len;
 
 	ring->max_items = max_items;
 	ring->item_len = item_len;
@@ -8328,6 +8381,7 @@ dhd_prot_flowrings_pool_attach(dhd_pub_t *dhd)
 	/* Setup & Attach a DMA-able buffer to each flowring in the flowring pool */
 	FOREACH_RING_IN_FLOWRINGS_POOL(prot, ring, flowid, h2d_flowrings_total) {
 		snprintf(ring_name, sizeof(ring_name), "h2dflr_%03u", flowid);
+		/* For HTPUT case max_items will be changed inside dhd_prot_ring_attach */
 		if (dhd_prot_ring_attach(dhd, ring, ring_name,
 		        prot->h2d_max_txpost, H2DRING_TXPOST_ITEMSIZE,
 		        DHD_FLOWID_TO_RINGID(flowid)) != BCME_OK) {
@@ -9279,7 +9333,7 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 	/* CAUTION: ring::base_addr already in Little Endian */
 	flow_create_rqst->flow_ring_ptr.low_addr = flow_ring->base_addr.low_addr;
 	flow_create_rqst->flow_ring_ptr.high_addr = flow_ring->base_addr.high_addr;
-	flow_create_rqst->max_items = htol16(prot->h2d_max_txpost);
+	flow_create_rqst->max_items = htol16(flow_ring->max_items);
 	flow_create_rqst->len_item = htol16(H2DRING_TXPOST_ITEMSIZE);
 	flow_create_rqst->if_flags = 0;
 
@@ -9290,9 +9344,9 @@ dhd_prot_flow_ring_create(dhd_pub_t *dhd, flow_ring_node_t *flow_ring_node)
 		flow_create_rqst->priority_ifrmmask = (1 << IFRM_DEV_0);
 
 	DHD_ERROR(("%s: Send Flow Create Req flow ID %d for peer " MACDBG
-		" prio %d ifindex %d\n", __FUNCTION__, flow_ring_node->flowid,
+		" prio %d ifindex %d items %d\n", __FUNCTION__, flow_ring_node->flowid,
 		MAC2STRDBG(flow_ring_node->flow_info.da), flow_ring_node->flow_info.tid,
-		flow_ring_node->flow_info.ifindex));
+		flow_ring_node->flow_info.ifindex, flow_ring->max_items));
 
 	/* Update the flow_ring's WRITE index */
 	if (IDMA_ACTIVE(dhd) || dhd->dma_h2d_ring_upd_support) {
@@ -10359,6 +10413,10 @@ dhd_prot_debug_info_print(dhd_pub_t *dhd)
 		prot->max_rxbufpost, prot->rxbufpost));
 	DHD_ERROR(("h2d_max_txpost: %d, prot->h2d_max_txpost: %d\n",
 		h2d_max_txpost, prot->h2d_max_txpost));
+#if defined(DHD_HTPUT_TUNABLES)
+	DHD_ERROR(("h2d_max_txpost: %d, prot->h2d_max_txpost: %d\n",
+		h2d_htput_max_txpost, prot->h2d_htput_max_txpost));
+#endif /* DHD_HTPUT_TUNABLES */
 
 	current_time = OSL_LOCALTIME_NS();
 	DHD_ERROR(("current_time="SEC_USEC_FMT"\n", GET_SEC_USEC(current_time)));

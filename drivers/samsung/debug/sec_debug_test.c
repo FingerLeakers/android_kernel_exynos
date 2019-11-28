@@ -29,7 +29,7 @@
 #include <linux/preempt.h>
 #include <linux/moduleparam.h>
 
-//#include <soc/samsung/exynos-pmu.h>
+#include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-debug.h>
 
 /* spin_bug somtimes disrupt getting the result really wanted */
@@ -69,6 +69,8 @@ static void simulate_SOFTIRQ_LOCKUP(char *arg);
 static void simulate_SOFTIRQ_STORM(char *arg);
 static void simulate_TASK_HARD_LOCKUP(char *arg);
 static void simulate_IRQ_HARD_LOCKUP(char *arg);
+static void simulate_TASK_HARD_LATENCY(char *arg);
+static void simulate_IRQ_HARD_LATENCY(char *arg);
 static void simulate_BAD_SCHED(char *arg);
 static void simulate_SPIN_LOCKUP(char *arg);
 static void simulate_SPINLOCK_ALLCORE(char *arg);
@@ -116,6 +118,8 @@ enum {
 	FORCE_SOFTIRQ_STORM,		/* SOFTIRQ_STORM */
 	FORCE_TASK_HARD_LOCKUP,		/* TASK HARD LOCKUP */
 	FORCE_IRQ_HARD_LOCKUP,		/* IRQ HARD LOCKUP */
+	FORCE_TASK_HARD_LATENCY,	/* TASK HARD LATENCY*/
+	FORCE_IRQ_HARD_LATENCY,		/* IRQ_HARD LATENCY */
 	FORCE_SPIN_LOCKUP,		/* SPIN LOCKUP */
 	FORCE_SPIN_ALLCORE,		/* SPINLOCK ALL CORE */
 	FORCE_SPIN_SOFTLOCKUP,		/* SPINLOCK SOFT LOCKUP */
@@ -175,6 +179,8 @@ struct force_error force_error_vector = {
 		{"softirqstorm",	&simulate_SOFTIRQ_STORM},
 		{"taskhardlockup",	&simulate_TASK_HARD_LOCKUP},
 		{"irqhardlockup",	&simulate_IRQ_HARD_LOCKUP},
+		{"taskhardlatency",	&simulate_TASK_HARD_LATENCY},
+		{"irqhardlatency",	&simulate_IRQ_HARD_LATENCY},
 		{"spinlockup",	&simulate_SPIN_LOCKUP},
 		{"spinlock-allcore",	&simulate_SPINLOCK_ALLCORE},
 		{"spinlock-softlockup",	&simulate_SPINLOCK_SOFTLOCKUP},
@@ -234,7 +240,8 @@ static int str_to_num(char *s)
 
 /* timeout for dog bark/bite */
 #define DELAY_TIME 30000
-#define EXYNOS_PS_HOLD_CONTROL 0x330c
+
+#define EXYNOS_PS_HOLD_CONTROL 0x030c
 
 static void pull_down_other_cpus(void)
 {
@@ -352,13 +359,11 @@ static void simulate_SFR(char *arg)
 
 static void simulate_WP(char *arg)
 {
-#if 0
 	unsigned int ps_hold_control;
 
 	pr_crit("%s()\n", __func__);
 	exynos_pmu_read(EXYNOS_PS_HOLD_CONTROL, &ps_hold_control);
 	exynos_pmu_write(EXYNOS_PS_HOLD_CONTROL, ps_hold_control & 0xFFFFFEFF);
-#endif
 }
 
 static void simulate_TP(char *arg)
@@ -588,6 +593,115 @@ static void simulate_IRQ_HARD_LOCKUP(char *arg)
 						 simulate_IRQ_HARD_LOCKUP_handler,
 						 0, 0);
 		}
+	}
+}
+
+static long sec_latency = 200;
+
+static int task_hard_latency(void *info)
+{
+	while (!kthread_should_stop()) {
+		local_irq_disable();
+		pr_crit("%s [latency:%u]\n", __func__, sec_latency);
+		mdelay(sec_latency);
+		local_irq_enable();
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
+		__set_current_state(TASK_RUNNING);
+	}
+	return 0;
+}
+
+static DEFINE_PER_CPU(struct task_struct *, sec_tsk);
+
+static void create_and_wakeup_thread(int cpu)
+{
+	struct task_struct *tsk = per_cpu(sec_tsk, cpu);
+
+	if (!tsk) {
+		tsk = kthread_create(task_hard_latency, 0, "hl_test/%d", cpu);
+		if (IS_ERR(tsk)) {
+			pr_warn("Failed to create thread hl_test\n");
+			return;
+		} else {
+			per_cpu(sec_tsk, cpu) = tsk;
+		}
+	}
+	set_cpus_allowed_ptr(tsk, cpumask_of(cpu));
+	wake_up_process(tsk);
+}
+
+static void simulate_TASK_HARD_LATENCY(char *arg)
+{
+	int index = 0;
+	char tmp[11], *tmparg;
+	int cpu = 0;
+
+	pr_crit("%s() arg %s\n", __func__, arg);
+
+	if (arg) {
+		index = find_blank(arg);
+		memcpy(tmp, arg, index);
+		tmp[index] = '\0';
+		cpu = str_to_num(tmp);
+		tmparg = &arg[index + 1];
+		index = find_blank(tmparg);
+		if (index != 0) {
+			memcpy(tmp, tmparg, index);
+			tmp[index] = '\0';
+			kstrtol(tmp, 10, &sec_latency);
+		}
+	}
+
+	if (!arg || cpu < 0 || cpu >= NR_CPUS) {
+		pr_crit("%s() generate task to all cores [latency:%u]\n", __func__, sec_latency);
+		for_each_online_cpu(cpu) {
+			create_and_wakeup_thread(cpu);
+		}
+	} else {
+		pr_crit("%s() generate task [latency:%u cpu:%d]\n", __func__, sec_latency, cpu);
+		create_and_wakeup_thread(cpu);
+	}
+}
+
+static void simulate_IRQ_HARD_LATENCY_handler(void *info)
+{
+	pr_crit("%s latency : %u\n", __func__, sec_latency);
+	mdelay(sec_latency);
+}
+
+static void simulate_IRQ_HARD_LATENCY(char *arg)
+{
+	int index = 0;
+	char tmp[11], *tmparg;
+	int cpu = 0;
+
+	pr_crit("%s() arg %s\n", __func__, arg);
+
+	if (arg) {
+		index = find_blank(arg);
+		memcpy(tmp, arg, index);
+		tmp[index] = '\0';
+		cpu = str_to_num(tmp);
+		tmparg = &arg[index + 1];
+		index = find_blank(tmparg);
+		if (index != 0) {
+			memcpy(tmp, tmparg, index);
+			tmp[index] = '\0';
+			kstrtol(tmp, 10, &sec_latency);
+		}
+	}
+
+	if (!arg || cpu < 0 || cpu >= NR_CPUS) {
+		pr_crit("%s() generate irq to all cores[latency:%u]\n", __func__, sec_latency);
+		for_each_online_cpu(cpu) {
+			smp_call_function_single(cpu,
+				simulate_IRQ_HARD_LATENCY_handler, 0, 0);
+		}
+	} else {
+		pr_crit("%s() generate irq [latency:%u cpu:%d]\n", __func__, sec_latency, cpu);
+		smp_call_function_single(cpu,
+			simulate_IRQ_HARD_LATENCY_handler, 0, 0);
 	}
 }
 

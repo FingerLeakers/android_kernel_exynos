@@ -44,22 +44,22 @@ u32 phy_default_value[DEFAULT_SFR_CNT][2] = {
 
 u32 phy_tune_parameters[4][4][5] = { /* {amp, post, pre, idrv, accdrv} */
 	{	/* Swing Level_0 */
-		{0x22, 0x10, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_0 */
-		{0x26, 0x15, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_1 */
-		{0x26, 0x17, 0x43, 0x82, 0x00}, /* Pre-emphasis Level_2 */
-		{0x2B, 0x1C, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_3 */
+		{0x23, 0x10, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_0 */
+		{0x27, 0x14, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_1 */
+		{0x28, 0x17, 0x43, 0x82, 0x00}, /* Pre-emphasis Level_2 */
+		{0x2B, 0x1B, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_3 */
 	},
 	{	/* Swing Level_1 */
-		{0x26, 0x10, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_0 */
-		{0x2B, 0x14, 0x42, 0x83, 0x30}, /* Pre-emphasis Level_1 */
-		{0x2B, 0x18, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_2 */
-		{0x2B, 0x18, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_3 */
+		{0x27, 0x10, 0x42, 0x82, 0x00}, /* Pre-emphasis Level_0 */
+		{0x2B, 0x15, 0x42, 0x83, 0x30}, /* Pre-emphasis Level_1 */
+		{0x2B, 0x19, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_2 */
+		{0x2B, 0x19, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_3 */
 	},
 	{	/* Swing Level_2 */
-		{0x2A, 0x10, 0x42, 0x83, 0x30}, /* Pre-emphasis Level_0 */
-		{0x2B, 0x17, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_1 */
-		{0x2B, 0x17, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_2 */
-		{0x2B, 0x17, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_3 */
+		{0x28, 0x10, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_0 */
+		{0x2B, 0x16, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_1 */
+		{0x2B, 0x16, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_2 */
+		{0x2B, 0x16, 0x43, 0x83, 0x38}, /* Pre-emphasis Level_3 */
 	},
 	{	/* Swing Level_3 */
 		{0x2B, 0x10, 0x43, 0x83, 0x30}, /* Pre-emphasis Level_0 */
@@ -166,6 +166,10 @@ void displayport_reg_sw_reset(void)
 
 	displayport_info("%s\n", __func__);
 
+#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
+	dwc3_exynos_phy_enable(1, 1);
+#endif
+
 	displayport_write_mask(SYSTEM_SW_RESET_CONTROL, ~0, SW_RESET);
 
 	do {
@@ -194,7 +198,7 @@ void displayport_reg_phy_init_setting(void)
 		displayport_phy_write(phy_default_value[i][0], phy_default_value[i][1]);
 
 	displayport_phy_write_mask(CMN_REG0008, 0, OVRD_AUX_EN);
-	displayport_phy_write_mask(CMN_REG000A, 0xA, ANA_AUX_TX_LVL_CTRL);
+	displayport_phy_write_mask(CMN_REG000A, 0xC, ANA_AUX_TX_LVL_CTRL);
 }
 
 void displayport_reg_phy_mode_setting(void)
@@ -206,9 +210,6 @@ void displayport_reg_phy_mode_setting(void)
 	u32 lane_en_val = 0;
 
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
-#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
-	dwc3_exynos_phy_enable(1, 1);
-#endif
 	switch (displayport->ccic_notify_dp_conf) {
 	case CCIC_NOTIFY_DP_PIN_UNKNOWN:
 		displayport_dbg("CCIC_NOTIFY_DP_PIN_UNKNOWN\n");
@@ -974,6 +975,13 @@ int displayport_reg_dpcd_write(u32 address, u32 length, u8 *data)
 		retry_cnt--;
 	}
 
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	if (ret == 0)
+		secdp_bigdata_clr_error_cnt(ERR_AUX);
+	else if (displayport->ccic_hpd)
+		secdp_bigdata_inc_error_cnt(ERR_AUX);
+#endif
+
 	mutex_unlock(&displayport->aux_lock);
 
 	return ret;
@@ -1002,6 +1010,13 @@ int displayport_reg_dpcd_read(u32 address, u32 length, u8 *data)
 
 	if (ret == 0)
 		displayport_reg_aux_ch_received_buf(data, length);
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	if (ret == 0)
+		secdp_bigdata_clr_error_cnt(ERR_AUX);
+	else if (displayport->ccic_hpd)
+		secdp_bigdata_inc_error_cnt(ERR_AUX);
+#endif
 
 	mutex_unlock(&displayport->aux_lock);
 
@@ -1405,9 +1420,6 @@ void displayport_reg_phy_disable(void)
 void displayport_reg_init(void)
 {
 	displayport_info("%s\n", __func__);
-#if defined(CONFIG_PHY_SAMSUNG_USB_CAL)
-	dwc3_exynos_phy_enable(1, 1);
-#endif
 	displayport_reg_phy_init();
 	displayport_reg_function_enable();
 	displayport_reg_sw_function_en(1);

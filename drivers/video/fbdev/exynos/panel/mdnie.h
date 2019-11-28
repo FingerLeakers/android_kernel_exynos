@@ -427,7 +427,6 @@ struct mdnie_properties {
 	enum HBM hbm;
 	enum HMD_MODE hmd;
 	enum NIGHT_MODE night;
-	enum NIGHT_LEVEL night_level;
 	enum COLOR_LENS color_lens;
 	enum COLOR_LENS_COLOR color_lens_color;
 	enum COLOR_LENS_LEVEL color_lens_level;
@@ -437,6 +436,7 @@ struct mdnie_properties {
 	enum LDU_MODE ldu;
 	enum SCR_WHITE_MODE scr_white_mode;
 	enum TRANS_MODE trans_mode;
+	int night_level;
 
 	/* for color adjustment */
 	u8 scr[MAX_MDNIE_SCR_LEN];

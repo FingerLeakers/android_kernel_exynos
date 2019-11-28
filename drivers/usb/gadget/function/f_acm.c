@@ -334,6 +334,7 @@ static void acm_complete_set_line_coding(struct usb_ep *ep,
 		acm->port_line_coding = *value;
 	}
 }
+static int acm_cdc_notify(struct f_acm *acm, u8 type, u16 value, void *data, unsigned length);
 
 static int acm_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 {
@@ -394,6 +395,22 @@ static int acm_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 #ifdef CONFIG_USB_DUN_SUPPORT
 		notify_control_line_state((unsigned long)w_value);
 #endif
+		spin_lock(&acm->lock);
+		if ((acm->port_handshake_bits & ACM_CTRL_DTR) && acm->pending) {
+			int	status;
+			__le16	serial_state;
+
+			if (acm->notify_req) {
+				serial_state = cpu_to_le16(acm->serial_state);
+				status = acm_cdc_notify(acm, USB_CDC_NOTIFY_SERIAL_STATE,
+					0, &serial_state, sizeof(acm->serial_state));
+				}
+			}
+		spin_unlock(&acm->lock);
+		pr_debug("%s: USB_CDC_REQ_SET_CONTROL_LINE_STATE: DTR:%d RST:%d\n",
+				__func__, w_value & ACM_CTRL_DTR ? 1 : 0,
+				w_value & ACM_CTRL_RTS ? 1 : 0);
+
 		break;
 
 	default:
@@ -540,7 +557,7 @@ static int acm_notify_serial_state(struct f_acm *acm)
 	__le16			serial_state;
 
 	spin_lock(&acm->lock);
-	if (acm->notify->enabled) {
+	if (acm->notify->enabled && (acm->port_handshake_bits & ACM_CTRL_DTR)) {
 		if (acm->notify_req) {
 			dev_dbg(&cdev->gadget->dev, "acm ttyGS%d serial state %04x\n",
 				acm->port_num, acm->serial_state);

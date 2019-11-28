@@ -247,13 +247,32 @@ static void win_update_reconfig_coordinates(struct decon_device *decon,
 	}
 }
 
+static int dpu_find_display_mode(struct decon_device *decon, int w, int h, int fps)
+{
+	struct exynos_display_mode_info *supported_mode;
+	int i;
+
+	for (i = 0; i < decon->lcd_info->display_mode_count; i++) {
+		supported_mode = &decon->lcd_info->display_mode[i];
+		if ((supported_mode->mode.width == w) &&
+			(supported_mode->mode.height == h) &&
+			(supported_mode->mode.fps == fps)) {
+			break;
+		}
+	}
+
+	if (i == decon->lcd_info->display_mode_count)
+		return -EINVAL;
+
+	return i;
+}
+
 static bool dpu_need_mres_config(struct decon_device *decon,
 		struct decon_win_config *win_config,
 		struct decon_reg_data *regs)
 {
 	struct decon_win_config *mres_config = &win_config[DECON_WIN_UPDATE_IDX];
-	struct exynos_display_mode_info *supported_mode;
-	int i;
+	int i, mode_idx, fps, fps_table[3];
 
 	regs->mode_update = false;
 
@@ -288,24 +307,33 @@ static bool dpu_need_mres_config(struct decon_device *decon,
 	}
 
 	/* match supported and requested display mode(resolution & fps) */
-	for (i = 0; i < decon->lcd_info->display_mode_count; i++) {
-		supported_mode = &decon->lcd_info->display_mode[i];
-		if ((supported_mode->mode.width == regs->lcd_width) &&
-			(supported_mode->mode.height == regs->lcd_height) &&
-			((regs->fps == 0) ?
-			 supported_mode->mode.fps == decon->lcd_info->fps :
-			 supported_mode->mode.fps == regs->fps)) {
+	fps_table[0] = decon->lcd_info->target_fps;
+	fps_table[1] = decon->lcd_info->fps;
+	fps_table[2] = 60;
+	for (i = 0; i < ARRAY_SIZE(fps_table); i++) {
+		fps = fps_table[i];
+		mode_idx = dpu_find_display_mode(decon, regs->lcd_width,
+				regs->lcd_height, fps);
+		if (mode_idx >= 0) {
 			regs->mode_update = true;
-			regs->mode_idx = i;
+			regs->mode_idx = mode_idx;
 			break;
 		}
+	}
+
+	if (mode_idx < 0) {
+		DPU_ERR_MRES("%s: display mode not found(%dx%dx@%d)\n",
+				__func__, regs->lcd_width, regs->lcd_height, 60);
+	} else {
+		DPU_DEBUG_MRES("%s: found display mode(%dx%dx@%d)\n",
+				__func__, regs->lcd_width, regs->lcd_height, fps);
 	}
 
 	DPU_DEBUG_MRES("update(%d), mode idx(%d), mode(%dx%d@%d -> %dx%d@%d)\n",
 			regs->mode_update, regs->mode_idx,
 			decon->lcd_info->xres, decon->lcd_info->yres,
 			decon->lcd_info->fps,
-			regs->lcd_width, regs->lcd_height, regs->fps);
+			regs->lcd_width, regs->lcd_height, fps);
 
 end:
 	return regs->mode_update;
@@ -373,8 +401,8 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 	struct dsim_device *dsim = get_dsim_drvdata(0);
 	struct exynos_display_mode_info *mode_info = dsim->panel->lcd_info.display_mode;
 	struct decon_param p;
-	u32 idx;
-
+	u32 idx, old_xres, old_yres;
+	struct vrr_config_data vrr_info;
 
 	if (!decon->mres_enabled) {
 		DPU_DEBUG_MRES("multi-resolution feature is disabled\n");
@@ -406,6 +434,8 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 	decon_reg_wait_idle_status_timeout(decon->id, IDLE_WAIT_TIMEOUT);
 
 	/* backup current LCD resolution information to previous one */
+	old_xres = dsim->panel->lcd_info.xres;
+	old_yres = dsim->panel->lcd_info.yres;
 	dsim->panel->lcd_info.xres = regs->lcd_width;
 	dsim->panel->lcd_info.yres = regs->lcd_height;
 	dsim->panel->lcd_info.cur_mode_idx = regs->mode_idx;
@@ -416,8 +446,38 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 	dsim->panel->lcd_info.dsc.enc_sw = mode_info[idx].dsc_enc_sw;
 	dsim->panel->lcd_info.dsc.dec_sw = mode_info[idx].dsc_dec_sw;
 
+	/*
+	 * set vrr if new resolution & current fps is not available.
+	 */
+	if ((dpu_find_display_mode(decon, regs->lcd_width, regs->lcd_height,
+					decon->lcd_info->fps) < 0) &&
+		(dpu_find_display_mode(decon, old_xres, old_yres,
+					mode_info[idx].mode.fps) >= 0)) {
+		vrr_info.fps = mode_info[idx].mode.fps;
+		vrr_info.mode = dsim->panel->lcd_info.target_vrr_mode;
+		dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, &vrr_info);
+		DPU_INFO_MRES("set vrr(fps:%d mode:%d) before mres(%dx%d)\n",
+				vrr_info.fps, vrr_info.mode, regs->lcd_width, regs->lcd_height);
+	}
+
 	/* transfer LCD resolution change commands to panel */
 	dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_MRES, &regs->mode_idx);
+
+	/*
+	 * set vrr if current fps is different with new display mode's fps.
+	 */
+	if ((mode_info[idx].mode.fps != decon->lcd_info->fps) ||
+		(decon->lcd_info->vrr_mode !=
+		 dsim->panel->lcd_info.target_vrr_mode)) {
+		if (dpu_find_display_mode(decon, regs->lcd_width,
+				regs->lcd_height, mode_info[idx].mode.fps) >= 0) {
+			vrr_info.fps = mode_info[idx].mode.fps;
+			vrr_info.mode = dsim->panel->lcd_info.target_vrr_mode;
+			dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, &vrr_info);
+			DPU_INFO_MRES("set vrr(fps:%d mode:%d) after mres(%dx%d)\n",
+				vrr_info.fps, vrr_info.mode, regs->lcd_width, regs->lcd_height);
+		}
+	}
 
 	/* DECON and DSIM are reconfigured by changed LCD resolution */
 	dsim_reg_set_mres(dsim->id, &dsim->panel->lcd_info);
@@ -431,38 +491,25 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 			decon->lcd_info->xres, decon->lcd_info->yres,
 			dsim->panel->lcd_info.dsc.enc_sw,
 			dsim->panel->lcd_info.dsc.dec_sw);
-
 }
 
-
-void dpu_set_vrr_config(struct decon_device *decon, u32 request_fps)
+void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info)
 {
-	u32 fps = request_fps;
 	struct dsim_device *dsim = get_dsim_drvdata(0);
-	struct exynos_panel_info *lcd_info = decon->lcd_info;
-
-	if (fps == 0)
-		return;
-
-	if (fps == lcd_info->fps) {
-		decon_info("[VRR:INFO]:%s:request fps: %d, current: fps: %d\n",
-			__func__, fps, lcd_info->fps);
-		return;
-	}
 
 	if (decon->dt.out_type != DECON_OUT_DSI) {
 		DPU_DEBUG_MRES("vrr only support DSI path\n");
 		return;
 	}
 
-	decon_info("[VRR:INFO]:%s: set fps: %d, current fps : %d\n",
-		__func__, fps, lcd_info->fps);
+	if (IS_ERR_OR_NULL(dsim)) {
+		DPU_ERR_MRES("%s: dsim device ptr is invalid\n", __func__);
+		return;
+	}
 
 	/* transfer refresh change commands to panel */
-	dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VREFRESH, &fps);
-
+	dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, vrr_info);
 }
-
 
 #if !defined(CONFIG_EXYNOS_COMMON_PANEL)
 static int win_update_send_partial_command(struct dsim_device *dsim,

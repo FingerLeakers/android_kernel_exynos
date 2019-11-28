@@ -15,6 +15,7 @@
 #include "dsp-graph.h"
 #include "dsp-kernel.h"
 #include "hardware/dsp-mailbox.h"
+#include "hardware/dsp-dump.h"
 
 #include "dl/dsp-dl-engine.h"
 #include "dl/dsp-gpt-manager.h"
@@ -27,6 +28,9 @@
 
 #define DSP_DL_GKT_NAME			"dsp_gkt.xml"
 #define DSP_DL_RULE_NAME		"dsp_reloc_rules.bin"
+#define DSP_DL_LIB_LOG_NAME		"liblog.elf"
+#define DSP_DL_LIB_IVP_NAME		"libivp.elf"
+#define DSP_DL_COMMON_SIZE		(2)
 #define DSP_DL_GPT_OFFSET		(SZ_1K * 30)
 #define DSP_DL_GPT_SIZE			(SZ_1K * 2)
 
@@ -81,7 +85,7 @@ struct dsp_kernel *dsp_kernel_alloc(struct dsp_kernel_manager *kmgr,
 
 	if (!checked) {
 		new->ref_count = 1;
-		ret = dsp_binary_alloc_load(new->name, &new->elf);
+		ret = dsp_binary_alloc_load(new->name, NULL, NULL, &new->elf);
 		if (ret < 0) {
 			mutex_unlock(&kmgr->lock);
 			goto p_err_load;
@@ -154,7 +158,7 @@ int dsp_kernel_load(struct dsp_kernel_manager *kmgr,
 	if (ret.status) {
 		dsp_err("Failed to load kernel libraries(%u/%d)\n",
 				kernel_count, ret.status);
-		dsp_kernel_dump(kmgr);
+		dsp_dump_kernel(kmgr);
 		goto p_err;
 	}
 
@@ -203,20 +207,43 @@ static int __dsp_kernel_manager_dl_init(struct dsp_kernel_manager *kmgr)
 	dsp_enter();
 	pmem = kmgr->gmgr->core->dspdev->system.memory.priv_mem;
 	dl_param = &kmgr->dl_param;
+	dl_param->common_libs = vmalloc(sizeof(struct dsp_dl_lib_info) *
+			DSP_DL_COMMON_SIZE);
 
-	ret = dsp_binary_alloc_load(DSP_DL_GKT_NAME, &load);
+	if (!dl_param->common_libs)
+		return -1;
+
+	ret = dsp_binary_alloc_load(DSP_DL_GKT_NAME, NULL, NULL, &load);
 	if (ret < 0)
 		goto p_err;
 
 	dl_param->gkt.mem = load;
 	dl_param->gkt.size = ret;
 
-	ret = dsp_binary_alloc_load(DSP_DL_RULE_NAME, &load);
+	ret = dsp_binary_alloc_load(DSP_DL_RULE_NAME, NULL, NULL, &load);
 	if (ret < 0)
 		goto p_err_rule;
 
 	dl_param->rule.mem = load;
 	dl_param->rule.size = ret;
+
+	ret = dsp_binary_alloc_load(DSP_DL_LIB_LOG_NAME, NULL, NULL, &load);
+	if (ret < 0)
+		goto p_err_log;
+
+	dl_param->common_libs[0].name = DSP_DL_LIB_LOG_NAME;
+	dl_param->common_libs[0].file.mem = load;
+	dl_param->common_libs[0].file.size = ret;
+
+	ret = dsp_binary_alloc_load(DSP_DL_LIB_IVP_NAME, NULL, NULL, &load);
+	if (ret < 0)
+		goto p_err_ivp;
+
+	dl_param->common_libs[1].name = DSP_DL_LIB_IVP_NAME;
+	dl_param->common_libs[1].file.mem = load;
+	dl_param->common_libs[1].file.size = ret;
+
+	dl_param->common_size = DSP_DL_COMMON_SIZE;
 
 	dl_param->pm.addr = (unsigned long)pmem[DSP_PRIV_MEM_IVP_PM].kvaddr;
 	dl_param->pm.size = pmem[DSP_PRIV_MEM_IVP_PM].size;
@@ -236,10 +263,15 @@ static int __dsp_kernel_manager_dl_init(struct dsp_kernel_manager *kmgr)
 	dsp_leave();
 	return 0;
 p_err_init:
+	vfree(dl_param->common_libs[1].file.mem);
+p_err_ivp:
+	vfree(dl_param->common_libs[0].file.mem);
+p_err_log:
 	vfree(dl_param->rule.mem);
 p_err_rule:
 	vfree(dl_param->gkt.mem);
 p_err:
+	vfree(dl_param->common_libs);
 	return ret;
 }
 
@@ -278,6 +310,9 @@ static void __dsp_kernel_manager_dl_deinit(struct dsp_kernel_manager *kmgr)
 
 	vfree(kmgr->dl_param.rule.mem);
 	vfree(kmgr->dl_param.gkt.mem);
+	vfree(kmgr->dl_param.common_libs[0].file.mem);
+	vfree(kmgr->dl_param.common_libs[1].file.mem);
+	vfree(kmgr->dl_param.common_libs);
 	dsp_leave();
 }
 

@@ -30,6 +30,7 @@
 #include <linux/relay.h>
 #include <linux/slab.h>
 #include <linux/percpu-rwsem.h>
+#include <linux/sec_perf.h>
 
 #include <trace/events/power.h>
 #define CREATE_TRACE_POINTS
@@ -1477,6 +1478,14 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.name			= "sched:active",
 		.startup.single		= sched_cpu_activate,
 		.teardown.single	= sched_cpu_deactivate,
+	},
+#endif
+
+#ifdef CONFIG_SEC_PERF_LATENCYCHECKER
+	[CPUHP_AP_LATENYCHECKER_ONLINE] = {
+		.name			= "latenychecker:online",
+		.startup.single		= sec_perf_latencychecker_enable,
+		.teardown.single	= sec_perf_latencychecker_disable,
 	},
 #endif
 

@@ -39,6 +39,7 @@
 #define MFC_FW_SPU_BIN_PATH		"/spu/mfc/mfc_fw_flash_p9320.bin"
 
 #define MFC_CHIP_ID_P9320		0x20
+#define MFC_CHIP_ID_S2MIW04		0x04
 
 /* REGISTER MAPS */
 #define MFC_CHIP_ID_L_REG					0x00
@@ -154,17 +155,6 @@
 #define MFC_TX_MAX_OP_FREQ_H_REG			0xD7 /* default 0x01 */
 
 /* RX Mode Communication Modulation FET Ctrl */
-#if defined(CONFIG_MFC_LDO_COMMAND)
-#define MFC_MST_LDO_CONFIG_1				0x7400
-#define MFC_MST_LDO_CONFIG_2				0x7409
-#define MFC_MST_LDO_CONFIG_3				0x7418
-#define MFC_MST_LDO_CONFIG_4				0x3014
-#define MFC_MST_LDO_CONFIG_5				0x3405
-#define MFC_MST_LDO_CONFIG_6				0x3010
-#define MFC_MST_LDO_TURN_ON				0x301c
-#define MFC_MST_LDO_CONFIG_8				0x343c
-#define MFC_MST_OVER_TEMP_INT				0x0024
-#endif
 #define MFC_MST_MODE_SEL_REG				0x69
 #define MFC_RX_OV_CLAMP_REG					0x6A
 #define MFC_RX_COMM_MOD_AFC_FET_REG			0x37
@@ -334,6 +324,10 @@
 #define TX_ID_DREAM_STAND			0x31
 #define TX_ID_DREAM_DOWN			0x14
 #define TX_ID_UNO_TX				0x72
+#define TX_ID_UNO_TX_B0				0x80
+#define TX_ID_UNO_TX_B1				0x81
+#define TX_ID_UNO_TX_B2				0x82
+#define TX_ID_UNO_TX_MAX			0x9F
 
 #define TX_ID_AUTH_PAD				0xA0
 #define TX_ID_DAVINCI_PAD_V			0xA1
@@ -1088,15 +1082,14 @@ struct mfc_charger_data {
 	struct delayed_work	wpc_isr_work;
 	struct delayed_work	wpc_tx_isr_work;
 	struct delayed_work	wpc_tx_id_work;
-	struct delayed_work mst_off_work;
 	struct delayed_work	wpc_int_req_work;
 	struct delayed_work	wpc_fw_update_work;
 	struct delayed_work	wpc_afc_vout_work;
 	struct delayed_work	wpc_fw_booting_work;
 	struct delayed_work	wpc_vout_mode_work;
-	struct delayed_work	wpc_cm_fet_work;
 	struct delayed_work wpc_i2c_error_work;
-	struct delayed_work	wpc_rx_det_work;
+	struct delayed_work	wpc_rx_type_det_work;
+	struct delayed_work	wpc_rx_connection_work;
 	struct delayed_work wpc_tx_op_freq_work;
 	struct delayed_work wpc_tx_phm_work;
 	struct delayed_work wpc_vrect_check_work;

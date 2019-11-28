@@ -180,6 +180,15 @@ struct dbg_snapshot_log {
 		unsigned long target_freq;
 		int en;
 	} freq[DSS_LOG_MAX_NUM];
+	struct __freq_misc_log {
+		unsigned long long time;
+		int cpu;
+		int freq_type;
+		char *freq_name;
+		unsigned long old_freq;
+		unsigned long target_freq;
+		int en;
+	} freq_misc[DSS_LOG_MAX_NUM];
 	struct __dm_log {
 		unsigned long long time;
 		int cpu;

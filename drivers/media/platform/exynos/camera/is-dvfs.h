@@ -59,6 +59,13 @@
 #define SIZE_12MP_UHD_BDS (4032 * 3024)
 #define SIZE_8MP_FHD_BDS (2176 * 1632)
 #define SIZE_8MP_QHD_BDS (3264 * 1836)
+#define SIZE_17MP_FHD_BDS (2432 * 1824)
+#define SIZE_17MP (4864 * 3648)
+
+extern int debug_dvfs;
+
+#define dbg_dvfs(level, fmt, device, args...) \
+	dbg_common((debug_dvfs) >= (level), "[%d]", fmt, device->instance, ##args)
 
 struct is_dvfs_dt_t {
 	const char *parse_scenario_nm;	/* string for parsing from DTS */

@@ -37,7 +37,8 @@ struct is_vb2_buf_ops {
 struct is_vb2_buf {
 	struct vb2_v4l2_buffer		vb;
 	unsigned int			num_merged_dbufs;
-	struct dma_buf			*dbuf[IS_MAX_PLANES];
+	struct dma_buf			*dbuf[IS_MAX_PLANES]; /* normal buffer */
+	struct dma_buf			*dbuf_bufcon[IS_MAX_PLANES]; /* buffer container */
 	struct dma_buf_attachment	*atch[IS_MAX_PLANES];
 	struct sg_table			*sgt[IS_MAX_PLANES];
 

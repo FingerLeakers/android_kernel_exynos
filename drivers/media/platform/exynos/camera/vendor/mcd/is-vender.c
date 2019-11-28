@@ -427,23 +427,18 @@ int is_vendor_verify_mipi_channel(const struct cam_mipi_channel *channel_list, c
 
 void is_vendor_csi_stream_on(struct is_device_csi *csi)
 {
-#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
-	struct is_core *core = NULL;
-	struct ois_mcu_dev *mcu;
-#endif
-
-#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+#if defined(USE_CAMERA_MIPI_CLOCK_VARIATION)
+	struct is_cis *cis = NULL;
 	struct is_device_sensor *device = NULL;
 	struct is_module_enum *module = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct is_cis *cis = NULL;
 	int ret;
 
 	device = container_of(csi->subdev, struct is_device_sensor, subdev_csi);
 	if (device == NULL) {
 		warn("device is null");
 		return;
-	};
+	}
 
 	ret = is_sensor_g_module(device, &module);
 	if (ret) {
@@ -455,7 +450,7 @@ void is_vendor_csi_stream_on(struct is_device_csi *csi)
 	if (sensor_peri == NULL) {
 		warn("sensor_peri is null");
 		return;
-	};
+	}
 
 	if (sensor_peri->subdev_cis) {
 		cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
@@ -466,28 +461,10 @@ void is_vendor_csi_stream_on(struct is_device_csi *csi)
 #ifdef USE_CAMERA_HW_BIG_DATA
 	mipi_err_check = false;
 #endif
-
-#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
-	core = (struct is_core *)dev_get_drvdata(is_dev);
-
-	mcu = core->mcu;
-	if (mcu)
-		ois_mcu_core_ctrl(mcu, 0x1);
-#endif
 }
 
 void is_vendor_csi_stream_off(struct is_device_csi *csi)
 {
-#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
-	struct is_core *core;
-	struct ois_mcu_dev *mcu;
-
-	core = (struct is_core *)dev_get_drvdata(is_dev);
-	mcu = core->mcu;
-
-	if (mcu)
-		ois_mcu_core_ctrl(mcu, 0x0);
-#endif
 }
 
 void is_vender_csi_err_handler(struct is_device_csi *csi)
@@ -639,6 +616,7 @@ int is_vender_dt(struct device_node *np)
 	struct device_node *camInfo_np;
 	struct is_cam_info *camera_infos;
 	struct is_common_cam_info *common_camera_infos = NULL;
+	struct is_common_mcu_info *common_mcu_infos = NULL;
 	char camInfo_string[15];
 	int camera_num;
 	int max_camera_num;
@@ -752,6 +730,14 @@ int is_vender_dt(struct device_node *np)
 		common_camera_infos->supported_camera_ids, common_camera_infos->max_supported_camera);
 	if (ret) {
 		probe_err("supported_cameraId read is fail(%d)", ret);
+	}
+
+	is_get_common_mcu_info(&common_mcu_infos);
+
+	ret = of_property_read_u32_array(np, "ois_gyro_list",
+		common_mcu_infos->ois_gyro_direction, 5);
+	if (ret) {
+		probe_err("ois_gyro_list read is fail(%d)", ret);
 	}
 
 	return ret;
@@ -1002,6 +988,9 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave1_size", finfo->rom_dualcal_slave1_size, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave2_start_addr", finfo->rom_dualcal_slave2_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave2_size", finfo->rom_dualcal_slave2_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_start_addr", finfo->rom_pdxtc_cal_data_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_coef_size", finfo->rom_pdxtc_cal_data_coef_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_val_size", finfo->rom_pdxtc_cal_data_val_size, -1);
 
 	tof_cal_size_list_spec = of_get_property(dnode, "rom_tof_cal_size_addr", &finfo->rom_tof_cal_size_addr_len);
 	if (tof_cal_size_list_spec) {
@@ -2144,42 +2133,96 @@ int is_vender_ssx_video_g_ctrl(struct v4l2_control *ctrl,
 	return 0;
 }
 
-void is_vender_resource_get(struct is_vender *vender)
+bool is_vender_check_resource_type(u32 rsc_type)
 {
-#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
-	struct is_core *core = NULL;
-	struct ois_mcu_dev *mcu = NULL;
-
-	core = (struct is_core *)dev_get_drvdata(is_dev);
-	if (!core->mcu)
-		return;
-
-	mcu = core->mcu;
-	ois_mcu_power_ctrl(mcu, 0x1);
-
-	ois_mcu_load_binary(mcu);
-#endif
-	info("%s: done\n", __func__);
+	if (rsc_type == RESOURCE_TYPE_SENSOR0 || rsc_type == RESOURCE_TYPE_SENSOR2)
+		return true;
+	else
+		return false;
 }
 
-void is_vender_resource_put(struct is_vender *vender)
+int acquire_shared_rsc(struct ois_mcu_dev *mcu)
+{
+	return atomic_inc_return(&mcu->shared_rsc_count);
+}
+
+int release_shared_rsc(struct ois_mcu_dev *mcu)
+{
+	return atomic_dec_return(&mcu->shared_rsc_count);
+}
+
+void is_vender_mcu_power_on(bool use_shared_rsc)
 {
 #if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
 	struct is_core *core = NULL;
 	struct ois_mcu_dev *mcu = NULL;
+	int active_count = 0;
 
 	core = (struct is_core *)dev_get_drvdata(is_dev);
 	if (!core->mcu)
 		return;
 
 	mcu = core->mcu;
+
+	if (use_shared_rsc) {
+		active_count = acquire_shared_rsc(mcu);
+		if (active_count != MCU_SHARED_SRC_ON_COUNT) {
+			info_mcu("%s: mcu is already on. active count = %d\n", __func__, active_count);
+			return;
+		}
+	}
+
+	ois_mcu_power_ctrl(mcu, 0x1);
+	ois_mcu_load_binary(mcu);
+	ois_mcu_core_ctrl(mcu, 0x1);
+	if (!use_shared_rsc)
+		ois_mcu_device_ctrl(mcu);
+
+	info_mcu("%s: mcu on.\n", __func__);
+#endif
+}
+
+void is_vender_mcu_power_off(bool use_shared_rsc)
+{
+#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU)
+	struct is_core *core = NULL;
+	struct ois_mcu_dev *mcu = NULL;
+	int active_count = 0;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core->mcu)
+		return;
+
+	mcu = core->mcu;
+
+	if (use_shared_rsc) {
+		active_count = release_shared_rsc(mcu);
+		if (active_count != MCU_SHARED_SRC_OFF_COUNT) {
+			info_mcu("%s: mcu is still on use. active count = %d\n", __func__, active_count);
+			return;
+		}
+	}
+
 #if 0 //For debug
 	ois_mcu_dump(mcu, 0);
 	ois_mcu_dump(mcu, 1);
 #endif
+	ois_mcu_core_ctrl(mcu, 0x0);
 	ois_mcu_power_ctrl(mcu, 0x0);
+	info_mcu("%s: mcu off.\n", __func__);
 #endif
-	info("%s: done\n", __func__);
+}
+
+void is_vender_resource_get(struct is_vender *vender, u32 rsc_type)
+{
+	if (is_vender_check_resource_type(rsc_type))
+		is_vender_mcu_power_on(true);
+}
+
+void is_vender_resource_put(struct is_vender *vender, u32 rsc_type)
+{
+	if (is_vender_check_resource_type(rsc_type))
+		is_vender_mcu_power_off(true);
 }
 
 static noinline_for_stack long __get_file_size(struct file *file)
@@ -2250,11 +2293,15 @@ p_err:
 
 bool is_vender_wdr_mode_on(void *cis_data)
 {
-#if defined(CONFIG_CAMERA_PDP)
+	if (is_vender_aeb_mode_on(cis_data))
+		return false;
+
 	return (((cis_shared_data *)cis_data)->is_data.wdr_mode != CAMERA_WDR_OFF ? true : false);
-#else
-	return false;
-#endif
+}
+
+bool is_vender_aeb_mode_on(void *cis_data)
+{
+	return (((cis_shared_data *)cis_data)->is_data.sensor_hdr_mode == SENSOR_HDR_MODE_2AEB ? true : false);
 }
 
 bool is_vender_enable_wdr(void *cis_data)

@@ -30,17 +30,11 @@
 #define CS_READQ(base, offset)		__raw_readq(base + offset)
 #define CS_WRITE(val, base, offset)	__raw_writel(val, base + offset)
 
-#define SYS_READ(reg, val)	asm volatile("mrs %0, " #reg : "=r" (val))
-#define SYS_WRITE(reg, val)	asm volatile("msr " #reg ", %0" :: "r" (val))
-
 #define DBG_UNLOCK(base)	\
 	do { isb(); __raw_writel(OSLOCK_MAGIC, base + DBGLAR); }while(0)
 #define DBG_LOCK(base)		\
 	do { __raw_writel(0x1, base + DBGLAR); isb(); }while(0)
 
-#define DBG_REG_MAX_SIZE	(8)
-#define DBG_BW_REG_MAX_SIZE	(30)
-#define OS_LOCK_FLAG		(DBG_REG_MAX_SIZE - 1)
 #define ITERATION		CONFIG_PC_ITERATION
 #define CORE_CNT		CONFIG_NR_CPUS
 #define MAX_CPU			(8)
@@ -65,8 +59,7 @@ struct cs_core_state {
 	raw_spinlock_t		lock;
 };
 
-static DEFINE_PER_CPU(struct cs_core_state, cs_core_state) =
-{
+static DEFINE_PER_CPU(struct cs_core_state, cs_core_state) = {
 	.lock = __RAW_SPIN_LOCK_UNLOCKED(cs_core_state.lock),
 };
 
@@ -106,14 +99,35 @@ static inline void dbg_os_unlock(void __iomem *base)
 	}
 }
 
-static inline bool is_power_up(int cpu)
+static bool is_accessiable_pcsr(int cpu)
 {
-	return CS_READ(dbg.cpu[cpu].base, DBGPRSR) & POWER_UP;
+	u32 prsr = CS_READ(dbg.cpu[cpu].base, DBGPRSR);
+
+	if ((prsr & (POWER_UP | RESET_STATE)) != POWER_UP) {
+		dev_emerg(dbg.dev, "Power %s, %sreset_state",
+				(prsr & POWER_UP) ? "up" : "down",
+				(prsr & RESET_STATE) ? "" : "not ");
+
+		return false;
+	}
+
+	return true;
 }
 
-static inline bool is_reset_state(int cpu)
+static bool is_os_unlocked(int cpu)
 {
-	return CS_READ(dbg.cpu[cpu].base, DBGPRSR) & RESET_STATE;
+	u32 prsr = CS_READ(dbg.cpu[cpu].base, DBGPRSR);
+
+	if ((prsr & (POWER_UP | RESET_STATE | OS_LOCK)) != POWER_UP) {
+		dev_emerg(dbg.dev, "Power %s, %sreset_state, OS %slocked",
+				(prsr & POWER_UP) ? "up" : "down",
+				(prsr & RESET_STATE) ? "" : "not ",
+				(prsr & OS_LOCK) ? "" : "un");
+
+		return false;
+	}
+
+	return true;
 }
 
 struct exynos_cs_pcsr {
@@ -144,24 +158,20 @@ static int exynos_cs_get_pc(int cpu, int iter)
 	if (!base)
 		return -ENOMEM;
 
-	if (!is_power_up(cpu)) {
-		dev_err(dbg.dev, "Power down!\n");
+	if (!is_accessiable_pcsr(cpu))
 		return -EACCES;
-	}
 
-	if (is_reset_state(cpu)) {
-		dev_err(dbg.dev, "Power on but reset state!\n");
+	DBG_UNLOCK(base);
+	dbg_os_unlock(base);
+
+	if (!is_os_unlocked(cpu))
 		return -EACCES;
-	}
 
 	switch (exynos_cs_get_cpu_part_num(cpu)) {
 	case ARM_CPU_PART_MONGOOSE:
 	case ARM_CPU_PART_MEERKAT:
 	case ARM_CPU_PART_CORTEX_A53:
 	case ARM_CPU_PART_CORTEX_A57:
-		DBG_UNLOCK(base);
-		dbg_os_unlock(base);
-
 		val = CS_READ(base, DBGPCSRlo);
 		valHi = CS_READ(base, DBGPCSRhi);
 
@@ -170,17 +180,12 @@ static int exynos_cs_get_pc(int cpu, int iter)
 			val -= 0x8;
 		if (MSB_MASKING == (MSB_MASKING & val))
 			val |= MSB_PADDING;
-
-		dbg_os_lock(base);
-		DBG_LOCK(base);
 		break;
 	case ARM_CPU_PART_ANANKE:
 	case ARM_CPU_PART_CORTEX_A75:
 	case ARM_CPU_PART_CORTEX_A76:
 	case ARM_CPU_PART_CHEETAH:
 	case ARM_CPU_PART_LION:
-		DBG_UNLOCK(base);
-		dbg_os_unlock(base);
 		DBG_UNLOCK(base + PMU_OFFSET);
 
 		val = CS_READQ(base + PMU_OFFSET, PMUPCSR);
@@ -336,16 +341,16 @@ unsigned long exynos_cs_read_pc(int cpu)
 	raw_spin_lock_irqsave(&state->lock, flags);
 	if (cpu_is_offline(cpu) || !exynos_cpu.power_state(cpu) ||
 					state->is_hp_out || state->is_c2) {
-		dev_emerg(dbg.dev, "%s: cpu%d is turned off : "
+		dev_emerg(dbg.dev, "cpu%d is turned off : "
 			"c2:[%x], hot-plug out:[%x], power:[%x] ,offline:[%ld]\n",
-			__func__, cpu, state->is_c2, state->is_hp_out,
+			cpu, state->is_c2, state->is_hp_out,
 			exynos_cpu.power_state(cpu), cpu_is_offline(cpu));
 		target_cpu_pc = 0;
 	} else {
-		dev_emerg(dbg.dev, "%s: cpu%d is power on\n", __func__, cpu);
+		dev_emerg(dbg.dev, "cpu%d is power on\n", cpu);
 		exynos_cs_get_pc(cpu, 1);
 		target_cpu_pc = exynos_cs_pc[cpu][1].pc;
-		dev_emerg(dbg.dev, "%s: cpu%d PC = [0x%lx]\n", __func__, cpu, target_cpu_pc);
+		dev_emerg(dbg.dev, "cpu%d PC = [0x%lx]\n", cpu, target_cpu_pc);
 	}
 	raw_spin_unlock_irqrestore(&state->lock, flags);
 
@@ -440,29 +445,13 @@ static const struct of_device_id of_exynos_cs_matches[] __initconst= {
 static int exynos_cs_init_dt(void)
 {
 	struct device_node *np = NULL;
-	unsigned int offset, sj_offset, val, cs_reg_base;
+	unsigned int offset, cs_reg_base;
 	int ret = 0, i = 0;
-	void __iomem *sj_base;
 
 	np = of_find_matching_node(NULL, of_exynos_cs_matches);
 
 	if (of_property_read_u32(np, "base", &cs_reg_base))
 		return -EINVAL;
-
-	if (of_property_read_u32(np, "sj-offset", &sj_offset))
-		sj_offset = CS_SJTAG_OFFSET;
-
-	sj_base = ioremap(cs_reg_base + sj_offset, SZ_8);
-	if (!sj_base) {
-		dev_err(dbg.dev, "%s: Failed ioremap sj-offset.\n", __func__);
-		return -ENOMEM;
-	}
-
-	val = __raw_readl(sj_base + SJTAG_STATUS);
-	iounmap(sj_base);
-
-	if (val & SJTAG_SOFT_LOCK)
-		return -EIO;
 
 	if (dbg_snapshot_get_sjtag_status() == true)
 		return -EIO;

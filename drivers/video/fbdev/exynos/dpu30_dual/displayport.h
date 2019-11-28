@@ -28,6 +28,9 @@
 #include <linux/usb/typec/common/pdic_notifier.h>
 #endif
 #include <linux/dp_logger.h>
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
 
 #if defined(CONFIG_SOC_EXYNOS9810)
 #include "./cal_9810/regs-displayport.h"

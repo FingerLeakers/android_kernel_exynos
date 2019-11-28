@@ -23,6 +23,7 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	int ret = 0;
 	struct votf_info vinfo;
 	struct votf_service_cfg cfg;
+	struct votf_lost_cfg lost_cfg;
 
 	memset(&vinfo, 0, sizeof(struct votf_info));
 	memset(&cfg, 0, sizeof(struct votf_service_cfg));
@@ -36,7 +37,7 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	cfg.limit = 0x14;
 	cfg.width = width;
 	cfg.height = height;
-	cfg.token_size = 0x1;
+	cfg.token_size = 0x1F;
 	cfg.connected_ip = dst_ip;
 	cfg.connected_id = dst_id;
 	cfg.option = change << VOTF_OPTION_BIT_CHANGE;
@@ -58,7 +59,7 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	cfg.limit = 0x14;
 	cfg.width = width;
 	cfg.height = height;
-	cfg.token_size = 0x1;
+	cfg.token_size = 0x1F;
 	cfg.connected_ip = src_ip;
 	cfg.connected_id = src_id;
 	cfg.option = change << VOTF_OPTION_BIT_CHANGE;
@@ -67,6 +68,18 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	if (ret < 0) {
 		ret = -EINVAL;
 		err("votfitf_set_service_cfg for TRS is fail (src(%d, %d), dst(%d, %d))",
+			src_ip, src_id, dst_ip, dst_id);
+		return ret;
+	}
+
+	memset(&lost_cfg, 0, sizeof(struct votf_lost_cfg));
+
+	lost_cfg.recover_enable = 0x1;
+	lost_cfg.flush_enable = 0x1;
+	ret = votfitf_set_trs_lost_cfg(&vinfo, &lost_cfg);
+	if (ret < 0) {
+		ret = -EINVAL;
+		err("votfitf_set_trs_lost_cfg is fail (src(%d, %d), dst(%d, %d))",
 			src_ip, src_id, dst_ip, dst_id);
 		return ret;
 	}
@@ -208,7 +221,14 @@ int is_votf_create_link(struct is_group *group, u32 width, u32 height)
 		 * because CSIS WDMA is not matched with sensor group id.
 		 */
 		sensor = src_gr->sensor;
-		dma_ch = src_sd->dma_ch[SCM_WO_PAF_HW];
+
+		sensor_cfg = sensor->cfg;
+		if (!sensor_cfg) {
+			mgerr("failed to get sensor_cfg", group, group);
+			return -EINVAL;
+		}
+
+		dma_ch = src_sd->dma_ch[sensor_cfg->scm];
 		src_gr_id = GROUP_ID_SS0 + dma_ch;
 	} else {
 		src_gr_id = src_gr->id;
@@ -237,12 +257,6 @@ int is_votf_create_link(struct is_group *group, u32 width, u32 height)
 		if (!device) {
 			mgerr("failed to get devcie", group, group);
 			return -ENODEV;
-		}
-
-		sensor_cfg = sensor->cfg;
-		if (!sensor_cfg) {
-			mgerr("failed to get sensor_cfg", group, group);
-			return -EINVAL;
 		}
 
 		pd_mode = sensor_cfg->pd_mode;
@@ -301,27 +315,12 @@ int is_votf_destroy_link(struct is_group *group)
 	FIMC_BUG(!group->prev);
 	FIMC_BUG(!group->prev->junction);
 
-	ret = is_votf_flush(group);
-	if (ret)
-		mgerr("is_votf_flush is fail(%d)", group, group, ret);
-
 	src_gr = group->prev;
 	src_sd = group->prev->junction;
 
 	if (src_gr->device_type == IS_DEVICE_SENSOR) {
-		/*
-		 * The sensor group id should be re calculated,
-		 * because CSIS WDMA is not matched with sensor group id.
-		 */
 		sensor = src_gr->sensor;
-	}
 
-	mginfo(" VOTF destroy link(TWS[%s:%s]-TRS[%s:%s])\n",
-		group, group,
-		group_id_name[src_gr->id], src_sd->name,
-		group_id_name[group->id], group->leader.name);
-
-	if (src_gr->device_type == IS_DEVICE_SENSOR) {
 		device = group->device;
 		if (!device) {
 			mgerr("failed to get devcie", group, group);
@@ -349,6 +348,22 @@ int is_votf_destroy_link(struct is_group *group)
 			clear_bit(IS_SUBDEV_INTERNAL_USE, &subdev_pdaf->state);
 		}
 	}
+
+	if (group->id >= GROUP_ID_MAX) {
+		mgerr("group ID is invalid(%d)", group, group);
+
+		/* Do not access C2SERV after power off */
+		return 0;
+	}
+
+	ret = is_votf_flush(group);
+	if (ret)
+		mgerr("is_votf_flush is fail(%d)", group, group, ret);
+
+	mginfo(" VOTF destroy link(TWS[%s:%s]-TRS[%s:%s])\n",
+		group, group,
+		group_id_name[src_gr->id], src_sd->name,
+		group_id_name[group->id], group->leader.name);
 
 p_err:
 	/*
@@ -388,7 +403,14 @@ int is_votf_change_link(struct is_group *group)
 		 * because CSIS WDMA is not matched with sensor group id.
 		 */
 		sensor = src_gr->sensor;
-		dma_ch = src_sd->dma_ch[SCM_WO_PAF_HW];
+
+		sensor_cfg = sensor->cfg;
+		if (!sensor_cfg) {
+			mgerr("failed to get sensor_cfg", group, group);
+			return -EINVAL;
+		}
+
+		dma_ch = src_sd->dma_ch[sensor_cfg->scm];
 		src_gr_id = GROUP_ID_SS0 + dma_ch;
 	} else {
 		src_gr_id = src_gr->id;
@@ -413,12 +435,6 @@ int is_votf_change_link(struct is_group *group)
 		return ret;
 
 	if (src_gr->device_type == IS_DEVICE_SENSOR) {
-		sensor_cfg = sensor->cfg;
-		if (!sensor_cfg) {
-			mgerr("failed to get sensor_cfg", group, group);
-			return -EINVAL;
-		}
-
 		pd_mode = sensor_cfg->pd_mode;
 
 		if (pd_mode == PD_MOD3) {

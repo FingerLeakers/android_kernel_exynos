@@ -98,6 +98,11 @@ int debug_pdp;
 module_param(debug_pdp, int, 0644);
 int debug_pafstat;
 module_param(debug_pafstat, int, 0644);
+int debug_s2d;
+module_param(debug_s2d, int, 0644);
+int debug_dvfs;
+module_param(debug_dvfs, int, 0644);
+
 
 struct is_device_sensor *is_get_sensor_device(struct is_core *core)
 {

@@ -86,6 +86,14 @@
 #define WPS_ATTR_REQ_TYPE 0x103a
 #define WPS_REQ_TYPE_ENROLLEE 0x01
 
+#if defined(WL_CFG80211_P2P_DEV_IF)
+#define CFG80211_READY_ON_CHANNEL(cfgdev, cookie, channel, channel_type, duration, flags) \
+	cfg80211_ready_on_channel(cfgdev, cookie, channel, duration, GFP_KERNEL);
+#else
+#define CFG80211_READY_ON_CHANNEL(cfgdev, cookie, channel, channel_type, duration, flags) \
+	cfg80211_ready_on_channel(cfgdev, cookie, channel, channel_type, duration, GFP_KERNEL);
+#endif /* WL_CFG80211_P2P_DEV_IF */
+
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
 #define FIRST_SCAN_ACTIVE_DWELL_TIME_MS 40
 bool g_first_broadcast_scan = TRUE;
@@ -808,7 +816,7 @@ wl_retrieve_wps_attribute(const u8 *buf, u16 element_id)
 	return wl_find_attribute(attrib, len, element_id);
 }
 
-static bool
+bool
 wl_is_wps_enrollee_active(struct net_device *ndev, const u8 *ie_ptr, u16 len)
 {
 	const u8 *ie;
@@ -925,6 +933,35 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 }
 #endif /* WL_SCAN_TYPE */
 
+chanspec_t wl_freq_to_chanspec(int freq)
+{
+	chanspec_t chanspec = 0;
+
+	/* see 802.11 17.3.8.3.2 and Annex J */
+	if (freq == 2484) {
+		chanspec = 14;
+		chanspec |= WL_CHANSPEC_BAND_2G;
+	} else if (freq < 2484) {
+		chanspec = (freq - 2407) / 5;
+		chanspec |= WL_CHANSPEC_BAND_2G;
+	} else if (freq >= 4910 && freq <= 4980) {
+		chanspec = (freq - 4000) / 5;
+		chanspec |= WL_CHANSPEC_BAND_5G;
+	} else if (freq < 5940) {
+		chanspec = (freq - 5000) / 5;
+		chanspec |= WL_CHANSPEC_BAND_5G;
+	} else {
+		WL_ERR(("Invalid frequency \n"));
+		return INVCHANSPEC;
+	}
+
+	/* Get the min_bw set for the interface */
+	chanspec |= WL_CHANSPEC_BW_20;
+	chanspec |= WL_CHANSPEC_CTL_SB_NONE;
+
+	return chanspec;
+}
+
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0))
 #define IS_RADAR_CHAN(flags) (flags & (IEEE80211_CHAN_RADAR | IEEE80211_CHAN_PASSIVE_SCAN))
 #else
@@ -936,7 +973,6 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	u16 *channel_list, u32 *num_channels, bool use_chanspecs, bool skip_dfs)
 {
 	u32 i = 0, j = 0;
-	u32 channel;
 	u32 chanspec = 0;
 	struct wireless_dev *wdev;
 
@@ -959,8 +995,7 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 				continue;
 			}
 
-			channel = ieee80211_frequency_to_channel(channels[i]->center_freq);
-			chanspec = WL_CHANSPEC_BW_20;
+			chanspec = wl_freq_to_chanspec(channels[i]->center_freq);
 			if (chanspec == INVCHANSPEC) {
 				WL_ERR(("Invalid chanspec! Skipping channel\n"));
 				continue;
@@ -972,37 +1007,29 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 				continue;
 			}
 #endif /* LINUX_VER >= 3.6 */
-
-			if (channels[i]->band == IEEE80211_BAND_2GHZ) {
 #ifdef WL_HOST_BAND_MGMT
-				if (cfg->curr_band == WLC_BAND_5G) {
+			if (channels[i]->band == IEEE80211_BAND_2GHZ) {
+				if ((cfg->curr_band == WLC_BAND_5G) ||
+					(cfg->curr_band == WLC_BAND_6G)) {
 					WL_DBG(("In 5G only mode, omit 2G channel:%d\n", channel));
 					continue;
 				}
-#endif /* WL_HOST_BAND_MGMT */
-				chanspec |= WL_CHANSPEC_BAND_2G;
 			} else {
-#ifdef WL_HOST_BAND_MGMT
 				if (cfg->curr_band == WLC_BAND_2G) {
 					WL_DBG(("In 2G only mode, omit 5G channel:%d\n", channel));
 					continue;
 				}
-#endif /* WL_HOST_BAND_MGMT */
-				chanspec |= WL_CHANSPEC_BAND_5G;
 			}
+#endif /* WL_HOST_BAND_MGMT */
 
 			if (use_chanspecs) {
-				channel_list[j] = channel;
-				channel_list[j] &= WL_CHANSPEC_CHAN_MASK;
-				channel_list[j] |= chanspec;
-				channel_list[j] = wl_chspec_host_to_driver(channel_list[j]);
+				channel_list[j] = chanspec;
 			} else {
-				channel_list[j] = dtoh16(channel);
+				channel_list[j] = CHSPEC_CHANNEL(chanspec);
 			}
-			WL_SCAN(("Channel : %d, Channel spec: %x \n",
-				channel, channel_list[j]));
+			WL_SCAN(("Channel/Chanspec: %x \n", channel_list[j]));
 			j++;
-			if (j == WL_NUMCHANNELS) {
+			if (j == WL_NUMCHANSPECS) {
 				/* max limit */
 				break;
 			}
@@ -1143,7 +1170,7 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 			wl_cfgscan_populate_scan_channels(cfg,
 					request->channels, request->n_channels,
 					chan_list, &n_channels, true, false);
-			cur_offset += (n_channels * (sizeof(u16)));
+			cur_offset += (uint32)(n_channels * (sizeof(u16)));
 		}
 	}
 
@@ -1178,7 +1205,7 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 		}
 	}
 
-	WL_INFORM(("scan_prep done. n_channels:%d n_ssids:%d\n", n_channels, n_ssids));
+	WL_DBG(("scan_prep done. n_channels:%d n_ssids:%d\n", n_channels, n_ssids));
 	return BCME_OK;
 }
 
@@ -1200,6 +1227,64 @@ wl_get_valid_channels(struct net_device *ndev, u8 *valid_chan_list, s32 size)
 
 	return err;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
+	defined(SUPPORT_RANDOM_MAC_SCAN)
+static s32
+wl_config_scan_macaddr(struct bcm_cfg80211 *cfg,
+		struct net_device *ndev, bool randmac_enable, u8 *mac_addr, u8 *mac_addr_mask)
+{
+	s32 err = BCME_OK;
+
+	if (randmac_enable) {
+		if (!cfg->scanmac_enabled) {
+			err = wl_cfg80211_scan_mac_enable(ndev);
+			if (unlikely(err)) {
+				goto exit;
+			}
+			WL_DBG(("randmac enabled\n"));
+		}
+
+#ifdef WL_HOST_RANDMAC_CONFIG
+		/* If mask provided, apply user space configuration */
+		if (!mac_addr_mask && !mac_addr && !ETHER_ISNULLADDR(mac_addr_mask)) {
+			err = wl_cfg80211_scan_mac_config(ndev,
+				mac_addr, mac_addr_mask);
+			if (unlikely(err)) {
+				WL_ERR(("scan mac config failed\n"));
+				goto exit;
+			}
+		}
+#endif /* WL_HOST_RANDMAC_CONFIG */
+		if (cfg->scanmac_config) {
+			/* Use default scanmac configuration */
+			WL_DBG(("Use host provided scanmac config\n"));
+		} else {
+			WL_DBG(("Use fw default scanmac config\n"));
+		}
+	} else if (!randmac_enable && cfg->scanmac_enabled) {
+		WL_DBG(("randmac disabled\n"));
+		err = wl_cfg80211_scan_mac_disable(ndev);
+	} else {
+		WL_DBG(("no change in randmac configuration\n"));
+	}
+
+exit:
+	if (err < 0) {
+		if (err == BCME_UNSUPPORTED) {
+			/* Ignore if chip doesnt support the feature */
+			err = BCME_OK;
+		} else {
+			/* For errors other than unsupported fail the scan */
+			WL_ERR(("%s : failed to configure random mac for host scan, %d\n",
+				__FUNCTION__, err));
+			err = -EAGAIN;
+		}
+	}
+
+	return err;
+}
+#endif /* LINUX VER > 3.19 && SUPPORT_RANDOM_MAC_SCAN */
 
 static s32
 wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
@@ -1245,32 +1330,19 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		params_size = (WL_SCAN_PARAMS_FIXED_SIZE + OFFSETOF(wl_escan_params_t, params));
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
-	defined(SUPPORT_RANDOM_MAC_SCAN) && !defined(WL_USE_RANDOMIZED_SCAN)
-	if ((request != NULL) && !ETHER_ISNULLADDR(request->mac_addr) &&
-		!ETHER_ISNULLADDR(request->mac_addr_mask) &&
-		!wl_is_wps_enrollee_active(ndev, request->ie, request->ie_len)) {
-		/* Call scanmac only for valid configuration */
-		err = wl_cfg80211_scan_mac_enable(ndev, request->mac_addr,
-			request->mac_addr_mask);
-		if (err < 0) {
-			if (err == BCME_UNSUPPORTED) {
-				/* Ignore if chip doesnt support the feature */
-				err = BCME_OK;
-			} else {
-				/* For errors other than unsupported fail the scan */
-				WL_ERR(("%s : failed to set random mac for host scan, %d\n",
-					__FUNCTION__, err));
-				err = -EAGAIN;
-				goto exit;
-			}
-		}
-	}
-#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0) && defined(SUPPORT_RANDOM_MAC_SCAN) */
-
 	if (!cfg->p2p_supported || !p2p_scan(cfg)) {
 		/* LEGACY SCAN TRIGGER */
 		WL_SCAN((" LEGACY E-SCAN START\n"));
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
+	defined(SUPPORT_RANDOM_MAC_SCAN)
+		if ((err = wl_config_scan_macaddr(cfg, ndev,
+			(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR),
+			request->mac_addr, request->mac_addr_mask)) != BCME_OK) {
+			WL_ERR(("scanmac addr config failed\n"));
+			goto exit;
+		}
+#endif /* KERNEL_VER >= 3.19 && SUPPORT_RANDOM_MAC_SCAN */
 
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
 		/* XXX see RB:6008: request maybe empty and zero. */
@@ -2747,35 +2819,14 @@ wl_cfg80211_random_mac_disable(struct net_device *dev)
 	return err;
 }
 
-/*
- * This is new interface for mac randomization. It takes randmac and randmask
- * as arg and it uses scanmac iovar to offload the mac randomization to firmware.
- */
-int wl_cfg80211_scan_mac_enable(struct net_device *dev, uint8 *rand_mac, uint8 *rand_mask)
+int wl_cfg80211_scan_mac_enable(struct net_device *dev)
 {
-	int byte_index = 0;
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 	s32 err = BCME_ERROR;
-	uint8 buffer[WLC_IOCTL_SMLEN] = {0, };
+	uint8 buffer[WLC_IOCTL_SMLEN] = {0};
 	wl_scanmac_t *sm = NULL;
 	int len = 0;
 	wl_scanmac_enable_t *sm_enable = NULL;
-	wl_scanmac_config_t *sm_config = NULL;
-	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
-
-	if ((rand_mac == NULL) || (rand_mask == NULL)) {
-		err = BCME_BADARG;
-		WL_ERR(("fail to Set random mac, bad argument\n"));
-		/* Disable the current scanmac config */
-		wl_cfg80211_scan_mac_disable(dev);
-		return err;
-	}
-
-	if (ETHER_ISNULLADDR(rand_mac)) {
-		WL_DBG(("fail to Set random mac, Invalid rand mac\n"));
-		/* Disable the current scanmac config */
-		wl_cfg80211_scan_mac_disable(dev);
-		return err;
-	}
 
 	/* Enable scan mac */
 	sm = (wl_scanmac_t *)buffer;
@@ -2787,63 +2838,93 @@ int wl_cfg80211_scan_mac_enable(struct net_device *dev, uint8 *rand_mac, uint8 *
 
 	err = wldev_iovar_setbuf_bsscfg(dev, "scanmac",
 		sm, len, cfg->ioctl_buf, WLC_IOCTL_SMLEN, 0, &cfg->ioctl_buf_sync);
-
-	if (err == BCME_OK) {
-			/* Configure scanmac */
-		(void)memset_s(buffer, sizeof(buffer), 0x0, sizeof(buffer));
-		sm_config = (wl_scanmac_config_t *)sm->data;
-		sm->len = sizeof(*sm_config);
-		sm->subcmd_id = WL_SCANMAC_SUBCMD_CONFIG;
-		sm_config->scan_bitmap = WL_SCANMAC_SCAN_UNASSOC;
-#ifdef WL_USE_RANDOMIZED_SCAN
-		sm_config->scan_bitmap |= WL_SCANMAC_SCAN_ASSOC_HOST;
-#endif /* WL_USE_RANDOMIZED_SCAN */
-		/* Set randomize mac address recv from upper layer */
-		(void)memcpy_s(&sm_config->mac.octet, ETH_ALEN, rand_mac, ETH_ALEN);
-
-		/* Set randomize mask recv from upper layer */
-
-		/* There is a difference in how to interpret rand_mask between
-		 * upperlayer and firmware. If the byte is set as FF then for
-		 * upper layer it  means keep that byte and do not randomize whereas
-		 * for firmware it means randomize those bytes and vice versa. Hence
-		 * conversion is needed before setting the iovar
-		 */
-		(void)memset_s(&sm_config->random_mask.octet, ETH_ALEN, 0x0, ETH_ALEN);
-		/* Only byte randomization is supported currently. If mask recv is 0x0F
-		 * for a particular byte then it will be treated as no randomization
-		 * for that byte.
-		 */
-		while (byte_index < ETH_ALEN) {
-			if (rand_mask[byte_index] == 0xFF) {
-				sm_config->random_mask.octet[byte_index] = 0x00;
-			} else if (rand_mask[byte_index] == 0x00) {
-				sm_config->random_mask.octet[byte_index] = 0xFF;
-			}
-			byte_index++;
-		}
-
-		WL_DBG(("recv random mac addr " MACDBG  "recv rand mask" MACDBG "\n",
-			MAC2STRDBG((const u8 *)&sm_config->mac.octet),
-			MAC2STRDBG((const u8 *)&sm_config->random_mask)));
-
-		len = OFFSETOF(wl_scanmac_t, data) + sm->len;
-		err = wldev_iovar_setbuf_bsscfg(dev, "scanmac",
-			sm, len, cfg->ioctl_buf, WLC_IOCTL_SMLEN, 0, &cfg->ioctl_buf_sync);
-
-		if (err != BCME_OK) {
-			WL_ERR(("failed scanmac configuration\n"));
-
-			/* Disable scan mac for clean-up */
-			wl_cfg80211_random_mac_disable(dev);
-			return err;
-		}
-		/* Mark scanmac enabled */
+	if (unlikely(err)) {
+		WL_ERR(("scanmac enable failed\n"));
+	} else {
+		/* Mark scanmac configured */
 		cfg->scanmac_enabled = 1;
-		WL_DBG(("scanmac enable done"));
-	} else  {
-		WL_ERR(("failed to enable scanmac, err=%d\n", err));
 	}
+
+	return err;
+}
+/*
+ * This is new interface for mac randomization. It takes randmac and randmask
+ * as arg and it uses scanmac iovar to offload the mac randomization to firmware.
+ */
+int wl_cfg80211_scan_mac_config(struct net_device *dev, uint8 *rand_mac, uint8 *rand_mask)
+{
+	int byte_index = 0;
+	s32 err = BCME_ERROR;
+	uint8 buffer[WLC_IOCTL_SMLEN] = {0};
+	wl_scanmac_t *sm = NULL;
+	int len = 0;
+	wl_scanmac_config_t *sm_config = NULL;
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+
+	if ((rand_mac == NULL) || (rand_mask == NULL)) {
+		err = BCME_BADARG;
+		WL_ERR(("fail to Set random mac, bad argument\n"));
+		/* Disable the current scanmac config */
+		return err;
+	}
+
+	if (ETHER_ISNULLADDR(rand_mac)) {
+		WL_DBG(("fail to Set random mac, Invalid rand mac\n"));
+		/* Disable the current scanmac config */
+		return err;
+	}
+
+	/* Configure scanmac */
+	(void)memset_s(buffer, sizeof(buffer), 0x0, sizeof(buffer));
+	sm = (wl_scanmac_t *)buffer;
+	sm_config = (wl_scanmac_config_t *)sm->data;
+	sm->len = sizeof(*sm_config);
+	sm->subcmd_id = WL_SCANMAC_SUBCMD_CONFIG;
+	sm_config->scan_bitmap = WL_SCANMAC_SCAN_UNASSOC;
+#ifdef WL_USE_RANDOMIZED_SCAN
+	sm_config->scan_bitmap |= WL_SCANMAC_SCAN_ASSOC_HOST;
+#endif /* WL_USE_RANDOMIZED_SCAN */
+	/* Set randomize mac address recv from upper layer */
+	(void)memcpy_s(&sm_config->mac.octet, ETH_ALEN, rand_mac, ETH_ALEN);
+
+	/* Set randomize mask recv from upper layer */
+
+	/* There is a difference in how to interpret rand_mask between
+	 * upperlayer and firmware. If the byte is set as FF then for
+	 * upper layer it  means keep that byte and do not randomize whereas
+	 * for firmware it means randomize those bytes and vice versa. Hence
+	 * conversion is needed before setting the iovar
+	 */
+	(void)memset_s(&sm_config->random_mask.octet, ETH_ALEN, 0x0, ETH_ALEN);
+	/* Only byte randomization is supported currently. If mask recv is 0x0F
+	 * for a particular byte then it will be treated as no randomization
+	 * for that byte.
+	 */
+	while (byte_index < ETH_ALEN) {
+		if (rand_mask[byte_index] == 0xFF) {
+			sm_config->random_mask.octet[byte_index] = 0x00;
+		} else if (rand_mask[byte_index] == 0x00) {
+			sm_config->random_mask.octet[byte_index] = 0xFF;
+		}
+		byte_index++;
+	}
+
+	WL_DBG(("recv random mac addr " MACDBG  "recv rand mask" MACDBG "\n",
+		MAC2STRDBG((const u8 *)&sm_config->mac.octet),
+		MAC2STRDBG((const u8 *)&sm_config->random_mask)));
+
+	len = OFFSETOF(wl_scanmac_t, data) + sm->len;
+	err = wldev_iovar_setbuf_bsscfg(dev, "scanmac",
+		sm, len, cfg->ioctl_buf, WLC_IOCTL_SMLEN, 0, &cfg->ioctl_buf_sync);
+
+	if (err != BCME_OK) {
+		WL_ERR(("failed scanmac configuration\n"));
+
+		/* Disable scan mac for clean-up */
+		return err;
+	}
+	WL_INFORM_MEM(("scanmac configured"));
+	cfg->scanmac_config = true;
 
 	return err;
 }
@@ -2898,7 +2979,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	struct cfg80211_ssid *hidden_ssid_list = NULL;
 	log_conn_event_t *event_data = NULL;
 	tlv_log *tlv_data = NULL;
-	u32 alloc_len, tlv_len;
+	u32 alloc_len = 0, tlv_len = 0;
 	u32 payload_len;
 	int ssid_cnt = 0;
 	int i;
@@ -3029,29 +3110,25 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	} else {
 		ret = -EINVAL;
 	}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
-	defined(SUPPORT_RANDOM_MAC_SCAN) && !defined(WL_USE_RANDOMIZED_SCAN)
-	if (!ETHER_ISNULLADDR(request->mac_addr) && !ETHER_ISNULLADDR(request->mac_addr_mask)) {
-		ret = wl_cfg80211_scan_mac_enable(dev, request->mac_addr, request->mac_addr_mask);
-		/* Ignore if chip doesnt support the feature */
-		if (ret < 0) {
-			if (ret == BCME_UNSUPPORTED) {
-				/* If feature is not supported, ignore the error (legacy chips) */
-				ret = BCME_OK;
-			} else {
-				WL_ERR(("set random mac failed (%d). Ignore.\n", ret));
-				/* Cleanup the states and stop the pno */
-				if (dhd_dev_pno_stop_for_ssid(dev) < 0) {
-					WL_ERR(("PNO Stop for SSID failed"));
-				}
-				WL_CFG_DRV_LOCK(&cfg->cfgdrv_lock, flags);
-				cfg->sched_scan_req = NULL;
-				cfg->sched_scan_running = FALSE;
-				WL_CFG_DRV_UNLOCK(&cfg->cfgdrv_lock, flags);
-			}
+	defined(SUPPORT_RANDOM_MAC_SCAN)
+	if ((ret = wl_config_scan_macaddr(cfg, dev,
+		(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR),
+		request->mac_addr, request->mac_addr_mask)) != BCME_OK) {
+		WL_ERR(("scanmac addr config failed\n"));
+		/* Cleanup the states and stop the pno */
+		if (dhd_dev_pno_stop_for_ssid(dev) < 0) {
+			WL_ERR(("PNO Stop for SSID failed"));
 		}
+		WL_CFG_DRV_LOCK(&cfg->cfgdrv_lock, flags);
+		cfg->sched_scan_req = NULL;
+		cfg->sched_scan_running = FALSE;
+		WL_CFG_DRV_UNLOCK(&cfg->cfgdrv_lock, flags);
+		goto exit;
 	}
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && (defined(SUPPORT_RANDOM_MAC_SCAN)) */
+
 exit:
 	if (event_data) {
 		MFREE(cfg->osh, event_data->tlvs, tlv_len);
@@ -3345,7 +3422,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	int n_pfn_results = 0;
 	log_conn_event_t *event_data = NULL;
 	tlv_log *tlv_data = NULL;
-	u32 alloc_len, tlv_len;
+	u32 alloc_len = 0, tlv_len = 0;
 	u32 payload_len;
 	u8 tmp_buf[DOT11_MAX_SSID_LEN + 1];
 
@@ -4099,5 +4176,231 @@ exit:
 		MFREE(cfg->osh, params, params_size);
 	}
 	mutex_unlock(&cfg->scan_sync);
+	return err;
+}
+
+#define LONG_LISTEN_TIME 2000
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+static void
+wl_priortize_scan_over_listen(struct bcm_cfg80211 *cfg,
+	struct net_device *ndev, unsigned int duration)
+{
+	WL_DBG(("scan is running. go to fake listen state\n"));
+	wl_set_drv_status(cfg, FAKE_REMAINING_ON_CHANNEL, ndev);
+
+	if (timer_pending(&cfg->p2p->listen_timer)) {
+		WL_DBG(("cancel current listen timer \n"));
+		del_timer_sync(&cfg->p2p->listen_timer);
+	}
+
+	wl_clr_p2p_status(cfg, LISTEN_EXPIRED);
+
+	INIT_TIMER(&cfg->p2p->listen_timer,
+		wl_cfgp2p_listen_expired, duration, 0);
+}
+#endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
+
+/* Few vendors use hard coded static ndev p2p0 for p2p disc */
+#define IS_P2P_DISC_NDEV(wdev) \
+	(wdev->netdev ? (strncmp(wdev->netdev->name, "p2p0", strlen("p2p0")) == 0) : false)
+
+#if defined(WL_CFG80211_P2P_DEV_IF)
+s32
+wl_cfgscan_remain_on_channel(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev,
+	struct ieee80211_channel *channel, unsigned int duration, u64 *cookie)
+#else
+s32
+wl_cfgscan_remain_on_channel(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev,
+	struct ieee80211_channel *channel,
+	enum nl80211_channel_type channel_type,
+	unsigned int duration, u64 *cookie)
+#endif /* WL_CFG80211_P2P_DEV_IF */
+{
+	s32 target_channel;
+	u32 id;
+	s32 err = BCME_OK;
+	struct net_device *ndev = NULL;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct wireless_dev *wdev;
+
+	RETURN_EIO_IF_NOT_UP(cfg);
+
+#if defined(WL_CFG80211_P2P_DEV_IF)
+	wdev = cfgdev;
+#else
+	wdev = cfgdev_to_wlc_wdev(cfgdev, cfg);
+#endif
+	if (!wdev) {
+		WL_ERR(("wdev null\n"));
+		return -EINVAL;
+	}
+
+	mutex_lock(&cfg->usr_sync);
+	ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
+	target_channel = ieee80211_frequency_to_channel(channel->center_freq);
+
+	WL_ERR(("Enter, channel: %d, duration ms (%d) SCANNING ?? %s \n",
+		target_channel, duration,
+		(wl_get_drv_status(cfg, SCANNING, ndev)) ? "YES":"NO"));
+
+#ifdef WL_BCNRECV
+	/* check fakeapscan in progress then abort */
+	wl_android_bcnrecv_stop(ndev, WL_BCNRECV_LISTENBUSY);
+#endif /* WL_BCNRECV */
+
+	if ((wdev->iftype == NL80211_IFTYPE_P2P_DEVICE) ||
+		IS_P2P_DISC_NDEV(wdev)) {
+		/* p2p discovery */
+		if (!cfg->p2p) {
+			WL_ERR(("cfg->p2p is not initialized\n"));
+			err = BCME_ERROR;
+			goto exit;
+		}
+
+#ifdef P2P_LISTEN_OFFLOADING
+		if (wl_get_p2p_status(cfg, DISC_IN_PROGRESS)) {
+			WL_ERR(("P2P_FIND: Discovery offload is in progress\n"));
+			err = -EAGAIN;
+			goto exit;
+		}
+#endif /* P2P_LISTEN_OFFLOADING */
+
+		if (wl_get_drv_status_all(cfg, SCANNING)) {
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+			if (duration > LONG_LISTEN_TIME) {
+				wl_cfg80211_scan_abort(cfg);
+			} else {
+				wl_priortize_scan_over_listen(cfg, ndev, duration);
+				err = BCME_OK;
+				goto exit;
+			}
+#else
+			wl_cfg80211_cancel_scan(cfg);
+#endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
+		}
+
+#ifdef WL_CFG80211_SYNC_GON
+		if (wl_get_drv_status_all(cfg, WAITING_NEXT_ACT_FRM_LISTEN)) {
+			/* Do not enter listen mode again if we are in listen mode already
+			* for next af. Remain on channel completion will be returned by
+			* af completion.
+			*/
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+			wl_set_drv_status(cfg, FAKE_REMAINING_ON_CHANNEL, ndev);
+#else
+			wl_set_drv_status(cfg, REMAINING_ON_CHANNEL, ndev);
+#endif
+			goto exit;
+		}
+#endif /* WL_CFG80211_SYNC_GON */
+
+		if (!cfg->p2p->on) {
+		/* In case of p2p_listen command, supplicant may send
+		* remain_on_channel without turning on P2P
+		*/
+			p2p_on(cfg) = true;
+		}
+
+		err = wl_cfgp2p_enable_discovery(cfg, ndev, NULL, 0);
+		if (unlikely(err)) {
+			goto exit;
+		}
+		err = wl_cfgp2p_discover_listen(cfg, target_channel, duration);
+		if (err == BCME_OK) {
+			wl_set_drv_status(cfg, REMAINING_ON_CHANNEL, ndev);
+		} else {
+#ifdef WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST
+			if (err == BCME_BUSY) {
+				/* if failed, firmware may be internal scanning state.
+				* so other scan request shall not abort it
+				*/
+				wl_set_drv_status(cfg, FAKE_REMAINING_ON_CHANNEL, ndev);
+				/* WAR: set err = ok to prevent cookie mismatch in wpa_supplicant
+				* and expire timer will send a completion to the upper layer
+				*/
+				err = BCME_OK;
+			}
+#endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
+		}
+	} else if (wdev->iftype == NL80211_IFTYPE_STATION ||
+		wdev->iftype == NL80211_IFTYPE_AP) {
+		WL_DBG(("LISTEN ON CHANNEL\n"));
+		err = wl_cfgscan_listen_on_channel(cfg, wdev, channel, duration);
+	}
+
+exit:
+	if (err == BCME_OK) {
+		WL_DBG(("Success\n"));
+		(void)memcpy_s(&cfg->remain_on_chan, sizeof(struct ieee80211_channel),
+			channel, sizeof(struct ieee80211_channel));
+#if defined(WL_ENABLE_P2P_IF)
+		cfg->remain_on_chan_type = channel_type;
+#endif /* WL_ENABLE_P2P_IF */
+		id = ++cfg->last_roc_id;
+		if (id == 0) {
+			id = ++cfg->last_roc_id;
+		}
+		*cookie = id;
+
+		/* Notify userspace that listen has started */
+		CFG80211_READY_ON_CHANNEL(cfgdev, *cookie, channel, channel_type, duration, flags);
+		WL_DBG(("listen started on channel:%d cookie:%llu)\n", target_channel, *cookie));
+	} else {
+		WL_ERR(("Fail to Set (err=%d cookie:%llu)\n", err, *cookie));
+		wl_flush_fw_log_buffer(ndev, FW_LOGSET_MASK_ALL);
+	}
+	mutex_unlock(&cfg->usr_sync);
+	return err;
+}
+
+s32
+wl_cfgscan_cancel_remain_on_channel(struct wiphy *wiphy,
+	bcm_struct_cfgdev *cfgdev, u64 cookie)
+{
+	s32 err = 0;
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+#ifdef P2PLISTEN_AP_SAMECHN
+	struct net_device *dev;
+#endif /* P2PLISTEN_AP_SAMECHN */
+
+	RETURN_EIO_IF_NOT_UP(cfg);
+
+#ifdef DHD_IFDEBUG
+	PRINT_WDEV_INFO(cfgdev);
+#endif /* DHD_IFDEBUG */
+
+	mutex_lock(&cfg->usr_sync);
+#if defined(WL_CFG80211_P2P_DEV_IF)
+	WL_DBG(("cancel listen for iftype:%d\n", cfgdev->iftype));
+	if ((cfgdev->iftype != NL80211_IFTYPE_P2P_DEVICE) &&
+		!IS_P2P_DISC_NDEV(cfgdev)) {
+		/* Handle non-p2p cases here */
+		err = wl_cfgscan_cancel_listen_on_channel(cfg, false);
+		goto exit;
+	}
+#else
+	WL_DBG(("cancel listen for netdev_ifidx: %d \n", cfgdev->ifindex));
+#endif /* WL_CFG80211_P2P_DEV_IF */
+
+#ifdef P2PLISTEN_AP_SAMECHN
+	if (cfg && cfg->p2p_resp_apchn_status) {
+		dev = bcmcfg_to_prmry_ndev(cfg);
+		wl_cfg80211_set_p2p_resp_ap_chn(dev, 0);
+		cfg->p2p_resp_apchn_status = false;
+		WL_DBG(("p2p_resp_apchn_status Turn OFF \n"));
+	}
+#endif /* P2PLISTEN_AP_SAMECHN */
+
+	if (cfg->last_roc_id == cookie) {
+		wl_cfgp2p_set_p2p_mode(cfg, WL_P2P_DISC_ST_SCAN, 0, 0,
+			wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE));
+	} else {
+		WL_ERR(("wl_cfg80211_cancel_remain_on_channel: ignore, request cookie(%llu)"
+			" is not matched. (cur : %llu)\n",
+			cookie, cfg->last_roc_id));
+	}
+
+exit:
+	mutex_unlock(&cfg->usr_sync);
 	return err;
 }

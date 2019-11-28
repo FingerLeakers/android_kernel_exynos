@@ -1586,7 +1586,7 @@ static int kcryptd_io_read(struct dm_crypt_io *io, gfp_t gfp)
 	clone_init(io, clone);
 
 	if (crypt_mode_diskcipher(cc))
-		crypto_diskcipher_set(clone, cc->cipher_tfm.tfms_diskc[0], NULL, 0);
+		crypto_diskcipher_set(clone, cc->cipher_tfm.tfms_diskc[0], 0);
 
 	clone->bi_iter.bi_sector = cc->start + io->sector;
 
@@ -2043,7 +2043,7 @@ static int crypt_setkey(struct crypt_config *cc)
 		else if (crypt_mode_diskcipher(cc))
 			r = crypto_diskcipher_setkey(cc->cipher_tfm.tfms_diskc[i],
 						   cc->key + (i * subkey_size),
-						   subkey_size, 1);
+						   subkey_size, 1, NULL);
 		else
 			r = crypto_skcipher_setkey(cc->cipher_tfm.tfms[i],
 						   cc->key + (i * subkey_size),

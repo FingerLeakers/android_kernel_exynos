@@ -173,6 +173,7 @@ extern u64 secdbg_snapshot_get_hardlatency_info(unsigned int cpu);
 #define dbg_snapshot_clk(a,b,c,d)		do { } while(0)
 #define dbg_snapshot_pmu(a,b,c)			do { } while(0)
 #define dbg_snapshot_freq(a,b,c,d)		do { } while(0)
+#define dbg_snapshot_freq_misc(a,b,c,d)		do { } while(0)
 #define dbg_snapshot_irq_var(v)			do { v = 0; } while(0)
 #define dbg_snapshot_reg(a, b, c)		do { } while (0)
 #define dbg_snapshot_hrtimer(a,b,c,d)		do { } while(0)
@@ -324,6 +325,7 @@ enum dsslog_freq_flag {
 	DSS_FLAG_MFC,
 	DSS_FLAG_NPU,
 	DSS_FLAG_TNR,
+	DSS_FLAG_G3D,
 	DSS_FLAG_END
 };
 #endif

@@ -28,7 +28,6 @@
 #include "npu-log.h"
 #include "npu-debug.h"
 #include "npu-protodrv.h"
-#include "npu-profile.h"
 #include "npu-util-memdump.h"
 
 #ifdef CONFIG_EXYNOS_NPU_PUBLISH_NPU_BUILD_VER
@@ -164,19 +163,19 @@ static int __npu_device_power_off(struct npu_device *device)
  */
 static int __npu_device_late_open(struct npu_device *device)
 {
-	int ret;
+	int ret = 0;
 
 	npu_trace("starting\n");
 
+#ifdef CONFIG_NPU_USE_SPROFILER
 	ret = npu_profile_open(&device->system);
 	if (ret) {
 		npu_err("fail(%d) in npu_profile_open\n", ret);
 		goto err_exit;
 	}
 
-	ret = 0;
-
 err_exit:
+#endif
 	if (ret)
 		npu_err("error occurred: ret = %d\n", ret);
 	else
@@ -190,19 +189,19 @@ err_exit:
  */
 static int __npu_device_early_close(struct npu_device *device)
 {
-	int ret;
+	int ret = 0;
 
 	npu_trace("Starting.\n");
 
+#ifdef CONFIG_NPU_USE_SPROFILER
 	ret = npu_profile_close(&device->system);
 	if (ret) {
 		npu_err("fail(%d) in npu_profile_close\n", ret);
 		goto err_exit;
 	}
 
-	ret = 0;
-
 err_exit:
+#endif
 	if (ret)
 		npu_err("error occurred : ret = %d\n", ret);
 	else
@@ -327,11 +326,13 @@ static int npu_device_probe(struct platform_device *pdev)
 		goto err_exit;
 	}
 #endif
+#ifdef CONFIG_NPU_USE_SPROFILER
 	ret = npu_profile_probe(&device->system);
 	if (ret) {
 		probe_err("fail(%d) in npu_profile_probe\n", ret);
 		goto err_exit;
 	}
+#endif
 
 	ret = iovmm_activate(dev);
 	if (ret < 0)
@@ -596,6 +597,11 @@ static int npu_device_runtime_suspend(struct device *dev)
 
 	device = dev_get_drvdata(dev);
 
+	/* clock OSC switch */
+	ret = npu_core_clock_on(&device->system);
+	if (ret)
+		npu_err("fail(%d) in npu_core_clock_on\n", ret);
+
 	ret = npu_system_suspend(&device->system);
 	if (ret)
 		npu_err("fail(%d) in npu_system_suspend\n", ret);
@@ -616,6 +622,11 @@ static int npu_device_runtime_resume(struct device *dev)
 		goto ErrorExit;
 	}
 
+	/* clock OSC switch */
+	ret = npu_core_clock_off(&device->system);
+	if (ret)
+		npu_err("fail(%d) in npu_core_clock_off\n", ret);
+
 ErrorExit:
 	npu_info("%s():%d\n", __func__, ret);
 	return ret;
@@ -633,10 +644,12 @@ static int npu_device_remove(struct platform_device *pdev)
 	dev = &pdev->dev;
 	device = dev_get_drvdata(dev);
 
+#ifdef CONFIG_NPU_USE_SPROFILER
 	/* Error will not be propagated to upper layer, but just logging */
 	ret = npu_profile_release();
 	if (ret)
 		npu_err("fail(%d) in npu_profile_release\n", ret);
+#endif
 
 #if 0
 //#ifdef CONFIG_NPU_LOOPBACK

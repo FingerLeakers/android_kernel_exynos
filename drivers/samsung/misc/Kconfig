@@ -81,6 +81,13 @@ config SEC_NAD_C
 	help
 	  Samsung TN NAD Feature, Enable NAD C
 
+config SEC_NAD_BPS_CLASSIFIER
+	bool " Samsung TN NAD BPS Classifier Feature"
+	depends on SEC_NAD
+	default n
+	help
+	  This option enables gathering bps classifier information during factory process.
+
 config SEC_HQM_DEVICE
 	bool "Samsung sec hqm device"
 	default n

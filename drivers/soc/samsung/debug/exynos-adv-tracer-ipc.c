@@ -26,10 +26,27 @@
 #include <soc/samsung/exynos-adv-tracer-ipc.h>
 #include <soc/samsung/exynos-pmu.h>
 
-#define EXYNOS_DBGCORE_CPU_CONFIGURATION	(0x2e80)
-#define EXYNOS_DBGCORE_CPU_STATUS		(0x2e84)
-
 static struct adv_tracer_ipc_main *adv_tracer_ipc;
+static unsigned int pmu_dbgcore_config = 0;
+static unsigned int pmu_dbgcore_status = 0;
+
+static void adv_tracer_ipc_dbgc_reset(void)
+{
+	u32 val = 0;
+
+	adv_tracer_ipc->recovery = true;
+	if (!pmu_dbgcore_config || !pmu_dbgcore_status) {
+		dev_err(adv_tracer_ipc->dev, "pmu offset no data\n");
+		return;
+	}
+	exynos_pmu_update(pmu_dbgcore_config, 1, 0);
+	dev_emerg(adv_tracer_ipc->dev, "DBGC power off for recovery.\n");
+	exynos_pmu_update(pmu_dbgcore_config, 1, 1);
+	mdelay(10);
+	exynos_pmu_read(pmu_dbgcore_status, &val);
+	if (!val)
+		dev_err(adv_tracer_ipc->dev, "DBGC abnormal state!\n");
+}
 
 static void adv_tracer_ipc_read_buffer(void *dest, const void *src, unsigned int len)
 {
@@ -135,7 +152,8 @@ int adv_tracer_ipc_send_data(unsigned int id, struct adv_tracer_ipc_cmd *cmd)
 
 	ret = wait_for_completion_interruptible_timeout(&channel->wait, msecs_to_jiffies(50));
 	if (!ret) {
-		pr_err("%s: %d channel timeout error\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev, "%d channel timeout error\n", id);
+		adv_tracer_ipc_dbgc_reset();
 		return -EBUSY;
 	}
 	memcpy(cmd, channel->cmd, sizeof(unsigned int) * channel->len);
@@ -170,7 +188,8 @@ int adv_tracer_ipc_send_data_polling_timeout(unsigned int id, struct adv_tracer_
 	} while (!(_cmd.cmd_raw.response || ktime_after(now, timeout)));
 
 	if (!_cmd.cmd_raw.response) {
-		pr_err("%s: %d channel timeout error\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev,"%d channel timeout error\n", id);
+		adv_tracer_ipc_dbgc_reset();
 		return -EBUSY;
 	}
 	adv_tracer_ipc_read_buffer(cmd->buffer, channel->buff_regs, channel->len);
@@ -232,7 +251,7 @@ struct adv_tracer_ipc_ch *adv_tracer_ipc_get_channel(unsigned int id)
 
 	ipc_channel = &adv_tracer_ipc->channel[id];
 	if (IS_ERR(ipc_channel)) {
-		pr_err("%s: %d channel is not allocated\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is not allocated\n", id);
 		ipc_channel = NULL;
 	}
 out:
@@ -264,7 +283,7 @@ static int adv_tracer_ipc_channel_init(unsigned int id,
 
 		channel->used = true;
 	} else {
-		pr_err("[EAT] %d channel is already reserved\n", id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is already reserved\n", id);
 		return -1;
 	}
 	return 0;
@@ -276,13 +295,13 @@ int adv_tracer_ipc_release_channel(unsigned int id)
 	int ret;
 
 	if (!adv_tracer_ipc->channel[id].used) {
-		pr_err("%s: %d channel is unsed\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is unsed\n", id);
 		return -1;
 	}
 
 	cmd = adv_tracer_ipc_get_channel_cmd(EAT_FRM_CHANNEL);
 	if (!cmd) {
-		pr_err("%s: %d channel is failed to release\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is failed to release\n", id);
 		return -EIO;
 	}
 
@@ -291,7 +310,7 @@ int adv_tracer_ipc_release_channel(unsigned int id)
 
 	ret = adv_tracer_ipc_send_data(EAT_FRM_CHANNEL, cmd);
 	if (ret < 0) {
-		pr_err("%s: %d channel is failed to release\n", __func__, id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is failed to release\n", id);
 		return ret;
 	}
 
@@ -343,7 +362,7 @@ int adv_tracer_ipc_request_channel(struct device_node *np,
 
 	ret = adv_tracer_ipc_send_data_polling(EAT_FRM_CHANNEL, &cmd);
 	if (ret) {
-		pr_err("%s: %d channel is failed to request\n", __func__, EAT_FRM_CHANNEL);
+		dev_err(adv_tracer_ipc->dev, "%d channel is failed to request\n", EAT_FRM_CHANNEL);
 		return -ENODEV;
 	}
 
@@ -353,7 +372,7 @@ int adv_tracer_ipc_request_channel(struct device_node *np,
 
 	ret = adv_tracer_ipc_channel_init(*id, offset, *len, handler, (char *)plugin_name);
 	if (ret) {
-		pr_err("%s: %d channel is failed to init\n", __func__, *id);
+		dev_err(adv_tracer_ipc->dev, "%d channel is failed to init\n", *id);
 		return -ENODEV;
 	}
 
@@ -370,26 +389,12 @@ static void adv_tracer_ipc_channel_clear(void)
 	adv_tracer_interrupt_gen(EAT_FRM_CHANNEL);
 }
 
-static void adv_tracer_ipc_dbgc_panic(void)
-{
-	u32 val = 0;
-
-	exynos_pmu_update(EXYNOS_DBGCORE_CPU_CONFIGURATION, 1, 0);
-	dev_info(adv_tracer_ipc->dev, "DBGC power off for recovery.\n");
-	exynos_pmu_update(EXYNOS_DBGCORE_CPU_CONFIGURATION, 1, 1);
-	mdelay(10);
-	exynos_pmu_read(EXYNOS_DBGCORE_CPU_STATUS, &val);
-	if (!val) {
-		dev_err(adv_tracer_ipc->dev, "DBGC abnormal state!\n");
-		panic("DBGC abnormal state!");
-	}
-}
-
 static void adv_tracer_ipc_callback(struct adv_tracer_ipc_cmd *cmd, unsigned int len)
 {
 	switch(cmd->cmd_raw.cmd) {
 	case EAT_IPC_CMD_BOOT_DBGC:
-		dev_info(adv_tracer_ipc->dev, "DBGC Boot!(cnt:%d)\n", cmd->buffer[1]);
+		dev_emerg(adv_tracer_ipc->dev, "DBGC Boot!(cnt:%d)\n", cmd->buffer[1]);
+		adv_tracer_ipc->recovery = false;
 		break;
 	case EAT_IPC_CMD_EXCEPTION_DBGC:
 		dev_err(adv_tracer_ipc->dev,
@@ -397,7 +402,6 @@ static void adv_tracer_ipc_callback(struct adv_tracer_ipc_cmd *cmd, unsigned int
 				cmd->buffer[1], cmd->buffer[2], cmd->buffer[3]);
 		if (adv_tracer_ipc->recovery)
 			panic("DBGC failed recovery!");
-		adv_tracer_ipc_dbgc_panic();
 		adv_tracer_ipc->recovery = true;
 		break;
 	case EAT_IPC_CMD_SEND_LOG:
@@ -428,7 +432,7 @@ static int adv_tracer_ipc_channel_probe(void)
 	ret = adv_tracer_ipc_channel_init(EAT_FRM_CHANNEL, SR(16), 4,
 			adv_tracer_ipc_callback, FRAMEWORK_NAME);
 	if (ret) {
-		pr_err("%s: failed to register Framework channel\n", __func__);
+		dev_err(adv_tracer_ipc->dev, "failed to register Framework channel\n");
 		return -EIO;
 	}
 
@@ -462,6 +466,14 @@ int adv_tracer_ipc_init(struct platform_device *pdev)
 	adv_tracer_ipc->mailbox_base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(adv_tracer_ipc->mailbox_base))
 		return PTR_ERR(adv_tracer_ipc->mailbox_base);
+
+	ret = of_property_read_u32(node, "pmu_dbgcore_config", &pmu_dbgcore_config);
+	if (ret)
+		dev_err(&pdev->dev, "pmu_dbgcore_config is no data\n");
+
+	ret = of_property_read_u32(node, "pmu_dbgcore_status", &pmu_dbgcore_status);
+	if (ret)
+		dev_err(&pdev->dev, "pmu_dbgcore_status is no data\n");
 
 	adv_tracer_ipc_interrupt_clear(EAT_FRM_CHANNEL);
 	ret = devm_request_threaded_irq(&pdev->dev, adv_tracer_ipc->irq, adv_tracer_ipc_irq_handler,

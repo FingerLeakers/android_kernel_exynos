@@ -92,16 +92,6 @@ struct schedtune {
 	/* Hint to bias scheduling of tasks on that SchedTune CGroup
 	 * towards idle CPUs */
 	int prefer_idle;
-
-	/* Hint to bias scheduling of tasks on that SchedTune CGroup
-	 * towards high performance CPUs */
-	int prefer_perf;
-
-	/* SchedTune util-est */
-	int util_est;
-
-	/* SchedTune ontime migration */
-	int ontime;
 };
 
 static inline struct schedtune *css_st(struct cgroup_subsys_state *css)
@@ -132,7 +122,6 @@ static struct schedtune
 root_schedtune = {
 	.boost	= 0,
 	.prefer_idle = 0,
-	.prefer_perf = 0,
 };
 
 /*
@@ -298,7 +287,7 @@ schedtune_boostgroup_update(int idx, int boost)
 		/* Check if this update has decreased current max */
 		if (cur_boost_max == old_boost && old_boost > boost) {
 			schedtune_cpu_update(cpu, now);
-			emst_cpu_update(cpu, now);
+			emstune_cpu_update(cpu, now);
 			trace_sched_tune_boostgroup_update(cpu, -1, bg->boost_max);
 			continue;
 		}
@@ -340,7 +329,7 @@ schedtune_tasks_update(struct task_struct *p, int cpu, int idx, int task_count)
 		/* Boost group activation or deactivation on that RQ */
 		if (bg->group[idx].tasks == 1) {
 			schedtune_cpu_update(cpu, now);
-			emst_cpu_update(cpu, now);
+			emstune_cpu_update(cpu, now);
 		}
 	}
 
@@ -379,18 +368,6 @@ void schedtune_enqueue_task(struct task_struct *p, int cpu)
 	raw_spin_unlock_irqrestore(&bg->lock, irq_flags);
 }
 
-static void
-schedtune_util_est_update(struct cgroup_subsys_state *css, int util_est)
-{
-	struct css_task_iter it;
-	struct task_struct *p;
-
-	css_task_iter_start(css, 0, &it);
-	while ((p = css_task_iter_next(&it)))
-		util_est_update(p, css_st(css)->util_est, util_est);
-	css_task_iter_end(&it);
-}
-
 int schedtune_can_attach(struct cgroup_taskset *tset)
 {
 	struct task_struct *task;
@@ -409,8 +386,9 @@ int schedtune_can_attach(struct cgroup_taskset *tset)
 
 
 	cgroup_taskset_for_each(task, css, tset) {
-		util_est_update(task, task_schedtune(task)->util_est,
-						css_st(css)->util_est);
+		util_est_update(task,
+			emstune_util_est_group(task_schedtune(task)->idx),
+			emstune_util_est_group(css_st(css)->idx));
 
 		/*
 		 * Lock the CPU's RQ the task is enqueued to avoid race
@@ -518,7 +496,7 @@ int schedtune_cpu_boost(int cpu)
 	/* Check to see if we have a hold in effect */
 	if (schedtune_boost_timeout(now, bg->boost_ts)) {
 		schedtune_cpu_update(cpu, now);
-		emst_cpu_update(cpu, now);
+		emstune_cpu_update(cpu, now);
 	}
 
 	return bg->boost_max;
@@ -575,114 +553,6 @@ int schedtune_prefer_idle(struct task_struct *p)
 	return prefer_idle;
 }
 
-int schedtune_prefer_perf(struct task_struct *p)
-{
-	struct schedtune *st;
-	int prefer_perf;
-
-	if (unlikely(!schedtune_initialized))
-		return 0;
-
-	/* Get prefer_perf value */
-	rcu_read_lock();
-	st = task_schedtune(p);
-	prefer_perf = st->prefer_perf;
-	rcu_read_unlock();
-
-	return prefer_perf;
-}
-
-int schedtune_util_est(struct task_struct *p)
-{
-	struct schedtune *st;
-	int util_est;
-
-	if (unlikely(!schedtune_initialized))
-		return 0;
-
-	/* Get util_est value */
-	rcu_read_lock();
-	st = task_schedtune(p);
-	util_est = st->util_est;
-	rcu_read_unlock();
-
-	return util_est;
-}
-
-int schedtune_ontime(struct task_struct *p)
-{
-	struct schedtune *st;
-	int ontime;
-
-	if (unlikely(!schedtune_initialized))
-		return 0;
-
-	/* Get ontime value */
-	rcu_read_lock();
-	st = task_schedtune(p);
-	ontime = st->ontime;
-	rcu_read_unlock();
-
-	return ontime;
-}
-
-static u64
-ontime_read(struct cgroup_subsys_state *css, struct cftype *cft)
-{
-	struct schedtune *st = css_st(css);
-
-	return st->ontime;
-}
-
-static int
-ontime_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    u64 ontime)
-{
-	struct schedtune *st = css_st(css);
-	st->ontime = ontime;
-
-	return 0;
-}
-
-static u64
-util_est_read(struct cgroup_subsys_state *css, struct cftype *cft)
-{
-	struct schedtune *st = css_st(css);
-
-	return st->util_est;
-}
-
-static int
-util_est_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    u64 util_est)
-{
-	struct schedtune *st = css_st(css);
-
-	schedtune_util_est_update(css, !!util_est);
-	st->util_est = !!util_est;
-
-	return 0;
-}
-
-static int
-prefer_perf_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    u64 prefer_perf)
-{
-	struct schedtune *st = css_st(css);
-	st->prefer_perf = !!prefer_perf;
-
-	return 0;
-}
-
-static u64
-prefer_perf_read(struct cgroup_subsys_state *css, struct cftype *cft)
-{
-	struct schedtune *st = css_st(css);
-
-	return st->prefer_perf;
-}
-
-
 static u64
 prefer_idle_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
@@ -736,21 +606,6 @@ static struct cftype files[] = {
 		.name = "prefer_idle",
 		.read_u64 = prefer_idle_read,
 		.write_u64 = prefer_idle_write,
-	},
-	{
-		.name = "prefer_perf",
-		.read_u64 = prefer_perf_read,
-		.write_u64 = prefer_perf_write,
-	},
-	{
-		.name = "util_est",
-		.read_u64 = util_est_read,
-		.write_u64 = util_est_write,
-	},
-	{
-		.name = "ontime",
-		.read_u64 = ontime_read,
-		.write_u64 = ontime_write,
 	},
 	{ }	/* terminate */
 };

@@ -173,6 +173,9 @@ struct exynos_panel_info {
 	unsigned int esc_clk;
 
 	unsigned int fps;
+	unsigned int vrr_mode;
+	unsigned int target_fps;
+	unsigned int target_vrr_mode;
 
 	struct exynos_dsc dsc;
 

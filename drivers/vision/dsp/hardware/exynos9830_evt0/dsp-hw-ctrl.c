@@ -13,6 +13,7 @@
 #include "dsp-log.h"
 #include "hardware/dsp-reg.h"
 #include "hardware/dsp-system.h"
+#include "hardware/dsp-dump.h"
 #include "dsp-device.h"
 #include "dsp-debug.h"
 #include "hardware/dsp-ctrl.h"
@@ -1154,14 +1155,14 @@ int dsp_ctrl_writel(unsigned int reg_id, int val)
 	return 0;
 }
 
-int dsp_ctrl_boot_init(struct dsp_ctrl *ctrl)
+int dsp_ctrl_common_init(struct dsp_ctrl *ctrl)
 {
 	dsp_enter();
 	dsp_leave();
 	return 0;
 }
 
-int dsp_ctrl_debug_init(struct dsp_ctrl *ctrl)
+int dsp_ctrl_init(struct dsp_ctrl *ctrl)
 {
 	dsp_enter();
 	dsp_leave();
@@ -1226,7 +1227,7 @@ int dsp_ctrl_reset(struct dsp_ctrl *ctrl)
 	if (wfi_status != 0x1) {
 		ret = -ETIMEDOUT;
 		dsp_err("status of device is not idle(%#x)\n", wfi_status);
-		dsp_ctrl_dump();
+		dsp_dump_ctrl();
 		goto p_err;
 	} else {
 		dsp_ctrl_writel(DSPC_CPU_RELEASE, 0x0);

@@ -44,7 +44,7 @@ void kdp_print(const char *fmt, ...)
 	va_end(aptr);
 }
 
-#ifdef CONFIG_RKP_NS_PROT
+#ifdef CONFIG_KDP_NS
 struct vfsmount *get_vfsmnt(struct task_struct *p)
 {
 	if(!p || !(p->nsproxy) 
@@ -54,7 +54,7 @@ struct vfsmount *get_vfsmnt(struct task_struct *p)
 
 	return p->nsproxy->mnt_ns->root->mnt;
 }
-#endif /* CONFIG_RKP_NS_PROT */ 
+#endif /* CONFIG_KDP_NS */ 
 
 extern bool hyp_check_page_ro(u64 va);
 static int test_case_kdp_ro(int cmd_id)
@@ -72,12 +72,12 @@ static int test_case_kdp_ro(int cmd_id)
 			/*Here dst points to process security context*/
 			dst =(u64)__task_cred(p)->security;
 			break;
-#ifdef CONFIG_RKP_NS_PROT
+#ifdef CONFIG_KDP_NS
 		case CMD_ID_NS: 
 			/*Here dst points to process security context*/
 			dst = (u64)get_vfsmnt(p);
 			break;
-#endif /* CONFIG_RKP_NS_PROT */ 
+#endif /* CONFIG_KDP_NS */ 
 		}
 		if(!dst)
 		    continue;
@@ -168,13 +168,13 @@ static int test_case_sec_context_match_bp(void)
 }
 
 
-#ifdef CONFIG_RKP_NS_PROT
+#ifdef CONFIG_KDP_NS
 static int test_case_ns_ro(void)
 {
 	kdp_print("NAMESPACE PROTECTION ");
 	return test_case_kdp_ro(CMD_ID_NS);
 }
-#endif /* CONFIG_RKP_NS_PROT */ 
+#endif /* CONFIG_KDP_NS */ 
 
 #ifdef CONFIG_KDP_SEC_TEST
 enum 
@@ -292,9 +292,9 @@ ssize_t	kdp_read(struct file *filep, char __user *buffer, size_t count, loff_t *
 		{test_case_sec_context_ro,	"TEST TASK_SECURITY_CONTEXT_RO"},
 		{test_case_cred_match_bp,	"TEST CRED_MATCH_BACKPOINTERS"},
 		{test_case_sec_context_match_bp,"TEST TASK_SEC_CONTEXT_BACKPOINTER"},
-#ifdef CONFIG_RKP_NS_PROT
+#ifdef CONFIG_KDP_NS
 		{test_case_ns_ro,	"TEST NAMESPACE_RO"},
-#endif /* CONFIG_RKP_NS_PROT */ 
+#endif /* CONFIG_KDP_NS */ 
 	};
 	int tc_num = sizeof(kdp_test_case)/sizeof(struct test_case_struct);
 

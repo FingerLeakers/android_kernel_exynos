@@ -6,6 +6,7 @@
  */
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "../sched-pelt.h"
@@ -72,7 +73,7 @@ static unsigned long _ml_task_util_est(struct task_struct *p)
 
 unsigned long ml_task_util_est(struct task_struct *p)
 {
-	return schedtune_util_est(p) ? max(ml_task_util(p), _ml_task_util_est(p))
+	return emstune_util_est(p) ? max(ml_task_util(p), _ml_task_util_est(p))
 					: ml_task_util(p);
 }
 
@@ -225,7 +226,7 @@ unsigned long ml_cpu_util_without(int cpu, struct task_struct *p)
 		 * properly fix the execl regression and it helps in further
 		 * reducing the chances for the above race.
 		 */
-		if (schedtune_util_est(p) &&
+		if (emstune_util_est(p) &&
 		    unlikely(task_on_rq_queued(p) || current == p)) {
 			if (p->sse) {
 				sse_util_est -= min_t(unsigned int, sse_util_est,
@@ -267,7 +268,7 @@ unsigned long __ml_cpu_util_with(int cpu, struct task_struct *p, int sse)
 	if (sched_feat(UTIL_EST)) {
 		unsigned long util_est = __ml_cpu_util_est(cpu, sse);
 
-		if (schedtune_util_est(p) && p->sse == sse)
+		if (emstune_util_est(p) && p->sse == sse)
 			util_est += (_ml_task_util_est(p) | UTIL_AVG_UNCHANGED);
 
 		util = max_t(unsigned long, util, util_est);
@@ -328,21 +329,14 @@ static void post_init_inherit_cfs_rq(struct sched_entity *se, u32 inherit_ratio)
 	unsigned long cpu_scale = capacity_cpu(cpu_of(cfs_rq->rq), sse);
 	long cap = (long)(cpu_scale - _ml_cpu_util(cpu_of(cfs_rq->rq), sse));
 
-	if (cap <= 0)
+	if (cap <= 0) {
+		ml->util_avg = 0;
 		return;
-
-	if (cfs_rq->ml.util_avg != 0) {
-		ml->util_avg  = cfs_rq->ml.util_avg * se->load.weight;
-		ml->util_avg /= (cfs_rq->avg.load_avg + 1);
-		ml->util_avg = ml->util_avg << 1;
-
-		if (ml->util_avg > cap)
-			ml->util_avg = cap;
-	} else {
-		ml->util_avg = cap * inherit_ratio / 100;
 	}
 
-	trace_ems_multi_load_new_task(ml);
+	ml->util_avg = cap * inherit_ratio / 100;
+
+	trace_multi_load_new_task(ml);
 }
 
 static void post_init_inherit_parent(struct sched_entity *se, u32 inherit_ratio)
@@ -353,7 +347,7 @@ static void post_init_inherit_parent(struct sched_entity *se, u32 inherit_ratio)
 	ml->util_sum = current->se.ml.util_sum;
 	ml->util_avg = current->se.ml.util_avg;
 
-	trace_ems_multi_load_new_task(ml);
+	trace_multi_load_new_task(ml);
 }
 
 void post_init_entity_multi_load(struct sched_entity *se, u64 now)
@@ -370,7 +364,7 @@ void post_init_entity_multi_load(struct sched_entity *se, u64 now)
 				__func__, inherit_type);
 	}
 
-	if (!se->my_q) {
+	if (entity_is_task(se)) {
 		struct task_struct *p = task_of(se);
 		if (p->sched_class != &fair_sched_class)
 			se->ml.last_update_time = now;
@@ -459,7 +453,7 @@ static void update_next_balance(struct multi_load *ml)
 	struct sched_entity *se = container_of(ml, struct sched_entity, ml);
 	struct task_struct *p;
 
-	if (se->my_q)
+	if (!entity_is_task(se))
 		return;
 
 	p = task_of(se);
@@ -472,10 +466,6 @@ static void update_next_balance(struct multi_load *ml)
 	if (ml->runnable_avg >= get_upper_boundary(task_cpu(p), p))
 		cpu_rq(smp_processor_id())->next_balance = jiffies;
 }
-
-/* declare extern function from cfs */
-extern u64 decay_load(u64 val, u64 n);
-extern u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3);
 
 static inline void util_change(struct multi_load *ml);
 
@@ -514,7 +504,7 @@ __update_task_util(struct multi_load *ml, u64 periods, u32 contrib,
 	update_next_balance(ml);
 	util_change(ml);
 
-	trace_ems_multi_load_task(ml);
+	trace_multi_load_task(ml);
 }
 
 static void
@@ -551,7 +541,7 @@ __update_cpu_util(struct multi_load *ml, u64 periods, u32 contrib,
 	ml->runnable_avg_s = div_u64(ml->runnable_sum_s, divider);
 	ml->runnable_avg = div_u64(ml->runnable_sum, divider);
 
-	trace_ems_multi_load_cpu(ml);
+	trace_multi_load_cpu(ml);
 }
 
 static int
@@ -737,8 +727,8 @@ update_tg_cfs_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		cfs_rq->ml.util_sum = cfs_rq->ml.util_avg * LOAD_AVG_MAX;
 	}
 
-	trace_ems_multi_load_task(ml);
-	trace_ems_multi_load_cpu(&cfs_rq->ml);
+	trace_multi_load_task(ml);
+	trace_multi_load_cpu(&cfs_rq->ml);
 }
 
 /*
@@ -799,7 +789,7 @@ void attach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		cfs_rq->ml.util_sum += se->ml.util_sum;
 	}
 
-	trace_ems_multi_load_cpu(&cfs_rq->ml);
+	trace_multi_load_cpu(&cfs_rq->ml);
 }
 
 /*
@@ -816,7 +806,7 @@ void detach_entity_multi_load(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		sub_positive(&cfs_rq->ml.util_sum, se->ml.util_sum);
 	}
 
-	trace_ems_multi_load_cpu(&cfs_rq->ml);
+	trace_multi_load_cpu(&cfs_rq->ml);
 }
 
 /*
@@ -916,7 +906,7 @@ void util_est_enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p)
 	if (!sched_feat(UTIL_EST))
 		return;
 
-	if (schedtune_util_est(p)) {
+	if (emstune_util_est(p)) {
 		/*
 		 * Skip applying estimated utilization of task to cfs_rq if it
 		 * is already applied.
@@ -933,8 +923,8 @@ void util_est_enqueue_multi_load(struct cfs_rq *cfs_rq, struct task_struct *p)
 		p->se.ml.util_est_applied = 1;
 
 		/* Update plots for Task and CPU estimated utilization */
-		trace_ems_util_est_task(p, &p->se.ml);
-		trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+		trace_multi_load_util_est_task(p, &p->se.ml);
+		trace_multi_load_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
 	}
 }
 
@@ -996,7 +986,7 @@ void util_est_dequeue_multi_load(struct cfs_rq *cfs_rq,
 
 	if (updated) {
 		/* Update plots for CPU's estimated utilization */
-		trace_ems_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
+		trace_multi_load_util_est_cpu(cpu_of(cfs_rq->rq), cfs_rq);
 	}
 
 	/*
@@ -1046,7 +1036,7 @@ void util_est_dequeue_multi_load(struct cfs_rq *cfs_rq,
 	WRITE_ONCE(p->se.ml.util_est, ue);
 
 	/* Update plots for Task's estimated utilization */
-	trace_ems_util_est_task(p, &p->se.ml);
+	trace_multi_load_util_est_task(p, &p->se.ml);
 }
 
 void util_est_update(struct task_struct *p,
@@ -1088,7 +1078,7 @@ void util_est_update(struct task_struct *p,
 	WRITE_ONCE(cfs_rq_ue->enqueued, enqueued);
 
 	/* Update plots for CPU's estimated utilization */
-	trace_ems_util_est_cpu(cpu_of(rq), &rq->cfs);
+	trace_multi_load_util_est_cpu(cpu_of(rq), &rq->cfs);
 
 	task_rq_unlock(rq, p, &rq_flags);
 }
@@ -1305,7 +1295,7 @@ void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type)
 
 		if (rq->nr_running == 0) {
 			pa->running = true;
-			trace_ems_cpu_active_ratio(cpu, pa, "enqueue");
+			trace_multi_load_update_cpu_active_ratio(cpu, pa, "enqueue");
 		}
 		break;
 	/*
@@ -1319,7 +1309,7 @@ void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type)
 
 		if (rq->nr_running == 1) {
 			pa->running = false;
-			trace_ems_cpu_active_ratio(cpu, pa, "dequeue");
+			trace_multi_load_update_cpu_active_ratio(cpu, pa, "dequeue");
 		}
 		break;
 	/*
@@ -1328,12 +1318,12 @@ void update_cpu_active_ratio(struct rq *rq, struct task_struct *p, int type)
 	 */
 	case EMS_PART_UPDATE:
 		__update_cpu_active_ratio(cpu, pa, now, 0);
-		trace_ems_cpu_active_ratio(cpu, pa, "update");
+		trace_multi_load_update_cpu_active_ratio(cpu, pa, "update");
 		break;
 
 	case EMS_PART_WAKEUP_NEW:
 		__update_cpu_active_ratio(cpu, pa, now, 1);
-		trace_ems_cpu_active_ratio(cpu, pa, "new task");
+		trace_multi_load_update_cpu_active_ratio(cpu, pa, "new task");
 		break;
 	}
 }
@@ -1400,7 +1390,7 @@ void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int cpu)
 		*max = pelt_max;
 	}
 
-	trace_ems_cpu_active_ratio_util_stat(cpu, *util, (unsigned long)util_ratio);
+	trace_multi_load_cpu_active_ratio(cpu, *util, (unsigned long)util_ratio);
 }
 
 void set_part_period_start(struct rq *rq)

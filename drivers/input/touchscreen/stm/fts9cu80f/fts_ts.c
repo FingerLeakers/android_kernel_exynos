@@ -99,7 +99,7 @@ static void fts_reset_work(struct work_struct *work);
 static void fts_read_info_work(struct work_struct *work);
 
 #if defined(CONFIG_TOUCHSCREEN_DUMP_MODE)
-#include <linux/sec_debug.h>
+#include <linux/input/sec_tsp_dumpkey.h>
 static void tsp_dump(void);
 static void dump_tsp_rawdata(struct work_struct *work);
 struct delayed_work *p_debug_work;
@@ -789,10 +789,6 @@ int fts_set_scanmode(struct fts_ts_info *info, u8 scan_mode)
 	fts_interrupt_set(info, INT_ENABLE);
 	input_info(true, &info->client->dev, "%s: 0x%02X\n", __func__, scan_mode);
 
-	/* for bringup */
-	if (scan_mode)
-		fts_set_hsync_scanmode(info, FTS_CMD_LPM_ASYNC_SCAN);
-
 	return 0;
 }
 
@@ -1323,7 +1319,7 @@ void fts_release_all_key(struct fts_ts_info *info)
  */
 #include "fts_sec.c"
 
-struct fts_ts_info *g_info;
+struct fts_ts_info *g_fts_info;
 
 static ssize_t fts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
 					size_t len, loff_t *offset)
@@ -1337,11 +1333,11 @@ static ssize_t fts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
 	int ret;
 #endif
 
-	if (!g_info) {
+	if (!g_fts_info) {
 		pr_err("%s %s: dev is null\n", SECLOG, __func__);
 		return 0;
 	}
-	info = g_info;
+	info = g_fts_info;
 
 
 	if (pos == 0) {
@@ -1416,11 +1412,11 @@ static ssize_t fts_tsp_fail_hist_all_read(struct file *file, char __user *buf,
 	int ret;
 #endif
 
-	if (!g_info) {
+	if (!g_fts_info) {
 		pr_err("%s %s: dev is null\n", SECLOG, __func__);
 		return 0;
 	}
-	info = g_info;
+	info = g_fts_info;
 
 
 	if (pos == 0) {
@@ -1561,7 +1557,7 @@ static void fts_init_proc(struct fts_ts_info *info)
 	}
 	proc_set_size(entry_fail_hist_all, info->proc_fail_hist_all_size);
 
-	g_info = info;
+	g_fts_info = info;
 	input_info(true, &info->client->dev, "%s: done\n", __func__);
 	return;
 
@@ -1601,9 +1597,6 @@ static int fts_init(struct fts_ts_info *info)
 		} else if (rc < 0) {
 			goto reset;
 		}
-
-		/* for bringup */
-		fts_set_hsync_scanmode(info, FTS_CMD_LPM_ASYNC_SCAN);
 
 		rc = fts_wait_for_ready(info);
 reset:
@@ -3315,7 +3308,7 @@ err_input_allocate_device:
 	if (gpio_is_valid(info->board->irq_gpio))
 		gpio_free(info->board->irq_gpio);
 
-	g_info = NULL;
+	g_fts_info = NULL;
 	kfree(info);
 err_get_drv_data:
 err_setup_drv_data:
@@ -3404,7 +3397,7 @@ static int fts_remove(struct i2c_client *client)
 	if (info->board->led_power)
 		info->board->led_power(info, false);
 #endif
-	g_info = NULL;
+	g_fts_info = NULL;
 	kfree(info);
 
 	return 0;
@@ -3905,8 +3898,7 @@ static void fts_read_info_work(struct work_struct *work)
 	input_raw_info_d(true, &info->client->dev, "%s: fac test result %02X\n",
 				__func__, info->test_result.data[0]);
 
-	// for bringup
-/*	fts_run_rawdata_read_all(info);
+	fts_run_rawdata_read_all(info);
 
 	input_info(true, &info->client->dev, "%s: read cm data in tsp ic\n", __func__);
 	fts_get_cmoffset_dump(info, info->cmoffset_sdc_proc, OFFSET_FW_SDC);
@@ -3915,7 +3907,7 @@ static void fts_read_info_work(struct work_struct *work)
 
 	get_selftest_fail_hist_dump(info, info->fail_hist_sdc_proc, OFFSET_FW_SDC);
 	get_selftest_fail_hist_dump(info, info->fail_hist_sub_proc, OFFSET_FW_SUB);
-	get_selftest_fail_hist_dump(info, info->fail_hist_main_proc, OFFSET_FW_MAIN);*/
+	get_selftest_fail_hist_dump(info, info->fail_hist_main_proc, OFFSET_FW_MAIN);
 
 	info->info_work_done = true;
 

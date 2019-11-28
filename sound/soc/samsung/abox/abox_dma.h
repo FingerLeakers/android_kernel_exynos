@@ -12,6 +12,7 @@
 #ifndef __SND_SOC_ABOX_DMA_H
 #define __SND_SOC_ABOX_DMA_H
 
+#include <linux/completion.h>
 #include <sound/soc.h>
 #include "abox_ion.h"
 #include "abox.h"
@@ -150,6 +151,7 @@ struct abox_dma_data {
 	enum abox_buffer_type buf_type;
 	bool ack_enabled;
 	bool backend;
+	struct completion closed;
 	struct abox_compr_data compr_data;
 	struct regmap *mailbox;
 	struct snd_soc_component *cmpnt;

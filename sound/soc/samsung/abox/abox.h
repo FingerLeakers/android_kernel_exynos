@@ -91,6 +91,9 @@
 		((month - 1 + 'A') << 8) | \
 		((minor + '0') << 0))
 
+#define ABOX_QUIRK_BIT_ARAM_MODE	BIT(0)
+#define ABOX_QUIRK_STR_ARAM_MODE	"aram mode"
+
 enum abox_dai {
 	ABOX_NONE,
 	ABOX_SIFSM,
@@ -137,6 +140,7 @@ enum abox_dai {
 	ABOX_UAIF5,
 	ABOX_UAIF6,
 	ABOX_DSIF,
+	ABOX_SPDY,
 	ABOX_RDMA0_BE = 0x50,
 	ABOX_RDMA1_BE,
 	ABOX_RDMA2_BE,
@@ -252,6 +256,9 @@ enum audio_mode {
 	MODE_IN_CALL,
 	MODE_IN_COMMUNICATION,
 	MODE_IN_VIDEOCALL,
+	MODE_RESERVED0,
+	MODE_RESERVED1,
+	MODE_IN_LOOPBACK,
 };
 
 enum sound_type {
@@ -282,8 +289,11 @@ struct abox_ipc {
 	int hw_irq;
 	unsigned long long put_time;
 	unsigned long long get_time;
-	ABOX_IPC_MSG msg;
 	size_t size;
+	union {
+		char msg[SZ_4K];
+		ABOX_IPC_MSG ipc;
+	};
 };
 
 struct abox_ipc_action {

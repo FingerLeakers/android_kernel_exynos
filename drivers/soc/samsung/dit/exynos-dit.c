@@ -14,7 +14,7 @@
 #include <linux/mfd/syscon.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <soc/samsung/exynos-dit.h>
+#include "exynos-dit.h"
 #include <soc/samsung/hw_forward.h>
 #include <linux/mod_devicetable.h>
 #include <linux/delay.h>
@@ -31,8 +31,8 @@
 #include <net/sch_generic.h>
 #include <uapi/linux/ip.h>
 
-#include <soc/samsung/exynos-dit-ioctl.h>
-#include <soc/samsung/exynos-dit-offload.h>
+#include "exynos-dit-ioctl.h"
+#include "exynos-dit-offload.h"
 
 #ifdef DIT_CHECK_PERF
 #include <uapi/linux/sched/types.h>
@@ -111,56 +111,6 @@ struct dit_dev_info_t dit_dev = {
 };
 
 char dit_dt_item[DIT_MAX_NAME_LEN];
-
-#ifdef DIT_DEBUG_PSEUDO_PCTPROC
-/* geting num_queue count of pktproc */
-int pktproc_get_queue_count(void)
-{
-	struct dit_pacproc_t *cp_pktproc = &dit_dev.perf.cp_pktproc;
-
-	return cp_pktproc->num_queue;
-}
-
-/* get queue info [rear_ptr, done_ptr] */
-void pktproc_get_queueinfo(int qnum, unsigned int *size, unsigned int *wp, unsigned int *rp)
-{
-	struct dit_pacproc_t *cp_pktproc = &dit_dev.perf.cp_pktproc;
-
-	*size = cp_pktproc->q[qnum].size;
-	*wp = cp_pktproc->q[qnum].wp;
-	*rp = cp_pktproc->q[qnum].rp;
-}
-
-/* get data info at index rp from pktproc */
-static inline void __attach_ifinfo_desc(void *indata, int *len, struct net_device *ndev, u8 status)
-{
-	struct dit_priv_t *priv;
-	char *data = (char *)indata;
-
-	priv = (struct dit_priv_t *)(data + *len);
-	priv->ndev = ndev;
-	priv->status = status;
-
-	*len += sizeof(struct dit_priv_t);
-}
-
-int pktproc_get_datainfo(int qnum, int rp, char **pktdata, int *pktlen)
-{
-	*pktdata = test_Rxpacket;
-	*pktlen = test_Rxpkt_sz;
-	__attach_ifinfo_desc(*pktdata, pktlen, dit_dev.perf.ndev, 0 /* csum status */);
-	return 0;
-}
-
-/* update done_ptr when DIT translation done */
-void pktproc_update_done_ptr(int qnum, unsigned int done_ptr)
-{
-	struct dit_pktproc_queue_t *q = &dit_dev.perf.cp_pktproc.q[qnum];
-
-	q->rp = done_ptr;
-	dit_debug("cp_pktproc q[%d] rp=%d (wp=%d)\n", qnum, q->rp, q->wp);
-}
-#endif
 
 static inline bool circ_empty(unsigned int in, unsigned int out)
 {
@@ -578,55 +528,9 @@ inline int dit_padd_desc_skb(struct dit_dev_info_t *dit, int DIR, int cnt)
 		if (!skb)
 			break;
 		skb_put_data(skb, padd_packet, SZ_PAD_PACKET);
-		skb->dev = NULL;
+		skb->dev = dit_dev.dummy_ndev;
 		dit_make_desc_skb(dit, DIR, skb);
 	}
-
-	return cnt;
-}
-
-/* make DIT descriptor for SRC from data (pktproc desc)
- * with DIT 2.0, net_device should be passed
- */
-int dit_make_desc_desc(struct dit_dev_info_t *dit, int DIR, void *data, int len)
-{
-	int ret = 0;
-	struct dit_handle_t *h = &dit->handle[DIR];
-
-	int inkey = h->w_key[DIT_SRC];
-	struct dit_desc_t *pdesc = h->desc[DIT_SRC];
-
-	u8 ringend = (inkey == DIT_MAX_DESC - 1) ? (0x1 << 3) : 0;
-
-	dit_debug_low("DIR=%d, inkey=%d (ringend=%d)\n", DIR, inkey, ringend);
-
-	/* __attach_ifinfo_desc: net_device already appended from CP IF */
-
-	/* Set descriptor */
-	pdesc[inkey].src.status = 0;
-	pdesc[inkey].src.saddr = virt_to_phys(data);
-	pdesc[inkey].src.lengh = len;
-
-	pdesc[inkey].src.control = (0x1 << DIT_DESC_C_END)
-							| (0x1 << DIT_DESC_C_START) | ringend;
-
-	if (!ringend)
-		h->w_key[DIT_SRC]++;
-	else
-		h->w_key[DIT_SRC] = 0;
-
-	return ret;
-}
-
-/* DIT 2.0 DMA padding */
-inline int dit_padd_desc_desc(struct dit_dev_info_t *dit, int DIR, int cnt)
-{
-	int i;
-
-	dit_debug_low("%d\n", cnt);
-
-	for (i = 0; i < cnt; i++)
-		dit_make_desc_desc(dit, DIR, padd_packet, SZ_PAD_PACKET + SZ_HW_FWD_IFINFO);
 
 	return cnt;
 }
@@ -640,7 +544,7 @@ inline int is_dit_busy(struct dit_dev_info_t *dit, int DIR, int start, int end)
 	status = readl(dit->reg_base + DIT_STATUS);
 	status = status & (DIR ? DIT_TX_STATUS_MASK : DIT_RX_STATUS_MASK);
 	if (status) {
-#ifdef DIT_CHECK_PERF
+#ifdef DIT_CHECK_PERF_TIME
 		if (dit->stat[DIR].err_busy_hw == 0) {
 			getnstimeofday(&dit->perf.fwd[DIR].startTimeBusy);
 			dit->perf.fwd[DIR].busy_checking = true;
@@ -650,7 +554,7 @@ inline int is_dit_busy(struct dit_dev_info_t *dit, int DIR, int start, int end)
 		dit_debug_low("DIR=%d, -EBUSY (0x%08x)\n", DIR, status);
 		return -EBUSY;
 	}
-#ifdef DIT_CHECK_PERF
+#ifdef DIT_CHECK_PERF_TIME
 	if (dit->perf.fwd[DIR].busy_checking) {
 		struct timespec ts;
 
@@ -698,12 +602,12 @@ int dit_enqueue_to_backlog(int DIR, struct sk_buff *skb)
 
 	if (!dit->enable) {
 		dit_err("NOT enabled DIT now\n");
-		return NETDEV_TX_BUSY;
+		return NET_RX_DROP;
 	}
 
 	if (dit->stat[DIR].err_nomem) {
 		dit_err_limited("NO MEMORY\n");
-		return NETDEV_TX_BUSY;
+		return NET_RX_DROP;
 	}
 
 	if (h->backlog_q.qlen > DIT_MAX_BACKLOG) {
@@ -712,7 +616,7 @@ int dit_enqueue_to_backlog(int DIR, struct sk_buff *skb)
 			__napi_schedule(&dit_dev.napi.backlog_skb);
 		dit_debug_low("Too much traffic injected!!\n");
 		dev_kfree_skb_any(skb);
-		return NETDEV_TX_BUSY;
+		return NET_RX_DROP;
 	}
 
 	skb_queue_tail(&dit->handle[DIR].backlog_q, skb);
@@ -720,7 +624,7 @@ int dit_enqueue_to_backlog(int DIR, struct sk_buff *skb)
 	dit->stat[DIR].injectpkt++;
 	offload_update_reqst(DIR, skb->len);
 
-	return NETDEV_TX_OK;
+	return NET_RX_SUCCESS;
 }
 
 int dit_schedule(int type)
@@ -735,9 +639,6 @@ int dit_schedule(int type)
 	if (type == DIT_BACKLOG_SKB) {
 		if (napi_schedule_prep(&dit_dev.napi.backlog_skb))
 			__napi_schedule(&dit_dev.napi.backlog_skb);
-	} else if (type == DIT_BACKLOG_DESC) {
-		if (napi_schedule_prep(&dit_dev.napi.backlog_desc))
-			__napi_schedule(&dit_dev.napi.backlog_desc);
 	} else {
 		if (napi_schedule_prep(&dit_dev.napi.forward)) {
 			__napi_schedule(&dit_dev.napi.forward);
@@ -818,6 +719,7 @@ static inline int dit_backlog_skb_proc(int budget, int DIR)
 #ifdef DIT_CHECK_PERF
 		dit->perf.fwd[DIR].inpkt++;
 
+#ifdef DIT_CHECK_PERF_TIME
 		if (dit->perf.fwd[DIR].inpkt == MAX_PERF_TEST_PACKET_CNT) {
 			struct timespec ts;
 
@@ -829,6 +731,7 @@ static inline int dit_backlog_skb_proc(int budget, int DIR)
 					MAX_PERF_TEST_PACKET_CNT);
 
 		}
+#endif
 #endif
 	}
 	npadd += dit_padd_desc_skb(dit, DIR, (3 - ndesc%3) + 1);  /* DIT 2.0 DMA padding */
@@ -868,97 +771,6 @@ kick_again:
 	return 0;
 }
 
-/* Only Handle RX forward */
-static inline int dit_backlog_desc_proc(int budget, int DIR)
-{
-	struct dit_dev_info_t *dit = &dit_dev;
-	int ndesc, npadd;
-	int done_all_checker = 0;
-	int qnum;
-	struct dit_handle_t *h = &dit->handle[DIR];
-	int start, end;
-
-	for (qnum = 0; qnum < dit_dev.pktproc.num_queue; qnum++) {
-		struct dit_pktproc_queue_t *q = &dit_dev.pktproc.q[qnum];
-
-		if (circ_empty(q->wp, q->rp) == true) {
-			pktproc_update_done_ptr(qnum, q->rp);
-			done_all_checker++;
-		}
-		if (done_all_checker == dit_dev.pktproc.num_queue)
-			return 0;
-	}
-
-	if (UNITS_IN_BANK(h->w_key[DIT_SRC])) {
-		start = BANK_START_INDEX(h->w_key[DIT_SRC]);
-		dit->stat[DIR].kick_re++;
-		dit_debug_low("DIT_SRC still need to kick (DIR=%d)\n", DIR);
-		goto kick_again_desc;
-	}
-
-	start = h->w_key[DIT_SRC];
-
-	ndesc = 0;
-	npadd = 0;
-	npadd += dit_padd_desc_desc(dit, DIR, 3);
-
-	for (qnum = 0; qnum < dit_dev.pktproc.num_queue; qnum++) {
-		int qbudget;
-		struct dit_pktproc_queue_t *q = &dit_dev.pktproc.q[qnum];
-
-		qbudget = dit_dev.pktproc.num_queue ? (budget / dit_dev.pktproc.num_queue) : budget;
-		while ((qbudget-- > 3) && (circ_empty(q->wp, q->rp) == false)) {
-			char *pktdata;
-			int pktlen;
-
-			pktproc_get_datainfo(qnum, q->rp, &pktdata, &pktlen);
-			dit_make_desc_desc(dit, DIR, pktdata, pktlen);
-			q->rp = circ_new_ptr(q->size, q->rp, 1);
-			ndesc++;
-
-#ifdef DIT_CHECK_PERF
-			dit->perf.fwd[DIR].inpkt++;
-
-			if (dit->perf.fwd[DIR].inpkt == MAX_PERF_TEST_PACKET_CNT) {
-				struct timespec ts;
-
-				getnstimeofday(&dit->perf.fwd[DIR].g_endT);
-				ts = timespec_sub(dit->perf.fwd[DIR].g_endT, dit->perf.fwd[DIR].g_startT);
-				dit_info("Total duration : %ld ms / %d packets\n",
-						ts.tv_sec * MSEC_PER_SEC + ts.tv_nsec / NSEC_PER_MSEC,
-						MAX_PERF_TEST_PACKET_CNT);
-			}
-#endif
-		}
-	}
-
-	npadd += dit_padd_desc_desc(dit, DIR, (3 - ndesc%3) + 1);
-
-	dit->stat[DIR].dit_inpkt += ndesc;
-	dit->stat[DIR].padpkt += npadd;
-
-kick_again_desc:
-	end = dit_kick(dit, DIR, start);
-
-	if (end == -EBUSY)	/* HW busy */
-		return -1;
-
-	if (end == -EAGAIN)
-		return -1;
-
-	dit_debug("kick count %3d/%3d (start=%d, end=%d)\n", ndesc, ndesc + npadd, start, end);
-
-	/* Next bank */
-	h->w_key[DIT_SRC] = circ_new_ptr(h->num_desc, BANK_START_INDEX(start), MAX_UNITS_IN_BANK);
-	dit_debug("%s: updating w_key %d\n", "SRC", h->w_key[DIT_SRC]);
-
-#ifdef DIT_DEBUG_PKT
-	dit_debug_print_desc(h, DIT_SRC, start, (end + 1) % DIT_MAX_DESC, "SRC");
-#endif
-
-	return -1; /* To update last rp to cp packproc */
-}
-
 static enum hrtimer_restart dit_sched_skb_func(struct hrtimer *timer)
 {
 #ifdef DIT_CHECK_PERF
@@ -966,15 +778,6 @@ static enum hrtimer_restart dit_sched_skb_func(struct hrtimer *timer)
 #endif
 
 	dit_schedule(DIT_BACKLOG_SKB);
-	return HRTIMER_NORESTART;
-}
-
-static enum hrtimer_restart dit_sched_desc_func(struct hrtimer *timer)
-{
-#ifdef DIT_CHECK_PERF
-	dit_dev.perf.shed_desc++;
-#endif
-	dit_schedule(DIT_BACKLOG_DESC);
 	return HRTIMER_NORESTART;
 }
 
@@ -991,8 +794,7 @@ static enum hrtimer_restart dit_sched_fwd_func(struct hrtimer *timer)
 static int dit_backlog_skb_poll(struct napi_struct *napi, int budget)
 {
 	int ret = 0;
-	u64 delay;
-#ifdef DIT_CHECK_PERF
+#ifdef DIT_CHECK_PERF_TIME
 	struct timespec startTime, endTime;
 #endif
 
@@ -1003,6 +805,7 @@ static int dit_backlog_skb_poll(struct napi_struct *napi, int budget)
 
 #ifdef DIT_CHECK_PERF
 	dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_SKB]++;
+#ifdef DIT_CHECK_PERF_TIME
 	if (dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_SKB] == 1) {
 		getnstimeofday(&startTime);
 		getnstimeofday(&dit_dev.perf.fwd[DIT_TX__FORWARD].g_startT);
@@ -1010,66 +813,23 @@ static int dit_backlog_skb_poll(struct napi_struct *napi, int budget)
 			getnstimeofday(&dit_dev.perf.fwd[DIT_RX__FORWARD].g_startT);
 	}
 #endif
-
-#ifdef DIT_CHECK_PERF
-	ret += dit_backlog_skb_proc(budget, DIT_RX__FORWARD); /* NEED for TESTING */
 #endif
+
+	ret += dit_backlog_skb_proc(budget, DIT_RX__FORWARD);
 	ret += dit_backlog_skb_proc(budget>>1, DIT_TX__FORWARD);
 
 	napi_complete_done(napi, 0);
 
 	if (ret < 0) {
-		delay = DIT_SCHED_BACKOFF_TIME(budget);
-		hrtimer_start(&dit_dev.sched_skb_timer, ns_to_ktime(delay), HRTIMER_MODE_REL);
+		hrtimer_start(&dit_dev.sched_skb_timer, ns_to_ktime(DIT_SCHED_BACKOFF_TIME_NS), HRTIMER_MODE_REL);
 	}
 
-#ifdef DIT_CHECK_PERF
+#ifdef DIT_CHECK_PERF_TIME
 	if (dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_SKB] == 1) {
 		struct timespec ts;
 
 		getnstimeofday(&endTime);
 		ts = timespec_sub(endTime, startTime);
-		dit_info("mak_desc&kick duration : %ld nsecs\n", ts.tv_nsec);
-	}
-#endif
-
-	return 0;
-}
-
-static int dit_backlog_desc_poll(struct napi_struct *napi, int budget)
-{
-	int ret = 0;
-	u64 delay;
-#ifdef DIT_CHECK_PERF
-	struct timespec startTime, endTime;
-#endif
-
-	if (readl(dit_dev.reg_base + DIT_DMA_INIT_DATA) == 0)
-		dit_init_hw();
-
-#ifdef DIT_CHECK_PERF
-	dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_DESC]++;
-	if (dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_DESC] == 1) {
-		getnstimeofday(&startTime);
-		getnstimeofday(&dit_dev.perf.fwd[DIT_RX__FORWARD].g_startT);
-	}
-#endif
-
-	ret = dit_backlog_desc_proc(budget, DIT_RX__FORWARD);
-	napi_complete_done(napi, 0);
-
-	if (ret < 0) {
-		delay = DIT_SCHED_BACKOFF_TIME(budget);
-		hrtimer_start(&dit_dev.sched_desc_timer, ns_to_ktime(delay), HRTIMER_MODE_REL);
-	}
-
-#ifdef DIT_CHECK_PERF
-	if (dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_DESC] == 1) {
-		struct timespec ts;
-
-		getnstimeofday(&endTime);
-		ts = timespec_sub(endTime, startTime);
-		dit_info("dit_dev.pktproc.num_queue : %d\n", dit_dev.pktproc.num_queue);
 		dit_info("mak_desc&kick duration : %ld nsecs\n", ts.tv_nsec);
 	}
 #endif
@@ -1108,6 +868,7 @@ static inline int dit_dev_forward_queue_skb(struct sk_buff *skb, struct Qdisc *q
 #ifdef DIT_CHECK_PERF
 		if (rc == NET_XMIT_DROP) {
 			dit_dev.perf.txq_drop++;
+#ifdef DIT_CHECK_PERF_TIME
 			if (dit_dev.perf.txq_drop == 1) {
 				struct timespec ts;
 
@@ -1119,6 +880,7 @@ static inline int dit_dev_forward_queue_skb(struct sk_buff *skb, struct Qdisc *q
 		} else {
 			dit_dev.perf.devfwd.fwd_done++;
 			getnstimeofday(&dit_dev.perf.devfwd.g_startT);
+#endif
 		}
 #endif
 	}
@@ -1201,22 +963,6 @@ int dit_forward_skb(struct sk_buff *skb, int DIR, int dst)
 		if (DIR == DIT_TX__FORWARD)
 			dit_err("unexpected recv: DIR %d, dst=%d\n", DIR, dst);
 		else {
-#ifdef DIT_DEBUG_FORWARD_IPEF_SEQUENCER
-			if (dit_dev.perf.test_case == DIT_PERF_TEST_ONLY_RX) {
-				unsigned int *seq;
-				unsigned char *data;
-
-				data = skb->data;
-				dit_dev.perf.fwd[DIR].pktcounter++;
-				if (iphdr->version == 0x6) {
-					seq = (unsigned int *)&data[48];
-					*seq = htonl(dit_dev.perf.fwd[DIR].pktcounter);
-				} else {
-					seq = (unsigned int *)&data[28];
-					*seq = htonl(dit_dev.perf.fwd[DIR].pktcounter);
-				}
-			}
-#endif
 			ehdr = (struct ethhdr *)skb_push(skb, sizeof(struct ethhdr));
 			memcpy(ehdr->h_dest, dit_dev.host[0].hostmac, ETH_ALEN);
 			memcpy(ehdr->h_source, dit_dev.host[0].ifmac, ETH_ALEN);
@@ -1268,7 +1014,6 @@ int dit_forward_skb(struct sk_buff *skb, int DIR, int dst)
 		dev_kfree_skb_any(skb);
 		dit_dev.stat[DIR].err_full_fq++;
 		dit_debug_low("Too much packets in forward_q!!\n");
-		dit_schedule(DIT_BACKLOG_FORWARD);
 		return -1;
 	}
 
@@ -1487,7 +1232,7 @@ int pass_skb_to_netdev(int DIR, int dst, int start, char *tag)
 		dit_debug_print_desc(h, dst, i, (i + 1) % DIT_MAX_DESC, tag);
 #endif
 
-		if (likely(skbrx->dev))
+		if (likely(skbrx->dev != dit_dev.dummy_ndev))
 			dit_forward_skb(skbrx, DIR, dst);
 		else {
 			if ((skbrx->data[0] & 0xff) != 0x00) {
@@ -1853,7 +1598,7 @@ void dit_set_nat_txfilter(int dst, __be16 iport, __be16 xport, bool on)
 
 void dit_forward_set(int ifnet, struct net_device *ndev, bool enable)
 {
-	dit_info("%d, %s (enable=%d)\n", ifnet, ndev->name, enable);
+	dit_info("idx=%d, %s (enable=%d)\n", ifnet, ndev->name, enable);
 	dit_dev.ifdev[ifnet].ndev = enable ? ndev : NULL;
 	dit_dev.ifdev[ifnet].enabled = enable;
 	dit_dev.ifdev[ifnet].txq = netdev_get_tx_queue(ndev, 0);
@@ -2067,8 +1812,6 @@ EXPORT_SYMBOL(hw_forward_enqueue_to_backlog);
 
 int hw_forward_schedule(int type)
 {
-	int qnum;
-
 	if (!dit_dev.enable)
 		return -1;
 
@@ -2076,14 +1819,6 @@ int hw_forward_schedule(int type)
 	dit_dev.perf.shed_req++;
 #endif
 
-	if (type == DIT_BACKLOG_DESC) {
-		for (qnum = 0; qnum < dit_dev.pktproc.num_queue; qnum++) {
-			struct dit_pktproc_queue_t *q = &dit_dev.pktproc.q[qnum];
-
-			pktproc_get_queueinfo(qnum, &q->size, &q->wp, &q->rp);
-			dit_debug("pktproc.q[%d], size=%d, wp=%d, rp=%d\n", qnum, q->size, q->wp, q->rp);
-		}
-	}
 	return dit_schedule(type);
 }
 EXPORT_SYMBOL(hw_forward_schedule);
@@ -2230,40 +1965,11 @@ void dit_del_v4_filter(u32 id)
 #endif
 
 #ifdef DIT_CHECK_PERF
-void __perftest_gen_desc(int DIR, int budget)
-{
-	int qnum;
-	int qbudget;
-	struct dit_pacproc_t *cp_pktproc = &dit_dev.perf.cp_pktproc;
-
-	qbudget = cp_pktproc->num_queue ? (budget / cp_pktproc->num_queue) : budget;
-
-	dit_debug("cp_pktproc->num_queue=%d qbudget=%d\n",
-		cp_pktproc->num_queue, qbudget);
-
-	for (qnum = 0; qnum < cp_pktproc->num_queue; qnum++) {
-		struct dit_pktproc_queue_t *q = &cp_pktproc->q[qnum];
-		unsigned int space = circ_get_space(q->size, q->wp, q->rp);
-
-		qbudget = space < qbudget ? space : qbudget;
-		if (space <= 1) {
-			dit_err_limited("err_full q[%d]: wp=%d, rp=%d space=%d\n",
-				qnum, q->wp, q->rp, space);
-			dit_dev.stat[DIR].err_full_bq++;
-		}
-		q->wp = circ_new_ptr(q->size, q->wp, qbudget);
-		dit_dev.stat[DIR].injectpkt += qbudget;
-	}
-
-	hw_forward_schedule(DIT_BACKLOG_DESC);
-}
-
 void __perftest_gen_skb(int DIR, int budget)
 {
 	int i = 0;
 	struct sk_buff *skb;
 	struct iphdr *iphdr;
-	int ret;
 	unsigned int *seq;
 	unsigned char *data;
 	int len;
@@ -2280,9 +1986,9 @@ void __perftest_gen_skb(int DIR, int budget)
 		dit_debug("TX_FORWARD packet src addr %pI4\n", &iphdr->saddr);
 	}
 
-	while (i < budget) {
+	while (i++ < budget) {
 		if (!dit_dev.perf.ndev) {
-			dit_info("testing perf.ndev is NOT set\n");
+			dit_err_limited("testing perf.ndev is NOT set\n");
 			return;
 		}
 		skb = napi_alloc_skb(&dit_dev.napi.backlog_skb, DIT_BUFFER_DSIZE);
@@ -2301,8 +2007,8 @@ void __perftest_gen_skb(int DIR, int budget)
 
 		skb_put_data(skb, iphdr, len);
 		skb->dev = dit_dev.perf.ndev;
-		ret = hw_forward_enqueue_to_backlog(DIR, skb);
-		i++;
+		if (NET_RX_SUCCESS != hw_forward_enqueue_to_backlog(DIR, skb))
+			dit_dev.perf.fwd[DIR].pktcounter--; /* rollback counter */
 	}
 	hw_forward_schedule(DIT_BACKLOG_SKB);
 }
@@ -2324,10 +2030,7 @@ static enum hrtimer_restart dit_perftest_timer_func(struct hrtimer *timer)
 
 	if (perf->test_case == DIT_PERF_TEST_SKB_RXGEN)
 		__perftest_gen_skb(DIT_RX__FORWARD, perf->pkts_ms);
-	else if (perf->test_case == DIT_PERF_TEST_ONLY_RX)
-		__perftest_gen_desc(DIT_RX__FORWARD, perf->pkts_ms);
 	else {
-		__perftest_gen_desc(DIT_RX__FORWARD, perf->pkts_ms);
 		__perftest_gen_skb(DIT_TX__FORWARD, perf->pkts_ms >> 1);
 	}
 
@@ -2341,7 +2044,7 @@ static enum hrtimer_restart dit_perftest_timer_func(struct hrtimer *timer)
 	if (ts.tv_nsec < NSEC_PER_MSEC)
 		delay = NSEC_PER_MSEC - ts.tv_nsec;
 	else
-		delay = DIT_SCHED_BACKOFF_TIME(perf->pkts_ms);
+		delay = DIT_SCHED_BACKOFF_TIME_NS;
 
 	hrtimer_start(&perf->test_timer, ns_to_ktime(delay), HRTIMER_MODE_REL);
 
@@ -2396,11 +2099,6 @@ void dit_perftest_gen_thread_ex(int val)
 	wake_up_process(dit_dev.perf.worker_task);
 }
 
-static void perftest_gen_desc(int DIR)
-{
-	__perftest_gen_desc(DIR, dit_dev.perf.pkts_ms);
-}
-
 static void perftest_gen_skb(int DIR)
 {
 	__perftest_gen_skb(DIR, dit_dev.perf.pkts_ms);
@@ -2447,16 +2145,14 @@ static ssize_t dit_stat_show(struct kobject *kobj,
 	struct dit_stat_perf_t *pperf = &dit->perf;
 #endif
 	int DIR, dst;
-	int qnum;
 
 	for (DIR = 0; DIR < DIT_MAX_FORWARD; DIR++) {
 		pstat = &dit->stat[DIR];
 		count += snprintf(buf+count, 5+1, "[%-2s]\n", DIR ? "TX" : "RX");
 		count += snprintf(buf+count, 84+1,
-			" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n",
+			" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n",
 			"injectpkt", pstat->injectpkt,
 			"dit_inpkt", pstat->dit_inpkt,
-			"paddg_pkt", pstat->padpkt,
 			"dit_outpkt", pstat->dit_outpkt);
 		count += snprintf(buf+count, 63+1,
 			" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n",
@@ -2473,24 +2169,20 @@ static ssize_t dit_stat_show(struct kobject *kobj,
 			"fwd_busy", pstat->droppkt_busy,
 			"fwd_drop", pstat->droppkt_drop,
 			"fwd_cn", pstat->droppkt_cn);
-		count += snprintf(buf+count, 22+1, " %-10s\t%8d\n\n",
-			"err_nomem", pstat->err_nomem);
 	}
 
 #ifdef DIT_CHECK_PERF
 	count += snprintf(buf+count, 8+1, "[%-5s]\n", "SCHED");
-	count += snprintf(buf+count, 126+1,
-		" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n",
+	count += snprintf(buf+count, 106+1,
+		" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n",
 		"test_ticks", pperf->test_ticks,
 		"shed_req", pperf->shed_req,
 		"shed_try", pperf->shed_try,
 		"shed_skb", pperf->shed_skb,
-		"shed_desc", pperf->shed_desc,
 		"shed_fwd", pperf->shed_fwd);
 
-	count += snprintf(buf+count, 63+1+1,
-		" %-10s\t%8d\n %-10s\t%8d\n %-10s\t%8d\n\n",
-		"desc_poll", pperf->backlog_poll_cnt[DIT_BACKLOG_DESC],
+	count += snprintf(buf+count, 43+1+1,
+		" %-10s\t%8d\n %-10s\t%8d\n\n",
 		"skb_poll", pperf->backlog_poll_cnt[DIT_BACKLOG_SKB],
 		"fwd_poll", pperf->forward_poll_cnt);
 
@@ -2498,32 +2190,6 @@ static ssize_t dit_stat_show(struct kobject *kobj,
 		"\n %-10s\t%8d\n %-10s\t%8d\n\n",
 		"txq_drop", pperf->txq_drop,
 		"txq_inact", pperf->txq_inactive);
-#endif
-
-	count += snprintf(buf+count, 12+1,
-		" %-10s\t", "pproc.rp");
-	for (qnum = 0; qnum < dit->pktproc.num_queue; qnum++)
-		count += snprintf(buf+count, 10+1,
-			"%8d", dit->pktproc.q[qnum].rp);
-
-	count += snprintf(buf+count, 1+12+1,
-		"\n %-10s\t", "pproc.wp");
-	for (qnum = 0; qnum < dit->pktproc.num_queue; qnum++)
-		count += snprintf(buf+count, 10+1,
-			"%8d", dit->pktproc.q[qnum].wp);
-
-#ifdef DIT_CHECK_PERF
-	count += snprintf(buf+count, 1+12+1,
-		"\n %-10s\t", "cpproc.rp");
-	for (qnum = 0; qnum < pperf->cp_pktproc.num_queue; qnum++)
-		count += snprintf(buf+count, 10+1,
-			"%8d", pperf->cp_pktproc.q[qnum].rp);
-
-	count += snprintf(buf+count, 1+12+1,
-		"\n %-10s\t", "cpproc.wp");
-	for (qnum = 0; qnum < pperf->cp_pktproc.num_queue; qnum++)
-		count += snprintf(buf+count, 10+1,
-			"%8d", pperf->cp_pktproc.q[qnum].wp);
 #endif
 
 	count += snprintf(buf+count, 1+1+78+1,
@@ -2585,8 +2251,7 @@ static ssize_t perftest_show(struct kobject *kobj,
 						" \"1\": rx test once\n"
 						" \"2\": tx test once \n"
 						" \"3\": full rx & tx test\n"
-						" \"4\": full iperf test\n"
-						" \"5\": full rx test\n");
+						" \"4\": full iperf test\n");
 
 	return count;
 }
@@ -2600,8 +2265,6 @@ static ssize_t perftest_store(struct kobject *kobj,
 	__be16 reply_port, org_port;
 	struct iphdr *iphdrTx, *iphdrRx;
 	struct ipv6hdr *ip6hdrRx;
-	struct dit_pacproc_t *cp_pktproc = &dit_dev.perf.cp_pktproc;
-	int qnum;
 	int ret;
 
 	if (!dit_dev.enable) {
@@ -2624,14 +2287,12 @@ static ssize_t perftest_store(struct kobject *kobj,
 		/* initialize perf stat */
 		memset(dit_dev.perf.fwd, 0, sizeof(struct dit_perf_forward_t)*DIT_MAX_FORWARD);
 
-		dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_DESC] = 0;
 		dit_dev.perf.backlog_poll_cnt[DIT_BACKLOG_SKB] = 0;
 		dit_dev.perf.forward_poll_cnt = 0;
 
 		dit_dev.perf.shed_req = 0;
 		dit_dev.perf.shed_try = 0;
 		dit_dev.perf.shed_skb = 0;
-		dit_dev.perf.shed_desc = 0;
 		dit_dev.perf.shed_fwd = 0;
 
 		dit_dev.perf.txq_drop = 0;
@@ -2643,13 +2304,6 @@ static ssize_t perftest_store(struct kobject *kobj,
 
 		dit_dev.perf.ue_ip.s_addr = htonl(PERF_UE_IP_ADDR);
 		dit_dev.perf.host_ip.s_addr = htonl(PERF_PC_IP_ADDR);
-
-		/* initialize cp_pktproc */
-		for (qnum = 0; qnum < cp_pktproc->num_queue; qnum++) {
-			cp_pktproc->q[qnum].wp = 0; /* to check HW busy duration */
-			cp_pktproc->q[qnum].rp = 0;
-			cp_pktproc->q[qnum].size = 8192;
-		}
 
 		dit_set_nat_local_addr(DIT_IF_RMNET, dit_dev.perf.ue_ip.s_addr);
 		dit_set_nat_local_addr(DIT_IF_USB, dit_dev.perf.host_ip.s_addr);
@@ -2714,7 +2368,7 @@ static ssize_t perftest_store(struct kobject *kobj,
 		switch (param1) {
 		case DIT_PERF_TEST_ONCE_RX: /* unit test RX */
 			dit_info("Test Once RX\n");
-			perftest_gen_desc(DIT_RX__FORWARD);
+			perftest_gen_skb(DIT_RX__FORWARD);
 			break;
 
 		case DIT_PERF_TEST_ONCE_TX: /* unit test TX */
@@ -2729,11 +2383,6 @@ static ssize_t perftest_store(struct kobject *kobj,
 
 		case DIT_PERF_TEST_SKB_RXGEN: /* iperf rx test */
 			dit_info("Test iperf\n");
-			dit_perftest_gen_thread_ex(param1);
-			break;
-
-		case DIT_PERF_TEST_ONLY_RX: /* test rx only */
-			dit_info("Test RX\n");
 			dit_perftest_gen_thread_ex(param1);
 			break;
 		}
@@ -2752,6 +2401,21 @@ static ssize_t perftest_store(struct kobject *kobj,
 #ifdef DIT_DEBUG_PKT
 		dit_debug_print_dst(DIT_RX__FORWARD);
 #endif
+		break;
+
+	case 8: /* CP pktgen + USB test */
+		writel(0x5, dit_dev.reg_base + DIT_NAT_ZERO_CHK_OFF); /* for TEST UDP only */
+		dit_dev.perf.host_ip.s_addr = htonl(PERF_PC_IP_ADDR);
+		dit_set_nat_local_addr(DIT_IF_USB, dit_dev.perf.host_ip.s_addr);
+		perftest_offload_change_status(STATE_OFFLOAD_ONLINE);
+
+		reply_port = htons(0x1389);
+		org_port = htons(0x1fb0);
+		if(param2 == 1)
+			dit_forward_add(reply_port, org_port, DIT_IF_USB);
+		else
+			dit_forward_delete(reply_port, org_port, DIT_IF_USB);
+
 		break;
 
 	case 9:
@@ -2836,7 +2500,7 @@ void dit_setup_upstream_device(struct net_device *ndev)
 }
 void dit_setup_downstream_device(struct net_device *ndev)
 {
-	dit_info("%s\n", __func__);
+	dit_info("%s\n", ndev->name);
 
 	if (isLAN0device(ndev)) {
 		gether_get_host_addr_u8(ndev, dit_dev.host[0].hostmac);
@@ -2882,7 +2546,7 @@ void dit_setup_downstream_device(struct net_device *ndev)
 
 void dit_clear_upstream_device(struct net_device *ndev)
 {
-	dit_info("%s\n", __func__);
+	dit_info("%s\n", ndev->name);
 
 	dit_clear_nat_local_addr(DIT_IF_RMNET);
 	dit_forward_set(DIT_IF_RMNET, ndev, false);
@@ -2890,7 +2554,7 @@ void dit_clear_upstream_device(struct net_device *ndev)
 
 void dit_clear_downstream_device(struct net_device *ndev)
 {
-	dit_info("%s\n", __func__);
+	dit_info("%s ++\n", ndev->name);
 
 	if (isLAN0device(ndev)) {
 		dit_deinit(DIT_DEINIT_REASON_RUNTIME);
@@ -2912,6 +2576,7 @@ void dit_clear_downstream_device(struct net_device *ndev)
 #endif
 #endif
 	}
+	dit_info("--\n");
 }
 #endif
 
@@ -2970,8 +2635,10 @@ int dit_init(int reason)
 	dit_dev.offload = offload_init_ctrl();
 
 #ifdef DIT_FEATURE_MANDATE
-	if (reason == DIT_INIT_REASON_RUNTIME)
-		return 0;
+	if (reason == DIT_INIT_REASON_RUNTIME) {
+		dit_info("DIT_FEATURE_MANDATE\n");
+		goto init_already;
+	}
 #endif
 
 	if (dit_dev.enable) {
@@ -2980,9 +2647,6 @@ int dit_init(int reason)
 	}
 
 	init_dummy_netdev(&dit_dev.napi.dummy_ndev);
-
-	netif_napi_add(&dit_dev.napi.dummy_ndev, &dit_dev.napi.backlog_desc, dit_backlog_desc_poll, DIT_BUDGET);
-	napi_enable(&dit_dev.napi.backlog_desc);
 
 	netif_napi_add(&dit_dev.napi.dummy_ndev, &dit_dev.napi.backlog_skb, dit_backlog_skb_poll, DIT_BUDGET);
 	napi_enable(&dit_dev.napi.backlog_skb);
@@ -3066,9 +2730,6 @@ int dit_init(int reason)
 	hrtimer_init(&dit_dev.sched_skb_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dit_dev.sched_skb_timer.function = dit_sched_skb_func;
 
-	hrtimer_init(&dit_dev.sched_desc_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	dit_dev.sched_desc_timer.function = dit_sched_desc_func;
-
 	hrtimer_init(&dit_dev.sched_fwd_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	dit_dev.sched_fwd_timer.function = dit_sched_fwd_func;
 
@@ -3079,11 +2740,7 @@ int dit_init(int reason)
 
 #ifdef DIT_CHECK_PERF
 	memset(&dit_dev.perf, 0, sizeof(dit_dev.perf));
-	dit_dev.perf.cp_pktproc.num_queue = 4;
 #endif
-
-	dit_dev.pktproc.num_queue = pktproc_get_queue_count();
-	dit_info("pktproc num_queue=%d\n", dit_dev.pktproc.num_queue);
 
 	spin_lock_irqsave(&dit_dev.lock, flags);
 	dit_dev.enable = 1;
@@ -3117,14 +2774,20 @@ int dit_deinit(int reason)
 
 	spin_lock_irqsave(&dit_dev.lock, flags);
 	status = readl(dit_dev.reg_base + DIT_STATUS);
-	while (status & (DIT_TX_STATUS_MASK | DIT_RX_STATUS_MASK))
+	dit_info("status (0x%08x)\n", status);
+	while (status & (DIT_TX_STATUS_MASK | DIT_RX_STATUS_MASK)) {
+		status = readl(dit_dev.reg_base + DIT_STATUS);
+		dit_info("status (0x%08x)\n", status);
 		udelay(1);
+	}
 	dit_init_hw_port();
 	spin_unlock_irqrestore(&dit_dev.lock, flags);
 
 #ifdef DIT_FEATURE_MANDATE
-	if (reason == DIT_DEINIT_REASON_RUNTIME)
-		return 0;
+	if (reason == DIT_DEINIT_REASON_RUNTIME) {
+		dit_info("DIT_FEATURE_MANDATE\n");
+		goto exit;
+	}
 #endif
 
 	if (!dit_dev.enable) {
@@ -3142,9 +2805,6 @@ int dit_deinit(int reason)
 		dit_debug("disable_irq[%d]: num = %d\n", irqch, dit_dev.irq[irqch].num);
 		dit_disable_irq(&dit_dev.irq[irqch]);
 	}
-
-	napi_disable(&dit_dev.napi.backlog_desc);
-	netif_napi_del(&dit_dev.napi.backlog_desc);
 
 	napi_disable(&dit_dev.napi.backlog_skb);
 	netif_napi_del(&dit_dev.napi.backlog_skb);
@@ -3181,6 +2841,37 @@ exit:
 	dit_info("--");
 
 	return 0;
+}
+
+static int dummy_net_open(struct net_device *ndev)
+{
+	return -EINVAL;
+}
+static const struct net_device_ops dummy_net_ops = {
+	.ndo_open = dummy_net_open,
+};
+
+static struct net_device *dit_create_net_device(void)
+{
+	struct net_device *ndev;
+	int ret;
+
+	ndev = alloc_netdev(0, NETDEV_DIT_DUMMY,
+			NET_NAME_UNKNOWN, ether_setup);
+	if (!ndev) {
+		dit_info("%s: ERR! alloc_netdev fail\n", NETDEV_DIT_DUMMY);
+		return NULL;
+	}
+
+	ndev->netdev_ops = &dummy_net_ops;
+
+	ret = register_netdev(ndev);
+	if (ret) {
+		dit_info("%s: ERR! register_netdev fail\n", NETDEV_DIT_DUMMY);
+		free_netdev(ndev);
+	}
+
+	return ndev;
 }
 
 static int exynos_dit_probe(struct platform_device *pdev)
@@ -3232,7 +2923,8 @@ static int exynos_dit_probe(struct platform_device *pdev)
 		spin_lock_init(&irq->lock);
 
 		/* irq affinity */
-		strncpy(dit_dt_item, irq->name, 10);
+		strncpy(dit_dt_item, irq->name, DIT_MAX_NAME_LEN/2);
+		dit_dt_item[DIT_MAX_NAME_LEN/2] = '\0';
 		strcat(dit_dt_item, "_irq_affinity");
 
 		dit_dt_read_u32(np, dit_dt_item, affinity);
@@ -3254,6 +2946,8 @@ static int exynos_dit_probe(struct platform_device *pdev)
 	offload_initialize();
 
 	dit_dev.pdev = pdev;
+
+	dit_dev.dummy_ndev = dit_create_net_device();
 
 #ifdef DIT_FEATURE_MANDATE
 	if (dit_init(DIT_INIT_REASON_FAIL) < 0)

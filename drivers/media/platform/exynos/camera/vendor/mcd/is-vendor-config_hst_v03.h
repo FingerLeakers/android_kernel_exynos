@@ -1,7 +1,7 @@
 #ifndef IS_VENDOR_CONFIG_HST_V03_H
 #define IS_VENDOR_CONFIG_HST_V03_H
 
-#include "is-eeprom-rear-2ld_v015.h"
+#include "is-eeprom-rear-hm1_v016.h"
 #include "is-eeprom-front-3j1_v006.h"
 
 #define VENDER_PATH
@@ -19,6 +19,7 @@
 #define CAMERA_REAR4_TOF_MODULEID  	/* rear tof moduleid */
 #define CAMERA_REAR_TOF_TILT	/* wide - tof */
 #define CAMERA_REAR2_TOF_TILT	/* ultrawide - tof tilt */
+#define CAMERA_REAR3_MODULEID
 
 #define CAMERA_USE_OIS_VDD_1_8V
 
@@ -40,7 +41,7 @@
 
 #define USE_CAMERA_EMBEDDED_HEADER
 
-//#define USE_CAMERA_MIPI_CLOCK_VARIATION
+#define USE_CAMERA_MIPI_CLOCK_VARIATION
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 //#define USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE
 /*#define USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION*/
@@ -91,7 +92,7 @@
 #define REAR_TOF_ROM_ID ROM_ID_REAR3
 #define REAR_TOF_CHECK_MAP_VERSION '1'
 #define REAR_TOF_DEFAULT_UID 0xCD35
-#define REAR_TOF_CHECK_SENSOR_ID '1'  /* '1' => imx316*/
+#define REAR_TOF_CHECK_SENSOR_ID '3'  /* '3' => imx516*/
 #ifdef REAR_TOF_CHECK_SENSOR_ID
 #define REAR_TOF_IMX316_CRC_ADDR1_MAP002 0x11E3  /* imx316 eeprom cal map ver02 */
 #define REAR_TOF_IMX316_CRC_ADDR1_MAP001 0x11E1  /* imx316 eeprom cal map ver01 */
@@ -106,4 +107,9 @@
 
 #define USE_SENSOR_LONG_EXPOSURE_SHOT
 
+#define USE_TELE_OIS_AF_COMMON_INTERFACE
+
+#define USE_SHARED_REG_MCU_PERI_CON
+
+#define USE_REAR2_OIS_DATA_FROM_EEPROM
 #endif /* IS_VENDOR_CONFIG_HST_V03_H */

@@ -884,7 +884,7 @@
 		reg-names = "core", "i2c", "spi", "peri";
 		interrupts = <0 INTREQ__OIS_MCU_CSIS IRQ_TYPE_LEVEL_HIGH>;
 		id = <0 2>;
-		ois_gyro_list = <0x01 0x00 0x00 0x00 0x01>;
+		mcu_ctrl_actuator = <0 1>;
 
 		power-domains = <&pd_csis>;
 		clocks = <&clock UMUX_CLKCMU_CSIS_OIS_MCU>,

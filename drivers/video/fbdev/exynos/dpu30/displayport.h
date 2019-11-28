@@ -28,6 +28,9 @@
 #include <linux/usb/typec/common/pdic_notifier.h>
 #endif
 #include <linux/dp_logger.h>
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
 
 #if defined(CONFIG_SOC_EXYNOS9810)
 #include "./cal_9810/regs-displayport.h"
@@ -42,11 +45,14 @@
 #include "displayport_aux_client.h"
 #include "displayport_topology.h"
 
+#include "secdp_unit_test.h"
+
 #define FEATURE_SUPPORT_DISPLAYID
 #define DISPLAYID_EXT 0x70
-/*#define FEATURE_USE_PREFERRED_TIMING_1ST*/
+#define FEATURE_USE_PREFERRED_TIMING_1ST
 
-#define DEX_MST_MAX_VIDEO V2560X1600P60
+#define MST_MAX_VIDEO_FOR_DEX V2560X1600P60
+#define MST_MAX_VIDEO_FOR_MIRROR V4096X2160P30
 
 extern int displayport_log_level;
 extern int forced_resolution;
@@ -102,6 +108,7 @@ struct displayport_resources {
 	int irq;
 	void __iomem *link_regs;
 	void __iomem *phy_regs;
+	void __iomem *usbdp_regs;
 	struct clk *aclk;
 };
 
@@ -714,6 +721,7 @@ struct displayport_device {
 	struct mutex aux_lock;
 	struct mutex training_lock;
 	struct mutex hdcp2_lock;
+	spinlock_t spinlock_sfr;
 
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	struct delayed_work notifier_register_work;
@@ -736,7 +744,6 @@ struct displayport_device {
 	const char *aux_vdd;
 
 	int auto_test_mode;
-	int forced_bist;
 
 	int idle_ip_index;
 	enum drm_state drm_start_state;
@@ -756,6 +763,9 @@ struct displayport_device {
 
 	uint64_t ven_id;
 	uint64_t prod_id;
+
+	u8 *edid_test_buf;
+	int do_unit_test;
 };
 
 struct displayport_debug_param {
@@ -1148,6 +1158,9 @@ extern struct hdcp13_info hdcp13_info;
 #define BINFO_SIZE 2
 #define V_READ_RETRY_CNT 3
 
+#define USBDP_PHY_CONTROL 0x15860704
+
+
 enum{
 	LINK_CHECK_PASS = 0,
 	LINK_CHECK_NEED = 1,
@@ -1190,9 +1203,12 @@ static inline void displayport_write(u32 reg_id, u32 val)
 static inline void displayport_write_mask(u32 reg_id, u32 val, u32 mask)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
-	u32 old = displayport_read(reg_id);
+	u32 old;
 	u32 bit_shift;
+	unsigned long flags;
 
+	spin_lock_irqsave(&displayport->spinlock_sfr, flags);
+	old = displayport_read(reg_id);
 	for (bit_shift = 0; bit_shift < 32; bit_shift++) {
 		if ((mask >> bit_shift) & 0x00000001)
 			break;
@@ -1200,18 +1216,43 @@ static inline void displayport_write_mask(u32 reg_id, u32 val, u32 mask)
 
 	val = ((val<<bit_shift) & mask) | (old & ~mask);
 	writel(val, displayport->res.link_regs + reg_id);
+	spin_unlock_irqrestore(&displayport->spinlock_sfr, flags);
+}
+
+static inline int displayport_phy_enabled(void)
+{
+	/* USBDP_PHY_CONTROL register */
+	struct displayport_device *displayport = get_displayport_drvdata();
+	int en = 0;
+
+	if (displayport->res.usbdp_regs) {
+		en = readl(displayport->res.usbdp_regs) & 0x1;
+
+		if (!en)
+			displayport_info("combo phy disabled\n");
+	}
+
+	return en;
 }
 
 static inline u32 displayport_phy_read(u32 reg_id)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
 
+	if (!displayport_phy_enabled())
+		return 0;
+
 	return readl(displayport->res.phy_regs + reg_id);
 }
 
 static inline u32 displayport_phy_read_mask(u32 reg_id, u32 mask)
 {
-	u32 val = displayport_phy_read(reg_id);
+	u32 val;
+
+	if (!displayport_phy_enabled())
+		return 0;
+
+	val = displayport_phy_read(reg_id);
 
 	val &= (mask);
 	return val;
@@ -1221,14 +1262,21 @@ static inline void displayport_phy_write(u32 reg_id, u32 val)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
 
+	if (!displayport_phy_enabled())
+		return;
+
 	writel(val, displayport->res.phy_regs + reg_id);
 }
 
 static inline void displayport_phy_write_mask(u32 reg_id, u32 val, u32 mask)
 {
 	struct displayport_device *displayport = get_displayport_drvdata();
-	u32 old = displayport_phy_read(reg_id);
+	u32 old;
 	u32 bit_shift;
+
+	if (!displayport_phy_enabled())
+		return;
+	old = displayport_phy_read(reg_id);
 
 	for (bit_shift = 0; bit_shift < 32; bit_shift++) {
 		if ((mask >> bit_shift) & 0x00000001)

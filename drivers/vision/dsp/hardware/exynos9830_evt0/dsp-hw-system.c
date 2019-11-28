@@ -13,6 +13,7 @@
 #include "dsp-device.h"
 #include "dsp-binary.h"
 #include "hardware/dsp-system.h"
+#include "hardware/dsp-dump.h"
 
 #define DSP_WAIT_BOOT_TIME	(100)
 
@@ -26,7 +27,7 @@ int dsp_system_execute_task(struct dsp_system *sys, struct dsp_task *task)
 void dsp_system_iovmm_fault_dump(struct dsp_system *sys)
 {
 	dsp_enter();
-	dsp_ctrl_dump();
+	dsp_dump_ctrl();
 	dsp_leave();
 }
 
@@ -41,7 +42,7 @@ static int __dsp_system_wait_boot(struct dsp_system *sys)
 	if (!timeout) {
 		ret = -ETIMEDOUT;
 		dsp_err("Failed to boot DSP\n");
-		dsp_ctrl_dump();
+		dsp_dump_ctrl();
 		goto p_err;
 	} else {
 		dsp_info("Completed to boot DSP\n");
@@ -83,6 +84,27 @@ int dsp_system_power_active(struct dsp_system *sys)
 {
 	dsp_check();
 	return dsp_pm_devfreq_active(&sys->pm);
+}
+
+int dsp_system_set_default_devfreq(struct dsp_system *sys, int val)
+{
+	int ret;
+
+	dsp_enter();
+	ret = dsp_pm_set_default_devfreq(&sys->pm, DSP_DEVFREQ_DNC, val);
+	if (ret) {
+		dsp_err("Failed to set devfreq of DNC(%d/%d)\n", ret, val);
+		goto p_err;
+	}
+	ret = dsp_pm_set_default_devfreq(&sys->pm, DSP_DEVFREQ_DSP, val);
+	if (ret) {
+		dsp_err("Failed to set devfreq of DSP(%d/%d)\n", ret, val);
+		goto p_err;
+	}
+	dsp_leave();
+	return 0;
+p_err:
+	return ret;
 }
 
 int dsp_system_runtime_resume(struct dsp_system *sys)
@@ -142,7 +164,7 @@ int dsp_system_start(struct dsp_system *sys)
 	dsp_enter();
 	mem = &sys->memory;
 
-	ret = dsp_binary_load("pm_ca5.bin",
+	ret = dsp_binary_load("pm_ca5.bin", NULL, NULL,
 			mem->priv_mem[DSP_PRIV_MEM_FW].kvaddr,
 			mem->priv_mem[DSP_PRIV_MEM_FW].size);
 	if (ret < 0)

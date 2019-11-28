@@ -223,6 +223,7 @@ typedef struct {
 	bool enable_pdaf_bpc;
 	bool enable_xtalk;
 
+	enum camera2_sensor_hdr_mode sensor_hdr_mode;
 	enum camera2_wdr_mode wdr_mode;
 	enum camera2_wdr_mode pre_wdr_mode;
 	enum camera2_disparity_mode disparity_mode;
@@ -263,6 +264,13 @@ struct sensor_lsi_3hdr_stat_control_per_frame {
 	int r_weight;
 	int b_weight;
 	int g_weight;
+};
+
+struct tof_data_t {
+	u64 timestamp;
+	u16 *data;
+	u32 width;
+	u32 height;
 };
 
 typedef struct {
@@ -330,7 +338,7 @@ typedef struct {
 
 	/* Moved from SensorEntry.cpp Jong 20121008 */
 	unsigned int sen_vsync_count;
-
+	unsigned int sen_frame_id;
 	unsigned int stream_id;
 	unsigned int product_name; /* sensor names such as IMX134, IMX135, and S5K3L2 */
 	unsigned int sens_config_index_cur;
@@ -465,6 +473,7 @@ struct is_cis_ops {
 	int (*cis_get_laser_photo_diode)(struct v4l2_subdev *subdev, u16 *value);
 	int (*cis_get_tof_tx_freq)(struct v4l2_subdev *subdev, u32 *value);
 	int (*cis_get_tof_laser_error_flag)(struct v4l2_subdev *subdev, u32 mode, int *value);
+	int (*cis_set_tof_tx_freq)(struct v4l2_subdev *subdev, u32 value);
 	int (*cis_set_wb_gains)(struct v4l2_subdev *subdev, struct wb_gains wb_gains);
 	int (*cis_set_roi_stat)(struct v4l2_subdev *subdev, struct roi_setting_t roi_control);
 	int (*cis_set_3hdr_stat)(struct v4l2_subdev *subdev, bool streaming, void *data);
@@ -472,6 +481,7 @@ struct is_cis_ops {
 	int (*cis_check_model_id)(struct v4l2_subdev *subdev);
 	int (*cis_active_test)(struct v4l2_subdev *subdev);
 	int (*cis_set_dual_setting)(struct v4l2_subdev *subdev, u32 mode);
+	int (*cis_get_binning_ratio)(struct v4l2_subdev *subdev, u32 mode, int *binning_ratio);
 };
 
 struct is_sensor_ctl
@@ -571,6 +581,7 @@ enum is_sensor_peri_state {
 	IS_SENSOR_PAFSTAT_AVAILABLE,
 	IS_SENSOR_EEPROM_AVAILABLE,
 	IS_SENSOR_LASER_AF_AVAILABLE,
+	IS_SENSOR_TOF_AF_AVAILABLE,
 };
 
 enum is_actuator_pos_size_bit {
@@ -617,6 +628,14 @@ enum is_sensor_stat_control {
 	SENSOR_STAT_NOTHING = 0, /* Default */
 	SENSOR_STAT_LSI_3DHDR, /* LSI 3DHDR stat control */
 	SENSOR_STAT_CONTROL_MAX,
+};
+
+enum is_sensor_hdr_mode
+{
+    SENSOR_HDR_MODE_SINGLE,
+    SENSOR_HDR_MODE_2HDR,
+    SENSOR_HDR_MODE_3HDR,
+    SENSOR_HDR_MODE_2AEB,
 };
 
 enum is_aperture_control_step {
@@ -731,6 +750,9 @@ struct is_ois_ops {
 #if defined (CONFIG_CAMERA_USE_MCU) || defined (CONFIG_CAMERA_USE_INTERNAL_MCU)
 	bool (*ois_calibration_test)(struct is_core *core, long *raw_data_x, long *raw_data_y);
 #endif
+	int (*ois_set_af_active)(struct v4l2_subdev *subdev, int enable);
+	int (*ois_set_af_position)(struct v4l2_subdev *subdev, u32 position);
+	void (*ois_get_hall_pos)(struct is_core *core, u16 *targetPos, u16 *hallPos);
 };
 
 struct is_sensor_interface;
@@ -824,7 +846,7 @@ struct is_cis_interface_ops {
 #if !defined(DISABLE_LASER_AF)
 	bool (*is_laser_af_available)(struct is_sensor_interface *itf);
 #endif
-
+	bool (*is_tof_af_available)(struct is_sensor_interface *itf);
 	int (*get_sensor_frame_timing)(struct is_sensor_interface *itf,
 				u32 *pclk,
 				u32 *line_length_pck,
@@ -918,6 +940,8 @@ struct is_cis_interface_ops {
 					u32 *expo,
 					u32 *again,
 					u32 *dgain);
+	u32 (*get_sensor_frameid)(struct is_sensor_interface *itf,
+					u32 *frameid);
 };
 
 struct is_cis_ext_interface_ops {
@@ -936,6 +960,7 @@ struct is_cis_ext_interface_ops {
 								u32 sensitivity);
 	int (*get_sensor_flag)(struct is_sensor_interface *itf,
 			enum is_sensor_stat_control *stat_control_type,
+			enum is_sensor_hdr_mode *hdr_mode_type,
 			u32 *exposure_count);
 	int (*set_sensor_stat_control_mode_change)(struct is_sensor_interface *itf,
 			enum is_sensor_stat_control stat_control_type,
@@ -1060,6 +1085,7 @@ struct is_flash_expo_gain {
 	   After the Main-flash, ambient exposure and gains are set to the sensor at 201-th frame. */
 	u32 frm_num_main_fls[2];
 	u32 main_fls_strm_on_off_step; /* 0: main/pre-flash exposure and gains, 1: ambient exposure and gains */
+	u32 flash_capture_cnt;
 };
 
 struct is_flash_interface_ops {
@@ -1169,6 +1195,11 @@ struct is_laser_af_interface_ops
 };
 #endif
 
+struct is_tof_af_interface_ops
+{
+	int (*get_data)(struct is_sensor_interface *itf, struct tof_data_t *data);
+};
+
 struct is_sensor_interface {
 	u32					magic;
 	struct is_cis_interface_ops	cis_itf_ops;
@@ -1181,6 +1212,7 @@ struct is_sensor_interface {
 #if !defined(DISABLE_LASER_AF)
 	struct is_laser_af_interface_ops	laser_af_itf_ops;
 #endif
+	struct is_tof_af_interface_ops		tof_af_itf_ops;
 
 	bool			vsync_flag;
 	bool			otf_flag_3aa;

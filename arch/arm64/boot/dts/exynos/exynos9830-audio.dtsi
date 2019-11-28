@@ -125,6 +125,7 @@
 			samsung,id = <3>;
 			samsung,type = "normal";
 			samsung,buffer_type = "dma";
+			samsung,asrc-id = <7>;
 			#sound-dai-cells = <1>;
 			sound-name-prefix = "ABOX RDMA3";
 		};
@@ -514,6 +515,7 @@
 			pinctrl-names = "pci_on", "sleep";
 			pinctrl-0 = <&aud_i2s4_pci>;
 			pinctrl-1 = <&aud_i2s4_idle>;
+			s2mpu_mailbox = <0x155A0000>;
 		};
 
 		ext_bin_0: ext-bin@0 {
@@ -600,11 +602,11 @@
 		mailbox = <&mailbox_vts>;
 		#sound-dai-cells = <1>;
 		interrupt-parent = <&mailbox_vts>;
-		interrupts = <0>, <1>, <2>, <3>, <4>, <5>, <6>, <7>, <8>, <9>, <11>;
+		interrupts = <0>, <1>, <2>, <3>, <4>, <5>, <6>, <7>, <8>, <9>, <11>, <15>;
 		interrupt-names = "error", "boot_completed", "ipc_received", "voice_triggered",
 				"trigger_period_elapsed", "record_period_elapsed",
 				"debuglog_bufzero", "debuglog_bufone",
-				"audio_dump", "log_dump", "slif_dump";
+				"audio_dump", "log_dump", "slif_dump", "cp_wakeup";
 
 		vts_dma0: vts_dma@0 {
 			compatible = "samsung,vts-dma";

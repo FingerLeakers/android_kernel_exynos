@@ -57,7 +57,7 @@
 	#size-cells = <0>;
 	status = "okay";
 	pinctrl-0 = <&hsi2c7_bus_max77705>;
-	max77705@66 {
+	max77705: max77705@66 {
 		compatible = "maxim,max77705";
 		pinctrl-names = "default";
 		pinctrl-0 = <&max77705_irq &jig_gpio>;
@@ -65,6 +65,15 @@
 		max77705,irq-gpio = <&gpa1 6 1>;
 		max77705,wakeup;
 		max77705,fw_product_id = <0x03>;
+		max77705,support-audio;
+	};
+};
+
+&max77705 {
+	max77705_pdic {
+		status = "okay";
+		compatible = "maxim,max77705_pdic";
+		support_pd_role_swap;
 	};
 };
 

@@ -47,6 +47,14 @@
 #define __rkp_ro
 #endif
 
+#ifdef CONFIG_KDP_CRED
+#define __kdp_ro __section(.kdp_ro)
+#define __lsm_ro_after_init_kdp	__section(.kdp_ro)
+#else
+#define __kdp_ro
+#define __lsm_ro_after_init_kdp __lsm_ro_after_init
+#endif
+
 /*
  * For assembly routines.
  *
@@ -92,6 +100,21 @@
 	.globl name ASM_NL \
 	ALIGN ASM_NL \
 	name:
+
+#ifdef CONFIG_RKP_CFP_JOPP
+#define NOP_ENTRY(name) \
+	.globl name ASM_NL \
+	nop; \
+	ALIGN ASM_NL \
+	name :
+
+/*
+ * Fallthrough won't work anymore once you start putting MAGIC in ENTRY(...).
+ */
+#define FALLTHROUGH(target) \
+	b target
+
+#endif /* CONFIG_RKP_CFP_JOPP */
 #endif
 #endif /* LINKER_SCRIPT */
 

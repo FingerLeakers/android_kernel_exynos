@@ -4,6 +4,7 @@
 
 # Features to Enable
 PED_ENABLE=true
+PED_BASED_ON_TGID_ENABLE=true
 SAFEPLACE_ENABLE=true
 IMMUTABLE_ENABLE=true
 LP_ENABLE=true
@@ -39,11 +40,23 @@ DEFEX_DEFINES := -DDEFEX_PERMISSIVE_IM
 
 ifeq ($(CONFIG_DEFEX_KERNEL_ONLY), y)
     DEFEX_DEFINES += -DDEFEX_KERNEL_ONLY
+    ifeq ($(CONFIG_SAMSUNG_PRODUCT_SHIP), y)
+        $(warning [DEFEX] Kernel_only & Ship)
+    else
+        $(warning [DEFEX] Kernel_only & Noship)
+        DEFEX_DEFINES += -DDEFEX_PERMISSIVE_SP
+        DEFEX_DEFINES += -DDEFEX_PERMISSIVE_IM
+        DEFEX_DEFINES += -DDEFEX_PERMISSIVE_LP
+        DEFEX_DEFINES += -DDEFEX_DEBUG_ENABLE
+    endif
 endif
 
 ifeq ($(PED_ENABLE), true)
     obj-y += defex_priv.o
     DEFEX_DEFINES += -DDEFEX_PED_ENABLE
+ifeq ($(PED_BASED_ON_TGID_ENABLE), true)
+    DEFEX_DEFINES += -DDEFEX_PED_BASED_ON_TGID_ENABLE
+endif
 endif
 
 ifeq ($(SAFEPLACE_ENABLE), true)
@@ -124,7 +137,7 @@ ifneq ($(wildcard  $(srctree)/$(src)/pack_rules.c),)
           cmd_pack = $(obj)/pack_rules -p $< $@ $(srctree)/$(src)/defex_packed_rules.bin
 
     quiet_cmd_mkey = MAKEKEY $<
-          cmd_mkey = openssl x509 -in $< -inform DER -pubkey -noout | openssl rsa -pubin -inform PEM -pubout -outform DER -out $@ 2> /dev/null
+          cmd_mkey = cp -n $< $@ 2>/dev/null || true
 
     $(obj)/defex_sysfs.o: $(obj)/pack_rules $(srctree)/$(src)/defex_packed_rules.inc
 

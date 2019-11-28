@@ -23,7 +23,9 @@
 #include "is-device-sensor-peri.h"
 #include "api/is-hw-api-pdp-v1.h"
 #include "is-votfmgr.h"
+#include "is-debug.h"
 
+static DEFINE_MUTEX(cmn_reg_lock);
 
 static void pdp_s_rdma_addr(void *data, unsigned long id, struct is_frame *frame)
 {
@@ -54,6 +56,7 @@ static void pdp_s_af_rdma_addr(void *data, unsigned long id, struct is_frame *fr
 #if defined(VOTF_ONESHOT)
 static void pdp_s_one_shot_enable(void *data, unsigned long id)
 {
+	int ret = 0;
 	struct is_pdp *pdp;
 
 	pdp = (struct is_pdp *)data;
@@ -65,120 +68,66 @@ static void pdp_s_one_shot_enable(void *data, unsigned long id)
 	if (test_and_clear_bit(IS_PDP_VOTF_ONESHOT_FIRST_FRAME, &pdp->state)) {
 		pdp_hw_s_path(pdp->base, DMA);
 		pdp_hw_s_corex_enable(pdp->base, true);
+		pdp->err_cnt_oneshot = 0;
 
 		if (pdp_hw_g_idle_state(pdp->base))
-			pdp_hw_s_one_shot_enable(pdp->base);
+			ret = pdp_hw_s_one_shot_enable(pdp->base);
 	} else {
-		pdp_hw_s_one_shot_enable(pdp->base);
+		ret = pdp_hw_s_one_shot_enable(pdp->base);
+	}
+
+	if (ret) {
+		if (pdp->err_cnt_oneshot == 0)
+			pdp_hw_dump(pdp->base);
+
+		if (pdp->err_cnt_oneshot > 20)
+			is_debug_s2d(false, "PDP%d stuck", pdp->id);
+
+		pdp->err_cnt_oneshot++;
+	} else {
+		pdp->err_cnt_oneshot = 0;
 	}
 }
 #endif
 
-static int pdp_print_work_list(struct pdp_work_list *work_list)
+static int pdp_print_work_list(struct is_work_list *work_list)
 {
-	struct pdp_work *work, *temp;
-
-	err("[PDP] fre(%02X, %02d) :", work_list->id, work_list->work_free_cnt);
-	list_for_each_entry_safe(work, temp, &work_list->work_free_head, list) {
-		is_cont("[F%d]->", work->fcount);
-	}
-	is_cont("X\n");
-
-	err("[PDP] req(%02X, %02d) :", work_list->id, work_list->work_request_cnt);
-	list_for_each_entry_safe(work, temp, &work_list->work_request_head, list) {
-		is_cont("[F%d]->", work->fcount);
-	}
-	is_cont("X\n");
+	err("");
+	print_fre_work_list(work_list);
+	print_req_work_list(work_list);
 
 	return 0;
 }
 
-static int get_free_set_req_work(struct pdp_work_list *work_list, unsigned int fcount)
+static int get_free_set_req_work(struct is_work_list *work_list, unsigned int fcount)
 {
-	struct pdp_work *work;
+	struct is_work *work;
+	int ret;
 
-	if (work_list->work_free_cnt) {
-		work = container_of(work_list->work_free_head.next,
-				struct pdp_work, list);
-		list_del(&work->list);
-		work_list->work_free_cnt--;
+	ret = get_free_work(work_list, &work);
+	if (ret || !work) {
+		err("failed to get FREE work from work_list(%d)", work_list->id);
+		return ret;
+	}
 
-		work->fcount = fcount;
+	work->fcount = fcount;
+	set_req_work(work_list, work);
 
-		list_add_tail(&work->list, &work_list->work_request_head);
-		work_list->work_request_cnt++;
-
-		if (IS_ENABLED(PDP_TRACE_WORK))
-			pdp_print_work_list(work_list);
-	} else {
+	if (IS_ENABLED(PDP_TRACE_WORK))
 		pdp_print_work_list(work_list);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static unsigned int get_req_set_free_work(struct pdp_work_list *work_list)
-{
-	struct pdp_work *work;
-
-	if (work_list->work_request_cnt) {
-		work = container_of(work_list->work_request_head.next,
-				struct pdp_work, list);
-		list_del(&work->list);
-		work_list->work_request_cnt--;
-
-		list_add_tail(&work->list, &work_list->work_free_head);
-		work_list->work_free_cnt++;
-
-		if (IS_ENABLED(PDP_TRACE_WORK))
-			pdp_print_work_list(work_list);
-	} else {
-		pdp_print_work_list(work_list);
-		return 0;
-	}
-
-	return work->fcount;
-}
-
-static int set_free_work(struct pdp_work_list *work_list, struct pdp_work *work)
-{
-	int ret = 0;
-	ulong flags;
-
-	if (work) {
-		spin_lock_irqsave(&work_list->slock, flags);
-
-		list_add_tail(&work->list, &work_list->work_free_head);
-		work_list->work_free_cnt++;
-
-		if (IS_ENABLED(PDP_TRACE_WORK))
-			pdp_print_work_list(work_list);
-
-		spin_unlock_irqrestore(&work_list->slock, flags);
-	} else {
-		ret = -EFAULT;
-		err("item is null ptr\n");
-	}
 
 	return ret;
 }
 
-static void init_work_list(struct pdp_work_list *work_list, u32 id, u32 count)
+static inline void wq_func_schedule(struct is_pdp *pdp, struct work_struct *work_wq)
 {
-	int i;
-
-	work_list->id = id;
-	work_list->work_free_cnt = 0;
-	work_list->work_request_cnt = 0;
-	INIT_LIST_HEAD(&work_list->work_free_head);
-	INIT_LIST_HEAD(&work_list->work_request_head);
-	spin_lock_init(&work_list->slock);
-	for (i = 0; i < count; ++i)
-		set_free_work(work_list, &work_list->work[i]);
+	if (pdp->wq_stat)
+		queue_work(pdp->wq_stat, work_wq);
+	else
+		schedule_work(work_wq);
 }
 
-static irqreturn_t is_isr_pdp(int irq, void *data)
+static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 {
 	struct is_hw_ip *hw_ip;
 	struct is_pdp *pdp;
@@ -186,10 +135,10 @@ static irqreturn_t is_isr_pdp(int irq, void *data)
 	u32 instance;
 	unsigned long err_state;
 	int err;
-	u32 index;
+	u32 index, work_id;
 	struct is_framemgr *stat_framemgr;
 	struct is_frame *stat_frame;
-	struct pdp_work_list *work_list;
+	struct is_work_list *work_list;
 	struct paf_rdma_param *param;
 	u32 en_votf;
 
@@ -212,8 +161,8 @@ static irqreturn_t is_isr_pdp(int irq, void *data)
 		return IRQ_NONE;
 	}
 
-	state = pdp_hw_g_irq_state(pdp->base, true) & pdp_hw_g_irq_mask(pdp->base);
-	dbg_pdp(1, "IRQ: 0x%x\n", pdp, state);
+	state = pdp_hw_g_int1_state(pdp->base, true) & pdp_hw_g_int1_mask(pdp->base);
+	dbg_pdp(1, "INT1: 0x%x\n", pdp, state);
 
 	if (pdp_hw_is_occured(state, PE_START) && pdp_hw_is_occured(state, PE_END))
 		mswarn_hw(" end/start both occur(0x%x)", instance, hw_ip, state);
@@ -246,15 +195,11 @@ static irqreturn_t is_isr_pdp(int irq, void *data)
 					(u32)stat_frame->dvaddr_buffer[0],
 					stat_frame->kvaddr_buffer[0]);
 
-				work_list = &pdp->work_list[PDP_WORK_STAT0];
-				spin_lock(&work_list->slock);
-				get_free_set_req_work(work_list, stat_frame->fcount);
-				spin_unlock(&work_list->slock);
 
-				work_list = &pdp->work_list[PDP_WORK_STAT1];
-				spin_lock(&work_list->slock);
-				get_free_set_req_work(work_list, stat_frame->fcount);
-				spin_unlock(&work_list->slock);
+				for (work_id = WORK_PDP_STAT0; work_id < WORK_PDP_MAX; work_id++) {
+					work_list = &pdp->work_list[work_id];
+					get_free_set_req_work(work_list, stat_frame->fcount);
+				}
 			} else {
 				dbg_pdp(0, " PE_PAF_STAT0 req frame is NULL\n", pdp);
 				frame_manager_print_queues(stat_framemgr);
@@ -318,35 +263,66 @@ static irqreturn_t is_isr_pdp(int irq, void *data)
 		is_hardware_frame_done(hw_ip, NULL, -1, IS_HW_CORE_END,
 						IS_SHOT_SUCCESS, true);
 
-		if (pdp->stat_enable) {
-			if (pdp->wq_stat)
-				queue_work(pdp->wq_stat, &pdp->work_stat1);
-			else
-				schedule_work(&pdp->work_stat1);
-		}
+		if (pdp->stat_enable)
+			wq_func_schedule(pdp, &pdp->work_stat[WORK_PDP_STAT1]);
 
 		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 		wake_up(&hw_ip->status.wait_queue);
 	}
 
 	if (pdp_hw_is_occured(state, PE_PAF_STAT0)) {
-		if (pdp->stat_enable) {
-			if (pdp->wq_stat)
-				queue_work(pdp->wq_stat, &pdp->work_stat0);
-			else
-				schedule_work(&pdp->work_stat0);
-		}
+		if (pdp->stat_enable)
+			wq_func_schedule(pdp, &pdp->work_stat[WORK_PDP_STAT0]);
 	}
 
-	err_state = (unsigned long)pdp_hw_is_occured(state, PE_ERR);
+	err_state = (unsigned long)pdp_hw_is_occured(state, PE_ERR_INT1);
 	if (err_state) {
-#ifdef CONFIG_EXYNOS_BCM_DBG_AUTO
-		if (pdp_hw_is_occured(state, PE_PAF_OVERFLOW))
-			exynos_bcm_dbg_stop(CAMERA_DRIVER);
-#endif
 		err = find_first_bit(&err_state, SZ_32);
 		while (err < SZ_32) {
 			mserr_hw(" err INT1(%d):%s", instance, hw_ip, err, pdp->int1_str[err]);
+			err = find_next_bit(&err_state, SZ_32, err + 1);
+		}
+		is_hardware_sfr_dump(hw_ip->hardware, hw_ip->id, false);
+
+		if (pdp_hw_is_occured(state, PE_PAF_OVERFLOW)) {
+#ifdef CONFIG_EXYNOS_BCM_DBG_AUTO
+			exynos_bcm_dbg_stop(CAMERA_DRIVER);
+#endif
+			print_all_hw_frame_count(hw_ip->hardware);
+			is_hardware_sfr_dump(hw_ip->hardware, DEV_HW_END, false);
+			is_debug_s2d(true, "LIC overflow");
+		}
+	}
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t is_isr_pdp_int2(int irq, void *data)
+{
+	struct is_hw_ip *hw_ip;
+	struct is_pdp *pdp;
+	unsigned int state;
+	u32 instance;
+	unsigned long err_state;
+	int err;
+
+	hw_ip = (struct is_hw_ip *)data;
+	pdp = (struct is_pdp *)hw_ip->priv_info;
+	if (!pdp) {
+		err("failed to get PDP");
+		return IRQ_HANDLED;
+	}
+
+	instance = atomic_read(&hw_ip->instance);
+
+	state = pdp_hw_g_int2_state(pdp->base, true) & pdp_hw_g_int2_mask(pdp->base);
+	dbg_pdp(1, "INT2: 0x%x\n", pdp, state);
+
+	err_state = (unsigned long)pdp_hw_is_occured(state, PE_ERR_INT2);
+	if (err_state) {
+		err = find_first_bit(&err_state, SZ_32);
+		while (err < SZ_32) {
+			mserr_hw(" err INT2(%d):%s", instance, hw_ip, err, pdp->int2_str[err]);
 			err = find_next_bit(&err_state, SZ_32, err + 1);
 		}
 		is_hardware_sfr_dump(hw_ip->hardware, hw_ip->id, false);
@@ -355,88 +331,102 @@ static irqreturn_t is_isr_pdp(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static void __nocfi pdp_worker_stat0(struct work_struct *work)
+static void __nocfi pdp_worker_stat0(struct work_struct *data)
 {
 	struct is_pdp *pdp;
 	struct paf_action *pa, *temp;
 	unsigned long flag;
 	unsigned int fcount;
-	struct pdp_work_list *work_list;
+	struct is_work_list *work_list;
+	struct is_work *work;
 
-	pdp = container_of(work, struct is_pdp, work_stat0);
+	FIMC_BUG_VOID(!data);
 
-	work_list = &pdp->work_list[PDP_WORK_STAT0];
-	spin_lock_irqsave(&work_list->slock, flag);
-	fcount = get_req_set_free_work(work_list);
-	spin_unlock_irqrestore(&work_list->slock, flag);
-	if (!fcount)
-		return;
+	pdp = container_of(data, struct is_pdp, work_stat[WORK_PDP_STAT0]);
 
-	spin_lock_irqsave(&pdp->slock_paf_action, flag);
-	list_for_each_entry_safe(pa, temp, &pdp->list_of_paf_action, list) {
-		switch (pa->type) {
-		case VC_STAT_TYPE_PDP_1_0_PDAF_STAT0:
-		case VC_STAT_TYPE_PDP_1_1_PDAF_STAT0:
+	work_list = &pdp->work_list[WORK_PDP_STAT0];
+	get_req_work(work_list, &work);
+	while (work) {
+		fcount = work->fcount;
+
+		spin_lock_irqsave(&pdp->slock_paf_action, flag);
+		list_for_each_entry_safe(pa, temp, &pdp->list_of_paf_action, list) {
+			switch (pa->type) {
+			case VC_STAT_TYPE_PDP_1_0_PDAF_STAT0:
+			case VC_STAT_TYPE_PDP_1_1_PDAF_STAT0:
 #ifdef ENABLE_FPSIMD_FOR_USER
-			fpsimd_get();
-			pa->notifier(pa->type, fcount, pa->data);
-			fpsimd_put();
+				fpsimd_get();
+				pa->notifier(pa->type, fcount, pa->data);
+				fpsimd_put();
 #else
-			pa->notifier(pa->type, fcount, pa->data);
+				pa->notifier(pa->type, fcount, pa->data);
 #endif
-			break;
-		default:
-			break;
+				break;
+			default:
+				break;
+			}
 		}
-	}
-	spin_unlock_irqrestore(&pdp->slock_paf_action, flag);
+		spin_unlock_irqrestore(&pdp->slock_paf_action, flag);
 
-	dbg_pdp(3, "%s, fcount: %d\n", pdp, __func__, fcount);
+		dbg_pdp(3, "%s, fcount: %d\n", pdp, __func__, fcount);
+
+		set_free_work(work_list, work);
+		get_req_work(work_list, &work);
+
+		if (IS_ENABLED(PDP_TRACE_WORK))
+			pdp_print_work_list(work_list);
+	}
 }
 
-static void __nocfi pdp_worker_stat1(struct work_struct *work)
+static void __nocfi pdp_worker_stat1(struct work_struct *data)
 {
 	struct is_pdp *pdp;
 	struct paf_action *pa, *temp;
 	unsigned long flag;
 	unsigned int fcount;
-	struct pdp_work_list *work_list;
-	pdp = container_of(work, struct is_pdp, work_stat1);
+	struct is_work_list *work_list;
+	struct is_work *work;
 
-	work_list = &pdp->work_list[PDP_WORK_STAT1];
-	spin_lock_irqsave(&work_list->slock, flag);
-	fcount = get_req_set_free_work(work_list);
-	spin_unlock_irqrestore(&work_list->slock, flag);
-	if (!fcount)
-		return;
+	FIMC_BUG_VOID(!data);
 
-	spin_lock_irqsave(&pdp->slock_paf_action, flag);
-	list_for_each_entry_safe(pa, temp, &pdp->list_of_paf_action, list) {
-		switch (pa->type) {
-		case VC_STAT_TYPE_PDP_1_0_PDAF_STAT1:
-		case VC_STAT_TYPE_PDP_1_1_PDAF_STAT1:
+	pdp = container_of(data, struct is_pdp, work_stat[WORK_PDP_STAT1]);
+
+	work_list = &pdp->work_list[WORK_PDP_STAT1];
+	get_req_work(work_list, &work);
+	while (work) {
+		fcount = work->fcount;
+
+		spin_lock_irqsave(&pdp->slock_paf_action, flag);
+		list_for_each_entry_safe(pa, temp, &pdp->list_of_paf_action, list) {
+			switch (pa->type) {
+			case VC_STAT_TYPE_PDP_1_0_PDAF_STAT1:
+			case VC_STAT_TYPE_PDP_1_1_PDAF_STAT1:
 #ifdef ENABLE_FPSIMD_FOR_USER
-			fpsimd_get();
-			pa->notifier(pa->type, fcount, pa->data);
-			fpsimd_put();
+				fpsimd_get();
+				pa->notifier(pa->type, fcount, pa->data);
+				fpsimd_put();
 #else
-			pa->notifier(pa->type, fcount, pa->data);
+				pa->notifier(pa->type, fcount, pa->data);
 #endif
-			break;
-		default:
-			break;
+				break;
+			default:
+				break;
+			}
 		}
-	}
-	spin_unlock_irqrestore(&pdp->slock_paf_action, flag);
+		spin_unlock_irqrestore(&pdp->slock_paf_action, flag);
 
-	dbg_pdp(3, "%s, fcount: %d\n", pdp, __func__, fcount);
+		dbg_pdp(3, "%s, fcount: %d\n", pdp, __func__, fcount);
+
+		set_free_work(work_list, work);
+		get_req_work(work_list, &work);
+
+		if (IS_ENABLED(PDP_TRACE_WORK))
+			pdp_print_work_list(work_list);
+	}
 }
 
 int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 regs_size)
 {
-#if 1 // TEMP_2020 - RTA should fix for PDAF windows
-	return 0;
-#else
 	int i;
 	struct is_pdp *pdp;
 
@@ -449,7 +439,7 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 	/* CAUTION: PD path must be on before algorithm block setting. */
 	pdp_hw_s_pdstat_path(pdp->base, true);
 
-	dbg_pdp(1, "PDP(%p) SFR setting\n", pdp, pdp->base);
+	dbg_pdp(0, "PDP(%d) RTA setting, size(%d)\n", pdp, pdp->base, regs_size);
 	for (i = 0; i < regs_size; i++) {
 		dbg_pdp(1, "[%d] ofs: 0x%x, val: 0x%x\n", pdp,
 				i, regs[i].reg_addr, regs[i].reg_data);
@@ -465,7 +455,6 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 	set_bit(IS_PDP_SET_PARAM, &pdp->state);
 
 	return 0;
-#endif
 }
 
 int pdp_get_ready(struct v4l2_subdev *subdev, u32 *ready)
@@ -761,9 +750,6 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 			if (ret)
 				mswarn_hw("votf_fmgr_call(slave) is fail(%d)",
 					instance, hw_ip, ret);
-
-			pdp_hw_s_rdma_addr(pdp->base, votf_frame->dvaddr_buffer,
-				votf_frame->num_buffers);
 		}
 
 		votf_frame = is_votf_get_frame(group, TRS, ENTRY_PDAF);
@@ -781,17 +767,13 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 			if (ret)
 				mswarn_hw("votf_fmgr_call(slave) is fail(%d)",
 					instance, hw_ip, ret);
-
-			if (enable)
-				pdp_hw_s_af_rdma_addr(pdp->base, votf_frame->dvaddr_buffer,
-					votf_frame->num_buffers);
 		}
 	}
 
 	if (test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
 		fps = 0; /* Reprocessing is not real-time procesing. So, a fps is not needed. */
 	else
-		fps = sensor_cfg->framerate;
+		fps = sensor_cfg->max_fps;
 
 	if (path == OTF || en_votf) {
 		img_width = sensor_cfg->input[CSI_VIRTUAL_CH_0].width;
@@ -818,13 +800,9 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 	pdp_hw_s_sensor_type(pdp->base, sensor_type);
 	pdp_hw_s_core(pdp->base, enable, img_width, img_height, img_hwformat, img_pixelsize,
 		pd_width, pd_height, pd_hwformat, sensor_type, path, pdp->vc_ext_sensor_mode,
-		fps, en_sdc, en_votf);
+		fps, en_sdc, en_votf, frame->num_buffers, pdp->freq);
 
-#if 0 // TEMP_2020 - RTA should fix for PDAF windows
-	if (enable)
-#else
 	if (enable && (debug_pdp >= 5))
-#endif
 	{
 		msinfo_hw(" is configured as default values\n", instance, hw_ip);
 		pdp_hw_s_config_default(pdp->base);
@@ -892,9 +870,10 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 	if (debug_pdp >= 2)
 		pdp_hw_dump(pdp->base);
 
-	msinfo_hw(" %s as PD mode: %d, IRQ: 0x%x\n", instance, hw_ip,
+	msinfo_hw(" %s as PD mode: %d, INT1: 0x%x, INT2: 0x%x\n", instance, hw_ip,
 		enable ? "enabled" : "disabled", pd_mode,
-		pdp_hw_g_irq_state(pdp->base, false) & pdp_hw_g_irq_mask(pdp->base));
+		pdp_hw_g_int1_state(pdp->base, false) & pdp_hw_g_int1_mask(pdp->base),
+		pdp_hw_g_int2_state(pdp->base, false) & pdp_hw_g_int2_mask(pdp->base));
 
 	return ret;
 }
@@ -904,6 +883,7 @@ static int is_hw_pdp_open(struct is_hw_ip *hw_ip, u32 instance,
 {
 	int ret = 0;
 	struct is_pdp *pdp;
+	int work_id;
 
 	FIMC_BUG(!hw_ip);
 
@@ -923,6 +903,9 @@ static int is_hw_pdp_open(struct is_hw_ip *hw_ip, u32 instance,
 
 	spin_lock_init(&pdp->slock_paf_action);
 	INIT_LIST_HEAD(&pdp->list_of_paf_action);
+
+	for (work_id = WORK_PDP_STAT0; work_id < WORK_PDP_MAX; work_id++)
+		init_work_list(&pdp->work_list[work_id], work_id, MAX_WORK_COUNT);
 
 	msinfo_hw(" is registered\n", instance, hw_ip);
 
@@ -959,38 +942,7 @@ static int is_hw_pdp_init(struct is_hw_ip *hw_ip, u32 instance,
 
 	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
 		struct is_subdev *subdev = &device->pdst;
-		struct is_device_sensor *sensor;
-		struct is_sensor_cfg *sensor_cfg;
-		struct is_module_enum *module;
-		struct is_device_sensor_peri *sensor_peri;
-		struct v4l2_subdev *subdev_module;
-		u32 pd_mode;
-		u32 sensor_type;
-		u32 enable;
 		u32 w, h, b;
-
-		sensor = device->sensor;
-		if (!sensor) {
-			mserr_hw("failed to get sensor", instance, hw_ip);
-			return -EINVAL;
-		}
-
-		module = (struct is_module_enum *)v4l2_get_subdevdata(sensor->subdev_module);
-
-		subdev_module = module->subdev;
-		sensor_peri = module->private_data;
-
-		sensor_peri->pdp = pdp;
-		sensor_peri->subdev_pdp = pdp->subdev;
-
-		sensor_cfg = sensor->cfg;
-		if (!sensor_cfg) {
-			mserr_hw("failed to get senso_cfgr", instance, hw_ip);
-			return -EINVAL;
-		}
-
-		pd_mode = sensor_cfg->pd_mode;
-		enable = pdp_hw_to_sensor_type(pd_mode, &sensor_type);
 
 		if (!test_bit(IS_SUBDEV_OPEN, &subdev->state)) {
 			set_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state);
@@ -1095,6 +1047,8 @@ static int is_hw_pdp_close(struct is_hw_ip *hw_ip, u32 instance)
 	struct is_pdp *pdp;
 	struct paf_action *pa, *temp;
 	unsigned long flag;
+	int i;
+	struct is_hardware *hardware;
 
 	FIMC_BUG(!hw_ip);
 
@@ -1125,12 +1079,102 @@ static int is_hw_pdp_close(struct is_hw_ip *hw_ip, u32 instance)
 
 	clear_bit(IS_PDP_SET_PARAM, &pdp->state);
 
+	hardware = hw_ip->hardware;
+	if (!hardware) {
+		mserr_hw("hardware is null", instance, hw_ip);
+		return -EINVAL;
+	}
+
+	/*
+	 * For safe power off
+	 * This is common register for all PDP channel.
+	 * So, it should be set one time in final instance.
+	 */
+	mutex_lock(&cmn_reg_lock);
+	for (i = 0; i < pdp->max_num; i++) {
+		int hw_id = DEV_HW_PAF0 + i;
+		int hw_slot = is_hw_slot_id(hw_id);
+		struct is_hw_ip *hw_ip_phys;
+
+		if (!valid_hw_slot_id(hw_slot)) {
+			merr_hw("invalid slot (%d,%d)", instance, hw_id, hw_slot);
+			return -EINVAL;
+		}
+
+		hw_ip_phys = &hardware->hw_ip[hw_slot];
+
+		if (hw_ip_phys && test_bit(HW_OPEN, &hw_ip_phys->state))
+			break;
+	}
+
+	if (i == pdp->max_num) {
+		pdp_hw_s_reset(pdp->cmn_base);
+
+		ret = pdp_hw_wait_idle(pdp->base);
+		if (ret)
+			mserr_hw("failed to pdp_hw_wait_idle", instance, hw_ip);
+
+		msinfo_hw("final finished pdp ch%d\n", instance, hw_ip, pdp->id);
+	}
+	mutex_unlock(&cmn_reg_lock);
+
 	msinfo_hw(" is unregistered\n", instance, hw_ip);
 
 	return ret;
 }
 
-static DEFINE_MUTEX(cmn_reg_lock);
+static int is_hw_pdp_set_subdev(struct is_hw_ip *hw_ip, u32 instance)
+{
+	int ret = 0;
+	struct is_pdp *pdp;
+	struct is_device_ischain *device;
+	struct is_group *group;
+
+	FIMC_BUG(!hw_ip);
+
+	pdp = (struct is_pdp *)hw_ip->priv_info;
+	if (!pdp) {
+		mserr_hw("failed to get PDP", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	/* subdev change for RTA */
+	group = hw_ip->group[instance];
+	if (!group) {
+		mserr_hw("failed to get group", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	device = group->device;
+	if (!device) {
+		mserr_hw("failed to get devcie", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
+		struct is_device_sensor *sensor;
+		struct is_module_enum *module;
+		struct is_device_sensor_peri *sensor_peri;
+		struct v4l2_subdev *subdev_module;
+
+		sensor = device->sensor;
+		if (!sensor) {
+			mserr_hw("failed to get sensor", instance, hw_ip);
+			return -EINVAL;
+		}
+
+		module = (struct is_module_enum *)v4l2_get_subdevdata(sensor->subdev_module);
+
+		subdev_module = module->subdev;
+		sensor_peri = module->private_data;
+
+		sensor_peri->pdp = pdp;
+		sensor_peri->subdev_pdp = pdp->subdev;
+	}
+
+	return ret;
+}
+
 static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 {
 	int ret = 0;
@@ -1156,6 +1200,13 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 	if (!pdp) {
 		mserr_hw("failed to get PDP", instance, hw_ip);
 		return -ENODEV;
+	}
+
+	/* Change or set subdev for RTA */
+	ret = is_hw_pdp_set_subdev(hw_ip, instance);
+	if (ret) {
+		mserr_hw("is_hw_pdp_set_subdev is fail", instance, hw_ip);
+		return ret;
 	}
 
 	pdp->prev_instance = IS_STREAM_COUNT;
@@ -1192,11 +1243,16 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 #endif
 	}
 
+	hardware = hw_ip->hardware;
+	if (!hardware) {
+		mserr_hw("hardware is null", instance, hw_ip);
+		return -EINVAL;
+	}
+
 	/*
 	 * This is common register for all PDP channel.
 	 * So, it should be set one time in first instance.
 	 */
-	hardware = hw_ip->hardware;
 	mutex_lock(&cmn_reg_lock);
 	for (i = 0; i < pdp->max_num; i++) {
 		int hw_id = DEV_HW_PAF0 + i;
@@ -1230,8 +1286,8 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 		 * Due to limitation, mapping between LIC and core need to do sequencially.
 		 * So, If other PDP uses first time, need to map LIC0 - Core0 first
 		 */
+		pdp_hw_s_pdstat_path(pdp->cmn_base, false);
 		if (hw_ip->id != DEV_HW_PAF0) {
-			pdp_hw_s_pdstat_path(pdp->cmn_base, false);
 			msinfo_hw("Need to map LIC0 - Core0\n", instance, hw_ip);
 		}
 
@@ -1299,9 +1355,9 @@ static int is_hw_pdp_disable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 	if (atomic_dec_return(&hw_ip->run_rsccount) > 0)
 		return 0;
 
-	if (flush_work(&pdp->work_stat0))
+	if (flush_work(&pdp->work_stat[WORK_PDP_STAT0]))
 		msinfo_hw("flush pdp wq for stat0\n", instance, hw_ip);
-	if (flush_work(&pdp->work_stat1))
+	if (flush_work(&pdp->work_stat[WORK_PDP_STAT1]))
 		msinfo_hw("flush pdp wq for stat1\n", instance, hw_ip);
 
 	clear_bit(HW_RUN, &hw_ip->state);
@@ -1338,6 +1394,7 @@ static int is_hw_pdp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	ulong hw_map)
 {
 	int ret = 0;
+	int i, cur_idx;
 	struct is_pdp *pdp;
 	struct is_region *region;
 	struct paf_rdma_param *param;
@@ -1380,21 +1437,23 @@ static int is_hw_pdp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	}
 
 	/* RDMA settings */
+
 	param = &hw_ip->region[instance]->parameter.paf;
 	en_votf = param->dma_input.v_otf_enable;
 	if ((param->dma_input.cmd == DMA_INPUT_COMMAND_ENABLE)
 		&& (en_votf == OTF_INPUT_COMMAND_DISABLE)) {
-		int i;
+		cur_idx = frame->cur_buf_index;
 
 		for (i = 0; i < num_buffers; i++) {
-			if (frame->dvaddr_buffer[i] == 0) {
+			if (frame->dvaddr_buffer[i + cur_idx] == 0) {
 				msinfo_hw("[F:%d]dvaddr_buffer[%d] is zero\n",
 					instance, hw_ip, frame->fcount, i);
 				FIMC_BUG(1);
 			}
 		}
 
-		pdp_hw_s_rdma_addr(pdp->base, frame->dvaddr_buffer, num_buffers);
+		pdp_hw_s_fro(pdp->base, num_buffers);
+		pdp_hw_s_rdma_addr(pdp->base, &frame->dvaddr_buffer[cur_idx], num_buffers);
 		pdp_hw_s_one_shot_enable(pdp->base);
 	}
 
@@ -1464,14 +1523,6 @@ static int is_hw_pdp_sensor_start(struct is_hw_ip *hw_ip, u32 instance)
 	ulong ratio = 10; /* Portion of V-blank is 10% */
 	u32 val;
 
-	/*
-	 * This function is not necessary,
-	 * because 3AA receive interrupt relay from PDP instead of 3AA start interrupt.
-	 * So, 3AA start and end interrutp is not overlapped anymore when using VOTF.
-	 * If post frame gap have to be needed, remove this return.
-	 */
-	return 0;
-
 	pdp = (struct is_pdp *)hw_ip->priv_info;
 	if (!pdp) {
 		mserr_hw("failed to get PDP", instance, hw_ip);
@@ -1483,6 +1534,16 @@ static int is_hw_pdp_sensor_start(struct is_hw_ip *hw_ip, u32 instance)
 		mswarn_hw("failed to get PDP clock", instance, hw_ip);
 		return 0;
 	}
+
+	pdp->freq = freq;
+
+	/*
+	 * Below function is not necessary currently,
+	 * because 3AA receive interrupt relay from PDP instead of 3AA start interrupt.
+	 * So, 3AA start and end interrutp is not overlapped anymore when using VOTF.
+	 * If post frame gap have to be needed, remove this return.
+	 */
+	return 0;
 
 	hardware = hw_ip->hardware;
 
@@ -1776,7 +1837,7 @@ static int __init pdp_probe(struct platform_device *pdev)
 	int max_num_of_pdp;
 	int num_scen;
 	struct device_node *lic_lut_np, *scen_np;
-	int i;
+	int i, work_id;
 	int reg_size;
 
 	max_num_of_pdp = of_alias_get_highest_id("pdp");
@@ -1934,18 +1995,32 @@ static int __init pdp_probe(struct platform_device *pdev)
 		goto err_get_en_base;
 	}
 
-	pdp->irq = platform_get_irq(pdev, 0);
-	if (pdp->irq < 0) {
-		dev_err(dev, "failed to get IRQ resource: %d\n", pdp->irq);
-		ret = pdp->irq;
-		goto err_get_irq;
+	pdp->irq[PDP_INT1] = platform_get_irq(pdev, 0);
+	if (pdp->irq[PDP_INT1] < 0) {
+		dev_err(dev, "failed to get INT1 resource: %d\n", pdp->irq[PDP_INT1]);
+		ret = pdp->irq[PDP_INT1];
+		goto err_get_int1;
 	}
-	ret = devm_request_irq(dev, pdp->irq, is_isr_pdp,
+	ret = devm_request_irq(dev, pdp->irq[PDP_INT1], is_isr_pdp_int1,
 			IRQF_SHARED | IS_HW_IRQ_FLAG,
 			dev_name(dev), hw_ip);
 	if (ret) {
-		dev_err(dev, "failed to request IRQ(%d): %d\n", pdp->irq, ret);
-		goto err_req_irq;
+		dev_err(dev, "failed to request INT1(%d): %d\n", pdp->irq[PDP_INT1], ret);
+		goto err_req_int1;
+	}
+
+	pdp->irq[PDP_INT2] = platform_get_irq(pdev, 1);
+	if (pdp->irq[PDP_INT2] < 0) {
+		dev_err(dev, "failed to get INT2 resource: %d\n", pdp->irq[PDP_INT2]);
+		ret = pdp->irq[PDP_INT2];
+		goto err_get_int2;
+	}
+	ret = devm_request_irq(dev, pdp->irq[PDP_INT2], is_isr_pdp_int2,
+			IRQF_SHARED | IS_HW_IRQ_FLAG,
+			dev_name(dev), hw_ip);
+	if (ret) {
+		dev_err(dev, "failed to request INT2(%d): %d\n", pdp->irq[PDP_INT2], ret);
+		goto err_req_int2;
 	}
 
 	pdp->subdev = devm_kzalloc(&pdev->dev, sizeof(struct v4l2_subdev), GFP_KERNEL);
@@ -1967,8 +2042,8 @@ static int __init pdp_probe(struct platform_device *pdev)
 	if (!pdp->wq_stat)
 		probe_warn("failed to alloc PDP own workqueue, will be use global one");
 
-	INIT_WORK(&pdp->work_stat0, pdp_worker_stat0);
-	INIT_WORK(&pdp->work_stat1, pdp_worker_stat1);
+	INIT_WORK(&pdp->work_stat[WORK_PDP_STAT0], pdp_worker_stat0);
+	INIT_WORK(&pdp->work_stat[WORK_PDP_STAT1], pdp_worker_stat1);
 
 	platform_set_drvdata(pdev, pdp);
 
@@ -1986,8 +2061,9 @@ static int __init pdp_probe(struct platform_device *pdev)
 	atomic_set(&hw_ip->rsccount, 0);
 	atomic_set(&hw_ip->run_rsccount, 0);
 	init_waitqueue_head(&hw_ip->status.wait_queue);
-	init_work_list(&pdp->work_list[PDP_WORK_STAT0], PDP_WORK_STAT0, SUBDEV_INTERNAL_BUF_MAX);
-	init_work_list(&pdp->work_list[PDP_WORK_STAT1], PDP_WORK_STAT1, SUBDEV_INTERNAL_BUF_MAX);
+
+	for (work_id = WORK_PDP_STAT0; work_id < WORK_PDP_MAX; work_id++)
+		init_work_list(&pdp->work_list[work_id], work_id, MAX_WORK_COUNT);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 	clear_bit(HW_INIT, &hw_ip->state);
@@ -2005,9 +2081,12 @@ static int __init pdp_probe(struct platform_device *pdev)
 	return 0;
 
 err_alloc_subdev:
-	devm_free_irq(dev, pdp->irq, pdp);
-err_req_irq:
-err_get_irq:
+	devm_free_irq(dev, pdp->irq[PDP_INT2], pdp);
+err_get_int2:
+err_req_int2:
+	devm_free_irq(dev, pdp->irq[PDP_INT1], pdp);
+err_get_int1:
+err_req_int1:
 	devm_iounmap(dev, pdp->en_base);
 err_get_en_base:
 	devm_iounmap(dev, pdp->mux_base);

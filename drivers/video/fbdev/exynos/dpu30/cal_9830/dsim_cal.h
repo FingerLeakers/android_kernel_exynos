@@ -84,4 +84,10 @@ enum dsim_datalane_status dsim_reg_get_datalane_status(u32 id);
 /* DSIM SFR dump */
 void __dsim_dump(u32 id, struct dsim_regs *regs);
 
+#ifdef CONFIG_SUPPORT_MCD_MOTTO_TUNE
+int dsim_reg_set_phy_swing_level(u32 id);
+int dsim_reg_set_phy_impedance_level(u32 id);
+int dsim_reg_set_phy_emphasis_value(u32 id);
+#endif
+
 #endif /* __SAMSUNG_DSIM_CAL_H__ */

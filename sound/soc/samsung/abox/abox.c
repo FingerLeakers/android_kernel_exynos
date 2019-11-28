@@ -67,7 +67,11 @@
 #elif defined(CONFIG_SOC_EXYNOS9830)
 #define ABOX_PAD_NORMAL				(0x1920)
 #define ABOX_PAD_NORMAL_MASK			(0x00000800)
+#elif defined(CONFIG_SOC_EXYNOS9630)
+#define ABOX_PAD_NORMAL				(0x19A0)
+#define ABOX_PAD_NORMAL_MASK			(0x00000800)
 #endif
+#define ABOX_ARAM_CTRL 				(0x040c)
 
 #define DEFAULT_CPU_GEAR_ID		(0xAB0CDEFA)
 #define TEST_CPU_GEAR_ID		(DEFAULT_CPU_GEAR_ID + 1)
@@ -241,6 +245,7 @@ static void abox_probe_quirks(struct abox_data *data, struct device_node *np)
 		const char *str;
 		unsigned int bit;
 	} map[] = {
+		DEC_MAP(ARAM_MODE),
 	};
 
 	int i, ret;
@@ -382,26 +387,27 @@ static bool __abox_ipc_queue_full(struct abox_data *data)
 }
 
 static int abox_ipc_queue_put(struct abox_data *data, struct device *dev,
-		int hw_irq, const void *supplement, size_t size)
+		int hw_irq, const void *msg, size_t size)
 {
 	spinlock_t *lock = &data->ipc_queue_lock;
 	size_t length = ARRAY_SIZE(data->ipc_queue);
+	struct abox_ipc *ipc;
 	unsigned long flags;
 	int ret;
 
+	if (unlikely(sizeof(ipc->msg) < size))
+		return -EINVAL;
+
 	spin_lock_irqsave(lock, flags);
 	if (!__abox_ipc_queue_full(data)) {
-		struct abox_ipc *ipc;
-
 		ipc = &data->ipc_queue[data->ipc_queue_end];
 		ipc->dev = dev;
 		ipc->hw_irq = hw_irq;
 		ipc->put_time = sched_clock();
 		ipc->get_time = 0;
-		memcpy(&ipc->msg, supplement, size);
+		memcpy(&ipc->msg, msg, size);
 		ipc->size = size;
 		data->ipc_queue_end = (data->ipc_queue_end + 1) % length;
-
 		ret = 0;
 	} else {
 		ret = -EBUSY;
@@ -465,16 +471,16 @@ static bool abox_can_calliope_ipc(struct device *dev,
 }
 
 static int __abox_process_ipc(struct device *dev, struct abox_data *data,
-		int hw_irq, const ABOX_IPC_MSG *msg, size_t size)
+		int hw_irq, const void *msg, size_t size)
 {
 	return abox_ipc_send(dev, msg, size, NULL, 0);
 }
 
 static void abox_process_ipc(struct work_struct *work)
 {
+	static struct abox_ipc ipc;
 	struct abox_data *data = container_of(work, struct abox_data, ipc_work);
 	struct device *dev = data->dev;
-	struct abox_ipc ipc;
 	int ret;
 
 	dev_dbg(dev, "%s: %d %d\n", __func__, data->ipc_queue_start,
@@ -484,14 +490,21 @@ static void abox_process_ipc(struct work_struct *work)
 
 	if (abox_can_calliope_ipc(dev, data)) {
 		while (abox_ipc_queue_get(data, &ipc) == 0) {
+			const int THRESHOLD = 128;
+			static int error;
 			struct device *dev = ipc.dev;
 			int hw_irq = ipc.hw_irq;
-			ABOX_IPC_MSG *msg = &ipc.msg;
+			const void *msg = &ipc.msg;
 			size_t size = ipc.size;
 
 			ret = __abox_process_ipc(dev, data, hw_irq, msg, size);
-			if (ret < 0)
+			if (ret < 0) {
 				abox_failsafe_report(dev);
+				BUG_ON(error++ > THRESHOLD);
+				dev_dbg(dev, "%d\n", error);
+			} else {
+				error = 0;
+			}
 		}
 	}
 
@@ -500,27 +513,21 @@ static void abox_process_ipc(struct work_struct *work)
 }
 
 static int abox_schedule_ipc(struct device *dev, struct abox_data *data,
-		int hw_irq, const void *supplement, size_t size,
+		int hw_irq, const void *msg, size_t size,
 		bool atomic, bool sync)
 {
-	struct abox_ipc *ipc;
 	int retry = 0;
 	int ret;
 
 	dev_dbg(dev, "%s(%d, %zu, %d, %d)\n", __func__, hw_irq,
 			size, atomic, sync);
 
-	if (unlikely(sizeof(ipc->msg) < size)) {
-		dev_err(dev, "%s: too large supplement\n", __func__);
-		return -EINVAL;
-	}
-
 	do {
-		ret = abox_ipc_queue_put(data, dev, hw_irq, supplement, size);
+		ret = abox_ipc_queue_put(data, dev, hw_irq, msg, size);
 		queue_work(data->ipc_workqueue, &data->ipc_work);
 		if (!atomic && sync)
 			flush_work(&data->ipc_work);
-		if (ret >= 0)
+		if (ret >= 0 || ret == -EINVAL)
 			break;
 
 		if (!atomic) {
@@ -532,7 +539,9 @@ static int abox_schedule_ipc(struct device *dev, struct abox_data *data,
 		}
 	} while (retry++ < IPC_RETRY);
 
-	if (ret < 0) {
+	if (ret == -EINVAL) {
+		dev_err(dev, "%s(%d): invalid message\n", __func__, hw_irq);
+	} else if (ret < 0) {
 		dev_err(dev, "%s(%d): ipc queue overflow\n", __func__, hw_irq);
 		abox_failsafe_report(dev);
 	}
@@ -541,16 +550,16 @@ static int abox_schedule_ipc(struct device *dev, struct abox_data *data,
 }
 
 int abox_request_ipc(struct device *dev,
-		int hw_irq, const void *supplement,
+		int hw_irq, const void *msg,
 		size_t size, int atomic, int sync)
 {
 	struct abox_data *data = dev_get_drvdata(dev);
 	int ret;
 
 	if (atomic && sync) {
-		ret = __abox_process_ipc(dev, data, hw_irq, supplement, size);
+		ret = __abox_process_ipc(dev, data, hw_irq, msg, size);
 	} else {
-		ret = abox_schedule_ipc(dev, data, hw_irq, supplement, size,
+		ret = abox_schedule_ipc(dev, data, hw_irq, msg, size,
 				!!atomic, !!sync);
 	}
 
@@ -2519,6 +2528,9 @@ static int abox_enable(struct device *dev)
 
 	dev_info(dev, "%s\n", __func__);
 
+	if (abox_test_quirk(data, ABOX_QUIRK_BIT_ARAM_MODE))
+		writel(0x0, data->sysreg_base + ABOX_ARAM_CTRL);
+
 	abox_power_notifier_call_chain(data, true);
 	abox_gic_enable_irq(data->dev_gic);
 	abox_enable_wdt(data);
@@ -2674,6 +2686,7 @@ static int abox_pm_notifier(struct notifier_block *nb,
 {
 	struct abox_data *data = container_of(nb, struct abox_data, pm_nb);
 	struct device *dev = data->dev;
+	int ret;
 
 	dev_dbg(dev, "%s(%lu)\n", __func__, action);
 
@@ -2682,6 +2695,13 @@ static int abox_pm_notifier(struct notifier_block *nb,
 		pm_runtime_barrier(dev);
 		abox_cpu_gear_barrier();
 		flush_workqueue(data->ipc_workqueue);
+		if (abox_is_clearable(dev, data)) {
+			ret = pm_runtime_suspend(dev);
+			if (ret < 0) {
+				dev_info(dev, "runtime suspend: %d\n", ret);
+				return NOTIFY_BAD;
+			}
+		}
 		break;
 	default:
 		/* Nothing to do */
@@ -2790,6 +2810,7 @@ static ssize_t calliope_cmd_store(struct device *dev,
 	static const char cmd_reload_ext_bin[] = "RELOAD EXT BIN";
 	static const char cmd_failsafe[] = "FAILSAFE";
 	static const char cmd_cpu_gear[] = "CPU GEAR";
+	static const char cmd_test_ipc[] = "TEST IPC";
 	struct abox_data *data = dev_get_drvdata(dev);
 	char name[80];
 
@@ -2814,6 +2835,30 @@ static ssize_t calliope_cmd_store(struct device *dev,
 					gear, "calliope_cmd");
 			pm_runtime_mark_last_busy(dev);
 			pm_runtime_put_autosuspend(dev);
+		}
+	} else if (!strncmp(cmd_test_ipc, buf, sizeof(cmd_test_ipc) - 1)) {
+		unsigned int size;
+		int ret;
+
+		dev_info(dev, "test ipc\n");
+		ret = kstrtouint(buf + sizeof(cmd_test_ipc), 10, &size);
+		if (!ret) {
+			ABOX_IPC_MSG *msg;
+			size_t msg_size;
+			int i;
+
+			dev_info(dev, "size = %u\n", size);
+			msg_size = offsetof(ABOX_IPC_MSG, msg.system.bundle)
+					+ (size * 4);
+			msg = kmalloc(msg_size, GFP_KERNEL);
+			msg->ipcid = IPC_SYSTEM;
+			msg->msg.system.msgtype = ABOX_PRINT_BUNDLE;
+			msg->msg.system.param1 = size;
+			for (i = 0; i < size; i++)
+				msg->msg.system.bundle.param_s32[i] = i;
+			abox_request_ipc(dev, IPC_SYSTEM, msg, msg_size, 0, 0);
+			kfree(msg);
+
 		}
 	}
 

@@ -301,14 +301,12 @@ static void ion_debug_buffer_for_heap(struct seq_file *s,
 				ARRAY_SIZE(heap_type_name)) ?
 				buffer->heap->type : 0;
 
-			ion_debug_print(s, "[%4d] %15s %8s %#5lx %8zu %16s(%5u) %16s(%5u)",
+			ion_debug_print(s, "[%4d] %15s %8s %#5lx %8zu %16s(%5u) %16s(%5u)\n",
 					buffer->id, buffer->heap->name,
 					heap_type_name[heaptype], buffer->flags,
 					buffer->size / SZ_1K,
 					buffer->task_comm, buffer->pid,
 					buffer->thread_comm, buffer->tid);
-
-			ion_debug_print(s, "\n");
 
 			total += buffer->size;
 		}
@@ -445,7 +443,7 @@ void ion_debug_initialize(struct ion_device *idev)
 		perrfn("failed to create debugfs/ion/heaps directory");
 
 	ion_oom_notifier.idev = idev;
-	register_oom_notifier(&ion_oom_notifier.nb);
+	register_oom_debug_notifier(&ion_oom_notifier.nb);
 
 	atomic_set(&eventid, -1);
 }

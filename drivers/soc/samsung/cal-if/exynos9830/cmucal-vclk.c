@@ -385,6 +385,12 @@ enum clk_id cmucal_vclk_div_clk_aud_dmic0[] = {
 enum clk_id cmucal_vclk_div_clk_aud_dmic1[] = {
 	DIV_CLK_AUD_DMIC1,
 };
+
+enum clk_id cmucal_vclk_div_clk_top_hsi0_bus[] = {
+	CLKCMU_HSI0_BUS,
+	MUX_CLKCMU_HSI0_BUS,
+};
+
 /* COMMON VCLK -> Clock Node List */
 enum clk_id cmucal_vclk_blk_cmu[] = {
 	PLL_SHARED1_DIV3,
@@ -3690,6 +3696,8 @@ struct vclk_lut cmucal_vclk_div_clk_pericx_usixx_usi_lut[] = {
 	{50000, div_clk_peric_50_lut_params},
 	{26000, div_clk_peric_26_lut_params},
 	{13000, div_clk_peric_13_lut_params},
+	{8600, div_clk_peric_8_lut_params},
+	{6500, div_clk_peric_6_lut_params},
 };
 struct vclk_lut cmucal_vclk_div_clk_vts_dmic_if_pad_lut[] = {
 	{73728, div_clk_vts_dmic_if_pad_nm_lut_params},
@@ -3702,6 +3710,14 @@ struct vclk_lut cmucal_vclk_div_clk_aud_dmic1_lut[] = {
 	{67738, div_clk_aud_dmic1_ud_lut_params},
 	{25000, div_clk_aud_dmic1_uud_lut_params},
 };
+struct vclk_lut cmucal_vclk_div_clk_top_hsi0_bus_lut[] = {
+	{266500, div_clk_top_hsi0_bus_266_params},
+	{177666, div_clk_top_hsi0_bus_177_params},
+	{106600, div_clk_top_hsi0_bus_106_params},
+	{80000, div_clk_top_hsi0_bus_80_params},
+	{66666, div_clk_top_hsi0_bus_66_params},
+};
+
 
 /* COMMON VCLK -> LUT List */
 struct vclk_lut cmucal_vclk_blk_cmu_lut[] = {
@@ -3910,6 +3926,7 @@ struct vclk cmucal_vclk_list[] = {
 	CMUCAL_VCLK(VCLK_DIV_CLK_VTS_DMIC_IF_PAD, cmucal_vclk_div_clk_vts_dmic_if_pad_lut, cmucal_vclk_div_clk_vts_dmic_if_pad, NULL, NULL),
 	CMUCAL_VCLK(VCLK_DIV_CLK_AUD_DMIC0, cmucal_vclk_div_clk_aud_dmic0_lut, cmucal_vclk_div_clk_aud_dmic0, NULL, NULL),
 	CMUCAL_VCLK(VCLK_DIV_CLK_AUD_DMIC1, cmucal_vclk_div_clk_aud_dmic1_lut, cmucal_vclk_div_clk_aud_dmic1, NULL, NULL),
+	CMUCAL_VCLK(VCLK_DIV_CLK_TOP_HSI0_BUS, cmucal_vclk_div_clk_top_hsi0_bus_lut, cmucal_vclk_div_clk_top_hsi0_bus, NULL, NULL),
 
 /* COMMON VCLK*/
 	CMUCAL_VCLK(VCLK_BLK_CMU, cmucal_vclk_blk_cmu_lut, cmucal_vclk_blk_cmu, NULL, NULL),

@@ -222,7 +222,7 @@ static void __dsp_dl_out_print_sec_data(struct dsp_dl_out *dl_out,
 
 		if ((idx + 1) % 4 == 0 || idx == sec_end - 1) {
 			DL_BUF_STR("\n");
-			DL_PRINT_BUF(INFO);
+			DL_PRINT_BUF(DEBUG);
 		}
 	}
 }
@@ -239,30 +239,30 @@ static void __dsp_dl_out_print_kernel_table(struct dsp_dl_out *dl_out)
 
 		if ((idx + 1) % 3 == 0 || idx == sec_end - 1) {
 			DL_BUF_STR("\n");
-			DL_PRINT_BUF(INFO);
+			DL_PRINT_BUF(DEBUG);
 		}
 	}
 }
 
 static void __dsp_dl_out_print_data(struct dsp_dl_out *dl_out)
 {
-	DL_INFO("Kernel address table\n");
-	DL_INFO("    Pre        Exe       Post\n");
+	DL_DEBUG("Kernel address table\n");
+	DL_DEBUG("    Pre        Exe       Post\n");
 	__dsp_dl_out_print_kernel_table(dl_out);
 
-	DL_INFO("DM shared data\n");
+	DL_DEBUG("DM shared data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->DM_sh);
 
-	DL_INFO("DM thread local data\n");
+	DL_DEBUG("DM thread local data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->DM_local);
 
-	DL_INFO("TCM shared data\n");
+	DL_DEBUG("TCM shared data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->TCM_sh);
 
-	DL_INFO("TCM thread local data\n");
+	DL_DEBUG("TCM thread local data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->TCM_local);
 
-	DL_INFO("Shared memory data\n");
+	DL_DEBUG("Shared memory data\n");
 	__dsp_dl_out_print_sec_data(dl_out, dl_out->sh_mem);
 }
 
@@ -286,7 +286,7 @@ void dsp_dl_out_print(struct dsp_dl_out *dl_out)
 	DL_INFO("Shared memory data: offset(%u) size(%u)\n",
 		dl_out->sh_mem.offset, dl_out->sh_mem.size);
 	DL_INFO("\n");
-	DL_INFO("Data loaded\n");
+	DL_DEBUG("Data loaded\n");
 	__dsp_dl_out_print_data(dl_out);
 }
 

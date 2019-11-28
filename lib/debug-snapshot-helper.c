@@ -584,11 +584,11 @@ int dbg_snapshot_post_panic(void)
 			dbg_snapshot_spin_func();
 		}
 	}
-	dss_soc_ops->soc_post_panic_exit(NULL);
-
 #if defined(CONFIG_SEC_DEBUG)
 	secdbg_base_post_panic_handler();
 #endif
+
+	dss_soc_ops->soc_post_panic_exit(NULL);
 
 	/* for stall cpu when not enabling panic reboot */
 	dbg_snapshot_spin_func();

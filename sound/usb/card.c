@@ -214,7 +214,9 @@ static int snd_usb_create_stream(struct snd_usb_audio *chip, int ctrlif, int int
 		usb_set_interface(dev, interface, 0); /* reset the current interface */
 		usb_driver_claim_interface(&usb_audio_driver, iface, (void *)-1L);
 	}
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&dev->dev, "usb_host : %s %u:%d \n", __func__);
+#endif
 	return 0;
 }
 
@@ -336,7 +338,9 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		break;
 	}
 	}
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&dev->dev, "usb_host : %s done: UAC VERSION %x \n", __func__, protocol);
+#endif
 	return 0;
 }
 
@@ -580,7 +584,9 @@ static int usb_audio_probe(struct usb_interface *intf,
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 	struct usb_interface_descriptor *altsd;
 #endif
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&dev->dev, "usb_host : %s \n", __func__);
+#endif
 	alts = &intf->altsetting[0];
 	ifnum = get_iface_desc(alts)->bInterfaceNumber;
 	id = USB_ID(le16_to_cpu(dev->descriptor.idVendor),
@@ -595,6 +601,9 @@ static int usb_audio_probe(struct usb_interface *intf,
 		return err;
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&dev->dev, "usb_host : %s abox set start \n", __func__);
+#endif
 	altsd = get_iface_desc(alts);
 	if ((altsd->bInterfaceClass == USB_CLASS_AUDIO ||
 		altsd->bInterfaceClass == USB_CLASS_VENDOR_SPEC) &&
@@ -609,8 +618,12 @@ static int usb_audio_probe(struct usb_interface *intf,
 			exynos_usb_audio_hcd(dev);
 			exynos_usb_audio_desc(dev);
 			exynos_usb_audio_map_buf(dev);
+			usb_audio->is_audio = 1;
 		}
 	}
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		dev_info(&dev->dev, "usb_host : %s abox set done\n", __func__);
+#endif
 #endif
 
 	/*
@@ -705,7 +718,7 @@ static int usb_audio_probe(struct usb_interface *intf,
 	if (dev->do_remote_wakeup)
 		usb_enable_autosuspend(dev);
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
-	pr_info("%s done\n", __func__);
+	dev_info(&dev->dev, "usb_host : %s done \n", __func__);
 #endif
 	return 0;
 

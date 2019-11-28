@@ -188,7 +188,7 @@ int noinline dsms_send_message(const char *feature_code,
 	}
 
 	len = strnlen(detail, MAX_ALLOWED_DETAIL_LENGTH);
-	dsms_log_debug(TRACE, "{'%s', '%s' (%zu bytes), %lld}",
+	dsms_log_write(LOG_DEBUG, "{'%s', '%s' (%zu bytes), %lld}",
 			   feature_code, detail, len, value);
 
 	if (!dsms_is_initialized()) {

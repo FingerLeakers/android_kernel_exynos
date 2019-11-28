@@ -18,6 +18,7 @@
 #include <linux/sched/cpufreq.h>
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "ems.h"
@@ -72,11 +73,18 @@ struct esgov_cpu {
 	struct esgov_policy	*esg_policy;
 	unsigned int		cpu;
 	int			util;		/* target util */
-	int			sutil;		/* scheduler util */
-	int			eutil;		/* esg util */
+	int			pelt_util;	/* pelt util */
+	int			step_util;	/* energy step util */
+	int			io_util;	/* io boost util */
 
 	int			capacity;
 	int			last_idx;
+
+	bool			iowait_boost_pending;
+	unsigned int		iowait_boost;
+	u64			last_update;
+
+	unsigned long		min;		/* min util matched with min_cap */
 };
 
 struct kobject *esg_kobj;
@@ -191,6 +199,151 @@ static int esg_cpufreq_pm_qos_callback(struct notifier_block *nb,
 
 	return NOTIFY_OK;
 }
+
+static int esg_mode_update_callback(struct notifier_block *nb,
+				unsigned long val, void *v)
+{
+	struct emstune_mode *cur_mode = (struct emstune_mode *)v;
+	struct esgov_policy *esg_policy;
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
+			continue;
+
+		esg_policy = per_cpu(esgov_policy, cpu);
+		if (unlikely((!esg_policy) || !esg_policy->enabled))
+			continue;
+
+		esg_update_step(esg_policy, cur_mode->gov_data[cpu].step);
+	}
+
+	return NOTIFY_OK;
+}
+
+/*************************************************************************/
+/*			       IOWAIT BOOST				 */
+/************************************************************************/
+
+/**
+ * esgov_iowait_reset() - Reset the IO boost status of a CPU.
+ * @esg_cpu: the esgov data for the CPU to boost
+ * @time: the update time from the caller
+ * @set_iowait_boost: true if an IO boost has been requested
+ *
+ * The IO wait boost of a task is disabled after a tick since the last update
+ * of a CPU. If a new IO wait boost is requested after more then a tick, then
+ * we enable the boost starting from the minimum frequency, which improves
+ * energy efficiency by ignoring sporadic wakeups from IO.
+ */
+static bool esgov_iowait_reset(struct esgov_cpu *esg_cpu, u64 time,
+			       bool set_iowait_boost)
+{
+	s64 delta_ns = time - esg_cpu->last_update;
+
+	/* Reset boost only if a tick has elapsed since last request */
+	if (delta_ns <= TICK_NSEC)
+		return false;
+
+	esg_cpu->iowait_boost = set_iowait_boost ? esg_cpu->min : 0;
+	esg_cpu->iowait_boost_pending = set_iowait_boost;
+
+	return true;
+}
+
+/**
+ * esggov_iowait_boost() - Updates the IO boost status of a CPU.
+ * @esg_cpu: the esgov data for the CPU to boost
+ * @time: the update time from the caller
+ * @flags: SCHED_CPUFREQ_IOWAIT if the task is waking up after an IO wait
+ *
+ * Each time a task wakes up after an IO operation, the CPU utilization can be
+ * boosted to a certain utilization which doubles at each "frequent and
+ * successive" wakeup from IO, ranging from the utilization of the minimum
+ * OPP to the utilization of the maximum OPP.
+ * To keep doubling, an IO boost has to be requested at least once per tick,
+ * otherwise we restart from the utilization of the minimum OPP.
+ */
+static void esgov_iowait_boost(struct esgov_cpu *esg_cpu, u64 time,
+			       unsigned int flags)
+{
+	bool set_iowait_boost = flags & SCHED_CPUFREQ_IOWAIT;
+
+	/* Reset boost if the CPU appears to have been idle enough */
+	if (esg_cpu->iowait_boost &&
+	    esgov_iowait_reset(esg_cpu, time, set_iowait_boost))
+		return;
+
+	/* Boost only tasks waking up after IO */
+	if (!set_iowait_boost)
+		return;
+
+	/* Ensure boost doubles only one time at each request */
+	if (esg_cpu->iowait_boost_pending)
+		return;
+	esg_cpu->iowait_boost_pending = true;
+
+	/* Double the boost at each request */
+	if (esg_cpu->iowait_boost) {
+		esg_cpu->iowait_boost =
+			min_t(unsigned int, esg_cpu->iowait_boost << 1, SCHED_CAPACITY_SCALE);
+		return;
+	}
+
+	/* First wakeup after IO: start with minimum boost */
+	esg_cpu->iowait_boost = esg_cpu->min;
+}
+
+/**
+ * esgov_iowait_apply() - Apply the IO boost to a CPU.
+ * @esg_cpu: the esgov data for the cpu to boost
+ * @time: the update time from the caller
+ * @util: the utilization to (eventually) boost
+ * @max: the maximum value the utilization can be boosted to
+ *
+ * A CPU running a task which woken up after an IO operation can have its
+ * utilization boosted to speed up the completion of those IO operations.
+ * The IO boost value is increased each time a task wakes up from IO, in
+ * esgov_iowait_apply(), and it's instead decreased by this function,
+ * each time an increase has not been requested (!iowait_boost_pending).
+ *
+ * A CPU which also appears to have been idle for at least one tick has also
+ * its IO boost utilization reset.
+ *
+ * This mechanism is designed to boost high frequently IO waiting tasks, while
+ * being more conservative on tasks which does sporadic IO operations.
+ */
+static unsigned long esgov_iowait_apply(struct esgov_cpu *esg_cpu,
+					u64 time, unsigned long max)
+{
+	/* No boost currently required */
+	if (!esg_cpu->iowait_boost)
+		return 0;
+
+	/* Reset boost if the CPU appears to have been idle enough */
+	if (esgov_iowait_reset(esg_cpu, time, false))
+		return 0;
+
+	if (!esg_cpu->iowait_boost_pending) {
+		/*
+		 * No boost pending; reduce the boost value.
+		 */
+		esg_cpu->iowait_boost >>= 1;
+		if (esg_cpu->iowait_boost < esg_cpu->min) {
+			esg_cpu->iowait_boost = 0;
+			return 0;
+		}
+	}
+
+	esg_cpu->iowait_boost_pending = false;
+
+	return (esg_cpu->iowait_boost * max) >> SCHED_CAPACITY_SHIFT;
+}
+
+
+static struct notifier_block esg_mode_update_notifier = {
+	.notifier_call = esg_mode_update_callback,
+};
 
 struct esg_attr {
 	struct attribute attr;
@@ -444,10 +597,10 @@ static void esgov_exit(struct cpufreq_policy *policy)
 	policy->governor_data = NULL;
 }
 
-static unsigned int get_next_freq(struct esgov_policy *esg_policy, unsigned long util)
+static unsigned int get_next_freq(struct esgov_policy *esg_policy,
+				unsigned long util, unsigned long max)
 {
 	struct cpufreq_policy *policy = esg_policy->policy;
-	int max = arch_scale_cpu_capacity(NULL, policy->cpu);
 	unsigned int freq;
 
 	freq = (policy->max * util) / max;
@@ -455,58 +608,128 @@ static unsigned int get_next_freq(struct esgov_policy *esg_policy, unsigned long
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
 
-static unsigned long esgov_get_eutil(struct esgov_cpu *esg_cpu, unsigned long max)
+/* return the max_util of this cpu */
+static unsigned int esgov_calc_cpu_target_util(struct esgov_cpu *esg_cpu,
+			int max, int org_pelt_util, int pelt_util_diff, int nr_diff)
 {
+	int util, step_util, pelt_util, io_util, expected_nr;
+	int org_io_util = esg_cpu->io_util;
+	int org_step_util = esg_cpu->step_util;
+
+	/* calculate boost util */
+	io_util = org_io_util;
+
+	/*
+	 * calculate pelt_util
+	 * apply pelt_util_diff and then apply 25% margin to sched_util
+	 * pelt_util_diff: util_diff by migrating task
+	 */
+	pelt_util = org_pelt_util + pelt_util_diff;
+	pelt_util = max(pelt_util, 0);
+	if (pelt_util > 0) {
+		pelt_util = pelt_util + (pelt_util >> 2);
+		pelt_util = min(max, pelt_util);
+	}
+
+	/*
+	 * calculate step util
+	 * apply step util. If cpu is or will be idle, we want to ignore step_util
+	 * nr_diff == 0 : called when change cpu_freq
+	 * nr_diff != 0 : called when expect next util in the core selection
+	 */
+	if (!nr_diff) {
+		step_util = idle_cpu(esg_cpu->cpu) ? 0 : org_step_util;
+	} else {
+		struct rq *rq = cpu_rq(esg_cpu->cpu);
+		expected_nr = rq->nr_running + nr_diff;
+		expected_nr = min(expected_nr, 0);
+		step_util = expected_nr ? org_step_util : 0;
+	}
+
+	/* find max util */
+	util = max(pelt_util, step_util);
+	util = max(util, io_util);
+
+	/* apply emstune_boost */
+	util = emstune_freq_boost(esg_cpu->cpu, util);
+
+	if (!nr_diff)
+		trace_esg_cpu_util(esg_cpu->cpu, nr_diff, pelt_util_diff, org_io_util,
+			io_util, org_step_util, step_util, org_pelt_util, pelt_util, max, util);
+
+	return util;
+
+}
+
+/* return max util of the cluster of this cpu */
+static unsigned int esgov_get_target_util(struct esgov_policy *esg_policy,
+						u64 time, unsigned long max)
+{
+	unsigned long max_util = 0;
+	unsigned int cpu;
+
+	/* get max util in the cluster */
+	for_each_cpu(cpu, esg_policy->policy->cpus) {
+		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
+
+		esg_cpu->util = esgov_calc_cpu_target_util(esg_cpu, max, esg_cpu->pelt_util, 0, 0);
+
+		if (esg_cpu->util > max_util)
+			max_util = esg_cpu->util;
+	}
+
+	return max_util;
+}
+
+/* update the step_util */
+static unsigned long esgov_get_step_util(struct esgov_cpu *esg_cpu, unsigned long max) {
 	struct esgov_policy *esg_policy = per_cpu(esgov_policy, esg_cpu->cpu);
 	struct rq *rq = cpu_rq(esg_cpu->cpu);
 	struct part *pa = &rq->pa;
 	unsigned int freq;
 	int active_ratio, util, prev_idx;
 
-	if (unlikely(!esg_policy || !esg_policy->step))
+	if (unlikely(!esg_policy->step))
 		return 0;
 
 	if (esg_cpu->last_idx == pa->hist_idx)
-		return esg_cpu->eutil;
-
-	/* update and get the active ratio */
-	update_cpu_active_ratio(rq, NULL, EMS_PART_UPDATE);
+		return esg_cpu->step_util;
 
 	esg_cpu->last_idx = pa->hist_idx;
 	prev_idx = esg_cpu->last_idx ? (esg_cpu->last_idx - 1) : 9;
 	active_ratio = (pa->hist[esg_cpu->last_idx] + pa->hist[prev_idx]) >> 1;
 
 	/* update the capacity */
-	freq = (esg_cpu->eutil * esg_policy->pol.max) / max;
+	freq = (esg_cpu->step_util * esg_policy->pol.max) / max;
 	esg_cpu->capacity = find_allowed_capacity(esg_cpu->cpu, freq, esg_policy->step_power);
 
-	/* calculate eutil */
+	/* calculate step_util */
 	util = (esg_cpu->capacity * active_ratio) >> SCHED_CAPACITY_SHIFT;
 
-	trace_esg_cpu_eutil(esg_cpu->cpu, esg_cpu->capacity, active_ratio, max, util);
+	trace_esg_cpu_step_util(esg_cpu->cpu, esg_cpu->capacity, active_ratio, max, util);
 
 	return util;
 }
 
+ /* update cpu util */
 unsigned long ml_boosted_cpu_util(int cpu);
-static void esgov_update_cpu_util(struct esgov_cpu *esg_cpu)
+static void esgov_update_cpu_util(struct esgov_policy *esg_policy, u64 time, unsigned long max)
 {
-	struct rq *rq = cpu_rq(esg_cpu->cpu);
-	int max = arch_scale_cpu_capacity(NULL, esg_cpu->cpu);
-	int util, eutil, sutil;
+	int cpu;
 
-	sutil = ml_boosted_cpu_util(esg_cpu->cpu) + cpu_util_rt(rq);
-	sutil = sutil + (sutil >> 2);
-	esg_cpu->sutil = sutil;
+	for_each_cpu(cpu, esg_policy->policy->cpus) {
+		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
+		struct rq *rq = cpu_rq(cpu);
 
-	eutil = esgov_get_eutil(esg_cpu, max);
-	esg_cpu->eutil = eutil;
+		/* update iowait boost util */
+		esg_cpu->io_util = esgov_iowait_apply(esg_cpu, time, max);
 
-	util = max(sutil, eutil);
-	util = emst_boost(esg_cpu->cpu, util);
-	esg_cpu->util = util;
+		/* update sched_util */
+		esg_cpu->pelt_util = ml_boosted_cpu_util(cpu) + cpu_util_rt(rq);
 
-	trace_esg_cpu_util(esg_cpu->cpu, eutil, sutil, max, util);
+		/* update step_util, If cpu is idle, we want to ignore step_util */
+		esg_cpu->step_util = esgov_get_step_util(esg_cpu, max);
+	}
 }
 
 static bool esgov_check_rate_delay(struct esgov_policy *esg_policy, u64 time)
@@ -519,52 +742,41 @@ static bool esgov_check_rate_delay(struct esgov_policy *esg_policy, u64 time)
 	return true;
 }
 
-/* returns target util of the cluster of this cpu */
-static unsigned int esgov_get_target_util(struct esgov_cpu *esg_cpu)
-{
-	struct esgov_policy *esg_policy = esg_cpu->esg_policy;
-	struct cpufreq_policy *policy = esg_policy->policy;
-	unsigned long max_util = 0;
-	unsigned int cpu;
-
-	/* get max util in the cluster */
-	for_each_cpu(cpu, policy->cpus) {
-		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
-		struct rq *rq = cpu_rq(cpu);
-		unsigned long cpu_util;
-
-		/* If cpu is tickless status, ignore eutil */
-		cpu_util = rq->nohz_tick_stopped ? esg_cpu->sutil : esg_cpu->util;
-
-		if (cpu_util > max_util)
-			max_util = cpu_util;
-	}
-
-	return max_util;
-}
-
 static void
 esgov_update(struct update_util_data *hook, u64 time, unsigned int flags)
 {
 	struct esgov_cpu *esg_cpu = container_of(hook, struct esgov_cpu, update_util);
 	struct esgov_policy *esg_policy = esg_cpu->esg_policy;
+	unsigned long max = arch_scale_cpu_capacity(NULL, esg_cpu->cpu);
 	unsigned int target_util, target_freq;
 
-	/* update this cpu util */
-	esgov_update_cpu_util(esg_cpu);
+	/* check iowait boot */
+	esgov_iowait_boost(esg_cpu, time, flags);
+	esg_cpu->last_update = time;
 
+	/*
+	 * try to hold lock.
+	 * If somebody is holding this lock, this updater(cpu) will be failed
+	 * to update freq because somebody already updated or will update
+	 * the last_update_time very close with now
+	 */
+	if (!raw_spin_trylock(&esg_policy->update_lock))
+		return;
+
+	/* check rate delay */
 	if (!esgov_check_rate_delay(esg_policy, time))
-		return;
+		goto out;
 
-	target_util = esgov_get_target_util(esg_cpu);
+	/* update cpu_util of this cluster */
+	esgov_update_cpu_util(esg_policy, time, max);
+
 	/* update target util of the cluster of this cpu */
-	if (esg_policy->util == target_util)
-		return;
+	target_util = esgov_get_target_util(esg_policy, time, max);
 
 	/* get target freq for new target util */
-	target_freq = get_next_freq(esg_policy, target_util);
+	target_freq = get_next_freq(esg_policy, target_util, max);
 	if (esg_policy->target_freq == target_freq)
-		return;
+		goto out;
 
 	if (!esg_policy->work_in_progress) {
 		esg_policy->work_in_progress = true;
@@ -575,6 +787,8 @@ esgov_update(struct update_util_data *hook, u64 time, unsigned int flags)
 			esg_policy->util, esg_policy->target_freq);
 		irq_work_queue(&esg_policy->irq_work);
 	}
+out:
+	raw_spin_unlock(&esg_policy->update_lock);
 }
 
 static int esgov_start(struct cpufreq_policy *policy)
@@ -597,6 +811,9 @@ static int esgov_start(struct cpufreq_policy *policy)
 		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
 		esg_cpu->esg_policy = esg_policy;
 		esg_cpu->cpu = cpu;
+		esg_cpu->min =
+			(SCHED_CAPACITY_SCALE * policy->cpuinfo.min_freq) /
+			policy->cpuinfo.max_freq;
 	}
 
 	for_each_cpu(cpu, policy->cpus) {
@@ -644,8 +861,9 @@ struct cpufreq_governor energy_step_gov = {
 int get_gov_next_cap(int dst_cpu, struct task_struct *p)
 {
 	struct esgov_policy *esg_policy = per_cpu(esgov_policy, dst_cpu);
-	int cpu, next_cap = 0;
-	int task_util;
+	unsigned int max = arch_scale_cpu_capacity(NULL, dst_cpu);
+	int cpu, prev_cpu = task_cpu(p);
+	int task_util, max_util = 0;
 
 	if (unlikely(!esg_policy || !esg_policy->enabled))
 		return -ENODEV;
@@ -653,30 +871,38 @@ int get_gov_next_cap(int dst_cpu, struct task_struct *p)
 	/* get task util and convert to uss */
 	task_util = ml_task_util(p);
 	if (p->sse)
-		task_util *= capacity_ratio(task_cpu(p), USS);
+		task_util *= capacity_ratio(prev_cpu, USS) >> SCHED_CAPACITY_SHIFT;
 
 	/* get max util of the cluster of this cpu */
 	for_each_cpu(cpu, esg_policy->policy->cpus) {
 		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
-		int cpu_util, sutil = esg_cpu->sutil;
-		int task_util;
+		int cpu_util, pelt_util;
+		struct rq *rq = cpu_rq(cpu);
 
-		/* calculate cpu util with{out} task */
-		if (cpu == dst_cpu && cpu != task_cpu(p))
-			sutil += task_util;
-		else if (cpu != dst_cpu && cpu == task_cpu(p))
-			sutil -= task_util;
+		pelt_util = ml_boosted_cpu_util(cpu) + cpu_util_rt(rq);
 
-		cpu_util = max(sutil, esg_cpu->eutil);
-		if (cpu_util > next_cap)
-			next_cap = cpu_util;
+		if (cpu != dst_cpu && cpu!= prev_cpu) {
+			cpu_util = esg_cpu->util;
+		} else if (cpu == dst_cpu && cpu != prev_cpu) {
+			/* util of dst_cpu (when migrating task)*/
+			cpu_util = esgov_calc_cpu_target_util(esg_cpu, max, pelt_util, task_util, 1);
+		} else if (cpu != dst_cpu && cpu == prev_cpu) {
+			/*  util of prev_cpu (when migrating task) */
+			cpu_util = esgov_calc_cpu_target_util(esg_cpu, max, pelt_util, -task_util, -1);
+		} else {
+			/* util of prev_cpu (when task stay on the prev_cpu) */
+			cpu_util = esgov_calc_cpu_target_util(esg_cpu, max, pelt_util, 0, 1);
+		}
+
+		if (cpu_util > max_util)
+			max_util = cpu_util;
 	}
 
 	/* max floor depends on CPUFreq min/max lock */
-	next_cap = max(esg_policy->min_cap, next_cap);
-	next_cap = min(esg_policy->max_cap, next_cap);
+	max_util = max(esg_policy->min_cap, max_util);
+	max_util = min(esg_policy->max_cap, max_util);
 
-	return next_cap;
+	return max_util;
 }
 
 unsigned long cpufreq_governor_get_util(unsigned int cpu)
@@ -720,6 +946,8 @@ static int __init esgov_register(void)
 	esg_kobj = kobject_create_and_add("energy_step", ems_kobj);
 	if (!esg_kobj)
 		return -EINVAL;
+
+	emstune_register_mode_update_notifier(&esg_mode_update_notifier);
 
 	cpufreq_register_notifier(&esg_cpufreq_policy_notifier,
 					CPUFREQ_POLICY_NOTIFIER);

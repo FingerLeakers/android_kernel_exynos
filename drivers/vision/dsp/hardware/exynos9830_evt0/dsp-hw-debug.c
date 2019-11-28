@@ -15,6 +15,7 @@
 #include "dsp-device.h"
 #include "hardware/dsp-system.h"
 #include "hardware/dsp-ctrl.h"
+#include "hardware/dsp-dump.h"
 #include "dsp-binary.h"
 #include "dsp-debug.h"
 #include "hardware/dsp-debug.h"
@@ -76,7 +77,7 @@ static ssize_t dsp_hw_debug_power_write(struct file *filp,
 	} else if (sysfs_streq(command, "close")) {
 		dsp_device_close(debug->dspdev);
 	} else if (sysfs_streq(command, "start")) {
-		ret = dsp_device_start(debug->dspdev);
+		ret = dsp_device_start(debug->dspdev, 0);
 		if (ret)
 			goto p_err;
 	} else if (sysfs_streq(command, "stop")) {
@@ -174,7 +175,7 @@ static int dsp_hw_debug_devfreq_show(struct seq_file *file, void *unused)
 			seq_printf(file, "[%s] current: off\n",
 					devfreq->name);
 		else
-			seq_printf(file, "[%s] currnet: L%u\n",
+			seq_printf(file, "[%s] current: L%u\n",
 					devfreq->name, devfreq->current_qos);
 	}
 
@@ -267,11 +268,11 @@ static int dsp_hw_debug_sfr_show(struct seq_file *file, void *unused)
 	if (ret)
 		goto p_err_open;
 
-	ret = dsp_device_start(debug->dspdev);
+	ret = dsp_device_start(debug->dspdev, 0);
 	if (ret)
 		goto p_err_start;
 
-	dsp_ctrl_user_dump(file);
+	dsp_dump_ctrl_user(file);
 	dsp_device_stop(debug->dspdev, 1);
 	dsp_device_close(debug->dspdev);
 
@@ -482,7 +483,7 @@ static int __dsp_hw_debug_ivp_test(struct dsp_hw_debug *debug,
 	if (ret)
 		goto p_err_alloc_pm;
 
-	ret = dsp_binary_load(pm.name, pm.kvaddr, pm.size);
+	ret = dsp_binary_load(pm.name, NULL, NULL, pm.kvaddr, pm.size);
 	if (ret < 0)
 		goto p_err_load_pm;
 
@@ -490,7 +491,8 @@ static int __dsp_hw_debug_ivp_test(struct dsp_hw_debug *debug,
 	if (ret)
 		goto p_err_alloc_dm;
 
-	ret = dsp_binary_load(dm.name, dm.kvaddr + 0x8000, dm.size - 0x8000);
+	ret = dsp_binary_load(dm.name, NULL, NULL, dm.kvaddr + 0x8000,
+			dm.size - 0x8000);
 	if (ret < 0)
 		goto p_err_load_dm;
 
@@ -522,7 +524,7 @@ static int __dsp_hw_debug_ivp_test(struct dsp_hw_debug *debug,
 				dsp_err("test[%d] fail: %8x\n",
 						test_id, result);
 				__dsp_hw_debug_print_userdefined(debug);
-				dsp_ctrl_dump();
+				dsp_dump_ctrl();
 				dsp_ctrl_writel(DSPC_TO_HOST_MAILBOX_NS_INTR,
 						0x0);
 				ret = -EFAULT;
@@ -532,7 +534,7 @@ static int __dsp_hw_debug_ivp_test(struct dsp_hw_debug *debug,
 		} else {
 			dsp_err("test[%d] response not came\n", test_id);
 			__dsp_hw_debug_print_userdefined(debug);
-			dsp_ctrl_dump();
+			dsp_dump_ctrl();
 			ret = -EFAULT;
 			goto p_err_test;
 		}
@@ -588,7 +590,7 @@ static int __dsp_hw_debug_dma_test(struct dsp_hw_debug *debug,
 	if (ret)
 		goto p_err_alloc_in;
 
-	ret = dsp_binary_load(in.name, in.kvaddr, in.size);
+	ret = dsp_binary_load(in.name, NULL, NULL, in.kvaddr, in.size);
 	if (ret < 0)
 		goto p_err_load_in;
 
@@ -638,7 +640,7 @@ static int __dsp_hw_debug_dma_test(struct dsp_hw_debug *debug,
 					dsp_err("test[%d] fail (idx:%d)\n",
 							test_id, idx);
 					__dsp_hw_debug_print_userdefined(debug);
-					dsp_ctrl_dump();
+					dsp_dump_ctrl();
 					ret = -EFAULT;
 					goto p_err_test;
 				}
@@ -646,7 +648,7 @@ static int __dsp_hw_debug_dma_test(struct dsp_hw_debug *debug,
 				dsp_err("test[%d] fail: %8x\n",
 						test_id, result);
 				__dsp_hw_debug_print_userdefined(debug);
-				dsp_ctrl_dump();
+				dsp_dump_ctrl();
 				dsp_ctrl_writel(DSPC_TO_HOST_MAILBOX_NS_INTR,
 						0x0);
 				ret = -EFAULT;
@@ -655,7 +657,7 @@ static int __dsp_hw_debug_dma_test(struct dsp_hw_debug *debug,
 		} else {
 			dsp_err("test[%d] response not came\n", test_id);
 			__dsp_hw_debug_print_userdefined(debug);
-			dsp_ctrl_dump();
+			dsp_dump_ctrl();
 			ret = -EFAULT;
 			goto p_err_test;
 		}
@@ -693,7 +695,7 @@ static int __dsp_hw_debug_asb_test(struct dsp_hw_debug *debug,
 	if (ret)
 		goto p_err_open;
 
-	ret = dsp_device_start(debug->dspdev);
+	ret = dsp_device_start(debug->dspdev, 0);
 	if (ret)
 		goto p_err_start;
 

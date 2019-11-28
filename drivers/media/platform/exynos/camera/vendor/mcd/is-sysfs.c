@@ -2527,6 +2527,52 @@ static ssize_t camera_rear_tof_freq_show(struct device *dev,
 
 	return sprintf(buf, "%d\n", value);
 }
+
+static ssize_t camera_rear_tof_freq_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct is_core *core;
+	struct is_device_sensor *device;
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri;
+	struct is_cis *cis = NULL;
+	int i, value;
+
+	if (!is_dev) {
+		dev_err(dev, "%s: is_dev is not yet probed", __func__);
+		return -ENODEV;
+	}
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("%s: core is NULL", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		device = &core->sensor[i];
+
+		is_search_sensor_module_with_position(&core->sensor[i],
+				SENSOR_POSITION_REAR_TOF, &module);
+		if (module)
+			break;
+	}
+
+	WARN_ON(!module);
+
+	sensor_peri = (struct is_device_sensor_peri *)module->private_data;
+
+	WARN_ON(!sensor_peri);
+
+	sscanf(buf, "%d", &value);
+
+	if (sensor_peri->subdev_cis) {
+		cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
+		CALL_CISOPS(cis, cis_set_tof_tx_freq, sensor_peri->subdev_cis, value);
+	}
+
+	return count;
+}
 #endif
 #endif
 
@@ -3345,6 +3391,19 @@ static ssize_t camera_ois_calibrationtest_show(struct device *dev,
 		return sprintf(buf, "%d,%ld.%03ld,%ld.%03ld\n", result, raw_data_x / 1000,
 			 raw_data_x % 1000, raw_data_y / 1000, raw_data_y % 1000);
 	}
+}
+
+static ssize_t camera_ois_hall_position_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	u16 targetPos[4] = {0, };
+	u16 hallPos[4] = {0, };
+
+	is_ois_get_hall_pos(sysfs_core, targetPos, hallPos);
+
+	return sprintf(buf, "%u,%u,%u,%u,%u,%u,%u,%u",
+		targetPos[0], targetPos[1], targetPos[2], targetPos[3],
+		hallPos[0], hallPos[1], hallPos[2], hallPos[3]);
 }
 
 static ssize_t camera_rear_aperture_halltest_show(struct device *dev,
@@ -4322,7 +4381,7 @@ static DEVICE_ATTR(rear_tof_dual_cal, S_IRUGO, camera_rear_tof_dual_cal_show, NU
 static DEVICE_ATTR(rear_tof_tilt, S_IRUGO, camera_rear_tof_tilt_show, NULL);
 #endif
 #if defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION) || defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE)
-static DEVICE_ATTR(rear_tof_freq, S_IRUGO, camera_rear_tof_freq_show, NULL);
+static DEVICE_ATTR(rear_tof_freq, 0644, camera_rear_tof_freq_show, camera_rear_tof_freq_store);
 #endif
 #ifdef CAMERA_REAR2_TOF_TILT
 static DEVICE_ATTR(rear2_tof_tilt, S_IRUGO, camera_rear2_tof_tilt_show, NULL);
@@ -4426,6 +4485,7 @@ static DEVICE_ATTR(ois_supperssion_ratio_rear3, S_IRUGO, camera_ois_rear3_supper
 #endif
 static DEVICE_ATTR(ois_rawdata, S_IRUGO, camera_ois_rawdata_show, NULL);
 static DEVICE_ATTR(calibrationtest, S_IRUGO, camera_ois_calibrationtest_show, NULL);
+static DEVICE_ATTR(ois_hall_position, S_IRUGO, camera_ois_hall_position_show, NULL);
 static DEVICE_ATTR(rear_aperture_halltest, S_IRUGO, camera_rear_aperture_halltest_show, NULL);
 static DEVICE_ATTR(oisfw, S_IRUGO, camera_ois_version_show, NULL);
 static DEVICE_ATTR(ois_diff, S_IRUGO, camera_ois_diff_show, NULL);
@@ -5232,6 +5292,10 @@ int is_create_sysfs(struct is_core *core)
 			pr_err("failed to create ois device file, %s\n",
 				dev_attr_calibrationtest.attr.name);
 		}
+		if (device_create_file(camera_ois_dev, &dev_attr_ois_hall_position) < 0) {
+			pr_err("failed to create ois device file, %s\n",
+				dev_attr_ois_hall_position.attr.name);
+		}
 		if (device_create_file(camera_ois_dev, &dev_attr_oisfw) < 0) {
 			pr_err("failed to create ois device file, %s\n",
 				dev_attr_oisfw.attr.name);
@@ -5543,6 +5607,7 @@ int is_destroy_sysfs(struct is_core *core)
 #endif
 		device_remove_file(camera_ois_dev, &dev_attr_ois_rawdata);
 		device_remove_file(camera_ois_dev, &dev_attr_calibrationtest);
+		device_remove_file(camera_ois_dev, &dev_attr_ois_hall_position);
 		device_remove_file(camera_ois_dev, &dev_attr_oisfw);
 		device_remove_file(camera_ois_dev, &dev_attr_ois_diff);
 		device_remove_file(camera_ois_dev, &dev_attr_ois_exif);

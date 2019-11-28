@@ -272,6 +272,7 @@ enum s2mps22_irq_source {
 };
 
 #define S2MPS22_NUM_IRQ_PMIC_REGS	8
+#define S2MPS22_BUCK_OI_MAX		4
 
 enum s2mps22_irq {
 	/* PMIC */

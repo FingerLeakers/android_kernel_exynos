@@ -20,8 +20,9 @@
 #include "iw_messages.h"
 #include "misc.h"
 #include "types.h"
-#include "tz_mem.h"
-#include "tzlog.h"
+#include "core/log.h"
+#include "core/mem.h"
+#include "core/wait.h"
 
 #define PTR_ALIGN_PGDN(p)	((typeof(p))(((uintptr_t)(p)) & PAGE_MASK))
 #define OFFSET_IN_PAGE(x)	((x) & (~PAGE_MASK))
@@ -30,7 +31,9 @@
 static void tzdev_teec_release_shared_memory(void *data)
 {
 	struct tzdev_teec_shared_memory *shm = data;
-	complete(&shm->released);
+
+	shm->released = 1;
+	wake_up(&shm->wq);
 }
 
 static uint32_t tzdev_teec_shared_memory_init(TEEC_Context *context, TEEC_SharedMemory *sharedMem,
@@ -73,7 +76,8 @@ static uint32_t tzdev_teec_shared_memory_init(TEEC_Context *context, TEEC_Shared
 		shm->id = ret;
 	}
 
-	init_completion(&shm->released);
+	init_waitqueue_head(&shm->wq);
+	shm->released = 0;
 	shm->context = context;
 	shm->pages = pages;
 	shm->num_pages = num_pages;
@@ -100,7 +104,7 @@ static void tzdev_teec_shared_memory_fini(TEEC_SharedMemory *sharedMem)
 
 	if (shm->id) {
 		BUG_ON(tzdev_mem_release(shm->id));
-		wait_for_completion(&shm->released);
+		wait_event_uninterruptible_freezable_nested(shm->wq, shm->released == 1);
 	}
 
 	kfree(shm);

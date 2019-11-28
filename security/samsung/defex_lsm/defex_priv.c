@@ -39,6 +39,12 @@ ssize_t task_defex_privesc_show_status(struct defex_privesc *privesc_obj,
 	return snprintf(buf, 3, "%u\n", privesc_obj->status);
 }
 
+ssize_t task_defex_privesc_show_tgid(struct defex_privesc *privesc_obj,
+		struct privesc_attribute *attr, char *buf)
+{
+	return snprintf(buf, 3, "%u\n", privesc_obj->tgid);
+}
+
 ssize_t task_defex_privesc_attr_store(struct kobject *kobj,
 		struct attribute *attr, const char *buf, size_t len)
 {
@@ -77,6 +83,20 @@ ssize_t task_defex_privesc_store_status(struct defex_privesc *privesc_obj,
 	return count;
 }
 
+ssize_t task_defex_privesc_store_tgid(struct defex_privesc *privesc_obj,
+		struct privesc_attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	unsigned int tgid;
+
+	ret = kstrtouint(buf, 10, &tgid);
+	if (ret != 0 || tgid > 1)
+		return -EINVAL;
+	privesc_obj->tgid = tgid;
+
+	return count;
+}
+
 struct defex_privesc *task_defex_create_privesc_obj(struct kset *defex_kset)
 {
 	struct defex_privesc *privesc;
@@ -97,6 +117,8 @@ struct defex_privesc *task_defex_create_privesc_obj(struct kset *defex_kset)
 
 	/* Initial state of PED feature (0 - disabled, 1 - enabled) */
 	privesc->status = 0;
+	/* Initial state of tgid feature (0 - tid-based, 1 - tgid-based) */
+	privesc->tgid = 0;
 	return privesc;
 }
 
@@ -111,9 +133,12 @@ void task_defex_destroy_privesc_obj(struct defex_privesc *privesc)
 static struct privesc_attribute privesc_status_attribute =
 	__ATTR(status, 0660, task_defex_privesc_show_status, task_defex_privesc_store_status);
 
+static struct privesc_attribute privesc_tgid_attribute =
+	__ATTR(tgid, 0600, task_defex_privesc_show_tgid, task_defex_privesc_store_tgid);
 
 static struct attribute *privesc_default_attrs[] = {
 	&privesc_status_attribute.attr,
+	&privesc_tgid_attribute.attr,
 	NULL,
 };
 

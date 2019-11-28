@@ -23,6 +23,7 @@
 #include <asm/uaccess.h>
 #include <linux/uaccess.h>
 #include <linux/delay.h>
+#include <linux/ktime.h>
 
 #include "vision-config.h"
 #include "vision-dev.h"
@@ -77,6 +78,29 @@ static void put_vs4l_graph64(struct vs4l_graph *kp, struct vs4l_graph __user *up
 {
 }
 
+static int get_vs4l_sched_param64(struct vs4l_sched_param *kp, struct vs4l_sched_param __user *up)
+{
+	int ret;
+
+	if (!access_ok(VERIFY_READ, up, sizeof(struct vs4l_sched_param))) {
+		vision_err("access failed from user ptr(%pK)\n", up);
+		ret = -EFAULT;
+		goto p_err;
+	}
+
+	ret = copy_from_user(kp, (void __user *)up, sizeof(struct vs4l_sched_param));
+	if (ret) {
+		vision_err("copy_from_user failed(%d) from %pK\n", ret, up);
+		goto p_err;
+	}
+
+p_err:
+	return ret;
+}
+
+static void put_vs4l_sched_param64(struct vs4l_sched_param *kp, struct vs4l_sched_param __user *up)
+{
+}
 
 static int get_vs4l_format64(struct vs4l_format_list *kp, struct vs4l_format_list __user *up)
 {
@@ -308,6 +332,9 @@ static void put_vs4l_container64(struct vs4l_container_list *kp, struct vs4l_con
 
 long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+	static s64 buf_time = 0;
+	s64 now;
+	int get_time = 0;
 	int ret = 0;
 	struct vision_device *vdev = vision_devdata(file);
 	const struct vertex_ioctl_ops *ops = vdev->ioctl_ops;
@@ -318,9 +345,11 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct vs4l_format_list vsf;
 		struct vs4l_param_list vsp;
 		struct vs4l_ctrl vsc;
+		struct vs4l_sched_param vsprm;
 		struct vs4l_container_list vscl;
 	} vs4l_kvar;
 
+	now = ktime_to_ns(ktime_get_boottime());
 	switch (cmd) {
 	case VS4L_VERTEXIOC_S_GRAPH:
 		ret = get_vs4l_graph64(&vs4l_kvar.vsg,
@@ -389,6 +418,7 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		ret = ops->vertexioc_streamon(file);
 		if (ret)
 			vision_err("vertexioc_streamon failed(%d)\n", ret);
+		vdev->tpf = 0;
 		break;
 
 	case VS4L_VERTEXIOC_STREAM_OFF:
@@ -402,6 +432,9 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				(struct vs4l_container_list __user *)arg);
 		if (ret)
 			break;
+		if (vs4l_kvar.vscl.timestamp[0].tv_sec &&
+				vs4l_kvar.vscl.timestamp[0].tv_usec)
+			buf_time = now;
 
 		ret = ops->vertexioc_qbuf(file, &vs4l_kvar.vscl);
 		if (ret)
@@ -416,6 +449,9 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				(struct vs4l_container_list __user *)arg);
 		if (ret)
 			break;
+		if (vs4l_kvar.vscl.timestamp[0].tv_sec &&
+				vs4l_kvar.vscl.timestamp[0].tv_usec)
+			get_time = 1;
 
 		ret = ops->vertexioc_dqbuf(file, &vs4l_kvar.vscl);
 		if (ret != 0 && ret != -EWOULDBLOCK)
@@ -423,6 +459,11 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		put_vs4l_container64(&vs4l_kvar.vscl,
 				(struct vs4l_container_list __user *)arg);
+		if (get_time) {
+			now = ktime_to_ns(ktime_get_boottime());
+			vdev->tpf = now - buf_time;
+			get_time = 0;
+		}
 		break;
 	case VS4L_VERTEXIOC_PREPARE:
 		ret = get_vs4l_container64(&vs4l_kvar.vscl,
@@ -450,12 +491,25 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		put_vs4l_container64(&vs4l_kvar.vscl,
 				(struct vs4l_container_list __user *)arg);
 		break;
+	case VS4L_VERTEXIOC_SCHED_PARAM:
+		ret = get_vs4l_sched_param64(&vs4l_kvar.vsprm,
+				(struct vs4l_sched_param __user *)arg);
+		if (ret)
+			break;
+
+		ret = ops->vertexioc_sched_param(file, &vs4l_kvar.vsprm);
+		if (ret)
+			vision_err("vertexioc_sched_param failed(%d)\n", ret);
+
+		put_vs4l_sched_param64(&vs4l_kvar.vsprm,
+				(struct vs4l_sched_param __user *)arg);
+		break;
 	default:
 		vision_err("ioctl(%u) is not supported(usr arg: %lx)\n",
 				cmd, arg);
 		break;
 	}
 
-	vision_info("@@ ioctl(%u) usr arg: (%lx) Return code (%d/0x%x)\n", cmd, arg, ret, ret);
+	vision_dbg("@@ ioctl(%u) usr arg: (%lx) Return code (%d/0x%x)\n", cmd, arg, ret, ret);
 	return ret;
 }

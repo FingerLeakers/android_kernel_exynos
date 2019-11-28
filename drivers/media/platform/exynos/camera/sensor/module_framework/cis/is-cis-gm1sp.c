@@ -432,6 +432,11 @@ int sensor_gm1sp_cis_stream_on(struct v4l2_subdev *subdev)
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
 
+	if (cis->stream_state != CIS_STREAM_SET_DONE) {
+		err("%s: cis stream state id %d", __func__, cis->stream_state);
+		return -EINVAL;
+	}
+
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	ret = sensor_gm1sp_cis_group_param_hold_func(subdev, 0x00);

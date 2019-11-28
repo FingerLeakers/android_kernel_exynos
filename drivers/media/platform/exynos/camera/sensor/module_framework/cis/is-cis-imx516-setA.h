@@ -2001,21 +2001,21 @@ static const u32 sensor_imx516_setfile_A_tx_102p6_mhz_QQVGA[] = {
 };
 
 static const struct cam_tof_setting sensor_imx516_rear_setfile_A_tx_setting_FULL_VGA[] = {
-	{ 100, sensor_imx516_setfile_A_tx_99p9_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_VGA) },
-	{ 96, sensor_imx516_setfile_A_tx_95p8_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_VGA) },
-	{ 101, sensor_imx516_setfile_A_tx_102p6_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_VGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_99p9_MHZ, sensor_imx516_setfile_A_tx_99p9_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_VGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_95p8_MHZ, sensor_imx516_setfile_A_tx_95p8_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_VGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_102p6_MHZ, sensor_imx516_setfile_A_tx_102p6_mhz_VGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_VGA) },
 };
 
 static const struct cam_tof_setting sensor_imx516_rear_setfile_A_tx_setting_FULL_QVGA[] = {
-	{ 100, sensor_imx516_setfile_A_tx_99p9_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_QVGA) },
-	{ 96, sensor_imx516_setfile_A_tx_95p8_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_QVGA) },
-	{ 101, sensor_imx516_setfile_A_tx_102p6_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_QVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_99p9_MHZ, sensor_imx516_setfile_A_tx_99p9_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_QVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_95p8_MHZ, sensor_imx516_setfile_A_tx_95p8_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_QVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_102p6_MHZ, sensor_imx516_setfile_A_tx_102p6_mhz_QVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_QVGA) },
 };
 
 static const struct cam_tof_setting sensor_imx516_rear_setfile_A_tx_setting_FULL_QQVGA[] = {
-	{ 100, sensor_imx516_setfile_A_tx_99p9_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_QQVGA) },
-	{ 96, sensor_imx516_setfile_A_tx_95p8_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_QQVGA) },
-	{ 101, sensor_imx516_setfile_A_tx_102p6_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_QQVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_99p9_MHZ, sensor_imx516_setfile_A_tx_99p9_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_99p9_mhz_QQVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_95p8_MHZ, sensor_imx516_setfile_A_tx_95p8_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_95p8_mhz_QQVGA) },
+	{ CAM_IMX516_SET_A_REAR_TX_102p6_MHZ, sensor_imx516_setfile_A_tx_102p6_mhz_QQVGA, ARRAY_SIZE(sensor_imx516_setfile_A_tx_102p6_mhz_QQVGA) },
 };
 
 static const struct cam_mipi_channel sensor_imx516_rear_setfile_A_tx_channel_FULL[]={
@@ -2384,7 +2384,6 @@ static const struct cam_tof_sensor_mode sensor_imx516_setfile_A_tof_sensor_mode_
 	0xB203,
 		sensor_imx516_rear_setfile_A_tx_channel_FULL,	ARRAY_SIZE(sensor_imx516_rear_setfile_A_tx_channel_FULL),
 		sensor_imx516_rear_setfile_A_tx_setting_FULL_QVGA,	ARRAY_SIZE(sensor_imx516_rear_setfile_A_tx_setting_FULL_QVGA)
-	
 };
 
 static const struct cam_tof_sensor_mode sensor_imx516_setfile_A_tof_sensor_mode_QQVGA={
@@ -2393,7 +2392,7 @@ static const struct cam_tof_sensor_mode sensor_imx516_setfile_A_tof_sensor_mode_
 		sensor_imx516_rear_setfile_A_tx_setting_FULL_QQVGA,	ARRAY_SIZE(sensor_imx516_rear_setfile_A_tx_setting_FULL_QQVGA)
 };
 
-static const struct cam_tof_sensor_mode *sensor_imx516_setfile_A_tof_sensor_mode_B203[] = {
+static const struct cam_tof_sensor_mode *sensor_imx516_setfile_A_tof_sensor_mode_B203[SENSOR_IMX516_MODE_MAX] = {
 	&sensor_imx516_setfile_A_tof_sensor_mode_VGA,
 	&sensor_imx516_setfile_A_tof_sensor_mode_QVGA,
 	&sensor_imx516_setfile_A_tof_sensor_mode_QQVGA,

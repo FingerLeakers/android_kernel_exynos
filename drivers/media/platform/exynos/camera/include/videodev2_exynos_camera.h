@@ -254,6 +254,7 @@ enum v4l2_is_hal_version {
 #define V4L2_CID_FLASH_SET_CAL_EN                       (V4L2_CID_FIMC_IS_TUNE_BASE + 5)
 #define V4L2_CID_FLASH_SET_BY_CAL_CH0                   (V4L2_CID_FIMC_IS_TUNE_BASE + 6)
 #define V4L2_CID_FLASH_SET_BY_CAL_CH1                   (V4L2_CID_FIMC_IS_TUNE_BASE + 7)
+#define V4L2_CID_GYRO_SELF_TEST                                (V4L2_CID_FIMC_IS_TUNE_BASE + 8)
 
 #define V4L2_CID_SENSOR_SET_AE_TARGET			(V4L2_CID_SENSOR_BASE + 1)
 #define V4L2_CID_SENSOR_SET_AE_WEIGHT_1x1_2		(V4L2_CID_SENSOR_BASE + 2)
@@ -276,6 +277,7 @@ enum v4l2_is_hal_version {
 #define V4L2_CID_SENSOR_SET_DIGITAL_GAIN                (V4L2_CID_SENSOR_BASE + 19)
 #define V4L2_CID_SENSOR_SET_LASER_CONTORL               (V4L2_CID_SENSOR_BASE + 20)
 #define V4L2_CID_SENSOR_SET_EXTENDEDMODE		(V4L2_CID_SENSOR_BASE + 21)
+#define V4L2_CID_SENSOR_SET_TOF_AUTO_FOCUS		(V4L2_CID_SENSOR_BASE + 22)
 
 #define V4L2_CID_SENSOR_DEINIT                          (V4L2_CID_SENSOR_BASE + 90)
 #define V4L2_CID_SENSOR_NOTIFY_VSYNC                    (V4L2_CID_SENSOR_BASE + 91)
@@ -311,9 +313,7 @@ enum v4l2_cis_frs_command {
 	FRS_SSM_MODE_FACTORY_TEST,
 	FRS_DRAM_TEST_SECTION2,
 	FRS_SSM_MODE_FLICKER_DETECT_OFF,  	/* Only used in 2statck sensor */
-	FRS_SSM_MODE_FLICKER_DETECT_50,   	/* Only used in 2statck sensor */
-	FRS_SSM_MODE_FLICKER_DETECT_60,   	/* Only used in 2statck sensor */
-	FRS_SSM_MODE_FLICKER_DETECT_50_60,	/* Only used in 2statck sensor */
+	FRS_SSM_MODE_FLICKER_DETECT_ENABLE,	/* Only used in 2statck sensor */
 	FRS_SSM_MODE_FPS_960, 			/* Only used in 2statck sensor */
 	FRS_SSM_MODE_FPS_480, 			/* Only used in 2statck sensor */
 	FRS_SSM_MANUAL_MODE_START, 		/* Only used in 2statck sensor */
@@ -335,6 +335,8 @@ enum v4l2_cis_frs_command {
 
 #define V4L2_CID_SENSOR_GET_MODEL_ID			(V4L2_CID_SENSOR_BASE + 131)
 
+#define V4L2_CID_SENSOR_GET_BINNING_RATIO		(V4L2_CID_SENSOR_BASE + 132)
+
 #define V4L2_CID_SENSOR_SET_FACTORY_CONTROL				(V4L2_CID_SENSOR_BASE + 140)
 enum v4l2_cis_factory_control_command {
 	FAC_CTRL_BIT_TEST = 0,
@@ -343,6 +345,9 @@ enum v4l2_cis_factory_control_command {
 
 #define V4L2_CID_ACTUATOR_GET_STATUS                    (V4L2_CID_SENSOR_BASE + 200)
 #define V4L2_CID_ACTUATOR_SET_POSITION                  (V4L2_CID_SENSOR_BASE + 201)
+#define V4L2_CID_ACTUATOR_GET_ACTUAL_POSITION           (V4L2_CID_SENSOR_BASE + 202)
+#define V4L2_CID_ACTUATOR_UPDATE_DYNAMIC_META           (V4L2_CID_SENSOR_BASE + 203)
+#define V4L2_CID_ACTUATOR_SOFT_LANDING			(V4L2_CID_SENSOR_BASE + 204)
 
 #define V4L2_CID_FLASH_SET_MODE                         (V4L2_CID_SENSOR_BASE + 300)
 #define V4L2_CID_FLASH_SET_INTENSITY                    (V4L2_CID_SENSOR_BASE + 301)

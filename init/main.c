@@ -105,12 +105,17 @@
 
 #ifdef CONFIG_UH
 #include <linux/uh.h>
-#endif
 #ifdef CONFIG_UH_RKP
 #include <linux/rkp.h>
 #endif
-
-
+#ifdef CONFIG_KDP_CRED
+#include <linux/kdp.h>
+#endif
+#endif
+#ifdef CONFIG_UH_HARSH
+#include <linux/harsh.h>
+#include <asm/cpu.h>
+#endif
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
 
@@ -467,7 +472,7 @@ static noinline void __ref rest_init(void)
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
-#ifdef CONFIG_RKP_KDP
+#ifdef CONFIG_KDP_CRED
 int is_recovery __kdp_ro = 0;
 #endif
 
@@ -487,16 +492,16 @@ static int __init do_early_param(char *param, char *val,
 				pr_warn("Malformed early option '%s'\n", param);
 		}
 	}
-	unset_memsize_reserved_name();
-	/* We accept everything at this stage. */
-#ifdef CONFIG_RKP_KDP
+#ifdef CONFIG_KDP_CRED
 	if ((strncmp(param, "bootmode", 9) == 0)) {
-			//printk("\n RKP22 In Recovery Mode= %d\n",*val);
+			//printk("\n [KDP] In Recovery Mode= %d\n",*val);
 			if ((strncmp(val, "2", 2) == 0)) {
 				is_recovery = 1;
 			}
 	}
 #endif
+	/* We accept everything at this stage. */
+	unset_memsize_reserved_name();
 	return 0;
 }
 
@@ -594,7 +599,7 @@ static void __init rkp_init(void)
 	rkp_init_data.zero_pg_addr = (u64)__pa(empty_zero_page);
 	uh_call(UH_APP_RKP, RKP_GET_RO_BITMAP, (u64)&rkp_s_bitmap_ro, 0, 0, 0);
 	uh_call(UH_APP_RKP, RKP_GET_DBL_BITMAP, (u64)&rkp_s_bitmap_dbl, 0, 0, 0);
-	
+
 	uh_call(UH_APP_RKP, RKP_START, (u64)&rkp_init_data, (u64)kimage_voffset, 0, 0);
 	rkp_started = 1;
 }
@@ -605,46 +610,72 @@ static void __init rkp_robuffer_init(void)
 }
 #endif
 
-#ifdef CONFIG_RKP_KDP
+#ifdef CONFIG_KDP_CRED
 #define VERITY_PARAM_LENGTH 20
 static char verifiedbootstate[VERITY_PARAM_LENGTH];
+int __check_verifiedboot __kdp_ro = 0;
 static int __init verifiedboot_state_setup(char *str)
 {
 	strlcpy(verifiedbootstate, str, sizeof(verifiedbootstate));
-	return 1;
+
+	if(!strncmp(verifiedbootstate, "orange", sizeof("orange")))
+		__check_verifiedboot = 1;
+
+	return 0;
 }
 __setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
 
 void kdp_init(void)
 {
 	kdp_init_t cred;
-
-	cred.credSize 	= sizeof(struct cred);
-	cred.sp_size	= rkp_get_task_sec_size();
-	cred.pgd_mm 	= offsetof(struct mm_struct,pgd);
-	cred.uid_cred	= offsetof(struct cred,uid);
-	cred.euid_cred	= offsetof(struct cred,euid);
-	cred.gid_cred	= offsetof(struct cred,gid);
-	cred.egid_cred	= offsetof(struct cred,egid);
+	cred.credSize 		= sizeof(struct cred);
+	cred.sp_size		= rkp_get_task_sec_size();
+	cred.pgd_mm 		= offsetof(struct mm_struct,pgd);
+	cred.uid_cred		= offsetof(struct cred,uid);
+	cred.euid_cred		= offsetof(struct cred,euid);
+	cred.gid_cred		= offsetof(struct cred,gid);
+	cred.egid_cred		= offsetof(struct cred,egid);
 
 	cred.bp_pgd_cred 	= offsetof(struct cred,bp_pgd);
 	cred.bp_task_cred 	= offsetof(struct cred,bp_task);
 	cred.type_cred 		= offsetof(struct cred,type);
+
 	cred.security_cred 	= offsetof(struct cred,security);
 	cred.usage_cred 	= offsetof(struct cred,use_cnt);
-
 	cred.cred_task  	= offsetof(struct task_struct,cred);
 	cred.mm_task 		= offsetof(struct task_struct,mm);
+
 	cred.pid_task		= offsetof(struct task_struct,pid);
 	cred.rp_task		= offsetof(struct task_struct,real_parent);
 	cred.comm_task 		= offsetof(struct task_struct,comm);
-
 	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
-
-	cred.verifiedbootstate = (u64)verifiedbootstate;
-	uh_call(UH_APP_RKP, 0x40, (u64)&cred, 0, 0, 0);
+	cred.verifiedbootstate	= (u64)verifiedbootstate;
+	uh_call(UH_APP_RKP, RKP_KDP_X40, (u64)&cred, 0, 0, 0);
 }
-#endif /*CONFIG_RKP_KDP*/
+#endif
+
+#ifdef CONFIG_UH_HARSH
+void harsh_init(void)
+{
+	int i;
+	harsh_init_t harsh;
+
+	for_each_online_cpu(i){
+		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
+		u32 midr = cpuinfo->reg_midr;
+		harsh.core_info[i].variant  = MIDR_VARIANT(midr);
+		harsh.core_info[i].part     = MIDR_PARTNUM(midr);
+		harsh.core_info[i].revision = MIDR_REVISION(midr);
+		printk(KERN_ERR"harsh: core: %d, variant: 0x%x, part: 0x%x, revision: 0x%x",
+						i,  harsh.core_info[i].variant, harsh.core_info[i].part, harsh.core_info[i].revision);
+	}
+
+	harsh.n_online_core = i;
+	uh_call(UH_APP_HARSH, HARSH_EVENT_START, (u64)&harsh, 0, 0, 0);
+
+
+}
+#endif /* CONFIG_UH_HARSH */
 
 asmlinkage __visible void __init start_kernel(void)
 {
@@ -715,7 +746,8 @@ asmlinkage __visible void __init start_kernel(void)
 #ifdef CONFIG_UH_RKP
 	rkp_init();
 #endif
-#ifdef CONFIG_RKP_KDP
+
+#ifdef CONFIG_KDP_CRED
 	rkp_cred_enable = 1;
 #endif /*CONFIG_RKP_KDP*/
 	ftrace_init();
@@ -834,10 +866,11 @@ asmlinkage __visible void __init start_kernel(void)
 		efi_enter_virtual_mode();
 #endif
 	thread_stack_cache_init();
-#ifdef CONFIG_RKP_KDP
-	if (rkp_cred_enable) 
-		kdp_init();
-#endif /*CONFIG_RKP_KDP*/
+#ifdef CONFIG_KDP_CRED
+	if (rkp_cred_enable)
+	    kdp_init();
+#endif
+
 	cred_init();
 	fork_init();
 	proc_caches_init();
@@ -1268,6 +1301,9 @@ static int __ref kernel_init(void *unused)
 
 	rcu_end_inkernel_boot();
 
+#ifdef CONFIG_UH_HARSH
+	harsh_init();
+#endif
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret){

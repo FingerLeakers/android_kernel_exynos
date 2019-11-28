@@ -243,14 +243,14 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf,
 
 		/* change the order of each plane by the order of buffer */
 		for (b = 0, i = p; b < count; b++, i = (b * num_planes) + p) {
-			vbuf->dbuf[i] = dmabuf_container_get_buffer(dbufcon, b);
-			if (IS_ERR_OR_NULL(vbuf->dbuf[i])) {
+			vbuf->dbuf_bufcon[i] = dmabuf_container_get_buffer(dbufcon, b);
+			if (IS_ERR_OR_NULL(vbuf->dbuf_bufcon[i])) {
 				err("failed to get dmabuf-container's dmabuf: %d", b);
 				ret = -EINVAL;
 				goto err_get_dbuf;
 			}
 
-			vbuf->atch[i] = dma_buf_attach(vbuf->dbuf[i], dev);
+			vbuf->atch[i] = dma_buf_attach(vbuf->dbuf_bufcon[i], dev);
 			if (IS_ERR(vbuf->atch[i])) {
 				err("failed to attach dmabuf: %d", b);
 				ret = PTR_ERR(vbuf->atch[i]);
@@ -274,24 +274,24 @@ static long is_dbufcon_prepare(struct is_vb2_buf *vbuf,
 	return 0;
 
 err_get_sgt:
-	dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
+	dma_buf_detach(vbuf->dbuf_bufcon[i], vbuf->atch[i]);
 	vbuf->sgt[i] = NULL;
 
 err_attach_dbuf:
-	dma_buf_put(vbuf->dbuf[i]);
+	dma_buf_put(vbuf->dbuf_bufcon[i]);
 	vbuf->atch[i] = NULL;
-	vbuf->dbuf[i] = NULL;
+	vbuf->dbuf_bufcon[i] = NULL;
 
 err_get_dbuf:
 	while (b-- > 0) {
 		i = (b * num_planes) + p;
 		dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
 				DMA_BIDIRECTIONAL);
-		dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
-		dma_buf_put(vbuf->dbuf[i]);
+		dma_buf_detach(vbuf->dbuf_bufcon[i], vbuf->atch[i]);
+		dma_buf_put(vbuf->dbuf_bufcon[i]);
 		vbuf->sgt[i] = NULL;
 		vbuf->atch[i] = NULL;
-		vbuf->dbuf[i] = NULL;
+		vbuf->dbuf_bufcon[i] = NULL;
 	}
 
 err_too_many_planes:
@@ -310,11 +310,11 @@ err_get_dbufcon:
 		for (b = 0, i = p; b < count; b++, i = (b * num_planes) + p) {
 			dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
 					DMA_BIDIRECTIONAL);
-			dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
-			dma_buf_put(vbuf->dbuf[i]);
+			dma_buf_detach(vbuf->dbuf_bufcon[i], vbuf->atch[i]);
+			dma_buf_put(vbuf->dbuf_bufcon[i]);
 			vbuf->sgt[i] = NULL;
 			vbuf->atch[i] = NULL;
-			vbuf->dbuf[i] = NULL;
+			vbuf->dbuf_bufcon[i] = NULL;
 		}
 	}
 
@@ -328,11 +328,11 @@ static void is_dbufcon_finish(struct is_vb2_buf *vbuf)
 	for (i = 0; i < vbuf->num_merged_dbufs; i++) {
 		dma_buf_unmap_attachment(vbuf->atch[i], vbuf->sgt[i],
 				DMA_BIDIRECTIONAL);
-		dma_buf_detach(vbuf->dbuf[i], vbuf->atch[i]);
-		dma_buf_put(vbuf->dbuf[i]);
+		dma_buf_detach(vbuf->dbuf_bufcon[i], vbuf->atch[i]);
+		dma_buf_put(vbuf->dbuf_bufcon[i]);
 		vbuf->sgt[i] = NULL;
 		vbuf->atch[i] = NULL;
-		vbuf->dbuf[i] = NULL;
+		vbuf->dbuf_bufcon[i] = NULL;
 	}
 
 	vbuf->num_merged_dbufs = 0;

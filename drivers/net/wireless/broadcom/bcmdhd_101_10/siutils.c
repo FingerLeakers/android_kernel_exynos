@@ -72,6 +72,7 @@
 #endif
 #include "siutils_priv.h"
 #include "sbhndarm.h"
+#include <hndchipc.h>
 
 #ifdef SECI_UART
 /* Defines the set of GPIOs to be used for SECI UART if not specified in NVRAM */
@@ -134,7 +135,6 @@ static void si_wci2_rxfifo_intr_handler_process(si_t *sih, uint32 intstatus);
 
 /* global variable to indicate reservation/release of gpio's */
 static uint32 si_gpioreservation = 0;
-
 /* global flag to prevent shared resources from being initialized multiple times in si_attach() */
 static bool si_onetimeinit = FALSE;
 
@@ -1330,6 +1330,22 @@ si_restore_core(si_t *sih, uint coreid, bcm_int_bitmask_t *intr_val)
 }
 
 /* Switch to particular core and get corerev */
+#ifdef USE_NEW_COREREV_API
+uint
+si_corerev_ext(si_t *sih, uint coreid, uint coreunit)
+{
+	uint coreidx;
+	uint corerev;
+
+	coreidx = si_coreidx(sih);
+	(void)si_setcore(sih, coreid, coreunit);
+
+	corerev = si_corerev(sih);
+
+	si_setcoreidx(sih, coreidx);
+	return corerev;
+}
+#else
 uint si_get_corerev(si_t *sih, uint core_id)
 {
 	uint corerev, orig_coreid;
@@ -1340,6 +1356,7 @@ uint si_get_corerev(si_t *sih, uint core_id)
 	si_restore_core(sih, orig_coreid, &intr_val);
 	return corerev;
 }
+#endif /* !USE_NEW_COREREV_API */
 
 int
 si_numaddrspaces(const si_t *sih)
@@ -3765,4 +3782,9 @@ BCMRAMFN(si_scan_core_present)(const si_t *sih)
 {
 	return ((si_numcoreunits(sih, D11_CORE_ID) >= 2) &&
 		(si_numcoreunits(sih, SR_CORE_ID) > 4));
+}
+
+void
+si_jtag_udr_pwrsw_main_toggle(si_t *sih, bool on)
+{
 }

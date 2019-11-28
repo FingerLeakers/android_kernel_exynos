@@ -49,8 +49,8 @@
 #include "../scsi_priv.h"
 
 /* Version info*/
-#define UFSHPB_VER				0x0210
-#define UFSHPB_DD_VER				0x0230
+#define UFSHPB_VER				0x0220
+#define UFSHPB_DD_VER				0x0232
 
 /* Constant value*/
 #define MAX_ACTIVE_NUM				2
@@ -76,10 +76,12 @@
 /* Vender defined OPCODE */
 #define UFSHPB_READ_BUFFER			0xF9
 #define UFSHPB_WRITE_BUFFER			0xFA
+
 #define UFSHPB_GROUP_NUMBER			0x11
 #define UFSHPB_RB_ID_READ			0x01
-#define UFSHPB_RB_ID_SET_PINNED			0x02
-#define UFSHPB_WB_ID_UNSET_PINNED		0x01
+#define UFSHPB_RB_ID_SET_RT			0x02
+#define UFSHPB_WB_ID_UNSET_RT			0x01
+#define UFSHPB_WB_ID_UNSET_RT_ALL		0x03
 #define UFSHPB_WB_ID_PREFETCH			0x02
 #define TRANSFER_LEN				0x01
 
@@ -139,6 +141,7 @@ enum HPBSUBREGION_STATE {
 
 enum HPBUPDATE_INFO {
 	HPBUPDATE_NONE,
+	HPBUPDATE_FROM_DEV,
 	HPBUPDATE_RT_FROM_FS,
 };
 
@@ -347,6 +350,9 @@ struct ufshpb_lu {
 	atomic64_t inactive_high_read;
 	atomic64_t pinned_rb_cnt;
 	atomic64_t active_rb_cnt;
+
+	atomic64_t act_rsp_list_cnt;
+	atomic64_t inact_rsp_list_cnt;
 #endif
 };
 

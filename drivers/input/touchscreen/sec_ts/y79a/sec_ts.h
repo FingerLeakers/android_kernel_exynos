@@ -173,6 +173,7 @@
 #define SEC_TS_CMD_WET_MODE			0x3B
 #define SEC_TS_CMD_JIG_MODE			0x3C
 #define SEC_TS_CMD_SET_LOW_POWER_SENSITIVITY	0x40
+#define SEC_TS_CMD_FOD_ICON			0x42
 #define SEC_TS_CMD_ERASE_FLASH			0x45
 #define SEC_TS_READ_ID				0x52
 #define SEC_TS_READ_BOOT_STATUS			0x55
@@ -201,6 +202,7 @@
 #define SEC_TS_CMD_LPM_AOD_OFF_ON		0x9B
 #define SEC_TS_CMD_SIP_MODE			0xB5
 #define SET_TS_CMD_SET_LOWTEMPERATURE_MODE	0xBE
+#define SET_TS_CMD_ELVSS_TEST	0xD7
 
 #define SEC_TS_CMD_LPM_AOD_OFF	0x01
 #define SEC_TS_CMD_LPM_AOD_ON	0x02
@@ -316,10 +318,12 @@
 #define SEC_TS_VENDOR_ACK_CSR_RX_TEST_DONE		0x44	/* self_rx */
 #define SEC_TS_VENDOR_ACK_CMR_KEY_TEST_DONE		0x46	/* mutual_key */
 #define SEC_TS_VENDOR_ACK_RX_NODE_GAP_TEST_DONE		0x47	/* mutual_key */
+#define SEC_TS_VENDOR_ACK_ELVSS_TEST_DONE		0x48	/* ELVSS CAP */
 
 #define SEC_TS_VENDOR_ACK_LOWPOWER_SELF_TEST_DONE	0x58
 #define SEC_TS_VENDOR_STATE_CHANGED			0x61
 #define SEC_TS_VENDOR_ACK_NOISE_STATUS_NOTI		0x64
+#define SEC_TS_VENDOR_ACK_PRE_NOISE_STATUS_NOTI		0x6D
 #define SEC_TS_VENDOR_ACK_CHARGER_STATUS_NOTI		0x6E
 
 /* SEC_TS_ERROR : Error event */
@@ -339,6 +343,7 @@
 #define SEC_OFFSET_SIGNATURE			0x59525446
 #define SEC_CM2_SIGNATURE			0x324D5446
 #define SEC_CM3_SIGNATURE			0x334D5446
+#define SEC_MISCAL_SIGNATURE			0x43534D46
 #define SEC_FAIL_HIST_SIGNATURE			0x53484646
 
 #define SEC_TS_BIT_SETFUNC_TOUCH		(1 << 0)
@@ -481,7 +486,6 @@ enum sec_ts_cover_id {
 	SEC_TS_VIEW_WALLET,
 	SEC_TS_LED_COVER,
 	SEC_TS_CLEAR_FLIP_COVER,
-	SEC_TS_QWERTY_KEYBOARD_EUR,
 	SEC_TS_QWERTY_KEYBOARD_KOR,
 	SEC_TS_QWERTY_KEYBOARD_US,
 	SEC_TS_NEON_COVER,
@@ -533,6 +537,7 @@ enum offset_fac_data_type {
 	OFFSET_FAC_DATA_CM			= 1,
 	OFFSET_FAC_DATA_CM2			= 2,
 	OFFSET_FAC_DATA_CM3			= 3,
+	OFFSET_FAC_DATA_MISCAL			= 5,
 	OFFSET_FAC_DATA_SELF_FAIL	= 7,
 };
 
@@ -664,7 +669,8 @@ struct sec_ts_event_coordinate {
 	u8 noise_level;
 	u8 max_strength;
 	u8 hover_id_num:4;
-	u8 reserved10:4;
+	u8 noise_status:2;
+	u8 reserved10:2;
 	u8 reserved11;
 	u8 reserved12;
 	u8 reserved13;
@@ -696,6 +702,7 @@ struct sec_ts_coordinate {
 	u8 noise_level;
 	u8 max_strength;
 	u8 hover_id_num;
+	u8 noise_status;
 };
 
 
@@ -721,6 +728,7 @@ struct sec_ts_data {
 	u8 touchable_area;
 	u8 external_noise_mode;
 	volatile u8 touch_noise_status;
+	volatile u8 touch_pre_noise_status;
 	volatile bool input_closed;
 	long prox_power_off;
 
@@ -890,8 +898,8 @@ struct sec_ts_data {
 	int proc_cmoffset_size;
 	int proc_cmoffset_all_size;
 	char *cmoffset_sdc_proc;
-	char *cmoffset_sub_proc;
 	char *cmoffset_main_proc;
+	char *miscal_proc;
 	char *cmoffset_all_proc;
 
 	int proc_fail_hist_size;
@@ -1037,7 +1045,7 @@ void send_event_to_user(struct sec_ts_data *ts, int number, int val);
 int get_lcd_attached(char *mode);
 #endif
 
-#if defined(CONFIG_EXYNOS_DPU20)
+#if defined(CONFIG_EXYNOS_DPU30)
 int get_lcd_info(char *arg);
 #endif
 
@@ -1050,7 +1058,7 @@ extern unsigned int lpcharge;
 void set_grip_data_to_ic(struct sec_ts_data *ts, u8 flag);
 void sec_ts_set_grip_type(struct sec_ts_data *ts, u8 set_type);
 
-
+ssize_t get_miscal_dump(struct sec_ts_data *ts, char *buf);
 ssize_t get_cmoffset_dump_all(struct sec_ts_data *ts, char *buf, u8 position);
 ssize_t get_selftest_fail_hist_dump_all(struct sec_ts_data *ts, char *buf, u8 position);
 void sec_ts_ioctl_init(struct sec_ts_data *ts);

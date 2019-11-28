@@ -129,6 +129,7 @@ void dwc3_exynos_rsw_exit(struct device *dev);
 int dwc3_exynos_rsw_start(struct device *dev);
 void dwc3_exynos_rsw_stop(struct device *dev);
 void dwc3_otg_qos_lock(struct dwc3 *dwc, int level);
+int dwc3_exynos_set_bus_clock(struct device *dev, int clk_level);
 extern int xhci_portsc_set(int on);
 #if defined(CONFIG_USB_PORT_POWER_OPTIMIZATION)
 extern int xhci_port_power_set(u32 on, u32 prt);

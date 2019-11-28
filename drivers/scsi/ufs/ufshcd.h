@@ -80,6 +80,8 @@
 
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.2"
+#define DBG_DL_ERROR_IRQ_MASK	0xA011
+#define PA_ERROR_IND_RECEIVED	15
 
 struct ufs_hba;
 
@@ -368,18 +370,19 @@ struct ufs_hba_variant_ops {
 					int, struct scsi_cmnd *);
 	void	(*set_nexus_t_task_mgmt)(struct ufs_hba *, int, u8);
 	void    (*hibern8_notify)(struct ufs_hba *, u8, bool);
-	int		(*hibern8_prepare)(struct ufs_hba *, u8, bool);
+	int	(*hibern8_prepare)(struct ufs_hba *, u8, bool);
 	int     (*reset_ctrl)(struct ufs_hba *, enum ufs_dev_reset);
 	int     (*suspend)(struct ufs_hba *, enum ufs_pm_op);
 	int     (*resume)(struct ufs_hba *, enum ufs_pm_op);
 	void	(*dbg_register_dump)(struct ufs_hba *hba);
 	u8      (*get_unipro_result)(struct ufs_hba *hba, u32 num);
 	int	(*phy_initialization)(struct ufs_hba *);
-	int	(*crypto_engine_cfg)(struct ufs_hba *, struct ufshcd_lrb *,
-					struct scatterlist *, int, int, int);
-	int	(*crypto_engine_clear)(struct ufs_hba *, struct ufshcd_lrb *);
-	int	(*access_control_abort)(struct ufs_hba *);
-
+	int	(*crypto_engine_cfg)(struct ufs_hba *hba,
+					struct ufshcd_lrb *lrbp);
+	int	(*crypto_engine_clear)(struct ufs_hba *hba,
+					struct ufshcd_lrb *lrbp);
+	int	(*crypto_sec_cfg)(struct ufs_hba *hba, bool init);
+	int	(*access_control_abort)(struct ufs_hba *hba);
 };
 
 /* clock gating state  */
@@ -894,6 +897,8 @@ struct ufs_hba {
 	u16 manufacturer_id;
 	u8 lifetime;
 	bool support_tw;
+	bool tw_state_not_allowed;
+	struct mutex tw_ctrl_mutex;
 	struct SEC_UFS_TW_info SEC_tw_info;
 	struct SEC_UFS_TW_info SEC_tw_info_old;
 	unsigned int lc_info;
@@ -1280,13 +1285,10 @@ int ufshcd_dump_regs(struct ufs_hba *hba, size_t offset, size_t len,
 		     const char *prefix);
 
 static inline int ufshcd_vops_crypto_engine_cfg(struct ufs_hba *hba,
-					struct ufshcd_lrb *lrbp,
-					struct scatterlist *sg, int index,
-					int sector_offset, int page_index)
+					struct ufshcd_lrb *lrbp)
 {
 	if (hba->vops && hba->vops->crypto_engine_cfg)
-		return hba->vops->crypto_engine_cfg(hba, lrbp, sg, index,
-						sector_offset, page_index);
+		return hba->vops->crypto_engine_cfg(hba, lrbp);
 	return 0;
 }
 
@@ -1305,6 +1307,12 @@ static inline int ufshcd_vops_access_control_abort(struct ufs_hba *hba)
 	return 0;
 }
 
+static inline int ufshcd_vops_crypto_sec_cfg(struct ufs_hba *hba, bool init)
+{
+	if (hba->vops && hba->vops->crypto_sec_cfg)
+		return hba->vops->crypto_sec_cfg(hba, init);
+	return 0;
+}
 #define UFS_DEV_ATTR(name, fmt, args...)					\
 static ssize_t ufs_##name##_show (struct device *dev, struct device_attribute *attr, char *buf)	\
 {										\

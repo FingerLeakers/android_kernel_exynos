@@ -35,9 +35,6 @@ struct tp_env {
 #define SSE	1
 
 
-/* EMS service */
-extern int select_service_cpu(struct task_struct *p);
-
 /* energy model */
 extern unsigned long capacity_cpu_orig(int cpu, int sse);
 extern unsigned long capacity_cpu(int cpu, int sse);
@@ -60,11 +57,9 @@ extern void init_part(void);
 extern int find_best_cpu(struct tp_env *env);
 
 /* ontime migration */
+extern int ontime_can_migrate_task(struct task_struct *p, int dst_cpu);
 extern void ontime_select_fit_cpus(struct task_struct *p, struct cpumask *fit_cpus);
 extern unsigned long get_upper_boundary(int cpu, struct task_struct *p);
-
-/* global boost */
-extern int global_boost(void);
 
 /* energy_step_wise_governor */
 extern int find_allowed_capacity(int cpu, unsigned int new, int power);
@@ -72,11 +67,15 @@ extern int find_step_power(int cpu, int step);
 extern int get_gov_next_cap(int dst, struct task_struct *p);
 
 /* core sparing */
-extern struct cpumask *ecs_sparing_cpus(void);
+extern struct cpumask *ecs_cpus_allowed(void);
 
-/* EMSTune pre-defined tunable set support */
-extern int emst_get_weight(struct task_struct *p, int cpu, int idle);
-extern const struct cpumask *emst_get_candidate_cpus(struct task_struct *p);
+/* EMSTune */
+extern bool emstune_can_migrate_task(struct task_struct *p, int dst_cpu);
+extern int emstune_eff_weight(struct task_struct *p, int cpu, int idle);
+extern const struct cpumask *emstune_cpus_allowed(struct task_struct *p);
+extern int emstune_prefer_idle(void);
+extern int emstune_ontime(struct task_struct *p);
+extern int emstune_util_est(struct task_struct *p);
 
 static inline int cpu_overutilized(unsigned long capacity, unsigned long util)
 {
@@ -88,10 +87,16 @@ static inline struct task_struct *task_of(struct sched_entity *se)
 	return container_of(se, struct task_struct, se);
 }
 
+#define entity_is_task(se)	(!se->my_q)
+
 static inline int get_sse(struct sched_entity *se)
 {
-	if (!se || se->my_q)
+	if (!se || !entity_is_task(se))
 		return 0;
 
 	return task_of(se)->sse;
 }
+
+/* declare extern function from cfs */
+extern u64 decay_load(u64 val, u64 n);
+extern u32 __accumulate_pelt_segments(u64 periods, u32 d1, u32 d3);

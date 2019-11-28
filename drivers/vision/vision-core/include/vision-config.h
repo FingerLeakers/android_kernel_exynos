@@ -30,7 +30,7 @@
 #define vision_err_target(fmt, ...)	pr_err(fmt, ##__VA_ARGS__)
 #define vision_warn_target(fmt, ...)	pr_warn(fmt, ##__VA_ARGS__)
 #define vision_info_target(fmt, ...)	pr_info(fmt, ##__VA_ARGS__)
-#define vision_dbg_target(fmt, ...)	pr_info(fmt, ##__VA_ARGS__)
+#define vision_dbg_target(fmt, ...)	pr_debug(fmt, ##__VA_ARGS__)
 #endif
 
 #define vision_err(fmt, args...) \
@@ -38,5 +38,8 @@
 
 #define vision_info(fmt, args...) \
 	vision_info_target("[V]" fmt, ##args)
+
+#define vision_dbg(fmt, args...) \
+	vision_dbg_target("[V]" fmt, ##args)
 
 #endif

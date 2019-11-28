@@ -46,6 +46,36 @@
 				board-rev = <BOARD_REV>;
 			};
 
+			exynos_pm_dvs {
+				compatible = "samsung,exynos-pm-dvs";
+				vdd_lldo1 {
+					regulator_name = "m_vdd_buck9";
+					suspend_volt = <800000>;
+					init_volt = <850000>;
+					volt_range_step = <62500>;
+				};
+
+				vdd_lldo2 {
+					regulator_name = "m_vdd_buck10";
+					suspend_volt = <900000>;
+					init_volt = <950000>;
+					volt_range_step = <62500>;
+				};
+
+				vdd_lldo3 {
+					regulator_name = "m_vdd_buck11";
+					suspend_volt = <1250000>;
+					init_volt = <1350000>;
+					volt_range_step = <62500>;
+				};
+				vdd_mldo {
+					regulator_name = "m_vdd_buck12";
+					suspend_volt = <1850000>;
+					init_volt = <2000000>;
+					volt_range_step = <12500>;
+				};
+			};
+
 			firmware {
 				android: android {
 					compatible = "android,firmware";
@@ -1212,15 +1242,6 @@
 				regulator-initial-mode = <2>;
 			};
 
-			buck4_reg: BUCK4M {
-				regulator-name = "m_vdd_buck4";
-				regulator-min-microvolt = <450000>;
-				regulator-max-microvolt = <1300000>;
-				regulator-always-on;
-				regulator-ramp-delay = <6000>;
-				regulator-initial-mode = <0>;
-			};
-
 			buck5_reg: BUCK5M {
 				regulator-name = "m_vdd_buck5";
 				regulator-min-microvolt = <450000>;
@@ -1307,7 +1328,7 @@
 				regulator-min-microvolt = <1700000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo3_reg: LDO3M {
@@ -1344,24 +1365,6 @@
 				regulator-always-on;
 				regulator-ramp-delay = <12000>;
 				regulator-initial-mode = <1>;
-			};
-
-			ldo7_reg: LDO7M {
-				regulator-name = "m_vdd_ldo7";
-				regulator-min-microvolt = <450000>;
-				regulator-max-microvolt = <1100000>;
-				regulator-always-on;
-				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
-			};
-
-			ldo8_reg: LDO8M {
-				regulator-name = "m_vdd_ldo8";
-				regulator-min-microvolt = <450000>;
-				regulator-max-microvolt = <1300000>;
-				regulator-always-on;
-				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
 			};
 
 			ldo9_reg: LDO9M {
@@ -1405,7 +1408,7 @@
 				regulator-min-microvolt = <2500000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo16_reg: LDO16M {
@@ -2012,7 +2015,7 @@
 &pcie_2 {
 	status = "okay";
 	use-sysmmu = "false";
-	use-cache-coherency = "false";
+	use-cache-coherency = "true";
 	use-msi = "true";
 	use-sicd = "false";
 	phy-power-off = "false";

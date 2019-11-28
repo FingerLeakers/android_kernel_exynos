@@ -32,6 +32,9 @@
 #include <linux/regulator/consumer.h>
 #include <linux/ioctl.h>
 #include <linux/gpio.h>
+#include <linux/platform_device.h>
+#include <linux/of_platform.h>
+#include <linux/pinctrl/pinctrl.h>
 #ifdef FEATURE_ESE_WAKELOCK
 #include <linux/pm_wakeup.h>
 #endif
@@ -56,6 +59,11 @@ struct k250a_dev {
 #endif
 	struct regulator *vdd;
 	unsigned char *buf;
+
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *nvm_on_pin;
+	struct pinctrl_state *nvm_off_pin;
+
 };
 
 static int k250a_regulator_onoff(struct k250a_dev *kdev, int onoff)
@@ -70,7 +78,6 @@ static int k250a_regulator_onoff(struct k250a_dev *kdev, int onoff)
 			K250A_ERR_MSG("%s - enable vdd failed, ret=%d\n",
 				__func__, ret);
 		}
-		msleep(50);
 	} else {
 		ret = regulator_disable(kdev->vdd);
 		if (ret) {
@@ -101,6 +108,13 @@ static int k250a_open(struct inode *inode, struct file *filp)
 	__pm_stay_awake(&k250a_dev->ese_lock);
 	K250A_INFO_MSG("called to __pm_stay_awake");
 #endif
+
+	if (k250a_dev->nvm_on_pin) {
+		if (pinctrl_select_state(k250a_dev->pinctrl, k250a_dev->nvm_on_pin))
+			K250A_ERR_MSG("nvm on pinctrl set error\n");
+		else
+			K250A_INFO_MSG("nvm on pinctrl set\n");
+	}
 
 	ret = k250a_regulator_onoff(k250a_dev, K250A_ON);
 	if (ret < 0)
@@ -143,6 +157,12 @@ static int k250a_close(struct inode *inode, struct file *filp)
 		ret = k250a_regulator_onoff(k250a_dev, K250A_OFF);
 		if (ret < 0)
 			K250A_ERR_MSG("failed to turn off LDO()\n");
+	}
+	if (k250a_dev->nvm_off_pin) {
+		if (pinctrl_select_state(k250a_dev->pinctrl, k250a_dev->nvm_off_pin))
+			K250A_ERR_MSG("nvm off pinctrl set error\n");
+		else
+			K250A_INFO_MSG("nvm off pinctrl set\n");
 	}
 
 	mutex_unlock(&device_list_lock);
@@ -277,6 +297,8 @@ static int k250a_probe(struct i2c_client *client, const struct i2c_device_id *id
 {
 	int ret = -1;
 	struct k250a_dev *k250a_dev;
+	struct device_node *i2c_device_node;
+	struct platform_device *i2c_pdev;
 
 	if (client->dev.of_node) {
 		k250a_dev = devm_kzalloc(&client->dev,
@@ -328,6 +350,31 @@ static int k250a_probe(struct i2c_client *client, const struct i2c_device_id *id
 		goto err_buffer_malloc;
 	}
 
+	i2c_device_node = of_parse_phandle(client->dev.of_node, "k250a-i2c_node", 0);
+	if (!IS_ERR_OR_NULL(i2c_device_node)) {
+		i2c_pdev = of_find_device_by_node(i2c_device_node);
+		
+		
+		k250a_dev->pinctrl = devm_pinctrl_get(&i2c_pdev->dev);
+		if (IS_ERR(k250a_dev->pinctrl))
+			K250A_ERR_MSG("devm_pinctrl_get failed\n");
+		
+		k250a_dev->nvm_on_pin = pinctrl_lookup_state(k250a_dev->pinctrl, "default");
+		if (IS_ERR(k250a_dev->nvm_on_pin)) {
+			K250A_ERR_MSG("pinctrl_lookup_state failed-default\n");
+			k250a_dev->nvm_on_pin = NULL;
+		}
+		k250a_dev->nvm_off_pin = pinctrl_lookup_state(k250a_dev->pinctrl, "nvm_off");
+		if (IS_ERR(k250a_dev->nvm_off_pin)) {
+			K250A_ERR_MSG("pinctrl_lookup_state failed-nvm_off\n");
+			k250a_dev->nvm_off_pin = NULL;
+		} else if (pinctrl_select_state(k250a_dev->pinctrl, k250a_dev->nvm_off_pin))
+			K250A_ERR_MSG("nvm off pinctrl set error\n");
+		else
+			K250A_INFO_MSG("nvm off pinctrl set\n");
+	} else {
+		pr_info("%s failed to get k250a-i2c_node\n", __func__);
+	}
 	pr_info("%s finished...\n", __func__);
 	return ret;
 

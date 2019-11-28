@@ -7,6 +7,8 @@
 #define	APP_INIT	0
 #define	APP_SAMPLE	1
 #define APP_RKP		2
+#define APP_HDM		6
+#define APP_HARSH	7
 
 /*
 #define UH_PREFIX  UL(0xc300c000)
@@ -17,9 +19,11 @@
 #define UH_APPID(APP_ID)  (((UL(APP_ID) << 8) & UL(0xFF00)) | UH_PREFIX)
 
 enum __UH_APP_ID {
-	UH_APP_INIT 	= UH_APPID(APP_INIT),
-	UH_APP_SAMPLE 	= UH_APPID(APP_SAMPLE),
-	UH_APP_RKP 	= UH_APPID(APP_RKP),
+	UH_APP_INIT     = UH_APPID(APP_INIT),
+	UH_APP_SAMPLE   = UH_APPID(APP_SAMPLE),
+	UH_APP_RKP      = UH_APPID(APP_RKP),
+	UH_APP_HDM	= UH_APPID(APP_HDM),
+	UH_APP_HARSH    = UH_APPID(APP_HARSH)
 };
 
 struct test_case_struct {

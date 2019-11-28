@@ -38,7 +38,7 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 	struct is_group *head;
 	struct mcs_param *param;
 	u32 status, mask, instance, hw_fcount, index, hl = 0, vl = 0;
-	bool f_err = false, f_clk_gate = false;
+	bool f_err = false;
 	int ret = 0;
 
 	hw_ip = (struct is_hw_ip *)context;
@@ -103,50 +103,28 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 	if (status & (1 << INTR_MC_SCALER_WDMA_FINISH))
 		mserr_hw("Disabeld interrupt occurred! WDAM FINISH!! (0x%x)", instance, hw_ip, status);
 
+	if ((status & (1 << INTR_MC_SCALER_FRAME_START)) && (status & (1 << INTR_MC_SCALER_FRAME_END)))
+		mswarn_hw("start/end overlapped!! (0x%x)", instance, hw_ip, status);
+
 	if (status & (1 << INTR_MC_SCALER_FRAME_START)) {
-		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
-		hw_ip->cur_s_int++;
+		atomic_add(1, &hw_ip->count.fs);
 
-		if (hw_ip->cur_s_int == 1) {
-			hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
-			index = hw_ip->debug_index[1];
-			hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
-			hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
-			hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
-			if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
-				msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
+		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
+		index = hw_ip->debug_index[1];
+		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
+		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
+		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
+		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
+			msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
 
-			if (param->input.dma_cmd == DMA_INPUT_COMMAND_ENABLE) {
-				is_hardware_frame_start(hw_ip, instance);
-			} else {
-				clear_bit(HW_CONFIG, &hw_ip->state);
-				atomic_set(&hw_ip->status.Vvalid, V_VALID);
-			}
-		}
+		is_hardware_frame_start(hw_ip, instance);
 
 		/* for set shadow register write start */
 		head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, hw_ip->group[instance]);
 		if (test_bit(IS_GROUP_OTF_INPUT, &head->state))
 			is_scaler_set_shadow_ctrl(hw_ip->regs[REG_SETA], hw_ip->id, SHADOW_WRITE_START);
 
-		if ((hw_ip->cur_s_int < hw_ip->num_buffers) && (!hardware->hw_fro_en)) {
-			if (hw_ip->mframe) {
-				struct is_frame *mframe = hw_ip->mframe;
-
-				mframe->cur_buf_index = hw_ip->cur_s_int;
-				is_hw_mcsc_wdma_cfg(hw_ip, mframe);
-
-				ret = is_hw_mcsc_rdma_cfg(hw_ip, mframe, &param->input);
-				if (ret) {
-					mserr_hw("[F:%d]mcsc rdma_cfg failed\n",
-						mframe->instance, hw_ip, mframe->fcount);
-					return ret;
-				}
-			} else {
-				mserr_hw("mframe is null(s:%d, e:%d, t:%d)", instance, hw_ip,
-					hw_ip->cur_s_int, hw_ip->cur_e_int, hw_ip->num_buffers);
-			}
-		} else {
+		{
 			struct is_group *group;
 
 			group = hw_ip->group[instance];
@@ -163,30 +141,22 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 	}
 
 	if (status & (1 << INTR_MC_SCALER_FRAME_END)) {
-		atomic_add(hw_ip->num_buffers, &hw_ip->count.fe);
-		if (hardware->hw_fro_en)
-			hw_ip->cur_e_int += hw_ip->num_buffers;
-		else
-			hw_ip->cur_e_int++;
+		atomic_add(1, &hw_ip->count.fe);
 
-		if (hw_ip->cur_e_int >= hw_ip->num_buffers) {
-			is_hw_mcsc_frame_done(hw_ip, NULL, IS_SHOT_SUCCESS);
+		is_hw_mcsc_frame_done(hw_ip, NULL, IS_SHOT_SUCCESS);
 
-			if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
-				msinfo_hw("[F:%d]F.E\n", instance, hw_ip, hw_fcount);
+		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
+			msinfo_hw("[F:%d]F.E\n", instance, hw_ip, hw_fcount);
 
-			atomic_set(&hw_ip->status.Vvalid, V_BLANK);
-			if (atomic_read(&hw_ip->count.fs) < atomic_read(&hw_ip->count.fe)) {
-				mserr_hw("fs(%d), fe(%d), dma(%d), status(0x%x)", instance, hw_ip,
-					atomic_read(&hw_ip->count.fs),
-					atomic_read(&hw_ip->count.fe),
-					atomic_read(&hw_ip->count.dma), status);
-			}
-
-			wake_up(&hw_ip->status.wait_queue);
-			f_clk_gate = true;
-			hw_ip->mframe = NULL;
+		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
+		if (atomic_read(&hw_ip->count.fs) < atomic_read(&hw_ip->count.fe)) {
+			mserr_hw("fs(%d), fe(%d), dma(%d), status(0x%x)", instance, hw_ip,
+				atomic_read(&hw_ip->count.fs),
+				atomic_read(&hw_ip->count.fe),
+				atomic_read(&hw_ip->count.dma), status);
 		}
+
+		wake_up(&hw_ip->status.wait_queue);
 	}
 
 	/* for handle chip dependant intr */
@@ -275,7 +245,6 @@ static int is_hw_mcsc_open(struct is_hw_ip *hw_ip, u32 instance,
 	is_hw_mcsc_hw_info(hw_ip, instance, cap);
 
 	hw_ip->subblk_ctrl = debug_subblk_ctrl;
-	hw_ip->mframe = NULL;
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 	set_bit(HW_OPEN, &hw_ip->state);
 	msdbg_hw(2, "open: [G:0x%x], framemgr[%s]", instance, hw_ip,
@@ -384,6 +353,11 @@ static int is_hw_mcsc_close(struct is_hw_ip *hw_ip, u32 instance)
 	clear_bit(HW_MCS_YSUM_CFG, &hw_ip->state);
 	clear_bit(HW_MCS_DS_CFG, &hw_ip->state);
 
+	/* For safe power off */
+	ret = is_scaler_sw_reset(hw_ip->regs[REG_SETA], hw_ip->id, 0, 0);
+	if (ret != 0)
+		mserr_hw("sw reset fail", instance, hw_ip);
+
 	return ret;
 }
 
@@ -476,7 +450,6 @@ static int is_hw_mcsc_disable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map
 	} else {
 		msdbg_hw(2, "already disabled\n", instance, hw_ip);
 	}
-	hw_ip->mframe = NULL;
 
 	if (check_sc_core_running(hw_ip, cap))
 		return 0;
@@ -658,6 +631,7 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 	u32 wdma_addr[MCSC_OUTPUT_MAX][4] = {{0} }, *wdma_base = NULL;
 	u32 plane, buf_idx, out_id, i, offset = 0;
 	ulong flag;
+	int idx, p_cur_idx, p_buf_idx;
 
 	BUG_ON(!cap);
 	BUG_ON(!hw_ip->priv_info);
@@ -696,6 +670,8 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 				0x1 << USE_DMA_BUFFER_INDEX);
 
 			plane = param->output[out_id].plane;
+			p_cur_idx = frame->cur_buf_index * plane;
+
 			for (buf_idx = 0; buf_idx < frame->num_buffers; buf_idx++) {
 				for (i = 0; i < plane; i++) {
 					/*
@@ -708,10 +684,14 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 					 * If the number of buffers is not same between leader and subdev,
 					 * wdma addresses are forcibly set as the same address of first buffer.
 					 */
-					wdma_addr[out_id][i] = wdma_base[plane * buf_idx + i] ?
-						wdma_base[plane * buf_idx + i] : wdma_base[i];
+
+					p_buf_idx = buf_idx * plane;
+					idx = i + p_cur_idx + p_buf_idx;
+
+					wdma_addr[out_id][i] = wdma_base[idx] ?
+						wdma_base[idx] : wdma_base[i];
 					wdma_addr[out_id][i] += offset;
-					dbg_hw(2, "M%dP(P:%d)(A:0x%X)\n", out_id, i, wdma_addr[out_id][i]);
+					dbg_hw(2, "M%dP(i:%d)(A:0x%X)\n", out_id, idx, wdma_addr[out_id][i]);
 				}
 				hw_mcsc_set_wdma_addr(hw_ip, wdma_addr[out_id], out_id, plane, buf_idx);
 			}
@@ -795,12 +775,8 @@ static int is_hw_mcsc_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 config:
 	/* multi-buffer */
-	hw_ip->cur_s_int = 0;
-	hw_ip->cur_e_int = 0;
 	if (frame->num_buffers)
 		hw_ip->num_buffers = frame->num_buffers;
-	if (frame->num_buffers > 1)
-		hw_ip->mframe = frame;
 
 	/* RDMA cfg */
 	ret = is_hw_mcsc_rdma_cfg(hw_ip, frame, &mcs_param->input);
@@ -1460,6 +1436,7 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	ulong temp_width, temp_height;
 	u32 hratio, vratio;
 	u32 input_id = 0;
+	u32 max_poly_ratio_down = MCSC_POLY_RATIO_DOWN;
 	bool config = true;
 	bool post_en = false;
 	bool round_mode_en = true;
@@ -1507,47 +1484,49 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	if (src_pos_x % MCSC_WIDTH_ALIGN) {
 		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_pos_x should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, src_pos_x, src_pos_x,
-			ALIGN(src_pos_x, MCSC_WIDTH_ALIGN));
-		src_pos_x = ALIGN(src_pos_x, MCSC_WIDTH_ALIGN);
+			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
+			src_pos_x, ALIGN_DOWN(src_pos_x, MCSC_WIDTH_ALIGN));
 	}
 	if (src_width % MCSC_WIDTH_ALIGN) {
 		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, src_width, src_width,
-			ALIGN(src_width, MCSC_WIDTH_ALIGN));
-		src_width = ALIGN(src_width, MCSC_WIDTH_ALIGN);
+			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
+			src_width, ALIGN_DOWN(src_width, MCSC_WIDTH_ALIGN));
 	}
 
 	is_scaler_set_poly_src_size(hw_ip->regs[REG_SETA], output_id, src_pos_x, src_pos_y,
 		src_width, src_height);
 
-	if ((src_width <= (out_width * MCSC_POLY_RATIO_DOWN))
+	/* Allow higher ratio down of poly scaler if no post scaler in output. */
+	if (cap->out_post[output_id] == MCSC_CAP_NOT_SUPPORT)
+		max_poly_ratio_down = MCSC_POLY_MAX_RATIO_DOWN;
+
+	if ((src_width <= (out_width * max_poly_ratio_down))
 		&& (out_width <= (src_width * MCSC_POLY_RATIO_UP))) {
 		poly_dst_width = out_width;
 		post_en = false;
-	} else if ((src_width <= (out_width * MCSC_POLY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
-		&& ((out_width * MCSC_POLY_RATIO_DOWN) < src_width)) {
-		poly_dst_width = MCSC_ROUND_UP(src_width / MCSC_POLY_RATIO_DOWN, MCSC_WIDTH_ALIGN);
+	} else if ((src_width <= (out_width * max_poly_ratio_down * MCSC_POST_RATIO_DOWN))
+		&& ((out_width * max_poly_ratio_down) < src_width)) {
+		poly_dst_width = MCSC_ROUND_UP(src_width / max_poly_ratio_down, MCSC_WIDTH_ALIGN);
 		post_en = true;
 	} else {
 		mserr_hw("hw_mcsc_poly_phase: Unsupported W ratio, (%dx%d)->(%dx%d)\n",
 			instance, hw_ip, src_width, src_height, out_width, out_height);
-		poly_dst_width = MCSC_ROUND_UP(src_width / MCSC_POLY_RATIO_DOWN, MCSC_WIDTH_ALIGN);
+		poly_dst_width = MCSC_ROUND_UP(src_width / max_poly_ratio_down, MCSC_WIDTH_ALIGN);
 		post_en = true;
 	}
 
-	if ((src_height <= (out_height * MCSC_POLY_RATIO_DOWN))
+	if ((src_height <= (out_height * max_poly_ratio_down))
 		&& (out_height <= (src_height * MCSC_POLY_RATIO_UP))) {
 		poly_dst_height = out_height;
 		post_en = false;
-	} else if ((src_height <= (out_height * MCSC_POLY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
-		&& ((out_height * MCSC_POLY_RATIO_DOWN) < src_height)) {
-		poly_dst_height = (src_height / MCSC_POLY_RATIO_DOWN);
+	} else if ((src_height <= (out_height * max_poly_ratio_down * MCSC_POST_RATIO_DOWN))
+		&& ((out_height * max_poly_ratio_down) < src_height)) {
+		poly_dst_height = (src_height / max_poly_ratio_down);
 		post_en = true;
 	} else {
 		mserr_hw("hw_mcsc_poly_phase: Unsupported H ratio, (%dx%d)->(%dx%d)\n",
 			instance, hw_ip, src_width, src_height, out_width, out_height);
-		poly_dst_height = (src_height / MCSC_POLY_RATIO_DOWN);
+		poly_dst_height = (src_height / max_poly_ratio_down);
 		post_en = true;
 	}
 #if defined(MCSC_POST_WA)
@@ -1584,9 +1563,8 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	if (poly_dst_width % MCSC_WIDTH_ALIGN) {
 		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: poly_dst_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, poly_dst_width, poly_dst_width,
-			ALIGN(poly_dst_width, MCSC_WIDTH_ALIGN));
-		poly_dst_width = ALIGN(poly_dst_width, MCSC_WIDTH_ALIGN);
+			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
+			poly_dst_width, ALIGN_DOWN(poly_dst_width, MCSC_WIDTH_ALIGN));
 	}
 
 	is_scaler_set_poly_dst_size(hw_ip->regs[REG_SETA], output_id,
@@ -1658,15 +1636,13 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	if (img_width % MCSC_WIDTH_ALIGN) {
 		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: img_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, img_width, img_width,
-			ALIGN(img_width, MCSC_WIDTH_ALIGN));
-		img_width = ALIGN(img_width, MCSC_WIDTH_ALIGN);
+			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
+			img_width, ALIGN_DOWN(img_width, MCSC_WIDTH_ALIGN));
 	}
 	if (dst_width % MCSC_WIDTH_ALIGN) {
 		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: dst_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, dst_width, dst_width,
-			ALIGN(dst_width, MCSC_WIDTH_ALIGN));
-		dst_width = ALIGN(dst_width, MCSC_WIDTH_ALIGN);
+			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
+			dst_width, ALIGN_DOWN(dst_width, MCSC_WIDTH_ALIGN));
 	}
 
 	/* if x1 ~ x1/4 scaling, post scaler bypassed */
@@ -2530,7 +2506,7 @@ int is_hw_mcsc_check_format(enum mcsc_io_type type, u32 format, u32 bit_width,
 			err_hw("Invalid MCSC OTF Input width(%d)", width);
 		}
 
-		if (height < 16 || height > 8192) {
+		if (height < 16 || height > 9072) {
 			ret = -EINVAL;
 			err_hw("Invalid MCSC OTF Input height(%d)", height);
 		}
@@ -2553,7 +2529,7 @@ int is_hw_mcsc_check_format(enum mcsc_io_type type, u32 format, u32 bit_width,
 			err_hw("Invalid MCSC OTF Output width(%d)", width);
 		}
 
-		if (height < 16 || height > 8192) {
+		if (height < 16 || height > 9072) {
 			ret = -EINVAL;
 			err_hw("Invalid MCSC OTF Output height(%d)", height);
 		}
@@ -2575,7 +2551,7 @@ int is_hw_mcsc_check_format(enum mcsc_io_type type, u32 format, u32 bit_width,
 			err_hw("Invalid MCSC DMA Input width(%d)", width);
 		}
 
-		if (height < 16 || height > 8192) {
+		if (height < 16 || height > 9072) {
 			ret = -EINVAL;
 			err_hw("Invalid MCSC DMA Input height(%d)", height);
 		}
@@ -2595,7 +2571,7 @@ int is_hw_mcsc_check_format(enum mcsc_io_type type, u32 format, u32 bit_width,
 		break;
 	case HW_MCSC_DMA_OUTPUT:
 		/* check dma output */
-		if (width < 16) {
+		if (width < 4) {
 			ret = -EINVAL;
 			err_hw("Invalid MCSC DMA Output width(%d)", width);
 		}

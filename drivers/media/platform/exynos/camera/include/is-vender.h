@@ -53,6 +53,8 @@ enum is_rom_id {
 	ROM_ID_FRONT2	= 3,
 	ROM_ID_REAR3	= 4,
 	ROM_ID_FRONT3	= 5,
+	ROM_ID_REAR4	= 6,
+	ROM_ID_FRONT4	= 7,
 	ROM_ID_MAX,
 	ROM_ID_NOTHING	= 100
 };
@@ -159,10 +161,13 @@ int is_vender_hw_init(struct is_vender *vender);
 void is_vender_check_hw_init_running(void);
 void is_vender_sensor_s_input(struct is_vender *vender, void *module);
 bool is_vender_wdr_mode_on(void *cis_data);
+bool is_vender_aeb_mode_on(void *cis_data);
 bool is_vender_enable_wdr(void *cis_data);
 int is_vender_request_binary(struct is_binary * bin, const char * path1, const char * path2, const char * name, struct device * device);
-void is_vender_resource_get(struct is_vender *vender);
-void is_vender_resource_put(struct is_vender *vender);
+void is_vender_resource_get(struct is_vender *vender, u32 rsc_type);
+void is_vender_resource_put(struct is_vender *vender, u32 rsc_type);
+void is_vender_mcu_power_on(bool use_shared_rsc);
+void is_vender_mcu_power_off(bool use_shared_rsc);
 long is_vender_read_efs(char *efs_path, u8 *buf, int buflen);
 int is_vender_remove_dump_fw_file(void);
 int is_vendor_get_module_from_position(int position, struct is_module_enum ** module);

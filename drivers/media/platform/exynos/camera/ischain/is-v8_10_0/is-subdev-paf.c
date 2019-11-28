@@ -29,7 +29,7 @@ void is_ischain_paf_stripe_cfg(struct is_subdev *subdev,
 	/* Input crop & RDMA offset configuration */
 	if (!frame->stripe_info.region_id) {
 		/* Left region */
-		stripe_w = ALIGN(incrop->w / frame->stripe_info.region_num, 2);
+		stripe_w = ALIGN(incrop->w / frame->stripe_info.region_num, STRIPE_WIDTH_ALIGN);
 
 		frame->stripe_info.in.h_pix_ratio = stripe_w * STRIPE_RATIO_PRECISION / incrop->w;
 		frame->stripe_info.in.h_pix_num = stripe_w;
@@ -58,10 +58,10 @@ void is_ischain_paf_stripe_cfg(struct is_subdev *subdev,
 
 	frame->dvaddr_buffer[0] += dma_offset;
 
-	mdbg_pframe("stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			incrop->x, incrop->y, incrop->w, incrop->h, dma_offset);
-	mdbg_pframe("stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 }

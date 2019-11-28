@@ -27,24 +27,26 @@ int is_ischain_isp_stripe_cfg(struct is_subdev *subdev,
 		struct is_crop *otcrop,
 		u32 bitwidth)
 {
-	struct is_groupmgr *groupmgr;
-	struct is_group *group;
-	struct is_group *stream_leader;
+	struct is_groupmgr *groupmgr = (struct is_groupmgr *)frame->groupmgr;
+	struct is_group *group = frame->group;
+	struct is_group *stream_leader = groupmgr->leader[subdev->instance];
+	struct camera2_stream *stream = (struct camera2_stream *) frame->shot_ext;
+	u32 region_id = frame->stripe_info.region_id;
 	u32 stripe_w, dma_offset = 0;
 
-	groupmgr = (struct is_groupmgr *)frame->groupmgr;
-	group = frame->group;
-	stream_leader = groupmgr->leader[subdev->instance];
-
 	/* Input crop configuration */
-	if (!frame->stripe_info.region_id) {
+	if (!region_id) {
 		/* Left region */
-		/* Stripe width should be 4 align because of 4 ppc */
-		stripe_w = ALIGN(incrop->w / frame->stripe_info.region_num, 4);
-		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		if (stream->stripe_h_pix_nums[region_id]) {
+			stripe_w = stream->stripe_h_pix_nums[region_id];
+		} else {
+			/* Stripe width should be 4 align because of 4 ppc */
+			stripe_w = ALIGN(incrop->w / frame->stripe_info.region_num, 4);
+			stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		}
 
 		if (stripe_w == 0) {
-			mdbg_pframe("Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
+			msrdbgs(3, "Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
 									frame->stripe_info.region_id, stripe_w);
 			frame->stripe_info.region_id++;
 			return -EAGAIN;
@@ -59,7 +61,7 @@ int is_ischain_isp_stripe_cfg(struct is_subdev *subdev,
 		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
 
 		if (stripe_w == 0) {
-			mdbg_pframe("Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
+			msrdbgs(3, "Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
 									frame->stripe_info.region_id, stripe_w);
 			frame->stripe_info.region_id++;
 			return -EAGAIN;
@@ -111,12 +113,10 @@ int is_ischain_isp_stripe_cfg(struct is_subdev *subdev,
 
 	frame->dvaddr_buffer[0] = frame->stripe_info.region_base_addr[0] + dma_offset;
 
-	mdbg_pframe("stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
-			frame->stripe_info.region_id,
-			incrop->x, incrop->y, incrop->w, incrop->h, dma_offset);
-	mdbg_pframe("stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
-			frame->stripe_info.region_id,
-			otcrop->x, otcrop->y, otcrop->w, otcrop->h);
+	msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, frame,
+			region_id, incrop->x, incrop->y, incrop->w, incrop->h, dma_offset);
+	msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
+			region_id, otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 	return 0;
 }
 
@@ -196,6 +196,8 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 				hw_msb = MSB_OF_3AA_DMA_OUT + 2;
 			else if (flag_pixel_size == CAMERA_PIXEL_SIZE_15BIT)
 				hw_msb = MSB_OF_3AA_DMA_OUT + 3;
+			else
+				hw_msb = hw_bitwidth;
 
 			hw_bitwidth = DMA_INPUT_BIT_WIDTH_16BIT;
 			msinfo("in_crop[unpack bitwidth: %d, msb: %d]\n", device, leader,

@@ -130,6 +130,15 @@ struct bcmstrbuf {
 #define SPINWAIT_POLL_PERIOD	10U
 #endif
 
+#ifdef BCMFUZZ
+/* fake spinwait for fuzzing */
+#define SPINWAIT(exp, us) { \
+	uint countdown = (exp) != 0 ? 1 : 0; \
+	while (countdown > 0) { \
+		countdown--; \
+	} \
+}
+#else
 #define SPINWAIT(exp, us) { \
 	uint countdown = (us) + (SPINWAIT_POLL_PERIOD - 1U); \
 	while (((exp) != 0) && (uint)(countdown >= SPINWAIT_POLL_PERIOD)) { \
@@ -137,6 +146,7 @@ struct bcmstrbuf {
 		countdown -= SPINWAIT_POLL_PERIOD; \
 	} \
 }
+#endif /* BCMFUZZ */
 
 /* forward definition of ether_addr structure used by some function prototypes */
 
@@ -604,7 +614,12 @@ uint16 bcmhex2bin(const uint8* hex, uint hex_len, uint8 *buf, uint buf_len);
 	/* GCC 4.8+ complains when using our OFFSETOF macro in array length declarations. */
 	#define	OFFSETOF(type, member)	__builtin_offsetof(type, member)
 #else
+#ifdef BCMFUZZ
+	/* use 0x10 offset to avoid undefined behavior error due to NULL access */
+	#define OFFSETOF(type, member)	(((uint)(uintptr)&((type *)0x10)->member) - 0x10)
+#else
 	#define	OFFSETOF(type, member)	((uint)(uintptr)&((type *)0)->member)
+#endif /* BCMFUZZ */
 #endif /* GCC 4.8 or newer */
 #endif /* OFFSETOF */
 
@@ -671,11 +686,14 @@ uint32 getbits(const uint8 *addr, uint size, uint stbit, uint nbits);
 
 extern void set_bitrange(void *array, uint start, uint end, uint maxbit);
 extern void clr_bitrange(void *array, uint start, uint end, uint maxbit);
+extern void set_bitrange_u32(void *array, uint start, uint end, uint maxbit);
+extern void clr_bitrange_u32(void *array, uint start, uint end, uint maxbit);
+
 extern int bcm_find_fsb(uint32 num);
 
 #define	isbitset(a, i)	(((a) & (1 << (i))) != 0)
 
-#define	NBITS(type)	(sizeof(type) * 8)
+#define	NBITS(type)	((uint32)(sizeof(type) * 8))
 #define NBITVAL(nbits)	(1 << (nbits))
 #define MAXBITVAL(nbits)	((1 << (nbits)) - 1)
 #define	NBITMASK(nbits)	MAXBITVAL(nbits)
@@ -953,10 +971,10 @@ extern void bcm_object_trace_deinit(void);
 static const uint8 /* Table only for use by bcm_cntsetbits */
 _CSBTBL[256] =
 {
-#	define B2(n)    n,     n + 1,     n + 1,     n + 2
-#	define B4(n) B2(n), B2(n + 1), B2(n + 1), B2(n + 2)
-#	define B6(n) B4(n), B4(n + 1), B4(n + 1), B4(n + 2)
-	B6(0), B6(0 + 1), B6(0 + 1), B6(0 + 2)
+	#define B2(n)    n,     n + 1,     n + 1,     n + 2
+	#define B4(n) B2(n), B2(n + 1), B2(n + 1), B2(n + 2)
+	#define B6(n) B4(n), B4(n + 1), B4(n + 1), B4(n + 2)
+		B6(0), B6(0 + 1), B6(0 + 1), B6(0 + 2)
 };
 
 static INLINE uint32 /* Uses table _CSBTBL for fast counting of 1's in a u32 */

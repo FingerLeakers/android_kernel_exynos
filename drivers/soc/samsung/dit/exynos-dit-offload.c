@@ -12,12 +12,13 @@
 #include <linux/poll.h>
 #include <linux/miscdevice.h>
 #include <linux/if_ether.h>
+#include <linux/netdevice.h>
 #include <net/net_namespace.h>
 
-#include <soc/samsung/exynos-dit.h> /* dit_info */
+#include "exynos-dit.h" /* dit_info */
 
-#include <soc/samsung/exynos-dit-ioctl.h>
-#include <soc/samsung/exynos-dit-offload.h>
+#include "exynos-dit-ioctl.h"
+#include "exynos-dit-offload.h"
 
 static struct dit_offload_ctl_t offload;
 
@@ -37,6 +38,12 @@ static inline bool offload_check_forward_ready(void)
 		return true;
 
 	return false;
+}
+
+void perftest_offload_change_status(enum offload_state st)
+{
+	offload.status = st;
+	wake_up(&offload.wq);
 }
 
 static inline void offload_change_status(enum offload_state st)
@@ -101,6 +108,7 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	struct iface_info param;
 	uint64_t limit;
 	int idx;
+	struct net_device *ndev;
 
 	switch (cmd) {
 	case OFFLOAD_IOCTL_INIT_OFFLOAD:
@@ -130,7 +138,7 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 
 		offload.stat_read_idx = 1 - offload.stat_read_idx;
 
-		dit_info("forward_stat: stat.rxBytes = %lu, stat.txBytes = %lu\n",
+		dit_debug("forward_stat: stat.rxBytes = %llu, stat.txBytes = %llu\n",
 			stat.rxBytes, stat.txBytes);
 
 		err = copy_to_user((void __user *)arg,
@@ -151,6 +159,10 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 				sizeof(struct iface_info));
 
 		dit_info("SET_UPSTRM_PARAM = %s\n", offload.upstream.iface);
+		ndev = __dev_get_by_name(&init_net, offload.upstream.iface);
+		if (ndev)
+			dit_setup_upstream_device(ndev);
+
 		if (offload_check_forward_ready()) {
 			offload_change_status(STATE_OFFLOAD_ONLINE);
 			offload_gen_event(OFFLOAD_STARTED);
@@ -159,14 +171,21 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		break;
 
 	case OFFLOAD_IOCTL_ADD_DOWNSTREAM:
-		if (offload.downstream[0].iface[0] != '\0')
+		err = copy_from_user(&param, (const void __user *)arg,
+				sizeof(struct iface_info));
+
+		if (strstr(param.iface, "rndis") || strstr(param.iface, "ncm"))
 			idx = 0;
 		else
 			idx = 1;
 
 		err = copy_from_user(&offload.downstream[idx], (const void __user *)arg,
 				sizeof(struct iface_info));
+
 		dit_info("ADD_DOWNSTREAM(%d) = %s\n", idx, offload.downstream[idx].iface);
+		ndev = __dev_get_by_name(&init_net, offload.downstream[idx].iface);
+		if (ndev)
+			dit_setup_downstream_device(ndev);
 
 		if (offload_check_forward_ready()) {
 			offload_change_status(STATE_OFFLOAD_ONLINE);
@@ -179,12 +198,16 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		err = copy_from_user(&param, (const void __user *)arg,
 				sizeof(struct iface_info));
 
-		if (strcmp(param.iface, offload.downstream[0].iface) == 0)
+		if (strstr(param.iface, "rndis") || strstr(param.iface, "ncm"))
 			idx = 0;
 		else
 			idx = 1;
 
 		dit_info("REMOVE_DOWNSTRM(%d) = %s\n", idx, offload.downstream[idx].iface);
+		ndev = __dev_get_by_name(&init_net, offload.downstream[idx].iface);
+		if (ndev)
+			dit_clear_downstream_device(ndev);
+
 		offload.downstream[idx].iface[0] = '\0';
 
 		if (offload_check_forward_ready()) {
@@ -235,6 +258,10 @@ bool offload_keeping_bw(void)
 			&& (txstat->limit_fwd_bytes >= txstat->reqst_fwd_bytes);
 
 	if (!ret) {
+		dit_info("OFFLOAD_STOPPED_LIMIT_REACHED: RX limit = %llu, fwd_bytes = %llu\n",
+			rxstat->limit_fwd_bytes, rxstat->reqst_fwd_bytes);
+		dit_info("OFFLOAD_STOPPED_LIMIT_REACHED: TX limit = %llu, fwd_bytes = %llu\n",
+			txstat->limit_fwd_bytes, txstat->reqst_fwd_bytes);
 		offload_gen_event(OFFLOAD_STOPPED_LIMIT_REACHED);
 		offload_change_status(STATE_OFFLOAD_LIMIT_REACHED);
 	}

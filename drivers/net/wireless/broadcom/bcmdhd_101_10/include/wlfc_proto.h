@@ -459,4 +459,7 @@ typedef enum {
 #define WLFC_PCIEDEV_AC_PRIO_MAP	 0
 #define WLFC_PCIEDEV_TID_PRIO_MAP     1
 #define WLFC_PCIEDEV_LLR_PRIO_MAP	2
+
+void wlc_wlfc_set_pkttime(void* pkt, uint16 time);
+
 #endif /* __wlfc_proto_definitions_h__ */

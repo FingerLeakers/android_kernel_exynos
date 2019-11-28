@@ -290,9 +290,9 @@
 				thrd_mb = <3135247>;
 				freq_mfc = <666000>;
 				freq_int = <533000>;
-				freq_mif = <2288000>;
-				time_fw = <216>;
-				bts_scen = "mfc_uhd_10bit";
+				freq_mif = <2028000>;
+				time_fw = <230>;
+				bts_scen = "mfc_uhd";
 			};
 		};
 

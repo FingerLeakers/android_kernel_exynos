@@ -35,6 +35,8 @@ const char *cmd_type_name[] = {
 	[CMD_TYPE_NONE] = "NONE",
 	[CMD_TYPE_DELAY] = "DELAY",
 	[CMD_TYPE_DELAY_NO_SLEEP] = "DELAY_NO_SLEEP",
+	[CMD_TYPE_FRAME_DELAY] = "FRAME_DELAY",
+	[CMD_TYPE_VSYNC_DELAY] = "VSYNC_DELAY",
 	[CMD_TYPE_TIMER_DELAY] = "TIMER_DELAY",
 	[CMD_TYPE_TIMER_DELAY_BEGIN] = "TIMER_DELAY_BEGIN",
 	[CMD_TYPE_PINCTL] = "PINCTL",
@@ -56,6 +58,8 @@ const char *cmd_type_name[] = {
 	[CMD_TYPE_MAP] = "MAP",
 	[CMD_TYPE_DMP] = "DUMP",
 };
+
+static int panel_dsi_wait_for_vsync(struct panel_device *panel, u32 timeout);
 
 void print_data(char *data, int size)
 {
@@ -672,6 +676,69 @@ static int panel_do_delay_no_sleep(struct panel_device *panel, struct delayinfo 
 	return 0;
 }
 
+static int panel_do_frame_delay(struct panel_device *panel, struct delayinfo *info, ktime_t s_time)
+{
+	ktime_t e_time = ktime_get();
+	int remained_usec = 0;
+	int usec;
+
+	if (unlikely(!panel || !info)) {
+		panel_err("%s, invalid paramter (panel %p, info %p)\n",
+				__func__, panel, info);
+		return -EINVAL;
+	}
+
+	usec = 1000000 / panel->panel_data.props.vrr_origin_fps;
+	if (info->nframe > 0)
+		usec += (1000000 / panel->panel_data.props.vrr_fps) * (info->nframe - 1);
+	if (ktime_after(e_time, ktime_add_us(s_time, usec))) {
+		pr_debug("%s skip delay (elapsed %lld usec >= requested %d usec)\n",
+				__func__, ktime_to_us(ktime_sub(e_time, s_time)), usec);
+		return 0;
+	}
+
+	if (usec >= (u32)ktime_to_us(ktime_sub(e_time, s_time)))
+		remained_usec = usec - (u32)ktime_to_us(ktime_sub(e_time, s_time));
+
+	if (remained_usec > 0)
+		usleep_range(remained_usec, remained_usec + 1);
+
+	return 0;
+}
+
+static int panel_do_vsync_delay(struct panel_device *panel, struct delayinfo *info)
+{
+	int i, ret;
+	u32 timeout = PANEL_WAIT_VSYNC_TIMEOUT_MSEC;
+#ifdef DEBUG_PANEL
+	ktime_t s_time = ktime_get();
+	int usec;
+#endif
+
+	if (unlikely(!panel || !info)) {
+		panel_err("%s, invalid paramter (panel %p, info %p)\n",
+				__func__, panel, info);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < info->nframe; i++) {
+		ret = panel_dsi_wait_for_vsync(panel, timeout);
+		if (ret < 0) {
+			pr_err("%s vsync timeout(elapsed:%dms, ret:%d)\n",
+					__func__, timeout, ret);
+			return 0;
+		}
+	}
+#ifdef DEBUG_PANEL
+	usec = ktime_to_us(ktime_sub(ktime_get(), s_time));
+	pr_info("%s elapsed:%2d.%03d ms in %d FPS\n",
+			__func__, usec / 1000, usec % 1000,
+			panel->panel_data.props.vrr_fps);
+#endif
+
+	return 0;
+}
+
 static int panel_do_timer_begin(struct panel_device *panel,
 		struct timer_delay_begin_info *begin_info, ktime_t s_time)
 {
@@ -707,11 +774,14 @@ static int panel_do_timer_delay(struct panel_device *panel, struct delayinfo *in
 		s_time = info->s_time;
 	}
 
+	panel_info("%s elapsed time : %lld\n", __func__, ktime_to_us(ktime_sub(e_time, s_time)));
+
 	if (ktime_after(e_time, ktime_add_us(s_time, info->usec))) {
 		pr_debug("%s skip delay (elapsed %lld usec >= requested %d usec)\n",
 				__func__, ktime_to_us(ktime_sub(e_time, s_time)), info->usec);
 		return 0;
 	}
+
 
 	if (info->usec >= (u32)ktime_to_us(ktime_sub(e_time, s_time)))
 		remained_usec = info->usec - (u32)ktime_to_us(ktime_sub(e_time, s_time));
@@ -777,6 +847,19 @@ static int panel_dsi_write_data(struct panel_device *panel,
 	return panel->mipi_drv.write(panel->dsi_id, cmd_id, buf, ofs, size, option);
 }
 
+
+static int panel_dsi_sr_write_data(struct panel_device *panel,
+		u8 cmd_id, const u8 *buf, u8 ofs, int size, bool block)
+{
+	u32 option = 0;
+
+	if (unlikely(!panel || !panel->mipi_drv.write))
+		return -EINVAL;
+
+	return panel->mipi_drv.sr_write(panel->dsi_id, cmd_id, buf, ofs, size, option);
+}
+
+
 /* Todo need to move dt file */
 #define SRAM_BYTE_ALIGN	16
 
@@ -806,11 +889,22 @@ static int panel_dsi_write_mem(struct panel_device *panel,
 
 	do {
 		cmdbuf[0] = (size == remained) ? c_start : c_next;
+
+		tx_size = remained;
 		tx_size = min(remained, 511);
-		tx_size -= (tx_size % SRAM_BYTE_ALIGN);
+		if ((tx_size % SRAM_BYTE_ALIGN) > 0) {
+			if (tx_size > SRAM_BYTE_ALIGN) {
+				tx_size -= (tx_size % SRAM_BYTE_ALIGN);
+			} else {
+				panel_warn("%s: byte align mismatch! data %d align %d\n",
+					__func__, tx_size, SRAM_BYTE_ALIGN);
+			}
+		}
+
 		memcpy(cmdbuf + 1, buf + len, tx_size);
 		ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
 				cmdbuf, 0, tx_size + 1, false);
+
 		if (ret != tx_size + 1) {
 			panel_err("%s:failed to write command\n", __func__);
 			return -EINVAL;
@@ -823,6 +917,22 @@ static int panel_dsi_write_mem(struct panel_device *panel,
 
 	return len;
 }
+
+
+static int panel_dsi_fast_write_mem(struct panel_device *panel,
+		u8 cmd_id, const u8 *buf, u8 ofs, int size)
+{
+	int ret;
+
+	if (unlikely(!panel || !panel->mipi_drv.write))
+		return -EINVAL;
+
+	ret = panel_dsi_sr_write_data(panel, MIPI_DSI_WR_SRAM_CMD,
+				buf, 0, size, false);
+
+	return size;
+}
+
 
 static int panel_dsi_read_data(struct panel_device *panel,
 		u8 addr, u8 ofs, u8 *buf, int size)
@@ -845,6 +955,14 @@ static int panel_dsi_get_state(struct panel_device *panel)
 		return -EINVAL;
 
 	return panel->mipi_drv.get_state(panel->dsi_id);
+}
+
+static int panel_dsi_wait_for_vsync(struct panel_device *panel, u32 timeout)
+{
+	if (unlikely(!panel || !panel->mipi_drv.wait_for_vsync))
+		return -EINVAL;
+
+	return panel->mipi_drv.wait_for_vsync(panel->dsi_id, timeout);
 }
 
 int panel_set_key(struct panel_device *panel, int level, bool on)
@@ -1002,6 +1120,11 @@ static int panel_do_tx_packet(struct panel_device *panel, struct pktinfo *info, 
 		cmd_id = MIPI_DSI_WR_SRAM_CMD;
 		addr = info->data ? info->data[0] : 0;
 		break;
+	case DSI_PKT_TYPE_SR_FAST:
+		cmd_id = MIPI_DSI_WR_SR_FAST_CMD;
+		addr = info->data ? info->data[0] : 0;
+		break;
+
 	case CMD_PKT_TYPE_NONE:
 	case DSI_PKT_TYPE_RD:
 	default:
@@ -1031,6 +1154,9 @@ static int panel_do_tx_packet(struct panel_device *panel, struct pktinfo *info, 
 	if (cmd_id == MIPI_DSI_WR_GRAM_CMD ||
 			cmd_id == MIPI_DSI_WR_SRAM_CMD)
 		ret = panel_dsi_write_mem(panel, cmd_id,
+				info->data, info->offset, info->dlen);
+	else if (cmd_id == MIPI_DSI_WR_SR_FAST_CMD)
+		ret = panel_dsi_fast_write_mem(panel, cmd_id,
 				info->data, info->offset, info->dlen);
 	else
 		ret = panel_dsi_write_data(panel, cmd_id,
@@ -1188,7 +1314,8 @@ int panel_do_init_maptbl(struct panel_device *panel, struct maptbl *maptbl)
 	return 0;
 }
 
-int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
+static int _panel_do_seqtbl(struct panel_device *panel,
+		struct seqinfo *seqtbl, int depth)
 {
 	int i, ret = 0;
 	u32 type;
@@ -1214,7 +1341,6 @@ int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
 			break;
 		}
 		type = *((u32 *)cmdtbl[i]);
-
 		if (type >= MAX_CMD_TYPE) {
 			pr_warn("%s invalid cmd type %d\n", __func__, type);
 			break;
@@ -1227,16 +1353,38 @@ int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
 #endif
 		switch (type) {
 		case CMD_TYPE_KEY:
+		case CMD_TYPE_TX_PKT_START ... CMD_TYPE_TX_PKT_END:
+			block = false;
+			/* blocking call if next cmdtype is not tx pkt */
 			if (i + 1 < seqtbl->size && cmdtbl[i + 1] &&
-					!IS_CMD_TYPE_TX_PKT(*((u32 *)cmdtbl[i + 1])))
+					(*((u32 *)cmdtbl[i + 1]) != CMD_TYPE_SEQ) &&
+					!IS_CMD_TYPE_TX_PKT(*((u32 *)cmdtbl[i + 1]))) {
 				block = true;
-			ret = panel_do_setkey(panel, (struct keyinfo *)cmdtbl[i], block);
+				pr_debug("%s blocking call : next cmd is not tx packet\n", __func__);
+			}
+
+			/* blocking call if end of seq */
+			if (depth == 0 && (i + 1 == seqtbl->size)) {
+				block = true;
+				pr_debug("%s blocking call : end of seq\n", __func__);
+			}
+			
+			if (type == CMD_TYPE_KEY)
+				ret = panel_do_setkey(panel, (struct keyinfo *)cmdtbl[i], block);
+			else
+				ret = panel_do_tx_packet(panel, (struct pktinfo *)cmdtbl[i], block);
 			break;
 		case CMD_TYPE_DELAY:
 			ret = panel_do_delay(panel, (struct delayinfo *)cmdtbl[i], s_time);
 			break;
 		case CMD_TYPE_DELAY_NO_SLEEP:
 			ret = panel_do_delay_no_sleep(panel, (struct delayinfo *)cmdtbl[i], s_time);
+			break;
+		case CMD_TYPE_FRAME_DELAY:
+			ret = panel_do_frame_delay(panel, (struct delayinfo *)cmdtbl[i], s_time);
+			break;
+		case CMD_TYPE_VSYNC_DELAY:
+			ret = panel_do_vsync_delay(panel, (struct delayinfo *)cmdtbl[i]);
 			break;
 		case CMD_TYPE_TIMER_DELAY_BEGIN:
 			ret = panel_do_timer_begin(panel, (struct timer_delay_begin_info *)cmdtbl[i], s_time);
@@ -1247,17 +1395,11 @@ int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
 		case CMD_TYPE_PINCTL:
 			ret = panel_do_pinctl(panel, (struct pininfo *)cmdtbl[i]);
 			break;
-		case CMD_TYPE_TX_PKT_START ... CMD_TYPE_TX_PKT_END:
-			if (i + 1 < seqtbl->size && cmdtbl[i + 1] &&
-					!IS_CMD_TYPE_TX_PKT(*((u32 *)cmdtbl[i + 1])))
-				block = true;
-			ret = panel_do_tx_packet(panel, (struct pktinfo *)cmdtbl[i], block);
-			break;
 		case CMD_TYPE_RES:
 			ret = panel_resource_update(panel, (struct resinfo *)cmdtbl[i]);
 			break;
 		case CMD_TYPE_SEQ:
-			ret = panel_do_seqtbl(panel, (struct seqinfo *)cmdtbl[i]);
+			ret = _panel_do_seqtbl(panel, (struct seqinfo *)cmdtbl[i], depth + 1);
 			break;
 		case CMD_TYPE_MAP:
 			ret = panel_do_init_maptbl(panel, (struct maptbl *)cmdtbl[i]);
@@ -1301,6 +1443,11 @@ int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
 	}
 
 	return 0;
+}
+
+int panel_do_seqtbl(struct panel_device *panel, struct seqinfo *seqtbl)
+{
+	return _panel_do_seqtbl(panel, seqtbl, 0);
 }
 
 int excute_seqtbl_nolock(struct panel_device *panel, struct seqinfo *seqtbl, int index)

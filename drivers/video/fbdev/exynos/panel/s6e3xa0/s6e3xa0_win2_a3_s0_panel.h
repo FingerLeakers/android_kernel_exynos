@@ -32,9 +32,6 @@
 #ifdef CONFIG_SUPPORT_AOD_BL
 #include "s6e3xa0_win2_a3_s0_panel_aod_dimming.h"
 #endif
-#ifdef CONFIG_ACTIVE_CLOCK
-#include "../active_clk_img_white.h"
-#endif
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "s6e3xa0_win2_aod_panel.h"
 #include "../aod/aod_drv.h"
@@ -791,11 +788,6 @@ static struct maptbl win2_a3_s0_maptbl[MAX_MAPTBL] = {
 	[LPM_OFF_MAPTBL] = DEFINE_3D_MAPTBL(win2_a3_s0_lpm_off_table, init_common_table, getidx_lpm_table, copy_common_maptbl),
 #endif
 
-#ifdef CONFIG_ACTIVE_CLOCK
-	[ACTIVE_CLK_CTRL_MAPTBL] = DEFINE_0D_MAPTBL(win2_a3_s0_self_clk_ctrl_table, init_common_table, NULL, copy_self_clk_maptbl),
-	[ACTIVE_CLK_SELF_DRAWER] = DEFINE_0D_MAPTBL(win2_a3_s0_self_drawer, init_common_table, NULL, copy_self_drawer),
-	[ACTIVE_CLK_CTRL_UPDATE_MAPTBL] = DEFINE_0D_MAPTBL(win2_a3_s0_self_clk_update_table, init_common_table, NULL, copy_self_clk_update_maptbl),
-#endif
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
 	[VDDM_MAPTBL] = DEFINE_2D_MAPTBL(win2_a3_s0_vddm_table, init_common_table, s6e3xa0_getidx_vddm_table, copy_common_maptbl),
 	[GRAM_IMG_MAPTBL] = DEFINE_2D_MAPTBL(win2_a3_s0_gram_img_pattern_table, init_common_table, s6e3xa0_getidx_gram_img_pattern_table, copy_common_maptbl),
@@ -856,46 +848,6 @@ static u8 WIN2_A3_S0_PPS[] = {
 	0x1A, 0x38, 0x1A, 0x78, 0x1A, 0xB6, 0x2A, 0xF6,
 	0x2B, 0x34, 0x2B, 0x74,	0x3B, 0x74, 0x6B, 0xF4
 };
-
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static u8 WIN2_A3_S0_ENABLE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00, 0x00, 0x08, 0x11, 0x00, 0x00, 0x00,
-	0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0x0A,
-	0x0B, 0x00, 0x00, 0x02, 0xD0, 0x02, 0xC3, 0x3C,
-	0x13, 0x00, 0x3C, 0x13, 0x00, 0x3C, 0x13, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static u8 WIN2_A3_S0_UPDATE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00, 0x00, 0x08, 0x11, 0x00, 0x00, 0x00,
-	0x03, 0x01,
-};
-static u8 WIN2_A3_S0_DISABLE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00
-};
-static u8 WIN2_A3_S0_SET_SELF_DRAWER[] = {
-	0xE2,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x02, 0xCF, 0x02, 0x97, 0x05, 0xA0, 0x0B,
-	0x90, 0x01, 0x07, 0xF0, 0xF0, 0xF0, 0x00, 0x00, 0x00,
-	0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-};
-
-static u8 WIN2_A3_S0_DISABLE_SELF_DRAWER[] = {
-	0xE2,
-	0x00, 0x00
-};
-#endif
 
 static u8 WIN2_A3_S0_MCA_SETGING1[] = {
 	0x96,
@@ -1236,18 +1188,6 @@ static DEFINE_VARIABLE_PACKET(win2_a3_s0_lpm_dyn_vlin, DSI_PKT_TYPE_WR, WIN2_A3_
 static DEFINE_STATIC_PACKET(win2_a3_s0_lpm_off_dyn_vlin, DSI_PKT_TYPE_WR, WIN2_A3_S0_LPM_OFF_DYN_VLIN, 0x1D);
 static DEFINE_PKTUI(win2_a3_s0_lpm_mode, &win2_a3_s0_maptbl[LPM_MODE_MAPTBL], 1);
 static DEFINE_VARIABLE_PACKET(win2_a3_s0_lpm_mode, DSI_PKT_TYPE_WR, WIN2_A3_S0_LPM_MODE, 0);
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static DEFINE_PKTUI(win2_a3_s0_enable_active_clk, &win2_a3_s0_maptbl[ACTIVE_CLK_CTRL_MAPTBL], 1);
-static DEFINE_VARIABLE_PACKET(win2_a3_s0_enable_active_clk, DSI_PKT_TYPE_WR, WIN2_A3_S0_ENABLE_ACTIVE_CLK, 0);
-static DEFINE_PKTUI(win2_a3_s0_set_self_drawer, &win2_a3_s0_maptbl[ACTIVE_CLK_SELF_DRAWER], 1);
-static DEFINE_VARIABLE_PACKET(win2_a3_s0_set_self_drawer, DSI_PKT_TYPE_WR, WIN2_A3_S0_SET_SELF_DRAWER, 0);
-static DEFINE_PKTUI(win2_a3_s0_update_active_clk, &win2_a3_s0_maptbl[ACTIVE_CLK_CTRL_UPDATE_MAPTBL], 1);
-static DEFINE_VARIABLE_PACKET(win2_a3_s0_update_active_clk, DSI_PKT_TYPE_WR, WIN2_A3_S0_UPDATE_ACTIVE_CLK, 0);
-static DEFINE_STATIC_PACKET(win2_a3_s0_disable_self_drawer, DSI_PKT_TYPE_WR, WIN2_A3_S0_DISABLE_SELF_DRAWER, 0);
-static DEFINE_STATIC_PACKET(win2_a3_s0_disable_active_clk, DSI_PKT_TYPE_WR, WIN2_A3_S0_DISABLE_ACTIVE_CLK, 0);
-static DEFINE_STATIC_PACKET(win2_a3_s0_active_clk_img_pkt, DSI_PKT_TYPE_WR_SR, live_clock_image, 0);
-#endif
 
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
 static DEFINE_STATIC_PACKET(win2_a3_s0_sw_reset, DSI_PKT_TYPE_WR, WIN2_A3_S0_SW_RESET, 0);
@@ -1688,10 +1628,6 @@ static void *win2_a3_s0_alpm_enter_delay_cmdtbl[] = {
 
 static void *win2_a3_s0_alpm_exit_cmdtbl[] = {
 	&KEYINFO(win2_a3_s0_level2_key_enable),
-#ifdef CONFIG_ACTIVE_CLOCK
-	&PKTINFO(win2_a3_s0_disable_active_clk),
-	&PKTINFO(win2_a3_s0_disable_self_drawer),
-#endif
 	&PKTINFO(win2_a3_s0_lpm_off_nit),
 	&PKTINFO(win2_a3_s0_avc2_on),
 	&PKTINFO(win2_a3_s0_exit_alpm),
@@ -2001,28 +1937,6 @@ static void *win2_a3_s0_grayspot_off_cmdtbl[] = {
 };
 #endif
 
-#ifdef CONFIG_ACTIVE_CLOCK
-static void *win2_a3_s0_active_clk_img_cmdtbl[] = {
-	&PKTINFO(win2_a3_s0_active_clk_img_pkt),
-};
-
-static void *win2_a3_s0_active_clk_ctrl_cmdtbl[] = {
-	&KEYINFO(win2_a3_s0_level2_key_enable),
-	&PKTINFO(win2_a3_s0_enable_active_clk),
-	&PKTINFO(win2_a3_s0_set_self_drawer),
-	&KEYINFO(win2_a3_s0_level2_key_disable),
-};
-
-static void *win2_a3_s0_active_clk_update_cmdtbl[] = {
-	&KEYINFO(win2_a3_s0_level2_key_enable),
-	&PKTINFO(win2_a3_s0_enable_active_clk),
-	&PKTINFO(win2_a3_s0_set_self_drawer),
-	&DLYINFO(win2_a3_s0_wait_1_frame_in_30hz),
-	&PKTINFO(win2_a3_s0_update_active_clk),
-	&KEYINFO(win2_a3_s0_level2_key_disable),
-};
-#endif
-
 #ifdef CONFIG_SUPPORT_ISC_DEFECT
 static u8 WIN2_A3_S0_ISC_IPOFF_SEQ_01[] = {
 	0xF5, 0x80
@@ -2212,11 +2126,6 @@ static struct seqinfo win2_a3_s0_seqtbl[MAX_PANEL_SEQ] = {
 #ifdef CONFIG_SUPPORT_MST
 	[PANEL_MST_ON_SEQ] = SEQINFO_INIT("mst-on-seq", win2_a3_s0_mst_on_cmdtbl),
 	[PANEL_MST_OFF_SEQ] = SEQINFO_INIT("mst-off-seq", win2_a3_s0_mst_off_cmdtbl),
-#endif
-#ifdef CONFIG_ACTIVE_CLOCK
-	[PANEL_ACTIVE_CLK_IMG_SEQ] = SEQINFO_INIT("active-clk-img-seq", win2_a3_s0_active_clk_img_cmdtbl),
-	[PANEL_ACTIVE_CLK_CTRL_SEQ] = SEQINFO_INIT("active-clk-ctrl-seq", win2_a3_s0_active_clk_ctrl_cmdtbl),
-	[PANEL_ACTIVE_CLK_UPDATE_SEQ] = SEQINFO_INIT("active-clk-update-seq", win2_a3_s0_active_clk_update_cmdtbl),
 #endif
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
 	[PANEL_GCT_ENTER_SEQ] = SEQINFO_INIT("gct-enter-seq", win2_a3_s0_gct_enter_cmdtbl),

@@ -88,6 +88,7 @@ enum vclk_id {
 	VCLK_DIV_CLK_VTS_DMIC_IF_PAD,
 	VCLK_DIV_CLK_AUD_DMIC0,
 	VCLK_DIV_CLK_AUD_DMIC1,
+	VCLK_DIV_CLK_TOP_HSI0_BUS,
 	end_of_vclk,
 	num_of_vclk = end_of_vclk - ((MASK_OF_ID & end_of_dfs_vclk) | VCLK_TYPE),
 

@@ -32,6 +32,7 @@
 /* ================================================================ */
 
 /* RTE IOCTL definitions for generic ether devices */
+#define RTEIOCTLSTART		0x8901
 #define RTEGHWADDR		0x8901
 #define RTESHWADDR		0x8902
 #define RTEGMTU			0x8903
@@ -54,6 +55,8 @@
 #define RTED11DMAHOSTLPBK_RUN	0x8914  /* D11 DMA host memory loopback run */
 #define RTEDEVGETTSF		0x8915  /* Get device TSF */
 #define RTEDURATIONUNIT		0x8916  /* Duration unit */
+/* Ensure last RTE IOCTL define val is assigned to RTEIOCTLEND */
+#define RTEIOCTLEND		0x8916  /* LAST RTE IOCTL value */
 
 #define RTE_IOCTL_QUERY		0x00
 #define RTE_IOCTL_SET		0x01

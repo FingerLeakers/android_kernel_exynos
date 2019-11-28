@@ -37,6 +37,7 @@
 #ifdef CONFIG_SEC_PM_DEBUG
 #include <linux/regulator/machine.h>
 #endif /* CONFIG_SEC_PM_DEBUG */
+#include <linux/sec_debug.h>
 
 #include "power.h"
 
@@ -683,7 +684,11 @@ int pm_suspend(suspend_state_t state)
 		return -EINVAL;
 
 	pr_info("suspend entry (%s)\n", mem_sleep_labels[state]);
+
+	secdbg_base_set_task_in_pm_suspend((uint64_t)current);
 	error = enter_state(state);
+	secdbg_base_set_task_in_pm_suspend(0);
+
 	if (error) {
 		suspend_stats.fail++;
 		dpm_save_failed_errno(error);

@@ -15,7 +15,7 @@
 #define __IW_MESSAGES_H__
 
 #ifndef __USED_BY_TZSL__
-#include "tz_cred.h"
+#include "core/cred.h"
 #else
 #include <stdint.h>
 #include <uuid/uuid.h>

@@ -235,9 +235,6 @@ int is_ois_gpio_on(struct is_core *core)
 	struct exynos_platform_is_module *module_pdata;
 	struct is_module_enum *module = NULL;
 	int i = 0;
-#if defined (CONFIG_CAMERA_USE_INTERNAL_MCU)
-	struct ois_mcu_dev *mcu;
-#endif
 
 	for (i = 0; i < IS_SENSOR_COUNT; i++) {
 		is_search_sensor_module_with_position(&core->sensor[i], SENSOR_POSITION_REAR, &module);
@@ -264,11 +261,9 @@ int is_ois_gpio_on(struct is_core *core)
 		err("gpio_cfg is fail(%d)", ret);
 		goto p_err;
 	}
+
 #if defined (CONFIG_CAMERA_USE_INTERNAL_MCU)
-	mcu = core->mcu;
-	is_vender_resource_get(&core->vender);
-	msleep(50);
-	ois_mcu_core_ctrl(mcu, 0x1);
+	is_vender_mcu_power_on(false);
 #endif
 
 p_err:
@@ -281,9 +276,6 @@ int is_ois_gpio_off(struct is_core *core)
 	struct exynos_platform_is_module *module_pdata;
 	struct is_module_enum *module = NULL;
 	int i = 0;
-#if defined (CONFIG_CAMERA_USE_INTERNAL_MCU)
-	struct ois_mcu_dev *mcu;
-#endif
 
 	for (i = 0; i < IS_SENSOR_COUNT; i++) {
 		is_search_sensor_module_with_position(&core->sensor[i], SENSOR_POSITION_REAR, &module);
@@ -300,10 +292,7 @@ int is_ois_gpio_off(struct is_core *core)
 	module_pdata = module->pdata;
 
 #if defined (CONFIG_CAMERA_USE_INTERNAL_MCU)
-	mcu = core->mcu;
-	ois_mcu_core_ctrl(mcu, 0x0);
-	msleep(50);
-	is_vender_resource_put(&core->vender); 
+	is_vender_mcu_power_off(false);
 #endif
 
 	if (!module_pdata->gpio_cfg) {
@@ -653,6 +642,17 @@ void is_ois_fw_update(struct is_core *core)
 	msleep(50);
 	CALL_OISOPS(ois_device, ois_fw_update, core);
 	is_ois_gpio_off(core);
+
+	return;
+}
+
+void is_ois_get_hall_pos(struct is_core *core, u16 *targetPos, u16 *hallPos)
+{
+	struct is_device_ois *ois_device = NULL;
+
+	ois_device = is_ois_get_device(core);
+
+	CALL_OISOPS(ois_device, ois_get_hall_pos, core, targetPos, hallPos);
 
 	return;
 }

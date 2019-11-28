@@ -130,36 +130,36 @@
 #define WL_NAN_EVENT_SUPPRESS_FOLLOWUP_RECEIVE_BIT	0
 
 #define C2S(x)  case x: return #x;
-#define NAN_BLOOM_LENGTH_DEFAULT        240u
-#define NAN_SRF_MAX_MAC (NAN_BLOOM_LENGTH_DEFAULT / ETHER_ADDR_LEN)
-#define NAN_MAX_PMK_LEN		32u
-#define NAN_ERROR_STR_LEN	255u
+#define NAN_BLOOM_LENGTH_DEFAULT	240u
+#define NAN_SRF_MAX_MAC			(NAN_BLOOM_LENGTH_DEFAULT / ETHER_ADDR_LEN)
+#define NAN_MAX_PMK_LEN			32u
+#define NAN_ERROR_STR_LEN		255u
 
 /* NAN related Capabilities */
-#define MAX_CONCURRENT_NAN_CLUSTERS 1
-#define MAX_PUBLISHES	8u
-#define MAX_SUBSCRIBES	8u
-#define MAX_SVC_NAME_LEN	255u
-#define MAX_MATCH_FILTER_LEN	255u
-#define MAX_TOTAL_MATCH_FILTER_LEN	510u
+#define MAX_CONCURRENT_NAN_CLUSTERS		1u
+#define MAX_PUBLISHES				8u
+#define MAX_SUBSCRIBES				8u
+#define MAX_SVC_NAME_LEN			255u
+#define MAX_MATCH_FILTER_LEN			255u
+#define MAX_TOTAL_MATCH_FILTER_LEN		510u
 #define	NAN_MAX_SERVICE_SPECIFIC_INFO_LEN	255u
-#define MAX_NDI_INTERFACES	1
-#define MAX_NDP_SESSIONS	5
-#define MAX_APP_INFO_LEN	255u
-#define	MAX_QUEUED_TX_FOLLOUP_MSGS	10
-#define	MAX_SDEA_SVC_INFO_LEN	255u
-#define	MAX_SUBSCRIBE_ADDRESS	10
-#define	CIPHER_SUITE_SUPPORTED	1
-#define	MAX_SCID_LEN	0
-#define	IS_NDP_SECURITY_SUPPORTED	true
-#define	NDP_SUPPORTED_BANDS	2
-#define NAN_MAX_RANGING_INST 8u
-#define NAN_MAX_RANGING_SSN_ALLOWED 1u
-#define NAN_MAX_SVC_INST (MAX_PUBLISHES + MAX_SUBSCRIBES)
-#define NAN_SVC_INST_SIZE 32u
-#define NAN_START_STOP_TIMEOUT	5000
-#define NAN_MAX_NDP_PEER 8u
-#define NAN_DISABLE_CMD_DELAY	2000u
+#define NAN_MAX_NDI				3u
+#define MAX_NDP_SESSIONS			5u
+#define MAX_APP_INFO_LEN			255u
+#define	MAX_QUEUED_TX_FOLLOUP_MSGS		10u
+#define	MAX_SDEA_SVC_INFO_LEN			255u
+#define	MAX_SUBSCRIBE_ADDRESS			10u
+#define	CIPHER_SUITE_SUPPORTED			1u
+#define	MAX_SCID_LEN				0u
+#define	IS_NDP_SECURITY_SUPPORTED		true
+#define	NDP_SUPPORTED_BANDS			2u
+#define NAN_MAX_RANGING_INST			8u
+#define NAN_MAX_RANGING_SSN_ALLOWED		1u
+#define NAN_MAX_SVC_INST			(MAX_PUBLISHES + MAX_SUBSCRIBES)
+#define NAN_SVC_INST_SIZE			32u
+#define NAN_START_STOP_TIMEOUT			5000u
+#define NAN_MAX_NDP_PEER			8u
+#define NAN_DISABLE_CMD_DELAY			2000u
 
 #ifdef WL_NAN_DEBUG
 #define NAN_MUTEX_LOCK() {WL_DBG(("Mutex Lock: Enter: %s\n", __FUNCTION__)); \
@@ -658,7 +658,6 @@ typedef enum {
 	NAN_RANGING_AUTO_RESPONSE_DISABLE
 } NanRangingAutoResponseCfg;
 
-#define NAN_MAX_NDI		1u
 typedef struct wl_ndi_data
 {
 	u8 ifname[IFNAMSIZ];
@@ -685,7 +684,6 @@ typedef struct wl_nancfg
 	nan_svc_info_t svc_info[NAN_MAX_SVC_INST];
 	nan_ranging_inst_t nan_ranging_info[NAN_MAX_RANGING_INST];
 	wl_nan_ver_t version;
-	wl_ndi_data_t ndi[NAN_MAX_NDI];
 	struct mutex nan_sync;
 	uint8 svc_inst_id_mask[NAN_SVC_INST_SIZE];
 	uint8 inst_id_start;
@@ -699,6 +697,8 @@ typedef struct wl_nancfg
 	nan_ndp_peer_t *nan_ndp_peer_info;
 	nan_data_path_id ndp_id[NAN_MAX_NDP_PEER];
 	uint8 ndpe_enabled;
+	uint8 max_ndi_supported;
+	wl_ndi_data_t *ndi;
 } wl_nancfg_t;
 
 extern bool wl_cfgnan_is_enabled(struct bcm_cfg80211 *cfg);

@@ -21,8 +21,8 @@
 #include "iw_messages.h"
 #include "misc.h"
 #include "types.h"
-#include "tz_iwsock.h"
-#include "tzlog.h"
+#include "core/iwsock.h"
+#include "core/log.h"
 
 #define CONTEXT_NAME_SAMSUNG	"TEE Samsung"
 

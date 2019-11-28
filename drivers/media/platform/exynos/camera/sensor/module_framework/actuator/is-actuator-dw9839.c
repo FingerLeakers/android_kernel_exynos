@@ -40,11 +40,11 @@
 #define REG_NCAL_MSB	0x5D /* [D1:D0] - NCAL[9:8] */
 #define REG_NCAL_LSB	0x5E /* [D7:D0] - NCAL[7:0] */
 #define REG_INIT_POS	0x61 /* [D7:D0] - INIT_POSITION[7:0] */
+#define REG_ADC_R_EN	0x12 /* [D0] - ADC READ */
+#define REG_ADC_R_MSB	0x50 /* [D1:D0] - CUR POS[9:8] */
+#define REG_ADC_R_LSB	0x51 /* [D7:D0] - CUR POS[7:0] */
 
-#define DEF_DW9839_FIRST_POSITION		100
-#define DEF_DW9839_SECOND_POSITION		170
-#define DEF_DW9839_FIRST_DELAY			20
-#define DEF_DW9839_SECOND_DELAY			10
+#define DEF_DW9839_INIT_POSITION		300
 
 /* #define MANUAL_PID_CAL_SETTING */
 
@@ -54,12 +54,15 @@ static int sensor_dw9839_init(struct is_actuator *actuator)
 {
 	int ret = 0;
 	struct i2c_client *client = NULL;
+	struct dw9839_actuator_info *actuator_info;
+	u8 ncal_msb, ncal_lsb, pcal_msb, pcal_lsb;
+
+	FIMC_BUG(!actuator->priv_info);
 
 	client = actuator->client;
 	if (unlikely(!client)) {
 		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
 
 	/* delay after power on */
@@ -122,12 +125,35 @@ static int sensor_dw9839_init(struct is_actuator *actuator)
 
 skip_cal:
 	/* set Active Mode */
+	ret = is_sensor_addr8_write8(client, REG_ACTIVE_EN, 0x01);
+	ret = is_sensor_addr8_write8(client, 0x40, 0xF1);
+	ret = is_sensor_addr8_write8(client, 0x54, 0x0E);
 	ret = is_sensor_addr8_write8(client, REG_ACTIVE_EN, 0x11);
 	if (ret < 0)
 		goto p_err;
 
 	/* delay after active mode */
 	usleep_range(3000, 3010);
+	ret = is_sensor_addr8_write8(client, REG_ACT_MODE, 0x00);
+	if (ret < 0)
+		goto p_err;
+	/* read pcal, ncal */
+	actuator_info = (struct dw9839_actuator_info *)actuator->priv_info;
+	ret = is_sensor_addr8_read8(client, REG_PCAL_MSB, &pcal_msb);
+	if (ret < 0)
+		goto p_err;
+	ret = is_sensor_addr8_read8(client, REG_PCAL_LSB, &pcal_lsb);
+	if (ret < 0)
+		goto p_err;
+	ret = is_sensor_addr8_read8(client, REG_NCAL_MSB, &ncal_msb);
+	if (ret < 0)
+		goto p_err;
+	ret = is_sensor_addr8_read8(client, REG_NCAL_LSB, &ncal_lsb);
+	if (ret < 0)
+		goto p_err;
+
+	actuator_info->pcal = (pcal_msb << 8) | pcal_lsb;
+	actuator_info->ncal = (ncal_msb << 8) | ncal_lsb;
 
 	info("%s done\n", __func__);
 p_err:
@@ -143,15 +169,13 @@ static int sensor_dw9839_write_position(struct i2c_client *client, u32 val)
 
 	if (!client->adapter) {
 		err("Could not find adapter!\n");
-		ret = -ENODEV;
-		goto p_err;
+		return -ENODEV;
 	}
 
 	if (val > DW9839_POS_MAX_SIZE) {
 		err("Invalid af position(position : %d, Max : %d).\n",
 					val, DW9839_POS_MAX_SIZE);
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
 
 	val_msb = (val >> 2) & 0x00FF;
@@ -225,22 +249,14 @@ static int sensor_dw9839_init_position(struct i2c_client *client,
 		sensor_dw9839_print_log(init_step);
 
 	} else {
-		ret = sensor_dw9839_write_position(client, DEF_DW9839_FIRST_POSITION);
+		/* REG_INIT_POS range is 0 ~ 255 (1/4 of 0 ~ 1023 position) */
+		ret = is_sensor_addr8_write8(client, REG_INIT_POS, DEF_DW9839_INIT_POSITION >> 2);
 		if (ret < 0)
 			goto p_err;
 
-		msleep(DEF_DW9839_FIRST_DELAY);
+		actuator->position = DEF_DW9839_INIT_POSITION;
 
-		ret = sensor_dw9839_write_position(client, DEF_DW9839_SECOND_POSITION);
-		if (ret < 0)
-			goto p_err;
-
-		msleep(DEF_DW9839_SECOND_DELAY);
-
-		actuator->position = DEF_DW9839_SECOND_POSITION;
-
-		dbg_actuator("initial position %d, %d setting\n",
-			DEF_DW9839_FIRST_POSITION, DEF_DW9839_SECOND_POSITION);
+		dbg_actuator("initial position %d setting\n", DEF_DW9839_INIT_POSITION);
 	}
 
 p_err:
@@ -265,15 +281,16 @@ int sensor_dw9839_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	actuator = (struct is_actuator *)v4l2_get_subdevdata(subdev);
 	if (!actuator) {
 		err("actuator is not detect!\n");
-		goto p_err;
+		return -ENODEV;
 	}
 
 	client = actuator->client;
 	if (unlikely(!client)) {
 		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
+
+	I2C_MUTEX_LOCK(actuator->i2c_lock);
 
 	ret = sensor_dw9839_init(actuator);
 	if (ret < 0)
@@ -288,7 +305,11 @@ int sensor_dw9839_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	pr_info("[%s] time %lu us", __func__, (end.tv_sec - st.tv_sec) * 1000000 + (end.tv_usec - st.tv_usec));
 #endif
 
+	/* dw9839 actuator do not use af cal */
+	actuator->actuator_data.actuator_init = false;
 p_err:
+	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
+
 	return ret;
 }
 
@@ -356,21 +377,21 @@ int sensor_dw9839_actuator_set_position(struct v4l2_subdev *subdev, u32 *info)
 	client = actuator->client;
 	if (unlikely(!client)) {
 		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
 
 	position = *info;
 	if (position > DW9839_POS_MAX_SIZE) {
 		err("Invalid af position(position : %d, Max : %d).\n",
 					position, DW9839_POS_MAX_SIZE);
-		ret = -EINVAL;
-		goto p_err;
+		return -EINVAL;
 	}
 
 	/* debug option : fixed position testing */
 	if (sysfs_actuator.enable_fixed)
 		position = sysfs_actuator.fixed_position;
+
+	I2C_MUTEX_LOCK(actuator->i2c_lock);
 
 	/* position Set */
 	ret = sensor_dw9839_write_position(client, position);
@@ -385,6 +406,78 @@ int sensor_dw9839_actuator_set_position(struct v4l2_subdev *subdev, u32 *info)
 	pr_info("[%s] time %lu us", __func__, (end.tv_sec - st.tv_sec) * 1000000 + (end.tv_usec - st.tv_usec));
 #endif
 p_err:
+	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
+
+	return ret;
+}
+
+int sensor_dw9839_actuator_get_actual_position(struct v4l2_subdev *subdev, u32 *info)
+{
+	int ret = 0;
+	struct is_actuator *actuator;
+	struct i2c_client *client;
+	struct dw9839_actuator_info *actuator_info;
+	u8 pos_msb = 0, pos_lsb = 0;
+	u32 adc_pos;
+	u64 temp;
+
+#ifdef DEBUG_ACTUATOR_TIME
+	struct timeval st, end;
+
+	do_gettimeofday(&st);
+#endif
+
+	FIMC_BUG(!subdev);
+	FIMC_BUG(!info);
+
+	actuator = (struct is_actuator *)v4l2_get_subdevdata(subdev);
+	FIMC_BUG(!actuator);
+
+	client = actuator->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		return -EINVAL;
+	}
+
+	FIMC_BUG(!actuator->priv_info);
+	actuator_info = (struct dw9839_actuator_info *)actuator->priv_info;
+
+	I2C_MUTEX_LOCK(actuator->i2c_lock);
+
+	ret = is_sensor_addr8_write8(client, REG_ADC_R_EN, 1);
+	if (ret < 0)
+		goto p_err;
+	ret = is_sensor_addr8_read8(client, REG_ADC_R_MSB, &pos_msb);
+	if (ret < 0)
+		goto p_err;
+	ret = is_sensor_addr8_read8(client, REG_ADC_R_LSB, &pos_lsb);
+	if (ret < 0)
+		goto p_err;
+
+	/* pos_msb uses [1:0] bit */
+	adc_pos = ((pos_msb & 0x3) << 8) | pos_lsb;
+
+	/* convert adc_pos to 10bit position
+	 * ncal <= adc_pos <= pcal ------> 0 <= 10bit_pos <= 1023
+	 */
+	temp = (u64)(adc_pos - actuator_info->ncal) << ACTUATOR_POS_SIZE_10BIT;
+	*info = (u32)(temp / (u64)(actuator_info->pcal - actuator_info->ncal));
+
+	if (*info > 1023)
+		*info = 1023;
+
+	dbg_actuator("%s: cal(p:%d, n:%d), adc_pos(msb:%d, lsb:%d, sum:%d) -> target_pos(%d) actual pos(%d)\n",
+			__func__, actuator_info->pcal, actuator_info->ncal, pos_msb & 0x3, pos_lsb, adc_pos,
+			actuator->position, *info);
+
+#ifdef DEBUG_ACTUATOR_TIME
+	do_gettimeofday(&end);
+	pr_info("[%s] time %lu us", __func__, (end.tv_sec - st.tv_sec) * 1000000 + (end.tv_usec - st.tv_usec));
+#endif
+
+p_err:
+	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
+
 	return ret;
 }
 
@@ -398,6 +491,14 @@ static int sensor_dw9839_actuator_g_ctrl(struct v4l2_subdev *subdev, struct v4l2
 		ret = sensor_dw9839_actuator_get_status(subdev, &val);
 		if (ret < 0) {
 			err("err!!! ret(%d), actuator status(%d)", ret, val);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
+	case V4L2_CID_ACTUATOR_GET_ACTUAL_POSITION:
+		ret = sensor_dw9839_actuator_get_actual_position(subdev, &val);
+		if (ret < 0) {
+			err("sensor_dw9839_get_actual_position failed(%d)", ret);
 			ret = -EINVAL;
 			goto p_err;
 		}
@@ -525,6 +626,14 @@ static int sensor_dw9839_actuator_probe(struct i2c_client *client,
 	actuator->pos_size_bit = DW9839_POS_SIZE_BIT;
 	actuator->pos_direction = DW9839_POS_DIRECTION;
 	actuator->init_cal_setting = false;
+	actuator->actual_pos_support = true;
+
+	actuator->priv_info = vzalloc(sizeof(struct dw9839_actuator_info));
+	if (!actuator->priv_info) {
+		err("actuator->priv_info alloc fail");
+		ret = -ENOMEM;
+		goto p_err;
+	}
 
 	device->subdev_actuator[sensor_id] = subdev_actuator;
 	device->actuator[sensor_id] = actuator;

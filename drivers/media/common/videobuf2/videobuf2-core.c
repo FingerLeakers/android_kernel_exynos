@@ -1663,6 +1663,7 @@ err:
 		vb->out_fence_fd = -1;
 
 		dma_fence_put(vb->out_fence);
+		vb->out_fence = NULL;
 
 		fput(vb->sync_file->file);
 		vb->sync_file = NULL;

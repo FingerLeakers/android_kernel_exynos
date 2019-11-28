@@ -547,8 +547,10 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 				fmt->iface, fmt->altsetting, err);
 			return -EIO;
 		}
-		dev_dbg(&dev->dev, "setting usb interface %d:%d\n",
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG		
+		dev_info(&dev->dev, "setting usb interface %d:%d\n",
 			fmt->iface, fmt->altsetting);
+#endif
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 		exynos_usb_audio_setintf(dev, fmt->iface, fmt->altsetting, subs->direction);
 		dev_info(&dev->dev, "Endpoint #%x / Direction : %d \n",
@@ -805,9 +807,12 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 	else
 		ret = snd_pcm_lib_malloc_pages(substream,
 					       params_buffer_bytes(hw_params));
-	if (ret < 0)
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	if (ret < 0) {
+		dev_err(&subs->dev->dev,"cannot pcm lib alloc, ret %d\n", ret);
 		return ret;
-
+	}
+#endif
 	subs->pcm_format = params_format(hw_params);
 	subs->period_bytes = params_period_bytes(hw_params);
 	subs->period_frames = params_period_size(hw_params);
@@ -817,9 +822,11 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 
 	fmt = find_format(subs);
 	if (!fmt) {
-		dev_dbg(&subs->dev->dev,
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		dev_err(&subs->dev->dev,
 			"cannot set format: format = %#x, rate = %d, channels = %d\n",
 			   subs->pcm_format, subs->cur_rate, subs->channels);
+#endif
 		return -EINVAL;
 	}
 
@@ -838,7 +845,12 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 	subs->interface = fmt->iface;
 	subs->altset_idx = fmt->altset_idx;
 	subs->need_setup_ep = true;
-
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+	dev_info(&subs->dev->dev,"Dir:%s, intf:%d, alt_id:%d, format:%#x, sample_rate:%d, ch:%d\n",
+			subs->direction? "IN":"OUT", subs->interface,
+			subs->altset_idx, subs->pcm_format, subs->cur_rate,
+			subs->channels);
+#endif
  unlock:
 	snd_usb_unlock_shutdown(subs->stream->chip);
 	return ret;
@@ -1039,7 +1051,7 @@ static int hw_check_valid_format(struct snd_usb_substream *subs,
 	check_fmts.bits[1] = (u32)(fp->formats >> 32);
 	snd_mask_intersect(&check_fmts, fmts);
 	if (snd_mask_empty(&check_fmts)) {
-		hwc_debug("   > check: no supported format %d\n", fp->format);
+		hwc_debug("   > check: no supported format %d\n", fp->formats);
 		return 0;
 	}
 	/* check the channels */

@@ -343,6 +343,9 @@ struct muic_platform_data {
 	/* muic AFC voltage switching function */
 	int (*muic_afc_set_voltage_cb)(int voltage);
 
+	/* muic hv charger disable function */
+	int (*muic_hv_charger_disable_cb)(bool en);
+
 	/* muic check charger init function */
 	int (*muic_hv_charger_init_cb)(void);
 
@@ -518,6 +521,7 @@ void muic_core_hv_init(struct muic_platform_data *muic_pdata);
 bool muic_core_hv_is_hv_dev(struct muic_platform_data *muic_pdata);
 #endif
 int muic_afc_set_voltage(int voltage);
+extern int muic_hv_charger_disable(bool en);
 int muic_hv_charger_init(void);
 int muic_set_hiccup_mode(int on_off);
 #ifdef CONFIG_SEC_FACTORY

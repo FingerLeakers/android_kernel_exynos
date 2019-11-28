@@ -13,3 +13,4 @@ obj-y	+= dsp-hw-debug.o
 obj-y	+= dsp-hw-ctrl.o
 obj-y	+= dsp-hw-memory.o
 obj-y	+= dsp-hw-mailbox.o
+obj-y	+= dsp-hw-dump.o

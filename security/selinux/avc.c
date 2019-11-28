@@ -709,7 +709,11 @@ static struct avc_node *avc_insert(struct selinux_avc *avc,
 		avc_node_populate(node, ssid, tsid, tclass, avd);
 		rc = avc_xperms_populate(node, xp_node);
 		if (rc) {
-			kmem_cache_free(avc_node_cachep, node);
+//[SEC_SELINUX_PORTING_COMMON
+// P191014-03912 - avc_cache.active_nodes is not decresed when "avc_alloc_node-success"&"avc_xperms_populate-fail"
+//			kmem_cache_free(avc_node_cachep, node);
+			avc_node_kill(avc, node);
+//]SEC_SELINUX_PORTING_COMMON
 			return NULL;
 		}
 		head = &avc->avc_cache.slots[hvalue];
@@ -919,7 +923,11 @@ static int avc_update_node(struct selinux_avc *avc,
 	if (orig->ae.xp_node) {
 		rc = avc_xperms_populate(node, orig->ae.xp_node);
 		if (rc) {
-			kmem_cache_free(avc_node_cachep, node);
+//[SEC_SELINUX_PORTING_COMMON
+// P191014-03912 - avc_cache.active_nodes is not decresed when "avc_alloc_node-success"&"avc_xperms_populate-fail"
+//			kmem_cache_free(avc_node_cachep, node);
+			avc_node_kill(avc, node);
+//]SEC_SELINUX_PORTING_COMMON
 			goto out_unlock;
 		}
 	}

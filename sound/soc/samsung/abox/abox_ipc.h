@@ -17,6 +17,8 @@
  * @param[in]	dev	device which invokes this API
  * @param[in]	ipc	ipc
  * @param[in]	size	size of ipc
+ * @param[in]	bundle	bundle data
+ * @param[in]	bundle_size	size of bundle data
  * @return	error code or 0
  */
 extern int abox_ipc_send(struct device *dev, const ABOX_IPC_MSG *ipc,

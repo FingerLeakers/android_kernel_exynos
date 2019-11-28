@@ -14,11 +14,8 @@
 #define __S6E3XA0_WIN2_RESOL_H__
 
 #include "../panel.h"
-static struct panel_vrr s6e3xa0_win2_variable_refresh_rate[] = {
-	{
-		.fps = 60,
-		.mode = VRR_NORMAL_MODE,
-	},
+static struct panel_vrr *s6e3xa0_win2_variable_refresh_rate[] = {
+	&S6E3XA0_VRR[S6E3XA0_VRR_MODE_NORMAL],
 };
 
 static struct panel_resol s6e3xa0_win2_resol[] = {

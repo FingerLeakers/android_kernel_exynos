@@ -646,6 +646,11 @@ static void is_group_cancel(struct is_group *group,
 	}
 
 p_retry:
+	if (!ldr_framemgr->num_frames) {
+		mgerr("ldr_framemgr is already closed", group, group);
+		return;
+	}
+
 	flags = is_group_lock(group, IS_DEVICE_MAX, true);
 
 	next_frame = peek_frame_tail(ldr_framemgr, FS_FREE);
@@ -1329,9 +1334,18 @@ int is_groupmgr_init(struct is_groupmgr *groupmgr,
 			goto p_err;
 		}
 
+
 		if (next) {
 			if (test_bit(IS_GROUP_OTF_INPUT, &next->state)) {
 				set_bit(IS_GROUP_OTF_OUTPUT, &group->state);
+
+				/* In only sensor group, VOTF path is determined by sensor mode. */
+				if (group->slot == GROUP_SLOT_SENSOR) {
+					if (test_bit(IS_GROUP_VOTF_OUTPUT, &group->state))
+						set_bit(IS_GROUP_VOTF_INPUT, &next->state);
+					else
+						clear_bit(IS_GROUP_VOTF_INPUT, &next->state);
+				}
 
 				if (test_bit(IS_GROUP_VOTF_INPUT, &next->state)) {
 					set_bit(IS_GROUP_VOTF_OUTPUT, &group->state);
@@ -1507,7 +1521,7 @@ int is_groupmgr_start(struct is_groupmgr *groupmgr,
 			if (test_bit(IS_GROUP_VOTF_INPUT, &group->state)) {
 				set_bit(IS_SUBDEV_INTERNAL_USE, &group->leader.state);
 
-				ret = is_subdev_internal_s_format(device, 0, leader,
+				ret = is_subdev_internal_s_format(device, IS_DEVICE_ISCHAIN, leader,
 							width, height, 2, NUM_OF_VOTF_BUF, "VOTF");
 				if (ret) {
 					merr("is_subdev_internal_s_format is fail(%d)", device, ret);
@@ -1865,15 +1879,6 @@ int is_group_close(struct is_groupmgr *groupmgr,
 	if (ret)
 		mgerr("is_subdev_close is fail(%d)", group, group, ret);
 
-	group->prev = NULL;
-	group->next = NULL;
-	group->gprev = NULL;
-	group->gnext = NULL;
-	group->parent = NULL;
-	group->child = NULL;
-	group->head = NULL;
-	group->tail = NULL;
-	group->junction = NULL;
 	clear_bit(IS_GROUP_INIT, &group->state);
 	clear_bit(IS_GROUP_OPEN, &group->state);
 	groupmgr->group[stream][slot] = NULL;
@@ -2308,7 +2313,7 @@ int is_group_stop(struct is_groupmgr *groupmgr,
 #endif
 		}
 
-		mgwarn(" %d reqs waiting...(pc %d) smp_resource(%d)", device, head,
+		mgwarn(" %d reqs waiting1...(pc %d) smp_resource(%d)", device, head,
 				framemgr->queued_count[FS_REQUEST], head->pcount,
 				list_empty(&gtask->smp_resource.wait_list));
 		msleep(20);
@@ -2363,6 +2368,18 @@ int is_group_stop(struct is_groupmgr *groupmgr,
 	while (--retry && framemgr->queued_count[FS_PROCESS]) {
 		mgwarn(" %d pros waiting...(pc %d)", device, head, framemgr->queued_count[FS_PROCESS], head->pcount);
 		msleep(20);
+	}
+
+	if (!retry) {
+		mgerr(" waiting(until process empty) is fail(pc %d)", device, head, head->pcount);
+		errcnt++;
+	}
+
+	/* After stopped, wait until remained req_list frame is flushed by group shot cancel */
+	retry = 150;
+	while (--retry && framemgr->queued_count[FS_REQUEST]) {
+		mgwarn(" %d req waiting2...(pc %d)", device, head, framemgr->queued_count[FS_REQUEST], head->pcount);
+		usleep_range(1000, 1001);
 	}
 
 	if (!retry) {

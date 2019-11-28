@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
 */
 #include "mcd_cm_lut.h"
+#include "mcd_cm_lut_tune.h"
 #include "hdr_drv.h"
 #include "hdr_reg.h"
 #include "mcd_cm.h"
@@ -58,21 +59,21 @@ enum tn_index luminance2targetindex(unsigned int luminance)
            (luminance <= 1000) ? INDEX_T1000 : INDEX_T1000;
 }
 
-void get_tables_standard(struct cm_tables * tables,
+void get_tables_standard(struct cm_tables * tables, const unsigned int target_bit,
     const enum gamma_index src_gamma, const enum gamut_index src_gamut, const unsigned int src_max_luminance,
     const enum gamma_index dst_gamma, const enum gamut_index dst_gamut, const unsigned int dst_max_luminance)
 {
     //-------------------------------------------------------------------------------------------------
-    tables->eotf       = 0;
-    tables->gm         = 0;
-    tables->oetf       = 0;
-    tables->sc         = 0;
-    tables->tm_off     = 0;
-    tables->tm_tune    = 0;
-    tables->tm_gamut   = 0;
-    tables->tm_curve   = 0;
-    tables->tm_ext     = 0;
-    tables->tm_dynamic = 0;
+    tables->eotf       = NULL;
+    tables->gm         = NULL;
+    tables->oetf       = NULL;
+    tables->sc         = NULL;
+    tables->tm_off     = NULL;
+    tables->tm_tune    = NULL;
+    tables->tm_gamut   = NULL;
+    tables->tm_curve   = NULL;
+    tables->tm_ext     = NULL;
+    tables->tm_dynamic = NULL;
     //-------------------------------------------------------------------------------------------------
     {
         const enum gamma_type_index i_type = (src_gamma == INDEX_GAMMA_ST2084) ? INDEX_TYPE_PQ  :
@@ -84,7 +85,7 @@ void get_tables_standard(struct cm_tables * tables,
                                      (o_type == INDEX_TYPE_SDR) ? INDEX_T0250 : INDEX_T1000;
         unsigned int half_mode = 0;
         tables->gm = TABLE_GM[src_gamut][dst_gamut];
-        if (((i_type != INDEX_TYPE_SDR) || (o_type != INDEX_TYPE_SDR)) && (tables->gm != 0))
+        if (((i_type != INDEX_TYPE_SDR) || (o_type != INDEX_TYPE_SDR)) && (tables->gm))
             half_mode = 1;
         
         if (i_type == INDEX_TYPE_PQ)
@@ -92,16 +93,16 @@ void get_tables_standard(struct cm_tables * tables,
             const enum pq_index idx_pq = luminance2pqindex(src_max_luminance);
             tables->sc       = TABLE_SC_PQ[idx_td][half_mode];
             tables->tm_curve = TABLE_TM_CURVE_PQ[idx_td][idx_pq];
-            if (tables->tm_curve != 0)
+            if (tables->tm_curve)
                 tables->tm_tune  = TABLE_TM_TUNE_PQ[o_type][idx_pq];
         }
         else if (i_type == INDEX_TYPE_HLG)
         {
-            if ((o_type != INDEX_TYPE_HLG) || (tables->gm != 0))
+            if ((o_type != INDEX_TYPE_HLG) || tables->gm)
             {
                 tables->sc       = TABLE_SC_HLG[o_type][half_mode];
                 tables->tm_curve = TABLE_TM_CURVE_HLG[idx_td];
-                if (tables->tm_curve != 0)
+                if (tables->tm_curve)
                     tables->tm_tune = TABLE_TM_TUNE_HLG[o_type];
             }
         }
@@ -109,58 +110,101 @@ void get_tables_standard(struct cm_tables * tables,
         {
             tables->sc       = TABLE_SC_SDR[o_type][half_mode];
             tables->tm_curve = TABLE_TM_CURVE_SDR[o_type];
-            if (tables->tm_curve != 0)
+            if (tables->tm_curve)
                 tables->tm_tune  = TABLE_TM_TUNE_SDR[o_type];
         }
 
-        if (tables->tm_curve != 0)
+        if (tables->tm_curve)
         {
             tables->tm_gamut = TABLE_TM_LUMINANCE[src_gamut];
             tables->tm_ext   = TABLE_TM_EXT;
         }
-        if (tables->sc != 0)
+        if (tables->sc)
         {
-            if (tables->tm_curve == 0)
+            if (tables->tm_curve == NULL)
             {
                 tables->tm_off = TABLE_TM_OFF;
             }
         }
-        if ((tables->gm != 0) || (tables->sc != 0) || (tables->tm_curve != 0) || (src_gamma != dst_gamma))
+        if (tables->gm || tables->sc || tables->tm_curve || (src_gamma != dst_gamma))
         {
             tables->eotf = (i_type == INDEX_TYPE_HLG) ? TABLE_EOTF_HLG[o_type] : TABLE_EOTF[src_gamma];
-            tables->oetf = (o_type != INDEX_TYPE_PQ ) ? TABLE_OETF[dst_gamma][half_mode] :
-                           (i_type == INDEX_TYPE_PQ ) ? TABLE_OETF_PQ_TO_PQ[idx_td][half_mode] :
-                           (i_type == INDEX_TYPE_HLG) ? TABLE_OETF_HLG_TO_PQ[idx_td][half_mode] :
-                                                        TABLE_OETF_SDR_TO_PQ[idx_td][half_mode];
+            if (o_type != INDEX_TYPE_PQ)
+            {
+                tables->oetf = (target_bit == 8) ? TABLE_OETF08[dst_gamma][half_mode] :
+                                                   TABLE_OETF10[dst_gamma][half_mode];
+            }
+            else
+            {
+                tables->oetf = (i_type == INDEX_TYPE_PQ ) ? TABLE_OETF_PQ_TO_PQ [idx_td][half_mode] :
+                               (i_type == INDEX_TYPE_HLG) ? TABLE_OETF_HLG_TO_PQ[idx_td][half_mode] :
+                                                            TABLE_OETF_SDR_TO_PQ[idx_td][half_mode];
+            }
         }
     }
 }
-void get_tables(struct cm_tables * tables, unsigned int* tm_dynamic,
+void set_tables_OTT_HDR10(struct cm_tables * tables, const enum type_ott type, const unsigned int target_bit) {
+    if (type == OTT_NETFLIX)
+    {
+        tables->eotf       = NETFLIX_TABLE_EOTF;
+        tables->gm         = NETFLIX_TABLE_GM;
+        tables->oetf       = (target_bit == 8) ? NETFLIX_TABLE_OETF08 : NETFLIX_TABLE_OETF10;
+        tables->sc         = NETFLIX_TABLE_SC;
+        tables->tm_curve   = NETFLIX_TABLE_TM_CURVE;
+        tables->tm_gamut   = NETFLIX_TABLE_TM_GAMUT;
+        tables->tm_tune    = NETFLIX_TABLE_TM_TUNE;
+        tables->tm_ext     = TABLE_TM_EXT;
+        tables->tm_dynamic = NULL;
+        tables->tm_off     = NULL;
+    }
+    else if (type == OTT_AMAZON)
+    {
+        tables->eotf       = AMAZON_TABLE_EOTF;
+        tables->gm         = AMAZON_TABLE_GM;
+        tables->oetf       = (target_bit == 8) ? AMAZON_TABLE_OETF08 : AMAZON_TABLE_OETF10;
+        tables->sc         = AMAZON_TABLE_SC;
+        tables->tm_curve   = AMAZON_TABLE_TM_CURVE;
+        tables->tm_gamut   = AMAZON_TABLE_TM_GAMUT;
+        tables->tm_tune    = AMAZON_TABLE_TM_TUNE;
+        tables->tm_ext     = TABLE_TM_EXT;
+        tables->tm_dynamic = NULL;
+        tables->tm_off     = NULL;
+    }
+}
+void get_tables(struct cm_tables * tables, unsigned int* tm_dynamic, unsigned int ott_type,
     const enum gamma_index src_gamma, const enum gamut_index src_gamut, const unsigned int src_max_luminance,
     const enum gamma_index dst_gamma, const enum gamut_index dst_gamut, const unsigned int dst_max_luminance)
 {
-    get_tables_standard(tables, src_gamma, src_gamut, src_max_luminance,
-                                dst_gamma, dst_gamut, dst_max_luminance);
+#ifdef TARGET_SDR_8BIT
+    unsigned int targetBit = ((dst_gamma == INDEX_GAMMA_ST2084) || (dst_gamma == INDEX_GAMMA_HLG)) ? 10 : 8;
+#else
+    unsigned int targetBit = 10;
+#endif
+    get_tables_standard(tables, targetBit,
+        src_gamma, src_gamut, src_max_luminance,
+        dst_gamma, dst_gamut, dst_max_luminance);
     {
         const unsigned int is_hdr10 = ((src_gamma == INDEX_GAMMA_ST2084) && (src_gamut == INDEX_GAMUT_BT2020)) ? 1 : 0;
         //const enum gamma_type_index i_type = (src_gamma == INDEX_GAMMA_ST2084) ? INDEX_TYPE_PQ  :
         //                                     (src_gamma == INDEX_GAMMA_HLG   ) ? INDEX_TYPE_HLG : INDEX_TYPE_SDR;
         const enum gamma_type_index o_type = (dst_gamma == INDEX_GAMMA_ST2084) ? INDEX_TYPE_PQ  :
                                              (dst_gamma == INDEX_GAMMA_HLG   ) ? INDEX_TYPE_HLG : INDEX_TYPE_SDR;
-        {
-            //-------------------------------------------------------------------------------------------------
-            // tuning
-
-
-        }
-        if (((is_hdr10 == 1)) && (o_type == INDEX_TYPE_SDR)) {
-            if (tm_dynamic != NULL) {
-                tables->tm_dynamic = tm_dynamic;
-                tables->tm_curve = 0;
-                tables->tm_gamut = 0;
-                tables->tm_tune  = 0;
-                tables->tm_ext   = 0;
-                tables->tm_off   = 0;
+        if (is_hdr10 == 1) {
+            if ((o_type == INDEX_TYPE_SDR) || ((o_type == INDEX_TYPE_PQ) && (dst_max_luminance > 0)))
+            {
+                if (tm_dynamic)
+                {
+                    tables->tm_dynamic = tm_dynamic;
+                    tables->tm_curve = NULL;
+                    tables->tm_gamut = NULL;
+                    tables->tm_tune  = NULL;
+                    tables->tm_ext   = NULL;
+                    tables->tm_off   = NULL;
+                }
+                else if ((dst_gamma == INDEX_GAMMA_GAMMA2_2) && (dst_gamut == INDEX_GAMUT_DCI_P3))
+                {
+                    set_tables_OTT_HDR10(tables, ott_type, targetBit);
+                }
             }
         }
     }
@@ -168,23 +212,23 @@ void get_tables(struct cm_tables * tables, unsigned int* tm_dynamic,
 void get_con(struct cm_tables * tables, const unsigned int isAlphaPremultiplied, const unsigned int applyDither)
 {
     tables->con = 0;
-    if (tables->gm != 0)
+    if (tables->gm)
         tables->con = tables->con | CON_SFR_GAMUT;
-    if ((tables->sc != 0) || (tables->tm_curve != 0) || (tables->tm_dynamic != 0))
+    if (tables->sc || tables->tm_curve || tables->tm_dynamic)
         tables->con = tables->con | CON_SFR_REMAP;
-    if (tables->eotf != 0)
+    if (tables->eotf)
         tables->con = tables->con | CON_SFR_EOTF;
-    if (tables->oetf != 0)
+    if (tables->oetf)
         tables->con = tables->con | CON_SFR_OETF;
+    
+    if ((tables->con > 0) && (isAlphaPremultiplied))
+        tables->con = tables->con | CON_SFR_ALPHA;
+
+    if (applyDither)
+        tables->con = tables->con | CON_SFR_DITHER;
 
     if (tables->con > 0)
-    {
-        if (isAlphaPremultiplied)
-            tables->con = tables->con | CON_SFR_ALPHA;
-        if (applyDither)
-            tables->con = tables->con | CON_SFR_DITHER;
         tables->con = tables->con | CON_SFR_ALL;
-    }
 }
 
 void customize_dataspace(enum gamma_index * src_gamma, enum gamut_index * src_gamut,
@@ -234,6 +278,19 @@ void mcd_cm_sfr(struct mcd_hdr_device *hdr, struct mcd_cm_params_info *params)
             const enum gamma_type_index o_type = (dst_gamma == INDEX_GAMMA_ST2084) ? INDEX_TYPE_PQ  :
                                                  (dst_gamma == INDEX_GAMMA_HLG   ) ? INDEX_TYPE_HLG :
                                                  INDEX_TYPE_SDR;
+            enum type_ott tott =
+#ifdef TUNE_OTT
+                (params->dst_max_luminance == DEVICE_LUMINANCE) ?
+#if (TUNE_OTT & TUNE_OTT_1000_AMAZON)
+                    (params->src_max_luminance == 1000) ? OTT_AMAZON  :
+#endif
+#if (TUNE_OTT & TUNE_OTT_4000_NETFLIX)
+                    (params->src_max_luminance == 4000) ? OTT_NETFLIX :
+#endif
+                    OTT_NONE :
+#endif
+                OTT_NONE;
+
             //-------------------------------------------------------------------------------------------------
             const unsigned int applyDither = (params->needDither && (o_type == INDEX_TYPE_SDR)) ? 1 : 0;
             //-------------------------------------------------------------------------------------------------
@@ -241,22 +298,24 @@ void mcd_cm_sfr(struct mcd_hdr_device *hdr, struct mcd_cm_params_info *params)
                 const unsigned int valid_hdr10p = (params->hdr10p_lut != NULL) ? (((*params->hdr10p_lut) == 1) ? 1 : 0) : 0;
                 tm_dynamic = ((hdr->id == MCD_L5) && (valid_hdr10p == 1)) ? (params->hdr10p_lut + 1) : NULL;
             }
-            get_tables(&tables, tm_dynamic, src_gamma, src_gamut, params->src_max_luminance,
-                                            dst_gamma, dst_gamut, params->dst_max_luminance);
+
+            get_tables(&tables, tm_dynamic, tott,
+                src_gamma, src_gamut, params->src_max_luminance,
+                dst_gamma, dst_gamut, params->dst_max_luminance);
             get_con(&tables, params->isAlphaPremultiplied, applyDither);
         }
         if (hdr->id != MCD_L5)
         {
             unsigned int set_bypass = 0;
-            tables.tm_ext = 0;
+            tables.tm_ext = NULL;
 
-            if (tables.tm_dynamic != 0)
+            if (tables.tm_dynamic)
                 set_bypass = 1;
 
             if ((hdr->id == MCD_L0) || (hdr->id == MCD_L1))
             {
-                tables.tm_off = 0;
-                if ((tables.tm_curve != 0) || (tables.tm_tune != 0) || (tables.tm_gamut != 0))
+                tables.tm_off = NULL;
+                if (tables.tm_curve || tables.tm_tune || tables.tm_gamut)
                     set_bypass = 1;
             }
             if (set_bypass == 1) {
@@ -266,31 +325,31 @@ void mcd_cm_sfr(struct mcd_hdr_device *hdr, struct mcd_cm_params_info *params)
         }
         // sfr write
         mcd_reg_write(hdr, DPP_MCD_CM_CON_ADDR, tables.con);
-        if (tables.eotf != 0)
+        if (tables.eotf)
             mcd_reg_writes(hdr, DPP_MCD_CM_EOTF_ADDR(0), tables.eotf, DPP_MCD_CM_EOTF_SZ);
-        if (tables.oetf != 0)
+        if (tables.oetf)
             mcd_reg_writes(hdr, DPP_MCD_CM_OETF_ADDR(0), tables.oetf, DPP_MCD_CM_OETF_SZ);
-        if (tables.gm != 0)
+        if (tables.gm)
             mcd_reg_writes(hdr, DPP_MCD_CM_GM_ADDR(0), tables.gm, DPP_MCD_CM_GM_SZ);
-        if (tables.sc != 0)
+        if (tables.sc)
             mcd_reg_writes(hdr, DPP_MCD_CM_SC_ADDR(0), tables.sc, DPP_MCD_CM_SC_SZ);
 
         if (hdr->id == MCD_L5)
         {
-            if (tables.tm_ext != 0)
+            if (tables.tm_ext)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_EXT_ADDR(0), tables.tm_ext, DPP_MCD_CM_TM_EXT_SZ);
-            if (tables.tm_dynamic != 0)
+            if (tables.tm_dynamic)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_DYNAMIC_ADDR(0), tables.tm_dynamic, DPP_MCD_CM_TM_DYNAMIC_SZ);
         }
         if (!((hdr->id == MCD_L0) || (hdr->id == MCD_L1)))
         {
-            if (tables.tm_off != 0)
+            if (tables.tm_off)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_OFF_ADDR(0), tables.tm_off, DPP_MCD_CM_TM_OFF_SZ);
-            if (tables.tm_tune != 0)
+            if (tables.tm_tune)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_TUNE_ADDR(0), tables.tm_tune, DPP_MCD_CM_TM_TUNE_SZ);
-            if (tables.tm_gamut != 0)
+            if (tables.tm_gamut)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_GAMUT_ADDR(0), tables.tm_gamut, DPP_MCD_CM_TM_GAMUT_SZ);
-            if (tables.tm_curve != 0)
+            if (tables.tm_curve)
                 mcd_reg_writes(hdr, DPP_MCD_CM_TM_CURVE_ADDR(0), tables.tm_curve, DPP_MCD_CM_TM_CURVE_SZ);
         }
     }

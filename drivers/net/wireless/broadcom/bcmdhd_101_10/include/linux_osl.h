@@ -69,19 +69,19 @@ extern uint32 g_assert_type;
 #ifndef ASSERT
 #if defined(BCMASSERT_LOG)
 	#define ASSERT(exp) \
-	  do { if (!(exp)) osl_assert(#exp, __FILE__, __LINE__); } while (0)
+		do { if (!(exp)) osl_assert(#exp, __FILE__, __LINE__); } while (0)
 extern void osl_assert(const char *exp, const char *file, int line);
 #else
-	#ifdef __GNUC__
-		#define GCC_VERSION \
-			(__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-		#if GCC_VERSION > 30100
-			#define ASSERT(exp)	do {} while (0)
-		#else
-			/* ASSERT could cause segmentation fault on GCC3.1, use empty instead */
-			#define ASSERT(exp)
-		#endif /* GCC_VERSION > 30100 */
-	#endif /* __GNUC__ */
+#ifdef __GNUC__
+	#define GCC_VERSION \
+		(__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#if GCC_VERSION > 30100
+	#define ASSERT(exp)	do {} while (0)
+#else
+	/* ASSERT could cause segmentation fault on GCC3.1, use empty instead */
+	#define ASSERT(exp)
+#endif /* GCC_VERSION > 30100 */
+#endif /* __GNUC__ */
 #endif
 #endif /* ASSERT */
 

@@ -278,7 +278,7 @@
 				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo11_reg: LDO11M {
@@ -287,7 +287,7 @@
 				regulator-max-microvolt = <1950000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo12_reg: LDO12M {
@@ -296,7 +296,7 @@
 				regulator-max-microvolt = <3350000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo13_reg: LDO13M {

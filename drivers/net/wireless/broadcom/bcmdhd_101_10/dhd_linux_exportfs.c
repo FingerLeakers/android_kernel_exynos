@@ -896,14 +896,13 @@ static struct dhd_attr dhd_attr_antinfo =
 #endif /* MIMO_ANT_SETTING */
 
 #ifdef DHD_PM_CONTROL_FROM_FILE
-extern bool g_pm_control;
 extern uint32 pmmode_val;
 static ssize_t
 show_pm_info(struct dhd_info *dev, char *buf)
 {
 	ssize_t ret = 0;
 
-	if (!g_pm_control) {
+	if (pmmode_val == 0xFF) {
 		ret = scnprintf(buf, PAGE_SIZE -1, "PM mode is not set\n");
 	} else {
 		ret = scnprintf(buf, PAGE_SIZE -1, "%u\n", pmmode_val);
@@ -923,12 +922,6 @@ set_pm_info(struct dhd_info *dev, const char *buf, size_t count)
 		DHD_ERROR(("[WIFI_SEC] %s: Set Invalid value %lu \n",
 			__FUNCTION__, pm_val));
 		return -EINVAL;
-	}
-
-	if (!pm_val) {
-		g_pm_control = TRUE;
-	} else {
-		g_pm_control = FALSE;
 	}
 
 	pmmode_val = (uint32)pm_val;

@@ -48,4 +48,5 @@ void camerapp_hw_votf_set_irq_status(void __iomem *votf_addr, u32 offset, u32 ir
 void camerapp_hw_votf_set_irq(void __iomem *votf_addr, u32 offset, u32 irq);
 void camerapp_hw_votf_set_irq_clear(void __iomem *votf_addr, u32 offset, u32 irq);
 
+bool camerapp_check_votf_ring(void __iomem *base_addr, int module);
 #endif /* CAMERAPP_HW_API_VOTF_H */

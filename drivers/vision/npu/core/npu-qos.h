@@ -29,19 +29,9 @@ struct npu_qos_setting {
 	struct pm_qos_request	npu_qos_req_cpu_cl1;
 	struct pm_qos_request	npu_qos_req_cpu_cl2;
 
-	s32		default_freq_npu;
-	s32		request_freq_npu;
-	s32		current_freq_npu;
-
-	s32		default_freq_dnc;
-	s32		request_freq_dnc;
-	s32		current_freq_dnc;
-
-
 	s32		req_cl0_freq;
 	s32		req_cl1_freq;
 	s32		req_cl2_freq;
-
 	s32		req_npu_freq;
 	s32		req_dnc_freq;
 	s32		req_mif_freq;
@@ -55,6 +45,7 @@ struct npu_session_qos_req {
 	struct list_head list;
 };
 
+struct npu_system;
 int npu_qos_probe(struct npu_system *system);
 int npu_qos_release(struct npu_system *system);
 int npu_qos_start(struct npu_system *system);

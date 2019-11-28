@@ -61,6 +61,9 @@
 				clock-names = "xclkout";
 				clocks = <&clock OSC_AUD>;
 
+				pinctrl-names = "default";
+				pinctrl-0 = <&main_mic_bias_en>;
+
 				MICBIAS1-supply = <&micbias1>;
 				MICBIAS2-supply = <&micbias2>;
 				MICBIAS3-supply = <&micbias3>;
@@ -792,7 +795,25 @@
 	}; /* end of fragment */
 }; /* end of root */
 
+&pinctrl_1 {
+	spk_amp_int: spk-amp-int {
+		samsung,pins = "gpm24-0";
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <0>;
+	};
+};
+
 &pinctrl_4 {
+	main_mic_bias_en: main-mic-bias-en {
+		samsung,pins = "gpp4-1";
+		samsung,pin-function = <1>;
+		samsung,pin-pud = <0>;
+		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <0>;
+	};
+	
 	hsi2c31_amp_bus: hsi2c31-amp-bus {
 		samsung,pins = "gpp4-2", "gpp4-3";
 		samsung,pin-function = <3>;
@@ -827,7 +848,7 @@
 	status = "okay";
 	clock-frequency = <400000>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&hsi2c31_amp_bus>;
+	pinctrl-0 = <&hsi2c31_amp_bus &spk_amp_int>;
 
 	cs35l41_r: cs35l41@40 {
 		#sound-dai-cells = <1>;
@@ -845,6 +866,7 @@
 		cirrus,right-channel-amp;
 		cirrus,mfd-suffix = "_r";
 		cirrus,bd-suffix = "_right";
+		cirrus,use-fsync-errata;
 
 		cirrus,asp-sdout-hiz = <0x3>;
 
@@ -893,6 +915,7 @@
 		cirrus,dsp-part-name = "cs35l40-rcv";
 		cirrus,mfd-suffix = "";
 		cirrus,bd-suffix = "_left";
+		cirrus,use-fsync-errata;
 
 		cirrus,asp-sdout-hiz = <0x3>;
 
@@ -930,55 +953,57 @@
 &abox {
 	ext_bin_0: ext-bin@0 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "APDV_AUDIO_SLSI.bin";
-		samsung,area = <1>;
-		samsung,offset = <0x502000>;
-		samsung,changable;
-	};
-
-	ext_bin_1: ext-bin@1 {
-		compatible = "samsung,abox-ext-bin";
 		samsung,name = "APSV_AUDIO_SLSI.bin";
 		samsung,area = <1>;
 		samsung,offset = <0x582000>;
 		samsung,changable;
 	};
 
-	ext_bin_2: ext-bin@2 {
+	ext_bin_1: ext-bin@1 {
 		compatible = "samsung,abox-ext-bin";
 		samsung,name = "AP_AUDIO_SLSI.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x5ea000>;
+		samsung,offset = <0x5EA000>;
+		samsung,changable;
+	};
+
+	ext_bin_2: ext-bin@2 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "APBargeIn_AUDIO_SLSI.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x652000>;
 		samsung,changable;
 	};
 
 	ext_bin_3: ext-bin@3 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "APBargeIn_AUDIO_SLSI.bin";
+		samsung,name = "APBiBF_AUDIO_SLSI.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x652000>;
+		samsung,offset = <0x655000>;
+		samsung,changable;
 	};
 
 	ext_bin_4: ext-bin@4 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "APBiBF_AUDIO_SLSI.bin";
+		samsung,name = "APDV_AUDIO_SLSI.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x655000>;
+		samsung,offset = <0x656000>;
+		samsung,changable;
 	};
 
 	ext_bin_5: ext-bin@5 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "a2dpcom.bin";
+		samsung,name = "SoundBoosterParam.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x656000>;
+		samsung,offset = <0x6D6000>;
+		samsung,changable;
 	};
 
 	ext_bin_6: ext-bin@6 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "SoundBoosterParam.bin";
+		samsung,name = "bidirmic.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x157C000>;
-		/delete-property/ samsung,changable;
+		samsung,offset = <0x700000>;
 	};
 
 	ext_bin_7: ext-bin@7 {
@@ -986,22 +1011,20 @@
 		samsung,name = "txse1.bin";
 		samsung,area = <1>;
 		samsung,offset = <0x1800000>;
-		/delete-property/ samsung,changable;
 	};
 
 	ext_bin_8: ext-bin@8 {
 		compatible = "samsung,abox-ext-bin";
 		samsung,name = "txse2.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x1980000>;
-		/delete-property/ samsung,changable;
+		samsung,offset = <0x19e4000>;
 	};
 
 	ext_bin_9: ext-bin@9 {
 		compatible = "samsung,abox-ext-bin";
-		samsung,name = "bidirmic.bin";
+		samsung,name = "volumemonitor.bin";
 		samsung,area = <1>;
-		samsung,offset = <0x19B2000>;
+		samsung,offset = <0x1a16000>;
 	};
 
 	ext_bin_10: ext-bin@10 {
@@ -1044,6 +1067,13 @@
 		samsung,name = "listenbackeffect.bin";
 		samsung,area = <1>;
 		samsung,offset = <0x2199000>;
+	};
+
+	ext_bin_16: ext-bin@16 {
+		compatible = "samsung,abox-ext-bin";
+		samsung,name = "a2dpcom.bin";
+		samsung,area = <1>;
+		samsung,offset = <0x21FD000>;
 	};
 };
 

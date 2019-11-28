@@ -3,7 +3,7 @@
 #include "ems.h"
 
 #include <trace/events/ems.h>
-#include <trace/events/sched.h>
+#include <trace/events/ems_debug.h>
 
 struct frt_dom {
 	unsigned int		coverage_ratio;
@@ -434,8 +434,8 @@ static inline int propagate_rt_entity_load_avg(struct sched_rt_entity *se)
 
 	update_tg_rt_util(rt_rq, se, grt_rq);
 
-	trace_frt_rq_load(rt_rq);
-	trace_frt_load_avg_task(rt_task_of(se), &se->avg);
+	trace_frt_load_rt_rq(rt_rq);
+	trace_frt_load_rt_se(se);
 
 	return 1;
 }
@@ -469,6 +469,13 @@ static void propagate_entity_rt_rq(struct sched_rt_entity *se) { }
 /*****************************************************************************/
 /*				PELT FOR FRT				     */
 /*****************************************************************************/
+void frt_init_entity_runnable_average(struct sched_rt_entity *rt_se)
+{
+	struct sched_avg *sa = &rt_se->avg;
+
+	memset(sa, 0, sizeof(*sa));
+}
+
 static void rt_rq_util_change(struct rt_rq *rt_rq)
 {
 	if (&this_rq()->rt == rt_rq)
@@ -494,8 +501,6 @@ accumulate_sum(u64 delta, int cpu, struct sched_avg *sa,
          */
         if (periods) {
                 sa->load_sum = decay_load(sa->load_sum, periods);
-                sa->runnable_load_sum =
-                        decay_load(sa->runnable_load_sum, periods);
                 sa->util_sum = decay_load((u64)(sa->util_sum), periods);
 
                 /*
@@ -510,8 +515,6 @@ accumulate_sum(u64 delta, int cpu, struct sched_avg *sa,
         contrib = cap_scale(contrib, scale_freq);
         if (load)
                 sa->load_sum += load * contrib;
-        if (runnable)
-                sa->runnable_load_sum += runnable * contrib;
         if (running)
                 sa->util_sum += contrib * scale_cpu;
 
@@ -580,7 +583,7 @@ static int __update_load_avg_rt_rq(u64 now, int cpu, struct rt_rq *rt_rq)
 
 		___update_load_avg(&rt_rq->avg);
 
-		trace_frt_rq_load(rt_rq);
+		trace_frt_load_rt_rq(rt_rq);
 
 		return 1;
 	}
@@ -624,13 +627,12 @@ int frt_update_rt_rq_load_avg(struct rq *rq)
 	return decayed;
 }
 
-#define entity_is_task(se)	(!se->my_q)
 static int __update_load_avg_blocked_rt_se(u64 now, int cpu, struct sched_rt_entity *se)
 {
 	if (___update_load_sum(now, cpu, &se->avg, 0)) {
 		___update_load_avg(&se->avg);
 
-		trace_frt_load_avg_task(rt_task_of(se), &se->avg);
+		trace_frt_load_rt_se(se);
 
 		return 1;
 	}
@@ -643,7 +645,7 @@ static int __update_load_avg_rt_se(u64 now, int cpu, struct rt_rq *rt_rq, struct
 	if (___update_load_sum(now, cpu, &se->avg, rt_rq->curr == se)) {
 		___update_load_avg(&se->avg);
 
-		trace_frt_load_avg_task(rt_task_of(se), &se->avg);
+		trace_frt_load_rt_se(se);
 
 		return 1;
 	}
@@ -652,7 +654,7 @@ static int __update_load_avg_rt_se(u64 now, int cpu, struct rt_rq *rt_rq, struct
 }
 
 static void attach_rt_entity_load_avg(struct rt_rq *rt_rq,
-			struct sched_rt_entity *se, int flags)
+			struct sched_rt_entity *se)
 {
 	u32 divider = LOAD_AVG_MAX - 1024 + rt_rq->avg.period_contrib;
 
@@ -677,7 +679,7 @@ static void attach_rt_entity_load_avg(struct rt_rq *rt_rq,
 	rt_rq->avg.util_avg += se->avg.util_avg;
 	rt_rq->avg.util_sum += se->avg.util_sum;
 
-	trace_frt_rq_load(rt_rq);
+	trace_frt_load_rt_rq(rt_rq);
 
 	rt_rq_util_change(rt_rq);
 }
@@ -697,7 +699,7 @@ static void detach_rt_entity_load_avg(struct rt_rq *rt_rq, struct sched_rt_entit
 
 	rt_rq_util_change(rt_rq);
 
-	trace_frt_rq_load(rt_rq);
+	trace_frt_load_rt_rq(rt_rq);
 }
 
 void frt_update_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *se, int flags)
@@ -726,7 +728,7 @@ void frt_update_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *se, int fl
 		 *
 		 * IOW we're enqueueing a task on a new CPU.
 		 */
-		attach_rt_entity_load_avg(rt_rq, se, SCHED_CPUFREQ_MIGRATION);
+		attach_rt_entity_load_avg(rt_rq, se);
 
 	}
 }
@@ -900,7 +902,7 @@ static void attach_rt_entity_rt_rq(struct sched_rt_entity *se)
 
 	/* Synchronize entity with its cfs_rq */
 	frt_update_load_avg(rt_rq, se, sched_feat(ATTACH_AGE_LOAD) ? 0 : SKIP_AGE_LOAD);
-	attach_rt_entity_load_avg(rt_rq, se, 0);
+	attach_rt_entity_load_avg(rt_rq, se);
 	propagate_entity_rt_rq(se);
 }
 
@@ -955,6 +957,20 @@ void frt_init_rt_rq_load(struct rt_rq *rt_rq)
 	raw_spin_lock_init(&rt_rq->removed.lock);
 #endif
 }
+
+void frt_store_sched_avg(struct task_struct *p, struct sched_avg *sa)
+{
+	p->sa_box.last_update_time = sa->last_update_time;
+	p->sa_box.util_avg = sa->util_avg;
+	p->sa_box.util_sum = sa->util_sum;
+}
+
+void frt_sync_sched_avg(struct task_struct *p, struct sched_avg *sa)
+{
+	sa->last_update_time = p->sa_box.last_update_time;
+	sa->util_avg = p->sa_box.util_avg;
+	sa->util_sum = p->sa_box.util_sum;
+}
 /*****************************************************************************/
 /*				SELECT WAKEUP CPU			     */
 /*****************************************************************************/
@@ -1006,6 +1022,9 @@ static int find_victim_rt_rq(struct task_struct *task)
 			if (ecs_is_sparing_cpu(cpu))
 				continue;
 
+			if (!emstune_can_migrate_task(task, cpu))
+				continue;
+
 			if (!rt_task(victim) && !dl_task(victim)) {
 				/* If Non-RT CPU is exist, select it first. */
 				best_cpu = cpu;
@@ -1033,7 +1052,7 @@ static int find_victim_rt_rq(struct task_struct *task)
 			if (victim_rt)
 				frt_set_victim_flag(cpu_rq(best_cpu)->curr);
 
-			trace_frt_stat(task, &task->rt.avg, best_cpu,
+			trace_frt_select_task_rq(task, &task->rt.avg, best_cpu,
 					victim_rt ? "VICTIM-RT" : "VICTIM-FAIR");
 			return best_cpu;
 		}
@@ -1102,7 +1121,7 @@ static int check_cache_hot(struct task_struct *task, int flags, int *best_cpu)
 	if (cpumask_test_cpu(*best_cpu, cpu_coregroup_mask(cpu))) {
 		task->rt.sync_flag = 1;
 		*best_cpu = cpu;
-		trace_frt_stat(task, &task->rt.avg, *best_cpu, "CACHE-HOT");
+		trace_frt_select_task_rq(task, &task->rt.avg, *best_cpu, "CACHE-HOT");
 		return true;
 	}
 
@@ -1121,6 +1140,7 @@ static int find_idle_cpu(struct task_struct *task)
 
 	cpumask_and(&candidate_cpus, &task->cpus_allowed, cpu_active_mask);
 	cpumask_and(&candidate_cpus, &candidate_cpus, get_available_cpus());
+	cpumask_and(&candidate_cpus, &candidate_cpus, emstune_cpus_allowed(task));
 	if (unlikely(cpumask_empty(&candidate_cpus)))
 		cpumask_copy(&candidate_cpus, &task->cpus_allowed);
 
@@ -1158,7 +1178,7 @@ static int find_idle_cpu(struct task_struct *task)
 			if (check_cache_hot(task, wake_flags, &best_cpu))
 				return best_cpu;
 #endif
-			trace_frt_stat(task, &task->rt.avg, best_cpu, "IDLE-FIRST");
+			trace_frt_select_task_rq(task, &task->rt.avg, best_cpu, "IDLE-FIRST");
 			return best_cpu;
 		}
 
@@ -1181,12 +1201,13 @@ static int find_recessive_cpu(struct task_struct *task)
 	/* Make sure the mask is initialized first */
 	lowest_mask = this_cpu_cpumask_var_ptr(local_cpu_mask);
 	if (unlikely(!lowest_mask)) {
-		trace_frt_stat(task, &task->rt.avg, best_cpu, "NA LOWESTMSK");
+		trace_frt_select_task_rq(task, &task->rt.avg, best_cpu, "NA LOWESTMSK");
 		return best_cpu;
 	}
 	/* update the per-cpu local_cpu_mask (lowest_mask) */
 	cpupri_find(&task_rq(task)->rd->cpupri, task, lowest_mask);
 	cpumask_and(&candidate_cpus, lowest_mask, cpu_active_mask);
+	cpumask_and(&candidate_cpus, &candidate_cpus, emstune_cpus_allowed(task));
 
 	cpu = find_prefer_cpu(task, &reverse);
 	prefer_dom = dom = per_cpu(frt_rqs, cpu);
@@ -1213,7 +1234,7 @@ static int find_recessive_cpu(struct task_struct *task)
 			if (check_cache_hot(task, wake_flags, &best_cpu))
 				return best_cpu;
 #endif
-			trace_frt_stat(task, &task->rt.avg, best_cpu,
+			trace_frt_select_task_rq(task, &task->rt.avg, best_cpu,
 				rt_task(cpu_rq(best_cpu)->curr) ? "RT-RECESS" : "FAIR-RECESS");
 			return best_cpu;
 		}
@@ -1273,7 +1294,7 @@ int frt_find_lowest_rq(struct task_struct *task)
 	int best_cpu = -1;
 
 	if (task->nr_cpus_allowed == 1) {
-		trace_frt_stat(task, &task->rt.avg, best_cpu, "NA ALLOWED");
+		trace_frt_select_task_rq(task, &task->rt.avg, best_cpu, "NA ALLOWED");
 		return best_cpu;
 	}
 
@@ -1305,7 +1326,7 @@ out:
 		best_cpu = task_rq(task)->cpu;
 
 	if (!cpumask_test_cpu(best_cpu, cpu_active_mask)) {
-		trace_frt_stat(task, &task->rt.avg, best_cpu, "NOTHING_VALID");
+		trace_frt_select_task_rq(task, &task->rt.avg, best_cpu, "NOTHING_VALID");
 		best_cpu = -1;
 	}
 

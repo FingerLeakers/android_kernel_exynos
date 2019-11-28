@@ -22,7 +22,6 @@ int dsp_memory_map_buffer(struct dsp_memory *mem, struct dsp_buffer *buf)
 	struct dma_buf_attachment *attach;
 	struct sg_table *sgt;
 	dma_addr_t iova;
-	void *kvaddr;
 
 	dsp_enter();
 	if (buf->fd <= 0) {
@@ -77,20 +76,6 @@ int dsp_memory_map_buffer(struct dsp_memory *mem, struct dsp_buffer *buf)
 	dsp_dbg("buffer (%d/%zu/%#x/%d)\n",
 			buf->fd, buf->dbuf_size, (int)iova, buf->cached);
 
-	/* TODO: remove after dma-coherent confirmation */
-	if (buf->cached) {
-		kvaddr = dma_buf_vmap(dbuf);
-		if (IS_ERR(kvaddr)) {
-			ret = PTR_ERR(kvaddr);
-			dsp_err("Failed to map kvaddr(%d)\n", ret);
-			ion_iovmm_unmap(attach, iova);
-			goto p_err_map_dva;
-		}
-		buf->kvaddr = kvaddr;
-	} else {
-		buf->kvaddr = NULL;
-	}
-
 	dsp_leave();
 	return 0;
 p_err_map_dva:
@@ -107,10 +92,6 @@ p_err:
 int dsp_memory_unmap_buffer(struct dsp_memory *mem, struct dsp_buffer *buf)
 {
 	dsp_enter();
-	/* TODO: remove after dma-coherent confirmation */
-	if (buf->kvaddr)
-		dma_buf_vunmap(buf->dbuf, buf->kvaddr);
-
 	ion_iovmm_unmap(buf->attach, buf->iova);
 	dma_buf_unmap_attachment(buf->attach, buf->sgt, buf->dir);
 	dma_buf_detach(buf->dbuf, buf->attach);
@@ -459,7 +440,7 @@ int dsp_memory_probe(struct dsp_system *sys)
 
 	pmem = &pmem_list[DSP_PRIV_MEM_FW];
 	snprintf(pmem->name, DSP_PRIV_MEM_NAME_LEN, "fw");
-	pmem->size = PAGE_ALIGN(DSP_FW_SIZE);
+	pmem->size = PAGE_ALIGN(DSP_MEMORY_MAX_SIZE - DSP_FW_STACK_SIZE);
 	pmem->min_size = PAGE_ALIGN(DSP_FW_SIZE);
 	pmem->max_size = PAGE_ALIGN(DSP_MEMORY_MAX_SIZE - DSP_FW_STACK_SIZE);
 	pmem->flags = 0;

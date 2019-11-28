@@ -13,24 +13,6 @@ EXTRA_CFLAGS += -DDSMS_WHITELIST_IGNORE_NAME_SUFFIXES_ENABLE
 
 # Debugging options:
 
-DEBUG_ENABLE=true
-DEBUG_TRACE_CALLS_ENABLE=true
-DEBUG_WHITELIST_ENABLE=false
-
 ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
-
-ifeq ($(DEBUG_ENABLE), true)
 #    CFLAGS_dsms_debug.o := -DDEBUG
-    EXTRA_CFLAGS += -DDSMS_DEBUG_ENABLE
-
-    ifeq ($(DEBUG_TRACE_CALLS_ENABLE), true)
-        EXTRA_CFLAGS += -DDSMS_DEBUG_TRACE_DSMS_CALLS
-    endif
-
-    ifeq ($(DEBUG_WHITELIST_ENABLE), true)
-        EXTRA_CFLAGS += -DDSMS_DEBUG_WHITELIST
-    endif
-
-endif
-
 endif

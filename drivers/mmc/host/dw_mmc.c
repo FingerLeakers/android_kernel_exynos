@@ -2390,6 +2390,46 @@ static void dw_mci_ssclk_control(struct mmc_host *mmc, int enable)
 		drv_data->ssclk_control(host, enable);
 }
 
+static void dw_mci_restore_host(struct mmc_host *mmc)
+{
+	struct dw_mci_slot *slot = mmc_priv(mmc);
+	struct dw_mci *host = slot->host;
+	const struct dw_mci_drv_data *drv_data = host->drv_data;
+	int ret;
+
+	if (!dw_mci_ctrl_reset(host, SDMMC_CTRL_ALL_RESET_FLAGS)) {
+		dw_mci_ciu_clk_dis(host);
+		ret = -ENODEV;
+	}
+
+	if (host->use_dma && host->dma_ops->init)
+		host->dma_ops->init(host);
+
+	if (host->quirks & DW_MCI_QUIRK_HWACG_CTRL) {
+		if (drv_data && drv_data->hwacg_control)
+			drv_data->hwacg_control(host, HWACG_Q_ACTIVE_EN);
+	} else {
+		if (drv_data && drv_data->hwacg_control)
+			drv_data->hwacg_control(host, HWACG_Q_ACTIVE_DIS);
+	}
+
+	/*
+	 * Restore the initial value at FIFOTH register
+	 * And Invalidate the prev_blksz with zero
+	 */
+	 mci_writel(host, FIFOTH, host->fifoth_val);
+	 host->prev_blksz = 0;
+
+	/* Put in max timeout */
+	mci_writel(host, TMOUT, 0xFFFFFFFF);
+
+	mci_writel(host, RINTSTS, 0xFFFFFFFF);
+	mci_writel(host, INTMASK, SDMMC_INT_CMD_DONE | SDMMC_INT_DATA_OVER |
+		   SDMMC_INT_TXDR | SDMMC_INT_RXDR | DW_MCI_ERROR_FLAGS);
+	mci_writel(host, CTRL, SDMMC_CTRL_INT_ENABLE);
+
+}
+
 static const struct mmc_host_ops dw_mci_ops = {
 	.request		= dw_mci_request,
 	.pre_req		= dw_mci_pre_req,
@@ -2406,6 +2446,7 @@ static const struct mmc_host_ops dw_mci_ops = {
 	.init_card 		= dw_mci_init_card,
 	.prepare_hs400_tuning 	= dw_mci_prepare_hs400_tuning,
 	.ssclk_control 		= dw_mci_ssclk_control,
+	.restore_host		= dw_mci_restore_host,
 };
 
 static void dw_mci_request_end(struct dw_mci *host, struct mmc_request *mrq)
@@ -2574,7 +2615,8 @@ static bool dw_mci_clear_pending_data_complete(struct dw_mci *host)
 		return false;
 
 	/* Extra paranoia just like dw_mci_clear_pending_cmd_complete() */
-	WARN_ON(del_timer_sync(&host->dto_timer));
+	if (host->pdata->sw_drto)
+		WARN_ON(del_timer_sync(&host->dto_timer));
 	clear_bit(EVENT_DATA_COMPLETE, &host->pending_events);
 
 	return true;
@@ -3416,6 +3458,7 @@ static void dw_mci_timeout_timer(struct timer_list *t)
 {
 	struct dw_mci *host = from_timer(host, t, sto_timer);
 	struct mmc_request *mrq;
+	unsigned int int_mask;
 
 	if (host && host->mrq) {
 		host->sw_timeout_chk = true;
@@ -3460,8 +3503,21 @@ static void dw_mci_timeout_timer(struct timer_list *t)
 		}
 
 		spin_unlock(&host->lock);
+
 		dw_mci_ciu_reset(host->dev, host);
 		dw_mci_fifo_reset(host->dev, host);
+		int_mask = mci_readl(host, INTMASK);
+		if (~int_mask & (SDMMC_INT_CMD_DONE | SDMMC_INT_DATA_OVER | DW_MCI_ERROR_FLAGS)) {
+			if (host->use_dma)
+				int_mask |= (SDMMC_INT_CMD_DONE | SDMMC_INT_DATA_OVER |
+						DW_MCI_ERROR_FLAGS);
+			else
+				int_mask |= (SDMMC_INT_CMD_DONE | SDMMC_INT_DATA_OVER |
+						SDMMC_INT_TXDR | SDMMC_INT_RXDR |
+						DW_MCI_ERROR_FLAGS);
+			mci_writel(host, INTMASK, int_mask);
+		}
+
 		spin_lock(&host->lock);
 		dw_mci_request_end(host, mrq);
 		host->state = STATE_IDLE;
@@ -4235,25 +4291,8 @@ int dw_mci_probe(struct dw_mci *host)
 			drv_data->hwacg_control(host, HWACG_Q_ACTIVE_DIS);
 	}
 
-	if (drv_data && drv_data->access_control_get_dev) {
-		ret = drv_data->access_control_get_dev(host);
-		if (ret == -EPROBE_DEFER)
-			dev_err(host->dev, "%s: Access control device not probed yet.(%d)\n",
-				__func__, ret);
-		else if (ret)
-			dev_err(host->dev, "%s, Fail to get Access control device.(%d)\n",
-				__func__, ret);
-	}
-
-	if (drv_data && drv_data->access_control_sec_cfg) {
-		ret = drv_data->access_control_sec_cfg(host);
-		if (ret)
-			dev_err(host->dev, "%s: Fail to control security config.(%x)\n",
-				__func__, ret);
-	}
-
-	if (drv_data && drv_data->access_control_init) {
-		ret = drv_data->access_control_init(host);
+	if (drv_data && drv_data->crypto_sec_cfg) {
+		ret = drv_data->crypto_sec_cfg(host, true);
 		if (ret)
 			dev_err(host->dev, "%s: Fail to initialize access control.(%d)\n",
 				__func__, ret);
@@ -4581,17 +4620,10 @@ int dw_mci_runtime_resume(struct device *dev)
 			drv_data->hwacg_control(host, HWACG_Q_ACTIVE_DIS);
 	}
 
-	if (drv_data && drv_data->access_control_sec_cfg) {
-		ret = drv_data->access_control_sec_cfg(host);
+	if (drv_data && drv_data->crypto_sec_cfg) {
+		ret = drv_data->crypto_sec_cfg(host, false);
 		if (ret)
 			dev_err(host->dev, "%s: Fail to control security config.(%x)\n",
-				__func__, ret);
-	}
-
-	if (drv_data && drv_data->access_control_resume) {
-		ret = drv_data->access_control_resume(host);
-		if (ret)
-			dev_err(host->dev, "%s: Fail to resume access control.(%d)\n",
 				__func__, ret);
 	}
 

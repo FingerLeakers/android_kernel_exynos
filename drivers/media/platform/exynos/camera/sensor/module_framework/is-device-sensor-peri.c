@@ -217,7 +217,7 @@ static void is_sensor_init_expecting_dm(struct is_device_sensor *device,
 	u32 m_fcount;
 	u32 sensitivity;
 	u64 exposureTime, long_exposure, short_exposure;
-	u32 long_dgain, long_again, short_dgain, short_again;
+	u32 dgain, again, long_dgain, long_again, short_dgain, short_again;
 	struct is_sensor_ctl *module_ctl;
 	camera2_sensor_ctl_t *sensor_ctrl = NULL;
 	camera2_sensor_uctl_t *sensor_uctrl = NULL;
@@ -227,7 +227,7 @@ static void is_sensor_init_expecting_dm(struct is_device_sensor *device,
 		goto p_err;
 	}
 
-	m_fcount = (device->fcount + 1) % EXPECT_DM_NUM;
+	m_fcount = device->fcount % EXPECT_DM_NUM;
 
 	module_ctl = &cis->sensor_ctls[m_fcount];
 	sensor_ctrl = &module_ctl->cur_cam20_sensor_ctrl;
@@ -237,29 +237,23 @@ static void is_sensor_init_expecting_dm(struct is_device_sensor *device,
 	exposureTime = sensor_uctrl->exposureTime;
 	long_exposure = sensor_uctrl->longExposureTime;
 	short_exposure = sensor_uctrl->shortExposureTime;
+	dgain = sensor_uctrl->digitalGain;
+	again = sensor_uctrl->analogGain;
 	long_dgain = sensor_uctrl->longDigitalGain;
 	long_again = sensor_uctrl->longAnalogGain;
 	short_dgain = sensor_uctrl->shortDigitalGain;
 	short_again = sensor_uctrl->shortAnalogGain;
 
-	if (module_ctl->valid_sensor_ctrl == true) {
-		if (sensor_ctrl->sensitivity)
-			sensitivity = sensor_ctrl->sensitivity;
-
-		if (sensor_ctrl->exposureTime)
-			exposureTime = sensor_ctrl->exposureTime;
-	}
-
-	for (i = m_fcount + 2; i < m_fcount + EXPECT_DM_NUM; i++) {
+	for (i = m_fcount; i < m_fcount + EXPECT_DM_NUM; i++) {
 		cis->expecting_sensor_dm[i % EXPECT_DM_NUM].sensitivity = sensitivity;
 		cis->expecting_sensor_dm[i % EXPECT_DM_NUM].exposureTime = exposureTime;
 
 		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].longExposureTime = long_exposure;
 		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].shortExposureTime = short_exposure;
-		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].digitalGain = long_dgain;
-		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].analogGain = long_dgain;
+		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].digitalGain = dgain;
+		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].analogGain = again;
 		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].longDigitalGain = long_dgain;
-		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].longAnalogGain = long_dgain;
+		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].longAnalogGain = long_again;
 		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].shortDigitalGain = short_dgain;
 		cis->expecting_sensor_udm[i % EXPECT_DM_NUM].shortAnalogGain = short_again;
 	}
@@ -375,6 +369,20 @@ int is_sensor_init_mode_change_thread(struct is_device_sensor_peri *sensor_peri)
 
 	/* Always first applyed to mode change when camera on */
 	sensor_peri->mode_change_first = true;
+	sensor_peri->cis_global_complete = false;
+
+	kthread_init_work(&sensor_peri->cis_global_work, is_sensor_global_setting_work_fn);
+	kthread_init_worker(&sensor_peri->cis_global_worker);
+	sensor_peri->cis_global_task = kthread_run(kthread_worker_fn,
+						&sensor_peri->cis_global_worker,
+						"is_sensor_global_setting");
+	if (IS_ERR(sensor_peri->cis_global_task)) {
+		err("failed to create kthread for global setting, err(%ld)",
+			PTR_ERR(sensor_peri->cis_global_task));
+		ret = PTR_ERR(sensor_peri->cis_global_task);
+		sensor_peri->cis_global_task = NULL;
+		return ret;
+	}
 
 	kthread_init_work(&sensor_peri->mode_change_work, is_sensor_mode_change_work_fn);
 	kthread_init_worker(&sensor_peri->mode_change_worker);
@@ -386,6 +394,12 @@ int is_sensor_init_mode_change_thread(struct is_device_sensor_peri *sensor_peri)
 			PTR_ERR(sensor_peri->mode_change_task));
 		ret = PTR_ERR(sensor_peri->mode_change_task);
 		sensor_peri->mode_change_task = NULL;
+
+		if (kthread_stop(sensor_peri->cis_global_task))
+			err("kthread_stop fail");
+
+		sensor_peri->cis_global_task = NULL;
+
 		return ret;
 	}
 
@@ -401,60 +415,75 @@ void is_sensor_deinit_mode_change_thread(struct is_device_sensor_peri *sensor_pe
 		sensor_peri->mode_change_task = NULL;
 		info("%s:\n", __func__);
 	}
+
+	if (sensor_peri->cis_global_task != NULL) {
+		if (kthread_stop(sensor_peri->cis_global_task))
+			err("kthread_stop fail");
+
+		sensor_peri->cis_global_task = NULL;
+		info("%s:\n", __func__);
+	}
 }
 
-int is_sensor_initial_setting_low_exposure(struct is_device_sensor_peri *sensor_peri)
+void is_sensor_global_setting_work_fn(struct kthread_work *work)
 {
+	struct is_device_sensor_peri *sensor_peri;
+	struct is_cis *cis;
 	int ret = 0;
-	struct is_device_sensor *device;
-	struct ae_param expo, again, dgain;
-	u32 tgain[EXPOSURE_GAIN_MAX] = {1000, 1000, 1000};
 
-	FIMC_BUG(!sensor_peri);
+	TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
+	sensor_peri = container_of(work, struct is_device_sensor_peri, cis_global_work);
 
-	device = v4l2_get_subdev_hostdata(sensor_peri->subdev_cis);
-	FIMC_BUG(!device);
+	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
 
-	dbg_sensor(1, "[%s] expo(%d), again(%d), dgain(%d)\n", __func__,
-			sensor_peri->cis.cis_data->low_expo_start, 100, 100);
-
-	again.long_val = again.short_val = again.middle_val = 1000;
-	dgain.long_val = dgain.short_val = dgain.middle_val = 1000;
-	expo.long_val = expo.short_val = expo.middle_val =
-			sensor_peri->cis.cis_data->low_expo_start;
-
-	is_sensor_peri_s_analog_gain(device, again);
-	is_sensor_peri_s_digital_gain(device, dgain);
-	is_sensor_peri_s_exposure_time(device, expo);
-
-#if !defined(DISABLE_LIB)
-	sensor_peri->sensor_interface.cis_itf_ops.request_reset_expo_gain(&sensor_peri->sensor_interface,
-			EXPOSURE_GAIN_COUNT_3,
-			&expo.long_val,
-			tgain,
-			&again.long_val,
-			&dgain.long_val);
-#endif
-
-	return ret;
+	ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+	if (ret)
+		err("%s: cis global setting fail(%d)", __func__, ret);
+	else
+		sensor_peri->cis_global_complete = true;
 }
 
 void is_sensor_mode_change_work_fn(struct kthread_work *work)
 {
 	struct is_device_sensor_peri *sensor_peri;
 	struct is_cis *cis;
+	int ret = 0;
 
-	TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
 	sensor_peri = container_of(work, struct is_device_sensor_peri, mode_change_work);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
 
-	/* cis global setting is only set to first mode change time */
-	if (sensor_peri->mode_change_first == true) {
-		CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+	if (IS_ENABLED(USE_CIS_GLOBAL_WORK)) {
+		/* wait global setting thread end */
+		kthread_flush_work(&sensor_peri->cis_global_work);
+
+		/* If global complete flag not set, call global setting  again */
+		if (!sensor_peri->cis_global_complete) {
+			ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+			if (ret) {
+				err("cis global setting fail(%d)", ret);
+				return;
+			}
+			sensor_peri->cis_global_complete = true;
+		}
+	} else {
+		TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
+		if (sensor_peri->mode_change_first == true) {
+			ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+			if (ret) {
+				err("cis global setting fail(%d)", ret);
+				TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
+				return;
+			}
+		}
 	}
 
-	CALL_CISOPS(cis, cis_mode_change, cis->subdev, cis->cis_data->sens_config_index_cur);
+	ret = CALL_CISOPS(cis, cis_mode_change, cis->subdev, cis->cis_data->sens_config_index_cur);
+	if (ret) {
+		err("cis mode setting fail(%d)", ret);
+		TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
+		return;
+	}
 
 	sensor_peri->mode_change_first = false;
 	TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
@@ -594,6 +623,8 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 	struct is_device_sensor_peri *sensor_peri;
 	struct v4l2_subdev *subdev_flash;
 	struct ae_param expo, dgain, again;
+	struct is_sensor_ctl module_ctl;
+	u32 m_fcount[2];
 	u32 tgain[EXPOSURE_GAIN_MAX];
 	u32 step = 0;
 	FIMC_BUG_VOID(!data);
@@ -664,7 +695,7 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 		again.long_val = again.middle_val = flash->flash_ae.long_again[step];
 		again.short_val = flash->flash_ae.short_again[step];
 		dgain.long_val = dgain.middle_val = flash->flash_ae.long_dgain[step];
-		dgain.short_val = flash->flash_ae.short_again[step];
+		dgain.short_val = flash->flash_ae.short_dgain[step];
 		tgain[0] = tgain[2] = flash->flash_ae.long_tgain[step];
 		tgain[1] = flash->flash_ae.short_tgain[step];
 
@@ -683,6 +714,14 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 			&again.val,
 			&dgain.val);
 	}
+
+	/* update exp/gain/sensitivity meta for apply flash capture frame */
+	m_fcount[0] = m_fcount[1] = (device->fcount + 1) % EXPECT_DM_NUM;
+	module_ctl.cur_cam20_sensor_udctrl.sensitivity =
+			is_sensor_calculate_sensitivity_by_tgain(tgain[0]);
+	module_ctl.valid_sensor_ctrl = false;
+	is_sensor_ctl_update_gains(device, &module_ctl, m_fcount, again, dgain);
+	is_sensor_ctl_update_exposure(device, m_fcount, expo);
 
 	dbg_flash("[%s][FLASH] mode %d, intensity %d, firing time %d us, step %d\n", __func__,
 			flash->flash_data.mode,
@@ -1240,6 +1279,15 @@ int is_sensor_peri_notify_flash_fire(struct v4l2_subdev *subdev, void *arg)
 		flash->flash_ae.frm_num_pre_fls,
 		flash->flash_ae.frm_num_main_fls[flash->flash_ae.main_fls_strm_on_off_step]);
 
+	/* update flash expecting dm in current mode */
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].flashMode =
+							flash->flash_data.mode;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].firingPower =
+							flash->flash_data.intensity;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].firingTime =
+							flash->flash_data.firing_time_us;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].flashState =
+		sensor_peri->flash->flash_data.flash_fired ? FLASH_STATE_FIRED : FLASH_STATE_READY;
 
 	if (flash->flash_ae.frm_num_pre_fls != 0) {
 		dbg_flash("[%s](%d), pre-flash schedule\n", __func__, vsync_count);
@@ -1277,6 +1325,7 @@ int is_sensor_peri_notify_actuator_init(struct v4l2_subdev *subdev)
 
 	if (test_bit(IS_SENSOR_ACTUATOR_AVAILABLE, &sensor_peri->peri_state) &&
 		(sensor_peri->actuator->actuator_data.actuator_init)) {
+
 		ret = v4l2_subdev_call(sensor_peri->subdev_actuator, core, init, 0);
 		if (ret)
 			warn("Actuator init fail\n");
@@ -1329,6 +1378,16 @@ int is_sensor_peri_pre_flash_fire(struct v4l2_subdev *subdev, void *arg)
 			flash->flash_data.intensity, flash->flash_data.firing_time_us);
 		ret = is_sensor_flash_fire(sensor_peri, flash->flash_data.intensity);
 	}
+
+	/* update flash expecting dm in current mode */
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].flashMode =
+							flash->flash_data.mode;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].firingPower =
+							flash->flash_data.intensity;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].firingTime =
+							flash->flash_data.firing_time_us;
+	flash->expecting_flash_dm[vsync_count % EXPECT_DM_NUM].flashState =
+		sensor_peri->flash->flash_data.flash_fired ? FLASH_STATE_FIRED : FLASH_STATE_READY;
 
 	/* HACK: reset uctl */
 	flash_uctl->flashMode = 0;
@@ -1851,8 +1910,6 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 	}
 
 	if (on) {
-		is_sensor_init_expecting_dm(device, cis);
-
 		/* If sensor setting @work is queued or executing,
 		   wait for it to finish execution when working s_format */
 		kthread_flush_work(&sensor_peri->mode_change_work);
@@ -1892,29 +1949,35 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 		}
 
 #ifdef USE_AF_SLEEP_MODE
-		if (sensor_peri->actuator && sensor_peri->actuator->actuator_ops) {
-			ret = CALL_ACTUATOROPS(sensor_peri->actuator, set_active, sensor_peri->subdev_actuator, 1);
-			if (ret) {
-				err("[SEN:%d] actuator set active fail\n", module->sensor_id);
-				goto p_err;
+#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU) && defined(USE_TELE_OIS_AF_COMMON_INTERFACE)
+		if (sensor_peri->mcu && sensor_peri->mcu->mcu_ctrl_actuator) {
+			if (sensor_peri->mcu->ois) {
+				ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_set_af_active, sensor_peri->subdev_mcu, 1);
+				if (ret < 0) {
+					err("ois set af active fail");
+					goto p_err;
+				}
+			}
+		} else
+#endif
+		{
+			if (sensor_peri->actuator && sensor_peri->actuator->actuator_ops) {
+				ret = CALL_ACTUATOROPS(sensor_peri->actuator, set_active, sensor_peri->subdev_actuator, 1);
+				if (ret) {
+					err("[SEN:%d] actuator set active fail\n", module->sensor_id);
+					goto p_err;
+				}
 			}
 		}
 #endif
 		if (sensor_peri->laser_af && test_bit(IS_SENSOR_LASER_AF_AVAILABLE, &sensor_peri->peri_state))
 			CALL_LASEROPS(sensor_peri->laser_af, resume, sensor_peri->subdev_laser_af);
 
-		/* stream on sequence */
-		if (cis->need_mode_change == false && cis->use_initial_ae == false) {
-			/* only first time after camera on */
-#ifdef CAMERA_REAR2
-			is_sensor_setting_mode_change(sensor_peri);
-#else
-			is_sensor_initial_setting_low_exposure(sensor_peri);
-#endif
-			cis->need_mode_change = true;
-		} else {
-			is_sensor_setting_mode_change(sensor_peri);
-		}
+		/* set mode_change or initial exp/gain and stats */
+		is_sensor_setting_mode_change(sensor_peri);
+
+		/* Initialize expecting dm from "before stream on value" */
+		is_sensor_init_expecting_dm(device, cis);
 
 		if (sensor_peri->mcu) {
 			if (sensor_peri->mcu->aperture
@@ -1969,11 +2032,24 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 #endif
 
 #ifdef USE_AF_SLEEP_MODE
-		if (sensor_peri->actuator && sensor_peri->actuator->actuator_ops
-			&& (dual_info->mode != IS_DUAL_MODE_NOTHING)) {
-			ret = CALL_ACTUATOROPS(sensor_peri->actuator, set_active, sensor_peri->subdev_actuator, 0);
-			if (ret) {
-				err("[SEN:%d] actuator set sleep fail\n", module->sensor_id);
+#if defined(CONFIG_CAMERA_USE_INTERNAL_MCU) && defined(USE_TELE_OIS_AF_COMMON_INTERFACE)
+		if (sensor_peri->mcu && sensor_peri->mcu->mcu_ctrl_actuator) {
+			if (sensor_peri->mcu && sensor_peri->mcu->ois) {
+				ret = CALL_OISOPS(sensor_peri->mcu->ois, ois_set_af_active, sensor_peri->subdev_mcu, 0);
+				if (ret < 0) {
+					err("ois set af active fail");
+					goto p_err;
+				}
+			}
+		} else
+#endif
+		{
+			if (sensor_peri->actuator && sensor_peri->actuator->actuator_ops
+				&& (dual_info->mode != IS_DUAL_MODE_NOTHING)) {
+				ret = CALL_ACTUATOROPS(sensor_peri->actuator, set_active, sensor_peri->subdev_actuator, 0);
+				if (ret) {
+					err("[SEN:%d] actuator set sleep fail\n", module->sensor_id);
+				}
 			}
 		}
 #endif
@@ -1981,14 +2057,17 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 		if (sensor_peri->laser_af && test_bit(IS_SENSOR_LASER_AF_AVAILABLE, &sensor_peri->peri_state))
 			CALL_LASEROPS(sensor_peri->laser_af, suspend, sensor_peri->subdev_laser_af);
 
-		if (sensor_peri->flash != NULL && dual_info->mode == IS_DUAL_MODE_NOTHING) {
-			sensor_peri->flash->flash_data.mode = CAM2_FLASH_MODE_OFF;
-			if (sensor_peri->flash->flash_data.flash_fired == true) {
-				ret = is_sensor_flash_fire(sensor_peri, 0);
-				if (ret) {
-					err("failed to turn off flash at flash expired handler\n");
+		if (sensor_peri->flash != NULL) {
+			if (dual_info->mode == IS_DUAL_MODE_NOTHING) {
+				sensor_peri->flash->flash_data.mode = CAM2_FLASH_MODE_OFF;
+				if (sensor_peri->flash->flash_data.flash_fired == true) {
+					ret = is_sensor_flash_fire(sensor_peri, 0);
+					if (ret) {
+						err("failed to turn off flash at flash expired handler\n");
+					}
 				}
 			}
+			memset(&sensor_peri->flash->expecting_flash_dm[0], 0, sizeof(camera2_flash_dm_t) * EXPECT_DM_NUM);
 		}
 
 		memset(&sensor_peri->cis.cur_sensor_uctrl, 0, sizeof(camera2_sensor_uctl_t));

@@ -12,6 +12,7 @@
 #define IS_PDP_H
 
 #include "is-subdev-ctrl.h"
+#include "is-work.h"
 
 extern int debug_pdp;
 
@@ -23,27 +24,6 @@ enum is_pdp_state {
 	IS_PDP_VOTF_ONESHOT_FIRST_FRAME,
 };
 
-enum pdp_work_map {
-	PDP_WORK_STAT0,
-	PDP_WORK_STAT1,
-	PDP_WORK_MAX,
-};
-
-struct pdp_work {
-	struct list_head		list;
-	u32				fcount;
-};
-
-struct pdp_work_list {
-	u32				id;
-	struct pdp_work			work[SUBDEV_INTERNAL_BUF_MAX];
-	spinlock_t			slock;
-	struct list_head		work_free_head;
-	u32				work_free_cnt;
-	struct list_head		work_request_head;
-	u32				work_request_cnt;
-};
-
 struct pdp_lic_lut {
 	u32				mode;
 	u32				param0;
@@ -51,9 +31,16 @@ struct pdp_lic_lut {
 	u32				param2;
 };
 
+enum pdp_irq_src {
+	PDP_INT1,
+	PDP_INT2,
+	PDP_INT_MAX,
+};
+
 struct is_pdp {
 	struct device			*dev;
 	const char			*aclk_name;
+	ulong				freq; /* Hz */
 	u32				id;
 	u32				max_num;
 	u32				prev_instance;
@@ -61,7 +48,7 @@ struct is_pdp {
 	void __iomem			*cmn_base;
 	resource_size_t			regs_start;
 	resource_size_t			regs_end;
-	int				irq;
+	int				irq[PDP_INT_MAX];
 	struct mutex			control_lock;
 
 	void __iomem			*mux_base; /* select CSIS ch(e.g. CSIS0~CSIS5) */
@@ -85,10 +72,10 @@ struct is_pdp {
 	struct list_head		list_of_paf_action;
 
 	atomic_t			frameptr_stat0;
+
 	struct workqueue_struct		*wq_stat;
-	struct work_struct		work_stat0;
-	struct work_struct		work_stat1;
-	struct pdp_work_list		work_list[PDP_WORK_MAX];
+	struct work_struct		work_stat[WORK_PDP_MAX];
+	struct is_work_list		work_list[WORK_PDP_MAX];
 	struct is_framemgr              *stat_framemgr;
 
 	const char			*int1_str[BITS_PER_LONG];
@@ -98,6 +85,7 @@ struct is_pdp {
 	bool				stat_enable;
 
 	int				vc_ext_sensor_mode;
+	u32				err_cnt_oneshot;
 };
 
 

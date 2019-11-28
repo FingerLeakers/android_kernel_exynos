@@ -993,6 +993,7 @@ int set_previous_dm(struct is_sensor_interface *itf)
 
 int get_sensor_flag(struct is_sensor_interface *itf,
 		enum is_sensor_stat_control *stat_control_type,
+		enum is_sensor_hdr_mode *hdr_mode_type,
 		u32 *exposure_count)
 {
 	int ex_mode, ret = 0;
@@ -1014,23 +1015,29 @@ int get_sensor_flag(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
-	if (sensor_peri->cis.cis_data->is_data.wdr_enable) {
-		ex_mode = is_sensor_g_ex_mode(sensor);
-
+	ex_mode = is_sensor_g_ex_mode(sensor);
+	if (ex_mode == EX_AEB) {
+		*stat_control_type = SENSOR_STAT_NOTHING;
+		*exposure_count = EXPOSURE_GAIN_COUNT_2;
+		*hdr_mode_type = SENSOR_HDR_MODE_2AEB;
+	} else if (sensor_peri->cis.cis_data->is_data.wdr_enable) {
 		if (ex_mode == EX_3DHDR) {
 			*stat_control_type = SENSOR_STAT_LSI_3DHDR;
 			*exposure_count = EXPOSURE_GAIN_COUNT_3;
+			*hdr_mode_type = SENSOR_HDR_MODE_3HDR;
 		} else {
 			*stat_control_type = SENSOR_STAT_NOTHING;
 			*exposure_count = EXPOSURE_GAIN_COUNT_2;
+			*hdr_mode_type = SENSOR_HDR_MODE_2HDR;
 		}
 	} else {
 		*stat_control_type = SENSOR_STAT_NOTHING;
 		*exposure_count = EXPOSURE_GAIN_COUNT_1;
+		*hdr_mode_type = SENSOR_HDR_MODE_SINGLE;
 	}
 
-	dbg_sensor(1, "[%s] stat_control_type: %d, exposure_count: %d\n", __func__,
-			*stat_control_type, *exposure_count);
+	dbg_sensor(1, "[%s] stat_control_type: %d, exposure_count: %d, hdr_mode_type: %d\n", __func__,
+			*stat_control_type, *exposure_count, *hdr_mode_type);
 
 	return ret;
 }
@@ -1720,6 +1727,7 @@ int request_reset_expo_gain(struct is_sensor_interface *itf,
 	u32 end_index = 0;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	ae_setting *auto_exposure;
+	enum exynos_sensor_position module_position;
 
 	FIMC_BUG(!itf);
 	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
@@ -1727,6 +1735,13 @@ int request_reset_expo_gain(struct is_sensor_interface *itf,
 	FIMC_BUG(!tgain);
 	FIMC_BUG(!again);
 	FIMC_BUG(!dgain);
+	
+	itf->cis_itf_ops.get_module_position(itf, &module_position);
+
+	if (module_position == SENSOR_POSITION_REAR_TOF) {
+		info("%s : reset_expo skip for ToF", __func__);
+		return ret;
+	}
 
 	dbg_sensor(1, "[%s] cnt(%d): exposure(L(%d), S(%d), M(%d))\n", __func__, num_data,
 		expo[EXPOSURE_GAIN_LONG], expo[EXPOSURE_GAIN_SHORT], expo[EXPOSURE_GAIN_MIDDLE]);
@@ -1950,6 +1965,7 @@ int copy_sensor_ctl(struct is_sensor_interface *itf,
 	if (shot != NULL) {
 		cis_data->is_data.paf_mode = shot->uctl.isModeUd.paf_mode;
 		cis_data->is_data.wdr_mode = shot->uctl.isModeUd.wdr_mode;
+		cis_data->is_data.sensor_hdr_mode = shot->uctl.isModeUd.sensor_hdr_mode;
 		cis_data->is_data.disparity_mode = shot->uctl.isModeUd.disparity_mode;
 
 		sensor_ctl->ctl_frame_number = shot->dm.request.frameCount;
@@ -2534,7 +2550,8 @@ int request_flash(struct is_sensor_interface *itf,
 			/* main-flash on off*/
 			sensor_peri->flash->flash_ae.main_fls_ae_reset = true;
 			sensor_peri->flash->flash_ae.frm_num_main_fls[0] = vsync_cnt + 1;
-			sensor_peri->flash->flash_ae.frm_num_main_fls[1] = vsync_cnt + 2;
+			sensor_peri->flash->flash_ae.frm_num_main_fls[1] =
+				(vsync_cnt + 1) + sensor_peri->flash->flash_ae.flash_capture_cnt;
 		} else {
 			/* pre-flash on & flash off */
 			ret = set_flash(itf, vsync_cnt + i, mode, intensity, time);
@@ -2561,6 +2578,10 @@ int request_flash_expo_gain(struct is_sensor_interface *itf,
 
 	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
 	FIMC_BUG(!sensor_peri);
+
+	sensor_peri->flash->flash_ae.flash_capture_cnt = flash_ae->flash_capture_cnt;
+
+	dbg_flash("[%s] capture cnt(%d)\n", __func__, flash_ae->flash_capture_cnt);
 
 	for (i = 0; i < 2; i++) {
 		sensor_peri->flash->flash_ae.expo[i] = flash_ae->expo[i];
@@ -2609,16 +2630,17 @@ int update_flash_dynamic_meta(struct is_sensor_interface *itf,
 	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
 
 	if (sensor_peri->flash) {
-		dm->flash.flashMode = sensor_peri->flash->flash_data.mode;
-		dm->flash.firingPower = sensor_peri->flash->flash_data.intensity;
-		dm->flash.firingTime = sensor_peri->flash->flash_data.firing_time_us;
-		if (sensor_peri->flash->flash_data.flash_fired)
-			dm->flash.flashState = FLASH_STATE_FIRED;
-		else
-			dm->flash.flashState = FLASH_STATE_READY;
+		dm->flash.flashMode =
+			sensor_peri->flash->expecting_flash_dm[frame_count % EXPECT_DM_NUM].flashMode;
+		dm->flash.firingPower =
+			sensor_peri->flash->expecting_flash_dm[frame_count % EXPECT_DM_NUM].firingPower;
+		dm->flash.firingTime =
+			sensor_peri->flash->expecting_flash_dm[frame_count % EXPECT_DM_NUM].firingTime;
+		dm->flash.flashState =
+			sensor_peri->flash->expecting_flash_dm[frame_count % EXPECT_DM_NUM].flashState;
 
-		dbg_flash("[%s]: mode(%d), power(%d), time(%lld), state(%d)\n",
-				__func__, dm->flash.flashMode,
+		dbg_flash("[%s][F:%d]: mode(%d), power(%d), time(%lld), state(%d)\n",
+				__func__, frame_count, dm->flash.flashMode,
 				dm->flash.firingPower,
 				dm->flash.firingTime,
 				dm->flash.flashState);
@@ -2858,7 +2880,6 @@ int get_vc_dma_buf_info(struct is_sensor_interface *itf,
 	struct is_module_enum *module;
 	struct v4l2_subdev *subdev_module;
 	struct is_device_sensor *sensor;
-	int ch;
 
 	memset(buf_info, 0, sizeof(struct vc_buf_info_t));
 	buf_info->stat_type = VC_STAT_TYPE_INVALID;
@@ -2882,42 +2903,16 @@ int get_vc_dma_buf_info(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
-	switch (request_data_type) {
-	case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-	case VC_BUF_DATA_TYPE_SENSOR_STAT2:
-		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-			if (sensor->cfg->output[ch].type == VC_TAILPDAF)
-				break;
-		}
-		break;
-	case VC_BUF_DATA_TYPE_GENERAL_STAT1:
-		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-			if (sensor->cfg->output[ch].type == VC_PRIVATE)
-				break;
-		}
-		break;
-	case VC_BUF_DATA_TYPE_GENERAL_STAT2:
-		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-			if (sensor->cfg->output[ch].type == VC_MIPISTAT)
-				break;
-		}
-		break;
-	default:
-		err("invalid data type(%d)", request_data_type);
-		return -EINVAL;
-	}
-	
-	if (ch == CSI_VIRTUAL_CH_MAX) {
-		err("requested stat. type(%d) is not supported with current config",
-								request_data_type);
-		return -EINVAL;
-	}
-
 	buf_info->stat_type = module->vc_extra_info[request_data_type].stat_type;
 	buf_info->sensor_mode = module->vc_extra_info[request_data_type].sensor_mode;
 	buf_info->width = sensor->cfg->input[CSI_VIRTUAL_CH_1].width;
 	buf_info->height = sensor->cfg->input[CSI_VIRTUAL_CH_1].height;
 	buf_info->element_size = module->vc_extra_info[request_data_type].max_element;
+
+	if (!buf_info->width || !buf_info->height) {
+		mwarn("[M%d] Unsupported mode for vc dma buf", module, module->sensor_id);
+		return -ENODEV;
+	}
 
 #if defined(CONFIG_CAMERA_PAFSTAT)
 	switch (buf_info->stat_type) {
@@ -3481,6 +3476,32 @@ int get_distance(struct is_sensor_interface *itf, u32 *distance_mm, u32 *confide
 }
 #endif
 
+int get_tof_af_data(struct is_sensor_interface *itf, struct tof_data_t *data)
+{
+	int ret=1;
+	int i;
+	struct is_core *core;
+	struct is_device_sensor *device;
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	for(i=0;i < IS_SENSOR_COUNT; i++){
+		device = &core->sensor[i];
+		is_search_sensor_module_with_position(&core->sensor[i],
+				SENSOR_POSITION_REAR_TOF, &module);
+		if (module)
+			break;
+	}
+	WARN_ON(!module);
+
+	sensor_peri = (struct is_device_sensor_peri *)module->private_data;
+	if(!data)
+		return -EINVAL;
+	data = &sensor_peri->tof_af.tof_af_data;
+	return ret;
+}
+
 int request_wb_gain(struct is_sensor_interface *itf,
 		u32 gr_gain, u32 r_gain, u32 b_gain, u32 gb_gain)
 {
@@ -3744,6 +3765,7 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	itf->laser_af_itf_ops.get_distance = get_distance;
 #endif
 
+	itf->tof_af_itf_ops.get_data = get_tof_af_data;
 	/* MIPI-CSI interface */
 	itf->csi_itf_ops.get_vc_dma_buf = get_vc_dma_buf;
 	itf->csi_itf_ops.put_vc_dma_buf = put_vc_dma_buf;

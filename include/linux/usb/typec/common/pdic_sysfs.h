@@ -52,6 +52,7 @@ enum ccic_sysfs_property {
 	CCIC_SYSFS_PROP_RAM_TEST,
 	CCIC_SYSFS_PROP_SBU_ADC,
 	CCIC_SYSFS_PROP_VSAFE0V_STATUS,
+	CCIC_SYSFS_PROP_OVP_IC_SHUTDOWN,
 	CCIC_SYSFS_PROP_MAX_COUNT,
 };
 struct _ccic_data_t;
@@ -67,6 +68,8 @@ typedef struct _ccic_sysfs_property_t {
 				 size_t size);
 	/* Decides whether userspace can change a specific property */
 	int (*property_is_writeable)(struct _ccic_data_t *pccic_data,
+				      enum ccic_sysfs_property prop);
+	int (*property_is_writeonly)(struct _ccic_data_t *pccic_data,
 				      enum ccic_sysfs_property prop);
 } ccic_sysfs_property_t, *pccic_sysfs_property_t;
 

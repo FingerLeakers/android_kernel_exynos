@@ -16,6 +16,7 @@
 #define F1_4	140
 #define F1_5	150
 #define F1_7	170
+#define F1_8	180
 #define F1_9	190
 #define F2_0	200
 #define F2_2	220
@@ -55,7 +56,8 @@
 #define SENSOR_SCENARIO_G_ACTIVE_CAMERA	7 /* TODO: sync */
 #define SENSOR_SCENARIO_ADDITIONAL_POWER	8
 #define SENSOR_SCENARIO_VIRTUAL	9
-#define SENSOR_SCENARIO_MAX		10
+#define SENSOR_SCENARIO_MATCH_SEQ	10
+#define SENSOR_SCENARIO_MAX		11
 
 #define PIN_NONE	0
 #define PIN_OUTPUT	1
@@ -65,6 +67,9 @@
 #define PIN_REGULATOR	5
 #define PIN_I2C		6
 #define PIN_MCLK	7
+
+#define MATCH_ENTRY_MAX	3
+#define MATCH_GROUP_MAX	5
 
 #define SHARED_PIN0	0
 #define SHARED_PIN1	1
@@ -76,7 +81,8 @@
 #define SHARED_PIN7	7
 #define SHARED_PIN8	8
 #define SHARED_PIN9	9
-#define MAX_SENSOR_SHARED_RSC	10
+#define SHARED_PIN10	10
+#define MAX_SENSOR_SHARED_RSC	11
 
 #define SRT_ACQUIRE	1
 #define SRT_RELEASE	2
@@ -160,7 +166,7 @@
 #define HW_FORMAT_RAW12		0x2C
 #define HW_FORMAT_RAW14		0x2D
 #define HW_FORMAT_USER		0x30
-#define HW_FORMAT_UNKNOWN	0x3F
+#define HW_FORMAT_UNKNOWN	0x0
 
 #define HW_FORMAT_MASK		0x3F
 #define HW_EXT_FORMAT_MASK	0x1FF
@@ -182,6 +188,7 @@
 #define	EX_PDAF_OFF		5
 #define	EX_3DHDR		6
 #define	EX_PDSTAT_OFF		7
+#define	EX_AEB			8
 
 /* LRTE */
 #define LRTE_DISABLE		0
@@ -250,13 +257,13 @@
 #define SENSOR_NAME_S5KGW2		54
 #define SENSOR_NAME_S5KGH1		55
 #define SENSOR_NAME_S5KHM1		56
-
 #define SENSOR_NAME_S5K4EC		57
 #define SENSOR_NAME_S5K2P6		58
 #define SENSOR_NAME_S5K3L6		59
 #define SENSOR_NAME_S5K2X5		60
 #define SENSOR_NAME_S5KGM2		61
 #define SENSOR_NAME_S5KGW1		62
+#define SENSOR_NAME_S5KGD1		63
 
 /* 101~200: SONY sensors */
 #define SENSOR_NAME_IMX135		101
@@ -281,6 +288,7 @@
 #define SENSOR_NAME_IMX582		120
 #define SENSOR_NAME_IMX616		121
 #define SENSOR_NAME_IMX518		122
+#define SENSOR_NAME_IMX686		123
 /* 201~255: Other vendor sensors */
 #define SENSOR_NAME_SR261		201
 #define SENSOR_NAME_OV5693		202

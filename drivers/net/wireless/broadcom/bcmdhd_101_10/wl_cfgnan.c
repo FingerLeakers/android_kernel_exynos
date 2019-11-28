@@ -2474,20 +2474,6 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	NAN_MUTEX_UNLOCK();
 	mutex_unlock(&cfg->if_sync);
 
-	for (i = 0; i < NAN_MAX_NDI; i++) {
-		/* Create NDI using the information provided by user space */
-		if (nancfg->ndi[i].in_use && !nancfg->ndi[i].created) {
-			ret = wl_cfgnan_data_path_iface_create_delete_handler(ndev, cfg,
-				nancfg->ndi[i].ifname,
-				NAN_WIFI_SUBCMD_DATA_PATH_IFACE_CREATE, dhdp->up);
-			if (ret) {
-				WL_ERR(("failed to create ndp interface [%d]\n", ret));
-				goto fail;
-			}
-			nancfg->ndi[i].created = true;
-		}
-	}
-
 	nan_buf = MALLOCZ(cfg->osh, nan_buf_size);
 	if (!nan_buf) {
 		WL_ERR(("%s: memory allocation failed\n", __func__));
@@ -2703,6 +2689,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	if ((ret = wl_cfgnan_get_capablities_handler(ndev, cfg, &capabilities))
 			== BCME_OK) {
 		nancfg->max_ndp_count = capabilities.max_ndp_sessions;
+		nancfg->max_ndi_supported = capabilities.max_ndi_interfaces;
 		nancfg->nan_ndp_peer_info = MALLOCZ(cfg->osh,
 				nancfg->max_ndp_count * sizeof(nan_ndp_peer_t));
 		if (!nancfg->nan_ndp_peer_info) {
@@ -2711,10 +2698,36 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 			goto fail;
 		}
 
+		if (!nancfg->ndi) {
+			nancfg->ndi = MALLOCZ(cfg->osh,
+					nancfg->max_ndi_supported * sizeof(*nancfg->ndi));
+			if (!nancfg->ndi) {
+				WL_ERR(("%s: memory allocation failed\n", __func__));
+				ret = BCME_NOMEM;
+				goto fail;
+			}
+		}
 	} else {
 		WL_ERR(("wl_cfgnan_get_capablities_handler failed, ret = %d\n", ret));
 		goto fail;
 	}
+
+	BCM_REFERENCE(i);
+#ifdef NAN_IFACE_CREATE_ON_UP
+	for (i = 0; i < nancfg->max_ndi_supported; i++) {
+		/* Create NDI using the information provided by user space */
+		if (nancfg->ndi[i].in_use && !nancfg->ndi[i].created) {
+			ret = wl_cfgnan_data_path_iface_create_delete_handler(ndev, cfg,
+				nancfg->ndi[i].ifname,
+				NAN_WIFI_SUBCMD_DATA_PATH_IFACE_CREATE, dhdp->up);
+			if (ret) {
+				WL_ERR(("failed to create ndp interface [%d]\n", ret));
+				goto fail;
+			}
+			nancfg->ndi[i].created = true;
+		}
+	}
+#endif /* NAN_IFACE_CREATE_ON_UP */
 
 	/* Check if NDPE is capable and use_ndpe_attr is set by framework */
 	/* TODO: For now enabling NDPE by default as framework is not setting use_ndpe_attr
@@ -2770,6 +2783,16 @@ fail:
 			WL_ERR(("failed to delete NDI[%d]\n", ret));
 		}
 		mutex_unlock(&cfg->if_sync);
+		if (nancfg->nan_ndp_peer_info) {
+			MFREE(cfg->osh, nancfg->nan_ndp_peer_info,
+					nancfg->max_ndp_count * sizeof(nan_ndp_peer_t));
+			nancfg->nan_ndp_peer_info = NULL;
+		}
+		if (nancfg->ndi) {
+			MFREE(cfg->osh, nancfg->ndi,
+					nancfg->max_ndi_supported * sizeof(*nancfg->ndi));
+			nancfg->ndi = NULL;
+		}
 	}
 	if (nan_buf) {
 		MFREE(cfg->osh, nan_buf, NAN_IOCTL_BUF_SIZE);
@@ -2894,6 +2917,11 @@ wl_cfgnan_disable_cleanup(struct bcm_cfg80211 *cfg)
 		MFREE(cfg->osh, nancfg->nan_ndp_peer_info,
 			nancfg->max_ndp_count * sizeof(nan_ndp_peer_t));
 		nancfg->nan_ndp_peer_info = NULL;
+	}
+	if (nancfg->ndi) {
+		MFREE(cfg->osh, nancfg->ndi,
+			nancfg->max_ndi_supported * sizeof(*nancfg->ndi));
+		nancfg->ndi = NULL;
 	}
 	return;
 }
@@ -3405,6 +3433,12 @@ wl_cfgnan_cancel_ranging(struct net_device *ndev,
 
 	NAN_DBG_ENTER();
 
+	if (*range_id == 0) {
+		WL_ERR(("Invalid Range ID\n"));
+		ret = BCME_BADARG;
+		goto fail;
+	}
+
 	if (cfg->nancfg->version >= NAN_RANGE_EXT_CANCEL_SUPPORT_VER) {
 		size_of_iov = sizeof(rng_cncl);
 	} else {
@@ -3739,9 +3773,8 @@ wl_cfgnan_suspend_geofence_rng_session(struct net_device *ndev,
 				&ranging_inst->range_id, cancel_flags, &status);
 		if (unlikely(ret) || unlikely(status)) {
 			WL_ERR(("Geofence Range suspended failed, err = %d, status = %d,"
-				" range_id = %d, suspend_reason = %d, " MACDBG " \n",
-				ret, status, ranging_inst->range_id,
-				suspend_reason, MAC2STRDBG(peer_addr)));
+				"suspend_reason = %d, " MACDBG " \n",
+				ret, status, suspend_reason, MAC2STRDBG(peer_addr)));
 		}
 		ranging_inst->range_status = NAN_RANGING_REQUIRED;
 		WL_INFORM_MEM(("Geofence Range suspended, range_id = %d,"
@@ -3791,11 +3824,6 @@ wl_cfgnan_terminate_ranging_session(struct bcm_cfg80211 *cfg,
 	dhd_pub_t *dhd = (struct dhd_pub *)(cfg->pub);
 	int8 index;
 #endif /* RTT_SUPPORT */
-
-	if (ranging_inst->range_id == 0) {
-		/* Make sure, range inst is valid in caller */
-		return;
-	}
 
 	if (ranging_inst->num_svc_ctx != 0) {
 		/*
@@ -4069,8 +4097,7 @@ wl_cfgnan_ranging_allowed(struct bcm_cfg80211 *cfg)
 		}
 	}
 
-	ASSERT(rng_progress_count <= NAN_MAX_RANGING_SSN_ALLOWED);
-	if (rng_progress_count == NAN_MAX_RANGING_SSN_ALLOWED) {
+	if (rng_progress_count >= NAN_MAX_RANGING_SSN_ALLOWED) {
 		return FALSE;
 	}
 	return TRUE;
@@ -5016,7 +5043,8 @@ wl_cfgnan_publish_handler(struct net_device *ndev,
 		WL_ERR(("%s: fail to handle pub, ret=%d\n", __FUNCTION__, ret));
 		goto fail;
 	}
-	WL_INFORM_MEM(("[NAN] Service published for instance id:%d\n", cmd_data->pub_id));
+	WL_INFORM_MEM(("[NAN] Service published for instance id:%d is_update %d\n",
+		cmd_data->pub_id, cmd_data->svc_update));
 
 fail:
 	NAN_MUTEX_UNLOCK();
@@ -5102,7 +5130,8 @@ wl_cfgnan_subscribe_handler(struct net_device *ndev,
 		WL_ERR(("%s: fail to handle svc, ret=%d\n", __FUNCTION__, ret));
 		goto fail;
 	}
-	WL_INFORM_MEM(("[NAN] Service subscribed for instance id:%d\n", cmd_data->sub_id));
+	WL_INFORM_MEM(("[NAN] Service subscribed for instance id:%d is_update %d\n",
+		cmd_data->sub_id, cmd_data->svc_update));
 
 fail:
 	NAN_MUTEX_UNLOCK();
@@ -5644,7 +5673,7 @@ exit:
 	capabilities->max_match_filter_len = MAX_MATCH_FILTER_LEN;
 	capabilities->max_total_match_filter_len = MAX_TOTAL_MATCH_FILTER_LEN;
 	capabilities->max_service_specific_info_len = NAN_MAX_SERVICE_SPECIFIC_INFO_LEN;
-	capabilities->max_ndi_interfaces = MAX_NDI_INTERFACES;
+	capabilities->max_ndi_interfaces = NAN_MAX_NDI;
 	capabilities->max_ndp_sessions = MAX_NDP_SESSIONS;
 	capabilities->max_app_info_len = MAX_APP_INFO_LEN;
 	capabilities->max_queued_transmit_followup_msgs = MAX_QUEUED_TX_FOLLOUP_MSGS;
@@ -5863,6 +5892,7 @@ wl_cfgnan_data_path_iface_create_delete_handler(struct net_device *ndev,
 	NAN_DBG_ENTER();
 
 	if (busstate != DHD_BUS_DOWN) {
+		ASSERT(cfg->nancfg->ndi);
 		if (type == NAN_WIFI_SUBCMD_DATA_PATH_IFACE_CREATE) {
 			if ((idx = wl_cfgnan_get_ndi_idx(cfg)) < 0) {
 				WL_ERR(("No free idx for NAN NDI\n"));
@@ -7032,11 +7062,6 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 	uint32 ingress_limit = svc_info->ingress_limit;
 	uint32 egress_limit = svc_info->egress_limit;
 
-	WL_DBG(("wl_cfgnan_check_ranging_cond: Checking the svc ranging cnd %d"
-		" distance %d prev_distance %d, range_rep_ev_once %d\n",
-		svc_ind, distance, prev_distance, range_rep_ev_once));
-	WL_DBG(("wl_cfgnan_check_ranging_cond: Checking the SVC ingress and"
-		" egress limits %d %d\n", ingress_limit, egress_limit));
 	if (svc_ind & NAN_RANGE_INDICATION_CONT) {
 		*ranging_ind = NAN_RANGE_INDICATION_CONT;
 		notify = TRUE;
@@ -7044,6 +7069,7 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 				__FUNCTION__, __LINE__));
 		goto done;
 	}
+
 	if (svc_ind == (NAN_RANGE_INDICATION_INGRESS |
 		NAN_RANGE_INDICATION_EGRESS)) {
 		if (IN_GEOFENCE(ingress_limit, egress_limit, distance)) {
@@ -7052,10 +7078,10 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 				(!IN_GEOFENCE(ingress_limit, egress_limit,
 				prev_distance))) {
 				notify = TRUE;
-				if (distance < ingress_limit) {
-					*ranging_ind = NAN_RANGE_INDICATION_INGRESS;
-				} else {
+				if (distance > prev_distance) {
 					*ranging_ind = NAN_RANGE_INDICATION_EGRESS;
+				} else {
+					*ranging_ind = NAN_RANGE_INDICATION_INGRESS;
 				}
 				WL_ERR(("\n%s :Svc has geofence Ind %d res_ind %d\n",
 					__FUNCTION__, __LINE__, *ranging_ind));
@@ -7077,6 +7103,7 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 		}
 		goto done;
 	}
+
 	if (svc_ind == NAN_RANGE_INDICATION_EGRESS) {
 		if (IS_EGRESS_VAL(egress_limit, distance)) {
 			if ((range_rep_ev_once == FALSE) ||
@@ -7091,6 +7118,10 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 		goto done;
 	}
 done:
+	WL_INFORM_MEM(("SVC ranging Ind %d distance %d prev_distance %d, "
+		"range_rep_ev_once %d ingress_limit %d egress_limit %d notify %d\n",
+		svc_ind, distance, prev_distance, range_rep_ev_once,
+		ingress_limit, egress_limit, notify));
 	svc_info->svc_range_status |= SVC_RANGE_REP_EVENT_ONCE;
 	return notify;
 }
@@ -7115,26 +7146,29 @@ wl_cfgnan_notify_disc_with_ranging(struct bcm_cfg80211 *cfg,
 	nan_ranging_inst_t *rng_inst, nan_event_data_t *nan_event_data, uint32 distance)
 {
 	nan_svc_info_t *svc_info;
-	bool notify_svc = FALSE;
+	bool notify_svc = TRUE;
 	nan_disc_result_cache *disc_res = cfg->nancfg->nan_disc_cache;
 	uint8 ranging_ind = 0;
 	int ret = BCME_OK;
 	int i = 0, j = 0;
+	uint8 result_present = nan_event_data->ranging_result_present;
 
 	for (i = 0; i < MAX_SUBSCRIBES; i++) {
 		svc_info = rng_inst->svc_idx[i];
-		if (svc_info) {
-			if (nan_event_data->ranging_result_present) {
+		if (svc_info && svc_info->ranging_required) {
+			/* if ranging_result is present notify disc result if
+			* result satisfies the conditions.
+			* if ranging_result is not present, then notify disc
+			* result with out ranging info.
+			*/
+			if (result_present) {
 				notify_svc = wl_cfgnan_check_ranging_cond(svc_info, distance,
-						&ranging_ind, rng_inst->prev_distance_mm);
+					&ranging_ind, rng_inst->prev_distance_mm);
 				nan_event_data->ranging_ind = ranging_ind;
-			} else {
-				/* Report only if ranging was needed */
-				notify_svc = svc_info->ranging_required;
 			}
-			WL_DBG(("wl_cfgnan_notify_disc_with_ranging: Ranging notify for"
-				" svc_id %d, notify %d and ind %d\n",
-				svc_info->svc_id, notify_svc, ranging_ind));
+			WL_INFORM_MEM(("Ranging notify for svc_id %d, notify %d and ind %d"
+				" distance_mm %d result_present %d\n", svc_info->svc_id, notify_svc,
+				ranging_ind, distance, result_present));
 		} else {
 			continue;
 		}
@@ -7172,8 +7206,7 @@ wl_cfgnan_handle_directed_rtt_report(struct bcm_cfg80211 *cfg,
 	ret = wl_cfgnan_cancel_ranging(bcmcfg_to_prmry_ndev(cfg), cfg,
 			&rng_inst->range_id, NAN_RNG_TERM_FLAG_IMMEDIATE, &status);
 	if (unlikely(ret) || unlikely(status)) {
-		WL_ERR(("%s:nan range cancel failed rng_id = %d ret = %d status = %d\n",
-			__FUNCTION__, rng_inst->range_id, ret, status));
+		WL_ERR(("nan range cancel failed ret = %d status = %d\n", ret, status));
 	}
 	dhd_rtt_handle_nan_rtt_session_end(dhd, &rng_inst->peer_addr);
 
@@ -7354,8 +7387,8 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 	nan_ranging_inst_t *lrng_inst = NULL;
 	int i;
 
-	WL_INFORM_MEM(("wl_cfgnan_reset_geofence_ranging, sched_reason = %d, cur_idx = %d, "
-		"geofence_interval = %d\n", sched_reason, rtt_status->geofence_cfg.cur_target_idx,
+	WL_INFORM_MEM(("sched_reason = %d, cur_idx = %d, geofence_interval = %d\n",
+		sched_reason, rtt_status->geofence_cfg.cur_target_idx,
 		rtt_status->geofence_cfg.geofence_rtt_interval));
 	cur_idx = dhd_rtt_get_geofence_cur_target_idx(dhd);
 	if (cur_idx == -1) {
@@ -7364,8 +7397,7 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 		 * No Geofence target
 		 * Remove all valid ranging inst
 		 */
-		WL_INFORM_MEM(("wl_cfgnan_reset_geofence_ranging, "
-			"Removing Ranging Instance " MACDBG "\n",
+		WL_INFORM_MEM(("Removing Ranging Instance " MACDBG "\n",
 			MAC2STRDBG(&(rng_inst->peer_addr))));
 		bzero(rng_inst, sizeof(*rng_inst));
 		/* Cancel pending retry timer if any */
@@ -7782,6 +7814,9 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 					(xtlv_len >= sizeof(*cache_entry))) {
 				cache_entry = &cache_data->cache_exp_list[entry_idx];
 				/* Handle ranging cases for cache timeout */
+				WL_INFORM_MEM(("WL_NAN_EVENT_DISC_CACHE_TIMEOUT peer: " MACDBG
+					" l_id:%d r_id:%d\n", MAC2STRDBG(&cache_entry->r_nmi_addr),
+					cache_entry->l_sub_id, cache_entry->r_pub_id));
 				wl_cfgnan_ranging_clear_publish(cfg, &cache_entry->r_nmi_addr,
 					cache_entry->l_sub_id);
 				/* Invalidate local cache info */
@@ -8302,7 +8337,7 @@ static s32
 wl_cfgnan_get_ndi_idx(struct bcm_cfg80211 *cfg)
 {
 	int i;
-	for (i = 0; i < NAN_MAX_NDI; i++) {
+	for (i = 0; i < cfg->nancfg->max_ndi_supported; i++) {
 		if (!cfg->nancfg->ndi[i].in_use) {
 			/* Free interface, use it */
 			return i;
@@ -8317,7 +8352,7 @@ wl_cfgnan_add_ndi_data(struct bcm_cfg80211 *cfg, s32 idx, char *name)
 {
 	u16 len;
 	wl_nancfg_t *nancfg = cfg->nancfg;
-	if (!name || (idx < 0) || (idx >= NAN_MAX_NDI)) {
+	if (!name || (idx < 0) || (idx >= cfg->nancfg->max_ndi_supported)) {
 		return -EINVAL;
 	}
 
@@ -8344,7 +8379,7 @@ wl_cfgnan_del_ndi_data(struct bcm_cfg80211 *cfg, char *name)
 	}
 
 	len = MIN(strlen(name), IFNAMSIZ);
-	for (i = 0; i < NAN_MAX_NDI; i++) {
+	for (i = 0; i < cfg->nancfg->max_ndi_supported; i++) {
 		if (strncmp(nancfg->ndi[i].ifname, name, len) == 0) {
 			memset_s(&nancfg->ndi[i].ifname, IFNAMSIZ,
 					0x0, IFNAMSIZ);
@@ -8365,7 +8400,7 @@ wl_cfgnan_delete_ndp(struct bcm_cfg80211 *cfg,
 	uint8 i = 0;
 	wl_nancfg_t *nancfg = cfg->nancfg;
 
-	for (i = 0; i < NAN_MAX_NDI; i++) {
+	for (i = 0; i < cfg->nancfg->max_ndi_supported; i++) {
 		if (nancfg->ndi[i].in_use && nancfg->ndi[i].created &&
 			(nancfg->ndi[i].nan_ndev == nan_ndev)) {
 			WL_INFORM_MEM(("iface name: %s, cfg->nancfg->ndi[i].nan_ndev = %p"

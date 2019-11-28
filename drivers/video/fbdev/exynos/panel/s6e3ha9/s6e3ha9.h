@@ -340,11 +340,6 @@ enum {
 	LPM_DYN_VLIN_MAPTBL,
 	LPM_OFF_MAPTBL,
 	LPM_AOR_OFF_MAPTBL,
-#ifdef CONFIG_ACTIVE_CLOCK
-	ACTIVE_CLK_CTRL_MAPTBL,
-	ACTIVE_CLK_SELF_DRAWER,
-	ACTIVE_CLK_CTRL_UPDATE_MAPTBL,
-#endif
 #ifdef CONFIG_SUPPORT_DDI_FLASH
 	POC_ON_MAPTBL,
 	POC_WR_ADDR_MAPTBL,
@@ -837,11 +832,6 @@ static void copy_isc_threshold_maptbl(struct maptbl *tbl, u8 *dst);
 static void copy_gamma_inter_control_maptbl(struct maptbl *tbl, u8 *dst);
 #ifdef CONFIG_EXYNOS_DECON_LCD_COPR
 static void copy_copr_maptbl(struct maptbl *, u8 *);
-#endif
-#ifdef CONFIG_ACTIVE_CLOCK
-static void copy_self_clk_update_maptbl(struct maptbl *tbl, u8 *dst);
-static void copy_self_clk_maptbl(struct maptbl *, u8 *);
-static void copy_self_drawer(struct maptbl *tbl, u8 *dst);
 #endif
 #ifdef CONFIG_SUPPORT_GRAM_CHECKSUM
 static int s6e3ha9_getidx_vddm_table(struct maptbl *);

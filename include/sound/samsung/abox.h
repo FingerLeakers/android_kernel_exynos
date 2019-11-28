@@ -60,14 +60,13 @@ extern unsigned int abox_get_requiring_aud_freq_in_khz(void);
  * Start abox IPC
  * @param[in]	dev		pointer to abox device
  * @param[in]	hw_irq		hardware IRQ number
- * @param[in]	supplement	pointer to data
- * @param[in]	size		size of data which are pointed by supplement
+ * @param[in]	msg		pointer to message
+ * @param[in]	size		size of message
  * @param[in]	atomic		1, if caller context is atomic. 0, if not.
  * @param[in]	sync		1 to wait for ack. 0 if not.
  * @return	error code if any
  */
-extern int abox_request_ipc(struct device *dev,
-		int hw_irq, const void *supplement,
+extern int abox_request_ipc(struct device *dev, int hw_irq, const void *msg,
 		size_t size, int atomic, int sync);
 
 /**

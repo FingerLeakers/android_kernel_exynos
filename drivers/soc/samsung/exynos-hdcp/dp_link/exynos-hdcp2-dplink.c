@@ -17,6 +17,10 @@
 #include <linux/types.h>
 #include <linux/delay.h>
 
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+#include <linux/displayport_bigdata.h>
+#endif
+
 #include "../exynos-hdcp2.h"
 #include "../exynos-hdcp2-log.h"
 #include "exynos-hdcp2-dplink.h"
@@ -256,6 +260,9 @@ int hdcp_dplink_authenticate(void)
 		if (ret == HDCP_SUCCESS) {
 			hdcp_info("Success HDCP authenticate done.\n");
 			dp_logger_print("soc HDCP2 authenticate done.\n");
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+			secdp_bigdata_clr_error_cnt(ERR_HDCP_AUTH);
+#endif
 			retry_cnt = 0;
 			mutex_unlock(&hdcp_auth_mutex);
 			return 0;
@@ -271,6 +278,9 @@ int hdcp_dplink_authenticate(void)
 			dplink_clear_irqflag_all();
 			hdcp_err("HDCP auth failed. retry(%d)\n", retry_cnt);
 			dp_logger_print("soc HDCP2 auth failed:%d, retry(%d)\n", ret, retry_cnt);
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+			secdp_bigdata_inc_error_cnt(ERR_HDCP_AUTH);
+#endif
 		}
 	}
 

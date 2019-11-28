@@ -431,6 +431,16 @@
 /* DPHY BIAS setting */
 #define DSIM_PHY_BIAS_CON(_id)			(0x0000 + (4 * (_id)))
 
+#define DSIM_PHY_BIAS_CON0				(0x0000)
+#define DSIM_PHY_BIAS_CON1				(0x0004)
+#define DSIM_PHY_BIAS_CON2				(0x0008)
+#define DSIM_PHY_BIAS_CON3				(0x000C)
+#define DSIM_PHY_BIAS_CON4				(0x0010)
+
+#define DSIM_PHY_BIAS0_REG400M(_x)			(((_x) & 0x7) << 4)
+#define DSIM_PHY_BIAS0_REG400M_MASK			(0x7 << 4)
+#define DSIM_PHY_BIAS0_REG400_GET(_x)		((_x & DSIM_PHY_BIAS0_REG400M_MASK) >> 4)
+
 /* DPHY PLL setting */
 #define DSIM_PHY_PLL_CON(_id)			(0x0000 + (4 * (_id)))
 #define DSIM_PHY_PLL_CON0			(0x0000)
@@ -527,9 +537,14 @@
 #define DSIM_PHY_RES_UP_MASK			(0xf << 4)
 #define DSIM_PHY_RES_DN(_x)			(((_x) & 0xf) << 0)
 #define DSIM_PHY_RES_DN_MASK			(0xf << 0)
+#define DSIM_PHY_RES_UP_GET(_x)		((_x) & DSIM_PHY_RES_UP_MASK >> 4)
+#define DSIM_PHY_RES_DN_GET(_x)		((_x) & DSIM_PHY_RES_DN_MASK)
 /* ANA_CON1 */
 #define DSIM_PHY_DPDN_SWAP(_x)			(((_x) & 0x1) << 12)
 #define DSIM_PHY_DPDN_SWAP_MASK			(0x1 << 12)
+#define DSIM_PHY_EMPHASIS(_x)			(((_x) & 0x3) << 0)
+#define DSIM_PHY_EMPHASIS_MASK			(0x3 << 0)
+#define DSIM_PHY_EMPHASIS_GET(_x)		((_x) & DSIM_PHY_EMPHASIS_MASK)
 
 
 /* master clock lane setting */

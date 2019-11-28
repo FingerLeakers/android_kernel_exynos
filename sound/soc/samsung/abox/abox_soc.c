@@ -1624,6 +1624,31 @@ static bool writeable_reg_9830(struct device *dev, unsigned int reg)
 	}
 }
 
+static bool volatile_reg_9630(struct device *dev, unsigned int reg)
+{
+	return volatile_reg_9830(dev, reg);
+}
+
+static bool readable_reg_9630(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case ABOX_SPDYIF_CTRL:
+		return true;
+	default:
+		return readable_reg_9830(dev, reg);
+	}
+}
+
+static bool writeable_reg_9630(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case ABOX_SPDYIF_CTRL:
+		return true;
+	default:
+		return writeable_reg_9830(dev, reg);
+	}
+}
+
 static const struct reg_default reg_defaults_8895[] = {
 	{0x0000, 0x41424F58},
 	{0x0010, 0x00000000},
@@ -2442,6 +2467,118 @@ static const struct reg_sequence patch_9830[] = {
 	{ABOX_WDMA_BIT_CTRL0(0x4), 0x1},
 };
 
+static const struct reg_sequence patch_9630[] = {
+	/* 0x0000 */
+	{ABOX_SPUS_SBANK_RDMA(0), (SZ_512 << 16) | (0 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(1), (SZ_512 << 16) | (1 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(2), (SZ_512 << 16) | (2 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(3), (SZ_512 << 16) | (3 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(4), (SZ_512 << 16) | (4 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(5), (SZ_512 << 16) | (5 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(6), (SZ_512 << 16) | (6 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(7), (SZ_512 << 16) | (7 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(8), (SZ_512 << 16) | (8 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(9), (SZ_512 << 16) | (9 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(10), (SZ_512 << 16) | (10 * SZ_512)},
+	{ABOX_SPUS_SBANK_RDMA(11), (SZ_512 << 16) | (11 * SZ_512)},
+	/* 0x1800 */
+	{ABOX_SPUS_SBANK_ASRC(0), (0x2c0 << 16) | (0x1800 + 0x000)},
+	{ABOX_SPUS_SBANK_ASRC(1), (0x1a0 << 16) | (0x1800 + 0x2c0)},
+	{ABOX_SPUS_SBANK_ASRC(2), (0x1a0 << 16) | (0x1800 + 0x460)},
+	{ABOX_SPUS_SBANK_ASRC(3), (0x110 << 16) | (0x1800 + 0x600)},
+	/* 0x2000 */
+	{ABOX_SPUS_SBANK_ASRC(4), (0x2c0 << 16) | (0x2000 + 0x000)},
+	{ABOX_SPUS_SBANK_ASRC(5), (0x1a0 << 16) | (0x2000 + 0x2c0)},
+	{ABOX_SPUS_SBANK_ASRC(6), (0x1a0 << 16) | (0x2000 + 0x460)},
+	{ABOX_SPUS_SBANK_ASRC(7), (0x110 << 16) | (0x2000 + 0x600)},
+	/* 0x2800 */
+	{ABOX_SPUS_SBANK_MIXP, (SZ_128 << 16) | 0x2800},
+	{ABOX_SPUS_SBANK_SIDETONE, (SZ_512 << 16) | 0x2a00},
+
+	/* 0x0000 */
+	{ABOX_SPUM_SBANK_NSRC(0), (SZ_512 << 16) | (0 * SZ_512)},
+	{ABOX_SPUM_SBANK_NSRC(1), (SZ_512 << 16) | (1 * SZ_512)},
+	{ABOX_SPUM_SBANK_NSRC(2), (SZ_512 << 16) | (2 * SZ_512)},
+	{ABOX_SPUM_SBANK_NSRC(3), (SZ_512 << 16) | (3 * SZ_512)},
+	{ABOX_SPUM_SBANK_NSRC(4), (SZ_512 << 16) | (4 * SZ_512)},
+	/* 0x0a00 */
+	{ABOX_SPUM_SBANK_ASRC(0), (0x2c0 << 16) | (0x0a00 + 0x000)},
+	{ABOX_SPUM_SBANK_ASRC(1), (0x1a0 << 16) | (0x0a00 + 0x2c0)},
+	{ABOX_SPUM_SBANK_ASRC(2), (0x1a0 << 16) | (0x0a00 + 0x460)},
+	{ABOX_SPUM_SBANK_ASRC(3), (0x190 << 16) | (0x0a00 + 0x600)},
+
+	/* Set default volume to 1.0 and volume change to 1/128 */
+	{ABOX_RDMA_VOL_FACTOR(0), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(0), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(1), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(1), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(2), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(2), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(3), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(3), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(4), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(4), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(5), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(5), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(6), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(6), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(7), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(7), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(8), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(8), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(9), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(9), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(10), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(10), 0x1 << 16},
+	{ABOX_RDMA_VOL_FACTOR(11), 0x1 << 23},
+	{ABOX_RDMA_VOL_CHANGE(11), 0x1 << 16},
+
+	{ABOX_WDMA_VOL_FACTOR(0), 0x1 << 23},
+	{ABOX_WDMA_VOL_CHANGE(0), 0x1 << 16},
+	{ABOX_WDMA_VOL_FACTOR(1), 0x1 << 23},
+	{ABOX_WDMA_VOL_CHANGE(1), 0x1 << 16},
+	{ABOX_WDMA_VOL_FACTOR(2), 0x1 << 23},
+	{ABOX_WDMA_VOL_CHANGE(2), 0x1 << 16},
+	{ABOX_WDMA_VOL_FACTOR(3), 0x1 << 23},
+	{ABOX_WDMA_VOL_CHANGE(3), 0x1 << 16},
+	{ABOX_WDMA_VOL_FACTOR(4), 0x1 << 23},
+	{ABOX_WDMA_VOL_CHANGE(4), 0x1 << 16},
+
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(0), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(0), 0x1 << 16},
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(1), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(1), 0x1 << 16},
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(2), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(2), 0x1 << 16},
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(3), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(3), 0x1 << 16},
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(4), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(4), 0x1 << 16},
+	{ABOX_WDMA_DEBUG_VOL_FACTOR(5), 0x1 << 23},
+	{ABOX_WDMA_DEBUG_VOL_CHANGE(5), 0x1 << 16},
+
+	/* Set default RDMA DST_BIT_WIDTH to 16bit */
+	{ABOX_RDMA_BIT_CTRL0(0x0), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x1), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x2), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x3), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x4), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x5), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x6), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x7), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x8), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0x9), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0xa), 0x1},
+	{ABOX_RDMA_BIT_CTRL0(0xb), 0x1},
+
+	/* Set default WDMA DST_BIT_WIDTH to 16bit */
+	{ABOX_WDMA_BIT_CTRL0(0x0), 0x1},
+	{ABOX_WDMA_BIT_CTRL0(0x1), 0x1},
+	{ABOX_WDMA_BIT_CTRL0(0x2), 0x1},
+	{ABOX_WDMA_BIT_CTRL0(0x3), 0x1},
+	{ABOX_WDMA_BIT_CTRL0(0x4), 0x1},
+};
+
 static struct regmap_config regmap_config = {
 	.reg_bits = 32,
 	.val_bits = 32,
@@ -2493,6 +2630,14 @@ struct regmap *abox_soc_get_regmap(struct device *adev)
 		regmap_config.writeable_reg = writeable_reg_9830;
 		regs = patch_9830;
 		num_regs = ARRAY_SIZE(patch_9830);
+	} else if (IS_ENABLED(CONFIG_SOC_EXYNOS9630)) {
+		/* Reading back mechanism of regmap cache is used. */
+		regmap_config.num_reg_defaults_raw = ABOX_MAX_REGISTERS + 1;
+		regmap_config.volatile_reg = volatile_reg_9630;
+		regmap_config.readable_reg = readable_reg_9630;
+		regmap_config.writeable_reg = writeable_reg_9630;
+		regs = patch_9630;
+		num_regs = ARRAY_SIZE(patch_9630);
 	} else {
 		BUG_ON(1);
 	}

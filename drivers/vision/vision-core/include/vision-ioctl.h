@@ -18,6 +18,7 @@ struct vertex_ioctl_ops {
 	int (*vertexioc_s_format)(struct file *file, struct vs4l_format_list *flist);
 	int (*vertexioc_s_param)(struct file *file, struct vs4l_param_list *plist);
 	int (*vertexioc_s_ctrl)(struct file *file, struct vs4l_ctrl *ctrl);
+	int (*vertexioc_sched_param)(struct file *file, struct vs4l_sched_param *param);
 	int (*vertexioc_qbuf)(struct file *file, struct vs4l_container_list *clist);
 	int (*vertexioc_dqbuf)(struct file *file, struct vs4l_container_list *clist);
 	int (*vertexioc_prepare)(struct file *file, struct vs4l_container_list *clist);

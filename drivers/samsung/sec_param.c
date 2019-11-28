@@ -230,8 +230,8 @@ int sec_set_param(unsigned long offset, char val)
 	int ret = -1;
 
 	mutex_lock(&sec_param_mutex);
-
-	if ((offset < CM_OFFSET) || (offset > CM_OFFSET + CM_OFFSET_LIMIT))
+	printk("%s offset %lu\n", __func__, offset);
+	if (((offset < CM_OFFSET) || (offset > CM_OFFSET + CM_OFFSET_LIMIT)) && (offset != FMM_LOCK_OFFSET))
 		goto unlock_out;
 
 	switch (val) {

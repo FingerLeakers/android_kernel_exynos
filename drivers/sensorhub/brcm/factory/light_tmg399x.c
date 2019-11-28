@@ -63,9 +63,9 @@ static ssize_t light_lux_show(struct device *dev,
 	struct ssp_data *data = dev_get_drvdata(dev);
 
 	return sprintf(buf, "%u,%u,%u,%u,%u,%u\n",
-		data->buf[UNCAL_LIGHT_SENSOR].r, data->buf[UNCAL_LIGHT_SENSOR].g,
-		data->buf[UNCAL_LIGHT_SENSOR].b, data->buf[UNCAL_LIGHT_SENSOR].w,
-		data->buf[UNCAL_LIGHT_SENSOR].a_time, data->buf[UNCAL_LIGHT_SENSOR].a_gain);
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.r, data->buf[UNCAL_LIGHT_SENSOR].light_t.g,
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.b, data->buf[UNCAL_LIGHT_SENSOR].light_t.w,
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.a_time, data->buf[UNCAL_LIGHT_SENSOR].light_t.a_gain);
 }
 
 static ssize_t light_data_show(struct device *dev,
@@ -74,9 +74,9 @@ static ssize_t light_data_show(struct device *dev,
 	struct ssp_data *data = dev_get_drvdata(dev);
 
 	return sprintf(buf, "%u,%u,%u,%u,%u,%u\n",
-		data->buf[UNCAL_LIGHT_SENSOR].r, data->buf[UNCAL_LIGHT_SENSOR].g,
-		data->buf[UNCAL_LIGHT_SENSOR].b, data->buf[UNCAL_LIGHT_SENSOR].w,
-		data->buf[UNCAL_LIGHT_SENSOR].a_time, data->buf[UNCAL_LIGHT_SENSOR].a_gain);
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.r, data->buf[UNCAL_LIGHT_SENSOR].light_t.g,
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.b, data->buf[UNCAL_LIGHT_SENSOR].light_t.w,
+		data->buf[UNCAL_LIGHT_SENSOR].light_t.a_time, data->buf[UNCAL_LIGHT_SENSOR].light_t.a_gain);
 }
 
 static ssize_t light_coef_show(struct device *dev,
@@ -232,7 +232,7 @@ retries:
 }
 
 
-static ssize_t light_read_copr_show(struct device *dev,
+static ssize_t light_test_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 
@@ -240,14 +240,14 @@ static ssize_t light_read_copr_show(struct device *dev,
 	int iRet = 0;
 	int iReties = 0;
 	struct ssp_msg *msg;
-	short copr_buf;
+	u32 lux_buf[4] = {0, }; // [0]: 690us cal data, [1]: 16ms cal data, [2]: COPRW, [3}: 690us lux
 
 retries:
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	msg->cmd = MSG2SSP_GET_READ_COPR;
-	msg->length = sizeof(copr_buf);
+	msg->cmd = MSG2SSP_GET_LIGHT_TEST;
+	msg->length = sizeof(lux_buf);
 	msg->options = AP2HUB_READ;
-	msg->buffer = (u8 *)&copr_buf;
+	msg->buffer = (u8 *)&lux_buf;
 	msg->free_buffer = 0;
 
 	iRet = ssp_spi_sync(data, msg, 1000);
@@ -262,40 +262,9 @@ retries:
 		return FAIL;
 	}
 
-	pr_info("[SSP] %s - %d\n", __func__, copr_buf);
+	pr_info("[SSP] %s - %d\n", __func__, lux_buf);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", copr_buf);
-}
-
-static ssize_t light_read_copr_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t size)
-{
-	int iRet = 0;
-	bool on_off = sysfs_streq(buf, "1");
-	struct ssp_data *data = dev_get_drvdata(dev);
-	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	
-	pr_info("[SSP] %s - %s\n", __func__, on_off == true ? "on" : "off");
-
-	if (msg == NULL) {
-		iRet = -ENOMEM;
-		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
-		return iRet;
-	}
-	msg->cmd = MSG2SSP_READ_COPR_ON_OFF;
-	msg->length = 1;
-	msg->options = AP2HUB_WRITE;
-	msg->buffer = kzalloc(1, GFP_KERNEL);
-	msg->free_buffer = 1;
-	msg->buffer[0] = (char)on_off;
-
-	iRet = ssp_spi_async(data, msg);
-	
-	if (iRet != SUCCESS) {
-		pr_err("[SSP] %s -fail to %s %d\n", __func__, __func__, iRet);
-		iRet = ERROR;
-	}
-	return size;
+	return snprintf(buf, PAGE_SIZE, "%d, %d, %d, %d\n", lux_buf[0], lux_buf[1], lux_buf[2], lux_buf[3]);
 }
 
 static ssize_t light_circle_show(struct device *dev,
@@ -356,13 +325,10 @@ static ssize_t light_coef_store(struct device *dev,
 }
 #endif
 
-static ssize_t light_cal_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
+static int load_light_cal_from_nvm(u32 *light_cal_data, int size) {
 	int iRet = 0;
 	mm_segment_t old_fs;
 	struct file *cal_filp = NULL;
-	u32 light_cal_data = 0;
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -378,19 +344,67 @@ static ssize_t light_cal_show(struct device *dev,
 
 	cal_filp->f_pos = LIGHT_CAL_FILE_INDEX; // gyro_cal : 12 bytes , mag_cal : 7 / 13 bytes
 
-	iRet = vfs_read(cal_filp, (char *)&light_cal_data, sizeof(light_cal_data), &cal_filp->f_pos);
+	iRet = vfs_read(cal_filp, (char *)light_cal_data, size, &cal_filp->f_pos);
 
-	if (iRet != sizeof(light_cal_data)) {
+	if (iRet != size) {
 		pr_err("[SSP] %s: filp_open read failed, read size = %d", __func__, iRet);
 		iRet = -EIO;
 	} else {
-		iRet = 1;
+		pr_info("[SSP] %s, val[0] = %d, val[1] = %d", __func__, light_cal_data[0], light_cal_data[1]);
+		iRet = light_cal_data[0] == 0xFFFFFFFF ? -1 : 1; // 0xFFFFFFFF for NG
 	}
 
 	filp_close(cal_filp, current->files);
 	set_fs(old_fs);
+
+	return iRet;
+}
+
+int set_light_cal_param_to_ssp(struct ssp_data *data)
+{
+	int iRet = 0;
+	u32 light_cal_data[2] = {0, };
+
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+
+	if (msg == NULL) {
+		iRet = -ENOMEM;
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		return iRet;
+	}
+
+	iRet = load_light_cal_from_nvm(light_cal_data, sizeof(light_cal_data));
 	
-	return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data, light_cal_data);
+	if (iRet != SUCCESS)
+		return iRet;
+
+	msg->cmd = MSG2SSP_AP_SET_LIGHT_CAL;
+	msg->length = sizeof(light_cal_data);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = (u8 *)&light_cal_data;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_async(data, msg);
+
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s -fail to set. %d\n", __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+
+
+static ssize_t light_cal_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int iRet = 0;
+	u32 light_cal_data[2] = {0, };
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	iRet = load_light_cal_from_nvm(light_cal_data, sizeof(light_cal_data));
+
+	return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[0], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
 }
 
 static ssize_t light_cal_store(struct device *dev,
@@ -399,7 +413,7 @@ static ssize_t light_cal_store(struct device *dev,
 	int iRet = 0;
 	struct file *cal_filp = NULL;
 	mm_segment_t old_fs;
-	u32 light_cal_data = 0;
+	u32 light_cal_data[2] = {0, };
 	bool update = sysfs_streq(buf, "1");
 
 	old_fs = get_fs();
@@ -459,11 +473,11 @@ static DEVICE_ATTR(coef, 0440, light_coef_show, NULL);
 static DEVICE_ATTR(sensorhub_ddi_spi_check, 0440, light_sensorhub_ddi_spi_check_show, NULL);
 static DEVICE_ATTR(test_copr, 0440, light_test_copr_show, NULL);
 static DEVICE_ATTR(light_circle, 0440, light_circle_show, NULL);
-static DEVICE_ATTR(read_copr, 0660, light_read_copr_show, light_read_copr_store);
 static DEVICE_ATTR(copr_roix, 0440, light_copr_roix_show, NULL);
+static DEVICE_ATTR(light_test, 0440, light_test_show, NULL);
 #endif
 
-static DEVICE_ATTR(light_cal, 0660, light_cal_show, light_cal_store);
+static DEVICE_ATTR(light_cal, 0664, light_cal_show, light_cal_store);
 
 static struct device_attribute *light_attrs[] = {
 	&dev_attr_vendor,
@@ -474,11 +488,11 @@ static struct device_attribute *light_attrs[] = {
 #ifdef CONFIG_PANEL_NOTIFY
 	&dev_attr_sensorhub_ddi_spi_check,
 	&dev_attr_test_copr,
-	&dev_attr_read_copr,
 	&dev_attr_light_circle,
 	&dev_attr_copr_roix,
 #endif
 	&dev_attr_light_cal,
+	&dev_attr_light_test,	
 	NULL,
 };
 

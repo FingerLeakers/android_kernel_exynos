@@ -95,6 +95,9 @@ struct npu_nw {
 	/* Network mgmt. only part */
 	nw_cmd_e		cmd;
 
+	/* npu nw scheduling param boundness, Set during CMD LOAD*/
+	u32			bound_id;
+
 	/* Function pointer definition of callback of nw request */
 	save_result_func	notify_func;
 
@@ -133,6 +136,7 @@ struct npu_frame {
 	/* Frame only part */
 	frame_cmd_e		cmd;
 	struct npu_time_constraints	time_limits;
+
 	int			priority;
 	struct npu_queue	*src_queue;
 	struct vb_container_list *input;
@@ -169,6 +173,25 @@ struct npu_iomem_area {
 	void __iomem            *vaddr;
 	u32                     paddr;
 	resource_size_t         size;
+};
+
+/* Structure for npu nw scheduling parameter */
+struct npu_nw_sched_param {
+	u32			priority;
+	u32			bound_id;
+	u32			max_npu_core;
+};
+
+/*For the boundness of nw*/
+enum npu_nw_priority_val {
+		NPU_PRIORITY_MIN_VAL = 0,
+		NPU_PRIORITY_MAX_VAL = 255,
+};
+
+/*For the boundness of nw*/
+enum npu_nw_boundness {
+		NPU_BOUND_CORE0 = 0,
+		NPU_BOUND_UNBOUND = 0xFFFFFFFF,
 };
 
 /*

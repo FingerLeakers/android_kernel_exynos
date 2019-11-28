@@ -219,6 +219,7 @@
 				mres_dsc_height = <40 30 74>;
 				mres_dsc_en = <1 1 1>;
 				default_mode = <0>;
+				/* <xres : yres : fps : lp_ref : dsc_en : slice_w : slice_h> */
 				display_mode = <1440 2960 60 3022 1 720 40>,
 					       <1080 2220 60 5359 1 540 30>,
 					       <720 1480 60 7031 1 360 74>;
@@ -262,6 +263,7 @@
 				mres_dsc_height = <40 40 76>;
 				mres_dsc_en = <1 1 1>;
 				default_mode = <0>;
+				/* <xres : yres : fps : lp_ref : dsc_en : slice_w : slice_h> */
 				display_mode = <1440 3040 60 2877 1 720 40>;
 				hdr_num = <2>;			/* max: 4 */
 				hdr_type = <2 3 0 0>;		/* 1: DOLBY_VISION, 2: HDR10, 3: HLG */
@@ -276,7 +278,7 @@
 				id = <0x001081>;
 				mode = <2>;
 				resolution = <1440 3200>;
-				size = <69 142>;
+				size = <69 154>;
 				timing,refresh = <60>;
 				timing,h-porch = <2 2 2>;
 				timing,v-porch = <15 8 1>;
@@ -306,10 +308,15 @@
 				mres_dsc_en = <1 1 1>;
 				default_mode = <0>;
 				display_mode = <1440 3200 60 3022 1 720 40>,
+					       <1440 3200 48 3022 1 720 40>,
 					       <1080 2400 60 5115 1 540 40>,
+					       <1080 2400 48 5115 1 540 40>,
 					       <1080 2400 120 660 1 540 40>,
+					       <1080 2400 96 660 1 540 40>,
 					       <720 1600 60 6922 1 360 80>,
-					       <720 1600 120 2467 1 360 80>;
+					       <720 1600 48 6922 1 360 80>,
+					       <720 1600 120 2467 1 360 80>,
+					       <720 1600 96 2467 1 360 80>;
 				hdr_num = <2>;			/* max: 4 */
 				hdr_type = <2 3 0 0>;		/* 1: DOLBY_VISION, 2: HDR10, 3: HLG */
 				hdr_max_luma = <5400000>;	/* 540 */
@@ -421,14 +428,16 @@
 				dsc_slice_num = <0>;    /* count of dsc slice */
 				dsc_slice_h = <40>;	/* height of dsc slice */
 				data_lane = <4>;	/* number of using data lane */
-				cmd_underrun_cnt = <2467>;	/* for underrun detect*/
 				mres_en = <0>;
-				mres_number = <3>;
-				mres_width = <1440 1080 720>;
-				mres_height = <2960 2220 1480>;
-				mres_dsc_width = <720 540 360>;
-				mres_dsc_height = <40 30 74>;
-				mres_dsc_en = <1 1 0>;
+				mres_number = <1>;
+				mres_width = <1080 0 0>;
+				mres_height = <1920 0 0>;
+				mres_dsc_width = <0 0 0>;
+				mres_dsc_height = <0 0 0>;
+				mres_dsc_en = <0 0 0>;
+				default_mode = <0>;
+				/* <xres : yres : fps : lp_ref : dsc_en : slice_w : slice_h> */
+				display_mode = <1080 1920 60 2467 0 0 0>;
 				hdr_num = <1>;		/* max: 4 */
 				hdr_type = <2 0 0 0>;	/* 1: DOLBY_VISION, 2: HDR10, 3: HLG */
 				hdr_max_luma = <5400000>;		/* 540 */

@@ -296,24 +296,25 @@ static inline bool log_enabled(u8 ch, struct link_device *ld)
 {
 	unsigned long flags = get_log_flags();
 
+	if (test_bit(DEBUG_FLAG_ALL, &flags))
+		return 1;
+	if (ld->is_ps_ch(ch))
+		return test_bit(DEBUG_FLAG_PS, &flags);
 	if (ld->is_fmt_ch(ch))
 		return test_bit(DEBUG_FLAG_FMT, &flags);
-	else if (ld->is_boot_ch(ch))
-		return test_bit(DEBUG_FLAG_BOOT, &flags);
-	else if (ld->is_dump_ch(ch))
-		return test_bit(DEBUG_FLAG_DUMP, &flags);
-	else if (ld->is_rfs_ch(ch))
-		return test_bit(DEBUG_FLAG_RFS, &flags);
-	else if (ld->is_csd_ch(ch))
-		return test_bit(DEBUG_FLAG_CSVT, &flags);
-	else if (ld->is_log_ch(ch))
+	if (ld->is_log_ch(ch))
 		return test_bit(DEBUG_FLAG_LOG, &flags);
-	else if (ld->is_ps_ch(ch))
-		return test_bit(DEBUG_FLAG_PS, &flags);
-	else if (sipc5_misc_ch(ch))
+	if (ld->is_rfs_ch(ch))
+		return test_bit(DEBUG_FLAG_RFS, &flags);
+	if (ld->is_csd_ch(ch))
+		return test_bit(DEBUG_FLAG_CSVT, &flags);
+	if (sipc5_misc_ch(ch))
 		return test_bit(DEBUG_FLAG_MISC, &flags);
-	else
-		return test_bit(DEBUG_FLAG_ALL, &flags);
+	if (ld->is_boot_ch(ch))
+		return test_bit(DEBUG_FLAG_BOOT, &flags);
+	if (ld->is_dump_ch(ch))
+		return test_bit(DEBUG_FLAG_DUMP, &flags);
+	return 0;
 }
 
 /* print ipc packet */
@@ -330,7 +331,7 @@ void mif_pkt(u8 ch, const char *tag, struct sk_buff *skb)
 		return;
 	}
 
-	pr_skb(tag, skb);
+	pr_skb(tag, skb, skbpriv(skb)->ld);
 }
 
 /* print buffer as hex string */
@@ -1251,9 +1252,27 @@ void __ref modemctl_notify_event(enum modemctl_event evt)
 
 void mif_set_snapshot(bool enable)
 {
-	if (!enable)
+	static bool _disabled_by_cpif;
+	bool need_to_set = false;
+
+	if (enable) {
+		if (_disabled_by_cpif) {
+			need_to_set = true;
+			_disabled_by_cpif = false;
+		}
+	} else {
 		acpm_stop_log();
-	dbg_snapshot_set_enable_item("log_kevents", enable);
+
+		if (dbg_snapshot_get_enable_item("log_kevents")) {
+			need_to_set = true;
+			_disabled_by_cpif = true;
+		}
+	}
+
+	if (need_to_set) {
+		mif_info("%s log_kevents\n", enable ? "enable" : "disable");
+		dbg_snapshot_set_enable_item("log_kevents", enable);
+	}
 }
 
 static LIST_HEAD(bm_list);

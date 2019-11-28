@@ -538,6 +538,7 @@ static int config_usb_cfg_link(
 #ifdef CONFIG_USB_OLD_CONFIGFS
 	struct usb_configuration	*c;
 	struct usb_function *tmp;
+	struct gadget_config_name *cn;
 #endif
 	int ret;
 
@@ -558,6 +559,29 @@ static int config_usb_cfg_link(
 
 	list_for_each_entry(f, &cfg->func_list, list) {
 		if (f->fi == fi) {
+#ifdef CONFIG_USB_OLD_CONFIGFS
+			printk("usb: %s : usb function instance already exist (GSI) ~ \n",__func__);
+			gi->gsi_boot=1;
+			if (!list_empty(&cfg->string_list)) {
+				i = 0;
+				list_for_each_entry(cn, &cfg->string_list, list) {
+					i++;
+					if (strcmp(cn->configuration, "Conf 1")!= 0) {	
+						if (strcmp(cn->configuration, "adb") == 0) {
+							printk("usb: %s : make adb setting for gsi test \n",__func__);
+								list_for_each_entry_safe(f, tmp, &cfg->func_list, list) {
+									if (strcmp(f->name , "adb") == 0) {
+										printk("usb: %s remain adb function \n",__func__);
+										continue;
+									}
+									list_move_tail(&f->list, &gi->linked_func);
+								}
+								cfg->c.next_interface_id = 0;
+							}
+						}
+					} 
+				}
+#endif
 			ret = -EEXIST;
 			goto out;
 		}
@@ -590,7 +614,6 @@ static int config_usb_cfg_link(
 	/* Go through all configs, attach all functions */
 	list_for_each_entry(c, &gi->cdev.configs, list) {
 		struct config_usb_cfg *cfg;
-		struct gadget_config_name *cn;
 
 		cfg = container_of(c, struct config_usb_cfg, c);
 

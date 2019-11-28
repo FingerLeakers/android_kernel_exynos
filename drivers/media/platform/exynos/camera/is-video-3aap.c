@@ -746,6 +746,10 @@ static int is_3xp_queue_setup(struct vb2_queue *vbq,
 
 	mdbgv_3xp("%s\n", vctx, __func__);
 
+	/* HACK: This is will be removed. */
+	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
+		set_bit(IS_QUEUE_NEED_TO_KMAP, &queue->state);
+
 	ret = is_queue_setup(queue,
 		video->alloc_ctx,
 		num_planes,
@@ -868,6 +872,23 @@ static void is_3xp_buffer_finish(struct vb2_buffer *vb)
 	mvdbgs(3, "%s(%d)\n", vctx, &vctx->queue, __func__, vb->index);
 
 	subdev = &device->txp;
+
+	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
+		/* HACK: This is will be removed. */
+		if (device->sensor && device->sensor->cfg &&
+			device->sensor->cfg->output[0].extformat == HW_FORMAT_RAW10_SDC) {
+			void *start = (void *)vctx->queue.buf_kva[vb->index][0];
+			u32 width = vctx->queue.framecfg.width;
+			u32 stride = ALIGN(width * 13 / BITS_PER_BYTE, 16);
+			void *src = start + (stride * 2);
+			void *dst;
+
+			dst = start;
+			memcpy(dst, src, stride);
+			dst = start + stride;
+			memcpy(dst, src, stride);
+		}
+	}
 
 	is_queue_buffer_finish(vb);
 

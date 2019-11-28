@@ -26,12 +26,17 @@
 #include <linux/cpumask.h>
 #include <linux/interrupt.h>
 #include <linux/sec_argos.h>
+#include <linux/ologk.h>
 
 #if defined(CONFIG_SCHED_EMS)
 #include <linux/ems.h>
+#if defined(CONFIG_SCHED_EMS_TUNE)
+static struct emstune_mode_request emstune_req;
+#else
 static struct gb_qos_request gb_req = {
 	.name = "argos_global_boost",
 };
+#endif
 #endif
 
 #define ARGOS_NAME "argos"
@@ -398,9 +403,13 @@ int argos_hmpboost_apply(int dev_num, bool enable)
 	if (enable) {
 		/* disable -> enable */
 		if (!*hmpboost_enable) {
-#if defined(CONFIG_SCHED_EMS)
 			/* set global boost */
+#if defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+			emstune_boost(&emstune_req, 1);
+#else
 			gb_qos_update_request(&gb_req, 100);
+#endif
 #endif
 			*hmpboost_enable = true;
 			pr_info("%s: hmp boost enable [%d]\n", __func__, dev_num);
@@ -408,9 +417,13 @@ int argos_hmpboost_apply(int dev_num, bool enable)
 	} else {
 		/* enable -> disable */
 		if (*hmpboost_enable) {
-#if defined(CONFIG_SCHED_EMS)
 			/* unset global boost */
+#if defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+			emstune_boost(&emstune_req, 0);
+#else		
 			gb_qos_update_request(&gb_req, 0);
+#endif
 #endif
 			*hmpboost_enable = false;
 			pr_info("%s: hmp boost disable [%d]\n", __func__, dev_num);
@@ -624,6 +637,9 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 	prev_level = cnode->prev_level;
 
 	pr_debug("%s name:%s, speed:%ldMbps\n", __func__, cnode->desc, speed);
+	if(speed >= 300) {
+		perflog(PERFLOG_ARGOS, "name:%s, speed:%ldMbps", cnode->desc, speed);
+	}
 
 	argos_blocked = cnode->argos_block;
 
@@ -656,7 +672,7 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 					pr_debug("%s: Call argos notifier(%s lev:%d)\n",
 						 __func__, cnode->desc, level);
 					blocking_notifier_call_chain(&cnode->argos_notifier,
-								     speed, NULL);
+								     speed, &level);
 				}
 				argos_freq_unlock(type);
 				argos_task_affinity_apply(type, 0);
@@ -694,7 +710,7 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 					pr_debug("%s: Call argos notifier(%s lev:%d)\n",
 						 __func__, cnode->desc, change_level);
 					blocking_notifier_call_chain(&cnode->argos_notifier,
-								     speed, NULL);
+								     speed, &level);
 				}
 			}
 
@@ -803,15 +819,15 @@ static int load_table_items(struct device_node *np, struct boost_table *t)
 
 	status = of_get_property(np, "irq_affinity", &len);
 	if (status && len > 0 && !strcmp(status, "enable"))
-		t->items[HMP_BOOST_EN] = 1;
-	else
-		t->items[HMP_BOOST_EN] = 0;
-
-	status = of_get_property(np, "hmp_boost", &len);
-	if (status && len > 0 && !strcmp(status, "enable"))
 		t->items[IRQ_AFFINITY_EN] = 1;
 	else
 		t->items[IRQ_AFFINITY_EN] = 0;
+
+	status = of_get_property(np, "hmp_boost", &len);
+	if (status && len > 0 && !strcmp(status, "enable"))
+		t->items[HMP_BOOST_EN] = 1;
+	else
+		t->items[HMP_BOOST_EN] = 0;
 
 	return 0;
 }

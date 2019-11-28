@@ -97,6 +97,9 @@
 #define FSYS1_MON_SEL_MASK		0xf
 #define PCIE_MON_SEL_MASK		0xff
 
+#define PCIE_MSTR_PEND_SEL_NAK		0x474
+#define NACK_ENABLE			0x1
+
 /* PCIe PMU registers */
 #define IDLE_IP3_STATE			0x3EC
 #define IDLE_IP_RC1_SHIFT		(31)
@@ -111,6 +114,8 @@
 #define PM_CAP_OFFSET			0x40
 #define PCIE_CAP_OFFSET			0x70
 #define PCIE_LINK_CTRL_STAT		0x80
+#define PCIE_CAP_NEGO_LINK_WIDTH_MASK	0x3f
+#define PCIE_CAP_LINK_SPEED		0xf
 #define PCI_EXP_LNKCAP_MLW_X1		(0x1 << 4)
 #define PCI_EXP_LNKCAP_L1EL_64USEC	(0x7 << 15)
 /* previous definition is in 'include/uapi/linux/pci_regs.h:661' */
@@ -144,14 +149,24 @@
 #define PCIE_MISC_CONTROL		0x8BC
 #define DBI_RO_WR_EN			0x1
 
+#define PCIE_COHERENCY_CONTROL_3_OFF	0x8E8
+
 #define PCIE_AUX_CLK_FREQ_OFF		0xB40
 #define PCIE_AUX_CLK_FREQ_24MHZ		0x18
 #define PCIE_AUX_CLK_FREQ_26MHZ		0x1A
 #define PCIE_L1_SUBSTATES_OFF		0xB44
 #define PCIE_L1_SUB_VAL			0xEA
 
+#define LINK_CONTROL2_LINK_STATUS2_REG	0xA0
+#define PCIE_CAP_TARGET_LINK_SPEED_MASK 0xfffffff0
 #define PCIE_LINK_WIDTH_SPEED_CONTROL	0x80C
+#define DIRECT_SPEED_CHANGE_MASK	0xfffdffff
+#define DIRECT_SPEED_CHANGE_ENABLE	0x20000
 #define PORT_LOGIC_SPEED_CHANGE		(0x1 << 17)
+
+#define MULTI_LANE_CONTROL_OFF		0x8c0
+#define TARGET_LINK_WIDTH_MASK		0xffffffc0
+#define DIRECT_LINK_WIDTH_CHANGE_SET	0x40
 
 #define PCIE_ATU_VIEWPORT		0x900
 #define PCIE_ATU_REGION_INBOUND		(0x1 << 31)
@@ -194,6 +209,13 @@
 #define PCIE_SYSREG_SHARABLE_OFFSET	8
 #define PCIE_SYSREG_SHARABLE_ENABLE	0x3
 #define PCIE_SYSREG_SHARABLE_DISABLE	0x0
+
+/* exynos9830, HSI2 */
+#define PCIE_SYSREG_HSI2_SHARABILITY_CTRL	0x704
+#define PCIE_SYSREG_HSI2_SHARABLE_OFFSET	0
+#define PCIE_SYSREG_HSI2_SHARABLE_ENABLE	0x3
+#define PCIE_SYSREG_HSI2_SHARABLE_DISABLE	0x0
+#define PCIE_SYSREG_HSI2_SHARABLE_MASK	0x3
 
 /* Definitions for WIFI L1.2 */
 #define WIFI_L1SS_CAPID			0x240
@@ -315,7 +337,8 @@ u32 exynos_pcie_rc_read_dbi(struct dw_pcie *dw_pcie, void __iomem *base,
 				u32 reg, size_t size);
 void exynos_pcie_rc_write_dbi(struct dw_pcie *dw_pcie, void __iomem *base,
 				  u32 reg, size_t size, u32 val);
-
+int exynos_pcie_rc_lanechange(int ch_num, int lane);
+int exynos_pcie_rc_speedchange(int ch_num, int spd);
 int exynos_pcie_rc_poweron(int ch_num);
 void exynos_pcie_rc_poweroff(int ch_num);
 int exynos_pcie_rc_l1ss_ctrl(int enable, int id);

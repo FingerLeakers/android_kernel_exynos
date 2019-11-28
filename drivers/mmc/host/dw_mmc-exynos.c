@@ -1420,6 +1420,45 @@ out:
 	return len;
 }
 
+static ssize_t sd_health_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct dw_mci *host = dev_get_drvdata(dev);
+	struct mmc_card *cur_card = NULL;
+	struct mmc_card_error_log *err_log;
+	u64 total_c_cnt = 0;
+	u64 total_t_cnt = 0;
+	int len = 0;
+	int i = 0;
+
+	if (host->slot && host->slot->mmc && host->slot->mmc->card)
+		cur_card = host->slot->mmc->card;
+
+	if (!cur_card) {
+		//There should be no spaces in 'No Card'(Vold Team).
+		len = snprintf(buf, PAGE_SIZE, "NOCARD\n");
+		goto out;
+	}
+
+	err_log = cur_card->err_log;
+
+	for (i = 0; i < 6; i++) {
+		if (err_log[i].err_type == -EILSEQ && total_c_cnt < MAX_CNT_U64)
+			total_c_cnt += err_log[i].count;
+		if (err_log[i].err_type == -ETIMEDOUT && total_t_cnt < MAX_CNT_U64)
+			total_t_cnt += err_log[i].count;
+	}
+
+	if(err_log[0].ge_cnt > 100 || err_log[0].ecc_cnt > 0 || err_log[0].wp_cnt > 0 ||
+	   err_log[0].oor_cnt > 10 || total_t_cnt > 100 || total_c_cnt > 100)
+		len = snprintf(buf, PAGE_SIZE, "BAD\n");
+	else
+		len = snprintf(buf, PAGE_SIZE, "GOOD\n");
+
+out:
+	return len;
+}
+
 static DEVICE_ATTR(status, 0444, sd_detection_cmd_show, NULL);
 static DEVICE_ATTR(cd_cnt, 0444, sd_detection_cnt_show, NULL);
 static DEVICE_ATTR(max_mode, 0444, sd_detection_maxmode_show, NULL);
@@ -1428,6 +1467,7 @@ static DEVICE_ATTR(sdcard_summary, 0444, sdcard_summary_show, NULL);
 static DEVICE_ATTR(sd_count, 0444, sd_count_show, NULL);
 static DEVICE_ATTR(sd_data, 0444, sd_data_show, NULL);
 static DEVICE_ATTR(data, 0444, sd_cid_show, NULL);
+static DEVICE_ATTR(fc, 0444, sd_health_show, NULL);
 
 /* Callback function for SD Card IO Error */
 static int sdcard_uevent(struct mmc_card *card)
@@ -1544,6 +1584,11 @@ static void dw_mci_exynos_add_sysfs(struct dw_mci *host)
 			if (device_create_file(sd_info_cmd_dev,
 						&dev_attr_data) < 0)
 				pr_err("Fail to create status sysfs file\n");
+
+			if (device_create_file(sd_info_cmd_dev,
+						&dev_attr_fc) < 0)
+				pr_err("%s : Failed to create device file(%s)!\n",
+						__func__, dev_attr_fc.attr.name);
 		}
 
 		if (!sd_data_cmd_dev) {
@@ -1592,42 +1637,84 @@ static int dw_mci_exynos_misc_control(struct dw_mci *host,
 }
 
 #ifdef CONFIG_MMC_DW_EXYNOS_FMP
+static struct bio *get_bio(struct dw_mci *host,
+				struct mmc_data *data, bool cmdq_enabled)
+{
+	struct bio *bio = NULL;
+	struct dw_mci_exynos_priv_data *priv;
+
+	if (!host || !data) {
+		pr_err("%s: Invalid MMC:%p data:%p\n", __func__, host, data);
+		return NULL;
+	}
+
+	priv = host->priv;
+	if (priv->fmp == SMU_ID_MAX)
+		return NULL;
+
+	if (cmdq_enabled) {
+		pr_err("%s: no support cmdq yet:%p\n", __func__, host, data);
+		bio = NULL;
+	} else {
+		struct mmc_queue_req *mq_rq;
+		struct request *req;
+		struct mmc_blk_request *brq;
+
+		brq = container_of(data, struct mmc_blk_request, data);
+		if (!brq)
+			return NULL;
+
+		mq_rq = container_of(brq, struct mmc_queue_req, brq);
+		if (virt_addr_valid(mq_rq))
+			req = mmc_queue_req_to_req(mq_rq);
+			if (virt_addr_valid(req))
+				bio = req->bio;
+	}
+	return bio;
+}
+
 static int dw_mci_exynos_crypto_engine_cfg(struct dw_mci *host,
-					   void *desc,
-					   struct mmc_data *data,
-					   struct page *page, int sector_offset, bool cmdq_enabled)
+					void *desc, struct mmc_data *data,
+					struct page *page, int page_index,
+					int sector_offset, bool cmdq_enabled)
 {
-	return exynos_mmc_fmp_cfg(host, desc, data, page, sector_offset, cmdq_enabled);
+	struct bio *bio = get_bio(host, host->data, cmdq_enabled);
+
+	if (!bio)
+		return 0;
+
+	return exynos_fmp_crypt_cfg(bio, desc, page_index, sector_offset);
 }
 
-static int dw_mci_exynos_crypto_engine_clear(struct dw_mci *host, void *desc, bool cmdq_enabled)
+static int dw_mci_exynos_crypto_engine_clear(struct dw_mci *host,
+					void *desc, bool cmdq_enabled)
 {
-	return exynos_mmc_fmp_clear(host, desc, cmdq_enabled);
+	struct bio *bio = get_bio(host, host->data, cmdq_enabled);
+
+	if (!bio)
+		return 0;
+
+	return exynos_fmp_crypt_clear(bio, desc);
 }
 
-static int dw_mci_exynos_access_control_get_dev(struct dw_mci *host)
+static int dw_mci_exynos_crypto_sec_cfg(struct dw_mci *host, bool init)
 {
-	return exynos_mmc_smu_get_dev(host);
-}
+	struct dw_mci_exynos_priv_data *priv = host->priv;
 
-static int dw_mci_exynos_access_control_sec_cfg(struct dw_mci *host)
-{
-	return exynos_mmc_smu_sec_cfg(host);
-}
+	if (!priv)
+		return -EINVAL;
 
-static int dw_mci_exynos_access_control_init(struct dw_mci *host)
-{
-	return exynos_mmc_smu_init(host);
+	return exynos_fmp_sec_cfg(priv->fmp, priv->smu, init);
 }
 
 static int dw_mci_exynos_access_control_abort(struct dw_mci *host)
 {
-	return exynos_mmc_smu_abort(host);
-}
+	struct dw_mci_exynos_priv_data *priv = host->priv;
 
-static int dw_mci_exynos_access_control_resume(struct dw_mci *host)
-{
-	return exynos_mmc_smu_resume(host);
+	if (!priv)
+		return -EINVAL;
+
+	return exynos_fmp_smu_abort(priv->smu);
 }
 #endif
 
@@ -1643,11 +1730,8 @@ static const struct dw_mci_drv_data exynos_drv_data = {
 #ifdef CONFIG_MMC_DW_EXYNOS_FMP
 	.crypto_engine_cfg = dw_mci_exynos_crypto_engine_cfg,
 	.crypto_engine_clear = dw_mci_exynos_crypto_engine_clear,
-	.access_control_get_dev = dw_mci_exynos_access_control_get_dev,
-	.access_control_sec_cfg = dw_mci_exynos_access_control_sec_cfg,
-	.access_control_init = dw_mci_exynos_access_control_init,
+	.crypto_sec_cfg = dw_mci_exynos_crypto_sec_cfg,
 	.access_control_abort = dw_mci_exynos_access_control_abort,
-	.access_control_resume = dw_mci_exynos_access_control_resume,
 #endif
 	.ssclk_control = dw_mci_exynos_ssclk_control,
 };

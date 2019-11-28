@@ -1902,10 +1902,6 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 		if (dwc->revision >= DWC3_REVISION_194A)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
-		reg &= ~DWC3_DCTL_ULSTCHNGREQ_MASK;
-		reg |= DWC3_DCTL_ULSTCHNGREQ(0x5);
-		dwc3_writel(dwc->regs, DWC3_DCTL, reg);
-
 		reg |= DWC3_DCTL_RUN_STOP;
 
 		if (dwc->has_hibernation)
@@ -1926,12 +1922,11 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
 		dwc->pullups_connected = false;
+		mdelay(50);
 	}
 
 	dwc3_writel(dwc->regs, DWC3_DCTL, reg);
 
-	if (!is_on)
-		mdelay(50);
 
 	do {
 		reg = dwc3_readl(dwc->regs, DWC3_DSTS);
@@ -2054,17 +2049,17 @@ static int dwc3_gadget_run_stop_vbus(struct dwc3 *dwc, int is_on, int suspend)
 				dwc3_writel(dwc->regs, DWC3_DCTL, reg);
 				dev_err(dwc->dev,
 					"gadget run/stop timeout, DCTL : 0x%x\n",
-					reg);
+							reg);
 				reg = dwc3_readl(dwc->regs, DWC3_DSTS);
 				dev_err(dwc->dev,
 					"gadget run/stop timeout, DSTS : 0x%x\n",
-					reg);
+							reg);
 				do {
 					reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 					if (!(reg & DWC3_DCTL_CSFTRST)) {
 						dev_info(dwc->dev,
 							"gadget run/stop DCTL softreset, DCTL : 0x%x\n",
-							reg);
+									reg);
 						goto good;
 					}
 					udelay(1);
@@ -2076,9 +2071,10 @@ static int dwc3_gadget_run_stop_vbus(struct dwc3 *dwc, int is_on, int suspend)
 
 			/* Do nothing in DCTL stop timeout */
 			dev_err(dwc->dev,
-			"gadget DCTL stop timeout, DSTS: 0x%x\n",
-			reg);
-			dwc3_soft_reset(dwc);
+			"gadget DCTL stop timeout - vbus, DSTS: 0x%x\n",
+					reg);
+			if (!dwc->vbus_state)
+				dwc3_soft_reset(dwc);
 			goto good;
 		}
 		udelay(1);
@@ -3218,10 +3214,6 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 	 * */
 	if (dwc->gadget.speed <= USB_SPEED_HIGH)
 		dwc3_otg_qos_lock(dwc, -1);
-	else if (dwc->gadget.speed == USB_SPEED_SUPER)
-		dwc3_otg_qos_lock(dwc, 2);
-	else if (dwc->gadget.speed == USB_SPEED_SUPER_PLUS)
-		dwc3_otg_qos_lock(dwc, 0);
 #endif
 
 	dwc->eps[1]->endpoint.maxpacket = dwc->gadget.ep0->maxpacket;

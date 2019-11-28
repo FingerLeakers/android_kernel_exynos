@@ -188,6 +188,7 @@ struct is_hw_mcsc_cap {
 	enum mcsc_cap_enum	out_otf[MCSC_OUTPUT_MAX];
 	enum mcsc_cap_enum	out_dma[MCSC_OUTPUT_MAX];
 	enum mcsc_cap_enum	out_hwfc[MCSC_OUTPUT_MAX];
+	enum mcsc_cap_enum	out_post[MCSC_OUTPUT_MAX];
 	bool			enable_shared_output;
 	enum mcsc_cap_enum	tdnr;
 	enum mcsc_cap_enum	djag;

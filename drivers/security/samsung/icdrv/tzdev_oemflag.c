@@ -18,7 +18,11 @@
 #include <linux/debugfs.h>
 #include <linux/types.h>
 #include <linux/errno.h>
+#if defined(CONFIG_TEEGRIS_VERSION) && (CONFIG_TEEGRIS_VERSION >= 4)
+#include "extensions/irs.h"
+#else
 #include "tzirs.h"
+#endif
 #include "oemflag_arch.h"
 
 static uint32_t set_tamper_fuse_teegris(uint32_t cmd, uint32_t arg1,

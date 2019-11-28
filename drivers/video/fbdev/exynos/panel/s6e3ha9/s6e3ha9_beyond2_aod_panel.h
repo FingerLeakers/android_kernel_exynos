@@ -27,6 +27,7 @@ static DEFINE_STATIC_PACKET(s6e3ha9_beyond2_lcut_aod_self_mask_img_pkt, DSI_PKT_
 static void *s6e3ha9_beyond2_lcut_aod_self_mask_img_cmdtbl[] = {
 	&KEYINFO(s6e3ha9_aod_l2_key_enable),
 	&PKTINFO(s6e3ha9_aod_self_mask_sd_path),
+	&DLYINFO(s6e3ha9_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3ha9_beyond2_lcut_aod_self_mask_img_pkt),
 	&PKTINFO(s6e3ha9_aod_reset_sd_path),
 	&KEYINFO(s6e3ha9_aod_l2_key_disable),

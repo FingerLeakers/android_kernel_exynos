@@ -120,7 +120,7 @@ bcm_xtlv_id(const bcm_xtlv_t *elt, bcm_xtlv_opts_t opts)
 bcm_xtlv_t *
 bcm_next_xtlv(const bcm_xtlv_t *elt, int *buflen, bcm_xtlv_opts_t opts)
 {
-	int sz;
+	uint sz;
 
 	COV_TAINTED_DATA_SINK(buflen);
 	COV_NEG_SINK(buflen);
@@ -134,16 +134,12 @@ bcm_next_xtlv(const bcm_xtlv_t *elt, int *buflen, bcm_xtlv_opts_t opts)
 	elt = (const bcm_xtlv_t*)((const uint8 *)elt + sz);
 
 #if defined(__COVERITY__)
-	/* The check below is completely redundant since the elt has been verified by
-	 * bcm_valid_xtlv(). bcm_valid_xtlv() verifies that the elt pointer it is given
-	 * is a valid element, so its size, sz = BCM_XTLV_SIZE_EX(), is in the bounds
-	 * of the buffer.
-	 * The following redundant check prevents Coverity from flagging the
-	 * (*buflen -= sz) statement below as "Assigning: *buflen = sz, which taints *buflen"
+	/* The 'sz' value is tainted in Coverity because it is read from the tainted data pointed
+	 * to by 'elt'.  However, bcm_valid_xtlv() verifies that the elt pointer is a valid element,
+	 * so its size, sz = BCM_XTLV_SIZE_EX(elt, opts), is in the bounds of the buffer.
+	 * Clearing the tainted attribute of 'sz' for Coverity.
 	 */
-	if (sz > *buflen) {
-		return NULL;
-	}
+	__coverity_tainted_data_sanitize__(sz);
 #endif /* __COVERITY__ */
 
 	*buflen -= sz;

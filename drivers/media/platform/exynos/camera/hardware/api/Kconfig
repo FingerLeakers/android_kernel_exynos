@@ -26,6 +26,13 @@ config MC_SCALER_V8_10
 	help
 	  use mc-scaler v8.10
 
+config MC_SCALER_V8_20
+	bool "Use MC-SCALER H/W v8.20"
+	depends on EXYNOS_PABLO_ISP
+	default n
+	help
+	  use mc-scaler v8.20
+
 config VRA_V2_0
 	bool "Use VRA H/W v2.0"
 	depends on EXYNOS_PABLO_ISP

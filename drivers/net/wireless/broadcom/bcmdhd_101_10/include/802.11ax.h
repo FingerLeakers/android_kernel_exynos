@@ -345,14 +345,19 @@ typedef uint8 he_phy_cap_t[HE_PHY_CAP_INFO_SIZE];
 #define HE_MAC_MAX_AMPDU_EXP_ADOPT_VHT	(0)
 /* Max. AMPDU length =
  * 2^(20 + MAX_AMPDU_LEN_HE_EXPO_1) -1 (if this value in VHT CAP is 7) or
- * 2^(16 + MAX_AMPDU_LEN_HE_EXPO_1) -1 (if this value in HT CAP is 7).
+ * 2^(16 + MAX_AMPDU_LEN_HE_EXPO_1) -1 (if this value in HT CAP is 3).
  */
 #define HE_MAC_MAX_AMPDU_EXP_HE_1	(1)
 /* Max. AMPDU length =
  * 2^(20 + MAX_AMPDU_LEN_HE_EXPO_2) -1 (if this value in VHT CAP is 7) or
- * 2^(16 + MAX_AMPDU_LEN_HE_EXPO_2) -1 (if this value in HT CAP is 7).
+ * 2^(16 + MAX_AMPDU_LEN_HE_EXPO_2) -1 (if this value in HT CAP is 3).
  */
 #define HE_MAC_MAX_AMPDU_EXP_HE_2	(2)
+/* Max. AMPDU length =
+ * 2^(20 + MAX_AMPDU_LEN_HE_EXPO_3) -1 (if this value in VHT CAP is 7) or
+ * 2^(16 + MAX_AMPDU_LEN_HE_EXPO_3) -1 (if this value in HT CAP is 3).
+ */
+#define HE_MAC_MAX_AMPDU_EXP_HE_3	(3)
 
 /* HE PHY Capabilities values */
 /* b1-b7: Channel Width Support field */

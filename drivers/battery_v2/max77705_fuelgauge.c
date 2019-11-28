@@ -1599,13 +1599,17 @@ static int max77705_fg_get_property(struct power_supply *psy,
 				if (abnormal_current_cnt >= 5) {
 					pr_info("%s: Inow is increasing in not charging status\n",
 						__func__);
-					value.intval = fuelgauge->capacity_old + 15;
-					psy_do_property("battery", set,
-						POWER_SUPPLY_PROP_CAPACITY, value);
-					abnormal_current_cnt = 0;
-					value.intval = fuelgauge->capacity_old;
-					psy_do_property("battery", set,
-						POWER_SUPPLY_PROP_CAPACITY, value);
+                                        if(!max77705_check_jig_status(fuelgauge)){
+						value.intval = fuelgauge->capacity_old + 15;
+                                                psy_do_property("battery", set,
+							POWER_SUPPLY_PROP_CAPACITY, value);
+                                                abnormal_current_cnt = 0;
+						value.intval = fuelgauge->capacity_old;
+                                                psy_do_property("battery", set,
+							POWER_SUPPLY_PROP_CAPACITY, value);
+                                        }else{
+                                                abnormal_current_cnt = 0;
+                                        }
 				}
 			} else {
 				abnormal_current_cnt = 0;

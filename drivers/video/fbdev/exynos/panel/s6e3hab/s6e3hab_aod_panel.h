@@ -37,6 +37,7 @@ static DEFINE_STATIC_PACKET(s6e3hab_aod_l2_key_disable, DSI_PKT_TYPE_WR,S6E3HAB_
 static DEFINE_STATIC_PACKET(s6e3hab_aod_l3_key_enable, DSI_PKT_TYPE_WR, S6E3HAB_AOD_KEY3_ENABLE, 0);
 static DEFINE_STATIC_PACKET(s6e3hab_aod_l3_key_disable, DSI_PKT_TYPE_WR, S6E3HAB_AOD_KEY3_DISABLE, 0);
 
+static DEFINE_PANEL_UDELAY(s6e3hab_aod_self_spsram_sel_delay, 1);
 static DEFINE_PANEL_UDELAY(s6e3hab_aod_self_mask_checksum_1frame_delay, 16700);
 static DEFINE_PANEL_UDELAY(s6e3hab_aod_self_mask_checksum_2frame_delay, 33400);
 
@@ -261,7 +262,7 @@ static char S6E3HAB_AOD_SELF_MASK_ENA[] = {
 	0x7A,
 	0x21, 0x0D, 0xAC, 0x0D,
 	0xAD, 0x0D, 0xAE, 0x0D,
-	0xAF, 0x09, 0x10, 0x00,
+	0xAF, 0x09, 0x0F, 0x00,
 	0x00, 0x00, 0x00,
 };
 #else
@@ -269,9 +270,9 @@ static char S6E3HAB_AOD_SELF_MASK_ENA[] = {
 	0x7A,
 	0x21, 0x00, 0x00, 0x01,
 	0x8F, 0x0B, 0xB8, 0x0C,
-	0x7F, 0x09, 0x10, 0x00,
+	0x7F, 0x09, 0x0F, 0x00,
 	0x00, 0x00, 0x00,
-};	
+};
 #endif
 
 #ifdef AOD_TEST
@@ -343,6 +344,7 @@ static void *s6e3hab_aod_disable_cmdtbl[] = {
 static void *s6e3hab_aod_icon_img_cmdtbl[] = {
 	&KEYINFO(s6e3hab_aod_l2_key_enable),
 	&PKTINFO(s6e3hab_aod_icon_sd_path),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_aod_icon_img),
 	&PKTINFO(s6e3hab_aod_reset_sd_path),
 	&KEYINFO(s6e3hab_aod_l2_key_disable),
@@ -450,6 +452,7 @@ static DEFINE_STATIC_PACKET(s6e3hab_aod_analog_img, DSI_PKT_TYPE_WR_SR, S6E3HAB_
 static void *s6e3hab_aod_analog_img_cmdtbl[] = {
 	&KEYINFO(s6e3hab_aod_l2_key_enable),
 	&PKTINFO(s6e3hab_aod_sd_path_analog),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_aod_analog_img),
 	&PKTINFO(s6e3hab_aod_reset_sd_path),
 	&KEYINFO(s6e3hab_aod_l2_key_disable),
@@ -546,8 +549,10 @@ static void *s6e3hab_aod_self_mask_checksum_cmdtbl[] = {
 	&PKTINFO(s6e3hab_aod_self_mask_disable),
 	&DLYINFO(s6e3hab_aod_self_mask_checksum_1frame_delay),
 	&PKTINFO(s6e3hab_aod_self_mask_sd_path),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_aod_self_mask_img_pkt),
 	&PKTINFO(s6e3hab_aod_sd_path_analog),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_aod_self_mask_for_checksum),
 	&DLYINFO(s6e3hab_aod_self_mask_checksum_2frame_delay),
 	&s6e3hab_restbl[RES_SELF_MASK_CHECKSUM],
@@ -616,6 +621,7 @@ static DEFINE_STATIC_PACKET(s6e3hab_aod_digital_img, DSI_PKT_TYPE_WR_SR, S6E3HAB
 static void *s6e3hab_aod_digital_img_cmdtbl[] = {
 	&KEYINFO(s6e3hab_aod_l2_key_enable),
 	&PKTINFO(s6e3hab_aod_sd_path_digital),
+	&DLYINFO(s6e3hab_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3hab_aod_digital_img),
 	&PKTINFO(s6e3hab_aod_reset_sd_path),
 	&KEYINFO(s6e3hab_aod_l2_key_disable),
@@ -742,8 +748,8 @@ static void *s6e3hab_aod_self_move_reset_cmdtbl[] = {
 
 static char S6E3HAB_PARTIAL_MODE[] = {
 	0x85,
-	0x33, /*enable partial scan & enable partial hlpm*/
-	0x1B, /*enable partial hlpm area*/
+	0x02, /*enable partial scan & enable partial hlpm*/
+	0x00, /*enable partial hlpm area*/
 	0x0F, 0x0F
 };
 static DEFINE_PKTUI(s6e3hab_aod_partial_mode, &s6e3hab_aod_maptbl[SET_PARTIAL_MODE], 0);

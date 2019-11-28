@@ -30,10 +30,6 @@
 #include "s6e3fa7_beyond0_a3_s0_panel_aod_dimming.h"
 #endif
 
-#ifdef CONFIG_ACTIVE_CLOCK
-#include "../active_clk_img_white.h"
-#endif
-
 #ifdef CONFIG_EXTEND_LIVE_CLOCK
 #include "s6e3fa7_beyond0_aod_panel.h"
 #include "../aod/aod_drv.h"
@@ -511,11 +507,6 @@ static struct maptbl beyond0_a3_s0_maptbl[MAX_MAPTBL] = {
 	[LPM_MODE_MAPTBL] = DEFINE_3D_MAPTBL(beyond0_a3_s0_lpm_mode_table, init_common_table, getidx_lpm_table, copy_common_maptbl),
 	[LPM_DYN_VLIN_MAPTBL] = DEFINE_2D_MAPTBL(beyond0_a3_s0_lpm_dyn_vlin_table, init_common_table, getidx_lpm_dyn_vlin_table, copy_common_maptbl),
 	[LPM_OFF_MAPTBL] = DEFINE_3D_MAPTBL(beyond0_a3_s0_lpm_off_table, init_common_table, getidx_lpm_table, copy_common_maptbl),
-#ifdef CONFIG_ACTIVE_CLOCK
-	[ACTIVE_CLK_CTRL_MAPTBL] = DEFINE_0D_MAPTBL(beyond0_a3_s0_self_clk_ctrl_table, init_common_table, NULL, copy_self_clk_maptbl),
-	[ACTIVE_CLK_SELF_DRAWER] = DEFINE_0D_MAPTBL(beyond0_a3_s0_self_drawer, init_common_table, NULL, copy_self_drawer),
-	[ACTIVE_CLK_CTRL_UPDATE_MAPTBL] = DEFINE_0D_MAPTBL(beyond0_a3_s0_self_clk_update_table, init_common_table, NULL, copy_self_clk_update_maptbl),
-#endif
 #ifdef CONFIG_EXYNOS_ADAPTIVE_FREQ
 	[DYNAMIC_FFC_MAPTBL] = DEFINE_2D_MAPTBL(beyond0_a3_s0_dynamic_ffc, init_common_table, getidx_dynamic_ffc_table, copy_dynamic_ffc_maptbl),
 #endif
@@ -557,45 +548,6 @@ static u8 BEYOND0_A3_S0_PPS[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static u8 BEYOND0_A3_S0_ENABLE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00, 0x00, 0x08, 0x11, 0x00, 0x00, 0x00,
-	0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0x0A,
-	0x0B, 0x00, 0x00, 0x02, 0xD0, 0x02, 0xC3, 0x3C,
-	0x13, 0x00, 0x3C, 0x13, 0x00, 0x3C, 0x13, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
-static u8 BEYOND0_A3_S0_UPDATE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00, 0x00, 0x08, 0x11, 0x00, 0x00, 0x00,
-	0x03, 0x01,
-};
-static u8 BEYOND0_A3_S0_DISABLE_ACTIVE_CLK[] = {
-	0xE3,
-	0x00, 0x00
-};
-static u8 BEYOND0_A3_S0_SET_SELF_DRAWER[] = {
-	0xE2,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x02, 0xCF, 0x02, 0x97, 0x05, 0xA0, 0x0B,
-	0x90, 0x01, 0x07, 0xF0, 0xF0, 0xF0, 0x00, 0x00, 0x00,
-	0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-};
-
-static u8 BEYOND0_A3_S0_DISABLE_SELF_DRAWER[] = {
-	0xE2,
-	0x00, 0x00
-};
-#endif
 
 static u8 BEYOND0_A3_S0_TE_ON[] = { 0x35, 0x00 };
 static u8 BEYOND0_A3_S0_TE_OFF[] = { 0x34 };
@@ -843,18 +795,6 @@ static DEFINE_VARIABLE_PACKET(beyond0_a3_s0_lpm_dyn_vlin, DSI_PKT_TYPE_WR, BEYON
 static DEFINE_STATIC_PACKET(beyond0_a3_s0_lpm_off_dyn_vlin, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_LPM_OFF_DYN_VLIN, 0x1D);
 static DEFINE_PKTUI(beyond0_a3_s0_lpm_mode, &beyond0_a3_s0_maptbl[LPM_MODE_MAPTBL], 1);
 static DEFINE_VARIABLE_PACKET(beyond0_a3_s0_lpm_mode, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_LPM_MODE, 0);
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static DEFINE_PKTUI(beyond0_a3_s0_enable_active_clk, &beyond0_a3_s0_maptbl[ACTIVE_CLK_CTRL_MAPTBL], 1);
-static DEFINE_VARIABLE_PACKET(beyond0_a3_s0_enable_active_clk, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_ENABLE_ACTIVE_CLK, 0);
-static DEFINE_PKTUI(beyond0_a3_s0_set_self_drawer, &beyond0_a3_s0_maptbl[ACTIVE_CLK_SELF_DRAWER], 1);
-static DEFINE_VARIABLE_PACKET(beyond0_a3_s0_set_self_drawer, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_SET_SELF_DRAWER, 0);
-static DEFINE_PKTUI(beyond0_a3_s0_update_active_clk, &beyond0_a3_s0_maptbl[ACTIVE_CLK_CTRL_UPDATE_MAPTBL], 1);
-static DEFINE_VARIABLE_PACKET(beyond0_a3_s0_update_active_clk, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_UPDATE_ACTIVE_CLK, 0);
-static DEFINE_STATIC_PACKET(beyond0_a3_s0_disable_self_drawer, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_DISABLE_SELF_DRAWER, 0);
-static DEFINE_STATIC_PACKET(beyond0_a3_s0_disable_active_clk, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_DISABLE_ACTIVE_CLK, 0);
-static DEFINE_STATIC_PACKET(beyond0_a3_s0_active_clk_img_pkt, DSI_PKT_TYPE_WR_SR, live_clock_image, 0);
-#endif
 
 static DEFINE_STATIC_PACKET(beyond0_a3_s0_poc_comp2, DSI_PKT_TYPE_WR, BEYOND0_A3_S0_POC_COMP2, 0x0A);
 
@@ -1247,10 +1187,6 @@ static void *beyond0_a3_s0_alpm_enter_delay_cmdtbl[] = {
 
 static void *beyond0_a3_s0_alpm_exit_cmdtbl[] = {
 	&KEYINFO(beyond0_a3_s0_level2_key_enable),
-#ifdef CONFIG_ACTIVE_CLOCK
-	&PKTINFO(beyond0_a3_s0_disable_active_clk),
-	&PKTINFO(beyond0_a3_s0_disable_self_drawer),
-#endif
 	&PKTINFO(beyond0_a3_s0_lpm_off_nit),
 	&PKTINFO(beyond0_a3_s0_avc2_on),
 	&PKTINFO(beyond0_a3_s0_exit_alpm),
@@ -1415,28 +1351,6 @@ static void *beyond0_a3_s0_grayspot_off_cmdtbl[] = {
 	&PKTINFO(beyond0_a3_s0_tset_mps_elvss),
 //	&PKTINFO(beyond0_a3_s0_elvss_temp),
 	&PKTINFO(beyond0_a3_s0_gamma_update_enable),
-	&KEYINFO(beyond0_a3_s0_level2_key_disable),
-};
-#endif
-
-#ifdef CONFIG_ACTIVE_CLOCK
-static void *beyond0_a3_s0_active_clk_img_cmdtbl[] = {
-	&PKTINFO(beyond0_a3_s0_active_clk_img_pkt),
-};
-
-static void *beyond0_a3_s0_active_clk_ctrl_cmdtbl[] = {
-	&KEYINFO(beyond0_a3_s0_level2_key_enable),
-	&PKTINFO(beyond0_a3_s0_enable_active_clk),
-	&PKTINFO(beyond0_a3_s0_set_self_drawer),
-	&KEYINFO(beyond0_a3_s0_level2_key_disable),
-};
-
-static void *beyond0_a3_s0_active_clk_update_cmdtbl[] = {
-	&KEYINFO(beyond0_a3_s0_level2_key_enable),
-	&PKTINFO(beyond0_a3_s0_enable_active_clk),
-	&PKTINFO(beyond0_a3_s0_set_self_drawer),
-	&DLYINFO(beyond0_a3_s0_wait_1_frame_in_30hz),
-	&PKTINFO(beyond0_a3_s0_update_active_clk),
 	&KEYINFO(beyond0_a3_s0_level2_key_disable),
 };
 #endif
@@ -1629,11 +1543,6 @@ static struct seqinfo beyond0_a3_s0_seqtbl[MAX_PANEL_SEQ] = {
 #ifdef CONFIG_SUPPORT_MST
 	[PANEL_MST_ON_SEQ] = SEQINFO_INIT("mst-on-seq", beyond0_a3_s0_mst_on_cmdtbl),
 	[PANEL_MST_OFF_SEQ] = SEQINFO_INIT("mst-off-seq", beyond0_a3_s0_mst_off_cmdtbl),
-#endif
-#ifdef CONFIG_ACTIVE_CLOCK
-	[PANEL_ACTIVE_CLK_IMG_SEQ] = SEQINFO_INIT("active-clk-img-seq", beyond0_a3_s0_active_clk_img_cmdtbl),
-	[PANEL_ACTIVE_CLK_CTRL_SEQ] = SEQINFO_INIT("active-clk-ctrl-seq", beyond0_a3_s0_active_clk_ctrl_cmdtbl),
-	[PANEL_ACTIVE_CLK_UPDATE_SEQ] = SEQINFO_INIT("active-clk-update-seq", beyond0_a3_s0_active_clk_update_cmdtbl),
 #endif
 #ifdef CONFIG_SUPPORT_GRAYSPOT_TEST
 	[PANEL_GRAYSPOT_ON_SEQ] = SEQINFO_INIT("grayspot-on-seq", beyond0_a3_s0_grayspot_on_cmdtbl),

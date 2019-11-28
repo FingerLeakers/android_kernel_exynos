@@ -29,6 +29,7 @@
 #define USBLOG_MAX_BUF4_SIZE	(1 << 9) /* 512 */
 #define USBLOG_MAX_STRING_SIZE	(1 << 4) /* 16 */
 #define USBLOG_CMP_INDEX	3
+#define USBLOG_MAX_STORE_PORT	(1 << 6) /* 64 */
 
 #define USBLOG_CCIC_BUFFER_SIZE	USBLOG_MAX_BUF4_SIZE
 #define USBLOG_MODE_BUFFER_SIZE	USBLOG_MAX_BUF_SIZE
@@ -64,6 +65,13 @@ struct port_buf {
 	int type;
 	uint16_t param1;
 	uint16_t param2;
+	uint16_t count;
+};
+
+struct port_count {
+	uint16_t vid;
+	uint16_t pid;
+	uint16_t count;
 };
 
 struct extra_buf {
@@ -89,6 +97,7 @@ struct usblog_buf {
 	struct state_buf state_buffer[USBLOG_STATE_BUFFER_SIZE];
 	struct event_buf event_buffer[USBLOG_EVENT_BUFFER_SIZE];
 	struct port_buf port_buffer[USBLOG_PORT_BUFFER_SIZE];
+	struct port_count store_port_cnt[USBLOG_MAX_STORE_PORT];
 	struct extra_buf extra_buffer[USBLOG_EXTRA_BUFFER_SIZE];
 };
 
@@ -429,6 +438,8 @@ static const char *extra_string(enum extra event)
 		return "CC OPEN SET";
 	case NOTIFY_EXTRA_CCOPEN_REQ_CLEAR:
 		return "CC OPEN CLEAR";
+	case NOTIFY_EXTRA_USB_ANALOGAUDIO:
+		return "USB ANALOG AUDIO";
 	default:
 		return "ETC";
 	}
@@ -731,16 +742,18 @@ static void print_ccic_event(struct seq_file *m, unsigned long long ts,
 }
 
 static void print_port_string(struct seq_file *m, unsigned long long ts,
-	unsigned long rem_nsec, int type, uint16_t param1, uint16_t param2)
+	unsigned long rem_nsec, int type, uint16_t param1,
+		uint16_t param2, uint16_t cnt)
 {
 	switch (type) {
 	case NOTIFY_PORT_CONNECT:
-	case NOTIFY_PORT_DISCONNECT:
-		seq_printf(m, "[%5lu.%06lu] port %s - VID:0x%04x PID:0x%04x\n",
+		seq_printf(m, "[%5lu.%06lu] port connect - VID:0x%04x PID:0x%04x cnt:%d\n",
 			(unsigned long)ts, rem_nsec / 1000,
-				(type == NOTIFY_PORT_CONNECT) ?
-					"connect" : "disconnect",
-						param1, param2);
+					param1, param2, cnt);
+		break;
+	case NOTIFY_PORT_DISCONNECT:
+		seq_printf(m, "[%5lu.%06lu] port disconnect - VID:0x%04x PID:0x%04x\n",
+			(unsigned long)ts, rem_nsec / 1000, param1, param2);
 		break;
 	case NOTIFY_PORT_CLASS:
 		seq_printf(m, "[%5lu.%06lu] device class %d, interface class %d\n",
@@ -751,6 +764,36 @@ static void print_port_string(struct seq_file *m, unsigned long long ts,
 			(unsigned long)ts, rem_nsec / 1000);
 		break;
 	}
+}
+
+static uint16_t set_port_count(uint16_t vid, uint16_t pid)
+{
+	int i;
+	uint16_t ret = 0;
+	struct port_count *temp_port;
+
+	for (i = 0; i < USBLOG_MAX_STORE_PORT; i++) {
+		temp_port = &usblog_root.usblog_buffer->store_port_cnt[i];
+		if ((temp_port->vid == vid)
+			&& temp_port->pid == pid) {
+			temp_port->count++;
+			ret = temp_port->count;
+			break;
+		}
+
+		if (!temp_port->vid && !temp_port->pid) {
+			temp_port->vid = vid;
+			temp_port->pid = pid;
+			temp_port->count++;
+			ret = temp_port->count;
+			break;
+		}
+	}
+
+	if (i == USBLOG_MAX_STORE_PORT)
+		pr_err("%s store port overflow\n", __func__);
+
+	return ret;
 }
 
 static int usblog_proc_show(struct seq_file *m, void *v)
@@ -913,7 +956,8 @@ static int usblog_proc_show(struct seq_file *m, void *v)
 			print_port_string(m, ts, rem_nsec,
 				temp_usblog_buffer->port_buffer[i].type,
 				temp_usblog_buffer->port_buffer[i].param1,
-				temp_usblog_buffer->port_buffer[i].param2);
+				temp_usblog_buffer->port_buffer[i].param2,
+				temp_usblog_buffer->port_buffer[i].count);
 		}
 	}
 
@@ -923,7 +967,8 @@ static int usblog_proc_show(struct seq_file *m, void *v)
 		print_port_string(m, ts, rem_nsec,
 			temp_usblog_buffer->port_buffer[i].type,
 			temp_usblog_buffer->port_buffer[i].param1,
-			temp_usblog_buffer->port_buffer[i].param2);
+			temp_usblog_buffer->port_buffer[i].param2,
+			temp_usblog_buffer->port_buffer[i].count);
 	}
 
 	seq_printf(m,
@@ -1016,7 +1061,8 @@ void mode_store_usblog_notify(int type, char *param1)
 		param_len = strlen(b);
 		if (param_len >= USBLOG_MAX_STRING_SIZE)
 			param_len = USBLOG_MAX_STRING_SIZE-1;
-		strncpy(md_buffer->usbmode_str, b, param_len);
+		strncpy(md_buffer->usbmode_str, b,
+			sizeof(md_buffer->usbmode_str)-1);
 	} else if (type == NOTIFY_USBMODE) {
 		if (b) {
 			name = strsep(&b, ",");
@@ -1229,8 +1275,12 @@ void port_store_usblog_notify(int type, void *param1, void *param2)
 	}
 	pt_buffer->ts_nsec = local_clock();
 	pt_buffer->type = type;
-	if (type == NOTIFY_PORT_CONNECT
-			|| type == NOTIFY_PORT_DISCONNECT) {
+	if (type == NOTIFY_PORT_CONNECT) {
+		pt_buffer->param1 = le16_to_cpu(*(__le16 *)(param1));
+		pt_buffer->param2 = le16_to_cpu(*(__le16 *)(param2));
+		pt_buffer->count
+			= set_port_count(pt_buffer->param1, pt_buffer->param2);
+	} else if (type == NOTIFY_PORT_DISCONNECT) {
 		pt_buffer->param1 = le16_to_cpu(*(__le16 *)(param1));
 		pt_buffer->param2 = le16_to_cpu(*(__le16 *)(param2));
 	} else {

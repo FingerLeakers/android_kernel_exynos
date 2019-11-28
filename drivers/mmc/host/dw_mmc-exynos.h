@@ -12,7 +12,6 @@
 #ifndef _DW_MMC_EXYNOS_H_
 #define _DW_MMC_EXYNOS_H_
 
-#include <crypto/smu.h>
 #include <crypto/fmp.h>
 
 #define NUM_PINS(x)			(x + 2)
@@ -90,8 +89,8 @@ struct dw_mci_exynos_priv_data {
 	u32 ignore_phase;
 	u32 selclk_drv;
 	u32 voltage_int_extra;
-	struct exynos_smu_data smu;
-	struct exynos_fmp_data fmp;
+	enum smu_id	fmp;
+	enum smu_id	smu;
 
 #define DW_MMC_EXYNOS_BYPASS_FOR_ALL_PASS	BIT(0)
 #define DW_MMC_EXYNOS_ENABLE_SHIFT		BIT(1)

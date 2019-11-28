@@ -215,7 +215,7 @@
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <2950000>;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo3_reg: LDO3M {
@@ -269,7 +269,7 @@
 				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo11_reg: LDO11M {
@@ -278,7 +278,7 @@
 				regulator-max-microvolt = <1950000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo12_reg: LDO12M {
@@ -287,7 +287,7 @@
 				regulator-max-microvolt = <3350000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo13_reg: LDO13M {
@@ -296,7 +296,7 @@
 				regulator-max-microvolt = <3350000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo14_reg: LDO14M {
@@ -305,7 +305,7 @@
 				regulator-max-microvolt = <3350000>;
 				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <1>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo15_reg: LDO15M {
@@ -313,7 +313,7 @@
 				regulator-min-microvolt = <2950000>;
 				regulator-max-microvolt = <2950000>;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <0>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo16_reg: LDO16M {
@@ -331,7 +331,7 @@
 				regulator-max-microvolt = <1300000>;
 				regulator-always-on;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <3>;
+				regulator-initial-mode = <2>;
 			};
 
 			ldo19_reg: LDO19M {
@@ -346,7 +346,6 @@
 				regulator-name = "vdd_mcu_1p8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-always-on;
 				regulator-ramp-delay = <12000>;
 				regulator-initial-mode = <3>;
 			};
@@ -356,7 +355,7 @@
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
 				regulator-ramp-delay = <12000>;
-				regulator-initial-mode = <2>;
+				regulator-initial-mode = <3>;
 			};
 
 			ldo24_reg: LDO24M {
@@ -380,16 +379,16 @@
 			ldo26_reg: LDO26M {
 				regulator-name = "m_vdd_ldo26";
 				regulator-min-microvolt = <1800000>;
-				regulator-max-microvolt = <2200000>;
+				regulator-max-microvolt = <1800000>;
 				regulator-ramp-delay = <12000>;
 				regulator-initial-mode = <3>;
 			};
 
 			ldo28_reg: LDO28M {
-				regulator-name = "VDD_ESE_1P8";
+				regulator-name = "VDD_ESE_SEN4";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-always-on;
+				regulator-boot-on;
 				regulator-ramp-delay = <12000>;
 				regulator-initial-mode = <3>;
 			};
@@ -534,8 +533,6 @@
 				regulator-name = "S2MPB02_BUCK2";
 				regulator-min-microvolt = <1300000>;
 				regulator-max-microvolt = <1300000>;
-				regulator-always-on;
-				regulator-boot-on;
 			};
 
 			_buckboost_reg: s2mpb02-bb {
@@ -789,6 +786,36 @@
 	fragment@model {
 		target-path = "/";
 		__overlay__ {
+			exynos_pm_dvs {
+				compatible = "samsung,exynos-pm-dvs";
+				vdd_lldo1 {
+					regulator_name = "m_vdd_buck9";
+					suspend_volt = <800000>;
+					init_volt = <850000>;
+					volt_range_step = <62500>;
+				};
+
+				vdd_lldo2 {
+					regulator_name = "m_vdd_buck10";
+					suspend_volt = <900000>;
+					init_volt = <950000>;
+					volt_range_step = <62500>;
+				};
+
+				vdd_lldo3 {
+					regulator_name = "m_vdd_buck11";
+					suspend_volt = <1250000>;
+					init_volt = <1350000>;
+					volt_range_step = <62500>;
+				};
+				vdd_mldo {
+					regulator_name = "m_vdd_buck12";
+					suspend_volt = <1850000>;
+					init_volt = <2000000>;
+					volt_range_step = <12500>;
+				};
+			};
+
 			secgpio_dvs {
 				compatible = "samsung,exynos9830-secgpio-dvs";
 				status = "okay";
@@ -800,9 +827,9 @@
 				thermistor_name = "sec-ap-thermistor";
 				id = <0>;
 
-				adc_array = <198 246 300 364 432 523 620 742 882 1036
-					1246 1457 1671 1902 2149 2330 2641 2855 3059 3197
-					3388 3534 3637>;
+				adc_array = <217 280 337 403 481 575 682 806 949 1099
+					  1300 1504 1725 1955 2179 2416 2656 2888 3087 3279
+					  3433 3555 3670>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;
@@ -818,9 +845,9 @@
 				thermistor_name = "sec-wf-thermistor";
 				id = <1>;
 
-				adc_array = <216 267 324 389 464 553 657 779 918 1073
-					1285 1485 1703 1932 2160 2389 2632 2846 3033 3188
-					3358 3498 3605>;
+				adc_array = <239 302 359 429 510 604 714 839 982 1146
+					1333 1535 1753 1978 2211 2446 2666 2893 3083 3256
+					3403 3544 3629>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;
@@ -836,9 +863,9 @@
 				thermistor_name = "sec-cp-thermistor";
 				id = <2>;
 
-				adc_array = <184 233 287 347 419 503 604 724 855 1010
-					1231 1433 1653 1887 2124 2329 2617 2837 3053 3184
-					3392 3528 3645>;
+				adc_array = <228 291 347 414 494 587 694 819 961 1122
+					1316 1521 1741 1971 2208 2447 2675 2907 3113 3298
+					3451 3587 3694>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;

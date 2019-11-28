@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/debug-snapshot-helper.h>
+#include <linux/suspend.h>
 
 #include <asm/map.h>
 
@@ -511,7 +512,7 @@ static ssize_t show_sci_data(struct device *dev,
 				data->plugin_init_llc_region);
 	count += snprintf(buf + count, PAGE_SIZE, "LLC Region Priority:\n");
 	count += snprintf(buf + count, PAGE_SIZE, "prio   region                  on\n");
-	for (i = LLC_REGION_DISABLE + 1; i < LLC_REGION_MAX; i++)
+	for (i = 0; i < LLC_REGION_MAX; i++)
 		count += snprintf(buf + count, PAGE_SIZE, "%2d     %s  %u\n",
 				i, data->region_name[i], data->llc_region_prio[i]);
 
@@ -816,6 +817,25 @@ static void exynos_sci_llc_dump_config(struct exynos_sci_data *data)
 	dump_base = data->llc_dump_addr.v_addr;
 }
 
+static int exynos_sci_pm_suspend(struct device *dev)
+{
+	llc_region_alloc(LLC_REGION_LIT_MID_ALL, 0);
+
+	return 0;
+}
+
+static int exynos_sci_pm_resume(struct device *dev)
+{
+	llc_region_alloc(LLC_REGION_LIT_MID_ALL, 1);
+
+	return 0;
+}
+
+static struct dev_pm_ops exynos_sci_pm_ops = {
+	.suspend	= exynos_sci_pm_suspend,
+	.resume		= exynos_sci_pm_resume,
+};
+
 static int __init exynos_sci_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -955,6 +975,7 @@ static struct platform_driver exynos_sci_driver = {
 	.driver = {
 		.name = EXYNOS_SCI_MODULE_NAME,
 		.owner = THIS_MODULE,
+		.pm = &exynos_sci_pm_ops,
 		.of_match_table = exynos_sci_match,
 	},
 };

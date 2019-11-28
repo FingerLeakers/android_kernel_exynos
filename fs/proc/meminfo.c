@@ -17,6 +17,9 @@
 #ifdef CONFIG_CMA
 #include <linux/cma.h>
 #endif
+#ifdef CONFIG_HUGEPAGE_POOL
+#include <linux/hugepage_pool.h>
+#endif
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include "internal.h"
@@ -40,6 +43,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
 	long rbinfree;
+	long hugepage_pool_pages = 0;
 
 	si_meminfo(&i);
 	si_swapinfo(&i);
@@ -58,9 +62,12 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 
 	available = si_mem_available();
 	rbinfree = global_zone_page_state(NR_FREE_RBIN_PAGES);
+#ifdef CONFIG_HUGEPAGE_POOL
+	hugepage_pool_pages = total_hugepage_pool_pages();
+#endif
 
 	show_val_kb(m, "MemTotal:       ", i.totalram);
-	show_val_kb(m, "MemFree:        ", i.freeram + rbinfree);
+	show_val_kb(m, "MemFree:        ", i.freeram + rbinfree + hugepage_pool_pages);
 	show_val_kb(m, "MemAvailable:   ", available + rbinfree);
 	show_val_kb(m, "Buffers:        ", i.bufferram);
 	show_val_kb(m, "Cached:         ", cached);
@@ -97,6 +104,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "RbinFree:       ", rbinfree);
 	show_val_kb(m, "RbinCached:     ",
 		    atomic_read(&rbin_cached_pages));
+#endif
+#ifdef CONFIG_KZEROD
+	show_val_kb(m, "ZeroedFree:     ", kzerod_get_zeroed_size());
 #endif
 	show_val_kb(m, "SwapTotal:      ", i.totalswap);
 	show_val_kb(m, "SwapFree:       ", i.freeswap);
@@ -151,6 +161,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		    global_node_page_state(NR_SHMEM_THPS) * HPAGE_PMD_NR);
 	show_val_kb(m, "ShmemPmdMapped: ",
 		    global_node_page_state(NR_SHMEM_PMDMAPPED) * HPAGE_PMD_NR);
+#ifdef CONFIG_HUGEPAGE_POOL
+	show_val_kb(m, "HugepagePool:   ", hugepage_pool_pages);
+#endif
 #endif
 
 #ifdef CONFIG_CMA

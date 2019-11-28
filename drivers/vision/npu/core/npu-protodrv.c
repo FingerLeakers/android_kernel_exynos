@@ -26,7 +26,6 @@
 #include "npu-queue.h"
 #include "npu-if-protodrv-mbox2.h"
 #include "npu-if-session-protodrv.h"
-#include "npu-profile.h"
 
 #define NPU_PROTO_DRV_SIZE	1024
 #define NPU_PROTO_DRV_NAME	"npu-proto_driver"
@@ -193,7 +192,7 @@ static const char *NW_CMD_NAMES[NPU_NW_CMD_END - NPU_NW_CMD_BASE] = {
 /* Convinient function to get stringfy name of command */
 static const char *__cmd_name(const u32 cmd)
 {
-	u32 idx = cmd - NPU_NW_CMD_BASE;
+	int idx = cmd - NPU_NW_CMD_BASE;
 	BUG_ON(idx < 0);
 	BUG_ON(idx >= ARRAY_SIZE(NW_CMD_NAMES));
 	BUG_ON(!NW_CMD_NAMES[idx]);
@@ -433,7 +432,6 @@ static void free_session_ref_entry(struct session_ref_entry *sess_entry)
 
 int register_session_ref(struct npu_session *sess)
 {
-	int ret;
 	u32 hash_id;
 	u32 add_val = 0;
 	struct session_ref *sess_ref = &(npu_proto_drv.session_ref);
@@ -445,8 +443,7 @@ int register_session_ref(struct npu_session *sess)
 	sess_entry = alloc_session_ref_entry(sess);
 	if (sess_entry == NULL) {
 		npu_uerr("fail in alloc_session_ref_entry\n", sess);
-		ret = -ENOMEM;
-		goto err_exit;
+		return -ENOMEM;
 	}
 
 	/* Find free entry in hash table */
@@ -471,12 +468,6 @@ int register_session_ref(struct npu_session *sess)
 	npu_udbg("session ref @%pK registered.\n", sess, sess_entry);
 
 	return 0;
-
-err_exit:
-	if (sess_entry != NULL) {
-		free_session_ref_entry(sess_entry);
-	}
-	return ret;
 }
 
 int drop_session_ref(const npu_uid_t uid)
@@ -682,7 +673,7 @@ static int force_clear_cb(struct proto_req_nw *req_nw)
 	/* Clear callback from associated frame list */
 	cnt = 0;
 	list_for_each_entry(iter_frame, &sess_entry->frame_list, sess_ref_list) {
-		npu_ufinfo("Reset src_queue for frame in state [%d]\n",
+		npu_ufdbg("Reset src_queue for frame in state [%d]\n",
 			&iter_frame->frame, iter_frame->state);
 		iter_frame->frame.src_queue = NULL;
 		cnt++;
@@ -1347,6 +1338,16 @@ static int npu_protodrv_handler_nw_free(void)
 
 			/* Command specific error handling */
 			switch (entry->nw.cmd) {
+			case NPU_NW_CMD_LOAD:
+				session_ref_entry = find_session_ref_nw(entry);
+				if (session_ref_entry == NULL) {
+					npu_uerr("requested LOAD, but Session entry find error.\n", &entry->nw);
+					entry->nw.result_code = NPU_ERR_DRIVER(NPU_ERR_INVALID_UID);
+					goto error_req;
+				}
+				npu_scheduler_load(npu_proto_drv.npu_device, session_ref_entry->session);
+				break;
+
 			case NPU_NW_CMD_STREAMOFF:
 				/* Update status */
 				session_ref_entry = find_session_ref_nw(entry);
@@ -1768,7 +1769,7 @@ static int npu_protodrv_handler_frame_completed(void)
 			npu_ufwarn("COMPLETED %s cannot be queued to result [frame_id=%u, npu_req_id=%u]\n",
 					&entry->frame, TYPE_NAME_FRAME, entry->frame.frame_id, entry->frame.npu_req_id);
 		}
-		npu_ufinfo("(COMPLETED)FRAME: Notification sent.\n", &entry->frame);
+		npu_ufdbg("(COMPLETED)FRAME: Notification sent.\n", &entry->frame);
 	) /* End of LSM_FOR_EACH_ENTRY_IN */
 	if (handle_cnt)
 		npu_dbg("(%s) [%d]COMPLETED ---> [%d] ---> FREE.\n", TYPE_NAME_FRAME, entryCnt, handle_cnt);
@@ -1857,6 +1858,7 @@ static int npu_protodrv_handler_nw_completed(void)
 							&entry->nw, session_ref_entry->s_state);
 						transition = 0;
 					}
+					npu_scheduler_unload(npu_proto_drv.npu_device, session_ref_entry->session);
 					break;
 				case NPU_NW_CMD_UNLOAD:
 					/* Claim the packet if the current is last one and result is DONE / or result is NDONE */
@@ -2025,12 +2027,49 @@ static int proto_drv_timedout_handling(const lsm_list_type_e state)
 }
 
 /* Hook function which is called on every LSM transition */
+static void proto_drv_preprocess_frame(lsm_list_type_e state, void *e)
+{
+	struct npu_frame *frame;
+	struct proto_req_frame *entry = (struct proto_req_frame *)e;
+	struct npu_device *device = npu_proto_drv.npu_device;
+
+	BUG_ON(!device);
+	BUG_ON(!entry);
+
+	/* Save profiling point */
+	frame = &entry->frame;
+	switch (state) {
+	case REQUESTED:
+		break;
+	case PROCESSING:
+		/* A job is coming to PROCESSING state */
+		npu_scheduler_gate(device, frame, false);
+
+		/* A job is newly coming to PROCESSING state */
+		if (proto_frame_lsm.lsm_is_empty(PROCESSING))
+			npu_scheduler_rq_update_idle(device, false);
+
+		/* A job is coming to PROCESSING state */
+		npu_scheduler_fps_update_idle(device, frame, false);
+		break;
+	case COMPLETED:
+		break;
+	case FREE:
+		break;
+	default:
+		break;
+	}
+}
+
+/* Hook function which is called on every LSM transition */
 static void proto_drv_put_hook_frame(lsm_list_type_e state, void *e)
 {
 	lsm_list_type_e old_state;
 	struct npu_frame *frame;
 	struct proto_req_frame *entry = (struct proto_req_frame *)e;
+	struct npu_device *device = npu_proto_drv.npu_device;
 
+	BUG_ON(!device);
 	BUG_ON(!entry);
 	old_state = entry->state;
 	entry->state = state;
@@ -2049,6 +2088,16 @@ static void proto_drv_put_hook_frame(lsm_list_type_e state, void *e)
 			profile_point3(PROBE_ID_DD_FRAME_PROCESS, frame->uid, frame->frame_id, 0, frame->npu_req_id, 0);
 			break;
 		case COMPLETED:
+			/* A job in PROCESSING state has been done */
+			npu_scheduler_fps_update_idle(device, frame, true);
+
+			/* every job in PROCESSING state has been done */
+			if (proto_frame_lsm.lsm_is_empty(PROCESSING))
+				npu_scheduler_rq_update_idle(device, true);
+
+			/* A job in PROCESSING state has been done */
+			npu_scheduler_gate(device, frame, true);
+
 			profile_point3(PROBE_ID_DD_FRAME_COMPLETED, frame->uid, frame->frame_id, 0, frame->npu_req_id, 0);
 			break;
 		case FREE:
@@ -2684,6 +2733,7 @@ int proto_drv_open(struct npu_device *npu_device)
 		npu_err("init fail(%d) in LSM(frame)\n", ret);
 		goto err_exit;
 	}
+	proto_frame_lsm.lsm_set_preprocess(proto_drv_preprocess_frame);
 	proto_frame_lsm.lsm_set_hook(proto_drv_put_hook_frame);
 	NPU_PROTODRV_LSM_ENTRY_INIT(proto_frame_lsm, struct proto_req_frame);
 	set_bit(PROTO_DRV_OPEN_FRAME_LSM, &npu_proto_drv.open_steps);
@@ -2700,7 +2750,7 @@ int proto_drv_open(struct npu_device *npu_device)
 	/* AST initialization */
 	ret = auto_sleep_thread_create(&npu_proto_drv.ast,
 		NPU_PROTO_DRV_AST_NAME,
-		proto_drv_do_task, proto_drv_check_work, proto_drv_on_idle);
+		proto_drv_do_task, proto_drv_check_work, proto_drv_on_idle, -1);
 	if (ret) {
 		npu_err("fail(%d) in AST create\n", ret);
 		goto err_exit;

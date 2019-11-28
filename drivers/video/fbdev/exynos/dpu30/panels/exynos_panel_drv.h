@@ -82,7 +82,7 @@ struct exynos_panel_ops {
 	int (*read_state)(struct exynos_panel_device *panel);
 	int (*set_cabc_mode)(struct exynos_panel_device *panel, int mode);
 	int (*set_light)(struct exynos_panel_device *panel, u32 br_val);
-	int (*set_vrefresh)(struct exynos_panel_device *panel, u32 refresh);
+	int (*set_vrefresh)(struct exynos_panel_device *panel, struct vrr_config_data *vrr_info);
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	int (*probe)(struct exynos_panel_device *panel);
 	int (*resume)(struct exynos_panel_device *panel);
@@ -166,7 +166,7 @@ int exynos_panel_calc_slice_width(u32 dsc_cnt, u32 slice_num, u32 xres);
 #define EXYNOS_PANEL_IOC_DUMP		_IOW('P', 9, u32)
 #define EXYNOS_PANEL_IOC_READ_STATE	_IOR('P', 10, u32)
 #define EXYNOS_PANEL_IOC_SET_LIGHT	_IOW('P', 11, u32)
-#define EXYNOS_PANEL_IOC_SET_VREFRESH	_IOW('P', 12, u32)
+#define EXYNOS_PANEL_IOC_SET_VRRFRESH	_IOW('P', 12, struct vrr_config_data *)
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 #define EXYNOS_PANEL_IOC_INIT	_IOW('P', 21, u32)

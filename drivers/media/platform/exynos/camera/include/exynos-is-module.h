@@ -32,6 +32,14 @@ struct exynos_sensor_pin {
 	int shared_rsc_active;
 };
 
+struct exynos_sensor_module_match {
+	u32 slave_addr;
+	u32 reg;
+	u32 reg_type;
+	u32 expected_data;
+	u32 data_type;
+};
+
 #define SET_PIN_INIT(d, s, c) d->pinctrl_index[s][c] = 0;
 
 #define SET_PIN(d, s, c, p, n, a, v, t)							\
@@ -92,6 +100,7 @@ struct exynos_platform_is_module {
 	u32 max_framerate;
 	u32 bitwidth;
 	u32 use_retention_mode;
+	u32 use_binning_ratio_table;
 	char *sensor_maker;
 	char *sensor_name;
 	char *setfile_name;
@@ -134,6 +143,10 @@ struct exynos_platform_is_module {
 	u32 eeprom_i2c_addr;
 	u32 laser_af_product_name;
 	bool power_seq_dt;
+
+	struct exynos_sensor_module_match match_entry[MATCH_GROUP_MAX][MATCH_ENTRY_MAX];
+	int num_of_match_entry[MATCH_GROUP_MAX];
+	int num_of_match_groups;
 };
 
 extern int exynos_is_module_pins_cfg(struct is_module_enum *module,

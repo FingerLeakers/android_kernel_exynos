@@ -501,6 +501,27 @@ int muic_afc_set_voltage(int voltage)
 	return -ENODEV;
 }
 
+int muic_hv_charger_disable(bool en)
+{
+	struct muic_platform_data *pdata = &muic_pdata;
+#if defined(CONFIG_USE_SECOND_MUIC)
+	struct muic_platform_data *pdata2 = &muic_pdata2;
+#endif
+	int ret = -ENODEV;
+
+	pr_info("%s %sable\n", __func__, en ? "en" : "dis");
+
+#if defined(CONFIG_USE_SECOND_MUIC)
+	if (pdata2->muic_hv_charger_disable_cb)
+		ret = pdata2->muic_hv_charger_disable_cb(en);
+#endif
+
+	if (pdata && pdata->muic_hv_charger_disable_cb)
+		ret = pdata->muic_hv_charger_disable_cb(en);
+
+	return  ret;
+}
+
 int muic_hv_charger_init(void)
 {
 	struct muic_platform_data *pdata = &muic_pdata;

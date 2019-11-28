@@ -441,7 +441,12 @@ int sec_nfc_i2c_probe(struct i2c_client *client)
 				ret = sec_nfc_regulator_onoff(pdata, NFC_I2C_LDO_ON);
 				if (ret < 0)
 					NFC_LOG_ERR("max86900_regulator_on fail err = %d\n", ret);
+#ifdef CONFIG_ESE_COLDRESET
+				msleep(25);
+				gpio_set_value(pdata->ven, SEC_NFC_PW_ON);
+#else
 				usleep_range(1000, 1100);
+#endif
 			}
 		}
 	}
@@ -548,12 +553,13 @@ static void sec_nfc_set_mode(struct sec_nfc_info *info,
 		}
 		else{/*Firm pin is low*/
 			gpio_set_value(pdata->firm, SEC_NFC_FW_ON);
+			msleep(SEC_NFC_VEN_WAIT_TIME);
 		}
 
 		if(gpio_get_value(pdata->ven) == SEC_NFC_PW_ON){
 			ret = i2c_master_send(info->i2c_info.i2c_dev, disable_combo_reset_cmd,
 					sizeof(disable_combo_reset_cmd)/sizeof(u8));
-			NFC_LOG_INFO("disable combo_reset_command");
+			NFC_LOG_INFO("disable combo_reset_command ret: %d", ret);
 		} else
 			NFC_LOG_INFO("skip disable combo_reset_command");
 
@@ -561,6 +567,7 @@ static void sec_nfc_set_mode(struct sec_nfc_info *info,
 			NFC_LOG_INFO("Firm is already high; do not anything2");
 		}
 		else{/*Firm pin is low*/
+			mdelay(3);/*wait for FW*/
 			gpio_set_value(pdata->firm, SEC_NFC_FW_OFF);
 		}
 	}
@@ -569,8 +576,8 @@ static void sec_nfc_set_mode(struct sec_nfc_info *info,
 	mutex_unlock(&info->i2c_info.read_mutex);
 
 #ifdef CONFIG_ESE_COLDRESET
-	mdelay(FIRMWARE_GUARD_TIME); 
-	NFC_LOG_INFO("FIRMWARE_GUARD_TIME (%d ms)\n", FIRMWARE_GUARD_TIME);
+	mdelay(1); 
+	NFC_LOG_INFO("FIRMWARE_GUARD_TIME(+1ms) in PW_OFF(total:4ms)\n");
 #endif
 
 	gpio_set_value(pdata->ven, SEC_NFC_PW_OFF);

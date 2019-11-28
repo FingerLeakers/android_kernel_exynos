@@ -2828,7 +2828,7 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 
 /* Handle port reset and port warm(BH) reset (for USB3 protocol ports) */
 static int hub_port_reset(struct usb_hub *hub, int port1,
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 		struct usb_device *udev, unsigned int delay, bool warm, u32 trstrcy)
 #else
 		struct usb_device *udev, unsigned int delay, bool warm)
@@ -2837,7 +2837,7 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 	int i, status;
 	u16 portchange, portstatus;
 	struct usb_port *port_dev = hub->ports[port1 - 1];
-#ifndef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#ifndef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 	int reset_recovery_time;
 #endif
 	if (!hub_is_superspeed(hub->hdev)) {
@@ -2932,8 +2932,8 @@ static int hub_port_reset(struct usb_hub *hub, int port1,
 
 done:
 	if (status == 0) {
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
-		usleep_range(trstrcy * 1000, trstrcy * 1200);
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+		usleep_range(trstrcy * 1000, trstrcy * 1100);
 #else
 		if (port_dev->quirks & USB_PORT_QUIRK_FAST_ENUM)
 			usleep_range(10000, 12000);
@@ -4414,7 +4414,11 @@ int hub_port_debounce(struct usb_hub *hub, int port1, bool must_be_connected)
 
 		if (total_time >= HUB_DEBOUNCE_TIMEOUT)
 			break;
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+		usleep_range(23000, 24000);
+#else
 		msleep(HUB_DEBOUNCE_STEP);
+#endif
 	}
 
 	dev_dbg(&port_dev->dev, "debounce total %dms stable %dms status 0x%x\n",
@@ -4519,7 +4523,11 @@ static int hub_enable_device(struct usb_device *udev)
  */
 static int
 hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+		int retry_counter, int trstrcy)
+#else
 		int retry_counter)
+#endif
 {
 	struct usb_device	*hdev = hub->hdev;
 	struct usb_hcd		*hcd = bus_to_hcd(hdev->bus);
@@ -4530,9 +4538,6 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	const char		*speed;
 	int			devnum = udev->devnum;
 	const char		*driver_name;
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
-	u32			trstrcy = 50;
-#endif
 	/* root hub ports have a slightly longer reset period
 	 * (from USB 2.0 spec, section 7.1.7.5)
 	 */
@@ -4551,13 +4556,21 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 
 	/* Reset the device; full speed may morph to high speed */
 	/* FIXME a USB 2.0 device may morph into SuperSpeed on reset. */
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 	retval = hub_port_reset(hub, port1, udev, delay, false, trstrcy);
+	/* error or disconnect */
+	if (retval < 0) {
+		/* Retry again */
+		dev_err(&udev->dev, "device reset again!\n");
+		retval = hub_port_reset(hub, port1, udev, delay, false, 50);
+		if (retval < 0)
+			goto fail;
+	}
 #else
 	retval = hub_port_reset(hub, port1, udev, delay, false);
-#endif
-	if (retval < 0)		/* error or disconnect */
+	if (retval < 0) 	/* error or disconnect */
 		goto fail;
+#endif
 	/* success, speed is known */
 
 	retval = -ENODEV;
@@ -4709,17 +4722,21 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 			udev->descriptor.bMaxPacketSize0 =
 					buf->bMaxPacketSize0;
 			kfree(buf);
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
-			if (retries == 0)
-				trstrcy = 10;
-			else
-				trstrcy = 50;
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 			retval = hub_port_reset(hub, port1, udev, delay, false, trstrcy);
+			/* error or disconnect */
+			if (retval < 0) {
+				/* Retry again */
+				dev_err(&udev->dev, "device reset again!\n");
+				retval = hub_port_reset(hub, port1, udev, delay, false, 50);
+				if (retval < 0)
+					goto fail;
+			}
 #else
 			retval = hub_port_reset(hub, port1, udev, delay, false);
-#endif
-			if (retval < 0)		/* error or disconnect */
+			if (retval < 0) 	/* error or disconnect */
 				goto fail;
+#endif
 			if (oldspeed != udev->speed) {
 				dev_dbg(&udev->dev,
 					"device reset changed speed!\n");
@@ -4770,7 +4787,11 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 			 *  - let SET_ADDRESS settle, some device hardware wants it
 			 *  - read ep0 maxpacket even for high and low speed,
 			 */
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+			usleep_range(10000, 11000);
+#else
 			msleep(10);
+#endif
 			/* use_new_scheme() checks the speed which may have
 			 * changed since the initial look so we cache the result
 			 * in did_new_scheme
@@ -4819,7 +4840,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 		dev_err(&udev->dev, "got a wrong device descriptor, "
 				"warm reset device\n");
 		hub_port_reset(hub, port1, udev,
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 				HUB_BH_RESET_TIME, true, 50);
 #else
 				HUB_BH_RESET_TIME, true);
@@ -4974,6 +4995,9 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 	struct usb_device *udev = port_dev->child;
 	static int unreliable_port = -1;
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	int trstrcy = 10;
+#endif
 
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 	dev_info(&port_dev->dev,
@@ -5075,7 +5099,17 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 
 		/* reset (non-USB 3.0 devices) and get descriptor */
 		usb_lock_port(port_dev);
+
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+		if (i == 0)
+			trstrcy = 10;
+		else
+			trstrcy *= 2;
+
+		status = hub_port_init(hub, udev, port1, i, trstrcy);
+#else
 		status = hub_port_init(hub, udev, port1, i);
+#endif
 		usb_unlock_port(port_dev);
 		if (status < 0)
 			goto loop;
@@ -5353,7 +5387,7 @@ static void port_event(struct usb_hub *hub, int port1)
 		if (!udev || !(portstatus & USB_PORT_STAT_CONNECTION)
 				|| udev->state == USB_STATE_NOTATTACHED) {
 			if (hub_port_reset(hub, port1, NULL,
-#ifdef CONFIG_USB_HOST_SAMSUNG_FEATURE
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 					HUB_BH_RESET_TIME, true, 50) < 0)
 #else
 					HUB_BH_RESET_TIME, true) < 0)
@@ -5695,7 +5729,9 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
 	struct usb_host_bos		*bos;
 	int				i, j, ret = 0;
 	int				port1 = udev->portnum;
-
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	int trstrcy = 10;
+#endif
 	if (udev->state == USB_STATE_NOTATTACHED ||
 			udev->state == USB_STATE_SUSPENDED) {
 		dev_dbg(&udev->dev, "device reset not allowed in state %d\n",
@@ -5731,7 +5767,16 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
 		/* ep0 maxpacket size may change; let the HCD know about it.
 		 * Other endpoints will be handled by re-enumeration. */
 		usb_ep0_reinit(udev);
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+		if (i == 0)
+			trstrcy = 10;
+		else
+			trstrcy *= 2;
+
+		ret = hub_port_init(parent_hub, udev, port1, i, trstrcy);
+#else
 		ret = hub_port_init(parent_hub, udev, port1, i);
+#endif
 		if (ret >= 0 || ret == -ENOTCONN || ret == -ENODEV)
 			break;
 	}

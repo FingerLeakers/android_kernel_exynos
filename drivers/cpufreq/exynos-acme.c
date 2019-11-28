@@ -34,6 +34,7 @@
 #include <soc/samsung/exynos-alt.h>
 
 #include "exynos-acme.h"
+#include "exynos-ufc.h"
 
 /*
  * list head of cpufreq domain
@@ -49,6 +50,7 @@ LIST_HEAD(ready_list);
  * flag to constrain frequency
  */
 static unsigned int cpufreq_constraint_flag;
+static unsigned int cpufreq_init_flag;
 
 /* slack timer per cpu */
 static DEFINE_PER_CPU(struct exynos_slack_timer, exynos_slack_timer);
@@ -513,6 +515,11 @@ static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 {
 	struct exynos_cpufreq_domain *domain;
 
+	if (!cpufreq_init_flag) {
+		pr_warn("ACME is not initialized\n");
+		return NOTIFY_BAD;
+	}
+
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
 		cpufreq_constraint_flag |= CPUFREQ_SUSPEND;
@@ -700,6 +707,11 @@ static int exynos_cpufreq_pm_qos_callback(struct notifier_block *nb,
 	unsigned int next_freq;
 
 	pr_debug("update PM QoS class %d to %ld kHz\n", pm_qos_class, val);
+
+	if (!cpufreq_init_flag) {
+		pr_warn("ACME is not initialized\n");
+		return NOTIFY_BAD;
+	}
 
 	domain = find_domain_pm_qos_class(pm_qos_class);
 	if (!domain)
@@ -1008,12 +1020,12 @@ static void print_domain_info(struct exynos_cpufreq_domain *domain)
 
 static __init int init_table(struct exynos_cpufreq_domain *domain)
 {
-	unsigned int index;
+	unsigned int index, cpu;
 	unsigned long *table;
 	unsigned int *volt_table;
 	struct exynos_cpufreq_dm *dm;
-	struct device *dev;
 	int ret = 0;
+	struct cpumask mask;
 
 	/*
 	 * Initialize frequency and voltage table of domain.
@@ -1033,6 +1045,8 @@ static __init int init_table(struct exynos_cpufreq_domain *domain)
 	cal_dfs_get_rate_table(domain->cal_id, table);
 	cal_dfs_get_asv_table(domain->cal_id, volt_table);
 
+	cpumask_and(&mask, &domain->cpus, cpu_online_mask);
+
 	for (index = 0; index < domain->table_size; index++) {
 		domain->freq_table[index].driver_data = index;
 
@@ -1041,15 +1055,12 @@ static __init int init_table(struct exynos_cpufreq_domain *domain)
 		else if (table[index] < domain->min_freq)
 			domain->freq_table[index].frequency = CPUFREQ_ENTRY_INVALID;
 		else {
-			struct cpumask mask;
 			domain->freq_table[index].frequency = table[index];
 			/* Add OPP table to first cpu of domain */
-			dev = get_cpu_device(cpumask_first(&domain->cpus));
-			if (!dev)
-				continue;
-			cpumask_and(&mask, &domain->cpus, cpu_online_mask);
-			dev_pm_opp_add(get_cpu_device(cpumask_first(&mask)),
-					table[index] * 1000, volt_table[index]);
+			for_each_cpu(cpu, &mask) {
+				dev_pm_opp_add(get_cpu_device(cpu),
+						table[index] * 1000, volt_table[index]);
+			}
 		}
 
 		/* Initialize table of DVFS manager constraint */
@@ -1523,6 +1534,8 @@ static int __init exynos_cpufreq_init(void)
 
 	register_pm_notifier(&exynos_cpufreq_pm);
 
+	exynos_ufc_init();
+
 	/*
 	 * Enable scale of domain.
 	 * Update frequency as soon as domain is enabled.
@@ -1540,6 +1553,7 @@ static int __init exynos_cpufreq_init(void)
 		set_boot_qos(domain);
 	}
 
+	cpufreq_init_flag = true;;
 	pr_info("Initialized Exynos cpufreq driver\n");
 
 	return ret;

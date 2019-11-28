@@ -50,6 +50,7 @@ extern void si_set_lv_sleep_mode_lhl_config_4369(si_t *sih);
 extern void si_set_lv_sleep_mode_lhl_config_4362(si_t *sih);
 extern void si_set_lv_sleep_mode_lhl_config_4378(si_t *sih);
 extern void si_set_lv_sleep_mode_lhl_config_4387(si_t *sih);
+extern void si_set_lv_sleep_mode_lhl_config_4389(si_t *sih);
 
 #define HIB_EXT_WAKEUP_CAP(sih)  (PMUREV(sih->pmurev) >= 33)
 
@@ -73,4 +74,5 @@ extern void si_set_lv_sleep_mode_lhl_config_4387(si_t *sih);
 #define LHL_ABUCK_VOLT_SLEEP_SHIFT	0u
 #define LHL_ABUCK_VOLT_SLEEP_MASK	0x0000000F
 
+extern void si_lhl_mactim0_set(si_t *sih, uint32 val);
 #endif /* _hndlhl_h_ */

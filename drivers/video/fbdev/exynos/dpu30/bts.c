@@ -648,7 +648,7 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 	if (decon->dt.out_type != DECON_OUT_DP)
 		return;
 
-	if (pixelclock >= 533000000) {
+	if (pixelclock >= 500000000) { /*UHD 60Hz*/
 		if (pm_qos_request_active(&decon->bts.mif_qos))
 			pm_qos_update_request(&decon->bts.mif_qos, 1794 * 1000);
 		else
@@ -665,14 +665,9 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 			DPU_ERR_BTS("%s int qos setting error\n", __func__);
 
 		bts_add_scenario(decon->bts.scen_idx[DPU_BS_DP_DEFAULT]);
-	} else if (pixelclock > 148500000) { /* pixelclock < 533000000 ? */
+	} else {
 		if (pm_qos_request_active(&decon->bts.mif_qos))
 			pm_qos_update_request(&decon->bts.mif_qos, 1352 * 1000);
-		else
-			DPU_ERR_BTS("%s mif qos setting error\n", __func__);
-	} else { /* pixelclock <= 148500000 ? */
-		if (pm_qos_request_active(&decon->bts.mif_qos))
-			pm_qos_update_request(&decon->bts.mif_qos, 845 * 1000);
 		else
 			DPU_ERR_BTS("%s mif qos setting error\n", __func__);
 	}

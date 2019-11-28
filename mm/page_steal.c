@@ -197,7 +197,7 @@ int migrate_anon_page(struct page *page, struct page *newpage)
 revert:
 	rwc.arg = page;
 	/* rervert migration */
-	rmap_walk(page, &rwc);
+	rmap_walk(newpage, &rwc);
 	return rc;
 }
 
@@ -339,7 +339,8 @@ static struct page *get_migrate_target(struct page *page, unsigned long private)
 static int reclaim_pages_list(unsigned long start_pfn, unsigned int nr_pages,
 			      struct list_head *nonfile,
 			      struct list_head *nonlru,
-			      struct list_head *pagecache)
+			      struct list_head *pagecache,
+			      enum migrate_reason reason)
 {
 	if (!list_empty(pagecache)) {
 		struct zone *zone = page_zone(pfn_to_page(start_pfn));
@@ -363,7 +364,7 @@ static int reclaim_pages_list(unsigned long start_pfn, unsigned int nr_pages,
 	 */
 	if (!list_empty(nonlru)) {
 		migrate_pages(nonlru, get_migrate_target, NULL, 0,
-			      MIGRATE_SYNC, MR_MEMORY_HOTPLUG);
+			      MIGRATE_SYNC, reason);
 		/*
 		 * give second chance to non lru/unevictable pages
 		 * nonlru list may have freed pages but it is okay because
@@ -374,7 +375,7 @@ static int reclaim_pages_list(unsigned long start_pfn, unsigned int nr_pages,
 
 	if (!list_empty(nonfile)) {
 		int ret = migrate_pages(nonfile, get_migrate_target, NULL, 0,
-					MIGRATE_SYNC, MR_MEMORY_HOTPLUG);
+					MIGRATE_SYNC, reason);
 
 		if (ret) {
 			pr_err("failed to migrate pages in [%#lx, %#lx) (%d)\n",
@@ -400,7 +401,7 @@ static int reclaim_page_block(unsigned long blk_start_pfn, int mode, int reason)
 		return ret;
 
 	ret = reclaim_pages_list(blk_start_pfn, pageblock_nr_pages,
-				 &nonfile, &nonlru, &pagecache);
+				 &nonfile, &nonlru, &pagecache, reason);
 	if (ret < 0)
 		return ret;
 
@@ -496,7 +497,8 @@ int steal_pages(unsigned long pfn, unsigned int order)
 	if (ret < 0)
 		return ret;
 
-	ret = reclaim_pages_list(pfn, 1 << order, &nonfile, &nonlru, &file);
+	ret = reclaim_pages_list(pfn, 1 << order, &nonfile, &nonlru, &file,
+				 MR_CONTIG_RANGE);
 	if (ret < 0)
 		return ret;
 
@@ -581,7 +583,8 @@ int test_reclaim_pages_range(unsigned long start_pfn, int count)
 
 	steal = ktime_get();
 
-	ret = reclaim_pages_range(start_pfn, nr_pages, 0, 0);
+	ret = reclaim_pages_range(start_pfn, nr_pages,
+				  MIGRATE_SYNC, MR_MEMORY_HOTPLUG);
 	if (ret < 0) {
 		pr_err("failed stealing pages in [%#lx, %#lx)\n",
 		       start_pfn, end_pfn);

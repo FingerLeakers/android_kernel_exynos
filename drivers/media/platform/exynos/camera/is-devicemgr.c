@@ -56,7 +56,7 @@ struct is_group *get_ischain_leader_group(struct is_device_ischain *device)
 	return leader_group;
 }
 
-static void tasklet_sensor_tag(unsigned long data)
+static void do_sensor_tag(unsigned long data)
 {
 	int ret = 0;
 	u32 stream;
@@ -77,7 +77,9 @@ static void tasklet_sensor_tag(unsigned long data)
 	subdev = sensor->subdev_csi;
 	gtask = &sensor->groupmgr->gtask[group->id];
 
-	mgrdbgs(5, " DEVICE TASKLET start\n", group->device, group, tag_data);
+	mgrdbgs(5, "start sensor tag(%s)\n", group->device, group, tag_data,
+			in_softirq() ? "S" : "H");
+
 	if (unlikely(test_bit(IS_GROUP_FORCE_STOP, &group->state))) {
 		mgwarn(" cancel by fstop", group, group);
 		goto p_err;
@@ -127,7 +129,8 @@ static void tasklet_sensor_tag(unsigned long data)
 		mginfo("[F%d] End CANCEL Other subdev frame\n", group->device, group, frame->fcount);
 	}
 
-	mgrdbgs(5, " DEVICE TASKLET end\n", group->device, group, tag_data);
+	mgrdbgs(5, "finish sensor tag(%s)\n", group->device, group, tag_data,
+			in_softirq() ? "S" : "H");
 
 p_err:
 	return;
@@ -271,11 +274,8 @@ int is_devicemgr_start(struct is_devicemgr *devicemgr,
 		void *device, enum is_device_type type)
 {
 	int ret = 0;
-	struct is_group *group = NULL;
+	struct is_group *group;
 	struct is_device_sensor *sensor;
-	struct is_group *child_group;
-	struct devicemgr_sensor_tag_data *tag_data;
-	u32 stream;
 
 	switch (type) {
 	case IS_DEVICE_SENSOR:
@@ -298,16 +298,14 @@ int is_devicemgr_start(struct is_devicemgr *devicemgr,
 			}
 		}
 
-		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
-			child_group = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, group);
-			stream = group->instance;
+		if (IS_ENABLED(CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT)) {
+			struct is_group *child_group
+				= GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, group);
 
-			/* Only in case of OTF case, used tasklet. */
-			if (sensor->ischain && child_group) {
-				tag_data = &devicemgr->sensor_tag_data[stream];
-				tasklet_init(&devicemgr->tasklet_sensor_tag[stream],
-						tasklet_sensor_tag, (unsigned long)tag_data);
-			}
+			/* only in case of OTF case, uses tasklet. */
+			if (sensor->ischain && child_group)
+				tasklet_init(&devicemgr->tasklet[group->instance], do_sensor_tag,
+						(unsigned long)&devicemgr->tag_data[group->instance]);
 		}
 		break;
 	case IS_DEVICE_ISCHAIN:
@@ -326,22 +324,20 @@ int is_devicemgr_stop(struct is_devicemgr *devicemgr,
 		void *device, enum is_device_type type)
 {
 	int ret = 0;
-	struct is_group *group = NULL;
+	struct is_group *group;
 	struct is_device_sensor *sensor;
-	struct is_group *child_group;
-	u32 stream;
 
 	switch (type) {
 	case IS_DEVICE_SENSOR:
 		sensor = (struct is_device_sensor *)device;
 		group = &sensor->group_sensor;
 
-		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
-			child_group = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, group);
-			stream = group->instance;
+		if (IS_ENABLED(CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT)) {
+			struct is_group *child_group
+				= GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, group);
 
 			if (sensor->ischain && child_group)
-				tasklet_kill(&devicemgr->tasklet_sensor_tag[stream]);
+				tasklet_kill(&devicemgr->tasklet[group->instance]);
 		}
 
 		if (!test_bit(IS_SENSOR_STAND_ALONE, &sensor->state) && sensor->ischain) {
@@ -465,20 +461,21 @@ int is_devicemgr_shot_callback(struct is_group *group,
 		devicemgr = group->device->devicemgr;
 		stream = group->instance;
 
-		tag_data = &devicemgr->sensor_tag_data[stream];
+		tag_data = &devicemgr->tag_data[stream];
 		tag_data->fcount = fcount;
 		tag_data->devicemgr = devicemgr;
 		tag_data->group = &devicemgr->sensor[stream]->group_sensor;
 		tag_data->stream = stream;
 
-		if (IS_ENABLED(CHAIN_USE_VC_TASKLET)) {
-			mgrdbgs(1, " DEVICE TASKLET schedule\n", group->device, group, frame);
-			tasklet_schedule(&devicemgr->tasklet_sensor_tag[stream]);
-		} else {
-			tasklet_sensor_tag((unsigned long)tag_data);
+		if (IS_ENABLED(CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT)) {
+			mgrdbgs(1, "schedule sensor tag tasklet\n", group->device, group, frame);
+			tasklet_schedule(&devicemgr->tasklet[stream]);
+		} else { /* (hard)IRQ context */
+			do_sensor_tag((unsigned long)tag_data);
 		}
 
 		break;
+
 	default:
 		mgerr("device type(%d) is invalid", group, group, group->device_type);
 		BUG();

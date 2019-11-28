@@ -79,7 +79,7 @@
 #define INTEND_ACCESS_INT_ENABLE	(1 << 4)
 
 #define BIT_PROT_CHK_ERR_OCCURRED(x)	(((x) & (0x1 << 0)) >> 0)
-#define BIT_PROT_CHK_ERR_CODE(x)	(((x) & (0xF << 1)) >> 28)
+#define BIT_PROT_CHK_ERR_CODE(x)	(((x) & (0x7 << 1)) >> 1)
 
 #define BIT_ERR_CODE(x)			(((x) & (0xF << 28)) >> 28)
 #define BIT_ERR_OCCURRED(x)		(((x) & (0x1 << 27)) >> 27)
@@ -90,12 +90,6 @@
 #define BIT_AXPROT(x)			(((x) & (0x3 << 2)) >> 2)
 #define BIT_AXLEN(x)			(((x) & (0xF << 16)) >> 16)
 #define BIT_AXSIZE(x)			(((x) & (0x7 << 28)) >> 28)
-
-#define M_NODE				(0)
-#define T_S_NODE			(1)
-#define T_M_NODE			(2)
-#define S_NODE				(3)
-#define NODE_TYPE			(4)
 
 #define ERRCODE_SLVERR			(0)
 #define ERRCODE_DECERR			(1)
@@ -247,130 +241,6 @@ struct itmon_panic_block {
 };
 
 const static struct itmon_rpathinfo rpathinfo[] = {
-
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
-	/* 0x8000_0000 - 0xf_ffff_ffff */
-
-	{0,	"AUD",		"DREX_IRPS",	0x3F, 0},
-	{1,	"HSI1",		"DREX_IRPS",	0x3F, 0},
-	{2,	"DNS",		"DREX_IRPS",	0x3F, 0},
-	{3,	"CSIS0",	"DREX_IRPS",	0x3F, 0},
-	{4,	"CSIS1",	"DREX_IRPS",	0x3F, 0},
-	{5,	"IPP",		"DREX_IRPS",	0x3F, 0},
-	{6,	"TNR",		"DREX_IRPS",	0x3F, 0},
-	{7,	"MCSC0",	"DREX_IRPS",	0x3F, 0},
-	{8,	"MCSC1",	"DREX_IRPS",	0x3F, 0},
-	{9,	"VRA",		"DREX_IRPS",	0x3F, 0},
-	{10,	"SSP",		"DREX_IRPS",	0x3F, 0},
-	{11,	"AUD",		"DREX_IRPS",	0x3F, 0},
-	{12,	"HSI1",		"DREX_IRPS",	0x3F, 0},
-	{13,	"DNS",		"DREX_IRPS",	0x3F, 0},
-	{14,	"CSIS0",	"DREX_IRPS",	0x3F, 0},
-	{15,	"CSIS1",	"DREX_IRPS",	0x3F, 0},
-	{16,	"IPP",		"DREX_IRPS",	0x3F, 0},
-	{17,	"TNR",		"DREX_IRPS",	0x3F, 0},
-	{18,	"MCSC0",	"DREX_IRPS",	0x3F, 0},
-	{19,	"MCSC1",	"DREX_IRPS",	0x3F, 0},
-	{20,	"VRA",		"DREX_IRPS",	0x3F, 0},
-	{21,	"SSP",		"DREX_IRPS",	0x3F, 0},
-	{22,	"DPU0",		"DREX_IRPS",	0x3F, 0},
-	{23,	"DPU1",		"DREX_IRPS",	0x3F, 0},
-	{24,	"DPU2",		"DREX_IRPS",	0x3F, 0},
-	{25,	"DIT",		"DREX_IRPS",	0x3F, 0},
-	{26,	"SBIC",		"DREX_IRPS",	0x3F, 0},
-	{27,	"AVPS",		"DREX_IRPS",	0x3F, 0},
-	{28,	"SECU",		"DREX_IRPS",	0x3F, 0},
-	{29,	"HSI0",		"DREX_IRPS",	0x3F, 0},
-	{30,	"HSI2",		"DREX_IRPS",	0x3F, 0},
-	{31,	"DNC0",		"DREX_IRPS",	0x3F, 0},
-	{32,	"DNC1",		"DREX_IRPS",	0x3F, 0},
-	{33,	"DNC2",		"DREX_IRPS",	0x3F, 0},
-	{34,	"G2D0",		"DREX_IRPS",	0x3F, 0},
-	{35,	"G2D1",		"DREX_IRPS",	0x3F, 0},
-	{36,	"G2D2",		"DREX_IRPS",	0x3F, 0},
-	{37,	"MFC00",	"DREX_IRPS",	0x3F, 0},
-	{38,	"MFC01",	"DREX_IRPS",	0x3F, 0},
-	{39,	"DPU0",		"DREX_IRPS",	0x3F, 0},
-	{40,	"DPU1",		"DREX_IRPS",	0x3F, 0},
-	{41,	"DPU2",		"DREX_IRPS",	0x3F, 0},
-	{42,	"DIT",		"DREX_IRPS",	0x3F, 0},
-	{43,	"SBIC",		"DREX_IRPS",	0x3F, 0},
-	{44,	"AVPS",		"DREX_IRPS",	0x3F, 0},
-	{45,	"SECU",		"DREX_IRPS",	0x3F, 0},
-	{46,	"HSI0",		"DREX_IRPS",	0x3F, 0},
-	{47,	"HSI2",		"DREX_IRPS",	0x3F, 0},
-	{48,	"DNC0",		"DREX_IRPS",	0x3F, 0},
-	{49,	"DNC1",		"DREX_IRPS",	0x3F, 0},
-	{50,	"DNC2",		"DREX_IRPS",	0x3F, 0},
-	{51,	"G2D0",		"DREX_IRPS",	0x3F, 0},
-	{52,	"G2D1",		"DREX_IRPS",	0x3F, 0},
-	{53,	"G2D2",		"DREX_IRPS",	0x3F, 0},
-	{54,	"MFC00",	"DREX_IRPS",	0x3F, 0},
-	{55,	"MFC01",	"DREX_IRPS",	0x3F, 0},
-	{56,	"CORESIGHT",	"DREX_IRPS",	0x3F, 0},
-	{57,	"MMUG3D",	"DREX_IRPS",	0x3F, 0},
-
-	/* 0x0000_0000 - 0x7fff_ffff */
-
-	{0,	"AUD",		"BUS0_DP",	0xF, 0},
-	{1,	"HSI1",		"BUS0_DP",	0xF, 0},
-	{2,	"DNS",		"BUS0_DP",	0xF, 0},
-	{3,	"CSIS0",	"BUS0_DP",	0xF, 0},
-	{4,	"CSIS1",	"BUS0_DP",	0xF, 0},
-	{5,	"IPP",		"BUS0_DP",	0xF, 0},
-	{6,	"TNR",		"BUS0_DP",	0xF, 0},
-	{7,	"MCSC0",	"BUS0_DP",	0xF, 0},
-	{8,	"MCSC1",	"BUS0_DP",	0xF, 0},
-	{9,	"VRA",		"BUS0_DP",	0xF, 0},
-	{10,	"SSP",		"BUS0_DP",	0xF, 0},
-	{0,	"DPU0",		"BUS0_DP",	0xF, 0},
-	{1,	"DPU1",		"BUS0_DP",	0xF, 0},
-	{2,	"DPU2",		"BUS0_DP",	0xF, 0},
-	{3,	"DIT",		"BUS0_DP",	0xF, 0},
-	{4,	"SBIC",		"BUS0_DP",	0xF, 0},
-	{5,	"AVPS",		"BUS0_DP",	0xF, 0},
-	{6,	"SECU",		"BUS0_DP",	0xF, 0},
-	{7,	"HSI0",		"BUS0_DP",	0xF, 0},
-	{8,	"HSI2",		"BUS0_DP",	0xF, 0},
-	{9,	"DNC0",		"BUS0_DP",	0xF, 0},
-	{10,	"DNC1",		"BUS0_DP",	0xF, 0},
-	{11,	"DNC2",		"BUS0_DP",	0xF, 0},
-	{12,	"G2D0",		"BUS0_DP",	0xF, 0},
-	{13,	"G2D1",		"BUS0_DP",	0xF, 0},
-	{14,	"G2D2",		"BUS0_DP",	0xF, 0},
-	{15,	"MFC00",	"BUS0_DP",	0xF, 0},
-	{16,	"MFC01",	"BUS0_DP",	0xF, 0},
-
-	{0,	"AUD",		"BUS1_DP",	0x1F, 0},
-	{1,	"HSI1",		"BUS1_DP",	0x1F, 0},
-	{2,	"DNS",		"BUS1_DP",	0x1F, 0},
-	{3,	"CSIS0",	"BUS1_DP",	0x1F, 0},
-	{4,	"CSIS1",	"BUS1_DP",	0x1F, 0},
-	{5,	"IPP",		"BUS1_DP",	0x1F, 0},
-	{6,	"TNR",		"BUS1_DP",	0x1F, 0},
-	{7,	"MCSC0",	"BUS1_DP",	0x1F, 0},
-	{8,	"MCSC1",	"BUS1_DP",	0x1F, 0},
-	{9,	"VRA",		"BUS1_DP",	0x1F, 0},
-	{10,	"SSP",		"BUS1_DP",	0x1F, 0},
-	{0,	"DPU0",		"BUS1_DP",	0x1F, 0},
-	{1,	"DPU1",		"BUS1_DP",	0x1F, 0},
-	{2,	"DPU2",		"BUS1_DP",	0x1F, 0},
-	{3,	"DIT",		"BUS1_DP",	0x1F, 0},
-	{4,	"SBIC",		"BUS1_DP",	0x1F, 0},
-	{5,	"AVPS",		"BUS1_DP",	0x1F, 0},
-	{6,	"SECU",		"BUS1_DP",	0x1F, 0},
-	{7,	"HSI0",		"BUS1_DP",	0x1F, 0},
-	{8,	"HSI2",		"BUS1_DP",	0x1F, 0},
-	{9,	"DNC0",		"BUS1_DP",	0x1F, 0},
-	{10,	"DNC1",		"BUS1_DP",	0x1F, 0},
-	{11,	"DNC2",		"BUS1_DP",	0x1F, 0},
-	{12,	"G2D0",		"BUS1_DP",	0x1F, 0},
-	{13,	"G2D1",		"BUS1_DP",	0x1F, 0},
-	{14,	"G2D2",		"BUS1_DP",	0x1F, 0},
-	{15,	"MFC00",	"BUS1_DP",	0x1F, 0},
-	{16,	"MFC01",	"BUS1_DP",	0x1F, 0},
-
-#else
 	/* 0x8000_0000 - 0xf_ffff_ffff */
 
 	{0,	"AUD",		"DREX_IRPS",	0x3F, 0},
@@ -452,162 +322,29 @@ const static struct itmon_rpathinfo rpathinfo[] = {
 	{9,	"MCSC1",	"BUS0_DP",	0xF, 0},
 	{10,	"VRA",		"BUS0_DP",	0xF, 0},
 	{11,	"SSP",		"BUS0_DP",	0xF, 0},
-	{0,	"DPU0",		"BUS0_DP",	0xF, 0},
-	{1,	"DPU1",		"BUS0_DP",	0xF, 0},
-	{2,	"DPU2",		"BUS0_DP",	0xF, 0},
-	{3,	"DIT",		"BUS0_DP",	0xF, 0},
-	{4,	"SBIC",		"BUS0_DP",	0xF, 0},
-	{5,	"AVPS",		"BUS0_DP",	0xF, 0},
-	{6,	"SECU",		"BUS0_DP",	0xF, 0},
-	{7,	"HSI0",		"BUS0_DP",	0xF, 0},
-	{8,	"HSI2",		"BUS0_DP",	0xF, 0},
-	{9,	"DNC0",		"BUS0_DP",	0xF, 0},
-	{10,	"DNC1",		"BUS0_DP",	0xF, 0},
-	{11,	"DNC2",		"BUS0_DP",	0xF, 0},
-	{12,	"DNC3",		"BUS0_DP",	0xF, 0},
-	{13,	"DNC4",		"BUS0_DP",	0xF, 0},
-	{14,	"G2D0",		"BUS0_DP",	0xF, 0},
-	{15,	"G2D1",		"BUS0_DP",	0xF, 0},
-	{16,	"G2D2",		"BUS0_DP",	0xF, 0},
-	{17,	"MFC00",	"BUS0_DP",	0xF, 0},
-	{18,	"MFC01",	"BUS0_DP",	0xF, 0},
 
-	{0,	"AUD",		"BUS0_DP",	0xF, 0},
-	{1,	"HSI1",		"BUS0_DP",	0xF, 0},
-	{2,	"DNS",		"BUS0_DP",	0xF, 0},
-	{3,	"CSIS0",	"BUS0_DP",	0xF, 0},
-	{4,	"CSIS1",	"BUS0_DP",	0xF, 0},
-	{5,	"IPP",		"BUS0_DP",	0xF, 0},
-	{6,	"TNR0",		"BUS0_DP",	0xF, 0},
-	{7,	"TNR1",		"BUS0_DP",	0xF, 0},
-	{8,	"MCSC0",	"BUS0_DP",	0xF, 0},
-	{9,	"MCSC1",	"BUS0_DP",	0xF, 0},
-	{10,	"VRA",		"BUS0_DP",	0xF, 0},
-	{11,	"SSP",		"BUS0_DP",	0xF, 0},
-	{0,	"DPU0",		"BUS0_DP",	0xF, 0},
-	{1,	"DPU1",		"BUS0_DP",	0xF, 0},
-	{2,	"DPU2",		"BUS0_DP",	0xF, 0},
-	{3,	"DIT",		"BUS0_DP",	0xF, 0},
-	{4,	"SBIC",		"BUS0_DP",	0xF, 0},
-	{5,	"AVPS",		"BUS0_DP",	0xF, 0},
-	{6,	"SECU",		"BUS0_DP",	0xF, 0},
-	{7,	"HSI0",		"BUS0_DP",	0xF, 0},
-	{8,	"HSI2",		"BUS0_DP",	0xF, 0},
-	{9,	"DNC0",		"BUS0_DP",	0xF, 0},
-	{10,	"DNC1",		"BUS0_DP",	0xF, 0},
-	{11,	"DNC2",		"BUS0_DP",	0xF, 0},
-	{12,	"DNC3",		"BUS0_DP",	0xF, 0},
-	{13,	"DNC4",		"BUS0_DP",	0xF, 0},
-	{14,	"G2D0",		"BUS0_DP",	0xF, 0},
-	{15,	"G2D1",		"BUS0_DP",	0xF, 0},
-	{16,	"G2D2",		"BUS0_DP",	0xF, 0},
-	{17,	"MFC00",	"BUS0_DP",	0xF, 0},
-	{18,	"MFC01",	"BUS0_DP",	0xF, 0},
-
-#endif
+	{0,	"DPU0",		"BUS1_DP",	0x1F, 0},
+	{1,	"DPU1",		"BUS1_DP",	0x1F, 0},
+	{2,	"DPU2",		"BUS1_DP",	0x1F, 0},
+	{3,	"DIT",		"BUS1_DP",	0x1F, 0},
+	{4,	"SBIC",		"BUS1_DP",	0x1F, 0},
+	{5,	"AVPS",		"BUS1_DP",	0x1F, 0},
+	{6,	"SECU",		"BUS1_DP",	0x1F, 0},
+	{7,	"HSI0",		"BUS1_DP",	0x1F, 0},
+	{8,	"HSI2",		"BUS1_DP",	0x1F, 0},
+	{9,	"DNC0",		"BUS1_DP",	0x1F, 0},
+	{10,	"DNC1",		"BUS1_DP",	0x1F, 0},
+	{11,	"DNC2",		"BUS1_DP",	0x1F, 0},
+	{12,	"DNC3",		"BUS1_DP",	0x1F, 0},
+	{13,	"DNC4",		"BUS1_DP",	0x1F, 0},
+	{14,	"G2D0",		"BUS1_DP",	0x1F, 0},
+	{15,	"G2D1",		"BUS1_DP",	0x1F, 0},
+	{16,	"G2D2",		"BUS1_DP",	0x1F, 0},
+	{17,	"MFC00",	"BUS1_DP",	0x1F, 0},
+	{18,	"MFC01",	"BUS1_DP",	0x1F, 0},
 };
 
 const static struct itmon_masterinfo masterinfo[] = {
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
-	{"CSIS0",	0x0,	/*XXX000*/	"CSIS_DMA1",			0x7},
-	{"CSIS0",	0x4,	/*XXX100*/	"ZSL",				0x7},
-	{"CSIS0",	0x2,	/*XXXX10*/	"SYSMMU_D0_CSIS",		0x3},
-	{"CSIS0",	0x1,	/*XXXXX1*/	"SYSMMU_D0_CSIS_S2MPU",		0x1},
-	{"CSIS1",	0x0,	/*XX0000*/	"CSIS_DMA0",			0xF},
-	{"CSIS1",	0x4,	/*XX0100*/	"STRP",				0xF},
-	{"CSIS1",	0x8,	/*XX1000*/	"PDP_STAT",			0xF},
-	{"CSIS1",	0x2,	/*XXXX10*/	"SYSMMU_D1_CSIS",		0x3},
-	{"CSIS1",	0x1,	/*XXXXX1*/	"SYSMMU_D1_CSIS_S2MPU",		0x1},
-	{"IPP",		0x0,	/*XXXX00*/	"SIPU_IPP",			0x3},
-	{"IPP",		0x2,	/*XXXX10*/	"SYSMMU_IPP",			0x3},
-	{"IPP",		0x1,	/*XXXXX1*/	"SYSMMU_IPP_S2MPU",		0x1},
-	{"TNR",		0x0,	/*XXXX00*/	"TNR",				0x3},
-	{"TNR",		0x2,	/*XXXX10*/	"SYSMMU_TNR",			0x3},
-	{"TNR",		0x1,	/*XXXXX1*/	"SYSMMU_TNR_S2MPU",		0x1},
-	{"DNS",		0x0,	/*XXXX00*/	"DNS",				0x3},
-	{"DNS",		0x2,	/*XXXX10*/	"SYSMMU_DNS",			0x3},
-	{"DNS",		0x1,	/*XXXXX1*/	"SYSMMU_DNS_S2MPU",		0x1},
-	{"MCSC0",	0x0,	/*XXX000*/	"MEIP",				0x7},
-	{"MCSC0",	0x4,	/*XXX100*/	"GDC",				0x7},
-	{"MCSC0",	0x2,	/*XXXX10*/	"SYSMMU_D0_MCSC",		0x3},
-	{"MCSC0",	0x1,	/*XXXXX1*/	"SYSMMU_D0_MCSC_S2MPU",		0x1},
-	{"MCSC1",	0x0,	/*XXX000*/	"ITSC",				0x7},
-	{"MCSC1",	0x4,	/*XXX100*/	"MCSC",				0x7},
-	{"MCSC1",	0x2,	/*XXXX10*/	"SYSMMU_D1_MCSC",		0x3},
-	{"MCSC1",	0x1,	/*XXXXX1*/	"SYSMMU_D1_MCSC_S2MPU",		0x1},
-	{"VRA",		0x0,	/*XXX000*/	"VRA",				0x7},
-	{"VRA",		0x4,	/*XXX100*/	"STR",				0x7},
-	{"VRA",		0x2,	/*XXXX10*/	"SYSMMU_VRA",			0x3},
-	{"VRA",		0x1,	/*XXXXX1*/	"SYSMMU_VRA_S2MPU",		0x1},
-	{"HSI1",	0x0,	/*XX0000*/	"MMC_CARD",			0xF},
-	{"HSI1",	0x2,	/*XX0010*/	"PCIE_GEN2",			0xF},
-	{"HSI1",	0x4,	/*XX0100*/	"PCIE_GEN4B",			0xF},
-	{"HSI1",	0x6,	/*XX0110*/	"UFS_EMBD",			0xF},
-	{"HSI1",	0x8,	/*XX1000*/	"UFS_CARD",			0xF},
-	{"HSI1",	0x1,	/*XXXXX1*/	"SYSMMU_HSI1_S2MPU",		0x1},
-	{"AUD",		0x0,	/*XX0000*/	"SPUS/SPUM",			0xF},
-	{"AUD",		0x4,	/*XX0100*/	"CA7",				0xF},
-	{"AUD",		0xC,	/*XX1100*/	"AUDEN",			0xF},
-	{"AUD",		0x2,	/*XXXX10*/	"SYSMMU_ABOX",			0x3},
-	{"AUD",		0x1,	/*XXXXX1*/	"SYSMMU_ABOX_S2MPU",		0x1},
-	{"DPU0",	0x0,	/*XXXX00*/	"DPU",				0x3},
-	{"DPU0",	0x2,	/*XXXX10*/	"SYSMMU_D0_DPU",		0x3},
-	{"DPU0",	0x1,	/*XXXXX1*/	"SYSMMU_D0_DPU_S2MPU",		0x1},
-	{"DPU1",	0x0,	/*XXXX00*/	"DPU",				0x3},
-	{"DPU1",	0x2,	/*XXXX10*/	"SYSMMU_D1_DPU",		0x3},
-	{"DPU1",	0x1,	/*XXXXX1*/	"SYSMMU_D1_DPU_S2MPU",		0x1},
-	{"DPU2",	0x0,	/*XXXX00*/	"DPU",				0x3},
-	{"DPU2",	0x2,	/*XXXX10*/	"SYSMMU_D2_DPU",		0x3},
-	{"DPU2",	0x1,	/*XXXXX1*/	"SYSMMU_D2_DPU_S2MPU",		0x1},
-	{"DNC0",	0x0,	/*XXXX00*/	"DSPM0",			0x3},
-	{"DNC0",	0x2,	/*XXXX10*/	"SYSMMU_D0_DNC",		0x3},
-	{"DNC0",	0x1,	/*XXXXX1*/	"SYSMMU_D0_DNC_S2MPU",		0x1},
-	{"DNC1",	0x0,	/*XXXX00*/	"DSPM1",			0x3},
-	{"DNC1",	0x2,	/*XXXX10*/	"SYSMMU_D1_DNC",		0x3},
-	{"DNC1",	0x1,	/*XXXXX1*/	"SYSMMU_D1_DNC_S2MPU",		0x1},
-	{"DNC2",	0x0,	/*XXXX00*/	"DSPM2",			0x3},
-	{"DNC2",	0x2,	/*XXXX10*/	"SYSMMU_D2_DNC",		0x3},
-	{"DNC2",	0x1,	/*XXXXX1*/	"SYSMMU_D2_DNC_S2MPU",		0x1},
-	{"G2D0",	0x0,	/*XXXX00*/	"G2D",				0x3},
-	{"G2D0",	0x2,	/*XXXX10*/	"SYSMMU_D0_G2D",		0x3},
-	{"G2D0",	0x1,	/*XXXXX1*/	"SYSMMU_D0_G2D_S2MPU",		0x1},
-	{"G2D1",	0x0,	/*XXXX00*/	"G2D",				0x3},
-	{"G2D1",	0x2,	/*XXXX10*/	"SYSMMU_D1_G2D",		0x3},
-	{"G2D1",	0x1,	/*XXXXX1*/	"SYSMMU_D1_G2D_S2MPU",		0x1},
-	{"G2D2",	0x0,	/*XX0000*/	"JPEG",				0xF},
-	{"G2D2",	0x4,	/*XX0100*/	"MSCL",				0xF},
-	{"G2D2",	0x8,	/*XX1000*/	"ASTC",				0xF},
-	{"G2D2",	0xC,	/*XX1100*/	"JSQZ",				0xF},
-	{"G2D2",	0x2,	/*XXXX10*/	"SYSMMU_G2D2",			0x3},
-	{"G2D2",	0x1,	/*XXXXX1*/	"SYSMMU_G2D2_S2MPU",		0x1},
-	{"MFC00",	0x0,	/*XXXX00*/	"MFC",				0x3},
-	{"MFC00",	0x2,	/*XXXX10*/	"SYSMMU_D0_MFC0",		0x3},
-	{"MFC00",	0x1,	/*XXXXX1*/	"SYSMMU_D0_MFC0_S2MPU",		0x1},
-	{"MFC01",	0x0,	/*XXX000*/	"MFC",				0x7},
-	{"MFC01",	0x4,	/*XXX100*/	"WFD",				0x7},
-	{"MFC01",	0x2,	/*XXXX10*/	"SYSMMU_D1_MFC0",		0x3},
-	{"MFC01",	0x1,	/*XXXXX1*/	"SYSMMU_D1_MFC0_S2MPU",		0x1},
-	{"HSI0",	0x0,	/*XXXXX0*/	"USB31DRD",			0x1},
-	{"HSI0",	0x1,	/*XXXXX1*/	"SYSMMU_HSI0_S2MPU",		0x1},
-	{"HSI2",	0x0,	/*XXXXX0*/	"PCIE_GEN4A",			0x1},
-	{"HSI2",	0x1,	/*XXXXX1*/	"SYSMMU_HSI2_S2MPU",		0x1},
-	{"DIT",		0x0,	/*XXXXX0*/	"DIT",				0x1},
-	{"DIT",		0x1,	/*XXXXX1*/	"SYSMMU_DIT_S2MPU",		0x1},
-	{"SBIC",	0x0,	/*XXXXX0*/	"SBIC",				0x1},
-	{"SBIC",	0x1,	/*XXXXX1*/	"SYSMMU_SBIC_S2MPU",		0x1},
-	{"AVPS",	0x0,	/*X00000*/	"ALIVE(APM)",			0x1F},
-	{"AVPS",	0x8,	/*X01000*/	"ALIVE(Debug_Core)",		0x1F},
-	{"AVPS",	0x10,	/*X10000*/	"ALIVE(PEM)",			0x1F},
-	{"AVPS",	0x2,	/*XXX010*/	"VTS(CM4F_System)",		0x7},
-	{"AVPS",	0x4,	/*XXX100*/	"PDMA",				0x7},
-	{"AVPS",	0x6,	/*XXX110*/	"SPDMA",			0x7},
-	{"AVPS",	0x1,	/*XXXXX1*/	"SYSMMU_AVPS_S2MPU",		0x1},
-	{"SECU",	0x0,	/*XXXXX0*/	"SSS",				0x1},
-	{"SECU",	0x1,	/*XXXXX1*/	"RTIC",				0x1},
-	{"SSP", 0, "SSP", 0},
-	{"CORESIGHT", 0, "CORESIGHT", 0},
-	{"MMUG3D", 0, "MMUG3D", 0},
-#else
 	{"CSIS0",	0x0,	/*XXX000*/	"CSIS_DMA1",			0x7},
 	{"CSIS0",	0x4,	/*XXX100*/	"ZSL",				0x7},
 	{"CSIS0",	0x2,	/*XXXX10*/	"SYSMMU_D0_CSIS",		0x3},
@@ -730,28 +467,9 @@ const static struct itmon_masterinfo masterinfo[] = {
 	{"SSP", 0, "SSP", 0},
 	{"CORESIGHT", 0, "CORESIGHT", 0},
 	{"MMUG3D", 0, "MMUG3D", 0},
-#endif
 };
 
 static struct itmon_nodeinfo data_bus0[] = {
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
-	{M_NODE,	"AUD",		0x1B093000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"CSIS0",	0x1B003000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"CSIS1",	0x1B013000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DNS",		0x1B043000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"HSI1",		0x1B083000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"IPP",		0x1B023000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"MCSC0",	0x1B053000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"MCSC1",	0x1B063000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"SSP",		0x1B0A3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"TNR",		0x1B033000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"VRA",		0x1B073000, NULL, 0,	false, false, true, true, false, NULL},
-	{S_NODE,	"BUS0_DP",	0x1B0F3000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS0_S0",	0x1B0B3000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS0_S1",	0x1B0C3000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS0_S2",	0x1B0D3000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS0_S3",	0x1B0E3000, NULL, 0,	false, false, true, true, false, NULL},
-#else
 	{M_NODE,	"AUD",		0x1B0A3000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"CSIS0",	0x1B003000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"CSIS1",	0x1B013000, NULL, 0,	false, false, true, true, false, NULL},
@@ -769,36 +487,11 @@ static struct itmon_nodeinfo data_bus0[] = {
 	{T_S_NODE,	"BUS0_S1",	0x1B0D3000, NULL, 0,	false, false, true, true, false, NULL},
 	{T_S_NODE,	"BUS0_S2",	0x1B0E3000, NULL, 0,	false, false, true, true, false, NULL},
 	{T_S_NODE,	"BUS0_S3",	0x1B0F3000, NULL, 0,	false, false, true, true, false, NULL},
-#endif
 };
 
 static struct itmon_nodeinfo data_bus1[] = {
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
 	{M_NODE,	"AVPS",		0x1B513000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"DIT",		0x1B4F3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DNC0",		0x1B433000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DNC1",		0x1B443000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DNC2",		0x1B453000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DPU0",		0x1B463000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DPU1",		0x1B413000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DPU2",		0x1B423000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"G2D0",		0x1B463000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"G2D1",		0x1B473000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"G2D2",		0x1B483000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"HSI0",		0x1B4B3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"HSI2",		0x1B4C3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"MFC00",	0x1B493000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"MFC01",	0x1B4A3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"SBIC",		0x1B4E3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"SECU",		0x1B503000, NULL, 0,	false, false, true, true, false, NULL},
-	{S_NODE,	"BUS1_DP",	0x1B553000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS1_S0",	0x1B513000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS1_S1",	0x1B523000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS1_S2",	0x1B533000, NULL, 0,	false, false, true, true, false, NULL},
-	{T_S_NODE,	"BUS1_S3",	0x1B543000, NULL, 0,	false, false, true, true, false, NULL},
-#else
-	{M_NODE,	"AVPS",		0x1B4F3000, NULL, 0,	false, false, true, true, false, NULL},
-	{M_NODE,	"DIT",		0x1B4D3000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"DNC0",		0x1B433000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"DNC1",		0x1B443000, NULL, 0,	false, false, true, true, false, NULL},
 	{M_NODE,	"DNC2",		0x1B453000, NULL, 0,	false, false, true, true, false, NULL},
@@ -821,7 +514,6 @@ static struct itmon_nodeinfo data_bus1[] = {
 	{T_S_NODE,	"BUS1_S1",	0x1B543000, NULL, 0,	false, false, true, true, false, NULL},
 	{T_S_NODE,	"BUS1_S2",	0x1B553000, NULL, 0,	false, false, true, true, false, NULL},
 	{T_S_NODE,	"BUS1_S3",	0x1B563000, NULL, 0,	false, false, true, true, false, NULL},
-#endif
 };
 
 static struct itmon_nodeinfo data1_bus0[] = {
@@ -908,22 +600,6 @@ static struct itmon_nodeinfo peri_bus0[] = {
 };
 
 static struct itmon_nodeinfo peri_bus1[] = {
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
-	{T_M_NODE,	"BUS0_BUS1",	0x1BAD3000, NULL, 0,	false, false, true, true, false, NULL},
-	{S_NODE,	"DNC",		0x1BA53000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"DPU",		0x1BA93000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"G2D",		0x1BA33000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"HSI0",		0x1BAA3000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"HSI2",		0x1BAB3000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"MFC0",		0x1BA43000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"NPU0",		0x1BA63000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"NPU1",		0x1BA73000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"PERIC0",	0x1BAC3000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"SFR0_BUS1",	0x1BA13000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{S_NODE,	"SFR1_BUS1",	0x1BA23000, NULL, TMOUT, true, false, true, true, false, NULL},
-	{M_NODE,	"TREX_DP_BUS1",	0x1BA03000, NULL, 0,	false, false, true, true, false, NULL},
-	{S_NODE,	"VTS",		0x1BA83000, NULL, TMOUT, true, false, true, true, false, NULL},
-#else
 	{T_M_NODE,	"BUS0_BUS1",	0x1BAF3000, NULL, 0,	false, false, true, true, false, NULL},
 	{S_NODE,	"DNC",		0x1BA53000, NULL, TMOUT, true, false, true, true, false, NULL},
 	{S_NODE,	"DPU",		0x1BAB3000, NULL, TMOUT, true, false, true, true, false, NULL},
@@ -940,31 +616,18 @@ static struct itmon_nodeinfo peri_bus1[] = {
 	{S_NODE,	"SFR1_BUS1",	0x1BA23000, NULL, TMOUT, true, false, true, true, false, NULL},
 	{M_NODE,	"TREX_DP_BUS1",	0x1BA03000, NULL, 0,	false, false, true, true, false, NULL},
 	{S_NODE,	"VTS",		0x1BAA3000, NULL, TMOUT, true, false, true, true, false, NULL},
-#endif
 };
 
 static struct itmon_nodegroup nodegroup[] = {
-#if defined(CONFIG_SOC_EXYNOS9830_EVT0)
-	{58,	"DATA_BUS0",	0x1B113000, false,	NULL, data_bus0,	ARRAY_SIZE(data_bus0),	BUS_DATA},
-	{79,	"DATA_BUS1",	0x1B573000, false,	NULL, data_bus1,	ARRAY_SIZE(data_bus1),	BUS_DATA},
+	{58,	"DATA_BUS0",	0x1B123000, false,	NULL, data_bus0,	ARRAY_SIZE(data_bus0),	BUS_DATA},
+	{79,	"DATA_BUS1",	0x1B593000, false,	NULL, data_bus1,	ARRAY_SIZE(data_bus1),	BUS_DATA},
 	{59,	"DATA1_BUS0",	0x1B293000, false,	NULL, data1_bus0,	ARRAY_SIZE(data1_bus0),	BUS_DATA},
 	{80,	"DATA1_BUS1",	0x1B693000, false,	NULL, data1_bus1,	ARRAY_SIZE(data1_bus1),	BUS_DATA},
 	{133,	"DATA_CORE",	0x1A8E3000, false,	NULL, data_core,	ARRAY_SIZE(data_core),	BUS_DATA},
 	{134,	"PERI0_CORE",	0x1AA83000, false,	NULL, peri0_core,	ARRAY_SIZE(peri0_core),	BUS_PERI},
 	{135,	"PERI1_CORE",	0x1AC83000, false,	NULL, peri1_core,	ARRAY_SIZE(peri1_core),	BUS_PERI},
 	{60,	"PERI_BUS0",	0x1B963000, false,	NULL, peri_bus0,	ARRAY_SIZE(peri_bus0),	BUS_PERI},
-	{61,	"PERI_BUS1",	0x1BAE3000, false,	NULL, peri_bus1,	ARRAY_SIZE(peri_bus1),	BUS_PERI},
-#else
-	{58,	"DATA_BUS0",	0x1B123000, false,	NULL, data_bus0,	ARRAY_SIZE(data_bus0),	BUS_DATA},
-	{79,	"DATA_BUS1",	0x1B293000, false,	NULL, data_bus1,	ARRAY_SIZE(data_bus1),	BUS_DATA},
-	{59,	"DATA1_BUS0",	0x1B593000, false,	NULL, data1_bus0,	ARRAY_SIZE(data1_bus0),	BUS_DATA},
-	{80,	"DATA1_BUS1",	0x1B693000, false,	NULL, data1_bus1,	ARRAY_SIZE(data1_bus1),	BUS_DATA},
-	{133,	"DATA_CORE",	0x1A8E3000, false,	NULL, data_core,	ARRAY_SIZE(data_core),	BUS_DATA},
-	{134,	"PERI0_CORE",	0x1AA83000, false,	NULL, peri0_core,	ARRAY_SIZE(peri0_core),	BUS_PERI},
-	{135,	"PERI1_CORE",	0x1AC83000, false,	NULL, peri1_core,	ARRAY_SIZE(peri1_core),	BUS_PERI},
-	{60,	"PERI_BUS0",	0x1B963000, false,	NULL, peri_bus0,	ARRAY_SIZE(peri_bus0),	BUS_PERI},
 	{81,	"PERI_BUS1",	0x1BB03000, false,	NULL, peri_bus1,	ARRAY_SIZE(peri_bus1),	BUS_PERI},
-#endif
 };
 
 const static char *itmon_pathtype[] = {
@@ -1136,6 +799,73 @@ static void itmon_init(struct itmon_dev *itmon, bool enabled)
 	}
 }
 
+void itmon_wa_enable(const char *node_name, int node_type, bool enabled)
+{
+	struct itmon_platdata *pdata;
+	struct itmon_nodeinfo *node;
+	unsigned int offset;
+	int i, j;
+
+	if (!g_itmon)
+		return;
+
+	pdata = g_itmon->pdata;
+
+	for (i = 0; i < (int)ARRAY_SIZE(nodegroup); i++) {
+		node = pdata->nodegroup[i].nodeinfo;
+		for (j = 0; j < pdata->nodegroup[i].nodesize; j++) {
+			if (node[j].type == S_NODE &&
+				node[j].type == node_type &&
+				!strncmp(node[j].name, node_name, strlen(node_name)) &&
+				node[j].tmout_enabled) {
+				offset = OFFSET_TMOUT_REG;
+				/* Enable Timeout setting */
+				__raw_writel(enabled, node[j].regs + offset + REG_DBG_CTL);
+				/* set tmout interval value */
+				__raw_writel(node[j].time_val,
+					     node[j].regs + offset + REG_TMOUT_INIT_VAL);
+				if (node[j].tmout_frz_enabled) {
+					/* Enable freezing */
+					__raw_writel(enabled,
+						     node[j].regs + offset + REG_TMOUT_FRZ_EN);
+				}
+			}
+			if (node[j].err_enabled &&
+				node[j].type == node_type &&
+				!strncmp(node[j].name, node_name, strlen(node_name))) {
+				/* clear previous interrupt of req_read */
+				offset = OFFSET_REQ_R;
+				if (!pdata->probed || !node->retention)
+					__raw_writel(1, node[j].regs + offset + REG_INT_CLR);
+				/* enable interrupt */
+				__raw_writel(enabled, node[j].regs + offset + REG_INT_MASK);
+
+				/* clear previous interrupt of req_write */
+				offset = OFFSET_REQ_W;
+				if (pdata->probed || !node->retention)
+					__raw_writel(1, node[j].regs + offset + REG_INT_CLR);
+				/* enable interrupt */
+				__raw_writel(enabled, node[j].regs + offset + REG_INT_MASK);
+
+				/* clear previous interrupt of response_read */
+				offset = OFFSET_RESP_R;
+				if (!pdata->probed || !node->retention)
+					__raw_writel(1, node[j].regs + offset + REG_INT_CLR);
+				/* enable interrupt */
+				__raw_writel(enabled, node[j].regs + offset + REG_INT_MASK);
+
+				/* clear previous interrupt of response_write */
+				offset = OFFSET_RESP_W;
+				if (!pdata->probed || !node->retention)
+					__raw_writel(1, node[j].regs + offset + REG_INT_CLR);
+				/* enable interrupt */
+				__raw_writel(enabled, node[j].regs + offset + REG_INT_MASK);
+				break;
+			}
+		}
+	}
+}
+
 void itmon_enable(bool enabled)
 {
 	if (g_itmon)
@@ -1164,7 +894,7 @@ static void itmon_post_handler_apply_policy(struct itmon_dev *itmon,
 		break;
 	case NOTIFY_STOP:
 		dev_err(itmon->dev, "notify calls response NOTIFY_STOP, refer to notifier log\n"
-				    "ITMON counts the error count : %d\n", pdata->err_cnt++);
+				    "ITMON counts the error count : %d\n", pdata->err_cnt);
 		break;
 	case NOTIFY_BAD:
 		dev_err(itmon->dev, "notify calls response NOTIFY_BAD\n"
@@ -1262,6 +992,8 @@ static void itmon_post_handler_by_master(struct itmon_dev *itmon,
 				(unsigned long long)ktime_to_ns(interval));
 	} else if (!strncmp(traceinfo->port, CP_COMMON_STR, strlen(CP_COMMON_STR))) {
 		pdata->err_cp = true;
+	} else {
+		pdata->err_cnt++;
 	}
 }
 
@@ -1451,13 +1183,13 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 		return;
 
 	pr_auto(ASL3,
-		"--------------------------------------------------------------------------\n"
+		"\n--------------------------------------------------------------------------\n"
 		"      Transaction Information\n\n"
 		"      > Master         : %s %s\n"
 		"      > Target         : %s\n"
 		"      > Target Address : 0x%lX %s\n"
 		"      > Type           : %s\n"
-		"      > Error code     : %s\n",
+		"      > Error code     : %s\n\n",
 		traceinfo->port, traceinfo->master ? traceinfo->master : "",
 		traceinfo->dest ? traceinfo->dest : NOT_AVAILABLE_STR,
 		traceinfo->target_addr,
@@ -1474,32 +1206,25 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 		"(by CP maybe)" : "",
 		trans_type == TRANS_TYPE_READ ? "READ" : "WRITE",
 		itmon_errcode[traceinfo->errcode]);
-	secdbg_exin_set_sysmmu(temp_buf);
+	secdbg_exin_set_busmon(temp_buf);
 #endif
 
 	if (node) {
 		struct itmon_tracedata *tracedata = &node->tracedata;
+		group = node->group;
 
 		pr_auto(ASL3,
-			"      > Size           : %u bytes x %u burst => %u bytes\n"
+			"\n      > Size           : %u bytes x %u burst => %u bytes\n"
 			"      > Burst Type     : %u (0:FIXED, 1:INCR, 2:WRAP)\n"
 			"      > Level          : %s\n"
-			"      > Protection     : %s\n",
+			"      > Protection     : %s\n"
+			"      > Path Type      : %s\n\n",
 			power(BIT_AXSIZE(tracedata->ext_info_1), 2), BIT_AXLEN(tracedata->ext_info_1) + 1,
 			power(BIT_AXSIZE(tracedata->ext_info_1), 2) * (BIT_AXLEN(tracedata->ext_info_1) + 1),
 			BIT_AXBURST(tracedata->ext_info_2),
 			(BIT_AXPROT(tracedata->ext_info_2) & 0x1) ? "Privileged access" : "Unprivileged access",
-			(BIT_AXPROT(tracedata->ext_info_2) & 0x2) ? "Non-secure access" : "Secure access");
-
-		group = node->group;
-		pr_auto(ASL3,
-			"      > Path Type      : %s\n"
-			"--------------------------------------------------------------------------\n",
+			(BIT_AXPROT(tracedata->ext_info_2) & 0x2) ? "Non-secure access" : "Secure access",
 			itmon_pathtype[traceinfo->path_type == -1 ? group->bus_type : traceinfo->path_type]);
-
-	} else {
-		pr_auto(ASL3,
-			"--------------------------------------------------------------------------\n");
 	}
 }
 
@@ -1513,10 +1238,10 @@ static void itmon_report_pathinfo(struct itmon_dev *itmon,
 
 	if (!traceinfo->path_dirty) {
 		pr_auto(ASL3,
-			"--------------------------------------------------------------------------\n"
+			"\n--------------------------------------------------------------------------\n"
 			"      ITMON Report (%s)\n"
 			"--------------------------------------------------------------------------\n"
-			"      PATH Information\n",
+			"      PATH Information\n\n",
 			trans_type == TRANS_TYPE_READ ? "READ" : "WRITE");
 		traceinfo->path_dirty = true;
 	}
@@ -1698,7 +1423,7 @@ static void itmon_report_prot_chk_rawdata(struct itmon_dev *itmon,
 
 	/* Output Raw register information */
 	dev_err(itmon->dev,
-		"--------------------------------------------------------------------------\n"
+		"\n--------------------------------------------------------------------------\n"
 		"      Protocol Checker Raw Register Information(ITMON information)\n\n");
 	dev_err(itmon->dev,
 		"      > %s(%s, 0x%08X)\n"
@@ -1759,6 +1484,7 @@ static void itmon_route_tracedata(struct itmon_dev *itmon)
 	if (pdata->traceinfo[TRANS_TYPE_READ].dirty ||
 		pdata->traceinfo[TRANS_TYPE_WRITE].dirty)
 		pr_auto(ASL3,
+			"\n--------------------------------------------------------------------------\n"
 			"      Raw Register Information(ITMON Internal Information)\n\n");
 
 	for (trans_type = 0; trans_type < TRANS_TYPE_NUM; trans_type++) {
@@ -1773,11 +1499,6 @@ static void itmon_route_tracedata(struct itmon_dev *itmon)
 			}
 		}
 	}
-
-	if (pdata->traceinfo[TRANS_TYPE_READ].dirty ||
-		pdata->traceinfo[TRANS_TYPE_WRITE].dirty)
-		pr_auto(ASL3,
-			"--------------------------------------------------------------------------\n");
 
 	for (trans_type = 0; trans_type < TRANS_TYPE_NUM; trans_type++) {
 		itmon_post_handler_to_notifier(itmon, trans_type);
@@ -1906,7 +1627,7 @@ static int itmon_search_node(struct itmon_dev *itmon, struct itmon_nodegroup *gr
 							REG_PROT_CHK_INT);
 				/* if timeout_freeze is enable,
 				 * PROT_CHK interrupt is able to assert without any information */
-				if (BIT_PROT_CHK_ERR_OCCURRED(val) && (val & GENMASK(31, 1))) {
+				if (BIT_PROT_CHK_ERR_OCCURRED(val) && (val & GENMASK(8, 1))) {
 					itmon_report_prot_chk_rawdata(itmon, &node[bit]);
 					pdata->err_fatal = true;
 					ret = true;
@@ -1963,7 +1684,7 @@ static int itmon_search_node(struct itmon_dev *itmon, struct itmon_nodegroup *gr
 								REG_PROT_CHK_INT);
 					/* if timeout_freeze is enable,
 					 * PROT_CHK interrupt is able to assert without any information */
-					if (BIT_PROT_CHK_ERR_OCCURRED(val) && (val & GENMASK(31, 1))) {
+					if (BIT_PROT_CHK_ERR_OCCURRED(val) && (val & GENMASK(8, 1))) {
 						itmon_report_prot_chk_rawdata(itmon, &node[bit]);
 						pdata->err_fatal = true;
 						ret = true;
@@ -2050,14 +1771,11 @@ static irqreturn_t itmon_irq_handler(int irq, void *data)
 
 	/* Search itmon group */
 	for (i = 0; i < (int)ARRAY_SIZE(nodegroup); i++) {
-		if (irq == nodegroup[i].irq) {
-			group = &pdata->nodegroup[i];
-			dev_err(itmon->dev,
-					"\n%s: %d irq, %s group, 0x%x vec",
-					__func__, irq, group->name,
-					group->phy_regs == 0 ? 0 : __raw_readl(group->regs));
-			break;
-		}
+		group = &pdata->nodegroup[i];
+		dev_err(itmon->dev,
+				"%s: %d irq, %s group, 0x%x vec",
+				__func__, irq, group->name,
+				group->phy_regs == 0 ? 0 : __raw_readl(group->regs));
 	}
 
 	ret = itmon_search_node(itmon, NULL, true);

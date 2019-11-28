@@ -141,8 +141,7 @@ static int auto_sleep_thread_thrfunc(void *data)
 
 				auto_sleep_thread_set_state(thrctx, THREAD_STATE_SLEEPING);
 				wait_event_interruptible_timeout(thrctx->wq,
-					wakeup_check(thrctx),
-					AUTO_SLEEP_THREAD_TIMEOUT);
+					wakeup_check(thrctx), thrctx->period);
 				auto_sleep_thread_set_state(thrctx, THREAD_STATE_RUNNING);
 				no_activity_cnt = 0;
 				npu_trace("ASThread[%s] wakeup.", thrctx->name);
@@ -160,7 +159,8 @@ static int auto_sleep_thread_thrfunc(void *data)
 int auto_sleep_thread_create(struct auto_sleep_thread *newthr, const char *print_name,
 	int (*do_task)(struct auto_sleep_thread_param *data),
 	int (*check_work)(struct auto_sleep_thread_param *data),
-	void (*on_idle)(struct auto_sleep_thread_param *data, s64 idle_duration_ns))
+	void (*on_idle)(struct auto_sleep_thread_param *data, s64 idle_duration_ns),
+	unsigned int period)
 {
 
 	BUG_ON(!newthr);
@@ -184,6 +184,10 @@ int auto_sleep_thread_create(struct auto_sleep_thread *newthr, const char *print
 	newthr->check_work = (check_work);
 	newthr->on_idle = (on_idle);
 	newthr->no_activity_threshold = DEFAULT_NO_ACTIVITY_THRESHOLD;
+	if (period < 0)
+		newthr->period = AUTO_SLEEP_THREAD_TIMEOUT;
+	else
+		newthr->period = period;
 	auto_sleep_thread_set_state(newthr, THREAD_STATE_INITIALIZED);
 
 	npu_info("Creating Auto Sleep Thread(%s): Completed - newthr(%pK), do_task(%pK)\n",
@@ -268,6 +272,20 @@ void auto_sleep_thread_signal(struct auto_sleep_thread *thrctx)
 	wake_up_all(&(thrctx->wq));
 
 	return;
+}
+
+void auto_sleep_thread_set_period(struct auto_sleep_thread *thrctx,
+		unsigned int period)
+{
+	BUG_ON(!thrctx);
+	BUG_ON(!thrctx->thread_ref);
+	BUG_ON(period > 0);
+
+	thrctx->period = period;
+	npu_dbg("set AST (%s) period as %d\n", thrctx->name, thrctx->period);
+
+	/* immediately restart to re-set period */
+	auto_sleep_thread_signal(thrctx);
 }
 
 /* Unit test */

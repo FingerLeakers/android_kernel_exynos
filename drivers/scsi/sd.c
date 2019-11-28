@@ -2807,6 +2807,10 @@ sd_read_cache_type(struct scsi_disk *sdkp, unsigned char *buffer)
 		if (sdkp->WCE && sdkp->write_prot)
 			sdkp->WCE = 0;
 
+		/* No cache flush allowed for UFS well-known LU */
+		if (sdkp->WCE && (sdp->bootlunID == 1 || sdp->bootlunID == 2))
+			sdkp->WCE = 0;
+
 		if (sdkp->first_scan || old_wce != sdkp->WCE ||
 		    old_rcd != sdkp->RCD || old_dpofua != sdkp->DPOFUA)
 			sd_printk(KERN_NOTICE, sdkp,
@@ -3473,8 +3477,8 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 			part = gd->part_tbl->part[i];
 			if (!part)
 				break;
-			if (!strncmp(part->info->volname, "SYSTEM", 6) ||
-					!strncmp(part->info->volname, "system", 6)) {
+			if (!strncmp(part->info->volname, "SUPER", 5) ||
+					!strncmp(part->info->volname, "super", 5)) {
 				sdp->host->ufs_system_start = part->start_sect;
 				sdp->host->ufs_system_end = (part->start_sect + part->nr_sects);
 				sdp->host->ufs_sys_log_en = true;

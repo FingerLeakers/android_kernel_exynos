@@ -18,68 +18,16 @@
 #include <linux/cpumask.h>
 #include <linux/cpufreq.h>
 #include <linux/pm_opp.h>
-#include <linux/ems_service.h>
 
 #include <soc/samsung/exynos-cpuhp.h>
 
 #include "exynos-acme.h"
-
-enum exynos_ufc_execution_mode {
-	AARCH64_MODE = 0,
-	AARCH32_MODE,
-	MODE_END,
-};
-
-enum exynos_ufc_ctrl_type {
-	PM_QOS_MIN_LIMIT = 0,
-	PM_QOS_MIN_WO_BOOST_LIMIT,
-	PM_QOS_MAX_LIMIT,
-	TYPE_END,
-};
+#include "exynos-ufc.h"
 
 char *stune_group_name2[] = {
 	"min-limit",
 	"max-limit",
 	"min-wo-boost-limit",
-};
-
-struct ufc_table_info {
-	int			ctrl_type;
-	int			mode;
-	unsigned int		cur_index;
-	u32			**ufc_table;
-	struct list_head	list;
-};
-
-struct ufc_domain {
-	struct cpumask		cpus;
-	int			pm_qos_min_class;
-	int			pm_qos_max_class;
-	unsigned int		min_freq;
-	unsigned int		max_freq;
-	unsigned int		clear_freq;
-
-	struct pm_qos_request	user_min_qos_req;
-	struct pm_qos_request	user_max_qos_req;
-	struct pm_qos_request	user_min_qos_wo_boost_req;
-
-	struct list_head	list;
-};
-
-struct exynos_ufc {
-	unsigned int		table_row;
-	unsigned int		table_col;
-	unsigned int		lit_table_row;
-
-	int			sse_mode;
-
-	int			last_min_input;
-	int			last_min_wo_boost_input;
-	int			last_max_input;
-
-	u32			**ufc_lit_table;
-	struct list_head	ufc_domain_list;
-	struct list_head	ufc_table_list;
 };
 
 struct exynos_ufc ufc;
@@ -321,7 +269,6 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 	struct ufc_domain *ufc_dom;
 	struct ufc_table_info *table_info, *target_table_info = NULL;
 	int target_idx = 0;
-	int col_idx = 1;
 
 	if (input_freq <= 0) {
 		ufc_clear_pm_qos(ctrl_type);
@@ -343,9 +290,10 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 	/* Big --> Mid --> Lit */
 	list_for_each_entry(ufc_dom, &ufc.ufc_domain_list, list) {
 		unsigned int target_freq;
-		struct pm_qos_request *target_pm_qos;
+		unsigned int col_idx = ufc_dom->table_idx;
+		struct pm_qos_request *target_pm_qos = NULL;
 
-		target_freq = target_table_info->ufc_table[col_idx++][target_idx];
+		target_freq = target_table_info->ufc_table[col_idx][target_idx];
 		if (ufc_need_adjust_freq(target_freq, ufc_dom))
 			target_freq = ufc_adjust_freq(target_freq, ufc_dom, ctrl_type);
 
@@ -367,7 +315,9 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 			target_pm_qos = &ufc_dom->user_min_qos_req;
 			break;
 		}
-		pm_qos_update_request(target_pm_qos, target_freq);
+
+		if (target_pm_qos)
+			pm_qos_update_request(target_pm_qos, target_freq);
 	}
 }
 
@@ -569,6 +519,34 @@ static struct kobj_attribute ufc_table_change =
  *                          INIT FUNCTION                          *
  *********************************************************************/
 
+static void ufc_free_all(void)
+{
+	struct ufc_table_info *table_info;
+	struct ufc_domain *ufc_dom;
+	int col_idx;
+
+	pr_err("Failed: can't initialize ufc table and domain");
+
+	while(!list_empty(&ufc.ufc_table_list)) {
+		table_info = list_first_entry(&ufc.ufc_table_list,
+				struct ufc_table_info, list);
+		list_del(&table_info->list);
+
+		for (col_idx = 0; table_info->ufc_table[col_idx]; col_idx++)
+			kfree(table_info->ufc_table[col_idx]);
+
+		kfree(table_info->ufc_table);
+		kfree(table_info);
+	}
+
+	while(!list_empty(&ufc.ufc_domain_list)) {
+		ufc_dom = list_first_entry(&ufc.ufc_domain_list,
+				struct ufc_domain, list);
+		list_del(&ufc_dom->list);
+		kfree(ufc_dom);
+	}
+}
+
 static __init int ufc_init_pm_qos(void)
 {
 	struct cpufreq_policy *policy;
@@ -596,46 +574,32 @@ static __init int ufc_init_sysfs(void)
 	int ret = 0;
 
 	ret = sysfs_create_file(power_kobj, &cpufreq_table.attr);
-	if (ret) {
-		pr_err("failed to create cpufreq_table node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &cpufreq_table_debug.attr);
-	if (ret) {
-		pr_err("failed to create cpufreq_table_debug node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &cpufreq_min_limit.attr);
-	if (ret) {
-		pr_err("failed to create cpufreq_min_limit node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &cpufreq_min_limit_wo_boost.attr);
-	if (ret) {
-		pr_err("failed to create cpufreq_min_limit_wo_boost node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &cpufreq_max_limit.attr);
-	if (ret) {
-		pr_err("failed to create cpufreq_max_limit node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &execution_mode_change.attr);
-	if (ret) {
-		pr_err("failed to create execution mode change node\n");
+	if (ret)
 		return ret;
-	}
 
 	ret = sysfs_create_file(power_kobj, &ufc_table_change.attr);
-	if (ret) {
-		pr_err("failed to create ufc table change node\n");
+	if (ret)
 		return ret;
-	}
 
 	return ret;
 }
@@ -704,7 +668,7 @@ static int init_ufc_table(struct device_node *dn)
 		return -ENOMEM;
 
 	for (col_idx = 0; col_idx < ufc.table_col; col_idx++) {
-		table_info->ufc_table[col_idx] = kzalloc(sizeof(u32 *) * ufc.table_row,
+		table_info->ufc_table[col_idx] = kzalloc(sizeof(u32) * ufc.table_row,
 							GFP_KERNEL);
 
 		if (!table_info->ufc_table[col_idx])
@@ -720,36 +684,38 @@ static int init_ufc_table(struct device_node *dn)
 
 static int init_ufc_domain(struct device_node *dn)
 {
-	struct cpumask shared_mask;
 	struct ufc_domain *ufc_dom;
 	struct cpufreq_policy *policy;
 	const char *buf;
-	int ret = 0;
 
 	ufc_dom = kzalloc(sizeof(struct ufc_domain), GFP_KERNEL);
 	if (!ufc_dom)
 		return -ENOMEM;
 
-	ret = of_property_read_string(dn, "shared-cpus", &buf);
-	if (ret) {
-		pr_err("Failed to get shared-cpus for ufc\n");
+	if (of_property_read_string(dn, "shared-cpus", &buf))
 		return -EINVAL;
+
+	cpulist_parse(buf, &ufc_dom->cpus);
+	cpumask_and(&ufc_dom->cpus, &ufc_dom->cpus, cpu_online_mask);
+	if (cpumask_empty(&ufc_dom->cpus)) {
+		list_del(&ufc_dom->list);
+		kfree(ufc_dom);
+		return 0;
 	}
 
-	cpulist_parse(buf, &shared_mask);
-	ufc_dom->cpus = shared_mask;
-
-	if (of_property_read_u32(dn, "pm_qos-min-class", &ufc_dom->pm_qos_min_class)) {
-		pr_err("Failed to get pm_qos-min-class for ufc\n");
+	if (of_property_read_u32(dn, "table-idx", &ufc_dom->table_idx))
 		return -EINVAL;
-	}
 
-	if (of_property_read_u32(dn, "pm_qos-max-class", &ufc_dom->pm_qos_max_class)) {
-		pr_err("Failed to get pm_qos-max-class for ufc\n");
+	if (of_property_read_u32(dn, "pm_qos-min-class", &ufc_dom->pm_qos_min_class))
 		return -EINVAL;
-	}
 
-	policy = cpufreq_cpu_get(cpumask_first(&shared_mask));
+	if (of_property_read_u32(dn, "pm_qos-max-class", &ufc_dom->pm_qos_max_class))
+		return -EINVAL;
+
+	policy = cpufreq_cpu_get(cpumask_first(&ufc_dom->cpus));
+	if (!policy)
+		return -EINVAL;
+
 	ufc_dom->min_freq = policy->min;
 	ufc_dom->max_freq = policy->max;
 
@@ -759,9 +725,7 @@ static int init_ufc_domain(struct device_node *dn)
 		struct cpufreq_frequency_table *pos;
 		int lit_row = 0;
 
-		little_policy = cpufreq_cpu_get(cpumask_first(&shared_mask));
-		if (!little_policy)
-			return -EINVAL;
+		little_policy = policy;
 
 		cpufreq_for_each_entry(pos, little_policy->freq_table) {
 			if (pos->frequency > little_policy->max)
@@ -798,64 +762,54 @@ static int init_ufc(struct device_node *dn)
 	return 0;
 }
 
-static int __init exynos_ufc_init(void)
+void __init exynos_ufc_init(void)
 {
-	struct device_node *dn = NULL;
-	struct ufc_table_info *table_info;
-	struct ufc_domain *ufc_dom;
-	int col_idx;
-	int ret = 0;
+	struct device_node *dn;
 
 	dn = of_find_node_by_type(dn, "cpufreq_ufc");
-	if (!dn)
-		return -EINVAL;
+	if (!dn) {
+		pr_err("exynos-ufc: Failed to find cpufreq_ufc node\n");
+		return;
+	}
 
-	ret = init_ufc(dn);
-	if (ret)
-		return ret;
+	if (init_ufc(dn)) {
+		pr_err("exynos-ufc: Failed to init init_ufc\n");
+		return;
+	}
 
 	while((dn = of_find_node_by_type(dn, "ufc_domain"))) {
-		ret = init_ufc_domain(dn);
-		if (ret)
-			goto ufc_dom_free;
+		if (init_ufc_domain(dn)) {
+			pr_err("exynos-ufc: Failed to init init_ufc_domain\n");
+			ufc_free_all();
+			return;
+		}
 	}
 
 	while((dn = of_find_node_by_type(dn, "ufc_table"))) {
-		ret = init_ufc_table(dn);
-		if (ret)
-			goto all_free;
+		if (init_ufc_table(dn)) {
+			pr_err("exynos-ufc: Failed to init init_ufc_table\n");
+			ufc_free_all();
+			return;
+		}
 	}
 
-	ret = ufc_init_sysfs();
-	if (ret)
-		goto all_free;
-
-	ret = ufc_init_pm_qos();
-	if (ret)
-		goto all_free;
-
-	ret = exynos_cpuhp_register("UFC", *cpu_online_mask, 0);
-	if (ret)
-		goto all_free;
-
-	return ret;
-
-all_free:
-	pr_err("Failed: can't initialize ufc table");
-
-	list_for_each_entry(table_info, &ufc.ufc_table_list, list) {
-		for (col_idx = 0; table_info->ufc_table[col_idx]; col_idx++)
-			kfree(table_info->ufc_table[col_idx]);
-		kfree(table_info->ufc_table);
-		kfree(table_info);
+	if (ufc_init_sysfs()){
+		pr_err("exynos-ufc: Failed to init sysfs\n");
+		ufc_free_all();
+		return;
 	}
 
-ufc_dom_free:
-	pr_err("Failed: can't initialize ufc domain");
+	if (ufc_init_pm_qos()) {
+		pr_err("exynos-ufc: Failed to init pm_qos\n");
+		ufc_free_all();
+		return;
+	}
 
-	list_for_each_entry(ufc_dom, &ufc.ufc_domain_list, list)
-		kfree(ufc_dom);
+	if (exynos_cpuhp_register("UFC", *cpu_online_mask, 0)) {
+		pr_err("exynos-ufc: Failed to register cpuhp\n");
+		ufc_free_all();
+		return;
+	}
 
-	return ret;
+	pr_info("exynos-ufc: Complete UFC driver initialization\n");
 }
-late_initcall(exynos_ufc_init);

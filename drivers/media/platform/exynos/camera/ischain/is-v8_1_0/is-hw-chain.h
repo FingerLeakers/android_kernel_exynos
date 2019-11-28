@@ -288,10 +288,10 @@ enum sysreg_vra_reg_field {
 /* RTA HEAP: 6MB */
 #define IS_RESERVE_LIB_SIZE	(0x00600000)
 
-/* ME/DRC DMA: 3768 kB = 3.67 MB */
-/* 40192 * 32 bytes per 1 3AA */
+/* ME/DRC DMA: 16384 kB = 16 MB */
+/* (4 * 256 * 256) * 32 bytes per 1 3AA */
 /* Max 2 3AAs can be used at the same time */
-#define TAAISP_MEDRC_SIZE	(0x00274000)
+#define TAAISP_MEDRC_SIZE	(0x01000000)
 
 /* ORBMCH DMA:  14.38 MB*/
 /* Keypoint: 16 byte * 300 point * 9 regions */
@@ -322,8 +322,11 @@ enum sysreg_vra_reg_field {
 /* VRA: 1kB */
 #define IS_VRA_SIZE			(0x00001000) /* FIXME: no need */
 
-/* DDK HEAP: 60MB */
-#define IS_HEAP_SIZE		(0x03C00000)
+/* DDK HEAP: 90MB */
+#define IS_HEAP_SIZE		(0x05A00000)
+
+/* SETFILE: 13MB */
+#define IS_SETFILE_SIZE		(0x00D00000)
 
 #define SYSREG_CSIS_BASE_ADDR	(0x17020000)
 #define SYSREG_IPP_BASE_ADDR	(0x17320000)
@@ -381,13 +384,14 @@ enum ext_chain_id {
 /* Specific interrupt map belonged to each IP */
 
 /* MC-Scaler */
-#define USE_DMA_BUFFER_INDEX	(0) /* 0 ~ 7 */
-#define MCSC_WIDTH_ALIGN	(4)
-#define MCSC_HEIGHT_ALIGN	(2)
-#define MCSC_PRECISION		(20)
-#define MCSC_POLY_RATIO_UP	(14)
-#define MCSC_POLY_RATIO_DOWN	(16)
-#define MCSC_POST_RATIO_DOWN	(16)
+#define USE_DMA_BUFFER_INDEX		(0) /* 0 ~ 7 */
+#define MCSC_WIDTH_ALIGN		(4)
+#define MCSC_HEIGHT_ALIGN		(2)
+#define MCSC_PRECISION			(20)
+#define MCSC_POLY_RATIO_UP		(14)
+#define MCSC_POLY_RATIO_DOWN		(16)
+#define MCSC_POLY_MAX_RATIO_DOWN	(256)
+#define MCSC_POST_RATIO_DOWN		(16)
 /* #define MCSC_POST_WA */
 /* #define MCSC_POST_WA_SHIFT	(8)*/	/* 256 = 2^8 */
 #define MCSC_USE_DEJAG_TUNING_PARAM	(true)

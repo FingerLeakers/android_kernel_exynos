@@ -55,9 +55,6 @@ flush_wait_done_frame:
 	if (frame) {
 		u32 frame_fcount = frame->fcount;
 
-		if (frame->num_buffers == 1)
-			frame_fcount += frame->cur_buf_index;
-
 		if (unlikely(frame_fcount < fcount)) {
 			/* Flush the old frame which is in HW_WAIT_DONE state & retry. */
 			mswarn_hw("queued_count(%d) [ddk:%d,hw:%d] invalid frame(F:%d,idx:%d)",
@@ -78,12 +75,12 @@ flush_config_frame:
 		framemgr_e_barrier_common(framemgr, 0, flags);
 		frame = peek_frame(framemgr, FS_HW_CONFIGURE);
 		if (frame) {
-			if (unlikely(frame->fcount + frame->cur_buf_index < hw_fcount)) {
+			if (unlikely(frame->fcount < hw_fcount)) {
 				trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
 				framemgr_x_barrier_common(framemgr, 0, flags);
 				is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
 				goto flush_config_frame;
-			} else if (unlikely(frame->fcount + frame->cur_buf_index == hw_fcount)) {
+			} else if (unlikely(frame->fcount == hw_fcount)) {
 				trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
 				framemgr_x_barrier_common(framemgr, 0, flags);
 				is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
@@ -357,9 +354,9 @@ static void is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 #if defined(ENABLE_FULLCHAIN_OVERFLOW_RECOVERY)
 		ret = is_hw_overflow_recovery();
 		if (ret < 0)
-			panic("OVERFLOW recovery fail!!!!");
+			is_debug_s2d(false, "OVERFLOW recovery fail!!!!");
 #elif defined(OVERFLOW_PANIC_ENABLE_ISCHAIN)
-		panic("CIN OVERFLOW!!");
+		is_debug_s2d(false, "CIN OVERFLOW!!");
 #endif
 		break;
 	default:
@@ -473,7 +470,6 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
 		break;
 	case LIB_EVENT_FRAME_END:
-	case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY:
 		index = hw_ip->debug_index[1];
 		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
 		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();
@@ -502,7 +498,7 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 		wake_up(&hw_ip->status.wait_queue);
 		break;
-	/* case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY: */ /* FIXME: This will be restored after fix DDK. */
+	case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY:
 		index = hw_ip->debug_index[1];
 		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
 		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();

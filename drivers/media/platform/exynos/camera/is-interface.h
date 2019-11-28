@@ -18,48 +18,9 @@
 #include "is-video.h"
 #include "is-time.h"
 #include "is-cmd.h"
-
-/*#define TRACE_WORK*/
-/* cam_ctrl : 1
-   shot :     2 */
-#define TRACE_WORK_ID_CAMCTRL	0x0000001
-#define TRACE_WORK_ID_GENERAL	0x0000002
-#define TRACE_WORK_ID_SHOT	0x0000004
-#define TRACE_WORK_ID_30C	0x0000010
-#define TRACE_WORK_ID_30P	0x0000011
-#define TRACE_WORK_ID_30F	0x0000012
-#define TRACE_WORK_ID_30G	0x0000013
-#define TRACE_WORK_ID_31C	0x0000020
-#define TRACE_WORK_ID_31P	0x0000021
-#define TRACE_WORK_ID_31F	0x0000022
-#define TRACE_WORK_ID_31G	0x0000023
-#define TRACE_WORK_ID_32C	0x0000040
-#define TRACE_WORK_ID_32P	0x0000041
-#define TRACE_WORK_ID_32F	0x0000042
-#define TRACE_WORK_ID_32G	0x0000043
-#define TRACE_WORK_ID_I0C	0x0000080
-#define TRACE_WORK_ID_I0P	0x0000081
-#define TRACE_WORK_ID_I0T	0x0000090
-#define TRACE_WORK_ID_I0G	0x0000091
-#define TRACE_WORK_ID_I0V	0x0000092
-#define TRACE_WORK_ID_I0W	0x0000093
-#define TRACE_WORK_ID_I1C	0x0000082
-#define TRACE_WORK_ID_I1P	0x0000083
-#define TRACE_WORK_ID_M0P	0x0000100
-#define TRACE_WORK_ID_M1P	0x0000101
-#define TRACE_WORK_ID_M2P	0x0000102
-#define TRACE_WORK_ID_M3P	0x0000103
-#define TRACE_WORK_ID_M4P	0x0000104
-#define TRACE_WORK_ID_M5P	0x0000105
-#define TRACE_WORK_ID_ME0C	0x0000200
-#define TRACE_WORK_ID_ME1C	0x0000201
-#define TRACE_WORK_ID_CL0C	0x0000400
-#define TRACE_WORK_ID_ORB0C	0x0001000
-#define TRACE_WORK_ID_ORB1C	0x0001001
-#define TRACE_WORK_ID_MASK	0xFFFFFFF
+#include "is-work.h"
 
 #define MAX_NBLOCKING_COUNT	3
-#define MAX_WORK_COUNT		10
 
 #define TRY_TIMEOUT_COUNT	2
 #define SENSOR_TIMEOUT_COUNT	2
@@ -74,42 +35,6 @@ enum is_interface_state {
 	IS_IF_STATE_START,
 	IS_IF_STATE_BUSY,
 	IS_IF_STATE_LOGGING
-};
-
-enum work_map {
-	WORK_SHOT_DONE,
-	WORK_30C_FDONE,
-	WORK_30P_FDONE,
-	WORK_30F_FDONE,
-	WORK_30G_FDONE,
-	WORK_31C_FDONE,
-	WORK_31P_FDONE,
-	WORK_31F_FDONE,
-	WORK_31G_FDONE,
-	WORK_32C_FDONE,
-	WORK_32P_FDONE,
-	WORK_32F_FDONE,
-	WORK_32G_FDONE,
-	WORK_ORB0C_FDONE,	/* ORB */
-	WORK_ORB1C_FDONE,	/* ORB */
-	WORK_I0C_FDONE,
-	WORK_I0P_FDONE,
-	WORK_I0T_FDONE,
-	WORK_I0G_FDONE,
-	WORK_I0V_FDONE,
-	WORK_I0W_FDONE,
-	WORK_I1C_FDONE,
-	WORK_I1P_FDONE,
-	WORK_ME0C_FDONE,	/* ME */
-	WORK_ME1C_FDONE,	/* ME */
-	WORK_M0P_FDONE,
-	WORK_M1P_FDONE,
-	WORK_M2P_FDONE,
-	WORK_M3P_FDONE,
-	WORK_M4P_FDONE,
-	WORK_M5P_FDONE,
-	WORK_CL0C_FDONE,	/* CLAHE */
-	WORK_MAX_MAP
 };
 
 enum streaming_state {
@@ -143,35 +68,6 @@ enum is_fw_boot {
 	FIRST_LAUNCHING,
 	WARM_BOOT,
 	COLD_BOOT,
-};
-
-struct is_msg {
-	u32	id;
-	u32	command;
-	u32	instance;
-	u32	group;
-	u32	param1;
-	u32	param2;
-	u32	param3;
-	u32	param4;
-};
-
-struct is_work {
-	struct list_head		list;
-	struct is_msg		msg;
-	u32				fcount;
-};
-
-struct is_work_list {
-	u32				id;
-	struct is_work		work[MAX_WORK_COUNT];
-	spinlock_t			slock_free;
-	spinlock_t			slock_request;
-	struct list_head		work_free_head;
-	u32				work_free_cnt;
-	struct list_head		work_request_head;
-	u32				work_request_cnt;
-	wait_queue_head_t		wait_queue;
 };
 
 struct is_interface {
@@ -247,10 +143,6 @@ void is_interface_reset(struct is_interface *this);
 void is_storefirm(struct is_interface *this);
 void is_restorefirm(struct is_interface *this);
 int is_set_fwboot(struct is_interface *this, int val);
-
-/*for debugging*/
-int print_fre_work_list(struct is_work_list *this);
-int print_req_work_list(struct is_work_list *this);
 
 int is_hw_logdump(struct is_interface *this);
 int is_hw_regdump(struct is_interface *this);

@@ -933,7 +933,7 @@ int DM_CALL(int dm_type, unsigned long *target_freq)
 	if (target_dm->cur_freq == *target_freq)
 		goto out;
 
-	if (list_empty(&target_dm->max_slaves) && list_empty(&target_dm->min_slaves)) {
+	if (list_empty(&target_dm->max_slaves) && list_empty(&target_dm->min_slaves) && target_dm->freq_scaler) {
 		update_new_target(target_dm->dm_type);
 		ret = target_dm->freq_scaler(target_dm->dm_type, target_dm->devdata, target_dm->next_target_freq, relation);
 		if (!ret)
@@ -954,7 +954,7 @@ int DM_CALL(int dm_type, unsigned long *target_freq)
 		}
 
 		// Perform frequency down scaling
-		if (dm->cur_freq > dm->next_target_freq) {
+		if (dm->cur_freq > dm->next_target_freq && dm->freq_scaler) {
 			dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
 			dm->cur_freq = dm->next_target_freq;
 		}
@@ -963,7 +963,7 @@ int DM_CALL(int dm_type, unsigned long *target_freq)
 	// Perform frequency up scaling
 	for (i = exynos_dm->constraint_domain_count - 1; i >= 0; i--) {
 		dm = &exynos_dm->dm_data[exynos_dm->domain_order[i]];
-		if (dm->cur_freq < dm->next_target_freq) {
+		if (dm->cur_freq < dm->next_target_freq && dm->freq_scaler) {
 			dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
 			dm->cur_freq = dm->next_target_freq;
 		}

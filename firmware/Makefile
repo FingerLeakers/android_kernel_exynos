@@ -19,6 +19,7 @@ fw-external-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += mfc/mfc_fw_flash.bin
 fw-external-$(CONFIG_WIRELESS_CHARGER_MFC_S2MIW04) += mfc/mfc_fw_flash_s2miw04.bin
 
 fw-external-$(CONFIG_KEYBOARD_STM_FSR) += key_stm/fsr1ad04_p2.fw 
+fw-external-$(CONFIG_NPU_PERF_FW) += npu_perf/NPU_perf.bin
 
 fw-shipped-$(CONFIG_FIVE_TEE_DRIVER) += five/ffffffff000000000000000000000072.tlbin
 
@@ -79,3 +80,6 @@ endif
 
 targets := $(patsubst $(obj)/%,%, \
                                 $(shell find $(obj) -name \*.gen.S 2>/dev/null))
+
+# SPU signature verify
+obj-y += spu_verify/

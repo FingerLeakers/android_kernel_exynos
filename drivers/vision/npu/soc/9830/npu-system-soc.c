@@ -56,10 +56,6 @@
 /* Initialzation steps for system_resume */
 enum npu_system_resume_soc_steps {
 	NPU_SYS_RESUME_SOC_CPU_ON,
-	NPU_SYS_RESUME_SOC_CLKGATE23,
-	NPU_SYS_RESUME_SOC_CLKGATE1,
-	NPU_SYS_RESUME_SOC_CLKGATE4,
-	NPU_SYS_RESUME_SOC_CLKGATE5,
 	NPU_SYS_RESUME_SOC_COMPLETED
 };
 
@@ -72,414 +68,7 @@ static int npu_cpu_off(struct npu_system *system);
 static int npu_memory_alloc_from_heap(struct platform_device *pdev, struct npu_memory_buffer *buffer, dma_addr_t daddr, const char *heapname);
 static void npu_memory_free_from_heap(struct npu_memory_buffer *buffer);
 #ifdef CONFIG_NPU_HARDWARE
-#ifdef REINIT_NPU_BAAW
-static int init_baaw_p_npu(struct npu_system *system);
-#endif
 static int init_iomem_area(struct npu_system *system);
-#endif
-#ifdef CLKGate23_SOC_HWACG
-static __attribute__((unused)) int CLKGate23_SOC_HWACG_read(struct npu_system *system)
-{
-	size_t i = 0;
-
-	void __iomem *reg_addr;
-	volatile u32 v;
-	struct npu_iomem_area *base;
-	u32 offset;
-
-	const struct reg_set_map_2 CLKGate23_HWACG_regs[] = {
-		{&system->sfr_npu[0],	0x800,	0x00,	0x20000000},    /* NPU0_CMU_NPU0_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],	0x800,	0x00,	0x20000000},    /* NPU1_CMU_NPU1_CONTROLLER_OPTION */
-		{&system->sfr_npu[0],	0x30c0,	0x06,	0x07},  	/* NPU0_CPU_CONFIGURATION */
-		{&system->sfr_npu[1],	0x307c,	0x06,	0x07},  	/* NPU0_CPU_OUT */
-	};
-
-	for (i = 0; i < ARRAY_SIZE(CLKGate23_HWACG_regs); i++) {
-		offset = CLKGate23_HWACG_regs[i].offset;
-		base = CLKGate23_HWACG_regs[i].iomem_area;
-		reg_addr = base->vaddr + offset;
-		npu_info("v, reg_addr(0x%pK)\n", reg_addr);
-
-		v = readl(reg_addr) & 0xffffffff;
-		npu_info("read cpu_on_regs, v(0x%x)\n", v);
-	}
-
-	return 0;
-}
-
-#ifdef CLKGate23_SOC_HWACG
-static int CLKGate23_SOC_HWACG_qch_disable(struct npu_system *system)
-{
-	int ret = 0;
-
-	void __iomem *reg_addr;
-	volatile u32 v;
-	struct npu_iomem_area *base;
-	u32 offset;
-	u32 mask;
-	u32 val;
-	size_t i = 0;
-
-	const struct reg_set_map_2 CLKGate23_HWACG_regs[] = {
-		{&system->sfr_dnc,	0x3000,	0x06,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-		{&system->sfr_npu[0],	0x3004,	0x06,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-		{&system->sfr_npu[1],	0x3004,	0x06,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-	};
-
-	for (i = 0; i < ARRAY_SIZE(CLKGate23_HWACG_regs); i++) {
-		base = CLKGate23_HWACG_regs[i].iomem_area;
-		offset = CLKGate23_HWACG_regs[i].offset;
-		val = CLKGate23_HWACG_regs[i].val;
-		mask = CLKGate23_HWACG_regs[i].mask;
-
-		reg_addr = base->vaddr + offset;
-		npu_dbg("qch_on, v, reg_addr(0x%pK)\n", reg_addr);
-
-		v = readl(reg_addr) & 0xffffffff;
-		npu_dbg("qch_on,  read cpu_on_regs, v(0x%x)\n", v);
-
-		v = (v & (~mask)) | (val & mask);
-		writel(v, (void *)(reg_addr));
-		npu_dbg("written on, (0x%08x) at (%pK)\n", v, reg_addr);
-	}
-
-	return ret;
-}
-#endif
-
-static int CLKGate23_SOC_HWACG_qch_enable(struct npu_system *system)
-{
-	int ret = 0;
-
-	void __iomem *reg_addr;
-	volatile u32 v;
-	struct npu_iomem_area *base;
-	u32 offset;
-	u32 mask;
-	u32 val;
-	size_t i = 0;
-
-	const struct reg_set_map_2 CLKGate23_HWACG_regs[] = {
-		{&system->sfr_dnc,	0x3000,	0x02,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-		{&system->sfr_npu[0],	0x3004,	0x02,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-		{&system->sfr_npu[1],	0x3004,	0x02,	0x07},//DMYQCH_CON_ADM_DAP_DNC_QCH
-
-	};
-
-	for (i = 0; i < ARRAY_SIZE(CLKGate23_HWACG_regs); i++) {
-		base = CLKGate23_HWACG_regs[i].iomem_area;
-		offset = CLKGate23_HWACG_regs[i].offset;
-		val = CLKGate23_HWACG_regs[i].val;
-		mask = CLKGate23_HWACG_regs[i].mask;
-
-		reg_addr = base->vaddr + offset;
-		npu_dbg("qch clk off, reg_addr(0x%pK)\n", reg_addr);
-
-		v = readl(reg_addr) & 0xffffffff;
-		npu_dbg("qch clk off, read cpu_on_regs, val(0x%x)\n", v);
-
-		v = (v & (~mask)) | (val & mask);
-		writel(v, (void *)(reg_addr));
-		npu_dbg("written off (0x%08x) at (%pK)\n", v, reg_addr);
-	}
-
-	return ret;
-}
-#endif
-
-#ifdef CLKGate1_DRCG_EN
-static int CLKGate1_DRCG_EN_read(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate1_DRCG_EN_read\n");
-	npu_get_sfr(0x17910104);
-	npu_get_sfr(0x17910404);
-	npu_get_sfr(0x17A10104);
-	return ret;
-}
-
-static int CLKGate1_DRCG_EN_write_disable(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate1_DRCG_EN_write_disable\n");
-
-        set_sfr(0x19420104, 0x00, 0xffffffff);//BUS_COMPONENT_DRCG_EN
-        set_sfr(0x17E20104, 0x00, 0xffffffff);//BUS_COMPONENT_DRCG_EN for NPU0
-        set_sfr(0x17F20104, 0x00, 0xffffffff);//BUS_COMPONENT_DRCG_EN for NPU1
-
-        set_sfr(0x17E20400, 0x00, 0xffffffff);//BUS_COMPONENT_DRCG_EN_2
-        set_sfr(0x17F20400, 0x00, 0xffffffff);//BUS_COMPONENT_DRCG_EN_2
-
-	return ret;
-}
-#endif
-
-#ifdef CLKGate4_IP_HWACG
-static __attribute__((unused)) int CLKGate4_IP_HWACG_read(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate4_IP_HWACG_read\n");
-	npu_get_sfr(0x179f45ec);
-	npu_get_sfr(0x179f45f0);
-	npu_get_sfr(0x17af45ec);
-	npu_get_sfr(0x17af45f0);
-	npu_get_sfr(0x179f4dec);
-	npu_get_sfr(0x179f4df0);
-	npu_get_sfr(0x17af4dec);
-	npu_get_sfr(0x17af4df0);
-	npu_get_sfr(0x179f40ec);
-	npu_get_sfr(0x179f40f0);
-	npu_get_sfr(0x17af40ec);
-	npu_get_sfr(0x17af40f0);
-	npu_get_sfr(0x179f48ec);
-	npu_get_sfr(0x179f48f0);
-	npu_get_sfr(0x17af48ec);
-	npu_get_sfr(0x17af48f0);
-	npu_get_sfr(0x179f58ec);
-	npu_get_sfr(0x179f58f0);
-	npu_get_sfr(0x17af58ec);
-	npu_get_sfr(0x17af58f0);
-	npu_get_sfr(0x179f5cec);
-	npu_get_sfr(0x179f5cf0);
-	npu_get_sfr(0x17af5cec);
-	npu_get_sfr(0x17af5cf0);
-	npu_get_sfr(0x179fc0ec);
-	npu_get_sfr(0x179fc0f0);
-	npu_get_sfr(0x17afc0ec);
-	npu_get_sfr(0x17afc0f0);
-	npu_get_sfr(0x179f50ec);
-	npu_get_sfr(0x179f50f0);
-	npu_get_sfr(0x17af50ec);
-	npu_get_sfr(0x17af50f0);
-	npu_get_sfr(0x179f54ec);
-	npu_get_sfr(0x179f54f0);
-	npu_get_sfr(0x17af54ec);
-	npu_get_sfr(0x17af54f0);
-	return ret;
-}
-
-static __attribute__((unused)) int CLKGate4_IP_HWACG_write_disable(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate4_IP_HWACG_write_disable\n");
-	npu_set_sfr(0x179f45ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f45f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af45ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af45f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f4dec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f4df0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af4dec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af4df0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f40ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f40f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af40ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af40f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f48ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f48f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af48ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af48f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f58ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f58f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af58ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af58f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f5cec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f5cf0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af5cec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af5cf0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179fc0ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179fc0f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17afc0ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17afc0f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f50ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f50f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af50ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af50f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f54ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f54f0, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af54ec, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af54f0, 0x00, 0xffffffff);
-	return ret;
-}
-
-#ifdef CLKGate4_IP_HWACG
-static int CLKGate4_IP_HWACG_qch_disable(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate4_IP_HWACG_qch_disable\n");
-	npu_set_sfr(0x179f45ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f45f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af45ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af45f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f4dec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f4df0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af4dec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af4df0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f40ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f40f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af40ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af40f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f48ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f48f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af48ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af48f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f58ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f58f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af58ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af58f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f5cec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f5cf0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af5cec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af5cf0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179fc0ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179fc0f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17afc0ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17afc0f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f50ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f50f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af50ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af50f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x179f54ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x179f54f0, 0x200000, 0xffffffff);
-	npu_set_sfr(0x17af54ec, 0x3f0002, 0xffffffff);
-	npu_set_sfr(0x17af54f0, 0x200000, 0xffffffff);
-	return ret;
-}
-#endif
-
-static int CLKGate4_IP_HWACG_qch_enable(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate4_IP_HWACG_qch_enable\n");
-	npu_set_sfr(0x179f45ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f45f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af45ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af45f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f4dec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f4df0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af4dec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af4df0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f40ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f40f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af40ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af40f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f48ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f48f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af48ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af48f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f58ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f58f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af58ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af58f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f5cec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f5cf0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af5cec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af5cf0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179fc0ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179fc0f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17afc0ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17afc0f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f50ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f50f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af50ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af50f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x179f54ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x179f54f0, 0x10000000, 0xffffffff);
-	npu_set_sfr(0x17af54ec, 0x3f0003, 0xffffffff);
-	npu_set_sfr(0x17af54f0, 0x10000000, 0xffffffff);
-	return ret;
-}
-#endif
-
-#ifdef CLKGate5_IP_DRCG_EN
-static int CLKGate5_IP_DRCG_EN_read(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate5_IP_DRCG_EN_read\n");
-	npu_get_sfr(0x179f45fc);
-	npu_get_sfr(0x17af45fc);
-	npu_get_sfr(0x179f4dfc);
-	npu_get_sfr(0x17af4dfc);
-	npu_get_sfr(0x179f40fc);
-	npu_get_sfr(0x17af40fc);
-	npu_get_sfr(0x179f48fc);
-	npu_get_sfr(0x17af48fc);
-	npu_get_sfr(0x179f58fc);
-	npu_get_sfr(0x17af58fc);
-	npu_get_sfr(0x179f5cfc);
-	npu_get_sfr(0x17af5cfc);
-	npu_get_sfr(0x179fc0fc);
-	npu_get_sfr(0x17afc0fc);
-	npu_get_sfr(0x179f50fc);
-	npu_get_sfr(0x17af50fc);
-	npu_get_sfr(0x179f54fc);
-	npu_get_sfr(0x17af54fc);
-	npu_get_sfr(0x179f80fc);
-	npu_get_sfr(0x17af80fc);
-	npu_get_sfr(0x179f84fc);
-	npu_get_sfr(0x17af84fc);
-	npu_get_sfr(0x179f88fc);
-	npu_get_sfr(0x17af88fc);
-	npu_get_sfr(0x179f8cfc);
-	npu_get_sfr(0x17af8cfc);
-	npu_get_sfr(0x179f90fc);
-	npu_get_sfr(0x17af90fc);
-	npu_get_sfr(0x179f94fc);
-	npu_get_sfr(0x17af94fc);
-	npu_get_sfr(0x179f98fc);
-	npu_get_sfr(0x17af98fc);
-	npu_get_sfr(0x179f9cfc);
-	npu_get_sfr(0x17af9cfc);
-	return ret;
-}
-
-static int CLKGate5_IP_DRCG_EN_write_disable(void)
-{
-	int ret = 0;
-
-	npu_info("start CLKGate5_IP_DRCG_EN_write_disable\n");
-	npu_set_sfr(0x179f45fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af45fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f4dfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af4dfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f40fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af40fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f48fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af48fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f58fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af58fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f5cfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af5cfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179fc0fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17afc0fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f50fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af50fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f54fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af54fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f80fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af80fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f84fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af84fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f88fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af88fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f8cfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af8cfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f90fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af90fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f94fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af94fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f98fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af98fc, 0x00, 0xffffffff);
-	npu_set_sfr(0x179f9cfc, 0x00, 0xffffffff);
-	npu_set_sfr(0x17af9cfc, 0x00, 0xffffffff);
-	return ret;
-}
 #endif
 
 int npu_system_soc_probe(struct npu_system *system, struct platform_device *pdev)
@@ -495,15 +84,6 @@ int npu_system_soc_probe(struct npu_system *system, struct platform_device *pdev
 		goto p_err;
 	}
 
-	npu_dbg("system probe: Set BAAW for SRAM area\n");
-#ifdef REINIT_NPU_BAAW
-	ret = init_baaw_p_npu(system);
-	ret = 0;
-	if (ret) {
-		probe_err("fail(%d)in init_baaw_p_npu\n", ret);
-		goto p_err;
-	}
-#endif
 	return 0;
 p_err:
 #elif defined(CONFIG_NPU_LOOPBACK)
@@ -554,9 +134,6 @@ static void print_all_iomem_area(const struct npu_system *system)
 	}
 	print_iomem_area("PMU_NPU", &system->pmu_npu);
 	print_iomem_area("PMU_NCPU", &system->pmu_npu_cpu);
-#ifdef REINIT_NPU_BAAW
-	print_iomem_area("NPU_BAAW", &system->baaw_npu);
-#endif
 	print_iomem_area("MBOX_SFR", &system->mbox_sfr);
 	print_iomem_area("PWM_NPU", &system->pwm_npu);
 #endif
@@ -592,29 +169,6 @@ int npu_system_soc_resume(struct npu_system *system, u32 mode)
 	}
 	set_bit(NPU_SYS_RESUME_SOC_CPU_ON, &system->resume_soc_steps);
 
-#ifdef CLKGate23_SOC_HWACG
-	CLKGate23_SOC_HWACG_qch_disable(system);
-	set_bit(NPU_SYS_RESUME_SOC_CLKGATE23, &system->resume_soc_steps);
-#endif
-
-#ifdef CLKGate1_DRCG_EN
-	CLKGate1_DRCG_EN_write_disable();
-	set_bit(NPU_SYS_RESUME_SOC_CLKGATE1, &system->resume_soc_steps);
-#else
-	npu_info("CLKGate1_DRCG_EN_write_enable\n");
-#endif
-
-#ifdef CLKGate4_IP_HWACG
-	CLKGate4_IP_HWACG_qch_disable();
-	set_bit(NPU_SYS_RESUME_SOC_CLKGATE4, &system->resume_soc_steps);
-#endif
-
-#ifdef CLKGate5_IP_DRCG_EN
-	CLKGate5_IP_DRCG_EN_write_disable();
-	set_bit(NPU_SYS_RESUME_SOC_CLKGATE5, &system->resume_soc_steps);
-#else
-	npu_info("CLKGate5_IP_DRCG_EN_write_enable\n");
-#endif
 	set_bit(NPU_SYS_RESUME_SOC_COMPLETED, &system->resume_soc_steps);
 
 	return ret;
@@ -633,29 +187,6 @@ int npu_system_soc_suspend(struct npu_system *system)
 
 	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_COMPLETED, &system->resume_soc_steps, NULL, ;);
 
-#ifdef CLKGate23_SOC_HWACG
-	BIT_CHECK_AND_EXECUTE(
-		NPU_SYS_RESUME_SOC_CLKGATE23,
-		&system->resume_soc_steps,
-		"CLKGate23_SOC_HWACG_qch_enable", {
-		CLKGate23_SOC_HWACG_qch_enable(system);
-	});
-#endif
-
-#ifdef CLKGate1_DRCG_EN
-	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_CLKGATE1, &system->resume_soc_steps, NULL, ;);
-#endif
-
-#ifdef CLKGate4_IP_HWACG
-	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_CLKGATE4, &system->resume_soc_steps, "CLKGate4_IP_HWACG_qch_enable", {
-		CLKGate4_IP_HWACG_qch_enable();
-	});
-#endif
-
-#ifdef CLKGate5_IP_DRCG_EN
-	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_CLKGATE5, &system->resume_soc_steps, NULL, ;);
-#endif
-
 	BIT_CHECK_AND_EXECUTE(NPU_SYS_RESUME_SOC_CPU_ON, &system->resume_soc_steps, "Turn NPU cpu off", {
 		ret = npu_cpu_off(system);
 		if (ret)
@@ -669,145 +200,81 @@ int npu_system_soc_suspend(struct npu_system *system)
 	return ret;
 }
 
-#ifdef REINIT_NPU_BAAW
-
-/* Register initialization for BAAW_P_NPU */
-const u32 BAAW_P_NPU_BASE = 0x1A350000;
-const u32 BAAW_P_NPU_LEN = 0x60;
-
-static int init_baaw_p_npu(struct npu_system *system)
+int npu_hwacg(struct npu_system *system, bool on)
 {
-	int ret;
+	int ret = 0;
+	struct reg_set_map_2 *set_map;
+	size_t map_len;
 
-	const static struct reg_set_map baaw_init[] = {
-		{0x00, 0x017B00, 0xFFFFFF},
-		{0x04, 0x017B40, 0xFFFFFF},
-		{0x08, 0x010000, 0xFFFFFF},
-		{0x0C, 0x80000003, 0x80000003},
-		{0x10, 0x017B40, 0xFFFFFF},
-		{0x14, 0x017B80, 0xFFFFFF},
-		{0x18, 0x010100, 0xFFFFFF},
-		{0x1C, 0x80000003, 0x80000003},
-		{0x20, 0x017B80, 0xFFFFFF},
-		{0x24, 0x017BC0, 0xFFFFFF},
-		{0x28, 0x010200, 0xFFFFFF},
-		{0x2C, 0x80000003, 0x80000003},
-		{0x30, 0x017BC0, 0xFFFFFF},
-		{0x34, 0x017C00, 0xFFFFFF},
-		{0x38, 0x010300, 0xFFFFFF},
-		{0x3C, 0x80000003, 0x80000003},
-		{0x40, 0x017800, 0xFFFFFF},
-		{0x44, 0x017A00, 0xFFFFFF},
-		{0x48, 0x000400, 0xFFFFFF},
-		{0x4C, 0x80000003, 0x80000003},
-		{0x50, 0x017A00, 0xFFFFFF},
-		{0x54, 0x017A80, 0xFFFFFF},
-		{0x58, 0x000000, 0xFFFFFF},
-		{0x5C, 0x80000003, 0x80000003},
-	};
+	const struct reg_set_map_2 hwacg_on_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x800,  0x0,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x0,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#else
+		//{&system->sfr_npu[0],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[0],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-	BUG_ON(!system);
-	BUG_ON(!system->pdev);
+		//{&system->sfr_npu[1],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[1],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[1],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-	npu_info("start in BAAW initialization\n");
+		{&system->sfr_npu[2],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-	npu_dbg("update in BAAW initialization\n");
-	ret = npu_set_hw_reg(&system->baaw_npu, baaw_init, ARRAY_SIZE(baaw_init), 0);
-	if (ret) {
-		npu_err("fail(%) in npu_set_hw_reg(baaw_init)\n", ret);
-		goto err_exit;
-	}
-	npu_info("complete in BAAW initialization\n");
-	return 0;
-
-err_exit:
-	npu_info("error(%d) in BAAW initialization\n", ret);
-	return ret;
-}
+		{&system->sfr_npu[3],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 #endif
+	};
+	const struct reg_set_map_2 hwacg_off_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x800,  0x31000000,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x31000000,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#else
+		//{&system->sfr_npu[0],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[0],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-static __attribute__((unused)) int npu_awwl_checker_en(struct npu_system *system)
-{
-	int ret;
-	const struct reg_set_map awwl_checker_en[] = {
-		/* NPU0 */
-		{0x10424, 0x02, 0x02},	/* CM7_ETC */
+		//{&system->sfr_npu[1],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[1],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[1],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[2],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[3],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+#endif
 	};
 
-	BUG_ON(!system);
-	BUG_ON(!system->pdev);
-
-	npu_info("start in npu_awwl_checker_en\n");
-
-	npu_dbg("set SFR in npu_awwl_checker_en\n");
-	ret = npu_set_hw_reg(&system->sfr_npu[0], awwl_checker_en, ARRAY_SIZE(awwl_checker_en), 0);
-	if (ret) {
-		npu_err("fail(%d) in npu_set_hw_reg(awwl_checker_en)\n", ret);
-		goto err_exit;
+	if (on) {
+		set_map = (struct reg_set_map_2 *)hwacg_on_regs;
+		map_len = ARRAY_SIZE(hwacg_on_regs);
+	} else  {
+		set_map = (struct reg_set_map_2 *)hwacg_off_regs;
+		map_len = ARRAY_SIZE(hwacg_off_regs);
 	}
-	npu_info("complete in npu_awwl_checker_en\n");
-	return 0;
 
-err_exit:
-	npu_info("error(%d) in npu_awwl_checker_en\n", ret);
+	npu_info("hwacg %s\n", on ? "on" : "off");
+	ret = npu_set_hw_reg_2(set_map, map_len, 0);
+	if (ret)
+		npu_err("Failed to write registers on npu_hwacg %s array (%d)\n",
+				on ? "on" : "off", ret);
+
 	return ret;
 }
-
-static __attribute__((unused)) int npu_clk_init(struct npu_system *system)
-{
-	int ret;
-	const struct reg_set_map clk_on_npu0[] = {
-		/* NPU0 */
-		{0x1804, 0x00, 0xFFFFFFFF},	/* CLK_CON_DIV_DIV_CLK_NPU0_CPU */
-		{0x1800, 0x03, 0xFFFFFFFF},	/* CLK_CON_DIV_DIV_CLK_NPU0_BUSP */
-		{0x0120, 0x10, 0xFFFFFFFF},	/* PLL_CON0_MUX_CLKCMU_NPU0_CPU_USER */
-		{0x0100, 0x10, 0xFFFFFFFF},	/* PLL_CON0_MUX_CLKCMU_NPU0_BUS_USER */
-	};
-	const struct reg_set_map clk_on_npu1[] = {
-		{0x1800, 0x01, 0xFFFFFFFF},	/* CLK_CON_DIV_DIV_CLK_NPU1_BUSP */
-		{0x0100, 0x10, 0xFFFFFFFF},	/* PLL_CON0_MUX_CLKCMU_NPU1_BUS_USER */
-	};
-
-	BUG_ON(!system);
-	BUG_ON(!system->pdev);
-
-	npu_info("start in npu_clk_init\n");
-
-	npu_dbg("initialize clock NPU0 in npu_clk_init\n");
-	ret = npu_set_hw_reg(&system->sfr_npu[0], clk_on_npu0, ARRAY_SIZE(clk_on_npu0), 0);
-	if (ret) {
-		npu_err("fail(%d) in npu_set_hw_reg(clk_on_npu0)\n", ret);
-		goto err_exit;
-	}
-
-	npu_dbg("Initialize clock NPU1 in npu_clk_init\n");
-	ret = npu_set_hw_reg(&system->sfr_npu[1], clk_on_npu1, ARRAY_SIZE(clk_on_npu1), 0);
-	if (ret) {
-		npu_err("fail(%d) in npu_set_hw_reg(clk_on_npu1)\n", ret);
-		goto err_exit;
-	}
-	npu_info("complete in npu_clk_init\n");
-	return 0;
-
-err_exit:
-	npu_info("error(%d) in npu_clk_init\n", ret);
-	return ret;
-}
-
-
 
 static int npu_cpu_on(struct npu_system *system)
 {
 	int ret = 0;
-#ifdef CONFIG_NPU_USE_MBR
-	npu_info("use Master Boot Record\n");
-	npu_info("ask to jump to  0x%x\n", (u32)system->fw_npu_memory_buffer->daddr);
-	ret = dsp_npu_release(true, system->fw_npu_memory_buffer->daddr);
-	if (ret) {
-		npu_err("Failed to release CPU_SS : %d\n", ret);
-                goto err_exit;
-	}
-#else
 	const struct reg_set_map_2 cpu_on_regs[] = {
 		/* NPU0_CM7_CFG1, SysTick Callibration, use external OSC, 26MHz */
 		/* 9830: Many of these registers are valid, but are giving exceptions
@@ -816,8 +283,28 @@ static int npu_cpu_on(struct npu_system *system)
 		//{&system->sfr_npu[0],	0x1040c,	0x3f79f,	0xffffffff},
 
 #ifdef FORCE_HWACG_DISABLE
-		{&system->sfr_npu[0],	0x800,	0x00,	0x10000000},	/* NPU0_CMU_NPU0_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],	0x800,	0x00,	0x10000000},	/* NPU1_CMU_NPU1_CONTROLLER_OPTION */
+		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x800,  0x0,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x0,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#else
+		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[0],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		//{&system->sfr_npu[1],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[1],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[1],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[2],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[3],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 #endif
 		//{&system->pmu_npu_cpu,	0x00,	0x01,	0x01},	/* NPU0_CPU_CONFIGURATION */
 #ifdef FORCE_WDT_DISABLE
@@ -827,6 +314,15 @@ static int npu_cpu_on(struct npu_system *system)
 #endif
 	};
 
+#ifdef CONFIG_NPU_USE_MBR
+	npu_info("use Master Boot Record\n");
+	npu_info("ask to jump to  0x%x\n", (u32)system->fw_npu_memory_buffer->daddr);
+	ret = dsp_npu_release(true, system->fw_npu_memory_buffer->daddr);
+	if (ret) {
+		npu_err("Failed to release CPU_SS : %d\n", ret);
+                goto err_exit;
+	}
+#else
 	npu_info("exynos_smc: setting DSP_CPU_INITVTOR(0x%x) with (0x%x).\n", DSP_CPU_INITVTOR, (u32)system->fw_npu_memory_buffer->daddr);
         ret = exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(DSP_CPU_INITVTOR),  system->fw_npu_memory_buffer->daddr, 0x0);
         if (ret) {
@@ -846,6 +342,7 @@ static int npu_cpu_on(struct npu_system *system)
                 npu_err("Failed to write register SMC_REG_ID_SFR_W using exynos_smc(%d)\n", ret);
                 goto err_exit;
         }
+#endif
 
 	npu_info("start in npu_cpu_on\n");
 	ret = npu_set_hw_reg_2(cpu_on_regs, ARRAY_SIZE(cpu_on_regs), 0);
@@ -853,7 +350,6 @@ static int npu_cpu_on(struct npu_system *system)
 		npu_err("Failed to write registers on cpu_on_regs array (%d)\n", ret);
 		goto err_exit;
 	}
-#endif
 
 	npu_info("complete in npu_cpu_on\n");
 	return 0;
@@ -862,25 +358,90 @@ err_exit:
 	return ret;
 }
 
+int npu_soc_core_on(struct npu_system *system, int core)
+{
+	int ret = 0;
+	const struct reg_set_map_2 core0_on_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+#endif
+	};
+	const struct reg_set_map_2 core1_on_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[2],   0x800,  0x0,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x0,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#endif
+	};
+	const struct reg_set_map_2 *core_on_regs[] = {
+		core0_on_regs,
+		core1_on_regs
+	};
+	const int core_on_regs_len[] = {
+		ARRAY_SIZE(core0_on_regs),
+		ARRAY_SIZE(core1_on_regs)
+	};
+
+	BUG_ON(!system);
+
+	npu_info("start %s for core %d (%d)\n", __func__, core, core_on_regs_len[core]);
+	ret = npu_set_hw_reg_2(core_on_regs[core], core_on_regs_len[core], 0);
+	if (ret) {
+		npu_err("Failed to write registers on core_on_regs array (%d)\n", ret);
+		goto err_exit;
+	}
+
+	npu_info("complete %s for core %d\n", __func__, core);
+	return 0;
+err_exit:
+	npu_info("error(%d) in %s\n", ret, __func__);
+	return ret;
+}
+
 static int npu_cpu_off(struct npu_system *system)
 {
 	int ret;
+	const struct reg_set_map_2 cpu_off_regs[] = {
+		/* 9830: These registers are valid, but are giving exceptions
+			; hence commented; may be needed later
+		*/
+		//{&system->pmu_npu_cpu,	0x00,	0x00,	0x01},	/* NPU0_CPU_CONFIGURATION */
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x800,  0x31000000,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x31000000,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#else
+		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[0],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[0],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		//{&system->sfr_npu[1],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		//{&system->sfr_npu[1],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		//{&system->sfr_npu[1],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[2],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+
+		{&system->sfr_npu[3],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+#endif
+	};
+
+	BUG_ON(!system);
+	BUG_ON(!system->pdev);
+
 #ifdef CONFIG_NPU_USE_MBR
 	ret = dsp_npu_release(false, 0);
 	if (ret) {
 		npu_err("Failed to release CPU_SS : %d\n", ret);
                 goto err_exit;
 	}
-#else
-	const static struct reg_set_map_2 cpu_off_regs[] = {
-		/* 9830: These registers are valid, but are giving exceptions
-			; hence commented; may be needed later
-		*/
-		//{&system->pmu_npu_cpu,	0x00,	0x00,	0x01},	/* NPU0_CPU_CONFIGURATION */
-	};
-
-	BUG_ON(!system);
-	BUG_ON(!system->pdev);
+#endif
 
 	npu_info("start in npu_cpu_off\n");
 	ret = npu_set_hw_reg_2(cpu_off_regs, ARRAY_SIZE(cpu_off_regs), 0);
@@ -888,11 +449,49 @@ static int npu_cpu_off(struct npu_system *system)
 		npu_err("fail(%d) in npu_set_hw_reg(cpu_off_regs)\n", ret);
 		goto err_exit;
 	}
-#endif
 	npu_info("complete in npu_cpu_off\n");
 	return 0;
 err_exit:
 	npu_info("error(%d) in npu_cpu_off\n", ret);
+	return ret;
+}
+
+int npu_soc_core_off(struct npu_system *system, int core)
+{
+	int ret;
+	const struct reg_set_map_2 core0_off_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+#endif
+	};
+	const struct reg_set_map_2 core1_off_regs[] = {
+#ifdef FORCE_HWACG_DISABLE
+		{&system->sfr_npu[2],   0x800,  0x31000000,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x800,  0x31000000,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+#endif
+	};
+	const struct reg_set_map_2 *core_off_regs[] = {
+		core0_off_regs,
+		core1_off_regs
+	};
+	const int core_off_regs_len[] = {
+		ARRAY_SIZE(core0_off_regs),
+		ARRAY_SIZE(core1_off_regs)
+	};
+
+	BUG_ON(!system);
+
+	npu_info("start %s for core %d (%d)\n", __func__, core, core_off_regs_len[core]);
+	ret = npu_set_hw_reg_2(core_off_regs[core], core_off_regs_len[core], 0);
+	if (ret) {
+		npu_err("Failed to write registers on core_off_regs array (%d)\n", ret);
+		goto err_exit;
+	}
+	npu_info("complete %s for core %d\n", __func__, core);
+	return 0;
+err_exit:
+	npu_info("error(%d) in %s\n", ret, __func__);
 	return ret;
 }
 
@@ -974,6 +573,13 @@ static inline void set_mailbox_channel(struct npu_system *system, int ch)
 	system->mbox_sfr.size = system->sfr_mbox[ch].size;
 }
 
+static inline void set_max_npu_core(struct npu_system *system, u32 num)
+{
+	BUG_ON(num < 0);
+	probe_info("Max number of npu core : %d\n", num);
+	system->max_npu_core = num;
+}
+
 static inline int get_iomem_data_index(const struct npu_iomem_init_data data[], const char* name)
 {
 	int i;
@@ -1008,9 +614,6 @@ static int init_iomem_area(struct npu_system *system)
 		{NULL,		"SFR_NPU3",	(void*)&system->sfr_npu[3]},
 		{NULL,		"PMU",		(void*)&system->pmu_npu},
 		{NULL,		"PMUCPU",	(void*)&system->pmu_npu_cpu},
-#ifdef REINIT_NPU_BAAW
-		{NULL,		"BAAW",		(void*)&system->baaw_npu},
-#endif
 		{NULL,		"MAILBOX0",	(void*)&system->sfr_mbox[0]},
 		{NULL,		"MAILBOX1",	(void*)&system->sfr_mbox[1]},
 		{NULL,		"PWM",		(void*)&system->pwm_npu},
@@ -1120,6 +723,8 @@ static int init_iomem_area(struct npu_system *system)
 	}
 
 	set_mailbox_channel(system, 0);
+
+	set_max_npu_core(system, 2);
 
 	probe_trace("complete in init_iomem_area\n");
 	return 0;

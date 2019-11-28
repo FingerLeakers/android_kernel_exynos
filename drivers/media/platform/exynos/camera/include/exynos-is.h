@@ -16,6 +16,8 @@
 #include <linux/clk-provider.h>
 #include "is-hw-dvfs.h"
 
+#define MHZ (1000 * 1000)
+
 extern int debug_clk;
 
 struct is_clk {

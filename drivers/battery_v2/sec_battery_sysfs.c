@@ -11,6 +11,7 @@
  */
 #include "include/sec_battery.h"
 #include "include/sec_battery_sysfs.h"
+#include "include/sec_charging_common.h"
 
 #include <linux/sec_ext.h>
 #include <linux/sec_debug.h>
@@ -119,7 +120,6 @@ static struct device_attribute sec_battery_attrs[] = {
 #endif
 	SEC_BATTERY_ATTR(batt_wpc_temp),
 	SEC_BATTERY_ATTR(batt_wpc_temp_adc),
-	SEC_BATTERY_ATTR(mst_switch_test), /* MFC MST switch test */
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	SEC_BATTERY_ATTR(batt_wireless_firmware_update),
 	SEC_BATTERY_ATTR(otp_firmware_result),
@@ -154,6 +154,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_tune_float_voltage),
 	SEC_BATTERY_ATTR(batt_tune_input_charge_current),
 	SEC_BATTERY_ATTR(batt_tune_fast_charge_current),
+	SEC_BATTERY_ATTR(batt_tune_wireless_vout_current),
 	SEC_BATTERY_ATTR(batt_tune_ui_term_cur_1st),
 	SEC_BATTERY_ATTR(batt_tune_ui_term_cur_2nd),
 	SEC_BATTERY_ATTR(batt_tune_temp_high_normal),
@@ -226,6 +227,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(direct_charging_step),
 	SEC_BATTERY_ATTR(direct_charging_iin),
 	SEC_BATTERY_ATTR(direct_charging_chg_status),
+	SEC_BATTERY_ATTR(switch_charging_source),
 #endif
 	SEC_BATTERY_ATTR(charging_type),
 #if defined(CONFIG_SEC_FACTORY)
@@ -839,13 +841,6 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 				0);
 		}
 		break;
-	case BATT_WIRELESS_MST_SWITCH_TEST:
-		value.intval = SEC_WIRELESS_MST_SWITCH_VERIFY;
-		psy_do_property(battery->pdata->wireless_charger_name, get,
-			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		pr_info("%s MST switch verify. result: %x\n", __func__, value.intval);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
-		break;
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	case BATT_WIRELESS_FIRMWARE_UPDATE:
 		value.intval = SEC_WIRELESS_OTP_FIRM_VERIFY;
@@ -1021,6 +1016,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 	case BATT_TUNE_FAST_CHARGE_CURRENT:
 		ret = battery->pdata->charging_current[i].fast_charging_current;
 		pr_info("%s fast charge current = %d mA",__func__, ret);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+				ret);
+		break;
+	case BATT_TUNE_WIRELESS_VOUT_CURRENT:
+		ret = battery->pdata->wireless_power_info[i].vout;
+		pr_info("%s vout(%d) input_current(%d)",__func__, ret, 
+			battery->pdata->wireless_power_info[i].input_current_limit);
+	
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 				ret);
 		break;
@@ -1621,6 +1624,12 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n",
 			value.strval);
 		break;
+	case SWITCH_CHARGING_SOURCE:
+		psy_do_property(battery->pdata->charger_name, get,
+				POWER_SUPPLY_EXT_PRO_CHANGE_CHARGING_SOURCE, value);
+		pr_info("%s Test Charging Source(%d) ",__func__, value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", value.intval);
+		break;
 #else
 	case DIRECT_CHARGING_STATUS:
 		ret = -1; /* DC not supported model returns -1 */
@@ -1829,6 +1838,13 @@ ssize_t sec_bat_store_attrs(
 	case FG_CAPACITY:
 		break;
 	case FG_ASOC:
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			if (x >= 0 && x <= 100) {
+				battery->batt_asoc = x;
+				sec_bat_check_battery_health(battery);
+			}
+			ret = count;
+		}
 		break;
 	case AUTH:
 		break;
@@ -2289,6 +2305,7 @@ ssize_t sec_bat_store_attrs(
 				if (prev_battery_cycle < 0) {
 					sec_bat_aging_check(battery);
 				}
+				sec_bat_check_battery_health(battery);
 			}
 			ret = count;
 		}
@@ -2562,6 +2579,50 @@ ssize_t sec_bat_store_attrs(
 			}
 		}
 		break;
+	case BATT_TUNE_WIRELESS_VOUT_CURRENT:
+		{
+			int vout, input_current, offset;
+	
+			sscanf(buf, "%10d %10d\n", &offset, &input_current);			
+			switch(offset) {
+			case 5500:
+				vout = WIRELESS_VOUT_5V;
+				break;
+			case 9000:
+				vout = WIRELESS_VOUT_9V;
+				break;
+			case 10000:
+				vout = WIRELESS_VOUT_10V;
+				break;
+			case 11000:
+				vout = WIRELESS_VOUT_11V;
+				break;
+			case 12000:
+				vout = WIRELESS_VOUT_12V;
+				break;
+			case 12500:
+				vout = WIRELESS_VOUT_12_5V;
+				break;
+			default:
+				pr_info("%s vout(%d) you entered is not supported\n", __func__, offset);
+				vout = 0;
+				break;
+			}
+	
+			if(input_current >= 100 && input_current <= 4000 && vout > 0) {
+				for(i=0; i < SEC_WIRELESS_RX_POWER_MAX; i++) {
+					if(battery->pdata->wireless_power_info[i].vout != 0) {
+						battery->pdata->wireless_power_info[i].vout = offset;
+						battery->pdata->wireless_power_info[i].input_current_limit = input_current;
+					}
+				}
+				value.intval = vout;
+				psy_do_property(battery->pdata->wireless_charger_name, set,
+						POWER_SUPPLY_EXT_PROP_WIRELESS_VOUT, value);
+				pr_info("%s vout(%d, %d) input_current(%d)",__func__, offset, vout, input_current);
+			}
+		}
+		break;
 	case BATT_TUNE_UI_TERM_CURRENT_1ST:
 		sscanf(buf, "%10d\n", &x);
 		pr_info("%s ui term current = %d mA",__func__, x);
@@ -2748,7 +2809,7 @@ ssize_t sec_bat_store_attrs(
 		if (sscanf(buf, "%10d\n", &x) == 1) {
 			pr_info("%s: Charger WDT Set : %d\n", __func__, x);
 			battery->wdt_kick_disable = x;
-#if defined(CONFIG_ENG_BATTERY_CONCEPT) && defined(CONFIG_DIRECT_CHARGING)
+#if defined(CONFIG_DIRECT_CHARGING)
 			value.intval = x;
 			psy_do_property(battery->pdata->charger_name, set,
 				POWER_SUPPLY_EXT_PROP_DIRECT_WDT_CONTROL, value);
@@ -3211,6 +3272,16 @@ ssize_t sec_bat_store_attrs(
 	case DIRECT_CHARGING_IIN:
 		break;
 	case DIRECT_CHARGING_CHG_STATUS:
+		break;
+	case SWITCH_CHARGING_SOURCE:
+		if (sscanf(buf, "%10d\n", &x) == 1) {
+			dev_info(battery->dev, "%s: Request Change Charging Source : %s \n",
+				__func__, x == 0 ? "Switch Charger" : "Direct Charger" );
+			
+			value.intval = (x == 0) ? SEC_DIRECT_CHG_CHARGING_SOURCE_SWITCHING : SEC_DIRECT_CHG_CHARGING_SOURCE_DIRECT;
+            		psy_do_property(battery->pdata->charger_name, set,
+				POWER_SUPPLY_EXT_PRO_CHANGE_CHARGING_SOURCE, value);
+		}
 		break;
 #endif
 	case CHARGING_TYPE:

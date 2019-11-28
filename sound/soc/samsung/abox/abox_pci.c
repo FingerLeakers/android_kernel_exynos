@@ -22,6 +22,9 @@
 #include <asm/cacheflush.h>
 #include <linux/pinctrl/consumer.h>
 #include "abox_pci.h"
+#ifdef CONFIG_LINK_DEVICE_PCIE_S2MPU
+#include <soc/samsung/exynos-s2mpu.h>
+#endif
 
 static struct reserved_mem *abox_pci_rmem;
 static struct abox_pci_data *p_abox_pci_data;
@@ -112,6 +115,9 @@ static int samsung_abox_pci_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct abox_pci_data *data;
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
+	struct device_node *np = dev->of_node;
+#endif
 	int ret = 0;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
@@ -135,7 +141,38 @@ static int samsung_abox_pci_probe(struct platform_device *pdev)
 				abox_pci_rmem->base, abox_pci_rmem->size,
 				data->pci_dram_base);
 		memset(data->pci_dram_base, 0x0, abox_pci_rmem->size);
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
+		ret = (int) exynos_set_dev_stage2_ap("hsi2", 0,
+				abox_pci_rmem->base, /* phys ?? */
+				abox_pci_rmem->size,
+				ATTR_RW);
+		if (ret < 0)
+			dev_err(dev, "Failed to exynos_set_dev_stage2_ap(%d): %d\n",
+				__LINE__, ret);
+#endif
 	}
+
+/* HACK: vts mailbox */
+#if defined(CONFIG_LINK_DEVICE_PCIE_S2MPU)
+	ret = of_property_read_u32(np, "s2mpu_mailbox",
+			&data->abox_pci_s2mpu_vts_mailbox_base);
+	if (ret) {
+		dev_err(dev, "can't get mailbox base for S2MPU\n");
+
+		return -EINVAL;
+	}
+
+	dev_info(dev, "S2MPU (%d)\n", data->abox_pci_s2mpu_vts_mailbox_base);
+	ret = (int) exynos_set_dev_stage2_ap("hsi2", 0,
+			data->abox_pci_s2mpu_vts_mailbox_base,
+			SZ_4K, ATTR_RW);
+	if (ret < 0) {
+		dev_err(dev, "Failed to exynos_set_dev_stage2_ap(%d): %d\n",
+			__LINE__, ret);
+
+		return -EINVAL;
+	}
+#endif
 
 	data->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR(data->pinctrl)) {

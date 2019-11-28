@@ -35,6 +35,7 @@ enum asrc_tick {
 	TICK_UAIF6 = 0x7,
 	TICK_USB = 0x8,
 	TICK_BCLK_CP = 0x9,
+	TICK_BCLK_SPDY = 0xA,
 	TICK_SYNC,
 };
 
@@ -576,6 +577,9 @@ static const char * const audio_mode_enum_texts[] = {
 	"IN_CALL",
 	"IN_COMMUNICATION",
 	"IN_VIDEOCALL",
+	"RESERVED0",
+	"RESERVED1",
+	"IN_LOOPBACK",
 };
 static const unsigned int audio_mode_enum_values[] = {
 	MODE_NORMAL,
@@ -583,6 +587,9 @@ static const unsigned int audio_mode_enum_values[] = {
 	MODE_IN_CALL,
 	MODE_IN_COMMUNICATION,
 	MODE_IN_VIDEOCALL,
+	MODE_RESERVED0,
+	MODE_RESERVED1,
+	MODE_IN_LOOPBACK,
 };
 SOC_VALUE_ENUM_SINGLE_DECL(audio_mode_enum, SND_SOC_NOPM, 0, 0,
 		audio_mode_enum_texts, audio_mode_enum_values);
@@ -1315,6 +1322,7 @@ static const char * const asrc_source_enum_texts[] = {
 	"UAIF6",
 	"USB",
 	"BCLK_CP",
+	"BCLK_SPDY",
 	"ABOX",
 };
 
@@ -1329,6 +1337,7 @@ static const unsigned int asrc_source_enum_values[] = {
 	TICK_UAIF6,
 	TICK_USB,
 	TICK_BCLK_CP,
+	TICK_BCLK_SPDY,
 	TICK_SYNC,
 };
 
@@ -1819,6 +1828,9 @@ static enum abox_dai get_source_dai_id(struct abox_data *data, enum abox_dai id)
 		case 0x19:
 			ret = ABOX_RX_PDI1;
 			break;
+		case 0x1f:
+			ret = ABOX_SPDY;
+			break;
 		default:
 			ret = ABOX_NONE;
 			break;
@@ -2086,6 +2098,7 @@ static enum abox_dai get_sink_dai_id(struct abox_data *data, enum abox_dai id)
 	case ABOX_UAIF4:
 	case ABOX_UAIF5:
 	case ABOX_UAIF6:
+	case ABOX_SPDY:
 		for (_id = ABOX_RSRC0; _id <= ABOX_NSRC5; _id++) {
 			if (get_source_dai_id(data, _id) == id &&
 					is_direct_connection(cmpnt, _id)) {
@@ -2431,6 +2444,7 @@ static int sifm_hw_params_fixup(struct snd_soc_dai *dai,
 	case ABOX_UAIF5:
 	case ABOX_UAIF6:
 	case ABOX_DSIF:
+	case ABOX_SPDY:
 		_dai = find_dai(cmpnt->card, _id);
 		abox_if_hw_params_fixup(_dai, params, stream);
 		break;
@@ -2529,6 +2543,9 @@ static int wdma_hw_params_fixup(struct snd_soc_dai *dai,
 static int rdma_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params, int stream)
 {
+	struct snd_pcm_hw_params _params = *params;
+
+	rdma_hw_params_fixup(rtd->cpu_dai, &_params, stream);
 	return abox_dma_hw_params_fixup(rtd->cpu_dai->dev,
 			snd_soc_dpcm_get_substream(rtd, stream), params);
 }
@@ -2536,6 +2553,9 @@ static int rdma_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 static int wdma_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params, int stream)
 {
+	struct snd_pcm_hw_params _params = *params;
+
+	wdma_hw_params_fixup(rtd->cpu_dai, &_params, stream);
 	return abox_dma_hw_params_fixup(rtd->cpu_dai->dev,
 			snd_soc_dpcm_get_substream(rtd, stream), params);
 }
@@ -3934,7 +3954,8 @@ static const char * const spusm_texts[] = {
 	"UAIF4", "UAIF5", "UAIF6", "RESERVED",
 	"BI_PDI0", "BI_PDI1", "BI_PDI2", "BI_PDI3",
 	"BI_PDI4", "BI_PDI5", "BI_PDI6", "BI_PDI7",
-	"RX_PDI0", "RX_PDI1",
+	"RX_PDI0", "RX_PDI1", "RESERVED", "RESERVED",
+	"RESERVED", "RESERVED", "RESERVED", "SPDY",
 };
 static SOC_ENUM_SINGLE_DECL(spusm_enum, ABOX_ROUTE_CTRL0, ABOX_ROUTE_SPUSM_L,
 		spusm_texts);
@@ -4351,6 +4372,9 @@ static const struct snd_kcontrol_new uaif6_controls[] = {
 static const struct snd_kcontrol_new dsif_controls[] = {
 	SOC_DAPM_SINGLE("DSIF Switch", SND_SOC_NOPM, 0, 1, 1),
 };
+static const struct snd_kcontrol_new spdy_controls[] = {
+	SOC_DAPM_SINGLE("SPDY Switch", SND_SOC_NOPM, 0, 1, 1),
+};
 
 static const char * const rsrcx_texts[] = {
 	"RESERVED", "SIFS0", "SIFS1", "SIFS2",
@@ -4375,7 +4399,8 @@ static const char * const nsrcx_texts[] = {
 	"UAIF4", "UAIF5", "UAIF6", "RESERVED",
 	"BI_PDI0", "BI_PDI1", "BI_PDI2", "BI_PDI3",
 	"BI_PDI4", "BI_PDI5", "BI_PDI6", "BI_PDI7",
-	"RX_PDI0", "RX_PDI1",
+	"RX_PDI0", "RX_PDI1", "RESERVED", "RESERVED",
+	"RESERVED", "RESERVED", "RESERVED", "SPDY",
 };
 static SOC_ENUM_SINGLE_DECL(nsrc0_enum, ABOX_ROUTE_CTRL1, ABOX_ROUTE_NSRC_L(0),
 		nsrcx_texts);
@@ -4716,6 +4741,7 @@ static const struct snd_soc_dapm_widget cmpnt_widgets[] = {
 	SND_SOC_DAPM_SWITCH("UAIF4 CAP", SND_SOC_NOPM, 0, 0, uaif4_controls),
 	SND_SOC_DAPM_SWITCH("UAIF5 CAP", SND_SOC_NOPM, 0, 0, uaif5_controls),
 	SND_SOC_DAPM_SWITCH("UAIF6 CAP", SND_SOC_NOPM, 0, 0, uaif6_controls),
+	SND_SOC_DAPM_SWITCH("SPDY CAP", SND_SOC_NOPM, 0, 0, spdy_controls),
 
 	SND_SOC_DAPM_MUX_E("NSRC0", SND_SOC_NOPM, 0, 0, nsrc0_controls,
 			nsrc0_event,
@@ -5106,6 +5132,7 @@ static const struct snd_soc_dapm_route cmpnt_routes[] = {
 	{"NSRC0", "UAIF4", "UAIF4 CAP"},
 	{"NSRC0", "UAIF5", "UAIF5 CAP"},
 	{"NSRC0", "UAIF6", "UAIF6 CAP"},
+	{"NSRC0", "SPDY", "SPDY CAP"},
 
 	{"NSRC1", "SIFS0", "SIFS0 OUT"},
 	{"NSRC1", "SIFS1", "SIFS1 OUT"},
@@ -5120,6 +5147,7 @@ static const struct snd_soc_dapm_route cmpnt_routes[] = {
 	{"NSRC1", "UAIF4", "UAIF4 CAP"},
 	{"NSRC1", "UAIF5", "UAIF5 CAP"},
 	{"NSRC1", "UAIF6", "UAIF6 CAP"},
+	{"NSRC1", "SPDY", "SPDY CAP"},
 
 	{"NSRC2", "SIFS0", "SIFS0 OUT"},
 	{"NSRC2", "SIFS1", "SIFS1 OUT"},
@@ -5134,6 +5162,7 @@ static const struct snd_soc_dapm_route cmpnt_routes[] = {
 	{"NSRC2", "UAIF4", "UAIF4 CAP"},
 	{"NSRC2", "UAIF5", "UAIF5 CAP"},
 	{"NSRC2", "UAIF6", "UAIF6 CAP"},
+	{"NSRC2", "SPDY", "SPDY CAP"},
 
 	{"NSRC3", "SIFS0", "SIFS0 OUT"},
 	{"NSRC3", "SIFS1", "SIFS1 OUT"},
@@ -5148,6 +5177,7 @@ static const struct snd_soc_dapm_route cmpnt_routes[] = {
 	{"NSRC3", "UAIF4", "UAIF4 CAP"},
 	{"NSRC3", "UAIF5", "UAIF5 CAP"},
 	{"NSRC3", "UAIF6", "UAIF6 CAP"},
+	{"NSRC3", "SPDY", "SPDY CAP"},
 
 	{"NSRC4", "SIFS0", "SIFS0 OUT"},
 	{"NSRC4", "SIFS1", "SIFS1 OUT"},
@@ -5162,6 +5192,7 @@ static const struct snd_soc_dapm_route cmpnt_routes[] = {
 	{"NSRC4", "UAIF4", "UAIF4 CAP"},
 	{"NSRC4", "UAIF5", "UAIF5 CAP"},
 	{"NSRC4", "UAIF6", "UAIF6 CAP"},
+	{"NSRC4", "SPDY", "SPDY CAP"},
 
 	{"SPUM ASRC0", NULL, "NSRC0"},
 	{"SPUM ASRC1", NULL, "NSRC1"},
@@ -5305,6 +5336,20 @@ int abox_cmpnt_adjust_sbank(struct abox_data *data,
 	case ABOX_RDMA10:
 	case ABOX_RDMA11:
 		reg = ABOX_SPUS_SBANK_RDMA(id - ABOX_RDMA0);
+		break;
+	case ABOX_RDMA0_BE:
+	case ABOX_RDMA1_BE:
+	case ABOX_RDMA2_BE:
+	case ABOX_RDMA3_BE:
+	case ABOX_RDMA4_BE:
+	case ABOX_RDMA5_BE:
+	case ABOX_RDMA6_BE:
+	case ABOX_RDMA7_BE:
+	case ABOX_RDMA8_BE:
+	case ABOX_RDMA9_BE:
+	case ABOX_RDMA10_BE:
+	case ABOX_RDMA11_BE:
+		reg = ABOX_SPUS_SBANK_RDMA(id - ABOX_RDMA0_BE);
 		break;
 	case ABOX_RSRC0:
 	case ABOX_RSRC1:
@@ -5809,6 +5854,7 @@ int abox_cmpnt_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 	case ABOX_UAIF4:
 	case ABOX_UAIF5:
 	case ABOX_UAIF6:
+	case ABOX_SPDY:
 		ret = abox_if_hw_params_fixup(dai, params, stream);
 		break;
 	case ABOX_SIFS0:

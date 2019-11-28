@@ -20,6 +20,7 @@ int dsp_system_boot(struct dsp_system *sys);
 int dsp_system_reset(struct dsp_system *sys);
 
 int dsp_system_power_active(struct dsp_system *sys);
+int dsp_system_set_default_devfreq(struct dsp_system *sys, int val);
 int dsp_system_runtime_resume(struct dsp_system *sys);
 int dsp_system_runtime_suspend(struct dsp_system *sys);
 int dsp_system_resume(struct dsp_system *sys);

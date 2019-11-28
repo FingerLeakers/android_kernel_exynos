@@ -20,6 +20,9 @@ int npu_system_soc_resume(struct npu_system *system, u32 mode);
 int npu_system_soc_suspend(struct npu_system *system);
 void npu_soc_status_report(struct npu_system *system);
 u32 npu_get_hw_info(void);
+int npu_hwacg(struct npu_system *system, bool on);
+int npu_soc_core_on(struct npu_system *system, int core);
+int npu_soc_core_off(struct npu_system *system, int core);
 
 struct npu_iomem_init_data {
 	const char*	heapname;

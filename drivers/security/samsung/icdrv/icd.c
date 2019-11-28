@@ -73,8 +73,11 @@ static const char *get_first_argument_from_cmdline(struct task_struct *task)
 			break;
 		}
 	}
-	if (pos == 0)
+	if (pos == 0) {
+		if(buffer)
+			kfree(buffer);
 		return NULL;
+	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 7, 0)
 	/* Make sure result is printable. */
@@ -94,8 +97,8 @@ static bool cmdline_check(struct task_struct *task, const char *str)
 
 	first_arg = get_first_argument_from_cmdline(task);
 	if (first_arg != NULL) {
-		pr_err("IOF: first_arg: %s\n", first_arg);
-		if (!strncmp(first_arg, str, PATH_MAX))
+		pr_debug("IOF: first_arg: %s\n", first_arg);
+		if (!strncmp(first_arg, str, strlen(str)))
 			ret = true;
 	}
 	kfree(first_arg);
@@ -171,23 +174,15 @@ static void icd_hook_integrity_reset(struct task_struct *task)
 	}
 
 	oemid = affected_oemflag_id(task, execpath);
-	pr_info("ICD: %s: %u\n", execpath, oemid);
 
-/* 
-	Temporary disable set oemflag function for Q OS launching projects.
-	IOF is setting oemflag at first boot, the cause is overlayfs.
-	Failed binary link: https://android.qb.sec.samsung.net/build/25862336 (G986B)
-*/
-
-#if !defined(CONFIG_OVERLAY_FS)
 	if (oemid != OEMFLAG_NONE) {
 		int ret;
 
+		pr_info("ICD: %s: %u\n", execpath, oemid);
 		ret = oem_flags_set(oemid);
 		if (ret)
 			pr_err("oem_flags_set err: %d\n", ret);
 	}
-#endif
 
 out:
 	if (pathbuf)

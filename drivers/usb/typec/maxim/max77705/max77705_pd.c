@@ -121,7 +121,7 @@ void max77705_select_pdo(int num)
 		value.opcode = OPCODE_SRCCAP_REQUEST;
 		value.write_data[0] = temp;
 		value.write_length = 1;
-		value.read_length = 0;
+		value.read_length = 1;
 		max77705_usbc_opcode_write(pusbpd, &value);
 	}
 

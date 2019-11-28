@@ -19,6 +19,10 @@ obj-$(CONFIG_PABLO_V8_10_0) += is-hw-mcscaler-v3.o \
 		is-hw-djag-v2.o \
 		is-hw-cac.o
 
+obj-$(CONFIG_PABLO_V8_20_0) += is-hw-mcscaler-v3.o \
+		is-hw-djag-v2.o \
+		is-hw-cac.o
+
 obj-$(CONFIG_CAMERA_PDP) += is-hw-pdp.o
 
 obj-$(CONFIG_VIDEO_EXYNOS_PABLO_ISP) += api/

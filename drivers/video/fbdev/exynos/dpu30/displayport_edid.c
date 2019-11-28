@@ -462,7 +462,7 @@ void edid_parse_hdr_metadata(u32 sst_id, struct displayport_device *displayport,
 
 			if (displayport->sst[sst_id]->rx_edid_data.eotf & SMPTE_ST_2084) {
 				displayport->sst[sst_id]->rx_edid_data.hdr_support = 1;
-				displayport_info("EDID: SMPTE_ST_2084 support, but not now\n");
+				displayport_info("EDID: SMPTE_ST_2084 support\n");
 			}
 
 			displayport->sst[sst_id]->rx_edid_data.max_lumi_data =
@@ -611,8 +611,7 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 				matched_resolution_idx = i;
 				displayport_info("found matched resolution:%d\n", i);
 			}
-			if ((mode->refresh == supported_videos[i].fps ||
-					mode->refresh == supported_videos[i].fps - 1) &&
+			if ((mode->refresh == supported_videos[i].fps) &&
 					!matched_timing_idx) {
 				matched_timing_idx = i;
 				displayport_info("found matched timing:%d\n", i);
@@ -643,18 +642,19 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 
 /*use every prefered timing as top priority*/
 #ifdef FEATURE_USE_PREFERRED_TIMING_1ST
-	if (matched_timing_idx < VDUMMYTIMING) {
+	if (matched_timing_idx != 0 && matched_timing_idx < VDUMMYTIMING) {
 		/* copy dex_support and ratio if found the same timing at table */
-		supported_videos[VDUMMYTIMING].ratio = supported_videos[i].ratio;
-		supported_videos[VDUMMYTIMING].dex_support = supported_videos[i].dex_support;
-	} else if ((matched_resolution_idx < VDUMMYTIMING) &&
-				(supported_videos[i].ratio == RATIO_16_9 ||
-				supported_videos[i].ratio == RATIO_16_10 ||
-				supported_videos[i].ratio == RATIO_21_9) ) {
-		supported_videos[VDUMMYTIMING].ratio = supported_videos[i].ratio;
-		/* needed to reduce high fps? try to reduce by pixelclock*/
+		supported_videos[VDUMMYTIMING].ratio = supported_videos[matched_timing_idx].ratio;
+		supported_videos[VDUMMYTIMING].dex_support = supported_videos[matched_timing_idx].dex_support;
+	} else if (matched_resolution_idx != 0 && matched_resolution_idx < VDUMMYTIMING &&
+				(supported_videos[matched_resolution_idx].ratio == RATIO_16_9 ||
+				supported_videos[matched_resolution_idx].ratio == RATIO_16_10 ||
+				supported_videos[matched_resolution_idx].ratio == RATIO_21_9) ) {
+		supported_videos[VDUMMYTIMING].ratio = supported_videos[matched_resolution_idx].ratio;
+/* need to reduce high fps for dex mode?
 		if (pixelclock <= supported_videos[max_dex_support_idx].dv_timings.bt.pixelclock)
-			supported_videos[VDUMMYTIMING].dex_support = supported_videos[i].dex_support;
+			supported_videos[VDUMMYTIMING].dex_support = supported_videos[matched_resolution_idx].dex_support;
+*/
 	}
 #else
 	/* check if index is valid and index is bigger than best video */
@@ -682,8 +682,9 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 	supported_videos[VDUMMYTIMING].dv_timings.bt.vsync = mode->vsync_len;
 	supported_videos[VDUMMYTIMING].dv_timings.bt.vbackporch = mode->upper_margin;
 	supported_videos[VDUMMYTIMING].fps = mode->refresh;
-	supported_videos[VDUMMYTIMING].v_sync_pol = mode->sync & FB_SYNC_VERT_HIGH_ACT ? SYNC_POSITIVE : SYNC_NEGATIVE;
-	supported_videos[VDUMMYTIMING].h_sync_pol = mode->sync & FB_SYNC_HOR_HIGH_ACT ? SYNC_POSITIVE : SYNC_NEGATIVE;
+	/*  VSYNC bit and HSYNC bit is reversed at fbmon.c */
+	supported_videos[VDUMMYTIMING].v_sync_pol = (mode->sync & FB_SYNC_HOR_HIGH_ACT) ? SYNC_POSITIVE : SYNC_NEGATIVE;
+	supported_videos[VDUMMYTIMING].h_sync_pol = (mode->sync & FB_SYNC_VERT_HIGH_ACT) ? SYNC_POSITIVE : SYNC_NEGATIVE;
 	supported_videos[VDUMMYTIMING].edid_support_match = true;
 	preferred_preset = supported_videos[VDUMMYTIMING].dv_timings;
 
@@ -693,8 +694,8 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 			mode->left_margin, mode->hsync_len, mode->right_margin,
 			mode->upper_margin, mode->vsync_len, mode->lower_margin,
 			mode->sync, mode->vmode, mode->flag);
-	displayport_info("EDID: %s edid_support_match = %d\n", supported_videos[VDUMMYTIMING].name,
-			supported_videos[VDUMMYTIMING].edid_support_match);
+	displayport_info("EDID: %s edid_support_match:%d, dex_support:%d\n", supported_videos[VDUMMYTIMING].name,
+			supported_videos[VDUMMYTIMING].edid_support_match, supported_videos[VDUMMYTIMING].dex_support);
 }
 
 void edid_check_test_device(u32 sst_id, struct displayport_device *displayport,
@@ -705,10 +706,6 @@ void edid_check_test_device(u32 sst_id, struct displayport_device *displayport,
 		|| !strcmp(specs->monitor, "UFG DP SINK")) {
 		displayport->sst[sst_id]->bist_used = 1;
 		displayport_info("bist enable in %s\n", __func__);
-	}
-	if (displayport->forced_bist == 1 || displayport->forced_bist == 0) {
-		displayport->sst[sst_id]->bist_used = displayport->forced_bist;
-		displayport_info("forced bist enable sst[&d] %d\n", sst_id, displayport->sst[sst_id]->bist_used);
 	}	
 }
 
@@ -919,12 +916,29 @@ int edid_update(u32 sst_id, struct displayport_device *displayport)
 	supported_videos[VDUMMYTIMING].ratio = 0;
 	for (i = 1; i < supported_videos_pre_cnt; i++)
 		supported_videos[i].edid_support_match = false;
-	block_cnt = edid_read(sst_id, displayport);
+	if (displayport->do_unit_test) {
+		displayport_info("unit test: edid read\n");
+		block_cnt = edid_read_unit(&edid);
+	}
+#ifdef CONFIG_DISPLAYPORT_ENG
+	else if (displayport->edid_test_buf[0] == 1 || displayport->edid_test_buf[0] == 2) {
+		displayport_info("user edid test\n");
+		memcpy(edid, &displayport->edid_test_buf[1], displayport->edid_test_buf[0] * 128);
+		block_cnt = displayport->edid_test_buf[0];
+		displayport_info("using test edid %d\n", block_cnt);
+	}
+#endif
+	else
+		block_cnt = edid_read(sst_id, displayport);
 	if (block_cnt < 0)
 		goto out;
 
 	displayport->sst[sst_id]->rx_edid_data.edid_data_size =
 			EDID_BLOCK_SIZE * block_cnt;
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	secdp_bigdata_save_item(BD_EDID, edid);
+#endif
 
 	fb_edid_to_monspecs(edid, &specs);
 	modedb_len = specs.modedb_len;
@@ -933,6 +947,10 @@ int edid_update(u32 sst_id, struct displayport_device *displayport)
 			specs.gamma / 100, specs.gamma % 100);
 
 	edid_check_test_device(sst_id, displayport, &specs);
+
+#ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
+	secdp_bigdata_save_item(BD_SINK_NAME, specs.monitor);
+#endif
 
 	for (i = 1; i < block_cnt; i++)
 		fb_edid_add_monspecs(edid + i * EDID_BLOCK_SIZE, &specs);

@@ -110,6 +110,13 @@ static unsigned char PASET_TABLE[][5] = {
 
 static int s6e3hab_suspend(struct exynos_panel_device *panel)
 {
+	struct dsim_device *dsim = get_dsim_drvdata(panel->id);
+
+	dsim_write_data_seq(dsim, false, 0xf0, 0x5a, 0x5a);
+
+	dsim_write_data_seq(dsim, 10, 0x28); /* DISPOFF */
+	dsim_write_data_seq(dsim, 120, 0x10); /* SLPIN */
+
 	return 0;
 }
 
@@ -195,31 +202,35 @@ static int s6e3hab_displayon(struct exynos_panel_device *panel)
 	dsim_write_data_seq(dsim, false, 0x29); /* display on */
 
 
-	/*
-	 * To prevent the screen noise display in the multi-resolution mode.
-	 * If the last mode is FHD+ or HD+,
-	 * noise can be seen during LCD on because WQHD+ mode
-	 */
-	dsim_write_data_seq(dsim, false, 0x9F, 0xA5, 0xA5);
-	/* DSC related configuration */
-	if (dsc_en) {
-		dsim_write_data_type_seq(dsim, MIPI_DSI_DSC_PRA, 0x1);
-		dsim_write_data_type_table(dsim, MIPI_DSI_DSC_PPS,
-				PPS_TABLE[tab_idx]);
-	} else {
-		dsim_write_data_type_seq(dsim, MIPI_DSI_DSC_PRA, 0x0);
+	/* for Non-WQHD+ mode */
+	if (tab_idx != 0) {
+		/*
+		 * To prevent the screen noise display in the multi-resolution mode.
+		 * If the last mode is FHD+ or HD+,
+		 * noise can be seen during LCD on because WQHD+ mode
+		 *
+		 * It seems that a frame update is required for the SCALER_TABLE.
+		 */
+		dsim_write_data_seq(dsim, false, 0x9F, 0xA5, 0xA5);
+		/* DSC related configuration */
+		if (dsc_en) {
+			dsim_write_data_type_seq(dsim, MIPI_DSI_DSC_PRA, 0x1);
+			dsim_write_data_type_table(dsim, MIPI_DSI_DSC_PPS,
+					PPS_TABLE[tab_idx]);
+		} else {
+			dsim_write_data_type_seq(dsim, MIPI_DSI_DSC_PRA, 0x0);
+		}
+		dsim_write_data_seq(dsim, false, 0x9F, 0x5A, 0x5A);
+
+		/* partial update configuration */
+		dsim_write_data_table(dsim, CASET_TABLE[tab_idx]);
+		dsim_write_data_table(dsim, PASET_TABLE[tab_idx]);
+
+		dsim_write_data_seq(dsim, false, 0xF0, 0x5A, 0x5A);
+		/* DDI scaling configuration */
+		dsim_write_data_table(dsim, SCALER_TABLE[tab_idx]);
+		dsim_write_data_seq(dsim, false, 0xF0, 0xA5, 0xA5);
 	}
-	dsim_write_data_seq(dsim, false, 0x9F, 0x5A, 0x5A);
-
-	/* partial update configuration */
-	dsim_write_data_table(dsim, CASET_TABLE[tab_idx]);
-	dsim_write_data_table(dsim, PASET_TABLE[tab_idx]);
-
-	dsim_write_data_seq(dsim, false, 0xF0, 0x5A, 0x5A);
-	/* DDI scaling configuration */
-	dsim_write_data_table(dsim, SCALER_TABLE[tab_idx]);
-	dsim_write_data_seq(dsim, false, 0xF0, 0xA5, 0xA5);
-
 
 	mutex_unlock(&panel->ops_lock);
 
@@ -349,7 +360,7 @@ end:
 }
 
 struct exynos_panel_ops panel_s6e3hab_ops = {
-	.id		= {0x001080, 0xffffff, 0xffffff, 0xffffff},
+	.id		= {0x001080, 0x411080, 0xffffff, 0xffffff},
 	.suspend	= s6e3hab_suspend,
 	.displayon	= s6e3hab_displayon,
 	.mres		= s6e3hab_mres,

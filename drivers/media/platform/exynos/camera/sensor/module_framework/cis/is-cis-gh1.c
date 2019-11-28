@@ -472,14 +472,16 @@ static void sensor_gh1_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_da
 	WARN_ON(!cis_data);
 
 	switch (mode) {
-    case SENSOR_GH1_7296X5472_17FPS:
+    case SENSOR_GH1_7296X5472_15FPS:
     case SENSOR_GH1_3648X2736_30FPS:
     case SENSOR_GH1_3968X2232_30FPS:
     case SENSOR_GH1_3968X2232_60FPS:
     case SENSOR_GH1_1984X1116_240FPS:
-    case SENSOR_GH1_1824X1168_30FPS:
+    case SENSOR_GH1_1824X1368_30FPS:
     case SENSOR_GH1_1984X1116_30FPS:
     case SENSOR_GH1_912X684_120FPS:
+    case SENSOR_GH1_2944x2208_30FPS:
+    case SENSOR_GH1_3216x1808_30FPS:
 			cis_data->is_data.paf_stat_enable = false;	/* TEMP_2020 */
 		break;
 	default:

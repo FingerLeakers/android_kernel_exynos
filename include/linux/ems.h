@@ -11,26 +11,10 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/kobject.h>
 #include <linux/sched.h>
 #include <linux/plist.h>
 #include <linux/sched/idle.h>
-
-struct gb_qos_request {
-	struct plist_node node;
-	char *name;
-	bool active;
-};
-
-struct emst_mode_request {
-	struct plist_node node;
-	bool active;
-	char *func;
-	unsigned int line;
-};
-
-#define emst_update_request(req, new_value)	do {				\
-	__emst_update_request(req, new_value, (char *)__func__, __LINE__);	\
-} while(0);
 
 struct rq;
 
@@ -46,6 +30,7 @@ enum {
  */
 extern int
 exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup);
+extern int ems_can_migrate_task(struct task_struct *p, int dst_cpu);
 extern void init_ems(void);
 
 
@@ -91,14 +76,7 @@ extern void part_cpu_active_ratio(unsigned long *util, unsigned long *max, int c
 /*
  * ontime migration
  */
-extern int ontime_can_migrate_task(struct task_struct *p, int dst_cpu);
 extern void ontime_migration(void);
-
-
-/*
- * global boost
- */
-extern void gb_qos_update_request(struct gb_qos_request *req, u32 new_value);
 
 
 /*
@@ -121,12 +99,6 @@ extern void lb_update_misfit_status(struct task_struct *p, struct rq *rq, unsign
  */
 extern void ecs_update(void);
 extern int ecs_is_sparing_cpu(int cpu);
-
-/*
- * EMStune
- */
-extern void __emst_update_request(struct emst_mode_request *req, s32 new_value, char *func, unsigned int line);
-extern bool emst_can_migrate_task(struct task_struct *p, int dst_cpu);
 #else /* CONFIG_SCHED_EMS */
 
 /*
@@ -137,6 +109,7 @@ exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync
 {
 	return -1;
 }
+static inline int ems_can_migrate_task(struct task_struct *p, int dst_cpu) { return 1; }
 static inline void init_ems(void) { }
 
 
@@ -187,12 +160,6 @@ static inline void ontime_migration(void) { }
 
 
 /*
- * global boost
- */
-static inline void gb_qos_update_request(struct gb_qos_request *req, u32 new_value) { }
-
-
-/*
  * load balance
  */
 static inline void lb_add_cfs_task(struct rq *rq, struct sched_entity *se) { }
@@ -226,15 +193,114 @@ static inline void lb_update_misfit_status(struct task_struct *p, struct rq *rq,
  */
 static inline void ecs_update(void) { }
 static inline int ecs_is_sparing_cpu(int cpu) { return 0; }
-
-/*
- * EMStune
- */
-static void __emst_update_request(struct emst_mode_request *req, s32 new_value, char *func, unsigned int line) { }
-static bool emst_can_migrate_task(struct task_struct *p, int dst_cpu) { return true; }
 #endif /* CONFIG_SCHED_EMS */
 
+/*
+ * EMS Tune
+ */
+enum stune_group {
+	STUNE_ROOT,
+	STUNE_FOREGROUND,
+	STUNE_BACKGROUND,
+	STUNE_TOPAPP,
+	STUNE_RT,
+	STUNE_GROUP_COUNT,
+};
+
+struct emstune_mode_request {
+	struct plist_node node;
+	bool active;
+	struct delayed_work work; /* for emstune_update_request_timeout */
+	char *func;
+	unsigned int line;
+};
+
+/* EMStune notifier interface */
+struct emstune_gov_data {
+	int			step; /* for Energy-step governor */
+}; /* which CPUFreq governor uses */
+
+struct emstune_ontime {
+	int upper_boundary;
+	int lower_boundary;
+	int upper_boundary_s;
+	int lower_boundary_s;
+};
+
+struct emstune_dom {
+	int		weight;		/* weight of this group for core selction */
+	int		idle_weight;	/* idle_weight of this group for core selection */
+	int		freq_boost;	/* freq_boost of this group at the current freq */
+};
+
+struct emstune_group {
+	int ontime_enabled;
+	int util_est_enabled;
+
+	struct cpumask	cpus_allowed;	/* candidate_cpus of this group for core selection */
+
+	struct emstune_dom	*dom[NR_CPUS];
+	struct kobject	kobj;
+};
+
+struct emstune_mode {
+	int idx;
+	int prefer_idle;
+	const char *desc;
+	unsigned long target_sched_class;
+
+	struct emstune_gov_data gov_data[NR_CPUS]; /* gov_data which cpufreq governor uses */
+
+	/* For updating ontime tunables */
+	struct emstune_ontime ontime[NR_CPUS];
+
+	struct emstune_group groups[STUNE_GROUP_COUNT];
+	struct kobject	  kobj;
+	struct kobject	  gov_data_kobj;
+	struct kobject    ontime_kobj;
+};
+
+#if defined(CONFIG_SCHED_EMS) && defined (CONFIG_SCHED_TUNE)
+extern void emstune_cpu_update(int cpu, u64 now);
+extern unsigned long emstune_freq_boost(int cpu, unsigned long util);
+
+#define emstune_add_request(req)	do {				\
+	__emstune_add_request(req, (char *)__func__, __LINE__);	\
+} while(0);
+extern void __emstune_add_request(struct emstune_mode_request *req, char *func, unsigned int line);
+extern void emstune_remove_request(struct emstune_mode_request *req);
+extern void emstune_update_request(struct emstune_mode_request *req, s32 new_value);
+extern void emstune_update_request_timeout(struct emstune_mode_request *req, s32 new_value,
+					unsigned long timeout_us);
+extern void emstune_boost(struct emstune_mode_request *req, int enable);
+extern void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us);
+
+extern int emstune_register_mode_update_notifier(struct notifier_block *nb);
+extern int emstune_unregister_mode_update_notifier(struct notifier_block *nb);
+
+extern int emstune_util_est_group(int st_idx);
+#else
+static inline void emstune_cpu_update(int cpu, u64 now) { };
+static inline unsigned long emstune_freq_boost(int cpu, unsigned long util) { return util; };
+
+#define emstune_add_request(req)	do { } while(0);
+static void __emstune_add_request(struct emstune_mode_request *req, char *func, unsigned int line) { }
+static void emstune_remove_request(struct emstune_mode_request *req) { }
+static void emstune_update_request(struct emstune_mode_request *req, s32 new_value) { }
+static void emstune_update_request_timeout(struct emstune_mode_request *req, s32 new_value,
+					unsigned long timeout_us) { }
+static void emstune_boost(struct emstune_mode_request *req, int enable) { }
+static void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us) { }
+
+static int emstune_register_mode_update_notifier(struct notifier_block *nb) { return 0; }
+static int emstune_unregister_mode_update_notifier(struct notifier_block *nb) { return 0; }
+
+static inline int emstune_util_est_group(int st_idx) { return 0; }
+#endif /* CONFIG_SCHED_EMS && CONFIG_SCHED_TUNE */
+
 /* Exynos Fluid Real Time Scheduler */
+extern unsigned int frt_disable_cpufreq;
+
 #ifdef CONFIG_SCHED_USE_FLUID_RT
 extern int frt_find_lowest_rq(struct task_struct *task);
 extern int frt_update_rt_rq_load_avg(struct rq *rq);
@@ -249,6 +315,9 @@ extern void frt_clear_victim_flag(struct task_struct *p);
 extern bool frt_test_victim_flag(struct task_struct *p);
 extern void frt_task_dead_rt(struct task_struct *p);
 extern void frt_set_task_rq_rt(struct sched_rt_entity *se, struct rt_rq *prev, struct rt_rq *next);
+extern void frt_init_entity_runnable_average(struct sched_rt_entity *rt_se);
+extern void frt_store_sched_avg(struct task_struct *p, struct sched_avg *sa);
+extern void frt_sync_sched_avg(struct task_struct *p, struct sched_avg *sa);
 #else
 static inline int frt_update_rt_rq_load_avg(struct rq *rq) { return 0; };
 static inline int frt_find_lowest_rq(struct task_struct *task) { return -1; };
@@ -263,20 +332,7 @@ static inline void frt_clear_victim_flag(struct task_struct *p) { };
 static inline bool frt_test_victim_flag(struct task_struct *p) { return false; };
 static inline void frt_task_dead_rt(struct task_struct *p) { };
 static inline void frt_set_task_rq_rt(struct sched_rt_entity *se, struct rt_rq *prev, struct rt_rq *next) { };
-#endif
-
-#if defined(CONFIG_SCHED_EMS) && defined(CONFIG_SCHED_TUNE)
-enum stune_group {
-	STUNE_ROOT,
-	STUNE_FOREGROUND,
-	STUNE_BACKGROUND,
-	STUNE_TOPAPP,
-	STUNE_RT,
-	STUNE_GROUP_COUNT,
-};
-void emst_cpu_update(int cpu, u64 now);
-unsigned long emst_boost(int cpu, unsigned long util);
-#else
-static inline void emst_cpu_update(int cpu, u64 now) { };
-static inline unsigned long emst_boost(int cpu, unsigned long util) { return util; };
+static inline void frt_init_entity_runnable_average(struct sched_rt_entity *rt_se) { }
+static inline void frt_store_sched_avg(struct task_struct *p, struct sched_avg *sa) { }
+static inline void frt_sync_sched_avg(struct task_struct *p, struct sched_avg *sa) { }
 #endif

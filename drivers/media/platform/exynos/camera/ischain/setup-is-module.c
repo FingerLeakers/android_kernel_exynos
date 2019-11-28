@@ -26,6 +26,7 @@
 
 #include <exynos-is-module.h>
 #include "is-i2c-config.h"
+#include "is-vender.h"
 
 static int acquire_shared_rsc(struct exynos_sensor_pin *pin_ctrls)
 {
@@ -84,7 +85,7 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 
 	switch (act) {
 	case PIN_NONE:
-		usleep_range(delay, delay);
+		udelay(delay);
 		break;
 	case PIN_OUTPUT:
 		if (gpio_is_valid(pin)) {
@@ -92,7 +93,7 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 				gpio_request_one(pin, GPIOF_OUT_INIT_HIGH, "CAM_GPIO_OUTPUT_HIGH");
 			else
 				gpio_request_one(pin, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
-			usleep_range(delay, delay);
+			udelay(delay);
 			gpio_free(pin);
 		}
 		break;
@@ -105,11 +106,11 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 	case PIN_RESET:
 		if (gpio_is_valid(pin)) {
 			gpio_request_one(pin, GPIOF_OUT_INIT_HIGH, "CAM_GPIO_RESET");
-			usleep_range(1000, 1000);
+			udelay(1000);
 			__gpio_set_value(pin, 0);
-			usleep_range(1000, 1000);
+			udelay(1000);
 			__gpio_set_value(pin, 1);
-			usleep_range(1000, 1000);
+			udelay(1000);
 			gpio_free(pin);
 		}
 		break;
@@ -123,7 +124,7 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 					module, module->sensor_id, name, ret);
 				return ret;
 			}
-			usleep_range(delay, delay);
+			udelay(delay);
 		}
 		break;
 	case PIN_REGULATOR:
@@ -176,7 +177,7 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 				}
 			}
 
-			usleep_range(delay, delay);
+			udelay(delay);
 			regulator_put(regulator);
 		}
 		break;
@@ -238,7 +239,7 @@ static int exynos_is_module_pin_control(struct is_module_enum *module,
 			return ret;
 		}
 
-		usleep_range(delay, delay);
+		udelay(delay);
 		break;
 	default:
 		merr("[M%d] unknown act for pin\n", module, module->sensor_id);

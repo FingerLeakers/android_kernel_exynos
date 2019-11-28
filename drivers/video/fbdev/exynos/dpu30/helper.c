@@ -99,10 +99,13 @@ static int __panel_match_dev(struct decon_device *decon, struct device *dev)
 
 #ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
 	if (decon->id == 0) {
-		decon->profile_sd = &panel->profiler.sd;
-
-		v4l2_subdev_call(decon->profile_sd, core, ioctl,
-			PROFILE_REG_DECON, NULL);
+		if (panel->profiler.initialized) {
+			decon->profile_sd = &panel->profiler.sd;
+			v4l2_subdev_call(decon->profile_sd, core, ioctl,
+				PROFILE_REG_DECON, NULL);
+		} else {
+			decon_err("DECON:ERR:%s:profiler is not initialized.\n", __func__);	
+		}
 	}
 #endif
 	return ret;

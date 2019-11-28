@@ -184,16 +184,19 @@ void tsmux_watchdog_tick_start(struct tsmux_device *tsmux_dev, int job_id)
 
 	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
 
-	watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
-	if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
-		print_tsmux(TSMUX_COMMON, "job id %d tick was already running\n", job_id);
-	} else {
-		print_tsmux(TSMUX_COMMON, "job id %d tick is now running\n", job_id);
-		atomic_set(&watchdog_tick->watchdog_tick_running, 1);
-	}
+	if (job_id >= 0 && job_id < TSMUX_MAX_CMD_QUEUE_NUM) {
+		watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
+		if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
+			print_tsmux(TSMUX_COMMON, "job id %d tick was already running\n", job_id);
+		} else {
+			print_tsmux(TSMUX_COMMON, "job id %d tick is now running\n", job_id);
+			atomic_set(&watchdog_tick->watchdog_tick_running, 1);
+		}
 
-	/* Reset the timeout watchdog */
-	atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+		/* Reset the timeout watchdog */
+		atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+	} else
+		print_tsmux(TSMUX_ERR, "invalid job id(%d)\n", job_id);
 
 	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
 }
@@ -204,16 +207,19 @@ void tsmux_watchdog_tick_stop(struct tsmux_device *tsmux_dev, int job_id)
 
 	print_tsmux(TSMUX_COMMON, "%s++\n", __func__);
 
-	watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
-	if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
-		print_tsmux(TSMUX_COMMON, "job id %d tick is now stopped\n", job_id);
-		atomic_set(&watchdog_tick->watchdog_tick_running, 0);
-	} else {
-		print_tsmux(TSMUX_COMMON, "job id %d tick was already stopped\n", job_id);
-	}
+	if (job_id >= 0 && job_id < TSMUX_MAX_CMD_QUEUE_NUM) {
+		watchdog_tick = &tsmux_dev->watchdog_tick[job_id];
+		if (atomic_read(&watchdog_tick->watchdog_tick_running)) {
+			print_tsmux(TSMUX_COMMON, "job id %d tick is now stopped\n", job_id);
+			atomic_set(&watchdog_tick->watchdog_tick_running, 0);
+		} else {
+			print_tsmux(TSMUX_COMMON, "job id %d tick was already stopped\n", job_id);
+		}
 
-	/* Reset the timeout watchdog */
-	atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+		/* Reset the timeout watchdog */
+		atomic_set(&watchdog_tick->watchdog_tick_count, 0);
+	} else
+		print_tsmux(TSMUX_ERR, "invalid job id(%d)\n", job_id);
 
 	print_tsmux(TSMUX_COMMON, "%s--\n", __func__);
 }

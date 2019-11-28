@@ -67,8 +67,8 @@ struct devicemgr_sensor_tag_data {
 struct is_devicemgr {
 	struct is_device_sensor		*sensor[IS_STREAM_COUNT];
 	struct is_device_ischain		*ischain[IS_STREAM_COUNT];
-	struct tasklet_struct			tasklet_sensor_tag[IS_STREAM_COUNT];
-	struct devicemgr_sensor_tag_data	sensor_tag_data[IS_STREAM_COUNT];
+	struct tasklet_struct			tasklet[IS_STREAM_COUNT];
+	struct devicemgr_sensor_tag_data	tag_data[IS_STREAM_COUNT];
 };
 
 struct is_group *get_ischain_leader_group(struct is_device_ischain *device);

@@ -180,8 +180,20 @@ config USE_DISPLAYPORT_CCIC_EVENT_QUEUE
 	bool "use queue for CCIC notifications"
         depends on EXYNOS_DISPLAYPORT
         default n
+
+config SUPPORT_MCD_MOTTO_TUNE
+	depends on EXYNOS_DPU30
+	tristate "Support MOTTO features"
+	default n
+
 endif
 
+config DISPLAYPORT_ENG
+	bool "DISPLAYPORT eng bin"
+	depends on EXYNOS_DISPLAYPORT
+	default n
+	help
+	  For DISPLAYPORT eng binary.
+
 source "drivers/video/fbdev/exynos/dpu30/panels/Kconfig"
-source "drivers/video/fbdev/exynos/dpu30/dp_logger/Kconfig"
 source "drivers/video/fbdev/exynos/dpu30/mcd_hdr/Kconfig"

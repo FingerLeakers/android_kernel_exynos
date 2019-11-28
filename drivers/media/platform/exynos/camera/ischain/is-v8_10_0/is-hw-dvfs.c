@@ -42,7 +42,9 @@ DECLARE_DVFS_DT(IS_SN_END,
 		{"front2_video_capture_"		, IS_SN_FRONT2_CAMCORDING_CAPTURE},
 		{"front_preview_"			, IS_SN_FRONT_PREVIEW},
 		{"front_preview_full_"			, IS_SN_FRONT_PREVIEW_FULL},
+		{"front_preview_remosaic_"		, IS_SN_FRONT_PREVIEW_REMOSAIC},
 		{"front_capture_"			, IS_SN_FRONT_CAPTURE},
+		{"front_capture_remosaic_"		, IS_SN_FRONT_CAPTURE_REMOSAIC},
 		{"front_video_"				, IS_SN_FRONT_CAMCORDING},
 		{"front_video_whd_"			, IS_SN_FRONT_CAMCORDING_WHD},
 		{"front_video_uhd_"			, IS_SN_FRONT_CAMCORDING_UHD},
@@ -70,7 +72,9 @@ DECLARE_DVFS_DT(IS_SN_END,
 		{"rear_preview_whd_"			, IS_SN_REAR_PREVIEW_WHD},
 		{"rear_preview_uhd_"			, IS_SN_REAR_PREVIEW_UHD},
 		{"rear_preview_uhd_60fps_"		, IS_SN_REAR_PREVIEW_UHD_60FPS},
+		{"rear_preview_remosaic_"	   	, IS_SN_REAR_PREVIEW_REMOSAIC},
 		{"rear_capture_"			, IS_SN_REAR_CAPTURE},
+		{"rear_capture_remosaic_"		, IS_SN_REAR_CAPTURE_REMOSAIC},
 		{"rear_video_fhd_"			, IS_SN_REAR_CAMCORDING_FHD},
 		{"rear_video_whd_"			, IS_SN_REAR_CAMCORDING_WHD},
 		{"rear_video_uhd_"			, IS_SN_REAR_CAMCORDING_UHD},
@@ -117,6 +121,8 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT2_CAMCORDING_CAPTURE);
 
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_FULL);
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW);
+DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_REMOSAIC);
+DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAPTURE_REMOSAIC);
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAPTURE);
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAMCORDING);
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAMCORDING_WHD);
@@ -150,6 +156,8 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_FHD);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_WHD);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_UHD);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_UHD_60FPS);
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_REMOSAIC);
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAPTURE_REMOSAIC);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAPTURE);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_FHD);
 DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_WHD);
@@ -277,6 +285,10 @@ struct is_dvfs_scenario static_scenarios[] = {
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_CAMCORDING_UHD_60FPS),
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_UHD_60FPS),
 	}, {
+		.scenario_id		= IS_SN_REAR_PREVIEW_REMOSAIC,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_PREVIEW_REMOSAIC),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_REMOSAIC),
+	}, {
 		.scenario_id		= IS_SN_REAR_PREVIEW_FULL,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_PREVIEW_FULL),
 		.check_func 		= GET_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_FULL),
@@ -352,6 +364,10 @@ struct is_dvfs_scenario static_scenarios[] = {
 		.scenario_id		= IS_SN_FRONT_PREVIEW_FULL,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_PREVIEW_FULL),
 		.check_func 		= GET_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_FULL),
+	}, {
+		.scenario_id		= IS_SN_FRONT_PREVIEW_REMOSAIC,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_PREVIEW_REMOSAIC),
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_REMOSAIC),
 	}, {
 		.scenario_id		= IS_SN_FRONT_PREVIEW,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_PREVIEW),
@@ -449,6 +465,11 @@ static struct is_dvfs_scenario dynamic_scenarios[] = {
 		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_CAMCORDING_UHD_CAPTURE),
 	}, {
+		.scenario_id		= IS_SN_REAR_CAPTURE_REMOSAIC,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_CAPTURE_REMOSAIC),
+		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_REAR_CAPTURE_REMOSAIC),
+	}, {
 		.scenario_id		= IS_SN_REAR_CAPTURE,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_REAR_CAPTURE),
 		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
@@ -468,6 +489,11 @@ static struct is_dvfs_scenario dynamic_scenarios[] = {
 		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_CAMCORDING_UHD_CAPTURE),
 		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
 		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_FRONT_CAMCORDING_UHD_CAPTURE),
+	}, {
+		.scenario_id		= IS_SN_FRONT_CAPTURE_REMOSAIC,
+		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_CAPTURE_REMOSAIC),
+		.keep_frame_tick	= IS_DVFS_CAPTURE_TICK,
+		.check_func		= GET_DVFS_CHK_FUNC(IS_SN_FRONT_CAPTURE_REMOSAIC),
 	}, {
 		.scenario_id		= IS_SN_FRONT_CAPTURE,
 		.scenario_nm		= DVFS_SN_STR(IS_SN_FRONT_CAPTURE),
@@ -568,8 +594,7 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_PREVIEW_HIGH_SPEED_FPS)
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS) ||
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS_WDR_ON) ||
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS_WDR_AUTO) ||
-		(mask == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED) ||
-		(mask == ISS_SUB_SCENARIO_FHD_240FPS);
+		(mask == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED);
 	if (IS_REAR_SENSOR(position) && (fps > 30) && !setfile_flag)
 		return 1;
 	else
@@ -586,8 +611,7 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_HIGH_SPEED_FPS)
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS) ||
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS_WDR_ON) ||
 		(mask == ISS_SUB_SCENARIO_UHD_60FPS_WDR_AUTO) ||
-		(mask == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED) ||
-		(mask == ISS_SUB_SCENARIO_FHD_240FPS);
+		(mask == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED);
 
 	if (IS_FRONT_SENSOR(position) && (fps > 30) && !setfile_flag)
 		return 1;
@@ -864,7 +888,7 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_VIDEO_HIGH_SPEED_120FPS)
 DECLARE_DVFS_CHK_FUNC(IS_SN_VIDEO_HIGH_SPEED_240FPS)
 {
 	u32 mask = (device->setfile & IS_SETFILE_MASK);
-	bool setfile_flag = (mask == ISS_SUB_SCENARIO_FHD_240FPS);
+	bool setfile_flag = (mask == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED);
 
 	if (IS_REAR_SENSOR(position) && (fps > 120) && setfile_flag)
 		return 1;
@@ -1112,12 +1136,26 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_UHD_60FPS)
 		return 0;
 }
 
+/* rear preview remosaic */
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_PREVIEW_REMOSAIC)
+{
+	u32 scen = (device->setfile & IS_SCENARIO_MASK) >> IS_SCENARIO_SHIFT;
+	bool scenario_flag = (scen == IS_SCENAIRO_REMOSAIC);
+
+	if ((position == SENSOR_POSITION_REAR) &&
+			(fps <= 30) &&
+			(scenario_flag))
+		return 1;
+	else
+		return 0;
+}
+
 /* front vt1 */
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_VT1)
 {
 	if (IS_FRONT_SENSOR(position) &&
 			((device->setfile & IS_SETFILE_MASK) \
-			 == ISS_SUB_SCENARIO_FRONT_VT1))
+			 == ISS_SUB_SCENARIO_VT))
 		return 1;
 	else
 		return 0;
@@ -1128,7 +1166,7 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_VT2)
 {
 	if (IS_FRONT_SENSOR(position) &&
 			((device->setfile & IS_SETFILE_MASK) \
-			 == ISS_SUB_SCENARIO_FRONT_VT2))
+			 == ISS_SUB_SCENARIO_VT))
 		return 1;
 	else
 		return 0;
@@ -1139,7 +1177,7 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_VT4)
 {
 	if (IS_FRONT_SENSOR(position) &&
 			((device->setfile & IS_SETFILE_MASK) \
-			 == ISS_SUB_SCENARIO_FRONT_VT4))
+			 == ISS_SUB_SCENARIO_VT))
 		return 1;
 	else
 		return 0;
@@ -1270,11 +1308,37 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW)
 		return 0;
 }
 
+/* front preview remosaic */
+DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_PREVIEW_REMOSAIC)
+{
+	u32 scen = (device->setfile & IS_SCENARIO_MASK) >> IS_SCENARIO_SHIFT;
+	bool scenario_flag = (scen == IS_SCENAIRO_REMOSAIC);
+
+	if ((position == SENSOR_POSITION_FRONT) && (scenario_flag))
+		return 1;
+	else
+		return 0;
+}
+
 /* front capture */
 DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAPTURE)
 {
 	if ((position == SENSOR_POSITION_FRONT) &&
 		(test_bit(IS_ISCHAIN_REPROCESSING, &device->state)))
+		return 1;
+	else
+		return 0;
+}
+
+/* front capture remosaic */
+DECLARE_DVFS_CHK_FUNC(IS_SN_FRONT_CAPTURE_REMOSAIC)
+{
+	u32 scen = (device->setfile & IS_SCENARIO_MASK) >> IS_SCENARIO_SHIFT;
+	bool scenario_flag = (scen == IS_SCENAIRO_REMOSAIC);
+
+	if ((position == SENSOR_POSITION_FRONT) &&
+			(test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
+			&& (scenario_flag))
 		return 1;
 	else
 		return 0;
@@ -1411,6 +1475,20 @@ DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAPTURE)
 {
 	if ((position == SENSOR_POSITION_REAR) &&
 		test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
+		return 1;
+	else
+		return 0;
+}
+
+/* rear capture remosaic */
+DECLARE_DVFS_CHK_FUNC(IS_SN_REAR_CAPTURE_REMOSAIC)
+{
+	u32 scen = (device->setfile & IS_SCENARIO_MASK) >> IS_SCENARIO_SHIFT;
+	bool scenario_flag = (scen == IS_SCENAIRO_REMOSAIC);
+
+	if ((position == SENSOR_POSITION_REAR) &&
+			(test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
+			&& (scenario_flag))
 		return 1;
 	else
 		return 0;

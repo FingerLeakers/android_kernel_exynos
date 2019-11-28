@@ -188,6 +188,12 @@
 			compatible = "exynos9820-ion";
 			ion,heapname = "camera_heap";
 			reg = <0x0 0x98800000 0x1B800000>;
+			ion,recyclable;
+		};
+
+		teegris_rmem: teegris_rmem {
+			compatible = "exynos,teegris_rmem";
+			reg = <0x0 0xED310000 0x2000>;
 		};
 
 		cp_rmem {

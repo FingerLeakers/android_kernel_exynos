@@ -26,7 +26,10 @@
 #if defined(CONFIG_IF_CB_MANAGER)
 #include <linux/usb/typec/manager/if_cb_manager.h>
 #endif
-
+#define MAX77705_SYS_FW_UPDATE
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+#include <linux/pm_qos.h>
+#endif
 struct max77705_opcode {
 	unsigned char opcode;
 	unsigned char data[OPCODE_DATA_LENGTH];
@@ -134,6 +137,7 @@ struct max77705_usbc_platform_data {
 	struct work_struct op_wait_work;
 	struct work_struct op_send_work;
 	struct work_struct cc_open_req_work;
+	struct work_struct fw_update_work;
 	struct workqueue_struct	*op_wait_queue;
 	struct workqueue_struct	*op_send_queue;
 	struct completion op_completion;
@@ -249,9 +253,20 @@ struct max77705_usbc_platform_data {
 #endif
 	u8 control3_reg;
 	int cc_open_req;
-	
+
 	bool recover_opcode_list[OPCODE_NONE];
 	int need_recover;
+	bool srcccap_request_retry;
+
+	int ovp_gpio;
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+	bool set_booster;
+	struct pm_qos_request kfc_qos;
+	struct pm_qos_request cpu1_qos;
+	struct pm_qos_request cpu2_qos;
+	struct pm_qos_request mif_qos;
+	struct delayed_work acc_booster_off_work;
+#endif
 };
 
 /* Function Status from s2mm005 definition */
@@ -270,7 +285,9 @@ typedef enum {
 #define POWER_ROLE_SWAP 2
 #define VCONN_ROLE_SWAP 3
 #define MANUAL_ROLE_SWAP 4
-
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+#define CLK_BOOSTER_OFF_WAIT_MS (5000)
+#endif
 #define ROLE_ACCEPT			0x1
 #define ROLE_REJECT			0x2
 #define ROLE_BUSY			0x3
@@ -315,6 +332,9 @@ extern void max77705_vbus_turn_on_ctrl(struct max77705_usbc_platform_data *usbc_
 extern void max77705_dp_detach(void *data);
 void max77705_usbc_disable_auto_vbus(struct max77705_usbc_platform_data *usbc_data);
 extern void pdic_manual_ccopen_request(int is_on);
+#if defined(CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME)
+extern void max77705_clk_booster_set(void *data, int on);
+#endif
 #if defined(CONFIG_TYPEC)
 int max77705_get_pd_support(struct max77705_usbc_platform_data *usbc_data);
 #endif

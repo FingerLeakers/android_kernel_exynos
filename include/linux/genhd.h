@@ -89,6 +89,7 @@ struct disk_stats {
 	unsigned long merges[NR_STAT_GROUPS];
 	unsigned long io_ticks;
 	unsigned long time_in_queue;
+	unsigned long flush_ios;
 };
 
 #define PARTITION_META_INFO_VOLNAMELTH	64
@@ -388,6 +389,16 @@ void part_dec_in_flight(struct request_queue *q, struct hd_struct *part,
 			int rw);
 void part_inc_in_flight(struct request_queue *q, struct hd_struct *part,
 			int rw);
+
+static inline int part_in_flight_read(struct hd_struct *part)
+{
+	return atomic_read(&part->in_flight[0]);
+}
+
+static inline int part_in_flight_write(struct hd_struct *part)
+{
+	return atomic_read(&part->in_flight[1]);
+}
 
 static inline struct partition_meta_info *alloc_part_info(struct gendisk *disk)
 {

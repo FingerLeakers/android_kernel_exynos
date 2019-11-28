@@ -13,6 +13,9 @@
 
 #include "ion.h"
 
+#ifdef CONFIG_HUGEPAGE_POOL
+#include <linux/hugepage_pool.h>
+#endif
 static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool, bool nozero)
 {
 	gfp_t gfpmask = pool->gfp_mask;
@@ -21,7 +24,16 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool, bool nozero)
 	if (nozero)
 		gfpmask &= ~__GFP_ZERO;
 
+#ifdef CONFIG_HUGEPAGE_POOL
+	/* we assume that this path is only being used by system heap */
+	if (pool->order == HUGEPAGE_ORDER)
+		page = alloc_zeroed_hugepage(gfpmask, pool->order, true,
+					     HPAGE_ION);
+	else
+		page = alloc_pages(gfpmask, pool->order);
+#else
 	page = alloc_pages(gfpmask, pool->order);
+#endif
 	if (!page) {
 		if (pool->order == 0)
 			perrfn("failed to alloc order-0 page (gfp %pGg)", &gfpmask);

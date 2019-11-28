@@ -884,4 +884,6 @@ extern int dhd_pcie_debug_info_dump(dhd_pub_t *dhd);
 extern void dhd_pcie_intr_count_dump(dhd_pub_t *dhd);
 extern void dhdpcie_bus_clear_intstatus(dhd_bus_t *bus);
 
+extern int dhd_get_pcie_linkspeed(dhd_pub_t *dhd);
+
 #endif /* dhd_pcie_h */

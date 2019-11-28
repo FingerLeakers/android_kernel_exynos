@@ -6,6 +6,7 @@
  */
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "ems.h"
@@ -19,9 +20,6 @@
 #define ontime_of(p)		(&p->se.ontime)
 
 #define cap_scale(v, s)		((v)*(s) >> SCHED_CAPACITY_SHIFT)
-
-#define entity_is_cfs_rq(se)	(se->my_q)
-#define entity_is_task(se)	(!se->my_q)
 
 /* Structure of ontime migration domain */
 struct ontime_dom {
@@ -64,7 +62,7 @@ static struct ontime_dom *get_dom(int cpu)
 	struct ontime_dom *curr = NULL;
 
 	list_for_each_entry(curr, &dom_list, list)
-		if (cpumask_test_cpu(cpu, &curr->cpus))
+		if (curr && cpumask_test_cpu(cpu, &curr->cpus))
 			break;
 
 	return curr;
@@ -127,7 +125,7 @@ void ontime_select_fit_cpus(struct task_struct *p, struct cpumask *fit_cpus)
 	 * migration or task is currently migrating, it can be assigned to all
 	 * active cpus without specifying fit cpus.
 	 */
-	if (!schedtune_ontime(p) || ontime_of(p)->migrating) {
+	if (!emstune_ontime(p) || ontime_of(p)->migrating) {
 		cpumask_copy(&mask, cpu_active_mask);
 		goto done;
 	}
@@ -177,8 +175,6 @@ void ontime_select_fit_cpus(struct task_struct *p, struct cpumask *fit_cpus)
 
 done:
 	cpumask_copy(fit_cpus, &mask);
-
-	trace_ems_ontime_fit_cpus(p, src_cpu, *(unsigned int *)cpumask_bits(fit_cpus));
 }
 
 extern struct sched_entity *__pick_next_entity(struct sched_entity *se);
@@ -194,12 +190,7 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 	 * Since current task does not exist in entity list of cfs_rq,
 	 * check first that current task is heavy.
 	 */
-	if (global_boost() || schedtune_prefer_perf(p)) {
-		*boost_migration = 1;
-		return p;
-	}
-
-	if (schedtune_ontime(p)) {
+	if (emstune_ontime(p)) {
 		runnable = ml_task_runnable(p);
 		if (runnable >= get_upper_boundary(task_cpu(p), p)) {
 			heaviest_task = p;
@@ -213,17 +204,11 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 		int task_ratio;
 
 		/* Skip non-task entity */
-		if (entity_is_cfs_rq(se))
+		if (!entity_is_task(se))
 			goto next_entity;
 
 		p = container_of(se, struct task_struct, se);
-		if (schedtune_prefer_perf(p)) {
-			heaviest_task = p;
-			*boost_migration = 1;
-			break;
-		}
-
-		if (!schedtune_ontime(p))
+		if (!emstune_ontime(p))
 			goto next_entity;
 
 		runnable = ml_task_runnable(p);
@@ -328,7 +313,7 @@ static int ontime_migration_cpu_stop(void *data)
 	/* Move task from source to destination */
 	double_lock_balance(src_rq, dst_rq);
 	if (move_specific_task(p, env)) {
-		trace_ems_ontime_migration(p, ml_task_runnable(p),
+		trace_ontime_migration(p, ml_task_runnable(p),
 				src_cpu, dst_cpu, boost_migration);
 	}
 	double_unlock_balance(src_rq, dst_rq);
@@ -392,7 +377,7 @@ void ontime_migration(void)
 
 		/* Find task entity if entity is cfs_rq. */
 		se = rq->cfs.curr;
-		if (entity_is_cfs_rq(se)) {
+		if (!entity_is_task(se)) {
 			struct cfs_rq *cfs_rq = se->my_q;
 
 			while (cfs_rq) {
@@ -450,11 +435,11 @@ int ontime_can_migrate_task(struct task_struct *p, int dst_cpu)
 	if (list_empty(&dom_list))
 		return true;
 
-	if (!schedtune_ontime(p))
+	if (!emstune_ontime(p))
 		return true;
 
 	if (ontime_of(p)->migrating == 1) {
-		trace_ems_ontime_can_migrate(p, src_cpu, dst_cpu, false, "on migrating");
+		trace_ontime_can_migrate_task(p, dst_cpu, false, "on migrating");
 		return false;
 	}
 
@@ -465,9 +450,12 @@ int ontime_can_migrate_task(struct task_struct *p, int dst_cpu)
 	 *  2. If the source cpu is not overutilized
 	 */
 	if (cpu_overutilized(capacity_cpu(src_cpu, USS), ml_cpu_util(src_cpu)) &&
-	    cpu_overutilized(capacity_cpu(dst_cpu, USS), ml_cpu_util_with(dst_cpu, p)))
-		if (cpu_rq(dst_cpu)->nr_running)
+	    cpu_overutilized(capacity_cpu(dst_cpu, USS), ml_cpu_util_with(dst_cpu, p))) {
+		if (cpu_rq(dst_cpu)->nr_running) {
+			trace_ontime_can_migrate_task(p, dst_cpu, false, "dest overutil");
 			return false;
+		}
+	}
 
 	/*
 	 * Task is heavy enough but load balancer tries to migrate the task to
@@ -483,15 +471,15 @@ int ontime_can_migrate_task(struct task_struct *p, int dst_cpu)
 		 */
 		if (cpu_overutilized(capacity_cpu(src_cpu, 0), ml_cpu_util(src_cpu)) &&
 		    ml_task_util(p) * 100 < (_ml_cpu_util(src_cpu, p->sse) * 75)) {
-			trace_ems_ontime_can_migrate(p, src_cpu, dst_cpu, true, "overutil");
+			trace_ontime_can_migrate_task(p, dst_cpu, true, "src overutil");
 			return true;
 		}
 
-		trace_ems_ontime_can_migrate(p, src_cpu, dst_cpu, false, "migrate to slower");
+		trace_ontime_can_migrate_task(p, dst_cpu, false, "migrate to slower");
 		return false;
 	}
 
-	trace_ems_ontime_can_migrate(p, src_cpu, dst_cpu, true, "n/a");
+	trace_ontime_can_migrate_task(p, dst_cpu, true, "n/a");
 
 	return true;
 }
@@ -629,52 +617,51 @@ out:
 }
 
 /****************************************************************/
+/*		   emstune mode update notifier			*/
+/****************************************************************/
+
+static int ontime_mode_update_callback(struct notifier_block *nb,
+				unsigned long val, void *v)
+{
+	struct emstune_mode *cur_mode = (struct emstune_mode *)v;
+	struct ontime_dom *dom;
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
+			continue;
+
+		dom = get_dom(cpu);
+		if (unlikely(!dom))
+			continue;
+
+		dom->upper_boundary = cur_mode->ontime[cpu].upper_boundary;
+		dom->lower_boundary = cur_mode->ontime[cpu].lower_boundary;
+		dom->upper_boundary_s = cur_mode->ontime[cpu].upper_boundary_s;
+		dom->lower_boundary_s = cur_mode->ontime[cpu].lower_boundary_s;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block ontime_mode_update_notifier = {
+	.notifier_call = ontime_mode_update_callback,
+};
+
+/****************************************************************/
 /*			initialization				*/
 /****************************************************************/
 static void __init
-parse_ontime(struct device_node *dn, struct ontime_dom *dom, int cnt)
+init_ontime_dom(struct device_node *dn, struct ontime_dom *dom, int cnt)
 {
-	struct device_node *ontime, *coregroup;
-	char name[15];
-	int prop;
-	int res = 0;
-
-	ontime = of_get_child_by_name(dn, "ontime");
-	if (!ontime)
-		goto disable;
-
-	snprintf(name, sizeof(name), "coregroup%d", cnt);
-	coregroup = of_get_child_by_name(ontime, name);
-	if (!coregroup)
-		goto disable;
 	dom->coregroup = cnt;
 
-	/* If any of ontime parameter isn't, disable ontime of this coregroup */
-	res |= of_property_read_s32(coregroup, "upper-boundary", &prop);
-	dom->upper_boundary = prop;
-
-	res |= of_property_read_s32(coregroup, "lower-boundary", &prop);
-	dom->lower_boundary = prop;
-
-	res |= of_property_read_s32(coregroup, "upper-boundary-s", &prop);
-	dom->upper_boundary_s = prop;
-
-	res |= of_property_read_s32(coregroup, "lower-boundary-s", &prop);
-	dom->lower_boundary_s = prop;
-
-	if (res)
-		goto disable;
+	dom->upper_boundary = 100;
+	dom->lower_boundary = 0;
+	dom->upper_boundary_s = 100;
+	dom->lower_boundary_s = 0;
 
 	dom->enabled = true;
-	return;
-
-disable:
-	pr_err("ONTIME(%s): failed to parse ontime node\n", __func__);
-	dom->enabled = false;
-	dom->upper_boundary = ULONG_MAX;
-	dom->lower_boundary = 0;
-	dom->upper_boundary_s = ULONG_MAX;
-	dom->lower_boundary_s = 0;
 }
 
 static int __init init_ontime(void)
@@ -684,15 +671,6 @@ static int __init init_ontime(void)
 	int cpu, cnt = 0;
 
 	INIT_LIST_HEAD(&dom_list);
-
-	dn = of_find_node_by_path("/ems");
-	if (!dn)
-		return 0;
-
-	if (!of_get_child_by_name(dn, "ontime")) {
-		pr_info("Not support ontime migration\n");
-		return 0;
-	}
 
 	if (!cpumask_equal(cpu_possible_mask, cpu_all_mask))
 		return 0;
@@ -705,14 +683,18 @@ static int __init init_ontime(void)
 
 		cpumask_copy(&dom->cpus, cpu_coregroup_mask(cpu));
 
-		parse_ontime(dn, dom, cnt++);
+		init_ontime_dom(dn, dom, cnt++);
 
 		list_add_tail(&dom->list, &dom_list);
 	}
 
 	ontime_sysfs_init();
+	emstune_register_mode_update_notifier(&ontime_mode_update_notifier);
 
 	of_node_put(dn);
+
+	dsb(sy);
+
 	return 0;
 }
 late_initcall(init_ontime);

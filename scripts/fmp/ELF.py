@@ -168,7 +168,7 @@ class ELF:
         """
         :param start_addr: start address :int
         :param end_addr: end address: int
-        :returns list: [alt_inst1, alt_inst2, alt_inst3, ..., alt_instN]
+        :returns list: [[alt_inst1_addr, length1], [alt_inst2_addr, length2], ...]
 
         .altinstructions section contains an array of struct alt_instr.
         As instance, for kernel 4.14 from /arch/arm64/include/asm/alternative.h
@@ -216,10 +216,15 @@ class ELF:
             while __i < (len(__altinstr_section_bin) - __struct_size):
                 __struct_byte = __altinstr_section_bin[__i: __i + __struct_size]
                 __struct_value = list(struct.unpack(struct_format, __struct_byte))
-                __struct_value[0] = __struct_value[0] + __altinstr_section_addr + __i
 
-                if self.utils.to_int(start_addr) <= __struct_value[0] <= self.utils.to_int(end_addr):
-                    ranged_altinst.append(__struct_value[0])
+                # original instruction addr (going to be replaced) considered as "gap"
+                __original_instruction_addr = __struct_value[0] + __altinstr_section_addr + __i
+
+                # derive the target ARM instruction(s) length.
+                __target_instruction_len = __struct_value[4]
+
+                if self.utils.to_int(start_addr) <= __original_instruction_addr <= self.utils.to_int(end_addr):
+                    ranged_altinst.append([__original_instruction_addr, __target_instruction_len])
                 __i = __i + __struct_size
 
         return ranged_altinst

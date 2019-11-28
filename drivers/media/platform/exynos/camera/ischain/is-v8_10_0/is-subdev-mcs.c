@@ -92,6 +92,7 @@ void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
 		stripe_w = ALIGN((incrop->w * (frame->stripe_info.region_id + 1) / frame->stripe_info.region_num) - frame->stripe_info.in.h_pix_num, 4);
 		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
 
+		frame->stripe_info.in.prev_h_pix_num = frame->stripe_info.in.h_pix_num;
 		frame->stripe_info.in.h_pix_num += stripe_w;
 		stripe_w += STRIPE_MARGIN_WIDTH;
 	} else {
@@ -112,10 +113,10 @@ void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
 	otcrop->w = incrop->w;
 	otcrop->h = incrop->h;
 
-	mdbg_pframe("stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			incrop->x, incrop->y, incrop->w, incrop->h);
-	mdbg_pframe("stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
+	msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 }

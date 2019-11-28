@@ -233,13 +233,6 @@ config SPLIT_ARGOS_SET
 	---help---
 	To support SPLIT_ARGOS_SET
 
-config BCM_DETECT_CONSECUTIVE_HANG
-	bool "Detect consecutive hang event"
-	depends on BROADCOM_WIFI
-	default n
-	---help---
-	Detecting defect module from consecutive hang event
-
 config WLAN_TSQ_MULTIPLIER
 	bool "Enable TCP TSQ_MULTIPLIER"
 	depends on BROADCOM_WIFI

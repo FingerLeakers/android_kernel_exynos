@@ -59,6 +59,8 @@
 		compatible = "samsung,exynos-adv-tracer";
 		reg = <0x0 0x158d0000 0x1000>;
 		reg-names = "mailbox";
+		pmu_dbgcore_config = <0x3280>;
+		pmu_dbgcore_status = <0x3284>;
 		interrupts = <GIC_SPI INTREQ__MAILBOX_DBGCORE2AP IRQ_TYPE_LEVEL_HIGH>;
 		status = "ok";
 	};

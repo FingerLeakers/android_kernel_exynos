@@ -41,6 +41,13 @@ enum cis_dual_sync_mode {
 	DUAL_SYNC_MAX,
 };
 
+enum cis_stream_state {
+	CIS_STREAM_INIT = 0,
+	CIS_STREAM_SET_DONE,
+	CIS_STREAM_SET_ERR,
+	CIS_STREAM_MAX,
+};
+
 struct is_cis {
 	u32				id;
 	struct v4l2_subdev		*subdev; /* connected module subdevice */
@@ -70,7 +77,6 @@ struct is_cis {
 	/* expected dms */
 	camera2_lens_dm_t		expecting_lens_dm[EXPECT_DM_NUM];
 	camera2_sensor_dm_t		expecting_sensor_dm[EXPECT_DM_NUM];
-	camera2_flash_dm_t		expecting_flash_dm[EXPECT_DM_NUM];
 
 	/* expected udm */
 	camera2_lens_udm_t		expecting_lens_udm[EXPECT_DM_NUM];
@@ -127,6 +133,9 @@ struct is_cis {
 	u32				dual_sync_mode;
 	u32				dual_sync_work_mode;
 	struct work_struct		dual_sync_mode_work;
+
+	/* check i2c fail of global/mode setting */
+	enum cis_stream_state           stream_state;
 };
 
 struct is_actuator_data {
@@ -187,6 +196,9 @@ struct is_actuator {
 	bool				vendor_use_standby_mode;
 
 	bool                    init_cal_setting;
+	bool					actual_pos_support;
+
+	void					*priv_info;
 };
 
 struct is_aperture {
@@ -252,6 +264,9 @@ struct is_flash {
 	int				flash_gpio;
 	int				torch_gpio;
 
+	/* for select led channel */
+	int				led_ch[FLASH_LED_CH_MAX];
+
 	struct is_flash_data	flash_data;
 	struct is_flash_expo_gain  flash_ae;
 
@@ -261,6 +276,9 @@ struct is_flash {
 	int				attach_sdp;
 #endif
 	struct is_device_sensor_peri	*sensor_peri;
+
+	/* expecting dm */
+	camera2_flash_dm_t		expecting_flash_dm[EXPECT_DM_NUM];
 };
 
 struct is_ois {
@@ -298,6 +316,7 @@ struct is_mcu {
 	u32						device; /* connected sensor device */
 	u32						ver;
 	u32						name;
+	u32						mcu_ctrl_actuator;
 	u8						vdrinfo_bin[4];
 	u8						hw_bin[4];
 	u8						vdrinfo_mcu[4];
@@ -305,6 +324,8 @@ struct is_mcu {
 	char						load_fw_name[50];
 	struct is_ois			*ois;
 	struct v4l2_subdev			*subdev_ois;
+	struct is_actuator 			*actuator;
+	struct v4l2_subdev 			*subdev_actuator;
 	struct is_device_ois	*ois_device;
 	struct is_aperture		*aperture;
 	struct v4l2_subdev		*subdev_aperture;
@@ -329,6 +350,11 @@ struct is_laser_af {
 	struct is_laser_af_ops		*laser_af_ops;
 
 	struct is_device_sensor_peri	*sensor_peri;
+};
+
+struct is_tof_af {
+	struct tof_data_t		tof_af_data;
+	u16				af_data[1200];
 };
 
 struct paf_action {
@@ -456,6 +482,8 @@ struct is_device_sensor_peri {
 	struct v4l2_subdev		*subdev_eeprom;
 
 	struct is_laser_af		*laser_af;
+	struct is_tof_af		tof_af;
+
 	struct v4l2_subdev		*subdev_laser_af;
 
 	unsigned long			peri_state;
@@ -468,6 +496,11 @@ struct is_device_sensor_peri {
 	struct kthread_work		sensor_work;
 
 	/* Thread for sensor register setting */
+	struct task_struct		*cis_global_task;
+	struct kthread_worker		cis_global_worker;
+	struct kthread_work		cis_global_work;
+	bool				cis_global_complete;
+
 	struct task_struct		*mode_change_task;
 	struct kthread_worker		mode_change_worker;
 	struct kthread_work		mode_change_work;
@@ -480,6 +513,7 @@ struct is_device_sensor_peri {
 };
 
 void is_sensor_work_fn(struct kthread_work *work);
+void is_sensor_global_setting_work_fn(struct kthread_work *work);
 void is_sensor_mode_change_work_fn(struct kthread_work *work);
 int is_sensor_init_sensor_thread(struct is_device_sensor_peri *sensor_peri);
 void is_sensor_deinit_sensor_thread(struct is_device_sensor_peri *sensor_peri);

@@ -13,6 +13,7 @@ const struct static_rule defex_static_rules[] = {
 	{feature_safeplace_status,"1"},
 	{feature_immutable_status,"1"},
 	{feature_ped_status,"1"},
+	{feature_ped_tgid,"1"},
 #ifndef DEFEX_USE_PACKED_RULES
 	/* Rules will be added here */
 	/* Never modify the above line. Rules will be added for buildtime */

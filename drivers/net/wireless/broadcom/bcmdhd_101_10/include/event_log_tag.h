@@ -404,8 +404,15 @@
 #define EVENT_LOG_TAG_AMT_INFO			349
 #define EVENT_LOG_TAG_AMT_TRACE			350
 
+/* OBSS hw logging */
+#define EVENT_LOG_TAG_WLC_OBSS_ERR		351
+#define EVENT_LOG_TAG_WLC_OBSS_TRACE		352
+#define EVENT_LOG_TAG_WLC_OBSS_INFO		353
+
+#define EVENT_LOG_TAG_ALLOC_TRACE		354
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			350
+#define EVENT_LOG_TAG_MAX			354
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

@@ -4561,17 +4561,17 @@ static const struct cam_mipi_sensor_mode sensor_2la_setfile_A_mipi_sensor_mode[]
 		sensor_2la_setfile_A_mipi_channel_FULL,	ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_FULL),
 		sensor_2la_setfile_A_mipi_setting_FULL,	ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_FULL)
 	},
-	{ SENSOR_2LA_4032X3024_60FPS,
-		sensor_2la_setfile_A_mipi_channel_FULL, ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_FULL),
-		sensor_2la_setfile_A_mipi_setting_FULL, ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_FULL)
-	},
 	{ SENSOR_2LA_2016X1134_240FPS,
-		sensor_2la_setfile_A_mipi_channel_BINNING,	ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_BINNING),
-		sensor_2la_setfile_A_mipi_setting_BINNING,	ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_BINNING)
+		sensor_2la_setfile_A_mipi_channel_BINNING, ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_BINNING),
+		sensor_2la_setfile_A_mipi_setting_BINNING, ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_BINNING)
 	},
 	{ SENSOR_2LA_2016X1134_120FPS,
 		sensor_2la_setfile_A_mipi_channel_BINNING, ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_BINNING),
 		sensor_2la_setfile_A_mipi_setting_BINNING, ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_BINNING)
+	},
+	{ SENSOR_2LA_4032X3024_60FPS,
+		sensor_2la_setfile_A_mipi_channel_FULL, ARRAY_SIZE(sensor_2la_setfile_A_mipi_channel_FULL),
+		sensor_2la_setfile_A_mipi_setting_FULL, ARRAY_SIZE(sensor_2la_setfile_A_mipi_setting_FULL)
 	},
 };
 

@@ -55,6 +55,12 @@
 
 #include <soc/samsung/exynos-adv-tracer.h>
 
+
+#if (defined CONFIG_UH_HARSH) || (defined CONFIG_UH_HARSH_STATIC)
+#include <linux/cpumask.h>
+#include <linux/harsh.h>
+#endif
+
 static const char *handler[]= {
 	"Synchronous Abort",
 	"IRQ",
@@ -611,6 +617,46 @@ void arm64_notify_segfault(unsigned long addr)
 	force_signal_inject(SIGSEGV, code, addr);
 }
 
+#if (defined CONFIG_UH_HARSH) || (defined CONFIG_UH_HARSH_STATIC)
+int harsh_handle_inst(struct pt_regs *regs){
+	struct task_struct *tsk;
+	pid_t pid;
+	cpumask_t cpu_mask;
+	unsigned int core;
+
+	unsigned long addr = instruction_pointer(regs);
+	char str[sizeof("00000000 ") * 5 + 2 + 1], *p = str;
+	unsigned int val, bad;
+	bad = get_user(val, &((u32 *)addr)[0]);
+
+	if (!bad)
+		p += sprintf(p, "(%08x) " , val);
+
+	cpumask_clear(&cpu_mask);
+	tsk = get_current();
+	pid = tsk->pid;
+	core = tsk->cpu;
+
+#ifdef CONFIG_UH_HARSH
+	uh_call(UH_APP_HARSH, HARSH_EVENT_UNDEF_INST, (u64)val, (u64)core, (u64)&cpu_mask, 0);
+#else
+	uh_call(UH_APP_HARSH, HARSH_EVENT_UNDEF_INST_STATIC, (u64)val, (u64)core, (u64)&cpu_mask, 0);
+#endif
+	/* cpu_mask has cores that EL2 expects to be capable of running this instruction.
+	 * If there is no possible cores to run this instruction. SIGILL will be injected to pc at EL0.
+	 * Otherwise either emulated at EL2 or EL1 is asked to migrate the task to other cluster of cpus.
+	 */
+	if(cpumask_empty(&cpu_mask)){
+		return 1;
+	} else if (cpumask_test_cpu(core, &cpu_mask)){
+		return 0;
+	} else {
+		sched_setaffinity(pid, &cpu_mask);
+		return 0;
+    }
+}
+#endif
+
 #if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs, unsigned int esr)
 #else
@@ -645,6 +691,9 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 	}
 #endif
 
+#if (defined CONFIG_UH_HARSH) || (defined CONFIG_UH_HARSH_STATIC)
+	if(harsh_handle_inst(regs))
+#endif
 	force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
 	BUG_ON(!user_mode(regs));
 }
@@ -900,6 +949,9 @@ extern int __do_kernel_fault_safe(struct mm_struct *mm, unsigned long addr,
 
 asmlinkage void handle_bad_stack(struct pt_regs *regs)
 {
+	if (IS_ENABLED(CONFIG_SEC_DEBUG_BAD_STACK_INFO))
+		secdbg_base_set_bs_info_phase(1);
+
 #ifdef CONFIG_SEC_DEBUG_BAD_STACK_CAREFULLY
 	/* check sp_el0 address*/
 	if (!thread_virt_addr_valid(current_thread_info()))
@@ -911,6 +963,9 @@ asmlinkage void handle_bad_stack(struct pt_regs *regs)
 		unsigned long ovf_stk = (unsigned long)this_cpu_ptr(overflow_stack);
 		unsigned int esr = read_sysreg(esr_el1);
 		unsigned long far = read_sysreg(far_el1);
+
+		if (IS_ENABLED(CONFIG_SEC_DEBUG_BAD_STACK_INFO))
+			secdbg_base_set_bs_info_phase(2);
 
 		console_verbose();
 		pr_emerg("Insufficient stack space to handle exception!");

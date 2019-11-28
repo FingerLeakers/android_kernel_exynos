@@ -67,6 +67,8 @@ static inline int exynos_pm_notify(enum exynos_pm_event event)
 #ifdef CONFIG_EXYNOS_FLEXPMU_DBG
 extern u32 acpm_get_mifdn_count(void);
 extern u32 acpm_get_apsocdn_count(void);
+extern u32 acpm_get_apsocdn_total_count(void);
+extern u32 acpm_get_apsocdn_sicd_count(void);
 extern u32 acpm_get_early_wakeup_count(void);
 extern int acpm_get_mif_request(void);
 #else
@@ -79,6 +81,14 @@ static inline u32 acpm_get_mifdn_count(void)
 	return 0;
 }
 static inline u32 acpm_get_apsocdn_count(void)
+{
+	return 0;
+}
+static inline u32 acpm_get_apsocdn_total_count(void)
+{
+	return 0;
+}
+static inline u32 acpm_get_apsocdn_sicd_count(void)
 {
 	return 0;
 }

@@ -89,7 +89,7 @@
 				battery,wpc_cv_call_vout = <5000>;
 				battery,wpc_cc_call_vout = <5000>;
 				battery,wpc_det = <&gpa2 0 0>;
-//				battery,wpc_en = <&expander_gpios 8 0>;
+				battery,wpc_en = <&gpm10 0 0>;
 				battery,wpc_int = <&gpa3 2 0>;
 				battery,hv_vout_wa = <0x41>; /* WC vout 10.0V */
 				battery,adc_check_count = <5>;
@@ -171,7 +171,7 @@
 				battery,wpc_store_lcd_on_high_temp_rec = <300>;
 				battery,wpc_store_lcd_on_charging_limit_current = <400>;
 
-				battery,sleep_mode_limit_current = <500>;
+				battery,sleep_mode_limit_current = <800>;
 				battery,wc_full_input_limit_current = <100>;
 
 				battery,mix_high_temp = <430>;
@@ -267,6 +267,13 @@
 						700 4320 4250 4220 90 45
 						1000 4270 4200 4170 89 45>;
 
+				battery,health_condition = <
+					/* CYCLE ASOC */
+					900 75	/* GOOD */
+					1200 65 /* NORMAL */
+					1500 55 /* AGED */
+					>;
+
 				/* step charging option */
 				battery,step_charging_type = <0>;
 
@@ -331,7 +338,7 @@
 				fuelgauge,using_temp_compensation;
 				fuelgauge,low_temp_limit = <100>;
 				fuelgauge,using_hw_vempty;
-				fuelgauge,v_empty = <0xAA64>; /* Empty: 3400mV, Recover: 4000mV */
+				fuelgauge,v_empty = <0xA7E2>; /* Empty: 3400mV, Recover: 4000mV */
 				fuelgauge,v_empty_origin = <0x7D54>; /* Empty: 2500mV, Recover: 3360mV */
 				fuelgauge,sw_v_empty_voltage = <3200>;
 				fuelgauge,sw_v_empty_voltage_cisd = <3100>;
@@ -561,7 +568,7 @@
 					vout = <5500>;
 					input_current_limit = <800>;
 					fast_charging_current = <3150>;
-					ttf_charge_current = <3150>;
+					ttf_charge_current = <800>;
 					rx_power = <4500>;
 				};
 				current_group_1 {
@@ -585,7 +592,7 @@
 					vout = <11000>;
 					input_current_limit = <1300>;
 					fast_charging_current = <3150>;
-					ttf_charge_current = <2650>;
+					ttf_charge_current = <2740>;
 					rx_power = <14000>;
 				};
 			};
@@ -596,9 +603,11 @@
 &pinctrl_0 {
 	pdet_b: pdet-b {
 		samsung,pins = "gpa0-6";
-		samsung,pin-function = <0xf>;
-		samsung,pin-pud = <3>;
+		samsung,pin-function = <0x0>;
+		samsung,pin-pud = <0>;
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <3>;
 	};
 
 	wpc_det: wpc-det {
@@ -610,9 +619,11 @@
 
 	ping_nen: ping-nen {
 		samsung,pins = "gpa2-1";
-		samsung,pin-function = <0x1>;
-		samsung,pin-pud = <3>;
+		samsung,pin-function = <0x0>;
+		samsung,pin-pud = <0>;
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <3>;
 	};
 
 	wpc_int: wpc-int {
@@ -627,6 +638,8 @@
 		samsung,pin-function = <0xf>;
 		samsung,pin-pud = <3>;
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <3>;
+		samsung,pin-pud-pdn = <3>;
 	};
 };
 

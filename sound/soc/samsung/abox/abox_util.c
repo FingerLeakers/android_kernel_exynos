@@ -130,7 +130,7 @@ bool is_secure_gic(void)
 		secure = (rev > 0x0);
 		break;
 	default:
-		secure = false;
+		secure = true;
 		break;
 	}
 	cached = true;

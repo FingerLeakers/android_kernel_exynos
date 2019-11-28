@@ -37,25 +37,3 @@ void dsms_log_write(int loglevel, const char* format, ...)
 	}
 	va_end(ap);
 }
-
-#ifdef DSMS_DEBUG_ENABLE
-void dsms_log_debug(int logtype, const char* format, ...)
-{
-	va_list ap;
-	char log[LOG_LINE_MAX];
-
-	if (logtype == WHITELIST) {
-		if (!debug_whitelist())
-			return;
-	}
-	else if (logtype == TRACE) {
-		if (!debug_trace_dsms_calls())
-			return;
-	}
-
-	va_start(ap, format);
-	vsnprintf(log, sizeof(log), format, ap);
-	pr_debug(DSMS_DEBUG_TAG "%s", log);
-	va_end(ap);
-}
-#endif /* DSMS_DEBUG_ENABLE */

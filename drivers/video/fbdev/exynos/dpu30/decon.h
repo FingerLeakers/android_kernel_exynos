@@ -51,6 +51,8 @@
 #include <linux/sti/abc_common.h>
 #endif
 
+#define CONFIG_PROFILE_WINCONFIG	1
+
 #define SUCCESS_EXYNOS_SMC	0
 
 #define MAX_DECON_CNT		3
@@ -104,6 +106,8 @@ extern struct decon_bts_ops decon_bts_control;
 #define EINT_PEND(x)		((x == 0) ? 2 : ((x == 1) ? 4 : 1))
 
 #define MAX_DSC_SLICE_CNT	4
+
+#define DEBUG_DMA_BUF_LEAK	1
 
 void dpu_debug_printk(const char *function_name, const char *format, ...);
 #define decon_err(fmt, ...)							\
@@ -201,11 +205,11 @@ void dpu_debug_printk(const char *function_name, const char *format, ...);
 #define IS_HDR_FMT(hdr_std) ((hdr_std == DPP_HDR_ST2084) || (hdr_std == DPP_HDR_HLG))
 #endif
 /* DECON systrace related */
-void tracing_mark_write(struct decon_device *decon, char id, char *str1, int value);
+void decon_tracing_mark_write(struct decon_device *decon, char id, char *str1, int value);
 #define decon_systrace(decon, id, str1, value)					\
 	do {									\
 		if (decon_systrace_enable)					\
-			tracing_mark_write(decon, id, str1, value);		\
+			decon_tracing_mark_write(decon, id, str1, value);		\
 	} while (0)
 
 enum decon_hold_scheme {
@@ -437,11 +441,9 @@ enum decon_supported_color_mode {
 };
 
 
-enum fps_update_mode {
-	VRR_RETAIN = 0,
-	VRR_EMPTY_BUF,
-	VRR_WITH_BUF,
-};
+#define VRR_UPDATE				0x80000000
+#define WIN_VRR_HS_MODE			1
+#define WIN_VRR_NORMAL_MODE		0
 
 struct decon_color_mode_info {
 	int index;
@@ -505,6 +507,11 @@ struct decon_readback {
 	struct workqueue_struct *wq;
 };
 
+struct vrr_config_data {
+	u32 fps;
+	u32 mode;
+};
+
 struct decon_win_config {
 	enum {
 		DECON_WIN_STATE_DISABLED = 0,
@@ -512,7 +519,9 @@ struct decon_win_config {
 		DECON_WIN_STATE_BUFFER,
 		DECON_WIN_STATE_UPDATE,
 		DECON_WIN_STATE_CURSOR,
-		DECON_WIN_STATE_MRESOL = 0x10000,
+		DECON_WIN_STATE_MRESOL = 0x10000,		
+		DECON_WIN_STATE_VRR_NORMALMODE= 0x20000,
+		DECON_WIN_STATE_VRR_HSMODE = 0x20001,
 	} state;
 
 	/* Reusability:This struct is used for IDMA and ODMA */
@@ -577,12 +586,22 @@ struct decon_reg_data {
 	u32 lcd_width;
 	u32 lcd_height;
 
-	u32 fps;
 	u32 fps_update;
+	struct vrr_config_data vrr_info;
 
 	int mode_idx;
 #ifdef CONFIG_DYNAMIC_FREQ
 	int df_update;
+#endif
+
+#ifdef CONFIG_PROFILE_WINCONFIG
+	ktime_t create_time;
+	int remained_frames;
+#endif
+
+#ifdef DEBUG_DMA_BUF_LEAK
+	int import_cnt;
+	ktime_t import_time;
 #endif
 };
 
@@ -1194,10 +1213,29 @@ struct decon_freq_hop {
 	u32 request_k;	/* user requested k value */
 };
 
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+struct profile_data {
+	unsigned int win_cnt;
+};
+#endif
+
 struct decon_edid_data {
 	int size;
 	u8 edid_data[EDID_BLOCK_SIZE * MAX_EDID_BLOCK];
 };
+
+
+#ifdef DEBUG_DMA_BUF_LEAK
+#define LEAK_INFO_ARRAY_CNT		20
+
+struct dma_leak_info {
+	u32 type;
+	int import_cnt;
+	int free_cnt;
+	ktime_t import_time;
+	ktime_t free_time;
+};
+#endif
 
 struct decon_device {
 	int id;
@@ -1298,6 +1336,21 @@ struct decon_device {
 
 #ifdef CONFIG_DYNAMIC_FREQ
 	struct df_status_info *df_status;
+#endif
+
+#ifdef CONFIG_PROFILE_WINCONFIG
+	ktime_t exit_hiber_time;
+#endif
+#ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
+	struct v4l2_subdev *profile_sd;
+#endif
+
+#ifdef DEBUG_DMA_BUF_LEAK
+	int import_cnt;
+	int free_cnt;
+	ktime_t import_time;
+	struct dma_leak_info leak_info[LEAK_INFO_ARRAY_CNT];
+	int leak_cnt;
 #endif
 };
 #ifdef CONFIG_EXYNOS_MCD_HDR
@@ -1474,7 +1527,7 @@ void decon_init_low_persistence_mode(struct decon_device *decon);
 
 /* multi-resolution related function */
 void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs);
-void dpu_set_vrr_config(struct decon_device *decon, u32 fps);
+void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info);
 
 
 /* DPHY PLL frequency hopping feature related functions */
@@ -1973,6 +2026,7 @@ int _decon_enable(struct decon_device *decon, enum decon_state state);
 /* Display Mode Support */
 #define EXYNOS_GET_DISPLAY_MODE_NUM	_IOW('F', 700, u32)
 #define EXYNOS_GET_DISPLAY_MODE		_IOW('F', 701, struct exynos_display_mode)
+#define EXYNOS_GET_DISPLAY_CURRENT_MODE _IOW('F', 705, u32)
 #endif
 /* EDID data */
 #define EXYNOS_GET_EDID		_IOW('F', 800, struct decon_edid_data)

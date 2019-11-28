@@ -516,8 +516,11 @@ int ll_back_merge_fn(struct request_queue *q, struct request *req,
 	if (blk_integrity_rq(req) &&
 	    integrity_req_gap_back_merge(req, bio))
 		return 0;
+
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	if (blk_try_merge(req, bio) != ELEVATOR_BACK_MERGE)
 		return 0;
+#endif
 	if (blk_rq_sectors(req) + bio_sectors(bio) >
 	    blk_rq_get_max_sectors(req, blk_rq_pos(req))) {
 		req_set_nomerge(q, req);
@@ -540,8 +543,11 @@ int ll_front_merge_fn(struct request_queue *q, struct request *req,
 	if (blk_integrity_rq(req) &&
 	    integrity_req_gap_front_merge(req, bio))
 		return 0;
+
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	if (blk_try_merge(req, bio) != ELEVATOR_FRONT_MERGE)
 		return 0;
+#endif
 	if (blk_rq_sectors(req) + bio_sectors(bio) >
 	    blk_rq_get_max_sectors(req, bio->bi_iter.bi_sector)) {
 		req_set_nomerge(q, req);
@@ -708,7 +714,6 @@ static struct request *attempt_merge(struct request_queue *q,
 
 	if (!crypto_diskcipher_blk_mergeble(req->bio, next->bio))
 		return NULL;
-
 	/*
 	 * Don't allow merge of different write hints, or for a hint with
 	 * non-hint IO.

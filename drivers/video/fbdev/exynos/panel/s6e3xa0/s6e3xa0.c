@@ -634,23 +634,18 @@ static int getidx_dimming_maptbl(struct maptbl *tbl)
 {
 	struct panel_bl_device *panel_bl;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_info *panel_data = &panel->panel_data;
-	int layer, row;
+
+	int index;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 	panel_bl = &panel->panel_bl;
-	row = get_actual_brightness_index(panel_bl,
+	index = get_actual_brightness_index(panel_bl,
 			panel_bl->props.brightness);
 
-	layer = search_table_u32(S6E3XA0_VRR_FPS,
-			ARRAY_SIZE(S6E3XA0_VRR_FPS), panel_data->props.vrr.fps);
-	if (layer < 0)
-		layer = 0;
-
-	return maptbl_index(tbl, layer, row, 0);
+	return maptbl_index(tbl, 0, index, 0);
 }
 
 #ifdef CONFIG_SUPPORT_HMD
@@ -1317,6 +1312,7 @@ static int getidx_elvss_temp_table(struct maptbl *tbl)
 	struct panel_info *panel_data;
 	struct panel_bl_device *panel_bl;
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+	struct panel_vrr *vrr;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
@@ -1326,8 +1322,9 @@ static int getidx_elvss_temp_table(struct maptbl *tbl)
 	panel_data = &panel->panel_data;
 	panel_bl = &panel->panel_bl;
 
-	box = search_table_u32(S6E3XA0_VRR_FPS,
-			ARRAY_SIZE(S6E3XA0_VRR_FPS), panel_data->props.vrr.fps);
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	box = search_table(S6E3XA0_VRR, sizeof(struct panel_vrr),
+			ARRAY_SIZE(S6E3XA0_VRR), vrr);
 	if (box < 0)
 		box = 0;
 
@@ -1459,15 +1456,26 @@ static int getidx_resolution_table(struct maptbl *tbl)
 
 	return maptbl_index(tbl, layer, row, 0);
 }
+static int search_vrr_fps_table(u32 fps)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(S6E3XA0_VRR_FPS); i++) {
+		if (S6E3XA0_VRR_FPS[i] == fps)
+			return i;
+	}
+	return -1;
+}
 
 static int getidx_fps_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
-	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_info *panel_data = &panel->panel_data;
+	struct panel_vrr *vrr;
 	int row = 0, layer = 0, index;
 
-	index = search_table_u32(S6E3XA0_VRR_FPS,
-			ARRAY_SIZE(S6E3XA0_VRR_FPS), props->vrr.fps);
+	vrr = panel_data->vrrtbl[panel_data->props.vrr_idx];
+	index = search_vrr_fps_table(vrr->def_fps);
 
 	if (index < 0)
 		row = 0;
@@ -1730,172 +1738,6 @@ static void copy_copr_maptbl(struct maptbl *tbl, u8 *dst)
 //#ifdef DEBUG_PANEL
 	print_data(dst, 60);
 //#endif
-}
-#endif
-
-#ifdef CONFIG_ACTIVE_CLOCK
-#define SELF_CLK_ANA_CLOCK_EN	0x10
-#define SELF_CLK_BLINK_EN		0x01
-#define TIME_UPDATE				0x80
-
-static void copy_self_clk_update_maptbl(struct maptbl *tbl, u8 *dst)
-{
-	struct panel_device *panel;
-	struct act_clk_info *act_info;
-
-	if (!tbl || !dst)
-		return;
-
-	panel_info("active clock update\n");
-
-	panel = (struct panel_device *)tbl->pdata;
-	if (unlikely(!panel))
-		return;
-
-	act_info = &panel->act_clk_dev.act_info;
-
-	dst[1] = 0;
-
-	if (act_info->en) {
-		dst[1] = SELF_CLK_ANA_CLOCK_EN;
-		panel_info("PANEL:INFO:%s:active clock enable\n", __func__);
-		if (act_info->interval == 100) {
-			dst[8] = 0x03;
-			dst[9] = 0x41;
-		} else {
-			dst[8] = 0x1E;
-			dst[9] = 0x4A;
-		}
-	}
-}
-static void copy_self_clk_maptbl(struct maptbl *tbl, u8 *dst)
-{
-	struct panel_device *panel;
-	struct act_clk_info *act_info;
-	struct act_blink_info *blink_info;
-
-	if (!tbl || !dst)
-		return;
-
-	panel = (struct panel_device *)tbl->pdata;
-	if (unlikely(!panel))
-		return;
-
-	act_info = &panel->act_clk_dev.act_info;
-	blink_info = &panel->act_clk_dev.blink_info;
-
-	dst[1] = 0;
-
-	if (act_info->en) {
-		dst[1] = SELF_CLK_ANA_CLOCK_EN;
-		panel_info("PANEL:INFO:%s:active clock enable\n", __func__);
-		if (act_info->interval == 100) {
-			dst[8] = 0x03;
-			dst[9] = 0x41;
-		} else {
-			dst[8] = 0x1E;
-			dst[9] = 0x4A;
-		}
-
-		dst[15] = act_info->time_hr % 12;
-		dst[16] = act_info->time_min % 60;
-		dst[17] = act_info->time_sec % 60;
-		dst[18] = act_info->time_ms;
-
-		panel_info("PANEL:INFO:%s:active clock %d:%d:%d\n", __func__,
-			dst[15], dst[16], dst[17]);
-
-		if (act_info->update_time)
-			dst[9] |= TIME_UPDATE;
-
-		dst[19] = (act_info->pos_x >> 8) & 0xff;
-		dst[20] = act_info->pos_x & 0xff;
-
-		dst[21] = (act_info->pos_y >> 8) & 0xff;
-		dst[22] = act_info->pos_y & 0xff;
-		panel_info("PANEL:INFO:%s:active clock pos %d,%d\n", __func__,
-			act_info->pos_x, act_info->pos_y);
-	}
-
-	if (blink_info->en) {
-		dst[1] = SELF_CLK_BLINK_EN;
-
-		dst[32] = blink_info->interval;
-		dst[33] = blink_info->radius;
-		/* blink color : Red */
-		dst[34] = (unsigned char)(blink_info->color >> 16) & 0xff;
-		/* blink color : Blue */
-		dst[35] = (unsigned char)(blink_info->color >> 8) & 0xff;
-		/* blink color : Green */
-		dst[36] = (unsigned char)(blink_info->color & 0xff);
-
-		dst[37] = 0x05;
-
-		dst[38] = (blink_info->pos1_x >> 8) & 0xff;
-		dst[39] = (blink_info->pos1_x & 0xff);
-
-		dst[40] = (blink_info->pos1_y >> 8) & 0xff;
-		dst[41] = (blink_info->pos1_y & 0xff);
-
-		dst[42] = (blink_info->pos2_x >> 8) & 0xff;
-		dst[43] = (blink_info->pos2_x & 0xff);
-
-		dst[44] = (blink_info->pos2_y >> 8) & 0xff;
-		dst[45] = (blink_info->pos2_y & 0xff);
-
-	}
-	print_data(dst, 46);
-}
-
-static void copy_self_drawer(struct maptbl *tbl, u8 *dst)
-{
-	struct panel_device *panel;
-	struct act_clk_info *act_info;
-	struct act_drawer_info *draw_info;
-
-	if (!tbl || !dst)
-		return;
-
-	panel = (struct panel_device *)tbl->pdata;
-	if (unlikely(!panel))
-		return;
-
-	draw_info = &panel->act_clk_dev.draw_info;
-	act_info = &panel->act_clk_dev.act_info;
-
-	dst[1] = 0;
-
-	if (!act_info->en) {
-		panel_info("ACT-CLK:INFO:disable act_clk\n");
-		return;
-	}
-
-	dst[1] = 0x01;
-	panel_info("PANEL:INFO:%s:self drawer\n", __func__);
-
-	dst[29] = (act_info->pos_x >> 8) & 0xff;
-	dst[30] = act_info->pos_x & 0xff;
-
-	dst[31] = (act_info->pos_y >> 8) & 0xff;
-	dst[32] = act_info->pos_y & 0xff;
-	panel_info("PANEL:INFO:%s:active clock pos %d,%d\n", __func__,
-		act_info->pos_x, act_info->pos_y);
-
-	/* SD color : Red */
-	dst[39] = (unsigned char)(draw_info->sd_line_color >> 16) & 0xff;
-	/* SD color : Blue */
-	dst[40] = (unsigned char)(draw_info->sd_line_color >> 8) & 0xff;
-	/* SD color : Green */
-	dst[41] = (unsigned char)(draw_info->sd_line_color & 0xff);
-
-	/* SD2 color : Red */
-	dst[42] = (unsigned char)(draw_info->sd2_line_color >> 16) & 0xff;
-	/* SD2 color : Blue */
-	dst[43] = (unsigned char)(draw_info->sd2_line_color >> 8) & 0xff;
-	/* SD2 color : Green */
-	dst[44] = (unsigned char)(draw_info->sd2_line_color & 0xff);
-
-	dst[45] = (unsigned char)(draw_info->sd_radius & 0xff);
 }
 #endif
 

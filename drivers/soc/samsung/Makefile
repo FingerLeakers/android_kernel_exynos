@@ -43,6 +43,8 @@ obj-$(CONFIG_EXYNOS_BCM_DBG_DUMP)       += exynos-bcm_dbg-dump.o
 obj-$(CONFIG_EXYNOS_DVFS_MANAGER)	+= exynos-dm.o
 obj-$(CONFIG_EXYNOS_MCINFO)	+= exynos-mcinfo.o
 
+obj-$(CONFIG_EXYNOS_PM_DVS)        += exynos-pm-dvs.o
+
 #PM
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-powermode.o
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-pm.o
@@ -52,9 +54,6 @@ obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-cpuhp.o
 
 # CPU Power Management
 obj-$(CONFIG_EXYNOS_CPUPM)	+= exynos-cpupm.o
-
-# CPU Topology
-#obj-$(CONFIG_ARCH_EXYNOS)      += exynos-topology.o
 
 # Exynos Secure Log
 obj-$(CONFIG_EXYNOS_SECURE_LOG)	+= exynos-seclog.o

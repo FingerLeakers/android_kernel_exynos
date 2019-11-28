@@ -12,34 +12,10 @@
  * published by the Free Software Foundation.
  *
  */
+#include <dt-bindings/soc/samsung/ems.h>
 
 / {
 	ems {
-		/* Ontime Migration */
-		ontime {
-			/* little cores */
-			coregroup0 {
-				lower-boundary = <0>;
-				upper-boundary = <42>;
-				lower-boundary-s = <0>;
-				upper-boundary-s = <30>;
-			};
-			/* middle cores */
-			coregroup1 {
-				lower-boundary = <13>;
-				upper-boundary = <72>;
-				lower-boundary-s = <10>;
-				upper-boundary-s = <85>;
-			};
-			/* big cores */
-			coregroup2 {
-				lower-boundary = <20>;
-				upper-boundary = <100>;
-				lower-boundary-s = <65>;
-				upper-boundary-s = <100>;
-			};
-		};
-
 		/* Load Balance Trigger */
 		#define DEFAULT_RATIO	80
 		lbt {
@@ -54,12 +30,6 @@
 					<30>;
 			};
 			overutil-level1 {
-				cpus =	"0-5",
-					"6-7";
-				ratio =	<DEFAULT_RATIO>,
-					<DEFAULT_RATIO>;
-			};
-			overutil-level2 {
 				cpus = "0-7";
 				ratio = <DEFAULT_RATIO>;
 			};
@@ -102,83 +72,344 @@
 			};
 		};
 
-		service {
-			prefer-perf0 {
-				boost = <1>;
-				prefer-cpus =	"4-5",
-						"6-7",
-						"0-3";
-				light-task-threshold = <10>;
-				light-task-threshold-s = <6>;
-				light-prefer-cpus = "4-5";
-			};
-			prefer-perf1 {
-				boost = <2>;
-				prefer-cpus =	"6-7",
-						"4-5",
-						"0-3";
-				light-task-threshold = <10>;
-				light-task-threshold-s = <4>;
-				light-prefer-cpus = "6-7";
-			};
-			prefer-perf2 {
-				boost = <3>;
-				prefer-cpus =	"4-5",
-						"6-7",
-						"0-3";
-				light-task-threshold = <10>;
-				light-task-threshold-s = <6>;
-				light-prefer-cpus = "4-5";
-				heavy-task-threshold = <384>;
-				heavy-task-threshold-s = <250>;
-				heavy-prefer-cpus = "6-7";
-			};
-		};
-
 		ems-tune {
+			boost-mode = <1>;
+
 			mode0 {
 				idx = <0>;
 				desc = "normal";
 
-				/* weight (%) applied to active core's efficiency */
-				weight {                /* LIT MED BIG */
-					root            = <800 200  33>;
-					foreground      = <800 200  33>;
-					background      = <800 200  33>;
-					top-app         = <800 200  33>;
-					rt              = <800 200  33>;
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <800 800 800 800 200 200  33  45>;
+					foreground      = <800 800 800 800 200 200  33  45>;
+					background      = <800 800 800 800 200 200  33  45>;
+					top-app         = <800 800 800 800 200 200  33  45>;
+					rt              = <800 800 800 800 200 200  33  45>;
 				};
 
-				/* weight (%) applied to idle core's efficiency */
-				idle-weight {           /*  LIT MED BIG */
-					root            = <1000 250  41>;
-					foreground      = <1000 250  41>;
-					background      = <1000 250  41>;
-					top-app         = <1000 250  41>;
-					rt              = <1000 250  41>;
+				/* weight (%) applied to idle cpu's efficiency */
+				idle-weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = <1000 1000 1000 1000 250 250  41  56>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = <1000 1000 1000 1000 250 250  41  56>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
 				};
 
 				/* Boosting margin applied to frequency selection */
-				freq-boost {            /* LIT MED BIG */
-					root            = <  0   0   0>;
-					foreground      = <  0   0   0>;
-					background      = <  0   0   0>;
-					top-app         = <  5   5   5>;
-					rt              = <  0   0   0>;
+				/*
+				 * HACK:
+				 * To support negative boost, compensate dt_value during boottime
+				 * Compensation executed only one time when paring DT during Booting Time
+				 * Compensation Value = DT_Value - 100
+				 * 	0~100   => -100~0
+				 * 	101~200 => 1~100
+				 */
+				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <  100   100  100   100   100   100  100   100>;
+					foreground      = <  100   100  100   100   100   100  100   100>;
+					background      = <  100   100  100   100   100   100  100   100>;
+					top-app         = <  105   105  105   105   105   105  105   105>;
+					rt              = <  100   100  100   100   100   100  100   100>;
 				};
 
-				/* candidate cpus applied to core selection */
-				candidate-cpus {
-					root            = "0-7";
-					foreground      = "0-7";
-					background      = "0-7";
-					top-app         = "0-7";
-					rt              = "0-7";
+				/* cpus allowed applied to core selection */
+				cpus-allowed {
+					target-sched-class = <EMS_SCHED_FAIR>;
+
+					root		= "0-7";
+					foreground 	= "0-7";
+					background	= "0-7";
+					top-app		= "0-7";
+					rt		= "0-7";
 				};
 
 				/* gov-data used by CPUFreq governor */
-				gov-data {              /* LIT MED BIG */
-					step            = < 10   8  10>;
+				gov-data {		/* LIT MED BIG */
+					step		= <  4   6   8>;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					/* little cores */
+					coregroup0 {
+						lower-boundary = <0>;
+						upper-boundary = <42>;
+						lower-boundary-s = <0>;
+						upper-boundary-s = <30>;
+					};
+					/* middle cores */
+					coregroup1 {
+						lower-boundary = <13>;
+						upper-boundary = <72>;
+						lower-boundary-s = <10>;
+						upper-boundary-s = <85>;
+					};
+					/* big cores */
+					coregroup2 {
+						lower-boundary = <20>;
+						upper-boundary = <100>;
+						lower-boundary-s = <65>;
+						upper-boundary-s = <100>;
+					};
+				};
+
+				util-est {	/* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+			};
+
+			mode1 {
+				idx = <1>;
+				desc = "boost";
+				prefer-idle = <1>;
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 100 100 100 100>;
+					foreground      = <100 100 100 100 100 100 100 100>;
+					background      = <100 100 100 100 100 100 100 100>;
+					top-app         = <100 100 100 100 100 100 100 100>;
+					rt              = <100 100 100 100 100 100 100 100>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle-weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 125 125 125 125>;
+					foreground      = <125 125 125 125 125 125 125 125>;
+					background      = <125 125 125 125 125 125 125 125>;
+					top-app         = <125 125 125 125 125 125 125 125>;
+					rt              = <125 125 125 125 125 125 125 125>;
+				};
+			};
+
+			mode2 {
+				idx = <2>;
+				desc = "boost";
+
+				/* Boosting margin applied to frequency selection */
+				/*
+				 * HACK:
+				 * To support negative boost, compensate dt_value during boottime
+				 * Compensation executed only one time when paring DT during Booting Time
+				 * Compensation Value = DT_Value - 100
+				 * 	0~100   => -100~0
+				 * 	101~200 => 1~100
+				 */
+				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
+					root            = < 100  100  100  100  100  100  100  100>;
+					foreground      = < 100  100  100  100  100  100  100  100>;
+					background      = < 100  100  100  100  100  100  100  100>;
+					top-app         = < 180  180  180  180  180  180  105  105>;
+					rt              = < 100  100  100  100  100  100  100  100>;
+				};
+
+				/* gov-data used by CPUFreq governor */
+				gov-data {		/* LIT MED BIG */
+					step		= <  4   2   8>;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					/* little cores */
+					coregroup0 {
+						lower-boundary = <0>;
+						upper-boundary = <42>;
+						lower-boundary-s = <0>;
+						upper-boundary-s = <30>;
+					};
+					/* middle cores */
+					coregroup1 {
+						lower-boundary = <13>;
+						upper-boundary = <72>;
+						lower-boundary-s = <1>;
+						upper-boundary-s = <100>;
+					};
+					/* big cores */
+					coregroup2 {
+						lower-boundary = <20>;
+						upper-boundary = <100>;
+						lower-boundary-s = <13>;
+						upper-boundary-s = <15>;
+					};
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  33>;
+					foreground      = <100 100 100 100 200 200  33  33>;
+					background      = <100 100 100 100 200 200  33  33>;
+					top-app         = <100 100 100 100 200 200  33  33>;
+					rt              = <100 100 100 100 200 200  33  33>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle-weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 250 250  41  41>;
+					foreground      = <125 125 125 125 250 250  41  41>;
+					background      = <125 125 125 125 250 250  41  41>;
+					top-app         = <125 125 125 125 250 250  41  41>;
+					rt              = <125 125 125 125 250 250  41  41>;
+				};
+			};
+
+			mode3 {
+				idx = <3>;
+				desc = "boost";
+
+				/* Boosting margin applied to frequency selection */
+				/*
+				 * HACK:
+				 * To support negative boost, compensate dt_value during boottime
+				 * Compensation executed only one time when paring DT during Booting Time
+				 * Compensation Value = DT_Value - 100
+				 *	0~100   => -100~0
+				 *	101~200 => 1~100
+				 * Ex) 80 => -20, 70 => -30
+				 */
+				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <  80  80  80  80  70  70  80  80  >;
+					foreground      = <  80  80  80  80  70  70  80  80  >;
+					background      = <  80  80  80  80  70  70  80  80  >;
+					top-app         = <  80  80  80  80  70  70  80  80  >;
+					rt              = <  80  80  80  80  70  70  80  80  >;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					/* little cores */
+					coregroup0 {
+						lower-boundary = <0>;
+						upper-boundary = <42>;
+						lower-boundary-s = <0>;
+						upper-boundary-s = <30>;
+					};
+					/* middle cores */
+					coregroup1 {
+						lower-boundary = <13>;
+						upper-boundary = <90>;
+						lower-boundary-s = <10>;
+						upper-boundary-s = <85>;
+					};
+					/* big cores */
+					coregroup2 {
+						lower-boundary = <75>;
+						upper-boundary = <100>;
+						lower-boundary-s = <65>;
+						upper-boundary-s = <100>;
+					};
+				};
+			};
+
+			mode4 {
+				idx = <4>;
+				desc = "42 boost";
+
+				/* Boosting margin applied to frequency selection */
+				/*
+				 * HACK:
+				 * To support negative boost, compensate dt_value during boottime
+				 * Compensation executed only one time when paring DT during Booting Time
+				 * Compensation Value = DT_Value - 100
+				 *	0~100   => -100~0
+				 *	101~200 => 1~100
+				 * Ex) 80 => -20, 70 => -30
+				 */
+				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <  80   80   80   80   70   70   80   80  >;
+					foreground      = <  80   80   80   80   70   70   80   80  >;
+					background      = <  80   80   80   80   70   70   80   80  >;
+					top-app         = < 100  100  100  100  100  100  100  100  >;
+					rt              = <  80   80   80   80   70   70   80   80  >;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					/* little cores */
+					coregroup0 {
+						lower-boundary = <0>;
+						upper-boundary = <42>;
+						lower-boundary-s = <0>;
+						upper-boundary-s = <30>;
+					};
+					/* middle cores */
+					coregroup1 {
+						lower-boundary = <13>;
+						upper-boundary = <90>;
+						lower-boundary-s = <10>;
+						upper-boundary-s = <85>;
+					};
+					/* big cores */
+					coregroup2 {
+						lower-boundary = <75>;
+						upper-boundary = <100>;
+						lower-boundary-s = <65>;
+						upper-boundary-s = <100>;
+					};
+				};
+			};
+
+			mode5 {
+				idx = <5>;
+				desc = "boost";
+
+				/* Boosting margin applied to frequency selection */
+				/*
+				 * HACK:
+				 * To support negative boost, compensate dt_value during boottime
+				 * Compensation executed only one time when paring DT during Booting Time
+				 * Compensation Value = DT_Value - 100
+				 *	0~100   => -100~0
+				 *	101~200 => 1~100
+				 * Ex) 80 => -20, 70 => -30
+				 */
+				freq-boost {       /* cpu    0    1    2    3    4   5   6   7 */
+					root            = <  130  130  130  130  70  70  80  80  >;
+					foreground      = <  130  130  130  130  70  70  80  80  >;
+					background      = <  130  130  130  130  70  70  80  80  >;
+					top-app         = <  130  130  130  130  70  70  80  80  >;
+					rt              = <  130  130  130  130  70  70  80  80  >;
+				};
+
+				/* gov-data used by CPUFreq governor */
+				gov-data {		/* LIT MED BIG */
+					step		= <  5   5   8>;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					/* little cores */
+					coregroup0 {
+						lower-boundary = <0>;
+						upper-boundary = <42>;
+						lower-boundary-s = <0>;
+						upper-boundary-s = <30>;
+					};
+					/* middle cores */
+					coregroup1 {
+						lower-boundary = <13>;
+						upper-boundary = <90>;
+						lower-boundary-s = <10>;
+						upper-boundary-s = <85>;
+					};
+					/* big cores */
+					coregroup2 {
+						lower-boundary = <75>;
+						upper-boundary = <100>;
+						lower-boundary-s = <65>;
+						upper-boundary-s = <100>;
+					};
 				};
 			};
 		};

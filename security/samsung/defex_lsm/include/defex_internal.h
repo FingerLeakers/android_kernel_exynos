@@ -18,7 +18,7 @@
 #include "defex_config.h"
 
 #define DEFEX_MAJOR_VERSION			2
-#define DEFEX_MINOR_VERSION			5
+#define DEFEX_MINOR_VERSION			6
 #define DEFEX_REVISION				"rel"
 
 /* DEFEX Features */
@@ -87,9 +87,16 @@ void creds_fast_hash_init(void);
 #define uid_set_value(x, v)	(x = v)
 #endif /* STRICT_UID_TYPE_CHECKS */
 
+#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
+#	define REF_PID(p) ((p)->tgid)
+#else
+#	define REF_PID(p) ((p)->pid)
+#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
+
 struct defex_privesc {
 	struct kobject kobj;
 	unsigned int status;
+	unsigned int tgid;
 };
 #define to_privesc_obj(obj) container_of(obj, struct defex_privesc, kobj)
 
@@ -105,10 +112,16 @@ void task_defex_destroy_privesc_obj(struct defex_privesc *privesc);
 extern struct defex_privesc *global_privesc_obj;
 ssize_t task_defex_privesc_store_status(struct defex_privesc *privesc_obj,
 		struct privesc_attribute *attr, const char *buf, size_t count);
+ssize_t task_defex_privesc_store_tgid(struct defex_privesc *privesc_obj,
+		struct privesc_attribute *attr, const char *buf, size_t count);
 
-void get_task_creds(int pid, unsigned int *uid_ptr, unsigned int *fsuid_ptr, unsigned int *egid_ptr);
-int set_task_creds(int pid, unsigned int uid, unsigned int fsuid, unsigned int egid);
+void get_task_creds(int pid, unsigned int *uid_ptr, unsigned int *fsuid_ptr, unsigned int *egid_ptr, unsigned int *p_root_ptr);
+int set_task_creds(int pid, unsigned int uid, unsigned int fsuid, unsigned int egid, unsigned int p_root);
+#ifdef DEFEX_PED_BASED_ON_TGID_ENABLE
+void set_task_creds_tcnt(int tgid, int addition);
+#else
 void delete_task_creds(int pid);
+#endif /* DEFEX_PED_BASED_ON_TGID_ENABLE */
 int is_task_creds_ready(void);
 
 /* -------------------------------------------------------------------------- */
@@ -169,5 +182,9 @@ int rules_lookup(const struct path *dpath, int attribute, struct file *f);
 /* -------------------------------------------------------------------------- */
 
 int __init defex_init_sysfs(void);
+
+#ifdef DEFEX_DEPENDING_ON_OEMUNLOCK
+extern bool boot_state_unlocked __ro_after_init;
+#endif /* DEFEX_DEPENDING_ON_OEMUNLOCK */
 
 #endif /* CONFIG_SECURITY_DEFEX_INTERNAL_H */

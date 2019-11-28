@@ -32,6 +32,8 @@ struct fimc_is_stripe_size {
 	u32	h_pix_ratio;
 	/* Horizontal pixel count which stripe processing is done for. */
 	u32	h_pix_num;
+	/* Horizontal pixel count which stripe processing is done for before h_pix_num is processed. */
+	u32	prev_h_pix_num;
 };
 
 struct fimc_is_stripe_info {
@@ -66,6 +68,7 @@ struct is_frame {
 	u32			planes; /* total planes include multi-buffers */
 	dma_addr_t		dvaddr_buffer[IS_MAX_PLANES];
 	ulong			kvaddr_buffer[IS_MAX_PLANES];
+	u32			size[IS_MAX_PLANES];
 
 	/* external plane use */
 	u32			ext_planes;

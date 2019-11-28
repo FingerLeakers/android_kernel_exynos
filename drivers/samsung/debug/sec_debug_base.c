@@ -20,6 +20,8 @@
 #include <linux/memblock.h>
 #include <linux/sched/task.h>
 #include <linux/sec_debug.h>
+#include <linux/sec_ext.h>
+#include <linux/sec_hard_reset_hook.h>
 #include <asm/cacheflush.h>
 #include <asm/stacktrace.h>
 #include <linux/reboot.h>
@@ -243,10 +245,46 @@ static void secdbg_base_set_upload_cause(enum sec_debug_upload_cause_t type)
 	pr_emerg("sec_debug: set upload cause (0x%x)\n", type);
 }
 
-/* update recovery reason log */
-static void secdbg_base_recovery_reboot(void)
+#define MAX_RECOVERY_CAUSE_SIZE 256
+char recovery_cause[MAX_RECOVERY_CAUSE_SIZE];
+unsigned long recovery_cause_offset;
+
+static ssize_t show_recovery_cause(struct device *dev, struct device_attribute *attr, char *buf)
 {
-#if 0
+	if (!recovery_cause_offset)
+		return 0;
+
+	sec_get_param_str(recovery_cause_offset, buf);
+	pr_info("%s: %s\n", __func__, buf);
+
+	return strlen(buf);
+}
+
+static ssize_t store_recovery_cause(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (!recovery_cause_offset)
+		return 0;
+
+	if (strlen(buf) > sizeof(recovery_cause))
+		pr_err("%s: input buffer length is out of range.\n", __func__);
+
+	snprintf(recovery_cause, sizeof(recovery_cause), "%s:%d ", current->comm, task_pid_nr(current));
+	if (strlen(recovery_cause) + strlen(buf) >= sizeof(recovery_cause)) {
+		pr_err("%s: input buffer length is out of range.\n", __func__);
+		return count;
+	}
+	strncat(recovery_cause, buf, strlen(buf));
+
+	sec_set_param_str(recovery_cause_offset, recovery_cause, sizeof(recovery_cause));
+	pr_info("%s: %s, count:%d\n", __func__, recovery_cause, (int)count);
+
+	return count;
+}
+
+static DEVICE_ATTR(recovery_cause, 0660, show_recovery_cause, store_recovery_cause);
+
+void sec_debug_recovery_reboot(void)
+{
 	char *buf;
 
 	if (recovery_cause_offset) {
@@ -255,7 +293,49 @@ static void secdbg_base_recovery_reboot(void)
 			store_recovery_cause(NULL, NULL, buf, strlen(buf));
 		}
 	}
-#endif
+}
+
+static int __init sec_debug_recovery_cause_setup(char *str)
+{
+	recovery_cause_offset = memparse(str, &str);
+
+	/* If we encounter any problem parsing str ... */
+	if (!recovery_cause_offset) {
+		pr_err("%s: failed to parse address.\n", __func__);
+		goto out;
+	}
+
+	pr_info("%s, recovery_cause_offset :%lx\n", __func__, recovery_cause_offset);
+out:
+	return 0;
+}
+__setup("androidboot.recovery_offset=", sec_debug_recovery_cause_setup);
+
+extern struct device *secdbg_dev;
+
+static int __init sec_debug_recovery_cause_init(void)
+{
+	memset(recovery_cause, 0, MAX_RECOVERY_CAUSE_SIZE);
+
+	if (device_create_file(secdbg_dev, &dev_attr_recovery_cause) < 0)
+		pr_err("%s: Failed to create device file\n", __func__);
+
+	return 0;
+}
+late_initcall(sec_debug_recovery_cause_init);
+
+
+/* update recovery reason log */
+static void secdbg_base_recovery_reboot(void)
+{
+	char *buf;
+
+	if (recovery_cause_offset) {
+		if (!recovery_cause[0] || !strlen(recovery_cause)) {
+			buf = "empty caller";
+			store_recovery_cause(NULL, NULL, buf, strlen(buf));
+		}
+	}
 }
 
 static int secdbg_base_reboot_handler(struct notifier_block *nb,
@@ -285,11 +365,8 @@ void secdbg_base_panic_handler(void *buf, bool dump)
 	secdbg_base_set_upload_magic(UPLOAD_MAGIC_PANIC, buf);
 	if (!strncmp(buf, "User Fault", 10))
 		secdbg_base_set_upload_cause(UPLOAD_CAUSE_USER_FAULT);
-	/* TODO: this function is defined in hard reset hook */
-#if 0
 	else if (is_hard_reset_occurred())
 		secdbg_base_set_upload_cause(UPLOAD_CAUSE_HARD_RESET);
-#endif
 	else if (!strncmp(buf, "Crash Key", 9))
 		secdbg_base_set_upload_cause(UPLOAD_CAUSE_FORCED_UPLOAD);
 	else if (!strncmp(buf, "User Crash Key", 14))
@@ -311,16 +388,7 @@ void secdbg_base_panic_handler(void *buf, bool dump)
 
 void secdbg_base_post_panic_handler(void)
 {
-	/* TODO: this function is defined in hard reset hook */
-#if 0
 	hard_reset_delay();
-#endif
-
-	/* reset */
-	pr_emerg("sec_debug: %s\n", linux_banner);
-	pr_emerg("sec_debug: rebooting...\n");
-
-	flush_cache_all();
 }
 
 void secdbg_base_set_task_in_pm_suspend(uint64_t task)
@@ -348,12 +416,30 @@ struct watchdogd_info *secdbg_base_get_wdd_info(void)
 	return NULL;
 }
 
-struct bad_stack_info *secdbg_base_get_bs_info(void)
+void secdbg_base_set_bs_info_phase(int phase)
 {
-	if (sdn)
-		return &sdn->kernd.bsi;
+	struct bad_stack_info *bsi;
 
-	return NULL;
+	if (!sdn)
+		return;
+
+	bsi = &sdn->kernd.bsi;
+
+	switch (phase) {
+	case 2:
+		bsi->irq_stk = (unsigned long)this_cpu_read(irq_stack_ptr);
+		bsi->ovf_stk = (unsigned long)this_cpu_ptr(overflow_stack);
+		bsi->tsk_stk = (unsigned long)current->stack;
+		break;
+	case 1:
+	default:
+		bsi->magic = 0xbad;
+		bsi->spel0 = read_sysreg(sp_el0);
+		bsi->esr = read_sysreg(esr_el1);
+		bsi->far = read_sysreg(far_el1);
+		bsi->cpu = raw_smp_processor_id();
+		break;
+	}
 }
 
 void *secdbg_base_get_debug_base(int type)
@@ -524,6 +610,22 @@ void secdbg_base_clr_device_shutdown_timeinfo(void)
 	}
 }
 
+void secdbg_base_set_shutdown_device(const char *fname, const char *dname)
+{
+	if (sdn) {
+		sdn->kernd.sdi.shutdown_func = (uint64_t)fname;
+		sdn->kernd.sdi.shutdown_device = (uint64_t)dname;
+	}
+}
+
+void secdbg_base_set_suspend_device(const char *fname, const char *dname)
+{
+	if (sdn) {
+		sdn->kernd.sdi.suspend_func = (uint64_t)fname;
+		sdn->kernd.sdi.suspend_device = (uint64_t)dname;
+	}
+}
+
 static void init_ess_info(unsigned int index, char *key)
 {
 	struct ess_info_offset *p;
@@ -549,6 +651,7 @@ static void secdbg_base_set_essinfo(void)
 	init_ess_info(index++, "kevnt-idle");
 	init_ess_info(index++, "kevnt-thrm");
 	init_ess_info(index++, "kevnt-acpm");
+	init_ess_info(index++, "kevnt-mfrq");
 
 	for (; index < SD_NR_ESSINFO_ITEMS;)
 		init_ess_info(index++, "empty");
@@ -605,6 +708,12 @@ static void secdbg_base_set_taskinfo(void)
 	SET_MEMBER_TYPE_INFO(&sdn->task.ts.sched_info__last_queued,
 					struct task_struct,
 					sched_info.last_queued);
+	SET_MEMBER_TYPE_INFO(&sdn->task.ts.ssdbg_wait__type,
+					struct task_struct,
+					ssdbg_wait.type);
+	SET_MEMBER_TYPE_INFO(&sdn->task.ts.ssdbg_wait__data,
+					struct task_struct,
+					ssdbg_wait.data);
 
 	sdn->task.init_task = (uint64_t)&init_task;
 }

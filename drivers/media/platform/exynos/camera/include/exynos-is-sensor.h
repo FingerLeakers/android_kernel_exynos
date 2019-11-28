@@ -85,6 +85,7 @@ enum actuator_name {
 	ACTUATOR_NAME_DW9823	= 22,
 	ACTUATOR_NAME_DW9839	= 23,
 	ACTUATOR_NAME_DW9808	= 24,
+	ACTUATOR_NAME_ZC535	= 25,
 	ACTUATOR_NAME_END,
 	ACTUATOR_NAME_NOTHING	= 100,
 };
@@ -271,6 +272,7 @@ struct exynos_platform_is_sensor {
 	int *module_sel_sensor_id;
 	int *module_sel_val;
 	u32 scramble;
+	u32 i2c_dummy_enable;
 };
 
 int exynos_is_sensor_iclk_cfg(struct device *dev,

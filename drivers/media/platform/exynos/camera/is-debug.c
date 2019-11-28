@@ -13,6 +13,10 @@
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 
+#ifdef CONFIG_S3C2410_WATCHDOG
+#include <soc/samsung/exynos-debug.h>
+#endif
+
 #include "is-config.h"
 #include "is-debug.h"
 #include "is-device-ischain.h"
@@ -722,6 +726,60 @@ int is_debug_dma_dump(struct is_queue *queue, u32 index, u32 vid, u32 type)
 	return 0;
 }
 
+int is_debug_dma_dump_by_frame(struct is_frame *frame, u32 vid, u32 type)
+{
+	int i = 0;
+	int ret = 0;
+	u32 flags = 0;
+	int total_size = 0;
+	u32 framecount = frame->fcount;
+	char *filename;
+	struct is_binary bin;
+
+	switch (type) {
+	case DBG_DMA_DUMP_IMAGE:
+		filename = __getname();
+
+		if (unlikely(!filename))
+			return -ENOMEM;
+
+		snprintf(filename, PATH_MAX, "%s/V%02d_F%08d.raw",
+				DBG_DMA_DUMP_PATH, vid, framecount);
+
+		for (i = 0; i < (frame->planes / frame->num_buffers); i++) {
+			bin.data = (void *)frame->kvaddr_buffer[i];
+			bin.size = frame->size[i];
+
+			if (!i) {
+				/* first plane for image */
+				flags = O_TRUNC | O_CREAT | O_EXCL | O_WRONLY | O_APPEND;
+				total_size += bin.size;
+			} else {
+				/* after first plane for image */
+				flags = O_WRONLY | O_APPEND;
+				total_size += bin.size;
+			}
+
+			ret = put_filesystem_binary(filename, &bin, flags);
+			if (ret) {
+				err("failed to dump %s (%d)", filename, ret);
+				__putname(filename);
+				return -EINVAL;
+			}
+		}
+
+		info("[V%d][F%d] img dumped..(%s, %d)\n", vid, framecount, filename, total_size);
+		__putname(filename);
+
+		break;
+	default:
+		err("invalid type(%d)", type);
+		break;
+	}
+
+	return 0;
+}
+
 static int islib_debug_open(struct inode *inode, struct file *file)
 {
 	if (inode->i_private)
@@ -1006,3 +1064,25 @@ static const struct file_operations debug_event_fops = {
 	.llseek = seq_lseek,
 	.release = seq_release,
 };
+
+void is_debug_s2d(bool en_s2d, const char *fmt, ...)
+{
+	static char buf[1024];
+	va_list args;
+
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+
+	if (en_s2d || debug_s2d) {
+#ifdef CONFIG_S3C2410_WATCHDOG
+		err("[DBG] S2D!!!", buf);
+		dump_stack();
+		s3c2410wdt_set_emergency_reset(100, 0);
+#else
+		panic("S2D is not enabled.", buf);
+#endif
+	} else {
+		panic(buf);
+	}
+}

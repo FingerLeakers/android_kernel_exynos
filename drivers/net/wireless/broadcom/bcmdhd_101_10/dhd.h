@@ -1141,9 +1141,6 @@ typedef struct dhd_pub {
 #if defined(DHD_HANG_SEND_UP_TEST)
 	uint req_hang_type;
 #endif /* DHD_HANG_SEND_UP_TEST */
-#if defined(CONFIG_BCM_DETECT_CONSECUTIVE_HANG)
-	uint hang_counts;
-#endif /* CONFIG_BCM_DETECT_CONSECUTIVE_HANG */
 #ifdef WLTDLS
 	bool tdls_enable;
 #endif
@@ -1189,13 +1186,19 @@ typedef struct dhd_pub {
 	bool	flow_rings_inited;	/* set this flag after initializing flow rings */
 #endif /* PCIE_FULL_DONGLE */
 	void    *flowid_allocator;  /* unique flowid allocator */
+#if defined(DHD_HTPUT_TUNABLES)
+	void    *htput_flowid_allocator;  /* unique htput flowid allocator */
+	uint8	htput_client_flow_rings;  /* current number of htput client flowrings */
+	uint8	htput_flow_ring_start;	  /* start index of htput flow rings */
+#endif /* DHD_HTPUT_TUNABLES */
 	void	*flow_ring_table;   /* flow ring table, include prot and bus info */
 	void	*if_flow_lkup;      /* per interface flowid lkup hash table */
 	void    *flowid_lock;       /* per os lock for flowid info protection */
 	void    *flowring_list_lock;       /* per os lock for flowring list protection */
 	uint8	max_multi_client_flow_rings;
 	uint8	multi_client_flow_rings;
-	uint32  num_flow_rings;
+	uint32  num_h2d_rings;		/* Max h2d rings including static and dynamic rings */
+	uint32  max_tx_flowid;		/* used to validate flowid */
 	cumm_ctr_t cumm_ctr;        /* cumm queue length placeholder  */
 	cumm_ctr_t l2cumm_ctr;      /* level 2 cumm queue length placeholder */
 	uint32 d2h_sync_mode;       /* D2H DMA completion sync mode */
@@ -1949,6 +1952,7 @@ extern void dhd_bus_wakeup_work(dhd_pub_t *dhdp);
 extern int dhd_dev_get_feature_set(struct net_device *dev);
 extern int dhd_dev_get_feature_set_matrix(struct net_device *dev, int num);
 extern int dhd_dev_cfg_rand_mac_oui(struct net_device *dev, uint8 *oui);
+extern int dhd_update_rand_mac_addr(dhd_pub_t *dhd);
 #ifdef CUSTOM_FORCE_NODFS_FLAG
 extern int dhd_dev_set_nodfs(struct net_device *dev, uint nodfs);
 #endif /* CUSTOM_FORCE_NODFS_FLAG */

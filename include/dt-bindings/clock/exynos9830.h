@@ -363,6 +363,7 @@
 #define	CIS_CLK4	(CLK_TOP_BASE + 12)
 #define	CIS_CLK5	(CLK_TOP_BASE + 13)
 #define	PLL_OUT_MMC	(CLK_TOP_BASE + 14)
+#define DOUT_CLK_TOP_HSI0_BUS	(CLK_TOP_BASE + 15)
 
 
 

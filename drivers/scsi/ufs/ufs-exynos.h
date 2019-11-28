@@ -13,13 +13,15 @@
 #define _UFS_EXYNOS_H_
 
 #include <linux/pm_qos.h>
-
-#include "ufs-cal-9820.h"
-#include <crypto/smu.h>
+#include "ufs-cal-9830.h"
+#include <crypto/fmp.h>
 
 #define UFS_VER_0004	4
 #define UFS_VER_0005	5
 #define UFS_VER_0006	6
+
+#define EOM_PH_SEL_MAX         72
+#define EOM_DEF_VREF_MAX       256
 
 /*
  * Exynos's Vendor specific registers for UFSHCI
@@ -652,7 +654,7 @@ struct ufs_cmd_logging_category {
 struct ufs_cmd_info {
 	int 	first;
 	int 	last;
-	struct ufs_cmd_logging_category *addr_per_tag[16];
+	struct ufs_cmd_logging_category *addr_per_tag[32];
 	struct ufs_cmd_logging_category  data[MAX_CMD_LOGS];
 
 };

@@ -273,17 +273,10 @@ void exynos_pcie_phy_init(struct pcie_port *pp)
 	exynos_pcie->phy_ops.phy_all_pwrdn_clear = exynos_phy_all_pwrdn_clear;
 	exynos_pcie->phy_ops.phy_config = exynos_pcie_phy_config;
 }
-#if 0
-/* Exynos9820 specific quirks are defined here. */
-static void exynos9820_pcie_quirks(struct pci_dev *dev)
+
+static void exynos_pcie_quirks(struct pci_dev *dev)
 {
 	device_disable_async_suspend(&dev->dev);
 	pr_info("[%s] async suspend disabled\n", __func__);
-
-#ifdef CONFIG_EXYNOS_PCIE_IOMMU
-	set_dma_ops(&dev->dev, &exynos_pcie_dma_ops);
-	pr_info("DMA operations are changed to support SysMMU.\n");
-#endif
 }
-DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, exynos9820_pcie_quirks);
-#endif
+DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, exynos_pcie_quirks);

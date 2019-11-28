@@ -24,9 +24,17 @@ struct itmon_notifier {
 	bool onoff;			/* Target Block on/off */
 	char *pd_name;			/* Target Block power domain name */
 };
+
+#define M_NODE			(0)
+#define T_S_NODE		(1)
+#define T_M_NODE		(2)
+#define S_NODE			(3)
+#define NODE_TYPE		(4)
+
 #ifdef CONFIG_EXYNOS_ITMON
 extern void itmon_notifier_chain_register(struct notifier_block *n);
 extern void itmon_enable(bool enabled);
+extern void itmon_wa_enable(const char *node_name, int node_type, bool enabled);
 extern void itmon_set_errcnt(int cnt);
 extern int cal_pd_status(unsigned int id);
 #else
@@ -34,6 +42,7 @@ static inline void itmon_enable(bool enabled) {}
 #define itmon_notifier_chain_register(x)		do { } while (0)
 #define itmon_set_errcnt(x)				do { } while (0)
 #define itmon_enable(x)					do { } while (0)
+#define itmon_wa_enable(a,b,c)				do { } while (0)
 #endif
 
 #endif

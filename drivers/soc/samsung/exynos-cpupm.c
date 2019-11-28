@@ -29,6 +29,118 @@
 #endif /* CONFIG_MUIC_NOTIFIER && CONFIG_CCIC_NOTIFIER */
 #endif /* CONFIG_SEC_PM */
 
+static int cpupm_initialized;
+
+/* Length of power mode name */
+#define NAME_LEN	32
+
+/*
+ * Power modes
+ * In CPUPM, power mode controls the power domain consisting of cpu and enters
+ * the power mode by cpuidle. Basically, to enter power mode, all cpus in power
+ * domain must be in POWERDOWN state, and sleep length of cpus must be smaller
+ * than target_residency.
+ */
+struct power_mode {
+	/* id of this power mode, it is used by cpuidle profiler now */
+	int		id;
+
+	/* name of power mode, it is declared in device tree */
+	char		name[NAME_LEN];
+
+	/* power mode state, RUN or POWERDOWN */
+	int		state;
+
+	/* sleep length criterion of cpus to enter power mode */
+	int		target_residency;
+
+	/* PSCI index for entering power mode */
+	int		psci_index;
+
+	/* type according to h/w configuration of power domain */
+	int		type;
+
+	/* cpus belonging to the power domain */
+	struct cpumask	siblings;
+
+	/*
+	 * Among siblings, the cpus that can enter the power mode.
+	 * Due to H/W constraint, only certain cpus need to enter power mode.
+	 */
+	struct cpumask	entry_allowed;
+
+	/* disable count */
+	atomic_t	disable;
+
+	/*
+	 * Some power modes can determine whether to enter power mode
+	 * depending on system idle state
+	 */
+	bool		system_idle;
+
+	/*
+	 * If this powermode's state isn't POWERDOWN,
+	 * shouldn't enter sicd mode.
+	 */
+	bool		sicd_block;
+
+	/*
+	 * kobject attribute for sysfs,
+	 * it supports for enabling or disabling this power mode
+	 */
+	struct kobj_attribute	attr;
+
+	/* user's request for enabling/disabling power mode */
+	bool		user_request;
+};
+
+/* Maximum number of power modes manageable per cpu */
+#define MAX_MODE	5
+
+/*
+ * Main struct of CPUPM
+ * Each cpu has its own data structure and main purpose of this struct is to
+ * manage the state of the cpu and the power modes containing the cpu.
+ */
+struct exynos_cpupm {
+	/* cpu state, RUN or POWERDOWN */
+	int			state;
+
+	/* array to manage the power mode that contains the cpu */
+	struct power_mode *	modes[MAX_MODE];
+};
+
+static DEFINE_PER_CPU(struct exynos_cpupm, cpupm);
+
+/******************************************************************************
+ *                                CAL interfaces                              *
+ ******************************************************************************/
+static void cpu_enable(unsigned int cpu)
+{
+	cal_cpu_enable(cpu);
+}
+
+static void cpu_disable(unsigned int cpu)
+{
+	cal_cpu_disable(cpu);
+}
+
+static DEFINE_PER_CPU(int, vcluster_id);
+static void cluster_enable(unsigned int cpu_id)
+{
+	unsigned int cluster_id = per_cpu(vcluster_id, cpu_id);
+
+	cal_cluster_enable(cluster_id);
+}
+
+static void cluster_disable(unsigned int cpu_id)
+{
+	unsigned int cluster_id = per_cpu(vcluster_id, cpu_id);
+
+	cal_cluster_disable(cluster_id);
+}
+
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 /******************************************************************************
  *                                  IDLE_IP                                   *
  ******************************************************************************/
@@ -46,14 +158,12 @@ static unsigned long long idle_ip_bit_field;
  */
 LIST_HEAD(idle_ip_list);
 
-static int fix_idle_ip_max;
+static int fix_idle_ip_count;
 
 /*
  * array of fix-idle-ip
  */
 struct fix_idle_ip fix_idle_ip_arr[FIX_IDLE_IP_MAX];
-
-struct kobj_attribute idle_ip_attr;
 
 static int get_index_last_entry(struct list_head *head)
 {
@@ -67,28 +177,12 @@ static int get_index_last_entry(struct list_head *head)
 	return ip->index;
 }
 
-static bool check_idle_ip(void)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&idle_ip_bit_field_lock, flags);
-
-	if (idle_ip_bit_field) {
-#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
-		cpuidle_profile_idle_ip(idle_ip_bit_field);
-#endif
-		spin_unlock_irqrestore(&idle_ip_bit_field_lock, flags);
-
-		return true;
-	}
-	spin_unlock_irqrestore(&idle_ip_bit_field_lock, flags);
-
-	return false;
-}
-
 static bool check_fix_idle_ip(void)
 {
-	unsigned int val;
+	unsigned int val, mask;
+
+	if (fix_idle_ip_count <= 0)
+		return false;
 
 	exynos_pmu_read(PMU_IDLE_IP, &val);
 	/*
@@ -97,16 +191,32 @@ static bool check_fix_idle_ip(void)
 	 * 			== 0, it means non-idle.
 	 * 			== 1, it means idle.
 	 */
-	val = ~val << (32 - fix_idle_ip_max);
+	mask = (1 << fix_idle_ip_count) - 1;
+	val = ~val & mask;
 	if (val) {
-#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
-		cpuidle_profile_fix_idle_ip(val, fix_idle_ip_max);
-#endif
+		cpuidle_profile_fix_idle_ip(val, fix_idle_ip_count);
 
 		return true;
 	}
 
 	return false;
+}
+
+static bool check_idle_ip(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&idle_ip_bit_field_lock, flags);
+
+	if (idle_ip_bit_field) {
+		cpuidle_profile_idle_ip(idle_ip_bit_field);
+		spin_unlock_irqrestore(&idle_ip_bit_field_lock, flags);
+
+		return true;
+	}
+	spin_unlock_irqrestore(&idle_ip_bit_field_lock, flags);
+
+	return check_fix_idle_ip();
 }
 
 /*
@@ -169,44 +279,15 @@ static void __init fix_idle_ip_init(void)
 	int i;
 	const char *ip_name;
 
-	fix_idle_ip_max = of_property_count_strings(dn, "fix-idle-ip");
-	if (fix_idle_ip_max < 0 || fix_idle_ip_max > FIX_IDLE_IP_MAX)
+	fix_idle_ip_count = of_property_count_strings(dn, "fix-idle-ip");
+	if (fix_idle_ip_count <= 0 || fix_idle_ip_count > FIX_IDLE_IP_MAX)
 		return;
 
-	for (i = 0; i < fix_idle_ip_max; i++) {
+	for (i = 0; i < fix_idle_ip_count; i++) {
 		of_property_read_string_index(dn, "fix-idle-ip", i, &ip_name);
 		fix_idle_ip_arr[i].name = ip_name;
 		fix_idle_ip_arr[i].reg_index = i;
 	}
-}
-
-/******************************************************************************
- *                                CAL interfaces                              *
- ******************************************************************************/
-
-static void cpu_enable(unsigned int cpu)
-{
-	cal_cpu_enable(cpu);
-}
-
-static void cpu_disable(unsigned int cpu)
-{
-	cal_cpu_disable(cpu);
-}
-
-static DEFINE_PER_CPU(int, vcluster_id);
-static void cluster_enable(unsigned int cpu_id)
-{
-	unsigned int cluster_id = per_cpu(vcluster_id, cpu_id);
-
-	cal_cluster_enable(cluster_id);
-}
-
-static void cluster_disable(unsigned int cpu_id)
-{
-	unsigned int cluster_id = per_cpu(vcluster_id, cpu_id);
-
-	cal_cluster_disable(cluster_id);
 }
 
 /******************************************************************************
@@ -237,83 +318,6 @@ enum {
 #define set_state_powerdown(object)	((object)->state = CPUPM_STATE_POWERDOWN)
 #define check_state_run(object)		((object)->state == CPUPM_STATE_RUN)
 #define check_state_powerdown(object)	((object)->state == CPUPM_STATE_POWERDOWN)
-
-/* Length of power mode name */
-#define NAME_LEN	32
-
-static int cpupm_initialized;
-
-/*
- * Power modes
- * In CPUPM, power mode controls the power domain consisting of cpu and enters
- * the power mode by cpuidle. Basically, to enter power mode, all cpus in power
- * domain must be in POWERDOWN state, and sleep length of cpus must be smaller
- * than target_residency.
- */
-struct power_mode {
-	/* id of this power mode, it is used by cpuidle profiler now */
-	int		id;
-
-	/* name of power mode, it is declared in device tree */
-	char		name[NAME_LEN];
-
-	/* power mode state, RUN or POWERDOWN */
-	int		state;
-
-	/* sleep length criterion of cpus to enter power mode */
-	int		target_residency;
-
-	/* PSCI index for entering power mode */
-	int		psci_index;
-
-	/* type according to h/w configuration of power domain */
-	int		type;
-
-	/* cpus belonging to the power domain */
-	struct cpumask	siblings;
-
-	/*
-	 * Among siblings, the cpus that can enter the power mode.
-	 * Due to H/W constraint, only certain cpus need to enter power mode.
-	 */
-	struct cpumask	entry_allowed;
-
-	/* disable count */
-	atomic_t	disable;
-
-	/*
-	 * Some power modes can determine whether to enter power mode
-	 * depending on system idle state
-	 */
-	bool		system_idle;
-
-	/*
-	 * kobject attribute for sysfs,
-	 * it supports for enabling or disabling this power mode
-	 */
-	struct kobj_attribute	attr;
-
-	/* user's request for enabling/disabling power mode */
-	bool		user_request;
-};
-
-/* Maximum number of power modes manageable per cpu */
-#define MAX_MODE	5
-
-/*
- * Main struct of CPUPM
- * Each cpu has its own data structure and main purpose of this struct is to
- * manage the state of the cpu and the power modes containing the cpu.
- */
-struct exynos_cpupm {
-	/* cpu state, RUN or POWERDOWN */
-	int			state;
-
-	/* array to manage the power mode that contains the cpu */
-	struct power_mode	*modes[MAX_MODE];
-};
-
-static DEFINE_PER_CPU(struct exynos_cpupm, cpupm);
 
 /*
  * State of each cpu is managed by a structure declared by percpu, so there
@@ -452,6 +456,46 @@ static int cpus_last_core_detecting(int request_cpu, const struct cpumask *cpus)
 	return 0;
 }
 
+static int check_cluster_powermode(void)
+{
+	struct cpumask checked;
+	struct exynos_cpupm *pm;
+	struct power_mode *mode;
+	int cpu, i;
+
+	cpumask_clear(&checked);
+
+	for_each_online_cpu(cpu) {
+		if (cpumask_test_cpu(cpu, &checked))
+			continue;
+
+		pm = &per_cpu(cpupm, cpu);
+
+		for (i = 0; i < MAX_MODE; i++) {
+			mode = pm->modes[i];
+
+			if (IS_NULL(mode))
+				break;
+
+			if (mode->type != POWERMODE_TYPE_CLUSTER)
+				continue;
+
+			cpumask_and(&checked, &mode->siblings, &checked);
+
+			if (!mode->sicd_block)
+				break;
+
+			if (cpumask_empty(&mode->entry_allowed))
+				break;
+
+			if (check_state_run(mode))
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
 static int initcall_done;
 static int system_busy(void)
 {
@@ -462,7 +506,7 @@ static int system_busy(void)
 	if (check_idle_ip())
 		return 1;
 
-	if (check_fix_idle_ip())
+	if (check_cluster_powermode())
 		return 1;
 
 	return 0;
@@ -527,18 +571,14 @@ static int try_to_enter_power_mode(int cpu, struct power_mode *mode)
 	dbg_snapshot_cpuidle(mode->name, 0, 0, DSS_FLAG_IN);
 	set_state_powerdown(mode);
 
-#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 	cpuidle_profile_group_idle_enter(mode->id);
-#endif
 
 	return 1;
 }
 
 static void exit_mode(int cpu, struct power_mode *mode, int cancel)
 {
-#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 	cpuidle_profile_group_idle_exit(mode->id, cancel);
-#endif
 
 	/*
 	 * Configure settings to exit power mode. This is executed by the
@@ -619,6 +659,15 @@ void exynos_cpu_pm_exit(int cpu, int cancel)
 	spin_unlock(&cpupm_lock);
 }
 
+static int __init exynos_cpupm_late_init(void)
+{
+	initcall_done = true;
+
+	return 0;
+}
+late_initcall(exynos_cpupm_late_init);
+#endif /* CONFIG_ARM64_EXYNOS_CPUIDLE */
+
 /******************************************************************************
  *                               sysfs interface                              *
  ******************************************************************************/
@@ -661,11 +710,13 @@ static ssize_t store_power_mode(struct kobject *kobj,
 static ssize_t show_idle_ip_list(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
+	int ret = 0;
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 	struct idle_ip *ip;
 	unsigned long flags;
-	int i, ret = 0;
+	int i;
 
-	for (i = 0; i < fix_idle_ip_max; i++)
+	for (i = 0; i < fix_idle_ip_count; i++)
 		ret += snprintf(buf + ret, PAGE_SIZE - ret, "[fix:%d] %s\n",
 				fix_idle_ip_arr[i].reg_index,
 				fix_idle_ip_arr[i].name);
@@ -677,6 +728,7 @@ static ssize_t show_idle_ip_list(struct kobject *kobj,
 				ip->index, ip->name);
 
 	spin_unlock_irqrestore(&idle_ip_list_lock, flags);
+#endif
 
 	return ret;
 }
@@ -689,6 +741,7 @@ static ssize_t show_idle_ip_list(struct kobject *kobj,
  */
 static struct attribute *attr_pool[10];
 
+static struct kobj_attribute idle_ip_attr;
 static struct kobject *cpupm_kobj;
 static struct attribute_group attr_group;
 
@@ -722,6 +775,7 @@ out:
 	_attr.show	= _show;				\
 	_attr.store	= _store;
 
+
 /******************************************************************************
  *                                Initialization                              *
  ******************************************************************************/
@@ -733,7 +787,7 @@ add_mode(struct power_mode **modes, struct power_mode *new)
 
 	for (i = 0; i < MAX_MODE; i++) {
 		mode = modes[i];
-		if (IS_NULL(mode)) {
+		if (mode == NULL) {
 			modes[i] = new;
 			return;
 		}
@@ -804,6 +858,9 @@ static int __init cpu_power_mode_init(void)
 		of_property_read_u32(dn, "psci-index", &mode->psci_index);
 		of_property_read_u32(dn, "type", &mode->type);
 
+		if (of_property_read_bool(dn, "sicd-block"))
+			mode->sicd_block = true;
+
 		if (of_property_read_bool(dn, "system-idle"))
 			mode->system_idle = true;
 
@@ -840,9 +897,7 @@ static int __init cpu_power_mode_init(void)
 		for_each_cpu(cpu, &mode->siblings)
 			add_mode(per_cpu(cpupm, cpu).modes, mode);
 
-#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 		cpuidle_profile_group_idle_register(mode->id, mode->name);
-#endif
 	}
 
 	cpupm_attr_init(idle_ip_attr, "idle_ip_list", 0444,
@@ -861,23 +916,16 @@ static int __init exynos_cpupm_init(void)
 {
 	cpu_power_mode_init();
 
+#ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 	spin_lock_init(&cpupm_lock);
-
 	fix_idle_ip_init();
+#endif
 
 	cpupm_initialized = 1;
 
 	return 0;
 }
 arch_initcall(exynos_cpupm_init);
-
-static int __init exynos_cpupm_late_init(void)
-{
-	initcall_done = true;
-
-	return 0;
-}
-late_initcall(exynos_cpupm_late_init);
 
 /******************************************************************************
  *                               CPU HOTPLUG                                  *

@@ -37,6 +37,11 @@
 #if defined(CONFIG_SEC_MODEM_S5000AP) && defined(CONFIG_SEC_MODEM_S5100)
 #include <linux/modem_notifier.h>
 #endif
+#ifdef CONFIG_CP_LCD_NOTIFIER
+#include "../../../video/fbdev/exynos/dpu30/decon.h"
+static int s5000ap_lcd_notifier(struct notifier_block *notifier,
+		unsigned long event, void *v);
+#endif /* CONFIG_CP_LCD_NOTIFIER */
 
 #define MIF_INIT_TIMEOUT	(15 * HZ)
 
@@ -59,7 +64,7 @@ static irqreturn_t cp_wdt_handler(int irq, void *arg)
 	mif_set_snapshot(false);
 
 	new_state = STATE_CRASH_WATCHDOG;
-	ld->crash_reason.type = CRASH_REASON_CP_ACT_CRASH;
+	ld->crash_reason.type = CRASH_REASON_CP_WDOG_CRASH;
 
 	mif_info("new_state:%s\n", cp_state_str(new_state));
 
@@ -125,6 +130,15 @@ static int __init console_setup(char *str)
 	return 0;
 }
 __setup("androidboot.hw_rev=", console_setup);
+
+static int __init set_hw_revision(char *str)
+{
+	get_option(&str, &hw_rev);
+	mif_info("Hardware revision:0x%x\n", hw_rev);
+
+	return 0;
+}
+__setup("revision=", set_hw_revision);
 #else
 static int get_system_rev(struct device_node *np)
 {
@@ -228,6 +242,7 @@ static int init_control_messages(struct modem_ctl *mc)
 #ifdef CONFIG_CP_BTL
 	unsigned int sbi_ext_backtrace_mask, sbi_ext_backtrace_pos;
 #endif
+	u8 __iomem *cmsg_base;
 
 	set_ctrl_msg(&mld->ap2cp_united_status, 0);
 	set_ctrl_msg(&mld->cp2ap_united_status, 0);
@@ -261,35 +276,41 @@ static int init_control_messages(struct modem_ctl *mc)
 #ifndef CONFIG_HW_REV_DETECT
 	hw_rev = get_system_rev(np);
 #endif
-	if (hw_rev < 0) {
-		mif_err("hw_rev error:%d\n", hw_rev);
-		return -EINVAL;
+	if ((hw_rev < 0) || (hw_rev > sbi_sys_rev_mask)) {
+		mif_err("hw_rev error:0x%x. set to 0\n", hw_rev);
+		hw_rev = 0;
 	}
-
 	update_ctrl_msg(&mld->ap2cp_united_status, hw_rev, sbi_sys_rev_mask,
 			sbi_sys_rev_pos);
 	mif_info("hw_rev:0x%x\n", hw_rev);
 
-	if (modem->offset_ap_version != 0) {
+	if (modem->offset_ap_version)
 		mld->ap_version = (u32 __iomem *)(mld->base + modem->offset_ap_version);
+	if (modem->offset_cp_version)
 		mld->cp_version = (u32 __iomem *)(mld->base + modem->offset_cp_version);
+	if (modem->offset_cmsg_offset) {
 		mld->cmsg_offset = (u32 __iomem *)(mld->base + modem->offset_cmsg_offset);
-		mld->srinfo_offset = (u32 __iomem *)(mld->base + modem->offset_srinfo_offset);
-		mld->clk_table_offset = (u32 __iomem *)(mld->base + modem->offset_clk_table_offset);
-		mld->buff_desc_offset = (u32 __iomem *)(mld->base + modem->offset_buff_desc_offset);
-		iowrite32(CMSG_OFFSET, mld->cmsg_offset);
-		iowrite32(SRINFO_OFFSET, mld->srinfo_offset);
-		iowrite32(CLK_TABLE_OFFSET, mld->clk_table_offset);
-		iowrite32(BUFF_DESC_OFFSET, mld->buff_desc_offset);
-
-		mld->srinfo_base = (u32 __iomem *)(mld->base + SRINFO_OFFSET);
-		mld->srinfo_size = SRINFO_SIZE;
-		mld->clk_table = (u32 __iomem *)(mld->base + CLK_TABLE_OFFSET);
+		cmsg_base = mld->base + modem->cmsg_offset;
+		iowrite32(modem->cmsg_offset, mld->cmsg_offset);
 	} else {
-		mld->srinfo_base = (u32 __iomem *)(mld->base + modem->srinfo_offset);
-		mld->srinfo_size = modem->srinfo_size;
-		mld->clk_table = (u32 __iomem *)(mld->base + modem->clk_table_offset);
+		cmsg_base = mld->base;
 	}
+	if (modem->offset_srinfo_offset) {
+		mld->srinfo_offset = (u32 __iomem *)(mld->base + modem->offset_srinfo_offset);
+		iowrite32(modem->srinfo_offset, mld->srinfo_offset);
+	}
+	if (modem->offset_clk_table_offset) {
+		mld->clk_table_offset = (u32 __iomem *)(mld->base + modem->offset_clk_table_offset);
+		iowrite32(modem->clk_table_offset, mld->clk_table_offset);
+	}
+	if (modem->offset_buff_desc_offset) {
+		mld->buff_desc_offset = (u32 __iomem *)(mld->base + modem->offset_buff_desc_offset);
+		iowrite32(modem->buff_desc_offset, mld->buff_desc_offset);
+	}
+
+	mld->srinfo_base = (u32 __iomem *)(mld->base + modem->srinfo_offset);
+	mld->srinfo_size = modem->srinfo_size;
+	mld->clk_table = (u32 __iomem *)(mld->base + modem->clk_table_offset);
 
 	return 0;
 }
@@ -546,6 +567,12 @@ static int complete_normal_boot(struct modem_ctl *mc)
 	struct io_device *iod;
 	unsigned long remain;
 	int err = 0;
+#ifdef CONFIG_CP_LCD_NOTIFIER
+	int ret;
+	struct modem_data *modem = mc->mdm_data;
+	struct mem_link_device *mld = modem->mld;
+#endif
+
 	mif_info("+++\n");
 
 	reinit_completion(&mc->init_cmpl);
@@ -563,6 +590,25 @@ static int complete_normal_boot(struct modem_ctl *mc)
 			iod->modem_state_changed(iod, STATE_ONLINE);
 	}
 
+#if defined(CONFIG_CPIF_TP_MONITOR)
+	tpmon_start(1);
+#endif
+#ifdef CONFIG_CP_LCD_NOTIFIER
+	if (mc->lcd_notifier.notifier_call == NULL) {
+		mif_info("Register lcd notifier\n");
+		mc->lcd_notifier.notifier_call = s5000ap_lcd_notifier;
+		ret = register_lcd_status_notifier(&mc->lcd_notifier);
+		if (ret) {
+			mif_err("failed to register LCD notifier");
+			return ret;
+		}
+	}
+
+	mif_info("Set LCD_ON status\n");
+	update_ctrl_msg(&mld->ap2cp_united_status, 1, mc->sbi_lcd_status_mask,
+			mc->sbi_lcd_status_pos);
+#endif /* CONFIG_CP_LCD_NOTIFIER */
+
 	mif_info("---\n");
 
 exit:
@@ -577,7 +623,11 @@ static int trigger_cp_crash(struct modem_ctl *mc)
 
 	mif_info("+++\n");
 
-	ld->link_trigger_cp_crash(mld, crash_type, "Forced crash is called");
+	if (ld->protocol == PROTOCOL_SIT &&
+			crash_type == CRASH_REASON_RIL_TRIGGER_CP_CRASH)
+		ld->link_trigger_cp_crash(mld, crash_type, ld->crash_reason.string);
+	else
+		ld->link_trigger_cp_crash(mld, crash_type, "Forced crash is called");
 
 	mif_info("---\n");
 	return 0;
@@ -901,6 +951,10 @@ static void s5000ap_get_pdata(struct modem_ctl *mc, struct modem_data *modem)
 
 	mc->sbi_ds_det_mask = modem->sbi_ds_det_mask;
 	mc->sbi_ds_det_pos = modem->sbi_ds_det_pos;
+
+	mc->sbi_lcd_status_mask = modem->sbi_lcd_status_mask;
+	mc->sbi_lcd_status_pos = modem->sbi_lcd_status_pos;
+	mc->int_lcd_status = mbx->int_ap2cp_lcd_status;
 }
 
 #if defined(CONFIG_SEC_MODEM_S5000AP) && defined(CONFIG_SEC_MODEM_S5100)
@@ -948,6 +1002,43 @@ static int cp_itmon_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 #endif
+
+#ifdef CONFIG_CP_LCD_NOTIFIER
+static int s5000ap_lcd_notifier(struct notifier_block *notifier,
+		unsigned long event, void *v)
+{
+	struct modem_ctl *mc =
+		container_of(notifier, struct modem_ctl, lcd_notifier);
+	struct modem_data *modem = mc->mdm_data;
+	struct mem_link_device *mld = modem->mld;
+
+	switch (event) {
+	case LCD_OFF:
+		mif_info("LCD_OFF Notification\n");
+		modem_ctrl_set_kerneltime(mc);
+		update_ctrl_msg(&mld->ap2cp_united_status, 0,
+				mc->sbi_lcd_status_mask,
+				mc->sbi_lcd_status_pos);
+		mbox_set_interrupt(MCU_CP, mc->int_lcd_status);
+		break;
+
+	case LCD_ON:
+		mif_info("LCD_ON Notification\n");
+		modem_ctrl_set_kerneltime(mc);
+		update_ctrl_msg(&mld->ap2cp_united_status, 1,
+				mc->sbi_lcd_status_mask,
+				mc->sbi_lcd_status_pos);
+		mbox_set_interrupt(MCU_CP, mc->int_lcd_status);
+		break;
+
+	default:
+		mif_info("lcd_event %ld\n", event);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+#endif /* CONFIG_CP_LCD_NOTIFIER */
 
 int s5000ap_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 {

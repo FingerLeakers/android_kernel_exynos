@@ -717,3 +717,27 @@ si_pmu_get_pmu_interrupt_rcv_cnt(si_t *sih)
 
 	return si_numd11coreunits(sih);
 }
+
+int
+si_pmu_res_state_pwrsw_main_wait(si_t *sih)
+{
+	int ret = BCME_OK;
+
+	switch (CHIPID(sih->chip)) {
+	case BCM4387_CHIP_GRPID:
+		if (PMU_REG(sih, res_state, 0, 0) & PMURES_BIT(RES4387_PWRSW_MAIN)) {
+			SPINWAIT((PMU_REG(sih, res_state, 0, 0) &
+				PMURES_BIT(RES4387_PWRSW_MAIN)), 10000);
+			OSL_DELAY(1000);
+		}
+		ret = (PMU_REG(sih, res_state, 0, 0) & PMURES_BIT(RES4387_PWRSW_MAIN)) ?
+			BCME_ERROR : BCME_OK;
+		break;
+	default:
+		PMU_ERROR(("si_pmu_res_state_pwrsw_main_wait: add support for this chip!\n"));
+		OSL_SYS_HALT();
+		break;
+	}
+
+	return ret;
+}

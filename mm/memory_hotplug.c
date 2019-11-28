@@ -1589,7 +1589,8 @@ repeat:
 		int ret;
 
 		pfn = ALIGN_DOWN(pfn, pageblock_nr_pages);
-		ret = reclaim_pages_range(pfn, end_pfn - pfn, 0, 0);
+		ret = reclaim_pages_range(pfn, end_pfn - pfn,
+					  MIGRATE_SYNC, MR_MEMORY_HOTPLUG);
 		if (ret && --max_retry == 0) {
 			pwork->result = ret;
 			goto finish_offline;

@@ -28,6 +28,10 @@
 #include "disp_err.h"
 #endif
 
+#ifdef CONFIG_SUPPORT_MCD_MOTTO_TUNE
+#include "dsim_motto.h"
+#endif
+
 extern int dsim_log_level;
 
 #define DSIM_MODULE_NAME			"exynos-dsim"
@@ -253,10 +257,17 @@ struct dsim_device {
 	struct df_status_info *df_status;
 	int df_mode;
 #endif
+#ifdef CONFIG_SUPPORT_MCD_MOTTO_TUNE
+	struct dsim_motto_info motto_info;
+#endif
 };
 
 int dsim_call_panel_ops(struct dsim_device *dsim, u32 cmd, void *arg);
 int dsim_write_data(struct dsim_device *dsim, u32 id, unsigned long d0, u32 d1, bool wait_empty);
+int dsim_sr_write_data(struct dsim_device *dsim, const u8 *cmd, u32 size);
+
+
+
 int dsim_read_data(struct dsim_device *dsim, u32 id, u32 addr, u32 cnt, u8 *buf);
 int dsim_wait_for_cmd_done(struct dsim_device *dsim);
 
@@ -399,12 +410,32 @@ static inline u32 dsim_phy_read_mask(u32 id, u32 reg_id, u32 mask)
 	val &= (mask);
 	return val;
 }
+
+static inline u32 dsim_phy_extra_read(u32 id, u32 reg_id)
+{
+	struct dsim_device *dsim = get_dsim_drvdata(id);
+
+	return readl(dsim->res.phy_regs_ex + reg_id);
+}
+
 static inline void dsim_phy_extra_write(u32 id, u32 reg_id, u32 val)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(id);
 
 	writel(val, dsim->res.phy_regs_ex + reg_id);
 }
+
+static inline void dsim_phy_extra_write_mask(u32 id, u32 reg_id, u32 val, u32 mask)
+{
+	struct dsim_device *dsim = get_dsim_drvdata(id);
+	u32 old = dsim_phy_extra_read(id, reg_id);
+
+	val = (val & mask) | (old & ~mask);
+	writel(val, dsim->res.phy_regs_ex + reg_id);
+	/* printk("offset : 0x%8x, value : 0x%x\n", reg_id, val); */
+}
+
+
 static inline void dsim_phy_write(u32 id, u32 reg_id, u32 val)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(id);
@@ -471,6 +502,23 @@ static inline bool IS_DSIM_OFF_STATE(struct dsim_device *dsim)
 #ifdef CONFIG_DYNAMIC_FREQ
 #define DSIM_IOC_SET_PRE_FREQ_HOP		_IOW('D', 60, u32)
 #define DSIM_IOC_SET_POST_FREQ_HOP		_IOW('D', 61, u32)
+#endif
+
+
+#ifdef CONFIG_SUPPORT_MCD_MOTTO_TUNE
+#define DSIM_TUNE_SWING_EN 0x80000000
+#define SET_DSIM_SWING_LEVEL(value) (0x00000007 & value)
+#define GET_DSIM_SWING_LEVEL(value) (0x00000007 & value)
+#define DSIM_SUPPORT_SWING_LEVEL	7
+
+#define DSIM_TUNE_IMPEDANCE_EN 0x80000000
+#define SET_DSIM_IMPEDANCE_LEVEL(value) (0x0000000f & value)
+#define DSIM_SUPPORT_IMPEDANCE_LEVEL	15
+
+#define DSIM_TUNE_EMPHASIS_EN 0x80000000
+#define SET_DSIM_EMPHASIS_LEVEL(value) (0x00000003 & value)
+#define GET_DSIM_EMPHASIS_LEVEL(value) (0x00000003 & value)
+#define DSIM_SUPPORT_EMPHASIS_LEVEL	3
 #endif
 
 #endif /* __SAMSUNG_DSIM_H__ */

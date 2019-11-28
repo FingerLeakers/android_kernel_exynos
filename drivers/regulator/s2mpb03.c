@@ -578,6 +578,42 @@ static int s2mpb03_pmic_remove(struct i2c_client *i2c)
 	return 0;
 }
 
+#if defined(CONFIG_PM)
+static int s2mpb03_pmic_suspend(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+
+	/* Setting LDO3 and BGR to LPM mode for retention */
+	s2mpb03_update_reg(i2c, S2MPB03_REG_LDO3_CTRL, 0x40, 0x40);
+	pr_info("[%s:%d] LDO3: LPM Enable\n", __func__, __LINE__);
+	s2mpb03_update_reg(i2c, S2MPB03_REG_CTRL, 0x80, 0x80);
+	pr_info("[%s:%d] BGR: LPM Enable\n", __func__, __LINE__);
+
+	return 0;
+}
+
+static int s2mpb03_pmic_resume(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+
+	/* Disabling LDO3 and BGR from LPM mode for Normal */
+	s2mpb03_update_reg(i2c, S2MPB03_REG_LDO3_CTRL, 0x00, 0x40);
+	pr_info("[%s:%d] LDO3: LPM Disable\n", __func__, __LINE__);
+	s2mpb03_update_reg(i2c, S2MPB03_REG_CTRL, 0x00, 0x80);
+	pr_info("[%s:%d] BGR: LPM Disable\n", __func__, __LINE__);
+
+	return 0;
+}
+#else
+#define s2mpb03_pmic_suspend	NULL
+#define s2mpb03_pmic_resume	NULL
+#endif /* CONFIG_PM */
+
+const struct dev_pm_ops s2mpb03_pmic_pm = {
+	.suspend = s2mpb03_pmic_suspend,
+	.resume = s2mpb03_pmic_resume,
+};
+
 #if defined(CONFIG_OF)
 static const struct i2c_device_id s2mpb03_pmic_id[] = {
 	{"s2mpb03-regulator", 0},
@@ -592,6 +628,9 @@ static struct i2c_driver s2mpb03_i2c_driver = {
 #if defined(CONFIG_OF)
 		.of_match_table	= s2mpb03_i2c_dt_ids,
 #endif /* CONFIG_OF */
+#if defined(CONFIG_PM)
+		.pm = &s2mpb03_pmic_pm,
+#endif
 		.suppress_bind_attrs = true,
 	},
 	.probe = s2mpb03_pmic_probe,

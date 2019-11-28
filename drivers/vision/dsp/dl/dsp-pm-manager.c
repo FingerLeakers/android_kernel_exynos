@@ -159,7 +159,7 @@ void dsp_pm_print(struct dsp_lib *lib)
 		if (idx % 4 == 0) {
 			if (idx != 0) {
 				DL_BUF_STR("\n");
-				DL_PRINT_BUF(INFO);
+				DL_PRINT_BUF(DEBUG);
 			}
 			DL_BUF_STR("0x%lx : ", offset);
 		}
@@ -169,5 +169,5 @@ void dsp_pm_print(struct dsp_lib *lib)
 	}
 
 	DL_BUF_STR("\n");
-	DL_PRINT_BUF(INFO);
+	DL_PRINT_BUF(DEBUG);
 }

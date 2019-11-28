@@ -286,6 +286,9 @@ void exynos_pcie_rc_pcie_phy_config(struct exynos_pcie *exynos_pcie, int ch_num)
 		writel(0x20, phy_base_regs + 0x450);
 	}
 
+	pr_info("[%s] set dig_sigval_gen34_LOCKED_timeout__7_0\n", __func__);
+	writel(0x0, phy_base_regs + 0x550);
+
 	/* tx amplitude control */
 	/* writel(0x14, phy_base_regs + (0x5C * 4)); */
 
@@ -442,3 +445,10 @@ void exynos_pcie_rc_phy_init(struct pcie_port *pp)
 	exynos_pcie->phy_ops.phy_config = exynos_pcie_rc_pcie_phy_config;
 	exynos_pcie->phy_ops.phy_eom = exynos_pcie_rc_eom;
 }
+
+static void exynos_pcie_quirks(struct pci_dev *dev)
+{
+	device_disable_async_suspend(&dev->dev);
+	pr_info("[%s] async suspend disabled\n", __func__);
+}
+DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, exynos_pcie_quirks);

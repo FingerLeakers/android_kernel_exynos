@@ -74,7 +74,7 @@ static int default_key_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	}
 	key_size = strlen(argv[1]) / 2;
 
-	err = crypto_diskcipher_setkey(dkc->diskc, argv[1], key_size, 0);
+	err = crypto_diskcipher_setkey(dkc->diskc, argv[1], key_size, 0, NULL);
 	if (err) {
 		 pr_err("%s: fails to set diskcipher key:%s, size:%d\n", __func__, argv[1], key_size);
 		return err;
@@ -128,7 +128,7 @@ static int default_key_map(struct dm_target *ti, struct bio *bio)
 			dm_target_offset(ti, bio->bi_iter.bi_sector);
 
 	if (dkc->diskc && (bio_has_crypt(bio) == NULL) && !bio->bi_crypt_skip)
-		crypto_diskcipher_set(bio, dkc->diskc, NULL, 0);
+		crypto_diskcipher_set(bio, dkc->diskc, 0);
 
 	return DM_MAPIO_REMAPPED;
 }

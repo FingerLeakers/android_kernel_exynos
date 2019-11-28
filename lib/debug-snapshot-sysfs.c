@@ -68,34 +68,6 @@ static ssize_t dss_enable_show(struct device *dev,
 	return n;
 }
 
-static ssize_t dss_enable_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
-{
-	int en;
-	char *name;
-
-	name = (char *)kstrndup(buf, count, GFP_KERNEL);
-	if (!name)
-		return count;
-
-	name[count - 1] = '\0';
-	en = dbg_snapshot_get_enable_item(name);
-
-	if (en == -1)
-		dev_info(dss_desc.dev, "echo name > enabled\n");
-	else {
-		if (en)
-			dbg_snapshot_set_enable_item(name, false);
-		else
-			dbg_snapshot_set_enable_item(name, true);
-	}
-
-	kfree(name);
-
-	return count;
-}
-
 static ssize_t dss_callstack_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -173,7 +145,7 @@ static ssize_t dss_log_work_show(struct kobject *kobj,
 #endif /* CONFIG_SEC_PM_DEBUG */
 
 static struct device_attribute dss_enable_attr =
-__ATTR(enabled, 0644, dss_enable_show, dss_enable_store);
+__ATTR(enabled, 0644, dss_enable_show, NULL);
 
 static struct device_attribute dss_callstack_attr =
 __ATTR(callstack, 0644, dss_callstack_show, dss_callstack_store);

@@ -459,7 +459,7 @@ dio_bio_alloc(struct dio *dio, struct dio_submit *sdio,
  *
  * bios hold a dio reference between submit_bio and ->end_io.
  */
- #ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 static bool is_inode_filesystem_type(const struct inode *inode,
 					const char *fs_type)
 {
@@ -489,9 +489,8 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 
 #if defined(CONFIG_CRYPTO_DISKCIPHER)
 	if (dio->inode && fscrypt_has_encryption_key(dio->inode)) {
-#if defined(CONFIG_CRYPTO_DISKCIPHER_DUN)
 		 /* device unit number for iv sector */
-		#define PG_DUN(i,p) 										   \
+		#define PG_DUN(i, p)	\
 			((((i)->i_ino & 0xffffffff) << 32) | ((p) & 0xffffffff))
 
 		if (is_inode_filesystem_type(dio->inode, "f2fs"))
@@ -499,9 +498,6 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 				(sdio->logical_offset_in_bio >> PAGE_SHIFT)));
 		else
 			fscrypt_set_bio(dio->inode, bio, 0);
-#else
-		fscrypt_set_bio(dio->inode, bio, 0);
-#endif
 	}
 #endif
 
@@ -509,7 +505,9 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 		bio_set_pages_dirty(bio);
 
 	dio->bio_disk = bio->bi_disk;
-
+#ifdef CONFIG_DDAR
+	bio->bi_dio_inode = dio->inode;
+#endif
 	if (dio->flags & DIO_HPB_IO) {
 		bio->bi_opf |= REQ_RT_PINNED;
 	}
@@ -524,6 +522,20 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 	sdio->boundary = 0;
 	sdio->logical_offset_in_bio = 0;
 }
+
+#ifdef CONFIG_DDAR
+struct inode *dio_bio_get_inode(struct bio *bio)
+{
+	struct inode *inode = NULL;
+
+	if (bio == NULL)
+		return NULL;
+
+	inode = bio->bi_dio_inode;
+
+	return inode;
+}
+#endif
 
 /*
  * Release any resources in case of a failure

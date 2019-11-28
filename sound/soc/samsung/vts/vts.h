@@ -15,6 +15,8 @@
 #include <sound/memalloc.h>
 #include <linux/wakelock.h>
 
+#define TEST_WAKEUP
+
 /* SYSREG_VTS */
 #define VTS_DEBUG			(0x0404)
 #define VTS_DMIC_CLK_CTRL		(0x0408)
@@ -105,6 +107,8 @@
 #define VTS_IRQ_VTS_LOG_DUMP            (9)
 #define VTS_IRQ_COUNT                   (10)
 #define VTS_IRQ_VTS_SLIF_DUMP           (11)
+
+#define VTS_IRQ_VTS_CP_WAKEUP           (15)
 
 #define VTS_IRQ_AP_IPC_RECEIVED         (16)
 #define VTS_IRQ_AP_SET_DRAM_BUFFER      (17)

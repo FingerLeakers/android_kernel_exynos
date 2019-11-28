@@ -438,26 +438,23 @@ scsi_log_print_sense_hdr(const struct scsi_device *sdev, const char *name,
 	if (sdev->host->by_ufs) {
 		if (sshdr->sense_key == 0x03) {
 			sdev->host->medium_err_cnt++;
-#if 0
+
 #if defined(CONFIG_SEC_ABC) 
 			sec_abc_send_event("MODULE=storage@ERROR=ufs_medium_err"); 
 #endif
-#endif
-#if 0
+
+
 #ifdef CONFIG_SEC_DEBUG
-			/* only work for debug level is mid */
-			if ((sec_debug_get_debug_level() & 0x1) == 0x1)
+			/* only work for upload mode is enabled */
+			if (secdbg_mode_enter_upload() == 0x1)
 				panic("ufs medium error\n");
-#endif
 #endif
 		} else if (sshdr->sense_key == 0x04) {
 			sdev->host->hw_err_cnt++;
-#if 0
 #ifdef CONFIG_SEC_DEBUG
-			/* only work for debug level is mid */
-			if ((sec_debug_get_debug_level() & 0x1) == 0x1)
+			/* only work for upload mode is enabled */
+			if (secdbg_mode_enter_upload() == 0x1)
 				panic("ufs hardware error\n");
-#endif
 #endif
 		}
 	}

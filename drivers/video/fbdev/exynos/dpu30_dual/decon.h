@@ -489,6 +489,10 @@ struct decon_readback {
 	struct workqueue_struct *wq;
 };
 
+struct vrr_config_data {
+	u32 fps;
+	u32 mode;
+};
 struct decon_win_config {
 	enum {
 		DECON_WIN_STATE_DISABLED = 0,
@@ -563,6 +567,7 @@ struct decon_reg_data {
 
 	u32 fps;
 	u32 fps_update;
+	struct vrr_config_data vrr_info;
 
 	int mres_idx;
 #ifdef CONFIG_DYNAMIC_FREQ

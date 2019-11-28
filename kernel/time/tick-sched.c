@@ -35,6 +35,8 @@
 
 #include <trace/events/timer.h>
 
+#include <linux/sec_perf.h>
+
 /*
  * Per-CPU nohz control structure
  */
@@ -1286,6 +1288,9 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 
 	hrtimer_forward(timer, now, tick_period);
 
+#ifdef CONFIG_SEC_PERF_LATENCYCHECKER
+	sec_perf_latencychecker_check_latency_other_cpu();
+#endif
 	return HRTIMER_RESTART;
 }
 

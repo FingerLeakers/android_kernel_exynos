@@ -172,6 +172,7 @@ enum is_sensor_subdev_ioctl {
 	SENSOR_IOCTL_PATTERN_ENABLE,
 	SENSOR_IOCTL_PATTERN_DISABLE,
 	SENSOR_IOCTL_REGISTE_VOTF,
+	SENSOR_IOCTL_G_FRAME_ID,
 };
 
 #if defined(SECURE_CAMERA_IRIS)
@@ -203,6 +204,7 @@ struct is_sensor_cfg {
 	u32 width;
 	u32 height;
 	u32 framerate;
+	u32 max_fps;
 	u32 settle;
 	u32 mode;
 	u32 lanes;
@@ -211,6 +213,9 @@ struct is_sensor_cfg {
 	u32 lrte;
 	u32 pd_mode;
 	u32 ex_mode;
+	u32 votf;
+	u32 scm; /* sensor DMA ch mode: default mode(0), spetail mode(1) */
+	u32 binning; /* binning ratio */
 	struct is_vci_config input[CSI_VIRTUAL_CH_MAX];
 	struct is_vci_config output[CSI_VIRTUAL_CH_MAX];
 };
@@ -303,6 +308,7 @@ enum is_sensor_state {
 	IS_SENSOR_WAIT_STREAMING,
 	SENSOR_MODULE_GOT_INTO_TROUBLE,
 	IS_SENSOR_RUNTIME_MODULE_SELECTED,
+	IS_SENSOR_I2C_DUMMY_MODULE_SELECTED,
 };
 
 enum sensor_subdev_internel_use {
@@ -354,7 +360,8 @@ struct is_device_sensor {
 	struct camera2_flash_ctl			flash_ctl;
 	u64						timestamp[IS_TIMESTAMP_HASH_KEY];
 	u64						timestampboot[IS_TIMESTAMP_HASH_KEY];
-	u32						frame_id[IS_TIMESTAMP_HASH_KEY];
+	u32						frame_id[IS_TIMESTAMP_HASH_KEY]; /* index 0 ~ 7 */
+	u32						frame_id_1[IS_TIMESTAMP_HASH_KEY]; /* index 8 ~ 15 */
 
 	u32						fcount;
 	u32						line_fcount;
@@ -451,6 +458,8 @@ struct is_device_sensor {
 	bool					use_otp_cal;
 	u32					cal_status[CAMERA_CRC_INDEX_MAX];
 	u8					otp_cal_buf[SENSOR_OTP_PAGE][SENSOR_OTP_PAGE_SIZE];
+
+	struct i2c_client			*client;
 };
 
 int is_sensor_open(struct is_device_sensor *device,

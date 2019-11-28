@@ -305,7 +305,11 @@ extern uint32 si_oobr_baseaddr(const si_t *sih, bool second);
 extern volatile void *si_switch_core(si_t *sih, uint coreid, uint *origidx,
 	bcm_int_bitmask_t *intr_val);
 extern void si_restore_core(si_t *sih, uint coreid, bcm_int_bitmask_t *intr_val);
+#ifdef USE_NEW_COREREV_API
+extern uint si_corerev_ext(si_t *sih, uint coreid, uint coreunit);
+#else
 uint si_get_corerev(si_t *sih, uint core_id);
+#endif
 extern int si_numaddrspaces(const si_t *sih);
 extern uint32 si_addrspace(const si_t *sih, uint spidx, uint baidx);
 extern uint32 si_addrspacesize(const si_t *sih, uint spidx, uint baidx);
@@ -819,13 +823,7 @@ bool si_srpwr_cap(si_t *sih);
 
 #ifdef BCMSRPWR
 	extern bool _bcmsrpwr;
-	#if defined(ROM_ENAB_RUNTIME_CHECK) || !defined(DONGLEBUILD)
-		#define SRPWR_ENAB()    (_bcmsrpwr)
-	#elif defined(BCMSRPWR_DISABLED)
-		#define SRPWR_ENAB()    (0)
-	#else
-		#define SRPWR_ENAB()    (1)
-	#endif
+	#define SRPWR_ENAB()    (_bcmsrpwr)
 #else
 	#define SRPWR_ENAB()            (0)
 #endif /* BCMSRPWR */
@@ -850,7 +848,8 @@ uint32 si_enum_base(uint devid);
 /* Default ARM PLL freq 4369/4368 */
 #define ARMPLL_FREQ_400MHZ             (400u)
 #define ARMPLL_FREQ_800MHZ	       (800u)
-#define ARMPLL_FREQ_1000MHZ	       (1000u)
+/* ARM PLL freq computed using chip defaults is 1002.8235 Mhz */
+#define ARMPLL_FREQ_1000MHZ	       (1003u)
 
 extern uint8 si_lhl_ps_mode(const si_t *sih);
 extern uint32 si_get_armpllclkfreq(const si_t *sih);
@@ -892,4 +891,6 @@ bool si_btc_bt_status_in_reset(si_t *sih);
 bool si_btc_bt_status_in_pds(si_t *sih);
 
 /* RFFE RFEM Functions */
+extern void si_jtag_udr_pwrsw_main_toggle(si_t *sih, bool on);
+extern int si_pmu_res_state_pwrsw_main_wait(si_t *sih);
 #endif	/* _siutils_h_ */

@@ -87,6 +87,7 @@ int sensor_module_power_reset(struct v4l2_subdev *subdev, struct is_device_senso
 	usleep_range(10000, 10000);
 
 	sensor_peri->mode_change_first = true;
+	sensor_peri->cis_global_complete = false;
 
 	ret = is_sensor_gpio_on(device);
 	if (ret)
@@ -237,14 +238,12 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 
 	if (test_bit(IS_SENSOR_ACTUATOR_AVAILABLE, &sensor_peri->peri_state) &&
 			pdata->af_product_name != ACTUATOR_NAME_NOTHING && sensor_peri->actuator != NULL) {
-
 		sensor_peri->actuator->actuator_data.actuator_init = true;
 		sensor_peri->actuator->actuator_index = -1;
 		sensor_peri->actuator->left_x = 0;
 		sensor_peri->actuator->left_y = 0;
 		sensor_peri->actuator->right_x = 0;
 		sensor_peri->actuator->right_y = 0;
-
 		sensor_peri->actuator->actuator_data.afwindow_timer.function = is_actuator_m2m_af_set;
 
 		subdev_actuator = sensor_peri->subdev_actuator;
@@ -267,6 +266,12 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 			goto p_err;
 		}
 	}
+
+	/* If use CIS_GLOBAL_WORK feature,
+	 * cis global setting need to start after other peri initialize finished
+	 */
+	if (IS_ENABLED(USE_CIS_GLOBAL_WORK) && device->pdata->scenario == SENSOR_SCENARIO_NORMAL)
+		kthread_queue_work(&sensor_peri->cis_global_worker, &sensor_peri->cis_global_work);
 
 	pr_info("[MOD:%s] %s(%d)\n", module->sensor_name, __func__, val);
 
@@ -439,6 +444,7 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 {
 	int ret = 0;
 	struct is_module_enum *module = NULL;
+	struct is_device_sensor *device = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	cis_setting_info info;
 	info.param = NULL;
@@ -448,6 +454,9 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 
 	module = (struct is_module_enum *)v4l2_get_subdevdata(subdev);
 	FIMC_BUG(!module);
+
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	FIMC_BUG(!device);
 
 	sensor_peri = (struct is_device_sensor_peri *)module->private_data;
 	FIMC_BUG(!sensor_peri);
@@ -516,19 +525,31 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		}
 		break;
 	case V4L2_CID_SENSOR_GET_MIN_ANALOG_GAIN:
-		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_min_analog_gain, sensor_peri->subdev_cis, &ctrl->value);
-		if (ret < 0) {
-			err("err!!! ret(%d)", ret);
-			ret = -EINVAL;
-			goto p_err;
+		/* index 1 means caculated gain value per mile */
+		if (sensor_peri->cis.cis_data->min_analog_gain[1]) {
+			ctrl->value = sensor_peri->cis.cis_data->min_analog_gain[1];
+		} else {
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_get_min_analog_gain,
+					sensor_peri->subdev_cis, &ctrl->value);
+			if (ret < 0) {
+				err("err!!! ret(%d)", ret);
+				ret = -EINVAL;
+				goto p_err;
+			}
 		}
 		break;
 	case V4L2_CID_SENSOR_GET_MAX_ANALOG_GAIN:
-		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_max_analog_gain, sensor_peri->subdev_cis, &ctrl->value);
-		if (ret < 0) {
-			err("err!!! ret(%d)", ret);
-			ret = -EINVAL;
-			goto p_err;
+		/* index 1 means caculated gain value per mile */
+		if (sensor_peri->cis.cis_data->max_analog_gain[1]) {
+			ctrl->value = sensor_peri->cis.cis_data->max_analog_gain[1];
+		} else {
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_get_max_analog_gain,
+					sensor_peri->subdev_cis, &ctrl->value);
+			if (ret < 0) {
+				err("err!!! ret(%d)", ret);
+				ret = -EINVAL;
+				goto p_err;
+			}
 		}
 		break;
 	case V4L2_CID_SENSOR_GET_DIGITAL_GAIN:
@@ -540,19 +561,31 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		}
 		break;
 	case V4L2_CID_SENSOR_GET_MIN_DIGITAL_GAIN:
-		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_min_digital_gain, sensor_peri->subdev_cis, &ctrl->value);
-		if (ret < 0) {
-			err("err!!! ret(%d)", ret);
-			ret = -EINVAL;
-			goto p_err;
+		/* index 1 means caculated gain value per mile */
+		if (sensor_peri->cis.cis_data->min_digital_gain[1]) {
+			ctrl->value = sensor_peri->cis.cis_data->min_digital_gain[1];
+		} else {
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_get_min_digital_gain,
+					sensor_peri->subdev_cis, &ctrl->value);
+			if (ret < 0) {
+				err("err!!! ret(%d)", ret);
+				ret = -EINVAL;
+				goto p_err;
+			}
 		}
 		break;
 	case V4L2_CID_SENSOR_GET_MAX_DIGITAL_GAIN:
-		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_max_digital_gain, sensor_peri->subdev_cis, &ctrl->value);
-		if (ret < 0) {
-			err("err!!! ret(%d)", ret);
-			ret = -EINVAL;
-			goto p_err;
+		/* index 1 means caculated gain value per mile */
+		if (sensor_peri->cis.cis_data->max_digital_gain[1]) {
+			ctrl->value = sensor_peri->cis.cis_data->max_digital_gain[1];
+		} else {
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_get_max_digital_gain,
+					sensor_peri->subdev_cis, &ctrl->value);
+			if (ret < 0) {
+				err("err!!! ret(%d)", ret);
+				ret = -EINVAL;
+				goto p_err;
+			}
 		}
 		break;
 	case V4L2_CID_ACTUATOR_GET_STATUS:
@@ -618,6 +651,20 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 		}
 		ctrl->value = get_sensor_by_model_id(sensor_peri->subdev_cis,
 					sensor_peri->cis.cis_data->cis_model_id);
+		break;
+	case V4L2_CID_SENSOR_GET_BINNING_RATIO:
+		if (!device->cfg) {
+			err("get sensor_cfg is fail");
+			ret = -EINVAL;
+			goto p_err;
+		}
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_binning_ratio,
+				sensor_peri->subdev_cis, device->cfg->mode, &ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
 		break;
 	default:
 		err("err!!! Unknown CID(%#x)", ctrl->id);
@@ -805,6 +852,12 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 				clear_bit(IS_SENSOR_LASER_AF_AVAILABLE, &sensor_peri->peri_state);
 
 			info("use laser_af: %d\n", ctrl->value);
+		} else {
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_set_laser_control, sensor_peri->subdev_cis, ctrl->value);
+			if (ret < 0) {
+				err("failed to laser control: %d\n", ctrl->value);
+				goto p_err;
+			}
 		}
 		break;
 	case V4L2_CID_SENSOR_SET_SHUTTER:
@@ -916,7 +969,7 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 				err("[rom_dualcal_id:%d pos:%d] invalid ROM ID", rom_dualcal_id, device->position);
 				return -EINVAL;
 			}
-				
+
 			is_sec_get_sysfs_finfo(&finfo, rom_dualcal_id);
 			if (test_bit(IS_CRC_ERROR_ALL_SECTION, &finfo->crc_error) ||
 				test_bit(IS_CRC_ERROR_DUAL_CAMERA, &finfo->crc_error)) {
@@ -946,6 +999,37 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 				goto p_err;
 			}
 #endif
+			break;
+		}
+		case V4L2_CID_SENSOR_SET_TOF_AUTO_FOCUS:
+		{
+			struct is_tof_af *tof_af;
+			struct tof_data_t tofdata;
+			struct platform_device *pdev;
+
+			WARN_ON(&sensor_peri->tof_af);
+			WARN_ON(core->pdev);
+
+			tof_af = &sensor_peri->tof_af;
+			pdev = core->pdev;
+
+			if(ext_ctrl->ptr){
+				ret = copy_from_user(&tofdata, ext_ctrl->ptr, sizeof(struct tof_data_t));
+				if(tofdata.data){
+					ret = copy_from_user(tof_af->af_data, tofdata.data, sizeof(u16)*40*30);
+					tofdata.data = tof_af->af_data;
+				} else {
+					err("data empty");
+					ret = -EINVAL;
+					goto p_err;
+				}
+			} else{
+				err("pointer is NULL");
+				ret = -EINVAL;
+				goto p_err;
+			}
+
+			memcpy(&tof_af->tof_af_data, &tofdata, sizeof(struct tof_data_t));
 			break;
 		}
 
@@ -1131,6 +1215,75 @@ p_err:
 	return ret;
 }
 
+/* check read value is same with match seq */
+static int sensor_module_check_match_seq(struct is_device_sensor *device, struct exynos_platform_is_module *pdata)
+{
+	int i, j;
+	int idx_prop = 0;
+	struct exynos_sensor_module_match *entry;
+	u32 slave_addr, reg, reg_type, expected_data, data_type;
+	u32 ret = 0;
+	u8 val8 = 0;
+	u16 val16 = 0;
+	bool result_of_match;
+
+	FIMC_BUG(!device);
+	FIMC_BUG(!pdata);
+
+	/*
+	 * check each group of match seq is satisfied
+	 * "and" conditions apply for all groups
+	 * If there is a group that does not satisfy, final result is FAIL.
+	 */
+	for (i = 0; i < pdata->num_of_match_groups; i++) {
+		result_of_match = false;
+		/*
+		 * check each entry of a group is satisfied
+		 * "or" conditions apply for all entry in a group
+		 * If there is a entry that does satisfy, result of group is PASS.
+		 */
+		for (j = 0; j < pdata->num_of_match_entry[i]; j++) {
+			entry = &pdata->match_entry[i][j];
+			idx_prop = j * 5;
+			slave_addr = entry->slave_addr;
+			reg = entry->reg;
+			reg_type = entry->reg_type;
+			expected_data = entry->expected_data;
+			data_type = entry->data_type;
+
+			device->client->addr = (slave_addr & 0xFFFF);
+			if (reg_type == 2) {
+				ret = is_sensor_read16(device->client, reg, &val16);
+				if (ret)
+					return ret;
+
+				if ((u16)(expected_data & 0xFFFF) != val16) {
+					info("[FAIL] 0x%04x: 0x%04x != 0x%04x", reg, expected_data, val16);
+				} else {
+					info("[PASS] 0x%04x: 0x%04x == 0x%04x", reg, expected_data, val16);
+					result_of_match = true;
+					break;
+				}
+			} else {
+				ret = is_sensor_read8(device->client, reg, &val8);
+				if (ret)
+					return ret;
+
+				if ((u8)(expected_data & 0xFF) != val8) {
+					info("[FAIL] 0x%04x: 0x%02x != 0x%02x", reg, expected_data, val8);
+				} else {
+					info("[PASS] 0x%04x: 0x%02x == 0x%02x", reg, expected_data, val8);
+					result_of_match = true;
+					break;
+				}
+			}
+		}
+		if (result_of_match == false)
+			return -EINVAL;
+	}
+	return ret;
+}
+
 static const struct v4l2_subdev_core_ops core_ops = {
 	.init = sensor_module_init,
 	.g_ctrl = sensor_module_g_ctrl,
@@ -1170,6 +1323,7 @@ int __init sensor_module_base_probe(struct platform_device *pdev,
 	struct device *dev;
 	int t;
 	struct pinctrl_state *s;
+	u32 match_result = 0;
 
 	core = (struct is_core *)dev_get_drvdata(is_dev);
 	if (!core) {
@@ -1186,10 +1340,17 @@ int __init sensor_module_base_probe(struct platform_device *pdev,
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];
 
+	 if (device->pdata->i2c_dummy_enable && atomic_read(&device->module_count)) {
+		probe_info("%s: there is already probe done module, skip probe", __func__);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
 	subdev_module = devm_kzalloc(&pdev->dev, sizeof(*subdev_module), GFP_KERNEL);
 	if (!subdev_module) {
 		dev_err(&pdev->dev, "subdev_module is NULL");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto p_err;
 	}
 
 	probe_info("%s(%s) pdata->id(%d), module_count = %d\n", __func__,
@@ -1197,7 +1358,6 @@ int __init sensor_module_base_probe(struct platform_device *pdev,
 			pdata->id,
 			atomic_read(&device->module_count));
 	module = &device->module_enum[atomic_read(&device->module_count)];
-	atomic_inc(&device->module_count);
 	clear_bit(IS_MODULE_GPIO_ON, &module->state);
 	module->pdata = pdata;
 	module->dev = dev;
@@ -1248,7 +1408,8 @@ int __init sensor_module_base_probe(struct platform_device *pdev,
 		sizeof(struct is_device_sensor_peri), GFP_KERNEL);
 	if (!module->private_data) {
 		dev_err(&pdev->dev, "is_device_sensor_peri is NULL");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto p_err;
 	}
 	is_sensor_peri_probe((struct is_device_sensor_peri *)module->private_data);
 	PERI_SET_MODULE(module);
@@ -1311,16 +1472,52 @@ int __init sensor_module_base_probe(struct platform_device *pdev,
 	snprintf(subdev_module->name, V4L2_SUBDEV_NAME_SIZE, "sensor-subdev.%s", module->sensor_name);
 	probe_info("module->cfg=%p module->cfgs=%d\n", module->cfg, module->cfgs);
 
-	s = pinctrl_lookup_state(pdata->pinctrl, "release");
+	if (device->pdata->i2c_dummy_enable) {
+		probe_info("%s: try to use match seq", __func__);
+		ret = is_sensor_mclk_on(device, SENSOR_SCENARIO_MATCH_SEQ, module->pdata->mclk_ch);
+		if (ret) {
+			merr("is_sensor_mclk_on is fail(%d)", device, ret);
+			goto p_err;
+		}
 
-	if (pinctrl_select_state(pdata->pinctrl, s) < 0) {
-		probe_err("pinctrl_select_state is fail\n");
-		goto p_err;
+		module->pdata->gpio_cfg(module, SENSOR_SCENARIO_MATCH_SEQ, GPIO_SCENARIO_ON);
+
+		match_result = sensor_module_check_match_seq(device, pdata);
+
+		module->pdata->gpio_cfg(module, SENSOR_SCENARIO_MATCH_SEQ, GPIO_SCENARIO_OFF);
+
+		ret = is_sensor_mclk_off(device, SENSOR_SCENARIO_MATCH_SEQ, module->pdata->mclk_ch);
+		if (ret) {
+			merr("is_sensor_mclk_off is fail(%d)", device, ret);
+			ret = 0;
+		}
+
+		if (match_result) {
+			probe_info("%s: final result of match seq is FAIL", __func__);
+			ret = -EINVAL;
+			goto p_err;
+		}
+
+		probe_info("%s: final result of match seq is PASS", __func__);
 	}
 
-	*ret_module = module;
+	atomic_inc(&device->module_count);
+
+	s = pinctrl_lookup_state(pdata->pinctrl, "release");
+
+	if (pinctrl_select_state(pdata->pinctrl, s) < 0)
+		probe_err("pinctrl_select_state is fail\n");
+	else
+		*ret_module = module;
+
+	probe_info("%s(%d)\n", __func__, ret);
+
+	return ret;
+
 p_err:
 	probe_info("%s(%d)\n", __func__, ret);
+	kfree(pdata);
+
 	return ret;
 }
 

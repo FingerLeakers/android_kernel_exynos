@@ -831,15 +831,15 @@ void s2mps19_powermeter_init(struct s2mps19_dev *s2mps19)
 
 	pr_info("%s: s2mps19 power meter init start\n", __func__);
 
-	/* initial regulators : BUCK 1,2,3,4,5,6,7,8 */
+	/* initial regulators : BUCK 1,2,3,5,6,8,11(LLDO3),12(MLDO) */
 	adc_meter->adc_reg[0] = 0x1;
 	adc_meter->adc_reg[1] = 0x2;
 	adc_meter->adc_reg[2] = 0x3;
-	adc_meter->adc_reg[3] = 0x4;
-	adc_meter->adc_reg[4] = 0x5;
-	adc_meter->adc_reg[5] = 0x6;
-	adc_meter->adc_reg[6] = 0x7;
-	adc_meter->adc_reg[7] = 0x8;
+	adc_meter->adc_reg[3] = 0x5;
+	adc_meter->adc_reg[4] = 0x6;
+	adc_meter->adc_reg[5] = 0x8;
+	adc_meter->adc_reg[6] = 0xB;
+	adc_meter->adc_reg[7] = 0xC;
 
 	adc_meter->adc_mode = s2mps19->adc_mode;
 	adc_meter->adc_sync_mode = s2mps19->adc_sync_mode;

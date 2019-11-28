@@ -246,14 +246,16 @@ static void dwc3_int_lock_qos_work(struct work_struct *data)
 			pm_qos_update_request(&dotg->pm_qos_int_req, 266000);
 		} else if (dwc->level_val == 1) {
 			dev_info(dev, "lock QOS...(Super speed : Lock 400Mhz)");
-			/* pm_qos_update_request(&dotg->pm_qos_int_req, 400000); */
+			pm_qos_update_request(&dotg->pm_qos_int_req, 400000);
 		} else if (dwc->level_val == 0) {
-			dev_info(dev, "lock QOS...(Super speed PLUS : Lock 400Mhz)");
-			/* pm_qos_update_request(&dotg->pm_qos_int_req, 533000); */
+			dev_info(dev, "lock QOS...(Super speed PLUS : Lock 533Mhz)");
+			pm_qos_update_request(&dotg->pm_qos_int_req, 533000);
 		} else {
 			dev_err(dev, "Unsupported QOS lock level!!!!");
 		}
 	}
+
+	dwc3_exynos_set_bus_clock(dwc->dev->parent, dwc->level_val);
 }
 
 void dwc3_otg_qos_lock(struct dwc3 *dwc, int level)
@@ -295,7 +297,9 @@ int dwc3_otg_phy_enable(struct otg_fsm *fsm, int owner, bool on)
 			if (dotg->pm_qos_int_val)
 				pm_qos_update_request(&dotg->pm_qos_int_req,
 						dotg->pm_qos_int_val);
+
 			pm_runtime_get_sync(dev);
+			dwc3_exynos_set_bus_clock(dwc->dev->parent, 1);
 			ret = dwc3_core_init(dwc);
 			if (ret) {
 				dev_err(dwc->dev, "%s: failed to reinitialize core\n",
@@ -310,6 +314,7 @@ int dwc3_otg_phy_enable(struct otg_fsm *fsm, int owner, bool on)
 		if (dotg->combo_phy_control == 0) {
 			dwc3_core_exit(dwc);
 err:
+			dwc3_exynos_set_bus_clock(dwc->dev->parent, -1);
 			pm_runtime_put_sync_suspend(dev);
 			if (dotg->pm_qos_int_val)
 				pm_qos_update_request(&dotg->pm_qos_int_req, 0);
@@ -381,7 +386,7 @@ static int dwc3_otg_start_host(struct otg_fsm *fsm, int on)
 		usbpd_set_host_on(dotg->man, on);
 #endif
 #if defined(CONFIG_USB_PORT_POWER_OPTIMIZATION)
-		xhci_port_power_set(1);
+		xhci_port_power_set(1, 3);
 		unregister_usb_power_notify();
 #endif
 		if (dotg->dwc3_suspended) {
@@ -417,6 +422,7 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 
 	if (on) {
 		wake_lock(&dotg->wakelock);
+		dwc->vbus_state = true;
 		ret = dwc3_otg_phy_enable(fsm, 0, on);
 		if (ret) {
 			dev_err(dwc->dev, "%s: failed to reinitialize core\n",
@@ -433,6 +439,7 @@ static int dwc3_otg_start_gadget(struct otg_fsm *fsm, int on)
 		}
 
 	} else {
+		dwc->vbus_state = false;
 		if (dwc->is_not_vbus_pad)
 			dwc3_gadget_disconnect_proc(dwc);
 		/* avoid missing disconnect interrupt */

@@ -971,6 +971,7 @@ int mfc_sysmmu_fault_handler(struct iommu_domain *iodmn, struct device *device,
 	dev->logging_data->fault_addr = (unsigned int)addr;
 
 	call_dop(dev, dump_info, dev);
+	s3c2410wdt_set_emergency_reset(0, 0);
 
 	return 0;
 }
@@ -1412,6 +1413,7 @@ static int __mfc_itmon_notifier(struct notifier_block *nb, unsigned long action,
 		dev_err(dev->device, "mfc_itmon_notifier: %s -\n", is_mfc_itmon ? "MFC" : "MMCACHE");
 		dev->itmon_notified = 1;
 		ret = NOTIFY_BAD;
+		s3c2410wdt_set_emergency_reset(0, 0);
 	}
 	return ret;
 }

@@ -39,6 +39,7 @@
 #include "five_pa.h"
 #include "five_porting.h"
 #include "five_cache.h"
+#include "five_dmverity.h"
 
 static const bool unlink_on_error;	// false
 
@@ -315,7 +316,8 @@ static int push_file_event_bunch(struct task_struct *task, struct file *file,
 	return rc;
 }
 
-static int push_reset_event(struct task_struct *task)
+static int push_reset_event(struct task_struct *task,
+		enum task_integrity_reset_cause cause, struct file *file)
 {
 	struct list_head dead_list;
 	struct task_integrity *current_tint;
@@ -327,6 +329,8 @@ static int push_reset_event(struct task_struct *task)
 	INIT_LIST_HEAD(&dead_list);
 	current_tint = task->integrity;
 	task_integrity_get(current_tint);
+
+	task_integrity_set_reset_reason(current_tint, cause, file);
 
 	five_reset = five_event_create(FIVE_RESET_INTEGRITY, task, NULL, 0,
 		GFP_KERNEL);
@@ -356,9 +360,10 @@ static int push_reset_event(struct task_struct *task)
 	return 0;
 }
 
-void task_integrity_delayed_reset(struct task_struct *task)
+void task_integrity_delayed_reset(struct task_struct *task,
+		enum task_integrity_reset_cause cause, struct file *file)
 {
-	push_reset_event(task);
+	push_reset_event(task, cause, file);
 }
 
 static void five_check_last_writer(struct integrity_iint_cache *iint,
@@ -506,7 +511,8 @@ static void process_file(struct task_struct *task,
 		goto out;
 	}
 
-	xattr_len = five_read_xattr(file->f_path.dentry, &xattr_value);
+	xattr_len = five_read_xattr(d_real_comp(file->f_path.dentry),
+			&xattr_value);
 	if (xattr_value && xattr_len) {
 		rc = five_cert_fillout(&cert, xattr_value, xattr_len);
 		if (rc) {
@@ -536,7 +542,7 @@ out:
 	result->iint = iint;
 	result->fn = function;
 	result->xattr = xattr_value;
-	result->xattr_len = xattr_len;
+	result->xattr_len = (size_t)xattr_len;
 
 	if (!iint || five_get_cache_status(iint) == FIVE_FILE_UNKNOWN
 			|| five_get_cache_status(iint) == FIVE_FILE_FAIL)
@@ -834,6 +840,10 @@ static int __init init_five(void)
 	}
 
 	error = init_fs();
+	if (error)
+		return error;
+
+	error = five_init_dmverity();
 
 	return error;
 }
@@ -957,7 +967,7 @@ int five_ptrace(struct task_struct *task, long request)
 		if (task_integrity_user_read(tint) == INTEGRITY_NONE)
 			break;
 
-		task_integrity_delayed_reset(task);
+		task_integrity_delayed_reset(task, CAUSE_PTRACE, NULL);
 		five_audit_err(task, NULL, "ptrace", task_integrity_read(tint),
 				INTEGRITY_NONE, "reset-integrity", 0);
 		break;
@@ -975,7 +985,7 @@ int five_process_vm_rw(struct task_struct *task, int write)
 		if (task_integrity_user_read(tint) == INTEGRITY_NONE)
 			goto exit;
 
-		task_integrity_delayed_reset(task);
+		task_integrity_delayed_reset(task, CAUSE_VMRW, NULL);
 		five_audit_err(task, NULL, "process_vm_rw",
 				task_integrity_read(tint), INTEGRITY_NONE,
 							"reset-integrity", 0);

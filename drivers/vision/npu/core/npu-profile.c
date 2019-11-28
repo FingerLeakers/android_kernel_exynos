@@ -22,7 +22,6 @@
 #include "npu-util-statekeeper.h"
 #include "npu-if-session-protodrv.h"
 #include "npu-system.h"
-#include "npu-profile.h"
 #include "npu-log.h"
 #include "npu-debug.h"
 

@@ -73,7 +73,7 @@ int jsqz_dma_addr_map(struct device *dev,
 		, __func__, dir == DMA_TO_DEVICE);
 
 	if (dir != DMA_TO_DEVICE)
-		prot |= IOMMU_WRITE;
+		prot = IOMMU_WRITE;
 	if (device_get_dma_attr(dev) == DEV_DMA_COHERENT)
 		prot |= IOMMU_CACHE;
 

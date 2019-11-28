@@ -67,7 +67,11 @@ struct exynos_pm_info {
 	unsigned int suspend_psci_idx;		/* psci index to be used in suspend scenario */
 	unsigned int *wakeup_stat;		/* wakeup stat SFRs offset */
 	unsigned int apdn_cnt_prev;		/* sleep apsoc down sequence prev count */
+	unsigned int apdn_sicd_cnt_prev;	/* sicd apsoc down sequence prev count */
+	unsigned int apdn_total_cnt_prev;	/* powermode apsoc down sequence prev count */
 	unsigned int apdn_cnt;			/* sleep apsoc down sequence count */
+	unsigned int apdn_sicd_cnt;	/* sicd apsoc down sequence prev count */
+	unsigned int apdn_total_cnt;	/* powermode apsoc down sequence prev count */
 
 	unsigned int usbl2_suspend_available;
 	unsigned int usbl2_suspend_mode_idx;	/* power mode to be used in suspend scenario */
@@ -351,13 +355,16 @@ static int exynos_pm_syscore_suspend(void)
 
 	pm_dbg->mifdn_cnt_prev = acpm_get_mifdn_count();
 	pm_info->apdn_cnt_prev = acpm_get_apsocdn_count();
+	pm_info->apdn_sicd_cnt_prev = acpm_get_apsocdn_sicd_count();
+	pm_info->apdn_total_cnt_prev = acpm_get_apsocdn_total_count();
 	pm_dbg->mif_req = acpm_get_mif_request();
 
 	pm_dbg->mifdn_early_wakeup_prev = acpm_get_early_wakeup_count();
 
 	pr_info("%s: prev mif_count:%d, apsoc_count:%d, seq_early_wakeup_count:%d\n",
 			EXYNOS_PM_PREFIX, pm_dbg->mifdn_cnt_prev,
-			pm_info->apdn_cnt_prev, pm_dbg->mifdn_early_wakeup_prev);
+			pm_info->apdn_total_cnt_prev - pm_info->apdn_sicd_cnt_prev,
+			pm_dbg->mifdn_early_wakeup_prev);
 
 	return 0;
 }
@@ -366,13 +373,16 @@ static void exynos_pm_syscore_resume(void)
 {
 	pm_dbg->mifdn_cnt = acpm_get_mifdn_count();
 	pm_info->apdn_cnt = acpm_get_apsocdn_count();
+	pm_info->apdn_sicd_cnt = acpm_get_apsocdn_sicd_count();
+	pm_info->apdn_total_cnt = acpm_get_apsocdn_total_count();
 	pm_dbg->mifdn_early_wakeup_cnt = acpm_get_early_wakeup_count();
 
 	pr_info("%s: post mif_count:%d, apsoc_count:%d, seq_early_wakeup_count:%d\n",
 			EXYNOS_PM_PREFIX, pm_dbg->mifdn_cnt,
-			pm_info->apdn_cnt, pm_dbg->mifdn_early_wakeup_cnt);
+			pm_info->apdn_total_cnt - pm_info->apdn_sicd_cnt,
+			pm_dbg->mifdn_early_wakeup_cnt);
 
-	if (pm_info->apdn_cnt == pm_info->apdn_cnt_prev)
+	if (pm_info->apdn_total_cnt == pm_info->apdn_total_cnt_prev)
 		pm_info->is_early_wakeup = true;
 	else
 		pm_info->is_early_wakeup = false;

@@ -98,8 +98,9 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_PROP_WIRELESS_RX_POWER,
 	POWER_SUPPLY_PROP_WIRELESS_MAX_VOUT,
 	POWER_SUPPLY_EXT_PROP_CURRENT_EVENT,
-	POWER_SUPPLY_EXT_PROP_PAD_VOLT_CTRL,
 	POWER_SUPPLY_EXT_PROP_CURRENT_EVENT_CLEAR,
+	POWER_SUPPLY_EXT_PROP_PAD_VOLT_CTRL,
+	POWER_SUPPLY_EXT_PROP_WIRELESS_VOUT,
 #if defined(CONFIG_WIRELESS_TX_MODE)
 	POWER_SUPPLY_EXT_PROP_WIRELESS_TX_AVG_CURR,
 #endif
@@ -118,6 +119,7 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_DIRECT_HV_PDO,
 	POWER_SUPPLY_EXT_PROP_DIRECT_TA_ALERT,
 	POWER_SUPPLY_EXT_PROP_DIRECT_CHARGER_CHG_STATUS,
+	POWER_SUPPLY_EXT_PRO_CHANGE_CHARGING_SOURCE,
 #endif
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
@@ -133,6 +135,7 @@ enum rx_device_type {
 };
 
 enum sec_battery_usb_conf {
+	USB_CURRENT_SUSPENDED = 1,
 	USB_CURRENT_UNCONFIGURED = 100,
 	USB_CURRENT_HIGH_SPEED = 475,
 	USB_CURRENT_SUPER_SPEED = 875,
@@ -775,6 +778,11 @@ struct sec_age_data {
 
 #define sec_age_data_t \
 	struct sec_age_data
+
+typedef struct {
+	unsigned int cycle;
+	unsigned int asoc;
+} battery_health_condition;
 #endif
 
 struct sec_wireless_rx_power_info {
@@ -1123,6 +1131,8 @@ struct sec_battery_platform_data {
 	int age_step;
 	int age_data_length;
 	sec_age_data_t* age_data;
+
+	battery_health_condition* health_condition;
 #endif
 	int siop_input_limit_current;
 	int siop_charging_limit_current;

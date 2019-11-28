@@ -1318,14 +1318,14 @@ void displayport_reg_lh_p_ch_power(u32 en)
 	u32 state;
 
 	if (en) {
-		displayport_write_mask(SYSTEM_SST1_FUNCTION_ENABLE, 1,
-				SST1_LH_PWR_ON);
 		do {
+			displayport_write_mask(SYSTEM_SST1_FUNCTION_ENABLE, 1,
+					SST1_LH_PWR_ON);
+			udelay(1);
 			state = displayport_read_mask(
 					SYSTEM_SST1_FUNCTION_ENABLE,
 					SST1_LH_PWR_ON_STATUS);
 			cnt--;
-			udelay(1);
 		} while (!state && cnt);
 
 		if (!cnt)

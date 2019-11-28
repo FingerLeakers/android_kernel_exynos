@@ -3045,6 +3045,9 @@ static int sc_run_next_job(struct sc_dev *sc)
 	sc_hwset_init(sc);
 	sc_hwset_clk_request(sc, true);
 
+	if (ctx->context_type == SC_CTX_EXT_TYPE)
+		return sc_ext_run_job(ctx);
+
 	if (ctx->i_frame) {
 		set_bit(CTX_INT_FRAME, &ctx->flags);
 		d_frame = &ctx->i_frame->frame;
@@ -3211,10 +3214,16 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 		clear_bit(DEV_CP, &sc->state);
 	}
 #endif
-	if (!SCALER_INT_OK(irq_status))
-		sc_hwset_soft_reset(sc);
 
-	sc_hwset_clk_request(sc, false);
+	if (ctx->context_type == SC_CTX_EXT_TYPE &&
+			SCALER_INT_OK(irq_status)) {
+		if (!sc_ext_job_finished(ctx)) {
+			sc_ext_run_job(ctx);
+			goto isr_unlock;
+		}
+	}
+
+	sc_hwset_soft_reset(sc);
 
 	clear_bit(DEV_RUN, &sc->state);
 	clear_bit(CTX_RUN, &ctx->flags);
@@ -3252,11 +3261,9 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 
 		/* Wake up from CTX_ABORT state */
 		clear_bit(CTX_ABORT, &ctx->flags);
-	} else {
+	} else if (ctx->context_type == SC_CTX_M2M1SHOT_TYPE) {
 		struct m2m1shot_task *task =
 					m2m1shot_get_current_task(sc->m21dev);
-
-		BUG_ON(ctx->context_type != SC_CTX_M2M1SHOT_TYPE);
 
 		if (__measure_hw_latency) {
 			task->task.reserved[1] =
@@ -3268,6 +3275,21 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 		}
 
 		m2m1shot_task_finish(sc->m21dev, task,
+					SCALER_INT_OK(irq_status));
+	} else {
+		BUG_ON(ctx->context_type != SC_CTX_EXT_TYPE);
+
+		/* TODO: time measure
+		if (__measure_hw_latency) {
+			unsigned long time =
+				(unsigned long)ktime_us_delta(
+					ktime_get(), ctx->ktime_m2m1shot);
+			if (sc_show_stat & 0x4)
+				dev_info(sc->dev, "H/W time : %ld us\n",
+				(unsigned long)task->task.reserved[1]);
+		}
+		*/
+		sc_ext_current_task_finish(sc->xdev,
 					SCALER_INT_OK(irq_status));
 	}
 
@@ -3675,18 +3697,33 @@ static int sc_m2m1shot_prepare_format(struct m2m1shot_context *m21ctx,
 		}
 	}
 
-	for (i = 0; i < frame->sc_fmt->num_planes; i++) {
-		if (sc_fmt_is_ayv12(fmt->fmt)) {
-			unsigned int y_size, c_span;
-			y_size = fmt->width * fmt->height;
-			c_span = ALIGN(fmt->width / 2, 16);
-			bytes_used[i] = y_size + (c_span * fmt->height / 2) * 2;
-		} else {
-			bytes_used[i] = fmt->width * fmt->height;
-			bytes_used[i] *= frame->sc_fmt->bitperpixel[i];
-			bytes_used[i] /= 8;
+	if (sc_fmt_is_s10bit_yuv(frame->sc_fmt->pixelformat) ||
+		sc_fmt_is_sbwc(frame->sc_fmt->pixelformat)) {
+		u32 ysize, csize;
+
+		sc_calc_s10b_planesize(frame->sc_fmt->pixelformat,
+				fmt->width, fmt->height, &ysize, &csize, false);
+
+		bytes_used[0] = ysize;
+		bytes_used[1] = csize;
+		for (i = 0; i < frame->sc_fmt->num_planes; i++)
+			frame->bytesused[i] = bytes_used[i];
+	} else {
+		for (i = 0; i < frame->sc_fmt->num_planes; i++) {
+			if (sc_fmt_is_ayv12(fmt->fmt)) {
+				unsigned int y_size, c_size;
+
+				y_size = fmt->width * fmt->height;
+				c_size = ALIGN(fmt->width / 2, 16) *
+					 fmt->height;
+				bytes_used[i] = y_size + c_size;
+			} else {
+				bytes_used[i] = fmt->width * fmt->height;
+				bytes_used[i] *= frame->sc_fmt->bitperpixel[i];
+				bytes_used[i] /= 8;
+			}
+			frame->bytesused[i] = bytes_used[i];
 		}
-		frame->bytesused[i] = bytes_used[i];
 	}
 
 	if (ctx->sc_dev->variant->extra_buf && dir == DMA_TO_DEVICE) {
@@ -3983,6 +4020,11 @@ static const struct m2m1shot_devops sc_m2m1shot_ops = {
 	.device_run = sc_m2m1shot_device_run,
 	.timeout_task = sc_m2m1shot_timeout_task,
 };
+
+int sc_ext_device_run(struct sc_ctx *ctx)
+{
+	return sc_add_context_and_run(ctx->sc_dev, ctx);
+}
 
 static int __attribute__((unused)) sc_sysmmu_fault_handler(struct iommu_domain *domain,
 	struct device *dev, unsigned long iova, int flags, void *token)
@@ -4319,6 +4361,14 @@ static int sc_probe(struct platform_device *pdev)
 		return PTR_ERR(sc->m21dev);
 	}
 
+	sc->xdev = create_scaler_ext_device(&pdev->dev);
+	if (IS_ERR(sc->xdev)) {
+		dev_err(&pdev->dev, "%s: Failed to create scaler-ext device\n",
+			__func__);
+		ret = PTR_ERR(sc->xdev);
+		goto err_m2m;
+	}
+
 	platform_set_drvdata(pdev, sc);
 
 	pm_runtime_enable(&pdev->dev);
@@ -4330,7 +4380,7 @@ static int sc_probe(struct platform_device *pdev)
 	ret = sc_register_m2m_device(sc, sc->dev_id);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to register m2m device\n");
-		goto err_m2m;
+		goto err_ext;
 	}
 
 #if defined(CONFIG_PM_DEVFREQ)
@@ -4429,6 +4479,8 @@ err_iommu:
 	if (sc->qosreq_int_level > 0)
 		pm_qos_remove_request(&sc->qosreq_int);
 	sc_unregister_m2m_device(sc);
+err_ext:
+	destroy_scaler_ext_device(sc->xdev);
 err_m2m:
 	m2m1shot_destroy_device(sc->m21dev);
 

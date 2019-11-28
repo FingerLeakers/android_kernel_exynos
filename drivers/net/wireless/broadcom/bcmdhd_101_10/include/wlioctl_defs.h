@@ -566,6 +566,7 @@
 #define WPA2_AUTH_FILS_SHA384		0x20000 /* FILS with SHA384 key derivation */
 #define WPA2_AUTH_IS_FILS(auth) ((auth) & (WPA2_AUTH_FILS_SHA256 | WPA2_AUTH_FILS_SHA384))
 #define WPA3_AUTH_SAE_PSK		0x40000 /* SAE with 4-way handshake */
+#define WPA3_AUTH_DPP_AKM		0x80000 /* Device Provisioning Protocol (DPP) */
 #define WPA3_AUTH_OWE			0x100000 /* OWE */
 #define WPA3_AUTH_1X_SUITE_B_SHA256	0x200000 /* Suite B SHA256 */
 #define WPA3_AUTH_1X_SUITE_B_SHA384	0x400000 /* Suite B-192 SHA384 */

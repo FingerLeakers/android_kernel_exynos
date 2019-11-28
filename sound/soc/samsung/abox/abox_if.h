@@ -23,6 +23,9 @@
 #define DSIF_REG_STATUS	0x4
 #define DSIF_REG_MAX	DSIF_REG_STATUS
 
+#define SPDY_REG_CTRL	0x0
+#define SPDY_REG_MAX	SPDY_REG_CTRL
+
 enum abox_if_config {
 	ABOX_IF_WIDTH,
 	ABOX_IF_CHANNEL,

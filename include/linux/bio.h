@@ -74,7 +74,7 @@
 #define bio_sectors(bio)	bvec_iter_sectors((bio)->bi_iter)
 #define bio_end_sector(bio)	bvec_iter_end_sector((bio)->bi_iter)
 
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 #define bio_dun(bio)            ((bio)->bi_iter.bi_dun)
 #define bio_duns(bio)           (bio_sectors(bio) >> 3) /* 4KB unit */
 #define bio_end_dun(bio)        (bio_dun(bio) + bio_duns(bio))
@@ -184,7 +184,7 @@ static inline void bio_advance_iter(struct bio *bio, struct bvec_iter *iter,
 {
 	iter->bi_sector += bytes >> 9;
 
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
+#ifdef CONFIG_CRYPTO_DISKCIPHER
 	if (iter->bi_dun)
 		iter->bi_dun += bytes >> 12;
 #endif
@@ -448,6 +448,12 @@ extern void bio_put(struct bio *);
 
 extern void __bio_clone_fast(struct bio *, struct bio *);
 extern struct bio *bio_clone_fast(struct bio *, gfp_t, struct bio_set *);
+#ifdef CONFIG_DDAR
+static inline void bio_clone_crypt_key(struct bio *dst, const struct bio *src)
+{
+	dst->bi_dio_inode = src->bi_dio_inode;
+}
+#endif
 
 extern struct bio_set fs_bio_set;
 

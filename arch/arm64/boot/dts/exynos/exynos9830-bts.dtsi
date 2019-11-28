@@ -28,7 +28,8 @@
 			    "g3d_performance",
 			    "dp_default",
 			    "camera_default",
-			    "mfc_uhd_enc60";
+			    "mfc_uhd_enc60",
+			    "npu_performance";
 
 		bts_irp0 {
 			#address-cells = <2>;
@@ -223,13 +224,11 @@
 			default {
 				stat_on = <1>;
 				bypass = <0>;
-				arqos = <0xC>;
-				awqos = <0xC>;
+				arqos = <0x3>;
+				awqos = <0x3>;
 				rmo = <0xA>;
 				wmo = <0xA>;
-				qurgent_on = <1>;
-				qurgent_th_r = <0xF>;
-				qurgent_th_w = <0xF>;
+				qurgent_on = <0>;
 				blocking_on = <0>;
 			};
 		};
@@ -545,6 +544,16 @@
 				qurgent_on = <0>;
 				blocking_on = <0>;
 			};
+			npu_performance {
+				stat_on = <1>;
+				bypass = <0>;
+				arqos = <0x4>;
+				awqos = <0x4>;
+				rmo = <0xFFFF>;
+				wmo = <0xFFFF>;
+				qurgent_on = <0>;
+				blocking_on = <0>;
+			};
 		};
 		bts_dnc1 {
 			reg = <0x0 0x1B440000 0x100>;
@@ -557,6 +566,16 @@
 				awqos = <0x4>;
 				rmo = <0xB>;
 				wmo = <0xB>;
+				qurgent_on = <0>;
+				blocking_on = <0>;
+			};
+			npu_performance {
+				stat_on = <1>;
+				bypass = <0>;
+				arqos = <0x4>;
+				awqos = <0x4>;
+				rmo = <0xFFFF>;
+				wmo = <0xFFFF>;
 				qurgent_on = <0>;
 				blocking_on = <0>;
 			};
@@ -575,6 +594,16 @@
 				qurgent_on = <0>;
 				blocking_on = <0>;
 			};
+			npu_performance {
+				stat_on = <1>;
+				bypass = <0>;
+				arqos = <0x4>;
+				awqos = <0x4>;
+				rmo = <0xFFFF>;
+				wmo = <0xFFFF>;
+				qurgent_on = <0>;
+				blocking_on = <0>;
+			};
 		};
 		bts_dnc3 {
 			reg = <0x0 0x1B460000 0x100>;
@@ -590,6 +619,16 @@
 				qurgent_on = <0>;
 				blocking_on = <0>;
 			};
+			npu_performance {
+				stat_on = <1>;
+				bypass = <0>;
+				arqos = <0x4>;
+				awqos = <0x4>;
+				rmo = <0xFFFF>;
+				wmo = <0xFFFF>;
+				qurgent_on = <0>;
+				blocking_on = <0>;
+			};
 		};
 		bts_dnc4 {
 			reg = <0x0 0x1B470000 0x100>;
@@ -602,6 +641,16 @@
 				awqos = <0x4>;
 				rmo = <0xB>;
 				wmo = <0xB>;
+				qurgent_on = <0>;
+				blocking_on = <0>;
+			};
+			npu_performance {
+				stat_on = <1>;
+				bypass = <0>;
+				arqos = <0x4>;
+				awqos = <0x4>;
+				rmo = <0xFFFF>;
+				wmo = <0xFFFF>;
 				qurgent_on = <0>;
 				blocking_on = <0>;
 			};

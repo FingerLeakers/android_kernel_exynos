@@ -282,6 +282,7 @@ static int abox_tplg_mux_event(struct snd_soc_dapm_widget *w,
 }
 
 static const struct snd_soc_tplg_widget_events abox_tplg_widget_ops[] = {
+	{ABOX_EVENT_NONE, NULL},
 	{ABOX_EVENT_MIXER, abox_tplg_mixer_event},
 	{ABOX_EVENT_MUX, abox_tplg_mux_event},
 };
@@ -371,7 +372,7 @@ static int abox_tplg_dapm_get_mux(struct snd_kcontrol *kcontrol,
 
 	dev_dbg(dev, "%s(%s)\n", __func__, kcontrol->id.name);
 
-	if (pm_runtime_active(dev_abox) && !kdata->is_volatile) {
+	if (pm_runtime_active(dev_abox) && kdata->is_volatile) {
 		ret = abox_tplg_kcontrol_get(dev, kdata);
 		if (ret < 0)
 			return ret;
@@ -465,6 +466,7 @@ static int abox_tplg_put_mixer(struct snd_kcontrol *kcontrol,
 
 	for (i = 0; i < kdata->count; i++)
 		kdata->value[i] = (unsigned int)value[i];
+
 	if (pm_runtime_active(dev_abox)) {
 		ret = abox_tplg_kcontrol_put(dev, kdata);
 		if (ret < 0)
@@ -486,12 +488,12 @@ static int abox_tplg_dapm_get_mixer(struct snd_kcontrol *kcontrol,
 
 	dev_dbg(dev, "%s(%s)\n", __func__, kcontrol->id.name);
 
-	if (pm_runtime_active(dev_abox) && !kdata->is_volatile) {
+	if (pm_runtime_active(dev_abox) && kdata->is_volatile) {
 		ret = abox_tplg_kcontrol_get(dev, kdata);
 		if (ret < 0)
 			return ret;
 
-		ucontrol->value.enumerated.item[0] = kdata->value[0];
+		ucontrol->value.integer.value[0] = kdata->value[0];
 
 		ret = snd_soc_dapm_put_volsw(kcontrol, ucontrol);
 		if (ret < 0)
@@ -538,12 +540,10 @@ static int abox_tplg_dapm_get_pin(struct snd_kcontrol *kcontrol,
 
 	dev_dbg(dev, "%s(%s)\n", __func__, kcontrol->id.name);
 
-	if (pm_runtime_active(dev_abox) && !kdata->is_volatile) {
+	if (pm_runtime_active(dev_abox) && kdata->is_volatile) {
 		ret = abox_tplg_kcontrol_get(dev, kdata);
 		if (ret < 0)
 			return ret;
-
-		ucontrol->value.enumerated.item[0] = kdata->value[0];
 
 		if (kdata->value[0])
 			snd_soc_dapm_enable_pin(dapm, pin);

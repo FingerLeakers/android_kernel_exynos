@@ -95,7 +95,11 @@ extern struct pm_qos_request exynos_isp_qos_hpg;
 extern struct pm_qos_request exynos_isp_qos_cpu_online_min;
 
 #if defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+extern struct emstune_mode_request emstune_req;
+#else
 extern struct gb_qos_request gb_req;
+#endif
 #endif
 
 extern const struct is_subdev_ops is_subdev_paf_ops;
@@ -107,6 +111,10 @@ extern const struct is_subdev_ops is_subdev_3ag_ops;
 extern const struct is_subdev_ops is_subdev_isp_ops;
 extern const struct is_subdev_ops is_subdev_ixc_ops;
 extern const struct is_subdev_ops is_subdev_ixp_ops;
+extern const struct is_subdev_ops is_subdev_ixt_ops;
+extern const struct is_subdev_ops is_subdev_ixv_ops;
+extern const struct is_subdev_ops is_subdev_ixw_ops;
+extern const struct is_subdev_ops is_subdev_ixg_ops;
 extern const struct is_subdev_ops is_subdev_mexc_ops;
 extern const struct is_subdev_ops is_subdev_orbxc_ops;
 extern const struct is_subdev_ops is_subdev_mcs_ops;
@@ -1605,8 +1613,13 @@ int is_ischain_runtime_suspend(struct device *dev)
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			set_hmp_boost(0);
 #elif defined(CONFIG_SCHED_EHMP) || defined(CONFIG_SCHED_EMS)
+#if defined(CONFIG_SCHED_EMS_TUNE)
+		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
+			emstune_boost(&emstune_req, 0);
+#else
 		if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 			gb_qos_update_request(&gb_req, 0);
+#endif
 #endif
 	}
 #endif
@@ -2241,18 +2254,20 @@ int is_ischain_buf_tag_64bit(struct is_device_ischain *device,
 		switch (pixelformat) {
 		case V4L2_PIX_FMT_Y12:	/* Only for ME : kernel virtual addr*/
 		case V4L2_PIX_FMT_YUV32:	/* Only for 32bit data : kernel virtual addr*/
+		case V4L2_PIX_FMT_GREY:	/* Only for 1 plane, 1 byte unit custom data*/
 			for (i = 0; i < frame->planes; i++)
 				target_addr[i] = frame->kvaddr_buffer[i];
 			break;
 		default:
 			for (i = 0; i < frame->planes; i++)
-				target_addr[i] = (typeof(*target_addr))frame->dvaddr_buffer[i];
+				target_addr[i] = frame->kvaddr_buffer[i];
 			break;
 		}
 
 		frame->fcount = ldr_frame->fcount;
 		frame->stream->findex = ldr_frame->index;
 		frame->stream->fcount = ldr_frame->fcount;
+
 		set_bit(subdev->id, &ldr_frame->out_flag);
 		trans_frame(framemgr, frame, FS_PROCESS);
 	} else {
@@ -2487,7 +2502,7 @@ int is_ischain_probe(struct is_device_ischain *device,
 #endif
 	is_subdev_probe(&device->ixc, instance, ENTRY_IXC, "IXC", &is_subdev_ixc_ops);
 	is_subdev_probe(&device->ixp, instance, ENTRY_IXP, "IXP", &is_subdev_ixp_ops);
-#if defined(SOC_TNRMERGER)
+#if defined(SOC_TNR_MERGER)
 	is_subdev_probe(&device->ixt, instance, ENTRY_IXT, "IXT", &is_subdev_ixt_ops);
 	is_subdev_probe(&device->ixg, instance, ENTRY_IXG, "IXG", &is_subdev_ixg_ops);
 	is_subdev_probe(&device->ixv, instance, ENTRY_IXV, "IXV", &is_subdev_ixv_ops);
@@ -2533,7 +2548,7 @@ int is_ischain_probe(struct is_device_ischain *device,
 	clear_bit(IS_SUBDEV_OPEN, &device->orbxc.state);
 	clear_bit(IS_SUBDEV_OPEN, &device->ixc.state);
 	clear_bit(IS_SUBDEV_OPEN, &device->ixp.state);
-#if defined(SOC_TNRMERGER)
+#if defined(SOC_TNR_MERGER)
 	clear_bit(IS_SUBDEV_OPEN, &device->ixt.state);
 	clear_bit(IS_SUBDEV_OPEN, &device->ixg.state);
 	clear_bit(IS_SUBDEV_OPEN, &device->ixv.state);
@@ -2562,7 +2577,7 @@ int is_ischain_probe(struct is_device_ischain *device,
 	clear_bit(IS_SUBDEV_START, &device->orbxc.state);
 	clear_bit(IS_SUBDEV_START, &device->ixc.state);
 	clear_bit(IS_SUBDEV_START, &device->ixp.state);
-#if defined(SOC_TNRMERGER)
+#if defined(SOC_TNR_MERGER)
 	clear_bit(IS_SUBDEV_START, &device->ixt.state);
 	clear_bit(IS_SUBDEV_START, &device->ixg.state);
 	clear_bit(IS_SUBDEV_START, &device->ixv.state);
@@ -2999,7 +3014,7 @@ static int is_ischain_init_wrap(struct is_device_ischain *device,
 			case SENSOR_POSITION_FRONT_TOF:
 				sensor_id = priv->front_tof_sensor_id;
 				break;
-#if defined(SECURE_CAMERA_IRIS)
+#ifdef CONFIG_SECURE_CAMERA_USE
 			case SENSOR_POSITION_SECURE:
 				sensor_id = priv->secure_sensor_id;
 				break;

@@ -753,8 +753,7 @@ void abox_dma_hw_params_set(struct device *dev, unsigned int rate,
 {
 	struct abox_dma_data *data = dev_get_drvdata(dev);
 	struct snd_pcm_hw_params *params = &data->hw_params;
-	unsigned int buffer_size = period_size * periods;
-	unsigned int format, pwidth;
+	unsigned int buffer_size, format, pwidth;
 
 	dev_dbg(dev, "%s(%u, %u, %u, %u, %u, %d)\n", __func__, rate, width,
 			channels, period_size, periods, packed);
@@ -792,6 +791,8 @@ void abox_dma_hw_params_set(struct device *dev, unsigned int rate,
 
 	if (!periods)
 		periods = params_periods(params);
+
+	buffer_size = period_size * periods;
 
 	hw_param_mask_set(params, SNDRV_PCM_HW_PARAM_FORMAT,
 			format);
@@ -1048,22 +1049,13 @@ static void abox_ddma_free_buffer(struct abox_dma_data *data)
 	}
 }
 
-static int abox_ddma_start(struct abox_dma_data *data)
+static bool abox_ddma_started(struct abox_dma_data *data)
 {
-	int ret;
+	unsigned int val = 0;
 
-	dev_dbg(data->dev, "%s\n", __func__);
+	snd_soc_component_read(data->cmpnt, DMA_REG_CTRL, &val);
 
-	ret = abox_ddma_set_format(data);
-	if (ret < 0)
-		return ret;
-	data->dump->pointer = 0;
-	ret = snd_soc_component_update_bits(data->cmpnt, DMA_REG_CTRL,
-			ABOX_DMA_ENABLE_MASK, 1 << ABOX_DMA_ENABLE_L);
-	if (ret < 0)
-		return ret;
-
-	return 0;
+	return (val & ABOX_DMA_ENABLE_MASK);
 }
 
 static int abox_ddma_stop(struct abox_dma_data *data)
@@ -1073,7 +1065,32 @@ static int abox_ddma_stop(struct abox_dma_data *data)
 	snd_soc_component_update_bits(data->cmpnt, DMA_REG_CTRL,
 			ABOX_DMA_ENABLE_MASK, 0 << ABOX_DMA_ENABLE_L);
 	abox_dma_barrier(data->dev, data, 0);
-	wake_up_interruptible_all(&data->dump->waitqueue);
+
+	data->dump->updated = true;
+	wake_up_interruptible(&data->dump->waitqueue);
+
+	return 0;
+}
+
+static int abox_ddma_start(struct abox_dma_data *data)
+{
+	int ret;
+
+	dev_dbg(data->dev, "%s\n", __func__);
+
+	/* restart if it has started already */
+	if (abox_ddma_started(data))
+		abox_ddma_stop(data);
+
+	abox_dma_acquire_irq(data);
+	ret = abox_ddma_set_format(data);
+	if (ret < 0)
+		return ret;
+	data->dump->pointer = 0;
+	ret = snd_soc_component_update_bits(data->cmpnt, DMA_REG_CTRL,
+			ABOX_DMA_ENABLE_MASK, 1 << ABOX_DMA_ENABLE_L);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
@@ -1187,22 +1204,24 @@ static ssize_t abox_ddma_file_read(struct file *file, char __user *buffer,
 			size = pointer + dump->bytes - dump->pointer;
 		else
 			size = pointer - dump->pointer;
+
 		if (size < count) {
 			if (file->f_flags & O_NONBLOCK)
 				return -EAGAIN;
 
+			if (abox_dma_progress(data->cmpnt)) {
+				msleep(1);
+				continue;
+			}
+
+			if (size && !abox_ddma_started(data))
+				break;
+
 			dump->updated = false;
-			if (!size)
-				ret = wait_event_interruptible(dump->waitqueue,
-						dump->updated);
-			else
-				ret = wait_event_interruptible_timeout(
-						dump->waitqueue, dump->updated,
-						msecs_to_jiffies(500));
+			ret = wait_event_interruptible(dump->waitqueue,
+					dump->updated);
 			if (ret < 0)
 				return ret;
-			else if (ret == 0 && size)
-				break;
 		}
 	} while (size < count);
 
@@ -1255,7 +1274,6 @@ static int abox_ddma_file_open(struct inode *i, struct file *f)
 	abox_gic_register_irq_handler(abox_data->dev_gic,
 			abox_dma_get_irq(data, DMA_IRQ_BUF_DONE),
 			abox_ddma_file_buf_done, dev);
-	abox_dma_acquire_irq(data);
 	f->private_data = data;
 	abox_ddma_register_event_notifier(data);
 	ret = abox_ddma_set_buffer(data);

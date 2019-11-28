@@ -14,6 +14,20 @@
 
 static struct votf_dev *votfdev;
 
+static bool check_vinfo(struct votf_info *vinfo)
+{
+	if (!vinfo) {
+		pr_err("%s: votf info is null\n", __func__);
+		return false;
+	}
+	if (vinfo->service >= SERVICE_CNT || vinfo->ip >= IP_MAX || vinfo->id >= ID_MAX) {
+		pr_err("%s: invalid votf input(svc:%d, ip:%d, id:%d)\n", __func__,
+			vinfo->service, vinfo->ip, vinfo->id);
+		return false;
+	}
+	return true;
+}
+
 u32 get_offset(struct votf_info *vinfo, int c2s_tws, int c2s_trs, int c2a_tws, int c2a_trs)
 {
 	u32 offset = 0;
@@ -24,7 +38,7 @@ u32 get_offset(struct votf_info *vinfo, int c2s_tws, int c2s_trs, int c2a_tws, i
 	int module_type;
 	int ip, id, service;
 
-	if (!votfdev || !vinfo)
+	if (!votfdev || !check_vinfo(vinfo))
 		return VOTF_INVALID;
 
 	service = vinfo->service;
@@ -87,6 +101,7 @@ void votf_init(void)
 		pr_err("%s: votf devices is NULL\n", __func__);
 		return;
 	}
+	votfdev->ring_create = false;
 	votfdev->ring_request = 0;
 	votfdev->dev = NULL;
 	mutex_init(&votfdev->votf_lock);
@@ -144,11 +159,10 @@ void votf_sfr_dump(void)
 
 int votfitf_create_ring(void)
 {
-	u32 offset;
-	bool do_init = false;
+	bool do_create = false;
+	bool check_ring = false;
 	int svc, ip, id;
 	int module;
-	struct votf_info vinfo;
 
 	if (!votfdev) {
 		pr_err("%s: votf devices is null\n", __func__);
@@ -156,29 +170,42 @@ int votfitf_create_ring(void)
 	}
 
 	mutex_lock(&votfdev->votf_lock);
+	votfdev->ring_request++;
+	pr_info("%s: votf_request(%d)\n", __func__, votfdev->ring_request);
 
+	/* To check the reference count mismatch caused by sudden close */
+	for (svc = 0; svc < SERVICE_CNT && !check_ring; svc++) {
+		for (ip = 0; ip < IP_MAX && !check_ring; ip++) {
+			for (id = 0; id < ID_MAX && !check_ring; id++) {
+				if (!votfdev->votf_table[svc][ip][id].use)
+					continue;
+				module = votfdev->votf_table[svc][ip][id].module;
+				if (camerapp_check_votf_ring(votfdev->votf_addr[ip], module))
+					check_ring = true;
+			}
+		}
+	}
+
+	if (votfdev->ring_create) {
+		if (!check_ring) {
+			pr_err("%s: votf reference count is mismatched, do reset\n", __func__);
+			votfdev->ring_create = false;
+			votfdev->ring_request = 1;
+			memset(votfdev->ring_pair, VS_DISCONNECTED, sizeof(votfdev->ring_pair));
+		} else {
+			pr_err("%s: votf ring has already been created(%d)\n", __func__, votfdev->ring_request);
+			mutex_unlock(&votfdev->votf_lock);
+			return 0;
+		}
+	}
 	for (svc = 0; svc < SERVICE_CNT; svc++) {
 		for (ip = 0; ip < IP_MAX; ip++) {
 			for (id = 0; id < ID_MAX; id++) {
 				if (!votfdev->votf_table[svc][ip][id].use)
 					continue;
-				if (votfdev->ring_request && !do_init) {
-					vinfo.service = svc;
-					vinfo.ip = ip;
-					vinfo.id = id;
-					offset = get_offset(&vinfo, C2SERV_R_TWS_ENABLE, C2SERV_R_TRS_ENABLE,
-							C2AGENT_R_TWS_ENABLE, C2AGENT_R_TRS_ENABLE);
-					if (camerapp_hw_votf_get_enable(votfdev->votf_addr[ip], offset)) {
-						pr_err("%s: votf ring has already been created\n", __func__);
-						mutex_unlock(&votfdev->votf_lock);
-						return 0;
-					} else {
-						votf_init();
-						do_init = true;
-					}
-				}
 				module = votfdev->votf_table[svc][ip][id].module;
 				camerapp_hw_votf_create_ring(votfdev->votf_addr[ip], ip, module);
+				do_create = true;
 
 				/* support only setA register and immediately set mode */
 				camerapp_hw_votf_set_sel_reg(votfdev->votf_addr[ip], 0x1, 0x1);
@@ -186,13 +213,18 @@ int votfitf_create_ring(void)
 			}
 		}
 	}
-	votfdev->ring_request++;
+	if (do_create)
+		votfdev->ring_create = true;
+	else
+		pr_err("%s: invalid request to destroy votf ring\n", __func__);
+
 	mutex_unlock(&votfdev->votf_lock);
 	return 1;
 }
 
 int votfitf_destroy_ring(void)
 {
+	bool do_destroy = false;
 	int svc, ip, id;
 	int module;
 
@@ -202,14 +234,19 @@ int votfitf_destroy_ring(void)
 	}
 
 	mutex_lock(&votfdev->votf_lock);
-	if (!votfdev->ring_request) {
-		pr_err("%s: votf ring has already been destroyed\n", __func__);
+	votfdev->ring_request--;
+	pr_info("%s: votf_request(%d)\n", __func__, votfdev->ring_request);
+
+	if (!votfdev->ring_create) {
+		pr_err("%s: votf ring has already been destroyed(%d)\n", __func__, votfdev->ring_request);
 		mutex_unlock(&votfdev->votf_lock);
 		return 0;
 	}
-
-	memset(votfdev->ring_pair, VS_DISCONNECTED, sizeof(votfdev->ring_pair));
-	memset(votfdev->votf_cfg, 0, sizeof(struct votf_service_cfg));
+	if (votfdev->ring_request) {
+		pr_err("%s: other IPs are still using the votf ring(%d)\n", __func__, votfdev->ring_request);
+		mutex_unlock(&votfdev->votf_lock);
+		return 0;
+	}
 
 	for (svc = 0; svc < SERVICE_CNT; svc++) {
 		for (ip = 0; ip < IP_MAX; ip++) {
@@ -218,11 +255,19 @@ int votfitf_destroy_ring(void)
 					continue;
 				module = votfdev->votf_table[svc][ip][id].module;
 				camerapp_hw_votf_destroy_ring(votfdev->votf_addr[ip], ip, module);
+				do_destroy = true;
 				break;
 			}
 		}
 	}
-	votfdev->ring_request--;
+	if (do_destroy) {
+		votfdev->ring_create = false;
+		votfdev->ring_request = 0;
+		memset(votfdev->ring_pair, VS_DISCONNECTED, sizeof(votfdev->ring_pair));
+		memset(votfdev->votf_cfg, 0, sizeof(struct votf_service_cfg));
+	} else
+		pr_err("%s: invalid request to destroy votf ring\n", __func__);
+
 	mutex_unlock(&votfdev->votf_lock);
 	return 1;
 }
@@ -241,8 +286,8 @@ int votfitf_set_service_cfg(struct votf_info *vinfo, struct votf_service_cfg *cf
 		pr_err("%s: votf devices is null\n", __func__);
 		return 0;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
 		return 0;
 	}
 
@@ -333,11 +378,11 @@ int votfitf_set_service_cfg(struct votf_info *vinfo, struct votf_service_cfg *cf
 
 	token_size = cfg->token_size;
 	if (module == C2AGENT)
-		token_size = 8 * cfg->token_size * cfg->width * cfg->bitwidth;
+		token_size = cfg->bitwidth * cfg->width * cfg->token_size / 8;
 
 	/* set the number of lines in frame internally */
 	if (service == TRS)
-		votfitf_set_lines_count(vinfo, cfg->height / token_size);
+		votfitf_set_lines_count(vinfo, cfg->height);
 
 	offset = get_offset(vinfo, C2SERV_R_TWS_LINES_IN_TOKEN, C2SERV_R_TRS_LINES_IN_TOKEN, C2AGENT_R_TWS_TOKEN_SIZE,
 			C2AGENT_R_TRS_TOKEN_SIZE);
@@ -366,8 +411,8 @@ int votfitf_set_lines_in_first_token(struct votf_info *vinfo, u32 lines)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
 		return 0;
 	}
 
@@ -402,9 +447,9 @@ int votfitf_set_lines_in_token(struct votf_info *vinfo, u32 lines)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -436,8 +481,8 @@ int votfitf_set_lines_count(struct votf_info *vinfo, u32 cnt)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
 		return 0;
 	}
 
@@ -468,25 +513,25 @@ int votfitf_set_flush(struct votf_info *vinfo)
 	u32 try_cnt = 0;
 	int ret = 0;
 	int service, ip, id;
+	int connected_ip, connected_id;
 
 	if (!votfdev) {
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
 	ip = vinfo->ip;
 	id = vinfo->id;
 
-	if (!vinfo || !votfdev->votf_table[service][ip][id].use) {
+	if (!votfdev->votf_table[service][ip][id].use) {
 		pr_err("%s: invalid input\n", __func__);
 		return ret;
 	}
-
 	offset = get_offset(vinfo, C2SERV_R_TWS_FLUSH, C2SERV_R_TRS_FLUSH, C2AGENT_R_TWS_FLUSH, -1);
 
 	if (offset != VOTF_INVALID) {
@@ -500,6 +545,17 @@ int votfitf_set_flush(struct votf_info *vinfo)
 			}
 			udelay(10);
 		}
+	}
+
+	connected_ip = votfdev->votf_cfg[service][ip][id].connected_ip;
+	connected_id = votfdev->votf_cfg[service][ip][id].connected_id;
+
+	if (service == TWS) {
+		votfdev->ring_pair[TWS][ip][id] = VS_DISCONNECTED;
+		votfdev->ring_pair[TRS][connected_ip][connected_id] = VS_DISCONNECTED;
+	} else {
+		votfdev->ring_pair[TRS][ip][id] = VS_DISCONNECTED;
+		votfdev->ring_pair[TWS][connected_ip][connected_id] = VS_DISCONNECTED;
 	}
 
 	return ret;
@@ -516,9 +572,9 @@ int votfitf_set_trs_lost_cfg(struct votf_info *vinfo, struct votf_lost_cfg *cfg)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -557,9 +613,9 @@ int votfitf_reset(struct votf_info *vinfo, int type)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	ip = vinfo->ip;
@@ -610,9 +666,9 @@ int votfitf_set_start(struct votf_info *vinfo)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -643,9 +699,9 @@ int votfitf_set_finish(struct votf_info *vinfo)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -677,9 +733,9 @@ int votfitf_set_threshold(struct votf_info *vinfo, bool high, u32 value)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -719,9 +775,9 @@ u32 votfitf_get_threshold(struct votf_info *vinfo, bool high)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -758,9 +814,9 @@ int votfitf_set_read_bytes(struct votf_info *vinfo, u32 bytes)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -791,9 +847,9 @@ int votfitf_get_fullness(struct votf_info *vinfo)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -822,9 +878,9 @@ u32 votfitf_get_busy(struct votf_info *vinfo)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -853,9 +909,9 @@ int votfitf_set_irq_enable(struct votf_info *vinfo, u32 irq)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -886,9 +942,9 @@ int votfitf_set_irq_status(struct votf_info *vinfo, u32 irq)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -920,9 +976,9 @@ int votfitf_set_irq(struct votf_info *vinfo, u32 irq)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;
@@ -954,9 +1010,9 @@ int votfitf_set_irq_clear(struct votf_info *vinfo, u32 irq)
 		pr_err("%s: votf devices is null\n", __func__);
 		return ret;
 	}
-	if (!vinfo) {
-		pr_err("%s: votf info is null\n", __func__);
-		return 0;
+	if (!check_vinfo(vinfo)) {
+		pr_err("%s: invalid votf_info\n", __func__);
+		return ret;
 	}
 
 	service = vinfo->service;

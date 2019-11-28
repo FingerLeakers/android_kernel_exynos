@@ -92,23 +92,17 @@ u32 sensor_imx518_frame_duration;
 #ifdef USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION
 static const struct cam_tof_sensor_mode ***sensor_imx518_tx_freq_sensor_mode;
 u32 sensor_imx518_rear_tx_freq = REAR_TX_DEFAULT_FREQ;
+u32 sensor_imx518_rear_tx_freq_fixed_index = -1;
 
 int sensor_imx518_cis_get_mode_id_index(struct is_cis *cis, u32 mode, u32 *mode_id_index);
 
 static int sensor_imx518_cis_set_tx_clock(struct v4l2_subdev *subdev)
 {
 	struct is_cis *cis = NULL;
-	struct is_device_sensor *device;
 	const struct cam_tof_sensor_mode *cur_tx_sensor_mode;
 	int found = -1;
 	u32 mode_id_index = 0;
 	int ret = 0;
-
-	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
-	if (device == NULL) {
-		err("device is NULL");
-		return -1;
-	}
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	if (cis == NULL) {
@@ -129,16 +123,23 @@ static int sensor_imx518_cis_set_tx_clock(struct v4l2_subdev *subdev)
 		return -1;
 	}
 
-	found = is_vendor_select_mipi_by_rf_channel(cur_tx_sensor_mode->mipi_channel,
-				cur_tx_sensor_mode->mipi_channel_size);
+	if(sensor_imx518_rear_tx_freq_fixed_index != -1) {
+		found = sensor_imx518_rear_tx_freq_fixed_index;
+	} else {
+		found = is_vendor_select_mipi_by_rf_channel(cur_tx_sensor_mode->mipi_channel,
+					cur_tx_sensor_mode->mipi_channel_size);
+	}
 
 	if (found != -1) {
 		if (found < cur_tx_sensor_mode->sensor_setting_size) {
 			sensor_cis_set_registers(subdev,
 				cur_tx_sensor_mode->sensor_setting[found].setting,
 				cur_tx_sensor_mode->sensor_setting[found].setting_size);
-			sensor_imx518_rear_tx_freq = cur_tx_sensor_mode->sensor_setting[found].tx_freq;
-			info("%s - tx setting %d freq %d\n", __func__, found, sensor_imx518_rear_tx_freq);
+			sensor_imx518_rear_tx_freq = sensor_imx518_supported_tx_freq[found];
+			if(sensor_imx518_rear_tx_freq_fixed_index != -1)
+				info("%s - tx setting fixed to %d\n", __func__, sensor_imx518_rear_tx_freq);
+			else
+				info("%s - tx setting %d freq %d\n", __func__, found, sensor_imx518_rear_tx_freq);
 		} else {
 			err("sensor setting size is out of bound");
 		}
@@ -679,14 +680,6 @@ int sensor_imx518_cis_stream_on(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
-	usleep_range(200, 200);
-	ret = pdata->gpio_cfg(module, SENSOR_SCENARIO_ADDITIONAL_POWER, GPIO_SCENARIO_ON);
-	if (ret) {
-		clear_bit(IS_MODULE_GPIO_ON, &module->state);
-		err("gpio_cfg is fail(%d)", ret);
-		goto p_err;
-	}
-
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
@@ -766,8 +759,8 @@ int sensor_imx518_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_pa
 		goto p_err;
 	}
 
-	if (target_exposure->long_val) {
-		info("initial setting is skip");
+	if (target_exposure->short_val == 0) {
+		info("%s initial setting is skip", __func__);
 		goto p_err;
 	}
 
@@ -831,8 +824,7 @@ int sensor_imx518_cis_set_frame_rate(struct v4l2_subdev *subdev, u32 duration)
 
 	if (sensor_imx518_mode == -1) {
 		sensor_imx518_frame_duration = duration;
-		err("need sensor setting (%d)", duration);
-		ret = -EINVAL;
+		warn("need sensor setting (%d)", duration);
 		goto p_err;
 	}
 
@@ -979,10 +971,21 @@ int sensor_imx518_cis_set_vcsel_current(struct v4l2_subdev *subdev, u32 value)
 	/* for setting IPD_OFFSET */
 	is_sensor_write8(client, 0x0403, 0x20);
 	is_sensor_write8(client, 0x0405, 0x00);
-	is_sensor_write8(client, 0x0407, 0x26);
+	is_sensor_write8(client, 0x0407, 0x00);
 	is_sensor_write8(client, 0x0500, 0x02);
 	is_sensor_write8(client, 0x0501, 0x0e);
 	is_sensor_write8(client, 0x0502, 0x80);
+	is_sensor_write8(client, 0x0401, 0x01);
+	is_sensor_write8(client, 0x0400, 0x01);
+	is_sensor_write8(client, 0x0401, 0x00);
+
+	/* release DIFF2 Error Mask */
+	is_sensor_write8(client, 0x0403, 0x20);
+	is_sensor_write8(client, 0x0405, 0x00);
+	is_sensor_write8(client, 0x0407, 0x00);
+	is_sensor_write8(client, 0x0500, 0x02);
+	is_sensor_write8(client, 0x0501, 0x14);
+	is_sensor_write8(client, 0x0502, 0x00);
 	is_sensor_write8(client, 0x0401, 0x01);
 	is_sensor_write8(client, 0x0400, 0x01);
 	is_sensor_write8(client, 0x0401, 0x00);
@@ -1079,7 +1082,7 @@ int sensor_imx518_cis_get_laser_error_flag(struct v4l2_subdev *subdev, int *valu
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 	*value = (((int)err_flag[0] << 6) | err_flag[1]);
-	info("%s - err : %x (err[0] : %x, err[1] : %x)", __func__, *value, err_flag[0], err_flag[1]); 
+	info("%s - err : %x (err[0] : %x, err[1] : %x)", __func__, *value, err_flag[0], err_flag[1]);
 
 p_err:
 	return ret;
@@ -1118,8 +1121,8 @@ int sensor_imx518_cis_get_vcsel_photo_diode(struct v4l2_subdev *subdev, u16 *val
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-	is_sensor_read8(client, 0x0588, &value8_1); /*0x058B for APC2_CHECK_DATA[9:8]*/
-	is_sensor_read8(client, 0x058F, &value8_0); /* 0x0582 for APC2_CHECK_DATA[7:0] */
+	is_sensor_read8(client, 0x0588, &value8_1); 	/*0x058B for APC2_CHECK_DATA[9:8]*/
+	is_sensor_read8(client, 0x058F, &value8_0); 	/* 0x0582 for APC2_CHECK_DATA[7:0] */
 	is_sensor_read8(client, 0x0590, &err_flag[0]);	/* 0x0590 for CSA4026 error flag(0x27) */
 	is_sensor_read8(client, 0x0591, &err_flag[1]);	/* 0x0591 for CSA4026 error flag(0x28) */
 
@@ -1133,6 +1136,28 @@ p_err:
 	return ret;
 }
 
+#ifdef USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION
+int sensor_imx518_cis_set_tx_freq(struct v4l2_subdev *subdev, u32 value)
+{
+	int i=0;
+	int freq_size = ARRAY_SIZE(sensor_imx518_supported_tx_freq);
+
+	sensor_imx518_rear_tx_freq_fixed_index = -1;
+	for(i=0;i < freq_size;i++){
+		if(value == sensor_imx518_supported_tx_freq[i]) {
+			sensor_imx518_rear_tx_freq_fixed_index = i;
+			break;
+		}
+	}
+	if(sensor_imx518_rear_tx_freq_fixed_index == -1){
+		info("%s - not support freq",__func__);
+		return -1;
+	}
+	info("%s - tx freq fixed : %d", __func__,
+			sensor_imx518_supported_tx_freq[sensor_imx518_rear_tx_freq_fixed_index]);
+	return sensor_imx518_supported_tx_freq[sensor_imx518_rear_tx_freq_fixed_index];
+}
+#endif
 #if defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION) || defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE)
 int sensor_imx518_cis_get_tx_freq(struct v4l2_subdev *subdev, u32 *value)
 {
@@ -1181,9 +1206,12 @@ static struct is_cis_ops cis_ops_imx518 = {
 	.cis_set_laser_current = sensor_imx518_cis_set_vcsel_current,
 	.cis_get_laser_photo_diode = sensor_imx518_cis_get_vcsel_photo_diode,
 	.cis_set_frame_rate = sensor_imx518_cis_set_frame_rate,
+	.cis_get_tof_laser_error_flag = sensor_imx518_cis_laser_error_req,
 #if defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION) || defined(USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION_SYSFS_ENABLE)
 	.cis_get_tof_tx_freq = sensor_imx518_cis_get_tx_freq,
-	.cis_get_tof_laser_error_flag = sensor_imx518_cis_laser_error_req, 
+#endif
+#ifdef USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION
+	.cis_set_tof_tx_freq = sensor_imx518_cis_set_tx_freq,
 #endif
 };
 

@@ -46,6 +46,7 @@ struct s51xx_pcie {
 
 extern int exynos_pcie_host_v1_poweron(int ch_num);
 extern int exynos_pcie_host_v1_poweroff(int ch_num);
+extern int exynos_pcie_set_perst_gpio(int ch_num, bool on);
 /* not used: extern int exynos_pcie_gpio_onoff(int ch_num, int val); */
 /* not used(comment out): extern void exynos_pcie_msi_init_ext(int ch_num); */
 //extern int exynos_pcie_rc_chk_link_status(int ch_num);
@@ -56,19 +57,10 @@ extern int exynos_pcie_rc_l1ss_ctrl(int enable, int id);
 extern int exynos_check_pcie_link_status(int ch_num);
 extern int exynos_pcie_host_v1_l1ss_ctrl(int enable, int id);
 #endif
+extern int exynos_pcie_rc_set_affinity(int ch_num, int affinity);
 extern int pci_alloc_irq_vectors_affinity(struct pci_dev *dev, unsigned int min_vecs,
 					unsigned int max_vecs, unsigned int flags,
 					const struct irq_affinity *affd);
-#ifdef CONFIG_EXYNOS_PCIE_IOMMU
-extern int pcie_iommu_map(int ch_num, unsigned long iova, phys_addr_t paddr,
-				size_t size, int prot);
-#else
-static inline int pcie_iommu_map(int ch_num, unsigned long iova, phys_addr_t paddr,
-				size_t size, int prot)
-{
-	return -ENODEV;
-}
-#endif
 
 #define AUTOSUSPEND_TIMEOUT	200
 
@@ -77,6 +69,7 @@ void __iomem *s51xx_pcie_get_doorbell_address(void);
 int s51xx_pcie_send_doorbell_int(struct pci_dev *pdev, int int_num);
 void s51xx_pcie_save_state(struct pci_dev *pdev);
 void s51xx_pcie_restore_state(struct pci_dev *pdev);
+void s51xx_pcie_l1ss_ctrl(int enable);
 void disable_msi_int(struct pci_dev *pdev);
 void print_msi_register(struct pci_dev *pdev);
 int s5100_force_crash_exit_ext(void);
@@ -84,5 +77,9 @@ int s5100_poweron_pcie(struct modem_ctl *mc);
 int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off);
 int s5100_try_gpio_cp_wakeup(struct modem_ctl *mc);
 int s5100_send_panic_noti_ext(void);
+
+// PCIE Dynamic lane change : from //drivers/pci
+int exynos_pcie_rc_lanechange(int ch_num, int lane);
+int exynos_pcie_rc_speedchange(int ch_num, int spd);
 
 #endif /* __S51xx_PCIE_H__ */

@@ -355,7 +355,7 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	ulong hw_map)
 {
 	int ret = 0;
-	int i;
+	int i, cur_idx;
 #if defined(SOC_TNR_MERGER)
 	int j;
 #endif
@@ -400,7 +400,7 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	FIMC_BUG(!region);
 
 	param = &region->parameter.isp;
-	fcount = frame->fcount + frame->cur_buf_index;
+	fcount = frame->fcount;
 
 	if (frame->type == SHOT_TYPE_INTERNAL) {
 		/* OTF INPUT case */
@@ -419,6 +419,7 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 		param_set->output_dva_tnr_wgt[0] = 0x0;
 		param_set->dma_output_tnr_prev.cmd = DMA_INPUT_COMMAND_DISABLE;
 		param_set->output_dva_tnr_prev[0] = 0x0;
+		param_set->tnr_mode = TNR_PROCESSING_NONE;
 #endif
 		hw_ip->internal_fcount[instance] = fcount;
 		goto config;
@@ -447,11 +448,13 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	is_hw_isp_update_param(hw_ip, region, param_set, lindex, hindex, instance);
 
 	/* DMA settings */
+	cur_idx = frame->cur_buf_index;
+
 	if (param_set->dma_input.cmd != DMA_INPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
 			param_set->input_dva[i] = (typeof(*param_set->input_dva))
-				frame->dvaddr_buffer[frame->cur_buf_index + i];
-			if (frame->dvaddr_buffer[i] == 0) {
+				frame->dvaddr_buffer[i + cur_idx];
+			if (param_set->input_dva[i] == 0) {
 				msinfo_hw("[F:%d]dvaddr_buffer[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				FIMC_BUG(1);
@@ -477,8 +480,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	/* TNR prev image input */
 	if (param_set->prev_dma_input.cmd != DMA_INPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->input_dva_tnr_prev[i] = frame->ixtTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixtTargetAddress[i] == 0) {
+			param_set->input_dva_tnr_prev[i] = frame->ixtTargetAddress[i + cur_idx];
+			if (param_set->input_dva_tnr_prev[i] == 0) {
 				msinfo_hw("[F:%d]ixtTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->prev_dma_input.cmd = DMA_INPUT_COMMAND_DISABLE;
@@ -490,8 +493,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	/* TNR prev weight input */
 	if (param_set->prev_wgt_dma_input.cmd != DMA_INPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->input_dva_tnr_wgt[i] = frame->ixgTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixgTargetAddress[i] == 0) {
+			param_set->input_dva_tnr_wgt[i] = frame->ixgTargetAddress[i + cur_idx];
+			if (param_set->input_dva_tnr_wgt[i] == 0) {
 				msinfo_hw("[F:%d]ixgTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->prev_wgt_dma_input.cmd = DMA_INPUT_COMMAND_DISABLE;
@@ -502,8 +505,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 #else
 	if (param_set->prev_dma_input.cmd != DMA_INPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->tnr_prev_input_dva[i] = frame->ixtTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixtTargetAddress[i] == 0) {
+			param_set->tnr_prev_input_dva[i] = frame->ixtTargetAddress[i + cur_idx];
+			if (param_set->tnr_prev_input_dva[i] == 0) {
 				msinfo_hw("[F:%d]ixtTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->prev_dma_input.cmd = DMA_INPUT_COMMAND_DISABLE;
@@ -514,8 +517,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 #endif
 	if (param_set->dma_output_chunk.cmd != DMA_OUTPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->output_dva_chunk[i] = frame->ixpTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixpTargetAddress[i] == 0) {
+			param_set->output_dva_chunk[i] = frame->ixpTargetAddress[i + cur_idx];
+			if (param_set->output_dva_chunk[i] == 0) {
 				msinfo_hw("[F:%d]ixpTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->dma_output_chunk.cmd = DMA_OUTPUT_COMMAND_DISABLE;
@@ -525,8 +528,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 	if (param_set->dma_output_yuv.cmd != DMA_OUTPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->output_dva_yuv[i] = frame->ixcTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixcTargetAddress[i] == 0) {
+			param_set->output_dva_yuv[i] = frame->ixcTargetAddress[i + cur_idx];
+			if (param_set->output_dva_yuv[i] == 0) {
 				msinfo_hw("[F:%d]ixcTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->dma_output_yuv.cmd = DMA_OUTPUT_COMMAND_DISABLE;
@@ -536,8 +539,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 #if defined(SOC_TNR_MERGER)
 	if (param_set->dma_output_tnr_prev.cmd != DMA_OUTPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->output_dva_tnr_prev[i] = frame->ixvTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixvTargetAddress[i] == 0) {
+			param_set->output_dva_tnr_prev[i] = frame->ixvTargetAddress[i + cur_idx];
+			if (param_set->output_dva_tnr_prev[i] == 0) {
 				msinfo_hw("[F:%d]ixvTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->dma_output_tnr_prev.cmd = DMA_OUTPUT_COMMAND_DISABLE;
@@ -547,8 +550,8 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 	if (param_set->dma_output_tnr_wgt.cmd != DMA_OUTPUT_COMMAND_DISABLE) {
 		for (i = 0; i < frame->num_buffers; i++) {
-			param_set->output_dva_tnr_wgt[i] = frame->ixwTargetAddress[frame->cur_buf_index + i];
-			if (frame->ixwTargetAddress[i] == 0) {
+			param_set->output_dva_tnr_wgt[i] = frame->ixwTargetAddress[i + cur_idx];
+			if (param_set->output_dva_tnr_wgt[i] == 0) {
 				msinfo_hw("[F:%d]ixwTargetAddress[%d] is zero",
 					instance, hw_ip, frame->fcount, i);
 				param_set->dma_output_tnr_wgt.cmd = DMA_OUTPUT_COMMAND_DISABLE;

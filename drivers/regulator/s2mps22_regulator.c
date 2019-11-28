@@ -38,12 +38,14 @@ static struct s2mps22_info *s2mps22_static_info;
 static struct regulator_desc regulators[S2MPS22_REG_MAX];
 int s2mps22_buck_ocp_cnt[S2MPS22_BUCK_CNT]; /* BUCK 1~4 OCP count */
 int s2mps22_temp_cnt[S2MPS22_TEMP_NR]; /* 0 : 120 degree , 1 : 140 degree */
+int s2mps22_buck_oi_cnt[S2MPS22_BUCK_OI_MAX]; /* BUCK 1~4 OI count */
 
 struct s2mps22_info {
 	bool g3d_en;
 	u8 adc_en_val;
 	int wtsr_en;
 	int buck_ocp_irq[S2MPS22_BUCK_OCP_IRQ_NUM]; /* BUCK OCP IRQ */
+	int buck_oi_irq[S2MPS22_BUCK_OI_MAX]; /* BUCK OI IRQ */
 	int temp_irq[S2MPS22_TEMP_NR];	/* 0 : 120 degree, 1 : 140 degree */
 	int num_regulators;
 	unsigned int opmode[S2MPS22_REG_MAX];
@@ -67,7 +69,7 @@ static unsigned int s2mps22_of_map_mode(unsigned int val) {
 	case SEC_OPMODE_ON:		/* ON in Normal Mode */
 		return 0x3;
 	default:
-		return 0x3;
+		return REGULATOR_MODE_INVALID;
 	}
 }
 
@@ -494,6 +496,27 @@ static irqreturn_t s2mps22_temp_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t s2mps22_buck_oi_irq(int irq, void *data)
+{
+	struct s2mps22_info *s2mps22 = data;
+	int i;
+
+	mutex_lock(&s2mps22->lock);
+
+	for (i = 1; i < S2MPS22_BUCK_OI_MAX; i++) {
+		if (s2mps22->buck_oi_irq[i] == irq) {
+			s2mps22_buck_oi_cnt[i]++;
+			pr_info("%s: S2MPS22 BUCK[%d] OI IRQ: %d, irq = %d\n",
+				__func__, i + 1, s2mps22_buck_oi_cnt[i], irq);
+			break;
+		}
+	}
+
+	mutex_unlock(&s2mps22->lock);
+
+	return IRQ_HANDLED;
+}
+
 void s2mps22_oi_function(struct s2mps22_dev *iodev)
 {
 	struct i2c_client *i2c = iodev->pmic;
@@ -501,7 +524,7 @@ void s2mps22_oi_function(struct s2mps22_dev *iodev)
 	u8 val;
 
 	/* BUCK 1~4 OI enable */
-	s2mps22_update_reg(i2c, S2MPS22_REG_BUCK_OI_EN, 0x0F,
+	s2mps22_update_reg(i2c, S2MPS22_REG_BUCK_OI_EN, 0x0E,
 			   S2MPS22_BUCK_OI_EN_MASK);
 
 	/* BUCK 1~4 OI power down disable */
@@ -520,6 +543,26 @@ void s2mps22_oi_function(struct s2mps22_dev *iodev)
 		pr_info("0x%x[0x%x], ", i, val);
 	}
 	pr_info("\n");
+}
+
+static void s2mps22_set_oi_interrupt(struct platform_device *pdev,
+				     struct s2mps22_info *s2mps22, int irq_base)
+{
+	int i, ret;
+
+	for (i = 1; i < S2MPS22_BUCK_OI_MAX; i++) {
+		s2mps22->buck_oi_irq[i] = irq_base + S2MPS22_IRQ_OI_B1_INT4 + i;
+
+		ret = devm_request_threaded_irq(&pdev->dev,
+						s2mps22->buck_oi_irq[i], NULL,
+						s2mps22_buck_oi_irq, 0,
+						"BUCK_OI_IRQ", s2mps22);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+				"Failed to request BUCK[%d] OI IRQ: %d: %d\n",
+				i + 1, s2mps22->buck_oi_irq[i], ret);
+		}
+	}
 }
 
 static void s2mps22_wtsr_enable(struct s2mps22_info *s2mps22,
@@ -750,6 +793,10 @@ static int s2mps22_pmic_probe(struct platform_device *pdev)
 	}
 
 	s2mps22_oi_function(iodev);
+
+	/* OI interrupt setting */
+	s2mps22_set_oi_interrupt(pdev, s2mps22, irq_base);
+
 	/* enable WTSR */
 	if (pdata->wtsr_en)
 		s2mps22_wtsr_enable(s2mps22, pdata);

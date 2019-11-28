@@ -13,42 +13,6 @@
 #include "dsp-core.h"
 #include "dsp-graph.h"
 
-/* TODO: remove after dma-coherent confirmation */
-static void __dsp_graph_sync_for_device(struct dsp_graph *graph)
-{
-	struct dsp_memory *mem;
-	struct dsp_buffer *buf, *temp;
-
-	dsp_enter();
-	mem = &graph->owner->core->dspdev->system.memory;
-
-	list_for_each_entry_safe(buf, temp, &graph->update_list, list)
-		dsp_memory_sync_for_device(mem, buf);
-
-	list_for_each_entry_safe(buf, temp, &graph->buf_list, list)
-		dsp_memory_sync_for_device(mem, buf);
-
-	dsp_leave();
-}
-
-/* TODO: remove after dma-coherent confirmation */
-static void __dsp_graph_sync_for_cpu(struct dsp_graph *graph)
-{
-	struct dsp_memory *mem;
-	struct dsp_buffer *buf, *temp;
-
-	dsp_enter();
-	mem = &graph->owner->core->dspdev->system.memory;
-
-	list_for_each_entry_safe(buf, temp, &graph->update_list, list)
-		dsp_memory_sync_for_cpu(mem, buf);
-
-	list_for_each_entry_safe(buf, temp, &graph->buf_list, list)
-		dsp_memory_sync_for_cpu(mem, buf);
-
-	dsp_leave();
-}
-
 static void __dsp_graph_unmap_buffer(struct dsp_graph *graph,
 		struct dsp_buffer *buf)
 {
@@ -616,7 +580,6 @@ int dsp_graph_execute(struct dsp_graph *graph, struct dsp_mailbox_pool *pool)
 			goto p_err;
 		}
 	}
-	__dsp_graph_sync_for_device(graph);
 
 	mutex_unlock(&gmgr->lock);
 
@@ -624,7 +587,6 @@ int dsp_graph_execute(struct dsp_graph *graph, struct dsp_mailbox_pool *pool)
 			true, true, false);
 
 	mutex_lock(&gmgr->lock);
-	__dsp_graph_sync_for_cpu(graph);
 	__dsp_graph_unmap_list(graph, DSP_COMMON_PARAM_UPDATE);
 	mutex_unlock(&gmgr->lock);
 

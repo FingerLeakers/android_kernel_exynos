@@ -17,7 +17,7 @@
 #if defined(CONFIG_SEC_NAD_LOG)
 #define NAD_LOG_SIZE 0x100000
 #define NAD_UFS_TEST_BLOCK "/dev/block/UFS_TEST" 
-#define NAD_LOG_OFFSET 0xAC000
+#define NAD_LOG_OFFSET 0x84000
 #endif   
 #define NAD_PARAM_NAME "/dev/block/NAD_REFER"
 #define NAD_OFFSET 8192
@@ -46,6 +46,8 @@
 #define NAD_CUSTOM_FLAG 1010
 #endif
 
+#define NAD_DEBUG_FLAG 2020
+
 #define NAD_RETRY_COUNT			30
 #define NAD_FAIL_COUNT			10
 
@@ -64,6 +66,7 @@
 #define NAD_VST_MAGIC_MASK	0xFFFFFF
 #define NAD_VST_RESULT_MASK	0x3F
 #define NAD_VST_ADJUST_MASK	0x3F
+
 
 enum {
     EXYNOS8890 = 0,
@@ -331,6 +334,7 @@ typedef struct  {
 	u8 g3d_pass_fail;
 	u8 mif_pass_fail;
 	u8 int_pass_fail;
+	u8 func_pass_fail;
 
 	int nad_version;
 	int vst_result;
@@ -381,6 +385,20 @@ typedef struct {
     int rsvd;
     vector_operation_item vector_list[100];
 } nad_vector_operation_info;
+
+typedef struct    {
+    char big[3];
+    char mid[3];
+    char g3d[2];    
+} nad_occ_block_information;
+
+typedef struct    {
+    char magic[8];
+    char first_fuse[8];
+    nad_occ_block_information asb_otp_dat;
+    nad_occ_block_information pba_otp_dat;
+    nad_occ_block_information nad_cal_dat;
+} nad_on_chip_cal_information;
 
 #endif
 
@@ -493,12 +511,14 @@ struct nad_env {
 	int vst_g3d_fail_count;
 	int vst_mif_fail_count;
 	int vst_int_fail_count;
+	int vst_func_fail_count;
 	int vst_big_fail_inform4_2;
 	int vst_mid_fail_inform4_2;
 	int vst_lit_fail_inform4_2;
 	int vst_g3d_fail_inform4_2;
 	int vst_mif_fail_inform4_2;
 	int vst_int_fail_inform4_2;
+	int vst_func_fail_inform4_2;
 
 	nad_ave_current_information nad_ave_current_info;
 	unsigned char nAsv_TABLE;
@@ -594,11 +614,14 @@ struct nad_env {
 #endif
 #if defined(CONFIG_SEC_SUPPORT_VST)
 	nad_vector_operation_info nad_vector_oper_info;
+	nad_on_chip_cal_information nad_on_chip_cal_info;
 #endif
 
 #if defined(CONFIG_SEC_NAD_C)
 	F_NAD_DATA fused_nad_custom_data;
 #endif
+
+	unsigned int nad_debug_enable;
 
 	nad_fail_backup_data last_fail_data_backup;
 	nad_dram_information nad_last_dram_fail_information;

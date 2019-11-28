@@ -183,4 +183,3 @@ config USE_DISPLAYPORT_CCIC_EVENT_QUEUE
 endif
 
 source "drivers/video/fbdev/exynos/dpu30/panels/Kconfig"
-source "drivers/video/fbdev/exynos/dpu30/dp_logger/Kconfig"

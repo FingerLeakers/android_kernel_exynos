@@ -28,10 +28,10 @@
 #include <tzdev/tee_client_api.h>
 
 #include "misc.h"
-#include "sysdep.h"
-#include "tz_iwsock.h"
-#include "tz_kthread_pool.h"
-#include "tzlog.h"
+#include "core/iwsock.h"
+#include "core/kthread_pool.h"
+#include "core/log.h"
+#include "core/sysdep.h"
 
 #define MAX_CONNECTION_ATTEMPTS 20
 #define CONNECTION_ATTEMPT_TIMEOUT 100

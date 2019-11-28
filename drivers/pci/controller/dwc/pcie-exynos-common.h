@@ -22,6 +22,8 @@
 #endif
 
 #define MAX_TIMEOUT		12000
+#define MAX_TIMEOUT_LANECHANGE  10000
+#define MAX_TIMEOUT_SPEEDCHANGE 10000
 #define MAX_L2_TIMEOUT		2000
 #define ID_MASK			0xffff
 #define TPUT_THRESHOLD		150
@@ -236,6 +238,9 @@ struct exynos_pcie {
 	int			boot_cnt;
 	int			work_l1ss_cnt;
 	int			ep_device_type;
+#ifdef CONFIG_SEC_PANIC_PCIE_ERR
+	const char		*ep_device_name;
+#endif
 	int			max_link_speed;
 
 	struct pinctrl		*pcie_pinctrl;

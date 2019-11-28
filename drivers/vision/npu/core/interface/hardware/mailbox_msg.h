@@ -51,7 +51,7 @@
  *  *  +-----------------------------+  ----------- <- npu_mailbox->mbox_base by Eung ju kim
  *  */
 
-#define COMMAND_VERSION			6
+#define COMMAND_VERSION			7
 #define MESSAGE_MAX_CNT			32
 #define MESSAGE_MAGIC			0xC0DECAFE
 #define MESSAGE_MARK			0xCAFEC0DE
@@ -69,6 +69,7 @@ struct cmd_unload {
 struct cmd_process {
 	u32				oid;
 	u32				fid; /* frame id */
+	u32				priority;
 };
 
 struct cmd_profile_ctl {

@@ -28,6 +28,7 @@
 #include <linux/mm_types_task.h>
 #include <linux/task_io_accounting.h>
 #include <linux/rseq.h>
+#include <linux/sec_debug_types.h>
 
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
@@ -709,6 +710,8 @@ struct task_struct {
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
 	struct sched_rt_entity		rt;
+	struct sched_avg		sa_box;
+
 #ifdef CONFIG_SCHED_USE_FLUID_RT
 	int victim_flag;
 #endif
@@ -898,6 +901,10 @@ struct task_struct {
 	/* MM fault and swap info: this can arguably be seen as either mm-specific or thread-specific: */
 	unsigned long			min_flt;
 	unsigned long			maj_flt;
+
+#ifdef CONFIG_HUGEPAGE_POOL
+	int				use_hugepage_pool;
+#endif
 
 #ifdef CONFIG_POSIX_TIMERS
 	struct task_cputime		cputime_expires;
@@ -1261,6 +1268,9 @@ struct task_struct {
 	unsigned int			sequential_io;
 	unsigned int			sequential_io_avg;
 #endif
+#if defined(CONFIG_SDP)
+	unsigned int sensitive;
+#endif
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 	unsigned long			task_state_change;
 #endif
@@ -1288,6 +1298,9 @@ struct task_struct {
 #ifdef CONFIG_SEC_DEBUG_COMPLETE_HINT
 	struct completion		*x;
 #endif
+#ifdef CONFIG_SEC_DEBUG_DTASK
+	struct sec_debug_wait		ssdbg_wait;
+#endif
 	/*
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.
@@ -1304,6 +1317,18 @@ struct task_struct {
 	 * Do not put anything below here!
 	 */
 };
+
+#ifdef CONFIG_HUGEPAGE_POOL
+static inline int get_task_use_hugepage_pool(struct task_struct *task)
+{
+	return task->use_hugepage_pool;
+}
+
+static inline void set_task_use_hugepage_pool(struct task_struct *task, int val)
+{
+	task->use_hugepage_pool = val;
+}
+#endif
 
 static inline struct pid *task_pid(struct task_struct *task)
 {

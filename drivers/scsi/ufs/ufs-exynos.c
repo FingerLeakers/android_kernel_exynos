@@ -21,13 +21,13 @@
 #include "mphy.h"
 #include "ufshcd-pltfrm.h"
 #include "ufs-exynos.h"
-#include "ufs-exynos-fmp.h"
 #include <soc/samsung/exynos-fsys0-tcxo.h>
 #include <soc/samsung/exynos-pmu.h>
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <linux/soc/samsung/exynos-soc.h>
 #include <linux/spinlock.h>
+#include <crypto/fmp.h>
 
 /*
  * Unipro attribute value
@@ -43,7 +43,139 @@
 
 #define IATOVAL_NSEC		20000	/* unit: ns */
 
+extern ufshcd_link_hibern8_ctrl(struct ufs_hba *hba, bool en);
+
+struct ufs_eom_result_s **eom_results;
+
 /* UFS CAL interface */
+
+static ssize_t exynos_ufs_eom1_show(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	int len = 0;
+	u32 test_cnt = 0;
+	static int current_cnt = 0;
+	int i = 0;
+
+	if (eom_results  == NULL) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"eom_result structure is NULL !!! \n");
+		goto exit;
+	}
+
+	while (current_cnt != EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"%u %u %ld\n",
+				eom_results[i][current_cnt].phase,
+				eom_results[i][current_cnt].vref,
+				eom_results[i][current_cnt].err);
+		current_cnt++;
+		test_cnt++;
+		if (test_cnt == 100)
+			break;
+	}
+
+	if (current_cnt == EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX)
+		current_cnt = 0;
+exit:
+	return len;
+}
+
+static ssize_t exynos_ufs_eom1_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int op_num;
+	int i;
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	struct ufs_cal_param *p = ufs->cal_param;
+
+	queue_work(hba->clk_gating.clk_gating_workq,
+		   &hba->clk_gating.ungate_work);
+	flush_workqueue(hba->clk_gating.clk_gating_workq);
+
+	kfree(eom_results);
+
+	eom_results = kzalloc(sizeof(struct ufs_eom_result_s) *
+			(uint8_t)ufs->num_rx_lanes, GFP_KERNEL);
+
+	for(i  = 0; i < ufs->num_rx_lanes; i++) {
+		eom_results[i] = kzalloc(sizeof(struct ufs_eom_result_s) *
+				EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX, GFP_KERNEL);
+	}
+
+	if (sscanf(buf, "%10d", &op_num) == 0)
+		return -EINVAL;
+
+	switch (op_num) {
+	case 0:
+		/* cal */
+		ufs_cal_eom(p, p->max_gear,
+				ufs->num_rx_lanes, eom_results);
+		break;
+	}
+
+	return count;
+}
+
+static ssize_t exynos_ufs_eom2_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	/* prevent to print kerenl warning message
+	   eom1_store function do all operation to get eom data */
+
+	return count;
+}
+
+static ssize_t exynos_ufs_eom2_show(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	int len = 0;
+	u32 test_cnt = 0;
+	static int current_cnt = 0;
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+	int i = 1;
+
+	if (eom_results  == NULL) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"eom_result structure is NULL !!! \n");
+		goto exit;
+	}
+
+	if (ufs->num_rx_lanes == 1) {
+		len += snprintf(buf + len, PAGE_SIZE, "EOM2NULL\n");
+		goto exit;
+	}
+
+	while (current_cnt != EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX) {
+		len += snprintf(buf + len, PAGE_SIZE,
+				"%u %u %ld\n",
+				eom_results[i][current_cnt].phase,
+				eom_results[i][current_cnt].vref,
+				eom_results[i][current_cnt].err);
+		current_cnt++;
+		test_cnt++;
+		if (test_cnt == 100)
+			break;
+	}
+
+	if (current_cnt == EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX)
+		current_cnt = 0;
+
+exit:
+	return len;
+}
+
+static DEVICE_ATTR(eom1, S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+                       exynos_ufs_eom1_show, exynos_ufs_eom1_store);
+
+static DEVICE_ATTR(eom2, S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+                       exynos_ufs_eom2_show, exynos_ufs_eom2_store);
 
 /*
  * Debugging information, SFR/attributes/misc
@@ -608,6 +740,28 @@ static void exynos_ufs_set_features(struct ufs_hba *hba, u32 hw_rev)
  * should be contained only in ->host_reset() as possible.
  */
 
+static inline int create_ufs_sys_file(struct device *dev, struct exynos_ufs *ufs)
+{
+	int ret;
+
+	ret = device_create_file(dev, &dev_attr_eom1);
+	if (ret) {
+		dev_err(dev, "%s: couldn't create device file for eom(%d)\n",
+				__func__, ret);
+		return ret;
+	}
+
+	if (ufs->num_rx_lanes < 1) {
+		ret = device_create_file(dev, &dev_attr_eom2);
+		if (ret) {
+			dev_err(dev, "%s: couldn't create device file for eom(%d)\n",
+					__func__, ret);
+			return ret;
+		}
+	}
+	return 0;
+}
+
 static int exynos_ufs_init(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
@@ -642,8 +796,7 @@ static int exynos_ufs_init(struct ufs_hba *hba)
 		ufs->smu = id;
 
 	/* FMPSECURITY & SMU */
-	exynos_ufs_fmp_sec_cfg(ufs);
-	exynos_ufs_smu_init(ufs);
+	ufshcd_vops_crypto_sec_cfg(hba, true);
 
 	/* Enable log */
 	ret =  exynos_ufs_init_dbg(hba);
@@ -652,6 +805,8 @@ static int exynos_ufs_init(struct ufs_hba *hba)
 		return ret;
 
 	ufs->misc_flags = EXYNOS_UFS_MISC_TOGGLE_LOG;
+
+	create_ufs_sys_file(ufs->dev, ufs);
 
 	return 0;
 }
@@ -715,7 +870,7 @@ static int exynos_ufs_pre_setup_clocks(struct ufs_hba *hba, bool on)
 		/* HWAGC disable */
 		exynos_ufs_set_hwacg_control(ufs, false);
 	} else {
-//		pm_qos_update_request(&ufs->pm_qos_int, 0);
+		pm_qos_update_request(&ufs->pm_qos_int, 0);
 	}
 
 	return ret;
@@ -727,7 +882,7 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on)
 	int ret = 0;
 
 	if (on) {
-//		pm_qos_update_request(&ufs->pm_qos_int, ufs->pm_qos_int_value);
+		pm_qos_update_request(&ufs->pm_qos_int, ufs->pm_qos_int_value);
 	} else {
 		/*
 		 * Now all used blocks would be turned off in a host.
@@ -963,7 +1118,7 @@ static int __exynos_ufs_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 
-//	pm_qos_update_request(&ufs->pm_qos_int, 0);
+	pm_qos_update_request(&ufs->pm_qos_int, 0);
 
 	exynos_ufs_dev_reset_ctrl(ufs, false);
 
@@ -989,9 +1144,9 @@ static int __exynos_ufs_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	exynos_ufs_ctrl_auto_hci_clk(ufs, false);
 
 	exynos_ufs_ctrl_cport_log(ufs, true, 0);
+
 	/* FMPSECURITY & SMU resume */
-	exynos_ufs_fmp_sec_cfg(ufs);
-	exynos_ufs_smu_resume(ufs);
+	ufshcd_vops_crypto_sec_cfg(hba, false);
 
 	if (ufshcd_is_clkgating_allowed(hba))
 		clk_disable_unprepare(ufs->clk_hci);
@@ -1015,26 +1170,102 @@ static u8 exynos_ufs_get_unipro_direct(struct ufs_hba *hba, u32 num)
 	return unipro_readl(ufs, offset[num]);
 }
 
-static int exynos_ufs_crypto_engine_cfg(struct ufs_hba *hba,
-				struct ufshcd_lrb *lrbp,
-				struct scatterlist *sg, int index,
-				int sector_offset, int page_index)
+#ifdef CONFIG_SCSI_UFS_EXYNOS_FMP
+static struct bio *get_bio(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 {
-	return exynos_ufs_fmp_cfg(hba, lrbp, sg, index, sector_offset, page_index);
+	if (!hba || !lrbp) {
+		pr_err("%s: Invalid MMC:%p data:%p\n", __func__, hba, lrbp);
+		return NULL;
+	}
+
+	if (!virt_addr_valid(lrbp->cmd)) {
+		dev_err(hba->dev, "Invalid cmd:%p\n", lrbp->cmd);
+		return NULL;
+	}
+
+	if (!virt_addr_valid(lrbp->cmd->request->bio)) {
+		if (lrbp->cmd->request->bio)
+			dev_err(hba->dev, "Invalid bio:%p\n",
+				lrbp->cmd->request->bio);
+		return NULL;
+	} else {
+		return lrbp->cmd->request->bio;
+	}
+}
+
+static int exynos_ufs_crypto_engine_cfg(struct ufs_hba *hba,
+				struct ufshcd_lrb *lrbp)
+{
+	int sg_segments = scsi_sg_count(lrbp->cmd);
+	int idx;
+	struct scatterlist *sg;
+	struct bio *bio = get_bio(hba, lrbp);
+	int ret;
+	int sector_offset = 0;
+
+	if (!bio || !sg_segments)
+		return 0;
+
+	scsi_for_each_sg(lrbp->cmd, sg, sg_segments, idx) {
+		ret = exynos_fmp_crypt_cfg(bio,
+			(void *)&lrbp->ucd_prdt_ptr[idx], idx, sector_offset);
+		sector_offset += 8; /* UFSHCI_SECTOR_SIZE / MIN_SECTOR_SIZE */
+		if (ret)
+			return ret;
+	}
+	return 0;
 }
 
 static int exynos_ufs_crypto_engine_clear(struct ufs_hba *hba,
 				struct ufshcd_lrb *lrbp)
 {
-	return exynos_ufs_fmp_clear(hba, lrbp);
+	int sg_segments = scsi_sg_count(lrbp->cmd);
+	int idx;
+	struct scatterlist *sg;
+	struct bio *bio = get_bio(hba, lrbp);
+	int ret;
+
+	if (!bio || !sg_segments)
+		return 0;
+
+	scsi_for_each_sg(lrbp->cmd, sg, sg_segments, idx) {
+		ret = exynos_fmp_crypt_clear(bio,
+			(void *)&lrbp->ucd_prdt_ptr[idx]);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
+static int exynos_ufs_crypto_sec_cfg(struct ufs_hba *hba, bool init)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+
+	dev_err(ufs->dev, "%s: fmp:%d, smu:%d, init:%d\n",
+			__func__, ufs->fmp, ufs->smu, init);
+	return exynos_fmp_sec_cfg(ufs->fmp, ufs->smu, init);
 }
 
 static int exynos_ufs_access_control_abort(struct ufs_hba *hba)
 {
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 
-	return exynos_ufs_smu_abort(ufs);
+	dev_err(ufs->dev, "%s: smu:%d, ret:%d\n", __func__, ufs->smu);
+	return exynos_fmp_smu_abort(ufs->smu);
 }
+#else
+static int exynos_ufs_crypto_sec_cfg(struct ufs_hba *hba, bool init)
+{
+	struct exynos_ufs *ufs = to_exynos_ufs(hba);
+
+	writel(0x0, ufs->reg_ufsp + UFSPSBEGIN0);
+	writel(0xffffffff, ufs->reg_ufsp + UFSPSEND0);
+	writel(0xff, ufs->reg_ufsp + UFSPSLUN0);
+	writel(0xf1, ufs->reg_ufsp + UFSPSCTRL0);
+
+	return 0;
+}
+#endif
 
 static struct ufs_hba_variant_ops exynos_ufs_ops = {
 	.init = exynos_ufs_init,
@@ -1053,9 +1284,12 @@ static struct ufs_hba_variant_ops exynos_ufs_ops = {
 	.suspend = __exynos_ufs_suspend,
 	.resume = __exynos_ufs_resume,
 	.get_unipro_result = exynos_ufs_get_unipro_direct,
+#ifdef CONFIG_SCSI_UFS_EXYNOS_FMP
 	.crypto_engine_cfg = exynos_ufs_crypto_engine_cfg,
 	.crypto_engine_clear = exynos_ufs_crypto_engine_clear,
 	.access_control_abort = exynos_ufs_access_control_abort,
+#endif
+	.crypto_sec_cfg = exynos_ufs_crypto_sec_cfg,
 };
 
 static int exynos_ufs_populate_dt_sys_per_feature(struct device *dev,
@@ -1267,7 +1501,7 @@ static int exynos_ufs_probe(struct platform_device *pdev)
 	dev->platform_data = ufs;
 	dev->dma_mask = &exynos_ufs_dma_mask;
 
-//	pm_qos_add_request(&ufs->pm_qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
+	pm_qos_add_request(&ufs->pm_qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
 
 	ret = ufshcd_pltfrm_init(pdev, &exynos_ufs_ops);
 

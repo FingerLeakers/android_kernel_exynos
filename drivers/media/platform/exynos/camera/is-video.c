@@ -1157,7 +1157,8 @@ set_info:
 
 	for (i = 0; i < frame->planes; i++) {
 		frame->dvaddr_buffer[i] = queue->buf_dva[index][i];
-
+		frame->kvaddr_buffer[i] = queue->buf_kva[index][i];
+		frame->size[i] = queue->framecfg.size[i];
 #ifdef PRINT_BUFADDR
 		mvinfo("%s %d.%d %pad\n", vctx, video, framemgr->name, index,
 					i, &frame->dvaddr_buffer[i]);
@@ -1215,7 +1216,6 @@ void is_queue_buffer_cleanup(struct vb2_buffer *vb)
 		num_ext_planes = num_i_planes - vctx->queue.framecfg.format->hw_plane;
 	num_i_planes -= num_ext_planes;
 
-	/* FIXME: doesn't support dmabuf container yet */
 	if (test_bit(IS_QUEUE_NEED_TO_KMAP, &vctx->queue.state)) {
 		for (i = 0; i < vb->num_planes; i++)
 			vbuf->ops->plane_kunmap(vbuf, i);

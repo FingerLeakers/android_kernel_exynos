@@ -310,7 +310,7 @@ p_err:
 	return ret;
 }
 
-int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on)
+int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on, bool f_id_dec)
 {
 	u32 otf_msk;
 	u32 otf_msk1;
@@ -318,8 +318,18 @@ int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on)
 	/* default setting */
 	if (on) {
 		/* base interrupt setting */
-		otf_msk = CSIS_IRQ_MASK0;
-		otf_msk1 = CSIS_IRQ_MASK1;
+		if (f_id_dec) {
+			/*
+			 * If FRO mode is enable, start & end of CSIS link is not used.
+			 * Instead of CSIS link interrupt, CSIS WDMA interrupt is used.
+			 * So, only error interrupt is enable.
+			 */
+			otf_msk = CSIS_ERR_MASK0;
+			otf_msk1 = CSIS_ERR_MASK1;
+		} else {
+			otf_msk = CSIS_IRQ_MASK0;
+			otf_msk1 = CSIS_IRQ_MASK1;
+		}
 	} else {
 		otf_msk = 0;
 		otf_msk1 = 0;
@@ -721,6 +731,16 @@ void csi_hw_s_dma_common_pattern_disable(u32 __iomem *base_reg)
 {
 	is_hw_set_field(base_reg, &csi_dma_regs[CSIS_DMA_R_TEST_PATTERN_ENABLE],
 		&csi_dma_fields[CSIS_DMA_F_TESTPATTERN], 0);
+}
+
+int csi_hw_s_dma_common_votf_enable(u32 __iomem *base_reg, u32 width, u32 dma_ch, u32 vc)
+{
+	return 0;
+}
+
+int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable)
+{
+	return 0;
 }
 
 int csi_hw_enable(u32 __iomem *base_reg, u32 use_cphy)

@@ -45,7 +45,7 @@ static struct keyinfo KEYINFO(s6e3ha8_aod_level2_key_enable);
 static struct keyinfo KEYINFO(s6e3ha8_aod_level2_key_disable);
 static struct keyinfo KEYINFO(s6e3ha8_aod_level3_key_enable);
 static struct keyinfo KEYINFO(s6e3ha8_aod_level3_key_disable);
-
+static DEFINE_PANEL_UDELAY(s6e3ha8_aod_self_spsram_sel_delay, 1);
 
 static char s6e3ha8_aod_self_move_pos_tbl[][90] = {
 	{
@@ -191,6 +191,7 @@ static DEFINE_STATIC_PACKET(s6e3ha8_aod_self_mask_img_pkt, DSI_PKT_TYPE_WR_SR, S
 static void *s6e3ha8_aod_self_mask_img_cmdtbl[] = {
 	&KEYINFO(s6e3ha8_aod_level2_key_enable),
 	&PKTINFO(s6e3ha8_aod_self_mask_sd_path),
+	&DLYINFO(s6e3ha8_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3ha8_aod_self_mask_img_pkt),
 	&KEYINFO(s6e3ha8_aod_level2_key_disable),
 };
@@ -251,6 +252,7 @@ static DEFINE_STATIC_PACKET(s6e3ha8_aod_self_icon_img, DSI_PKT_TYPE_WR_SR, STAR_
 static void *s6e3ha8_aod_self_icon_img_cmdtbl[] = {
 	&KEYINFO(s6e3ha8_aod_level2_key_enable),
 	&PKTINFO(s6e3ha8_aod_self_icon_sd_path),
+	&DLYINFO(s6e3ha8_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3ha8_aod_self_icon_img),
 	&KEYINFO(s6e3ha8_aod_level2_key_disable),
 };
@@ -309,6 +311,7 @@ static void *s6e3ha8_aod_analog_img_cmdtbl[] = {
 	&KEYINFO(s6e3ha8_aod_level2_key_enable),
 	&PKTINFO(s6e3ha8_aod_init_side_ram),
 	&PKTINFO(s6e3ha8_aod_analog_sd_path),
+	&DLYINFO(s6e3ha8_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3ha8_aod_analog_img),
 	&KEYINFO(s6e3ha8_aod_level2_key_disable),
 };
@@ -409,6 +412,7 @@ static void *s6e3ha8_aod_digital_img_cmdtbl[] = {
 	&KEYINFO(s6e3ha8_aod_level2_key_enable),
 	&PKTINFO(s6e3ha8_aod_init_side_ram),
 	&PKTINFO(s6e3ha8_aod_digital_sd_path),
+	&DLYINFO(s6e3ha8_aod_self_spsram_sel_delay),
 	&PKTINFO(s6e3ha8_aod_digital_img),
 	&KEYINFO(s6e3ha8_aod_level2_key_disable),
 };

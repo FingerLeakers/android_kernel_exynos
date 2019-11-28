@@ -87,7 +87,7 @@ static unsigned int s2mps19_of_map_mode(unsigned int val) {
 	case SEC_OPMODE_ON:		/* ON in Normal Mode */
 		return 0x3;
 	default:
-		return 0x3;
+		return REGULATOR_MODE_INVALID;
 	}
 }
 
@@ -504,7 +504,7 @@ static struct regulator_desc regulators[S2MPS19_REGULATOR_MAX] = {
 	BUCK_DESC("BUCK9M", _BUCK(9), &_buck_ops(), 1,
 		  _REG(_B9M_OUT), _REG(_B9M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK10M", _BUCK(10), &_buck_ops(), 1,
-		  _REG(_B10M_OUT1), _REG(_B10M_CTRL), _TIME(_BUCK)),
+		  _REG(_B10M_OUT2), _REG(_B10M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK11M", _BUCK(11), &_buck_ops(), 1,
 		  _REG(_B11M_OUT), _REG(_B11M_CTRL), _TIME(_BUCK)),
 	BUCK_DESC("BUCK12M", _BUCK(12), &_buck_ops(), 2,
@@ -1298,15 +1298,18 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	iodev->adc_sync_mode = pdata->adc_sync_mode;
 
 #ifdef CONFIG_SOC_EXYNOS9820
-	/* SICD_DVS voltage settings - BUCK1/2/3/4/5M_OUT2 */
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B1M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B2M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B3M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B4M_OUT2, 0x20);
 	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B5M_OUT2, 0x20);
+#elif defined(CONFIG_SOC_EXYNOS9830)
+	/* SICD_DVS voltage settings - BUCK1/2/3/5M_OUT2 */
+	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B1M_OUT2, 0x20);
+	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B2M_OUT2, 0x20);
+	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B3M_OUT2, 0x20);
+	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B5M_OUT2, 0x20);
 #endif
-	/* set BUCK10M output2 as 1.1V --> 0.95V */
-	s2mps19_write_reg(s2mps19->i2c, S2MPS19_PMIC_REG_B10M_OUT2, 0x68);
 
 	if (iodev->adc_mode > 0)
 		s2mps19_powermeter_init(iodev);

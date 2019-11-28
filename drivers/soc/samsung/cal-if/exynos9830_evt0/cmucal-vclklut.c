@@ -322,6 +322,12 @@ unsigned int div_clk_peric_26_lut_params[] = {
 unsigned int div_clk_peric_13_lut_params[] = {
 	1, 0,
 };
+unsigned int div_clk_peric_8_lut_params[] = {
+	2, 0,
+};
+unsigned int div_clk_peric_6_lut_params[] = {
+	3, 0,
+};
 
 /* COMMON VCLK -> LUT Parameter List */
 unsigned int blk_aud_od_lut_params[] = {

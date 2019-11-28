@@ -55,6 +55,7 @@ struct dsp_system {
 	wait_queue_head_t		system_wq;
 	unsigned int			system_flag;
 	unsigned int			wait[DSP_SYSTEM_WAIT_NUM];
+	char				fw_postfix[32];
 	unsigned int			layer_start;
 	unsigned int			layer_end;
 

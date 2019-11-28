@@ -324,7 +324,7 @@ p_err:
 	return ret;
 }
 
-int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on)
+int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on, bool f_id_dec)
 {
 	u32 otf_msk;
 	u32 otf_msk1;
@@ -332,8 +332,18 @@ int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on)
 	/* default setting */
 	if (on) {
 		/* base interrupt setting */
-		otf_msk = CSIS_IRQ_MASK0;
-		otf_msk1 = CSIS_IRQ_MASK1;
+		if (f_id_dec) {
+			/*
+			 * If FRO mode is enable, start & end of CSIS link is not used.
+			 * Instead of CSIS link interrupt, CSIS WDMA interrupt is used.
+			 * So, only error interrupt is enable.
+			 */
+			otf_msk = CSIS_ERR_MASK0;
+			otf_msk1 = CSIS_ERR_MASK1;
+		} else {
+			otf_msk = CSIS_IRQ_MASK0;
+			otf_msk1 = CSIS_IRQ_MASK1;
+		}
 	} else {
 		otf_msk = 0;
 		otf_msk1 = 0;
@@ -456,14 +466,10 @@ void csi_hw_dma_reset(u32 __iomem *base_reg)
 
 void csi_hw_s_frameptr(u32 __iomem *base_reg, u32 vc, u32 number, bool clear)
 {
-	u32 frame_ptr = 0;
+	u32 frame_ptr = number;
 	u32 val = is_hw_get_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL]);
 
-	frame_ptr = is_hw_get_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_UPDT_FRAMEPTR]);
-	if (clear)
-		frame_ptr |= (1 << number);
-	else
-		frame_ptr &= ~(1 << number);
+	val = is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_UPDT_PTR_EN], 1);
 	val = is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_UPDT_FRAMEPTR], frame_ptr);
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], val);
 }
@@ -481,8 +487,6 @@ u32 csi_hw_g_frameptr(u32 __iomem *base_reg, u32 vc)
 void csi_hw_s_dma_addr(u32 __iomem *base_reg, u32 vc, u32 number, u32 addr)
 {
 	u32 val = is_hw_get_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ]);
-
-	csi_hw_s_frameptr(base_reg, vc, number, false);
 
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_ADDR1 + number], addr);
 
@@ -505,7 +509,6 @@ void csi_hw_s_output_dma(u32 __iomem *base_reg, u32 vc, bool enable)
 	u32 val = is_hw_get_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL]);
 
 	val = is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_ENABLE], enable);
-	val = is_hw_set_field_value(val, &csi_vcdma_fields[CSIS_F_DMA_N_UPDT_PTR_EN], enable);
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], val);
 }
 
@@ -528,8 +531,24 @@ bool csi_hw_g_output_cur_dma_enable(u32 __iomem *base_reg, u32 vc)
 	return dma_enable;
 }
 
-int csi_hw_dma_common_reset(void)
+int csi_hw_dma_common_reset(u32 __iomem *base_reg)
 {
+	u32 val;
+
+	if (!base_reg)
+		return 0;
+
+	/*
+	 * Common DMA Control register/
+	 * CSIS_DMA_F_IP_PROCESSING : 1 = Q-channel clock enable
+	 * CSIS_DMA_F_IP_PROCESSING : 0 = Q-channel clock disable
+	 * The ip_processing should be 0 for safe power-off.
+	 */
+	val = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL]);
+	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], 0x0);
+	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_SW_RESET], 0x1);
+	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL], val);
+
 	return 0;
 }
 
@@ -659,6 +678,104 @@ int csi_hw_s_dma_common_votf_enable(u32 __iomem *base_reg, u32 width, u32 dma_ch
 	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_VOTF_BYTE], byte_per_line);
 
 	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_VOTF_CFG_00 + offset], val);
+
+	return 0;
+}
+
+int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable)
+{
+	void __iomem *sysreg_frame_id_en;
+
+	is_hw_set_field(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_CSIS_MODE],
+		&csi_dma_fields[CSIS_DMA_F_FRO_CSIS_MODE], enable);
+
+	/* HACK */
+	if (SYSREG_FRAME_ID_DEC) {
+		sysreg_frame_id_en = ioremap(SYSREG_FRAME_ID_DEC, SZ_4);
+		writel(enable, sysreg_frame_id_en);
+		iounmap(sysreg_frame_id_en);
+	}
+
+	return 0;
+}
+
+int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id)
+{
+	u32 prev_f_id_0, prev_f_id_1;
+	u32 cur_f_id_0, cur_f_id_1;
+
+	prev_f_id_0 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID0]);
+	prev_f_id_1 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID1]);
+
+	cur_f_id_0 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_CUR_FRAME_ID0]);
+	cur_f_id_1 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_CUR_FRAME_ID1]);
+
+	frame_id[0] = prev_f_id_0;
+	frame_id[1] = prev_f_id_1;
+
+	dbg_common(debug_csi, "[CSI]", " f_id_dec: prev(%x, %x), cur(%x, %x)\n",
+		prev_f_id_0, prev_f_id_1, cur_f_id_0, cur_f_id_1);
+
+	return 0;
+}
+
+int csi_hw_clear_fro_count(u32 __iomem *dma_top_reg, u32 __iomem *vc_reg)
+{
+	u32 seq, seq_stat;
+	u32 prev_f_id_0, prev_f_id_1;
+
+	seq = is_hw_get_reg(vc_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ]);
+	seq_stat = is_hw_get_reg(vc_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ_STAT]);
+
+	dbg_common(debug_csi, "[CSI]", " FCNTSEQ_STAT(%x, %x)\n", seq, seq_stat);
+
+	prev_f_id_0 = is_hw_get_reg(dma_top_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID0]);
+	prev_f_id_1 = is_hw_get_reg(dma_top_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID1]);
+
+	/*
+	 * HACK:
+	 * The shadowing is not applied at start interrupt
+	 * of only prevew frame id but at every start interrupt.
+	 * So, for applying shadowning at only preview frame,
+	 * both legacy FRO and frame id decoder must be used.
+	 * And current FRO count must be also reset at 60 fps mode
+	 * for stating width "0" for FRO count at next frame.
+	 */
+	if (CHECK_ID_60FPS(prev_f_id_0) || CHECK_ID_60FPS(prev_f_id_1))
+		is_hw_set_reg(vc_reg, &csi_vcdma_regs[CSIS_R_DMA0_FRO_FRM], 0);
+
+	return 0;
+}
+
+int csi_hw_s_fro_count(u32 __iomem *vc_cmn_reg, u32 batch_num, u32 vc)
+{
+	u32 ch_num;
+
+	if (!batch_num) {
+		err("batch_num is invalid(%d)", batch_num);
+		return -EINVAL;
+	}
+
+	switch (vc) {
+	case CSI_VIRTUAL_CH_0:
+		ch_num = CH0_FRAME_NUM;
+		break;
+	case CSI_VIRTUAL_CH_1:
+		ch_num = CH1_FRAME_NUM;
+		break;
+	case CSI_VIRTUAL_CH_2:
+		ch_num = CH2_FRAME_NUM;
+		break;
+	case CSI_VIRTUAL_CH_3:
+		ch_num = CH3_FRAME_NUM;
+		break;
+	default:
+		err("vc is invalid(%d)", vc);
+		return -EINVAL;
+	}
+
+	is_hw_set_field(vc_cmn_reg, &csi_vcdma_cmn_regs[FRO_INT_FRAME_NUM],
+		&csi_vcdma_cmn_fields[ch_num], batch_num - 1);
 
 	return 0;
 }

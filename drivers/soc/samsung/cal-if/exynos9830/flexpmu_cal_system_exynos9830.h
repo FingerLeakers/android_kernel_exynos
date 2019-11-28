@@ -8,8 +8,6 @@ struct pmucal_seq pmucal_lpm_init[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CPUCL1_HCHGEN_CLKMUX_CPU", 0x1d030000, 0x0844, (0x7f << 0), (0x01 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "PERIS_HCHGEN_CLKMUX", 0x10020000, 0x0850, (0x1f << 0), (0x0 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "AUD_HCHGEN_CLKMUX", 0x18c00000, 0x0850, (0x1f << 0), (0x01 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_IDLE_CON", 0x1d200000, 0x00a8, (0x1 << 7), (0x1 << 7), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_IDLE_CON", 0x1d200000, 0x00a8, (0x7 << 1), (0x1 << 1), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CPUCL0_CLKDIVSTEP_SMPL_FLT", 0x1d020000, 0x0834, (0xffffffff << 0), (0x8027FFFF << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CPUCL0_CLKDIVSTEP_CON", 0x1d020000, 0x0838, (0xffffffff << 0), (0x00F041C3 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CPUCL0_CLKDIVSTEP", 0x1d020000, 0x0830, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
@@ -19,9 +17,6 @@ struct pmucal_seq pmucal_lpm_init[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "G3D_CLKDIVSTEP_SMPL_FLT", 0x18400000, 0x0834, (0xffffffff << 0), (0x8027FFFF << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "G3D_CLKDIVSTEP_CON", 0x18400000, 0x0838, (0xffffffff << 0), (0x00F041C3 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "G3D_CLKDIVSTEP", 0x18400000, 0x0830, (0xffffffff << 0), (0x3FC00401 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_SMPL_WARN_CFG", 0x1d200000, 0x009c, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_OCP_WARN_CFG", 0x1d200000, 0x00a0, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CCMU_TEMP_WARN_CFG", 0x1d200000, 0x00a4, (0x7 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "CMU_HCHGEN_CLKMUX", 0x1a330000, 0x0850, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "MIF0_HCHGEN_CLKMUX_CMUREF", 0x1bc00000, 0x0850, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "MIF1_HCHGEN_CLKMUX_CMUREF", 0x1bd00000, 0x0850, (0x1 << 0), (0x1 << 0), 0, 0, 0xffffffff, 0),
@@ -2345,6 +2340,7 @@ struct pmucal_seq exit_sleep[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x11 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x12 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x13 << 0), 0, 0, 0xffffffff, 0),
+	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "AUD_OUT", 0x15860000, 0x1920, (0xffffffff << 0), (0xb << 0), 0, 0, 0xffffffff, 0),
 };
 
 struct pmucal_seq earlywkup_sleep[] = {
@@ -4524,6 +4520,7 @@ struct pmucal_seq exit_sleep_hsi2on[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x11 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x12 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "TOP_OUT", 0x15860000, 0x3920, (0xffffffff << 0), (0x13 << 0), 0, 0, 0xffffffff, 0),
+	PMUCAL_SEQ_DESC(PMUCAL_SET_BIT_ATOMIC, "AUD_OUT", 0x15860000, 0x1920, (0xffffffff << 0), (0xb << 0), 0, 0, 0xffffffff, 0),
 };
 
 struct pmucal_seq earlywkup_sleep_hsi2on[] = {
