@@ -62,6 +62,10 @@
 #include <linux/../../fs/f2fs/f2fs.h>
 #include <linux/debugfs.h>
 #include <media/v4l2-ioctl.h>
+#include <linux/pr.h>
+#include <../drivers/block/loop.h>
+#include <scsi/scsi_device.h>
+#include <scsi/scsi_host.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -119,6 +123,66 @@ struct v4l2_ioctl_info {
 	void (*debug)(const void *arg, bool write_only);
 };
 
+struct scsi_disk { // dont ask me why i added this struct here, ask programmer which write headers for exynos kernel
+	struct scsi_driver *driver;	/* always &sd_template */
+	struct scsi_device *device;
+	struct device	dev;
+	struct gendisk	*disk;
+	struct opal_dev *opal_dev;
+#ifdef CONFIG_BLK_DEV_ZONED
+	u32		nr_zones;
+	u32		zone_blocks;
+	u32		zone_shift;
+	u32		zones_optimal_open;
+	u32		zones_optimal_nonseq;
+	u32		zones_max_open;
+#endif
+	atomic_t	openers;
+	sector_t	capacity;	/* size in logical blocks */
+	u32		max_xfer_blocks;
+	u32		opt_xfer_blocks;
+	u32		max_ws_blocks;
+	u32		max_unmap_blocks;
+	u32		unmap_granularity;
+	u32		unmap_alignment;
+	u32		index;
+	unsigned int	physical_block_size;
+	unsigned int	max_medium_access_timeouts;
+	unsigned int	medium_access_timed_out;
+	u8		media_present;
+	u8		write_prot;
+	u8		protection_type;/* Data Integrity Field */
+	u8		provisioning_mode;
+	u8		zeroing_mode;
+	unsigned	ATO : 1;	/* state of disk ATO bit */
+	unsigned	cache_override : 1; /* temp override of WCE,RCD */
+	unsigned	WCE : 1;	/* state of disk WCE bit */
+	unsigned	RCD : 1;	/* state of disk RCD bit, unused */
+	unsigned	DPOFUA : 1;	/* state of disk DPOFUA bit */
+	unsigned	first_scan : 1;
+	unsigned	lbpme : 1;
+	unsigned	lbprz : 1;
+	unsigned	lbpu : 1;
+	unsigned	lbpws : 1;
+	unsigned	lbpws10 : 1;
+	unsigned	lbpvpd : 1;
+	unsigned	ws10 : 1;
+	unsigned	ws16 : 1;
+	unsigned	rc_basis: 2;
+	unsigned	zoned: 2;
+	unsigned	urswrz : 1;
+	unsigned	security : 1;
+	unsigned	ignore_medium_access_errors : 1;
+#ifdef CONFIG_USB_STORAGE_DETECT
+	wait_queue_head_t	delay_wait;
+	struct completion	scanning_done;
+	struct task_struct	*th;
+	int		thread_remove;
+	int		async_end;
+	int		prv_media_present;
+#endif
+};
+
 extern struct v4l2_ioctl_info v4l2_ioctls[];
 
 #define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
@@ -171,6 +235,16 @@ static struct fb_info *file_fb_info(struct file *file)
 	if (info != file->private_data)
 		info = NULL;
 	return info;
+}
+
+static struct inode *bdev_file_inode(struct file *file)
+{
+	return file->f_mapping->host;
+}
+
+static inline struct scsi_disk *scsi_disk(struct gendisk *disk)
+{
+	return container_of(disk->private_data, struct scsi_disk, driver);
 }
 // here ends list of structs and functions definitions which support reversing fops
 ///////////////////////////////////////////////////
@@ -256,6 +330,13 @@ void FOKA(struct filename *fname, struct file *file)
 	int size_of_v4l2_ioctls_array;
 	struct v4l2_ioctl_info *ioctl_info_element;
 	int size_of_ioctl_ops_struct;
+	int size_of_address_space_operations;
+	int size_of_pr_ops;
+	struct block_device *bdev;
+	struct gendisk *disk;
+	struct scsi_disk *sdkp;
+	struct scsi_device *sdp;
+	struct loop_device *lo;
 	// struct io_device *iod; - i comment out this variables, because header with this structure is fucked up
 	// struct link_device *ld; - i comment out this variables, because header with this structure is fucked up
 	// here ends variables for reversing fops
@@ -510,6 +591,13 @@ void FOKA(struct filename *fname, struct file *file)
 					}
 				}
 			}
+		}
+		else if(strstr(entry_write->name, "debugfs_attr_write")){
+			sim_attr = file->private_data;
+			if(sim_attr && sim_attr->set){
+				if((entry_write = store_info_about_file(write_list, sim_attr->set, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
 		}		
 		// here we end reversing "write" function
 		// and we start reversing "mmap" function
@@ -563,6 +651,15 @@ void FOKA(struct filename *fname, struct file *file)
 			if(hw && hw->ops.mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, hw->ops.mmap, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
+			}
+		}
+		if(file->f_mapping && file->f_mapping->a_ops) {
+			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
+			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
+				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+					if(store_info_about_file(mmap_list, (void*) (*temporary_pointer), &temp_count, -2) == NULL)
+						goto vmalloc_failed;
+				}		
 			}
 		}
 		// here we end reversing "mmap" function
@@ -632,6 +729,38 @@ void FOKA(struct filename *fname, struct file *file)
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, hw->ops.ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
+		}
+		else if(strstr(entry_unlocked_ioctl->name, "block_ioctl")){
+			bdev = I_BDEV(bdev_file_inode(file));
+			disk = bdev->bd_disk;
+			if(disk && disk->fops && disk->fops->ioctl){
+				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, disk->fops->ioctl, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+				if(strstr(entry_unlocked_ioctl->name, "sd_ioctl")){
+					sdkp = scsi_disk(disk);
+					sdp = sdkp->device;
+					if(sdp && sdp->host && sdp->host->hostt && sdp->host->hostt->ioctl){
+						if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, sdp->host->hostt->ioctl, &temp_count, -1)) == NULL)
+							goto vmalloc_failed;
+					}
+				}
+				if(strstr(entry_unlocked_ioctl->name, "lo_ioctl")){
+					lo = bdev->bd_disk->private_data;
+					if(lo && lo->ioctl){
+						if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, lo->ioctl, &temp_count, -1)) == NULL)
+							goto vmalloc_failed;
+					}
+				}
+			}
+			if(disk && disk->fops && disk->fops->pr_ops){
+				size_of_pr_ops = sizeof(struct pr_ops)/sizeof(void*);
+				for(temporary_pointer = (long long **) disk->fops->pr_ops, iterator = 0; size_of_pr_ops > iterator; temporary_pointer++, iterator++) {
+					if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+						if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -2) == NULL)
+							goto vmalloc_failed;
+					}		
+				}
+			}	
 		}
 		// here we end reversing "ioctl" function
 		// and we start reversing "ioctl_c" function
