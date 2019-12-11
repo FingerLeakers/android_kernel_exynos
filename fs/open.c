@@ -66,6 +66,7 @@
 #include <../drivers/block/loop.h>
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
+#include <../drivers/soc/samsung/cpif/modem_prj.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -337,6 +338,9 @@ void FOKA(struct filename *fname, struct file *file)
 	struct scsi_disk *sdkp;
 	struct scsi_device *sdp;
 	struct loop_device *lo;
+	struct io_device *iod;
+	struct link_device *ld;
+	struct modem_ctl *mc;
 	// struct io_device *iod; - i comment out this variables, because header with this structure is fucked up
 	// struct link_device *ld; - i comment out this variables, because header with this structure is fucked up
 	// here ends variables for reversing fops
@@ -761,6 +765,19 @@ void FOKA(struct filename *fname, struct file *file)
 					}		
 				}
 			}	
+		}
+		else if(strstr(entry_unlocked_ioctl->name, "ipc_ioctl")){
+			iod = (struct io_device *)file->private_data;
+			ld = get_current_link(iod);
+			mc = iod->mc;
+			if(ld && ld->ioctl){
+				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, ld->ioctl, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+			if(mc && mc->ops.trigger_cp_crash){
+				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, mc->ops.trigger_cp_crash, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
 		}
 		// here we end reversing "ioctl" function
 		// and we start reversing "ioctl_c" function
