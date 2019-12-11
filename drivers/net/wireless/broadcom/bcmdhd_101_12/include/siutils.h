@@ -259,8 +259,8 @@ typedef void (*wci2_handler_t)(void *ctx, char *buf, int len);
 #define VARBUF_PRIO_OTP			3u
 #define VARBUF_PRIO_SH_SFLASH		4u
 
-#define BT_IN_RESET_BIT_SHIFT		11u
-#define BT_IN_PDS_BIT_SHIFT		9u
+#define BT_IN_RESET_BIT_SHIFT		19u
+#define BT_IN_PDS_BIT_SHIFT		10u
 
 /* === exported functions === */
 extern si_t *si_attach(uint pcidev, osl_t *osh, volatile void *regs, uint bustype,
@@ -334,7 +334,6 @@ extern void si_clkctl_init(si_t *sih);
 extern uint16 si_clkctl_fast_pwrup_delay(si_t *sih);
 extern bool si_clkctl_cc(si_t *sih, uint mode);
 extern int si_clkctl_xtal(si_t *sih, uint what, bool on);
-extern uint32 si_gpiotimerval(si_t *sih, uint32 mask, uint32 val);
 extern void si_btcgpiowar(si_t *sih);
 extern bool si_deviceremoved(const si_t *sih);
 extern void si_set_device_removed(si_t *sih, bool status);
@@ -889,6 +888,7 @@ void si_configure_onbody_gpio(si_t *sih, uint8 onbody_gpio_pin);
 /* return BT state */
 bool si_btc_bt_status_in_reset(si_t *sih);
 bool si_btc_bt_status_in_pds(si_t *sih);
+int si_btc_bt_pds_wakeup_force(si_t *sih, bool force);
 
 /* RFFE RFEM Functions */
 extern void si_jtag_udr_pwrsw_main_toggle(si_t *sih, bool on);

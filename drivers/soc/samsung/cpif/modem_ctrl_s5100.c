@@ -65,8 +65,6 @@ static int s5100_lcd_notifier(struct notifier_block *notifier,
 		unsigned long event, void *v);
 #endif /* CONFIG_CP_LCD_NOTIFIER */
 
-#define MIF_INIT_TIMEOUT	(15 * HZ)
-
 #define msecs_to_loops(t) (loops_per_jiffy / 1000 * HZ * t)
 
 #define RUNTIME_PM_AFFINITY_CORE 2
@@ -151,7 +149,12 @@ static void voice_call_on_work(struct work_struct *ws)
 	if (!mc->pcie_voice_call_on)
 		goto exit;
 
-	if (mc->pcie_powered_on) {
+	if (mc->pcie_powered_on &&
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) != 0)) {
+#else
+			(exynos_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
+#endif
 		if (wake_lock_active(&mc->mc_wake_lock))
 			wake_unlock(&mc->mc_wake_lock);
 	}
@@ -170,7 +173,12 @@ static void voice_call_off_work(struct work_struct *ws)
 	if (mc->pcie_voice_call_on)
 		goto exit;
 
-	if (mc->pcie_powered_on) {
+	if (mc->pcie_powered_on &&
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
+			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) != 0)) {
+#else
+			(exynos_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
+#endif
 		if (!wake_lock_active(&mc->mc_wake_lock))
 			wake_lock(&mc->mc_wake_lock);
 	}
@@ -443,6 +451,8 @@ static int power_on_cp(struct modem_ctl *mc)
 	struct mem_link_device *mld = to_mem_link_device(ld);
 
 	mif_info("%s: +++\n", mc->name);
+
+	mc->receive_first_ipc = 0;
 
 	mif_disable_irq(&mc->s5100_irq_phone_active);
 	mif_disable_irq(&mc->s5100_irq_ap_wakeup);
@@ -794,6 +804,8 @@ static int trigger_cp_crash(struct modem_ctl *mc)
 		goto exit;
 	}
 
+	print_mc_state(mc);
+
 	if (mif_gpio_get_value(mc->s5100_gpio_phone_active, true) == 1) {
 		mif_gpio_set_value(mc->s5100_gpio_cp_dump_noti, 1, 0);
 	} else {
@@ -955,7 +967,7 @@ exit:
 	mutex_unlock(&mc->pcie_onoff_lock);
 
 	spin_lock_irqsave(&mc->pcie_tx_lock, flags);
-	if ((mc->s51xx_pdev != NULL) && mc->reserve_doorbell_int) {
+	if ((mc->s51xx_pdev != NULL) && !mc->device_reboot && mc->reserve_doorbell_int) {
 		mif_info("DBG: doorbell_reserved = %d\n", mc->reserve_doorbell_int);
 		if (mc->pcie_powered_on) {
 			mc->reserve_doorbell_int = false;
@@ -1083,10 +1095,6 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 	} else {
 		mif_info("change to PCI lane 1\n");
 	}
-
-	/* Dynamic GEN2<->3 */
-	if (exynos_pcie_rc_speedchange(1, 2))
-		mif_info("fail to change PCI GEN 2\n");
 
 exit:
 	mif_info("---\n");

@@ -22,6 +22,7 @@ extern unsigned int lpcharge;
 extern int charging_night_mode;
 extern int temp_control_test;
 extern int fg_reset;
+extern int pd_hv_disable;
 #if defined(CONFIG_SEC_FACTORY)
 extern int factory_mode;
 #endif

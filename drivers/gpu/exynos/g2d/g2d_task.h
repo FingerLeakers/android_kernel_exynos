@@ -86,6 +86,7 @@ struct g2d_device;
 struct g2d_task {
 	struct list_head	node;
 	struct g2d_task		*next;
+	struct g2d_task		*rst;
 	struct g2d_device	*g2d_dev;
 
 	unsigned int		flags;
@@ -182,7 +183,9 @@ int g2d_create_tasks(struct g2d_device *g2d_dev);
 struct g2d_task *g2d_get_free_task(struct g2d_device *g2d_dev,
 				    struct g2d_context *g2d_ctx, bool hwfc);
 void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task);
-
+int g2d_get_reset_task(struct g2d_device *g2d_dev, struct g2d_context *g2d_ctx,
+		       struct g2d_task *task);
+void g2d_put_reset_task(struct g2d_device *g2d_dev, struct g2d_task *task);
 void g2d_start_task(struct g2d_task *task);
 void g2d_cancel_task(struct g2d_task *task);
 void g2d_finish_task_with_id(struct g2d_device *g2d_dev,

@@ -64,7 +64,7 @@ static unsigned long update_load(struct devfreq_dev_status *stat,
 	for (i = 0; i < alt_data->num_target_load - 1 &&
 	     stat->current_frequency >= alt_data->target_load[i + 1]; i += 2);
 	targetload = alt_data->target_load[i];
-	max_freq = alt_data->target_load[(alt_data->num_target_load - 1) * 2 - 1];
+	max_freq = alt_data->target_load[alt_data->num_target_load - 2];
 
 	/* if frequency is changed then reset the load */
 	if (!stat->current_frequency ||

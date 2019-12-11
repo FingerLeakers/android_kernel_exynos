@@ -479,7 +479,7 @@ int dsp_lib_manager_load_libs(struct dsp_lib **libs, size_t libs_size)
 				__dsp_lib_manager_load_gpt(libs[idx]);
 			}
 
-			if (libs[idx]->dl_out_mem) {
+			if (libs[idx]->dl_out && libs[idx]->dl_out_mem) {
 				DL_DEBUG("Load DM\n");
 				__dsp_lib_manager_load_mem(libs[idx],
 					&libs[idx]->elf->DMb,

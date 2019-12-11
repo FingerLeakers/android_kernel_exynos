@@ -25,7 +25,6 @@
 #define THRESHOLD_DETECT_LOW	3
 
 #define PROX_CAL_FILE_PATH	"/efs/FactoryApp/gyro_cal_data"
-#define PROX_CAL_FILE_INDEX			33
 
 /*************************************************************************/
 /* Functions                                                             */
@@ -304,36 +303,65 @@ static ssize_t proximity_raw_data_show(struct device *dev,
 	return sprintf(buf, "%d\n", get_proximity_rawdata(data));
 }
 
+int load_prox_cal_from_nvm(int *cal_data, int size)
+{
+	int ret = 0;
+	mm_segment_t old_fs;
+	struct file *cal_filp = NULL;
+
+	if (size < 2 * sizeof(int)) {
+		pr_err("[SSP]: %s - invalid size(%d)", __func__, size);
+		return -EIO;
+	}
+	pr_info("[SSP] %s ", __func__);
+
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	cal_filp = filp_open(PROX_CAL_FILE_PATH, O_RDONLY, 0660);
+	if (IS_ERR(cal_filp)) {
+		ret = PTR_ERR(cal_filp);
+		if (ret != -ENOENT)
+			pr_err("[SSP]: %s - Can't open cancellation file\n",
+				__func__);
+		goto exit;
+	}
+
+	cal_filp->f_pos = PROX_CAL_FILE_INDEX;
+	ret = vfs_read(cal_filp, (u8 *)cal_data, size, &cal_filp->f_pos);
+	if (ret != size) {
+		memset(cal_data, 0, size);
+		pr_err("[SSP]: %s - Can't read the cancel data\n", __func__);
+		ret = -EIO;
+	}	
+
+	filp_close(cal_filp, current->files);
+exit:
+	set_fs(old_fs);
+
+	pr_info("[SSP] %s: flag %d, gain %d\n", __func__, cal_data[0], cal_data[1]);
+
+	return ret;
+}
+
 static ssize_t proximity_default_trim_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct ssp_data *data = dev_get_drvdata(dev);
-	int iRet = 0;
-	struct ssp_msg *msg;
-	u8 buffer[2] = {0,};
-	int trim;
+	int ret = 0;
+	int prox_cal[2] = {0, };
 
-	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	msg->cmd = MSG2SSP_AP_PROX_GET_TRIM;
-	msg->length = 2;
-	msg->options = AP2HUB_READ;
-	msg->buffer = buffer;
-	msg->free_buffer = 0;
+	pr_info("[SSP] %s ", __func__);
 
-	iRet = ssp_spi_sync(data, msg, 1000);
-	if (iRet != SUCCESS) {
-		pr_err("[SSP] %s fail %d\n", __func__, iRet);
-		return FAIL;
+	ret = load_prox_cal_from_nvm(prox_cal, sizeof(prox_cal));
+
+	if (ret != sizeof(prox_cal)) {
+		ret = 2; // current register: 2X
+	} else {
+		ret = prox_cal[1] == 4000 ? 4 : 2; // current register setting(4X,2X)
 	}
 
-	if (buffer[1] > 0)
-		trim = (buffer[0] - 0xff) - 0x01;
-	else
-		trim = buffer[0];
-
-	pr_info("[SSP] %s - %d, 0x%x, 0x%x\n", __func__, trim, buffer[1], buffer[0]);
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", trim);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ret);
 }
 
 static ssize_t proximity_avg_show(struct device *dev,
@@ -558,48 +586,6 @@ static ssize_t prox_light_get_dhr_sensor_info_show(struct device *dev,
 		p_drive_current, persistent_time, p_pulse, p_gain, p_time, p_pulse_length, l_atime, offset);
 }
 
-int load_prox_cal_from_nvm(int *cal_data, int size)
-{
-	int ret = 0;
-	mm_segment_t old_fs;
-	struct file *cal_filp = NULL;
-
-	if (size < 2 * sizeof(int)) {
-		pr_err("[SSP]: %s - invalid size(%d)", __func__, size);
-		return -EIO;
-	}
-	pr_info("[SSP] %s ", __func__);
-
-
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	cal_filp = filp_open(PROX_CAL_FILE_PATH, O_RDONLY, 0660);
-	if (IS_ERR(cal_filp)) {
-		ret = PTR_ERR(cal_filp);
-		if (ret != -ENOENT)
-			pr_err("[SSP]: %s - Can't open cancellation file\n",
-				__func__);
-		goto exit;
-	}
-
-	cal_filp->f_pos = PROX_CAL_FILE_INDEX;
-	ret = vfs_read(cal_filp, (u8 *)cal_data, size, &cal_filp->f_pos);
-	if (ret != size) {
-		memset(cal_data, 0, size);
-		pr_err("[SSP]: %s - Can't read the cancel data\n", __func__);
-		ret = -EIO;
-	}	
-
-	filp_close(cal_filp, current->files);
-exit:
-	set_fs(old_fs);
-
-	pr_info("[SSP] %s: flag %d, gain %d\n", __func__, cal_data[0], cal_data[1]);
-
-	return ret;
-}
-
 int proximity_save_calibration(int *cal_data, int size)
 {
 	int ret = 0;
@@ -643,7 +629,7 @@ int proximity_save_calibration(int *cal_data, int size)
 int set_prox_cal_to_ssp(struct ssp_data *data)
 {
 	int ret;
-	int prox_cal[2];
+	int prox_cal[2] = {0, };
 	struct ssp_msg *msg;
 
 	if (!(data->uSensorState & (1 << PROXIMITY_SENSOR))) {
@@ -765,7 +751,7 @@ static ssize_t proximity_trim_check_show(struct device *dev,
 	msg->buffer = buffer;
 	msg->free_buffer = 0;
 retries:
-	iRet = ssp_spi_sync(data, msg, 1000);
+	iRet = ssp_spi_async(data, msg);
 	if (iRet != SUCCESS) {
 		pr_err("[SSP] %s fail %d\n", __func__, iRet);
 

@@ -215,21 +215,6 @@ static int max77705_chg_set_wdtmr_en(struct max77705_charger_data *charger,
 	return 0;
 }
 
-static int max77705_chg_set_disibs(struct max77705_charger_data *charger, bool enable)
-{
-	pr_info("%s %d\n", __func__, enable);
-
-	if (enable) {
-		max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00,
-					CHG_CNFG_00_DISIBS_MASK, CHG_CNFG_00_DISIBS_MASK);
-	} else {
-		max77705_update_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00,
-					0, CHG_CNFG_00_DISIBS_MASK);
-	}
-
-	return 0;
-}
-
 static int max77705_chg_set_wdtmr_kick(struct max77705_charger_data *charger)
 {
 	pr_info("%s: WDT Kick\n", __func__);
@@ -995,11 +980,11 @@ static void max77705_charger_initialize(struct max77705_charger_data *charger)
 	/* Auto skip mode */
 	max77705_set_skipmode(charger, 1);
 
-	/* disable auto shipmode */
+	/* disable shipmode */
 	max77705_set_ship_mode(charger, 0);
 
 	/* enable auto shipmode, this should work under 2.6V */
-	max77705_set_auto_ship_mode(charger, 1);
+	max77705_set_auto_ship_mode(charger, 0);
 
 	max77705_test_read(charger);
 }
@@ -1736,10 +1721,6 @@ static int max77705_chg_set_property(struct power_supply *psy,
 				max77705_set_auto_ship_mode(charger, 0);
 			}
 			break;
-		case POWER_SUPPLY_EXT_PROP_MUST_REMOVE_THIS_NODE:
-			pr_info("%s: set disibis in CHG_CNFG_00\n", __func__);
-			max77705_chg_set_disibs(charger,val->intval);
-			break;
 		default:
 			return -EINVAL;
 		}
@@ -2360,6 +2341,8 @@ static int max77705_charger_parse_dt(struct max77705_charger_data *charger)
 	struct device_node *np;
 	sec_charger_platform_data_t *pdata = charger->pdata;
 	int ret = 0;
+	int len = 0;
+	const u32 *p;
 
 	np = of_find_node_by_name(NULL, "battery");
 	if (!np) {
@@ -2419,6 +2402,20 @@ static int max77705_charger_parse_dt(struct max77705_charger_data *charger)
 			"chg_ocp_dtc : %d, topoff_time : %d\n",
 			__func__, charger->float_voltage, pdata->chg_ocp_current,
 			pdata->chg_ocp_dtc, pdata->topoff_time);
+
+		p = of_get_property(np, "battery,snkcap_data", &len);
+		if (!p) {
+			pr_info("%s : battery,snkcap_data is Empty !!\n", __func__);
+		} else {
+			len = len / sizeof(u8);
+			charger->snkcap_data = kzalloc(sizeof(*charger->snkcap_data) * len, GFP_KERNEL);
+			ret = of_property_read_u8_array(np, "battery,snkcap_data",
+				charger->snkcap_data, len);
+			if (ret)
+				pr_info("%s : battery,snkcap_data is Empty\n", __func__);
+			else
+				max77705_set_snkcap(charger->snkcap_data, len);
+		}
 	}
 
 	np = of_find_node_by_name(NULL, "max77705-fuelgauge");
@@ -2791,6 +2788,9 @@ static void max77705_charger_shutdown(struct platform_device *pdev)
 		max77705_write_reg(charger->i2c, MAX77705_CHG_REG_CNFG_10, reg_data);
 		reg_data = 0x60;
 		max77705_write_reg(charger->i2c, MAX77705_CHG_REG_CNFG_12, reg_data);
+
+		/* enable auto shipmode, this should work under 2.6V */
+		max77705_set_auto_ship_mode(charger, 1);
 	} else {
 		pr_err("%s: no max77705 i2c client\n", __func__);
 	}

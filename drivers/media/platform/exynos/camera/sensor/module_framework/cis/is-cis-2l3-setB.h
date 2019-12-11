@@ -3965,7 +3965,7 @@ const u32 sensor_2l3_setfile_B_4000x3000_30fps[] = {
 };
 
 /* MODE 3 - 4032 x 3024 @30 MIPI lane: 4, MIPI data rate(Mbps/lane): 2054, MIPI Mclk(Mhz): 26 */
-const u32 sensor_2l3_setfile_B_4000x2250_30fps[] = {
+const u32 sensor_2l3_setfile_B_4000x2252_30fps[] = {
 	0xFCFC, 0x4000, 0x02,
 	0x6000, 0x0005, 0x02,
 	0x6214, 0x79F1, 0x02,
@@ -4186,7 +4186,7 @@ const u32 sensor_2l3_setfile_B_4000x2250_30fps[] = {
 };
 
 /* MODE 3 - 2016 x 1134 @240 MIPI lane: 4, MIPI data rate(Mbps/lane): 2054, MIPI Mclk(Mhz): 26 */
-const u32 sensor_2l3_setfile_B_4000x2250_60fps[] = {
+const u32 sensor_2l3_setfile_B_4000x2252_60fps[] = {
 	0xFCFC, 0x4000, 0x02,
 	0x6000, 0x0005, 0x02,
 	0x6214, 0x79F1, 0x02,
@@ -5199,7 +5199,7 @@ const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x3000_30fps = {
 	0x1460, /* line_length_pck	*/
 };
 
-const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x2250_30fps = {
+const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x2252_30fps = {
 	EXT_CLK_Mhz * 1000 * 1000, /* ext_clk */
 	1430000000, /* mipi_datarate */
 	1011100000,  /* pclk  = VT pix CLK (this value is different by cis) */
@@ -5207,7 +5207,7 @@ const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x2250_30fps = {
 	0x1460, /* line_length_pck	*/
 };
 
-const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x2250_60fps = {
+const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_4000x2252_60fps = {
 	EXT_CLK_Mhz * 1000 * 1000, /* ext_clk */
 	1430000000, /* mipi_datarate */
 	1011100000,  /* pclk  = VT pix CLK (this value is different by cis) */
@@ -5250,8 +5250,8 @@ const struct sensor_pll_info_compact sensor_2l3_pllinfo_B_1280x720_480fps = {
 
 static const u32 *sensor_2l3_setfiles_B[] = {
 	sensor_2l3_setfile_B_4000x3000_30fps,
-	sensor_2l3_setfile_B_4000x2250_30fps,
-	sensor_2l3_setfile_B_4000x2250_60fps,
+	sensor_2l3_setfile_B_4000x2252_30fps,
+	sensor_2l3_setfile_B_4000x2252_60fps,
 	sensor_2l3_setfile_B_1984x1488_30fps,
 	sensor_2l3_setfile_B_1008x756_120fps,
 	sensor_2l3_setfile_B_1280x720_240fps,
@@ -5260,8 +5260,8 @@ static const u32 *sensor_2l3_setfiles_B[] = {
 
 static const u32 sensor_2l3_setfile_B_sizes[] = {
 	ARRAY_SIZE(sensor_2l3_setfile_B_4000x3000_30fps),
-	ARRAY_SIZE(sensor_2l3_setfile_B_4000x2250_30fps),
-	ARRAY_SIZE(sensor_2l3_setfile_B_4000x2250_60fps),
+	ARRAY_SIZE(sensor_2l3_setfile_B_4000x2252_30fps),
+	ARRAY_SIZE(sensor_2l3_setfile_B_4000x2252_60fps),
 	ARRAY_SIZE(sensor_2l3_setfile_B_1984x1488_30fps),
 	ARRAY_SIZE(sensor_2l3_setfile_B_1008x756_120fps),
 	ARRAY_SIZE(sensor_2l3_setfile_B_1280x720_240fps),
@@ -5270,8 +5270,8 @@ static const u32 sensor_2l3_setfile_B_sizes[] = {
 
 static const struct sensor_pll_info_compact *sensor_2l3_pllinfos_B[] = {
 	&sensor_2l3_pllinfo_B_4000x3000_30fps,
-	&sensor_2l3_pllinfo_B_4000x2250_30fps,
-	&sensor_2l3_pllinfo_B_4000x2250_60fps,
+	&sensor_2l3_pllinfo_B_4000x2252_30fps,
+	&sensor_2l3_pllinfo_B_4000x2252_60fps,
 	&sensor_2l3_pllinfo_B_1984x1488_30fps,
 	&sensor_2l3_pllinfo_B_1008x756_120fps,
 	&sensor_2l3_pllinfo_B_1280x720_240fps,
@@ -5434,11 +5434,11 @@ static const struct cam_mipi_sensor_mode sensor_2l3_setfile_B_mipi_sensor_mode[]
 		sensor_2l3_setfile_B_mipi_channel_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_channel_FULL),
 		sensor_2l3_setfile_B_mipi_setting_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_setting_FULL)
 	},
-	{ SENSOR_2L3_4000X2250_30FPS,
+	{ SENSOR_2L3_4000X2252_30FPS,
 		sensor_2l3_setfile_B_mipi_channel_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_channel_FULL),
 		sensor_2l3_setfile_B_mipi_setting_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_setting_FULL)
 	},
-	{ SENSOR_2L3_4000X2250_60FPS,
+	{ SENSOR_2L3_4000X2252_60FPS,
 		sensor_2l3_setfile_B_mipi_channel_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_channel_FULL),
 		sensor_2l3_setfile_B_mipi_setting_FULL,	ARRAY_SIZE(sensor_2l3_setfile_B_mipi_setting_FULL)
 	},

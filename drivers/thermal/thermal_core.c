@@ -1578,7 +1578,7 @@ static int __init thermal_init(void)
 	int result;
 	struct workqueue_attrs attr;
 
-	attr.nice = 0;
+	attr.nice = -20;
 	attr.no_numa = true;
 	cpumask_copy(attr.cpumask, cpu_coregroup_mask(0));
 

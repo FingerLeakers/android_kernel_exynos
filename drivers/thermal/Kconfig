@@ -205,6 +205,15 @@ config ISP_THERMAL
 
 	  If you want this support, you should say Y here.
 
+config DEV_THERMAL
+	bool "Exynos dev cooling support"
+	depends on THERMAL_OF
+	help
+	  This implements the Exynos devfreq cooling mechanism through frequency
+	  reduction.
+
+	  If you want this support, you should say Y here.
+
 config THERMAL_EMULATION
 	bool "Thermal emulation mode support"
 	help

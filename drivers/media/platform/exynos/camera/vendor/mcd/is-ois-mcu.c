@@ -153,8 +153,10 @@ static int ois_mcu_runtime_resume(struct device *dev)
 
 	ret = ois_mcu_clk_enable(mcu);
 
-	ret = __is_mcu_hw_enable(mcu->regs[OM_REG_CORE]);
+	__is_mcu_pmu_control(1);
+	usleep_range(1000, 1100);
 
+	__is_mcu_hw_enable(mcu->regs[OM_REG_CORE]);
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 0); /* clear USI reset reg USI17 */
 	msleep(2);
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 0); /* clear USI reset reg USI18 */
@@ -189,6 +191,8 @@ static int ois_mcu_runtime_suspend(struct device *dev)
 
 	ois_mcu_clk_disable(mcu);
 	ois_mcu_clk_put(mcu);
+
+	__is_mcu_pmu_control(0);
 
 	set_bit(OM_HW_SUSPENDED, &mcu->state);
 
@@ -321,7 +325,7 @@ int ois_mcu_load_binary(struct ois_mcu_dev *mcu)
 
 int ois_mcu_core_ctrl(struct ois_mcu_dev *mcu, int on)
 {
-	int ret;
+	int ret = 0;
 
 	BUG_ON(!mcu);
 
@@ -377,7 +381,7 @@ int ois_mcu_dump(struct ois_mcu_dev *mcu, int type)
 	return ret;
 }
 
-long ois_cmu_get_efs_data(struct ois_mcu_dev *mcu, long *raw_data_x, long *raw_data_y)
+long ois_mcu_get_efs_data(struct ois_mcu_dev *mcu, long *raw_data_x, long *raw_data_y)
 {
 	int i = 0, j = 0;
 	char efs_data_pre[MAX_EFS_DATA_LENGTH] = { 0 };
@@ -576,7 +580,7 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 
 		if (val == 0x01) {
 			/* loading gyro data */
-			gyro_data_size = ois_cmu_get_efs_data(mcu, &gyro_data_x, &gyro_data_y);
+			gyro_data_size = ois_mcu_get_efs_data(mcu, &gyro_data_x, &gyro_data_y);
 			info_mcu("Read Gyro offset data :  0x%04x, 0x%04x", gyro_data_x, gyro_data_y);
 			gyro_data_x = gyro_data_x * scale_factor;
 			gyro_data_y = gyro_data_y * scale_factor;
@@ -720,7 +724,7 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	u8 status = 0;
 	int retries = 100;
 	u8 data[2];
-	u8 write_data[4] = {0,};
+	//u8 write_data[4] = {0,};
 #ifdef USE_OIS_SLEEP_MODE
 	u8 read_sensorStart = 0;
 #endif
@@ -745,14 +749,6 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 
 	dbg_ois("%s up:%d down:%d\n", __func__, up, down);
 
-#ifdef CAMERA_2ND_OIS
-	if (ois->ois_power_mode < OIS_POWER_MODE_SINGLE) {
-		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_OIS_SEL, 0x03);
-	}
-#else
-	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_OIS_SEL, 0x03);
-#endif
-
 	/* Wide af position value */
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_AF, 0x00);
 
@@ -761,6 +757,7 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_CACTRL_WRITE, 0x01);
 
+#if 0 //Not neccssary code.
 	/* angle compensation 1.5->1.25
 	 * before addr:0x0000, data:0x01
 	 * write 0x3F558106
@@ -783,6 +780,7 @@ int ois_mcu_set_ggfadeupdown(struct v4l2_subdev *subdev, int up, int down)
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_ANGLE_COMP6, write_data[1]);
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_ANGLE_COMP7, write_data[2]);
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_ANGLE_COMP8, write_data[3]);
+#endif
 
 #ifdef USE_OIS_SLEEP_MODE
 	/* if camera is already started, skip VDIS setting */
@@ -957,11 +955,14 @@ int ois_mcu_shift_compensation(struct v4l2_subdev *subdev, int position, int res
 		/* Wide af position value */
 		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_AF, (u8)position_changed);
 		ois->af_pos_wide = position_changed;
-	} else if (module->position == SENSOR_POSITION_REAR2 && ois->af_pos_tele != position_changed) {
+	}
+#ifndef USE_TELE_OIS_AF_COMMON_INTERFACE
+	else if (module->position == SENSOR_POSITION_REAR2 && ois->af_pos_tele != position_changed) {
 		/* Tele af position value */
 		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_AF, (u8)position_changed);
 		ois->af_pos_tele = position_changed;
 	}
+#endif
 
 p_err:
 	return ret;
@@ -1562,14 +1563,16 @@ int ois_mcu_set_power_mode(struct v4l2_subdev *subdev)
 		return -EINVAL;
 	}
 
+	info_mcu("%s : E\n", __func__);
+
 #if defined(CONFIG_SEC_FACTORY) //Factory timing issue.
-	retry = 20;
+	retry = 30;
 #endif
 
 	if (!(ois_wide_init || ois_tele_init)) {
 		ois_mcu_device_ctrl(mcu);
 		do {
-			msleep(2);
+			msleep(3);
 			val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_DEVCTRL);
 			if (--retry < 0) {
 				err_mcu("%s Read status failed!!!!, data = 0x%04x\n", __func__, val);
@@ -1581,17 +1584,19 @@ int ois_mcu_set_power_mode(struct v4l2_subdev *subdev)
 	dual_info = &core->dual_info;
 
 	/* OIS SEL (wide : 1 , tele : 2, both : 3 ). */
-	if ((dual_info->mode != IS_DUAL_MODE_NOTHING)
-		|| (dual_info->mode == IS_DUAL_MODE_NOTHING &&
-			module->position == SENSOR_POSITION_REAR2)) {
+	if (dual_info->mode == IS_DUAL_MODE_NOTHING &&
+		module->position == SENSOR_POSITION_REAR2) {
+		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_OIS_SEL, 0x02);
+		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_TELE;
+	} else if (dual_info->mode != IS_DUAL_MODE_NOTHING) {
 		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_OIS_SEL, 0x03);
 		ois->ois_power_mode = OIS_POWER_MODE_DUAL;
 	} else {
 		is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_OIS_SEL, 0x01);
-		ois->ois_power_mode = OIS_POWER_MODE_SINGLE;
+		ois->ois_power_mode = OIS_POWER_MODE_SINGLE_WIDE;
 	}
 
-	info_mcu("%s ois power setting is %d\n", __func__, ois->ois_power_mode);
+	info_mcu("%s ois power setting is %d X\n", __func__, ois->ois_power_mode);
 
 	return 0;
 }
@@ -1776,7 +1781,7 @@ void ois_mcu_get_offset_data(struct is_core *core, long *raw_data_x, long *raw_d
 
 	//is_mcu_fw_version(core); // TEMP_2020
 
-	ois_cmu_get_efs_data(mcu, raw_data_x, raw_data_y);
+	ois_mcu_get_efs_data(mcu, raw_data_x, raw_data_y);
 
 	return;
 }
@@ -2187,9 +2192,9 @@ static struct is_ois_ops ois_ops_mcu = {
 static int __init ois_mcu_probe(struct platform_device *pdev)
 {
 	struct is_core *core;
-	struct ois_mcu_dev *mcu;
+	struct ois_mcu_dev *mcu = NULL;
 	struct resource *res;
-	int ret;
+	int ret = 0;
 	struct device_node *dnode;
 	struct is_mcu *is_mcu = NULL;
 	struct is_device_sensor *device;

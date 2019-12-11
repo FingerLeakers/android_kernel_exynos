@@ -82,7 +82,7 @@ static int __mfc_dec_check_ctrl_val(struct mfc_ctx *ctx, struct v4l2_control *ct
 
 	if (ctrl->value < c->minimum || ctrl->value > c->maximum
 		|| (c->step != 0 && ctrl->value % c->step != 0)) {
-		mfc_err_ctx("[CTRLS] Invalid control value (%#x)\n", ctrl->value);
+		mfc_err_ctx("[CTRLS] Invalid control id (%#x) value (%d)\n", ctrl->id, ctrl->value);
 		return -ERANGE;
 	}
 
@@ -955,11 +955,15 @@ static int mfc_dec_dqbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 		}
 
 		/* Memcpy from dec->hdr10_plus_info to shared memory */
-		src_sei_meta = &dec->hdr10_plus_info[buf->index];
-		if (dec->sh_handle_hdr.vaddr != NULL) {
-			dst_sei_meta = (struct hdr10_plus_meta *)
-				dec->sh_handle_hdr.vaddr + buf->index;
-			memcpy(dst_sei_meta, src_sei_meta, sizeof(struct hdr10_plus_meta));
+		if (dec->hdr10_plus_info) {
+			src_sei_meta = &dec->hdr10_plus_info[buf->index];
+			if (dec->sh_handle_hdr.vaddr != NULL) {
+				dst_sei_meta = (struct hdr10_plus_meta *)
+					dec->sh_handle_hdr.vaddr + buf->index;
+				memcpy(dst_sei_meta, src_sei_meta, sizeof(struct hdr10_plus_meta));
+			}
+		} else {
+			mfc_err_ctx("[HDR+] HDR10 plus cannot be copied\n");
 		}
 	}
 	mfc_debug_leave();
@@ -1276,6 +1280,10 @@ static int mfc_dec_s_ctrl(struct file *file, void *priv,
 		break;
 	case V4L2_CID_MPEG_VIDEO_BLACK_BAR_DETECT:
 		dec->detect_black_bar = ctrl->value;
+		if (IS_BLACKBAR_OFF(ctx)) {
+			mfc_info_ctx("[BLACKBAR] black bar detection doesn't work\n");
+			dec->detect_black_bar = 0;
+		}
 		break;
 	case V4L2_CID_MPEG_MFC_HDR_USER_SHARED_HANDLE:
 		dec->sh_handle_hdr.fd = ctrl->value;

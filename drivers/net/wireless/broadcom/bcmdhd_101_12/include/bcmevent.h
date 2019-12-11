@@ -297,10 +297,12 @@ typedef union bcm_event_msg_u {
 						 */
 #define WLC_E_WSEC			186	/* wsec keymgmt event */
 #define WLC_E_OBSS_DETECTION		187	/* OBSS HW event */
+#define WLC_E_AP_BCN_MUTE		188	/* Beacon mute mitigation event */
 #define WLC_E_SC_CHAN_QUAL		189	/* Event to indicate the SC chanel quality */
-#define WLC_E_LAST			190	/* highest val + 1 for range checking */
-#if (WLC_E_LAST > 190)
-#error "WLC_E_LAST: Invalid value for last event; must be <= 190."
+#define WLC_E_DYNSAR			190	/* Dynamic SAR indicate optimize on/off */
+#define WLC_E_LAST			191	/* highest val + 1 for range checking */
+#if (WLC_E_LAST > 191)
+#error "WLC_E_LAST: Invalid value for last event; must be <= 191."
 #endif /* WLC_E_LAST */
 
 /* define an API for getting the string name of an event */
@@ -316,20 +318,27 @@ extern int is_wlc_event_frame(void *pktdata, uint pktlen, uint16 exp_usr_subtype
 void wl_event_to_host_order(wl_event_msg_t * evt);
 void wl_event_to_network_order(wl_event_msg_t * evt);
 
+#define WLC_ROAM_EVENT_V1 0x1u
+
+/* tlv ids for roam event */
+#define WLC_ROAM_NO_NETWORKS_TLV_ID 1
+
 /* No Networks reasons */
 #define WLC_E_REASON_NO_NETWORKS		0x0u /* value 0 means no networks found */
 #define WLC_E_REASON_NO_NETWORKS_BY_SCORE	0x01u /* bit 1 indicates filtered by score */
 
-#define WLC_E_ROAM_NO_NETWORKS_TAG		0x1u /* tag id */
-#define WLC_E_ROAM_NO_NETWORKS_VER		0x1u /* version */
+/* bit mask field indicating fail reason */
+typedef uint32 wlc_roam_fail_reason_t;
 
-struct wl_ev_roam_no_nets_s {
-	uint8 id;		/* id */
-	uint8 len;		/* length */
+typedef struct wlc_roam_event_header {
 	uint16 version;		/* version */
-	uint32 fail_reason;	/* roam no networks fail reason */
-};
-typedef struct wl_ev_roam_no_nets_s wl_ev_roam_no_nets_t;
+	uint16 length;		/* total length */
+} wlc_roam_event_header_t;
+
+typedef struct wlc_roam_event {
+	wlc_roam_event_header_t header;
+	uint8 xtlvs[];		/* data */
+} wl_roam_event_t;
 
 /* xxx:
  * Please do not insert/delete events in the middle causing renumbering.
@@ -440,7 +449,8 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_REASON_SILENT_ROAM	16	/* roamed due to Silent roam */
 #define WLC_E_REASON_INACTIVITY		17	/* full roam scan due to inactivity */
 #define WLC_E_REASON_ROAM_SCAN_TIMEOUT		18	/* roam scan timer timeout */
-#define WLC_E_REASON_LAST		19	/* NOTE: increment this as you add reasons above */
+#define WLC_E_REASON_REASSOC		19	/* roamed due to reassoc iovar */
+#define WLC_E_REASON_LAST		20	/* NOTE: increment this as you add reasons above */
 
 /* prune reason codes */
 #define WLC_E_PRUNE_ENCR_MISMATCH	1	/* encryption mismatch */
@@ -644,11 +654,13 @@ typedef struct wl_event_wa_lqm {
 #define WLC_E_IF_FLAGS_BSSCFG_NOIF	0x1	/* no host I/F creation needed */
 
 /* Reason codes for LINK */
-#define WLC_E_LINK_BCN_LOSS     1   /* Link down because of beacon loss */
-#define WLC_E_LINK_DISASSOC     2   /* Link down because of disassoc */
-#define WLC_E_LINK_ASSOC_REC    3   /* Link down because assoc recreate failed */
-#define WLC_E_LINK_BSSCFG_DIS   4   /* Link down due to bsscfg down */
-#define WLC_E_LINK_ASSOC_FAIL   5   /* Link down because assoc to new AP during roaming failed */
+#define WLC_E_LINK_BCN_LOSS	1	/* Link down because of beacon loss */
+#define WLC_E_LINK_DISASSOC	2	/* Link down because of disassoc */
+#define WLC_E_LINK_ASSOC_REC	3	/* Link down because assoc recreate failed */
+#define WLC_E_LINK_BSSCFG_DIS	4	/* Link down due to bsscfg down */
+#define WLC_E_LINK_ASSOC_FAIL	5	/* Link down due to assoc to new AP during roaming failed */
+#define WLC_E_LINK_REASSOC_ROAM_FAIL	6	/* Link down due to reassoc roaming failed */
+#define WLC_E_LINK_LOWRSSI_ROAM_FAIL	7	/* Link down due to Low rssi roaming failed */
 
 /* WLC_E_NDIS_LINK event data */
 typedef BWL_PRE_PACKED_STRUCT struct ndis_link_parms {
@@ -1320,5 +1332,31 @@ typedef struct wlc_obss_hw_event_data {
 /* status when WLC_E_OBSS_DETECTION */
 #define WLC_OBSS_BW_UPDATED	1 /* Sent when BW is update at SW */
 #define WLC_OBSS_BW_AVAILABLE	2 /* Sent When a change in BW is detected / noticed */
+
+/* WLC_E_DYNSAR event structure version */
+#define WL_DYNSAR_VERSION 1
+
+/* Event structure for WLC_E_DYNSAR */
+typedef struct wl_event_dynsar {
+	uint16 version;         /* structure version */
+	uint16 length;          /* length of this structure */
+	uint32 timestamp_ms;    /* millisecond timestamp */
+	uint8  opt;             /* optimization power offset */
+	uint8  slice;           /* slice number */
+	uint8  pad[2];
+} wl_event_dynsar_t;
+
+/* status when WLC_E_AP_BCN_MUTE event is sent */
+#define BCN_MUTE_MITI_ACTIVE	1u	/* Mitigation is activated when probe response received
+					 * but Beacon is not received
+					 */
+#define BCN_MUTE_MITI_END	2u	/* Sent when beacon is received */
+#define BCN_MUTE_MITI_TIMEOUT	3u	/* Mitigation period is reached */
+
+/* bcn_mute_miti event data */
+typedef struct wlc_bcn_mute_miti_event_data {
+	uint16 mitigation_reason;	/* Reason for sending the notification */
+	uint16 uatbtt_count;		/* Number of UATBTT during mitigation */
+} wlc_bcn_mute_miti_event_data_t;
 
 #endif /* _BCMEVENT_H_ */

@@ -188,6 +188,7 @@ netdev_tx_t eth_start_xmit_ncm_timer(struct sk_buff *skb,
 	struct usb_ep		*in;
 	u16			cdc_filter;
 	int added_offset = 0;
+	bool eth_supports_multi_frame = 0;
 
 	if (dev->en_timer) {
 		hrtimer_cancel(&dev->tx_timer);
@@ -198,11 +199,16 @@ netdev_tx_t eth_start_xmit_ncm_timer(struct sk_buff *skb,
 	if (dev->port_usb) {
 		in = dev->port_usb->in_ep;
 		cdc_filter = dev->port_usb->cdc_filter;
+		eth_supports_multi_frame = dev->port_usb->supports_multi_frame;
 	} else {
 		in = NULL;
 		cdc_filter = 0;
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
+
+	/* fix prevent */
+	if (!skb)
+		return NETDEV_TX_BUSY;
 
 	if (skb && !in) {
 		dev_kfree_skb_any(skb);
@@ -269,7 +275,7 @@ netdev_tx_t eth_start_xmit_ncm_timer(struct sk_buff *skb,
 			/* Multi frame CDC protocols may store the frame for
 			 * later which is not a dropped frame.
 			 */
-			if (dev->port_usb->supports_multi_frame)
+			if (eth_supports_multi_frame)
 				goto multiframe;
 			goto drop;
 		}
@@ -484,6 +490,10 @@ netdev_tx_t eth_start_xmit_ncm(struct sk_buff *skb,
 	struct usb_ep		*in;
 	u16			cdc_filter;
 	int added_offset = 0;
+
+	/* fix prevent */
+	if (!skb && !dev->port_usb)
+		return NETDEV_TX_BUSY;
 
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {

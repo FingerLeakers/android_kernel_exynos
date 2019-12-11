@@ -448,7 +448,11 @@ typedef struct  {
 	uint32	  length;
 } hnddma_seg_t;
 
+#if defined(__linux__)
 #define MAX_DMA_SEGS 8
+#else
+#define MAX_DMA_SEGS 4
+#endif
 
 typedef struct {
 	void *oshdmah; /* Opaque handle for OSL to store its information */
@@ -688,6 +692,10 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 #define BCM_MMU_MTH_STK_DATA(_data) __attribute__ ((__section__ (".mmu_mth_stack." #_data))) _data
 #endif /* STK_PRT_MMU */
 
+/* Special section for MMU page-tables. */
+#define BCM_MMU_PAGE_TABLE_DATA(_data) \
+	__attribute__ ((__section__ (".mmu_pagetable." #_data))) _data
+
 /* Some phy initialization code/data can't be reclaimed in dualband mode */
 #if defined(DBAND)
 #define WLBANDINITDATA(_data)	_data
@@ -695,6 +703,16 @@ void* BCM_ASLR_CODE_FNPTR_RELOCATOR(void *func_ptr);
 #else
 #define WLBANDINITDATA(_data)	_data
 #define WLBANDINITFN(_fn)	_fn
+#endif
+
+/* Tag struct members to make it explicitly clear that they are physical addresses. These are
+ * typically used in data structs shared by the firmware and host code (or off-line utilities). The
+ * use of the macro avoids customer visible API/name changes.
+ */
+#if defined(BCM_PHYS_ADDR_NAME_CONVERSION)
+	#define PHYS_ADDR_N(name) name ## _phys
+#else
+	#define PHYS_ADDR_N(name) name
 #endif
 
 #endif /* _bcmdefs_h_ */

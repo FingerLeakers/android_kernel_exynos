@@ -57,6 +57,7 @@ struct tsmux_device {
 
 	uint32_t hw_version;
 	void __iomem *regs_base;
+	void __iomem *regs_base_cmu_mfc;
 	struct resource *tsmux_mem;
 	struct clk *tsmux_clock;
 	int irq;
@@ -94,6 +95,7 @@ struct tsmux_context {
 
 	bool otf_psi_enabled[TSMUX_OUT_BUF_CNT];
 	bool otf_job_queued;
+	bool otf_buf_mapped;
 
 	wait_queue_head_t m2m_wait_queue;
 	wait_queue_head_t otf_wait_queue;

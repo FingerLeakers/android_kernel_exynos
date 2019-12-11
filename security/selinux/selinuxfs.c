@@ -171,7 +171,7 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	audit_log(audit_context(), GFP_KERNEL, AUDIT_MAC_STATUS,
 			"enforcing=%d old_enforcing=%d auid=%u ses=%u"
 			" enabled=%d old-enabled=%d lsm=selinux res=1",
-			new_value, old_value,
+			new_value, selinux_enforcing,
 			from_kuid(&init_user_ns, audit_get_loginuid(current)),
 			audit_get_sessionid(current),
 			selinux_enabled, selinux_enabled);
@@ -180,7 +180,7 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	selnl_notify_setenforce(new_value);
 	selinux_status_update_setenforce(state, new_value);
 #else
-	if (new_value != old_value) {
+	if (new_value != selinux_enforcing) {
 		length = avc_has_perm(&selinux_state,
 				      current_sid(), SECINITSID_SECURITY,
 				      SECCLASS_SECURITY, SECURITY__SETENFORCE,
@@ -190,16 +190,16 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		audit_log(audit_context(), GFP_KERNEL, AUDIT_MAC_STATUS,
 			"enforcing=%d old_enforcing=%d auid=%u ses=%u"
 			" enabled=%d old-enabled=%d lsm=selinux res=1",
-			new_value, old_value,
+			new_value, selinux_enforcing,
 			from_kuid(&init_user_ns, audit_get_loginuid(current)),
 			audit_get_sessionid(current),
 			selinux_enabled, selinux_enabled);
-		enforcing_set(state, new_value);
-		if (new_value)
+		selinux_enforcing = new_value;
+		if (selinux_enforcing)
 			avc_ss_reset(state->avc, 0);
-		selnl_notify_setenforce(new_value);
-		selinux_status_update_setenforce(state, new_value);
-		if (!new_value)
+		selnl_notify_setenforce(selinux_enforcing);
+		selinux_status_update_setenforce(state, selinux_enforcing);
+		if (!selinux_enforcing)
 			call_lsm_notifier(LSM_POLICY_CHANGE, NULL);
 	}
 #endif

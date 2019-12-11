@@ -51,15 +51,6 @@
 					samsung,pin-pud = <1>;
 				};
 			};
-			
-			pinctrl@10430000 {
-				sub_detect_conn_setting: sub_detect_conn_setting {
-					samsung,pins = "gpp2-5";
-					samsung,pin-function = <0xf>;
-					samsung,pin-pud = <0>;
-					samsung,pin-drv = <0>;
-				};
-			};
 
 			pinctrl@10730000 {
 				bt_btwake: bt-btwake {
@@ -81,9 +72,9 @@
 				bt_en: bt-en {
 					samsung,pins = "gpm16-0";
 					samsung,pin-function = <1>;
-					samsung,pin-pud = <1>;
+					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
-					samsung,pin-pud-pdn = <1>;
+					samsung,pin-pud-pdn = <0>;
 				};
 			};
 
@@ -99,14 +90,22 @@
 
 			sec_detect_conn {
 				compatible = "samsung,sec_detect_conn";
-				sec,det_conn_gpios = <&gpp2 5 0              /* SUB_DET */
-									  &gpp5 3 0>;           /* CAM_CON_DET */
-				sec,det_conn_name = "SUB_CONNECT","CAM_CONNECT";
+				sec,det_conn_gpios = <&gpp5 3 0>;           /* CAM_CON_DET */
+				sec,det_conn_name = "CAM_CONNECT";
 
-				sec,det_conn_irq_type = <3>, /* SUB_DET BOTH EDGE*/
-										<3>; /* CAM_CON_DET BOTH EDGE*/	
+				sec,det_conn_irq_type = <3>; /* CAM_CON_DET BOTH EDGE*/	
 				pinctrl-names = "default";
-				pinctrl-0 = <&sub_detect_conn_setting &cam_detect_conn_setting>;
+				pinctrl-0 = <&cam_detect_conn_setting>;
+			};
+
+			abc_hub {
+				pinctrl-0 = <&cam_detect_conn_setting>;
+				cond {
+					cond,det_conn_gpios = <&gpp5 3 0>; /* CAM_CON_DET */
+
+					cond,name="cam_cond";
+					cond,det_conn_irq_type =<3>; /* CAM_CON_DET BOTH EDGE*/
+				};
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
@@ -243,6 +242,7 @@
 	pinctrl-0 = <&initial4>;
 	initial4: initial-state {
 		PIN_IN_SLP(gpp2-4, NONE, INPUT, NONE);	/* SUB_VER_1 */
+		PIN_IN_SLP(gpp2-5, NONE, INPUT, NONE);	/* SUB_VER_2 */
 	};
 };
 

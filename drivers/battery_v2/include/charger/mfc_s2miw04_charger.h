@@ -33,8 +33,8 @@
 #define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
 #define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
 
-#define MFC_FW_BIN_VERSION			0x1019
-#define MFC_FLASH_FW_HEX_LSI_PATH		"mfc/mfc_fw_flash_s2miw04.bin"
+#define MFC_FW_BIN_VERSION			0x101C
+#define MFC_FLASH_FW_HEX_LSI_PATH	"mfc/mfc_fw_flash_s2miw04.bin"
 
 /* for SPU FW update */
 #define MFC_FW_SPU_BIN_PATH		"/spu/mfc/mfc_fw_flash_s2miw04.bin"
@@ -707,7 +707,7 @@ enum {
 };
 
 enum {
-	MFC_ADDR,
+	MFC_ADDR = 0,
 	MFC_SIZE,
 	MFC_DATA,
 	MFC_PACKET,	

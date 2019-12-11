@@ -793,6 +793,10 @@ int g2d_get_userdata(struct g2d_device *g2d_dev, struct g2d_context *ctx,
 	if (ret)
 		goto err_src;
 
+	ret = g2d_get_reset_task(g2d_dev, ctx, task);
+	if (ret)
+		goto err_fence;
+
 	task->release_fence = g2d_create_release_fence(g2d_dev, task, data);
 	if (IS_ERR(task->release_fence)) {
 		ret = PTR_ERR(task->release_fence);

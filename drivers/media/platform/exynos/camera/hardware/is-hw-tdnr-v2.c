@@ -392,9 +392,9 @@ static void translate_temporal_factor(struct temporal_ni_dep_config *temporal_cf
 	 *       = 2^4 - ((source1 * source2) / 2^12)
 	 *       = (2^16 - source1 * source2) / 2^12
 	 */
-	temp_val = RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_luma_power_base) *
-			RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_luma_power_gamma);
-	temporal_cfg->temporal_weight_coeff_y2 = ((1 << 16) - temp_val) >> 12;
+	temp_val = (ulong)(RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_luma_power_base) *
+			RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_luma_power_gamma));
+	temporal_cfg->temporal_weight_coeff_y2 = (u32)((1 << 16) - temp_val) >> 12;
 
 	/* value = 16 * (1 - source / 256)
 	 *       = 2^4 - source / 2^4
@@ -408,9 +408,9 @@ static void translate_temporal_factor(struct temporal_ni_dep_config *temporal_cf
 	 *       = 2^4 - ((source1 * source2) / 2^12)
 	 *       = (2^16 - source1 * source2) / 2^12
 	 */
-	temp_val = RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_chroma_power_base) *
-			RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_chroma_power_gamma);
-	temporal_cfg->temporal_weight_coeff_uv2 = ((1 << 16) - temp_val) >> 12;
+	temp_val = (ulong)(RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_chroma_power_base) *
+			RESTORE_SHIFT_VALUE(interpolated_factor.temporal_weight_chroma_power_gamma));
+	temporal_cfg->temporal_weight_coeff_uv2 = (u32)((1 << 16) - temp_val) >> 12;
 }
 
 static void translate_regional_factor(struct regional_ni_dep_config *regional_cfg,

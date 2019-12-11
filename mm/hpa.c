@@ -203,28 +203,29 @@ static int alloc_freepages_range(struct zone *zone, unsigned int order,
 	unsigned long wmark;
 	unsigned long flags;
 	struct page *page;
-	int count = 0;
+	int i, count = 0;
 
 	spin_lock_irqsave(&zone->lock, flags);
 
 	while (required > count) {
 		wmark = min_wmark_pages(zone) + (1 << order);
 		if (!zone_watermark_ok(zone, order, wmark, 0, 0))
-			goto wmark_fail;
+			break;
 
 		page = alloc_freepage_one(zone, order, exception_areas,
 					  nr_exception);
 		if (!page)
 			break;
 
-		post_alloc_hook(page, order, GFP_KERNEL);
 		__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
 		pages[count++] = page;
 		__count_zid_vm_events(PGALLOC, page_zonenum(page), 1 << order);
 	}
 
-wmark_fail:
 	spin_unlock_irqrestore(&zone->lock, flags);
+
+	for (i = 0; i < count; i++)
+		post_alloc_hook(pages[i], order, GFP_KERNEL);
 
 	return count;
 }

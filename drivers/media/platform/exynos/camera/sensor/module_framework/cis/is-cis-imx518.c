@@ -759,8 +759,8 @@ int sensor_imx518_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_pa
 		goto p_err;
 	}
 
-	if (target_exposure->short_val == 0) {
-		info("%s initial setting is skip", __func__);
+	if ((int)(target_exposure->short_val) <= 0) {
+		info("%s initial setting is skip, shor_val(%d)", __func__, target_exposure->short_val);
 		goto p_err;
 	}
 
@@ -969,12 +969,13 @@ int sensor_imx518_cis_set_vcsel_current(struct v4l2_subdev *subdev, u32 value)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	/* for setting IPD_OFFSET */
+	/* DIF_ERR_SEL set */
 	is_sensor_write8(client, 0x0403, 0x20);
 	is_sensor_write8(client, 0x0405, 0x00);
 	is_sensor_write8(client, 0x0407, 0x00);
 	is_sensor_write8(client, 0x0500, 0x02);
-	is_sensor_write8(client, 0x0501, 0x0e);
-	is_sensor_write8(client, 0x0502, 0x80);
+	is_sensor_write8(client, 0x0501, 0x0f);
+	is_sensor_write8(client, 0x0502, 0xC4);
 	is_sensor_write8(client, 0x0401, 0x01);
 	is_sensor_write8(client, 0x0400, 0x01);
 	is_sensor_write8(client, 0x0401, 0x00);
@@ -1001,6 +1002,19 @@ int sensor_imx518_cis_set_vcsel_current(struct v4l2_subdev *subdev, u32 value)
 	is_sensor_write8(client, 0x0400, 0x01);
 	is_sensor_write8(client, 0x0401, 0x00);
 
+	/* Wait 70ms(2 frame) */
+	usleep_range(70000, 70000);
+
+	/* for setting VCSEL current */
+	is_sensor_write8(client, 0x0403, 0x20);
+	is_sensor_write8(client, 0x0405, 0x00);
+	is_sensor_write8(client, 0x0407, 0x00);
+	is_sensor_write8(client, 0x0500, 0x02);
+	is_sensor_write8(client, 0x0501, 0x08);
+	is_sensor_write8(client, 0x0502, value8);
+	is_sensor_write8(client, 0x0401, 0x01);
+	is_sensor_write8(client, 0x0400, 0x01);
+	is_sensor_write8(client, 0x0401, 0x00);
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	usleep_range(5000, 5000);
 

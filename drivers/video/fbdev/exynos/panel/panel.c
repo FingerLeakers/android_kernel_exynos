@@ -43,8 +43,10 @@ const char *cmd_type_name[] = {
 	[CMD_PKT_TYPE_NONE] = "PKT_NONE",
 	[SPI_PKT_TYPE_WR] = "SPI_WR",
 	[DSI_PKT_TYPE_WR] = "DSI_WR",
+	[DSI_PKT_TYPE_WR_NO_WAKE] = "DSI_WR_NO_WAKE",
 	[DSI_PKT_TYPE_COMP] = "DSI_DSC_WR",
 	[DSI_PKT_TYPE_WR_SR] = "DSI_WR_SR",
+	[DSI_PKT_TYPE_SR_FAST] = "DSI_SR_FAST",
 	[DSI_PKT_TYPE_WR_MEM] = "DSI_WR_MEM",
 	[DSI_PKT_TYPE_PPS] = "DSI_WR_PPS",
 	[SPI_PKT_TYPE_RD] = "SPI_RD",
@@ -706,6 +708,73 @@ static int panel_do_frame_delay(struct panel_device *panel, struct delayinfo *in
 	return 0;
 }
 
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+static int panel_do_vsync_delay(struct panel_device *panel, struct delayinfo *info)
+{
+	int i, ret;
+	u32 timeout = PANEL_WAIT_VSYNC_TIMEOUT_MSEC;
+	struct panel_properties *props = &panel->panel_data.props;
+	struct panel_info *panel_data = &panel->panel_data;
+	int vrr_fps, vrr_mode, vrr_idx;
+	u64 te_usec, vfp_usec, total_usec;
+	struct panel_vrr *vrr;
+	int vfp, base_fps, base_vbp, base_vfp, base_vactive, te_v_st;
+	ktime_t s_time = ktime_get();
+
+	if (unlikely(!panel || !info)) {
+		panel_err("%s, invalid paramter (panel %p, info %p)\n",
+				__func__, panel, info);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < info->nframe; i++) {
+		ret = panel_dsi_wait_for_vsync(panel, timeout);
+		if (ret < 0) {
+			pr_err("%s vsync timeout(elapsed:%dms, ret:%d)\n",
+					__func__, timeout, ret);
+			return 0;
+		}
+	}
+
+	if (info->nframe == 1) {
+		vrr_fps = props->vrr_origin_fps;
+		vrr_mode = props->vrr_origin_mode;
+		vrr_idx = props->vrr_origin_idx;
+	} else if (info->nframe > 1) {
+		vrr_fps = props->vrr_fps;
+		vrr_mode = props->vrr_mode;
+		vrr_idx = props->vrr_idx;
+	}
+
+	te_usec = ktime_to_us(ktime_sub(ktime_get(), s_time));
+
+	if (panel_data->vrrtbl == NULL ||
+			panel_data->nr_vrrtbl < vrr_idx)
+		return 0;
+
+	vrr = panel_data->vrrtbl[vrr_idx];
+	base_fps = vrr->base_fps;
+	base_vbp = vrr->base_vbp;
+	base_vfp = vrr->base_vfp;
+	base_vactive = vrr->base_vactive;
+	te_v_st = vrr->te_v_st;
+	vfp = (((base_vbp + base_vactive + base_vfp) * base_fps) / vrr_fps)
+		- (base_vbp + base_vactive);
+
+	vfp_usec = ((1000000ull * (base_vbp + base_vactive + vfp - te_v_st)) /
+			(vrr_fps * (base_vbp + base_vactive + vfp))) + 1;
+	usleep_range(vfp_usec, vfp_usec + 10);
+	total_usec = ktime_to_us(ktime_sub(ktime_get(), s_time));
+
+	pr_debug("%s te_v_st(%d) wait(te:%2d.%03d ms, vsync:%2d.%03d, diff:%2d.%03d) in vrr(%d %d)\n",
+			__func__, te_v_st, te_usec / 1000, te_usec % 1000,
+			total_usec / 1000, total_usec % 1000,
+			(total_usec - te_usec) / 1000, (total_usec - te_usec) % 1000,
+			vrr_fps, vrr_mode);
+
+	return 0;
+}
+#else
 static int panel_do_vsync_delay(struct panel_device *panel, struct delayinfo *info)
 {
 	int i, ret;
@@ -738,6 +807,7 @@ static int panel_do_vsync_delay(struct panel_device *panel, struct delayinfo *in
 
 	return 0;
 }
+#endif
 
 static int panel_do_timer_begin(struct panel_device *panel,
 		struct timer_delay_begin_info *begin_info, ktime_t s_time)

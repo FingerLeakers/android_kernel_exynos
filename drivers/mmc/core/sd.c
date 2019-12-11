@@ -1202,7 +1202,8 @@ static int _mmc_sd_resume(struct mmc_host *host)
 {
 	int err = 0;
 
-	mmc_claim_host(host);
+	if (!(host->bus_resume_flags & MMC_BUSRESUME_ENTER_IO))
+		mmc_claim_host(host);
 
 	if (!mmc_card_suspended(host->card))
 		goto out;
@@ -1211,7 +1212,9 @@ static int _mmc_sd_resume(struct mmc_host *host)
 	err = mmc_sd_init_card(host, host->card->ocr, host->card);
 	mmc_card_clr_suspended(host->card);
 out:
-	mmc_release_host(host);
+	if (!(host->bus_resume_flags & MMC_BUSRESUME_ENTER_IO))
+		mmc_release_host(host);
+
 	return err;
 }
 

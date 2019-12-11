@@ -70,6 +70,7 @@
 
 /* Fields of G2D_JOB_PUSH_REG */
 #define G2D_JOBPUSH_INT_ENABLE			0x1
+#define G2D_JOBPUSH_INT_DISABLE			0x3
 
 /* Fields of G2D_JOB_IDn_STATE_REG */
 #define G2D_JOB_STATE_DONE			0x0

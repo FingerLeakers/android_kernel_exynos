@@ -43,6 +43,28 @@ static int port_off_done;
 #define PORTSC_OFFSET	0x430
 #define DIS_RX_DETECT	(1 << 9)
 
+#if defined(CONFIG_USB_DWC3_EXYNOS)
+#define BU31RHBDBG_OFFSET	0xd800
+#define BU31RHBDBG_TOUTCTL	(0x1 << 3)
+
+int xhci_soc_config_after_reset(struct xhci_hcd *xhci)
+{
+	int ret = 0;
+	static void __iomem *bu31rhbdbg_reg = NULL;
+	u32 reg;
+
+	if (bu31rhbdbg_reg == NULL)
+		bu31rhbdbg_reg = ioremap(xhci->main_hcd->rsrc_start +
+						BU31RHBDBG_OFFSET, SZ_4);
+
+	reg = readl(bu31rhbdbg_reg);
+	reg |= BU31RHBDBG_TOUTCTL;
+	writel(reg, bu31rhbdbg_reg);
+
+	return ret;
+}
+#endif
+
 static const struct xhci_driver_overrides xhci_plat_overrides __initconst = {
 	.extra_priv_size = sizeof(struct xhci_plat_priv),
 	.reset = xhci_plat_setup,

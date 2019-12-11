@@ -56,7 +56,7 @@ int is_ischain_isp_stripe_cfg(struct is_subdev *subdev,
 		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
 
 		if (stripe_w == 0) {
-			msrdbgs("3, Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
+			msrdbgs(3, "Skip current stripe[#%d] region because stripe_width is too small(%d)\n", subdev, subdev, frame,
 									frame->stripe_info.region_id, stripe_w);
 			frame->stripe_info.region_id++;
 			return -EAGAIN;
@@ -172,7 +172,7 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 		hw_format = queue->framecfg.format->hw_format;
 		hw_bitwidth = queue->framecfg.format->hw_bitwidth;
 
-		msinfo("in_crop[fmt: %d, hw_bw: %d, msb: %d]\n", device, leader,
+		msdbgs(3, "in_crop[fmt: %d, hw_bw: %d, msb: %d]\n", device, leader,
 			hw_format, hw_bitwidth, hw_msb);
 	}
 
@@ -273,8 +273,6 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 	*lindex |= LOWBIT_OF(PARAM_ISP_STRIPE_INPUT);
 	*hindex |= HIGHBIT_OF(PARAM_ISP_STRIPE_INPUT);
 	(*indexes)++;
-
-	leader->input.crop = *incrop;
 
 p_err:
 	return ret;
@@ -399,8 +397,12 @@ static int is_ischain_isp_tag(struct is_subdev *subdev,
 			goto p_err;
 		}
 
-		msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
+		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			debug_stream) {
+			msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
 				incrop->x, incrop->y, incrop->w, incrop->h);
+			subdev->input.crop = *incrop;
+		}
 	}
 
 	ret = is_itf_s_param(device, frame, lindex, hindex, indexes);

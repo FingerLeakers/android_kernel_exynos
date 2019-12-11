@@ -49,24 +49,17 @@ static const char *IDP_SRAM_DUMP_SYSFS_NAME	= "SRAM-IDP";
 #define NPU_SRAM_DUMP_BUF (1024 * 1024)
 static int fw_mem_log_open_fops(struct inode *inode, struct file *file)
 {
-	int ret;
 	struct mem_dump_stats *stats;
 
 	stats = kmalloc(sizeof(*stats), GFP_KERNEL);
 	if (!stats) {
 		npu_err("could not allocate memory for stat object.\n");
-		ret = -ENOMEM;
-		goto p_err;
+		return -ENOMEM;
 	}
 	/* Save it as a private data */
 	memset(stats, 0, sizeof(*stats));
 	file->private_data = stats;
 	return 0;
-p_err:
-	if (stats)	{
-		kfree(stats);
-	}
-	return ret;
 }
 
 static ssize_t fw_mem_log_read_fops(struct file *file, char __user *buf, size_t size, loff_t *off)

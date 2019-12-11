@@ -234,7 +234,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_factory_mode),
 #endif
 	SEC_BATTERY_ATTR(boot_completed),
-	SEC_BATTERY_ATTR(must_remove_this_node),
+	SEC_BATTERY_ATTR(pd_disable),
 };
 
 void update_external_temp_table(struct sec_battery_info *battery, int temp[])
@@ -859,31 +859,31 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		value.intval = SEC_WIRELESS_IC_GRADE;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%x ", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%X ", value.intval);
 
 		value.intval = SEC_WIRELESS_IC_REVISION;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%X\n", value.intval);
 		break;
 	case WC_IC_CHIP_ID:
 		value.intval = SEC_WIRELESS_IC_CHIP_ID;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
 		break;
 	case OTP_FIRMWARE_VER_BIN:
 		value.intval = SEC_WIRELESS_OTP_FIRM_VER_BIN;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
 		break;
 	case OTP_FIRMWARE_VER:
 		value.intval = SEC_WIRELESS_OTP_FIRM_VER;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
 
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
 		break;
 	case TX_FIRMWARE_RESULT:
 		value.intval = SEC_WIRELESS_TX_FIRM_RESULT;
@@ -896,14 +896,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
 
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
 		break;
 	case BATT_TX_STATUS:
 		value.intval = SEC_TX_FIRMWARE;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
 
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
 		break;
 #endif
 	case WC_VOUT:
@@ -1657,6 +1657,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			factory_mode);
 		break;
 #endif
+	case PD_DISABLE:
+		if(battery->pd_disable)
+			value.strval = "PD Disabled";
+		else
+			value.strval = "PD Enabled";
+		pr_info("%s: PD = %s\n",__func__, value.strval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", value.strval);
+		break;
 	default:
 		i = -EINVAL;
 		break;
@@ -3302,11 +3310,33 @@ ssize_t sec_bat_store_attrs(
 			ret = count;
 		}
 		break;
-	case MUST_REMOVE_THIS_NODE:
+	case PD_DISABLE:
 		if (sscanf(buf, "%10d\n", &x) == 1) {
-			value.intval = x;
-			psy_do_property(battery->pdata->charger_name, set,
-					POWER_SUPPLY_EXT_PROP_MUST_REMOVE_THIS_NODE, value);		
+			pr_info("%s PD_DISABLE %d\n", __func__, x);
+			
+			if (x == 1) {
+				battery->pd_disable = true;
+				ret = sec_set_param(PD_OFFSET, '1');
+				if (ret < 0) {
+					pr_err("%s:sec_set_param failed\n", __func__);
+					return ret;
+				} else {
+					pr_info("%s: pd hv charging is disabled\n", __func__);
+				}
+				sec_bat_set_current_event(battery,
+					SEC_BAT_CURRENT_EVENT_HV_DISABLE, SEC_BAT_CURRENT_EVENT_HV_DISABLE);	
+			} else {
+				battery->pd_disable = false;
+				ret = sec_set_param(PD_OFFSET, '0');
+				if (ret < 0) {
+					pr_err("%s: sec_set_param failed\n", __func__);
+					return ret;
+				} else {
+					pr_info("%s: pd hv charging charging is enabled\n", __func__);
+				}
+				sec_bat_set_current_event(battery,
+					0, SEC_BAT_CURRENT_EVENT_HV_DISABLE);	
+			}
 			ret = count;
 		}
 		break;

@@ -193,7 +193,6 @@ static int update_profile_te(struct profiler_device *profiler, s64 time_us)
 {
 	int ret = 0;
 	struct profiler_te *te_info;
-	s64 diff;
 	te_info = &profiler->te_info;
 	
 	spin_lock(&te_info->slock);
@@ -221,7 +220,7 @@ static int update_profile_te(struct profiler_device *profiler, s64 time_us)
 	spin_unlock(&te_info->slock);
 
 	profiler_info(profiler, te_debug, "[DISP_PROFILER] %s:last time: %lld, diff: %lld\n", __func__, te_info->last_time, te_info->last_diff);
-	te_info->times[te_info->idx++] = diff;
+	te_info->times[te_info->idx++] = te_info->last_diff;
 	te_info->idx = te_info->idx % MAX_TE_CNT;
 
 	return ret;

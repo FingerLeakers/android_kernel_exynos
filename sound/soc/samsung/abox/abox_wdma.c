@@ -454,7 +454,7 @@ static int abox_wdma_close(struct snd_pcm_substream *substream)
 	time = wait_for_completion_timeout(&data->closed,
 			nsecs_to_jiffies(ABOX_DMA_TIMEOUT_NS));
 	if (time == 0)
-		dev_warn(dev, "close timeout\n", __func__);
+		dev_warn(dev, "close timeout\n");
 
 	/* Release ASRC to reuse it in other DMA */
 	abox_cmpnt_asrc_release(abox_data, SNDRV_PCM_STREAM_CAPTURE, id);

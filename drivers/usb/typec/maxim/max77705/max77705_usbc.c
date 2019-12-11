@@ -129,10 +129,7 @@ static enum dual_role_property fusb_drp_properties[] = {
 #define MAX77705_IRQSRC_FG      (1 << 2)
 #define MAX77705_IRQSRC_MUIC	(1 << 3)
 
-#define MAX77705_GRL_ENABLE
-
 #define MAX77705_RAM_TEST
-
 
 #ifdef MAX77705_RAM_TEST
 #define MAX77705_RAM_TEST_RETRY_COUNT 1
@@ -828,7 +825,7 @@ int max77705_get_pd_support(struct max77705_usbc_platform_data *usbc_data)
 static int max77705_firmware_update_sys(struct max77705_usbc_platform_data *data, int fw_dir)
 {
 	struct max77705_usbc_platform_data *usbc_data = data;
-	unsigned char *fw_data;
+	unsigned char *fw_data = NULL;
 	max77705_fw_header *fw_header;
 	struct file *fp;
 	mm_segment_t old_fs;
@@ -1557,6 +1554,7 @@ static ssize_t max77705_fw_update(struct device *dev,
 		max77705_usbc_opcode_write(g_usbc_data, &write_data);
 
 		break;
+#ifdef MAX77705_GRL_ENABLE
 	case 11:
 		msg_maxim("SYSTEM MESSAGE GRL COMMAND!!!");
 		write_data.opcode = OPCODE_GRL_COMMAND;
@@ -1564,6 +1562,7 @@ static ssize_t max77705_fw_update(struct device *dev,
 		write_data.write_length = 0x1;
 		write_data.read_length = 0x2;
 		max77705_usbc_opcode_write(g_usbc_data, &write_data);
+#endif
 #ifdef MAX77705_RAM_TEST
 	case 15:
 		max77705_verify_ram_bist_write(g_usbc_data);
@@ -1933,6 +1932,12 @@ static void max77705_irq_execute(struct max77705_usbc_platform_data *usbc_data,
 	if (response != cmd_data->response) {
 		msg_maxim("Response [0x%02x] != [0x%02x]",
 			response, cmd_data->response);
+#if !defined (MAX77705_GRL_ENABLE)
+		if (cmd_data->response == OPCODE_FW_OPCODE_CLEAR) {
+			msg_maxim("Response after FW opcode cleared, just return");
+			return;
+		}
+#endif
 	}
 
 	/* to do(read switch case) */
@@ -2111,6 +2116,10 @@ static void max77705_irq_execute(struct max77705_usbc_platform_data *usbc_data,
 	case OPCODE_GRL_COMMAND:
 		max77705_set_forcetrimi(usbc_data);
 		break;
+#else
+	case OPCODE_FW_OPCODE_CLEAR:
+		msg_maxim("Cleared FW OPCODE");
+		break;
 #endif
 #ifdef MAX77705_RAM_TEST
 	case OPCODE_RAM_TEST_COMMAND:
@@ -2184,6 +2193,19 @@ void max77705_usbc_dequeue_queue(struct max77705_usbc_platform_data *usbc_data)
 		cmd_data.val);
 }
 
+#if !defined (MAX77705_GRL_ENABLE)
+static void max77705_usbc_clear_fw_queue(struct max77705_usbc_platform_data *usbc_data)
+{
+	usbc_cmd_data write_data;
+
+	msg_maxim("called");
+
+	init_usbc_cmd_data(&write_data);
+	write_data.opcode = OPCODE_FW_OPCODE_CLEAR;
+	max77705_usbc_opcode_write(usbc_data, &write_data);
+}
+#endif
+
 void max77705_usbc_clear_queue(struct max77705_usbc_platform_data *usbc_data)
 {
 	usbc_cmd_data cmd_data;
@@ -2203,6 +2225,10 @@ void max77705_usbc_clear_queue(struct max77705_usbc_platform_data *usbc_data)
 	usbc_data->opcode_stamp = 0;
 	msg_maxim("OUT");
 	mutex_unlock(&usbc_data->op_lock);
+#if !defined (MAX77705_GRL_ENABLE)
+	/* also clear fw opcode queue to sync with driver */
+	max77705_usbc_clear_fw_queue(usbc_data);
+#endif
 }
 
 static void max77705_usbc_cmd_run(struct max77705_usbc_platform_data *usbc_data)
@@ -2700,7 +2726,11 @@ void max77705_usbc_check_sysmsg(struct max77705_usbc_platform_data *usbc_data, u
 		if (!is_empty_queue) {
 			copy_usbc_cmd_data(&(usbc_data->last_opcode), &cmd_data);
 
+#ifdef MAX77705_GRL_ENABLE
 			if (cmd_data.opcode == OPCODE_GRL_COMMAND || next_opcode == OPCODE_VDM_DISCOVER_SET_VDM_REQ) {
+#else
+			if (next_opcode == OPCODE_VDM_DISCOVER_SET_VDM_REQ) {
+#endif
 				usbc_data->opcode_stamp = 0;
 				max77705_usbc_dequeue_queue(usbc_data);
 				cmd_data.opcode = OPCODE_NONE;

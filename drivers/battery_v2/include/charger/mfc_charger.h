@@ -663,7 +663,7 @@ enum {
 };
 
 enum {
-	MFC_ADDR,
+	MFC_ADDR = 0,
 	MFC_SIZE,
 	MFC_DATA,
 	MFC_PACKET,	

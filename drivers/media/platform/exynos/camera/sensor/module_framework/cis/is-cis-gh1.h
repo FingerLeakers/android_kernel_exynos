@@ -14,10 +14,6 @@
 
 #include "is-cis.h"
 
-#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
-#undef USE_CAMERA_MIPI_CLOCK_VARIATION
-#endif
-
 #define EXT_CLK_Mhz (26)
 
 #define SENSOR_GH1_MAX_WIDTH		(7296)

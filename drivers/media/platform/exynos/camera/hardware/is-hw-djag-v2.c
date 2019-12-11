@@ -63,10 +63,10 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 #ifdef ENABLE_DJAG_IN_MCSC
 	if (cap->djag == MCSC_CAP_SUPPORT && input->djag_out_width) {
 		/* re-sizing crop size for DJAG output image to poly-phase scaler */
-		src_pos_x = ALIGN(CONVRES(src_pos_x, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
-		src_pos_y = ALIGN(CONVRES(src_pos_y, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
-		src_width = ALIGN(CONVRES(src_width, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
-		src_height = ALIGN(CONVRES(src_height, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
+		src_pos_x = ALIGN_DOWN(CONVRES(src_pos_x, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
+		src_pos_y = ALIGN_DOWN(CONVRES(src_pos_y, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
+		src_width = ALIGN_DOWN(CONVRES(src_width, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
+		src_height = ALIGN_DOWN(CONVRES(src_height, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
 
 		if (src_pos_x + src_width > input->djag_out_width) {
 			warn_hw("%s: Out of input_crop width (djag_out_w: %d < (%d + %d))",

@@ -23,6 +23,7 @@ static int dsp_open(struct inode *inode, struct file *file)
 	struct dsp_context *dctx;
 
 	dsp_enter();
+	dsp_dbg("open start\n");
 	miscdev = file->private_data;
 	dspdev = dev_get_drvdata(miscdev->parent);
 	core = &dspdev->core;
@@ -44,6 +45,7 @@ static int dsp_open(struct inode *inode, struct file *file)
 	file->private_data = dctx;
 
 	dsp_info("dsp has been successfully opened\n");
+	dsp_dbg("open end\n");
 	dsp_leave();
 	return 0;
 p_err_graph:
@@ -60,6 +62,7 @@ static int dsp_release(struct inode *inode, struct file *file)
 	struct dsp_core *core;
 
 	dsp_enter();
+	dsp_dbg("release start\n");
 	dctx = file->private_data;
 	core = dctx->core;
 
@@ -68,6 +71,7 @@ static int dsp_release(struct inode *inode, struct file *file)
 	dsp_device_close(core->dspdev);
 
 	dsp_info("dsp has been released\n");
+	dsp_dbg("release end\n");
 	dsp_leave();
 	return 0;
 }

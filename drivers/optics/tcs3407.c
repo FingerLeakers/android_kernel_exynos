@@ -1499,7 +1499,7 @@ static int ams_smux_set(ams_deviceCtx_t *ctx)
 		AMS_READ_S_MUX();
 		ams_setByte(ctx->portHndl, DEVREG_ENABLE, 0x11);//PON + SMUXEN excute
 		udelay(1000); //Now 0x80 needs to be read back until SMUXEN has been cleared , wait 1msec
-		ams_setByte(ctx->portHndl,DEVREG_SMUX13_PRX_TO_FLICKER,0x66); // 0x66 : ficker+flicker, 0x76: only one flikcer, 0x00 flicker off
+		ams_setByte(ctx->portHndl,DEVREG_SMUX13_PRX_TO_FLICKER,0x06); // 0x66 : ficker+flicker, 0x76: only one flikcer, 0x00 flicker off , 0x06 only ir fliter cut Flicker PD en
 		/* SMUX write command */
 		AMS_WRITE_S_MUX();//SMUX Write from RAM to chain
 		ams_setByte(ctx->portHndl, DEVREG_ENABLE, 0x11);//PON + SMUXEN

@@ -3384,8 +3384,13 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	struct completion wait;
 	unsigned long flags;
 
-	if (!ufshcd_is_link_active(hba))
-		return -EPERM;
+	ktime_t start = ktime_get();
+
+	while (!ufshcd_is_link_active(hba)) {
+		if (ktime_to_us(ktime_sub(ktime_get(), start)) > 50000)
+			return -EPERM;
+		usleep_range(100, 200);
+	}
 
 	down_read(&hba->clk_scaling_lock);
 
@@ -9371,7 +9376,10 @@ static int ufshcd_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	enum uic_link_state req_link_state;
 	bool gating_allowed = !ufshcd_can_fake_clkgating(hba);
 
-	mutex_lock(&hba->tw_ctrl_mutex);
+	if (!mutex_trylock(&hba->tw_ctrl_mutex)) {
+		dev_err(hba->dev, "%s has failed %d.\n", __func__, -EBUSY);
+		return -EBUSY;
+	}
 	hba->pm_op_in_progress = 1;
 
 	if (!ufshcd_is_shutdown_pm(pm_op)) {
@@ -9527,9 +9535,6 @@ enable_gating:
 		ufshcd_resume_clkscaling(hba);
 	hba->clk_gating.is_suspended = false;
 	ufshcd_release(hba);
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_hpb_resume(&hba->ufsf);
-#endif
 out:
 	if (!ret && ufshcd_is_system_pm(pm_op))
 		hba->tw_state_not_allowed = true;

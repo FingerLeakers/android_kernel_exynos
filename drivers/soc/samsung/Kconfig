@@ -278,11 +278,47 @@ config EXYNOS_TZASC_ILLEGAL_ACCESS_PANIC
 	  Kernel panic will occur in case that TZASC illegal
 	  access is detected.
 
+config EXYNOS_S2MPUFD_FAIL_DETECTOR
+	bool "Exynos S2MPU Fail Detector"
+	default y
+	help
+	  Support Exynos S2MPU Fail Detector
+
+config EXYNOS_S2MPUFD_ILLEGAL_READ_LOGGING
+	bool "Logging S2MPU Read Fail Information"
+	depends on EXYNOS_S2MPUFD_FAIL_DETECTOR
+	default n
+	help
+	  S2MPU fail information of illegal reads will be printed
+	  by the Kernel logging system.
+
+config EXYNOS_S2MPUFD_ILLEGAL_ACCESS_PANIC
+	bool "Kernel Panic over S2MPU Illegal Access"
+	depends on EXYNOS_S2MPUFD_FAIL_DETECTOR
+	default y
+	help
+	  Kernel panic will occur in case that S2MPU illegal
+	  access is detected.
+
+
 config EXYNOS_CONTENT_PATH_PROTECTION
 	bool "Exynos Content Path Protection"
 	default y
 	help
 	  Enable content path protection of EXYNOS.
+
+config EXYNOS_DP_POWER_CONTROL
+	bool "Exynos DP power control for DRM"
+	depends on HDCP2_DP_ENABLE
+	default y
+	help
+	  Enable DP power control of EXYNOS.
+
+config EXYNOS_S2MPU
+	bool "Exynos Stage 2 Memory Protection Unit(S2MPU)"
+	default y
+	help
+	   Exynos S2MPU driver to set S2MPU access permission.
 
 source "drivers/soc/samsung/exynos_cpu_perf/Kconfig"
 
@@ -296,3 +332,4 @@ endif
 source "drivers/soc/samsung/exynos-hdcp/Kconfig"
 source "drivers/soc/samsung/cpif/Kconfig"
 source "drivers/soc/samsung/dit/Kconfig"
+source "drivers/soc/samsung/linkforward/Kconfig"

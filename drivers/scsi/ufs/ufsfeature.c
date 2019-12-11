@@ -399,14 +399,23 @@ inline void ufsf_hpb_reset(struct ufsf_feature *ufsf)
 
 inline void ufsf_hpb_suspend(struct ufsf_feature *ufsf)
 {
+	/*
+	 * if suspend failed, pm could call the suspend function again,
+	 * in this case, ufshpb state already had been changed to SUSPEND state.
+	 * so, we will not call ufshpb_suspend.
+	 * */
 	if (ufsf->ufshpb_state == HPB_PRESENT)
 		ufshpb_suspend(ufsf);
 }
 
 inline void ufsf_hpb_resume(struct ufsf_feature *ufsf)
 {
-	if (ufsf->ufshpb_state == HPB_PRESENT)
+	if (ufsf->ufshpb_state == HPB_SUSPEND ||
+	    ufsf->ufshpb_state == HPB_PRESENT) {
+		if (ufsf->ufshpb_state == HPB_PRESENT)
+			WARNING_MSG("warning.. hpb state PRESENT in resuming");
 		ufshpb_resume(ufsf);
+	}
 }
 
 inline void ufsf_hpb_release(struct ufsf_feature *ufsf)

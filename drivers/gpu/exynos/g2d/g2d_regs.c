@@ -53,6 +53,30 @@ static void g2d_hw_push_task_by_smc(struct g2d_device *g2d_dev,
 	}
 }
 
+void g2d_hw_push_reset_task(struct g2d_device *g2d_dev, struct g2d_task *task)
+{
+	struct g2d_task *rst = task->rst;
+
+	if (!rst)
+		return;
+
+	g2d_stamp_task(rst, G2D_STAMP_STATE_PUSH_RESET, 0);
+
+	if (device_get_dma_attr(g2d_dev->dev) != DEV_DMA_COHERENT)
+		__flush_dcache_area(page_address(rst->cmd_page),
+				    G2D_CMD_LIST_SIZE);
+
+	writel_relaxed(G2D_JOB_HEADER_DATA(rst->sec.priority,
+					   rst->sec.job_id),
+		       g2d_dev->reg + G2D_JOB_HEADER_REG);
+
+	writel_relaxed(rst->cmd_addr, g2d_dev->reg + G2D_JOB_BASEADDR_REG);
+	writel_relaxed(rst->sec.cmd_count, g2d_dev->reg + G2D_JOB_SFRNUM_REG);
+	writel_relaxed(1 << rst->sec.job_id,
+		       g2d_dev->reg + G2D_JOB_INT_ID_REG);
+	writel(G2D_JOBPUSH_INT_DISABLE, g2d_dev->reg + G2D_JOB_PUSH_REG);
+}
+
 void g2d_hw_push_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 {
 	bool self_prot = g2d_dev->caps & G2D_DEVICE_CAPS_SELF_PROTECTION;
@@ -61,6 +85,8 @@ void g2d_hw_push_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 	if (state != G2D_JOB_STATE_DONE)
 		perrfndev(g2d_dev, "Unexpected state %#x of JOB %d",
 			  state, task->sec.job_id);
+
+	g2d_hw_push_reset_task(g2d_dev, task);
 
 	if (IS_ENABLED(CONFIG_EXYNOS_CONTENT_PATH_PROTECTION)) {
 		unsigned int i;

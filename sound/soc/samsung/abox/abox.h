@@ -57,6 +57,7 @@
 
 #define ABOX_LOG_OFFSET			(0xb00000)
 #define ABOX_LOG_SIZE			(SZ_1M)
+#define ABOX_SLOG_OFFSET		(0x800000)
 #define ABOX_PCI_DOORBELL_OFFSET	(0x10000)
 #define ABOX_PCI_DOORBELL_SIZE		(SZ_16K)
 
@@ -328,7 +329,7 @@ struct abox_extra_firmware {
 	unsigned int offset;
 	unsigned int iova;
 	bool kcontrol;
-	bool changable;
+	bool changeable;
 };
 
 struct abox_event_notifier {
@@ -703,4 +704,19 @@ extern void abox_wait_restored(struct abox_data *data);
  */
 extern int abox_register_extra_sound_card(struct device *dev,
 		struct snd_soc_card *card, unsigned int idx);
+
+/**
+ * add or update extra firmware
+ * @param[in]	dev		calling device
+ * @param[in]	data		pointer to abox_data structure
+ * @param[in]	idx		index of firmware. It should be unique.
+ * @param[in]	name		name of firmware
+ * @param[in]	area		download area of firmware
+ * @param[in]	offset		offset of firmware
+ * @param[in]	changeable	changeable of firmware
+ */
+extern int abox_add_extra_firmware(struct device *dev,
+		struct abox_data *data, int idx,
+		const char *name, unsigned int area,
+		unsigned int offset, bool changeable);
 #endif /* __SND_SOC_ABOX_H */

@@ -32,6 +32,7 @@
 #include <linux/irqflags.h>
 #include <linux/sec_debug.h>
 #include "sched/sched.h"
+#include <soc/samsung/exynos-debug.h>
 
 #ifdef CONFIG_SEC_DEBUG_LOCKUP_INFO
 static const char * const hl_to_name[] = {
@@ -407,6 +408,20 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 	struct pt_regs *regs = get_irq_regs();
 	int duration;
 	int softlockup_all_cpu_backtrace = sysctl_softlockup_all_cpu_backtrace;
+
+	/*
+	 * 1. check a flag
+	 * 2. check this cpu is 0
+	 * 3. trigger keep alive
+	 */
+
+	if (s3c2410_wdt_keepalive) {
+		if (smp_processor_id() == 0) {
+			pr_crit("%s: kick watchdog, temp\n", __func__);
+
+			s3c2410wdt_keepalive_common();
+		}
+	}
 
 	/* try to enable log_kevent of exynos-snapshot if log_kevent was off because of rcu stall */
 	dbg_snapshot_try_enable("log_kevent", NSEC_PER_SEC * 15);

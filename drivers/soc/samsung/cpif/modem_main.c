@@ -50,12 +50,16 @@
 #include <linux/shm_ipc.h>
 #include <linux/mcu_ipc.h>
 #endif
+#ifdef CONFIG_LINK_FORWARD
+#include <linux/linkforward.h>
+#endif
 
 #include <soc/samsung/exynos-modem-ctrl.h>
 #include "modem_prj.h"
 #include "modem_variation.h"
 #include "modem_utils.h"
 #include "cpif_clat_info.h"
+#include "cpif_tethering_info.h"
 
 #ifdef CONFIG_MODEM_IF_LEGACY_QOS
 #include "cpif_qos_info.h"
@@ -192,9 +196,6 @@ static struct io_device *create_io_device(struct platform_device *pdev,
 		mif_err("protocol error\n");
 		return NULL;
 	}
-
-	if (iod->format == IPC_FMT && iod->ch == SIPC5_CH_ID_FMT_0)
-		modemctl->iod = iod;
 
 	if (iod->format == IPC_BOOT) {
 		modemctl->bootd = iod;
@@ -342,8 +343,10 @@ static int parse_dt_mbox_pdata(struct device *dev, struct device_node *np,
 	mif_dt_read_u32(np, "mif,int_ap2cp_wakeup", mbox->int_ap2cp_wakeup);
 	mif_dt_read_u32(np, "mif,int_ap2cp_status", mbox->int_ap2cp_status);
 	mif_dt_read_u32(np, "mif,int_ap2cp_active", mbox->int_ap2cp_active);
+#if defined(CONFIG_CP_LCD_NOTIFIER)
 	mif_dt_read_u32(np, "mif,int_ap2cp_lcd_status",
 			mbox->int_ap2cp_lcd_status);
+#endif
 	mif_dt_read_u32(np, "mif,int_ap2cp_uart_noti", mbox->int_ap2cp_uart_noti);
 
 	mif_dt_read_u32(np, "mif,irq_cp2ap_msg", mbox->irq_cp2ap_msg);
@@ -425,8 +428,10 @@ static int parse_dt_ipc_region_pdata(struct device *dev, struct device_node *np,
 	mif_dt_read_u32(np, "sbi_ap_status_pos", pdata->sbi_ap_status_pos);
 	mif_dt_read_u32(np, "sbi_crash_type_mask", pdata->sbi_crash_type_mask);
 	mif_dt_read_u32(np, "sbi_crash_type_pos", pdata->sbi_crash_type_pos);
+#if defined(CONFIG_CP_LCD_NOTIFIER)
 	mif_dt_read_u32(np, "sbi_lcd_status_mask", pdata->sbi_lcd_status_mask);
 	mif_dt_read_u32(np, "sbi_lcd_status_pos", pdata->sbi_lcd_status_pos);
+#endif
 	mif_dt_read_u32(np, "sbi_uart_noti_mask", pdata->sbi_uart_noti_mask);
 	mif_dt_read_u32(np, "sbi_uart_noti_pos", pdata->sbi_uart_noti_pos);
 	mif_dt_read_u32(np, "sbi_ds_det_mask", pdata->sbi_ds_det_mask);
@@ -638,166 +643,260 @@ static ssize_t modem_state_show(struct device *dev,
 	return sprintf(buf, "%s\n", cp_state_str(mc->phone_state));
 }
 
+#ifdef CONFIG_LINK_FORWARD
+static ssize_t linkforward_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return linkforward_get_state(buf);
+}
+
+static ssize_t linkforward_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "linkforward global mode:%d\n",
+			get_linkforward_mode());
+}
+
+static ssize_t linkforward_mode_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int ret;
+	int val = 0;
+
+	ret = kstrtoint(buf, 10, &val);
+	if ((ret > 3) || (val < 0))
+		return -EINVAL;
+
+	set_linkforward_mode(val);
+
+	ret = count;
+	return ret;
+}
+
+static DEVICE_ATTR_RO(linkforward_state);
+static DEVICE_ATTR_RW(linkforward_mode);
+#endif
+
 static DEVICE_ATTR_WO(do_cp_crash);
 static DEVICE_ATTR_RO(modem_state);
 
 static struct attribute *modem_attrs[] = {
 	&dev_attr_do_cp_crash.attr,
 	&dev_attr_modem_state.attr,
+#ifdef CONFIG_LINK_FORWARD
+	&dev_attr_linkforward_state.attr,
+	&dev_attr_linkforward_mode.attr,
+#endif
 	NULL,
 };
 ATTRIBUTE_GROUPS(modem);
 
 static ssize_t xlat_plat_show(struct kobject *kobj,
-                struct kobj_attribute *attr, char *buf)
+		struct kobj_attribute *attr, char *buf)
 {
-        struct in6_addr addr = IN6ADDR_ANY_INIT;
-        ssize_t count = 0;
+	struct in6_addr addr = IN6ADDR_ANY_INIT;
+	ssize_t count = 0;
 
 	cpif_get_plat_prefix(0, &addr);
-        count += sprintf(buf, "plat prefix: %pI6\n", &addr);
+	count += sprintf(buf, "plat prefix: %pI6\n", &addr);
 
-        cpif_get_plat_prefix(1, &addr);
-        count += sprintf(buf + count, "plat prefix: %pI6\n", &addr);
+	cpif_get_plat_prefix(1, &addr);
+	count += sprintf(buf + count, "plat prefix: %pI6\n", &addr);
 
-        return count;
+	return count;
 }
 
 static ssize_t xlat_plat_store(struct kobject *kobj,
-                struct kobj_attribute *attr,
-                const char *buf, size_t count)
+		struct kobj_attribute *attr,
+		const char *buf, size_t count)
 {
-        struct in6_addr val;
-        char *ptr = NULL;
+	struct in6_addr val;
+	char *ptr = NULL;
 
-        mif_info("-- plat prefix: %s\n", buf);
+	mif_info("-- plat prefix: %s\n", buf);
 
-        ptr = strstr(buf, "@");
-        if (!ptr)
-                return -EINVAL;
-        *ptr++ = '\0';
+	ptr = strstr(buf, "@");
+	if (!ptr)
+		return -EINVAL;
+	*ptr++ = '\0';
 
-        if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
-                return -EINVAL;
+	if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
+		return -EINVAL;
 
-        if (strstr(ptr, "rmnet0"))
-                cpif_set_plat_prefix(0, val);
-        else if (strstr(ptr, "rmnet1"))
-                cpif_set_plat_prefix(1, val);
-        else
-                mif_err("-- unhandled plat prefix for %s\n", ptr);
+	if (strstr(ptr, "rmnet0"))
+		cpif_set_plat_prefix(0, val);
+	else if (strstr(ptr, "rmnet1"))
+		cpif_set_plat_prefix(1, val);
+	else
+		mif_err("-- unhandled plat prefix for %s\n", ptr);
 
-        return count;
+	return count;
 }
 static ssize_t xlat_addr_show(struct kobject *kobj,
-                struct kobj_attribute *attr, char *buf)
+		struct kobj_attribute *attr, char *buf)
 {
-        struct in6_addr addr = IN6ADDR_ANY_INIT;
-        ssize_t count = 0;
+	struct in6_addr addr = IN6ADDR_ANY_INIT;
+	ssize_t count = 0;
 
-        cpif_get_clat_addr(0, &addr);
-        count += sprintf(buf, "clat addr: %pI6\n", &addr);
+	cpif_get_clat_addr(0, &addr);
+	count += sprintf(buf, "clat addr: %pI6\n", &addr);
 
-        cpif_get_clat_addr(1, &addr);
-        count += sprintf(buf + count, "clat addr: %pI6\n", &addr);
+	cpif_get_clat_addr(1, &addr);
+	count += sprintf(buf + count, "clat addr: %pI6\n", &addr);
 
-        return count;
+	return count;
 }
 
 static ssize_t xlat_addr_store(struct kobject *kobj,
-                struct kobj_attribute *attr,
-                const char *buf, size_t count)
+		struct kobj_attribute *attr,
+		const char *buf, size_t count)
 {
-        struct in6_addr val;
-        char *ptr = NULL;
+	struct in6_addr val;
+	char *ptr = NULL;
 
-        mif_info("-- v6 addr: %s\n", buf);
+	mif_info("-- v6 addr: %s\n", buf);
 
-        ptr = strstr(buf, "@");
-        if (!ptr)
-                return -EINVAL;
-        *ptr++ = '\0';
+	ptr = strstr(buf, "@");
+	if (!ptr)
+		return -EINVAL;
+	*ptr++ = '\0';
 
-        if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
-                return -EINVAL;
+	if (in6_pton(buf, strlen(buf), val.s6_addr, '\0', NULL) == 0)
+		return -EINVAL;
 
-        if (strstr(ptr, "rmnet0"))
-                cpif_set_clat_addr(0, val);
-        else if (strstr(ptr, "rmnet1"))
-                cpif_set_clat_addr(1, val);
-        else
-                mif_err("-- unhandled clat addr for %s\n", ptr);
+	if (strstr(ptr, "rmnet0"))
+		cpif_set_clat_addr(0, val);
+	else if (strstr(ptr, "rmnet1"))
+		cpif_set_clat_addr(1, val);
+	else
+		mif_err("-- unhandled clat addr for %s\n", ptr);
 
-        return count;
+	return count;
 }
 static ssize_t xlat_v4addr_show(struct kobject *kobj,
-                struct kobj_attribute *attr, char *buf)
+		struct kobj_attribute *attr, char *buf)
 {
-        u32 addr = INADDR_ANY;
-        ssize_t count = 0;
+	u32 addr = INADDR_ANY;
+	ssize_t count = 0;
 
-        cpif_get_v4_filter(0, &addr);
-        count += sprintf(buf, "v4addr: %pI4\n", &addr);
+	cpif_get_v4_filter(0, &addr);
+	count += sprintf(buf, "v4addr: %pI4\n", &addr);
 
-        cpif_get_v4_filter(1, &addr);
-        count += sprintf(buf + count, "v4addr: %pI4\n", &addr);
+	cpif_get_v4_filter(1, &addr);
+	count += sprintf(buf + count, "v4addr: %pI4\n", &addr);
 
-        return count;
+	return count;
 }
 
 static ssize_t xlat_v4addr_store(struct kobject *kobj,
-                struct kobj_attribute *attr,
-                const char *buf, size_t count)
+		struct kobj_attribute *attr,
+		const char *buf, size_t count)
 {
-        struct in_addr val;
-        char *ptr = NULL;
+	struct in_addr val;
+	char *ptr = NULL;
 
-        mif_info("-- v4 addr: %s\n", buf);
+	mif_info("-- v4 addr: %s\n", buf);
 
-        ptr = strstr(buf, "@");
-        if (!ptr)
-                return -EINVAL;
-        *ptr++ = '\0';
+	ptr = strstr(buf, "@");
+	if (!ptr)
+		return -EINVAL;
+	*ptr++ = '\0';
 
-        if (in4_pton(buf, strlen(buf), (u8 *)&val.s_addr, '\0', NULL) == 0)
-                return -EINVAL;
+	if (in4_pton(buf, strlen(buf), (u8 *)&val.s_addr, '\0', NULL) == 0)
+		return -EINVAL;
 
-        if (strstr(ptr, "rmnet0"))
-                cpif_set_v4_filter(0, val.s_addr);
-        else if (strstr(ptr, "rmnet1"))
-                cpif_set_v4_filter(1, val.s_addr);
-        else
-                mif_err("-- unhandled clat v4 addr for %s\n", ptr);
+	if (strstr(ptr, "rmnet0"))
+		cpif_set_v4_filter(0, val.s_addr);
+	else if (strstr(ptr, "rmnet1"))
+		cpif_set_v4_filter(1, val.s_addr);
+	else
+		mif_err("-- unhandled clat v4 addr for %s\n", ptr);
 
-        return count;
+	return count;
 }
 
 static struct kobject *clat_kobject;
 static struct kobj_attribute xlat_plat_attribute = {
-        .attr = {.name = "xlat_plat", .mode = 0660},
-        .show = xlat_plat_show,
-        .store = xlat_plat_store,
+	.attr = {.name = "xlat_plat", .mode = 0660},
+	.show = xlat_plat_show,
+	.store = xlat_plat_store,
 };
 static struct kobj_attribute xlat_addr_attribute = {
-        .attr = {.name = "xlat_addrs", .mode = 0660},
-        .show = xlat_addr_show,
-        .store = xlat_addr_store,
+	.attr = {.name = "xlat_addrs", .mode = 0660},
+	.show = xlat_addr_show,
+	.store = xlat_addr_store,
 };
 static struct kobj_attribute xlat_v4addr_attribute = {
-        .attr = {.name = "xlat_v4_addrs", .mode = 0660},
-        .show = xlat_v4addr_show,
-        .store = xlat_v4addr_store,
+	.attr = {.name = "xlat_v4_addrs", .mode = 0660},
+	.show = xlat_v4addr_show,
+	.store = xlat_v4addr_store,
 };
 static struct attribute *clat_attrs[] = {
-        &xlat_plat_attribute.attr,
-        &xlat_addr_attribute.attr,
-        &xlat_v4addr_attribute.attr,
-        NULL,
+	&xlat_plat_attribute.attr,
+	&xlat_addr_attribute.attr,
+	&xlat_v4addr_attribute.attr,
+	NULL,
 };
 ATTRIBUTE_GROUPS(clat);
 
+
+static ssize_t upstream_dev_show(struct kobject *kobj,
+                struct kobj_attribute *attr, char *buf)
+{
+        char *upstream_dev_name = kmalloc(sizeof(char) * NETDEV_INTERFACE_NAME_LENGTH,
+					GFP_ATOMIC);
+        ssize_t count = 0;
+
+        cpif_tethering_upstream_dev_get(upstream_dev_name);
+        count += sprintf(buf, "tethering upstream dev: %s\n", upstream_dev_name);
+	mif_info("-- tethering upstream dev: %s\n", upstream_dev_name);
+
+	kfree(upstream_dev_name);
+
+        return count;
+}
+
+static ssize_t upstream_dev_store(struct kobject *kobj,
+                struct kobj_attribute *attr,
+                const char *buf, size_t count)
+{
+        char *upstream_dev_name_orig = kmalloc(sizeof(char) * NETDEV_INTERFACE_NAME_LENGTH,
+						GFP_ATOMIC);
+	char *upstream_dev_name_new = kmalloc(sizeof(char) * NETDEV_INTERFACE_NAME_LENGTH,
+						GFP_ATOMIC);
+	char *input = kmalloc(sizeof(char) * NETDEV_INTERFACE_NAME_LENGTH, GFP_ATOMIC);
+
+	cpif_tethering_upstream_dev_get(upstream_dev_name_orig);
+        mif_info("-- original tethering upstream dev: %s\n", upstream_dev_name_orig);
+
+	strcpy(input, buf);
+	cpif_tethering_upstream_dev_set(input);
+
+	cpif_tethering_upstream_dev_get(upstream_dev_name_new);
+	mif_info("-- new tethering upstream dev: %s\n", upstream_dev_name_new);
+
+	kfree(upstream_dev_name_orig);
+	kfree(upstream_dev_name_new);
+	kfree(input);
+
+        return count;
+}
+static struct kobject *cpif_tethering_kobject;
+static struct kobj_attribute upstream_dev_attribute = {
+	.attr = {.name = "upstream_dev", .mode =0660},
+	.show = upstream_dev_show,
+	.store = upstream_dev_store,
+};
+static struct attribute *cpif_tethering_attrs[] = {
+	&upstream_dev_attribute.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(cpif_tethering);
+
 #ifdef CONFIG_MODEM_IF_LEGACY_QOS
-static ssize_t hiprio_uid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+static ssize_t hiprio_uid_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	struct hiprio_uid_list *hiprio_list;
 	struct hiprio_uid *node;
@@ -824,7 +923,8 @@ static ssize_t hiprio_uid_show(struct kobject *kobj, struct kobj_attribute *attr
 	return count;
 }
 
-static ssize_t hiprio_uid_store(struct kobject *kobj, struct kobj_attribute *attr,
+static ssize_t hiprio_uid_store(struct kobject *kobj,
+		struct kobj_attribute *attr,
 		const char *buf, size_t count)
 {
 	long uid = 0;
@@ -966,16 +1066,27 @@ static int cpif_probe(struct platform_device *pdev)
 	if (sysfs_create_groups(&dev->kobj, modem_groups))
 		mif_err("failed to create modem groups node\n");
 
-        clat_kobject = kobject_create_and_add("clat", kernel_kobj);
-        if (!clat_kobject)
+	clat_kobject = kobject_create_and_add("clat", kernel_kobj);
+	if (!clat_kobject)
 		mif_err("clat: kobject_create failed ---\n");
 
-        if (sysfs_create_groups(clat_kobject, clat_groups))
-                mif_err("failed to create clat groups node\n");
+	if (sysfs_create_groups(clat_kobject, clat_groups))
+		mif_err("failed to create clat groups node\n");
 
 	err = cpif_init_clat_info();
 	if (err < 0)
 		mif_err("failed to initialize clat_info(%d)\n", err);
+
+	cpif_tethering_kobject = kobject_create_and_add("cpif_tethering", kernel_kobj);
+        if (!cpif_tethering_kobject)
+		mif_err("cpif_tethering: kobject_create failed ---\n");
+
+        if (sysfs_create_groups(cpif_tethering_kobject, cpif_tethering_groups))
+                mif_err("failed to create tethering groups node\n");
+
+	err = cpif_tethering_init();
+	if (err < 0)
+		mif_err("failed to initialize tethering_info(%d)\n", err);
 
 #ifdef CONFIG_MODEM_IF_LEGACY_QOS
 	cpif_qos_kobject = kobject_create_and_add("cpif_qos", kernel_kobj);
@@ -1025,6 +1136,8 @@ static void cpif_shutdown(struct platform_device *pdev)
 		mc->ops.power_shutdown(mc);
 
 	mc->phone_state = STATE_OFFLINE;
+
+	kobject_put(clat_kobject);
 
 	mif_err("%s\n", mc->name);
 }

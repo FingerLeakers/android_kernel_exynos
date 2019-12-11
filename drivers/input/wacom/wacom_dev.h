@@ -23,11 +23,23 @@ extern unsigned int lpcharge;
 
 #define RETRY_COUNT			3
 
+#if defined(CONFIG_SEC_FACTORY)
+#define WACOM_SEC_FACTORY	1
+#else
+#define WACOM_SEC_FACTORY	0
+#endif
+
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+#define WACOM_PRODUCT_SHIP	1
+#else
+#define WACOM_PRODUCT_SHIP	0
+#endif
+
 #define WACOM_I2C_RETRY		3
+#define WACOM_CMD_RETRY		2
 #define WACOM_INVALID_IRQ_COUNT	2
 
 #define CMD_RESULT_WORD_LEN	20
-#define POWER_OFFSET		1000000000000
 
 #define WACOM_I2C_MODE_NORMAL		false
 #define WACOM_I2C_MODE_BOOT		true
@@ -37,7 +49,7 @@ extern unsigned int lpcharge;
 #define WACOM_USE_SURVEY_MODE /* SURVEY MODE is LPM mode : Only detect grage(pdct) & aop */
 
 #ifdef WACOM_USE_SURVEY_MODE
-#define EPEN_RESUME_DELAY		20
+#define EPEN_RESUME_DELAY		0
 #else
 #define EPEN_RESUME_DELAY		180
 #endif
@@ -87,8 +99,9 @@ enum TABLE_SWAP {
 	TABLE_SWAP_KBD_COVER = 2,
 };
 
-#define WACOM_FW_PATH_SDCARD	"/sdcard/FIRMWARE/WACOM/wacom_firm.fw"
-#define WACOM_FW_PATH_FFU	"/spu/WACOM/ffu_wacom.bin"
+#define WACOM_PATH_EXTERNAL_FW	"/sdcard/FIRMWARE/WACOM/wacom.bin"
+#define WACOM_PATH_EXTERNAL_FW_SIGNED	"/sdcard/FIRMWARE/WACOM/wacom_signed.bin"
+#define WACOM_PATH_SPU_FW_SIGNED	"/spu/WACOM/ffu_wacom.bin"
 
 #define FW_UPDATE_RUNNING		1
 #define FW_UPDATE_PASS			2
@@ -99,16 +112,17 @@ enum {
 	WACOM_UMS,
 	WACOM_NONE,
 	WACOM_FFU,
+	WACOM_TEST,
 };
 
 enum {
 	FW_NONE = 0,
 	FW_BUILT_IN,
-	FW_FFU,
+	FW_SPU,
 	FW_HEADER,
 	FW_IN_SDCARD,
-	FW_EX_SDCARD,
-#ifdef CONFIG_SEC_FACTORY
+	FW_IN_SDCARD_SIGNED,
+#if WACOM_SEC_FACTORY
 	FW_FACTORY_GARAGE,
 	FW_FACTORY_UNIT,
 #endif
@@ -145,6 +159,11 @@ struct fw_image {
 #define EPEN_EVENT_AOP			(0x1<<2)
 #define EPEN_EVENT_SURVEY		(EPEN_EVENT_GARAGE | EPEN_EVENT_AOP)
 
+#define EPEN_SURVEY_MODE_NONE		0x0
+#define EPEN_SURVEY_MODE_GARAGE_ONLY	EPEN_EVENT_GARAGE
+#define EPEN_SURVEY_MODE_GARAGE_AOP	EPEN_EVENT_AOP
+
+
 /*--------------------------------------------------
  * function setting by user or default
  * wac_i2c->function_set
@@ -165,11 +184,6 @@ struct fw_image {
 #define EPEN_SETMODE_AOP			(EPEN_SETMODE_AOP_OPTION_AOD | EPEN_SETMODE_AOP_OPTION_SCREENOFFMEMO | \
 						 EPEN_SETMODE_AOP_OPTION_AOT)
 
-#define EPEN_SURVEY_MODE_NONE		0x0
-#define EPEN_SURVEY_MODE_GARAGE_ONLY	EPEN_EVENT_GARAGE
-#define EPEN_SURVEY_MODE_GARAGE_AOP	EPEN_EVENT_AOP
-
-
 enum {
 	EPEN_POS_ID_SCREEN_OF_MEMO = 1,
 };
@@ -187,7 +201,6 @@ struct epen_pos {
 	int x;
 	int y;
 };
-
 
 /*--------------------------------------------------
  * Set S-Pen mode for TSP
@@ -215,6 +228,10 @@ enum SCAN_MODE {
 };
 
 
+#define WACOM_STOP_CMD				0x00
+#define WACOM_START_CMD				0x01
+#define WACOM_STOP_AND_START_CMD	0x02
+
 /* skip event for keyboard cover */
 #define KEYBOARD_COVER_BOUNDARY  10400
 enum epen_virtual_event_mode {
@@ -228,6 +245,8 @@ enum epen_virtual_event_mode {
 #define COM_ELEC_NUM			38
 #define COM_ELEC_DATA_NUM		12
 #define COM_ELEC_DATA_POS		14
+
+#define POWER_OFFSET		1000000000000
 
 enum {
 	SEC_NORMAL = 0,
@@ -304,7 +323,7 @@ struct wacom_g5_platform_data {
 	int max_y_tilt;
 	int max_height;
 	const char *fw_path;
-#ifdef CONFIG_SEC_FACTORY
+#if WACOM_SEC_FACTORY
 	const char *fw_fac_path;
 #endif
 	u32 ic_type;
@@ -330,78 +349,115 @@ struct wacom_i2c {
 	struct mutex lock;
 	struct mutex update_lock;
 	struct mutex irq_lock;
+	bool power_enable;
+	struct wake_lock wakelock;
+	bool pm_suspend;
+	volatile bool probe_done;
+	bool query_status;
+	struct completion resume_done;
+	struct delayed_work resume_work;
+
+	int irq;
+	int irq_pdct;
+	int pen_pdct;
+	struct delayed_work pen_insert_dwork;
+
+	/* survey & garage */
 	struct mutex mode_lock;
+	u8 function_set;
+	u8 function_result;
+	volatile bool screen_on;
+	u8 survey_mode;
+	u8 check_survey_mode;
+	int samplerate_state;
+	volatile u8 report_scan_seq;	/* 1:normal, 2:garage+aod, 3:garage only, 4:sync aop*/
+
+	/* ble(ook) */
+	volatile u8 ble_mode;
+	volatile bool is_mode_change;
+	volatile bool ble_block_flag;
+	u32 chg_time_stamp;
+
+	/* for tui or factory test */
+	bool epen_blocked;
+
+	/* coord */
+	u16 hi_x;
+	u16 hi_y;
+	u16 p_x;
+	u16 p_y;
+	u16 x;
+	u16 y;
+	u16 tilt_x;
+	u16 tilt_y;
+	u16 pressure;
+	u16 height;	
+	int tool;
+	u32 mcount;
+	int pen_prox;
+	int pen_pressed;
+	int side_pressed;
+
+	struct epen_pos survey_pos;
+
+	/* fw update */
 	struct wake_lock fw_wakelock;
+	struct fw_image *fw_img;
+	const struct firmware *firm_data;
+
+	u32 fw_ver_ic;
+	u32 fw_ver_bin;
+	int update_status;
+	u8 *fw_data;
+	u8 fw_update_way;
+
+	bool checksum_result;
+	char fw_chksum[5];
+	bool do_crc_check;
+
+	/* tsp block */
+	bool is_tsp_block;
+	int tsp_scan_mode;
+	int tsp_block_cnt;
+
+	/* support additional mode */
+	bool battery_saving_mode;
+	int wcharging_mode;
+
 	struct delayed_work nb_reg_work;
+
 	struct notifier_block kbd_nb;
 	struct work_struct kbd_work;
 	u8 kbd_conn_state;
 	u8 kbd_cur_conn_state;
+	bool keyboard_cover_mode;
+	bool keyboard_area;
+	int virtual_tracking;
+
 	struct notifier_block typec_nb;
 	struct work_struct typec_work;
 	u8 dp_connect_state;
 	u8 dp_connect_cmd;
-	int irq;
-	int irq_pdct;
-	int pen_pdct;
-	int pen_prox;
-	int pen_pressed;
-	int side_pressed;
-	bool is_tsp_block;
-	int tsp_scan_mode;
-	int tsp_block_cnt;
-	int tool;
-	struct delayed_work pen_insert_dwork;
-	bool checksum_result;
-	struct delayed_work resume_work;
-	struct delayed_work work_print_info;
-	u32	print_info_cnt_open;
-	u32	scan_info_fail_cnt;
+
+	/* open test*/
+	volatile bool is_open_test;
 	bool connection_check;
 	int  fail_channel;
 	int  min_adc_val;
 	int  error_cal;
 	int  min_cal_val;
-	bool battery_saving_mode;
-	volatile bool screen_on;
-	bool power_enable;
-	volatile bool probe_done;
-	struct completion resume_done;
-	struct wake_lock wakelock;
-	bool pm_suspend;
-	u8 survey_mode;
-	u8 check_survey_mode;
-	bool epen_blocked;
-	u8 function_set;
-	u8 function_result;
-	volatile bool reset_flag;
-	struct epen_pos survey_pos;
-	bool query_status;
-	int wcharging_mode;
+
+	/* check abnormal case*/
+	struct delayed_work work_print_info;
+	u32	print_info_cnt_open;
+	u32	scan_info_fail_cnt;
+	u32 check_elec;
 	u32 i2c_fail_count;
 	u32 abnormal_reset_count;
 	u32 pen_out_count;
-	u32 fw_ver_ic;
-	u32 fw_ver_bin;
-	int update_status;
-	const struct firmware *firm_data;
-	struct fw_image *fw_img;
-	u8 *fw_data;
-	char fw_chksum[5];
-	u8 fw_update_way;
-	bool do_crc_check;
-	bool keyboard_cover_mode;
-	bool keyboard_area;
-	int virtual_tracking;
-	u32 mcount;
-	volatile bool is_open_test;
-	bool samplerate_state;
-	volatile u8 ble_mode;
-	volatile bool is_mode_change;
-	volatile bool ble_block_flag;
-	u32 chg_time_stamp;
-	u32 check_elec;
-#ifdef CONFIG_SEC_FACTORY
+	volatile bool reset_flag;
+
+#if WACOM_SEC_FACTORY
 	volatile bool fac_garage_mode;
 	u32 garage_gain0;
 	u32 garage_gain1;
@@ -430,8 +486,10 @@ int wacom_i2c_flash(struct wacom_i2c *);
 void wacom_enable_irq(struct wacom_i2c *, bool enable);
 void wacom_enable_pdct_irq(struct wacom_i2c *, bool enable);
 
-int wacom_i2c_send(struct wacom_i2c *, const char *buf, int count, bool mode);
-int wacom_i2c_recv(struct wacom_i2c *, char *buf, int count, bool mode);
+int wacom_i2c_send(struct wacom_i2c *, const char *buf, int count);
+int wacom_i2c_send_boot(struct wacom_i2c *, const char *buf, int count);
+int wacom_i2c_recv(struct wacom_i2c *, char *buf, int count);
+int wacom_i2c_recv_boot(struct wacom_i2c *, char *buf, int count);
 
 int wacom_i2c_query(struct wacom_i2c *);
 int wacom_checksum(struct wacom_i2c *);
@@ -442,6 +500,7 @@ void forced_release_fullscan(struct wacom_i2c *wac_i2c);
 
 void wacom_select_survey_mode(struct wacom_i2c *, bool enable);
 int wacom_i2c_set_survey_mode(struct wacom_i2c *, int mode);
+int wacom_start_stop_cmd(struct wacom_i2c *wac_i2c, int mode);
 
 int wacom_open_test(struct wacom_i2c *wac_i2c);
 
@@ -449,9 +508,10 @@ int wacom_sec_init(struct wacom_i2c *);
 void wacom_sec_remove(struct wacom_i2c *);
 
 void wacom_print_info(struct wacom_i2c *wac_i2c);
+void wacom_i2c_coord_modify(struct wacom_i2c *wac_i2c);
 
 extern int set_scan_mode(int mode);
-#ifdef CONFIG_SEC_FACTORY
+#if WACOM_SEC_FACTORY
 bool wacom_check_ub(struct wacom_i2c *wac_i2c);
 #endif
 

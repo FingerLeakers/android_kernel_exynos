@@ -5220,8 +5220,8 @@ void tcp_data_ready(struct sock *sk)
 	if (avail < sk->sk_rcvlowat && !sock_flag(sk, SOCK_DONE) && !mptcp(tp))
 #else
 	if (avail < sk->sk_rcvlowat && !sock_flag(sk, SOCK_DONE))
-		return;
 #endif
+		return;
 
 	sk->sk_data_ready(sk);
 }

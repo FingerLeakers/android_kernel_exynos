@@ -140,7 +140,8 @@ int sensor_cis_set_registers(struct v4l2_subdev *subdev, const u32 *regs, const 
 
 p_err:
 	if (ret) {
-		cis->stream_state = CIS_STREAM_SET_ERR;
+		if (cis)
+			cis->stream_state = CIS_STREAM_SET_ERR;
 		err("[%s] global/mode setting fail(%d)", __func__, ret);
 	}
 
@@ -706,6 +707,11 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 	    goto p_err;
 	}
 
+	if (cis->long_term_mode.sen_strm_off_on_enable) {
+		info("[MOD:d:%d] %s, Skip, LTE mode is operating", cis->id, __func__);
+		goto p_err;
+	}
+
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = is_sensor_read8(client, 0x0005, &sensor_fcount);
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -713,7 +719,7 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 	    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
 
 	if (cis_data->dual_slave == true)
-		time_out_cnt = time_out_cnt * 2;
+		time_out_cnt = time_out_cnt * 4;
 
 	/*
 	 * Read sensor frame counter (sensor_fcount address = 0x0005)

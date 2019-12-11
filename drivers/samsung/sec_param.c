@@ -21,7 +21,7 @@
 #define PARAM_WR		1
 
 #define SEC_PARAM_NAME	"/dev/block/param"
-#define STR_LENGTH	1024
+#define STR_LENGTH	2048
 
 struct sec_param_data_s {
 	struct work_struct sec_param_work;
@@ -231,8 +231,15 @@ int sec_set_param(unsigned long offset, char val)
 
 	mutex_lock(&sec_param_mutex);
 	printk("%s offset %lu\n", __func__, offset);
-	if (((offset < CM_OFFSET) || (offset > CM_OFFSET + CM_OFFSET_LIMIT)) && (offset != FMM_LOCK_OFFSET))
-		goto unlock_out;
+	switch (offset) {
+	case CM_OFFSET ... CM_OFFSET_LIMIT:
+	case PD_OFFSET ... PD_OFFSET_LIMIT:
+		break;
+	default:
+		if (offset != FMM_LOCK_OFFSET)
+			goto unlock_out;
+		break;
+	}
 
 	switch (val) {
 	case PARAM_OFF:
@@ -259,7 +266,7 @@ int sec_set_param_u32(unsigned long offset, u32 val)
 {
 	mutex_lock(&sec_param_mutex_u32);
 
-	if ((offset < WC_OFFSET) || (offset > WC_OFFSET + WC_OFFSET_LIMIT)) {
+	if ((offset < WC_OFFSET) || (offset > WC_OFFSET_LIMIT)) {
 		mutex_unlock(&sec_param_mutex_u32);
 		return -1;
 	}
@@ -279,7 +286,7 @@ int sec_get_param_u32(unsigned long offset, u32 *val)
 {
 	mutex_lock(&sec_param_mutex_u32);
 
-	if ((offset < WC_OFFSET) || (offset > WC_OFFSET + WC_OFFSET_LIMIT)) {
+	if ((offset < WC_OFFSET) || (offset > WC_OFFSET_LIMIT)) {
 		mutex_unlock(&sec_param_mutex_u32);
 		return -1;
 	}

@@ -1,4 +1,31 @@
-BCM4375 DHD 101.12.4 for Android Hubble Project
+BCM4375 DHD 101.12.6 for Android Hubble Project
+
+DHD 101.12.6 - 2019.11.29
+New Feature
+ - CS9311864(By Seongu Choi) Added private command to control Assurance 2.0 feature
+ - Introduced GRO (Generic Receive Offload) feature
+
+Others
+ - CS8898926(By Sunghee Lee) Changed log level to reduce unnecessary logs
+ - CS9238037(By Choi Hyeonu) Fixed prevent issue (CID 66382)
+ - CS9252614(By Jeong Min Cheol) Added debug info to check dongle d3 status
+ - CS9268629(By Jeong Ki Yeong) Fixed WPS connection failure issue
+ - CS9275837(By Seongsu Choi) Fixed assoc response IE's length condition for wpa_supplicant
+ - CS9299102(By Min SungBin) Added consecutive hang and avoid once trap for MFG Test mode
+ - CS9312267(By Park Jun-young) Change RPM default max idle count to enter RPM suspend aggressively
+ - Disabled unused SSSR dumps before SR
+ - Fixed BRCM internal coverity issue
+ - Fixed to remove duplication of FILS HLP element in the assoc request frames
+ - Introduced new iovar to control debugging log level
+   (this patch need to use DHD 1.370 or higher version)
+
+Vendor HAL Library
+- HAL_REL_1_59_11
+ - Clean up unused '#ifdef' directives
+
+APPS 1.370
+- dhd UTIL (dhdarm64_android)
+
 
 DHD 101.12.4 - 2019.11.15
 New Feature

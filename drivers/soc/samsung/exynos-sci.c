@@ -14,14 +14,26 @@
 #include <linux/vmalloc.h>
 #include <linux/debug-snapshot-helper.h>
 #include <linux/suspend.h>
+#include <linux/interrupt.h>
+#include <linux/of_irq.h>
 
 #include <asm/map.h>
 
 #include <soc/samsung/acpm_ipc_ctrl.h>
 #include <soc/samsung/exynos-sci.h>
 
+extern struct atomic_notifier_head panic_notifier_list;
+#ifdef CONFIG_HARDLOCKUP_DETECTOR_OTHER_CPU
+extern struct atomic_notifier_head hardlockup_notifier_list;
+#endif
+
 static struct exynos_sci_data *sci_data;
 static void __iomem *dump_base;
+struct sci_handler {
+	unsigned int	 irq;
+	char		name[16];
+	void		 *handler;
+};
 
 static void print_sci_data(struct exynos_sci_data *data)
 {
@@ -36,18 +48,43 @@ static void print_sci_data(struct exynos_sci_data *data)
 			data->llc_enable ? "True" : "False");
 }
 
+static irqreturn_t exynos_sci_handler(int irq, void *data)
+{
+	llc_ecc_logging();
+	return 0;
+}
+
 #ifdef CONFIG_OF
 static int exynos_sci_parse_dt(struct device_node *np,
 				struct exynos_sci_data *data)
 {
-	int ret;
+	struct sci_handler *sci_h;
+	int ret, i, nr_irq;
 	int size;
 
 	if (!np)
 		return -ENODEV;
 
+	/* ECC irq request */
+	nr_irq = of_irq_count(np);
+
+	if (nr_irq > 0) {
+		sci_h = kzalloc(sizeof(struct sci_handler) * nr_irq,
+				GFP_KERNEL);
+	}
+
+	for (i = 0; i < nr_irq; i++) {
+		sci_h[i].irq = irq_of_parse_and_map(np, i);
+		snprintf(sci_h[i].name, sizeof(sci_h[i].name), "sci_handler%d", i);
+		sci_h[i].handler = (void *)exynos_sci_handler;
+
+		devm_request_irq(sci_data->dev, sci_h[i].irq, sci_h[i].handler,
+				IRQF_NOBALANCING | IRQF_GIC_MULTI_TARGET,
+				sci_h[i].name, &sci_h[i]);
+	}
+
 	ret = of_property_read_u32(np, "use_init_llc_region",
-					&data->use_init_llc_region);
+			&data->use_init_llc_region);
 	if (ret) {
 		SCI_ERR("%s: Failed get initial_llc_region\n", __func__);
 		return ret;
@@ -486,6 +523,60 @@ void llc_region_alloc(unsigned int region_index, bool on)
 }
 EXPORT_SYMBOL(llc_region_alloc);
 
+static void print_register(int reg, int type)
+{
+	SCI_ERR("0x%x: mpACE: 0x%x, nonSFS: 0x%x, SFS: 0x%x, ", reg,
+		SCI_BIT_GET(reg, mpACE_MASK, mpACE_SHIFT),
+		SCI_BIT_GET(reg, nonSFS_MASK, nonSFS_SHIFT),
+		SCI_BIT_GET(reg, SFS_MASK, SFS_SHIFT));
+
+	switch (type) {
+	case DBE:
+		SCI_ERR("PE: 0x%x, RE: 0x%x\n",
+			SCI_BIT_GET(reg, PE_MASK, PE_SHIFT),
+			SCI_BIT_GET(reg, RE_MASK, RE_SHIFT));
+		break;
+	case SBE:
+		SCI_ERR("SFP: 0x%x\n",
+			SCI_BIT_GET(reg, SFP_MASK, SFP_SHIFT));
+		break;
+	}
+}
+
+static void get_llcecc_info(int offset, int type)
+{
+	int reg, ecc;
+
+	reg = __raw_readl(sci_data->sci_base + offset);
+
+	ecc = SCI_BIT_GET(reg, type, LLC_ECC_MASK);
+	if (ecc == 0)
+		SCI_INFO("There is not ECC error\n");
+	else
+		print_register(reg, type);
+}
+
+void llc_ecc_logging(void)
+{
+
+	unsigned long flags;
+
+	spin_lock_irqsave(&sci_data->lock, flags);
+	if (sci_data->llc_ecc_flag) {
+		goto out;
+	}
+
+	get_llcecc_info(UcErrSource1, DBE);
+	get_llcecc_info(UcErrOverrunSource1, DBE);
+	get_llcecc_info(CorrErrSource1, SBE);
+	get_llcecc_info(CorrErrOverrunSource1, SBE);
+
+	sci_data->llc_ecc_flag = true;
+out:
+	spin_unlock_irqrestore(&sci_data->lock, flags);
+}
+EXPORT_SYMBOL(llc_ecc_logging);
+
 /* SYSFS Interface */
 static ssize_t show_sci_data(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -836,6 +927,30 @@ static struct dev_pm_ops exynos_sci_pm_ops = {
 	.resume		= exynos_sci_pm_resume,
 };
 
+static int exynos_sci_panic_handler(struct notifier_block *nb,
+		unsigned long l, void *data)
+{
+	llc_ecc_logging();
+	return NOTIFY_OK;
+}
+
+static struct notifier_block exynos_sci_panic_nb = {
+        .notifier_call = exynos_sci_panic_handler,
+};
+
+#ifdef CONFIG_LOCKUP_DETECTOR
+static int exynos_sci_lockup_handler(struct notifier_block *nb,
+		unsigned long l, void *core)
+{
+	llc_ecc_logging();
+
+	return 0;
+}
+static struct notifier_block exynos_sci_lockup_nb = {
+        .notifier_call = exynos_sci_lockup_handler,
+};
+#endif
+
 static int __init exynos_sci_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -911,6 +1026,13 @@ static int __init exynos_sci_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
+	atomic_notifier_chain_register(&panic_notifier_list,
+			&exynos_sci_panic_nb);
+#ifdef CONFIG_LOCKUP_DETECTOR
+	atomic_notifier_chain_register(&hardlockup_notifier_list,
+			&exynos_sci_lockup_nb);
+#endif
+
 	exynos_sci_llc_dump_config(data);
 
 	platform_set_drvdata(pdev, data);
@@ -919,6 +1041,7 @@ static int __init exynos_sci_probe(struct platform_device *pdev)
 	if (ret)
 		SCI_ERR("%s: failed creat sysfs for Exynos SCI\n", __func__);
 
+	sci_data->llc_ecc_flag = false;
 	print_sci_data(data);
 
 	SCI_INFO("%s: exynos sci is initialized!!\n", __func__);

@@ -518,7 +518,7 @@ static int s2mps19_pmic_dt_parse_pdata(struct s2mps19_dev *iodev,
 {
 	struct device_node *pmic_np, *regulators_np, *reg_np;
 	struct s2mps19_regulator_data *rdata;
-	unsigned int i;
+	size_t i;
 	int ret;
 	u32 val;
 	pdata->smpl_warn_vth = 0;
@@ -682,7 +682,7 @@ void send_hqm_bocp_work(struct work_struct *work)
 static irqreturn_t s2mps19_buck_ocp_irq(int irq, void *data)
 {
 	struct s2mps19_info *s2mps19 = data;
-	int i;
+	size_t i;
 
 	mutex_lock(&s2mps19->lock);
 
@@ -942,7 +942,7 @@ static const struct attribute_group ap_pmic_attr_group = {
 void s2mps19_oi_function(struct s2mps19_dev *iodev)
 {
 	struct i2c_client *i2c = iodev->pmic;
-	int i;
+	size_t i;
 	u8 val;
 
 	/* BUCK1~12 & buck-boost OI function enable */
@@ -1027,14 +1027,14 @@ static ssize_t s2mps19_write_store(struct device *dev,
 {
 	struct s2mps19_info *s2mps19 = dev_get_drvdata(dev);
 	int ret;
-	unsigned int reg, data;
+	u8 reg, data;
 
 	if (buf == NULL) {
 		pr_info("%s: empty buffer\n", __func__);
 		return size;
 	}
 
-	ret = sscanf(buf, "%x %x", &reg, &data);
+	ret = sscanf(buf, "%02x %02x", &reg, &data);
 	if (ret != 2) {
 		pr_info("%s: input error\n", __func__);
 		return size;
@@ -1095,9 +1095,9 @@ static int s2mps19_pmic_probe(struct platform_device *pdev)
 	struct s2mps19_platform_data *pdata = iodev->pdata;
 	struct regulator_config config = { };
 	struct s2mps19_info *s2mps19;
-	int irq_base;
-	int i, ret, ret1, ret2, ret3;
+	int irq_base, ret, ret1, ret2, ret3;
 	u8 val, val1, val2, val3;
+	size_t i;
 
 	/* WRSTBI pin check */
 	s2mps19_check_wrstbi();

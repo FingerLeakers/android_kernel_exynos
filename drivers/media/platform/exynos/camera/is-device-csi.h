@@ -125,6 +125,7 @@ struct is_device_csi {
 	struct phy			*phy;
 
 	u32 error_id[CSI_VIRTUAL_CH_MAX];
+	u32 error_id_last[CSI_VIRTUAL_CH_MAX];
 	u32 error_count;
 
 	atomic_t                        vblank_count; /* Increase at CSI frame end */
@@ -145,7 +146,8 @@ struct is_device_csi_dma {
 	resource_size_t			regs_start;
 	resource_size_t			regs_end;
 
-	atomic_t			rcount; /* CSI open count check */
+	atomic_t			rcount; /* CSI stream on count check */
+	atomic_t			rcount_pwr; /* CSI power on count check */
 
 	spinlock_t			barrier;
 };

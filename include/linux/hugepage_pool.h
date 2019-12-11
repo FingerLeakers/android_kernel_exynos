@@ -3,6 +3,7 @@
 #define __INCLUDE_LINUX_HUGEPAGE_POOL_H
 
 #include <linux/sched.h>
+#include <linux/oom.h>
 
 #define HUGEPAGE_ORDER HPAGE_PMD_ORDER
 
@@ -40,11 +41,15 @@ static inline bool is_hugepage_allowed(struct task_struct *task, int order,
 		return false;
 #endif
 
-	/* rule #2 : order should be HUGEPAGE_ORDER */
+	/* rule #2 : do not allow for native apps */
+	if (type == HPAGE_ANON && current->signal->oom_score_adj == OOM_SCORE_ADJ_MIN)
+		return false;
+
+	/* rule #3 : order should be HUGEPAGE_ORDER */
 	if (order != HUGEPAGE_ORDER)
 		return false;
 
-	/* rule #3 : check max limit for HPAGE_ANON type */
+	/* rule #4 : check max limit for HPAGE_ANON type */
 	if (type == HPAGE_ANON && check_max_thp_limit_violation())
 		return false;
 	return true;

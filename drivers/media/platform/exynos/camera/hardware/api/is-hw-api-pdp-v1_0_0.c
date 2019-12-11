@@ -737,7 +737,7 @@ int pdp_hw_s_one_shot_enable(void __iomem *base)
 		PDP_F_CINFIFO_OUTPUT_IMAGE_HEIGHT);
 
 	do {
-		udelay(1);
+		udelay(3); /* 3us * 10000 = 30 ms */
 
 		try_cnt++;
 		if (try_cnt >= PDP_TRY_COUNT) {

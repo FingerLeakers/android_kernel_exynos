@@ -123,7 +123,6 @@ enum power_supply_ext_property {
 #endif
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
-	POWER_SUPPLY_EXT_PROP_MUST_REMOVE_THIS_NODE,
 };
 
 enum rx_device_type {
@@ -138,7 +137,7 @@ enum sec_battery_usb_conf {
 	USB_CURRENT_SUSPENDED = 1,
 	USB_CURRENT_UNCONFIGURED = 100,
 	USB_CURRENT_HIGH_SPEED = 475,
-	USB_CURRENT_SUPER_SPEED = 875,
+	USB_CURRENT_SUPER_SPEED = 850,
 };
 
 enum power_supply_ext_health {
@@ -1048,6 +1047,9 @@ struct sec_battery_platform_data {
 	unsigned int max_charging_charge_power;
 	int mix_high_temp;
 	int mix_high_chg_temp;
+#if defined(CONFIG_DIRECT_CHARGING)
+	int mix_high_dc_temp;
+#endif
 	int mix_high_temp_recovery;
 	unsigned int charging_limit_by_tx_check; /* check limited charging current during wireless power sharing with cable charging */
 	unsigned int charging_limit_current_by_tx;

@@ -290,7 +290,7 @@ enum {
 #define MMU_SEC_REG(drvdata, offset_idx)		\
 		((drvdata)->securebase + (drvdata)->reg_set[offset_idx])
 #define MMU_SEC_VM_REG(drvdata, offset_idx, vmid)	\
-	((drvdata)->securebase + (drvdata)->reg_set[offset_idx], (vmid) * 0x10)
+	((drvdata)->securebase + (drvdata)->reg_set[offset_idx] + (vmid) * 0x10)
 
 /*
  * This structure exynos specific generalization of struct iommu_domain.
@@ -306,6 +306,7 @@ struct exynos_iommu_domain {
 	atomic_t *lv2entcnt;	/* free lv2 entry counter for each section */
 	spinlock_t lock;		/* lock for modifying clients_list */
 	struct exynos_iommu_event_log log;
+	bool pre_alloc;		/* Pre-allocation of  all lv2 page table */
 };
 
 /*

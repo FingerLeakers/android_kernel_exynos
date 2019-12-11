@@ -87,7 +87,7 @@ static int gpu_update_cur_level(struct exynos_context *platform)
 #define gpu_update_cur_level(platform) (0)
 #endif
 
-int gpu_set_target_clk_vol(int clk, bool pending_is_allowed)
+int gpu_set_target_clk_vol(int clk, bool pending_is_allowed, bool force)
 {
 	int ret = 0, target_clk = 0;
 	int prev_clk = 0;
@@ -126,8 +126,11 @@ int gpu_set_target_clk_vol(int clk, bool pending_is_allowed)
 	}
 
 #endif /* CONFIG_MALI_DVFS */
+	if (!force)
+		target_clk = gpu_check_target_clock(platform, clk);
+	else
+		target_clk = clk;
 
-	target_clk = gpu_check_target_clock(platform, clk);
 	if (target_clk < 0) {
 		mutex_unlock(&platform->gpu_clock_lock);
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u,
@@ -302,7 +305,7 @@ int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type l
 		spin_unlock_irqrestore(&platform->gpu_dvfs_spinlock, flags);
 
 		if ((platform->max_lock > 0) && (platform->cur_clock >= platform->max_lock))
-			gpu_set_target_clk_vol(platform->max_lock, false);
+			gpu_set_target_clk_vol(platform->max_lock, false, false);
 
 		GPU_LOG(DVFS_DEBUG, LSI_GPU_MAX_LOCK, lock_type, clock,
 			"lock max clk[%d], user lock[%d], current clk[%d]\n",
@@ -332,7 +335,7 @@ int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type l
 
 		if ((platform->min_lock > 0) && (platform->cur_clock < platform->min_lock)
 						&& (platform->min_lock <= platform->max_lock))
-			gpu_set_target_clk_vol(platform->min_lock, false);
+			gpu_set_target_clk_vol(platform->min_lock, false, false);
 
 		GPU_LOG(DVFS_DEBUG, LSI_GPU_MIN_LOCK, lock_type, clock,
 			"lock min clk[%d], user lock[%d], current clk[%d]\n",
@@ -421,7 +424,7 @@ int gpu_dvfs_on_off(bool enable)
 
 	if (enable && !platform->dvfs_status) {
 		mutex_lock(&platform->gpu_dvfs_handler_lock);
-		gpu_set_target_clk_vol(platform->cur_clock, false);
+		gpu_set_target_clk_vol(platform->cur_clock, false, false);
 		gpu_dvfs_handler_init(kbdev);
 		mutex_unlock(&platform->gpu_dvfs_handler_lock);
 
@@ -431,7 +434,7 @@ int gpu_dvfs_on_off(bool enable)
 
 		mutex_lock(&platform->gpu_dvfs_handler_lock);
 		gpu_dvfs_handler_deinit(kbdev);
-		gpu_set_target_clk_vol(platform->gpu_dvfs_config_clock, false);
+		gpu_set_target_clk_vol(platform->gpu_dvfs_config_clock, false, false);
 		mutex_unlock(&platform->gpu_dvfs_handler_lock);
 	} else {
 		GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "%s: impossible state to change dvfs status (current: %d, request: %d)\n",

@@ -28,4 +28,9 @@ struct usb_xhci_pre_alloc {
 
 extern struct usb_xhci_pre_alloc xhci_pre_alloc;
 extern void __iomem *phycon_base_addr;
+
+#if defined(CONFIG_USB_DWC3_EXYNOS)
+int xhci_soc_config_after_reset(struct xhci_hcd *xhci);
+#endif
+
 #endif	/* _XHCI_PLAT_H */

@@ -63,5 +63,6 @@ int drm_gsc_enable_locked(bool enable);
 #define SECMEM_IOC_SET_PROTECT		_IOWR('S', 12, int)
 #define SECMEM_IOC_SET_VIDEO_EXT_PROC	_IOWR('S', 13, int)
 #define SECMEM_IOC_GET_DRM_PROT_VER	_IOWR('S', 14, int)
+#define SECMEM_IOC_DP_POWER_CONTROL	_IOWR('S', 15, int)
 
 #endif /* __ASM_ARCH_SECMEM_H */

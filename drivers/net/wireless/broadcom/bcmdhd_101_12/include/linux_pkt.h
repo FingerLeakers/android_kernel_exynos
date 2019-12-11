@@ -125,7 +125,7 @@
 extern void osl_pkt_orphan_partial(struct sk_buff *skb);
 #else
 #define PKTORPHAN(skb)          ({BCM_REFERENCE(skb); 0;})
-#endif /* LINUX VERSION >= 3.6 */
+#endif /* Linux Version >= 3.6 */
 
 #define	PKTSETFAST(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTCLRFAST(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})

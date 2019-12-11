@@ -11,7 +11,7 @@
 
 #include <dt-bindings/camera/exynos_is_dt.h>
 
-/* GH1 sensor setting version - S5KGH1_EVT0_Ver_1.3.xlsx */
+/* GH1 sensor setting version - S5KGH1_EVT0_Ver_1.6.xlsx */
 /* Global setting */
 /* sensor_gh1_setfile_A_Global */
 
@@ -26,6 +26,7 @@
 /* A8	26Mhz_912x684_1300Msps_120FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1300, MIPI Mclk(Mhz): 26 */
 /* A9	26Mhz_2944x2208_1398Msps_30FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1397.5, MIPI Mclk(Mhz): 26 */
 /* A10	26Mhz_3216x1808_1300Msps_30FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1300, MIPI Mclk(Mhz): 26 */
+/* A11	26Mhz_912x684_1300Msps_120FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1300, MIPI Mclk(Mhz): 26 LRTE OFF */
 
 
 / {
@@ -37,8 +38,8 @@
 
 				/* common */
 				sensor_id = <SENSOR_NAME_S5KGH1>;
-				active_width = <7296>;
-				active_height = <5472>;
+				active_width = <7968>;
+				active_height = <5480>;
 				margin_left = <0>;
 				margin_right = <0>;
 				margin_top = <0>;
@@ -113,8 +114,8 @@
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0	/* out */ HW_FORMAT_RAW10 VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0	/* out */ HW_FORMAT_RAW10 VC_NOTHING 0 0>;
 					};
-					mode7 {/* A8	26Mhz_912x684_1300Msps_120FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1300, MIPI Mclk(Mhz): 26 */
-						common = <912 684 120 0 7 CSI_DATA_LANES_3 1300 CSI_MODE_VC_ONLY LRTE_ENABLE PD_NONE>;
+					mode7 {/* A11	26Mhz_912x684_1300Msps_120FPS MIPI lane: 4, MIPI data rate(Mbps/lane): 1300, MIPI Mclk(Mhz): 26  LRTE OFF */
+						common = <912 684 120 0 7 CSI_DATA_LANES_3 1300 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 912 684	/* out */ HW_FORMAT_RAW10 VC_NOTHING 912 684>;
 						vc1 = </* in */ 1 HW_FORMAT_RAW10 0 0	/* out */ HW_FORMAT_RAW10 VC_NOTHING 0 0>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0	/* out */ HW_FORMAT_RAW10 VC_NOTHING 0 0>;
@@ -147,7 +148,7 @@
 						10 { pname = "VDDAF_2.8V_VT"; pin = <PIN_REGULATOR 1 0>; };
 						/* 20 { pname = "VDDA_2.95V_VT"; pin = <PIN_REGULATOR 1 0>; }; */
 						25 { pname = "vt_en high"; pin = <PIN_OUTPUT 1 0>; gpio = <&gpp2 6 0x1>; };
-						30 { pname = "VDDIO_1.8V_VT"; pin = <PIN_REGULATOR 1 11000>; };
+						30 { pname = "VDDIO_1.8V_VT"; pin = <PIN_REGULATOR 1 0>; };
 						/* 40 { pname = "VDDD_1.05V_VT"; pin = <PIN_REGULATOR 1 1000>; }; */
 						50 { pname = "on_i2c"; pin = <PIN_I2C 1 10>; };
 						60 { pname = "rst_high"; pin = <PIN_OUTPUT 1 0>; gpio = <&gpm11 0 0x1>; };
@@ -183,7 +184,7 @@
 						10 { pname = "VDDAF_2.8V_VT"; pin = <PIN_REGULATOR 1 0>; };
 						/* 20 { pname = "VDDA_2.95V_VT"; pin = <PIN_REGULATOR 1 0>; }; */
 						25 { pname = "vt_en high"; pin = <PIN_OUTPUT 1 0>; gpio = <&gpp2 6 0x1>; };
-						30 { pname = "VDDIO_1.8V_VT"; pin = <PIN_REGULATOR 1 11000>; };
+						30 { pname = "VDDIO_1.8V_VT"; pin = <PIN_REGULATOR 1 0>; };
 						/* 40 { pname = "VDDD_1.05V_VT"; pin = <PIN_REGULATOR 1 1000>; }; */
 						50 { pname = "on_i2c"; pin = <PIN_I2C 1 10>; };
 						60 { pname = "rst_high"; pin = <PIN_OUTPUT 1 0>; gpio = <&gpm11 0 0x1>; };

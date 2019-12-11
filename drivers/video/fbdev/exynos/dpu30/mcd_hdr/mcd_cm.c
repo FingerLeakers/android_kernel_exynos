@@ -144,28 +144,28 @@ void get_tables_standard(struct cm_tables * tables, const unsigned int target_bi
     }
 }
 void set_tables_OTT_HDR10(struct cm_tables * tables, const enum type_ott type, const unsigned int target_bit) {
-    if (type == OTT_NETFLIX)
+    if (type == OTT_CUSTOM4000)
     {
-        tables->eotf       = NETFLIX_TABLE_EOTF;
-        tables->gm         = NETFLIX_TABLE_GM;
-        tables->oetf       = (target_bit == 8) ? NETFLIX_TABLE_OETF08 : NETFLIX_TABLE_OETF10;
-        tables->sc         = NETFLIX_TABLE_SC;
-        tables->tm_curve   = NETFLIX_TABLE_TM_CURVE;
-        tables->tm_gamut   = NETFLIX_TABLE_TM_GAMUT;
-        tables->tm_tune    = NETFLIX_TABLE_TM_TUNE;
+        tables->eotf       = CUSTOM4000_TABLE_EOTF;
+        tables->gm         = CUSTOM4000_TABLE_GM;
+        tables->oetf       = (target_bit == 8) ? CUSTOM4000_TABLE_OETF08 : CUSTOM4000_TABLE_OETF10;
+        tables->sc         = CUSTOM4000_TABLE_SC;
+        tables->tm_curve   = CUSTOM4000_TABLE_TM_CURVE;
+        tables->tm_gamut   = CUSTOM4000_TABLE_TM_GAMUT;
+        tables->tm_tune    = CUSTOM4000_TABLE_TM_TUNE;
         tables->tm_ext     = TABLE_TM_EXT;
         tables->tm_dynamic = NULL;
         tables->tm_off     = NULL;
     }
-    else if (type == OTT_AMAZON)
+    else if (type == OTT_CUSTOM1000)
     {
-        tables->eotf       = AMAZON_TABLE_EOTF;
-        tables->gm         = AMAZON_TABLE_GM;
-        tables->oetf       = (target_bit == 8) ? AMAZON_TABLE_OETF08 : AMAZON_TABLE_OETF10;
-        tables->sc         = AMAZON_TABLE_SC;
-        tables->tm_curve   = AMAZON_TABLE_TM_CURVE;
-        tables->tm_gamut   = AMAZON_TABLE_TM_GAMUT;
-        tables->tm_tune    = AMAZON_TABLE_TM_TUNE;
+        tables->eotf       = CUSTOM1000_TABLE_EOTF;
+        tables->gm         = CUSTOM1000_TABLE_GM;
+        tables->oetf       = (target_bit == 8) ? CUSTOM1000_TABLE_OETF08 : CUSTOM1000_TABLE_OETF10;
+        tables->sc         = CUSTOM1000_TABLE_SC;
+        tables->tm_curve   = CUSTOM1000_TABLE_TM_CURVE;
+        tables->tm_gamut   = CUSTOM1000_TABLE_TM_GAMUT;
+        tables->tm_tune    = CUSTOM1000_TABLE_TM_TUNE;
         tables->tm_ext     = TABLE_TM_EXT;
         tables->tm_dynamic = NULL;
         tables->tm_off     = NULL;
@@ -241,14 +241,23 @@ void customize_dataspace(enum gamma_index * src_gamma, enum gamut_index * src_ga
     const enum gamma_type_index i_type = (s_gamma == INDEX_GAMMA_ST2084) ? INDEX_TYPE_PQ :
                                          (s_gamma == INDEX_GAMMA_HLG   ) ? INDEX_TYPE_HLG : INDEX_TYPE_SDR;
     //-------------------------------------------------------------------------------------------------
-    *src_gamut = ((legacy_mode == 1) && (i_type == INDEX_TYPE_SDR)) ? INDEX_GAMUT_DCI_P3 : ((enum gamut_index)s_gamut);
-    *dst_gamut = ((legacy_mode == 1)                              ) ? INDEX_GAMUT_DCI_P3 : ((enum gamut_index)d_gamut);
-    *src_gamma = ((legacy_mode == 1) && (i_type == INDEX_TYPE_SDR)) ? INDEX_GAMMA_SRGB   : ((enum gamma_index)s_gamma);
-    *dst_gamma = (legacy_mode == 1) ? ((i_type == INDEX_TYPE_SDR) ? INDEX_GAMMA_SRGB : INDEX_GAMMA_GAMMA2_2) : ((enum gamma_index)d_gamma);
-#ifdef SMPTE170M_ASSUME_GAMMA22
-    if (*src_gamma == INDEX_GAMMA_SMPTE_170M) *src_gamma = INDEX_GAMMA_GAMMA2_2;
-    if (*dst_gamma == INDEX_GAMMA_SMPTE_170M) *dst_gamma = INDEX_GAMMA_GAMMA2_2;
+    if (legacy_mode == 1)
+    {
+        *src_gamut = (i_type == INDEX_TYPE_SDR) ? INDEX_GAMUT_DCI_P3 : ((enum gamut_index)s_gamut);
+        *src_gamma = (i_type == INDEX_TYPE_SDR) ? INDEX_GAMMA_SRGB   : ((enum gamma_index)s_gamma);
+        *dst_gamut = INDEX_GAMUT_DCI_P3;
+        *dst_gamma = (i_type == INDEX_TYPE_SDR) ? INDEX_GAMMA_SRGB   : INDEX_GAMMA_GAMMA2_2;
+    }
+    else
+    {
+        *src_gamut = (enum gamut_index)s_gamut;
+        *dst_gamut = (enum gamut_index)d_gamut;
+        *src_gamma = (enum gamma_index)s_gamma;
+        *dst_gamma = (enum gamma_index)d_gamma;
+#ifdef ASSUME_SRGB_IS_GAMMA22_FOR_HDR
+        if ((i_type != INDEX_TYPE_SDR) && ((*dst_gamma) == INDEX_GAMMA_SRGB)) *dst_gamma = INDEX_GAMMA_GAMMA2_2;
 #endif
+    }
 }
 
 void mcd_cm_sfr_bypass(struct mcd_hdr_device *hdr)
@@ -281,11 +290,11 @@ void mcd_cm_sfr(struct mcd_hdr_device *hdr, struct mcd_cm_params_info *params)
             enum type_ott tott =
 #ifdef TUNE_OTT
                 (params->dst_max_luminance == DEVICE_LUMINANCE) ?
-#if (TUNE_OTT & TUNE_OTT_1000_AMAZON)
-                    (params->src_max_luminance == 1000) ? OTT_AMAZON  :
+#if (TUNE_OTT & TUNE_OTT_CUSTOM4000)
+                    (params->src_max_luminance == 4000) ? OTT_CUSTOM4000 :
 #endif
-#if (TUNE_OTT & TUNE_OTT_4000_NETFLIX)
-                    (params->src_max_luminance == 4000) ? OTT_NETFLIX :
+#if (TUNE_OTT & TUNE_OTT_CUSTOM1000)
+                    (params->src_max_luminance == 1000) ? OTT_CUSTOM1000 :
 #endif
                     OTT_NONE :
 #endif

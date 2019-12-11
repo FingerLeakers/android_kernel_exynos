@@ -462,6 +462,11 @@ void mfc_nal_q_stop(struct mfc_dev *dev, nal_queue_handle *nal_q_handle)
 		return;
 	}
 
+	if (mfc_wait_nal_q_status(dev)) {
+		mfc_err_dev("[NALQ] Failed to wait status\n");
+		call_dop(dev, dump_and_stop_always, dev);
+	}
+
 	nal_q_handle->nal_q_state = NAL_Q_STATE_STOPPED;
 	MFC_TRACE_DEV("** NAL Q state : %d\n", nal_q_handle->nal_q_state);
 	mfc_debug_dev(2, "[NALQ] stopped, state = %d\n", nal_q_handle->nal_q_state);
@@ -1499,11 +1504,16 @@ static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
 		}
 
 		if (is_hdr10_plus_sei) {
-			__mfc_nal_q_get_hdr_plus_info(ctx, pOutStr, &dec->hdr10_plus_info[index]);
-			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_PLUS);
-			mfc_debug(2, "[NALQ][HDR+] HDR10 plus dyanmic SEI metadata parsed\n");
+			if (dec->hdr10_plus_info) {
+				__mfc_nal_q_get_hdr_plus_info(ctx, pOutStr, &dec->hdr10_plus_info[index]);
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_PLUS);
+				mfc_debug(2, "[NALQ][HDR+] HDR10 plus dyanmic SEI metadata parsed\n");
+			} else {
+				mfc_err_ctx("[NALQ][HDR+] HDR10 plus cannot be parsed\n");
+			}
 		} else {
-			dec->hdr10_plus_info[index].valid = 0;
+			if (dec->hdr10_plus_info)
+				dec->hdr10_plus_info[index].valid = 0;
 		}
 
 		if (is_uncomp) {
@@ -1976,6 +1986,7 @@ int mfc_nal_q_handle_out_buf(struct mfc_dev *dev, EncoderOutputStr *pOutStr)
 	struct mfc_enc *enc;
 	struct mfc_dec *dec;
 	int ctx_num;
+	u32 err;
 
 	mfc_debug_dev_enter();
 
@@ -1994,11 +2005,15 @@ int mfc_nal_q_handle_out_buf(struct mfc_dev *dev, EncoderOutputStr *pOutStr)
 	mfc_debug(2, "[NALQ] Int ctx is %d(%s)\n", ctx_num,
 			 ctx->type == MFCINST_ENCODER ? "enc" : "dec");
 
-	if (mfc_get_err(pOutStr->ErrorCode) &&
-			(mfc_get_err(pOutStr->ErrorCode) < MFC_REG_ERR_FRAME_CONCEAL)) {
-		if (__mfc_nal_q_handle_error(ctx, pOutStr, mfc_get_err(pOutStr->ErrorCode)))
-			return 0;
+	err = mfc_get_err(pOutStr->ErrorCode);
+	if (err && (err <= MFC_REG_ERR_INVALID)) {
+		mfc_err_ctx("[NALQ] invalid Errorcode: %#x\n", pOutStr->ErrorCode);
+		mfc_change_state(ctx, MFCINST_ERROR);
 	}
+
+	if ((err > MFC_REG_ERR_INVALID) && (err < MFC_REG_ERR_FRAME_CONCEAL))
+		if (__mfc_nal_q_handle_error(ctx, pOutStr, err))
+			return 0;
 
 	if (ctx->type == MFCINST_ENCODER) {
 		enc = ctx->enc_priv;

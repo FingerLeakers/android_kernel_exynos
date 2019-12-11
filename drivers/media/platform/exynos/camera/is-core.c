@@ -290,46 +290,60 @@ static void is_print_target_dva(struct is_frame *leader_frame)
 
 	for (plane_index = 0; plane_index < IS_MAX_PLANES; plane_index++) {
 		if (leader_frame->txcTargetAddress[plane_index])
-			pr_err("txcTargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] txcTargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->txcTargetAddress[plane_index]);
 		if (leader_frame->txpTargetAddress[plane_index])
-			pr_err("txpTargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] txpTargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->txpTargetAddress[plane_index]);
 		if (leader_frame->ixcTargetAddress[plane_index])
-			pr_err("ixcTargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] ixcTargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->ixcTargetAddress[plane_index]);
 		if (leader_frame->ixpTargetAddress[plane_index])
-			pr_err("ixpTargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] ixpTargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->ixpTargetAddress[plane_index]);
 		if (leader_frame->ixtTargetAddress[plane_index])
-			pr_err("ixtTargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] ixtTargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->ixtTargetAddress[plane_index]);
 		if (leader_frame->mexcTargetAddress[plane_index])
-			pr_err("mexcTargetAddress[%d] = 0x%16LX\n",
+			pr_err("[@][%d] mexcTargetAddress[%d]: 0x%16LX\n",
+				leader_frame->instance,
 				plane_index, leader_frame->mexcTargetAddress[plane_index]);
 		if (leader_frame->orbxcTargetAddress[plane_index])
-			pr_err("orbxcTargetAddress[%d] = 0x%16LX\n",
+			pr_err("[@][%d] orbxcTargetAddress[%d]: 0x%16LX\n",
+				leader_frame->instance,
 				plane_index, leader_frame->orbxcTargetAddress[plane_index]);
 		if (leader_frame->sc0TargetAddress[plane_index])
-			pr_err("sc0TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc0TargetAddress[%d]: 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc0TargetAddress[plane_index]);
 		if (leader_frame->sc1TargetAddress[plane_index])
-			pr_err("sc1TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc1TargetAddress[%d] = 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc1TargetAddress[plane_index]);
 		if (leader_frame->sc2TargetAddress[plane_index])
-			pr_err("sc2TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc2TargetAddress[%d] = 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc2TargetAddress[plane_index]);
 		if (leader_frame->sc3TargetAddress[plane_index])
-			pr_err("sc3TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc3TargetAddress[%d] = 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc3TargetAddress[plane_index]);
 		if (leader_frame->sc4TargetAddress[plane_index])
-			pr_err("sc4TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc4TargetAddress[%d] = 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc4TargetAddress[plane_index]);
 		if (leader_frame->sc5TargetAddress[plane_index])
-			pr_err("sc5TargetAddress[%d] = 0x%08X\n",
+			pr_err("[@][%d] sc5TargetAddress[%d] = 0x%08X\n",
+				leader_frame->instance,
 				plane_index, leader_frame->sc5TargetAddress[plane_index]);
 		if (leader_frame->orbxcTargetAddress[plane_index])
-			pr_err("orbxcTargetAddress[%d] = 0x%16LX\n",
+			pr_err("[@][%d] orbxcTargetAddress[%d] = 0x%16LX\n",
+				leader_frame->instance,
 				plane_index, leader_frame->orbxcTargetAddress[plane_index]);
 	}
 }
@@ -342,9 +356,10 @@ void is_print_frame_dva(struct is_subdev *subdev)
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
 	if (test_bit(IS_SUBDEV_START, &subdev->state) && framemgr) {
+		pr_err("[@][%d] subdev %s info\n", subdev->instance, subdev->name);
 		for (j = 0; j < framemgr->num_frames; ++j) {
 			for (k = 0; k < framemgr->frames[j].planes; k++) {
-				msinfo(" BUF[%d][%d] %pad = (0x%lX)\n",
+				msinfo(" BUF[%d][%d]: %pad, (0x%lX)\n",
 					subdev, subdev, j, k,
 					&framemgr->frames[j].dvaddr_buffer[k],
 					framemgr->frames[j].mem_state);
@@ -360,139 +375,119 @@ void is_print_frame_dva(struct is_subdev *subdev)
 static void __is_fault_handler(struct device *dev)
 {
 	u32 i, j, k, sd_index;
-	int vc;
+	int vc, csi_instance = -1;
 	struct is_core *core;
 	struct is_device_sensor *sensor;
 	struct is_device_ischain *ischain;
 	struct is_subdev *subdev;
 	struct is_framemgr *framemgr;
 	struct is_resourcemgr *resourcemgr;
+	struct is_device_csi *csi;
 
 	core = dev_get_drvdata(dev);
-	if (core) {
-		resourcemgr = &core->resourcemgr;
-
-		is_hw_fault(&core->interface);
-		/* dump FW page table 1nd(~16KB), 2nd(16KB~32KB) */
-		is_hw_memdump(&core->interface,
-			resourcemgr->minfo.kvaddr + TTB_OFFSET, /* TTB_BASE ~ 32KB */
-			resourcemgr->minfo.kvaddr + TTB_OFFSET + TTB_SIZE);
-		is_hw_logdump(&core->interface);
-
-		/* SENSOR */
-		for (i = 0; i < IS_SENSOR_COUNT; i++) {
-			sensor = &core->sensor[i];
-			framemgr = GET_FRAMEMGR(sensor->vctx);
-			if (test_bit(IS_SENSOR_OPEN, &sensor->state) && framemgr) {
-				struct is_device_csi *csi;
-
-				for (j = 0; j < framemgr->num_frames; ++j) {
-					for (k = 0; k < framemgr->frames[j].planes; k++) {
-						pr_err("[SS%d] BUF[%d][%d] = %pad(0x%lX)\n", i, j, k,
-							&framemgr->frames[j].dvaddr_buffer[k],
-							framemgr->frames[j].mem_state);
-					}
-				}
-
-				/* vc0 */
-				subdev = &sensor->ssvc0;
-				for (sd_index = 0; sd_index < CSI_VIRTUAL_CH_MAX; sd_index++) {
-					is_print_frame_dva(subdev);
-					subdev++;
-				}
-
-				csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
-				if (csi) {
-					csi_hw_dump(csi->base_reg);
-					csi_hw_phy_dump(csi->phy_reg, csi->ch);
-					for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-						csi_hw_vcdma_dump(csi->vc_reg[csi->scm][vc]);
-						csi_hw_vcdma_cmn_dump(csi->cmn_reg[csi->scm][vc]);
-					}
-					csi_hw_common_dma_dump(csi->csi_dma->base_reg);
-#if defined(ENABLE_PDP_STAT_DMA)
-					csi_hw_common_dma_dump(csi->csi_dma->base_reg_stat);
-#endif
-				}
-			}
-		}
-
-		/* ISCHAIN */
-		for (i = 0; i < IS_STREAM_COUNT; i++) {
-			ischain = &core->ischain[i];
-			if (test_bit(IS_ISCHAIN_OPEN, &ischain->state)) {
-				/* 3AA */
-				subdev = &ischain->group_3aa.leader;
-				is_print_frame_dva(subdev);
-
-				/* 3AAC ~ 3AAP */
-				subdev = &ischain->txc;
-				for (sd_index = 0; sd_index < NUM_OF_3AA_SUBDEV; sd_index++) {
-					is_print_frame_dva(subdev);
-					subdev++;
-				}
-
-				/* ISP */
-				subdev = &ischain->group_isp.leader;
-				is_print_frame_dva(subdev);
-
-				/* ISPC */
-				subdev = &ischain->ixc;
-				for (sd_index = 0; sd_index < NUM_OF_ISP_SUBDEV; sd_index++) {
-					is_print_frame_dva(subdev);
-					subdev++;
-				}
-
-				/* DCP */
-				subdev = &ischain->group_dcp.leader;
-				is_print_frame_dva(subdev);
-
-				/* DC1S ~ DC4C*/
-				subdev = &ischain->dc1s;
-				for (sd_index = 0; sd_index < NUM_OF_DCP_SUBDEV; sd_index++) {
-					is_print_frame_dva(subdev);
-					subdev++;
-				}
-
-				/* for ME */
-				subdev = &ischain->mexc;
-				is_print_frame_dva(subdev);
-
-				/* for ORB */
-				subdev = &ischain->orbxc;
-				is_print_frame_dva(subdev);
-
-				/* DIS */
-				subdev = &ischain->group_dis.leader;
-				is_print_frame_dva(subdev);
-
-				/* SCC */
-				subdev = &ischain->scc;
-				is_print_frame_dva(subdev);
-
-				/* SCP */
-				subdev = &ischain->scp;
-				is_print_frame_dva(subdev);
-
-				/* MCS */
-				subdev = &ischain->group_mcs.leader;
-				is_print_frame_dva(subdev);
-
-				/* M0P ~ M5P */
-				subdev = &ischain->m0p;
-				for (sd_index = 0; sd_index < NUM_OF_MCS_SUBDEV; sd_index++) {
-					is_print_frame_dva(subdev);
-					subdev++;
-				}
-
-				/* VRA */
-				subdev = &ischain->group_vra.leader;
-				is_print_frame_dva(subdev);
-			}
-		}
-	} else {
+	if (!core) {
 		pr_err("failed to get core\n");
+		return;
 	}
+
+	resourcemgr = &core->resourcemgr;
+
+	pr_err("[@] <Buffer information>\n");
+	pr_err("[@] 1. Sensor\n");
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		sensor = &core->sensor[i];
+		framemgr = GET_FRAMEMGR(sensor->vctx);
+		if (test_bit(IS_SENSOR_OPEN, &sensor->state) && framemgr) {
+			csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+			if (csi)
+				csi_instance = csi->instance;
+			/* source */
+			for (j = 0; j < framemgr->num_frames; ++j) {
+				for (k = 0; k < framemgr->frames[j].planes; k++) {
+					pr_err("[@][%d][SS%d] BUF[%d][%d]: %pad, (0x%lX)\n",
+						csi_instance, i, j, k,
+						&framemgr->frames[j].dvaddr_buffer[k],
+						framemgr->frames[j].mem_state);
+				}
+			}
+			/* vc */
+			subdev = &sensor->ssvc0;
+			for (sd_index = 0; sd_index < CSI_VIRTUAL_CH_MAX; sd_index++) {
+				is_print_frame_dva(subdev);
+				subdev++;
+			}
+		}
+	}
+
+	pr_err("[@] 2. IS chain\n");
+	for (i = 0; i < IS_STREAM_COUNT; i++) {
+		ischain = &core->ischain[i];
+		if (!test_bit(IS_ISCHAIN_OPEN, &ischain->state))
+			break;
+		pr_err("[@][%d] stream %d info\n", ischain->instance, i);
+		/* 3AA */
+		subdev = &ischain->group_3aa.leader;
+		is_print_frame_dva(subdev);
+
+		/* 3AAC ~ 3AAP */
+		subdev = &ischain->txc;
+		for (sd_index = 0; sd_index < NUM_OF_3AA_SUBDEV; sd_index++) {
+			is_print_frame_dva(subdev);
+			subdev++;
+		}
+
+		/* ISP */
+		subdev = &ischain->group_isp.leader;
+		is_print_frame_dva(subdev);
+
+		/* for ME */
+		subdev = &ischain->mexc;
+		is_print_frame_dva(subdev);
+
+		/* for ORB */
+		subdev = &ischain->orbxc;
+		is_print_frame_dva(subdev);
+
+		/* MCS */
+		subdev = &ischain->group_mcs.leader;
+		is_print_frame_dva(subdev);
+
+		/* M0P ~ M5P */
+		subdev = &ischain->m0p;
+		for (sd_index = 0; sd_index < NUM_OF_MCS_SUBDEV; sd_index++) {
+			is_print_frame_dva(subdev);
+			subdev++;
+		}
+	}
+
+	/* SENSOR */
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		sensor = &core->sensor[i];
+		framemgr = GET_FRAMEMGR(sensor->vctx);
+		if (test_bit(IS_SENSOR_OPEN, &sensor->state) && framemgr) {
+			csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+			if (csi) {
+				csi_hw_dump(csi->base_reg);
+				csi_hw_phy_dump(csi->phy_reg, csi->ch);
+				for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
+					csi_hw_vcdma_dump(csi->vc_reg[csi->scm][vc]);
+					csi_hw_vcdma_cmn_dump(csi->cmn_reg[csi->scm][vc]);
+				}
+				csi_hw_common_dma_dump(csi->csi_dma->base_reg);
+#if defined(ENABLE_PDP_STAT_DMA)
+				csi_hw_common_dma_dump(csi->csi_dma->base_reg_stat);
+#endif
+			}
+		}
+	}
+
+	/* ETC */
+	is_hw_fault(&core->interface);
+	/* dump FW page table 1nd(~16KB), 2nd(16KB~32KB) */
+	is_hw_memdump(&core->interface,
+		resourcemgr->minfo.kvaddr + TTB_OFFSET, /* TTB_BASE ~ 32KB */
+		resourcemgr->minfo.kvaddr + TTB_OFFSET + TTB_SIZE);
+	is_hw_logdump(&core->interface);
 }
 
 static void wq_func_print_clk(struct work_struct *data)
@@ -510,10 +505,12 @@ static int __attribute__((unused)) is_fault_handler(struct iommu_domain *domain,
 	int fault_flag,
 	void *token)
 {
-	pr_err("<FIMC-IS FAULT HANDLER>\n");
-	pr_err("Device virtual(0x%X) is invalid access\n", (u32)fault_addr);
+	pr_err("[@] <Pablo IS FAULT HANDLER> ++\n");
+	pr_err("[@] Device virtual(0x%08X) is invalid access\n", (u32)fault_addr);
 
 	__is_fault_handler(dev);
+
+	pr_err("[@] <Pablo IS FAULT HANDLER> --\n");
 
 	return -EINVAL;
 }

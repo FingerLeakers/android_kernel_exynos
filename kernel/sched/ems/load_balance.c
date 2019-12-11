@@ -7,8 +7,8 @@
 
 #include <trace/events/ems.h>
 
-#include "ems.h"
 #include "../sched.h"
+#include "ems.h"
 
 struct list_head *lb_cfs_tasks(struct rq *rq, int sse)
 {

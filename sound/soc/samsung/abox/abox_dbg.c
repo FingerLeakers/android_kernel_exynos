@@ -27,6 +27,7 @@
 
 #define ABOX_DBG_DUMP_MAGIC_SRAM	0x3935303030504D44ull /* DMP00059 */
 #define ABOX_DBG_DUMP_MAGIC_DRAM	0x3231303038504D44ull /* DMP80012 */
+#define ABOX_DBG_DUMP_MAGIC_LOG		0x3142303038504D44ull /* DMP800B1 */
 #define ABOX_DBG_DUMP_MAGIC_SFR		0x5246533030504D44ull /* DMP00SFR */
 #define ABOX_DBG_DUMP_LIMIT_NS		(5 * NSEC_PER_SEC)
 
@@ -66,6 +67,11 @@ struct abox_dbg_dump_sram {
 struct abox_dbg_dump_dram {
 	unsigned long long magic;
 	char dump[DRAM_FIRMWARE_SIZE];
+} __packed;
+
+struct abox_dbg_dump_log {
+	unsigned long long magic;
+	char dump[ABOX_LOG_SIZE];
 } __packed;
 
 struct abox_dbg_dump_sfr {
@@ -359,7 +365,6 @@ void abox_dbg_dump_mem(struct device *dev, struct abox_data *data,
 {
 	static unsigned long long called[ABOX_DBG_DUMP_COUNT];
 	unsigned long long time = sched_clock();
-	struct abox_gic_data *gic_data = dev_get_drvdata(data->dev_gic);
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -389,7 +394,7 @@ void abox_dbg_dump_mem(struct device *dev, struct abox_data *data,
 		memcpy_fromio(p_dump->sfr.dump, data->sfr_base,
 				sizeof(p_dump->sfr.dump));
 		p_dump->sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
-		memcpy_fromio(p_dump->sfr_gic_gicd, gic_data->gicd_base,
+		abox_gicd_dump(data->dev_gic, (char *)p_dump->sfr_gic_gicd, 0,
 				sizeof(p_dump->sfr_gic_gicd));
 	} else if (p_abox_dbg_dump_min) {
 		struct abox_dbg_dump_min *p_dump = &(*p_abox_dbg_dump_min)[src];
@@ -403,7 +408,7 @@ void abox_dbg_dump_mem(struct device *dev, struct abox_data *data,
 		memcpy_fromio(p_dump->sfr.dump, data->sfr_base,
 				sizeof(p_dump->sfr.dump));
 		p_dump->sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
-		memcpy_fromio(p_dump->sfr_gic_gicd, gic_data->gicd_base,
+		abox_gicd_dump(data->dev_gic, (char *)p_dump->sfr_gic_gicd, 0,
 				sizeof(p_dump->sfr_gic_gicd));
 
 		if (p_dump->dram) {
@@ -426,12 +431,13 @@ void abox_dbg_dump_gpr_mem(struct device *dev, struct abox_data *data,
 
 struct abox_dbg_dump_simple {
 	struct abox_dbg_dump_sram sram;
+	struct abox_dbg_dump_log log;
 	struct abox_dbg_dump_sfr sfr;
 	u32 sfr_gic_gicd[SZ_4K / sizeof(u32)];
 	unsigned int gpr[SZ_128];
 	long long time;
 	char reason[SZ_32];
-};
+} __packed;
 
 static struct abox_dbg_dump_simple abox_dump_simple;
 
@@ -440,7 +446,6 @@ void abox_dbg_dump_simple(struct device *dev, struct abox_data *data,
 {
 	static unsigned long long called;
 	unsigned long long time = sched_clock();
-	struct abox_gic_data *gic_data = dev_get_drvdata(data->dev_gic);
 
 	dev_info(dev, "%s\n", __func__);
 
@@ -463,10 +468,13 @@ void abox_dbg_dump_simple(struct device *dev, struct abox_data *data,
 	memcpy_fromio(abox_dump_simple.sram.dump, data->sram_base,
 			data->sram_size);
 	abox_dump_simple.sram.magic = ABOX_DBG_DUMP_MAGIC_SRAM;
+	memcpy(abox_dump_simple.log.dump, data->dram_base + ABOX_LOG_OFFSET,
+			ABOX_LOG_SIZE);
+	abox_dump_simple.log.magic = ABOX_DBG_DUMP_MAGIC_LOG;
 	memcpy_fromio(abox_dump_simple.sfr.dump, data->sfr_base,
 			sizeof(abox_dump_simple.sfr.dump));
 	abox_dump_simple.sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
-	memcpy_fromio(abox_dump_simple.sfr_gic_gicd, gic_data->gicd_base,
+	abox_gicd_dump(data->dev_gic, (char *)abox_dump_simple.sfr_gic_gicd, 0,
 			sizeof(abox_dump_simple.sfr_gic_gicd));
 }
 
@@ -474,8 +482,6 @@ static struct abox_dbg_dump_simple abox_dump_suspend;
 
 void abox_dbg_dump_suspend(struct device *dev, struct abox_data *data)
 {
-	struct abox_gic_data *gic_data = dev_get_drvdata(data->dev_gic);
-
 	dev_dbg(dev, "%s\n", __func__);
 
 	abox_dump_suspend.time = sched_clock();
@@ -485,10 +491,13 @@ void abox_dbg_dump_suspend(struct device *dev, struct abox_data *data)
 	memcpy_fromio(abox_dump_suspend.sram.dump, data->sram_base,
 			data->sram_size);
 	abox_dump_suspend.sram.magic = ABOX_DBG_DUMP_MAGIC_SRAM;
+	memcpy(abox_dump_suspend.log.dump, data->dram_base + ABOX_LOG_OFFSET,
+			ABOX_LOG_SIZE);
+	abox_dump_suspend.log.magic = ABOX_DBG_DUMP_MAGIC_LOG;
 	memcpy_fromio(abox_dump_suspend.sfr.dump, data->sfr_base,
 			sizeof(abox_dump_suspend.sfr.dump));
 	abox_dump_suspend.sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
-	memcpy_fromio(abox_dump_suspend.sfr_gic_gicd, gic_data->gicd_base,
+	abox_gicd_dump(data->dev_gic, (char *)abox_dump_suspend.sfr_gic_gicd, 0,
 			sizeof(abox_dump_suspend.sfr_gic_gicd));
 }
 

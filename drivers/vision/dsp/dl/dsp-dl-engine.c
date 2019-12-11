@@ -251,6 +251,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 
@@ -261,6 +262,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 
@@ -271,6 +273,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 
@@ -281,6 +284,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 
@@ -290,6 +294,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 
@@ -299,6 +304,7 @@ struct dsp_dl_load_status dsp_dl_load_libraries(
 		dsp_lib_manager_dec_ref_cnt(libs, size);
 		dsp_lib_manager_delete_unloaded_libs(libs, size);
 		dsp_dl_free(libs);
+		dsp_dl_free(commons);
 		return load_status;
 	}
 

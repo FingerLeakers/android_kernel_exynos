@@ -37,6 +37,8 @@
 #define DWC3_ALIGN_FRAME(d)	(((d)->frame_number + (d)->interval) \
 					& ~((d)->interval - 1))
 
+#define CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static void dwc3_disconnect_gadget(struct dwc3 *dwc);
 static void dwc3_gadget_cable_connect(struct dwc3 *dwc, bool connect)
@@ -1922,11 +1924,12 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
 		dwc->pullups_connected = false;
-		mdelay(50);
 	}
 
 	dwc3_writel(dwc->regs, DWC3_DCTL, reg);
 
+	if (!is_on)
+		mdelay(50);
 
 	do {
 		reg = dwc3_readl(dwc->regs, DWC3_DSTS);
@@ -2099,6 +2102,12 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *g, int is_active)
 
 	spin_lock_irqsave(&dwc->lock, flags);
 
+	if (dwc->vbus_session == is_active) {
+		dev_info(dwc->dev, "%s: already processed\n", __func__);
+		spin_unlock_irqrestore(&dwc->lock, flags);
+		return 0;
+	}
+
 	/* Mark that the vbus was powered */
 	dwc->vbus_session = is_active;
 
@@ -2134,6 +2143,7 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *g, int is_active)
 			dwc3_gadget_cable_connect(dwc, false);
 			dwc->start_config_issued = false;
 			dwc->gadget.speed = USB_SPEED_UNKNOWN;
+			dwc->gadget.state = USB_STATE_NOTATTACHED;
 			dwc->setup_packet_pending = false;
 #endif
 			ret = dwc3_gadget_run_stop_vbus(dwc, 0, false);
@@ -2190,7 +2200,11 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 		return 0;
 	}
 
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 	if (is_on) {
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+		/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 		/**
 		 * In case there is not a resistance to detect VBUS,
 		 * DP/DM controls by S/W are needed at this point.
@@ -2199,8 +2213,10 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 		}
+#endif
 		dwc->max_cnt_link_info = DWC3_LINK_STATE_INFO_LIMIT;
 	}
+#endif
 
 	ret = dwc3_gadget_run_stop(dwc, is_on, false);
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
@@ -3126,10 +3142,13 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	reg &= ~(DWC3_DCFG_DEVADDR_MASK);
 	dwc3_writel(dwc->regs, DWC3_DCFG, reg);
 
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 	if (dwc->is_not_vbus_pad) {
 		phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 		phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 	}
+#endif
 }
 
 /* Remove Warning - Check later!
@@ -3214,6 +3233,8 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 	 * */
 	if (dwc->gadget.speed <= USB_SPEED_HIGH)
 		dwc3_otg_qos_lock(dwc, -1);
+	else
+		dwc3_otg_qos_lock(dwc, 1);
 #endif
 
 	dwc->eps[1]->endpoint.maxpacket = dwc->gadget.ep0->maxpacket;
@@ -3274,6 +3295,8 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 	 * In both cases reset values should be sufficient.
 	 */
 
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 	/**
 	 * In case there is not a resistance to detect VBUS,
 	 * DP/DM controls by S/W are needed at this point.
@@ -3282,14 +3305,24 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 		phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 		phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 	}
+#endif
 }
 
 static void dwc3_gadget_wakeup_interrupt(struct dwc3 *dwc)
 {
-	if (dwc->is_not_vbus_pad) {
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
+	u8 speed;
+	u32 reg;
+
+	reg = dwc3_readl(dwc->regs, DWC3_DSTS);
+	speed = reg & DWC3_DSTS_CONNECTSPD;
+
+	if (dwc->is_not_vbus_pad && !(speed & DWC3_DCFG_FULLSPEED1)) {
 		phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 		phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_DISABLE, NULL);
 	}
+#endif
 
 	/*
 	 * TODO take core out of low power mode when that's
@@ -3391,36 +3424,51 @@ static void dwc3_gadget_linksts_change_interrupt(struct dwc3 *dwc,
 	dwc->linkstate_record[dwc->linkstate_ai++] = next;
 
 	switch (next) {
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 	case DWC3_LINK_STATE_U0:
 		if (dwc->is_not_vbus_pad) {
 			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 		}
 		break;
+#endif
 	case DWC3_LINK_STATE_U1:
 		if (dwc->speed == USB_SPEED_SUPER)
 			dwc3_suspend_gadget(dwc);
 		break;
 	case DWC3_LINK_STATE_U3:
 		if (dwc->gadget.state == USB_STATE_CONFIGURED) {
+#ifdef CONFIG_ENABLE_USB_SUSPEND_STATE
+			printk("usb: sending usb u3 suspend state\n");
+			dwc->vbus_current = USB_CURRENT_SUSPENDED;
+#else
 			dwc->vbus_current = USB_CURRENT_UNCONFIGURED;
+#endif
 			schedule_work(&dwc->set_vbus_current_work);
 		}
 		dwc3_suspend_gadget(dwc);
+		break;
 	case DWC3_LINK_STATE_U2:
 		dwc3_suspend_gadget(dwc);
 		break;
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+	/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 	case DWC3_LINK_STATE_RX_DET:	/* Early Suspend in HS */
 		if (dwc->is_not_vbus_pad) {
 			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 		}
 		break;
+#endif
 	case DWC3_LINK_STATE_RESUME:
+#ifdef CONFIG_USB_FIX_PHY_PULLUP_ISSUE
+		/* This W/A patch made for Lhotse H/W bugs.(Need to remove) */
 		if (dwc->is_not_vbus_pad) {
 			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
 		}
+#endif
 		dwc3_resume_gadget(dwc);
 		break;
 	default:

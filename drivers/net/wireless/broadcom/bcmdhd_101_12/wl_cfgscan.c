@@ -790,7 +790,7 @@ exit:
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
-	defined(SUPPORT_RANDOM_MAC_SCAN) && !defined(WL_USE_RANDOMIZED_SCAN)
+	defined(SUPPORT_RANDOM_MAC_SCAN)
 static const u8 *
 wl_retrieve_wps_attribute(const u8 *buf, u16 element_id)
 {
@@ -1335,12 +1335,17 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
 	defined(SUPPORT_RANDOM_MAC_SCAN)
-		if ((err = wl_config_scan_macaddr(cfg, ndev,
-			(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR),
+	if (request) {
+		bool randmac_enable = (request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR);
+		if (wl_is_wps_enrollee_active(ndev, request->ie, request->ie_len)) {
+			randmac_enable = false;
+		}
+		if ((err = wl_config_scan_macaddr(cfg, ndev, randmac_enable,
 			request->mac_addr, request->mac_addr_mask)) != BCME_OK) {
-			WL_ERR(("scanmac addr config failed\n"));
+				WL_ERR(("scanmac addr config failed\n"));
 			goto exit;
 		}
+	}
 #endif /* KERNEL_VER >= 3.19 && SUPPORT_RANDOM_MAC_SCAN */
 
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
@@ -4095,7 +4100,7 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 	params_size += (chanspec_num + 1);
 
 	/* Allocate space for populating single ssid in wl_escan_params_t struct */
-	params_size += sizeof(struct wlc_ssid);
+	params_size += ((u32) sizeof(struct wlc_ssid));
 
 	params = MALLOCZ(cfg->osh, params_size);
 	if (params == NULL) {

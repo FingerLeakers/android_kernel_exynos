@@ -54,11 +54,29 @@ static struct g2d_reg g2d_setup_commands[TASK_REG_COUNT] = {
 	{G2D_LAYER_UPDATE_REG, 0x00000000},
 };
 
+static struct g2d_reg g2d_rst_commands[8] = {
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000004},
+	{G2D_SOFT_RESET_REG,   0x00000001}, /* CoreSFRClear */
+};
+
 void g2d_init_commands(struct g2d_task *task)
 {
 	memcpy(page_address(task->cmd_page),
 		&g2d_setup_commands, sizeof(g2d_setup_commands));
 	task->sec.cmd_count = ARRAY_SIZE(g2d_setup_commands);
+}
+
+void g2d_init_rst_commands(struct g2d_task *task)
+{
+	memcpy(page_address(task->cmd_page),
+	       &g2d_rst_commands, sizeof(g2d_rst_commands));
+	task->sec.cmd_count = ARRAY_SIZE(g2d_rst_commands);
 }
 
 static void g2d_set_taskctl_commands(struct g2d_task *task)

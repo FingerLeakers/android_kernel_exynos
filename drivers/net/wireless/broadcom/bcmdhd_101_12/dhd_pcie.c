@@ -278,6 +278,7 @@ static bool dhd_bus_tcm_test(struct dhd_bus *bus);
 static int dhd_bus_dump_fws(dhd_bus_t *bus, struct bcmstrbuf *strbuf);
 #endif
 static void dhdpcie_pme_stat_clear(osl_t *osh);
+static void dhd_pcie_ep_config_dump(dhd_pub_t *dhd);
 
 /* IOVar table */
 enum {
@@ -4242,7 +4243,7 @@ int dhd_bus_console_in(dhd_pub_t *dhd, uchar *msg, uint msglen)
 	addr = bus->console_addr + OFFSETOF(hnd_cons_t, cbuf_idx);
 	/* handle difference in definition of hnd_log_t in certain branches */
 	if (dhd->wlc_ver_major < 14) {
-		addr -= sizeof(uint32);
+		addr -= (uint32)sizeof(uint32);
 	}
 	val = htol32(0);
 	if ((rv = dhdpcie_bus_membytes(bus, TRUE, addr, (uint8 *)&val, sizeof(val))) < 0)
@@ -6578,8 +6579,9 @@ dhd_bus_hostready(struct  dhd_bus *bus)
 		return;
 	}
 
-	DHD_ERROR(("%s : Read PCICMD Reg: 0x%08X\n", __FUNCTION__,
-		dhd_pcie_config_read(bus->osh, PCI_CFG_CMD, sizeof(uint32))));
+	DHD_ERROR(("%s : Read PCICMD Reg: 0x%08X, PMCSR reg: 0x%08X\n", __FUNCTION__,
+		dhd_pcie_config_read(bus->osh, PCI_CFG_CMD, sizeof(uint32)),
+		dhd_pcie_config_read(bus->osh, PCIE_CFG_PMCSR, sizeof(uint32))));
 
 	if (DAR_PWRREQ(bus)) {
 		dhd_bus_pcie_pwr_req(bus);
@@ -6773,9 +6775,14 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		{
 			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM);
 		}
+		dhd_pcie_ep_config_dump(bus->dhd);
+#ifdef EXTENDED_PCIE_DEBUG_DUMP
+		if (bus->sih->buscorerev >= 24) {
+			dhd_bus_dump_dar_registers(bus);
+		}
+#endif /* EXTENDED_PCIE_DEBUG_DUMP */
 
 		/* Wait for D3 ACK for D3_ACK_RESP_TIMEOUT seconds */
-
 		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
 
 #ifdef DHD_RECOVER_TIMEOUT
@@ -6862,11 +6869,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				}
 				bus->skip_ds_ack = FALSE;
 #endif /* PCIE_INB_DW */
-				/* Enable back the intmask which was cleared in DPC
-				 * after getting D3_ACK.
-				 */
-				bus->resume_intr_enable_count++;
-
 				/* For Linux, Macos etc (otherthan NDIS) enable back the dongle
 				 * interrupts using intmask and host interrupts
 				 * which were disabled in the dhdpcie_bus_isr()->
@@ -6874,9 +6876,14 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				 */
 				/* Enable back interrupt using Intmask!! */
 				dhdpcie_bus_intr_enable(bus);
-				/* Enable back interrupt from Host side!! */
-				dhdpcie_enable_irq(bus);
-
+				/* Defer enabling host irq after RPM suspend failure */
+				if (!DHD_BUS_BUSY_CHECK_RPM_SUSPEND_IN_PROGRESS(bus->dhd)) {
+					/* Enable back interrupt from Host side!! */
+					if (dhdpcie_irq_disabled(bus)) {
+						dhdpcie_enable_irq(bus);
+						bus->resume_intr_enable_count++;
+					}
+				}
 				if (bus->use_d0_inform) {
 					DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 					dhdpcie_send_mb_data(bus,
@@ -7090,15 +7097,18 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		/* resume all interface network queue. */
 		dhd_bus_start_queue(bus);
 
-		/* TODO: for NDIS also we need to use enable_irq in future */
-		bus->resume_intr_enable_count++;
-
 		/* For Linux, Macos etc (otherthan NDIS) enable back the dongle interrupts
 		 * using intmask and host interrupts
 		 * which were disabled in the dhdpcie_bus_isr()->dhd_bus_handle_d3_ack().
 		 */
 		dhdpcie_bus_intr_enable(bus); /* Enable back interrupt using Intmask!! */
-		dhdpcie_enable_irq(bus); /* Enable back interrupt from Host side!! */
+		/* Defer enabling host interrupt until RPM resume done */
+		if (!DHD_BUS_BUSY_CHECK_RPM_RESUME_IN_PROGRESS(bus->dhd)) {
+			if (dhdpcie_irq_disabled(bus)) {
+				dhdpcie_enable_irq(bus);
+				bus->resume_intr_enable_count++;
+			}
+		}
 
 		DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
@@ -9265,11 +9275,13 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	resched = dhdpcie_bus_process_mailbox_intr(bus, bus->intstatus);
 	if (!resched) {
 		bus->intstatus = 0;
-		bus->dpc_intr_enable_count++;
 		/* For Linux, Macos etc (otherthan NDIS) enable back the host interrupts
 		 * which has been disabled in the dhdpcie_bus_isr()
 		 */
-		 dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
+		if (dhdpcie_irq_disabled(bus)) {
+			dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
+			bus->dpc_intr_enable_count++;
+		}
 		bus->dpc_exit_time = OSL_LOCALTIME_NS();
 	} else {
 		bus->resched_dpc_time = OSL_LOCALTIME_NS();
@@ -10545,6 +10557,8 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	} else {
 		bus->use_d0_inform = FALSE;
 	}
+
+	bus->hostready_count = 0;
 
 exit:
 	if (MULTIBP_ENAB(bus->sih)) {
@@ -12828,6 +12842,7 @@ dhdpcie_bring_d11_outofreset(dhd_pub_t *dhd)
 	return BCME_OK;
 }
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 static int
 dhdpcie_sssr_dump_get_before_sr(dhd_pub_t *dhd)
 {
@@ -12858,6 +12873,7 @@ dhdpcie_sssr_dump_get_before_sr(dhd_pub_t *dhd)
 
 	return BCME_OK;
 }
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 static int
 dhdpcie_sssr_dump_get_after_sr(dhd_pub_t *dhd)
@@ -12923,11 +12939,13 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 
 	dhdpcie_d11_check_outofreset(dhd);
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	DHD_ERROR(("%s: Collecting Dump before SR\n", __FUNCTION__));
 	if (dhdpcie_sssr_dump_get_before_sr(dhd) != BCME_OK) {
 		DHD_ERROR(("%s: dhdpcie_sssr_dump_get_before_sr failed\n", __FUNCTION__));
 		return BCME_ERROR;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhdpcie_clear_intmask_and_timer(dhd);
 	dhdpcie_clear_clk_req(dhd);
@@ -13616,32 +13634,9 @@ dhd_dump_pcie_rc_regs_for_linkdown(dhd_pub_t *dhd, int *bytes_written)
 }
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
 
-int
-dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
+static void
+dhd_pcie_ep_config_dump(dhd_pub_t *dhd)
 {
-	int host_irq_disabled;
-
-	DHD_ERROR(("bus->bus_low_power_state = %d\n", dhd->bus->bus_low_power_state));
-	host_irq_disabled = dhdpcie_irq_disabled(dhd->bus);
-	DHD_ERROR(("host pcie_irq disabled = %d\n", host_irq_disabled));
-	dhd_print_tasklet_status(dhd);
-	dhd_pcie_intr_count_dump(dhd);
-
-	DHD_ERROR(("\n ------- DUMPING PCIE EP Resouce Info ------- \r\n"));
-	dhdpcie_dump_resource(dhd->bus);
-
-	dhd_pcie_dump_rc_conf_space_cap(dhd);
-
-	DHD_ERROR(("RootPort PCIe linkcap=0x%08x\n",
-		dhd_debug_get_rc_linkcap(dhd->bus)));
-#ifdef CUSTOMER_HW4_DEBUG
-	if (dhd->bus->is_linkdown && !dhd->bus->cto_triggered) {
-		DHD_ERROR(("Skip dumping the PCIe Config and Core registers. "
-			"link may be DOWN\n"));
-		return 0;
-	}
-#endif /* CUSTOMER_HW4_DEBUG */
-	DHD_ERROR(("\n ------- DUMPING PCIE EP config space Registers ------- \r\n"));
 	/* XXX: hwnbu-twiki.sj.broadcom.com/bin/view/Mwgroup/CurrentPcieGen2ProgramGuide */
 	DHD_ERROR(("Status Command(0x%x)=0x%x, BaseAddress0(0x%x)=0x%x BaseAddress1(0x%x)=0x%x "
 		"PCIE_CFG_PMCSR(0x%x)=0x%x\n",
@@ -13683,10 +13678,43 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 			sizeof(uint32)), PCIECFGREG_PML1_SUB_CTRL2,
 			dhd_pcie_config_read(dhd->bus->osh, PCIECFGREG_PML1_SUB_CTRL2,
 			sizeof(uint32))));
+	}
+#endif /* EXTENDED_PCIE_DEBUG_DUMP */
+}
+
+int
+dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
+{
+	int host_irq_disabled;
+
+	DHD_ERROR(("bus->bus_low_power_state = %d\n", dhd->bus->bus_low_power_state));
+	host_irq_disabled = dhdpcie_irq_disabled(dhd->bus);
+	DHD_ERROR(("host pcie_irq disabled = %d\n", host_irq_disabled));
+	dhd_print_tasklet_status(dhd);
+	dhd_pcie_intr_count_dump(dhd);
+
+	DHD_ERROR(("\n ------- DUMPING PCIE EP Resouce Info ------- \r\n"));
+	dhdpcie_dump_resource(dhd->bus);
+
+	dhd_pcie_dump_rc_conf_space_cap(dhd);
+
+	DHD_ERROR(("RootPort PCIe linkcap=0x%08x\n",
+		dhd_debug_get_rc_linkcap(dhd->bus)));
+#ifdef CUSTOMER_HW4_DEBUG
+	if (dhd->bus->is_linkdown && !dhd->bus->cto_triggered) {
+		DHD_ERROR(("Skip dumping the PCIe Config and Core registers. "
+			"link may be DOWN\n"));
+		return 0;
+	}
+#endif /* CUSTOMER_HW4_DEBUG */
+	DHD_ERROR(("\n ------- DUMPING PCIE EP config space Registers ------- \r\n"));
+	dhd_pcie_ep_config_dump(dhd);
+
+#ifdef EXTENDED_PCIE_DEBUG_DUMP
+	if (dhd->bus->sih->buscorerev >= 24) {
 		dhd_bus_dump_dar_registers(dhd->bus);
 	}
 #endif /* EXTENDED_PCIE_DEBUG_DUMP */
-
 	if (dhd->bus->is_linkdown) {
 		DHD_ERROR(("Skip dumping the PCIe Core registers. link may be DOWN\n"));
 		return 0;

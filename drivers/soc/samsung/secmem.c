@@ -26,11 +26,14 @@
 #include <linux/ion_exynos.h>
 #include <linux/smc.h>
 #include <linux/dma-buf.h>
-
 #include <asm/memory.h>
 #include <asm/cacheflush.h>
-
 #include <soc/samsung/secmem.h>
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+#include <linux/platform_device.h>
+#include <linux/of_platform.h>
+#include <linux/device.h>
+#endif
 
 #define SECMEM_DEV_NAME	"s5p-smem"
 
@@ -42,6 +45,13 @@ struct miscdevice secmem;
 struct secmem_crypto_driver_ftn *crypto_driver;
 
 uint32_t instance_count;
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+#define DP_POWER_OFF	0
+#define DP_POWER_ON	1
+
+struct device *secmem_dev = NULL;
+static int ref_count_pm = 0;
+#endif
 
 #if defined(CONFIG_SOC_EXYNOS5433)
 static uint32_t secmem_regions[] = {
@@ -148,6 +158,15 @@ static int secmem_release(struct inode *inode, struct file *file)
 		}
 	}
 
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+	if (ref_count_pm > 0) {
+		int i;
+		pr_err("ref_count_pm for DP remains (%d)\n", ref_count_pm);
+		for (i = 0; i < ref_count_pm; i++)
+			pm_runtime_put_sync(secmem_dev);
+		ref_count_pm = 0;
+	}
+#endif
 	mutex_unlock(&drm_lock);
 
 	kfree(info);
@@ -271,12 +290,69 @@ static long secmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		break;
 	}
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+	case (uint32_t)SECMEM_IOC_DP_POWER_CONTROL:
+	{
+		int val;
+
+		mutex_lock(&drm_lock);
+		if (copy_from_user(&val, (int __user *)arg, sizeof(int))) {
+			mutex_unlock(&drm_lock);
+			return -EFAULT;
+		}
+
+		if (ref_count_pm <= 0 && val == DP_POWER_OFF) {
+			pr_err("Failed to hsi0 power control for DRM.(%d)\n", ref_count_pm);
+			ref_count_pm = 0;
+			mutex_unlock(&drm_lock);
+			return -EFAULT;
+		}
+
+		if (val == DP_POWER_ON) {
+			ref_count_pm++;
+			pm_runtime_get_sync(secmem_dev);
+		} else if (val == DP_POWER_OFF) {
+			ref_count_pm--;
+			pm_runtime_put_sync(secmem_dev);
+		} else {
+			mutex_unlock(&drm_lock);
+			pr_err("Wrong hsi0-dp power status. (%d)\n", val);
+			return -EFAULT;
+		}
+
+		mutex_unlock(&drm_lock);
+		break;
+	}
+#endif
 	default:
 		return -ENOTTY;
 	}
 
 	return 0;
 }
+
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+static int exynos_secmem_probe(struct platform_device *pdev)
+{
+	secmem_dev = &(pdev->dev);
+	pm_runtime_set_active(secmem_dev);
+	pm_runtime_enable(secmem_dev);
+
+	return 0;
+}
+
+static int exynos_secmem_remove(struct platform_device *pdev)
+{
+	secmem_dev = &(pdev->dev);
+	pm_runtime_disable(secmem_dev);
+
+	if (!pm_runtime_status_suspended(secmem_dev)) {
+		pm_runtime_set_suspended(secmem_dev);
+	}
+
+	return 0;
+}
+#endif
 
 #if 0
 void secmem_crypto_register(struct secmem_crypto_driver_ftn *ftn)
@@ -290,6 +366,23 @@ void secmem_crypto_deregister(void)
 	crypto_driver = NULL;
 }
 EXPORT_SYMBOL(secmem_crypto_deregister);
+#endif
+
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+static const struct of_device_id exynos_secmem_of_match_table[] = {
+        { .compatible = "samsung,exynos-secmem", },
+        { },
+};
+
+static struct platform_driver exynos_secmem_driver = {
+	.probe = exynos_secmem_probe,
+	.remove = exynos_secmem_remove,
+	.driver = {
+		.name = "exynos-secmem",
+		.owner = THIS_MODULE,
+		.of_match_table = of_match_ptr(exynos_secmem_of_match_table),
+	}
+};
 #endif
 
 static const struct file_operations secmem_fops = {
@@ -319,12 +412,18 @@ static int __init secmem_init(void)
 
 	crypto_driver = NULL;
 
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+	platform_driver_register(&exynos_secmem_driver);
+#endif
 	return 0;
 }
 
 static void __exit secmem_exit(void)
 {
 	misc_deregister(&secmem);
+#if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
+	platform_driver_unregister(&exynos_secmem_driver);
+#endif
 }
 
 module_init(secmem_init);

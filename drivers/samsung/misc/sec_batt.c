@@ -14,7 +14,6 @@
 #include <linux/sec_batt.h>
 
 #if defined(CONFIG_BATTERY_SAMSUNG)
-
 unsigned int lpcharge;
 EXPORT_SYMBOL(lpcharge);
 
@@ -23,6 +22,12 @@ EXPORT_SYMBOL(charging_night_mode);
 
 int temp_control_test;
 EXPORT_SYMBOL(temp_control_test);
+
+int fg_reset;
+EXPORT_SYMBOL(fg_reset);
+
+int pd_hv_disable;
+EXPORT_SYMBOL(pd_hv_disable);
 
 static int sec_bat_is_lpm_check(char *str)
 {
@@ -54,13 +59,24 @@ static int __init charging_mode(char *str)
 	}
 
 	printk(KERN_ERR "charging_mode() : %d\n", -EINVAL);
-
 	return -EINVAL;
 }
 early_param("charging_mode", charging_mode);
 
-int fg_reset;
-EXPORT_SYMBOL(fg_reset);
+static int sec_bat_get_pd_disable(char *str)
+{
+	int mode;
+
+	if (get_option(&str, &mode)) {
+		pd_hv_disable = ((mode & 0x000000FF) == '1') ? 1 : 0;
+		printk(KERN_ERR "pd_disable() : 0x%x(%d)\n", mode, pd_hv_disable);
+		return 0;
+	}
+
+	printk(KERN_ERR "pd_disable() : %d\n", -EINVAL);
+	return -EINVAL;
+}
+early_param("pd_disable", sec_bat_get_pd_disable);
 
 static int sec_bat_get_fg_reset(char *val)
 {

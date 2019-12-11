@@ -347,7 +347,7 @@ static int reclaim_pages_list(unsigned long start_pfn, unsigned int nr_pages,
 		enum ttu_flags flags = 0;
 		unsigned long freed;
 
-		if (atomic_read(&system_freezing_cnt) > 0)
+		if (reason == MR_MEMORY_HOTPLUG)
 			flags |= TTU_FORCE_BATCH_FLUSH;
 
 		freed = reclaim_clean_pages_from_list(zone, pagecache, flags);

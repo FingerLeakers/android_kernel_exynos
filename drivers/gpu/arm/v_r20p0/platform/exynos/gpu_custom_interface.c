@@ -147,7 +147,7 @@ static ssize_t set_clock(struct device *dev, struct device_attribute *attr, cons
 		if (platform->dvfs_status)
 			gpu_dvfs_on_off(false);
 #endif /* CONFIG_MALI_DVFS */
-		gpu_set_target_clk_vol(clk, false);
+		gpu_set_target_clk_vol(clk, false, false);
 		cur_state = true;
 	}
 
@@ -1015,7 +1015,7 @@ static ssize_t set_tmu_control(struct device *dev, struct device_attribute *attr
 	if (sysfs_streq("0", buf)) {
 		if (platform->voltage_margin != 0) {
 			platform->voltage_margin = 0;
-			gpu_set_target_clk_vol(platform->cur_clock, false);
+			gpu_set_target_clk_vol(platform->cur_clock, false, false);
 		}
 		gpu_dvfs_clock_lock(GPU_DVFS_MAX_UNLOCK, TMU_LOCK, 0);
 		platform->tmu_status = false;

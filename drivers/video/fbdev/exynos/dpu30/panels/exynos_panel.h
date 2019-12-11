@@ -120,6 +120,12 @@ struct df_status_info {
 	u32 current_df;
 	u32 ffc_df;
 	u32 context;
+	
+	u32 current_ddi_osc;
+	u32 request_ddi_osc;
+
+	u32 persistence_mode;
+	u32 persistence_cnt;
 };
 
 struct df_setting_info {
@@ -163,6 +169,8 @@ struct exynos_panel_info {
 	/* resolution */
 	unsigned int xres;
 	unsigned int yres;
+	unsigned int old_xres;
+	unsigned int old_yres;
 
 	/* physical size */
 	unsigned int width;

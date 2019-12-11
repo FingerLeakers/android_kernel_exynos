@@ -303,7 +303,10 @@ static void kbase_fence_debug_check_atom(struct kbase_jd_atom *katom)
 		}
 	}
 }
-
+/* MALI_SEC_INTEGRATION */
+#ifdef CONFIG_MALI_SEC_JOB_STATUS_CHECK
+extern int gpu_job_fence_status_dump(struct sync_file *timeout_sync_file);
+#endif
 static void kbase_fence_debug_wait_timeout(struct kbase_jd_atom *katom)
 {
 	struct kbase_context *kctx = katom->kctx;
@@ -311,6 +314,11 @@ static void kbase_fence_debug_wait_timeout(struct kbase_jd_atom *katom)
 	int timeout_ms = atomic_read(&kctx->kbdev->js_data.soft_job_timeout_ms);
 	unsigned long lflags;
 	struct kbase_sync_fence_info info;
+
+/* MALI_SEC_INTEGRATION */
+#ifdef CONFIG_MALI_SEC_JOB_STATUS_CHECK
+	gpu_job_fence_status_dump(NULL);
+#endif
 
 	spin_lock_irqsave(&kctx->waiting_soft_jobs_lock, lflags);
 
@@ -409,6 +417,12 @@ void kbasep_soft_job_timeout_worker(struct timer_list *timer)
 			break;
 #ifdef CONFIG_MALI_FENCE_DEBUG
 		case BASE_JD_REQ_SOFT_FENCE_WAIT:
+			dev_warn(kctx->kbdev->dev, "timeout fence is wait_fence");
+			kbase_fence_debug_timeout(katom);
+			break;
+		/* MALI_SEC_INTEGRATION */
+		case BASE_JD_REQ_SOFT_FENCE_TRIGGER:
+			dev_warn(kctx->kbdev->dev, "timeout fence is trigger_fence");
 			kbase_fence_debug_timeout(katom);
 			break;
 #endif

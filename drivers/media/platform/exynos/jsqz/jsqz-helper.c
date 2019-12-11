@@ -118,6 +118,8 @@ void jsqz_dma_addr_unmap(struct device *dev,
 		ion_iovmm_unmap(plane->attachment, dma_addr);
 	else
 		exynos_iovmm_unmap_userptr(dev, dma_addr);
+	
+	dev_dbg(dev, "%s: End\n",  __func__);
 
 	plane->dma_addr = 0;
 }

@@ -467,6 +467,7 @@ typedef void (blk_tw_try_off_fn) (struct request_queue *q);
 
 enum blk_tw_state{
 	TW_OFF = 0,
+	TW_ON_READY,
 	TW_OFF_READY,
 	TW_ON,
 
@@ -479,6 +480,7 @@ struct blk_turbo_write {
 
 	long long		up_threshold_bytes;
 	long long		down_threshold_bytes;
+	int			on_delay_ms;		/* turbo write delayed on */
 	int			off_delay_ms;		/* turbo write delayed off */
 
 	blk_tw_try_on_fn	*try_on;

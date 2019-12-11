@@ -25,6 +25,34 @@
 
 #define DSP_SET_DEFAULT_LAYER	(0xffffffff)
 
+int dsp_system_request_control(struct dsp_system *sys, unsigned int id,
+		union dsp_control *cmd)
+{
+	int ret;
+
+	dsp_enter();
+	switch (id) {
+	case DSP_CONTROL_DVFS_ON:
+		ret = dsp_pm_dvfs_enable(&sys->pm, cmd->dvfs.pm_qos);
+		if (ret)
+			goto p_err;
+		break;
+	case DSP_CONTROL_DVFS_OFF:
+		ret = dsp_pm_dvfs_disable(&sys->pm, cmd->dvfs.pm_qos);
+		if (ret)
+			goto p_err;
+		break;
+	default:
+		ret = -EINVAL;
+		dsp_err("control cmd id is invalid(%u)\n", id);
+		goto p_err;
+	}
+	dsp_leave();
+	return 0;
+p_err:
+	return ret;
+}
+
 static int __dsp_system_wait_task(struct dsp_system *sys, struct dsp_task *task)
 {
 	int ret;
@@ -95,14 +123,19 @@ int dsp_system_execute_task(struct dsp_system *sys, struct dsp_task *task)
 
 	dsp_enter();
 
+	dsp_pm_update_devfreq_busy(&sys->pm, task->pool->pm_qos);
 	ret = dsp_mailbox_send_task(&sys->mailbox, task);
-	if (ret)
+	if (ret) {
+		dsp_pm_update_devfreq_idle(&sys->pm, task->pool->pm_qos);
 		goto p_err;
+	}
 
 	dsp_dump_mailbox_pool_debug(task->pool);
 
+	/* TODO Devfreq change criteria required if not waiting */
 	if (task->wait) {
 		ret = __dsp_system_wait_task(sys, task);
+		dsp_pm_update_devfreq_idle(&sys->pm, task->pool->pm_qos);
 		if (ret) {
 			if (task->recovery) {
 				__dsp_system_flush(sys);
@@ -117,6 +150,8 @@ int dsp_system_execute_task(struct dsp_system *sys, struct dsp_task *task)
 					ret, task->id, task->message_id);
 			goto p_err;
 		}
+	} else {
+		dsp_pm_update_devfreq_idle(&sys->pm, task->pool->pm_qos);
 	}
 
 	task->owner->normal_count++;
@@ -309,8 +344,10 @@ int dsp_system_boot(struct dsp_system *sys)
 	__dsp_system_init(sys);
 	dsp_hw_debug_log_start(&sys->debug);
 
+	dsp_pm_update_devfreq_boot(&sys->pm);
 	dsp_ctrl_start(&sys->ctrl);
 	ret = __dsp_system_wait_boot(sys);
+	dsp_pm_update_devfreq_min(&sys->pm);
 	if (ret)
 		goto p_err_reset;
 
@@ -365,12 +402,14 @@ int dsp_system_reset(struct dsp_system *sys)
 	}
 
 	sys->system_flag = 0x0;
+	dsp_pm_update_devfreq_boot(&sys->pm);
 	dsp_interface_interrupt(&sys->interface, BIT(DSP_TO_CA5_INT_RESET));
 	ret = __dsp_system_wait_reset(sys);
 	if (ret)
 		dsp_ctrl_force_reset(&sys->ctrl);
 	else
 		dsp_ctrl_reset(&sys->ctrl);
+	dsp_pm_update_devfreq_min(&sys->pm);
 
 	dsp_mailbox_stop(&sys->mailbox);
 	dsp_hw_debug_log_stop(&sys->debug);
@@ -385,21 +424,14 @@ int dsp_system_power_active(struct dsp_system *sys)
 	return dsp_pm_devfreq_active(&sys->pm);
 }
 
-int dsp_system_set_default_devfreq(struct dsp_system *sys, int val)
+int dsp_system_set_boot_qos(struct dsp_system *sys, int val)
 {
 	int ret;
 
 	dsp_enter();
-	ret = dsp_pm_set_default_devfreq(&sys->pm, DSP_DEVFREQ_DNC, val);
-	if (ret) {
-		dsp_err("Failed to set devfreq of DNC(%d/%d)\n", ret, val);
+	ret = dsp_pm_set_boot_qos(&sys->pm, val);
+	if (ret)
 		goto p_err;
-	}
-	ret = dsp_pm_set_default_devfreq(&sys->pm, DSP_DEVFREQ_DSP, val);
-	if (ret) {
-		dsp_err("Failed to set devfreq of DSP(%d/%d)\n", ret, val);
-		goto p_err;
-	}
 	dsp_leave();
 	return 0;
 p_err:
@@ -439,7 +471,6 @@ int dsp_system_runtime_suspend(struct dsp_system *sys)
 int dsp_system_resume(struct dsp_system *sys)
 {
 	dsp_enter();
-	dsp_pm_resume(&sys->pm);
 	__dsp_system_recovery(sys);
 	dsp_leave();
 	return 0;
@@ -449,7 +480,6 @@ int dsp_system_suspend(struct dsp_system *sys)
 {
 	dsp_enter();
 	__dsp_system_flush(sys);
-	dsp_pm_suspend(&sys->pm);
 	dsp_leave();
 	return 0;
 }

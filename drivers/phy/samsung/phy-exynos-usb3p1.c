@@ -1297,7 +1297,7 @@ void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 		}
 		writel(hsp_tune, regs_base + EXYNOS_USBCON_HSP_TUNE);
 	}
-	printk("usb: hsp_tune=0x%x\n", hsp_tune);
+
 	if (ss_only_cap) {
 		/* ssphy tuning */
 		void __iomem *ss_reg_base;

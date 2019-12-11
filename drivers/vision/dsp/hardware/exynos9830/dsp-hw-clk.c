@@ -12,21 +12,21 @@
 
 static struct dsp_clk_format clk_array[] = {
 	{ NULL, "dnc_bus" },
-	{ NULL, "dnc_busm" },
-	{ NULL, "dnc" },
+	{ NULL, "dnc_busm" }, // 1
+	{ NULL, "dnc" }, // 2
 	{ NULL, "dspc" },
 	{ NULL, "out_dnc_bus" },
 	{ NULL, "out_dnc_busp" },
 	{ NULL, "dsp_bus0" },
-	{ NULL, "dsp0" },
+	{ NULL, "dsp0" }, // 7
 	{ NULL, "out_dsp_bus0" },
 	{ NULL, "out_dsp_busp0" },
 	{ NULL, "dsp_bus1" },
-	{ NULL, "dsp1" },
+	{ NULL, "dsp1" }, // 11
 	{ NULL, "out_dsp_bus1" },
 	{ NULL, "out_dsp_busp1" },
 	{ NULL, "dsp_bus2" },
-	{ NULL, "dsp2" },
+	{ NULL, "dsp2" }, // 15
 	{ NULL, "out_dsp_bus2" },
 	{ NULL, "out_dsp_busp2" },
 };
@@ -39,9 +39,14 @@ void dsp_clk_dump(struct dsp_clk *clk)
 
 	dsp_enter();
 	for (count = 0; count < ARRAY_SIZE(clk_array); ++count) {
+		/* Only output each core and DMA */
+		if ((count != 1) && (count != 2) && (count != 7) &&
+				(count != 11) && (count != 15))
+			break;
+
 		name = clk_array[count].name;
 		freq = clk_get_rate(clk_array[count].clk);
-		dsp_info("%15s(%02ld) : %3lu.%06lu MHz\n",
+		dsp_dbg("%15s(%02ld) : %3lu.%06lu MHz\n",
 				name, count, freq / 1000000, freq % 1000000);
 	}
 

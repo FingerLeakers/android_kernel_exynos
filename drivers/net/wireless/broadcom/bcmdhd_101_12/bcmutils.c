@@ -1954,7 +1954,7 @@ bcmstrstr(const char *haystack, const char *needle)
 	if (strlen(haystack) < nlen) {
 		return NULL;
 	}
-	len = strlen(haystack) - nlen + 1u;
+	len = (uint)strlen(haystack) - nlen + 1u;
 
 	for (i = 0u; i < len; i++)
 		if (memcmp(needle, &haystack[i], nlen) == 0)
@@ -2220,12 +2220,20 @@ wchar2ascii(char *abuf, ushort *wbuf, ushort wbuflen, ulong abuflen)
 /* add:    osl_alloc_skb dev_alloc_skb skb_realloc_headroom dhd_start_xmit */
 /* remove: osl_pktfree dev_kfree_skb netif_rx */
 
+#if defined(__linux__)
 #define BCM_OBJDBG_COUNT          (1024 * 100)
 static spinlock_t dbgobj_lock;
 #define	BCM_OBJDBG_LOCK_INIT()    spin_lock_init(&dbgobj_lock)
 #define	BCM_OBJDBG_LOCK_DESTROY()
 #define	BCM_OBJDBG_LOCK           spin_lock_irqsave
 #define	BCM_OBJDBG_UNLOCK         spin_unlock_irqrestore
+#else
+#define BCM_OBJDBG_COUNT          (256)
+#define BCM_OBJDBG_LOCK_INIT()
+#define	BCM_OBJDBG_LOCK_DESTROY()
+#define BCM_OBJDBG_LOCK(x, y)
+#define BCM_OBJDBG_UNLOCK(x, y)
+#endif /* else OS */
 
 #define BCM_OBJDBG_ADDTOHEAD      0
 #define BCM_OBJDBG_ADDTOTAIL      1
@@ -4482,6 +4490,56 @@ getbits(const uint8 *addr, uint size, uint stbit, uint nbits)
 
 	return val;
 }
+
+#if defined(WLMSG_ASSOC)
+/* support for getting 802.11 frame type/name based on frame kind */
+#define FK_NAME_DECL(x) {FC_##x, #x}
+static const struct {
+    uint fk;
+    const char *name;
+} bcm_80211_fk_names[] =  {
+	FK_NAME_DECL(ASSOC_REQ),
+	FK_NAME_DECL(ASSOC_RESP),
+	FK_NAME_DECL(REASSOC_REQ),
+	FK_NAME_DECL(REASSOC_RESP),
+	FK_NAME_DECL(PROBE_REQ),
+	FK_NAME_DECL(PROBE_RESP),
+	FK_NAME_DECL(BEACON),
+	FK_NAME_DECL(ATIM),
+	FK_NAME_DECL(DISASSOC),
+	FK_NAME_DECL(AUTH),
+	FK_NAME_DECL(DEAUTH),
+	FK_NAME_DECL(ACTION),
+	FK_NAME_DECL(ACTION_NOACK),
+	FK_NAME_DECL(CTL_TRIGGER),
+	FK_NAME_DECL(CTL_WRAPPER),
+	FK_NAME_DECL(BLOCKACK_REQ),
+	FK_NAME_DECL(BLOCKACK),
+	FK_NAME_DECL(PS_POLL),
+	FK_NAME_DECL(RTS),
+	FK_NAME_DECL(CTS),
+	FK_NAME_DECL(ACK),
+	FK_NAME_DECL(CF_END),
+	FK_NAME_DECL(CF_END_ACK),
+	FK_NAME_DECL(DATA),
+	FK_NAME_DECL(NULL_DATA),
+	FK_NAME_DECL(DATA_CF_ACK),
+	FK_NAME_DECL(QOS_DATA),
+	FK_NAME_DECL(QOS_NULL)
+};
+static const uint n_bcm_80211_fk_names = ARRAYSIZE(bcm_80211_fk_names);
+
+const char *bcm_80211_fk_name(uint fk)
+{
+	uint i;
+	for (i = 0; i < n_bcm_80211_fk_names; ++i) {
+		if (bcm_80211_fk_names[i].fk == fk) {
+			return bcm_80211_fk_names[i].name;
+		}
+	}
+	return "unknown";
+}
+#endif
 
 #ifdef BCMDRIVER
 

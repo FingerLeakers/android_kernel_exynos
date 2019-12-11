@@ -514,7 +514,7 @@ bool check_wait_event(struct ssp_data *data)
 {
 	u64 timestamp = get_current_timestamp();
 	int check_sensors[2] = {ACCELEROMETER_SENSOR, LIGHT_SENSOR};
-	int i, sensor;
+	int i = 0, sensor;
 	bool res = false;
 
 	sensor = check_sensors[i];

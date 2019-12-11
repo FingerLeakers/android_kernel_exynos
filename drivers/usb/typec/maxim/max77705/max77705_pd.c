@@ -398,6 +398,34 @@ void max77705_set_fw_noautoibus(int enable)
 		__func__, value.opcode, value.write_length, value.read_length, op_data);
 }
 
+void max77705_set_snkcap(u8 *snkcap_data, int length)
+{
+	struct max77705_usbc_platform_data *pusbpd = pd_noti.pusbpd;
+	usbc_cmd_data value;
+	int i;
+	char *str = NULL;
+
+	str = kzalloc(sizeof(char) * 1024, GFP_KERNEL);
+	if (!str)
+		return;
+
+	init_usbc_cmd_data(&value);
+
+	if (length)
+		memcpy(value.write_data, snkcap_data, length);
+
+	for (i = 0; i < length; i++)
+		sprintf(str + strlen(str), "%02xh ", value.write_data[i]);
+	pr_info("%s: SNK_CAP : %s\n", __func__, str);	
+
+	value.opcode = OPCODE_SET_SNKCAP;
+	value.write_length = length;
+	value.read_length = 0;
+	max77705_usbc_opcode_write(pusbpd, &value);
+
+	kfree(str);
+}
+
 void max77705_vbus_turn_on_ctrl(struct max77705_usbc_platform_data *usbc_data, bool enable, bool swaped)
 {
 	struct power_supply *psy_otg;

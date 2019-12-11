@@ -453,7 +453,7 @@ static int s2dos05_pmic_dt_parse_pdata(struct device *dev,
 {
 	struct device_node *pmic_np, *regulators_np, *reg_np;
 	struct s2dos05_regulator_data *rdata;
-	unsigned int i;
+	size_t i;
 	int ret;
 	u32 val;
 
@@ -592,7 +592,7 @@ static ssize_t s2dos05_write_store(struct device *dev,
 		return size;
 	}
 
-	ret = sscanf(buf, "%x %x", &reg, &data);
+	ret = sscanf(buf, "%02x %02x", &reg, &data);
 	if (ret != 2) {
 		pr_info("%s: input error\n", __func__);
 		return size;
@@ -737,6 +737,56 @@ static int fb_state_change(struct notifier_block *nb, unsigned long val,
 }
 #endif /* CONFIG_SEC_FACTORY */
 
+#ifdef CONFIG_SEC_FACTORY
+#define VALID_REG	S2DOS05_REG_EN	/* Register address for validation */
+#define VALID_MASK	0xE0		/* NA(reserved) bit */
+
+static ssize_t validation_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct s2dos05_data *s2dos05 = dev_get_drvdata(dev);
+	struct i2c_client *i2c = s2dos05->iodev->i2c;
+	int ret;
+	bool result = false;
+	u8 val;
+
+	ret = s2dos05_read_reg(i2c, VALID_REG, &val);
+	if (ret < 0) {
+		dev_err(dev, "%s: fail to read reg\n", __func__);
+		goto out;
+	}
+
+	dev_info(dev, "%s: initial state: reg(0x%02X) data(0x%02X)\n", __func__,
+			VALID_REG, val);
+
+	ret = s2dos05_update_reg(i2c, VALID_REG, VALID_MASK, VALID_MASK);
+	if (ret < 0) {
+		dev_err(dev, "%s: fail to update reg\n", __func__);
+		goto out;
+	}
+
+	ret = s2dos05_read_reg(i2c, VALID_REG, &val);
+	if (ret < 0) {
+		dev_err(dev, "%s: fail to read reg\n", __func__);
+		goto out;
+	}
+
+	dev_info(dev, "%s: updated state: reg(0x%02x) data(0x%02x)\n", __func__,
+			VALID_REG, val);
+
+	result = (val & VALID_MASK) == VALID_MASK;
+
+	/* No need change to init value(0x00), but, do it */
+	s2dos05_update_reg(i2c, VALID_REG, 0x00, VALID_MASK);
+
+out:
+	dev_info(dev, "%s: result: %s\n", __func__, result ? "ok" : "not ok");
+
+	return sprintf(buf, "%d\n", result);
+}
+static DEVICE_ATTR(validation, 0444, validation_show, NULL);
+#endif /* CONFIG_SEC_FACTORY */
+
 static int s2dos05_sec_pm_init(struct s2dos05_data *info)
 {
 	struct s2dos05_dev *iodev = info->iodev;
@@ -777,8 +827,21 @@ static int s2dos05_sec_pm_init(struct s2dos05_data *info)
 		goto remove_sec_disp_pmic_dev;
 	}
 
+#ifdef CONFIG_SEC_FACTORY
+	ret = device_create_file(iodev->sec_disp_pmic_dev, &dev_attr_validation);
+	if (ret) {
+		pr_err("s2dos05_sysfs: failed to create validation file, %s\n",
+			dev_attr_validation.attr.name);
+		goto remove_sec_disp_enable_fd;
+	}
+#endif /* CONFIG_SEC_FACTORY */
+
 	return 0;
 
+#ifdef CONFIG_SEC_FACTORY
+remove_sec_disp_enable_fd:
+	device_remove_file(info->iodev->sec_disp_pmic_dev, &dev_attr_enable_fd);
+#endif /* CONFIG_SEC_FACTORY */
 remove_sec_disp_pmic_dev:
 	sec_device_destroy(iodev->sec_disp_pmic_dev->devt);
 
@@ -788,6 +851,9 @@ remove_sec_disp_pmic_dev:
 static void s2dos05_sec_pm_deinit(struct s2dos05_data *info)
 {
 	device_remove_file(info->iodev->sec_disp_pmic_dev, &dev_attr_enable_fd);
+#ifdef CONFIG_SEC_FACTORY
+	device_remove_file(info->iodev->sec_disp_pmic_dev, &dev_attr_validation);
+#endif /* CONFIG_SEC_FACTORY */
 	sec_device_destroy(info->iodev->sec_disp_pmic_dev->devt);
 }
 #endif /* CONFIG_SEC_PM */
@@ -799,7 +865,7 @@ static int s2dos05_pmic_probe(struct i2c_client *i2c,
 	struct s2dos05_platform_data *pdata = i2c->dev.platform_data;
 	struct regulator_config config = { };
 	struct s2dos05_data *s2dos05;
-	int i;
+	size_t i;
 	int ret = 0;
 	u8 val = 0, mask = 0;
 

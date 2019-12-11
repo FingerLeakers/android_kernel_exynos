@@ -2101,6 +2101,9 @@ static void proto_drv_put_hook_frame(lsm_list_type_e state, void *e)
 			profile_point3(PROBE_ID_DD_FRAME_COMPLETED, frame->uid, frame->frame_id, 0, frame->npu_req_id, 0);
 			break;
 		case FREE:
+			/* A job in PROCESSING state has been done */
+			npu_scheduler_gate(device, frame, true);
+
 			profile_point3(PROBE_ID_DD_FRAME_DONE, frame->uid, frame->frame_id, 0, frame->npu_req_id, 0);
 			break;
 		default:

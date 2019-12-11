@@ -1527,12 +1527,16 @@ ai_update_backplane_timeouts(const si_t *sih, bool enable, uint32 timeout_exp, u
 		 * for ADB bridge core...so checking actual wrapper config to determine type
 		 * http://jira.broadcom.com/browse/HW4388-905
 		*/
-		if (axi_wrapper[i].cid == ADB_BRIDGE_ID) {
-			ai = (aidmp_t *)(uintptr)axi_wrapper[i].wrapper_addr;
-			if (R_REG(sii->osh, &ai->config) & WRAPPER_TIMEOUT_CONFIG) {
-				axi_wrapper[i].wrapper_type  = AI_SLAVE_WRAPPER;
-			} else {
-				axi_wrapper[i].wrapper_type  = AI_MASTER_WRAPPER;
+		if ((cid == 0 || cid == ADB_BRIDGE_ID) &&
+				(axi_wrapper[i].cid == ADB_BRIDGE_ID)) {
+			/* WAR is applicable only to 89B0 and 89C0 */
+			if (CCREV(sih->ccrev) == 70) {
+				ai = (aidmp_t *)(uintptr)axi_wrapper[i].wrapper_addr;
+				if (R_REG(sii->osh, &ai->config) & WRAPPER_TIMEOUT_CONFIG) {
+					axi_wrapper[i].wrapper_type  = AI_SLAVE_WRAPPER;
+				} else {
+					axi_wrapper[i].wrapper_type  = AI_MASTER_WRAPPER;
+				}
 			}
 		}
 		if (axi_wrapper[i].wrapper_type != AI_SLAVE_WRAPPER) {
@@ -1607,9 +1611,6 @@ ai_ignore_errlog(const si_info_t *sii, const aidmp_t *ai,
 
 	/* ignore the BT slave errors if the errlog is to chipcommon addr 0x190 */
 	switch (CHIPID(sii->pub.chip)) {
-		case BCM4349_CHIP_GRPID:
-			axi_id = BCM4349_BT_AXI_ID;
-			break;
 #ifdef BTOVERPCIE
 		case BCM4369_CHIP_GRPID:
 			axi_id = BCM4369_BT_AXI_ID;

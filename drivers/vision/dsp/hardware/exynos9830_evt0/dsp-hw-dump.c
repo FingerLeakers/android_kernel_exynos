@@ -33,14 +33,12 @@ void dsp_dump_print_status_user(struct seq_file *file)
 void dsp_dump_ctrl(void)
 {
 	dsp_enter();
-	dsp_ctrl_dump();
 	dsp_leave();
 }
 
 void dsp_dump_ctrl_user(struct seq_file *file)
 {
 	dsp_enter();
-	dsp_ctrl_user_dump(file);
 	dsp_leave();
 }
 
@@ -65,6 +63,5 @@ void dsp_dump_task_manager_count(struct dsp_task_manager *tmgr)
 void dsp_dump_kernel(struct dsp_kernel_manager *kmgr)
 {
 	dsp_enter();
-	dsp_kernel_dump(kmgr);
 	dsp_leave();
 }

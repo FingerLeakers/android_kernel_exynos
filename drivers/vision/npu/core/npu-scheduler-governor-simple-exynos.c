@@ -199,7 +199,6 @@ static ssize_t npu_store_attrs_governor_simple_exynos(struct device *dev,
 	struct npu_governor_simple_exynos_prop *p;
 	const ptrdiff_t offset = attr - npu_simple_exynos_attrs;
 
-
 	if (sscanf(buf, "%s %d", name, &x) > 0) {
 		d = npu_governor_simple_exynos_get_dev(name);
 		if (!d) {
@@ -207,28 +206,28 @@ static ssize_t npu_store_attrs_governor_simple_exynos(struct device *dev,
 			return ret;
 		}
 		p = (struct npu_governor_simple_exynos_prop *)d->gov_prop;
-	}
-	switch (offset) {
-	case NPU_SIMPLE_EXYNOS_INIT_DELAY:
-		p->init_delay = x;
-		break;
-	case NPU_SIMPLE_EXYNOS_INIT_FREQ:
-		p->init_freq = x;
-		break;
-	case NPU_SIMPLE_EXYNOS_UP_THRESHOLD:
-		p->up_threshold = x;
-		break;
-	case NPU_SIMPLE_EXYNOS_UP_DELAY:
-		p->up_delay = x;
-		break;
-	case NPU_SIMPLE_EXYNOS_DOWN_THRESHOLD:
-		p->down_threshold = x;
-		break;
-	case NPU_SIMPLE_EXYNOS_DOWN_DELAY:
-		p->down_delay = x;
-		break;
-	default:
-		break;
+		switch (offset) {
+		case NPU_SIMPLE_EXYNOS_INIT_DELAY:
+			p->init_delay = x;
+			break;
+		case NPU_SIMPLE_EXYNOS_INIT_FREQ:
+			p->init_freq = x;
+			break;
+		case NPU_SIMPLE_EXYNOS_UP_THRESHOLD:
+			p->up_threshold = x;
+			break;
+		case NPU_SIMPLE_EXYNOS_UP_DELAY:
+			p->up_delay = x;
+			break;
+		case NPU_SIMPLE_EXYNOS_DOWN_THRESHOLD:
+			p->down_threshold = x;
+			break;
+		case NPU_SIMPLE_EXYNOS_DOWN_DELAY:
+			p->down_delay = x;
+			break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;
@@ -246,7 +245,6 @@ static ssize_t npu_store_attrs_governor_simple_exynos_args(struct device *dev,
 	struct npu_governor_simple_exynos_prop *p;
 	const ptrdiff_t offset = attr - npu_simple_exynos_attrs;
 
-
 	if (sscanf(buf, "%s %d %d", name, &x, &y) > 0) {
 		d = npu_governor_simple_exynos_get_dev(name);
 		if (!d) {
@@ -254,14 +252,14 @@ static ssize_t npu_store_attrs_governor_simple_exynos_args(struct device *dev,
 			return ret;
 		}
 		p = (struct npu_governor_simple_exynos_prop *)d->gov_prop;
-	}
-	switch (offset) {
-	case NPU_SIMPLE_EXYNOS_MODE_FREQ:
-		d->mode_min_freq[x] = y;
-		break;
+		switch (offset) {
+		case NPU_SIMPLE_EXYNOS_MODE_FREQ:
+			d->mode_min_freq[x] = y;
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;

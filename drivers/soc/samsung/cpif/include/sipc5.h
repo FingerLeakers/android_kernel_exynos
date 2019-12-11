@@ -227,6 +227,12 @@ static inline bool sipc_log_ch(u8 ch)
 		true : false;
 }
 
+static inline bool sipc_router_ch(u8 ch)
+{
+	return (ch == SIPC_CH_ID_BT_DUN) ?
+		true : false;
+}
+
 /**
 @param ch	the channel ID
 @return		true if the channel ID is for MISC channel want to logging

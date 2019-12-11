@@ -19,6 +19,8 @@ extern int debug_pdp;
 #define dbg_pdp(level, fmt, pdp, args...) \
 	dbg_common((debug_pdp) >= (level), "[PDP%d]", fmt, pdp->id, ##args)
 
+#define PDP_STUCK_CNT		(20)
+
 enum is_pdp_state {
 	IS_PDP_SET_PARAM,
 	IS_PDP_VOTF_ONESHOT_FIRST_FRAME,
@@ -86,6 +88,10 @@ struct is_pdp {
 
 	int				vc_ext_sensor_mode;
 	u32				err_cnt_oneshot;
+
+	/* debug */
+	unsigned long long		time_rta_cfg;
+	unsigned long long		time_err;
 };
 
 

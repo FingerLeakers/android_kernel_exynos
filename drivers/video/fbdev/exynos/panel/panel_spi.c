@@ -430,8 +430,8 @@ static int panel_spi_flash_erase(struct panel_spi_dev *spi_dev, struct spi_data_
 {
 	struct spi_dev_info *spi_info;
 	int ret = 0;
-	int remain_size, erase_idx, erase_wait_idx;
-	int erase_size = 0, target_addr = 0;
+	int erase_idx, erase_wait_idx;
+	int erase_size = 0, target_addr = 0, remain_size = 0;
 
 	if (!SPI_IS_READY(spi_dev)) {
 		ret = -ENODEV;
@@ -576,7 +576,7 @@ static int panel_spi_flash_read(struct panel_spi_dev *spi_dev, struct spi_data_b
 		if (ret) {
 			panel_err("%s error occurred when send cmd %d(%s) ret %d\n", __func__, PANEL_SPI_CMD_FLASH_READ,
 				panel_spi_cmd_str[PANEL_SPI_CMD_FLASH_READ], ret);
-			goto read_out;
+			goto buf_free;
 		}
 
 		//copy readed data
@@ -585,6 +585,10 @@ static int panel_spi_flash_read(struct panel_spi_dev *spi_dev, struct spi_data_b
 		read_addr += read_size;
 		remain_size -= read_size;
 	}
+	
+buf_free:
+	kfree(buf);
+	
 read_out:
 	panel_info("%s: ---, 0x%06x %d\n", __func__, read_addr, remain_size);
 	
@@ -649,7 +653,7 @@ static int panel_spi_flash_write(struct panel_spi_dev *spi_dev, struct spi_data_
 				panel_err("%s error occurred when send cmd %d(%s) retry %d ret %d\n", 
 					__func__, PANEL_SPI_CMD_FLASH_WRITE_ENABLE,
 					panel_spi_cmd_str[PANEL_SPI_CMD_FLASH_WRITE_ENABLE], MAX_CMD_RETRY, ret);
-				goto write_out;
+				goto buf_free;
 
 			}
 		}
@@ -662,7 +666,7 @@ static int panel_spi_flash_write(struct panel_spi_dev *spi_dev, struct spi_data_
 			if (ret) {
 				panel_err("%s error occurred when send cmd %d(%s) ret %d\n", __func__, PANEL_SPI_CMD_FLASH_WRITE,
 					panel_spi_cmd_str[PANEL_SPI_CMD_FLASH_WRITE], ret);
-				goto write_out;
+				goto buf_free;
 
 			}
 		}
@@ -673,7 +677,7 @@ static int panel_spi_flash_write(struct panel_spi_dev *spi_dev, struct spi_data_
 			if (ret) {
 				panel_err("%s error occurred when send cmd %d(%s) retry %d ret %d\n", 
 					__func__, PANEL_SPI_CMD_FLASH_WRITE_DONE, panel_spi_cmd_str[PANEL_SPI_CMD_FLASH_WRITE_DONE], MAX_BUSY_RETRY, ret);
-				goto write_out;
+				goto buf_free;
 			}
 		}
 
@@ -681,6 +685,10 @@ static int panel_spi_flash_write(struct panel_spi_dev *spi_dev, struct spi_data_
 		write_addr += write_size;
 		remain_size -= write_size;
 	}
+
+buf_free:
+	kfree(buf);
+
 write_out:
 	panel_info("%s: ---, 0x%06x %d\n", __func__, write_addr, remain_size);
 	
@@ -689,7 +697,7 @@ write_out:
 
 static int panel_spi_ctrl(struct panel_spi_dev *spi_dev, int ctrl_msg)
 {
-	int ret;
+	int ret = 0;
 	u32 id = 0;
 
 	if (!SPI_IS_READY(spi_dev))

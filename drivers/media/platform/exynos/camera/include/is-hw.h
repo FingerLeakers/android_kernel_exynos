@@ -222,7 +222,7 @@ int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct is_frame_cfg 
 #else
 int csi_hw_s_config_dma(u32 __iomem *base_reg, u32 channel, struct is_image *image, u32 hwformat);
 #endif
-int csi_hw_dma_common_reset(u32 __iomem *base_reg);
+int csi_hw_dma_common_reset(u32 __iomem *base_reg, bool on);
 int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, u32 dma_ch);
 int csi_hw_s_dma_common(u32 __iomem *base_reg);
 int csi_hw_s_dma_common_pattern_enable(u32 __iomem *base_reg, u32 width, u32 height, u32 fps, u32 clk);

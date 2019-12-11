@@ -251,4 +251,6 @@ source "drivers/security/samsung/icdrv/Kconfig"
 
 source "drivers/gator/Kconfig"
 
+source "drivers/kperfmon/Kconfig"
+
 endmenu

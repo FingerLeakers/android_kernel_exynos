@@ -305,6 +305,7 @@ enum {
 	IOV_RTT_GEOFENCE_TYPE_OVRD,
 #endif /* RTT_SUPPORT && WL_NAN */
 #endif /* RTT_GEOFENCE_CONT */
+	IOV_FW_VBS,
 	IOV_LAST
 };
 
@@ -402,6 +403,7 @@ const bcm_iovar_t dhd_iovars[] = {
 	{"rtt_geofence_type_ovrd", IOV_RTT_GEOFENCE_TYPE_OVRD, (0), 0, IOVT_BOOL, 0},
 #endif /* RTT_SUPPORT && WL_NAN */
 #endif /* RTT_GEOFENCE_CONT */
+	{"fw_verbose", IOV_FW_VBS, 0, 0, IOVT_UINT32, 0},
 	/* --- add new iovars *ABOVE* this line --- */
 	{NULL, 0, 0, 0, 0, 0 }
 };
@@ -628,8 +630,10 @@ dhd_get_sssr_bufsize(dhd_pub_t *dhd)
 			return BCME_UNSUPPORTED;
 	}
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	/* Double the size as different dumps will be saved before and after SR */
 	sssr_bufsize = 2 * sssr_bufsize;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	return sssr_bufsize;
 }
@@ -725,11 +729,15 @@ dhd_sssr_dump_init(dhd_pub_t *dhd)
 
 	/* init all pointers to NULL */
 	for (i = 0; i < num_d11cores; i++) {
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		dhd->sssr_d11_before[i] = NULL;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 		dhd->sssr_d11_after[i] = NULL;
 	}
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd->sssr_dig_buf_before = NULL;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	dhd->sssr_dig_buf_after = NULL;
 
 	/* Allocate memory */
@@ -764,8 +772,10 @@ dhd_sssr_dump_init(dhd_pub_t *dhd)
 		}
 
 		if (alloc_sssr) {
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			dhd->sssr_d11_before[i] = (uint32 *)(dhd->sssr_mempool + mempool_used);
 			mempool_used += sr_size;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			dhd->sssr_d11_after[i] = (uint32 *)(dhd->sssr_mempool + mempool_used);
 			mempool_used += sr_size;
@@ -812,8 +822,10 @@ dhd_sssr_dump_init(dhd_pub_t *dhd)
 		dhd->sssr_dig_buf_after = (uint32 *)(dhd->sssr_mempool + mempool_used);
 		mempool_used += sr_size;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		/* DIG dump before suspend is not applicable. */
 		dhd->sssr_dig_buf_before = NULL;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	}
 
 	dhd->sssr_inited = TRUE;
@@ -833,10 +845,14 @@ dhd_sssr_dump_deinit(dhd_pub_t *dhd)
 	dhd->sssr_inited = FALSE;
 	/* init all pointers to NULL */
 	for (i = 0; i < num_d11cores; i++) {
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		dhd->sssr_d11_before[i] = NULL;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 		dhd->sssr_d11_after[i] = NULL;
 	}
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd->sssr_dig_buf_before = NULL;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	dhd->sssr_dig_buf_after = NULL;
 
 	return;
@@ -1715,8 +1731,15 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 		dhd_ver_len = sizeof(dhd_version) - 1;
 		bus_api_rev_len = strlen(bus_api_revision);
 		if (len > dhd_ver_len + bus_api_rev_len) {
-			memcpy((char *)arg, dhd_version, dhd_ver_len);
-			memcpy((char *)arg + dhd_ver_len, bus_api_revision, bus_api_rev_len);
+			bcmerror = memcpy_s((char *)arg, len, dhd_version, dhd_ver_len);
+			if (bcmerror != BCME_OK) {
+				break;
+			}
+			bcmerror = memcpy_s((char *)arg + dhd_ver_len, len - dhd_ver_len,
+				bus_api_revision, bus_api_rev_len);
+			if (bcmerror != BCME_OK) {
+				break;
+			}
 			*((char *)arg + dhd_ver_len + bus_api_rev_len) = '\0';
 		}
 		break;
@@ -2425,6 +2448,18 @@ dhd_doiovar(dhd_pub_t *dhd_pub, const bcm_iovar_t *vi, uint32 actionid, const ch
 	}
 #endif /* RTT_SUPPORT && WL_NAN */
 #endif /* RTT_GEOFENCE_CONT */
+	case IOV_GVAL(IOV_FW_VBS): {
+		*(uint32 *)arg = (uint32)dhd_dbg_get_fwverbose(dhd_pub);
+		break;
+	}
+
+	case IOV_SVAL(IOV_FW_VBS): {
+		if (int_val < 0) {
+			int_val = 0;
+		}
+		dhd_dbg_set_fwverbose(dhd_pub, (uint32)int_val);
+		break;
+	}
 	default:
 		bcmerror = BCME_UNSUPPORTED;
 		break;
@@ -2745,7 +2780,7 @@ dhd_ioctl(dhd_pub_t * dhd_pub, dhd_ioctl_t *ioc, void *buf, uint buflen)
 				for (arg = buf, arglen = buflen; *arg && arglen; arg++, arglen--)
 					;
 
-				if (*arg) {
+				if (arglen == 0 || *arg) {
 					bcmerror = BCME_BUFTOOSHORT;
 					goto unlock_exit;
 				}

@@ -88,6 +88,7 @@ typedef long unsigned int size_t;
 #define TYPEDEF_ULONG
 #endif
 
+#if defined(__linux__)
 /*
  * If this is either a Linux hybrid build or the per-port code of a hybrid build
  * then use the Linux header files to get some of the typedefs.  Otherwise, define
@@ -113,6 +114,12 @@ typedef long unsigned int size_t;
 #endif
 #endif	/* == 2.6.18 */
 #endif	/* __KERNEL__ */
+#endif
+
+#if !defined(__linux__) && !defined(__DJGPP__)
+#define TYPEDEF_UINT
+#define TYPEDEF_USHORT
+#endif
 
 /* Do not support the (u)int64 types with strict ansi for GNU C */
 #if defined(__GNUC__) && defined(__STRICT_ANSI__)
@@ -136,7 +143,7 @@ typedef long unsigned int size_t;
 #if !defined(__DJGPP__)
 
 /* pick up ushort & uint from standard types.h */
-#if defined(__KERNEL__)
+#if defined(__linux__) && defined(__KERNEL__)
 
 /* See note above */
 #include <linux/types.h>	/* sys/types.h and linux/types.h are oil and water */

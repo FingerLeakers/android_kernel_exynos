@@ -372,10 +372,13 @@ static int abox_rdma_compr_isr_handler(void *priv)
 		break;
 	case INTR_EOS:
 		if (atomic_cmpxchg(&data->draining, 1, 0)) {
-			if (data->copied_total != data->received_total)
+			if (data->copied_total != data->received_total) {
 				dev_warn(dev, "INTR_EOS: not sync(%llu/%llu)\n",
 						data->copied_total,
 						data->received_total);
+				data->copied_total = data->received_total;
+				snd_compr_fragment_elapsed(data->cstream);
+			}
 
 			/* ALSA Framework callback to notify drain complete */
 			snd_compr_drain_notify(data->cstream);
@@ -1608,7 +1611,7 @@ static int abox_rdma_close(struct snd_pcm_substream *substream)
 	time = wait_for_completion_timeout(&data->closed,
 			nsecs_to_jiffies(ABOX_DMA_TIMEOUT_NS));
 	if (time == 0)
-		dev_warn(dev, "close timeout\n", __func__);
+		dev_warn(dev, "close timeout\n");
 
 	/* Release ASRC to reuse it in other DMA */
 	abox_cmpnt_asrc_release(abox_data, SNDRV_PCM_STREAM_PLAYBACK, id);

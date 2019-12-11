@@ -81,6 +81,7 @@ static struct g2d_stamp_type {
 	{"hwfc_job",      G2D_STAMPTYPE_NUM,       true},
 	{"pending",       G2D_STAMPTYPE_NUM,       false},
 	{"fence",         G2D_STAMPTYPE_FENCE,     true},
+	{"reset_task",    G2D_STAMPTYPE_NONE,      true},
 };
 
 static bool g2d_stamp_show_single(struct seq_file *s, struct g2d_stamp *stamp)

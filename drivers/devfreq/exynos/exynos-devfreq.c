@@ -45,6 +45,12 @@
 
 #include "exynos-ppc.h"
 
+#include <linux/dev_cooling.h>
+
+#ifdef CONFIG_SND_SOC_SAMSUNG_ABOX
+#include <sound/samsung/abox.h>
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/exynos_devfreq.h>
 static struct exynos_devfreq_data **devfreq_data;
@@ -1141,6 +1147,7 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 	const char *use_delay_time;
 	const char *pd_name;
 	const char *update_fvp;
+	const char *use_dtm;
 	int ntokens;
 	int not_using_ect = true;
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
@@ -1392,9 +1399,21 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 			dev_info(data->dev, "ALT-DVFS is not declared by device tree.\n");
 		}
 #endif
+
 	} else {
 		dev_err(data->dev, "not support governor type %u\n", data->gov_type);
 		return -EINVAL;
+	}
+
+	if (!of_property_read_string(np, "use_dtm", &use_dtm)) {
+		if (!strcmp(use_dtm, "true")) {
+			data->use_dtm = true;
+			dev_info(data->dev, "This domain controlled by DTM\n");
+		} else {
+			data->use_dtm = false;
+		}
+	} else {
+		data->use_dtm = false;
 	}
 
 #ifdef CONFIG_EXYNOS_DVFS_MANAGER
@@ -1583,6 +1602,10 @@ static int exynos_devfreq_suspend(struct device *dev)
 #endif
 #endif
 	u32 get_freq = 0;
+#ifdef CONFIG_SND_SOC_SAMSUNG_ABOX
+	unsigned long abox_freq = 0;
+#endif
+
 
 #ifdef CONFIG_EXYNOS_DVFS_MANAGER
 	if (data->use_acpm) {
@@ -1615,6 +1638,20 @@ static int exynos_devfreq_suspend(struct device *dev)
 		}
 #endif
 		data->devfreq->str_freq = data->devfreq_profile.suspend_freq;
+#ifdef CONFIG_SND_SOC_SAMSUNG_ABOX
+		if (abox_is_on()) {
+			if (data->devfreq_type == 0)
+				abox_freq = (unsigned long)abox_get_requiring_mif_freq_in_khz();
+			else if (data->devfreq_type == 1)
+				abox_freq = (unsigned long)abox_get_requiring_int_freq_in_khz();
+
+			if (abox_freq >= data->devfreq_profile.suspend_freq) {
+				data->devfreq->str_freq = abox_freq;
+				dev_info(dev, "devfreq_type:%d, changed str_freq by abox:%u\n",
+						data->devfreq_type, abox_freq);
+			}
+		}
+#endif
 		ret = update_devfreq(data->devfreq);
 		if (ret && ret != -EAGAIN) {
 			dev_err(&data->devfreq->dev, "devfreq failed with (%d) error\n", ret);
@@ -1892,6 +1929,12 @@ static int exynos_devfreq_probe(struct platform_device *pdev)
 		pm_runtime_get_sync(&pdev->dev);
 		pm_qos_update_request(&data->boot_pm_qos, data->default_qos);
 		pm_runtime_put_sync(&pdev->dev);
+	}
+
+	// Init dev_cooling_device
+	if (data->use_dtm) {
+		exynos_dev_cooling_register(data->dev->of_node, data);
+		dev_info(data->dev, "devfreq cooling device registered");
 	}
 
 	dev_info(data->dev, "devfreq is initialized!!\n");

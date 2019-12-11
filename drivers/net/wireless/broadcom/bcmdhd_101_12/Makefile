@@ -1,12 +1,12 @@
 #
 # Copyright (C) 2019, Broadcom.
-# 
+#
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
 # under the terms of the GNU General Public License version 2 (the "GPL"),
 # available at http://www.broadcom.com/licenses/GPLv2.php, with the
 # following added to such license:
-# 
+#
 #      As a special exception, the copyright holders of this software give you
 # permission to link this software with independent modules, and to copy and
 # distribute the resulting executable under terms of your choice, provided that
@@ -459,7 +459,8 @@ endif
   DHDCFLAGS += -DWL_STATIC_IFNAME_PREFIX="\"swlan0\""
 #OWE
   DHDCFLAGS += -DWL_OWE
-# Disable HE on P2P based on peer support
+# Disable HE on SoftAP and P2P
+  DHDCFLAGS += -DWL_DISABLE_HE_SOFTAP
   DHDCFLAGS += -DWL_DISABLE_HE_P2P
 # tput enhancement for PCIE
 ifeq ($(BUS_IFACE_PCIE),y)
@@ -698,7 +699,8 @@ ifneq ($(CONFIG_BCM4375),)
  DHDCFLAGS += -DWL_STATIC_IFNAME_PREFIX="\"swlan0\""
  #OWE
  DHDCFLAGS += -DWL_OWE
- # Disable HE on P2P based on peer support
+# Disable HE on SoftAP and P2P
+ DHDCFLAGS += -DWL_DISABLE_HE_SOFTAP
  DHDCFLAGS += -DWL_DISABLE_HE_P2P
 # tput enhancement for PCIE
 ifeq ($(BUS_IFACE_PCIE),y)
@@ -818,10 +820,18 @@ ifeq ($(filter y,$(CONFIG_ARCH_MSM8998) $(CONFIG_ARCH_SDM845) \
   DHDCFLAGS += -DUSE_SMMU_ARCH_MSM
 endif
 
+# GRO (Generic Receive Offload) feature
+  DHDCFLAGS += -DENABLE_DHD_SW_GRO
 # IRQSET in DHD
   DHDCFLAGS += -DDHD_LB_IRQSET
 # Runtime PM
-  DHDCFLAGS += -DDHD_PCIE_RUNTIMEPM -DMAX_IDLE_COUNT=5 -DCUSTOM_DHD_RUNTIME_MS=100
+  DHDCFLAGS += -DDHD_PCIE_RUNTIMEPM -DCUSTOM_DHD_RUNTIME_MS=100
+# change RPM idle count on exynos9830, kona(SM8250) Platform
+ifeq ($(filter y,$(CONFIG_SOC_EXYNOS9830) $(CONFIG_ARCH_KONA)),y)
+  DHDCFLAGS += -DMAX_IDLE_COUNT=5
+else
+  DHDCFLAGS += -DMAX_IDLE_COUNT=11
+endif
 # Disable SOFTAP_SEND_HANGEVT
   DHDCFLAGS := $(filter-out -DSOFTAP_SEND_HANGEVT,$(DHDCFLAGS))
 # Enable LQCM

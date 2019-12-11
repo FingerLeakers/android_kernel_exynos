@@ -1193,7 +1193,7 @@ void hex_cdump(const char *level, const char *prefix_str, int prefix_type,
 	if (rowsize != 16 && rowsize != 32)
 		rowsize = 16;
 
-	for (i = 0; i < len; i += rowsize) {
+	for (i = 0; i < (int)len; i += rowsize) {
 		linelen = min(remaining, rowsize);
 		remaining -= rowsize;
 

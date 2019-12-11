@@ -2761,6 +2761,18 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 				/* It can make stuck NET TX Queue without below */
 				dhd_bus_start_queue(bus);
 				DHD_GENERAL_UNLOCK(dhd, flags);
+				if (bus->dhd->rx_pending_due_to_rpm) {
+					/* Reschedule tasklet to process Rx frames */
+					DHD_ERROR(("%s: Schedule DPC to process pending"
+						" Rx packets\n", __FUNCTION__));
+					dhd_sched_dpc(bus->dhd);
+				}
+				/* enabling host irq deferred from system suspend */
+				if (dhdpcie_irq_disabled(bus)) {
+					dhdpcie_enable_irq(bus);
+					/* increasing intrrupt count when it enabled */
+					bus->resume_intr_enable_count++;
+				}
 				smp_wmb();
 				wake_up(&bus->rpm_queue);
 				return FALSE;
@@ -2790,6 +2802,20 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 			/* For making sure NET TX Queue active  */
 			dhd_bus_start_queue(bus);
 			DHD_GENERAL_UNLOCK(dhd, flags);
+
+			if (bus->dhd->rx_pending_due_to_rpm) {
+				/* Reschedule tasklet to process Rx frames */
+				DHD_ERROR(("%s: Schedule DPC to process pending Rx packets\n",
+					__FUNCTION__));
+				dhd_sched_dpc(bus->dhd);
+			}
+
+			/* enabling host irq deferred from system suspend */
+			if (dhdpcie_irq_disabled(bus)) {
+				dhdpcie_enable_irq(bus);
+				/* increasing intrrupt count when it enabled */
+				bus->resume_intr_enable_count++;
+			}
 
 			smp_wmb();
 			wake_up(&bus->rpm_queue);

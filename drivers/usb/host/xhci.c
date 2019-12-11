@@ -27,6 +27,7 @@
 #include "xhci-mtk.h"
 #include "xhci-debugfs.h"
 #include "xhci-dbgcap.h"
+#include "xhci-plat.h"
 
 #define DRIVER_AUTHOR "Sarah Sharp"
 #define DRIVER_DESC "'eXtensible' Host Controller (xHC) Driver"
@@ -222,6 +223,12 @@ int xhci_reset(struct xhci_hcd *xhci)
 		xhci->bus_state[i].suspended_ports = 0;
 		xhci->bus_state[i].resuming_ports = 0;
 	}
+
+#if defined(CONFIG_USB_DWC3_EXYNOS)
+	/* Exynos specific configurations for cleared register after reset */
+	xhci_info(xhci, "Set SOC Specific Configuration after RESET.\n");
+	xhci_soc_config_after_reset(xhci);
+#endif
 
 	return ret;
 }

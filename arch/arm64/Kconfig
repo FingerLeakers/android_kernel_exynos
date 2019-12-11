@@ -63,7 +63,6 @@ config ARM64
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
 	select ARCH_WANT_FRAME_POINTERS
-	select ARCH_WANT_BATCHED_UNMAP_TLB_FLUSH if SMP
 	select ARCH_HAS_UBSAN_SANITIZE_ALL
 	select ARM_AMBA
 	select ARM_ARCH_TIMER
@@ -1348,13 +1347,6 @@ config UH_RKP
 	default n
 	help
 	  it protects a kernel text and etc.
-
-config UH_RKP_8G
-	bool "Support 8G Model"
-	depends on UH_RKP
-	default n
-	help
-	  support 8G
 
 config RKP_TEST
      bool "Enable RKP test"

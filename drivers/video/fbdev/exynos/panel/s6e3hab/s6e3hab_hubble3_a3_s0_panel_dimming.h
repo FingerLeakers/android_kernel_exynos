@@ -15,7 +15,7 @@
 #include "../dimming.h"
 #include "../panel_dimming.h"
 #include "s6e3hab_dimming.h"
-#include "s6e3hab_hubble_irc.h"
+#include "s6e3hab_hubble3_a3_s0_panel_irc.h"
 
 /*
  * PANEL INFORMATION
@@ -1350,6 +1350,6 @@ static struct panel_dimming_info s6e3hab_hubble3_a3_s0_panel_dimming_info = {
 	/* dimming parameters */
 	.dimming_maptbl = hubble3_a3_s0_dimming_param_maptbl,
 	.dim_flash_on = true,	/* read dim flash when probe or not */
-	.irc_info = &s6e3hab_hubble_irc,
+	.irc_info = &s6e3hab_hubble3_irc,
 };
 #endif /* __S6E3HAB_HUBBLE3_A3_S0_PANEL_DIMMING_H___ */

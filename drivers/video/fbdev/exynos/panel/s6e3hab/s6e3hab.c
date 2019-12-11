@@ -1913,6 +1913,20 @@ static int getidx_acl_onoff_table(struct maptbl *tbl)
 	return maptbl_index(tbl, 0, panel_bl_get_acl_pwrsave(&panel->panel_bl), 0);
 }
 
+static int getidx_dia_onoff_table(struct maptbl *tbl)
+{
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+	struct panel_info *panel_data;
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_data = &panel->panel_data;
+
+	return maptbl_index(tbl, 0, panel_data->props.dia_mode, 0);
+}
+
 static int getidx_hbm_onoff_table(struct maptbl *tbl)
 {
 	struct panel_device *panel = (struct panel_device *)tbl->pdata;
@@ -2241,12 +2255,37 @@ static int getidx_dyn_ffc_table(struct maptbl *tbl)
 	}
 	status = &panel->df_status;
 
-	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d\n", __func__, status->ffc_df);
+	if (status->current_ddi_osc)
+		row = 4;
+	
+	row += status->ffc_df;
 
-	row = status->ffc_df;
+	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d, ddi_osc: %d, row: %d\n",
+		__func__, status->ffc_df, status->current_ddi_osc, row);
 
 	return maptbl_index(tbl, 0, row, 0);
 }
+
+static int getidx_ddi_osc_clk_table(struct maptbl *tbl)
+{
+	int row = 0;
+	struct df_status_info *status;
+	struct panel_device *panel = (struct panel_device *)tbl->pdata;
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	status = &panel->df_status;
+
+	panel_info("[DYN_FREQ]INFO:%s:ffc idx: %d, ddi_osc: %d, row: %d\n",
+		__func__, status->ffc_df, status->current_ddi_osc, row);
+
+	row = status->current_ddi_osc;
+
+	return maptbl_index(tbl, 0, row, 0);
+}
+
 #endif
 
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
@@ -3194,14 +3233,14 @@ static void show_mafpc_log(struct dumpinfo *info)
 {
 	int ret;
 	struct resinfo *res = info->res;
-	u8 mfapc[S6E3HAB_MAFPC_LEN] = {0, };
+	u8 mafpc[S6E3HAB_MAFPC_LEN] = {0, };
 
-	if (!res || ARRAY_SIZE(mfapc) != res->dlen) {
+	if (!res || ARRAY_SIZE(mafpc) != res->dlen) {
 		pr_err("%s invalid resource\n", __func__);
 		return;
 	}
 
-	ret = resource_copy(mfapc, info->res);
+	ret = resource_copy(mafpc, info->res);
 	if (unlikely(ret < 0)) {
 		pr_err("%s, failed to copy rddpm resource\n", __func__);
 		return;
@@ -3209,7 +3248,7 @@ static void show_mafpc_log(struct dumpinfo *info)
 
 	panel_info("========== SHOW PANEL [87h:MAFPC_EN] INFO ==========\n");
 	panel_info("* Reg Value : 0x%02x, Result : %s\n",
-			mfapc[0], (mfapc[0] & 0x01) ? "ON" : "OFF");
+			mafpc[0], (mafpc[0] & 0x01) ? "ON" : "OFF");
 	panel_info("====================================================\n");
 
 }
@@ -3217,26 +3256,46 @@ static void show_mafpc_flash_log(struct dumpinfo *info)
 {
 	int ret;
 	struct resinfo *res = info->res;
-	u8 mfapc_flash[S6E3HAB_MAFPC_FLASH_LEN] = {0, };
+	u8 mafpc_flash[S6E3HAB_MAFPC_FLASH_LEN] = {0, };
 
-	if (!res || ARRAY_SIZE(mfapc_flash) != res->dlen) {
+	if (!res || ARRAY_SIZE(mafpc_flash) != res->dlen) {
 		pr_err("%s invalid resource\n", __func__);
 		return;
 	}
 
-	ret = resource_copy(mfapc_flash, info->res);
+	ret = resource_copy(mafpc_flash, info->res);
 	if (unlikely(ret < 0)) {
 		pr_err("%s, failed to copy rddpm resource\n", __func__);
 		return;
 	}
 
-	panel_info("========== SHOW PANEL [FEh(0x09):MAFPC_FLASH] INFO ==========\n");
+	panel_info("======= SHOW PANEL [FEh(0x09):MAFPC_FLASH] INFO =======\n");
 	panel_info("* Reg Value : 0x%02x, Result : %s\n",
-			mfapc_flash[0], (mfapc_flash[0] & 0x02) ? "BYPASS" : "POC");
+			mafpc_flash[0], (mafpc_flash[0] & 0x02) ? "BYPASS" : "POC");
 	panel_info("====================================================\n");
-	
 }
-
-
 #endif
 
+static void show_self_mask_crc(struct dumpinfo *info)
+{
+	int ret;
+	struct resinfo *res = info->res;
+	u8 crc[S6E3HAB_SELF_MASK_CRC_LEN] = {0, };
+
+	if (!res || ARRAY_SIZE(crc) != res->dlen) {
+		pr_err("%s invalid resource\n", __func__);
+		return;
+	}
+
+	ret = resource_copy(crc, info->res);
+	if (unlikely(ret < 0)) {
+		pr_err("%s, failed to self mask crc resource\n", __func__);
+		return;
+	}
+
+	panel_info("======= SHOW PANEL [7Fh:SELF_MASK_CRC] INFO =======\n");
+	panel_info("* Reg Value : 0x%02x, 0x%02x, 0x%02x, 0x%02x\n",
+			crc[0], crc[1], crc[2], crc[3]);
+	panel_info("====================================================\n");
+
+}

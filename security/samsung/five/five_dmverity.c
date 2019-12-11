@@ -235,7 +235,8 @@ bool five_is_dmverity_protected(const struct file *file)
 static bool is_dmverity_prebuit_path(const struct file *file)
 {
 	const char * const paths[] = {
-		"/system/", "/vendor/", "/apex/"
+		"/system/", "/vendor/", "/apex/",
+		"/product/", "/odm/", "/prism/", "/optics/"
 	};
 	const char *pathname = NULL;
 	char *pathbuf = NULL;

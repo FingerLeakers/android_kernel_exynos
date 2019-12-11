@@ -34,6 +34,7 @@ extern unsigned int lpcharge;
 extern bool mfc_fw_update;
 
 extern void max77705_set_fw_noautoibus(int enable);
+extern void max77705_set_snkcap(u8 *snkcap_data, int length);
 
 ssize_t max77705_chg_show_attrs(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -122,7 +123,6 @@ ssize_t max77705_chg_store_attrs(struct device *dev,
 #define CHG_CNFG_00_BUCK_SHIFT		        2
 #define CHG_CNFG_00_BOOST_SHIFT		        3
 #define CHG_CNFG_00_WDTEN_SHIFT		        4
-#define CHG_CNFG_00_DISIBS_SHIFT			6
 #define CHG_CNFG_00_MODE_MASK		        (0x0F << CHG_CNFG_00_MODE_SHIFT)
 #define CHG_CNFG_00_CHG_MASK		        (1 << CHG_CNFG_00_CHG_SHIFT)
 #define CHG_CNFG_00_UNO_MASK		        (1 << CHG_CNFG_00_UNO_SHIFT)
@@ -130,7 +130,6 @@ ssize_t max77705_chg_store_attrs(struct device *dev,
 #define CHG_CNFG_00_BUCK_MASK		        (1 << CHG_CNFG_00_BUCK_SHIFT)
 #define CHG_CNFG_00_BOOST_MASK		        (1 << CHG_CNFG_00_BOOST_SHIFT)
 #define CHG_CNFG_00_WDTEN_MASK		        (1 << CHG_CNFG_00_WDTEN_SHIFT)
-#define CHG_CNFG_00_DISIBS_MASK				(1 << CHG_CNFG_00_DISIBS_SHIFT)
 #define CHG_CNFG_00_UNO_CTRL			(CHG_CNFG_00_UNO_MASK | CHG_CNFG_00_BOOST_MASK)
 #define CHG_CNFG_00_OTG_CTRL			(CHG_CNFG_00_OTG_MASK | CHG_CNFG_00_BOOST_MASK)
 #define MAX77705_MODE_DEFAULT			0x04
@@ -418,6 +417,7 @@ struct max77705_charger_data {
 	int wpc_input_curr_limit_step;
 	int charging_curr_step;
 	int float_voltage;
+	u8 *snkcap_data;
 
 	sec_charger_platform_data_t *pdata;
 };

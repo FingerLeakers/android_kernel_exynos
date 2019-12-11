@@ -42,7 +42,7 @@ int gpu_dvfs_handler_init(struct kbase_device *kbdev);
 int gpu_dvfs_handler_deinit(struct kbase_device *kbdev);
 
 /* gpu_dvfs_api.c */
-int gpu_set_target_clk_vol(int clk, bool pending_is_allowed);
+int gpu_set_target_clk_vol(int clk, bool pending_is_allowed, bool force);
 int gpu_set_target_clk_vol_pending(int clk);
 int gpu_dvfs_boost_lock(gpu_dvfs_boost_command boost_command);
 int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type lock_type, int clock);

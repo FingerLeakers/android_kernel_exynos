@@ -1,0 +1,153 @@
+/* SAMSUNG UNIVERSAL9830 board device tree source
+ *
+ * Copyright (c) 2018 Samsung Electronics Co., Ltd.
+ *		http://www.samsung.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "battery_data_hubble_common.dtsi"
+
+/ {
+	fragment@battery {
+		target-path = "/";
+		__overlay__ {
+			battery {
+				battery,temp_table_adc = <293 334 392 458 535 625 738 860 998 1164 1345 1546
+					1764 2002 2238 2479 2707 2931 3135 3306 3443 3556 3644>;
+				battery,temp_table_data = <900 850 800 750 700 650 600 550 500 450 400 350
+					300 250 200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,usb_temp_table_adc = <275 322 380 450 530 624 734 861 1005 1171 1354 1555
+					1775 2004 2240 2468 2695 2914 3103 3270 3398 3514 3610>;
+				battery,usb_temp_table_data = <900 850 800 750 700 650 600 550 500 450 400 350
+					300 250 200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,chg_temp_table_adc = <255 295 356 424 502 593 703 828 970 1135 1322 1525
+					1748 1987 2230 2474 2706 2923 3123 3307 3452 3577 3679>;
+				battery,chg_temp_table_data = <900 850 800 750 700 650 600 550 500 450 400 350
+					300 250 200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,wpc_temp_table_adc = <293 334 392 458 535 625 738 860 998 1164 1345 1546
+					1764 2002 2238 2479 2707 2931 3135 3306 3443 3556 3644>;
+				battery,wpc_temp_table_data = <900 850 800 750 700 650 600 550 500 450 400 350
+					300 250 200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,dchg_temp_table_adc = <103224 119646 145452 175950 211140 251022 297942 356592 419934 492660 574770 663918
+					764796 870366 978282 1083852 1189422 1287954 1379448 1459212 1527246 1583550 1630470>;
+				battery,dchg_temp_table_data = <900 850 800 750 700 650 600 550 500 450 400 350
+					300 250 200 150 100 50 0 (-50) (-100) (-150) (-200)>;
+
+				battery,swelling_low_temp_current = <1150>;	/* 0.24C */
+				battery,swelling_low_temp_current_2nd = <450>;	/* 0.1C */
+				battery,swelling_low_temp_current_3rd = <3450>;	/* 0.72C */
+				battery,swelling_low_temp_topoff = <242>;	/* 0.05C */
+				battery,swelling_high_temp_current = <1700>;	/* 0.36C */
+				battery,swelling_high_temp_topoff = <242>;	/* 0.05C */
+				battery,swelling_wc_high_temp_current = <1150>;	/* 0.24C */
+				battery,swelling_wc_low_temp_current = <1150>;	/* 0.24C */
+ 				battery,swelling_wc_low_temp_current_2nd = <450>;	/* 0.1C */
+				battery,swelling_wc_low_temp_current_3rd = <3450>;	/* 0.72C */
+
+				battery,max_charging_charge_power = <45000>; /* 45W */
+				battery,battery_full_capacity = <5000>;
+
+				battery,dchg_high_temp = <570>;
+				battery,dchg_high_temp_recovery = <440>;
+
+				battery,wpc_high_temp = <370>;
+				battery,wpc_high_temp_recovery = <350>;
+				battery,wpc_lcd_on_high_temp = <370>;
+				battery,wpc_lcd_on_high_temp_rec = <350>;
+
+				battery,dc_step_chg_cond_vol = <4130 4290 4380>; /*<45w 3step> STEP_CHARGING_CONDITION_VOLTAGE */ 
+				battery,dc_step_chg_cond_iin = <3160 2255 0>; /* <45w 3step> STEP_CHARGING_CONDITION_INPUT_CURRENT */
+				battery,dc_step_chg_val_vfloat = <4130 4290 4380>; /* <45w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
+				battery,dc_step_chg_val_iout = <8000 6320 4510>; /* <45w 3step> */
+				battery,dc_step_chg_cond_soc = <20 60 100>; /* <45w 3step> STEP_CHARGING_CONDITION_SOC */
+
+				battery,snkcap_data = /bits/ 8 <0x04 0x2C 0x91 0x01 0x36 0xC8 0xD0 0x02 0x00 0xC8 0x90
+								0x41 0x8B 0x51 0x21 0xDC 0xC0>;
+			};
+
+			max77705-fuelgauge {
+				fuelgauge,fg_resistor = <5>;
+				fuelgauge,qrtable20 = <0x1000>;
+				fuelgauge,qrtable30 = <0x0B00>;
+				fuelgauge,capacity = <0x0708>;
+				fuelgauge,ttf_capacity = <5000>;
+			};
+
+			cable-info {
+				full_check_current_1st = <727>;
+				full_check_current_2nd = <242>;
+			};
+		};
+	};
+};
+
+
+&pinctrl_0 {
+	pdet-b {
+		samsung,pin-pud = <0>;
+	};
+
+	ping-nen {
+		samsung,pin-pud = <0>;
+	};
+
+	wchg-pdrc {
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <0>;
+	};
+};
+
+&hsi2c_6 {
+	mfc-hal-charger@7f {
+		compatible = "sec,mfc-hal-charger";
+		reg = <0x7f>;
+		status = "okay";
+
+		battery,wpc_det = <&gpa2 0 0>;
+
+		battery,charger_name = "max77705-charger";
+	};
+
+	mfc-s2miw04-charger@6f {
+		compatible = "lsi,mfc-s2miw04-charger";
+		reg = <0x6f>;
+		status = "okay";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pdet_b &wpc_det &ping_nen &wchg_pdrc &wpc_en &wpc_int>;
+
+		battery,wpc_int = <&gpa3 1 0>;
+		battery,wpc_det = <&gpa2 0 0>;
+		battery,pdet_b = <&gpa2 6 0>;
+		battery,mst_pwr_en = <&gpm18 0 0>;
+		battery,ping_nen = <&gpa2 1 0>;
+		battery,wpc_pdrc = <&gpa4 1 0>;
+
+		battery,charger_name = "max77705-charger";
+		battery,fuelgauge_name = "max77705-fuelgauge";
+		battery,wireless_charger_name = "mfc-charger";
+		battery,fod_data = <0x06 0xAA 0x06 0xAA 0x06 0xAA 0x06 0x99 0x06 0x99 0x06 0x99 0x0C 0x85 0x0C 0x85 0x08 0x9E 0x08 0x9E>;
+		battery,fod_data_cv = <0x06 0xAA 0x06 0xAA 0x06 0xAA 0x06 0x99 0x06 0x99 0x06 0x99 0x0C 0x85 0x0C 0x85 0x08 0x9E 0x08 0x9E>;
+		battery,fod_dream_data = <0x06 0xAA 0x06 0xAA 0x06 0xAA 0x06 0x99 0x06 0x99 0x06 0x99 0x0C 0x71 0x0C 0x71 0x08 0x9E 0x08 0x9E>;
+		battery,fod_dream_cv_data = <0x06 0xAA 0x06 0xAA 0x06 0xAA 0x06 0x99 0x06 0x99 0x06 0x99 0x0C 0x71 0x0C 0x71 0x08 0x9E 0x08 0x9E>;
+		battery,wc_cover_rpp = <0x44>;
+		battery,phone_fod_threshold = <0x3b>;
+		battery,oc_fod1 = <1100>;
+		battery,wireless20_vout_list = <9 9 9>; /* WIRELESS_VOUT_11V, 11V, 11V */
+		battery,wireless20_vrect_list = <10 11 11>; /* MFC_AFC_CONF_12V_TX, 12.5V, 12.5V */
+		battery,wireless20_max_power_list = <2 3 3>; /* SEC_WIRELESS_RX_POWER_12W, 15W, 15W */
+	};
+};
+
+&hsi2c_7 {
+	pca9468@57 {
+		pca9468,input-itopoff = <400000>; /* 400mA */
+	};
+};

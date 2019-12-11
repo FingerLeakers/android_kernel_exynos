@@ -319,7 +319,7 @@
 					       <720 1600 96 2467 1 360 80>;
 				hdr_num = <2>;			/* max: 4 */
 				hdr_type = <2 3 0 0>;		/* 1: DOLBY_VISION, 2: HDR10, 3: HLG */
-				hdr_max_luma = <5400000>;	/* 540 */
+				hdr_max_luma = <4000000>;	/* 400 */
 				hdr_max_avg_luma = <1200000>;	/* 120 */
 				hdr_min_luma = <5>;		/* 0.0005 */
 				dynamic_freq =  <&freq_1143 &freq_1150 &freq_1157 &freq_1176>;

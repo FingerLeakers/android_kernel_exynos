@@ -51,11 +51,8 @@ bool max77705_muic_check_is_enable_afc(struct max77705_muic_data *muic_data, mui
 {
 	int ret = false;
 
-	if (new_dev == ATTACHED_DEV_TA_MUIC) {
-		if (muic_data->pdata->afc_disable) {
-			pr_info("%s AFC Disable(%d) by USER!, skip AFC\n",
-				__func__, muic_data->pdata->afc_disable);
-		} else if (!muic_data->is_charger_ready) {
+	if (new_dev == ATTACHED_DEV_TA_MUIC || new_dev == ATTACHED_DEV_AFC_CHARGER_DISABLED_MUIC) {
+		if (!muic_data->is_charger_ready) {
 			pr_info("%s Charger is not ready(%d), skip AFC\n",
 				__func__, muic_data->is_charger_ready);
 		} else if (muic_data->is_charger_mode) {
@@ -227,9 +224,13 @@ void max77705_muic_handle_detect_dev_afc(struct max77705_muic_data *muic_data, u
 		muic_data->afc_retry = 0;
 
 		if (vbadc >= MAX77705_VBADC_4_5V_TO_5_5V &&
-				vbadc <= MAX77705_VBADC_6_5V_TO_7_5V)
-			new_afc_dev = ATTACHED_DEV_AFC_CHARGER_5V_MUIC;
-		else if (vbadc >= MAX77705_VBADC_7_5V_TO_8_5V &&
+				vbadc <= MAX77705_VBADC_6_5V_TO_7_5V) {
+			if (muic_data->pdata->afc_disable) {
+				pr_info("%s:%s AFC disabled, set cable type to AFC_CHARGER_DISABLED\n", MUIC_DEV_NAME, __func__);
+				new_afc_dev = ATTACHED_DEV_AFC_CHARGER_DISABLED_MUIC;
+			} else
+				new_afc_dev = ATTACHED_DEV_AFC_CHARGER_5V_MUIC;
+		} else if (vbadc >= MAX77705_VBADC_7_5V_TO_8_5V &&
 				vbadc <= MAX77705_VBADC_9_5V_TO_10_5V)
 			new_afc_dev = ATTACHED_DEV_AFC_CHARGER_9V_MUIC;
 #if defined(CONFIG_USB_HW_PARAM)
@@ -270,7 +271,10 @@ void max77705_muic_handle_detect_dev_afc(struct max77705_muic_data *muic_data, u
 		break;
 	case 4:
 		pr_info("%s:%s MPing NACK\n", MUIC_DEV_NAME, __func__);
-		max77705_muic_handle_detect_dev_mpnack(muic_data);
+		if (!muic_data->pdata->afc_disable) {
+			pr_info("%s:%s skip checking QC TA, just return!\n", MUIC_DEV_NAME, __func__);
+			max77705_muic_handle_detect_dev_mpnack(muic_data);
+		}
 		break;
 	case 5:
 		pr_info("%s:%s Unsupported TX data\n", MUIC_DEV_NAME, __func__);

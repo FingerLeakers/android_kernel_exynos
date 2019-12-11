@@ -442,13 +442,13 @@ static int displayport_full_link_training(u32 sst_id)
 	u8 enhanced_frame_cap;
 	int ret = 0;
 	int tps3_supported = 0;
+	int tps4_supported = 0;
 	enum bit_depth bpc = BPC_8;
 	struct displayport_device *displayport = get_displayport_drvdata();
 	struct decon_device *decon = get_decon_drvdata(DEFAULT_DECON_ID);
 
 	displayport_reg_dpcd_read_burst(DPCD_ADD_REVISION_NUMBER, DPCD_BUF_SIZE, val);
-	displayport_info("Full Link Training Start + : %02x %02x\n", val[1], val[2]);
-
+	displayport_info("Full Link Training Start + : %02x %02x %02x\n", val[1], val[2], val[3]);
 	if (!displayport->hpd_current_state) {
 		displayport_info("hpd is low in full link training\n");
 		return 0;
@@ -463,6 +463,11 @@ static int displayport_full_link_training(u32 sst_id)
 	secdp_bigdata_save_item(BD_MAX_LANE_COUNT, lane_cnt);
 	secdp_bigdata_save_item(BD_MAX_LINK_RATE, link_rate);
 #endif
+
+	if (link_rate > LINK_RATE_5_4Gbps) {
+		displayport_info("HBR3 not support. reduce to HBR2\n");
+		link_rate = LINK_RATE_5_4Gbps;
+	}
 
 	if (!displayport->auto_test_mode &&
 			!(supported_videos[displayport->sst[sst_id]->best_video].pro_audio_support &&
@@ -479,15 +484,12 @@ static int displayport_full_link_training(u32 sst_id)
 		}
 	}
 
-	if (link_rate > LINK_RATE_5_4Gbps) {
-		displayport_info("HBR3 not support. reduce to HBR2\n");
-		link_rate = LINK_RATE_5_4Gbps;
-	}
-
 	if (g_displayport_debug_param.param_used) {
 		link_rate = g_displayport_debug_param.link_rate;
 		lane_cnt = g_displayport_debug_param.lane_cnt;
-		displayport_info("link training test lane:%d, rate:0x%x\n", lane_cnt, link_rate);
+		tps4_supported = val[3] & TPS4_SUPPORTED;
+		displayport_info("link training test lane:%d, rate:0x%x, tps4:0x%x\n",
+				lane_cnt, link_rate, tps4_supported);
 	}
 
 	displayport_reg_dpcd_read(DPCD_ADD_TRAINING_AUX_RD_INTERVAL, 1, val);
@@ -694,7 +696,14 @@ EQ_Training_Start:
 	for (i = 0; i < DPCD_BUF_SIZE; i++)
 		eq_val[i] = 0;
 
-	if (tps3_supported) {
+	if (tps4_supported) {
+		displayport_info("TPS4 set\n");
+		displayport_reg_set_training_pattern(TRAINING_PATTERN_4);
+
+		val[0] = 0x7;	/* TRAINING_PATTERN_4 */
+		displayport_reg_dpcd_write(DPCD_ADD_TRANING_PATTERN_SET, 1, val);
+	
+	} else if (tps3_supported) {
 		displayport_reg_set_training_pattern(TRAINING_PATTERN_3);
 
 		val[0] = 0x23;	/* SCRAMBLING_DISABLE, TRAINING_PATTERN_3 */
@@ -1143,6 +1152,11 @@ int displayport_check_mst(void)
 		displayport_reg_dpcd_read(DPCD_ADD_MSTM_CAP, 1, &val);
 		displayport_info("DPCD_ADD_MSTM_CAP = %x\n", val);
 
+		if (!displayport->mst_mode) {
+			displayport_info("MST support device, but\n");
+			return 0;
+		}
+
 		if (val & MST_CAP)
 			mst_cap = 1;
 	}
@@ -1247,29 +1261,31 @@ void displayport_on_by_hpd_high(u32 sst_id, struct displayport_device *displaypo
 	if (displayport->sst[sst_id]->hpd_state) {
 		displayport->sst[sst_id]->bpc = BPC_8;	/* default setting */
 		displayport->sst[sst_id]->dyn_range = VESA_RANGE;
-		displayport->sst[sst_id]->state = DISPLAYPORT_STATE_INIT;
 
 		displayport_audio_init_config(sst_id);
 
 		if (displayport->sst[sst_id]->bist_used) {
 			displayport->cur_sst_id = sst_id;
+			displayport->sst[sst_id]->state = DISPLAYPORT_STATE_INIT;
 			displayport_enable(displayport); /* for bist video enable */
 		} else {
 			if (displayport_get_extcon_state(sst_id, displayport) == 0) {
 				if (displayport->sst[sst_id]->bist_used == 0) {
+					displayport->sst[sst_id]->state = DISPLAYPORT_STATE_INIT;
 					displayport_set_extcon_state(sst_id, displayport, 1);
-
 					timeout = displayport_wait_state_change(sst_id,
 									displayport, 3000, DISPLAYPORT_STATE_ON);
 				}
 			}
+#if defined(CONFIG_SND_SOC_SAMSUNG_DISPLAYPORT)
+			timeout = displayport_wait_decon_run(sst_id, displayport, 3000);
+			if (timeout > 0)
+				dp_ado_switch_set_state(edid_audio_informs());
+#endif
 		}
+
 	}
 
-#if defined(CONFIG_SND_SOC_SAMSUNG_DISPLAYPORT)
-	displayport_wait_decon_run(sst_id, displayport, 3000);
-	dp_ado_switch_set_state(edid_audio_informs());
-#endif
 }
 
 void displayport_off_by_hpd_low(u32 sst_id, struct displayport_device *displayport)
@@ -1315,6 +1331,9 @@ void displayport_off_by_hpd_low(u32 sst_id, struct displayport_device *displaypo
 			displayport->cur_sst_id = sst_id;
 			displayport_disable(displayport); /* for bist video disable */
 		}
+	} else {
+		/* set the state of extcon to 0 even though in abnormal case */
+		displayport_set_extcon_state(sst_id, displayport, 0);
 	}
 }
 
@@ -1347,7 +1366,6 @@ void displayport_hpd_changed(int state)
 		displayport->auto_test_mode = 0;
 		displayport->sst[sst_id]->bist_used = 0;
 		displayport->sst[sst_id]->best_video = EDID_DEFAULT_TIMINGS_IDX;
-		displayport->mst_mode = 0;
 
 		usleep_range(10000, 11000);
 
@@ -1368,7 +1386,6 @@ void displayport_hpd_changed(int state)
 		displayport->mst_cap = displayport_check_mst();
 
 		if (displayport->mst_cap) {
-			displayport->mst_mode = 1;
 			displayport_mst_enable();
 			displayport_topology_clr_vc();
 		} else
@@ -2419,7 +2436,7 @@ int displayport_enable(struct displayport_device *displayport)
 	if (!displayport->hpd_current_state) {
 		displayport_err("%s() hpd is low\n", __func__);
 		mutex_unlock(&displayport->cmd_lock);
-		return 0;
+		return -ENODEV;
 	}
 
 	if (displayport->sst[sst_id]->state == DISPLAYPORT_STATE_ON) {
@@ -2427,6 +2444,13 @@ int displayport_enable(struct displayport_device *displayport)
 				displayport->sst[sst_id]->state);
 		mutex_unlock(&displayport->cmd_lock);
 		return 0;
+	}
+
+	if (displayport->sst[sst_id]->state != DISPLAYPORT_STATE_INIT) {
+		displayport_err("SST%d is not INIT state, state:%d\n", sst_id + 1,
+				displayport->sst[sst_id]->state);
+		mutex_unlock(&displayport->cmd_lock);
+		return -ENODEV;
 	}
 
 	if (forced_resolution >= 0)
@@ -2683,7 +2707,8 @@ static int displayport_enum_dv_timings(struct v4l2_subdev *sd,
 			displayport_info("dex proper ratio video pick %d\n", displayport->dex_video_pick);
 			return -E2BIG;
 		}
-		if (displayport->mst_mode && timings->index > MST_MAX_VIDEO_FOR_DEX) {
+		if (displayport->mst_cap && displayport->mst_mode &&
+					timings->index > MST_MAX_VIDEO_FOR_DEX) {
 			displayport_dbg("not supported video_format : %s in dex mst mode\n",
 					supported_videos[timings->index].name);
 			return -EINVAL;
@@ -3878,11 +3903,10 @@ static ssize_t dp_test_show(struct class *class,
 	size += snprintf(buf + size, PAGE_SIZE - size, "1: uevent test\n");
 	size += snprintf(buf + size, PAGE_SIZE - size, "2: CTS power management test\n");
 	size += snprintf(buf + size, PAGE_SIZE - size, "3: set lane count, link rate\n");
-#ifdef CONFIG_DISPLAYPORT_ENG
 	size += snprintf(buf + size, PAGE_SIZE - size, "4: hdcp restart\n");
-#endif
 	size += snprintf(buf + size, PAGE_SIZE - size, "5: link training test\n");
 	size += snprintf(buf + size, PAGE_SIZE - size, "6: unplug work test\n");
+	size += snprintf(buf + size, PAGE_SIZE - size, "7: MST test\n");
 	size += snprintf(buf + size, PAGE_SIZE - size, "8: audio bist mode(on,ch,bit,fs)\n");
 
 	if (gpio_is_valid(displayport->gpio_sw_oe) && gpio_is_valid(displayport->gpio_sw_oe))
@@ -3954,6 +3978,12 @@ static ssize_t dp_test_store(struct class *dev,
 	case 6:
 		queue_delayed_work(displayport->dp_wq,
 				&displayport->hpd_unplug_work, 0);
+		break;
+	case 7:
+		if (val[2])
+			displayport->mst_mode = 1;
+		else
+			displayport->mst_mode = 0;
 		break;
 	case 8:
 		audio_config_data.audio_enable = val[2];

@@ -821,6 +821,11 @@
 				status = "okay";
 			};
 
+			sec_pm_debug {
+				compatible = "samsung,sec-pm-debug";
+				status = "okay";
+			};
+
 			sec_thermistor@0 {
 				compatible = "samsung,sec-thermistor";
 				status = "okay";

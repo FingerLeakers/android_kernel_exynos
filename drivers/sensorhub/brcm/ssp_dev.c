@@ -370,8 +370,8 @@ int initialize_mcu(struct ssp_data *data)
 		pr_err("[SSP]: %s - initialize thermistor table failed\n",
 			__func__);
 
-	if (set_light_cal_param_to_ssp(data) < 0)
-		pr_err("[SSP]: %s - sending light calibration data failed\n", __func__);
+	if (initialize_light_sensor(data) < 0)
+		pr_err("[SSP]: %s - initialize light sensor failed\n", __func__);
 
 	if (set_prox_cal_to_ssp(data) < 0)
 		pr_err("[SSP]: %s - sending proximity calibration data failed\n",

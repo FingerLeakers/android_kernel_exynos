@@ -93,6 +93,7 @@
 #define MULTISTAGE_WDT_RATIO			70
 #define WINDOW_MULTIPLIER			2
 
+bool s3c2410_wdt_keepalive;
 static bool nowayout	= WATCHDOG_NOWAYOUT;
 static int tmr_margin;
 static int tmr_atboot	= S3C2410_WATCHDOG_ATBOOT;
@@ -543,6 +544,9 @@ static int s3c2410wdt_start(struct watchdog_device *wdd)
 	struct s3c2410_wdt *wdt = watchdog_get_drvdata(wdd);
 
 	spin_lock_irqsave(&wdt->lock, flags);
+
+	dev_info(wdt->dev, "TEMP: disable wdt keepalive\n");
+	s3c2410_wdt_keepalive = false;
 
 	__s3c2410wdt_stop(wdt);
 
@@ -1532,6 +1536,9 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 	if (tmr_atboot && started == 0) {
 		dev_info(dev, "starting watchdog timer\n");
 		s3c2410wdt_start(&wdt->wdt_device);
+
+		dev_info(dev, "TEMP: enable wdt keepalive\n");
+		s3c2410_wdt_keepalive = true;
 	} else if (!tmr_atboot) {
 		/* if we're not enabling the watchdog, then ensure it is
 		 * disabled if it has been left running from the bootloader

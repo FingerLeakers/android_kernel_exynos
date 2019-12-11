@@ -462,8 +462,9 @@ static irqreturn_t max77705_ccistat_irq(int irq, void *data)
 		mode = TYPEC_PWR_MODE_3_0A;
 #endif
 		if (usbc_data->srcccap_request_retry) {
-			usbc_data->pn_flag = false;			
+			usbc_data->pn_flag = false;
 			usbc_data->srcccap_request_retry = false;
+			init_usbc_cmd_data(&value);
 			value.opcode = OPCODE_SRCCAP_REQUEST;
 			value.write_data[0] = pd_noti.sink_status.selected_pdo_num;
 			value.write_length = 1;

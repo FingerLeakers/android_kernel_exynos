@@ -14,10 +14,6 @@
 
 #include "is-cis.h"
 
-#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
-#undef USE_CAMERA_MIPI_CLOCK_VARIATION
-#endif
-
 #define EXT_CLK_Mhz (26)
 
 #define SENSOR_HM1_MAX_WIDTH		(12000 + 0)
@@ -32,48 +28,122 @@
 
 enum sensor_hm1_mode_enum {
 	SENSOR_HM1_12000X9000_10FPS = 0,
-	SENSOR_HM1_4000X3000_30FPS = 1,
-	SENSOR_HM1_1984X1488_30FPS = 2,
-	SENSOR_HM1_4000X3000_60FPS = 3,
-#if 0 // TEMP_2020
-	SENSOR_HM1_4032X3024_24FPS = 4,
-	SENSOR_HM1_4032X2268_24FPS = 5,
-	SENSOR_HM1_2016X1134_480FPS = 6,
-	SENSOR_HM1_2016X1134_240FPS = 7,
-	SENSOR_HM1_1008X756_120FPS_MODE2 = 8,
-#endif
+	SENSOR_HM1_7680X4320_24FPS = 1,
+	SENSOR_HM1_4000X2252_30FPS_CENTER_CROP = 2,
+	SENSOR_HM1_4000X3000_30FPS = 3,
+	SENSOR_HM1_4000X2252_30FPS = 4,
+	SENSOR_HM1_4000X3000_60FPS = 5,
+	SENSOR_HM1_4000X2252_60FPS = 6,
+	SENSOR_HM1_1984X1488_30FPS = 7,
+	SENSOR_HM1_1920X1080_240FPS = 8,
+	SENSOR_HM1_1920X1080_120FPS = 9,
+	SENSOR_HM1_992X744_120FPS = 10,
 	SENSOR_HM1_MODE_MAX,
 };
 
 static bool sensor_hm1_support_wdr[] = {
-	/* MODE 3 */
 	false, //SENSOR_HM1_12000X9000_10FPS = 0,
-	false, //SENSOR_HM1_4000X3000_30FPS = 1,
-	false, //SENSOR_HM1_1984X1488_30FPS = 2,
-	false, //SENSOR_HM1_4000X3000_60FPS = 3,
-#if 0 // TEMP_2020
-	true, //SENSOR_HM1_4032X3024_24FPS = 4,
-	true, //SENSOR_HM1_4032X2268_24FPS = 5,
-	false, //SENSOR_HM1_2016X1134_480FPS = 6,
-	false, //SENSOR_HM1_2016X1134_240FPS = 7,
-	false, //SENSOR_HM1_1008X756_120FPS_MODE2 = 8,
-#endif
+	false, //SENSOR_HM1_7680X4320_24FPS = 1,
+	false, //SENSOR_HM1_4000X2252_30FPS_CENTER_CROP = 2,
+	false, //SENSOR_HM1_4000X3000_30FPS = 3,
+	false, //SENSOR_HM1_4000X2252_30FPS = 4,
+	false, //SENSOR_HM1_4000X3000_60FPS = 5,
+	false, //SENSOR_HM1_4000X2252_60FPS = 6,
+	false, //SENSOR_HM1_1984X1488_30FPS = 7,
+	false, //SENSOR_HM1_1920X1080_240FPS = 8,
+	false, //SENSOR_HM1_1920X1080_120FPS = 9,
+	false, //SENSOR_HM1_992X744_120FPS = 10,
 };
 
-enum sensor_hm1_load_sram_mode {
-	SENSOR_HM1_4032x3024_30FPS_LOAD_SRAM = 0,
-	SENSOR_HM1_4032x2268_30FPS_LOAD_SRAM,
-//	SENSOR_HM1_4032x3024_24FPS_LOAD_SRAM,
-//	SENSOR_HM1_4032x2268_24FPS_LOAD_SRAM,
-	SENSOR_HM1_4032x2268_60FPS_LOAD_SRAM,
-	SENSOR_HM1_1008x756_120FPS_LOAD_SRAM,
+/* dual sync - indirect */
+static const u32 sensor_hm1_cis_dual_master_settings[] = {
+	0xFCFC,	0x4000,	0x02,
+	0x6000,	0x0085,	0x02,
+	0x0A70,	0x0001,	0x02,
+	0x0A72,	0x0200,	0x02,
+	0x0A74,	0x0000,	0x02,
+	0x0A76,	0x0000,	0x02,
+	0x0A78,	0x0000,	0x02,
+	0x0A7A,	0x0000,	0x02,
+	0x0A7C,	0x0100,	0x02,
+	0x0A80,	0x0018,	0x02,
+	0x6028,	0x2000,	0x02,
+	0x602A,	0x142C,	0x02,
+	0x6F12,	0x1420,	0x02,
+	0x602A,	0x142E,	0x02,
+	0x6F12,	0x0100,	0x02,
+	0x602A,	0x1434,	0x02,
+	0x6F12,	0x1020,	0x02,
+	0x602A,	0x1446,	0x02,
+	0x6F12,	0x0000,	0x02,
+	0x602A,	0x14BE,	0x02,
+	0x6F12,	0x0300,	0x02,
+	0x602A,	0x14C0,	0x02,
+	0x6F12,	0x0100,	0x02,
 };
+
+static const u32 sensor_hm1_cis_dual_master_settings_size =
+	ARRAY_SIZE(sensor_hm1_cis_dual_master_settings);
+
+static const u32 sensor_hm1_cis_dual_slave_settings[] = { /* wait for master */
+	0xFCFC,	0x4000,	0x02,
+	0x6000,	0x0085,	0x02,
+	0x0A70,	0x0001,	0x02,
+	0x0A72,	0x0001,	0x02,
+	0x0A74,	0x0001,	0x02,
+	0x0A76,	0x0001,	0x02,
+	0x0A78,	0x0000,	0x02,
+	0x0A7A,	0x0000,	0x02,
+	0x0A7C,	0x0100,	0x02,
+	0x0A80,	0x0018,	0x02,
+	0x6028,	0x2000,	0x02,
+	0x602A,	0x142C,	0x02,
+	0x6F12,	0x1420,	0x02,
+	0x602A,	0x142E,	0x02,
+	0x6F12,	0x0100,	0x02,
+	0x602A,	0x1434,	0x02,
+	0x6F12,	0x1020,	0x02,
+	0x602A,	0x1446,	0x02,
+	0x6F12,	0x0000,	0x02,
+	0x602A,	0x14BE,	0x02,
+	0x6F12,	0x0303,	0x02,
+	0x602A,	0x14C0,	0x02,
+	0x6F12,	0x0000,	0x02,
+};
+
+static const u32 sensor_hm1_cis_dual_slave_settings_size =
+	ARRAY_SIZE(sensor_hm1_cis_dual_slave_settings);
+
+static const u32 sensor_hm1_cis_dual_standalone_settings[] = {
+	0xFCFC,	0x4000,	0x02,
+	0x6000,	0x0085,	0x02,
+	0x0A70,	0x0000,	0x02,
+	0x0A72,	0x0000,	0x02,
+	0x0A74,	0x0000,	0x02,
+	0x0A76,	0x0000,	0x02,
+	0x0A78,	0x0000,	0x02,
+	0x0A7A,	0x0000,	0x02,
+	0x0A7C,	0x0100,	0x02,
+	0x0A80,	0x0018,	0x02,
+	0x6028,	0x2000,	0x02,
+	0x602A,	0x142C,	0x02,
+	0x6F12,	0x1420,	0x02,
+	0x602A,	0x142E,	0x02,
+	0x6F12,	0x0100,	0x02,
+	0x602A,	0x1434,	0x02,
+	0x6F12,	0x1020,	0x02,
+	0x602A,	0x1446,	0x02,
+	0x6F12,	0x0000,	0x02,
+	0x602A,	0x14BE,	0x02,
+	0x6F12,	0x0300,	0x02,
+	0x602A,	0x14C0,	0x02,
+	0x6F12,	0x0000,	0x02,
+};
+
+static const u32 sensor_hm1_cis_dual_standalone_settings_size =
+	ARRAY_SIZE(sensor_hm1_cis_dual_standalone_settings);
 
 int sensor_hm1_cis_stream_on(struct v4l2_subdev *subdev);
 int sensor_hm1_cis_stream_off(struct v4l2_subdev *subdev);
-#ifdef CONFIG_SENSOR_RETENTION_USE
-int sensor_hm1_cis_retention_crc_check(struct v4l2_subdev *subdev);
-int sensor_hm1_cis_retention_prepare(struct v4l2_subdev *subdev);
-#endif
 int sensor_hm1_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev);
 #endif

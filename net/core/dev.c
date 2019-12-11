@@ -145,6 +145,7 @@
 #include <linux/sctp.h>
 #include <net/udp_tunnel.h>
 #include <linux/net_namespace.h>
+#include <linux/linkforward.h>
 
 #include "net-sysfs.h"
 
@@ -5025,6 +5026,11 @@ static int __netif_receive_skb(struct sk_buff *skb)
 {
 	int ret;
 
+#ifdef CONFIG_LINK_FORWARD
+	if (CHECK_LINK_FORWARD(*((u32 *)&skb->cb)))
+		return dev_linkforward_queue_xmit(skb);
+#endif
+
 	if (sk_memalloc_socks() && skb_pfmemalloc(skb)) {
 		unsigned int noreclaim_flag;
 
@@ -9700,6 +9706,10 @@ static int __init net_dev_init(void)
 
 	open_softirq(NET_TX_SOFTIRQ, net_tx_action);
 	open_softirq(NET_RX_SOFTIRQ, net_rx_action);
+
+#ifdef CONFIG_LINK_FORWARD
+	linkforward_init();
+#endif
 
 	rc = cpuhp_setup_state_nocalls(CPUHP_NET_DEV_DEAD, "net/dev:dead",
 				       NULL, dev_cpu_dead);

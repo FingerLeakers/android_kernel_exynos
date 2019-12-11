@@ -788,6 +788,13 @@ void is_inv_dma_medrc(ulong kva, u32 size)
 	return mblk_inv(&lib->mb_dma_medrc, kva, size);
 }
 
+void is_clean_dma_medrc(ulong kva, u32 size)
+{
+	struct is_lib_support *lib = &gPtr_lib_support;
+
+	return mblk_clean(&lib->mb_dma_medrc, kva, size);
+}
+
 void is_inv_dma_tnr(ulong kva, u32 size)
 {
 	struct is_lib_support *lib = &gPtr_lib_support;
@@ -2204,6 +2211,7 @@ void set_os_system_funcs(os_system_func_t *funcs)
 	funcs[72] = (os_system_func_t)is_inv_dma_clahe;
 	funcs[73] = (os_system_func_t)is_alloc_dma_clahe;
 	funcs[74] = (os_system_func_t)is_free_dma_clahe;
+	funcs[75] = (os_system_func_t)is_clean_dma_medrc;
 
 	/* VOTF interface */
 	funcs[80] = (os_system_func_t)is_votfif_create_ring;

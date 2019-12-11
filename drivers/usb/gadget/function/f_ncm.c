@@ -99,8 +99,8 @@ static inline unsigned ncm_bitrate(struct usb_gadget *g)
  * because it's used by default by the current linux host driver
  */
 #ifdef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
-#define NTB_DEFAULT_IN_SIZE	(16384 * 4)
-#define NCM_MAX_DGRAM_SIZE	(16384 * 4 - 1 - NCM_HEADER_SIZE - 1)
+#define NTB_DEFAULT_IN_SIZE	16384
+#define NCM_MAX_DGRAM_SIZE	9014
 #define MAX_NDP_DATAGRAMS	1
 #define NTH_NDP_OUT_TOTAL_SIZE	\
 		(ALIGN(sizeof(struct usb_cdc_ncm_nth16),	\
@@ -110,7 +110,7 @@ static inline unsigned ncm_bitrate(struct usb_gadget *g)
 #else
 #define NTB_DEFAULT_IN_SIZE	USB_CDC_NCM_NTB_MIN_IN_SIZE
 #endif
-#define NTB_OUT_SIZE		(16384 * 4)
+#define NTB_OUT_SIZE		16384
 
 /*
  * skbs of size less than that will not be aligned
@@ -739,7 +739,7 @@ static void ncm_setdgram_complete(struct usb_ep *ep, struct usb_request *req)
 	ncm->dgramsize = dgram_size;
 
 	if (ncm->net)
-		ncm->net->mtu = NCM_MTU_SIZE; //ncm->dgramsize - ETH_HLEN;
+		ncm->net->mtu = ncm->dgramsize - ETH_HLEN;
 
 	printk(KERN_ERR"usb:%s * Set MTU SIZE %d *\n", __func__, dgram_size);
 
@@ -1030,7 +1030,7 @@ static int ncm_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 				return PTR_ERR(net);
 #ifdef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
 			ncm->net = net;
-			ncm->net->mtu = NCM_MTU_SIZE; //ncm->dgramsize - ETH_HLEN;
+			ncm->net->mtu = ncm->dgramsize - ETH_HLEN;
 			printk(KERN_DEBUG "activate ncm setting MTU size (%d)\n", ncm->net->mtu);
 #endif
 		}
@@ -1093,7 +1093,8 @@ int ncm_add_datagram(struct gether *port, __le16 *tmp, int length, int holdcnt)
 	int tmp_val;
 	__le16 *tmp_addr;
 	u32 prev_index, prev_len;
-	int i;
+	/* fix prevent */
+	int i = 0;
 
 	tmp += 4;
 	tmp_val = get_unaligned_le16(tmp);
@@ -1146,7 +1147,7 @@ static struct sk_buff *ncm_wrap_ntb(struct gether *port,
 	ndp_pad = ALIGN(ncb_len, ndp_align) - ncb_len;
 	ncb_len += ndp_pad;
 	ncb_len += opts->ndp_size;
-	ncb_len += 2 * 2 * opts->dgram_item_len * NCM_MAX_DATAGRAM; /* Datagram entry */
+	ncb_len += 2 * 2 * opts->dgram_item_len; /* Datagram entry */
 	ncb_len += 2 * 2 * opts->dgram_item_len; /* Zero datagram entry */
 	pad = ALIGN(ncb_len, div) + rem - ncb_len;
 	ncb_len += pad;
@@ -1943,14 +1944,6 @@ static struct usb_function *ncm_alloc(struct usb_function_instance *fi)
 
 	ncm->port.wrap = ncm_wrap_ntb;
 	ncm->port.unwrap = ncm_unwrap_ntb;
-
-	ncm->port.is_fixed = false;
-	ncm->port.multi_pkt_xfer = 1;
-	ncm->port.ul_max_pkts_per_xfer = 1;
-	ncm->port.dl_max_pkts_per_xfer = NCM_MAX_DATAGRAM;
-
-	if (ncm->port.multi_pkt_xfer == 1)
-		ncm->port.wrap = NULL;
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	ncm_function_init();

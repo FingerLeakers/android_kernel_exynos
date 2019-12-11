@@ -955,8 +955,9 @@ int DM_CALL(int dm_type, unsigned long *target_freq)
 
 		// Perform frequency down scaling
 		if (dm->cur_freq > dm->next_target_freq && dm->freq_scaler) {
-			dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
-			dm->cur_freq = dm->next_target_freq;
+			ret = dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
+			if (!ret)
+				dm->cur_freq = dm->next_target_freq;
 		}
 	}
 
@@ -964,8 +965,9 @@ int DM_CALL(int dm_type, unsigned long *target_freq)
 	for (i = exynos_dm->constraint_domain_count - 1; i >= 0; i--) {
 		dm = &exynos_dm->dm_data[exynos_dm->domain_order[i]];
 		if (dm->cur_freq < dm->next_target_freq && dm->freq_scaler) {
-			dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
-			dm->cur_freq = dm->next_target_freq;
+			ret = dm->freq_scaler(dm->dm_type, dm->devdata, dm->next_target_freq, relation);
+			if (!ret)
+				dm->cur_freq = dm->next_target_freq;
 		}
 
 	}

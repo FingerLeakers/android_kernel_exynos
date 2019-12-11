@@ -2646,7 +2646,7 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 			}
 			frame->stripe_info.region_num = DIV_ROUND_UP(max_width,
 							ALIGN_DOWN(group->leader.constraints_width - STRIPE_MARGIN_WIDTH * 2, STRIPE_MARGIN_WIDTH));
-			mgrinfo("set stripe_region_num %d\n", group, group, frame,
+			mgrdbgs(3, "set stripe_region_num %d\n", group, group, frame,
 					frame->stripe_info.region_num);
 		}
 #endif
@@ -3475,10 +3475,6 @@ int is_group_done(struct is_groupmgr *groupmgr,
 			return ret;
 		}
 	}
-
-	/* Re-trigger the group shot for next stripe processing. */
-	if (frame->state == FS_STRIPE_PROCESS)
-		is_group_start_trigger(groupmgr, group, frame);
 
 	return ret;
 }

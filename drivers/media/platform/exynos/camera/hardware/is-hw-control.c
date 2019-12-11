@@ -140,7 +140,8 @@ void print_hw_frame_count(struct is_hw_ip *hw_ip)
 {
 	int f_index, p_index;
 	struct hw_debug_info *debug_info;
-	ulong usec[DEBUG_FRAME_COUNT][DEBUG_POINT_MAX];
+	unsigned long long time[DEBUG_POINT_MAX];
+	ulong usec[DEBUG_POINT_MAX];
 
 	if (!hw_ip) {
 		err_hw("hw_ip is null\n");
@@ -159,18 +160,20 @@ void print_hw_frame_count(struct is_hw_ip *hw_ip)
 
 	for (f_index = 0; f_index < DEBUG_FRAME_COUNT; f_index++) {
 		debug_info = &hw_ip->debug_info[f_index];
-		for (p_index = 0 ; p_index < DEBUG_POINT_MAX; p_index++)
-			usec[f_index][p_index]  = do_div(debug_info->time[p_index], NSEC_PER_SEC);
+		for (p_index = 0 ; p_index < DEBUG_POINT_MAX; p_index++) {
+			time[p_index]  = debug_info->time[p_index];
+			usec[p_index]  = do_div(time[p_index], NSEC_PER_SEC);
+		}
 
 		info_hw("[%d][F:%d] shot[%5lu.%06lu], fs[c%d][%5lu.%06lu], fe[c%d][%5lu.%06lu], dma[c%d][%5lu.%06lu], \n",
 				f_index, debug_info->fcount,
-				(ulong)debug_info->time[DEBUG_POINT_HW_SHOT], usec[f_index][DEBUG_POINT_HW_SHOT] / NSEC_PER_USEC,
+				(ulong)time[DEBUG_POINT_HW_SHOT], usec[DEBUG_POINT_HW_SHOT] / NSEC_PER_USEC,
 				debug_info->cpuid[DEBUG_POINT_FRAME_START],
-				(ulong)debug_info->time[DEBUG_POINT_FRAME_START], usec[f_index][DEBUG_POINT_FRAME_START] / NSEC_PER_USEC,
+				(ulong)time[DEBUG_POINT_FRAME_START], usec[DEBUG_POINT_FRAME_START] / NSEC_PER_USEC,
 				debug_info->cpuid[DEBUG_POINT_FRAME_END],
-				(ulong)debug_info->time[DEBUG_POINT_FRAME_END], usec[f_index][DEBUG_POINT_FRAME_END] / NSEC_PER_USEC,
+				(ulong)time[DEBUG_POINT_FRAME_END], usec[DEBUG_POINT_FRAME_END] / NSEC_PER_USEC,
 				debug_info->cpuid[DEBUG_POINT_FRAME_DMA_END],
-				(ulong)debug_info->time[DEBUG_POINT_FRAME_DMA_END], usec[f_index][DEBUG_POINT_FRAME_DMA_END] / NSEC_PER_USEC);
+				(ulong)time[DEBUG_POINT_FRAME_DMA_END], usec[DEBUG_POINT_FRAME_DMA_END] / NSEC_PER_USEC);
 	}
 }
 
@@ -1489,6 +1492,10 @@ int is_hardware_sensor_stop(struct is_hardware *hardware, u32 instance,
 	atomic_set(&hardware->log_count, 0);
 	clear_bit(HW_OVERFLOW_RECOVERY, &hardware->hw_recovery_flag);
 
+	/* decrease lic_update state if used */
+	if (atomic_read(&hardware->lic_updated) > 0)
+		atomic_dec(&hardware->lic_updated);
+
 	framemgr = hw_ip->framemgr;
 	retry = 99;
 	while (--retry) {
@@ -2140,6 +2147,16 @@ int is_hardware_shot_done(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	msdbgs_hw(2, "shot_done [F:%d][G:0x%x][B:0x%lx][C:0x%lx][O:0x%lx]\n",
 		frame->instance, hw_ip, frame->fcount, GROUP_ID(head->id),
 		frame->bak_flag, frame->core_flag, frame->out_flag);
+
+	if (!test_bit(IS_GROUP_OTF_INPUT, &head->state)) {
+		struct is_hw_ip *hw_ip_ldr;
+
+		hw_ip_ldr = is_get_hw_ip(head->id, hw_ip->hardware);
+		if (!hw_ip_ldr)
+			mserr_hw("hw_ip_ldr is NULL", frame->instance, hw_ip);
+		else
+			del_timer_sync(&hw_ip_ldr->shot_timer);
+	}
 
 	if (frame->type == SHOT_TYPE_INTERNAL || frame->type == SHOT_TYPE_MULTI)
 		goto free_frame;

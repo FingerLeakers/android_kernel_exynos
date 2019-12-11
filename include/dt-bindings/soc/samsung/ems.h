@@ -13,12 +13,12 @@
 #define __EXYNOS_MOBILE_SCHEDULER
 
 /* SCHED CLASS */
-#define EMS_SCHED_STOP		(0)
-#define EMS_SCHED_DL		(1)
-#define EMS_SCHED_RT		(2)
-#define EMS_SCHED_FAIR		(3)
-#define EMS_SCHED_IDLE		(4)
-#define NUM_OF_SCHED_CLASS	(5)
+#define EMS_SCHED_STOP		(1 << 0)
+#define EMS_SCHED_DL		(1 << 1)
+#define EMS_SCHED_RT		(1 << 2)
+#define EMS_SCHED_FAIR		(1 << 3)
+#define EMS_SCHED_IDLE		(1 << 4)
+#define NUM_OF_SCHED_CLASS	5
 
 #define EMS_SCHED_CLASS_MASK	(0x1F)
 

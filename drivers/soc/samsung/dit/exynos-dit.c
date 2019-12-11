@@ -39,7 +39,7 @@
 #include <linux/kthread.h>
 #include "exynos-dit-data.h"
 
-int debug_print;
+int gen_cpu;
 unsigned char *test_Rxpacket = udpRx;
 unsigned char *test_Txpacket = udpTx;
 int test_Rxpkt_sz;
@@ -418,13 +418,32 @@ void dit_debug_print_dst(int DIR)
  * __attach_ifinfo: when pad net_device info
  * __dettach_ifinfo: when remove padded net_device info
  */
+static inline u8 __dit_find_ifindex(struct net_device *ndev)
+{
+	int i;
+
+	for (i = 0; i < DIT_IF_MAX; i++)
+		if (dit_dev.ifdev[i].ndev == ndev)
+			return i;
+
+	return 0xff;
+}
+
+static inline struct net_device *__dit_get_netdev_by_ifindex(u8 ifindex)
+{
+	if (ifindex == 0xff)
+		return dit_dev.dummy_ndev;
+
+	return dit_dev.ifdev[ifindex].ndev;
+}
+
 static inline void __attach_ifinfo_skb(struct sk_buff *skb)
 {
 	struct dit_priv_t *priv;
 
 	priv = (struct dit_priv_t *)(skb->data + skb->len);
-	priv->ndev = skb->dev;
-	priv->status = 0x10; /* [4] IGNR */
+	priv->ifindex = __dit_find_ifindex(skb->dev);
+	priv->status = skb->ip_summed;
 
 	skb->len += (uint32_t) sizeof(struct dit_priv_t);
 }
@@ -435,13 +454,8 @@ static inline void __dettach_ifinfo(struct sk_buff *skb, int size, int DIR)
 	int len = size - sizeof(struct dit_priv_t);
 
 	priv = (struct dit_priv_t *)(skb->data + len);
-	skb->dev = priv->ndev;
-
-	if (priv->status & 0x1C) /* [4]IGNR, [3]IPCSF, [2] TCPCF */
-		skb->ip_summed = CHECKSUM_NONE;
-	else
-		skb->ip_summed = CHECKSUM_UNNECESSARY;
-
+	skb->dev = __dit_get_netdev_by_ifindex(priv->ifindex);;
+	skb->ip_summed = priv->status;
 	skb_put(skb, len);
 }
 
@@ -910,9 +924,16 @@ int dit_forward_queue_xmit(struct sk_buff *skb, int DIR)
 	txq = netdev_get_tx_queue(dev, 0);
 	q = rcu_dereference(txq->qdisc);
 
+	if (qdisc_qlen(q) < q->limit) {
+		struct dit_handle_t *h = &dit->handle[DIR];
+
+		skb_queue_head(&h->forward_q, skb);
+		rcu_read_unlock();
+		return NETDEV_TX_BUSY;
+	}
+
 	if (q->enqueue)
 		rc = dit_dev_forward_queue_skb(skb, q);
-
 	rcu_read_unlock();
 
 	switch (rc) {
@@ -934,6 +955,18 @@ int dit_forward_queue_xmit(struct sk_buff *skb, int DIR)
 	}
 
 	return rc;
+}
+
+static inline int check_gro_support(struct sk_buff *skb)
+{
+	switch (skb->data[0] & 0xF0) {
+	case 0x40:
+		return (ip_hdr(skb)->protocol == IPPROTO_TCP);
+
+	case 0x60:
+		return (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP);
+	}
+	return 0;
 }
 
 int dit_forward_skb(struct sk_buff *skb, int DIR, int dst)
@@ -990,7 +1023,11 @@ int dit_forward_skb(struct sk_buff *skb, int DIR, int dst)
 		ndev = skb->dev;
 		skb_reset_mac_header(skb);
 		skb_reset_transport_header(skb);
-		ret = netif_receive_skb(skb);
+		if (check_gro_support(skb)) {
+			ret = napi_gro_receive(napi_get_current(), skb);
+		} else {
+			ret = netif_receive_skb(skb);
+		}
 		if (ret != NET_RX_SUCCESS)
 			ndev->stats.rx_dropped++;
 		return 0;
@@ -1058,7 +1095,7 @@ static int dit_forward_poll(struct napi_struct *napi, int budget)
 	napi_complete_done(napi, 0);
 
 	if (repoll) {
-		hrtimer_start(&dit_dev.sched_fwd_timer, ns_to_ktime(10000), HRTIMER_MODE_REL);
+		hrtimer_start(&dit_dev.sched_fwd_timer, ns_to_ktime(DIT_SCHED_BACKOFF_TIME_NS), HRTIMER_MODE_REL);
 	}
 	return 0;
 }
@@ -2004,7 +2041,7 @@ void __perftest_gen_skb(int DIR, int budget)
 			seq = (unsigned int *)&data[28];
 			*seq = htonl(dit_dev.perf.fwd[DIR].pktcounter);
 		}
-
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
 		skb_put_data(skb, iphdr, len);
 		skb->dev = dit_dev.perf.ndev;
 		if (NET_RX_SUCCESS != hw_forward_enqueue_to_backlog(DIR, skb))
@@ -2044,7 +2081,7 @@ static enum hrtimer_restart dit_perftest_timer_func(struct hrtimer *timer)
 	if (ts.tv_nsec < NSEC_PER_MSEC)
 		delay = NSEC_PER_MSEC - ts.tv_nsec;
 	else
-		delay = DIT_SCHED_BACKOFF_TIME_NS;
+		delay = NSEC_PER_MSEC;
 
 	hrtimer_start(&perf->test_timer, ns_to_ktime(delay), HRTIMER_MODE_REL);
 
@@ -2079,7 +2116,7 @@ static int dit_perftest_gen_thd_fun(void *arg)
 
 void dit_perftest_gen_thread_ex(int val)
 {
-	int cpu = 7;
+	int cpu = gen_cpu;
 
 	struct sched_param task_sched_params =	{
 		.sched_priority = MAX_RT_PRIO
@@ -2419,7 +2456,7 @@ static ssize_t perftest_store(struct kobject *kobj,
 		break;
 
 	case 9:
-		debug_print = 1;
+		gen_cpu = param2;
 		break;
 
 	default:
@@ -2492,6 +2529,9 @@ void dit_setup_upstream_device(struct net_device *ndev)
 	u32 addr;
 
 	dit_info("%s\n", __func__);
+
+	if (!ndev->gro_flush_timeout)
+		ndev->gro_flush_timeout = 10000;
 
 	if (dit_get_ifaddr(ndev, &addr))
 		dit_set_nat_local_addr(DIT_IF_RMNET, addr);

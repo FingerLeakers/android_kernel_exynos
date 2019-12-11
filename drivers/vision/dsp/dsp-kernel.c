@@ -71,7 +71,7 @@ struct dsp_kernel *dsp_kernel_alloc(struct dsp_kernel_manager *kmgr,
 
 	list_for_each_entry_safe(list, temp, &kmgr->kernel_list, list) {
 		if (list->name_length == new->name_length &&
-				!strncmp(list->name, dl_lib->name,
+				!strncmp(list->name, new->name,
 					new->name_length)) {
 			list->ref_count++;
 			if (!checked) {

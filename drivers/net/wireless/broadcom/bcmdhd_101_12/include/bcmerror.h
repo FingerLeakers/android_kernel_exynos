@@ -408,7 +408,9 @@ enum {
 	/* Element K is at infinity no the curve */
 	WL_SAE_E_CRYPTO_KEY_AT_INFINITY		= -3090,
 	/* SAE Crypto private data magic number mismatch */
-	WL_SAE_E_CRYPTO_PRIV_MAGIC_MISMATCH	= -3091
+	WL_SAE_E_CRYPTO_PRIV_MAGIC_MISMATCH	= -3091,
+	/* Max retry exhausted */
+	WL_SAE_E_MAX_RETRY_LIMIT_REACHED	= -3092
 };
 
 /*

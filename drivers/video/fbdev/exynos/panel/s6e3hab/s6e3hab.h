@@ -159,6 +159,10 @@
 #define S6E3HAB_SELF_MASK_CHECKSUM_OFS		0
 #define S6E3HAB_SELF_MASK_CHECKSUM_LEN		2
 
+#define S6E3HAB_SELF_MASK_CRC_REG		0x7F
+#define S6E3HAB_SELF_MASK_CRC_OFS	6
+#define S6E3HAB_SELF_MASK_CRC_LEN		4
+
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 #define S6E3HAB_CMDLOG_REG			0x9C
 #define S6E3HAB_CMDLOG_OFS			0
@@ -578,6 +582,12 @@ enum {
 #ifdef CONFIG_DYNAMIC_FREQ
 	OSC_96_5M_DYN_FFC_MAPTBL,
 	DYN_FFC_MAPTBL,
+	OSC_96_5M_DEFAULT_FFC_MAPTBL,
+	DEFAULT_FFC_MAPTBL,
+	DDI_OSC_CLK_TUNE1,
+	DDI_OSC_CLK_TUNE2,
+	DDI_OSC_LTPS_COMP1,
+	DDI_OSC_LTPS_COMP2,
 #endif
 	MCD_RESISTANCE_MAPTBL,
 #ifdef CONFIG_SUPPORT_ISC_TUNE_TEST
@@ -590,6 +600,9 @@ enum {
 	GAMMA_INTER_CONTROL_MAPTBL,
 	POC_COMP_MAPTBL,
 	DBV_MAPTBL,
+	HBM_CYCLE_MAPTBL,
+	HBM_ONOFF_MAPTBL,
+	DIA_ONOFF_MAPTBL,
 	MAX_MAPTBL,
 };
 
@@ -627,6 +640,7 @@ enum {
 	READ_DSI_ERR,
 	READ_SELF_DIAG,
 	READ_SELF_MASK_CHECKSUM,
+	READ_SELF_MASK_CRC,
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 	READ_CMDLOG,
 #endif
@@ -788,6 +802,7 @@ enum {
 	RES_CCD_STATE,
 #endif
 	RES_SELF_MASK_CHECKSUM,
+	RES_SELF_MASK_CRC,
 #ifdef CONFIG_SUPPORT_MAFPC
 	RES_MAFPC,
 	RES_MAFPC_FLASH,
@@ -888,6 +903,7 @@ static u8 S6E3HAB_MCD_RESISTANCE[S6E3HAB_MCD_RESISTANCE_LEN];
 static u8 S6E3HAB_CCD_STATE[S6E3HAB_CCD_STATE_LEN];
 #endif
 static u8 S6E3HAB_SELF_MASK_CHECKSUM[S6E3HAB_SELF_MASK_CHECKSUM_LEN];
+static u8 S6E3HAB_SELF_MASK_CRC[S6E3HAB_SELF_MASK_CRC_LEN];
 
 #ifdef CONFIG_SUPPORT_MAFPC
 static u8 S6E3HAB_MAFPC[S6E3HAB_MAFPC_LEN];
@@ -996,6 +1012,7 @@ static struct rdinfo s6e3hab_rditbl[] = {
 	[READ_CCD_STATE] = RDINFO_INIT(ccd_state, DSI_PKT_TYPE_RD, S6E3HAB_CCD_STATE_REG, S6E3HAB_CCD_STATE_OFS, S6E3HAB_CCD_STATE_LEN),
 #endif
 	[READ_SELF_MASK_CHECKSUM] = RDINFO_INIT(self_mask_checksum, DSI_PKT_TYPE_RD, S6E3HAB_SELF_MASK_CHECKSUM_REG, S6E3HAB_SELF_MASK_CHECKSUM_OFS, S6E3HAB_SELF_MASK_CHECKSUM_LEN),
+	[READ_SELF_MASK_CRC] = RDINFO_INIT(self_mask_crc, DSI_PKT_TYPE_RD, S6E3HAB_SELF_MASK_CRC_REG, S6E3HAB_SELF_MASK_CRC_OFS, S6E3HAB_SELF_MASK_CRC_LEN),
 #ifdef CONFIG_SUPPORT_MAFPC
 	[READ_MAFPC] = RDINFO_INIT(mafpc, DSI_PKT_TYPE_RD, S6E3HAB_MAFPC_REG, S6E3HAB_MAFPC_OFS, S6E3HAB_MAFPC_LEN),
 	[READ_MAFPC_FLASH] = RDINFO_INIT(mafpc_flash, DSI_PKT_TYPE_RD, S6E3HAB_MAFPC_FLASH_REG, S6E3HAB_MAFPC_FLASH_OFS, S6E3HAB_MAFPC_FLASH_LEN),
@@ -1016,7 +1033,7 @@ static struct res_update_info RESUI(hbm_gamma_120hz)[] = {
 		.offset = 0,
 		.rditbl = &s6e3hab_rditbl[READ_HBM_GAMMA_120HZ_0],
 	}, {
-		.offset = S6E3HAB_HBM_GAMMA_120HZ_0_LEN	- 1,
+		.offset = S6E3HAB_HBM_GAMMA_120HZ_0_LEN,
 		.rditbl = &s6e3hab_rditbl[READ_HBM_GAMMA_120HZ_1],
 	},
 };
@@ -1025,7 +1042,7 @@ static struct res_update_info RESUI(hbm_gamma_60hz_hs)[] = {
 		.offset = 0,
 		.rditbl = &s6e3hab_rditbl[READ_HBM_GAMMA_60HZ_HS_0],
 	}, {
-		.offset = S6E3HAB_HBM_GAMMA_120HZ_0_LEN	- 1,
+		.offset = S6E3HAB_HBM_GAMMA_60HZ_HS_0_LEN,
 		.rditbl = &s6e3hab_rditbl[READ_HBM_GAMMA_60HZ_HS_1],
 	},
 };
@@ -1112,6 +1129,7 @@ static DEFINE_RESUI(ccd_state, &s6e3hab_rditbl[READ_CCD_STATE], 0);
 
 static DEFINE_RESUI(mcd_resistance, &s6e3hab_rditbl[READ_MCD_RESISTANCE], 0);
 static DEFINE_RESUI(self_mask_checksum, &s6e3hab_rditbl[READ_SELF_MASK_CHECKSUM], 0);
+static DEFINE_RESUI(self_mask_crc, &s6e3hab_rditbl[READ_SELF_MASK_CRC], 0);
 
 #ifdef CONFIG_SUPPORT_MAFPC
 static DEFINE_RESUI(mafpc, &s6e3hab_rditbl[READ_MAFPC], 0);
@@ -1212,6 +1230,7 @@ static struct resinfo s6e3hab_restbl[] = {
 	[RES_CCD_STATE] = RESINFO_INIT(ccd_state, S6E3HAB_CCD_STATE, RESUI(ccd_state)),
 #endif
 	[RES_SELF_MASK_CHECKSUM] = RESINFO_INIT(self_mask_checksum, S6E3HAB_SELF_MASK_CHECKSUM, RESUI(self_mask_checksum)),
+	[RES_SELF_MASK_CRC] = RESINFO_INIT(self_mask_crc, S6E3HAB_SELF_MASK_CRC, RESUI(self_mask_crc)),
 #ifdef CONFIG_SUPPORT_MAFPC
 	[RES_MAFPC] = RESINFO_INIT(mafpc, S6E3HAB_MAFPC, RESUI(mafpc)),
 	[RES_MAFPC_FLASH] = RESINFO_INIT(mafpc_flash, S6E3HAB_MAFPC_FLASH, RESUI(mafpc_flash)),
@@ -1226,6 +1245,7 @@ enum {
 	DUMP_ERR_FG,
 	DUMP_DSI_ERR,
 	DUMP_SELF_DIAG,
+	DUMP_SELF_MASK_CRC,
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 	DUMP_CMDLOG,
 #endif
@@ -1244,6 +1264,7 @@ static void show_self_diag(struct dumpinfo *info);
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 static void show_cmdlog(struct dumpinfo *info);
 #endif
+static void show_self_mask_crc(struct dumpinfo *info);
 #ifdef CONFIG_SUPPORT_MAFPC
 static void show_mafpc_log(struct dumpinfo *info);
 static void show_mafpc_flash_log(struct dumpinfo *info);
@@ -1259,10 +1280,12 @@ static struct dumpinfo s6e3hab_dmptbl[] = {
 #ifdef CONFIG_SUPPORT_DDI_CMDLOG
 	[DUMP_CMDLOG] = DUMPINFO_INIT(cmdlog, &s6e3hab_restbl[RES_CMDLOG], show_cmdlog),
 #endif
+	[DUMP_SELF_MASK_CRC] = DUMPINFO_INIT(self_mask_crc, &s6e3hab_restbl[RES_SELF_MASK_CRC], show_self_mask_crc),
 #ifdef CONFIG_SUPPORT_MAFPC
 	[DUMP_MAFPC] = DUMPINFO_INIT(mafpc, &s6e3hab_restbl[RES_MAFPC], show_mafpc_log),
 	[DUMP_MAFPC_FLASH] = DUMPINFO_INIT(mafpc_flash, &s6e3hab_restbl[RES_MAFPC_FLASH], show_mafpc_flash_log),
 #endif
+
 };
 
 enum {
@@ -1319,6 +1342,9 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.base_vactive = 3200,
 		.base_vfp = 16,
 		.base_vbp = 16,
+		.te_sel = true,
+		.te_v_st = 3201,
+		.te_v_ed = 9,
 		.mode = VRR_NORMAL_MODE,
 	},
 	[S6E3HAB_VRR_60_HS] = {
@@ -1329,6 +1355,9 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.base_vactive = 3200,
 		.base_vfp = 16,
 		.base_vbp = 16,
+		.te_sel = true,
+		.te_v_st = 3201,
+		.te_v_ed = 9,
 		.mode = VRR_HS_MODE,
 	},
 	[S6E3HAB_VRR_120_HS] = {
@@ -1339,6 +1368,9 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.base_vactive = 3200,
 		.base_vfp = 16,
 		.base_vbp = 16,
+		.te_sel = true,
+		.te_v_st = 3201,
+		.te_v_ed = 9,
 		.mode = VRR_HS_MODE,
 	},
 };
@@ -1382,6 +1414,7 @@ static int getidx_vgh_table(struct maptbl *);
 #endif
 static int getidx_hbm_onoff_table(struct maptbl *);
 static int getidx_acl_onoff_table(struct maptbl *);
+static int getidx_dia_onoff_table(struct maptbl *tbl);
 static int getidx_acl_opr_table(struct maptbl *);
 static int getidx_dsc_table(struct maptbl *);
 static int getidx_resolution_table(struct maptbl *);
@@ -1420,6 +1453,7 @@ static int s6e3hab_getidx_tdmb_tune_table(struct maptbl *tbl);
 #endif
 #ifdef CONFIG_DYNAMIC_FREQ
 static int getidx_dyn_ffc_table(struct maptbl *tbl);
+static int getidx_ddi_osc_clk_table(struct maptbl *tbl);
 #endif
 #ifdef CONFIG_SUPPORT_HMD
 static int init_hmd_gamma_table(struct maptbl *);

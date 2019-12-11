@@ -1020,6 +1020,12 @@ static void exynos_pcie_assert_phy_reset(struct pcie_port *pp)
 		exynos_ia_write(exynos_pcie, 0x13ef0000, 0x34); /* Base addr1 : PMA */
 		exynos_ia_write(exynos_pcie, 0x13ee0000, 0x38); /* Base addr2 : PCS */
 		exynos_ia_write(exynos_pcie, 0x13ec0000, 0x3C); /* Base addr3 : PCIE_IA */
+#elif defined(CONFIG_SOC_EXYNOS9830)
+		/* PCIE_IA SFR Setting */
+		exynos_ia_write(exynos_pcie, 0x133B0000, 0x30); /* Base addr0 : ELBI */
+		exynos_ia_write(exynos_pcie, 0x133E0000, 0x34); /* Base addr1 : PMA */
+		exynos_ia_write(exynos_pcie, 0x133D0000, 0x38); /* Base addr2 : PCS */
+		exynos_ia_write(exynos_pcie, 0x13390000, 0x3C); /* Base addr3 : PCIE_IA */
 #endif
 
 		/* IA_CNT_TRG 10 : Repeat 10 */
@@ -2373,6 +2379,13 @@ void exynos_pcie_send_pme_turn_off(struct exynos_pcie *exynos_pcie)
 	int __maybe_unused count = 0;
 	int __maybe_unused retry_cnt = 0;
 	u32 __maybe_unused val;
+
+	dev_info(dev, "%s: sub_ctrl+0x0 = 0x%x\n", __func__,
+			exynos_elbi_read(exynos_pcie, PCIE_IRQ_PULSE));
+	dev_info(dev, "%s: sub_ctrl+0x4 = 0x%x\n", __func__,
+			exynos_elbi_read(exynos_pcie, PCIE_IRQ_LEVEL));
+	dev_info(dev, "%s: sub_ctrl+0x8 = 0x%x\n", __func__,
+			exynos_elbi_read(exynos_pcie, PCIE_IRQ_SPECIAL));
 
 	val = exynos_elbi_read(exynos_pcie, PCIE_ELBI_RDLH_LINKUP) & 0x1f;
 	dev_info(dev, "%s: link state:%x\n", __func__, val);

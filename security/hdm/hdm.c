@@ -74,6 +74,12 @@ TEEC_Result tz_call(uint8_t* data, size_t len, unsigned long* mode)
 
 	hdm_info("%s begin\n", __func__);
 
+ 	if (len >= JWS_LEN) {
+  		result = TEEC_ERROR_EXCESS_DATA;
+ 		hdm_info("%s Invalid jws len: %zu\n", __func__, len);
+ 		goto out;
+ 	}
+
 	sendmsg = kmalloc(sizeof(tciMessage_t), GFP_KERNEL);
 	rspmsg = kmalloc(sizeof(tciMessage_t), GFP_KERNEL);
 
@@ -122,6 +128,8 @@ close_session:
 finalize_context:
 	TEEC_FinalizeContext(&context);
 out:
+	kfree(sendmsg);
+	kfree(rspmsg);
 	hdm_info("%s end, result=0x%x\n", __func__, result);
 
 	return result;

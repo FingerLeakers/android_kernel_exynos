@@ -1301,8 +1301,9 @@ struct dwc3 {
 	int level_val;
 	struct work_struct      set_vbus_current_work;
 	int			vbus_current; /* 100mA,  500mA,  900mA */
+	struct delayed_work		usb_qos_lock_delayed_work;
 };
-
+#define USB_BUS_CLOCK_DELAY_MS 3000
 #define INCRX_BURST_MODE 0
 #define INCRX_UNDEF_LENGTH_BURST_MODE 1
 

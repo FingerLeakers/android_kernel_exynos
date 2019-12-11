@@ -4,9 +4,15 @@
 # Sep 2018, Binse Park <h22yap@gmail.com>
 # Rewritten to use lists instead of if-statements.
 #
+
 FLAG=1
 
-$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/include/linux/olog.pb.h  $(srctree)/drivers/kperfmon/)")
+#$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/include/linux/olog.pb.h  $(srctree)/drivers/kperfmon/)")
+
+ifneq ($(CONFIG_KPERFMON), y)
+FLAG=0
+$(info kperfmon_DUMMY="CONFIG_KPERFMON is off.")
+endif
 
 ifneq ($(shell [ -e $(srctree)/include/linux/olog.pb.h ] && echo exist), exist)
 $(info kperfmon_DUMMY="olog.pb.h file is missing... retrying")
@@ -29,10 +35,11 @@ FLAG=0
 $(info kperfmon_DUMMY="perflog.h file is missing.")
 endif
 
+$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/../../system/core/liblog/include/log/perflog.h  $(srctree)/include/linux/)")
 ifeq ($(FLAG), 1)
-$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/../../system/core/liblog/include/log/perflog.h  $(srctree)/drivers/kperfmon/)")
+$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/drivers/kperfmon/ologk.h $(srctree)/include/linux/)")
 	obj-y				+= kperfmon.o
 else
 	obj-y				+= ologk.o
-$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/drivers/kperfmon/ologk.h $(srctree)/include/linux/)")
+#$(info kperfmon_DUMMY="$(shell cp -f $(srctree)/drivers/kperfmon/ologk.h $(srctree)/include/linux/)")
 endif

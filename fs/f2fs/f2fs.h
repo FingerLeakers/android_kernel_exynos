@@ -29,8 +29,9 @@
 #define __FS_HAS_ENCRYPTION IS_ENABLED(CONFIG_F2FS_FS_ENCRYPTION)
 #include <linux/fscrypt.h>
 
-#define HPB_PROTOTYPE 1
-#define HPB_PROTOTYPE_DEBUG 0
+#ifdef CONFIG_FS_HPB
+#include <linux/fs_hpb.h>
+#endif
 
 #ifdef CONFIG_F2FS_STRICT_BUG_ON
 #define	BUG_ON_CHKFS	BUG_ON
@@ -2678,8 +2679,7 @@ enum {
 	FI_PROJ_INHERIT,	/* indicate file inherits projectid */
 	FI_PIN_FILE,		/* indicate file should not be gced */
 	FI_ATOMIC_REVOKE_REQUEST, /* request to drop atomic data */
-
-#if HPB_PROTOTYPE
+#ifdef CONFIG_FS_HPB
 	FI_HPB_INODE,		/* HPB */
 #endif
 };
@@ -3972,37 +3972,4 @@ static inline bool is_journalled_quota(struct f2fs_sb_info *sbi)
 	return false;
 }
 
-#endif
-
-#if HPB_PROTOTYPE
-static char* HPB_extension[] = {
-	"odex",
-	"vdex",
-	"so",
-	"art",
-	"apk",
-	"bin",
-};
-#define NR_HPB_EXT (sizeof(HPB_extension) / sizeof(*HPB_extension))
-static inline bool is_hpb_extension(const unsigned char *name)
-{
-	int i;
-	size_t name_len = strlen(name);
-	size_t ext_len;
-
-	for (i = 0; i < NR_HPB_EXT; i++) {
-		ext_len = strlen(HPB_extension[i]);
-		if ((name_len < ext_len+2) ||
-				name[name_len - ext_len - 1] != '.')
-			continue;
-		if (!strncasecmp(HPB_extension[i], name + (name_len - ext_len) ,
-					ext_len))
-			return true;
-	}
-	return false;
-}
-static inline bool is_hpb_permission(struct inode *inode)
-{
-	return inode->i_mode & (S_IXUSR | S_IXGRP | S_IXOTH);
-}
 #endif

@@ -542,8 +542,6 @@ static void wq_func_subdev(struct is_subdev *leader,
 		sub_frame->stream->fvalid = 1;
 	}
 
-	clear_bit(subdev->id, &ldr_frame->out_flag);
-
 	/* For supporting multi input to single output */
 	if (subdev->vctx->video->try_smp) {
 		subdev->vctx->video->try_smp = false;
@@ -551,10 +549,17 @@ static void wq_func_subdev(struct is_subdev *leader,
 	}
 
 	/* Skip done when current frame is doing stripe_process. */
-	if (!status && sub_frame->state == FS_STRIPE_PROCESS)
+	if (!status && (sub_frame->state == FS_STRIPE_PROCESS ||
+		(ldr_frame->stripe_info.region_num &&
+		sub_frame->stripe_info.region_id < ldr_frame->stripe_info.region_num - 1))) {
+		sub_frame->stripe_info.region_id++;
 		return;
+	}
+
+	clear_bit(subdev->id, &ldr_frame->out_flag);
 
 complete:
+	sub_frame->stripe_info.region_id = 0;
 	sub_frame->stream->fcount = fcount;
 	sub_frame->stream->rcount = rcount;
 	sub_frame->fcount = fcount;

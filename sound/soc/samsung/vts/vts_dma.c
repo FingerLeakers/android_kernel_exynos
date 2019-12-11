@@ -128,7 +128,8 @@ static int vts_platform_trigger(struct snd_pcm_substream *substream, int cmd)
 			dev_dbg(dev, "%s VTS_IRQ_AP_START_COPY\n", __func__);
 			result = vts_start_ipc_transaction(dev, data->vts_data, VTS_IRQ_AP_START_COPY, &values, 1, 1);
 		} else {
-			dev_dbg(dev, "%s VTS_IRQ_AP_START_REC\n", __func__);
+			data->vts_data->vtsrec_count++;
+			dev_info(dev, "%s VTS_IRQ_AP_START_REC : %d\n", __func__, data->vts_data->vtsrec_count);
 			result = vts_start_ipc_transaction(dev, data->vts_data, VTS_IRQ_AP_START_REC, &values, 1, 1);
 		}
 		break;
@@ -139,7 +140,8 @@ static int vts_platform_trigger(struct snd_pcm_substream *substream, int cmd)
 			dev_dbg(dev, "%s VTS_IRQ_AP_STOP_COPY\n", __func__);
 			result = vts_start_ipc_transaction(dev, data->vts_data, VTS_IRQ_AP_STOP_COPY, &values, 1, 1);
 		} else {
-			dev_dbg(dev, "%s VTS_IRQ_AP_STOP_REC\n", __func__);
+			data->vts_data->vtsrec_count--;
+			dev_dbg(dev, "%s VTS_IRQ_AP_STOP_REC : %d\n", __func__, data->vts_data->vtsrec_count);
 			result = vts_start_ipc_transaction(dev, data->vts_data, VTS_IRQ_AP_STOP_REC, &values, 1, 1);
 		}
 		break;
@@ -181,12 +183,12 @@ static int vts_platform_open(struct snd_pcm_substream *substream)
 		return -EBUSY;
 	}
 
-	dev_info(dev, "vts_platform_open : vts_try_request_firmware\n");
 	/* vts_try_request_firmware_interface(data->vts_data); */
 	pm_runtime_get_sync(dev);
 	snd_soc_set_runtime_hwparams(substream, &vts_platform_hardware);
 	if (data->type == PLATFORM_VTS_NORMAL_RECORD) {
-		dev_info(dev, "%s open --\n", __func__);
+		dev_info(dev, "%s VTS RECORD open --\n", __func__);
+		data->vts_data->vtsrec_count = 1;
 		result = vts_set_dmicctrl(data->vts_data->pdev,
 					VTS_MICCONF_FOR_RECORD, true);
 		if (result < 0) {
@@ -212,13 +214,12 @@ static int vts_platform_close(struct snd_pcm_substream *substream)
 		dev_warn(dev, "%s VTS SRAM is Used for CP call\n",
 					__func__);
 		pm_runtime_get_sync(dev);
-		dev_info(dev, "vts_platform_close : vts_try_request_firmware\n");
 		/* vts_try_request_firmware_interface(data->vts_data); */
 		return -EBUSY;
 	}
 
 	if (data->type == PLATFORM_VTS_NORMAL_RECORD) {
-		dev_info(dev, "%s close --\n", __func__);
+		dev_info(dev, "%s VTS RECORD close --\n", __func__);
 		result = vts_set_dmicctrl(data->vts_data->pdev,
 					VTS_MICCONF_FOR_RECORD, false);
 		if (result < 0)

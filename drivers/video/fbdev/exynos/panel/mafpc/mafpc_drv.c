@@ -34,18 +34,16 @@ static int mafpc_open(struct inode *inode, struct file *file)
 static ssize_t mafpc_write(struct file *file, const char __user *buf,
 		  size_t count, loff_t *ppos)
 {
-	u8 temp[44];
+	
+	char temp[44];
 	struct mafpc_device *mafpc = file->private_data;
-	//struct panel_device *panel = mafpc->panel;
-
-	panel_info("[mAFPC:Info]:%s : %d\n", __func__, count);
 
 	if (count != (MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE + mafpc->img_size)) {
 		panel_err("[mAFPC:ERR]:%s: wrong size : %d:%d\n", count, mafpc->img_size);
 		goto err_write;
 	}
 
-	if (copy_from_user(&temp, buf, (MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE))) {
+	if (copy_from_user(temp, buf, MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE)) {
 		panel_err("[mAFPC:ERR]:%s: failed to get user's header\n", __func__);
 		goto err_write;
 	}
@@ -54,19 +52,27 @@ static ssize_t mafpc_write(struct file *file, const char __user *buf,
 		panel_err("[mAFPC:ERR]%s: wrong header : %c\n", __func__);
 		goto err_write;
 	}
+
+	panel_info("[mAFPC:Info]:%s:header : %c\n", __func__, temp[0]);
 	
-	memcpy(&mafpc->ctrl_cmd, buf + MAFPC_HEADER_SIZE, MAFPC_CTRL_CMD_SIZE);
+	memcpy(mafpc->ctrl_cmd, temp + MAFPC_HEADER_SIZE, MAFPC_CTRL_CMD_SIZE);
+	
+	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
+			mafpc->ctrl_cmd, MAFPC_CTRL_CMD_SIZE, false);
 
 	if (mafpc->img_buf == NULL) {
 		panel_err("[mAFPC:ERR]:%s: mafpc img buf is null\n", __func__);
 		goto err_write;
 	}
 
-	if (copy_from_user(&mafpc->img_buf,
+	panel_info("[mAFPC:Info]:%s:img size : %d\n", __func__, mafpc->img_size);
+
+	if (copy_from_user(mafpc->img_buf,
 			buf + MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE, mafpc->img_size)) {
 		panel_err("[mAFPC:ERR]%s: failed to get comp img\n", __func__);
 		goto err_write;
 	}
+	
 	mafpc->written = true;
 
 err_write:
@@ -95,13 +101,13 @@ static int mafpc_instant_on(struct mafpc_device *mafpc)
 		goto err;
 	}
 
-	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFC_IMG_SEQ);
+	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_IMG_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("mAFPC:ERR:%s, failed to write init seqtbl\n", __func__);
 		goto err;
 	}
 
-	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFC_ON_SEQ);
+	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_ON_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("mAFPC:ERR:%s, failed to write init seqtbl\n", __func__);
 	}
@@ -130,7 +136,7 @@ static int mafpc_instant_off(struct mafpc_device *mafpc)
 		goto err;
 	}
 
-	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFC_OFF_SEQ);
+	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_OFF_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("mAFPC:ERR:%s, failed to write init seqtbl\n", __func__);
 	}
@@ -182,7 +188,8 @@ static int mafpc_release(struct inode *inode, struct file *file)
 {
 	int ret = 0;
 
-	panel_info("[mAFPC:Info]:%s was called\n", __func__);
+	panel_info(
+"[mAFPC:Info]:%s was called\n", __func__);
 	
 	return ret;
 }
@@ -198,7 +205,7 @@ static const struct file_operations mafpc_drv_fops = {
 
 static int transmit_mafpc_data(struct mafpc_device *mafpc)
 {
-	int ret;
+	int ret = 0;
 	s64 time_diff;
 	ktime_t timestamp;
 	struct panel_device *panel = mafpc->panel;
@@ -206,13 +213,13 @@ static int transmit_mafpc_data(struct mafpc_device *mafpc)
 	timestamp = ktime_get();
 	decon_systrace(get_decon_drvdata(0), 'C', "mafpc", 1);
 #if 0
-	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFC_IMG_SEQ);
+	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_IMG_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
 	}
 #endif
 #if 0
-	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFC_ON_SEQ);
+	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_ON_SEQ);
 	if (unlikely(ret < 0)) {
 		panel_err("PANEL:ERR:%s, failed to write init seqtbl\n", __func__);
 	}
@@ -221,7 +228,7 @@ static int transmit_mafpc_data(struct mafpc_device *mafpc)
 
 	time_diff = ktime_to_us(ktime_sub(ktime_get(), timestamp));
 	panel->mafpc_write_time = time_diff;
-	panel_info("[mAFPC:INFO]:%s time for mAFC : %llu \n", __func__, time_diff);
+	panel_info("[mAFPC:INFO]:%s time for mAFPC : %llu \n", __func__, time_diff);
 
 	return ret;
 }
@@ -424,7 +431,7 @@ static int mfac_probe(struct platform_device *pdev)
 	mafpc->factory_crc[0] = MAFPC_VALID_CRC_1;
 	mafpc->factory_crc[1] = MAFPC_VALID_CRC_2;
 
-	panel_info("[mAFPC:INFO]:%s: mAFC proved: %d:\n", __func__, mafpc->id);
+	panel_info("[mAFPC:INFO]:%s: mAFPC proved: %d:\n", __func__, mafpc->id);
 
 probe_err:
 	return ret;

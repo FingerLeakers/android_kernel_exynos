@@ -28,7 +28,7 @@ static struct device *exynos_handler_dev;
 
 struct exynos_handler {
 	unsigned int	irq;
-	char		name[SZ_16];
+	char		name[SZ_128];
 	void		*handler;
 };
 
@@ -39,13 +39,15 @@ static irqreturn_t exynos_ecc_handler(int irq, void *data)
 #ifdef CONFIG_DEBUG_SNAPSHOT
 	dss_soc_ops->soc_dump_info(NULL);
 #endif
-	panic("Detected ECC error: irq: %d, name: %s", ecc->irq, ecc->name);
+	panic("%s", ecc->name);
 	return 0;
 }
 
 static int __init exynos_handler_setup(struct device_node *np)
 {
 	struct exynos_handler *ecc_handler;
+	struct property *prop;
+	const char *name;
 	int err = 0;
 	int handler_nr_irq, i;
 
@@ -64,10 +66,20 @@ static int __init exynos_handler_setup(struct device_node *np)
 	}
 
 	/* setup ecc_handler */
-	for (i = 0; i < handler_nr_irq; i++) {
+	prop = of_find_property(np, "interrupt-names", NULL);
+	name = of_prop_next_string(prop, NULL);
+	for (i = 0; i < handler_nr_irq; i++, name = of_prop_next_string(prop, name)) {
+
+		if (name == NULL) {
+			dev_err(exynos_handler_dev,
+				"interrupt name unmatched(index = %d\n", i);
+			err = -EINVAL;
+			break;
+		}
+
 		ecc_handler[i].irq = irq_of_parse_and_map(np, i);
-		snprintf(ecc_handler[i].name, sizeof(ecc_handler[i].name),
-				"ecc_handler%d", i);
+		snprintf(ecc_handler[i].name, sizeof(ecc_handler[i].name) - 1,
+									"%s", name);
 		ecc_handler[i].handler = (void *)exynos_ecc_handler;
 
 		err = request_irq(ecc_handler[i].irq,
@@ -76,12 +88,12 @@ static int __init exynos_handler_setup(struct device_node *np)
 				ecc_handler[i].name, &ecc_handler[i]);
 		if (err) {
 			dev_err(exynos_handler_dev,
-				"unable to request irq%u for %s ecc handler\n",
+				"unable to request irq%u for ecc handler[%s]\n",
 				ecc_handler[i].irq, ecc_handler[i].name);
 			break;
 		} else {
 			dev_info(exynos_handler_dev,
-				"Success to request irq%u for %s ecc handler\n",
+				"Success to request irq%u for ecc handler[%s]\n",
 				ecc_handler[i].irq, ecc_handler[i].name);
 		}
 	}

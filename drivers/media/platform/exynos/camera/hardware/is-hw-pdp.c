@@ -24,6 +24,7 @@
 #include "api/is-hw-api-pdp-v1.h"
 #include "is-votfmgr.h"
 #include "is-debug.h"
+#include "is-resourcemgr.h"
 
 static DEFINE_MUTEX(cmn_reg_lock);
 
@@ -80,8 +81,10 @@ static void pdp_s_one_shot_enable(void *data, unsigned long id)
 		if (pdp->err_cnt_oneshot == 0)
 			pdp_hw_dump(pdp->base);
 
-		if (pdp->err_cnt_oneshot > 20)
-			is_debug_s2d(false, "PDP%d stuck", pdp->id);
+		if (pdp->err_cnt_oneshot == PDP_STUCK_CNT) {
+			err("PDP%d stuck", pdp->id);
+			is_kernel_log_dump(false);
+		}
 
 		pdp->err_cnt_oneshot++;
 	} else {
@@ -151,18 +154,18 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 
 	instance = atomic_read(&hw_ip->instance);
 
+	state = pdp_hw_g_int1_state(pdp->base, true) & pdp_hw_g_int1_mask(pdp->base);
+	dbg_pdp(1, "INT1: 0x%x\n", pdp, state);
+
 	if (!test_bit(HW_OPEN, &hw_ip->state)) {
-		mserr_hw("invalid interrupt", instance, hw_ip);
+		mserr_hw("INT1 invalid interrupt: 0x%x", instance, hw_ip, state);
 		return IRQ_NONE;
 	}
 
 	if (test_bit(HW_OVERFLOW_RECOVERY, &hw_ip->hardware->hw_recovery_flag)) {
-		mserr_hw("During recovery : invalid interrupt", instance, hw_ip);
+		mserr_hw("INT1 During recovery : invalid interrupt: 0x%x", instance, hw_ip, state);
 		return IRQ_NONE;
 	}
-
-	state = pdp_hw_g_int1_state(pdp->base, true) & pdp_hw_g_int1_mask(pdp->base);
-	dbg_pdp(1, "INT1: 0x%x\n", pdp, state);
 
 	if (pdp_hw_is_occured(state, PE_START) && pdp_hw_is_occured(state, PE_END))
 		mswarn_hw(" end/start both occur(0x%x)", instance, hw_ip, state);
@@ -277,9 +280,20 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 
 	err_state = (unsigned long)pdp_hw_is_occured(state, PE_ERR_INT1);
 	if (err_state) {
+		unsigned long long time;
+		ulong usec;
+
+		pdp->time_err = local_clock();
+		time = pdp->time_err - pdp->time_rta_cfg;
+		usec = do_div(time, NSEC_PER_SEC) / NSEC_PER_USEC;
+
 		err = find_first_bit(&err_state, SZ_32);
 		while (err < SZ_32) {
-			mserr_hw(" err INT1(%d):%s", instance, hw_ip, err, pdp->int1_str[err]);
+			if (usec < 100000)
+				mserr_hw(" err INT1(%d):RTA wrong config", instance, hw_ip, err);
+			else
+				mserr_hw(" err INT1(%d):%s", instance, hw_ip, err, pdp->int1_str[err]);
+
 			err = find_next_bit(&err_state, SZ_32, err + 1);
 		}
 		is_hardware_sfr_dump(hw_ip->hardware, hw_ip->id, false);
@@ -453,6 +467,8 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 		pdp_hw_s_line_row(pdp->base, pdp->stat_enable, pdp->vc_ext_sensor_mode);
 
 	set_bit(IS_PDP_SET_PARAM, &pdp->state);
+
+	pdp->time_rta_cfg = local_clock();
 
 	return 0;
 }
@@ -1004,28 +1020,8 @@ static int is_hw_pdp_deinit(struct is_hw_ip *hw_ip, u32 instance)
 
 	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
 		struct is_subdev *subdev = &device->pdst;
-		struct is_device_sensor *sensor;
-		struct is_sensor_cfg *sensor_cfg;
-		u32 pd_mode;
-		u32 sensor_type;
-		u32 enable;
 
-		sensor = device->sensor;
-		if (!sensor) {
-			mserr_hw("failed to get sensor", instance, hw_ip);
-			return -EINVAL;
-		}
-
-		sensor_cfg = sensor->cfg;
-		if (!sensor_cfg) {
-			mserr_hw("failed to get senso_cfgr", instance, hw_ip);
-			return -EINVAL;
-		}
-
-		pd_mode = sensor_cfg->pd_mode;
-		enable = pdp_hw_to_sensor_type(pd_mode, &sensor_type);
-
-		if (test_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state) && enable) {
+		if (test_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state)) {
 			ret = is_subdev_internal_stop(device, IS_DEVICE_ISCHAIN, subdev);
 			if (ret)
 				merr("subdev internal stop is fail(%d)", device, ret);

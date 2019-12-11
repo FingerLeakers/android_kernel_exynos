@@ -111,20 +111,25 @@ static int manager_notifier_notify(void *data)
 	if (manager_noti.dest == CCIC_NOTIFY_DEV_USB) {
 		if (typec_manager.ccic_drp_state == manager_noti.sub2)
 			return 0;
-		typec_manager.ccic_drp_state = manager_noti.sub2;
-		switch (typec_manager.ccic_drp_state) {
+		switch (manager_noti.sub2) {
 		case USB_STATUS_NOTIFY_ATTACH_UFP:
-			manager_cable_type_check(true, 60);
+			if (typec_manager.usb_enable_state) {
+				if (typec_manager.cable_type == MANAGER_NOTIFY_MUIC_TIMEOUT_OPEN_DEVICE)
+					manager_cable_type_check(true, 10);
+				manager_cable_type_check(true, 60);
+			}
 			break;
 		case USB_STATUS_NOTIFY_ATTACH_DFP:
-			manager_cable_type_check(true, 0);
-			break;
 		case USB_STATUS_NOTIFY_DETACH:
-			set_usb_enumeration_state(0);
+			if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP) {
+				manager_cable_type_check(false, 0);
+				set_usb_enumeration_state(0);
+			}
 			break;
 		default:
 			break;
 		}
+		typec_manager.ccic_drp_state = manager_noti.sub2;
 	}
 
 	if (manager_noti.dest == CCIC_NOTIFY_DEV_BATTERY
@@ -497,8 +502,11 @@ void set_usb_enable_state(void)
 {
 	if (!typec_manager.usb_enable_state) {
 		typec_manager.usb_enable_state = true;
-		if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP)
+		if (typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP) {
+			if (typec_manager.cable_type == MANAGER_NOTIFY_MUIC_TIMEOUT_OPEN_DEVICE)
+				manager_cable_type_check(true, 10);
 			manager_cable_type_check(true, 120);
+		}
 	}
 }
 EXPORT_SYMBOL(set_usb_enable_state);
@@ -551,19 +559,20 @@ static void manager_cable_type_check_work(struct work_struct *work)
 		pr_info("%s: skip case : dwc3_link = %d\n", __func__, dwc3_link_check);
 		return;
 	}
-	pr_info("%s: usb=%d, pd=%d cable_type=%d, dwc3_link_check=%d\n", __func__,
+	pr_info("%s: usb=0x%X, pd=%d cable_type=%d, dwc3_link_check=%d\n", __func__,
 		typec_manager.usb_enum_state, typec_manager.pd_con_state,
 		typec_manager.cable_type, dwc3_link_check);
 
 	if (!typec_manager.usb_enum_state ||
 		typec_manager.cable_type == MANAGER_NOTIFY_MUIC_CHARGER) {
-		/* TA cable Type */
+		/* If USB recognition is not performed, turn off the USB PHY */
 		manager_event_work(CCIC_NOTIFY_DEV_MANAGER, CCIC_NOTIFY_DEV_USB,
 			CCIC_NOTIFY_ID_USB, CCIC_NOTIFY_DETACH, USB_STATUS_NOTIFY_DETACH, 0);
 	} else {
-		/* USB cable Type */
-		manager_event_work(CCIC_NOTIFY_DEV_MANAGER, CCIC_NOTIFY_DEV_BATTERY,
-			CCIC_NOTIFY_ID_USB, 0, 0, PD_USB_TYPE);
+		/* PD-USB cable Type */
+		if (typec_manager.pd_con_state)
+			manager_event_work(CCIC_NOTIFY_DEV_MANAGER, CCIC_NOTIFY_DEV_BATTERY,
+				CCIC_NOTIFY_ID_USB, 0, 0, PD_USB_TYPE);
 	}
 }
 
@@ -681,9 +690,8 @@ static int manager_handle_ccic_notification(struct notifier_block *nb,
 
 	switch (p_noti.id) {
 	case CCIC_NOTIFY_ID_POWER_STATUS:
-		if(p_noti.sub1)	/*attach*/
+		if(p_noti.sub1) /*attach*/
 			typec_manager.pd_con_state = 1;	// PDIC_NOTIFY_EVENT_PD_SINK
-
 		p_noti.dest = CCIC_NOTIFY_DEV_BATTERY;
 		if(typec_manager.pd == NULL)
 			typec_manager.pd = p_noti.pd;
@@ -704,7 +712,6 @@ static int manager_handle_ccic_notification(struct notifier_block *nb,
 			if (typec_manager.ccic_attach_state == CCIC_NOTIFY_DETACH) {
 				pr_info("%s: CCIC_NOTIFY_DETACH (pd=%d, cable_type=%d)\n", __func__,
 					typec_manager.pd_con_state, typec_manager.cable_type);
-				manager_cable_type_check(false, 0);
 				if (typec_manager.pd_con_state) {
 					typec_manager.pd_con_state = 0;
 					manager_event_work(p_noti.src, CCIC_NOTIFY_DEV_BATTERY,
@@ -721,14 +728,6 @@ static int manager_handle_ccic_notification(struct notifier_block *nb,
 			(typec_manager.ccic_rid_state == RID_523K || typec_manager.ccic_rid_state == RID_619K))) {
 			return 0;
 		}
-		if ((typec_manager.cable_type == MANAGER_NOTIFY_MUIC_TIMEOUT_OPEN_DEVICE)
-			&&  (p_noti.sub2 == USB_STATUS_NOTIFY_ATTACH_UFP) ) {
-				pr_info("%s: DCD Timeout case.\n", __func__);
-				manager_cable_type_check(false, 0);
-		} else if (p_noti.sub2 == USB_STATUS_NOTIFY_DETACH)
-			manager_cable_type_check(false, 0);
-		else
-			;
 		break;
 	case CCIC_NOTIFY_ID_WATER:
 		if (p_noti.sub1) {	/* attach */
@@ -912,10 +911,7 @@ static int manager_handle_muic_notification(struct notifier_block *nb,
 			typec_manager.cable_type = MANAGER_NOTIFY_MUIC_CHARGER;
 		}
 
-		if(p_noti.attach && typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP ) {
-			if(typec_manager.pd_con_state) {
-				manager_cable_type_check(false, 0);
-			}
+		if(p_noti.attach && typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP) {
 			/* Turn off the USB Phy when connected to the charger */
 			manager_event_work(CCIC_NOTIFY_DEV_MANAGER, CCIC_NOTIFY_DEV_USB,
 				CCIC_NOTIFY_ID_USB, CCIC_NOTIFY_DETACH, USB_STATUS_NOTIFY_DETACH, 0);
@@ -929,14 +925,14 @@ static int manager_handle_muic_notification(struct notifier_block *nb,
 		break;
 
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:
-		pr_info("%s: DCD Timeout device is detected(%d) %s \n",
+		pr_info("%s: DCD Timeout is detected(%d) %s \n",
 			__func__, p_noti.cable_type,
 			p_noti.attach ? "Attached": "Detached");
 
 		if(p_noti.attach) {
 			typec_manager.cable_type = MANAGER_NOTIFY_MUIC_TIMEOUT_OPEN_DEVICE;
 			if(typec_manager.ccic_drp_state == USB_STATUS_NOTIFY_ATTACH_UFP) {
-				pr_info("%s: DCD Timeout case schedule work enable_state[%d]\n", 
+				pr_info("%s: DCD Timeout case schedule work enable_state[%d]\n",
 					__func__, typec_manager.usb_enable_state);
 				manager_cable_type_check(true, 10);
 			}

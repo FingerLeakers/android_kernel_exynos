@@ -105,6 +105,7 @@ int exynos_client_add(struct device_node *np, struct exynos_iovmm *vmm_data)
 			spin_unlock(&exynos_client_lock);
 			pr_err("%s is already registered to a iommu-domain\n",
 					of_node_full_name(np));
+			kfree(client);
 			return -EEXIST;
 		}
 	}
@@ -1005,7 +1006,7 @@ static sysmmu_pte_t *alloc_lv2entry(struct exynos_iommu_domain *domain,
 		return ERR_PTR(-EADDRINUSE);
 	}
 
-	if (lv1ent_fault(sent)) {
+	if (!domain->pre_alloc && lv1ent_fault(sent)) {
 		unsigned long flags;
 		sysmmu_pte_t *pent = NULL;
 
@@ -1206,7 +1207,7 @@ static size_t exynos_iommu_unmap(struct iommu_domain *iommu_domain,
 
 unmap_flpd:
 	/* TODO: for v7, remove all */
-	if (atomic_read(lv2entcnt) == NUM_LV2ENTRIES) {
+	if (!domain->pre_alloc && atomic_read(lv2entcnt) == NUM_LV2ENTRIES) {
 		unsigned long flags;
 		spin_lock_irqsave(&domain->pgtablelock, flags);
 		if (atomic_read(lv2entcnt) == NUM_LV2ENTRIES) {
@@ -1465,6 +1466,36 @@ int sysmmu_set_prefetch_buffer_property(struct device *dev,
 	return 0;
 }
 
+static int exynos_iommu_prealloc_pgtable(struct exynos_iommu_domain *domain,
+					unsigned int start, unsigned int end)
+{
+	sysmmu_pte_t *sent, *pent, *sent_first;
+	sysmmu_iova_t iova = (sysmmu_iova_t)start;
+	sysmmu_iova_t iova_end = (sysmmu_iova_t)end;
+	atomic_t *pgcounter;
+	unsigned int entry_len = (end - start) / SECT_SIZE;
+
+	sent_first = section_entry(domain->pgtable, iova);
+	while (iova < iova_end) {
+		sent = section_entry(domain->pgtable, iova);
+		pgcounter = &domain->lv2entcnt[lv1ent_offset(iova)];
+		pent = kmem_cache_zalloc(lv2table_kmem_cache, GFP_KERNEL);
+		if (!pent)
+			return -ENOMEM;
+		*sent = mk_lv1ent_page(virt_to_phys(pent));
+		kmemleak_ignore(pent);
+		atomic_set(pgcounter, NUM_LV2ENTRIES);
+		pgtable_flush(pent, pent + NUM_LV2ENTRIES);
+		iova += SECT_SIZE;
+	}
+	pgtable_flush(sent_first, sent_first + entry_len);
+
+	domain->pre_alloc = true;
+	domain->domain.pgsize_bitmap = LPAGE_SIZE | SPAGE_SIZE;
+
+	return 0;
+}
+
 static int __init exynos_iommu_create_domain(void)
 {
 	struct device_node *domain_np;
@@ -1478,6 +1509,7 @@ static int __init exynos_iommu_create_domain(void)
 		dma_addr_t d_addr;
 		size_t d_size;
 		int i = 0;
+		bool need_prealloc;
 
 		ret = of_get_dma_window(domain_np, NULL, 0, NULL, &d_addr, &d_size);
 		if (!ret) {
@@ -1491,6 +1523,29 @@ static int __init exynos_iommu_create_domain(void)
 			start = d_addr;
 			end = d_addr + d_size;
 		}
+		need_prealloc = of_property_read_bool(domain_np,
+							"prealloc-pgtable");
+
+		/*
+		 * If pre-alloc is set, start and end address should be
+		 * aligned as SECT_SIZE.
+		 */
+		if (need_prealloc) {
+			start &= SECT_MASK;
+			if (!start)
+				start = SECT_SIZE;
+			if (IOVA_OVFL(end, SECT_SIZE))
+				end &= SECT_MASK;
+			else
+				end = ALIGN(end, SECT_MASK);
+			if (start >= end) {
+				pr_err("Failed to align address[%#x..%#x]\n",
+								start, end);
+				of_node_put(domain_np);
+				return -EINVAL;
+			}
+		}
+
 		pr_info("DMA ranges for domain %s. [%#x..%#x]\n",
 					domain_np->name, start, end);
 
@@ -1526,6 +1581,14 @@ static int __init exynos_iommu_create_domain(void)
 			}
 			of_node_put(np);
 		}
+
+		if (need_prealloc) {
+			ret = exynos_iommu_prealloc_pgtable(domain, start, end);
+			if (!ret)
+				pr_info("Preallocated for domain %s\n",
+							domain_np->name);
+		}
+
 		of_node_put(domain_np);
 	}
 

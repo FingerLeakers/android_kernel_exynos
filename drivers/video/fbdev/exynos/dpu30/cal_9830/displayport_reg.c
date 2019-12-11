@@ -342,7 +342,7 @@ void displayport_reg_set_training_pattern(displayport_training_pattern pattern)
 	displayport_write_mask(PCS_TEST_PATTERN_CONTROL, 0, LINK_QUALITY_PATTERN_SET);
 	displayport_write_mask(PCS_CONTROL, pattern, LINK_TRAINING_PATTERN_SET);
 
-	if (pattern == NORAMAL_DATA)
+	if (pattern == NORAMAL_DATA || pattern == TRAINING_PATTERN_4)
 		displayport_write_mask(PCS_CONTROL, 0, SCRAMBLE_BYPASS);
 	else
 		displayport_write_mask(PCS_CONTROL, 1, SCRAMBLE_BYPASS);

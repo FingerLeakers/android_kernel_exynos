@@ -51,6 +51,12 @@ extern bool abox_is_on(void);
 extern unsigned int abox_get_requiring_int_freq_in_khz(void);
 
 /**
+ * Get MIF frequency required by ABOX
+ * @return		MIF frequency in kHz
+ */
+extern unsigned int abox_get_requiring_mif_freq_in_khz(void);
+
+/**
  * Get AUD frequency required by ABOX
  * @return		AUD frequency in kHz
  */

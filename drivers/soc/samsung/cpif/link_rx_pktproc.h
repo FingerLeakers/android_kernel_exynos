@@ -177,6 +177,32 @@ enum pktproc_version {
 	MAX_VERSION
 };
 
+#ifdef CONFIG_CP_PKTPROC_PERF_TEST
+enum pktproc_perftest_mode {
+	PERFTEST_MODE_STOP,
+	PERFTEST_MODE_IPV4,
+	PERFTEST_MODE_CLAT,
+	PERFTEST_MODE_MAX
+};
+
+struct pktproc_perftest {
+	bool test_run;
+	enum pktproc_perftest_mode mode;
+	int session;
+	u16 ch;
+	int udelay;
+	u32 seq_counter[2];
+	u16 clat_ipv6[8];
+};
+
+struct pktproc_perftest_data {
+	u8 header[48];
+	u32 header_len;
+	u16 dst_port_offset;
+	u16 packet_len;
+};
+#endif
+
 /* PktProc adaptor */
 struct pktproc_adaptor {
 	bool support;	/* Is support PktProc feature? */
@@ -201,6 +227,10 @@ struct pktproc_adaptor {
 	void __iomem *desc_base;	/* Physical region for descriptor */
 	void __iomem *data_base;	/* Physical region for data buffer */
 	struct pktproc_queue *q[PKTPROC_MAX_QUEUE];	/* Logical queue */
+
+#ifdef CONFIG_CP_PKTPROC_PERF_TEST
+	struct pktproc_perftest perftest;
+#endif
 };
 
 #if defined(CONFIG_CP_PKTPROC) || defined(CONFIG_CP_PKTPROC_V2)

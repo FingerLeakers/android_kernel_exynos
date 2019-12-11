@@ -12,6 +12,7 @@
 
 #include <linux/kernel.h>
 #include <linux/cpuidle.h>
+#include <linux/pm_qos.h>
 #include <linux/time.h>
 #include <linux/ktime.h>
 #include <linux/hrtimer.h>
@@ -295,6 +296,10 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		menu_update(drv, dev);
 		data->needs_update = 0;
 	}
+
+	/* enable c2 state on big cpus for temporary */
+	if (dev->cpu >= 6)
+		latency_req = PM_QOS_CPU_DMA_LAT_DEFAULT_VALUE;
 
 	/* Special case when user has set very strict latency requirement */
 	if (unlikely(latency_req == 0)) {

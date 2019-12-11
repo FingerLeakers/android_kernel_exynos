@@ -876,10 +876,8 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 			inode->i_mode = F2FS_I(inode)->i_acl_mode;
 			clear_inode_flag(inode, FI_ACL_MODE);
 		}
-
-#if HPB_PROTOTYPE
-		if(is_hpb_permission(inode) ||
-				is_hpb_extension(dentry->d_name.name))
+#ifdef CONFIG_FS_HPB
+		if (__is_hpb_file(dentry->d_name.name, inode))
 			set_inode_flag(inode, FI_HPB_INODE);
 		else
 			clear_inode_flag(inode, FI_HPB_INODE);

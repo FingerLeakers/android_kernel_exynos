@@ -368,7 +368,7 @@ static int mfc_hal_charger_probe(
 	mutex_init(&charger->io_lock);
 
 #if defined(CONFIG_WIRELESS_IC_PARAM)
-	pr_info("%s, wireless_chip_id_param : 0x%02X, wireless_fw_ver_param : 0x%04X"
+	pr_info("%s, wireless_chip_id_param : 0x%02X, wireless_fw_ver_param : 0x%04X "
 		"wireless_fw_mode_param : (0x%01X)\n", __func__,
 		wireless_chip_id_param, wireless_fw_ver_param, wireless_fw_mode_param);
 

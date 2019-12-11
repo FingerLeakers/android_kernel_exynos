@@ -663,9 +663,6 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs, unsigned int esr
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 #endif
 {
-	if (!user_mode(regs))
-		adv_tracer_arraydump();
-
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 	if (!user_mode(regs)) {
 		secdbg_exin_set_fault(UNDEF_FAULT, (unsigned long)regs->pc, regs);
@@ -894,9 +891,6 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 {
 	console_verbose();
 
-	if (!user_mode(regs))
-		adv_tracer_arraydump();
-
 	pr_auto(ASL1,
 		"Bad mode in %s handler detected on CPU%d, code 0x%08x -- %s\n",
 		handler[reason], smp_processor_id(), esr,
@@ -1000,7 +994,7 @@ void __noreturn arm64_serror_panic(struct pt_regs *regs, u32 esr)
 	pr_auto(ASL1, "SError Interrupt on CPU%d, code 0x%08x -- %s\n",
 		smp_processor_id(), esr, esr_get_class_string(esr));
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
-	if (!user_mode(regs)) {
+	if (regs && !user_mode(regs)) {
 		secdbg_exin_set_fault(SERROR_FAULT, (unsigned long)regs->pc, regs);
 		secdbg_exin_set_esr(esr);
 	}

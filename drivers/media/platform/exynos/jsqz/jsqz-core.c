@@ -1737,6 +1737,13 @@ static long jsqz_ioctl(struct file *filp,
     		HWJSQZ_PROFILE(ret = jsqz_process(ctx, &data),
     			       "WHOLE PROCESS TIME",
     			       jsqz_device->dev);
+    			       
+    	    if (ret) {
+    			dev_err(jsqz_device->dev,
+    				"%s: Failed to process task, error %d\n"
+    				, __func__, ret);
+    			return ret;
+    		}
 
     		dev_dbg(jsqz_device->dev
     			, "%s: processing done! Copying data back to user space...\n", __func__);
@@ -1747,13 +1754,6 @@ static long jsqz_ioctl(struct file *filp,
     		if (copy_to_user((void __user *)arg, &data.user_mtask, sizeof(data.user_mtask))) {
     			dev_err(jsqz_device->dev,
     				"%s: Failed to write userdata\n", __func__);
-    		}
-
-    		if (ret) {
-    			dev_err(jsqz_device->dev,
-    				"%s: Failed to process task, error %d\n"
-    				, __func__, ret);
-    			return ret;
     		}
 
     		return ret;

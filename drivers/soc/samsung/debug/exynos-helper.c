@@ -43,6 +43,10 @@
 #include <soc/samsung/acpm_ipc_ctrl.h>
 #endif
 
+static const char ecc_err_arm_table [][32] = { "CPU", "DSU", };
+static const char ecc_err_sarc_table [][32] = { "CPU FE", "CPU LS", "CPU TBW", "BIG Cluster L2",
+						"BIG Cluster L3 Bank0", "BIG Cluster L3 Bank1", };
+
 extern void (*arm_pm_restart)(enum reboot_mode reboot_mode, const char *cmd);
 static struct device *exynos_helper_dev;
 
@@ -285,12 +289,33 @@ static void exynos_dump_info(void *val)
 	ERXMISC0_EL1_t erxmisc0_el1;
 	ERXMISC1_EL1_t erxmisc1_el1;
 	ERXADDR_EL1_t erxaddr_el1;
+	const char (*err_table)[32];
+	unsigned int midr_implementor;
 	int i;
 
 	switch (read_cpuid_part_number()) {
 	case ARM_CPU_PART_CORTEX_A55:
 	case ARM_CPU_PART_CORTEX_A76:
 	case ARM_CPU_PART_SAMSUNG_M5:
+
+		midr_implementor = MIDR_IMPLEMENTOR(read_cpuid_id());
+		switch (midr_implementor) {
+		case MIDR_IMPLEMENTOR_ARMv8:
+			err_table = ecc_err_arm_table;
+			dev_emerg(exynos_helper_dev,
+				"THIS CORE IMPLEMENTOR INFO = [ARM][0x%x]\n", midr_implementor);
+			break;
+		case MIDR_IMPLEMENTOR_SARC:
+			err_table = ecc_err_sarc_table;
+			dev_emerg(exynos_helper_dev,
+				"THIS CORE IMPLEMENTOR INFO = [SARC][0x%x]\n", midr_implementor);
+			break;
+		default:
+			dev_emerg(exynos_helper_dev,
+				"Unsupported archtecture [0x%x]\n", midr_implementor);
+			goto out;
+			break;
+		}
 
 		asm volatile ("HINT #16");
 		erridr_el1.reg = read_ERRIDR_EL1();
@@ -306,15 +331,18 @@ static void exynos_dump_info(void *val)
 
 			erxstatus_el1.reg = read_ERXSTATUS_EL1();
 			if (erxstatus_el1.field.Valid) {
+				dev_emerg(exynos_helper_dev,
+					"ERRSELR_EL1.SEL = %d[%s], HAS PROBLEM, "
+					"ERXSTATUS_EL1 = [0x%llx], details:\n",
+					i, err_table[i], erxstatus_el1.reg);
 				if (erxstatus_el1.field.AV) {
 					erxaddr_el1.reg = read_ERXADDR_EL1();
 					dev_emerg(exynos_helper_dev,
-						"Error Address : [0x%lx]\n",
-							(unsigned long)erxaddr_el1.reg);
+						"Error Address : [0x%llx]\n", erxaddr_el1.reg);
 				}
 				if (erxstatus_el1.field.OF)
 					dev_emerg(exynos_helper_dev,
-						"There was more than one error has occurred."
+						"There was more than one error has occurred. "
 						"the other error have been discarded.\n");
 				if (erxstatus_el1.field.ER)
 					dev_emerg(exynos_helper_dev,
@@ -329,19 +357,15 @@ static void exynos_dump_info(void *val)
 					erxmisc0_el1.reg = read_ERXMISC0_EL1();
 					erxmisc1_el1.reg = read_ERXMISC1_EL1();
 					dev_emerg(exynos_helper_dev,
-						"ERXMISC0_EL1 = [0x%lx] ERXMISC1_EL1 = [0x%lx]"
-						"ERXSTATUS_EL1[15:8] = [0x%lx]"
-						"ERXSTATUS_EL1[7:0] = [0x%lx]\n",
-						(unsigned long)erxmisc0_el1.reg,
-						(unsigned long)erxmisc1_el1.reg,
-						(unsigned long)erxstatus_el1.field.IERR,
-						(unsigned long)erxstatus_el1.field.SERR);
+						"ERXMISC0_EL1 = [0x%llx] ERXMISC1_EL1 = [0x%llx] "
+						"ERXSTATUS_EL1 = [0x%llx]\n",
+						erxmisc0_el1.reg, erxmisc1_el1.reg, erxstatus_el1.reg);
 				}
 			} else {
 				dev_emerg(exynos_helper_dev,
-					"ERRSELR_EL1.SEL = %d, NOT VALID, "
-					"ERXSTATUS_EL1 = [0x%lx]\n",
-					i, (unsigned long)erxstatus_el1.reg);
+					"ERRSELR_EL1.SEL = %d[%s], NO PROBLEM, "
+					"ERXSTATUS_EL1 = [0x%llx]\n",
+					i, err_table[i], erxstatus_el1.reg);
 			}
 		}
 
@@ -363,6 +387,9 @@ static void exynos_dump_info(void *val)
 				reg1, reg0, reg3, reg2);
 	}
 #endif
+
+out:
+	return;
 }
 
 static void exynos_save_context_entry(void *val)

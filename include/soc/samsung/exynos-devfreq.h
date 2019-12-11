@@ -111,6 +111,7 @@ struct exynos_devfreq_data {
 	bool					bts_update;
 	bool					update_fvp;
 	bool					use_get_dev;
+	bool					use_dtm;
 
 	struct devfreq_notifier_block		*um_nb;
 	struct um_exynos			um_data;

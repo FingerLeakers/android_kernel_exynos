@@ -376,8 +376,11 @@ static int p3_rw_spi_message(struct p3_data *p3_device,
 
 	/*P3_ERR_MSG("%s len:%u\n", __func__, dup->len);*/
 	if (copy_to_user((void *)arg, dup,
-			 sizeof(struct p3_ioctl_transfer)) != 0)
+			 sizeof(struct p3_ioctl_transfer)) != 0) {
+		kfree(dup);
 		return -EFAULT;
+	}
+
 	kfree(dup);
 	return 0;
 }
@@ -766,11 +769,13 @@ static int spip3_probe(struct spi_device *spi)
 		goto p3_parse_dt_failed;
 	}
 
-	if (!strcmp(data->vdd_1p8, "VDD_ESE_SEN4") && !lpcharge) {
-		ret = p3_regulator_onoff(data, 3);
-		if (ret) {
-			P3_ERR_MSG("%s - Failed to enable regulator\n", __func__);
-			goto p3_parse_dt_failed;
+	if (data->vdd_1p8 != NULL) {
+		if (!strcmp(data->vdd_1p8, "VDD_ESE_SEN4") && !lpcharge) {
+			ret = p3_regulator_onoff(data, 3);
+			if (ret) {
+				P3_ERR_MSG("%s - Failed to enable regulator\n", __func__);
+				goto p3_parse_dt_failed;
+			}
 		}
 	}
 	ret = p3_regulator_onoff(data, 1);

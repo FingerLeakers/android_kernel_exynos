@@ -499,10 +499,6 @@ static int __panel_seq_init(struct panel_device *panel)
 	s64 time_diff;
 	ktime_t timestamp = ktime_get();
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
-#ifdef CONFIG_PANEL_VRR_BRIDGE
-	int vrr_idx;
-
-#endif
 
 	if (panel_disp_det_state(panel) == PANEL_STATE_OK) {
 		panel_warn("PANEL:WARN:%s:panel already initialized\n", __func__);
@@ -519,26 +515,6 @@ static int __panel_seq_init(struct panel_device *panel)
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
-#ifdef CONFIG_PANEL_VRR_BRIDGE
-	vrr_idx = panel_find_vrr(panel,
-			panel->panel_data.props.vrr_target_fps,
-			panel->panel_data.props.vrr_target_mode);
-	if (vrr_idx < 0) {
-		pr_err("%s bridge_target vrr(fps:%d mode:%d) not found\n",
-				__func__, panel->panel_data.props.vrr_target_fps,
-				panel->panel_data.props.vrr_target_mode);
-	} else {
-		panel->panel_data.props.vrr_fps =
-			panel->panel_data.props.vrr_target_fps;
-		panel->panel_data.props.vrr_mode =
-			panel->panel_data.props.vrr_target_mode;
-		panel->panel_data.props.vrr_idx = vrr_idx;
-		pr_info("%s set vrr(fps:%d mode:%d)\n", __func__,
-				panel->panel_data.props.vrr_fps,
-				panel->panel_data.props.vrr_mode);
-	}
-#endif
-
 #ifdef CONFIG_SUPPORT_AOD_BL
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_DISP);
 #endif
@@ -989,7 +965,7 @@ int panel_update_dim_type(struct panel_device *panel, u32 dim_type)
 {
 	struct dim_flash_result *result = &panel->dim_flash_result;
 	u8 mtp_reg[64];
-	int sz_mtp_reg;
+	int sz_mtp_reg = 0;
 	int state = 0;
 	int index;
 	int ret;
@@ -1477,7 +1453,7 @@ int panel_probe(struct panel_device *panel)
 	panel_data->props.lpm_opr = 250;		/* default LPM OPR 2.5 */
 	panel_data->props.cur_lpm_opr = 250;	/* default LPM OPR 2.5 */
 	panel_data->props.panel_partial_disp = 0;
-	panel_data->props.dia_mode = 0;
+	panel_data->props.dia_mode = 1;
 	panel_data->props.irc_mode = 0;
 	panel_data->props.panel_partial_disp = (info->ddi_props.support_partial_disp)? 0 : -1;
 
@@ -1860,6 +1836,21 @@ static int panel_sleep_out(struct panel_device *panel)
 	mutex_lock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
 	clear_check_wq_var(&panel->condition_check);
 	mutex_unlock(&panel->work[PANEL_WORK_CHECK_CONDITION].lock);
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	if (prev_state == PANEL_STATE_ALPM) {
+		mutex_lock(&panel->op_lock);
+		ret = panel_set_vrr_nolock(panel,
+				panel->panel_data.props.vrr_fps,
+				panel->panel_data.props.vrr_mode, false);
+		mutex_unlock(&panel->op_lock);
+		if (ret < 0)
+			panel_err("PANEL:ERR:%s:failed to set vrr seq\n",
+					__func__);
+	}
+	pr_info("%s vrr(fps:%d mode:%d)\n", __func__,
+			panel->panel_data.props.vrr_fps,
+			panel->panel_data.props.vrr_mode);
+#endif
 #ifdef CONFIG_SUPPORT_HMD
 	if (state->hmd_on == PANEL_HMD_ON) {
 		panel_info("PANEL:INFO:%s:hmd was on, setting hmd on seq\n", __func__);
@@ -2044,14 +2035,20 @@ int panel_set_vrr_nolock(struct panel_device *panel, int fps, int mode, bool bla
 		ret = -EINVAL;
 		goto do_exit;
 	}
-#else
+#endif
+	if(panel->panel_data.props.mcd_on) {
+		panel_err("PANEL:ERR:%s:variable fps not supported when MCD test ON(%d) state\n",
+			__func__, panel->panel_data.props.mcd_on);
+		ret = -EINVAL;
+		goto do_exit;
+	}
+
 	if (panel->state.cur_state != PANEL_STATE_NORMAL) {
 		panel_err("PANEL:ERR:%s:variable fps not supported in %s state\n",
 			__func__, panel_state_names[panel->state.cur_state]);
 		ret = -EINVAL;
 		goto do_exit;
 	}
-#endif
 
 	vrr_idx = panel_find_vrr(panel, fps, mode);
 	if (vrr_idx < 0) {
@@ -2319,7 +2316,9 @@ int panel_set_vrr_bridge(struct panel_device *panel)
 	int cur_fps, cur_mode, new_fps, new_mode, actual_br;
 	int mres_idx, bridge_fps, bridge_frame_delay;
 	int ret = 0, usec = 0;
+	bool black;
 
+	mutex_lock(&panel->io_lock);
 	mutex_lock(&panel_bl->lock);
 
 	/* initialize local variables */
@@ -2329,6 +2328,14 @@ int panel_set_vrr_bridge(struct panel_device *panel)
 	new_fps = props->vrr_target_fps;
 	new_mode = props->vrr_target_mode;
 	actual_br = panel_bl->props.actual_brightness;
+
+	if (panel->state.cur_state != PANEL_STATE_NORMAL) {
+		props->vrr_fps = new_fps;
+		props->vrr_mode = new_mode;
+		props->vrr_idx = panel_find_vrr(panel, new_fps, new_mode);
+		props->bridge = NULL;
+		goto out;
+	}
 
 	/* already bridge-rr has been completed */
 	if (cur_fps == new_fps && cur_mode == new_fps) {
@@ -2357,7 +2364,8 @@ int panel_set_vrr_bridge(struct panel_device *panel)
 		usec += (1000000 / bridge_fps) * (bridge_frame_delay - 1) + 1;
 	}
 
-	ret = panel_set_vrr(panel, bridge_fps, new_mode, false);
+	black = (cur_mode != new_mode) ? true : false;
+	ret = panel_set_vrr(panel, bridge_fps, new_mode, black);
 	if (ret < 0) {
 		pr_info("[VRR:ERR]:%s failed to set bridge_rr(fps:%d mode:%d) in resol(%dx%d)\n",
 				__func__, new_fps, new_mode,
@@ -2373,14 +2381,17 @@ out:
 		props->bridge = NULL;
 
 	mutex_unlock(&panel_bl->lock);
+	mutex_unlock(&panel->io_lock);
 
-	usleep_range(usec, usec + 10);
+	if (usec > 0)
+		usleep_range(usec, usec + 10);
 
 	return 0;
 
 err:
 	props->bridge = NULL;
 	mutex_unlock(&panel_bl->lock);
+	mutex_unlock(&panel->io_lock);
 
 	return ret;
 }
@@ -2404,7 +2415,6 @@ static int panel_vrr_bridge_thread(void *data)
 	props = &panel->panel_data.props;
 	while (!kthread_should_stop()) {
 		ret = wait_event_interruptible(panel->thread[PANEL_THREAD_VRR_BRIDGE].wait,
-				(panel->state.cur_state == PANEL_STATE_NORMAL) &&
 				(props->vrr_target_fps != props->vrr_fps ||
 				 props->vrr_target_mode != props->vrr_mode));
 
@@ -2432,9 +2442,6 @@ int panel_set_vrr_info(struct panel_device *panel, void *arg)
 	int new_fps, new_mode, cur_fps, cur_mode, vrr_idx;
 	bool black;
 	int ret;
-#ifdef CONFIG_PANEL_VRR_BRIDGE
-	struct panel_vrr_bridge *bridge;
-#endif
 
 	if (!arg) {
 		panel_err("[VRR:ERR]:%s invalid arg\n", __func__);
@@ -2465,13 +2472,20 @@ int panel_set_vrr_info(struct panel_device *panel, void *arg)
 		return 0;
 	}
 
+	if (mres->nr_resol == 0 || mres_idx >= mres->nr_resol) {
+		pr_err("[VRR:ERR]:%s mres is not supported in this panel %d %d\n",
+			__func__, mres_idx, mres->nr_resol);
+		mutex_unlock(&panel_bl->lock);
+		return -EINVAL;
+	}
+
 	vrr_idx = panel_find_vrr(panel, new_fps, new_mode);
 	if (vrr_idx < 0) {
 		/* try to set vrr with another vrr mode */
 		new_mode = (new_mode == VRR_HS_MODE) ? VRR_NORMAL_MODE : VRR_HS_MODE;
 		vrr_idx = panel_find_vrr(panel, new_fps, new_mode);
 		if (vrr_idx < 0) {
-			pr_err("%s vrr(fps:%d mode:%d resol:%dx%d) not found\n",
+			pr_err("[VRR:ERR]:%s vrr(fps:%d mode:%d resol:%dx%d) not found\n",
 				__func__, new_fps, new_mode,
 				mres->resol[mres_idx].w, mres->resol[mres_idx].h);
 			mutex_unlock(&panel_bl->lock);
@@ -2500,17 +2514,17 @@ int panel_set_vrr_info(struct panel_device *panel, void *arg)
 	}
 
 #ifdef CONFIG_PANEL_VRR_BRIDGE
-	props->vrr_target_fps = new_fps;
-	props->vrr_target_mode = new_mode;
-	bridge = panel_find_vrr_bridge(panel, new_fps, new_mode);
-	if (bridge) {
+	if (props->vrr_target_fps != new_fps ||
+		props->vrr_target_mode != new_mode) {
 		panel_info("[VRR:INFO]:%s run bridge-rr(%d %d)\n",
 				__func__, new_fps, new_mode);
+		props->vrr_target_fps = new_fps;
+		props->vrr_target_mode = new_mode;
 		wake_up_interruptible_all(&panel->thread[PANEL_THREAD_VRR_BRIDGE].wait);
+		mutex_unlock(&panel->op_lock);
 		mutex_unlock(&panel_bl->lock);
 		return 0;
 	}
-	props->bridge = NULL;
 #endif
 	/* when vrr mode change black frame insertion */
 	black = new_mode != props->vrr_mode;

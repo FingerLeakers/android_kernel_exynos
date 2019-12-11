@@ -77,6 +77,8 @@
 #define DEFAULT_CAPTURE_STILL_CROP_HEIGHT	(1440)
 #define DEFAULT_PREVIEW_VIDEO_WIDTH		(640)
 #define DEFAULT_PREVIEW_VIDEO_HEIGHT		(480)
+#define DEFAULT_WIDTH		(320)
+#define DEFAULT_HEIGHT		(240)
 
 /* sysfs variable for debug */
 extern struct is_sysfs_debug sysfs_debug;
@@ -226,9 +228,9 @@ static const struct taa_param init_taa_param = {
 	},
 	.efd_output = {
 		.cmd = DMA_OUTPUT_COMMAND_DISABLE,
-		.width = DEFAULT_CAPTURE_STILL_WIDTH,
-		.height = DEFAULT_CAPTURE_STILL_HEIGHT,
-		.format = DMA_OUTPUT_FORMAT_YUV422,
+		.width = DEFAULT_WIDTH,
+		.height = DEFAULT_HEIGHT,
+		.format = DMA_OUTPUT_FORMAT_RGB,
 		.bitwidth = DMA_OUTPUT_BIT_WIDTH_8BIT,
 		.plane = DMA_OUTPUT_PLANE_3,
 		.order = DMA_OUTPUT_ORDER_CbCr,
@@ -1570,7 +1572,6 @@ int is_ischain_runtime_suspend(struct device *dev)
 
 #if defined(CONFIG_PCI_EXYNOS)
 	exynos_pcie_l1ss_ctrl(1, PCIE_L1SS_CTRL_CAMERA);
-	exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_CAMERA);
 #endif
 
 	ret = pdata->clk_off(&pdev->dev);
@@ -1743,7 +1744,6 @@ int is_ischain_runtime_resume(struct device *dev)
 
 #if defined(CONFIG_PCI_EXYNOS)
 	exynos_pcie_l1ss_ctrl(0, PCIE_L1SS_CTRL_CAMERA);
-	exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_CAMERA);
 #endif
 
 	is_hardware_runtime_resume(&core->hardware);
@@ -1847,6 +1847,8 @@ static int is_ischain_s_sensor_size(struct is_device_ischain *device,
 	bns_height = is_sensor_g_bns_height(device->sensor);
 	framerate = is_sensor_g_framerate(device->sensor);
 	ex_mode = is_sensor_g_ex_mode(device->sensor);
+
+	minfo("[ISC:D] binning(%d):%d\n", device, binning);
 
 	if (test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
 		bns_binning = 1000;
@@ -3049,6 +3051,13 @@ static int is_ischain_init_wrap(struct is_device_ischain *device,
 
 		if (stream_type) {
 			set_bit(IS_ISCHAIN_REPROCESSING, &device->state);
+
+			if (!test_bit(IS_SENSOR_S_CONFIG, &sensor->state)) {
+				merr("[SS%d]invalid sensor state(%x)", device,
+						sensor->device_id, sensor->state);
+				ret = -EINVAL;
+				goto p_err;
+			}
 		} else {
 			if (sensor->instance != device->instance) {
 				merr("instance is mismatched (!= %d)[SS%d]", device, sensor->instance,

@@ -40,6 +40,10 @@
 #include <linux/compat.h>
 #endif
 
+#ifdef CONFIG_FS_HPB
+#include <linux/fs_hpb.h>
+#endif
+
 #define __FS_HAS_ENCRYPTION IS_ENABLED(CONFIG_EXT4_FS_ENCRYPTION)
 #include <linux/fscrypt.h>
 
@@ -53,8 +57,6 @@
 #define __nonstring
 #endif
 #endif
-
-#define EXT4_HPB_PROTOTYPE 1
 
 /*
  * The fourth extended filesystem constants/structures
@@ -1559,8 +1561,8 @@ enum {
 	EXT4_STATE_EXT_PRECACHED,	/* extents have been precached */
 	EXT4_STATE_LUSTRE_EA_INODE,	/* Lustre-style ea_inode */
 
-#if EXT4_HPB_PROTOTYPE
-	EXT4_STATE_HPB,			/* HPB */
+#ifdef CONFIG_FS_HPB
+	EXT4_STATE_HPB,			/* HPB I/O */
 #endif
 };
 
@@ -3292,40 +3294,6 @@ static inline void ext4_clear_io_unwritten_flag(ext4_io_end_t *io_end)
 }
 
 extern const struct iomap_ops ext4_iomap_ops;
-
-
-#if EXT4_HPB_PROTOTYPE
-static char* __HPB_extension[] = {
-	"odex",
-	"vdex",
-	"so",
-	"art",
-	"apk",
-	"bin",
-};
-#define NR_HPB_EXT (sizeof(__HPB_extension) / sizeof(*__HPB_extension))
-static inline bool __is_hpb_extension(const unsigned char *name)
-{
-	int i;
-	size_t name_len = strlen(name);
-	size_t ext_len;
-
-	for (i = 0; i < NR_HPB_EXT; i++) {
-		ext_len = strlen(__HPB_extension[i]);
-		if ((name_len < ext_len+2) ||
-			name[name_len - ext_len - 1] != '.')
-			continue;
-		if (!strncasecmp(__HPB_extension[i], name + (name_len - ext_len) ,
-					ext_len))
-			return true;
-	}
-	return false;
-}
-static inline bool __is_hpb_permission(struct inode *inode)
-{
-	return inode->i_mode & (S_IXUSR | S_IXGRP | S_IXOTH);
-}
-#endif
 
 #endif	/* __KERNEL__ */
 

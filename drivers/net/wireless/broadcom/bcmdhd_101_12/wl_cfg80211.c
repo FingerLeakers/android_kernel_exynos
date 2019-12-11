@@ -481,6 +481,7 @@ static bool wl_vndr_ies_find_vendor_oui(struct bcm_cfg80211 *cfg,
 #endif
 static s32 wl_cfg80211_parse_vndr_ies(const u8 *parse, u32 len,
 		struct parsed_vndr_ies *vndr_ies);
+static bool wl_cfg80211_filter_vndr_ext_id(const vndr_ie_t *vndrie);
 
 #if defined(WL_FW_OCE_AP_SELECT)
 static bool
@@ -6879,16 +6880,18 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 			WPS_STATE_DISCONNECT, curbssid) == BCME_OK) {
 			WL_INFORM_MEM(("[WPS] Disconnect done.\n"));
 			wl_clr_drv_status(cfg, DISCONNECTING, dev);
+			goto exit;
 		}
 #endif /* WPS_SYNC */
 		wl_cfg80211_wait_for_disconnection(cfg, dev);
-	} else {
-		/* Not in connecting or connected state. However since disconnect came
-		 * from upper layer, indicate connect fail to clear any state mismatch
+	}
+
+	if (dev->ieee80211_ptr->current_bss) {
+		/* If current_bss is still valid, indicate connect fail to clear state mismatch.
 		 */
-		WL_INFORM_MEM(("act is false. report connect result fail.\n"));
+		WL_INFORM_MEM(("report connect result fail.\n"));
 		CFG80211_CONNECT_RESULT(dev, NULL, NULL, NULL, 0, NULL, 0,
-				WLAN_STATUS_UNSPECIFIED_FAILURE, GFP_KERNEL);
+			WLAN_STATUS_UNSPECIFIED_FAILURE, GFP_KERNEL);
 		CLR_TS(cfg, conn_start);
 		CLR_TS(cfg, authorize_start);
 	}
@@ -14436,9 +14439,7 @@ wl_cache_assoc_resp_ies(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	u32 datalen = ntoh32(e->datalen);
 	u32 event_type = ntoh32(e->event_type);
 
-	if (datalen > VNDR_IE_MIN_LEN &&
-		datalen < VNDR_IE_MAX_LEN &&
-		data) {
+	if (data && datalen <= sizeof(conn_info->resp_ie)) {
 		conn_info->resp_ie_len = datalen;
 		WL_DBG((" assoc resp IES len = %d\n", conn_info->resp_ie_len));
 		bzero(conn_info->resp_ie, sizeof(conn_info->resp_ie));
@@ -15390,7 +15391,7 @@ wl_notify_roam_prep_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	dhdp->dequeue_prec_map = 1 << PRIO_8021D_NC;
 	/* Restore flow control  */
 	dhd_txflowcontrol(dhdp, ALL_INTERFACES, OFF);
-
+	DHD_DISABLE_RUNTIME_PM(dhdp);
 	mod_timer(&cfg->roam_timeout, jiffies + msecs_to_jiffies(WL_ROAM_TIMEOUT_MS));
 #endif /* DHD_LOSSLESS_ROAMING */
 
@@ -17133,7 +17134,7 @@ static void wl_del_roam_timeout(struct bcm_cfg80211 *cfg)
 	if (timer_pending(&cfg->roam_timeout)) {
 		del_timer_sync(&cfg->roam_timeout);
 	}
-
+	DHD_ENABLE_RUNTIME_PM(dhdp);
 }
 
 static void wl_roam_timeout(unsigned long data)
@@ -17145,8 +17146,8 @@ static void wl_roam_timeout(unsigned long data)
 
 	/* restore prec_map to ALLPRIO */
 	dhdp->dequeue_prec_map = ALLPRIO;
+	DHD_ENABLE_RUNTIME_PM(dhdp);
 }
-
 #endif /* DHD_LOSSLESS_ROAMING */
 
 #if defined(CONFIG_WLAN_BEYONDX) || defined(CONFIG_SEC_5GMODEL)
@@ -21011,6 +21012,19 @@ wl_cfg80211_delayed_roam(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	return err;
 }
 
+static bool
+wl_cfg80211_filter_vndr_ext_id(const vndr_ie_t *vndrie)
+{
+	if (vndrie->oui[0] == FILS_EXTID_MNG_HLP_CONTAINER_ID) {
+		/*Skip adding fils HLP IE, its already done using
+		 "WL_FILS_CMD_ADD_HLP_IE" subcmd.
+		 */
+		WL_DBG(("%s:SKIP ADDING FILS HLP EXTN ID\n", __func__));
+		return true;
+	}
+	return false;
+}
+
 static s32
 wl_cfg80211_parse_vndr_ies(const u8 *parse, u32 len,
     struct parsed_vndr_ies *vndr_ies)
@@ -21040,6 +21054,9 @@ wl_cfg80211_parse_vndr_ies(const u8 *parse, u32 len,
 					WL_ERR(("%s: invalid vndr extn ie."
 						" length %d\n",
 						__FUNCTION__, vndrie->len));
+					goto end;
+				}
+				if (wl_cfg80211_filter_vndr_ext_id(vndrie)) {
 					goto end;
 				}
 			} else {

@@ -204,6 +204,7 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #endif /* WL_NAN */
 	BCMEVENT_NAME(WLC_E_RPSNOA),
 	BCMEVENT_NAME(WLC_E_WA_LQM),
+	BCMEVENT_NAME(WLC_E_OBSS_DETECTION),
 	BCMEVENT_NAME(WLC_E_SC_CHAN_QUAL),
 };
 

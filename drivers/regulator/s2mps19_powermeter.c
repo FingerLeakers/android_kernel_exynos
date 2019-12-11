@@ -97,7 +97,7 @@ static unsigned int get_coeff_p(struct device *dev, u8 adc_reg_num)
 
 static void s2m_adc_read_data(struct device *dev, int channel)
 {
-	int i;
+	size_t i = 0;
 	u8 data_l, data_h;
 
 	mutex_lock(&adc_meter->adc_lock);
@@ -166,7 +166,7 @@ static void s2m_adc_read_data(struct device *dev, int channel)
 static ssize_t adc_val_power_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	int i;
+	size_t i = 0;
 
 	for(i = 0; i <= 7; i++) {
 		if((adc_meter->adc_reg[i] >= S2MPS19_LDO_START) &&
@@ -508,7 +508,7 @@ static ssize_t adc_reg_7_show(struct device *dev,
 
 static void adc_reg_update(struct device *dev)
 {
-	int i = 0;
+	size_t i = 0;
 
 	/* ADC OFF */
 	s2mps19_update_reg(adc_meter->i2c, S2MPS19_REG_ADC_CTRL3,
@@ -811,7 +811,7 @@ remove_pmic_device:
 #endif
 void s2mps19_powermeter_init(struct s2mps19_dev *s2mps19)
 {
-	int i;
+	size_t i = 0;
 #ifdef CONFIG_DRV_SAMSUNG_PMIC
 	int ret;
 #endif

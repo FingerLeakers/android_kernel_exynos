@@ -3223,7 +3223,14 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 		}
 	}
 
-	sc_hwset_soft_reset(sc);
+	if (!SCALER_INT_OK(irq_status)) {
+		sc_hwset_soft_reset(sc);
+	} else {
+		if (sc_hwget_is_sbwc(sc))
+			sc_hwset_soft_reset_no_bus_idle(sc);
+		else
+			sc_hwset_clk_request(sc, false);
+	}
 
 	clear_bit(DEV_RUN, &sc->state);
 	clear_bit(CTX_RUN, &ctx->flags);

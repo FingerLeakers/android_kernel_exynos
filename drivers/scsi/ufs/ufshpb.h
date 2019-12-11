@@ -50,7 +50,8 @@
 
 /* Version info*/
 #define UFSHPB_VER				0x0220
-#define UFSHPB_DD_VER				0x0232
+#define UFSHPB_DD_VER				0x020303
+#define UFSHPB_DD_VER_POST			""
 
 /* Constant value*/
 #define MAX_ACTIVE_NUM				2
@@ -120,6 +121,7 @@
 
 enum UFSHPB_STATE {
 	HPB_PRESENT = 1,
+	HPB_SUSPEND = 2,
 	HPB_FAILED = -2,
 	HPB_NEED_INIT = 0,
 	HPB_RESET = -3,
@@ -321,6 +323,8 @@ struct ufshpb_lu {
 	/* for debug */
 	int alloc_mctx;
 	int debug_free_table;
+	int throttle_rt_req;
+	int num_inflight_rt_req;
 #if defined(CONFIG_HPB_DEBUG_SYSFS)
 	int lba_rgns_info;
 #endif

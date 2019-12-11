@@ -271,10 +271,11 @@ enum sysreg_vra_reg_field {
 /* RTA HEAP: 6MB */
 #define IS_RESERVE_LIB_SIZE	(0x00600000)
 
-/* ME/DRC DMA: 16384 kB = 16 MB */
+/* ME/DRC DMA: 16640 kB = 16.25 MB */
 /* (4 * 256 * 256) * 32 bytes per 1 3AA */
 /* Max 2 3AAs can be used at the same time */
-#define TAAISP_MEDRC_SIZE	(0x01000000)
+/* (4 * 256 * 256) additional buffer for reprocessing */
+#define TAAISP_MEDRC_SIZE	(0x01040000)
 
 /* ORBMCH DMA:  14.38 MB*/
 /* Keypoint: 16 byte * 300 point * 9 regions */

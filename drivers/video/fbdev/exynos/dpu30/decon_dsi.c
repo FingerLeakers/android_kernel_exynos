@@ -47,6 +47,36 @@ struct task_struct *devfreq_change_task;
 #include "../panel/panel_drv.h"
 #endif
 
+
+#ifdef CONFIG_DYNAMIC_FREQ
+#define PERSISTENCE_MAX_TIME 60000 //60msec
+
+static void decon_df_persistence(struct decon_device *decon)
+{
+	u32 gap;
+	struct decon_mode_info psr;
+	struct df_status_info *df_status = decon->df_status;
+	
+	if (df_status->persistence_mode == 0)
+		return;
+	
+	if (df_status->persistence_cnt)
+		df_status->persistence_cnt--;
+	else {
+		df_status->persistence_mode = 0;
+		gap = ktime_to_us(ktime_sub(ktime_get(), decon->last_update_time));
+
+		if (gap > PERSISTENCE_MAX_TIME) {
+			decon_info("[DYN_FREQ]: %s: disable df frame persistence mode : %d\n",
+				__func__, gap);
+			df_status->persistence_mode = 0;
+			decon_to_psr_info(decon, &psr);
+			decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_DISABLE);
+		}
+	}
+}
+#endif
+
 /* DECON irq handler for DSI interface */
 static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 {
@@ -87,6 +117,12 @@ static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 		decon_hiber_trig_reset(decon);
 		if (decon->state == DECON_STATE_TUI)
 			decon_info("%s:%d TUI Frame Done\n", __func__, __LINE__);
+
+#ifdef CONFIG_DYNAMIC_FREQ
+		if (decon->dt.out_type == DECON_OUT_DSI) {
+			decon_df_persistence(decon);
+		}
+#endif
 
 #if defined(CONFIG_EXYNOS_LATENCY_MONITOR)
 		decon_info("[LATENCY] cycle=%d @ACLK=%lu KHz\n",

@@ -89,7 +89,6 @@ enum max77705_muic_command_opcode {
 #if defined(CONFIG_HICCUP_CHARGER)
 enum MUIC_HICCUP_MODE {
 	MUIC_HICCUP_MODE_OFF	=	0,
-	MUIC_HICCUP_MODE_NOTY,
 	MUIC_HICCUP_MODE_ON,
 };
 #endif

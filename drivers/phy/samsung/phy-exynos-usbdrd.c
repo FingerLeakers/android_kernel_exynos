@@ -49,6 +49,7 @@ static void __iomem *usbdp_combo_phy_reg;
 struct usb_eom_result_s *eom_result;
 
 u32 get_speed_and_disu1u2(void);
+int get_idle_ip_index(void);
 
 static ssize_t
 exynos_usbdrd_eom_show(struct device *dev,
@@ -1457,6 +1458,10 @@ static void exynos_usbdrd_utmi_init(struct exynos_usbdrd_phy *phy_drd)
 			otp_data[i].value);
 	}
 #endif
+	phy_drd->idle_ip_idx = get_idle_ip_index();
+	if (phy_drd->idle_ip_idx < 0)
+		dev_err(phy_drd->dev, "Failed to get idle ip index\n");
+	pr_info("%s, idle ip = %d\n", __func__, phy_drd->idle_ip_idx);
 
 	pr_info("%s: ---\n", __func__);
 }
@@ -1824,32 +1829,6 @@ static struct exynos_usbdrd_phy *exynos_usbdrd_get_struct(void)
 
 	pr_err("%s: failed to get the platform_device\n", __func__);
 	return NULL;
-}
-
-static int exynos_usbdrd_get_idle_ip(void)
-{
-	struct device_node *np = NULL;
-	struct platform_device *pdev = NULL;
-	struct device *dev;
-	int idle_ip_idx;
-
-	np = of_find_compatible_node(NULL, NULL, "samsung,exynos-dwusb");
-	if (np) {
-		pdev = of_find_device_by_node(np);
-		dev = &pdev->dev;
-		of_node_put(np);
-		if (pdev) {
-			pr_info("%s: get the %s platform_device\n",
-				__func__, pdev->name);
-
-			idle_ip_idx = exynos_get_idle_ip_index(dev_name(dev));
-			pr_info("%s, idle ip = %d\n", __func__, idle_ip_idx);
-			return idle_ip_idx;
-		}
-	}
-
-	pr_err("%s: failed to get the platform_device\n", __func__);
-	return -1;
 }
 
 static int exynos_usbdrd_phy_power_off(struct phy *phy)
@@ -2259,10 +2238,6 @@ static int exynos_usbdrd_phy_probe(struct platform_device *pdev)
 		goto err1;
 	}
 #endif
-
-	phy_drd->idle_ip_idx = exynos_usbdrd_get_idle_ip();
-	if (phy_drd->idle_ip_idx < 0)
-		dev_err(dev, "Failed to get idle ip index\n");
 
 	phy_provider = devm_of_phy_provider_register(dev,
 						     exynos_usbdrd_phy_xlate);

@@ -50,6 +50,9 @@
 #include "dqe.h"
 #endif
 
+#include "../../../../iommu/exynos-iommu.h"
+
+
 
 int decon_log_level = 6;
 module_param(decon_log_level, int, 0644);
@@ -399,7 +402,7 @@ static void decon_free_unused_buf(struct decon_device *decon,
 
 	if (dma->dma_buf && !IS_ERR_OR_NULL(dma->attachment)) {
 		dma_buf_detach(dma->dma_buf, dma->attachment);
-#ifdef DEBUG_DMA_BUF_LEAK		
+#ifdef DEBUG_DMA_BUF_LEAK
 		decon->free_cnt++;
 #endif
 	} else {
@@ -436,11 +439,11 @@ static void decon_free_dma_buf(struct decon_device *decon,
 
 	if (!IS_ERR_OR_NULL(dma->attachment) && !IS_ERR_OR_NULL(dma->sg_table)) {
 		dma_buf_unmap_attachment(dma->attachment, dma->sg_table,
-				DMA_TO_DEVICE);		
+				DMA_TO_DEVICE);
 	} else {
 		decon_info("[DECON:INFO]:%s:sg_table is null\n", __func__);
 	}
-	
+
 	if (dma->dma_buf && !IS_ERR_OR_NULL(dma->attachment)) {
 		dma_buf_detach(dma->dma_buf, dma->attachment);
 #ifdef DEBUG_DMA_BUF_LEAK
@@ -1324,7 +1327,7 @@ int decon_wait_for_vsync(struct decon_device *decon, u32 timeout)
 
 		return -ETIMEDOUT;
 	}
-	
+
 #ifdef CONFIG_SUPPORT_DISPLAY_PROFILER
 		if (decon->profile_sd != NULL) {
 			v4l2_subdev_call(decon->profile_sd, core, ioctl,
@@ -1499,7 +1502,6 @@ static void logging_dma_leak_info(struct decon_device *decon,
 	struct dma_leak_info *leak_info;
 
 	pos = decon->leak_cnt % LEAK_INFO_ARRAY_CNT;
-	decon_info("pos : %d\n", pos);
 	leak_info = &decon->leak_info[pos];
 
 	leak_info->type = type;
@@ -1530,7 +1532,7 @@ static void print_dma_leak_info(struct decon_device *decon)
 		pos = pos - 1;
 		if (pos < 0)
 			pos = LEAK_INFO_ARRAY_CNT + pos;
-	
+
 		if ((pos < LEAK_INFO_ARRAY_CNT) && (pos >= 0)) {
 			leak_info = &decon->leak_info[pos];
 			decon_info("[DECON:INFO]: %d, type: %d, time import: %lld, free:%lld, count import:%d, free cnt:%d\n",
@@ -1541,6 +1543,16 @@ static void print_dma_leak_info(struct decon_device *decon)
 }
 #endif
 
+static inline struct exynos_iovmm *__exynos_get_iovmm(struct device *dev)
+{
+	if (!dev->archdata.iommu) {
+		dev_err(dev, "%s: System MMU is not configured\n", __func__);
+		return NULL;
+	}
+
+	return ((struct exynos_iommu_owner *)dev->archdata.iommu)->vmm_data;
+}
+
 
 static unsigned int decon_map_ion_handle(struct decon_device *decon,
 		struct device *dev, struct decon_dma_buf_data *dma,
@@ -1550,6 +1562,9 @@ static unsigned int decon_map_ion_handle(struct decon_device *decon,
 	struct dma_buf_attachment *attach_obj;
 	struct dma_buf *dma_buf;
 	int attach_count = 0;
+//for debug
+	struct exynos_iovmm *vmm;
+
 	dma->fence = NULL;
 	dma->dma_buf = buf;
 
@@ -1600,6 +1615,15 @@ static unsigned int decon_map_ion_handle(struct decon_device *decon,
 	if (IS_ERR_VALUE(dma->dma_addr)) {
 		decon_err("ion_iovmm_map() failed: %pa\n", &dma->dma_addr);
 		decon_err("remaining_frame : %d", atomic_read(&decon->up.remaining_frame));
+
+		decon_info("attached count : %d\n", attach_count);
+		decon_info("leak cnt : %d\n", decon->leak_cnt);
+		print_dma_leak_info(decon);
+
+		vmm = __exynos_get_iovmm(dma->attachment->dev);
+		if (vmm != NULL) {
+			decon_info("vmm num_map : %d, num_map: %ld\n", vmm->num_map, vmm->num_unmap);
+		}
 		BUG();
 		goto err_iovmm_map;
 	}
@@ -1672,7 +1696,7 @@ static int decon_import_buffer(struct decon_device *decon, int idx,
 			decon_err("failed to map buffer\n");
 			return -ENOMEM;
 		}
-#ifdef DEBUG_DMA_BUF_LEAK		
+#ifdef DEBUG_DMA_BUF_LEAK
 		regs->import_cnt++;
 #endif
 		/* DVA is passed to DPP parameters structure */
@@ -2101,6 +2125,7 @@ static void decon_dump_afbc_handle(struct decon_device *decon,
 			decon_info("DV(0x%p), KV(0x%p), size(%d)\n",
 					(void *)dma_bufs[win_id][0].dma_addr,
 					v_addr, size);
+			dma_buf_vunmap(dma_bufs[win_id][0].dma_buf, v_addr);
 		}
 	}
 
@@ -2257,7 +2282,7 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 			for (j = 0; j < regs->plane_cnt[i]; ++j)
 				decon->win[i]->dma_buf_data[j] = regs->dma_buf_data[i][j];
 			decon->win[i]->plane_cnt = regs->plane_cnt[i];
-#ifdef DEBUG_DMA_BUF_LEAK			
+#ifdef DEBUG_DMA_BUF_LEAK
 			decon->import_cnt = regs->import_cnt;
 			decon->import_time = regs->import_time;
 #endif
@@ -2275,6 +2300,12 @@ static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data
 
 	decon_reg_all_win_shadow_update_req(decon->id);
 	decon_to_psr_info(decon, &psr);
+
+#ifdef CONFIG_DYNAMIC_FREQ
+	if (decon->dt.out_type == DECON_OUT_DSI)
+		decon->last_update_time = ktime_get();
+#endif
+
 	if (decon_reg_start(decon->id, &psr) < 0) {
 		decon_up_list_saved();
 		decon_dump(decon, true);
@@ -2326,9 +2357,10 @@ static void decon_acquire_old_bufs(struct decon_device *decon,
 		for (j = 0; j < plane_cnt[i]; ++j)
 			dma_bufs[i][j] = decon->win[i]->dma_buf_data[j];
 	}
-#ifdef DEBUG_DMA_BUF_LEAK	
+#ifdef DEBUG_DMA_BUF_LEAK
 	*import_cnt = decon->import_cnt;
-	*import_time = decon->import_time;
+	
+*import_time = decon->import_time;
 #endif
 
 }
@@ -2368,7 +2400,7 @@ static void decon_release_old_bufs(struct decon_device *decon,
 			}
 		}
 	}
-#ifdef DEBUG_DMA_BUF_LEAK	
+#ifdef DEBUG_DMA_BUF_LEAK
 	if (import_cnt != decon->free_cnt) {
 		decon_info("[DECON:INFO]:%s: import: %d, free:%d\n",
 			__func__, import_cnt, decon->free_cnt);
@@ -2379,7 +2411,7 @@ static void decon_release_old_bufs(struct decon_device *decon,
 		}
 	}
 #endif
-	
+
 }
 
 
@@ -2645,6 +2677,7 @@ static void decon_handle_readback_buffer(struct decon_device *decon,
 			}
 			buf_size = regs->dma_buf_data[decon->dt.wb_win][i].dma_buf->size;
 			memset(buf_addr, 0x00, buf_size);
+			dma_buf_vunmap(decon->readback.dma_buf_data[i].dma_buf, buf_addr);
 		}
 	}
 
@@ -2681,7 +2714,7 @@ static void decon_update_fps(struct decon_device *decon,
 static int decon_wait_mafpc_complete(struct decon_device *decon)
 {
 	int ret = 0;
-	
+
 	if (decon->dt.out_type != DECON_OUT_DSI)
 		return 0;
 
@@ -2710,6 +2743,10 @@ static void decon_update_regs(struct decon_device *decon,
 	s64 hiber_time;
 	s64 fence_time;
 #endif
+#ifdef CONFIG_DYNAMIC_FREQ
+	struct df_status_info *df_status;
+#endif
+
 
 	if (!decon->systrace.pid)
 		decon->systrace.pid = current->pid;
@@ -2748,8 +2785,7 @@ static void decon_update_regs(struct decon_device *decon,
 			err = decon_wait_fence(decon,
 					regs->dma_buf_data[i][0].fence,
 					regs->dpp_config[i].acq_fence);
-
-			if (err < 0) {
+			if (err <= 0) {
 				decon_save_cur_buf_info(decon, regs);
 				decon_wait_for_vsync(decon, VSYNC_TIMEOUT_MSEC);
 				goto fence_err;
@@ -2763,7 +2799,7 @@ static void decon_update_regs(struct decon_device *decon,
 			err = decon_wait_fence(decon,
 					regs->dma_buf_data[decon->dt.wb_win][0].fence,
 					regs->dpp_config[decon->dt.wb_win].rel_fence);
-			if (err < 0) {
+			if (err <= 0) {
 				decon_save_cur_buf_info(decon, regs);
 				decon_wait_for_vsync(decon, VSYNC_TIMEOUT_MSEC);
 				goto fence_err;
@@ -2801,6 +2837,14 @@ static void decon_update_regs(struct decon_device *decon,
 	}
 
 	decon_update_hdr_info(decon, regs);
+
+	/*
+	 * LCD resolution infomation updating is required to run BTS
+	 * because it is used to calculate Frequency & Bandwidth.
+	 */
+	if (regs->dpp_config[DECON_WIN_UPDATE_IDX].state ==
+			DECON_WIN_STATE_MRESOL)
+		dpu_update_mres_lcd_info(decon, regs);
 
 #if defined(CONFIG_EXYNOS_BTS)
 #ifdef CONFIG_EXYNOS_SET_ACTIVE_WITH_EMPTY_WINDOW
@@ -2853,6 +2897,7 @@ static void decon_update_regs(struct decon_device *decon,
 			if ((decon->dt.psr_mode == DECON_MIPI_COMMAND_MODE) &&
 					(decon->dt.trig_mode == DECON_HW_TRIG)) {
 				decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_ENABLE);
+				
 				DPU_EVENT_LOG(DPU_EVT_TRIG_UNMASK, &decon->sd,
 						ktime_set(0, 0));
 			}
@@ -2922,6 +2967,24 @@ static void decon_update_regs(struct decon_device *decon,
 				}
 			}
 		}
+
+#ifdef CONFIG_DYNAMIC_FREQ
+		if (decon->dt.out_type == DECON_OUT_DSI) {
+			df_status = decon->df_status;
+			if (df_status->persistence_mode) {
+				decon_info("[DYN_FREQ]: %s: persistence_cnt : %d\n",
+					__func__, df_status->persistence_cnt);
+	
+				if (df_status->persistence_cnt)
+					goto end;
+				else {
+					decon_info("[DYN_FREQ]: %s: disable df frame persistence mode\n",
+						__func__);
+					df_status->persistence_mode = 0;
+				}
+			}
+		}
+#endif
 		if (!decon->low_persistence) {
 			decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_DISABLE);
 			DPU_EVENT_LOG(DPU_EVT_TRIG_MASK, &decon->sd, ktime_set(0, 0));
@@ -2996,6 +3059,10 @@ int decon_update_last_regs(struct decon_device *decon,
 	decon_check_used_dpp(decon, regs);
 
 	decon_update_hdr_info(decon, regs);
+
+	if (regs->dpp_config[DECON_WIN_UPDATE_IDX].state ==
+			DECON_WIN_STATE_MRESOL)
+		dpu_update_mres_lcd_info(decon, regs);
 
 #if defined(CONFIG_EXYNOS_BTS)
 	/* add calc and update bw : cur > prev */

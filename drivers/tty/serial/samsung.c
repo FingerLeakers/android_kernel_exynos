@@ -1820,11 +1820,8 @@ static void s3c24xx_serial_rx_fifo_wait(struct s3c24xx_uart_port *ourport)
 	unsigned int fifo_stat;
 	unsigned long wait_time;
 	unsigned int fifo_count;
-	unsigned long flags;
 
 	fifo_count = 0;
-
-	spin_lock_irqsave(&port->lock, flags);
 
 	fifo_stat = rd_regl(port, S3C2410_UFSTAT);
 	fifo_count = s3c24xx_serial_rx_fifocnt(ourport, fifo_stat);
@@ -1839,8 +1836,6 @@ static void s3c24xx_serial_rx_fifo_wait(struct s3c24xx_uart_port *ourport)
 			cpu_relax();
 		} while (s3c24xx_serial_rx_fifocnt(ourport, fifo_stat) && time_before(jiffies, wait_time));
 	}
-
-	spin_unlock_irqrestore(&port->lock, flags);
 
 	if (rx_enabled(port))
 		s3c24xx_serial_stop_rx(port);
@@ -1990,7 +1985,7 @@ static const struct file_operations proc_fops_serial_log = {
 };
 #endif
 
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#ifdef CONFIG_CPU_IDLE
 static int s3c24xx_serial_notifier(struct notifier_block *self,
 				unsigned long cmd, void *v)
 {
@@ -2927,7 +2922,7 @@ static int __init s3c24xx_serial_modinit(void)
 		return ret;
 	}
 
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#ifdef CONFIG_CPU_IDLE
 	exynos_pm_register_notifier(&s3c24xx_serial_notifier_block);
 #endif
 

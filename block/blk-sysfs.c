@@ -849,6 +849,52 @@ static struct queue_sysfs_entry queue_tw_down_threshold_bytes_entry = {
 	.store = queue_tw_down_threshold_bytes_store,
 };
 
+static ssize_t queue_tw_on_delay_ms_show(struct request_queue *q, char *page)
+{
+	struct blk_turbo_write tw;
+	ssize_t ret;
+
+	spin_lock_irq(q->queue_lock);
+	if (!q->tw) {
+		spin_unlock_irq(q->queue_lock);
+		return -ENODEV;
+	}
+
+	tw.on_delay_ms = q->tw->on_delay_ms;
+	spin_unlock_irq(q->queue_lock);
+
+	ret = sprintf(page, "%d\n", tw.on_delay_ms);
+
+	return ret;
+}
+
+static ssize_t queue_tw_on_delay_ms_store(struct request_queue *q, const char *page, size_t count)
+{
+	unsigned long val;
+	ssize_t ret;
+
+	ret = queue_var_store(&val, page, count);
+	if (ret < 0)
+		return ret;
+
+	spin_lock_irq(q->queue_lock);
+	if (!q->tw) {
+		spin_unlock_irq(q->queue_lock);
+		return -ENODEV;
+	}
+
+	q->tw->on_delay_ms = val;
+	spin_unlock_irq(q->queue_lock);
+
+	return ret;
+}
+
+static struct queue_sysfs_entry queue_tw_on_delay_ms_entry = {
+	.attr = {.name = "tw_on_delay_ms", .mode = S_IRUGO | S_IWUSR },
+	.show = queue_tw_on_delay_ms_show,
+	.store = queue_tw_on_delay_ms_store,
+};
+
 static ssize_t queue_tw_off_delay_ms_show(struct request_queue *q, char *page)
 {
 	struct blk_turbo_write tw;
@@ -940,6 +986,7 @@ static struct attribute *default_attrs[] = {
 	&queue_tw_state_entry.attr,
 	&queue_tw_up_threshold_bytes_entry.attr,
 	&queue_tw_down_threshold_bytes_entry.attr,
+	&queue_tw_on_delay_ms_entry.attr,
 	&queue_tw_off_delay_ms_entry.attr,
 #endif
 	NULL,

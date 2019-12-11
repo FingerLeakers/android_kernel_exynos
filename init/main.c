@@ -578,7 +578,9 @@ static void __init mm_init(void)
 rkp_init_t rkp_init_data __rkp_ro = {
 	.magic = RKP_INIT_MAGIC,
 	.vmalloc_start = VMALLOC_START,
+#ifdef CONFIG_UH_RKP_FIMC_CHECK
 	.no_fimc_verify = 1,
+#endif
 	.fimc_phys_addr = 0,
 	._text = (u64)_text,
 	._etext = (u64)_etext,

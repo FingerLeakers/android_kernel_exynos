@@ -282,11 +282,15 @@ int dsim_motto_probe(struct dsim_device *dsim)
 
 /* create symlink into panel */
 	panel = container_of(dsim->panel->panel_drv_sd, struct panel_device, sd);
+	if (IS_ERR_OR_NULL(panel->lcd)) {
+		pr_err("%s: failed to link motto device into panel. panel_lcd is null\n", __func__);
+		goto err;
+	}
 	ret = sysfs_create_link(&panel->lcd->dev.kobj, &motto->dev->kobj, "motto");
 	if (ret)
-		pr_err("failed to create symlink motto/\n");
+		pr_err("%s: failed to create symlink\n", __func__);
 	else
-		pr_info("success to create symlink motto/\n");
+		pr_info("%s: success to create symlink\n", __func__);
 
 err:
 	return 0;

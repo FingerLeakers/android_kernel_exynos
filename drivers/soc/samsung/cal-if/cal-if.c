@@ -477,6 +477,18 @@ int __init cal_if_init(void *dev)
 	if (of_address_to_resource(dev, 0, &res) == 0)
 		cmucal_dbg_set_cmu_top_base(res.start);
 
+	if (of_address_to_resource(dev, 1, &res) == 0)
+		cmucal_dbg_set_cmu_cpucl0_base(res.start);
+
+	if (of_address_to_resource(dev, 2, &res) == 0)
+		cmucal_dbg_set_cmu_g3d_base(res.start);
+
+	if (of_address_to_resource(dev, 3, &res) == 0)
+		cmucal_dbg_set_hpm_big_base(res.start);
+
+	if (of_address_to_resource(dev, 4, &res) == 0)
+		cmucal_dbg_set_cmu_cpucl2_base(res.start);
+
 	cal_initialized = 1;
 
 	return 0;

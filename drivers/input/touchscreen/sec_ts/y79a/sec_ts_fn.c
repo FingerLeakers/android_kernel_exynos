@@ -93,6 +93,7 @@ static void singletap_enable(void *device_data);
 static void ear_detect_enable(void *device_data);
 static void set_grip_data(void *device_data);
 static void external_noise_mode(void *device_data);
+static void set_scan_rate(void *device_data);
 static void brush_enable(void *device_data);
 static void set_touchable_area(void *device_data);
 static void set_log_level(void *device_data);
@@ -200,6 +201,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD_H("ear_detect_enable", ear_detect_enable),},
 	{SEC_CMD("set_grip_data", set_grip_data),},
 	{SEC_CMD_H("external_noise_mode", external_noise_mode),},
+	{SEC_CMD_H("set_scan_rate", set_scan_rate),},
 	{SEC_CMD_H("brush_enable", brush_enable),},
 	{SEC_CMD_H("set_touchable_area", set_touchable_area),},
 	{SEC_CMD("set_log_level", set_log_level),},
@@ -1720,7 +1722,7 @@ int sec_ts_fix_tmode(struct sec_ts_data *ts, u8 mode, u8 state)
 int sec_ts_p2p_tmode(struct sec_ts_data *ts)
 {
 	int ret;
-	u8 mode[3] = {0x0F, 0x00, 0xDF};
+	u8 mode[3] = {0x2F, 0x00, 0xDE};
 	char para = TO_SELFTEST_MODE;
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
@@ -2726,9 +2728,9 @@ static int sec_ts_read_rawp2p_data_all(struct sec_ts_data *ts,
 
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
 		snprintf(buff, sizeof(buff), "%d,%d", ts->cm_raw_set_avg_min, ts->cm_raw_set_avg_max);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_AVG");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_AVG");
 		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p);
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_MAX");
 		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p_gap_y);
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
 	}
@@ -6573,6 +6575,67 @@ static void external_noise_mode(void *device_data)
 	ret = sec_ts_set_external_noise_mode(ts, sec->cmd_param[0]);
 	if (ret < 0)
 		goto NG;
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+	return;
+
+NG:
+	snprintf(buff, sizeof(buff), "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+}
+
+/*	for game mode 
+	byte[0]: Setting for the Game Mode with 240Hz scan rate
+		- 0: Disable
+		- 1: Enable
+
+	byte[1]: Vsycn mode
+		- 0: Normal 60
+		- 1: HS60
+		- 2: HS120
+		- 3: VSYNC 48
+		- 4: VSYNC 96 
+*/
+static void set_scan_rate(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret;
+	char tBuff[2] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > 1 ||
+			sec->cmd_param[1] < 0 || sec->cmd_param[1] > 4) {
+		input_err(true, &ts->client->dev, "%s: not support param\n", __func__);
+		goto NG;
+	}
+
+	tBuff[0] = sec->cmd_param[0];
+	tBuff[1] = sec->cmd_param[1];
+
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SET_SCANRATE, tBuff, 2);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+				"%s: failed to set scan rate\n", __func__);
+		goto NG;
+	}
+
+	ret = ts->sec_ts_i2c_read(ts, SEC_TS_CMD_SET_SCANRATE, tBuff, 2);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev,
+				"%s: failed to read scan rate\n", __func__);
+		goto NG;
+	}
+
+	input_info(true, &ts->client->dev,
+					"%s: set scan rate %d %d\n", __func__, tBuff[0], tBuff[1]);
 
 	snprintf(buff, sizeof(buff), "OK");
 	sec->cmd_state = SEC_CMD_STATUS_OK;

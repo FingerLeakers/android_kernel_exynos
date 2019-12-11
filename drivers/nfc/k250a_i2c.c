@@ -306,6 +306,7 @@ static int k250a_probe(struct i2c_client *client, const struct i2c_device_id *id
 		if (k250a_dev == NULL) {
 			K250A_ERR_MSG("failed to allocate memory for module data\n");
 			ret = -ENOMEM;
+			return ret;
 		}
 
 		k250a_dev->vdd = devm_regulator_get(&client->dev, "1p8_pvdd");

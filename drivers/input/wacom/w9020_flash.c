@@ -50,7 +50,7 @@ static bool wacom_i2c_set_feature(struct wacom_i2c *wac_i2c, u8 report_id,
 	for (i = 0; i < buf_size; i++)
 		sFeature[i + SFEATURE_SIZE] = *(data + i);
 
-	ret = wacom_i2c_send(wac_i2c, sFeature, total, WACOM_I2C_MODE_BOOT);
+	ret = wacom_i2c_send_boot(wac_i2c, sFeature, total);
 	if (ret != total) {
 		input_err(true, &wac_i2c->client->dev,
 			  "Sending Set_Feature failed sent bytes: %d\n", ret);
@@ -95,8 +95,7 @@ static bool wacom_i2c_get_feature(struct wacom_i2c *wac_i2c, u8 report_id,
 	/*Append 2 bytes for length low and high of the byte */
 	memset(recv, 0, sizeof(u8) * total);
 
-	ret = wacom_i2c_send(wac_i2c, gFeature, GFEATURE_SIZE,
-			   WACOM_I2C_MODE_BOOT);
+	ret = wacom_i2c_send_boot(wac_i2c, gFeature, GFEATURE_SIZE);
 	if (ret != GFEATURE_SIZE) {
 		input_info(true, &wac_i2c->client->dev,
 			   "%s Sending Get_Feature failed; sent bytes: %d\n",
@@ -109,7 +108,7 @@ static bool wacom_i2c_get_feature(struct wacom_i2c *wac_i2c, u8 report_id,
 
 	udelay(delay);
 
-	ret = wacom_i2c_recv(wac_i2c, recv, total, WACOM_I2C_MODE_BOOT);
+	ret = wacom_i2c_recv_boot(wac_i2c, recv, total);
 	if (ret != total) {
 		input_err(true, &wac_i2c->client->dev,
 			  "%s Receiving data failed; recieved bytes: %d\n",
@@ -144,7 +143,7 @@ static int wacom_flash_cmd(struct wacom_i2c *wac_i2c)
 	command[len++] = FLASH_START5;
 	command[len++] = 0x0d;
 
-	ret = wacom_i2c_send(wac_i2c, command, len, WACOM_I2C_MODE_BOOT);
+	ret = wacom_i2c_send_boot(wac_i2c, command, len);
 	if (ret < 0) {
 		input_err(true, &wac_i2c->client->dev,
 			  "Sending flash command failed\n");

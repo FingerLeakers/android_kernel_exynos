@@ -300,6 +300,13 @@ static int mfc_enc_start_streaming(struct vb2_queue *q, unsigned int count)
 	struct mfc_ctx *ctx = q->drv_priv;
 	struct mfc_dev *dev = ctx->dev;
 
+	if (q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE &&
+				ctx->state == MFCINST_FINISHED) {
+		mfc_change_state(ctx, MFCINST_GOT_INST);
+		mfc_info_ctx("enc start_streaming changes state %d\n", ctx->state);
+		MFC_TRACE_CTX("** ENC streamon, state: %d\n", ctx->state);
+	}
+
 	/* If context is ready then dev = work->data;schedule it to run */
 	mfc_ctx_ready_set_bit(ctx, &dev->work_bits);
 	mfc_try_run(dev);

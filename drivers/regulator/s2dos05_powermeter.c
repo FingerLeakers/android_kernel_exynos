@@ -46,7 +46,7 @@ static const unsigned int power_coeffs[8] =
 static void s2m_adc_read_data(struct device *dev, int channel)
 {
 	struct adc_info *adc_meter = dev_get_drvdata(dev);
-	int i;
+	size_t i;
 	u8 data_l, data_h, temp;
 
 	/* ASYNCRD bit '1' --> 2ms delay --> read  in case of ADC Async mode */

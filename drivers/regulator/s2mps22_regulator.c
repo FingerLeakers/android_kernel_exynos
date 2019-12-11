@@ -372,7 +372,7 @@ static int s2mps22_pmic_dt_parse_pdata(struct s2mps22_dev *iodev,
 {
 	struct device_node *pmic_np, *regulators_np, *reg_np;
 	struct s2mps22_regulator_data *rdata;
-	unsigned int i;
+	size_t i;
 	int ret;
 	u32 val;
 
@@ -458,7 +458,7 @@ void get_s2mps22_i2c(struct i2c_client **i2c)
 static irqreturn_t s2mps22_buck_ocp_irq(int irq, void *data)
 {
 	struct s2mps22_info *s2mps22 = data;
-	int i;
+	size_t i;
 
 	mutex_lock(&s2mps22->lock);
 
@@ -499,7 +499,7 @@ static irqreturn_t s2mps22_temp_irq(int irq, void *data)
 static irqreturn_t s2mps22_buck_oi_irq(int irq, void *data)
 {
 	struct s2mps22_info *s2mps22 = data;
-	int i;
+	size_t i;
 
 	mutex_lock(&s2mps22->lock);
 
@@ -520,7 +520,7 @@ static irqreturn_t s2mps22_buck_oi_irq(int irq, void *data)
 void s2mps22_oi_function(struct s2mps22_dev *iodev)
 {
 	struct i2c_client *i2c = iodev->pmic;
-	int i;
+	size_t i;
 	u8 val;
 
 	/* BUCK 1~4 OI enable */
@@ -548,7 +548,8 @@ void s2mps22_oi_function(struct s2mps22_dev *iodev)
 static void s2mps22_set_oi_interrupt(struct platform_device *pdev,
 				     struct s2mps22_info *s2mps22, int irq_base)
 {
-	int i, ret;
+	int ret;
+	size_t i;
 
 	for (i = 1; i < S2MPS22_BUCK_OI_MAX; i++) {
 		s2mps22->buck_oi_irq[i] = irq_base + S2MPS22_IRQ_OI_B1_INT4 + i;
@@ -636,7 +637,7 @@ static ssize_t s2mps22_write_store(struct device *dev,
 {
 	struct s2mps22_info *s2mps22 = dev_get_drvdata(dev);
 	int ret;
-	unsigned int reg, data;
+	u8 reg, data;
 
 	if (buf == NULL) {
 		pr_info("%s: empty buffer\n", __func__);
@@ -704,7 +705,8 @@ static int s2mps22_pmic_probe(struct platform_device *pdev)
 	struct s2mps22_platform_data *pdata = iodev->pdata;
 	struct regulator_config config = { };
 	struct s2mps22_info *s2mps22;
-	int irq_base, i, ret;
+	int irq_base, ret;
+	size_t i;
 
 	if (iodev->dev->of_node) {
 		ret = s2mps22_pmic_dt_parse_pdata(iodev, pdata);

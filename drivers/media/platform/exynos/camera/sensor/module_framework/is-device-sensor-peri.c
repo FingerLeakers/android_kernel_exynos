@@ -234,7 +234,7 @@ static void is_sensor_init_expecting_dm(struct is_device_sensor *device,
 	sensor_uctrl = &module_ctl->cur_cam20_sensor_udctrl;
 
 	sensitivity = sensor_uctrl->sensitivity;
-	exposureTime = sensor_uctrl->exposureTime;
+	exposureTime = sensor_ctrl->exposureTime ? sensor_ctrl->exposureTime : sensor_uctrl->exposureTime;
 	long_exposure = sensor_uctrl->longExposureTime;
 	short_exposure = sensor_uctrl->shortExposureTime;
 	dgain = sensor_uctrl->digitalGain;
@@ -593,6 +593,9 @@ void is_sensor_setting_mode_change(struct is_device_sensor_peri *sensor_peri)
 	default:
 		err("[%s] invalid exp_gain_count(%d)\n", __func__, num_data);
 	}
+
+	if (sensor_peri->cis.long_term_mode.sen_strm_off_on_enable)
+		CALL_CISOPS(&sensor_peri->cis, cis_set_long_term_exposure, sensor_peri->subdev_cis);
 
 	CALL_CISOPS(&sensor_peri->cis, cis_adjust_frame_duration, sensor_peri->subdev_cis,
 			expo.long_val, &frame_duration);
@@ -1153,7 +1156,7 @@ int is_sensor_peri_notify_vsync(struct v4l2_subdev *subdev, void *arg)
 		}
 	}
 	/* Sensor Long Term Exposure mode(LTE mode) set */
-	if (cis->long_term_mode.sen_strm_off_on_enable) {
+	if (cis->long_term_mode.sen_strm_off_on_enable && cis->lte_work_enable) {
 		if ((cis->long_term_mode.frame_interval == cis->long_term_mode.frm_num_strm_off_on_interval) ||
 				(cis->long_term_mode.frame_interval <= 0)) {
 			schedule_work(&sensor_peri->cis.long_term_mode_work);
@@ -2018,11 +2021,33 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 			ret = CALL_CISOPS(cis, cis_stream_off, subdev_cis);
 		if (ret == 0)
 			ret = CALL_CISOPS(cis, cis_wait_streamoff, subdev_cis);
+			if (ret < 0) {
+				err("[%s]: sensor wait stream off fail\n", __func__);
+#ifdef CONFIG_VENDER_MCD
+				CALL_CISOPS(cis, cis_log_status, subdev_cis);
+				if (cis->cis_ops->cis_recover_stream_off) {
+					ret = CALL_CISOPS(cis, cis_recover_stream_off, subdev_cis);
+					if (ret < 0) {
+						err("[%s]: cis_recover_stream_off fail\n", __func__);
+					}
+				}
+#endif
+			}
 
 		if (cis->long_term_mode.sen_strm_off_on_enable) {
 			cis->long_term_mode.sen_strm_off_on_enable = 0;
 			ret = CALL_CISOPS(cis, cis_set_long_term_exposure, subdev_cis);
-			info("[%s] cancelled long_exp_capture mode\n", __func__);
+			info("[%s] stopped long_exp_capture mode\n", __func__);
+
+			for (i = 0; i < 2; i++) {
+				cis->long_term_mode.expo[i] = 0;
+				cis->long_term_mode.tgain[i] = 0;
+				cis->long_term_mode.again[i] = 0;
+				cis->long_term_mode.dgain[i] = 0;
+			}
+			cis->long_term_mode.sen_strm_off_on_step = 0;
+			cis->long_term_mode.frm_num_strm_off_on_interval = 0;
+			cis->long_term_mode.lemode_set.lemode = 0;
 		}
 		mutex_unlock(&cis->control_lock);
 
@@ -2046,6 +2071,13 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 		{
 			if (sensor_peri->actuator && sensor_peri->actuator->actuator_ops
 				&& (dual_info->mode != IS_DUAL_MODE_NOTHING)) {
+				if (sensor_peri->cis.cis_data->video_mode) {
+					ret = CALL_ACTUATOROPS(sensor_peri->actuator, soft_landing_on_recording, sensor_peri->subdev_actuator);
+					if (ret) {
+						err("[SEN:%d] actuator soft_landing_on_recording fail\n", module->sensor_id);
+					}
+				}
+
 				ret = CALL_ACTUATOROPS(sensor_peri->actuator, set_active, sensor_peri->subdev_actuator, 0);
 				if (ret) {
 					err("[SEN:%d] actuator set sleep fail\n", module->sensor_id);

@@ -3,6 +3,8 @@
 
 #ifndef __ASSEMBLY__
 #include <linux/uh.h>
+#include <asm/stack_pointer.h>
+#include <asm/thread_info.h>
 
 /* uH_RKP Command ID */
 enum __RKP_CMD_ID{
@@ -90,7 +92,7 @@ typedef struct sparse_bitmap_for_kernel {
 	char **map;
 } sparse_bitmap_for_kernel_t;
 
-typedef struct dynamic_load_struct{
+typedef struct dynamic_load_struct {
 	u32 type;
 	u64 binary_base;
 	u64 binary_size;
@@ -108,7 +110,8 @@ typedef struct rkp_init rkp_init_t;
 extern u8 rkp_started;
 
 
-static inline u64 uh_call_static(u64 app_id, u64 cmd_id, u64 arg1){
+static inline u64 uh_call_static(u64 app_id, u64 cmd_id, u64 arg1)
+{
 	register u64 ret __asm__("x0") = app_id;
 	register u64 cmd __asm__("x1") = cmd_id;
 	register u64 arg __asm__("x2") = arg1;
@@ -137,44 +140,50 @@ static inline void rkp_ro_free(void *free_addr)
 }
 
 
-static inline void rkp_deferred_init(void){
+static inline void rkp_deferred_init(void)
+{
 	uh_call(UH_APP_RKP, RKP_DEFERRED_START, 0, 0, 0, 0);
 }
 
-static inline u8 rkp_check_bitmap(u64 pa, sparse_bitmap_for_kernel_t *kernel_bitmap){
+static inline u8 rkp_check_bitmap(u64 pa, sparse_bitmap_for_kernel_t *kernel_bitmap, u8 overflow_ret, u8 uninitialized_ret)
+{
 	u8 val;
 	u64 offset, map_loc, bit_offset;
 	char *map;
 
-	if(!kernel_bitmap || !kernel_bitmap->map)
-		return 0;
+	if (!kernel_bitmap || !kernel_bitmap->map)
+		return uninitialized_ret;
 
 	offset = pa - kernel_bitmap->start_addr;
 	map_loc = ((offset % SPARSE_UNIT_SIZE) / PAGE_SIZE) >> 3;
 	bit_offset = ((offset % SPARSE_UNIT_SIZE) / PAGE_SIZE) % 8;
 
-	if(kernel_bitmap->maxn <= (offset >> SPARSE_UNIT_BIT)) 
-		return 0;
+	if (kernel_bitmap->maxn <= (offset >> SPARSE_UNIT_BIT)) 
+		return overflow_ret;
 
 	map = kernel_bitmap->map[(offset >> SPARSE_UNIT_BIT)];
-	if(!map)
-		return 0;
+	if (!map)
+		return uninitialized_ret;
 
 	val = (u8)((*(u64 *)(&map[map_loc])) >> bit_offset) & ((u64)1);
 	return val;
 }
 
-static inline unsigned int is_rkp_ro_page(u64 va){
-	return rkp_check_bitmap(__pa(va), rkp_s_bitmap_buffer);
+static inline unsigned int is_rkp_ro_page(u64 va)
+{
+	return rkp_check_bitmap(__pa(va), rkp_s_bitmap_buffer, 0, 0);
 }
 
-static inline u8 rkp_is_pg_protected(u64 va){
-	return rkp_check_bitmap(__pa(va), rkp_s_bitmap_ro);
+static inline u8 rkp_is_pg_protected(u64 va)
+{
+	if (!((current_stack_pointer^va)/THREAD_SIZE))
+		return 0;
+	return rkp_check_bitmap(__pa(va), rkp_s_bitmap_ro, 1, 0);
 }
 
-static inline u8 rkp_is_pg_dbl_mapped(u64 pa){
-	return rkp_check_bitmap(pa, rkp_s_bitmap_dbl);
+static inline u8 rkp_is_pg_dbl_mapped(u64 pa)
+{
+	return rkp_check_bitmap(pa, rkp_s_bitmap_dbl, 0, 0);
 }
-
 #endif //__ASSEMBLY__
 #endif //_RKP_H

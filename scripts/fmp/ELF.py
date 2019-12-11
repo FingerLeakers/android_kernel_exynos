@@ -66,7 +66,7 @@ class ELF:
     """
     Utils for manipulating over ELF
     """
-    def __init__(self, elf_file, readelf_path="readelf"):
+    def __init__(self, elf_file, readelf_path=os.environ.get('CROSS_COMPILE')+"readelf"):
         self.__elf_file = elf_file
         self.utils = Utils()
         self.__readelf_path = readelf_path
@@ -139,9 +139,15 @@ class ELF:
                         size = int(size, 16)
                     else:
                         size = int(size, 10)
-                    self.__symbols[int(line[0], 16)] = Symbol(addr=int(line[0], 16), size=size, sym_type=line[2],
-                                                              bind=line[3], visibility=line[4], ndx=line[5],
-                                                              name=line[6])
+                    """
+                    Do not include additional compiler information with name $d and $x
+                    $d and $x is mapping symbols, their virtual addresses may coincide with virtual addresses
+                    of the real objects
+                    """
+                    if line[6] not in ("$d", "$x") and (size != 0):
+                        self.__symbols[int(line[0], 16)] = Symbol(addr=int(line[0], 16), size=size, sym_type=line[2],
+                                                                  bind=line[3], visibility=line[4], ndx=line[5],
+                                                                  name=line[6])
             self.__symbols = OrderedDict(sorted(self.__symbols.items()))
         return self.__symbols
 

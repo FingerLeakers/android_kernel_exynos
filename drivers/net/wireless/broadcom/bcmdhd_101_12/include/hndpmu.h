@@ -84,4 +84,5 @@ extern bool _bcm_pwr_opt_dis;
 #define BCM_PWR_OPT_ENAB()	(FALSE)
 
 extern int si_pmu_mem_pwr_off(si_t *sih, int core_idx);
+extern int si_pmu_mem_pwr_on(si_t *sih);
 #endif /* _hndpmu_h_ */

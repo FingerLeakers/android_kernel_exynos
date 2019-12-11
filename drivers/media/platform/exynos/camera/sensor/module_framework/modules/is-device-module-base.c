@@ -352,13 +352,15 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 			}
 		}
 	}
-/* HACK : temporary code
+
+#if 0 // No need to vendor code for specific actuator_softlanding
 	if (sensor_peri->actuator) {
 		ret = is_sensor_peri_actuator_softlanding(sensor_peri);
 		if (ret)
 			err("failed to soft landing control of actuator driver\n");
 	}
-*/
+#endif
+
 	if (sensor_peri->flash != NULL) {
 		cancel_work_sync(&sensor_peri->flash->flash_data.flash_fire_work);
 		cancel_work_sync(&sensor_peri->flash->flash_data.flash_expire_work);
@@ -1003,33 +1005,12 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 		}
 		case V4L2_CID_SENSOR_SET_TOF_AUTO_FOCUS:
 		{
-			struct is_tof_af *tof_af;
-			struct tof_data_t tofdata;
-			struct platform_device *pdev;
+#ifdef USE_TOF_AF
+			struct is_vender *vender;
 
-			WARN_ON(&sensor_peri->tof_af);
-			WARN_ON(core->pdev);
-
-			tof_af = &sensor_peri->tof_af;
-			pdev = core->pdev;
-
-			if(ext_ctrl->ptr){
-				ret = copy_from_user(&tofdata, ext_ctrl->ptr, sizeof(struct tof_data_t));
-				if(tofdata.data){
-					ret = copy_from_user(tof_af->af_data, tofdata.data, sizeof(u16)*40*30);
-					tofdata.data = tof_af->af_data;
-				} else {
-					err("data empty");
-					ret = -EINVAL;
-					goto p_err;
-				}
-			} else{
-				err("pointer is NULL");
-				ret = -EINVAL;
-				goto p_err;
-			}
-
-			memcpy(&tof_af->tof_af_data, &tofdata, sizeof(struct tof_data_t));
+			vender = &core->vender;
+			is_vender_store_af(vender, (struct tof_data_t*)ext_ctrl->ptr);
+#endif
 			break;
 		}
 

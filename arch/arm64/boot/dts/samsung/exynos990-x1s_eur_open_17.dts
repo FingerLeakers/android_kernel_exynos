@@ -48,9 +48,9 @@
 				bt_en: bt-en {
 					samsung,pins = "gpm16-0";
 					samsung,pin-function = <1>;
-					samsung,pin-pud = <1>;
+					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
-					samsung,pin-pud-pdn = <1>;
+					samsung,pin-pud-pdn = <0>;
 				};
 			};
 
@@ -115,6 +115,8 @@
 		ssp-mag-position = <5>;
 		ssp-mag-array = /bits/ 8 <70 80 213 204 180 177 255 64 211 54 81 116 50 102 253 122 0 56 248 183
 					191 251 219 92 13 117 153>;
+		ssp-thermi-up = /bits/ 16 <3253 3220 3184 3134 3075 2999 2911 2806 2679 2545 2394 2229 2057 1883 1691 1522 1358 1204 1062 931 809 692 600>;
+		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4067 3860 3616 3359 3078 2781 2491 2210 1937 1682 1458 1245 1063 909 776 663 565 478 405 347>;
 	};
 };
 

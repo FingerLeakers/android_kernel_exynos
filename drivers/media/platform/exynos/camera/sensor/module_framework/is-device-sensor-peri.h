@@ -104,6 +104,7 @@ struct is_cis {
 	/* Long Term Exposure Mode(LTE mode) structure */
 	struct is_long_term_expo_mode	long_term_mode;
 	struct work_struct			long_term_mode_work;
+	bool lte_work_enable;
 
 	/* sensor control delay(N+1 or N+2) */
 	u32				ctrl_delay;
@@ -192,6 +193,7 @@ struct is_actuator {
 	u32				vendor_first_delay;
 	u32				vendor_soft_landing_list[VENDOR_SOFT_LANDING_STEP_MAX * 2];
 	u32				vendor_soft_landing_list_len;
+	u32				vendor_soft_landing_seqid;
 	bool				vendor_use_sleep_mode;
 	bool				vendor_use_standby_mode;
 
@@ -352,11 +354,6 @@ struct is_laser_af {
 	struct is_device_sensor_peri	*sensor_peri;
 };
 
-struct is_tof_af {
-	struct tof_data_t		tof_af_data;
-	u16				af_data[1200];
-};
-
 struct paf_action {
 	enum itf_vc_stat_type	type;
 	paf_notifier_t		notifier;
@@ -482,8 +479,6 @@ struct is_device_sensor_peri {
 	struct v4l2_subdev		*subdev_eeprom;
 
 	struct is_laser_af		*laser_af;
-	struct is_tof_af		tof_af;
-
 	struct v4l2_subdev		*subdev_laser_af;
 
 	unsigned long			peri_state;

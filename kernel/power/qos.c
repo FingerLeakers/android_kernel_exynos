@@ -789,9 +789,12 @@ int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
 	trace_pm_qos_update_target(action, prev_value, curr_value);
 
 	if (c->type == PM_QOS_FORCE_MAX) {
-		blocking_notifier_call_chain(c->notifiers,
-					     (unsigned long)curr_value,
-					     NULL);
+		struct pm_qos_request *req = container_of(node, struct pm_qos_request, node);
+
+		if (c->notifiers)
+			blocking_notifier_call_chain(c->notifiers,
+						     (unsigned long)curr_value,
+						     (void *)&req->pm_qos_class);
 		return 1;
 	}
 

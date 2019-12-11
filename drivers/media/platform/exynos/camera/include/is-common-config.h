@@ -428,6 +428,9 @@ extern int debug_sensor;
 #define mgrdbgs(level, fmt, object, group, frame, args...) \
 	mdbg_common((debug_stream) >= (level), "[%d][%s:S][F%d]", fmt, object->instance, group_id_name[group->id], frame->fcount, ##args)
 
+#define msdbgs(level, fmt, object, subdev, args...) \
+	mdbg_common((debug_stream) >= (level), "[%d][%s:S]", fmt, object->instance, subdev->name, ##args)
+
 #define msrdbgs(level, fmt, object, subdev, frame, args...) \
 	mdbg_common((debug_stream) >= (level), "[%d][%s:S][F%d]", fmt, object->instance, subdev->name, frame->fcount, ##args)
 

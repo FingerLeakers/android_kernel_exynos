@@ -645,6 +645,14 @@ int sec_bat_parse_dt(struct device *dev,
 		if (ret)
 			pr_info("%s : mix_high_chg_temp is Empty\n", __func__);
 
+#if defined(CONFIG_DIRECT_CHARGING)
+		ret = of_property_read_u32(np, "battery,mix_high_dc_temp",
+					   &temp);
+		pdata->mix_high_dc_temp = (int)temp;
+		if (ret)
+			pr_info("%s : mix_high_dc_temp is Empty\n", __func__);
+#endif
+
 		ret = of_property_read_u32(np, "battery,mix_high_temp_recovery",
 					   &temp);
 		pdata->mix_high_temp_recovery = (int)temp;
@@ -705,8 +713,8 @@ int sec_bat_parse_dt(struct device *dev,
 				pdata->wpc_input_limit_current;
 		}
 
-                battery->wpc_vout_ctrl_lcd_on = of_property_read_bool(np,
-						     "battery,wpc_vout_ctrl_lcd_on");
+        battery->wpc_vout_ctrl_lcd_on = of_property_read_bool(np,
+				     "battery,wpc_vout_ctrl_lcd_on");
 	}
 
 	ret = of_property_read_u32(np, "battery,wc_full_input_limit_current",

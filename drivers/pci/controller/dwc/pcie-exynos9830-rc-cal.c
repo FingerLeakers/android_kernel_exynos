@@ -284,10 +284,31 @@ void exynos_pcie_rc_pcie_phy_config(struct exynos_pcie *exynos_pcie, int ch_num)
 		writel(0x04, phy_base_regs + 0x134C);
 
 		writel(0x20, phy_base_regs + 0x450);
+
+		writel(0x05, phy_base_regs + 0x908);
+		writel(0x05, phy_base_regs + 0x908 + 0x800);
+		/* tx slew rate */
+		writel(0x10, phy_base_regs + 0x840);
+		writel(0x10, phy_base_regs + 0x840 + 0x800);
+
+		writel(0x08, phy_base_regs + 0x82C);
+		writel(0x08, phy_base_regs + 0x82C + 0x800);
+
+
+
 	}
 
-	pr_info("[%s] set dig_sigval_gen34_LOCKED_timeout__7_0\n", __func__);
+	/* AES disable */
 	writel(0x0, phy_base_regs + 0x550);
+	pr_info("[%s] AES disable: phy_base + 0x550 = 0x%x\n", __func__,
+			readl(phy_base_regs + 0x550));
+
+	/* DFE off */
+	writel(0x1, phy_base_regs + 0xB9C);
+	writel(0x1, phy_base_regs + 0x139C);
+	pr_info("[%s] DFE off: phy_base + 0xB9C = 0x%x, phy_base + 0x139C = 0x%x\n",
+			__func__, readl(phy_base_regs + 0xB9C),
+			readl(phy_base_regs + 0x139C));
 
 	/* tx amplitude control */
 	/* writel(0x14, phy_base_regs + (0x5C * 4)); */

@@ -34,7 +34,12 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	vinfo.id = src_id;
 
 	cfg.enable = 0x1;
-	cfg.limit = 0x14;
+	/*
+	 * 0xFF is max value.
+	 * Buffer size is (limit x token_size).
+	 * But VOTF can hold only 1 frame.
+	 */
+	cfg.limit = 0xFF;
 	cfg.width = width;
 	cfg.height = height;
 	cfg.token_size = 0x1F;
@@ -56,7 +61,12 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	vinfo.id = dst_id;
 
 	cfg.enable = 0x1;
-	cfg.limit = 0x14;
+	/*
+	 * 0xFF is max value.
+	 * Buffer size is (limit x token_size).
+	 * But VOTF can hold only 1 frame.
+	 */
+	cfg.limit = 0xFF;
 	cfg.width = width;
 	cfg.height = height;
 	cfg.token_size = 0x1F;

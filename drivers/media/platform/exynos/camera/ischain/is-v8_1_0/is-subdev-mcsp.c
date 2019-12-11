@@ -427,11 +427,17 @@ static int is_ischain_mxp_start(struct is_device_ischain *device,
 
 	if (queue->framecfg.quantization == V4L2_QUANTIZATION_FULL_RANGE) {
 		crange = SCALER_OUTPUT_YUV_RANGE_FULL;
-		if (!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK))
+		if ((!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK) &&
+			(!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			!COMPARE_CROP(otcrop, &subdev->output.crop))) ||
+			debug_stream)
 			mdbg_pframe("CRange:W\n", device, subdev, frame);
 	} else {
 		crange = SCALER_OUTPUT_YUV_RANGE_NARROW;
-		if (!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK))
+		if ((!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK) &&
+			(!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			!COMPARE_CROP(otcrop, &subdev->output.crop))) ||
+			debug_stream)
 			mdbg_pframe("CRange:N\n", device, subdev, frame);
 	}
 
@@ -735,13 +741,17 @@ static int is_ischain_mxp_tag(struct is_subdev *subdev,
 				goto p_err;
 			}
 
-			if (!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK) ||
-				(!COMPARE_CROP(incrop, &inparm) ||
-				!COMPARE_CROP(otcrop, &otparm))) {
+			if ((!IS_VIDEO_HDR_SCENARIO(device->setfile & IS_SETFILE_MASK) &&
+				(!COMPARE_CROP(incrop, &subdev->input.crop) ||
+				!COMPARE_CROP(otcrop, &subdev->output.crop))) ||
+				debug_stream) {
 				mdbg_pframe("in_crop[%d, %d, %d, %d]\n", device, subdev, ldr_frame,
 					incrop->x, incrop->y, incrop->w, incrop->h);
 				mdbg_pframe("ot_crop[%d, %d, %d, %d]\n", device, subdev, ldr_frame,
 					otcrop->x, otcrop->y, otcrop->w, otcrop->h);
+
+				subdev->input.crop = *incrop;
+				subdev->output.crop = *otcrop;
 			}
 		}
 

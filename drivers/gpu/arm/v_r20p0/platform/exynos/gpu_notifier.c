@@ -42,6 +42,8 @@
 
 #include <linux/oom.h>
 
+#define G3D_DVFS_MIDDLE_CLOCK 377000
+
 extern struct kbase_device *pkbdev;
 
 #ifdef CONFIG_MALI_PM_QOS
@@ -130,7 +132,7 @@ static int gpu_tmu_notifier(struct notifier_block *notifier,
 
 	GPU_LOG(DVFS_DEBUG, LSI_TMU_VALUE, 0u, event, "tmu event %lu, frequency %d\n", event, frequency);
 
-	gpu_set_target_clk_vol(platform->cur_clock, false);
+	gpu_set_target_clk_vol(platform->cur_clock, false, false);
 
 	return NOTIFY_OK;
 }
@@ -340,26 +342,17 @@ static int pm_callback_runtime_on(struct kbase_device *kbdev)
 
 	/* Set clock - restore previous g3d clock, after g3d runtime on */
 	if (platform->dvfs_status && platform->wakeup_lock) {
-		gpu_set_target_clk_vol(platform->restore_clock, false);
-		GPU_LOG(DVFS_DEBUG, LSI_GPU_ON, 0u, 0u, "runtime on callback - restore clock = %d\n", platform->cur_clock);
+		if (platform->restore_clock > G3D_DVFS_MIDDLE_CLOCK) {
+			gpu_set_target_clk_vol(platform->restore_clock, false, false);
+			GPU_LOG(DVFS_DEBUG, LSI_GPU_ON, platform->restore_clock, platform->cur_clock, "runtime on callback - restore clock = %d, cur clock = %d\n", platform->restore_clock, platform->cur_clock);
+			platform->restore_clock = 0;
+		}
 	}
-#if 0
-#ifdef CONFIG_MALI_DVFS
-#ifdef CONFIG_MALI_SEC_CL_BOOST
-	if (platform->dvfs_status && platform->wakeup_lock && !kbdev->pm.backend.metrics.is_full_compute_util)
-#else
-		if (platform->dvfs_status && platform->wakeup_lock)
-#endif /* CONFIG_MALI_SEC_CL_BOOST */
-			gpu_set_target_clk_vol(platform->gpu_dvfs_start_clock, false);
-		else
-			gpu_set_target_clk_vol(platform->cur_clock, false);
-#endif /* CONFIG_MALI_DVFS */
-#endif
+
 	return 0;
 }
 extern void preload_balance_setup(struct kbase_device *kbdev);
 
-#define G3D_DVFS_MIDDLE_CLOCK 455000
 static void pm_callback_runtime_off(struct kbase_device *kbdev)
 {
 	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
@@ -371,29 +364,17 @@ static void pm_callback_runtime_off(struct kbase_device *kbdev)
 	gpu_control_disable_customization(kbdev);
 
 	platform->restore_clock = platform->cur_clock;
-	GPU_LOG(DVFS_DEBUG, LSI_GPU_OFF, 0u, 0u, "runtime off callback - save clock = %d\n", platform->restore_clock);
 
-#if 1 /* Set clock - So setting g3d dvfs middle clock before g3d runtime off */
-#ifdef CONFIG_MALI_DVFS
-#ifdef CONFIG_MALI_SEC_CL_BOOST
-	if (platform->dvfs_status && platform->wakeup_lock && !kbdev->pm.backend.metrics.is_full_compute_util)
-#else
-		if (platform->dvfs_status && platform->wakeup_lock)
-#endif /* CONFIG_MALI_SEC_CL_BOOST */
-		{
-			gpu_set_target_clk_vol(G3D_DVFS_MIDDLE_CLOCK, false);
-		}
-		else
-		{
-			gpu_set_target_clk_vol(platform->cur_clock, false);
-		}
-#endif /* CONFIG_MALI_DVFS */
-#endif
-
-	platform->power_status = false;
 	gpu_dvfs_stop_env_data_gathering(kbdev);
 #ifdef CONFIG_MALI_DVFS
 	gpu_dvfs_timer_control(false);
+
+	GPU_LOG(DVFS_DEBUG, LSI_GPU_OFF, platform->cur_clock, G3D_DVFS_MIDDLE_CLOCK, "runtime off callback - cur clock = %d, set middle clock = %d\n", platform->cur_clock, G3D_DVFS_MIDDLE_CLOCK);
+	gpu_set_target_clk_vol(G3D_DVFS_MIDDLE_CLOCK, false, true);
+#endif /* CONFIG_MALI_DVFS */
+
+	platform->power_status = false;
+#ifdef CONFIG_MALI_DVFS
 	if (platform->dvfs_pending)
 		platform->dvfs_pending = 0;
 	if (!platform->early_clk_gating_status)

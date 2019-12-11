@@ -10,6 +10,8 @@
 
 extern void phy_exynos_usbdp_g2_v2_tune_each(struct exynos_usbphy_info *info, char *name, u32 val);
 extern void phy_exynos_usbdp_g2_v2_tune(struct exynos_usbphy_info *info);
+extern void phy_exynos_usbdp_g2_v2_tune_each_late(struct exynos_usbphy_info *info, char *name, u32 val);
+extern void phy_exynos_usbdp_g2_v2_tune_late(struct exynos_usbphy_info *info);
 extern void phy_exynos_usbdp_g2_v2_set_dtb_mux(struct exynos_usbphy_info *info, int mux_val);
 extern int phy_exynos_usbdp_g2_v2_internal_loopback(struct exynos_usbphy_info *info, u32 cmn_rate);
 extern void phy_exynos_usbdp_g2_v2_eom_init(struct exynos_usbphy_info *info, u32 cmn_rate);

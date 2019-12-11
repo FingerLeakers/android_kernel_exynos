@@ -424,6 +424,7 @@ struct is_hardware {
 	 */
 	struct camera2_ni_udm		ni_udm[2][NI_BACKUP_MAX];
 	u32				lic_offset[LIC_CHAIN_NUM][LIC_CHAIN_OFFSET_NUM];
+	atomic_t			lic_updated;
 };
 
 #define framemgr_e_barrier_common(this, index, flag)		\

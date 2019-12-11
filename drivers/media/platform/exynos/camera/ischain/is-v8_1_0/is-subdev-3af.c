@@ -172,8 +172,12 @@ static int is_ischain_3af_tag(struct is_subdev *subdev,
 	otparm.w = taa_param->efd_output.width;
 	otparm.h = taa_param->efd_output.height;
 
-	if (IS_NULL_CROP(otcrop))
+	if (IS_NULL_CROP(otcrop)) {
+		msrwarn("ot_crop [%d, %d, %d, %d] -> [%d, %d, %d, %d]\n", device, subdev, ldr_frame,
+			otcrop->x, otcrop->y, otcrop->w, otcrop->h,
+			otparm.x, otparm.y, otparm.w, otparm.h);
 		*otcrop = otparm;
+	}
 
 	if (node->request) {
 		if (!COMPARE_CROP(incrop, &inparm) ||

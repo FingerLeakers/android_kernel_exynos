@@ -45,6 +45,7 @@
 #include <linux/debug-snapshot.h>
 #include <soc/samsung/exynos-sdm.h>
 #include <soc/samsung/exynos-ehld.h>
+#include <soc/samsung/exynos-adv-tracer.h>
 
 #include <asm/alternative.h>
 #include <asm/atomic.h>
@@ -87,6 +88,7 @@ enum ipi_msg_type {
 	IPI_TIMER,
 	IPI_IRQ_WORK,
 	IPI_WAKEUP,
+	IPI_EAT_KICK = 0xD,
 	IPI_EHLD_KICK = 0xE,
 };
 
@@ -980,6 +982,9 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		exynos_ehld_do_ipi(cpu, IPI_EHLD_KICK);
 		break;
 #endif
+	case IPI_EAT_KICK:
+		adv_tracer_wait_ipi(cpu);
+		break;
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n", cpu, ipinr);
 		break;

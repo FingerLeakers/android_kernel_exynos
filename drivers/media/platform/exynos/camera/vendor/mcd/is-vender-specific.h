@@ -22,6 +22,10 @@
 #include "is-pmic.h"
 #endif
 
+#ifdef USE_TOF_AF
+#define TOF_AF_SIZE 1200
+#endif
+
 #if defined(CONFIG_CAMERA_FROM)
 typedef enum FRomPowersource{
     FROM_POWER_SOURCE_REAR	= 0,  /*wide*/
@@ -72,6 +76,10 @@ struct is_vender_specific {
 	bool			zoom_running;
 	int32_t			rear_tof_mode_id;
 	int32_t			front_tof_mode_id;
+#ifdef USE_TOF_AF
+	struct tof_data_t	tof_af_data;
+	u16					af_data[TOF_AF_SIZE];
+#endif
 
 #if defined(CONFIG_CAMERA_FROM)
 	FRomPowersource		f_rom_power;

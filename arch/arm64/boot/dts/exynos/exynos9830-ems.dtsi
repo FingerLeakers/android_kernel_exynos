@@ -72,12 +72,164 @@
 			};
 		};
 
-		ems-tune {
-			boost-mode = <1>;
+		emstune {
+			mode-map {
+				mode0 {
+					desc = "normal";
+					boost_level = <3>;
 
-			mode0 {
+					level0 {
+						set = <&set0>;
+					};
+					level1 {
+						set = <&set3>;
+					};
+					level2 {
+						set = <&set6>;
+					};
+					level3 {
+						set = <&set9>;
+					};
+				};
+				mode1 {
+					desc = "power-scenario";
+					boost_level = <3>;
+
+					level0 {
+						set = <&set1>;
+					};
+					level1 {
+						set = <&set4>;
+					};
+					level2 {
+						set = <&set7>;
+					};
+					level3 {
+						set = <&set10>;
+					};
+				};
+				mode2 {
+					desc = "performance";
+					boost_level = <3>;
+
+					level0 {
+						set = <&set2>;
+					};
+					level1 {
+						set = <&set5>;
+					};
+					level2 {
+						set = <&set8>;
+					};
+					level3 {
+						set = <&set11>;
+					};
+				};
+			};
+
+			set0: set@0000{
 				idx = <0>;
-				desc = "normal";
+				desc = "normal default";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 200 200  33  45>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 200 200  33  45>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 250 250  41  56>;
+					foreground      = <125 125 125 125 250 250  41  56>;
+					background      = <125 125 125 125 250 250  41  56>;
+					top-app         = <125 125 125 125 250 250  41  56>;
+					rt              = <125 125 125 125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  5  5  5  5  5  5  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				/* cpus allowed applied to core selection */
+				cpus_allowed {
+					target-sched-class = <EMS_SCHED_FAIR>;
+
+					root		= "0-7";
+					foreground 	= "0-7";
+					background	= "0-7";
+					top-app		= "0-7";
+					rt		= "0-7";
+				};
+
+				/* gov-data used by CPUFreq governor */
+				esg {			/* LIT MED BIG */
+					step		= <  4   6   8 >;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					dom_list_u {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <105>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <106>;
+							upper-boundary = <586>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <205>;
+							upper-boundary = <1024>;
+						};
+					};
+					dom_list_s {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <51>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <41>;
+							upper-boundary = <344>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <235>;
+							upper-boundary = <1024>;
+						};
+					};
+				};
+
+				util_est {	/* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+			};
+
+			set1: set@0001{
+				idx = <1>;
+				desc = "power-scenario default";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+				};
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
@@ -89,7 +241,7 @@
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle-weight {      /* cpu     0    1    2    3   4   5   6   7 */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
 					root            = <1000 1000 1000 1000 250 250  41  56>;
 					foreground      = <1000 1000 1000 1000 250 250  41  56>;
 					background      = <1000 1000 1000 1000 250 250  41  56>;
@@ -98,24 +250,16 @@
 				};
 
 				/* Boosting margin applied to frequency selection */
-				/*
-				 * HACK:
-				 * To support negative boost, compensate dt_value during boottime
-				 * Compensation executed only one time when paring DT during Booting Time
-				 * Compensation Value = DT_Value - 100
-				 * 	0~100   => -100~0
-				 * 	101~200 => 1~100
-				 */
-				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <  100   100  100   100   100   100  100   100>;
-					foreground      = <  100   100  100   100   100   100  100   100>;
-					background      = <  100   100  100   100   100   100  100   100>;
-					top-app         = <  105   105  105   105   105   105  105   105>;
-					rt              = <  100   100  100   100   100   100  100   100>;
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
 				};
 
 				/* cpus allowed applied to core selection */
-				cpus-allowed {
+				cpus_allowed {
 					target-sched-class = <EMS_SCHED_FAIR>;
 
 					root		= "0-7";
@@ -126,69 +270,368 @@
 				};
 
 				/* gov-data used by CPUFreq governor */
-				gov-data {		/* LIT MED BIG */
-					step		= <  4   6   8>;
+				esg {		/* LIT MED BIG */
+					step		= < 10   8  10>;
 				};
 
 				/* Ontime Migration */
 				ontime {        /* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
 
-					/* little cores */
-					coregroup0 {
-						lower-boundary = <0>;
-						upper-boundary = <42>;
-						lower-boundary-s = <0>;
-						upper-boundary-s = <30>;
+					dom_list_u {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <105>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <106>;
+							upper-boundary = <586>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <205>;
+							upper-boundary = <1024>;
+						};
 					};
-					/* middle cores */
-					coregroup1 {
-						lower-boundary = <13>;
-						upper-boundary = <72>;
-						lower-boundary-s = <10>;
-						upper-boundary-s = <85>;
-					};
-					/* big cores */
-					coregroup2 {
-						lower-boundary = <20>;
-						upper-boundary = <100>;
-						lower-boundary-s = <65>;
-						upper-boundary-s = <100>;
+					dom_list_s {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <51>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <41>;
+							upper-boundary = <344>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <235>;
+							upper-boundary = <1024>;
+						};
 					};
 				};
 
-				util-est {	/* root fg bg ta rt */
+				util_est {	/* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
 				};
 			};
 
-			mode1 {
-				idx = <1>;
-				desc = "boost";
-				prefer-idle = <1>;
+			set2: set@0002{
+				idx = <2>;
+				desc = "performance default";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+				};
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 100 100 100 100>;
-					foreground      = <100 100 100 100 100 100 100 100>;
-					background      = <100 100 100 100 100 100 100 100>;
-					top-app         = <100 100 100 100 100 100 100 100>;
-					rt              = <100 100 100 100 100 100 100 100>;
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 200 200  33  45>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 200 200  33  45>;
+					rt              = <100 100 100 100 200 200  33  45>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle-weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 125 125 125 125>;
-					foreground      = <125 125 125 125 125 125 125 125>;
-					background      = <125 125 125 125 125 125 125 125>;
-					top-app         = <125 125 125 125 125 125 125 125>;
-					rt              = <125 125 125 125 125 125 125 125>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 250 250  41  56>;
+					foreground      = <125 125 125 125 250 250  41  56>;
+					background      = <125 125 125 125 250 250  41  56>;
+					top-app         = <125 125 125 125 250 250  41  56>;
+					rt              = <125 125 125 125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				/* cpus allowed applied to core selection */
+				cpus_allowed {
+					target-sched-class = <EMS_SCHED_FAIR>;
+
+					root		= "0-7";
+					foreground 	= "0-7";
+					background	= "0-7";
+					top-app		= "0-7";
+					rt		= "0-7";
+				};
+
+				/* gov-data used by CPUFreq governor */
+				esg {			/* LIT MED BIG */
+					step		= <  4   2   8 >;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					dom_list_u {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <105>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <106>;
+							upper-boundary = <586>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <205>;
+							upper-boundary = <1024>;
+						};
+					};
+					dom_list_s {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <51>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <41>;
+							upper-boundary = <344>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <235>;
+							upper-boundary = <1024>;
+						};
+					};
+				};
+
+				util_est {	/* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
 				};
 			};
 
-			mode2 {
-				idx = <2>;
-				desc = "boost";
+			set3: set@0003{
+				idx = <3>;
+				desc = "normal med boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = < 125  125  125  125 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = < 125  125  125  125 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = < 125  125  125  125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  5  5  5  5  5  5  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set4: set@0004{
+				idx = <4>;
+				desc = "power-scenario med boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <800 800 800 800 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <800 800 800 800 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <800 800 800 800 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set5: set@0005{
+				idx = <5>;
+				desc = "performance med boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = < 125  125  125  125 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = < 125  125  125  125 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = < 125  125  125  125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set6: set@0006{
+				idx = <6>;
+				desc = "normal touch boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = < 125  125  125  125 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = < 125  125  125  125 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = < 125  125  125  125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 20 20 20 20 20 20 20 20 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set7: set@0007{
+				idx = <7>;
+				desc = "power-scenario touch boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <800 800 800 800 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <800 800 800 800 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <800 800 800 800 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set8: set@0008{
+				idx = <8>;
+				desc = "performance touch boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 300 300 200 212>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 300 300 200 212>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = < 125  125  125  125 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 300 318>;
+					background      = < 125  125  125  125 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 300 318>;
+					rt              = < 125  125  125  125 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80 20 20 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+			};
+
+			set9: set@0009{
+				idx = <9>;
+				desc = "normal big boost";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 100 100 100 112>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 100 100 100 112>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 250 250  41  56>;
+					foreground      = <125 125 125 125 125 125 125 140>;
+					background      = <125 125 125 125 250 250  41  56>;
+					top-app         = <125 125 125 125 125 125 125 140>;
+					rt              = <125 125 125 125 250 250  41  56>;
+				};
 
 				/* Boosting margin applied to frequency selection */
 				/*
@@ -199,68 +642,41 @@
 				 * 	0~100   => -100~0
 				 * 	101~200 => 1~100
 				 */
-				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
-					root            = < 100  100  100  100  100  100  100  100>;
-					foreground      = < 100  100  100  100  100  100  100  100>;
-					background      = < 100  100  100  100  100  100  100  100>;
-					top-app         = < 180  180  180  180  180  180  105  105>;
-					rt              = < 100  100  100  100  100  100  100  100>;
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  5  5  5  5  5  5  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
 				};
+			};
 
-				/* gov-data used by CPUFreq governor */
-				gov-data {		/* LIT MED BIG */
-					step		= <  4   2   8>;
-				};
+			set10: set@0010{
+				idx = <10>;
+				desc = "power-scenario big boost";
 
-				/* Ontime Migration */
-				ontime {        /* root fg bg ta rt */
+				prefer_idle {   /* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
-
-					/* little cores */
-					coregroup0 {
-						lower-boundary = <0>;
-						upper-boundary = <42>;
-						lower-boundary-s = <0>;
-						upper-boundary-s = <30>;
-					};
-					/* middle cores */
-					coregroup1 {
-						lower-boundary = <13>;
-						upper-boundary = <72>;
-						lower-boundary-s = <1>;
-						upper-boundary-s = <100>;
-					};
-					/* big cores */
-					coregroup2 {
-						lower-boundary = <20>;
-						upper-boundary = <100>;
-						lower-boundary-s = <13>;
-						upper-boundary-s = <15>;
-					};
 				};
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  33>;
-					foreground      = <100 100 100 100 200 200  33  33>;
-					background      = <100 100 100 100 200 200  33  33>;
-					top-app         = <100 100 100 100 200 200  33  33>;
-					rt              = <100 100 100 100 200 200  33  33>;
+					root            = <800 800 800 800 200 200  33  45>;
+					foreground      = <100 100 100 100 100 100 100 112>;
+					background      = <800 800 800 800 200 200  33  45>;
+					top-app         = <100 100 100 100 100 100 100 112>;
+					rt              = <800 800 800 800 200 200  33  45>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle-weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 250 250  41  41>;
-					foreground      = <125 125 125 125 250 250  41  41>;
-					background      = <125 125 125 125 250 250  41  41>;
-					top-app         = <125 125 125 125 250 250  41  41>;
-					rt              = <125 125 125 125 250 250  41  41>;
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = < 125  125  125  125 125 125 125 140>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = < 125  125  125  125 125 125 125 140>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
 				};
-			};
 
-			mode3 {
-				idx = <3>;
-				desc = "boost";
 
 				/* Boosting margin applied to frequency selection */
 				/*
@@ -268,148 +684,51 @@
 				 * To support negative boost, compensate dt_value during boottime
 				 * Compensation executed only one time when paring DT during Booting Time
 				 * Compensation Value = DT_Value - 100
-				 *	0~100   => -100~0
-				 *	101~200 => 1~100
-				 * Ex) 80 => -20, 70 => -30
+				 * 	0~100   => -100~0
+				 * 	101~200 => 1~100
 				 */
-				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <  80  80  80  80  70  70  80  80  >;
-					foreground      = <  80  80  80  80  70  70  80  80  >;
-					background      = <  80  80  80  80  70  70  80  80  >;
-					top-app         = <  80  80  80  80  70  70  80  80  >;
-					rt              = <  80  80  80  80  70  70  80  80  >;
-				};
-
-				/* Ontime Migration */
-				ontime {        /* root fg bg ta rt */
-					enabled  = <  0  1  0  1  0  >;
-
-					/* little cores */
-					coregroup0 {
-						lower-boundary = <0>;
-						upper-boundary = <42>;
-						lower-boundary-s = <0>;
-						upper-boundary-s = <30>;
-					};
-					/* middle cores */
-					coregroup1 {
-						lower-boundary = <13>;
-						upper-boundary = <90>;
-						lower-boundary-s = <10>;
-						upper-boundary-s = <85>;
-					};
-					/* big cores */
-					coregroup2 {
-						lower-boundary = <75>;
-						upper-boundary = <100>;
-						lower-boundary-s = <65>;
-						upper-boundary-s = <100>;
-					};
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
 				};
 			};
 
-			mode4 {
-				idx = <4>;
-				desc = "42 boost";
+			set11: set@0011{
+				idx = <11>;
+				desc = "performance big boost";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  33  45>;
+					foreground      = <100 100 100 100 100 100 100 112>;
+					background      = <100 100 100 100 200 200  33  45>;
+					top-app         = <100 100 100 100 100 100 100 112>;
+					rt              = <100 100 100 100 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <125 125 125 125 250 250  41  56>;
+					foreground      = <125 125 125 125 125 125 125 140>;
+					background      = <125 125 125 125 250 250  41  56>;
+					top-app         = <125 125 125 125 125 125 125 140>;
+					rt              = <125 125 125 125 250 250  41  56>;
+				};
 
 				/* Boosting margin applied to frequency selection */
-				/*
-				 * HACK:
-				 * To support negative boost, compensate dt_value during boottime
-				 * Compensation executed only one time when paring DT during Booting Time
-				 * Compensation Value = DT_Value - 100
-				 *	0~100   => -100~0
-				 *	101~200 => 1~100
-				 * Ex) 80 => -20, 70 => -30
-				 */
-				freq-boost {       /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <  80   80   80   80   70   70   80   80  >;
-					foreground      = <  80   80   80   80   70   70   80   80  >;
-					background      = <  80   80   80   80   70   70   80   80  >;
-					top-app         = < 100  100  100  100  100  100  100  100  >;
-					rt              = <  80   80   80   80   70   70   80   80  >;
-				};
-
-				/* Ontime Migration */
-				ontime {        /* root fg bg ta rt */
-					enabled  = <  0  1  0  1  0  >;
-
-					/* little cores */
-					coregroup0 {
-						lower-boundary = <0>;
-						upper-boundary = <42>;
-						lower-boundary-s = <0>;
-						upper-boundary-s = <30>;
-					};
-					/* middle cores */
-					coregroup1 {
-						lower-boundary = <13>;
-						upper-boundary = <90>;
-						lower-boundary-s = <10>;
-						upper-boundary-s = <85>;
-					};
-					/* big cores */
-					coregroup2 {
-						lower-boundary = <75>;
-						upper-boundary = <100>;
-						lower-boundary-s = <65>;
-						upper-boundary-s = <100>;
-					};
-				};
-			};
-
-			mode5 {
-				idx = <5>;
-				desc = "boost";
-
-				/* Boosting margin applied to frequency selection */
-				/*
-				 * HACK:
-				 * To support negative boost, compensate dt_value during boottime
-				 * Compensation executed only one time when paring DT during Booting Time
-				 * Compensation Value = DT_Value - 100
-				 *	0~100   => -100~0
-				 *	101~200 => 1~100
-				 * Ex) 80 => -20, 70 => -30
-				 */
-				freq-boost {       /* cpu    0    1    2    3    4   5   6   7 */
-					root            = <  130  130  130  130  70  70  80  80  >;
-					foreground      = <  130  130  130  130  70  70  80  80  >;
-					background      = <  130  130  130  130  70  70  80  80  >;
-					top-app         = <  130  130  130  130  70  70  80  80  >;
-					rt              = <  130  130  130  130  70  70  80  80  >;
-				};
-
-				/* gov-data used by CPUFreq governor */
-				gov-data {		/* LIT MED BIG */
-					step		= <  5   5   8>;
-				};
-
-				/* Ontime Migration */
-				ontime {        /* root fg bg ta rt */
-					enabled  = <  0  1  0  1  0  >;
-
-					/* little cores */
-					coregroup0 {
-						lower-boundary = <0>;
-						upper-boundary = <42>;
-						lower-boundary-s = <0>;
-						upper-boundary-s = <30>;
-					};
-					/* middle cores */
-					coregroup1 {
-						lower-boundary = <13>;
-						upper-boundary = <90>;
-						lower-boundary-s = <10>;
-						upper-boundary-s = <85>;
-					};
-					/* big cores */
-					coregroup2 {
-						lower-boundary = <75>;
-						upper-boundary = <100>;
-						lower-boundary-s = <65>;
-						upper-boundary-s = <100>;
-					};
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
 				};
 			};
 		};

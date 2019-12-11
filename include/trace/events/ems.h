@@ -357,21 +357,21 @@ TRACE_EVENT(ontime_migration,
  */
 TRACE_EVENT(emstune_mode,
 
-	TP_PROTO(int cur_mode, int next_mode),
+	TP_PROTO(int next_mode, int next_level),
 
-	TP_ARGS(cur_mode, next_mode),
+	TP_ARGS(next_mode, next_level),
 
 	TP_STRUCT__entry(
-		__field( int,		cur_mode		)
 		__field( int,		next_mode		)
+		__field( int,		next_level		)
 	),
 
 	TP_fast_assign(
-		__entry->cur_mode		= cur_mode;
 		__entry->next_mode		= next_mode;
+		__entry->next_level		= next_level;
 	),
 
-	TP_printk("cur_mode=%d next_mode=%d", __entry->cur_mode, __entry->next_mode)
+	TP_printk("mode=%d level=%d", __entry->next_mode, __entry->next_level)
 );
 
 /*

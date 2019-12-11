@@ -94,25 +94,12 @@ void kbase_backend_gpuprops_get(struct kbase_device *kbdev,
 				GPU_CONTROL_REG(STACK_PRESENT_HI));
 }
 
-#if 1 // to force enable ACE-Lite
-	#include <linux/io.h>
-	void __iomem *g3d_coherency_features;
-	unsigned long long g3d_coherency_features_r;
-#endif
-
 void kbase_backend_gpuprops_get_features(struct kbase_device *kbdev,
 					struct kbase_gpuprops_regdump *regdump)
 {
 	if (kbase_hw_has_feature(kbdev, BASE_HW_FEATURE_COHERENCY_REG)) {
 		/* Ensure we can access the GPU registers */
 		kbase_pm_register_access_enable(kbdev);
-
-#if 1 // to force enable ACE-Lite
-		g3d_coherency_features = ioremap(0x18420400, 4);
-		__raw_writel(0x1, g3d_coherency_features); // 0x1 is ACE-Lite, 0x2 is ACE
-		g3d_coherency_features_r = (((unsigned long long)__raw_readl(g3d_coherency_features)));
-		printk("[THOMAS] g3d_coherency_features = 0x%llx\n", g3d_coherency_features_r);
-#endif
 
 		regdump->coherency_features = kbase_reg_read(kbdev,
 				GPU_CONTROL_REG(COHERENCY_FEATURES));

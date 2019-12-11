@@ -165,7 +165,7 @@
 #define	HNBU_AA			0x06	/* Antennas available */
 #define	HNBU_AG			0x07	/* Antenna gain */
 #define HNBU_BOARDFLAGS		0x08	/* board flags (2 or 4 bytes) */
-#define HNBU_LEDS		0x09	/* LED set */
+#define HNBU_UNUSED		0x09	/* UNUSED (was LEDs) */
 #define HNBU_CCODE		0x0a	/* Country code (2 bytes ascii + 1 byte cctl)
 					 * in rev 2
 					 */
@@ -192,7 +192,7 @@
 
 #define HNBU_BOARDTYPE		0x1b	/* 2 bytes; boardtype */
 
-#define HNBU_LEDDC		0x1c	/* 2 bytes; LED duty cycle */
+#define HNBU_UNUSED2		0x1c	/* was LEDs duty cycle */
 
 #define HNBU_HNBUCIS		0x1d	/* what follows is proprietary HNBU CIS format */
 

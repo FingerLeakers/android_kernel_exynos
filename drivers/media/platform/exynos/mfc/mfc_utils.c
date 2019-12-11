@@ -334,9 +334,12 @@ void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 		raw->plane_size_2bits[0] = NV12M_Y_2B_SIZE(ctx->img_width, ctx->img_height);
 		raw->plane_size_2bits[1] = NV12M_CBCR_2B_SIZE(ctx->img_width, ctx->img_height);
 		break;
+	case V4L2_PIX_FMT_NV12N:
+		raw->plane_size[0] = NV12N_Y_SIZE(ctx->img_width, ctx->img_height);
+		raw->plane_size[1] = NV12N_CBCR_SIZE(ctx->img_width, ctx->img_height);
+		break;
 	case V4L2_PIX_FMT_NV12MT_16X16:
 	case V4L2_PIX_FMT_NV12M:
-	case V4L2_PIX_FMT_NV12N:
 	case V4L2_PIX_FMT_NV21M:
 		raw->plane_size[0] = ALIGN(default_size, 256) + extra;
 		raw->plane_size[1] = ALIGN(default_size / 2, 256) + extra;
@@ -564,13 +567,11 @@ void mfc_idle_checker(struct timer_list *t)
 	}
 
 	if (atomic_read(&dev->hw_run_cnt)) {
-		atomic_set(&dev->hw_run_cnt, 0);
 		mfc_idle_checker_start_tick(dev);
 		return;
 	}
 
 	if (atomic_read(&dev->queued_cnt)) {
-		atomic_set(&dev->queued_cnt, 0);
 		mfc_idle_checker_start_tick(dev);
 		return;
 	}

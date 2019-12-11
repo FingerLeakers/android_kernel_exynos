@@ -38,13 +38,17 @@
 #define CONFIG_PANEL_NOTIFY	1
 
 #define LIGHT_CAL_PARAM_FILE_PATH	"/efs/FactoryApp/gyro_cal_data"
-#define LIGHT_CAL_FILE_INDEX			25
-
-
+#define LCD_PANEL_SVC_OCTA		"/sys/class/lcd/panel/SVC_OCTA"
+#define LCD_PANEL_TYPE			"/sys/class/lcd/panel/lcd_type"
 
 /*************************************************************************/
 /* factory Sysfs                                                         */
 /*************************************************************************/
+static char *svc_octa_filp_name[2] = {LIGHT_CAL_PARAM_FILE_PATH, LCD_PANEL_SVC_OCTA};
+static int svc_octa_filp_offset[2] = {SVC_OCTA_FILE_INDEX, 0};
+static char svc_octa_data[2][SVC_OCTA_DATA_SIZE + 1] = { {0, }, };
+static char lcd_type_flag = 0;
+
 static ssize_t light_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -359,25 +363,73 @@ static int load_light_cal_from_nvm(u32 *light_cal_data, int size) {
 
 	return iRet;
 }
+int set_lcd_panel_type_to_ssp(struct ssp_data *data)
+{
+	int iRet = 0;
+	char lcd_type_data[256] = { 0, };
+	mm_segment_t old_fs;
+	struct file *lcd_type_filp = NULL;
+	struct ssp_msg *msg;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	lcd_type_filp = filp_open(LCD_PANEL_TYPE, O_RDONLY, 0444);
+
+	if (IS_ERR(lcd_type_filp)) {
+		iRet = PTR_ERR(lcd_type_filp);
+		pr_err("[SSP]: %s - Can't open lcd_type file err(%d)\n", __func__, iRet);
+		return iRet;
+	}
+
+	iRet = vfs_read(lcd_type_filp, (char *)lcd_type_data, sizeof(lcd_type_data), &lcd_type_filp->f_pos);
+
+	if(iRet > 0) {
+		if(lcd_type_data[iRet - 2] >= '0' && lcd_type_data[iRet - 2] <= '2')
+			lcd_type_flag = 0;
+		else
+			lcd_type_flag = 1;
+	}	
+
+	pr_info("[SSP]: %s - lcd_type_data: %s(%d) flag: %d", __func__, lcd_type_data, iRet, lcd_type_flag);
+
+	filp_close(lcd_type_filp, current->files);
+	set_fs(old_fs);
+
+        msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_SET_LCD_TYPE;
+	msg->length = sizeof(lcd_type_flag);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = (u8 *)&lcd_type_flag;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_async(data, msg);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP] %s -fail to set. %d\n", __func__, iRet);
+		iRet = ERROR;
+	} 
+
+	return iRet;
+}
 
 int set_light_cal_param_to_ssp(struct ssp_data *data)
 {
 	int iRet = 0;
 	u32 light_cal_data[2] = {0, };
 
-	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-
-	if (msg == NULL) {
-		iRet = -ENOMEM;
-		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
-		return iRet;
-	}
+	struct ssp_msg *msg;
 
 	iRet = load_light_cal_from_nvm(light_cal_data, sizeof(light_cal_data));
 	
 	if (iRet != SUCCESS)
 		return iRet;
 
+	if (strcmp(svc_octa_data[0], svc_octa_data[1]) != 0) {
+		pr_err("[SSP] %s - svc_octa_data, previous = %s, current = %s", __func__, svc_octa_data[0], svc_octa_data[1]);
+		return -EIO;
+	}
+
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 	msg->cmd = MSG2SSP_AP_SET_LIGHT_CAL;
 	msg->length = sizeof(light_cal_data);
 	msg->options = AP2HUB_WRITE;
@@ -394,7 +446,6 @@ int set_light_cal_param_to_ssp(struct ssp_data *data)
 	return iRet;
 }
 
-
 static ssize_t light_cal_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -404,7 +455,10 @@ static ssize_t light_cal_show(struct device *dev,
 
 	iRet = load_light_cal_from_nvm(light_cal_data, sizeof(light_cal_data));
 
-	return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[0], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
+	if (lcd_type_flag == 1)
+		return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[1], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
+	else
+		return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[0], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
 }
 
 static ssize_t light_cal_store(struct device *dev,
@@ -422,10 +476,9 @@ static ssize_t light_cal_store(struct device *dev,
 	cal_filp = filp_open(LIGHT_CAL_PARAM_FILE_PATH, O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK, 0660);
 
 	if (IS_ERR(cal_filp)) {
-		set_fs(old_fs);
 		iRet = PTR_ERR(cal_filp);
 		pr_err("[SSP]: %s - Can't open light cal file err(%d)\n", __func__, iRet);
-		return -EIO;
+		goto exit_light_cal_store;
 	}
 
 	if (update) {
@@ -440,6 +493,17 @@ static ssize_t light_cal_store(struct device *dev,
 		msg->free_buffer = 0;
 
 		iRet = ssp_spi_sync(data, msg, 1000);
+		
+		cal_filp->f_pos = SVC_OCTA_FILE_INDEX;
+		iRet = vfs_write(cal_filp, (char *)&svc_octa_data[1], SVC_OCTA_DATA_SIZE, &cal_filp->f_pos);
+		memcpy(svc_octa_data[0], svc_octa_data[1], SVC_OCTA_DATA_SIZE);
+
+		if (iRet != SVC_OCTA_DATA_SIZE) {
+			pr_err("[SSP]: %s - Can't write svc_octa_data to file\n", __func__);
+			iRet = -EIO;
+		} else {
+			pr_err("[SSP]: %s - svc_octa_data[1]: %s", __func__, svc_octa_data[1]);
+		}
 
 	}
 
@@ -453,10 +517,46 @@ static ssize_t light_cal_store(struct device *dev,
 	}
 
 	filp_close(cal_filp, current->files);
+
+exit_light_cal_store:
 	set_fs(old_fs);
 
 	return iRet;
 }
+
+int initialize_light_sensor(struct ssp_data *data){
+	int iRet = 0, i = 0;
+	struct file *svc_octa_filp[2];
+	mm_segment_t old_fs;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	for (i = 0; i < 2; i++) {
+		svc_octa_filp[i] = filp_open(svc_octa_filp_name[i], O_RDONLY, 0444);
+		if (IS_ERR(svc_octa_filp[i])) {
+			pr_err("[SSP]: %s - Can't open svc_octa_filp[%d], errno = (%d)\n", __func__, i, PTR_ERR(svc_octa_filp[i]));
+			continue;
+		}
+		svc_octa_filp[i]->f_pos = svc_octa_filp_offset[i];
+		iRet = vfs_read(svc_octa_filp[i], (char *)svc_octa_data[i], SVC_OCTA_DATA_SIZE, &svc_octa_filp[i]->f_pos);
+
+		pr_err("[SSP]: %s - svc_octa_filp[%d]: %s", __func__, i, svc_octa_data[i]);  
+		filp_close(svc_octa_filp[i], current->files);
+	}
+	set_fs(old_fs);
+
+	iRet = set_lcd_panel_type_to_ssp(data);
+	if (iRet < 0)
+		pr_err("[SSP]: %s - sending lcd type data failed\n", __func__);
+
+	iRet = set_light_cal_param_to_ssp(data);
+	if (iRet < 0)
+		pr_err("[SSP]: %s - sending light calibration data failed\n", __func__);
+	
+	return iRet;
+}
+
 
 static DEVICE_ATTR(vendor, 0440, light_vendor_show, NULL);
 static DEVICE_ATTR(name, 0440, light_name_show, NULL);
@@ -474,7 +574,7 @@ static DEVICE_ATTR(sensorhub_ddi_spi_check, 0440, light_sensorhub_ddi_spi_check_
 static DEVICE_ATTR(test_copr, 0440, light_test_copr_show, NULL);
 static DEVICE_ATTR(light_circle, 0440, light_circle_show, NULL);
 static DEVICE_ATTR(copr_roix, 0440, light_copr_roix_show, NULL);
-static DEVICE_ATTR(light_test, 0440, light_test_show, NULL);
+static DEVICE_ATTR(light_test, 0444, light_test_show, NULL);
 #endif
 
 static DEVICE_ATTR(light_cal, 0664, light_cal_show, light_cal_store);

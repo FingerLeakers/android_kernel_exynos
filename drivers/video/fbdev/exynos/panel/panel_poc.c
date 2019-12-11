@@ -1004,7 +1004,7 @@ static int read_poc_partition_data(struct panel_poc_device *poc_dev, int index)
 
 int read_poc_partition_region(struct panel_poc_device *poc_dev, int index, int region, bool force)
 {
-	int ret;
+	int ret = 0;
 
 	if (unlikely(index >= poc_dev->nr_partition)) {
 		panel_err("POC:ERR:%s: invalid partition index %d\n",

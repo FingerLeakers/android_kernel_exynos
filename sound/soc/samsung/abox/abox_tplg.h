@@ -29,6 +29,12 @@ enum abox_tplg_tkn {
 	ABOX_TKN_PACKED,
 	ABOX_TKN_MIN,
 	ABOX_TKN_COUNT,
+	ABOX_TKN_ADDRESS,
+	ABOX_BIN_IDX = 0x100,
+	ABOX_BIN_NAME = 0x101,
+	ABOX_BIN_AREA = 0x102,
+	ABOX_BIN_OFFSET = 0x103,
+	ABOX_BIN_CHANGEABLE = 0x104,
 };
 
 enum abox_tplg_event_types {

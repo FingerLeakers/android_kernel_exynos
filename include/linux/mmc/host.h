@@ -440,8 +440,10 @@ struct mmc_host {
 	unsigned int		bus_refs;	/* reference counter */
 
 	unsigned int		bus_resume_flags;
-#define MMC_BUSRESUME_MANUAL_RESUME (1 << 0)
-#define MMC_BUSRESUME_NEEDS_RESUME  (1 << 1)
+#define MMC_BUSRESUME_MANUAL_RESUME	(1 << 0)
+#define MMC_BUSRESUME_NEEDS_RESUME	(1 << 1)
+#define MMC_BUSRESUME_ENTER_IO		(1 << 2)
+#define MMC_BUSRESUME_ENTER_CMD		(1 << 3)
 	unsigned int		sdio_irqs;
 	struct task_struct	*sdio_irq_thread;
 	struct delayed_work	sdio_irq_work;

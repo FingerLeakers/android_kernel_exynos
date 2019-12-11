@@ -198,66 +198,12 @@ static inline int ecs_is_sparing_cpu(int cpu) { return 0; }
 /*
  * EMS Tune
  */
-enum stune_group {
-	STUNE_ROOT,
-	STUNE_FOREGROUND,
-	STUNE_BACKGROUND,
-	STUNE_TOPAPP,
-	STUNE_RT,
-	STUNE_GROUP_COUNT,
-};
-
 struct emstune_mode_request {
 	struct plist_node node;
 	bool active;
 	struct delayed_work work; /* for emstune_update_request_timeout */
 	char *func;
 	unsigned int line;
-};
-
-/* EMStune notifier interface */
-struct emstune_gov_data {
-	int			step; /* for Energy-step governor */
-}; /* which CPUFreq governor uses */
-
-struct emstune_ontime {
-	int upper_boundary;
-	int lower_boundary;
-	int upper_boundary_s;
-	int lower_boundary_s;
-};
-
-struct emstune_dom {
-	int		weight;		/* weight of this group for core selction */
-	int		idle_weight;	/* idle_weight of this group for core selection */
-	int		freq_boost;	/* freq_boost of this group at the current freq */
-};
-
-struct emstune_group {
-	int ontime_enabled;
-	int util_est_enabled;
-
-	struct cpumask	cpus_allowed;	/* candidate_cpus of this group for core selection */
-
-	struct emstune_dom	*dom[NR_CPUS];
-	struct kobject	kobj;
-};
-
-struct emstune_mode {
-	int idx;
-	int prefer_idle;
-	const char *desc;
-	unsigned long target_sched_class;
-
-	struct emstune_gov_data gov_data[NR_CPUS]; /* gov_data which cpufreq governor uses */
-
-	/* For updating ontime tunables */
-	struct emstune_ontime ontime[NR_CPUS];
-
-	struct emstune_group groups[STUNE_GROUP_COUNT];
-	struct kobject	  kobj;
-	struct kobject	  gov_data_kobj;
-	struct kobject    ontime_kobj;
 };
 
 #if defined(CONFIG_SCHED_EMS) && defined (CONFIG_SCHED_TUNE)
@@ -275,6 +221,8 @@ extern void emstune_update_request_timeout(struct emstune_mode_request *req, s32
 extern void emstune_boost(struct emstune_mode_request *req, int enable);
 extern void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us);
 
+extern void emstune_mode_change(int next_mode_idx);
+
 extern int emstune_register_mode_update_notifier(struct notifier_block *nb);
 extern int emstune_unregister_mode_update_notifier(struct notifier_block *nb);
 
@@ -291,6 +239,8 @@ static void emstune_update_request_timeout(struct emstune_mode_request *req, s32
 					unsigned long timeout_us) { }
 static void emstune_boost(struct emstune_mode_request *req, int enable) { }
 static void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us) { }
+
+static void emstune_mode_change(int next_mode_idx) { }
 
 static int emstune_register_mode_update_notifier(struct notifier_block *nb) { return 0; }
 static int emstune_unregister_mode_update_notifier(struct notifier_block *nb) { return 0; }

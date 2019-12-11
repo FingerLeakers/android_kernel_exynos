@@ -410,6 +410,9 @@ int abox_core_download_firmware(void)
 
 	dev_info(dev, "%s\n", __func__);
 
+	memset(data->dram_base, 0, DRAM_FIRMWARE_SIZE);
+	memset_io(data->sram_base, 0, data->sram_size);
+
 	list_for_each_entry(core, &cores, list) {
 		size_t len = ARRAY_SIZE(core->fw);
 
@@ -428,15 +431,11 @@ int abox_core_download_firmware(void)
 				memcpy_toio(data->sram_base + fw->offset,
 						fw->firmware->data,
 						fw->firmware->size);
-				memset_io(data->sram_base + left, 0,
-						data->sram_size - left);
 				break;
 			case DRAM:
 				memcpy(data->dram_base + fw->offset,
 						fw->firmware->data,
 						fw->firmware->size);
-				memset(data->dram_base + left, 0,
-						DRAM_FIRMWARE_SIZE - left);
 				break;
 			}
 		}

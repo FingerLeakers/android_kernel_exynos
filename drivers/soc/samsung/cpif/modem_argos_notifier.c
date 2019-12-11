@@ -64,7 +64,7 @@ unsigned int big_clat_rps = 0xc0;
 module_param(big_clat_rps, uint, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(big_clat_rps, "rps_cpus for v4-rmnetx: BIG(both up)");
 
-unsigned int mif_rps_thresh = 200;
+unsigned int mif_rps_thresh = 300;
 module_param(mif_rps_thresh, uint, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(mif_rps_thresh, "threshold speed");
 
@@ -197,26 +197,10 @@ static void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data)
 	int new_level    = *(int *)data;
 	int prev_level   = nf->prev_level & 0xf;
 	int lane_changed = nf->prev_level & 0x10;
-	int gen_changed  = nf->prev_level & 0x20;
 
 	mif_debug("level : [%d -> %d]\n", prev_level, new_level);
 
-	if (new_level >= 5 && !gen_changed) {
-		nf->prev_level = new_level;
-		if (!exynos_pcie_rc_speedchange(1, 3)) {
-			nf->prev_level |= 0x20;
-		} else {
-			mif_err("fail to change PCI Gen to 3\n");
-		}
-	} else if (new_level < 5 && gen_changed) {
-		if (!exynos_pcie_rc_speedchange(1, 2)) {
-			nf->prev_level = new_level;
-		} else {
-			mif_err("fail to change PCI Gen to 2\n");
-		}
-	}
-
-	if (new_level >= 7 && !lane_changed) {
+	if (new_level >= 8 && !lane_changed) {
 		nf->prev_level &= (0x30);
 		nf->prev_level |= new_level;
 		if (!exynos_pcie_rc_lanechange(1, 2)) {
@@ -224,7 +208,7 @@ static void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data)
 		} else {
 			mif_err("fail to change PCI lane 2\n");
 		}
-	} else if (new_level < 7 && lane_changed) {
+	} else if (new_level < 8 && lane_changed) {
 		if (!exynos_pcie_rc_lanechange(1, 1)) {
 			nf->prev_level &= (~0x30);
 			nf->prev_level |= new_level;
@@ -264,6 +248,7 @@ static int mif_argos_notifier_ipc(struct notifier_block *nb, unsigned long speed
 	return NOTIFY_OK;
 }
 
+#ifdef SUPPORT_CLATD
 static int mif_argos_notifier_clat(struct notifier_block *nb, unsigned long speed, void *data)
 {
 	struct argos_notifier *nf = container_of(nb, struct argos_notifier, clat_nb);
@@ -308,6 +293,7 @@ static int mif_argos_notifier_clat(struct notifier_block *nb, unsigned long spee
 
 	return NOTIFY_OK;
 }
+#endif
 
 int mif_init_argos_notifier(void)
 {
@@ -329,6 +315,7 @@ int mif_init_argos_notifier(void)
 		goto exit;
 	}
 
+#ifdef SUPPORT_CLATD
 	argos_nf->clat_nb.notifier_call = mif_argos_notifier_clat;
 	ret = sec_argos_register_notifier(&argos_nf->clat_nb, MIF_ARGOS_CLAT_LABEL);
 	if (ret < 0) {
@@ -336,7 +323,7 @@ int mif_init_argos_notifier(void)
 		sec_argos_unregister_notifier(&argos_nf->ipc_nb, MIF_ARGOS_IPC_LABEL);
 		goto exit;
 	}
-
+#endif
 	/* default rmnetx rps: 0x06 */
 	mif_update_ndevs_rps(ndev_prefix[IPC], lit_rmnet_rps);
 

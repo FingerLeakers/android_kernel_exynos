@@ -867,6 +867,7 @@
 		cirrus,mfd-suffix = "_r";
 		cirrus,bd-suffix = "_right";
 		cirrus,use-fsync-errata;
+		cirrus,bd-max-temp = <110>;
 
 		cirrus,asp-sdout-hiz = <0x3>;
 
@@ -916,6 +917,7 @@
 		cirrus,mfd-suffix = "";
 		cirrus,bd-suffix = "_left";
 		cirrus,use-fsync-errata;
+		cirrus,bd-max-temp = <100>;
 
 		cirrus,asp-sdout-hiz = <0x3>;
 

@@ -453,6 +453,11 @@ struct link_device {
 	bool (*is_ipc_ch)(u8 ch);
 	bool (*is_csd_ch)(u8 ch);
 	bool (*is_log_ch)(u8 ch);
+	bool (*is_router_ch)(u8 ch);
+	bool (*is_embms_ch)(u8 ch);
+	bool (*is_uts_ch)(u8 ch);
+	bool (*is_wfs0_ch)(u8 ch);
+	bool (*is_wfs1_ch)(u8 ch);
 
 	/* SIPC version */
 	enum sipc_ver ipc_version;

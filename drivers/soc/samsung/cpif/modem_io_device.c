@@ -28,6 +28,7 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/netdevice.h>
+#include <linux/linkforward.h>
 
 #if defined(CONFIG_SEC_MODEM_S5000AP) && defined(CONFIG_SEC_MODEM_S5100)
 #include <linux/modem_notifier.h>
@@ -37,6 +38,7 @@
 #include "modem_utils.h"
 #include "modem_dump.h"
 #include "cpif_clat_info.h"
+#include "cpif_tethering_info.h"
 
 static ssize_t show_waketime(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -384,7 +386,8 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	struct net_device *ndev;
 	struct iphdr *iphdr;
 	int len = skb->len;
-	int ret, l2forward = 0;
+	int ret = 0;
+	int __maybe_unused l2forward = 0;
 
 	ndev = iod->ndev;
 	if (!ndev) {
@@ -422,29 +425,29 @@ static int rx_multi_pdp(struct sk_buff *skb)
 	skb_reset_network_header(skb);
 	skb_reset_mac_header(skb);
 
-	if (!l2forward && check_gro_support(skb) && !is_heading_toward_clat(skb)) {
+#ifdef CONFIG_LINK_FORWARD
+	/* Link Forward */
+	l2forward = get_linkforward_mode() ?
+		linkforward_manip_skb(skb, LINK_FORWARD_DIR_REPLY) : 0;
+#endif
+
+#if defined(CONFIG_CP_GRO_EXCEPTION)
+	if (l2forward || !check_gro_support(skb) || (is_tethering_upstream_device(skb->dev->name) && is_heading_toward_clat(skb))) {
+#else
+	if (l2forward || !check_gro_support(skb)) {
+#endif
+		ret = netif_receive_skb(skb);
+		if (ret != NET_RX_SUCCESS)
+			mif_err_limited("%s: %s<-%s: ERR! netif_receive_skb\n",
+					ld->name, iod->name, iod->mc->name);
+	} else {
 		ret = napi_gro_receive(napi_get_current(), skb);
-		if (ret == GRO_DROP) {
+		if (ret == GRO_DROP)
 			mif_err_limited("%s: %s<-%s: ERR! napi_gro_receive\n",
 					ld->name, iod->name, iod->mc->name);
-		}
 
 		if (ld->gro_flush)
 			ld->gro_flush(ld);
-	} else {
-#ifdef CONFIG_LINK_DEVICE_NAPI
-		ret = netif_receive_skb(skb);
-#else /* !CONFIG_LINK_DEVICE_NAPI */
-		if (in_interrupt())
-			ret = netif_rx(skb);
-		else
-			ret = netif_rx_ni(skb);
-#endif /* CONFIG_LINK_DEVICE_NAPI */
-
-		if (ret != NET_RX_SUCCESS) {
-			mif_err_limited("%s: %s<-%s: ERR! netif_rx\n",
-					ld->name, iod->name, iod->mc->name);
-		}
 	}
 	return len;
 }
@@ -453,6 +456,8 @@ static int rx_demux(struct link_device *ld, struct sk_buff *skb)
 {
 	struct io_device *iod;
 	u8 ch = skbpriv(skb)->sipc_ch;
+	struct link_device *skb_ld = skbpriv(skb)->ld;
+
 	if (unlikely(ch == 0)) {
 		mif_err("%s: ERR! invalid ch# %d\n", ld->name, ch);
 		return -ENODEV;
@@ -474,13 +479,28 @@ static int rx_demux(struct link_device *ld, struct sk_buff *skb)
 		return -ENODEV;
 	}
 
-	if (skbpriv(skb)->ld->is_fmt_ch(ch)) {
-		iod->mc->receive_first_ipc = 1;
-		return rx_fmt_ipc(skb);
-	} else if (skbpriv(skb)->ld->is_ps_ch(ch))
-		return rx_multi_pdp(skb);
-	else
-		return rx_raw_misc(skb);
+	switch (skb_ld->protocol) {
+	case PROTOCOL_SIPC:
+		if (skb_ld->is_fmt_ch(ch)){
+			iod->mc->receive_first_ipc = 1;
+			return rx_fmt_ipc(skb);
+		} else if (skb_ld->is_ps_ch(ch))
+			return rx_multi_pdp(skb);
+		else
+			return rx_raw_misc(skb);
+		break;
+	case PROTOCOL_SIT:
+		if (skb_ld->is_fmt_ch(ch) || skb_ld->is_wfs0_ch(ch))
+			return rx_fmt_ipc(skb);
+		else if (skb_ld->is_ps_ch(ch) || skb_ld->is_embms_ch(ch))
+			return rx_multi_pdp(skb);
+		else
+			return rx_raw_misc(skb);
+		break;
+	default:
+		mif_err("protocol error %d\n", skb_ld->protocol);
+		return -EINVAL;
+	}
 }
 
 static int io_dev_recv_skb_single_from_link_dev(struct io_device *iod,

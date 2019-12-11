@@ -149,6 +149,10 @@ int dsp_device_power_on(struct dsp_device *dspdev, unsigned int pm_level)
 		return 0;
 	}
 
+	ret = dsp_system_set_boot_qos(&dspdev->system, pm_level);
+	if (ret)
+		goto p_err;
+
 #if defined(CONFIG_PM)
 	ret = pm_runtime_get_sync(dspdev->dev);
 	if (ret) {
@@ -300,7 +304,7 @@ int dsp_device_open(struct dsp_device *dspdev)
 
 	dspdev->open_count = 1;
 	dspdev->start_count = 0;
-	dsp_info("device TAG : OFI_SDK_BETA_1_2_6\n");
+	dsp_info("device TAG : OFI_SDK_BETA_1_2_7\n");
 	dsp_info("device is opened(%u/%u)\n",
 			dspdev->open_count, dspdev->start_count);
 	mutex_unlock(&dspdev->lock);

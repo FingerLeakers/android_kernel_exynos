@@ -142,6 +142,8 @@ int is_itf_open_wrap(struct is_device_ischain *device, u32 module_id,
 			err("failed to create threads for DDK, ret %d", ret);
 			return ret;
 		}
+
+		atomic_set(&hardware->lic_updated, 0);
 	}
 
 	region = device->is_region;

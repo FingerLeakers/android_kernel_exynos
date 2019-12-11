@@ -34,8 +34,12 @@ enum {
 
 #if defined(MACOSX)
 #define OSL_PKTTAG_SZ	56
-#else
+#elif defined(__linux__)
 #define OSL_PKTTAG_SZ   48 /* standard linux pkttag size is 48 bytes */
+#else
+#ifndef OSL_PKTTAG_SZ
+#define OSL_PKTTAG_SZ	32 /* Size of PktTag */
+#endif /* !OSL_PKTTAG_SZ */
 #endif
 
 /* Drivers use PKTFREESETCB to register a callback function when a packet is freed by OSL */
@@ -47,9 +51,13 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 
 #if defined(WL_UNITTEST)
 #include <utest_osl.h>
-#else
+#elif defined(__linux__)
 #include <linux_osl.h>
 #include <linux_pkt.h>
+#elif defined(MACOSX)
+#include <macosx_osl.h>
+#else
+#error "Unsupported OSL requested"
 #endif
 
 #ifndef PKTDBG_TRACE
@@ -309,6 +317,14 @@ do { \
 #define PKTRESETUDR(osh, lb)			BCM_REFERENCE(osh)
 #endif
 
+#if !defined(__linux__)
+#define PKTLIST_INIT(x)			BCM_REFERENCE(x)
+#define PKTLIST_ENQ(x, y)		BCM_REFERENCE(x)
+#define PKTLIST_DEQ(x)			BCM_REFERENCE(x)
+#define PKTLIST_UNLINK(x, y)		BCM_REFERENCE(x)
+#define PKTLIST_FINI(x)			BCM_REFERENCE(x)
+#endif
+
 #ifndef ROMMABLE_ASSERT
 #define ROMMABLE_ASSERT(exp) ASSERT(exp)
 #endif /* ROMMABLE_ASSERT */
@@ -365,5 +381,14 @@ do { \
 #define PERF_TRACE_END2(id, mycounters)		do {} while (0)
 #define UPDATE_PERF_TRACE_COUNTER(counter, val)	do {} while (0)
 #endif /* OSL_MEMCHECK */
+
+/* Virtual/physical address translation. */
+#if !defined(OSL_VIRT_TO_PHYS_ADDR)
+	#define OSL_VIRT_TO_PHYS_ADDR(va)	((void*)(uintptr)(va))
+#endif
+
+#if !defined(OSL_PHYS_TO_VIRT_ADDR)
+	#define OSL_PHYS_TO_VIRT_ADDR(pa)	((void*)(uintptr)(pa))
+#endif
 
 #endif	/* _osl_h_ */

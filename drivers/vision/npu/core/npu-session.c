@@ -960,7 +960,7 @@ int __ion_alloc_IMB(struct npu_session *session, struct addr_info **IMB_av)
 		(session->imb_ion_info + i)->daddr = IMB_mem_buf->daddr + addr_offset;
 		(session->imb_ion_info + i)->vaddr = ((void *)((char *)(IMB_mem_buf->vaddr)) + addr_offset);
 		(session->imb_ion_info + i)->size = (*IMB_av + i)->size;
-		addr_offset += ALIGN((*IMB_av + i)->size, NPU_IMB_ALIGN);
+		addr_offset += ALIGN((*IMB_av + i)->size, (u32)NPU_IMB_ALIGN);
 
 		npu_udbg("(IMB_mem_buf + %d)->vaddr(0x%pK), daddr(0x%pad), size(%zu)\n",
 			session, i, (session->imb_ion_info + i)->vaddr, &(session->imb_ion_info + i)->daddr, (session->imb_ion_info + i)->size);

@@ -22,8 +22,8 @@
 #include <soc/samsung/exynos-devfreq.h>
 
 #define DISP_FACTOR		100UL
-#define LCD_REFRESH_RATE	63UL
-#define MULTI_FACTOR 		(1UL << 10)
+#define LCD_REFRESH_RATE	60UL
+#define MULTI_FACTOR 		(1U << 10)
 /* bus utilization 70% : same value with INT_UTIL */
 #define BUS_UTIL		70
 
@@ -32,15 +32,18 @@
 #define DPP_SCALE_DOWN		2
 
 #define ACLK_100MHZ_PERIOD	10000UL
-#define ACLK_MHZ_INC_STEP	50UL	/* 50Mhz */
+#define ACLK_MHZ_INC_STEP	50U	/* 50Mhz */
 #define FRAME_TIME_NSEC		1000000000UL	/* 1sec */
-#define TOTAL_BUS_LATENCY	3000UL	/* 3us: BUS(1) + PWT(1) + Requst(1) */
+#define TOTAL_BUS_LATENCY	3000U	/* 3us: BUS(1) + PWT(1) + Requst(1) */
 
 /* tuning parameters for rotation */
 #define ROTATION_FACTOR_BPP	32UL
 #define ROTATION_FACTOR_SCUP	1332UL	/* 1.3x */
 #define ROTATION_FACTOR_SCDN	1434UL	/* 1.4x */
 #define RESOL_QHDP_21_TO_9	3440*1440UL	/* for MIF min-lock */
+
+#define BTS_MAX_XRES		4096
+#define BTS_MAX_YRES		2160
 
 
 /* unit : usec x 1000 -> 5592 (5.592us) for WQHD+ case */
@@ -76,10 +79,10 @@ static inline u32 dpu_bts_scale_latency(u32 is_s, u32 src_w, u32 dst_w,
 	 * INC for scale-down & DEC for scale-up
 	 */
 	if (is_s == DPP_SCALE_DOWN)
-		line_w = src_w * (src_w * 1000UL) / dst_w;
+		line_w = src_w * (src_w * 1000U) / dst_w;
 	else
-		line_w = src_w * 1000UL;
-	lat_scale = (line_w * lmc) / (ppc * 1000UL);
+		line_w = src_w * 1000U;
+	lat_scale = (line_w * lmc) / (ppc * 1000U);
 
 	return lat_scale;
 }
@@ -180,7 +183,7 @@ static u32 dpu_bts_find_latency_meet_aclk(u32 lat_cycle, u32 line_time,
 		u32 criteria_v, u32 aclk_disp,
 		bool is_yuv10, bool is_rotate, u32 rot_factor)
 {
-	u32 aclk_mhz = aclk_disp / 1000UL;
+	u32 aclk_mhz = aclk_disp / 1000U;
 	u32 aclk_period, lat_time;
 	u32 lat_time_max;
 
@@ -194,7 +197,7 @@ static u32 dpu_bts_find_latency_meet_aclk(u32 lat_cycle, u32 line_time,
 	while (1) {
 		/* aclk_period: nsec x 1000 */
 		aclk_period = dpu_bts_get_aclk_period_time(aclk_mhz);
-		lat_time = (lat_cycle * aclk_period) / 1000UL;
+		lat_time = (lat_cycle * aclk_period) / 1000U;
 		lat_time = lat_time << is_yuv10;
 		lat_time += TOTAL_BUS_LATENCY;
 		if (is_rotate)
@@ -214,18 +217,34 @@ static u32 dpu_bts_find_latency_meet_aclk(u32 lat_cycle, u32 line_time,
 	return (aclk_mhz * 1000UL);
 }
 
-/* return : kHz value based on 1-pixel processing pipe-line */
-u32 dpu_bts_get_aclk(u32 xres, u32 yres, u32 fps)
+/*
+ * This function is introduced due to VRR feature.
+ * return : kHz value based on 1-pixel processing pipe-line
+ */
+static u64 dpu_bts_get_resol_clock(u32 xres, u32 yres, u32 fps)
 {
-	u32 aclk;
-	u64 tmp;
+	u32 op_fps;
+	u64 margin;
+	u64 resol_khz;
 
-	/* aclk = vclk_1pix * ( 1.1 + (48+20)/WIDTH ) : x1000 */
-	tmp = 1100 + (48000 + 20000) / xres;
-	aclk = xres * yres * fps * tmp / 1000;
+	/*
+	 * check lower limit of fps
+	 * this can be removed if there is no stuck issue
+	 */
+	op_fps = (fps < LCD_REFRESH_RATE) ? LCD_REFRESH_RATE : fps;
 
+	/*
+	 * aclk_khz = vclk_1pix * ( 1.1 + (48+20)/WIDTH ) : x1000
+	 * @ (1.1)   : BUS Latency Considerable Margin (10%)
+	 * @ (48+20) : HW bubble cycles
+	 *      - 48 : 12 cycles per slice, total 4 slice
+	 *      - 20 : hblank cycles for other HW module
+	 */
+	margin = 1100 + (48000 + 20000) / xres;
 	/* convert to kHz unit */
-	return (aclk / 1000);
+	resol_khz = (xres * yres * op_fps * margin / 1000) / 1000;
+
+	return resol_khz;
 }
 
 u64 dpu_bts_calc_aclk_disp(struct decon_device *decon,
@@ -337,8 +356,6 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon,
 	u32 disp_ch_bw[BTS_DPU_MAX];
 	u32 max_disp_ch_bw;
 	u32 disp_op_freq = 0, freq = 0;
-	u64 resol_clock;
-	u64 op_fps = LCD_REFRESH_RATE;
 	struct decon_win_config *config = regs->dpp_config;
 
 	memset(disp_ch_bw, 0, sizeof(disp_ch_bw));
@@ -363,21 +380,13 @@ static void dpu_bts_find_max_disp_freq(struct decon_device *decon,
 	decon->bts.peak = max_disp_ch_bw;
 	decon->bts.max_disp_freq = max_disp_ch_bw * 100 / (16 * BUS_UTIL) + 1;
 
-	op_fps = (decon->lcd_info->fps < LCD_REFRESH_RATE) ?
-				LCD_REFRESH_RATE : decon->lcd_info->fps;
-
-	resol_clock = dpu_bts_get_aclk(decon->lcd_info->xres,
-			decon->lcd_info->yres, op_fps);
-
-	DPU_DEBUG_BTS("\tDECON%d : resol clock = %d Khz @%d fps\n",
-		decon->id, decon->bts.resol_clk, op_fps);
-
 	for (i = 0; i < decon->dt.max_win; ++i) {
 		if ((config[i].state != DECON_WIN_STATE_BUFFER) &&
 				(config[i].state != DECON_WIN_STATE_COLOR))
 			continue;
 
-		freq = dpu_bts_calc_aclk_disp(decon, &config[i], resol_clock);
+		freq = dpu_bts_calc_aclk_disp(decon, &config[i],
+				(u64)decon->bts.resol_clk);
 		if (disp_op_freq < freq)
 			disp_op_freq = freq;
 	}
@@ -436,6 +445,7 @@ void dpu_bts_calc_bw(struct decon_device *decon, struct decon_reg_data *regs)
 	enum dpp_rotate rot;
 	int idx, i;
 	u32 total_bw = 0;
+	u64 resol_clock;
 
 	if (!decon->bts.enabled)
 		return;
@@ -444,6 +454,12 @@ void dpu_bts_calc_bw(struct decon_device *decon, struct decon_reg_data *regs)
 	DPU_DEBUG_BTS("%s + : DECON%d\n", __func__, decon->id);
 
 	memset(&bts_info, 0, sizeof(struct bts_decon_info));
+
+	resol_clock = dpu_bts_get_resol_clock(decon->lcd_info->xres,
+				decon->lcd_info->yres, decon->lcd_info->fps);
+	decon->bts.resol_clk = (u32)resol_clock;
+	DPU_DEBUG_BTS("[Run: D%d] resol clock = %d Khz @%d fps\n",
+		decon->id, decon->bts.resol_clk, decon->lcd_info->fps);
 
 	bts_info.vclk = decon->bts.resol_clk;
 	bts_info.lcd_w = decon->lcd_info->xres;
@@ -604,7 +620,6 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 #endif
 	struct decon_win_config config;
 	u64 resol_clock;
-	u64 op_fps = LCD_REFRESH_RATE;
 	u32 aclk_freq = 0;
 
 #if defined(CONFIG_DECON_BTS_LEGACY) && defined(CONFIG_EXYNOS_DISPLAYPORT)
@@ -624,10 +639,11 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 		memset(&config, 0, sizeof(struct decon_win_config));
 		config.src.w = config.dst.w = decon->lcd_info->xres;
 		config.src.h = config.dst.h = decon->lcd_info->yres;
-		op_fps = (decon->lcd_info->fps < LCD_REFRESH_RATE) ?
-				LCD_REFRESH_RATE : decon->lcd_info->fps;
-		resol_clock = decon->lcd_info->xres * decon->lcd_info->yres *
-				op_fps * 11 / 10 / 1000 + 1;
+
+		resol_clock = dpu_bts_get_resol_clock(decon->lcd_info->xres,
+				decon->lcd_info->yres, decon->lcd_info->fps);
+		decon->bts.resol_clk = (u32)resol_clock;
+
 		aclk_freq = dpu_bts_calc_aclk_disp(decon, &config, resol_clock);
 		DPU_DEBUG_BTS("Initial calculated disp freq(%lu) @%d fps\n",
 				aclk_freq, decon->lcd_info->fps);
@@ -638,7 +654,7 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 		if (exynos_devfreq_get_domain_freq(DEVFREQ_DISP) < aclk_freq)
 			pm_qos_update_request(&decon->bts.disp_qos, aclk_freq);
 
-		DPU_DEBUG_BTS("Get initial disp freq(%lu)\n",
+		DPU_DEBUG_BTS("%s -: Get initial disp freq(%lu)\n", __func__,
 				exynos_devfreq_get_domain_freq(DEVFREQ_DISP));
 
 		return;
@@ -672,7 +688,7 @@ void dpu_bts_acquire_bw(struct decon_device *decon)
 			DPU_ERR_BTS("%s mif qos setting error\n", __func__);
 	}
 
-	DPU_DEBUG_BTS("%s: decon%d, pixelclock(%u)\n",
+	DPU_DEBUG_BTS("%s -: decon%d, pixelclock(%u)\n",
 			__func__, decon->id, pixelclock);
 #endif
 }
@@ -717,6 +733,7 @@ void dpu_bts_release_bw(struct decon_device *decon)
 void dpu_bts_init(struct decon_device *decon)
 {
 	int i;
+	u64 resol_clock;
 	struct v4l2_subdev *sd = NULL;
 	const char *scen_name[DPU_BS_MAX] = {
 		"default",
@@ -757,25 +774,14 @@ void dpu_bts_init(struct decon_device *decon)
 
 	DPU_DEBUG_BTS("BTS_BW_TYPE(%d) -\n", decon->bts.bw_idx);
 
-	if (decon->dt.out_type == DECON_OUT_DP) {
-		/*
-		* Decon2-DP : various resolutions are available
-		* therefore, set max resolution clock at init phase to avoid underrun
-		*/
-		decon->bts.resol_clk = (u32)((u64)4096 * 2160 * 60 * 11
-				/ 10 / 1000 + 1);
-	} else {		
-		/*
-		 * Resol clock(KHZ) =
-		 *	lcd width x lcd height x fps(refresh rate) x
-		 *	1.1(10% margin) / 1000(for KHZ) + 1(for raising to a unit)
-		 */
-		decon->bts.resol_clk = (u32)((u64)decon->lcd_info->xres *
-				(u64)decon->lcd_info->yres *
-				decon->lcd_info->fps * 11 / 10 / 1000 + 1);
-				
-	}
+	if (decon->dt.out_type == DECON_OUT_DP)
+		resol_clock = dpu_bts_get_resol_clock(BTS_MAX_XRES,
+				BTS_MAX_YRES, LCD_REFRESH_RATE);
+	else
+		resol_clock = dpu_bts_get_resol_clock(decon->lcd_info->xres,
+				decon->lcd_info->yres, decon->lcd_info->fps);
 
+	decon->bts.resol_clk = (u32)resol_clock;
 	DPU_DEBUG_BTS("[Init: D%d] resol clock = %d Khz @%d fps\n",
 		decon->id, decon->bts.resol_clk, decon->lcd_info->fps);
 
@@ -794,7 +800,8 @@ void dpu_bts_init(struct decon_device *decon)
 
 	decon->bts.enabled = true;
 
-	DPU_INFO_BTS("decon%d bts feature is enabled\n", decon->id);
+	DPU_INFO_BTS("%s -: decon%d bts feature is enabled\n",
+			__func__, decon->id);
 }
 
 void dpu_bts_deinit(struct decon_device *decon)

@@ -54,12 +54,13 @@ static dma_addr_t alloc_iovm_region(struct exynos_iovmm *vmm, size_t size,
 	u32 vsize;
 	unsigned long end, i;
 	struct exynos_vm_region *region;
-	size_t align = SZ_1M;
+	struct exynos_iommu_domain *domain = to_exynos_domain(vmm->domain);
+	size_t align = domain->pre_alloc ? SZ_4K : SZ_1M;
 
 	BUG_ON(page_offset >= PAGE_SIZE);
 
 	/* To avoid allocating prefetched iovm region */
-	vsize = (ALIGN(size + SZ_128K, SZ_128K) + section_offset) >> PAGE_SHIFT;
+	vsize = (size + section_offset) >> PAGE_SHIFT;
 	align >>= PAGE_SHIFT;
 	section_offset >>= PAGE_SHIFT;
 
@@ -71,6 +72,8 @@ again:
 	if (align) {
 		index = ALIGN(index, align);
 		if (index >= IOVM_NUM_PAGES(vmm->iovm_size)) {
+			pr_err("%s exceed index: %d, num_page: %d\n",
+				__func__, index, IOVM_NUM_PAGES(vmm->iovm_size));
 			spin_unlock(&vmm->bitmap_lock);
 			return 0;
 		}
@@ -82,6 +85,8 @@ again:
 	end = index + vsize;
 
 	if (end >= IOVM_NUM_PAGES(vmm->iovm_size)) {
+		pr_err("%s exceed end: %d, num_page: %d\n",
+				__func__, end, IOVM_NUM_PAGES(vmm->iovm_size));
 		spin_unlock(&vmm->bitmap_lock);
 		return 0;
 	}
@@ -100,6 +105,7 @@ again:
 
 	region = kmalloc(sizeof(*region), GFP_KERNEL);
 	if (unlikely(!region)) {
+		pr_err("%s failed to kmalloc for region:", __func__);
 		spin_lock(&vmm->bitmap_lock);
 		bitmap_clear(vmm->vm_map, index, vsize);
 		spin_unlock(&vmm->bitmap_lock);

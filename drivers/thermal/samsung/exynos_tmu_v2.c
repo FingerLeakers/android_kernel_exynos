@@ -68,6 +68,8 @@
 #include <linux/sec_class.h>
 #endif
 
+static struct workqueue_struct *exynos_tmu_wq = NULL;
+
 #ifdef CONFIG_EXYNOS_ACPM_THERMAL
 static struct acpm_tmu_cap cap;
 static unsigned int num_of_devices, suspended_count;
@@ -459,7 +461,7 @@ static irqreturn_t exynos_tmu_irq(int irq, void *id)
 	struct exynos_tmu_data *data = id;
 
 	disable_irq_nosync(irq);
-	schedule_work(&data->irq_work);
+	queue_work(exynos_tmu_wq, &data->irq_work);
 
 	return IRQ_HANDLED;
 }
@@ -907,6 +909,7 @@ struct exynos_tmu_data *gpu_thermal_data;
 static int exynos_tmu_probe(struct platform_device *pdev)
 {
 	struct exynos_tmu_data *data;
+	struct workqueue_attrs attr;
 	int ret;
 
 	data = devm_kzalloc(&pdev->dev, sizeof(struct exynos_tmu_data),
@@ -920,6 +923,16 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 	ret = exynos_map_dt_data(pdev);
 	if (ret)
 		goto err_sensor;
+
+	if (!exynos_tmu_wq) {
+		attr.nice = -20;
+		attr.no_numa = true;
+		cpumask_copy(attr.cpumask, cpu_coregroup_mask(0));
+		exynos_tmu_wq = alloc_workqueue("%s", WQ_HIGHPRI | WQ_UNBOUND |\
+				WQ_MEM_RECLAIM | WQ_FREEZABLE,
+				0, "exynos_tmu_wq");
+		apply_workqueue_attrs(exynos_tmu_wq, &attr);
+	}
 
 	INIT_WORK(&data->irq_work, exynos_tmu_work);
 

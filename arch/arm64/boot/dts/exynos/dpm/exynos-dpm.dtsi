@@ -5,7 +5,7 @@
  *		http://www.samsung.com
  *
  * SAMSUNG EXYNOS SoC device nodes are listed in this file.
- * EXYNOS9820 based board files can include this file and provide
+ * EXYNOS9830 based board files can include this file and provide
  * values for board specfic bindings.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,7 @@
 
 			dpm {
 				version = <100>;
-				chip-id = <9630>;
+				chip-id = <9830>;
 
 				security {
 					cp_mem_not_clear	= <0>;
@@ -34,6 +34,7 @@
 					seh_enable		= <0>;
 					pm_test_enable		= <0>;
 					seclog_enable		= <0>;
+					harxlog_enable		= <0>;
 					sdm_enable		= <0>;
 				};
 

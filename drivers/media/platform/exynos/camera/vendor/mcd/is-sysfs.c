@@ -729,6 +729,8 @@ static ssize_t camera_afcal_show(char *buf, enum is_cam_info_index cam_index)
 	int rom_cal_index;
 	char *cal_buf;
 	bool is_front = false;
+	int i;
+	char tempbuf[30] = {0, };
 
 	is_get_cam_info_from_index(&cam_info, cam_index);
 
@@ -755,44 +757,52 @@ static ssize_t camera_afcal_show(char *buf, enum is_cam_info_index cam_index)
 	}
 
 	if (rom_cal_index == 1) {
-		if (finfo->rom_sensor2_af_cal_macro_addr == -1) {
-			return sprintf(buf, "10 N N N N %d N N N %d\n",
-				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_d50_addr]),
-				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_pan_addr]));
-		} else if (finfo->rom_sensor2_af_cal_d50_addr != -1) {
-			return sprintf(buf, "10 %d N N N %d N N N %d\n",
-				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_macro_addr]),
-				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_d50_addr]),
+		if (is_front) {
+			return sprintf(buf, "1 %d %d\n",
+				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_d_addr[0]]),
 				*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_pan_addr]));
 		} else {
-			if (is_front)
-				return sprintf(buf, "1 %d %d\n",
-					*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_macro_addr]),
-					*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_pan_addr]));
-			else
-				return sprintf(buf, "10 %d N N N N N N N %d\n",
-					*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_macro_addr]),
-					*((s32*)&cal_buf[finfo->rom_sensor2_af_cal_pan_addr]));
+			char tmpChar[5] = {0, };
+			strcpy(tempbuf, "10");
+
+			for (i = 0; i < AF_CAL_D_MAX; i++) {
+				if (finfo->rom_sensor2_af_cal_d_addr[i] == -1) {
+					strncat(tempbuf, " N", strlen(" N"));
+				}
+				else {
+					sprintf(tmpChar, " %d", *((s32*)&cal_buf[finfo->rom_sensor2_af_cal_d_addr[i]]));
+					strncat(tempbuf, tmpChar, strlen(tmpChar));
+				}
+			}
+
+			sprintf(tmpChar, " %d", *((s32*)&cal_buf[finfo->rom_sensor2_af_cal_pan_addr]));
+			strncat(tempbuf, tmpChar, strlen(tmpChar));
+
+			return sprintf(buf, "%s\n", tempbuf);;
 		}
 	} else {
-		if (finfo->rom_af_cal_macro_addr == -1) {
-			return sprintf(buf, "10 N N N N %d N N N %d\n",
-				*((s32*)&cal_buf[finfo->rom_af_cal_d50_addr]),
-				*((s32*)&cal_buf[finfo->rom_af_cal_pan_addr]));
-		} else if (finfo->rom_af_cal_d50_addr != -1) {
-			return sprintf(buf, "10 %d N N N %d N N N %d\n",
-				*((s32*)&cal_buf[finfo->rom_af_cal_macro_addr]),
-				*((s32*)&cal_buf[finfo->rom_af_cal_d50_addr]),
+		if (is_front) {
+			return sprintf(buf, "1 %d %d\n",
+				*((s32*)&cal_buf[finfo->rom_af_cal_d_addr[0]]),
 				*((s32*)&cal_buf[finfo->rom_af_cal_pan_addr]));
 		} else {
-			if (is_front)
-				return sprintf(buf, "1 %d %d\n",
-					*((s32*)&cal_buf[finfo->rom_af_cal_macro_addr]),
-					*((s32*)&cal_buf[finfo->rom_af_cal_pan_addr]));
-			else
-				return sprintf(buf, "10 %d N N N N N N N %d\n",
-					*((s32*)&cal_buf[finfo->rom_af_cal_macro_addr]),
-					*((s32*)&cal_buf[finfo->rom_af_cal_pan_addr]));
+			char tmpChar[5] = {0, };
+			strcpy(tempbuf, "10");
+
+			for (i = 0; i < AF_CAL_D_MAX; i++) {
+				if (finfo->rom_af_cal_d_addr[i] == -1) {
+					strncat(tempbuf, " N", strlen(" N"));
+				}
+				else {
+					sprintf(tmpChar, " %d", *((s32*)&cal_buf[finfo->rom_af_cal_d_addr[i]]));
+					strncat(tempbuf, tmpChar, strlen(tmpChar));
+				}
+			}
+
+			sprintf(tmpChar, " %d", *((s32*)&cal_buf[finfo->rom_af_cal_pan_addr]));
+			strncat(tempbuf, tmpChar, strlen(tmpChar));
+
+			return sprintf(buf, "%s\n", tempbuf);;
 		}
 	}
 

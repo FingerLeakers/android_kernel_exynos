@@ -71,7 +71,7 @@
 #define ABOX_PAD_NORMAL				(0x19A0)
 #define ABOX_PAD_NORMAL_MASK			(0x00000800)
 #endif
-#define ABOX_ARAM_CTRL 				(0x040c)
+#define ABOX_ARAM_CTRL				(0x040c)
 
 #define DEFAULT_CPU_GEAR_ID		(0xAB0CDEFA)
 #define TEST_CPU_GEAR_ID		(DEFAULT_CPU_GEAR_ID + 1)
@@ -80,13 +80,6 @@
 #define BOOT_DONE_TIMEOUT_MS		(10000)
 #define DRAM_TIMEOUT_NS			(10000000)
 #define IPC_RETRY			(10)
-
-#define ERAP(wname, wcontrols, event_fn, wparams) \
-{	.id = snd_soc_dapm_dai_link, .name = wname, \
-	.reg = SND_SOC_NOPM, .event = event_fn, \
-	.kcontrol_news = wcontrols, .num_kcontrols = 1, \
-	.params = wparams, .num_params = ARRAY_SIZE(wparams), \
-	.event_flags = SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_WILL_PMD }
 
 void __weak exynos_sysmmu_tlb_invalidate(struct iommu_domain *domain,
 		dma_addr_t start, size_t size)
@@ -763,6 +756,17 @@ unsigned int abox_get_requiring_int_freq_in_khz(void)
 	return abox_qos_get_target(data->dev, ABOX_QOS_INT);
 }
 EXPORT_SYMBOL(abox_get_requiring_int_freq_in_khz);
+
+unsigned int abox_get_requiring_mif_freq_in_khz(void)
+{
+	struct abox_data *data = p_abox_data;
+
+	if (data == NULL)
+		return 0;
+
+	return abox_qos_get_target(data->dev, ABOX_QOS_MIF);
+}
+EXPORT_SYMBOL(abox_get_requiring_mif_freq_in_khz);
 
 unsigned int abox_get_requiring_aud_freq_in_khz(void)
 {
@@ -1661,7 +1665,6 @@ static void abox_boot_done_work_func(struct work_struct *work)
 	abox_cpu_pm_ipc(data, true);
 	abox_request_cpu_gear(dev, data, DEFAULT_CPU_GEAR_ID,
 			ABOX_CPU_GEAR_MIN, "boot_done");
-	schedule_delayed_work(&data->boot_clear_work, HZ);
 }
 
 static void abox_boot_done(struct device *dev, unsigned int version)
@@ -1677,6 +1680,8 @@ static void abox_boot_done(struct device *dev, unsigned int version)
 			ver_char[3], ver_char[2], ver_char[1], ver_char[0]);
 	data->calliope_state = CALLIOPE_ENABLED;
 	schedule_work(&data->boot_done_work);
+	cancel_delayed_work(&data->boot_clear_work);
+	schedule_delayed_work(&data->boot_clear_work, HZ);
 
 	wake_up(&data->ipc_wait_queue);
 }
@@ -2048,6 +2053,32 @@ static int abox_cpu_pm_ipc(struct abox_data *data, bool resume)
 	return ret;
 }
 
+static int abox_pm_ipc(struct abox_data *data, bool resume)
+{
+	const unsigned long long TIMER_RATE = 26000000;
+	struct device *dev = data->dev;
+	ABOX_IPC_MSG msg;
+	struct IPC_SYSTEM_MSG *system = &msg.msg.system;
+	unsigned long long ktime, atime;
+	int ret;
+
+	dev_dbg(dev, "%s\n", __func__);
+
+	ktime = sched_clock();
+	atime = readq_relaxed(data->timer_base + ABOX_TIMER_CURVALUD_LSB(1));
+	/* clock to ns */
+	atime *= 500;
+	do_div(atime, TIMER_RATE / 2000000);
+
+	msg.ipcid = IPC_SYSTEM;
+	system->msgtype = resume ? ABOX_AP_RESUME : ABOX_AP_SUSPEND;
+	system->bundle.param_u64[0] = ktime;
+	system->bundle.param_u64[1] = atime;
+	ret = abox_request_ipc(dev, msg.ipcid, &msg, sizeof(msg), 1, 1);
+
+	return ret;
+}
+
 static void abox_pad_retention(bool retention)
 {
 	if (!retention)
@@ -2184,6 +2215,9 @@ static int abox_ext_bin_name_put(struct snd_kcontrol *kcontrol,
 
 	dev_dbg(dev, "%s(%s)\n", __func__, kcontrol->id.name);
 
+	if (!efw->changeable)
+		return -EINVAL;
+
 	if (size >= sizeof(efw->name))
 		return -EINVAL;
 
@@ -2247,6 +2281,9 @@ static int abox_ext_bin_reload_put(struct snd_kcontrol *kcontrol,
 
 	dev_dbg(dev, "%s(%s)\n", __func__, kcontrol->id.name);
 
+	if (!efw->changeable)
+		return -EINVAL;
+
 	if (ucontrol->value.integer.value[0]) {
 		abox_ext_bin_request(dev, efw);
 		abox_ext_bin_download(data, efw);
@@ -2288,7 +2325,7 @@ static int abox_ext_bin_reload_all_put(struct snd_kcontrol *kcontrol,
 
 	if (ucontrol->value.integer.value[0]) {
 		list_for_each_entry(efw, &data->firmware_extra, list) {
-			if (efw->changable) {
+			if (efw->changeable) {
 				abox_ext_bin_request(dev, efw);
 				abox_ext_bin_download(data, efw);
 				abox_ext_bin_reload_put_ipc(data, efw);
@@ -2314,6 +2351,7 @@ static int abox_ext_bin_add_controls(struct snd_soc_component *cmpnt,
 	struct soc_mixer_control *mc;
 	char *name;
 	int num_controls = ARRAY_SIZE(abox_ext_bin_controls);
+	int ret;
 
 	if (!cmpnt)
 		return -EINVAL;
@@ -2324,16 +2362,16 @@ static int abox_ext_bin_add_controls(struct snd_soc_component *cmpnt,
 		reload_all_added = !snd_soc_add_component_controls(cmpnt,
 				&abox_ext_bin_reload_all_control, 1);
 
-	controls = devm_kmemdup(dev, &abox_ext_bin_controls,
+	controls = kmemdup(&abox_ext_bin_controls,
 			sizeof(abox_ext_bin_controls), GFP_KERNEL);
 	if (!controls)
 		return -ENOMEM;
 
 	for (control = controls; control - controls < num_controls; control++) {
-		name = devm_kasprintf(dev, GFP_KERNEL, control->name, efw->idx);
+		name = kasprintf(GFP_KERNEL, control->name, efw->idx);
 		if (!name) {
-			devm_kfree(dev, controls);
-			return -ENOMEM;
+			ret = -ENOMEM;
+			goto err;
 		}
 		control->name = name;
 
@@ -2341,9 +2379,8 @@ static int abox_ext_bin_add_controls(struct snd_soc_component *cmpnt,
 			be = (void *)control->private_value;
 			be = devm_kmemdup(dev, be, sizeof(*be), GFP_KERNEL);
 			if (!be) {
-				devm_kfree(dev, name);
-				devm_kfree(dev, controls);
-				return -ENOMEM;
+				ret = -ENOMEM;
+				goto err;
 			}
 			be->dobj.private = efw;
 			control->private_value = (unsigned long)be;
@@ -2351,20 +2388,23 @@ static int abox_ext_bin_add_controls(struct snd_soc_component *cmpnt,
 			mc = (void *)control->private_value;
 			mc = devm_kmemdup(dev, mc, sizeof(*mc), GFP_KERNEL);
 			if (!mc) {
-				devm_kfree(dev, name);
-				devm_kfree(dev, controls);
-				return -ENOMEM;
+				ret = -ENOMEM;
+				goto err;
 			}
 			mc->dobj.private = efw;
 			control->private_value = (unsigned long)mc;
 		} else {
-			devm_kfree(dev, name);
-			devm_kfree(dev, controls);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto err;
 		}
 	}
 
-	return snd_soc_add_component_controls(cmpnt, controls, num_controls);
+	ret = snd_soc_add_component_controls(cmpnt, controls, num_controls);
+err:
+	for (control = controls; control - controls < num_controls; control++)
+		kfree_const(control->name);
+	kfree(controls);
+	return ret;
 }
 
 static struct abox_extra_firmware *abox_get_extra_firmware(
@@ -2378,6 +2418,38 @@ static struct abox_extra_firmware *abox_get_extra_firmware(
 	}
 
 	return NULL;
+}
+
+int abox_add_extra_firmware(struct device *dev,
+		struct abox_data *data, int idx,
+		const char *name, unsigned int area,
+		unsigned int offset, bool changeable)
+{
+	struct abox_extra_firmware *efw;
+
+	efw = abox_get_extra_firmware(data, idx);
+	if (efw) {
+		dev_info(dev, "update firmware: %s\n", name);
+		strlcpy(efw->name, name, sizeof(efw->name));
+		efw->area = area;
+		efw->offset = offset;
+		efw->changeable = changeable;
+		return 0;
+	}
+
+	efw = devm_kzalloc(dev, sizeof(*efw), GFP_KERNEL);
+	if (!efw)
+		return -ENOMEM;
+
+	dev_info(dev, "new firmware: %s\n", name);
+	strlcpy(efw->name, name, sizeof(efw->name));
+	efw->idx = idx;
+	efw->area = area;
+	efw->offset = offset;
+	efw->changeable = changeable;
+	mutex_init(&efw->lock);
+	list_add_tail(&efw->list, &data->firmware_extra);
+	return 0;
 }
 
 static void abox_reload_extra_firmware(struct abox_data *data, const char *name)
@@ -2398,17 +2470,48 @@ static void abox_reload_extra_firmware(struct abox_data *data, const char *name)
 static void abox_request_extra_firmware(struct abox_data *data)
 {
 	struct device *dev = data->dev;
+	struct abox_extra_firmware *efw;
+
+	dev_dbg(dev, "%s\n", __func__);
+
+	list_for_each_entry(efw, &data->firmware_extra, list) {
+		if (efw->firmware)
+			continue;
+
+		abox_ext_bin_request(dev, efw);
+		if (efw->changeable)
+			abox_ext_bin_add_controls(data->cmpnt, efw);
+	}
+}
+
+static void abox_download_extra_firmware(struct abox_data *data)
+{
+	struct device *dev = data->dev;
+	struct abox_extra_firmware *efw;
+
+	dev_dbg(dev, "%s\n", __func__);
+
+	list_for_each_entry(efw, &data->firmware_extra, list) {
+		abox_ext_bin_download(data, efw);
+		if (efw->kcontrol)
+			abox_register_void_component(data, efw->firmware->data);
+	}
+}
+
+static void abox_parse_extra_firmware(struct abox_data *data)
+{
+	struct device *dev = data->dev;
 	struct device_node *np = dev->of_node;
 	struct device_node *child_np;
 	struct abox_extra_firmware *efw;
 	const char *name;
 	unsigned int idx, area, offset;
-	bool changable, kcontrol;
+	bool changeable, kcontrol;
 	int ret;
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	idx = -1;
+	idx = 0;
 	for_each_available_child_of_node(np, child_np) {
 		if (!of_device_is_compatible(child_np, "samsung,abox-ext-bin"))
 			continue;
@@ -2431,12 +2534,8 @@ static void abox_request_extra_firmware(struct abox_data *data)
 		kcontrol = of_samsung_property_read_bool(dev, child_np,
 				"mixer-control");
 
-		changable = of_samsung_property_read_bool(dev, child_np,
+		changeable = of_samsung_property_read_bool(dev, child_np,
 				"changable");
-
-		efw = abox_get_extra_firmware(data, ++idx);
-		if (efw)
-			continue;
 
 		efw = devm_kzalloc(dev, sizeof(*efw), GFP_KERNEL);
 		if (!efw)
@@ -2446,36 +2545,19 @@ static void abox_request_extra_firmware(struct abox_data *data)
 				efw->name, efw->area, efw->offset);
 
 		strlcpy(efw->name, name, sizeof(efw->name));
-		efw->idx = idx;
+		efw->idx = idx++;
 		efw->area = area;
 		efw->offset = offset;
 		efw->kcontrol = kcontrol;
-		efw->changable = changable;
+		efw->changeable = changeable;
 		mutex_init(&efw->lock);
 		list_add_tail(&efw->list, &data->firmware_extra);
-		abox_ext_bin_request(dev, efw);
-		if (efw->changable)
-			abox_ext_bin_add_controls(data->cmpnt, efw);
-
-	}
-}
-
-static void abox_download_extra_firmware(struct abox_data *data)
-{
-	struct device *dev = data->dev;
-	struct abox_extra_firmware *efw;
-
-	dev_dbg(dev, "%s\n", __func__);
-
-	list_for_each_entry(efw, &data->firmware_extra, list) {
-		abox_ext_bin_download(data, efw);
-		if (efw->kcontrol)
-			abox_register_void_component(data, efw->firmware->data);
 	}
 }
 
 static int abox_download_firmware(struct device *dev)
 {
+	static bool requested;
 	struct abox_data *data = dev_get_drvdata(dev);
 	int ret;
 
@@ -2483,8 +2565,11 @@ static int abox_download_firmware(struct device *dev)
 	if (ret)
 		return ret;
 
-	if (list_empty(&data->firmware_extra))
+	/* Requesting missing extra firmware is waste of time. */
+	if (!requested) {
 		abox_request_extra_firmware(data);
+		requested = true;
+	}
 	abox_download_extra_firmware(data);
 
 	return 0;
@@ -2639,14 +2724,20 @@ static int abox_runtime_resume(struct device *dev)
 static int abox_suspend(struct device *dev)
 {
 	dev_dbg(dev, "%s\n", __func__);
-	/* nothing to do */
+
+	if (pm_runtime_active(dev))
+		abox_pm_ipc(dev_get_drvdata(dev), false);
+
 	return 0;
 }
 
 static int abox_resume(struct device *dev)
 {
 	dev_dbg(dev, "%s\n", __func__);
-	/* nothing to do */
+
+	if (pm_runtime_active(dev))
+		abox_pm_ipc(dev_get_drvdata(dev), true);
+
 	return 0;
 }
 
@@ -3075,6 +3166,8 @@ static int samsung_abox_probe(struct platform_device *pdev)
 			data->ipc_rx_addr, data->ipc_rx_size);
 	for (i = 0; i < IPC_ID_COUNT; i++)
 		abox_ipc_register_handler(dev, i, abox_ipc_handler, pdev);
+
+	abox_parse_extra_firmware(data);
 
 	abox_shm_init(data->shm_addr, data->shm_size);
 

@@ -3945,9 +3945,9 @@ static void kbase_device_coherency_init(struct kbase_device *kbdev,
 
 		override_coherency = be32_to_cpup(coherency_override_dts);
 
-		if ((override_coherency <= COHERENCY_NONE) /* &&
+		if ((override_coherency <= COHERENCY_NONE)  &&
 			(supported_coherency_bitmap &
-			 COHERENCY_FEATURE_BIT(override_coherency)) */ ) {
+			 COHERENCY_FEATURE_BIT(override_coherency))  ) {
 
 			kbdev->system_coherency = override_coherency;
 

@@ -67,6 +67,12 @@ static struct dev_table update_autotimer_device_table[] = {
 	{}
 };
 
+static struct dev_table unsupport_device_table[] = {
+	{ .dev = { USB_DEVICE(0x1a0a, 0x0201), },
+	},
+	{}
+};
+
 static int check_essential_device(struct usb_device *dev, int index)
 {
 	struct dev_table *id;
@@ -412,6 +418,23 @@ err:
 	return ret;
 }
 #endif
+
+static void check_unsupport_device(struct usb_device *dev)
+{
+	struct dev_table *id;
+
+	/* check VID, PID */
+	for (id = unsupport_device_table; id->dev.match_flags; id++) {
+		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct)) {
+			send_usb_certi_uevent(USB_CERTI_UNSUPPORT_ACCESSORY);
+			break;
+		}
+	}
+}
+
 static int dev_notify(struct notifier_block *self,
 			       unsigned long action, void *dev)
 {
@@ -424,6 +447,7 @@ static int dev_notify(struct notifier_block *self,
 #if defined(CONFIG_USB_HW_PARAM)
 		set_hw_param(dev);
 #endif
+		check_unsupport_device(dev);
 		break;
 	case USB_DEVICE_REMOVE:
 		call_device_notify(dev, 0);

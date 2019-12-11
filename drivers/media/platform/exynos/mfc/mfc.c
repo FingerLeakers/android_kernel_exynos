@@ -21,6 +21,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/poll.h>
+#include <linux/vmalloc.h>
 
 #include "mfc_common.h"
 
@@ -107,7 +108,7 @@ static void __mfc_deinit_dec_ctx(struct mfc_ctx *ctx)
 	mfc_delete_queue(&ctx->meminfo_inbuf_q);
 
 	mfc_mem_cleanup_user_shared_handle(ctx, &dec->sh_handle_hdr);
-	kfree(dec->hdr10_plus_info);
+	vfree(dec->hdr10_plus_info);
 	kfree(dec);
 }
 
@@ -171,13 +172,10 @@ static int __mfc_init_dec_ctx(struct mfc_ctx *ctx)
 
 	/* sh_handle: HDR10+ HEVC SEI meta */
 	dec->sh_handle_hdr.fd = -1;
-	dec->hdr10_plus_info = kzalloc(
-			(sizeof(struct hdr10_plus_meta) * MFC_MAX_DPBS), GFP_KERNEL);
-	if (!dec->hdr10_plus_info) {
+	dec->hdr10_plus_info = vmalloc(
+			(sizeof(struct hdr10_plus_meta) * MFC_MAX_DPBS));
+	if (!dec->hdr10_plus_info)
 		mfc_err_ctx("[HDR+] failed to allocate HDR10+ information data\n");
-		ret = -ENOMEM;
-		goto fail_dec_init;
-	}
 
 	/* Init videobuf2 queue for OUTPUT */
 	ctx->vq_src.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -1036,6 +1034,10 @@ static int __mfc_parse_dt(struct device_node *np, struct mfc_dev *mfc)
 	of_property_read_u32_array(np, "sbwc_uncomp", &pdata->sbwc_uncomp.support, 2);
 	of_property_read_u32_array(np, "mem_clear", &pdata->mem_clear.support, 2);
 	of_property_read_u32_array(np, "wait_fw_status", &pdata->wait_fw_status.support, 2);
+	of_property_read_u32_array(np, "wait_nalq_status",
+			&pdata->wait_nalq_status.support, 2);
+	of_property_read_u32_array(np, "drm_switch_predict",
+			&pdata->drm_switch_predict.support, 2);
 
 	/* Default 10bit format for decoding and dithering for display */
 	of_property_read_u32(np, "P010_decoding", &pdata->P010_decoding);

@@ -117,6 +117,14 @@ enum otg_notify_data_role {
 	HNOTIFY_DFP,
 };
 
+enum usb_certi_type {
+	USB_CERTI_UNSUPPORT_ACCESSORY,
+	USB_CERTI_NO_RESPONSE,
+	USB_CERTI_HUB_DEPTH_EXCEED,
+	USB_CERTI_HUB_POWER_EXCEED,
+	USB_CERTI_HOST_RESOURCE_EXCEED,
+};
+
 struct otg_notify {
 	int vbus_detect_gpio;
 	int redriver_en_gpio;
@@ -154,29 +162,26 @@ struct otg_booster {
 #ifdef CONFIG_USB_NOTIFY_LAYER
 extern const char *event_string(enum otg_notify_events event);
 extern const char *status_string(enum otg_notify_event_status status);
+extern void send_usb_mdm_uevent(void);
+extern void send_usb_certi_uevent(int usb_certi);
+extern int usb_check_whitelist_for_mdm(struct usb_device *dev);
+extern int usb_otg_restart_accessory(struct usb_device *dev);
 extern void send_otg_notify(struct otg_notify *n,
 					unsigned long event, int enable);
+extern int get_typec_status(struct otg_notify *n, int event);
 extern struct otg_booster *find_get_booster(struct otg_notify *n);
 extern int register_booster(struct otg_notify *n, struct otg_booster *b);
 extern int register_ovc_func(struct otg_notify *n,
 				int (*check_state)(void *), void *data);
-extern int get_typec_status(struct otg_notify *n, int event);
 extern int get_booster(struct otg_notify *n);
 extern int get_usb_mode(struct otg_notify *n);
 extern unsigned long get_cable_type(struct otg_notify *n);
 extern int is_usb_host(struct otg_notify *n);
+extern bool is_blocked(struct otg_notify *n, int type);
+extern bool is_snkdfp_usb_device_connected(struct otg_notify *n);
 extern void send_usb_audio_uevent(struct usb_device *dev);
 extern int send_usb_notify_uevent
 		(struct otg_notify *n, char *envp_ext[]);
-extern void *get_notify_data(struct otg_notify *n);
-extern void set_notify_data(struct otg_notify *n, void *data);
-extern struct otg_notify *get_otg_notify(void);
-extern int set_otg_notify(struct otg_notify *n);
-extern void put_otg_notify(struct otg_notify *n);
-extern bool is_blocked(struct otg_notify *n, int type);
-extern bool is_snkdfp_usb_device_connected(struct otg_notify *n);
-extern int usb_check_whitelist_for_mdm(struct usb_device *dev);
-extern int usb_otg_restart_accessory(struct usb_device *dev);
 #if defined(CONFIG_USB_HW_PARAM)
 extern unsigned long long *get_hw_param(struct otg_notify *n,
 					enum usb_hw_param index);
@@ -185,39 +190,41 @@ extern int inc_hw_param(struct otg_notify *n,
 extern int inc_hw_param_host(struct host_notify_dev *dev,
 					enum usb_hw_param index);
 #endif
+extern void *get_notify_data(struct otg_notify *n);
+extern void set_notify_data(struct otg_notify *n, void *data);
+extern struct otg_notify *get_otg_notify(void);
+extern int set_otg_notify(struct otg_notify *n);
+extern void put_otg_notify(struct otg_notify *n);
 #else
 static inline const char *event_string(enum otg_notify_events event)
 			{return NULL; }
 static inline const char *status_string(enum otg_notify_event_status status)
 			{return NULL; }
+static inline void send_usb_mdm_uevent(void) {}
+static inline void send_usb_certi_uevent(int usb_certi) {}
+static inline int usb_check_whitelist_for_mdm(struct usb_device *dev)
+			{return 0; }
+static inline int usb_otg_restart_accessory(struct usb_device *dev)
+			{return 0; }
 static inline void send_otg_notify(struct otg_notify *n,
 					unsigned long event, int enable) { }
+static inline int get_typec_status(struct otg_notify *n, int event) {return 0; }
 static inline struct otg_booster *find_get_booster(struct otg_notify *n)
 			{return NULL; }
 static inline int register_booster(struct otg_notify *n,
 					struct otg_booster *b) {return 0; }
 static inline int register_ovc_func(struct otg_notify *n,
 			int (*check_state)(void *), void *data) {return 0; }
-static inline int get_typec_status(struct otg_notify *n, int event) {return 0; }
 static inline int get_booster(struct otg_notify *n) {return 0; }
 static inline int get_usb_mode(struct otg_notify *n) {return 0; }
 static inline unsigned long get_cable_type(struct otg_notify *n) {return 0; }
 static inline int is_usb_host(struct otg_notify *n) {return 0; }
-static inline void send_usb_audio_uevent(struct usb_device *dev) {}
-static inline int send_usb_notify_uevent
-			(struct otg_notify *n, char *envp_ext[]) {return 0; }
-static inline void *get_notify_data(struct otg_notify *n) {return NULL; }
-static inline void set_notify_data(struct otg_notify *n, void *data) {}
-static inline struct otg_notify *get_otg_notify(void) {return NULL; }
-static inline int set_otg_notify(struct otg_notify *n) {return 0; }
-static inline void put_otg_notify(struct otg_notify *n) {}
 static inline bool is_blocked(struct otg_notify *n, int type) {return false; }
 static inline bool is_snkdfp_usb_device_connected(struct otg_notify *n)
 			{return false; }
-static inline int usb_check_whitelist_for_mdm(struct usb_device *dev)
-			{return 0; }
-static inline int usb_otg_restart_accessory(struct usb_device *dev)
-			{return 0; }
+static inline void send_usb_audio_uevent(struct usb_device *dev) {}
+static inline int send_usb_notify_uevent
+			(struct otg_notify *n, char *envp_ext[]) {return 0; }
 #if defined(CONFIG_USB_HW_PARAM)
 static inline unsigned long long *get_hw_param(struct otg_notify *n,
 			enum usb_hw_param index) {return NULL; }
@@ -226,5 +233,10 @@ static inline int inc_hw_param(struct otg_notify *n,
 static inline int inc_hw_param_host(struct host_notify_dev *dev,
 			enum usb_hw_param index) {return 0; }
 #endif
+static inline void *get_notify_data(struct otg_notify *n) {return NULL; }
+static inline void set_notify_data(struct otg_notify *n, void *data) {}
+static inline struct otg_notify *get_otg_notify(void) {return NULL; }
+static inline int set_otg_notify(struct otg_notify *n) {return 0; }
+static inline void put_otg_notify(struct otg_notify *n) {}
 #endif
 #endif /* __LINUX_USB_NOTIFY_H__ */

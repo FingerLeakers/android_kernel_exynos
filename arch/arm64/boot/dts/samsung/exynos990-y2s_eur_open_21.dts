@@ -51,15 +51,6 @@
 					samsung,pin-pud = <1>;
 				};
 			};
-			
-			pinctrl@10430000 {
-				sub_detect_conn_setting: sub_detect_conn_setting {
-					samsung,pins = "gpp2-5";
-					samsung,pin-function = <0xf>;
-					samsung,pin-pud = <0>;
-					samsung,pin-drv = <0>;
-				};
-			};
 
 			pinctrl@10730000 {
 				bt_btwake: bt-btwake {
@@ -81,9 +72,9 @@
 				bt_en: bt-en {
 					samsung,pins = "gpm16-0";
 					samsung,pin-function = <1>;
-					samsung,pin-pud = <1>;
+					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
-					samsung,pin-pud-pdn = <1>;
+					samsung,pin-pud-pdn = <0>;
 				};
 			};
 
@@ -99,14 +90,22 @@
 
 			sec_detect_conn {
 				compatible = "samsung,sec_detect_conn";
-				sec,det_conn_gpios = <&gpp2 5 0              /* SUB_DET */
-									  &gpp5 3 0>;           /* CAM_CON_DET */
-				sec,det_conn_name = "SUB_CONNECT","CAM_CONNECT";
+				sec,det_conn_gpios = <&gpp5 3 0>;           /* CAM_CON_DET */
+				sec,det_conn_name = "CAM_CONNECT";
 
-				sec,det_conn_irq_type = <3>, /* SUB_DET BOTH EDGE*/
-										<3>; /* CAM_CON_DET BOTH EDGE*/	
+				sec,det_conn_irq_type = <3>; /* CAM_CON_DET BOTH EDGE*/	
 				pinctrl-names = "default";
-				pinctrl-0 = <&sub_detect_conn_setting &cam_detect_conn_setting>;
+				pinctrl-0 = <&cam_detect_conn_setting>;
+			};
+
+			abc_hub {
+				pinctrl-0 = <&cam_detect_conn_setting>;
+				cond {
+					cond,det_conn_gpios = <&gpp5 3 0>; /* CAM_CON_DET */
+
+					cond,name="cam_cond";
+					cond,det_conn_irq_type =<3>; /* CAM_CON_DET BOTH EDGE*/
+				};
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
@@ -168,20 +167,6 @@
 		samsung,pin-pud = <0>;
 		samsung,pin-drv = <0>;
 	};
-
-	tsp_id: tsp-id {
-		samsung,pins = "gpm21-0";
-		samsung,pin-function = <0>;
-		samsung,pin-pud = <0>;
-		samsung,pin-drv = <0>;
-	};
-};
-
-&hsi2c_15 {
-	touchscreen@48 {
-		pinctrl-0 = <&attn_irq &tsp_id>;
-		pinctrl-1 = <&attn_input &tsp_id>;
-	};
 };
 
 &pinctrl_5 {
@@ -233,7 +218,11 @@
 	BCM4773@0 {
 		ssp-acc-position = <7>;
 		ssp-mag-position = <5>;
-      	ssp-mag-array = /bits/ 8 <175 84 224 204 254 128 0 64 212 54 81 108 96 102 252 122 255 159 193 200 191 253 207 211 9 117 206>;
+      	ssp-mag-array = /bits/ 8 <173 83 52 130 26 40 255 254 213 53 75 167 171 211 253 6 0 127 190 137 192 252 168 214 9 230 179>;
+		ssp-thermi-up = /bits/ 16 <3231 3201 3160 3107 3044 2965 2868 2758 2633 2493 2340 2177 2000 1814
+					1640 1468 1302 1145 999 865 746 639 513>;
+		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4034 3822 3566 3312 3027 2728 2438 2156 1886 1634 1409
+					1203 1028 874 743 630 530 450 381 318>;
 	};
 };
 
@@ -265,6 +254,7 @@
 	pinctrl-0 = <&initial4>;
 	initial4: initial-state {
 		PIN_IN_SLP(gpp2-4, NONE, INPUT, NONE);	/* SUB_VER_1 */
+		PIN_IN_SLP(gpp2-5, NONE, INPUT, NONE);	/* SUB_VER_2 */
 	};
 };
 

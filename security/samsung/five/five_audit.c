@@ -22,9 +22,12 @@
 #include "five_audit.h"
 #include "five_cache.h"
 #include "five_porting.h"
+
+#ifdef CONFIG_SECURITY_DSMS
 #include <linux/dsms.h>
 
 #define MESSAGE_BUFFER_SIZE 600
+#endif
 
 static void five_audit_msg(struct task_struct *task, struct file *file,
 		const char *op, enum task_integrity_value prev,
@@ -59,6 +62,7 @@ void five_audit_err(struct task_struct *task, struct file *file,
 	five_audit_msg(task, file, op, prev, tint, cause, result);
 }
 
+#ifdef CONFIG_SECURITY_DSMS
 noinline void five_audit_sign_err(struct task_struct *task, struct file *file,
 		const char *op, enum task_integrity_value prev,
 		enum task_integrity_value tint, const char *cause, int result)
@@ -86,6 +90,14 @@ noinline void five_audit_sign_err(struct task_struct *task, struct file *file,
 	if (pathbuf)
 		__putname(pathbuf);
 }
+#else
+noinline void five_audit_sign_err(struct task_struct *task, struct file *file,
+		const char *op, enum task_integrity_value prev,
+		enum task_integrity_value tint, const char *cause, int result)
+{
+	pr_debug("FIVE: DSMS is not supported\n");
+}
+#endif
 
 static void five_audit_msg(struct task_struct *task, struct file *file,
 		const char *op, enum task_integrity_value prev,

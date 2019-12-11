@@ -1,11 +1,10 @@
 #include <linux/ologk.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-
 /*
-void ologk(const char *fmt, ...) 
-{
-
+void _perflog(int type, int logid, const char *fmt, ...) {
 }
-EXPORT_SYMBOL(ologk);
+
+void perflog_evt(int logid, int arg1) {
+}
 */

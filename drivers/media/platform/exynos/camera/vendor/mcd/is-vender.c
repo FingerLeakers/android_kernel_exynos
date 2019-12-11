@@ -77,7 +77,9 @@ struct workqueue_struct *sensor_pwr_ctrl_wq = 0;
 static struct cam_hw_param_collector cam_hwparam_collector;
 static bool mipi_err_check;
 static bool need_update_to_file;
+#ifdef CONFIG_CAMERA_USE_MCU
 static int factory_aperture_value;
+#endif
 
 void is_sec_init_err_cnt(struct cam_hw_param *hw_param)
 {
@@ -757,14 +759,13 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	const u32 *tof_cal_valid_list_spec;
 	const char *node_string;
 	int ret = 0;
-#ifdef IS_DEVICE_ROM_DEBUG
 	int i;
-#endif
 	u32 temp;
 	char *pprop;
 	bool skip_cal_loading;
 	bool skip_crc_check;
 	bool skip_header_loading;
+	char rom_af_cal_d_addr[30];
 
 	struct is_rom_info *finfo;
 
@@ -975,11 +976,14 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_awb_master_addr", finfo->rom_sensor2_awb_master_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_awb_module_addr", finfo->rom_sensor2_awb_module_addr, -1);
 
-	DT_READ_U32_DEFAULT(dnode, "rom_af_cal_macro_addr", finfo->rom_af_cal_macro_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_af_cal_d50_addr", finfo->rom_af_cal_d50_addr, -1);
+	for (i = 0; i < AF_CAL_D_MAX; i++) {
+		sprintf(rom_af_cal_d_addr, "rom_af_cal_d%d_addr", (i + 1) * 10);
+		DT_READ_U32_DEFAULT(dnode, rom_af_cal_d_addr, finfo->rom_af_cal_d_addr[i], -1);
+		sprintf(rom_af_cal_d_addr, "rom_sensor2_af_cal_d%d_addr", (i + 1) * 10);
+		DT_READ_U32_DEFAULT(dnode, rom_af_cal_d_addr, finfo->rom_sensor2_af_cal_d_addr[i], -1);
+	}
+
 	DT_READ_U32_DEFAULT(dnode, "rom_af_cal_pan_addr", finfo->rom_af_cal_pan_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_af_cal_macro_addr", finfo->rom_sensor2_af_cal_macro_addr, -1);
-	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_af_cal_d50_addr", finfo->rom_sensor2_af_cal_d50_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_sensor2_af_cal_pan_addr", finfo->rom_sensor2_af_cal_pan_addr, -1);
 
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave0_start_addr", finfo->rom_dualcal_slave0_start_addr, -1);
@@ -1320,7 +1324,9 @@ int is_vender_hw_init(struct is_vender *vender)
 	is_vendor_register_ril_notifier();
 #endif
 	is_hw_init_running = false;
+#ifdef CONFIG_CAMERA_USE_MCU
 	factory_aperture_value = 0;
+#endif
 	info("hw init done\n");
 	return 0;
 }
@@ -2029,6 +2035,7 @@ int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 			}
 		}
 		break;
+#ifdef CONFIG_CAMERA_USE_MCU
 	case V4L2_CID_IS_FACTORY_APERTURE_CONTROL:
 		ctrl->id = VENDER_S_CTRL;
 		head->lens_ctl.aperture = ctrl->value;
@@ -2037,6 +2044,7 @@ int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 			factory_aperture_value = ctrl->value;
 		}
 		break;
+#endif
 	case V4L2_CID_IS_CAMERA_TYPE:
 		ctrl->id = VENDER_S_CTRL;
 		switch (ctrl->value) {
@@ -2207,7 +2215,7 @@ void is_vender_mcu_power_off(bool use_shared_rsc)
 	ois_mcu_dump(mcu, 0);
 	ois_mcu_dump(mcu, 1);
 #endif
-	ois_mcu_core_ctrl(mcu, 0x0);
+	//ois_mcu_core_ctrl(mcu, 0x0); //TEMP_2020 S.LSI guide.
 	ois_mcu_power_ctrl(mcu, 0x0);
 	info_mcu("%s: mcu off.\n", __func__);
 #endif
@@ -2316,3 +2324,16 @@ int is_vender_remove_dump_fw_file(void)
 
 	return 0;
 }
+
+#ifdef USE_TOF_AF
+void is_vender_store_af(struct is_vender *vender, struct tof_data_t *data){
+	struct is_vender_specific *specific;
+
+	specific = vender->private_data;
+	copy_from_user(&specific->tof_af_data, data, sizeof(struct tof_data_t));
+	copy_from_user(&specific->af_data, specific->tof_af_data.data, sizeof(specific->af_data));
+	specific->tof_af_data.data = specific->af_data;
+
+	return;
+}
+#endif

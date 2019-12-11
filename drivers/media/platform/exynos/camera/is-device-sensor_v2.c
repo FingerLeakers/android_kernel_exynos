@@ -3144,7 +3144,6 @@ int is_sensor_g_bns_ratio(struct is_device_sensor *device)
 
 int is_sensor_g_bratio(struct is_device_sensor *device)
 {
-	int binning = 0;
 	struct is_module_enum *module;
 	struct v4l2_control ctrl;
 	int ret = 0;
@@ -3163,6 +3162,7 @@ int is_sensor_g_bratio(struct is_device_sensor *device)
 		goto p_err;
 	}
 
+	/* TODO: This is will be removed. */
 	if (module->pdata->use_binning_ratio_table) {
 		ctrl.id = V4L2_CID_SENSOR_GET_BINNING_RATIO;
 		ret = v4l2_subdev_call(device->subdev_module, core, g_ctrl, &ctrl);
@@ -3174,19 +3174,8 @@ int is_sensor_g_bratio(struct is_device_sensor *device)
 			return ctrl.value;
 	}
 
-	binning = min(BINNING(module->active_width, (device->image.window.width + device->image.window.offs_h * 2)),
-		BINNING(module->active_height, device->image.window.height + (device->image.window.offs_v * 2)));
-	/* sensor binning only support natural number */
-	binning = (binning / 1000) * 1000;
-
-	if (device->image.window.width == 752 && device->image.window.height == 1328)
-		binning = 1000;
-
-	if (device->image.window.width == 1988 && device->image.window.height == 1120)
-		binning = 1995;
-
 p_err:
-	return binning;
+	return device->cfg->binning;
 }
 
 int is_sensor_g_position(struct is_device_sensor *device)
@@ -3932,6 +3921,10 @@ int is_sensor_runtime_suspend(struct device *dev)
 	subdev_csi = device->subdev_csi;
 	if (!subdev_csi)
 		mwarn("subdev_csi is NULL", device);
+
+	ret = v4l2_subdev_call(subdev_csi, core, s_power, 0);
+	if (ret)
+		mwarn("v4l2_csi_call(s_power) is fail(%d)", device, ret);
 
 	ret = is_sensor_g_module(device, &module);
 	if (ret) {

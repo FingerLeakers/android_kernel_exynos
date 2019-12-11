@@ -358,10 +358,18 @@ static int __is_hw_3aa_get_change_state(struct is_hw_ip *hw_ip, int instance, in
 		for (i = 0; i < IS_STREAM_COUNT; i++)
 			ref_cnt += atomic_read(&hw->streaming[hw->sensor_position[i]]);
 
-		if (ref_cnt)
+		if (ref_cnt) {
 			ret = SRAM_CFG_BLOCK;
-		else
-			ret = SRAM_CFG_N;
+		} else {
+			/*
+			 * If LIC SRAM_CFG_N already called before stream on,
+			 * Skip for not call duplicate lic offset setting
+			 */
+			if (atomic_inc_return(&hw->lic_updated) == 1)
+				ret = SRAM_CFG_N;
+			else
+				ret = SRAM_CFG_BLOCK;
+		}
 	} else {
 		/* Reprocessing case */
 		for (i = 0; i < IS_STREAM_COUNT; i++)

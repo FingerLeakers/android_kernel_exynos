@@ -1483,14 +1483,12 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	out_height = output->height;
 
 	if (src_pos_x % MCSC_WIDTH_ALIGN) {
-		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_pos_x should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
-			src_pos_x, ALIGN_DOWN(src_pos_x, MCSC_WIDTH_ALIGN));
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_pos_x(%d) should be multiple of %d\n",
+			instance, hw_ip, output_id, src_pos_x, MCSC_WIDTH_ALIGN);
 	}
 	if (src_width % MCSC_WIDTH_ALIGN) {
-		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
-			src_width, ALIGN_DOWN(src_width, MCSC_WIDTH_ALIGN));
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: src_width(%d) should be multiple of %d\n",
+			instance, hw_ip, output_id, src_width, MCSC_WIDTH_ALIGN);
 	}
 
 	is_scaler_set_poly_src_size(hw_ip->regs[REG_SETA], output_id, src_pos_x, src_pos_y,
@@ -1562,9 +1560,8 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 #endif
 
 	if (poly_dst_width % MCSC_WIDTH_ALIGN) {
-		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: poly_dst_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
-			poly_dst_width, ALIGN_DOWN(poly_dst_width, MCSC_WIDTH_ALIGN));
+		mswarn_hw("[OUT:%d] hw_mcsc_poly_phase: poly_dst_width(%d) should be multiple of %d\n",
+			instance, hw_ip, output_id, poly_dst_width, MCSC_WIDTH_ALIGN);
 	}
 
 	is_scaler_set_poly_dst_size(hw_ip->regs[REG_SETA], output_id,
@@ -1635,14 +1632,12 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	dst_height = output->height;
 
 	if (img_width % MCSC_WIDTH_ALIGN) {
-		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: img_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
-			img_width, ALIGN_DOWN(img_width, MCSC_WIDTH_ALIGN));
+		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: img_width(%d) should be multiple of %d\n",
+			instance, hw_ip, output_id, img_width, MCSC_WIDTH_ALIGN);
 	}
 	if (dst_width % MCSC_WIDTH_ALIGN) {
-		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: dst_width should be multiple of %d(%d->%d)\n",
-			instance, hw_ip, output_id, MCSC_WIDTH_ALIGN,
-			dst_width, ALIGN_DOWN(dst_width, MCSC_WIDTH_ALIGN));
+		mswarn_hw("[OUT:%d] hw_mcsc_post_chain: dst_width(%d) should be multiple of %d\n",
+			instance, hw_ip, output_id, dst_width, MCSC_WIDTH_ALIGN);
 	}
 
 	/* if x1 ~ x1/4 scaling, post scaler bypassed */

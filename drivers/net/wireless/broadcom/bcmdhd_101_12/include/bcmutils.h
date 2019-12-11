@@ -899,6 +899,13 @@ extern void prhex(const char *msg, const uchar *buf, uint len);
 /* bcmerror */
 extern const char *bcmerrorstr(int bcmerror);
 
+#if defined(WLMSG_ASSOC)
+/* get 802.11 frame name based on frame kind - see frame types FC_.. in 802.11.h */
+const char *bcm_80211_fk_name(uint fk);
+#else
+#define bcm_80211_fk_names(_x) ""
+#endif
+
 extern int wl_set_up_table(uint8 *up_table, bcm_tlv_t *qos_map_ie);
 
 /* multi-bool data type: set of bools, mbool is true if any is set */

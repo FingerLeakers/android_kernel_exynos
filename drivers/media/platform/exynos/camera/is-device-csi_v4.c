@@ -911,6 +911,7 @@ static void csi_err_handle(struct is_device_csi *csi)
 
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
 		/* 2. Clear err */
+		csi->error_id_last[vc] = csi->error_id[vc];
 		csi->error_id[vc] = 0;
 
 		/* 3. Frame flush */
@@ -932,7 +933,9 @@ static void csi_err_handle(struct is_device_csi *csi)
 		core = device->private_data;
 
 		/* Call sensor DTP */
+#ifdef CONFIG_SEC_FACTORY /* TEMP_2020 - for ESD recovery */
 		set_bit(IS_SENSOR_FRONT_DTP_STOP, &device->state);
+#endif
 
 		/* Disable CSIS */
 		csi_hw_disable(csi->base_reg);
@@ -1528,10 +1531,7 @@ static int csi_s_power(struct v4l2_subdev *subdev,
 {
 	int ret = 0;
 	struct is_device_csi *csi;
-
-	/* Offing enble phy is not recomended. */
-	if (!on)
-		return 0;
+	struct is_device_csi_dma *csi_dma;
 
 	FIMC_BUG(!subdev);
 
@@ -1541,8 +1541,29 @@ static int csi_s_power(struct v4l2_subdev *subdev,
 		return -EINVAL;
 	}
 
-	if (on)
+	csi_dma = csi->csi_dma;
+
+	if (on) {
+		if (atomic_inc_return(&csi_dma->rcount_pwr) == 1) {
+			/* IP processing = 1 */
+			csi_hw_dma_common_reset(csi_dma->base_reg, on);
+#if defined(ENABLE_PDP_STAT_DMA)
+			csi_hw_dma_common_reset(csi_dma->base_reg_stat, on);
+#endif
+		}
+
 		ret = phy_power_on(csi->phy);
+	} else {
+		if (atomic_dec_return(&csi_dma->rcount_pwr) == 0) {
+			/* For safe power-off: IP processing = 0 */
+			csi_hw_dma_common_reset(csi_dma->base_reg, on);
+#if defined(ENABLE_PDP_STAT_DMA)
+			csi_hw_dma_common_reset(csi_dma->base_reg_stat, on);
+#endif
+		}
+
+		/* Disable phy is not recomended. */
+	}
 
 	if (ret) {
 		err("fail to csi%d power on/off(%d)", csi->ch, on);
@@ -2115,13 +2136,7 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 	csi_hw_reset(base_reg);
 
 	spin_lock(&csi_dma->barrier);
-	if (atomic_dec_return(&csi_dma->rcount) == 0) {
-		/* For safe power-off */
-		csi_hw_dma_common_reset(csi_dma->base_reg);
-#if defined(ENABLE_PDP_STAT_DMA)
-		csi_hw_dma_common_reset(csi_dma->base_reg_stat);
-#endif
-	}
+	atomic_dec(&csi_dma->rcount);
 	spin_unlock(&csi_dma->barrier);
 
 	if (!test_bit(IS_SENSOR_OTF_OUTPUT, &device->state))
@@ -2149,6 +2164,10 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 		usleep_range(300, 301);
 
 		csis_flush_all_vc_buf_done(csi, VB2_BUF_STATE_ERROR);
+
+		/* Reset DMA input MUX */
+		if (csi->mux_reg[csi->scm])
+			writel(0xFFFFFFFF, csi->mux_reg[csi->scm]);
 	}
 
 	atomic_set(&csi->vvalid, 0);
@@ -2396,7 +2415,7 @@ static int csi_g_errorCode(struct v4l2_subdev *subdev, u32 *errorCode)
 	}
 
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
-		*errorCode |= csi->error_id[vc];
+		*errorCode |= csi->error_id_last[vc];
 
 	return ret;
 }
@@ -2728,6 +2747,7 @@ int is_csi_dma_probe(struct is_device_csi_dma *csi_dma, struct platform_device *
 #endif
 
 	atomic_set(&csi_dma->rcount, 0);
+	atomic_set(&csi_dma->rcount_pwr, 0);
 
 	spin_lock_init(&csi_dma->barrier);
 

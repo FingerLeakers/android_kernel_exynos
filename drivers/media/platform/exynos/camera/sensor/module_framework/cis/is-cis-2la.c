@@ -43,17 +43,14 @@
 #define SENSOR_NAME "S5K2LA"
 /* #define DEBUG_2LA_PLL */
 
-static const u32 *sensor_2la_global;
-static u32 sensor_2la_global_size;
+static const u32 *sensor_2la_global_1;
+static const u32 *sensor_2la_global_2;
+static u32 sensor_2la_global_size_1;
+static u32 sensor_2la_global_size_2;
 static const u32 **sensor_2la_setfiles;
 static const u32 *sensor_2la_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_2la_pllinfos;
 static u32 sensor_2la_max_setfile_num;
-
-static const u32 *sensor_2la_dualsync_master;
-static u32 sensor_2la_dualsync_master_size;
-static const u32 *sensor_2la_dualsync_slave;
-static u32 sensor_2la_dualsync_slave_size;
 
 /* For Recovery */
 static u32 sensor_2la_frame_duration_backup;
@@ -140,6 +137,8 @@ static void sensor_2la_set_integration_max_margin(u32 mode, cis_shared_data *cis
 	case SENSOR_2LA_2016X1134_240FPS:
 	case SENSOR_2LA_2016X1134_120FPS:
 	case SENSOR_2LA_4032X3024_60FPS:
+	case SENSOR_2LA_4032X3024_24FPS:
+	case SENSOR_2LA_4032X2268_24FPS:
 		cis_data->max_margin_coarse_integration_time = SENSOR_2LA_COARSE_INTEGRATION_TIME_MAX_MARGIN;
 		break;
 	default:
@@ -285,19 +284,39 @@ int sensor_2la_cis_select_setfile(struct v4l2_subdev *subdev)
 	rev = cis->cis_data->cis_rev;
 
 	switch (rev) {
-	case 0xA000:
-	default:
+	case 0xA000:  /* Before OTP write */
+	case 0xA100:
+	case 0xA101:
+	case 0xA201:
 		info("2la sensor revision(%#x)\n", rev);
-		sensor_2la_global = sensor_2la_setfile_A_Global;
-		sensor_2la_global_size = ARRAY_SIZE(sensor_2la_setfile_A_Global);
+		sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
+		sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
+		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+		sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		sensor_2la_setfiles = sensor_2la_setfiles_A;
 		sensor_2la_setfile_sizes = sensor_2la_setfile_A_sizes;
 		sensor_2la_pllinfos = sensor_2la_pllinfos_A;
 		sensor_2la_max_setfile_num = ARRAY_SIZE(sensor_2la_setfiles_A);
-		sensor_2la_dualsync_master = sensor_2la_setfile_A_dualsync_Master;
-		sensor_2la_dualsync_master_size = sizeof(sensor_2la_setfile_A_dualsync_Master) / sizeof(sensor_2la_setfile_A_dualsync_Master[0]);
-		sensor_2la_dualsync_slave = sensor_2la_setfile_A_dualsync_Slave;
-		sensor_2la_dualsync_slave_size = sizeof(sensor_2la_setfile_A_dualsync_Slave) / sizeof(sensor_2la_setfile_A_dualsync_Slave[0]);
+		break;
+	case 0xA202: /* After OTP write */
+		info("2la sensor revision(%#x)\n", rev);
+		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+		sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		sensor_2la_setfiles = sensor_2la_setfiles_A;
+		sensor_2la_setfile_sizes = sensor_2la_setfile_A_sizes;
+		sensor_2la_pllinfos = sensor_2la_pllinfos_A;
+		sensor_2la_max_setfile_num = ARRAY_SIZE(sensor_2la_setfiles_A);
+		break;
+	default:
+		info("2la sensor revision(%#x)\n", rev);
+		sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
+		sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
+		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+		sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		sensor_2la_setfiles = sensor_2la_setfiles_A;
+		sensor_2la_setfile_sizes = sensor_2la_setfile_A_sizes;
+		sensor_2la_pllinfos = sensor_2la_pllinfos_A;
+		sensor_2la_max_setfile_num = ARRAY_SIZE(sensor_2la_setfiles_A);
 		break;
 	}
 
@@ -559,27 +578,6 @@ int sensor_2la_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-	/* dual sync for live focus */
-	ex_mode = is_sensor_g_ex_mode(device);
-	if (ex_mode == EX_LIVEFOCUS
-#ifdef CONFIG_SEC_FACTORY
-		|| test_bit(IS_SENSOR_OPEN, &(core->sensor[0].state))
-#endif
-		) {
-		info("[%s]dual sync slave mode\n", __func__);
-		ret = sensor_cis_set_registers(subdev, sensor_2la_dualsync_slave, sensor_2la_dualsync_slave_size);
-		cis->cis_data->dual_slave = true;
-	} else {
-		info("[%s]dual sync master mode\n", __func__);
-		ret = sensor_cis_set_registers(subdev, sensor_2la_dualsync_master, sensor_2la_dualsync_master_size);
-		cis->cis_data->dual_slave = false;
-	}
-
-	if (ret < 0) {
-		err("dual sync setting fail!!");
-		goto p_err_i2c_unlock;
-	}
-
 	info("[%s] sensor mode(%d)\n", __func__, mode);
 	ret = sensor_cis_set_registers(subdev, sensor_2la_setfiles[mode],
 							sensor_2la_setfile_sizes[mode]);
@@ -589,6 +587,27 @@ int sensor_2la_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
+
+	/* dual sync for live focus */
+	ex_mode = is_sensor_g_ex_mode(device);
+	if (0 /*ex_mode == EX_LIVEFOCUS*/ /* TEMP_2020*/
+#ifdef CONFIG_SEC_FACTORY
+		|| test_bit(IS_SENSOR_OPEN, &(core->sensor[0].state))
+#endif
+		) {
+		info("[%s]dual sync slave mode\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_2la_cis_dual_slave_settings, sensor_2la_cis_dual_slave_settings_size);
+		cis->cis_data->dual_slave = true;
+	} else {
+		info("[%s]dual sync single mode\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_2la_cis_dual_single_settings, sensor_2la_cis_dual_single_settings_size);
+		cis->cis_data->dual_slave = false;
+	}
+
+	if (ret < 0) {
+		err("dual sync setting fail!!");
+		goto p_err_i2c_unlock;
+	}
 
 p_err_i2c_unlock:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -602,6 +621,7 @@ p_err:
 int sensor_2la_cis_set_global_setting(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
+	u16 rev = 0;
 	struct is_cis *cis = NULL;
 
 	WARN_ON(!subdev);
@@ -612,7 +632,16 @@ int sensor_2la_cis_set_global_setting(struct v4l2_subdev *subdev)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	info("[%s] global setting start\n", __func__);
 	/* setfile global setting is at camera entrance */
-	ret |= sensor_cis_set_registers(subdev, sensor_2la_global, sensor_2la_global_size);
+	rev = cis->cis_data->cis_rev;
+
+	/* Before OTP write */
+	if(rev < 0xA202) {
+		ret = sensor_cis_set_registers(subdev, sensor_2la_global_1, sensor_2la_global_size_1);
+		ret |= sensor_cis_set_registers(subdev, sensor_2la_global_2, sensor_2la_global_size_2);
+	} else { /* After OTP write */
+		ret = sensor_cis_set_registers(subdev, sensor_2la_global_2, sensor_2la_global_size_2);
+	}
+
 	if (ret < 0) {
 		err("sensor_2la_set_registers fail!!");
 		goto p_err;
@@ -2168,6 +2197,8 @@ static int cis_2la_probe(struct i2c_client *client,
 	struct device *dev;
 	struct device_node *dnode;
 	int i;
+	u16 rev = 0;
+
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 	int index;
 #endif
@@ -2278,11 +2309,21 @@ static int cis_2la_probe(struct i2c_client *client,
 		setfile = "default";
 	}
 
+	rev = cis->cis_data->cis_rev;
+
 	if (strcmp(setfile, "default") == 0 ||
 			strcmp(setfile, "setA") == 0) {
 		probe_info("%s setfile_A\n", __func__);
-		sensor_2la_global = sensor_2la_setfile_A_Global;
-		sensor_2la_global_size = ARRAY_SIZE(sensor_2la_setfile_A_Global);
+		/* Before OTP write */
+		if(rev < 0xA202) {
+			sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
+			sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
+			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		} else { /* After OTP write */
+			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		}
 		sensor_2la_setfiles = sensor_2la_setfiles_A;
 		sensor_2la_setfile_sizes = sensor_2la_setfile_A_sizes;
 		sensor_2la_pllinfos = sensor_2la_pllinfos_A;
@@ -2295,8 +2336,15 @@ static int cis_2la_probe(struct i2c_client *client,
 #endif
 	} else {
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
-		sensor_2la_global = sensor_2la_setfile_A_Global;
-		sensor_2la_global_size = ARRAY_SIZE(sensor_2la_setfile_A_Global);
+		if(rev < 0xA202) {
+			sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
+			sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
+			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		} else { /* After OTP write */
+			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
+			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
+		}
 		sensor_2la_setfiles = sensor_2la_setfiles_A;
 		sensor_2la_setfile_sizes = sensor_2la_setfile_A_sizes;
 		sensor_2la_pllinfos = sensor_2la_pllinfos_A;

@@ -1796,6 +1796,9 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	if (hdev->level == MAX_TOPO_LEVEL) {
 		dev_err(&intf->dev,
 			"Unsupported bus topology: hub nested too deep\n");
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+		send_usb_certi_uevent(USB_CERTI_HUB_DEPTH_EXCEED);
+#endif
 		return -E2BIG;
 	}
 
@@ -4744,9 +4747,13 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 				goto fail;
 			}
 			if (r) {
-				if (r != -ENODEV)
+				if (r != -ENODEV) {
 					dev_err(&udev->dev, "device descriptor read/64, error %d\n",
 							r);
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+					send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
+#endif
+				}
 				retval = -EMSGSIZE;
 				continue;
 			}
@@ -4802,10 +4809,14 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 
 		retval = usb_get_device_descriptor(udev, 8);
 		if (retval < 8) {
-			if (retval != -ENODEV)
+			if (retval != -ENODEV) {
 				dev_err(&udev->dev,
 					"device descriptor read/8, error %d\n",
 					retval);
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+				send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
+#endif
+			}
 			if (retval >= 0)
 				retval = -EMSGSIZE;
 		} else {
@@ -4871,9 +4882,13 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 
 	retval = usb_get_device_descriptor(udev, USB_DT_DEVICE_SIZE);
 	if (retval < (signed)sizeof(udev->descriptor)) {
-		if (retval != -ENODEV)
+		if (retval != -ENODEV) {
 			dev_err(&udev->dev, "device descriptor read/all, error %d\n",
 					retval);
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+			send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
+#endif
+		}
 		if (retval >= 0)
 			retval = -ENOMSG;
 		goto fail;
@@ -4980,6 +4995,9 @@ hub_power_remaining(struct usb_hub *hub)
 		dev_warn(hub->intfdev, "%dmA over power budget!\n",
 			-remaining);
 		remaining = 0;
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+		send_usb_certi_uevent(USB_CERTI_HUB_POWER_EXCEED);
+#endif
 	}
 	return remaining;
 }
@@ -5384,6 +5402,9 @@ static void port_event(struct usb_hub *hub, int port1)
 	 */
 	if (hub_port_warm_reset_required(hub, port1, portstatus)) {
 		dev_dbg(&port_dev->dev, "do warm reset\n");
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+		send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
+#endif
 		if (!udev || !(portstatus & USB_PORT_STAT_CONNECTION)
 				|| udev->state == USB_STATE_NOTATTACHED) {
 			if (hub_port_reset(hub, port1, NULL,

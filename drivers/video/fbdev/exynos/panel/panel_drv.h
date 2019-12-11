@@ -405,7 +405,7 @@ struct panel_device {
 #endif
 
 #ifdef CONFIG_SUPPORT_MAFPC
-	struct mafpc_device mafc;
+	struct mafpc_device mafpc;
 	struct v4l2_subdev *mafpc_sd;
 	s64 mafpc_write_time;
 #endif

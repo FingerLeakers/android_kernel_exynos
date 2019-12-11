@@ -43,8 +43,6 @@ static int s5000ap_lcd_notifier(struct notifier_block *notifier,
 		unsigned long event, void *v);
 #endif /* CONFIG_CP_LCD_NOTIFIER */
 
-#define MIF_INIT_TIMEOUT	(15 * HZ)
-
 /*
  * CP_WDT interrupt handler
  */
@@ -242,10 +240,11 @@ static int init_control_messages(struct modem_ctl *mc)
 #ifdef CONFIG_CP_BTL
 	unsigned int sbi_ext_backtrace_mask, sbi_ext_backtrace_pos;
 #endif
-	u8 __iomem *cmsg_base;
 
 	set_ctrl_msg(&mld->ap2cp_united_status, 0);
 	set_ctrl_msg(&mld->cp2ap_united_status, 0);
+	set_ctrl_msg(&mld->ap2cp_msg, 0);
+	set_ctrl_msg(&mld->cp2ap_msg, 0);
 
 	if (!np) {
 		mif_err("non-DT project, can't set mailbox regs\n");
@@ -284,33 +283,18 @@ static int init_control_messages(struct modem_ctl *mc)
 			sbi_sys_rev_pos);
 	mif_info("hw_rev:0x%x\n", hw_rev);
 
-	if (modem->offset_ap_version)
-		mld->ap_version = (u32 __iomem *)(mld->base + modem->offset_ap_version);
-	if (modem->offset_cp_version)
-		mld->cp_version = (u32 __iomem *)(mld->base + modem->offset_cp_version);
 	if (modem->offset_cmsg_offset) {
-		mld->cmsg_offset = (u32 __iomem *)(mld->base + modem->offset_cmsg_offset);
-		cmsg_base = mld->base + modem->cmsg_offset;
 		iowrite32(modem->cmsg_offset, mld->cmsg_offset);
-	} else {
-		cmsg_base = mld->base;
 	}
 	if (modem->offset_srinfo_offset) {
-		mld->srinfo_offset = (u32 __iomem *)(mld->base + modem->offset_srinfo_offset);
 		iowrite32(modem->srinfo_offset, mld->srinfo_offset);
 	}
 	if (modem->offset_clk_table_offset) {
-		mld->clk_table_offset = (u32 __iomem *)(mld->base + modem->offset_clk_table_offset);
 		iowrite32(modem->clk_table_offset, mld->clk_table_offset);
 	}
 	if (modem->offset_buff_desc_offset) {
-		mld->buff_desc_offset = (u32 __iomem *)(mld->base + modem->offset_buff_desc_offset);
 		iowrite32(modem->buff_desc_offset, mld->buff_desc_offset);
 	}
-
-	mld->srinfo_base = (u32 __iomem *)(mld->base + modem->srinfo_offset);
-	mld->srinfo_size = modem->srinfo_size;
-	mld->clk_table = (u32 __iomem *)(mld->base + modem->clk_table_offset);
 
 	return 0;
 }
@@ -319,6 +303,8 @@ static int _is_first_boot;
 static int power_on_cp(struct modem_ctl *mc)
 {
 	mif_info("+++\n");
+
+	mc->receive_first_ipc = 0;
 
 #ifndef CONFIG_CP_SECURE_BOOT
 	exynos_cp_init();
@@ -620,8 +606,35 @@ static int trigger_cp_crash(struct modem_ctl *mc)
 	struct link_device *ld = get_current_link(mc->bootd);
 	struct mem_link_device *mld = to_mem_link_device(ld);
 	u32 crash_type = ld->crash_reason.type;
-
+#if defined(CONFIG_SOC_EXYNOS9630)
+	unsigned int val = 0; /* value used for PMU registers */
+#endif
 	mif_info("+++\n");
+
+#if defined(CONFIG_SOC_EXYNOS9630)
+	exynos_pmu_read(0x3200, &val); /* CP_CONFIGURATION */
+	mif_info("CP_CONFIGURATION: 0x%08X\n", val);
+	exynos_pmu_read(0x3204, &val); /* CP_STATUS */
+	mif_info("CP_STATUS: 0x%08X\n", val);
+	exynos_pmu_read(0x3208, &val); /* CP_STATES */
+	mif_info("CP_STATES: 0x%08X\n", val);
+	exynos_pmu_read(0x320C, &val); /* CP_OPTION */
+	mif_info("CP_OPTION: 0x%08X\n", val);
+	exynos_pmu_read(0x3210, &val); /* CP_CTRL_NS */
+	mif_info("CP_CTRL_NS: 0x%08X\n", val);
+	exynos_pmu_read(0x3220, &val); /* CP_OUT */
+	mif_info("CP_OUT: 0x%08X\n", val);
+	exynos_pmu_read(0x3224, &val); /* CP_IN */
+	mif_info("CP_IN: 0x%08X\n", val);
+	exynos_pmu_read(0x3240, &val); /* CP_INT_IN */
+	mif_info("CP_INT_IN: 0x%08X\n", val);
+	exynos_pmu_read(0x3244, &val); /* CP_INT_EN */
+	mif_info("CP_INT_EN: 0x%08X\n", val);
+	exynos_pmu_read(0x3248, &val); /* CP_INT_TYPE */
+	mif_info("CP_INT_TYPE: 0x%08X\n", val);
+	exynos_pmu_read(0x324c, &val); /* CP_INT_DIR */
+	mif_info("CP_INT_DIR: 0x%08X\n", val);
+#endif
 
 	if (ld->protocol == PROTOCOL_SIT &&
 			crash_type == CRASH_REASON_RIL_TRIGGER_CP_CRASH)
@@ -1046,7 +1059,7 @@ int s5000ap_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	struct device_node *np = pdev->dev.of_node;
 	int ret = 0;
 	unsigned int irq_num;
-	unsigned long flags = IRQF_NO_SUSPEND | IRQF_NO_THREAD;
+	unsigned long flags = IRQF_NO_SUSPEND | IRQF_NO_THREAD | IRQF_ONESHOT;
 
 	mif_info("+++\n");
 

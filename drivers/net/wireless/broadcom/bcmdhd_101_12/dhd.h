@@ -160,11 +160,12 @@ enum dhd_bus_devreset_type {
 #define DHD_BUS_BUSY_RPM_ALL                 (DHD_BUS_BUSY_RPM_SUSPEND_DONE | \
 		DHD_BUS_BUSY_RPM_SUSPEND_IN_PROGRESS | \
 		DHD_BUS_BUSY_RPM_RESUME_IN_PROGRESS)
-#define DHD_BUS_BUSY_IN_CHECKDIED            0x800
-#define DHD_BUS_BUSY_IN_MEMDUMP				 0x1000
-#define DHD_BUS_BUSY_IN_SSSRDUMP			 0x2000
-#define DHD_BUS_BUSY_IN_LOGDUMP				 0x4000
-#define DHD_BUS_BUSY_IN_HALDUMP				 0x8000
+#define DHD_BUS_BUSY_IN_CHECKDIED		0x800
+#define DHD_BUS_BUSY_IN_MEMDUMP			0x1000
+#define DHD_BUS_BUSY_IN_SSSRDUMP		0x2000
+#define DHD_BUS_BUSY_IN_LOGDUMP			0x4000
+#define DHD_BUS_BUSY_IN_HALDUMP			0x8000
+#define DHD_BUS_BUSY_IN_NAPI			0x10000
 
 #define DHD_BUS_BUSY_SET_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_TX
@@ -198,6 +199,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_LOGDUMP
 #define DHD_BUS_BUSY_SET_IN_HALDUMP(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_HALDUMP
+#define DHD_BUS_BUSY_SET_IN_NAPI(dhdp) \
+	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_NAPI
 
 #define DHD_BUS_BUSY_CLEAR_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_TX
@@ -231,6 +234,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_LOGDUMP
 #define DHD_BUS_BUSY_CLEAR_IN_HALDUMP(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_HALDUMP
+#define DHD_BUS_BUSY_CLEAR_IN_NAPI(dhdp) \
+	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_NAPI
 
 #define DHD_BUS_BUSY_CHECK_IN_TX(dhdp) \
 	((dhdp)->dhd_bus_busy_state & DHD_BUS_BUSY_IN_TX)
@@ -1236,10 +1241,12 @@ typedef struct dhd_pub {
 	bool sssr_dump_collected;	/* Flag to indicate sssr dump is collected */
 	sssr_reg_info_cmn_t *sssr_reg_info;
 	uint8 *sssr_mempool;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	uint *sssr_d11_before[MAX_NUM_D11_CORES_WITH_SCAN];
+	uint *sssr_dig_buf_before;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	uint *sssr_d11_after[MAX_NUM_D11_CORES_WITH_SCAN];
 	bool sssr_d11_outofreset[MAX_NUM_D11_CORES_WITH_SCAN];
-	uint *sssr_dig_buf_before;
 	uint *sssr_dig_buf_after;
 	uint32 sssr_dump_mode;
 	bool collect_sssr;		/* Flag to indicate SSSR dump is required */
@@ -1442,6 +1449,9 @@ typedef struct dhd_pub {
 	dhd_db7_info_t db7_trap;
 	bool fw_preinit;
 	bool ring_attached;
+#ifdef DHD_PCIE_RUNTIMEPM
+	bool rx_pending_due_to_rpm;
+#endif /* DHD_PCIE_RUNTIMEPM */
 	bool disable_dtim_in_suspend;	/* Disable set bcn_li_dtim in suspend */
 	union {
 		wl_roam_stats_v1_t v1;
@@ -3088,7 +3098,11 @@ extern void dhd_lb_stats_rxc_percpu_cnt_incr(dhd_pub_t *dhdp);
 #endif /* !DHD_LB_STATS */
 
 #ifdef DHD_SSSR_DUMP
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 #define DHD_SSSR_MEMPOOL_SIZE	(2 * 1024 * 1024) /* 2MB size */
+#else
+#define DHD_SSSR_MEMPOOL_SIZE	(1 * 1024 * 1024) /* 1MB size */
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 /* used in sssr_dump_mode */
 #define SSSR_DUMP_MODE_SSSR	0	/* dump both *before* and *after* files */
@@ -3351,12 +3365,14 @@ bool dhd_log_dump_ecntr_enabled(void);
 bool dhd_log_dump_rtt_enabled(void);
 void dhd_nla_put_sssr_dump_len(void *ndev, uint32 *arr_len);
 int dhd_get_debug_dump(void *dev, const void *user_buf, uint32 len, int type);
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 int
 dhd_sssr_dump_d11_buf_before(void *dev, const void *user_buf, uint32 len, int core);
 int
-dhd_sssr_dump_d11_buf_after(void *dev, const void *user_buf, uint32 len, int core);
-int
 dhd_sssr_dump_dig_buf_before(void *dev, const void *user_buf, uint32 len);
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+int
+dhd_sssr_dump_d11_buf_after(void *dev, const void *user_buf, uint32 len, int core);
 int
 dhd_sssr_dump_dig_buf_after(void *dev, const void *user_buf, uint32 len);
 #ifdef DHD_PKT_LOGGING

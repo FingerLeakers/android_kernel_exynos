@@ -1335,6 +1335,7 @@ struct decon_device {
 #endif
 
 #ifdef CONFIG_DYNAMIC_FREQ
+	ktime_t last_update_time;
 	struct df_status_info *df_status;
 #endif
 
@@ -1352,6 +1353,7 @@ struct decon_device {
 	struct dma_leak_info leak_info[LEAK_INFO_ARRAY_CNT];
 	int leak_cnt;
 #endif
+	
 };
 #ifdef CONFIG_EXYNOS_MCD_HDR
 
@@ -1526,6 +1528,8 @@ void dpu_set_win_update_partial_size(struct decon_device *decon,
 void decon_init_low_persistence_mode(struct decon_device *decon);
 
 /* multi-resolution related function */
+void dpu_update_mres_lcd_info(struct decon_device *decon,
+		struct decon_reg_data *regs);
 void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs);
 void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info);
 
@@ -1632,6 +1636,10 @@ static inline bool decon_hiber_enter_cond(struct decon_device *decon)
 		&& is_displayport_not_running()
 #endif
 		&& (!decon->low_persistence)
+
+#ifdef CONFIG_DYNAMIC_FREQ
+		&& (!decon->df_status->persistence_mode)
+#endif
 		&& (atomic_inc_return(&decon->hiber.trig_cnt) >=
 			decon->hiber.hiber_enter_cnt));
 }

@@ -99,8 +99,8 @@ int __generate_irc_v2(struct brightness_table *brt_tbl, struct panel_irc_info* i
 		lum_gap *= disp_pow(10, SCALEUP_4); // for precision scale up
 		brt_gap = hbm_max - normal_max;
 		temp_val = (lum_gap * info->hbm_coef) / brt_gap;
-		temp_val = disp_pow_round(temp_val, SCALEUP_4);
-		temp_val /= disp_pow(10, SCALEUP_4); // scanel down
+		temp_val = disp_pow_round(temp_val, SCALEUP_5);
+		temp_val /= disp_pow(10, SCALEUP_5); // scanel down
 		coef = coef - temp_val;
 	}
 

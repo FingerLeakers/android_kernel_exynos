@@ -21,6 +21,8 @@
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
 
+static unsigned long fsync_time_cnt[4];
+
 /*
  * Do the filesystem syncing work. For simple filesystems
  * writeback_inodes_sb(sb) just dirties buffers with inodes so we have to
@@ -212,15 +214,39 @@ int vfs_fsync(struct file *file, int datasync)
 }
 EXPORT_SYMBOL(vfs_fsync);
 
+unsigned long read_fsync_time_cnt(int idx)
+{
+	return fsync_time_cnt[idx];
+}
+
+static void inc_fsync_time_cnt(unsigned long end, unsigned long start)
+{
+	unsigned int time = jiffies_to_msecs(end - start);
+	const int FSYNC_TIME_SLOW 	= 1000;
+	const int FSYNC_TIME_ANR 	= 10000;
+	const int FSYNC_TIME_WATCHDOG 	= 30000;
+
+	if (time < FSYNC_TIME_SLOW)
+		fsync_time_cnt[0]++;
+	else if (time < FSYNC_TIME_ANR)
+		fsync_time_cnt[1]++;
+	else if (time < FSYNC_TIME_WATCHDOG)
+		fsync_time_cnt[2]++;
+	else
+		fsync_time_cnt[3]++;
+}
+
 static int do_fsync(unsigned int fd, int datasync)
 {
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
+	unsigned long stamp = jiffies;
 
 	if (f.file) {
 		ret = vfs_fsync(f.file, datasync);
 		fdput(f);
 		inc_syscfs(current);
+		inc_fsync_time_cnt(jiffies, stamp);
 	}
 	return ret;
 }

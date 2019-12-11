@@ -470,7 +470,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_ranging_report_attr_s {
 	See definition in 9.4.2.22.18 in 802.11mc D5.0
 	*/
 	uint8 entry_count;
-	uint8 data[2]; /* includes pad */
+	uint8 data[]; /* Variable size range entry */
 	/*
 	dot11_ftm_range_entry_t entries[entry_count];
 	uint8 error_count;

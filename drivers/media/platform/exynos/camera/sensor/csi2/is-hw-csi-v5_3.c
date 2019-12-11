@@ -531,7 +531,7 @@ bool csi_hw_g_output_cur_dma_enable(u32 __iomem *base_reg, u32 vc)
 	return dma_enable;
 }
 
-int csi_hw_dma_common_reset(u32 __iomem *base_reg)
+int csi_hw_dma_common_reset(u32 __iomem *base_reg, bool on)
 {
 	u32 val;
 
@@ -545,26 +545,19 @@ int csi_hw_dma_common_reset(u32 __iomem *base_reg)
 	 * The ip_processing should be 0 for safe power-off.
 	 */
 	val = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL]);
-	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], 0x0);
+	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], on);
 	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_SW_RESET], 0x1);
 	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL], val);
+
+	info("[CSI DMA TOP] %s: %d\n", __func__, on);
 
 	return 0;
 }
 
 int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, unsigned int dma_ch)
 {
-	u32 val;
-
 	if (!base_reg)
 		return 0;
-
-	/* Common DMA Control register */
-	/* CSIS_DMA_F_IP_PROCESSING : 1 = Q-channel clock enable  */
-	/* CSIS_DMA_F_IP_PROCESSING : 0 = Q-channel clock disable */
-	val = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL]);
-	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], 0x1);
-	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL], val);
 
 #if defined(ENABLE_CSIS_WDMA_DBG_ROL)
 	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_DBG_ROL_EN], 0x1);

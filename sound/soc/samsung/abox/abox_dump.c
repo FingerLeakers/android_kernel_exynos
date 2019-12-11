@@ -404,6 +404,8 @@ static int abox_dump_open(struct snd_pcm_substream *substream)
 
 	dev_dbg(dev, "%s[%d]\n", __func__, id);
 
+	pm_runtime_get(dev);
+
 	abox_dump_hardware.buffer_bytes_max = dmab->bytes;
 	abox_dump_hardware.period_bytes_min = dmab->bytes /
 			abox_dump_hardware.periods_max;
@@ -427,6 +429,7 @@ static int abox_dump_close(struct snd_pcm_substream *substream)
 	dev_dbg(dev, "%s[%d]\n", __func__, id);
 
 	info->substream = NULL;
+	pm_runtime_put(dev);
 
 	return 0;
 }

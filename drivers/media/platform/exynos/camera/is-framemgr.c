@@ -238,12 +238,20 @@ static void default_frame_work_fn(struct kthread_work *work)
 	struct is_groupmgr *groupmgr;
 	struct is_group *group;
 	struct is_frame *frame;
+	int stripe_region_num;
 
 	frame = container_of(work, struct is_frame, work);
 	groupmgr = frame->groupmgr;
 	group = frame->group;
 
-	is_group_shot(groupmgr, group, frame);
+	stripe_region_num = frame->stripe_info.region_num;
+	if (stripe_region_num) {
+		/* Prevent other frame comming while stripe processing */
+		while (stripe_region_num--)
+			is_group_shot(groupmgr, group, frame);
+	} else {
+		is_group_shot(groupmgr, group, frame);
+	}
 }
 
 static void default_frame_dwork_fn(struct kthread_work *work)
@@ -252,13 +260,21 @@ static void default_frame_dwork_fn(struct kthread_work *work)
 	struct is_group *group;
 	struct is_frame *frame;
 	struct kthread_delayed_work *dwork;
+	int stripe_region_num;
 
 	dwork = container_of(work, struct kthread_delayed_work, work);
 	frame = container_of(dwork, struct is_frame, dwork);
 	groupmgr = frame->groupmgr;
 	group = frame->group;
 
-	is_group_shot(groupmgr, group, frame);
+	stripe_region_num = frame->stripe_info.region_num;
+	if (stripe_region_num) {
+		/* Prevent other frame comming while stripe processing */
+		while (stripe_region_num--)
+			is_group_shot(groupmgr, group, frame);
+	} else {
+		is_group_shot(groupmgr, group, frame);
+	}
 }
 
 int frame_manager_open(struct is_framemgr *this, u32 buffers)

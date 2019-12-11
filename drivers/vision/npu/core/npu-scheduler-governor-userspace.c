@@ -159,7 +159,6 @@ ssize_t npu_store_attrs_governor_userspace(struct device *dev,
 	struct npu_governor_userspace_prop *p;
 	const ptrdiff_t offset = attr - npu_userspace_attrs;
 
-
 	if (sscanf(buf, "%s %d", name, &x) > 0) {
 		d = npu_governor_userspace_get_dev(name);
 		if (!d) {
@@ -167,21 +166,21 @@ ssize_t npu_store_attrs_governor_userspace(struct device *dev,
 			return ret;
 		}
 		p = (struct npu_governor_userspace_prop *)d->gov_prop;
-	}
 
-	switch (offset) {
-	case NPU_USERSPACE_INIT_DELAY:
-		p->init_delay = x;
-		break;
-	case NPU_USERSPACE_INIT_FREQ:
-		p->init_freq = x;
-		break;
-	case NPU_USERSPACE_TARGET_FREQ:
-		p->target_freq = x;
-		break;
+		switch (offset) {
+		case NPU_USERSPACE_INIT_DELAY:
+			p->init_delay = x;
+			break;
+		case NPU_USERSPACE_INIT_FREQ:
+			p->init_freq = x;
+			break;
+		case NPU_USERSPACE_TARGET_FREQ:
+			p->target_freq = x;
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;
@@ -199,7 +198,6 @@ static ssize_t npu_store_attrs_governor_userspace_args(struct device *dev,
 	struct npu_governor_userspace_prop *p;
 	const ptrdiff_t offset = attr - npu_userspace_attrs;
 
-
 	if (sscanf(buf, "%s %d %d", name, &x, &y) > 0) {
 		d = npu_governor_userspace_get_dev(name);
 		if (!d) {
@@ -207,14 +205,14 @@ static ssize_t npu_store_attrs_governor_userspace_args(struct device *dev,
 			return ret;
 		}
 		p = (struct npu_governor_userspace_prop *)d->gov_prop;
-	}
-	switch (offset) {
-	case NPU_USERSPACE_MODE_FREQ:
-		d->mode_min_freq[x] = y;
-		break;
+		switch (offset) {
+		case NPU_USERSPACE_MODE_FREQ:
+			d->mode_min_freq[x] = y;
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;

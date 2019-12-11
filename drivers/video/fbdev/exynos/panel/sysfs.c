@@ -470,7 +470,7 @@ static void prepare_mafpc_check_mode(struct panel_device *panel)
 	decon_bypass_on_global(0);
 	usleep_range(90000, 100000);
 	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	
+
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_EXIT_SEQ);
 	if (ret < 0)
 		panel_err("PANEL:ERR:%s:failed exit-seq\n", __func__);
@@ -487,16 +487,16 @@ static void prepare_mafpc_check_mode(struct panel_device *panel)
 	if (ret < 0)
 		panel_err("PANEL:ERR:%s:failed init-seq\n", __func__);
 
-	
+
 }
 
 
 static void clear_mafpc_check_mode(struct panel_device *panel)
 {
 	//struct panel_info *panel_data = &panel->panel_data;
- 
+
 	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	//enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq); 
+	//enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
 	panel->state.cur_state = PANEL_STATE_NORMAL;
 	panel->state.disp_on = PANEL_DISPLAY_OFF;
 	decon_bypass_off_global(0);
@@ -508,7 +508,7 @@ static int mafpc_get_target_crc(struct panel_device *panel, u8 *crc)
 {
 
 	struct mafpc_device *mafpc = NULL;
-	
+
 	v4l2_subdev_call(panel->mafpc_sd, core, ioctl,
 		V4L2_IOCTL_MAFPC_GET_INFO, NULL);
 
@@ -1007,6 +1007,17 @@ static ssize_t mcd_mode_store(struct device *dev,
 	if (panel_data->props.mcd_on == value)
 		return size;
 
+	mutex_lock(&panel->io_lock);
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	if ((value) && ((panel_data->props.vrr_fps != 60) ||
+		(panel_data->props.vrr_mode != VRR_HS_MODE))) {
+		// "mcd on" is only 60 HS
+		dev_info(dev, "%s: request mcd on, but current %d %s mode\n",
+			__func__, panel_data->props.vrr_fps, panel_data->props.vrr_mode ? "HS" : "Normal");
+		mutex_unlock(&panel->io_lock);
+		return size;
+	}
+#endif
 	mutex_lock(&panel->op_lock);
 	panel_data->props.mcd_on = value;
 	mutex_unlock(&panel->op_lock);
@@ -1015,10 +1026,13 @@ static ssize_t mcd_mode_store(struct device *dev,
 			value ? PANEL_MCD_ON_SEQ : PANEL_MCD_OFF_SEQ);
 	if (unlikely(ret < 0)) {
 		pr_err("%s, failed to write mcd seq\n", __func__);
+		mutex_unlock(&panel->io_lock);
 		return ret;
 	}
-	dev_info(dev, "%s, mcd %s\n",
-			__func__, panel_data->props.mcd_on ? "on" : "off");
+	dev_info(dev, "%s, mcd %s (%d %s mode)\n",
+			__func__, panel_data->props.mcd_on ? "on" : "off",
+			panel_data->props.vrr_fps, panel_data->props.vrr_mode ? "HS" : "Normal");
+	mutex_unlock(&panel->io_lock);
 
 	return size;
 }
@@ -1260,6 +1274,53 @@ static ssize_t irc_mode_store(struct device *dev,
 	return size;
 }
 
+static ssize_t dia_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct panel_info *panel_data;
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_data = &panel->panel_data;
+
+	snprintf(buf, PAGE_SIZE, "%u\n", panel_data->props.dia_mode);
+
+	return strlen(buf);
+}
+
+static ssize_t dia_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int value, rc, ret;
+	struct panel_info *panel_data;
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_data = &panel->panel_data;
+
+	rc = kstrtouint(buf, 0, &value);
+	if (rc < 0)
+		return rc;
+
+	mutex_lock(&panel->op_lock);
+	panel_data->props.dia_mode = value;
+	mutex_unlock(&panel->op_lock);
+
+	ret = panel_do_seqtbl_by_index(panel, PANEL_DIA_ONOFF_SEQ);
+	if (unlikely(ret < 0)) {
+		pr_err("%s, failed to write mcd seq\n", __func__);
+		return ret;
+	}
+	dev_info(dev, "%s, set %s\n",
+			__func__, panel_data->props.dia_mode ? "on" : "off");
+	return size;
+}
 
 static ssize_t partial_disp_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -3681,7 +3742,9 @@ static ssize_t dynamic_freq_show(struct device *dev,
 	}
 	dyn_status = &panel->df_status;
 
-	snprintf(buf, PAGE_SIZE, "[DYN_FREQ] req: %d current: %d\n", dyn_status->request_df, dyn_status->current_df);
+	snprintf(buf, PAGE_SIZE, "[DYN_FREQ] req: %d cur: %d, req_osc: %d, cur_osc: %d\n",
+		dyn_status->request_df, dyn_status->current_df,
+		dyn_status->request_ddi_osc, dyn_status->current_ddi_osc);
 
 	return strlen(buf);
 }
@@ -3689,14 +3752,18 @@ static ssize_t dynamic_freq_show(struct device *dev,
 static ssize_t dynamic_freq_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
+	int osc;
 	int value, rc;
 	struct panel_device *panel = dev_get_drvdata(dev);
+	struct df_status_info *dyn_status;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 
+	dyn_status = &panel->df_status;
+	
 	rc = kstrtouint(buf, (unsigned int)0, &value);
 	if (rc < 0)
 		return rc;
@@ -3705,6 +3772,13 @@ static ssize_t dynamic_freq_store(struct device *dev,
 		panel_err("PANEL:ERR:%s:value is negative : %d\n", __func__, value);
 		return -EINVAL;
 	}
+
+	osc = (value & 0x4) >> 2;
+	value = value & 0x3;
+	
+	panel_info("[DYN_FREQ]:%s osc: %d, value: %d\n", __func__, osc, value);
+	dyn_status->request_ddi_osc = osc;
+
 	dynamic_freq_update(panel, value);
 
 	return size;
@@ -3722,6 +3796,10 @@ static ssize_t vrr_show(struct device *dev,
 		return -EINVAL;
 	}
 	panel_data = &panel->panel_data;
+
+
+
+
 
 	snprintf(buf, PAGE_SIZE, "%d %d\n",
 			panel_data->props.vrr_fps,
@@ -3764,7 +3842,7 @@ static ssize_t vrr_store(struct device *dev,
 	mutex_unlock(&panel->io_lock);
 
 	pr_info("%s vrr req:(%d %d) changed:(%d %d)->(%d %d)\n",
-			__func__, fps, mode, old_fps, old_mode, 
+			__func__, fps, mode, old_fps, old_mode,
 			panel_data->props.vrr_fps,
 			panel_data->props.vrr_mode);
 
@@ -3812,8 +3890,7 @@ static ssize_t spi_flash_ctrl_store(struct device *dev,
 {
 	struct panel_device *panel = dev_get_drvdata(dev);
 	struct panel_spi_dev *spi_dev = &panel->panel_spi_dev;
-	int ret, cmd_scanned, parse, cmd_input, cmd_size;
-	u8 cmd[SPI_BUF_LEN];
+	int ret, cmd_scanned, parse, cmd_input;
 
 	mutex_lock(&sysfs_lock);
 	mutex_lock(&panel->op_lock);
@@ -3840,9 +3917,9 @@ static ssize_t spi_flash_ctrl_store(struct device *dev,
 	pr_info("%s send %d byte(s), receive %d byte(s)\n", __func__, spi_flash_writelen, spi_flash_readlen);
 	print_hex_dump(KERN_ERR, __func__, DUMP_PREFIX_OFFSET, 16, 1, spi_flash_writebuf, spi_flash_writelen, false);
 
-	ret = spi_dev->ops->cmd(spi_dev, cmd, cmd_size, spi_flash_readbuf, spi_flash_readlen);
+	ret = spi_dev->ops->cmd(spi_dev, spi_flash_writebuf, spi_flash_writelen, spi_flash_readbuf, spi_flash_readlen);
 	if (ret < 0) {
-		pr_err("%s, failed to spi cmd 0x%0x, ret %d\n",	__func__, cmd[0], ret);
+		pr_err("%s, failed to spi cmd 0x%0x, ret %d\n",	__func__, spi_flash_writebuf[0], ret);
 		ret = -EIO;
 		goto store_err;
 	}
@@ -3894,6 +3971,7 @@ struct device_attribute panel_attrs[] = {
 	__PANEL_ATTR_RW(grayspot, 0664),
 #endif
 	__PANEL_ATTR_RW(irc_mode, 0664),
+	__PANEL_ATTR_RW(dia, 0664),
 	__PANEL_ATTR_RO(color_coordinate, 0444),
 	__PANEL_ATTR_RO(manufacture_date, 0444),
 	__PANEL_ATTR_RO(brightness_table, 0444),

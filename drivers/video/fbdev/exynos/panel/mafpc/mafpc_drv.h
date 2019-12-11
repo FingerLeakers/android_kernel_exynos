@@ -10,8 +10,8 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef __MAFC_DRV_H__
-#define __MAFC_DRV_H__
+#ifndef __MAFPC_DRV_H__
+#define __MAFPC_DRV_H__
 
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
@@ -27,16 +27,14 @@
 
 #define MAFPC_V4L2_DEV_NAME	"mafpc-sd"
 
-
 struct mafpc_device {
 	int id;
 	struct device *dev;
 	struct miscdevice miscdev;
 	struct v4l2_subdev sd;
-
-
-	bool req_update;
 	
+	bool req_update;
+
 	wait_queue_head_t wq_wait;
 	struct task_struct *thread;
 
@@ -52,7 +50,7 @@ struct mafpc_device {
 	bool written;
 
 	u8 factory_crc[2];
-	
+
 };
 
 #define MAFPC_IOCTL_MAGIC	'M'
@@ -62,9 +60,7 @@ struct mafpc_device {
 #define IOCTL_MAFPC_OFF			_IOW(MAFPC_IOCTL_MAGIC, 3, int)
 #define IOCTL_MAFPC_OFF_INSTANT	_IOW(MAFPC_IOCTL_MAGIC, 4, int)
 
-
 #define MAFPC_V4L2_IOC_BASE		'V'
-
 
 #define V4L2_IOCTL_MAFPC_PROBE		_IOR(MAFPC_V4L2_IOC_BASE, 0, int *)
 #define V4L2_IOCTL_MAFPC_UDPATE_REQ	_IOR(MAFPC_V4L2_IOC_BASE, 1, int *)
@@ -72,8 +68,7 @@ struct mafpc_device {
 #define V4L2_IOCTL_MAFPC_GET_INFO	_IOR(MAFPC_V4L2_IOC_BASE, 3, int *)
 
 
-#define MAFPC_VALID_CRC_1	0x15
-#define MAFPC_VALID_CRC_2	0x8A
-
+#define MAFPC_VALID_CRC_1	0x5C
+#define MAFPC_VALID_CRC_2	0xE5
 
 #endif

@@ -437,6 +437,7 @@ static int sec_direct_chg_set_property(struct power_supply *psy,
 			charger->dc_input_current = charger->dc_charging_current / 2;
 			charger->dc_err = false;
 			charger->dc_retry_cnt = 0;
+			charger->test_mode_source = SEC_DIRECT_CHG_CHARGING_SOURCE_DIRECT;
 		}
 
 		/* main charger */

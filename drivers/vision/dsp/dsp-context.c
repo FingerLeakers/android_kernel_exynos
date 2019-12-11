@@ -14,6 +14,7 @@
 #include "dsp-device.h"
 #include "hardware/dsp-mailbox.h"
 #include "dsp-common-type.h"
+#include "dsp-control.h"
 #include "dsp-context.h"
 
 static int dsp_context_boot(struct dsp_context *dctx, struct dsp_ioc_boot *args)
@@ -22,6 +23,7 @@ static int dsp_context_boot(struct dsp_context *dctx, struct dsp_ioc_boot *args)
 	struct dsp_core *core;
 
 	dsp_enter();
+	dsp_dbg("boot start\n");
 	core = dctx->core;
 
 	mutex_lock(&dctx->lock);
@@ -35,6 +37,7 @@ static int dsp_context_boot(struct dsp_context *dctx, struct dsp_ioc_boot *args)
 	dctx->boot_count++;
 	mutex_unlock(&dctx->lock);
 
+	dsp_dbg("boot end\n");
 	dsp_leave();
 	return 0;
 p_err_device:
@@ -86,6 +89,7 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 	unsigned int version;
 
 	dsp_enter();
+	dsp_dbg("load start\n");
 	sys = &dctx->core->dspdev->system;
 	version = args->version;
 
@@ -102,6 +106,7 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 		ret = PTR_ERR(pool);
 		goto p_err_pool;
 	}
+	pool->pm_qos = args->request_qos;
 
 	if (version == DSP_IOC_V1) {
 		ginfo1 = pool->kva;
@@ -147,6 +152,8 @@ static int dsp_context_load_graph(struct dsp_context *dctx,
 		__dsp_context_put_graph_info(dctx, ginfo2);
 	else if (version == DSP_IOC_V3)
 		__dsp_context_put_graph_info(dctx, ginfo3);
+
+	dsp_dbg("load end\n");
 	dsp_leave();
 	return 0;
 p_err_graph:
@@ -175,6 +182,7 @@ static int dsp_context_unload_graph(struct dsp_context *dctx,
 	unsigned int *global_id;
 
 	dsp_enter();
+	dsp_dbg("unload start\n");
 	sys = &dctx->core->dspdev->system;
 
 	SET_COMMON_CONTEXT_ID(&args->global_id, dctx->id);
@@ -190,6 +198,7 @@ static int dsp_context_unload_graph(struct dsp_context *dctx,
 		ret = PTR_ERR(pool);
 		goto p_err;
 	}
+	pool->pm_qos = args->request_qos;
 	global_id = pool->kva;
 	*global_id = args->global_id;
 
@@ -200,6 +209,7 @@ static int dsp_context_unload_graph(struct dsp_context *dctx,
 
 	dsp_mailbox_free_pool(pool);
 
+	dsp_dbg("unload end\n");
 	dsp_leave();
 	return 0;
 p_err:
@@ -254,6 +264,7 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 	unsigned int einfo_global_id;
 
 	dsp_enter();
+	dsp_dbg("execute start\n");
 	sys = &dctx->core->dspdev->system;
 	version = args->version;
 
@@ -262,6 +273,7 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 		ret = PTR_ERR(pool);
 		goto p_err_pool;
 	}
+	pool->pm_qos = args->request_qos;
 
 	if (version == DSP_IOC_V1) {
 		einfo1 = pool->kva;
@@ -321,6 +333,7 @@ static int dsp_context_execute_msg(struct dsp_context *dctx,
 
 	dsp_mailbox_free_pool(pool);
 
+	dsp_dbg("execute end\n");
 	dsp_leave();
 	return 0;
 p_err_graph_execute:
@@ -338,11 +351,98 @@ p_err_pool:
 	return ret;
 }
 
+static int __dsp_context_get_control(struct dsp_context *dctx,
+		struct dsp_ioc_control *control, union dsp_control *cmd)
+{
+	int ret;
+	unsigned int size;
+
+	dsp_enter();
+	size = control->size;
+
+	if (!size) {
+		ret = -EINVAL;
+		dsp_err("size for control is invalid(%u)\n", size);
+		goto p_err;
+	}
+
+	switch (control->control_id) {
+	case DSP_CONTROL_DVFS_ON:
+	case DSP_CONTROL_DVFS_OFF:
+		if (size != sizeof(cmd->dvfs)) {
+			ret = -EINVAL;
+			dsp_err("user cmd size is invalid(%u/%zu)\n",
+					size, sizeof(cmd->dvfs));
+			goto p_err;
+		}
+
+		ret = copy_from_user(&cmd->dvfs, (void *)control->addr, size);
+		if (ret) {
+			dsp_err("Failed to copy form user cmd(%u/%d)\n",
+					control->control_id, ret);
+			goto p_err;
+		}
+		break;
+	case DSP_CONTROL_BOOST_ON:
+	case DSP_CONTROL_BOOST_OFF:
+		if (size != sizeof(cmd->boost)) {
+			ret = -EINVAL;
+			dsp_err("user cmd size is invalid(%u/%zu)\n",
+					size, sizeof(cmd->boost));
+			goto p_err;
+		}
+
+		ret = copy_from_user(&cmd->boost, (void *)control->addr, size);
+		if (ret) {
+			dsp_err("Failed to copy form user cmd(%u/%d)\n",
+					control->control_id, ret);
+			goto p_err;
+		}
+		break;
+	default:
+		ret = -EINVAL;
+		dsp_err("control id is invalid(%u)\n", control->control_id);
+		goto p_err;
+	}
+
+	dsp_leave();
+	return 0;
+p_err:
+	return ret;
+}
+
+static int dsp_context_control(struct dsp_context *dctx,
+		struct dsp_ioc_control *args)
+{
+	int ret;
+	struct dsp_system *sys;
+	union dsp_control cmd;
+
+	dsp_enter();
+	dsp_dbg("control start\n");
+	sys = &dctx->core->dspdev->system;
+
+	ret = __dsp_context_get_control(dctx, args, &cmd);
+	if (ret)
+		goto p_err;
+
+	ret = dsp_system_request_control(sys, args->control_id, &cmd);
+	if (ret)
+		goto p_err;
+
+	dsp_dbg("control end\n");
+	dsp_leave();
+	return 0;
+p_err:
+	return ret;
+}
+
 const struct dsp_ioctl_ops dsp_ioctl_ops = {
 	.boot		= dsp_context_boot,
 	.load_graph	= dsp_context_load_graph,
 	.unload_graph	= dsp_context_unload_graph,
 	.execute_msg	= dsp_context_execute_msg,
+	.control	= dsp_context_control,
 };
 
 struct dsp_context *dsp_context_create(struct dsp_core *core)

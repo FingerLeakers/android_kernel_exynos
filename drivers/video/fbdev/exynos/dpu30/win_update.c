@@ -396,30 +396,38 @@ void dpu_prepare_win_update_config(struct decon_device *decon,
 		win_update_reconfig_coordinates(decon, win_config, regs);
 }
 
-void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs)
+static int dpu_check_mres_condition(struct decon_device *decon,
+		bool mode_update)
 {
-	struct dsim_device *dsim = get_dsim_drvdata(0);
-	struct exynos_display_mode_info *mode_info = dsim->panel->lcd_info.display_mode;
-	struct decon_param p;
-	u32 idx, old_xres, old_yres;
-	struct vrr_config_data vrr_info;
-
 	if (!decon->mres_enabled) {
 		DPU_DEBUG_MRES("multi-resolution feature is disabled\n");
-		return;
+		return -EPERM;
 	}
 
 	if (decon->dt.out_type != DECON_OUT_DSI) {
 		DPU_DEBUG_MRES("multi resolution only support DSI path\n");
-		return;
+		return -EPERM;
 	}
 
 	if (!decon->lcd_info->mres.en) {
 		DPU_DEBUG_MRES("panel doesn't support multi-resolution\n");
-		return;
+		return -EPERM;
 	}
 
-	if (!regs->mode_update)
+	if (!mode_update)
+		return -EPERM;
+
+	return 0;
+}
+
+void dpu_update_mres_lcd_info(struct decon_device *decon,
+		struct decon_reg_data *regs)
+{
+	struct dsim_device *dsim = get_dsim_drvdata(0);
+	struct exynos_display_mode_info *mode_info;
+	u32 idx;
+
+	if (dpu_check_mres_condition(decon, regs->mode_update))
 		return;
 
 	if (IS_ERR_OR_NULL(dsim)) {
@@ -427,18 +435,14 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 		return;
 	}
 
-	/*
-	 * Before LCD resolution is changed, previous frame data must be
-	 * finished to transfer.
-	 */
-	decon_reg_wait_idle_status_timeout(decon->id, IDLE_WAIT_TIMEOUT);
-
 	/* backup current LCD resolution information to previous one */
-	old_xres = dsim->panel->lcd_info.xres;
-	old_yres = dsim->panel->lcd_info.yres;
+	dsim->panel->lcd_info.old_xres = dsim->panel->lcd_info.xres;
+	dsim->panel->lcd_info.old_yres = dsim->panel->lcd_info.yres;
 	dsim->panel->lcd_info.xres = regs->lcd_width;
 	dsim->panel->lcd_info.yres = regs->lcd_height;
 	dsim->panel->lcd_info.cur_mode_idx = regs->mode_idx;
+
+	mode_info = dsim->panel->lcd_info.display_mode;
 	idx = regs->mode_idx;
 
 	dsim->panel->lcd_info.dsc.en = mode_info[idx].dsc_en;
@@ -446,9 +450,38 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 	dsim->panel->lcd_info.dsc.enc_sw = mode_info[idx].dsc_enc_sw;
 	dsim->panel->lcd_info.dsc.dec_sw = mode_info[idx].dsc_dec_sw;
 
+	DPU_DEBUG_MRES("changed LCD resolution(%d %d), dsc enc/dec sw(%d %d)\n",
+			decon->lcd_info->xres, decon->lcd_info->yres,
+			dsim->panel->lcd_info.dsc.enc_sw,
+			dsim->panel->lcd_info.dsc.dec_sw);
+}
+
+void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs)
+{
+	struct dsim_device *dsim = get_dsim_drvdata(0);
+	struct decon_param p;
+	struct exynos_display_mode_info *mode_info;
+	struct vrr_config_data vrr_info;
+	int idx, old_xres, old_yres;
+
+	if (dpu_check_mres_condition(decon, regs->mode_update))
+		return;
+
+	/*
+	 * Before LCD resolution is changed, previous frame data must be
+	 * finished to transfer.
+	 */
+	decon_reg_wait_idle_status_timeout(decon->id, IDLE_WAIT_TIMEOUT);
+
 	/*
 	 * set vrr if new resolution & current fps is not available.
 	 */
+
+	mode_info = dsim->panel->lcd_info.display_mode;
+	idx = regs->mode_idx;
+
+	old_xres = dsim->panel->lcd_info.old_xres;
+	old_yres = dsim->panel->lcd_info.old_yres;
 	if ((dpu_find_display_mode(decon, regs->lcd_width, regs->lcd_height,
 					decon->lcd_info->fps) < 0) &&
 		(dpu_find_display_mode(decon, old_xres, old_yres,
@@ -486,11 +519,6 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 
 	/* If LCD resolution is changed, initial partial size is also changed */
 	dpu_init_win_update(decon);
-
-	DPU_DEBUG_MRES("changed LCD resolution(%d %d), dsc enc/dec sw(%d %d)\n",
-			decon->lcd_info->xres, decon->lcd_info->yres,
-			dsim->panel->lcd_info.dsc.enc_sw,
-			dsim->panel->lcd_info.dsc.dec_sw);
 }
 
 void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info)

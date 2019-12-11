@@ -36,6 +36,12 @@ void secdbg_wdd_set_keepalive(void)
 
 void secdbg_wdd_set_start(void)
 {
+	if (!wdd_info) {
+		pr_info("%s: wdd_info not initialized\n", __func__);
+
+		return;
+	}
+
 	printk("%s: wdd_info->init_done: %s\n", __func__, wdd_info->init_done ? "true" : "false");
 	if (wdd_info->init_done == false) {
 		wdd_info->tsk = current;

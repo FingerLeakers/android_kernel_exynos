@@ -768,28 +768,26 @@ static int parse_modes_data(struct exynos_platform_is_module *pdata, struct devi
 		of_property_read_u32_index(next, "common", idx_dt++, (u32 *)&cfg->ex_mode);
 
 		opt_np = of_get_child_by_name(next, "option");
-		if (opt_np) {
-			if (of_find_property(opt_np, "votf", NULL))
-				of_property_read_u32(opt_np, "votf", &cfg->votf);
-			else
-				cfg->votf = 0;
+		if (opt_np && of_find_property(opt_np, "votf", NULL))
+			of_property_read_u32(opt_np, "votf", &cfg->votf);
+		else
+			cfg->votf = 0;
 
-			if (of_find_property(opt_np, "scm", NULL))
-				of_property_read_u32(opt_np, "scm", &cfg->scm);
-			else
-				cfg->scm = 0;
+		if (opt_np && of_find_property(opt_np, "scm", NULL))
+			of_property_read_u32(opt_np, "scm", &cfg->scm);
+		else
+			cfg->scm = 0;
 
-			if (of_find_property(opt_np, "max_fps", NULL))
-				of_property_read_u32(opt_np, "max_fps", &cfg->max_fps);
-			else
-				cfg->max_fps = cfg->framerate;
+		if (opt_np && of_find_property(opt_np, "max_fps", NULL))
+			of_property_read_u32(opt_np, "max_fps", &cfg->max_fps);
+		else
+			cfg->max_fps = cfg->framerate;
 
-			if (of_find_property(opt_np, "binning", NULL))
-				of_property_read_u32(opt_np, "binning", &cfg->binning);
-			else
-				cfg->binning = min(BINNING(pdata->active_width, cfg->width),
-						BINNING(pdata->active_height, cfg->height));
-		}
+		if (opt_np && of_find_property(opt_np, "binning", NULL))
+			of_property_read_u32(opt_np, "binning", &cfg->binning);
+		else
+			cfg->binning = min(BINNING(pdata->active_width, cfg->width),
+					BINNING(pdata->active_height, cfg->height));
 
 		for (idx_vc = 0; idx_vc < CSI_VIRTUAL_CH_MAX; idx_vc++) {
 			idx_dt = 0;

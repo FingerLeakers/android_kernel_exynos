@@ -65,6 +65,25 @@
 
 #include "ssp_dump.h"
 
+/* SENSOR CALIBRATION INFORMATION */
+#define GYRO_CAL_FILE_INDEX		0
+#define GYRO_CAL_DATA_SIZE		12
+
+#define MAG_CAL_FILE_INDEX		12
+#define MAG_CAL_DATA_SIZE		13
+
+#define LIGHT_CAL_FILE_INDEX		25
+#define LIGHT_CAL_DATA_SIZE		8
+
+#define PROX_CAL_FILE_INDEX		33
+#define PROX_CAL_DATA_SIZE		8
+
+#define SVC_OCTA_FILE_INDEX		41
+#define SVC_OCTA_DATA_SIZE		22
+
+#define SENSOR_CAL_FILE_SIZE		63
+/* END OF SENSOR CALIBRATION INFORMATION */
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #undef CONFIG_HAS_EARLYSUSPEND
 #endif
@@ -126,6 +145,7 @@
 #define SSP_FSM_SETTING			"SSP:FSM_SETTING=1"
 #define SSP_FSM_SETTING_PATH		"/efs/FactoryApp/fsm_setting.txt"
 
+#define SSP_SENSOR_CAL_READ		"SSP:SENSOR_CAL_READ"
 
 #if 0 //def	CONFIG_SENSORS_SSP_PROX_AUTOCAL_AMS 
 #define CONFIG_SENSORS_SSP_PROX_ADC_CAL
@@ -286,6 +306,7 @@ enum {
 #define MSG2SSP_AP_GET_LIGHT_CAL		0x52
 #define MSG2SSP_AP_GET_PROX_TRIM		0x53
 #define MSG2SSP_AP_SET_LIGHT_CAL		0x54
+#define MSG2SSP_AP_SET_LCD_TYPE		0x56
 
 #define MSG2SSP_AP_REGISTER_DUMP		0x4A
 #define MSG2SSP_AP_REGISTER_SETTING		  0x4B
@@ -1111,7 +1132,7 @@ int proximity_open_calibration(struct ssp_data *data);
 int load_magnetic_cal_param_from_nvm(u8 *data, u8 length);
 int set_magnetic_cal_param_to_ssp(struct ssp_data *data);
 int save_magnetic_cal_param_to_nvm(struct ssp_data *data, char *pchRcvDataFrame, int *iDataIdx);
-int set_light_cal_param_to_ssp(struct ssp_data *data);
+
 void remove_input_dev(struct ssp_data *data);
 void remove_sysfs(struct ssp_data *data);
 void remove_event_symlink(struct ssp_data *data);
@@ -1135,6 +1156,7 @@ void set_prox_cal(struct ssp_data *data);
 int proximity_save_calibration(struct ssp_data *data);
 #endif
 int initialize_magnetic_sensor(struct ssp_data *data);
+int initialize_light_sensor(struct ssp_data *data);
 int initialize_thermistor_table(struct ssp_data *data);
 int set_ap_information(struct ssp_data *data);
 int set_sensor_position(struct ssp_data *data);

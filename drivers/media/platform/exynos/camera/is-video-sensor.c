@@ -807,7 +807,9 @@ static int is_ssx_video_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_IS_CAPTURE_EXPOSURETIME:
 	case V4L2_CID_IS_TRANSIENT_ACTION:
 	case V4L2_CID_IS_FORCE_FLASH_MODE:
+#ifdef CONFIG_CAMERA_USE_MCU
 	case V4L2_CID_IS_FACTORY_APERTURE_CONTROL:
+#endif
 	case V4L2_CID_IS_OPENING_HINT:
 	case V4L2_CID_IS_CLOSING_HINT:
 		ret = is_video_s_ctrl(file, vctx, ctrl);
@@ -871,6 +873,14 @@ static int is_ssx_video_s_ctrl(struct file *file, void *priv,
 		break;
 	case V4L2_CID_SENSOR_SET_EXTENDEDMODE:
 		device->ex_mode = ctrl->value;
+		break;
+	case V4L2_CID_IS_S_STANDBY_OFF:
+		/*
+		 * User must set before qbuf for next stream on in standby on state.
+		 * If it is not cleared, all qbuf buffer is returned with unprocessed.
+		 */
+		clear_bit(IS_GROUP_STANDBY, &device->group_sensor.state);
+		minfo("Clear STANDBY state", device);
 		break;
 	default:
 		ret = is_sensor_s_ctrl(device, ctrl);

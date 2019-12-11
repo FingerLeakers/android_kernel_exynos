@@ -167,7 +167,7 @@ static int dwc3_exynos_clk_enable(struct dwc3_exynos *exynos)
 #if defined(CONFIG_SOC_EXYNOS9830)
 	if (exynos_soc_info.main_rev == 1) {
 		pr_info("Set USB ref_clk to 40Mhz.\n");
-		clk_set_rate(exynos->clocks[1],40000000);
+		clk_set_rate(exynos->clocks[1], 40000000);
 	} else if (exynos_soc_info.main_rev == 0) {
 		pr_info("Set USB ref_clk to 66Mhz.\n");
 		clk_set_rate(exynos->clocks[1], 66625000);
@@ -259,6 +259,13 @@ int dwc3_exynos_rsw_start(struct device *dev)
 void dwc3_exynos_rsw_stop(struct device *dev)
 {
 	dev_info(dev, "%s\n", __func__);
+}
+
+int dwc3_exynos_get_idle_ip_index(struct device *dev)
+{
+	struct dwc3_exynos *exynos = dev_get_drvdata(dev);
+
+	return exynos->idle_ip_index;
 }
 
 int dwc3_exynos_set_bus_clock(struct device *dev, int clk_level)

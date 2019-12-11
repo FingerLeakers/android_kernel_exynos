@@ -45,7 +45,7 @@ int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation)
 		int clk = 0;
 		gpu_dvfs_calculate_env_data(kbdev);
 		clk = gpu_dvfs_decide_next_freq(kbdev, platform->env_data.utilization);
-		gpu_set_target_clk_vol(clk, true);
+		gpu_set_target_clk_vol(clk, true, false);
 	}
 	mutex_unlock(&platform->gpu_dvfs_handler_lock);
 
@@ -68,7 +68,7 @@ int gpu_dvfs_handler_init(struct kbase_device *kbdev)
 	gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_INIT);
 #endif /* CONFIG_MALI_PM_QOS */
 
-	gpu_set_target_clk_vol(platform->table[platform->step].clock, false);
+	gpu_set_target_clk_vol(platform->table[platform->step].clock, false, false);
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "dvfs handler initialized\n");
 	return 0;

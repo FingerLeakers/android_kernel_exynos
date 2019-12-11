@@ -1045,8 +1045,6 @@ static int set_vtsvoicerecognize_mode(struct snd_kcontrol *kcontrol,
 		}
 
 		if (vcrecognize_mode <= VTS_SENSORY_TRIGGER_MODE) {
-			dev_info(dev, "vts recognize : vts_try_request_firmware\n");
-			/* vts_try_request_firmware(data); */
 			pm_runtime_get_sync(dev);
 			vts_clk_set_rate(dev, data->syssel_rate);
 			vcrecognize_start = true;
@@ -1830,6 +1828,7 @@ void vts_register_dma(struct platform_device *pdev_vts,
 	} else {
 		dev_err(&data->pdev->dev, "%s: invalid id(%u)\n", __func__, id);
 	}
+	data->vtsrec_count = 0;
 }
 
 static int vts_suspend(struct device *dev)
@@ -1943,9 +1942,9 @@ void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 		/* Save VTS firmware log msgs */
 		if (!IS_ERR_OR_NULL(data->p_dump[dbg_type].sram_log) &&
 			!IS_ERR_OR_NULL(data->sramlog_baseaddr)) {
-			dev_info(dev, "%s : add MAGIC CODE\n", __func__);
 			memcpy(data->p_dump[dbg_type].sram_log, VTS_DUMP_MAGIC, sizeof(VTS_DUMP_MAGIC));
-			memcpy_fromio(data->p_dump[dbg_type].sram_log + sizeof(VTS_DUMP_MAGIC), data->sramlog_baseaddr, SZ_2K);
+			memcpy_fromio(data->p_dump[dbg_type].sram_log + sizeof(VTS_DUMP_MAGIC),
+				data->sramlog_baseaddr, SZ_2K);
 		}
 	} else if (dbg_type == KERNEL_PANIC_DUMP || dbg_type == VTS_FW_NOT_READY ||
 			dbg_type == VTS_IPC_TRANS_FAIL) {
@@ -2142,7 +2141,6 @@ static int vts_runtime_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct vts_data *data = dev_get_drvdata(dev);
-
 	u32 values[3];
 	int result;
 
@@ -2156,7 +2154,6 @@ static int vts_runtime_resume(struct device *dev)
 	data->enabled = true;
 
 	vts_restore_register(data);
-
 	vts_cfg_gpio(dev, "dmic_default");
 	vts_cfg_gpio(dev, "idle");
 	vts_pad_retention(false);
@@ -3057,11 +3054,6 @@ static int samsung_vts_probe(struct platform_device *pdev)
 				readl(data->sfr_base + VTS_DMIC_CLK_CTRL));
 #endif
 
-{
-	unsigned int ttt = 0;
-	ttt = readl(data->dmic_base + 0);
-	dev_info(dev, "ENABLE_DMIC_IF: 0x%x \n", ttt);
-}
 	result = device_create_file(dev, &dev_attr_vtsfw_version);
 	if (result < 0)
 		dev_warn(dev, "Failed to create file: %s\n", "vtsfw_version");

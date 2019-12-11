@@ -2,6 +2,8 @@
 # please don't remove new line on this file
 #
 
+CONFIG_USE_SIGNED_BINARY=n
+
 CONFIG_SEC_GPIO_DVS=y
 # CONFIG_DEBUG_SNAPSHOT_USER_MODE is not set
 # CONFIG_EXYNOS_KERNEL_PROTECTION is not set
@@ -70,3 +72,6 @@ CONFIG_SDP_KEY_DUMP=y
 
 #Displayport test
 CONFIG_DISPLAYPORT_ENG=y
+
+# BPF_debugging
+CONFIG_BPF_TRACE_PRINTK_EVERYWHERE=y

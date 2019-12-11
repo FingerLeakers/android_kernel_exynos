@@ -250,8 +250,7 @@ struct is_rom_info {
 	int32_t		rom_header_f3_mtf_data_addr;
 	int32_t		rom_awb_master_addr;
 	int32_t		rom_awb_module_addr;
-	int32_t		rom_af_cal_macro_addr;
-	int32_t		rom_af_cal_d50_addr;
+	int32_t		rom_af_cal_d_addr[AF_CAL_D_MAX];
 	int32_t		rom_af_cal_pan_addr;
 
 	int32_t		rom_header_sensor2_id_addr;
@@ -259,8 +258,7 @@ struct is_rom_info {
 	int32_t		rom_header_sensor2_mtf_data_addr;
 	int32_t		rom_sensor2_awb_master_addr;
 	int32_t		rom_sensor2_awb_module_addr;
-	int32_t		rom_sensor2_af_cal_macro_addr;
-	int32_t		rom_sensor2_af_cal_d50_addr;
+	int32_t		rom_sensor2_af_cal_d_addr[AF_CAL_D_MAX];
 	int32_t		rom_sensor2_af_cal_pan_addr;
 
 	int32_t		rom_dualcal_slave0_start_addr;

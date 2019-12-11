@@ -26,6 +26,7 @@ enum mcu_event_type {
 /*
  * Configuation functions
  */
+void __is_mcu_pmu_control(int on);
 int __is_mcu_hw_enable(void __iomem *base);
 int __is_mcu_hw_disable(void __iomem *base);
 int __is_mcu_core_control(void __iomem *base, int on);

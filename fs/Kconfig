@@ -316,4 +316,8 @@ endif # NETWORK_FILESYSTEMS
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
 
+config FS_HPB
+	bool "Support HPB on Filesystem"
+	default n
+
 endmenu

@@ -102,6 +102,59 @@ static unsigned int __mfc_handle_frame_field(struct mfc_ctx *ctx)
 	return field;
 }
 
+static void __mfc_handle_last_frame(struct mfc_ctx *ctx)
+{
+	struct mfc_dec *dec = ctx->dec_priv;
+	struct mfc_buf *dst_mb;
+	int index, i;
+
+	mfc_debug(2, "DQ empty DPB with stored tag\n");
+
+	dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_queue,
+			MFC_BUF_NO_TOUCH_USED);
+	if (!dst_mb) {
+		mfc_err_ctx("there is no dst buffer for EOS tag\n");
+		return;
+	}
+
+	mfc_debug(2, "Cleaning up buffer: [%d][%d]\n",
+			dst_mb->vb.vb2_buf.index, dst_mb->dpb_index);
+
+	index = dst_mb->vb.vb2_buf.index;
+
+	for (i = 0; i < ctx->dst_fmt->mem_planes; i++)
+		vb2_set_plane_payload(&dst_mb->vb.vb2_buf, i, 0);
+
+	dst_mb->vb.sequence = (++ctx->sequence);
+	dst_mb->vb.field = __mfc_handle_frame_field(ctx);
+	mfc_clear_vb_flag(dst_mb);
+
+	clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+
+	if (call_cop(ctx, get_buf_ctrls_val, ctx, &ctx->dst_ctrls[index]) < 0)
+		mfc_err_ctx("failed in get_buf_ctrls_val\n");
+
+	call_cop(ctx, get_buf_update_val, ctx, &ctx->dst_ctrls[index],
+			V4L2_CID_MPEG_MFC51_VIDEO_FRAME_TAG, dec->stored_tag);
+
+	mutex_lock(&dec->dpb_mutex);
+
+	index = dst_mb->dpb_index;
+	dec->dpb[index].queued = 0;
+	clear_bit(index, &dec->queued_dpb);
+	dec->display_index = dst_mb->dpb_index;
+
+	mutex_unlock(&dec->dpb_mutex);
+
+	vb2_buffer_done(&dst_mb->vb.vb2_buf, VB2_BUF_STATE_DONE);
+	mfc_debug(2, "[DPB] Cleand up index = %d, used_flag = %#lx, queued = %#lx\n",
+			index, dec->dynamic_used, dec->queued_dpb);
+
+	mfc_handle_force_change_status(ctx);
+
+	mfc_debug(2, "It can be continue decoding again\n");
+}
+
 static void __mfc_handle_frame_all_extracted(struct mfc_ctx *ctx)
 {
 	struct mfc_dec *dec = ctx->dec_priv;
@@ -110,6 +163,9 @@ static void __mfc_handle_frame_all_extracted(struct mfc_ctx *ctx)
 
 	mfc_debug(2, "Decided to finish\n");
 	ctx->sequence++;
+
+	if (ctx->state == MFCINST_RES_CHANGE_FLUSH)
+		is_first = 0;
 
 	while (1) {
 		dst_mb = mfc_get_del_buf(ctx, &ctx->dst_buf_queue, MFC_BUF_NO_TOUCH_USED);
@@ -291,11 +347,16 @@ static void __mfc_handle_frame_output_del(struct mfc_ctx *ctx, unsigned int err)
 		}
 
 		if (is_hdr10_plus_sei) {
-			mfc_get_hdr_plus_info(ctx, &dec->hdr10_plus_info[index]);
-			mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_PLUS);
-			mfc_debug(2, "[HDR+] HDR10 plus dyanmic SEI metadata parsed\n");
+			if (dec->hdr10_plus_info) {
+				mfc_get_hdr_plus_info(ctx, &dec->hdr10_plus_info[index]);
+				mfc_set_vb_flag(dst_mb, MFC_FLAG_HDR_PLUS);
+				mfc_debug(2, "[HDR+] HDR10 plus dyanmic SEI metadata parsed\n");
+			} else {
+				mfc_err_ctx("[HDR+] HDR10 plus cannot be parsed\n");
+			}
 		} else {
-			dec->hdr10_plus_info[index].valid = 0;
+			if (dec->hdr10_plus_info)
+				dec->hdr10_plus_info[index].valid = 0;
 		}
 
 		if (is_uncomp) {
@@ -675,7 +736,7 @@ static void __mfc_handle_frame(struct mfc_ctx *ctx,
 
 			goto leave_handle_frame;
 		} else {
-			__mfc_handle_frame_all_extracted(ctx);
+			__mfc_handle_last_frame(ctx);
 		}
 	}
 
@@ -1033,12 +1094,9 @@ static int __mfc_handle_seq_dec(struct mfc_ctx *ctx)
 		}
 	}
 
-	if (ctx->img_width == 0 || ctx->img_height == 0)
+	if (ctx->img_width == 0 || ctx->img_height == 0) {
 		mfc_change_state(ctx, MFCINST_ERROR);
-	else
-		mfc_change_state(ctx, MFCINST_HEAD_PARSED);
-
-	if (ctx->state == MFCINST_HEAD_PARSED) {
+	} else {
 		is_interlace = mfc_is_interlace_picture();
 		is_mbaff = mfc_is_mbaff_picture();
 		if (is_interlace || is_mbaff)
@@ -1050,6 +1108,8 @@ static int __mfc_handle_seq_dec(struct mfc_ctx *ctx)
 			MFC_TRACE_CTX("*** is_sbwc %d\n", ctx->is_sbwc);
 			mfc_debug(2, "[SBWC] is_sbwc %d\n", ctx->is_sbwc);
 		}
+
+		mfc_change_state(ctx, MFCINST_HEAD_PARSED);
 	}
 
 	if (IS_H264_DEC(ctx) || IS_H264_MVC_DEC(ctx) || IS_HEVC_DEC(ctx)) {

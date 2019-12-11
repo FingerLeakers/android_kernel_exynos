@@ -738,11 +738,12 @@ enum PANEL_SEQ {
 
 #ifdef CONFIG_DYNAMIC_FREQ
 	PANEL_DYNAMIC_FFC_SEQ,
+	PANEL_COMP_LTPS_SEQ,
 #endif
 #ifdef CONFIG_SUPPORT_MAFPC
-	PANEL_MAFC_IMG_SEQ,
-	PANEL_MAFC_ON_SEQ,
-	PANEL_MAFC_OFF_SEQ,
+	PANEL_MAFPC_IMG_SEQ,
+	PANEL_MAFPC_ON_SEQ,
+	PANEL_MAFPC_OFF_SEQ,
 	PANEL_MAFPC_FAC_CHECKSUM,
 #endif
 	PANEL_GAMMA_INTER_CONTROL_SEQ,
@@ -832,6 +833,9 @@ struct panel_vrr {
 	u32 base_vactive;
 	u32 base_vfp;
 	u32 base_vbp;
+	int te_sel;
+	int te_v_st;
+	int te_v_ed;
 	u32 mode;
 };
 

@@ -324,8 +324,6 @@ static void __do_kernel_fault(unsigned long addr, unsigned int esr,
 		return;
 	}
 
-	adv_tracer_arraydump();
-
 	if (is_el1_permission_fault(esr, regs, addr)) {
 		if (esr & ESR_ELx_WNR)
 			msg = "write to read-only memory";
@@ -803,7 +801,6 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 		return;
 
 	if (!user_mode(regs)) {
-		adv_tracer_arraydump();
 		pr_auto(ASL1, "Unhandled fault at 0x%016lx\n", addr);
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 		secdbg_exin_set_fault(MEM_ABORT_FAULT, addr, regs);
@@ -854,8 +851,6 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 		if (instruction_pointer(regs) > TASK_SIZE)
 			arm64_apply_bp_hardening();
 		local_irq_enable();
-	} else {
-		adv_tracer_arraydump();
 	}
 
 	clear_siginfo(&info);

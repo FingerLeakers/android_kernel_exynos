@@ -14,11 +14,25 @@
 #include <linux/syscalls.h>
 #include <linux/vmalloc.h>
 #include <linux/firmware.h>
+#include <linux/delay.h>
 #include <soc/samsung/exynos-pmu.h>
 
 #include "is-sfr-ois-mcu-v1_1_1.h"
 #include "is-hw-api-ois-mcu.h"
 #include "is-binary.h"
+
+void __is_mcu_pmu_control(int on)
+{
+	if (on) {
+		exynos_pmu_update(pmu_ois_mcu_regs[R_OIS_CPU_CONFIGURATION].sfr_offset,
+			pmu_ois_mcu_masks[R_OIS_CPU_CONFIGURATION].sfr_offset, 0x1);
+	} else {
+		exynos_pmu_update(pmu_ois_mcu_regs[R_OIS_CPU_CONFIGURATION].sfr_offset,
+			pmu_ois_mcu_masks[R_OIS_CPU_CONFIGURATION].sfr_offset, 0x0);
+	}
+
+	info_mcu("%s onoff = %d", __func__, on);
+}
 
 int __is_mcu_core_control(void __iomem *base, int on)
 {
@@ -54,11 +68,10 @@ int __is_mcu_hw_enable(void __iomem *base)
 {
 	int ret = 0;
 
-	exynos_pmu_update(pmu_ois_mcu_regs[R_OIS_CPU_CONFIGURATION].sfr_offset,
-		pmu_ois_mcu_masks[R_OIS_CPU_CONFIGURATION].sfr_offset, 0x1);
+	info_mcu("%s started", __func__);
 
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
-		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ON], 0);
+		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ON], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ENABLE], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
@@ -69,12 +82,16 @@ int __is_mcu_hw_enable(void __iomem *base)
 		&ois_mcu_fields[OIS_F_CM0P_FORCE_DBG_PWRUP], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_DISABLE_IRQ], 0);
+#if 0
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_WDTIRQ_TO_HOST], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_CONNECT_WDT_TO_NMI], 1);
+#endif
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_REMAP_SPDMA_ADDR],
 		&ois_mcu_fields[OIS_F_CM0P_SPDMA_ADDR], 0x10730080);
+
+	info_mcu("%s end", __func__);
 
 	return ret;
 }
@@ -94,9 +111,9 @@ int __is_mcu_hw_set_init_peri(void __iomem *base)
 {
 	int ret = 0;
 	u32 recover_val = 0;
-#ifdef USE_SHARED_REG_MCU_PERI_CON
 	u32 src = 0;
 
+#ifdef USE_SHARED_REG_MCU_PERI_CON
 	src = is_hw_get_reg(base, &ois_mcu_peri_regs[R_OIS_PERI_CON_CTRL]);
 	recover_val = src & 0x0000FF00;
 	recover_val = recover_val | 0x22220022;
@@ -104,7 +121,10 @@ int __is_mcu_hw_set_init_peri(void __iomem *base)
 	recover_val = 0x22221122;
 #endif
 	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PERI_CON_CTRL], recover_val);
-	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL], 0x00000000);
+
+	src = is_hw_get_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL]);
+	recover_val = src & 0x0000FF00;
+	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL], recover_val);
 
 	return ret;
 }
@@ -113,16 +133,19 @@ int __is_mcu_hw_set_clear_peri(void __iomem *base)
 {
 	int ret = 0;	
 	u32 recover_val = 0;
-#ifdef USE_SHARED_REG_MCU_PERI_CON
 	u32 src = 0;
 
+#ifdef USE_SHARED_REG_MCU_PERI_CON
 	src = is_hw_get_reg(base, &ois_mcu_peri_regs[R_OIS_PERI_CON_CTRL]);
 	recover_val = src & 0x0000FF00;
 #else
 	recover_val = 0x00000000;
 #endif
 	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PERI_CON_CTRL], recover_val);
-	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL], 0x00000000);
+
+	src = is_hw_get_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL]);
+	recover_val = src & 0x0000FF00;
+	is_hw_set_reg(base, &ois_mcu_peri_regs[R_OIS_PUD_CTRL], recover_val);
 
 	return ret;
 }
@@ -155,27 +178,32 @@ int __is_mcu_hw_disable(void __iomem *base)
 {
 	int ret = 0;
 
+	info_mcu("%s started", __func__);
+
+	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
+		&ois_mcu_fields[OIS_F_CM0P_DISABLE_IRQ], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ON], 0);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
-		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ENABLE], 0);
+		&ois_mcu_fields[OIS_F_CM0P_IPCLKREQ_ENABLE], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_SLEEP_CTRL], 0);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_QACTIVE_DIRECT_CTRL], 1);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_FORCE_DBG_PWRUP], 0);
-	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
-		&ois_mcu_fields[OIS_F_CM0P_DISABLE_IRQ], 0);
+#if 0
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_WDTIRQ_TO_HOST], 0);
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_CTRL0],
 		&ois_mcu_fields[OIS_F_CM0P_CONNECT_WDT_TO_NMI], 0);
+#endif
 	is_hw_set_field(base, &ois_mcu_regs[R_OIS_CM0P_REMAP_SPDMA_ADDR],
 		&ois_mcu_fields[OIS_F_CM0P_SPDMA_ADDR], 0);
 
-	exynos_pmu_update(pmu_ois_mcu_regs[R_OIS_CPU_CONFIGURATION].sfr_offset,
-		pmu_ois_mcu_masks[R_OIS_CPU_CONFIGURATION].sfr_offset, 0x0);
+	usleep_range(1000, 1100);
+
+	info_mcu("%s end", __func__);
 
 	return ret;
 }

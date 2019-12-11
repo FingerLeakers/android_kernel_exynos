@@ -1158,7 +1158,7 @@ void ufshpb_prep_fn(struct ufsf_feature *ufsf, struct ufshcd_lrb *lrbp)
 	struct ufshpb_region *rgn;
 	struct ufshpb_subregion *srgn;
 	struct request *rq;
-	struct scsi_cmnd *cmd = lrbp->cmd;
+	struct scsi_cmnd *cmd;
 	unsigned long long ppn = 0;
 	unsigned long lpn, flags;
 	int transfer_len = TRANSFER_LEN;
@@ -1167,6 +1167,8 @@ void ufshpb_prep_fn(struct ufsf_feature *ufsf, struct ufshcd_lrb *lrbp)
 	/* WKLU could not be HPB-LU */
 	if (!lrbp || !ufsf_is_valid_lun(lrbp->lun))
 		return;
+
+	cmd = lrbp->cmd;
 
 	if (!ufshpb_is_read_cmd(cmd) && !ufshpb_is_write_cmd(cmd) &&
 	    !ufshpb_is_discard_cmd(cmd))
@@ -1286,16 +1288,20 @@ static inline void ufshpb_put_map_req(struct ufshpb_lu *hpb,
 {
 	list_add_tail(&map_req->list_req, &hpb->lh_map_req_free);
 	hpb->num_inflight_map_req--;
+	hpb->num_inflight_rt_req--;
 }
 
 static struct ufshpb_req *ufshpb_get_map_req(struct ufshpb_lu *hpb)
 {
 	struct ufshpb_req *map_req;
 
-	if (hpb->num_inflight_map_req >= hpb->throttle_map_req) {
+	if (hpb->num_inflight_map_req >= hpb->throttle_map_req ||
+	    hpb->num_inflight_rt_req >= hpb->throttle_rt_req) {
 #if defined(CONFIG_HPB_DEBUG)
 		HPB_DEBUG(hpb, "map_req throttle. inflight %d throttle %d",
 			  hpb->num_inflight_map_req, hpb->throttle_map_req);
+		HPB_DEBUG(hpb, "rt_req throttle. rt inflight %d rt throttle %d",
+			  hpb->num_inflight_rt_req, hpb->throttle_rt_req);
 #endif
 		return NULL;
 	}
@@ -1311,6 +1317,7 @@ static struct ufshpb_req *ufshpb_get_map_req(struct ufshpb_lu *hpb)
 
 	list_del_init(&map_req->list_req);
 	hpb->num_inflight_map_req++;
+	hpb->num_inflight_rt_req++;
 
 	return map_req;
 }
@@ -1994,6 +2001,7 @@ static void ufshpb_unset_rt_req_compl_fn(struct request *req,
 		rgn->rgn_state = HPBREGION_ACTIVE;
 free_pre_req:
 	ufshpb_put_pre_req(pre_req->hpb, pre_req);
+	hpb->num_inflight_rt_req--;
 	spin_unlock_irqrestore(&hpb->hpb_lock, flags);
 
 	if (is_clear_reason(hpb, rgn))
@@ -2091,11 +2099,20 @@ static int ufshpb_prepare_unset_rt_req(struct ufshpb_lu *hpb,
 	int ret = 0;
 
 	spin_lock_irqsave(&hpb->hpb_lock, flags);
+	if (hpb->num_inflight_rt_req >= hpb->throttle_rt_req) {
+#if defined(CONFIG_HPB_DEBUG)
+		HPB_DEBUG(hpb, "rt_req throttle. rt inflight %d rt throttle %d",
+			  hpb->num_inflight_rt_req, hpb->throttle_rt_req);
+#endif
+		ret = -ENOMEM;
+		goto unlock_out;
+	}
 	pre_req = ufshpb_get_pre_req(hpb);
 	if (!pre_req) {
 		ret = -ENOMEM;
 		goto unlock_out;
 	}
+	hpb->num_inflight_rt_req++;
 	spin_unlock_irqrestore(&hpb->hpb_lock, flags);
 
 	pre_req->hpb = hpb;
@@ -2106,6 +2123,7 @@ static int ufshpb_prepare_unset_rt_req(struct ufshpb_lu *hpb,
 		WARNING_MSG("warning: ufshpb_lu_get failed.. %d", ret);
 		spin_lock_irqsave(&hpb->hpb_lock, flags);
 		ufshpb_put_pre_req(hpb, pre_req);
+		hpb->num_inflight_rt_req--;
 		goto unlock_out;
 	}
 
@@ -2351,7 +2369,8 @@ static void ufshpb_rsp_req_region_update(struct ufshpb_lu *hpb,
 
 		/* It is just blocking HPB_READ */
 		spin_lock(&hpb->hpb_lock);
-		srgn->srgn_state = HPBSUBREGION_DIRTY;
+		if (srgn->srgn_state == HPBSUBREGION_CLEAN)
+			srgn->srgn_state = HPBSUBREGION_DIRTY;
 		spin_unlock(&hpb->hpb_lock);
 
 		atomic64_inc(&hpb->rb_active_cnt);
@@ -2785,6 +2804,11 @@ static void ufshpb_run_inactive_region_list(struct ufshpb_lu *hpb)
 	while ((rgn = list_first_entry_or_null(&hpb->lh_inact_rgn,
 					       struct ufshpb_region,
 					       list_inact_rgn))) {
+		if (hpb->ufsf->ufshpb_state == HPB_SUSPEND) {
+			INFO_MSG("suspend state. Issuing WRITE_BUFFER the next turn");
+			break;
+		}
+
 		ufshpb_inact_rsp_list_del(hpb, rgn);
 		spin_unlock_irqrestore(&hpb->rsp_list_lock, flags);
 
@@ -2828,6 +2852,11 @@ static void ufshpb_run_active_subregion_list(struct ufshpb_lu *hpb)
 	while ((srgn = list_first_entry_or_null(&hpb->lh_act_srgn,
 						struct ufshpb_subregion,
 						list_act_srgn))) {
+		if (hpb->ufsf->ufshpb_state == HPB_SUSPEND) {
+			INFO_MSG("suspend state. Issuing READ_BUFFER the next turn");
+			break;
+		}
+
 		ufshpb_act_rsp_list_del(hpb, srgn);
 
 		if (hpb->force_map_req_disable)
@@ -2869,6 +2898,9 @@ static void ufshpb_task_workq_fn(struct work_struct *work)
 	hpb = container_of(work, struct ufshpb_lu, ufshpb_task_workq);
 	ret = ufshpb_lu_get(hpb);
 	if (ret) {
+		if (hpb)
+			WARNING_MSG("lu_get failed.. hpb_state %d",
+				    hpb->ufsf->ufshpb_state);
 		WARNING_MSG("warning: ufshpb_lu_get failed %d..", ret);
 		return;
 	}
@@ -3223,10 +3255,12 @@ static void ufshpb_find_lu_qd(struct ufshpb_lu *hpb)
 		INIT_INFO("hba->nutrs = %d", hba->nutrs);
 	}
 
-	hpb->throttle_map_req = hpb->qd;
-	hpb->throttle_pre_req = hpb->qd;
+	hpb->throttle_map_req = hpb->qd / 8;
+	hpb->throttle_pre_req = hpb->qd / 2;
+	hpb->throttle_rt_req = hpb->qd / 8;
 	hpb->num_inflight_map_req = 0;
 	hpb->num_inflight_pre_req = 0;
+	hpb->num_inflight_rt_req = 0;
 }
 
 static void ufshpb_init_lu_constant(struct ufshpb_dev_info *hpb_dev_info,
@@ -3328,8 +3362,7 @@ static int ufshpb_lu_hpb_init(struct ufsf_feature *ufsf, int lun)
 		}
 	}
 
-	rgn_table = kzalloc(sizeof(struct ufshpb_region) * hpb->rgns_per_lu,
-			    GFP_KERNEL);
+	rgn_table = vzalloc(sizeof(struct ufshpb_region) * hpb->rgns_per_lu);
 	if (!rgn_table) {
 		ret = -ENOMEM;
 		goto out;
@@ -3447,7 +3480,7 @@ release_pre_req_mempool:
 release_map_req_mempool:
 	ufshpb_map_req_mempool_remove(hpb);
 release_rgn_table:
-	kfree(rgn_table);
+	vfree(rgn_table);
 out:
 	return ret;
 }
@@ -3457,7 +3490,8 @@ static inline int ufshpb_version_check(struct ufshpb_dev_info *hpb_dev_info)
 	INIT_INFO("Support HPB Spec : Driver = %.4X  Device = %.4X",
 		  UFSHPB_VER, hpb_dev_info->hpb_ver);
 
-	INIT_INFO("HPB Driver Version : %.4X", UFSHPB_DD_VER);
+	INIT_INFO("HPB Driver Version : %.6X%s", UFSHPB_DD_VER,
+		  UFSHPB_DD_VER_POST);
 
 	if (hpb_dev_info->hpb_ver != UFSHPB_VER) {
 		ERR_MSG("ERROR: HPB Spec Version mismatch. So HPB disabled.");
@@ -3721,7 +3755,7 @@ static void ufshpb_destroy_region_tbl(struct ufshpb_lu *hpb)
 	}
 
 	ufshpb_table_mempool_remove(hpb);
-	kfree(hpb->rgn_tbl);
+	vfree(hpb->rgn_tbl);
 
 	RELEASE_INFO("End");
 }
@@ -3806,8 +3840,6 @@ void ufshpb_reset_handler(struct work_struct *work)
 		ERR_MSG("UFSHPB kref is not init_value(=1). kref count = %d",
 			atomic_read(&ufsf->ufshpb_kref.refcount.refs));
 
-	INIT_INFO("HPB_RESET_START");
-
 	ufshpb_reset(ufsf);
 }
 
@@ -3846,7 +3878,8 @@ void ufshpb_suspend(struct ufsf_feature *ufsf)
 	seq_scan_lu(lun) {
 		hpb = ufsf->ufshpb_lup[lun];
 		if (hpb) {
-			INFO_MSG("ufshpb_lu %d goto suspend", lun);
+			INFO_MSG("ufshpb_lu %d changes suspend state", lun);
+			hpb->ufsf->ufshpb_state = HPB_SUSPEND;
 			ufshpb_cancel_jobs(hpb);
 		}
 	}
@@ -3862,6 +3895,8 @@ void ufshpb_resume(struct ufsf_feature *ufsf)
 		if (hpb) {
 			bool do_workq = false;
 			bool do_retry_work = false;
+
+			hpb->ufsf->ufshpb_state = HPB_PRESENT;
 
 			do_workq = !ufshpb_is_empty_rsp_lists(hpb);
 			do_retry_work =
@@ -4013,6 +4048,35 @@ static ssize_t ufshpb_sysfs_throttle_pre_req_store(struct ufshpb_lu *hpb,
 	hpb->throttle_pre_req = (int)throttle_pre_req;
 
 	SYSFS_INFO("throttle_pre_req %d", hpb->throttle_pre_req);
+
+	return cnt;
+}
+
+static ssize_t ufshpb_sysfs_throttle_rt_req_show(struct ufshpb_lu *hpb, char *buf)
+{
+	int ret;
+
+	ret = snprintf(buf, PAGE_SIZE, "throttle_rt_req %d\n", hpb->throttle_rt_req);
+
+	SYSFS_INFO("%s", buf);
+
+	return ret;
+}
+
+static ssize_t ufshpb_sysfs_throttle_rt_req_store(struct ufshpb_lu *hpb,
+						  const char *buf, size_t cnt)
+{
+	unsigned long throttle_rt_req;
+
+	if (kstrtoul(buf, 0, &throttle_rt_req))
+		return -EINVAL;
+
+	if (throttle_rt_req > 0 && throttle_rt_req <= 32)
+		hpb->throttle_rt_req = (int)throttle_rt_req;
+	else
+		SYSFS_INFO("value is wrong. throttle_rt_req must be in [1~32] ");
+
+	SYSFS_INFO("throttle_rt_req %d", hpb->throttle_rt_req);
 
 	return cnt;
 }
@@ -4351,8 +4415,8 @@ static ssize_t ufshpb_sysfs_version_show(struct ufshpb_lu *hpb, char *buf)
 {
 	int ret;
 
-	ret = snprintf(buf, PAGE_SIZE, "HPB version %.4X D/D version %.4X\n",
-		       hpb->hpb_ver, UFSHPB_DD_VER);
+	ret = snprintf(buf, PAGE_SIZE, "HPB version %.4X D/D version %.6X%s\n",
+		       hpb->hpb_ver, UFSHPB_DD_VER, UFSHPB_DD_VER_POST);
 
 	SYSFS_INFO("%s", buf);
 
@@ -4602,6 +4666,9 @@ static struct ufshpb_sysfs_entry ufshpb_sysfs_entries[] = {
 	__ATTR(throttle_pre_req, 0644,
 	       ufshpb_sysfs_throttle_pre_req_show,
 	       ufshpb_sysfs_throttle_pre_req_store),
+	__ATTR(throttle_rt_req, 0644,
+	       ufshpb_sysfs_throttle_rt_req_show,
+	       ufshpb_sysfs_throttle_rt_req_store),
 	__ATTR(pre_req_min_tr_len, 0644,
 	       ufshpb_sysfs_pre_req_min_tr_len_show,
 	       ufshpb_sysfs_pre_req_min_tr_len_store),

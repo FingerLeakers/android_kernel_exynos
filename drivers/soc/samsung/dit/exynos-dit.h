@@ -331,7 +331,7 @@ struct dit_dev_info_t {
 };
 
 struct dit_priv_t {
-	struct net_device *ndev;
+	u8 ifindex;
 	u8 status; /* csum status : [4]IGNR, [3]IPCSF, [2] TCPCF */
 } __packed;
 

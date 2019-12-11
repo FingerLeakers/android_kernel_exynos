@@ -71,15 +71,16 @@
 	} \
 }
 #elif defined USE_EHMP_BOOST
-/*
+
 #include <linux/ems.h>
-#include <linux/ems_service.h>
+
+#define DEFAULT_LEVEL 0
+#define INPUT_LEVEL 2
 
 static DEFINE_MUTEX(input_lock);
 int hmp_boost_value = INIT_ZERO;
 
-static struct kpp kpp_ta;
-static struct kpp kpp_fg;
+static struct emstune_mode_request emstune_req_ufc;
 
 #define set_hmp(enable) { \
 	mutex_lock(&input_lock); \
@@ -92,19 +93,17 @@ static struct kpp kpp_fg;
 			pr_booster("[Input Booster2] ******      set_ehmp : %d ( %s )\n", enable, __FUNCTION__); \
 			if (enable) { \
 				hmp_boost_value++; \
-				kpp_request(STUNE_TOPAPP, &kpp_ta, enable); \
-				kpp_request(STUNE_FOREGROUND, &kpp_fg, enable); \
+				emstune_update_request(&emstune_req_ufc, INPUT_LEVEL); \
 			} else { \
 				hmp_boost_value--; \
-				kpp_request(STUNE_TOPAPP, &kpp_ta, 0); \
-				kpp_request(STUNE_FOREGROUND, &kpp_fg, 0); \
+				emstune_update_request(&emstune_req_ufc, DEFAULT_LEVEL); \
 			} \
 			current_hmp_boost = enable; \
 		} \
 	} \
 	mutex_unlock(&input_lock); \
 }
-*/
+
 #else
 #define set_hmp(enable)
 #endif
@@ -117,6 +116,7 @@ static struct kpp kpp_fg;
 	if (value == INPUT_BOOSTER_NULL) { \
 		value = 0; \
 	} \
+	set_hmp(value); \
 	set_qos(&_this->cpu2_qos, PM_QOS_CLUSTER2_FREQ_MIN/*PM_QOS_CPU_FREQ_MIN*/, _this->param[_this->index].cpu2_freq);  \
 	set_qos(&_this->cpu1_qos, PM_QOS_CLUSTER1_FREQ_MIN/*PM_QOS_CPU_FREQ_MIN*/, _this->param[_this->index].cpu1_freq);  \
 	set_qos(&_this->kfc_qos, PM_QOS_CLUSTER0_FREQ_MIN/*PM_QOS_KFC_FREQ_MIN*/, _this->param[_this->index].kfc_freq);  \
@@ -131,6 +131,7 @@ static struct kpp kpp_fg;
 	if (value == INPUT_BOOSTER_NULL) { \
 		value = 0; \
 	} \
+	set_hmp(value); \
 	remove_qos(&_this->cpu2_qos);  \
 	remove_qos(&_this->cpu1_qos);  \
 	remove_qos(&_this->kfc_qos);  \

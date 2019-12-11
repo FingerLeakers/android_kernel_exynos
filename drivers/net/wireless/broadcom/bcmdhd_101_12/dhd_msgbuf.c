@@ -5468,6 +5468,15 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, uint bound, int ringt
 	int i;
 	uint8 sync;
 
+#ifdef DHD_PCIE_RUNTIMEPM
+	/* Set rx_pending_due_to_rpm if device is not in resume state */
+	if (dhdpcie_runtime_bus_wake(dhd, FALSE, dhd_prot_process_msgbuf_rxcpl)) {
+		dhd->rx_pending_due_to_rpm = TRUE;
+		return more;
+	}
+	dhd->rx_pending_due_to_rpm = FALSE;
+#endif /* DHD_PCIE_RUNTIMEPM */
+
 		ring = &prot->d2hring_rx_cpln;
 	item_len = ring->item_len;
 	while (1) {

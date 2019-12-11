@@ -3870,9 +3870,8 @@ enum {
 	BRCM_FTM_VS_COLLECT_SUBTYPE = 2,	/* FTM Collect debug protocol */
 };
 
-/* xxx Action frame type for ULB
- * #define BRCM_ULB_AF_TYPE		15
- */
+/* Action frame type for vendor specific action frames */
+#define	VS_AF_TYPE	16
 
 /*
  * This BRCM_PROP_OUI types is intended for use in events to embed additional

@@ -31,11 +31,8 @@
 					900 850 800 750 700 650 600 550 500 450 400 350 300 250
 					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
 
-				battery,wpc_high_temp = <400>;
-				battery,wpc_high_temp_recovery = <380>;
-
-				battery,swelling_high_temp_block = <410>;
-				battery,swelling_high_temp_recov = <390>;
+				battery,swelling_high_temp_block = <420>;
+				battery,swelling_high_temp_recov = <410>;
 
 				/* swelling current */
 				battery,swelling_low_temp_current = <700>;	/* 0.3C */
@@ -68,6 +65,9 @@
 				battery,dc_step_chg_cond_soc = <25 55 100>; /* STEP_CHARGING_CONDITION_SOC */
 				battery,dc_step_chg_val_vfloat = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
 				battery,dc_step_chg_val_iout = <4690 3600 2880>;
+
+				battery,snkcap_data = /bits/ 8 <0x04 0x2C 0x91 0x01 0x36 0xC8 0xD0 0x02 0x00 0xC8 0x90
+								0x41 0x8B 0x2F 0x21 0xDC 0xC0>;
 			};
 
 			max77705-fuelgauge {
@@ -106,7 +106,10 @@
 
 &hsi2c_6 {
 	mfc-charger@3b {
-		battery,fod_dream_data = <150 44 142 33 150 13 150 9 155 (-9) 156 (-10)>;
-		battery,fod_dream_cv_data = <150 74 142 63 150 43 150 39 155 21 156 20>;
+		battery,fod_data = <150 64 142 53 150 39 150 35 155 19 156 20>;
+		battery,fod_data_cv = <150 94 142 83 150 69 150 65 155 49 156 50>;
+		/delete-property/ battery,fod_hero_5v_data;
+		battery,fod_dream_data = <150 44 142 33 150 19 150 15 155 (-1) 156 0>;
+		battery,fod_dream_cv_data = <150 74 142 63 150 49 150 45 155 29 156 30>;
 	};
 };

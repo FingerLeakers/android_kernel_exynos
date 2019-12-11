@@ -102,7 +102,7 @@
 #define KHZ	1000
 #define MHZ	(KHZ * KHZ)
 
-#define EXYNOS_DRD_MAX_TUNEPARAM_NUM		32
+#define EXYNOS_DRD_MAX_TUNEPARAM_NUM		64
 
 enum exynos_usbdrd_phy_id {
 	EXYNOS_DRDPHY_UTMI,

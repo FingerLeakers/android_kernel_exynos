@@ -370,6 +370,7 @@ struct vts_data {
 	bool voicecall_enabled;
 	struct snd_soc_card *card;
 	int micclk_init_cnt;
+	int vtsrec_count;
 	unsigned int mic_ready;
 	enum vts_dmic_sel dmic_if;
 	bool irq_state;

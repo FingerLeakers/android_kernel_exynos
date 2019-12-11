@@ -138,23 +138,55 @@ p_err:
 	return ret;
 }
 
-static int sensor_ak737x_soft_landing(struct i2c_client *client,
-		struct is_actuator *actuator)
+static int sensor_ak737x_soft_landing_on_recording(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	int i;
+	struct is_actuator *actuator;
+	struct i2c_client *client = NULL;
 
-	pr_info("[%s][%d] E\n", __func__, actuator->device);
+	WARN_ON(!subdev);
 
-	for (i = 0; i < actuator->vendor_soft_landing_list_len; i += 2) {
-		ret = sensor_ak737x_write_position(client, actuator->vendor_soft_landing_list[i]);
-		if (ret < 0)
-			goto p_err;
+	actuator = (struct is_actuator *)v4l2_get_subdevdata(subdev);
+	WARN_ON(!actuator);
 
-		msleep(actuator->vendor_soft_landing_list[i + 1]);
+	client = actuator->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	I2C_MUTEX_LOCK(actuator->i2c_lock);
+
+	if (actuator->vendor_soft_landing_list_len > 0) {
+		pr_info("[%s][%d] E\n", __func__, actuator->device);
+	
+		if (actuator->vendor_soft_landing_seqid == 1) {
+			/* setting mode on */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_SETTING_MODE_ON, 0x3B);
+			if (ret < 0)
+				goto p_err;
+			/* change Gain parameter */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_CHANGE_GAIN_PARAMETER, 0x0A);
+			if (ret < 0)
+				goto p_err;
+		}
+
+		for (i = 0; i < actuator->vendor_soft_landing_list_len; i += 2) {
+			ret = sensor_ak737x_write_position(client, actuator->vendor_soft_landing_list[i]);
+			if (ret < 0)
+				goto p_err;
+
+			msleep(actuator->vendor_soft_landing_list[i + 1]);
+		}
+
+		pr_info("[%s][%d] X\n", __func__, actuator->device);
 	}
 
 p_err:
+	I2C_MUTEX_UNLOCK(actuator->i2c_lock);
+
 	return ret;
 }
 
@@ -455,11 +487,6 @@ static int sensor_ak737x_actuator_set_active(struct v4l2_subdev *subdev, int ena
 
 	I2C_MUTEX_LOCK(actuator->i2c_lock);
 
-	if (!enable && actuator->vendor_soft_landing_list_len > 0) {
-		/* Go sleep mode */
-		sensor_ak737x_soft_landing(client, actuator);
-	}
-
 	if (actuator->vendor_use_standby_mode) {
 		/* Go standby mode */
 		ret = is_sensor_addr8_write8(client, AK737X_REG_CONT1, AK737X_MODE_STANDBY);
@@ -502,6 +529,7 @@ static struct is_actuator_ops actuator_ops = {
 #ifdef USE_AF_SLEEP_MODE
 	.set_active = sensor_ak737x_actuator_set_active,
 #endif
+	.soft_landing_on_recording = sensor_ak737x_soft_landing_on_recording,
 };
 
 int sensor_ak737x_actuator_probe(struct i2c_client *client,
@@ -567,6 +595,12 @@ int sensor_ak737x_actuator_probe(struct i2c_client *client,
 		goto p_err;
 	}
 
+	ret = of_property_read_u32(dnode, "vendor_soft_landing_seqid", &actuator->vendor_soft_landing_seqid);
+	if (ret) {
+		actuator->vendor_soft_landing_seqid = 0;
+		warn("vendor_first_pos read is empty(%d)", ret);
+	}
+
 	vendor_soft_landing_list_spec = of_get_property(dnode, "vendor_soft_landing_list", &actuator->vendor_soft_landing_list_len);
 	if (vendor_soft_landing_list_spec) {
 		actuator->vendor_soft_landing_list_len /= (unsigned int)sizeof(*vendor_soft_landing_list_spec);
@@ -574,7 +608,7 @@ int sensor_ak737x_actuator_probe(struct i2c_client *client,
 		ret = of_property_read_u32_array(dnode, "vendor_soft_landing_list",
 											actuator->vendor_soft_landing_list, actuator->vendor_soft_landing_list_len);
 		if (ret)
-			err("vendor_soft_landing_list read is fail(%d)", ret);
+			warn("vendor_soft_landing_list is empty(%d)", ret);
 	} else {
 		actuator->vendor_soft_landing_list_len = 0;
 	}

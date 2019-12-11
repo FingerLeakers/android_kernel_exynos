@@ -199,7 +199,7 @@ int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
 	int target_cpu = -1;
 	struct tp_env env = {
 		.p = p,
-		.prefer_idle = emstune_prefer_idle(),
+		.prefer_idle = emstune_prefer_idle(p),
 		.wake = wake,
 	};
 

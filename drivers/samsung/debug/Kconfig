@@ -287,4 +287,12 @@ config SEC_PERF_LATENCYCHECKER
 	default n
 	help
 	  This option enables Samsung Latencychecker.
-          Select the option if the kernel should check latency point.
+	  Select the option if the kernel should check latency point.
+
+config SEC_DEBUG_SOFTDOG_PWDT
+	bool "Enable Soft Watchdog for Platform"
+	default n
+	depends on WATCHDOG
+	select SOFT_WATCHDOG
+	help
+	  This option enables soft watchdog device and soft_panic.

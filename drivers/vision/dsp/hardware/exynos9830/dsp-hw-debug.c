@@ -164,32 +164,57 @@ static int dsp_hw_debug_devfreq_show(struct seq_file *file, void *unused)
 					devfreq->name, idx,
 					devfreq->table[idx]);
 
-		if (devfreq->default_qos < 0)
-			seq_printf(file, "[%s] default: not set\n",
+		seq_printf(file, "[%s] boot    : L%u\n",
+				devfreq->name, devfreq->boot_qos);
+		seq_printf(file, "[%s] dynamic : L%u\n",
+				devfreq->name, devfreq->dynamic_qos);
+		seq_printf(file, "[%s] static  : L%u\n",
+				devfreq->name, devfreq->static_qos);
+		seq_printf(file, "[%s] current : L%u\n",
+				devfreq->name, devfreq->current_qos);
+		seq_printf(file, "[%s] min     : L%u\n",
+				devfreq->name, devfreq->min_qos);
+		if (devfreq->force_qos < 0)
+			seq_printf(file, "[%s] force   : none\n",
 					devfreq->name);
 		else
-			seq_printf(file, "[%s] default: L%u\n",
-					devfreq->name, devfreq->default_qos);
-
-		if (devfreq->resume_qos < 0)
-			seq_printf(file, "[%s] resume: not set\n",
-					devfreq->name);
-		else
-			seq_printf(file, "[%s] resume: L%u\n",
-					devfreq->name, devfreq->resume_qos);
-
-		if (devfreq->current_qos < 0)
-			seq_printf(file, "[%s] current: off\n",
-					devfreq->name);
-		else
-			seq_printf(file, "[%s] current: L%u\n",
-					devfreq->name, devfreq->current_qos);
+			seq_printf(file, "[%s] force   : L%u\n",
+					devfreq->name, devfreq->force_qos);
+		seq_printf(file, "[%s] dynamic total count : %u\n",
+				devfreq->name, devfreq->dynamic_total_count);
+		seq_printf(file, "[%s] dynamic count : ", devfreq->name);
+		for (idx = 0; idx < DSP_DEVFREQ_RESERVED_COUNT; ++idx)
+			seq_printf(file, "%3u ", devfreq->dynamic_count[idx]);
+		seq_puts(file, "\n");
+		seq_printf(file, "[%s] static total count : %u\n",
+				devfreq->name, devfreq->static_total_count);
+		seq_printf(file, "[%s] static count : ", devfreq->name);
+		for (idx = 0; idx < DSP_DEVFREQ_RESERVED_COUNT; ++idx)
+			seq_printf(file, "%3u ", devfreq->static_count[idx]);
+		seq_puts(file, "\n");
 	}
+	seq_printf(file, "[pm] dvfs mode : %d\n", pm->dvfs);
+	seq_printf(file, "[pm] dvfs disable count : %u\n",
+			pm->dvfs_disable_count);
+	seq_printf(file, "[pm] dvfs mode lock : %d\n", pm->dvfs_lock);
 
-	seq_puts(file, "Command to change devfreq level\n");
-	seq_puts(file, " echo {id} {level} > /d/dsp/hardware/devfreq\n");
-	seq_puts(file, " (If power is on, the motion freq is changed,\n");
-	seq_puts(file, "  if it is off, the default freq is changed\n");
+	seq_puts(file, "Command to change devfreq setting\n");
+	seq_puts(file, "id/level information can be checked with ");
+	seq_puts(file, "'cat /d/dsp/hardware/devfreq'\n");
+	seq_puts(file, " [mode 0] add dynamic qos\n");
+	seq_puts(file, "  echo 0 {level} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 1] del dynamic qos\n");
+	seq_puts(file, "  echo 1 {level} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 2] add static qos\n");
+	seq_puts(file, "  echo 2 {level} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 3] del static qos\n");
+	seq_puts(file, "  echo 3 {level} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 4] enable force qos\n");
+	seq_puts(file, "  echo 4 {id} {level} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 5] disable force qos\n");
+	seq_puts(file, "  echo 5 {id} > /d/dsp/hardware/devfreq\n");
+	seq_puts(file, " [mode 6] lock dvfs mode\n");
+	seq_puts(file, "  echo 6 {0 or others} > /d/dsp/hardware/devfreq\n");
 
 	mutex_unlock(&pm->lock);
 	dsp_leave();
@@ -210,7 +235,7 @@ static ssize_t dsp_hw_debug_devfreq_write(struct file *filp,
 	struct dsp_pm *pm;
 	char buf[30];
 	ssize_t size;
-	unsigned int id, level;
+	int mode, num1, num2;
 
 	dsp_enter();
 	file = filp->private_data;
@@ -225,28 +250,40 @@ static ssize_t dsp_hw_debug_devfreq_write(struct file *filp,
 	}
 	buf[size - 1] = '\0';
 
-	ret = sscanf(buf, "%u %u", &id, &level);
-	if (ret != 2) {
+	ret = sscanf(buf, "%d %d %d", &mode, &num1, &num2);
+	if ((ret != 2) && (ret != 3)) {
 		dsp_err("Failed to get devfreq parameter(%d)\n", ret);
 		ret = -EINVAL;
 		goto p_err;
 	}
 
-	if (id >= DSP_DEVFREQ_COUNT) {
+	switch (mode) {
+	case 0:
+		dsp_pm_update_devfreq_busy(pm, num1);
+		break;
+	case 1:
+		dsp_pm_update_devfreq_idle(pm, num1);
+		break;
+	case 2:
+		dsp_pm_dvfs_disable(pm, num1);
+		break;
+	case 3:
+		dsp_pm_dvfs_enable(pm, num1);
+		break;
+	case 4:
+		dsp_pm_set_force_qos(pm, num1, num2);
+		break;
+	case 5:
+		dsp_pm_set_force_qos(pm, num1, -1);
+		break;
+	case 6:
+		pm->dvfs_lock = num1;
+		break;
+	default:
 		ret = -EINVAL;
-		dsp_err("devfreq id(%u) of command is invalid(0 ~ %u)\n",
-				id, DSP_DEVFREQ_COUNT - 1);
+		dsp_err("mode for devfreq setting is invalid(%d)\n", mode);
 		goto p_err;
 	}
-
-	mutex_lock(&pm->lock);
-
-	if (dsp_pm_devfreq_active(pm))
-		dsp_pm_update_devfreq_nolock(pm, id, level);
-	else
-		dsp_pm_set_default_devfreq_nolock(pm, id, level);
-
-	mutex_unlock(&pm->lock);
 
 	dsp_leave();
 	return count;

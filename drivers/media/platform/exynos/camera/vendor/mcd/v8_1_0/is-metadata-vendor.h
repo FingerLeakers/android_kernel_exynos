@@ -44,8 +44,8 @@ struct rational {
 
 #define CAMERA2_MAX_STRIPE_REGION_NUM		5
 
-#define OPEN_MAGIC_NUMBER		0x20192011
-#define SHOT_MAGIC_NUMBER		0x23456789
+#define OPEN_MAGIC_NUMBER		0x20192012
+#define SHOT_MAGIC_NUMBER		0x92345678
 
 enum is_subscenario_id {
 	ISS_SUB_SCENARIO_STILL_PREVIEW = 0,                                         /* 0: Single preview (HDR Auto/Off) */
@@ -759,7 +759,7 @@ struct camera2_stats_ctl {
 	enum stats_mode		sharpnessMapMode;
 	enum stats_mode		hotPixelMapMode;
 	enum stats_mode		lensShadingMapMode;
-	struct PersonWholeMeta_t metaForPerson[5];
+	struct PersonWholeMeta_t metaForPerson;
 };
 
 struct camera2_stats_dm {
@@ -833,9 +833,11 @@ enum aa_capture_intent {
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH,
-	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL0 = 90000,
-	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL1 = 90001,
-	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL2 = 90002,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL0,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL1,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL2,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_MOON,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_REMOSAIC_EXPOSURE_DYNAMIC_SHOT,
 };
 
 enum aa_mode {
@@ -1329,7 +1331,9 @@ struct camera2_aa_dm {
 	uint32_t			vendor_previewSkipFrame;
 	uint32_t			vendor_aeDrcGain;
 	int32_t				vendor_aeStats4VO[8];
-	uint32_t			vendor_reserved[51];
+	int32_t				vendor_dynamicShotCaptureDuration;
+	int32_t				vendor_aeBracketingFpsHint;
+	uint32_t			vendor_reserved[49];
 
 	// For dual
 	uint32_t			vendor_wideTeleConvEv;
@@ -1981,8 +1985,8 @@ enum camera2_dcp_process_mode {
 };
 
 struct camera2_grid_info {
-  uint32_t grid_x[7][9];
-  uint32_t grid_y[7][9];
+	int32_t grid_x[7][9];
+	int32_t grid_y[7][9];
 };
 
 struct camera2_tnr_uctl {

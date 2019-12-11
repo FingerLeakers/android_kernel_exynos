@@ -158,12 +158,12 @@
 
 				/* Throughput monitor */
 				enable_rps_boost = <1>;
-				tp_rps_threshold = <300 600>;
-				tp_rps_cpu_mask = <0x0E 0x30 0xC0>;
+				tp_rps_threshold = <300 500>;
+				tp_rps_cpu_mask = <0x0E 0x30 0xD0>;
 
 				enable_gro_boost = <1>;
 				tp_gro_threshold = <100 200>;
-				tp_gro_flush_usec = <0 10000 100000>;
+				tp_gro_flush_nsec = <10000 50000 100000>;
 
 				enable_irq_affinity_boost = <1>;
 				tp_irq_affinity_threshold = <500>;
@@ -172,7 +172,7 @@
 				enable_mif_boost = <0>;
 
 				enable_pci_low_power_boost = <1>;
-				tp_pci_low_power_threshold = <500>;
+				tp_pci_low_power_threshold = <50>;
 				tp_pci_low_power_enable = <1 0>;
 
 				/* IO devices */
@@ -426,7 +426,7 @@
 		samsung,pin-function = <0xf>;
 		samsung,pin-pud = <0>;
 	};
-		
+
 	s5100_cp2ap_cp_ps_hold: s5100_cp2ap_cp_ps_hold {
 		samsung,pins = "gpm31-0";
 		samsung,pin-pud = <0>;
@@ -436,13 +436,15 @@
 &pinctrl_4 {
 	s5100_ap2cp_pda_active: s5100_ap2cp_pda_active {
 		samsung,pins = "gpg0-0";
-		samsung,pin-con-pdn = <0>;
+		samsung,pin-pud = <1>;
+		samsung,pin-con-pdn = <3>;
 	};
 };
 
 &pinctrl_5 {
 	s5100_ap2cp_wakeup: s5100_ap2cp_wakeup {
 		samsung,pins = "gpg1-3";
-		samsung,pin-con-pdn = <0>;
+		samsung,pin-pud = <1>;
+		samsung,pin-con-pdn = <3>;
 	};
 };

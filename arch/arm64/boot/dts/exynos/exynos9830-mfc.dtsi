@@ -59,6 +59,9 @@
 		mem_clear = <1 0x0>;
 		/* Support from v11.0 (except 11.2) */
 		wait_fw_status = <1 0x190122>;
+		wait_nalq_status = <1 0x191107>;
+		/* DRM switch predict for cache flush */
+		drm_switch_predict = <1 0x0>;
 
 		/* Default 10bit format for decoding (1: P010, 0: 8+2) */
 		P010_decoding = <1>;
@@ -222,9 +225,9 @@
 				thrd_mb = <4253457>;
 				freq_mfc = <666000>;
 				freq_int = <533000>;
-				freq_mif = <2535000>;
-				time_fw = <214>;
-				bts_scen = "mfc_uhd_10bit";
+				freq_mif = <2730000>;
+				time_fw = <209>;
+				bts_scen = "mfc_8k_dec30";
 			};
 		};
 

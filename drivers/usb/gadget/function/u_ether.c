@@ -685,7 +685,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 					struct net_device *net)
 {
 	struct eth_dev		*dev = netdev_priv(net);
-	int			length = 0;
 	int			retval;
 	struct usb_request	*req = NULL;
 	unsigned long		flags;
@@ -793,13 +792,12 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		/* Copy received IP data from SKB */
 		memcpy(req->buf + req->length, skb->data, skb->len);
 		/* Increment req length by skb data length */
-		req->length = req->length + skb->len;
-		length = req->length;
+		req->length = req->length + skb->len;		
 		dev_kfree_skb_any(skb);
 		req->context = NULL;
 
 		spin_lock_irqsave(&dev->tx_req_lock, flags);
-		if (req->length < (dev->tx_req_bufsize - (dev->net->mtu + 80)) ) {
+		if (req->length < (dev->tx_req_bufsize - (dev->net->mtu + 80))) {
 			list_add(&req->list, &dev->tx_reqs);
 			spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 
@@ -814,7 +812,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 		spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 	} else {
-		length = skb->len;
+		req->length = skb->len;
 		req->buf = skb->data;
 		req->context = skb;
 	}
@@ -986,35 +984,7 @@ static int get_host_ether_addr(u8 *str, u8 *dev_addr)
 }
 #endif
 
-static const struct net_device_ops eth_netdev_ops = {
-	.ndo_open		= eth_open,
-	.ndo_stop		= eth_stop,
-	.ndo_start_xmit		= eth_start_xmit,
-	.ndo_set_mac_address 	= eth_mac_addr,
-	.ndo_validate_addr	= eth_validate_addr,
-};
-
 #ifdef CONFIG_USB_F_NCM
-/* NETWORK DRIVER HOOKUP (to the layer above this driver) */
-static int ueth_change_mtu(struct net_device *net, int new_mtu)
-{
-	struct eth_dev	*dev = netdev_priv(net);
-	unsigned long	flags;
-	int		status = 0;
-
-	/* don't change MTU on "live" link (peer won't know) */
-	spin_lock_irqsave(&dev->lock, flags);
-	if (dev->port_usb)
-		status = -EBUSY;
-	else if (new_mtu <= ETH_HLEN || new_mtu > GETHER_MAX_ETH_FRAME_LEN)
-		status = -ERANGE;
-	else
-		net->mtu = new_mtu;
-	spin_unlock_irqrestore(&dev->lock, flags);
-
-	return status;
-}
-
 const struct net_device_ops eth_netdev_ops_ncm = {
 	.ndo_open		= eth_open,
 	.ndo_stop		= eth_stop,
@@ -1023,11 +993,19 @@ const struct net_device_ops eth_netdev_ops_ncm = {
 #else
 	.ndo_start_xmit		= eth_start_xmit_ncm_timer,
 #endif
-	.ndo_change_mtu		= ueth_change_mtu,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 };
 #endif
+
+static const struct net_device_ops eth_netdev_ops = {
+	.ndo_open		= eth_open,
+	.ndo_stop		= eth_stop,
+	.ndo_start_xmit		= eth_start_xmit,
+	.ndo_set_mac_address 	= eth_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
+};
+
 
 static struct device_type gadget_type = {
 	.name	= "gadget",
@@ -1089,7 +1067,8 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 	if (ethaddr)
 		memcpy(ethaddr, dev->host_mac, ETH_ALEN);
 #endif
-#ifdef CONFIG_USB_F_NCM
+#if 0
+//#ifdef CONFIG_USB_F_NCM
 	if (!strcmp(netname, "ncm")) {
 		net->netdev_ops = &eth_netdev_ops_ncm;
 #ifdef NCM_WITH_TIMER
@@ -1118,8 +1097,8 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 		free_netdev(net);
 		dev = ERR_PTR(status);
 	} else {
-		INFO(dev, "MAC %pM\n", net->dev_addr);
-		INFO(dev, "HOST MAC %pM\n", dev->host_mac);
+		DBG(dev, "MAC %pM\n", net->dev_addr);
+		DBG(dev, "HOST MAC %pM\n", dev->host_mac);
 
 		/*
 		 * two kinds of host-initiated state changes:
@@ -1166,8 +1145,8 @@ struct net_device *gether_setup_name_default(const char *netname)
 	pr_warn("using random %s ethernet address\n", "self");
 	eth_random_addr(dev->host_mac);
 	pr_warn("using random %s ethernet address\n", "host");
-
-#ifdef CONFIG_USB_F_NCM
+#if 0
+//#ifdef CONFIG_USB_F_NCM
 	if (!strcmp(netname, "ncm")) {
 		net->netdev_ops = &eth_netdev_ops_ncm;
 #ifdef NCM_WITH_TIMER

@@ -12,15 +12,33 @@
 
 /*
  * Function signature:
- * unsigned long exynos_hvc(unsigned long cmd,
- *				unsigned long arg1,
- *				unsigned long arg2,
- *				unsigned long arg3,
- *				unsigned long arg4)
+ * uint64_t exynos_hvc(uint32_t cmd,
+ *			uint64_t arg1,
+ *			uint64_t arg2,
+ *			uint64_t arg3,
+ *			uint64_t arg4)
  */
 
+/*
 ENTRY(exynos_hvc)
 	dsb	sy
 	hvc	#0
+	ret
+ENDPROC(exynos_hvc)
+*/
+.global exynos_harxlog_flush
+ENTRY(exynos_early_hvc)
+	dsb	sy
+	hvc	#0
+	ret
+ENDPROC(exynos_early_hvc)
+ENTRY(exynos_hvc)
+	stp	x29, x30, [sp,#-16]!
+	dsb 	sy
+	hvc 	#0
+	stp 	x0, x1, [sp,#-16]!
+	bl  	exynos_harxlog_flush
+	ldp 	x0, x1, [sp],#16
+	ldp 	x29, x30, [sp],#16
 	ret
 ENDPROC(exynos_hvc)

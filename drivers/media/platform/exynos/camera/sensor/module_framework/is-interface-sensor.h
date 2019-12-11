@@ -266,13 +266,6 @@ struct sensor_lsi_3hdr_stat_control_per_frame {
 	int g_weight;
 };
 
-struct tof_data_t {
-	u64 timestamp;
-	u16 *data;
-	u32 width;
-	u32 height;
-};
-
 typedef struct {
 	/** The length of a frame is specified as a number of lines, frame_length_lines.
 	  @remarks
@@ -467,6 +460,7 @@ struct is_cis_ops {
 	int (*cis_set_super_slow_motion_gmc_table_idx)(struct v4l2_subdev *subdev, u32 idx);
 	int (*cis_set_super_slow_motion_gmc_block_with_md_low)(struct v4l2_subdev *subdev, u32 idx);
 	int (*cis_recover_stream_on)(struct v4l2_subdev *subdev);
+	int (*cis_recover_stream_off)(struct v4l2_subdev *subdev);
 	int (*cis_set_laser_control)(struct v4l2_subdev *subdev, u32 onoff);
 	int (*cis_set_factory_control)(struct v4l2_subdev *subdev, u32 command);
 	int (*cis_set_laser_current)(struct v4l2_subdev *subdev, u32 value);
@@ -653,6 +647,7 @@ struct is_actuator_ops {
 #ifdef USE_AF_SLEEP_MODE
 	int (*set_active)(struct v4l2_subdev *subdev, int enable);
 #endif
+	int (*soft_landing_on_recording)(struct v4l2_subdev *subdev);
 };
 
 struct is_aperture_ops {
@@ -986,11 +981,16 @@ struct is_cis_ext2_interface_ops {
 				u32 gr_gain, u32 r_gain, u32 b_gain, u32 gb_gain);
 	int (*set_sensor_info_mfhdr_mode_change)(struct is_sensor_interface *itf,
 				u32 count, u32 *long_expo, u32 *long_again, u32 *long_dgain,
-				u32 *expo, u32 *again, u32 *dgain);
+				u32 *expo, u32 *again, u32 *dgain, u32 *sensitivity);
 	int (*set_mainflash_duration)(struct is_sensor_interface *itf,
 				u32 mainflash_duration);
-	int(*set_previous_dm)(struct is_sensor_interface *itf);
-	void *reserved[12];
+	int (*set_previous_dm)(struct is_sensor_interface *itf);
+	int (*request_direct_flash)(struct is_sensor_interface *itf,
+				u32 mode,
+				bool on,
+				u32 intensity,
+				u32 time);
+	void *reserved[11];
 };
 
 struct is_cis_event_ops {
@@ -1197,7 +1197,7 @@ struct is_laser_af_interface_ops
 
 struct is_tof_af_interface_ops
 {
-	int (*get_data)(struct is_sensor_interface *itf, struct tof_data_t *data);
+	int (*get_data)(struct is_sensor_interface *itf, struct tof_data_t **data);
 };
 
 struct is_sensor_interface {

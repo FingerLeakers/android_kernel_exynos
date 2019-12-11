@@ -2337,8 +2337,8 @@ wl_cfgvendor_set_bssid_blacklist(struct wiphy *wiphy,
 					goto exit;
 				}
 				if (!blacklist) {
-					mem_needed = OFFSETOF(maclist_t, ea) +
-						sizeof(struct ether_addr) * (num);
+					mem_needed = (uint32) (OFFSETOF(maclist_t, ea) +
+						sizeof(struct ether_addr) * (num));
 					blacklist = (maclist_t *)
 						MALLOCZ(cfg->osh, mem_needed);
 					if (!blacklist) {
@@ -6338,7 +6338,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	COMPAT_STRUCT_IFACE(wifi_iface_stat, iface);
 
-	WL_INFORM_MEM(("%s: Enter \n", __func__));
+	WL_TRACE(("%s: Enter \n", __func__));
 	RETURN_EIO_IF_NOT_UP(cfg);
 
 	BCM_REFERENCE(if_stats);
@@ -6466,11 +6466,11 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 				if_stats->version));
 			goto exit;
 		}
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretry);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretrans);
 	} else
 #endif /* !DISABLE_IF_COUNTERS */
 	{
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretry);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretrans);
 	}
 
 	err = wl_cfgvendor_lstats_get_bcn_mbss(iovar_buf, &rxbeaconmbss);
@@ -6667,40 +6667,48 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 					DLD_BUF_TYPE_SPECIAL, &pos);
 				break;
 #ifdef DHD_SSSR_DUMP
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_C0_D11_BEFORE :
 				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 0);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_C0_D11_AFTER :
 				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 0);
 				break;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_C1_D11_BEFORE :
 				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 1);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_C1_D11_AFTER :
 				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 1);
 				break;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_C2_D11_BEFORE :
 				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 2);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_C2_D11_AFTER :
 				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 2);
 				break;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_DIG_BEFORE :
 				ret = dhd_sssr_dump_dig_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_DIG_AFTER :
 				ret = dhd_sssr_dump_dig_buf_after(bcmcfg_to_prmry_ndev(cfg),
@@ -7118,6 +7126,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 	char memdump_path[MEMDUMP_PATH_LEN];
 	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(ndev);
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_0_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_0_BEFORE_DUMP, memdump_path);
@@ -7125,6 +7134,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr core 0 before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_0_after_SR");
@@ -7134,6 +7144,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		goto exit;
 	}
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_1_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_1_BEFORE_DUMP, memdump_path);
@@ -7141,6 +7152,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr core 1 before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_1_after_SR");
@@ -7151,6 +7163,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 	}
 
 	if (dhdp->sssr_d11_outofreset[2]) {
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 			"sssr_dump_core_2_before_SR");
 		ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_2_BEFORE_DUMP,
@@ -7160,6 +7173,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 				ret));
 			goto exit;
 		}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 		dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 			"sssr_dump_core_2_after_SR");
@@ -7172,6 +7186,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		}
 	}
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_dig_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_DIG_BEFORE_DUMP, memdump_path);
@@ -7179,6 +7194,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr dig before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_dig_after_SR");

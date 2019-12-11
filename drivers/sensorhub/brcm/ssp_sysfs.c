@@ -700,6 +700,37 @@ static ssize_t set_ssp_control(struct device *dev,
 	else if (strstr(buf, SSP_FSM_SETTING)){
 		send_fsm_setting(data);
 	}
+	else if (strstr(buf, SSP_SENSOR_CAL_READ)) {
+		struct file *cal_filp = NULL;
+		char cal_data[256] =  { 0, };
+		char pbuf[256] = { 0, };
+		char *p = pbuf;
+		int read_size = 0, i = 0;
+		mm_segment_t old_fs;
+
+		old_fs = get_fs();
+		set_fs(KERNEL_DS);
+		
+		cal_filp = filp_open("/efs/FactoryApp/gyro_cal_data", O_RDONLY, 0444);
+		if (IS_ERR(cal_filp)) {
+			pr_err("[SSP] %s: gyro_cal_data filp_open failed\n", __func__);
+			set_fs(old_fs);
+	
+			return size;
+		}
+		
+		read_size = vfs_read(cal_filp, (char *)cal_data, sizeof(cal_data), &cal_filp->f_pos);
+
+		for(i = 0; i < read_size; i++) {
+			p += snprintf(p, sizeof(pbuf) - (p - pbuf), "%02X ", cal_data[i]);
+			//pr_err("[SSP_CONTROL] %d, %02X", i, cal_data[i]);
+		}
+
+		pr_err("[SSP]: %s - %s\n", __func__, pbuf);
+
+		filp_close(cal_filp, current->files);
+		set_fs(old_fs);
+	}
 	
 	return size;
 }

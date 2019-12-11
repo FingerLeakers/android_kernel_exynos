@@ -20,6 +20,7 @@
 #include <linux/scatterlist.h>
 #include <crypto/fmp.h>
 #include <crypto/diskcipher.h>
+#include "fmp/fmp_fips_fops.h"
 
 int exynos_fmp_crypt_clear(struct bio *bio, void *table_addr)
 {
@@ -141,7 +142,6 @@ static int fmp_do_test_crypt(struct crypto_diskcipher *tfm,
 		    req->cryptlen, req->enc ? 1 : 0, tfm);
 }
 
-
 static inline void fmp_algo_init(struct crypto_tfm *tfm,
 				 enum fmp_crypto_algo_mode algo)
 {
@@ -188,10 +188,116 @@ static struct diskcipher_alg fmp_algs[] = {{
 	}
 } };
 
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+static const char pass[] = "passed";
+static const char fail[] = "failed";
+
+static ssize_t fmp_fips_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.overall ? pass : fail);
+}
+
+static ssize_t fmp_fips_aes_xts_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.aes_xts ? pass : fail);
+}
+
+static ssize_t fmp_fips_aes_cbc_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.aes_cbc ? pass : fail);
+}
+
+static ssize_t fmp_fips_sha256_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.sha256 ? pass : fail);
+}
+
+static ssize_t fmp_fips_hmac_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.hmac ? pass : fail);
+}
+
+static ssize_t fmp_fips_integrity_result_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct exynos_fmp *fmp = dev_get_drvdata(dev);
+
+	return snprintf(buf, sizeof(pass), "%s\n", fmp->result.integrity ? pass : fail);
+}
+
+static DEVICE_ATTR(fmp_fips_status, 0444, fmp_fips_result_show, NULL);
+static DEVICE_ATTR(aes_xts_status, 0444, fmp_fips_aes_xts_result_show, NULL);
+static DEVICE_ATTR(aes_cbc_status, 0444, fmp_fips_aes_cbc_result_show, NULL);
+static DEVICE_ATTR(sha256_status, 0444, fmp_fips_sha256_result_show, NULL);
+static DEVICE_ATTR(hmac_status, 0444, fmp_fips_hmac_result_show, NULL);
+static DEVICE_ATTR(integrity_status, 0444, fmp_fips_integrity_result_show, NULL);
+
+static struct attribute *fmp_fips_attr[] = {
+	&dev_attr_fmp_fips_status.attr,
+	&dev_attr_aes_xts_status.attr,
+	&dev_attr_aes_cbc_status.attr,
+	&dev_attr_sha256_status.attr,
+	&dev_attr_hmac_status.attr,
+	&dev_attr_integrity_status.attr,
+	NULL,
+};
+
+static struct attribute_group fmp_fips_attr_group = {
+	.name	= "fmp-fips",
+	.attrs	= fmp_fips_attr,
+};
+
+static int __nocfi fmp_fips_fops_open(struct inode *inode, struct file *file)
+{
+	return fmp_fips_open(inode, file);
+}
+
+static int __nocfi fmp_fips_fops_release(struct inode *inode, struct file *file)
+{
+	return fmp_fips_release(inode, file);
+}
+
+static long __nocfi fmp_fips_fops_ioctl(struct file *file, unsigned int cmd, unsigned long arg_)
+{
+	return fmp_fips_ioctl(file, cmd, arg_);
+}
+
+static long __nocfi fmp_fips_fops_compat_ioctl(struct file *file, unsigned int cmd,
+				unsigned long arg_)
+{
+	return fmp_fips_compat_ioctl(file, cmd, arg_);
+}
+
+static const struct file_operations fmp_fips_fops = {
+	.owner		= THIS_MODULE,
+	.open		= fmp_fips_fops_open,
+	.release	= fmp_fips_fops_release,
+	.unlocked_ioctl = fmp_fips_fops_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= fmp_fips_fops_compat_ioctl,
+#endif
+};
+#endif
+
 static int exynos_fmp_probe(struct platform_device *pdev)
 {
 	struct diskcipher_alg *alg;
-	void *fmp_ctx = exynos_fmp_init(pdev);
+	struct exynos_fmp *fmp_ctx = exynos_fmp_init(pdev);
 	int ret;
 	int i;
 
@@ -219,6 +325,19 @@ static int exynos_fmp_probe(struct platform_device *pdev)
 			__func__, ret);
 		return -EINVAL;
 	}
+
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+	/* register FIPS ops */
+	ret = sysfs_create_group(&pdev->dev.kobj, &fmp_fips_attr_group);
+	if (ret) {
+		dev_err(&pdev->dev, "%s: Fail to create sysfs. ret(%d)\n",
+				__func__, ret);
+		return -EINVAL;
+	}
+
+	fmp_ctx->miscdev.fops = &fmp_fips_fops;
+#endif
+
 	dev_info(&pdev->dev, "Exynos FMP driver is registered to diskcipher\n");
 	return 0;
 }
@@ -232,6 +351,9 @@ static int exynos_fmp_remove(struct platform_device *pdev)
 		return 0;
 	}
 	crypto_unregister_diskciphers(fmp_algs, ARRAY_SIZE(fmp_algs));
+#ifdef CONFIG_EXYNOS_FMP_FIPS
+	sysfs_remove_group(&pdev->dev.kobj, &fmp_fips_attr_group);
+#endif
 	exynos_fmp_exit(drv_data);
 	return 0;
 }

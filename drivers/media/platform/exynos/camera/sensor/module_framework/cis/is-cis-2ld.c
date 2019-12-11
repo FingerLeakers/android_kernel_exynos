@@ -541,6 +541,11 @@ int sensor_2ld_cis_deinit(struct v4l2_subdev *subdev)
 		pr_info("%s: complete to load retention\n", __func__);
 	}
 
+#ifdef CONFIG_SENSOR_RETENTION_USE
+	/* retention mode CRC wait calculation */
+	usleep_range(10000, 10000);
+#endif
+
 	return ret;
 }
 
@@ -599,6 +604,45 @@ int sensor_2ld_cis_log_status(struct v4l2_subdev *subdev)
 	else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0100, &data8);
 	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0340, &data16);
+	if (unlikely(!ret)) pr_info("FLL(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x021E, &data16);
+	if (unlikely(!ret)) pr_info("WDR(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0202, &data16);
+	if (unlikely(!ret)) pr_info("short EXP(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0226, &data16);
+	if (unlikely(!ret)) pr_info("long EXP(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0702, &data16);
+	if (unlikely(!ret)) pr_info("CIT shifter1(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0704, &data16);
+	if (unlikely(!ret)) pr_info("CIT shifter2(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0204, &data16);
+	if (unlikely(!ret)) pr_info("again(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x020E, &data16);
+	if (unlikely(!ret)) pr_info("short dgain(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0230, &data16);
+	if (unlikely(!ret)) pr_info("long dgain(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0B30, &data16);
+	if (unlikely(!ret)) pr_info("LN mode(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0A7A, &data16);
+	if (unlikely(!ret)) pr_info("0x0A7A(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0A7C, &data16);
+	if (unlikely(!ret)) pr_info("0x0A7C(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read8(client, 0x0E0B, &data8);
+	if (unlikely(!ret)) pr_info("AEB(0x%x)\n", data8);
 	else goto i2c_err;
 	ret = is_sensor_write16(client, 0xFCFC, 0x2000);
 	if (unlikely(!ret)) pr_info("0x2000 page\n");
@@ -865,12 +909,6 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 #ifdef CONFIG_SENSOR_RETENTION_USE
-	info("[%s] cancel retention mode\n", __func__);
-	/* initialize the addr, data indirectly */
-	is_sensor_write16(cis->client, 0x602A, 0x1090); /* Address setting register */
-	is_sensor_write16(cis->client, 0x6F12, 0x0000); /* Data setting register */
-	is_sensor_write16(cis->client, 0x6F12, 0x0000);
-
 	/* Retention mode sensor mode select */
 	if (ext_info->use_retention_mode == SENSOR_RETENTION_ACTIVATED) {
 		sensor_2ld_load_retention = false;
@@ -1697,10 +1735,10 @@ int sensor_2ld_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 
 	u16 remainder_cit = 0;
 
-	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u16 cit_shifter_array[33] = {0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6};
 	u16 cit_shifter_val = 0;
 	int cit_shifter_idx = 0;
-	u8 cit_denom_array[6] = {1, 2, 4, 8, 16, 32};
+	u8 cit_denom_array[7] = {1, 2, 4, 8, 16, 32, 64};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1740,7 +1778,7 @@ int sensor_2ld_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 		case SENSOR_2LD_2016X1512_30FPS:
 		case SENSOR_2LD_2016X1134_30FPS:
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 80000) {
-				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 16);
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 32);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
@@ -1751,7 +1789,7 @@ int sensor_2ld_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 			break;
 		default:
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 160000) {
-				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 16);
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 32);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
@@ -2130,9 +2168,9 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	u16 frame_length_lines = 0;
 	u8 frame_length_lines_shifter = 0;
 
-	u8 fll_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u8 fll_shifter_array[33] = {0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6};
 	int fll_shifter_idx = 0;
-	u8 fll_denom_array[6] = {1, 2, 4, 8, 16, 32};
+	u8 fll_denom_array[7] = {1, 2, 4, 8, 16, 32, 64};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -2195,7 +2233,7 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		case SENSOR_2LD_2016X1512_30FPS:
 		case SENSOR_2LD_2016X1134_30FPS:
 			if (frame_duration > 80000) {
-				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 16);
+				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 32);
 				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
 				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
 			} else {
@@ -2204,7 +2242,7 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			break;
 		default:
 			if (frame_duration > 160000) {
-				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 16);
+				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 32);
 				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
 				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
 			} else {
@@ -3582,15 +3620,42 @@ p_err:
 	return ret;
 }
 
-int sensor_2ld_cis_wait_streamoff(struct v4l2_subdev *subdev)
+int sensor_2ld_cis_recover_stream_off(struct v4l2_subdev *subdev)
 {
-	int ret = sensor_cis_wait_streamoff(subdev);
-
+	int ret = 0;
+	struct is_cis *cis = NULL;
 #ifdef CONFIG_SENSOR_RETENTION_USE
-	/* retention mode CRC wait calculation */
-	usleep_range(10000, 10000);
+	struct is_module_enum *module;
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	struct sensor_open_extended *ext_info;
 #endif
 
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+#ifdef CONFIG_SENSOR_RETENTION_USE
+	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+	module = sensor_peri->module;
+	ext_info = &module->ext;
+	FIMC_BUG(!ext_info);
+
+	ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
+#endif
+
+	info("%s start\n", __func__);
+
+	ret = sensor_2ld_cis_set_global_setting(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_2ld_cis_stream_off(subdev);
+	if (ret < 0) goto p_err;
+	ret = sensor_cis_wait_streamoff(subdev);
+	if (ret < 0) goto p_err;
+
+	info("%s end\n", __func__);
+p_err:
 	return ret;
 }
 
@@ -3620,7 +3685,7 @@ static struct is_cis_ops cis_ops_2ld = {
 	.cis_get_min_digital_gain = sensor_2ld_cis_get_min_digital_gain,
 	.cis_get_max_digital_gain = sensor_2ld_cis_get_max_digital_gain,
 	.cis_compensate_gain_for_extremely_br = sensor_2ld_cis_compensate_gain_for_extremely_br,
-	.cis_wait_streamoff = sensor_2ld_cis_wait_streamoff,
+	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 	.cis_data_calculation = sensor_2ld_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_2ld_cis_long_term_exposure,
@@ -3645,6 +3710,7 @@ static struct is_cis_ops cis_ops_2ld = {
 	.cis_set_super_slow_motion_gmc_block_with_md_low = sensor_2ld_cis_set_super_slow_motion_gmc_block_with_md_low,
 	/* TEMP_2020 */
 //	.cis_recover_stream_on = sensor_2ld_cis_recover_stream_on,
+	.cis_recover_stream_off = sensor_2ld_cis_recover_stream_off,
 	.cis_set_factory_control = sensor_2ld_cis_set_factory_control,
 };
 

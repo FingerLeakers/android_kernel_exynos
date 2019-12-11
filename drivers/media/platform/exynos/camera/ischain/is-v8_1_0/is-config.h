@@ -209,7 +209,7 @@
 #define SECURE_CAMERA_CH		((1 << CSI_ID_C) | (1 << CSI_ID_E))
 #define SECURE_CAMERA_HEAP_ID		(11)
 #define SECURE_CAMERA_MEM_ADDR		(0x96000000)	/* secure_camera_heap */
-#define SECURE_CAMERA_MEM_SIZE		(0x02800000)
+#define SECURE_CAMERA_MEM_SIZE		(0x02E00000)
 #define NON_SECURE_CAMERA_MEM_ADDR	(0x0)	/* camera_heap */
 #define NON_SECURE_CAMERA_MEM_SIZE	(0x0)
 

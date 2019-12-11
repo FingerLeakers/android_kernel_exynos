@@ -80,7 +80,7 @@ enum ipc_frmk_cmd_id {
 
 #define EAT_MAX_CHANNEL				(8)
 #define EAT_FRM_CHANNEL				(0)
-#define EAT_IPC_TIMEOUT				(100 * NSEC_PER_MSEC)
+#define EAT_IPC_TIMEOUT				(500 * NSEC_PER_MSEC)
 
 #define INTGR0					0x0008
 #define INTCR0					0x000C
@@ -153,6 +153,10 @@ static inline void exynos_adv_tracer_reboot(void)
 }
 inline void adv_tracer_ipc_release_channel_by_name(const char *name)
 {
+}
+static inline int adv_tracer_arraydump(void)
+{
+	return -ENODEV;
 }
 #endif
 #endif

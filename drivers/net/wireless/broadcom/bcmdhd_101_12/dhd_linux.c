@@ -4897,7 +4897,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			bcm_object_trace_opr(skb, BCM_OBJDBG_REMOVE,
 				__FUNCTION__, __LINE__);
 #if defined(DHD_LB_RXP)
+#ifdef ENABLE_DHD_SW_GRO
+			napi_gro_receive(&dhd->rx_napi_struct, skb);
+#else
 			netif_receive_skb(skb);
+#endif /* ENABLE_DHD_SW_GRO */
 #else /* !defined(DHD_LB_RXP) */
 			netif_rx(skb);
 #endif /* !defined(DHD_LB_RXP) */
@@ -4927,7 +4931,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 		dhd_tcpack_suppress_set(&dhd->pub, TCPACK_SUP_OFF);
 #endif /* BCMPCIE && DHDTCPACK_SUPPRESS */
 #if defined(DHD_LB_RXP)
-				netif_receive_skb(skb);
+#ifdef ENABLE_DHD_SW_GRO
+			napi_gro_receive(&dhd->rx_napi_struct, skb);
+#else
+			netif_receive_skb(skb);
+#endif /* ENABLE_DHD_SW_GRO */
 #else /* !defined(DHD_LB_RXP) */
 				netif_rx_ni(skb);
 #endif /* !defined(DHD_LB_RXP) */
@@ -6866,9 +6874,6 @@ dhd_stop(struct net_device *net)
 			if ((dhd->dhd_state & DHD_ATTACH_STATE_ADD_IF) &&
 				(dhd->dhd_state & DHD_ATTACH_STATE_CFG80211)) {
 				int i;
-#ifdef WL_CFG80211_P2P_DEV_IF
-				wl_cfg80211_del_p2p_wdev(net);
-#endif /* WL_CFG80211_P2P_DEV_IF */
 #ifdef DHD_4WAYM4_FAIL_DISCONNECT
 				dhd_cleanup_m4_state_work(&dhd->pub, ifidx);
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
@@ -7265,6 +7270,10 @@ dhd_open(struct net_device *net)
 			dhd->iflist[ifidx]->net->features &= ~NETIF_F_IP_CSUM;
 		}
 #endif /* TOE */
+
+#ifdef ENABLE_DHD_SW_GRO
+		dhd->iflist[ifidx]->net->features |= NETIF_F_GRO;
+#endif /* ENABLE_DHD_SW_GRO */
 
 #if defined(DHD_LB_RXP)
 		__skb_queue_head_init(&dhd->rx_pend_queue);
@@ -16117,7 +16126,7 @@ EXPORT_SYMBOL(dhd_host_recover_link);
 #endif /* EXYNOS_PCIE_LINKDOWN_RECOVERY */
 
 #ifdef DHD_DETECT_CONSECUTIVE_MFG_HANG
-#define MAX_CONSECUTIVE_MFG_HANG_COUNT 5
+#define MAX_CONSECUTIVE_MFG_HANG_COUNT 2
 #endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
 int dhd_os_send_hang_message(dhd_pub_t *dhdp)
 {
@@ -18380,6 +18389,7 @@ dhd_sssr_mac_xmtdata(dhd_pub_t *dhdp, uint8 core_idx)
 	return xmtdata;
 }
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 int
 dhd_sssr_dump_dig_buf_before(void *dev, const void *user_buf, uint32 len)
 {
@@ -18398,6 +18408,23 @@ dhd_sssr_dump_dig_buf_before(void *dev, const void *user_buf, uint32 len)
 }
 
 int
+dhd_sssr_dump_d11_buf_before(void *dev, const void *user_buf, uint32 len, int core)
+{
+	dhd_info_t *dhd_info = *(dhd_info_t **)netdev_priv((struct net_device *)dev);
+	dhd_pub_t *dhdp = &dhd_info->pub;
+	int pos = 0, ret = BCME_ERROR;
+
+	if (dhdp->sssr_d11_before[core] &&
+		dhdp->sssr_d11_outofreset[core] &&
+		(dhdp->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
+		ret = dhd_export_debug_data((char *)dhdp->sssr_d11_before[core],
+			NULL, user_buf, len, &pos);
+	}
+	return ret;
+}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+
+int
 dhd_sssr_dump_dig_buf_after(void *dev, const void *user_buf, uint32 len)
 {
 	dhd_info_t *dhd_info = *(dhd_info_t **)netdev_priv((struct net_device *)dev);
@@ -18410,22 +18437,6 @@ dhd_sssr_dump_dig_buf_after(void *dev, const void *user_buf, uint32 len)
 	if (dhdp->sssr_dig_buf_after) {
 		ret = dhd_export_debug_data((char *)dhdp->sssr_dig_buf_after,
 			NULL, user_buf, dig_buf_size, &pos);
-	}
-	return ret;
-}
-
-int
-dhd_sssr_dump_d11_buf_before(void *dev, const void *user_buf, uint32 len, int core)
-{
-	dhd_info_t *dhd_info = *(dhd_info_t **)netdev_priv((struct net_device *)dev);
-	dhd_pub_t *dhdp = &dhd_info->pub;
-	int pos = 0, ret = BCME_ERROR;
-
-	if (dhdp->sssr_d11_before[core] &&
-		dhdp->sssr_d11_outofreset[core] &&
-		(dhdp->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
-		ret = dhd_export_debug_data((char *)dhdp->sssr_d11_before[core],
-			NULL, user_buf, len, &pos);
 	}
 	return ret;
 }
@@ -18451,7 +18462,9 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 	dhd_info_t *dhd = dhdinfo;
 	dhd_pub_t *dhdp;
 	int i;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	char before_sr_dump[128];
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	char after_sr_dump[128];
 	unsigned long flags = 0;
 	uint dig_buf_size = 0;
@@ -18480,16 +18493,21 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 
 	for (i = 0; i < num_d11cores; i++) {
 		/* Init file name */
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		memset(before_sr_dump, 0, sizeof(before_sr_dump));
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 		memset(after_sr_dump, 0, sizeof(after_sr_dump));
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		snprintf(before_sr_dump, sizeof(before_sr_dump), "%s_%d_%s",
 			"sssr_dump_core", i, "before_SR");
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 		snprintf(after_sr_dump, sizeof(after_sr_dump), "%s_%d_%s",
 			"sssr_dump_core", i, "after_SR");
 
 		d11_buf_size = dhd_sssr_mac_buf_size(dhdp, i);
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		if (dhdp->sssr_d11_before[i] && dhdp->sssr_d11_outofreset[i] &&
 			(dhdp->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
 			if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_d11_before[i],
@@ -18498,6 +18516,7 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 					__FUNCTION__));
 			}
 		}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 		if (dhdp->sssr_d11_after[i] && dhdp->sssr_d11_outofreset[i]) {
 			if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_d11_after[i],
@@ -18510,6 +18529,7 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 
 	dig_buf_size = dhd_sssr_dig_buf_size(dhdp);
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	if (dhdp->sssr_dig_buf_before && (dhdp->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
 		if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_dig_buf_before,
 			dig_buf_size, "sssr_dump_dig_before_SR")) {
@@ -18517,6 +18537,7 @@ dhd_sssr_dump_to_file(dhd_info_t* dhdinfo)
 				__FUNCTION__));
 		}
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	if (dhdp->sssr_dig_buf_after) {
 		if (write_dump_to_file(dhdp, (uint8 *)dhdp->sssr_dig_buf_after,
@@ -18615,7 +18636,12 @@ dhd_print_buf_addr(dhd_pub_t *dhdp, char *name, void *buf, unsigned int size)
 {
 	if ((dhdp->memdump_enabled == DUMP_MEMONLY) ||
 		(dhdp->memdump_enabled == DUMP_MEMFILE_BUGON) ||
-		(dhdp->memdump_type == DUMP_TYPE_SMMU_FAULT)) {
+		(dhdp->memdump_type == DUMP_TYPE_SMMU_FAULT) ||
+#ifdef DHD_DETECT_CONSECUTIVE_MFG_HANG
+		(dhdp->op_mode & DHD_FLAG_MFG_MODE &&
+			(dhdp->hang_count >= MAX_CONSECUTIVE_MFG_HANG_COUNT-1)) ||
+#endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
+		FALSE) {
 #if defined(CONFIG_ARM64)
 		DHD_ERROR(("-------- %s: buf(va)=%llx, buf(pa)=%llx, bufsize=%d\n",
 			name, (uint64)buf, (uint64)__virt_to_phys((ulong)buf), size));
@@ -18630,7 +18656,7 @@ static void
 dhd_log_dump_buf_addr(dhd_pub_t *dhdp, log_dump_type_t *type)
 {
 	int i;
-	unsigned int wr_size = 0;
+	unsigned long wr_size = 0;
 	struct dhd_log_dump_buf *dld_buf = &g_dld_buf[0];
 	size_t log_size = 0;
 	char buf_name[DHD_PRINT_BUF_NAME_LEN];
@@ -18773,6 +18799,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 
 	/* core 0 */
 	i = 0;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	if (dhd->sssr_d11_before[i] && dhd->sssr_d11_outofreset[i] &&
 		(dhd->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
 
@@ -18784,6 +18811,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 			dhd->sssr_d11_before[i], arr_len[SSSR_C0_D11_BEFORE]);
 #endif /* DHD_LOG_DUMP */
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	if (dhd->sssr_d11_after[i] && dhd->sssr_d11_outofreset[i]) {
 		arr_len[SSSR_C0_D11_AFTER]  = dhd_sssr_mac_buf_size(dhd, i);
 		DHD_ERROR(("%s: arr_len[SSSR_C0_D11_AFTER] : %d\n", __FUNCTION__,
@@ -18796,6 +18824,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 
 	/* core 1 */
 	i = 1;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	if (dhd->sssr_d11_before[i] && dhd->sssr_d11_outofreset[i] &&
 		(dhd->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
 		arr_len[SSSR_C1_D11_BEFORE]  = dhd_sssr_mac_buf_size(dhd, i);
@@ -18806,6 +18835,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 			dhd->sssr_d11_before[i], arr_len[SSSR_C1_D11_BEFORE]);
 #endif /* DHD_LOG_DUMP */
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	if (dhd->sssr_d11_after[i] && dhd->sssr_d11_outofreset[i]) {
 		arr_len[SSSR_C1_D11_AFTER]  = dhd_sssr_mac_buf_size(dhd, i);
 		DHD_ERROR(("%s: arr_len[SSSR_C1_D11_AFTER] : %d\n", __FUNCTION__,
@@ -18819,6 +18849,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 	/* core 2 scan core */
 	if (dhd->sssr_reg_info->rev2.version >= SSSR_REG_INFO_VER_2) {
 		i = 2;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 		if (dhd->sssr_d11_before[i] && dhd->sssr_d11_outofreset[i] &&
 			(dhd->sssr_dump_mode == SSSR_DUMP_MODE_SSSR)) {
 			arr_len[SSSR_C2_D11_BEFORE]  = dhd_sssr_mac_buf_size(dhd, i);
@@ -18829,6 +18860,7 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 				dhd->sssr_d11_before[i], arr_len[SSSR_C2_D11_BEFORE]);
 #endif /* DHD_LOG_DUMP */
 		}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 		if (dhd->sssr_d11_after[i] && dhd->sssr_d11_outofreset[i]) {
 			arr_len[SSSR_C2_D11_AFTER]  = dhd_sssr_mac_buf_size(dhd, i);
 			DHD_ERROR(("%s: arr_len[SSSR_C2_D11_AFTER] : %d\n", __FUNCTION__,
@@ -18842,18 +18874,22 @@ dhdpcie_sssr_dump_get_before_after_len(dhd_pub_t *dhd, uint32 *arr_len)
 
 	/* DIG core or VASIP */
 	dig_buf_size = dhd_sssr_dig_buf_size(dhd);
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	arr_len[SSSR_DIG_BEFORE] = (dhd->sssr_dig_buf_before) ? dig_buf_size : 0;
-	arr_len[SSSR_DIG_AFTER] = (dhd->sssr_dig_buf_after) ? dig_buf_size : 0;
-
 	DHD_ERROR(("%s: arr_len[SSSR_DIG_BEFORE] : %d\n", __FUNCTION__,
 		arr_len[SSSR_DIG_BEFORE]));
+#ifdef DHD_LOG_DUMP
+		if (dhd->sssr_dig_buf_before) {
+			dhd_print_buf_addr(dhd, "SSSR_DIG_BEFORE",
+				dhd->sssr_dig_buf_before, arr_len[SSSR_DIG_BEFORE]);
+		}
+#endif /* DHD_LOG_DUMP */
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+
+	arr_len[SSSR_DIG_AFTER] = (dhd->sssr_dig_buf_after) ? dig_buf_size : 0;
 	DHD_ERROR(("%s: arr_len[SSSR_DIG_AFTER] : %d\n", __FUNCTION__,
 		arr_len[SSSR_DIG_AFTER]));
 #ifdef DHD_LOG_DUMP
-	if (dhd->sssr_dig_buf_before) {
-		dhd_print_buf_addr(dhd, "SSSR_DIG_BEFORE",
-			dhd->sssr_dig_buf_before, arr_len[SSSR_DIG_BEFORE]);
-	}
 	if (dhd->sssr_dig_buf_after) {
 		dhd_print_buf_addr(dhd, "SSSR_DIG_AFTER",
 			dhd->sssr_dig_buf_after, arr_len[SSSR_DIG_AFTER]);
@@ -19015,8 +19051,8 @@ dhd_get_flowring_len(void *ndev, dhd_pub_t *dhdp)
 		length += (uint32)(CONCISE_DUMP_BUFLEN - remain_len);
 	}
 
-	length += strlen(FLOWRING_DUMP_HDR);
-	length += sizeof(sec_hdr);
+	length += (uint32) strlen(FLOWRING_DUMP_HDR);
+	length += (uint32) sizeof(sec_hdr);
 	h2d_flowrings_total = dhd_get_max_flow_rings(dhdp);
 	length += ((D2HRING_TXCMPLT_ITEMSIZE * D2HRING_TXCMPLT_MAX_ITEM)
 				+ (H2DRING_RXPOST_ITEMSIZE * H2DRING_RXPOST_MAX_ITEM)

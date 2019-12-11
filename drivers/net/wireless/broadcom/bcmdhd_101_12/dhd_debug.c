@@ -2660,3 +2660,21 @@ dhd_dbg_detach(dhd_pub_t *dhdp)
 	}
 	MFREE(dhdp->osh, dhdp->dbg, sizeof(dhd_dbg_t));
 }
+
+uint32
+dhd_dbg_get_fwverbose(dhd_pub_t *dhdp)
+{
+	if (dhdp && dhdp->dbg) {
+		return dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID].log_level;
+	}
+	return 0;
+}
+
+void
+dhd_dbg_set_fwverbose(dhd_pub_t *dhdp, uint32 new_val)
+{
+
+	if (dhdp && dhdp->dbg) {
+		dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID].log_level = new_val;
+	}
+}

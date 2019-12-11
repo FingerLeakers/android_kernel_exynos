@@ -230,7 +230,7 @@ static const struct max77705_muic_vps_data muic_vps_table[] = {
 #if defined(CONFIG_HICCUP_CHARGER)
 	{
 		.adc		= MAX77705_UIADC_OPEN,
-		.vbvolt		= VB_DONTCARE,
+		.vbvolt		= VB_HIGH,
 		.chgtyp		= CHGTYP_HICCUP_MODE,
 		.muic_switch	= COM_USB_CP,
 		.vps_name	= "Hiccup mode",
@@ -921,25 +921,42 @@ static ssize_t max77705_muic_set_afc_disable(struct device *dev,
 	struct max77705_muic_data *muic_data = dev_get_drvdata(dev);
 	struct muic_platform_data *pdata = muic_data->pdata;
 	int param_val, ret = 0;
+	bool curr_val = pdata->afc_disable;
 	union power_supply_propval psy_val;
 
 	if (!strncasecmp(buf, "1", 1)) {
+		/* Disable AFC */
 		ret = sec_set_param(CM_OFFSET + 1, '1');
-		if (ret < 0)
-			pr_err("%s:sec_set_param failed\n", __func__);
-		else
-			pdata->afc_disable = true;
+		pdata->afc_disable = true;
 	} else if (!strncasecmp(buf, "0", 1)) {
+	/* Enable AFC */
 		ret = sec_set_param(CM_OFFSET + 1, '0');
-		if (ret < 0)
-			pr_err("%s:sec_set_param failed\n", __func__);
-		else
-			pdata->afc_disable = false;
+		pdata->afc_disable = false;
 	} else {
 		pr_warn("%s invalid value\n", __func__);
 	}
 
 	param_val = pdata->afc_disable ? '1' : '0';
+	pr_info("%s: param_val:%d\n", __func__, param_val);
+
+	if (ret < 0) {
+		pr_info("%s:set_param failed - %02x:%02x(%d)\n", __func__,
+			param_val, curr_val, ret);
+
+		pdata->afc_disable = curr_val;
+
+		return -EIO;
+	} else {
+		pr_info("%s: afc_disable:%d (AFC %s)\n", __func__,
+			pdata->afc_disable, pdata->afc_disable ? "Disabled" : "Enabled");
+
+		if (!pdata->afc_disable) {
+			if (muic_data->attached_dev == ATTACHED_DEV_AFC_CHARGER_DISABLED_MUIC) {
+				cancel_delayed_work_sync(&(muic_data->afc_work));
+				schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(500));
+			}
+		}
+	}
 
 #if defined(CONFIG_SEC_FACTORY)
 	/* for factory self charging test (AFC-> NORMAL TA) */
@@ -1849,9 +1866,15 @@ static void max77705_muic_afc_work(struct work_struct *work)
 	pr_info("%s\n", __func__);
 
 	if (max77705_muic_check_is_enable_afc(muic_data, muic_data->attached_dev)) {
-		muic_data->is_check_hv = true;
-		muic_data->hv_voltage = 9;
-		max77705_muic_afc_hv_set(muic_data, 9);
+		if (!muic_data->pdata->afc_disable) {
+			muic_data->is_check_hv = true;
+			muic_data->hv_voltage = 9;
+			max77705_muic_afc_hv_set(muic_data, 9);
+		} else {
+			muic_data->is_check_hv = true;
+			muic_data->hv_voltage = 5;
+			max77705_muic_afc_hv_set(muic_data, 5);
+		}	
 	}
 }
 
@@ -1991,7 +2014,6 @@ static int max77705_muic_set_hiccup_mode(int on_off)
 	switch (on_off) {
 	case MUIC_HICCUP_MODE_OFF:
 	case MUIC_HICCUP_MODE_ON:
-	case MUIC_HICCUP_MODE_NOTY:
 		if (muic_data->is_hiccup_mode != on_off) {
 			muic_data->is_hiccup_mode = on_off;
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)

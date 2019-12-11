@@ -397,26 +397,6 @@ static inline void __submit_bio(struct f2fs_sb_info *sbi,
 	}
 submit_io:
 
-#if HPB_PROTOTYPE_DEBUG
-	if (bio->bi_opf & REQ_RT_PINNED) {
-		struct bio_vec *bvec;
-		struct page *page;
-		struct inode *inode;
-		int i;
-		unsigned long old_ino = -1;
-
-		pr_info("%s: REQ_RT_PINNED op_r=%d\n", __func__, is_read_io(bio_op(bio)));
-		bio_for_each_segment_all(bvec, bio, i) {
-			page = bvec->bv_page;
-			inode = page->mapping->host;
-			if(old_ino != inode->i_ino) {
-				old_ino = inode->i_ino;
-				pr_info("%s: --> ino : %lu\n", __func__, inode->i_ino);
-			}
-		}
-	}
-#endif
-
 	if (is_read_io(bio_op(bio)))
 		trace_f2fs_submit_read_bio(sbi->sb, type, bio);
 	else
@@ -467,7 +447,7 @@ static void __submit_merged_bio(struct f2fs_bio_info *io)
 		return;
 
 	if (f2fs_bio_disk_encrypted(io->bio->bi_opf))
-		bio_set_op_attrs(io->bio, fio->op, fio->op_flags | REQ_CRYPT | io->bio->bi_opf);
+		bio_set_op_attrs(io->bio, fio->op, fio->op_flags | io->bio->bi_opf | REQ_CRYPT);
 	else
 		bio_set_op_attrs(io->bio, fio->op, fio->op_flags | io->bio->bi_opf);
 
@@ -610,15 +590,15 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 	inc_page_count(fio->sbi, is_read_io(fio->op) ?
 			__read_io_type(page): WB_DATA_TYPE(fio->page));
 
-	if (f2fs_may_encrypt_bio(inode, fio))
-		fscrypt_set_bio(inode, bio, PG_DUN(inode, fio->page));
-	f2fs_set_bio_skip(bio, fio->encrypted_page ? 1 : 0);
-
-#if HPB_PROTOTYPE
-	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
+#ifdef CONFIG_FS_HPB
+	if(is_inode_flag_set(inode, FI_HPB_INODE)) { 
 		bio->bi_opf |= REQ_RT_PINNED;
 	}
 #endif
+
+	if (f2fs_may_encrypt_bio(inode, fio))
+		fscrypt_set_bio(inode, bio, PG_DUN(inode, fio->page));
+	f2fs_set_bio_skip(bio, fio->encrypted_page ? 1 : 0);
 
 	__f2fs_submit_read_bio(fio->sbi, bio, fio->type);
 
@@ -703,7 +683,7 @@ alloc_new:
 		goto alloc_new;
 	}
 
-#if HPB_PROTOTYPE
+#ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
 		io->bio->bi_opf |= REQ_RT_PINNED;
 	}
@@ -757,7 +737,7 @@ static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 		bio->bi_private = ctx;
 	}
 
-#if HPB_PROTOTYPE
+#ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
 		bio->bi_opf |= REQ_RT_PINNED;
 	}
@@ -2865,11 +2845,7 @@ static ssize_t f2fs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 	enum rw_hint hint = iocb->ki_hint;
 	int whint_mode = F2FS_OPTION(sbi).whint_mode;
 	bool do_opu;
-
-#if HPB_PROTOTYPE
-	int dio_flags = 0;
-#endif
-
+	int dio_flags = DIO_LOCKING | DIO_SKIP_HOLES;
 	err = check_direct_IO(inode, iter, offset);
 	if (err)
 		return err < 0 ? err : 0;
@@ -2925,21 +2901,16 @@ static ssize_t f2fs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 			down_read(&fi->i_gc_rwsem[READ]);
 	}
 
-#if HPB_PROTOTYPE
+#ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
 		dio_flags |= DIO_HPB_IO;
 	}
+#endif
 
 	err = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev,
 			iter, rw == WRITE ? get_data_block_dio_write :
 			get_data_block_dio, NULL, f2fs_dio_submit_bio,
-			DIO_LOCKING | DIO_SKIP_HOLES | dio_flags);
-#else
-	err = __blockdev_direct_IO(iocb, inode, inode->i_sb->s_bdev,
-			iter, rw == WRITE ? get_data_block_dio_write :
-			get_data_block_dio, NULL, f2fs_dio_submit_bio,
-			DIO_LOCKING | DIO_SKIP_HOLES);
-#endif
+			dio_flags);
 
 	if (do_opu)
 		up_read(&fi->i_gc_rwsem[READ]);

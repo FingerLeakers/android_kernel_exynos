@@ -71,7 +71,7 @@
 			0x0 0x13400000 0x301000   /* DBI base */
 			0x0 0x13340000 0x1000    /* phy pcs base */
 			0x0 0x12FFE000 0x2000   /* configuration space */
-			0x0 0x13100000 0x1000>; /* I/A space */
+			0x0 0x13300000 0x1000>; /* I/A space */
 		reg-names = "elbi", "phy", "sysreg", "dbi", "pcs", "config", "ia";
 		interrupts = <GIC_SPI INTREQ__PCIE_GEN4_0 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "msi";
@@ -115,7 +115,7 @@
 			0x0 0x13800000 0x301000   /* DBI base */
 			0x0 0x13D40000 0x1000    /* phy pcs base */
 			0x0 0x14FFE000 0x2000   /* configuration space */
-			0x0 0x13100000 0x1000>; /* I/A space */
+			0x0 0x13D00000 0x1000>; /* I/A space */
 		reg-names = "elbi", "phy", "sysreg", "dbi", "pcs", "config", "ia";
 		interrupts = <GIC_SPI INTREQ__PCIE_GEN4_1 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "msi";
@@ -144,7 +144,7 @@
 		use-msi = "false";
 		use-sicd = "true";
 		use-sysmmu = "false";
-		use-ia = "false";
+		use-ia = "true";
 		pmu-offset = <0x720>;
 		max-link-speed = <LINK_SPEED_GEN3>;
 		status = "disabled";

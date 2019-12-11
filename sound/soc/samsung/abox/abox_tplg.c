@@ -49,6 +49,8 @@ struct abox_tplg_kcontrol_data {
 	unsigned int value[128];
 	int count;
 	bool is_volatile;
+	unsigned int addr;
+	unsigned int *kaddr;
 	struct snd_soc_component *cmpnt;
 	struct snd_kcontrol_new *kcontrol_new;
 	union {
@@ -78,7 +80,8 @@ static int abox_tplg_request_ipc(ABOX_IPC_MSG *msg)
 	return abox_request_ipc(dev_abox, msg->ipcid, msg, sizeof(*msg), 0, 0);
 }
 
-static bool abox_tplg_get_bool(struct snd_soc_tplg_private *priv, int token)
+static bool abox_tplg_get_bool_at(struct snd_soc_tplg_private *priv, int token,
+		int idx)
 {
 	struct snd_soc_tplg_vendor_array *array;
 	struct snd_soc_tplg_vendor_value_elem *value;
@@ -92,7 +95,7 @@ static bool abox_tplg_get_bool(struct snd_soc_tplg_private *priv, int token)
 
 		for (value = array->value; value - array->value <
 				array->num_elems; value++) {
-			if (value->token == token)
+			if (value->token == token && !idx--)
 				return !!value->value;
 		}
 	}
@@ -100,7 +103,8 @@ static bool abox_tplg_get_bool(struct snd_soc_tplg_private *priv, int token)
 	return false;
 }
 
-static int abox_tplg_get_int(struct snd_soc_tplg_private *priv, int token)
+static int abox_tplg_get_int_at(struct snd_soc_tplg_private *priv, int token,
+		int idx)
 {
 	struct snd_soc_tplg_vendor_array *array;
 	struct snd_soc_tplg_vendor_value_elem *value;
@@ -114,12 +118,45 @@ static int abox_tplg_get_int(struct snd_soc_tplg_private *priv, int token)
 
 		for (value = array->value; value - array->value <
 				array->num_elems; value++) {
-			if (value->token == token)
+			if (value->token == token && !idx--)
 				return value->value;
 		}
 	}
 
 	return -EINVAL;
+}
+
+static const char *abox_tplg_get_string_at(struct snd_soc_tplg_private *priv,
+		int token, int idx)
+{
+	struct snd_soc_tplg_vendor_array *array;
+	struct snd_soc_tplg_vendor_string_elem *string;
+	int sz;
+
+	for (sz = 0; sz < priv->size; sz += array->size) {
+		array = (struct snd_soc_tplg_vendor_array *)(priv->data + sz);
+
+		if (array->type != SND_SOC_TPLG_TUPLE_TYPE_STRING)
+			continue;
+
+		for (string = array->string; string - array->string <
+				array->num_elems; string++) {
+			if (string->token == token && !idx--)
+				return string->string;
+		}
+	}
+
+	return NULL;
+}
+
+static bool abox_tplg_get_bool(struct snd_soc_tplg_private *priv, int token)
+{
+	return abox_tplg_get_bool_at(priv, token, 0);
+}
+
+static int abox_tplg_get_int(struct snd_soc_tplg_private *priv, int token)
+{
+	return abox_tplg_get_int_at(priv, token, 0);
 }
 
 static int abox_tplg_get_id(struct snd_soc_tplg_private *priv)
@@ -154,6 +191,13 @@ static int abox_tplg_get_count(struct snd_soc_tplg_private *priv)
 static bool abox_tplg_is_volatile(struct snd_soc_tplg_private *priv)
 {
 	return abox_tplg_get_bool(priv, ABOX_TKN_VOLATILE);
+}
+
+static unsigned int abox_tplg_get_address(struct snd_soc_tplg_private *priv)
+{
+	int ret = abox_tplg_get_int(priv, ABOX_TKN_ADDRESS);
+
+	return (ret < 0 && ret > -MAX_ERRNO) ? 0 : ret;
 }
 
 static struct completion report_control_completion;
@@ -224,17 +268,86 @@ static int abox_tplg_ipc_put(struct device *dev, int gid, int id,
 	return abox_tplg_request_ipc(&msg);
 }
 
+static int abox_tplg_val_get(struct device *dev,
+		struct abox_tplg_kcontrol_data *kdata)
+{
+	int i;
+
+	dev_dbg(dev, "%s(%#x, %d)\n", __func__, kdata->gid, kdata->id);
+
+	for (i = 0; i < kdata->count; i++) {
+		kdata->value[i] = kdata->kaddr[i];
+		dev_dbg(dev, "%d\n", kdata->value[i]);
+	}
+
+	return 0;
+}
+
+static void abox_tplg_val_set(struct device *dev,
+		struct abox_tplg_kcontrol_data *kdata)
+{
+	int i;
+
+	dev_dbg(dev, "%s(%#x, %d, %u)\n", __func__, kdata->gid, kdata->id,
+			kdata->value[0]);
+
+	for (i = 0; i < kdata->count; i++)
+		kdata->kaddr[i] = kdata->value[i];
+}
+
+static int abox_tplg_val_put(struct device *dev,
+		struct abox_tplg_kcontrol_data *kdata)
+{
+	ABOX_IPC_MSG msg;
+	struct IPC_SYSTEM_MSG *system_msg = &msg.msg.system;
+	int i;
+
+	dev_dbg(dev, "%s(%#x, %d, %u)\n", __func__, kdata->gid, kdata->id,
+			kdata->value[0]);
+
+	abox_tplg_val_set(dev, kdata);
+
+	msg.ipcid = IPC_SYSTEM;
+	system_msg->msgtype = ABOX_UPDATE_COMPONENT_VALUE;
+	system_msg->param1 = kdata->gid;
+	system_msg->param2 = kdata->id;
+	for (i = 0; i < kdata->count; i++)
+		system_msg->bundle.param_s32[i] = kdata->value[i];
+
+	return abox_tplg_request_ipc(&msg);
+}
+
 static inline int abox_tplg_kcontrol_get(struct device *dev,
 		struct abox_tplg_kcontrol_data *kdata)
 {
-	return abox_tplg_ipc_get(dev, kdata->gid, kdata->id);
+	if (kdata->addr)
+		return abox_tplg_val_get(dev, kdata);
+	else
+		return abox_tplg_ipc_get(dev, kdata->gid, kdata->id);
 }
 
 static inline int abox_tplg_kcontrol_put(struct device *dev,
 		struct abox_tplg_kcontrol_data *kdata)
 {
-	return abox_tplg_ipc_put(dev, kdata->gid, kdata->id, kdata->value,
-			kdata->count);
+	if (kdata->addr)
+		return abox_tplg_val_put(dev, kdata);
+	else
+		return abox_tplg_ipc_put(dev, kdata->gid, kdata->id,
+				kdata->value, kdata->count);
+}
+
+static inline int abox_tplg_kcontrol_restore(struct device *dev,
+		struct abox_tplg_kcontrol_data *kdata)
+{
+	int ret = 0;
+
+	if (kdata->addr)
+		abox_tplg_val_set(dev, kdata);
+	else
+		ret = abox_tplg_ipc_put(dev, kdata->gid, kdata->id,
+				kdata->value, kdata->count);
+
+	return ret;
 }
 
 static inline int abox_tplg_widget_get(struct device *dev,
@@ -776,6 +889,7 @@ static int abox_tplg_control_load_mixer(struct snd_soc_component *cmpnt,
 		struct snd_soc_tplg_ctl_hdr *hdr)
 {
 	struct device *dev = cmpnt->dev;
+	struct abox_data *data = dev_get_drvdata(dev_abox);
 	struct abox_tplg_kcontrol_data *kdata;
 	struct snd_soc_tplg_mixer_control *tplg_mc;
 	struct soc_mixer_control *mc =
@@ -807,6 +921,9 @@ static int abox_tplg_control_load_mixer(struct snd_soc_component *cmpnt,
 	kdata->id = id;
 	kdata->count = abox_tplg_get_count(&tplg_mc->priv);
 	kdata->is_volatile = abox_tplg_is_volatile(&tplg_mc->priv);
+	kdata->addr = abox_tplg_get_address(&tplg_mc->priv);
+	if (kdata->addr)
+		kdata->kaddr = abox_addr_to_kernel_addr(data, kdata->addr);
 	kdata->cmpnt = cmpnt;
 	kdata->kcontrol_new = kctl;
 	kdata->tplg_mc = tplg_mc;
@@ -1049,12 +1166,52 @@ static const struct snd_soc_dapm_widget abox_tplg_widgets[] = {
 	SND_SOC_DAPM_PGA("None", SND_SOC_NOPM, 0, 0, NULL, 0),
 };
 
+static int abox_tplg_bin_load(struct device *dev,
+		struct snd_soc_tplg_private *priv)
+{
+	struct abox_data *data = dev_get_drvdata(dev_abox);
+	const char *name;
+	bool changeable;
+	int idx, area, offset, i;
+	int ret = 0;
+
+	for (i = 0; ret >= 0; i++) {
+		idx = abox_tplg_get_int_at(priv, ABOX_BIN_IDX, i);
+		if (idx < 0)
+			break;
+
+		name = abox_tplg_get_string_at(priv, ABOX_BIN_NAME, i);
+		if (IS_ERR_OR_NULL(name))
+			break;
+
+		area = abox_tplg_get_int_at(priv, ABOX_BIN_AREA, i);
+		if (area < 0)
+			break;
+
+		offset = abox_tplg_get_int_at(priv, ABOX_BIN_OFFSET, i);
+		if (offset < 0)
+			break;
+
+		changeable = abox_tplg_get_bool_at(priv, ABOX_BIN_CHANGEABLE,
+				i);
+		if (changeable < 0)
+			break;
+
+		ret = abox_add_extra_firmware(dev, data, idx, name, area,
+				offset, changeable);
+	}
+
+	return ret;
+}
+
 static int abox_tplg_manifest(struct snd_soc_component *cmpnt, int index,
 		struct snd_soc_tplg_manifest *manifest)
 {
 	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(cmpnt);
 
 	dev_dbg(cmpnt->dev, "%s\n", __func__);
+
+	abox_tplg_bin_load(cmpnt->dev, &manifest->priv);
 
 	return snd_soc_dapm_new_controls(dapm, abox_tplg_widgets,
 			ARRAY_SIZE(abox_tplg_widgets));
@@ -1117,7 +1274,7 @@ int abox_tplg_restore(struct device *dev)
 			 */
 			for (i = 0; i < kdata->count; i++) {
 				if (kdata->value[i]) {
-					abox_tplg_kcontrol_put(dev, kdata);
+					abox_tplg_kcontrol_restore(dev, kdata);
 					break;
 				}
 			}

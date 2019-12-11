@@ -18,6 +18,7 @@
 #include <net/xfrm.h>
 #include <linux/jhash.h>
 #include <linux/rtnetlink.h>
+#include <linux/linkforward.h>
 
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_core.h>
@@ -518,6 +519,10 @@ static unsigned int nf_nat_manip_pkt(struct sk_buff *skb, struct nf_conn *ct,
 #ifdef CONFIG_HW_FORWARD
 	if (mtype == NF_NAT_MANIP_SRC) /* ToDo: should handle both SRC and DST */
 		hw_forward_monitor(ct);
+#endif
+#ifdef CONFIG_LINK_FORWARD
+	if (mtype == NF_NAT_MANIP_SRC)
+		nf_linkforward_monitor(ct);
 #endif
 
 	if (!l3proto->manip_pkt(skb, 0, l4proto, &target, mtype))

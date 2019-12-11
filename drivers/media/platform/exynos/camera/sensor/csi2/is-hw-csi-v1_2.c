@@ -558,7 +558,7 @@ void csi_hw_set_start_addr(u32 __iomem *base_reg, u32 number, u32 addr)
 	writel(addr, target_reg);
 }
 
-int csi_hw_dma_common_reset(u32 __iomem *base_reg)
+int csi_hw_dma_common_reset(u32 __iomem *base_reg, bool on)
 {
 	return 0;
 }

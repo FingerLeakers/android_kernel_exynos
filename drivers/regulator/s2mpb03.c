@@ -307,7 +307,7 @@ static int s2mpb03_pmic_dt_parse_pdata(struct device *dev,
 {
 	struct device_node *pmic_np, *regulators_np, *reg_np;
 	struct s2mpb03_regulator_data *rdata;
-	unsigned int i;
+	size_t i;
 
 	pmic_np = dev->of_node;
 	if (!pmic_np) {
@@ -419,7 +419,7 @@ static ssize_t s2mpb03_write_store(struct device *dev,
 		return size;
 	}
 
-	ret = sscanf(buf, "%x %x", &reg, &data);
+	ret = sscanf(buf, "%02x %02x", &reg, &data);
 	if (ret != 2) {
 		pr_info("%s: input error\n", __func__);
 		return size;
@@ -476,7 +476,7 @@ static int s2mpb03_pmic_probe(struct i2c_client *i2c,
 	struct s2mpb03_platform_data *pdata = i2c->dev.platform_data;
 	struct regulator_config config = { };
 	struct s2mpb03_data *s2mpb03;
-	int i;
+	size_t i;
 	int ret = 0;
 
 	pr_info("%s:%s\n", MFD_DEV_NAME, __func__);

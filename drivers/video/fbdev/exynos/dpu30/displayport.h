@@ -124,6 +124,7 @@ typedef enum {
 	TRAINING_PATTERN_1 = 1,
 	TRAINING_PATTERN_2 = 2,
 	TRAINING_PATTERN_3 = 3,
+	TRAINING_PATTERN_4 = 5,
 } displayport_training_pattern;
 
 typedef enum {
@@ -239,6 +240,7 @@ struct fb_vendor {
 
 #define DPCD_ADD_MAX_DOWNSPREAD 0x00003
 #define NO_AUX_HANDSHAKE_LINK_TRANING (1 << 6)
+#define TPS4_SUPPORTED (1 << 7)
 
 #define DPCD_ADD_DOWN_STREAM_PORT_PRESENT 0x00005
 #define BIT_DFP_TYPE 0x6
@@ -1177,48 +1179,6 @@ static inline struct displayport_device *get_displayport_drvdata(void)
 	return displayport_drvdata;
 }
 
-/* register access subroutines */
-static inline u32 displayport_read(u32 reg_id)
-{
-	struct displayport_device *displayport = get_displayport_drvdata();
-
-	return readl(displayport->res.link_regs + reg_id);
-}
-
-static inline u32 displayport_read_mask(u32 reg_id, u32 mask)
-{
-	u32 val = displayport_read(reg_id);
-
-	val &= (mask);
-	return val;
-}
-
-static inline void displayport_write(u32 reg_id, u32 val)
-{
-	struct displayport_device *displayport = get_displayport_drvdata();
-
-	writel(val, displayport->res.link_regs + reg_id);
-}
-
-static inline void displayport_write_mask(u32 reg_id, u32 val, u32 mask)
-{
-	struct displayport_device *displayport = get_displayport_drvdata();
-	u32 old;
-	u32 bit_shift;
-	unsigned long flags;
-
-	spin_lock_irqsave(&displayport->spinlock_sfr, flags);
-	old = displayport_read(reg_id);
-	for (bit_shift = 0; bit_shift < 32; bit_shift++) {
-		if ((mask >> bit_shift) & 0x00000001)
-			break;
-	}
-
-	val = ((val<<bit_shift) & mask) | (old & ~mask);
-	writel(val, displayport->res.link_regs + reg_id);
-	spin_unlock_irqrestore(&displayport->spinlock_sfr, flags);
-}
-
 static inline int displayport_phy_enabled(void)
 {
 	/* USBDP_PHY_CONTROL register */
@@ -1233,6 +1193,60 @@ static inline int displayport_phy_enabled(void)
 	}
 
 	return en;
+}
+
+/* register access subroutines */
+static inline u32 displayport_read(u32 reg_id)
+{
+	struct displayport_device *displayport = get_displayport_drvdata();
+
+	if (!displayport_phy_enabled())
+		return 0;
+
+	return readl(displayport->res.link_regs + reg_id);
+}
+
+static inline u32 displayport_read_mask(u32 reg_id, u32 mask)
+{
+	u32 val = displayport_read(reg_id);
+
+	if (!displayport_phy_enabled())
+		return 0;
+
+	val &= (mask);
+	return val;
+}
+
+static inline void displayport_write(u32 reg_id, u32 val)
+{
+	struct displayport_device *displayport = get_displayport_drvdata();
+
+	if (!displayport_phy_enabled())
+		return;
+
+	writel(val, displayport->res.link_regs + reg_id);
+}
+
+static inline void displayport_write_mask(u32 reg_id, u32 val, u32 mask)
+{
+	struct displayport_device *displayport = get_displayport_drvdata();
+	u32 old;
+	u32 bit_shift;
+	unsigned long flags;
+
+	if (!displayport_phy_enabled())
+		return;
+
+	spin_lock_irqsave(&displayport->spinlock_sfr, flags);
+	old = displayport_read(reg_id);
+	for (bit_shift = 0; bit_shift < 32; bit_shift++) {
+		if ((mask >> bit_shift) & 0x00000001)
+			break;
+	}
+
+	val = ((val<<bit_shift) & mask) | (old & ~mask);
+	writel(val, displayport->res.link_regs + reg_id);
+	spin_unlock_irqrestore(&displayport->spinlock_sfr, flags);
 }
 
 static inline u32 displayport_phy_read(u32 reg_id)

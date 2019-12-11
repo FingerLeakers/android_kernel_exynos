@@ -2,8 +2,9 @@
 # please don't remove new line on this file
 #
 
+CONFIG_USE_SIGNED_BINARY=n
+
 CONFIG_SEC_GPIO_DVS=y
-# CONFIG_SLUB_DEBUG is not set
 CONFIG_G2D_SYSTRACE=y
 CONFIG_CMUCAL_DEBUG=y
 CONFIG_CRYPTO_DISKCIPHER_DEBUG=y
@@ -30,3 +31,6 @@ CONFIG_LOCAL_TIMERS=y
 
 # SDP KeyManagement Test for MDFPP evaluation
 CONFIG_SDP_KEY_DUMP=y
+
+# BPF_debugging
+CONFIG_BPF_TRACE_PRINTK_EVERYWHERE=y

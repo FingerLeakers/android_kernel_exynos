@@ -98,7 +98,7 @@ static ssize_t exynos_ufs_eom1_store(struct device *dev,
 
 	kfree(eom_results);
 
-	eom_results = kzalloc(sizeof(struct ufs_eom_result_s) *
+	eom_results = kzalloc(sizeof(struct ufs_eom_result_s*) *
 			(uint8_t)ufs->num_rx_lanes, GFP_KERNEL);
 
 	for(i  = 0; i < ufs->num_rx_lanes; i++) {

@@ -28,7 +28,6 @@
 #define SENSOR_GW2_PDXTC_CAL_SIZE		546
 
 #define USE_GROUP_PARAM_HOLD	(0)
-#define SENSOR_GW2_CROP_SHIFT_VALUE_MAX	192
 #define MAX_EFS_DATA_LENGTH	780
 #define CROP_SHIFT_VALUE_FROM_EFS	"/efs/FactoryApp/camera_tilt_calibration_info_3_1"
 #define CROP_SHIFT_ADDR_X	0x029E

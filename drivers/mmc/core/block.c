@@ -2528,6 +2528,7 @@ enum mmc_issued mmc_blk_mq_issue_rq(struct mmc_queue *mq, struct request *req)
 	if (mmc_tot_in_flight(mq) == 1) {
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 		if (mmc_bus_needs_resume(card->host)) {
+			host->bus_resume_flags |= MMC_BUSRESUME_ENTER_IO;
 			mmc_resume_bus(card->host);
 		}
 #endif

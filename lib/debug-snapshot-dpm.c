@@ -145,6 +145,12 @@ asmlinkage void dbg_snapshot_do_dpm(struct pt_regs *regs)
 	unsigned int val = 0;
 	unsigned int policy = 0;
 
+	if (!dss_dpm.enabled || !dss_dpm.enabled_debug)
+		return;
+
+	if (user_mode(regs))
+		return;
+
 	switch (ESR_ELx_EC(esr)) {
 	case ESR_ELx_EC_DABT_CUR:
 		val = esr & 63;

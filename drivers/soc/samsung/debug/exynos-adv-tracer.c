@@ -18,46 +18,55 @@
 #include <linux/slab.h>
 #include <linux/debug-snapshot.h>
 #include <linux/device.h>
+#include <linux/delay.h>
 
-#include <soc/samsung/exynos-cpupm.h>
 #include <soc/samsung/exynos-adv-tracer.h>
 #include <soc/samsung/exynos-adv-tracer-ipc.h>
 
-static struct adv_tracer_info *exynos_adv_tracer;
-static int arraydump_done;
-
 #define DONE_ARRYDUMP 0xADADADAD
+
+static struct adv_tracer_info *exynos_adv_tracer;
+static int arraydump_done = DONE_ARRYDUMP;
+
+void adv_tracer_wait_ipi(int cpu)
+{
+	do {
+		mdelay(1);
+	} while(arraydump_done != DONE_ARRYDUMP);
+}
 
 int adv_tracer_arraydump(void)
 {
-	arraydump_done = DONE_ARRYDUMP;
-#if 0
 	struct adv_tracer_ipc_cmd cmd;
 	int ret = 0;
 	u32 cpu_mask = (1 << CONFIG_NR_CPUS) - 1;
 
-	if (arraydump_done == DONE_ARRYDUMP) {
-		dev_info(exynos_adv_tracer->dev, "Arraydump already done(0x%x)\n", cpu_mask);
-		return -1;
-	}
-	arraydump_done = DONE_ARRYDUMP;
+	if (exynos_adv_tracer == NULL)
+		return -ENODEV;
 
-	disable_power_mode(6, POWERMODE_TYPE_CLUSTER);
+	if (arraydump_done == DONE_ARRYDUMP) {
+		dev_info(exynos_adv_tracer->dev, "Arraydump already done\n");
+		return -EEXIST;
+	}
+
 	dev_info(exynos_adv_tracer->dev, "Start Arraydump (0x%x)\n", cpu_mask);
 	cmd.cmd_raw.cmd = EAT_IPC_CMD_ARRAYDUMP;
 	cmd.cmd_raw.id = ARR_IPC_CMD_ID_KERNEL_ARRAYDUMP;
 	cmd.buffer[1] = dbg_snapshot_get_item_paddr("log_arrdumppanic");
+	if (!cmd.buffer[1]) {
+		dev_err(exynos_adv_tracer->dev, "No reserved mem of log_arrdumppanic\n");
+		return -ENOMEM;
+	}
 	cmd.buffer[2] = cpu_mask;
+	cmd.buffer[3] = raw_smp_processor_id();
 	ret = adv_tracer_ipc_send_data_polling_timeout(EAT_FRM_CHANNEL, &cmd, EAT_IPC_TIMEOUT * 100);
 	if (ret < 0)
 		goto end;
 
+	arraydump_done = DONE_ARRYDUMP;
 	dev_info(exynos_adv_tracer->dev, "Finish Arraydump (0x%x)\n", cmd.buffer[1]);
 end:
-	enable_power_mode(6, POWERMODE_TYPE_CLUSTER);
 	return ret;
-#endif
-	return 0;
 }
 
 static int adv_tracer_probe(struct platform_device *pdev)

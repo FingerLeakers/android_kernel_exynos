@@ -73,6 +73,9 @@ obj-$(CONFIG_EXYNOS_PPMPU_FAIL_DETECTOR)	+= exynos-ppmpu.o
 # Exynos TZASC fail detector
 obj-$(CONFIG_EXYNOS_TZASC_FAIL_DETECTOR)	+= exynos-tzasc.o
 
+# Exynos S2mpu fail detector
+obj-$(CONFIG_EXYNOS_S2MPUFD_FAIL_DETECTOR)	+= exynos-s2mpufd.o
+
 # HDCP
 obj-$(CONFIG_EXYNOS_HDCP2)  += exynos-hdcp/
 
@@ -82,6 +85,9 @@ obj-$(CONFIG_ARCH_EXYNOS)       += secmem.o
 # SDM
 obj-$(CONFIG_EXYNOS_SDM) += exynos-sdm.o
 
+# Link forwarding
+obj-$(CONFIG_LINK_FORWARD)	+= linkforward/
+
 # CPIF
 obj-$(CONFIG_EXYNOS_MODEM_IF) += cpif/
 
@@ -90,3 +96,7 @@ obj-$(CONFIG_HW_FORWARD)	+= dit/
 
 # Exynos CPU Performance
 obj-$(CONFIG_EXYNOS_CPU_PERF)	+= exynos_cpu_perf/
+
+# Exynos S2MPU
+obj-$(CONFIG_EXYNOS_S2MPU)	+= exynos-s2mpu.o
+obj-$(CONFIG_EXYNOS_S2MPU)	+= exynos-harxlog.o

@@ -82,7 +82,7 @@
 
 			usb_ss_tune:ss_tune {
 				status = "disabled";
-				ss_tune_cnt = <30>;
+				ss_tune_cnt = <36>;
 				/* value = <device host> */
 				/* 0xffffffff means using default value */
 				ss_tune1 {
@@ -106,132 +106,162 @@
 				};
 
 				ss_tune5 {
-					tune_name = "ssrx_mf_eq_ctrl_ss";
+					tune_name = "ssrx_mf_eq_psel_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune6 {
-					tune_name = "ssrx_mf_eq_ctrl_ssp";
+					tune_name = "ssrx_mf_eq_psel_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune7 {
-					tune_name = "ssrx_hf_eq_ctrl_ss";
+					tune_name = "ssrx_mf_eq_zsel_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune8 {
-					tune_name = "ssrx_hf_eq_ctrl_ssp";
+					tune_name = "ssrx_mf_eq_zsel_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune9 {
-					tune_name = "ssrx_dfe_1tap_ctrl_ss";
+					tune_name = "ssrx_hf_eq_rsel_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune10 {
-					tune_name = "ssrx_dfe_1tap_ctrl_ssp";
+					tune_name = "ssrx_hf_eq_rsel_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune11 {
-					tune_name = "ssrx_dfe_2tap_ctrl_ss";
+					tune_name = "ssrx_hf_eq_csel_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune12 {
-					tune_name = "ssrx_dfe_2tap_ctrl_ssp";
+					tune_name = "ssrx_hf_eq_csel_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune13 {
-					tune_name = "ssrx_dfe_3tap_ctrl_ss";
+					tune_name = "ssrx_dfe_1tap_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune14 {
-					tune_name = "ssrx_dfe_3tap_ctrl_ssp";
+					tune_name = "ssrx_dfe_1tap_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune15 {
-					tune_name = "ssrx_dfe_4tap_ctrl_ss";
+					tune_name = "ssrx_dfe_2tap_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune16 {
-					tune_name = "ssrx_dfe_4tap_ctrl_ssp";
+					tune_name = "ssrx_dfe_2tap_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune17 {
-					tune_name = "ssrx_dfe_5tap_ctrl_ss";
+					tune_name = "ssrx_dfe_3tap_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune18 {
-					tune_name = "ssrx_dfe_5tap_ctrl_ssp";
+					tune_name = "ssrx_dfe_3tap_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune19 {
-					tune_name = "ssrx_term_cal";
+					tune_name = "ssrx_dfe_4tap_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune20 {
-					tune_name = "sstx_amp_ss";
+					tune_name = "ssrx_dfe_4tap_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune21 {
-					tune_name = "sstx_deemp_ss";
+					tune_name = "ssrx_dfe_5tap_ctrl_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune22 {
-					tune_name = "sstx_pre_shoot_ss";
+					tune_name = "ssrx_dfe_5tap_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune23 {
-					tune_name = "sstx_amp_ssp";
+					tune_name = "ssrx_term_cal";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune24 {
-					tune_name = "sstx_deemp_ssp";
+					tune_name = "sstx_amp_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune25 {
-					tune_name = "sstx_pre_shoot_ssp";
+					tune_name = "sstx_deemp_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune26 {
-					tune_name = "sstx_idrv_up";
+					tune_name = "sstx_pre_shoot_ss";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune27 {
-					tune_name = "sstx_lfps_idrv_up";
+					tune_name = "sstx_amp_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune28 {
-					tune_name = "sstx_up_term";
+					tune_name = "sstx_deemp_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune29 {
-					tune_name = "sstx_dn_term";
+					tune_name = "sstx_pre_shoot_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 
 				ss_tune30 {
+					tune_name = "sstx_idrv_up";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune31 {
+					tune_name = "sstx_lfps_idrv_up";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune32 {
+					tune_name = "sstx_up_term";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune33 {
+					tune_name = "sstx_dn_term";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune34 {
 					tune_name = "rext_ovrd";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune35 {
+					tune_name = "ssrx_cdr_fbb_fine_ctrl_sp";
+					tune_value = <0xffffffff 0xffffffff>;
+				};
+
+				ss_tune36 {
+					tune_name = "ssrx_cdr_fbb_fine_ctrl_ssp";
 					tune_value = <0xffffffff 0xffffffff>;
 				};
 			};
@@ -392,14 +422,12 @@
 							mid_min = <1898000>;
 							lit_min = <1950000>;
 							int = <533000>;
-							hmp_boost = "enable";
 						};
 						level_2 {
 							threshold = <1120>; /* 140 MB/s */
 							mid_min = <2002000>;
 							lit_min = <1950000>;
 							int = <533000>;
-							hmp_boost = "enable";
 						};
 					};
 				};
@@ -478,8 +506,82 @@
 					};
 				};
 				boot_device@4 {
+					net_boost,label="P2P";
+					net_boost,node="p2p-wlan0-0";
+					net_boost,slowdown;
+					net_boost,table {
+						level_0 {
+							threshold = <60>;
+							mid_min = <1456000>;
+							lit_min = <1456000>;
+						};
+						level_1 {
+							threshold = <150>;
+							mid_min = <1690000>;
+							lit_min = <1742000>;
+						};
+						level_2 {
+							threshold = <200>;
+							mid_min = <1898000>;
+							lit_min = <1742000>;
+							mif = <1352000>;
+							int = <400000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+						level_3 {
+							threshold = <300>;
+							mid_min = <2106000>;
+							lit_min = <1742000>;
+							mif = <1716000>;
+							int = <533000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+					};
+				};
+				boot_device@5 {
+					net_boost,label="NAN";
+					net_boost,node="aware_data0";
+					net_boost,slowdown;
+					net_boost,table {
+						level_0 {
+							threshold = <60>;
+							mid_min = <1456000>;
+							lit_min = <1456000>;
+						};
+						level_1 {
+							threshold = <150>;
+							mid_min = <1690000>;
+							lit_min = <1742000>;
+						};
+						level_2 {
+							threshold = <200>;
+							mid_min = <1898000>;
+							lit_min = <1742000>;
+							mif = <1352000>;
+							int = <400000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+						level_3 {
+							threshold = <300>;
+							mid_min = <2106000>;
+							lit_min = <1742000>;
+							mif = <1716000>;
+							int = <533000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+					};
+				};
+				boot_device@6 {
 					net_boost,label="IPC";
-					net_boost,node=" rmnet0 rmnet1 rmnet2 rmnet3 rmnet4 rmnet5 rmnet6 rmnet7 umts_dm0";
+					net_boost,node="rmnet0 rmnet1 rmnet2 rmnet3 rmnet4 rmnet5 rmnet6 rmnet7 umts_dm0";
 					net_boost,table {
 						level_0 {
 							threshold = <100>;
@@ -493,85 +595,44 @@
 						};
 						level_2 {
 							threshold = <200>;
-							mid_min = <1352000>;
 							lit_min = <1742000>;
-							mif = <1794000>;
+							mif = <1716000>;
 						};
 						level_3 {
 							threshold = <250>;
-							mid_min = <1898000>;
 							lit_min = <1742000>;
-							mif = <2093000>;
+							mif = <1716000>;
 						};
+						/* uses middle */
 						level_4 {
-							threshold = <700>;
+							threshold = <300>;
 							mid_min = <1898000>;
 							lit_min = <1742000>;
-							mif = <2093000>;
+							mif = <2028000>;
 						};
 						level_5 {
-							threshold = <800>;
-							mid_min = <1898000>;
-							lit_min = <1742000>;
-							mif = <2093000>;
-						};
-						level_6 {
-							threshold = <1500>;
-							mid_min = <1898000>;
-							lit_min = <1742000>;
-							mif = <2093000>;
-						};
-						level_7 {
-							threshold = <1600>;
-							mid_min = <1898000>;
-							lit_min = <1742000>;
-							mif = <2093000>;
-						};
-					};
-				};
-				boot_device@5 {
-					net_boost,label="CLAT";
-					net_boost,node="clat clat4 v4-rmnet0 v4-rmnet1 v4-rmnet2 v4-rmnet3 v4-rmnet4 v4-rmnet5 v4-rmnet6 v4-rmnet7";
-					net_boost,table {
-						level_0 {
-							threshold = <100>;
-							big_min = <1040000>;
-							mif = <1014000>;
-						};
-						level_1 {
-							threshold = <150>;
-							big_min = <1248000>;
-							mif = <1352000>;
-						};
-						level_2 {
-							threshold = <200>;
-							big_min = <1456000>;
-							mif = <2093000>;
-						};
-						level_3 {
-							threshold = <250>;
-							big_min = <1456000>;
-							mif = <2093000>;
-						};
-						level_4 {
 							threshold = <700>;
-							big_min = <1456000>;
-							mif = <2093000>;
-						};
-						level_5 {
-							threshold = <800>;
-							big_min = <1456000>;
-							mif = <2093000>;
+							mid_min = <2106000>;
+							lit_min = <1846000>;
+							mif = <2535000>;
 						};
 						level_6 {
-							threshold = <1500>;
-							big_min = <1456000>;
-							mif = <2093000>;
+							threshold = <800>;
+							mid_min = <2106000>;
+							lit_min = <1846000>;
+							mif = <2535000>;
 						};
 						level_7 {
+							threshold = <1500>;
+							mid_min = <2314000>;
+							lit_min = <1950000>;
+							mif = <2730000>;
+						};
+						level_8 {
 							threshold = <1600>;
-							big_min = <1456000>;
-							mif = <2093000>;
+							mid_min = <2314000>;
+							lit_min = <1950000>;
+							mif = <2730000>;
 						};
 					};
 				};
@@ -586,6 +647,7 @@
 };
 
 &serial_1 {
+	samsung,rts-trig-level = <1>;
 	samsung,uart-logging;
 	samsung,uart-panic-log;
 	status = "okay";

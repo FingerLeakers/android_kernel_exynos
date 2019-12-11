@@ -180,7 +180,7 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 
 		if (hw_format == DMA_INPUT_FORMAT_BAYER_PACKED
 			&& flag_pixel_size == CAMERA_PIXEL_SIZE_13BIT) {
-			msinfo("in_crop[bitwidth: %d -> %d: 13 bit BAYER]\n", device, leader,
+			msdbgs(3, "in_crop[bitwidth: %d -> %d: 13 bit BAYER]\n", device, leader,
 				hw_bitwidth, DMA_INPUT_BIT_WIDTH_13BIT);
 			hw_msb = MSB_OF_3AA_DMA_OUT + 1;
 			hw_bitwidth = DMA_INPUT_BIT_WIDTH_13BIT;
@@ -189,12 +189,12 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 			hw_msb = hw_bitwidth;
 
 			hw_bitwidth = DMA_INPUT_BIT_WIDTH_16BIT;
-			msinfo("in_crop[unpack bitwidth: %d, msb: %d]\n", device, leader,
+			msdbgs(3, "in_crop[unpack bitwidth: %d, msb: %d]\n", device, leader,
 				hw_bitwidth, hw_msb);
 		}
 
 		if (hw_format == DMA_INPUT_FORMAT_BAYER_PACKED && flag_extra == COMP) {
-			msinfo("in_crop[fmt: %d ->%d: BAYER_COMP]\n", device, leader,
+			msdbgs(3, "in_crop[fmt: %d ->%d: BAYER_COMP]\n", device, leader,
 				hw_format, DMA_INPUT_FORMAT_BAYER_COMP);
 			hw_format = DMA_INPUT_FORMAT_BAYER_COMP;
 		}
@@ -297,8 +297,6 @@ static int is_ischain_isp_cfg(struct is_subdev *leader,
 	*lindex |= LOWBIT_OF(PARAM_ISP_STRIPE_INPUT);
 	*hindex |= HIGHBIT_OF(PARAM_ISP_STRIPE_INPUT);
 	(*indexes)++;
-
-	leader->input.crop = *incrop;
 
 p_err:
 	return ret;
@@ -423,8 +421,12 @@ static int is_ischain_isp_tag(struct is_subdev *subdev,
 			goto p_err;
 		}
 
-		msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
+		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			debug_stream) {
+			msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
 				incrop->x, incrop->y, incrop->w, incrop->h);
+			subdev->input.crop = *incrop;
+		}
 	}
 
 	ret = is_itf_s_param(device, frame, lindex, hindex, indexes);

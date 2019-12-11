@@ -438,12 +438,21 @@ static SOC_VALUE_ENUM_SINGLE_DECL(cs35l41_pcm_source_enum,
 static const struct snd_kcontrol_new pcm_source_mux =
 	SOC_DAPM_ENUM("PCM Source", cs35l41_pcm_source_enum);
 
-static const char * const cs35l41_tx_input_texts[] = {"Zero", "ASPRX1", "ASPRX2", "VMON",
-							"IMON", "VPMON", "DSPTX1", "DSPTX2"};
-static const unsigned int cs35l41_tx_input_values[] = {0x00, CS35L41_INPUT_SRC_ASPRX1, CS35L41_INPUT_SRC_ASPRX2,
-							CS35L41_INPUT_SRC_VMON, CS35L41_INPUT_SRC_IMON,
-							CS35L41_INPUT_SRC_VPMON, CS35L41_INPUT_DSP_TX1,
-							CS35L41_INPUT_DSP_TX2};
+static const char * const cs35l41_tx_input_texts[] = {"Zero", "ASPRX1",
+							"ASPRX2", "VMON",
+							"IMON", "VPMON",
+							"VBSTMON",
+							"DSPTX1", "DSPTX2"};
+static const unsigned int cs35l41_tx_input_values[] = {0x00,
+						CS35L41_INPUT_SRC_ASPRX1,
+						CS35L41_INPUT_SRC_ASPRX2,
+						CS35L41_INPUT_SRC_VMON,
+						CS35L41_INPUT_SRC_IMON,
+						CS35L41_INPUT_SRC_VPMON,
+						CS35L41_INPUT_SRC_VBSTMON,
+						CS35L41_INPUT_DSP_TX1,
+						CS35L41_INPUT_DSP_TX2};
+
 static SOC_VALUE_ENUM_SINGLE_DECL(cs35l41_asptx1_enum,
 				CS35L41_ASP_TX1_SRC,
 				0, CS35L41_ASP_SOURCE_MASK,
@@ -1090,6 +1099,7 @@ static const struct snd_soc_dapm_route cs35l41_audio_map[] = {
 	{"ASP TX1 Source", "VMON", "VMON ADC"},
 	{"ASP TX1 Source", "IMON", "IMON ADC"},
 	{"ASP TX1 Source", "VPMON", "VPMON ADC"},
+	{"ASP TX1 Source", "VBSTMON", "VBSTMON ADC"},
 	{"ASP TX1 Source", "DSPTX1", "ASPRX1"},
 	{"ASP TX1 Source", "DSPTX2", "ASPRX1"},
 	{"ASP TX1 Source", "ASPRX1", "ASPRX1" },
@@ -1097,6 +1107,7 @@ static const struct snd_soc_dapm_route cs35l41_audio_map[] = {
 	{"ASP TX2 Source", "VMON", "VMON ADC"},
 	{"ASP TX2 Source", "IMON", "IMON ADC"},
 	{"ASP TX2 Source", "IMON", "VPMON ADC"},
+	{"ASP TX2 Source", "VBSTMON", "VBSTMON ADC"},
 	{"ASP TX2 Source", "DSPTX1", "ASPRX1"},
 	{"ASP TX2 Source", "DSPTX2", "ASPRX1"},
 	{"ASP TX2 Source", "ASPRX1", "ASPRX1" },
@@ -1104,6 +1115,7 @@ static const struct snd_soc_dapm_route cs35l41_audio_map[] = {
 	{"ASP TX3 Source", "VMON", "VMON ADC"},
 	{"ASP TX3 Source", "IMON", "IMON ADC"},
 	{"ASP TX3 Source", "VPMON", "VPMON ADC"},
+	{"ASP TX3 Source", "VBSTMON", "VBSTMON ADC"},
 	{"ASP TX3 Source", "DSPTX1", "ASPRX1"},
 	{"ASP TX3 Source", "DSPTX2", "ASPRX1"},
 	{"ASP TX3 Source", "ASPRX1", "ASPRX1" },
@@ -1111,6 +1123,7 @@ static const struct snd_soc_dapm_route cs35l41_audio_map[] = {
 	{"ASP TX4 Source", "VMON", "VMON ADC"},
 	{"ASP TX4 Source", "IMON", "IMON ADC"},
 	{"ASP TX4 Source", "VPMON", "VPMON ADC"},
+	{"ASP TX4 Source", "VBSTMON", "VBSTMON ADC"},
 	{"ASP TX4 Source", "DSPTX1", "ASPRX1"},
 	{"ASP TX4 Source", "DSPTX2", "ASPRX1"},
 	{"ASP TX4 Source", "ASPRX1", "ASPRX1" },
@@ -2141,7 +2154,7 @@ static int cs35l41_init(struct cs35l41_private *cs35l41)
 			CS35L41_INT1_MASK_DEFAULT);
 
 	regmap_write(cs35l41->regmap, CS35L41_DSP1_RX5_SRC, CS35L41_INPUT_SRC_VPMON);
-	regmap_write(cs35l41->regmap, CS35L41_DSP1_RX6_SRC, CS35L41_INPUT_SRC_CLASSH);
+	regmap_write(cs35l41->regmap, CS35L41_DSP1_RX6_SRC, CS35L41_INPUT_SRC_VBSTMON);
 	regmap_write(cs35l41->regmap, CS35L41_DSP1_RX7_SRC, CS35L41_INPUT_SRC_TEMPMON);
 	regmap_write(cs35l41->regmap, CS35L41_DSP1_RX8_SRC, CS35L41_INPUT_SRC_RSVD);
 
@@ -2267,6 +2280,11 @@ int cs35l41_reinit(struct snd_soc_component *component)
 	mutex_unlock(&cs35l41->dsp.pwr_lock);
 
 	usleep_range(2000, 2100);
+
+	/* Sync essential mixer-defined registers */
+	regcache_mark_dirty(cs35l41->regmap);
+	regcache_sync_region(cs35l41->regmap, CS35L41_SP_FRAME_RX_SLOT,
+						CS35L41_SP_FRAME_RX_SLOT);
 
 	regcache_drop_region(cs35l41->regmap, CS35L41_FIRSTREG,
 					CS35L41_LASTREG);

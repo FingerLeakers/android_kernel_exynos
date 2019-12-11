@@ -425,6 +425,8 @@ void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 {
 	unsigned long flags;
 
+	g2d_put_reset_task(g2d_dev, task);
+
 	task->taskqos.rbw = task->taskqos.wbw = 0;
 	task->taskqos.devfreq = 0;
 
@@ -447,6 +449,43 @@ void g2d_put_free_task(struct g2d_device *g2d_dev, struct g2d_task *task)
 	spin_unlock_irqrestore(&g2d_dev->lock_task, flags);
 
 	wake_up(&g2d_dev->queued_wait);
+}
+
+/*
+ * The reset task is dependent on the parent task.
+ * That is not linked to device task list, only to the parent task.
+ * The task is excluded from buffer, power, interrupt, timer management
+ * because it is dependent on the life cycle of parent.
+ * That is put together when the parent is put.
+ */
+int g2d_get_reset_task(struct g2d_device *g2d_dev, struct g2d_context *g2d_ctx,
+		       struct g2d_task *task)
+{
+	u32 colormode = task->target.commands[G2DSFR_IMG_COLORMODE].value;
+
+	/*
+	 * It need to push S/W reset task before SBWC encoding.
+	 * If not, SBWC encoding might be stuck.
+	 */
+	if (!IS_SBWC(colormode))
+		return 0;
+
+	task->rst = g2d_get_free_task(task->g2d_dev, g2d_ctx, 0);
+	if (!task->rst)
+		return -EBUSY;
+
+	task->rst->flags = 0;
+	g2d_init_rst_commands(task->rst);
+
+	return 0;
+}
+
+void g2d_put_reset_task(struct g2d_device *g2d_dev, struct g2d_task *task)
+{
+	if (task->rst)
+		g2d_put_free_task(g2d_dev, task->rst);
+
+	task->rst = NULL;
 }
 
 void g2d_destroy_tasks(struct g2d_device *g2d_dev)

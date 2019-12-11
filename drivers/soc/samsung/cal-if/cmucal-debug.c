@@ -19,6 +19,14 @@ static unsigned int debug_freq;
 
 extern unsigned int dbg_offset;
 static unsigned int cmu_top_base = 0x0;
+static unsigned int cmu_cpucl0_base = 0x0;
+void __iomem *cmu_cpucl0;
+static unsigned int cmu_g3d_base = 0x0;
+void __iomem *cmu_g3d;
+static unsigned int hpm_big_base = 0x0;
+void __iomem *hpm_big;
+static unsigned int cmu_cpucl2_base = 0x0;
+void __iomem *cmu_cpucl2;
 
 /*
 blk_hwacg_feature : It will print all the gate clocks of the specified block.
@@ -327,6 +335,146 @@ vclk_write_set_freq(struct file *filp, const char __user *ubuf,
 	return len;
 }
 
+static ssize_t
+cpucl0_stepup_run_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (cmu_cpucl0) {
+		unsigned int reg = __raw_readl(cmu_cpucl0);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+g3d_stepup_run_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (cmu_g3d) {
+		unsigned int reg = __raw_readl(cmu_g3d);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+hpm_big_droop_err_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (hpm_big) {
+		unsigned int reg = __raw_readl(hpm_big + 0x84);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+ccmu_main_con_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (cmu_cpucl2) {
+		unsigned int reg = __raw_readl(cmu_cpucl2 + 0x4);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+ccmu_ddctl_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (cmu_cpucl2) {
+		unsigned int reg = __raw_readl(cmu_cpucl2 + 0x84);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+ccmu_ddctl_write(struct file *filp, const char __user *ubuf,
+		   size_t cnt, loff_t *ppos)
+{
+	char buf[16];
+	ssize_t len;
+	u32 reg;
+
+	len = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, ubuf, cnt);
+	if (len < 0)
+		return len;
+
+	buf[len] = '\0';
+	if (!kstrtoint(buf, 0, &reg))
+		__raw_writel(reg, cmu_cpucl2 + 0x84);
+
+	return len;
+}
+
+static ssize_t
+ccmu_ddcdlctl_read(struct file *filp, char __user *ubuf,
+		       size_t cnt, loff_t *ppos)
+{
+	char buf[512];
+	int r;
+
+	if (cmu_cpucl2) {
+		unsigned int reg = __raw_readl(cmu_cpucl2 + 0x88);
+		r = sprintf(buf, "0x%x\n", reg);
+	} else {
+		r = sprintf(buf, "empty base\n");
+	}
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+ccmu_ddcdlctl_write(struct file *filp, const char __user *ubuf,
+		   size_t cnt, loff_t *ppos)
+{
+	char buf[16];
+	ssize_t len;
+	u32 reg;
+
+	len = simple_write_to_buffer(buf, sizeof(buf) - 1, ppos, ubuf, cnt);
+	if (len < 0)
+		return len;
+
+	buf[len] = '\0';
+	if (!kstrtoint(buf, 0, &reg))
+		__raw_writel(reg, cmu_cpucl2 + 0x88);
+
+	return len;
+}
+
 static const struct file_operations clk_info_fops = {
 	.open		= vclk_clk_info_open,
 	.read		= vclk_read_clk_info,
@@ -353,6 +501,44 @@ static const struct file_operations set_freq_fops = {
 	.open		= simple_open,
 	.read		= vclk_read_set_freq,
 	.write		= vclk_write_set_freq,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations cpucl0_stepup_run_fops = {
+	.open		= simple_open,
+	.read		= cpucl0_stepup_run_read,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations g3d_stepup_run_fops = {
+	.open		= simple_open,
+	.read		= g3d_stepup_run_read,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations hpm_big_droop_err_fops = {
+	.open		= simple_open,
+	.read		= hpm_big_droop_err_read,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations ccmu_main_con_fops = {
+	.open		= simple_open,
+	.read		= ccmu_main_con_read,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations ccmu_ddctl_fops = {
+	.open		= simple_open,
+	.read		= ccmu_ddctl_read,
+	.write		= ccmu_ddctl_write,
+	.llseek		= seq_lseek,
+};
+
+static const struct file_operations ccmu_ddcdlctl_fops = {
+	.open		= simple_open,
+	.read		= ccmu_ddcdlctl_read,
+	.write		= ccmu_ddcdlctl_write,
 	.llseek		= seq_lseek,
 };
 
@@ -444,6 +630,50 @@ void cmucal_dbg_set_cmu_top_base(u32 base_addr)
 	pr_info("cmu_top_base : 0x%x\n", base_addr);
 }
 EXPORT_SYMBOL_GPL(cmucal_dbg_set_cmu_top_base);
+
+void cmucal_dbg_set_cmu_cpucl0_base(u32 base_addr)
+{
+	cmu_cpucl0_base = base_addr;
+	pr_info("cmu_cpucl0_base : 0x%x\n", base_addr);
+
+	cmu_cpucl0 = ioremap(cmu_cpucl0_base, SZ_4K);
+	if (!cmu_cpucl0)
+		pr_err("%s: cmu_cpucl0 ioremap failed\n", __func__);
+}
+EXPORT_SYMBOL_GPL(cmucal_dbg_set_cmu_cpucl0_base);
+
+void cmucal_dbg_set_cmu_g3d_base(u32 base_addr)
+{
+	cmu_g3d_base = base_addr;
+	pr_info("cmu_g3d_base : 0x%x\n", base_addr);
+
+	cmu_g3d = ioremap(cmu_g3d_base, SZ_4K);
+	if (!cmu_g3d)
+		pr_err("%s: cmu_g3d ioremap failed\n", __func__);
+}
+EXPORT_SYMBOL_GPL(cmucal_dbg_set_cmu_g3d_base);
+
+void cmucal_dbg_set_hpm_big_base(u32 base_addr)
+{
+	hpm_big_base = base_addr;
+	pr_info("hpm_big_base : 0x%x\n", base_addr);
+
+	hpm_big = ioremap(hpm_big_base, SZ_4K);
+	if (!hpm_big)
+		pr_err("%s: hpm_big ioremap failed\n", __func__);
+}
+EXPORT_SYMBOL_GPL(cmucal_dbg_set_hpm_big_base);
+
+void cmucal_dbg_set_cmu_cpucl2_base(u32 base_addr)
+{
+	cmu_cpucl2_base = base_addr;
+	pr_info("cmu_cpucl2_base : 0x%x\n", base_addr);
+
+	cmu_cpucl2 = ioremap(cmu_cpucl2_base, SZ_4K);
+	if (!cmu_cpucl2)
+		pr_err("%s: cmu_cpucl2 ioremap failed\n", __func__);
+}
+EXPORT_SYMBOL_GPL(cmucal_dbg_set_cmu_cpucl2_base);
 /**
  * vclk_debug_init - lazily create the debugfs clk tree visualization
  */
@@ -489,6 +719,36 @@ static int __init vclk_debug_init(void)
 
 	d = debugfs_create_file("set_freq", 0600, rootdir, NULL,
 				&set_freq_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("cpucl0_stepup_run", 0400, rootdir, NULL,
+					&cpucl0_stepup_run_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("g3d_stepup_run", 0400, rootdir, NULL,
+					&g3d_stepup_run_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("hpm_big_droop_err", 0400, rootdir, NULL,
+					&hpm_big_droop_err_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("ccmu_main_con", 0400, rootdir, NULL,
+					&ccmu_main_con_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("ccmu_ddctl", 0600, rootdir, NULL,
+					&ccmu_ddctl_fops);
+	if (!d)
+		return -ENOMEM;
+
+	d = debugfs_create_file("ccmu_ddcdlctl", 0600, rootdir, NULL,
+					&ccmu_ddcdlctl_fops);
 	if (!d)
 		return -ENOMEM;
 

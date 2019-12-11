@@ -627,8 +627,10 @@ EXPORT_SYMBOL(mmc_is_req_done);
 void mmc_wait_for_req(struct mmc_host *host, struct mmc_request *mrq)
 {
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
-	if (mmc_bus_needs_resume(host))
+	if (mmc_bus_needs_resume(host)) {
+		host->bus_resume_flags |= MMC_BUSRESUME_ENTER_CMD;
 		mmc_resume_bus(host);
+	}
 #endif
 	__mmc_start_req(host, mrq);
 
@@ -888,6 +890,7 @@ int __mmc_try_claim_host(struct mmc_host *host, struct mmc_ctx *ctx,
 	int claimed_host = 0;
 	unsigned long flags;
 	int retry_cnt = delay_ms/10;
+	bool pm = false;
 
 	do {
 		spin_lock_irqsave(&host->lock, flags);
@@ -896,16 +899,20 @@ int __mmc_try_claim_host(struct mmc_host *host, struct mmc_ctx *ctx,
 			mmc_ctx_set_claimer(host, ctx, task);
 			host->claim_cnt += 1;
 			claimed_host = 1;
+			if (host->claim_cnt == 1)
+				pm = true;
 		}
 		spin_unlock_irqrestore(&host->lock, flags);
 		if (!claimed_host)
 			mmc_delay(10);
 	} while (!claimed_host && retry_cnt--);
-	if (host->ops->enable && claimed_host && host->claim_cnt == 1)
-		host->ops->enable(host);
+
+	if (pm)
+		pm_runtime_get_sync(mmc_dev(host));
+
 	return claimed_host;
 }
-EXPORT_SYMBOL(mmc_try_claim_host);
+EXPORT_SYMBOL(__mmc_try_claim_host);
 
 /**
  *	mmc_release_host - release a host
@@ -1814,6 +1821,8 @@ int mmc_resume_bus(struct mmc_host *host)
 
 	mmc_bus_put(host);
 	spin_lock_irqsave(&host->lock, flags);
+	host->bus_resume_flags &=
+		~(MMC_BUSRESUME_ENTER_IO | MMC_BUSRESUME_ENTER_CMD);
 	spin_unlock_irqrestore(&host->lock, flags);
 	wake_unlock(&host->detect_wake_lock);
 	pr_info("%s: Deferred resume completed, err : %d\n", mmc_hostname(host), err);

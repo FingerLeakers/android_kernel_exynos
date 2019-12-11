@@ -255,7 +255,7 @@ enum {
 	BATT_FACTORY_MODE,
 #endif
 	BOOT_COMPLETED,
-	MUST_REMOVE_THIS_NODE,
+	PD_DISABLE,
 };
 
 enum {

@@ -401,6 +401,7 @@ int dsp_dl_out_alloc(struct dsp_lib *lib, int *pm_inv)
 	if (alloc_ret == -1) {
 		dsp_dl_free(lib->dl_out);
 		lib->dl_out = NULL;
+		lib->dl_out_mem = NULL;
 		return -1;
 	}
 

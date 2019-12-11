@@ -343,6 +343,7 @@ void npu_scheduler_gate(
 		return;
 	}
 
+	npu_trace("try to gate %s for UID %d\n", idle ? "on" : "off", frame->uid);
 	if (idle) {
 		if (tl->bound_id == NPU_BOUND_UNBOUND) {
 			info->used_count--;

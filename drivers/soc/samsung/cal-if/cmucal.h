@@ -616,8 +616,28 @@ extern int (*cal_check_hiu_dvfs_id)(u32 id);
 extern void (*cal_set_cmu_smpl_warn)(void);
 #ifdef CONFIG_CMUCAL_DEBUG
 extern void cmucal_dbg_set_cmu_top_base(u32 base_addr);
+extern void cmucal_dbg_set_cmu_cpucl0_base(u32 base_addr);
+extern void cmucal_dbg_set_cmu_g3d_base(u32 base_addr);
+extern void cmucal_dbg_set_hpm_big_base(u32 base_addr);
+extern void cmucal_dbg_set_cmu_cpucl2_base(u32 base_addr);
 #else
 static inline void cmucal_dbg_set_cmu_top_base(u32 base_addr)
+{
+	return ;
+}
+static inline void cmucal_dbg_set_cmu_cpucl0_base(u32 base_addr)
+{
+	return ;
+}
+static inline void cmucal_dbg_set_cmu_g3d_base(u32 base_addr)
+{
+	return ;
+}
+static inline void cmucal_dbg_set_hpm_big_base(u32 base_addr)
+{
+	return ;
+}
+static inline void cmucal_dbg_set_cmu_cpucl2_base(u32 base_addr)
 {
 	return ;
 }

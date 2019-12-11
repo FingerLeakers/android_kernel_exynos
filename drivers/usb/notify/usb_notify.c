@@ -912,6 +912,53 @@ err:
 }
 EXPORT_SYMBOL(send_usb_mdm_uevent);
 
+void send_usb_certi_uevent(int usb_certi)
+{
+	struct otg_notify *o_notify = get_otg_notify();
+	char *envp[4];
+	char *type = {"TYPE=usbcerti"};
+	char *state = {"STATE=ADD"};
+	char *words;
+	int index = 0;
+
+	envp[index++] = type;
+	envp[index++] = state;
+
+	switch (usb_certi) {
+	case USB_CERTI_UNSUPPORT_ACCESSORY:
+		words = "WORDS=unsupport_accessory";
+		break;
+	case USB_CERTI_NO_RESPONSE:
+		words = "WORDS=no_response";
+		break;
+	case USB_CERTI_HUB_DEPTH_EXCEED:
+		words = "WORDS=hub_depth_exceed";
+		break;
+	case USB_CERTI_HUB_POWER_EXCEED:
+		words = "WORDS=hub_power_exceed";
+		break;
+	case USB_CERTI_HOST_RESOURCE_EXCEED:
+		words = "WORDS=host_resource_exceed";
+		break;
+	default:
+		pr_err("%s invalid input\n", __func__);
+		goto err;
+	}
+
+	envp[index++] = words;
+
+	envp[index++] = NULL;
+
+	if (send_usb_notify_uevent(o_notify, envp)) {
+		pr_err("%s error\n", __func__);
+		goto err;
+	}
+	pr_info("%s: %s\n", __func__, words);
+err:
+	return;
+}
+EXPORT_SYMBOL(send_usb_certi_uevent);
+
 int get_class_index(int ch9_class_num)
 {
 	int internal_class_index;
@@ -1036,6 +1083,7 @@ int usb_check_whitelist_for_mdm(struct usb_device *dev)
 	}
 	return 1;
 }
+EXPORT_SYMBOL(usb_check_whitelist_for_mdm);
 
 int usb_otg_restart_accessory(struct usb_device *dev)
 {
@@ -1052,6 +1100,7 @@ int usb_otg_restart_accessory(struct usb_device *dev)
 	send_otg_notify(o_notify, NOTIFY_EVENT_VBUS_RESET, 0);
 	return res;
 }
+EXPORT_SYMBOL(usb_otg_restart_accessory);
 
 void set_notify_mdm(struct usb_notify_dev *udev, int disable)
 {

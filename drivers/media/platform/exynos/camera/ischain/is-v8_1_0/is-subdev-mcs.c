@@ -309,8 +309,12 @@ static int is_ischain_mcs_tag(struct is_subdev *subdev,
 			goto p_err;
 		}
 
-		msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
-			incrop->x, incrop->y, incrop->w, incrop->h);
+		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			debug_stream) {
+			msrinfo("in_crop[%d, %d, %d, %d]\n", device, subdev, frame,
+				incrop->x, incrop->y, incrop->w, incrop->h);
+			subdev->input.crop = *incrop;
+		}
 	}
 
 	ret = is_itf_s_param(device, frame, lindex, hindex, indexes);

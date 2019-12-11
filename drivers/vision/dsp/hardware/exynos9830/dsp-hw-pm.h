@@ -10,6 +10,7 @@
 #define __DSP_HW_PM_H__
 
 #include <linux/mutex.h>
+#include <linux/pm_qos.h>
 
 struct dsp_pm_devfreq;
 struct dsp_system;
@@ -17,13 +18,16 @@ struct dsp_system;
 enum dsp_devfreq_id {
 	DSP_DEVFREQ_DNC,
 	DSP_DEVFREQ_DSP,
-	DSP_DEVFREQ_MIF,
 	DSP_DEVFREQ_COUNT,
 };
 
 struct dsp_pm {
 	struct mutex		lock;
 	struct dsp_pm_devfreq	*devfreq;
+	bool			dvfs;
+	unsigned int		dvfs_disable_count;
+	bool			dvfs_lock;
+	struct pm_qos_request	mif;
 
 	struct dsp_system	*sys;
 };

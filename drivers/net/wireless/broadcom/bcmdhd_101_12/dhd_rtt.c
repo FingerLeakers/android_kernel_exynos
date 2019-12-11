@@ -667,20 +667,18 @@ exit:
 }
 
 static wl_proxd_iov_t *
-rtt_alloc_getset_buf(wl_proxd_method_t method, wl_proxd_session_id_t session_id,
+rtt_alloc_getset_buf(dhd_pub_t *dhd, wl_proxd_method_t method, wl_proxd_session_id_t session_id,
 	wl_proxd_cmd_t cmdid, uint16 tlvs_bufsize, uint16 *p_out_bufsize)
 {
 	uint16 proxd_iovsize;
-	uint32 kflags;
 	wl_proxd_tlv_t *p_tlv;
 	wl_proxd_iov_t *p_proxd_iov = (wl_proxd_iov_t *) NULL;
 
 	*p_out_bufsize = 0;	/* init */
-	kflags = in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
 	/* calculate the whole buffer size, including one reserve-tlv entry in the header */
 	proxd_iovsize = sizeof(wl_proxd_iov_t) + tlvs_bufsize;
 
-	p_proxd_iov = kzalloc(proxd_iovsize, kflags);
+	p_proxd_iov = (wl_proxd_iov_t *)MALLOCZ(dhd->osh, proxd_iovsize);
 	if (p_proxd_iov == NULL) {
 		DHD_RTT_ERR(("error: failed to allocate %d bytes of memory\n", proxd_iovsize));
 		return NULL;
@@ -717,7 +715,7 @@ dhd_rtt_common_get_handler(dhd_pub_t *dhd, ftm_subcmd_info_t *p_subcmd_info,
 		ftm_cmdid_to_str(p_subcmd_info->cmdid)));
 #endif
 	/* alloc mem for ioctl headr + reserved 0 bufsize for tlvs (initialize to zero) */
-	p_proxd_iov = rtt_alloc_getset_buf(method, session_id, p_subcmd_info->cmdid,
+	p_proxd_iov = rtt_alloc_getset_buf(dhd, method, session_id, p_subcmd_info->cmdid,
 		0, &proxd_iovsize);
 
 	if (p_proxd_iov == NULL)
@@ -728,7 +726,7 @@ dhd_rtt_common_get_handler(dhd_pub_t *dhd, ftm_subcmd_info_t *p_subcmd_info,
 	if (status != BCME_OK) {
 		DHD_RTT(("%s failed: status=%d\n", __FUNCTION__, status));
 	}
-	kfree(p_proxd_iov);
+	MFREE(dhd->osh, p_proxd_iov, proxd_iovsize);
 	return status;
 }
 
@@ -764,8 +762,8 @@ dhd_rtt_common_set_handler(dhd_pub_t *dhd, const ftm_subcmd_info_t *p_subcmd_inf
 
 	/* allocate and initialize a temp buffer for 'set proxd' iovar */
 	proxd_iovsize = 0;
-	p_proxd_iov = rtt_alloc_getset_buf(method, session_id, p_subcmd_info->cmdid,
-							0, &proxd_iovsize);		/* no TLV */
+	p_proxd_iov = rtt_alloc_getset_buf(dhd, method, session_id, p_subcmd_info->cmdid,
+			0, &proxd_iovsize);		/* no TLV */
 	if (p_proxd_iov == NULL)
 		return BCME_NOMEM;
 
@@ -777,7 +775,7 @@ dhd_rtt_common_set_handler(dhd_pub_t *dhd, const ftm_subcmd_info_t *p_subcmd_inf
 	}
 #endif
 	/* clean up */
-	kfree(p_proxd_iov);
+	MFREE(dhd->osh, p_proxd_iov, proxd_iovsize);
 
 	return ret;
 }
@@ -1322,7 +1320,7 @@ dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 	subcmd_info.name = "config";
 	subcmd_info.cmdid = WL_PROXD_CMD_CONFIG;
 
-	p_proxd_iov = rtt_alloc_getset_buf(WL_PROXD_METHOD_FTM, session_id, subcmd_info.cmdid,
+	p_proxd_iov = rtt_alloc_getset_buf(dhd, WL_PROXD_METHOD_FTM, session_id, subcmd_info.cmdid,
 			FTM_IOC_BUFSZ, &proxd_iovsize);
 
 	if (p_proxd_iov == NULL) {
@@ -1353,7 +1351,7 @@ dhd_rtt_ftm_config(dhd_pub_t *dhd, wl_proxd_session_id_t session_id,
 		}
 	}
 	/* clean up */
-	kfree(p_proxd_iov);
+	MFREE(dhd->osh, p_proxd_iov, proxd_iovsize);
 	return ret;
 }
 
@@ -2082,9 +2080,10 @@ dhd_rtt_stop(dhd_pub_t *dhd, struct ether_addr *mac_list, int mac_cnt)
 				list_for_each_entry_safe(rtt_result, next2,
 					&entry->result_list, list) {
 					list_del(&rtt_result->list);
-					kfree(rtt_result);
+					MFREE(dhd->osh, rtt_result,
+						sizeof(rtt_result_t));
 				}
-				kfree(entry);
+				MFREE(dhd->osh, entry, sizeof(rtt_results_header_t));
 			}
 			GCC_DIAGNOSTIC_POP();
 		}
@@ -2670,7 +2669,7 @@ dhd_rtt_register_noti_callback(dhd_pub_t *dhd, void *ctx, dhd_rtt_compl_noti_fn 
 			goto exit;
 		}
 	}
-	cb = kmalloc(sizeof(struct rtt_noti_callback), GFP_ATOMIC);
+	cb = (struct rtt_noti_callback *)MALLOCZ(dhd->osh, sizeof(struct rtt_noti_callback));
 	if (!cb) {
 		err = -ENOMEM;
 		goto exit;
@@ -2706,7 +2705,7 @@ dhd_rtt_unregister_noti_callback(dhd_pub_t *dhd, dhd_rtt_compl_noti_fn noti_fn)
 
 	spin_unlock_bh(&noti_list_lock);
 	if (cb) {
-		kfree(cb);
+		MFREE(dhd->osh, cb, sizeof(struct rtt_noti_callback));
 	}
 	return err;
 }
@@ -3280,9 +3279,10 @@ dhd_rtt_handle_rtt_session_end(dhd_pub_t *dhd)
 				list_for_each_entry_safe(rtt_result, next2,
 					&entry->result_list, list) {
 					list_del(&rtt_result->list);
-					kfree(rtt_result);
+					MFREE(dhd->osh, rtt_result,
+						sizeof(rtt_result_t));
 				}
-				kfree(entry);
+				MFREE(dhd->osh, entry, sizeof(rtt_results_header_t));
 			}
 		}
 		GCC_DIAGNOSTIC_POP();
@@ -3327,7 +3327,8 @@ dhd_rtt_create_failure_result(rtt_status_info_t *rtt_status,
 		sizeof(rtt_result_t));
 	if (!rtt_result) {
 		ret = -ENOMEM;
-		kfree(rtt_results_header);
+		/* Free rtt result header */
+		MFREE(rtt_status->dhd->osh, rtt_results_header, sizeof(rtt_results_header_t));
 		goto exit;
 	}
 	/* fill out the results from the configuration param */
@@ -3484,8 +3485,8 @@ exit:
 			" ret = %d, err_at = %d\n", ret, err_at));
 		if (rtt_results_header) {
 			list_del(&rtt_results_header->list);
-			kfree(rtt_results_header);
-			rtt_results_header = NULL;
+			MFREE(dhd->osh, rtt_results_header,
+				sizeof(rtt_results_header_t));
 		}
 	}
 #endif /* WL_CFG80211 */
@@ -3609,8 +3610,8 @@ exit:
 			"retry cnt %d burst status %d", ret, geofence_rtt,
 			ftm_retry_cnt, burst_status));
 		if (rtt_result && !geofence_rtt) {
-			kfree(rtt_result);
-			rtt_result = NULL;
+			MFREE(dhd->osh, rtt_result,
+				sizeof(rtt_result_t));
 		}
 	}
 	NAN_MUTEX_UNLOCK();
@@ -3749,8 +3750,8 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 		ret = dhd_rtt_handle_directed_rtt_burst_end(dhd, &event->addr,
 			p_event, tlvs_len, rtt_result, FALSE);
 		if (rtt_result && (ret != BCME_OK)) {
-			kfree(rtt_result);
-			rtt_result = NULL;
+			MFREE(dhd->osh, rtt_result,
+				sizeof(rtt_result_t));
 			goto exit;
 		}
 		break;
@@ -3816,7 +3817,7 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 			ret = bcm_unpack_xtlv_buf(buffer,
 				(uint8 *)&p_event->tlvs[0], tlvs_len,
 				BCM_XTLV_OPTION_NONE, rtt_unpack_xtlv_cbfn);
-			kfree(buffer);
+			MFREE(dhd->osh, buffer, tlvs_len);
 			if (ret != BCME_OK) {
 				DHD_RTT_ERR(("%s : Failed to unpack xtlv for event %d\n",
 					__FUNCTION__, event_type));
@@ -3836,7 +3837,7 @@ dhd_rtt_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 			ret = bcm_unpack_xtlv_buf(buffer,
 				(uint8 *)&p_event->tlvs[0], tlvs_len,
 				BCM_XTLV_OPTION_NONE, rtt_unpack_xtlv_cbfn);
-			kfree(buffer);
+			MFREE(dhd->osh, buffer, tlvs_len);
 			if (ret != BCME_OK) {
 				DHD_RTT_ERR(("%s : Failed to unpack xtlv for event %d\n",
 					__FUNCTION__, event_type));
@@ -4127,10 +4128,9 @@ dhd_rtt_attach(dhd_pub_t *dhd)
 #endif /* WL_NAN */
 exit:
 	if (err < 0) {
-		kfree(rtt_status->rtt_config.target_info);
-		rtt_status->rtt_config.target_info = NULL;
-		kfree(dhd->rtt_state);
-		dhd->rtt_state = NULL;
+		MFREE(dhd->osh, rtt_status->rtt_config.target_info,
+			TARGET_INFO_SIZE(RTT_MAX_TARGET_CNT));
+		MFREE(dhd->osh, dhd->rtt_state, sizeof(rtt_status_info_t));
 	}
 #endif /* WL_CFG80211 */
 	return err;
@@ -4160,10 +4160,9 @@ dhd_rtt_detach(dhd_pub_t *dhd)
 	}
 
 exit:
-	kfree(rtt_status->rtt_config.target_info);
-	rtt_status->rtt_config.target_info = NULL;
-	kfree(dhd->rtt_state);
-	dhd->rtt_state = NULL;
+	MFREE(dhd->osh, rtt_status->rtt_config.target_info,
+		TARGET_INFO_SIZE(RTT_MAX_TARGET_CNT));
+	MFREE(dhd->osh, dhd->rtt_state, sizeof(rtt_status_info_t));
 
 #endif /* WL_CFG80211 */
 
@@ -4245,7 +4244,7 @@ dhd_rtt_deinit(dhd_pub_t *dhd)
 	if (!list_empty(&rtt_status->noti_fn_list)) {
 		list_for_each_entry_safe(iter, iter2, &rtt_status->noti_fn_list, list) {
 			list_del(&iter->list);
-			kfree(iter);
+			MFREE(dhd->osh, iter, sizeof(struct rtt_noti_callback));
 		}
 	}
 	/* remove the rtt results */
@@ -4255,9 +4254,9 @@ dhd_rtt_deinit(dhd_pub_t *dhd)
 			list_for_each_entry_safe(rtt_result, next2,
 					&rtt_header->result_list, list) {
 				list_del(&rtt_result->list);
-				kfree(rtt_result);
+				MFREE(dhd->osh, rtt_result, sizeof(rtt_result_t));
 			}
-			kfree(rtt_header);
+			MFREE(dhd->osh, rtt_header, sizeof(rtt_results_header_t));
 		}
 	}
 	GCC_DIAGNOSTIC_POP();

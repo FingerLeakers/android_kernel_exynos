@@ -413,7 +413,7 @@ sssr_support_onoff(struct dhd_info *dev, const char *buf, size_t count)
 		return -EINVAL;
 	}
 
-	support_sssr_dump = onoff;
+	support_sssr_dump = (uint)onoff;
 
 	return count;
 }
@@ -650,7 +650,7 @@ void dhd_get_memdump_info(dhd_pub_t *dhd)
 				__FUNCTION__, dhd->memdump_enabled));
 	}
 #endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
-	DHD_ERROR(("%s: MEMDUMP ENABLED = %d\n", __FUNCTION__, dhd->memdump_enabled));
+	DHD_ERROR(("%s: MEMDUMP ENABLED = %u\n", __FUNCTION__, dhd->memdump_enabled));
 }
 
 #ifdef DHD_EXPORT_CNTL_FILE

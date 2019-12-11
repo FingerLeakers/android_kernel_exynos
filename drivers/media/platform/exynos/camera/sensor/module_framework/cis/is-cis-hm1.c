@@ -51,21 +51,10 @@ static const u32 **sensor_hm1_setfiles;
 static const u32 *sensor_hm1_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_hm1_pllinfos;
 static u32 sensor_hm1_max_setfile_num;
-#ifdef CONFIG_SENSOR_RETENTION_USE
-static const u32 *sensor_hm1_global_retention;
-static u32 sensor_hm1_global_retention_size;
-static const u32 **sensor_hm1_retention;
-static const u32 *sensor_hm1_retention_size;
-static u32 sensor_hm1_max_retention_num;
-static const u32 **sensor_hm1_load_sram;
-static const u32 *sensor_hm1_load_sram_size;
-#endif
-
 static int sensor_hm1_ln_mode_delay_count;
 #if 0 //TEMP_2020
 static u8 sensor_hm1_ln_mode_frame_count;
 #endif
-static bool sensor_hm1_load_retention;
 
 /* For Recovery */
 static u32 sensor_hm1_frame_duration_backup;
@@ -195,9 +184,16 @@ static void sensor_hm1_set_integration_max_margin(u32 mode, cis_shared_data *cis
 
 	switch (mode) {
 	case SENSOR_HM1_12000X9000_10FPS:
+	case SENSOR_HM1_7680X4320_24FPS:
+	case SENSOR_HM1_4000X2252_30FPS_CENTER_CROP:
 	case SENSOR_HM1_4000X3000_30FPS:
-	case SENSOR_HM1_1984X1488_30FPS:
+	case SENSOR_HM1_4000X2252_30FPS:
 	case SENSOR_HM1_4000X3000_60FPS:
+	case SENSOR_HM1_4000X2252_60FPS:
+	case SENSOR_HM1_1984X1488_30FPS:
+	case SENSOR_HM1_1920X1080_240FPS:
+	case SENSOR_HM1_1920X1080_120FPS:
+	case SENSOR_HM1_992X744_120FPS:
 	default:
 		err("[%s] Unsupport hm1 sensor mode\n", __func__);
 		cis_data->max_margin_coarse_integration_time = SENSOR_HM1_COARSE_INTEGRATION_TIME_MAX_MARGIN;
@@ -331,9 +327,6 @@ int sensor_hm1_cis_select_setfile(struct v4l2_subdev *subdev)
 	int ret = 0;
 	u16 rev = 0;
 	struct is_cis *cis = NULL;
-	struct is_module_enum *module;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct sensor_open_extended *ext_info;
 
 	WARN_ON(!subdev);
 
@@ -341,40 +334,16 @@ int sensor_hm1_cis_select_setfile(struct v4l2_subdev *subdev)
 	WARN_ON(!cis);
 	WARN_ON(!cis->cis_data);
 
-	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-	module = sensor_peri->module;
-	ext_info = &module->ext;
-	WARN_ON(!ext_info);
-
 	rev = cis->cis_data->cis_rev;
 
+	info("hm1 sensor revision(0x%#x)\n", rev);
 	switch (rev) {
 	default:
-		info("hm1 sensor revision(%#x)\n", rev);
-		sensor_hm1_reset_tnp = sensor_hm1_setfile_A_Reset_TnP;
-		sensor_hm1_reset_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_Reset_TnP);
-		sensor_hm1_global = sensor_hm1_setfile_A_Global;
-		sensor_hm1_global_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global);
-		sensor_hm1_setfiles = sensor_hm1_setfiles_A;
-		sensor_hm1_setfile_sizes = sensor_hm1_setfile_A_sizes;
-		sensor_hm1_pllinfos = sensor_hm1_pllinfos_A;
-		sensor_hm1_max_setfile_num = ARRAY_SIZE(sensor_hm1_setfiles_A);
-#ifdef CONFIG_SENSOR_RETENTION_USE
-		sensor_hm1_global_retention = sensor_hm1_setfile_A_Global_retention;
-		sensor_hm1_global_retention_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global_retention);
-		sensor_hm1_retention = sensor_hm1_setfiles_A_retention;
-		sensor_hm1_retention_size = sensor_hm1_setfile_A_sizes_retention;
-		sensor_hm1_max_retention_num = ARRAY_SIZE(sensor_hm1_setfiles_A_retention);
-		sensor_hm1_load_sram = sensor_hm1_setfile_A_load_sram;
-		sensor_hm1_load_sram_size = sensor_hm1_setfile_A_sizes_load_sram;
-#endif
-		break;
+ 		break;
 	}
 
 	return ret;
 }
-
-int sensor_hm1_cis_set_global_setting_internal(struct v4l2_subdev *subdev);
 
 /* CIS OPS */
 int sensor_hm1_cis_init(struct v4l2_subdev *subdev)
@@ -424,7 +393,6 @@ int sensor_hm1_cis_init(struct v4l2_subdev *subdev)
 	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
 #endif
 
-	sensor_hm1_load_retention = false;
 	sensor_hm1_cis_data_calculation(sensor_hm1_pllinfos[setfile_index], cis->cis_data);
 	sensor_hm1_set_integration_max_margin(setfile_index, cis->cis_data);
 
@@ -458,22 +426,6 @@ p_err:
 	return ret;
 }
 
-int sensor_hm1_cis_deinit(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-
-	if (sensor_hm1_load_retention == false) {
-		pr_info("%s: need to load retention\n", __func__);
-		sensor_hm1_cis_stream_on(subdev);
-		sensor_cis_wait_streamon(subdev);
-		sensor_hm1_cis_stream_off(subdev);
-		sensor_cis_wait_streamoff(subdev);
-		pr_info("%s: complete to load retention\n", __func__);
-	}
-
-	return ret;
-}
-
 int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -481,11 +433,6 @@ int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 	struct i2c_client *client = NULL;
 	u8 data8 = 0;
 	u16 data16 = 0;
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	struct is_module_enum *module;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct sensor_open_extended *ext_info;
-#endif
 
 	WARN_ON(!subdev);
 
@@ -503,15 +450,6 @@ int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-	module = sensor_peri->module;
-	ext_info = &module->ext;
-	FIMC_BUG(!ext_info);
-
-	ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
-#endif
-
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	pr_info("[%s] *******************************\n", __func__);
@@ -524,11 +462,44 @@ int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 	ret = is_sensor_read16(client, 0x0002, &data16);
 	if (unlikely(!ret)) pr_info("revision_number(0x%x)\n", data16);
 	else goto i2c_err;
+	ret = is_sensor_read8(client, 0x0004, &data8);
+	if (unlikely(!ret)) pr_info("0x0004(0x%x)\n", data8);
+	else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0005, &data8);
 	if (unlikely(!ret)) pr_info("frame_count(0x%x)\n", data8);
 	else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0100, &data8);
 	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x021E, &data16);
+	if (unlikely(!ret)) pr_info("WDR(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0202, &data16);
+	if (unlikely(!ret)) pr_info("short EXP(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0226, &data16);
+	if (unlikely(!ret)) pr_info("long EXP(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0702, &data16);
+	if (unlikely(!ret)) pr_info("CIT shifter1(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0704, &data16);
+	if (unlikely(!ret)) pr_info("CIT shifter2(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0204, &data16);
+	if (unlikely(!ret)) pr_info("again(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x020E, &data16);
+	if (unlikely(!ret)) pr_info("short dgain(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0230, &data16);
+	if (unlikely(!ret)) pr_info("long dgain(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0340, &data16);
+	if (unlikely(!ret)) pr_info("FLL(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x0342, &data16);
+	if (unlikely(!ret)) pr_info("0x0342(0x%x)\n", data16);
 	else goto i2c_err;
 	pr_info("[%s] *******************************\n", __func__);
 
@@ -607,120 +578,23 @@ p_err:
 	return ret;
 }
 
-int sensor_hm1_cis_set_global_setting_internal(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	info("[%s] global setting start\n", __func__);
-	/* setfile global setting is at camera entrance */
-	ret |= sensor_cis_set_registers(subdev, sensor_hm1_reset_tnp, sensor_hm1_reset_tnp_size);
-	ret |= sensor_cis_set_registers(subdev, sensor_hm1_global, sensor_hm1_global_size);
-	if (ret < 0) {
-		err("sensor_hm1_set_registers fail!!");
-		goto p_err;
-	}
-
-	info("[%s] global setting done\n", __func__);
-
-p_err:
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-	return ret;
-}
-
-#ifdef CONFIG_SENSOR_RETENTION_USE
-int sensor_hm1_cis_set_global_setting_retention(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	info("[%s] global retention setting start\n", __func__);
-	/* setfile global retention setting is at camera entrance */
-	ret = sensor_cis_set_registers(subdev, sensor_hm1_global_retention, sensor_hm1_global_retention_size);
-	if (ret < 0) {
-		err("sensor_hm1_set_registers fail!!");
-		goto p_err;
-	}
-
-	info("[%s] global retention setting done\n", __func__);
-
-p_err:
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	return ret;
-}
-
-#ifdef CAMERA_REAR2
-int sensor_hm1_cis_retention_crc_enable(struct v4l2_subdev *subdev, u32 mode)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-	struct i2c_client *client;
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
-
-	switch (mode) {
-#if 0 // TEMP _2020
-	case SENSOR_HM1_1008X756_120FPS_MODE2:
-	case SENSOR_HM1_2016X1134_60FPS_MODE2_SSM_960:
-	case SENSOR_HM1_2016X1134_60FPS_MODE2_SSM_480:
-	case SENSOR_HM1_1280X720_60FPS_MODE2_SSM_960:
-	case SENSOR_HM1_1280X720_60FPS_MODE2_SSM_480:
-		break;
-#endif
-	default:
-		/* Sensor stream on */
-		is_sensor_write16(client, 0x0100, 0x0100);
-
-		/* retention mode CRC check register enable */
-		is_sensor_write8(client, 0x010E, 0x01); /* api_rw_general_setup_checksum_on_ram_enable */
-		info("[MOD:D:%d] %s : retention enable CRC check\n", cis->id, __func__);
-
-		/* Sensor stream off */
-		is_sensor_write8(client, 0x0100, 0x00);
-		break;
-	}
-
-p_err:
-	return ret;
-}
-#endif
-#endif
-
 static void sensor_hm1_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_data)
 {
 	WARN_ON(!cis_data);
 
 	switch (mode) {
-#if 0 // TEMP_2020
 	case SENSOR_HM1_12000X9000_10FPS:
+	case SENSOR_HM1_7680X4320_24FPS:
+	case SENSOR_HM1_4000X2252_30FPS_CENTER_CROP:
 	case SENSOR_HM1_4000X3000_30FPS:
-	case SENSOR_HM1_1984X1488_30FPS:
+	case SENSOR_HM1_4000X2252_30FPS:
 	case SENSOR_HM1_4000X3000_60FPS:
+	case SENSOR_HM1_4000X2252_60FPS:
+	case SENSOR_HM1_1984X1488_30FPS:
+	case SENSOR_HM1_1920X1080_240FPS:
+	case SENSOR_HM1_1920X1080_120FPS:
 		cis_data->is_data.paf_stat_enable = true;
 		break;
-#endif
 	default:
 		cis_data->is_data.paf_stat_enable = false;
 		break;
@@ -785,103 +659,15 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	info("[%s] cancel retention mode\n", __func__);
-	/* initialize the addr, data indirectly */
-	is_sensor_write16(cis->client, 0x602A, 0x1090); /* Address setting register */
-	is_sensor_write16(cis->client, 0x6F12, 0x0000); /* Data setting register */
-	is_sensor_write16(cis->client, 0x6F12, 0x0000);
-
-	/* Retention mode sensor mode select */
-	if (ext_info->use_retention_mode == SENSOR_RETENTION_ACTIVATED) {
-		sensor_hm1_load_retention = false;
-
-		switch (mode) {
-#if 0 // TEMP_2020
-		case SENSOR_HM1_4032X3024_30FPS:
-			info("[%s] retention mode: SENSOR_HM1_4032X3024_30FPS\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_4032x3024_30FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_4032x3024_30FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		case SENSOR_HM1_4032X2268_30FPS:
-			info("[%s] retention mode: SENSOR_HM1_4032X2268_30FPS\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_4032x2268_30FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_4032x2268_30FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		case SENSOR_HM1_4032X2268_60FPS:
-			info("[%s] retention mode: SENSOR_HM1_4032X2268_60FPS\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_4032x2268_60FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_4032x2268_60FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		case SENSOR_HM1_1008X756_120FPS_MODE2:
-			info("[%s] retention mode: SENSOR_HM1_1008X756_120FPS_MODE2\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_1008x756_120FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_1008x756_120FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		case SENSOR_HM1_4032X3024_24FPS:
-			info("[%s] retention mode: SENSOR_HM1_4032X3024_24FPS\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_4032x3024_24FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_4032x3024_24FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		case SENSOR_HM1_4032X2268_24FPS:
-			info("[%s] retention mode: SENSOR_HM1_4032X2268_24FPS\n", __func__);
-			ret = sensor_cis_set_registers(subdev,
-				sensor_hm1_load_sram[SENSOR_HM1_4032x2268_24FPS_LOAD_SRAM],
-				sensor_hm1_load_sram_size[SENSOR_HM1_4032x2268_24FPS_LOAD_SRAM]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-#endif
-		default:
-			info("[%s] not support retention sensor mode(%d)\n", __func__, mode);
-			ret = sensor_cis_set_registers(subdev, sensor_hm1_setfiles[mode],
-								sensor_hm1_setfile_sizes[mode]);
-			if (ret < 0) {
-				err("sensor_hm1_set_registers fail!!");
-				goto p_err_i2c_unlock;
-			}
-			break;
-		}
-	} else
-#endif
-	{
-		is_sensor_write8(cis->client, 0x0100, 0x00);
-		info("[%s] sensor mode(%d)\n", __func__, mode);
-		ret = sensor_cis_set_registers(subdev, sensor_hm1_setfiles[mode],
-								sensor_hm1_setfile_sizes[mode]);
-		if (ret < 0) {
-			err("sensor_hm1_set_registers fail!!");
-			goto p_err_i2c_unlock;
-		}
-		info("[%s] sensor mode done(%d)\n", __func__, mode);
+	is_sensor_write8(cis->client, 0x0100, 0x00);
+	info("[%s] sensor mode(%d)\n", __func__, mode);
+	ret = sensor_cis_set_registers(subdev, sensor_hm1_setfiles[mode],
+							sensor_hm1_setfile_sizes[mode]);
+	if (ret < 0) {
+		err("sensor_hm1_set_registers fail!!");
+		goto p_err_i2c_unlock;
 	}
+	info("[%s] sensor mode done(%d)\n", __func__, mode);
 
 	if (sensor_hm1_cis_get_lownoise_supported(cis->cis_data)) {
 		cis->cis_data->pre_lownoise_mode = IS_CIS_LN2;
@@ -895,6 +681,16 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
+
+	info("[%s] dual sync always master(%d)\n", __func__, sensor_hm1_cis_dual_master_settings_size);
+	ret = sensor_cis_set_registers(subdev, sensor_hm1_cis_dual_master_settings, sensor_hm1_cis_dual_master_settings_size);
+
+	info("[%s] no calibration data\n", __func__);
+	ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
+	ret |= is_sensor_write16(cis->client, 0x6000, 0x0005);
+	ret |= is_sensor_write16(cis->client, 0x0D02, 0x0000);
+	ret |= is_sensor_write16(cis->client, 0x0B00, 0x0001);
+	ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
 
 p_err_i2c_unlock:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -1022,7 +818,6 @@ int sensor_hm1_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 		ret |= is_sensor_write16(cis->client, 0x30D0, 0x0000);
 		ret |= is_sensor_write16(cis->client, 0x30D2, 0x0500);
 #endif
-		ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
 		break;
 	case IS_CIS_LN4_PEDESTAL128:
 		dbg_sensor(1, "[%s] IS_CIS_LN4_PEDESTAL128\n", __func__);
@@ -1033,7 +828,6 @@ int sensor_hm1_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 		ret |= is_sensor_write16(cis->client, 0x30D0, 0x0000);
 		ret |= is_sensor_write16(cis->client, 0x30D2, 0x0500);
 #endif
-		ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
 		break;
 	default:
 		dbg_sensor(1, "[%s] not support lownoise mode(%d)\n",
@@ -1060,119 +854,28 @@ p_err:
 int sensor_hm1_cis_set_global_setting(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
-#ifdef CONFIG_SENSOR_RETENTION_USE
 	struct is_cis *cis = NULL;
-	struct is_module_enum *module;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct sensor_open_extended *ext_info;
 
 	WARN_ON(!subdev);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	WARN_ON(!cis);
 
-	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-	module = sensor_peri->module;
-	ext_info = &module->ext;
-	WARN_ON(!ext_info);
-
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+	info("[%s] global setting start\n", __func__);
 	/* setfile global setting is at camera entrance */
-	if (ext_info->use_retention_mode == SENSOR_RETENTION_INACTIVE) {
-		sensor_hm1_cis_set_global_setting_internal(subdev);
-		sensor_hm1_cis_retention_prepare(subdev);
-		ext_info->use_retention_mode = SENSOR_RETENTION_ACTIVATED;
-	} else if (ext_info->use_retention_mode == SENSOR_RETENTION_ACTIVATED) {
-		sensor_hm1_cis_retention_crc_check(subdev);
-	} else { /* SENSOR_RETENTION_UNSUPPORTED */
-		sensor_hm1_cis_set_global_setting_internal(subdev);
-	}
-#else
-	WARN_ON(!subdev);
-	sensor_hm1_cis_set_global_setting_internal(subdev);
-#endif
-
-	return ret;
-}
-
-#ifdef CONFIG_SENSOR_RETENTION_USE
-int sensor_hm1_cis_retention_prepare(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	int i = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	for (i = 0; i < sensor_hm1_max_retention_num; i++) {
-		ret = sensor_cis_set_registers(subdev, sensor_hm1_retention[i], sensor_hm1_retention_size[i]);
-		if (ret < 0) {
-			err("sensor_hm1_set_registers fail!!");
-			goto p_err;
-		}
+	ret |= sensor_cis_set_registers(subdev, sensor_hm1_reset_tnp, sensor_hm1_reset_tnp_size);
+	ret |= sensor_cis_set_registers(subdev, sensor_hm1_global, sensor_hm1_global_size);
+	if (ret < 0) {
+		err("sensor_hm1_set_registers fail!!");
+		goto p_err;
 	}
 
-	info("[%s] retention sensor RAM write done\n", __func__);
-
+	info("[%s] global setting done\n", __func__);
 p_err:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
 	return ret;
 }
-
-int sensor_hm1_cis_retention_crc_check(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	u8 crc_check = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-
-	/* retention mode CRC check */
-	is_sensor_read8(cis->client, 0x100E, &crc_check); /* api_ro_checksum_on_ram_passed */
-
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	if (crc_check == 0x01) {
-		info("[%s] retention SRAM CRC check: pass!\n", __func__);
-
-		ret = sensor_hm1_cis_set_global_setting_retention(subdev);
-		if (ret < 0) {
-			err("write retention global setting failed");
-			goto p_err;
-		}
-	} else {
-		info("[%s] retention SRAM CRC check: fail!\n", __func__);
-		info("retention CRC Check register value: 0x%x\n", crc_check);
-		info("[%s] rewrite retention modes to SRAM\n", __func__);
-
-		ret = sensor_hm1_cis_set_global_setting_internal(subdev);
-		if (ret < 0) {
-			err("CRC error recover: rewrite sensor global setting failed");
-			goto p_err;
-		}
-
-		ret = sensor_hm1_cis_retention_prepare(subdev);
-		if (ret < 0) {
-			err("CRC error recover: retention prepare failed");
-			goto p_err;
-		}
-	}
-
-p_err:
-
-	return ret;
-}
-#endif
 
 /* TODO: Sensor set size sequence(sensor done, sensor stop, 3AA done in FW case */
 int sensor_hm1_cis_set_size(struct v4l2_subdev *subdev, cis_shared_data *cis_data)
@@ -1437,7 +1140,6 @@ int sensor_hm1_cis_stream_on(struct v4l2_subdev *subdev)
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 	cis_data->stream_on = true;
-	sensor_hm1_load_retention = true;
 
 #ifdef CAMERA_REAR2
 	mode = cis_data->sens_config_index_cur;
@@ -1510,16 +1212,6 @@ int sensor_hm1_cis_stream_off(struct v4l2_subdev *subdev)
 
 	is_sensor_read8(client, 0x0005, &cur_frame_count);
 	info("%s: frame_count(0x%x)\n", __func__, cur_frame_count);
-
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	/* retention mode CRC check register enable */
-	is_sensor_write16(cis->client, 0x6028, 0x3000);
-	is_sensor_write16(cis->client, 0x602A, 0x0484);
-	is_sensor_write16(cis->client, 0x6F12, 0x0100);
-	is_sensor_write16(cis->client, 0x010E, 0x0100);
-
-	info("[MOD:D:%d] %s : retention enable CRC check\n", cis->id, __func__);
-#endif
 
 	is_sensor_write8(client, 0x0100, 0x00);
 
@@ -2828,7 +2520,6 @@ int sensor_hm1_cis_set_factory_control(struct v4l2_subdev *subdev, u32 command)
 		msleep(50);
 		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x2000);
 		ret |= is_sensor_write16(cis->client, 0xAE16, 0x0010); // RG 3.70v -> 3.30v
-		ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
 #endif
 		break;
 	default:
@@ -2937,26 +2628,12 @@ int sensor_hm1_cis_recover_stream_on(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	struct is_cis *cis = NULL;
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	struct is_module_enum *module;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct sensor_open_extended *ext_info;
-#endif
 
 	FIMC_BUG(!subdev);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	FIMC_BUG(!cis);
 	FIMC_BUG(!cis->cis_data);
-
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-	module = sensor_peri->module;
-	ext_info = &module->ext;
-	FIMC_BUG(!ext_info);
-
-	ext_info->use_retention_mode = SENSOR_RETENTION_INACTIVE;
-#endif
 
 	info("%s start\n", __func__);
 
@@ -2982,21 +2659,8 @@ p_err:
 	return ret;
 }
 
-int sensor_hm1_cis_wait_streamoff(struct v4l2_subdev *subdev)
-{
-	int ret = sensor_cis_wait_streamoff(subdev);
-
-#ifdef CONFIG_SENSOR_RETENTION_USE
-	/* retention mode CRC wait calculation */
-	usleep_range(10000, 10000);
-#endif
-
-	return ret;
-}
-
 static struct is_cis_ops cis_ops_hm1 = {
 	.cis_init = sensor_hm1_cis_init,
-	.cis_deinit = sensor_hm1_cis_deinit,
 	.cis_log_status = sensor_hm1_cis_log_status,
 	.cis_group_param_hold = sensor_hm1_cis_group_param_hold,
 	.cis_set_global_setting = sensor_hm1_cis_set_global_setting,
@@ -3020,7 +2684,7 @@ static struct is_cis_ops cis_ops_hm1 = {
 	.cis_get_min_digital_gain = sensor_hm1_cis_get_min_digital_gain,
 	.cis_get_max_digital_gain = sensor_hm1_cis_get_max_digital_gain,
 	.cis_compensate_gain_for_extremely_br = sensor_hm1_cis_compensate_gain_for_extremely_br,
-	.cis_wait_streamoff = sensor_hm1_cis_wait_streamoff,
+	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 	.cis_data_calculation = sensor_hm1_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_hm1_cis_long_term_exposure,
@@ -3175,15 +2839,6 @@ static int cis_hm1_probe(struct i2c_client *client,
 		sensor_hm1_setfile_sizes = sensor_hm1_setfile_A_sizes;
 		sensor_hm1_pllinfos = sensor_hm1_pllinfos_A;
 		sensor_hm1_max_setfile_num = ARRAY_SIZE(sensor_hm1_setfiles_A);
-#ifdef CONFIG_SENSOR_RETENTION_USE
-		sensor_hm1_global_retention = sensor_hm1_setfile_A_Global_retention;
-		sensor_hm1_global_retention_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global_retention);
-		sensor_hm1_retention = sensor_hm1_setfiles_A_retention;
-		sensor_hm1_retention_size = sensor_hm1_setfile_A_sizes_retention;
-		sensor_hm1_max_retention_num = ARRAY_SIZE(sensor_hm1_setfiles_A_retention);
-		sensor_hm1_load_sram = sensor_hm1_setfile_A_load_sram;
-		sensor_hm1_load_sram_size = sensor_hm1_setfile_A_sizes_load_sram;
-#endif
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 		sensor_hm1_mipi_sensor_mode = sensor_hm1_setfile_A_mipi_sensor_mode;
 		sensor_hm1_mipi_sensor_mode_size = ARRAY_SIZE(sensor_hm1_setfile_A_mipi_sensor_mode);
@@ -3200,15 +2855,6 @@ static int cis_hm1_probe(struct i2c_client *client,
 		sensor_hm1_setfile_sizes = sensor_hm1_setfile_A_sizes;
 		sensor_hm1_pllinfos = sensor_hm1_pllinfos_A;
 		sensor_hm1_max_setfile_num = ARRAY_SIZE(sensor_hm1_setfiles_A);
-#ifdef CONFIG_SENSOR_RETENTION_USE
-		sensor_hm1_global_retention = sensor_hm1_setfile_A_Global_retention;
-		sensor_hm1_global_retention_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global_retention);
-		sensor_hm1_retention = sensor_hm1_setfiles_A_retention;
-		sensor_hm1_retention_size = sensor_hm1_setfile_A_sizes_retention;
-		sensor_hm1_max_retention_num = ARRAY_SIZE(sensor_hm1_setfiles_A_retention);
-		sensor_hm1_load_sram = sensor_hm1_setfile_A_load_sram;
-		sensor_hm1_load_sram_size = sensor_hm1_setfile_A_sizes_load_sram;
-#endif
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 		sensor_hm1_mipi_sensor_mode = sensor_hm1_setfile_A_mipi_sensor_mode;
 		sensor_hm1_mipi_sensor_mode_size = ARRAY_SIZE(sensor_hm1_setfile_A_mipi_sensor_mode);

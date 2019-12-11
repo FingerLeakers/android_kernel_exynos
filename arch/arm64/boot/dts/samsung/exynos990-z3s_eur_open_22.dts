@@ -20,7 +20,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include "exynos9830-sensorhub_03.dtsi"
 #include "exynos9830-hubblez3_fingerprint_00.dtsi"
-#include "battery_data_hubblez3_00.dtsi"
+#include "battery_data_hubblez3_22.dtsi"
 
 #define BOARD_ID	0x10
 #define BOARD_REV	0x0
@@ -67,9 +67,9 @@
 				bt_en: bt-en {
 					samsung,pins = "gpm16-0";
 					samsung,pin-function = <1>;
-					samsung,pin-pud = <1>;
+					samsung,pin-pud = <0>;
 					samsung,pin-con-pdn = <3>;
-					samsung,pin-pud-pdn = <1>;
+					samsung,pin-pud-pdn = <0>;
 				};
 			};
 
@@ -222,10 +222,8 @@
 		ssp-mag-position = <1>;
 		ssp-mag-array = /bits/ 8 <240 83 235 204 213 79 1 64 213 52 81 77 193 102 255 122 0 57 20 34
 					191 253 245 91 9 117 212>;
-		ssp-thermi-up = /bits/ 16 <3255 3224 3187 3138 3075 2945 2810 2670 2515 2380 2250 2120 1990 1855
-					1722 1548 1385 1226 1082 947 827 714 612>;
-		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4071 3859 3627 3367 3107 2837 2577 2317 2057 1797 1537
-					1266 1088 927 795 679 578 494 422 365>;
+		ssp-thermi-up = /bits/ 16 <3244 3216 3177 3127 3063 2987 2893 2785 2663 2522 2364 2191 2019 1841 1664 1492 1325 1165 1024 894 772 658 579>;
+		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4026 3810 3566 3300 3013 2725 2438 2142 1871 1626 1402 1202 1030 874 744 631 535 453 385 331>;
 	};
 };
 

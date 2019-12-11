@@ -18,6 +18,7 @@
 #include <linux/cpumask.h>
 #include <linux/cpufreq.h>
 #include <linux/pm_opp.h>
+#include <linux/ems.h>
 
 #include <soc/samsung/exynos-cpuhp.h>
 
@@ -32,6 +33,9 @@ char *stune_group_name2[] = {
 
 struct exynos_ufc ufc;
 struct cpufreq_policy *little_policy;
+static struct emstune_mode_request emstune_req_ufc;
+
+#define DEFAULT_LEVEL 0
 
 /*********************************************************************
  *                          HELPER FUNCTION                           *
@@ -204,8 +208,11 @@ static int ufc_get_proper_table_index(unsigned int freq,
 static void ufc_clear_min_qos(void)
 {
 	struct ufc_domain *ufc_dom;
+
 	list_for_each_entry(ufc_dom, &ufc.ufc_domain_list, list)
 		pm_qos_update_request(&ufc_dom->user_min_qos_req, 0);
+
+	emstune_update_request(&emstune_req_ufc, DEFAULT_LEVEL);
 }
 
 static void ufc_clear_max_qos(void)
@@ -269,6 +276,8 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 	struct ufc_domain *ufc_dom;
 	struct ufc_table_info *table_info, *target_table_info = NULL;
 	int target_idx = 0;
+	unsigned int emstune_mode_idx = 0;
+	bool emstune_mode_change = false;
 
 	if (input_freq <= 0) {
 		ufc_clear_pm_qos(ctrl_type);
@@ -293,6 +302,7 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 		unsigned int col_idx = ufc_dom->table_idx;
 		struct pm_qos_request *target_pm_qos = NULL;
 
+		emstune_mode_idx = col_idx + 1;
 		target_freq = target_table_info->ufc_table[col_idx][target_idx];
 		if (ufc_need_adjust_freq(target_freq, ufc_dom))
 			target_freq = ufc_adjust_freq(target_freq, ufc_dom, ctrl_type);
@@ -300,6 +310,7 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 		switch (ctrl_type) {
 		case PM_QOS_MIN_LIMIT:
 			target_pm_qos = &ufc_dom->user_min_qos_req;
+			emstune_mode_change = true;
 			break;
 
 		case PM_QOS_MAX_LIMIT:
@@ -318,6 +329,9 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 
 		if (target_pm_qos)
 			pm_qos_update_request(target_pm_qos, target_freq);
+
+		if (emstune_mode_change)
+			emstune_update_request(&emstune_req_ufc, target_table_info->ufc_table[emstune_mode_idx][target_idx]);
 	}
 }
 
@@ -558,11 +572,11 @@ static __init int ufc_init_pm_qos(void)
 		if (!policy)
 			return -EINVAL;
 		pm_qos_add_request(&ufc_dom->user_min_qos_req,
-				ufc_dom->pm_qos_min_class, policy->min);
+				ufc_dom->pm_qos_min_class, policy->user_policy.min);
 		pm_qos_add_request(&ufc_dom->user_max_qos_req,
-				ufc_dom->pm_qos_max_class, policy->max);
+				ufc_dom->pm_qos_max_class, policy->user_policy.max);
 		pm_qos_add_request(&ufc_dom->user_min_qos_wo_boost_req,
-				ufc_dom->pm_qos_min_class, policy->min);
+				ufc_dom->pm_qos_min_class, policy->user_policy.min);
 	}
 
 	/* Success */
@@ -654,6 +668,10 @@ static int init_ufc_table(struct device_node *dn)
 	int col_idx;
 
 	table_info = kzalloc(sizeof(struct ufc_table_info), GFP_KERNEL);
+	if (!table_info)
+		return -ENOMEM;
+
+	list_add_tail(&table_info->list, &ufc.ufc_table_list);
 
 	if (of_property_read_u32(dn, "ctrl-type", &table_info->ctrl_type))
 		return -EINVAL;
@@ -676,7 +694,6 @@ static int init_ufc_table(struct device_node *dn)
 	}
 
 	ufc_parse_init_table(dn, table_info, little_policy);
-	list_add_tail(&table_info->list, &ufc.ufc_table_list);
 
 	/* Success */
 	return 0;
@@ -691,6 +708,8 @@ static int init_ufc_domain(struct device_node *dn)
 	ufc_dom = kzalloc(sizeof(struct ufc_domain), GFP_KERNEL);
 	if (!ufc_dom)
 		return -ENOMEM;
+
+	list_add(&ufc_dom->list, &ufc.ufc_domain_list);
 
 	if (of_property_read_string(dn, "shared-cpus", &buf))
 		return -EINVAL;
@@ -718,8 +737,6 @@ static int init_ufc_domain(struct device_node *dn)
 
 	ufc_dom->min_freq = policy->min;
 	ufc_dom->max_freq = policy->max;
-
-	list_add(&ufc_dom->list, &ufc.ufc_domain_list);
 
 	if (ufc_dom->pm_qos_min_class == PM_QOS_CLUSTER0_FREQ_MIN) {
 		struct cpufreq_frequency_table *pos;
@@ -764,7 +781,7 @@ static int init_ufc(struct device_node *dn)
 
 void __init exynos_ufc_init(void)
 {
-	struct device_node *dn;
+	struct device_node *dn = NULL;
 
 	dn = of_find_node_by_type(dn, "cpufreq_ufc");
 	if (!dn) {
@@ -813,3 +830,11 @@ void __init exynos_ufc_init(void)
 
 	pr_info("exynos-ufc: Complete UFC driver initialization\n");
 }
+
+static int __init exynos_ufc_emstune_init(void)
+{
+	emstune_add_request(&emstune_req_ufc);
+
+	return 0;
+}
+late_initcall(exynos_ufc_emstune_init);

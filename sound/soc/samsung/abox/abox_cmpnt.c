@@ -888,6 +888,49 @@ static int wake_lock_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int reset_log_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct abox_data *data = dev_get_drvdata(dev);
+	unsigned long *addr;
+
+	dev_dbg(dev, "%s: %u\n", __func__);
+
+	for (addr = data->slog_base + ABOX_SLOG_OFFSET; (void *)addr <
+			data->slog_base + data->slog_size; addr++) {
+		if (*addr) {
+			/* There is non-zero */
+			ucontrol->value.integer.value[0] = 0;
+			return 0;
+		}
+	}
+
+	/* Area is all zero */
+	ucontrol->value.integer.value[0] = 1;
+	return 0;
+}
+
+static int reset_log_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct abox_data *data = dev_get_drvdata(dev);
+	unsigned int val = (unsigned int)ucontrol->value.integer.value[0];
+
+	dev_dbg(dev, "%s(%u)\n", __func__, val);
+
+	if (val) {
+		dev_info(dev, "reset silent log area\n");
+		memset(data->slog_base + ABOX_SLOG_OFFSET, 0,
+				data->slog_size - ABOX_SLOG_OFFSET);
+	}
+
+	return 0;
+}
+
 static enum asrc_tick spus_asrc_os[] = {
 	TICK_SYNC, TICK_SYNC, TICK_SYNC, TICK_SYNC,
 	TICK_SYNC, TICK_SYNC, TICK_SYNC, TICK_SYNC,
@@ -1108,8 +1151,8 @@ static const struct snd_kcontrol_new cmpnt_controls[] = {
 	SOC_VALUE_ENUM_EXT("Sound Type", sound_type_enum,
 			sound_type_get, sound_type_put),
 	SOC_SINGLE_EXT("Tickle", 0, 0, 1, 0, tickle_get, tickle_put),
-	SOC_SINGLE_EXT("Wakelock", 0, 0, 1, 0,
-			wake_lock_get, wake_lock_put),
+	SOC_SINGLE_EXT("Wakelock", 0, 0, 1, 0, wake_lock_get, wake_lock_put),
+	SOC_SINGLE_EXT("Reset Log", 0, 0, 1, 0, reset_log_get, reset_log_put),
 	SOC_SINGLE("NSRC0 Bridge", ABOX_ROUTE_CTRL2,
 			ABOX_NSRC_CONNECTION_TYPE_L(0), 1, 0),
 	SOC_SINGLE("NSRC1 Bridge", ABOX_ROUTE_CTRL2,
@@ -2262,8 +2305,10 @@ static int set_sif_params(struct abox_data *data, enum abox_dai id,
 	int ret = 0;
 
 	ret = get_configmsg(id, &msg_rate, &msg_format);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(adev, "can't set sif params: %d\n", ret);
 		return ret;
+	}
 
 	rate = params_rate(params);
 	format = params_format(params);
@@ -2280,9 +2325,6 @@ static int set_sif_params(struct abox_data *data, enum abox_dai id,
 		set_sif_channels(data, msg_format, channels);
 		format_put_ipc(adev, format, channels, msg_format);
 	}
-
-	if (ret < 0)
-		dev_err(adev, "can't set sif params: %d\n", ret);
 
 	return ret;
 }
@@ -3339,6 +3381,12 @@ static int asrc_update_tick(struct abox_data *data, int stream, int id)
 	int i, res, ret = 0;
 
 	dev_dbg(dev, "%s(%d, %d, %luHz)\n", __func__, stream, id, aclk);
+
+	if (idx < 0) {
+		dev_err(dev, "%s(%d, %d): invalid idx: %d\n", __func__,
+				stream, id, idx);
+		return -EINVAL;
+	}
 
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		reg = ABOX_SPUS_ASRC_CTRL(id);
@@ -5371,9 +5419,7 @@ int abox_cmpnt_adjust_sbank(struct abox_data *data,
 
 	time = hw_param_interval_c(params, SNDRV_PCM_HW_PARAM_PERIOD_TIME)->min;
 	time /= 1000;
-	if (time <= 4)
-		size = SZ_32;
-	else if (time <= 10)
+	if (time <= 10)
 		size = SZ_128;
 	else
 		size = SZ_512;

@@ -49,6 +49,16 @@
 		samsung,pin-con-pdn = <2>;
 		samsung,pin-pud-pdn = <0>;
 	};
+
+	flash_init: flash-init {
+		samsung,pins = "gpp4-0";
+		samsung,pin-con-pdn = <0>;
+	};
+
+	torch_init: torch-init {
+		samsung,pins = "gpp4-4";
+		samsung,pin-con-pdn = <3>;
+	};
 };
 
 &speedy {
@@ -532,7 +542,7 @@
 
 		s2mpb02,wakeup;
 		pinctrl-names = "default";
-		pinctrl-0 = <&sub_pmic_irq>;
+		pinctrl-0 = <&sub_pmic_irq &flash_init &torch_init>;
 
 		regulators {
 			_buck1_reg: s2mpb02-buck1 {
@@ -676,8 +686,8 @@
 				brightness = <0xE>; /* Nx20 = 280mA */
 				timeout = <0xF>;
 				torch_table_enable = <1>;
-				torch_table = <3 5 5 7 7 8 8 8 10 10>;
-				/* 60mA 100mA 140mA 160mA 200mA */
+				torch_table = <3 5 5 6 6 8 8 8 10 10>;
+				/* 60mA 100mA 120mA 160mA 200mA */
 			};
 		};
 	};
@@ -829,15 +839,20 @@
 				status = "okay";
 			};
 
+			sec_pm_debug {
+				compatible = "samsung,sec-pm-debug";
+				status = "okay";
+			};
+
 			sec_thermistor@0 {
 				compatible = "samsung,sec-thermistor";
 				status = "okay";
 				thermistor_name = "sec-ap-thermistor";
 				id = <0>;
 
-				adc_array = <255 295 358 424 499 594 701 824 967 1126
-					1287 1491 1702 1946 2208 2425 2651 2873 3085 3255
-					3403 3536 3607>;
+				adc_array = <235 269 331 399 470 562 665 794 937 1099
+					1288 1491 1712 1950 2187 2420 2650 2872 3074 3242
+					3390 3504 3601>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;
@@ -853,9 +868,9 @@
 				thermistor_name = "sec-wf-thermistor";
 				id = <1>;
 
-				adc_array = <272 319 379 448 526 621 727 852 999 1165
-					1331 1536 1756 1998 2252 2477 2703 2922 3125 3299
-					3451 3586 3664>;
+				adc_array = <248 288 347 416 494 584 689 819 961 1127
+					1314 1517 1739 1977 2217 2457 2686 2907 3105 3289
+					3442 3571 3666>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;
@@ -871,9 +886,9 @@
 				thermistor_name = "sec-cp-thermistor";
 				id = <2>;
 
-				adc_array = <268 314 374 444 520 618 723 851 996 1159
-					1327 1530 1744 1988 2245 2467 2689 2908 3114 3287
-					3437 3570 3665>;
+				adc_array = <246 284 344 413 490 582 683 814 957 1121
+					1300 1512 1734 1971 2209 2448 2688 2911 3115 3300
+					3449 3569 3679>;
 				temp_array = <900 850 800 750 700 650 600 550 500 450
 					  400 350 300 250 200 150 100 50 0 (-50)
 					  (-100) (-150) (-200)>;

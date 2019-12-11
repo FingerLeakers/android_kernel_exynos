@@ -254,7 +254,6 @@ static ssize_t npu_store_attrs_governor_exynos_interactive(struct device *dev,
 	struct npu_governor_exynos_interactive_prop *p;
 	const ptrdiff_t offset = attr - npu_exynos_interactive_attrs;
 
-
 	if (sscanf(buf, "%s %d", name, &x) > 0) {
 		d = npu_governor_exynos_interactive_get_dev(name);
 		if (!d) {
@@ -262,41 +261,41 @@ static ssize_t npu_store_attrs_governor_exynos_interactive(struct device *dev,
 			return ret;
 		}
 		p = (struct npu_governor_exynos_interactive_prop *)d->gov_prop;
-	}
-	switch (offset) {
-	case NPU_EXYNOS_INTERACTIVE_INIT_DELAY:
-		p->init_delay = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_INIT_FREQ:
-		p->init_freq = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_UP_THRESHOLD:
-		p->up_threshold = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_UP_DELAY:
-		p->up_delay = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_DOWN_THRESHOLD:
-		p->down_threshold = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_DOWN_DELAY:
-		p->down_delay = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_HISPEED_IDLE_DELAY:
-		p->hispeed_idle_delay = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_HISPEED_DELAY:
-		p->hispeed_delay = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_HISPEED_LOAD:
-		p->hispeed_load = x;
-		break;
-	case NPU_EXYNOS_INTERACTIVE_LOWSPEED_IDLE_DELAY:
-		p->lowspeed_idle_delay = x;
-		break;
+		switch (offset) {
+		case NPU_EXYNOS_INTERACTIVE_INIT_DELAY:
+			p->init_delay = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_INIT_FREQ:
+			p->init_freq = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_UP_THRESHOLD:
+			p->up_threshold = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_UP_DELAY:
+			p->up_delay = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_DOWN_THRESHOLD:
+			p->down_threshold = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_DOWN_DELAY:
+			p->down_delay = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_HISPEED_IDLE_DELAY:
+			p->hispeed_idle_delay = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_HISPEED_DELAY:
+			p->hispeed_delay = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_HISPEED_LOAD:
+			p->hispeed_load = x;
+			break;
+		case NPU_EXYNOS_INTERACTIVE_LOWSPEED_IDLE_DELAY:
+			p->lowspeed_idle_delay = x;
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;
@@ -314,7 +313,6 @@ static ssize_t npu_store_attrs_governor_exynos_interactive_args(struct device *d
 	struct npu_governor_exynos_interactive_prop *p;
 	const ptrdiff_t offset = attr - npu_exynos_interactive_attrs;
 
-
 	if (sscanf(buf, "%s %d %d", name, &x, &y) > 0) {
 		d = npu_governor_exynos_interactive_get_dev(name);
 		if (!d) {
@@ -322,14 +320,14 @@ static ssize_t npu_store_attrs_governor_exynos_interactive_args(struct device *d
 			return ret;
 		}
 		p = (struct npu_governor_exynos_interactive_prop *)d->gov_prop;
-	}
-	switch (offset) {
-	case NPU_EXYNOS_INTERACTIVE_MODE_FREQ:
-		d->mode_min_freq[x] = y;
-		break;
+		switch (offset) {
+		case NPU_EXYNOS_INTERACTIVE_MODE_FREQ:
+			d->mode_min_freq[x] = y;
+			break;
 
-	default:
-		break;
+		default:
+			break;
+		}
 	}
 
 	ret = count;
@@ -418,7 +416,7 @@ static int npu_governor_exynos_interactive_target(
 	npu_trace("target : l%d, hf%d, d%d, lit%d\n",
 			info->load, p->hispeed_freq, d->delay, info->load_idle_time);
 
-	if (info->fps_load < p->hispeed_load * 100)
+	if (info->fps_load && d->cur_freq && info->fps_load < p->hispeed_load * 100)
 		p->hispeed_freq = d->cur_freq;
 
 	if (info->load_policy == NPU_SCHEDULER_LOAD_FPS_RQ)
@@ -427,7 +425,7 @@ static int npu_governor_exynos_interactive_target(
 		load_idle = info->load;
 
 	if (load_idle) {
-		if (p->hispeed_idle_delay && d->delay <= 0 &&
+		if (p->hispeed_idle_delay && d->delay <= 0 && p->hispeed_freq &&
 				info->load_idle_time > p->hispeed_idle_delay * 1000) {
 			*freq = p->hispeed_freq;
 			d->delay = p->hispeed_delay;
