@@ -1374,7 +1374,7 @@ void displayport_reg_lh_p_ch_power(u32 sst_id, u32 en)
 			displayport_err("SST%d_VIDEO_CONTROL[0x%08x]\n", sst_id + 1,
 					displayport_read(SST1_VIDEO_CONTROL + 0x1000 * sst_id));
 			displayport_err("SST%d_VIDEO_DEBUG_FSM_STATE[0x%08x]\n", sst_id + 1,
-					displayport_read(SST1_VIDEO_DEBUG_FSM_STATE + 0x1000 * sst_id + 1));
+					displayport_read(SST1_VIDEO_DEBUG_FSM_STATE + 0x1000 * sst_id));
 			displayport_err("SST%d_VIDEO_DEBUG_MAPI[0x%08x]\n", sst_id + 1,
 					displayport_read(SST1_VIDEO_DEBUG_MAPI + 0x1000 * sst_id));
 			displayport_err("SYSTEM_SW_FUNCTION_ENABLE[0x%08x]\n",

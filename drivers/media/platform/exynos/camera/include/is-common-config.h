@@ -521,8 +521,8 @@ extern int debug_sensor;
 #define dbg_tasklet(fmt, args...)	\
 	dbg_common(debug_irq, "[FBNS]", fmt, ##args)
 
-#define dbg_isr(fmt, object, args...)		\
-	dbg_common(debug_irq, "[%d][%s]", fmt, object->instance, object->name, ##args)
+#define dbg_isr(level, fmt, object, args...)		\
+	dbg_common((debug_irq) >= (level), "[%d][%s]", fmt, object->instance, object->name, ##args)
 #define dbg_isr_hw(fmt, object, args...)		\
 	dbg_common(debug_irq, "[%d][%s]", fmt, atomic_read(&object->instance), object->name, ##args)
 

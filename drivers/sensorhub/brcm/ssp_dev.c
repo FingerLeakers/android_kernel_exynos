@@ -303,6 +303,7 @@ static void initialize_variable(struct ssp_data *data)
 	data->ois_control = &ois_control;
 	data->ois_reset = &ois_reset;
 
+	data->svc_octa_change = false;
 }
 
 int initialize_mcu(struct ssp_data *data)
@@ -381,14 +382,24 @@ int initialize_mcu(struct ssp_data *data)
 	pr_info("[SSP] MCU Firm Rev : New = %8u\n",
 		data->uCurFirmRev);
 
-
-
 	data->dhrAccelScaleRange = get_accel_range(data);
 #ifdef CONFIG_PANEL_NOTIFY
 	send_panel_information(&data->panel_event_data);
 #endif
 
 	send_hall_ic_status(data->hall_ic_status);
+
+	if(set_prox_dynamic_cal_to_ssp(data) < 0) {
+		pr_err("[SSP]: %s - set dynamic cal flag failed\n", __func__);
+	}
+
+	if(set_prox_call_min_to_ssp(data) < 0) {
+		pr_err("[SSP]: %s - set prox call min failed\n", __func__);
+	}
+
+	if(set_factory_binary_flag_to_ssp(data) < 0) {
+		pr_err("[SSP]: %s - set factory binary flag failed\n", __func__);
+	}
 
 /* hoi: il dan mak a */
 #ifndef CONFIG_SENSORS_SSP_BBD
@@ -1105,6 +1116,7 @@ static int ssp_probe(struct spi_device *spi)
 	INIT_DELAYED_WORK(&data->work_ssp_tiemstamp_sync, ssp_timestamp_sync_work_func);
 	INIT_DELAYED_WORK(&data->work_ssp_reset, ssp_reset_work_func);
 
+	data->prox_call_min = -1;
 
 	goto exit;
 

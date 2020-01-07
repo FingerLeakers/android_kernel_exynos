@@ -18,8 +18,10 @@
 #define NPU_FW_PATH2		"/vendor/firmware/"
 #define NPU_FW_PATH3		"npu/"
 #define NPU_FW_PATH4		"npu_perf/"
+#define NPU_FW_PATH5		"npu_dn/"
 #define NPU_FW_NAME		"NPU.bin"
 #define NPU_PERF_FW_NAME	"NPU_perf.bin"
+#define NPU_DN_FW_NAME		"NPU_dn.bin"
 #define NPU_FW_NAME_LEN	100
 #define NPU_VERSION_SIZE	42
 

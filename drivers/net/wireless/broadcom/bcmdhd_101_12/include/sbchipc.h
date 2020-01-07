@@ -22,7 +22,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef	_SBCHIPC_H
@@ -550,7 +550,7 @@ typedef volatile struct {
 	uint32	nand_ctrl_config;
 	uint32	nand_ctrl_status;
 #endif /* CCNFLASH_SUPPORT */
-	/* XXX:Note: there is a clash between GCI and NFLASH. So,
+	/* Note: there is a clash between GCI and NFLASH. So,
 	* we decided to  have it like below. the functions accessing following
 	* have to be protected with NFLASH_SUPPORT. The functions will
 	* assert in case the clash happens.
@@ -1644,7 +1644,7 @@ typedef volatile struct {
 #define GPIO_ONTIME_SHIFT	16
 
 /* clockcontrol_n */
-/* XXX: Some pll types use less than the number of bits in some of these (n or m) masks */
+/* Some pll types use less than the number of bits in some of these (n or m) masks */
 #define	CN_N1_MASK		0x3f		/**< n1 control */
 #define	CN_N2_MASK		0x3f00		/**< n2 control */
 #define	CN_N2_SHIFT		8
@@ -1698,7 +1698,7 @@ typedef volatile struct {
 #define FLASH_NONE		0x000		/**< No flash */
 #define SFLASH_ST		0x100		/**< ST serial flash */
 #define SFLASH_AT		0x200		/**< Atmel serial flash */
-#define NFLASH			0x300		/**< XXX -- NAND flash */
+#define NFLASH			0x300		/**< NAND flash */
 #define	PFLASH			0x700		/**< Parallel flash */
 #define QSPIFLASH_ST		0x800
 #define QSPIFLASH_AT		0x900
@@ -1966,8 +1966,8 @@ typedef volatile struct {
 #define PMU_INT_STAT_TIMER_INT_SHIFT		(16u)
 #define PMU_INT_STAT_TIMER_INT_MASK		(1u <<  PMU_INT_STAT_TIMER_INT_SHIFT)
 
-/* bit 18 of the PMU interrupt vector - S/R self test fails
- * http://hwnbu-twiki.broadcom.com/bin/view/Mwgroup/PmuRev38
+/*
+ * bit 18 of the PMU interrupt vector - S/R self test fails
  */
 #define PMU_INT_STAT_SR_ERR_SHIFT		(18u)
 #define PMU_INT_STAT_SR_ERR_MASK		(1u <<  PMU_INT_STAT_SR_ERR_SHIFT)
@@ -2307,7 +2307,7 @@ typedef volatile struct {
 #define PMU_CC13_AUX_CBUCK2VDDRET_OFF		(1u << 12u)
 #define PMU_CC13_CMN_MEMLPLDO2VDDRET_ON		(1u << 18u)
 
-/* XXX HW4368-331 */
+/* HW4368-331 */
 #define PMU_CC13_MAIN_ALWAYS_USE_COHERENT_IF0	(1u << 13u)
 #define PMU_CC13_MAIN_ALWAYS_USE_COHERENT_IF1	(1u << 14u)
 #define PMU_CC13_AUX_ALWAYS_USE_COHERENT_IF0	(1u << 15u)
@@ -2827,7 +2827,7 @@ typedef volatile struct {
 #define	CST43228_OTP_PRESENT		0x2
 
 /* 4360 Chip specific ChipControl register bits */
-/* XXX 43602 uses these ChipControl definitions as well */
+/* 43602 uses these ChipControl definitions as well */
 #define CCTRL4360_I2C_MODE			(1 << 0)
 #define CCTRL4360_UART_MODE			(1 << 1)
 #define CCTRL4360_SECI_MODE			(1 << 2)
@@ -3323,6 +3323,40 @@ typedef volatile struct {
 #define RES4389_MACPHY_CLK_AUX		29u
 #define RES4389_MACPHY_CLK_MAIN		30u
 #define RES4389_RESERVED_31		31u
+
+/* 4397 PMU Resources */
+#define RES4397_DUMMY			0u
+#define RES4397_FAST_LPO_AVAIL		1u
+#define RES4397_PMU_LP			2u
+#define RES4397_MISC_LDO		3u
+#define RES4397_SERDES_AFE_RET		4u
+#define RES4397_XTAL_HQ			5u
+#define RES4397_XTAL_PU			6u
+#define RES4397_XTAL_STABLE		7u
+#define RES4397_PWRSW_DIG		8u
+#define RES4397_BTMC_TOP_RDY		9u
+#define RES4397_BTSC_TOP_RDY		10u
+#define RES4397_PWRSW_AUX		11u
+#define RES4397_PWRSW_SCAN		12u
+#define RES4397_CORE_RDY_SCAN		13u
+#define RES4397_PWRSW_MAIN		14u
+#define RES4397_XTAL_PM_CLK		15u
+#define RES4397_PWRSW_DRR2		16u
+#define RES4397_CORE_RDY_DIG		17u
+#define RES4397_CORE_RDY_AUX		18u
+#define RES4397_ALP_AVAIL		19u
+#define RES4397_RADIO_PU_AUX		20u
+#define RES4397_RADIO_PU_SCAN		21u
+#define RES4397_CORE_RDY_MAIN		22u
+#define RES4397_RADIO_PU_MAIN		23u
+#define RES4397_MACPHY_CLK_SCAN		24u
+#define RES4397_CORE_RDY_CB		25u
+#define RES4397_PWRSW_CB		26u
+#define RES4397_ARMCLKAVAIL		27u
+#define RES4397_HT_AVAIL		28u
+#define RES4397_MACPHY_CLK_AUX		29u
+#define RES4397_MACPHY_CLK_MAIN		30u
+#define RES4397_RESERVED_31		31u
 
 /* 0: BToverPCIe, 1: BToverUART */
 #define CST4378_CHIPMODE_BTOU(cs)	(((cs) & (1 << 6)) != 0)
@@ -4305,6 +4339,8 @@ typedef volatile struct {
 #define CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_5G_MASK	(0x1Fu <<\
 				CC_GCI_CNCB_SHORT_RESET_PULSE_WIDTH_5G_NBIT)
 
+#define CC_GCI_CNCB_GLITCH_FILTER_WIDTH_MASK	(0xFFu)
+
 #define CC_GCI_06_JTAG_SEL_SHIFT	4
 #define CC_GCI_06_JTAG_SEL_MASK		(1 << 4)
 
@@ -4323,7 +4359,7 @@ typedef volatile struct {
 #define GPIO_CTRL_REG_COUNT			40
 
 #define XTAL_HQ_SETTING_4387	(0xFFF94D30u)
-#define XTAL_LQ_SETTING_4387	(0xFFF94185u)
+#define XTAL_LQ_SETTING_4387	(0xFFF94380u)
 
 #define CC_GCI_16_BBPLL_CH_CTRL_GRP_PD_TRIG_1_MASK		(0x00000200u)
 #define CC_GCI_16_BBPLL_CH_CTRL_GRP_PD_TRIG_1_SHIFT		(9u)
@@ -4419,7 +4455,7 @@ typedef volatile struct {
 #define	LHL_LP_CTL5_SPMI_CLK_DATA_GPIO1		(1u)
 #define	LHL_LP_CTL5_SPMI_CLK_DATA_GPIO2		(2u)
 
-/* XXX: Plese do not these following defines */
+/* Plese do not these following defines */
 /* find the 4 bit mask given the bit position */
 #define GCIMASK(pos)  (((uint32)0xF) << pos)
 /* get the value which can be used to directly OR with chipcontrol reg */
@@ -4798,7 +4834,6 @@ typedef volatile struct {
 /* otpctrl1 0xF4 */
 #define OTPC_FORCE_PWR_OFF	0x02000000
 /* chipcommon s/r registers introduced with cc rev >= 48 */
-/* XXX see [SrEngRev1] Twiki */
 #define CC_SR_CTL0_ENABLE_MASK             0x1
 #define CC_SR_CTL0_ENABLE_SHIFT              0
 #define CC_SR_CTL0_EN_SR_ENG_CLK_SHIFT       1 /* sr_clk to sr_memory enable */

@@ -106,7 +106,7 @@ int wacom_i2c_send_sel(struct wacom_i2c *wac_i2c, const char *buf, int count, bo
 
 	do {
 		if (!wac_i2c->power_enable) {
-			input_err(true, &wac_i2c->client->dev, "%s: Power status off\n",
+			input_err(true, &client->dev, "%s: Power status off\n",
 					__func__);
 			ret = -EIO;
 
@@ -118,8 +118,8 @@ int wacom_i2c_send_sel(struct wacom_i2c *wac_i2c, const char *buf, int count, bo
 			break;
 
 		if (retry < WACOM_I2C_RETRY) {
-			input_err(true, &wac_i2c->client->dev, "%s: I2C retry(%d)\n",
-					__func__, WACOM_I2C_RETRY - retry);
+			input_err(true, &client->dev, "%s: I2C retry(%d) mode(%d)\n",
+					__func__, WACOM_I2C_RETRY - retry, mode);
 			wac_i2c->i2c_fail_count++;
 		}
 	} while (--retry);
@@ -143,7 +143,7 @@ int wacom_i2c_recv_sel(struct wacom_i2c *wac_i2c, char *buf, int count, bool mod
 
 	do {
 		if (!wac_i2c->power_enable) {
-			input_err(true, &wac_i2c->client->dev, "%s: Power status off\n",
+			input_err(true, &client->dev, "%s: Power status off\n",
 					__func__);
 			ret = -EIO;
 
@@ -155,8 +155,8 @@ int wacom_i2c_recv_sel(struct wacom_i2c *wac_i2c, char *buf, int count, bool mod
 			break;
 
 		if (retry < WACOM_I2C_RETRY) {
-			input_err(true, &wac_i2c->client->dev, "%s: I2C retry(%d)\n",
-					__func__, WACOM_I2C_RETRY - retry);
+			input_err(true, &client->dev, "%s: I2C retry(%d) mode(%d)\n",
+					__func__, WACOM_I2C_RETRY - retry, mode);
 			wac_i2c->i2c_fail_count++;
 		}
 	} while (--retry);
@@ -639,7 +639,7 @@ int wacom_i2c_set_survey_mode(struct wacom_i2c *wac_i2c, int mode)
 void forced_release_fullscan(struct wacom_i2c *wac_i2c)
 {
 	input_info(true, &wac_i2c->client->dev, "%s: full scan OUT\n", __func__);
-	wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+//	wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
 	wac_i2c->is_tsp_block = false;
 }
 
@@ -647,13 +647,11 @@ int wacom_power(struct wacom_i2c *wac_i2c, bool on)
 {
 	struct wacom_g5_platform_data *pdata = wac_i2c->pdata;
 	struct i2c_client *client = wac_i2c->client;
-	static struct timeval off_time = { 0, 0 };
-	struct timeval cur_time = { 0, 0 };
-	int retval = 0;
-	static struct regulator *vdd, *vddio;
+	struct regulator *regulator_avdd = NULL;
+	int ret = 0;
+	static bool boot_on = true;
 
-	input_info(true, &client->dev, "power %s\n",
-		   on ? "enabled" : "disabled");
+	input_info(true, &client->dev, "power %s\n", on ? "enabled" : "disabled");
 
 	if (!pdata) {
 		input_err(true, &client->dev, "%s, pdata is null\n", __func__);
@@ -661,131 +659,53 @@ int wacom_power(struct wacom_i2c *wac_i2c, bool on)
 	}
 
 	if (wac_i2c->power_enable == on) {
-		input_info(true, &client->dev, "pwr already %s\n",
-			   on ? "enabled" : "disabled");
+		input_info(true, &client->dev, "pwr already %s\n", on ? "enabled" : "disabled");
 		return 0;
 	}
 
-	if (on) {
-		long sec, usec;
-
-		do_gettimeofday(&cur_time);
-		sec = cur_time.tv_sec - off_time.tv_sec;
-		usec = cur_time.tv_usec - off_time.tv_usec;
-		if (!sec) {
-			usec = EPEN_OFF_TIME_LIMIT - usec;
-			if (usec > 500) {
-				usleep_range(usec, usec);
-				input_info(true, &client->dev,
-					   "%s, pwr on usleep %d\n", __func__,
-					   (int)usec);
-			}
-		}
-	}
-
-	if (pdata->use_vddio && !vddio) {
-		vddio = devm_regulator_get(&client->dev, "vddio");
-
-		if (IS_ERR(vddio)) {
-			input_err(true, &client->dev,
-				  "%s: could not get vddio, rc = %ld\n",
-				  __func__, PTR_ERR(vddio));
-			vddio = NULL;
-			return -ENODEV;
-		}
-		retval = regulator_set_voltage(vddio, 1800000, 1800000);
-		if (retval)
-			input_err(true, &client->dev,
-				  "%s: unable to set vddio voltage to 1.8V\n",
-				  __func__);
-		input_err(true, &client->dev, "%s: 1.8V is enabled %s\n",
-			  __func__,
-			  regulator_is_enabled(vddio) ? "TRUE" : "FALSE");
-
-	}
-
-	if (!vdd) {
-		vdd = devm_regulator_get(&client->dev, "vdd");
-
-		if (IS_ERR(vdd)) {
-			input_err(true, &client->dev,
-				  "%s: could not get vdd, rc = %ld\n",
-				  __func__, PTR_ERR(vdd));
-			vdd = NULL;
-			return -ENODEV;
-		}
-		retval = regulator_set_voltage(vdd, 3300000, 3300000);
-		if (retval)
-			input_err(true, &client->dev,
-				  "%s: unable to set vdd voltage to 3.3V\n",
-				  __func__);
-		input_err(true, &client->dev, "%s: 3.3V is enabled %s\n",
-			  __func__,
-			  regulator_is_enabled(vdd) ? "TRUE" : "FALSE");
-
+	//pdata->regulator_avdd
+	regulator_avdd = regulator_get(NULL, pdata->regulator_avdd);
+	if (IS_ERR_OR_NULL(regulator_avdd)) {
+		input_err(true, &client->dev, "%s: Failed to get %s regulator.\n",
+				__func__, pdata->regulator_avdd);
+		ret = PTR_ERR(regulator_avdd);
+		goto error;
 	}
 
 	if (on) {
-		if (pdata->use_vddio) {
-			retval = regulator_enable(vddio);
-			if (retval) {
-				input_err(true, &client->dev,
-					  "%s: Fail to enable regulator vddio[%d]\n",
-					  __func__, retval);
-			} else {
-				input_err(true, &client->dev, "%s: vddio is enabled[OK]\n",
-					  __func__);
+		if (!regulator_is_enabled(regulator_avdd) || boot_on) {
+			ret = regulator_enable(regulator_avdd);
+			if (ret) {
+				input_err(true, &client->dev, "%s: Failed to enable vdd: %d\n", __func__, ret);
+				regulator_disable(regulator_avdd);
+				goto out;
 			}
-		}
-
-		retval = regulator_enable(vdd);
-		if (retval) {
-			input_err(true, &client->dev,
-				  "%s: Fail to enable regulator vdd[%d]\n",
-				  __func__, retval);
+			input_info(true, &client->dev, "%s: avdd is enable(%d)\n", __func__, regulator_is_enabled(regulator_avdd));
 		} else {
-			input_err(true, &client->dev, "%s: vdd is enabled[OK]\n",
-				  __func__);
+			input_err(true, &client->dev, "%s: avdd is already enabled\n", __func__);
 		}
 	} else {
-		if (pdata->use_vddio) {
-			if (regulator_is_enabled(vddio)) {
-				retval = regulator_disable(vddio);
-				if (retval) {
-					input_err(true, &client->dev,
-						  "%s: Fail to disable regulator vddio[%d]\n",
-						  __func__, retval);
-
-				} else {
-					input_err(true, &client->dev,
-						  "%s: vddio is disabled[OK]\n",
-						  __func__);
-				}
-			} else {
-				input_err(true, &client->dev,
-					  "%s: vddio is already disabled\n",
-					  __func__);
+		if (regulator_is_enabled(regulator_avdd)) {
+			ret = regulator_disable(regulator_avdd);
+			if (ret) {
+				input_err(true, &client->dev, "%s: failed to disable avdd: %d\n", __func__, ret);
+				goto out;
 			}
-		}
-
-		if (regulator_is_enabled(vdd)) {
-			retval = regulator_disable(vdd);
-			if (retval) {
-				input_err(true, &client->dev,
-					  "%s: Fail to disable regulator vdd[%d]\n",
-					  __func__, retval);
-
-			} else {
-				input_err(true, &client->dev,
-					  "%s: vdd is disabled[OK]\n", __func__);
-			}
+			input_info(true, &client->dev, "%s: avdd is disable(%d)\n", __func__, regulator_is_enabled(regulator_avdd));
 		} else {
-			input_err(true, &client->dev,
-				  "%s: vdd is already disabled\n", __func__);
+			input_err(true, &client->dev, "%s: avdd is already disabled\n", __func__);
 		}
 	}
-
 	wac_i2c->power_enable = on;
+
+out:
+	input_err(true, &client->dev, "%s: %s: avdd:%s\n",
+			__func__, on ? "on" : "off", regulator_is_enabled(regulator_avdd) ? "on" : "off");
+
+error:
+	regulator_put(regulator_avdd);
+
+	boot_on = false;
 
 	return 0;
 }
@@ -806,6 +726,9 @@ void wacom_compulsory_flash_mode(struct wacom_i2c *wac_i2c, bool enable)
 
 	if (pdata)
 		gpio_direction_output(pdata->fwe_gpio, enable);
+
+	input_info(true, &wac_i2c->client->dev, "%s : enable(%d) fwe(%d)\n",
+					__func__, enable, gpio_get_value(pdata->fwe_gpio));
 }
 
 void wacom_enable_irq(struct wacom_i2c *wac_i2c, bool enable)
@@ -883,6 +806,8 @@ static void wacom_enable_irq_wake(struct wacom_i2c *wac_i2c, bool enable)
 void wacom_wakeup_sequence(struct wacom_i2c *wac_i2c)
 {
 	struct i2c_client *client = wac_i2c->client;
+	int retry = 1;
+	int ret;
 
 	mutex_lock(&wac_i2c->lock);
 #if WACOM_SEC_FACTORY
@@ -902,9 +827,89 @@ void wacom_wakeup_sequence(struct wacom_i2c *wac_i2c)
 		goto out_power_on;
 	}
 
-	cancel_delayed_work_sync(&wac_i2c->resume_work);
-	schedule_delayed_work(&wac_i2c->resume_work,
-			      msecs_to_jiffies(EPEN_RESUME_DELAY));
+reset:
+	if (wac_i2c->reset_flag) {
+		input_info(true, &client->dev, "%s: IC reset start\n", __func__);
+
+		wac_i2c->abnormal_reset_count++;
+		wac_i2c->reset_flag = false;
+		wac_i2c->survey_mode = EPEN_SURVEY_MODE_NONE;
+		wac_i2c->function_result &= ~EPEN_EVENT_SURVEY;
+
+		wacom_enable_irq(wac_i2c, false);
+		wacom_enable_pdct_irq(wac_i2c, false);
+
+		wacom_reset_hw(wac_i2c);
+
+		wac_i2c->pen_pdct =
+			gpio_get_value(wac_i2c->pdata->pdct_gpio);
+
+		input_info(true, &client->dev,
+			   "%s: IC reset end, pdct(%d)\n", __func__,
+			   wac_i2c->pen_pdct);
+
+		if (wac_i2c->pdata->use_garage) {
+			if (wac_i2c->pen_pdct)
+				wac_i2c->function_result &= ~EPEN_EVENT_PEN_OUT;
+			else
+				wac_i2c->function_result |= EPEN_EVENT_PEN_OUT;
+		}
+
+		wacom_enable_irq(wac_i2c, true);
+		wacom_enable_pdct_irq(wac_i2c, true);
+	}
+
+	wacom_select_survey_mode(wac_i2c, true);
+
+	if (wac_i2c->reset_flag && retry--)
+		goto reset;
+
+	if (wac_i2c->wcharging_mode)
+		wacom_i2c_set_sense_mode(wac_i2c);
+
+	if (wac_i2c->tsp_scan_mode < 0) {
+//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+		wac_i2c->is_tsp_block = false;
+	}
+
+	if (!gpio_get_value(wac_i2c->pdata->irq_gpio)) {
+		u8 data[COM_COORD_NUM + 1] = { 0, };
+
+		input_info(true, &client->dev, "%s: irq was enabled\n",
+			   __func__);
+
+		ret = wacom_i2c_recv(wac_i2c, data, COM_COORD_NUM + 1);
+		if (ret < 0) {
+			input_err(true, &client->dev,
+				  "%s: failed to receive\n", __func__);
+		}
+
+		input_info(true, &client->dev,
+			   "%x %x %x %x %x, %x %x %x %x %x, %x %x %x\n",
+			   data[0], data[1], data[2], data[3], data[4], data[5],
+			   data[6], data[7], data[8], data[9], data[10],
+			   data[11], data[12]);
+	}
+
+	if (!wac_i2c->samplerate_state) {
+		char cmd = COM_SAMPLERATE_START;
+
+		input_info(true, &client->dev, "%s: samplerate state is %d, need to recovery\n",
+					   __func__, wac_i2c->samplerate_state);
+
+		ret = wacom_i2c_send(wac_i2c, &cmd, 1);
+		if (ret < 0) {
+			input_err(true, &client->dev, "%s: failed to sned start cmd %d\n", __func__, ret);
+		} else {
+			wac_i2c->samplerate_state = true;
+		}
+	}
+
+	input_info(true, &client->dev,
+		   "%s: i(%d) p(%d) f_set(0x%x) f_ret(0x%x) samplerate(%d)\n",
+		   __func__, gpio_get_value(wac_i2c->pdata->irq_gpio),
+		   gpio_get_value(wac_i2c->pdata->pdct_gpio), wac_i2c->function_set,
+		   wac_i2c->function_result, wac_i2c->samplerate_state);
 
 	cancel_delayed_work(&wac_i2c->work_print_info);
 	wac_i2c->print_info_cnt_open = 0;
@@ -946,7 +951,6 @@ void wacom_sleep_sequence(struct wacom_i2c *wac_i2c)
 			   "already disabled. pass %s\n", __func__);
 		goto out_power_off;
 	}
-	cancel_delayed_work_sync(&wac_i2c->resume_work);
 	cancel_delayed_work_sync(&wac_i2c->work_print_info);
 	wacom_print_info(wac_i2c);
 
@@ -1088,12 +1092,12 @@ static void wac_i2c_block_tsp_scan(struct wacom_i2c *wac_i2c, char *data)
 		input_info(true, &wac_i2c->client->dev, "%s: tsp:%d wacom mode:%d scan mode:%d\n",
 			   __func__, tsp, wacom_mode, scan_mode);
 		wac_i2c->is_tsp_block = true;
-		wac_i2c->tsp_scan_mode = set_scan_mode(ENABLE_TSP_SCAN_BLCOK);
+//		wac_i2c->tsp_scan_mode = set_scan_mode(ENABLE_TSP_SCAN_BLCOK);
 		wac_i2c->tsp_block_cnt++;
 	} else if (!tsp && wac_i2c->is_tsp_block) {
 		input_info(true, &wac_i2c->client->dev, "%s: tsp:%d wacom mode:%d scan mode:%d\n",
 			   __func__, tsp, wacom_mode, scan_mode);
-		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
 		wac_i2c->is_tsp_block = false;
 	}
 }
@@ -1596,18 +1600,6 @@ static irqreturn_t wacom_interrupt(int irq, void *dev_id)
 	forced_release_fullscan(wac_i2c);
 
 	wac_i2c->reset_flag = true;
-	if (!work_busy(&wac_i2c->resume_work.work)) {
-		input_info(true, &wac_i2c->client->dev,
-			   "%s schedule resume work\n", __func__);
-
-		cancel_delayed_work(&wac_i2c->resume_work);
-		schedule_delayed_work(&wac_i2c->resume_work,
-			msecs_to_jiffies(EPEN_RESUME_DELAY));
-	} else {
-		input_err(true, &wac_i2c->client->dev,
-			  "%s resume work is busy\n", __func__);
-	}
-
 out:
 	return IRQ_HANDLED;
 }
@@ -1863,102 +1855,6 @@ static void wacom_print_info_work(struct work_struct *work)
 
 	wacom_print_info(wac_i2c);
 	schedule_delayed_work(&wac_i2c->work_print_info, msecs_to_jiffies(30000));	// 30s
-}
-
-static void wacom_i2c_resume_work(struct work_struct *work)
-{
-	struct wacom_i2c *wac_i2c =
-	    container_of(work, struct wacom_i2c, resume_work.work);
-	struct i2c_client *client = wac_i2c->client;
-	int retry = 1;
-	int ret = 0;
-
-reset:
-	if (wac_i2c->reset_flag) {
-		input_info(true, &client->dev,
-			   "%s: IC reset start\n", __func__);
-
-		wac_i2c->abnormal_reset_count++;
-		wac_i2c->reset_flag = false;
-		wac_i2c->survey_mode = EPEN_SURVEY_MODE_NONE;
-		wac_i2c->function_result &= ~EPEN_EVENT_SURVEY;
-
-		wacom_enable_irq(wac_i2c, false);
-		wacom_enable_pdct_irq(wac_i2c, false);
-
-		wacom_reset_hw(wac_i2c);
-
-		wac_i2c->pen_pdct =
-		    gpio_get_value(wac_i2c->pdata->pdct_gpio);
-
-		input_info(true, &client->dev,
-			   "%s: IC reset end, pdct(%d)\n", __func__,
-			   wac_i2c->pen_pdct);
-
-		if (wac_i2c->pdata->use_garage) {
-			if (wac_i2c->pen_pdct)
-				wac_i2c->function_result &= ~EPEN_EVENT_PEN_OUT;
-			else
-				wac_i2c->function_result |= EPEN_EVENT_PEN_OUT;
-		}
-
-		wacom_enable_irq(wac_i2c, true);
-		wacom_enable_pdct_irq(wac_i2c, true);
-	}
-
-	wacom_select_survey_mode(wac_i2c, true);
-
-	if (wac_i2c->reset_flag && retry--)
-		goto reset;
-
-	if (wac_i2c->wcharging_mode)
-		wacom_i2c_set_sense_mode(wac_i2c);
-
-	if (wac_i2c->tsp_scan_mode < 0) {
-		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
-		wac_i2c->is_tsp_block = false;
-	}
-
-	if (!gpio_get_value(wac_i2c->pdata->irq_gpio)) {
-		u8 data[COM_COORD_NUM + 1] = { 0, };
-
-		input_info(true, &client->dev, "%s: irq was enabled\n",
-			   __func__);
-
-		ret = wacom_i2c_recv(wac_i2c, data, COM_COORD_NUM + 1);
-		if (ret < 0) {
-			input_err(true, &client->dev,
-				  "%s: failed to receive\n", __func__);
-		}
-
-		input_info(true, &client->dev,
-			   "%x %x %x %x %x, %x %x %x %x %x, %x %x %x\n",
-			   data[0], data[1], data[2], data[3], data[4], data[5],
-			   data[6], data[7], data[8], data[9], data[10],
-			   data[11], data[12]);
-	}
-
-	if (!wac_i2c->samplerate_state) {
-		char cmd = COM_SAMPLERATE_START;
-
-		input_info(true, &client->dev, "%s: samplerate state is %d, need to recovery\n",
-			   __func__, wac_i2c->samplerate_state);
-
-		ret = wacom_i2c_send(wac_i2c, &cmd, 1);
-		if (ret < 0) {
-			input_err(true, &client->dev,
-				  "failed to sned start cmd %d\n",
-				  ret);
-		} else {
-			wac_i2c->samplerate_state = true;
-		}
-	}
-
-	input_info(true, &client->dev,
-		   "%s: i(%d) p(%d) f_set(0x%x) f_ret(0x%x) samplerate(%d)\n",
-		   __func__, gpio_get_value(wac_i2c->pdata->irq_gpio),
-		   gpio_get_value(wac_i2c->pdata->pdct_gpio), wac_i2c->function_set,
-		   wac_i2c->function_result, wac_i2c->samplerate_state);
 }
 
 int load_fw_built_in(struct wacom_i2c *wac_i2c, int fw_index)
@@ -2537,7 +2433,7 @@ out:
 }
 #endif
 
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+#if 0 //defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 static void wacom_i2c_usb_typec_work(struct work_struct *work)
 {
 	struct wacom_i2c *wac_i2c = container_of(work, struct wacom_i2c, typec_work);
@@ -2628,6 +2524,7 @@ out:
 }
 #endif
 
+#if 0
 static void wacom_i2c_nb_register_work(struct work_struct *work)
 {
 	struct wacom_i2c *wac_i2c = container_of(work, struct wacom_i2c,
@@ -2636,7 +2533,7 @@ static void wacom_i2c_nb_register_work(struct work_struct *work)
 	u32 count = 0;
 	int ret;
 
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+#if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 	if (table_swap == TABLE_SWAP_DEX_STATION)
 		INIT_WORK(&wac_i2c->typec_work, wacom_i2c_usb_typec_work);
 #endif
@@ -2646,7 +2543,7 @@ static void wacom_i2c_nb_register_work(struct work_struct *work)
 #endif
 
 	do {
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+#if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 		if (table_swap == TABLE_SWAP_DEX_STATION) {
 			static bool manager_flag = false;
 
@@ -2686,6 +2583,7 @@ static void wacom_i2c_nb_register_work(struct work_struct *work)
 		msleep(30);
 	} while (count < 100);
 }
+#endif
 
 static int wacom_request_gpio(struct i2c_client *client,
 			      struct wacom_g5_platform_data *pdata)
@@ -2899,7 +2797,11 @@ static struct wacom_g5_platform_data *wacom_parse_dt(struct i2c_client *client)
 		pdata->table_swap = 0;
 	}
 
-	pdata->use_vddio = of_property_read_bool(np, "vddio-supply");
+	if (of_property_read_string(np, "wacom,regulator_avdd", &pdata->regulator_avdd)) {
+		input_err(true, dev, "%s: Failed to get regulator_avdd name property\n", __func__);
+	}
+
+	pdata->regulator_boot_on = of_property_read_bool(np, "wacom,regulator_boot_on");
 
 	ret = of_property_read_u32(np, "wacom,bringup", &pdata->bringup);
 	if (ret) {
@@ -2920,7 +2822,7 @@ static struct wacom_g5_platform_data *wacom_parse_dt(struct i2c_client *client)
 		   pdata->x_invert, pdata->y_invert, pdata->xy_switch,
 		   pdata->fw_path, pdata->module_ver, pdata->table_swap,
 		   pdata->use_garage ? ", use garage" : "",
-		   pdata->use_vddio ? ", control vddio" : "");
+		   pdata->regulator_boot_on ? ", boot on" : "");
 
 	return pdata;
 }
@@ -2939,6 +2841,8 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	struct wacom_i2c *wac_i2c;
 	struct input_dev *input;
 	int ret = 0;
+
+	pr_info("%s: %s: start!\n", SECLOG, __func__);
 
 	ret = i2c_check_functionality(client->adapter, I2C_FUNC_I2C);
 	if (!ret) {
@@ -3012,15 +2916,15 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, wac_i2c);
 	i2c_set_clientdata(wac_i2c->client_boot, wac_i2c);
 
-	/* compensation to protect from flash mode */
-	wacom_compulsory_flash_mode(wac_i2c, true);
-	wacom_compulsory_flash_mode(wac_i2c, false);
+	input_info(true, &client->dev, "%s : fwe(%d)\n",
+					__func__, gpio_get_value(pdata->fwe_gpio));
 
 	/* Power on */
 	wacom_power(wac_i2c, true);
+	/* need to delay for query. but if you use regulator_boot_on, do not need delay */
+	if (!wac_i2c->pdata->regulator_boot_on)
+		msleep(200);
 	wac_i2c->screen_on = true;
-	/* need to delay for query. but if you use boot_on_led, do not need delay */
-	msleep(100);
 
 	wacom_i2c_query(wac_i2c);
 
@@ -3036,7 +2940,6 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	wake_lock_init(&wac_i2c->fw_wakelock, WAKE_LOCK_SUSPEND, "wacom");
 	wake_lock_init(&wac_i2c->wakelock, WAKE_LOCK_SUSPEND, "wacom_wakelock");
 
-	INIT_DELAYED_WORK(&wac_i2c->resume_work, wacom_i2c_resume_work);
 	INIT_DELAYED_WORK(&wac_i2c->work_print_info, wacom_print_info_work);
 
 	init_completion(&wac_i2c->resume_done);
@@ -3087,10 +2990,12 @@ static int wacom_i2c_probe(struct i2c_client *client,
 
 	device_init_wakeup(&client->dev, true);
 
+#if 0
 	if (wac_i2c->pdata->table_swap) {
 		INIT_DELAYED_WORK(&wac_i2c->nb_reg_work, wacom_i2c_nb_register_work);
 		schedule_delayed_work(&wac_i2c->nb_reg_work, msecs_to_jiffies(500));
 	}
+#endif
 
 	input_info(true, &client->dev, "probe done\n");
 	input_log_fix();
@@ -3104,7 +3009,6 @@ err_sec_init:
 err_request_pdct_irq:
 err_request_irq:
 err_register_input_dev:
-	cancel_delayed_work_sync(&wac_i2c->resume_work);
 	wake_lock_destroy(&wac_i2c->fw_wakelock);
 	wake_lock_destroy(&wac_i2c->wakelock);
 
@@ -3164,17 +3068,19 @@ static void wacom_i2c_shutdown(struct i2c_client *client)
 
 	input_info(true, &wac_i2c->client->dev, "%s called!\n", __func__);
 
+#if 0
 	if (wac_i2c->pdata->table_swap) {
 #ifdef CONFIG_MUIC_SUPPORT_KEYBOARDDOCK
 		if (wac_i2c->pdata->table_swap == TABLE_SWAP_KBD_COVER)
 			keyboard_notifier_unregister(&wac_i2c->kbd_nb);
 #endif
 
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+#if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 		if (wac_i2c->pdata->table_swap == TABLE_SWAP_DEX_STATION)
 			manager_notifier_unregister(&wac_i2c->typec_nb);
 #endif
 	}
+#endif
 
 	cancel_delayed_work_sync(&wac_i2c->pen_insert_dwork);
 	cancel_delayed_work_sync(&wac_i2c->work_print_info);
@@ -3201,7 +3107,7 @@ static int wacom_i2c_remove(struct i2c_client *client)
 			keyboard_notifier_unregister(&wac_i2c->kbd_nb);
 #endif
 
-#ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+#if 0	// defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 		if (wac_i2c->pdata->table_swap == TABLE_SWAP_DEX_STATION)
 			manager_notifier_unregister(&wac_i2c->typec_nb);
 #endif
@@ -3241,25 +3147,27 @@ static const struct i2c_device_id wacom_i2c_id[] = {
 MODULE_DEVICE_TABLE(i2c, wacom_i2c_id);
 
 #ifdef CONFIG_OF
-static const struct of_device_id wacom_dt_ids[] = {
-	{.compatible = "wacom,w90xx"},
-	{}
+static const struct of_device_id wacom_match_table[] = {
+	{ .compatible = "wacom,w90xx",},
+	{ }
 };
 #endif
 
 static struct i2c_driver wacom_i2c_driver = {
-	.driver = {
-		   .owner = THIS_MODULE,
-		   .name = "wacom_w90xx",
-#ifdef CONFIG_PM
-		   .pm = &wacom_pm_ops,
-#endif
-		   .of_match_table = of_match_ptr(wacom_dt_ids),
-		   },
 	.probe = wacom_i2c_probe,
 	.remove = wacom_i2c_remove,
 	.shutdown = wacom_i2c_shutdown,
 	.id_table = wacom_i2c_id,
+	.driver = {
+		   .owner = THIS_MODULE,
+		   .name = "wacom_ic",
+#ifdef CONFIG_PM
+		   .pm = &wacom_pm_ops,
+#endif
+#ifdef CONFIG_OF
+		   .of_match_table = wacom_match_table,
+#endif
+	},
 };
 
 static int __init wacom_i2c_init(void)

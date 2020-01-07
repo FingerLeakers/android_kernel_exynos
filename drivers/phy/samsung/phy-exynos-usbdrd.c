@@ -161,7 +161,7 @@ exynos_usbdrd_hs_phy_tune_store(struct device *dev,
 	int ret, i;
 	u32 tune_num = 0;
 
-	if (sscanf(buf, "%s %x", tune_name, &tune_val) != 2){
+	if (sscanf(buf, "%29s %x", tune_name, &tune_val) != 2){
 		return -EINVAL;
 	}
 
@@ -230,7 +230,7 @@ exynos_usbdrd_phy_tune_store(struct device *dev,
 	int ret, i;
 	u32 tune_num = 0;
 
-	if (sscanf(buf, "%s %x", tune_name, &tune_val) != 2){
+	if (sscanf(buf, "%29s %x", tune_name, &tune_val) != 2){
 		return -EINVAL;
 	}
 

@@ -483,7 +483,7 @@ static void abox_process_ipc(struct work_struct *work)
 
 	if (abox_can_calliope_ipc(dev, data)) {
 		while (abox_ipc_queue_get(data, &ipc) == 0) {
-			const int THRESHOLD = 128;
+			const int THRESHOLD = 64;
 			static int error;
 			struct device *dev = ipc.dev;
 			int hw_irq = ipc.hw_irq;
@@ -2011,7 +2011,7 @@ static int abox_cpu_suspend_complete(struct device *dev)
 	limit = local_clock() + timeout;
 
 	while (regmap_read(regmap, ABOX_TIMER_PRESET_LSB(1), &value) >= 0) {
-		if (value == 0)
+		if (value == 0xFFFFFFFE) /* -2 means ABOX enters WFI */
 			break;
 
 		if (local_clock() > limit) {
@@ -2580,7 +2580,7 @@ static bool abox_is_timer_set(struct abox_data *data)
 	unsigned int val;
 	int ret;
 
-	ret = regmap_read(data->timer_regmap, ABOX_TIMER_CTRL1(0), &val);
+	ret = regmap_read(data->timer_regmap, ABOX_TIMER_PRESET_LSB(1), &val);
 	if (ret < 0)
 		val = 0;
 

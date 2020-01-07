@@ -32,53 +32,91 @@
 
 inline void csi_frame_start_inline(struct is_device_csi *csi)
 {
+	u32 inc = 1;
+	u32 fcount, hw_fcount;
+	struct is_device_sensor *sensor;
+	u32 hashkey;
+	u32 index;
+	u32 hw_frame_id[2] = {0, 0};
+
 	/* frame start interrupt */
 	csi->sw_checker = EXPECT_FRAME_END;
-	atomic_inc(&csi->fcount);
-	dbg_isr("[F%d] S\n", csi, atomic_read(&csi->fcount));
-	atomic_inc(&csi->vvalid);
-	{
-		u32 vsync_cnt = atomic_read(&csi->fcount);
-		struct is_device_sensor *sensor;
-		u32 hashkey;
 
-		sensor = v4l2_get_subdev_hostdata(*csi->subdev);
-		if (!sensor) {
-			err("sensor is NULL");
-			BUG();
+	if (!csi->f_id_dec) {
+		hw_fcount = csi_hw_g_fcount(csi->base_reg, CSI_VIRTUAL_CH_0);
+		inc = hw_fcount - csi->hw_fcount;
+		csi->hw_fcount = hw_fcount;
+
+		if (unlikely(inc != 1)) {
+			if (inc > 1) {
+				mwarn("[CSI%d] interrupt lost(%d)", csi, csi->ch, inc);
+			} else if (inc == 0) {
+				mwarn("[CSI%d] hw_fcount(%d) is not incresed",
+					csi, csi->ch, hw_fcount);
+				inc = 1;
+			}
 		}
-
-		hashkey = vsync_cnt % IS_TIMESTAMP_HASH_KEY;
-		sensor->timestamp[hashkey] = is_get_timestamp();
-		sensor->timestampboot[hashkey] = is_get_timestamp_boot();
-
-		v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VSYNC, &vsync_cnt);
 	}
 
+	fcount = atomic_add_return(inc, &csi->fcount);
+
+	dbg_isr(1, "[F%d] S\n", csi, fcount);
+	atomic_set(&csi->vvalid, 1);
+
+	sensor = v4l2_get_subdev_hostdata(*csi->subdev);
+	if (!sensor) {
+	    err("sensor is NULL");
+	    BUG();
+	}
+
+	sensor->fcount = fcount;
+	hashkey = fcount % IS_TIMESTAMP_HASH_KEY;
+	sensor->timestamp[hashkey] = is_get_timestamp();
+	sensor->timestampboot[hashkey] = is_get_timestamp_boot();
+
+	v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VSYNC, &fcount);
+
 	tasklet_schedule(&csi->tasklet_csis_str);
+
+	index = fcount % DEBUG_FRAME_COUNT;
+	csi->debug_info[index].fcount = fcount;
+	csi->debug_info[index].instance = csi->instance;
+	csi->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
+	csi->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
+
+	if (csi->f_id_dec) {
+		/* after increase fcount */
+		csi_hw_g_dma_common_frame_id(csi->csi_dma->base_reg, csi->batch_num, hw_frame_id);
+		sensor->frame_id[hashkey] = ((u64)hw_frame_id[1] << 32) | (u64)hw_frame_id[0];
+	}
 }
 
 static inline void csi_frame_line_inline(struct is_device_csi *csi)
 {
-	dbg_isr("[F%d] L\n", csi, atomic_read(&csi->fcount));
+	dbg_isr(1, "[F%d] L\n", csi, atomic_read(&csi->fcount));
 	/* frame line interrupt */
 	tasklet_schedule(&csi->tasklet_csis_line);
 }
 
 static inline void csi_frame_end_inline(struct is_device_csi *csi)
 {
-	dbg_isr("[F%d] E\n", csi, atomic_read(&csi->fcount));
+	u32 fcount = atomic_read(&csi->fcount);
+	u32 index;
+
+	dbg_isr(1, "[F%d] E\n", csi, fcount);
+
 	/* frame end interrupt */
 	csi->sw_checker = EXPECT_FRAME_START;
-	atomic_dec(&csi->vvalid);
-	{
-		u32 vsync_cnt = atomic_read(&csi->fcount);
 
-		atomic_set(&csi->vblank_count, vsync_cnt);
-		v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VBLANK, &vsync_cnt);
-	}
+	atomic_set(&csi->vvalid, 0);
+	atomic_set(&csi->vblank_count, fcount);
+	v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VBLANK, &fcount);
 
 	tasklet_schedule(&csi->tasklet_csis_end);
+
+	index = fcount % DEBUG_FRAME_COUNT;
+	csi->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
+	csi->debug_info[index].time[DEBUG_POINT_FRAME_END] = cpu_clock(raw_smp_processor_id());
 }
 
 static inline void csi_s_buf_addr(struct is_device_csi *csi, struct is_frame *frame, u32 vc)
@@ -1173,6 +1211,13 @@ static irqreturn_t is_isr_csi(int irq, void *data)
 	memset(&irq_src, 0x0, sizeof(struct csis_irq_src));
 	csi_hw_g_irq_src(csi->base_reg, &irq_src, true);
 
+	dbg_isr(2, "link: ERR(0x%X, 0x%X, 0x%X, 0x%X) S(0x%X) L(0x%X) E(0x%X)\n", csi,
+		irq_src.err_id[CSI_VIRTUAL_CH_0],
+		irq_src.err_id[CSI_VIRTUAL_CH_1],
+		irq_src.err_id[CSI_VIRTUAL_CH_2],
+		irq_src.err_id[CSI_VIRTUAL_CH_3],
+		irq_src.otf_start, irq_src.line_end, irq_src.otf_end);
+
 	/* Get Frame Start Status */
 	frame_start = irq_src.otf_start & (1 << CSI_VIRTUAL_CH_0);
 
@@ -1254,6 +1299,7 @@ static irqreturn_t is_isr_csi_dma(int irq, void *data)
 	struct is_device_csi *csi;
 	int dma_frame_str = 0;
 	int dma_frame_end = 0;
+	int dma_abort_done = 0;
 	int dma_err_flag = 0;
 	u32 dma_err_id[CSI_VIRTUAL_CH_MAX];
 	struct csis_irq_src irq_src;
@@ -1275,6 +1321,7 @@ static irqreturn_t is_isr_csi_dma(int irq, void *data)
 		irq_src.dma_start = 0;
 		irq_src.dma_end = 0;
 		irq_src.line_end = 0;
+		irq_src.dma_abort = 0;
 		irq_src.err_flag = 0;
 		vc_phys = csi->dma_subdev[vc]->vc_ch[csi->scm];
 		if (vc_phys < 0) {
@@ -1291,13 +1338,22 @@ static irqreturn_t is_isr_csi_dma(int irq, void *data)
 
 		if (irq_src.dma_end)
 			dma_frame_end |= 1 << vc;
+
+		if (irq_src.dma_abort)
+			dma_abort_done |= 1 << vc;
 	}
 
 	if (dma_frame_str)
-		dbg_isr("DS 0x%X\n", csi, dma_frame_str);
+		dbg_isr(1, "DS 0x%X\n", csi, dma_frame_str);
 
 	if (dma_frame_end)
-		dbg_isr("DE 0x%X\n", csi, dma_frame_end);
+		dbg_isr(1, "DE 0x%X\n", csi, dma_frame_end);
+
+	if (dma_abort_done) {
+		dbg_isr(1, "DMA ABORT DONE 0x%X\n", csi, dma_abort_done);
+		clear_bit(CSIS_DMA_FLUSH_WAIT, &csi->state);
+		wake_up(&csi->dma_flush_wait_q);
+	}
 
 	device = container_of(csi->subdev, struct is_device_sensor, subdev_csi);
 	group = &device->group_sensor;
@@ -1685,7 +1741,7 @@ static long csi_ioctl(struct v4l2_subdev *subdev, unsigned int cmd, void *arg)
 			u32 *hw_frame_id = (u32 *)arg;
 
 			if (csi->f_id_dec)
-				csi_hw_g_dma_common_frame_id(csi_dma->base_reg, hw_frame_id);
+				csi_hw_g_dma_common_frame_id(csi_dma->base_reg, csi->batch_num, hw_frame_id);
 			else
 				ret = 1; /* HW frame ID decoder is not available. */
 		}
@@ -1961,6 +2017,8 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 		goto err_set_phy;
 	}
 
+	csi->hw_fcount = csi_hw_g_fcount(csi->base_reg, CSI_VIRTUAL_CH_0);
+
 	/* CSIS core setting */
 	csi_hw_s_lane(base_reg, &csi->image, sensor_cfg->lanes, sensor_cfg->mipi_speed, csi->use_cphy);
 	csi_hw_s_control(base_reg, CSIS_CTRL_INTERLEAVE_MODE, sensor_cfg->interleave_mode);
@@ -2120,6 +2178,7 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 	u32 __iomem *base_reg;
 	struct is_device_sensor *device = v4l2_get_subdev_hostdata(subdev);
 	struct is_device_csi_dma *csi_dma = csi->csi_dma;
+	long timetowait;
 
 	FIMC_BUG(!csi);
 	FIMC_BUG(!device);
@@ -2153,6 +2212,7 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 			 * because previous state is remained after stream on.
 			 */
 			csi_s_output_dma(csi, vc, false);
+			csi_hw_dma_reset(csi->vc_reg[csi->scm][vc]);
 
 			if (csi->dma_subdev[vc])
 				if (flush_work(&csi->wq_csis_dma[vc]))
@@ -2160,8 +2220,15 @@ static int csi_stream_off(struct v4l2_subdev *subdev,
 		}
 
 		/* Always run DMA abort done to flush data that would be remained */
+		set_bit(CSIS_DMA_FLUSH_WAIT, &csi->state);
+
 		csi_hw_s_control(csi->cmn_reg[csi->scm][0], CSIS_CTRL_DMA_ABORT_REQ, true);
-		usleep_range(300, 301);
+
+		timetowait = wait_event_timeout(csi->dma_flush_wait_q,
+			!test_bit(CSIS_DMA_FLUSH_WAIT, &csi->state),
+			CSI_WAIT_ABORT_TIMEOUT);
+		if (!timetowait)
+			merr("[CSI%d] wait ABORT_DONE timeout!\n", csi, csi->ch);
 
 		csis_flush_all_vc_buf_done(csi, VB2_BUF_STATE_ERROR);
 
@@ -2651,6 +2718,8 @@ int is_csi_probe(void *parent, u32 device_id, u32 ch)
 	__putname(irq_name);
 
 	spin_lock_init(&csi->dma_seq_slock);
+
+	init_waitqueue_head(&csi->dma_flush_wait_q);
 
 	minfo("[CSI%d] %s(%d)\n", csi, csi->ch, __func__, ret);
 	return 0;

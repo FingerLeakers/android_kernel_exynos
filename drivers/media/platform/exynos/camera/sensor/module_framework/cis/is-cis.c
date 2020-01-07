@@ -292,19 +292,19 @@ int sensor_cis_check_rev(struct is_cis *cis)
 	if (cis->rev_valid_count) {
 		for (i = 0; i < cis->rev_valid_count; i++) {
 			if (cis->cis_data->cis_rev == cis->rev_valid_values[i]) {
-				pr_info("%s : Sensor version. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+				pr_info("%s : [%d][%d] Sensor version. Rev. 0x%X\n", __func__, cis->device, cis->id, cis->cis_data->cis_rev);
 				break;
 			}
 		}
 
 		if (i == cis->rev_valid_count) {
-			pr_info("%s : Wrong sensor version. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+			pr_info("%s : [%d][%d] Wrong sensor version. Rev. 0x%X\n", __func__, cis->device, cis->id, cis->cis_data->cis_rev);
 #if defined(USE_CAMERA_CHECK_SENSOR_REV)
 			ret = -EINVAL;
 #endif
 		}
 	} else {
-		pr_info("%s : Skip rev checking. Rev. 0x%X\n", __func__, cis->cis_data->cis_rev);
+		pr_info("%s : [%d][%d] Skip rev checking. Rev. 0x%X\n", __func__, cis->device, cis->id, cis->cis_data->cis_rev);
 	}
 
 p_err:
@@ -712,14 +712,17 @@ int sensor_cis_wait_streamon(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
+	if (cis_data->dual_slave == true) {
+		time_out_cnt = time_out_cnt * 6;
+	} else if (cis_data->cur_frame_us_time > 300000 && cis_data->cur_frame_us_time < 2000000) {
+		time_out_cnt = (cis_data->cur_frame_us_time / CIS_STREAM_ON_WAIT_TIME) + 100; // for Hyperlapse night mode
+	}
+
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = is_sensor_read8(client, 0x0005, &sensor_fcount);
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	if (ret < 0)
 	    err("i2c transfer fail addr(%x), val(%x), ret = %d\n", 0x0005, sensor_fcount, ret);
-
-	if (cis_data->dual_slave == true)
-		time_out_cnt = time_out_cnt * 4;
 
 	/*
 	 * Read sensor frame counter (sensor_fcount address = 0x0005)

@@ -102,7 +102,6 @@ static int is_ssx_video_open(struct file *file)
 	struct is_video_ctx *vctx;
 	struct is_device_sensor *device;
 	struct is_resourcemgr *resourcemgr;
-	struct is_core *core;
 	char name[IS_STR_LEN];
 
 	FIMC_BUG(!file);
@@ -116,10 +115,9 @@ static int is_ssx_video_open(struct file *file)
 		goto err_resource_null;
 	}
 
-	core = (struct is_core *)device->private_data;
-	if (core && core->reboot) {
+	if (device && device->reboot) {
 		warn("[SS%d:V]%s: fail to open ssx_video_open() - reboot(%d)\n",
-			device->device_id, __func__, core->reboot);
+			device->device_id, __func__, device->reboot);
 		ret = -EINVAL;
 		goto err_reboot;
 	}

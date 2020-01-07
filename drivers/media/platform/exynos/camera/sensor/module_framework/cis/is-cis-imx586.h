@@ -19,6 +19,9 @@
 #define SENSOR_IMX586_MAX_WIDTH          (8000 + 0)
 #define SENSOR_IMX586_MAX_HEIGHT         (6000 + 0)
 
+#define SENSOR_IMX586_SPDC_CAL_SIZE		2304
+#define SENSOR_IMX586_PDXTC_CAL_SIZE		384
+
 /* Related Sensor Parameter */
 #define USE_GROUP_PARAM_HOLD                      (1)
 #define TOTAL_NUM_OF_IVTPX_CHANNEL                (8)

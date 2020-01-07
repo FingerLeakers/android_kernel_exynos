@@ -20,7 +20,7 @@
 #define BOARD_REV	0x10
 
 / {
-	compatible = "samsung,exynos9830", "samsung,UNIVERSAL9830";
+	compatible = "samsung,exynos990", "samsung,UNIVERSAL990";
 	board_id = <BOARD_ID>;
 	board_rev = <BOARD_REV>;
 
@@ -72,7 +72,7 @@
 };
 
 &chosen {
-	bootargs_ext = "console=ram root=/dev/ram0 androidboot.boot_devices=13100000.ufs sec_debug.cp=0";
+	bootargs_ext = "console=ram root=/dev/ram0 androidboot.boot_devices=13100000.ufs";
 };
 
 &usi_1 {

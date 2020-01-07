@@ -104,6 +104,7 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_dngl_healthcheck {
 #define HEALTH_CHECK_PCIEDEV_NODS_IND	0x6
 #define HEALTH_CHECK_PCIEDEV_LINKSPEED_FALLBACK_IND	0x7
 #define HEALTH_CHECK_PCIEDEV_DSACK_STALL_IND	0x8
+#define HEALTH_CHECK_PCIEDEV_FLOWRING_IND	0x9
 
 #define HC_PCIEDEV_CONFIG_REGLIST_MAX	25
 typedef BWL_PRE_PACKED_STRUCT struct bcm_dngl_pcie_hc {
@@ -115,7 +116,7 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_dngl_pcie_hc {
 	uint32			pcie_config_regs[HC_PCIEDEV_CONFIG_REGLIST_MAX];
 } BWL_POST_PACKED_STRUCT bcm_dngl_pcie_hc_t;
 
-/* XXX define to avoid compile issues in older branches which define hchk_sw_entity_t */
+/* define to avoid compile issues in older branches which define hchk_sw_entity_t */
 #ifdef HCHK_COMMON_SW_EVENT
 /* Enumerating top level SW entities for use by health check */
 typedef enum {

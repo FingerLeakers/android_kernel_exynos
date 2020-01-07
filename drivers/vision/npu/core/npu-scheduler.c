@@ -23,7 +23,19 @@ void npu_scheduler_set_bts(struct npu_scheduler_info *info)
 {
 	int ret = 0;
 
-	if (info->mode == NPU_PERF_MODE_NPU_BOOST) {
+	if (info->mode == NPU_PERF_MODE_NORMAL) {
+		info->bts_scenindex = bts_get_scenindex("npu_normal");
+		if (info->bts_scenindex < 0) {
+			npu_err("bts_get_scenindex failed : %d\n", info->bts_scenindex);
+			ret = info->bts_scenindex;
+			goto p_err;
+		}
+
+		ret = bts_add_scenario(info->bts_scenindex);
+		if (ret)
+			npu_err("bts_add_scenario failed : %d\n", ret);
+	} else if (info->mode == NPU_PERF_MODE_NPU_BOOST ||
+			info->mode == NPU_PERF_MODE_NPU_DN) {
 		info->bts_scenindex = bts_get_scenindex("npu_performance");
 		if (info->bts_scenindex < 0) {
 			npu_err("bts_get_scenindex failed : %d\n", info->bts_scenindex);
@@ -214,10 +226,10 @@ static int npu_scheduler_init_dt(struct npu_scheduler_info *info)
 		}
 
 		/* add device in governor */
-		list_add(&dinfo->dev_list, &dinfo->gov->dev_list);
+		list_add_tail(&dinfo->dev_list, &dinfo->gov->dev_list);
 
 		/* add device in scheduler */
-		list_add(&dinfo->ip_list, &info->ip_list);
+		list_add_tail(&dinfo->ip_list, &info->ip_list);
 
 		probe_info("add %s in list\n", dinfo->name);
 	}
@@ -636,6 +648,31 @@ static int npu_scheduler_execute_policy(struct npu_scheduler_info *info)
 	return 0;
 }
 
+static int npu_scheduler_set_mode_freq(struct npu_scheduler_info *info)
+{
+	struct npu_scheduler_dvfs_info *d;
+	s32	freq = 0;
+
+	if (list_empty(&info->ip_list)) {
+		npu_err("no device for scheduler\n");
+		return 0;
+	}
+
+	mutex_lock(&info->exec_lock);
+	list_for_each_entry(d, &info->ip_list, ip_list) {
+		freq = d->cur_freq;
+
+		/* check mode limit */
+		if (freq < d->mode_min_freq[info->mode])
+			freq = d->mode_min_freq[info->mode];
+
+		/* set frequency */
+		npu_scheduler_set_freq(d, freq);
+	}
+	mutex_unlock(&info->exec_lock);
+	return 0;
+}
+
 static unsigned int __npu_scheduler_get_load(
 		struct npu_scheduler_info *info, u32 load)
 {
@@ -928,9 +965,12 @@ ssize_t npu_store_attrs_scheduler(struct device *dev,
 		if (sscanf(buf, "%d", &x) > 0) {
 			if (x >= ARRAY_SIZE(npu_perf_mode_name)) {
 				npu_err("Invalid mode value %d, ignored\n", x);
+				ret = -EINVAL;
 				break;
 			}
 			g_npu_scheduler_info->mode = x;
+			if (g_npu_scheduler_info->activated)
+				npu_scheduler_set_mode_freq(g_npu_scheduler_info);
 			npu_scheduler_set_bts(g_npu_scheduler_info);
 			npu_set_llc(g_npu_scheduler_info);
 		}
@@ -950,9 +990,10 @@ ssize_t npu_store_attrs_scheduler(struct device *dev,
 		break;
 	case NPU_SCHEDULER_LOAD_POLICY:
 		if (sscanf(buf, "%d", &x) > 0) {
-			if (x >= sizeof(npu_scheduler_load_policy_name)) {
+			if (x >= ARRAY_SIZE(npu_scheduler_load_policy_name)) {
 				npu_err("Invalid load policy : %d\n", x);
-				return 0;
+				ret = -EINVAL;
+				break;
 			}
 			g_npu_scheduler_info->load_policy = x;
 		}
@@ -967,9 +1008,10 @@ ssize_t npu_store_attrs_scheduler(struct device *dev,
 		break;
 	case NPU_SCHEDULER_FPS_POLICY:
 		if (sscanf(buf, "%d", &x) > 0) {
-			if (x >= sizeof(npu_scheduler_fps_policy_name)) {
+			if (x >= ARRAY_SIZE(npu_scheduler_fps_policy_name)) {
 				npu_err("Invalid FPS policy : %d\n", x);
-				return 0;
+				ret = -EINVAL;
+				break;
 			}
 			g_npu_scheduler_info->fps_policy = x;
 		}
@@ -996,7 +1038,8 @@ ssize_t npu_store_attrs_scheduler(struct device *dev,
 		break;
 	}
 
-	ret = count;
+	if (!ret)
+		ret = count;
 	return ret;
 }
 
@@ -1009,6 +1052,7 @@ int npu_scheduler_probe(struct npu_device *device)
 	BUG_ON(!device);
 
 	info = kzalloc(sizeof(struct npu_scheduler_info), GFP_KERNEL);
+	memset(info, 0, sizeof(struct npu_scheduler_info));
 	device->sched = info;
 	info->device = device;
 	info->dev = device->dev;
@@ -1329,9 +1373,11 @@ npu_s_param_ret npu_scheduler_param_handler(struct npu_session *sess, struct vs4
 		if (param->offset >= NPU_PERF_MODE_NONE &&
 				param->offset < NPU_PERF_MODE_NUM) {
 			g_npu_scheduler_info->mode = param->offset;
+			if (g_npu_scheduler_info->activated)
+				npu_scheduler_set_mode_freq(g_npu_scheduler_info);
 			npu_scheduler_set_bts(g_npu_scheduler_info);
 			npu_set_llc(g_npu_scheduler_info);
-			npu_info("new NPU performance mode : %s\n",
+			npu_dbg("new NPU performance mode : %s\n",
 					npu_perf_mode_name[g_npu_scheduler_info->mode]);
 		} else {
 			npu_err("Invalid NPU performance mode : %d\n",
@@ -1350,7 +1396,7 @@ npu_s_param_ret npu_scheduler_param_handler(struct npu_session *sess, struct vs4
 
 			/* TODO: hand over priority info to session */
 
-			npu_info("set priority of uid %d as %d\n",
+			npu_dbg("set priority of uid %d as %d\n",
 					l->uid, l->priority);
 		}
 		break;
@@ -1364,7 +1410,7 @@ npu_s_param_ret npu_scheduler_param_handler(struct npu_session *sess, struct vs4
 		} else {
 			l->requested_tpf = param->offset;
 
-			npu_info("set tpf of uid %d as %d\n",
+			npu_dbg("set tpf of uid %d as %d\n",
 					l->uid, l->requested_tpf);
 		}
 		break;

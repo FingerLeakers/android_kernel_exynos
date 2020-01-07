@@ -315,7 +315,7 @@ static int gdc_v4l2_try_fmt_mplane(struct file *file, void *fh,
 	struct v4l2_pix_format_mplane *pixm = &f->fmt.pix_mp;
 	const struct gdc_size_limit *limit;
 	struct gdc_frame *frame;
-	int i;
+	int i, num_planes;
 	int h_align = 0;
 	int w_align = 0;
 
@@ -350,8 +350,8 @@ static int gdc_v4l2_try_fmt_mplane(struct file *file, void *fh,
 			w_align, &pixm->height, limit->min_h,
 			limit->max_h, h_align, 0);
 /**/
-
-	for (i = 0; i < pixm->num_planes; ++i) {
+	num_planes = pixm->num_planes < GDC_MAX_PLANES ? pixm->num_planes : GDC_MAX_PLANES;
+	for (i = 0; i < num_planes; ++i) {
 		/* The pixm->plane_fmt[i].sizeimage for the plane which
 		 * contains the src blend data has to be calculated as per the
 		 * size of the actual width and actual height of the src blend
@@ -909,6 +909,8 @@ err_pclk:
 
 static void gdc_clk_power_disable(struct gdc_dev *gdc)
 {
+	camerapp_hw_gdc_stop(gdc->regs_base);
+
 	if (!IS_ERR(gdc->aclk))
 		clk_disable(gdc->aclk);
 
@@ -986,6 +988,35 @@ err_pclk_prepare:
 	return ret;
 }
 
+static void gdc_job_finish(struct gdc_dev *gdc, struct gdc_ctx *ctx)
+{
+	unsigned long flags;
+	struct vb2_v4l2_buffer *src_vb, *dst_vb;
+
+	spin_lock_irqsave(&gdc->slock, flags);
+
+	ctx = v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev);
+	if (!ctx || !ctx->m2m_ctx) {
+		dev_err(gdc->dev, "current ctx is NULL\n");
+		spin_unlock_irqrestore(&gdc->slock, flags);
+		return;
+
+	}
+	clear_bit(CTX_RUN, &ctx->flags);
+
+	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+
+	BUG_ON(!src_vb || !dst_vb);
+
+	v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_ERROR);
+	v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_ERROR);
+
+	v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
+
+	spin_unlock_irqrestore(&gdc->slock, flags);
+}
+
 static int gdc_release(struct file *file)
 {
 	struct gdc_ctx *ctx = fh_to_gdc_ctx(file->private_data);
@@ -996,6 +1027,15 @@ static int gdc_release(struct file *file)
 	atomic_dec(&gdc->m2m.in_use);
 
 	gdc_dbg("gdc close\n");
+
+	if (test_bit(DEV_RUN, &gdc->state)) {
+		dev_err(gdc->dev, "%s, gdc is still running\n", __func__);
+		gdc_job_finish(gdc, ctx);
+		gdc_clk_power_disable(gdc);
+
+		clear_bit(DEV_RUN, &gdc->state);
+		clear_bit(CTX_ABORT, &ctx->flags);
+	}
 
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
 	if (!IS_ERR(gdc->aclk))
@@ -1032,35 +1072,6 @@ static const struct v4l2_file_operations gdc_v4l2_fops = {
 	.unlocked_ioctl	= video_ioctl2,
 	.mmap		= gdc_mmap,
 };
-
-static void gdc_job_finish(struct gdc_dev *gdc, struct gdc_ctx *ctx)
-{
-	unsigned long flags;
-	struct vb2_v4l2_buffer *src_vb, *dst_vb;
-
-	spin_lock_irqsave(&gdc->slock, flags);
-
-	ctx = v4l2_m2m_get_curr_priv(gdc->m2m.m2m_dev);
-	if (!ctx || !ctx->m2m_ctx) {
-		dev_err(gdc->dev, "current ctx is NULL\n");
-		spin_unlock_irqrestore(&gdc->slock, flags);
-		return;
-
-	}
-	clear_bit(CTX_RUN, &ctx->flags);
-
-	src_vb = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
-	dst_vb = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
-
-	BUG_ON(!src_vb || !dst_vb);
-
-	v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_ERROR);
-	v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_ERROR);
-
-	v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
-
-	spin_unlock_irqrestore(&gdc->slock, flags);
-}
 
 static void gdc_watchdog(struct timer_list *t)
 {

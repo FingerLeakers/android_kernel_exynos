@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include <linux/ion_exynos.h>
 #include <linux/dma-direct.h>
+#include <linux/dma-mapping.h>
 #include <linux/iommu.h>
 #include <linux/smc.h>
 #include <linux/soc/samsung/exynos-soc.h>
@@ -207,12 +208,6 @@ int npu_hwacg(struct npu_system *system, bool on)
 	size_t map_len;
 
 	const struct reg_set_map_2 hwacg_on_regs[] = {
-#ifdef FORCE_HWACG_DISABLE
-		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x800,  0x0,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x800,  0x0,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
-#else
 		//{&system->sfr_npu[0],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		//{&system->sfr_npu[0],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 		//{&system->sfr_npu[0],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
@@ -221,22 +216,15 @@ int npu_hwacg(struct npu_system *system, bool on)
 		//{&system->sfr_npu[1],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 		//{&system->sfr_npu[1],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[2],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x0800,	0xF1000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		{&system->sfr_npu[2],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 		{&system->sfr_npu[2],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[3],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x0800,	0xF1000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		{&system->sfr_npu[3],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 		{&system->sfr_npu[3],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-#endif
 	};
 	const struct reg_set_map_2 hwacg_off_regs[] = {
-#ifdef FORCE_HWACG_DISABLE
-		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x800,  0x31000000,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x800,  0x31000000,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
-#else
 		//{&system->sfr_npu[0],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		//{&system->sfr_npu[0],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 		//{&system->sfr_npu[0],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
@@ -245,15 +233,17 @@ int npu_hwacg(struct npu_system *system, bool on)
 		//{&system->sfr_npu[1],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 		//{&system->sfr_npu[1],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[2],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-		{&system->sfr_npu[2],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x0800,	0x00000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[3],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-		{&system->sfr_npu[3],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-#endif
+		{&system->sfr_npu[3],   0x0800,	0x00000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 	};
+#ifdef FORCE_HWACG_DISABLE
+	return ret;
+#endif
 
 	if (on) {
 		set_map = (struct reg_set_map_2 *)hwacg_on_regs;
@@ -263,7 +253,7 @@ int npu_hwacg(struct npu_system *system, bool on)
 		map_len = ARRAY_SIZE(hwacg_off_regs);
 	}
 
-	npu_info("hwacg %s\n", on ? "on" : "off");
+	npu_dbg("hwacg %s\n", on ? "on" : "off");
 	ret = npu_set_hw_reg_2(set_map, map_len, 0);
 	if (ret)
 		npu_err("Failed to write registers on npu_hwacg %s array (%d)\n",
@@ -276,33 +266,36 @@ static int npu_cpu_on(struct npu_system *system)
 {
 	int ret = 0;
 	const struct reg_set_map_2 cpu_on_regs[] = {
-		/* NPU0_CM7_CFG1, SysTick Callibration, use external OSC, 26MHz */
 		/* 9830: Many of these registers are valid, but are giving exceptions
 			; hence commented; may be needed later
 		*/
-		//{&system->sfr_npu[0],	0x1040c,	0x3f79f,	0xffffffff},
-
 #ifdef FORCE_HWACG_DISABLE
-		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x800,  0x0,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x800,  0x0,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+		{&system->sfr_npu[0],   0x800,  0x0,    0xF1000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[0],   0x3154,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[0],   0x3158,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x800,  0x0,    0xF1000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x30E8,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x30EC,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x800,  0x0,    0xF1000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x800,  0x0,    0xF1000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 #else
-		{&system->sfr_npu[0],   0x800,  0x0,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x0,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		//{&system->sfr_npu[0],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		//{&system->sfr_npu[0],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-		//{&system->sfr_npu[0],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[0],   0x800,  0x0,    0xF1000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[0],   0x3154,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[0],   0x3158,	0x00000000,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		//{&system->sfr_npu[1],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		//{&system->sfr_npu[1],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-		//{&system->sfr_npu[1],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x800,  0x0,    0xF1000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x30E8,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x30EC,	0x00000000,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[2],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x0800,	0xF1000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		{&system->sfr_npu[2],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 		{&system->sfr_npu[2],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
 
-		{&system->sfr_npu[3],   0x0800,	0x10000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x0800,	0xF1000000,    0xF1000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
 		{&system->sfr_npu[3],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 		{&system->sfr_npu[3],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 #endif
@@ -405,31 +398,19 @@ static int npu_cpu_off(struct npu_system *system)
 		/* 9830: These registers are valid, but are giving exceptions
 			; hence commented; may be needed later
 		*/
-		//{&system->pmu_npu_cpu,	0x00,	0x00,	0x01},	/* NPU0_CPU_CONFIGURATION */
-#ifdef FORCE_HWACG_DISABLE
-		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x800,  0x31000000,    0x31000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x800,  0x31000000,    0x31000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
-#else
-		{&system->sfr_npu[0],   0x800,  0x31000000,    0x31000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
-		{&system->sfr_npu[1],   0x800,  0x31000000,    0x31000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
-		//{&system->sfr_npu[0],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		//{&system->sfr_npu[0],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-		//{&system->sfr_npu[0],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-
-		//{&system->sfr_npu[1],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		//{&system->sfr_npu[1],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-		//{&system->sfr_npu[1],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-
-		{&system->sfr_npu[2],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		{&system->sfr_npu[2],   0x3154,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-		{&system->sfr_npu[2],   0x3158,	0x00000004,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
-
-		{&system->sfr_npu[3],   0x0800,	0x00000000,    0x10000000},	/* NPU_CMU_NPU_CONTROLLER_OPTION */
-		{&system->sfr_npu[3],   0x30E8,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-		{&system->sfr_npu[3],   0x30EC,	0x00000004,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
-#endif
+		/* to power off NPU cores, HWACG should be enable */
+		{&system->sfr_npu[0],   0x800,  0xF1000000,    0xF1000000},	/* NPU00_CMU_NPU00_CONTROLLER_OPTION */
+		{&system->sfr_npu[0],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[0],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x800,  0xF1000000,    0xF1000000},	/* NPU01_CMU_NPU01_CONTROLLER_OPTION */
+		{&system->sfr_npu[1],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[1],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x800,  0xF1000000,    0xF1000000},	/* NPU10_CMU_NPU10_CONTROLLER_OPTION */
+		{&system->sfr_npu[2],   0x3154,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[2],   0x3158,	0x00000006,    0x00000006},	/* QCH_CON_LHS_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x800,  0xF1000000,    0xF1000000},	/* NPU11_CMU_NPU11_CONTROLLER_OPTION */
+		{&system->sfr_npu[3],   0x30E8,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
+		{&system->sfr_npu[3],   0x30EC,	0x00000006,    0x00000006},	/* QCH_CON_LHM_AST_D_NPUC_UNIT0_SETREG_QCH */
 	};
 
 	BUG_ON(!system);
@@ -590,6 +571,7 @@ static inline int get_iomem_data_index(const struct npu_iomem_init_data data[], 
 	return -1;
 }
 
+static struct npu_memory_buffer *flush_memory_buffer;
 static int init_iomem_area(struct npu_system *system)
 {
 	int ret = 0;
@@ -726,11 +708,31 @@ static int init_iomem_area(struct npu_system *system)
 
 	set_max_npu_core(system, 2);
 
+	flush_memory_buffer = system->fw_npu_memory_buffer;
+
 	probe_trace("complete in init_iomem_area\n");
 	return 0;
 err_exit:
 	probe_err("error(%d) in init_iomem_area\n", ret);
 	return ret;
+}
+
+void npu_memory_sync_for_cpu(void)
+{
+	dma_sync_single_for_cpu(
+			flush_memory_buffer->attachment->dev,
+			(dma_addr_t)(sg_dma_address(flush_memory_buffer->sgt->sgl) + NPU_MAILBOX_BASE),
+			(size_t)NPU_MAILBOX_SIZE,
+			DMA_FROM_DEVICE);
+}
+
+void npu_memory_sync_for_device(void)
+{
+	dma_sync_single_for_device(
+			flush_memory_buffer->attachment->dev,
+			(dma_addr_t)(sg_dma_address(flush_memory_buffer->sgt->sgl) + NPU_MAILBOX_BASE),
+			(size_t)NPU_MAILBOX_SIZE,
+			DMA_TO_DEVICE);
 }
 
 static int npu_memory_alloc_from_heap(struct platform_device *pdev, struct npu_memory_buffer *buffer, dma_addr_t daddr, const char *heapname)

@@ -59,14 +59,51 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 	struct is_hw_mcsc_cap *cap, u32 *x, u32 *y, u32 *width, u32 *height)
 {
 	u32 src_pos_x = *x, src_pos_y = *y, src_width = *width, src_height = *height;
+#ifdef ENABLE_MCSC_CENTER_CROP
+	u32 crop_ratio, align;
+#endif
 
 #ifdef ENABLE_DJAG_IN_MCSC
 	if (cap->djag == MCSC_CAP_SUPPORT && input->djag_out_width) {
 		/* re-sizing crop size for DJAG output image to poly-phase scaler */
-		src_pos_x = ALIGN_DOWN(CONVRES(src_pos_x, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
-		src_pos_y = ALIGN_DOWN(CONVRES(src_pos_y, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
-		src_width = ALIGN_DOWN(CONVRES(src_width, input->width, input->djag_out_width), MCSC_WIDTH_ALIGN);
-		src_height = ALIGN_DOWN(CONVRES(src_height, input->height, input->djag_out_height), MCSC_HEIGHT_ALIGN);
+		src_pos_x = CONVRES(src_pos_x, input->width, input->djag_out_width);
+		src_pos_y = CONVRES(src_pos_y, input->height, input->djag_out_height);
+		src_width = CONVRES(src_width, input->width, input->djag_out_width);
+		src_height = CONVRES(src_height, input->height, input->djag_out_height);
+
+#ifdef ENABLE_MCSC_CENTER_CROP
+		/* Only cares about D-zoom crop scenario, not for stripe processing crop scenario. */
+		if (!input->stripe_total_count) {
+			/* adjust the center offset of crop region */
+			align = MCSC_WIDTH_ALIGN * 2;
+			src_width = DIV_ROUND_CLOSEST(src_width, align) * align;
+			src_width = (src_width > input->djag_out_width) ?
+				ALIGN_DOWN(input->djag_out_width, MCSC_WIDTH_ALIGN) : src_width;
+
+			align = MCSC_WIDTH_ALIGN;
+			src_pos_x = (input->djag_out_width - src_width) >> 1;
+			src_pos_x = DIV_ROUND_UP(src_pos_x, align) * align;
+			src_pos_x = (src_pos_x > 0) ? src_pos_x : 0;
+
+			align = MCSC_HEIGHT_ALIGN * 2;
+			crop_ratio = src_width * 1000 / input->djag_out_width;
+			src_height = input->djag_out_height * crop_ratio / 1000;
+			src_height = DIV_ROUND_CLOSEST(src_height, align) * align;
+			src_height = (src_height > input->djag_out_height) ?
+				ALIGN_DOWN(input->djag_out_height, MCSC_HEIGHT_ALIGN) : src_height;
+
+			align = MCSC_HEIGHT_ALIGN;
+			src_pos_y = (input->djag_out_height - src_height) >> 1;
+			src_pos_y = DIV_ROUND_UP(src_pos_y, align) * align;
+			src_pos_y = (src_pos_y > 0) ? src_pos_y : 0;
+		} else
+#endif
+		{
+			src_pos_x = ALIGN_DOWN(src_pos_x, MCSC_WIDTH_ALIGN);
+			src_pos_y = ALIGN_DOWN(src_pos_y, MCSC_HEIGHT_ALIGN);
+			src_width = ALIGN_DOWN(src_width, MCSC_WIDTH_ALIGN);
+			src_height = ALIGN_DOWN(src_height, MCSC_HEIGHT_ALIGN);
+		}
 
 		if (src_pos_x + src_width > input->djag_out_width) {
 			warn_hw("%s: Out of input_crop width (djag_out_w: %d < (%d + %d))",

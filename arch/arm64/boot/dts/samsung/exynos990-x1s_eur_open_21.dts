@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -25,7 +25,7 @@
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,X1S EUR OPEN 21", "samsung,EXYNOS9830";
+	compatible = "samsung,X1S EUR OPEN 21", "samsung,EXYNOS990";
 	dtbo-hw_rev = <21>;
 	dtbo-hw_rev_end = <255>;
 	edtbo-rev = <0>;
@@ -36,7 +36,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung X1S EUR OPEN 21 based on EXYNOS9830";
+			model = "Samsung X1S EUR OPEN 21 based on EXYNOS990";
 
 			acpm_ipc {
 				compatible = "samsung,exynos-acpm-ipc";
@@ -136,7 +136,7 @@
 };
 
 &chosen {
-	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs sec_debug.cp=0";
+	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs";
 };
 
 &usi_11 {
@@ -161,7 +161,7 @@
 		ssp-mag-array = /bits/ 8 <70 80 213 204 180 177 255 64 211 54 81 116 50 102 253 122 0 56 248 183
 					191 251 219 92 13 117 153>;
 		ssp-thermi-up = /bits/ 16 <3253 3220 3184 3134 3075 2999 2911 2806 2679 2545 2394 2229 2057 1883 1691 1522 1358 1204 1062 931 809 692 600>;
-		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4067 3860 3616 3359 3078 2781 2491 2210 1937 1682 1458 1245 1063 909 776 663 565 478 405 347>;
+		ssp-thermi-sub = /bits/ 16 <4095 4092 4090 4067 3860 3616 3359 3078 2781 2491 2210 1937 1682 1458 1245 1063 909 776 663 565 478 405 347>;
 	};
 };
 
@@ -234,6 +234,18 @@
 };
 
 /*
+ * pin banks of exynos9830 pin-controller 2 (HSI1) : pinctrl@13040000
+ * GPF0, GPF1, GPF2
+ */
+&pinctrl_2 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&initial2>;
+        initial2: initial-state {
+		PIN_IN_SLP(gpf2-2, NONE, INPUT, NONE);	/* SLAVE_CHK_2 */
+        };
+};
+
+/*
  * pin banks of exynos9830 pin-controller 4 (PERIC0) : pinctrl@10430000
  * GPP0, GPP1, GPP2, GPP3, GPP4
  * GPG0
@@ -265,6 +277,7 @@
 		PIN_IN_SLP(gpb0-1, NONE, INPUT, NONE);	/* INTERPOSER_DET_R_1 */
 		PIN_IN_SLP(gpb0-2, NONE, INPUT, NONE);	/* INTERPOSER_DET_L_1 */
 		PIN_IN_SLP(gpb0-3, NONE, INPUT, NONE);	/* INTERPOSER_DET_L_2 */
+		PIN_IN_SLP(gpb2-7, NONE, INPUT, NONE);	/* SLAVE_CHK_1 */
 	};
 };
 /* ----------------- End of GPIO configurations ----------------------------- */

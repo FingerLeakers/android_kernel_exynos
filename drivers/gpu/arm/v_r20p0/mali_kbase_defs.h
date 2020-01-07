@@ -610,6 +610,7 @@ struct kbase_ext_res {
 struct kbase_jd_atom {
 	struct work_struct work;
 	ktime_t start_timestamp;
+	u64 timeout_ms;
 
 	struct base_jd_udata udata;
 	struct kbase_context *kctx;
@@ -1783,7 +1784,15 @@ struct kbase_device {
 
 	const struct kbase_pm_policy *policy_list[KBASE_PM_MAX_NUM_POLICIES];
 	int policy_count;
+
+	struct {
+		struct kbase_context *ctx;
+		u64 jc;
+		int slot;
+	} wa;
 };
+
+int kbase_wa_execute(struct kbase_device *kbdev, u64 cores);
 
 /**
  * struct jsctx_queue - JS context atom queue

@@ -1226,7 +1226,7 @@ typedef struct {
 static spktq_cbinfo_t spktq_cbinfo = {NULL, NULL};
 static spktq_cbinfo_t *spktq_cbinfo_get(void);
 
-/* XXX: Accessor function forced into RAM to keep spktq_cbinfo out of shdat */
+/* Accessor function forced into RAM to keep spktq_cbinfo out of shdat */
 static spktq_cbinfo_t*
 BCMRAMFN(spktq_cbinfo_get)(void)
 {

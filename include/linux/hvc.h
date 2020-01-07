@@ -11,8 +11,10 @@
 #ifndef __HVC_H__
 #define __HVC_H__
 
-/* For Power Management */
-#define HVC_FID_BASE			(0xC6000000)
+/* HVC FID */
+#define HVC_FID_BASE                           (0xC6000000)
+
+#define HVC_FID_SET_EL2_CRASH_INFO_FP_BUF      (HVC_FID_BASE + 0x40)
 
 #define HVC_CMD_S2MPUFD_BASE		(0x600)
 #define HVC_CMD_INIT_S2MPUFD		(HVC_FID_BASE | HVC_CMD_S2MPUFD_BASE | 0x1)

@@ -486,6 +486,79 @@ TRACE_EVENT(emstune_freq_boost,
 		  __entry->cpu, __entry->ratio, __entry->util, __entry->boosted_util)
 );
 
+/*
+ * Tracepint for PMU Contention AVG
+ */
+TRACE_EVENT(cont_crossed_thr,
+
+	TP_PROTO(int cpu, u64 event_thr, u64 event_ratio, u64 active_thr, u64 active_ratio),
+
+	TP_ARGS(cpu, event_thr, event_ratio, active_thr, active_ratio),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpu			)
+		__field(	u64,		event_thr		)
+		__field(	u64,		event_ratio		)
+		__field(	u64,		active_thr		)
+		__field(	u64,		active_ratio		)
+	),
+
+	TP_fast_assign(
+		__entry->cpu		= cpu;
+		__entry->event_thr	= event_thr;
+		__entry->event_ratio	= event_ratio;
+		__entry->active_thr	= active_thr;
+		__entry->active_ratio	= active_ratio;
+	),
+
+	TP_printk("cpu=%d  event_thr=%lu, event_ratio=%lu active_thr=%lu active_ratio=%lu",
+		__entry->cpu, __entry->event_thr, __entry->event_ratio,
+		__entry->active_thr, __entry->active_ratio)
+);
+
+TRACE_EVENT(cont_distribute_pmu_count,
+
+	TP_PROTO(int cpu, u64 elapsed, u64 period_count,
+			u64 curr0, u64 curr1,
+			u64 prev0, u64 prev1,
+			u64 diff0, u64 diff1, int event),
+
+	TP_ARGS(cpu, elapsed, period_count,
+		curr0, curr1, prev0, prev1, diff0, diff1, event),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpu			)
+		__field(	u64,		elapsed			)
+		__field(	u64,		period_count		)
+		__field(	u64,		curr0			)
+		__field(	u64,		curr1			)
+		__field(	u64,		prev0			)
+		__field(	u64,		prev1			)
+		__field(	u64,		diff0			)
+		__field(	u64,		diff1			)
+		__field(	int,		event			)
+	),
+
+	TP_fast_assign(
+		__entry->cpu		= cpu;
+		__entry->elapsed	= elapsed;
+		__entry->period_count	= period_count;
+		__entry->curr0		= curr0;
+		__entry->curr1		= curr1;
+		__entry->prev0		= prev0;
+		__entry->prev1		= prev1;
+		__entry->diff0		= diff0;
+		__entry->diff1		= diff1;
+		__entry->event		= event;
+	),
+
+	TP_printk("cpu=%d elapsed=%lu, pcnt=%lu, c0=%lu c1=%lu p0=%lu p1=%lu d0=%lu d1=%lu event=%d",
+		__entry->cpu, __entry->elapsed, __entry->period_count,
+		__entry->curr0, __entry->curr1,
+		__entry->prev0, __entry->prev1,
+		__entry->diff0, __entry->diff1, __entry->event)
+);
+
 #endif /* _TRACE_EMS_DEBUG_H */
 
 /* This part must be outside protection */

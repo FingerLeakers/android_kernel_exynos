@@ -50,9 +50,54 @@
 #define S6E3HAB_TOTAL_PAC_STEPS		(PANEL_BACKLIGHT_PAC_STEPS + S6E3HAB_NR_HBM_LUMINANCE)
 #define S6E3HAB_HUBBLE_TOTAL_PAC_STEPS		(PANEL_BACKLIGHT_PAC_STEPS + S6E3HAB_HUBBLE_NR_HBM_LUMINANCE)
 
+static struct tp s6e3hab_hubble_60hs_tp[S6E3HAB_NR_TP] = {
+	{ .level = 0, .volt_src = VREG_OUT, .name = "VT", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 0, .volt_src = V0_OUT, .name = "V0", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 1, .volt_src = V0_OUT, .name = "V1", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 7, .volt_src = V0_OUT, .name = "V7", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 11, .volt_src = VT_OUT, .name = "V11", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 23, .volt_src = VT_OUT, .name = "V23", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 35, .volt_src = VT_OUT, .name = "V35", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 51, .volt_src = VT_OUT, .name = "V51", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 87, .volt_src = VT_OUT, .name = "V87", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 151, .volt_src = VT_OUT, .name = "V151", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 203, .volt_src = VT_OUT, .name = "V203", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 255, .volt_src = VREG_OUT, .name = "V255", .center = { 0x200, 0x200, 0x200 }, .numerator = 177, .denominator = 1200, .bits = 10 },
+};
+
+static struct tp s6e3hab_hubble_120hs_tp[S6E3HAB_NR_TP] = {
+	{ .level = 0, .volt_src = VREG_OUT, .name = "VT", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 0, .volt_src = V0_OUT, .name = "V0", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 1, .volt_src = V0_OUT, .name = "V1", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 7, .volt_src = V0_OUT, .name = "V7", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 11, .volt_src = VT_OUT, .name = "V11", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 23, .volt_src = VT_OUT, .name = "V23", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 35, .volt_src = VT_OUT, .name = "V35", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 51, .volt_src = VT_OUT, .name = "V51", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 87, .volt_src = VT_OUT, .name = "V87", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 151, .volt_src = VT_OUT, .name = "V151", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 203, .volt_src = VT_OUT, .name = "V203", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 255, .volt_src = VREG_OUT, .name = "V255", .center = { 0x200, 0x200, 0x200 }, .numerator = 177, .denominator = 1200, .bits = 10 },
+};
+
 static struct tp s6e3hab_hubble_tp[S6E3HAB_NR_TP] = {
 	{ .level = 0, .volt_src = VREG_OUT, .name = "VT", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
 	{ .level = 0, .volt_src = V0_OUT, .name = "V0", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 1, .volt_src = V0_OUT, .name = "V1", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 7, .volt_src = V0_OUT, .name = "V7", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
+	{ .level = 11, .volt_src = VT_OUT, .name = "V11", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 23, .volt_src = VT_OUT, .name = "V23", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 35, .volt_src = VT_OUT, .name = "V35", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 51, .volt_src = VT_OUT, .name = "V51", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 87, .volt_src = VT_OUT, .name = "V87", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 151, .volt_src = VT_OUT, .name = "V151", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 203, .volt_src = VT_OUT, .name = "V203", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },
+	{ .level = 255, .volt_src = VREG_OUT, .name = "V255", .center = { 0x200, 0x200, 0x200 }, .numerator = 177, .denominator = 1200, .bits = 10 },
+};
+
+static struct tp s6e3hab_hubble_hmd_tp[S6E3HAB_NR_TP] = {
+	{ .level = 0, .volt_src = VREG_OUT, .name = "VT", .center = { 0x0, 0x0, 0x0 }, .numerator = 0, .denominator = 1200, .bits = 4 },
+	{ .level = 0, .volt_src = V0_OUT, .name = "V0", .center = { 0x3, 0x3, 0x3 }, .numerator = 0, .denominator = 1200, .bits = 4 },
 	{ .level = 1, .volt_src = V0_OUT, .name = "V1", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
 	{ .level = 7, .volt_src = V0_OUT, .name = "V7", .center = { 0x80, 0x80, 0x80 }, .numerator = 0, .denominator = 256, .bits = 8 },
 	{ .level = 11, .volt_src = VT_OUT, .name = "V11", .center = { 0x80, 0x80, 0x80 }, .numerator = 64, .denominator = 320, .bits = 8 },

@@ -51,6 +51,10 @@ enum otg_notify_events {
 	NOTIFY_EVENT_PD_CONTRACT,
 	NOTIFY_EVENT_VBUS_RESET,
 	NOTIFY_EVENT_RESERVE_BOOSTER,
+	NOTIFY_EVENT_USB_CABLE,
+	NOTIFY_EVENT_USBD_SUSPEND,
+	NOTIFY_EVENT_USBD_UNCONFIGURE,
+	NOTIFY_EVENT_USBD_CONFIGURE,
 	NOTIFY_EVENT_VIRTUAL,
 };
 
@@ -125,6 +129,12 @@ enum usb_certi_type {
 	USB_CERTI_HOST_RESOURCE_EXCEED,
 };
 
+enum usb_current_state {
+	NOTIFY_SUSPEND,
+	NOTIFY_UNCONFIGURE,
+	NOTIFY_CONFIGURE,
+};
+
 struct otg_notify {
 	int vbus_detect_gpio;
 	int redriver_en_gpio;
@@ -179,6 +189,7 @@ extern unsigned long get_cable_type(struct otg_notify *n);
 extern int is_usb_host(struct otg_notify *n);
 extern bool is_blocked(struct otg_notify *n, int type);
 extern bool is_snkdfp_usb_device_connected(struct otg_notify *n);
+extern int is_known_usbaudio(struct usb_device *dev);
 extern void send_usb_audio_uevent(struct usb_device *dev);
 extern int send_usb_notify_uevent
 		(struct otg_notify *n, char *envp_ext[]);
@@ -222,6 +233,7 @@ static inline int is_usb_host(struct otg_notify *n) {return 0; }
 static inline bool is_blocked(struct otg_notify *n, int type) {return false; }
 static inline bool is_snkdfp_usb_device_connected(struct otg_notify *n)
 			{return false; }
+static inline int is_known_usbaudio(struct usb_device *dev) {return 0; }
 static inline void send_usb_audio_uevent(struct usb_device *dev) {}
 static inline int send_usb_notify_uevent
 			(struct otg_notify *n, char *envp_ext[]) {return 0; }

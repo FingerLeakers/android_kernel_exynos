@@ -426,14 +426,14 @@
 #define EVENT_LOG_TAG_FTM_SM			359
 #define EVENT_LOG_TAG_NAN_SM			360
 
-#define EVENT_LOG_TAG_SDTC_INFO			361
-#define EVENT_LOG_TAG_SDTC_ERR			362
-
 /* HP2P - RLLW logging */
 #define EVENT_LOG_TAG_RLLW_TRACE		361
 
+#define EVENT_LOG_TAG_SDTC_INFO			362
+#define EVENT_LOG_TAG_SDTC_ERR			363
+
 /* EVENT_LOG_TAG_MAX	= Set to the same value of last tag, not last tag + 1 */
-#define EVENT_LOG_TAG_MAX			361
+#define EVENT_LOG_TAG_MAX			363
 
 typedef enum wl_el_set_type_def {
 	EVENT_LOG_SET_TYPE_DEFAULT = 0, /* flush the log buffer when it is full - Default option */

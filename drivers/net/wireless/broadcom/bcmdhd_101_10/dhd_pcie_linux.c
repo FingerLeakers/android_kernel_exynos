@@ -76,6 +76,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #endif /* USE_SMMU_ARCH_MSM */
+#include <linux/exynos-pci-ctrl.h>
 
 #define PCI_CFG_RETRY 		10	/* PR15065: retry count for pci cfg accesses */
 #define OS_HANDLE_MAGIC		0x1234abcd	/* Magic # to recognize osh */
@@ -994,6 +995,7 @@ static int dhdpcie_suspend_dev(struct pci_dev *dev)
 	}
 #endif /* OEM_ANDROID && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
 	DHD_ERROR(("%s: Enter\n", __FUNCTION__));
+	exynos_pcie_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI);
 	dhdpcie_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
 	dhd_dpc_tasklet_kill(bus->dhd);
@@ -1073,6 +1075,7 @@ static int dhdpcie_resume_dev(struct pci_dev *dev)
 	}
 	BCM_REFERENCE(pch);
 	dhdpcie_suspend_dump_cfgregs(pch->bus, "AFTER_EP_RESUME");
+	exynos_pcie_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI);
 out:
 	return err;
 }
@@ -1127,6 +1130,18 @@ static int dhdpcie_suspend_host_dev(dhd_bus_t *bus)
 	bcmerror = tegra_pcie_pm_suspend();
 #endif /* CONFIG_ARCH_TEGRA */
 	return bcmerror;
+}
+
+int
+dhdpcie_set_master_and_d0_pwrstate(dhd_bus_t *bus)
+{
+	int err;
+	pci_set_master(bus->dev);
+	err = pci_set_power_state(bus->dev, PCI_D0);
+	if (err) {
+		DHD_ERROR(("%s: pci_set_power_state error %d \n", __FUNCTION__, err));
+	}
+	return err;
 }
 
 uint32
@@ -1752,15 +1767,26 @@ void dhdpcie_linkdown_cb(struct_pcie_notify *noti)
 			if (bus) {
 				dhd_pub_t *dhd = bus->dhd;
 				if (dhd) {
-					DHD_ERROR(("%s: Event HANG send up "
-						"due to PCIe linkdown\n",
-						__FUNCTION__));
 #ifdef CONFIG_ARCH_MSM
+					DHD_ERROR(("%s: Set no_cfg_restore flag\n",
+						__FUNCTION__));
 					bus->no_cfg_restore = 1;
 #endif /* CONFIG_ARCH_MSM */
-					bus->is_linkdown = 1;
-					dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
-					dhd_os_send_hang_message(dhd);
+#ifdef DHD_SSSR_DUMP
+					if (dhd->fis_triggered) {
+						DHD_ERROR(("%s: PCIe linkdown due to FIS, Ignore\n",
+							__FUNCTION__));
+					} else
+#endif /* DHD_SSSR_DUMP */
+					{
+						DHD_ERROR(("%s: Event HANG send up "
+							"due to PCIe linkdown\n",
+							__FUNCTION__));
+						bus->is_linkdown = 1;
+						dhd->hang_reason =
+							HANG_REASON_PCIE_LINK_DOWN_RC_DETECT;
+						dhd_os_send_hang_message(dhd);
+					}
 				}
 			}
 		}
@@ -2743,14 +2769,14 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 		bus->idlecount = 0;
 		if (DHD_BUS_BUSY_CHECK_IDLE(dhd) && !DHD_BUS_CHECK_DOWN_OR_DOWN_IN_PROGRESS(dhd) &&
 			!DHD_CHECK_CFG_IN_PROGRESS(dhd)) {
+			DHD_ERROR(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d \n",
+					__FUNCTION__, bus->idletime, dhd_runtimepm_ms));
 			bus->bus_wake = 0;
 			DHD_BUS_BUSY_SET_RPM_SUSPEND_IN_PROGRESS(dhd);
 			bus->runtime_resume_done = FALSE;
 			/* stop all interface network queue. */
 			dhd_bus_stop_queue(bus);
 			DHD_GENERAL_UNLOCK(dhd, flags);
-			DHD_ERROR(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d \n",
-					__FUNCTION__, bus->idletime, dhd_runtimepm_ms));
 			/* RPM suspend is failed, return FALSE then re-trying */
 			if (dhdpcie_set_suspend_resume(bus, TRUE)) {
 				DHD_ERROR(("%s: exit with wakelock \n", __FUNCTION__));
@@ -2761,6 +2787,18 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 				/* It can make stuck NET TX Queue without below */
 				dhd_bus_start_queue(bus);
 				DHD_GENERAL_UNLOCK(dhd, flags);
+				if (bus->dhd->rx_pending_due_to_rpm) {
+					/* Reschedule tasklet to process Rx frames */
+					DHD_ERROR(("%s: Schedule DPC to process pending"
+						" Rx packets\n", __FUNCTION__));
+					dhd_sched_dpc(bus->dhd);
+				}
+				/* enabling host irq deferred from system suspend */
+				if (dhdpcie_irq_disabled(bus)) {
+					dhdpcie_enable_irq(bus);
+					/* increasing intrrupt count when it enabled */
+					bus->resume_intr_enable_count++;
+				}
 				smp_wmb();
 				wake_up(&bus->rpm_queue);
 				return FALSE;
@@ -2790,6 +2828,21 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 			/* For making sure NET TX Queue active  */
 			dhd_bus_start_queue(bus);
 			DHD_GENERAL_UNLOCK(dhd, flags);
+
+			if (bus->dhd->rx_pending_due_to_rpm) {
+				/* Reschedule tasklet to process Rx frames */
+				DHD_ERROR(("%s: Schedule DPC to process pending Rx packets\n",
+					__FUNCTION__));
+				bus->rpm_sched_dpc_time = OSL_LOCALTIME_NS();
+				dhd_sched_dpc(bus->dhd);
+			}
+
+			/* enabling host irq deferred from system suspend */
+			if (dhdpcie_irq_disabled(bus)) {
+				dhdpcie_enable_irq(bus);
+				/* increasing intrrupt count when it enabled */
+				bus->resume_intr_enable_count++;
+			}
 
 			smp_wmb();
 			wake_up(&bus->rpm_queue);

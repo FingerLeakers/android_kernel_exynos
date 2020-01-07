@@ -32,7 +32,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 /* Error check - BWL_PACKED_SECTION is defined in packed_section_start.h

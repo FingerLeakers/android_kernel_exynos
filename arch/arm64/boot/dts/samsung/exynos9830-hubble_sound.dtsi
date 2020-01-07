@@ -77,6 +77,8 @@
 					"ABOX UAIF3 Capture", "BLUETOOTH MIC",
 					"USB SPK", "ABOX USB Playback",
 					"ABOX USB Capture", "USB MIC",
+					"FWD SPK", "ABOX FWD Playback",
+					"ABOX FWD Capture", "FWD MIC",
 					"VTS Virtual Output", "VTS Virtual Output Mux",
 					"PAD DPDM", "DMIC1",
 					"PAD DPDM", "DMIC2",
@@ -779,6 +781,14 @@
 				usb {
 					cpu {
 						sound-dai = <&abox 16>;
+					};
+					codec {
+						sound-dai = <&dummy_audio_codec>;
+					};
+				};
+				fwd {
+					cpu {
+						sound-dai = <&abox 17>;
 					};
 					codec {
 						sound-dai = <&dummy_audio_codec>;

@@ -47,6 +47,10 @@
 #include "hdr_metadata.h"
 #include "format.h"
 
+#ifdef CONFIG_EXYNOS_COMMON_PANEL
+#include "../panel/panel_drv.h"
+#endif
+
 #ifdef CONFIG_SEC_ABC
 #include <linux/sti/abc_common.h>
 #endif
@@ -108,6 +112,11 @@ extern struct decon_bts_ops decon_bts_control;
 #define MAX_DSC_SLICE_CNT	4
 
 #define DEBUG_DMA_BUF_LEAK	1
+
+#if defined(CONFIG_EXYNOS_COMMON_PANEL)
+#define MIN_FRAME_DONE_ERR_CHECK_USEC (8000) /* 8ms */
+#define FRAME_DONE_ERR_CHECK_SKIP_TIMEOUT (3000) /* 3s */
+#endif
 
 void dpu_debug_printk(const char *function_name, const char *format, ...);
 #define decon_err(fmt, ...)							\
@@ -275,6 +284,7 @@ enum decon_state {
 	DECON_STATE_DOZE_SUSPEND,
 	DECON_STATE_OFF,
 	DECON_STATE_TUI,
+	MAX_DECON_STATE,
 };
 
 /* To find a proper CLOCK ratio */
@@ -519,7 +529,7 @@ struct decon_win_config {
 		DECON_WIN_STATE_BUFFER,
 		DECON_WIN_STATE_UPDATE,
 		DECON_WIN_STATE_CURSOR,
-		DECON_WIN_STATE_MRESOL = 0x10000,		
+		DECON_WIN_STATE_MRESOL = 0x10000,
 		DECON_WIN_STATE_VRR_NORMALMODE= 0x20000,
 		DECON_WIN_STATE_VRR_HSMODE = 0x20001,
 	} state;
@@ -1024,6 +1034,10 @@ struct decon_vsync {
 	int irq_refcount;
 	struct mutex lock;
 	struct task_struct *thread;
+	u64 count;
+#if defined(CONFIG_EXYNOS_COMMON_PANEL)
+	u64 period;
+#endif
 };
 
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
@@ -1127,6 +1141,7 @@ struct decon_bts_ops {
 			struct decon_reg_data *regs, u32 is_after);
 	void (*bts_acquire_bw)(struct decon_device *decon);
 	void (*bts_release_bw)(struct decon_device *decon);
+	void (*bts_hiber_release_bw)(struct decon_device *decon);
 	void (*bts_deinit)(struct decon_device *decon);
 };
 
@@ -1162,6 +1177,11 @@ struct decon_bts {
 	u32 prev_total_bw;
 	u32 max_disp_freq;
 	u32 prev_max_disp_freq;
+	u32 fps;
+#if defined(CONFIG_DECON_BTS_VRR_ASYNC)
+	u32 next_fps;
+	u64 next_fps_vsync_count;
+#endif
 	u64 ppc;
 	u32 line_mem_cnt;
 	u32 cycle_per_line;
@@ -1224,11 +1244,10 @@ struct decon_edid_data {
 	u8 edid_data[EDID_BLOCK_SIZE * MAX_EDID_BLOCK];
 };
 
-
 #ifdef DEBUG_DMA_BUF_LEAK
 #define LEAK_INFO_ARRAY_CNT		20
 
-struct dma_leak_info {
+struct dma_leak_info {
 	u32 type;
 	int import_cnt;
 	int free_cnt;
@@ -1289,6 +1308,7 @@ struct decon_device {
 	struct decon_readback readback;
 
 	int frame_cnt;
+	ktime_t frame_time;
 	int frame_cnt_target;
 	wait_queue_head_t wait_vstatus;
 	int eint_status;
@@ -1353,7 +1373,7 @@ struct decon_device {
 	struct dma_leak_info leak_info[LEAK_INFO_ARRAY_CNT];
 	int leak_cnt;
 #endif
-	
+
 };
 #ifdef CONFIG_EXYNOS_MCD_HDR
 
@@ -1533,7 +1553,6 @@ void dpu_update_mres_lcd_info(struct decon_device *decon,
 void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs);
 void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info);
 
-
 /* DPHY PLL frequency hopping feature related functions */
 void dpu_init_freq_hop(struct decon_device *decon);
 void dpu_update_freq_hop(struct decon_device *decon);
@@ -1636,10 +1655,6 @@ static inline bool decon_hiber_enter_cond(struct decon_device *decon)
 		&& is_displayport_not_running()
 #endif
 		&& (!decon->low_persistence)
-
-#ifdef CONFIG_DYNAMIC_FREQ
-		&& (!decon->df_status->persistence_mode)
-#endif
 		&& (atomic_inc_return(&decon->hiber.trig_cnt) >=
 			decon->hiber.hiber_enter_cnt));
 }

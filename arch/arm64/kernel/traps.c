@@ -663,6 +663,13 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs, unsigned int esr
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 #endif
 {
+	/* check for AArch32 breakpoint instructions */
+	if (!aarch32_break_handler(regs))
+		return;
+
+	if (call_undef_hook(regs) == 0)
+		return;
+
 #ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 	if (!user_mode(regs)) {
 		secdbg_exin_set_fault(UNDEF_FAULT, (unsigned long)regs->pc, regs);
@@ -671,13 +678,6 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 #endif
 	}
 #endif /* CONFIG_SEC_DEBUG_EXTRA_INFO */
-
-	/* check for AArch32 breakpoint instructions */
-	if (!aarch32_break_handler(regs))
-		return;
-
-	if (call_undef_hook(regs) == 0)
-		return;
 
 #if defined(CONFIG_SEC_DEBUG_FAULT_MSG_ADV)
 	if (!user_mode(regs)) {
@@ -903,7 +903,6 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, unsigned int esr)
 	}
 #endif
 
-	die("Oops - bad mode", regs, 0);
 	local_daif_mask();
 	panic("bad mode");
 }

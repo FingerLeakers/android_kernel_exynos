@@ -49,9 +49,10 @@
 
 bool max77705_muic_check_is_enable_afc(struct max77705_muic_data *muic_data, muic_attached_dev_t new_dev)
 {
+	struct max77705_usbc_platform_data *usbc_pdata = muic_data->usbc_pdata;
 	int ret = false;
 
-	if (new_dev == ATTACHED_DEV_TA_MUIC || new_dev == ATTACHED_DEV_AFC_CHARGER_DISABLED_MUIC) {
+	if (new_dev == ATTACHED_DEV_TA_MUIC || new_dev == ATTACHED_DEV_AFC_CHARGER_PREPARE_MUIC) {
 		if (!muic_data->is_charger_ready) {
 			pr_info("%s Charger is not ready(%d), skip AFC\n",
 				__func__, muic_data->is_charger_ready);
@@ -59,15 +60,18 @@ bool max77705_muic_check_is_enable_afc(struct max77705_muic_data *muic_data, mui
 			pr_info("%s is_charger_mode(%d), skip AFC\n",
 				__func__, muic_data->is_charger_mode);
 #if defined(CONFIG_CCIC_NOTIFIER)
-		} else if (muic_data->usbc_pdata->fac_water_enable) {
+		} else if (usbc_pdata->fac_water_enable) {
 			pr_info("%s fac_water_enable(%d), skip AFC\n", __func__,
-				muic_data->usbc_pdata->fac_water_enable);
+				usbc_pdata->fac_water_enable);
 #endif /* CONFIG_CCIC_NOTIFIER */
 #if defined(CONFIG_MUIC_MAX77705_CCIC)
 		} else if (muic_data->afc_water_disable) {
 			pr_info("%s water detected(%d), skip AFC\n", __func__,
 				muic_data->afc_water_disable);
 #endif /* CONFIG_MUIC_MAX77705_CCIC */
+		} else if (usbc_pdata->pd_support) {
+			pr_info("%s PD TA detected(%d), skip AFC\n", __func__,
+				usbc_pdata->pd_support);
 		} else {
 			ret = true;
 		}

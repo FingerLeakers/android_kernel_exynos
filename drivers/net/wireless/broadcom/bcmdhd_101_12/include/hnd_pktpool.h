@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef _hnd_pktpool_h_

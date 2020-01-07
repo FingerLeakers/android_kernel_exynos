@@ -109,6 +109,13 @@ static const char * const group_id_name[GROUP_ID_MAX + 1] = {
 };
 #endif
 
+/*
+ * <LINE_FOR_SHOT_VALID_TIME>
+ * If valid time is too short when image height is small, use this feature.
+ * If height is smaller than this value, async_shot is increased.
+ */
+#define LINE_FOR_SHOT_VALID_TIME	0
+
 #define IS_MAX_GFRAME	(VIDEO_MAX_FRAME) /* max shot buffer of F/W : 32 */
 #define MIN_OF_ASYNC_SHOTS	1
 #define MIN_OF_SYNC_SHOTS	2

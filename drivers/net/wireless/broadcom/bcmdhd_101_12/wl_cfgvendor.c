@@ -5610,7 +5610,7 @@ wl_cfgvendor_nan_start_handler(struct wiphy *wiphy,
 	}
 	NAN_DBG_ENTER();
 
-	ret = wl_cfgnan_check_nan_disable_pending(cfg, false);
+	ret = wl_cfgnan_check_nan_disable_pending(cfg, false, true);
 	if (ret != BCME_OK) {
 		WL_ERR(("failed to disable nan, error[%d]\n", ret));
 		goto exit;
@@ -5678,7 +5678,7 @@ wl_cfgvendor_terminate_dp_rng_sessions(struct bcm_cfg80211 *cfg,
 	for (i = 0; i < NAN_MAX_RANGING_INST; i++) {
 		ranging_inst = &nancfg->nan_ranging_info[i];
 		if (ranging_inst->in_use &&
-				(ranging_inst->range_status == NAN_RANGING_IN_PROGRESS)) {
+				(NAN_RANGING_IS_IN_PROG(ranging_inst->range_status))) {
 			ret = wl_cfgnan_cancel_ranging(bcmcfg_to_prmry_ndev(cfg), cfg,
 					&ranging_inst->range_id,
 					NAN_RNG_TERM_FLAG_NONE, &status);
@@ -5724,6 +5724,7 @@ wl_cfgvendor_nan_stop_handler(struct wiphy *wiphy,
 			*/
 			WL_INFORM_MEM(("Schedule Nan Disable Req with NAN_DISABLE_CMD_DELAY\n"));
 			delay_ms = NAN_DISABLE_CMD_DELAY;
+			DHD_NAN_WAKE_LOCK_TIMEOUT(cfg->pub, NAN_WAKELOCK_TIMEOUT);
 		} else {
 			delay_ms = 0;
 		}

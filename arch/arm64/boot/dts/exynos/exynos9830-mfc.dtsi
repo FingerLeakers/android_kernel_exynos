@@ -268,8 +268,8 @@
 			mfc_e_qos_variant_4 {
 				thrd_mb = <1764112>;
 				freq_mfc = <400000>;
-				freq_int = <266000>;
-				freq_mif = <1014000>;
+				freq_int = <200000>;
+				freq_mif = <1352000>;
 				time_fw = <392>;
 				bts_scen = "default";
 			};
@@ -282,20 +282,20 @@
 				bts_scen = "mfc_uhd";
 			};
 			mfc_e_qos_variant_6 {
-				thrd_mb = <2455119>;
-				freq_mfc = <533000>;
-				freq_int = <400000>;
-				freq_mif = <1539000>;
-				time_fw = <277>;
-				bts_scen = "mfc_uhd";
+				thrd_mb = <2496430>;
+				freq_mfc = <400000>;
+				freq_int = <266000>;
+				freq_mif = <1716000>;
+				time_fw = <397>;
+				bts_scen = "mfc_uhd_enc60";
 			};
 			mfc_e_qos_variant_7 {
-				thrd_mb = <3135247>;
-				freq_mfc = <666000>;
-				freq_int = <533000>;
-				freq_mif = <2028000>;
-				time_fw = <230>;
-				bts_scen = "mfc_uhd";
+				thrd_mb = <3193027>;
+				freq_mfc = <533000>;
+				freq_int = <333000>;
+				freq_mif = <1716000>;
+				time_fw = <463>;
+				bts_scen = "mfc_uhd_enc60";
 			};
 		};
 

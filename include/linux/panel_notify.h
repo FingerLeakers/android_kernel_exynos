@@ -17,11 +17,17 @@
 enum panel_notifier_event_t {
 	PANEL_EVENT_LCD_CHANGED,
 	PANEL_EVENT_BL_CHANGED,
+	PANEL_EVENT_VRR_CHANGED,
+	PANEL_EVENT_STATE_CHANGED,
 };
 
 struct panel_bl_event_data {
 	int brightness;
 	int aor_ratio;
+};
+
+struct panel_dms_data {
+	int fps;
 };
 
 #ifdef CONFIG_PANEL_NOTIFY

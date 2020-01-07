@@ -83,7 +83,7 @@ typedef BWL_PRE_PACKED_STRUCT struct {
 /* ERP Cryptosuite */
 #define EAP_ERP_CS_HMAC_SHA256_128	2u
 
-#ifdef  BCMCCX
+#ifdef  BCMCCX // MOG-NO
 #define EAP_LEAP		17
 
 #define LEAP_VERSION		1

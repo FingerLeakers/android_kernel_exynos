@@ -58,6 +58,7 @@ extern s32 wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 	struct cfg80211_scan_request *request);
 extern int wl_cfg80211_scan_stop(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev);
 #endif /* WL_CFG80211_P2P_DEV_IF */
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0))
 extern void wl_cfg80211_abort_scan(struct wiphy *wiphy, struct wireless_dev *wdev);
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 5, 0)) */

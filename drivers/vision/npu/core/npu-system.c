@@ -78,10 +78,10 @@ static int npu_firmware_load(struct npu_system *system, int mode);
 static struct npu_memory_buffer dram_kernel_log_buf = {
 	.size = DRAM_KERNEL_LOG_BUF_SIZE,
 };
-static struct npu_memory_buffer fw_report_buf = {
+static struct npu_memory_v_buf fw_report_buf = {
 	.size = DRAM_FW_REPORT_BUF_SIZE,
 };
-static struct npu_memory_buffer fw_profile_buf = {
+static struct npu_memory_v_buf fw_profile_buf = {
 	.size = DRAM_FW_PROFILE_BUF_SIZE,
 };
 
@@ -104,26 +104,26 @@ int npu_system_alloc_fw_dram_log_buf(struct npu_system *system)
 
 	npu_store_log_init(dram_kernel_log_buf.vaddr, dram_kernel_log_buf.size);
 
-	if (!fw_report_buf.vaddr) {
-		ret = npu_memory_alloc(&system->memory, &fw_report_buf);
+	if (!fw_report_buf.v_buf) {
+		ret = npu_memory_v_alloc(&system->memory, &fw_report_buf);
 		if (ret) {
 			npu_err("fail(%d) in FW report buffer memory allocation\n", ret);
 			return ret;
 		}
-		npu_fw_report_init(fw_report_buf.vaddr, fw_report_buf.size);
+		npu_fw_report_init(fw_report_buf.v_buf, fw_report_buf.size);
 	} else {//Case of fw_report is already allocated by ion memory
-		npu_dbg("fw_report is already initialized - %pK.\n", fw_report_buf.vaddr);
+		npu_dbg("fw_report is already initialized - %pK.\n", fw_report_buf.v_buf);
 	}
 
-	if (!fw_profile_buf.vaddr) {
-		ret = npu_memory_alloc(&system->memory, &fw_profile_buf);
+	if (!fw_profile_buf.v_buf) {
+		ret = npu_memory_v_alloc(&system->memory, &fw_profile_buf);
 		if (ret) {
 			npu_err("fail(%d) in FW profile memory allocation\n", ret);
 			return ret;
 		}
-		npu_fw_profile_init(fw_profile_buf.vaddr, fw_profile_buf.size);
+		npu_fw_profile_init(fw_profile_buf.v_buf, fw_profile_buf.size);
 	} else {//Case of fw_profile is already allocated by ion memory
-		npu_dbg("fw_profile is already initialized - %pK.\n", fw_profile_buf.vaddr);
+		npu_dbg("fw_profile is already initialized - %pK.\n", fw_profile_buf.v_buf);
 	}
 
 	/* Initialize firmware utc handler with dram log buf */
@@ -148,7 +148,7 @@ static int npu_system_free_fw_dram_log_buf(struct npu_system *system)
 
 	ret = npu_memory_free(&system->memory, &dram_kernel_log_buf);
 	if (ret) {
-		npu_err("fail(%d) in Log buffer memory free\n", ret);
+		npu_err("fail(%d) in kernel Log buffer memory free\n", ret);
 		goto err_exit;
 	}
 
@@ -396,6 +396,12 @@ int npu_system_resume(struct npu_system *system, u32 mode)
 	}
 	set_bit(NPU_SYS_RESUME_INIT_FWBUF, &system->resume_steps);
 
+	npu_info("reset FW working memory : paddr %p, vaddr %p, daddr %p, size 0x%x\n",
+		system->fw_npu_memory_buffer->paddr,
+		system->fw_npu_memory_buffer->vaddr,
+		system->fw_npu_memory_buffer->daddr,
+		system->fw_npu_memory_buffer->size);
+	memset(system->fw_npu_memory_buffer->vaddr, 0, system->fw_npu_memory_buffer->size);
 	ret = npu_firmware_load(system, device->sched->mode);
 	if (ret) {
 		npu_err("fail(%d) in npu_firmware_load\n", ret);

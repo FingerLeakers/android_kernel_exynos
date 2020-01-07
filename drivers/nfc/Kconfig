@@ -88,6 +88,15 @@ config NFC_P61
 	  It is used by many services. NFC is fully controlled using I2C
 	  to communication
 
+config NFC_FEATURE_SN100U
+	bool "NXP SN100U Feature"
+	default n
+	help
+	  NXP SN100U Near Field Communication controller support
+	  This option enables device driver support for the NFC.
+	  It is used by many services. NFC is fully controlled using I2C
+	  to communicate the AP chip.
+
 config ESE_SECURE
 	bool "ESE Secure Controller Driver"
 	depends on !SEC_FACTORY

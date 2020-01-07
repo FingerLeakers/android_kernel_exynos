@@ -261,6 +261,7 @@ extern bool dhd_pktlog_filter_existed(dhd_pktlog_filter_t *filter, char *arg, ui
 }
 
 #define DHD_PKTLOG_DUMP_PATH	DHD_COMMON_DUMP_PATH
+extern int dhd_pktlog_debug_dump(dhd_pub_t *dhdp);
 extern void dhd_pktlog_dump(void *handle, void *event_info, u8 event);
 extern void dhd_schedule_pktlog_dump(dhd_pub_t *dhdp);
 extern int dhd_pktlog_dump_write_memory(dhd_pub_t *dhdp, const void *user_buf, uint32 size);
@@ -269,8 +270,9 @@ extern int dhd_pktlog_dump_write_file(dhd_pub_t *dhdp);
 #define DHD_PKTLOG_FATE_INFO_STR_LEN 256
 #define DHD_PKTLOG_FATE_INFO_FORMAT	"BRCM_Packet_Fate"
 #define DHD_PKTLOG_DUMP_TYPE "pktlog_dump"
+#define DHD_PKTLOG_DEBUG_DUMP_TYPE "pktlog_debug_dump"
 
-extern  void dhd_pktlog_get_filename(dhd_pub_t *dhdp, char *dump_path, int len);
+extern void dhd_pktlog_get_filename(dhd_pub_t *dhdp, char *dump_path, int len);
 extern uint32 dhd_pktlog_get_item_length(dhd_pktlog_ring_info_t *report_ptr);
 extern uint32 dhd_pktlog_get_dump_length(dhd_pub_t *dhdp);
 extern uint32 __dhd_dbg_pkt_hash(uintptr_t pkt, uint32 pktid);

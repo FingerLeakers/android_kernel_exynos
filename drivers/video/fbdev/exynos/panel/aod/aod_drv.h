@@ -170,6 +170,8 @@ struct aod_ops {
 #ifdef SUPPORT_NORMAL_SELF_MOVE
 	int (*self_move_pattern_update)(struct aod_dev_info *aod_dev);
 #endif
+	int (*black_grid_on)(struct aod_dev_info *aod_dev);
+	int (*black_grid_off)(struct aod_dev_info *aod_dev);
 };
 
 int aod_drv_probe(struct panel_device *panel, struct aod_tune *aod_tune);

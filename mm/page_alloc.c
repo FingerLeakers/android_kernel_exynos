@@ -1759,6 +1759,14 @@ void __init page_alloc_init_late(void)
 	wait_for_completion(&pgdat_init_all_done_comp);
 
 	/*
+	 * The number of managed pages has changed due to the initialisation
+	 * so the pcpu batch and high limits needs to be updated or the limits
+	 * will be artificially small.
+	 */
+	for_each_populated_zone(zone)
+		zone_pcp_update(zone);
+
+	/*
 	 * We initialized the rest of the deferred pages.  Permanently disable
 	 * on-demand struct page initialization.
 	 */
@@ -3060,11 +3068,9 @@ struct page *rmqueue(struct zone *preferred_zone,
 
 #ifdef CONFIG_CMA
 	if ((migratetype_rmqueue == MIGRATE_MOVABLE) &&
-#ifdef CONFIG_HUGEPAGE_POOL
-	    !(gfp_flags & __GFP_NOCMA) &&
-#endif
 	    ((gfp_flags & (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM))
-	      == (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM)))
+	      == (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM)) &&
+	    !(gfp_flags & __GFP_NOCMA))
 	     migratetype_rmqueue = MIGRATE_CMA;
 #endif
 	if (likely(order == 0)) {
@@ -8138,7 +8144,6 @@ void free_contig_range(unsigned long pfn, unsigned nr_pages)
 }
 #endif
 
-#ifdef CONFIG_MEMORY_HOTPLUG
 /*
  * The zone indicated has a new number of managed_pages; batch sizes and percpu
  * page high values need to be recalulated.
@@ -8152,7 +8157,6 @@ void __meminit zone_pcp_update(struct zone *zone)
 				per_cpu_ptr(zone->pageset, cpu));
 	mutex_unlock(&pcp_batch_high_lock);
 }
-#endif
 
 void zone_pcp_reset(struct zone *zone)
 {

@@ -170,6 +170,7 @@ static struct page *follow_page_pte(struct vm_area_struct *vma,
 	struct page *page;
 	spinlock_t *ptl;
 	pte_t *ptep, pte;
+	bool cma_migration;
 
 retry:
 	if (unlikely(pmd_bad(*pmd)))
@@ -231,7 +232,24 @@ retry:
 		}
 	}
 
-	if (__need_migrate_cma_page(page, vma, address, flags)) {
+	cma_migration = __need_migrate_cma_page(page, vma, address, flags);
+	if (cma_migration)
+		flags |= FOLL_SPLIT;
+
+	if (flags & FOLL_SPLIT && PageTransCompound(page)) {
+		int ret;
+		get_page(page);
+		pte_unmap_unlock(ptep, ptl);
+		lock_page(page);
+		ret = split_huge_page(page);
+		unlock_page(page);
+		put_page(page);
+		if (ret)
+			return ERR_PTR(ret);
+		goto retry;
+	}
+
+	if (cma_migration) {
 		pte_unmap_unlock(ptep, ptl);
 		if (__migrate_cma_pinpage(page, vma)) {
 			ptep = pte_offset_map_lock(mm, pmd, address, &ptl);
@@ -251,19 +269,6 @@ retry:
 					page_to_pfn(old_page),
 					page, page_to_pfn(page));
 		}
-	}
-
-	if (flags & FOLL_SPLIT && PageTransCompound(page)) {
-		int ret;
-		get_page(page);
-		pte_unmap_unlock(ptep, ptl);
-		lock_page(page);
-		ret = split_huge_page(page);
-		unlock_page(page);
-		put_page(page);
-		if (ret)
-			return ERR_PTR(ret);
-		goto retry;
 	}
 
 	if (flags & FOLL_GET) {

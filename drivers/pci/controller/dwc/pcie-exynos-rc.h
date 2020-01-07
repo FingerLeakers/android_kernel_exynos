@@ -116,6 +116,7 @@
 #define PCIE_LINK_CTRL_STAT		0x80
 #define PCIE_CAP_NEGO_LINK_WIDTH_MASK	0x3f
 #define PCIE_CAP_LINK_SPEED		0xf
+#define PCIE_CAP_NEGO_LINK_WIDTH_MASK	0x3f
 #define PCI_EXP_LNKCAP_MLW_X1		(0x1 << 4)
 #define PCI_EXP_LNKCAP_L1EL_64USEC	(0x7 << 15)
 /* previous definition is in 'include/uapi/linux/pci_regs.h:661' */
@@ -339,6 +340,7 @@ void exynos_pcie_rc_write_dbi(struct dw_pcie *dw_pcie, void __iomem *base,
 				  u32 reg, size_t size, u32 val);
 int exynos_pcie_rc_lanechange(int ch_num, int lane);
 int exynos_pcie_rc_speedchange(int ch_num, int spd);
+int exynos_pcie_rc_lanechange(int ch_num, int lane);
 int exynos_pcie_rc_poweron(int ch_num);
 void exynos_pcie_rc_poweroff(int ch_num);
 int exynos_pcie_rc_l1ss_ctrl(int enable, int id);

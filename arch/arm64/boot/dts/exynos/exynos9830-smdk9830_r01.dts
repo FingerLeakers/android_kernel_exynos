@@ -21,7 +21,7 @@
 #define BOARD_REV	0x1
 
 / {
-	compatible = "samsung,exynos9830", "samsung,SMDK9830";
+	compatible = "samsung,exynos990", "samsung,SMDK990";
 	board_id = <BOARD_ID>;
 	board_rev = <BOARD_REV>;
 

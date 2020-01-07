@@ -186,12 +186,20 @@ struct panel_regulator {
 	int from_lpm_current;
 };
 
+struct cmd_set {
+	u8 cmd_id;
+	u8 offset;
+	const u8 *buf;
+	int size;
+};
+
 #define DSIM_OPTION_WAIT_TX_DONE	(1U << 0)
 #define DSIM_OPTION_POINT_GPARA		(1U << 1)
 
 struct mipi_drv_ops {
 	int (*read)(u32 id, u8 addr, u8 ofs, u8 *buf, int size, u32 option);
 	int (*write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size, u32 option);
+	int (*write_table)(u32 id, const struct cmd_set *cmd, int size, u32 option);
 	int (*sr_write)(u32 id, u8 cmd_id, const u8 *cmd, u8 ofs, int size, u32 option);
 	enum dsim_state(*get_state)(u32 id);
 	void (*parse_dt)(struct device_node *, EXYNOS_PANEL_INFO *);
@@ -321,6 +329,7 @@ enum GAMMA_FLASH_RESULT {
 
 struct dim_flash_result {
 	bool exist;
+	u32 state;
 
 	u32 dim_chksum_ok;
 	u32 dim_chksum_by_calc;
@@ -343,6 +352,15 @@ struct panel_work {
 	int ret;
 };
 
+#define MAX_PANEL_CMD_QUEUE	(1024)
+
+struct panel_cmd_queue {
+	struct cmd_set cmd[MAX_PANEL_CMD_QUEUE];
+	int top;
+	int cmd_payload_size;
+	int img_payload_size;
+	struct mutex lock;
+};
 typedef int (*panel_thread_fn)(void *data);
 
 struct panel_thread {
@@ -388,6 +406,7 @@ struct panel_device {
 	struct panel_regulator regulator[PANEL_REGULATOR_MAX];
 
 	struct mipi_drv_ops mipi_drv;
+	struct panel_cmd_queue cmdq;
 
 	struct panel_state state;
 
@@ -426,7 +445,10 @@ struct panel_device {
 	ktime_t ktime_panel_off;
 
 #ifdef CONFIG_SUPPORT_DIM_FLASH
-	struct dim_flash_result dim_flash_result;
+	struct dim_flash_result *dim_flash_result;
+	int nr_dim_flash_result;
+	int max_nr_dim_flash_result;
+
 	struct panel_irc_info *irc_info;
 #endif
 	struct panel_condition_check condition_check;
@@ -492,6 +514,18 @@ static inline int panel_aod_power_off(struct panel_device *panel)
 {
 	return (panel->aod.ops && panel->aod.ops->power_off) ?
 		panel->aod.ops->power_off(&panel->aod) : 0;
+}
+
+static inline int panel_aod_black_grid_on(struct panel_device *panel)
+{
+	return (panel->aod.ops && panel->aod.ops->black_grid_on) ?
+		panel->aod.ops->black_grid_on(&panel->aod) : 0;
+}
+
+static inline int panel_aod_black_grid_off(struct panel_device *panel)
+{
+	return (panel->aod.ops && panel->aod.ops->black_grid_off) ?
+		panel->aod.ops->black_grid_off(&panel->aod) : 0;
 }
 
 #ifdef SUPPORT_NORMAL_SELF_MOVE

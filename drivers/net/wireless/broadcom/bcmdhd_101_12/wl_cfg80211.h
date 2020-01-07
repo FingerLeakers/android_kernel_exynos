@@ -385,6 +385,10 @@ do {									\
 #ifdef WL_NAN
 #define WL_SCAN_TIMER_INTERVAL_MS_NAN	15000 /* Scan timeout */
 #endif /* WL_NAN */
+#ifdef WL_6G_BAND
+/* additional scan timeout for 6GHz, 15*110msec, rounded to 3000msec */
+#define WL_SCAN_TIMER_INTERVAL_MS_6G	3000
+#endif /* WL_6G_BAND */
 #define WL_CHANNEL_SYNC_RETRY	5
 #define WL_INVALID		-1
 
@@ -1499,6 +1503,9 @@ struct bcm_cfg80211 {
 #ifdef SUPPORT_AP_BWCTRL
 	u32 bw_cap_5g;
 #endif /* SUPPORT_AP_BWCTRL */
+#ifdef WL_6G_BAND
+	bool band_6g_supported;
+#endif /* WL_6G_BAND */
 	wl_loc_info_t loc;    /* listen on channel state info */
 	int roamscan_mode;
 	int wes_mode;
@@ -2609,6 +2616,9 @@ extern int wl_cfg80211_start_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_a
 extern int wl_cfg80211_stop_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_alive_id);
 #endif /* KEEP_ALIVE */
 
+extern s32 wl_cfg80211_handle_macaddr_change(struct net_device *dev, u8 *macaddr);
+extern int wl_cfg80211_handle_hang_event(struct net_device *ndev,
+	uint16 hang_reason, uint32 memdump_type);
 bool wl_cfg80211_is_dpp_frame(void *frame, u32 frame_len);
 const char *get_dpp_pa_ftype(enum wl_dpp_ftype ftype);
 bool wl_cfg80211_is_dpp_gas_action(void *frame, u32 frame_len);

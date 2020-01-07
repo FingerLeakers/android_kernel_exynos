@@ -6206,18 +6206,6 @@ dhd_prot_check_tx_resource(dhd_pub_t *dhd)
 	return dhd->prot->no_tx_resource;
 }
 
-void
-dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd)
-{
-	dhd->prot->pktid_txq_stop_cnt++;
-}
-
-void
-dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd)
-{
-	dhd->prot->pktid_txq_start_cnt++;
-}
-
 /** called on MSG_TYPE_TX_STATUS message received from dongle */
 static void
 BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
@@ -6301,6 +6289,9 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 	}
 
 	if (DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map) == DHD_PKTID_MIN_AVAIL_COUNT) {
+		DHD_ERROR(("%s: start tx queue as min pktids are available\n",
+			__FUNCTION__));
+		prot->pktid_txq_stop_cnt--;
 		dhd->prot->no_tx_resource = FALSE;
 		dhd_bus_start_queue(dhd->bus);
 	}
@@ -6580,6 +6571,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 #ifdef DHD_PCIE_PKTID
 		if (!DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map)) {
 			if (dhd->prot->pktid_depleted_cnt == DHD_PKTID_DEPLETED_MAX_COUNT) {
+				DHD_ERROR(("%s: stop tx queue as pktid_depleted_cnt maxed\n",
+					__FUNCTION__));
+				prot->pktid_txq_stop_cnt++;
 				dhd_bus_stop_queue(dhd->bus);
 				dhd->prot->no_tx_resource = TRUE;
 			}

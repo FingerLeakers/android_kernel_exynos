@@ -548,6 +548,7 @@ typedef struct _pcie_enhanced_caphdr {
 
 #define	PCI_PHY_CTL_0			0x1800
 #define	PCI_SLOW_PMCLK_EXT_RLOCK	(1 << 7)
+#define PCI_REG_TX_DEEMPH_3_5_DB	(1 << 21)
 
 #define	PCI_LINK_STATE_DEBUG	0x1c24
 #define PCI_RECOVERY_HIST		0x1ce4

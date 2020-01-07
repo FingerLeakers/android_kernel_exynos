@@ -43,6 +43,8 @@
 #define SENSOR_NAME "S5K2LA"
 /* #define DEBUG_2LA_PLL */
 
+static const u32 *sensor_2la_initial_setting;
+static u32 sensor_2la_initial_setting_size;
 static const u32 *sensor_2la_global_1;
 static const u32 *sensor_2la_global_2;
 static u32 sensor_2la_global_size_1;
@@ -289,6 +291,8 @@ int sensor_2la_cis_select_setfile(struct v4l2_subdev *subdev)
 	case 0xA101:
 	case 0xA201:
 		info("2la sensor revision(%#x)\n", rev);
+		sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+		sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 		sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
 		sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
 		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
@@ -300,6 +304,8 @@ int sensor_2la_cis_select_setfile(struct v4l2_subdev *subdev)
 		break;
 	case 0xA202: /* After OTP write */
 		info("2la sensor revision(%#x)\n", rev);
+		sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+		sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
 		sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		sensor_2la_setfiles = sensor_2la_setfiles_A;
@@ -309,6 +315,8 @@ int sensor_2la_cis_select_setfile(struct v4l2_subdev *subdev)
 		break;
 	default:
 		info("2la sensor revision(%#x)\n", rev);
+		sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+		sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 		sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
 		sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
 		sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
@@ -590,7 +598,7 @@ int sensor_2la_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	/* dual sync for live focus */
 	ex_mode = is_sensor_g_ex_mode(device);
-	if (0 /*ex_mode == EX_LIVEFOCUS*/ /* TEMP_2020*/
+	if (ex_mode == EX_LIVEFOCUS
 #ifdef CONFIG_SEC_FACTORY
 		|| test_bit(IS_SENSOR_OPEN, &(core->sensor[0].state))
 #endif
@@ -607,6 +615,12 @@ int sensor_2la_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	if (ret < 0) {
 		err("dual sync setting fail!!");
 		goto p_err_i2c_unlock;
+	}
+
+	/* EMB Header off */
+	ret = is_sensor_write8(cis->client, 0x0118, 0x00);
+	if (ret < 0){
+		err("EMB header off fail");
 	}
 
 p_err_i2c_unlock:
@@ -636,10 +650,12 @@ int sensor_2la_cis_set_global_setting(struct v4l2_subdev *subdev)
 
 	/* Before OTP write */
 	if(rev < 0xA202) {
-		ret = sensor_cis_set_registers(subdev, sensor_2la_global_1, sensor_2la_global_size_1);
+		ret = sensor_cis_set_registers(subdev, sensor_2la_initial_setting, sensor_2la_initial_setting_size);
+		ret |= sensor_cis_set_registers(subdev, sensor_2la_global_1, sensor_2la_global_size_1);
 		ret |= sensor_cis_set_registers(subdev, sensor_2la_global_2, sensor_2la_global_size_2);
 	} else { /* After OTP write */
-		ret = sensor_cis_set_registers(subdev, sensor_2la_global_2, sensor_2la_global_size_2);
+		ret = sensor_cis_set_registers(subdev, sensor_2la_initial_setting, sensor_2la_initial_setting_size);
+		ret |= sensor_cis_set_registers(subdev, sensor_2la_global_2, sensor_2la_global_size_2);
 	}
 
 	if (ret < 0) {
@@ -2316,11 +2332,15 @@ static int cis_2la_probe(struct i2c_client *client,
 		probe_info("%s setfile_A\n", __func__);
 		/* Before OTP write */
 		if(rev < 0xA202) {
+			sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+			sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 			sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
 			sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
 			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
 			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		} else { /* After OTP write */
+			sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+			sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
 			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		}
@@ -2337,11 +2357,15 @@ static int cis_2la_probe(struct i2c_client *client,
 	} else {
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
 		if(rev < 0xA202) {
+			sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+			sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 			sensor_2la_global_1 = sensor_2la_setfile_A_Global_1;
 			sensor_2la_global_size_1 = ARRAY_SIZE(sensor_2la_setfile_A_Global_1);
 			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
 			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		} else { /* After OTP write */
+			sensor_2la_initial_setting = sensor_2la_setfile_A_initial_setting;
+			sensor_2la_initial_setting_size = ARRAY_SIZE(sensor_2la_setfile_A_initial_setting);
 			sensor_2la_global_2 = sensor_2la_setfile_A_Global_2;
 			sensor_2la_global_size_2 = ARRAY_SIZE(sensor_2la_setfile_A_Global_2);
 		}

@@ -1985,8 +1985,41 @@ static ssize_t camera_rear_tof_laser_error_flag_store(struct device *dev,
 	}
 
 	ret_count = sscanf(buf, "%d", &mode);
+
+	if (ret_count != 1) {
+		return -EINVAL;
+	}
+
 	camera_tof_laser_error_flag(SENSOR_POSITION_REAR_TOF, mode, &value);
+
 	return count;
+}
+
+static ssize_t camera_rear_tof_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct is_core *core;
+	struct is_device_sensor *device;
+	struct is_module_enum *module;
+	int i;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("%s: core is NULL", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < IS_SENSOR_COUNT; i++) {
+		device = &core->sensor[i];
+		is_search_sensor_module_with_position(&core->sensor[i],
+				SENSOR_POSITION_REAR_TOF, &module);
+		if (module)
+			break;
+	}
+
+	WARN_ON(!module);
+
+	return sprintf(buf, "%d", test_bit(IS_SENSOR_GPIO_ON, &device->state));
 }
 
 #ifdef CAMERA_REAR_TOF_CAL
@@ -2436,7 +2469,13 @@ static ssize_t camera_rear_tof_check_pd_store(struct device *dev,
 	}
 
 	ret_count = sscanf(buf, "%d", &value);
+
+	if (ret_count != 1) {
+		return -EINVAL;
+	}
+	
 	camera_tof_set_laser_current(SENSOR_POSITION_REAR_TOF, value);
+
 	return count;
 }
 
@@ -2546,7 +2585,7 @@ static ssize_t camera_rear_tof_freq_store(struct device *dev,
 	struct is_module_enum *module;
 	struct is_device_sensor_peri *sensor_peri;
 	struct is_cis *cis = NULL;
-	int i, value;
+	int i, value, ret_count;
 
 	if (!is_dev) {
 		dev_err(dev, "%s: is_dev is not yet probed", __func__);
@@ -2574,7 +2613,11 @@ static ssize_t camera_rear_tof_freq_store(struct device *dev,
 
 	WARN_ON(!sensor_peri);
 
-	sscanf(buf, "%d", &value);
+	ret_count = sscanf(buf, "%d", &value);
+
+	if (ret_count != 1) {
+		return -EINVAL;
+	}
 
 	if (sensor_peri->subdev_cis) {
 		cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
@@ -2885,7 +2928,13 @@ static ssize_t camera_front_tof_check_pd_store(struct device *dev,
 	}
 
 	ret_count = sscanf(buf, "%d", &value);
+
+	if (ret_count != 1) {
+		return -EINVAL;
+	}
+
 	camera_tof_set_laser_current(SENSOR_POSITION_FRONT_TOF, value);
+
 	return count;
 }
 
@@ -4297,7 +4346,7 @@ static DEVICE_ATTR(rear_camtype, S_IRUGO, camera_rear_camtype_show, NULL);
 static DEVICE_ATTR(rear_calcheck, S_IRUGO, camera_rear_calcheck_show, NULL);
 
 static DEVICE_ATTR(rear_caminfo, S_IRUGO, camera_rear_info_show, NULL);
-static DEVICE_ATTR(rear_camfw, S_IRUGO, camera_rear_camfw_show, camera_rear_camfw_write);
+static DEVICE_ATTR(rear_camfw, S_IRUGO|S_IWUSR, camera_rear_camfw_show, camera_rear_camfw_write);
 static DEVICE_ATTR(rear_camfw_full, S_IRUGO, camera_rear_camfw_full_show, NULL);
 static DEVICE_ATTR(rear_checkfw_user, S_IRUGO, camera_rear_checkfw_user_show, NULL);
 static DEVICE_ATTR(rear_checkfw_factory, S_IRUGO, camera_rear_checkfw_factory_show, NULL);
@@ -4372,6 +4421,7 @@ static DEVICE_ATTR(rear_tof_camfw_full, S_IRUGO, camera_rear_tof_camfw_full_show
 static DEVICE_ATTR(rear_tof_checkfw_factory, S_IRUGO, camera_rear_tof_checkfw_factory_show, NULL);
 static DEVICE_ATTR(rear_tof_sensorid_exif, S_IRUGO, camera_rear_tof_sensorid_exif_show, NULL);
 static DEVICE_ATTR(rear_tof_laser_error_flag, 0644, camera_rear_tof_laser_error_flag_show, camera_rear_tof_laser_error_flag_store);
+static DEVICE_ATTR(rear_tof_state, S_IRUGO, camera_rear_tof_state_show, NULL);
 #ifdef CAMERA_REAR4_TOF_MODULEID
 static DEVICE_ATTR(rear4_moduleid, S_IRUGO, camera_rear_tof_moduleid_show, NULL);
 static DEVICE_ATTR(SVC_rear_module4, S_IRUGO, camera_rear_tof_moduleid_show, NULL);
@@ -5099,6 +5149,10 @@ int is_create_sysfs(struct is_core *core)
 			pr_err("failed to create rear device file, %s\n",
 					dev_attr_rear_tof_laser_error_flag.attr.name);
 		}
+		if (device_create_file(camera_rear_dev, &dev_attr_rear_tof_state) < 0) {
+			pr_err("failed to create rear device file, %s\n",
+					dev_attr_rear_tof_state.attr.name);
+		}
 #ifdef CAMERA_REAR_TOF_CAL
 		if (device_create_file(camera_rear_dev, &dev_attr_rear_tofcal) < 0) {
 			pr_err("failed to create rear device file, %s\n",
@@ -5543,6 +5597,7 @@ int is_destroy_sysfs(struct is_core *core)
 		device_remove_file(camera_rear_dev, &dev_attr_rear4_moduleid);
 #endif
 		device_remove_file(camera_rear_dev, &dev_attr_rear_tof_laser_error_flag);
+		device_remove_file(camera_rear_dev, &dev_attr_rear_tof_state);
 #ifdef CAMERA_REAR_TOF_CAL
 		device_remove_file(camera_rear_dev, &dev_attr_rear_tofcal);
 		device_remove_file(camera_rear_dev, &dev_attr_rear_tofcal_extra);

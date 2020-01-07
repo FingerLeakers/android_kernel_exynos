@@ -110,6 +110,8 @@ EXPORT_SYMBOL_GPL(ehci_cf_port_reset_rwsem);
 static void hub_release(struct kref *kref);
 static int usb_reset_and_verify_device(struct usb_device *udev);
 static int hub_port_disable(struct usb_hub *hub, int port1, int set_state);
+static bool hub_port_warm_reset_required(struct usb_hub *hub, int port1,
+		u16 portstatus);
 static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev);
 
 static inline char *portspeed(struct usb_hub *hub, int portstatus)
@@ -1119,6 +1121,11 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 						   USB_PORT_FEAT_ENABLE);
 		}
 
+		/* Make sure a warm-reset request is handled by port_event */
+		if (type == HUB_RESUME &&
+		    hub_port_warm_reset_required(hub, port1, portstatus))
+			set_bit(port1, hub->event_bits);
+
 		/*
 		 * Add debounce if USB3 link is in polling/link training state.
 		 * Link will automatically transition to Enabled state after
@@ -1796,7 +1803,7 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	if (hdev->level == MAX_TOPO_LEVEL) {
 		dev_err(&intf->dev,
 			"Unsupported bus topology: hub nested too deep\n");
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 		send_usb_certi_uevent(USB_CERTI_HUB_DEPTH_EXCEED);
 #endif
 		return -E2BIG;
@@ -2150,6 +2157,15 @@ void usb_disconnect(struct usb_device **pdev)
 	struct usb_hub *hub = NULL;
 	int port1 = 1;
 
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	if (time_before(jiffies, udev->connect_time + msecs_to_jiffies(800)) &&
+			is_known_usbaudio(udev)) {
+		dev_info(&udev->dev, "%s: time(%dms), add delay ++\n", __func__,
+				jiffies_to_msecs(jiffies - udev->connect_time));
+		msleep(500);
+		dev_info(&udev->dev, "%s: add delay --\n", __func__);
+	}
+#endif
 	/* mark the device as inactive, so any further urb submissions for
 	 * this device (and any of its children) will fail immediately.
 	 * this quiesces everything except pending urbs.
@@ -4750,7 +4766,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 				if (r != -ENODEV) {
 					dev_err(&udev->dev, "device descriptor read/64, error %d\n",
 							r);
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 					send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
 #endif
 				}
@@ -4813,7 +4829,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 				dev_err(&udev->dev,
 					"device descriptor read/8, error %d\n",
 					retval);
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 				send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
 #endif
 			}
@@ -4885,7 +4901,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 		if (retval != -ENODEV) {
 			dev_err(&udev->dev, "device descriptor read/all, error %d\n",
 					retval);
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 			send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
 #endif
 		}
@@ -4995,7 +5011,7 @@ hub_power_remaining(struct usb_hub *hub)
 		dev_warn(hub->intfdev, "%dmA over power budget!\n",
 			-remaining);
 		remaining = 0;
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 		send_usb_certi_uevent(USB_CERTI_HUB_POWER_EXCEED);
 #endif
 	}
@@ -5015,6 +5031,9 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	static int unreliable_port = -1;
 #ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
 	int trstrcy = 10;
+#endif
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+	struct otg_notify *o_notify = get_otg_notify();
 #endif
 
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
@@ -5044,8 +5063,15 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 		if (status < 0) {
 			if (status != -ENODEV &&
 				port1 != unreliable_port &&
-				printk_ratelimit())
+				printk_ratelimit()) {
 				dev_err(&port_dev->dev, "connect-debounce failed\n");
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+				if (get_usb_mode(o_notify) == NOTIFY_HOST_MODE) {
+					send_otg_notify(o_notify, NOTIFY_EVENT_HOST, 0);
+					send_otg_notify(o_notify, NOTIFY_EVENT_HOST, 1);
+				}
+#endif
+			}
 			portstatus &= ~USB_PORT_STAT_CONNECTION;
 			unreliable_port = port1;
 		} else {
@@ -5402,7 +5428,7 @@ static void port_event(struct usb_hub *hub, int port1)
 	 */
 	if (hub_port_warm_reset_required(hub, port1, portstatus)) {
 		dev_dbg(&port_dev->dev, "do warm reset\n");
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 		send_usb_certi_uevent(USB_CERTI_NO_RESPONSE);
 #endif
 		if (!udev || !(portstatus & USB_PORT_STAT_CONNECTION)

@@ -24,6 +24,7 @@ unsigned int frt_disable_cpufreq;
 LIST_HEAD(frt_list);
 DEFINE_RAW_SPINLOCK(frt_lock);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct frt_dom *, frt_rqs);
+bool frt_initialized;
 
 /*
  * Optional action to be done while updating the load average
@@ -237,6 +238,25 @@ static const struct cpumask *get_available_cpus(void)
 	return &available_mask;
 }
 
+static int frt_mode_update_callback(struct notifier_block *nb,
+				unsigned long val, void *v)
+{
+	struct emstune_set *cur_set = (struct emstune_set *)v;
+	struct frt_dom *dom;
+
+	list_for_each_entry(dom, &frt_list, list) {
+		int cpu = cpumask_first(&dom->cpus);
+
+		dom->active_ratio = cur_set->frt.active_ratio[cpu];
+		dom->coverage_ratio = cur_set->frt.coverage_ratio[cpu];
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block frt_mode_update_notifier = {
+	.notifier_call = frt_mode_update_callback,
+};
 
 static int __init frt_sysfs_init(void)
 {
@@ -259,6 +279,8 @@ static int __init frt_sysfs_init(void)
 	/* add frt syfs for global control */
 	if (sysfs_create_group(frt_kobj, &frt_group))
 		goto out;
+
+	emstune_register_mode_update_notifier(&frt_mode_update_notifier);
 
 	return 0;
 
@@ -343,6 +365,9 @@ static int __init init_frt(void)
 		list_add_tail(&cur->list, &frt_list);
 	}
 	frt_sysfs_init();
+
+	frt_initialized = true;
+	pr_info("%s: frt initialized complete!\n", __func__);
 
 put_node:
 	of_node_put(dn);
@@ -1250,6 +1275,9 @@ void frt_update_available_cpus(void)
 	struct frt_dom *dom, *prev_idle_dom = NULL;
 	struct cpumask mask;
 	unsigned long flags;
+
+	if (unlikely(!frt_initialized))
+		return;
 
 	if (!raw_spin_trylock_irqsave(&frt_lock, flags))
 		return;

@@ -222,7 +222,7 @@ typedef eapol_wpa_key_header_v2_t eapol_wpa_key_header_t;
 #define WPA_KEY_ENCRYPTED_DATA	0x1000
 
 /* Key Data encapsulation */
-/* FIXME: this is really just a vendor-specific info element.  should define
+/* this is really just a vendor-specific info element.  should define
  * this in 802.11.h
  */
 typedef BWL_PRE_PACKED_STRUCT struct {

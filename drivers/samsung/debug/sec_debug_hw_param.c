@@ -18,6 +18,7 @@
 #include <linux/soc/samsung/exynos-soc.h>
 #include <linux/sec_class.h>
 #include <linux/sec_ext.h>
+#include <soc/samsung/exynos-pm.h>
 
 #include "sec_debug_internal.h"
 
@@ -283,10 +284,6 @@ static int __init sec_hw_param_bin(char *arg)
 
 early_param("sec_debug.bin", sec_hw_param_bin);
 
-/* TODO: these functions need asv_ids_information api. please test them
- * after asv_ids_information() is ported
- */
-#if 0
 static u32 chipid_reverse_value(u32 value, u32 bitcnt)
 {
 	int tmp, ret = 0;
@@ -409,7 +406,6 @@ static ssize_t sec_hw_param_ap_info_show(struct kobject *kobj,
 
 	return info_size;
 }
-#endif
 
 static char *get_dram_manufacturer(void)
 {
@@ -640,10 +636,8 @@ static ssize_t sec_hw_param_thermal_info_show(struct kobject *kobj,
 	return info_size;
 }
 
-#if 0
 static struct kobj_attribute sec_hw_param_ap_info_attr =
 	__ATTR(ap_info, 0440, sec_hw_param_ap_info_show, NULL);
-#endif
 
 static struct kobj_attribute sec_hw_param_ddr_info_attr =
 	__ATTR(ddr_info, 0440, sec_hw_param_ddr_info_show, NULL);
@@ -675,9 +669,7 @@ static struct kobj_attribute sec_hw_param_thermal_info_attr =
 	__ATTR(thermal_info, 0440, sec_hw_param_thermal_info_show, NULL);
 
 static struct attribute *sec_hw_param_attributes[] = {
-#if 0
 	&sec_hw_param_ap_info_attr.attr,
-#endif
 	&sec_hw_param_ddr_info_attr.attr,
 	&sec_hw_param_extra_info_attr.attr,
 	&sec_hw_param_extrb_info_attr.attr,

@@ -67,6 +67,7 @@
 #define PIN_REGULATOR	5
 #define PIN_I2C		6
 #define PIN_MCLK	7
+#define PIN_REGULATOR_OPTION	8
 
 #define MATCH_ENTRY_MAX	3
 #define MATCH_GROUP_MAX	5
@@ -189,6 +190,7 @@
 #define	EX_3DHDR		6
 #define	EX_PDSTAT_OFF		7
 #define	EX_AEB			8
+#define	EX_REMOSAIC_CAL			11
 
 /* LRTE */
 #define LRTE_DISABLE		0

@@ -432,7 +432,11 @@ int is_devicemgr_shot_callback(struct is_group *group,
 		 * because this bit can be cleared for not operate child_group_shot at remosaic sensor mode
 		 */
 		if (child_group && test_bit(IS_SENSOR_OTF_OUTPUT, &group->device->sensor->state)) {
-			child_group->shot_callback(child_group->device, frame);
+			ret = child_group->shot_callback(child_group->device, frame);
+			if (ret) {
+				mgerr("child_group->shot_callback(%d)", child_group, child_group, ret);
+				goto p_err;
+			}
 		/* M2M */
 		} else {
 			ret = is_sensor_group_tag(group->device->sensor, frame, &ldr_node);

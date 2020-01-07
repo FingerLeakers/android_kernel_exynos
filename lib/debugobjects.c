@@ -422,10 +422,6 @@ __debug_object_init(void *addr, struct debug_obj_descr *descr, int onstack)
 		state = obj->state;
 		raw_spin_unlock_irqrestore(&db->lock, flags);
 		debug_object_fixup(descr->fixup_init, addr, state);
-#ifdef CONFIG_SEC_DEBUG_OBJECTS_FIXUP
-		if (descr->fixup_init)
-			panic("%s() descr name : %s", __func__, descr->name);
-#endif
 		return;
 
 	case ODEBUG_STATE_DESTROYED:

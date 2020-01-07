@@ -187,6 +187,8 @@ struct is_actuator {
 	struct is_device_sensor_peri	*sensor_peri;
 	struct is_actuator_ops		*actuator_ops;
 	struct mutex            *i2c_lock;
+	struct work_struct			actuator_active_on;
+	struct work_struct			actuator_active_off;
 
 	u32				vendor_product_id;
 	u32				vendor_first_pos;
@@ -248,6 +250,7 @@ struct is_flash_data {
 	u32				intensity;
 	u32				firing_time_us;
 	bool				flash_fired;
+	bool				high_resolution_flash;
 	struct work_struct		flash_fire_work;
 	struct timer_list		flash_expire_timer;
 	struct work_struct		flash_expire_work;
@@ -303,7 +306,8 @@ struct is_ois {
 #ifdef CAMERA_2ND_OIS
 	int				ois_power_mode;
 #endif
-	struct work_struct		ois_set_init_work;
+	struct work_struct			ois_set_init_work;
+	struct work_struct			ois_set_deinit_work;
 	int				af_pos_wide;
 	int				af_pos_tele;
 #ifdef USE_OIS_INIT_WORK

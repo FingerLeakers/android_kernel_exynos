@@ -26,9 +26,9 @@ void lb_add_cfs_task(struct rq *rq, struct sched_entity *se)
 
 int lb_check_priority(int src_cpu, int dst_cpu)
 {
-	if (capacity_cpu_orig(dst_cpu, 0) > capacity_cpu_orig(src_cpu, 0))
+	if (capacity_cpu(dst_cpu, 0) > capacity_cpu(src_cpu, 0))
 		return 0;
-	else if (capacity_cpu_orig(dst_cpu, 1) > capacity_cpu_orig(src_cpu, 1))
+	else if (capacity_cpu(dst_cpu, 1) > capacity_cpu(src_cpu, 1))
 		return 1;
 	else
 		return 0;
@@ -62,8 +62,8 @@ int lb_need_active_balance(enum cpu_idle_type idle, struct sched_domain *sd,
 					int src_cpu, int dst_cpu)
 {
 	struct task_struct *p = cpu_rq(src_cpu)->curr;
-	unsigned long src_cap = capacity_cpu_orig(src_cpu, p->sse);
-	unsigned long dst_cap = capacity_cpu_orig(dst_cpu, p->sse);
+	unsigned long src_cap = capacity_cpu(src_cpu, p->sse);
+	unsigned long dst_cap = capacity_cpu(dst_cpu, p->sse);
 	int level = sd->level;
 
 	/* dst_cpu is idle */
@@ -328,7 +328,7 @@ static ssize_t store_overutil_ratio(struct kobject *kobj,
 			continue;
 
 		ou[level].ratio = ratio;
-		capacity = capacity_cpu_orig(cpu, 0);
+		capacity = capacity_cpu(cpu, 0);
 		update_lbt_overutil(cpu, capacity);
 	}
 

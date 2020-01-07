@@ -39,7 +39,7 @@
 #include <linux/fcntl.h>
 #include <linux/fs.h>
 #include <linux/list.h>
-
+#include <bcmiov.h>
 #ifdef DHD_USE_CISINFO
 
 /* File Location to keep each information */
@@ -53,13 +53,14 @@
 #define MAC_CUSTOM_FORMAT	"%02X:%02X:%02X:%02X:%02X:%02X"
 
 /* Definitions for CIS information */
-#if defined(BCM4359_CHIP)
-#define CIS_BUF_SIZE            1280
-#elif defined(BCM4361_CHIP) || defined(BCM4375_CHIP)
+#if defined(BCM4359_CHIP) || defined(BCM4361_CHIP) || defined(BCM4375_CHIP) || \
+	defined(BCM4389_CHIP_DEF)
 #define CIS_BUF_SIZE            1280
 #else
 #define CIS_BUF_SIZE            512
 #endif /* BCM4359_CHIP */
+
+#define DUMP_CIS_SIZE	48
 
 #define CIS_TUPLE_TAG_START		0x80
 #define CIS_TUPLE_TAG_VENDOR		0x81
@@ -72,15 +73,20 @@
 #ifdef CONFIG_BCMDHD_PCIE
 #if defined(BCM4361_CHIP) || defined(BCM4375_CHIP)
 #define OTP_OFFSET 208
+#elif defined(BCM4389_CHIP_DEF)
+/* 4389A0 OTP offset is different with 4389B0
+ * due to OTP layout is changed from 4389B0
+ */
+#define OTP_OFFSET_4389A0 208
+#define OTP_OFFSET 0
 #else
 #define OTP_OFFSET 128
-#endif /* BCM4361_CHIP || BCM4375_CHIP */
+#endif /* BCM4361_CHIP || BCM4375_CHIP || BCM43589_CHIP_DEF */
 #else /* CONFIG_BCMDHD_PCIE */
 #define OTP_OFFSET 12 /* SDIO */
 #endif /* CONFIG_BCMDHD_PCIE */
 
 unsigned char *g_cis_buf = NULL;
-unsigned char g_have_cis_dump = FALSE;
 
 /* Definitions for common interface */
 typedef struct tuple_entry {
@@ -94,18 +100,53 @@ static tuple_entry_t *dhd_alloc_tuple_entry(dhd_pub_t *dhdp, const int idx);
 static void dhd_free_tuple_entry(dhd_pub_t *dhdp, struct list_head *head);
 static int dhd_find_tuple_list_from_otp(dhd_pub_t *dhdp, int req_tup,
 	unsigned char* req_tup_len, struct list_head *head);
+
+/* otp region read/write information */
+typedef struct otp_rgn_rw_info {
+	uint8 rgnid;
+	uint8 preview;
+	uint8 integrity_chk;
+	uint16 rgnsize;
+	uint16 datasize;
+	uint8 *data;
+} otp_rgn_rw_info_t;
+
+/* otp region status information */
+typedef struct otp_rgn_stat_info {
+	uint8 rgnid;
+	uint16 rgnstart;
+	uint16 rgnsize;
+} otp_rgn_stat_info_t;
+
 #endif /* GET_MAC_FROM_OTP || USE_CID_CHECK */
 
+typedef int (pack_handler_t)(void *ctx, uint8 *buf, uint16 *buflen);
+
 /* Common Interface Functions */
+int
+dhd_alloc_cis(dhd_pub_t *dhdp)
+{
+	if (g_cis_buf == NULL) {
+		g_cis_buf = MALLOCZ(dhdp->osh, CIS_BUF_SIZE);
+		if (g_cis_buf == NULL) {
+			DHD_ERROR(("%s: Failed to alloc buffer for CIS\n", __FUNCTION__));
+			return BCME_NOMEM;
+		} else {
+			DHD_ERROR(("%s: Local CIS buffer is alloced\n", __FUNCTION__));
+			memset(g_cis_buf, 0, CIS_BUF_SIZE);
+		}
+	}
+	return BCME_OK;
+}
+
 void
 dhd_clear_cis(dhd_pub_t *dhdp)
 {
 	if (g_cis_buf) {
 		MFREE(dhdp->osh, g_cis_buf, CIS_BUF_SIZE);
+		g_cis_buf = NULL;
 		DHD_ERROR(("%s: Local CIS buffer is freed\n", __FUNCTION__));
 	}
-
-	g_have_cis_dump = FALSE;
 }
 
 int
@@ -122,16 +163,6 @@ dhd_read_cis(dhd_pub_t *dhdp)
 	}
 
 	/* Try reading out from CIS */
-	g_cis_buf = MALLOCZ(dhdp->osh, buf_size);
-	if (!g_cis_buf) {
-		DHD_ERROR(("%s: Failed to alloc buffer for CIS\n", __FUNCTION__));
-		g_have_cis_dump = FALSE;
-		return BCME_NOMEM;
-	} else {
-		DHD_ERROR(("%s: Local CIS buffer is alloced\n", __FUNCTION__));
-		memset(g_cis_buf, 0, buf_size);
-	}
-
 	cish = (cis_rw_t *)(g_cis_buf + 8);
 	cish->source = 0;
 	cish->byteoff = 0;
@@ -140,13 +171,247 @@ dhd_read_cis(dhd_pub_t *dhdp)
 
 	ret = dhd_wl_ioctl_cmd(dhdp, WLC_GET_VAR, g_cis_buf, buf_size, 0, 0);
 	if (ret < 0) {
+		if (ret == BCME_UNSUPPORTED) {
+			DHD_ERROR(("%s: get cisdump, UNSUPPORTED\n", __FUNCTION__));
+		} else {
+			DHD_ERROR(("%s : get cisdump err(%d)\n",
+				__FUNCTION__, ret));
+		}
 		/* free local buf */
 		dhd_clear_cis(dhdp);
-	} else {
-		g_have_cis_dump = TRUE;
 	}
 
 	return ret;
+}
+
+static int
+dhd_otp_process_iov_resp_buf(void *ctx, void *iov_resp, uint16 cmd_id,
+		bcm_xtlv_unpack_cbfn_t cbfn)
+{
+	bcm_iov_buf_t *p_resp = NULL;
+	int ret = BCME_OK;
+	uint16 version;
+
+	/* check for version */
+	version = dtoh16(*(uint16 *)iov_resp);
+	if (version != WL_OTP_IOV_VERSION) {
+		return BCME_VERSION;
+	}
+
+	p_resp = (bcm_iov_buf_t *)iov_resp;
+	if ((p_resp->id == cmd_id) && (cbfn != NULL)) {
+		ret = bcm_unpack_xtlv_buf(ctx, (uint8 *)p_resp->data, p_resp->len,
+			BCM_XTLV_OPTION_ALIGN32, cbfn);
+	}
+
+	return ret;
+}
+
+static int
+dhd_otp_get_iov_resp(dhd_pub_t *dhdp, const uint16 cmd_id, void *ctx,
+	pack_handler_t packfn, bcm_xtlv_unpack_cbfn_t cbfn)
+{
+	bcm_iov_buf_t *iov_buf = NULL;
+	uint8 *iov_resp = NULL;
+	int ret = BCME_OK;
+	int buf_size = CIS_BUF_SIZE;
+	uint16 iovlen = 0, buflen = 0, buflen_start = 0;
+
+	/* allocate input buffer */
+	iov_buf = MALLOCZ(dhdp->osh, WLC_IOCTL_SMLEN);
+	if (iov_buf == NULL) {
+		DHD_ERROR(("%s: Failed to alloc buffer for iovar input\n", __FUNCTION__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	iov_resp = MALLOCZ(dhdp->osh, WLC_IOCTL_MAXLEN);
+	if (iov_resp == NULL) {
+		DHD_ERROR(("%s: Failed to alloc buffer for iovar response\n", __FUNCTION__));
+		ret = BCME_NOMEM;
+		goto fail;
+	}
+
+	/* parse and pack config parameters */
+	buflen = buflen_start = (WLC_IOCTL_SMLEN - sizeof(*iov_buf));
+	ret = packfn(ctx, (uint8 *)&iov_buf->data[0], &buflen);
+	if (ret != BCME_OK) {
+		goto fail;
+	}
+
+	/* fill header portion */
+	iov_buf->version = WL_OTP_IOV_VERSION;
+	iov_buf->len = (buflen_start - buflen);
+	iov_buf->id = cmd_id;
+
+	/* issue get iovar and process response */
+	iovlen = sizeof(*iov_buf) + iov_buf->len;
+	ret = dhd_iovar(dhdp, 0, "otp", (char *)iov_buf, iovlen,
+			iov_resp, WLC_IOCTL_MAXLEN, FALSE);
+	if (ret == BCME_OK) {
+		ret = dhd_otp_process_iov_resp_buf(ctx, iov_resp, cmd_id, cbfn);
+	} else {
+		DHD_ERROR(("%s: Failed to get otp iovar\n", __FUNCTION__));
+	}
+
+fail:
+	if (iov_buf) {
+		MFREE(dhdp->osh, iov_buf, WLC_IOCTL_SMLEN);
+	}
+	if (iov_resp) {
+		MFREE(dhdp->osh, iov_resp, buf_size);
+	}
+	if (ret < 0) {
+		/* free local buf */
+		dhd_clear_cis(dhdp);
+	}
+	return ret;
+}
+
+static int
+dhd_otp_cbfn_rgnstatus(void *ctx, const uint8 *data, uint16 type, uint16 len)
+{
+	otp_rgn_stat_info_t *stat_info = (otp_rgn_stat_info_t *)ctx;
+
+	BCM_REFERENCE(len);
+
+	if (data == NULL) {
+		DHD_ERROR(("%s: bad argument !!!\n", __FUNCTION__));
+		return BCME_BADARG;
+	}
+
+	switch (type) {
+		case WL_OTP_XTLV_RGN:
+			stat_info->rgnid = *data;
+			break;
+		case WL_OTP_XTLV_ADDR:
+			stat_info->rgnstart = dtoh16((uint16)*data);
+			break;
+		case WL_OTP_XTLV_SIZE:
+			stat_info->rgnsize = dtoh16((uint16)*data);
+			break;
+		default:
+			DHD_ERROR(("%s: unknown tlv %u\n", __FUNCTION__, type));
+			break;
+	}
+
+	return BCME_OK;
+}
+
+static int
+dhd_otp_packfn_rgnstatus(void *ctx, uint8 *buf, uint16 *buflen)
+{
+	uint8 *pxtlv = buf;
+	int ret = BCME_OK;
+	uint16 len = *buflen;
+	uint8 rgnid = OTP_RGN_SW;
+
+	BCM_REFERENCE(ctx);
+
+	/* pack option <-r region> */
+	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_RGN, sizeof(rgnid),
+			&rgnid, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: Failed pack xtlv entry of region: %d\n", __FUNCTION__, ret));
+		return ret;
+	}
+
+	*buflen = len;
+	return ret;
+}
+
+static int
+dhd_otp_packfn_rgndump(void *ctx, uint8 *buf, uint16 *buflen)
+{
+	uint8 *pxtlv = buf;
+	int ret = BCME_OK;
+	uint16 len = *buflen, size = WLC_IOCTL_MAXLEN;
+	uint8 rgnid = OTP_RGN_SW;
+
+	/* pack option <-r region> */
+	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_RGN,
+			sizeof(rgnid), &rgnid, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: Failed pack xtlv entry of region: %d\n", __FUNCTION__, ret));
+		goto fail;
+	}
+
+	/* pack option [-s size] */
+	ret = bcm_pack_xtlv_entry(&pxtlv, &len, WL_OTP_XTLV_SIZE,
+			sizeof(size), (uint8 *)&size, BCM_XTLV_OPTION_ALIGN32);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: Failed pack xtlv entry of size: %d\n", __FUNCTION__, ret));
+		goto fail;
+	}
+	*buflen = len;
+fail:
+	return ret;
+}
+
+static int
+dhd_otp_cbfn_rgndump(void *ctx, const uint8 *data, uint16 type, uint16 len)
+{
+	otp_rgn_rw_info_t *rw_info = (otp_rgn_rw_info_t *)ctx;
+
+	BCM_REFERENCE(len);
+
+	if (data == NULL) {
+		DHD_ERROR(("%s: bad argument !!!\n", __FUNCTION__));
+		return BCME_BADARG;
+	}
+
+	switch (type) {
+		case WL_OTP_XTLV_RGN:
+			rw_info->rgnid = *data;
+			break;
+		case WL_OTP_XTLV_DATA:
+			/*
+			 * intentionally ignoring the return value of memcpy_s as it is just
+			 * a variable copy and because of this size is within the bounds
+			 */
+			(void)memcpy_s(&rw_info->data, sizeof(rw_info->data),
+					&data, sizeof(rw_info->data));
+			rw_info->datasize = len;
+			break;
+		default:
+			DHD_ERROR(("%s: unknown tlv %u\n", __FUNCTION__, type));
+			break;
+	}
+	return BCME_OK;
+}
+
+int
+dhd_read_otp_sw_rgn(dhd_pub_t *dhdp)
+{
+	int ret = BCME_OK;
+	otp_rgn_rw_info_t rw_info;
+	otp_rgn_stat_info_t stat_info;
+
+	memset(&rw_info, 0, sizeof(rw_info));
+	memset(&stat_info, 0, sizeof(stat_info));
+
+	ret = dhd_otp_get_iov_resp(dhdp, WL_OTP_CMD_RGNSTATUS, &stat_info,
+			dhd_otp_packfn_rgnstatus, dhd_otp_cbfn_rgnstatus);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: otp region status failed, ret=%d\n", __FUNCTION__, ret));
+		goto fail;
+	}
+
+	rw_info.rgnsize = stat_info.rgnsize;
+	ret = dhd_otp_get_iov_resp(dhdp, WL_OTP_CMD_RGNDUMP, &rw_info,
+			dhd_otp_packfn_rgndump, dhd_otp_cbfn_rgndump);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: otp region dump failed, ret=%d\n", __FUNCTION__, ret));
+		goto fail;
+	}
+
+	ret = memcpy_s(g_cis_buf, CIS_BUF_SIZE, rw_info.data, rw_info.datasize);
+	if (ret != BCME_OK) {
+		DHD_ERROR(("%s: Failed to copy otp dump, ret=%d\n", __FUNCTION__, ret));
+	}
+fail:
+	return ret;
+
 }
 
 #if defined(GET_MAC_FROM_OTP) || defined(USE_CID_CHECK)
@@ -188,7 +453,19 @@ dhd_find_tuple_list_from_otp(dhd_pub_t *dhdp, int req_tup,
 	int buf_len = CIS_BUF_SIZE;
 	int found = 0;
 
-	if (!g_have_cis_dump) {
+#if defined(BCM4389_CHIP_DEF)
+	if (dhd_bus_chip_id(dhdp) == BCM4389_CHIP_GRPID) {
+		int revid = dhd_bus_chiprev_id(dhdp);
+
+		if (revid == 3) {
+			idx = OTP_OFFSET_4389A0;
+		} else {
+			idx = OTP_OFFSET;
+		}
+	}
+#endif /* BCM4389_CHIP_DEF */
+
+	if (!g_cis_buf) {
 		DHD_ERROR(("%s: Couldn't find cis info from"
 			" local buffer\n", __FUNCTION__));
 		return BCME_ERROR;
@@ -219,6 +496,7 @@ dhd_find_tuple_list_from_otp(dhd_pub_t *dhdp, int req_tup,
 				if (found == 1 && req_tup_len) {
 					*req_tup_len = tup_len;
 				}
+				tup_len--;
 			}
 		}
 		idx += tup_len;
@@ -230,9 +508,22 @@ dhd_find_tuple_list_from_otp(dhd_pub_t *dhdp, int req_tup,
 
 #ifdef DUMP_CIS
 static void
-dhd_dump_cis_buf(int size)
+dhd_dump_cis_buf(dhd_pub_t *dhdp, int size)
 {
 	int i;
+	int cis_offset = OTP_OFFSET + sizeof(cis_rw_t);
+
+#if defined(BCM4389_CHIP_DEF)
+	if (dhd_bus_chip_id(dhdp) == BCM4389_CHIP_GRPID) {
+		int revid = dhd_bus_chiprev_id(dhdp);
+
+		if (revid == 3) {
+			idx = OTP_OFFSET_4389A0;
+		} else {
+			idx = OTP_OFFSET;
+		}
+	}
+#endif /* BCM4389_CHIP_DEF */
 
 	if (size <= 0) {
 		return;
@@ -244,7 +535,6 @@ dhd_dump_cis_buf(int size)
 
 	DHD_ERROR(("========== START CIS DUMP ==========\n"));
 	for (i = 0; i < size; i++) {
-		int cis_offset = OTP_OFFSET + sizeof(cis_rw_t);
 		DHD_ERROR(("%02X ", g_cis_buf[i + cis_offset]));
 		if ((i % 16) == 15) {
 			DHD_ERROR(("\n"));
@@ -424,13 +714,14 @@ dhd_verify_macaddr(dhd_pub_t *dhdp, struct list_head *head)
 
 	list_for_each_entry(cur, head, list) {
 		list_for_each_entry(next, &cur->list, list) {
+			if ((unsigned long)next == (unsigned long)head) {
+				DHD_INFO(("%s: next ptr %p is same as head ptr %p\n",
+					__FUNCTION__, next, head));
+				break;
+			}
 			if (!memcmp(&g_cis_buf[cur->cis_idx],
 				&g_cis_buf[next->cis_idx], ETHER_ADDR_LEN)) {
 				idx = cur->cis_idx;
-				break;
-			}
-
-			if (next->list.next == head) {
 				break;
 			}
 		}
@@ -463,7 +754,7 @@ dhd_check_module_mac(dhd_pub_t *dhdp)
 	mac = &dhdp->mac;
 	memset(otp_mac_buf, 0, sizeof(otp_mac_buf));
 
-	if (!g_have_cis_dump) {
+	if (!g_cis_buf) {
 #ifndef DHD_MAC_ADDR_EXPORT
 		char eabuf[ETHER_ADDR_STR_LEN];
 		DHD_INFO(("%s: Couldn't read CIS information\n", __FUNCTION__));
@@ -507,7 +798,7 @@ dhd_check_module_mac(dhd_pub_t *dhdp)
 		int idx = -1; /* Invalid index */
 
 #ifdef DUMP_CIS
-		dhd_dump_cis_buf(48);
+		dhd_dump_cis_buf(dhdp, DUMP_CIS_SIZE);
 #endif /* DUMP_CIS */
 
 		/* Find a new tuple tag */
@@ -822,6 +1113,15 @@ vid_info_t vid_info[] = {
 	{ 3, { 0x44, 0x22, }, { "murata_mur_1rh_es44" } }
 #endif /* SUPPORT_BCM4375_MIXED_MODULES */
 };
+#elif defined(BCM4389_CHIP_DEF)
+vid_info_t vid_info[] = {
+#if defined(SUPPORT_BCM4389_MIXED_MODULES)
+	{ 3, { 0x11, 0x33, }, { "semco_sem_e51_es11" } },
+	{ 3, { 0x12, 0x33, }, { "semco_sem_e51_es12" } },
+	{ 3, { 0x23, 0x33, }, { "semco_sem_e53_es23" } },
+	{ 3, { 0x21, 0x22, }, { "murata_mur_1wk_es21" } }
+#endif /* SUPPORT_BCM4375_MIXED_MODULES */
+};
 #else
 vid_info_t vid_info[] = {
 	{ 0, { 0x00, }, { "samsung" } }			/* Default: Not specified yet */
@@ -836,7 +1136,7 @@ dhd_find_tuple_idx_from_otp(dhd_pub_t *dhdp, int req_tup, unsigned char *req_tup
 	int start_idx;
 	int entry_num;
 
-	if (!g_have_cis_dump) {
+	if (!g_cis_buf) {
 		DHD_ERROR(("%s: Couldn't find cis info from"
 			" local buffer\n", __FUNCTION__));
 		return BCME_ERROR;
@@ -893,14 +1193,14 @@ dhd_check_module_cid(dhd_pub_t *dhdp)
 #endif /* SUPPORT_MULTIPLE_BOARDTYPE */
 
 	/* Try reading out from CIS */
-	if (!g_have_cis_dump) {
+	if (!g_cis_buf) {
 		DHD_INFO(("%s: Couldn't read CIS info\n", __FUNCTION__));
 		return BCME_ERROR;
 	}
 
 	DHD_INFO(("%s: Reading CIS from local buffer\n", __FUNCTION__));
 #ifdef DUMP_CIS
-	dhd_dump_cis_buf(48);
+	dhd_dump_cis_buf(dhdp, DUMP_CIS_SIZE);
 #endif /* DUMP_CIS */
 
 	idx = dhd_find_tuple_idx_from_otp(dhdp, CIS_TUPLE_TAG_VENDOR, &tuple_length);

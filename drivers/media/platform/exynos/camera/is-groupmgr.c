@@ -2005,11 +2005,21 @@ p_err:
 }
 
 static void set_group_shots(struct is_group *group,
-	u32 hal_version,
-	u32 framerate,
-	u32 ex_mode)
+	struct is_sensor_cfg *sensor_cfg)
 {
-	if (ex_mode == EX_DUALFPS_960 || ex_mode == EX_DUALFPS_480 || framerate > 240) {
+	u32 ex_mode;
+	u32 max_fps;
+	u32 height;
+
+	FIMC_BUG_VOID(!sensor_cfg);
+
+	ex_mode = sensor_cfg->ex_mode;
+	max_fps = sensor_cfg->max_fps;
+	height = sensor_cfg->height;
+
+	if (ex_mode == EX_DUALFPS_960 || ex_mode == EX_DUALFPS_480
+		|| max_fps > 240
+		|| height <= LINE_FOR_SHOT_VALID_TIME) {
 		group->asyn_shots = MIN_OF_ASYNC_SHOTS + 1;
 		group->sync_shots = MIN_OF_SYNC_SHOTS;
 	} else {
@@ -2033,12 +2043,12 @@ int is_group_start(struct is_groupmgr *groupmgr,
 	int ret = 0;
 	struct is_device_ischain *device;
 	struct is_device_sensor *sensor;
+	struct is_sensor_cfg *sensor_cfg;
 	struct is_resourcemgr *resourcemgr;
 	struct is_framemgr *framemgr = NULL;
 	struct is_group_task *gtask;
 	u32 sensor_fcount;
 	u32 framerate;
-	u32 ex_mode;
 
 	FIMC_BUG(!groupmgr);
 	FIMC_BUG(!group);
@@ -2080,12 +2090,12 @@ int is_group_start(struct is_groupmgr *groupmgr,
 		smp_shot_init(group, group->asyn_shots + group->sync_shots);
 	} else {
 		sensor = device->sensor;
+		sensor_cfg = sensor->cfg;
 		framerate = is_sensor_g_framerate(sensor);
-		ex_mode = is_sensor_g_ex_mode(sensor);
 
 		if (test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
 			resourcemgr = device->resourcemgr;
-			set_group_shots(group, resourcemgr->hal_version, framerate, ex_mode);
+			set_group_shots(group, sensor_cfg);
 
 			/* frame count */
 			sensor_fcount = is_sensor_g_fcount(sensor) + 1;
@@ -3036,8 +3046,8 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 	device = group->device;
 	gtask = &groupmgr->gtask[group->id];
 
-	if (unlikely(test_bit(IS_GROUP_STANDBY, &group->state))) {
-		mgwarn(" cancel by standby", group, group);
+	if (unlikely(test_bit(IS_GROUP_STANDBY, &groupmgr->leader[device->instance]->state))) {
+		mgwarn(" cancel by ldr group standby", group, group);
 		ret = -EINVAL;
 		goto p_err_cancel;
 	}

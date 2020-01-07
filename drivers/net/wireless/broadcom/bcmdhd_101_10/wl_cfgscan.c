@@ -55,7 +55,9 @@
 #include <wl_cfgscan.h>
 #include <wl_cfgp2p.h>
 #include <bcmdevs.h>
+
 #include <wl_android.h>
+
 #include <dngl_stats.h>
 #include <dhd.h>
 #include <dhd_linux.h>
@@ -93,6 +95,14 @@
 #define CFG80211_READY_ON_CHANNEL(cfgdev, cookie, channel, channel_type, duration, flags) \
 	cfg80211_ready_on_channel(cfgdev, cookie, channel, channel_type, duration, GFP_KERNEL);
 #endif /* WL_CFG80211_P2P_DEV_IF */
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0))
+#define CFG80211_SCHED_SCAN_STOPPED(wiphy, schedscan_req) \
+	cfg80211_sched_scan_stopped(wiphy, schedscan_req->reqid);
+#else
+#define CFG80211_SCHED_SCAN_STOPPED(wiphy, schedscan_req) \
+	cfg80211_sched_scan_stopped(wiphy);
+#endif /* KERNEL > 4.11.0 */
 
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
 #define FIRST_SCAN_ACTIVE_DWELL_TIME_MS 40
@@ -749,7 +759,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			/* If there is no pending host initiated scan, do nothing */
 			WL_DBG(("ESCAN ABORT: No pending scans. Ignoring event.\n"));
 		}
-		/* XXX : scan aborted, need to set previous success result */
+		/* scan aborted, need to set previous success result */
 		wl_escan_increment_sync_id(cfg, SCAN_BUF_CNT);
 	} else if (status == WLC_E_STATUS_TIMEOUT) {
 		WL_ERR(("WLC_E_STATUS_TIMEOUT : scan_request[%p]\n", cfg->scan_request));
@@ -778,7 +788,7 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			wl_inform_bss(cfg);
 			wl_notify_escan_complete(cfg, ndev, true, false);
 		}
-		/* XXX : scan aborted, need to set previous success result */
+		/* scan aborted, need to set previous success result */
 		wl_escan_increment_sync_id(cfg, 2);
 	}
 #else /* WL_DRV_AVOID_SCANCACHE */
@@ -790,7 +800,7 @@ exit:
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
-	defined(SUPPORT_RANDOM_MAC_SCAN) && !defined(WL_USE_RANDOMIZED_SCAN)
+	defined(SUPPORT_RANDOM_MAC_SCAN)
 static const u8 *
 wl_retrieve_wps_attribute(const u8 *buf, u16 element_id)
 {
@@ -936,27 +946,50 @@ wl_cfgscan_map_nl80211_scan_type(struct bcm_cfg80211 *cfg, struct cfg80211_scan_
 chanspec_t wl_freq_to_chanspec(int freq)
 {
 	chanspec_t chanspec = 0;
+	u16 bw;
 
 	/* see 802.11 17.3.8.3.2 and Annex J */
 	if (freq == 2484) {
 		chanspec = 14;
 		chanspec |= WL_CHANSPEC_BAND_2G;
+		bw = WL_CHANSPEC_BW_20;
 	} else if (freq < 2484) {
 		chanspec = (freq - 2407) / 5;
 		chanspec |= WL_CHANSPEC_BAND_2G;
+		bw = WL_CHANSPEC_BW_20;
 	} else if (freq >= 4910 && freq <= 4980) {
 		chanspec = (freq - 4000) / 5;
 		chanspec |= WL_CHANSPEC_BAND_5G;
+		bw = WL_CHANSPEC_BW_20;
 	} else if (freq < 5940) {
 		chanspec = (freq - 5000) / 5;
 		chanspec |= WL_CHANSPEC_BAND_5G;
+		bw = WL_CHANSPEC_BW_20;
+#ifdef WL_6G_BAND
+	} else if (freq <= 45000) { /* DMG band lower limit */
+		/* see 802.11ax D4.1 27.3.22.2 */
+		chanspec = (freq - 5940) / 5;
+		bw = WL_CHANSPEC_BW_20;
+		if ((chanspec % 8) == 3) {
+			bw = WL_CHANSPEC_BW_40;
+		} else if ((chanspec % 16) == 7) {
+			bw = WL_CHANSPEC_BW_80;
+		} else if ((chanspec % 32) == 15) {
+			bw = WL_CHANSPEC_BW_160;
+		}
+		chanspec |= WL_CHANSPEC_BAND_6G;
+	} else if (freq >= 58320 && freq <= 70200) {
+		chanspec = (freq - 56160) / 2160;
+		chanspec |= WL_CHANSPEC_BAND_6G;
+		bw = WL_CHANSPEC_BW_20;
+#endif /* WL_6G_BAND */
 	} else {
 		WL_ERR(("Invalid frequency \n"));
 		return INVCHANSPEC;
 	}
 
 	/* Get the min_bw set for the interface */
-	chanspec |= WL_CHANSPEC_BW_20;
+	chanspec |= bw;
 	chanspec |= WL_CHANSPEC_CTL_SB_NONE;
 
 	return chanspec;
@@ -975,6 +1008,12 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 	u32 i = 0, j = 0;
 	u32 chanspec = 0;
 	struct wireless_dev *wdev;
+#if defined(WL_HOST_BAND_MGMT) || defined(P2P_SKIP_DFS)
+	bool is_p2p_scan = false;
+#endif /* WL_HOST_BAND_MGMT || P2P_SKIP_DFS */
+#ifdef P2P_SKIP_DFS
+	int is_printed = false;
+#endif /* P2P_SKIP_DFS */
 
 	if (!channels || !n_channels) {
 		/* Do full channel scan */
@@ -987,52 +1026,72 @@ wl_cfgscan_populate_scan_channels(struct bcm_cfg80211 *cfg,
 		/* SKIP DFS channels for Secondary interface */
 		skip_dfs = true;
 	}
+#if defined(WL_HOST_BAND_MGMT) || defined(P2P_SKIP_DFS)
+	/* Check if request is for p2p scans */
+	is_p2p_scan = p2p_is_on(cfg) && p2p_scan(cfg);
+#endif /* WL_HOST_BAND_MGMT || P2P_SKIP_DFS */
 
 	for (i = 0; i < n_channels; i++) {
-			if (skip_dfs && (IS_RADAR_CHAN(channels[i]->flags))) {
-				WL_DBG(("Skipping radar channel. freq:%d\n",
-					(channels[i]->center_freq)));
-				continue;
-			}
+		if (skip_dfs && (IS_RADAR_CHAN(channels[i]->flags))) {
+			WL_DBG(("Skipping radar channel. freq:%d\n",
+				(channels[i]->center_freq)));
+			continue;
+		}
 
-			chanspec = wl_freq_to_chanspec(channels[i]->center_freq);
-			if (chanspec == INVCHANSPEC) {
-				WL_ERR(("Invalid chanspec! Skipping channel\n"));
-				continue;
-			}
+		chanspec = wl_freq_to_chanspec(channels[i]->center_freq);
+		if (chanspec == INVCHANSPEC) {
+			WL_ERR(("Invalid chanspec! Skipping channel\n"));
+			continue;
+		}
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0))
-			if (channels[i]->band == IEEE80211_BAND_60GHZ) {
-				/* Not supported */
-				continue;
-			}
+		if (channels[i]->band == IEEE80211_BAND_60GHZ) {
+			/* Not supported */
+			continue;
+		}
 #endif /* LINUX_VER >= 3.6 */
 #ifdef WL_HOST_BAND_MGMT
-			if (channels[i]->band == IEEE80211_BAND_2GHZ) {
-				if ((cfg->curr_band == WLC_BAND_5G) ||
-					(cfg->curr_band == WLC_BAND_6G)) {
+		if (channels[i]->band == IEEE80211_BAND_2GHZ) {
+			if ((cfg->curr_band == WLC_BAND_5G) ||
+				(cfg->curr_band == WLC_BAND_6G)) {
+				if !(is_p2p_scan &&
+					IS_P2P_SOCIAL_CHANNEL(CHSPEC_CHANNEL(chanspec))) {
 					WL_DBG(("In 5G only mode, omit 2G channel:%d\n", channel));
 					continue;
 				}
-			} else {
-				if (cfg->curr_band == WLC_BAND_2G) {
-					WL_DBG(("In 2G only mode, omit 5G channel:%d\n", channel));
-					continue;
-				}
 			}
+		} else {
+			if (cfg->curr_band == WLC_BAND_2G) {
+				WL_DBG(("In 2G only mode, omit 5G channel:%d\n", channel));
+				continue;
+			}
+		}
 #endif /* WL_HOST_BAND_MGMT */
+#ifdef P2P_SKIP_DFS
+		if (is_p2p_scan) {
+			if ((CHSPEC_CHANNEL(chanspec) >= 52 &&
+				CHSPEC_CHANNEL(chanspec) <= 144) &&
+				!CHSPEC_IS6G(chanspec)) {
+				if (is_printed == false) {
+					WL_ERR(("SKIP DFS CHANs(52~144)\n"));
+					is_printed = true;
+				}
+				continue;
+			}
+		}
+#endif /* P2P_SKIP_DFS */
 
-			if (use_chanspecs) {
-				channel_list[j] = chanspec;
-			} else {
-				channel_list[j] = CHSPEC_CHANNEL(chanspec);
-			}
-			WL_SCAN(("Channel/Chanspec: %x \n", channel_list[j]));
-			j++;
-			if (j == WL_NUMCHANSPECS) {
-				/* max limit */
-				break;
-			}
+		if (use_chanspecs) {
+			channel_list[j] = chanspec;
+		} else {
+			channel_list[j] = CHSPEC_CHANNEL(chanspec);
+		}
+		WL_SCAN(("Channel/Chanspec: %x \n", channel_list[j]));
+		j++;
+		if (j == WL_NUMCHANSPECS) {
+			/* max limit */
+			break;
+		}
 	}
 	*num_channels = j;
 }
@@ -1209,25 +1268,6 @@ wl_scan_prep(struct bcm_cfg80211 *cfg, void *scan_params, u32 len,
 	return BCME_OK;
 }
 
-static s32
-wl_get_valid_channels(struct net_device *ndev, u8 *valid_chan_list, s32 size)
-{
-	wl_uint32_list_t *list;
-	s32 err = BCME_OK;
-	if (valid_chan_list == NULL || size <= 0)
-		return -ENOMEM;
-
-	bzero(valid_chan_list, size);
-	list = (wl_uint32_list_t *)(void *) valid_chan_list;
-	list->count = htod32(WL_NUMCHANNELS);
-	err = wldev_ioctl_get(ndev, WLC_GET_VALID_CHANNELS, valid_chan_list, size);
-	if (err != 0) {
-		WL_ERR(("get channels failed with %d\n", err));
-	}
-
-	return err;
-}
-
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
 	defined(SUPPORT_RANDOM_MAC_SCAN)
 static s32
@@ -1299,13 +1339,8 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	wl_escan_params_v2_t *eparams_v2 = NULL;
 	u8 *scan_params = NULL;
 	u8 *params = NULL;
-	u8 chan_buf[sizeof(u32)*(WL_NUMCHANNELS + 1)];
-	s32 channel;
-	u32 n_valid_chan;
 	s32 search_state = WL_P2P_DISC_ST_SCAN;
-	u32 i, j, n_nodfs = 0;
 	u16 *default_chan_list = NULL;
-	wl_uint32_list_t *list;
 	s32 bssidx = -1;
 	struct net_device *dev = NULL;
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
@@ -1317,8 +1352,7 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 	WL_DBG(("Enter \n"));
 
-	/* scan request can come with empty request : perform all default scan */
-	if (!cfg) {
+	if (!cfg || !request) {
 		err = -EINVAL;
 		goto exit;
 	}
@@ -1336,20 +1370,20 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && \
 	defined(SUPPORT_RANDOM_MAC_SCAN)
-		if ((err = wl_config_scan_macaddr(cfg, ndev,
-			(request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR),
+	if (request) {
+		bool randmac_enable = (request->flags & NL80211_SCAN_FLAG_RANDOM_ADDR);
+		if (wl_is_wps_enrollee_active(ndev, request->ie, request->ie_len)) {
+			randmac_enable = false;
+		}
+		if ((err = wl_config_scan_macaddr(cfg, ndev, randmac_enable,
 			request->mac_addr, request->mac_addr_mask)) != BCME_OK) {
-			WL_ERR(("scanmac addr config failed\n"));
+				WL_ERR(("scanmac addr config failed\n"));
 			goto exit;
 		}
+	}
 #endif /* KERNEL_VER >= 3.19 && SUPPORT_RANDOM_MAC_SCAN */
 
 #if defined(USE_INITIAL_2G_SCAN) || defined(USE_INITIAL_SHORT_DWELL_TIME)
-		/* XXX see RB:6008: request maybe empty and zero. */
-		if (!request) {
-			err = -EINVAL;
-			goto exit;
-		}
 		if (ndev == bcmcfg_to_prmry_ndev(cfg) && g_first_broadcast_scan == true) {
 #ifdef USE_INITIAL_2G_SCAN
 			struct ieee80211_channel tmp_channel_list[CH_MAX_2G_CHANNEL];
@@ -1395,19 +1429,16 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		}
 #endif /* USE_INITIAL_2G_SCAN || USE_INITIAL_SHORT_DWELL_TIME */
 
-		/* if scan request is not empty parse scan request paramters */
-		if (request != NULL) {
-			n_channels = request->n_channels;
-			n_ssids = request->n_ssids;
-			if (n_channels % 2)
-				/* If n_channels is odd, add a padd of u16 */
-				params_size += sizeof(u16) * (n_channels + 1);
-			else
-				params_size += sizeof(u16) * n_channels;
+		n_channels = request->n_channels;
+		n_ssids = request->n_ssids;
+		if (n_channels % 2)
+			/* If n_channels is odd, add a padd of u16 */
+			params_size += sizeof(u16) * (n_channels + 1);
+		else
+			params_size += sizeof(u16) * n_channels;
 
-			/* Allocate space for populating ssids in wl_escan_params_t struct */
-			params_size += sizeof(struct wlc_ssid) * n_ssids;
-		}
+		/* Allocate space for populating ssids in wl_escan_params_t struct */
+		params_size += sizeof(struct wlc_ssid) * n_ssids;
 		params = MALLOCZ(cfg->osh, params_size);
 		if (params == NULL) {
 			err = -ENOMEM;
@@ -1471,12 +1502,9 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	}
 	else if (p2p_is_on(cfg) && p2p_scan(cfg)) {
 		/* P2P SCAN TRIGGER */
-		s32 _freq = 0;
-		n_nodfs = 0;
-
-		if (request && request->n_channels) {
+		if (request->n_channels) {
 			num_chans = request->n_channels;
-			WL_SCAN((" chann number : %d\n", num_chans));
+			WL_SCAN((" chan number : %d\n", num_chans));
 			chan_mem = (u32)(num_chans * sizeof(*default_chan_list));
 			default_chan_list = MALLOCZ(cfg->osh, chan_mem);
 			if (default_chan_list == NULL) {
@@ -1484,75 +1512,18 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				err = -ENOMEM;
 				goto exit;
 			}
-			if (!wl_get_valid_channels(ndev, chan_buf, sizeof(chan_buf))) {
-#ifdef P2P_SKIP_DFS
-				int is_printed = false;
-#endif /* P2P_SKIP_DFS */
-				list = (wl_uint32_list_t *) chan_buf;
-				n_valid_chan = dtoh32(list->count);
-				if (n_valid_chan > WL_NUMCHANNELS) {
-					WL_ERR(("wrong n_valid_chan:%d\n", n_valid_chan));
-					MFREE(cfg->osh, default_chan_list, chan_mem);
-					err = -EINVAL;
-					goto exit;
-				}
+			/* Populate channels for p2p scanning */
+			wl_cfgscan_populate_scan_channels(cfg,
+				request->channels, request->n_channels,
+				default_chan_list, &num_chans, true, true);
 
-				for (i = 0; i < num_chans; i++)
-				{
-#ifdef WL_HOST_BAND_MGMT
-					int channel_band = 0;
-#endif /* WL_HOST_BAND_MGMT */
-					_freq = request->channels[i]->center_freq;
-					channel = ieee80211_frequency_to_channel(_freq);
-#ifdef WL_HOST_BAND_MGMT
-					channel_band = (channel > CH_MAX_2G_CHANNEL) ?
-						WLC_BAND_5G : WLC_BAND_2G;
-					if ((cfg->curr_band != WLC_BAND_AUTO) &&
-						(cfg->curr_band != channel_band) &&
-						!IS_P2P_SOCIAL_CHANNEL(channel))
-							continue;
-#endif /* WL_HOST_BAND_MGMT */
-
-					/* ignore DFS channels */
-					if (request->channels[i]->flags &
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
-						(IEEE80211_CHAN_NO_IR
-						| IEEE80211_CHAN_RADAR))
-#else
-						(IEEE80211_CHAN_RADAR
-						| IEEE80211_CHAN_PASSIVE_SCAN))
-#endif
-						continue;
-#ifdef P2P_SKIP_DFS
-					/* XXX WAR to skip DFS channels explicitly */
-					if (channel >= 52 && channel <= 144) {
-						if (is_printed == false) {
-							WL_ERR(("SKIP DFS CHANs(52~144)\n"));
-							is_printed = true;
-						}
-						continue;
-					}
-#endif /* P2P_SKIP_DFS */
-
-					for (j = 0; j < n_valid_chan; j++) {
-						/* allows only supported channel on
-						*  current reguatory
-						*/
-						if (n_nodfs >= num_chans) {
-							break;
-						}
-						if (channel == (dtoh32(list->element[j]))) {
-							default_chan_list[n_nodfs++] =
-								channel;
-						}
-					}
-
-				}
-			}
 			if (num_chans == SOCIAL_CHAN_CNT && (
-						(default_chan_list[0] == SOCIAL_CHAN_1) &&
-						(default_chan_list[1] == SOCIAL_CHAN_2) &&
-						(default_chan_list[2] == SOCIAL_CHAN_3))) {
+						(CHSPEC_CHANNEL(default_chan_list[0]) ==
+						SOCIAL_CHAN_1) &&
+						(CHSPEC_CHANNEL(default_chan_list[1]) ==
+						SOCIAL_CHAN_2) &&
+						(CHSPEC_CHANNEL(default_chan_list[2]) ==
+						SOCIAL_CHAN_3))) {
 				/* SOCIAL CHANNELS 1, 6, 11 */
 				search_state = WL_P2P_DISC_ST_SEARCH;
 				p2p_scan_purpose = P2P_SCAN_SOCIAL_CHANNEL;
@@ -1564,7 +1535,6 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				/* If you are already a GO, then do SEARCH only */
 				WL_DBG(("Already a GO. Do SEARCH Only"));
 				search_state = WL_P2P_DISC_ST_SEARCH;
-				num_chans = n_nodfs;
 				p2p_scan_purpose = P2P_SCAN_NORMAL;
 
 			} else if (num_chans == 1) {
@@ -1577,7 +1547,6 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 				p2p_scan_purpose = P2P_SCAN_SOCIAL_CHANNEL;
 			} else {
 				WL_DBG(("P2P SCAN STATE START \n"));
-				num_chans = n_nodfs;
 				p2p_scan_purpose = P2P_SCAN_NORMAL;
 			}
 		} else {
@@ -1697,6 +1666,11 @@ wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 	}
 #endif /* WL_NAN */
 	/* Additional time to scan 6GHz band channels */
+#ifdef WL_6G_BAND
+	if (cfg->band_6g_supported) {
+		scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_6G;
+	}
+#endif /* WL_6G_BAND */
 	WL_MEM(("scan_timer_interval_ms %d\n", scan_timer_interval_ms));
 	return scan_timer_interval_ms;
 }
@@ -1725,7 +1699,7 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 		scanbusy_err = -EAGAIN;
 	}
 
-	/* XXX if continuous busy state, clear assoc type in FW by disassoc cmd */
+	/* if continuous busy state, clear assoc type in FW by disassoc cmd */
 	if (scanbusy_err == -EBUSY) {
 		/* Flush FW preserve buffer logs for checking failure */
 		if (busy_count++ > (SCAN_EBUSY_RETRY_LIMIT/5)) {
@@ -1758,9 +1732,12 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 			}
 #endif /* DHD_DEBUG && DHD_FW_COREDUMP */
 			dhdp->hang_reason = HANG_REASON_SCAN_BUSY;
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 			dhd_os_send_hang_message(dhdp);
-#else
+#endif
+
+#if !(LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 			WL_ERR(("%s: HANG event is unsupported\n", __FUNCTION__));
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27) && OEM_ANDROID */
 
@@ -1773,7 +1750,7 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 				WL_ERR(("GET BSSID failed with %d\n", ret));
 			}
 
-			/* XXX To support GO, wl_cfg80211_scan_abort()
+			/* To support GO, wl_cfg80211_scan_abort()
 			 * is needed instead of wl_cfg80211_disconnect()
 			 */
 			wl_cfg80211_scan_abort(cfg);
@@ -1973,9 +1950,11 @@ __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
 
 	if (request && cfg->p2p_supported) {
 		WL_TRACE_HW4(("START SCAN\n"));
+
 		DHD_OS_SCAN_WAKE_LOCK_TIMEOUT((dhd_pub_t *)(cfg->pub),
 			SCAN_WAKE_LOCK_TIMEOUT);
 		DHD_DISABLE_RUNTIME_PM((dhd_pub_t *)(cfg->pub));
+
 	}
 
 	if (cfg->p2p_supported) {
@@ -2024,13 +2003,16 @@ scan_out:
 		scanbusy_err = wl_cfgscan_handle_scanbusy(cfg, ndev, err);
 		if (scanbusy_err == BCME_NOTREADY) {
 			/* In case of bus failures avoid ioctl calls */
+
 			DHD_OS_SCAN_WAKE_UNLOCK((dhd_pub_t *)(cfg->pub));
+
 			return -ENODEV;
 		}
 		err = scanbusy_err;
 	}
 
 	DHD_OS_SCAN_WAKE_UNLOCK((dhd_pub_t *)(cfg->pub));
+
 	return err;
 }
 
@@ -2180,7 +2162,7 @@ void wl_cfg80211_scan_abort(struct bcm_cfg80211 *cfg)
 		err = wldev_ioctl_set(dev, WLC_SCAN, params, params_size);
 		if (err < 0) {
 			/* scan abort can fail if there is no outstanding scan */
-			WL_ERR(("scan abort  failed. ret:%d\n", err));
+			WL_ERR(("scan engine not aborted ret(%d)\n", err));
 		}
 		MFREE(cfg->osh, params, params_size);
 	}
@@ -2261,9 +2243,22 @@ s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 		wl_inform_bss(cfg);
 	}
 #endif /* ESCAN_RESULT_PATCH */
+
 	WL_CFG_DRV_LOCK(&cfg->cfgdrv_lock, flags);
+	if (likely(cfg->scan_request)) {
+		WL_INFORM_MEM(("[%s] Report scan done.\n", dev->name));
+		/* scan_sync mutex is already held */
+		_wl_notify_scan_done(cfg, aborted);
+		cfg->scan_request = NULL;
+	}
+	if (p2p_is_on(cfg))
+		wl_clr_p2p_status(cfg, SCANNING);
+	wl_clr_drv_status(cfg, SCANNING, dev);
+	CLR_TS(cfg, scan_start);
+	WL_CFG_DRV_UNLOCK(&cfg->cfgdrv_lock, flags);
+
 #ifdef WL_SCHED_SCAN
-	if (cfg->sched_scan_req && !cfg->scan_request) {
+	if (cfg->sched_scan_running && cfg->sched_scan_req) {
 		struct wiphy *wiphy = cfg->sched_scan_req->wiphy;
 		if (!aborted) {
 			WL_INFORM_MEM(("[%s] Report sched scan done.\n", dev->name));
@@ -2276,24 +2271,22 @@ s32 wl_notify_escan_complete(struct bcm_cfg80211 *cfg,
 		}
 
 		DBG_EVENT_LOG(dhdp, WIFI_EVENT_DRIVER_PNO_SCAN_COMPLETE);
+		/* Mark target scan as done */
 		cfg->sched_scan_running = FALSE;
-		cfg->sched_scan_req = NULL;
+
+		if (cfg->bss_list && (cfg->bss_list->count == 0)) {
+			WL_INFORM_MEM(("bss list empty. report sched_scan_stop\n"));
+			/* Indicated sched scan stopped so that user space
+			 * can do a full scan incase found match is empty.
+			 */
+			CFG80211_SCHED_SCAN_STOPPED(wiphy, cfg->sched_scan_req);
+			cfg->sched_scan_req = NULL;
+		}
 	}
 #endif /* WL_SCHED_SCAN */
-	if (likely(cfg->scan_request)) {
-		WL_INFORM_MEM(("[%s] Report scan done.\n", dev->name));
-		/* scan_sync mutex is already held */
-		_wl_notify_scan_done(cfg, aborted);
-		cfg->scan_request = NULL;
-	}
-	if (p2p_is_on(cfg))
-		wl_clr_p2p_status(cfg, SCANNING);
-	wl_clr_drv_status(cfg, SCANNING, dev);
-	CLR_TS(cfg, scan_start);
 
 	DHD_OS_SCAN_WAKE_UNLOCK((dhd_pub_t *)(cfg->pub));
 	DHD_ENABLE_RUNTIME_PM((dhd_pub_t *)(cfg->pub));
-	WL_CFG_DRV_UNLOCK(&cfg->cfgdrv_lock, flags);
 
 out:
 	return err;
@@ -2860,8 +2853,9 @@ int wl_cfg80211_scan_mac_config(struct net_device *dev, uint8 *rand_mac, uint8 *
 	int len = 0;
 	wl_scanmac_config_t *sm_config = NULL;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+	uint8 random_mask_46_bits[ETHER_ADDR_LEN] = {0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-	if ((rand_mac == NULL) || (rand_mask == NULL)) {
+	if (rand_mac == NULL) {
 		err = BCME_BADARG;
 		WL_ERR(("fail to Set random mac, bad argument\n"));
 		/* Disable the current scanmac config */
@@ -2900,13 +2894,19 @@ int wl_cfg80211_scan_mac_config(struct net_device *dev, uint8 *rand_mac, uint8 *
 	 * for a particular byte then it will be treated as no randomization
 	 * for that byte.
 	 */
-	while (byte_index < ETH_ALEN) {
-		if (rand_mask[byte_index] == 0xFF) {
-			sm_config->random_mask.octet[byte_index] = 0x00;
-		} else if (rand_mask[byte_index] == 0x00) {
-			sm_config->random_mask.octet[byte_index] = 0xFF;
+	if (!rand_mask) {
+		/* If rand_mask not provided, use 46_bits_mask */
+		(void)memcpy_s(&sm_config->random_mask.octet, ETH_ALEN,
+			random_mask_46_bits, ETH_ALEN);
+	} else {
+		while (byte_index < ETH_ALEN) {
+			if (rand_mask[byte_index] == 0xFF) {
+				sm_config->random_mask.octet[byte_index] = 0x00;
+			} else if (rand_mask[byte_index] == 0x00) {
+				sm_config->random_mask.octet[byte_index] = 0xFF;
+			}
+			byte_index++;
 		}
-		byte_index++;
 	}
 
 	WL_DBG(("recv random mac addr " MACDBG  "recv rand mask" MACDBG "\n",
@@ -3024,7 +3024,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		/* get channel list. Note PNO uses channels and not chanspecs */
 		wl_cfgscan_populate_scan_channels(cfg,
 				request->channels, request->n_channels,
-				chan_list, &num_channels, false, true);
+				chan_list, &num_channels, false, false);
 	}
 
 	if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
@@ -3085,7 +3085,7 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 
 		if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
 			/*
-			 * XXX: purposefully logging here to make sure that
+			 * purposefully logging here to make sure that
 			 * firmware configuration was successful
 			 */
 			for (i = 0; i < ssid_cnt; i++) {
@@ -3155,7 +3155,7 @@ wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 		WL_ERR(("PNO Stop for SSID failed"));
 	} else {
 		/*
-		 * XXX: purposefully logging here to make sure that
+		 * purposefully logging here to make sure that
 		 * firmware configuration was successful
 		 */
 		DBG_EVENT_LOG(dhdp, WIFI_EVENT_DRIVER_PNO_REMOVE);
@@ -3278,7 +3278,7 @@ static void wl_scan_timeout(unsigned long data)
 		return;
 	}
 #if defined(DHD_KERNEL_SCHED_DEBUG) && defined(DHD_FW_COREDUMP)
-	/* XXX DHD triggers Kernel panic if the SCAN timeout occurrs
+	/* DHD triggers Kernel panic if the SCAN timeout occurrs
 	 * due to tasklet or workqueue scheduling problems in the Linux Kernel.
 	 * Customer informs that it is hard to find any clue from the
 	 * host memory dump since the important tasklet or workqueue information
@@ -3402,7 +3402,6 @@ s32 wl_init_scan(struct bcm_cfg80211 *cfg)
 /* If target scan is not reliable, set the below define to "1" to do a
  * full escan
  */
-#define FULL_ESCAN_ON_PFN_NET_FOUND		0
 static s32
 wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	const wl_event_msg_t *e, void *data)
@@ -3484,7 +3483,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 			for (i = 0; i < n_pfn_results; i++) {
 				netinfo = &pnetinfo[i];
-				/* XXX This looks useless, shouldn't Coverity complain? */
+				/* This looks useless, shouldn't Coverity complain? */
 				if (!netinfo) {
 					WL_ERR(("Invalid netinfo ptr. index:%d", i));
 					err = -EINVAL;
@@ -3579,13 +3578,8 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			}
 			LOG_TS(cfg, scan_start);
 			wl_set_drv_status(cfg, SCANNING, ndev);
-#if FULL_ESCAN_ON_PFN_NET_FOUND
-			WL_PNO((">>> Doing Full ESCAN on PNO event\n"));
-			err = wl_do_escan(cfg, wiphy, ndev, NULL);
-#else
 			WL_PNO((">>> Doing targeted ESCAN on PNO event\n"));
 			err = wl_do_escan(cfg, wiphy, ndev, request);
-#endif
 			if (err) {
 				WL_ERR(("targeted escan failed. err:%d\n", err));
 				goto out_err;
@@ -3648,7 +3642,7 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 			for (i = 0; i < n_pfn_results; i++) {
 				netinfo_v2 = &pnetinfo_v2[i];
-				/* XXX This looks useless, shouldn't Coverity complain? */
+				/* This looks useless, shouldn't Coverity complain? */
 				if (!netinfo_v2) {
 					WL_ERR(("Invalid netinfo ptr. index:%d", i));
 					err = -EINVAL;
@@ -3733,13 +3727,8 @@ wl_notify_sched_scan_results(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 
 			LOG_TS(cfg, scan_start);
 			wl_set_drv_status(cfg, SCANNING, ndev);
-#if FULL_ESCAN_ON_PFN_NET_FOUND
-			WL_PNO((">>> Doing Full ESCAN on PNO event\n"));
-			err = wl_do_escan(cfg, wiphy, ndev, NULL);
-#else
 			WL_PNO((">>> Doing targeted ESCAN on PNO event\n"));
 			err = wl_do_escan(cfg, wiphy, ndev, request);
-#endif
 			if (err) {
 				WL_ERR(("targeted scan failure. err:%d\n", err));
 				goto out_err;
@@ -3830,10 +3819,10 @@ wl_notify_pfn_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #endif /* GSCAN_SUPPORT */
 
 #ifndef WL_SCHED_SCAN
-	/* XXX CUSTOMER_HW4 has other PNO wakelock time by RB:5911 */
+	/* CUSTOMER_HW4 has other PNO wakelock time by RB:5911 */
 	mutex_lock(&cfg->usr_sync);
 	/* TODO: Use cfg80211_sched_scan_results(wiphy); */
-	/* XXX GregG : WAR as to supplicant busy and not allowed Kernel to suspend */
+	/* GregG : WAR as to supplicant busy and not allowed Kernel to suspend */
 	CFG80211_DISCONNECTED(ndev, 0, NULL, 0, false, GFP_KERNEL);
 	mutex_unlock(&cfg->usr_sync);
 #else
@@ -4108,7 +4097,7 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 	params_size += (chanspec_num + 1);
 
 	/* Allocate space for populating single ssid in wl_escan_params_t struct */
-	params_size += sizeof(struct wlc_ssid);
+	params_size += ((u32) sizeof(struct wlc_ssid));
 
 	params = MALLOCZ(cfg->osh, params_size);
 	if (params == NULL) {
@@ -4165,7 +4154,9 @@ wl_cfgscan_listen_on_channel(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev
 
 		if (schedule_delayed_work(&cfg->loc.work,
 				msecs_to_jiffies(listen_timeout))) {
+
 			DHD_PM_WAKE_LOCK_TIMEOUT(cfg->pub, listen_timeout);
+
 		} else {
 			WL_ERR(("Can't schedule listen work handler\n"));
 		}

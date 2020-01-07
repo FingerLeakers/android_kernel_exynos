@@ -1338,16 +1338,6 @@ static int npu_protodrv_handler_nw_free(void)
 
 			/* Command specific error handling */
 			switch (entry->nw.cmd) {
-			case NPU_NW_CMD_LOAD:
-				session_ref_entry = find_session_ref_nw(entry);
-				if (session_ref_entry == NULL) {
-					npu_uerr("requested LOAD, but Session entry find error.\n", &entry->nw);
-					entry->nw.result_code = NPU_ERR_DRIVER(NPU_ERR_INVALID_UID);
-					goto error_req;
-				}
-				npu_scheduler_load(npu_proto_drv.npu_device, session_ref_entry->session);
-				break;
-
 			case NPU_NW_CMD_STREAMOFF:
 				/* Update status */
 				session_ref_entry = find_session_ref_nw(entry);
@@ -1655,6 +1645,7 @@ static int  npu_protodrv_handler_nw_requested(void)
 			break;
 		}
 	) /* End of LSM_FOR_EACH_ENTRY_IN */
+
 	if (proc_handle_cnt)
 		npu_dbg("(%s) [%d]REQUESTED ---> [%d] ---> PROCESSING.\n", TYPE_NAME_NW, entryCnt, proc_handle_cnt);
 	if (compl_handle_cnt)
@@ -1858,7 +1849,6 @@ static int npu_protodrv_handler_nw_completed(void)
 							&entry->nw, session_ref_entry->s_state);
 						transition = 0;
 					}
-					npu_scheduler_unload(npu_proto_drv.npu_device, session_ref_entry->session);
 					break;
 				case NPU_NW_CMD_UNLOAD:
 					/* Claim the packet if the current is last one and result is DONE / or result is NDONE */
@@ -1981,8 +1971,8 @@ static struct {
 } NPU_PROTODRV_TIMEOUT_MAP[LSM_LIST_TYPE_INVALID][PROTO_DRV_REQ_TYPE_INVALID] = {
 			/*Dummy*/		/* Frame request */							/* NCP mgmt. request */
 /* FREE - (NA)      */	{{0, 0}, {.timeout_ns = 0,          .err_code = 0                    }, {.timeout_ns = 0,           .err_code = 0} },
-/* REQUESTED        */	{{0, 0}, {.timeout_ns = (30L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_SCHED_TIMEOUT)}, {.timeout_ns = (30L * S2N),  .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_SCHED_TIMEOUT)} },
-/* PROCESSING       */	{{0, 0}, {.timeout_ns = (300L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_NPU_TIMEOUT)  }, {.timeout_ns = (300L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_QUEUE_TIMEOUT)} },
+/* REQUESTED        */	{{0, 0}, {.timeout_ns = (5L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_SCHED_TIMEOUT)}, {.timeout_ns = (5L * S2N),  .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_SCHED_TIMEOUT)} },
+/* PROCESSING       */	{{0, 0}, {.timeout_ns = (10L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_NPU_TIMEOUT)  }, {.timeout_ns = (5L * S2N), .err_code = NPU_CRITICAL_DRIVER(NPU_ERR_QUEUE_TIMEOUT)} },
 /* COMPLETED - (NA) */	{{0, 0}, {.timeout_ns = 0,          .err_code = 0                    }, {.timeout_ns = 0,           .err_code = 0} },
 };
 #endif
@@ -2040,11 +2030,11 @@ static void proto_drv_preprocess_frame(lsm_list_type_e state, void *e)
 	frame = &entry->frame;
 	switch (state) {
 	case REQUESTED:
-		break;
-	case PROCESSING:
 		/* A job is coming to PROCESSING state */
 		npu_scheduler_gate(device, frame, false);
 
+		break;
+	case PROCESSING:
 		/* A job is newly coming to PROCESSING state */
 		if (proto_frame_lsm.lsm_is_empty(PROCESSING))
 			npu_scheduler_rq_update_idle(device, false);
@@ -2095,9 +2085,6 @@ static void proto_drv_put_hook_frame(lsm_list_type_e state, void *e)
 			if (proto_frame_lsm.lsm_is_empty(PROCESSING))
 				npu_scheduler_rq_update_idle(device, true);
 
-			/* A job in PROCESSING state has been done */
-			npu_scheduler_gate(device, frame, true);
-
 			profile_point3(PROBE_ID_DD_FRAME_COMPLETED, frame->uid, frame->frame_id, 0, frame->npu_req_id, 0);
 			break;
 		case FREE:
@@ -2127,6 +2114,7 @@ static void proto_drv_put_hook_nw(lsm_list_type_e state, void *e)
 	lsm_list_type_e old_state;
 	struct npu_nw *nw;
 	struct proto_req_nw *entry = (struct proto_req_nw *)e;
+	struct npu_device *device = npu_proto_drv.npu_device;
 
 	BUG_ON(!entry);
 	old_state = entry->state;
@@ -2143,9 +2131,13 @@ static void proto_drv_put_hook_nw(lsm_list_type_e state, void *e)
 			profile_point3(PROBE_ID_DD_NW_SCHEDULED, nw->uid, 0, nw->cmd, nw->npu_req_id, 0);
 			break;
 		case PROCESSING:
+			if (nw->cmd == NPU_NW_CMD_STREAMOFF)
+				npu_scheduler_unload(device, nw->session);
 			profile_point3(PROBE_ID_DD_NW_PROCESS, nw->uid, 0, nw->cmd, nw->npu_req_id, 0);
 			break;
 		case COMPLETED:
+			if (nw->cmd == NPU_NW_CMD_LOAD)
+				npu_scheduler_load(device, nw->session);
 			profile_point3(PROBE_ID_DD_NW_COMPLETED, nw->uid, 0, nw->cmd, nw->npu_req_id, 0);
 			break;
 		case FREE:
@@ -2200,6 +2192,7 @@ static int proto_drv_check_work(struct auto_sleep_thread_param *data)
 	if (!EXPECT_STATE(PROTO_DRV_STATE_OPENED))
 		return 0;
 
+	npu_memory_sync_for_cpu();
 	return (nw_mgmt_op_is_available() > 0)
 	       || (npu_queue_op_is_available() > 0)
 	       || (nw_mbox_op_is_available() > 0)

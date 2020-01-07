@@ -154,7 +154,8 @@ int adv_tracer_ipc_send_data(unsigned int id, struct adv_tracer_ipc_cmd *cmd)
 	if (!ret) {
 		dev_err(adv_tracer_ipc->dev,"%d channel(%s), cmd(0x%x) timeout error\n",
 				id, channel->id_name, cmd->buffer[0]);
-		adv_tracer_ipc_dbgc_reset();
+		if (adv_tracer_get_arraydump_state() == 0)
+			adv_tracer_ipc_dbgc_reset();
 		return -EBUSY;
 	}
 	memcpy(cmd, channel->cmd, sizeof(unsigned int) * channel->len);
@@ -191,7 +192,8 @@ int adv_tracer_ipc_send_data_polling_timeout(unsigned int id, struct adv_tracer_
 	if (!_cmd.cmd_raw.response) {
 		dev_err(adv_tracer_ipc->dev,"%d channel(%s), cmd(0x%x) timeout error\n",
 				id, channel->id_name, cmd->buffer[0]);
-		adv_tracer_ipc_dbgc_reset();
+		if (adv_tracer_get_arraydump_state() == 0)
+			adv_tracer_ipc_dbgc_reset();
 		return -EBUSY;
 	}
 	adv_tracer_ipc_read_buffer(cmd->buffer, channel->buff_regs, channel->len);

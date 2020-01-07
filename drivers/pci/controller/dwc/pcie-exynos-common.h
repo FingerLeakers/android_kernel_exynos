@@ -24,7 +24,9 @@
 #define MAX_TIMEOUT		12000
 #define MAX_TIMEOUT_LANECHANGE  10000
 #define MAX_TIMEOUT_SPEEDCHANGE 10000
+#define MAX_TIMEOUT_LANECHANGE  10000
 #define MAX_L2_TIMEOUT		2000
+#define MAX_L1_EXIT_TIMEOUT	300
 #define ID_MASK			0xffff
 #define TPUT_THRESHOLD		150
 #define MAX_RC_NUM		2
@@ -218,6 +220,7 @@ struct exynos_pcie {
 	bool			use_nclkoff_en;
 	spinlock_t		conf_lock;
 	spinlock_t              reg_lock;
+	spinlock_t              pcie_l1_exit_lock;
 	struct workqueue_struct	*pcie_wq;
 	struct exynos_pcie_clks	clks;
 	struct pci_dev		*pci_dev;

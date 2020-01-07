@@ -157,10 +157,7 @@ get_asd(const si_t *sih, uint32 **eromptr, uint sp, uint ad, uint st, uint32 *ad
 	return asd;
 }
 
-/* Parse the enumeration rom to identify all cores
- * Erom content format can be found in:
- * http://hwnbu-twiki.broadcom.com/twiki/pub/Mwgroup/ArmDocumentation/SystemDiscovery.pdf
- */
+/* Parse the enumeration rom to identify all cores */
 void
 ai_scan(si_t *sih, void *regs, uint devid)
 {
@@ -245,7 +242,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 #endif
 
 		/* Include Default slave wrapper for timeout monitoring */
-		if ((nsp == 0) ||
+		if ((nsp == 0 && nsw == 0) ||
 #if !defined(AXI_TIMEOUTS) && !defined(AXI_TIMEOUTS_NIC)
 			((mfg == MFGID_ARM) && (cid == DEF_AI_COMP)) ||
 #else
@@ -258,7 +255,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 
 		if ((nmw + nsw == 0)) {
 			/* A component which is not a core */
-			/* XXX: Should record some info */
+			/* Should record some info */
 			if (cid == OOB_ROUTER_CORE_ID) {
 				asd = get_asd(sih, &eromptr, 0, 0, AD_ST_SLAVE,
 					&addrl, &addrh, &sizel, &sizeh);
@@ -299,7 +296,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 				SI_ERROR(("Not enough MP entries for component 0x%x\n", cid));
 				goto error;
 			}
-			/* XXX: Record something? */
+			/* Record something? */
 			SI_VMSG(("  Master port %d, mp: %d id: %d\n", i,
 			         (mpd & MPD_MP_MASK) >> MPD_MP_SHIFT,
 			         (mpd & MPD_MUI_MASK) >> MPD_MUI_SHIFT));
@@ -317,24 +314,18 @@ ai_scan(si_t *sih, void *regs, uint devid)
 			if (asd != 0)
 				br = TRUE;
 			else {
-					if (br == TRUE) {
-						break;
-					}
-					else if ((addrh != 0) || (sizeh != 0) ||
-						(sizel != SI_CORE_SIZE)) {
-						/* XXX: Could we have sizel != 4KB? */
-						SI_ERROR(("addrh = 0x%x\t sizeh = 0x%x\t size1 ="
-							"0x%x\n", addrh, sizeh, sizel));
-						SI_ERROR(("First Slave ASD for"
-							"core 0x%04x malformed "
-							"(0x%08x)\n", cid, asd));
-						goto error;
-					}
+					break;
 				}
 			} while (1);
+		} else {
+			if (addrl == 0 || sizel == 0) {
+				SI_ERROR((" Invalid ASD %x for slave port \n", asd));
+				goto error;
+			}
+			cores_info->coresba[idx] = addrl;
+			cores_info->coresba_size[idx] = sizel;
 		}
-		cores_info->coresba[idx] = addrl;
-		cores_info->coresba_size[idx] = sizel;
+
 		/* Get any more ASDs in first port */
 		j = 1;
 		do {
@@ -388,8 +379,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 				cores_info->wrapba3[idx] = addrl;
 			}
 
-			if (axi_wrapper &&
-				(sii->axi_num_wrappers < SI_MAX_AXI_WRAPPERS)) {
+			if (axi_wrapper && (sii->axi_num_wrappers < SI_MAX_AXI_WRAPPERS)) {
 				axi_wrapper[sii->axi_num_wrappers].mfg = mfg;
 				axi_wrapper[sii->axi_num_wrappers].cid = cid;
 				axi_wrapper[sii->axi_num_wrappers].rev = crev;
@@ -404,12 +394,12 @@ ai_scan(si_t *sih, void *regs, uint devid)
 
 		/* And finally slave wrappers */
 		for (i = 0; i < nsw; i++) {
-			uint fwp = (nsp == 1) ? 0 : 1;
+			uint fwp = (nsp <= 1) ? 0 : 1;
 			asd = get_asd(sih, &eromptr, fwp + i, 0, AD_ST_SWRAP, &addrl, &addrh,
 			              &sizel, &sizeh);
-
 			if (asd == 0) {
-				SI_ERROR(("Missing descriptor for SW %d\n", i));
+				SI_ERROR(("Missing descriptor for SW %d cid %x eromp %p fwp %d \n",
+					i, cid, eromptr, fwp));
 				goto error;
 			}
 
@@ -429,6 +419,12 @@ ai_scan(si_t *sih, void *regs, uint devid)
 				sii->br_wrapba[sii->num_br++] = addrl;
 			}
 
+			if ((mfg == MFGID_ARM) && (cid == ADB_BRIDGE_ID)) {
+				br = TRUE;
+			}
+
+			BCM_REFERENCE(br);
+
 			if ((nmw == 0) && (i == 0)) {
 				cores_info->wrapba[idx] = addrl;
 			} else if ((nmw == 0) && (i == 1)) {
@@ -441,28 +437,12 @@ ai_scan(si_t *sih, void *regs, uint devid)
 			 * enable and monitor watchdog timeouts
 			 */
 
-			if (axi_wrapper &&
-				(sii->axi_num_wrappers < SI_MAX_AXI_WRAPPERS)) {
+			if (axi_wrapper && (sii->axi_num_wrappers < SI_MAX_AXI_WRAPPERS)) {
 				axi_wrapper[sii->axi_num_wrappers].mfg = mfg;
 				axi_wrapper[sii->axi_num_wrappers].cid = cid;
 				axi_wrapper[sii->axi_num_wrappers].rev = crev;
 				axi_wrapper[sii->axi_num_wrappers].wrapper_type = AI_SLAVE_WRAPPER;
-
-			/* Software WAR as discussed with hardware team, to ensure proper
-			* Slave Wrapper Base address is set for 4364 Chip ID.
-			* Current address is 0x1810c000, Corrected the same to 0x1810e000.
-			* This ensures AXI default slave wrapper is registered along with
-			* other slave wrapper cores and is useful while generating trap info
-			* when write operation is tried on Invalid Core / Wrapper register
-			*/
-
-				if ((CHIPID(sih->chip) == BCM4364_CHIP_ID) &&
-						(cid == DEF_AI_COMP)) {
-					axi_wrapper[sii->axi_num_wrappers].wrapper_addr =
-						0x1810e000;
-				} else {
-					axi_wrapper[sii->axi_num_wrappers].wrapper_addr = addrl;
-				}
+				axi_wrapper[sii->axi_num_wrappers].wrapper_addr = addrl;
 
 				sii->axi_num_wrappers++;
 
@@ -473,9 +453,10 @@ ai_scan(si_t *sih, void *regs, uint devid)
 		}
 
 #ifndef AXI_TIMEOUTS_NIC
-		/* Don't record bridges */
-		if (br)
+		/* Don't record bridges and core with 0 slave ports */
+		if (br || (nsp == 0)) {
 			continue;
+		}
 #endif
 
 		/* Done with core */
@@ -567,10 +548,6 @@ _ai_setcoreidx(si_t *sih, uint coreidx, uint use_wrapn)
 		}
 
 		/* Use BAR0 Window to support dual mac chips... */
-
-		/* XXX: http://hwnbu-twiki.broadcom.com/bin/view/Mwgroup/
-		 *		CurrentPcieGen2ProgramGuide#BAR0_Space
-		 */
 
 		/* TODO: the other mac unit can't be supportd by the current BAR0 window.
 		 * need to find other ways to access these cores.
@@ -1539,7 +1516,22 @@ ai_update_backplane_timeouts(const si_t *sih, bool enable, uint32 timeout_exp, u
 #endif /* AXI_TIMEOUTS_NIC */
 
 	for (i = 0; i < sii->axi_num_wrappers; ++i) {
-
+		/* WAR for wrong EROM entries w.r.t slave and master wrapper
+		 * for ADB bridge core...so checking actual wrapper config to determine type
+		 * http://jira.broadcom.com/browse/HW4388-905
+		*/
+		if ((cid == 0 || cid == ADB_BRIDGE_ID) &&
+				(axi_wrapper[i].cid == ADB_BRIDGE_ID)) {
+			/* WAR is applicable only to 89B0 and 89C0 */
+			if (CCREV(sih->ccrev) == 70) {
+				ai = (aidmp_t *)(uintptr)axi_wrapper[i].wrapper_addr;
+				if (R_REG(sii->osh, &ai->config) & WRAPPER_TIMEOUT_CONFIG) {
+					axi_wrapper[i].wrapper_type  = AI_SLAVE_WRAPPER;
+				} else {
+					axi_wrapper[i].wrapper_type  = AI_MASTER_WRAPPER;
+				}
+			}
+		}
 		if (axi_wrapper[i].wrapper_type != AI_SLAVE_WRAPPER) {
 			SI_VMSG(("SKIP ENABLE BPT: MFG:%x, CID:%x, ADDR:%x\n",
 				axi_wrapper[i].mfg,
@@ -1612,13 +1604,6 @@ ai_ignore_errlog(const si_info_t *sii, const aidmp_t *ai,
 
 	/* ignore the BT slave errors if the errlog is to chipcommon addr 0x190 */
 	switch (CHIPID(sii->pub.chip)) {
-		case BCM4349_CHIP_GRPID:
-			axi_id = BCM4349_BT_AXI_ID;
-			break;
-		case BCM4364_CHIP_ID:
-		case BCM4373_CHIP_ID:
-			axi_id = BCM4364_BT_AXI_ID;
-			break;
 #ifdef BTOVERPCIE
 		case BCM4369_CHIP_GRPID:
 			axi_id = BCM4369_BT_AXI_ID;

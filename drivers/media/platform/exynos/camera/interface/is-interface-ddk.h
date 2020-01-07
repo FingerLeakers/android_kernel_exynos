@@ -27,6 +27,10 @@
 #define MODULE_ID_MASK		(0x0FFF0000)
 #define MODULE_ID_SHIFT		(16)
 
+#define CHK_VIDEOHDR_MODE_CHANGE(curr_tnr_mode, next_tnr_mode)	\
+	(((curr_tnr_mode == TNR_PROCESSING_TNR_ONLY && next_tnr_mode == TNR_PROCESSING_MERGE_WITH_NR) \
+	|| (curr_tnr_mode == TNR_PROCESSING_MERGE_WITH_NR && next_tnr_mode == TNR_PROCESSING_TNR_ONLY)) ? 1 : 0)
+
 struct is_lib_isp {
 	void				*object;
 	struct lib_interface_func	*func;

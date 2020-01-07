@@ -23,6 +23,8 @@
 struct exynos_chipid_info exynos_soc_info;
 EXPORT_SYMBOL(exynos_soc_info);
 
+static const char *soc_ap_id;
+
 static const char * __init product_id_to_name(unsigned int product_id)
 {
 	const char *soc_name;
@@ -280,6 +282,7 @@ static int __init exynos_chipid_probe(struct platform_device *pdev)
 		goto free_soc;
 
 	soc_dev_attr->soc_id = product_id_to_name(exynos_soc_info.product_id);
+	soc_ap_id = product_id_to_name(exynos_soc_info.product_id);
 	soc_dev = soc_device_register(soc_dev_attr);
 	if (IS_ERR(soc_dev))
 		goto free_rev;
@@ -329,6 +332,18 @@ static ssize_t product_id_show(struct device *dev,
 	return snprintf(buf, 10, "%08X\n", exynos_soc_info.product_id);
 }
 
+static ssize_t ap_id_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	if (exynos_soc_info.revision == 0)
+		return snprintf(buf, 30, "%s EVT0\n", soc_ap_id);
+	else
+		return snprintf(buf, 30, "%s EVT%1X.%1X\n",
+					soc_ap_id,
+					exynos_soc_info.main_rev,
+					exynos_soc_info.sub_rev);
+}
+
 static ssize_t unique_id_show(struct device *dev,
 			         struct device_attribute *attr, char *buf)
 {
@@ -365,6 +380,7 @@ static ssize_t evt_ver_show(struct device *dev,
 }
 
 static DEVICE_ATTR_RO(product_id);
+static DEVICE_ATTR_RO(ap_id);
 static DEVICE_ATTR_RO(unique_id);
 static DEVICE_ATTR_RO(lot_id);
 static DEVICE_ATTR_RO(lot_id2);
@@ -373,6 +389,7 @@ static DEVICE_ATTR_RO(evt_ver);
 
 static struct attribute *chipid_sysfs_attrs[] = {
 	&dev_attr_product_id.attr,
+	&dev_attr_ap_id.attr,
 	&dev_attr_unique_id.attr,
 	&dev_attr_lot_id.attr,
 	&dev_attr_lot_id2.attr,

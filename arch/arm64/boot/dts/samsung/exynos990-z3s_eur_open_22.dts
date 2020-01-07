@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -26,7 +26,7 @@
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,Z3S EUR OPEN 22", "samsung,EXYNOS9830";
+	compatible = "samsung,Z3S EUR OPEN 22", "samsung,EXYNOS990";
 	dtbo-hw_rev = <22>;
 	dtbo-hw_rev_end = <255>;
 	edtbo-rev = <0>;
@@ -37,7 +37,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung Z3S EUR OPEN 22 based on EXYNOS9830";
+			model = "Samsung Z3S EUR OPEN 22 based on EXYNOS990";
 
 			acpm_ipc {
 				compatible = "samsung,exynos-acpm-ipc";
@@ -111,7 +111,7 @@
 };
 
 &chosen {
-	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs sec_debug.cp=0";
+	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs";
 };
 
 &usi_11 {
@@ -205,7 +205,7 @@
 		reg = <0x20>;
 		status = "okay";
 		pinctrl-names = "default";
-		pinctrl-0 = <&grip_irq>;
+		pinctrl-0 = <&grip_irq &grip_ldo>;
 		interrupt-parent = <&gpa3>;
 		interrupts = <0 0 0>;
 
@@ -220,8 +220,7 @@
 	BCM4773@0 {
 		ssp-acc-position = <5>;
 		ssp-mag-position = <1>;
-		ssp-mag-array = /bits/ 8 <240 83 235 204 213 79 1 64 213 52 81 77 193 102 255 122 0 57 20 34
-					191 253 245 91 9 117 212>;
+		ssp-mag-array = /bits/ 8 <12 84 121 204 249 193 0 64 212 53 81 92 176 102 1 122 2 33 111 24 191 251 129 178 10 117 69>;
 		ssp-thermi-up = /bits/ 16 <3244 3216 3177 3127 3063 2987 2893 2785 2663 2522 2364 2191 2019 1841 1664 1492 1325 1165 1024 894 772 658 579>;
 		ssp-thermi-sub = /bits/ 16 <4095 4095 4095 4026 3810 3566 3300 3013 2725 2438 2142 1871 1626 1402 1202 1030 874 744 631 535 453 385 331>;
 	};

@@ -72,11 +72,14 @@ static void bts_calc_bw(void)
 	mif_freq = (btsdev->total_bw * 100) / BUS_WIDTH / MIF_UTIL;
 	int_freq = (btsdev->peak_bw * 100) / BUS_WIDTH / INT_UTIL;
 
-	BTSDBG_LOG(btsdev->dev, "BW: T:%.8u R:%.8u W:%.8u P:%.8u MIF:%.8u INT:%.8u\n",
-			btsdev->total_bw, total_read, total_write, btsdev->peak_bw, mif_freq, int_freq);
+	BTSDBG_LOG(btsdev->dev, "[EN]:%d BW: T:%.8u R:%.8u W:%.8u P:%.8u MIF:%.8u INT:%.8u\n",
+			btsdev->calc_dis_cnt, btsdev->total_bw, total_read, total_write,
+			btsdev->peak_bw, mif_freq, int_freq);
 
-	pm_qos_update_request(&exynos_mif_qos, mif_freq);
-	pm_qos_update_request(&exynos_int_qos, int_freq);
+	if (!btsdev->calc_dis_cnt) {
+		pm_qos_update_request(&exynos_mif_qos, mif_freq);
+		pm_qos_update_request(&exynos_int_qos, int_freq);
+	}
 
 	mutex_unlock(&btsdev->mutex_lock);
 }
@@ -196,6 +199,40 @@ int bts_update_bw(unsigned int index, struct bts_bw bw)
 }
 EXPORT_SYMBOL(bts_update_bw);
 
+void bts_calc_disable(unsigned int en)
+{
+	/* 0: enable, 1: disable */
+	spin_lock(&btsdev->lock);
+	if (en) {
+		btsdev->calc_dis_cnt++;
+		if (btsdev->calc_dis_cnt > 1) {
+			spin_unlock(&btsdev->lock);
+			return;
+		}
+	} else {
+		btsdev->calc_dis_cnt--;
+		if (btsdev->calc_dis_cnt > 0) {
+			spin_unlock(&btsdev->lock);
+			return;
+		} else if (btsdev->calc_dis_cnt < 0) {
+			dev_warn(btsdev->dev, "calc_dis_cnt is below 0!\n");
+			btsdev->calc_dis_cnt = 0;
+			spin_unlock(&btsdev->lock);
+			return;
+		}
+	}
+	spin_unlock(&btsdev->lock);
+
+	if (en) {
+		pm_qos_update_request(&exynos_mif_qos, 0);
+		pm_qos_update_request(&exynos_int_qos, 0);
+	} else {
+		bts_calc_bw();
+	}
+	dev_info(btsdev->dev, "bts_calc_bw function: %s\n", en ? "disabled" : "enabled");
+}
+EXPORT_SYMBOL(bts_calc_disable);
+
 int bts_add_scenario(unsigned int index)
 {
 	struct bts_scen *scen = btsdev->scen_list;
@@ -207,6 +244,12 @@ int bts_add_scenario(unsigned int index)
 		dev_err(btsdev->dev, "Invalid scenario index!\n");
 		spin_unlock(&btsdev->lock);
 		return -EINVAL;
+	}
+
+	if (index == ID_DEFAULT && scen[index].usage_count != 0) {
+		dev_notice(btsdev->dev, "Default scenario cannot register additional!\n");
+		spin_unlock(&btsdev->lock);
+		return 0;
 	}
 
 	scen[index].usage_count++;
@@ -241,17 +284,17 @@ int bts_del_scenario(unsigned int index)
 		return -EINVAL;
 	}
 
+	if (index == ID_DEFAULT) {
+		dev_notice(btsdev->dev, "Default scenario cannot be deleted!\n");
+		spin_unlock(&btsdev->lock);
+		return 0;
+	}
+
 	scen[index].usage_count--;
 
 	if (scen[index].usage_count < 0) {
 		dev_warn(btsdev->dev, "Usage count is below 0!\n");
 		scen[index].usage_count = 0;
-		spin_unlock(&btsdev->lock);
-		return 0;
-	}
-
-	if (index == ID_DEFAULT) {
-		dev_notice(btsdev->dev, "Default scenario cannot be deleted!\n");
 		spin_unlock(&btsdev->lock);
 		return 0;
 	}
@@ -1098,6 +1141,7 @@ static int bts_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	btsdev->dev = &pdev->dev;
+	btsdev->calc_dis_cnt = 0;
 
 	qos_va_base1 = devm_ioremap(btsdev->dev, G3D01_QOS_BASE, SZ_1K);
 	qos_va_base2 = devm_ioremap(btsdev->dev, G3D23_QOS_BASE, SZ_1K);

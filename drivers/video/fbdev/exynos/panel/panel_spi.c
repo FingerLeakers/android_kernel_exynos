@@ -970,6 +970,7 @@ static ssize_t panel_spi_fops_write(struct file *file, const char __user *buf, s
 	return count;
 }
 
+#if 0
 static int __ioctl_erase(struct panel_spi_dev *spi_dev, unsigned long arg) {
 	struct ioc_erase_info erase_info;
 	struct spi_data_buffer spi_data_buf;
@@ -991,11 +992,13 @@ static int __ioctl_erase(struct panel_spi_dev *spi_dev, unsigned long arg) {
 	spi_data_buf.addr = erase_info.offset;
 	spi_data_buf.size = erase_info.length;
 
+//	todo: fix blocking from ioctl ops
 	ret = panel_spi_flash_erase(spi_dev, &spi_data_buf);
 
 	return ret;
 	
 }
+#endif
 
 static long panel_spi_fops_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -1022,8 +1025,8 @@ static long panel_spi_fops_ioctl(struct file *file, unsigned int cmd, unsigned l
 		panel_info("%s: IOCTL_AUTO_ERASE_DISABLE %d -> %d\n", __func__, old_val, spi_dev->auto_erase);
 		break;
 	case IOCTL_ERASE:
-		panel_info("%s: IOCTL_ERASE\n", __func__);
-		ret = __ioctl_erase(spi_dev, arg);
+		panel_info("%s: IOCTL_ERASE skipped\n", __func__);
+//		ret = __ioctl_erase(spi_dev, arg);
 		break;
 	default:
 		panel_info("%s: Unknown cmd %d\n", __func__, cmd);
@@ -1131,7 +1134,7 @@ int panel_spi_drv_probe(struct panel_device *panel, struct spi_data **spi_data_t
 	spi_dev->dev.fops = &panel_spi_drv_fops;
 	spi_dev->dev.name = DRIVER_NAME;
 	spi_info = &spi_dev->spi_info;
-	spi_dev->auto_erase = true;
+	spi_dev->auto_erase = false;
 	mutex_init(&spi_dev->f_lock);
 	ret = misc_register(&spi_dev->dev);
 	if (ret) {

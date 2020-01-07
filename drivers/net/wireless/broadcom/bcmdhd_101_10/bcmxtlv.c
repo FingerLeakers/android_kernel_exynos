@@ -140,6 +140,9 @@ bcm_next_xtlv(const bcm_xtlv_t *elt, int *buflen, bcm_xtlv_opts_t opts)
 	 * Clearing the tainted attribute of 'sz' for Coverity.
 	 */
 	__coverity_tainted_data_sanitize__(sz);
+	if (sz > *buflen) {
+		return NULL;
+	}
 #endif /* __COVERITY__ */
 
 	*buflen -= sz;
@@ -565,7 +568,7 @@ bcm_unpack_xtlv_buf_to_mem(const uint8 *tlv_buf, int *buflen, xtlv_desc_t *items
 		}
 	}
 
-	if (res == BCME_OK && *buflen != 0)		/* XXX this does not look right */
+	if (res == BCME_OK && *buflen != 0)		/* this does not look right */
 		res =  BCME_BUFTOOSHORT;
 
 	return res;

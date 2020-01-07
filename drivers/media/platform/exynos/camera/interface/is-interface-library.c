@@ -2070,14 +2070,14 @@ static int is_votfitf_set_flush(struct votf_info *vinfo)
 	return ret;
 }
 
-static int is_votfitf_set_lines_count(struct votf_info *vinfo, u32 cnt)
+static int is_votfitf_set_frame_size(struct votf_info *vinfo, u32 size)
 {
 	int ret = 0;
 
 	FIMC_BUG(!vinfo);
 
 	dbg_lib(4, "%s\n", __func__);
-	ret = votfitf_set_lines_count(vinfo, cnt);
+	ret = votfitf_set_frame_size(vinfo, size);
 
 	return ret;
 }
@@ -2094,27 +2094,27 @@ static int is_votfitf_set_trs_lost_cfg(struct votf_info *vinfo, struct votf_lost
 	return ret;
 }
 
-static int is_votfitf_set_lines_in_token(struct votf_info *vinfo, u32 lines)
+static int is_votfitf_set_token_size(struct votf_info *vinfo, u32 size)
 {
 	int ret = 0;
 
 	FIMC_BUG(!vinfo);
 
 	dbg_lib(4, "%s\n", __func__);
-	ret = votfitf_set_lines_in_token(vinfo, lines);
+	ret = votfitf_set_token_size(vinfo, size);
 
 	return ret;
 
 }
 
-static int is_votfitf_set_lines_in_first_token(struct votf_info *vinfo, u32 lines)
+static int is_votfitf_set_first_token_size(struct votf_info *vinfo, u32 size)
 {
 	int ret = 0;
 
 	FIMC_BUG(!vinfo);
 
 	dbg_lib(4, "%s\n", __func__);
-	ret = votfitf_set_lines_in_first_token(vinfo, lines);
+	ret = votfitf_set_first_token_size(vinfo, size);
 
 	return ret;
 
@@ -2219,10 +2219,10 @@ void set_os_system_funcs(os_system_func_t *funcs)
 	funcs[82] = (os_system_func_t)is_votfitf_set_service_cfg;
 	funcs[83] = (os_system_func_t)is_votfitf_reset;
 	funcs[84] = (os_system_func_t)is_votfitf_set_flush;
-	funcs[85] = (os_system_func_t)is_votfitf_set_lines_count;
+	funcs[85] = (os_system_func_t)is_votfitf_set_frame_size;
 	funcs[86] = (os_system_func_t)is_votfitf_set_trs_lost_cfg;
-	funcs[87] = (os_system_func_t)is_votfitf_set_lines_in_token;
-	funcs[88] = (os_system_func_t)is_votfitf_set_lines_in_first_token;
+	funcs[87] = (os_system_func_t)is_votfitf_set_token_size;
+	funcs[88] = (os_system_func_t)is_votfitf_set_first_token_size;
 
 	funcs[91] = (os_system_func_t)is_get_binary_version;
 	/* TODO: re-odering function table */

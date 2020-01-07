@@ -1409,6 +1409,8 @@ int is_subdev_internal_s_format(void *device, enum is_device_type type, struct i
 
 			if (sensor_cfg->ex_mode == EX_DUALFPS_960)
 				batch_num = 16;
+			else if (sensor_cfg->ex_mode == EX_DUALFPS_480)
+				batch_num = 8;
 		}
 
 		break;

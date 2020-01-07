@@ -571,10 +571,15 @@ int npu_fw_report_store(char *strRep, int nSize)
 	size_t	ret = -1;
 	size_t	wr_len = 0;
 	size_t	remain = fw_report.st_size - fw_report.wr_pos;
-	char	*buf = fw_report.st_buf + fw_report.wr_pos;
+	char	*buf = NULL;
 	unsigned long intr_flags;
 
 	spin_lock_irqsave(&fw_report_lock, intr_flags);
+
+	if (fw_report.st_buf == NULL)
+		return -ENOMEM;
+
+	buf = fw_report.st_buf + fw_report.wr_pos;
 
 	//check overflow
 	if (nSize >= (int)remain) {
@@ -604,10 +609,15 @@ int npu_fw_profile_store(char *strRep, int nSize)
 	size_t	ret = -1;
 	size_t	wr_len = 0;
 	size_t	remain = fw_profile.st_size - fw_profile.wr_pos;
-	char	*buf = fw_profile.st_buf + fw_profile.wr_pos;
+	char	*buf = NULL;
 	unsigned long intr_flags;
 
 	spin_lock_irqsave(&fw_profile_lock, intr_flags);
+
+	if (fw_profile.st_buf == NULL)
+		return -ENOMEM;
+
+	buf = fw_profile.st_buf + fw_profile.wr_pos;
 
 	//check overflow
 	if (nSize >= (int)remain) {
@@ -1210,13 +1220,16 @@ static DEVICE_ATTR(log_level, 0644, npu_chg_log_level_show, npu_chg_log_level_st
 int fw_will_note(size_t len)
 {
 	unsigned long intr_flags;
-	char *buf;
+	char *buf = NULL;
 	size_t i, pos;
 	bool bReqLegacy = FALSE;
 
 	//Gather one more time before make will note.
 	fw_rprt_manager();
 	spin_lock_irqsave(&fw_report_lock, intr_flags);
+
+	if (fw_report.st_buf == NULL)
+		return -ENOMEM;
 
 	//Consideration for early phase
 	if (fw_report.wr_pos < len) {

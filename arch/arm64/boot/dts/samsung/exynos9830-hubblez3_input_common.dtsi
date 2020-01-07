@@ -14,6 +14,7 @@
 &hsi2c_15 {
 	touchscreen@48 {
 		sec,firmware_name = "tsp_sec/y79a_z3.bin";
-		sec,tclm_level = <1>;
+		sec,tclm_level = <2>;
+		sec,afe_base = <0x0018>;
 	};
 };

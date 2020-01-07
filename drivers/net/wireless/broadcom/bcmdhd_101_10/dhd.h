@@ -160,11 +160,12 @@ enum dhd_bus_devreset_type {
 #define DHD_BUS_BUSY_RPM_ALL                 (DHD_BUS_BUSY_RPM_SUSPEND_DONE | \
 		DHD_BUS_BUSY_RPM_SUSPEND_IN_PROGRESS | \
 		DHD_BUS_BUSY_RPM_RESUME_IN_PROGRESS)
-#define DHD_BUS_BUSY_IN_CHECKDIED            0x800
-#define DHD_BUS_BUSY_IN_MEMDUMP				 0x1000
-#define DHD_BUS_BUSY_IN_SSSRDUMP			 0x2000
-#define DHD_BUS_BUSY_IN_LOGDUMP				 0x4000
-#define DHD_BUS_BUSY_IN_HALDUMP				 0x8000
+#define DHD_BUS_BUSY_IN_CHECKDIED		0x800
+#define DHD_BUS_BUSY_IN_MEMDUMP			0x1000
+#define DHD_BUS_BUSY_IN_SSSRDUMP		0x2000
+#define DHD_BUS_BUSY_IN_LOGDUMP			0x4000
+#define DHD_BUS_BUSY_IN_HALDUMP			0x8000
+#define DHD_BUS_BUSY_IN_NAPI			0x10000
 
 #define DHD_BUS_BUSY_SET_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_TX
@@ -198,6 +199,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_LOGDUMP
 #define DHD_BUS_BUSY_SET_IN_HALDUMP(dhdp) \
 	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_HALDUMP
+#define DHD_BUS_BUSY_SET_IN_NAPI(dhdp) \
+	(dhdp)->dhd_bus_busy_state |= DHD_BUS_BUSY_IN_NAPI
 
 #define DHD_BUS_BUSY_CLEAR_IN_TX(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_TX
@@ -231,6 +234,8 @@ enum dhd_bus_devreset_type {
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_LOGDUMP
 #define DHD_BUS_BUSY_CLEAR_IN_HALDUMP(dhdp) \
 	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_HALDUMP
+#define DHD_BUS_BUSY_CLEAR_IN_NAPI(dhdp) \
+	(dhdp)->dhd_bus_busy_state &= ~DHD_BUS_BUSY_IN_NAPI
 
 #define DHD_BUS_BUSY_CHECK_IN_TX(dhdp) \
 	((dhdp)->dhd_bus_busy_state & DHD_BUS_BUSY_IN_TX)
@@ -395,9 +400,9 @@ enum dhd_op_flags {
 /*
  * MAX_NVRAMBUF_SIZE determines the size of the Buffer in the DHD that holds
  * the NVRAM data. That is the size of the buffer pointed by bus->vars
- * This also needs to be increased to 16K to support NVRAM size higher than 8K
+ * This also needs to be increased to 24K to support NVRAM size higher than 16K
  */
-#define MAX_NVRAMBUF_SIZE	(16 * 1024) /* max nvram buf size */
+#define MAX_NVRAMBUF_SIZE	(24 * 1024) /* max nvram buf size */
 #define MAX_CLM_BUF_SIZE	(48 * 1024) /* max clm blob size */
 #define MAX_TXCAP_BUF_SIZE	(16 * 1024) /* max txcap blob size */
 #ifdef DHD_DEBUG
@@ -729,7 +734,7 @@ typedef struct {
 
 #ifdef DHD_LOG_DUMP
 #define DUMP_SSSR_ATTR_START	2
-#define DUMP_SSSR_ATTR_COUNT	8
+#define DUMP_SSSR_ATTR_COUNT	10
 
 typedef enum {
 	SSSR_C0_D11_BEFORE = 0,
@@ -989,6 +994,8 @@ typedef struct dhd_pub {
 
 	/* Additional stats for the bus level */
 	ulong tx_packets;	/* Data packets sent to dongle */
+	ulong actual_tx_pkts;	/* Actual data packets sent to dongle */
+	ulong tot_txcpl;	/* Total Tx completion received */
 	ulong tx_dropped;	/* Data packets dropped in dhd */
 	ulong tx_multicast;	/* Multicast data packets sent to dongle */
 	ulong tx_errors;	/* Errors in sending data to dongle */
@@ -1141,6 +1148,9 @@ typedef struct dhd_pub {
 #if defined(DHD_HANG_SEND_UP_TEST)
 	uint req_hang_type;
 #endif /* DHD_HANG_SEND_UP_TEST */
+#ifdef DHD_DETECT_CONSECUTIVE_MFG_HANG
+	uint hang_count;
+#endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
 #ifdef WLTDLS
 	bool tdls_enable;
 #endif
@@ -1231,14 +1241,22 @@ typedef struct dhd_pub {
 	bool sssr_dump_collected;	/* Flag to indicate sssr dump is collected */
 	sssr_reg_info_cmn_t *sssr_reg_info;
 	uint8 *sssr_mempool;
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	uint *sssr_d11_before[MAX_NUM_D11_CORES_WITH_SCAN];
+	uint *sssr_dig_buf_before;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 	uint *sssr_d11_after[MAX_NUM_D11_CORES_WITH_SCAN];
 	bool sssr_d11_outofreset[MAX_NUM_D11_CORES_WITH_SCAN];
-	uint *sssr_dig_buf_before;
 	uint *sssr_dig_buf_after;
 	uint32 sssr_dump_mode;
 	bool collect_sssr;		/* Flag to indicate SSSR dump is required */
+	bool fis_triggered;
 #endif /* DHD_SSSR_DUMP */
+#ifdef DHD_SDTC_ETB_DUMP
+	etb_addr_info_t etb_addr_info;
+	uint8 *sdtc_etb_mempool;
+	bool sdtc_etb_inited;
+#endif /* DHD_SDTC_ETB_DUMP */
 	uint8 *soc_ram;
 	uint32 soc_ram_length;
 	uint32 memdump_type;
@@ -1370,6 +1388,7 @@ typedef struct dhd_pub {
 #ifdef DHD_PKT_LOGGING
 	struct dhd_pktlog *pktlog;
 	char debug_dump_time_pktlog_str[DEBUG_DUMP_TIME_BUF_LEN];
+	bool pktlog_debug;
 #endif /* DHD_PKT_LOGGING */
 #ifdef EWP_EDL
 	bool dongle_edl_support;
@@ -1436,11 +1455,20 @@ typedef struct dhd_pub {
 	dhd_db7_info_t db7_trap;
 	bool fw_preinit;
 	bool ring_attached;
+#ifdef DHD_PCIE_RUNTIMEPM
+	bool rx_pending_due_to_rpm;
+#endif /* DHD_PCIE_RUNTIMEPM */
 	bool disable_dtim_in_suspend;	/* Disable set bcn_li_dtim in suspend */
 	union {
 		wl_roam_stats_v1_t v1;
 	} roam_evt;
 } dhd_pub_t;
+
+#if defined(__linux__)
+int dhd_wifi_platform_set_power(dhd_pub_t *pub, bool on);
+#else
+static INLINE int dhd_wifi_platform_set_power(dhd_pub_t *pub, bool on)  { return 0; }
+#endif /* __linux__ */
 
 typedef struct {
 	uint rxwake;
@@ -2541,6 +2569,17 @@ extern uint dhd_force_tx_queueing;
 #define MIN_DTIM_FOR_ROAM_THRES_EXTEND	600 /* minimum dtim interval to extend roam threshold */
 #endif
 
+#ifdef CONFIG_ROAM_RSSI_LIMIT
+extern int dhd_roam_rssi_limit_get(dhd_pub_t *dhd, int *lmt2g, int *lmt5g);
+extern int dhd_roam_rssi_limit_set(dhd_pub_t *dhd, int lmt2g, int lmt5g);
+#ifndef CUSTOM_ROAMRSSI_2G
+#define CUSTOM_ROAMRSSI_2G		ROAMRSSI_2G_DEFAULT
+#endif /* CUSTOM_ROAMRSSI_2G */
+#ifndef CUSTOM_ROAMRSSI_5G
+#define CUSTOM_ROAMRSSI_5G		ROAMRSSI_5G_DEFAULT
+#endif /* CUSTOM_ROAMRSSI_5G */
+#endif /* CONFIG_ROAM_RSSI_LIMIT */
+
 #define NO_DTIM_SKIP 1
 #ifdef SDTEST
 /* Echo packet generator (SDIO), pkts/s */
@@ -2665,7 +2704,9 @@ static INLINE int dhd_check_module_mac(dhd_pub_t *dhdp) { return 0; }
 
 #ifdef DHD_USE_CISINFO
 int dhd_read_cis(dhd_pub_t *dhdp);
+int dhd_read_otp_sw_rgn(dhd_pub_t *dhdp);
 void dhd_clear_cis(dhd_pub_t *dhdp);
+int dhd_alloc_cis(dhd_pub_t *dhdp);
 #if defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK)
 extern int dhd_check_module_b85a(void);
 extern int dhd_check_module_b90(void);
@@ -2677,7 +2718,9 @@ extern int dhd_check_module_bcm(char *module_type, int index, bool *is_murata_fe
 #endif /* defined(USE_CID_CHECK) */
 #else
 static INLINE int dhd_read_cis(dhd_pub_t *dhdp) { return 0; }
+static INLINE int dhd_read_otp_sw_rgn(dhd_pub_t *dhdp) { return 0; }
 static INLINE void dhd_clear_cis(dhd_pub_t *dhdp) { }
+static INLINE int dhd_alloc_cis(dhd_pub_t *dhdp) { return 0; }
 #endif /* DHD_USE_CISINFO */
 
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
@@ -2991,11 +3034,26 @@ int dhd_parse_map_file(osl_t *osh, void *file, uint32 *ramstart,
 int dhd_event_logtrace_infobuf_pkt_process(dhd_pub_t *dhdp, void *pktbuf,
 		dhd_event_log_t *event_data);
 #endif /* PCIE_FULL_DONGLE */
-#ifdef CUSTOM_CONTROL_LOGTRACE
-/* By default logstr parsing is disabled */
-extern uint8 control_logtrace;
-#endif /* CUSTOM_CONTROL_LOGTRACE */
 #endif /* SHOW_LOGTRACE */
+
+/*
+ * control_logtrace:
+ * "0" -> do not print event log messages in any form
+ * "1" -> print event log messages as EL
+ * "2" -> print event log messages as formatted CONSOLE_E if logstrs.bin etc. files are available
+ */
+typedef enum logtrace_ctrl {
+	LOGTRACE_DISABLE = 0,
+	LOGTRACE_RAW_FMT = 1,
+	LOGTRACE_PARSED_FMT = 2
+} logtrace_ctrl_t;
+
+#define DEFAULT_CONTROL_LOGTRACE	LOGTRACE_PARSED_FMT
+#ifndef CUSTOM_CONTROL_LOGTRACE
+#define CUSTOM_CONTROL_LOGTRACE		DEFAULT_CONTROL_LOGTRACE
+#endif
+
+extern uint8 control_logtrace;
 
 #define dhd_is_device_removed(x) FALSE
 #define dhd_os_ind_firmware_stall(x)
@@ -3060,7 +3118,11 @@ extern void dhd_lb_stats_rxc_percpu_cnt_incr(dhd_pub_t *dhdp);
 #endif /* !DHD_LB_STATS */
 
 #ifdef DHD_SSSR_DUMP
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 #define DHD_SSSR_MEMPOOL_SIZE	(2 * 1024 * 1024) /* 2MB size */
+#else
+#define DHD_SSSR_MEMPOOL_SIZE	(1 * 1024 * 1024) /* 1MB size */
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 /* used in sssr_dump_mode */
 #define SSSR_DUMP_MODE_SSSR	0	/* dump both *before* and *after* files */
@@ -3323,12 +3385,14 @@ bool dhd_log_dump_ecntr_enabled(void);
 bool dhd_log_dump_rtt_enabled(void);
 void dhd_nla_put_sssr_dump_len(void *ndev, uint32 *arr_len);
 int dhd_get_debug_dump(void *dev, const void *user_buf, uint32 len, int type);
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 int
 dhd_sssr_dump_d11_buf_before(void *dev, const void *user_buf, uint32 len, int core);
 int
-dhd_sssr_dump_d11_buf_after(void *dev, const void *user_buf, uint32 len, int core);
-int
 dhd_sssr_dump_dig_buf_before(void *dev, const void *user_buf, uint32 len);
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+int
+dhd_sssr_dump_d11_buf_after(void *dev, const void *user_buf, uint32 len, int core);
 int
 dhd_sssr_dump_dig_buf_after(void *dev, const void *user_buf, uint32 len);
 #ifdef DHD_PKT_LOGGING
@@ -3388,6 +3452,8 @@ void dhd_ring_whole_unlock(void *ring);
 #define DHD_GDB_PROXY_PROBE_FIRMWARE_NOT_RUNNING	0x00000002
 /** Firmware is running */
 #define DHD_GDB_PROXY_PROBE_FIRMWARE_RUNNING		0x00000004
+/** Firmware was started in bootloader mode */
+#define DHD_GDB_PROXY_PROBE_BOOTLOADER_MODE		0x00000008
 
 /* Data structure, returned by "gdb_proxy_probe" iovar */
 typedef struct dhd_gdb_proxy_probe_data {
@@ -3522,4 +3588,13 @@ void *dhd_get_roam_evt(dhd_pub_t *dhdp);
 extern int dhd_control_he_enab(dhd_pub_t * dhd, uint8 he_enab);
 extern uint8 control_he_enab;
 #endif /* DISABLE_HE_ENAB  || CUSTOM_CONTROL_HE_ENAB */
+
+#ifdef DHD_SDTC_ETB_DUMP
+
+#define DHD_SDTC_ETB_MEMPOOL_SIZE (33 * 1024)
+
+extern void dhd_sdtc_etb_init(dhd_pub_t *dhd);
+extern void dhd_sdtc_etb_deinit(dhd_pub_t *dhd);
+extern void dhd_sdtc_etb_dump(dhd_pub_t *dhd);
+#endif /* DHD_SDTC_ETB_DUMP */
 #endif /* _dhd_h_ */

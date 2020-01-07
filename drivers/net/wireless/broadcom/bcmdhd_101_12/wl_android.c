@@ -5827,9 +5827,11 @@ wl_android_set_auto_channel(struct net_device *dev, const char* cmd_str,
 	/* If AP is started on wlan0 iface,
 	 * do not issue any iovar to fw and choose default ACS channel for softap
 	 */
-	if (wl_get_mode_by_netdev(cfg, dev) == WL_MODE_AP) {
-		WL_INFORM_MEM(("Softap started on primary iface\n"));
-		goto done;
+	if (dev == bcmcfg_to_prmry_ndev(cfg)) {
+		if (wl_get_mode_by_netdev(cfg, dev) == WL_MODE_AP) {
+			WL_INFORM_MEM(("Softap started on primary iface\n"));
+			goto done;
+		}
 	}
 
 	ret = wldev_ioctl_get(dev, WLC_GET_SPECT_MANAGMENT, &spect, sizeof(spect));
@@ -5966,7 +5968,7 @@ wl_android_set_roam_vsie_enab(struct net_device *dev, const char *cmd, u32 cmd_l
 {
 	s32 err = BCME_OK;
 	u32 roam_vsie_enable = 0;
-	u32 cmd_str_len = strlen(CMD_ROAM_VSIE_ENAB_SET);
+	u32 cmd_str_len = (u32)strlen(CMD_ROAM_VSIE_ENAB_SET);
 	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
 
 	/* <CMD><SPACE><VAL> */

@@ -33,7 +33,7 @@
 /* MSCH logging */
 #define EVENT_LOG_SET_MSCH_PROFILER	(4u)
 
-/* XXX: A particular customer uses sets 5, 6, and 7. There is a request
+/* A particular customer uses sets 5, 6, and 7. There is a request
  * to not name these log sets as that could limit their ability to
  * use different log sets in future.
  * Sets 5, 6, and 7 are instantiated by host
@@ -45,7 +45,7 @@
 #define EVENT_LOG_SET_6			(6u)
 #define EVENT_LOG_SET_7			(7u)
 
-/* XXX: Temporary change to satisfy compilation across branches
+/* Temporary change to satisfy compilation across branches
  * Will be removed after checkin
  */
 #define EVENT_LOG_SET_8			(8u)
@@ -108,6 +108,12 @@
 /* AMT logging and other related information */
 #define EVENT_LOG_SET_AMT		(26u)
 
+/* State machine logging. Part of preserve logs */
+#define EVENT_LOG_SET_FSM		(27u)
+
+/* wbus related logging */
+#define EVENT_LOG_SET_WBUS		(28u)
+
 #ifndef NUM_EVENT_LOG_SETS
 /* Set a maximum number of sets here.  It is not dynamic for
  * efficiency of the EVENT_LOG calls. Old branches could define
@@ -116,9 +122,9 @@
  */
 #ifdef NUM_EVENT_LOG_SETS_V2
 /* for v2, everything has became unsigned */
-#define NUM_EVENT_LOG_SETS (27u)
+#define NUM_EVENT_LOG_SETS (29u)
 #else /* NUM_EVENT_LOG_SETS_V2 */
-#define NUM_EVENT_LOG_SETS (27)
+#define NUM_EVENT_LOG_SETS (29)
 #endif /* NUM_EVENT_LOG_SETS_V2 */
 #endif /* NUM_EVENT_LOG_SETS */
 

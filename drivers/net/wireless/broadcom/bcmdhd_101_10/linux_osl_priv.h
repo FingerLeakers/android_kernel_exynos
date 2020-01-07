@@ -125,7 +125,7 @@ typedef struct bcm_mem_link {
 	struct bcm_mem_link *next;
 	uint	size;
 	int	line;
-	void 	*osh;
+	void	*osh;
 	char	file[BCM_MEM_FILENAME_LEN];
 } bcm_mem_link_t;
 

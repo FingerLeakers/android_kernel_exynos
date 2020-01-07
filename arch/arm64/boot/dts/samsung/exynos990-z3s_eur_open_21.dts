@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -26,7 +26,7 @@
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,Z3S EUR OPEN 21", "samsung,EXYNOS9830";
+	compatible = "samsung,Z3S EUR OPEN 21", "samsung,EXYNOS990";
 	dtbo-hw_rev = <21>;
 	dtbo-hw_rev_end = <21>;
 	edtbo-rev = <0>;
@@ -37,7 +37,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung Z3S EUR OPEN 21 based on EXYNOS9830";
+			model = "Samsung Z3S EUR OPEN 21 based on EXYNOS990";
 
 			acpm_ipc {
 				compatible = "samsung,exynos-acpm-ipc";
@@ -111,7 +111,7 @@
 };
 
 &chosen {
-	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs sec_debug.cp=0";
+	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs";
 };
 
 &usi_11 {
@@ -205,7 +205,7 @@
 		reg = <0x20>;
 		status = "okay";
 		pinctrl-names = "default";
-		pinctrl-0 = <&grip_irq>;
+		pinctrl-0 = <&grip_irq &grip_ldo>;
 		interrupt-parent = <&gpa3>;
 		interrupts = <0 0 0>;
 

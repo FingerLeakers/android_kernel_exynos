@@ -1838,6 +1838,9 @@ int is_resource_get(struct is_resourcemgr *resourcemgr, u32 rsc_type)
 #if defined(CONFIG_EXYNOS_BCM_DBG_AUTO) || defined(CONFIG_EXYNOS_BCM_DBG_GNR)
 		exynos_bcm_dbg_start();
 #endif
+#ifdef DISABLE_BTS_CALC
+		bts_calc_disable(1);
+#endif
 #if defined(ENABLE_CLOG_RESERVED_MEM)
 		spin_lock_init(&resourcemgr->slock_cdump);
 		resourcemgr->cdump_ptr = 0;
@@ -2131,6 +2134,9 @@ int is_resource_put(struct is_resourcemgr *resourcemgr, u32 rsc_type)
 
 #if defined(CONFIG_EXYNOS_BCM_DBG_AUTO) || defined(CONFIG_EXYNOS_BCM_DBG_GNR)
 		exynos_bcm_dbg_stop(CAMERA_DRIVER);
+#endif
+#ifdef DISABLE_BTS_CALC
+		bts_calc_disable(0);
 #endif
 #ifdef ENABLE_DYNAMIC_MEM
 		ret = is_resourcemgr_deinit_dynamic_mem(resourcemgr);

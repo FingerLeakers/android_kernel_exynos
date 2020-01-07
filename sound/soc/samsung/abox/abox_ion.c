@@ -30,7 +30,7 @@ int abox_ion_get_mmap_fd(struct device *dev,
 	dev_dbg(dev, "%s\n", __func__);
 
 	if (buf->fd < 0)
-		mmap_fd->fd = dma_buf_fd(buf->dma_buf, O_CLOEXEC);
+		buf->fd = dma_buf_fd(buf->dma_buf, O_CLOEXEC);
 
 	if (buf->fd < 0) {
 		dev_err(dev, "%s dma_buf_fd is failed\n", __func__);
@@ -46,6 +46,9 @@ int abox_ion_get_mmap_fd(struct device *dev,
 	mmap_fd->fd = buf->fd;
 
 	temp_buf = dma_buf_get(buf->fd);
+	if (IS_ERR(temp_buf))
+		dev_err(dev, "dma_buf_get(%d) failed: %ld\n", buf->fd,
+				PTR_ERR(temp_buf));
 
 	return 0;
 }
@@ -145,6 +148,7 @@ struct abox_ion_buf *abox_ion_alloc(struct device *dev,
 	buf->direction = playback ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 	buf->size = PAGE_ALIGN(size);
 	buf->iova = iova;
+	buf->fd = -EINVAL;
 
 	buf->dma_buf = ion_alloc_dmabuf(heapname, buf->size,
 			ION_FLAG_SYNC_FORCE);

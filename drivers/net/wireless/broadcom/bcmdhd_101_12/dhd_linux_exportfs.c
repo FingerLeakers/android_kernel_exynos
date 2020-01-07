@@ -433,7 +433,7 @@ show_firmware_path(struct dhd_info *dev, char *buf)
 static ssize_t
 store_firmware_path(struct dhd_info *dev, const char *buf, size_t count)
 {
-	if ((int)strlen(buf) > MOD_PARAM_PATHLEN) {
+	if ((int)strlen(buf) >= MOD_PARAM_PATHLEN) {
 		return -EINVAL;
 	}
 
@@ -456,7 +456,7 @@ show_nvram_path(struct dhd_info *dev, char *buf)
 static ssize_t
 store_nvram_path(struct dhd_info *dev, const char *buf, size_t count)
 {
-	if ((int)strlen(buf) > MOD_PARAM_PATHLEN) {
+	if ((int)strlen(buf) >= MOD_PARAM_PATHLEN) {
 		return -EINVAL;
 	}
 

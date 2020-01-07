@@ -27,27 +27,27 @@
 
 #define EPI_MINOR_VERSION	10
 
-#define EPI_RC_NUMBER		168
+#define EPI_RC_NUMBER		196
 
 #define EPI_INCREMENTAL_NUMBER	0
 
 #define EPI_BUILD_NUMBER	0
 
-#define EPI_VERSION		101, 10, 168, 0
+#define EPI_VERSION		101, 10, 196, 0
 
-#define EPI_VERSION_NUM		0x650aa800
+#define EPI_VERSION_NUM		0x650ac400
 
-#define EPI_VERSION_DEV		101.10.168
+#define EPI_VERSION_DEV		101.10.196
 
 /* Driver Version String, ASCII, 32 chars max */
 #ifdef BCMINTERNAL
-#define EPI_VERSION_STR		"101.10.168 (wlan=r845936 BCMINT)"
+#define EPI_VERSION_STR		"101.10.196 (wlan=r854950 BCMINT)"
 #elif defined (WLTEST)
-#define EPI_VERSION_STR		"101.10.168 (wlan=r845936 WLTEST)"
-#elif defined (BCMDBG_ASSERT)
-#define EPI_VERSION_STR		"101.10.168 (wlan=r845936 ASSRT)"
+#define EPI_VERSION_STR		"101.10.196 (wlan=r854950 WLTEST)"
+#elif (defined (BCMDBG_ASSERT) && !defined (BCMDBG_ASSERT_DISABLED))
+#define EPI_VERSION_STR		"101.10.196 (wlan=r854950 ASSRT)"
 #else
-#define EPI_VERSION_STR		"101.10.168 (wlan=r845936)"
+#define EPI_VERSION_STR		"101.10.196 (wlan=r854950)"
 #endif /* BCMINTERNAL */
 
 #endif /* _epivers_h_ */

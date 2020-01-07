@@ -64,6 +64,26 @@ void camerapp_hw_votf_set_flush(void __iomem *votf_addr, u32 offset)
 	writel(0x1, votf_addr + offset);
 }
 
+void camerapp_hw_votf_set_crop_start(void __iomem *votf_addr, u32 offset, bool start)
+{
+	writel(start, votf_addr + offset);
+}
+
+u32 camerapp_hw_votf_get_crop_start(void __iomem *votf_addr, u32 offset)
+{
+	return readl(votf_addr + offset);
+}
+
+void camerapp_hw_votf_set_crop_enable(void __iomem *votf_addr, u32 offset, bool enable)
+{
+	writel(enable, votf_addr + offset);
+}
+
+u32 camerapp_hw_votf_get_crop_enable(void __iomem *votf_addr, u32 offset)
+{
+	return readl(votf_addr + offset);
+}
+
 void camerapp_hw_votf_set_recover_enable(void __iomem *votf_addr, u32 offset, u32 cfg)
 {
 	writel(cfg, votf_addr + offset);
@@ -99,14 +119,9 @@ void camerapp_hw_votf_set_first_token_size(void __iomem *votf_addr, u32 offset, 
 	writel(token_size, votf_addr + offset);
 }
 
-void camerapp_hw_votf_set_lines_in_first_token(void __iomem *votf_addr, u32 offset, u32 lines)
+void camerapp_hw_votf_set_frame_size(void __iomem *votf_addr, u32 offset, u32 frame_size)
 {
-	writel(lines, votf_addr + offset);
-}
-
-void camerapp_hw_votf_set_lines_count(void __iomem *votf_addr, u32 offset, u32 cnt)
-{
-	writel(cnt, votf_addr + offset);
+	writel(frame_size, votf_addr + offset);
 }
 
 void camerapp_hw_votf_set_start(void __iomem *votf_addr, u32 offset, u32 start)

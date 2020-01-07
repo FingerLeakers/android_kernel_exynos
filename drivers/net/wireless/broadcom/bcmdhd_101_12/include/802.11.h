@@ -32,7 +32,7 @@
 #include <ethernet.h>
 #endif
 
-/* XXX Include WPA definitions here for compatibility */
+/* Include WPA definitions here for compatibility */
 #include <wpa.h>
 
 /* This marks the start of a packed structure section. */
@@ -382,7 +382,7 @@ typedef struct dot11_extch dot11_extch_ie_t;
 BWL_PRE_PACKED_STRUCT struct dot11_brcm_extch {
 	uint8	id;		/* IE ID, 221, DOT11_MNG_PROPR_ID */
 	uint8	len;		/* IE length */
-	uint8	oui[3];		/* xxx Proprietary OUI, BRCM_PROP_OUI */
+	uint8	oui[3];		/* Proprietary OUI, BRCM_PROP_OUI */
 	uint8	type;           /* type indicates what follows */
 	uint8	extch;
 } BWL_POST_PACKED_STRUCT;
@@ -485,7 +485,7 @@ BWL_PRE_PACKED_STRUCT struct dot11_channel_switch_wrapper {
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_channel_switch_wrapper dot11_chan_switch_wrapper_ie_t;
 
-/* XXX Proposed wide bandwidth channel IE */
+/* Proposed wide bandwidth channel IE */
 typedef enum wide_bw_chan_width {
 	WIDE_BW_CHAN_WIDTH_20	= 0,
 	WIDE_BW_CHAN_WIDTH_40	= 1,
@@ -1270,7 +1270,7 @@ typedef struct ccx_qfl_ie ccx_qfl_ie_t;
 /* 12 is unused by STA but could be used by AP/GO */
 #define DOT11_RC_DISASSOC_BTM		12	/* Disassociated due to BSS Transition Magmt */
 
-/* XXX 13-23 are WPA/802.11i reason codes defined in wpa.h */
+/* 13-23 are WPA/802.11i reason codes defined in wpa.h */
 
 /* 32-39 are QSTA specific reasons added in 11e */
 #define DOT11_RC_UNSPECIFIED_QOS	32	/* unspecified QoS-related reason */
@@ -1543,10 +1543,10 @@ typedef struct ccx_qfl_ie ccx_qfl_ie_t;
 #define	DOT11_MNG_OPER_MODE_NOTIF_ID		199	/* d11 mgmt VHT oper mode notif */
 #define DOT11_MNG_RNR_ID			201
 /* FIXME: Use these temp. IDs until ANA assigns IDs */
-#define DOT11_MNG_FTM_PARAMS_ID			206	/* XXX mcd3.2/2014 this is not final yet */
+#define DOT11_MNG_FTM_PARAMS_ID			206	/* mcd3.2/2014 this is not final yet */
 #define DOT11_MNG_TWT_ID			216	/* 11ah D5.0 */
 #define DOT11_MNG_WPA_ID			221	/* d11 management WPA id */
-#define DOT11_MNG_PROPR_ID			221	/* xxx d11 management proprietary id */
+#define DOT11_MNG_PROPR_ID			221	/* d11 management proprietary id */
 /* should start using this one instead of above two */
 #define DOT11_MNG_VS_ID				221	/* d11 management Vendor Specific IE */
 #define DOT11_MNG_MESH_CSP_ID			222	/* d11 Mesh Channel Switch Parameter */
@@ -1757,17 +1757,17 @@ typedef struct ccx_qfl_ie ccx_qfl_ie_t;
  */
 #define DOT11_EXT_CAP_MAX_IDX			82u
 
-/* XXX Remove this hack (DOT11_EXT_CAP_MAX_BIT_IDX) when no one
+/* Remove this hack (DOT11_EXT_CAP_MAX_BIT_IDX) when no one
  * references DOT11_EXTCAP_LEN_MAX
  */
 #define DOT11_EXT_CAP_MAX_BIT_IDX		95u	/* !!!update this please!!! */
 
-/* XXX Remove DOT11_EXTCAP_LEN_MAX when no one references it */
+/* Remove DOT11_EXTCAP_LEN_MAX when no one references it */
 /* extended capability */
 #ifndef DOT11_EXTCAP_LEN_MAX
 #define DOT11_EXTCAP_LEN_MAX ((DOT11_EXT_CAP_MAX_BIT_IDX + 8) >> 3)
 #endif
-/* XXX Remove dot11_extcap when no one references it */
+/* Remove dot11_extcap when no one references it */
 BWL_PRE_PACKED_STRUCT struct dot11_extcap {
 	uint8 extcap[DOT11_EXTCAP_LEN_MAX];
 } BWL_POST_PACKED_STRUCT;
@@ -2935,7 +2935,7 @@ typedef struct dot11_rm_ie dot11_rm_ie_t;
 #define DOT11_RMREP_MODE_REFUSED	4
 
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_bcn {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3046,7 +3046,7 @@ typedef struct dot11_rmrep_last_bcn_rpt_ind dot11_rmrep_last_bcn_rpt_ind_t;
 
 /* Channel load request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_chanload {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3072,7 +3072,7 @@ typedef struct dot11_rmrep_chanload dot11_rmrep_chanload_t;
 
 /** Noise histogram request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_noise {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3110,7 +3110,7 @@ typedef struct dot11_rmrep_noise dot11_rmrep_noise_t;
 
 /** Frame request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_frame {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3151,7 +3151,7 @@ typedef struct dot11_rmrep_frmentry dot11_rmrep_frmentry_t;
 
 /** STA statistics request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_stat {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3325,7 +3325,7 @@ typedef struct rrm_stat_group_16 {
 
 /* Transmit stream/category measurement request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_tx_stream {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3562,7 +3562,7 @@ typedef struct dot11_rmrep_ftm_range dot11_rmrep_ftm_range_t;
 #define DOT11_FTM_RANGE_REP_FIXED_LEN   1       /* No extra byte for error_count */
 /** Measurement pause request */
 BWL_PRE_PACKED_STRUCT struct dot11_rmreq_pause_time {
-	uint8 id;		/* XXX use dot11_rm_ie_t ? */
+	uint8 id;		/* use dot11_rm_ie_t ? */
 	uint8 len;
 	uint8 token;
 	uint8 mode;
@@ -3578,7 +3578,7 @@ typedef struct dot11_rmreq_pause_time dot11_rmreq_pause_time_t;
 #define DOT11_NGBR_BSSTRANS_PREF_SE_ID	3
 #define DOT11_NGBR_BSS_TERM_DUR_SE_ID	4
 #define DOT11_NGBR_BEARING_SE_ID	5
-#define DOT11_NGBR_WIDE_BW_CHAN_SE_ID	6 /* XXX proposed */
+#define DOT11_NGBR_WIDE_BW_CHAN_SE_ID	6 /* proposed */
 
 /** Neighbor Report, BSS Transition Candidate Preference subelement */
 BWL_PRE_PACKED_STRUCT struct dot11_ngbr_bsstrans_pref_se {
@@ -3824,13 +3824,13 @@ typedef struct d11cnt {
 	uint32		rxundec;	/* dot11WEPUndecryptableCount */
 } d11cnt_t;
 
-/* xxx OUI for BRCM proprietary IE */
-#define BRCM_PROP_OUI		"\x00\x90\x4C"	/* xxx Broadcom proprietary OUI */
+/* OUI for BRCM proprietary IE */
+#define BRCM_PROP_OUI		"\x00\x90\x4C"	/* Broadcom proprietary OUI */
 
-/* xxx Broadcom Proprietary OUI type list. Please update below twiki page when adding a new type.
- * xxx Twiki http://hwnbu-twiki.sj.broadcom.com/bin/view/Mwgroup/WlBrcmPropIE
+/* Broadcom Proprietary OUI type list. Please update below page when adding a new type.
+ * Twiki http://hwnbu-twiki.sj.broadcom.com/bin/view/Mwgroup/WlBrcmPropIE
  */
-/* xxx The following BRCM_PROP_OUI types are currently in use (defined in
+/* The following BRCM_PROP_OUI types are currently in use (defined in
  * relevant subsections). Each of them will be in a separate proprietary(221) IE
  * #define RWL_WIFI_DEFAULT		0
  * #define SES_VNDR_IE_TYPE		1   (defined in src/ses/shared/ses.h)
@@ -3888,7 +3888,7 @@ enum {
 BWL_PRE_PACKED_STRUCT struct brcm_prop_ie_s {
 	uint8 id;		/* IE ID, 221, DOT11_MNG_PROPR_ID */
 	uint8 len;		/* IE length */
-	uint8 oui[3];		/* xxx Proprietary OUI, BRCM_PROP_OUI */
+	uint8 oui[3];		/* Proprietary OUI, BRCM_PROP_OUI */
 	uint8 type;		/* type of this IE */
 	uint16 cap;		/* DPT capabilities */
 } BWL_POST_PACKED_STRUCT;
@@ -3904,14 +3904,14 @@ typedef struct brcm_prop_ie_s brcm_prop_ie_t;
 /* brcm syscap_ie cap */
 #define BRCM_SYSCAP_WET_TUNNEL	0x0100	/* Device with WET_TUNNEL support */
 
-/* xxx BRCM OUI: Used in the proprietary(221) IE in all broadcom devices */
+/* BRCM OUI: Used in the proprietary(221) IE in all broadcom devices */
 #define BRCM_OUI		"\x00\x10\x18"	/* Broadcom OUI */
 
 /** BRCM info element */
 BWL_PRE_PACKED_STRUCT struct brcm_ie {
 	uint8	id;		/* IE ID, 221, DOT11_MNG_PROPR_ID */
 	uint8	len;		/* IE length */
-	uint8	oui[3];		/* xxx Proprietary OUI, BRCM_OUI */
+	uint8	oui[3];		/* Proprietary OUI, BRCM_OUI */
 	uint8	ver;		/* type/ver of this IE */
 	uint8	assoc;		/* # of assoc STAs */
 	uint8	flags;		/* misc flags */
@@ -3934,7 +3934,7 @@ typedef	struct brcm_ie brcm_ie_t;
 #define BRF_MEDIA_CLIENT	0x20	/* re-use afterburner bit to indicate media client device */
 
 /**
- * xxx Support for Broadcom proprietary HT MCS rates. Re-uses afterburner bits since
+ * Support for Broadcom proprietary HT MCS rates. Re-uses afterburner bits since
  * afterburner is not used anymore. Checks for BRF_ABCAP to stay compliant with 'old'
  * images in the field.
  */
@@ -3983,7 +3983,7 @@ typedef struct member_of_brcm_prop_ie member_of_brcm_prop_ie_t;
 
 #define MEMBER_OF_BRCM_PROP_IE_LEN		10	/* IE max length */
 #define MEMBER_OF_BRCM_PROP_IE_HDRLEN	        (sizeof(member_of_brcm_prop_ie_t))
-#define MEMBER_OF_BRCM_PROP_IE_TYPE		54      /* XXX: used in prop IE 221 only */
+#define MEMBER_OF_BRCM_PROP_IE_TYPE		54      /* used in prop IE 221 only */
 
 /** BRCM Reliable Multicast IE */
 BWL_PRE_PACKED_STRUCT struct relmcast_brcm_prop_ie {
@@ -4001,7 +4001,7 @@ typedef struct relmcast_brcm_prop_ie relmcast_brcm_prop_ie_t;
 /* BRCM_PROP_IE_LEN = sizeof(relmcast_brcm_prop_ie_t)-((sizeof (id) + sizeof (len)))? */
 #define RELMCAST_BRCM_PROP_IE_LEN	(sizeof(relmcast_brcm_prop_ie_t)-(2*sizeof(uint8)))
 
-#define RELMCAST_BRCM_PROP_IE_TYPE	55	/* XXX: used in prop IE 221 only */
+#define RELMCAST_BRCM_PROP_IE_TYPE	55	/* used in prop IE 221 only */
 
 /* BRCM BTC IE */
 BWL_PRE_PACKED_STRUCT struct btc_brcm_prop_ie {
@@ -4043,7 +4043,7 @@ typedef struct dot11_ht_cap_ie dot11_ht_cap_ie_t;
 BWL_PRE_PACKED_STRUCT struct ht_prop_cap_ie {
 	uint8	id;		/* IE ID, 221, DOT11_MNG_PROPR_ID */
 	uint8	len;		/* IE length */
-	uint8	oui[3];		/* xxx Proprietary OUI, BRCM_PROP_OUI */
+	uint8	oui[3];		/* Proprietary OUI, BRCM_PROP_OUI */
 	uint8	type;           /* type indicates what follows */
 	ht_cap_ie_t cap_ie;
 } BWL_POST_PACKED_STRUCT;
@@ -4051,7 +4051,7 @@ typedef struct ht_prop_cap_ie ht_prop_cap_ie_t;
 
 #define HT_PROP_IE_OVERHEAD	4	/* overhead bytes for prop oui ie */
 #define HT_CAP_IE_LEN		26	/* HT capability len (based on .11n d2.0) */
-#define HT_CAP_IE_TYPE		51      /* XXX: used in prop IE 221 only */
+#define HT_CAP_IE_TYPE		51      /* used in prop IE 221 only */
 
 #define HT_CAP_LDPC_CODING	0x0001	/* Support for rx of LDPC coded pkts */
 #define HT_CAP_40MHZ		0x0002  /* FALSE:20Mhz, TRUE:20/40MHZ supported */
@@ -4176,14 +4176,14 @@ typedef struct ht_add_ie ht_add_ie_t;
 BWL_PRE_PACKED_STRUCT struct ht_prop_add_ie {
 	uint8	id;		/* IE ID, 221, DOT11_MNG_PROPR_ID */
 	uint8	len;		/* IE length */
-	uint8	oui[3];		/* xxx Proprietary OUI, BRCM_PROP_OUI */
+	uint8	oui[3];		/* Proprietary OUI, BRCM_PROP_OUI */
 	uint8	type;		/* indicates what follows */
 	ht_add_ie_t add_ie;
 } BWL_POST_PACKED_STRUCT;
 typedef struct ht_prop_add_ie ht_prop_add_ie_t;
 
-#define HT_ADD_IE_LEN	22	/* XXX: HT capability len (based on .11n d1.0) */
-#define HT_ADD_IE_TYPE	52	/* XXX: faked out as current spec is illegal */
+#define HT_ADD_IE_LEN	22	/* HT capability len (based on .11n d1.0) */
+#define HT_ADD_IE_TYPE	52	/* faked out as current spec is illegal */
 
 /* byte1 defn's */
 #define HT_BW_ANY		0x04	/* set, STA can use 20 or 40MHz */
@@ -4384,7 +4384,7 @@ typedef struct vht_cap_ie vht_cap_ie_t;
 #define VHT_PROP_MCS_FULL_RATEMAP	VHT_PROP_MCS_10_11_RATEMAP
 
 #if !defined(VHT_CAP_MCS_MAP_0_9_NSS3)
-/* XXX: remove after moving define to wlc_rate.h */
+/* remove after moving define to wlc_rate.h */
 /* mcsmap with MCS0-9 for Nss = 3 */
 #define VHT_CAP_MCS_MAP_0_9_NSS3 \
 	        ((VHT_CAP_MCS_MAP_0_9 << VHT_MCS_MAP_GET_SS_IDX(1)) | \
@@ -4409,7 +4409,7 @@ typedef struct vht_cap_ie vht_cap_ie_t;
 	 (mcs_code == VHT_CAP_MCS_MAP_0_8) ? VHT_CAP_MCS_0_8_RATEMAP : \
 	 (mcs_code == VHT_CAP_MCS_MAP_0_9) ? VHT_CAP_MCS_0_9_RATEMAP : 0)
 
-/* xxx Map the proprietary mcs code to proprietary mcs bitmap */
+/* Map the proprietary mcs code to proprietary mcs bitmap */
 #define VHT_PROP_MCS_CODE_TO_PROP_MCS_MAP(mcs_code) \
 	((mcs_code == VHT_PROP_MCS_MAP_10_11) ? VHT_PROP_MCS_10_11_RATEMAP : 0)
 
@@ -4419,7 +4419,7 @@ typedef struct vht_cap_ie vht_cap_ie_t;
 	 (mcs_map == VHT_CAP_MCS_0_8_RATEMAP) ? VHT_CAP_MCS_MAP_0_8 : \
 	 (mcs_map == VHT_CAP_MCS_0_9_RATEMAP) ? VHT_CAP_MCS_MAP_0_9 : VHT_CAP_MCS_MAP_NONE)
 
-/* xxx Map the proprietary mcs map to proprietary mcs code */
+/* Map the proprietary mcs map to proprietary mcs code */
 #define VHT_PROP_MCS_MAP_TO_PROP_MCS_CODE(mcs_map) \
 	(((mcs_map & 0xc00) == 0xc00)  ? VHT_PROP_MCS_MAP_10_11 : VHT_PROP_MCS_MAP_NONE)
 
@@ -4486,7 +4486,7 @@ typedef enum vht_op_chan_width {
  */
 #define VHT_FEATURES_IE_TYPE	0x4
 BWL_PRE_PACKED_STRUCT struct vht_features_ie_hdr {
-	uint8 oui[3];		/* xxx Proprietary OUI, BRCM_PROP_OUI */
+	uint8 oui[3];		/* Proprietary OUI, BRCM_PROP_OUI */
 	uint8 type;		/* type of this IE = 4 */
 	uint8 rate_mask;	/* VHT rate mask */
 } BWL_POST_PACKED_STRUCT;
@@ -4550,7 +4550,7 @@ typedef struct vht_features_ie_hdr vht_features_ie_hdr_t;
 #define WFA_OUI_LEN		3		/* WFA OUI length */
 #define WFA_OUI_TYPE_P2P	9
 
-/* XXX: WFA definitions for LEGACY P2P */
+/* WFA definitions for LEGACY P2P */
 
 #define P2P_OUI         WFA_OUI
 #define P2P_OUI_LEN     WFA_OUI_LEN
@@ -4566,6 +4566,7 @@ typedef struct vht_features_ie_hdr vht_features_ie_hdr_t;
 #define WFA_OUI_TYPE_NAN	0x13
 #define WFA_OUI_TYPE_MBO	0x16
 #define WFA_OUI_TYPE_MBO_OCE	0x16
+#define WFA_OUI_TYPE_OWE	0x1C
 
 /* RSN authenticated key managment suite */
 #define RSN_AKM_NONE			0	/* None (IBSS) */
@@ -5450,14 +5451,18 @@ typedef enum {
 /* QoS map */
 #define QOS_MAP_FIXED_LENGTH	(8 * 2)	/* DSCP ranges fixed with 8 entries */
 
-/* xxx BCM proprietary IE type for AIBSS */
+/* BCM proprietary IE type for AIBSS */
 #define BCM_AIBSS_IE_TYPE 56
 
-/* xxx BCM proprietary flag type for WL_DISCO_VSIE */
+/* BCM proprietary flag type for WL_DISCO_VSIE */
 #define SSE_OUI                                  "\x00\x00\xF0"
 #define VENDOR_ENTERPRISE_STA_OUI_TYPE           0x22
 #define MAX_VSIE_DISASSOC                        (1)
 #define DISCO_VSIE_LEN                           0x09u
+
+/* OWE definitions */
+/* ID + len + OUI + OI type + BSSID + SSID_len */
+#define OWE_TRANS_MODE_IE_FIXED_LEN  13u
 
 /* This marks the end of a packed structure section. */
 #include <packed_section_end.h>

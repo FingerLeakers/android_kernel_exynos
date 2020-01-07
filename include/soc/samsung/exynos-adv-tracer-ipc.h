@@ -75,7 +75,7 @@ enum ipc_frmk_cmd {
 };
 
 enum ipc_frmk_cmd_id {
-	ARR_IPC_CMD_ID_KERNEL_ARRAYDUMP = 0x1,
+	ARR_IPC_CMD_ID_KERNEL_ARRAYDUMP = 0xf,
 };
 
 #define EAT_MAX_CHANNEL				(8)

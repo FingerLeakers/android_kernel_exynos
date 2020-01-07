@@ -39,6 +39,7 @@ typedef struct {
 
 extern void si_lhl_timer_config(si_t *sih, osl_t *osh, int timer_type);
 extern void si_lhl_timer_enable(si_t *sih);
+extern void si_lhl_timer_reset(si_t *sih, uint coreunit);
 
 extern void si_lhl_setup(si_t *sih, osl_t *osh);
 extern void si_lhl_enable(si_t *sih, osl_t *osh, bool enable);

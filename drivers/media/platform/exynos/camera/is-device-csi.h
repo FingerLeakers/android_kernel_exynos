@@ -15,6 +15,8 @@
 #define CSI_LINE_RATIO		14	/* 70% */
 #define CSI_ERR_COUNT		10  	/* 10frame */
 
+#define CSI_WAIT_ABORT_TIMEOUT	(HZ / 4)
+
 #define CSI_VALID_ENTRY_TO_CH(id) ((id) >= ENTRY_SSVC0 && (id) <= ENTRY_SSVC3)
 #define CSI_ENTRY_TO_CH(id) ({BUG_ON(!CSI_VALID_ENTRY_TO_CH(id));id - ENTRY_SSVC0;}) /* range : vc0(0) ~ vc3(3) */
 #define CSI_CH_TO_ENTRY(id) (id + ENTRY_SSVC0) /* range : ENTRY_SSVC0 ~ ENTRY_SSVC3 */
@@ -49,6 +51,7 @@ enum is_csi_state {
 	CSIS_DUMMY,
 	/* WDMA flag */
 	CSIS_DMA_ENABLE,
+	CSIS_DMA_FLUSH_WAIT,
 	CSIS_START_STREAM,
 	/* runtime buffer done state for error */
 	CSIS_BUF_ERR_VC0,
@@ -90,6 +93,9 @@ struct is_device_csi {
 	int				vc_irq[SCM_MAX][CSI_VIRTUAL_CH_MAX];
 	unsigned long			vc_irq_state;
 
+	/* debug */
+	struct hw_debug_info		debug_info[DEBUG_FRAME_COUNT];
+
 	/* csi common dma */
 	struct is_device_csi_dma	*csi_dma;
 
@@ -106,6 +112,7 @@ struct is_device_csi {
 	u32				overflow_cnt;
 	u32				sw_checker;
 	atomic_t			fcount;
+	u32				hw_fcount;
 	struct tasklet_struct		tasklet_csis_str;
 	struct tasklet_struct		tasklet_csis_end;
 	struct tasklet_struct		tasklet_csis_line;
@@ -138,6 +145,8 @@ struct is_device_csi {
 	atomic_t			bufring_cnt; /* For double buffering in FRO mode */
 	u32				batch_num;
 	spinlock_t			dma_seq_slock;
+
+	wait_queue_head_t		dma_flush_wait_q;
 };
 
 struct is_device_csi_dma {

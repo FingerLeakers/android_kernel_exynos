@@ -78,9 +78,6 @@ void max77705_usbc_opcode_write(struct max77705_usbc_platform_data *usbc_data,
 
 static bool debug_en_vps;
 static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data, int irq);
-#if defined(CONFIG_CCIC_MAX77705)
-static int fw_update_dcd = 1;
-#endif
 
 struct max77705_muic_vps_data {
 	int				adc;
@@ -952,6 +949,8 @@ static ssize_t max77705_muic_set_afc_disable(struct device *dev,
 
 		if (!pdata->afc_disable) {
 			if (muic_data->attached_dev == ATTACHED_DEV_AFC_CHARGER_DISABLED_MUIC) {
+				muic_data->attached_dev = ATTACHED_DEV_AFC_CHARGER_PREPARE_MUIC;
+				muic_notifier_attach_attached_dev(ATTACHED_DEV_AFC_CHARGER_PREPARE_MUIC);
 				cancel_delayed_work_sync(&(muic_data->afc_work));
 				schedule_delayed_work(&(muic_data->afc_work), msecs_to_jiffies(500));
 			}
@@ -1383,10 +1382,9 @@ handle_attach:
 		ret = max77705_muic_attach_usb_path(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_TIMEOUT_OPEN_MUIC:
+		pr_info("%s DCD_TIMEOUT system_state = 0x%x\n", __func__, system_state);
 #if defined(CONFIG_CCIC_MAX77705)
-		if (fw_update_state == FW_UPDATE_END && fw_update_dcd) {
-			fw_update_dcd = 0;
-			pr_info("%s:%s DCD_TIMEOUT is recognized after F/W update\n", MUIC_DEV_NAME, __func__);
+		if (fw_update_state == FW_UPDATE_END && system_state < SYSTEM_RUNNING) {
 			/* TA Reset, D+ gnd */
 			max77705_muic_dp_reset(muic_data);
 

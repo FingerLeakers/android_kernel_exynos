@@ -270,7 +270,6 @@ extern void dhd_set_rpm_state(dhd_pub_t *dhd, bool state);
 #ifdef BCMPCIE
 extern void dhd_bus_dump_console_buffer(struct dhd_bus *bus);
 extern void dhd_bus_intr_count_dump(dhd_pub_t *dhdp);
-extern void dhd_bus_set_dpc_sched_time(dhd_pub_t *dhdp);
 extern bool dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp);
 extern int dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type);
 extern bool dhd_bus_check_driver_up(void);
@@ -280,7 +279,6 @@ extern int dhd_bus_get_linkdown(dhd_pub_t *dhdp);
 #else
 #define dhd_bus_dump_console_buffer(x)
 static INLINE void dhd_bus_intr_count_dump(dhd_pub_t *dhdp) { UNUSED_PARAMETER(dhdp); }
-static INLINE void dhd_bus_set_dpc_sched_time(dhd_pub_t *dhdp) { }
 static INLINE bool dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp) { return 0; }
 static INLINE int dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type) { return 0; }
 static INLINE bool dhd_bus_check_driver_up(void) { return FALSE; }

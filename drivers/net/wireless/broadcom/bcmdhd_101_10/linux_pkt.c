@@ -135,6 +135,7 @@ BCMFASTPATH(osl_alloc_skb)(osl_t *osh, unsigned int len)
 	struct sk_buff *skb;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)
 	gfp_t flags = (in_atomic() || irqs_disabled()) ? GFP_ATOMIC : GFP_KERNEL;
+
 #ifdef DHD_USE_ATOMIC_PKTGET
 	flags = GFP_ATOMIC;
 #endif /* DHD_USE_ATOMIC_PKTGET */
@@ -571,7 +572,7 @@ osl_pkt_orphan_partial(struct sk_buff *skb)
 		return;
 
 	if (unlikely(!p_tcp_wfree)) {
-		/* XXX: this is a hack to get tcp_wfree pointer since it's not
+		/* this is a hack to get tcp_wfree pointer since it's not
 		 * exported. There are two possible call back function pointer
 		 * stored in skb->destructor: tcp_wfree and sock_wfree.
 		 * This expansion logic should only apply to TCP traffic which

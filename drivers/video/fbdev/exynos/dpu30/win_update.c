@@ -420,12 +420,55 @@ static int dpu_check_mres_condition(struct decon_device *decon,
 	return 0;
 }
 
+static int dpu_update_display_mode(struct decon_device *decon,
+		int display_mode_index)
+{
+	struct dsim_device *dsim = get_dsim_drvdata(0);
+	struct exynos_display_mode_info *mode_info;
+
+	if (display_mode_index >=
+			decon->lcd_info->display_mode_count)
+		return -EINVAL;
+
+	if (IS_ERR_OR_NULL(dsim)) {
+		DPU_ERR_MRES("%s: dsim device ptr is invalid\n", __func__);
+		return -EINVAL;
+	}
+
+	dsim->panel->lcd_info.cur_mode_idx = display_mode_index;
+
+	mode_info = dsim->panel->lcd_info.display_mode;
+	dsim->panel->lcd_info.xres =
+		mode_info[display_mode_index].mode.width;
+	dsim->panel->lcd_info.yres =
+		mode_info[display_mode_index].mode.height;
+
+	/*
+	dsim->panel->lcd_info.fps =
+		mode_info[display_mode_index].mode.fps;
+	*/
+
+	dsim->panel->lcd_info.dsc.en =
+		mode_info[display_mode_index].dsc_en;
+	dsim->panel->lcd_info.dsc.slice_h =
+		mode_info[display_mode_index].dsc_height;
+	dsim->panel->lcd_info.dsc.enc_sw =
+		mode_info[display_mode_index].dsc_enc_sw;
+	dsim->panel->lcd_info.dsc.dec_sw =
+		mode_info[display_mode_index].dsc_dec_sw;
+
+	DPU_DEBUG_MRES("changed display_mode[%d] resol(%dx%d@%d) dsc enc/dec sw(%d %d)\n",
+			display_mode_index, dsim->panel->lcd_info.xres,
+			dsim->panel->lcd_info.yres, dsim->panel->lcd_info.fps,
+			dsim->panel->lcd_info.dsc.enc_sw, dsim->panel->lcd_info.dsc.dec_sw);
+
+	return 0;
+}
+
 void dpu_update_mres_lcd_info(struct decon_device *decon,
 		struct decon_reg_data *regs)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(0);
-	struct exynos_display_mode_info *mode_info;
-	u32 idx;
 
 	if (dpu_check_mres_condition(decon, regs->mode_update))
 		return;
@@ -438,17 +481,7 @@ void dpu_update_mres_lcd_info(struct decon_device *decon,
 	/* backup current LCD resolution information to previous one */
 	dsim->panel->lcd_info.old_xres = dsim->panel->lcd_info.xres;
 	dsim->panel->lcd_info.old_yres = dsim->panel->lcd_info.yres;
-	dsim->panel->lcd_info.xres = regs->lcd_width;
-	dsim->panel->lcd_info.yres = regs->lcd_height;
-	dsim->panel->lcd_info.cur_mode_idx = regs->mode_idx;
-
-	mode_info = dsim->panel->lcd_info.display_mode;
-	idx = regs->mode_idx;
-
-	dsim->panel->lcd_info.dsc.en = mode_info[idx].dsc_en;
-	dsim->panel->lcd_info.dsc.slice_h = mode_info[idx].dsc_height;
-	dsim->panel->lcd_info.dsc.enc_sw = mode_info[idx].dsc_enc_sw;
-	dsim->panel->lcd_info.dsc.dec_sw = mode_info[idx].dsc_dec_sw;
+	dpu_update_display_mode(decon, regs->mode_idx);
 
 	DPU_DEBUG_MRES("changed LCD resolution(%d %d), dsc enc/dec sw(%d %d)\n",
 			decon->lcd_info->xres, decon->lcd_info->yres,
@@ -489,6 +522,7 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 		vrr_info.fps = mode_info[idx].mode.fps;
 		vrr_info.mode = dsim->panel->lcd_info.target_vrr_mode;
 		dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, &vrr_info);
+		dpu_set_vrr_config(decon, &vrr_info);
 		DPU_INFO_MRES("set vrr(fps:%d mode:%d) before mres(%dx%d)\n",
 				vrr_info.fps, vrr_info.mode, regs->lcd_width, regs->lcd_height);
 	}
@@ -506,7 +540,7 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 				regs->lcd_height, mode_info[idx].mode.fps) >= 0) {
 			vrr_info.fps = mode_info[idx].mode.fps;
 			vrr_info.mode = dsim->panel->lcd_info.target_vrr_mode;
-			dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, &vrr_info);
+			dpu_set_vrr_config(decon, &vrr_info);
 			DPU_INFO_MRES("set vrr(fps:%d mode:%d) after mres(%dx%d)\n",
 				vrr_info.fps, vrr_info.mode, regs->lcd_width, regs->lcd_height);
 		}
@@ -524,6 +558,7 @@ void dpu_set_mres_config(struct decon_device *decon, struct decon_reg_data *regs
 void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_info)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(0);
+	int display_mode_index;
 
 	if (decon->dt.out_type != DECON_OUT_DSI) {
 		DPU_DEBUG_MRES("vrr only support DSI path\n");
@@ -534,6 +569,17 @@ void dpu_set_vrr_config(struct decon_device *decon, struct vrr_config_data *vrr_
 		DPU_ERR_MRES("%s: dsim device ptr is invalid\n", __func__);
 		return;
 	}
+
+	display_mode_index =
+		dpu_find_display_mode(decon, dsim->panel->lcd_info.xres,
+				dsim->panel->lcd_info.yres, vrr_info->fps);
+	if (display_mode_index < 0) {
+		DPU_ERR_MRES("%s: not supported fps:%d in %dx%d\n",
+				__func__, vrr_info->fps, dsim->panel->lcd_info.xres,
+				dsim->panel->lcd_info.yres);
+		return;
+	}
+	dpu_update_display_mode(decon, display_mode_index);
 
 	/* transfer refresh change commands to panel */
 	dsim_call_panel_ops(dsim, EXYNOS_PANEL_IOC_SET_VRRFRESH, vrr_info);

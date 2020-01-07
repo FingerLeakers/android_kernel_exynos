@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef	_bcmutils_h_
@@ -797,7 +797,7 @@ DECLARE_MAP_API(8, 2, 3, 3U, 0x00FF) /* setbit8() and getbit8() */
 				(ea).octet[3], \
 				(ea).octet[4], \
 				(ea).octet[5]
-/* XXX use only for debug, the string length can be changed
+/* use only for debug, the string length can be changed
  * If you want to use this macro to the logic,
  * USE MACF instead
  */
@@ -1061,7 +1061,6 @@ bcm_count_leading_zeros(uint32 u32arg)
  * Macro to count leading zeroes
  *
  */
-/* XXX Merge this and above! */
 #if defined(__GNUC__)
 #define CLZ(x) __builtin_clzl(x)
 #elif defined(__arm__)
@@ -1337,7 +1336,7 @@ typedef struct _counter_tbl_t {
 	bool enabled;				/* Whether to enable printing log */
 } counter_tbl_t;
 
-/*	XXX: How to use
+/*	How to use
 	Eg.: In dhd_linux.c
 	cnt[0]: How many times dhd_start_xmit() was called in every 1sec.
 	cnt[1]: How many bytes were requested to be sent in every 1sec.

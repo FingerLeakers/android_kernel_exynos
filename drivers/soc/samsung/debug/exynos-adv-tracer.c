@@ -19,6 +19,7 @@
 #include <linux/debug-snapshot.h>
 #include <linux/device.h>
 #include <linux/delay.h>
+#include <asm/atomic.h>
 
 #include <soc/samsung/exynos-adv-tracer.h>
 #include <soc/samsung/exynos-adv-tracer-ipc.h>
@@ -27,6 +28,11 @@
 
 static struct adv_tracer_info *exynos_adv_tracer;
 static int arraydump_done = DONE_ARRYDUMP;
+
+int adv_tracer_get_arraydump_state(void)
+{
+	return atomic_read(&exynos_adv_tracer->in_arraydump);
+}
 
 void adv_tracer_wait_ipi(int cpu)
 {
@@ -59,7 +65,9 @@ int adv_tracer_arraydump(void)
 	}
 	cmd.buffer[2] = cpu_mask;
 	cmd.buffer[3] = raw_smp_processor_id();
+	atomic_set(&exynos_adv_tracer->in_arraydump, 1);
 	ret = adv_tracer_ipc_send_data_polling_timeout(EAT_FRM_CHANNEL, &cmd, EAT_IPC_TIMEOUT * 100);
+	atomic_set(&exynos_adv_tracer->in_arraydump, 0);
 	if (ret < 0)
 		goto end;
 
@@ -82,6 +90,7 @@ static int adv_tracer_probe(struct platform_device *pdev)
 		return PTR_ERR(adv_tracer);
 
 	adv_tracer->dev = &pdev->dev;
+	atomic_set(&adv_tracer->in_arraydump, 0);
 
 	if (adv_tracer_ipc_init(pdev))
 		goto out;

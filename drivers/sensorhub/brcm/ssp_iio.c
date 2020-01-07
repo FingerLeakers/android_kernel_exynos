@@ -64,6 +64,8 @@ static struct sensor_info info_table[] = {
 	SENSOR_INFO_UNCAL_LIGHT,
 	SENSOR_INFO_POCKET_MODE,
 	SENSOR_INFO_LED_COVER_EVENT,
+	SENSOR_INFO_TAP_TRACKER,
+	SENSOR_INFO_SHAKE_TRACKER,
 };
 
 #define IIO_ST(si, rb, sb, sh)	\
@@ -490,6 +492,21 @@ void report_led_cover_event_data(struct ssp_data *data, int sensor_type,
 	pr_err("[SSP]: %s: %d ts: %llu", __func__,  led_cover_event_data->led_cover_event, led_cover_event_data->timestamp);
 }
 
+void report_tap_tracker_data(struct ssp_data *data, int sensor_type,
+		struct sensor_value *tap_tracker_data)
+{
+	report_iio_data(data, TAP_TRACKER_SENSOR, tap_tracker_data);
+	wake_lock_timeout(&data->ssp_wake_lock, 0.3*HZ);
+	pr_err("[SSP]: %s: %d ts: %llu", __func__,  tap_tracker_data->tap_tracker_event, tap_tracker_data->timestamp);
+}
+
+void report_shake_tracker_data(struct ssp_data *data, int sensor_type,
+		struct sensor_value *shake_tracker_data)
+{
+	report_iio_data(data, SHAKE_TRACKER_SENSOR, shake_tracker_data);
+	wake_lock_timeout(&data->ssp_wake_lock, 0.3*HZ);
+	pr_err("[SSP]: %s: %d ts: %llu", __func__,  shake_tracker_data->shake_tracker_event, shake_tracker_data->timestamp);
+}
 #define THM_UP		0
 #define THM_SUB		1
 short thermistor_rawToTemperature(struct ssp_data *data, int type, s16 raw)
@@ -626,6 +643,7 @@ int initialize_input_dev(struct ssp_data *data)
 		if (index < SENSOR_MAX) {
 			int bit_size = (info_table[i].report_data_len + 8) * BITS_PER_BYTE;
 			int repeat_size = bit_size / 256 + 1;
+			int data_size = bit_size / repeat_size + (bit_size - (bit_size / repeat_size) * repeat_size);
 
 			sensors_info[index] = info_table[i];
 
@@ -633,8 +651,8 @@ int initialize_input_dev(struct ssp_data *data)
 			indio_channels[index].channel = IIO_CHANNEL;
 			indio_channels[index].scan_index = IIO_SCAN_INDEX;
 			indio_channels[index].scan_type.sign = 's';
-			indio_channels[index].scan_type.realbits = bit_size / repeat_size;
-			indio_channels[index].scan_type.storagebits = bit_size / repeat_size;
+			indio_channels[index].scan_type.realbits = data_size;
+			indio_channels[index].scan_type.storagebits = data_size;
 			indio_channels[index].scan_type.shift = 0;
 			indio_channels[index].scan_type.repeat = repeat_size;
 		}

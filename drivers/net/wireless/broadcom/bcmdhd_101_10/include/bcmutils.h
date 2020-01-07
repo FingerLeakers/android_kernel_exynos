@@ -138,6 +138,26 @@ struct bcmstrbuf {
 		countdown--; \
 	} \
 }
+#elif defined(PHY_REG_TRACE_FRAMEWORK)
+extern void phy_utils_log_spinwait(int us, int countdown);
+extern bool phy_utils_reg_trace_spinwait_logging;
+extern bool phy_utils_reg_trace_skip_log;
+extern uint64 phy_utils_reg_trace_start_time;
+#define SPINWAIT(exp, us) { \
+	uint countdown = (us) + (SPINWAIT_POLL_PERIOD - 1U); \
+	if (!phy_utils_reg_trace_skip_log) { \
+		phy_utils_reg_trace_spinwait_logging = TRUE; \
+		phy_utils_reg_trace_start_time = 0; \
+	} \
+	while (((exp) != 0) && (uint)(countdown >= SPINWAIT_POLL_PERIOD)) { \
+		OSL_DELAY(SPINWAIT_POLL_PERIOD); \
+		countdown -= SPINWAIT_POLL_PERIOD; \
+	} \
+	if (!phy_utils_reg_trace_skip_log) { \
+		phy_utils_reg_trace_spinwait_logging = FALSE; \
+		phy_utils_log_spinwait(us, countdown); \
+	} \
+}
 #else
 #define SPINWAIT(exp, us) { \
 	uint countdown = (us) + (SPINWAIT_POLL_PERIOD - 1U); \
@@ -777,7 +797,7 @@ DECLARE_MAP_API(8, 2, 3, 3U, 0x00FF) /* setbit8() and getbit8() */
 				(ea).octet[3], \
 				(ea).octet[4], \
 				(ea).octet[5]
-/* XXX use only for debug, the string length can be changed
+/* use only for debug, the string length can be changed
  * If you want to use this macro to the logic,
  * USE MACF instead
  */
@@ -879,6 +899,13 @@ extern void prhex(const char *msg, const uchar *buf, uint len);
 /* bcmerror */
 extern const char *bcmerrorstr(int bcmerror);
 
+#if defined(WLMSG_ASSOC)
+/* get 802.11 frame name based on frame kind - see frame types FC_.. in 802.11.h */
+const char *bcm_80211_fk_name(uint fk);
+#else
+#define bcm_80211_fk_names(_x) ""
+#endif
+
 extern int wl_set_up_table(uint8 *up_table, bcm_tlv_t *qos_map_ie);
 
 /* multi-bool data type: set of bools, mbool is true if any is set */
@@ -936,7 +963,7 @@ bool replace_nvram_variable(char *varbuf, unsigned int buflen, const char *varia
 #define BCM_OBJECT_FEATURE_2     (1 << 2)
 /* object feature: clear flag bits field set with this flag */
 #define BCM_OBJECT_FEATURE_CLEAR (1 << 31)
-#ifdef BCM_OBJECT_TRACE
+#if defined(BCM_OBJECT_TRACE) && !defined(BINCMP)
 #define bcm_pkt_validate_chk(obj, func)	do { \
 	void * pkttag; \
 	bcm_object_trace_chk(obj, 0, 0, \
@@ -963,7 +990,7 @@ extern void bcm_object_trace_deinit(void);
 #define bcm_object_feature_get(a, b, c)
 #define bcm_object_trace_init()
 #define bcm_object_trace_deinit()
-#endif /* BCM_OBJECT_TRACE */
+#endif /* BCM_OBJECT_TRACE && !BINCMP */
 
 /* Public domain bit twiddling hacks/utilities: Sean Eron Anderson */
 
@@ -1034,7 +1061,6 @@ bcm_count_leading_zeros(uint32 u32arg)
  * Macro to count leading zeroes
  *
  */
-/* XXX Merge this and above! */
 #if defined(__GNUC__)
 #define CLZ(x) __builtin_clzl(x)
 #elif defined(__arm__)
@@ -1310,7 +1336,7 @@ typedef struct _counter_tbl_t {
 	bool enabled;				/* Whether to enable printing log */
 } counter_tbl_t;
 
-/*	XXX: How to use
+/*	How to use
 	Eg.: In dhd_linux.c
 	cnt[0]: How many times dhd_start_xmit() was called in every 1sec.
 	cnt[1]: How many bytes were requested to be sent in every 1sec.

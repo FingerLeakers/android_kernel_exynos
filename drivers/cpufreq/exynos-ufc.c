@@ -19,6 +19,7 @@
 #include <linux/cpufreq.h>
 #include <linux/pm_opp.h>
 #include <linux/ems.h>
+#include <linux/exynos-ucc.h>
 
 #include <soc/samsung/exynos-cpuhp.h>
 
@@ -34,6 +35,21 @@ char *stune_group_name2[] = {
 struct exynos_ufc ufc;
 struct cpufreq_policy *little_policy;
 static struct emstune_mode_request emstune_req_ufc;
+
+enum {
+	UFC_COL_VFREQ,
+	UFC_COL_BIG,
+	UFC_COL_MED,
+	UFC_COL_LIT,
+	UFC_COL_EMSTUNE,
+};
+
+static struct ucc_req ucc_req =
+{
+	.name = "ufc",
+};
+static int ucc_requested;
+static int ucc_requested_val;
 
 #define DEFAULT_LEVEL 0
 
@@ -205,14 +221,36 @@ static int ufc_get_proper_table_index(unsigned int freq,
 	return target_idx;
 }
 
-static void ufc_clear_min_qos(void)
+static void ufc_clear_min_qos(int ctrl_type)
 {
 	struct ufc_domain *ufc_dom;
+	struct pm_qos_request *pm_qos_handle = NULL;
+	bool emstune_mode_change = false;
 
-	list_for_each_entry(ufc_dom, &ufc.ufc_domain_list, list)
-		pm_qos_update_request(&ufc_dom->user_min_qos_req, 0);
+	list_for_each_entry(ufc_dom, &ufc.ufc_domain_list, list) {
+		pm_qos_handle = NULL;
 
-	emstune_update_request(&emstune_req_ufc, DEFAULT_LEVEL);
+		switch(ctrl_type) {
+		case PM_QOS_MIN_LIMIT:
+			pm_qos_handle = &ufc_dom->user_min_qos_req;
+			emstune_mode_change = true;
+			break;
+		case PM_QOS_MIN_WO_BOOST_LIMIT:
+			pm_qos_handle = &ufc_dom->user_min_qos_wo_boost_req;
+			break;
+		}
+
+		if (pm_qos_handle == NULL)
+			continue;
+
+		pm_qos_update_request(pm_qos_handle, 0);
+	}
+
+	if (emstune_mode_change) {
+		emstune_update_request(&emstune_req_ufc, DEFAULT_LEVEL);
+		ucc_requested_val = 0;
+		ucc_update_request(&ucc_req, ucc_requested_val);
+	}
 }
 
 static void ufc_clear_max_qos(void)
@@ -230,7 +268,7 @@ static void ufc_clear_pm_qos(int ctrl_type)
 	switch (ctrl_type) {
 	case PM_QOS_MIN_LIMIT:
 	case PM_QOS_MIN_WO_BOOST_LIMIT:
-		ufc_clear_min_qos();
+		ufc_clear_min_qos(ctrl_type);
 		break;
 
 	case PM_QOS_MAX_LIMIT:
@@ -270,13 +308,150 @@ static unsigned int ufc_adjust_freq(unsigned int freq, struct ufc_domain *dom, i
 /*********************************************************************
  *                          SYSFS FUNCTION                           *
  *********************************************************************/
+#define ufc_attr_ro(_name)						\
+static struct ufc_attr _name =						\
+__ATTR(_name, 0444, show_##_name, NULL)
+
+#define ufc_attr_rw(_name)						\
+static struct ufc_attr _name =						\
+__ATTR(_name, 0644, show_##_name, store_##_name)
+
+#define to_attr(a) container_of(a, struct ufc_attr, attr)
+#define to_ufc_table_info(a) container_of(a, struct ufc_table_info, kobj)
+
+struct ufc_attr {
+	struct attribute attr;
+	ssize_t (*show)(struct kobject *, struct attribute *, char *);
+	ssize_t (*store)(struct kobject *, const char *, size_t count);
+};
+
+static ssize_t show_ufc_all_tables(struct kobject *kobj, struct attribute *attr,
+					char *buf)
+{
+	struct ufc_table_info *table_info = to_ufc_table_info(kobj);
+	int count = 0;
+	int c_idx, r_idx;
+	char *ctrl_str, *mode_str;
+
+	ctrl_str = get_ctrl_type_string(table_info->ctrl_type);
+	mode_str = get_mode_string(table_info->mode);
+
+	count += snprintf(buf + count, PAGE_SIZE - count, "Table Ctrl Type: %s(%d), Mode: %s(%d)\n",
+			ctrl_str, table_info->ctrl_type, mode_str, table_info->mode);
+
+	for (r_idx = 0; r_idx < (ufc.table_row + ufc.lit_table_row); r_idx++) {
+		for (c_idx = 0; c_idx < ufc.table_col; c_idx++) {
+			count += snprintf(buf + count, PAGE_SIZE - count, "%9d",
+					table_info->ufc_table[c_idx][r_idx]);
+		}
+		count += snprintf(buf + count, PAGE_SIZE - count,"\n");
+	}
+
+	return count;
+}
+
+static ssize_t store_ufc_table_change(struct kobject *kobj, const char *buf,
+					size_t count)
+{
+	int ret;
+	unsigned int edit_row, edit_col;
+	unsigned int edit_freq;
+
+	struct ufc_table_info *table_info = to_ufc_table_info(kobj);
+
+	ret= sscanf(buf, "%d %d %d\n",
+			&edit_row, &edit_col, &edit_freq);
+
+	if (ret != 3) {
+		pr_err("We need 3 inputs. Enter row, col, frequency");
+		return -EINVAL;
+	}
+
+	if (edit_row < 0 || edit_row > ufc.table_row) {
+		pr_err("input row is between 0 and %d\n", ufc.table_row);
+		return -EINVAL;
+	}
+
+	if (edit_col < 0 || edit_col > ufc.table_col) {
+		pr_err("input row is between 0 and %d\n", ufc.table_row);
+		return -EINVAL;
+	}
+
+	table_info->ufc_table[edit_col][edit_row] = edit_freq;
+
+	return ret;
+}
+
+static ssize_t show_ufc_table_change(struct kobject *kobj, struct attribute *attr,
+					char *buf)
+{
+	struct ufc_table_info *table_info = to_ufc_table_info(kobj);
+	int count = 0;
+	int c_idx, r_idx;
+	char *ctrl_str, *mode_str;
+
+	ctrl_str = get_ctrl_type_string(table_info->ctrl_type);
+	mode_str = get_mode_string(table_info->mode);
+
+	count += snprintf(buf + count, PAGE_SIZE - count, "Table Ctrl Type: %s(%d), Mode: %s(%d)\n",
+			ctrl_str, table_info->ctrl_type, mode_str, table_info->mode);
+
+	for (r_idx = 0; r_idx < (ufc.table_row + ufc.lit_table_row); r_idx++) {
+		for (c_idx = 0; c_idx < ufc.table_col; c_idx++) {
+			count += snprintf(buf + count, PAGE_SIZE - count, "%9d",
+					table_info->ufc_table[c_idx][r_idx]);
+		}
+		count += snprintf(buf + count, PAGE_SIZE - count,"\n");
+	}
+
+	return count;
+}
+
+static ssize_t show(struct kobject *kobj, struct attribute *attr, char *buf)
+{
+	struct ufc_attr *hattr = to_attr(attr);
+	ssize_t ret;
+
+	ret = hattr->show(kobj, attr, buf);
+
+	return ret;
+}
+
+static ssize_t store(struct kobject *kobj, struct attribute *attr,
+		     const char *buf, size_t count)
+{
+	struct ufc_attr *hattr = to_attr(attr);
+	ssize_t ret;
+
+	ret = hattr->store(kobj, buf, count);
+
+	return ret;
+}
+
+ufc_attr_ro(ufc_all_tables);
+ufc_attr_rw(ufc_table_change);
+
+static struct attribute *ufc_debug_attrs[] = {
+	&ufc_all_tables.attr,
+	&ufc_table_change.attr,
+	NULL
+};
+
+static const struct sysfs_ops ufc_sysfs_ops = {
+	.show	= show,
+	.store	= store,
+};
+
+static struct kobj_type ktype_ufc = {
+	.sysfs_ops	= &ufc_sysfs_ops,
+	.default_attrs	= ufc_debug_attrs,
+};
 
 static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 {
 	struct ufc_domain *ufc_dom;
 	struct ufc_table_info *table_info, *target_table_info = NULL;
 	int target_idx = 0;
-	unsigned int emstune_mode_idx = 0;
 	bool emstune_mode_change = false;
 
 	if (input_freq <= 0) {
@@ -302,7 +477,6 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 		unsigned int col_idx = ufc_dom->table_idx;
 		struct pm_qos_request *target_pm_qos = NULL;
 
-		emstune_mode_idx = col_idx + 1;
 		target_freq = target_table_info->ufc_table[col_idx][target_idx];
 		if (ufc_need_adjust_freq(target_freq, ufc_dom))
 			target_freq = ufc_adjust_freq(target_freq, ufc_dom, ctrl_type);
@@ -323,15 +497,19 @@ static void ufc_update_limit(int input_freq, int ctrl_type, int mode)
 			break;
 
 		case PM_QOS_MIN_WO_BOOST_LIMIT:
-			target_pm_qos = &ufc_dom->user_min_qos_req;
+			target_pm_qos = &ufc_dom->user_min_qos_wo_boost_req;
 			break;
 		}
 
 		if (target_pm_qos)
 			pm_qos_update_request(target_pm_qos, target_freq);
+	}
 
-		if (emstune_mode_change)
-			emstune_update_request(&emstune_req_ufc, target_table_info->ufc_table[emstune_mode_idx][target_idx]);
+	if (emstune_mode_change) {
+		int level = target_table_info->ufc_table[UFC_COL_EMSTUNE][target_idx];
+		emstune_update_request(&emstune_req_ufc, level);
+		ucc_requested_val = level;
+		ucc_update_request(&ucc_req, ucc_requested_val);
 	}
 }
 
@@ -350,34 +528,6 @@ static ssize_t ufc_show_cpufreq_table(struct kobject *kobj,
 	return count - 1;
 }
 
-static ssize_t ufc_show_cpufreq_table_debug(struct kobject *kobj,
-				struct kobj_attribute *attr, char *buf)
-{
-	struct ufc_table_info *table_info;
-	int count = 0;
-	int c_idx, r_idx;
-	char *ctrl_str, *mode_str;
-
-	list_for_each_entry(table_info, &ufc.ufc_table_list, list) {
-		ctrl_str = get_ctrl_type_string(table_info->ctrl_type);
-		mode_str = get_mode_string(table_info->mode);
-
-		count += snprintf(buf + count, PAGE_SIZE - count, "Table Ctrl Type: %s(%d), Mode: %s(%d)\n",
-				ctrl_str, table_info->ctrl_type, mode_str, table_info->mode);
-
-		for (r_idx = 0; r_idx < (ufc.table_row + ufc.lit_table_row); r_idx++) {
-			for (c_idx = 0; c_idx < ufc.table_col; c_idx++) {
-				count += snprintf(buf + count, PAGE_SIZE - count, "%9d",
-						table_info->ufc_table[c_idx][r_idx]);
-			}
-			count += snprintf(buf + count, PAGE_SIZE - count,"\n");
-		}
-		count += snprintf(buf + count, PAGE_SIZE - count,"\n");
-	}
-
-	return count;
-}
-
 static ssize_t ufc_show_cpufreq_max_limit(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
@@ -388,6 +538,12 @@ static ssize_t ufc_show_cpufreq_min_limit(struct kobject *kobj,
 				struct kobj_attribute *attr, char *buf)
 {
 	return snprintf(buf, 10, "%d\n", ufc.last_min_input);
+}
+
+static ssize_t ufc_show_cpufreq_min_limit_wo_boost(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 30, "UFC: min_limit_wo_boost: %d\n", ufc.last_min_wo_boost_input);
 }
 
 static ssize_t ufc_show_execution_mode_change(struct kobject *kobj,
@@ -468,70 +624,102 @@ static ssize_t ufc_store_execution_mode_change(struct kobject *kobj, struct kobj
 	return count;
 }
 
-static ssize_t ufc_store_table_change(struct kobject *kobj, struct kobj_attribute *attr,
+static ssize_t show_cstate_control(struct kobject *kobj,
+				struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 10, "%d\n", ucc_requested);
+}
+
+static ssize_t store_cstate_control(struct kobject *kobj, struct kobj_attribute *attr,
 					const char *buf, size_t count)
 {
-	int ret;
+	int input;
 
-	unsigned int ctrl_type, mode;
-	unsigned int edit_row, edit_col;
-	unsigned int edit_freq;
-
-	struct ufc_table_info *table_info;
-
-	ret= sscanf(buf, "%d %d %d %d %d\n",
-			&ctrl_type, &mode, &edit_row, &edit_col, &edit_freq);
-	if (ret != 5) {
-		pr_err("We need 5 inputs. Enter ctrl_type, mode, row, col, frequency");
+	if (!sscanf(buf, "%8d", &input))
 		return -EINVAL;
-	}
 
-	if (0 > edit_row || edit_row >= (ufc.table_row + ufc.lit_table_row)) {
-		pr_err("Row to edit is out of the table boundary (%d <= row < %d)",
-				0, (ufc.table_row + ufc.lit_table_row));
+	if (input < 0)
 		return -EINVAL;
-	}
-	if (0 > edit_col || edit_col >= ufc.table_col) {
-		pr_err("Collum to edit is out of the table boundary (%d <= col < %d)",
-				0, ufc.table_col);
-		return -EINVAL;
-	}
 
-	list_for_each_entry(table_info, &ufc.ufc_table_list, list) {
-		if ((table_info->ctrl_type == ctrl_type) && (table_info->mode ==mode)) {
-			table_info->ufc_table[edit_col][edit_row] = edit_freq;
+	input = !!input;
+	if (input == ucc_requested)
+		goto out;
 
-			return count;
-		}
-	}
+	ucc_requested = input;
 
-	pr_err("Failed to find right table. Check your ctrl_type & mode which you enter");
-	return -EINVAL;
+	if (ucc_requested)
+		ucc_add_request(&ucc_req, ucc_requested_val);
+	else
+		ucc_remove_request(&ucc_req);
+
+out:
+	return count;
 }
 
 static struct kobj_attribute cpufreq_table =
 	__ATTR(cpufreq_table, 0444, ufc_show_cpufreq_table, NULL);
-static struct kobj_attribute cpufreq_table_debug =
-	__ATTR(cpufreq_table_debug, 0444, ufc_show_cpufreq_table_debug, NULL);
 static struct kobj_attribute cpufreq_min_limit =
 	__ATTR(cpufreq_min_limit, 0644,
 		ufc_show_cpufreq_min_limit, ufc_store_cpufreq_min_limit);
 static struct kobj_attribute cpufreq_min_limit_wo_boost =
 	__ATTR(cpufreq_min_limit_wo_boost, 0644,
-		ufc_show_cpufreq_min_limit, ufc_store_cpufreq_min_limit_wo_boost);
+		ufc_show_cpufreq_min_limit_wo_boost, ufc_store_cpufreq_min_limit_wo_boost);
 static struct kobj_attribute cpufreq_max_limit =
 	__ATTR(cpufreq_max_limit, 0644,
 		ufc_show_cpufreq_max_limit, ufc_store_cpufreq_max_limit);
 static struct kobj_attribute execution_mode_change =
 	__ATTR(execution_mode_change, 0644,
 		ufc_show_execution_mode_change, ufc_store_execution_mode_change);
-static struct kobj_attribute ufc_table_change =
-	__ATTR(ufc_table_change, 0644,
-		ufc_show_cpufreq_table_debug, ufc_store_table_change);
+static struct kobj_attribute cstate_control =
+	__ATTR(cstate_control, 0644, show_cstate_control, store_cstate_control);
 
 /*********************************************************************
  *                          INIT FUNCTION                          *
  *********************************************************************/
+
+static int __init init_sysfs_debug(void)
+{
+	int postfix_mode, ret;
+	char postfix_ctrltype[20];
+	struct ufc_table_info *table_info;
+
+	list_for_each_entry(table_info, &ufc.ufc_table_list, list) {
+		switch (table_info->mode) {
+			case AARCH64_MODE:
+				postfix_mode = 64;
+				break;
+			case AARCH32_MODE:
+				postfix_mode = 32;
+				break;
+			case MODE_END:
+				return -ENODEV;
+		}
+
+		switch (table_info->ctrl_type) {
+			case PM_QOS_MIN_LIMIT:
+				strcpy(postfix_ctrltype, "min");
+				break;
+			case PM_QOS_MAX_LIMIT:
+				strcpy(postfix_ctrltype, "max");
+				break;
+			case PM_QOS_MIN_WO_BOOST_LIMIT:
+				strcpy(postfix_ctrltype, "min_wo_limit");
+				break;
+			case TYPE_END:
+				return -ENODEV;
+		}
+
+		ret = kobject_init_and_add(&table_info->kobj, &ktype_ufc,
+				power_kobj, "ufc_debug_%s_%d",
+				postfix_ctrltype, postfix_mode);
+		if (ret) {
+			pr_err("UFC: failed to init ufc.kobj\n");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
 
 static void ufc_free_all(void)
 {
@@ -591,10 +779,6 @@ static __init int ufc_init_sysfs(void)
 	if (ret)
 		return ret;
 
-	ret = sysfs_create_file(power_kobj, &cpufreq_table_debug.attr);
-	if (ret)
-		return ret;
-
 	ret = sysfs_create_file(power_kobj, &cpufreq_min_limit.attr);
 	if (ret)
 		return ret;
@@ -611,7 +795,11 @@ static __init int ufc_init_sysfs(void)
 	if (ret)
 		return ret;
 
-	ret = sysfs_create_file(power_kobj, &ufc_table_change.attr);
+	ret = sysfs_create_file(power_kobj, &cstate_control.attr);
+	if (ret)
+		return ret;
+
+	ret = init_sysfs_debug();
 	if (ret)
 		return ret;
 
@@ -647,10 +835,10 @@ static int ufc_parse_init_table(struct device_node *dn,
 			if (pos->frequency > policy->max)
 				continue;
 
-			if (col_idx == 0)
+			if (col_idx == UFC_COL_VFREQ)
 				ufc_info->ufc_table[col_idx][row_idx++]
 						= pos->frequency / SCALE_SIZE;
-			else if (col_idx == (ufc.table_col-1))
+			else if (col_idx == UFC_COL_LIT)
 				ufc_info->ufc_table[col_idx][row_idx++]
 						= pos->frequency;
 			else

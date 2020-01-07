@@ -22,7 +22,7 @@
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 #include "usb.h"
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 #include <linux/usb_notify.h>
 #endif
 
@@ -146,7 +146,7 @@ int usb_choose_configuration(struct usb_device *udev)
 		dev_info(&udev->dev, "rejected %d configuration%s "
 			"due to insufficient available bus power\n",
 			insufficient_power, plural(insufficient_power));
-#if defined(CONFIG_USB_NOTIFY_LAYER)
+#if defined(CONFIG_USB_HOST_CERTI)
 		send_usb_certi_uevent(USB_CERTI_HUB_POWER_EXCEED);
 #endif
 	}

@@ -31,6 +31,7 @@ struct esgov_policy {
 	struct rw_semaphore	rwsem;
 	bool			enabled;	/* whether esg is current cpufreq governor or not */
 
+	unsigned int		last_caller;
 	unsigned int		target_freq;	/* target frequency at the current status */
 	int			util;		/* target util  */
 	u64			last_freq_update_time;
@@ -298,6 +299,8 @@ static void esgov_iowait_boost(struct esgov_cpu *esg_cpu, u64 time,
 static unsigned long esgov_iowait_apply(struct esgov_cpu *esg_cpu,
 					u64 time, unsigned long max)
 {
+	unsigned long boost;
+
 	/* No boost currently required */
 	if (!esg_cpu->iowait_boost)
 		return 0;
@@ -319,7 +322,9 @@ static unsigned long esgov_iowait_apply(struct esgov_cpu *esg_cpu,
 
 	esg_cpu->iowait_boost_pending = false;
 
-	return (esg_cpu->iowait_boost * max) >> SCHED_CAPACITY_SHIFT;
+	boost = (esg_cpu->iowait_boost * max) >> SCHED_CAPACITY_SHIFT;
+	boost = boost + (boost >> 2);
+	return boost;
 }
 
 
@@ -497,6 +502,7 @@ static int esgov_kthread_create(struct esgov_policy *esg_policy)
 	struct task_struct *thread;
 	struct sched_param param = { .sched_priority = MAX_USER_RT_PRIO / 2 };
 	struct cpufreq_policy *policy = esg_policy->policy;
+	struct device_node *dn;
 	int ret;
 
 	kthread_init_work(&esg_policy->work, esgov_work);
@@ -513,6 +519,18 @@ static int esgov_kthread_create(struct esgov_policy *esg_policy)
 		kthread_stop(thread);
 		pr_warn("%s: failed to set SCHED_CLASS\n", __func__);
 		return ret;
+	}
+
+	dn = of_find_node_by_path("/esg");
+	if (dn) {
+		struct cpumask mask;
+		const char *buf;
+
+		cpumask_copy(&mask, cpu_possible_mask);
+		if (!of_property_read_string(dn, "thread-run-on", &buf))
+			cpulist_parse(buf, &mask);
+
+		kthread_bind_mask(thread, &mask);
 	}
 
 	esg_policy->thread = thread;
@@ -565,6 +583,7 @@ complete_esg_init:
 	esg_policy->min_cap = find_allowed_capacity(policy->cpu, policy->min, 0);
 	esg_policy->max_cap = find_allowed_capacity(policy->cpu, policy->max, 0);
 	esg_policy->enabled = true;;
+	esg_policy->last_caller = UINT_MAX;
 	up_write(&esg_policy->rwsem);
 
 	return 0;
@@ -633,7 +652,7 @@ static unsigned int esgov_calc_cpu_target_util(struct esgov_cpu *esg_cpu,
 	} else {
 		struct rq *rq = cpu_rq(esg_cpu->cpu);
 		expected_nr = rq->nr_running + nr_diff;
-		expected_nr = min(expected_nr, 0);
+		expected_nr = max(expected_nr, 0);
 		step_util = expected_nr ? org_step_util : 0;
 	}
 
@@ -770,6 +789,7 @@ esgov_update(struct update_util_data *hook, u64 time, unsigned int flags)
 		goto out;
 
 	if (!esg_policy->work_in_progress) {
+		esg_policy->last_caller = smp_processor_id();
 		esg_policy->work_in_progress = true;
 		esg_policy->util = target_util;
 		esg_policy->target_freq = target_freq;
@@ -790,7 +810,6 @@ static int esgov_start(struct cpufreq_policy *policy)
 	/* TODO: We SHOULD implement FREQVAR-RATE-DELAY Base on SchedTune */
 	esg_policy->last_freq_update_time = 0;
 	esg_policy->target_freq = 0;
-	esg_policy->work_in_progress = false;
 	for_each_cpu(cpu, policy->cpus) {
 		struct esgov_cpu *esg_cpu = &per_cpu(esgov_cpu, cpu);
 		esg_cpu->esg_policy = esg_policy;
@@ -853,9 +872,12 @@ int get_gov_next_cap(int dst_cpu, struct task_struct *p)
 		return -ENODEV;
 
 	/* get task util and convert to uss */
-	task_util = ml_task_util(p);
+	task_util = ml_task_util_est(p);
 	if (p->sse)
-		task_util *= capacity_ratio(prev_cpu, USS) >> SCHED_CAPACITY_SHIFT;
+		task_util = (task_util * capacity_ratio(prev_cpu, USS)) >> SCHED_CAPACITY_SHIFT;
+
+	if (esg_policy->min_cap >= esg_policy->max_cap)
+		return esg_policy->max_cap;
 
 	/* get max util of the cluster of this cpu */
 	for_each_cpu(cpu, esg_policy->policy->cpus) {

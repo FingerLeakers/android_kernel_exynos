@@ -124,3 +124,13 @@ config USB_AUDIO_ENHANCED_DETECT_TIME
 	 uevent includes path, card number, vid, pid
 	 The usb framework gets this uevent.
 	 It is made by samsung.
+
+config USB_HOST_CERTI
+	bool "USB Embedded host certification"
+	depends on USB_NOTIFY_LAYER
+	depends on !SEC_FACTORY
+	help
+	 Added uevent for usb embedded host certification
+	 uevent includes information of notification
+	 The usb framework gets this uevent.
+	 It is made by samsung.

@@ -51,7 +51,7 @@ int npu_core_on(struct npu_system *system)
 				npu_err("fail(%d) in npu_soc_core_on\n", ret);
 		}
 	}
-	npu_info("%s\n", __func__);
+	npu_dbg("%s\n", __func__);
 	return ret;
 }
 
@@ -75,7 +75,7 @@ int npu_core_off(struct npu_system *system)
 			npu_err("fail(%d) in pm_runtime_put_sync\n", ret);
 		BUG_ON(ret < 0);
 	}
-	npu_info("%s\n", __func__);
+	npu_dbg("%s\n", __func__);
 	return ret;
 }
 
@@ -93,7 +93,7 @@ int npu_core_clock_on(struct npu_system *system)
 		if (ret)
 			npu_err("fail(%d) in npu_clk_prepare_enable\n", ret);
 	}
-	npu_info("%s\n", __func__);
+	npu_dbg("%s\n", __func__);
 	return ret;
 }
 
@@ -109,7 +109,7 @@ int npu_core_clock_off(struct npu_system *system)
 		core = g_npu_core_list[i];
 		npu_clk_disable_unprepare(&core->clks);
 	}
-	npu_info("%s\n", __func__);
+	npu_dbg("%s\n", __func__);
 	return ret;
 }
 
@@ -188,10 +188,10 @@ static int npu_core_runtime_suspend(struct device *dev)
 
 	core = dev_get_drvdata(dev);
 
-	npu_info("%s clk\n", __func__);
+	npu_dbg("%s clk\n", __func__);
 	npu_clk_disable_unprepare(&core->clks);
 
-	npu_info("%s:%d\n", __func__, ret);
+	npu_dbg("%s:%d\n", __func__, ret);
 	return ret;
 }
 
@@ -205,12 +205,12 @@ static int npu_core_runtime_resume(struct device *dev)
 
 	core = dev_get_drvdata(dev);
 
-	npu_info("%s clk\n", __func__);
+	npu_dbg("%s clk\n", __func__);
 	ret = npu_clk_prepare_enable(&core->clks);
 	if (ret)
 		npu_err("fail(%d) in npu_clk_prepare_enable\n", ret);
 
-	npu_info("%s:%d\n", __func__, ret);
+	npu_dbg("%s:%d\n", __func__, ret);
 	return ret;
 }
 #endif

@@ -88,7 +88,7 @@ struct si_pub {
 	int16	socirev;		/**< SOC interconnect rev */
 
 	uint16	bustype;		/**< SI_BUS, PCI_BUS */
-	uint16	buscoretype;		/**< PCI_CORE_ID, PCIE_CORE_ID, PCMCIA_CORE_ID */
+	uint16	buscoretype;		/**< PCI_CORE_ID, PCIE_CORE_ID */
 	int16	buscorerev;		/**< buscore rev */
 	uint16	buscoreidx;		/**< buscore index */
 
@@ -259,8 +259,8 @@ typedef void (*wci2_handler_t)(void *ctx, char *buf, int len);
 #define VARBUF_PRIO_OTP			3u
 #define VARBUF_PRIO_SH_SFLASH		4u
 
-#define BT_IN_RESET_BIT_SHIFT		11u
-#define BT_IN_PDS_BIT_SHIFT		9u
+#define BT_IN_RESET_BIT_SHIFT		19u
+#define BT_IN_PDS_BIT_SHIFT		10u
 
 /* === exported functions === */
 extern si_t *si_attach(uint pcidev, osl_t *osh, volatile void *regs, uint bustype,
@@ -282,6 +282,7 @@ extern uint si_corerev_minor(const si_t *sih);
 extern void *si_osh(si_t *sih);
 extern void si_setosh(si_t *sih, osl_t *osh);
 extern int si_backplane_access(si_t *sih, uint addr, uint size, uint *val, bool read);
+
 extern uint si_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val);
 extern uint si_corereg_writeonly(si_t *sih, uint coreidx, uint regoff, uint mask, uint val);
 extern uint si_pmu_corereg(si_t *sih, uint32 idx, uint regoff, uint mask, uint val);
@@ -333,7 +334,6 @@ extern void si_clkctl_init(si_t *sih);
 extern uint16 si_clkctl_fast_pwrup_delay(si_t *sih);
 extern bool si_clkctl_cc(si_t *sih, uint mode);
 extern int si_clkctl_xtal(si_t *sih, uint what, bool on);
-extern uint32 si_gpiotimerval(si_t *sih, uint32 mask, uint32 val);
 extern void si_btcgpiowar(si_t *sih);
 extern bool si_deviceremoved(const si_t *sih);
 extern void si_set_device_removed(si_t *sih, bool status);
@@ -500,6 +500,7 @@ extern int si_dump_pcieregs(const si_t *sih, struct bcmstrbuf *b);
 #endif
 
 #if defined(BCMDBG_PHYDUMP)
+
 extern void si_dumpregs(si_t *sih, struct bcmstrbuf *b);
 #endif
 
@@ -515,6 +516,7 @@ extern uint32 si_pmu_keep_on_get(const si_t *sih);
 extern uint32 si_power_island_set(si_t *sih, uint32 int_val);
 extern uint32 si_power_island_get(si_t *sih);
 #endif /* SR_DEBUG */
+
 extern uint32 si_pcieserdesreg(const si_t *sih, uint32 mdioslave, uint32 offset,
 	uint32 mask, uint32 val);
 extern void si_pcie_set_request_size(const si_t *sih, uint16 size);
@@ -786,9 +788,6 @@ extern uint32 si_raw_reg(const si_t *sih, uint32 reg, uint32 val, uint32 wrire_r
 
 extern void si_pll_sr_reinit(si_t *sih);
 extern void si_pll_closeloop(si_t *sih);
-void si_config_4364_d11_oob(si_t *sih, uint coreid);
-extern void si_gci_set_femctrl(si_t *sih, osl_t *osh, bool set);
-extern void si_gci_set_femctrl_mask_ant01(si_t *sih, osl_t *osh, bool set);
 extern uint si_num_slaveports(const si_t *sih, uint coreid);
 extern uint32 si_get_slaveport_addr(si_t *sih, uint spidx, uint baidx,
 	uint core_id, uint coreunit);
@@ -816,7 +815,7 @@ extern uint32 si_srpwr_stat(si_t *sih);
 extern uint32 si_srpwr_domain(si_t *sih);
 extern uint32 si_srpwr_domain_all_mask(const si_t *sih);
 extern uint8 si_srpwr_domain_wl(si_t *sih);
-
+extern uint32 si_srpwr_bt_status(si_t *sih);
 /* SR Power Control */
 bool si_srpwr_cap(si_t *sih);
 #define SRPWR_CAP(sih) (si_srpwr_cap(sih))
@@ -840,7 +839,7 @@ bool si_srpwr_cap(si_t *sih);
 #define MULTIBP_CAP(sih)	(BCM4368_CHIP(sih->chip) || BCM4378_CHIP(sih->chip) || \
 				BCM4387_CHIP(sih->chip) || BCM4388_CHIP(sih->chip) || \
 				BCM4389_CHIP(sih->chip) || BCM4385_CHIP(sih->chip) || \
-				BCM4376_CHIP(sih->chip))
+				BCM4376_CHIP(sih->chip) || BCM4397_CHIP(sih->chip))
 #define MULTIBP_ENAB(sih)      ((sih) && (sih)->_multibp_enable)
 
 uint32 si_enum_base(uint devid);
@@ -889,6 +888,7 @@ void si_configure_onbody_gpio(si_t *sih, uint8 onbody_gpio_pin);
 /* return BT state */
 bool si_btc_bt_status_in_reset(si_t *sih);
 bool si_btc_bt_status_in_pds(si_t *sih);
+int si_btc_bt_pds_wakeup_force(si_t *sih, bool force);
 
 /* RFFE RFEM Functions */
 extern void si_jtag_udr_pwrsw_main_toggle(si_t *sih, bool on);

@@ -1655,6 +1655,9 @@ static ssize_t show_nadc_fac_result(struct device *dev,
 		case 0x20:
 			strcpy(vst_fail_das_string,"INT");
 			break;
+		case 0x40:
+			strcpy(vst_fail_das_string,"FUNC");
+			break;
 		default:
 			strcpy(vst_fail_das_string,"NULL");
 			break;
@@ -1708,11 +1711,23 @@ static ssize_t show_nadc_fac_result(struct device *dev,
 		}
 		/* case 4 DEFAULT */
 		else{
+			/* case on_chip_cal fail*/
+			for (i = 0; i < 3; i++) {
+				if( (sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.big[i] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.big[i] <= 0) || 
+					(sec_nad_env.nad_on_chip_cal_info.nad_cal_dat.mid[i] - sec_nad_env.nad_on_chip_cal_info.asb_otp_dat.mid[i] <= 0) ) {
+					return sprintf(buf, "NG_5.0_L_CASE(ONC)DETAIL(%s),NADC_DAS(%s),BLOCK(%s),LEVEL(%d),VECTOR(%s)\n",
+						sec_nad_env.nad_fail_info.das_string,
+						sec_nad_env.fused_nad_custom_data.nad_fail_info.das_string,
+						sec_nad_env.fused_nad_custom_data.nad_fail_info.block_string,
+						sec_nad_env.fused_nad_custom_data.nad_fail_info.level,
+						sec_nad_env.fused_nad_custom_data.nad_fail_info.vector_string);
+				}
+			}
 			return sprintf(buf, "NG_5.0_L_CASE(DEF)DETAIL(DEF),NADC_DAS(%s),BLOCK(%s),LEVEL(%d),VECTOR(%s)\n",
-					sec_nad_env.fused_nad_custom_data.nad_fail_info.das_string,
-					sec_nad_env.fused_nad_custom_data.nad_fail_info.block_string,
-					sec_nad_env.fused_nad_custom_data.nad_fail_info.level,
-					sec_nad_env.fused_nad_custom_data.nad_fail_info.vector_string);
+				sec_nad_env.fused_nad_custom_data.nad_fail_info.das_string,
+				sec_nad_env.fused_nad_custom_data.nad_fail_info.block_string,
+				sec_nad_env.fused_nad_custom_data.nad_fail_info.level,
+				sec_nad_env.fused_nad_custom_data.nad_fail_info.vector_string);
 		}
 	}
 	else

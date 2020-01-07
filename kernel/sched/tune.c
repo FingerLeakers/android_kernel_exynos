@@ -92,6 +92,10 @@ struct schedtune {
 	/* Hint to bias scheduling of tasks on that SchedTune CGroup
 	 * towards idle CPUs */
 	int prefer_idle;
+
+	/* Hint to bias scheduling of tasks on that SchedTune CGroup
+	 * towards high performance CPUs */
+	int prefer_perf;
 };
 
 static inline struct schedtune *css_st(struct cgroup_subsys_state *css)
@@ -122,6 +126,7 @@ static struct schedtune
 root_schedtune = {
 	.boost	= 0,
 	.prefer_idle = 0,
+	.prefer_perf = 0,
 };
 
 /*
@@ -571,6 +576,24 @@ prefer_idle_write(struct cgroup_subsys_state *css, struct cftype *cft,
 	return 0;
 }
 
+static u64
+prefer_perf_read(struct cgroup_subsys_state *css, struct cftype *cft)
+{
+       struct schedtune *st = css_st(css);
+
+       return st->prefer_perf;
+}
+
+static int
+prefer_perf_write(struct cgroup_subsys_state *css, struct cftype *cft,
+           u64 prefer_perf)
+{
+       struct schedtune *st = css_st(css);
+       st->prefer_perf = prefer_perf;
+
+       return 0;
+}
+
 static s64
 boost_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
@@ -606,6 +629,11 @@ static struct cftype files[] = {
 		.name = "prefer_idle",
 		.read_u64 = prefer_idle_read,
 		.write_u64 = prefer_idle_write,
+	},
+	{
+	        .name = "prefer_perf",
+	        .read_u64 = prefer_perf_read,
+	        .write_u64 = prefer_perf_write,
 	},
 	{ }	/* terminate */
 };

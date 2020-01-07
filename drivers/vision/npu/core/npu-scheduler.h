@@ -99,6 +99,7 @@ static char *npu_perf_mode_name[] = {
 	"normal",
 	"npu boost",
 	"cpu boost",
+	"npu DN",
 };
 
 enum {
@@ -107,6 +108,7 @@ enum {
 	NPU_PERF_MODE_NORMAL,
 	NPU_PERF_MODE_NPU_BOOST,
 	NPU_PERF_MODE_CPU_BOOST,
+	NPU_PERF_MODE_NPU_DN,
 	NPU_PERF_MODE_NUM,
 };
 

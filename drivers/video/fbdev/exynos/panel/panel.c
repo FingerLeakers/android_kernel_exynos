@@ -838,7 +838,7 @@ static int panel_do_timer_delay(struct panel_device *panel, struct delayinfo *in
 	}
 
 	if (ktime_to_ns(info->s_time) == 0) {
-		panel_err("%s, timer(%s) not initialied\n", 
+		panel_err("%s, timer(%s) not initialied\n",
 				__func__, info->name);
 	} else {
 		s_time = info->s_time;
@@ -917,33 +917,202 @@ static int panel_dsi_write_data(struct panel_device *panel,
 	return panel->mipi_drv.write(panel->dsi_id, cmd_id, buf, ofs, size, option);
 }
 
+static int panel_dsi_write_table(struct panel_device *panel,
+	const struct cmd_set *cmd, int size, bool block)
+{
+	u32 option = 0;
+
+	if (unlikely(!panel || !panel->mipi_drv.write_table))
+		return -EINVAL;
+
+	if ((panel->panel_data.ddi_props.gpara &
+					DDI_SUPPORT_POINT_GPARA))
+		option |= DSIM_OPTION_POINT_GPARA;
+
+	if (block)
+		option |= DSIM_OPTION_WAIT_TX_DONE;
+
+	return panel->mipi_drv.write_table(panel->dsi_id,
+			cmd, size, option);
+}
+
+static int panel_cmdq_is_empty(struct panel_device *panel)
+{
+	return panel->cmdq.top == -1;
+}
+
+static int panel_cmdq_is_full(struct panel_device *panel)
+{
+	return panel->cmdq.top == MAX_PANEL_CMD_QUEUE - 1;
+}
+
+static int panel_cmdq_get_size(struct panel_device *panel)
+{
+	return panel->cmdq.top + 1;
+}
+
+static int panel_cmdq_flush(struct panel_device *panel)
+{
+	int i, ret;
+
+	if (unlikely(!panel))
+		return -EINVAL;
+
+	if (panel_cmdq_is_empty(panel))
+		return 0;
+
+	if (panel->mipi_drv.write_table != NULL) {
+		ret = panel_dsi_write_table(panel, panel->cmdq.cmd,
+				panel_cmdq_get_size(panel), true);
+		if (ret < 0) {
+			pr_err("%s failed to panel_dsi_write_table %d\n",
+					__func__, ret);
+		}
+	} else if (panel->mipi_drv.write != NULL) {
+		for (i = 0; i < panel_cmdq_get_size(panel); i++) {
+			ret = panel_dsi_write_data(panel, panel->cmdq.cmd[i].cmd_id,
+					panel->cmdq.cmd[i].buf, panel->cmdq.cmd[i].offset,
+					panel->cmdq.cmd[i].size,
+					(i == panel_cmdq_get_size(panel) -1) ? true : false);
+			if (ret != panel->cmdq.cmd[i].size) {
+				pr_err("%s failed to panel_dsi_write_data %d\n", __func__, ret);
+				break;
+			}
+		}
+	}
+
+	for (i = 0; i < panel_cmdq_get_size(panel); i++) {
+		kfree(panel->cmdq.cmd[i].buf);
+		panel->cmdq.cmd[i].buf = NULL;
+	}
+	panel->cmdq.top = -1;
+	panel->cmdq.cmd_payload_size = 0;
+#ifdef DEBUG_PANEL
+	pr_info("%s done\n", __func__);
+#endif
+
+	return 0;
+}
+
+static int panel_cmdq_push(struct panel_device *panel,
+		u8 cmd_id, const u8 *buf, int size)
+{
+	int index, ret;
+	u8 *data_buf;
+
+	if (buf == NULL || size <= 0)
+		return -EINVAL;
+
+	if (panel_cmdq_get_size(panel) +
+			(buf[0] == 0xB0 ? 2 : 1) > MAX_PANEL_CMD_QUEUE) {
+		ret = panel_cmdq_flush(panel);
+		if (ret < 0) {
+			pr_err("%s failed to panel_cmdq_flush %d\n", __func__, ret);
+			return ret;
+		}
+	}
+
+	data_buf = kzalloc(sizeof(u8) * size, GFP_KERNEL);
+	if (data_buf == NULL) {
+		pr_err("%s failed to alloc cmd.buf\n", __func__);
+		return -ENOMEM;
+	}
+
+	index = ++panel->cmdq.top;
+	panel->cmdq.cmd[index].cmd_id = cmd_id;
+	panel->cmdq.cmd[index].offset = 0;
+	memcpy(data_buf, buf, size);
+	panel->cmdq.cmd[index].buf = data_buf;
+	panel->cmdq.cmd[index].size = size;
+
+#ifdef DEBUG_PANEL
+	pr_info("%s cmdq[%d] id:%02X cmd:%02X size:%d\n", __func__, index,
+			cmd_id, panel->cmdq.cmd[index].buf[0], panel->cmdq.cmd[index].size);
+#endif
+
+	return 0;
+}
+
+static int panel_dsi_write_cmd(struct panel_device *panel,
+		u8 cmd_id, const u8 *buf, u8 ofs, int size, bool block)
+{
+	int ret;
+	u8 gpara[3] = { 0xB0, ofs, buf ? buf[0] : 0x00 };
+
+	mutex_lock(&panel->cmdq.lock);
+	if (panel->panel_data.ddi_props.cmd_fifo_size &&
+		panel->cmdq.cmd_payload_size + ARRAY_SIZE(gpara) + size >=
+		panel->panel_data.ddi_props.cmd_fifo_size) {
+		ret = panel_cmdq_flush(panel);
+		if (ret < 0) {
+			pr_err("%s failed to panel_cmdq_flush %d\n", __func__, ret);
+			mutex_unlock(&panel->cmdq.lock);
+			return ret;
+		}
+	}
+
+	if (ofs > 0) {
+		ret = panel_cmdq_push(panel, MIPI_DSI_WR_GEN_CMD, gpara,
+				(panel->panel_data.ddi_props.gpara &
+				 DDI_SUPPORT_POINT_GPARA) ? 3 : 2);
+		if (ret < 0) {
+			pr_err("%s failed to panel_cmdq_push %d\n", __func__, ret);
+			mutex_unlock(&panel->cmdq.lock);
+			return ret;
+		}
+	}
+
+	ret = panel_cmdq_push(panel, cmd_id, buf, size);
+	if (ret < 0) {
+		pr_err("%s failed to panel_cmdq_push %d\n", __func__, ret);
+		mutex_unlock(&panel->cmdq.lock);
+		return ret;
+	}
+	panel->cmdq.cmd_payload_size += size;
+
+	if (panel_cmdq_is_full(panel) || block) {
+		ret = panel_cmdq_flush(panel);
+		if (ret < 0) {
+			pr_err("%s failed to panel_cmdq_flush %d\n", __func__, ret);
+			mutex_unlock(&panel->cmdq.lock);
+			return ret;
+		}
+	}
+	mutex_unlock(&panel->cmdq.lock);
+
+	return size;
+}
 
 static int panel_dsi_sr_write_data(struct panel_device *panel,
 		u8 cmd_id, const u8 *buf, u8 ofs, int size, bool block)
 {
 	u32 option = 0;
 
-	if (unlikely(!panel || !panel->mipi_drv.write))
+	if (unlikely(!panel || !panel->mipi_drv.sr_write))
 		return -EINVAL;
 
 	return panel->mipi_drv.sr_write(panel->dsi_id, cmd_id, buf, ofs, size, option);
 }
 
-
 /* Todo need to move dt file */
 #define SRAM_BYTE_ALIGN	16
+#define DSI_IMG_FIFO_SIZE (2048)
 
-static int panel_dsi_write_mem(struct panel_device *panel,
-		u8 cmd_id, const u8 *buf, u8 ofs, int size)
+static int panel_dsi_write_img(struct panel_device *panel,
+		u8 cmd_id, const u8 *buf, u8 ofs, int size, bool block)
 {
 	u8 c_start = 0, c_next = 0;
-	/* TODO: 512 NEED TO CHANGE AS DSIM_FIFO_SIZE */
-	u8 cmdbuf[512];
+	u8 cmdbuf[DSI_IMG_FIFO_SIZE];
 	int tx_size, ret, len = 0;
+	int fifo_size = DSI_IMG_FIFO_SIZE;
 	int remained = size;
 
-	if (unlikely(!panel || !panel->mipi_drv.write))
+	if (unlikely(!panel))
 		return -EINVAL;
+
+	if (panel->panel_data.ddi_props.img_fifo_size)
+		fifo_size = min(fifo_size,
+				(int)panel->panel_data.ddi_props.img_fifo_size);
 
 	if (cmd_id == MIPI_DSI_WR_GRAM_CMD) {
 		c_start = MIPI_DCS_WRITE_GRAM_START;
@@ -959,9 +1128,7 @@ static int panel_dsi_write_mem(struct panel_device *panel,
 
 	do {
 		cmdbuf[0] = (size == remained) ? c_start : c_next;
-
-		tx_size = remained;
-		tx_size = min(remained, 511);
+		tx_size = min(remained, fifo_size - 1);
 		if ((tx_size % SRAM_BYTE_ALIGN) > 0) {
 			if (tx_size > SRAM_BYTE_ALIGN) {
 				tx_size -= (tx_size % SRAM_BYTE_ALIGN);
@@ -970,44 +1137,58 @@ static int panel_dsi_write_mem(struct panel_device *panel,
 					__func__, tx_size, SRAM_BYTE_ALIGN);
 			}
 		}
-
 		memcpy(cmdbuf + 1, buf + len, tx_size);
-		ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
-				cmdbuf, 0, tx_size + 1, false);
 
-		if (ret != tx_size + 1) {
-			panel_err("%s:failed to write command\n", __func__);
-			return -EINVAL;
+		mutex_lock(&panel->cmdq.lock);
+		ret = panel_cmdq_push(panel, MIPI_DSI_WR_GEN_CMD, cmdbuf, tx_size + 1);
+		if (ret < 0) {
+			pr_err("%s failed to panel_cmdq_push %d\n", __func__, ret);
+			mutex_unlock(&panel->cmdq.lock);
+			return ret;
 		}
+
+		if (panel_cmdq_is_full(panel) || (block && (remained <= tx_size))) {
+			ret = panel_cmdq_flush(panel);
+			if (ret < 0) {
+				pr_err("%s failed to panel_cmdq_flush %d\n", __func__, ret);
+				mutex_unlock(&panel->cmdq.lock);
+				return ret;
+			}
+		}
+		mutex_unlock(&panel->cmdq.lock);
 		len += tx_size;
-		remained -= tx_size;
-		pr_debug("%s tx_size %d len %d, remained %d\n",
+		remained = (remained > tx_size) ? (remained - tx_size) : 0;
+#ifdef DEBUG_PANEL
+		pr_info("%s tx_size %d len %d, remained %d\n",
 				__func__, tx_size, len, remained);
+#endif
 	} while (remained > 0);
 
 	return len;
 }
-
 
 static int panel_dsi_fast_write_mem(struct panel_device *panel,
 		u8 cmd_id, const u8 *buf, u8 ofs, int size)
 {
 	int ret;
 
-	if (unlikely(!panel || !panel->mipi_drv.write))
+	if (unlikely(!panel || !panel->mipi_drv.sr_write))
 		return -EINVAL;
 
+	mutex_lock(&panel->cmdq.lock);
+	panel_cmdq_flush(panel);
 	ret = panel_dsi_sr_write_data(panel, MIPI_DSI_WR_SRAM_CMD,
 				buf, 0, size, false);
+	mutex_unlock(&panel->cmdq.lock);
 
 	return size;
 }
-
 
 static int panel_dsi_read_data(struct panel_device *panel,
 		u8 addr, u8 ofs, u8 *buf, int size)
 {
 	u32 option = 0;
+	int ret;
 
 	if (unlikely(!panel || !panel->mipi_drv.read))
 		return -EINVAL;
@@ -1016,7 +1197,12 @@ static int panel_dsi_read_data(struct panel_device *panel,
 					DDI_SUPPORT_POINT_GPARA))
 		option |= DSIM_OPTION_POINT_GPARA;
 
-	return panel->mipi_drv.read(panel->dsi_id, addr, ofs, buf, size, option);
+	mutex_lock(&panel->cmdq.lock);
+	panel_cmdq_flush(panel);
+	ret = panel->mipi_drv.read(panel->dsi_id, addr, ofs, buf, size, option);
+	mutex_unlock(&panel->cmdq.lock);
+
+	return ret;
 }
 
 static int panel_dsi_get_state(struct panel_device *panel)
@@ -1052,7 +1238,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 
 	if (on) {
 		if (level >= 1) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_ON_9F, 0, ARRAY_SIZE(SEQ_TEST_KEY_ON_9F), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_9F)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_ON_9F\n", __func__);
@@ -1061,7 +1247,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 		}
 
 		if (level >= 2) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_ON_F0, 0, ARRAY_SIZE(SEQ_TEST_KEY_ON_F0), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_F0)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_ON_F0\n", __func__);
@@ -1070,7 +1256,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 		}
 
 		if (level >= 3) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_ON_FC, 0, ARRAY_SIZE(SEQ_TEST_KEY_ON_FC), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_FC)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_ON_FC\n", __func__);
@@ -1079,7 +1265,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 		}
 	} else {
 		if (level >= 3) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_OFF_FC, 0, ARRAY_SIZE(SEQ_TEST_KEY_OFF_FC), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_FC)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_OFF_FC\n", __func__);
@@ -1088,7 +1274,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 		}
 
 		if (level >= 2) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_OFF_F0, 0, ARRAY_SIZE(SEQ_TEST_KEY_OFF_F0), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_F0)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_OFF_F0\n", __func__);
@@ -1097,7 +1283,7 @@ int panel_set_key(struct panel_device *panel, int level, bool on)
 		}
 
 		if (level >= 1) {
-			ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD,
+			ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD,
 					SEQ_TEST_KEY_OFF_9F, 0, ARRAY_SIZE(SEQ_TEST_KEY_OFF_9F), false);
 			if (ret != ARRAY_SIZE(SEQ_TEST_KEY_ON_9F)) {
 				pr_err("%s : fail to write CMD : SEQ_TEST_KEY_OFF_9F\n", __func__);
@@ -1222,14 +1408,14 @@ static int panel_do_tx_packet(struct panel_device *panel, struct pktinfo *info, 
 		block = true;
 
 	if (cmd_id == MIPI_DSI_WR_GRAM_CMD ||
-			cmd_id == MIPI_DSI_WR_SRAM_CMD)
-		ret = panel_dsi_write_mem(panel, cmd_id,
-				info->data, info->offset, info->dlen);
+		cmd_id == MIPI_DSI_WR_SRAM_CMD)
+		ret = panel_dsi_write_img(panel, cmd_id,
+				info->data, info->offset, info->dlen, block);
 	else if (cmd_id == MIPI_DSI_WR_SR_FAST_CMD)
 		ret = panel_dsi_fast_write_mem(panel, cmd_id,
 				info->data, info->offset, info->dlen);
 	else
-		ret = panel_dsi_write_data(panel, cmd_id,
+		ret = panel_dsi_write_cmd(panel, cmd_id,
 				info->data, info->offset, info->dlen, block);
 	if (ret != info->dlen) {
 		panel_err("%s, failed to send packet %s (ret %d)\n",
@@ -1421,6 +1607,14 @@ static int _panel_do_seqtbl(struct panel_device *panel,
 				(((struct cmdinfo *)cmdtbl[i])->name ?
 				((struct cmdinfo *)cmdtbl[i])->name : "none"));
 #endif
+
+		if (type != CMD_TYPE_KEY &&
+			type != CMD_TYPE_SEQ && !IS_CMD_TYPE_TX_PKT(type)) {
+			mutex_lock(&panel->cmdq.lock);
+			panel_cmdq_flush(panel);
+			mutex_unlock(&panel->cmdq.lock);
+		}
+
 		switch (type) {
 		case CMD_TYPE_KEY:
 		case CMD_TYPE_TX_PKT_START ... CMD_TYPE_TX_PKT_END:
@@ -1438,7 +1632,7 @@ static int _panel_do_seqtbl(struct panel_device *panel,
 				block = true;
 				pr_debug("%s blocking call : end of seq\n", __func__);
 			}
-			
+
 			if (type == CMD_TYPE_KEY)
 				ret = panel_do_setkey(panel, (struct keyinfo *)cmdtbl[i], block);
 			else
@@ -1874,7 +2068,7 @@ int panel_rx_nbytes(struct panel_device *panel,
 #ifdef CONFIG_EXYNOS_DECON_LCD_SPI
 		} else if (type == SPI_PKT_TYPE_RD) {
 			if (gpara[1] != 0) {
-				ret = panel_dsi_write_data(panel,
+				ret = panel_dsi_write_cmd(panel,
 						MIPI_DSI_WR_GEN_CMD, gpara, 0, ARRAY_SIZE(gpara), true);
 				if (ret != ARRAY_SIZE(gpara))
 					panel_err("%s, failed to set gpara %d (ret %d)\n",
@@ -1917,7 +2111,7 @@ int panel_tx_nbytes(struct panel_device *panel,
 		return -EINVAL;
 	}
 
-	ret = panel_dsi_write_data(panel, MIPI_DSI_WR_GEN_CMD, buf, pos, len, false);
+	ret = panel_dsi_write_cmd(panel, MIPI_DSI_WR_GEN_CMD, buf, pos, len, false);
 	if (ret != len) {
 		panel_err("%s, failed to write addr:0x%02X, pos:%d, len:%u ret %d\n",
 				__func__, addr, pos, len, ret);

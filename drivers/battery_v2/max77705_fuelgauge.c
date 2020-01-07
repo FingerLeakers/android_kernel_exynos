@@ -1096,9 +1096,6 @@ static int max77705_get_fuelgauge_soc(struct max77705_fuelgauge_data *fuelgauge)
 	if (fuelgauge->info.is_first_check)
 		fuelgauge->info.is_first_check = false;
 
-	if ((fg_vcell < 3400) && (avg_current < 0) && (fg_soc <= 10))
-		fg_soc = 0;
-
 	fuelgauge->info.soc = fg_soc;
 	pr_debug("%s: soc(%d)\n", __func__, fuelgauge->info.soc);
 

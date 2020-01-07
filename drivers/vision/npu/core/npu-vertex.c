@@ -459,7 +459,7 @@ static int npu_vertex_s_param(struct file *file, struct vs4l_param_list *plist)
 	}
 
 p_err:
-	npu_iinfo("%s: (%d)\n", vctx, __func__, ret);
+	npu_idbg("%s: (%d)\n", vctx, __func__, ret);
 	mutex_unlock(lock);
 	return ret;
 }

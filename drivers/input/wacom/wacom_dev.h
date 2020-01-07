@@ -13,7 +13,9 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
 #include <linux/spu-verify.h>
+#if 0	// defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
 #include <linux/usb/manager/usb_typec_manager_notifier.h>
+#endif
 
 #include "wacom_reg.h"
 
@@ -254,6 +256,12 @@ enum {
 	SEC_OPEN,
 };
 
+enum epen_elec_spec_mode {
+	EPEN_ELEC_DATA_MAIN	= 0,
+	EPEN_ELEC_DATA_UNIT	= 1,
+	EPEN_ELEC_DATA_ASSY	= 2,
+};
+
 struct wacom_elec_data {
 	long long spec_ver;
 	u8 max_x_ch;
@@ -266,6 +274,11 @@ struct wacom_elec_data {
 	u16 *xy;
 	u16 *yx;
 	u16 *yy;
+
+	long long cal_xx;
+	long long cal_xy;
+	long long cal_yx;
+	long long cal_yy;
 
 	long long *xx_xx;
 	long long *xy_xy;
@@ -304,13 +317,17 @@ struct wacom_elec_data {
 };
 
 struct wacom_g5_platform_data {
-	struct wacom_elec_data *edata;
+	struct wacom_elec_data *edata;		/* currnet test spec */
+	struct wacom_elec_data *edatas[3];	/* 0:main, 1:sub unit, 2:sub assy */
+
 	int irq_gpio;
 	int pdct_gpio;
 	int fwe_gpio;
 	int boot_addr;
 	int irq_type;
 	int pdct_type;
+	const char *regulator_avdd;
+
 	int x_invert;
 	int y_invert;
 	int xy_switch;
@@ -330,7 +347,7 @@ struct wacom_g5_platform_data {
 	u32 module_ver;
 	bool use_garage;
 	u32 table_swap;
-	bool use_vddio;
+	bool regulator_boot_on;
 	u32 bringup;
 
 	u32	area_indicator;
@@ -355,7 +372,6 @@ struct wacom_i2c {
 	volatile bool probe_done;
 	bool query_status;
 	struct completion resume_done;
-	struct delayed_work resume_work;
 
 	int irq;
 	int irq_pdct;

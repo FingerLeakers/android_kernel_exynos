@@ -2877,6 +2877,16 @@ void max77705_usbc_check_sysmsg(struct max77705_usbc_platform_data *usbc_data, u
 		}
 #endif
 		break;
+	case SYSMSG_10K_TO_22K ... SYSMSG_22K_TO_56K:
+		msg_maxim("TypeC earphone is attached");
+		usbc_data->pd_data->cc_sbu_short = true;
+		max77705_check_pdo(usbc_data);
+		break;
+	case SYSMSG_56K_TO_22K ... SYSMSG_22K_TO_10K:
+		msg_maxim("TypeC earphone is detached");
+		usbc_data->pd_data->cc_sbu_short = false;
+		max77705_check_pdo(usbc_data);
+		break;
 	default:
 		break;
 	}

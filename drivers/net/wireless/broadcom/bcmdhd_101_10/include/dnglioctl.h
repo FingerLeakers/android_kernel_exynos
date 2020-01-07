@@ -55,8 +55,9 @@
 #define RTED11DMAHOSTLPBK_RUN	0x8914  /* D11 DMA host memory loopback run */
 #define RTEDEVGETTSF		0x8915  /* Get device TSF */
 #define RTEDURATIONUNIT		0x8916  /* Duration unit */
+#define RTEWRITE_WAR_REGS	0x8917  /* write workaround regs */
 /* Ensure last RTE IOCTL define val is assigned to RTEIOCTLEND */
-#define RTEIOCTLEND		0x8916  /* LAST RTE IOCTL value */
+#define RTEIOCTLEND		0x8917  /* LAST RTE IOCTL value */
 
 #define RTE_IOCTL_QUERY		0x00
 #define RTE_IOCTL_SET		0x01

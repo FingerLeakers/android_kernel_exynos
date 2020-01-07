@@ -254,11 +254,11 @@ static ssize_t npu_store_attrs_governor_exynos_interactive(struct device *dev,
 	struct npu_governor_exynos_interactive_prop *p;
 	const ptrdiff_t offset = attr - npu_exynos_interactive_attrs;
 
-	if (sscanf(buf, "%s %d", name, &x) > 0) {
+	if (sscanf(buf, "%255s%* %d", name, &x) > 0) {
 		d = npu_governor_exynos_interactive_get_dev(name);
 		if (!d) {
-			npu_err("No device : %s\n", name);
-			return ret;
+			npu_err("No device : %s %d\n", name, x);
+			return -ENODEV;
 		}
 		p = (struct npu_governor_exynos_interactive_prop *)d->gov_prop;
 		switch (offset) {
@@ -313,15 +313,19 @@ static ssize_t npu_store_attrs_governor_exynos_interactive_args(struct device *d
 	struct npu_governor_exynos_interactive_prop *p;
 	const ptrdiff_t offset = attr - npu_exynos_interactive_attrs;
 
-	if (sscanf(buf, "%s %d %d", name, &x, &y) > 0) {
+	if (sscanf(buf, "%255s%* %d %d", name, &x, &y) > 0) {
 		d = npu_governor_exynos_interactive_get_dev(name);
 		if (!d) {
-			npu_err("No device : %s\n", name);
-			return ret;
+			npu_err("No device : %s %d %d\n", name, x, y);
+			return -ENODEV;
 		}
 		p = (struct npu_governor_exynos_interactive_prop *)d->gov_prop;
 		switch (offset) {
 		case NPU_EXYNOS_INTERACTIVE_MODE_FREQ:
+			if (x >= NPU_PERF_MODE_NUM) {
+				npu_err("Invalid mode frequency\n");
+				return -EINVAL;
+			}
 			d->mode_min_freq[x] = y;
 			break;
 

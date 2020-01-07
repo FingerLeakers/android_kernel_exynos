@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9830 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -13,7 +13,7 @@
 /plugin/;
 
 / {
-	compatible = "samsung,X1SLTE EUR OPEN 00", "samsung,EXYNOS9830";
+	compatible = "samsung,X1SLTE EUR OPEN 00", "samsung,EXYNOS990";
 	dtbo-hw_rev = <0>;
    	dtbo-hw_rev_end = <255>;
 	edtbo-rev = <0>;
@@ -24,7 +24,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung X1SLTE EUR OPEN 00 Extend board based on EXYNOS9830";
+			model = "Samsung X1SLTE EUR OPEN 00 Extend board based on EXYNOS990";
 
 		}; /* end of __overlay__ */
 	}; /* end of fragment */

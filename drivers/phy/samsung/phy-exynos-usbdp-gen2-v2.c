@@ -594,12 +594,12 @@ void phy_exynos_usbdp_g2_v2_tune_each(struct exynos_usbphy_info *info, char *nam
 	*/
 	else if (!strcmp(name, "ssrx_cdr_fbb_fine_ctrl_sp")) {
 		reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBDP_TRSV_REG03AE);
-		reg &= USBDP_TRSV_REG07AE_LN2_RX_CDR_FBB_FINE_CTRL_SP_CLR;
+		reg &= USBDP_TRSV_REG03AE_LN0_RX_CDR_FBB_FINE_CTRL_SP_CLR;
 		reg |= USBDP_TRSV_REG03AE_LN0_RX_CDR_FBB_FINE_CTRL_SP_SET(val);
 		usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_TRSV_REG03AE);
 
 		reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBDP_TRSV_REG07AE);
-		reg &= USBDP_TRSV_REG03AE_LN0_RX_CDR_FBB_FINE_CTRL_SP_CLR;
+		reg &= USBDP_TRSV_REG07AE_LN2_RX_CDR_FBB_FINE_CTRL_SP_CLR;
 		reg |= USBDP_TRSV_REG07AE_LN2_RX_CDR_FBB_FINE_CTRL_SP_SET(val);
 		usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_TRSV_REG07AE);
 	} else if (!strcmp(name, "ssrx_cdr_fbb_fine_ctrl_ssp")) {
@@ -1622,6 +1622,20 @@ static void phy_exynos_usbdp_g2_v2_pma_default_sfr_update(struct exynos_usbphy_i
 		reg &= USBDP_TRSV_REG0683_LN2_ANA_RX_LFPS_I_CTRL_CLR;
 		reg |= USBDP_TRSV_REG0683_LN2_ANA_RX_LFPS_I_CTRL_SET(1);
 		usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_TRSV_REG0683);
+
+		/* TX receiver detector vref sel control, set to 650mV
+		0x104c	0x05	ln1_ana_tx_rxd_vref_sel=2
+		0x204c	0x05	ln3_ana_tx_rxd_vref_sel=2
+		 */
+		reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBDP_TRSV_REG0413);
+		reg &= USBDP_TRSV_REG0413_LN1_ANA_TX_RXD_VREF_SEL_CLR;
+		reg |= USBDP_TRSV_REG0413_LN1_ANA_TX_RXD_VREF_SEL_SET(2);
+		usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_TRSV_REG0413);
+
+		reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBDP_TRSV_REG0813);
+		reg &= USBDP_TRSV_REG0813_LN3_ANA_TX_RXD_VREF_SEL_CLR;
+		reg |= USBDP_TRSV_REG0813_LN3_ANA_TX_RXD_VREF_SEL_SET(2);
+		usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_TRSV_REG0813);
 
 		/*
 		 * USB

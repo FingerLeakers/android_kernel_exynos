@@ -506,6 +506,13 @@ struct dma_buf *__ion_alloc(size_t len, unsigned int heap_id_mask,
 		return ERR_PTR(-EINVAL);
 	}
 
+	if (heap_id_mask == 0xFFFFFFFF) {
+		heap_id_mask = get_ion_system_heap_id();
+		if (IS_ERR(ERR_PTR(heap_id_mask)))
+			return ERR_PTR(heap_id_mask);
+		heap_id_mask = (1 << heap_id_mask);
+	}
+
 	heap_id_mask = ion_parse_camera_heap_id(heap_id_mask, flags);
 	down_read(&dev->lock);
 	plist_for_each_entry(heap, &dev->heaps, node) {

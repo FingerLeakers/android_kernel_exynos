@@ -20,6 +20,9 @@
 #include <net/netfilter/nf_nat_l3proto.h>
 #include <net/netfilter/nf_nat_l4proto.h>
 
+/* If this configure is enabled, tether-offload controls linkforward on/off */
+#define USE_TETHEROFFLOAD
+
 #define SIGNATURE_LINK_FORWRD_REPLY	0xD01070B0
 #define SIGNATURE_LINK_FORWRD_ORIGN	0xD01070A0
 #define SIGNATURE_LINK_FORWRD_MASK	0xD0107000
@@ -37,6 +40,18 @@ enum linkforward_dir {
 	LINK_FORWARD_DIR_REPLY,
 	LINK_FORWARD_DIR_MAX
 };
+
+enum linkforward_netdev {
+	RMNET,
+	V4RMNET,
+	RNDIS,
+	NCM,
+};
+
+#define NET_NAME_RMNET		"rmnet"
+#define NET_NAME_V4RMNET	"v4-rmnet"
+#define NET_NAME_RNDIS		"rndis"
+#define NET_NAME_NCM		"ncm"
 
 struct forward_bridge {
 	struct net_device	*inner;
@@ -112,11 +127,8 @@ void nf_linkforward_monitor(struct nf_conn *ct);
 /* extern function call */
 extern void gether_get_host_addr_u8(struct net_device *net, u8 host_mac[ETH_ALEN]);
 
-#if defined(CONFIG_CP_DIT)
-extern void dit_set_nat_local_addr(u32 addr);
-extern void dit_set_nat_filter(u32 id, u8 proto, u32 sa, u16 sp, u16 dp);
-extern void dit_del_nat_filter(u32 id);
-#endif
+/* check linkforward enable by tetheroffload hal */
+bool offload_enabled(void);
 
 static inline int get_linkforward_mode(void)
 {
@@ -157,16 +169,15 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir);
 
 static inline int linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 {
-	if (!(nf_linkfwd.use && get_linkforwd_inner_dev() &&
-				atomic_read(&nf_linkfwd.brdg.outter_dev))) {
-		/* check is_tethering_enabled
-		 *printk_ratelimited("nf_linkfwd.use:%d get_linkforwd_inner_dev():%p outter_dev:%d\n",
-		 *	nf_linkfwd.use, get_linkforwd_inner_dev(),
-		 *	atomic_read(&nf_linkfwd.brdg.outter_dev));
-		 */
+#ifdef USE_TETHEROFFLOAD
+	if (!(offload_enabled() && get_linkforwd_inner_dev() &&
+				atomic_read(&nf_linkfwd.brdg.outter_dev)))
 		return 0;
-	}
-
+#else
+	if (!(nf_linkfwd.use && get_linkforwd_inner_dev() &&
+				atomic_read(&nf_linkfwd.brdg.outter_dev)))
+		return 0;
+#endif
 	return __linkforward_manip_skb(skb, dir);
 }
 

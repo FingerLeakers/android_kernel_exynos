@@ -514,6 +514,13 @@ struct sched_entity {
 	struct cfs_rq			*my_q;
 #endif
 
+#ifdef CONFIG_FAST_TRACK
+	int ftt_mark;
+	int ftt_enqueue_time;
+	atomic64_t ftt_dyn_mark;
+	u64 ftt_vrt_delta;
+#endif
+
 #ifdef CONFIG_SMP
 	/*
 	 * Per entity load average tracking.
@@ -732,6 +739,7 @@ struct task_struct {
 	unsigned int			policy;
 	int				nr_cpus_allowed;
 	cpumask_t			cpus_allowed;
+	cpumask_t			aug_cpus_allowed;
 
 #ifdef CONFIG_PREEMPT_RCU
 	int				rcu_read_lock_nesting;

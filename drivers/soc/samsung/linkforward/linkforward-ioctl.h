@@ -40,6 +40,9 @@ enum offload_cb_event {
 	OFFLOAD_STOPPED_UNSUPPORTED = 3,
 	OFFLOAD_SUPPORT_AVAILABLE = 4,
 	OFFLOAD_STOPPED_LIMIT_REACHED = 5,
+
+	/* OEM defined event */
+	INTERNAL_OFFLOAD_STOPPED = 5000,
 };
 
 struct forward_stat {

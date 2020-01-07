@@ -165,6 +165,56 @@ static int s2m_set_voltage_time_sel(struct regulator_dev *rdev,
 	return 0;
 }
 
+#ifdef CONFIG_SEC_PM
+#define S2MPB02_BUCK_MODE_MASK	(3 << 2)
+#define S2MPB02_BUCK_MODE_FPWM	(3 << 2)
+#define S2MPB02_BUCK_MODE_AUTO	(2 << 2)
+
+/* BUCKs & BB support [Auto/Force PWM] mode */
+static int s2m_set_buck_mode(struct regulator_dev *rdev, unsigned int mode)
+{
+	struct s2mpb02_data *info = rdev_get_drvdata(rdev);
+	struct i2c_client *i2c = info->iodev->i2c;
+	u8 val;
+
+	dev_info(info->iodev->dev, "%s: mode: %u\n", __func__, mode);
+
+	if (mode == REGULATOR_MODE_FAST)
+		val = S2MPB02_BUCK_MODE_FPWM;
+	else if (mode == REGULATOR_MODE_NORMAL)
+		val = S2MPB02_BUCK_MODE_AUTO;
+	else
+		return -EINVAL;
+
+	return s2mpb02_update_reg(i2c, rdev->desc->enable_reg, val,
+			S2MPB02_BUCK_MODE_MASK);
+}
+
+static unsigned s2m_get_buck_mode(struct regulator_dev *rdev)
+{
+	struct s2mpb02_data *info = rdev_get_drvdata(rdev);
+	struct i2c_client *i2c = info->iodev->i2c;
+	int ret;
+	u8 val;
+
+	ret = s2mpb02_read_reg(i2c, rdev->desc->enable_reg, &val);
+	if (ret < 0)
+		return ret;
+
+	val = val & S2MPB02_BUCK_MODE_MASK;
+	dev_info(info->iodev->dev, "%s: val: %u\n", __func__, val >> 2);
+
+	if (val == S2MPB02_BUCK_MODE_FPWM)
+		ret = REGULATOR_MODE_FAST;
+	else if (val == S2MPB02_BUCK_MODE_AUTO)
+		ret = REGULATOR_MODE_NORMAL;
+	else
+		ret = -EINVAL;
+
+	return ret;
+}
+#endif /* CONFIG_SEC_PM */
+
 static struct regulator_ops s2mpb02_ldo_ops = {
 	.list_voltage		= regulator_list_voltage_linear,
 	.map_voltage		= regulator_map_voltage_linear,
@@ -185,7 +235,26 @@ static struct regulator_ops s2mpb02_buck_ops = {
 	.get_voltage_sel	= s2m_get_voltage_sel_regmap,
 	.set_voltage_sel	= s2m_set_voltage_sel_regmap_buck,
 	.set_voltage_time_sel	= s2m_set_voltage_time_sel,
+#ifdef CONFIG_SEC_PM
+	.set_mode		= s2m_set_buck_mode,
+	.get_mode		= s2m_get_buck_mode,
+#endif /* CONFIG_SEC_PM */
 };
+
+#ifdef CONFIG_SEC_PM
+static unsigned int s2mpb02_of_map_mode(unsigned int mode) {
+	switch (mode) {
+	case 1 ... 2:		/* Forced PWM & Auto */
+		return mode;
+	default:
+		return REGULATOR_MODE_INVALID;
+	}
+}
+#else
+static unsigned int s2mpb02_of_map_mode(unsigned int mode) {
+	return REGULATOR_MODE_INVALID;
+}
+#endif /* CONFIG_SEC_PM */
 
 #define _BUCK(macro)	S2MPB02_BUCK##macro
 #define _buck_ops(num)	s2mpb02_buck_ops##num
@@ -208,7 +277,8 @@ static struct regulator_ops s2mpb02_buck_ops = {
 	.vsel_mask	= S2MPB02_BUCK_VSEL_MASK,		\
 	.enable_reg	= e,					\
 	.enable_mask	= S2MPB02_BUCK_ENABLE_MASK,		\
-	.enable_time	= t					\
+	.enable_time	= t,					\
+	.of_map_mode	= s2mpb02_of_map_mode,			\
 }
 
 #define LDO_DESC(_name, _id, _ops, m, s, v, e, t)	{	\

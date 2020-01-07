@@ -108,6 +108,8 @@
 #define	SD_SG32			0x00000008
 #define	SD_SZ_ALIGN		0x00000fff
 
+#define WRAPPER_TIMEOUT_CONFIG	0x4u
+
 #if !defined(_LANGUAGE_ASSEMBLY) && !defined(__ASSEMBLY__)
 
 typedef volatile struct _aidmp {

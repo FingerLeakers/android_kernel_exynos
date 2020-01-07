@@ -27,9 +27,7 @@ static int __nocfi is_hw_isp_open(struct is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, BIT(hw_ip->id), "HWISP");
-	frame_manager_probe(hw_ip->framemgr_late, BIT(hw_ip->id) | 0xF000, "HWISP LATE");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_isp));
 	if (!hw_ip->priv_info) {
@@ -77,7 +75,6 @@ err_lib_func:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 	return ret;
 }
 
@@ -146,7 +143,6 @@ static int is_hw_isp_close(struct is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 
@@ -438,11 +434,17 @@ static int is_hw_isp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 		}
 
 		/*set TNR operation mode */
-		if (frame->shot_ext)
+		if (frame->shot_ext) {
+			if ((frame->shot_ext->tnr_mode >= TNR_PROCESSING_CAPTURE_FIRST) &&
+					!CHK_VIDEOHDR_MODE_CHANGE(param_set->tnr_mode, frame->shot_ext->tnr_mode))
+				msinfo_hw("[F:%d] TNR mode is changed (%d -> %d)\n",
+					instance, hw_ip, frame->fcount,
+					param_set->tnr_mode, frame->shot_ext->tnr_mode);
 			param_set->tnr_mode = frame->shot_ext->tnr_mode;
-		else
+		} else {
+			mswarn_hw("frame->shot_ext is null", instance, hw_ip);
 			param_set->tnr_mode = TNR_PROCESSING_NORMAL;
-
+		}
 	}
 
 	is_hw_isp_update_param(hw_ip, region, param_set, lindex, hindex, instance);

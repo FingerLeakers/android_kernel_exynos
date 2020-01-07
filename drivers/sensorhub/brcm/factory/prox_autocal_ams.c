@@ -355,10 +355,14 @@ static ssize_t proximity_default_trim_show(struct device *dev,
 
 	ret = load_prox_cal_from_nvm(prox_cal, sizeof(prox_cal));
 
+	// prox_cal[1] : moving sum offset
+	// 1: no offset
+	// 2: moving sum type2 
+	// 3: moving sum type3
 	if (ret != sizeof(prox_cal)) {
-		ret = 2; // current register: 2X
+		ret = 1;
 	} else {
-		ret = prox_cal[1] == 4000 ? 4 : 2; // current register setting(4X,2X)
+		ret = prox_cal[1];
 	}
 
 	return snprintf(buf, PAGE_SIZE, "%d\n", ret);

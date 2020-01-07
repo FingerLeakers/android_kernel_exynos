@@ -51,11 +51,8 @@
 
 #include "linkforward-offload.h"
 
-#define MAX_CONNECTION_CNT 20
-
 //#define DEBUG_LINK_FORWARD
 //#define DEBUG_TEST_UDP
-#define USE_HASH_TABLE
 
 struct nf_linkforward nf_linkfwd = {
 	.use = false,
@@ -70,9 +67,6 @@ struct nf_linkforward nf_linkfwd = {
 	.brdg.outter[6] = NULL,
 	.brdg.outter[7] = NULL, /* rmnet7 */
 };
-
-static int last_conn_idx;
-static struct linkforward_connection conn[MAX_CONNECTION_CNT];
 
 /* Test Devices & Addresses */
 #define	TEST_PC_IP_ADDR		0xc0a82a75 /* 192.168.42.117 */
@@ -98,72 +92,6 @@ void linkforward_disable(void)
 	nf_linkfwd.use = 0;
 }
 
-void clat_enable_dev(char *dev_name)
-{
-	if (strstr(dev_name, "rmnet0"))
-		nf_linkfwd.ctun[0].enable = 1;
-	else if (strstr(dev_name, "rmnet1"))
-		nf_linkfwd.ctun[1].enable = 1;
-
-	pr_info("%s %s\n", __func__, dev_name);
-}
-
-void clat_disable_dev(char *dev_name)
-{
-	if (strstr(dev_name, "rmnet0"))
-		nf_linkfwd.ctun[0].enable = 0;
-	else if (strstr(dev_name, "rmnet1"))
-		nf_linkfwd.ctun[1].enable = 0;
-
-	pr_info("%s %s\n", __func__, dev_name);
-}
-
-void linkforward_table_init(void)
-{
-	int i;
-
-	last_conn_idx = 0;
-	for (i = 0; i < MAX_CONNECTION_CNT; i++) {
-		conn[i].enabled = false;
-		conn[i].dst_port = 0;
-		conn[i].cnt_reply = 0;
-		conn[i].cnt_orign = 0;
-	}
-}
-
-#ifdef DEBUG_LINK_FORWARD
-void print_linkforward_list(void)
-{
-	int i;
-
-	pr_info("MAX_CONNECTION_CNT:%d last_conn_idx:%d\n", MAX_CONNECTION_CNT,
-		last_conn_idx);
-
-	for (i = 0; i < MAX_CONNECTION_CNT; i++)
-		pr_info("[%d/%s] : enabled:%d %hu\n",
-			i, conn[i].netdev->name,
-			conn[i].enabled,
-			ntohs(conn[i].dst_port));
-}
-#endif
-
-ssize_t linkforward_get_state(char *buf)
-{
-	int i;
-	ssize_t count = 0;
-
-	for (i = 0; i < MAX_CONNECTION_CNT; i++) {
-		if (conn[i].enabled) {
-			count += sprintf(&buf[count],
-				"[%d/%s] %hu (tx = %u, rx = %u)\n",
-				i, conn[i].netdev->name, ntohs(conn[i].dst_port),
-				conn[i].cnt_orign, conn[i].cnt_reply);
-		}
-	}
-	return count;
-}
-
-#ifdef USE_HASH_TABLE
 void print_hash(void)
 {
 	int i;
@@ -319,221 +247,42 @@ struct nf_conntrack_tuple *__linkforward_check_tuple(__be16 src_port,
 	}
 }
 
-#else	/* USE_HASH_TABLE */
-
-int linkforward_add(__be16 dst_port, struct nf_conntrack_tuple *t_rpl,
-		struct nf_conntrack_tuple *t_org, struct net_device *netdev)
+ssize_t linkforward_get_state(char *buf)
 {
 	int i;
-	bool room_found = false;
+	ssize_t count = 0;
+	struct linkforward_connection *node;
 
-	if (ntohs(t_org->src.u.all) != ntohs(t_rpl->dst.u.all))
-		return -1; /* No supporting port translation */
-
-#ifdef DEBUG_LINK_FORWARD
-	pr_info("Add Connection: %s [%ld/%hu] %pI4:%hu -> %pI4:%hu (reply %pI4:%hu -> %pI4:%hu)\n",
-		netdev->name,
-		dst_port,
-		ntohs(dst_port),
-		&t_org->src.u3.ip,
-		ntohs(t_org->src.u.all),
-		&t_org->dst.u3.ip,
-		ntohs(t_org->dst.u.all),
-		&t_rpl->src.u3.ip,
-		ntohs(t_rpl->src.u.all),
-		&t_rpl->dst.u3.ip,
-		ntohs(t_rpl->dst.u.all));
+#ifdef USE_TETHEROFFLOAD
+	pr_info("tetheroffload:%d\n", offload_enabled());
+	count += sprintf(&buf[count], "tetheroffload:%d\n",
+			offload_enabled());
+#else
+	pr_info("nf_linkfwd.use:%d\n", nf_linkfwd.use);
+	count += sprintf(&buf[count], "nf_linkfwd.use:%d\n", nf_linkfwd.use);
 #endif
 
-	for (i = last_conn_idx; i < MAX_CONNECTION_CNT; i++)
-		if (!conn[i].enabled) {
-			conn[i].enabled = true;
-			conn[i].dst_port = dst_port;
-			conn[i].netdev = netdev;
-			memcpy(&conn[i].t[0], t_org,
-				sizeof(struct nf_conntrack_tuple));
-			memcpy(&conn[i].t[1], t_rpl,
-				sizeof(struct nf_conntrack_tuple));
-			last_conn_idx = i;
-			room_found = true;
+	pr_info("forward_stat: rxBytes = %llu, txBytes = %llu\n",
+			get_rx_offload_fwd_bytes(),
+			get_tx_offload_fwd_bytes());
+	count += sprintf(&buf[count], "forward_stat rxBytes:%llu txBytes:%llu\n",
+			get_rx_offload_fwd_bytes(),
+			get_tx_offload_fwd_bytes());
 
-#ifdef CONFIG_CP_DIT
-			dit_set_nat_local_addr(t_org->src.u3.ip);
-			dit_set_nat_filter(i, IPPROTO_TCP, 0xffffffff, 0xffff,
-					dst_port);
-#endif
-			break;
-		}
-
-	if (!room_found) {
-		for (i = 0; i < last_conn_idx; i++)
-			if (!conn[i].enabled) {
-				conn[i].enabled = true;
-				conn[i].dst_port = dst_port;
-				conn[i].netdev = netdev;
-				memcpy(&conn[i].t[0], t_org,
-					sizeof(struct nf_conntrack_tuple));
-				memcpy(&conn[i].t[1], t_rpl,
-					sizeof(struct nf_conntrack_tuple));
-				last_conn_idx = i;
-				room_found = true;
-
-#ifdef CONFIG_CP_DIT
-				dit_set_nat_local_addr(t_org->src.u3.ip);
-				dit_set_nat_filter(i, IPPROTO_TCP, 0xffffffff,
-						0xffff, dst_port);
-#endif
-				break;
-			}
+	if (hash_empty(nf_linkfwd.h_mem_map)) {
+		count += sprintf(&buf[count], "No table\n");
+		return count;
 	}
 
-	if (!room_found) {
-		last_conn_idx++;
-		if (last_conn_idx == MAX_CONNECTION_CNT)
-			last_conn_idx = 0;
-			i = last_conn_idx;
-			conn[i].enabled = true;
-			conn[i].dst_port = dst_port;
-			conn[i].netdev = netdev;
-			memcpy(&conn[i].t[0], t_org,
-					sizeof(struct nf_conntrack_tuple));
-			memcpy(&conn[i].t[1], t_rpl,
-					sizeof(struct nf_conntrack_tuple));
-
-#ifdef CONFIG_CP_DIT
-			dit_set_nat_local_addr(t_org->src.u3.ip);
-			dit_set_nat_filter(i, IPPROTO_TCP, 0xffffffff, 0xffff,
-					dst_port);
-#endif
+	hash_for_each(nf_linkfwd.h_mem_map, i, node, h_node) {
+		count += sprintf(&buf[count],
+				"[%s] Port(%hu) PktCounts(rx = %u, tx = %u)\n",
+				node->netdev->name, ntohs(node->dst_port),
+				node->cnt_orign, node->cnt_reply);
 	}
 
-#ifdef DEBUG_LINK_FORWARD
-	pr_info("Added at index:%d\n", last_conn_idx);
-	print_linkforward_list();
-#endif
-
-	return 0;
+	return count;
 }
-
-int linkforward_delete(__be16 dst_port)
-{
-	int i;
-
-	for (i = last_conn_idx; i < MAX_CONNECTION_CNT; i++)
-		if (conn[i].enabled && conn[i].dst_port == dst_port) {
-			conn[i].enabled = false;
-			conn[i].dst_port = 0;
-			conn[i].netdev = NULL;
-			conn[i].cnt_reply = 0;
-			conn[i].cnt_orign = 0;
-
-#ifdef CONFIG_CP_DIT
-			dit_del_nat_filter(i);
-#endif
-#ifdef DEBUG_LINK_FORWARD
-			pr_info("Delete connection %d was found (port =%hu)\n",
-					i, ntohs(dst_port));
-			print_linkforward_list();
-#endif
-			return 0;
-		}
-
-	for (i = 0; i < last_conn_idx; i++)
-		if (conn[i].enabled && conn[i].dst_port == dst_port) {
-			conn[i].enabled = false;
-			conn[i].dst_port = 0;
-			conn[i].netdev = NULL;
-			conn[i].cnt_reply = 0;
-			conn[i].cnt_orign = 0;
-
-#ifdef CONFIG_CP_DIT
-			dit_del_nat_filter(i);
-#endif
-#ifdef DEBUG_LINK_FORWARD
-			pr_info("Delete connection %d was found (port =%hu)\n",
-					i, ntohs(dst_port));
-			print_linkforward_list();
-#endif
-			return 0;
-		}
-
-	return -1;
-}
-
-struct nf_conntrack_tuple *__linkforward_check_tuple(__be16 src_port,
-		__be16 dst_port, enum linkforward_dir dir)
-{
-	int i;
-	__be16 port = dir ? dst_port : src_port;
-	struct nf_conntrack_tuple *target;
-	static __be16 last_port;
-	bool print = true;
-
-	if (last_port != port) {
-		last_port = port;
-		print = true;
-	}
-
-#ifdef DEBUG_LINK_FORWARD
-	if (print)
-		pr_info("find Connection: [dir=%d] port:%hu\n",
-			dir, dir ? ntohs(dst_port) : ntohs(src_port));
-#endif
-
-	for (i = last_conn_idx; i < MAX_CONNECTION_CNT; i++)
-		if (conn[i].enabled && conn[i].dst_port == port) {
-			if (dir) {
-				target = &conn[i].t[0];
-				conn[i].cnt_reply++;
-			} else {
-				target = &conn[i].t[1];
-				conn[i].cnt_orign++;
-			}
-
-#ifdef DEBUG_LINK_FORWARD
-			if (print)
-				pr_info("connection %d was found at %s\n\t[%d] %pI4:%hu -> %pI4:%hu\n",
-						i, conn[i].netdev,
-						ntohs(port),
-						&target->src.u3.ip,
-						ntohs(target->src.u.all),
-						&target->dst.u3.ip,
-						ntohs(target->dst.u.all));
-#endif
-			return target;
-		}
-
-	for (i = 0; i < last_conn_idx; i++)
-		if (conn[i].enabled && conn[i].dst_port == port) {
-			if (dir) {
-				target = &conn[i].t[0];
-				conn[i].cnt_reply++;
-			} else {
-				target = &conn[i].t[1];
-				conn[i].cnt_orign++;
-			}
-
-#ifdef DEBUG_LINK_FORWARD
-			if (print)
-				pr_info("connection %d was found at %s\n\t[%d] %pI4:%hu -> %pI4:%hu\n",
-						i, conn[i].netdev,
-						ntohs(port),
-						&target->src.u3.ip,
-						ntohs(target->src.u.all),
-						&target->dst.u3.ip,
-						ntohs(target->dst.u.all));
-#endif
-			return target;
-		}
-
-#ifdef DEBUG_LINK_FORWARD
-	if (print)
-		pr_info("connection was NOT found\n");
-#endif
-
-	return NULL;
-}
-#endif	/* USE_HASH_TABLE */
 
 /* manipulation */
 int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
@@ -543,6 +292,7 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 	struct nf_conntrack_tuple *target;
 	static __be16 last_oldport;
 	bool print = false;
+	__be16 *portptr, newport, oldport;
 
 	/* check the version of IP */
 	iphdr = (struct iphdr *)packet;
@@ -556,16 +306,12 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 		case IPPROTO_TCP:
 		{
 			struct tcphdr *tcph;
-#ifndef CONFIG_CP_DIT
-			__be16 *portptr, newport, oldport;
-#endif
 
 			tcph = (void *)(packet + iphdr->ihl * 4);
 
 			target = __linkforward_check_tuple(tcph->source,
 					tcph->dest, dir);
 			if (target) {
-#ifndef CONFIG_CP_DIT
 				if (dir == LINK_FORWARD_DIR_REPLY) {
 					/* destination IP/Port manipulation */
 					addr = iphdr->daddr;
@@ -635,7 +381,6 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 							target->dst.u3.ip);
 
 				}
-#endif
 
 				skb->hash = tcph->dest;
 				skb->sw_hash = 1;
@@ -656,19 +401,6 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 			if (udph->dest != htons(5001)) /* TEST-ONLY for iperf */
 				return 0;
 
-#ifndef CONFIG_CP_DIT
-			addr_new = test_host_ip_addr.s_addr;
-
-			addr = iphdr->daddr;
-			iphdr->daddr = addr_new;
-			csum_replace4(&iphdr->check, addr, addr_new);
-
-			/* ToDo: port translation */
-			/*csum_replace2(sum, old, new);*/
-
-			if (udph->check != 0000)
-				csum_replace4(&udph->check, addr, addr_new);
-#endif
 			skb->hash = udph->dest;
 			skb->sw_hash = 1;
 
@@ -819,6 +551,7 @@ int nf_linkforward_add(struct nf_conn *ct)
 	struct nf_conntrack_tuple_hash *hash = &ct->tuplehash[IP_CT_DIR_REPLY];
 	struct nf_conntrack_tuple *t = &hash->tuple;
 	struct nf_conntrack_tuple_hash *org_h = &ct->tuplehash[IP_CT_DIR_ORIGINAL];
+	int ret;
 
 #ifdef DEBUG_LINK_FORWARD
 	pr_info("add linkforward [%s] %pI4:%hu -> %pI4:%hu\n",
@@ -828,15 +561,11 @@ int nf_linkforward_add(struct nf_conn *ct)
 		&t->dst.u3.ip,
 		ntohs(t->dst.u.all));
 #endif
+	ret = linkforward_add(t->dst.u.all, t, &org_h->tuple, ct->netdev);
+	if (ret == 0)
+		ct->linkforward_registered = true;
 
-	if (!nf_linkfwd.use || nf_linkfwd.brdg.inner != ct->netdev)
-		return -1;
-
-	linkforward_add(t->dst.u.all, t, &org_h->tuple, ct->netdev);
-
-	ct->linkforward_registered = true;
-
-	return 0;
+	return ret;
 }
 
 int nf_linkforward_delete(struct nf_conn *ct)
@@ -845,14 +574,6 @@ int nf_linkforward_delete(struct nf_conn *ct)
 	struct nf_conntrack_tuple *t = &hash->tuple;
 
 	if (!ct->linkforward_registered)
-		return -1;
-
-	/* Check IPv4 */
-	if (t->src.l3num != AF_INET)
-		return -1;
-
-	/* Check TCP Protocol */
-	if (t->dst.protonum != SOL_TCP)
 		return -1;
 
 #ifdef DEBUG_LINK_FORWARD
@@ -874,7 +595,6 @@ void nf_linkforward_monitor(struct nf_conn *ct)
 {
 	struct nf_conntrack_tuple_hash *hash = &ct->tuplehash[0];
 	struct nf_conntrack_tuple *t = &hash->tuple;
-	static int cnt;
 
 	/* Check IPv4 */
 	if (t->src.l3num != AF_INET)
@@ -884,10 +604,13 @@ void nf_linkforward_monitor(struct nf_conn *ct)
 	if (t->dst.protonum != SOL_TCP)
 		return;
 
-	cnt++;
-
-	/* Increase packet count */
-	ct->packet_count++;
+#ifdef USE_TETHEROFFLOAD
+	if (offload_enabled() == false || nf_linkfwd.brdg.inner != ct->netdev)
+		return;
+#else
+	if (!nf_linkfwd.use || nf_linkfwd.brdg.inner != ct->netdev)
+		return;
+#endif
 
 #ifdef DEBUG_LINK_FORWARD
 	pr_info("[%d] tuple %pI4:%hu -> %pI4:%hu\n",
@@ -898,7 +621,11 @@ void nf_linkforward_monitor(struct nf_conn *ct)
 		ntohs(t->dst.u.all));
 #endif
 
-	if (ct->packet_count == THRESHOLD_LINK_FORWARD)
+	/* Increase packet count */
+	ct->packet_count++;
+
+	if (ct->linkforward_registered == false &&
+			ct->packet_count >= THRESHOLD_LINK_FORWARD)
 		nf_linkforward_add(ct);
 }
 
@@ -907,125 +634,72 @@ static int netdev_linkforward_event(struct notifier_block *this,
 					  unsigned long event, void *ptr)
 {
 	struct net_device *net = netdev_notifier_info_to_dev(ptr);
+	enum linkforward_netdev netdev;
+	long netdev_num;
+	char *netdev_name;
 
-	if (strstr(net->name, "rndis") || strstr(net->name, "rmnet") ||
-			strstr(net->name, "ncm")) {
-		switch (event) {
-		case NETDEV_CHANGEMTU:
-			break;
+	if (strncmp(net->name, NET_NAME_RMNET, strlen(NET_NAME_RMNET)) == 0) {
+		netdev = RMNET;
+		netdev_name = NET_NAME_RMNET;
+	}
+	else if (strncmp(net->name, NET_NAME_V4RMNET, strlen(NET_NAME_V4RMNET)) == 0) {
+		netdev = V4RMNET;
+		netdev_name = NET_NAME_V4RMNET;
+	}
+	else if (strncmp(net->name, NET_NAME_RNDIS, strlen(NET_NAME_RNDIS)) == 0) {
+		netdev = RNDIS;
+		netdev_name = NET_NAME_RNDIS;
+	}
+	else if (strncmp(net->name, NET_NAME_NCM, strlen(NET_NAME_NCM)) == 0) {
+		netdev = NCM;
+		netdev_name = NET_NAME_NCM;
+	} else
+		return NOTIFY_DONE;
 
-		case NETDEV_CHANGEADDR:
-			break;
+	if (kstrtol(net->name + strlen(netdev_name), 10, &netdev_num) != 0) {
+		pr_err("Fail to get device number for %s\n", netdev_name);
+		netdev_num = -1;
+	}
 
-		case NETDEV_CHANGE:
-			break;
+	switch (event) {
+	case NETDEV_GOING_DOWN:
+	case NETDEV_DOWN:
+		pr_info("%s:%s\n", net->name, "NETDEV_DOWN");
+		if (netdev == RNDIS || netdev == NCM) {
+			linkforward_disable();
+			set_linkforwd_inner_dev(NULL);
+		} else if (netdev == RMNET)
+			set_linkforwd_outter_dev(netdev_num, NULL);
+		break;
 
-		case NETDEV_FEAT_CHANGE:
-			break;
-
-		case NETDEV_GOING_DOWN:
-		case NETDEV_DOWN:
-			if (strstr(net->name, "rndis") || strstr(net->name, "ncm")) {
-				linkforward_disable();
-				set_linkforwd_inner_dev(NULL);
-#if defined(DEBUG_TEST_UDP) && defined(CONFIG_CP_DIT)
-				dit_del_nat_filter(0);
-#endif
-			} else if (strstr(net->name, "v4-rmnet0"))
-				clat_disable_dev(net->name);
-			else if (strstr(net->name, "rmnet0"))
-				set_linkforwd_outter_dev(0, NULL);
-			else if (strstr(net->name, "rmnet1"))
-				set_linkforwd_outter_dev(1, NULL);
-			else if (strstr(net->name, "rmnet2"))
-				set_linkforwd_outter_dev(2, NULL);
-			else if (strstr(net->name, "rmnet3"))
-				set_linkforwd_outter_dev(3, NULL);
-			else if (strstr(net->name, "rmnet4"))
-				set_linkforwd_outter_dev(4, NULL);
-			else if (strstr(net->name, "rmnet5"))
-				set_linkforwd_outter_dev(5, NULL);
-			else if (strstr(net->name, "rmnet6"))
-				set_linkforwd_outter_dev(6, NULL);
-			else if (strstr(net->name, "rmnet7"))
-				set_linkforwd_outter_dev(7, NULL);
-			break;
-
-		case NETDEV_UP:
-			if (strstr(net->name, "rndis") || strstr(net->name, "ncm")) {
-				linkforward_table_init();
-
-				memcpy(nf_linkfwd.brdg.if_mac, net->dev_addr, ETH_ALEN);
-				gether_get_host_addr_u8(net, nf_linkfwd.brdg.ldev_mac);
-
+	case NETDEV_UP:
+		pr_info("%s:%s\n", net->name, "NETDEV_UP");
+		if (netdev == RNDIS || netdev == NCM) {
+			memcpy(nf_linkfwd.brdg.if_mac, net->dev_addr, ETH_ALEN);
+			gether_get_host_addr_u8(net, nf_linkfwd.brdg.ldev_mac);
 #ifdef DEBUG_LINK_FORWARD
-				pr_info(" %s ldev MAC %pM\n", net->name,
-						nf_linkfwd.brdg.ldev_mac);
-				pr_info(" %s ifac MAC %pM\n", net->name,
-						nf_linkfwd.brdg.if_mac);
+			pr_info(" %s ldev MAC %pM\n", net->name,
+					nf_linkfwd.brdg.ldev_mac);
+			pr_info(" %s ifac MAC %pM\n", net->name,
+					nf_linkfwd.brdg.if_mac);
 #endif
-#if defined(DEBUG_TEST_UDP) && defined(CONFIG_CP_DIT)
-				dit_set_nat_local_addr(test_host_ip_addr.s_addr);
-				dit_set_nat_filter(0, IPPROTO_UDP, 0xffffffff,
-						0xffff, htons(5001));
-#endif
-				set_linkforwd_inner_dev(net);
-				linkforward_enable();
-			} else if (strstr(net->name, "v4-rmnet0")) {
-			} else if (strstr(net->name, "rmnet0"))
-				set_linkforwd_outter_dev(0, net);
-			else if (strstr(net->name, "rmnet1"))
-				set_linkforwd_outter_dev(1, net);
-			else if (strstr(net->name, "rmnet2"))
-				set_linkforwd_outter_dev(2, net);
-			else if (strstr(net->name, "rmnet3"))
-				set_linkforwd_outter_dev(3, net);
-			else if (strstr(net->name, "rmnet4"))
-				set_linkforwd_outter_dev(4, net);
-			else if (strstr(net->name, "rmnet5"))
-				set_linkforwd_outter_dev(5, net);
-			else if (strstr(net->name, "rmnet6"))
-				set_linkforwd_outter_dev(6, net);
-			else if (strstr(net->name, "rmnet7"))
-				set_linkforwd_outter_dev(7, net);
-			break;
+			set_linkforwd_inner_dev(net);
+			linkforward_enable();
+		} else if (netdev == RMNET)
+			set_linkforwd_outter_dev(netdev_num, net);
+		break;
 
-		case NETDEV_UNREGISTER:
-			if (strstr(net->name, "rndis") || strstr(net->name, "ncm")) {
-				linkforward_disable();
-				set_linkforwd_inner_dev(NULL);
-#if defined(DEBUG_TEST_UDP) && defined(CONFIG_CP_DIT)
-				dit_del_nat_filter(0);
-#endif
-			} else if (strstr(net->name, "v4-rmnet0"))
-				clat_disable_dev(net->name);
-			else if (strstr(net->name, "rmnet0"))
-				set_linkforwd_outter_dev(0, NULL);
-			else if (strstr(net->name, "rmnet1"))
-				set_linkforwd_outter_dev(1, NULL);
-			else if (strstr(net->name, "rmnet2"))
-				set_linkforwd_outter_dev(2, NULL);
-			else if (strstr(net->name, "rmnet3"))
-				set_linkforwd_outter_dev(3, NULL);
-			else if (strstr(net->name, "rmnet4"))
-				set_linkforwd_outter_dev(4, NULL);
-			else if (strstr(net->name, "rmnet5"))
-				set_linkforwd_outter_dev(5, NULL);
-			else if (strstr(net->name, "rmnet6"))
-				set_linkforwd_outter_dev(6, NULL);
-			else if (strstr(net->name, "rmnet7"))
-				set_linkforwd_outter_dev(7, NULL);
-			break;
+	case NETDEV_UNREGISTER:
+		pr_info("%s:%s\n", net->name, "NETDEV_UNREGISTER");
+		if (netdev == RNDIS || netdev == NCM) {
+			linkforward_disable();
+			set_linkforwd_inner_dev(NULL);
+		} else if (netdev == RMNET)
+			set_linkforwd_outter_dev(netdev_num, NULL);
+		break;
 
-		case NETDEV_CHANGENAME:
-			break;
-
-		case NETDEV_PRE_TYPE_CHANGE:
-			break;
-
-		case NETDEV_RESEND_IGMP:
-			break;
-		}
+	default:
+		break;
 	}
 
 	return NOTIFY_DONE;

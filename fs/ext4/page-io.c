@@ -354,7 +354,7 @@ void ext4_io_submit(struct ext4_io_submit *io)
 		io->io_bio->bi_write_hint = io->io_end->inode->i_write_hint;
 #ifdef CONFIG_FS_HPB
 		if(ext4_test_inode_state(io->io_end->inode, EXT4_STATE_HPB))
-			io_op_flags |= REQ_RT_PINNED;
+			io_op_flags |= REQ_HPB_PREFER;
 #endif
 		bio_set_op_attrs(io->io_bio, REQ_OP_WRITE, io_op_flags);
 		if (ext4_encrypted_inode(io->io_end->inode) &&

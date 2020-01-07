@@ -249,6 +249,8 @@ extern void dhd_bus_handle_mb_data(struct dhd_bus *bus, uint32 d2h_mb_data);
 extern void dhd_bus_dump_trap_info(struct dhd_bus *bus, struct bcmstrbuf *b);
 extern void dhd_bus_copy_trap_sig(struct dhd_bus *bus,  trap_t *tr);
 #ifdef WL_CFGVENDOR_SEND_HANG_EVENT
+extern void dhd_dump_pcie_rc_regs_for_linkdown(dhd_pub_t *dhd, int *bytes_written);
+void copy_hang_info_linkdown(dhd_pub_t *dhd);
 void copy_ext_trap_sig(dhd_pub_t *dhd, trap_t *tr);
 void copy_hang_info_trap(dhd_pub_t *dhd);
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
@@ -268,7 +270,6 @@ extern void dhd_set_rpm_state(dhd_pub_t *dhd, bool state);
 #ifdef BCMPCIE
 extern void dhd_bus_dump_console_buffer(struct dhd_bus *bus);
 extern void dhd_bus_intr_count_dump(dhd_pub_t *dhdp);
-extern void dhd_bus_set_dpc_sched_time(dhd_pub_t *dhdp);
 extern bool dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp);
 extern int dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type);
 extern bool dhd_bus_check_driver_up(void);
@@ -278,7 +279,6 @@ extern int dhd_bus_get_linkdown(dhd_pub_t *dhdp);
 #else
 #define dhd_bus_dump_console_buffer(x)
 static INLINE void dhd_bus_intr_count_dump(dhd_pub_t *dhdp) { UNUSED_PARAMETER(dhdp); }
-static INLINE void dhd_bus_set_dpc_sched_time(dhd_pub_t *dhdp) { }
 static INLINE bool dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp) { return 0; }
 static INLINE int dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type) { return 0; }
 static INLINE bool dhd_bus_check_driver_up(void) { return FALSE; }
@@ -292,7 +292,7 @@ void dhdpcie_get_etd_preserve_logs(dhd_pub_t *dhd, uint8 *ext_trap_data,
 		void *event_decode_data);
 #endif
 
-extern uint16 dhd_get_chipid(dhd_pub_t *dhd);
+extern uint16 dhd_get_chipid(struct dhd_bus *bus);
 
 #ifdef DHD_WAKE_STATUS
 extern wake_counts_t* dhd_bus_get_wakecount(dhd_pub_t *dhd);
@@ -344,5 +344,11 @@ extern int dhdpcie_set_dma_ring_indices(dhd_pub_t *dhd, int32 int_val);
 extern void dhd_cfg80211_suspend(dhd_pub_t *dhdp);
 extern void dhd_cfg80211_resume(dhd_pub_t *dhdp);
 #endif /* DHD_CFG80211_SUSPEND_RESUME */
+
+#ifdef DHD_SDTC_ETB_DUMP
+extern int dhd_bus_get_etb_info(dhd_pub_t *dhd, uint32 etb_info_addr, etb_info_t *etb_info);
+extern int dhd_bus_get_sdtc_etb(dhd_pub_t *dhd, uint8 *sdtc_etb_mempool,
+	uint addr, uint read_bytes);
+#endif /* DHD_SDTC_ETB_DUMP */
 
 #endif /* _dhd_bus_h_ */

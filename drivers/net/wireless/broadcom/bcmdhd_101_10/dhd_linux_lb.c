@@ -995,6 +995,9 @@ dhd_napi_poll(struct napi_struct *napi, int budget)
 
 	if (processed < budget) {
 		napi_complete(napi);
+		DHD_GENERAL_LOCK(&dhd->pub, flags);
+		DHD_BUS_BUSY_CLEAR_IN_NAPI(&dhd->pub);
+		DHD_GENERAL_UNLOCK(&dhd->pub, flags);
 	}
 
 	return processed;
@@ -1014,9 +1017,18 @@ static void
 dhd_napi_schedule(void *info)
 {
 	dhd_info_t *dhd = (dhd_info_t *)info;
+	unsigned long flags;
 
 	DHD_INFO(("%s rx_napi_struct<%p> on cpu<%d>\n",
 		__FUNCTION__, &dhd->rx_napi_struct, atomic_read(&dhd->rx_napi_cpu)));
+
+	/*
+	 * Set busbusystate in NAPI, which will be cleared after
+	 * napi_complete from napi_poll context
+	 */
+	DHD_GENERAL_LOCK(&dhd->pub, flags);
+	DHD_BUS_BUSY_SET_IN_NAPI(&dhd->pub);
+	DHD_GENERAL_UNLOCK(&dhd->pub, flags);
 
 	/* add napi_struct to softnet data poll list and raise NET_RX_SOFTIRQ */
 	if (napi_schedule_prep(&dhd->rx_napi_struct)) {

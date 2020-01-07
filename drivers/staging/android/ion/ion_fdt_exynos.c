@@ -19,6 +19,7 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/cma.h>
 #include <linux/kmemleak.h>
+#include <linux/memblock.h>
 
 #include "ion.h"
 #include "ion_exynos.h"
@@ -49,6 +50,22 @@ static inline int exynos_cma_init_reserved_mem(phys_addr_t base, phys_addr_t siz
 }
 #endif
 
+#ifdef CONFIG_ION_RBIN_HEAP
+
+bool need_ion_rbin_heap()
+{
+#ifdef CONFIG_ION_RBIN_ONLY_FOR_UNDER_8GB
+	phys_addr_t total_bytes = memblock_phys_mem_size();
+
+	if (total_bytes > SZ_8G)
+		return false;
+#endif
+
+	return true;
+}
+
+#endif
+
 static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 {
 	bool untch, reusable, secure, recyclable = false;
@@ -63,7 +80,8 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 	secure = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,secure", NULL);
 
 #ifdef CONFIG_ION_RBIN_HEAP
-	recyclable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,recyclable", NULL);
+	if (need_ion_rbin_heap())
+		recyclable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,recyclable", NULL);
 #endif
 
 	rmem->reusable = (reusable | recyclable);

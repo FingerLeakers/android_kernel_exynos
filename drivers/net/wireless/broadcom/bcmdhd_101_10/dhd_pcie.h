@@ -422,7 +422,8 @@ typedef struct dhd_bus {
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 	uint64 isr_entry_time;
 	uint64 isr_exit_time;
-	uint64 dpc_sched_time;
+	uint64 isr_sched_dpc_time;
+	uint64 rpm_sched_dpc_time;
 	uint64 dpc_entry_time;
 	uint64 dpc_exit_time;
 	uint64 resched_dpc_time;
@@ -478,6 +479,8 @@ typedef struct dhd_bus {
 	bool gdb_proxy_access_enabled;
 	/* ID set by last "gdb_proxy_probe" iovar */
 	uint32 gdb_proxy_last_id;
+	/* True if firmware was started in bootloader mode */
+	bool gdb_proxy_bootloader_mode;
 #endif /* GDB_PROXY */
 	uint8  dma_chan;
 
@@ -844,6 +847,7 @@ extern void dhd_bus_inb_ack_pending_ds_req(dhd_bus_t *bus);
 #endif /* PCIE_INB_DW */
 extern void dhdpcie_bus_enab_pcie_dw(dhd_bus_t *bus, uint8 dw_option);
 extern int dhdpcie_irq_disabled(struct dhd_bus *bus);
+extern int dhdpcie_set_master_and_d0_pwrstate(struct dhd_bus *bus);
 
 static INLINE bool dhdpcie_is_arm_halted(struct dhd_bus *bus) {return TRUE;}
 static INLINE int dhd_os_wifi_platform_set_power(uint32 value) {return BCME_OK; }

@@ -104,11 +104,7 @@ static int is_hw_mcsc_handle_interrupt(u32 id, void *context)
 	if (status & (1 << INTR_MC_SCALER_FRAME_START)) {
 		atomic_add(1, &hw_ip->count.fs);
 
-		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = cpu_clock(raw_smp_processor_id());
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_START);
 		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]]))
 			msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
 
@@ -250,9 +246,7 @@ static int is_hw_mcsc_open(struct is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, BIT(hw_ip->id), "HWMCS");
-	frame_manager_probe(hw_ip->framemgr_late, BIT(hw_ip->id) | 0xF000, "HWMCS LATE");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_mcsc));
 	if(!hw_ip->priv_info) {
@@ -304,7 +298,6 @@ err_query_cap:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	return ret;
 }
@@ -381,7 +374,6 @@ static int is_hw_mcsc_close(struct is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 	clear_bit(HW_MCS_YSUM_CFG, &hw_ip->state);
@@ -1254,7 +1246,7 @@ void is_hw_mcsc_frame_done(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	struct is_frame *hw_frame;
 	struct is_hw_mcsc *hw_mcsc;
 	struct is_hw_mcsc_cap *cap = GET_MCSC_HW_CAP(hw_ip);
-	u32 index, dbg_pt = DEBUG_POINT_FRAME_END, out_id;
+	u32 index, out_id;
 	u32 wq_id = WORK_MAX_MAP, out_f_id = ENTRY_END;
 	int instance = atomic_read(&hw_ip->instance);
 	bool flag_get_meta = true;
@@ -1322,10 +1314,9 @@ void is_hw_mcsc_frame_done(struct is_hw_ip *hw_ip, struct is_frame *frame,
 		}
 	}
 
-	index = hw_ip->debug_index[1];
-	hw_ip->debug_info[index].cpuid[dbg_pt] = raw_smp_processor_id();
-	hw_ip->debug_info[index].time[dbg_pt] = cpu_clock(raw_smp_processor_id());
+	_is_hw_frame_dbg_trace(hw_ip, hw_frame->fcount, DEBUG_POINT_FRAME_END);
 
+	index = hw_ip->debug_index[1];
 	dbg_isr_hw("[F:%d][S-E] %05llu us\n", hw_ip, atomic_read(&hw_ip->fcount),
 		(hw_ip->debug_info[index].time[dbg_pt] -
 		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START]) / 1000);

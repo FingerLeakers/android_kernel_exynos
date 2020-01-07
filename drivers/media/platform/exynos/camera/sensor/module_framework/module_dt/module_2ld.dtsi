@@ -119,7 +119,7 @@
 						vc1 = </* in */ 0 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 0 HW_FORMAT_EMBEDDED_8BIT 2016 2/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
-						option { votf = <1>; };
+						option { votf = <0>; };
 					};
 					/* MODE 2 */
 					mode9 {

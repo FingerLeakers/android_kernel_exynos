@@ -2922,7 +2922,7 @@ static int __init s3c24xx_serial_modinit(void)
 		return ret;
 	}
 
-#ifdef CONFIG_CPU_IDLE
+#if defined(CONFIG_CPU_IDLE)
 	exynos_pm_register_notifier(&s3c24xx_serial_notifier_block);
 #endif
 

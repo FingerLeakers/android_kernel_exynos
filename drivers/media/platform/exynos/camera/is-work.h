@@ -14,7 +14,7 @@
 
 /*#define TRACE_WORK*/
 
-#define MAX_WORK_COUNT		10
+#define MAX_WORK_COUNT		20
 
 enum pdp_work_map {
 	WORK_PDP_STAT0,

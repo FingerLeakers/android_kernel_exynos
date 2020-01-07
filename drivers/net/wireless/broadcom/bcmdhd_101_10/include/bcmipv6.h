@@ -80,7 +80,7 @@ BWL_PRE_PACKED_STRUCT struct ipv6_addr {
 		uint8		addr[16];
 } BWL_POST_PACKED_STRUCT;
 
-/* XXX use masks, htonl instead of bit fileds */
+/* use masks, htonl instead of bit fileds */
 
 /* ICMPV6 Header */
 BWL_PRE_PACKED_STRUCT struct icmp6_hdr {

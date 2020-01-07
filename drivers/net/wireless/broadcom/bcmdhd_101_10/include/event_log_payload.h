@@ -68,6 +68,7 @@ typedef struct enhanced_ts_message_v1 {
 #define EVENT_LOG_XTLV_ID_BSSCFGDATA_SUM        4  /**< XTLV ID for bsscfg_q_summary_t */
 #define EVENT_LOG_XTLV_ID_UCTXSTATUS            5  /**< XTLV ID for ucode TxStatus array */
 #define EVENT_LOG_XTLV_ID_TXQ_SUM_V2            6  /**< XTLV ID for txq_summary_v2_t */
+#define EVENT_LOG_XTLV_ID_BUF                   7  /**< XTLV ID for event_log_buffer_t */
 
 /**
  * An XTLV holding a string
@@ -205,7 +206,10 @@ typedef struct xtlv_uc_txs {
 #define XTLV_UCTXSTATUS_LEN                (OFFSETOF(xtlv_uc_txs_t, w))
 #define XTLV_UCTXSTATUS_FULL_LEN(words)    (XTLV_UCTXSTATUS_LEN + (words) * sizeof(uint32))
 
-#define SCAN_SUMMARY_VERSION	1
+#define SCAN_SUMMARY_VERSION_1	1u
+#ifndef WLSCAN_SUMMARY_VERSION_ALIAS
+#define SCAN_SUMMARY_VERSION	SCAN_SUMMARY_VERSION_1
+#endif
 /* Scan flags */
 #define SCAN_SUM_CHAN_INFO	0x1
 /* Scan_sum flags */
@@ -215,6 +219,20 @@ typedef struct xtlv_uc_txs {
 #define SCAN_ABORT		0x10
 #define SC_LOWSPAN_SCAN		0x20
 #define SC_SCAN			0x40
+
+#define SCAN_SUM_CHAN_RESHED	0x20 /* Bit 5 as resched scan for chaninfo and scan summary */
+#define WL_SSUM_CLIENT_MASK	0x1C0u	/* bit 8 - 6 */
+#define WL_SSUM_CLIENT_SHIFT	6u	/* shift client scan opereration */
+
+#define WL_SSUM_MODE_MASK	0xE00u	/* bit 11 - 9 */
+#define WL_SSUM_MODE_SHIFT	9u	/* shift mode scan operation */
+
+#define WL_SSUM_CLIENT_ASSOCSCAN	0x0u	/* Log as scan requested client is assoc scan */
+#define WL_SSUM_CLIENT_ROAMSCAN		0x1u	/* Log as scan requested client is roam scan */
+#define WL_SSUM_CLIENT_FWSCAN		0x2u	/* Log as scan requested client is other fw scan */
+#define WL_SSUM_CLIENT_HOSTSCAN		0x3u	/* Log as scan requested client is host scan */
+
+#define WL_SSUM_SCANFLAG_INVALID	0x7u	/* Log for invalid scan client or mode */
 
 /* scan_channel_info flags */
 #define ACTIVE_SCAN_SCN_SUM	0x2
@@ -273,7 +291,8 @@ struct wl_scan_summary {
 				/* flags[2] or WLC_CORE0 = if set, represents wlc_core0 */
 				/* flags[3] or WLC_CORE1 = if set, represents wlc_core1 */
 				/* flags[4] or HOME_CHAN = if set, represents home-channel */
-				/* flags[5:15] = reserved */
+				/* flags[5] SCAN_SUM_CHAN_RESHED indicate scan rescheduled */
+				/* flags[6:15] = reserved */
 				/* when scan_summary_info is used, */
 				/* the following flag bits are used: */
 				/* flags[1] or BAND5G_SIB_ENAB = */
@@ -282,7 +301,16 @@ struct wl_scan_summary {
 				/* allowSIBParallelPassiveScan on 2G band */
 				/* flags[3] or PARALLEL_SCAN = Parallel scan enabled or not */
 				/* flags[4] or SCAN_ABORT = SCAN_ABORTED scenario */
-				/* flags[5:15] = reserved */
+				/* flags[5] SCAN_SUM_CHAN_RESHED indicate scan rescheduled */
+				/* flags[6:8] is used as count value to identify SCAN CLIENT
+				 * WL_SSUM_CLIENT_ASSOCSCAN 0x0u, WL_SSUM_CLIENT_ROAMSCAN 0x1u,
+				 * WL_SSUM_CLIENT_FWSCAN	0x2u, WL_SSUM_CLIENT_HOSTSCAN 0x3u
+				 */
+				/* flags[9:11] is used as count value to identify SCAN MODE
+				 * WL_SCAN_MODE_HIGH_ACC 0u, WL_SCAN_MODE_LOW_SPAN 1u,
+				 * WL_SCAN_MODE_LOW_POWER 2u
+				 */
+				/* flags[12:15] = reserved */
 	union {
 		wl_scan_channel_info_t scan_chan_info;	/* scan related information
 							* for each channel scanned
@@ -293,6 +321,60 @@ struct wl_scan_summary {
 	} u;
 };
 
+#define SCAN_SUMMARY_VERSION_2	2u
+struct wl_scan_summary_v2 {
+	uint8 version;		/* Version */
+	uint8 reserved;
+	uint16 len;		/* Length of the data buffer including SSID
+				 * list.
+				 */
+	uint16 sync_id;		/* Scan Sync ID */
+	uint16 scan_flags;		/* flags [0] or SCAN_SUM_CHAN_INFO = */
+				/* channel_info, if not set */
+				/* it is scan_summary_info */
+				/* when channel_info is used, */
+				/* the following flag bits are overridden: */
+				/* flags[1] or ACTIVE_SCAN_SCN_SUM = active channel if set */
+				/* passive if not set */
+				/* flags[2] or WLC_CORE0 = if set, represents wlc_core0 */
+				/* flags[3] or WLC_CORE1 = if set, represents wlc_core1 */
+				/* flags[4] or HOME_CHAN = if set, represents home-channel */
+				/* flags[5] SCAN_SUM_CHAN_RESHED indicate scan rescheduled */
+				/* flags[6:15] = reserved */
+				/* when scan_summary_info is used, */
+				/* the following flag bits are used: */
+				/* flags[1] or BAND5G_SIB_ENAB = */
+				/* allowSIBParallelPassiveScan on 5G band */
+				/* flags[2] or BAND2G_SIB_ENAB = */
+				/* allowSIBParallelPassiveScan on 2G band */
+				/* flags[3] or PARALLEL_SCAN = Parallel scan enabled or not */
+				/* flags[4] or SCAN_ABORT = SCAN_ABORTED scenario */
+				/* flags[5] SCAN_SUM_CHAN_RESHED indicate scan rescheduled */
+				/* flags[6:8] is used as count value to identify SCAN CLIENT
+				 * WL_SSUM_CLIENT_ASSOCSCAN 0x0u, WL_SSUM_CLIENT_ROAMSCAN 0x1u,
+				 * WL_SSUM_CLIENT_FWSCAN	0x2u, WL_SSUM_CLIENT_HOSTSCAN 0x3u
+				 */
+				/* flags[9:11] is used as count value to identify SCAN MODE
+				 * WL_SCAN_MODE_HIGH_ACC 0u, WL_SCAN_MODE_LOW_SPAN 1u,
+				 * WL_SCAN_MODE_LOW_POWER 2u
+				 */
+				/* flags[12:15] = reserved */
+	/* scan_channel_ctx_t chan_cnt; */
+	uint8 channel_cnt_aux;			/* Number of channels to be scanned on Aux core */
+	uint8 channel_cnt_main;			/* Number of channels to be scanned on Main core */
+	uint8 channel_cnt_sc;			/* Number of channels to be scanned on Scan core */
+	uint8 active_channel_cnt;
+	uint8 passive_channel_cnt;
+	char pad[3];				/* Pad to keep it 32 bit aligned */
+	union {
+		wl_scan_channel_info_t scan_chan_info;	/* scan related information
+							* for each channel scanned
+							*/
+		wl_scan_summary_info_t scan_sum_info;	/* Cumulative scan related
+							* information.
+							*/
+	} u;
+};
 /* Channel switch log record structure
  * Host may map the following structure on channel switch event log record
  * received from dongle. Note that all payload entries in event log record are
@@ -1131,5 +1213,23 @@ typedef struct roam_log_bcnrptrep_v3 {
 	uint16 duration;		/* duration */
 	uint16 pad;
 } roam_log_bcnrpt_rep_v3_t;
+
+#define EVENT_LOG_BUFFER_ID_PMK			0
+#define EVENT_LOG_BUFFER_ID_ANONCE		1
+#define EVENT_LOG_BUFFER_ID_SNONCE		2
+#define EVENT_LOG_BUFFER_ID_WPA_M3_KEYDATA	3
+#define EVENT_LOG_BUFFER_ID_WPA_CACHED_KEYDATA	4
+
+typedef struct event_log_buffer {
+	uint16 id;	/* XTLV ID: EVENT_LOG_XTLV_ID_BUF */
+	uint16 len;	/* XTLV Len */
+	uint16 buf_id;	/* One of the above EVENT_LOG_BUFFER_ID_XXXs */
+	uint16 pad;	/* for 4-byte start alignment of data */
+	uint8 data[];	/* the payload of interest */
+} event_log_buffer_t;
+
+#define XTLV_EVENT_LOG_BUFFER_LEN		(OFFSETOF(event_log_buffer_t, data))
+#define XTLV_EVENT_LOG_BUFFER_FULL_LEN(buf_len)	ALIGN_SIZE((XTLV_EVENT_LOG_BUFFER_LEN + \
+							(buf_len) * sizeof(uint8)), sizeof(uint32))
 
 #endif /* _EVENT_LOG_PAYLOAD_H_ */

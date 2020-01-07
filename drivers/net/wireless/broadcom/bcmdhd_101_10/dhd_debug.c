@@ -43,6 +43,8 @@
 #include <dhd_event_log_filter.h>
 #endif /* DHD_EVENT_LOG_FILTER */
 
+uint8 control_logtrace = CUSTOM_CONTROL_LOGTRACE;
+
 struct map_table {
 	uint16 fw_id;
 	uint16 host_id;
@@ -615,7 +617,7 @@ dhd_dbg_verboselog_printf(dhd_pub_t *dhdp, prcd_event_log_hdr_t *plog_hdr,
 
 #endif /* DHD_LOG_PRINT_RATE_LIMIT */
 	/* print the message out in a logprint  */
-	if (!(raw_event->fmts)) {
+	if ((control_logtrace == LOGTRACE_RAW_FMT) || !(raw_event->fmts)) {
 		if (dhdp->dbg) {
 			log_level = dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID].log_level;
 			for (id = 0; id < ARRAYSIZE(fw_verbose_level_map); id++) {
@@ -2659,4 +2661,22 @@ dhd_dbg_detach(dhd_pub_t *dhdp)
 		}
 	}
 	MFREE(dhdp->osh, dhdp->dbg, sizeof(dhd_dbg_t));
+}
+
+uint32
+dhd_dbg_get_fwverbose(dhd_pub_t *dhdp)
+{
+	if (dhdp && dhdp->dbg) {
+		return dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID].log_level;
+	}
+	return 0;
+}
+
+void
+dhd_dbg_set_fwverbose(dhd_pub_t *dhdp, uint32 new_val)
+{
+
+	if (dhdp && dhdp->dbg) {
+		dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID].log_level = new_val;
+	}
 }

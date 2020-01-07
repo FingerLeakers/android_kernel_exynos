@@ -67,6 +67,11 @@ struct typec_info {
 	int pd;
 };
 
+struct usb_gadget_info {
+	int bus_state;
+	int usb_cable_connect;
+};
+
 struct usb_notify {
 	struct otg_notify *o_notify;
 	struct atomic_notifier_head	otg_notifier;
@@ -83,6 +88,7 @@ struct usb_notify {
 	struct otg_booting_delay b_delay;
 	struct delayed_work check_work;
 	struct typec_info typec_status;
+	struct usb_gadget_info gadget_status;
 	int is_device;
 	int check_work_complete;
 	int oc_noti;
@@ -131,6 +137,10 @@ static int check_event_type(enum otg_notify_events event)
 	case NOTIFY_EVENT_PD_CONTRACT:
 	case NOTIFY_EVENT_VBUS_RESET:
 	case NOTIFY_EVENT_RESERVE_BOOSTER:
+	case NOTIFY_EVENT_USB_CABLE:
+	case NOTIFY_EVENT_USBD_SUSPEND:
+	case NOTIFY_EVENT_USBD_UNCONFIGURE:
+	case NOTIFY_EVENT_USBD_CONFIGURE:
 		ret |= NOTIFY_EVENT_EXTRA;
 		break;
 	case NOTIFY_EVENT_VBUS:
@@ -249,6 +259,14 @@ const char *event_string(enum otg_notify_events event)
 		return "host_accessory_restart";
 	case NOTIFY_EVENT_RESERVE_BOOSTER:
 		return "reserve_booster";
+	case NOTIFY_EVENT_USB_CABLE:
+		return "usb_cable";
+	case NOTIFY_EVENT_USBD_SUSPEND:
+		return "usb_d_suspend";
+	case NOTIFY_EVENT_USBD_UNCONFIGURE:
+		return "usb_d_unconfigure";
+	case NOTIFY_EVENT_USBD_CONFIGURE:
+		return "usb_d_configure";
 	default:
 		return "undefined";
 	}
@@ -613,7 +631,7 @@ int do_notify_blockstate(struct otg_notify *n, unsigned long event,
 	case NOTIFY_EVENT_VBUS:
 		if (enable)
 			if (n->set_chg_current)
-				n->set_chg_current(1);
+				n->set_chg_current(NOTIFY_CONFIGURE);
 		break;
 	case NOTIFY_EVENT_LANHUB:
 	case NOTIFY_EVENT_HMT:
@@ -1185,6 +1203,7 @@ static void otg_notify_state(struct otg_notify *n,
 				n->set_peripheral(true);
 		} else {
 			u_notify->ndev.mode = NOTIFY_NONE_MODE;
+			u_notify->gadget_status.bus_state = NOTIFY_UNCONFIGURE;
 			if (n->set_peripheral)
 				n->set_peripheral(false);
 			if (gpio_is_valid(n->redriver_en_gpio))
@@ -1561,6 +1580,34 @@ static void extra_notify_state(struct otg_notify *n,
 			u_notify->reserve_vbus_booster = 1;
 		else
 			u_notify->reserve_vbus_booster = 0;
+		break;
+	case NOTIFY_EVENT_USB_CABLE:
+		if (enable)
+			u_notify->gadget_status.usb_cable_connect = 1;
+		else
+			u_notify->gadget_status.usb_cable_connect = 0;
+
+		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE) {
+			if ((u_notify->gadget_status.bus_state == NOTIFY_SUSPEND)
+					&& u_notify->gadget_status.usb_cable_connect)
+				n->set_chg_current(NOTIFY_SUSPEND);
+		}
+		break;
+	case NOTIFY_EVENT_USBD_SUSPEND:
+		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE) {
+			u_notify->gadget_status.bus_state = NOTIFY_SUSPEND;
+			if ((u_notify->gadget_status.bus_state == NOTIFY_SUSPEND)
+					&& u_notify->gadget_status.usb_cable_connect)
+				n->set_chg_current(NOTIFY_SUSPEND);
+		}
+		break;
+	case NOTIFY_EVENT_USBD_UNCONFIGURE:
+		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE)
+			u_notify->gadget_status.bus_state = NOTIFY_UNCONFIGURE;
+		break;
+	case NOTIFY_EVENT_USBD_CONFIGURE:
+		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE)
+			u_notify->gadget_status.bus_state = NOTIFY_CONFIGURE;
 		break;
 	default:
 		break;
@@ -1979,7 +2026,7 @@ static struct dev_table known_usbaudio_device_table[] = {
 	{}
 };
 
-static int is_known_usbaudio(struct usb_device *dev)
+int is_known_usbaudio(struct usb_device *dev)
 {
 	struct dev_table *id;
 	int ret = 0;
@@ -1996,6 +2043,7 @@ static int is_known_usbaudio(struct usb_device *dev)
 	}
 	return ret;
 }
+EXPORT_SYMBOL(is_known_usbaudio);
 
 void send_usb_audio_uevent(struct usb_device *dev)
 {

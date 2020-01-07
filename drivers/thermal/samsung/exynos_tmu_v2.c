@@ -304,6 +304,7 @@ static int exynos_get_temp(void *p, int *temp)
 	int acpm_temp = 0, stat = 0;
 	int acpm_data[2];
 	unsigned long long dbginfo;
+	unsigned int limited_max_freq = 0;
 
 	if (!data || !data->enabled)
 		return -EINVAL;
@@ -314,18 +315,56 @@ static int exynos_get_temp(void *p, int *temp)
 
 	*temp = acpm_temp * MCELSIUS;
 
-	if (data->limited_frequency) {
-		if (!data->limited) {
+	if (data->id == 0)
+	    limited_max_freq = PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE;
+	else if (data->id == 1)
+	    limited_max_freq = PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE;
+
+	if (data->limited_frequency_2) {
+		if (data->limited == 0) {
+			if (*temp >= data->limited_threshold_2) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						data->limited_frequency_2);
+				data->limited = 2;
+			} else if (*temp >= data->limited_threshold) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						data->limited_frequency);
+				data->limited = 1;
+			}
+		} else if (data->limited == 1) {
+			if (*temp >= data->limited_threshold_2) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						data->limited_frequency_2);
+				data->limited = 2;
+			}
+			else if (*temp < data->limited_threshold_release) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						limited_max_freq);
+				data->limited = 0;
+			}
+		} else if (data->limited == 2) {
+			if (*temp < data->limited_threshold_release) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						limited_max_freq);
+				data->limited = 0;
+			} else if (*temp < data->limited_threshold_release_2) {
+				pm_qos_update_request(&data->thermal_limit_request,
+						data->limited_frequency);
+				data->limited = 1;
+			} 
+		}
+	} else if (data->limited_frequency) {
+		if (data->limited == 0) {
 			if (*temp >= data->limited_threshold) {
 				pm_qos_update_request(&data->thermal_limit_request,
 						data->limited_frequency);
-				data->limited = true;
+				data->limited = 1;
 			}
 		} else {
 			if (*temp < data->limited_threshold_release) {
 				pm_qos_update_request(&data->thermal_limit_request,
-						PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
-				data->limited = false;
+						limited_max_freq);
+				data->limited = 0;
 			}
 		}
 	}
@@ -871,6 +910,8 @@ static int exynos_tmu_parse_ect(struct exynos_tmu_data *data)
 		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_frequency")) != -1) {
 			pr_info("Parse from ECT limited_frequency: %d\n", value);
 			limited_frequency = value;
+			data->limited_frequency = limited_frequency;
+			data->limited = false;
 		}
 
 		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_threshold")) != -1) {
@@ -886,17 +927,54 @@ static int exynos_tmu_parse_ect(struct exynos_tmu_data *data)
 			data->limited_threshold_release = limited_threshold_release;
 		}
 
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_frequency_1")) != -1) {
+			pr_info("Parse from ECT limited_frequency: %d\n", value);
+			limited_frequency = value;
+			data->limited_frequency = limited_frequency;
+			data->limited = false;
+		}
+
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_threshold_1")) != -1) {
+			pr_info("Parse from ECT limited_threshold: %d\n", value);
+			limited_threshold = value * MCELSIUS;
+			__tz->trips[3].temperature = limited_threshold;
+			data->limited_threshold = limited_threshold;
+		}
+
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_threshold_release_1")) != -1) {
+			pr_info("Parse from ECT limited_threshold_release: %d\n", value);
+			limited_threshold_release = value * MCELSIUS;
+			data->limited_threshold_release = limited_threshold_release;
+		}
+
+
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_frequency_2")) != -1) {
+			pr_info("Parse from ECT limited_frequency: %d\n", value);
+			limited_frequency = value;
+			data->limited_frequency_2 = limited_frequency;
+			data->limited = false;
+		}
+
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_threshold_2")) != -1) {
+			pr_info("Parse from ECT limited_threshold: %d\n", value);
+			limited_threshold = value * MCELSIUS;
+			__tz->trips[4].temperature = limited_threshold;
+			data->limited_threshold_2 = limited_threshold;
+		}
+
+		if ((value = exynos_tmu_ect_get_param(pidtm_block, "limited_threshold_release_2")) != -1) {
+			pr_info("Parse from ECT limited_threshold_release: %d\n", value);
+			limited_threshold_release = value * MCELSIUS;
+			data->limited_threshold_release_2 = limited_threshold_release;
+		}
+
+
 		if (hotplug_out_threshold != 0 && hotplug_in_threshold != 0) {
 			data->hotplug_out_threshold = hotplug_out_threshold;
 			data->hotplug_in_threshold = hotplug_in_threshold;
 			data->hotplug_enable = true;
 		} else
 			data->hotplug_enable = false;
-
-		if (limited_frequency) {
-			data->limited_frequency = limited_frequency;
-			data->limited = false;
-		}
 	}
 	return 0;
 };
@@ -958,9 +1036,15 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 	exynos_tmu_parse_ect(data);
 
 	if (data->limited_frequency) {
+	    if (data->id == 0) {
 		pm_qos_add_request(&data->thermal_limit_request,
 					PM_QOS_CLUSTER2_FREQ_MAX,
 					PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
+	    } else if (data->id == 1) {
+		pm_qos_add_request(&data->thermal_limit_request,
+					PM_QOS_CLUSTER1_FREQ_MAX,
+					PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
+	    }
 	}
 #endif
 

@@ -267,9 +267,24 @@ struct is_rom_info {
 	int32_t		rom_dualcal_slave1_size;
 	int32_t		rom_dualcal_slave2_start_addr;
 	int32_t		rom_dualcal_slave2_size;
+
 	int32_t		rom_pdxtc_cal_data_start_addr;
 	int32_t		rom_pdxtc_cal_data_coef_size;
 	int32_t		rom_pdxtc_cal_data_val_size;
+	int32_t		rom_pdxtc_cal_data_0_size;
+	int32_t		rom_pdxtc_cal_data_1_size;
+
+	int32_t		rom_spdc_cal_data_start_addr;
+	int32_t		rom_spdc_cal_data_size;
+	bool	rom_pdxtc_cal_endian_check;
+	u32		rom_pdxtc_cal_data_addr_list[CROSSTALK_CAL_MAX];
+	u32		rom_pdxtc_cal_data_addr_list_len;
+	bool	rom_gcc_cal_endian_check;
+	u32		rom_gcc_cal_data_addr_list[CROSSTALK_CAL_MAX];
+	u32		rom_gcc_cal_data_addr_list_len;
+	bool	rom_xtc_cal_endian_check;
+	u32		rom_xtc_cal_data_addr_list[CROSSTALK_CAL_MAX];
+	u32		rom_xtc_cal_data_addr_list_len;
 
 	int32_t		rom_tof_cal_size_addr[TOF_CAL_SIZE_MAX];
 	int32_t		rom_tof_cal_size_addr_len;

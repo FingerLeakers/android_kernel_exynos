@@ -133,6 +133,9 @@ static int edid_read_block(u32 sst_id, struct displayport_device *displayport,
 
 	print_hex_dump(KERN_INFO, "EDID: ", DUMP_PREFIX_OFFSET, 16, 1,
 					buf, 128, false);
+#if defined(CONFIG_SEC_DISPLAYPORT_LOGGER)
+	dp_print_hex_dump(buf, "EDID: ", 128);
+#endif
 
 	return 0;
 }
@@ -166,7 +169,7 @@ EDID_READ_RETRY:
 	}
 
 	block_cnt = edid_buf[EDID_EXTENSION_FLAG] + 1;
-	displayport_info("block_cnt = %d\n", block_cnt);
+	displayport_info("sst%d block_cnt = %d\n", sst_id + 1, block_cnt);
 
 	while (++block < block_cnt) {
 		ret = edid_read_block(sst_id, displayport, block,
@@ -581,6 +584,7 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 #ifdef FEATURE_USE_PREFERRED_TIMING_1ST
 	int matched_timing_idx = 0;
 	int matched_resolution_idx = 0;
+	int matched_resolution_fps = 0;
 	int max_dex_support_idx = 0;
 #endif
 	struct fb_videomode *mode = NULL;
@@ -607,10 +611,13 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 		if (mode->vmode == FB_VMODE_NONINTERLACED &&
 				mode->xres == supported_videos[i].dv_timings.bt.width &&
 				mode->yres == supported_videos[i].dv_timings.bt.height) {
-			if (!matched_resolution_idx) {
-				matched_resolution_idx = i;
-				displayport_info("found matched resolution:%d\n", i);
+
+			matched_resolution_idx = i;
+			if (matched_resolution_fps < supported_videos[i].fps &&
+					supported_videos[i].edid_support_match == true) {
+				matched_resolution_fps = supported_videos[i].fps;
 			}
+
 			if ((mode->refresh == supported_videos[i].fps) &&
 					!matched_timing_idx) {
 				matched_timing_idx = i;
@@ -642,19 +649,20 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 
 /*use every prefered timing as top priority*/
 #ifdef FEATURE_USE_PREFERRED_TIMING_1ST
+	/* ignore if preferred fps is lower than other matched */
+	if (matched_resolution_fps != 0 && mode->refresh < matched_resolution_fps) {
+		displayport_info("EDID: framerate(%d) lower than matched(%d)\n",
+					mode->refresh, matched_resolution_fps);
+		return;
+	}
+
 	if (matched_timing_idx != 0 && matched_timing_idx < VDUMMYTIMING) {
 		/* copy dex_support and ratio if found the same timing at table */
 		supported_videos[VDUMMYTIMING].ratio = supported_videos[matched_timing_idx].ratio;
 		supported_videos[VDUMMYTIMING].dex_support = supported_videos[matched_timing_idx].dex_support;
-	} else if (matched_resolution_idx != 0 && matched_resolution_idx < VDUMMYTIMING &&
-				(supported_videos[matched_resolution_idx].ratio == RATIO_16_9 ||
-				supported_videos[matched_resolution_idx].ratio == RATIO_16_10 ||
-				supported_videos[matched_resolution_idx].ratio == RATIO_21_9) ) {
+	} else if (matched_resolution_idx != 0 && matched_resolution_idx < VDUMMYTIMING) {
+		displayport_info("found matched resolution:%d\n", i);
 		supported_videos[VDUMMYTIMING].ratio = supported_videos[matched_resolution_idx].ratio;
-/* need to reduce high fps for dex mode?
-		if (pixelclock <= supported_videos[max_dex_support_idx].dv_timings.bt.pixelclock)
-			supported_videos[VDUMMYTIMING].dex_support = supported_videos[matched_resolution_idx].dex_support;
-*/
 	}
 #else
 	/* check if index is valid and index is bigger than best video */

@@ -450,9 +450,9 @@ typedef struct msgbuf_ring {
 /* This can be overwritten by module parameter defined in dhd_linux.c
  * or by dhd iovar h2d_max_txpost.
  */
-int h2d_max_txpost = DHD_H2DRING_TXPOST_MAX_ITEM;
+int h2d_max_txpost = H2DRING_TXPOST_MAX_ITEM;
 #if defined(DHD_HTPUT_TUNABLES)
-int h2d_htput_max_txpost = DHD_HTPUT_H2DRING_TXPOST_MAX_ITEM;
+int h2d_htput_max_txpost = H2DRING_HTPUT_TXPOST_MAX_ITEM;
 #endif /* DHD_HTPUT_TUNABLES */
 
 /** DHD protocol handle. Is an opaque type to other DHD software layers. */
@@ -4100,7 +4100,7 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	/* Use default value in case of failure */
 	prot->rxbufpost_sz = DHD_FLOWRING_RX_BUFPOST_PKTSZ;
 	memset(buf, 0, sizeof(buf));
-	bcm_mkiovar("rxbufpost_sz", NULL, 0, buf, sizeof(buf));
+	len = bcm_mkiovar("rxbufpost_sz", NULL, 0, buf, sizeof(buf));
 	if (len == 0) {
 		DHD_ERROR(("%s failed in calling bcm_mkiovar %u\n", __FUNCTION__, len));
 	} else {
@@ -4109,8 +4109,10 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 			DHD_ERROR(("%s: GET RxBuf post FAILED, use default %d\n",
 				__FUNCTION__, DHD_FLOWRING_RX_BUFPOST_PKTSZ));
 		} else {
-			memcpy_s(&(prot->rxbufpost_sz), sizeof(prot->rxbufpost_sz),
-				buf, sizeof(uint16));
+			if (memcpy_s(&(prot->rxbufpost_sz), sizeof(prot->rxbufpost_sz),
+					buf, sizeof(uint16)) != BCME_OK) {
+				DHD_ERROR(("%s: rxbufpost_sz memcpy failed\n", __FUNCTION__));
+			}
 
 			if (prot->rxbufpost_sz > DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX) {
 				DHD_ERROR(("%s: Invalid RxBuf post size : %d, default to %d\n",
@@ -4132,7 +4134,9 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 	dhd_process_cid_mac(dhd, TRUE);
 	ret = dhd_preinit_ioctls(dhd);
 	dhd_process_cid_mac(dhd, FALSE);
-
+#if defined(DHD_SDTC_ETB_DUMP)
+	dhd_sdtc_etb_init(dhd);
+#endif /* DHD_SDTC_ETB_DUMP */
 #if defined(DHD_H2D_LOG_TIME_SYNC)
 	if (FW_SUPPORTED(dhd, h2dlogts)) {
 		dhd->dhd_rte_time_sync_ms = DHD_H2D_LOG_TIME_STAMP_MATCH;
@@ -5468,6 +5472,15 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, uint bound, int ringt
 	int i;
 	uint8 sync;
 
+#ifdef DHD_PCIE_RUNTIMEPM
+	/* Set rx_pending_due_to_rpm if device is not in resume state */
+	if (dhdpcie_runtime_bus_wake(dhd, FALSE, dhd_prot_process_msgbuf_rxcpl)) {
+		dhd->rx_pending_due_to_rpm = TRUE;
+		return more;
+	}
+	dhd->rx_pending_due_to_rpm = FALSE;
+#endif /* DHD_PCIE_RUNTIMEPM */
+
 		ring = &prot->d2hring_rx_cpln;
 	item_len = ring->item_len;
 	while (1) {
@@ -6197,18 +6210,6 @@ dhd_prot_check_tx_resource(dhd_pub_t *dhd)
 	return dhd->prot->no_tx_resource;
 }
 
-void
-dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd)
-{
-	dhd->prot->pktid_txq_stop_cnt++;
-}
-
-void
-dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd)
-{
-	dhd->prot->pktid_txq_start_cnt++;
-}
-
 /** called on MSG_TYPE_TX_STATUS message received from dongle */
 static void
 BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
@@ -6292,6 +6293,9 @@ BCMFASTPATH(dhd_prot_txstatus_process)(dhd_pub_t *dhd, void *msg)
 	}
 
 	if (DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map) == DHD_PKTID_MIN_AVAIL_COUNT) {
+		DHD_ERROR(("%s: start tx queue as min pktids are available\n",
+			__FUNCTION__));
+		prot->pktid_txq_stop_cnt--;
 		dhd->prot->no_tx_resource = FALSE;
 		dhd_bus_start_queue(dhd->bus);
 	}
@@ -6571,6 +6575,9 @@ BCMFASTPATH(dhd_prot_txdata)(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 #ifdef DHD_PCIE_PKTID
 		if (!DHD_PKTID_AVAIL(dhd->prot->pktid_tx_map)) {
 			if (dhd->prot->pktid_depleted_cnt == DHD_PKTID_DEPLETED_MAX_COUNT) {
+				DHD_ERROR(("%s: stop tx queue as pktid_depleted_cnt maxed\n",
+					__FUNCTION__));
+				prot->pktid_txq_stop_cnt++;
 				dhd_bus_stop_queue(dhd->bus);
 				dhd->prot->no_tx_resource = TRUE;
 			}
@@ -7968,6 +7975,11 @@ BCMFASTPATH(dhd_prot_alloc_ring_space)(dhd_pub_t *dhd, msgbuf_ring_t *ring,
 	uint16 nitems, uint16 * alloced, bool exactly_nitems)
 {
 	void * ret_buf;
+
+	if (nitems == 0) {
+		DHD_ERROR(("%s: nitems is 0 - ring(%s)\n", __FUNCTION__, ring->name));
+		return NULL;
+	}
 
 	/* Alloc space for nitems in the ring */
 	ret_buf = dhd_prot_get_ring_space(ring, nitems, alloced, exactly_nitems);
@@ -9553,8 +9565,11 @@ void dhd_prot_print_info(dhd_pub_t *dhd, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "max RX bufs to post: %d, \t posted %d \n",
 		dhd->prot->max_rxbufpost, dhd->prot->rxbufpost);
 
-	bcm_bprintf(strbuf, "Total RX bufs posted: %d, \t cpl got %d \n",
+	bcm_bprintf(strbuf, "Total RX bufs posted: %d, \t RX cpl got %d \n",
 		dhd->prot->tot_rxbufpost, dhd->prot->tot_rxcpl);
+
+	bcm_bprintf(strbuf, "Total TX packets: %d, \t TX cpl got %d \n",
+		dhd->actual_tx_pkts, dhd->tot_txcpl);
 
 	bcm_bprintf(strbuf,
 		"%14s %18s %18s %17s %17s %14s %14s %10s\n",
@@ -10371,6 +10386,62 @@ copy_hang_info_trap(dhd_pub_t *dhd)
 			dhd->hang_info_cnt, (int)strlen(dhd->hang_info), dhd->hang_info));
 	}
 #endif /* DHD_EWPR_VER2 */
+}
+
+void
+copy_hang_info_linkdown(dhd_pub_t *dhd)
+{
+	int bytes_written = 0;
+	int remain_len;
+
+	if (!dhd || !dhd->hang_info) {
+		DHD_ERROR(("%s dhd=%p hang_info=%p\n", __FUNCTION__,
+			dhd, (dhd ? dhd->hang_info : NULL)));
+		return;
+	}
+
+	if (!dhd->bus->is_linkdown) {
+		DHD_ERROR(("%s: link down is not happened\n", __FUNCTION__));
+		return;
+	}
+
+	dhd->hang_info_cnt = 0;
+
+	get_debug_dump_time(dhd->debug_dump_time_hang_str);
+	copy_debug_dump_time(dhd->debug_dump_time_str, dhd->debug_dump_time_hang_str);
+
+	/* hang reason code (0x8808) */
+	if (dhd->hang_info_cnt < HANG_FIELD_CNT_MAX) {
+		remain_len = VENDOR_SEND_HANG_EXT_INFO_LEN - bytes_written;
+		bytes_written += scnprintf(&dhd->hang_info[bytes_written], remain_len, "%d%c",
+				HANG_REASON_PCIE_LINK_DOWN_EP_DETECT, HANG_KEY_DEL);
+		dhd->hang_info_cnt++;
+	}
+
+	/* EWP version */
+	if (dhd->hang_info_cnt < HANG_FIELD_CNT_MAX) {
+		remain_len = VENDOR_SEND_HANG_EXT_INFO_LEN - bytes_written;
+		bytes_written += scnprintf(&dhd->hang_info[bytes_written], remain_len, "%d%c",
+				VENDOR_SEND_HANG_EXT_INFO_VER, HANG_KEY_DEL);
+		dhd->hang_info_cnt++;
+	}
+
+	/* cookie - dump time stamp */
+	if (dhd->hang_info_cnt < HANG_FIELD_CNT_MAX) {
+		remain_len = VENDOR_SEND_HANG_EXT_INFO_LEN - bytes_written;
+		bytes_written += scnprintf(&dhd->hang_info[bytes_written], remain_len, "%s%c",
+				dhd->debug_dump_time_hang_str, HANG_KEY_DEL);
+		dhd->hang_info_cnt++;
+	}
+
+	clear_debug_dump_time(dhd->debug_dump_time_hang_str);
+
+	/* dump PCIE RC registers */
+	dhd_dump_pcie_rc_regs_for_linkdown(dhd, &bytes_written);
+
+	DHD_INFO(("hang info haed cnt: %d len: %d data: %s\n",
+		dhd->hang_info_cnt, (int)strlen(dhd->hang_info), dhd->hang_info));
+
 }
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
 

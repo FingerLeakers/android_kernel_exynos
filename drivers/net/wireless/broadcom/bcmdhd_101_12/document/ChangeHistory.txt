@@ -1,4 +1,41 @@
-BCM4375 DHD 101.12.6 for Android Hubble Project
+BCM4375 DHD 101.12.9.2 for Android Hubble Project
+
+DHD 101.12.9.2 - 2019.12.20
+Others
+ - CS9291159(By Kim MinSoo) Disabled TCP SYC FLOOD attack detection function
+ - CS9366290(By Park Jun-young) Fixed Prevent issue (CID 66390)
+ - CS9383640(By Jongmin Choi) Disabled HE on SoftAP
+ - CS9407335(By Lee SoonHo) Fixed to avoid NAN disable deadlock during Wifi turn off
+ - CS9410561(By Kim Gwang Min) Fixed to terminate current connection before set random mac address
+ - CS9461554(By Kim MinSoo) Disabled L1SS during suspend for exynos9830
+ - CS9461649(By Gu Ja Heon) Fixed low TCP RX TPUT issue (disabled SW GRO while qdisc traffic control is running)
+ - CS9462696(By Junsu Choi) Fixed Prevent issue (CID 76564)
+ - CS9478852(By Kim MinSoo) Removed unnecessary pcie register value logging during suspend and resume
+ - Cleaned-up netif start/stop queue(dhd_txflowcontrol) code
+ - Fixed NAN DP failure during NAN Ranging setup state
+ - Fixed NAN ranging instances mismatch between DHD and dongle
+ - Fixed assoc reject issue during FILS CERT test
+ - Fixed race conditions for intstatus read between dpc and resume
+
+Vendor HAL Library
+- HAL_REL_1_59_14
+ - Fixed BRCM internal coverity issue
+ - Fixed the regression on NAN COMMS OOB test cases
+
+
+DHD 101.12.8 - 2019.12.06
+Security Patch
+ - CS9179066(By Kim MoonSoo) SI-15880: Fixed heap buffer overflow in the "get version" request ioctl
+
+Others
+ - CS9045500(By Nam Counjong) Changed link stats retries value from txretry to txretrans
+ - CS9299102(By Min SungBin) Fixed to print memdump address when consecutive hang detected
+ - CS9323187(By Namju Cho) Not to remove P2P discovery interface when system crash occurred
+ - CS9329081(By Ki Yeong Jeong) Added force call CFG80211_CONNECT_RESULT if currect_bss is not NULL during disconnect
+ - CS9359275(By Min SungBin) Fixed to print pcie ep registers after d3 inform is sent to dongle
+ - CS9366290(By Park Jun-young) Fixed prevent issue (CID:61165, 66400, 66388, 66353, 63261, 66387)
+ - Fixed for P2P ping loss when RPM idletime is reduced to 500ms from 1100ms
+
 
 DHD 101.12.6 - 2019.11.29
 New Feature
@@ -17,7 +54,7 @@ Others
  - Fixed BRCM internal coverity issue
  - Fixed to remove duplication of FILS HLP element in the assoc request frames
  - Introduced new iovar to control debugging log level
-   (this patch need to use DHD 1.370 or higher version)
+   (this patch need to use DHD UTIL 1.370 or higher version)
 
 Vendor HAL Library
 - HAL_REL_1_59_11

@@ -34,6 +34,11 @@ void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance)
 #endif
 }
 
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc)
+{
+	return is_hw_get_reg(base_reg, &csi_regs[CSIS_R_FRM_CNT_CH0 + vc]);
+}
+
 int csi_hw_reset(u32 __iomem *base_reg)
 {
 	int ret = 0;
@@ -754,7 +759,7 @@ int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable)
 	return 0;
 }
 
-int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id)
+int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 batch_num, u32 *frame_id)
 {
 	return 0;
 }
@@ -771,7 +776,12 @@ int csi_hw_s_fro_count(u32 __iomem *vc_cmn_reg, u32 batch_num, u32 vc)
 
 void csi_hw_dma_reset(u32 __iomem *base_reg)
 {
-	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], 0);
+	/*
+	 * DMA off should be called at stream off,
+	 * because if DMA is shared, there can be conficted in on, off control.
+	 * So, DMA off is removed.
+	 */
+
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ], 0);
 }
 

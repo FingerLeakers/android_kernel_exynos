@@ -31,8 +31,18 @@
 					900 850 800 750 700 650 600 550 500 450 400 350 300 250
 					200 150 100 50 0 (-50) (-100) (-150) (-200)>;
 
-				battery,swelling_high_temp_block = <420>;
-				battery,swelling_high_temp_recov = <410>;
+				battery,wpc_high_temp = <400>;
+				battery,wpc_high_temp_recovery = <380>;
+				battery,wpc_lcd_on_high_temp = <400>;
+				battery,wpc_lcd_on_high_temp_rec = <380>;
+
+				battery,chg_high_temp = <470>;
+				battery,chg_high_temp_recovery = <450>;
+
+				battery,dchg_high_temp = <500>;
+				battery,dchg_high_temp_recovery = <440>;
+				battery,dchg_high_batt_temp = <400>;
+				battery,dchg_high_batt_temp_recovery = <380>;
 
 				/* swelling current */
 				battery,swelling_low_temp_current = <700>;	/* 0.3C */
@@ -53,7 +63,6 @@
 				battery,step_charging_condition_curr = <2850 2400>;
 				battery,step_charging_current = <3150 2850>;
 				battery,step_charging_float_voltage = <4210 4380>;
-
 
 				/* direct step charging option */
 				battery,dc_step_chg_type = <0x6B>; /* origin(0x6B) */

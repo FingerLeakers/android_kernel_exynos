@@ -35,7 +35,7 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
-/* XXX EFI does not support STATIC_ASSERT */
+/* EFI does not support STATIC_ASSERT */
 
 #ifndef _alignment_test_
 #define _alignment_test_

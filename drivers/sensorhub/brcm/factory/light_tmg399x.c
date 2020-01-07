@@ -385,10 +385,15 @@ int set_lcd_panel_type_to_ssp(struct ssp_data *data)
 	iRet = vfs_read(lcd_type_filp, (char *)lcd_type_data, sizeof(lcd_type_data), &lcd_type_filp->f_pos);
 
 	if(iRet > 0) {
+		/* lcd_type_data[iRet - 2], which type have different transmission ratio.
+		 * [0 ~ 2] : 0.7%, [3] : 15%, [4] : 40%
+		*/
 		if(lcd_type_data[iRet - 2] >= '0' && lcd_type_data[iRet - 2] <= '2')
 			lcd_type_flag = 0;
-		else
+		else if(lcd_type_data[iRet - 2] == '3')
 			lcd_type_flag = 1;
+		else
+			lcd_type_flag = 2;
 	}	
 
 	pr_info("[SSP]: %s - lcd_type_data: %s(%d) flag: %d", __func__, lcd_type_data, iRet, lcd_type_flag);
@@ -414,7 +419,7 @@ int set_lcd_panel_type_to_ssp(struct ssp_data *data)
 
 int set_light_cal_param_to_ssp(struct ssp_data *data)
 {
-	int iRet = 0;
+	int iRet = 0, i = 0;
 	u32 light_cal_data[2] = {0, };
 
 	struct ssp_msg *msg;
@@ -426,7 +431,14 @@ int set_light_cal_param_to_ssp(struct ssp_data *data)
 
 	if (strcmp(svc_octa_data[0], svc_octa_data[1]) != 0) {
 		pr_err("[SSP] %s - svc_octa_data, previous = %s, current = %s", __func__, svc_octa_data[0], svc_octa_data[1]);
+		data->svc_octa_change = true;
 		return -EIO;
+	}
+
+	// spec-out check. if true, we try to setting cal coef value to 1.
+	for (i = 0; i < 2; i++) {
+		if (light_cal_data[i] < 100 || light_cal_data[i] > 400)
+			light_cal_data[i] = 0;
 	}
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
@@ -455,10 +467,10 @@ static ssize_t light_cal_show(struct device *dev,
 
 	iRet = load_light_cal_from_nvm(light_cal_data, sizeof(light_cal_data));
 
-	if (lcd_type_flag == 1)
-		return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[1], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
-	else
+	if (lcd_type_flag == 0)
 		return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[0], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
+	else
+		return sprintf(buf, "%d, %d,%d\n", iRet, light_cal_data[1], data->buf[UNCAL_LIGHT_SENSOR].light_t.lux);
 }
 
 static ssize_t light_cal_store(struct device *dev,

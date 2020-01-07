@@ -317,14 +317,17 @@ void max77705_notify_dr_status(struct max77705_usbc_platform_data *usbpd_data,
 		uint8_t attach);
 void max77705_pdo_list(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
+void max77705_response_pdo_request(struct max77705_usbc_platform_data *usbc_data,
+		unsigned char *data);
 #if defined(CONFIG_PDIC_PD30)
-int max77705_response_apdo_request(struct max77705_usbc_platform_data *usbc_data,
+void max77705_response_apdo_request(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
 void max77705_response_set_pps(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
 #endif
 void max77705_current_pdo(struct max77705_usbc_platform_data *usbc_data,
 		unsigned char *data);
+void max77705_check_pdo(struct max77705_usbc_platform_data *usbc_data);
 void max77705_detach_pd(struct max77705_usbc_platform_data *usbc_data);
 void max77705_notify_rp_current_level(struct max77705_usbc_platform_data *usbc_data);
 extern void max77705_manual_jig_on(struct max77705_usbc_platform_data *usbpd_data, int mode);

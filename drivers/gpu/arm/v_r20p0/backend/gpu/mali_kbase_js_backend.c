@@ -198,7 +198,6 @@ static enum hrtimer_restart timer_callback(struct hrtimer *timer)
 					dev_warn(kbdev->dev, "JS: Job Hard-Stopped (took more than %lu ticks at %lu ms/tick)",
 							(unsigned long)ticks,
 							(unsigned long)ms);
-					s3c2410wdt_set_emergency_reset(0, 0);
 					kbase_job_slot_hardstop(atom->kctx, s,
 									atom);
 #endif

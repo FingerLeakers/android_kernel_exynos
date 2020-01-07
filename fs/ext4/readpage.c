@@ -141,7 +141,7 @@ ext4_submit_bio_read(struct bio *bio)
 	}
 #ifdef CONFIG_FS_HPB
 	if(ext4_test_inode_state(inode, EXT4_STATE_HPB))
-		bio->bi_opf |= REQ_RT_PINNED;
+		bio->bi_opf |= REQ_HPB_PREFER;
 #endif
 	submit_bio(bio);
 }

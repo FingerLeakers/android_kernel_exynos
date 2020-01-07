@@ -78,12 +78,16 @@ flush_config_frame:
 			if (unlikely(frame->fcount < hw_fcount)) {
 				trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
 				framemgr_x_barrier_common(framemgr, 0, flags);
+
+				mserr_hw("[F:%d,FF:%d,HWF:%d] late config frame",
+					instance_id, hw_ip, fcount, frame->fcount, hw_fcount);
+
 				is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
 				goto flush_config_frame;
-			} else if (unlikely(frame->fcount == hw_fcount)) {
-				trans_frame(framemgr, frame, FS_HW_WAIT_DONE);
+			} else if (frame->fcount == hw_fcount) {
 				framemgr_x_barrier_common(framemgr, 0, flags);
-				is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
+				msinfo_hw("[F:%d,FF:%d,HWF:%d] right config frame",
+					instance_id, hw_ip, fcount, frame->fcount, hw_fcount);
 				return true;
 			}
 		}
@@ -249,7 +253,7 @@ static void is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 	struct is_hw_ip *hw_ip;
 	int wq_id = WORK_MAX_MAP;
 	int output_id = ENTRY_END;
-	u32 hw_fcount, index;
+	u32 hw_fcount;
 #if defined(ENABLE_FULLCHAIN_OVERFLOW_RECOVERY)
 	int ret = 0;
 #endif
@@ -267,9 +271,7 @@ static void is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance_id]]))
 			msinfo_hw("[F:%d]DMA A\n", instance_id, hw_ip,
 				hw_fcount);
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_DMA_END] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_DMA_END] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_DMA_END);
 
 		switch (hw_ip->id) {
 		case DEV_HW_3AA0: /* after BDS */
@@ -308,9 +310,7 @@ static void is_lib_io_callback(void *this, enum lib_cb_event_type event_id,
 		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance_id]]))
 			msinfo_hw("[F:%d]DMA B\n", instance_id, hw_ip,
 				hw_fcount);
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_DMA_END] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_DMA_END] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_DMA_END);
 		switch (hw_ip->id) {
 		case DEV_HW_3AA0: /* before BDS */
 			wq_id = WORK_30C_FDONE;
@@ -456,11 +456,8 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 			csi_frame_start_inline(csi);
 		}
 
-		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_START);
+
 		if (unlikely(!atomic_read(&hardware->streaming[hardware->sensor_position[instance_id]])
 			|| debug_irq_ddk))
 			msinfo_hw("[F:%d]F.S\n", instance_id, hw_ip,
@@ -470,9 +467,8 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
 		break;
 	case LIB_EVENT_FRAME_END:
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_END);
+
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fe);
 		if (unlikely(!atomic_read(&hardware->streaming[hardware->sensor_position[instance_id]])
 			|| debug_irq_ddk))
@@ -480,6 +476,7 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 				hw_fcount);
 
 		if (unlikely(debug_time_hw)) {
+			index = hw_ip->debug_index[1];
 			msinfo_hw("[TIM] S-E %05llu us\n", instance_id, hw_ip,
 				(hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] -
 				hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START]) / 1000);
@@ -499,9 +496,8 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 		wake_up(&hw_ip->status.wait_queue);
 		break;
 	case LIB_EVENT_ERROR_CONFIG_LOCK_DELAY:
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_END);
+
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fe);
 
 		framemgr = hw_ip->framemgr;

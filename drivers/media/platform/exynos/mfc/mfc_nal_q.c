@@ -1256,6 +1256,7 @@ static void __mfc_nal_q_handle_reuse_buffer(struct mfc_ctx *ctx, DecoderOutputSt
 					dst_mb->vb.vb2_buf.index, dst_mb->dpb_index, disp_addr);
 			dst_mb->used = 0;
 			clear_bit(dst_mb->dpb_index, &dec->available_dpb);
+			MFC_TRACE_CTX("NAL DPB[%d] addr: %#llx reuse\n", dst_mb->dpb_index, disp_addr);
 		} else {
 			mfc_err_ctx("[NALQ][DPB] couldn't find DPB 0x%08llx\n",
 								disp_addr);
@@ -1628,6 +1629,8 @@ static void __mfc_nal_q_handle_released_buf(struct mfc_ctx *ctx, DecoderOutputSt
 
 	mfc_debug(2, "[NALQ][DPB] Used flag: old = %#lx, new = %#lx, released = %#lx, queued = %#lx\n",
 			prev_flag, cur_flag, released_flag, dec->queued_dpb);
+	MFC_TRACE_CTX("NAL DPB Used: %#lx released: %#lx queued: %#lx display: %d\n",
+			cur_flag, released_flag, dec->queued_dpb, dec->display_index);
 
 	__mfc_nal_q_move_released_buf(ctx, released_flag);
 	dec->dynamic_used = cur_flag;

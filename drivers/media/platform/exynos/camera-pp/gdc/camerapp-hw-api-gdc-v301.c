@@ -26,7 +26,8 @@ void camerapp_hw_gdc_start(void __iomem *base_addr)
 
 void camerapp_hw_gdc_stop(void __iomem *base_addr)
 {
-	/* camerapp_sfr_set_field(base_addr, &gdc_regs[GDC_R_FRAMESTART_CMD], &gdc_fields[GDC_F_FRAMESTART_CMD], 0); */
+	/* GDC QCH off */
+	camerapp_sfr_set_reg(base_addr, &gdc_regs[GDC_R_GDC_PROCESSING], 0);
 }
 
 u32 camerapp_hw_gdc_sw_reset(void __iomem *base_addr)

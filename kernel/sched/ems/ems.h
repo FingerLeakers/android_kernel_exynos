@@ -141,11 +141,35 @@ struct emstune_util_est {
 	struct kobject kobj;
 };
 
+/* emstune - priority pinning */
+struct emstune_prio_pinning {
+	bool overriding;
+	struct cpumask mask;
+	int enabled[STUNE_GROUP_COUNT];
+	int prio;
+	struct kobject kobj;
+};
+
 /* emstune - cpus allowed */
 struct emstune_cpus_allowed {
 	bool overriding;
 	int target_sched_class;
 	struct cpumask mask[STUNE_GROUP_COUNT];
+	struct kobject kobj;
+};
+
+/* emstune - initial utilization */
+struct emstune_init_util {
+	bool overriding;
+	int ratio[STUNE_GROUP_COUNT];
+	struct kobject kobj;
+};
+
+/* emstune - fluid rt */
+struct emstune_frt {
+	bool overriding;
+	int active_ratio[NR_CPUS];
+	int coverage_ratio[NR_CPUS];
 	struct kobject kobj;
 };
 
@@ -161,7 +185,10 @@ struct emstune_set {
 	struct emstune_esg		esg;
 	struct emstune_ontime		ontime;
 	struct emstune_util_est		util_est;
+	struct emstune_prio_pinning	prio_pinning;
 	struct emstune_cpus_allowed	cpus_allowed;
+	struct emstune_init_util	init_util;
+	struct emstune_frt		frt;
 
 	struct kobject	  		kobj;
 };
@@ -182,6 +209,7 @@ extern const struct cpumask *emstune_cpus_allowed(struct task_struct *p);
 extern int emstune_prefer_idle(struct task_struct *p);
 extern int emstune_ontime(struct task_struct *p);
 extern int emstune_util_est(struct task_struct *p);
+extern int emstune_init_util(struct task_struct *p);
 
 static inline int cpu_overutilized(unsigned long capacity, unsigned long util)
 {

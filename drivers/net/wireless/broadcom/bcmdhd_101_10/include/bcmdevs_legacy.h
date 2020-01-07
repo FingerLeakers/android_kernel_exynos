@@ -39,12 +39,19 @@
 #define BCM4347_D11AC_ID	0x440a		/* 4347 802.11ac dualband device */
 #define BCM4347_D11AC2G_ID	0x440b		/* 4347 802.11ac 2.4G device */
 #define BCM4347_D11AC5G_ID	0x440c		/* 4347 802.11ac 5G device */
+#define BCM4349_D11AC_ID	0x4349		/* 4349 802.11ac dualband device */
+#define BCM4349_D11AC2G_ID	0x43dd		/* 4349 802.11ac 2.4G device */
+#define BCM4349_D11AC5G_ID	0x43de		/* 4349 802.11ac 5G device */
+
 #define BCM4350_D11AC_ID	0x43a3
 #define BCM4350_D11AC2G_ID	0x43a4
 #define BCM4350_D11AC5G_ID	0x43a5
 #define BCM4354_D11AC_ID	0x43df		/* 4354 802.11ac dualband device */
 #define BCM4354_D11AC2G_ID	0x43e0		/* 4354 802.11ac 2.4G device */
 #define BCM4354_D11AC5G_ID	0x43e1		/* 4354 802.11ac 5G device */
+#define BCM4355_D11AC_ID	0x43dc		/* 4355 802.11ac dualband device */
+#define BCM4355_D11AC2G_ID	0x43fc		/* 4355 802.11ac 2.4G device */
+#define BCM4355_D11AC5G_ID	0x43fd		/* 4355 802.11ac 5G device */
 #define BCM4356_D11AC_ID	0x43ec		/* 4356 802.11ac dualband device */
 #define BCM4356_D11AC2G_ID	0x43ed		/* 4356 802.11ac 2.4G device */
 #define BCM4356_D11AC5G_ID	0x43ee		/* 4356 802.11ac 5G device */
@@ -54,6 +61,10 @@
 #define BCM4358_D11AC_ID        0x43e9          /* 4358 802.11ac dualband device */
 #define BCM4358_D11AC2G_ID      0x43ea          /* 4358 802.11ac 2.4G device */
 #define BCM4358_D11AC5G_ID      0x43eb          /* 4358 802.11ac 5G device */
+
+#define BCM4359_D11AC_ID	0x43ef		/* 4359 802.11ac dualband device */
+#define BCM4359_D11AC2G_ID	0x43fe		/* 4359 802.11ac 2.4G device */
+#define BCM4359_D11AC5G_ID	0x43ff		/* 4359 802.11ac 5G device */
 #define BCM43596_D11AC_ID	0x4415		/* 43596 802.11ac dualband device */
 #define BCM43596_D11AC2G_ID	0x4416		/* 43596 802.11ac 2.4G device */
 #define BCM43596_D11AC5G_ID	0x4417		/* 43596 802.11ac 5G device */
@@ -63,6 +74,9 @@
 #define BCM4361_D11AC_ID	0x441f		/* 4361 802.11ac dualband device */
 #define BCM4361_D11AC2G_ID	0x4420		/* 4361 802.11ac 2.4G device */
 #define BCM4361_D11AC5G_ID	0x4421		/* 4361 802.11ac 5G device */
+#define BCM4364_D11AC_ID	0x4464		/* 4364 802.11ac dualband device */
+#define BCM4364_D11AC2G_ID	0x446a		/* 4364 802.11ac 2.4G device */
+#define BCM4364_D11AC5G_ID	0x446b		/* 4364 802.11ac 5G device */
 #define BCM4371_D11AC_ID	0x440d		/* 4371 802.11ac dualband device */
 #define BCM4371_D11AC2G_ID	0x440e		/* 4371 802.11ac 2.4G device */
 #define BCM4371_D11AC5G_ID	0x440f		/* 4371 802.11ac 5G device */
@@ -108,7 +122,19 @@
 #define BCM4358_CHIP_ID		0x4358          /* 4358 chipcommon chipid */
 #define BCM43596_CHIP_ID	43596		/* 43596 chipcommon chipid */
 #define BCM4361_CHIP_ID		0x4361          /* 4361 chipcommon chipid */
+#define BCM4364_CHIP_ID		0x4364          /* 4364 chipcommon chipid */
 #define BCM4371_CHIP_ID		0x4371          /* 4371 chipcommon chipid */
+
+#define BCM4349_CHIP_ID		0x4349		/* 4349 chipcommon chipid */
+#define BCM4355_CHIP_ID		0x4355		/* 4355 chipcommon chipid */
+#define BCM4359_CHIP_ID		0x4359		/* 4359 chipcommon chipid */
+#define BCM4355_CHIP(chipid)	(CHIPID(chipid) == BCM4355_CHIP_ID)
+#define BCM4349_CHIP(chipid)	((CHIPID(chipid) == BCM4349_CHIP_ID) || \
+				(CHIPID(chipid) == BCM4355_CHIP_ID) || \
+				(CHIPID(chipid) == BCM4359_CHIP_ID))
+#define BCM4349_CHIP_GRPID		BCM4349_CHIP_ID: \
+					case BCM4355_CHIP_ID: \
+					case BCM4359_CHIP_ID
 
 /* Board Flags */
 

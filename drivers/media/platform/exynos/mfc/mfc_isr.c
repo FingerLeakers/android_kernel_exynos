@@ -461,6 +461,8 @@ static void __mfc_handle_released_buf(struct mfc_ctx *ctx)
 	released_flag = prev_flag & (~dec->dynamic_used);
 	mfc_debug(2, "[DPB] Used flag: old = %#lx, new = %#lx, released = %#lx, queued = %#lx\n",
 			prev_flag, dec->dynamic_used, released_flag, dec->queued_dpb);
+	MFC_TRACE_CTX("DPB Used: %#lx released: %#lx queued: %#lx display: %d\n",
+			dec->dynamic_used, released_flag, dec->queued_dpb, dec->display_index);
 
 	flag = dec->dynamic_used | released_flag;
 	for (i = __ffs(flag); i < MFC_MAX_DPBS;) {

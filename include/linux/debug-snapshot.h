@@ -106,6 +106,7 @@ extern void dbg_snapshot_binder(struct trace_binder_transaction_base *base,
 #define dbg_snapshot_binder(a, b, c)		do { } while (0)
 #endif
 
+extern void __dbg_snapshot_printk(const char *fmt, ...);
 #ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
 extern void dbg_snapshot_printk(const char *fmt, ...);
 extern void dbg_snapshot_printkl(size_t msg, size_t val);
@@ -113,6 +114,7 @@ extern void dbg_snapshot_printkl(size_t msg, size_t val);
 #define dbg_snapshot_printk(...)		do { } while (0)
 #define dbg_snapshot_printkl(a, b)		do { } while (0)
 #endif
+
 
 #ifdef CONFIG_DEBUG_SNAPSHOT_IRQ_DISABLED
 extern void dbg_snapshot_irqs_disabled(unsigned long flags);

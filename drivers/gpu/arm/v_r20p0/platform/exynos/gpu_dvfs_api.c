@@ -647,3 +647,23 @@ int gpu_dvfs_get_max_freq(void)
 
 	return platform->gpu_max_clock;
 }
+
+int gpu_dvfs_get_sustainable_info_array(int index)
+{
+        struct kbase_device *kbdev = pkbdev;
+        struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+
+        DVFS_ASSERT(platform);
+
+        return platform->sustainable.info_array[index];
+}
+
+int gpu_dvfs_get_max_lock(void)
+{
+        struct kbase_device *kbdev = pkbdev;
+        struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+
+        DVFS_ASSERT(platform);
+
+        return platform->max_lock;
+}

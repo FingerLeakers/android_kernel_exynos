@@ -169,9 +169,8 @@ void mfc_watchdog_reset_tick(struct mfc_dev *dev);
 void mfc_idle_checker(struct timer_list *t);
 static inline void mfc_idle_checker_start_tick(struct mfc_dev *dev)
 {
-	dev->mfc_idle_timer.expires = jiffies +
-		msecs_to_jiffies(MFCIDLE_TICK_INTERVAL);
-	add_timer(&dev->mfc_idle_timer);
+	mod_timer(&dev->mfc_idle_timer, jiffies +
+		msecs_to_jiffies(MFCIDLE_TICK_INTERVAL));
 	atomic_set(&dev->hw_run_cnt, 0);
 	atomic_set(&dev->queued_cnt, 0);
 }

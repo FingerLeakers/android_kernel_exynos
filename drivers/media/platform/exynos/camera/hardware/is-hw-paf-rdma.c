@@ -83,9 +83,7 @@ static int is_hw_paf_open(struct is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, BIT(hw_ip->id), "HWPAF");
-	frame_manager_probe(hw_ip->framemgr_late, BIT(hw_ip->id) | 0xF000, "HWPAF LATE");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_paf));
 	if(!hw_ip->priv_info) {
@@ -115,7 +113,6 @@ static int is_hw_paf_open(struct is_hw_ip *hw_ip, u32 instance,
 
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 	return ret;
 }
 
@@ -173,7 +170,6 @@ static int is_hw_paf_close(struct is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 

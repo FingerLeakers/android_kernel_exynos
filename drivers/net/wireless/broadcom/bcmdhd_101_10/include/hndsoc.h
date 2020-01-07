@@ -120,6 +120,9 @@
 /* APB bridge code */
 #define	APB_BRIDGE_ID		0x135		/* APB Bridge 0, 1, etc. */
 
+/* ADB bridge code */
+#define ADB_BRIDGE_ID		0x031
+
 /* AXI-AHB bridge code */
 #define	AXI2AHB_BRIDGE_ID		0x240		/* AXI_AHB Bridge */
 
@@ -236,11 +239,12 @@
  */
 #define	SI_CC_IDX		0
 /* SOC Interconnect types (aka chip types) */
-#define	SOCI_SB			0
-#define	SOCI_AI			1
-#define	SOCI_UBUS		2
-#define	SOCI_NAI		3
-#define SOCI_DVTBUS		4 /* BCM7XXX Digital Video Tech bus */
+#define	SOCI_SB			0u
+#define	SOCI_AI			1u
+#define	SOCI_UBUS		2u
+#define	SOCI_NAI		3u
+#define SOCI_DVTBUS		4u /* BCM7XXX Digital Video Tech bus */
+#define SOCI_NCI		6u /* NCI (non coherent interconnect) i.e. BOOKER */
 
 /* Common core control flags */
 #define	SICF_BIST_EN		0x8000

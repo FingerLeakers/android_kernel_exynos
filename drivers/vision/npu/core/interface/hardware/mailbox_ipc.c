@@ -301,6 +301,7 @@ int mbx_ipc_put(char *underlay, volatile struct mailbox_ctrl *ctrl, struct messa
 		npu_info("update cmd->payload: %d\n", cmd->payload);
 	}
 	__copy_command_to_line(base, sgmt_len, cmd_str_wptr, cmd, msg->length);
+	npu_memory_sync_for_device();
 	ctrl->wptr = cmd_end_wptr;
 
 p_err:
@@ -324,6 +325,7 @@ int mbx_ipc_peek_msg(char *underlay, volatile struct mailbox_ctrl *ctrl, struct 
 		ret = -EINVAL;
 		goto p_err;
 	}
+
 	base = underlay - ctrl->sgmt_ofs;
 	sgmt_len = ctrl->sgmt_len;
 	rptr = ctrl->rptr;

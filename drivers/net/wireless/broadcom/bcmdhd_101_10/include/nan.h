@@ -27,7 +27,7 @@
 #include <typedefs.h>
 #include <802.11.h>
 
-/* XXX: Do we want to include p2p.h for constants like P2P_WFDS_HASH_LEN and
+/* Do we want to include p2p.h for constants like P2P_WFDS_HASH_LEN and
  * maybe P2P_WFDS_MAX_SVC_NAME_LEN etc.?
  */
 
@@ -470,7 +470,7 @@ typedef BWL_PRE_PACKED_STRUCT struct wifi_nan_ranging_report_attr_s {
 	See definition in 9.4.2.22.18 in 802.11mc D5.0
 	*/
 	uint8 entry_count;
-	uint8 data[2]; /* includes pad */
+	uint8 data[]; /* Variable size range entry */
 	/*
 	dot11_ftm_range_entry_t entries[entry_count];
 	uint8 error_count;

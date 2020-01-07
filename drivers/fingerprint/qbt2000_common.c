@@ -344,6 +344,7 @@ static int fps_qbt2000_enable_wuhb(struct qbt2000_drvdata *drvdata)
 					drvdata->fd_gpio.last_gpio_state, gpio);
 
 				pm_stay_awake(drvdata->dev);
+				drvdata->pm_lock++;
 				schedule_work(&drvdata->fd_gpio.work);
 			}
 		}
@@ -674,16 +675,9 @@ static ssize_t fps_qbt2000_read(struct file *filp, char __user *ubuf,
 		pr_err("Failed to copy_to_user:%d - event:%d, minor:%d\n",
 			rc, (int)fw_event.ev, minor_no);
 	} else {
-		if (minor_no == MINOR_NUM_FD) {
-			mutex_unlock(&drvdata->fod_event_mutex);
-			pr_info("Firmware event %d at minor no %d read at time %lu uS, mutex_unlock\n",
-				(int)fw_event.ev, minor_no,
-				(unsigned long)ktime_to_us(ktime_get()));
-		} else {
-			pr_info("Firmware event %d at minor no %d read at time %lu uS\n",
-				(int)fw_event.ev, minor_no,
-				(unsigned long)ktime_to_us(ktime_get()));
-		}
+		pr_info("Firmware event %d at minor no %d read at time %lu uS\n",
+			(int)fw_event.ev, minor_no,
+			(unsigned long)ktime_to_us(ktime_get()));
 	}
 	return rc;
 }
@@ -836,7 +830,6 @@ static void fps_qbt2000_gpio_report_event(struct qbt2000_drvdata *drvdata)
 
 	if (!drvdata->is_wuhb_connected) {
 		pr_debug("Skipping as WUHB_INT is disconnected\n");
-		mutex_unlock(&drvdata->fod_event_mutex);
 		return;
 	}
 
@@ -845,7 +838,6 @@ static void fps_qbt2000_gpio_report_event(struct qbt2000_drvdata *drvdata)
 
 	if (drvdata->fd_gpio.event_reported && state == drvdata->fd_gpio.last_gpio_state) {
 		pr_debug("skip the report_event. this event already reported, last_gpio:%d\n", state);
-		mutex_unlock(&drvdata->fod_event_mutex);
 		return;
 	}
 
@@ -870,12 +862,11 @@ static void fps_qbt2000_wuhb_work_func(struct work_struct *work)
 {
 	struct qbt2000_drvdata *drvdata =
 		container_of(work, struct qbt2000_drvdata, fd_gpio.work);
-	if (atomic_read(&drvdata->fd_available) == 0)
-		mutex_lock(&drvdata->fod_event_mutex);
-	pr_debug("mutex_lock for fod_event\n");
+
 	fps_qbt2000_gpio_report_event(drvdata);
 
 	pm_relax(drvdata->dev);
+	drvdata->pm_lock--;
 }
 
 static irqreturn_t fps_qbt2000_wuhb_irq_handler(int irq, void *dev_id)
@@ -898,6 +889,7 @@ static irqreturn_t fps_qbt2000_wuhb_irq_handler(int irq, void *dev_id)
 
 	drvdata->wuhb_count++;
 	pm_stay_awake(drvdata->dev);
+	drvdata->pm_lock++;
 	schedule_work(&drvdata->fd_gpio.work);
 
 	return IRQ_HANDLED;
@@ -918,6 +910,7 @@ static irqreturn_t fps_qbt2000_ipc_irq_handler(int irq, void *dev_id)
 	struct fw_event_desc fw_ev_des;
 
 	pm_stay_awake(drvdata->dev);
+	drvdata->pm_lock++;
 	mutex_lock(&drvdata->mutex);
 
 	if (irq != drvdata->fw_ipc.irq) {
@@ -938,6 +931,7 @@ static irqreturn_t fps_qbt2000_ipc_irq_handler(int irq, void *dev_id)
 end:
 	mutex_unlock(&drvdata->mutex);
 	pm_relax(drvdata->dev);
+	drvdata->pm_lock--;
 	return IRQ_HANDLED;
 }
 
@@ -1115,11 +1109,12 @@ dt_failed:
 
 static void fps_qbt2000_work_func_debug(struct work_struct *work)
 {
-	pr_info("ldo:%d,ipc:%d,wuhb:%d,tz:%d,type:%s,int:%d,%d\n",
+	pr_info("ldo:%d,ipc:%d,wuhb:%d,tz:%d,type:%s,int:%d,%d,lock:%d\n",
 		g_data->enabled_ldo, g_data->enabled_ipc,
 		g_data->enabled_wuhb, g_data->tz_mode,
 		sensor_status[g_data->sensortype + 2],
-		g_data->cbge_count, g_data->wuhb_count);
+		g_data->cbge_count, g_data->wuhb_count,
+		g_data->pm_lock);
 }
 
 static void fps_qbt2000_enable_debug_timer(void)
@@ -1196,7 +1191,6 @@ static int fps_qbt2000_probe(struct platform_device *pdev)
 	mutex_init(&drvdata->ioctl_mutex);
 	mutex_init(&drvdata->fd_events_mutex);
 	mutex_init(&drvdata->ipc_events_mutex);
-	mutex_init(&drvdata->fod_event_mutex);
 
 	rc = fps_qbt2000_dev_register(drvdata);
 	if (rc < 0)
@@ -1258,6 +1252,7 @@ static int fps_qbt2000_probe(struct platform_device *pdev)
 	drvdata->reset_count = 0;
 	drvdata->wuhb_test_flag = 0;
 	drvdata->wuhb_test_result = 0;
+	drvdata->pm_lock = 0;
 
 	fps_qbt2000_set_timer(drvdata);
 	fps_qbt2000_enable_debug_timer();
@@ -1300,7 +1295,6 @@ static int fps_qbt2000_remove(struct platform_device *pdev)
 	mutex_destroy(&drvdata->ioctl_mutex);
 	mutex_destroy(&drvdata->fd_events_mutex);
 	mutex_destroy(&drvdata->ipc_events_mutex);
-	mutex_destroy(&drvdata->fod_event_mutex);
 
 	device_destroy(drvdata->qbt2000_class, drvdata->qbt2000_fd_cdev.dev);
 	device_destroy(drvdata->qbt2000_class, drvdata->qbt2000_ipc_cdev.dev);

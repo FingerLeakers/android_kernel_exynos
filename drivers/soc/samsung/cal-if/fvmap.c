@@ -422,6 +422,132 @@ static const struct attribute_group percent_margin_group = {
 	.attrs = percent_margin_attrs,
 };
 
+#ifdef CONFIG_SEC_FACTORY
+#ifdef CONFIG_SOC_EXYNOS9830
+#include <soc/samsung/ect_parser.h>
+#include <soc/samsung/cal-if.h>
+#include "asv.h"
+
+enum spec_volt_type {
+	ASV_G_FUSED = 0,
+	ASV_G_GRP
+};
+
+static ssize_t show_asv_g_spec(int id, enum spec_volt_type type, char *buf)
+{
+	void *gen_block;
+	struct ect_gen_param_table *spec;
+	int asv_tbl_ver, asv_grp, tbl_size, j, vtyp_freq, num_lv;
+	unsigned int fused_volt, grp_volt = 0, volt;
+	struct dvfs_rate_volt rate_volt[48];
+	unsigned int (*spec_table)[10];
+	char *spec_table_name[4] = { "SPEC_CPUCL0", "SPEC_CPUCL1", "SPEC_CPUCL2", "SPEC_G3D" };
+	int cal_id[4] = { ACPM_VCLK_TYPE | 2, ACPM_VCLK_TYPE | 3, ACPM_VCLK_TYPE | 4, ACPM_VCLK_TYPE | 10 };
+	ssize_t size = 0;
+
+	asv_tbl_ver = asv_get_table_ver();
+	if (asv_tbl_ver < 3) {
+		pr_err("%s: Do not support ASV-G under ASV table version 3\n", __func__);
+		goto out;
+	}
+
+	gen_block = ect_get_block("GEN");
+	if (gen_block == NULL) {
+		pr_err("%s: Failed to get gen block from ECT\n", __func__);
+		goto out;
+	}
+
+	asv_grp = asv_get_grp(cal_id[id]);
+	if (!asv_grp) {
+		pr_err("%s: There has no ASV-G information for %s group 0\n", __func__, spec_table_name[id]);
+		goto out;
+	}
+
+	spec = ect_gen_param_get_table(gen_block, spec_table_name[id]);
+	if (spec == NULL) {
+		pr_err("%s: Failed to get spec table from ECT\n", __func__);
+		goto out;
+	}
+	spec_table = (unsigned int (*)[10])spec->parameter;
+
+	for (j = 0; j < spec->num_of_row; j++) {
+		if (spec_table[j][0] == asv_tbl_ver) {
+			grp_volt = spec_table[j][asv_grp + 1];
+			vtyp_freq = spec_table[j][1];
+			break;
+		}
+	}
+
+	if (!grp_volt) {
+		pr_err("%s: Failed to get grp volt\n", __func__);
+		goto out;
+	}
+
+	num_lv = cal_dfs_get_lv_num(cal_id[id]);
+	tbl_size = cal_dfs_get_rate_asv_table(cal_id[id], rate_volt);
+	if (!tbl_size) {
+		pr_err("%s: Failed to get asv table\n", __func__);
+		goto out;
+	}
+
+	for (j = 0; j < num_lv; j++){
+		if (rate_volt[j].rate == vtyp_freq) {
+			fused_volt = rate_volt[j].volt;
+			break;
+		}
+	}
+	if (j == num_lv) {
+		pr_err("%s: There has no frequency %d on %d domain\n", __func__, vtyp_freq, spec_table_name[id]);
+		goto out;
+	}
+
+	volt = (type == ASV_G_FUSED) ? fused_volt : grp_volt;
+
+	size += snprintf(buf + size, PAGE_SIZE, "%d\n", volt);
+out:
+
+	return size;
+}
+
+#define asv_g_spec(domain, id)									\
+static ssize_t show_asv_g_spec_##domain##_fused_volt						\
+(struct kobject *kobj, struct kobj_attribute *attr, char *buf)					\
+{												\
+	return show_asv_g_spec(id, ASV_G_FUSED, buf);						\
+}												\
+static struct kobj_attribute asv_g_spec_##domain##_fused_volt =					\
+__ATTR(domain##_fused_volt, 0400, show_asv_g_spec_##domain##_fused_volt, NULL);	\
+static ssize_t show_asv_g_spec_##domain##_grp_volt						\
+(struct kobject *kobj, struct kobj_attribute *attr, char *buf)					\
+{												\
+	return show_asv_g_spec(id, ASV_G_GRP, buf);						\
+}												\
+static struct kobj_attribute asv_g_spec_##domain##_grp_volt =					\
+__ATTR(domain##_grp_volt, 0400, show_asv_g_spec_##domain##_grp_volt, NULL)
+
+#define asv_g_spec_attr(domain)									\
+	&asv_g_spec_##domain##_fused_volt.attr,							\
+	&asv_g_spec_##domain##_grp_volt.attr
+
+asv_g_spec(cpucl0, 0);
+asv_g_spec(cpucl1, 1);
+asv_g_spec(cpucl2, 2);
+asv_g_spec(g3d, 3);
+
+static struct attribute *asv_g_spec_attrs[] = {
+	asv_g_spec_attr(cpucl0),
+	asv_g_spec_attr(cpucl1),
+	asv_g_spec_attr(cpucl2),
+	asv_g_spec_attr(g3d),
+	NULL,
+};
+
+static const struct attribute_group asv_g_spec_grp = {
+	.attrs = asv_g_spec_attrs,
+};
+#endif
+#endif /* CONFIG_SEC_FACTORY */
+
 static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base)
 {
 	struct fvmap_header *fvmap_header, *header;
@@ -463,7 +589,7 @@ static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base
 		if (vclk == NULL)
 			continue;
 		pr_info("dvfs_type : %s - id : %x\n",
-			vclk->name, fvmap_header[i].dvfs_type);
+				vclk->name, fvmap_header[i].dvfs_type);
 		pr_info("  num_of_lv      : %d\n", fvmap_header[i].num_of_lv);
 		pr_info("  num_of_members : %d\n", fvmap_header[i].num_of_members);
 
@@ -503,8 +629,8 @@ static void fvmap_copy_from_sram(void __iomem *map_base, void __iomem *sram_base
 			new->table[j].rate = old->table[j].rate;
 			new->table[j].volt = old->table[j].volt;
 			pr_info("  lv : [%7d], volt = %d uV (%d %%) \n",
-				new->table[j].rate, new->table[j].volt,
-				volt_offset_percent);
+					new->table[j].rate, new->table[j].volt,
+					volt_offset_percent);
 		}
 	}
 }
@@ -513,6 +639,9 @@ int fvmap_init(void __iomem *sram_base)
 {
 	void __iomem *map_base;
 	struct kobject *kobj;
+#ifdef CONFIG_SEC_FACTORY
+	struct kobject *asv_g_kobj;
+#endif /* CONFIG_SEC_FACTORY */
 
 	map_base = kzalloc(FVMAP_SIZE, GFP_KERNEL);
 
@@ -528,6 +657,14 @@ int fvmap_init(void __iomem *sram_base)
 
 	if (sysfs_create_group(kobj, &percent_margin_group))
 		pr_err("Fail to create percent_margin group\n");
+
+#ifdef CONFIG_SEC_FACTORY
+#ifdef CONFIG_SOC_EXYNOS9830
+	asv_g_kobj = kobject_create_and_add("asv_g_spec", power_kobj);
+	if (sysfs_create_group(asv_g_kobj, &asv_g_spec_grp))
+		pr_err("Fail to create name_tbd group\n");
+#endif
+#endif /* CONFIG_SEC_FACTORY */
 
 	return 0;
 }

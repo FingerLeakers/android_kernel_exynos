@@ -80,6 +80,7 @@ struct rsc_per_chip {
 	uint8 macphy_aux_clkavail;
 	uint8 macphy_scan_clkavail;
 	uint8 cb_ready;
+	uint8 dig_ready;
 };
 
 typedef struct rsc_per_chip rsc_per_chip_t;
@@ -127,135 +128,6 @@ si_sdiod_drive_strength_init(si_t *sih, osl_t *osh, uint32 drivestrength)
 	UNUSED_PARAMETER(drivestrength);
 }
 
-void
-si_switch_pmu_dependency(si_t *sih, uint mode)
-{
-#ifdef DUAL_PMU_SEQUENCE
-	osl_t *osh = si_osh(sih);
-	uint32 current_res_state;
-	uint32 min_mask, max_mask;
-	const pmu_res_depend_t *pmu_res_depend_table = NULL;
-	uint pmu_res_depend_table_sz = 0;
-	uint origidx;
-	pmuregs_t *pmu;
-	chipcregs_t *cc;
-	BCM_REFERENCE(cc);
-
-	origidx = si_coreidx(sih);
-	if (AOB_ENAB(sih)) {
-		pmu = si_setcore(sih, PMU_CORE_ID, 0);
-		cc  = si_setcore(sih, CC_CORE_ID, 0);
-	} else {
-		pmu = si_setcoreidx(sih, SI_CC_IDX);
-		cc  = si_setcoreidx(sih, SI_CC_IDX);
-	}
-	ASSERT(pmu != NULL);
-
-	current_res_state = R_REG(osh, &pmu->res_state);
-	min_mask = R_REG(osh, &pmu->min_res_mask);
-	max_mask = R_REG(osh, &pmu->max_res_mask);
-	W_REG(osh, &pmu->min_res_mask, (min_mask | current_res_state));
-	switch (mode) {
-		case PMU_4364_1x1_MODE:
-		{
-			if (CHIPID(sih->chip) == BCM4364_CHIP_ID) {
-					pmu_res_depend_table = bcm4364a0_res_depend_1x1;
-					pmu_res_depend_table_sz =
-						ARRAYSIZE(bcm4364a0_res_depend_1x1);
-			max_mask = PMU_4364_MAX_MASK_1x1;
-			W_REG(osh, &pmu->res_table_sel, RES4364_SR_SAVE_RESTORE);
-			W_REG(osh, &pmu->res_updn_timer, PMU_4364_SAVE_RESTORE_UPDNTIME_1x1);
-#if defined(SAVERESTORE)
-				if (SR_ENAB()) {
-					/* Disable 3x3 SR engine */
-					W_REG(osh, &cc->sr1_control0,
-					CC_SR0_4364_SR_ENG_CLK_EN |
-					CC_SR0_4364_SR_RSRC_TRIGGER |
-					CC_SR0_4364_SR_WD_MEM_MIN_DIV |
-					CC_SR0_4364_SR_INVERT_CLK |
-					CC_SR0_4364_SR_ENABLE_HT |
-					CC_SR0_4364_SR_ALLOW_PIC |
-					CC_SR0_4364_SR_PMU_MEM_DISABLE);
-				}
-#endif /* SAVERESTORE */
-			}
-			break;
-		}
-		case PMU_4364_3x3_MODE:
-		{
-			if (CHIPID(sih->chip) == BCM4364_CHIP_ID) {
-				W_REG(osh, &pmu->res_table_sel, RES4364_SR_SAVE_RESTORE);
-				W_REG(osh, &pmu->res_updn_timer,
-					PMU_4364_SAVE_RESTORE_UPDNTIME_3x3);
-				/* Change the dependency table only if required */
-				if ((max_mask != PMU_4364_MAX_MASK_3x3) ||
-					(max_mask != PMU_4364_MAX_MASK_RSDB)) {
-						pmu_res_depend_table = bcm4364a0_res_depend_rsdb;
-						pmu_res_depend_table_sz =
-							ARRAYSIZE(bcm4364a0_res_depend_rsdb);
-						max_mask = PMU_4364_MAX_MASK_3x3;
-				}
-#if defined(SAVERESTORE)
-				if (SR_ENAB()) {
-					/* Enable 3x3 SR engine */
-					W_REG(osh, &cc->sr1_control0,
-					CC_SR0_4364_SR_ENG_CLK_EN |
-					CC_SR0_4364_SR_RSRC_TRIGGER |
-					CC_SR0_4364_SR_WD_MEM_MIN_DIV |
-					CC_SR0_4364_SR_INVERT_CLK |
-					CC_SR0_4364_SR_ENABLE_HT |
-					CC_SR0_4364_SR_ALLOW_PIC |
-					CC_SR0_4364_SR_PMU_MEM_DISABLE |
-					CC_SR0_4364_SR_ENG_EN_MASK);
-				}
-#endif /* SAVERESTORE */
-			}
-			break;
-		}
-		case PMU_4364_RSDB_MODE:
-		default:
-		{
-			if (CHIPID(sih->chip) == BCM4364_CHIP_ID) {
-				W_REG(osh, &pmu->res_table_sel, RES4364_SR_SAVE_RESTORE);
-				W_REG(osh, &pmu->res_updn_timer,
-					PMU_4364_SAVE_RESTORE_UPDNTIME_3x3);
-				/* Change the dependency table only if required */
-				if ((max_mask != PMU_4364_MAX_MASK_3x3) ||
-					(max_mask != PMU_4364_MAX_MASK_RSDB)) {
-						pmu_res_depend_table =
-							bcm4364a0_res_depend_rsdb;
-						pmu_res_depend_table_sz =
-							ARRAYSIZE(bcm4364a0_res_depend_rsdb);
-						max_mask = PMU_4364_MAX_MASK_RSDB;
-				}
-#if defined(SAVERESTORE)
-			if (SR_ENAB()) {
-					/* Enable 3x3 SR engine */
-					W_REG(osh, &cc->sr1_control0,
-					CC_SR0_4364_SR_ENG_CLK_EN |
-					CC_SR0_4364_SR_RSRC_TRIGGER |
-					CC_SR0_4364_SR_WD_MEM_MIN_DIV |
-					CC_SR0_4364_SR_INVERT_CLK |
-					CC_SR0_4364_SR_ENABLE_HT |
-					CC_SR0_4364_SR_ALLOW_PIC |
-					CC_SR0_4364_SR_PMU_MEM_DISABLE |
-					CC_SR0_4364_SR_ENG_EN_MASK);
-				}
-#endif /* SAVERESTORE */
-			}
-			break;
-		}
-	}
-	si_pmu_resdeptbl_upd(sih, osh, pmu, pmu_res_depend_table, pmu_res_depend_table_sz);
-	W_REG(osh, &pmu->max_res_mask, max_mask);
-	W_REG(osh, &pmu->min_res_mask, min_mask);
-	si_pmu_wait_for_steady_state(sih, osh, pmu);
-	/* Add some delay; allow resources to come up and settle. */
-	OSL_DELAY(200);
-	si_setcoreidx(sih, origidx);
-#endif /* DUAL_PMU_SEQUENCE */
-}
-
 uint32
 si_pmu_wake_bit_offset(si_t *sih)
 {
@@ -276,6 +148,7 @@ si_pmu_wake_bit_offset(si_t *sih)
 		break;
 	case BCM4388_CHIP_GRPID:
 	case BCM4389_CHIP_GRPID:
+	case BCM4397_CHIP_GRPID:
 		wakebit = CC2_4389_GCI2WAKE_MASK;
 		break;
 	default:

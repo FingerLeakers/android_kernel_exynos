@@ -1531,6 +1531,19 @@ static struct snd_soc_dai_link picasso_dai[100] = {
 		.dpcm_capture = 1,
 	},
 	{
+		.name = "FWD",
+		.stream_name = "FWD",
+		.cpu_dai_name = "FWD",
+		.platform_name = "snd-soc-dummy",
+		.codec_name = "snd-soc-dummy",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.no_pcm = 1,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.dpcm_playback = 1,
+		.dpcm_capture = 1,
+	},
+	{
 	},
 };
 
@@ -1676,6 +1689,8 @@ static const struct snd_soc_dapm_widget picasso_widgets[] = {
 	SND_SOC_DAPM_SPK("BLUETOOTH SPK", picasso_btsco_out),
 	SND_SOC_DAPM_MIC("USB MIC", picasso_usb_mic),
 	SND_SOC_DAPM_SPK("USB SPK", picasso_usb_out),
+	SND_SOC_DAPM_SPK("FWD MIC", NULL),
+	SND_SOC_DAPM_SPK("FWD SPK", NULL),
 	SND_SOC_DAPM_OUTPUT("VTS Virtual Output"),
 	SND_SOC_DAPM_MUX("VTS Virtual Output Mux", SND_SOC_NOPM, 0, 0,
 			&vts_output_mux[0]),

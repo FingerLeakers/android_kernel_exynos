@@ -38,7 +38,7 @@ typedef struct {
 /* Use the actual name for event tracing */
 #define BCMEVENT_NAME(_event) {(_event), #_event}
 
-/* XXX - this becomes static data when all code is changed to use
+/* this becomes static data when all code is changed to use
  * the bcmevent_get_name() API
  */
 static const bcmevent_name_str_t bcmevent_names[] = {
@@ -104,10 +104,12 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 	BCMEVENT_NAME(WLC_E_ACTION_FRAME),
 	BCMEVENT_NAME(WLC_E_ACTION_FRAME_RX),
 	BCMEVENT_NAME(WLC_E_ACTION_FRAME_COMPLETE),
+
 #ifdef BCMWAPI_WAI
 	BCMEVENT_NAME(WLC_E_WAI_STA_EVENT),
 	BCMEVENT_NAME(WLC_E_WAI_MSG),
 #endif /* BCMWAPI_WAI */
+
 	BCMEVENT_NAME(WLC_E_ESCAN_RESULT),
 	BCMEVENT_NAME(WLC_E_ACTION_FRAME_OFF_CHAN_COMPLETE),
 #ifdef WLP2P
@@ -174,6 +176,7 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #endif /* WLFBT */
 	BCMEVENT_NAME(WLC_E_AUTHORIZED),
 	BCMEVENT_NAME(WLC_E_PROBREQ_MSG_RX),
+
 	BCMEVENT_NAME(WLC_E_CSA_START_IND),
 	BCMEVENT_NAME(WLC_E_CSA_DONE_IND),
 	BCMEVENT_NAME(WLC_E_CSA_FAILURE_IND),
@@ -201,6 +204,8 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #endif /* WL_NAN */
 	BCMEVENT_NAME(WLC_E_RPSNOA),
 	BCMEVENT_NAME(WLC_E_WA_LQM),
+	BCMEVENT_NAME(WLC_E_OBSS_DETECTION),
+	BCMEVENT_NAME(WLC_E_SC_CHAN_QUAL),
 };
 
 const char *bcmevent_get_name(uint event_type)

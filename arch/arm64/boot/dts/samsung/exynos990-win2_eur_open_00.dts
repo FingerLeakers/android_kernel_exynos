@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -24,7 +24,7 @@
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,WIN2 EUR OPEN 00", "samsung,EXYNOS9830";
+	compatible = "samsung,WIN2 EUR OPEN 00", "samsung,EXYNOS990";
 	dtbo-hw_rev = <0>;
 	dtbo-hw_rev_end = <255>;
 	edtbo-rev = <0>;
@@ -35,7 +35,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung WIN2 EUR OPEN 00 based on EXYNOS9830";
+			model = "Samsung WIN2 EUR OPEN 00 based on EXYNOS990";
 
 			acpm_ipc {
 				compatible = "samsung,exynos-acpm-ipc";

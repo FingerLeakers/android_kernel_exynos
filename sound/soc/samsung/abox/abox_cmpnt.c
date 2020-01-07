@@ -5861,6 +5861,28 @@ static struct snd_soc_dai_driver abox_cmpnt_dai_drv[] = {
 			.formats = ABOX_SAMPLE_FORMATS,
 		},
 	},
+	{
+		.name = "FWD",
+		.id = ABOX_FWD,
+		.playback = {
+			.stream_name = "FWD Playback",
+			.channels_min = 1,
+			.channels_max = 8,
+			.rates = ABOX_SAMPLING_RATES,
+			.rate_min = 8000,
+			.rate_max = 384000,
+			.formats = ABOX_SAMPLE_FORMATS,
+		},
+		.capture = {
+			.stream_name = "FWD Capture",
+			.channels_min = 1,
+			.channels_max = 8,
+			.rates = ABOX_SAMPLING_RATES,
+			.rate_min = 8000,
+			.rate_max = 384000,
+			.formats = ABOX_SAMPLE_FORMATS,
+		},
+	},
 };
 
 int abox_cmpnt_update_cnt_val(struct device *adev)

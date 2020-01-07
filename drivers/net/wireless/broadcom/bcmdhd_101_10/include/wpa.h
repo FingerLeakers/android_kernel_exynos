@@ -117,7 +117,7 @@ typedef BWL_PRE_PACKED_STRUCT struct
 #define WPA_CIPHER_WEP_104	5	/* WEP (104-bit) */
 #define WPA_CIPHER_BIP		6	/* WEP (104-bit) */
 #define WPA_CIPHER_TPK		7	/* Group addressed traffic not allowed */
-#ifdef BCMCCX
+#ifdef BCMCCX // MOG-NO
 #define WPA_CIPHER_CKIP		8	/* KP with no MIC */
 #define WPA_CIPHER_CKIP_MMH	9	/* KP with MIC ("CKIP/MMH", "CKIP+CMIC") */
 #define WPA_CIPHER_WEP_MMH	10	/* MIC with no KP ("WEP/MMH", "CMIC") */
@@ -129,7 +129,7 @@ typedef BWL_PRE_PACKED_STRUCT struct
 
 #define WPA_CIPHER_AES_GCM	8	/* AES (GCM) */
 #define WPA_CIPHER_AES_GCM256	9	/* AES (GCM256) */
-#define WPA_CIPHER_CCMP_256 	10	/* CCMP-256 */
+#define WPA_CIPHER_CCMP_256	10	/* CCMP-256 */
 #define WPA_CIPHER_BIP_GMAC_128	11	/* BIP_GMAC_128 */
 #define WPA_CIPHER_BIP_GMAC_256 12	/* BIP_GMAC_256 */
 #define WPA_CIPHER_BIP_CMAC_256 13	/* BIP_CMAC_256 */
@@ -153,9 +153,9 @@ typedef BWL_PRE_PACKED_STRUCT struct
 				 (cipher) == WPA_CIPHER_TPK)
 
 #define IS_WPA_BIP_CIPHER(cipher)  ((cipher) == WPA_CIPHER_BIP || \
-			            (cipher) == WPA_CIPHER_BIP_GMAC_128 || \
+				    (cipher) == WPA_CIPHER_BIP_GMAC_128 || \
 				    (cipher) == WPA_CIPHER_BIP_GMAC_256 || \
-		                    (cipher) == WPA_CIPHER_BIP_CMAC_256)
+				    (cipher) == WPA_CIPHER_BIP_CMAC_256)
 
 #ifdef BCMWAPI_WAI
 #define IS_WAPI_CIPHER(cipher)	((cipher) == WAPI_CIPHER_NONE || \
@@ -235,7 +235,7 @@ typedef BWL_PRE_PACKED_STRUCT struct
 
 /* WPA Specific defines */
 #define WPA_CAP_LEN	RSN_CAP_LEN	/* Length of RSN capabilities in RSN IE (2 octets) */
-#define WPA_PMKID_CNT_LEN	2 	/* Length of RSN PMKID count (2 octests) */
+#define WPA_PMKID_CNT_LEN	2	/* Length of RSN PMKID count (2 octests) */
 
 #define	WPA_CAP_WPA2_PREAUTH		RSN_CAP_PREAUTH
 

@@ -415,10 +415,22 @@ static void get_ucal_accel_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_pocket_mode_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 26);
-	*iDataIdx += 26;
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 62);
+	*iDataIdx += 62;
 }
 static void get_led_cover_event_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+static void get_tap_tracker_sensordata(char *pchRcvDataFrame, int *iDataIdx,
+	struct sensor_value *sensorsdata)
+{
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
+	*iDataIdx += 1;
+}
+static void get_shake_tracker_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
@@ -884,6 +896,10 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength)
 			proximity_save_calibration((int *)(pchRcvDataFrame + iDataIdx), 2 * sizeof(int));
 			iDataIdx += 2 * sizeof(int);
 			break;
+		case MSG2AP_INST_PROX_CALL_MIN:
+			memcpy(&data->prox_call_min, pchRcvDataFrame + iDataIdx, sizeof(data->prox_call_min));
+			iDataIdx += sizeof(data->prox_call_min);
+			break;
 		default:
 			goto error_return;
 		}
@@ -954,6 +970,8 @@ void initialize_function_pointer(struct ssp_data *data)
     data->get_sensor_data[MOVE_DETECTOR] = get_move_detector_sensordata;
 	data->get_sensor_data[POCKET_MODE_SENSOR] = get_pocket_mode_sensordata;
 	data->get_sensor_data[LED_COVER_EVENT_SENSOR] = get_led_cover_event_sensordata;
+	data->get_sensor_data[TAP_TRACKER_SENSOR] = get_tap_tracker_sensordata;
+	data->get_sensor_data[SHAKE_TRACKER_SENSOR] = get_shake_tracker_sensordata;
 	data->get_sensor_data[BULK_SENSOR] = NULL;
 	data->get_sensor_data[GPS_SENSOR] = NULL;
 
@@ -1008,6 +1026,8 @@ void initialize_function_pointer(struct ssp_data *data)
     data->report_sensor_data[MOVE_DETECTOR] = report_move_detector_data;
 	data->report_sensor_data[POCKET_MODE_SENSOR] = report_pocket_mode_data;
 	data->report_sensor_data[LED_COVER_EVENT_SENSOR] = report_led_cover_event_data;
+	data->report_sensor_data[TAP_TRACKER_SENSOR] = report_tap_tracker_data;
+	data->report_sensor_data[SHAKE_TRACKER_SENSOR] = report_shake_tracker_data;
 
 	data->ssp_big_task[BIG_TYPE_DUMP] = ssp_dump_task;
 	data->ssp_big_task[BIG_TYPE_READ_LIB] = ssp_read_big_library_task;

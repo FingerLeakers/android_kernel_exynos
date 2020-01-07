@@ -27,9 +27,7 @@ static int __nocfi is_hw_3aa_open(struct is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, BIT(hw_ip->id), "HW3AA");
-	frame_manager_probe(hw_ip->framemgr_late, BIT(hw_ip->id) | 0xF000, "HW3AA LATE");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_3aa));
 	if(!hw_ip->priv_info) {
@@ -121,7 +119,6 @@ err_lib_func:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 	return ret;
 }
 
@@ -193,7 +190,6 @@ static int is_hw_3aa_close(struct is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 

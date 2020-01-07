@@ -372,8 +372,13 @@ uint wf_chspec_first_20_sb(chanspec_t chspec);
 #define CHSPEC_SB_LOWER(chspec)	\
 	((((chspec) & WL_CHANSPEC_CTL_SB_MASK) == WL_CHANSPEC_CTL_SB_LOWER) && \
 	(((chspec) & WL_CHANSPEC_BW_MASK) == WL_CHANSPEC_BW_40))
+
+#ifdef WL_BAND6G
 #define CHSPEC2WLC_BAND(chspec) (CHSPEC_IS2G(chspec) ? WLC_BAND_2G : CHSPEC_IS5G(chspec) ? \
 	WLC_BAND_5G : WLC_BAND_6G)
+#else
+#define CHSPEC2WLC_BAND(chspec) (CHSPEC_IS2G(chspec) ? WLC_BAND_2G : WLC_BAND_5G)
+#endif
 
 #define CHSPEC_BW_CHANGED(prev_chspec, curr_chspec) \
 	(((prev_chspec) & WL_CHANSPEC_BW_MASK) != ((curr_chspec) & WL_CHANSPEC_BW_MASK))

@@ -34,6 +34,7 @@ struct rational {
 #define CAMERA2_MAX_AVAILABLE_MODE		21
 #define CAMERA2_MAX_FACES			16
 #define CAMERA2_MAX_VENDER_LENGTH		400
+#define CAMERA2_AWB_VENDER_LENGTH		415
 #define CAMERA2_MAX_IPC_VENDER_LENGTH		2962
 #define CAMERA2_MAX_PDAF_MULTIROI_COLUMN	13
 #define CAMERA2_MAX_PDAF_MULTIROI_ROW		9
@@ -44,8 +45,8 @@ struct rational {
 
 #define CAMERA2_MAX_STRIPE_REGION_NUM		5
 
-#define OPEN_MAGIC_NUMBER		0x20192012
-#define SHOT_MAGIC_NUMBER		0x92345678
+#define OPEN_MAGIC_NUMBER		0x20192014
+#define SHOT_MAGIC_NUMBER		0x78923456
 
 enum is_subscenario_id {
 	ISS_SUB_SCENARIO_STILL_PREVIEW = 0,                                         /* 0: Single preview (HDR Auto/Off) */
@@ -83,6 +84,7 @@ enum is_subscenario_id {
 	ISS_SUB_SCENARIO_FHD_VIDEO_HDR10_WDR_AUTO = 46,                             /* 46: HDR10+ video (HDR Auto) : FHD 30fps	 */
 	ISS_SUB_SCENARIO_UHD_VIDEO_HDR10_WDR_AUTO = 47,                             /* 47: HDR10+ video (HDR Auto) : UHD 30fps */
 	ISS_SUB_SCENARIO_8K_WDR_AUTO = 48,                                          /* TODO: 48: 8K Video 30fps (HDR Auto) */
+	ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED_960FPS = 49,
 
 	ISS_SUB_SCENARIO_LIVE_OUTFOCUS_PREVIEW = 60,                                /* 60: Bokeh preview (HDR Off) */
 	ISS_SUB_SCENARIO_LIVE_OUTFOCUS_PREVIEW_WDR_AUTO = 61,                       /* 61: Bokeh preview (HDR Auto) */
@@ -101,18 +103,19 @@ enum is_subscenario_id {
 	ISS_SUB_END,
 };
 
-#define IS_VIDEO_SCENARIO(setfile)				\
-	(((setfile) == ISS_SUB_SCENARIO_VIDEO)			\
-	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_WDR_AUTO)	\
-	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_WDR_ON)		\
-	|| ((setfile) == ISS_SUB_SCENARIO_FHD_60FPS)		\
-	|| ((setfile) == ISS_SUB_SCENARIO_FHD_60FPS_WDR_AUTO)	\
-	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS)		\
-	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS_WDR_AUTO)	\
-	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS_WDR_ON)	\
-	|| ((setfile) == ISS_SUB_SCENARIO_UHD_60FPS)		\
-	|| ((setfile) == ISS_SUB_SCENARIO_UHD_60FPS_WDR_AUTO)	\
-	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED))
+#define IS_VIDEO_SCENARIO(setfile)					\
+	(((setfile) == ISS_SUB_SCENARIO_VIDEO)				\
+	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_WDR_AUTO)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_WDR_ON)			\
+	|| ((setfile) == ISS_SUB_SCENARIO_FHD_60FPS)			\
+	|| ((setfile) == ISS_SUB_SCENARIO_FHD_60FPS_WDR_AUTO)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS)			\
+	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS_WDR_AUTO)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_UHD_30FPS_WDR_ON)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_UHD_60FPS)			\
+	|| ((setfile) == ISS_SUB_SCENARIO_UHD_60FPS_WDR_AUTO)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED)		\
+	|| ((setfile) == ISS_SUB_SCENARIO_VIDEO_HIGH_SPEED_960FPS))
 
 #define IS_VIDEO_HDR_SCENARIO(setfile)				\
 	(((setfile) == ISS_SUB_SCENARIO_VIDEO_WDR_AUTO)		\
@@ -833,6 +836,8 @@ enum aa_capture_intent {
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH,
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_HANDHELD_FAST,    // 1st frame for JPEG+Thumbnail
+	AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_FAST,      // 1st frame for JPEG+Thumbnail
 	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL0,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL1,
 	AA_CAPTURE_INTENT_STILL_CAPTURE_SPORT_MOTIONLEVEL2,
@@ -913,6 +918,8 @@ enum aa_scene_mode {
 	AA_SCENE_MODE_ILLUMINANCE,
 	AA_SCENE_MODE_SUPER_NIGHT,
 	AA_SCENE_MODE_BOKEH_VIDEO,
+	AA_SCENE_MODE_SINGLE_TAKE,
+	AA_SCENE_MODE_DIRECTORS_VIEW,
 };
 
 enum aa_effect_mode {
@@ -1689,7 +1696,7 @@ struct camera2_ae_udm {
 
 struct camera2_awb_udm {
 	uint32_t	vsLength;
-	uint32_t	vendorSpecific[CAMERA2_MAX_VENDER_LENGTH];
+	uint32_t	vendorSpecific[CAMERA2_AWB_VENDER_LENGTH];
 
 	/** vendor specific2 length */
 	uint32_t	vs2Length;
@@ -2045,6 +2052,19 @@ struct camera2_scene_detect_uctl {
 	uint32_t			object_roi[4];  /* left, top, width, height */
 };
 
+struct score_info
+{
+	uint32_t frameCount;
+	uint32_t score;
+};
+
+struct camera2_mfstill_uctl
+{
+	struct score_info sinfo[15];
+	uint32_t ref_frameCount;
+	uint32_t rej_frameCount[15];
+};
+
 enum camera_vt_mode {
 	VT_MODE_OFF = 0,
 	VT_MODE_1,   /* qcif ~ qvga */
@@ -2163,6 +2183,7 @@ struct camera2_uctl {
 	uint32_t			cameraClientIndex;
 	uint32_t			remosaicHighResolutionMode;
 	uint8_t				frame_id[32];
+	struct camera2_mfstill_uctl mfInfoUd;
 	uint32_t			reserved[5];
 };
 

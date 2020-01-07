@@ -278,7 +278,6 @@ static bool dhd_bus_tcm_test(struct dhd_bus *bus);
 static int dhd_bus_dump_fws(dhd_bus_t *bus, struct bcmstrbuf *strbuf);
 #endif
 static void dhdpcie_pme_stat_clear(osl_t *osh);
-static void dhd_pcie_ep_config_dump(dhd_pub_t *dhd);
 
 /* IOVar table */
 enum {
@@ -942,13 +941,6 @@ dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type)
 	return ret;
 }
 
-/* Log the lastest DPC schedule time */
-void
-dhd_bus_set_dpc_sched_time(dhd_pub_t *dhdp)
-{
-	dhdp->bus->dpc_sched_time = OSL_LOCALTIME_NS();
-}
-
 /* Check if there is DPC scheduling errors */
 bool
 dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp)
@@ -974,13 +966,13 @@ dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp)
 			" isr_exit_time="SEC_USEC_FMT
 			" dpc_entry_time="SEC_USEC_FMT
 			"\ndpc_exit_time="SEC_USEC_FMT
-			" dpc_sched_time="SEC_USEC_FMT
+			" isr_sched_dpc_time="SEC_USEC_FMT
 			" resched_dpc_time="SEC_USEC_FMT"\n",
 			GET_SEC_USEC(bus->isr_entry_time),
 			GET_SEC_USEC(bus->isr_exit_time),
 			GET_SEC_USEC(bus->dpc_entry_time),
 			GET_SEC_USEC(bus->dpc_exit_time),
-			GET_SEC_USEC(bus->dpc_sched_time),
+			GET_SEC_USEC(bus->isr_sched_dpc_time),
 			GET_SEC_USEC(bus->resched_dpc_time)));
 	}
 
@@ -1232,6 +1224,7 @@ skip_intstatus_read:
 		DHD_OS_WAKE_UNLOCK(bus->dhd);
 #else
 		bus->dpc_sched = TRUE;
+		bus->isr_sched_dpc_time = OSL_LOCALTIME_NS();
 		dhd_sched_dpc(bus->dhd);     /* queue DPC now!! */
 #endif /* defined(SDIO_ISR_THREAD) */
 
@@ -6579,9 +6572,8 @@ dhd_bus_hostready(struct  dhd_bus *bus)
 		return;
 	}
 
-	DHD_ERROR(("%s : Read PCICMD Reg: 0x%08X, PMCSR reg: 0x%08X\n", __FUNCTION__,
-		dhd_pcie_config_read(bus->osh, PCI_CFG_CMD, sizeof(uint32)),
-		dhd_pcie_config_read(bus->osh, PCIE_CFG_PMCSR, sizeof(uint32))));
+	DHD_ERROR(("%s : Read PCICMD Reg: 0x%08X\n", __FUNCTION__,
+		dhd_pcie_config_read(bus->osh, PCI_CFG_CMD, sizeof(uint32))));
 
 	if (DAR_PWRREQ(bus)) {
 		dhd_bus_pcie_pwr_req(bus);
@@ -6775,12 +6767,6 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		{
 			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM);
 		}
-		dhd_pcie_ep_config_dump(bus->dhd);
-#ifdef EXTENDED_PCIE_DEBUG_DUMP
-		if (bus->sih->buscorerev >= 24) {
-			dhd_bus_dump_dar_registers(bus);
-		}
-#endif /* EXTENDED_PCIE_DEBUG_DUMP */
 
 		/* Wait for D3 ACK for D3_ACK_RESP_TIMEOUT seconds */
 		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
@@ -8359,7 +8345,8 @@ void dhd_dump_intr_counters(dhd_pub_t *dhd, struct bcmstrbuf *strbuf)
 		dhdpcie_get_oob_irq_level());
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 	bcm_bprintf(strbuf, "\ncurrent_time="SEC_USEC_FMT" isr_entry_time="SEC_USEC_FMT
-		" isr_exit_time="SEC_USEC_FMT"\ndpc_sched_time="SEC_USEC_FMT
+		" isr_exit_time="SEC_USEC_FMT"\n"
+		"isr_sched_dpc_time="SEC_USEC_FMT" rpm_sched_dpc_time="SEC_USEC_FMT"\n"
 		" last_non_ours_irq_time="SEC_USEC_FMT" dpc_entry_time="SEC_USEC_FMT"\n"
 		"last_process_ctrlbuf_time="SEC_USEC_FMT " last_process_flowring_time="SEC_USEC_FMT
 		" last_process_txcpl_time="SEC_USEC_FMT"\nlast_process_rxcpl_time="SEC_USEC_FMT
@@ -8367,7 +8354,8 @@ void dhd_dump_intr_counters(dhd_pub_t *dhd, struct bcmstrbuf *strbuf)
 		"\ndpc_exit_time="SEC_USEC_FMT" resched_dpc_time="SEC_USEC_FMT"\n"
 		"last_d3_inform_time="SEC_USEC_FMT"\n",
 		GET_SEC_USEC(current_time), GET_SEC_USEC(bus->isr_entry_time),
-		GET_SEC_USEC(bus->isr_exit_time), GET_SEC_USEC(bus->dpc_sched_time),
+		GET_SEC_USEC(bus->isr_exit_time), GET_SEC_USEC(bus->isr_sched_dpc_time),
+		GET_SEC_USEC(bus->rpm_sched_dpc_time),
 		GET_SEC_USEC(bus->last_non_ours_irq_time), GET_SEC_USEC(bus->dpc_entry_time),
 		GET_SEC_USEC(bus->last_process_ctrlbuf_time),
 		GET_SEC_USEC(bus->last_process_flowring_time),
@@ -9741,19 +9729,20 @@ dhdpcie_bus_process_mailbox_intr(dhd_bus_t *bus, uint32 intstatus)
 			goto exit;
 		}
 
-		/* Validate intstatus only for INTX case */
-		if ((bus->d2h_intr_method == PCIE_MSI) ||
-			((bus->d2h_intr_method == PCIE_INTX) && (intstatus & bus->d2h_mb_mask))) {
+		/* The fact that we are here implies that dhdpcie_bus_intstatus( )
+		* retuned a non-zer0 status after applying the current mask.
+		* No further check required, in fact bus->instatus can be eliminated.
+		* Both bus->instatus, and bud->intdis are shared between isr and dpc.
+		*/
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
-			if (pm_runtime_get(dhd_bus_to_dev(bus)) >= 0) {
-				resched = dhdpci_bus_read_frames(bus);
-				pm_runtime_mark_last_busy(dhd_bus_to_dev(bus));
-				pm_runtime_put_autosuspend(dhd_bus_to_dev(bus));
-			}
-#else
+		if (pm_runtime_get(dhd_bus_to_dev(bus)) >= 0) {
 			resched = dhdpci_bus_read_frames(bus);
-#endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
+			pm_runtime_mark_last_busy(dhd_bus_to_dev(bus));
+			pm_runtime_put_autosuspend(dhd_bus_to_dev(bus));
 		}
+#else
+		resched = dhdpci_bus_read_frames(bus);
+#endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 	}
 
 exit:
@@ -13247,9 +13236,11 @@ dhd_pcie_intr_count_dump(dhd_pub_t *dhd)
 		" isr_exit_time="SEC_USEC_FMT"\n",
 		GET_SEC_USEC(bus->isr_entry_time),
 		GET_SEC_USEC(bus->isr_exit_time)));
-	DHD_ERROR(("dpc_sched_time="SEC_USEC_FMT
+	DHD_ERROR(("isr_sched_dpc_time="SEC_USEC_FMT
+		" rpm_sched_dpc_time="SEC_USEC_FMT
 		" last_non_ours_irq_time="SEC_USEC_FMT"\n",
-		GET_SEC_USEC(bus->dpc_sched_time),
+		GET_SEC_USEC(bus->isr_sched_dpc_time),
+		GET_SEC_USEC(bus->rpm_sched_dpc_time),
 		GET_SEC_USEC(bus->last_non_ours_irq_time)));
 	DHD_ERROR(("dpc_entry_time="SEC_USEC_FMT
 		" last_process_ctrlbuf_time="SEC_USEC_FMT"\n",
@@ -13634,9 +13625,32 @@ dhd_dump_pcie_rc_regs_for_linkdown(dhd_pub_t *dhd, int *bytes_written)
 }
 #endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
 
-static void
-dhd_pcie_ep_config_dump(dhd_pub_t *dhd)
+int
+dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 {
+	int host_irq_disabled;
+
+	DHD_ERROR(("bus->bus_low_power_state = %d\n", dhd->bus->bus_low_power_state));
+	host_irq_disabled = dhdpcie_irq_disabled(dhd->bus);
+	DHD_ERROR(("host pcie_irq disabled = %d\n", host_irq_disabled));
+	dhd_print_tasklet_status(dhd);
+	dhd_pcie_intr_count_dump(dhd);
+
+	DHD_ERROR(("\n ------- DUMPING PCIE EP Resouce Info ------- \r\n"));
+	dhdpcie_dump_resource(dhd->bus);
+
+	dhd_pcie_dump_rc_conf_space_cap(dhd);
+
+	DHD_ERROR(("RootPort PCIe linkcap=0x%08x\n",
+		dhd_debug_get_rc_linkcap(dhd->bus)));
+#ifdef CUSTOMER_HW4_DEBUG
+	if (dhd->bus->is_linkdown && !dhd->bus->cto_triggered) {
+		DHD_ERROR(("Skip dumping the PCIe Config and Core registers. "
+			"link may be DOWN\n"));
+		return 0;
+	}
+#endif /* CUSTOMER_HW4_DEBUG */
+	DHD_ERROR(("\n ------- DUMPING PCIE EP config space Registers ------- \r\n"));
 	/* XXX: hwnbu-twiki.sj.broadcom.com/bin/view/Mwgroup/CurrentPcieGen2ProgramGuide */
 	DHD_ERROR(("Status Command(0x%x)=0x%x, BaseAddress0(0x%x)=0x%x BaseAddress1(0x%x)=0x%x "
 		"PCIE_CFG_PMCSR(0x%x)=0x%x\n",
@@ -13678,40 +13692,6 @@ dhd_pcie_ep_config_dump(dhd_pub_t *dhd)
 			sizeof(uint32)), PCIECFGREG_PML1_SUB_CTRL2,
 			dhd_pcie_config_read(dhd->bus->osh, PCIECFGREG_PML1_SUB_CTRL2,
 			sizeof(uint32))));
-	}
-#endif /* EXTENDED_PCIE_DEBUG_DUMP */
-}
-
-int
-dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
-{
-	int host_irq_disabled;
-
-	DHD_ERROR(("bus->bus_low_power_state = %d\n", dhd->bus->bus_low_power_state));
-	host_irq_disabled = dhdpcie_irq_disabled(dhd->bus);
-	DHD_ERROR(("host pcie_irq disabled = %d\n", host_irq_disabled));
-	dhd_print_tasklet_status(dhd);
-	dhd_pcie_intr_count_dump(dhd);
-
-	DHD_ERROR(("\n ------- DUMPING PCIE EP Resouce Info ------- \r\n"));
-	dhdpcie_dump_resource(dhd->bus);
-
-	dhd_pcie_dump_rc_conf_space_cap(dhd);
-
-	DHD_ERROR(("RootPort PCIe linkcap=0x%08x\n",
-		dhd_debug_get_rc_linkcap(dhd->bus)));
-#ifdef CUSTOMER_HW4_DEBUG
-	if (dhd->bus->is_linkdown && !dhd->bus->cto_triggered) {
-		DHD_ERROR(("Skip dumping the PCIe Config and Core registers. "
-			"link may be DOWN\n"));
-		return 0;
-	}
-#endif /* CUSTOMER_HW4_DEBUG */
-	DHD_ERROR(("\n ------- DUMPING PCIE EP config space Registers ------- \r\n"));
-	dhd_pcie_ep_config_dump(dhd);
-
-#ifdef EXTENDED_PCIE_DEBUG_DUMP
-	if (dhd->bus->sih->buscorerev >= 24) {
 		dhd_bus_dump_dar_registers(dhd->bus);
 	}
 #endif /* EXTENDED_PCIE_DEBUG_DUMP */

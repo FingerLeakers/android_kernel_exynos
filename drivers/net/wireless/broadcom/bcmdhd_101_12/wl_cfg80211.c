@@ -1056,6 +1056,17 @@ struct chan_info {
 	.max_power		= 30,				\
 }
 
+#ifdef WL_6G_BAND
+#define CHAN6G(_channel, _flags) {				\
+	.band			= IEEE80211_BAND_5GHZ,		\
+	.center_freq		= 5940 + (5 * (_channel)),	\
+	.hw_value		= CH_TO_CHSPC(WL_CHANSPEC_BAND_6G, _channel),			\
+	.flags			= (_flags),			\
+	.max_antenna_gain	= 0,				\
+	.max_power		= 30,				\
+}
+#endif /* WL_6G_BAND */
+
 #define RATE_TO_BASE100KBPS(rate)   (((rate) * 10) / 2)
 #define RATETAB_ENT(_rateid, _flags) \
 	{								\
@@ -1117,6 +1128,38 @@ static struct ieee80211_channel __wl_5ghz_a_channels[] = {
 	CHAN5G(149, 0), CHAN5G(153, 0),
 	CHAN5G(157, 0), CHAN5G(161, 0),
 	CHAN5G(165, 0),
+#ifdef WL_6G_BAND
+	/* 6GHz frequency starting 5945 */
+	CHAN6G(1, 0), CHAN6G(5, 0), CHAN6G(9, 0),
+	CHAN6G(13, 0), CHAN6G(17, 0),
+	CHAN6G(21, 0), CHAN6G(25, 0),
+	CHAN6G(29, 0), CHAN6G(33, 0),
+	CHAN6G(37, 0), CHAN6G(41, 0),
+	CHAN6G(45, 0), CHAN6G(49, 0),
+	CHAN6G(53, 0), CHAN6G(57, 0),
+	CHAN6G(61, 0), CHAN6G(65, 0),
+	CHAN6G(69, 0), CHAN6G(73, 0),
+	CHAN6G(77, 0), CHAN6G(81, 0),
+	CHAN6G(85, 0), CHAN6G(89, 0),
+	CHAN6G(93, 0), CHAN6G(97, 0),
+	CHAN6G(101, 0), CHAN6G(105, 0),
+	CHAN6G(109, 0), CHAN6G(113, 0),
+	CHAN6G(117, 0), CHAN6G(121, 0),
+	CHAN6G(125, 0), CHAN6G(129, 0),
+	CHAN6G(133, 0), CHAN6G(137, 0),
+	CHAN6G(141, 0), CHAN6G(145, 0),
+	CHAN6G(149, 0), CHAN6G(153, 0),
+	CHAN6G(157, 0), CHAN6G(161, 0),
+	CHAN6G(165, 0), CHAN6G(169, 0),
+	CHAN6G(173, 0), CHAN6G(177, 0),
+	CHAN6G(181, 0), CHAN6G(185, 0),
+	CHAN6G(189, 0), CHAN6G(193, 0),
+	CHAN6G(197, 0), CHAN6G(201, 0),
+	CHAN6G(205, 0), CHAN6G(209, 0),
+	CHAN6G(213, 0), CHAN6G(217, 0),
+	CHAN6G(221, 0), CHAN6G(225, 0),
+	CHAN6G(229, 0), CHAN6G(233, 0)
+#endif /* WL_6G_BAND */
 };
 
 static struct ieee80211_supported_band __wl_band_2ghz = {
@@ -1296,6 +1339,11 @@ static int wl_channel_to_frequency(u32 chan, u32 band)
 		else
 			return 5000 + chan * 5;
 		break;
+#ifdef WL_6G_BAND
+	case WL_CHANSPEC_BAND_6G:
+			return 5940 + chan * 5;
+		break;
+#endif /* WL_6G_BAND */
 	default:
 		WL_ERR(("Invalid Frequency Band\n"));
 	}
@@ -2546,7 +2594,7 @@ wl_cfg80211_handle_discovery_config(struct bcm_cfg80211 *cfg,
 	if (disable_nan) {
 #ifdef WL_NAN
 		/* Disable nan to avoid conflict with p2p */
-		ret = wl_cfgnan_check_nan_disable_pending(cfg, true);
+		ret = wl_cfgnan_check_nan_disable_pending(cfg, true, true);
 		if (ret != BCME_OK) {
 			WL_ERR(("failed to disable nan, error[%d]\n", ret));
 			return ret;
@@ -4346,6 +4394,24 @@ wl_cfg80211_post_ifcreate(struct net_device *ndev,
 		/* For customer6 builds, use primary mac address for virtual interface */
 		mac_addr[0] |= 0x02;
 		addr = mac_addr;
+	}
+
+	if (iface_type == NL80211_IFTYPE_P2P_CLIENT) {
+		s16 cfg_type = wl_cfgp2p_get_conn_idx(cfg);
+		struct ether_addr *p2p_addr = wl_to_p2p_bss_macaddr(cfg, cfg_type);
+
+		/* check if pre-registered mac matches the mac from dongle via WLC_E_LINK */
+		if (memcmp(p2p_addr->octet, addr, ETH_ALEN)) {
+			WL_INFORM_MEM(("p2p pre-regsitered mac:" MACDBG
+					" , mac from dongle:" MACDBG "\n",
+					MAC2STRDBG(p2p_addr->octet), MAC2STRDBG(addr)));
+
+			primary_ndev = bcmcfg_to_prmry_ndev(cfg);
+
+			wl_cfg80211_handle_hang_event(primary_ndev,
+				HANG_REASON_IFACE_ADD_FAILURE, DUMP_TYPE_IFACE_OP_FAILURE);
+			goto fail;
+		}
 	}
 
 #ifdef WL_STATIC_IF
@@ -6786,7 +6852,7 @@ static void wl_cfg80211_wait_for_disconnection(struct bcm_cfg80211 *cfg, struct 
 			CFG80211_CONNECT_RESULT(dev, NULL, NULL, NULL, 0, NULL, 0,
 				WLAN_STATUS_UNSPECIFIED_FAILURE,
 				GFP_KERNEL);
-		} else if (wl_get_drv_status(cfg, CONNECTED, dev)) {
+		} else {
 			WL_INFORM_MEM(("force send disconnect event\n"));
 			CFG80211_DISCONNECTED(dev, WLAN_REASON_DEAUTH_LEAVING,
 				NULL, 0, false, GFP_KERNEL);
@@ -6809,11 +6875,11 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 	u8 *curbssid = NULL;
 	u8 null_bssid[ETHER_ADDR_LEN];
 	s32 bssidx = 0;
+	bool connected;
+	bool conn_in_progress;
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
-	WL_ERR(("Reason %d\n", reason_code));
+
 	RETURN_EIO_IF_NOT_UP(cfg);
-	act = *(bool *) wl_read_prof(cfg, dev, WL_PROF_ACT);
-	curbssid = wl_read_prof(cfg, dev, WL_PROF_BSSID);
 
 	BCM_REFERENCE(dhdp);
 	DHD_STATLOG_CTRL(dhdp, ST(DISASSOC_START),
@@ -6822,17 +6888,18 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 	dhd_cleanup_m4_state_work(dhdp, dhd_net2idx(dhdp->info, dev));
 #endif /* DHD_4WAYM4_FAIL_DISCONNECT */
 
-#ifdef ESCAN_RESULT_PATCH
-	if (wl_get_drv_status(cfg, CONNECTING, dev)) {
+	connected = wl_get_drv_status(cfg, CONNECTED, dev);
+	conn_in_progress = wl_get_drv_status(cfg, CONNECTING, dev);
+	curbssid = wl_read_prof(cfg, dev, WL_PROF_BSSID);
+	act = *(bool *) wl_read_prof(cfg, dev, WL_PROF_ACT);
+	WL_INFORM_MEM(("disconnect in connect state [%d:%d:%d]. reason:%d\n",
+		connected, conn_in_progress, act, reason_code));
+	if (connected || conn_in_progress) {
 		if (curbssid) {
-			WL_ERR(("Disconnecting while CONNECTING status"
-				" connecting device: " MACDBG "\n", MAC2STRDBG(curbssid)));
-		} else {
-			WL_ERR(("Disconnecting while CONNECTING status \n"));
+			WL_DBG_MEM(("curbssid:" MACDBG "\n", MAC2STRDBG(curbssid)));
 		}
 		act = true;
 	}
-#endif /* ESCAN_RESULT_PATCH */
 
 	if (!curbssid) {
 		WL_ERR(("Disconnecting while CONNECTING status %d\n", (int)sizeof(null_bssid)));
@@ -6857,8 +6924,7 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 		}
 		/* Set DISCONNECTING state. We are clearing this state in all exit paths */
 		wl_set_drv_status(cfg, DISCONNECTING, dev);
-		if (wl_get_drv_status(cfg, CONNECTING, dev) ||
-			wl_get_drv_status(cfg, CONNECTED, dev)) {
+		if (conn_in_progress || connected) {
 				scbval.val = reason_code;
 				memcpy(&scbval.ea, curbssid, ETHER_ADDR_LEN);
 				scbval.val = htod32(scbval.val);
@@ -6884,17 +6950,18 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 		}
 #endif /* WPS_SYNC */
 		wl_cfg80211_wait_for_disconnection(cfg, dev);
+	} else {
+		/* Not in connected or connection in progres states. Still receiving
+		 * disassoc indicates state mismatch with upper layer. Check for state
+		 * and issue disconnect indication if required.
+		 */
+
+		if (dev->ieee80211_ptr->current_bss) {
+			WL_INFORM_MEM(("report disconnect event\n"));
+			CFG80211_DISCONNECTED(dev, 0, NULL, 0, false, GFP_KERNEL);
+		}
 	}
 
-	if (dev->ieee80211_ptr->current_bss) {
-		/* If current_bss is still valid, indicate connect fail to clear state mismatch.
-		 */
-		WL_INFORM_MEM(("report connect result fail.\n"));
-		CFG80211_CONNECT_RESULT(dev, NULL, NULL, NULL, 0, NULL, 0,
-			WLAN_STATUS_UNSPECIFIED_FAILURE, GFP_KERNEL);
-		CLR_TS(cfg, conn_start);
-		CLR_TS(cfg, authorize_start);
-	}
 #ifdef CUSTOM_SET_CPUCORE
 	/* set default cpucore */
 	if (dev == bcmcfg_to_prmry_ndev(cfg)) {
@@ -6907,6 +6974,9 @@ wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev,
 	cfg->rssi = 0;	/* reset backup of rssi */
 
 exit:
+	CLR_TS(cfg, conn_start);
+	CLR_TS(cfg, authorize_start);
+
 	/* Clear IEs for disaasoc */
 	if ((bssidx = wl_get_bssidx_by_wdev(cfg, dev->ieee80211_ptr)) < 0) {
 		WL_ERR(("Find index failed\n"));
@@ -12598,7 +12668,7 @@ wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 #ifdef WL_NAN
 	if (wl_cfgnan_is_enabled(cfg)) {
 		mutex_lock(&cfg->if_sync);
-		ret = wl_cfgnan_check_nan_disable_pending(cfg, true);
+		ret = wl_cfgnan_check_nan_disable_pending(cfg, true, true);
 		mutex_unlock(&cfg->if_sync);
 		if (ret != BCME_OK) {
 			WL_ERR(("failed to disable nan, error[%d]\n", ret));
@@ -13027,6 +13097,9 @@ static s32 wl_inform_single_bss(struct bcm_cfg80211 *cfg, wl_bss_info_t *bi, boo
 	}
 	/* Check for all currently supported bands */
 	if (!(
+#ifdef WL_6G_BAND
+		CHSPEC_IS6G(bi->chanspec) ||
+#endif /* WL_6G_BAND */
 		CHSPEC_IS5G(bi->chanspec) || CHSPEC_IS2G(bi->chanspec))) {
 		WL_ERR(("No valid band"));
 		MFREE(cfg->osh, notif_bss_info, sizeof(*notif_bss_info)
@@ -14319,6 +14392,8 @@ void wl_cfg80211_disassoc(struct net_device *ndev, uint32 reason)
 	err = wldev_ioctl_set(ndev, WLC_DISASSOC, &scbval, sizeof(scb_val_t));
 	if (err < 0) {
 		WL_ERR(("WLC_DISASSOC error %d\n", err));
+	} else {
+		WL_INFORM_MEM(("wl disassoc. reason:%d\n", reason));
 	}
 }
 void wl_cfg80211_del_all_sta(struct net_device *ndev, uint32 reason)
@@ -18565,6 +18640,13 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap)
 			array_size = ARRAYSIZE(__wl_2ghz_channels);
 			ht40_allowed = (bw_cap  == WLC_N_BW_40ALL)? true : false;
 		} else if (
+#ifdef WL_6G_BAND
+			/* Currently due to lack of kernel support both 6GHz and 5GHz
+			* channels are published under 5GHz band
+			*/
+			(CHSPEC_IS6G(chspec) && (channel >= CH_MIN_6G_CHANNEL) &&
+			(channel <= CH_MAX_6G_CHANNEL)) ||
+#endif /* WL_6G_BAND */
 			(CHSPEC_IS5G(chspec) && channel >= CH_MIN_5G_CHANNEL)) {
 			band_chan_arr = __wl_5ghz_a_channels;
 			array_size = ARRAYSIZE(__wl_5ghz_a_channels);
@@ -18747,6 +18829,12 @@ static s32 __wl_update_wiphybands(struct bcm_cfg80211 *cfg, bool notify)
 	for (i = 1; i <= nband && i < ARRAYSIZE(bandlist); i++) {
 		index = -1;
 
+#ifdef WL_6G_BAND
+		/* Check for 6GHz band support */
+		if (bandlist[i] == WLC_BAND_6G) {
+			cfg->band_6g_supported =  true;
+		}
+#endif
 		if (((bandlist[i] == WLC_BAND_5G) || (bandlist[i] == WLC_BAND_6G)) &&
 			(__wl_band_5ghz_a.n_channels > 0)) {
 			bands[IEEE80211_BAND_5GHZ] =
@@ -19121,7 +19209,7 @@ static s32 __wl_cfg80211_down(struct bcm_cfg80211 *cfg)
 
 #ifdef WL_NAN
 	mutex_lock(&cfg->if_sync);
-	wl_cfgnan_check_nan_disable_pending(cfg, true);
+	wl_cfgnan_check_nan_disable_pending(cfg, true, false);
 	mutex_unlock(&cfg->if_sync);
 #endif /* WL_NAN */
 
@@ -21016,8 +21104,8 @@ static bool
 wl_cfg80211_filter_vndr_ext_id(const vndr_ie_t *vndrie)
 {
 	if (vndrie->oui[0] == FILS_EXTID_MNG_HLP_CONTAINER_ID) {
-		/*Skip adding fils HLP IE, its already done using
-		 "WL_FILS_CMD_ADD_HLP_IE" subcmd.
+		/* Skip adding fils HLP IE, its already done using
+		 * "WL_FILS_CMD_ADD_HLP_IE" subcmd.
 		 */
 		WL_DBG(("%s:SKIP ADDING FILS HLP EXTN ID\n", __func__));
 		return true;
@@ -25476,7 +25564,7 @@ bool wl_cfg80211_is_dpp_gas_action(void *frame, u32 frame_len)
 		return false;
 	}
 
-	len = frame_len - (sizeof(wl_dpp_gas_af_t) - 1);
+	len = frame_len - (u32)(sizeof(wl_dpp_gas_af_t) - 1);
 	if (act_frm->action == WL_PUB_AF_GAS_IREQ) {
 		ie = (bcm_tlv_t *)act_frm->query_data;
 		/* We are interested only in MNG ADV ID. Skip any other id. */
@@ -25754,3 +25842,59 @@ exit:
 	return res;
 }
 #endif /* KEEP_ALIVE */
+
+s32
+wl_cfg80211_handle_macaddr_change(struct net_device *dev, u8 *macaddr)
+{
+	struct bcm_cfg80211 *cfg = wl_get_cfg(dev);
+
+	if (IS_STA_IFACE(dev->ieee80211_ptr) &&
+		wl_get_drv_status(cfg, CONNECTED, dev)) {
+		/* Macaddress change in connected state. The curent
+		 * connection will become invalid. Issue disconnect
+		 * to current AP to let the AP know about link down
+		 */
+		WL_INFORM_MEM(("macaddr change in connected state. Force disassoc.\n"));
+		wl_cfg80211_disassoc(dev, WLAN_REASON_DEAUTH_LEAVING);
+	}
+	return BCME_OK;
+}
+
+int
+wl_cfg80211_handle_hang_event(struct net_device *ndev, uint16 hang_reason, uint32 memdump_type)
+{
+	struct bcm_cfg80211 *cfg = wl_get_cfg(ndev);
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
+
+	WL_INFORM_MEM(("hang reason = %d, memdump_type =%d\n",
+		hang_reason, memdump_type));
+
+	/* check if pre-registered mac matches the mac from dongle via WLC_E_LINK */
+	if (wl_get_drv_status(cfg, READY, ndev)) {
+#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
+		wl_copy_hang_info_if_falure(ndev,
+			hang_reason, BCME_NOTFOUND);
+#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
+		SUPP_LOG(("Err. hang reason:%d, dump_type:%d\n", hang_reason, memdump_type));
+		wl_flush_fw_log_buffer(ndev, FW_LOGSET_MASK_ALL);
+		/* IF dongle is down due to previous hang or other conditions,
+		 * sending 0ne more hang notification is not needed.
+		 */
+
+		if (dhd_query_bus_erros(dhd)) {
+			return BCME_ERROR;
+		}
+		dhd->iface_op_failed = TRUE;
+#if defined(DHD_FW_COREDUMP)
+		if (dhd->memdump_enabled) {
+			dhd->memdump_type = memdump_type;
+			dhd_bus_mem_dump(dhd);
+		}
+#endif /* DHD_FW_COREDUMP */
+		WL_ERR(("Notify hang event to upper layer \n"));
+		dhd->hang_reason = hang_reason;
+		net_os_send_hang_message(ndev);
+	}
+
+	return BCME_OK;
+}

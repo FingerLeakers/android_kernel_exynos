@@ -23,6 +23,7 @@
 
 
 #include <mali_kbase.h>
+#include <mali_kbase_config_defaults.h>
 
 #include <linux/dma-buf.h>
 #include <asm/cacheflush.h>
@@ -68,7 +69,8 @@ void kbasep_remove_waiting_soft_job(struct kbase_jd_atom *katom)
 	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
 }
 
-static void kbasep_add_waiting_with_timeout(struct kbase_jd_atom *katom)
+static void kbasep_add_waiting_with_timeout(struct kbase_jd_atom *katom,
+					    atomic_t *ptimeout)
 {
 	struct kbase_context *kctx = katom->kctx;
 
@@ -82,12 +84,12 @@ static void kbasep_add_waiting_with_timeout(struct kbase_jd_atom *katom)
 	 */
 	kbasep_add_waiting_soft_job(katom);
 
+	katom->timeout_ms = atomic_read(ptimeout);
+
 	/* Schedule timeout of this atom after a period if it is not active */
 	if (!timer_pending(&kctx->soft_job_timeout)) {
-		int timeout_ms = atomic_read(
-				&kctx->kbdev->js_data.soft_job_timeout_ms);
 		mod_timer(&kctx->soft_job_timeout,
-			  jiffies + msecs_to_jiffies(timeout_ms));
+			  jiffies + msecs_to_jiffies(katom->timeout_ms));
 	}
 }
 
@@ -260,6 +262,13 @@ void kbasep_complete_triggered_soft_events(struct kbase_context *kctx, u64 evt)
 			 */
 			cancel_timer = 0;
 			break;
+		/* MALI_SEC_INTEGRATION */
+		case BASE_JD_REQ_SOFT_FENCE_TRIGGER:
+			/* Keep the timer running if fence debug is enabled and
+			 * there are waiting fence jobs.
+			 */
+			cancel_timer = 0;
+			break;
 #endif
 		}
 	}
@@ -311,13 +320,15 @@ static void kbase_fence_debug_wait_timeout(struct kbase_jd_atom *katom)
 {
 	struct kbase_context *kctx = katom->kctx;
 	struct device *dev = katom->kctx->kbdev->dev;
-	int timeout_ms = atomic_read(&kctx->kbdev->js_data.soft_job_timeout_ms);
+	int timeout_ms = atomic_read(&kctx->kbdev->js_data.fence_timeout_ms);
 	unsigned long lflags;
 	struct kbase_sync_fence_info info;
 
 /* MALI_SEC_INTEGRATION */
 #ifdef CONFIG_MALI_SEC_JOB_STATUS_CHECK
+	spin_lock_irqsave(&kctx->waiting_soft_jobs_lock, lflags);
 	gpu_job_fence_status_dump(NULL);
+	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
 #endif
 
 	spin_lock_irqsave(&kctx->waiting_soft_jobs_lock, lflags);
@@ -385,8 +396,7 @@ void kbasep_soft_job_timeout_worker(struct timer_list *timer)
 {
 	struct kbase_context *kctx = container_of(timer, struct kbase_context,
 			soft_job_timeout);
-	u32 timeout_ms = (u32)atomic_read(
-			&kctx->kbdev->js_data.soft_job_timeout_ms);
+	u64 min_left_ms = DEFAULT_JS_SOFT_JOB_TIMEOUT;
 	ktime_t cur_time = ktime_get();
 	bool restarting = false;
 	unsigned long lflags;
@@ -398,8 +408,10 @@ void kbasep_soft_job_timeout_worker(struct timer_list *timer)
 				struct kbase_jd_atom, queue);
 		s64 elapsed_time = ktime_to_ms(ktime_sub(cur_time,
 					katom->start_timestamp));
+		s64 left_ms = (s64)katom->timeout_ms - elapsed_time;
 
-		if (elapsed_time < (s64)timeout_ms) {
+		if (left_ms > 0) {
+			min_left_ms = min_t(u64, left_ms, min_left_ms);
 			restarting = true;
 			continue;
 		}
@@ -430,7 +442,7 @@ void kbasep_soft_job_timeout_worker(struct timer_list *timer)
 	}
 
 	if (restarting)
-		mod_timer(timer, jiffies + msecs_to_jiffies(timeout_ms));
+		mod_timer(timer, jiffies + msecs_to_jiffies(min_left_ms));
 	spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags);
 }
 
@@ -448,7 +460,8 @@ static int kbasep_soft_event_wait(struct kbase_jd_atom *katom)
 	if (status == BASE_JD_SOFT_EVENT_SET)
 		return 0; /* Event already set, nothing to do */
 
-	kbasep_add_waiting_with_timeout(katom);
+	kbasep_add_waiting_with_timeout(katom,
+					&kctx->kbdev->js_data.soft_job_timeout_ms);
 
 	return 1;
 }
@@ -1503,7 +1516,8 @@ int kbase_process_soft_job(struct kbase_jd_atom *katom)
 
 		if (ret == 1) {
 #ifdef CONFIG_MALI_FENCE_DEBUG
-			kbasep_add_waiting_with_timeout(katom);
+			kbasep_add_waiting_with_timeout(katom,
+							&kctx->kbdev->js_data.fence_timeout_ms);
 #else
 			kbasep_add_waiting_soft_job(katom);
 #endif

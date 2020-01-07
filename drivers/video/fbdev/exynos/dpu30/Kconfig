@@ -126,6 +126,11 @@ config DECON_BTS_LEGACY
         depends on EXYNOS_DPU30
         default n
 
+config DECON_BTS_VRR_ASYNC
+	bool "BTS support VRR Async"
+        depends on EXYNOS_DPU30
+        default n
+
 config FB_TEST
 	bool "Framebuffer test only"
         depends on EXYNOS_DPU30
@@ -173,6 +178,11 @@ config EXYNOS_SET_ACTIVE_WITH_EMPTY_WINDOW
 
 config EXYNOS_LATENCY_MONITOR
 	bool "Read Data Latency Monitor"
+		depends on EXYNOS_DPU30
+		default n
+
+config EXYNOS_DPU_SYSTRACE
+	bool "Support Systrace for DPU"
 		depends on EXYNOS_DPU30
 		default n
 

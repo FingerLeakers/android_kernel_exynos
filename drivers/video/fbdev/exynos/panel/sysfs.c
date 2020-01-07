@@ -366,7 +366,7 @@ static ssize_t gamma_interpolation_test_store(struct device *dev,
 		return -EINVAL;
 	}
 
-	ret = sscanf(buf, "%x %x %x %x %x %x",
+	ret = sscanf(buf, "%02hhx %02hhx %02hhx %02hhx %02hhx %02hhx",
 						&write_buf[0], &write_buf[1], &write_buf[2],
 						&write_buf[3], &write_buf[4], &write_buf[5]);
 	if (ret != 6) {
@@ -1010,8 +1010,8 @@ static ssize_t mcd_mode_store(struct device *dev,
 	mutex_lock(&panel->io_lock);
 #ifdef CONFIG_PANEL_VRR_BRIDGE
 	if ((value) && ((panel_data->props.vrr_fps != 60) ||
-		(panel_data->props.vrr_mode != VRR_HS_MODE))) {
-		// "mcd on" is only 60 HS
+		(panel_data->props.vrr_mode != VRR_NORMAL_MODE))) {
+		// "mcd on" is only 60 Normal
 		dev_info(dev, "%s: request mcd on, but current %d %s mode\n",
 			__func__, panel_data->props.vrr_fps, panel_data->props.vrr_mode ? "HS" : "Normal");
 		mutex_unlock(&panel->io_lock);
@@ -1904,30 +1904,38 @@ static ssize_t gamma_flash_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct panel_device *panel = dev_get_drvdata(dev);
-	struct dim_flash_result *result = &panel->dim_flash_result;
-	int ret;
+	struct dim_flash_result *result;
+	int ret = 0;
+	int i, size = 0;
 
 	if (panel == NULL) {
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
 
-	/* thread is running */
-	if (atomic_read(&panel->work[PANEL_WORK_DIM_FLASH].running))
-		ret = GAMMA_FLASH_PROGRESS;
-	else
-		ret = panel->work[PANEL_WORK_DIM_FLASH].ret;
+	if (panel->dim_flash_result == NULL || panel->max_nr_dim_flash_result < 1) {
+		panel_err("PANEL:ERR:%s: invalid dim_flash_buffer\n", __func__);
+		return -ENOMEM;
+	}
 
-	pr_info("%s result %d, dim chksum(calc:%04X read:%04X), "
-			"mtp chksum(reg:%04X, calc:%04X, read:%04X)\n", __func__,
-			ret, result->dim_chksum_by_calc, result->dim_chksum_by_read,
+	ret = panel->work[PANEL_WORK_DIM_FLASH].ret;
+	if (ret)
+		pr_info("%s work returned %d\n", __func__, ret);
+
+	size = snprintf(buf + size, PAGE_SIZE - size, "%d\n", panel->nr_dim_flash_result);
+	for (i = 0; i < panel->nr_dim_flash_result; i++) {
+		result = &panel->dim_flash_result[i];
+		pr_info("%s idx %d result %d, dim chksum(calc:%04X read:%04X), "
+				"mtp chksum(reg:%04X, calc:%04X, read:%04X)\n", __func__, i,
+				result->state, result->dim_chksum_by_calc, result->dim_chksum_by_read,
+				result->mtp_chksum_by_reg, result->mtp_chksum_by_calc,
+				result->mtp_chksum_by_read);
+		size += snprintf(buf + size, PAGE_SIZE - size, "%d %08X %08X %08X %08X %08X\n",
+			result->state, result->dim_chksum_by_calc, result->dim_chksum_by_read,
 			result->mtp_chksum_by_reg, result->mtp_chksum_by_calc,
 			result->mtp_chksum_by_read);
-
-	return snprintf(buf, PAGE_SIZE, "%d %08X %08X %08X %08X %08X\n",
-			ret, result->dim_chksum_by_calc, result->dim_chksum_by_read,
-			result->mtp_chksum_by_reg, result->mtp_chksum_by_calc,
-			result->mtp_chksum_by_read);
+	}
+	return size;
 }
 
 static ssize_t gamma_flash_store(struct device *dev,
@@ -1944,15 +1952,19 @@ static ssize_t gamma_flash_store(struct device *dev,
 	if (rc < 0)
 		return rc;
 
-	if (atomic_read(&panel->work[PANEL_WORK_DIM_FLASH].running))
-		return -EBUSY;
-
-	panel->work[PANEL_WORK_DIM_FLASH].ret = GAMMA_FLASH_ERROR_NOT_EXIST;
-	memset(&panel->dim_flash_result, 0, sizeof(struct dim_flash_result));
 	if (value == 0) {
 		panel_update_dim_type(panel, DIM_TYPE_AID_DIMMING);
 		panel_update_brightness(panel);
 	} else if (value == 1) {
+		if (!panel->dim_flash_result || panel->max_nr_dim_flash_result < 1) {
+			return -ENOMEM;
+		}
+
+		if (atomic_read(&panel->work[PANEL_WORK_DIM_FLASH].running))
+			return -EBUSY;
+
+		atomic_set(&panel->work[PANEL_WORK_DIM_FLASH].running, 1);
+		panel->work[PANEL_WORK_DIM_FLASH].ret = 0;
 		queue_delayed_work(panel->work[PANEL_WORK_DIM_FLASH].wq,
 				&panel->work[PANEL_WORK_DIM_FLASH].dwork, msecs_to_jiffies(0));
 	}
@@ -2204,6 +2216,18 @@ static int set_alpm_mode(struct panel_device *panel, int mode)
 		panel_update_brightness(panel);
 #ifdef CONFIG_SEC_FACTORY
 		msleep(34);
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+		mutex_lock(&panel->op_lock);
+		ret = panel_set_vrr_nolock(panel,
+				panel->panel_data.props.vrr_fps,
+				panel->panel_data.props.vrr_mode, false);
+		mutex_unlock(&panel->op_lock);
+		if (ret < 0)
+			panel_err("PANEL:ERR:%s:failed to set vrr seq\n", __func__);
+		pr_info("%s vrr(fps:%d mode:%d)\n", __func__,
+				panel->panel_data.props.vrr_fps,
+				panel->panel_data.props.vrr_mode);
+#endif
 #endif
 		break;
 	case ALPM_LOW_BR:
@@ -2863,6 +2887,7 @@ static ssize_t aid_log_show(struct device *dev,
 		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
 		return -EINVAL;
 	}
+	mutex_lock(&sysfs_lock);
 	panel_data = &panel->panel_data;
 
 	print_panel_resource(panel);
@@ -2871,6 +2896,7 @@ static ssize_t aid_log_show(struct device *dev,
 #ifdef CONFIG_SUPPORT_HMD
 	show_aid_log(panel_data, PANEL_BL_SUBDEV_TYPE_HMD);
 #endif
+	mutex_unlock(&sysfs_lock);
 
 	return strlen(buf);
 }
@@ -2885,6 +2911,7 @@ static ssize_t aid_log_store(struct device *dev,
 	if (rc < 0)
 		return rc;
 
+	mutex_lock(&sysfs_lock);
 	if (value == 1 || value == 2) {
 		/* read brightness & make csv */
 		show_brt_param(&panel->panel_data, PANEL_BL_SUBDEV_TYPE_DISP, value);
@@ -2892,6 +2919,7 @@ static ssize_t aid_log_store(struct device *dev,
 		show_brt_param(&panel->panel_data, PANEL_BL_SUBDEV_TYPE_HMD, value);
 #endif
 	}
+	mutex_unlock(&sysfs_lock);
 
 	return size;
 }
@@ -3763,7 +3791,7 @@ static ssize_t dynamic_freq_store(struct device *dev,
 	}
 
 	dyn_status = &panel->df_status;
-	
+
 	rc = kstrtouint(buf, (unsigned int)0, &value);
 	if (rc < 0)
 		return rc;
@@ -3775,7 +3803,7 @@ static ssize_t dynamic_freq_store(struct device *dev,
 
 	osc = (value & 0x4) >> 2;
 	value = value & 0x3;
-	
+
 	panel_info("[DYN_FREQ]:%s osc: %d, value: %d\n", __func__, osc, value);
 	dyn_status->request_ddi_osc = osc;
 
@@ -3797,13 +3825,11 @@ static ssize_t vrr_show(struct device *dev,
 	}
 	panel_data = &panel->panel_data;
 
-
-
-
-
 	snprintf(buf, PAGE_SIZE, "%d %d\n",
 			panel_data->props.vrr_fps,
 			panel_data->props.vrr_mode);
+	pr_info("%s vrr fps: %d, mode: %d\n", __func__,
+		panel_data->props.vrr_fps, panel_data->props.vrr_mode);
 
 	return strlen(buf);
 }
@@ -3848,6 +3874,49 @@ static ssize_t vrr_store(struct device *dev,
 
 	return size;
 }
+
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+static ssize_t vrr_bridge_show(struct device *dev,
+		    struct device_attribute *attr, char *buf)
+{
+	struct panel_info *panel_data;
+	struct panel_device *panel = dev_get_drvdata(dev);
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_data = &panel->panel_data;
+
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+			panel_data->props.vrr_bridge_enable);
+}
+
+static ssize_t vrr_bridge_store(struct device *dev,
+		    struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct panel_info *panel_data;
+	struct panel_device *panel = dev_get_drvdata(dev);
+	int rc, enable = 0;
+
+	if (panel == NULL) {
+		panel_err("PANEL:ERR:%s:panel is null\n", __func__);
+		return -EINVAL;
+	}
+	panel_data = &panel->panel_data;
+
+	rc = sscanf(buf, "%d", &enable);
+	if (rc != 1)
+		return EINVAL;
+
+	mutex_lock(&panel->io_lock);
+	panel_data->props.vrr_bridge_enable = !!enable;
+	pr_info("%s vrr_bridge_enable %d\n", __func__, enable);
+	mutex_unlock(&panel->io_lock);
+
+	return size;
+}
+#endif
 
 #ifdef CONFIG_SUPPORT_POC_SPI
 #define SPI_BUF_LEN 2048
@@ -4042,6 +4111,9 @@ struct device_attribute panel_attrs[] = {
 	__PANEL_ATTR_RW(spi_flash_ctrl, 0660),
 #endif
 	__PANEL_ATTR_RW(vrr, 0664),
+#ifdef CONFIG_PANEL_VRR_BRIDGE
+	__PANEL_ATTR_RW(vrr_bridge, 0664),
+#endif
 	__PANEL_ATTR_RW(conn_det, 0664),
 #ifdef CONFIG_SUPPORT_MAFPC
 	__PANEL_ATTR_RO(mafpc_time, 0444),

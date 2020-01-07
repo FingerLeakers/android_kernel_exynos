@@ -48,44 +48,17 @@ struct task_struct *devfreq_change_task;
 #endif
 
 
-#ifdef CONFIG_DYNAMIC_FREQ
-#define PERSISTENCE_MAX_TIME 60000 //60msec
-
-static void decon_df_persistence(struct decon_device *decon)
-{
-	u32 gap;
-	struct decon_mode_info psr;
-	struct df_status_info *df_status = decon->df_status;
-	
-	if (df_status->persistence_mode == 0)
-		return;
-	
-	if (df_status->persistence_cnt)
-		df_status->persistence_cnt--;
-	else {
-		df_status->persistence_mode = 0;
-		gap = ktime_to_us(ktime_sub(ktime_get(), decon->last_update_time));
-
-		if (gap > PERSISTENCE_MAX_TIME) {
-			decon_info("[DYN_FREQ]: %s: disable df frame persistence mode : %d\n",
-				__func__, gap);
-			df_status->persistence_mode = 0;
-			decon_to_psr_info(decon, &psr);
-			decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_DISABLE);
-		}
-	}
-}
-#endif
-
 /* DECON irq handler for DSI interface */
 static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 {
 	struct decon_device *decon = dev_data;
 	u32 irq_sts_reg;
 	u32 ext_irq = 0;
-
 #if defined(CONFIG_EXYNOS_COMMON_PANEL)
 	ktime_t timestamp = ktime_get();
+	u64 frame_elapsed_us;
+	static ktime_t frame_done_err_skip_timeout;
+	static int frame_done_err_cnt;
 #endif
 
 	if (!decon) {
@@ -104,6 +77,7 @@ static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 	if (irq_sts_reg & DPU_FRAME_START_INT_PEND) {
 		/* VSYNC interrupt, accept it */
 		decon->frame_cnt++;
+		decon->frame_time = timestamp;
 		decon_dbg("Decon FrameStart(%d)\n", decon->frame_cnt);
 		wake_up_interruptible_all(&decon->wait_vstatus);
 		if (decon->state == DECON_STATE_TUI)
@@ -112,17 +86,39 @@ static irqreturn_t decon_irq_handler(int irq, void *dev_data)
 
 	if (irq_sts_reg & DPU_FRAME_DONE_INT_PEND) {
 		DPU_EVENT_LOG(DPU_EVT_DECON_FRAMEDONE, &decon->sd, ktime_set(0, 0));
+#if defined(CONFIG_EXYNOS_COMMON_PANEL)
+		if ((decon->dt.out_type == DECON_OUT_DSI) &&
+			(decon->dt.psr_mode == DECON_MIPI_COMMAND_MODE) &&
+			(decon->dt.trig_mode == DECON_HW_TRIG)) {
+			frame_elapsed_us = ktime_us_delta(timestamp, decon->frame_time);
+			/* tearing check if vsync occurred between half of frame and frame done */
+			if ((frame_elapsed_us > MIN_FRAME_DONE_ERR_CHECK_USEC) &&
+					ktime_after(decon->vsync.timestamp,
+						ktime_sub_us(timestamp, frame_elapsed_us / 2)) &&
+					ktime_before(decon->vsync.timestamp, timestamp)) {
+				/* print error log once within 3 sec */
+				frame_done_err_cnt++;
+				if (ktime_after(timestamp, frame_done_err_skip_timeout)) {
+					decon_warn("decon-%d FrameDone(%d) tearing occurs(%d)"
+							" elapsed(frame:%ld.%03ldms, vsync:%ld.%03ldms)\n",
+							decon->id, decon->frame_cnt, frame_done_err_cnt,
+							frame_elapsed_us / 1000, frame_elapsed_us % 1000,
+							decon->vsync.period / 1000, decon->vsync.period % 1000);
+					frame_done_err_skip_timeout =
+						ktime_add_ms(timestamp, FRAME_DONE_ERR_CHECK_SKIP_TIMEOUT);
+				}
+			} else {
+				decon_dbg("Decon FrameDone(%d) elapsed(%ld.%03ldmsec)\n",
+						decon->frame_cnt, frame_elapsed_us / 1000,
+						frame_elapsed_us % 1000);
+			}
+		}
+#endif
 		DPU_DEBUG_DMA_BUF("frame_done\n");
 		decon->hiber.frame_cnt++;
 		decon_hiber_trig_reset(decon);
 		if (decon->state == DECON_STATE_TUI)
 			decon_info("%s:%d TUI Frame Done\n", __func__, __LINE__);
-
-#ifdef CONFIG_DYNAMIC_FREQ
-		if (decon->dt.out_type == DECON_OUT_DSI) {
-			decon_df_persistence(decon);
-		}
-#endif
 
 #if defined(CONFIG_EXYNOS_LATENCY_MONITOR)
 		decon_info("[LATENCY] cycle=%d @ACLK=%lu KHz\n",
@@ -381,6 +377,13 @@ static irqreturn_t decon_ext_irq_handler(int irq, void *dev_id)
 	}
 
 	decon_systrace(decon, 'C', "decon_te_signal", 0);
+	decon->vsync.count++;
+#if defined(CONFIG_EXYNOS_COMMON_PANEL)
+	decon->vsync.period = ktime_us_delta(timestamp, decon->vsync.timestamp);
+	decon_dbg("Decon TE(%llu) elapsed(%2ld.%03ldmsec)\n",
+			decon->vsync.count, decon->vsync.period / 1000,
+			decon->vsync.period % 1000);
+#endif
 	decon->vsync.timestamp = timestamp;
 	wake_up_interruptible_all(&decon->vsync.wait);
 
@@ -1470,7 +1473,7 @@ int decon_enter_hiber(struct decon_device *decon)
 	}
 
 #if defined(CONFIG_EXYNOS_BTS)
-	decon->bts.ops->bts_release_bw(decon);
+	decon->bts.ops->bts_hiber_release_bw(decon);
 #endif
 
 	ret = decon_set_out_sd_state(decon, DECON_STATE_HIBER);

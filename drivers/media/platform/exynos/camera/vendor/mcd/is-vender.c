@@ -231,6 +231,7 @@ err:
 
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 static struct cam_cp_noti_info g_cp_noti_info;
+static struct cam_cp_noti_info g_cp_noti_legacy_info;
 static struct mutex g_mipi_mutex;
 static bool g_init_notifier;
 
@@ -269,6 +270,8 @@ static int is_vendor_ril_notifier(struct notifier_block *nb,
 
 		mutex_lock(&g_mipi_mutex);
 		memcpy(&g_cp_noti_info, msg->data, sizeof(struct cam_cp_noti_info));
+		if(g_cp_noti_info.rat != CAM_RAT_7_NR5G)
+			memcpy(&g_cp_noti_legacy_info, &g_cp_noti_info, sizeof(struct cam_cp_noti_info));
 		mutex_unlock(&g_mipi_mutex);
 
 		info("%s: update mipi channel [%d,%d,%d]\n",
@@ -291,6 +294,7 @@ static void is_vendor_register_ril_notifier(void)
 
 		mutex_init(&g_mipi_mutex);
 		memset(&g_cp_noti_info, 0, sizeof(struct cam_cp_noti_info));
+		memset(&g_cp_noti_legacy_info, 0, sizeof(struct cam_cp_noti_info));
 
 		register_dev_ril_bridge_event_notifier(&g_ril_notifier_block);
 		g_init_notifier = true;
@@ -307,6 +311,19 @@ static void is_vendor_get_rf_channel(struct cam_cp_noti_info *ch)
 
 	mutex_lock(&g_mipi_mutex);
 	memcpy(ch, &g_cp_noti_info, sizeof(struct cam_cp_noti_info));
+	mutex_unlock(&g_mipi_mutex);
+}
+
+static void is_vendor_get_legacy_rf_channel(struct cam_cp_noti_info *ch)
+{
+	if (!g_init_notifier) {
+		warn("%s: not init ril notifier\n", __func__);
+		memset(ch, 0, sizeof(struct cam_cp_noti_info));
+		return;
+	}
+
+	mutex_lock(&g_mipi_mutex);
+	memcpy(ch, &g_cp_noti_legacy_info, sizeof(struct cam_cp_noti_info));
 	mutex_unlock(&g_mipi_mutex);
 }
 
@@ -350,8 +367,30 @@ int is_vendor_select_mipi_by_rf_channel(const struct cam_mipi_channel *channel_l
 			compare_rf_channel);
 
 	if (result == NULL) {
-		info("%s: searching result : not found, use default mipi clock\n", __func__);
-		return 0; /* return default mipi clock index = 0 */
+		if(input_ch.rat == CAM_RAT_7_NR5G) {		/* EN-DC case */
+			info("%s: not found for NR, retry for legacy RAT\n", __func__);
+			is_vendor_get_legacy_rf_channel(&input_ch);
+
+			key.rat_band = CAM_RAT_BAND(input_ch.rat, input_ch.band);
+			key.channel_min = input_ch.channel;
+			key.channel_max = input_ch.channel;
+
+			info("%s: searching legacy rf channel s [%d,%d,%d]\n",
+				__func__, input_ch.rat, input_ch.band, input_ch.channel);
+
+			result = bsearch(&key,
+					channel_list,
+					size,
+					sizeof(struct cam_mipi_channel),
+					compare_rf_channel);
+			if (result == NULL) {
+				info("%s: searching result : not found, use default mipi clock\n", __func__);
+				return 0; /* return default mipi clock index = 0 */
+			}
+		} else {
+			info("%s: searching result : not found, use default mipi clock\n", __func__);
+			return 0; /* return default mipi clock index = 0 */
+		}
 	}
 
 	info("%s: searching result : [0x%x,(%d-%d)]->(%d)\n", __func__,
@@ -766,6 +805,9 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	bool skip_crc_check;
 	bool skip_header_loading;
 	char rom_af_cal_d_addr[30];
+	const u32 *rom_pdxtc_cal_data_addr_list_spec;
+	const u32 *rom_gcc_cal_data_addr_list_spec;
+	const u32 *rom_xtc_cal_data_addr_list_spec;
 
 	struct is_rom_info *finfo;
 
@@ -992,9 +1034,74 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave1_size", finfo->rom_dualcal_slave1_size, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave2_start_addr", finfo->rom_dualcal_slave2_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_dualcal_slave2_size", finfo->rom_dualcal_slave2_size, -1);
+
 	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_start_addr", finfo->rom_pdxtc_cal_data_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_coef_size", finfo->rom_pdxtc_cal_data_coef_size, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_val_size", finfo->rom_pdxtc_cal_data_val_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_0_size", finfo->rom_pdxtc_cal_data_0_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_1_size", finfo->rom_pdxtc_cal_data_1_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_spdc_cal_data_start_addr", finfo->rom_spdc_cal_data_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_spdc_cal_data_size", finfo->rom_spdc_cal_data_size, -1);
+
+	rom_pdxtc_cal_data_addr_list_spec = of_get_property(dnode, "rom_pdxtc_cal_data_addr_list", &finfo->rom_pdxtc_cal_data_addr_list_len);
+	if (rom_pdxtc_cal_data_addr_list_spec) {
+		finfo->rom_pdxtc_cal_data_addr_list_len /= (unsigned int)sizeof(*rom_pdxtc_cal_data_addr_list_spec);
+
+		BUG_ON(finfo->rom_pdxtc_cal_data_addr_list_len > CROSSTALK_CAL_MAX);
+
+		ret = of_property_read_u32_array(dnode, "rom_pdxtc_cal_data_addr_list", finfo->rom_pdxtc_cal_data_addr_list, finfo->rom_pdxtc_cal_data_addr_list_len);
+		if (ret)
+			err("rom_pdxtc_cal_data_addr_list read is fail(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("rom_pdxtc_cal_data_addr_list :");
+			for (i = 0; i < finfo->rom_pdxtc_cal_data_addr_list_len; i++)
+				info(" %d ", finfo->rom_pdxtc_cal_data_addr_list[i]);
+			info("\n");
+		}
+#endif
+	}
+	finfo->rom_pdxtc_cal_endian_check = of_property_read_bool(dnode, "rom_pdxtc_cal_endian_check");
+
+	rom_gcc_cal_data_addr_list_spec = of_get_property(dnode, "rom_gcc_cal_data_addr_list", &finfo->rom_gcc_cal_data_addr_list_len);
+	if (rom_gcc_cal_data_addr_list_spec) {
+		finfo->rom_gcc_cal_data_addr_list_len /= (unsigned int)sizeof(*rom_gcc_cal_data_addr_list_spec);
+
+		BUG_ON(finfo->rom_gcc_cal_data_addr_list_len > CROSSTALK_CAL_MAX);
+
+		ret = of_property_read_u32_array(dnode, "rom_gcc_cal_data_addr_list", finfo->rom_gcc_cal_data_addr_list, finfo->rom_gcc_cal_data_addr_list_len);
+		if (ret)
+			err("rom_gcc_cal_data_addr_list read is fail(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("rom_gcc_cal_data_addr_list :");
+			for (i = 0; i < finfo->rom_gcc_cal_data_addr_list_len; i++)
+				info(" %d ", finfo->rom_gcc_cal_data_addr_list[i]);
+			info("\n");
+		}
+#endif
+	}
+	finfo->rom_gcc_cal_endian_check = of_property_read_bool(dnode, "rom_gcc_cal_endian_check");
+
+	rom_xtc_cal_data_addr_list_spec = of_get_property(dnode, "rom_xtc_cal_data_addr_list", &finfo->rom_xtc_cal_data_addr_list_len);
+	if (rom_xtc_cal_data_addr_list_spec) {
+		finfo->rom_xtc_cal_data_addr_list_len /= (unsigned int)sizeof(*rom_xtc_cal_data_addr_list_spec);
+
+		BUG_ON(finfo->rom_xtc_cal_data_addr_list_len > CROSSTALK_CAL_MAX);
+
+		ret = of_property_read_u32_array(dnode, "rom_xtc_cal_data_addr_list", finfo->rom_xtc_cal_data_addr_list, finfo->rom_xtc_cal_data_addr_list_len);
+		if (ret)
+			err("rom_xtc_cal_data_addr_list read is fail(%d)", ret);
+#ifdef IS_DEVICE_ROM_DEBUG
+		else {
+			info("rom_xtc_cal_data_addr_list :");
+			for (i = 0; i < finfo->rom_xtc_cal_data_addr_list_len; i++)
+				info(" %d ", finfo->rom_xtc_cal_data_addr_list[i]);
+			info("\n");
+		}
+#endif
+	}
+	finfo->rom_xtc_cal_endian_check = of_property_read_bool(dnode, "rom_xtc_cal_endian_check");
 
 	tof_cal_size_list_spec = of_get_property(dnode, "rom_tof_cal_size_addr", &finfo->rom_tof_cal_size_addr_len);
 	if (tof_cal_size_list_spec) {
@@ -1955,6 +2062,8 @@ int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 
 	WARN_ON(!device);
 	WARN_ON(!ctrl);
+	
+	WARN_ON(!device->pdev);
 
 	core = (struct is_core *)platform_get_drvdata(device->pdev);
 	specific = core->vender.private_data;
@@ -1976,6 +2085,8 @@ int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT:
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT:
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_HANDHELD_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_FAST:
 			captureCount = value & 0x0000FFFF;
 			break;
 		default:

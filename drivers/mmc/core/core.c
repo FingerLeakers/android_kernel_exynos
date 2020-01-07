@@ -1820,6 +1820,7 @@ int mmc_resume_bus(struct mmc_host *host)
 	}
 
 	mmc_bus_put(host);
+
 	spin_lock_irqsave(&host->lock, flags);
 	host->bus_resume_flags &=
 		~(MMC_BUSRESUME_ENTER_IO | MMC_BUSRESUME_ENTER_CMD);

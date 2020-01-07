@@ -181,6 +181,12 @@ config SCSI_UFS_HISI
 
 	  Select this if you have UFS controller on Hisilicon chipset.
 
+config SCSI_UFS_UNIPRO_DEBUG
+	tristate "EXYNOS UFS UNIPRO DEBUG FOR EXYNOS"
+	depends on SCSI_UFS_EXYNOS
+	---help---
+	  This selects the EXYNOS UFS UNIPRO DEBUG on.
+
 config UFSFEATURE
 	bool "UFS feature activate"
 	depends on SCSI_UFSHCD

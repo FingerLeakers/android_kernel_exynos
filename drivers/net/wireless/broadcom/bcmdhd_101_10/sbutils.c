@@ -449,7 +449,7 @@ _sb_scan(si_info_t *sii, uint32 sba, volatile void *regs, uint bus,
 	uint i;
 	si_cores_info_t *cores_info = (si_cores_info_t *)sii->cores_info;
 
-	/* XXX bail out in case it is too deep to scan at the specified bus level */
+	/* bail out in case it is too deep to scan at the specified bus level */
 	if (bus >= SB_MAXBUSES) {
 		SI_ERROR(("_sb_scan: bus 0x%08x at level %d is too deep to scan\n", sbba, bus));
 		return 0;

@@ -480,7 +480,9 @@ int wldev_set_country(
 	}
 
 	if ((error < 0) ||
+
 		dhd_force_country_change(dev) ||
+
 	    (strncmp(country_code, cspec.ccode, WLC_CNTRY_BUF_SZ) != 0)) {
 
 #ifdef WL_CFG80211

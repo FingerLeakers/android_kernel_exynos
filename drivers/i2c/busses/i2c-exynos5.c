@@ -37,7 +37,7 @@
 #include <soc/samsung/exynos-pm.h>
 #endif
 
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#if defined(CONFIG_CPU_IDLE)
 static LIST_HEAD(drvdata_list);
 #endif
 
@@ -188,7 +188,7 @@ static LIST_HEAD(drvdata_list);
 #define HSI2C_SLV_ADDR_SLV(x)			((x & 0x3ff) << 0)
 #define HSI2C_SLV_ADDR_MAS(x)			((x & 0x3ff) << 10)
 #define HSI2C_MASTER_ID(x)			((x & 0xff) << 24)
-#define MASTER_ID(x)				((x & 0x7) + 0x08)
+#define MASTER_ID(x)				((((x << 1) + 0x1) & 0x7) + 0x08)
 
 /*
  * Controller operating frequency, timing values for operation
@@ -383,8 +383,8 @@ static int exynos5_i2c_set_timing(struct exynos5_i2c *i2c, int mode)
 	unsigned int ipclk;
 	unsigned int op_clk;
 
-	u32 hs_div, uTSCL_H_HS, uTSTART_HD_HS;
-	u32 fs_div, uTSCL_H_FS, uTSTART_HD_FS;
+	u32 hs_div, uTSCL_H_HS, uTSCL_L_HS, uTSTART_HD_HS;
+	u32 fs_div, uTSCL_H_FS, uTSCL_L_FS, uTSTART_HD_FS;
 	u32 utemp;
 
 	if (i2c->default_clk) {
@@ -407,10 +407,20 @@ static int exynos5_i2c_set_timing(struct exynos5_i2c *i2c, int mode)
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS3) & ~0x00FF0000;
 		writel(utemp | (fs_div << 16), i2c->regs + HSI2C_TIMING_FS3);
 
-		uTSCL_H_FS = (25 *(ipclk / (1000 * 1000))) / ((fs_div + 1) * 10);
-		uTSCL_H_FS = (0xFF << uTSCL_H_FS) & 0xFF;
+		if (!i2c->tscl_h) {
+			uTSCL_H_FS = (25 *(ipclk / (1000 * 1000))) / ((fs_div + 1) * 10);
+			uTSCL_H_FS = (0xFF << uTSCL_H_FS) & 0xFF;
+		} else {
+			uTSCL_H_FS = i2c->tscl_h;
+		}
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x000000FF;
 		writel(utemp | (uTSCL_H_FS << 0), i2c->regs + HSI2C_TIMING_FS2);
+
+		if (i2c->tscl_l) {
+			uTSCL_L_FS = i2c->tscl_l;
+			utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x0000FF00;
+			writel(utemp | (uTSCL_L_FS << 8), i2c->regs + HSI2C_TIMING_FS2);
+		}
 
 		uTSTART_HD_FS = (25 * (ipclk / (1000 * 1000))) / ((fs_div + 1) * 10) - 1;
 		uTSTART_HD_FS = (0xFF << uTSTART_HD_FS) & 0xFF;
@@ -432,10 +442,20 @@ static int exynos5_i2c_set_timing(struct exynos5_i2c *i2c, int mode)
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS3) & ~0x00FF0000;
 		writel(utemp | (fs_div << 16), i2c->regs + HSI2C_TIMING_FS3);
 
-		uTSCL_H_FS = (4 * (ipclk / (1000 * 1000))) / ((fs_div + 1) * 10);
-		uTSCL_H_FS = (0xFF << uTSCL_H_FS) & 0xFF;
+		if (!i2c->tscl_h) {
+			uTSCL_H_FS = (4 * (ipclk / (1000 * 1000))) / ((fs_div + 1) * 10);
+			uTSCL_H_FS = (0xFF << uTSCL_H_FS) & 0xFF;
+		} else {
+			uTSCL_H_FS = i2c->tscl_h;
+		}
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x000000FF;
 		writel(utemp | (uTSCL_H_FS << 0), i2c->regs + HSI2C_TIMING_FS2);
+
+		if (i2c->tscl_l) {
+			uTSCL_L_FS = i2c->tscl_l;
+			utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x0000FF00;
+			writel(utemp | (uTSCL_L_FS << 8), i2c->regs + HSI2C_TIMING_FS2);
+		}
 
 		uTSTART_HD_FS = (4 * (ipclk / (1000 * 1000))) / ((fs_div + 1) * 10) - 1;
 		uTSTART_HD_FS = (0xFF << uTSTART_HD_FS) & 0xFF;
@@ -458,12 +478,22 @@ static int exynos5_i2c_set_timing(struct exynos5_i2c *i2c, int mode)
 		utemp = readl(i2c->regs + HSI2C_TIMING_HS3) & ~0x00FF0000;
 		writel(utemp | (hs_div << 16), i2c->regs + HSI2C_TIMING_HS3);
 
-		uTSCL_H_HS = ((7 * ipclk) / (1000 * 1000)) / ((hs_div + 1) * 100);
-		/* make to 0 into TSCL_H_HS from LSB */
-		uTSCL_H_HS = (0xFFFFFFFF >> uTSCL_H_HS) << uTSCL_H_HS;
-		uTSCL_H_HS &= 0xFF;
+		if (!i2c->tscl_h) {
+			uTSCL_H_HS = ((7 * ipclk) / (1000 * 1000)) / ((hs_div + 1) * 100);
+			/* make to 0 into TSCL_H_HS from LSB */
+			uTSCL_H_HS = (0xFFFFFFFF >> uTSCL_H_HS) << uTSCL_H_HS;
+			uTSCL_H_HS &= 0xFF;
+		} else {
+			uTSCL_H_HS = i2c->tscl_h;
+		}
 		utemp = readl(i2c->regs + HSI2C_TIMING_HS2) & ~0x000000FF;
 		writel(utemp | (uTSCL_H_HS << 0), i2c->regs + HSI2C_TIMING_HS2);
+
+		if (i2c->tscl_l) {
+			uTSCL_L_HS = i2c->tscl_l;
+			utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x0000FF00;
+			writel(utemp | (uTSCL_L_HS << 8), i2c->regs + HSI2C_TIMING_FS2);
+		}
 
 		uTSTART_HD_HS = (7 * ipclk / (1000 * 1000)) / ((hs_div + 1) * 100) - 1;
 		/* make to 0 into uTSTART_HD_HS from LSB */
@@ -490,12 +520,22 @@ static int exynos5_i2c_set_timing(struct exynos5_i2c *i2c, int mode)
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS3) & ~0x00FF0000;
 		writel(utemp | (fs_div << 16), i2c->regs + HSI2C_TIMING_FS3);
 
-		uTSCL_H_FS = ((9 * ipclk) / (1000 * 1000)) / ((fs_div + 1) * 10);
-		/* make to 0 into TSCL_H_FS from LSB */
-		uTSCL_H_FS = (0xFFFFFFFF >> uTSCL_H_FS) << uTSCL_H_FS;
-		uTSCL_H_FS &= 0xFF;
+		if (!i2c->tscl_h) {
+			uTSCL_H_FS = ((9 * ipclk) / (1000 * 1000)) / ((fs_div + 1) * 10);
+			/* make to 0 into TSCL_H_FS from LSB */
+			uTSCL_H_FS = (0xFFFFFFFF >> uTSCL_H_FS) << uTSCL_H_FS;
+			uTSCL_H_FS &= 0xFF;
+		} else {
+			uTSCL_H_FS = i2c->tscl_h;
+		}
 		utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x000000FF;
 		writel(utemp | (uTSCL_H_FS << 0), i2c->regs + HSI2C_TIMING_FS2);
+
+		if (i2c->tscl_l) {
+			uTSCL_L_FS = i2c->tscl_l;
+			utemp = readl(i2c->regs + HSI2C_TIMING_FS2) & ~0x0000FF00;
+			writel(utemp | (uTSCL_L_FS << 8), i2c->regs + HSI2C_TIMING_FS2);
+		}
 
 		uTSTART_HD_FS = (9 * ipclk / (1000 * 1000)) / ((fs_div + 1) * 10) - 1;
 		/* make to 0 into uTSTART_HD_FS from LSB */
@@ -623,6 +663,17 @@ static irqreturn_t exynos5_i2c_irq(int irqno, void *dev_id)
 	unsigned long reg_val;
 	unsigned long trans_status;
 	unsigned char byte;
+
+	if (!i2c) {
+		pr_err("irq nodev (irqno:%d)\n", irqno);
+		return IRQ_HANDLED;
+	}
+
+	if (i2c->msg == NULL || readl(i2c->regs + HSI2C_INT_ENABLE) == 0x0) {
+		pr_err("invalid irq (irqno:%d)\n", irqno);
+		reg_val = readl(i2c->regs + HSI2C_INT_STATUS);
+		goto out;
+	}
 
 	if (i2c->msg->flags & I2C_M_RD) {
 		while ((readl(i2c->regs + HSI2C_FIFO_STATUS) &
@@ -766,7 +817,10 @@ static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
 	i2c_addr = readl(i2c->regs + HSI2C_ADDR);
 	i2c_addr &= ~(0x3ff << 10);
 	i2c_addr &= ~(0x3ff << 0);
-	i2c_addr &= ~(0xff << 24);
+	if (i2c->speed_mode != HSI2C_HIGH_SPD) {
+		i2c_addr &= ~(0xff << 24);
+		i2c_addr |= (0x7 << 24);
+	}
 	i2c_addr |= ((msgs->addr & 0x7f) << 10);
 	writel(i2c_addr, i2c->regs + HSI2C_ADDR);
 
@@ -1055,7 +1109,7 @@ static const struct i2c_algorithm exynos5_i2c_algorithm = {
 	.functionality		= exynos5_i2c_func,
 };
 
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#if defined(CONFIG_CPU_IDLE)
 static int exynos5_i2c_notifier(struct notifier_block *self,
 				unsigned long cmd, void *v)
 {
@@ -1074,7 +1128,7 @@ static int exynos5_i2c_notifier(struct notifier_block *self,
 static struct notifier_block exynos5_i2c_notifier_block = {
 	.notifier_call = exynos5_i2c_notifier,
 };
-#endif /* CONFIG_EXYNOS_PM && CONFIG_CPU_IDLE */
+#endif /* CONFIG_CPU_IDLE */
 
 static int exynos5_i2c_probe(struct platform_device *pdev)
 {
@@ -1119,6 +1173,14 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 			i2c->fs_clock = HSI2C_FS_TX_CLOCK;
 		i2c->clock_frequency = i2c->fs_clock;
 	}
+
+	ret = of_property_read_u32(np, "samsung,tscl-h", &i2c->tscl_h);
+	if (!ret)
+		dev_warn(&pdev->dev, "tSCL_HIGH val: 0x%x\n", i2c->tscl_h);
+
+	ret = of_property_read_u32(np, "samsung,tscl-l", &i2c->tscl_l);
+	if (!ret)
+		dev_warn(&pdev->dev, "tSCL_LOW val: 0x%x\n", i2c->tscl_l);
 
 	/* Mode of operation Polling/Interrupt mode */
 	if (of_get_property(np, "samsung,polling-mode", NULL)) {
@@ -1202,24 +1264,6 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 
 	init_completion(&i2c->msg_complete);
 
-	if (i2c->operation_mode == HSI2C_INTERRUPT) {
-		i2c->irq = ret = irq_of_parse_and_map(np, 0);
-		if (ret <= 0) {
-			dev_err(&pdev->dev, "cannot find HS-I2C IRQ\n");
-			ret = -EINVAL;
-			goto err_clk1;
-		}
-
-		ret = devm_request_irq(&pdev->dev, i2c->irq,
-					exynos5_i2c_irq, 0, dev_name(&pdev->dev), i2c);
-		disable_irq(i2c->irq);
-
-		if (ret != 0) {
-			dev_err(&pdev->dev, "cannot request HS-I2C IRQ %d\n",
-					i2c->irq);
-			goto err_clk1;
-		}
-	}
 	platform_set_drvdata(pdev, i2c);
 #ifdef CONFIG_PM
 	pm_runtime_get_sync(&pdev->dev);
@@ -1241,6 +1285,25 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 	exynos5_i2c_clr_pend_irq(i2c);
 	/* Reset i2c SFR from u-boot or misc causes */
 	exynos5_i2c_reset(i2c);
+
+	if (i2c->operation_mode == HSI2C_INTERRUPT) {
+		i2c->irq = ret = irq_of_parse_and_map(np, 0);
+		if (ret <= 0) {
+			dev_err(&pdev->dev, "cannot find HS-I2C IRQ\n");
+			ret = -EINVAL;
+			goto err_clk1;
+		}
+
+		ret = devm_request_irq(&pdev->dev, i2c->irq,
+					exynos5_i2c_irq, 0, dev_name(&pdev->dev), i2c);
+		disable_irq(i2c->irq);
+
+		if (ret != 0) {
+			dev_err(&pdev->dev, "cannot request HS-I2C IRQ %d\n",
+					i2c->irq);
+			goto err_clk1;
+		}
+	}
 
 	ret = exynos5_hsi2c_clock_setup(i2c);
 	if (ret)
@@ -1267,7 +1330,7 @@ static int exynos5_i2c_probe(struct platform_device *pdev)
 #endif
 #endif
 
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#if defined(CONFIG_CPU_IDLE)
 	list_add_tail(&i2c->node, &drvdata_list);
 #endif
 
@@ -1508,7 +1571,7 @@ static struct platform_driver exynos5_i2c_driver = {
 
 static int __init i2c_adap_exynos5_init(void)
 {
-#if defined(CONFIG_EXYNOS_PM) && defined(CONFIG_CPU_IDLE)
+#if defined(CONFIG_CPU_IDLE)
 	exynos_pm_register_notifier(&exynos5_i2c_notifier_block);
 #endif
 	return platform_driver_register(&exynos5_i2c_driver);

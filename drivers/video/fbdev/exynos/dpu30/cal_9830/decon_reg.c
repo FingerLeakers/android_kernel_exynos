@@ -13,6 +13,7 @@
 #include "../format.h"
 
 /******************* DECON CAL functions *************************/
+
 static int decon_reg_reset(u32 id)
 {
 	int tries;

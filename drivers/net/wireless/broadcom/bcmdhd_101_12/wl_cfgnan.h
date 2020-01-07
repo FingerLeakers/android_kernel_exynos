@@ -160,6 +160,7 @@
 #define NAN_START_STOP_TIMEOUT			5000u
 #define NAN_MAX_NDP_PEER			8u
 #define NAN_DISABLE_CMD_DELAY			2000u
+#define NAN_WAKELOCK_TIMEOUT			(NAN_DISABLE_CMD_DELAY + 500u)
 
 #define NAN_NMI_RAND_PVT_CMD_VENDOR		(1 << 31)
 #define NAN_NMI_RAND_CLUSTER_MERGE_ENAB		(1 << 30)
@@ -210,6 +211,9 @@
 #define NAN_RNG_REQ_ACCEPTED_BY_HOST    1
 #define NAN_RNG_REQ_REJECTED_BY_HOST    0
 
+#define NAN_RNG_REQ_ACCEPTED_BY_PEER	0
+#define NAN_RNG_REQ_REJECTED_BY_PEER	1
+
 #define NAN_RNG_GEOFENCE_MAX_RETRY_CNT	3u
 
 /*
@@ -224,7 +228,8 @@ typedef uint32 nan_data_path_id;
 typedef enum nan_range_status {
 	NAN_RANGING_INVALID = 0,
 	NAN_RANGING_REQUIRED = 1,
-	NAN_RANGING_IN_PROGRESS = 2
+	NAN_RANGING_SETUP_IN_PROGRESS = 2,
+	NAN_RANGING_SESSION_IN_PROGRESS = 3
 } nan_range_status_t;
 
 typedef enum nan_range_role {
@@ -243,6 +248,13 @@ typedef struct nan_svc_inst {
 
 /* Range Status Flag bits for svc info */
 #define SVC_RANGE_REP_EVENT_ONCE 0x01
+
+#define NAN_RANGING_SETUP_IS_IN_PROG(status) \
+	((status) == NAN_RANGING_SETUP_IN_PROGRESS)
+
+#define NAN_RANGING_IS_IN_PROG(status) \
+	(((status) == NAN_RANGING_SETUP_IN_PROGRESS) || \
+	((status) == NAN_RANGING_SESSION_IN_PROGRESS))
 
 typedef struct nan_svc_info {
 	bool valid;
@@ -715,7 +727,8 @@ typedef struct wl_nancfg
 } wl_nancfg_t;
 
 extern bool wl_cfgnan_is_enabled(struct bcm_cfg80211 *cfg);
-extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg, bool force_disable);
+extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg,
+	bool force_disable, bool is_sync_reqd);
 extern int wl_cfgnan_start_handler(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, nan_config_cmd_data_t *cmd_data, uint32 nan_attr_mask);
 extern int wl_cfgnan_stop_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg);
@@ -793,7 +806,7 @@ extern int wl_cfgnan_get_status(struct net_device *ndev, wl_nan_conf_status_t *n
 int wl_cfgnan_set_enable_merge(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, uint8 enable, uint32 *status);
 int wl_cfgnan_attach(struct bcm_cfg80211 *cfg);
-int wl_cfgnan_detach(struct bcm_cfg80211 *cfg);
+void wl_cfgnan_detach(struct bcm_cfg80211 *cfg);
 typedef enum {
 	NAN_ATTRIBUTE_HEADER                            = 100,
 	NAN_ATTRIBUTE_HANDLE                            = 101,

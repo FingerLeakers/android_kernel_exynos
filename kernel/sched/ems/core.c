@@ -16,7 +16,7 @@ static void select_fit_cpus(struct tp_env *env)
 {
 	struct cpumask fit_cpus;
 	struct cpumask cpus_allowed;
-	struct cpumask ontime_fit_cpus, overutil_cpus, busy_cpus, free_cpus;
+	struct cpumask ontime_fit_cpus, overutil_cpus, busy_cpus, free_cpus, syncback;
 	struct task_struct *p = env->p;
 	int cpu;
 
@@ -27,7 +27,7 @@ static void select_fit_cpus(struct tp_env *env)
 	cpumask_clear(&overutil_cpus);
 	cpumask_clear(&busy_cpus);
 	cpumask_clear(&free_cpus);
-
+	cpumask_clear(&syncback);
 	/*
 	 * Make cpus allowed task assignment.
 	 * The fit cpus are determined among allowed cpus of below:
@@ -38,6 +38,12 @@ static void select_fit_cpus(struct tp_env *env)
 	cpumask_and(&cpus_allowed, &env->p->cpus_allowed, cpu_active_mask);
 	cpumask_and(&cpus_allowed, &cpus_allowed, emstune_cpus_allowed(env->p));
 	cpumask_and(&cpus_allowed, &cpus_allowed, ecs_cpus_allowed());
+	cpumask_and(&syncback, &cpus_allowed, &env->p->aug_cpus_allowed);
+	if (cpumask_empty(&syncback))
+		cpumask_or(&cpus_allowed, &cpus_allowed, &env->p->aug_cpus_allowed);
+	else
+		cpumask_and(&cpus_allowed, &cpus_allowed, &env->p->aug_cpus_allowed);
+
 	if (cpumask_empty(&cpus_allowed)) {
 		/* no cpus allowed, give up on selecting cpus */
 		return;
@@ -240,14 +246,6 @@ int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
 		if (cpumask_weight(&mask)) {
 			trace_ems_select_task_rq(p, -1, wake, "no fit faster cpu");
 			return -1;
-		}
-	}
-
-	if (sysctl_sched_sync_hint_enable && sync) {
-		target_cpu = smp_processor_id();
-		if (cpumask_test_cpu(target_cpu, &env.fit_cpus)) {
-			trace_ems_select_task_rq(p, target_cpu, wake, "sync");
-			return target_cpu;
 		}
 	}
 

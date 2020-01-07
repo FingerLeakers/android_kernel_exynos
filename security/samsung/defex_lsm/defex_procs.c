@@ -62,6 +62,7 @@ __setup("androidboot.verifiedbootstate=", verifiedboot_state_setup);
 #	define PED_VIOLATION "DFX1"
 #	define SAFEPLACE_VIOLATION "DFX2"
 #	define INTEGRITY_VIOLATION "DFX3"
+#	define IMMUTABLE_VIOLATION "DFX4"
 #	define MESSAGE_BUFFER_SIZE 200
 #	define STORED_CREDS_SIZE 100
 
@@ -495,6 +496,9 @@ static int task_defex_immutable(struct defex_context *dc, int attribute)
 		proc_file = get_dc_process_name(dc);
 		pr_crit("defex: immutable %s violation [task=%s (%s), access to:%s]\n",
 			(attribute==feature_immutable_path_open)?"open":"write", p->comm, proc_file, new_file);
+#ifdef DEFEX_DSMS_ENABLE
+ 		defex_report_violation(IMMUTABLE_VIOLATION, 0, dc, 0, 0, 0, 0);
+#endif /* DEFEX_DSMS_ENABLE */
 	}
 out:
 	return ret;

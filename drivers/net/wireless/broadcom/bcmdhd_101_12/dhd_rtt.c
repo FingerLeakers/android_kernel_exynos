@@ -1821,19 +1821,20 @@ dhd_rtt_remove_geofence_target(dhd_pub_t *dhd, struct ether_addr *peer_addr)
 	}
 
 	/* left shift all the valid entries, as we dont keep holes in list */
-	for (j = index; (j+1) < geofence_target_cnt; j++) {
-		if (geofence_target_info[j].valid == TRUE) {
-			/*
-			 * src and dest buffer len same, pointers of same DS
-			 * statically allocated
-			 */
+	for (j = index; j < geofence_target_cnt; j++) {
+		/*
+		 * src and dest buffer len same, pointers of same DS
+		 * statically allocated
+		 */
+		if ((j + 1) < geofence_target_cnt) {
 			(void)memcpy_s(&geofence_target_info[j], sizeof(geofence_target_info[j]),
-				&geofence_target_info[j + 1],
-				sizeof(geofence_target_info[j + 1]));
+				&geofence_target_info[j + 1], sizeof(geofence_target_info[j + 1]));
 		} else {
-			break;
+			/* reset the last target info */
+			bzero(&geofence_target_info[j], sizeof(rtt_geofence_target_info_t));
 		}
 	}
+
 	rtt_status->geofence_cfg.geofence_target_cnt--;
 	if ((rtt_status->geofence_cfg.geofence_target_cnt == 0) ||
 		(index == rtt_status->geofence_cfg.cur_target_idx)) {
@@ -1908,6 +1909,9 @@ dhd_rtt_sched_geofencing_target(dhd_pub_t *dhd)
 		rtt_invalid_reason = dhd_rtt_invalid_states(dev,
 				&geofence_target_info->peer_addr);
 		if (rtt_invalid_reason != RTT_STATE_VALID) {
+			/* TODO: see if we can move to next target..
+			* i.e, if invalid state is due to DP with same peer
+			*/
 			ret = BCME_BUSY;
 			DHD_RTT_ERR(("DRV State is not valid for RTT, "
 				"invalid_state = %d\n", rtt_invalid_reason));

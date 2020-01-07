@@ -270,6 +270,7 @@ struct dbg_snapshot_log {
 		size_t val;
 		void *caller[DSS_CALLSTACK_MAX_NUM];
 	} printkl[DSS_API_MAX_NUM];
+#endif
 
 	struct __printk_log {
 		unsigned long long time;
@@ -277,6 +278,5 @@ struct dbg_snapshot_log {
 		char log[DSS_LOG_STRING_LEN];
 		void *caller[DSS_CALLSTACK_MAX_NUM];
 	} printk[DSS_API_MAX_NUM];
-#endif
 };
 #endif

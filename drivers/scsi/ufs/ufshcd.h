@@ -83,6 +83,14 @@
 #define DBG_DL_ERROR_IRQ_MASK	0xA011
 #define PA_ERROR_IND_RECEIVED	15
 
+#define PA_DBG_OPTION_SUITE_1	0x956A
+#define PA_DBG_OPTION_SUITE_2	0x956D
+
+#define DBG_SUITE1_ENABLE	0x90913C1C
+#define DBG_SUITE2_ENABLE	0xE01C115F
+#define DBG_SUITE1_DISABLE	0x98913C1C
+#define DBG_SUITE2_DISABLE	0xE01C195F
+
 struct ufs_hba;
 
 enum dev_cmd_type {
@@ -182,6 +190,13 @@ struct ufs_pm_lvl_states {
 	enum uic_link_state link_state;
 };
 
+#define DATA_NON	0
+#define DATA_READ	1
+#define DATA_WRITE	2
+
+#define TAG_MAX_SIZE	(512 * 1024)
+#define DMA_UPPER_ADDR	0xa00000000	/* DMA UPPER 8GB ADDR */
+
 /**
  * struct ufshcd_lrb - local reference block
  * @utr_descriptor_ptr: UTRD address of the command
@@ -227,7 +242,14 @@ struct ufshcd_lrb {
 	ktime_t issue_time_stamp;
 	ktime_t compl_time_stamp;
 
+	dma_addr_t backup_addr[256];
+	u32 backup_size[256];
+	u32 bu_sg_len;
+	int data_trans;
+	int mem_check;
+
 	bool req_abort_skip;
+
 #if defined(CONFIG_UFSFEATURE) && defined(CONFIG_UFSHPB)
 	int hpb_ctx_id;
 #endif
@@ -622,6 +644,26 @@ struct SEC_UFS_TW_info {
 	bool tw_info_disable;
 };
 
+#if defined(CONFIG_UFSFEATURE) && defined(CONFIG_UFSHPB)
+struct SEC_UFS_HPB_info {
+	atomic64_t hpb_pinned_rb_cnt;
+	atomic64_t hpb_active_rb_cnt;
+	u64 hpb_amount_R_kb;
+	u64 hpb_amount_R_kb_old;
+	unsigned int hpb_read_err_count;
+	unsigned int hpb_RB_ID_READ_err_count;
+	unsigned int hpb_RB_ID_SET_RT_err_count;
+	unsigned int hpb_WB_ID_PREFETCH_err_count;
+	unsigned int hpb_WB_ID_UNSET_RT_err_count;
+	unsigned int hpb_WB_ID_UNSET_RT_ALL_err_count;
+
+	struct timespec timestamp_old;
+	struct timespec timestamp_new;
+	bool hpb_info_disable;
+	bool hpb_err_count_disable;
+};
+#endif
+
 /**
  * struct ufs_hba - per adapter private structure
  * @mmio_base: UFSHCI base register address
@@ -689,6 +731,11 @@ struct ufs_hba {
 	dma_addr_t ucdl_dma_addr;
 	dma_addr_t utrdl_dma_addr;
 	dma_addr_t utmrdl_dma_addr;
+
+	void *bounce_buffer_addr;
+	void *bounce_buffer_addr1;
+	void *bounce_buffer_addr2;
+	void *bounce_buffer_addr3;
 
 	struct Scsi_Host *host;
 	struct device *dev;
@@ -912,6 +959,9 @@ struct ufs_hba {
 	struct ufs_desc_size desc_size;
 	atomic_t scsi_block_reqs_cnt;
 	struct ufs_secure_log secure_log;
+#if defined(CONFIG_UFSFEATURE) && defined(CONFIG_UFSHPB)
+	struct SEC_UFS_HPB_info SEC_hpb_info;
+#endif
 
 #if defined(SEC_UFS_ERROR_COUNT)
 	struct SEC_UFS_counting SEC_err_info;
@@ -923,6 +973,10 @@ struct ufs_hba {
 	atomic_t	log_count;
 #endif
 	bool dbg_dump_chk;
+
+	bool unipro_dbg_op;
+	u32 unipro_dbg_suit1;
+	u32 unipro_dbg_suit2;
 #if defined(CONFIG_UFSFEATURE)
 	struct ufsf_feature ufsf;
 #endif
@@ -1130,6 +1184,9 @@ u32 ufshcd_get_local_unipro_ver(struct ufs_hba *hba);
 #if defined(CONFIG_UFSFEATURE)
 int ufshcd_comp_scsi_upiu(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
 int ufshcd_map_sg(struct ufs_hba *hba, struct ufshcd_lrb *lrbp);
+#endif
+#if defined(CONFIG_UFSFEATURE) && defined(CONFIG_UFSHPB) && defined(SEC_UFS_ERROR_COUNT)
+void SEC_ufs_hpb_rb_count(struct ufs_hba *hba, struct ufshpb_region *rgn);
 #endif
 
 /* Wrapper functions for safely calling variant operations */

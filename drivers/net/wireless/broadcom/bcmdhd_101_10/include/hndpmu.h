@@ -51,9 +51,9 @@ extern uint32 si_pmu_dump_buf_size_pmucap(si_t *sih);
 extern int si_pmu_wait_for_steady_state(si_t *sih, osl_t *osh, pmuregs_t *pmu);
 extern uint32 si_pmu_wake_bit_offset(si_t *sih);
 extern uint32 si_pmu_get_pmutimer(si_t *sih);
-extern void si_switch_pmu_dependency(si_t *sih, uint mode);
 extern void si_pmu_set_min_res_mask(si_t *sih, osl_t *osh, uint min_res_mask);
 extern void si_pmu_set_mac_rsrc_req(si_t *sih, int macunit);
+extern void si_pmu_set_mac_rsrc_req_sc(si_t *sih, osl_t *osh);
 extern bool si_pmu_fast_lpo_enable_pcie(si_t *sih);
 extern bool si_pmu_fast_lpo_enable_pmu(si_t *sih);
 extern uint32 si_cur_pmu_time(si_t *sih);
@@ -84,4 +84,5 @@ extern bool _bcm_pwr_opt_dis;
 #define BCM_PWR_OPT_ENAB()	(FALSE)
 
 extern int si_pmu_mem_pwr_off(si_t *sih, int core_idx);
+extern int si_pmu_mem_pwr_on(si_t *sih);
 #endif /* _hndpmu_h_ */

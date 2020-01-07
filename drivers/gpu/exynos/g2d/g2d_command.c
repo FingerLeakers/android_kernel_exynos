@@ -55,14 +55,14 @@ static struct g2d_reg g2d_setup_commands[TASK_REG_COUNT] = {
 };
 
 static struct g2d_reg g2d_rst_commands[8] = {
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000004},
-	{G2D_SOFT_RESET_REG,   0x00000001}, /* CoreSFRClear */
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
+	{G2D_SOFT_RESET_REG,     0x00000001},
+	{G2D_LAYER_UPDATE_REG,   0x00000000},
 };
 
 void g2d_init_commands(struct g2d_task *task)
@@ -76,7 +76,8 @@ void g2d_init_rst_commands(struct g2d_task *task)
 {
 	memcpy(page_address(task->cmd_page),
 	       &g2d_rst_commands, sizeof(g2d_rst_commands));
-	task->sec.cmd_count = ARRAY_SIZE(g2d_rst_commands);
+	// The number of reset command is 8, but push 7 for workaround
+	task->sec.cmd_count = ARRAY_SIZE(g2d_rst_commands) - 1;
 }
 
 static void g2d_set_taskctl_commands(struct g2d_task *task)

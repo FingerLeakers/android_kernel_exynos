@@ -158,9 +158,9 @@ static int ois_mcu_runtime_resume(struct device *dev)
 
 	__is_mcu_hw_enable(mcu->regs[OM_REG_CORE]);
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 0); /* clear USI reset reg USI17 */
-	msleep(2);
+	usleep_range(2000, 2100);
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 0); /* clear USI reset reg USI18 */
-	msleep(2);
+	usleep_range(2000, 2100);
 	ret |= __is_mcu_hw_set_init_peri(mcu->regs[OM_REG_PERI_SETTING]); /*GPP9 setting */
 	ret |= __is_mcu_hw_set_clock_peri(mcu->regs[OM_REG_PERI1]); /* set i2c clock to 1MH */
 
@@ -179,11 +179,11 @@ static int ois_mcu_runtime_suspend(struct device *dev)
 	info_mcu("%s E\n", __func__);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_START, 0x00);
-	msleep(10);
+	usleep_range(10000, 11000);
 
 	ret = __is_mcu_hw_disable(mcu->regs[OM_REG_CORE]);
 	ret |= __is_mcu_hw_set_clear_peri(mcu->regs[OM_REG_PERI_SETTING]); /*GPP9 clear */
-	msleep(10); //TEMP_2020 Need to be checked
+	usleep_range(2000, 2100); //TEMP_2020 Need to be checked
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI1], 1); /* clear USI reset reg USI17 */
 	ret |= __is_mcu_hw_reset_peri(mcu->regs[OM_REG_PERI2], 1); /* clear USI reset reg USI18 */
 	ret |= __is_mcu_hw_clear_peri(mcu->regs[OM_REG_PERI1]);
@@ -600,20 +600,24 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 			/* write wide xgg ygg xcoef ycoef */
 			if (ois_pinfo->wide_cal_mark[0] == 0xBB) {
 				for (i = 0; i < 4; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_XGG1 + i,
-						ois_pinfo->wide_xgg[i]);
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_XGG1 + i, ois_pinfo->wide_xgg[i]);
 				}
 				for (i = 0; i < 4; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_YGG1 + i,
-						ois_pinfo->wide_ygg[i]);
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR_YGG1 + i, ois_pinfo->wide_ygg[i]);
 				}
 				for (i = 0; i < 2; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M1 + i,
-						ois_pinfo->wide_xcoef[i]);
+#ifdef OIS_DUAL_CAL_DEFAULT_VALUE
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M1 + i, OIS_DUAL_CAL_DEFAULT_VALUE);						
+#else
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M1 + i, ois_pinfo->wide_xcoef[i]);
+#endif
 				}
 				for (i = 0; i < 2; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M1 + i,
-						ois_pinfo->wide_ycoef[i]);
+#ifdef OIS_DUAL_CAL_DEFAULT_VALUE
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M1 + i, OIS_DUAL_CAL_DEFAULT_VALUE);
+#else
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M1 + i, ois_pinfo->wide_ycoef[i]);
+#endif
 				}
 			} else {
 				info("Does not loading xgg/ygg data.");
@@ -622,20 +626,24 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 				/* write tele xgg ygg xcoef ycoef */
 			if (ois_pinfo->tele_cal_mark[0] == 0xBB) {
 				for (i = 0; i < 4; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_XGG1 + i,
-						ois_pinfo->tele_xgg[i]);
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_XGG1 + i, ois_pinfo->tele_xgg[i]);
 				}
 				for (i = 0; i < 4; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_YGG1 + i,
-						ois_pinfo->tele_ygg[i]);
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_REAR2_YGG1 + i, ois_pinfo->tele_ygg[i]);
 				}
 				for (i = 0; i < 2; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M2 + i,
-						ois_pinfo->tele_xcoef[i]);
+#ifdef OIS_DUAL_CAL_DEFAULT_VALUE
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M2 + i, OIS_DUAL_CAL_DEFAULT_VALUE);
+#else
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_XCOEF_M2 + i, ois_pinfo->tele_xcoef[i]);
+#endif
 				}
 				for (i = 0; i < 2; i++) {
-					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M2 + i,
-						ois_pinfo->tele_ycoef[i]);
+#ifdef OIS_DUAL_CAL_DEFAULT_VALUE
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M2 + i, OIS_DUAL_CAL_DEFAULT_VALUE);
+#else
+					is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_YCOEF_M2 + i, ois_pinfo->tele_ycoef[i]);
+#endif
 				}
 			} else {
 				info_mcu("Does not loading xgg/ygg data.");

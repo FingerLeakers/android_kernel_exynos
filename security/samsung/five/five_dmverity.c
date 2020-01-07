@@ -204,7 +204,7 @@ exit:
 	return result;
 }
 
-#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
+#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP) && !defined(CONFIG_FIVE_DEBUG)
 bool five_is_dmverity_protected(const struct file *file)
 {
 	enum five_dmverity_codes dmv_file_status;

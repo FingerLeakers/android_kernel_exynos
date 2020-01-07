@@ -160,8 +160,10 @@ void ufsf_device_check(struct ufs_hba *hba)
 	return;
 out_free_mem:
 #if defined(CONFIG_UFSHPB)
-	seq_scan_lu(lun)
+	seq_scan_lu(lun) {
 		kfree(ufsf->ufshpb_lup[lun]);
+		ufsf->ufshpb_lup[lun] = NULL;
+	}
 
 	/* don't call init handler */
 	ufsf->ufshpb_state = HPB_FAILED;

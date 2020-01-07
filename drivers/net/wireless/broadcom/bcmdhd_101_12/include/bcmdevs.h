@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef	_BCMDEVS_H
@@ -254,7 +254,7 @@
     http://confluence.broadcom.com/display/WLAN/BCM43012+Variants%2Cpackage%2Cballmap%2Cfloorplan#
     BCM43012Variants,package,ballmap,floorplan-PackageOptions
 */
-#define BCM943012_WLCSPOLY_PKG_ID	0x0	/* WLCSP Olympic package */
+#define BCM943012_WLCSPOLY_PKG_ID	0x0	/* WLCSP Oly package */
 #define BCM943012_FCBGA_PKG_ID		0x3	/* FCBGA debug package */
 #define BCM943012_WLCSPWE_PKG_ID	0x1	/* WLCSP WE package */
 #define BCM943012_FCBGAWE_PKG_ID	0x5	/* FCBGA WE package */

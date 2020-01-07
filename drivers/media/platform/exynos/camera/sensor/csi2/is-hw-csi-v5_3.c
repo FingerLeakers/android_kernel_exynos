@@ -34,6 +34,11 @@ void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance)
 #endif
 }
 
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc)
+{
+	return is_hw_get_reg(base_reg, &csi_regs[CSIS_R_FRM_CNT_CH0 + vc]);
+}
+
 int csi_hw_reset(u32 __iomem *base_reg)
 {
 	int ret = 0;
@@ -460,8 +465,14 @@ int csi_hw_g_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear
 
 void csi_hw_dma_reset(u32 __iomem *base_reg)
 {
-	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_CTRL], 0);
+	/*
+	 * DMA off should be called at stream off,
+	 * because if DMA is shared, there can be conficted in on, off control.
+	 * So, DMA off is removed.
+	 */
+
 	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FCNTSEQ], 0);
+	is_hw_set_reg(base_reg, &csi_vcdma_regs[CSIS_R_DMA0_FRO_FRM], 0);
 }
 
 void csi_hw_s_frameptr(u32 __iomem *base_reg, u32 vc, u32 number, bool clear)
@@ -534,9 +545,25 @@ bool csi_hw_g_output_cur_dma_enable(u32 __iomem *base_reg, u32 vc)
 int csi_hw_dma_common_reset(u32 __iomem *base_reg, bool on)
 {
 	u32 val;
+	u32 retry = 10;
 
 	if (!base_reg)
 		return 0;
+
+	/* SW Reset */
+	is_hw_set_field(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL],
+			&csi_dma_fields[CSIS_DMA_F_SW_RESET], 1);
+
+	while (--retry) {
+		if (is_hw_get_field(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL],
+			&csi_dma_fields[CSIS_DMA_F_SW_RESET]) != 1)
+			break;
+
+		udelay(10);
+	}
+
+	if (!retry)
+		err("[CSI DMA TOP] reset is fail(%d)", retry);
 
 	/*
 	 * Common DMA Control register/
@@ -546,7 +573,7 @@ int csi_hw_dma_common_reset(u32 __iomem *base_reg, bool on)
 	 */
 	val = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL]);
 	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_IP_PROCESSING], on);
-	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_SW_RESET], 0x1);
+	val = is_hw_set_field_value(val, &csi_dma_fields[CSIS_DMA_F_SW_RESET], 0);
 	is_hw_set_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_COMMON_DMA_CTRL], val);
 
 	info("[CSI DMA TOP] %s: %d\n", __func__, on);
@@ -692,10 +719,12 @@ int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable)
 	return 0;
 }
 
-int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id)
+int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 batch_num, u32 *frame_id)
 {
 	u32 prev_f_id_0, prev_f_id_1;
 	u32 cur_f_id_0, cur_f_id_1;
+	u64 prev_f_id, sub_f_id, merge_f_id;
+	u32 cnt, i;
 
 	prev_f_id_0 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID0]);
 	prev_f_id_1 = is_hw_get_reg(base_reg, &csi_dma_regs[CSIS_DMA_R_FRO_PREV_FRAME_ID1]);
@@ -706,8 +735,31 @@ int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id)
 	frame_id[0] = prev_f_id_0;
 	frame_id[1] = prev_f_id_1;
 
-	dbg_common(debug_csi, "[CSI]", " f_id_dec: prev(%x, %x), cur(%x, %x)\n",
-		prev_f_id_0, prev_f_id_1, cur_f_id_0, cur_f_id_1);
+	/* make sub frame id */
+	prev_f_id =  ((u64)prev_f_id_1 << 32) | (u64)prev_f_id_0;
+	for (cnt = 0; cnt < 16; cnt++) {
+		sub_f_id = (prev_f_id >> (cnt * F_ID_SIZE));
+		if (!sub_f_id)
+			break;
+	}
+
+	if (cnt != 1 && cnt != batch_num)
+		err("[CSI] mismatch FRO buf cnt(batch:%d != hw_cnt:%d), prev(%x, %x)",
+			batch_num, cnt, prev_f_id_0, prev_f_id_1);
+
+	sub_f_id = (prev_f_id >> ((cnt - 1) * F_ID_SIZE));
+	merge_f_id = sub_f_id;
+
+	if (sub_f_id != 1) {
+		for (i = 1; i < batch_num; i++)
+			merge_f_id |= (sub_f_id + 1) << (i * F_ID_SIZE);
+	}
+
+	frame_id[0] = merge_f_id & GENMASK(31, 0);
+	frame_id[1] = merge_f_id >> 32;
+
+	dbg_common(debug_csi, "[CSI]", " f_id_dec: cnt(%d), prev(%x, %x), cur(%x, %x), merge(%lx)\n",
+		cnt, prev_f_id_0, prev_f_id_1, cur_f_id_0, cur_f_id_1, merge_f_id);
 
 	return 0;
 }
@@ -1012,6 +1064,7 @@ int csi_hw_g_dma_irq_src_vc(u32 __iomem *base_reg, struct csis_irq_src *src, u32
 
 	src->dma_start = is_hw_get_field_value(dma_src, &csi_vcdma_cmn_fields[CSIS_F_DMA_FRM_START]);
 	src->dma_end = is_hw_get_field_value(dma_src, &csi_vcdma_cmn_fields[CSIS_F_DMA_FRM_END]);
+	src->dma_abort = is_hw_get_field_value(dma_src, &csi_vcdma_cmn_fields[CSIS_F_DMA_ABORT_DONE]);
 
 #if !defined(CONFIG_SOC_EXYNOS9820_EVT0)
 	if (dma_src & (1 << (csi_vcdma_cmn_fields[CSIS_F_DMA_FRAME_DROP].bit_start + vc_phys)))

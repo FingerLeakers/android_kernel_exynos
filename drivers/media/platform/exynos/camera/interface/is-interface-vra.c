@@ -36,7 +36,6 @@ static void is_lib_vra_callback_final_output_ready(u32 instance,
 	struct is_lib_vra *lib_vra = g_lib_vra;
 	u32 face_rect[CAMERA2_MAX_FACES][4];
 	u32 face_center[CAMERA2_MAX_FACES][2];
-	u32 index;
 	bool debug_flag = false;
 	unsigned long flags = 0;
 
@@ -118,9 +117,8 @@ static void is_lib_vra_callback_final_output_ready(u32 instance,
 #endif
 
 	if (IS_ENABLED(ENABLE_REPROCESSING_FD)) {
-		index = lib_vra->hw_ip->debug_index[1];
-		lib_vra->hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_DMA_END] = raw_smp_processor_id();
-		lib_vra->hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_DMA_END] = local_clock();
+		_is_hw_frame_dbg_trace(lib_vra->hw_ip, atomic_read(&lib_vra->hw_ip->fcount),
+			DEBUG_POINT_FRAME_END);
 
 		spin_lock_irqsave(&lib_vra->reprocess_fd_lock, lib_vra->reprocess_fd_flag);
 		set_bit(instance, &lib_vra->done_vra_callback_out_ready);

@@ -355,23 +355,25 @@ static void *s6e3hab_aod_icon_img_cmdtbl[] = {
 // --------------------- Control for self icon ---------------------
 static char S6E3HAB_AOD_ICON_GRID_ON[] = {
 	0x7C,
-	0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x1f, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00,
-	0x1E
+	0x00, 0x01, 0x00, 0x1f, 0x00, 0x00, 0x00, 0x00,
+	0x05, 0xA0, 0x0C, 0x80 
+	
 };
+#if 0
 static DEFINE_PKTUI(s6e3hab_aod_icon_grid_on, &s6e3hab_aod_maptbl[ICON_GRID_ON_MAPTBL], 0);
 static DEFINE_VARIABLE_PACKET(s6e3hab_aod_icon_grid_on, DSI_PKT_TYPE_WR, S6E3HAB_AOD_ICON_GRID_ON, 0);
+#endif
+static DEFINE_STATIC_PACKET(s6e3hab_aod_icon_grid_on, DSI_PKT_TYPE_WR, S6E3HAB_AOD_ICON_GRID_ON, 0);
+
 static void *s6e3hab_aod_icon_grid_on_cmdtbl[] = {
 	&KEYINFO(s6e3hab_aod_l2_key_enable),
-	//&PKTINFO(s6e3hab_aod_icon_grid_on),
+	&PKTINFO(s6e3hab_aod_icon_grid_on),
 	&KEYINFO(s6e3hab_aod_l2_key_disable),
 };
 
 static char S6E3HAB_AOD_ICON_GRID_OFF[] = {
-	0x7C,
-	0x00, 0x00,
+	0X7C,
+	0x00, 0x00
 };
 static DEFINE_STATIC_PACKET(s6e3hab_aod_icon_grid_off, DSI_PKT_TYPE_WR, S6E3HAB_AOD_ICON_GRID_OFF, 0);
 

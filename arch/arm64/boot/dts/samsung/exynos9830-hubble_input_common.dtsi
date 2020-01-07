@@ -112,7 +112,8 @@
 		support_dex_mode;
 		enable_settings_aot;
 		support_ear_detect_mode;
-//		sync-reportrate-120 = "Y";
+		sync-reportrate-120 = "Y";
 		support_fod;
+		support_vrr;
 	};
 };

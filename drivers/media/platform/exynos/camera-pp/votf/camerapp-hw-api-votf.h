@@ -24,17 +24,20 @@ void camerapp_hw_votf_sw_core_reset(void __iomem *base_addr, int module);
 
 void camerapp_hw_votf_set_flush(void __iomem *votf_addr, u32 offset);
 
+void camerapp_hw_votf_set_crop_start(void __iomem *votf_addr, u32 offset, bool start);
+u32 camerapp_hw_votf_get_crop_start(void __iomem *votf_addr, u32 offset);
+void camerapp_hw_votf_set_crop_enable(void __iomem *votf_addr, u32 offset, bool enable);
+u32 camerapp_hw_votf_get_crop_enable(void __iomem *votf_addr, u32 offset);
+
 void camerapp_hw_votf_set_recover_enable(void __iomem *base_addr, u32 offset, u32 cfg);
-void camerapp_hw_votf_set_lines_in_first_token(void __iomem *votf_addr, u32 offset, u32 lines);
-void camerapp_hw_votf_set_lines_count(void __iomem *votf_addr, u32 offset, u32 cnt);
+void camerapp_hw_votf_set_token_size(void __iomem *votf_addr, u32 offset, u32 token_size);
+void camerapp_hw_votf_set_first_token_size(void __iomem *votf_addr, u32 offset, u32 token_size);
+void camerapp_hw_votf_set_frame_size(void __iomem *votf_addr, u32 offset, u32 frame_size);
 
 void camerapp_hw_votf_set_enable(void __iomem *votf_addr, u32 offset, bool enable);
 u32 camerapp_hw_votf_get_enable(void __iomem *votf_addr, u32 offset);
 void camerapp_hw_votf_set_limit(void __iomem *votf_addr, u32 offset, u32 limit);
 void camerapp_hw_votf_set_dest(void __iomem *votf_addr, u32 offset, u32 dest);
-void camerapp_hw_votf_set_token_size(void __iomem *votf_addr, u32 offset, u32 token_size);
-void camerapp_hw_votf_set_first_token_size(void __iomem *votf_addr, u32 offset, u32 token_size);
-void camerapp_hw_votf_set_lines_in_token(void __iomem *votf_addr, u32 offset, u32 lines);
 
 void camerapp_hw_votf_set_start(void __iomem *votf_addr, u32 offset, u32 start);
 void camerapp_hw_votf_set_finish(void __iomem *votf_addr, u32 offset, u32 finish);

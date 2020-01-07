@@ -74,19 +74,19 @@ static struct modem_ctl *g_mc;
 static int register_phone_active_interrupt(struct modem_ctl *mc);
 static int register_cp2ap_wakeup_interrupt(struct modem_ctl *mc);
 
-static int exynos_s5100_reboot_handler(struct notifier_block *nb,
+static int s5100_reboot_handler(struct notifier_block *nb,
 				    unsigned long l, void *p)
 {
+	struct modem_ctl *mc = container_of(nb, struct modem_ctl, reboot_nb);
+
 	mif_info("Now is device rebooting..\n");
-	g_mc->device_reboot = true;
+
+	mutex_lock(&mc->pcie_onoff_lock);
+	mc->device_reboot = true;
+	mutex_unlock(&mc->pcie_onoff_lock);
 
 	return 0;
 }
-
-static struct notifier_block nb_reboot_block = {
-	.notifier_call = exynos_s5100_reboot_handler
-};
-
 
 static void print_mc_state(struct modem_ctl *mc)
 {
@@ -108,15 +108,8 @@ static void print_mc_state(struct modem_ctl *mc)
 
 static void pcie_clean_dislink(struct modem_ctl *mc)
 {
-	if (mc->pcie_powered_on) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-		if (exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) == 0)
-#else
-		if (exynos_check_pcie_link_status(mc->pcie_ch_num) == 0)
-#endif
-			mif_err("dislinked unexpectedly, force dislink!!\n");
+	if (mc->pcie_powered_on)
 		s5100_poweroff_pcie(mc, true);
-	}
 
 	if (!mc->pcie_powered_on)
 		mif_err("Link is disconnected!!!\n");
@@ -150,11 +143,7 @@ static void voice_call_on_work(struct work_struct *ws)
 		goto exit;
 
 	if (mc->pcie_powered_on &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) != 0)) {
-#else
-			(exynos_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
-#endif
+			(s51xx_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
 		if (wake_lock_active(&mc->mc_wake_lock))
 			wake_unlock(&mc->mc_wake_lock);
 	}
@@ -174,11 +163,7 @@ static void voice_call_off_work(struct work_struct *ws)
 		goto exit;
 
 	if (mc->pcie_powered_on &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) != 0)) {
-#else
-			(exynos_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
-#endif
+			(s51xx_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
 		if (!wake_lock_active(&mc->mc_wake_lock))
 			wake_lock(&mc->mc_wake_lock);
 	}
@@ -575,7 +560,12 @@ static int power_reset_dump_cp(struct modem_ctl *mc)
 		pcie_clean_dislink(mc);
 	}
 
+#ifdef CONFIG_LINK_DEVICE_PCIE_GPIO_WA
+	if (mif_gpio_set_value(mc->s5100_gpio_cp_dump_noti, 1, 10))
+		mif_gpio_toggle_value(mc->s5100_gpio_ap_status, 50);
+#else
 	mif_gpio_set_value(mc->s5100_gpio_cp_dump_noti, 1, 0);
+#endif
 
 	mif_info("s5100_cp_reset_required:%d\n", mc->s5100_cp_reset_required);
 	if (mc->s5100_cp_reset_required == true) {
@@ -807,7 +797,12 @@ static int trigger_cp_crash(struct modem_ctl *mc)
 	print_mc_state(mc);
 
 	if (mif_gpio_get_value(mc->s5100_gpio_phone_active, true) == 1) {
+#ifdef CONFIG_LINK_DEVICE_PCIE_GPIO_WA
+		if (mif_gpio_set_value(mc->s5100_gpio_cp_dump_noti, 1, 10))
+			mif_gpio_toggle_value(mc->s5100_gpio_ap_status, 50);
+#else
 		mif_gpio_set_value(mc->s5100_gpio_cp_dump_noti, 1, 0);
+#endif
 	} else {
 		mif_err("do not need to set dump_noti\n");
 	}
@@ -909,11 +904,7 @@ int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off)
 	mif_info("+++\n");
 
 	if (!mc->pcie_powered_on &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) == 0)) {
-#else
-			(exynos_check_pcie_link_status(mc->pcie_ch_num) == 0)) {
-#endif
+			(s51xx_check_pcie_link_status(mc->pcie_ch_num) == 0)) {
 		mif_err("skip pci power off : already powered off\n");
 		goto exit;
 	}
@@ -938,7 +929,7 @@ int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off)
 		mld->msi_irq_base_enabled = 0;
 	}
 
-	if (mc->device_reboot == true) {
+	if (mc->device_reboot) {
 		mif_err("skip pci power off : device is rebooting..!!!\n");
 		goto exit;
 	}
@@ -954,7 +945,7 @@ int s5100_poweroff_pcie(struct modem_ctl *mc, bool force_off)
 		mif_info("ignore save_s5100_status - phone_state:%d\n",
 				mc->phone_state);
 
-	mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 0, 20);
+	mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 0, 5);
 	print_mc_state(mc);
 
 	exynos_pcie_host_v1_poweroff(mc->pcie_ch_num);
@@ -1008,11 +999,7 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 	mutex_lock(&mc->pcie_onoff_lock);
 	mif_info("+++\n");
 	if (mc->pcie_powered_on &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) != 0)) {
-#else
-			(exynos_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
-#endif
+			(s51xx_check_pcie_link_status(mc->pcie_ch_num) != 0)) {
 		mif_err("skip pci power on : already powered on\n");
 		goto exit;
 	}
@@ -1022,10 +1009,15 @@ int s5100_poweron_pcie(struct modem_ctl *mc)
 		goto exit;
 	}
 
+	if (mc->device_reboot) {
+		mif_err("skip pci power on : device is rebooting..!!!\n");
+		goto exit;
+	}
+
 	if (!wake_lock_active(&mc->mc_wake_lock))
 		wake_lock(&mc->mc_wake_lock);
 
-	mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 1, 20);
+	mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 1, 5);
 	print_mc_state(mc);
 
 	if (exynos_pcie_host_v1_poweron(mc->pcie_ch_num) != 0)
@@ -1201,11 +1193,7 @@ int s5100_try_gpio_cp_wakeup(struct modem_ctl *mc)
 {
 	if ((mif_gpio_get_value(mc->s5100_gpio_cp_wakeup, false) == 0) &&
 			(mif_gpio_get_value(mc->s5100_gpio_ap_wakeup, false) == 0) &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-			(exynos_pcie_rc_chk_link_status(mc->pcie_ch_num) == 0)) {
-#else
-			(exynos_check_pcie_link_status(mc->pcie_ch_num) == 0)) {
-#endif
+			(s51xx_check_pcie_link_status(mc->pcie_ch_num) == 0)) {
 		mif_gpio_set_value(mc->s5100_gpio_cp_wakeup, 1, 0);
 		return 0;
 	}
@@ -1479,7 +1467,8 @@ int s5100_init_modemctl_device(struct modem_ctl *mc, struct modem_data *pdata)
 	INIT_WORK(&mc->wakeup_work, cp2ap_wakeup_work);
 	INIT_WORK(&mc->suspend_work, cp2ap_suspend_work);
 
-	register_reboot_notifier(&nb_reboot_block);
+	mc->reboot_nb.notifier_call = s5100_reboot_handler;
+	register_reboot_notifier(&mc->reboot_nb);
 
 	/* Register PM notifier_call */
 	mc->pm_notifier.notifier_call = s5100_pm_notifier;

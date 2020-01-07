@@ -447,7 +447,11 @@ static int displayport_full_link_training(u32 sst_id)
 	struct displayport_device *displayport = get_displayport_drvdata();
 	struct decon_device *decon = get_decon_drvdata(DEFAULT_DECON_ID);
 
-	displayport_reg_dpcd_read_burst(DPCD_ADD_REVISION_NUMBER, DPCD_BUF_SIZE, val);
+	ret = displayport_reg_dpcd_read_burst(DPCD_ADD_REVISION_NUMBER, DPCD_BUF_SIZE, val);
+	if (ret) {
+		displayport_info("aux fail in linktrining\n");
+		return -EINVAL;
+	}	
 	displayport_info("Full Link Training Start + : %02x %02x %02x\n", val[1], val[2], val[3]);
 	if (!displayport->hpd_current_state) {
 		displayport_info("hpd is low in full link training\n");
@@ -1091,16 +1095,17 @@ static void displayport_set_extcon_state(u32 sst_id,
 #endif
 #ifdef CONFIG_SWITCH
 	if (state) {
-		switch_state ++;
-		switch_set_state(&switch_secdp_hpd, state);
+		switch_state |= 1 << sst_id;
+		switch_set_state(&switch_secdp_hpd, 1);
 	} else {
-		switch_state --;
+		switch_state &= ~(1 << sst_id);
 		if (switch_state == 0)
-			switch_set_state(&switch_secdp_hpd, state);
+			switch_set_state(&switch_secdp_hpd, 0);
 	}
 #endif
 
-	displayport_info("SST%d HPD status = %d\n", sst_id + 1, state);
+	displayport_info("SST%d HPD status = %d, switch = %d\n",
+					sst_id + 1, state, switch_state);
 }
 
 static int displayport_get_extcon_state(u32 sst_id,
@@ -3029,7 +3034,7 @@ static void displayport_check_adapter_type(struct displayport_device *displaypor
 static int displayport_usb_typec_notification_proceed(struct displayport_device *displayport,
 				CC_NOTI_TYPEDEF *usb_typec_info)
 {
-	displayport_dbg("%s: action (%ld) dump(0x%01x, 0x%01x, 0x%02x, 0x%04x, 0x%04x, 0x%04x)\n",
+	displayport_dbg("%s: dump(0x%01x, 0x%01x, 0x%02x, 0x%04x, 0x%04x, 0x%04x)\n",
 			__func__, usb_typec_info->src, usb_typec_info->dest, usb_typec_info->id,
 			usb_typec_info->sub1, usb_typec_info->sub2, usb_typec_info->sub3);
 
@@ -3047,6 +3052,7 @@ static int displayport_usb_typec_notification_proceed(struct displayport_device 
 			displayport->dex_ver[0] = 0;
 			displayport->dex_ver[1] = 0;
 			displayport_hpd_changed(0);
+			switch_state = 0;
 			displayport_aux_onoff(displayport, 0);
 #ifdef CONFIG_SEC_DISPLAYPORT_BIGDATA
 			secdp_bigdata_disconnection();

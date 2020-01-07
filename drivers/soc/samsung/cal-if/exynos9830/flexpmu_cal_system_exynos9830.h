@@ -149,10 +149,10 @@ struct pmucal_seq pmucal_lpm_init[] = {
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "EXT_REGULATOR_G3D_DURATION", 0x15860000, 0x0e0c, (0xffffffff << 0), (0x0 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "TCXO_DURATION3", 0x15860000, 0x0284, (0xffffffff << 0), (0x66c << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "SYSREG_CPUCL0/CLUSTER0_GENERAL_CTRL_64", 0x1d000000, 0x1404, (0x3 << 19), (0x3 << 19), 0, 0, 0xffffffff, 0),
+	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_MSCL_QCH", 0x18A00000, 0x3064, (0x7 << 0), (0x6 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_OIS_MCU_TOP_QCH_A", 0x17000000, 0x30c0, (0x7 << 0), (0x6 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_OIS_MCU_TOP_QCH_D", 0x17000000, 0x30c4, (0x7 << 0), (0x6 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_OIS_MCU_TOP_QCH_H", 0x17000000, 0x30cc, (0x7 << 0), (0x6 << 0), 0, 0, 0xffffffff, 0),
-	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_MSCL_QCH", 0x18A00000, 0x3064, (0x7 << 0), (0x6 << 0), 0, 0, 0xffffffff, 0),
 };
 unsigned int pmucal_lpm_init_size = ARRAY_SIZE(pmucal_lpm_init);
 /* individual sequence descriptor for each power mode - enter, exit, early_wakeup */

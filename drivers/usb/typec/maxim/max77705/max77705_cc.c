@@ -641,6 +641,7 @@ static void max77705_ccstat_irq_handler(void *data, int irq)
 #if defined(CONFIG_SEC_FACTORY)
 			factory_execute_monitor(FAC_ABNORMAL_REPEAT_STATE);
 #endif
+			cancel_delayed_work(&usbc_data->vbus_hard_reset_work);
 			break;
 	case cc_SINK:
 			msg_maxim("ccstat : cc_SINK");

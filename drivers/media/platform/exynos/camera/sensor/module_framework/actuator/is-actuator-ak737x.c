@@ -253,7 +253,7 @@ int sensor_ak737x_actuator_init(struct v4l2_subdev *subdev, u32 val)
 		ret = is_sensor_addr8_write8(client, AK737X_REG_CONT1, AK737X_MODE_STANDBY);
 		if (ret < 0)
 			goto p_err;
-		msleep(1);
+		usleep_range(1000, 1010);
 	}
 
 	for (i = 0; i < product_id_len; i += 2) {
@@ -492,7 +492,7 @@ static int sensor_ak737x_actuator_set_active(struct v4l2_subdev *subdev, int ena
 		ret = is_sensor_addr8_write8(client, AK737X_REG_CONT1, AK737X_MODE_STANDBY);
 		if (ret < 0)
 			goto p_err;
-		msleep(1);
+		usleep_range(1000, 1010);
 	}
 
 	if (enable) {
@@ -502,11 +502,13 @@ static int sensor_ak737x_actuator_set_active(struct v4l2_subdev *subdev, int ena
 		ret = is_sensor_addr8_write8(client, AK737X_REG_CONT1, AK737X_MODE_ACTIVE);
 		if (ret < 0)
 			goto p_err;
+		usleep_range(1000, 1010);
 	} else {
 		/* Go sleep mode */
 		ret = is_sensor_addr8_write8(client, AK737X_REG_CONT1, AK737X_MODE_SLEEP);
 		if (ret < 0)
 			goto p_err;
+		usleep_range(200, 210);
 	}
 
 p_err:

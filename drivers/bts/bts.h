@@ -54,6 +54,7 @@ struct bts_info;
  * @bts_bw:	struct bts_bw * - struct for saving bandwidth information
  * @peak_bw:	currently max bandwidth
  * @total_bw:	current total bandwidth
+ * @calc_dis:   boolean value whether using calc API
  *
  * This structure stores basic BTS information for QoS control
  *
@@ -77,6 +78,7 @@ struct bts_device {
 	struct bts_bw		*bts_bw;
 	unsigned int		peak_bw;
 	unsigned int		total_bw;
+	int			calc_dis_cnt;
 };
 
 /**

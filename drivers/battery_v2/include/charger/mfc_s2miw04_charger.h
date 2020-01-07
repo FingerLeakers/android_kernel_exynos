@@ -33,7 +33,7 @@
 #define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
 #define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
 
-#define MFC_FW_BIN_VERSION			0x101C
+#define MFC_FW_BIN_VERSION			0x101F
 #define MFC_FLASH_FW_HEX_LSI_PATH	"mfc/mfc_fw_flash_s2miw04.bin"
 
 /* for SPU FW update */
@@ -391,7 +391,7 @@
 #define TX_RX_POWER_17_5W		0xAF
 #define TX_RX_POWER_20W			0xC8
 
-#define MFC_NUM_FOD_REG					20
+#define MFC_NUM_FOD_REG			20
 
 /* BIT DEFINE of Command Register, COM_L(0x4E) */
 #define MFC_CMD_TOGGLE_PHM_SHIFT			7
@@ -858,7 +858,8 @@ struct mfc_charger_data {
 	struct delayed_work	wpc_fw_booting_work;
 	struct delayed_work	wpc_vout_mode_work;
 	struct delayed_work wpc_i2c_error_work;
-	struct delayed_work	wpc_rx_det_work;
+	struct delayed_work	wpc_rx_type_det_work;
+	struct delayed_work	wpc_rx_connection_work;
 	struct delayed_work wpc_tx_duty_min_work;
 	struct delayed_work wpc_tx_phm_work;
 	struct delayed_work wpc_rx_power_work;

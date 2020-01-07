@@ -462,7 +462,6 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						en == DSS_FLAG_IN ? "IN" : "OUT");
 		break;
 	}
-#ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
 	case DSS_LOG_PRINTK_ID:
 	{
 		char *log;
@@ -489,6 +488,7 @@ bool dbg_snapshot_dumper_one(void *v_dumper, char *line, size_t size, size_t *le
 						log, callstack[0], callstack[1], callstack[2], callstack[3]);
 		break;
 	}
+#ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
 	case DSS_LOG_PRINTKL_ID:
 	{
 		char callstack[CONFIG_DEBUG_SNAPSHOT_CALLSTACK][KSYM_NAME_LEN];
@@ -1334,6 +1334,35 @@ void dbg_snapshot_reg(char io_type, char data_type, void *addr)
 }
 EXPORT_SYMBOL(dbg_snapshot_reg);
 #endif
+
+void __dbg_snapshot_printk(const char *fmt, ...)
+{
+	struct dbg_snapshot_item *item = &dss_items[DSS_ITEM_KEVENTS_ID];
+	struct dbg_snapshot_log_item *log_item = &dss_log_items[DSS_LOG_PRINTK_ID];
+
+	if (unlikely(!dss_base.enabled || !item->entry.enabled || !log_item->entry.enabled))
+		return;
+	{
+		int cpu = raw_smp_processor_id();
+		va_list args;
+		int ret;
+		unsigned long j, i = atomic_inc_return(&dss_log_misc.printk_log_idx) &
+				(ARRAY_SIZE(dss_log->printk) - 1);
+
+		va_start(args, fmt);
+		ret = vsnprintf(dss_log->printk[i].log,
+				sizeof(dss_log->printk[i].log), fmt, args);
+		va_end(args);
+
+		dss_log->printk[i].time = cpu_clock(cpu);
+		dss_log->printk[i].cpu = cpu;
+
+		for (j = 0; j < dss_desc.callstack; j++) {
+			dss_log->printk[i].caller[j] =
+				(void *)((size_t)return_address(j));
+		}
+	}
+}
 
 #ifndef CONFIG_DEBUG_SNAPSHOT_USER_MODE
 void dbg_snapshot_printk(const char *fmt, ...)

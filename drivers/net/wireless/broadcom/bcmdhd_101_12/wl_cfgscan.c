@@ -950,6 +950,15 @@ chanspec_t wl_freq_to_chanspec(int freq)
 	} else if (freq < 5940) {
 		chanspec = (freq - 5000) / 5;
 		chanspec |= WL_CHANSPEC_BAND_5G;
+#ifdef WL_6G_BAND
+	} else if (freq <= 45000) { /* DMG band lower limit */
+		/* see 802.11ax D4.1 27.3.22.2 */
+		chanspec = (freq - 5940) / 5;
+		chanspec |= WL_CHANSPEC_BAND_6G;
+	} else if (freq >= 58320 && freq <= 70200) {
+		chanspec = (freq - 56160) / 2160;
+		chanspec |= WL_CHANSPEC_BAND_6G;
+#endif /* WL_6G_BAND */
 	} else {
 		WL_ERR(("Invalid frequency \n"));
 		return INVCHANSPEC;
@@ -1693,6 +1702,11 @@ wl_get_scan_timeout_val(struct bcm_cfg80211 *cfg)
 	}
 #endif /* WL_NAN */
 	/* Additional time to scan 6GHz band channels */
+#ifdef WL_6G_BAND
+	if (cfg->band_6g_supported) {
+		scan_timer_interval_ms += WL_SCAN_TIMER_INTERVAL_MS_6G;
+	}
+#endif /* WL_6G_BAND */
 	WL_MEM(("scan_timer_interval_ms %d\n", scan_timer_interval_ms));
 	return scan_timer_interval_ms;
 }

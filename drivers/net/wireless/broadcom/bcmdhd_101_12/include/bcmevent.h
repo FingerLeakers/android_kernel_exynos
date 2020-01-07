@@ -169,7 +169,7 @@ typedef union bcm_event_msg_u {
 #define WLC_E_ACTION_FRAME_COMPLETE	60	/* Action frame Tx complete */
 #define WLC_E_PRE_ASSOC_IND	61	/* assoc request received */
 #define WLC_E_PRE_REASSOC_IND	62	/* re-assoc request received */
-#define WLC_E_CHANNEL_ADOPTED	63	/* channel adopted (xxx: obsoleted) */
+#define WLC_E_CHANNEL_ADOPTED	63	/* channel adopted (obsoleted) */
 #define WLC_E_AP_STARTED	64	/* AP started */
 #define WLC_E_DFS_AP_STOP	65	/* AP stopped due to DFS */
 #define WLC_E_DFS_AP_RESUME	66	/* AP resumed due to DFS */
@@ -180,7 +180,7 @@ typedef union bcm_event_msg_u {
 #define WLC_E_PROBRESP_MSG	71	/* probe response received */
 #define WLC_E_P2P_PROBREQ_MSG	72	/* P2P Probe request received */
 #define WLC_E_DCS_REQUEST	73
-/* XXX: will enable this after proptxstatus code is merged back to ToT */
+/* will enable this after proptxstatus code is merged back to ToT */
 #define WLC_E_FIFO_CREDIT_MAP	74	/* credits for D11 FIFOs. [AC0,AC1,AC2,AC3,BC_MC,ATIM] */
 #define WLC_E_ACTION_FRAME_RX	75	/* Received action frame event WITH
 					 * wl_event_rx_frame_data_t header
@@ -340,12 +340,12 @@ typedef struct wlc_roam_event {
 	uint8 xtlvs[];		/* data */
 } wl_roam_event_t;
 
-/* xxx:
+/*
  * Please do not insert/delete events in the middle causing renumbering.
  * It is a problem for host-device compatibility, especially with ROMmed chips.
  */
 
-/* XXX Translate between internal and exported status codes */
+/* Translate between internal and exported status codes */
 /* Event status codes */
 #define WLC_E_STATUS_SUCCESS		0	/* operation was successful */
 #define WLC_E_STATUS_FAIL		1	/* operation failed */
@@ -434,7 +434,7 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_REASON_DISASSOC		3	/* roamed due to DISASSOC indication */
 #define WLC_E_REASON_BCNS_LOST		4	/* roamed due to lost beacons */
 
-/* xxx Roam codes (5-7) used primarily by CCX */
+/* Roam codes (5-7) used primarily by CCX */
 #define WLC_E_REASON_FAST_ROAM_FAILED	5	/* roamed due to fast roam failure */
 #define WLC_E_REASON_DIRECTED_ROAM	6	/* roamed due to request by AP */
 #define WLC_E_REASON_TSPEC_REJECTED	7	/* roamed due to TSPEC rejection */
@@ -481,6 +481,7 @@ typedef struct wl_event_sdb_trans {
 #define WLC_E_PRUNE_AUTH_RESP_MAC	20	/* suppress auth resp by MAC filter */
 #define WLC_E_PRUNE_ASSOC_RETRY_DELAY	21	/* MBO assoc retry delay */
 #define WLC_E_PRUNE_RSSI_ASSOC_REJ	22	/* OCE RSSI-based assoc rejection */
+#define WLC_E_PRUNE_MAC_AVOID		23	/* AP's MAC addr is in STA's MAC avoid list */
 
 /* WPA failure reason codes carried in the WLC_E_PSK_SUP event */
 #define WLC_E_SUP_OTHER			0	/* Other reason */
@@ -907,11 +908,11 @@ typedef enum wl_nan_events {
 	WL_NAN_EVENT_RX_MGMT_FRM		= 45,	/* NAN management frame received */
 	WL_NAN_EVENT_DISC_CACHE_TIMEOUT		= 46,	/* Disc cache timeout */
 
-	/* XXX: keep WL_NAN_EVENT_INVALID as the last element */
+	/* keep WL_NAN_EVENT_INVALID as the last element */
 	WL_NAN_EVENT_INVALID				/* delimiter for max value */
 } nan_app_events_e;
 
-/* XXX remove after precommit */
+/* remove after precommit */
 #define NAN_EV_MASK(ev)	(1 << (ev - 1))
 #define IS_NAN_EVT_ON(var, evt) ((var & (1 << (evt-1))) != 0)
 
@@ -1336,6 +1337,11 @@ typedef struct wlc_obss_hw_event_data {
 /* WLC_E_DYNSAR event structure version */
 #define WL_DYNSAR_VERSION 1
 
+/* bits used in status field */
+#define WL_STATUS_DYNSAR_PWR_OPT  (1 << 0)	/* power optimized */
+#define WL_STATUS_DYNSAR_FAILSAFE (1 << 1)	/* radio is using failsafe cap values */
+#define WL_STATUS_DYNSAR_ACK_MUTE (1 << 2)	/* ack mute */
+
 /* Event structure for WLC_E_DYNSAR */
 typedef struct wl_event_dynsar {
 	uint16 version;         /* structure version */
@@ -1343,7 +1349,10 @@ typedef struct wl_event_dynsar {
 	uint32 timestamp_ms;    /* millisecond timestamp */
 	uint8  opt;             /* optimization power offset */
 	uint8  slice;           /* slice number */
-	uint8  pad[2];
+	uint8  status;		/* WL_STATUS_DYNSAR_XXX, to indicate which optimization
+				* is being applied
+				*/
+	uint8  pad;
 } wl_event_dynsar_t;
 
 /* status when WLC_E_AP_BCN_MUTE event is sent */
@@ -1354,9 +1363,12 @@ typedef struct wl_event_dynsar {
 #define BCN_MUTE_MITI_TIMEOUT	3u	/* Mitigation period is reached */
 
 /* bcn_mute_miti event data */
-typedef struct wlc_bcn_mute_miti_event_data {
-	uint16 mitigation_reason;	/* Reason for sending the notification */
-	uint16 uatbtt_count;		/* Number of UATBTT during mitigation */
-} wlc_bcn_mute_miti_event_data_t;
+#define WLC_BCN_MUTE_MITI_EVENT_DATA_VER_1	1u
+typedef struct wlc_bcn_mute_miti_event_data_v1 {
+	uint16	version;	/* Structure version number */
+	uint16	length;		/* Length of the whole struct */
+	uint16	uatbtt_count;	/* Number of UATBTT during mitigation */
+	uint8	PAD[2];		/* Pad to fit to 32 bit alignment */
+} wlc_bcn_mute_miti_event_data_v1_t;
 
 #endif /* _BCMEVENT_H_ */

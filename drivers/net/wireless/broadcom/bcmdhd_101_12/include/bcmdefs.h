@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef	_bcmdefs_h_
@@ -301,14 +301,12 @@ extern bool bcm_postattach_part_reclaimed;
 /* Allows size optimization for SPROM support */
 #if defined(BCMSPROMBUS)
 #define SPROMBUS	(BCMSPROMBUS)
-#elif defined(SI_PCMCIA_SROM)
-#define SPROMBUS	(PCMCIA_BUS)
 #else
 #define SPROMBUS	(PCI_BUS)
 #endif
 
 /* Allows size optimization for single-chip image */
-/* XXX These macros are NOT meant to encourage writing chip-specific code.
+/* These macros are NOT meant to encourage writing chip-specific code.
  * Use them only when it is appropriate for example in PMU PLL/CHIP/SWREG
  * controls and in chip-specific workarounds.
  */
@@ -484,7 +482,7 @@ typedef struct {
  * be a waste.).
 */
 /*
- * XXX: set the numbers to be MAX of all the devices, to avoid problems with ROM builds
+ * set the numbers to be MAX of all the devices, to avoid problems with ROM builds
  * USB BCMDONGLEHDRSZ and BCMDONGLEPADSZ is 0
  * SDIO BCMDONGLEHDRSZ 12 and BCMDONGLEPADSZ 16
 */

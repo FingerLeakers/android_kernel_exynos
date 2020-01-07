@@ -183,13 +183,6 @@ __dev_cooling_register(struct device_node *np, struct exynos_devfreq_data *data)
 
 	snprintf(dev_name, sizeof(dev_name), "thermal-dev-%d", dev->id);
 
-	dev->cool_dev = cool_dev;
-	dev->dev_state = 0;
-	dev->freq_table = data->opp_list;
-	dev->max_state = data->max_state;
-
-	pm_qos_add_request(&dev->thermal_pm_qos_max, (int)data->pm_qos_class_max, data->max_freq);
-
 	cool_dev = thermal_of_cooling_device_register(np, dev_name, dev,
 						      &dev_cooling_ops);
 
@@ -197,6 +190,13 @@ __dev_cooling_register(struct device_node *np, struct exynos_devfreq_data *data)
 		kfree(dev);
 		return cool_dev;
 	}
+
+	dev->cool_dev = cool_dev;
+	dev->dev_state = 0;
+	dev->freq_table = data->opp_list;
+	dev->max_state = data->max_state;
+
+	pm_qos_add_request(&dev->thermal_pm_qos_max, (int)data->pm_qos_class_max, data->max_freq);
 
 	return cool_dev;
 }

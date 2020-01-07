@@ -31,15 +31,30 @@ static int mafpc_open(struct inode *inode, struct file *file)
 	return ret;
 }
 
+
+
 static ssize_t mafpc_write(struct file *file, const char __user *buf,
 		  size_t count, loff_t *ppos)
-{
-	
+{	
+	int write_size;
 	char temp[44];
+	bool scale_factor = false;
 	struct mafpc_device *mafpc = file->private_data;
 
-	if (count != (MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE + mafpc->img_size)) {
-		panel_err("[mAFPC:ERR]:%s: wrong size : %d:%d\n", count, mafpc->img_size);
+	write_size = MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE + 
+		mafpc->img_size;
+
+	if (count == write_size) {
+		panel_info("[mAFPC:INFO]:%s Write size: %d, without scale factor\n",
+			__func__, count);
+		scale_factor = false;
+	} else if (count == write_size + mafpc->scale_size) {
+		panel_info("[mAFPC:INFO]:%s Write size: %d, with scale factor\n",
+			__func__, count);
+		scale_factor = true;
+	} else {
+		panel_err("[mAFPC:ERR]:%s: undefined write size : %d:%d\n",
+			__func__, count);
 		goto err_write;
 	}
 
@@ -72,8 +87,27 @@ static ssize_t mafpc_write(struct file *file, const char __user *buf,
 		panel_err("[mAFPC:ERR]%s: failed to get comp img\n", __func__);
 		goto err_write;
 	}
-	
-	mafpc->written = true;
+	mafpc->written |= MAFPC_UPDATED_FROM_SVC;
+
+	if (scale_factor == false)
+		goto err_write;
+
+	if (mafpc->scale_buf == NULL) {
+		panel_err("[mAFPC:ERR]:%s: mafpc img buf is null\n", __func__);
+		goto err_write;
+	}
+
+	panel_info("[mAFPC:Info]:%s:img size : %d\n", __func__, mafpc->scale_size);
+
+	if (copy_from_user(mafpc->scale_buf,
+			buf + MAFPC_HEADER_SIZE + MAFPC_CTRL_CMD_SIZE + mafpc->img_size,
+			mafpc->scale_size)) {
+		panel_err("[mAFPC:ERR]%s: failed to get comp img\n", __func__);
+		goto err_write;
+	}
+
+	print_hex_dump(KERN_ERR, "", DUMP_PREFIX_ADDRESS, 32, 4,
+			mafpc->scale_buf, mafpc->scale_size, false);
 
 err_write:
 	return count;
@@ -106,6 +140,7 @@ static int mafpc_instant_on(struct mafpc_device *mafpc)
 		panel_err("mAFPC:ERR:%s, failed to write init seqtbl\n", __func__);
 		goto err;
 	}
+	mafpc->written |= MAFPC_UPDATED_TO_DEV;
 
 	ret = panel_do_seqtbl_by_index(panel, PANEL_MAFPC_ON_SEQ);
 	if (unlikely(ret < 0)) {
@@ -297,6 +332,40 @@ err_get_buf:
 	return ret;
 }
 
+static int get_scale_factor_buf(struct mafpc_device *mafpc)
+{
+	int ret = 0;
+
+	struct seqinfo *scale_seqtbl = NULL;
+	struct pktinfo *scale_pktinfo = NULL;
+	struct panel_device *panel = mafpc->panel;
+
+	scale_seqtbl = find_panel_seqtbl(&panel->panel_data, "mafpc-scale-seq");
+	if (scale_seqtbl == NULL) {
+		panel_err("[mAFPC:ERR]:%s failed to find mafpc-img seqtbl\n", __func__);
+		ret = -EINVAL;
+		goto err_get_buf;
+	}
+
+	scale_pktinfo = find_packet_suffix(scale_seqtbl, "mafpc_scale_factor");
+	if (scale_pktinfo == NULL) {
+		panel_err("[mAFPC:ERR]:%s failed to find mafpc-img pktinfo\n", __func__);
+		ret = -EINVAL;
+		goto err_get_buf;
+	}
+
+	mafpc->scale_buf = scale_pktinfo->data;
+	mafpc->scale_size = scale_pktinfo->dlen;
+
+	panel_info("[mAFPC:INFO]:%s scale factor size : %d\n", __func__, mafpc->scale_size);
+
+	return ret;
+
+err_get_buf:
+	return ret;
+}
+
+
 
 static int mafpc_v4l2_probe(struct mafpc_device *mafpc, void *arg)
 {
@@ -309,6 +378,12 @@ static int mafpc_v4l2_probe(struct mafpc_device *mafpc, void *arg)
 	ret = get_comp_img_buf(mafpc);
 	if (ret) {
 		panel_err("[mAFPC:ERR]:%s failed to get comp img buf info\n", __func__);
+		goto err_v4l2_probe; 
+	}
+
+	ret = get_scale_factor_buf(mafpc);
+	if (ret) {
+		panel_err("[mAFPC:ERR]:%s failed to get scale factor buf info\n", __func__);
 		goto err_v4l2_probe; 
 	}
 
@@ -366,8 +441,15 @@ static long mafpc_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 			ret = mafpc_v4l2_write_complte(mafpc);
 			break;
 		case V4L2_IOCTL_MAFPC_GET_INFO:
-			panel_info("[PANEL:INFO]%s: V4L2_IOCTL_MAFPC_GET_INFO\n", __func__);
 			v4l2_set_subdev_hostdata(sd, mafpc);
+			break;
+		case V4L2_IOCTL_MAFPC_PANEL_INIT:
+			panel_info("[PANEL:INFO]%s: V4L2_IOCTL_MAFPC_GET_INIT\n", __func__);
+			mafpc->written |= MAFPC_UPDATED_TO_DEV;
+			break;
+		case V4L2_IOCTL_MAFPC_PANEL_EXIT:
+			panel_info("[PANEL:INFO]%s: V4L2_IOCTL_MAFPC_GET_EXIT\n", __func__);
+			mafpc->written &= ~(MAFPC_UPDATED_TO_DEV);
 			break;
 		default:
 			panel_err("[mAFPC:ERR]:%s: invalid cmd\n", __func__);

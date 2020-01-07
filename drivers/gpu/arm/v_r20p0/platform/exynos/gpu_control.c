@@ -69,6 +69,8 @@ static struct exynos_pm_domain *gpu_get_pm_domain(char *g3d_genpd_name)
 
 	return pd;
 }
+
+static spinlock_t ifpo_lock;
 #endif /* CONFIG_MALI_RT_PM */
 
 int gpu_register_dump(void)
@@ -396,11 +398,14 @@ int gpu_inter_frame_power_on(struct exynos_context *platform)
 		return 0;
 	}
 
+	spin_lock(&ifpo_lock); // IFPO power on sequence gaurantee.. locking
 	if (cal_pd_control(platform->exynos_pm_domain->cal_pdid, 1) != 0) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to gpu inter frame power on\n", __func__);
+		spin_unlock(&ifpo_lock);
 		mutex_unlock(&platform->exynos_pm_domain->access_lock);
 		return -1;
 	}
+	spin_unlock(&ifpo_lock); // IFPO power on sequence gaurantee.. unlocking
 
 	status = cal_pd_status(platform->exynos_pm_domain->cal_pdid);
 	if (!status) {
@@ -594,6 +599,8 @@ int gpu_control_module_init(struct kbase_device *kbdev)
 
 #ifdef CONFIG_MALI_RT_PM
 	platform->exynos_pm_domain = gpu_get_pm_domain(platform->g3d_genpd_name);
+	if (platform->inter_frame_pm_status)
+		spin_lock_init(&ifpo_lock);
 #endif /* CONFIG_MALI_RT_PM */
 
 #ifdef CONFIG_OF

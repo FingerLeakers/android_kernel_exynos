@@ -745,6 +745,7 @@ enum PANEL_SEQ {
 	PANEL_MAFPC_ON_SEQ,
 	PANEL_MAFPC_OFF_SEQ,
 	PANEL_MAFPC_FAC_CHECKSUM,
+	PANEL_MAFPC_SCALE_FACTOR,
 #endif
 	PANEL_GAMMA_INTER_CONTROL_SEQ,
 	PANEL_PARTIAL_DISP_ON_SEQ,
@@ -806,18 +807,40 @@ enum vrr_mode {
 	MAX_VRR_MODE,
 };
 
+enum {
+	VRR_AID_2_CYCLE,
+	VRR_AID_4_CYCLE,
+};
+
+struct vrr_vtx {
+	int fps;
+	int mode;
+	int aid_cycle;
+	int vfp;
+	int aor_offset;
+	struct vrr_node *node;
+};
+
+struct vrr_node {
+	struct vrr_vtx *v;
+	int frame_delay;
+};
+
 #ifdef CONFIG_PANEL_VRR_BRIDGE
 struct vrr_bridge_step {
 	int fps;
 	int frame_delay;
+	int aid_cycle;
 };
 
 struct panel_vrr_bridge {
 	int nr_fps_table;
 	int origin_fps;
 	int origin_mode;
+	int origin_aid_cycle;
 	int target_fps;
 	int target_mode;
+	int target_aid_cycle;
 	int min_actual_brt;
 	int max_actual_brt;
 	struct vrr_bridge_step *step;
@@ -837,6 +860,7 @@ struct panel_vrr {
 	int te_v_st;
 	int te_v_ed;
 	u32 mode;
+	int aid_cycle;
 };
 
 struct panel_resol {
@@ -862,6 +886,8 @@ struct panel_mres {
 struct ddi_properties {
 	u32 gpara;
 	bool support_partial_disp;
+	u32 cmd_fifo_size;
+	u32 img_fifo_size;
 	bool err_fg_recovery;
 };
 
@@ -1123,13 +1149,17 @@ struct panel_properties {
 	/* variable refresh rate */
 	u32 vrr_fps;
 	u32 vrr_mode;
+	u32 vrr_aid_cycle;
 	u32 vrr_idx;
 	u32 vrr_origin_fps;
 	u32 vrr_origin_mode;
+	u32 vrr_origin_aid_cycle;
 	u32 vrr_origin_idx;
 #ifdef CONFIG_PANEL_VRR_BRIDGE
+	bool vrr_bridge_enable;
 	u32 vrr_target_fps;
 	u32 vrr_target_mode;
+	u32 vrr_target_aid_cycle;
 	struct panel_vrr_bridge *bridge;
 #endif
 	u32 dia_mode;

@@ -102,7 +102,7 @@
 /*
  * Software-defined protocol header
  */
-/* XXX Replace all this with packed struct */
+/* Replace all this with packed struct */
 
 /* Current protocol version */
 #define SDPCM_PROT_VERSION	4

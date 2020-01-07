@@ -36,6 +36,7 @@ struct pdp_lic_lut {
 enum pdp_irq_src {
 	PDP_INT1,
 	PDP_INT2,
+	PDP_INT2_RDMA,
 	PDP_INT_MAX,
 };
 
@@ -51,6 +52,7 @@ struct is_pdp {
 	resource_size_t			regs_start;
 	resource_size_t			regs_end;
 	int				irq[PDP_INT_MAX];
+	u32				irq_state[PDP_INT_MAX];
 	struct mutex			control_lock;
 
 	void __iomem			*mux_base; /* select CSIS ch(e.g. CSIS0~CSIS5) */
@@ -82,6 +84,7 @@ struct is_pdp {
 
 	const char			*int1_str[BITS_PER_LONG];
 	const char			*int2_str[BITS_PER_LONG];
+	const char			*int2_rdma_str[BITS_PER_LONG];
 
 	struct pdp_lic_lut		*lic_lut;
 	bool				stat_enable;
@@ -92,6 +95,7 @@ struct is_pdp {
 	/* debug */
 	unsigned long long		time_rta_cfg;
 	unsigned long long		time_err;
+	u32 binning;
 };
 
 

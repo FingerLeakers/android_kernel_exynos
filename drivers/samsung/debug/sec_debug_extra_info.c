@@ -1129,6 +1129,28 @@ static void test_v3(void *seqm)
 }
 
 /*********** TEST V3 **************************************/
+static int set_debug_reset_rwc_proc_show(struct seq_file *m, void *v)
+{
+	char *rstcnt;
+
+	rstcnt = get_bk_item_val("RSTCNT");
+	seq_printf(m, "%s", rstcnt);
+
+	return 0;
+}
+
+static int sec_debug_reset_rwc_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, set_debug_reset_rwc_proc_show, NULL);
+}
+
+static const struct file_operations sec_debug_reset_rwc_proc_fops = {
+	.open = sec_debug_reset_rwc_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
 static int set_debug_reset_extra_info_proc_show(struct seq_file *m, void *v)
 {
 	char buf[SZ_1K];
@@ -1195,11 +1217,16 @@ static int __init secdbg_extra_info_init(void)
 	exin_ready = true;
 
 	entry = proc_create("reset_reason_extra_info",
-			    0644, NULL, &sec_debug_reset_extra_info_proc_fops);
+				0644, NULL, &sec_debug_reset_extra_info_proc_fops);
 	if (!entry)
 		return -ENOMEM;
 
 	proc_set_size(entry, SZ_1K);
+
+	entry = proc_create("reset_rwc", S_IWUGO, NULL,
+				&sec_debug_reset_rwc_proc_fops);
+	if (!entry)
+		return -ENOMEM;
 
 	sec_debug_set_extra_info_id();
 

@@ -411,6 +411,15 @@ enum max77705_usbc_SYSMsg {
 	SYSERROR_POWER_NEGO = 0x80,
 	SYSERROR_CCRP_HIGH = 0x90, /* PD Charger Connected while Water state */
 	SYSERROR_CCRP_LOW = 0x91, /* PD Charger Disconnected while Water state */
+
+	/* TypeC earphone is attached during PD charging */
+	SYSMSG_10K_TO_22K = 0xB0,
+	SYSMSG_10K_TO_56K = 0xB1,
+	SYSMSG_22K_TO_56K = 0xB2,
+	/* TypeC earphone is detached during PD charging */
+	SYSMSG_56K_TO_22K = 0xB3,
+	SYSMSG_56K_TO_10K = 0xB4,
+	SYSMSG_22K_TO_10K = 0xB5,
 };
 
 enum max77705_pdmsg {

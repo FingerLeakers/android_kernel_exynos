@@ -748,6 +748,12 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	 * and reconfigured the gadget (shutting down this queue) after the
 	 * network stack decided to xmit but before we got the spinlock.
 	 */
+	if (!(dev->port_usb->is_fixed || dev->port_usb->multi_pkt_xfer)) {
+		spin_unlock_irqrestore(&dev->tx_req_lock, flags);
+		printk ("usb: %s: we wait rndis_init.. so we make busy return \n", __func__);
+		return NETDEV_TX_BUSY;
+	}
+
 	if (list_empty(&dev->tx_reqs)) {
 		spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 		return NETDEV_TX_BUSY;

@@ -152,8 +152,8 @@ struct qbt2000_drvdata {
 	bool tz_mode;
 	bool wuhb_test_flag;
 	int wuhb_test_result;
+	int pm_lock;
 
-	struct mutex	fod_event_mutex;
 	struct pinctrl *p;
 	struct pinctrl_state *pins_poweron;
 	struct pinctrl_state *pins_poweroff;

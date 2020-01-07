@@ -225,9 +225,10 @@ static ssize_t k250a_write(struct file *filp, const char *buf, size_t count,
 
 	k250a_dev = filp->private_data;
 
-	mutex_lock(&k250a_dev->buffer_mutex);
 	if (count > MAX_BUFFER_SIZE)
-		count = MAX_BUFFER_SIZE;
+		return -EFAULT;
+
+	mutex_lock(&k250a_dev->buffer_mutex);
 
 	if (copy_from_user(k250a_dev->buf, &buf[0], count)) {
 		K250A_ERR_MSG("%s: failed to copy from user space\n", __func__);
@@ -255,6 +256,9 @@ static ssize_t k250a_read(struct file *filp, char *buf, size_t count,
 {
 	int ret = -EIO;
 	struct k250a_dev *k250a_dev = filp->private_data;
+
+	if (count > MAX_BUFFER_SIZE)
+		return -EFAULT;
 
 	mutex_lock(&k250a_dev->buffer_mutex);
 

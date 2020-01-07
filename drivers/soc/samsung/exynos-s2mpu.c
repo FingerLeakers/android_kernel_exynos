@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/hvc.h>
 #include <linux/of.h>
+#include <linux/of_reserved_mem.h>
 
 #include <soc/samsung/exynos-s2mpu.h>
 
@@ -53,6 +54,17 @@ uint64_t exynos_set_dev_stage2_ap(const char *s2mpu_name,
 			  size,
 			  ap);
 }
+
+#ifdef CONFIG_OF_RESERVED_MEM
+static int __init exynos_s2mpu_reserved_mem_setup(struct reserved_mem *remem)
+{
+	pr_err("%s: Reserved memory for S2MPU table: addr=%lx, size=%lx\n",
+			__func__, remem->base, remem->size);
+
+	return 0;
+}
+RESERVEDMEM_OF_DECLARE(s2mpu_table, "exynos,s2mpu_table", exynos_s2mpu_reserved_mem_setup);
+#endif
 
 static int __init exynos_s2mpu_init(void)
 {

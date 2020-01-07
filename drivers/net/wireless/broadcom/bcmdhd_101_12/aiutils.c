@@ -19,7 +19,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #include <typedefs.h>
@@ -157,10 +157,7 @@ get_asd(const si_t *sih, uint32 **eromptr, uint sp, uint ad, uint st, uint32 *ad
 	return asd;
 }
 
-/* Parse the enumeration rom to identify all cores
- * Erom content format can be found in:
- * http://hwnbu-twiki.broadcom.com/twiki/pub/Mwgroup/ArmDocumentation/SystemDiscovery.pdf
- */
+/* Parse the enumeration rom to identify all cores */
 void
 ai_scan(si_t *sih, void *regs, uint devid)
 {
@@ -258,7 +255,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 
 		if ((nmw + nsw == 0)) {
 			/* A component which is not a core */
-			/* XXX: Should record some info */
+			/* Should record some info */
 			if (cid == OOB_ROUTER_CORE_ID) {
 				asd = get_asd(sih, &eromptr, 0, 0, AD_ST_SLAVE,
 					&addrl, &addrh, &sizel, &sizeh);
@@ -299,7 +296,7 @@ ai_scan(si_t *sih, void *regs, uint devid)
 				SI_ERROR(("Not enough MP entries for component 0x%x\n", cid));
 				goto error;
 			}
-			/* XXX: Record something? */
+			/* Record something? */
 			SI_VMSG(("  Master port %d, mp: %d id: %d\n", i,
 			         (mpd & MPD_MP_MASK) >> MPD_MP_SHIFT,
 			         (mpd & MPD_MUI_MASK) >> MPD_MUI_SHIFT));
@@ -551,10 +548,6 @@ _ai_setcoreidx(si_t *sih, uint coreidx, uint use_wrapn)
 		}
 
 		/* Use BAR0 Window to support dual mac chips... */
-
-		/* XXX: http://hwnbu-twiki.broadcom.com/bin/view/Mwgroup/
-		 *		CurrentPcieGen2ProgramGuide#BAR0_Space
-		 */
 
 		/* TODO: the other mac unit can't be supportd by the current BAR0 window.
 		 * need to find other ways to access these cores.
@@ -1611,6 +1604,20 @@ ai_ignore_errlog(const si_info_t *sii, const aidmp_t *ai,
 
 	/* ignore the BT slave errors if the errlog is to chipcommon addr 0x190 */
 	switch (CHIPID(sii->pub.chip)) {
+#if defined(BT_WLAN_REG_ON_WAR)
+		/*
+		 * 4389B0/C0 - WL and BT turn on WAR, ignore AXI error originating from
+		 * AHB-AXI bridge i.e, any slave error or timeout from BT access
+		 */
+		case BCM4389_CHIP_GRPID:
+			axi_id = BCM4389_BT_AXI_ID;
+			ignore_errsts = AIELS_SLAVE_ERR;
+			axi_id2 = BCM4389_BT_AXI_ID;
+			ignore_errsts_2 = AIELS_TIMEOUT;
+			address_check = FALSE;
+			extd_axi_id_mask = TRUE;
+			break;
+#endif /* BT_WLAN_REG_ON_WAR */
 #ifdef BTOVERPCIE
 		case BCM4369_CHIP_GRPID:
 			axi_id = BCM4369_BT_AXI_ID;

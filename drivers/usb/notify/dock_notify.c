@@ -429,7 +429,9 @@ static void check_unsupport_device(struct usb_device *dev)
 		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
 		id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
 		id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct)) {
+#if defined(CONFIG_USB_HOST_CERTI)
 			send_usb_certi_uevent(USB_CERTI_UNSUPPORT_ACCESSORY);
+#endif
 			break;
 		}
 	}

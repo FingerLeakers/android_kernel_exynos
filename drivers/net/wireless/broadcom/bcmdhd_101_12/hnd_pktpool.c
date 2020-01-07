@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #include <typedefs.h>
@@ -640,7 +640,7 @@ BCMFASTPATH(d11hdr_pool_deq)(pktpool_t *pktp)
 	if (pktp->avail == 0) {
 		return NULL;
 	}
-	ASSERT(pktp->freelist != NULL);
+	ASSERT_FP(pktp->freelist != NULL);
 
 	p = pktp->freelist;  /* dequeue packet from head of pktpool free list */
 	pktp->freelist = p->next; /* free list points to next packet */
@@ -651,13 +651,13 @@ BCMFASTPATH(d11hdr_pool_deq)(pktpool_t *pktp)
 void
 BCMFASTPATH(d11hdr_pool_enq)(pktpool_t *pktp, void *p)
 {
-	ASSERT(p != NULL);
+	ASSERT_FP(p != NULL);
 	d11hdr_buf_list_t *pn = p;
 
 	pn->next = pktp->freelist;
 	pktp->freelist = pn; /* free list points to newly inserted packet */
 	pktp->avail++;
-	ASSERT(pktp->avail <= pktp->n_pkts);
+	ASSERT_FP(pktp->avail <= pktp->n_pkts);
 }
 #endif /* BCMD11HDRPOOL */
 
@@ -827,14 +827,14 @@ pktpool_avail(pktpool_t *pktpool)
 }
 
 static void *
-pktpool_deq(pktpool_t *pktp)
+BCMFASTPATH(pktpool_deq)(pktpool_t *pktp)
 {
 	void *p = NULL;
 
 	if (pktp->avail == 0)
 		return NULL;
 
-	ASSERT(pktp->freelist != NULL);
+	ASSERT_FP(pktp->freelist != NULL);
 
 	p = pktp->freelist;  /* dequeue packet from head of pktpool free list */
 	pktp->freelist = PKTFREELIST(p); /* free list points to next packet */
@@ -847,15 +847,15 @@ pktpool_deq(pktpool_t *pktp)
 }
 
 static void
-pktpool_enq(pktpool_t *pktp, void *p)
+BCMFASTPATH(pktpool_enq)(pktpool_t *pktp, void *p)
 {
-	ASSERT(p != NULL);
+	ASSERT_FP(p != NULL);
 
 	PKTSETFREELIST(p, pktp->freelist); /* insert at head of pktpool free list */
 	pktp->freelist = p; /* free list points to newly inserted packet */
 
 	pktp->avail++;
-	ASSERT(pktp->avail <= pktp->n_pkts);
+	ASSERT_FP(pktp->avail <= pktp->n_pkts);
 }
 
 /** utility for registering host addr fill function called from pciedev */
@@ -1337,7 +1337,7 @@ pktpool_avail_notify(pktpool_t *pktp)
 
 /** Gets an empty packet from the caller provided pool */
 void *
-pktpool_get_ext(pktpool_t *pktp, uint8 type)
+BCMFASTPATH(pktpool_get_ext)(pktpool_t *pktp, uint8 type)
 {
 	void *p;
 
@@ -1371,13 +1371,13 @@ done:
 }
 
 void
-pktpool_free(pktpool_t *pktp, void *p)
+BCMFASTPATH(pktpool_free)(pktpool_t *pktp, void *p)
 {
 	/* protect shared resource */
 	if (HND_PKTPOOL_MUTEX_ACQUIRE(&pktp->mutex, OSL_EXT_TIME_FOREVER) != OSL_EXT_SUCCESS)
 		return;
 
-	ASSERT(p != NULL);
+	ASSERT_FP(p != NULL);
 #ifdef BCMDBG_POOL
 	/* pktpool_stop_trigger(pktp, p); */
 #endif
@@ -1993,7 +1993,7 @@ BCMRAMFN(hnd_pool_get_cb_registry)(void)
 }
 
 static void
-hnd_pktpool_lbuf_free_cb(uint8 poolid)
+BCMFASTPATH(hnd_pktpool_lbuf_free_cb)(uint8 poolid)
 {
 	int i = 0;
 	pktpool_t *pktp;

@@ -542,6 +542,12 @@ int sensor_3j1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
 
+	/* EMB Header off */
+	ret = is_sensor_write8(cis->client, 0x0118, 0x00);
+	if (ret < 0){
+		err("EMB header off fail");
+	}
+
 p_err_i2c_unlock:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 

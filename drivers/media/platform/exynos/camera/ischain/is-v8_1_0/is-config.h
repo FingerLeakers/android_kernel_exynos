@@ -88,6 +88,7 @@
 #define ENABLE_ORBMCH	1
 #define ENABLE_10BIT_MCSC
 #define ENABLE_DJAG_IN_MCSC
+#define ENABLE_MCSC_CENTER_CROP
 
 #define USE_ONE_BINARY
 #define USE_RTA_BINARY
@@ -152,16 +153,18 @@
 #define IS_MAX_TASK		(40)
 
 #define HW_TIMEOUT_PANIC_ENABLE
-#define OVERFLOW_PANIC_ENABLE_ISCHAIN
-#define OVERFLOW_PANIC_ENABLE_CSIS
 #if defined(CONFIG_ARM_EXYNOS_DEVFREQ)
 #define CONFIG_IS_BUS_DEVFREQ
 #endif
+
+#undef OVERFLOW_PANIC_ENABLE_ISCHAIN
+#undef OVERFLOW_PANIC_ENABLE_CSIS
 #if defined(OVERFLOW_PANIC_ENABLE_ISCHAIN)
 #define DDK_OVERFLOW_RECOVERY		(0)	/* 0: do not execute recovery, 1: execute recovery */
 #else
 #define DDK_OVERFLOW_RECOVERY		(1)	/* 0: do not execute recovery, 1: execute recovery */
 #endif
+
 #define CAPTURE_NODE_MAX		12
 #define OTF_YUV_FORMAT			(OTF_INPUT_FORMAT_YUV422)
 #define MSB_OF_3AA_DMA_OUT		(11)
@@ -209,7 +212,7 @@
 #define SECURE_CAMERA_CH		((1 << CSI_ID_C) | (1 << CSI_ID_E))
 #define SECURE_CAMERA_HEAP_ID		(11)
 #define SECURE_CAMERA_MEM_ADDR		(0x96000000)	/* secure_camera_heap */
-#define SECURE_CAMERA_MEM_SIZE		(0x02E00000)
+#define SECURE_CAMERA_MEM_SIZE		(0x03200000)
 #define NON_SECURE_CAMERA_MEM_ADDR	(0x0)	/* camera_heap */
 #define NON_SECURE_CAMERA_MEM_SIZE	(0x0)
 
@@ -240,7 +243,7 @@
 #define INIT_AWB_COUNT_FRONT	(8)
 
 /* use CIS global work for enhance launching time */
-#define USE_CIS_GLOBAL_WORK	0
+#define USE_CIS_GLOBAL_WORK	1
 
 #define USE_CAMIF_FIX_UP	1
 #define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
@@ -259,6 +262,9 @@
 
 #define VOTF_ONESHOT		/* oneshot mode is used when using VOTF in PDP input.  */
 #define VOTF_BACK_FIRST_OFF	/* This is only for v8.1. next AP don't have to use thie. */
+
+/* BTS */
+#define DISABLE_BTS_CALC	/* This is only for v8.1. next AP don't have to use this */
 
 /*
  * ======================================================

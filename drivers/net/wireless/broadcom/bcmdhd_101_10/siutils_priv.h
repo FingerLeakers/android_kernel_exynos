@@ -96,8 +96,7 @@ typedef struct axi_wrapper {
 #define BT_CC_SPROM_BADREG_LO   0x18000190
 #define BT_CC_SPROM_BADREG_SIZE 4
 #define BT_CC_SPROM_BADREG_HI   0
-#define BCM4349_BT_AXI_ID	5
-#define BCM4364_BT_AXI_ID	5
+
 #define BCM4369_BT_AXI_ID	4
 #define BCM4378_BT_AXI_ID	2
 #define BCM4368_BT_AXI_ID	2
@@ -217,6 +216,7 @@ typedef struct si_info {
 	si_res_state_info_t res_state[RES_PEND_STATS_COUNT];
 	uint32	res_pend_count;
 	bool    rfldo3p3_war;		/**< singing cap war enable from nvram */
+	void    *nci_info;
 } si_info_t;
 
 #define	SI_INFO(sih)	((si_info_t *)(uintptr)sih)
@@ -238,8 +238,6 @@ typedef struct si_info {
 			 ((si)->pub.buscoretype == PCIE2_CORE_ID))
 
 #define PCIE(si)	(PCIE_GEN1(si) || PCIE_GEN2(si))
-
-#define PCMCIA(si)	((BUSTYPE((si)->pub.bustype) == PCMCIA_BUS) && ((si)->memseg == TRUE))
 
 /** Newer chips can access PCI/PCIE and CC core without requiring to change PCI BAR0 WIN */
 #define SI_FAST(si) (PCIE(si) || (PCI(si) && ((si)->pub.buscorerev >= 13)))
@@ -303,9 +301,6 @@ extern uint32 sb_addrspace(const si_t *sih, uint asidx);
 extern uint32 sb_addrspacesize(const si_t *sih, uint asidx);
 extern int sb_numaddrspaces(const si_t *sih);
 
-/* XXX Mogrifier hack alert- BCMINTERNAL should not be the last in the following
- * if defined string
- */
 extern bool sb_taclear(si_t *sih, bool details);
 
 #if defined(BCMDBG_PHYDUMP)

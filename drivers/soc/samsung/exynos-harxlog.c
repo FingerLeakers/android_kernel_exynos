@@ -75,14 +75,8 @@ static void *exynos_harxlog_request_region(unsigned long addr,
 
 void exynos_harxlog_flush()
 {
-	unsigned int cpu = 0;
 	if (hlog_ctx.enabled) {
 		schedule_work(&hlog_ctx.work);
-	} else {
-		/* skip all log messages */
-		for (cpu = 0; cpu < NR_CPUS; cpu++) {
-			harxlog_log[cpu]->log_read_cnt = harxlog_log[cpu]->log_write_cnt;
-		}
 	}
 	pr_debug("HARXLog sheduled!!\n");
 }

@@ -134,7 +134,7 @@ static void sensor_gw2_set_integration_max_margin(u32 mode, cis_shared_data *cis
 	FIMC_BUG_VOID(!cis_data);
 
 	switch (mode) {
-		case SENSOR_GW2_9248x6936_21FPS:
+		case SENSOR_GW2_9248x6936_15FPS:
 		case SENSOR_GW2_7680X4320_30FPS:
 		case SENSOR_GW2_4864x3648_30FPS:
 		case SENSOR_GW2_4864x3648_22FPS:
@@ -660,7 +660,7 @@ int sensor_gw2_cis_update_crop_region(struct v4l2_subdev *subdev)
 		return -1;
 	}
 
-	if (device->cfg->mode == SENSOR_GW2_9248x6936_21FPS
+	if (device->cfg->mode == SENSOR_GW2_9248x6936_15FPS
 		|| device->cfg->mode == SENSOR_GW2_7680X4320_30FPS
 		|| device->cfg->mode == SENSOR_GW2_4624x3468_30FPS
 		|| device->cfg->mode == SENSOR_GW2_4624x2604_30FPS
@@ -771,13 +771,13 @@ static int sensor_gw2_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 	}
 
 	switch (select->mode) {
-	case SENSOR_GW2_9248x6936_21FPS:
+	case SENSOR_GW2_9248x6936_15FPS:
 		width = 1152;
 		height = 1720;
 		break;
 	case SENSOR_GW2_7680X4320_30FPS:
 		width = 960;
-		height = 1080;
+		height = 1064;
 		break;
 	case SENSOR_GW2_4864x3648_30FPS:
 	case SENSOR_GW2_4864x3648_22FPS:
@@ -792,12 +792,12 @@ static int sensor_gw2_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		break;
 	case SENSOR_GW2_4624x3468_30FPS:
 		width = 1152;
-		height = 1728;
+		height = 1712;
 		break;
 	case SENSOR_GW2_4624x2604_30FPS:
 	case SENSOR_GW2_4624x2604_60FPS:
 		width = 1152;
-		height = 1296;
+		height = 1280;
 		break;
 	default:
 		warn("[%s] Don't change pdaf tail size\n", __func__);
@@ -823,6 +823,7 @@ static void sensor_gw2_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_da
 	switch (mode) {
 	case SENSOR_GW2_1920X1080_120FPS:
 	case SENSOR_GW2_1920X1080_240FPS:
+	case SENSOR_GW2_9248x6936_15FPS:
 		cis_data->is_data.paf_stat_enable = false;
 		break;
 	default:
@@ -1682,7 +1683,7 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	cis_data = cis->cis_data;
 
-	if (i2c_log_frame_count > 5)
+	if (i2c_log_frame_count > 10)
 		i2c_log_enable = false;
 	else
 		i2c_log_frame_count++;

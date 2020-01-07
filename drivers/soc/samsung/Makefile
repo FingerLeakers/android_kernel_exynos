@@ -4,6 +4,7 @@ ccflags-y := $(KBUILD_FP_SENSOR_CFLAGS)
 
 obj-$(CONFIG_ARCH_EXYNOS)       += exynos-el3_mon.o
 obj-$(CONFIG_ARCH_EXYNOS)       += exynos-smc.o
+
 # CAL
 obj-$(CONFIG_CAL_IF)		+= cal-if/
 obj-$(CONFIG_EXYNOS_PD)        += exynos-pd.o exynos-pd-dbg.o
@@ -100,3 +101,6 @@ obj-$(CONFIG_EXYNOS_CPU_PERF)	+= exynos_cpu_perf/
 # Exynos S2MPU
 obj-$(CONFIG_EXYNOS_S2MPU)	+= exynos-s2mpu.o
 obj-$(CONFIG_EXYNOS_S2MPU)	+= exynos-harxlog.o
+
+# Exynos EL2
+obj-$(CONFIG_ARCH_EXYNOS)       += exynos-el2.o

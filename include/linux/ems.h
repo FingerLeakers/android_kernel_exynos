@@ -222,6 +222,7 @@ extern void emstune_boost(struct emstune_mode_request *req, int enable);
 extern void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us);
 
 extern void emstune_mode_change(int next_mode_idx);
+extern int emstune_get_cur_mode(void);
 
 extern int emstune_register_mode_update_notifier(struct notifier_block *nb);
 extern int emstune_unregister_mode_update_notifier(struct notifier_block *nb);
@@ -285,4 +286,10 @@ static inline void frt_set_task_rq_rt(struct sched_rt_entity *se, struct rt_rq *
 static inline void frt_init_entity_runnable_average(struct sched_rt_entity *rt_se) { }
 static inline void frt_store_sched_avg(struct task_struct *p, struct sched_avg *sa) { }
 static inline void frt_sync_sched_avg(struct task_struct *p, struct sched_avg *sa) { }
+#endif
+
+#ifdef CONFIG_SCHED_PMU_CONT
+void update_cont_avg(struct rq *rq, struct task_struct *prev, struct task_struct *next);
+#else
+static inline void update_cont_avg(struct rq *rq, struct task_struct *prev, struct task_struct *next) { };
 #endif

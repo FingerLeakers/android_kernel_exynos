@@ -223,6 +223,29 @@ static void sensor_2l3_set_integration_max_margin(u32 mode, cis_shared_data *cis
 {
 	WARN_ON(!cis_data);
 
+	switch (mode) {
+	case SENSOR_2L3_4000X3000_30FPS:
+	case SENSOR_2L3_4000X2252_30FPS:
+	case SENSOR_2L3_4000X2252_60FPS:
+	case SENSOR_2L3_1008X756_120FPS:
+		cis_data->max_margin_coarse_integration_time = SENSOR_2L3_COARSE_INTEGRATION_TIME_MAX_MARGIN;
+		dbg_sensor(1, "max_margin_coarse_integration_time(%d)\n",
+			cis_data->max_margin_coarse_integration_time);
+		break;
+	case SENSOR_2L3_1984X1488_30FPS:
+	case SENSOR_2L3_1280X720_240FPS:
+	case SENSOR_2L3_1280X720_480FPS:
+		cis_data->max_margin_coarse_integration_time = 0x20;
+		dbg_sensor(1, "max_margin_coarse_integration_time(%d)\n",
+			cis_data->max_margin_coarse_integration_time);
+		break;
+	default:
+		err("[%s] Unsupport 2l3 sensor mode\n", __func__);
+		cis_data->max_margin_coarse_integration_time = SENSOR_2L3_COARSE_INTEGRATION_TIME_MAX_MARGIN;
+		dbg_sensor(1, "max_margin_coarse_integration_time(%d)\n",
+			cis_data->max_margin_coarse_integration_time);
+		break;
+	}
 }
 
 static void sensor_2l3_cis_data_calculation(const struct sensor_pll_info_compact *pll_info_compact,
@@ -760,6 +783,17 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	struct is_module_enum *module;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	struct sensor_open_extended *ext_info = NULL;
+	struct is_device_sensor *device;
+	u32 ex_mode;
+#ifdef CONFIG_SEC_FACTORY
+	struct is_core *core = NULL;
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("core device is null");
+		return -EINVAL;
+	}
+#endif
 
 	WARN_ON(!subdev);
 
@@ -791,6 +825,12 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		}
 	}
 #endif
+
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (unlikely(!device)) {
+		err("device sensor is null");
+		return -EINVAL;
+	}
 
 #if 0 /* cis_data_calculation is called in module_s_format */
 	sensor_2l3_cis_data_calculation(sensor_2l3_pllinfos[mode], cis->cis_data);
@@ -825,6 +865,22 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		}
 	}
 
+	info("[%s] mode changed(%d)\n", __func__, mode);
+
+	/* dual sync for live focus */
+	ex_mode = is_sensor_g_ex_mode(device);
+	if (ex_mode == EX_LIVEFOCUS
+#ifdef CONFIG_SEC_FACTORY
+		|| test_bit(IS_SENSOR_OPEN, &(core->sensor[0].state))
+#endif
+		) {
+		info("[%s]dual sync slave mode\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_2l3_cis_dual_slave_settings, sensor_2l3_cis_dual_slave_settings_size);
+	} else {
+		info("[%s]dual sync single mode\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_2l3_cis_dual_single_settings, sensor_2l3_cis_dual_single_settings_size);
+	}
+
 	if (sensor_2l3_cis_get_lownoise_supported(cis->cis_data)) {
 		cis->cis_data->pre_lownoise_mode = IS_CIS_LN2;
 		cis->cis_data->cur_lownoise_mode = IS_CIS_LN2;
@@ -833,8 +889,6 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		cis->cis_data->pre_lownoise_mode = IS_CIS_LNOFF;
 		cis->cis_data->cur_lownoise_mode = IS_CIS_LNOFF;
 	}
-
-	info("[%s] mode changed(%d)\n", __func__, mode);
 
 p_err_i2c_unlock:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -1381,6 +1435,13 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	u32 line_length_pck = 0;
 	u32 min_fine_int = 0;
 	u16 coarse_integration_time_shifter = 0;
+	
+	u16 remainder_cit = 0;
+
+	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u16 cit_shifter_val = 0;
+	int cit_shifter_idx = 0;
+	u8 cit_denom_array[6] = {1, 2, 4, 8, 16, 32};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1413,8 +1474,43 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	cis_data = cis->cis_data;
 
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
-
+		switch(cis_data->sens_config_index_cur) {
+#if 0
+		case SENSOR_2L3_2016X1512_30FPS:
+		case SENSOR_2L3_2016X1134_30FPS:
+		case SENSOR_2L3_1504X1504_30FPS:
+			if (MAX(target_exposure->long_val, target_exposure->short_val) > 80000) {
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 16);
+				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
+				target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+				target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
+			} else {
+				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
+			}
+			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
+			break;
+#endif
+		default:
+			if (MAX(target_exposure->long_val, target_exposure->short_val) > 160000) {
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 16);
+				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
+				target_exposure->long_val = target_exposure->long_val / cit_denom_array[cit_shifter_val];
+				target_exposure->short_val = target_exposure->short_val / cit_denom_array[cit_shifter_val];
+			} else {
+				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
+			}
+			coarse_integration_time_shifter = ((cit_shifter_val<<8) & 0xFF00) + (cit_shifter_val & 0x00FF);
+			break;
+		}
 	}
+	
+#if 0
+	if (cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION1
+		|| cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2) {
+		dbg_sensor(1, "[%s] skip for dram test\n", __func__);
+		goto p_err;
+	}
+#endif
 
 	dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), target long(%d), short(%d)\n", cis->id, __func__,
 			cis_data->sen_vsync_count, target_exposure->long_val, target_exposure->short_val);
@@ -1423,10 +1519,24 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	line_length_pck = cis_data->line_length_pck;
 	min_fine_int = cis_data->min_fine_integration_time;
 
-	long_coarse_int = ((target_exposure->long_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
-											/ line_length_pck;
-	short_coarse_int = ((target_exposure->short_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
-											/ line_length_pck;
+	switch (cis->cis_data->cur_lownoise_mode) {
+	case IS_CIS_LN2:
+		long_coarse_int = ((target_exposure->long_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
+												/ line_length_pck;
+		remainder_cit = long_coarse_int % 8;
+		long_coarse_int -= remainder_cit;
+		short_coarse_int = ((target_exposure->short_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
+												/ line_length_pck;
+		remainder_cit = short_coarse_int % 8;
+		short_coarse_int -= remainder_cit;
+		break;
+	default:
+		long_coarse_int = ((target_exposure->long_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
+												/ line_length_pck;
+		short_coarse_int = ((target_exposure->short_val * (u64)(vt_pic_clk_freq_mhz)) / 1000 - min_fine_int)
+												/ line_length_pck;
+		break;
+	}
 
 	if (long_coarse_int > cis_data->max_coarse_integration_time) {
 		dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) max(%d)\n", cis->id, __func__,
@@ -1694,6 +1804,10 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	u16 frame_length_lines = 0;
 	u8 frame_length_lines_shifter = 0;
 
+	u8 fll_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	int fll_shifter_idx = 0;
+	u8 fll_denom_array[6] = {1, 2, 4, 8, 16, 32};
+
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
 
@@ -1718,9 +1832,39 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	if (ln_mode_delay_count > 0)
 		ln_mode_delay_count--;
+#if 0
+	if (cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION1
+		|| cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2) {
+		dbg_sensor(1, "[%s] skip for dram test\n", __func__);
+		goto p_err;
+	}
+#endif
 
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
-
+		switch(cis_data->sens_config_index_cur) {
+#if 0
+		case SENSOR_2L3_2016X1512_30FPS:
+		case SENSOR_2L3_2016X1134_30FPS:
+		case SENSOR_2L3_1504X1504_30FPS:
+			if (frame_duration > 80000) {
+				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 16);
+				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
+				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
+			} else {
+				frame_length_lines_shifter = 0x0;
+			}
+			break;
+#endif
+		default:
+			if (frame_duration > 160000) {
+				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 16);
+				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
+				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
+			} else {
+				frame_length_lines_shifter = 0x0;
+			}
+			break;
+		}
 	}
 
 	if (frame_duration < cis_data->min_frame_us_time) {
@@ -1762,8 +1906,8 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
-	cis_data->max_coarse_integration_time =
-	cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
+	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
+	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;
 
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);

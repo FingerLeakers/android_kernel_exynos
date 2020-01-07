@@ -12,6 +12,7 @@
 #include <dt-bindings/soc/samsung/debug-snapshot-def.h>
 #include <dt-bindings/soc/samsung/exynos9830-seclog.h>
 #include <dt-bindings/soc/samsung/exynos9830-harxlog.h>
+#include <dt-bindings/soc/samsung/exynos9830-s2mpu.h>
 #include <dt-bindings/camera/exynos_is_dt.h>
 
 / {
@@ -133,6 +134,12 @@
             		compatible = "exynos,harxlog";
             		reg = <0 HARXLOG_LOG_BUF_BASE HARXLOG_LOG_BUF_TOTAL_SIZE>;
         	};
+
+		s2mpu_table {
+			compatible = "exynos,s2mpu_table";
+			reg = <0 S2MPU_TABLE_BASE S2MPU_TABLE_SIZE>;
+		};
+
 		abox_dbg: abox-dbg {
 			compatible = "exynos,abox_dbg";
 			size = <0x5200000>;
@@ -184,16 +191,19 @@
 		secure_camera {
 			compatible = "exynos9820-ion";
 			ion,heapname = "secure_camera_heap";
-			reg = <0x0 0x96000000 0x2E00000>;
+			reg = <0x0 0x96000000 0x3200000>;
 			ion,secure;
 			ion,protection_id = <11>;
 			ion,alignment = <0x10000>;
 		};
 
-		camera {
+		camera_heap: camera {
 			compatible = "exynos9820-ion";
+			size = <0x29F00000>;
+			alloc-ranges =	<0xA 0x00000000 0xFFFFFFFF>,
+					<0x9 0x00000000 0xFFFFFFFF>;
+			alignment = <0x0 0x00400000>;
 			ion,heapname = "camera_heap";
-			reg = <0x8 0x80000000 0x38400000>;
 			ion,recyclable;
 		};
 

@@ -1084,12 +1084,6 @@ static int dsim_set_df_default(struct dsim_device *dsim)
 				__func__, status->current_ddi_osc, status->request_ddi_osc);
 			status->current_ddi_osc = status->request_ddi_osc;
 		}
-
-		if (status->current_ddi_osc) {
-			status->persistence_mode = 1;
-			status->persistence_cnt = 20;
-			dsim_info("[DYN_FREQ]: %s: enable df persistence_mode", __func__);
-		}
 	}
 
 	return ret;

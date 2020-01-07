@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9830 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -13,14 +13,14 @@
 #include "exynos9830-universal9830_if-pmic-max77705.dtsi"
 #include <dt-bindings/pci/pci.h>
 #include "exynos9830-z3s_camera.dtsi"
-#include "exynos9830-picasso2lte_mst_r00.dtsi"
+#include "exynos9830-z3s_mst_r00.dtsi"
 #include "exynos9830-hubble_sound.dtsi"
 #include "exynos9830-hubblez3_input_common.dtsi"
 #include "exynos9830-hubble_vib.dtsi"
 #include "exynos9830-inputbooster.dtsi"
 
 / {
-	compatible = "samsung,exynos9830", "samsung,UNIVERSAL9830";
+	compatible = "samsung,exynos990", "samsung,UNIVERSAL990";
 
 	fragment@model {
 		target-path = "/";
@@ -45,7 +45,7 @@
 					compatible = "android,firmware";
 					vbmeta {
 						compatible = "android,vbmeta";
-						parts = "vbmeta,boot,system,vendor,product,odm,prism,optics,vbmeta_samsung,recovery,dtbo,keystorage";
+						parts = "vbmeta,boot,system,vendor,product,odm,prism,optics,vbmeta_samsung,recovery,dtbo,keystorage,harx";
 					};
 				};
 			};
@@ -61,7 +61,7 @@
 
 				hs_tune2 {
 					tune_name = "tx_vref";
-					tune_value = <0xe 0xe>;
+					tune_value = <0xd 0xd>;
 				};
 
 				hs_tune3 {
@@ -413,17 +413,12 @@
 					net_boost,sysnode="/sys/class/scsi_host/host0/transferred_cnt";
 					net_boost,table {
 						level_0 {
-							threshold = <560>; /* 70 MB/s */
+							threshold = <800>; /* 100 MB/s */
+							mid_min = <1456000>;
 							lit_min = <1456000>;
 							int = <400000>;
 						};
 						level_1 {
-							threshold = <800>; /* 100 MB/s */
-							mid_min = <1898000>;
-							lit_min = <1950000>;
-							int = <533000>;
-						};
-						level_2 {
 							threshold = <1120>; /* 140 MB/s */
 							mid_min = <2002000>;
 							lit_min = <1950000>;
@@ -586,53 +581,88 @@
 						level_0 {
 							threshold = <100>;
 							lit_min = <1053000>;
-							mif = <845000>;
 						};
 						level_1 {
-							threshold = <150>;
+							threshold = <200>;
 							lit_min = <1300000>;
 							mif = <1014000>;
 						};
+						/* uses middle */
 						level_2 {
-							threshold = <200>;
-							lit_min = <1742000>;
-							mif = <1716000>;
+							threshold = <300>;
+							mid_min = <1508000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
 						};
 						level_3 {
-							threshold = <250>;
-							lit_min = <1742000>;
-							mif = <1716000>;
+							threshold = <700>;
+							mid_min = <2106000>;
+							lit_min = <1586000>;
+							mif = <2028000>;
 						};
-						/* uses middle */
 						level_4 {
-							threshold = <300>;
-							mid_min = <1898000>;
-							lit_min = <1742000>;
+							threshold = <800>;
+							mid_min = <2106000>;
+							lit_min = <1586000>;
 							mif = <2028000>;
 						};
 						level_5 {
-							threshold = <700>;
-							mid_min = <2106000>;
-							lit_min = <1846000>;
-							mif = <2535000>;
-						};
-						level_6 {
-							threshold = <800>;
-							mid_min = <2106000>;
-							lit_min = <1846000>;
-							mif = <2535000>;
-						};
-						level_7 {
 							threshold = <1500>;
 							mid_min = <2314000>;
 							lit_min = <1950000>;
-							mif = <2730000>;
+							mif = <2028000>;
 						};
-						level_8 {
+						level_6 {
 							threshold = <1600>;
 							mid_min = <2314000>;
 							lit_min = <1950000>;
-							mif = <2730000>;
+							mif = <2028000>;
+						};
+					};
+				};
+				boot_device@7 {
+					net_boost,label="USB";
+					net_boost,node="rndis0";
+					net_boost,table {
+						level_0 {
+							threshold = <100>;
+							lit_min = <1053000>;
+						};
+						level_1 {
+							threshold = <200>;
+							lit_min = <1300000>;
+							mif = <1014000>;
+						};
+						/* uses middle */
+						level_2 {
+							threshold = <300>;
+							mid_min = <1508000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
+						};
+						level_3 {
+							threshold = <700>;
+							mid_min = <2106000>;
+							lit_min = <1586000>;
+							mif = <2028000>;
+						};
+						level_4 {
+							threshold = <800>;
+							mid_min = <2106000>;
+							lit_min = <1586000>;
+							mif = <2028000>;
+						};
+						level_5 {
+							threshold = <1500>;
+							mid_min = <2314000>;
+							lit_min = <1950000>;
+							mif = <2028000>;
+						};
+						level_6 {
+							threshold = <1600>;
+							mid_min = <2314000>;
+							lit_min = <1950000>;
+							mif = <2028000>;
 						};
 					};
 				};
@@ -972,15 +1002,15 @@
 		panel-lut = <
 			0xa10013 0xff00ff 0x0 0x0  /* S6E3HA9 1440x3040 PANEL*/
 
-			0x000000 0x0000C3 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV00, OSC:96.5 */
-			0x000001 0x0000C3 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:96.5 */
-			0x000002 0x0000C3 0x2 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:96.5 */
+			0x000000 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV00, OSC:96.5 */
+			0x000001 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:96.5 */
+			0x000002 0x0000CF 0x2 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:96.5 */
 			0x000000 0x0000C0 0x3 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV03, OSC:96.5 */
 
-			0x000040 0x0000C3 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
-			0x000041 0x0000C3 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
-			0x000042 0x0000C3 0x5 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:86.4 */
-			0x000000 0x000000 0x6 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV03, OSC:86.4 */
+			0x000040 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
+			0x000041 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
+			0x000042 0x0000CF 0x5 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:86.4 */
+			0x000040 0x0000C0 0x6 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV03, OSC:86.4 */
 			0x000000 0x000000 0x3 0x1  /* default */
 		>;
 	};
@@ -1002,8 +1032,8 @@
 };
 
 &dwmmc_2 {
-	#address-cells = <1>;
-	#size-cells = <0>;
+	#address-cells = <2>;
+	#size-cells = <1>;
 	status = "okay";
 	num-slots = <1>;
 	supports-4bit;
@@ -1065,6 +1095,16 @@
 	};
 };
 
+&pinctrl_5 {
+	grip_ldo: grip-ldo {
+		samsung,pins = "gpp9-3";
+		samsung,pin-function = <1>;
+		samsung,pin-con-pdn = <1>;
+		samsung,pin-pud = <0>;
+		samsung,pin-pud-pdn = <0>;
+	};
+};
+
 &pinctrl_1 {
 	grip_i2c: grip-i2c {
 		samsung,pins = "gpm2-0", "gpm3-0";
@@ -1104,4 +1144,8 @@
 };
 &mafpc_0 {
     status = "okay";
+};
+
+&camera_heap {
+	size = <0x3E800000>;
 };

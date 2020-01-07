@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #include <typedefs.h>
@@ -125,7 +125,7 @@ BCMFASTPATH(pkttotcnt)(osl_t *osh, void *p)
 
 /* return the last buffer of chained pkt */
 void *
-pktlast(osl_t *osh, void *p)
+BCMFASTPATH(pktlast)(osl_t *osh, void *p)
 {
 	for (; PKTNEXT(osh, p); p = PKTNEXT(osh, p))
 		;
@@ -314,7 +314,7 @@ BCMFASTPATH(pktsetprio)(void *pkt, bool update_vtag)
 	int rc = 0;
 
 	pktdata = (uint8 *)PKTDATA(OSH_NULL, pkt);
-	ASSERT(ISALIGNED((uintptr)pktdata, sizeof(uint16)));
+	ASSERT_FP(ISALIGNED((uintptr)pktdata, sizeof(uint16)));
 
 	eh = (struct ether_header *) pktdata;
 
@@ -399,7 +399,7 @@ BCMFASTPATH(pktsetprio)(void *pkt, bool update_vtag)
 		rc |= PKTPRIO_DSCP;
 	}
 
-	ASSERT(priority >= 0 && priority <= MAXPRIO);
+	ASSERT_FP(priority >= 0 && priority <= MAXPRIO);
 	PKTSETPRIO(pkt, priority);
 	return (rc | priority);
 }
@@ -558,7 +558,7 @@ static char bcm_undeferrstr[32];
 static const char *bcmerrorstrtable[] = BCMERRSTRINGTABLE;
 
 /* Convert the error codes into related error strings  */
-/* XXX: BCMRAMFN for BCME_LAST usage */
+/* BCMRAMFN for BCME_LAST usage */
 const char *
 BCMRAMFN(bcmerrorstr)(int bcmerror)
 {
@@ -959,17 +959,17 @@ BCMFASTPATH(bcm_mwbmap_free)(struct bcm_mwbmap * mwbmap_hdl, uint32 bitix)
 	BCM_MWBMAP_AUDIT(mwbmap_hdl);
 	mwbmap_p = BCM_MWBMAP_PTR(mwbmap_hdl);
 
-	ASSERT(bitix < mwbmap_p->total);
+	ASSERT_FP(bitix < mwbmap_p->total);
 
 	/* Start with second level hierarchy */
 	wordix   = BCM_MWBMAP_DIVOP(bitix);
 	bitmap   = (1U << BCM_MWBMAP_MODOP(bitix));
 	bitmap_p = &mwbmap_p->id_bitmap[wordix];
 
-	ASSERT((*bitmap_p & bitmap) == 0U);	/* ASSERT not a double free */
+	ASSERT_FP((*bitmap_p & bitmap) == 0U);	/* ASSERT not a double free */
 
 	mwbmap_p->ifree++; /* update free count */
-	ASSERT(mwbmap_p->ifree <= mwbmap_p->total);
+	ASSERT_FP(mwbmap_p->ifree <= mwbmap_p->total);
 
 	MWBMAP_DBG(("Lvl2: bitix<%02u> wordix<%02u>: %08x | %08x = %08x ifree %d",
 	            bitix, wordix, *bitmap_p, bitmap, (*bitmap_p) | bitmap,
@@ -1274,11 +1274,11 @@ BCMFASTPATH(id16_map_alloc)(void * id16_map_hndl)
 	uint16 val16;
 	id16_map_t * id16_map;
 
-	ASSERT(id16_map_hndl != NULL);
+	ASSERT_FP(id16_map_hndl != NULL);
 
 	id16_map = (id16_map_t *)id16_map_hndl;
 
-	ASSERT(id16_map->total > 0);
+	ASSERT_FP(id16_map->total > 0);
 
 	if (id16_map->stack_idx < 0) {
 		id16_map->failures++;
@@ -1289,13 +1289,13 @@ BCMFASTPATH(id16_map_alloc)(void * id16_map_hndl)
 	id16_map->stack_idx--;
 
 #if defined(BCM_DBG) && defined(BCM_DBG_ID16)
-	ASSERT((id16_map->start == ID16_UNDEFINED) ||
+	ASSERT_FP((id16_map->start == ID16_UNDEFINED) ||
 	       (val16 < (id16_map->start + id16_map->total)));
 
 	if (id16_map->dbg) { /* Validate val16 */
 		id16_map_dbg_t *id16_map_dbg = (id16_map_dbg_t *)id16_map->dbg;
 
-		ASSERT(id16_map_dbg->avail[val16 - id16_map->start] == TRUE);
+		ASSERT_FP(id16_map_dbg->avail[val16 - id16_map->start] == TRUE);
 		id16_map_dbg->avail[val16 - id16_map->start] = FALSE;
 	}
 #endif /* BCM_DBG && BCM_DBG_ID16 */
@@ -1308,18 +1308,18 @@ BCMFASTPATH(id16_map_free)(void * id16_map_hndl, uint16 val16)
 {
 	id16_map_t * id16_map;
 
-	ASSERT(id16_map_hndl != NULL);
+	ASSERT_FP(id16_map_hndl != NULL);
 
 	id16_map = (id16_map_t *)id16_map_hndl;
 
 #if defined(BCM_DBG) && defined(BCM_DBG_ID16)
-	ASSERT((id16_map->start == ID16_UNDEFINED) ||
+	ASSERT_FP((id16_map->start == ID16_UNDEFINED) ||
 	       (val16 < (id16_map->start + id16_map->total)));
 
 	if (id16_map->dbg) { /* Validate val16 */
 		id16_map_dbg_t *id16_map_dbg = (id16_map_dbg_t *)id16_map->dbg;
 
-		ASSERT(id16_map_dbg->avail[val16 - id16_map->start] == FALSE);
+		ASSERT_FP(id16_map_dbg->avail[val16 - id16_map->start] == FALSE);
 		id16_map_dbg->avail[val16 - id16_map->start] = TRUE;
 	}
 #endif /* BCM_DBG && BCM_DBG_ID16 */
@@ -2166,7 +2166,7 @@ bcm_ether_atoe(const char *p, struct ether_addr *ea)
 	return (i == 6);
 }
 
-/* parse a xxx.xxx.xxx.xxx format IPV4 address */
+/* parse a nnn.nnn.nnn.nnn format IPV4 address */
 int
 bcm_atoipv4(const char *p, struct ipv4_addr *ip)
 {

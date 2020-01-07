@@ -413,7 +413,7 @@ sssr_support_onoff(struct dhd_info *dev, const char *buf, size_t count)
 		return -EINVAL;
 	}
 
-	support_sssr_dump = onoff;
+	support_sssr_dump = (uint)onoff;
 
 	return count;
 }
@@ -640,7 +640,17 @@ void dhd_get_memdump_info(dhd_pub_t *dhd)
 		dhd->memdump_enabled = DUMP_MEMFILE;
 #endif /* DHD_INIT_DEFAULT_MEMDUMP */
 #endif /* !DHD_EXPORT_CNTL_FILE */
-	DHD_ERROR(("%s: MEMDUMP ENABLED = %d\n", __FUNCTION__, dhd->memdump_enabled));
+#ifdef DHD_DETECT_CONSECUTIVE_MFG_HANG
+	/* override memdump_enabled value to avoid once trap issues */
+	if (dhd_bus_get_fw_mode(dhd) == DHD_FLAG_MFG_MODE &&
+			(dhd->memdump_enabled == DUMP_MEMONLY ||
+			dhd->memdump_enabled == DUMP_MEMFILE_BUGON)) {
+		dhd->memdump_enabled = DUMP_MEMFILE;
+		DHD_ERROR(("%s : Override memdump_value to %d\n",
+				__FUNCTION__, dhd->memdump_enabled));
+	}
+#endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
+	DHD_ERROR(("%s: MEMDUMP ENABLED = %u\n", __FUNCTION__, dhd->memdump_enabled));
 }
 
 #ifdef DHD_EXPORT_CNTL_FILE
@@ -677,7 +687,7 @@ set_memdump_info(struct dhd_info *dev, const char *buf, size_t count)
 
 	dhdp->memdump_enabled = (uint32)memval;
 
-	DHD_ERROR(("%s: MEMDUMP ENABLED = %iu\n", __FUNCTION__, dhdp->memdump_enabled));
+	DHD_ERROR(("%s: MEMDUMP ENABLED = %u\n", __FUNCTION__, dhdp->memdump_enabled));
 	return count;
 }
 
@@ -1283,10 +1293,7 @@ static struct dhd_attr dhd_attr_hang_privcmd_err =
 	__ATTR(hang_privcmd_err, 0660, show_hang_privcmd_err, set_hang_privcmd_err);
 #endif /* DHD_SEND_HANG_PRIVCMD_ERRORS */
 
-#if defined(CUSTOM_CONTROL_LOGTRACE) && defined(SHOW_LOGTRACE)
-/* By default logstr parsing is disabled */
-uint8 control_logtrace = 0;
-
+#if defined(SHOW_LOGTRACE)
 static ssize_t
 show_control_logtrace(struct dhd_info *dev, char *buf)
 {
@@ -1303,14 +1310,14 @@ set_control_logtrace(struct dhd_info *dev, const char *buf, size_t count)
 
 	val = bcm_atoi(buf);
 
-	control_logtrace = val ? 1 : 0;
+	control_logtrace = val;
 	DHD_ERROR(("%s: Set control logtrace: %d\n", __FUNCTION__, control_logtrace));
 	return count;
 }
 
 static struct dhd_attr dhd_attr_control_logtrace =
 __ATTR(control_logtrace, 0660, show_control_logtrace, set_control_logtrace);
-#endif /* CUSTOM_CONTROL_LOGTRACE & SHOW_LOGTRACE */
+#endif /* SHOW_LOGTRACE */
 
 #if defined(DISABLE_HE_ENAB) || defined(CUSTOM_CONTROL_HE_ENAB)
 uint8 control_he_enab = 1;
@@ -1393,9 +1400,9 @@ static struct attribute *default_file_attrs[] = {
 #ifdef DHD_SEND_HANG_PRIVCMD_ERRORS
 	&dhd_attr_hang_privcmd_err.attr,
 #endif /* DHD_SEND_HANG_PRIVCMD_ERRORS */
-#if defined(CUSTOM_CONTROL_LOGTRACE) && defined(SHOW_LOGTRACE)
+#if defined(SHOW_LOGTRACE)
 	&dhd_attr_control_logtrace.attr,
-#endif /* CUSTOM_CONTROL_LOGTRACE && SHOW_LOGTRACE */
+#endif /* SHOW_LOGTRACE */
 #if defined(DHD_TRACE_WAKE_LOCK)
 	&dhd_attr_wklock.attr,
 #endif

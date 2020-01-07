@@ -64,9 +64,11 @@
 #ifdef WL_BAM
 #include <wl_bam.h>
 #endif  /* WL_BAM */
+
 #ifdef BIGDATA_SOFTAP
 #include <wl_bigdata.h>
 #endif /* BIGDATA_SOFTAP */
+
 struct wl_conf;
 struct wl_iface;
 struct bcm_cfg80211;
@@ -89,10 +91,10 @@ struct wl_ibss;
 #define WL_FILS_ROAM_OFFLD
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
 /* Use driver managed regd */
 #define WL_SELF_MANAGED_REGDOM
-#endif /* KERNEL >= 3.14 */
+#endif /* KERNEL >= 4.0 */
 
 #ifdef WL_SAE
 #define IS_AKM_SAE(akm) (akm == WLAN_AKM_SUITE_SAE)
@@ -149,7 +151,7 @@ extern char *dhd_log_dump_get_timestamp(void);
 #endif /* !_DHD_LOG_DUMP_DEFINITIONS_ */
 #endif /* DHD_LOG_DUMP */
 
-/* XXX On some MSM platform, it uses different version
+/* On some MSM platform, it uses different version
  * of linux kernel and cfg code as not synced.
  * MSM defined CFG80211_DISCONNECTED_V2 as the flag
  * when they uses different kernel/cfg version.
@@ -168,7 +170,7 @@ extern char *dhd_log_dump_get_timestamp(void);
 #define WL_DBG_LEVEL 0xFF
 
 #define CFG80211_INFO_TEXT		"CFG80211-INFO) "
-/* XXX Samsung want to print INFO2 instead of ERROR
+/* Samsung want to print INFO2 instead of ERROR
  * because most of case, ERROR message is not a real ERROR.
  * but it can be regarded as real error case for Tester
  */
@@ -269,7 +271,10 @@ do {										\
 #define WL_MEM(args) WL_DBG(args)
 #endif /* defined(DHD_DEBUG) */
 
+#if defined(__linux__)
 #define WL_PRINT_RATE_LIMIT_PERIOD 4000000000u /* 4s in units of ns */
+#endif
+#if defined(__linux__)
 #define WL_ERR_RLMT(args) \
 do {	\
 	if (wl_dbg_level & WL_DBG_ERR) {	\
@@ -288,6 +293,9 @@ do {	\
 		} \
 	}	\
 } while (0)
+#else /* defined(__linux__) && !defined(DHD_EFI) */
+#define WL_ERR_RLMT(args) WL_ERR(args)
+#endif
 
 #ifdef WL_INFORM
 #undef WL_INFORM
@@ -356,7 +364,7 @@ do {									\
 #define WL_SCAN_IE_LEN_MAX  2048
 #define WL_BSS_INFO_MAX     2048
 #define WL_ASSOC_INFO_MAX   512
-/* XXX the length of pmkid_info iovar is 1416
+/* the length of pmkid_info iovar is 1416
  * It exceed the original 1024 limitation
  * so change WL_EXTRA_LEN_MAX to 2048
  */
@@ -385,6 +393,10 @@ do {									\
 #ifdef WL_NAN
 #define WL_SCAN_TIMER_INTERVAL_MS_NAN	15000 /* Scan timeout */
 #endif /* WL_NAN */
+#ifdef WL_6G_BAND
+/* additional scan timeout for 6GHz, 15*110msec, rounded to 3000msec */
+#define WL_SCAN_TIMER_INTERVAL_MS_6G	3000
+#endif /* WL_6G_BAND */
 #define WL_CHANNEL_SYNC_RETRY	5
 #define WL_INVALID		-1
 
@@ -619,6 +631,7 @@ enum wl_status {
 typedef enum wl_iftype {
 	WL_IF_TYPE_STA = 0,
 	WL_IF_TYPE_AP = 1,
+
 	WL_IF_TYPE_NAN_NMI = 3,
 	WL_IF_TYPE_NAN = 4,
 	WL_IF_TYPE_P2P_GO = 5,
@@ -645,6 +658,7 @@ enum wl_mode {
 	WL_MODE_BSS = 0,
 	WL_MODE_IBSS = 1,
 	WL_MODE_AP = 2,
+
 	WL_MODE_NAN = 4,
 	WL_MODE_MAX
 };
@@ -757,6 +771,10 @@ struct wl_security {
 	u32 cipher_group;
 	u32 wpa_auth;
 	u32 auth_assoc_res_status;
+	u32 fw_wpa_auth;
+	u32 fw_auth;
+	u32 fw_wsec;
+	u32 fw_mfp;
 };
 
 /* ibss information for currently joined ibss network */
@@ -936,6 +954,7 @@ struct wl_assoc_ielen {
 	u32 resp_len;
 };
 
+#define PMKDB_WLC_VER 14
 #define MIN_PMKID_LIST_V3_FW_MAJOR 13
 #define MIN_PMKID_LIST_V3_FW_MINOR 0
 
@@ -1378,12 +1397,16 @@ struct bcm_cfg80211 {
 	u8 curr_band;
 #endif /* WL_HOST_BAND_MGMT */
 	bool scan_suppressed;
+
 	timer_list_compat_t scan_supp_timer;
 	struct work_struct wlan_work;
+
 	struct mutex event_sync;	/* maily for up/down synchronization */
 	bool disable_roam_event;
 	struct delayed_work pm_enable_work;
+
 	struct workqueue_struct *event_workq;   /* workqueue for event */
+
 	struct work_struct event_work;		/* work item for event */
 	struct mutex pm_sync;	/* mainly for pm work synchronization */
 
@@ -1481,9 +1504,11 @@ struct bcm_cfg80211 {
 #ifdef WL_BAM
 	wl_bad_ap_mngr_t bad_ap_mngr;
 #endif  /* WL_BAM */
+
 #ifdef BIGDATA_SOFTAP
 	struct wl_ap_sta_info *ap_sta_info;
 #endif /* BIGDATA_SOFTAP */
+
 	uint8 scanmac_enabled;
 	bool scanmac_config;
 #ifdef WL_BCNRECV
@@ -1499,6 +1524,9 @@ struct bcm_cfg80211 {
 #ifdef SUPPORT_AP_BWCTRL
 	u32 bw_cap_5g;
 #endif /* SUPPORT_AP_BWCTRL */
+#ifdef WL_6G_BAND
+	bool band_6g_supported;
+#endif /* WL_6G_BAND */
 	wl_loc_info_t loc;    /* listen on channel state info */
 	int roamscan_mode;
 	int wes_mode;
@@ -1512,9 +1540,11 @@ struct bcm_cfg80211 {
 	struct wl_pmk_list *spmk_info_list;	/* single pmk info list */
 };
 
-#define WL_DS_SKIP_THRESHOLD_MSECS  30000
-#define WL_DS_SKIP_THRESHOLD_USECS  (30000 * 1000)
-#define WL_DS_SKIP_THRESHOLD_CNT    30
+/* Max auth timeout allowed in case of EAP is 70sec, additional 5 sec for
+* inter-layer overheads
+*/
+#define WL_DS_SKIP_THRESHOLD_USECS  (75000 * 1000)
+
 enum wl_state_type {
 	WL_STATE_IDLE,
 	WL_STATE_SCANNING,
@@ -2032,6 +2062,7 @@ wl_iftype_to_str(int wl_iftype)
 			return "WL_IF_TYPE_STA";
 		case (WL_IF_TYPE_AP):
 			return "WL_IF_TYPE_AP";
+
 		case (WL_IF_TYPE_NAN_NMI):
 			return "WL_IF_TYPE_NAN_NMI";
 		case (WL_IF_TYPE_NAN):
@@ -2303,6 +2334,7 @@ extern void wl_stop_wait_next_action_frame(struct bcm_cfg80211 *cfg, struct net_
 #ifdef WL_HOST_BAND_MGMT
 extern s32 wl_cfg80211_set_band(struct net_device *ndev, int band);
 #endif /* WL_HOST_BAND_MGMT */
+
 extern void wl_cfg80211_add_to_eventbuffer(wl_eventmsg_buf_t *ev, u16 event, bool set);
 extern s32 wl_cfg80211_apply_eventbuffer(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, wl_eventmsg_buf_t *ev);
@@ -2608,6 +2640,7 @@ extern int wl_cfg80211_start_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_a
 extern int wl_cfg80211_stop_mkeep_alive(struct bcm_cfg80211 *cfg, uint8 mkeep_alive_id);
 #endif /* KEEP_ALIVE */
 
+extern s32 wl_cfg80211_handle_macaddr_change(struct net_device *dev, u8 *macaddr);
 bool wl_cfg80211_is_dpp_frame(void *frame, u32 frame_len);
 const char *get_dpp_pa_ftype(enum wl_dpp_ftype ftype);
 bool wl_cfg80211_is_dpp_gas_action(void *frame, u32 frame_len);

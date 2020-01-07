@@ -21,8 +21,6 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
-/** XXX Twiki [WlRatespecType] */
-
 #ifndef _bcmwifi_rspec_h_
 #define _bcmwifi_rspec_h_
 
@@ -200,7 +198,7 @@ typedef uint32	ratespec_t;
 #define RSPEC2KBPS(rspec)	wf_rspec_to_rate(rspec)
 
 /* return rate in unit of 500Kbps */
-/* XXX works only for legacy rate */
+/* works only for legacy rate */
 #define RSPEC2RATE(rspec)	((rspec) & WL_RSPEC_LEGACY_RATE_MASK)
 
 /**

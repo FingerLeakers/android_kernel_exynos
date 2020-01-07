@@ -32,10 +32,10 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
-/* XXX EFI does not support STATIC_ASSERT */
+/* EFI does not support STATIC_ASSERT */
 
 #ifndef _alignment_test_
 #define _alignment_test_

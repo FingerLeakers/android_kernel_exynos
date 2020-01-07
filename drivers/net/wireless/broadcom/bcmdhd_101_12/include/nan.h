@@ -27,7 +27,7 @@
 #include <typedefs.h>
 #include <802.11.h>
 
-/* XXX: Do we want to include p2p.h for constants like P2P_WFDS_HASH_LEN and
+/* Do we want to include p2p.h for constants like P2P_WFDS_HASH_LEN and
  * maybe P2P_WFDS_MAX_SVC_NAME_LEN etc.?
  */
 

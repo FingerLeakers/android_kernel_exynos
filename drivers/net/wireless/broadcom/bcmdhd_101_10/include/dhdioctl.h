@@ -116,6 +116,7 @@ typedef enum {
 typedef enum dhd_iftype {
 	DHD_IF_TYPE_STA		= 0,
 	DHD_IF_TYPE_AP		= 1,
+
 	DHD_IF_TYPE_NAN_NMI	= 3,
 	DHD_IF_TYPE_NAN		= 4,
 	DHD_IF_TYPE_P2P_GO	= 5,

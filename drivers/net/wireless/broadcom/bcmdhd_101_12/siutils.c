@@ -19,7 +19,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #include <typedefs.h>
@@ -164,7 +164,7 @@ static si_cores_info_t ksii_cores_info;
  * devid - pci device id (used to determine chip#)
  * osh - opaque OS handle
  * regs - virtual address of initial core registers
- * bustype - pci/pcmcia/sb/sdio/etc
+ * bustype - pci/sb/sdio/etc
  * vars - pointer to a to-be created pointer area for "environment" variables. Some callers of this
  *        function set 'vars' to NULL, making dereferencing of this parameter undesired.
  * varsz - pointer to int to return the size of the vars
@@ -181,6 +181,13 @@ si_attach(uint devid, osl_t *osh, volatile void *regs,
 		SI_ERROR(("si_attach: malloc failed! malloced %d bytes\n", MALLOCED(osh)));
 		return (NULL);
 	}
+
+#ifdef BCMDVFS
+	if (si_dvfs_info_init((si_t *)sii, osh) == NULL) {
+		SI_ERROR(("si_dvfs_info_init failed\n"));
+		return (NULL);
+	}
+#endif /* BCMDVFS */
 
 	/* alloc si_cores_info_t */
 	if ((cores_info = (si_cores_info_t *)MALLOCZ(osh,
@@ -493,8 +500,7 @@ si_buscore_setup(si_info_t *sii, chipcregs_t *cc, uint bustype, uint32 savewin,
 #ifdef BCMSDIO
 		else if (((BUSTYPE(bustype) == SDIO_BUS) ||
 		          (BUSTYPE(bustype) == SPI_BUS)) &&
-		         ((cid == PCMCIA_CORE_ID) ||
-		          (cid == SDIOD_CORE_ID))) {
+		         (cid == SDIOD_CORE_ID)) {
 			sii->pub.buscorerev = (int16)crev;
 			sii->pub.buscoretype = (uint16)cid;
 			sii->pub.buscoreidx = (uint16)i;
@@ -853,6 +859,28 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 			si_setcoreidx(sih, origidx);
 		}
 
+#if defined(BT_WLAN_REG_ON_WAR)
+	/*
+	 * 4389B0/C0 - WLAN and BT turn on WAR - synchronize WLAN and BT firmware using GCI
+	 * semaphore - THREAD_0_GCI_SEM_3_ID to ensure that simultaneous register accesses
+	 * does not occur. The WLAN firmware will acquire the semaphore just to ensure that
+	 * if BT firmware is already executing the WAR, then wait until it finishes.
+	 * In BT firmware checking for WL_REG_ON status is sufficient to decide whether
+	 * to apply the WAR or not (i.e, WLAN is turned ON/OFF).
+	 */
+	if ((hnd_gcisem_acquire(GCI_BT_WLAN_REG_ON_WAR_SEM, TRUE,
+			GCI_BT_WLAN_REG_ON_WAR_SEM_TIMEOUT) != BCME_OK)) {
+		SI_ERROR(("Failed to get GCI WLAN/BT REG_ON WAR semaphore...\n"));
+		hnd_gcisem_set_err(GCI_BT_WLAN_REG_ON_WAR_SEM);
+		goto exit;
+	}
+	if ((hnd_gcisem_release(GCI_BT_WLAN_REG_ON_WAR_SEM) != BCME_OK)) {
+		SI_ERROR(("Failed to release GCI WLAN/BT REG_ON WAR semaphore...\n"));
+		hnd_gcisem_set_err(GCI_BT_WLAN_REG_ON_WAR_SEM);
+		goto exit;
+	}
+#endif /* BT_WLAN_REG_ON_WAR */
+
 		/* Skip PMU initialization from the Dongle Host.
 		 * Firmware will take care of it when it comes up.
 		 */
@@ -932,6 +960,10 @@ si_detach(si_t *sih)
 		MFREE(sii->osh, sii->axi_wrapper,
 			(sizeof(axi_wrapper_t) * SI_MAX_AXI_WRAPPERS));
 	}
+
+#ifdef BCMDVFS
+	si_dvfs_info_deinit(sih, sii->osh);
+#endif /* BCMDVFS */
 
 #if !defined(BCMBUSTYPE) || (BCMBUSTYPE == SI_BUS)
 	if (sii != &ksii)
@@ -2696,8 +2728,15 @@ si_tcm_size(si_t *sih)
 	/* Get info for determining size. If in reset, come out of reset,
 	 * but remain in halt
 	 */
-	if (!(wasup = si_iscoreup(sih)))
+	if (!(wasup = si_iscoreup(sih))) {
+		/* WAR for 4389A0 system hang issue */
+		if ((CHIPID(sih->chip) == BCM4389_CHIP_GRPID) &&
+			(CHIPREV(sih->chiprev) == 3)) {
+				SI_ERROR(("si_tcm_size: Not to try reset when not up case\n"));
+				goto done;
+		}
 		si_core_reset(sih, SICF_CPUHALT, SICF_CPUHALT);
+	}
 
 	arm_cap_reg = (volatile uint32 *)(regs + SI_CR4_CAP);
 	corecap = R_REG(sii->osh, arm_cap_reg);
@@ -3033,6 +3072,7 @@ si_is_sprom_available(si_t *sih)
 		return (sih->chipst & CST4387_SPROM_PRESENT) != 0;
 	case BCM4388_CHIP_GRPID:
 	case BCM4389_CHIP_GRPID:
+	case BCM4397_CHIP_GRPID:
 		/* 4389 supports only OTP */
 		return FALSE;
 	default:
@@ -3275,6 +3315,7 @@ si_pll_closeloop(si_t *sih)
 		case BCM4387_CHIP_GRPID:
 		case BCM4388_CHIP_GRPID:
 		case BCM4389_CHIP_GRPID:
+		case BCM4397_CHIP_GRPID:
 			si_pmu_chipcontrol(sih, PMU_CHIPCTL1,
 				PMU_CC1_ENABLE_CLOSED_LOOP_MASK, PMU_CC1_ENABLE_CLOSED_LOOP);
 			break;

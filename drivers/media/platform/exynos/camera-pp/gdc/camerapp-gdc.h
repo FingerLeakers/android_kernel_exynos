@@ -311,6 +311,7 @@ static inline struct gdc_frame *ctx_get_frame(struct gdc_ctx *ctx,
 }
 
 void camerapp_hw_gdc_start(void __iomem *base_addr);
+void camerapp_hw_gdc_stop(void __iomem *base_addr);
 u32 camerapp_hw_gdc_sw_reset(void __iomem *base_addr);
 void camerapp_hw_gdc_update_param(void __iomem *base_addr, struct gdc_dev *gdc);
 void camerapp_hw_gdc_status_read(void __iomem *base_addr);

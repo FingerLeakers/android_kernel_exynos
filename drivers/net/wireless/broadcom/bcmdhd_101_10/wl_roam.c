@@ -21,12 +21,6 @@
  * <<Broadcom-WL-IPTag/Open:>>
  */
 
-/**
- * @file
- * @brief
- * XXX Twiki: [QuickRoamScan] [WlDriverRoamingDesign]
- */
-
 #include <typedefs.h>
 #include <osl.h>
 #include <bcmwifi_channels.h>
@@ -36,7 +30,9 @@
 #include <wl_cfg80211.h>
 #endif
 #include <wldev_common.h>
+#if defined(__linux__)
 #include <bcmstdlib_s.h>
+#endif /* defined(__linux__) */
 
 #ifdef ESCAN_CHANNEL_CACHE
 #define MAX_ROAM_CACHE		200
@@ -396,10 +392,12 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan,
 		for (i = 0; i < n_roam_cache; i++) {
 			chanspec_t ch = roam_cache[i].chanspec;
 			bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+				((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 				((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 				((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
-			/* XXX: JIRA:SW4349-173 : 80p80 Support Required */
 			ch = CHSPEC_CHANNEL(ch) | CHSPEC_BAND(ch) | band_bw;
 
 			if (band_match && !is_duplicated_channel(channels, n, ch)) {
@@ -420,10 +418,12 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan,
 	for (i = 0; i < n_roam_cache; i++) {
 		chanspec_t ch = roam_cache[i].chanspec;
 		bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+			((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 			((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 			((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
-		/* XXX: JIRA:SW4349-173 : 80p80 Support Required */
 		ch = CHSPEC_CHANNEL(ch) | CHSPEC_BAND(ch) | band_bw;
 		if ((roam_cache[i].ssid_len == ssid->SSID_len) &&
 			band_match && !is_duplicated_channel(channels, n, ch) &&
@@ -553,13 +553,15 @@ void update_roam_cache(struct bcm_cfg80211 *cfg, int ioctl_ver)
 	for (i = 0; i < n_roam_cache; i++) {
 		chanspec_t ch = roam_cache[i].chanspec;
 		bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+			((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 			((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 			((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
 		if ((roam_cache[i].ssid_len == ssid.SSID_len) &&
 			band_match && (memcmp(roam_cache[i].ssid, ssid.SSID, ssid.SSID_len) == 0)) {
 			/* match found, add it */
-			/* XXX: JIRA:SW4349-173 : 80p80 Support Required */
 			ch = CHSPEC_CHANNEL(ch) | CHSPEC_BAND(ch) | band_bw;
 			add_roamcache_channel(&channel_list, ch);
 		}
@@ -616,6 +618,9 @@ void wl_update_roamscan_cache_by_band(struct net_device *dev, int band)
 	for (i = 0; i < chanlist_before.n; i++) {
 		chanspec_t chspec = chanlist_before.channels[i];
 		bool band_match = ((band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+				((band == WLC_BAND_6G) && (CHSPEC_IS6G(chspec))) ||
+#endif /* WL_6G_BAND */
 				((band == WLC_BAND_2G) && (CHSPEC_IS2G(chspec))) ||
 				((band == WLC_BAND_5G) && (CHSPEC_IS5G(chspec))));
 		if (band_match) {

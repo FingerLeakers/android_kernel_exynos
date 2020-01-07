@@ -45,7 +45,9 @@
 #include <wl_cfgp2p.h>
 #include <wl_cfgscan.h>
 #include <wldev_common.h>
+
 #include <wl_android.h>
+
 #include <dngl_stats.h>
 #include <dhd.h>
 #include <dhd_linux.h>
@@ -54,7 +56,7 @@
 #include <dhd_cfg80211.h>
 #include <dhd_bus.h>
 
-static s8 scanparambuf[WLC_IOCTL_SMLEN];
+static s8 scanparambuf[WLC_IOCTL_MEDLEN];
 static bool wl_cfgp2p_has_ie(const bcm_tlv_t *ie, const u8 **tlvs, u32 *tlvs_len,
                              const u8 *oui, u32 oui_len, u8 type);
 
@@ -132,7 +134,7 @@ bool wl_cfgp2p_is_p2p_action(void *frame, u32 frame_len)
 }
 
 /*
-* XXX Currently Action frame just pass to P2P interface regardless real dst.
+* Currently Action frame just pass to P2P interface regardless real dst.
 * but GAS Action can be used for Hotspot2.0 as well
 * Need to distingush that it's for P2P or HS20
 */
@@ -156,7 +158,7 @@ bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
 	}
 
 #ifdef WL11U
-	/* XXX Hotspot2.0 STA mode can receive only response
+	/* Hotspot2.0 STA mode can receive only response
 	*  SoftAP mode cannot run Hotspot2.0 compliant Ap because
 	*  Hotspot2.0 support only Enterprise mode
 	*/
@@ -1040,7 +1042,7 @@ wl_cfgp2p_escan(struct bcm_cfg80211 *cfg, struct net_device *dev, u16 active_sca
 		eparams_v2->sync_id = sync_id;
 		for (i = 0; i < num_chans; i++) {
 			eparams_v2->params.channel_list[i] =
-				wl_ch_host_to_driver(channels[i]);
+				wl_chspec_host_to_driver(channels[i]);
 		}
 		eparams_v2->params.channel_num = htod32((0 << WL_SCAN_PARAMS_NSSID_SHIFT) |
 			(num_chans & WL_SCAN_PARAMS_COUNT_MASK));
@@ -1062,7 +1064,7 @@ wl_cfgp2p_escan(struct bcm_cfg80211 *cfg, struct net_device *dev, u16 active_sca
 		eparams->sync_id = sync_id;
 		for (i = 0; i < num_chans; i++) {
 			eparams->params.channel_list[i] =
-				wl_ch_host_to_driver(channels[i]);
+				wl_chspec_host_to_driver(channels[i]);
 		}
 		eparams->params.channel_num = htod32((0 << WL_SCAN_PARAMS_NSSID_SHIFT) |
 			(num_chans & WL_SCAN_PARAMS_COUNT_MASK));
@@ -1432,7 +1434,7 @@ wl_cfgp2p_listen_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #if defined(WL_CFG80211_P2P_DEV_IF)
 				if (cfgdev && ((struct wireless_dev *)cfgdev)->wiphy &&
 				    bcmcfg_to_p2p_wdev(cfg)) {
-					/* XXX: JIRA:SWWLAN-81873. It may be invalid cfgdev. */
+					/* JIRA:SWWLAN-81873. It may be invalid cfgdev. */
 					/*
 					 * To prevent kernel panic,
 					 * if cfgdev->wiphy may be invalid, adding explicit check
@@ -1505,7 +1507,7 @@ wl_cfgp2p_cancel_listen(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	 * the LISTEN state.
 	 */
 #ifdef NOT_YET
-/* XXX WAR : it is temporal workaround before resolving the root cause of kernel panic */
+/* WAR : it is temporal workaround before resolving the root cause of kernel panic */
 	wl_cfgp2p_set_p2p_mode(cfg, WL_P2P_DISC_ST_SCAN, 0, 0,
 		wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE));
 #endif /* NOT_YET */
@@ -1652,7 +1654,7 @@ wl_cfgp2p_action_tx_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev
 				} else {
 					CFGP2P_ACTION(("TX actfrm : NO ACK\n"));
 				}
-				/* XXX if there is no ack, we don't need to wait for
+				/* if there is no ack, we don't need to wait for
 				 * WLC_E_ACTION_FRAME_OFFCHAN_COMPLETE event for ucast
 				 */
 				if (cfg->afx_hdl && !ETHER_ISBCAST(&cfg->afx_hdl->tx_dst_addr)) {
@@ -1700,6 +1702,10 @@ wl_cfgp2p_tx_action_frame(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		return evt_ret;
 
 	cfg->af_sent_channel  = af_params->channel;
+	/* For older FW versions actframe does not support chanspec format */
+	if (cfg->wlc_ver.wlc_ver_major < FW_MAJOR_VER_ACTFRAME_CHSPEC) {
+		af_params->channel = CHSPEC_CHANNEL(af_params->channel);
+	}
 #ifdef WL_CFG80211_SYNC_GON
 	cfg->af_tx_sent_jiffies = jiffies;
 #endif /* WL_CFG80211_SYNC_GON */
@@ -1938,7 +1944,7 @@ wl_cfgp2p_set_p2p_noa(struct bcm_cfg80211 *cfg, struct net_device *ndev, char* b
 			/* Continuous NoA interval. */
 			dongle_noa.action = WL_P2P_SCHED_ACTION_DOZE;
 			dongle_noa.type = WL_P2P_SCHED_TYPE_ABS;
-			/* XXX If the NoA interval is equal to the beacon interval, use
+			/* If the NoA interval is equal to the beacon interval, use
 			 * the percentage based NoA API to work-around driver issues
 			 * (PR #88043). Otherwise, use the absolute duration/interval API.
 			 */
@@ -2295,7 +2301,7 @@ wl_cfgp2p_retreive_p2p_dev_addr(wl_bss_info_t *bi, u32 bi_length)
 static void
 wl_cfgp2p_ethtool_get_drvinfo(struct net_device *net, struct ethtool_drvinfo *info)
 {
-	/* XXX to prevent kernel panic, add dummy value.
+	/* to prevent kernel panic, add dummy value.
 	 * some kernel calls drvinfo even if ethtool is not registered.
 	 */
 	snprintf(info->driver, sizeof(info->driver), "p2p");
@@ -2441,6 +2447,7 @@ static int wl_cfgp2p_do_ioctl(struct net_device *net, struct ifreq *ifr, int cmd
 	 * For Android PRIV CMD handling map it to primary I/F
 	 */
 	if (cmd == SIOCDEVPRIVATE+1) {
+
 		ret = wl_android_priv_cmd(ndev, ifr);
 
 	} else {
@@ -2537,6 +2544,7 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 		wl_cfgp2p_del_p2p_disc_if(cfg->p2p_wdev, cfg);
 #else
 		dhd->hang_reason = HANG_REASON_IFACE_DEL_FAILURE;
+
 #if defined(BCMPCIE) && defined(DHD_FW_COREDUMP)
 		if (dhd->memdump_enabled) {
 			/* Load the dongle side dump to host
@@ -2547,6 +2555,7 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 		}
 #endif /* BCMPCIE && DHD_FW_COREDUMP */
 		net_os_send_hang_message(bcmcfg_to_prmry_ndev(cfg));
+
 		return ERR_PTR(-ENODEV);
 #endif /* EXPLICIT_DISCIF_CLEANUP */
 	}

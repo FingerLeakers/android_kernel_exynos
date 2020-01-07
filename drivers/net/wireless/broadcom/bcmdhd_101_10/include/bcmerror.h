@@ -361,7 +361,7 @@ enum {
 	WL_NAN_E_INVALID_MAC		= -2049,
 	WL_NAN_E_BAD_INSTANCE		= -2048,
 	/* NAN status code reserved from -2048 to -3071 */
-	/* XXX: Do NOT add new status below -2048 */
+	/* Do NOT add new status below -2048 */
 	WL_NAN_E_ERROR			= -1,
 	WL_NAN_E_OK			= 0
 };
@@ -408,7 +408,15 @@ enum {
 	/* Element K is at infinity no the curve */
 	WL_SAE_E_CRYPTO_KEY_AT_INFINITY		= -3090,
 	/* SAE Crypto private data magic number mismatch */
-	WL_SAE_E_CRYPTO_PRIV_MAGIC_MISMATCH	= -3091
+	WL_SAE_E_CRYPTO_PRIV_MAGIC_MISMATCH	= -3091,
+	/* Max retry exhausted */
+	WL_SAE_E_MAX_RETRY_LIMIT_REACHED	= -3092,
+	/* peer sent password ID mismatch to local */
+	WL_SAE_E_AUTH_PEER_PWDID_MISMATCH	= -3093,
+	/* user not configured password */
+	WL_SAE_E_AUTH_PASSWORD_NOT_CONFIGURED	= -3094,
+	/* user not configured password ID */
+	WL_SAE_E_AUTH_PWDID_NOT_CONFIGURED	= -3095
 };
 
 /*

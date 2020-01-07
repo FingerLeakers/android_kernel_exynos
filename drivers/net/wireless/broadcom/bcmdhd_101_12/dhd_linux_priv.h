@@ -115,6 +115,7 @@ typedef struct dhd_info {
 #ifdef DHD_USE_SCAN_WAKELOCK
 	struct wake_lock wl_scanwake;  /* Wifi scan wakelock */
 #endif /* DHD_USE_SCAN_WAKELOCK */
+	struct wake_lock wl_nanwake; /* NAN wakelock */
 #endif /* CONFIG_HAS_WAKELOCK */
 
 	/* net_device interface lock, prevent race conditions among net_dev interface

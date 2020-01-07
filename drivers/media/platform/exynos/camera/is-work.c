@@ -205,7 +205,7 @@ int print_fre_work_list(struct is_work_list *this)
 	err("[INF] fre(%02X, %02d): ", this->id, this->work_free_cnt);
 
 	list_for_each_entry_safe(work, temp, &this->work_free_head, list) {
-		is_cont("%X(%d)->", work->msg.command, work->fcount);
+		is_cont("%X(F%d)->", work->msg.command, work->fcount);
 	}
 
 	is_cont("X\n");

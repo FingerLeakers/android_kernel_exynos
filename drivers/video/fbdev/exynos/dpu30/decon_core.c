@@ -31,6 +31,9 @@
 #include <linux/pinctrl/consumer.h>
 #include <video/mipi_display.h>
 #include <media/v4l2-subdev.h>
+#if defined(CONFIG_EXYNOS_DPU_SYSTRACE)
+#include <trace/events/systrace.h>
+#endif
 #if defined(CONFIG_CAL_IF)
 #include <soc/samsung/cal-if.h>
 #endif
@@ -98,6 +101,7 @@ static char *decon_state_names[] = {
 
 void decon_tracing_mark_write(struct decon_device *decon, char id, char *str1, int value)
 {
+#if defined(CONFIG_EXYNOS_DPU_SYSTRACE)
 	char buf[DECON_TRACE_BUF_SIZE] = {0,};
 
 	if (!decon->systrace.pid)
@@ -107,20 +111,22 @@ void decon_tracing_mark_write(struct decon_device *decon, char id, char *str1, i
 	case 'B': /* B : Begin */
 		snprintf(buf, DECON_TRACE_BUF_SIZE, "B|%d|%s",
 				decon->systrace.pid, str1);
+		trace_tracing_mark_write(buf);
 		break;
 	case 'E': /* E : End */
 		strcpy(buf, "E");
+		trace_tracing_mark_write(buf);
 		break;
 	case 'C': /* C : Category */
 		snprintf(buf, DECON_TRACE_BUF_SIZE,
 				"C|%d|%s|%d", decon->systrace.pid, str1, value);
+		trace_tracing_mark_write(buf);
 		break;
 	default:
 		decon_err("%s:argument fail\n", __func__);
 		return;
 	}
-
-	trace_printk(buf);
+#endif
 }
 
 static void decon_dump_using_dpp(struct decon_device *decon)
@@ -1536,7 +1542,7 @@ static void print_dma_leak_info(struct decon_device *decon)
 		if ((pos < LEAK_INFO_ARRAY_CNT) && (pos >= 0)) {
 			leak_info = &decon->leak_info[pos];
 			decon_info("[DECON:INFO]: %d, type: %d, time import: %lld, free:%lld, count import:%d, free cnt:%d\n",
-				pos, leak_info->type, ktime_to_us(leak_info->import_time), ktime_to_us(leak_info->free_time), 
+				pos, leak_info->type, ktime_to_us(leak_info->import_time), ktime_to_us(leak_info->free_time),
 				leak_info->import_cnt, leak_info->free_cnt);
 		}
 	}
@@ -1787,7 +1793,7 @@ static int decon_set_win_buffer(struct decon_device *decon,
 	ret = decon_import_buffer(decon, idx, config, regs);
 	if (ret)
 		goto err;
- 
+
 	if (config->acq_fence >= 0) {
 		/* fence is managed by buffer not plane */
 		fence = sync_file_get_fence(config->acq_fence);
@@ -2359,7 +2365,7 @@ static void decon_acquire_old_bufs(struct decon_device *decon,
 	}
 #ifdef DEBUG_DMA_BUF_LEAK
 	*import_cnt = decon->import_cnt;
-	
+
 *import_time = decon->import_time;
 #endif
 
@@ -2743,10 +2749,6 @@ static void decon_update_regs(struct decon_device *decon,
 	s64 hiber_time;
 	s64 fence_time;
 #endif
-#ifdef CONFIG_DYNAMIC_FREQ
-	struct df_status_info *df_status;
-#endif
-
 
 	if (!decon->systrace.pid)
 		decon->systrace.pid = current->pid;
@@ -2897,7 +2899,7 @@ static void decon_update_regs(struct decon_device *decon,
 			if ((decon->dt.psr_mode == DECON_MIPI_COMMAND_MODE) &&
 					(decon->dt.trig_mode == DECON_HW_TRIG)) {
 				decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_ENABLE);
-				
+
 				DPU_EVENT_LOG(DPU_EVT_TRIG_UNMASK, &decon->sd,
 						ktime_set(0, 0));
 			}
@@ -2967,24 +2969,6 @@ static void decon_update_regs(struct decon_device *decon,
 				}
 			}
 		}
-
-#ifdef CONFIG_DYNAMIC_FREQ
-		if (decon->dt.out_type == DECON_OUT_DSI) {
-			df_status = decon->df_status;
-			if (df_status->persistence_mode) {
-				decon_info("[DYN_FREQ]: %s: persistence_cnt : %d\n",
-					__func__, df_status->persistence_cnt);
-	
-				if (df_status->persistence_cnt)
-					goto end;
-				else {
-					decon_info("[DYN_FREQ]: %s: disable df frame persistence mode\n",
-						__func__);
-					df_status->persistence_mode = 0;
-				}
-			}
-		}
-#endif
 		if (!decon->low_persistence) {
 			decon_reg_set_trigger(decon->id, &psr, DECON_TRIG_DISABLE);
 			DPU_EVENT_LOG(DPU_EVT_TRIG_MASK, &decon->sd, ktime_set(0, 0));
@@ -3349,7 +3333,7 @@ static int decon_prepare_win_config(struct decon_device *decon,
 		decon_win_config_to_regs_param(0, config,
 				&regs->win_regs[decon->dt.wb_win], ODMA_WB, 0);
 	}
- 
+
 	for (i = 0; i < cfg_cnt; i++)
 		memcpy(&regs->dpp_config[i], &win_config[i],
 				sizeof(struct decon_win_config));
@@ -3666,8 +3650,9 @@ static int decon_get_color_mode(struct decon_device *decon,
 	decon_dbg("%s +\n", __func__);
 	mutex_lock(&decon->lock);
 
-	if (color_info->index > color_mode->cnt ||
-		color_info->index >= MAX_COLOR_MODE) {
+	if ((color_info->index > color_mode->cnt) ||
+		(color_info->index >= MAX_COLOR_MODE) ||
+		(color_info->index < 0)) {
 		decon_err("DECON%d:ERR:%s:invalied color mode index : %d (max : %d)\n",
 			decon->id, __func__, color_info->index, color_mode->cnt);
 		mutex_unlock(&decon->lock);

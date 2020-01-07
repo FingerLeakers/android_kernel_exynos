@@ -294,7 +294,7 @@ enum sysreg_vra_reg_field {
 /* (4 * 256 * 256) additional buffer for reprocessing */
 #define TAAISP_MEDRC_SIZE	(0x01040000)
 
-/* ORBMCH DMA:  14.38 MB*/
+/* ORBMCH DMA:  9.59 MB*/
 /* Keypoint: 16 byte * 300 point * 9 regions */
 /* Descriptor: 32 byte * 300 point * 9 regions */
 /* ORB tot = Keypoint + descriptor + 16 byte for DMA align */
@@ -313,7 +313,7 @@ enum sysreg_vra_reg_field {
 /* Max width: 4880, Max height: 3660 depends on scenario */
 /* Max 3 instances are supported with SBWC margin (1.05) */
 /* not used for reprocessing instance */
-#define TAAISP_TNR_SIZE		(0x0CD67F40)
+#define TAAISP_TNR_SIZE		(0x088F0000)
 /* CLAHE DMA: 8.44MB :  */
 /* (234912 * 8) bytes per 1 normal instance */
 /* (234912 * 2) bytes per 1 reprocessing instance */
@@ -389,7 +389,7 @@ enum ext_chain_id {
 #define MCSC_WIDTH_ALIGN		(4)
 #define MCSC_HEIGHT_ALIGN		(2)
 #define MCSC_PRECISION			(20)
-#define MCSC_POLY_RATIO_UP		(14)
+#define MCSC_POLY_RATIO_UP		(25)
 #define MCSC_POLY_RATIO_DOWN		(16)
 #define MCSC_POLY_MAX_RATIO_DOWN	(256)
 #define MCSC_POST_RATIO_DOWN		(16)

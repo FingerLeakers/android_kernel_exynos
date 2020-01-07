@@ -32,7 +32,8 @@
 					<&s5100_cp2ap_wakeup>,
 					<&s5100_ap2cp_dump_noti>,
 					<&s5100_ap2cp_pda_active>,
-					<&s5100_cp2ap_phone_active>;
+					<&s5100_cp2ap_phone_active>,
+					<&s5100_ap2cp_pda_active_discard>;
 
 				/* Definition of GPIOs */
 				gpio_ap2cp_cp_pwr_on =	<&gpm20 0 0x1>;
@@ -41,8 +42,8 @@
 
 				gpio_ap2cp_wake_up =	<&gpg1 3 0x1>;
 				gpio_cp2ap_wake_up =	<&gpm30 0 0x1>;
-				gpio_ap2cp_dump_noti =	<&gpm25 0 0x1>;
-				gpio_ap2cp_pda_active =	<&gpg0 0 0x1>;
+				gpio_ap2cp_dump_noti =	<&gpp8 6 0x1>;
+				gpio_ap2cp_pda_active =	<&gpm25 0 0x1>;
 				gpio_cp2ap_phone_active = <&gpm28 0 0x1>;
 
 				pci_ch_num = <1>;
@@ -507,7 +508,7 @@
 		samsung,pin-pud-pdn = <0>;
 	};
 
-	s5100_ap2cp_dump_noti: s5100_ap2cp_dump_noti {
+	s5100_ap2cp_pda_active: s5100_ap2cp_pda_active {
 		samsung,pins = "gpm25-0";
 		samsung,pin-pud = <1>;
 	};
@@ -530,9 +531,14 @@
 	};
 };
 
+/* discard s5100_ap2cp_pda_active due to ESD failure
+ * set a pin for s5100_ap2cp_dump_noti to s5100_ap2cp_pda_active instead
+ */
 &pinctrl_4 {
-	s5100_ap2cp_pda_active: s5100_ap2cp_pda_active {
+	s5100_ap2cp_pda_active_discard: s5100_ap2cp_pda_active_discard {
 		samsung,pins = "gpg0-0";
+		samsung,pin-function = <1>;
+		samsung,pin-val = <0>;
 		samsung,pin-pud = <1>;
 		samsung,pin-con-pdn = <3>;
 	};
@@ -542,6 +548,12 @@
 	s5100_ap2cp_wakeup: s5100_ap2cp_wakeup {
 		samsung,pins = "gpg1-3";
 		samsung,pin-pud = <1>;
+		samsung,pin-con-pdn = <3>;
+	};
+
+	s5100_ap2cp_dump_noti: s5100_ap2cp_dump_noti {
+		samsung,pins = "gpp8-6";
+		samsung,pin-pud = <0>;
 		samsung,pin-con-pdn = <3>;
 	};
 };

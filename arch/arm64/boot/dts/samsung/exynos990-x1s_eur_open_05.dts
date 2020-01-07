@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -24,7 +24,7 @@
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,X1S EUR OPEN 05", "samsung,EXYNOS9830";
+	compatible = "samsung,X1S EUR OPEN 05", "samsung,EXYNOS990";
 	dtbo-hw_rev = <5>;
 	dtbo-hw_rev_end = <5>;
 	edtbo-rev = <0>;
@@ -35,7 +35,7 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
-			model = "Samsung X1S EUR OPEN 05 based on EXYNOS9830";
+			model = "Samsung X1S EUR OPEN 05 based on EXYNOS990";
 
 			acpm_ipc {
 				compatible = "samsung,exynos-acpm-ipc";
@@ -90,7 +90,7 @@
 };
 
 &chosen {
-	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs sec_debug.cp=0";
+	bootargs_ext = "root=/dev/ram0 androidboot.boot_devices=13100000.ufs";
 };
 
 &usi_11 {

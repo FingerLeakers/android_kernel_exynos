@@ -58,6 +58,12 @@ struct dw_mci_dma_slave {
 	enum dma_transfer_direction direction;
 };
 
+struct exynos_access_cxt {
+	u32 offset;
+	u32 mask;
+	u32 val;
+};
+
 /**
  * struct dw_mci - MMC controller state shared between all slots
  * @lock: Spinlock protecting the queue and associated data.
@@ -285,6 +291,19 @@ struct dw_mci {
 
 	/* channel id */
 	u32 ch_id;
+
+	/* bouce buffer */
+	void *bounce_buffer_addr;
+#define DMA_UPPER_ADDR	0xa00000000	/* DMA UPPER 8GB ADDR */
+
+	void *backup_addr[5000];
+	u32 backup_size[5000];
+	u32 bu_count;
+	u32 data_trans;
+	u32 mem_check;
+
+	struct regmap *sysreg;
+	struct exynos_access_cxt cxt_coherency; /* io coherency */
 };
 
 /* DMA ops for Internal/External DMAC interface */

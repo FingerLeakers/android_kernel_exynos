@@ -1308,6 +1308,7 @@ config TOUCHSCREEN_DUAL_FOLDABLE
 source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
 source "drivers/input/touchscreen/sec_ts_univ/Kconfig"
 source "drivers/input/touchscreen/sec_ts/y79a/Kconfig"
+source "drivers/input/touchscreen/sec_ts/y79a_c/Kconfig"
 source "drivers/input/touchscreen/sec_ts/y761_sub/Kconfig"
 source "drivers/input/touchscreen/stm/fts9cu80f/Kconfig"
 

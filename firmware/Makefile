@@ -15,11 +15,14 @@ fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/y761_dream1.fw
 fw-external-$(CONFIG_TOUCHSCREEN_SEC_TS_Y79A) += tsp_sec/y771_y2_ub.bin tsp_sec/y79a_y2_ub.bin tsp_sec/y79a_y2.bin \
 							tsp_sec/y79a_x1_ub.bin tsp_sec/y79a_x1.bin tsp_sec/y79a_z3.bin
 
+fw-external-$(CONFIG_EPEN_WACOM_W9020) += epen/w9020_c2_bringup.bin
+
 fw-external-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += mfc/mfc_fw_flash.bin
 fw-external-$(CONFIG_WIRELESS_CHARGER_MFC_S2MIW04) += mfc/mfc_fw_flash_s2miw04.bin
 
 fw-external-$(CONFIG_KEYBOARD_STM_FSR) += key_stm/fsr1ad04_p2.fw 
 fw-external-$(CONFIG_NPU_PERF_FW) += npu_perf/NPU_perf.bin
+fw-external-$(CONFIG_NPU_PERF_FW) += npu_dn/NPU_dn.bin
 
 fw-shipped-$(CONFIG_FIVE_TEE_DRIVER) += five/ffffffff000000000000000000000072.tlbin
 

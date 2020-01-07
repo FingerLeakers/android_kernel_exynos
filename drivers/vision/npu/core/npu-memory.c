@@ -337,3 +337,46 @@ int npu_memory_free(struct npu_memory *memory, struct npu_memory_buffer *buffer)
 
 	return ret;
 }
+
+int npu_memory_v_alloc(struct npu_memory *memory, struct npu_memory_v_buf *buffer)
+{
+	unsigned long flags = 0;
+
+	BUG_ON(!memory);
+	BUG_ON(!buffer);
+
+	buffer->v_buf = (char *)vmalloc((unsigned long)buffer->size);
+	if (!buffer->v_buf) {
+		npu_err("failed vmalloc\n");
+		return -ENOMEM;
+	}
+
+	spin_lock_irqsave(&memory->alloc_lock, flags);
+	list_add_tail(&buffer->list, &memory->alloc_list);
+	memory->alloc_count++;
+	spin_unlock_irqrestore(&memory->alloc_lock, flags);
+
+	return 0;
+}
+
+void npu_memory_v_free(struct npu_memory *memory, struct npu_memory_v_buf *buffer)
+{
+	unsigned long flags = 0;
+
+	BUG_ON(!memory);
+	BUG_ON(!buffer);
+
+	vfree((void *)buffer->v_buf);
+
+	spin_lock_irqsave(&memory->alloc_lock, flags);
+	if (likely(!list_empty(&buffer->list))) {
+		list_del(&buffer->list);
+		INIT_LIST_HEAD(&buffer->list);
+		memory->alloc_count--;
+	} else
+		npu_info("buffer[%pK] is not linked to alloc_lock. Skipping remove.\n", buffer);
+
+	spin_unlock_irqrestore(&memory->alloc_lock, flags);
+
+	return;
+}

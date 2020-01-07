@@ -407,7 +407,7 @@ static void of_mst_hw_onoff(bool on)
 #if defined(CONFIG_ARCH_QCOM)
 		mutex_unlock(&mst_mutex);
 #endif
-		mdelay(40);
+		mdelay(mode_set_wait);
 
 #if defined(CONFIG_MFC_CHARGER)
 		while (--retry_cnt) {
@@ -895,7 +895,6 @@ int mfc_send_mst_cmd(int cmd, struct mfc_charger_data *charger, u8 irq_src_l, u8
         u8 sBuf[2] = {0, };
 #endif
         pr_info("%s: (called by %ps)\n", __func__,  __builtin_return_address(0));
-        pr_info("%s: TEST_cmd = %d\n", __func__, cmd);
 
         switch(cmd) {
         case MST_MODE_ON:
@@ -961,6 +960,7 @@ static int sec_mst_gpio_init(struct device *dev)
 #if defined(CONFIG_MFC_CHARGER)
 	struct device_node *np;
 	enum of_gpio_flags irq_gpio_flags;
+	char *chip_vendor = NULL;
 
 	/* get wireless chraging check gpio */
 	np = of_find_node_by_name(NULL, "battery");
@@ -974,6 +974,17 @@ static int sec_mst_gpio_init(struct device *dev)
 			mst_err("%s: can't get wpc_det = %d\n",
 				__func__, wpc_det);
 		}
+	}
+
+	ret = of_property_read_string(dev->of_node, "sec-mst,mfc-ic-chip-vendor", (char const **)&chip_vendor);
+	if (ret < 0) {
+		mst_err("%s : failed to read sec-mst,mfc-ic-chip-vendor. set wait time to default\n", __func__);
+	} else {
+		mst_info("%s : MFC IC chip vendor is %s\n", __func__, chip_vendor);
+		if (strncmp(chip_vendor, "LSI", strlen("LSI")) == 0) {
+			mode_set_wait = 100;
+		}
+		mst_info("%s : set wait time after mst-pwr-en HIGH to %u\n", __func__, mode_set_wait);
 	}
 #endif
 

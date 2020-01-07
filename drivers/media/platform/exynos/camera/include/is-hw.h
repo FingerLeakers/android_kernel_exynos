@@ -127,6 +127,7 @@ struct csis_irq_src {
 	u32			dma_start;
 	u32			dma_end;
 	u32			line_end;
+	u32			dma_abort;
 	bool			err_flag;
 	u32			err_id[CSI_VIRTUAL_CH_MAX];
 };
@@ -185,6 +186,7 @@ enum flite_hw_control_id {
  */
 void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance);
 int csi_hw_get_ppc_mode(u32 __iomem *base_reg);
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc);
 int csi_hw_reset(u32 __iomem *base_reg);
 int csi_hw_s_settle(u32 __iomem *base_reg, u32 settle);
 int csi_hw_s_phy_sctrl_n(u32 __iomem *base_reg, u32 ctrl, u32 n);
@@ -229,7 +231,7 @@ int csi_hw_s_dma_common_pattern_enable(u32 __iomem *base_reg, u32 width, u32 hei
 void csi_hw_s_dma_common_pattern_disable(u32 __iomem *base_reg);
 int csi_hw_s_dma_common_votf_enable(u32 __iomem *base_reg, u32 width, u32 dma_ch, u32 vc);
 int csi_hw_s_dma_common_frame_id_decoder(u32 __iomem *base_reg, u32 enable);
-int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 *frame_id);
+int csi_hw_g_dma_common_frame_id(u32 __iomem *base_reg, u32 batch_num, u32 *frame_id);
 int csi_hw_clear_fro_count(u32 __iomem *dma_top_reg, u32 __iomem *vc_reg);
 int csi_hw_s_fro_count(u32 __iomem *vc_cmn_reg, u32 batch_num, u32 vc);
 

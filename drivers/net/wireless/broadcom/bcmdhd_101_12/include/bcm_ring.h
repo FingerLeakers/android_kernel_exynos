@@ -23,7 +23,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 #ifndef __bcm_ring_included__
 #define __bcm_ring_included__

@@ -45,6 +45,40 @@ TRACE_EVENT(ems_select_task_rq,
 		  __entry->wakeup, __entry->state)
 );
 
+TRACE_EVENT(ems_find_best_idle,
+
+	TP_PROTO(struct task_struct *p, int task_util, unsigned int idle_candidates,
+			unsigned int active_candidates, int bind, int best_cpu),
+
+	TP_ARGS(p, task_util, idle_candidates, active_candidates, bind, best_cpu),
+
+	TP_STRUCT__entry(
+		__array(	char,		comm,	TASK_COMM_LEN	)
+		__field(	pid_t,		pid			)
+		__field(	int,		task_util		)
+		__field(	unsigned int,	idle_candidates		)
+		__field(	unsigned int,	active_candidates	)
+		__field(	int,		bind			)
+		__field(	int,		best_cpu		)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid		= p->pid;
+		__entry->task_util	= task_util;
+		__entry->idle_candidates = idle_candidates;
+		__entry->active_candidates = active_candidates;
+		__entry->bind = bind;
+		__entry->best_cpu = best_cpu;
+	),
+
+	TP_printk("comm=%s pid=%d tsk_util=%d idle=%#x active=%#x bind=%d best_cpu=%d",
+		__entry->comm, __entry->pid, __entry->task_util,
+		__entry->idle_candidates, __entry->active_candidates,
+		__entry->bind, __entry->best_cpu)
+);
+
+
 /*
  * Tracepoint for task migration control
  */
@@ -476,6 +510,80 @@ TRACE_EVENT(ems_cpu_active_ratio_patten,
 
 	TP_printk("cpu=%d p_count=%2d p_avg=%4d p_stdev=%4d",
 		__entry->cpu, __entry->p_count, __entry->p_avg, __entry->p_stdev)
+);
+
+/*
+ * Tracepint for PMU Contention AVG
+ */
+TRACE_EVENT(cont_found_attacker,
+
+	TP_PROTO(int cpu, struct task_struct *p),
+
+	TP_ARGS(cpu, p),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpu		)
+		__array(	char,		comm,	TASK_COMM_LEN	)
+		__field(	pid_t,		pid			)
+		),
+
+	TP_fast_assign(
+		__entry->cpu = cpu;
+		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
+		__entry->pid		= p->pid;
+		),
+
+	TP_printk("cp%d comm=%s pid=%d",
+		__entry->cpu, __entry->comm, __entry->pid)
+);
+
+TRACE_EVENT(cont_found_victim,
+
+	TP_PROTO(int victim_found, u64 victim_found_time),
+
+	TP_ARGS(victim_found, victim_found_time),
+
+	TP_STRUCT__entry(
+		__field(	int,		victim_found		)
+		__field(	u64,		victim_found_time	)
+		),
+
+	TP_fast_assign(
+		__entry->victim_found = victim_found;
+		__entry->victim_found_time = victim_found_time;
+		),
+
+	TP_printk("victim_found=%d time=%lu",
+		__entry->victim_found, __entry->victim_found_time)
+   );
+
+TRACE_EVENT(cont_set_period_start,
+
+	TP_PROTO(int cpu, u64 last_updated, u64 period_start, u32 hist_idx, u64 prev0, u64 prev1),
+
+	TP_ARGS(cpu, last_updated, period_start, hist_idx, prev0, prev1),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpu			)
+		__field(	u64,		last_updated		)
+		__field(	u64,		period_start		)
+		__field(	u32,		hist_idx		)
+		__field(	u64,		prev0			)
+		__field(	u64,		prev1			)
+		),
+
+	TP_fast_assign(
+		__entry->cpu		= cpu;
+		__entry->last_updated	= last_updated;
+		__entry->period_start	= period_start;
+		__entry->hist_idx	= hist_idx;
+		__entry->prev0		= prev0;
+		__entry->prev1		= prev1;
+		),
+
+	TP_printk("cpu=%d last_updated=%lu, period_start=%lu, hidx=%u prev0=%lu prev1=%lu",
+			__entry->cpu, __entry->last_updated, __entry->period_start,
+			__entry->hist_idx, __entry->prev0, __entry->prev1)
 );
 #endif /* _TRACE_EMS_H */
 

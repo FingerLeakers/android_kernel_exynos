@@ -192,7 +192,7 @@ enum is_sensor_output_entity {
 enum is_sensor_force_stop {
 	IS_BAD_FRAME_STOP = 0,
 	IS_MIF_THROTTLING_STOP = 1,
-	IS_FLITE_OVERFLOW_STOP = 2
+	IS_FLITE_OVERFLOW_STOP = 2,
 };
 
 enum is_module_state {
@@ -360,8 +360,7 @@ struct is_device_sensor {
 	struct camera2_flash_ctl			flash_ctl;
 	u64						timestamp[IS_TIMESTAMP_HASH_KEY];
 	u64						timestampboot[IS_TIMESTAMP_HASH_KEY];
-	u32						frame_id[IS_TIMESTAMP_HASH_KEY]; /* index 0 ~ 7 */
-	u32						frame_id_1[IS_TIMESTAMP_HASH_KEY]; /* index 8 ~ 15 */
+	u64						frame_id[IS_TIMESTAMP_HASH_KEY]; /* index 0 ~ 7 */
 
 	u32						fcount;
 	u32						line_fcount;
@@ -460,6 +459,8 @@ struct is_device_sensor {
 	u8					otp_cal_buf[SENSOR_OTP_PAGE][SENSOR_OTP_PAGE_SIZE];
 
 	struct i2c_client			*client;
+	struct mutex				mutex_reboot;
+	bool					reboot;
 };
 
 int is_sensor_open(struct is_device_sensor *device,

@@ -39,12 +39,25 @@ DECLARE_HASHTABLE(hpb_ext_hash_tbl, 5);
 struct rw_semaphore hpb_ext_hash_tbl_lock;
 
 static char* DEF_HPB_extension[] = {
+	"so",
+	"jar",
+	"apk",
+	"obb",
+	"apex",
+	"dex",
 	"odex",
 	"vdex",
-	"so",
 	"art",
-	"apk",
-	"bin",
+	"oat",
+	"ttf",
+	"ttc",
+	"otf",
+	"relro",
+	"realm",
+	"db",
+	"db-wal",
+	"db-shm",
+	"db-journal",
 };
 #define NR_DEF_HPB_EXT (sizeof(DEF_HPB_extension) / sizeof(*DEF_HPB_extension))
 #define __full_name_hash(name)	full_name_hash((void *)0x0, name, strlen(name))

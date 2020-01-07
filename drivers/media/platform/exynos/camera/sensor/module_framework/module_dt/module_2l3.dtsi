@@ -26,7 +26,7 @@
 				margin_right = <0>;
 				margin_top = <0>;
 				margin_bottom = <0>;
-				max_framerate = <120>;
+				max_framerate = <480>;
 				bitwidth = <10>;
 				use_retention_mode = <SENSOR_RETENTION_UNSUPPORTED>;
 				sensor_maker = "SLSI";
@@ -90,12 +90,27 @@
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 					};
 					mode6 {
-						common = <1280 720 480 0 6 CSI_DATA_LANES_3 1430 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE>;
+						common = <1280 720 480 0 6 CSI_DATA_LANES_3 1430 CSI_MODE_VC_DT LRTE_DISABLE PD_NONE EX_DUALFPS_480>;
 						vc0 = </* in */ 0 HW_FORMAT_RAW10 1280 720	/* out */ HW_FORMAT_RAW10 VC_NOTHING 1280 720>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 0 HW_FORMAT_EMBEDDED_8BIT 1280 4	/* out */ HW_FORMAT_EMBEDDED_8BIT VC_EMBEDDED 1280 4>;
+						vc3 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						option { votf = <1>; };
+					};
+					mode7 {
+						common = <4000 3000 30 0 0 CSI_DATA_LANES_3 1430 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_LIVEFOCUS>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 4000 3000	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4000 3000>;
 						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
 						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
-					};					
+					};
+					mode8 {
+						common = <4000 2252 30 0 1 CSI_DATA_LANES_3 1430 CSI_MODE_VC_ONLY LRTE_DISABLE PD_NONE EX_LIVEFOCUS>;
+						vc0 = </* in */ 0 HW_FORMAT_RAW10 4000 2252	/* out */ HW_FORMAT_RAW10 VC_NOTHING 4000 2252>;
+						vc1 = </* in */ 1 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc2 = </* in */ 2 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+						vc3 = </* in */ 3 HW_FORMAT_UNKNOWN 0 0		/* out */ HW_FORMAT_UNKNOWN VC_NOTHING 0 0>;
+					};
 				};
 
 				power_seq {
@@ -114,7 +129,7 @@
 						60 { pname = "sen_rst high"; pin = <PIN_OUTPUT 1 10>; gpio = <&gpm33 0 0x1>; };
 						70 { pname = "pin"; pin = <PIN_FUNCTION 2 0>; };
 						80 { pname = "MCLK"; pin = <PIN_MCLK 1 1615>; };
-						90 { pname = "on_i2c"; pin = <PIN_I2C 1 10>; };
+						90 { pname = "on_i2c"; pin = <PIN_I2C 1 500>; };
 					};
 
 					scenario_normal_off {
@@ -124,15 +139,15 @@
 						/* A start node number should be over the 10 for reserved number 0~9. */
 						/* pname = "name"; pin = <act value dealy voltage>; gpio = <gpx# # 0x1>; */
 						10 { pname = "off_i2c"; pin = <PIN_I2C 0 0>; };
-						20 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
-						30 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
-						40 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
-						50 { pname = "pin"; pin = <PIN_FUNCTION 0 1615>; };
-						60 { pname = "sen_rst low"; pin = <PIN_OUTPUT 0 1615>; gpio = <&gpm33 0 0x1>; };
+						20 { pname = "sen_rst low"; pin = <PIN_OUTPUT 0 1615>; gpio = <&gpm33 0 0x1>; };
+						30 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
+						40 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
+						50 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
+						60 { pname = "pin"; pin = <PIN_FUNCTION 0 1615>; };
 						70 { pname = "VDDIO_1.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						80 { pname = "VDDD_1.05V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						90 { pname = "VDDA_2.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
-						100 { pname = "VDDA_2.15V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };						
+						100 { pname = "VDDA_2.15V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 					};
 
 					scenario_vision_on {
@@ -159,15 +174,15 @@
 						/* A start node number should be over the 10 for reserved number 0~9. */
 						/* pname = "name"; pin = <act value dealy voltage>; gpio = <gpx# # 0x1>; */
 						10 { pname = "off_i2c"; pin = <PIN_I2C 0 0>; };
-						20 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
-						30 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
-						40 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
-						50 { pname = "pin"; pin = <PIN_FUNCTION 0 1615>; };
-						60 { pname = "sen_rst low"; pin = <PIN_OUTPUT 0 1615>; gpio = <&gpm33 0 0x1>; };
+						20 { pname = "sen_rst low"; pin = <PIN_OUTPUT 0 1615>; gpio = <&gpm33 0 0x1>; };
+						30 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
+						40 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
+						50 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
+						60 { pname = "pin"; pin = <PIN_FUNCTION 0 1615>; };
 						70 { pname = "VDDIO_1.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						80 { pname = "VDDD_1.05V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						90 { pname = "VDDA_2.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
-						100 { pname = "VDDA_2.15V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };		
+						100 { pname = "VDDA_2.15V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 					};
 
 					scenario_read_rom_on {

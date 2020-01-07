@@ -3757,8 +3757,6 @@ static void mfc_wpc_det_work(struct work_struct *work)
 	u8 vrect;
 	int vrect_level, vout_level;
 
-	mfc_get_chip_id(charger);
-
 	if (charger->is_mst_on == MST_MODE_2) {
 		pr_info("%s: check wpc-state(%d - %d)\n", __func__,
 			charger->wc_w_state, gpio_get_value(charger->pdata->wpc_det));
@@ -3776,11 +3774,13 @@ static void mfc_wpc_det_work(struct work_struct *work)
 	}
 
 	wc_w_state = gpio_get_value(charger->pdata->wpc_det);
+	pr_info("%s: w(%d to %d)\n", __func__, charger->wc_w_state, wc_w_state);
 	if (charger->wc_w_state == wc_w_state)
 		return;
 
+	mfc_get_chip_id(charger);
 	wake_lock(&charger->wpc_wake_lock);	
-	pr_info("%s: w(%d to %d)\n", __func__, charger->wc_w_state, wc_w_state);
+	pr_info("%s : start\n", __func__);
 	charger->wc_w_state = wc_w_state;
 	if (charger->wc_w_state) {
 		charger->initial_wc_check = true;
@@ -5339,7 +5339,9 @@ static int mfc_charger_suspend(struct device *dev)
 {
 	struct mfc_charger_data *charger = dev_get_drvdata(dev);
 
-	pr_info("%s\n", __func__);
+	pr_info("%s det(%d) int(%d)\n", __func__, 
+			gpio_get_value(charger->pdata->wpc_det),
+			gpio_get_value(charger->pdata->wpc_int));
 
 	charger->is_suspend = true;
 
@@ -5357,7 +5359,9 @@ static int mfc_charger_resume(struct device *dev)
 {
 	struct mfc_charger_data *charger = dev_get_drvdata(dev);
 
-	pr_info("%s\n", __func__);
+	pr_info("%s det(%d) int(%d)\n", __func__,
+			gpio_get_value(charger->pdata->wpc_det),
+			gpio_get_value(charger->pdata->wpc_int));
 
 	charger->is_suspend = false;
 

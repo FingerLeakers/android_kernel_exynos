@@ -1132,9 +1132,6 @@ wl_copy_macstat_upto_ver10(uint16 cntver, uint32 *dst, uint32 *src)
 	return BCME_OK;
 }
 
-/* XXX: Refer to the following twiki for macstat conversion from old to new
- * http://hwnbu-twiki.sj.broadcom.com/bin/view/Mwgroup/MacStatistics#counters_names_printed_out
- */
 static int
 wl_copy_macstat_ver11(uint32 *dst, uint32 *src)
 {

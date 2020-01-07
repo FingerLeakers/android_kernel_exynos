@@ -16,6 +16,7 @@
 #include "sfr/is-sfr-pdp-v1_0_0.h"
 #include "is-device-sensor.h"
 #include "is-device-sensor-peri.h"
+#include "is-debug.h"
 
 #define PDP_SET_F(base, R, F, val) \
 	is_hw_set_field(base, &pdp_regs_corex[R], &pdp_fields[F], val)
@@ -44,21 +45,50 @@
  * Context: O
  * CR type: No Corex
  */
-static void _pdp_hw_s_corex_init(void __iomem *base, bool enable)
+static void _pdp_hw_wait_corex_idle(void __iomem *base)
 {
 	u32 busy;
-	int i;
 	u32 try_cnt = 0;
+
+	do {
+		udelay(1);
+
+		try_cnt++;
+		if (try_cnt >= PDP_TRY_COUNT) {
+			err_hw("[PDP] fail to wait corex idle");
+			break;
+		}
+
+		busy = PDP_GET_F(base, PDP_R_COREX_STATUS_0, PDP_F_COREX_BUSY_0);
+		dbg_hw(2, "[PDP] %s busy(%d)\n", __func__, busy);
+	} while (busy);
+}
+
+static void _pdp_hw_s_corex_init(void __iomem *base, bool enable)
+{
+	int i;
+
+	/*
+	 * Check COREX idleness
+	 */
+	if (!enable) {
+		PDP_SET_F(base, PDP_R_COREX_UPDATE_MODE_0, PDP_F_COREX_UPDATE_MODE_0, SW_TRIGGER);
+		PDP_SET_F(base, PDP_R_COREX_UPDATE_MODE_1, PDP_F_COREX_UPDATE_MODE_1, SW_TRIGGER);
+
+		_pdp_hw_wait_corex_idle(base);
+
+		PDP_SET_F(base, PDP_R_COREX_ENABLE, PDP_F_COREX_ENABLE, 0);
+
+		info_hw("[PDP] %s disable done\n", __func__);
+
+		return;
+	}
 
 	/*
 	 * Set Fixed Value
 	 */
+	PDP_SET_F(base, PDP_R_COREX_ENABLE, PDP_F_COREX_ENABLE, 1);
 	PDP_SET_F(base, PDP_R_COREX_RESET, PDP_F_COREX_RESET, 1);
-	PDP_SET_F(base, PDP_R_COREX_ENABLE, PDP_F_COREX_ENABLE, enable);
-	if (!enable)
-		return;
-
-	PDP_SET_F(base, PDP_R_COREX_FAST_MODE, PDP_F_COREX_FAST_MODE, 1);
 
 	/*
 	 * Type selection
@@ -80,18 +110,11 @@ static void _pdp_hw_s_corex_init(void __iomem *base, bool enable)
 
 	/* intialize type0 */
 	PDP_SET_F(base, PDP_R_COREX_COPY_FROM_IP_0, PDP_F_COREX_COPY_FROM_IP_0, 1);
-	do {
-		udelay(1);
 
-		try_cnt++;
-		if (try_cnt >= PDP_TRY_COUNT) {
-			err_hw("[PDP] fail corex copy");
-			break;
-		}
-
-		busy = PDP_GET_F(base, PDP_R_COREX_STATUS_0, PDP_F_COREX_BUSY_0);
-		dbg_hw(2, "[PDP] %s busy(%d)\n", __func__, busy);
-	} while (busy);
+	/*
+	 * Check COREX idleness, again.
+	 */
+	_pdp_hw_wait_corex_idle(base);
 
 	info_hw("[PDP] %s done\n", __func__);
 }
@@ -102,9 +125,6 @@ static void _pdp_hw_s_corex_init(void __iomem *base, bool enable)
  */
 static void _pdp_hw_s_corex_start(void __iomem *base, bool enable)
 {
-	u32 busy;
-	u32 try_cnt = 0;
-
 	if (!enable)
 		return;
 	/*
@@ -120,18 +140,9 @@ static void _pdp_hw_s_corex_start(void __iomem *base, bool enable)
 	 */
 	PDP_SET_F(base, PDP_R_COREX_UPDATE_MODE_0, PDP_F_COREX_UPDATE_MODE_0, SW_TRIGGER);
 	PDP_SET_F(base, PDP_R_COREX_START_0, PDP_F_COREX_START_0, 1);
-	do {
-		udelay(1);
 
-		try_cnt++;
-		if (try_cnt >= PDP_TRY_COUNT) {
-			err_hw("[PDP] fail corex copy");
-			break;
-		}
+	_pdp_hw_wait_corex_idle(base);
 
-		busy = PDP_GET_F(base, PDP_R_COREX_STATUS_0, PDP_F_COREX_BUSY_0);
-		dbg_hw(2, "[PDP] %s busy(%d)\n", __func__, busy);
-	} while (busy);
 	PDP_SET_F(base, PDP_R_COREX_UPDATE_MODE_0, PDP_F_COREX_UPDATE_MODE_0, HW_TRIGGER);
 
 	info_hw("[PDP] %s done\n", __func__);
@@ -374,6 +385,7 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 	u32 val, read_val;
 	u32 try_cnt = 0;
 	u32 cfg_0, cfg_1, cfg_2, cfg_3, cfg_4;
+	u32 corex_mode, corex_cfg_0, corex_cfg_1, corex_cfg_2, corex_cfg_3, corex_cfg_4;
 
 	/*
 	 * Set Parameter Value
@@ -399,7 +411,7 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 		else
 			val = 0;
 
-		PDP_SET_F(base, PDP_R_LIC_DYNAMIC_ALLOC_CONFIG, field_enum, val);
+		PDP_SET_F_DIRECT(base, PDP_R_LIC_DYNAMIC_ALLOC_CONFIG, field_enum, val);
 
 		/* STATIC mode - DMA: low priority(0), OTF: high priority(7) */
 		field_enum = PDP_F_LIC_WEIGHT_CONTEXT_0 + curr_ch;
@@ -408,7 +420,7 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 		else
 			val = PDP_LIC_WEIGHT_MAX;
 
-		PDP_SET_F(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum, val);
+		PDP_SET_F_DIRECT(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum, val);
 
 		/* wait for register update */
 		read_val = PDP_GET_F(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum);
@@ -444,15 +456,25 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 
 	info_hw("[PDP][DBG] LIC mode(%x), buf_cfg(%x), dyn_cfg(%x), sta_cfg(%x, %x, %x)\n",
 		mode, cfg_0, cfg_1, cfg_2, cfg_3, cfg_4);
+
+	corex_mode = PDP_GET_R_COREX(base, PDP_R_LIC_OPERATION_MODE);
+	corex_cfg_0 = PDP_GET_R_COREX(base, PDP_R_LIC_BUFFER_COMMON_CONFIG);
+	corex_cfg_1 = PDP_GET_R_COREX(base, PDP_R_LIC_DYNAMIC_ALLOC_CONFIG);
+	corex_cfg_2 = PDP_GET_R_COREX(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1);
+	corex_cfg_3 = PDP_GET_R_COREX(base, PDP_R_LIC_STATIC_ALLOC_CONFIG2);
+	corex_cfg_4 = PDP_GET_R_COREX(base, PDP_R_LIC_STATIC_ALLOC_CONFIG3);
+
+	info_hw("[PDP][DBG][COREX] LIC mode(%x), buf_cfg(%x), dyn_cfg(%x), sta_cfg(%x, %x, %x)\n",
+			corex_mode, corex_cfg_0, corex_cfg_1, corex_cfg_2, corex_cfg_3, corex_cfg_4);
 }
 
 /*
  * Context: O
  * CR type: Corex + No Corex
  */
-void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
+void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode, u32 binning)
 {
-	int tmp, line_row = 0, max_pos_end_y = 0;
+	int tmp, line_row_max, line_row = 0, max_pos_end_y = 0;
 	int i;
 	int margin = 100;
 	u32 val = 0;
@@ -460,6 +482,10 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
 	u32 density = 0, tail_density = 0;
 	u32 mpd_on;
 	u32 mpd_vbin;
+	u32 bayer_height, tail_height;
+
+	bayer_height = PDP_GET_F(base, PDP_R_LIC_INPUT_CONFIG2, PDP_F_LIC_INPUT_IMAGE_HEIGHT);
+	tail_height = PDP_GET_F(base, PDP_R_LIC_INPUT_CONFIG3, PDP_F_LIC_INPUT_PDPXL_HEIGHT);	
 
 	/*
 	 * stat end interrupt can't use hw limitation
@@ -489,10 +515,21 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
 			break;
 		case VC_SENSOR_MODE_SUPER_PD_2_TAIL:
 		case VC_SENSOR_MODE_IMX_2X1OCL_2_TAIL:
-			density = tail_density = 2;
+			switch(binning) {
+			case 2000:
+				density = 2;
+				tail_density = 2;
+				break;
+			case 1000:
+				density = 4;
+				tail_density = 4;
+				break;
+			default:
+				break;
+			}
 			break;
 		case VC_SENSOR_MODE_2PD_MODE3:
-			density = tail_density = 4;
+			density = 4;
 			if (mpd_on)
 				max_pos_end_y = max_pos_end_y << mpd_vbin;
 			break;
@@ -505,6 +542,28 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
 			density = 2;
 			tail_density = density / 2;
 			break;
+		case VC_SENSOR_MODE_SUPER_PD_3_TAIL:
+			density = 8;
+			tail_density = 4;
+			break;
+		case VC_SENSOR_MODE_SUPER_PD_4_TAIL:
+			switch(binning) {
+			case 1000:
+				density = 3;
+				tail_density = 3;
+				break;
+			case 3000:
+				density = 2;
+				tail_density = 2;
+				break;
+			case 6000:
+				density = 4;
+				tail_density = 4;
+				break;
+			default:
+				break;
+			}
+			break;
 		default:
 			err("check for sensor pd mode\n");
 			density = 16;
@@ -515,9 +574,17 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
 			line_row = max_pos_end_y * density;
 			line_row += (line_row + tail_density / 2) / tail_density;
 			line_row += margin;
+			
+			line_row_max = bayer_height + tail_height - 10;			
 		} else {
 			line_row = max_pos_end_y * density + margin;
-		}
+
+			line_row_max = bayer_height - 10;
+ 		}
+
+		if (line_row > line_row_max)
+			line_row = line_row_max;
+			
 		info_hw("[PDP] LINE_IRQ for pd sensor mode(%d), density(%d, tail:%d), max_pos_end_y: %d, line_row: %d, num_sroi: %d",
 			sensor_mode, density, tail_density, max_pos_end_y, line_row, num_of_turn_on_sroi);
 	}
@@ -526,6 +593,7 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode)
 	val = PDP_SET_V(val, PDP_F_IP_INT_ROW_CORD, line_row);
 	PDP_SET_R(base, PDP_R_IP_INT_ON_COL_ROW_CORD, val);
 	PDP_SET_F(base, PDP_R_IP_COREX_HW_TRIGGER_GAP, PDP_F_IP_COREX_HW_TRIGGER_GAP, 0); /* TODO: @Long V-blank */
+	//pdp_hw_dump(base);
 }
 
 /*
@@ -697,6 +765,21 @@ unsigned int pdp_hw_g_idle_state(void __iomem *base)
 	return idle;
 }
 
+void pdp_hw_get_line(void __iomem *base)
+{
+	u32 total_line;
+	u32 curr_line;
+
+	total_line = PDP_GET_F(base, PDP_R_CINFIFO_OUTPUT_IMAGE_DIMENSIONS,
+		PDP_F_CINFIFO_OUTPUT_IMAGE_HEIGHT);
+
+	curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
+
+	info("[PDP] coutfifo line (total:%d, curr:%d)\n", total_line, curr_line);
+
+	return;
+}
+
 /*
  * Context: O
  * CR type: No Corex
@@ -774,6 +857,17 @@ void pdp_hw_s_corex_enable(void __iomem *base, bool enable)
 	 */
 	_pdp_hw_s_corex_init(base, enable);
 	_pdp_hw_s_corex_start(base, enable);
+
+	/* for debugging */
+	if (0x00094301 != PDP_GET_R(base, PDP_R_BBBSIZE_FLAG)) {
+		info_hw("[PDP] SFR DUMP (v1.0.0)\n");
+		is_hw_dump_regs(base, pdp_regs, PDP_REG_CNT);
+
+		info_hw("[PDP] COREX SFR DUMP (v1.0.0)\n");
+		is_hw_dump_regs(base, pdp_regs_corex, PDP_REG_CNT);
+
+		is_debug_s2d(true, "CR shift");
+	}
 }
 
 /* state */
@@ -801,20 +895,23 @@ void pdp_hw_s_pdstat_path(void __iomem *base, bool enable)
 }
 
 /* config */
-void pdp_hw_s_core(void __iomem *base, bool pd_enable,
+void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
 	u32 img_width, u32 img_height, u32 img_hwformat, u32 img_pixelsize,
 	u32 pd_width, u32 pd_height, u32 pd_hwformat,
 	u32 sensor_type, u32 path, int sensor_mode, u32 fps, u32 en_sdc, u32 en_votf,
-	u32 num_buffers, ulong freq)
+	u32 num_buffers, ulong freq, u32 binning, u32 position)
 {
 	u32 rmo = PDP_RDMA_MO_DEFAULT;
 	u32 img_width_full;
 	u32 en_dma, en_afdma;
 
-	if (en_sdc)
-		img_width_full = img_width * 2;
-	else
+	if (en_sdc) {
+		img_width_full = sensor_cfg->width;
+
+		pdp_hw_s_sdc(base, img_width_full, img_height);
+	} else {
 		img_width_full = img_width;
+	}
 
 	pdp_hw_s_pdstat_path(base, pd_enable);
 
@@ -822,7 +919,7 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable,
 	_pdp_hw_s_lic_context(base, img_width_full, img_height,
 		pd_width, pd_height, img_pixelsize, sensor_type);
 	_pdp_hw_s_common(base, img_width_full, img_height);
-	pdp_hw_s_line_row(base, pd_enable, sensor_mode);
+	pdp_hw_s_line_row(base, pd_enable, sensor_mode, binning);
 	_pdp_hw_s_int_mask(base, sensor_type, path);
 
 	_pdp_hw_s_secure_id(base);
@@ -831,8 +928,12 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable,
 	if (path == DMA) {
 		en_dma = 1;
 
-		if (fps >= 60)
+		if (fps >= 60) {
 			rmo = PDP_RDMA_MO_FPS60; /* This is HW guide value. */
+		} else if (position == SENSOR_POSITION_FRONT) {
+			rmo = 2;
+			info("[PDP][DBG][POS:%d] RDMA MO set %d", position, rmo);
+		}
 
 #if defined(PDP_RDMA_MO_LIMIT) /* Fixed RDMA MO */
 		rmo = PDP_RDMA_MO_LIMIT;
@@ -850,9 +951,6 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable,
 		en_votf, en_afdma);
 	pdp_hw_s_rdma_init(base, img_width, img_height, img_hwformat, img_pixelsize,
 		rmo, en_sdc, en_votf, en_dma, freq);
-
-	if (en_sdc)
-		pdp_hw_s_sdc(base, img_width_full, img_height);
 
 	pdp_hw_s_fro(base, num_buffers);
 }
@@ -1188,40 +1286,45 @@ void pdp_hw_s_fro(void __iomem *base, u32 num_buffers)
 		PDP_F_FRO_RUN_FRAME_NUMBER_FOR_COL_ROW_INT, center_frame_num);
 }
 
-int pdp_hw_wait_idle(void __iomem *base)
+int pdp_hw_wait_idle(void __iomem *base, unsigned long state)
 {
 	int ret = 0;
 	u32 total_line;
 	u32 curr_line;
 	u32 idle;
+	u32 int1_all;
 	u32 try_cnt = 0;
 
 	total_line = PDP_GET_F(base, PDP_R_CINFIFO_OUTPUT_IMAGE_DIMENSIONS,
 		PDP_F_CINFIFO_OUTPUT_IMAGE_HEIGHT);
 	curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
 	idle = PDP_GET_F(base, PDP_R_IDLENESS_STATUS, PDP_F_IDLENESS_STATUS);
+	int1_all = PDP_GET_R(base, PDP_R_CONTINT_INT1);
 
-	info_hw("[PDP] idle status before disable (total:%d, curr:%d, idle:%d)\n",
-			total_line, curr_line, idle);
+	info_hw("[PDP] idle status before disable (total:%d, curr:%d, idle:%d, int1:0x%X)\n",
+			total_line, curr_line, idle, int1_all);
 
 	pdp_hw_s_global_enable(base, false);
 
 	while (!idle) {
-		curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
 		idle = PDP_GET_F(base, PDP_R_IDLENESS_STATUS, PDP_F_IDLENESS_STATUS);
 
 		try_cnt++;
-		if (try_cnt >= 10000) {
+		if (try_cnt >= PDP_TRY_COUNT) {
 			err_hw("[PDP] timeout waiting idle - disable fail");
+			pdp_hw_dump(base);
 			ret = -ETIME;
 			break;
 		}
 
-		usleep_range(10, 11);
+		usleep_range(3, 4);
 	};
 
-	info_hw("[PDP] idle status after disable (total:%d, curr:%d, idle:%d)\n",
-			total_line, curr_line, idle);
+	curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
+	int1_all = PDP_GET_R(base, PDP_R_CONTINT_INT1);
+
+	info_hw("[PDP] idle status after disable (total:%d, curr:%d, idle:%d, int1:0x%X)\n",
+			total_line, curr_line, idle, int1_all);
 
 	return ret;
 }
@@ -1277,21 +1380,31 @@ void pdp_hw_strgen_disable(void __iomem *base)
 }
 
 /* IRQ function */
-unsigned int pdp_hw_g_int1_state(void __iomem *base, bool clear)
+unsigned int pdp_hw_g_int1_state(void __iomem *base, bool clear, u32 *irq_state)
 {
-	u32 src;
-	u32 src_all;
-	u32 src_fro;
+	u32 src_all, src_fro, src, src_err;
 
-	src = PDP_GET_R(base, PDP_R_CONTINT_INT1_STATUS) & INT1_ERR_MASK;
+	/*
+	 * src_all: per-frame based PDP IRQ status
+	 * src_fro: FRO based PDP IRQ status
+	 *
+	 * final normal status(src): src_all & src_fro
+	 * final error status(src_err): src_all & ERR_MASK
+	 */
+	src_all = PDP_GET_R(base, PDP_R_CONTINT_INT1);
 	src_fro = PDP_GET_R(base, PDP_R_FRO_INT0);
+
+	src = src_all & src_fro;
+	src_err = src_all & INT1_ERR_MASK;
+
 	if (clear) {
-		src_all = PDP_GET_R(base, PDP_R_CONTINT_INT1);
 		PDP_SET_R(base, PDP_R_CONTINT_INT1_CLEAR, src_all);
-		PDP_SET_R(base, PDP_R_FRO_INT0_CLEAR, src_fro);
+		PDP_SET_R(base, PDP_R_FRO_INT0_CLEAR, src);
 	}
 
-	return src | src_fro;
+	*irq_state = src_all;
+
+	return src | src_err;
 }
 
 unsigned int pdp_hw_g_int1_mask(void __iomem *base)
@@ -1299,15 +1412,35 @@ unsigned int pdp_hw_g_int1_mask(void __iomem *base)
 	return PDP_GET_R(base, PDP_R_CONTINT_INT1_ENABLE);
 }
 
-unsigned int pdp_hw_g_int2_state(void __iomem *base, bool clear)
+unsigned int pdp_hw_g_int2_state(void __iomem *base, bool clear, u32 *irq_state)
 {
-	u32 src;
+	u32 src_all, src;
+
+	src_all = PDP_GET_R(base, PDP_R_CONTINT_INT2);
 
 	src = PDP_GET_R(base, PDP_R_CONTINT_INT2_STATUS);
+
 	if (clear)
 		PDP_SET_R(base, PDP_R_CONTINT_INT2_CLEAR, src);
 
+	*irq_state = src_all;
+
 	return src;
+}
+
+unsigned int pdp_hw_g_int2_rdma_state(void __iomem *base, bool clear)
+{
+	u32 src_rdma_bayer, src_rdma_af;
+
+	src_rdma_bayer = PDP_GET_R(base, PDP_R_RDMA_BAYER_STATUS);
+	src_rdma_af = PDP_GET_R(base, PDP_R_RDMA_AF_STATUS);
+
+	if (clear) {
+		PDP_SET_R(base, PDP_R_RDMA_BAYER_STATUS, src_rdma_bayer);
+		PDP_SET_R(base, PDP_R_RDMA_AF_STATUS, src_rdma_af);
+	}
+
+	return src_rdma_bayer | (src_rdma_af << PDP_RDMA_AF_STATE_OFFSET);
 }
 
 unsigned int pdp_hw_g_int2_mask(void __iomem *base)
@@ -1331,10 +1464,7 @@ unsigned int pdp_hw_is_occured(unsigned int state, enum pdp_event_type type)
 		mask = 1 << FRAME_END_INTERRUPT;
 		break;
 	case PE_PAF_STAT0:
-		if (IS_ENABLED(USE_PDP_LINE_INTR_FOR_PDAF))
-			mask = 1 << FRAME_INT_ON_ROW_COL_INFO;
-		else
-			mask = 1 << PRE_FRAME_END_INTERRUPT;
+		mask = 1 << FRAME_INT_ON_ROW_COL_INFO;
 		break;
 	case PE_PAF_STAT1:
 		mask = 1 << FRAME_END_INTERRUPT;
@@ -1349,6 +1479,9 @@ unsigned int pdp_hw_is_occured(unsigned int state, enum pdp_event_type type)
 		break;
 	case PE_ERR_INT2:
 		mask = INT2_ERR_MASK;
+		break;
+	case PE_ERR_RDMA_IRQ:
+		mask = 1 << RDMA_IRQ;
 		break;
 	default:
 		return 0;
@@ -1371,6 +1504,14 @@ void pdp_hw_g_int2_str(const char **int_str)
 
 	for (i = 0; i < PDP_INT2_CNT; i++)
 		int_str[i] = pdp_int2_str[i];
+}
+
+void pdp_hw_g_int2_rdma_str(const char **int_str)
+{
+	int i;
+
+	for (i = 0; i < PDP_INT2_RDMA_CNT; i++)
+		int_str[i] = pdp_int2_rdma_str[i];
 }
 
 /* Debug function */

@@ -600,6 +600,7 @@ static int dpp_mcd_reset(struct dpp_device *dpp)
 	return ret;
 }
 
+#if 0
 
 static bool using_mcd_hdr(struct dpp_params_info *params)
 {
@@ -612,8 +613,6 @@ static bool using_mcd_hdr(struct dpp_params_info *params)
 	return ret;
 }
 
-
-#if 0
 static int dpp_mcd_dump(struct dpp_device *dpp)
 {
 	int ret = 0;
@@ -676,15 +675,11 @@ static int dpp_set_config(struct dpp_device *dpp)
 		if (test_bit(DPP_ATTR_DPP, &dpp->attr))
 			enable_irq(dpp->res.irq);
 	}
-
 	/* set all parameters to dpp hw */
 	dpp_reg_configure_params(dpp->id, &params, dpp->attr);
 
 #ifdef CONFIG_EXYNOS_MCD_HDR
-	if (using_mcd_hdr(&params)) {
-		dpp_mcd_reset(dpp);
-		dpp_reg_sel_hdr(dpp->id, HDR_PATH_MCD);
-	}
+	dpp_mcd_reset(dpp);
 
 	if (params.wcg_mode != HAL_COLOR_MODE_NATIVE) {
 		ret = dpp_mcd_config_wcg(dpp, &params);

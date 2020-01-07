@@ -1,5 +1,5 @@
 /*
- * SAMSUNG EXYNOS9820 board device tree source
+ * SAMSUNG EXYNOS990 board device tree source
  *
  * Copyright (c) 2019 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -11,22 +11,22 @@
 
 /dts-v1/;
 /plugin/;
-#include "exynos9830-z3s_pm_21.dtsi"
-#include "exynos990-z3s_common.dtsi"
-#include "exynos9830-z3s_camera_csi_21.dtsi"
+#include "exynos990-c2s_pm_00.dtsi"
+#include "exynos990-c2s_common.dtsi"
 #include "exynos_gpio_config_macros.dtsi"
-#include "exynos9830-picasso_nfc_17.dtsi"
+#include "exynos990-c2s_nfc_00.dtsi"
 #include "../exynos/exynos9830-universal9830-cp-s5123-sipc.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include "exynos9830-sensorhub_03.dtsi"
-#include "exynos9830-hubblez3_fingerprint_00.dtsi"
+#include "exynos990-c2s_fingerprint_00.dtsi"
 #include "battery_data_hubblez3_22.dtsi"
+#include "exynos990-c2s_uwb.dtsi"
 
 #define BOARD_ID	0x10
 #define BOARD_REV	0x0
 
 / {
-	compatible = "samsung,C2S EUR OPEN 00", "samsung,EXYNOS9830";
+	compatible = "samsung,C2S EUR OPEN 00", "samsung,EXYNOS990";
 	dtbo-hw_rev = <0>;
 	dtbo-hw_rev_end = <255>;
 	edtbo-rev = <0>;

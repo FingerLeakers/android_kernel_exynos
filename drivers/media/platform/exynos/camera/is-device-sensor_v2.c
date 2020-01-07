@@ -816,8 +816,8 @@ IS_TIMER_FUNC(is_sensor_dtp)
 	device->dtp_check = false;
 
 	if (device->force_stop) {
-		device->force_stop = 0;
 		err("forcely reset due to 0x%08lx", device->force_stop);
+		device->force_stop = 0;
 	} else {
 		err("DTP detected");
 	}
@@ -941,10 +941,8 @@ static int is_sensor_stop(struct is_device_sensor *device)
 	/* @VOTF: In the case of VOTF, it should stop ischain first */
 	if (test_bit(IS_GROUP_VOTF_OUTPUT, &group->state)) {
 		ret = is_itf_stream_off(ischain);
-		if (ret) {
+		if (ret)
 			merr("is_itf_stream_off is fail(%d)", device, ret);
-			goto p_err;
-		}
 	}
 #endif
 
@@ -957,17 +955,12 @@ static int is_sensor_stop(struct is_device_sensor *device)
 			mwarn("subdev_csi is NULL", device);
 
 		ret = v4l2_subdev_call(subdev_csi, core, ioctl, SENSOR_IOCTL_PATTERN_DISABLE, NULL);
-		if (ret) {
+		if (ret)
 			mwarn("v4l2_csi_call(ioctl) is fail(%d)", device, ret);
-			ret = -EINVAL;
-			goto p_err;
-		}
 	} else {
 		ret = __is_sensor_stop(device);
-		if (ret) {
+		if (ret)
 			merr("__is_sensor_stop is fail(%d)", device, ret);
-			goto p_err;
-		}
 	}
 
 	/* @OTF: It should stop ischain later */
@@ -976,10 +969,8 @@ static int is_sensor_stop(struct is_device_sensor *device)
 #endif
 	{
 		ret = is_itf_stream_off(ischain);
-		if (ret) {
+		if (ret)
 			merr("is_itf_stream_off is fail(%d)", device, ret);
-			goto p_err;
-		}
 	}
 
 p_err:
@@ -1050,7 +1041,8 @@ int is_sensor_dm_tag(struct is_device_sensor *device,
 	int ret = 0;
 	u32 hashkey;
 	int i;
-	int offset;
+	u64 merge_f_id;
+	u8 sub_f_id;
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!frame);
@@ -1064,14 +1056,20 @@ int is_sensor_dm_tag(struct is_device_sensor *device,
 		 * frame_id is extraced form embedded data of sensor.
 		 * So, embedded data should be extraced before frame end.
 		 */
-		offset = sizeof(u32) * BITS_PER_BYTE / F_ID_SIZE;
-		for (i = 0; i < offset; i++) {
-			frame->shot->udm.frame_id[i] =
-				(device->frame_id[hashkey] >> i * F_ID_SIZE) & GENMASK(F_ID_SIZE - 1, 0);
+		merge_f_id = device->frame_id[hashkey];
 
-			frame->shot->udm.frame_id[i + offset] =
-				(device->frame_id_1[hashkey] >> i * F_ID_SIZE) & GENMASK(F_ID_SIZE - 1, 0);
+		for (i = 0; i < BITS_PER_LONG / F_ID_SIZE; i++) {
+			sub_f_id = (merge_f_id >> (i * F_ID_SIZE));
+
+			if (!sub_f_id)
+				break;
+
+			frame->shot->udm.frame_id[i] =
+				sub_f_id & GENMASK(F_ID_SIZE - 1, 0);
 		}
+		if (debug_csi && merge_f_id)
+			minfo("[SS%d][F%d] frame_id(0x%lx)\n", device, device->device_id,
+				frame->fcount, merge_f_id);
 
 #ifdef DBG_JITTER
 		is_jitter(frame->shot->dm.sensor.timeStamp);
@@ -1113,6 +1111,7 @@ static int is_sensor_notify_by_fstr(struct is_device_sensor *device, void *arg,
 {
 	int i = 0;
 	int ret = 0;
+	u32 fcount;
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
 	struct is_device_csi *csi;
@@ -1127,7 +1126,7 @@ static int is_sensor_notify_by_fstr(struct is_device_sensor *device, void *arg,
 	FIMC_BUG(!device);
 	FIMC_BUG(!arg);
 
-	device->fcount = *(u32 *)arg;
+	fcount = *(u32 *)arg;
 
 	if (device->instant_cnt) {
 		device->instant_cnt--;
@@ -1145,7 +1144,7 @@ static int is_sensor_notify_by_fstr(struct is_device_sensor *device, void *arg,
 		if (framemgr)
 			frame = peek_frame(framemgr, FS_PROCESS);
 
-		if (frame && frame->fcount == device->fcount)
+		if (frame && frame->fcount == fcount)
 			TIME_SHOT(TMS_SHOT2);
 	}
 
@@ -1189,7 +1188,7 @@ static int is_sensor_notify_by_fstr(struct is_device_sensor *device, void *arg,
 				frameptr = (ctrl.value + 1) % framemgr->num_frames;
 
 			frame = &framemgr->frames[frameptr];
-			frame->fcount = device->fcount;
+			frame->fcount = fcount;
 
 			mdbgd_sensor("%s, VC%d[%d] = %d\n", device, __func__,
 						i, frameptr, frame->fcount);
@@ -1286,6 +1285,7 @@ static int is_sensor_notify_by_dma_end(struct is_device_sensor *device, void *ar
 	int ret = 0;
 	struct is_frame *frame;
 #ifdef USE_CAMERA_EMBEDDED_HEADER
+	struct is_device_csi *csi;
 	struct is_module_enum *module = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	struct is_cis *cis = NULL;
@@ -1314,30 +1314,19 @@ static int is_sensor_notify_by_dma_end(struct is_device_sensor *device, void *ar
 				return -EINVAL;
 			};
 
-			if (sensor_peri->subdev_cis) {
+			csi = v4l2_get_subdevdata(device->subdev_csi);
+			if (!csi) {
+				mwarn("CSI is NULL", device);
+				return -EINVAL;
+			}
+
+			if (sensor_peri->subdev_cis && !csi->f_id_dec) {
 				cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
 
 				CALL_CISOPS(cis, cis_get_frame_id, sensor_peri->subdev_cis,
 						(u8 *)frame->kvaddr_buffer[0], &frame_id);
 
 				device->frame_id[hashkey] = frame_id;
-			}
-
-			{
-				unsigned int cmd = SENSOR_IOCTL_G_FRAME_ID;
-				u32 hw_frame_id[2] = {0, 0};
-
-				ret = v4l2_subdev_call(device->subdev_csi, core, ioctl, cmd, hw_frame_id);
-				if (ret < 0) {
-					merr("csi_g_ctrl fail", device);
-					return ret;
-				} else if (ret == 1) {
-					/* HW frame ID decoder is not available. */
-					break;
-				}
-
-				device->frame_id[hashkey] = hw_frame_id[0];
-				device->frame_id_1[hashkey] = hw_frame_id[1];
 			}
 
 			break;
@@ -1472,8 +1461,8 @@ static void is_sensor_instanton(struct work_struct *data)
 
 	TIME_LAUNCH_STR(LAUNCH_SENSOR_START);
 
-	mutex_lock(&core->mutex_reboot);
-	if (core->reboot) {
+	mutex_lock(&device->mutex_reboot);
+	if (device->reboot) {
 		minfo("system is rebooting, don't start sensor\n", device);
 
 		if (v4l2_subdev_call(device->subdev_csi, video,
@@ -1482,7 +1471,7 @@ static void is_sensor_instanton(struct work_struct *data)
 
 		ret = -EINVAL;
 
-		mutex_unlock(&core->mutex_reboot);
+		mutex_unlock(&device->mutex_reboot);
 		goto dont_start_sensor;
 	}
 
@@ -1497,12 +1486,12 @@ static void is_sensor_instanton(struct work_struct *data)
 
 		ret = -EINVAL;
 
-		mutex_unlock(&core->mutex_reboot);
+		mutex_unlock(&device->mutex_reboot);
 		goto err_sensor_start;
 	}
 
 	set_bit(IS_SENSOR_FRONT_START, &device->state);
-	mutex_unlock(&core->mutex_reboot);
+	mutex_unlock(&device->mutex_reboot);
 
 	TIME_LAUNCH_END(LAUNCH_SENSOR_START);
 
@@ -1604,6 +1593,7 @@ static int __init is_sensor_probe(struct platform_device *pdev)
 	device->pdata = pdata;
 	device->groupmgr = &core->groupmgr;
 	device->devicemgr = &core->devicemgr;
+	device->reboot = false;
 #ifdef ENABLE_INIT_AWB
 	memset(device->init_wb, 0, sizeof(float) * WB_GAIN_COUNT);
 	memset(device->last_wb, 0, sizeof(float) * WB_GAIN_COUNT);
@@ -1616,6 +1606,7 @@ static int __init is_sensor_probe(struct platform_device *pdev)
 	spin_lock_init(&device->slock_state);
 	mutex_init(&device->mlock_state);
 	device_init_wakeup(&pdev->dev, true);
+	mutex_init(&device->mutex_reboot);
 
 	/* 3. state init */
 	memset(&device->state, 0, sizeof(device->state));
@@ -3529,9 +3520,6 @@ static int is_sensor_back_stop(void *qdevice,
 	struct is_device_sensor *device = qdevice;
 	struct is_groupmgr *groupmgr;
 	struct is_group *group;
-#if defined(SECURE_CAMERA_FACE)
-	struct is_core *core;
-#endif
 
 	FIMC_BUG(!device);
 
@@ -3542,17 +3530,6 @@ static int is_sensor_back_stop(void *qdevice,
 		mwarn("already back stop", device);
 		goto p_err;
 	}
-
-#if defined(SECURE_CAMERA_FACE)
-	core = device->private_data;
-	if (!core) {
-		merr("core is NULL", device);
-		return -EINVAL;
-	}
-
-	ret = is_secure_func(core, NULL, IS_SECURE_CAMERA_FACE,
-			device->ex_scenario, SMC_SECCAM_UNPREPARE);
-#endif
 
 	ret = is_group_stop(groupmgr, group);
 	if (ret)
@@ -3655,6 +3632,7 @@ int is_sensor_front_start(struct is_device_sensor *device,
 
 	memset(device->timestamp, 0x0, IS_TIMESTAMP_HASH_KEY * sizeof(u64));
 	memset(device->timestampboot, 0x0, IS_TIMESTAMP_HASH_KEY * sizeof(u64));
+	memset(device->frame_id, 0x0, IS_TIMESTAMP_HASH_KEY * sizeof(u64));
 	device->instant_cnt = instant_cnt;
 	subdev_csi = device->subdev_csi;
 	subdev_module = device->subdev_module;
@@ -4104,7 +4082,8 @@ static int is_sensor_shot(struct is_device_ischain *ischain,
 
 	if (!test_bit(IS_SENSOR_OTF_OUTPUT, &sensor->state)) {
 		/* In case of M2M case, check the late shot */
-		if  ((sensor->line_fcount + 1) > frame->fcount) {
+		if (test_bit(IS_SENSOR_FRONT_START, &sensor->state) &&
+			(sensor->line_fcount + 1) > frame->fcount) {
 			merr("[G%d] late shot (sensor:%d, line:%d, frame:%d, scount:%d)", ischain, group->id,
 					sensor->fcount, sensor->line_fcount,
 					frame->fcount, atomic_read(&group->scount));

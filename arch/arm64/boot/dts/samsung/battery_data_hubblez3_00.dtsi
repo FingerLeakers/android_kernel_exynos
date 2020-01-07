@@ -54,8 +54,13 @@
 				battery,max_charging_charge_power = <45000>; /* 45W */
 				battery,battery_full_capacity = <5000>;
 
-				battery,dchg_high_temp = <570>;
-				battery,dchg_high_temp_recovery = <440>;
+				battery,chg_high_temp = <550>;
+				battery,chg_high_temp_recovery = <530>;
+
+				battery,dchg_high_temp = <550>;
+				battery,dchg_high_temp_recovery = <420>;
+				battery,dchg_high_batt_temp = <400>;
+				battery,dchg_high_batt_temp_recovery = <390>;
 
 				battery,wpc_high_temp = <370>;
 				battery,wpc_high_temp_recovery = <350>;
@@ -89,14 +94,6 @@
 };
 
 &pinctrl_0 {
-	pdet-b {
-		samsung,pin-pud = <0>;
-	};
-
-	ping-nen {
-		samsung,pin-pud = <0>;
-	};
-
 	wchg-pdrc {
 		samsung,pin-function = <0xf>;
 		samsung,pin-pud = <3>;
@@ -128,6 +125,7 @@
 		battery,mst_pwr_en = <&gpm18 0 0>;
 		battery,ping_nen = <&gpa2 1 0>;
 		battery,wpc_pdrc = <&gpa4 1 0>;
+		battery,wpc_en = <&gpm10 0 0>;
 
 		battery,charger_name = "max77705-charger";
 		battery,fuelgauge_name = "max77705-fuelgauge";

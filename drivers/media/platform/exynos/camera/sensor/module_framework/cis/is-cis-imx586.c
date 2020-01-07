@@ -42,6 +42,9 @@
 
 #include "is-helper-i2c.h"
 
+#include "is-sec-define.h"
+#include "is-vender.h"
+
 #include "interface/is-interface-library.h"
 
 #define SENSOR_NAME "IMX586"
@@ -58,50 +61,6 @@ static const struct sensor_pll_info_compact **sensor_imx586_pllinfos;
 static bool sensor_imx586_cal_write_flag;
 
 extern struct is_lib_support gPtr_lib_support;
-
-int sensor_imx586_cis_check_rev(struct is_cis *cis)
-{
-	int ret = 0;
-	u8 status = 0;
-	u8 rev = 0;
-	struct i2c_client *client;
-
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-	}
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-	/* Specify OTP Page Address for READ - Page127(dec) */
-	is_sensor_write8(client, SENSOR_IMX586_OTP_PAGE_SETUP_ADDR, 0x7F);
-
-	/* Turn ON OTP Read MODE */
-	is_sensor_write8(client, SENSOR_IMX586_OTP_READ_TRANSFER_MODE_ADDR,  0x01);
-
-	/* Check status - 0x01 : read ready*/
-	is_sensor_read8(client, SENSOR_IMX586_OTP_STATUS_REGISTER_ADDR,  &status);
-	if ((status & 0x1) == false)
-		err("status fail, (%d)", status);
-
-	/* CHIP REV 0x0018 */
-	ret = is_sensor_read8(client, SENSOR_IMX586_OTP_CHIP_REVISION_ADDR, &rev);
-	if (ret < 0) {
-		err("is_sensor_read8 fail (ret %d)", ret);
-		I2C_MUTEX_UNLOCK(cis->i2c_lock);
-		return ret;
-	}
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	cis->cis_data->cis_rev = rev;
-
-	probe_info("imx586 rev:%#x", rev);
-
-	return 0;
-}
 
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 static const struct cam_mipi_sensor_mode *sensor_imx586_mipi_sensor_mode;
@@ -294,8 +253,11 @@ static void sensor_imx586_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis
 
 	switch (mode) {
 	case SENSOR_IMX586_2X2BIN_FULL_4000X3000_30FPS:
-		//cis_data->is_data.paf_stat_enable = true; //TEMP_2020
-		cis_data->is_data.paf_stat_enable = false;
+	case SENSOR_IMX586_2X2BIN_CROP_4000X2252_30FPS:
+	case SENSOR_IMX586_2X2BIN_CROP_4000X2252_60FPS:
+	case SENSOR_IMX586_2X2BIN_CROP_1984X1488_30FPS:
+		cis_data->is_data.paf_stat_enable = true;
+		//cis_data->is_data.paf_stat_enable = false;
 		break;
 	default:
 		cis_data->is_data.paf_stat_enable = false;
@@ -380,10 +342,6 @@ int sensor_imx586_cis_init(struct v4l2_subdev *subdev)
 	struct is_cis *cis;
 	u32 setfile_index = 0;
 	cis_setting_info setinfo;
-#ifdef USE_CAMERA_HW_BIG_DATA
-	struct cam_hw_param *hw_param = NULL;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-#endif
 
 	setinfo.param = NULL;
 	setinfo.return_value = 0;
@@ -410,19 +368,17 @@ int sensor_imx586_cis_init(struct v4l2_subdev *subdev)
 ***********************************************************************/
 	sensor_imx586_cal_write_flag = false;
 
-	ret = sensor_imx586_cis_check_rev(cis);
+#if !defined(CONFIG_VENDER_MCD)
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+
+	ret = sensor_cis_check_rev(cis);
 	if (ret < 0) {
-#ifdef USE_CAMERA_HW_BIG_DATA
-		sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-		if (sensor_peri)
-			is_sec_get_hw_param(&hw_param, sensor_peri->module->position);
-		if (hw_param)
-			hw_param->i2c_sensor_err_cnt++;
-#endif
 		warn("sensor_imx586_check_rev is fail when cis init");
 		cis->rev_flag = true;
-		ret = 0;
+		ret = -EINVAL;
+		goto p_err;
 	}
+#endif
 
 	cis->cis_data->product_name = cis->id;
 	cis->cis_data->cur_width = SENSOR_IMX586_MAX_WIDTH;
@@ -605,6 +561,60 @@ p_err:
 	return ret;
 }
 
+int sensor_imx586_calibration_setting(struct is_cis *cis)
+{
+	int ret = 0, i;
+	char *cal_buf;
+	struct is_rom_info *finfo = NULL;
+	u8 spdc_cal[SENSOR_IMX586_SPDC_CAL_SIZE];
+	u8 pdxtc_cal[SENSOR_IMX586_PDXTC_CAL_SIZE];
+	int spdc_size, pdxtc_size[2];
+
+	is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR4);
+	is_sec_get_sysfs_finfo(&finfo, ROM_ID_REAR4);
+
+#ifdef CAMERA_IMX586_CAL_MODULE_VERSION
+	if(finfo->header_ver[10] < CAMERA_IMX586_CAL_MODULE_VERSION) {
+		info("%s - skip calibration, cal value not valid(cur_header : %s)", __func__, finfo->header_ver);
+		return 0;
+	}
+#endif
+
+	spdc_size = finfo->rom_spdc_cal_data_size;
+	pdxtc_size[0] = finfo->rom_pdxtc_cal_data_0_size;
+	pdxtc_size[1] = finfo->rom_pdxtc_cal_data_1_size;
+
+	memcpy(spdc_cal, &cal_buf[finfo->rom_spdc_cal_data_start_addr], SENSOR_IMX586_SPDC_CAL_SIZE);
+	memcpy(pdxtc_cal, &cal_buf[finfo->rom_pdxtc_cal_data_start_addr], SENSOR_IMX586_PDXTC_CAL_SIZE); 
+
+/* SPDC Calibraition */
+	for (i=0; i<spdc_size; i++) {
+		ret = is_sensor_write8(cis->client, 0x7F00+i, spdc_cal[i]);
+		if (ret < 0)
+			goto err;
+	}
+
+
+/* PDXTC Calibration */
+	for (i=0;i<pdxtc_size[0];i++) {
+		is_sensor_write8(cis->client, 0x7510+i, pdxtc_cal[i]);
+		if (ret < 0)
+			goto err;
+	}
+	for (i=0;i<pdxtc_size[1];i++) {
+		is_sensor_write8(cis->client, 0x7600+i, pdxtc_cal[pdxtc_size[0] + i]);
+		if (ret < 0)
+			goto err;
+	}
+
+	info("%s - calibration applied",__func__);
+
+	return ret;
+err:
+	err("%s - calibration failed",__func__);
+	return -1;
+}
+
 int sensor_imx586_cis_set_global_setting(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -622,6 +632,12 @@ int sensor_imx586_cis_set_global_setting(struct v4l2_subdev *subdev)
 	ret = sensor_cis_set_registers(subdev, sensor_imx586_global, sensor_imx586_global_size);
 	if (ret < 0) {
 		err("sensor_imx586_set_registers fail!!");
+		goto p_err;
+	}
+
+	ret = sensor_imx586_calibration_setting(cis);
+	if (ret < 0) {
+		err("sensor_imx586_set_calibration fail!!");
 		goto p_err;
 	}
 
@@ -657,7 +673,7 @@ int sensor_imx586_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	/* If check_rev(Sensor ID in OTP) of imx586 fail when cis_init, one more check_rev in mode_change */
 	if (cis->rev_flag == true) {
 		cis->rev_flag = false;
-		ret = sensor_imx586_cis_check_rev(cis);
+		ret = sensor_cis_check_rev(cis);
 		if (ret < 0) {
 			err("sensor_imx586_check_rev is fail");
 			goto p_err;
@@ -686,6 +702,12 @@ int sensor_imx586_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		goto p_i2c_err;
 	}
 	dbg_sensor(1, "[%s] mode changed(%d)\n", __func__, mode);
+
+	/* EMB Header off */
+	ret = is_sensor_write8(cis->client, 0xbcf1, 0x00);
+	if (ret < 0){
+		err("EMB header off fail");
+	}
 
 p_i2c_err:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -1953,7 +1975,7 @@ void sensor_imx586_cis_data_calc(struct v4l2_subdev *subdev, u32 mode)
 	/* If check_rev fail when cis_init, one more check_rev in mode_change */
 	if (cis->rev_flag == true) {
 		cis->rev_flag = false;
-		ret = sensor_imx586_cis_check_rev(cis);
+		ret = sensor_cis_check_rev(cis);
 		if (ret < 0) {
 			err("sensor_imx586_check_rev is fail: ret(%d)", ret);
 			return;
@@ -1996,6 +2018,7 @@ static struct is_cis_ops cis_ops_imx586 = {
 	.cis_update_mipi_info = sensor_imx586_cis_update_mipi_info,
 	.cis_get_mipi_clock_string = sensor_imx586_cis_get_mipi_clock_string,
 #endif
+	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 };
 
 int cis_imx586_probe(struct i2c_client *client,

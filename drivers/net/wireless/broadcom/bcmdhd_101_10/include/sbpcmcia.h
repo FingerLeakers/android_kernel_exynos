@@ -165,7 +165,7 @@
 #define	HNBU_AA			0x06	/* Antennas available */
 #define	HNBU_AG			0x07	/* Antenna gain */
 #define HNBU_BOARDFLAGS		0x08	/* board flags (2 or 4 bytes) */
-#define HNBU_LEDS		0x09	/* LED set */
+#define HNBU_UNUSED		0x09	/* UNUSED (was LEDs) */
 #define HNBU_CCODE		0x0a	/* Country code (2 bytes ascii + 1 byte cctl)
 					 * in rev 2
 					 */
@@ -192,7 +192,7 @@
 
 #define HNBU_BOARDTYPE		0x1b	/* 2 bytes; boardtype */
 
-#define HNBU_LEDDC		0x1c	/* 2 bytes; LED duty cycle */
+#define HNBU_UNUSED2		0x1c	/* was LEDs duty cycle */
 
 #define HNBU_HNBUCIS		0x1d	/* what follows is proprietary HNBU CIS format */
 
@@ -356,8 +356,7 @@
 #define HNBU_SROM3SWRGN		0x80	/* 78 bytes; srom rev 3 s/w region without crc8
 					 * plus extra info appended.
 					 */
-#define HNBU_RESERVED		0x81	/* Reserved for non-BRCM post-mfg additions */
-					/* XXX Added for 'Olympic' OTP management */
+#define HNBU_RESERVED		0x81
 #define HNBU_CUSTOM1		0x82	/* 4 byte; For non-BRCM post-mfg additions */
 #define HNBU_CUSTOM2		0x83	/* Reserved; For non-BRCM post-mfg additions */
 #define HNBU_ACPAPARAM		0x84	/* ACPHY PAPARAM */

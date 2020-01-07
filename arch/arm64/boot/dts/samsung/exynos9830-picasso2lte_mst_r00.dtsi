@@ -16,6 +16,7 @@
 		__overlay__ {
 			sec-mst{
 				compatible = "sec-mst";
+				sec-mst,mfc-ic-chip-vendor = "IDT";
 				sec-mst,mst-pwr-gpio = <&gpm18 0 0>;
 				sec-mst,mst-en-gpio = <&gpp7 7 0>;
 				sec-mst,mst-data-gpio = <&gpp7 6 0>;

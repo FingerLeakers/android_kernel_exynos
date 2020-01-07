@@ -862,6 +862,9 @@ static ssize_t decon_debug_bts_write(struct file *file, const char __user *buf,
 	char *buf_data;
 	int ret;
 
+	if (count <= 0)
+		return count;
+
 	buf_data = kmalloc(count, GFP_KERNEL);
 	if (buf_data == NULL)
 		return count;

@@ -161,6 +161,9 @@
 #define NAN_MAX_NDP_PEER			8u
 #define NAN_DISABLE_CMD_DELAY			2000u
 
+#define NAN_NMI_RAND_PVT_CMD_VENDOR		(1 << 31)
+#define NAN_NMI_RAND_CLUSTER_MERGE_ENAB		(1 << 30)
+
 #ifdef WL_NAN_DEBUG
 #define NAN_MUTEX_LOCK() {WL_DBG(("Mutex Lock: Enter: %s\n", __FUNCTION__)); \
 	mutex_lock(&cfg->nancfg->nan_sync);}
@@ -199,6 +202,7 @@
 #define	NAN_ATTR_IF_ADDR_CONFIG			(1<<26)
 #define	NAN_ATTR_OUI_CONFIG			(1<<27)
 #define	NAN_ATTR_SUB_SID_BEACON_CONFIG		(1<<28)
+#define NAN_ATTR_DISC_BEACON_INTERVAL		(1<<29)
 #define NAN_IOVAR_NAME_SIZE	4u
 #define NAN_XTLV_ID_LEN_SIZE OFFSETOF(bcm_xtlv_t, data)
 #define NAN_RANGING_INDICATE_CONTINUOUS_MASK   0x01
@@ -206,14 +210,25 @@
 #define NAN_RNG_REQ_ACCEPTED_BY_HOST    1
 #define NAN_RNG_REQ_REJECTED_BY_HOST    0
 
+#define NAN_RNG_REQ_ACCEPTED_BY_PEER	0
+#define NAN_RNG_REQ_REJECTED_BY_PEER	1
+
 #define NAN_RNG_GEOFENCE_MAX_RETRY_CNT	3u
+
+/*
+* Discovery Beacon Interval config,
+* Default value is 128 msec in 2G DW and 176 msec in 2G/5G DW.
+*/
+#define NAN_DISC_BCN_INTERVAL_2G_DEF 128u
+#define NAN_DISC_BCN_INTERVAL_5G_DEF 176u
 
 typedef uint32 nan_data_path_id;
 
 typedef enum nan_range_status {
 	NAN_RANGING_INVALID = 0,
 	NAN_RANGING_REQUIRED = 1,
-	NAN_RANGING_IN_PROGRESS = 2
+	NAN_RANGING_SETUP_IN_PROGRESS = 2,
+	NAN_RANGING_SESSION_IN_PROGRESS = 3
 } nan_range_status_t;
 
 typedef enum nan_range_role {
@@ -232,6 +247,13 @@ typedef struct nan_svc_inst {
 
 /* Range Status Flag bits for svc info */
 #define SVC_RANGE_REP_EVENT_ONCE 0x01
+
+#define NAN_RANGING_SETUP_IS_IN_PROG(status) \
+	((status) == NAN_RANGING_SETUP_IN_PROGRESS)
+
+#define NAN_RANGING_IS_IN_PROG(status) \
+	(((status) == NAN_RANGING_SETUP_IN_PROGRESS) || \
+	((status) == NAN_RANGING_SESSION_IN_PROGRESS))
 
 typedef struct nan_svc_info {
 	bool valid;
@@ -494,6 +516,8 @@ typedef struct nan_config_cmd_data {
 	uint8 enable_merge;
 	uint16 cluster_low;
 	uint16 cluster_high;
+	wl_nan_disc_bcn_interval_t disc_bcn_interval;
+	uint32 dw_early_termination;
 } nan_config_cmd_data_t;
 
 typedef struct nan_event_hdr {
@@ -692,17 +716,18 @@ typedef struct wl_nancfg
 	wait_queue_head_t nan_event_wait;
 	bool notify_user;
 	bool mac_rand;
-	int range_type;
 	uint8 max_ndp_count;       /* Max no. of NDPs */
 	nan_ndp_peer_t *nan_ndp_peer_info;
 	nan_data_path_id ndp_id[NAN_MAX_NDP_PEER];
 	uint8 ndpe_enabled;
 	uint8 max_ndi_supported;
 	wl_ndi_data_t *ndi;
+	bool ranging_enable;
 } wl_nancfg_t;
 
 extern bool wl_cfgnan_is_enabled(struct bcm_cfg80211 *cfg);
-extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg, bool force_disable);
+extern int wl_cfgnan_check_nan_disable_pending(struct bcm_cfg80211 *cfg,
+	bool force_disable, bool is_sync_reqd);
 extern int wl_cfgnan_start_handler(struct net_device *ndev,
 	struct bcm_cfg80211 *cfg, nan_config_cmd_data_t *cmd_data, uint32 nan_attr_mask);
 extern int wl_cfgnan_stop_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg);
@@ -908,7 +933,11 @@ typedef enum {
 	NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL            = 220,
 	NAN_ATTRIBUTE_CMD_RESP_DATA			= 221,
 	NAN_ATTRIBUTE_CMD_USE_NDPE			= 222,
-	NAN_ATTRIBUTE_ENABLE_MERGE			= 223
+	NAN_ATTRIBUTE_ENABLE_MERGE			= 223,
+	NAN_ATTRIBUTE_DISCOVERY_BEACON_INTERVAL		= 224,
+	NAN_ATTRIBUTE_NSS				= 225,
+	NAN_ATTRIBUTE_ENABLE_RANGING			= 226,
+	NAN_ATTRIBUTE_DW_EARLY_TERM			= 227
 } NAN_ATTRIBUTE;
 
 enum geofence_suspend_reason {

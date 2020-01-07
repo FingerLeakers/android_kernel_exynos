@@ -235,7 +235,7 @@ typedef volatile struct sbpcieregs {
 			uint32 pcieindaddr; /* indirect access to the internal register: 0x130 */
 			uint32 pcieinddata;	/* Data to/from the internal regsiter: 0x134 */
 			uint32 clkreqenctrl;	/* >= rev 6, Clkreq rdma control : 0x138 */
-			uint32 PAD[177]; /* XXX: last 0x3FC */
+			uint32 PAD[177]; /* last 0x3FC */
 			/* 0x400 - 0x7FF, PCIE Cfg Space, note: not used anymore in PcieGen2 */
 			uint32 pciecfg[4][64];
 		} pcie1;
@@ -929,8 +929,8 @@ typedef volatile struct sbpcieregs {
 #define PCIE2R0_BRCMCAP_BPDATA_OFFSET		52
 #define PCIE2R0_BRCMCAP_CLKCTLSTS_OFFSET	56
 
-/* definition of configuration space registers of PCIe gen2
- * http://hwnbu-twiki.sj.broadcom.com/twiki/pub/Mwgroup/CurrentPcieGen2ProgramGuide/pcie_ep.htm
+/*
+ * definition of configuration space registers of PCIe gen2
  */
 #define PCIECFGREG_STATUS_CMD		0x4
 #define PCIECFGREG_PM_CSR		0x4C
@@ -1263,6 +1263,7 @@ void pcie_watchdog_reset(osl_t *osh, si_t *sih, uint32 wd_mask, uint32 wd_val);
 void pcie_serdes_iddqdisable(osl_t *osh, si_t *sih, sbpcieregs_t *sbpcieregs);
 void pcie_set_trefup_time_100us(si_t *sih);
 uint32 pcie_cto_to_thresh_default(uint corerev);
+uint32 pcie_corereg(osl_t *osh, volatile void *regs, uint32 offset, uint32 mask, uint32 val);
 #endif /* BCMDRIVER */
 
 /* DMA intstatus and intmask */

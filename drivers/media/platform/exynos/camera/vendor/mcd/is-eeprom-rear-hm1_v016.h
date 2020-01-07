@@ -7,6 +7,6 @@
 
 /* PAF calibration Data */
 #define ROM_PAF_CAL_DATA_START_ADDR				0x2300 /* WIDE */
-#define ROM_REAR3_PAF_CAL_DATA_START_ADDR			0x5A00 /* TELE */
+#define ROM_REAR3_PAF_CAL_DATA_START_ADDR			0x2300 /* TELE */
 
 #endif /* IS_EEPROM_REAR_HM1_V016_H */

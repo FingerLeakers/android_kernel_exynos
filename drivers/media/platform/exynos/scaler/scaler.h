@@ -552,6 +552,7 @@ void sc_hwset_vcoef(struct sc_dev *sc, unsigned int coef);
 
 void sc_hwregs_dump(struct sc_dev *sc);
 void sc_ctx_dump(struct sc_ctx *ctx);
+void sc_print_dbg_snapshot(struct sc_ctx *ctx);
 
 /* Added for scaler-ext */
 struct sc_ext_dev *create_scaler_ext_device(struct device *dev);

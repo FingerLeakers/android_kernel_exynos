@@ -23,7 +23,7 @@ static struct dynamic_freq_range *search_dynamic_freq_idx(struct panel_device *p
 	int i, ret = 0;
 	int min, max, array_idx;
 	struct df_freq_tbl_info *df_tbl;
-	struct dynamic_freq_range *array;
+	struct dynamic_freq_range *array = NULL;
 
 	if (band_idx >= FREQ_RANGE_MAX) {
 		panel_err("[DYN_FREQ]:ERR:%s: exceed max band idx : %d\n", __func__, band_idx);
@@ -183,12 +183,14 @@ static int df_notifier(struct notifier_block *self, unsigned long size, void *bu
 			goto exit_notifier;
 		}
 
+		if (freq_info->ddi_osc != 0)
+			panel_info("[DYN_FREQ]:WANR:%s: not support dual osc\n", __func__);
+#if 0
 		if (freq_info->ddi_osc != dyn_status->current_ddi_osc) {
 			panel_info("[DYN_FREQ]:INFO:%s: ddi osc was chagned %d -> %d\n",
 				__func__, dyn_status->current_ddi_osc, freq_info->ddi_osc);
-			dyn_status->request_ddi_osc = freq_info->ddi_osc;
 		}
-
+#endif
 		if (freq_info->freq_idx != dyn_status->current_df)
 			dynamic_freq_update(panel, freq_info->freq_idx);
 

@@ -248,8 +248,10 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 	 * Only if the new pte is valid and kernel, otherwise TLB maintenance
 	 * or update_mmu_cache() have the necessary barriers.
 	 */
-	if (pte_valid_not_user(pte))
+	if (pte_valid_not_user(pte)) {
 		dsb(ishst);
+		isb();
+	}
 }
 
 extern void __sync_icache_dcache(pte_t pteval);
@@ -294,23 +296,6 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 	}
 
 	set_pte(ptep, pte);
-}
-
-#define __HAVE_ARCH_PTE_SAME
-static inline int pte_same(pte_t pte_a, pte_t pte_b)
-{
-	pteval_t lhs, rhs;
-
-	lhs = pte_val(pte_a);
-	rhs = pte_val(pte_b);
-
-	if (pte_present(pte_a))
-		lhs &= ~PTE_RDONLY;
-
-	if (pte_present(pte_b))
-		rhs &= ~PTE_RDONLY;
-
-	return (lhs == rhs);
 }
 
 /*
@@ -443,8 +428,8 @@ extern pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 				 PMD_TYPE_SECT)
 
 #if defined(CONFIG_ARM64_64K_PAGES) || CONFIG_PGTABLE_LEVELS < 3
-#define pud_sect(pud)		(0)
-#define pud_table(pud)		(1)
+static inline bool pud_sect(pud_t pud) { return false; }
+static inline bool pud_table(pud_t pud) { return true; }
 #else
 #define pud_sect(pud)		((pud_val(pud) & PUD_TYPE_MASK) == \
 				 PUD_TYPE_SECT)
@@ -468,7 +453,8 @@ static inline void set_pmd(pmd_t *pmdp, pmd_t pmd)
 #else
 	WRITE_ONCE(*pmdp, pmd);
 #endif
-     dsb(ishst);
+	dsb(ishst);
+	isb();
 }
 
 static inline void pmd_clear(pmd_t *pmdp)
@@ -533,6 +519,7 @@ static inline void set_pud(pud_t *pudp, pud_t pud)
 	WRITE_ONCE(*pudp, pud);
 #endif
 	dsb(ishst);
+	isb();
 }
 
 static inline void pud_clear(pud_t *pudp)

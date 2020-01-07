@@ -396,6 +396,9 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan,
 		for (i = 0; i < n_roam_cache; i++) {
 			chanspec_t ch = roam_cache[i].chanspec;
 			bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+				((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 				((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 				((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
@@ -420,6 +423,9 @@ int get_roam_channel_list(struct bcm_cfg80211 *cfg, chanspec_t target_chan,
 	for (i = 0; i < n_roam_cache; i++) {
 		chanspec_t ch = roam_cache[i].chanspec;
 		bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+			((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 			((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 			((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
@@ -553,6 +559,9 @@ void update_roam_cache(struct bcm_cfg80211 *cfg, int ioctl_ver)
 	for (i = 0; i < n_roam_cache; i++) {
 		chanspec_t ch = roam_cache[i].chanspec;
 		bool band_match = ((roam_band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+			((roam_band == WLC_BAND_6G) && (CHSPEC_IS6G(ch))) ||
+#endif /* WL_6G_BAND */
 			((roam_band == WLC_BAND_2G) && (CHSPEC_IS2G(ch))) ||
 			((roam_band == WLC_BAND_5G) && (CHSPEC_IS5G(ch))));
 
@@ -616,6 +625,9 @@ void wl_update_roamscan_cache_by_band(struct net_device *dev, int band)
 	for (i = 0; i < chanlist_before.n; i++) {
 		chanspec_t chspec = chanlist_before.channels[i];
 		bool band_match = ((band == WLC_BAND_AUTO) ||
+#ifdef WL_6G_BAND
+				((band == WLC_BAND_6G) && (CHSPEC_IS6G(chspec))) ||
+#endif /* WL_6G_BAND */
 				((band == WLC_BAND_2G) && (CHSPEC_IS2G(chspec))) ||
 				((band == WLC_BAND_5G) && (CHSPEC_IS5G(chspec))));
 		if (band_match) {

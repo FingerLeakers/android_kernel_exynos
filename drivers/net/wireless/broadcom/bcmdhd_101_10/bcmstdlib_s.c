@@ -184,7 +184,7 @@ exit:
  * @dest: Where to copy the string to
  * @src: Where to copy the string from
  * @size: size of destination buffer 0 if input parameters are NOK
- * return: string leng of src (assume src is NUL terminated)
+ * return: string leng of src (which is always < size) on success or size on failure
  *
  * Compatible with *BSD: the result is always a valid
  * NUL-terminated string that fits in the buffer (unless,
@@ -193,44 +193,30 @@ exit:
  */
 size_t strlcpy(char *dest, const char *src, size_t size)
 {
-	const char *s = src;
-	size_t n;
+	size_t i;
 
-	if (dest == NULL) {
+	if (dest == NULL || size == 0) {
 		return 0;
 	}
 
-	/* terminate dest if src is NULL and return 0 as only NULL was added */
-	if (s == NULL) {
+	if (src == NULL) {
 		*dest = '\0';
 		return 0;
 	}
 
-	/* allows us to handle size 0 */
-	if (size == 0) {
-		n = 0;
-	} else {
-		n = size - 1u;
+	for (i = 0; i < size; i++) {
+		dest[i] = src[i];
+		if (dest[i] == '\0') {
+			/* success - src string copied */
+			return i;
+		}
 	}
 
-	/* perform copy */
-	while (*s && n != 0) {
-		*dest++ = *s++;
-		n--;
-	}
+	/* NULL terminate since not found in src */
+	dest[size - 1u] = '\0';
 
-	*dest = '\0';
-
-	/* count to end of s or compensate for NULL */
-	if (n == 0) {
-		while (*s++)
-			;
-	} else {
-		s++;
-	}
-
-	/* return bytes copied not accounting NUL */
-	return (s - src - 1u);
+	/* fail - src string truncated */
+	return size;
 }
 #endif /* !defined(FREEBSD) && !defined(MACOSX) && !defined(BCM_USE_PLATFORM_STRLCPY) */
 

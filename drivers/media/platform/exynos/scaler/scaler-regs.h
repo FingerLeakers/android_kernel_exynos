@@ -204,7 +204,7 @@
 static inline void sc_hwset_clk_request(struct sc_dev *sc, bool enable)
 {
 	if (sc->version >= SCALER_VERSION(5, 0, 1))
-		__raw_writel(enable ? 1 : 0, sc->regs + SCALER_CLK_REQ);
+		writel(enable ? 1 : 0, sc->regs + SCALER_CLK_REQ);
 }
 
 static inline void sc_hwset_src_pos(struct sc_dev *sc, __s32 left, __s32 top,
@@ -281,7 +281,7 @@ static inline void sc_hwset_int_en(struct sc_dev *sc)
 static inline void sc_clear_aux_power_cfg(struct sc_dev *sc)
 {
 	/* Clearing all power saving features */
-	__raw_writel(__raw_readl(sc->regs + SCALER_CFG) & ~SCALER_CFG_DRCG_EN,
+	writel(readl(sc->regs + SCALER_CFG) & ~SCALER_CFG_DRCG_EN,
 			sc->regs + SCALER_CFG);
 }
 
@@ -290,10 +290,10 @@ static inline void sc_hwset_bus_idle(struct sc_dev *sc)
 	if (sc->version >= SCALER_VERSION(5, 0, 1)) {
 		int cnt = 1000;
 
-		__raw_writel(SCALER_CFG_STOP_REQ, sc->regs + SCALER_CFG);
+		writel(SCALER_CFG_STOP_REQ, sc->regs + SCALER_CFG);
 
 		while (cnt-- > 0)
-			if (__raw_readl(sc->regs + SCALER_CFG)
+			if (readl(sc->regs + SCALER_CFG)
 						& SCALER_CFG_RESET_OKAY)
 				break;
 
@@ -337,7 +337,7 @@ static inline void sc_hwset_soft_reset_no_bus_idle(struct sc_dev *sc)
 
 static inline void sc_hwset_start(struct sc_dev *sc)
 {
-	unsigned long cfg = __raw_readl(sc->regs + SCALER_CFG);
+	unsigned long cfg = readl(sc->regs + SCALER_CFG);
 
 	cfg |= SCALER_CFG_START_CMD;
 	if (sc->version >= SCALER_VERSION(3, 0, 1)) {

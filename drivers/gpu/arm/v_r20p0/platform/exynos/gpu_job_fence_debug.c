@@ -166,7 +166,10 @@ int gpu_job_fence_status_dump(struct sync_fence *timeout_fence)
 #endif
 #include "mali_kbase_sync.h"
 
+/* #define MALI_SEC_DEPENDENCY_CHECK */
+
 int gpu_job_fence_status_dump(struct sync_file *timeout_sync_file);
+#ifdef MALI_SEC_DEPENDENCY_CHECK
 void gpu_fence_debug_check_dependency_atom(struct kbase_jd_atom *katom)
 {
 	struct kbase_context *kctx = katom->kctx;
@@ -225,6 +228,7 @@ void gpu_fence_debug_check_dependency_atom(struct kbase_jd_atom *katom)
 		}
 	}
 }
+#endif
 
 extern struct kbase_device *pkbdev;
 int gpu_job_fence_status_dump(struct sync_file *timeout_sync_file)
@@ -311,11 +315,13 @@ int gpu_job_fence_status_dump(struct sync_file *timeout_sync_file)
 						}
 					}
 				}
+#ifdef MALI_SEC_DEPENDENCY_CHECK
 				/* Print dependency atom infomation */
 				if (kctx->jctx.atoms[i].status == KBASE_JD_ATOM_STATE_QUEUED || kctx->jctx.atoms[i].status == KBASE_JD_ATOM_STATE_IN_JS) {
 					dev_warn(dev, "\t\t\t-- Dependency Atom List\n");
 					gpu_fence_debug_check_dependency_atom(&kctx->jctx.atoms[i]);
 				}
+#endif
 				/* spin_unlock_irqrestore(&kctx->waiting_soft_jobs_lock, lflags); */
 
 			}

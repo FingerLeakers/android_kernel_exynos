@@ -45,12 +45,12 @@
 			/* middle cores */
 			coregroup1 {
 				coverage-ratio = <30>;
-				active-ratio = <3>;
+				active-ratio = <100>;
 			};
 			/* big cores */
 			coregroup2 {
 				coverage-ratio = <30>;
-				active-ratio = <5>;
+				active-ratio = <100>;
 			};
 		};
 
@@ -70,6 +70,25 @@
 				active-ratio-limit = <30>;
 				active-ratio-boost = <0>;
 			};
+		};
+
+		pmu_cont {
+			victim_cpus = "4-5";
+			attacker_cpus = "6-7";
+			contention_cpus = "0-5";
+			attacker_search_timout_msec = <32>;
+
+			victim {
+				search_hist_size = <4>;
+				event_thr = <850>;
+				active_thr = <700>;
+			};
+			attacker {
+				search_hist_size = <1>;
+				event_thr = <10>;
+				active_thr = <850>;
+			};
+
 		};
 
 		emstune {
@@ -125,6 +144,23 @@
 						set = <&set11>;
 					};
 				};
+				mode3 {
+					desc = "light-game";
+					boost_level = <3>;
+
+					level0 {
+						set = <&set12>;
+					};
+					level1 {
+						set = <&set13>;
+					};
+					level2 {
+						set = <&set14>;
+					};
+					level3 {
+						set = <&set15>;
+					};
+				};
 			};
 
 			set0: set@0000{
@@ -137,20 +173,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 200 200  33  45>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 200 200  33  45>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = <100 100 100 100 200 200  20  25>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = <100 100 100 100 200 200  20  25>;
+					rt              = <100 100 100 100 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
 				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 250 250  41  56>;
-					foreground      = <125 125 125 125 250 250  41  56>;
-					background      = <125 125 125 125 250 250  41  56>;
-					top-app         = <125 125 125 125 250 250  41  56>;
-					rt              = <125 125 125 125 250 250  41  56>;
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 400 400  40  50>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 400 400  40  50>;
+					rt              = <200 200 200 200 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -206,20 +242,30 @@
 							upper-boundary = <51>;
 						};
 						domain1 {
-							cpus = "4-5";
+							cpus = "4-7";
 							lower-boundary = <41>;
-							upper-boundary = <344>;
-						};
-						domain2 {
-							cpus = "6-7";
-							lower-boundary = <235>;
 							upper-boundary = <1024>;
 						};
 					};
 				};
-
 				util_est {	/* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <   25 25 25 25 25  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25 100 100>;
 				};
 			};
 
@@ -233,20 +279,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <800 800 800 800 200 200  33  45>;
-					foreground      = <800 800 800 800 200 200  33  45>;
-					background      = <800 800 800 800 200 200  33  45>;
-					top-app         = <800 800 800 800 200 200  33  45>;
-					rt              = <800 800 800 800 200 200  33  45>;
+					root            = <1280 1280 1280 1280 200 200  20  25>;
+					foreground      = <1280 1280 1280 1280 200 200  20  25>;
+					background      = <1280 1280 1280 1280 200 200  20  25>;
+					top-app         = <1280 1280 1280 1280 200 200  20  25>;
+					rt              = <1280 1280 1280 1280 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = <1000 1000 1000 1000 250 250  41  56>;
-					foreground      = <1000 1000 1000 1000 250 250  41  56>;
-					background      = <1000 1000 1000 1000 250 250  41  56>;
-					top-app         = <1000 1000 1000 1000 250 250  41  56>;
-					rt              = <1000 1000 1000 1000 250 250  41  56>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <2560 2560 2560 2560 400 400  40  50>;
+					foreground      = <2560 2560 2560 2560 400 400  40  50>;
+					background      = <2560 2560 2560 2560 400 400  40  50>;
+					top-app         = <2560 2560 2560 2560 400 400  40  50>;
+					rt              = <2560 2560 2560 2560 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -302,13 +348,8 @@
 							upper-boundary = <51>;
 						};
 						domain1 {
-							cpus = "4-5";
+							cpus = "4-7";
 							lower-boundary = <41>;
-							upper-boundary = <344>;
-						};
-						domain2 {
-							cpus = "6-7";
-							lower-boundary = <235>;
 							upper-boundary = <1024>;
 						};
 					};
@@ -316,6 +357,22 @@
 
 				util_est {	/* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <   25 25 25 25 25  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25 100 100>;
 				};
 			};
 
@@ -329,20 +386,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 200 200  33  45>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 200 200  33  45>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = <100 100 100 100 200 200  20  25>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = <100 100 100 100 200 200  20  25>;
+					rt              = <100 100 100 100 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
 				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 250 250  41  56>;
-					foreground      = <125 125 125 125 250 250  41  56>;
-					background      = <125 125 125 125 250 250  41  56>;
-					top-app         = <125 125 125 125 250 250  41  56>;
-					rt              = <125 125 125 125 250 250  41  56>;
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 400 400  40  50>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 400 400  40  50>;
+					rt              = <200 200 200 200 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -398,13 +455,8 @@
 							upper-boundary = <51>;
 						};
 						domain1 {
-							cpus = "4-5";
+							cpus = "4-7";
 							lower-boundary = <41>;
-							upper-boundary = <344>;
-						};
-						domain2 {
-							cpus = "6-7";
-							lower-boundary = <235>;
 							upper-boundary = <1024>;
 						};
 					};
@@ -412,6 +464,22 @@
 
 				util_est {	/* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <   25 25 25 25 25  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25 100 100>;
 				};
 			};
 
@@ -421,20 +489,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 300 300 200 212>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 300 300 200 212>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <100 100 100 100 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = < 125  125  125  125 250 250  41  56>;
-					foreground      = < 125  125  125  125 600 600 300 318>;
-					background      = < 125  125  125  125 250 250  41  56>;
-					top-app         = < 125  125  125  125 600 600 300 318>;
-					rt              = < 125  125  125  125 250 250  41  56>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <200 200 200 200 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -453,20 +521,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <800 800 800 800 200 200  33  45>;
-					foreground      = <100 100 100 100 300 300 200 212>;
-					background      = <800 800 800 800 200 200  33  45>;
-					top-app         = <100 100 100 100 300 300 200 212>;
-					rt              = <800 800 800 800 200 200  33  45>;
+					root            = <1280 1280 1280 1280 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <1280 1280 1280 1280 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <1280 1280 1280 1280 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = <1000 1000 1000 1000 250 250  41  56>;
-					foreground      = < 125  125  125  125 600 600 300 318>;
-					background      = <1000 1000 1000 1000 250 250  41  56>;
-					top-app         = < 125  125  125  125 600 600 300 318>;
-					rt              = <1000 1000 1000 1000 250 250  41  56>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <2560 2560 2560 2560 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <2560 2560 2560 2560 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <2560 2560 2560 2560 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -485,20 +553,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 300 300 200 212>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 300 300 200 212>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <100 100 100 100 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = < 125  125  125  125 250 250  41  56>;
-					foreground      = < 125  125  125  125 600 600 300 318>;
-					background      = < 125  125  125  125 250 250  41  56>;
-					top-app         = < 125  125  125  125 600 600 300 318>;
-					rt              = < 125  125  125  125 250 250  41  56>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <200 200 200 200 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -517,20 +585,20 @@
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 300 300 200 212>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 300 300 200 212>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <100 100 100 100 200 200  20  25>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = < 125  125  125  125 250 250  41  56>;
-					foreground      = < 125  125  125  125 600 600 300 318>;
-					background      = < 125  125  125  125 250 250  41  56>;
-					top-app         = < 125  125  125  125 600 600 300 318>;
-					rt              = < 125  125  125  125 250 250  41  56>;
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <200 200 200 200 400 400  40  50>;
 				};
 
 				/* Boosting margin applied to frequency selection */
@@ -541,11 +609,327 @@
 					top-app         = < 20 20 20 20 20 20 20 20 >;
 					rt              = <  0  0  0  0  0  0  0  0 >;
 				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
 			};
 
 			set7: set@0007{
 				idx = <7>;
 				desc = "power-scenario touch boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <1280 1280 1280 1280 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <1280 1280 1280 1280 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <1280 1280 1280 1280 200 200  20  25>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <2560 2560 2560 2560 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <2560 2560 2560 2560 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <2560 2560 2560 2560 400 400  40  50>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
+			};
+
+			set8: set@0008{
+				idx = <8>;
+				desc = "performance touch boost";
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 200 200  20  25>;
+					foreground      = < 50  50  50  50 150 150 100 106>;
+					background      = <100 100 100 100 200 200  20  25>;
+					top-app         = < 50  50  50  50 150 150 100 106>;
+					rt              = <100 100 100 100 200 200  20  25>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <200 200 200 200 400 400  40  50>;
+					foreground      = <200 200 200 200 7600 7600 3800 4028>;
+					background      = <200 200 200 200 400 400  40  50>;
+					top-app         = <200 200 200 200 7600 7600 3800 4028>;
+					rt              = <200 200 200 200 400 400  40  50>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80 20 20 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
+			};
+
+			set9: set@0009{
+				idx = <9>;
+				desc = "normal big boost";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 100 100 100 100>;
+					foreground      = <100 100 100 100 200 200 300 300>;
+					background      = <100 100 100 100 100 100 100 100>;
+					top-app         = <100 100 100 100 200 200 300 300>;
+					rt              = <100 100 100 100 200 200 100 100>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  5  5  5  5  5  5  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  1  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <    0  0  0  0  0  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
+			};
+
+			set10: set@0010{
+				idx = <10>;
+				desc = "power-scenario big boost";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 100 100 100 100>;
+					foreground      = <100 100 100 100 200 200 300 300>;
+					background      = <100 100 100 100 100 100 100 100>;
+					top-app         = <100 100 100 100 200 200 300 300>;
+					rt              = <100 100 100 100 200 200 100 100>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = <  0  0  0  0  0  0  0  0 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  1  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <    0  0  0  0  0  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
+			};
+
+			set11: set@0011{
+				idx = <11>;
+				desc = "performance big boost";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <100 100 100 100 100 100 100 100>;
+					foreground      = <100 100 100 100 200 200 300 300>;
+					background      = <100 100 100 100 100 100 100 100>;
+					top-app         = <100 100 100 100 200 200 300 300>;
+					rt              = <100 100 100 100 200 200 100 100>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+					root            = <  0  0  0  0  0  0  0  0 >;
+					foreground      = <  0  0  0  0  0  0  0  0 >;
+					background      = <  0  0  0  0  0  0  0  0 >;
+					top-app         = < 80 80 80 80 80 80  5  5 >;
+					rt              = <  0  0  0  0  0  0  0  0 >;
+				};
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  1  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <    0  0  0  0  0  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25   3   5>;
+				};
+			};
+
+			set12: set@0012{
+				idx = <12>;
+				desc = "light-game default";
+
+				prefer_idle {   /* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+				};
+
+				/* weight (%) applied to active cpu's efficiency */
+				weight {           /* cpu    0   1   2   3   4   5   6   7 */
+					root            = <800 800 800 800 200 200  33  45>;
+					foreground      = <800 800 800 800 200 200  33  45>;
+					background      = <800 800 800 800 200 200  33  45>;
+					top-app         = <800 800 800 800 200 200  33  45>;
+					rt              = <800 800 800 800 200 200  33  45>;
+				};
+
+				/* weight (%) applied to idle cpu's efficiency */
+				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = <1000 1000 1000 1000 250 250  41  56>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = <1000 1000 1000 1000 250 250  41  56>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
+				};
+
+				/* Boosting margin applied to frequency selection */
+                                freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+                                        root            = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        foreground      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        background      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        top-app         = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        rt              = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                };
+
+				/* cpus allowed applied to core selection */
+				cpus_allowed {
+					target-sched-class = <EMS_SCHED_FAIR>;
+
+					root		= "0-7";
+					foreground 	= "0-7";
+					background	= "0-7";
+					top-app		= "0-7";
+					rt		= "0-7";
+				};
+
+				/* gov-data used by CPUFreq governor */
+				esg {		/* LIT MED BIG */
+					step		= < 4  6  8>;
+				};
+
+				/* Ontime Migration */
+				ontime {        /* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+
+					dom_list_u {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <105>;
+						};
+						domain1 {
+							cpus = "4-5";
+							lower-boundary = <106>;
+							upper-boundary = <733>;
+						};
+						domain2 {
+							cpus = "6-7";
+							lower-boundary = <768>;
+							upper-boundary = <1024>;
+						};
+					};
+					dom_list_s {
+						domain0 {
+							cpus = "0-3";
+							lower-boundary = <0>;
+							upper-boundary = <51>;
+						};
+						domain1 {
+							cpus = "4-7";
+							lower-boundary = <41>;
+							upper-boundary = <1024>;
+						};
+					};
+				};
+
+				util_est {	/* root fg bg ta rt */
+					enabled  = <  0  1  0  1  0  >;
+				};
+
+
+				prio_pinning {	/* root fg bg ta rt */
+					enabled  = <  0  0  0  0  0  >;
+
+					mask = "6-7";
+					prio = <110>;
+				};
+
+				init_util {	/* root fg bg ta rt */
+					ratio  = <   25 25 25 25 25  >;
+				};
+
+				frt {	   		/* LIT MED BIG */
+					coverage_ratio =  < 30  30  30>;
+					active_ratio =	  < 25 100 100>;
+				};
+			};
+
+			set13: set@0013{
+				idx = <13>;
+				desc = "light-game med boost";
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
@@ -565,95 +949,49 @@
 					rt              = <1000 1000 1000 1000 250 250  41  56>;
 				};
 
-				/* Boosting margin applied to frequency selection */
-				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
-					root            = <  0  0  0  0  0  0  0  0 >;
-					foreground      = <  0  0  0  0  0  0  0  0 >;
-					background      = <  0  0  0  0  0  0  0  0 >;
-					top-app         = <  0  0  0  0  0  0  0  0 >;
-					rt              = <  0  0  0  0  0  0  0  0 >;
-				};
+                                freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+                                        root            = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        foreground      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        background      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        top-app         = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        rt              = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                };
 			};
 
-			set8: set@0008{
-				idx = <8>;
-				desc = "performance touch boost";
+			set14: set@0014{
+				idx = <14>;
+				desc = "light-game touch boost";
 
 				/* weight (%) applied to active cpu's efficiency */
 				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
+					root            = <800 800 800 800 200 200  33  45>;
 					foreground      = <100 100 100 100 300 300 200 212>;
-					background      = <100 100 100 100 200 200  33  45>;
+					background      = <800 800 800 800 200 200  33  45>;
 					top-app         = <100 100 100 100 300 300 200 212>;
-					rt              = <100 100 100 100 200 200  33  45>;
+					rt              = <800 800 800 800 200 200  33  45>;
 				};
 
 				/* weight (%) applied to idle cpu's efficiency */
 				idle_weight {      /* cpu     0    1    2    3   4   5   6   7 */
-					root            = < 125  125  125  125 250 250  41  56>;
-					foreground      = < 125  125  125  125 600 600 300 318>;
-					background      = < 125  125  125  125 250 250  41  56>;
-					top-app         = < 125  125  125  125 600 600 300 318>;
-					rt              = < 125  125  125  125 250 250  41  56>;
+					root            = <1000 1000 1000 1000 250 250  41  56>;
+					foreground      = < 125  125  125  125 600 600 500 518>;
+					background      = <1000 1000 1000 1000 250 250  41  56>;
+					top-app         = < 125  125  125  125 600 600 500 518>;
+					rt              = <1000 1000 1000 1000 250 250  41  56>;
 				};
 
-				/* Boosting margin applied to frequency selection */
-				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
-					root            = <  0  0  0  0  0  0  0  0 >;
-					foreground      = <  0  0  0  0  0  0  0  0 >;
-					background      = <  0  0  0  0  0  0  0  0 >;
-					top-app         = < 80 80 80 80 80 80 20 20 >;
-					rt              = <  0  0  0  0  0  0  0  0 >;
-				};
+                                freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+                                        root            = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        foreground      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        background      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        top-app         = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        rt              = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                };
 			};
 
-			set9: set@0009{
-				idx = <9>;
-				desc = "normal big boost";
-
-				prefer_idle {   /* root fg bg ta rt */
-					enabled  = <  0  1  0  1  0  >;
-				};
-
-				/* weight (%) applied to active cpu's efficiency */
-				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 100 100 100 112>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 100 100 100 112>;
-					rt              = <100 100 100 100 200 200  33  45>;
-				};
-
-				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 250 250  41  56>;
-					foreground      = <125 125 125 125 125 125 125 140>;
-					background      = <125 125 125 125 250 250  41  56>;
-					top-app         = <125 125 125 125 125 125 125 140>;
-					rt              = <125 125 125 125 250 250  41  56>;
-				};
-
-				/* Boosting margin applied to frequency selection */
-				/*
-				 * HACK:
-				 * To support negative boost, compensate dt_value during boottime
-				 * Compensation executed only one time when paring DT during Booting Time
-				 * Compensation Value = DT_Value - 100
-				 * 	0~100   => -100~0
-				 * 	101~200 => 1~100
-				 */
-				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
-					root            = <  0  0  0  0  0  0  0  0 >;
-					foreground      = <  0  0  0  0  0  0  0  0 >;
-					background      = <  0  0  0  0  0  0  0  0 >;
-					top-app         = <  5  5  5  5  5  5  5  5 >;
-					rt              = <  0  0  0  0  0  0  0  0 >;
-				};
-			};
-
-			set10: set@0010{
-				idx = <10>;
-				desc = "power-scenario big boost";
+			set15: set@0015{
+				idx = <15>;
+				desc = "light-game big boost";
 
 				prefer_idle {   /* root fg bg ta rt */
 					enabled  = <  0  1  0  1  0  >;
@@ -677,60 +1015,14 @@
 					rt              = <1000 1000 1000 1000 250 250  41  56>;
 				};
 
-
-				/* Boosting margin applied to frequency selection */
-				/*
-				 * HACK:
-				 * To support negative boost, compensate dt_value during boottime
-				 * Compensation executed only one time when paring DT during Booting Time
-				 * Compensation Value = DT_Value - 100
-				 * 	0~100   => -100~0
-				 * 	101~200 => 1~100
-				 */
-				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
-					root            = <  0  0  0  0  0  0  0  0 >;
-					foreground      = <  0  0  0  0  0  0  0  0 >;
-					background      = <  0  0  0  0  0  0  0  0 >;
-					top-app         = <  0  0  0  0  0  0  0  0 >;
-					rt              = <  0  0  0  0  0  0  0  0 >;
-				};
-			};
-
-			set11: set@0011{
-				idx = <11>;
-				desc = "performance big boost";
-
-				prefer_idle {   /* root fg bg ta rt */
-					enabled  = <  0  1  0  1  0  >;
-				};
-
-				/* weight (%) applied to active cpu's efficiency */
-				weight {           /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <100 100 100 100 200 200  33  45>;
-					foreground      = <100 100 100 100 100 100 100 112>;
-					background      = <100 100 100 100 200 200  33  45>;
-					top-app         = <100 100 100 100 100 100 100 112>;
-					rt              = <100 100 100 100 200 200  33  45>;
-				};
-
-				/* weight (%) applied to idle cpu's efficiency */
-				idle_weight {      /* cpu    0   1   2   3   4   5   6   7 */
-					root            = <125 125 125 125 250 250  41  56>;
-					foreground      = <125 125 125 125 125 125 125 140>;
-					background      = <125 125 125 125 250 250  41  56>;
-					top-app         = <125 125 125 125 125 125 125 140>;
-					rt              = <125 125 125 125 250 250  41  56>;
-				};
-
-				/* Boosting margin applied to frequency selection */
-				freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
-					root            = <  0  0  0  0  0  0  0  0 >;
-					foreground      = <  0  0  0  0  0  0  0  0 >;
-					background      = <  0  0  0  0  0  0  0  0 >;
-					top-app         = < 80 80 80 80 80 80  5  5 >;
-					rt              = <  0  0  0  0  0  0  0  0 >;
-				};
-			};
+                                freq_boost {       /* cpu    0  1  2  3  4  5  6  7 */
+                                        root            = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        foreground      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        background      = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        top-app         = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                        rt              = < (-20) (-20) (-20) (-20) (-30) (-30) (-20) (-20) >;
+                                };
+		       };
 		};
 	};
 };

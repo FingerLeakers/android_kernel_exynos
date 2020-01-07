@@ -18,11 +18,9 @@
 
 #include "linkforward-ioctl.h"
 
-#define OFFLOAD_MAX_DOWNSTREAM 2
-
 enum {
-	OFFLOAD_RX__FORWARD,
-	OFFLOAD_TX__FORWARD,
+	OFFLOAD_RX_FORWARD,
+	OFFLOAD_TX_FORWARD,
 	OFFLOAD_MAX_FORWARD
 };
 
@@ -33,18 +31,17 @@ enum offload_state {
 };
 
 struct linkforward_offload_stat_t {
-	atomic64_t fwd_bytes;	/* double updating stat */
+	atomic64_t fwd_bytes;
 	atomic64_t reqst_fwd_bytes;
 	atomic64_t limit_fwd_bytes;
 };
 
 struct linkforward_offload_ctl_t {
 	struct iface_info upstream;
-	struct iface_info downstream[OFFLOAD_MAX_DOWNSTREAM];
+	struct iface_info downstream;
 
 	struct linkforward_offload_stat_t stat[OFFLOAD_MAX_FORWARD]; /* 0: RX(DL), 1: TX(UL) */
 	enum offload_state	status;
-	bool	config_enabled;
 
 	wait_queue_head_t	wq;
 	struct list_head	events;
@@ -58,16 +55,14 @@ struct linkforward_event {
 
 void offload_gen_event(int event);
 bool offload_keeping_bw(void);
-bool offload_config_enabled(void);
 int offload_get_status(void);
+bool offload_enabled(void);
 void offload_update_reqst(int DIR, int len);
 void offload_update_tx_stat(int len);
 void offload_update_rx_stat(int len);
+u64 get_rx_offload_fwd_bytes(void);
+u64 get_tx_offload_fwd_bytes(void);
 struct linkforward_offload_ctl_t *offload_init_ctrl(void);
-void offload_reset(void);
 int offload_initialize(void);
-
-/* Test purpose */
-void perftest_offload_change_status(enum offload_state st);
 
 #endif /* __LINKFORWARD_OFFLOAD_H */

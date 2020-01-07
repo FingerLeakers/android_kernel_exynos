@@ -31,6 +31,8 @@
 
 #include <soc/samsung/exynos-itmon.h>
 
+#include <linux/debug-snapshot.h>
+
 #include "scaler.h"
 #include "scaler-regs.h"
 
@@ -772,7 +774,7 @@ void sc_request_devfreq(struct sc_qos_request *qos_req,
 			PM_QOS_DEVICE_THROUGHPUT, qos_table[lv].freq_int);
 }
 
-static bool sc_get_pm_qos_level_by_data_size(struct sc_ctx *ctx, int framerate)
+static int sc_get_pm_qos_level_by_data_size(struct sc_ctx *ctx, int framerate)
 {
 	struct sc_dev *sc = ctx->sc_dev;
 	struct sc_frame *frame = &ctx->d_frame;
@@ -799,13 +801,7 @@ static bool sc_get_pm_qos_level_by_data_size(struct sc_ctx *ctx, int framerate)
 	if (i == sc->qos_table_cnt)
 		i--;
 
-	/* No request is required if level is same. */
-	if (ctx->pm_qos_lv == i)
-		return false;
-
-	ctx->pm_qos_lv = i;
-
-	return true;
+	return i;
 }
 
 /*
@@ -847,7 +843,7 @@ static int sc_get_clock_khz(struct sc_ctx *ctx,
 	return (int)clk;
 }
 
-static bool sc_get_pm_qos_level_by_ppc(struct sc_ctx *ctx, int framerate)
+static int sc_get_pm_qos_level_by_ppc(struct sc_ctx *ctx, int framerate)
 {
 	struct sc_dev *sc = ctx->sc_dev;
 	struct sc_qos_table *qos_table = sc->qos_table;
@@ -865,22 +861,16 @@ static bool sc_get_pm_qos_level_by_ppc(struct sc_ctx *ctx, int framerate)
 			break;
 	}
 
-	/* No request is required if level is same. */
-	if (ctx->pm_qos_lv == i)
-		return false;
-
-	ctx->pm_qos_lv = i;
-
-	return true;
+	return i;
 }
 
-static bool sc_get_pm_qos_level(struct sc_ctx *ctx, int framerate)
+static int sc_get_pm_qos_level(struct sc_ctx *ctx, int framerate)
 {
 	struct sc_dev *sc = ctx->sc_dev;
 
 	/* No need to calculate if no qos_table exists. */
 	if (!sc->qos_table)
-		return false;
+		return -1;
 
 	if (!sc->ppc_table)
 		return sc_get_pm_qos_level_by_data_size(ctx, framerate);
@@ -2322,6 +2312,8 @@ static bool sc_configure_rotation_degree(struct sc_ctx *ctx, int degree)
 
 static void sc_set_framerate(struct sc_ctx *ctx, int framerate)
 {
+	int ret_qos_lv;
+
 	if (!ctx->sc_dev->qos_table)
 		return;
 
@@ -2330,15 +2322,21 @@ static void sc_set_framerate(struct sc_ctx *ctx, int framerate)
 		cancel_delayed_work(&ctx->qos_work);
 		sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
 		ctx->framerate = 0;
+		ctx->pm_qos_lv = -1;
 	} else {
 		if (framerate != ctx->framerate) {
 			ctx->framerate = framerate;
-			if (!sc_get_pm_qos_level(ctx, ctx->framerate)) {
+			ret_qos_lv = sc_get_pm_qos_level(ctx, ctx->framerate);
+			if (ret_qos_lv < 0) {
 				mutex_unlock(&ctx->pm_qos_lock);
 				return;
 			}
-			sc_request_devfreq(&ctx->pm_qos,
+			/* No request is required if level is same. */
+			if (ret_qos_lv != ctx->pm_qos_lv) {
+				ctx->pm_qos_lv = ret_qos_lv;
+				sc_request_devfreq(&ctx->pm_qos,
 					ctx->sc_dev->qos_table, ctx->pm_qos_lv);
+			}
 		}
 		mod_delayed_work(system_wq,
 				&ctx->qos_work, msecs_to_jiffies(50));
@@ -2498,6 +2496,7 @@ static const struct v4l2_ctrl_config sc_custom_ctrl[] = {
 		.id = SC_CID_FRAMERATE,
 		.name = "Frame rate setting",
 		.type = V4L2_CTRL_TYPE_INTEGER,
+		.flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE,
 		.step = 1,
 		.min = 0,
 		.max = SC_FRAMERATE_MAX,
@@ -2613,6 +2612,7 @@ static void sc_timeout_qos_work(struct work_struct *work)
 
 	sc_remove_devfreq(&ctx->pm_qos, ctx->sc_dev->qos_table);
 	ctx->framerate = 0;
+	ctx->pm_qos_lv = -1;
 
 	mutex_unlock(&ctx->pm_qos_lock);
 }
@@ -2636,6 +2636,11 @@ static int sc_open(struct file *file)
 	ctx->sc_dev = sc;
 
 	v4l2_fh_init(&ctx->fh, sc->m2m.vfd);
+
+	INIT_DELAYED_WORK(&ctx->qos_work, sc_timeout_qos_work);
+	ctx->pm_qos_lv = -1;
+	mutex_init(&ctx->pm_qos_lock);
+
 	ret = sc_add_ctrls(ctx);
 	if (ret)
 		goto err_fh;
@@ -2672,10 +2677,6 @@ static int sc_open(struct file *file)
 		ret = -EINVAL;
 		goto err_ctx;
 	}
-
-	INIT_DELAYED_WORK(&ctx->qos_work, sc_timeout_qos_work);
-	ctx->pm_qos_lv = -1;
-	mutex_init(&ctx->pm_qos_lock);
 
 	return 0;
 
@@ -3039,10 +3040,11 @@ static int sc_run_next_job(struct sc_dev *sc)
 		return 0;
 	}
 
+	sc_print_dbg_snapshot(ctx);
+
 	s_frame = &ctx->s_frame;
 	d_frame = &ctx->d_frame;
 
-	sc_hwset_init(sc);
 	sc_hwset_clk_request(sc, true);
 
 	if (ctx->context_type == SC_CTX_EXT_TYPE)
@@ -3053,8 +3055,6 @@ static int sc_run_next_job(struct sc_dev *sc)
 		d_frame = &ctx->i_frame->frame;
 	}
 
-	sc_set_csc_coef(ctx);
-
 	sc_hwset_src_image_format(sc, s_frame->sc_fmt);
 	sc_hwset_dst_image_format(sc, d_frame->sc_fmt);
 
@@ -3062,6 +3062,8 @@ static int sc_run_next_job(struct sc_dev *sc)
 
 	sc_hwset_src_imgsize(sc, s_frame);
 	sc_hwset_dst_imgsize(sc, d_frame);
+
+	sc_set_csc_coef(ctx);
 
 	h_ratio = ctx->h_ratio;
 	v_ratio = ctx->v_ratio;
@@ -3200,6 +3202,8 @@ static irqreturn_t sc_irq_handler(int irq, void *priv)
 	ctx = sc->current_ctx;
 
 	BUG_ON(!ctx);
+
+	__dbg_snapshot_printk("MSCL job done\n");
 
 	irq_status = sc_hwget_and_clear_irq_status(sc);
 
@@ -3434,12 +3438,29 @@ static void sc_m2m_device_run(void *priv)
 	struct sc_ctx *ctx = priv;
 	struct sc_dev *sc = ctx->sc_dev;
 	struct sc_frame *s_frame, *d_frame;
+	struct vb2_buffer *src_vb, *dst_vb;
+	struct vb2_v4l2_buffer *src_vb_v4l2, *dst_vb_v4l2;
 
 	s_frame = &ctx->s_frame;
 	d_frame = &ctx->d_frame;
 
-	sc_get_bufaddr(sc, v4l2_m2m_next_src_buf(ctx->m2m_ctx), s_frame);
-	sc_get_bufaddr(sc, v4l2_m2m_next_dst_buf(ctx->m2m_ctx), d_frame);
+	src_vb = v4l2_m2m_next_src_buf(ctx->m2m_ctx);
+	dst_vb = v4l2_m2m_next_dst_buf(ctx->m2m_ctx);
+
+	if (src_vb->state == VB2_BUF_STATE_ERROR ||
+	    dst_vb->state == VB2_BUF_STATE_ERROR) {
+		src_vb_v4l2 = v4l2_m2m_src_buf_remove(ctx->m2m_ctx);
+		dst_vb_v4l2 = v4l2_m2m_dst_buf_remove(ctx->m2m_ctx);
+
+		v4l2_m2m_buf_done(src_vb_v4l2, VB2_BUF_STATE_ERROR);
+		v4l2_m2m_buf_done(dst_vb_v4l2, VB2_BUF_STATE_ERROR);
+
+		v4l2_m2m_job_finish(sc->m2m.m2m_dev, ctx->m2m_ctx);
+		return;
+	}
+
+	sc_get_bufaddr(sc, src_vb, s_frame);
+	sc_get_bufaddr(sc, dst_vb, d_frame);
 
 	sc_add_context_and_run(sc, ctx);
 }

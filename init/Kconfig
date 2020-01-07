@@ -1080,6 +1080,15 @@ config SCHED_USE_FLUID_RT
 	And in some circumstances, she allows the task of lower priority
 	to preempt the higher one based on weighted load.
 
+config SCHED_PMU_CONT
+	bool "Enable PMU Contention Avg Tracker"
+	depends on SCHED_EMS
+	default n
+	help
+	PMU Cont Avg helps to release exclusive-read/store contention status by
+	tarking pmu event count. If it detects problem status, It helps to release
+	problem by re-arrange tasks.
+
 config CHECKPOINT_RESTORE
 	bool "Checkpoint/restore support"
 	select PROC_CHILDREN
@@ -2151,3 +2160,5 @@ config ARCH_HAS_SYNC_CORE_BEFORE_USERMODE
 # <asm/syscall_wrapper.h>.
 config ARCH_HAS_SYSCALL_WRAPPER
 	def_bool n
+
+source "kernel/ftt/Kconfig"

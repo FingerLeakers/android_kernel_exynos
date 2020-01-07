@@ -7644,12 +7644,20 @@ dhd_bus_console_in(dhd_pub_t *dhdp, uchar *msg, uint msglen)
 
 	/* Zero cbuf_index */
 	addr = bus->console_addr + OFFSETOF(hnd_cons_t, cbuf_idx);
+	/* handle difference in definition of hnd_log_t in certain branches */
+	if (dhdp->wlc_ver_major < 14) {
+		addr -= sizeof(uint32);
+	}
 	val = htol32(0);
 	if ((rv = dhdsdio_membytes(bus, TRUE, addr, (uint8 *)&val, sizeof(val))) < 0)
 		goto done;
 
 	/* Write message into cbuf */
 	addr = bus->console_addr + OFFSETOF(hnd_cons_t, cbuf);
+	/* handle difference in definition of hnd_log_t in certain branches */
+	if (dhdp->wlc_ver_major < 14) {
+		addr -= sizeof(uint32);
+	}
 	if ((rv = dhdsdio_membytes(bus, TRUE, addr, (uint8 *)msg, msglen)) < 0)
 		goto done;
 
@@ -9651,10 +9659,8 @@ dhd_sr_config(dhd_pub_t *dhd, bool on)
 }
 
 uint16
-dhd_get_chipid(dhd_pub_t *dhd)
+dhd_get_chipid(struct dhd_bus *bus)
 {
-	dhd_bus_t *bus = dhd->bus;
-
 	if (bus && bus->sih)
 		return (uint16)bus->sih->chip;
 	else

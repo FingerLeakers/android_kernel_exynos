@@ -1074,6 +1074,11 @@ u32 pattern_data[] = {
 void dpp_reg_configure_params(u32 id, struct dpp_params_info *p,
 		const unsigned long attr)
 {
+
+#ifdef CONFIG_EXYNOS_MCD_HDR
+	dpp_reg_sel_hdr(id, HDR_PATH_MCD);
+#endif
+
 	if (test_bit(DPP_ATTR_CSC, &attr) && test_bit(DPP_ATTR_DPP, &attr))
 		dpp_reg_set_csc_params(id, p->eq_mode);
 	else if (test_bit(DPP_ATTR_CSC, &attr) && test_bit(DPP_ATTR_ODMA, &attr))

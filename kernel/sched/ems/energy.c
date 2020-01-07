@@ -122,7 +122,7 @@ compute_efficiency(struct task_struct *p, int target_cpu, unsigned int eff_weigh
 	struct energy_table *table = get_energy_table(target_cpu);
 	unsigned long next_cap = 0;
 	unsigned long capacity, util, energy;
-	unsigned int eff;
+	unsigned long long eff;
 	unsigned int cap_idx;
 	int i;
 
@@ -152,13 +152,111 @@ compute_efficiency(struct task_struct *p, int target_cpu, unsigned int eff_weigh
 	 * Compute performance efficiency
 	 *  efficiency = (capacity / util) / energy
 	 */
-	eff = (capacity << SCHED_CAPACITY_SHIFT * 3) / (1 + util) / energy;
-	eff *= eff_weight;
+	eff = (capacity << SCHED_CAPACITY_SHIFT * 2) / energy;
+	eff = (eff * eff_weight) / 100;
 
 	trace_ems_compute_eff(p, target_cpu, util, eff_weight,
-						capacity, energy, eff);
+						capacity, energy, (unsigned int)eff);
 
-	return eff;
+	return (unsigned int)eff;
+}
+
+static int find_biggest_spare_cpu(int sse,
+			struct cpumask *candidates, int *cpu_util_wo)
+{
+	int cpu, max_cpu = -1, max_cap = 0;
+
+	for_each_cpu(cpu, candidates) {
+		int curr_cap;
+		int spare_cap;
+
+		/* get current cpu capacity */
+		curr_cap = (capacity_cpu(cpu, sse)
+				* arch_scale_freq_capacity(cpu)) >> SCHED_CAPACITY_SHIFT;
+		spare_cap = curr_cap - cpu_util_wo[cpu];
+
+		if (max_cap < spare_cap) {
+			max_cap = spare_cap;
+			max_cpu = cpu;
+		}
+	}
+	return max_cpu;
+}
+
+static int set_candidate_cpus(struct tp_env *env, int task_util, const struct cpumask *mask,
+		struct cpumask *idle_candidates, struct cpumask *active_candidates, int *cpu_util_wo)
+{
+	int cpu, bind = false;
+
+	if (unlikely(!cpumask_equal(mask, cpu_possible_mask)))
+		bind = true;
+
+	for_each_cpu_and(cpu, mask, cpu_active_mask) {
+		unsigned long capacity = capacity_cpu(cpu, env->p->sse);
+
+		if (!cpumask_test_cpu(cpu, &env->p->cpus_allowed))
+			continue;
+
+		/* remove overfit cpus from candidates */
+		if (likely(!bind) && (capacity < (cpu_util_wo[cpu] + task_util)))
+			continue;
+
+		if (!cpu_rq(cpu)->nr_running)
+			cpumask_set_cpu(cpu, idle_candidates);
+		else
+			cpumask_set_cpu(cpu, active_candidates);
+	}
+
+	return bind;
+}
+
+static int find_best_idle(struct tp_env *env)
+{
+	struct cpumask idle_candidates, active_candidates;
+	int cpu_util_wo[NR_CPUS];
+	int cpu, best_cpu = -1;
+	int task_util, sse = env->p->sse;
+	int bind;
+
+	cpumask_clear(&idle_candidates);
+	cpumask_clear(&active_candidates);
+
+	task_util = ml_task_util_est(env->p);
+	for_each_cpu(cpu, cpu_active_mask) {
+		/* get the ml cpu util wo */
+		cpu_util_wo[cpu] = _ml_cpu_util(cpu, env->p->sse);
+		if (cpu == task_cpu(env->p))
+			cpu_util_wo[cpu] = max(cpu_util_wo[cpu] - task_util, 0);
+	}
+
+	bind = set_candidate_cpus(env, task_util, emstune_cpus_allowed(env->p),
+			&idle_candidates, &active_candidates, cpu_util_wo);
+
+	/* find biggest spare cpu among the idle_candidates */
+	best_cpu = find_biggest_spare_cpu(sse, &idle_candidates, cpu_util_wo);
+	if (best_cpu >= 0) {
+		trace_ems_find_best_idle(env->p, task_util,
+			*(unsigned int *)cpumask_bits(&idle_candidates),
+			*(unsigned int *)cpumask_bits(&active_candidates), bind, best_cpu);
+		return best_cpu;
+	}
+
+	/* find biggest spare cpu among the active_candidates */
+	best_cpu = find_biggest_spare_cpu(sse, &active_candidates, cpu_util_wo);
+	if (best_cpu >= 0) {
+		trace_ems_find_best_idle(env->p, task_util,
+			*(unsigned int *)cpumask_bits(&idle_candidates),
+			*(unsigned int *)cpumask_bits(&active_candidates), bind, best_cpu);
+		return best_cpu;
+	}
+
+	/* if there is no best_cpu, return previous cpu */
+	best_cpu = task_cpu(env->p);
+	trace_ems_find_best_idle(env->p, task_util,
+		*(unsigned int *)cpumask_bits(&idle_candidates),
+		*(unsigned int *)cpumask_bits(&active_candidates), bind, best_cpu);
+
+	return best_cpu;
 }
 
 static unsigned int
@@ -238,6 +336,12 @@ int find_best_cpu(struct tp_env *env)
 {
 	unsigned int best_eff = 0, best_idle_eff = 0;
 	int best_cpu, best_idle_cpu;
+
+	if (env->prefer_idle) {
+		best_idle_cpu = find_best_idle(env);
+		if (best_idle_cpu >= 0)
+			return best_idle_cpu;
+	}
 
 	/*
 	 * Find best cpu among idle cpus.
@@ -441,7 +545,7 @@ fill_cap_table(struct energy_table *table, unsigned long max_mips)
 	}
 }
 
-static void show_energy_table(struct energy_table *table, int cpu)
+static void print_energy_table(struct energy_table *table, int cpu)
 {
 	int i;
 
@@ -591,11 +695,44 @@ update_capacity(struct energy_table *table, int cpu, bool init)
 	rcu_read_unlock();
 }
 
+static ssize_t show_energy_table(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int cpu, i;
+	int ret = 0;
+
+	for_each_possible_cpu(cpu) {
+		struct energy_table *table;
+
+		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
+			continue;
+
+		ret += snprintf(buf + ret, PAGE_SIZE - ret, "[Energy Table: cpu%d]\n", cpu);
+
+		table = get_energy_table(cpu);
+		for (i = 0; i < table->nr_states; i++) {
+			ret += snprintf(buf + ret, PAGE_SIZE - ret,
+				"cap=%4lu power=%4lu | cap(S)=%4lu power(S)=%4lu | static-power=%4lu\n",
+				table->states[i].cap, table->states[i].power,
+				table->states[i].cap_s, table->states[i].power_s,
+				table->states[i].static_power);
+		}
+
+		ret += snprintf(buf + ret, PAGE_SIZE - ret, "\n");
+	}
+
+	return ret;
+}
+
+static struct kobj_attribute energy_table_attr =
+__ATTR(energy_table, 0444, show_energy_table, NULL);
+
 static void
 __rebuild_sched_energy_table(void)
 {
 	struct energy_table *table;
-	int cpu, max_mips = 0;
+	unsigned long max_mips = 0;
+	int cpu;
 
 	max_mips = find_max_mips();
 	for_each_possible_cpu(cpu) {
@@ -667,7 +804,11 @@ void init_sched_energy_table(struct cpumask *cpus, int table_size,
 		if (unlikely(!table->states))
 			return;
 
-		table->nr_states = valid_table_size;
+		table->nr_states = table->nr_states_orig = valid_table_size;
+
+		for (i = 0; i < NUM_OF_REQUESTS; i++)
+			table->nr_states_requests[i] = valid_table_size;
+
 		fill_frequency_table(table, table_size, f_table, max_f, min_f);
 	}
 
@@ -699,7 +840,7 @@ void init_sched_energy_table(struct cpumask *cpus, int table_size,
 		/* 3. update per-cpu capacity variable */
 		update_capacity(table, cpu, true);
 
-		show_energy_table(get_energy_table(cpu), cpu);
+		print_energy_table(get_energy_table(cpu), cpu);
 	}
 
 	topology_update();
@@ -708,7 +849,7 @@ void init_sched_energy_table(struct cpumask *cpus, int table_size,
 static int __init init_sched_energy_data(void)
 {
 	struct device_node *cpu_node, *cpu_phandle;
-	int cpu;
+	int cpu, ret;
 
 	for_each_possible_cpu(cpu) {
 		struct energy_table *table;
@@ -760,6 +901,10 @@ static int __init init_sched_energy_data(void)
 	}
 
 	cpufreq_register_notifier(&sched_cpufreq_policy_notifier, CPUFREQ_POLICY_NOTIFIER);
+
+	ret = sysfs_create_file(ems_kobj, &energy_table_attr.attr);
+	if (ret)
+		pr_warn("%s: failed to create sysfs\n", __func__);
 
 	return 0;
 }

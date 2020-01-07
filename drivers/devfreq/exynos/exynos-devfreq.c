@@ -1645,7 +1645,7 @@ static int exynos_devfreq_suspend(struct device *dev)
 			else if (data->devfreq_type == 1)
 				abox_freq = (unsigned long)abox_get_requiring_int_freq_in_khz();
 
-			if (abox_freq >= data->devfreq_profile.suspend_freq) {
+			if (abox_freq > data->devfreq_profile.suspend_freq) {
 				data->devfreq->str_freq = abox_freq;
 				dev_info(dev, "devfreq_type:%d, changed str_freq by abox:%u\n",
 						data->devfreq_type, abox_freq);

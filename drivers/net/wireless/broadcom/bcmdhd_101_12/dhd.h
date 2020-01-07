@@ -1623,6 +1623,8 @@ extern void dhd_pm_wake_lock_timeout(dhd_pub_t *pub, int val);
 extern void dhd_pm_wake_unlock(dhd_pub_t *pub);
 extern void dhd_txfl_wake_lock_timeout(dhd_pub_t *pub, int val);
 extern void dhd_txfl_wake_unlock(dhd_pub_t *pub);
+extern void dhd_nan_wake_lock_timeout(dhd_pub_t *pub, int val);
+extern void dhd_nan_wake_unlock(dhd_pub_t *pub);
 extern int dhd_os_wake_lock_timeout(dhd_pub_t *pub);
 extern int dhd_os_wake_lock_rx_timeout_enable(dhd_pub_t *pub, int val);
 extern int dhd_os_wake_lock_ctrl_timeout_enable(dhd_pub_t *pub, int val);
@@ -1696,6 +1698,16 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 		printf("call pm_wake unlock\n"); \
 		dhd_txfl_wake_unlock(pub); \
 	} while (0)
+#define DHD_NAN_WAKE_LOCK_TIMEOUT(pub, val) \
+	do { \
+		printf("call pm_wake_timeout enable\n"); \
+		dhd_nan_wake_lock_timeout(pub, val); \
+	} while (0)
+#define DHD_NAN_WAKE_UNLOCK(pub) \
+	do { \
+		printf("call pm_wake unlock\n"); \
+		dhd_nan_wake_unlock(pub); \
+	} while (0)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub) \
 	do { \
 		printf("call wake_lock_timeout: %s %d\n", \
@@ -1753,6 +1765,8 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 #define DHD_PM_WAKE_UNLOCK(pub) 			dhd_pm_wake_unlock(pub)
 #define DHD_TXFL_WAKE_LOCK_TIMEOUT(pub, val)	dhd_txfl_wake_lock_timeout(pub, val)
 #define DHD_TXFL_WAKE_UNLOCK(pub) 			dhd_txfl_wake_unlock(pub)
+#define DHD_NAN_WAKE_LOCK_TIMEOUT(pub, val)	dhd_nan_wake_lock_timeout(pub, val)
+#define DHD_NAN_WAKE_UNLOCK(pub)		dhd_nan_wake_unlock(pub)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub)		dhd_os_wake_lock_timeout(pub)
 #define DHD_OS_WAKE_LOCK_RX_TIMEOUT_ENABLE(pub, val) \
 	dhd_os_wake_lock_rx_timeout_enable(pub, val)

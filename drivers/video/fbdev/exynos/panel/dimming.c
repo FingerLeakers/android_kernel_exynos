@@ -436,6 +436,19 @@ void print_mtp_offset(struct dimming_info *dim_info)
 				dim_info->tp[i].offset[BLUE]);
 }
 
+void print_center_gamma(struct dimming_info *dim_info)
+{
+	int i;
+	pr_info("[CENTER_GAMMA]\n");
+
+	for (i = 0; i < dim_info->nr_tp; i++)
+		pr_info("%-7s %-4X %-4X %-4X\n",
+				dim_info->tp[i].name,
+				dim_info->tp[i].center[RED],
+				dim_info->tp[i].center[GREEN],
+				dim_info->tp[i].center[BLUE]);
+}
+
 void print_hbm_gamma_tbl(struct dimming_info *dim_info)
 {
 	int i;
@@ -772,6 +785,22 @@ static int find_gray_scale_gamma_value(struct gray_scale *gray_scale_lut, u64 ga
 	return delta_l <= delta_r ? r : l;
 }
 
+s64 interpolation_round(s64 from, s64 to, int cur_step, int total_step)
+{
+	s64 num, den, sign = 1LL;
+
+	if (cur_step == total_step || from == to)
+		return to;
+
+	if (from > to)
+		sign = -1LL;
+	num = abs(to - from) * (s64)cur_step + (total_step / 2);
+	den = (s64)total_step;
+	num = from + sign * disp_div64(num, den);
+
+	return num;
+}
+
 s64 interpolation(s64 from, s64 to, int cur_step, int total_step)
 {
 	s64 num, den;
@@ -839,8 +868,39 @@ int gamma_table_interpolation(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
 			out[i][c] =
 				interpolation(from[i][c], to[i][c], cur_step, total_step);
 #ifdef DEBUG_DIMMING
-			pr_info("%s, from %d, to %d, cur_step %d, total_step %d\n",
-					__func__, from[i][c], to[i][c], cur_step, total_step);
+			pr_info("%s, from %d, to %d, out %d, cur_step %d, total_step %d\n",
+					__func__, from[i][c], to[i][c], out[i][c], cur_step, total_step);
+#endif
+		}
+	}
+
+	return 0;
+}
+
+int gamma_table_interpolation_round(s32 (*from)[MAX_COLOR], s32 (*to)[MAX_COLOR],
+		s32 (*out)[MAX_COLOR], int nr_tp, int cur_step, int total_step)
+{
+	int i, c;
+
+	if (unlikely(!from || !to || !out)) {
+		pr_err("%s, invalid parameter (from %p, to %p, out %p)\n",
+				__func__, from, to, out);
+		return -EINVAL;
+	}
+
+	if (unlikely(nr_tp < 0 || cur_step > total_step)) {
+		pr_err("%s, out of range (nr_tp %d, cur_step %d, total_step %d)\n",
+				__func__, nr_tp, cur_step, total_step);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < nr_tp; i++) {
+		for_each_color(c) {
+			out[i][c] =
+				interpolation_round(from[i][c], to[i][c], cur_step, total_step);
+#ifdef DEBUG_DIMMING
+			pr_info("%s, from %d, to %d, out %d, cur_step %d, total_step %d\n",
+					__func__, from[i][c], to[i][c], out[i][c], cur_step, total_step);
 #endif
 		}
 	}
@@ -1513,6 +1573,7 @@ int init_dimming_info(struct dimming_info *dim_info, struct dimming_init_info *s
 int init_dimming_mtp(struct dimming_info *dim_info, s32 (*mtp)[MAX_COLOR])
 {
 	int i, c;
+	print_center_gamma(dim_info);
 
 	for (i = 0; i < dim_info->nr_tp; i++)
 		for_each_color(c)

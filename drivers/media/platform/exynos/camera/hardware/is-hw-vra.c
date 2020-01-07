@@ -26,20 +26,16 @@ void is_hw_vra_save_debug_info(struct is_hw_ip *hw_ip,
 
 	switch (debug_point) {
 	case DEBUG_POINT_FRAME_START:
-		hw_ip->debug_index[1] = hw_ip->debug_index[0] % DEBUG_FRAME_COUNT;
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].fcount = hw_ip->debug_index[0];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_START] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_START);
+
 		if (!atomic_read(&hardware->streaming[hardware->sensor_position[instance]])
 			|| test_bit(VRA_LIB_BYPASS_REQUESTED, &lib_vra->state))
 			msinfo_hw("[F:%d]F.S\n", instance, hw_ip, hw_fcount);
 		break;
 	case DEBUG_POINT_FRAME_END:
-		index = hw_ip->debug_index[1];
-		hw_ip->debug_info[index].cpuid[DEBUG_POINT_FRAME_END] = raw_smp_processor_id();
-		hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] = local_clock();
+		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_DMA_END);
 
+		index = hw_ip->debug_index[1];
 		dbg_isr_hw("[F:%d][S-E] %05llu us\n", hw_ip, hw_fcount,
 			(hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_END] -
 			hw_ip->debug_info[index].time[DEBUG_POINT_FRAME_START]) / 1000);
@@ -313,9 +309,7 @@ static int __nocfi is_hw_vra_open(struct is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, BIT(hw_ip->id), "HWVRA");
-	frame_manager_probe(hw_ip->framemgr_late, BIT(hw_ip->id) | 0xF000, "HWVRA LATE");
 	frame_manager_open(hw_ip->framemgr, IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct is_hw_vra));
 	if(!hw_ip->priv_info) {
@@ -397,7 +391,6 @@ err_vra_alloc_memory:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 	return ret;
 }
 
@@ -478,7 +471,6 @@ static int is_hw_vra_close(struct is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 

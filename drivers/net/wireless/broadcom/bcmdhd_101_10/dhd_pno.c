@@ -34,11 +34,13 @@
 #include <bcmutils.h>
 
 #include <bcmendian.h>
+
 #include <linuxver.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/sort.h>
+
 #include <dngl_stats.h>
 #include <wlioctl.h>
 
@@ -4307,7 +4309,7 @@ dhd_pno_event_handler(dhd_pub_t *dhd, wl_event_msg_t *event, void *event_data)
 	switch (event_type) {
 	case WLC_E_PFN_BSSID_NET_FOUND:
 	case WLC_E_PFN_BSSID_NET_LOST:
-		/* XXX : how can we inform this to framework ? */
+		/* how can we inform this to framework ? */
 		/* TODO : need to implement event logic using generic netlink */
 		break;
 	case WLC_E_PFN_BEST_BATCHING:
@@ -4368,6 +4370,7 @@ int dhd_pno_init(dhd_pub_t *dhd)
 			FALSE);
 	if (err == BCME_UNSUPPORTED) {
 		_pno_state->wls_supported = FALSE;
+		DHD_ERROR(("Android Location Service, UNSUPPORTED\n"));
 		DHD_INFO(("Current firmware doesn't support"
 			" Android Location Service\n"));
 	} else {
@@ -4413,4 +4416,5 @@ int dhd_pno_deinit(dhd_pub_t *dhd)
 	dhd->pno_state = NULL;
 	return err;
 }
+
 #endif /* PNO_SUPPORT */

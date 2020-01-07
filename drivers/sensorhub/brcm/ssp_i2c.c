@@ -1167,4 +1167,86 @@ u8 get_accel_range(struct ssp_data *data)
 	return rxbuffer[0];
 }
 
+int set_prox_dynamic_cal_to_ssp(struct ssp_data *data)
+{
+	int iRet = 0;
+	struct ssp_msg *msg;
+#ifdef CONFIG_SEC_FACTORY
+	u32 prox_dynamic_cal = 0;
+#else
+	u32 prox_dynamic_cal = data->svc_octa_change == true ? 1 : 0;
+#endif
+	if (prox_dynamic_cal) {
+		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+		msg->cmd = MSG2SSP_AP_SET_PROX_DYNAMIC_CAL;
+		msg->length = sizeof(prox_dynamic_cal);
+		msg->options = AP2HUB_WRITE;
+		msg->buffer = (u8 *)&prox_dynamic_cal;
+		msg->free_buffer = 0;
 
+		iRet = ssp_spi_async(data, msg);
+	}
+
+	pr_err("[SSP]: %s - prox_dynamic_cal = %d\n", __func__, prox_dynamic_cal);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - fail to %s %d\n",
+			__func__, __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+
+int set_prox_call_min_to_ssp(struct ssp_data *data) {
+	int iRet = 0;
+	struct ssp_msg *msg;
+	
+	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	msg->cmd = MSG2SSP_AP_SET_PROX_CALL_MIN;
+	msg->length = sizeof(data->prox_call_min);
+	msg->options = AP2HUB_WRITE;
+	msg->buffer = (u8 *)&data->prox_call_min;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_async(data, msg);
+	
+
+	pr_err("[SSP]: %s - prox_call_min = %d\n", __func__, data->prox_call_min);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - fail to %s %d\n",
+			__func__, __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}
+
+int set_factory_binary_flag_to_ssp(struct ssp_data *data) {
+#ifdef CONFIG_SEC_FACTORY
+	int isFactory = 1;
+#else
+	int isFactory = 0;
+#endif
+	int iRet = 0;
+	struct ssp_msg *msg;
+	
+	if(isFactory) {
+		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+		msg->cmd = MSG2SSP_AP_SET_FACTORY_BINARY_FLAG;
+		msg->length = sizeof(isFactory);
+		msg->options = AP2HUB_WRITE;
+		msg->buffer = (u8 *)&isFactory;
+		msg->free_buffer = 0;
+
+		iRet = ssp_spi_async(data, msg);
+	}
+
+	pr_err("[SSP]: %s - factory binary flag = %d\n", __func__, isFactory);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - fail to %s %d\n",
+			__func__, __func__, iRet);
+		iRet = ERROR;
+	}
+
+	return iRet;
+}

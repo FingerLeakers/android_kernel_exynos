@@ -326,7 +326,7 @@ struct ion_page_pool {
 struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order);
 struct page *ion_page_pool_only_alloc(struct ion_page_pool *pool);
 void ion_page_pool_destroy(struct ion_page_pool *pool);
-struct page *ion_page_pool_alloc(struct ion_page_pool *pool, bool nozero);
+struct page *ion_page_pool_alloc(struct ion_page_pool *pool, unsigned long flag);
 void ion_page_pool_free(struct ion_page_pool *pool, struct page *page);
 
 /** ion_page_pool_shrink - shrinks the size of the memory cached in the pool
@@ -358,5 +358,7 @@ void ion_buffer_kmap_put(struct ion_buffer *buffer);
 
 #define perrfndev(dev, format, arg...) \
 	dev_err(dev, IONPREFIX "%s: " format "\n", __func__, ##arg)
+
+unsigned int get_ion_system_heap_id(void);
 
 #endif /* _ION_H */

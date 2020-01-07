@@ -203,9 +203,13 @@ int is_dvfs_sel_static(struct is_device_ischain *device)
 	int i, scenario_id, scenario_cnt;
 	int position, resol, fps, stream_cnt;
 	unsigned long sensor_map;
+	int sel;
+	struct is_device_sensor *sensor;
+	struct is_sensor_cfg *sensor_cfg;
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!device->interface);
+	FIMC_BUG(!device->sensor);
 
 	core = (struct is_core *)device->interface->core;
 	resourcemgr = device->resourcemgr;
@@ -228,10 +232,17 @@ int is_dvfs_sel_static(struct is_device_ischain *device)
 		return -EINVAL;
 	}
 
+	sensor = device->sensor;
+	sensor_cfg = sensor->cfg;
+	if (!sensor_cfg) {
+		merr("sensor_cfg is NULL", device);
+		return -EINVAL;
+	}
+
 	scenarios = static_ctrl->scenarios;
 	scenario_cnt = static_ctrl->scenario_cnt;
 	position = is_sensor_g_position(device->sensor);
-	fps = is_sensor_g_framerate(device->sensor);
+	fps = sensor_cfg->max_fps;
 	stream_cnt = is_get_start_sensor_cnt(core);
 	sensor_map = core->sensor_map;
 	dual_info = &core->dual_info;
@@ -241,26 +252,40 @@ int is_dvfs_sel_static(struct is_device_ischain *device)
 	resol = is_get_target_resol(device);
 #endif
 
+	dbg_dvfs(1, "pos(%d), res(%d), fps(%d), sc(%d), map(%d), dual(%d, %d, %d, %d, %d)(%d), setfile(%d)\n",
+		device,	position, resol, fps, stream_cnt, sensor_map,
+		dual_info->max_fps[SENSOR_POSITION_REAR],
+		dual_info->max_fps[SENSOR_POSITION_REAR2],
+		dual_info->max_fps[SENSOR_POSITION_REAR3],
+		dual_info->max_fps[SENSOR_POSITION_FRONT],
+		dual_info->max_fps[SENSOR_POSITION_REAR_TOF],
+		dual_info->mode,
+		(device->setfile & IS_SETFILE_MASK));
+
 	for (i = 0; i < scenario_cnt; i++) {
 		if (!scenarios[i].check_func) {
 			warn("check_func[%d] is NULL\n", i);
 			continue;
 		}
 
-		if ((scenarios[i].check_func(device, NULL, position, resol, fps,
-			stream_cnt, sensor_map, dual_info)) > 0) {
+		sel = scenarios[i].check_func(device, NULL, position, resol, fps,
+			stream_cnt, sensor_map, dual_info);
+
+		dbg_dvfs(1, "sel(%d) idx(%d) [%s]\n",
+			device, sel, i, scenarios[i].scenario_nm);
+
+		switch (sel) {
+		case DVFS_MATCHED:
 			scenario_id = scenarios[i].scenario_id;
 			static_ctrl->cur_scenario_id = scenario_id;
 			static_ctrl->cur_scenario_idx = i;
 			static_ctrl->cur_frame_tick = scenarios[i].keep_frame_tick;
-			dbg_dvfs(1, "%s: pos(%d), res(%d), fps(%d), sc(%d), map(%d), dual(%d, %d, %d), scenario(%d)\n",
-				device, __func__, position, resol, fps,
-				stream_cnt, sensor_map,
-				dual_info->max_fps[SENSOR_POSITION_REAR],
-				dual_info->max_fps[SENSOR_POSITION_REAR2],
-				dual_info->max_fps[SENSOR_POSITION_REAR3],
-				(device->setfile & IS_SETFILE_MASK));
 			return scenario_id;
+		case DVFS_SKIP:
+			return -EAGAIN;
+		case DVFS_NOT_MATCHED:
+		default:
+			continue;
 		}
 	}
 
@@ -282,19 +307,27 @@ int is_dvfs_sel_dynamic(struct is_device_ischain *device, struct is_group *group
 	struct is_core *core;
 	struct is_dvfs_ctrl *dvfs_ctrl;
 	struct is_dvfs_scenario_ctrl *dynamic_ctrl;
+	struct is_dvfs_scenario_ctrl *static_ctrl;
 	struct is_dvfs_scenario *scenarios;
 	struct is_resourcemgr *resourcemgr;
 	struct is_dual_info *dual_info;
 	int i, scenario_id, scenario_cnt;
 	int position, resol, fps;
 	unsigned long sensor_map;
+	struct is_device_sensor *sensor;
+	struct is_sensor_cfg *sensor_cfg;
 
 	FIMC_BUG(!device);
+	FIMC_BUG(!device->sensor);
 
 	core = (struct is_core *)device->interface->core;
 	resourcemgr = device->resourcemgr;
 	dvfs_ctrl = &(resourcemgr->dvfs_ctrl);
 	dynamic_ctrl = dvfs_ctrl->dynamic_ctrl;
+	static_ctrl = dvfs_ctrl->static_ctrl;
+
+	if (static_ctrl->cur_frame_tick == IS_DVFS_SKIP_DYNAMIC)
+		return 0;
 
 	if (!test_bit(IS_DVFS_SEL_TABLE, &dvfs_ctrl->state)) {
 		err("dvfs table is NOT selected");
@@ -331,8 +364,15 @@ int is_dvfs_sel_dynamic(struct is_device_ischain *device, struct is_group *group
 	if (!test_bit(IS_ISCHAIN_REPROCESSING, &device->state) || group->id == GROUP_ID_VRA0)
 		return -EAGAIN;
 
+	sensor = device->sensor;
+	sensor_cfg = sensor->cfg;
+	if (!sensor_cfg) {
+		merr("sensor_cfg is NULL", device);
+		return -EINVAL;
+	}
+
 	position = is_sensor_g_position(device->sensor);
-	fps = is_sensor_g_framerate(device->sensor);
+	fps = sensor_cfg->max_fps;
 	sensor_map = core->sensor_map;
 	dual_info = &core->dual_info;
 #ifdef BDS_DVFS
@@ -572,7 +612,7 @@ int is_set_dvfs(struct is_core *core, struct is_device_ischain *device, u32 scen
 
 #if defined(ENABLE_HMP_BOOST)
 	/* hpg_qos : number of minimum online CPU */
-	if (hpg_qos && dvfs_ctrl->cur_hpg_qos != hpg_qos
+	if (hpg_qos && device && (dvfs_ctrl->cur_hpg_qos != hpg_qos)
 		&& !test_bit(IS_ISCHAIN_REPROCESSING, &device->state)) {
 		pm_qos_update_request(&exynos_isp_qos_hpg, hpg_qos);
 		dvfs_ctrl->cur_hpg_qos = hpg_qos;
@@ -664,7 +704,7 @@ void is_dual_mode_update(struct is_device_ischain *device,
 	 * switch - master_max_fps : 5ps, slave_max_fps : 30fps (post standby)
 	 * nothing - invalid mode
 	 */
-	for (i = 0; i < SENSOR_POSITION_MAX; i++) {
+	for (i = 0; i < SENSOR_POSITION_REAR_TOF; i++) {
 		if (dual_info->max_fps[i] >= 24)
 			streaming_cnt++;
 	}

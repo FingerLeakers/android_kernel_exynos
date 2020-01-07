@@ -220,6 +220,12 @@ static void __mfc_qos_operate(struct mfc_dev *dev, int opr_type, int table_type,
 				qos_table[idx].freq_int, qos_table[idx].freq_mif);
 		break;
 	case MFC_QOS_REMOVE:
+		if (atomic_read(&dev->qos_req_cur) == 0) {
+			MFC_TRACE_DEV("QoS already removed\n");
+			mfc_debug_dev(2, "[QoS] QoS already removed\n");
+			break;
+		}
+
 		if (pdata->mfc_freq_control)
 			pm_qos_remove_request(&dev->qos_req_mfc);
 		pm_qos_remove_request(&dev->qos_req_int);
@@ -851,13 +857,14 @@ void mfc_qos_idle_worker(struct work_struct *work)
  * A framerate table determines framerate by the interval(us) of each frame.
  * Framerate is not accurate, just rough value to seperate overload section.
  * Base line of each section are selected from middle value.
- * 40fps(25000us), 80fps(12500us), 144fps(6940us)
- * 205fps(4860us), 320fps(3125us)
+ * 25fps(40000us), 40fps(25000us), 80fps(12500us)
+ * 144fps(6940us), 205fps(4860us), 320fps(3125us)
  *
- * interval(us) | 0         3125          4860          6940          12500         25000          |
- * framerate    |    480fps   |    240fps   |    180fps   |    120fps   |    60fps    |    30fps   |
+ * interval(us) | 0         3125          4860          6940          12500         25000        40000
+ * framerate    |    480fps   |    240fps   |    180fps   |    120fps   |    60fps    |    30fps   |	24fps
  */
 static unsigned long framerate_table[][2] = {
+	{  24000, 40000 },
 	{  30000, 25000 },
 	{  60000, 12500 },
 	{ 120000,  6940 },

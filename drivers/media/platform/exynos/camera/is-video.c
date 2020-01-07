@@ -1513,9 +1513,9 @@ int is_video_close(struct is_video_ctx *vctx)
 		return -ENOENT;
 	}
 
-	is_queue_close(queue);
 	vb2_queue_release(queue->vbq);
 	vfree(queue->vbq);
+	is_queue_close(queue);
 
 	/*
 	 * vb2 release can call stop callback

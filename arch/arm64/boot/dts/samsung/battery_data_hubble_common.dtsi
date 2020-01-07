@@ -139,11 +139,11 @@
 				battery,chg_gpio_full_check = <0>;
 				battery,chg_polarity_full_check = <1>;
 
-				battery,chg_high_temp = <480>;
-				battery,chg_high_temp_recovery = <460>;
+				battery,chg_high_temp = <470>;
+				battery,chg_high_temp_recovery = <450>;
 
-				battery,dchg_high_temp = <540>;
-				battery,dchg_high_temp_recovery = <400>;
+				battery,dchg_high_temp = <520>;
+				battery,dchg_high_temp_recovery = <460>;
 				battery,dchg_high_batt_temp = <400>;
 				battery,dchg_high_batt_temp_recovery = <380>;
 
@@ -304,7 +304,7 @@
 				battery,expired_time = <10800>;
 				battery,recharging_expired_time = <5400>;
 
-				battery,cisd_max_voltage_thr = <4400>; /* battery ovp detection voltage */
+				battery,cisd_max_voltage_thr = <4430>; /* battery ovp detection voltage */
 
 				battery,cisd_alg_index = <8>;
 				battery,ignore_cisd_index = <0 640>; /* Do not use BUCK_OFF, DROP_SENSOR*/
@@ -709,6 +709,7 @@
 		battery,wpc_int = <&gpa3 1 0>;
 		battery,wpc_det = <&gpa2 0 0>;
 		battery,mst_pwr_en = <&gpm18 0 0>;
+		battery,wpc_en = <&gpm10 0 0>;
 
 		battery,charger_name = "max77705-charger";
 		battery,fuelgauge_name = "max77705-fuelgauge";

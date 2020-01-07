@@ -163,6 +163,9 @@ u64 width_range_to_bits(unsigned int width_min, unsigned int width_max)
 
 char substream_to_char(struct snd_pcm_substream *substream)
 {
+	if (!substream)
+		return '?';
+
 	return (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) ? 'p' : 'c';
 }
 

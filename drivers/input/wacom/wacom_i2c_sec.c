@@ -482,7 +482,7 @@ static ssize_t epen_connection_show(struct device *dev,
 
 	if (wac_i2c->is_tsp_block) {
 		input_info(true, &wac_i2c->client->dev, "%s: full scan OUT\n", __func__);
-		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
 		wac_i2c->is_tsp_block = false;
 	}
 
@@ -1102,7 +1102,7 @@ void epen_disable_mode(int mode)
 		wac_i2c->survey_mode = EPEN_SURVEY_MODE_NONE;
 		wac_i2c->function_result &= ~EPEN_EVENT_SURVEY;
 
-		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
 		wac_i2c->is_tsp_block = false;
 		forced_release(wac_i2c);
 	} else {
@@ -1843,7 +1843,7 @@ static void run_elec_test(void *device_data)
 {
 	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
 	struct wacom_i2c *wac_i2c = container_of(sec, struct wacom_i2c, sec);
-	struct wacom_elec_data *edata = wac_i2c->pdata->edata;
+	struct wacom_elec_data *edata = NULL;
 	struct i2c_client *client = wac_i2c->client;
 	u8 *buff = NULL;
 	u8 tmp_buf[CMD_RESULT_WORD_LEN] = { 0 };
@@ -1861,22 +1861,34 @@ static void run_elec_test(void *device_data)
 
 	sec_cmd_set_default_result(sec);
 
-	wacom_enable_irq(wac_i2c, false);
-	wacom_enable_pdct_irq(wac_i2c, false);
+	input_info(true, &client->dev, "%s: parm[%d]\n", __func__, sec->cmd_param[0]);
 
-	if (!edata)
-		goto out;
+	if (sec->cmd_param[0] < EPEN_ELEC_DATA_MAIN || sec->cmd_param[0] > EPEN_ELEC_DATA_ASSY) {
+		input_err(true, &client->dev,
+			  "%s: Abnormal parm[%d]\n", __func__, sec->cmd_param[0]);
+		goto error;
+	}
+
+	edata = wac_i2c->pdata->edata = wac_i2c->pdata->edatas[sec->cmd_param[0]];
+
+	if (!edata) {
+		input_err(true, &client->dev, "%s: test spec is NULL\n", __func__);
+		goto error;
+	}
 
 	max_ch = edata->max_x_ch + edata->max_y_ch;
 	buff_size = max_ch * 2 * CMD_RESULT_WORD_LEN + SEC_CMD_STR_LEN;
 
 	buff = kzalloc(buff_size, GFP_KERNEL);
 	if (!buff)
-		goto out;
+		goto error;
 
 	elec_result = kzalloc((max_ch + 1) * sizeof(u16), GFP_KERNEL);
 	if (!elec_result)
-		goto out;
+		goto error;
+
+	wacom_enable_irq(wac_i2c, false);
+	wacom_enable_pdct_irq(wac_i2c, false);
 
 	/* change wacom mode to 0x2D */
 	mutex_lock(&wac_i2c->mode_lock);
@@ -1912,7 +1924,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -1921,7 +1933,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -1930,7 +1942,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -1945,7 +1957,7 @@ static void run_elec_test(void *device_data)
 				input_err(true, &client->dev,
 					  "%s: failed to send 0x%02X\n",
 					  __func__, cmd);
-				goto out;
+				goto error_test;
 			}
 			msleep(30);
 
@@ -1954,7 +1966,7 @@ static void run_elec_test(void *device_data)
 				input_err(true, &client->dev,
 					  "%s: failed to receive elec data\n",
 					  __func__);
-				goto out;
+				goto error_test;
 			}
 #if 0
 			input_info(true, &client->dev, "%X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X\n",
@@ -1971,7 +1983,7 @@ static void run_elec_test(void *device_data)
 					input_err(true, &client->dev,
 						  "%s: invalid elec data %d %d\n",
 						  __func__, (data[0] & 0x0F), data[1]);
-					goto out;
+					goto error_test;
 				}
 			}
 
@@ -1985,7 +1997,7 @@ static void run_elec_test(void *device_data)
 					input_info(true, &client->dev,
 						   "%s: invalid elec status %d\n",
 						   __func__, data[11]);
-					goto out;
+					goto error_test;
 				}
 			}
 
@@ -2008,7 +2020,7 @@ static void run_elec_test(void *device_data)
 		if (ret != 1) {
 			input_err(true, &client->dev, "%s: failed to send 0x%02X\n",
 				  __func__, cmd);
-			goto out;
+			goto error_test;
 		}
 		msleep(30);
 	}
@@ -2018,7 +2030,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -2027,7 +2039,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -2036,7 +2048,7 @@ static void run_elec_test(void *device_data)
 	if (ret != 1) {
 		input_err(true, &client->dev,
 			  "%s: failed to send 0x%02X\n", __func__, cmd);
-		goto out;
+		goto error_test;
 	}
 	msleep(30);
 
@@ -2051,7 +2063,7 @@ static void run_elec_test(void *device_data)
 				input_err(true, &client->dev,
 					  "%s: failed to send 0x%02X\n",
 					  __func__, cmd);
-				goto out;
+				goto error_test;
 			}
 			msleep(30);
 
@@ -2060,7 +2072,7 @@ static void run_elec_test(void *device_data)
 				input_err(true, &client->dev,
 					  "%s: failed to receive elec data\n",
 					  __func__);
-				goto out;
+				goto error_test;
 			}
 #if 0
 			input_info(true, &client->dev, "%X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X\n",
@@ -2077,7 +2089,7 @@ static void run_elec_test(void *device_data)
 					input_err(true, &client->dev,
 						  "%s: invalid elec data %d %d\n",
 						  __func__, (data[0] & 0x0F), data[1]);
-					goto out;
+					goto error_test;
 				}
 			}
 
@@ -2091,7 +2103,7 @@ static void run_elec_test(void *device_data)
 					input_info(true, &client->dev,
 						   "%s: invalid elec status %d\n",
 						   __func__, data[11]);
-					goto out;
+					goto error_test;
 				}
 			}
 
@@ -2114,7 +2126,7 @@ static void run_elec_test(void *device_data)
 		if (ret != 1) {
 			input_err(true, &client->dev, "%s: failed to send 0x%02X\n",
 				  __func__, cmd);
-			goto out;
+			goto error_test;
 		}
 		msleep(30);
 	}
@@ -2276,7 +2288,17 @@ static void run_elec_test(void *device_data)
 
 	return;
 
-out:
+error_test:
+	ret = wacom_start_stop_cmd(wac_i2c, WACOM_STOP_AND_START_CMD);
+	if (ret != 1) {
+		input_err(true, &client->dev, "%s: failed to set stop-start cmd, %d\n",
+					__func__, ret);
+	}
+
+	wacom_enable_irq(wac_i2c, true);
+	wacom_enable_pdct_irq(wac_i2c, true);
+
+error:
 	if (elec_result)
 		kfree(elec_result);
 
@@ -2286,15 +2308,6 @@ out:
 	snprintf(tmp_buf, sizeof(tmp_buf), "NG");
 	sec_cmd_set_cmd_result(sec, tmp_buf, sizeof(tmp_buf));
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
-
-	ret = wacom_start_stop_cmd(wac_i2c, WACOM_STOP_AND_START_CMD);
-	if (ret != 1) {
-		input_err(true, &client->dev, "%s: failed to set stop-start cmd, %d\n",
-					__func__, ret);
-	}
-
-	wacom_enable_irq(wac_i2c, true);
-	wacom_enable_pdct_irq(wac_i2c, true);
 
 	return;
 }
@@ -2464,6 +2477,7 @@ static void not_support_cmd(void *device_data)
 	sec_cmd_set_cmd_exit(sec);
 }
 
+#if 0	// not support ~ Canvas
 #define EPEN_CHARGER_OFF_TIME	120
 enum epen_scan_info{
 	EPEN_CHARGE_OFF			= 0,
@@ -2473,14 +2487,6 @@ enum epen_scan_info{
 
 int get_wacom_scan_info(bool mode)
 {
-#if 1
-	// only for canvas on bring up
-	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
-
-	input_info(true, &wac_i2c->client->dev, "%s: Return ble charge mode off always(%d)\n",
-			__func__, wac_i2c->ble_mode);
-	return EPEN_CHARGE_OFF;
-#else
 	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
 	struct timeval current_time;
 	u32 diff_time;
@@ -2540,7 +2546,6 @@ int get_wacom_scan_info(bool mode)
 	input_info(true, &wac_i2c->client->dev, "%s: #0 mode[%d] & ble[%x] & diff time[%d]\n",
 			__func__, mode, wac_i2c->ble_mode, diff_time);
 	return EPEN_CHARGE_OFF;
-#endif
 }
 EXPORT_SYMBOL(get_wacom_scan_info);
 
@@ -2549,31 +2554,26 @@ int set_wacom_ble_charge_mode(bool mode)
 	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
 	int ret = 0;
 
-#if 1
-	// only for canvas on bring up
-	input_info(true, &wac_i2c->client->dev, "%s : always skip(%d)\n", __func__, mode);
-#else
-
 	input_info(true, &wac_i2c->client->dev, "%s : start(%d)\n", __func__, mode);
 
 	if (!mode) {
-		ret = wacom_ble_charge_mode(wac_i2c, mode);
+		ret = wacom_ble_charge_mode(wac_i2c, EPEN_BLE_C_KEEP_OFF);
 		if (!ret)
 			wac_i2c->ble_block_flag = true;
 	} else {
 		wac_i2c->ble_block_flag = false;
 #if WACOM_SEC_FACTORY
-		ret = wacom_ble_charge_mode(wac_i2c, mode);
+		ret = wacom_ble_charge_mode(wac_i2c, EPEN_BLE_C_ENABLE);
 #endif
 	}
 	input_info(true, &wac_i2c->client->dev, "%s : done(%d)\n", __func__, mode);
 
-#endif
 	return ret;
 }
 EXPORT_SYMBOL(set_wacom_ble_charge_mode);
+#endif
 
-static int wacom_sec_elec_init(struct wacom_i2c *wac_i2c)
+static int wacom_sec_elec_init(struct wacom_i2c *wac_i2c, int pos)
 {
 	struct wacom_elec_data *edata = NULL;
 	struct i2c_client *client = wac_i2c->client;
@@ -2582,19 +2582,22 @@ static int wacom_sec_elec_init(struct wacom_i2c *wac_i2c)
 	int max_len;
 	int ret;
 	int i;
+	u8 tmp_name[30] = { 0 };
 
-	np = of_get_child_by_name(np, "wacom_elec");
+	snprintf(tmp_name, sizeof(tmp_name), "wacom_elec%d", pos);
+	input_info(true, &client->dev, "%s: init : %s\n", __func__, tmp_name);
+
+	np = of_get_child_by_name(np, tmp_name);
 	if (!np) {
-		input_info(true, &client->dev,
-			   "%s: node is not exist for elec\n", __func__);
-		return 0;
+		input_err(true, &client->dev, "%s: node is not exist for elec\n", __func__);
+		return -EINVAL;
 	}
 
 	edata = devm_kzalloc(&client->dev, sizeof(*edata), GFP_KERNEL);
 	if (!edata)
 		return -ENOMEM;
 
-	wac_i2c->pdata->edata = edata;
+	wac_i2c->pdata->edatas[pos] = edata;
 
 	ret = of_property_read_u32(np, "spec_ver", tmp);
 	if (ret) {
@@ -2843,6 +2846,7 @@ int wacom_sec_init(struct wacom_i2c *wac_i2c)
 {
 	struct i2c_client *client = wac_i2c->client;
 	int retval = 0;
+	int i = 0;
 
 	retval = sec_cmd_init(&wac_i2c->sec, sec_cmds, ARRAY_SIZE(sec_cmds),
 			      SEC_CLASS_DEVT_WACOM);
@@ -2863,18 +2867,12 @@ int wacom_sec_init(struct wacom_i2c *wac_i2c)
 		input_err(true, &client->dev, "failed to create sysfs link\n");
 		goto err_create_symlink;
 	}
-
-	retval = wacom_sec_elec_init(wac_i2c);
-	if (retval < 0) {
-		input_err(true, &client->dev, "failed to init elec data\n");
-		goto err_init_elec;
+	for (i = EPEN_ELEC_DATA_MAIN ; i <= EPEN_ELEC_DATA_ASSY ; i++) {
+		wacom_sec_elec_init(wac_i2c, i);
 	}
 
 	return 0;
 
-err_init_elec:
-	sysfs_delete_link(&wac_i2c->sec.fac_dev->kobj,
-			  &wac_i2c->input_dev->dev.kobj, "input");
 err_create_symlink:
 	sysfs_remove_group(&wac_i2c->sec.fac_dev->kobj, &epen_attr_group);
 err_sysfs_create_group:

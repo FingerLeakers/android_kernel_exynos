@@ -859,31 +859,29 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		value.intval = SEC_WIRELESS_IC_GRADE;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%X ", value.intval);
-
+		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%x ", value.intval);
 		value.intval = SEC_WIRELESS_IC_REVISION;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "0x%x\n", value.intval);
 		break;
 	case WC_IC_CHIP_ID:
 		value.intval = SEC_WIRELESS_IC_CHIP_ID;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
 		break;
 	case OTP_FIRMWARE_VER_BIN:
 		value.intval = SEC_WIRELESS_OTP_FIRM_VER_BIN;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
 		break;
 	case OTP_FIRMWARE_VER:
 		value.intval = SEC_WIRELESS_OTP_FIRM_VER;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
 		break;
 	case TX_FIRMWARE_RESULT:
 		value.intval = SEC_WIRELESS_TX_FIRM_RESULT;
@@ -895,15 +893,13 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		value.intval = SEC_WIRELESS_TX_FIRM_VER;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
 		break;
 	case BATT_TX_STATUS:
 		value.intval = SEC_TX_FIRMWARE;
 		psy_do_property(battery->pdata->wireless_charger_name, get,
 			POWER_SUPPLY_PROP_MANUFACTURER, value);
-
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%X\n", value.intval);
+		i += scnprintf(buf + i, PAGE_SIZE - i, "%x\n", value.intval);
 		break;
 #endif
 	case WC_VOUT:
@@ -1297,12 +1293,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			struct cisd *pcisd = &battery->cisd;
 			struct pad_data *pad_data = pcisd->pad_array;
 			char temp_buf[1024] = {0,};
-			int j = 0;
+			int j = 0, size = 1024;
 
-			sprintf(temp_buf+strlen(temp_buf), "%d", pcisd->pad_count);
+			snprintf(temp_buf, size, "%d", pcisd->pad_count);
 			while ((pad_data != NULL) && ((pad_data = pad_data->next) != NULL) &&
-					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count))
-				sprintf(temp_buf+strlen(temp_buf), " 0x%02x:%d", pad_data->id, pad_data->count);
+					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count)) {
+				snprintf(temp_buf+strlen(temp_buf), size, " 0x%02x:%d", pad_data->id, pad_data->count);
+				size = sizeof(temp_buf) - strlen(temp_buf);
+			}
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
 		}
 		break;
@@ -1311,15 +1309,16 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			struct cisd *pcisd = &battery->cisd;
 			struct pad_data *pad_data = pcisd->pad_array;
 			char temp_buf[1024] = {0,};
-			int j = 0;
+			int j = 0, size = 1024;
 
-			sprintf(temp_buf+strlen(temp_buf), "\"%s\":\"%d\"",
+			snprintf(temp_buf+strlen(temp_buf), size, "\"%s\":\"%d\"",
 				PAD_INDEX_STRING, pcisd->pad_count);
-
 			while ((pad_data != NULL) && ((pad_data = pad_data->next) != NULL) &&
-					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count))
-				sprintf(temp_buf+strlen(temp_buf), ",\"%s%02x\":\"%d\"",
+					(pad_data->id < MAX_PAD_ID) && (j++ < pcisd->pad_count)) {
+				snprintf(temp_buf+strlen(temp_buf), size, ",\"%s%02x\":\"%d\"",
 					PAD_JSON_STRING, pad_data->id, pad_data->count);
+				size = sizeof(temp_buf) - strlen(temp_buf);
+			}
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
 		}
 		break;
@@ -1328,12 +1327,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			struct cisd *pcisd = &battery->cisd;
 			struct power_data *power_data = pcisd->power_array;
 			char temp_buf[1024] = {0,};
-			int j = 0;
+			int j = 0, size = 1024;
 
-			sprintf(temp_buf+strlen(temp_buf), "%d", pcisd->power_count);
+			snprintf(temp_buf+strlen(temp_buf), size, "%d", pcisd->power_count);
 			while ((power_data != NULL) && ((power_data = power_data->next) != NULL) &&
-					(power_data->power < MAX_CHARGER_POWER) && (j++ < pcisd->power_count))
-				sprintf(temp_buf+strlen(temp_buf), " %d:%d", power_data->power, power_data->count);
+					(power_data->power < MAX_CHARGER_POWER) && (j++ < pcisd->power_count)) {
+				snprintf(temp_buf+strlen(temp_buf), size, " %d:%d", power_data->power, power_data->count);
+				size = sizeof(temp_buf) - strlen(temp_buf);
+			}
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
 		}
 		break;
@@ -1342,15 +1343,16 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			struct cisd *pcisd = &battery->cisd;
 			struct power_data *power_data = pcisd->power_array;
 			char temp_buf[1024] = {0,};
-			int j = 0;
+			int j = 0, size = 1024;
 
-			sprintf(temp_buf+strlen(temp_buf), "\"%s\":\"%d\"",
+			snprintf(temp_buf+strlen(temp_buf), size, "\"%s\":\"%d\"",
 				POWER_COUNT_JSON_STRING, pcisd->power_count);
-
 			while ((power_data != NULL) && ((power_data = power_data->next) != NULL) &&
-					(power_data->power < MAX_CHARGER_POWER) && (j++ < pcisd->power_count))
-				sprintf(temp_buf+strlen(temp_buf), ",\"%s%d\":\"%d\"",
+					(power_data->power < MAX_CHARGER_POWER) && (j++ < pcisd->power_count)) {
+				snprintf(temp_buf+strlen(temp_buf), size, ",\"%s%d\":\"%d\"",
 					POWER_JSON_STRING, power_data->power, power_data->count);
+				size = sizeof(temp_buf) - strlen(temp_buf);
+			}
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", temp_buf);
 		}
 		break;
@@ -3335,7 +3337,13 @@ ssize_t sec_bat_store_attrs(
 					pr_info("%s: pd hv charging charging is enabled\n", __func__);
 				}
 				sec_bat_set_current_event(battery,
-					0, SEC_BAT_CURRENT_EVENT_HV_DISABLE);	
+					0, SEC_BAT_CURRENT_EVENT_HV_DISABLE);
+
+				if (battery->cable_type == SEC_BATTERY_CABLE_PDIC) {
+					battery->update_pd_list = true;
+					pr_info("%s: update pd list\n", __func__);
+					select_pdo(battery->pd_list.pd_info[battery->pd_list.num_fpdo - 1].pdo_index);
+				}
 			}
 			ret = count;
 		}

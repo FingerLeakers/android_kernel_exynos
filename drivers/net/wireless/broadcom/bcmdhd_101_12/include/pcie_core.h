@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 #ifndef	_PCIE_CORE_H
 #define	_PCIE_CORE_H
@@ -235,7 +235,7 @@ typedef volatile struct sbpcieregs {
 			uint32 pcieindaddr; /* indirect access to the internal register: 0x130 */
 			uint32 pcieinddata;	/* Data to/from the internal regsiter: 0x134 */
 			uint32 clkreqenctrl;	/* >= rev 6, Clkreq rdma control : 0x138 */
-			uint32 PAD[177]; /* XXX: last 0x3FC */
+			uint32 PAD[177]; /* last 0x3FC */
 			/* 0x400 - 0x7FF, PCIE Cfg Space, note: not used anymore in PcieGen2 */
 			uint32 pciecfg[4][64];
 		} pcie1;
@@ -929,8 +929,8 @@ typedef volatile struct sbpcieregs {
 #define PCIE2R0_BRCMCAP_BPDATA_OFFSET		52
 #define PCIE2R0_BRCMCAP_CLKCTLSTS_OFFSET	56
 
-/* definition of configuration space registers of PCIe gen2
- * http://hwnbu-twiki.sj.broadcom.com/twiki/pub/Mwgroup/CurrentPcieGen2ProgramGuide/pcie_ep.htm
+/*
+ * definition of configuration space registers of PCIe gen2
  */
 #define PCIECFGREG_STATUS_CMD		0x4
 #define PCIECFGREG_PM_CSR		0x4C

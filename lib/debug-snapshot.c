@@ -346,7 +346,7 @@ static inline void dbg_snapshot_hook_logbuf(const char *buf, size_t size, int fa
 				*((unsigned long long *)(item->head_ptr + item->entry.size - (size_t)0x08)) = SEC_LKMSG_MAGICKEY;
 #endif
 #ifdef CONFIG_SEC_PM_DEBUG
-				if (!sec_log_full)
+				if (unlikely(!sec_log_full))
 					sec_log_full = true;
 #endif
 			}

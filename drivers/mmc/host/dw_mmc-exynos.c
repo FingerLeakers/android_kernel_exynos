@@ -22,6 +22,8 @@
 #include <linux/pinctrl/pinconf.h>
 #include <linux/smc.h>
 #include <linux/sec_class.h>
+#include <linux/regmap.h>
+#include <linux/mfd/syscon.h>
 
 #include "dw_mmc.h"
 #include "dw_mmc-pltfm.h"
@@ -194,10 +196,65 @@ static inline u8 dw_mci_exynos_get_ciu_div(struct dw_mci *host)
 	return SDMMC_CLKSEL_GET_DIV(mci_readl(host, CLKSEL)) + 1;
 }
 
+static int exynos_mmc_iocc_parse_dt(struct dw_mci *host)
+{
+	struct device_node *np;
+	struct exynos_access_cxt *cxt = &host->cxt_coherency;
+	int ret;
+	const char *const name = {
+		"mmc-io-coherency",
+	};
+
+	np = of_get_child_by_name(host->dev->of_node, name);
+	if (!np) {
+		dev_err(host->dev, "failed to get node(%s)\n", name);
+		return 1;
+	}
+	ret = of_property_read_u32(np, "offset", &cxt->offset);
+	if (IS_ERR(&cxt->offset)) {
+		dev_err(host->dev, "failed to set cxt(%s) offset\n", name);
+		return cxt->offset;
+	}
+	ret = of_property_read_u32(np, "mask", &cxt->mask);
+	if (IS_ERR(&cxt->mask)) {
+		dev_err(host->dev, "failed to set cxt(%s) mask\n", name);
+		return cxt->mask;
+	}
+	ret = of_property_read_u32(np, "val", &cxt->val);
+	if (IS_ERR(&cxt->val)) {
+		dev_err(host->dev, "failed to set cxt(%s) val\n", name);
+		return cxt->val;
+	}
+	return 0;
+
+}
+
+static int exynos_mmc_iocc_enable(struct dw_mci *host)
+{
+	struct device *dev = host->dev;
+	int ret = 0;
+	bool is_io_coherency;
+	bool is_dma_coherent;
+
+	is_io_coherency = !IS_ERR(host->sysreg);
+	is_dma_coherent = !!of_find_property(dev->of_node, "dma-coherent", NULL);
+
+	if (is_io_coherency != is_dma_coherent)
+		BUG();
+
+	if (!is_io_coherency)
+		dev_err(dev, "Not configured to use IO coherency\n");
+	else
+		ret = regmap_update_bits(host->sysreg, host->cxt_coherency.offset,
+				host->cxt_coherency.mask, host->cxt_coherency.val);
+	return ret;
+}
+
 static int dw_mci_exynos_priv_init(struct dw_mci *host)
 {
 	struct dw_mci_exynos_priv_data *priv = host->priv;
 	u32 temp;
+	int ret = 0;
 
 	priv->saved_strobe_ctrl = mci_readl(host, HS400_DLINE_CTRL);
 	priv->saved_dqs_en = mci_readl(host, HS400_DQS_EN);
@@ -221,7 +278,12 @@ static int dw_mci_exynos_priv_init(struct dw_mci *host)
 		temp |= (0x1 << 29);
 	mci_writel(host, BLOCK_DMA_FOR_CI, temp);
 
-	return 0;
+	if (exynos_mmc_iocc_parse_dt(host)) {
+		dev_err(host->dev, "mmc iocc not enable\n");
+	} else
+		ret = exynos_mmc_iocc_enable(host);
+
+	return ret;
 }
 
 static void dw_mci_exynos_ssclk_control(struct dw_mci *host, int enable)
@@ -276,6 +338,11 @@ static void dw_mci_exynos_set_clksel_timing(struct dw_mci *host, u32 timing)
 #ifdef CONFIG_PM
 static int dw_mci_exynos_runtime_resume(struct device *dev)
 {
+	struct dw_mci *host = dev_get_drvdata(dev);
+
+	if(exynos_mmc_iocc_enable(host))
+		dev_err(host->dev,"mmc io coherency enable fail!\n");
+
 	return dw_mci_runtime_resume(dev);
 }
 #endif /* CONFIG_PM */
@@ -631,6 +698,18 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 		host->extended_tmout = true;
 	else
 		host->extended_tmout = false;
+
+	host->sysreg = syscon_regmap_lookup_by_phandle(np, "samsung,sysreg-phandle");
+
+	if (IS_ERR(host->sysreg)) {
+		/*
+		 * Currently, ufs driver gets sysreg for io coherency.
+		 * Some architecture might not support this feature.
+		 * So the device node might not exist.
+		 */
+		dev_err(host->dev, "sysreg regmap lookup failed.\n");
+		return 0;
+	}
 
 	id = of_alias_get_id(host->dev->of_node, "mshc");
 	switch (id) {

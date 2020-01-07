@@ -200,7 +200,7 @@ static void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data)
 
 	mif_debug("level : [%d -> %d]\n", prev_level, new_level);
 
-	if (new_level >= 8 && !lane_changed) {
+	if (new_level >= 6 && !lane_changed) {
 		nf->prev_level &= (0x30);
 		nf->prev_level |= new_level;
 		if (!exynos_pcie_rc_lanechange(1, 2)) {
@@ -208,7 +208,7 @@ static void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data)
 		} else {
 			mif_err("fail to change PCI lane 2\n");
 		}
-	} else if (new_level < 8 && lane_changed) {
+	} else if (new_level < 6 && lane_changed) {
 		if (!exynos_pcie_rc_lanechange(1, 1)) {
 			nf->prev_level &= (~0x30);
 			nf->prev_level |= new_level;

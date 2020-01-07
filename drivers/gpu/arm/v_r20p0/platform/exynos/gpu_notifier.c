@@ -193,7 +193,8 @@ static void gpu_power_off(struct kbase_device *kbdev)
 	if (!platform)
 		return;
 
-	GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "power off\n");
+	platform->wa_ctrl = 0;
+	GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "power off, release wa_ctrl\n");
 #ifdef CONFIG_MALI_RT_PM
 	gpu_control_enable_customization(kbdev);
 

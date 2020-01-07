@@ -1007,17 +1007,30 @@ static inline int dw_mci_prepare_desc64(struct dw_mci *host,
 	struct idmac_desc_64addr *desc_first, *desc_last, *desc;
 	u32 val;
 	int i;
+	void *bounce_buffer_addr;
+	void *dma_phy_addr;
 
+	host->mem_check = 0;
+	host->bu_count = 0;
 	desc_first = desc_last = desc = host->sg_cpu;
+
+	memset(host->bounce_buffer_addr, 0, (4096 * 512));
+	bounce_buffer_addr = host->bounce_buffer_addr;
+
+	for (i = 0; i < sg_len; i++) {
+		if (data->sg[i].dma_address >= DMA_UPPER_ADDR) {
+			host->mem_check = 1;
+		}
+	}
 
 	for (i = 0; i < sg_len; i++) {
 		unsigned int length = sg_dma_len(&data->sg[i]);
-
 		u64 mem_addr = sg_dma_address(&data->sg[i]);
+		dma_phy_addr = phys_to_virt(data->sg[i].dma_address);
 
 		for ( ; length ; desc++) {
 			desc_len = (length <= DW_MCI_DESC_DATA_LENGTH) ?
-				   length : DW_MCI_DESC_DATA_LENGTH;
+				length : DW_MCI_DESC_DATA_LENGTH;
 
 			length -= desc_len;
 
@@ -1041,15 +1054,52 @@ static inline int dw_mci_prepare_desc64(struct dw_mci *host,
 			/* Buffer length */
 			IDMAC_64ADDR_SET_BUFFER1_SIZE(desc, desc_len);
 
-			/* Physical address to DMA to/from */
-			desc->des4 = mem_addr & 0xffffffff;
-			desc->des5 = mem_addr >> 32;
+			if (host->mem_check == 1) {
+				host->backup_size[host->bu_count] = desc_len;
+				host->backup_addr[host->bu_count] = dma_phy_addr;
 
-			/* Update physical address for the next desc */
-			mem_addr += desc_len;
+				if (host->dir_status == DW_MCI_RECV_STATUS) {
+					/* READ */
+					/* Physical address to DMA to/from */
 
-			/* Save pointer to the last descriptor */
-			desc_last = desc;
+					desc->des4 = cpu_to_le32(lower_32_bits(virt_to_phys(bounce_buffer_addr)));
+					desc->des5 = cpu_to_le32(upper_32_bits(virt_to_phys(bounce_buffer_addr)));
+
+					/* Update physical address for the next desc */
+					bounce_buffer_addr += desc_len;
+					dma_phy_addr += desc_len;
+					/* Save pointer to the last descriptor */
+					desc_last = desc;
+					host->bu_count++;
+				} else {
+					/* WRITE */
+					memcpy(bounce_buffer_addr,
+							dma_phy_addr,
+							desc_len);
+					/* Physical address to DMA to/from */
+					desc->des4 = cpu_to_le32(lower_32_bits(virt_to_phys(bounce_buffer_addr)));
+					desc->des5 = cpu_to_le32(upper_32_bits(virt_to_phys(bounce_buffer_addr)));
+
+					/* Update physical address for the next desc */
+					bounce_buffer_addr += desc_len;
+					dma_phy_addr += desc_len;
+
+					/* Save pointer to the last descriptor */
+					desc_last = desc;
+					host->bu_count++;
+				}
+			} else {
+
+				/* Physical address to DMA to/from */
+				desc->des4 = mem_addr & 0xffffffff;
+				desc->des5 = mem_addr >> 32;
+
+				/* Update physical address for the next desc */
+				mem_addr += desc_len;
+
+				/* Save pointer to the last descriptor */
+				desc_last = desc;
+			}
 		}
 	}
 
@@ -2525,6 +2575,8 @@ static int dw_mci_command_complete(struct dw_mci *host, struct mmc_command *cmd)
 static int dw_mci_data_complete(struct dw_mci *host, struct mmc_data *data)
 {
 	u32 status = host->data_status;
+	void *bounce_buffer_addr;
+	int i;
 
 	if (status & DW_MCI_DATA_ERROR_FLAGS) {
 		if (status & SDMMC_INT_DRTO) {
@@ -2561,6 +2613,16 @@ static int dw_mci_data_complete(struct dw_mci *host, struct mmc_data *data)
 	} else {
 		data->bytes_xfered = data->blocks * data->blksz;
 		data->error = 0;
+
+		if (host->mem_check == 1) {
+			bounce_buffer_addr = host->bounce_buffer_addr;
+			if (host->dir_status == DW_MCI_RECV_STATUS) {
+				for (i = 0 ; i < host->bu_count; i++) {
+					memcpy(host->backup_addr[i], bounce_buffer_addr, host->backup_size[i]);
+					bounce_buffer_addr += host->backup_size[i];
+				}
+			}
+		}
 	}
 
 	return data->error;
@@ -4461,6 +4523,16 @@ int dw_mci_probe(struct dw_mci *host)
 		goto err_clk_ciu;
 	}
 
+	/* bounce buffer size 4K * 256 */
+	host->bounce_buffer_addr = kmalloc((4096 * 512), GFP_KERNEL);
+	if (host->bounce_buffer_addr) {
+		dev_err(host->dev, "mmc bounce_buffer_addr = 0x%llx\n", host->bounce_buffer_addr);
+		memset(host->bounce_buffer_addr, 0, (4096 * 512));
+	} else {
+		dev_err(host->dev, "mmc bounce_buffer alloc fail\n");
+		goto err_workqueue;
+	}
+
 	/*
 	 * Enable interrupts for command done, data over, data empty,
 	 * receive ready and error such as transmit, receive timeout, crc error
@@ -4655,6 +4727,10 @@ int dw_mci_runtime_resume(struct device *dev)
 		/* Now that slots are all setup, we can enable card detect */
 		dw_mci_enable_cd(host);
 	}
+
+	/* Re-enable SDIO interrupts. */
+	if (sdio_irq_claimed(host->slot->mmc))
+		__dw_mci_enable_sdio_irq(host->slot, 1);
 
 	return 0;
 

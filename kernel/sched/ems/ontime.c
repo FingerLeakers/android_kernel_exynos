@@ -191,7 +191,7 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 		runnable = ml_task_runnable(p);
 		if (runnable >= get_upper_boundary(task_cpu(p), p)) {
 			heaviest_task = p;
-			max_ratio = runnable * 100 / capacity_cpu_orig(task_cpu(p), p->sse);
+			max_ratio = runnable * 100 / capacity_cpu(task_cpu(p), p->sse);
 			*boost_migration = 0;
 		}
 	}
@@ -212,7 +212,7 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 		if (runnable < get_upper_boundary(task_cpu(p), p))
 			goto next_entity;
 
-		task_ratio = runnable * 100 / capacity_cpu_orig(task_cpu(p), p->sse);
+		task_ratio = runnable * 100 / capacity_cpu(task_cpu(p), p->sse);
 		if (task_ratio > max_ratio) {
 			heaviest_task = p;
 			max_ratio = task_ratio;

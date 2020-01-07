@@ -150,6 +150,9 @@ static int common_panel_vrr_changed(struct exynos_panel_device *panel, void *arg
 {
 	struct exynos_panel_info *info;
 	struct vrr_config_data *vrr_info = arg;
+#if defined(CONFIG_DECON_BTS_VRR_ASYNC)
+	struct decon_device *decon = get_decon_drvdata(0);
+#endif
 
 	if (!panel || !arg)
 		return -EINVAL;
@@ -157,11 +160,28 @@ static int common_panel_vrr_changed(struct exynos_panel_device *panel, void *arg
 	info = &panel->lcd_info;
 	vrr_info = arg;
 
+	/*
+	 * decon->lcd_info->fps : panel's current fps setting
+	 * decon->lcd_info->req_vrr_fps : decon requested fps
+	 * decon->bts.next_fps : next_fps will be applied after 1-VSYNC and FrameStart
+	 * decon->bts.next_fps_vsync_count : timeline of next_fps will be applied.
+	 */
 	info->fps = vrr_info->fps;
 	info->vrr_mode = vrr_info->mode;
 
-	pr_info("%s vrr(fps:%d mode:%d) changed\n",
-			__func__, info->fps, info->vrr_mode);
+#if defined(CONFIG_DECON_BTS_VRR_ASYNC)
+	if (decon && info->req_vrr_fps == vrr_info->fps &&
+			vrr_info->fps < decon->bts.next_fps) {
+		DPU_DEBUG_BTS("\tupdate next_fps(%d->%d) next_fps_vsync_count(%llu)\n",
+				decon->bts.next_fps, info->fps, decon->bts.next_fps_vsync_count);
+		decon->bts.next_fps = info->fps;
+		decon->bts.next_fps_vsync_count = decon->vsync.count + 1;
+	}
+#endif
+
+	pr_info("%s vrr(fps:%d mode:%d) req_vrr(fps:%d mode:%d)\n",
+			__func__, info->fps, info->vrr_mode,
+			info->req_vrr_fps, info->req_vrr_mode);
 
 	return 0;
 }
@@ -184,7 +204,34 @@ static int panel_drv_set_vrr_cb(struct exynos_panel_device *panel)
 	return 0;
 }
 
-int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
+#define DSIM_TX_FLOW_CONTROL
+//#define DEBUG_DSI_CMD
+#ifdef DEBUG_DSI_CMD
+static void print_cmd(u8 cmd_id, const u8 *cmd, int size)
+{
+	char data[128];
+	int i, len = 0;
+
+	len = snprintf(data, ARRAY_SIZE(data) - len,
+			"(%02X) ", cmd_id);
+	for (i = 0; i < min((int)size, 32); i++)
+		len += snprintf(data + len, ARRAY_SIZE(data) - len,
+				"%02X ", cmd[i]);
+	pr_info("%s\n", data);
+}
+
+static void print_dsim_cmd(const struct exynos_dsim_cmd *cmd_set, int size)
+{
+	int i;
+
+	for (i = 0; i < size; i++)
+		print_cmd(cmd_set[i].type,
+				cmd_set[i].data_buf,
+				cmd_set[i].data_len);
+}
+#endif
+
+static int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
 {
 	int ret, retry = 3;
 	unsigned long d0;
@@ -225,6 +272,9 @@ int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option
 		if (offset > 0) {
 			if (option & DSIM_OPTION_POINT_GPARA) {
 				u8 gpara[3] = { 0xB0, offset, cmd[0] };
+#ifdef DEBUG_DSI_CMD
+				print_cmd(MIPI_DSI_DCS_LONG_WRITE, gpara, ARRAY_SIZE(gpara));
+#endif
 				if (dsim_write_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
 							(unsigned long)gpara, ARRAY_SIZE(gpara), false)) {
 					pr_err("%s failed to write gpara %d (retry %d)\n",
@@ -232,6 +282,10 @@ int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option
 					continue;
 				}
 			} else {
+#ifdef DEBUG_DSI_CMD
+				u8 gpara[2] = { 0xB0, offset };
+				print_cmd(MIPI_DSI_DCS_SHORT_WRITE_PARAM, gpara, ARRAY_SIZE(gpara));
+#endif
 				if (dsim_write_data(dsim,
 							MIPI_DSI_DCS_SHORT_WRITE_PARAM, 0xB0, offset, false)) {
 					pr_err("%s failed to write gpara %d (retry %d)\n",
@@ -240,7 +294,9 @@ int mipi_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option
 				}
 			}
 		}
-
+#ifdef DEBUG_DSI_CMD
+		print_cmd(type, cmd, size);
+#endif
 		if (dsim_write_data(dsim, type, d0, d1, block)) {
 			pr_err("%s failed to write cmd %02X size %d(retry %d)\n",
 					__func__, cmd[0], size, retry);
@@ -266,23 +322,134 @@ error:
 	return ret;
 }
 
-
-int mipi_sr_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
+#define MAX_DSIM_PH_SIZE (32)
+#define MAX_DSIM_PL_SIZE (DSIM_PL_FIFO_THRESHOLD)
+#define MAX_CMD_SET_SIZE (1024)
+static struct exynos_dsim_cmd cmd_set[MAX_CMD_SET_SIZE];
+static int mipi_write_table(u32 id, const struct cmd_set *cmd, int size, u32 option)
 {
-	int ret = 0;
+	int ret, total_size = 0;
 	struct dsim_device *dsim = get_dsim_drvdata(id);
-	
+	int i, from = 0, sz_pl = 0;
+	s64 elapsed_usec;
+	struct timespec cur_ts, last_ts, delta_ts;
+
+	if (!cmd) {
+		pr_err("%s cmd is null\n", __func__);
+		return -EINVAL;
+	}
+
+	if (size <= 0) {
+		pr_err("%s invalid cmd size %d\n", __func__, size);
+		return -EINVAL;
+	}
+
+	if (size > MAX_CMD_SET_SIZE) {
+		pr_err("%s exceeded MAX_CMD_SET_SIZE(%d) %d\n",
+				__func__, MAX_CMD_SET_SIZE, size);
+		return -EINVAL;
+	}
+
+	ktime_get_ts(&last_ts);
 	mutex_lock(&cmd_lock);
+	for (i = 0; i < size; i++) {
+		if (cmd[i].buf == NULL) {
+			pr_err("%s cmd[%d].buf is null\n", __func__, i);
+			continue;
+		}
 
-	ret = dsim_sr_write_data(dsim, cmd, size);
+		if (cmd[i].cmd_id == MIPI_DSI_WR_DSC_CMD) {
+			cmd_set[i].type = MIPI_DSI_DSC_PRA;
+			cmd_set[i].data_buf = cmd[i].buf;
+			cmd_set[i].data_len = 1;
+		} else if (cmd[i].cmd_id == MIPI_DSI_WR_PPS_CMD) {
+			cmd_set[i].type = MIPI_DSI_DSC_PPS;
+			cmd_set[i].data_buf = cmd[i].buf;
+			cmd_set[i].data_len = cmd[i].size;
+		} else if (cmd[i].cmd_id == MIPI_DSI_WR_GEN_CMD) {
+			if (cmd[i].size == 1) {
+				cmd_set[i].type = MIPI_DSI_DCS_SHORT_WRITE;
+				cmd_set[i].data_buf = cmd[i].buf;
+				cmd_set[i].data_len = 1;
+			} else {
+				cmd_set[i].type = MIPI_DSI_DCS_LONG_WRITE;
+				cmd_set[i].data_buf = cmd[i].buf;
+				cmd_set[i].data_len = cmd[i].size;
+			}
+		} else {
+			pr_info("%s invalid cmd_id %d\n",
+					__func__, cmd[i].cmd_id);
+			ret = -EINVAL;
+			goto error;
+		}
 
+#if defined(DSIM_TX_FLOW_CONTROL)
+		if ((i - from >= MAX_DSIM_PH_SIZE) ||
+			(sz_pl + ALIGN(cmd_set[i].data_len, 4) >= MAX_DSIM_PL_SIZE)) {
+			if (dsim_write_cmd_set(dsim, &cmd_set[from], i - from, false)) {
+				pr_err("%s failed to write cmd_set\n", __func__);
+				ret = -EIO;
+				goto error;
+			}
+			pr_debug("%s cmd_set:%d pl:%d\n", __func__, i - from, sz_pl);
+#ifdef DEBUG_DSI_CMD
+			print_dsim_cmd(&cmd_set[from], i - from);
+#endif
+			from = i;
+			sz_pl = 0;
+		}
+#endif
+		sz_pl += ALIGN(cmd_set[i].data_len, 4);
+		total_size += cmd_set[i].data_len;
+	}
+
+	if (dsim_write_cmd_set(dsim, &cmd_set[from], i - from, false)) {
+		pr_err("%s failed to write cmd_set\n", __func__);
+		ret = -EIO;
+		goto error;
+	}
+
+	ktime_get_ts(&cur_ts);
+	delta_ts = timespec_sub(cur_ts, last_ts);
+	elapsed_usec = timespec_to_ns(&delta_ts) / 1000;
+	pr_debug("%s done (cmd_set:%d size:%d elapsed %2lld.%03lld msec)\n",
+			__func__, size, total_size,
+			elapsed_usec / 1000, elapsed_usec % 1000);
+#ifdef DEBUG_DSI_CMD
+	print_dsim_cmd(&cmd_set[from], i - from);
+#endif
+
+	ret = total_size;
+
+error:
 	mutex_unlock(&cmd_lock);
+
 	return ret;
 }
 
+static int mipi_sr_write(u32 id, u8 cmd_id, const u8 *cmd, u8 offset, int size, u32 option)
+{
+	int ret = 0;
+	struct dsim_device *dsim = get_dsim_drvdata(id);
+	s64 elapsed_usec;
+	struct timespec cur_ts, last_ts, delta_ts;
 
+	ktime_get_ts(&last_ts);
 
-int mipi_read(u32 id, u8 addr, u8 offset, u8 *buf, int size, u32 option)
+	mutex_lock(&cmd_lock);
+	ret = dsim_sr_write_data(dsim, cmd, size);
+	mutex_unlock(&cmd_lock);
+
+	ktime_get_ts(&cur_ts);
+	delta_ts = timespec_sub(cur_ts, last_ts);
+	elapsed_usec = timespec_to_ns(&delta_ts) / 1000;
+	pr_debug("%s done (size:%d elapsed %2lld.%03lld msec)\n",
+			__func__, size, elapsed_usec / 1000, elapsed_usec % 1000);
+
+	return ret;
+}
+
+static int mipi_read(u32 id, u8 addr, u8 offset, u8 *buf, int size, u32 option)
 {
 	int ret, retry = 3;
 	struct dsim_device *dsim = get_dsim_drvdata(id);
@@ -378,6 +545,7 @@ static int panel_drv_put_ops(struct exynos_panel_device *panel)
 
 	mipi_ops.read = mipi_read;
 	mipi_ops.write = mipi_write;
+	mipi_ops.write_table = mipi_write_table;
 	mipi_ops.sr_write = mipi_sr_write;
 	mipi_ops.get_state = get_dsim_state;
 	mipi_ops.parse_dt = parse_lcd_info;
@@ -729,21 +897,31 @@ static int common_panel_fps(struct exynos_panel_device *panel, struct vrr_config
 {
 	int ret, old_fps;
 	struct exynos_panel_info *info = &panel->lcd_info;
+#if defined(CONFIG_DECON_BTS_VRR_ASYNC)
+	struct decon_device *decon = get_decon_drvdata(0);
+#endif
 
 	old_fps = info->fps;
+	info->req_vrr_fps = vrr_info->fps;
+	info->req_vrr_mode = vrr_info->mode;
+
+#if defined(CONFIG_DECON_BTS_VRR_ASYNC)
 	/*
 	 * lcd_info's fps is used in bts calculation.
 	 * To prevent underrun, update fps first
 	 * if target fps is bigger than previous fps.
 	 */
-	if (info->fps < vrr_info->fps)
-		info->fps = vrr_info->fps;
-	panel_info("[VRR:INFO]:%s, fps:%d, mode:%d\n",
-			__func__, vrr_info->fps, vrr_info->mode);
-
+	if (decon && info->req_vrr_fps > decon->bts.next_fps) {
+		DPU_DEBUG_BTS("\tupdate next_fps(%d->%d)\n",
+				info->req_vrr_fps, decon->bts.next_fps);
+		decon->bts.next_fps = info->req_vrr_fps;
+		decon->bts.next_fps_vsync_count = 0;
+	}
+#endif
+	panel_info("[VRR:INFO]:%s request vrr(fps:%d mode:%d)\n",
+			__func__, info->req_vrr_fps, info->req_vrr_mode);
 	ret = panel_drv_ioctl(panel, PANEL_IOC_SET_VRR_INFO, vrr_info);
 	if (ret) {
-		info->fps = old_fps;
 		pr_err("ERR:%s:failed to set fps\n", __func__);
 		return ret;
 	}

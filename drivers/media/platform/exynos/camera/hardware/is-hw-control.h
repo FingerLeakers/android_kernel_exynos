@@ -183,6 +183,7 @@ struct cal_info {
 
 struct hw_debug_info {
 	u32			fcount;
+	u32			instance; /* logical instance */
 	u32			cpuid[DEBUG_POINT_MAX];
 	unsigned long long	time[DEBUG_POINT_MAX];
 };
@@ -311,7 +312,6 @@ struct is_hw_ip {
 	u32					lindex[IS_STREAM_COUNT];
 	u32					internal_fcount[IS_STREAM_COUNT];
 	struct is_framemgr			*framemgr;
-	struct is_framemgr			*framemgr_late;
 	struct is_hardware			*hardware;
 	/* callback interface */
 	struct is_interface		*itf;
@@ -399,7 +399,6 @@ struct is_hw_ip_ops {
 struct is_hardware {
 	struct is_hw_ip		hw_ip[HW_SLOT_MAX];
 	struct is_framemgr		framemgr[GROUP_ID_MAX];
-	struct is_framemgr		framemgr_late[GROUP_ID_MAX];
 	atomic_t			rsccount;
 
 	/* keep last configuration */
@@ -495,4 +494,5 @@ int is_hardware_restore_by_group(struct is_hardware *hardware,
 	struct is_group *group, u32 instance);
 int is_hardware_recovery_shot(struct is_hardware *hardware, u32 instance,
 	struct is_group *group, u32 recov_fcount, struct is_framemgr *framemgr);
+void _is_hw_frame_dbg_trace(struct is_hw_ip *hw_ip, u32 fcount, u32 dbg_pts);
 #endif

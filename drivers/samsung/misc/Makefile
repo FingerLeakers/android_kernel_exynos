@@ -19,6 +19,8 @@ obj-$(CONFIG_SEC_MEM)		+= sec_memory.o
 obj-$(CONFIG_SEC_NAD)		+= sec_nad.o
 # Samsung TN NAD Balancer Feature
 obj-$(CONFIG_SEC_NAD_BALANCER)		+= sec_nad_balancer.o
+# Samsung sec BPS Feature
+obj-$(CONFIG_SEC_BPS_INFO)		+= sec_bps.o
 
 # Samsung HQM device feature
 obj-$(CONFIG_SEC_HQM_DEVICE)		+= sec_hqm_device.o

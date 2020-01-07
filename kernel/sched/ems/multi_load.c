@@ -120,10 +120,10 @@ static unsigned long __ml_cpu_util_est(int cpu, int sse)
 		READ_ONCE(cfs_rq->ml.util_est.enqueued);
 }
 
-static unsigned long ml_cpu_util_est(int cpu)
+static unsigned long ml_cpu_util_est(int cpu, int sse)
 {
 	return __normalize_util(cpu, __ml_cpu_util_est(cpu, SSE),
-				__ml_cpu_util_est(cpu, USS), USS);
+				__ml_cpu_util_est(cpu, USS), sse);
 }
 
 /*
@@ -154,9 +154,9 @@ unsigned long _ml_cpu_util(int cpu, int sse)
 				__ml_cpu_util(cpu, USS), sse);
 
 	if (sched_feat(UTIL_EST))
-		util = max_t(unsigned long, util, ml_cpu_util_est(cpu));
+		util = max_t(unsigned long, util, ml_cpu_util_est(cpu, sse));
 
-	return min_t(unsigned long, util, capacity_cpu_orig(cpu, sse));
+	return min_t(unsigned long, util, capacity_cpu(cpu, sse));
 }
 
 /*
@@ -179,7 +179,7 @@ unsigned long ml_cpu_util(int cpu)
 unsigned long ml_cpu_util_ratio(int cpu, int sse)
 {
 	return (__ml_cpu_util(cpu, sse) << SCHED_CAPACITY_SHIFT)
-					/ capacity_cpu_orig(cpu, sse);
+					/ capacity_cpu(cpu, sse);
 }
 
 #define UTIL_AVG_UNCHANGED 0x1
@@ -241,8 +241,8 @@ unsigned long ml_cpu_util_without(int cpu, struct task_struct *p)
 		sse_util = max_t(unsigned long, sse_util, sse_util_est);
 	}
 
-	sse_util = min_t(unsigned long, sse_util, capacity_cpu_orig(cpu, SSE));
-	uss_util = min_t(unsigned long, uss_util, capacity_cpu_orig(cpu, USS));
+	sse_util = min_t(unsigned long, sse_util, capacity_cpu(cpu, SSE));
+	uss_util = min_t(unsigned long, uss_util, capacity_cpu(cpu, USS));
 
 	return __normalize_util(cpu, sse_util, uss_util, USS);
 }
@@ -274,7 +274,7 @@ unsigned long __ml_cpu_util_with(int cpu, struct task_struct *p, int sse)
 		util = max_t(unsigned long, util, util_est);
 	}
 
-	return min_t(unsigned long, util, capacity_cpu_orig(cpu, sse));
+	return min_t(unsigned long, util, capacity_cpu(cpu, sse));
 }
 
 unsigned long ml_cpu_util_with(int cpu, struct task_struct *p)
@@ -302,15 +302,6 @@ unsigned long ml_boosted_cpu_util(int cpu)
 /******************************************************************************
  *                       initial utilization of task                          *
  ******************************************************************************/
-enum {
-	INHERIT_CFS_RQ = 0,
-	INHERIT_PARENT,
-	INHERIT_MAX_NUM,
-};
-
-static u32 inherit_type = INHERIT_CFS_RQ;
-static u32 inherit_ratio = 25;	/* EMS default : 25% (fair : 50%) */
-
 void init_multi_load(struct sched_entity *se)
 {
 	struct multi_load *ml = &se->ml;
@@ -321,48 +312,28 @@ void init_multi_load(struct sched_entity *se)
 	ml->runnable_avg = current->se.ml.runnable_avg >> 1;
 }
 
-static void post_init_inherit_cfs_rq(struct sched_entity *se, u32 inherit_ratio)
+static u32 default_inherit_ratio = 25;
+
+void post_init_entity_multi_load(struct sched_entity *se, u64 now)
 {
 	int sse = get_sse(se);
 	struct cfs_rq *cfs_rq = se->cfs_rq;
 	struct multi_load *ml = &se->ml;
 	unsigned long cpu_scale = capacity_cpu(cpu_of(cfs_rq->rq), sse);
 	long cap = (long)(cpu_scale - _ml_cpu_util(cpu_of(cfs_rq->rq), sse));
+	u32 inherit_ratio;
 
 	if (cap <= 0) {
 		ml->util_avg = 0;
 		return;
 	}
 
+	inherit_ratio = entity_is_task(se) ? emstune_init_util(task_of(se))
+					   : default_inherit_ratio;
+
 	ml->util_avg = cap * inherit_ratio / 100;
 
 	trace_multi_load_new_task(ml);
-}
-
-static void post_init_inherit_parent(struct sched_entity *se, u32 inherit_ratio)
-{
-	struct multi_load *ml = &se->ml;
-
-	/* initialize util */
-	ml->util_sum = current->se.ml.util_sum;
-	ml->util_avg = current->se.ml.util_avg;
-
-	trace_multi_load_new_task(ml);
-}
-
-void post_init_entity_multi_load(struct sched_entity *se, u64 now)
-{
-	switch(inherit_type) {
-	case INHERIT_CFS_RQ:
-		post_init_inherit_cfs_rq(se, inherit_ratio);
-		break;
-	case INHERIT_PARENT:
-		post_init_inherit_parent(se, inherit_ratio);
-		break;
-	default:
-		pr_info("%s: Not support initial util type %d\n",
-				__func__, inherit_type);
-	}
 
 	if (entity_is_task(se)) {
 		struct task_struct *p = task_of(se);
@@ -370,80 +341,6 @@ void post_init_entity_multi_load(struct sched_entity *se, u64 now)
 			se->ml.last_update_time = now;
 	}
 }
-
-static ssize_t show_inherit_type(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-        return snprintf(buf, 10, "%d\n", inherit_type);
-}
-
-static ssize_t store_inherit_type(struct kobject *kobj,
-                struct kobj_attribute *attr, const char *buf,
-                size_t count)
-{
-        int input;
-
-        if (!sscanf(buf, "%d", &input))
-                return -EINVAL;
-
-        input = min_t(u32, input, INHERIT_CFS_RQ);
-	input = max_t(u32, input, INHERIT_MAX_NUM - 1);
-
-        inherit_type = input;
-
-        return count;
-}
-
-static ssize_t show_inherit_ratio(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-        return snprintf(buf, 10, "%d\n", inherit_ratio);
-}
-
-static ssize_t store_inherit_ratio(struct kobject *kobj,
-                struct kobj_attribute *attr, const char *buf,
-                size_t count)
-{
-        int input;
-
-        if (!sscanf(buf, "%d", &input))
-                return -EINVAL;
-
-        inherit_ratio = !!input;
-
-        return count;
-}
-
-static struct kobj_attribute inherit_type_attr =
-__ATTR(inherit_type, 0644, show_inherit_type, store_inherit_type);
-
-static struct kobj_attribute inherit_ratio_attr =
-__ATTR(inherit_ratio, 0644, show_inherit_ratio, store_inherit_ratio);
-
-static struct attribute *initial_util_attrs[] = {
-	&inherit_type_attr.attr,
-	&inherit_ratio_attr.attr,
-	NULL,
-};
-
-static const struct attribute_group initial_util_attr_group = {
-	.attrs = initial_util_attrs,
-};
-
-static int __init init_initial_util(void)
-{
-	struct kobject *kobj;
-
-	kobj = kobject_create_and_add("init_util", ems_kobj);
-	if (!kobj)
-		return -EINVAL;
-
-	if (sysfs_create_group(kobj, &initial_util_attr_group))
-		return -EINVAL;
-
-	return 0;
-}
-late_initcall(init_initial_util);
 
 /******************************************************************************
  *                           utilization tracking                             *
@@ -1107,8 +1004,8 @@ char *part_policy_name[] = {
 };
 
 static __read_mostly unsigned int part_policy_idx = PART_POLICY_MAX_RECENT_LAST;
-static __read_mostly u64 period_size = 4 * NSEC_PER_MSEC;
-static __read_mostly u64 period_hist_size = 10;
+__read_mostly u64 period_size = 4 * NSEC_PER_MSEC;
+__read_mostly u64 period_hist_size = 10;
 static __read_mostly int high_patten_thres = 700;
 static __read_mostly int high_patten_stdev = 200;
 static __read_mostly int low_patten_count = 3;
@@ -1425,7 +1322,7 @@ static ssize_t store_part_policy(struct kobject *kobj,
 	if (!sscanf(buf, "%ld", &input))
 		return -EINVAL;
 
-	if (input >= PART_POLICY_INVALID)
+	if (input >= PART_POLICY_INVALID || input < 0)
 		return -EINVAL;
 
 	part_policy_idx = input;

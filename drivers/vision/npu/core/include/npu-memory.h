@@ -23,6 +23,12 @@ struct npu_memory_buffer {
 	int				fd;
 };
 
+struct npu_memory_v_buf {
+	struct list_head		list;
+	u8				*v_buf;
+	size_t				size;
+};
+
 struct npu_memory;
 struct npu_mem_ops {
 	int (*resume)(struct npu_memory *memory);
@@ -52,5 +58,7 @@ int npu_memory_map(struct npu_memory *memory, struct npu_memory_buffer *buffer);
 int npu_memory_unmap(struct npu_memory *memory, struct npu_memory_buffer *buffer);
 int npu_memory_alloc(struct npu_memory *memory, struct npu_memory_buffer *buffer);
 int npu_memory_free(struct npu_memory *memory, struct npu_memory_buffer *buffer);
+int npu_memory_v_alloc(struct npu_memory *memory, struct npu_memory_v_buf *buffer);
+void npu_memory_v_free(struct npu_memory *memory, struct npu_memory_v_buf *buffer);
 
 #endif

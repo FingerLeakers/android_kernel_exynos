@@ -125,6 +125,8 @@ s32 wl_netlink_send_msg(int pid, int type, int seq, const void *data, size_t siz
 #define WL_CH_BANDWIDTH_20MHZ 20
 #define WL_CH_BANDWIDTH_40MHZ 40
 #define WL_CH_BANDWIDTH_80MHZ 80
+#define WL_CH_BANDWIDTH_160MHZ 160
+
 /* max number of mac filter list
  * restrict max number to 10 as maximum cmd string size is 255
  */
@@ -160,3 +162,5 @@ extern int wl_android_bcnrecv_event(struct net_device *ndev,
 #define TSPEC_DEF_MIN_PHY_RATE 6000000
 #define TSPEC_DEF_DIALOG_TOKEN 7
 #endif /* WL_CAC_TS */
+
+#define WL_PRIV_CMD_LEN 64

@@ -320,6 +320,8 @@ struct exynos_context {
 	bool cl_boost_disable;
 #endif
 
+	int wa_ctrl;
+
 	int gpu_set_pmu_duration_reg;
 	int gpu_set_pmu_duration_val;
 	bool gpu_bts_support;

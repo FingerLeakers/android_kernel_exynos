@@ -24,6 +24,8 @@
 #define MAFPC_HEADER_SIZE 1
 #define MAFPC_HEADER 'M'
 
+#define MAFPC_UPDATED_FROM_SVC		0x01	
+#define MAFPC_UPDATED_TO_DEV		0x10
 
 #define MAFPC_V4L2_DEV_NAME	"mafpc-sd"
 
@@ -47,7 +49,11 @@ struct mafpc_device {
 	int img_size;
 
 	u8 ctrl_cmd[MAFPC_CTRL_CMD_SIZE];
-	bool written;
+
+	u8 *scale_buf;
+	u8 scale_size;
+	
+	u32 written;
 
 	u8 factory_crc[2];
 
@@ -66,6 +72,10 @@ struct mafpc_device {
 #define V4L2_IOCTL_MAFPC_UDPATE_REQ	_IOR(MAFPC_V4L2_IOC_BASE, 1, int *)
 #define V4L2_IOCTL_MAFPC_WAIT_COMP	_IOR(MAFPC_V4L2_IOC_BASE, 2, int *)
 #define V4L2_IOCTL_MAFPC_GET_INFO	_IOR(MAFPC_V4L2_IOC_BASE, 3, int *)
+
+#define V4L2_IOCTL_MAFPC_PANEL_INIT _IOR(MAFPC_V4L2_IOC_BASE, 4, int *)
+#define V4L2_IOCTL_MAFPC_PANEL_EXIT _IOR(MAFPC_V4L2_IOC_BASE, 5, int *)
+
 
 
 #define MAFPC_VALID_CRC_1	0x5C

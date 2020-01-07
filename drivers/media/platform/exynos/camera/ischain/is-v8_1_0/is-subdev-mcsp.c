@@ -251,7 +251,7 @@ p_err:
 	return ret;
 }
 
-#define MXP_RATIO_UP		(14)
+#define MXP_RATIO_UP		(MCSC_POLY_RATIO_UP)
 #define MXP_RATIO_DOWN		(256)
 #define MXP_WIDTH_ALIGN		(4)
 #define MXP_HEIGHT_ALIGN	(2)

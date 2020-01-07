@@ -99,12 +99,16 @@ int votfitf_set_service_cfg(struct votf_info *vinfo, struct votf_service_cfg *cf
 int votfitf_reset(struct votf_info *vinfo, int type);	/* type(0) : sw_core_reset, type(1) : sw_reset */
 
 int votfitf_set_flush(struct votf_info *vinfo);
+int votfitf_set_crop_start(struct votf_info *vinfo, bool start);
+int votfitf_get_crop_start(struct votf_info *vinfo);
+int voifitf_set_crop_enable(struct votf_info *vinfo, bool enable);
+int voifitf_get_crop_enable(struct votf_info *vinfo);
 
 /* C2SERV function */
 int votfitf_set_trs_lost_cfg(struct votf_info *vinfo, struct votf_lost_cfg *cfg);
-int votfitf_set_lines_in_first_token(struct votf_info *vinfo, u32 lines);
-int votfitf_set_lines_in_token(struct votf_info *vinfo, u32 lines);
-int votfitf_set_lines_count(struct votf_info *vinfo, u32 cnt);
+int votfitf_set_first_token_size(struct votf_info *vinfo, u32 size);
+int votfitf_set_token_size(struct votf_info *vinfo, u32 size);
+int votfitf_set_frame_size(struct votf_info *vinfo, u32 size);
 
 /* C2AGENT function */
 int votfitf_set_start(struct votf_info *vinfo);

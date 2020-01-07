@@ -62,6 +62,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
 
+#include <linux/sched/cputime.h>
+#include <linux/debugfs.h>
+#include <linux/jiffies.h>
+
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -127,6 +131,12 @@ struct scan_control {
 		unsigned int file_taken;
 		unsigned int taken;
 	} nr;
+	/*
+	 * Reclaim pages from a vma. If the page is shared by other tasks
+	 * it is zapped from a vma without reclaim so it ends up remaining
+	 * on memory until last task zap it.
+	 */
+	struct vm_area_struct *target_vma;
 };
 
 #ifdef ARCH_HAS_PREFETCH
@@ -458,6 +468,8 @@ static unsigned long do_shrink_slab(struct shrink_control *shrinkctl,
 	long batch_size = shrinker->batch ? shrinker->batch
 					  : SHRINK_BATCH;
 	long scanned = 0, next_deferred;
+	unsigned long shrinker_time;
+	u64 utime, stime_s, stime_e;
 
 	if (!(shrinker->flags & SHRINKER_NUMA_AWARE))
 		nid = 0;
@@ -465,6 +477,10 @@ static unsigned long do_shrink_slab(struct shrink_control *shrinkctl,
 	freeable = shrinker->count_objects(shrinker, shrinkctl);
 	if (freeable == 0 || freeable == SHRINK_EMPTY)
 		return freeable;
+
+	atomic_long_inc(&shrinker->nr_total_scan);
+	shrinker_time = jiffies;
+	task_cputime(current, &utime, &stime_s);
 
 	/*
 	 * copy the current shrinker scan count into a local variable
@@ -563,6 +579,15 @@ static unsigned long do_shrink_slab(struct shrink_control *shrinkctl,
 		new_nr = atomic_long_read(&shrinker->nr_deferred[nid]);
 
 	trace_mm_shrink_slab_end(shrinker, nid, freed, nr, new_nr, total_scan);
+
+	atomic64_add((jiffies - shrinker_time), &shrinker->jiffies_time);
+	task_cputime(current, &utime, &stime_e);
+
+	if (stime_e - stime_s > 0) {
+		atomic64_add((stime_e - stime_s), &shrinker->cpu_time);
+		atomic_long_inc(&shrinker->nr_delay_scan);
+	}
+
 	return freed;
 }
 
@@ -1096,7 +1121,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				      struct scan_control *sc,
 				      enum ttu_flags ttu_flags,
 				      struct reclaim_stat *stat,
-				      bool force_reclaim)
+				      bool skip_reference_check)
 {
 	LIST_HEAD(ret_pages);
 	LIST_HEAD(free_pages);
@@ -1116,7 +1141,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 		struct address_space *mapping;
 		struct page *page;
 		int may_enter_fs;
-		enum page_references references = PAGEREF_RECLAIM_CLEAN;
+		enum page_references references = PAGEREF_RECLAIM;
 		bool dirty, writeback;
 
 		cond_resched();
@@ -1128,10 +1153,12 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			goto keep;
 
 		VM_BUG_ON_PAGE(PageActive(page), page);
+		if (pgdat)
+			VM_BUG_ON_PAGE(page_pgdat(page) != pgdat, page);
 
 		sc->nr_scanned++;
 
-		if (unlikely(!page_evictable(page)))
+	if (unlikely(!page_evictable(page)))
 			goto activate_locked;
 
 		if (!sc->may_unmap && page_mapped(page))
@@ -1221,7 +1248,8 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			/* Case 1 above */
 			if (current_is_kswapd() &&
 			    PageReclaim(page) &&
-			    test_bit(PGDAT_WRITEBACK, &pgdat->flags)) {
+			    (pgdat &&
+				test_bit(PGDAT_WRITEBACK, &pgdat->flags))) {
 				nr_immediate++;
 				goto activate_locked;
 
@@ -1253,7 +1281,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			}
 		}
 
-		if (!force_reclaim)
+		if (!skip_reference_check)
 			references = page_check_references(page, sc);
 
 		switch (references) {
@@ -1327,7 +1355,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 
 			if (unlikely(PageTransHuge(page)))
 				flags |= TTU_SPLIT_HUGE_PMD;
-			if (!try_to_unmap(page, flags)) {
+			if (!try_to_unmap(page, flags, sc->target_vma)) {
 				nr_unmap_fail++;
 				goto activate_locked;
 			}
@@ -1346,7 +1374,8 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			 */
 			if (page_is_file_cache(page) &&
 			    (!current_is_kswapd() || !PageReclaim(page) ||
-			     !test_bit(PGDAT_DIRTY, &pgdat->flags))) {
+			     (pgdat &&
+				!test_bit(PGDAT_DIRTY, &pgdat->flags)))) {
 				/*
 				 * Immediately reclaim when written back.
 				 * Similar in principal to deactivate_page()
@@ -1473,6 +1502,13 @@ free_it:
 			(*get_compound_page_dtor(page))(page);
 		} else
 			list_add(&page->lru, &free_pages);
+		/*
+		 * If pagelist are from multiple nodes, we should decrease
+		 * NR_ISOLATED_ANON + x on freed pages in here.
+		 */
+		if (!pgdat)
+			dec_node_page_state(page, NR_ISOLATED_ANON +
+					page_is_file_cache(page));
 		continue;
 
 activate_locked:
@@ -1522,6 +1558,8 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 		.gfp_mask = GFP_KERNEL,
 		.priority = DEF_PRIORITY,
 		.may_unmap = 1,
+		/* Doesn't allow to write out dirty page */
+		.may_writepage = 0,
 	};
 	unsigned long ret;
 	struct page *page, *next;
@@ -1541,6 +1579,40 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE, -ret);
 	return ret;
 }
+
+#ifdef CONFIG_PROCESS_RECLAIM
+unsigned long reclaim_pages_from_list(struct list_head *page_list,
+					struct vm_area_struct *vma)
+{
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.target_vma = vma,
+	};
+
+	unsigned long nr_reclaimed;
+	struct page *page;
+
+	list_for_each_entry(page, page_list, lru)
+		ClearPageActive(page);
+
+	nr_reclaimed = shrink_page_list(page_list, NULL, &sc,
+			TTU_IGNORE_ACCESS, NULL, true);
+
+	while (!list_empty(page_list)) {
+		page = lru_to_page(page_list);
+		list_del(&page->lru);
+		dec_node_page_state(page, NR_ISOLATED_ANON +
+				page_is_file_cache(page));
+		putback_lru_page(page);
+	}
+
+	return nr_reclaimed;
+}
+#endif
 
 /*
  * Attempt to remove the specified page from its LRU.  Only take this page
@@ -1685,7 +1757,12 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 
 		VM_BUG_ON_PAGE(!PageLRU(page), page);
 
+#ifdef CONFIG_HUGEPAGE_POOL
+		if (page_zonenum(page) > sc->reclaim_idx
+		    || PageTransHuge(page)) {
+#else
 		if (page_zonenum(page) > sc->reclaim_idx) {
+#endif
 			list_move(&page->lru, &pages_skipped);
 			nr_skipped[page_zonenum(page)]++;
 			continue;
@@ -2316,6 +2393,49 @@ static ssize_t mem_boost_mode_store(struct kobject *kobj,
 	return count;
 }
 
+static inline bool mem_boost_pgdat_wmark(struct pglist_data *pgdat)
+{
+	int z;
+	struct zone *zone;
+	unsigned long mark;
+
+	for (z = 0; z < MAX_NR_ZONES; z++) {
+		zone = &pgdat->node_zones[z];
+		if (!managed_zone(zone))
+			continue;
+		mark = low_wmark_pages(zone); //TODO: low, high, or (low + high)/2
+		if (zone_watermark_ok_safe(zone, 0, mark, 0))
+			return true;
+	}
+	return false;
+}
+
+inline bool need_memory_boosting(struct pglist_data *pgdat)
+{
+	bool ret;
+
+	if (time_after(jiffies, last_mode_change + MEM_BOOST_MAX_TIME))
+		mem_boost_mode = NO_BOOST;
+
+	switch (mem_boost_mode) {
+	case BOOST_HIGH:
+		ret = true;
+		break;
+	case BOOST_MID:
+#ifndef CONFIG_NEED_MULTIPLE_NODES
+		if (!pgdat)
+			pgdat = &contig_page_data;
+#endif
+		ret = mem_boost_pgdat_wmark(pgdat) ? false : true;
+		break;
+	case NO_BOOST:
+	default:
+		ret = false;
+		break;
+	}
+	return ret;
+}
+
 ATOMIC_NOTIFIER_HEAD(am_app_launch_notifier);
 
 int am_app_launch_notifier_register(struct notifier_block *nb)
@@ -2394,6 +2514,48 @@ static struct attribute_group vmscan_attr_group = {
 	.name = "vmscan",
 };
 #endif
+
+static struct dentry *vmscan_debug_root;
+
+static int shrinker_debug_show(struct seq_file *s, void *unused)
+{
+	int retry = 10;
+	struct shrinker *shrinker;
+
+readlock_retry:
+	if (!down_read_trylock(&shrinker_rwsem)) {
+		if (retry-- > 0) {
+			msleep(10);
+			goto readlock_retry;
+		}
+
+		return 0;
+	}
+
+	list_for_each_entry(shrinker, &shrinker_list, list)
+		seq_printf(s, "%pF nr_total:%lu nr_delay:%lu jiffies:%lu ms cpu:%lu ms\n",
+			shrinker->scan_objects,
+			shrinker->nr_total_scan.counter, 
+			shrinker->nr_delay_scan.counter,
+			jiffies_to_msecs(shrinker->jiffies_time.counter),
+			shrinker->cpu_time.counter / NSEC_PER_MSEC);
+		
+	up_read(&shrinker_rwsem);
+
+	return 0;
+}
+
+static int shrinker_debug_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, shrinker_debug_show, inode->i_private);
+}
+
+static const struct file_operations debug_shrinker_fops = {
+	.open = shrinker_debug_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
 
 /*
  * Determine how aggressively the anon and file LRU lists should be
@@ -2487,6 +2649,11 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 				goto out;
 			}
 		}
+	}
+
+	if (current_is_kswapd() && need_memory_boosting(pgdat)) {
+		scan_balance = SCAN_FILE;
+		goto out;
 	}
 
 	/*
@@ -4104,6 +4271,15 @@ static int __init kswapd_init(void)
 	if (sysfs_create_group(mm_kobj, &vmscan_attr_group))
 		pr_err("vmscan: register sysfs failed\n");
 #endif
+
+	vmscan_debug_root = debugfs_create_dir("vmscan", NULL);
+	if (vmscan_debug_root) {
+		if (!debugfs_create_file("shrinker", 0444, vmscan_debug_root,
+				NULL, &debug_shrinker_fops))
+			pr_err("shrinker: failed to debugfs_create_file\n");
+	} else 
+		pr_err("vmscan: failed to debugfs_create_dir\n");
+
 	return 0;
 }
 

@@ -2598,6 +2598,20 @@ int request_direct_flash(struct is_sensor_interface *itf,
 		sensor_peri->flash->flash_data.mode = mode;
 		sensor_peri->flash->flash_data.intensity = intensity;
 		sensor_peri->flash->flash_data.firing_time_us = time;
+		sensor_peri->flash->flash_data.high_resolution_flash = true;
+#ifndef USE_HIGH_RES_FLASH_FIRE_BEFORE_STREAM_ON
+		ret = is_sensor_flash_fire(sensor_peri, sensor_peri->flash->flash_data.intensity);
+		if (ret) {
+			err("failed to turn off flash at flash expired handler\n");
+		}
+#endif
+	}
+	else if (mode == CAM2_FLASH_MODE_TORCH && on == true)
+	{
+		sensor_peri->flash->flash_data.mode = mode;
+		sensor_peri->flash->flash_data.intensity = intensity;
+		sensor_peri->flash->flash_data.firing_time_us = time;
+		sensor_peri->flash->flash_data.high_resolution_flash = false;
 
 		ret = is_sensor_flash_fire(sensor_peri, sensor_peri->flash->flash_data.intensity);
 		if (ret) {
@@ -2609,12 +2623,15 @@ int request_direct_flash(struct is_sensor_interface *itf,
 		sensor_peri->flash->flash_data.mode = mode;
 		sensor_peri->flash->flash_data.intensity = 0;
 		sensor_peri->flash->flash_data.firing_time_us = time;
+		sensor_peri->flash->flash_data.high_resolution_flash = false;
 
 		ret = is_sensor_flash_fire(sensor_peri, sensor_peri->flash->flash_data.intensity);
 		if (ret) {
 			err("failed to turn off flash at flash expired handler\n");
 		}
 	}
+
+	info("[%s] high_resolution_flash(%d)", __func__, sensor_peri->flash->flash_data.high_resolution_flash);
 
 	return ret;
 }

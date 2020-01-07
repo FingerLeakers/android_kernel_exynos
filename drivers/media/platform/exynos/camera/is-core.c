@@ -1455,8 +1455,6 @@ static int __init is_probe(struct platform_device *pdev)
 	}
 
 	core->shutdown = false;
-	core->reboot = false;
-	mutex_init(&core->mutex_reboot);
 
 	probe_info("%s:end\n", __func__);
 	return 0;
@@ -1476,23 +1474,21 @@ void is_cleanup(struct is_core *core)
 
 	info("%s enter: shutdown(%d)\n", __func__, core->shutdown);
 
-	mutex_lock(&core->mutex_reboot);
-	core->reboot = true;
-	info("reboot state changed to (%d)\n", core->reboot);
-
 	for (i = 0; i < IS_SENSOR_COUNT; i++) {
 		device = &core->sensor[i];
+		if (device) {
+			mutex_lock(&device->mutex_reboot);
+			device->reboot = true;
+			if (test_bit(IS_SENSOR_FRONT_START, &device->state)) {
+				minfo("try to stop sensor\n", device);
 
-		if (device &&
-		    test_bit(IS_SENSOR_FRONT_START, &device->state)) {
-			minfo("try to stop sensor\n", device);
-
-			ret = is_sensor_front_stop(device);
-			if (ret)
-				mwarn("failed to stop sensor: %d", device, ret);
+				ret = is_sensor_front_stop(device);
+				if (ret)
+					mwarn("failed to stop sensor: %d", device, ret);
+			}
+			mutex_unlock(&device->mutex_reboot);
 		}
 	}
-	mutex_unlock(&core->mutex_reboot);
 
 	info("%s exit\n", __func__);
 }
@@ -1512,7 +1508,7 @@ static void is_shutdown(struct platform_device *pdev)
 	}
 
 	core->shutdown = true;
-	info("%s++: shutdown(%d), reboot(%d)\n", __func__, core->shutdown, core->reboot);
+	info("%s++: shutdown(%d)\n", __func__, core->shutdown);
 
 	is_cleanup(core);
 

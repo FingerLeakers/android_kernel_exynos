@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm_wakeup.h>
+#include <linux/pm_qos.h>
 #include <linux/smc.h>
 #include <linux/miscdevice.h>
 #include <linux/ioctl.h>
@@ -31,6 +32,7 @@
 #include <linux/soc/samsung/exynos-soc.h>
 
 #define SSP_RET_OK		0
+#define SSP_RET_FAIL		-1
 #define SSP_RETRY_MAX_COUNT	1000000
 
 /* smc to call ldfw functions */
@@ -46,10 +48,18 @@
 #define SSP_IOCTL_EXIT		_IOWR(SSP_IOCTL_MAGIC, 2, uint64_t)
 #define SSP_IOCTL_TEST		_IOWR(SSP_IOCTL_MAGIC, 3, uint64_t)
 
+/* SFR for ssp power control */
+#define PMU_ALIVE_PA_BASE		(0x15860000 + 0x2000)
+#define PMU_SSP_STATUS_VA_OFFSET	(0xd84)
+#define PMU_SSP_STATUS_MASK		(1 << 0)
+
+void __iomem *pmu_va_base;
+
 spinlock_t ssp_lock;
 struct mutex ssp_ioctl_lock;
 static int ssp_power_count;
 static int ssp_idle_ip_index;
+static struct pm_qos_request ssp_pm_int_request;
 extern struct exynos_chipid_info exynos_soc_info;
 
 struct ssp_device {
@@ -78,6 +88,34 @@ static int exynos_cm_smc(uint64_t *arg0, uint64_t *arg1,
 	return *arg0;
 }
 
+static int exynos_ssp_map_sfr(struct ssp_device *sspdev)
+{
+	int ret = SSP_RET_OK;
+
+	pmu_va_base = ioremap(PMU_ALIVE_PA_BASE, SZ_4K);
+	if (!pmu_va_base) {
+		dev_err(sspdev->dev, "%s: fail to ioremap\n", __func__);
+		ret = SSP_RET_FAIL;
+	}
+
+	return ret;
+}
+
+static bool exynos_ssp_check_power_status(void)
+{
+	unsigned int reg;
+
+	if (!pmu_va_base)
+		return false;
+
+	reg = readl(pmu_va_base + PMU_SSP_STATUS_VA_OFFSET);
+
+	if (reg & PMU_SSP_STATUS_MASK)
+		return true;
+	else
+		return false;
+}
+
 static void exynos_ssp_pm_enable(struct ssp_device *sspdev)
 {
 	pm_runtime_enable(sspdev->dev);
@@ -93,6 +131,11 @@ static int exynos_ssp_power_on(struct ssp_device *sspdev)
 		dev_err(sspdev->dev, "%s: fail to pm_runtime_get_sync. ret = 0x%x\n", __func__, ret);
 	else
 		dev_info(sspdev->dev, "pm_runtime_get_sync done\n");
+
+	if (exynos_ssp_check_power_status() == false) {
+		dev_err(sspdev->dev, "%s: ssp power status\n", __func__);
+		return SSP_RET_FAIL;
+	}
 
 	return ret;
 }
@@ -276,12 +319,18 @@ static int exynos_ssp_enable(struct ssp_device *sspdev)
 
 	if (ssp_power_count == 1) {
 		pm_stay_awake(sspdev->dev);
+		pm_qos_update_request(&ssp_pm_int_request, 200000);
 
 		ret = exynos_ssp_power_on(sspdev);
 		if (unlikely(ret))
 			goto ERR_OUT1;
 
 		exynos_ssp_itmon_enable(sspdev->dev, 0);
+
+		if (exynos_ssp_check_power_status() == false) {
+			dev_err(sspdev->dev, "%s: ssp power status\n", __func__);
+			goto ERR_OUT2;
+		}
 
 		if (!ssp_boot_flag) {
 			ret = exynos_ssp_boot(sspdev->dev);
@@ -305,6 +354,7 @@ ERR_OUT2:
 	exynos_ssp_power_off(sspdev);
 
 ERR_OUT1:
+	pm_qos_update_request(&ssp_pm_int_request, 0);
 	pm_relax(sspdev->dev);
 	--ssp_power_count;
 
@@ -334,6 +384,7 @@ static int exynos_ssp_disable(struct ssp_device *sspdev)
 		/* keep the wake-up lock when above two functions fail */
 		/* for debugging purpose */
 
+		pm_qos_update_request(&ssp_pm_int_request, 0);
 		pm_relax(sspdev->dev);
 	}
 
@@ -345,6 +396,7 @@ ERR_OUT1:
 	exynos_ssp_power_off(sspdev);
 
 ERR_OUT2:
+	pm_qos_update_request(&ssp_pm_int_request, 0);
 	pm_relax(sspdev->dev);
 
 	return ret;
@@ -425,8 +477,11 @@ static int exynos_ssp_probe(struct platform_device *pdev)
 	spin_lock_init(&ssp_lock);
 	mutex_init(&ssp_ioctl_lock);
 
+	exynos_ssp_map_sfr(sspdev);
+
 	/* enable runtime PM */
 	exynos_ssp_pm_enable(sspdev);
+	pm_qos_add_request(&ssp_pm_int_request, PM_QOS_DEVICE_THROUGHPUT, 0);
 	ssp_idle_ip_index = exynos_get_idle_ip_index(dev_name(sspdev->dev));
 	exynos_update_ip_idle_status(ssp_idle_ip_index, 1);
 
@@ -439,6 +494,12 @@ static int exynos_ssp_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(sspdev->dev, "%s: fail to misc_register. ret = %d\n", __func__, ret);
 		ret = -ENOMEM;
+		goto err;
+	}
+
+	ret = device_init_wakeup(sspdev->dev, true);
+	if (ret) {
+		dev_err(sspdev->dev, "%s: fail to init wakeup. ret = %d\n", __func__, ret);
 		goto err;
 	}
 

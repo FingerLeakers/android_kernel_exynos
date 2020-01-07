@@ -827,7 +827,7 @@ pktpool_avail(pktpool_t *pktpool)
 }
 
 static void *
-pktpool_deq(pktpool_t *pktp)
+BCMFASTPATH(pktpool_deq)(pktpool_t *pktp)
 {
 	void *p = NULL;
 
@@ -847,7 +847,7 @@ pktpool_deq(pktpool_t *pktp)
 }
 
 static void
-pktpool_enq(pktpool_t *pktp, void *p)
+BCMFASTPATH(pktpool_enq)(pktpool_t *pktp, void *p)
 {
 	ASSERT(p != NULL);
 
@@ -1337,7 +1337,7 @@ pktpool_avail_notify(pktpool_t *pktp)
 
 /** Gets an empty packet from the caller provided pool */
 void *
-pktpool_get_ext(pktpool_t *pktp, uint8 type)
+BCMFASTPATH(pktpool_get_ext)(pktpool_t *pktp, uint8 type)
 {
 	void *p;
 
@@ -1371,7 +1371,7 @@ done:
 }
 
 void
-pktpool_free(pktpool_t *pktp, void *p)
+BCMFASTPATH(pktpool_free)(pktpool_t *pktp, void *p)
 {
 	/* protect shared resource */
 	if (HND_PKTPOOL_MUTEX_ACQUIRE(&pktp->mutex, OSL_EXT_TIME_FOREVER) != OSL_EXT_SUCCESS)
@@ -1650,16 +1650,18 @@ hnd_pktpool_init(osl_t *osh)
 #else
 	is_heap_pool = FALSE;
 #endif /* !HWA && (( EVENTLOG_D3_PRESERVE && !EVENTLOG_D3_PRESERVE_DISABLED) || BCMPOOLRECLAIM)  */
-#ifndef HWA
-	if ((err = pktpool_init(osh, pktpool_shared_lfrag, &n, PKTFRAGSZ, TRUE, lbuf_frag,
-			is_heap_pool, POOL_HEAP_FLAG_D3, SHARED_FRAG_POOL_LEN >> 3)) != BCME_OK) {
-		ASSERT(0);
-		goto error6;
+
+	if (HWA_SUBMODULES_TXPOST_ENAB()) {
+		pktpool_shared_lfrag->type = lbuf_frag;
+	} else {
+		if ((err = pktpool_init(osh, pktpool_shared_lfrag, &n, PKTFRAGSZ, TRUE, lbuf_frag,
+				is_heap_pool, POOL_HEAP_FLAG_D3, SHARED_FRAG_POOL_LEN >> 3)) !=
+				BCME_OK) {
+			ASSERT(0);
+			goto error6;
+		}
+		pktpool_setmaxlen(pktpool_shared_lfrag, SHARED_FRAG_POOL_LEN);
 	}
-	pktpool_setmaxlen(pktpool_shared_lfrag, SHARED_FRAG_POOL_LEN);
-#else
-	pktpool_shared_lfrag->type = lbuf_frag;
-#endif
 
 #if defined(BCMRESVFRAGPOOL) && !defined(BCMRESVFRAGPOOL_DISABLED) && !defined(HWA)
 	n = 0; /* IMPORTANT: DO NOT allocate any packets in resv pool */
@@ -1760,8 +1762,10 @@ error81:
 error8:
 #endif
 
-#if defined(BCMFRAGPOOL) && !defined(BCMFRAGPOOL_DISABLED) && !defined(HWA)
-	pktpool_deinit(osh, pktpool_shared_lfrag);
+#if defined(BCMFRAGPOOL) && !defined(BCMFRAGPOOL_DISABLED)
+	if (!HWA_SUBMODULES_TXPOST_ENAB()) {
+		pktpool_deinit(osh, pktpool_shared_lfrag);
+	}
 error6:
 #endif
 
@@ -1989,7 +1993,7 @@ BCMRAMFN(hnd_pool_get_cb_registry)(void)
 }
 
 static void
-hnd_pktpool_lbuf_free_cb(uint8 poolid)
+BCMFASTPATH(hnd_pktpool_lbuf_free_cb)(uint8 poolid)
 {
 	int i = 0;
 	pktpool_t *pktp;

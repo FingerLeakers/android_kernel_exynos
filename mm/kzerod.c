@@ -39,11 +39,24 @@ static spinlock_t prezeroed_lock;
 static unsigned long nr_prezeroed;
 static unsigned long kzerod_wmark_high;
 static unsigned long kzerod_wmark_low;
+static bool app_launch;
+
+static bool need_pause(void)
+{
+	if (app_launch || need_memory_boosting(NULL))
+		return true;
+
+	return false;
+}
+
+static void try_wake_up_kzerod(void);
+#ifdef CONFIG_HUGEPAGE_POOL
+static void try_wake_up_hugepage_kzerod(void);
+#endif
 
 static int kzerod_app_launch_notifier(struct notifier_block *nb,
 					 unsigned long action, void *data)
 {
-	static bool app_launch = false;
 	bool prev_launch;
 	static unsigned long prev_total = 0;
 	static unsigned long prev_prezero = 0;
@@ -69,6 +82,13 @@ static int kzerod_app_launch_notifier(struct notifier_block *nb,
 			     K(cur_prezero - prev_prezero),
 			     K(cur_total - prev_total),
 			     jiffies_to_msecs(jiffies - prev_jiffies));
+
+		if (kzerod_enabled) {
+			try_wake_up_kzerod();
+#ifdef CONFIG_HUGEPAGE_POOL
+			try_wake_up_hugepage_kzerod();
+#endif
+		}
 	}
 
 	return 0;
@@ -137,6 +157,18 @@ static inline void unset_kzerod_page(struct page *page)
 	__ClearPageMovable(page);
 }
 
+static void try_wake_up_kzerod(void)
+{
+	if (need_pause())
+		return;
+
+	if (!kzerod_wmark_low_ok() && (kzerod_state != KZEROD_RUNNING)) {
+		trace_printk("kzerod: %d to %d\n", kzerod_state, KZEROD_RUNNING);
+		kzerod_state = KZEROD_RUNNING,
+		wake_up(&kzerod_wait);
+	}
+}
+
 struct page *alloc_zeroed_page(void)
 {
 	struct page *page = NULL;
@@ -163,12 +195,8 @@ struct page *alloc_zeroed_page(void)
 	if (page)
 		page->mapping = NULL;
 
-	if (!kzerod_wmark_low_ok() && (kzerod_state != KZEROD_RUNNING)) {
-		trace_printk("kzerod: %d to %d\n", kzerod_state,
-			     KZEROD_RUNNING);
-		kzerod_state = KZEROD_RUNNING,
-		wake_up(&kzerod_wait);
-	}
+	try_wake_up_kzerod();
+
 	return page;
 }
 
@@ -331,6 +359,10 @@ static int kzerod_zeroing(unsigned long *prezeroed)
 #endif
 	while (true) {
 		if (!kzerod_enabled) {
+			ret = -ENODEV;
+			break;
+		}
+		if (need_pause()) {
 			ret = -ENODEV;
 			break;
 		}
@@ -523,6 +555,8 @@ static long hugepage_calculate_limits_under_zone(
 	static DEFINE_RATELIMIT_STATE(hugepage_calc_log_rs, HZ, 1);
 
 	ratelimit_set_flags(&hugepage_calc_log_rs, RATELIMIT_MSG_ON_RELEASE);
+#else
+	ratelimit_set_flags(&hugepage_calc_rs, RATELIMIT_MSG_ON_RELEASE);
 #endif
 
 	if (!__ratelimit(&hugepage_calc_rs))
@@ -594,8 +628,11 @@ static inline bool hugepage_kzerod_required(void)
 }
 
 static unsigned long last_wakeup_stamp;
-static inline void try_wake_up_hugepage_kzerod(enum zone_type ht)
+static inline void __try_wake_up_hugepage_kzerod(enum zone_type ht)
 {
+	if (need_pause())
+		return;
+
 	if (time_is_after_jiffies(last_wakeup_stamp + 10 * HZ))
 		return;
 
@@ -608,6 +645,17 @@ static inline void try_wake_up_hugepage_kzerod(enum zone_type ht)
 #endif
 		wake_up(&hugepage_kzerod_wait);
 	}
+}
+
+static void try_wake_up_hugepage_kzerod(void)
+{
+	int i;
+	enum zone_type high_zoneidx;
+
+	high_zoneidx = gfp_zone(GFP_HIGHUSER_MOVABLE);
+
+	for (i = high_zoneidx; i >= 0; i--)
+		__try_wake_up_hugepage_kzerod(i);
 }
 
 static inline gfp_t get_gfp(enum zone_type ht)
@@ -732,7 +780,7 @@ struct page *alloc_zeroed_hugepage(gfp_t gfp_mask, int order, bool global_check,
 	high_zoneidx = gfp_zone(gfp_mask);
 	nr_hugepages_tried[high_zoneidx]++;
 	for (i = high_zoneidx; i >= 0; i--) {
-		try_wake_up_hugepage_kzerod(i);
+		__try_wake_up_hugepage_kzerod(i);
 		if (!nr_hugepages[i])
 			continue;
 		if (unlikely(!spin_trylock(&hugepage_list_lock[i])))
@@ -771,6 +819,9 @@ static int hugepage_kzerod(void *p)
 
 		hugepage_calculate_limits_under_zone(MAX_NR_ZONES - 1, true);
 		for (i = 0; i < MAX_NR_ZONES; i++) {
+			if (need_pause())
+				break;
+
 			zeroing_nonzero_list(i);
 			fill_hugepage_pool(i);
 		}
@@ -792,6 +843,8 @@ unsigned long hugepage_pool_count(struct shrinker *shrink,
 	high_zoneidx = gfp_zone(sc->gfp_mask);
 	if (current_is_kswapd())
 		high_zoneidx = MAX_NR_ZONES - 1;
+	else
+		return 0;
 
 	limit_pages = hugepage_calculate_limits_under_zone(high_zoneidx, false);
 	count = get_pool_pages_under_zone(high_zoneidx, false) - limit_pages;
@@ -866,6 +919,9 @@ unsigned long hugepage_pool_scan(struct shrinker *shrink,
 		pr_err("%s freed %ld hugepages(%ldK)\n",
 				__func__, freed, K(freed << HUGEPAGE_ORDER));
 #endif
+
+	if (freed == 0)
+		return SHRINK_STOP;
 
 	return freed << HUGEPAGE_ORDER;
 }

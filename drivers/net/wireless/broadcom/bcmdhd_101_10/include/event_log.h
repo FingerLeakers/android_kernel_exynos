@@ -70,6 +70,11 @@
 #define EVENT_LOG_EXT_HDR_BIN_FMT_NUM	(0x3FFE << 2)
 
 #define EVENT_LOGSET_ID_MASK	0x3F
+/* For event_log_get iovar, set values from 240 to 255 mean special commands for a group of sets */
+#define EVENT_LOG_GET_IOV_CMD_MASK	(0xF0u)
+#define EVENT_LOG_GET_IOV_CMD_ID_MASK	(0xFu)
+#define EVENT_LOG_GET_IOV_CMD_ID_FORCE_FLUSH_PRSRV	(0xEu) /* 240 + 14 = 254 */
+#define EVENT_LOG_GET_IOV_CMD_ID_FORCE_FLUSH_ALL	(0xFu) /* 240 + 15 = 255 */
 
 /*
  * There are multiple levels of objects define here:
@@ -337,6 +342,8 @@ extern bool prsv_periodic_enab;
 
 #define EVENT_LOG_BUFFER(tag, buf, size)
 #define EVENT_LOG_PRSRV_FLUSH()
+#define EVENT_LOG_FORCE_FLUSH_ALL()
+#define EVENT_LOG_FORCE_FLUSH_PRSRV_LOG_ALL()
 
 #else  /* EVENT_LOG_COMPILE */
 
@@ -528,7 +535,15 @@ extern bool prsv_periodic_enab;
 #define EVENT_LOG_BUFFER(tag, buf, size)	event_log_buffer(tag, buf, size)
 #define EVENT_DUMP	event_log_buffer
 
-#define EVENT_LOG_PRSRV_FLUSH()	event_log_force_flush_all()
+/* EVENT_LOG_PRSRV_FLUSH() will be deprecated. Use EVENT_LOG_FORCE_FLUSH_ALL instead */
+#define EVENT_LOG_PRSRV_FLUSH()		event_log_force_flush_all()
+#define EVENT_LOG_FORCE_FLUSH_ALL()	event_log_force_flush_all()
+
+#ifdef PRESERVE_LOG
+#define EVENT_LOG_FORCE_FLUSH_PRSRV_LOG_ALL()	event_log_force_flush_preserve_all()
+#else
+#define EVENT_LOG_FORCE_FLUSH_PRSRV_LOG_ALL()
+#endif /* PRESERVE_LOG */
 
 extern uint8 *event_log_tag_sets;
 
@@ -568,7 +583,7 @@ extern void event_logv(int num_args, int tag, int fmtNum, va_list ap);
 extern void event_log_time_sync(uint32 ms);
 extern bool event_log_time_sync_required(void);
 extern void event_log_cpu_freq_changed(void);
-extern void event_log_buffer(int tag, uint8 *buf, int size);
+extern void event_log_buffer(int tag, const uint8 *buf, int size);
 extern void event_log_caller_return_address(int tag);
 extern int event_log_set_destination_set(int set, event_log_set_destination_t dest);
 extern event_log_set_destination_t event_log_set_destination_get(int set);
@@ -625,8 +640,11 @@ extern int event_log_set_is_valid(int set);
 extern int event_log_get_num_sets(void);
 
 /* Given a buffer, return to which set it belongs to */
-extern int event_log_get_set_for_buffer(void *buf);
+extern int event_log_get_set_for_buffer(const void *buf);
 
+extern int event_log_flush_multiple_sets(const int *sets, uint16 num_sets);
+extern int event_log_force_flush_preserve_all(void);
+extern int event_log_get_iovar_handler(int set);
 #endif /* EVENT_LOG_COMPILE */
 
 #endif

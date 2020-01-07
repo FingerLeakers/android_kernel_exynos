@@ -76,7 +76,9 @@
 #ifdef WL_NAN
 #include <wl_cfgnan.h>
 #endif /* WL_NAN */
+
 #include <wl_android.h>
+
 #include <wl_cfgvendor.h>
 #ifdef PROP_TXSTATUS
 #include <dhd_wlfc.h>
@@ -2337,8 +2339,8 @@ wl_cfgvendor_set_bssid_blacklist(struct wiphy *wiphy,
 					goto exit;
 				}
 				if (!blacklist) {
-					mem_needed = OFFSETOF(maclist_t, ea) +
-						sizeof(struct ether_addr) * (num);
+					mem_needed = (uint32) (OFFSETOF(maclist_t, ea) +
+						sizeof(struct ether_addr) * (num));
 					blacklist = (maclist_t *)
 						MALLOCZ(cfg->osh, mem_needed);
 					if (!blacklist) {
@@ -2625,6 +2627,7 @@ wl_cfgvendor_priv_string_handler(struct wiphy *wiphy,
 	void *buf = NULL, *cur;
 	int maxmsglen = PAGE_SIZE - 0x100;
 	struct sk_buff *reply;
+
 	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(wdev->netdev);
 
 	/* send to dongle only if we are not waiting for reload already */
@@ -2830,6 +2833,7 @@ wl_cfgvendor_priv_bcm_handler(struct wiphy *wiphy,
 	int bytes_written;
 	struct net_device *net = NULL;
 	unsigned long int cmd_out = 0;
+
 #if defined(WL_ANDROID_PRIV_CMD_OVER_NL80211)
 	u32 cmd_buf_len = WL_DRIVER_PRIV_CMD_LEN;
 	char cmd_prefix[ANDROID_PRIV_CMD_IF_PREFIX_LEN + 1] = {0};
@@ -2944,14 +2948,17 @@ wl_cfgvendor_priv_bcm_handler(struct wiphy *wiphy,
 			break;
 		}
 #endif /* WL_ANDROID_PRIV_CMD_OVER_NL80211 && OEM_ANDROID */
+
 	}
 
 exit:
+
 #if defined(WL_ANDROID_PRIV_CMD_OVER_NL80211)
 	if (cmd_buf) {
 		MFREE(cfg->osh, cmd_buf, cmd_buf_len);
 	}
 #endif /* WL_ANDROID_PRIV_CMD_OVER_NL80211 && OEM_ANDROID */
+
 	net_os_wake_unlock(ndev);
 	return err;
 }
@@ -3067,7 +3074,17 @@ static const char *nan_attr_to_str(u16 cmd)
 	C2S(NAN_ATTRIBUTE_DISC_IND_CFG)
 	C2S(NAN_ATTRIBUTE_DWELL_TIME_5G)
 	C2S(NAN_ATTRIBUTE_SCAN_PERIOD_5G)
+	C2S(NAN_ATTRIBUTE_SVC_RESPONDER_POLICY)
+	C2S(NAN_ATTRIBUTE_EVENT_MASK)
 	C2S(NAN_ATTRIBUTE_SUB_SID_BEACON)
+	C2S(NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL)
+	C2S(NAN_ATTRIBUTE_CMD_RESP_DATA)
+	C2S(NAN_ATTRIBUTE_CMD_USE_NDPE)
+	C2S(NAN_ATTRIBUTE_ENABLE_MERGE)
+	C2S(NAN_ATTRIBUTE_DISCOVERY_BEACON_INTERVAL)
+	C2S(NAN_ATTRIBUTE_NSS)
+	C2S(NAN_ATTRIBUTE_ENABLE_RANGING)
+	C2S(NAN_ATTRIBUTE_DW_EARLY_TERM)
 	default:
 		return "NAN_ATTRIBUTE_UNKNOWN";
 	}
@@ -4683,10 +4700,10 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				ret = -EINVAL;
 				goto exit;
 			}
-			/* XXX:run time nmi rand not supported as of now.
+			/* run time nmi rand not supported as of now.
 			* Only during nan enable/iface-create rand mac is used
 			*/
-			cmd_data->nmi_rand_intvl = nla_get_u8(iter);
+			cmd_data->nmi_rand_intvl = nla_get_u32(iter);
 			if (cmd_data->nmi_rand_intvl > 0) {
 				cfg->nancfg->mac_rand = true;
 			} else {
@@ -4706,6 +4723,37 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				goto exit;
 			}
 			cmd_data->enable_merge = nla_get_u8(iter);
+			break;
+		case NAN_ATTRIBUTE_DISCOVERY_BEACON_INTERVAL:
+			if (nla_len(iter) != sizeof(uint32)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->disc_bcn_interval = nla_get_u32(iter);
+			*nan_attr_mask |= NAN_ATTR_DISC_BEACON_INTERVAL;
+			break;
+		case NAN_ATTRIBUTE_NSS:
+			if (nla_len(iter) != sizeof(uint32)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			/* FW handles it internally,
+			* nothing to do as per the value rxed from framework, ignore.
+			*/
+			break;
+		case NAN_ATTRIBUTE_ENABLE_RANGING:
+			if (nla_len(iter) != sizeof(uint32)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cfg->nancfg->ranging_enable = nla_get_u32(iter);
+			break;
+		case NAN_ATTRIBUTE_DW_EARLY_TERM:
+			if (nla_len(iter) != sizeof(uint32)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->dw_early_termination = nla_get_u32(iter);
 			break;
 		default:
 			WL_ERR(("%s: Unknown type, %d\n", __FUNCTION__, attr_type));
@@ -5569,7 +5617,7 @@ wl_cfgvendor_nan_start_handler(struct wiphy *wiphy,
 	}
 	NAN_DBG_ENTER();
 
-	ret = wl_cfgnan_check_nan_disable_pending(cfg, false);
+	ret = wl_cfgnan_check_nan_disable_pending(cfg, false, true);
 	if (ret != BCME_OK) {
 		WL_ERR(("failed to disable nan, error[%d]\n", ret));
 		goto exit;
@@ -5637,7 +5685,7 @@ wl_cfgvendor_terminate_dp_rng_sessions(struct bcm_cfg80211 *cfg,
 	for (i = 0; i < NAN_MAX_RANGING_INST; i++) {
 		ranging_inst = &nancfg->nan_ranging_info[i];
 		if (ranging_inst->in_use &&
-				(ranging_inst->range_status == NAN_RANGING_IN_PROGRESS)) {
+				(NAN_RANGING_IS_IN_PROG(ranging_inst->range_status))) {
 			ret = wl_cfgnan_cancel_ranging(bcmcfg_to_prmry_ndev(cfg), cfg,
 					&ranging_inst->range_id,
 					NAN_RNG_TERM_FLAG_NONE, &status);
@@ -6297,7 +6345,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	COMPAT_STRUCT_IFACE(wifi_iface_stat, iface);
 
-	WL_INFORM_MEM(("%s: Enter \n", __func__));
+	WL_TRACE(("%s: Enter \n", __func__));
 	RETURN_EIO_IF_NOT_UP(cfg);
 
 	BCM_REFERENCE(if_stats);
@@ -6387,7 +6435,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 
 	CHK_CNTBUF_DATALEN(iovar_buf, WLC_IOCTL_MAXLEN);
 	/* Translate traditional (ver <= 10) counters struct to new xtlv type struct */
-	/* XXX: traditional(ver<=10)counters will use WL_CNT_XTLV_CNTV_LE10_UCODE.
+	/* traditional(ver<=10)counters will use WL_CNT_XTLV_CNTV_LE10_UCODE.
 	 * Other cases will use its xtlv type accroding to corerev
 	 */
 	err = wl_cntbuf_to_xtlv_format(NULL, iovar_buf, WLC_IOCTL_MAXLEN, revinfo.corerev);
@@ -6425,11 +6473,11 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 				if_stats->version));
 			goto exit;
 		}
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretry);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, (uint32)if_stats->txretrans);
 	} else
 #endif /* !DISABLE_IF_COUNTERS */
 	{
-		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretry);
+		COMPAT_ASSIGN_VALUE(iface, ac[WIFI_AC_BE].retries, wlc_cnt->txretrans);
 	}
 
 	err = wl_cfgvendor_lstats_get_bcn_mbss(iovar_buf, &rxbeaconmbss);
@@ -6626,30 +6674,48 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 					DLD_BUF_TYPE_SPECIAL, &pos);
 				break;
 #ifdef DHD_SSSR_DUMP
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_C0_D11_BEFORE :
 				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 0);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_C0_D11_AFTER :
 				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 0);
 				break;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_C1_D11_BEFORE :
 				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 1);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_C1_D11_AFTER :
 				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len, 1);
 				break;
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
+			case DUMP_BUF_ATTR_SSSR_C2_D11_BEFORE :
+				ret = dhd_sssr_dump_d11_buf_before(bcmcfg_to_prmry_ndev(cfg),
+					buf->data_buf[0], (uint32)buf->len, 2);
+				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+
+			case DUMP_BUF_ATTR_SSSR_C2_D11_AFTER :
+				ret = dhd_sssr_dump_d11_buf_after(bcmcfg_to_prmry_ndev(cfg),
+					buf->data_buf[0], (uint32)buf->len, 2);
+				break;
+
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 			case DUMP_BUF_ATTR_SSSR_DIG_BEFORE :
 				ret = dhd_sssr_dump_dig_buf_before(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len);
 				break;
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 			case DUMP_BUF_ATTR_SSSR_DIG_AFTER :
 				ret = dhd_sssr_dump_dig_buf_after(bcmcfg_to_prmry_ndev(cfg),
@@ -6658,6 +6724,11 @@ wl_cfgvendor_dbg_file_dump(struct wiphy *wiphy,
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_PKT_LOGGING
 			case DUMP_BUF_ATTR_PKTLOG:
+				ret = dhd_os_get_pktlog_dump(bcmcfg_to_prmry_ndev(cfg),
+					buf->data_buf[0], (uint32)buf->len);
+				break;
+
+			case DUMP_BUF_ATTR_PKTLOG_DEBUG:
 				ret = dhd_os_get_pktlog_dump(bcmcfg_to_prmry_ndev(cfg),
 					buf->data_buf[0], (uint32)buf->len);
 				break;
@@ -7050,16 +7121,19 @@ static void wl_cfgvendor_dbg_ring_send_evt(void *ctx,
 #endif /* DEBUGABILITY */
 
 #ifdef DHD_LOG_DUMP
+#ifdef DHD_SSSR_DUMP
+#define DUMP_SSSR_DUMP_MAX_COUNT	8
 static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		struct net_device *ndev)
 {
 	int ret = BCME_OK;
 #ifdef DHD_SSSR_DUMP
-	uint32 arr_len[DUMP_SSSR_ATTR_COUNT];
-	int i = 0, j = 0;
+	uint32 arr_len[DUMP_SSSR_DUMP_MAX_COUNT];
 #endif /* DHD_SSSR_DUMP */
 	char memdump_path[MEMDUMP_PATH_LEN];
+	dhd_pub_t *dhdp = wl_cfg80211_get_dhdp(ndev);
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_0_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_0_BEFORE_DUMP, memdump_path);
@@ -7067,6 +7141,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr core 0 before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_0_after_SR");
@@ -7076,6 +7151,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		goto exit;
 	}
 
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_1_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_1_BEFORE_DUMP, memdump_path);
@@ -7083,6 +7159,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr core 1 before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_core_1_after_SR");
@@ -7092,6 +7169,31 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		goto exit;
 	}
 
+	if (dhdp->sssr_d11_outofreset[2]) {
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
+		dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
+			"sssr_dump_core_2_before_SR");
+		ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_2_BEFORE_DUMP,
+			memdump_path);
+		if (unlikely(ret)) {
+			WL_ERR(("Failed to nla put sssr core 2 before dump path, ret=%d\n",
+				ret));
+			goto exit;
+		}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+
+		dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
+			"sssr_dump_core_2_after_SR");
+		ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_CORE_2_AFTER_DUMP,
+			memdump_path);
+		if (unlikely(ret)) {
+			WL_ERR(("Failed to nla put sssr core 2 after dump path, ret=%d\n",
+				ret));
+			goto exit;
+		}
+	}
+
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_dig_before_SR");
 	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_SSSR_DIG_BEFORE_DUMP, memdump_path);
@@ -7099,6 +7201,7 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 		WL_ERR(("Failed to nla put sssr dig before dump path, ret=%d\n", ret));
 		goto exit;
 	}
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
 	dhd_get_memdump_filename(ndev, memdump_path, MEMDUMP_PATH_LEN,
 		"sssr_dump_dig_after_SR");
@@ -7111,21 +7214,32 @@ static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
 #ifdef DHD_SSSR_DUMP
 	memset(arr_len, 0, sizeof(arr_len));
 	dhd_nla_put_sssr_dump_len(ndev, arr_len);
-
-	for (i = 0, j = DUMP_SSSR_ATTR_START; i < DUMP_SSSR_ATTR_COUNT; i++, j++) {
-		if (arr_len[i]) {
-			ret = nla_put_u32(skb, j, arr_len[i]);
-			if (unlikely(ret)) {
-				WL_ERR(("Failed to nla put sssr dump len, ret=%d\n", ret));
-				goto exit;
-			}
-		}
+#ifdef DHD_SSSR_DUMP_BEFORE_SR
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C0_D11_BEFORE, arr_len[0]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C1_D11_BEFORE, arr_len[2]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C2_D11_BEFORE, arr_len[4]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_DIG_BEFORE, arr_len[6]);
+#endif /* DHD_SSSR_DUMP_BEFORE_SR */
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C0_D11_AFTER, arr_len[1]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C1_D11_AFTER, arr_len[3]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_C2_D11_AFTER, arr_len[5]);
+	ret |= nla_put_u32(skb, DUMP_LEN_ATTR_SSSR_DIG_AFTER, arr_len[7]);
+	if (unlikely(ret)) {
+		WL_ERR(("Failed to nla put sssr dump len, ret=%d\n", ret));
+		goto exit;
 	}
 #endif /* DHD_SSSR_DUMP */
 
 exit:
 	return ret;
 }
+#else
+static int wl_cfgvendor_nla_put_sssr_dump_data(struct sk_buff *skb,
+		struct net_device *ndev)
+{
+	return BCME_OK;
+}
+#endif /* DHD_SSSR_DUMP */
 
 static int wl_cfgvendor_nla_put_debug_dump_data(struct sk_buff *skb,
 		struct net_device *ndev)
@@ -7288,27 +7402,43 @@ static void wl_cfgvendor_nla_put_axi_error_data(struct sk_buff *skb,
 }
 #endif /* DNGL_AXI_ERROR_LOGGING */
 #ifdef DHD_PKT_LOGGING
-static void wl_cfgvendor_nla_put_pktlogdump_data(struct sk_buff *skb,
-		struct net_device *ndev)
+static int wl_cfgvendor_nla_put_pktlogdump_data(struct sk_buff *skb,
+		struct net_device *ndev, bool pktlogdbg)
 {
-	int ret = 0;
+	int ret = BCME_OK;
 	char pktlogdump_path[MEMDUMP_PATH_LEN];
 	uint32 pktlog_dumpsize = dhd_os_get_pktlog_dump_size(ndev);
 	if (pktlog_dumpsize == 0) {
 		WL_ERR(("Failed to calcuate pktlog len\n"));
-		return;
+		return BCME_ERROR;
 	}
+
 	dhd_os_get_pktlogdump_filename(ndev, pktlogdump_path, MEMDUMP_PATH_LEN);
-	ret = nla_put_string(skb, DUMP_FILENAME_ATTR_PKTLOG_DUMP, pktlogdump_path);
-	if (ret) {
-		WL_ERR(("Failed to put filename\n"));
-		return;
+
+	if (pktlogdbg) {
+		ret = nla_put_string(skb, DUMP_FILENAME_ATTR_PKTLOG_DEBUG_DUMP, pktlogdump_path);
+		if (ret) {
+			WL_ERR(("Failed to put filename\n"));
+			return ret;
+		}
+		ret = nla_put_u32(skb, DUMP_LEN_ATTR_PKTLOG_DEBUG, pktlog_dumpsize);
+		if (ret) {
+			WL_ERR(("Failed to put filesize\n"));
+			return ret;
+		}
+	} else {
+		ret = nla_put_string(skb, DUMP_FILENAME_ATTR_PKTLOG_DUMP, pktlogdump_path);
+		if (ret) {
+			WL_ERR(("Failed to put filename\n"));
+			return ret;
+		}
+		ret = nla_put_u32(skb, DUMP_LEN_ATTR_PKTLOG, pktlog_dumpsize);
+		if (ret) {
+			WL_ERR(("Failed to put filesize\n"));
+			return ret;
+		}
 	}
-	ret = nla_put_u32(skb, DUMP_LEN_ATTR_PKTLOG, pktlog_dumpsize);
-	if (ret) {
-		WL_ERR(("Failed to put filesize\n"));
-		return;
-	}
+	return ret;
 }
 #endif /* DHD_PKT_LOGGING */
 
@@ -7369,21 +7499,37 @@ static void wl_cfgvendor_dbg_send_file_dump_evt(void *ctx, const void *data,
 
 	cfg = wiphy_priv(wiphy);
 	dhd_pub = cfg->pub;
-#ifdef DNGL_AXI_ERROR_LOGGING
-	if (dhd_pub->smmu_fault_occurred) {
-		wl_cfgvendor_nla_put_axi_error_data(skb, ndev);
-	}
-#endif /* DNGL_AXI_ERROR_LOGGING */
-	if (dhd_pub->memdump_enabled || (dhd_pub->memdump_type == DUMP_TYPE_BY_SYSDUMP)) {
-		if (((ret = wl_cfgvendor_nla_put_memdump_data(skb, ndev, fw_len)) < 0) ||
-			((ret = wl_cfgvendor_nla_put_debug_dump_data(skb, ndev)) < 0) ||
-			((ret = wl_cfgvendor_nla_put_sssr_dump_data(skb, ndev)) < 0)) {
+
+#ifdef DHD_PKT_LOGGING
+	if (dhd_pub->pktlog_debug) {
+		if ((ret = wl_cfgvendor_nla_put_pktlogdump_data(skb, ndev, TRUE)) < 0) {
 			WL_ERR(("nla put failed\n"));
 			goto done;
 		}
-#ifdef DHD_PKT_LOGGING
-		wl_cfgvendor_nla_put_pktlogdump_data(skb, ndev);
+		dhd_pub->pktlog_debug = FALSE;
+	} else
 #endif /* DHD_PKT_LOGGING */
+	{
+#ifdef DNGL_AXI_ERROR_LOGGING
+		if (dhd_pub->smmu_fault_occurred) {
+			wl_cfgvendor_nla_put_axi_error_data(skb, ndev);
+		}
+#endif /* DNGL_AXI_ERROR_LOGGING */
+		if (dhd_pub->memdump_enabled || (dhd_pub->memdump_type == DUMP_TYPE_BY_SYSDUMP)) {
+			if (((ret = wl_cfgvendor_nla_put_memdump_data(skb, ndev, fw_len)) < 0) ||
+				((ret = wl_cfgvendor_nla_put_debug_dump_data(skb, ndev)) < 0) ||
+				((ret = wl_cfgvendor_nla_put_sssr_dump_data(skb, ndev)) < 0)) {
+				WL_ERR(("nla put failed\n"));
+				goto done;
+			}
+#ifdef DHD_PKT_LOGGING
+			if ((ret = wl_cfgvendor_nla_put_pktlogdump_data(skb, ndev, FALSE)) < 0) {
+				WL_ERR(("nla put failed\n"));
+				goto done;
+			}
+#endif /* DHD_PKT_LOGGING */
+
+		}
 	}
 	/* TODO : Similar to above function add for debug_dump, sssr_dump, and pktlog also. */
 	cfg80211_vendor_event(skb, kflags);
@@ -8863,7 +9009,7 @@ wl_cfgvendor_send_hang_event(struct net_device *dev, u16 reason, char *string, i
 			copy_debug_dump_time(dhd->debug_dump_time_str,
 					dhd->debug_dump_time_hang_str);
 		}
-		/* XXX: Fill bigdata key with */
+		/* Fill bigdata key with */
 		bytes_written += scnprintf(&hang_info[bytes_written], len,
 				"%d %d %s %08x %08x %08x %08x %08x %08x %08x",
 				reason, VENDOR_SEND_HANG_EXT_INFO_VER,

@@ -793,11 +793,12 @@ static long sc_ext_ioctl(struct file *filp,
 
 		/* TODO: check for supported version */
 
-		if (job.taskcount >= MAX_MSCL_TASKS) {
+		if (job.taskcount >= MAX_MSCL_TASKS || !job.taskcount) {
 			dev_err(xdev->dev,
-				"%s: Too many tasks %d, max tasks: %d\n",
-					__func__,
-					job.taskcount, MAX_MSCL_TASKS);
+				"%s: (%s) count of tasks %d, max tasks: %d\n",
+				__func__,
+				(!job.taskcount) ? "zero-count" : "Too many",
+				job.taskcount, MAX_MSCL_TASKS);
 			return -EINVAL;
 		}
 

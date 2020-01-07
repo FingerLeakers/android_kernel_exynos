@@ -1217,7 +1217,8 @@ struct param_mcs_input {
 	u32	dma_crop_height;
 	u32	djag_out_width;
 	u32	djag_out_height;
-	u32	reserved[PARAMETER_MAX_MEMBER-20];
+	u32	stripe_total_count;
+	u32	reserved[PARAMETER_MAX_MEMBER-21];
 	u32	err;
 };
 

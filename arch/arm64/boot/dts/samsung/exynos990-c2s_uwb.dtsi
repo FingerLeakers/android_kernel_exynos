@@ -1,0 +1,83 @@
+/*
+ * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&pinctrl_0 {
+	uwb_int_active: uwb-int-active {
+		samsung,pins = "gpa3-7";
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <3>;
+	};
+	uwb_int_suspend: uwb-int-suspend {
+		samsung,pins = "gpa3-7";
+		samsung,pin-function = <0xf>;
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <3>;
+	};
+};
+
+&pinctrl_5 {
+	spi9_bus: spi9-bus {
+		samsung,pins = "gpp6-6", "gpp6-5", "gpp6-4";
+		samsung,pin-function = <2>;	/* SPI */
+		samsung,pin-pud = <0>;		/* DOWN */
+		samsung,pin-drv = <0>;
+	};
+	spi9_cs_func: spi9-cs-func {
+		samsung,pins = "gpp6-7";
+		samsung,pin-function = <2>;	/* SPI */
+		samsung,pin-pud = <3>;		/* UP */
+		samsung,pin-drv = <0>;
+	};
+};
+
+/* SPI USI_PERIC0_USI00_SPI */
+&spi_9 {
+	status = "okay";
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi9_bus &spi9_cs_func>;
+
+	uwb_spi@0 {
+		compatible = "nxp,sr100";
+		reg = <0>;
+		pinctrl-names = "sleep", "default", "idle";
+		pinctrl-0 = <&uwb_int_suspend>;
+		pinctrl-1 = <&uwb_int_suspend>;
+		pinctrl-2 = <&uwb_int_active>;
+		spi-max-frequency = <16000000>;
+		interrupt-parent = <&gpa3>;
+		interrupts = <7 0 0>;
+
+		swap-mode;
+		gpio-controller;
+		#gpio-cells = <2>;
+		/* GPIO05_SENSORINIT UWB_INT sr100->AP irq_gpio active high */
+		nxp,sr100-irq = <&gpa3 7 0>;
+		/* CHIPENABLE UWB_EN AP->sr100 ce_gpio active high */
+		nxp,sr100-ce = <&gpm21 0 0>;
+		/* GPIO03_WAKEUP UWB_WAKE AP->sr100 wake_gpio active high */
+		nxp,sr100-wakeup = <&gpp2 6 0>;
+		/* RTC_SYNC RTC_SYNC AP->sr100 ri_gpio active high */
+		/* read ready idication */
+		nxp,sr100-ri = <&gpp5 4 0>;
+
+		nxp,vdd-pa = "VDD_UWB_RF_1P8";
+		nxp,vdd = "VDD_UWB_1P8";
+		controller-data {
+			samsung,spi-feedback-delay = <0>;
+			samsung,spi-chip-select-mode = <0>;
+		};
+	};
+};

@@ -25,6 +25,7 @@ enum pdp_event_type {
 	PE_ERR_INT1,
 	PE_ERR_INT2,
 	PE_PAF_OVERFLOW,
+	PE_ERR_RDMA_IRQ,
 };
 
 enum pdp_input_path_type {
@@ -35,16 +36,17 @@ enum pdp_input_path_type {
 
 /* status */
 unsigned int pdp_hw_g_idle_state(void __iomem *base);
+void pdp_hw_get_line(void __iomem *base);
 
 /* config */
 void pdp_hw_s_global_enable(void __iomem *base, bool enable);
 int pdp_hw_s_one_shot_enable(void __iomem *base);
 void pdp_hw_s_corex_enable(void __iomem *base, bool enable);
-void pdp_hw_s_core(void __iomem *base, bool pd_enable,
+void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
 	u32 img_width, u32 img_height, u32 img_hwformat, u32 img_pixelsize,
 	u32 pd_width, u32 pd_height, u32 pd_hwformat,
 	u32 sensor_type, u32 path, int sensor_mode, u32 fps, u32 en_sdc, u32 en_votf,
-	u32 num_buffers, ulong freq);
+	u32 num_buffers, ulong freq, u32 binning, u32 position);
 void pdp_hw_s_init(void __iomem *base);
 void pdp_hw_s_reset(void __iomem *base);
 void pdp_hw_s_global(void __iomem *base, u32 ch, u32 path, void *data);
@@ -62,26 +64,28 @@ void pdp_hw_s_rdma_addr(void __iomem *base, dma_addr_t *address, u32 num_buffers
 void pdp_hw_s_af_rdma_addr(void __iomem *base, dma_addr_t *address, u32 num_buffers);
 void pdp_hw_s_post_frame_gap(void __iomem *base, u32 interval);
 void pdp_hw_s_fro(void __iomem *base, u32 num_buffers);
-int pdp_hw_wait_idle(void __iomem *base);
+int pdp_hw_wait_idle(void __iomem *base, unsigned long state);
 
 /* stat */
 int pdp_hw_g_stat0(void __iomem *base, void *buf, size_t len);
 void pdp_hw_g_pdstat_size(u32 *width, u32 *height, u32 *bytes_per_pixel);
 void pdp_hw_s_pdstat_path(void __iomem *base, bool enable);
-void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode);
+void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode, u32 binning);
 
 /* sensor mode */
 void pdp_hw_s_sensor_type(void __iomem *base, u32 sensor_type);
 bool pdp_hw_to_sensor_type(u32 pd_mode, u32 *sensor_type);
 
 /* interrupt */
-unsigned int pdp_hw_g_int1_state(void __iomem *base, bool clear);
+unsigned int pdp_hw_g_int1_state(void __iomem *base, bool clear, u32 *irq_state);
 unsigned int pdp_hw_g_int1_mask(void __iomem *base);
-unsigned int pdp_hw_g_int2_state(void __iomem *base, bool clear);
+unsigned int pdp_hw_g_int2_state(void __iomem *base, bool clear, u32 *irq_state);
 unsigned int pdp_hw_g_int2_mask(void __iomem *base);
+unsigned int pdp_hw_g_int2_rdma_state(void __iomem *base, bool clear);
 unsigned int pdp_hw_is_occured(unsigned int state, enum pdp_event_type type);
 void pdp_hw_g_int1_str(const char **int_str);
 void pdp_hw_g_int2_str(const char **int_str);
+void pdp_hw_g_int2_rdma_str(const char **int_str);
 
 /* debug */
 void pdp_hw_s_config_default(void __iomem *base);

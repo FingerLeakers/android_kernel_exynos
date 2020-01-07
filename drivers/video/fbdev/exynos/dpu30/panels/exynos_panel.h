@@ -123,9 +123,6 @@ struct df_status_info {
 	
 	u32 current_ddi_osc;
 	u32 request_ddi_osc;
-
-	u32 persistence_mode;
-	u32 persistence_cnt;
 };
 
 struct df_setting_info {
@@ -180,6 +177,8 @@ struct exynos_panel_info {
 	struct stdphy_pms dphy_pms;
 	unsigned int esc_clk;
 
+	unsigned int req_vrr_fps;
+	unsigned int req_vrr_mode;
 	unsigned int fps;
 	unsigned int vrr_mode;
 	unsigned int target_fps;

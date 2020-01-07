@@ -36,7 +36,9 @@
 #include <dhd_dbg.h>
 #include <dngl_stats.h>
 #include <dhd.h>
+#if defined(__linux__)
 #include <bcmstdlib_s.h>
+#endif /* defined(__linux__) */
 
 typedef enum monitor_states
 {
@@ -45,7 +47,7 @@ typedef enum monitor_states
 	MONITOR_STATE_INTERFACE_ADDED = 0x2,
 	MONITOR_STATE_INTERFACE_DELETED = 0x4
 } monitor_states_t;
-/* XXX
+/*
  * Some external functions, TODO: move them to dhd_linux.h
  */
 int dhd_add_monitor(const char *name, struct net_device **new_ndev);

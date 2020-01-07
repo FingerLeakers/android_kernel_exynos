@@ -41,6 +41,14 @@
 #define S6E3HAB_MTP_OFS				0
 #define S6E3HAB_MTP_LEN				34
 
+#define S6E3HAB_CENTER_GAMMA_60HZ_HS_REG			0xC8
+#define S6E3HAB_CENTER_GAMMA_60HZ_HS_OFS			111
+#define S6E3HAB_CENTER_GAMMA_60HZ_HS_LEN			33
+
+#define S6E3HAB_CENTER_GAMMA_120HZ_REG				0xC9
+#define S6E3HAB_CENTER_GAMMA_120HZ_OFS				37
+#define S6E3HAB_CENTER_GAMMA_120HZ_LEN				33
+
 #define S6E3HAB_DATE_REG			0xA1
 #define S6E3HAB_DATE_OFS			4
 #define S6E3HAB_DATE_LEN			(PANEL_DATE_LEN)
@@ -596,6 +604,7 @@ enum {
 #endif
 #ifdef CONFIG_SUPPORT_MAFPC
 	MAFPC_ENA_MAPTBL,
+	MAFPC_SCALE_MAPTBL,
 #endif
 	GAMMA_INTER_CONTROL_MAPTBL,
 	POC_COMP_MAPTBL,
@@ -624,6 +633,8 @@ enum {
 	READ_HBM_GAMMA_120HZ_1,
 	READ_HBM_GAMMA_60HZ_HS_0,
 	READ_HBM_GAMMA_60HZ_HS_1,
+	READ_CENTER_GAMMA_60HZ_HS,
+	READ_CENTER_GAMMA_120HZ,
 	READ_OCTA_ID,
 	READ_CHIP_ID,
 	/* for brightness debugging */
@@ -726,6 +737,8 @@ enum {
 	RES_HBM_GAMMA,
 	RES_HBM_GAMMA_60HZ_HS,
 	RES_HBM_GAMMA_120HZ,
+	RES_CENTER_GAMMA_60HZ_HS,
+	RES_CENTER_GAMMA_120HZ,
 	RES_OCTA_ID,
 	RES_CHIP_ID,
 	/* for brightness debugging */
@@ -821,6 +834,8 @@ static u8 S6E3HAB_DATE[S6E3HAB_DATE_LEN];
 static u8 S6E3HAB_HBM_GAMMA[S6E3HAB_HBM_GAMMA_LEN];
 static u8 S6E3HAB_HBM_GAMMA_120HZ[S6E3HAB_HBM_GAMMA_LEN];
 static u8 S6E3HAB_HBM_GAMMA_60HZ_HS[S6E3HAB_HBM_GAMMA_LEN];
+static u8 S6E3HAB_CENTER_GAMMA_120HZ[S6E3HAB_CENTER_GAMMA_120HZ_LEN];
+static u8 S6E3HAB_CENTER_GAMMA_60HZ_HS[S6E3HAB_CENTER_GAMMA_60HZ_HS_LEN];
 static u8 S6E3HAB_OCTA_ID[S6E3HAB_OCTA_ID_LEN];
 /* for brightness debugging */
 static u8 S6E3HAB_GAMMA[S6E3HAB_GAMMA_LEN];
@@ -925,6 +940,8 @@ static struct rdinfo s6e3hab_rditbl[] = {
 	[READ_HBM_GAMMA_120HZ_1] = RDINFO_INIT(hbm_gamma_120hz_1, DSI_PKT_TYPE_RD, S6E3HAB_HBM_GAMMA_120HZ_1_REG, S6E3HAB_HBM_GAMMA_120HZ_1_OFS, S6E3HAB_HBM_GAMMA_120HZ_1_LEN),
 	[READ_HBM_GAMMA_60HZ_HS_0] = RDINFO_INIT(hbm_gamma_60hz_hs_0, DSI_PKT_TYPE_RD, S6E3HAB_HBM_GAMMA_60HZ_HS_0_REG, S6E3HAB_HBM_GAMMA_60HZ_HS_0_OFS, S6E3HAB_HBM_GAMMA_60HZ_HS_0_LEN),
 	[READ_HBM_GAMMA_60HZ_HS_1] = RDINFO_INIT(hbm_gamma_60hz_hs_1, DSI_PKT_TYPE_RD, S6E3HAB_HBM_GAMMA_60HZ_HS_1_REG, S6E3HAB_HBM_GAMMA_60HZ_HS_1_OFS, S6E3HAB_HBM_GAMMA_60HZ_HS_1_LEN),
+	[READ_CENTER_GAMMA_60HZ_HS] = RDINFO_INIT(center_gamma_60hz_hs, DSI_PKT_TYPE_RD, S6E3HAB_CENTER_GAMMA_60HZ_HS_REG, S6E3HAB_CENTER_GAMMA_60HZ_HS_OFS, S6E3HAB_CENTER_GAMMA_60HZ_HS_LEN),
+	[READ_CENTER_GAMMA_120HZ] = RDINFO_INIT(center_gamma_120hz, DSI_PKT_TYPE_RD, S6E3HAB_CENTER_GAMMA_120HZ_REG, S6E3HAB_CENTER_GAMMA_120HZ_OFS, S6E3HAB_CENTER_GAMMA_120HZ_LEN),
 	[READ_OCTA_ID] = RDINFO_INIT(octa_id, DSI_PKT_TYPE_RD, S6E3HAB_OCTA_ID_REG, S6E3HAB_OCTA_ID_OFS, S6E3HAB_OCTA_ID_LEN),
 	/* for brightness debugging */
 	[READ_GAMMA] = RDINFO_INIT(gamma, DSI_PKT_TYPE_RD, S6E3HAB_GAMMA_REG, S6E3HAB_GAMMA_OFS, S6E3HAB_GAMMA_LEN),
@@ -1027,6 +1044,9 @@ static DEFINE_RESUI(elvss, &s6e3hab_rditbl[READ_ELVSS], 0);
 static DEFINE_RESUI(elvss_temp_0, &s6e3hab_rditbl[READ_ELVSS_TEMP_0], 0);
 static DEFINE_RESUI(elvss_temp_1, &s6e3hab_rditbl[READ_ELVSS_TEMP_1], 0);
 static DEFINE_RESUI(mtp, &s6e3hab_rditbl[READ_MTP], 0);
+static DEFINE_RESUI(center_gamma_60hz_hs, &s6e3hab_rditbl[READ_CENTER_GAMMA_60HZ_HS], 0);
+static DEFINE_RESUI(center_gamma_120hz, &s6e3hab_rditbl[READ_CENTER_GAMMA_120HZ], 0);
+
 static DEFINE_RESUI(hbm_gamma, &s6e3hab_rditbl[READ_HBM_GAMMA], 0);
 static struct res_update_info RESUI(hbm_gamma_120hz)[] = {
 	{
@@ -1150,6 +1170,8 @@ static struct resinfo s6e3hab_restbl[] = {
 	[RES_HBM_GAMMA] = RESINFO_INIT(hbm_gamma, S6E3HAB_HBM_GAMMA, RESUI(hbm_gamma)),
 	[RES_HBM_GAMMA_60HZ_HS] = RESINFO_INIT(hbm_gamma_60hz_hs, S6E3HAB_HBM_GAMMA_60HZ_HS, RESUI(hbm_gamma_60hz_hs)),
 	[RES_HBM_GAMMA_120HZ] = RESINFO_INIT(hbm_gamma_120hz, S6E3HAB_HBM_GAMMA_120HZ, RESUI(hbm_gamma_120hz)),
+	[RES_CENTER_GAMMA_120HZ] = RESINFO_INIT(center_gamma_120hz, S6E3HAB_CENTER_GAMMA_120HZ, RESUI(center_gamma_120hz)),
+	[RES_CENTER_GAMMA_60HZ_HS] = RESINFO_INIT(center_gamma_60hz_hs, S6E3HAB_CENTER_GAMMA_60HZ_HS, RESUI(center_gamma_60hz_hs)),
 	[RES_OCTA_ID] = RESINFO_INIT(octa_id, S6E3HAB_OCTA_ID, RESUI(octa_id)),
 	/* for brightness debugging */
 	[RES_GAMMA] = RESINFO_INIT(gamma, S6E3HAB_GAMMA, RESUI(gamma)),
@@ -1346,6 +1368,7 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.te_v_st = 3201,
 		.te_v_ed = 9,
 		.mode = VRR_NORMAL_MODE,
+		.aid_cycle = VRR_AID_4_CYCLE,
 	},
 	[S6E3HAB_VRR_60_HS] = {
 		.def_fps = 60,
@@ -1359,6 +1382,7 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.te_v_st = 3201,
 		.te_v_ed = 9,
 		.mode = VRR_HS_MODE,
+		.aid_cycle = VRR_AID_2_CYCLE,
 	},
 	[S6E3HAB_VRR_120_HS] = {
 		.def_fps = 120,
@@ -1372,6 +1396,7 @@ struct panel_vrr S6E3HAB_VRR[] = {
 		.te_v_st = 3201,
 		.te_v_ed = 9,
 		.mode = VRR_HS_MODE,
+		.aid_cycle = VRR_AID_2_CYCLE,
 	},
 };
 
@@ -1419,9 +1444,7 @@ static int getidx_acl_opr_table(struct maptbl *);
 static int getidx_dsc_table(struct maptbl *);
 static int getidx_resolution_table(struct maptbl *);
 static int getidx_vrr_fps_table(struct maptbl *);
-#ifdef CONFIG_PANEL_VRR_AID_CYCLE_CTRL
 static int getidx_vrr_aid_cycle_table(struct maptbl *tbl);
-#endif
 static int getidx_vrr_mode_table(struct maptbl *);
 static int getidx_vrr_async_table(struct maptbl *);
 static int init_lpm_table(struct maptbl *tbl);
@@ -1452,17 +1475,23 @@ static int s6e3hab_getidx_gram_img_pattern_table(struct maptbl *tbl);
 static int s6e3hab_getidx_tdmb_tune_table(struct maptbl *tbl);
 #endif
 #ifdef CONFIG_DYNAMIC_FREQ
-static int getidx_dyn_ffc_table(struct maptbl *tbl);
-static int getidx_ddi_osc_clk_table(struct maptbl *tbl);
+static int getidx_86_4_dyn_ffc_table(struct maptbl *tbl);
+static int getidx_96_5_dyn_ffc_table(struct maptbl *tbl);
+static int getidx_ddi_osc_ltps_comp_table(struct maptbl *tbl);
+static int getidx_96_5_dyn_default_ffc_table(struct maptbl *tbl);
+static int getidx_ddi_osc_comp_table(struct maptbl *tbl);
+static int getidx_ddi_osc2_comp_table(struct maptbl *tbl);
+
 #endif
+static int getidx_dimming_vrr_60hz_maptbl(struct maptbl *);
+static int getidx_dimming_vrr_120hz_maptbl(struct maptbl *);
 #ifdef CONFIG_SUPPORT_HMD
 static int init_hmd_gamma_table(struct maptbl *);
 static int getidx_hmd_dimming_maptbl(struct maptbl *);
-static int getidx_dimming_vrr_60hz_maptbl(struct maptbl *);
-static int getidx_dimming_vrr_120hz_maptbl(struct maptbl *);
 #endif /* CONFIG_SUPPORT_HMD */
 #ifdef CONFIG_SUPPORT_MAFPC
 void copy_mafpc_enable_maptbl(struct maptbl *tbl, u8 *dst);
+void copy_mafpc_scale_maptbl(struct maptbl *tbl, u8 *dst);
 #endif
 #ifdef CONFIG_EXYNOS_DECON_MDNIE_LITE
 static int init_color_blind_table(struct maptbl *tbl);

@@ -111,6 +111,7 @@ skip:
 static void set_usb3_port_power(struct usb_device *dev, bool on)
 {
 	cancel_delayed_work_sync(&g_dwc->usb_qos_lock_delayed_work);
+
 	switch (check_usb3_hub(dev, on)) {
 	case PORT_EMPTY:
 		pr_info("Port check empty\n");

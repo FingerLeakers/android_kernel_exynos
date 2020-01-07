@@ -85,29 +85,29 @@ static int16 linuxbcmerrormap[] =
 	-EINVAL,		/* BCME_BADKEYIDX */
 	-EINVAL,		/* BCME_RADIOOFF */
 	-EINVAL,		/* BCME_NOTBANDLOCKED */
-	-EINVAL, 		/* BCME_NOCLK */
-	-EINVAL, 		/* BCME_BADRATESET */
-	-EINVAL, 		/* BCME_BADBAND */
+	-EINVAL,		/* BCME_NOCLK */
+	-EINVAL,		/* BCME_BADRATESET */
+	-EINVAL,		/* BCME_BADBAND */
 	-E2BIG,			/* BCME_BUFTOOSHORT */
 	-E2BIG,			/* BCME_BUFTOOLONG */
-	-EBUSY, 		/* BCME_BUSY */
-	-EINVAL, 		/* BCME_NOTASSOCIATED */
-	-EINVAL, 		/* BCME_BADSSIDLEN */
-	-EINVAL, 		/* BCME_OUTOFRANGECHAN */
-	-EINVAL, 		/* BCME_BADCHAN */
-	-EFAULT, 		/* BCME_BADADDR */
-	-ENOMEM, 		/* BCME_NORESOURCE */
+	-EBUSY,			/* BCME_BUSY */
+	-EINVAL,		/* BCME_NOTASSOCIATED */
+	-EINVAL,		/* BCME_BADSSIDLEN */
+	-EINVAL,		/* BCME_OUTOFRANGECHAN */
+	-EINVAL,		/* BCME_BADCHAN */
+	-EFAULT,		/* BCME_BADADDR */
+	-ENOMEM,		/* BCME_NORESOURCE */
 	-EOPNOTSUPP,		/* BCME_UNSUPPORTED */
 	-EMSGSIZE,		/* BCME_BADLENGTH */
 	-EINVAL,		/* BCME_NOTREADY */
 	-EPERM,			/* BCME_EPERM */
-	-ENOMEM, 		/* BCME_NOMEM */
-	-EINVAL, 		/* BCME_ASSOCIATED */
-	-ERANGE, 		/* BCME_RANGE */
-	-EINVAL, 		/* BCME_NOTFOUND */
-	-EINVAL, 		/* BCME_WME_NOT_ENABLED */
-	-EINVAL, 		/* BCME_TSPEC_NOTFOUND */
-	-EINVAL, 		/* BCME_ACM_NOTSUPPORTED */
+	-ENOMEM,		/* BCME_NOMEM */
+	-EINVAL,		/* BCME_ASSOCIATED */
+	-ERANGE,		/* BCME_RANGE */
+	-EINVAL,		/* BCME_NOTFOUND */
+	-EINVAL,		/* BCME_WME_NOT_ENABLED */
+	-EINVAL,		/* BCME_TSPEC_NOTFOUND */
+	-EINVAL,		/* BCME_ACM_NOTSUPPORTED */
 	-EINVAL,		/* BCME_NOT_WME_ASSOCIATION */
 	-EIO,			/* BCME_SDIO_ERROR */
 	-ENODEV,		/* BCME_DONGLE_DOWN */
@@ -119,34 +119,34 @@ static int16 linuxbcmerrormap[] =
 	-ENODATA,		/* BCME_NONRESIDENT */
 	-EINVAL,		/* BCME_SCANREJECT */
 	-EINVAL,		/* BCME_USAGE_ERROR */
-	-EIO,     		/* BCME_IOCTL_ERROR */
+	-EIO,			/* BCME_IOCTL_ERROR */
 	-EIO,			/* BCME_SERIAL_PORT_ERR */
-	-EOPNOTSUPP,	/* BCME_DISABLED, BCME_NOTENABLED */
+	-EOPNOTSUPP,		/* BCME_DISABLED, BCME_NOTENABLED */
 	-EIO,			/* BCME_DECERR */
 	-EIO,			/* BCME_ENCERR */
 	-EIO,			/* BCME_MICERR */
 	-ERANGE,		/* BCME_REPLAY */
 	-EINVAL,		/* BCME_IE_NOTFOUND */
 	-EINVAL,		/* BCME_DATA_NOTFOUND */
-	-EINVAL,        /* BCME_NOT_GC */
-	-EINVAL,        /* BCME_PRS_REQ_FAILED */
-	-EINVAL,        /* BCME_NO_P2P_SE */
-	-EINVAL,        /* BCME_NOA_PND */
-	-EINVAL,        /* BCME_FRAG_Q_FAILED */
-	-EINVAL,        /* BCME_GET_AF_FAILED */
-	-EINVAL,	/* BCME_MSCH_NOTREADY */
-	-EINVAL,	/* BCME_IOV_LAST_CMD */
-	-EINVAL,	/* BCME_MINIPMU_CAL_FAIL */
-	-EINVAL,	/* BCME_RCAL_FAIL */
-	-EINVAL,	/* BCME_LPF_RCCAL_FAIL */
-	-EINVAL,	/* BCME_DACBUF_RCCAL_FAIL */
-	-EINVAL,	/* BCME_VCOCAL_FAIL */
-	-EINVAL,	/* BCME_BANDLOCKED */
-	-EINVAL,	/* BCME_BAD_IE_DATA */
-	-EINVAL,	/* BCME_REG_FAILED */
-	-EINVAL,	/* BCME_NOCHAN */
-	-EINVAL,	/* BCME_PKTTOSS */
-	-EINVAL,	/* BCME_DNGL_DEVRESET */
+	-EINVAL,		/* BCME_NOT_GC */
+	-EINVAL,		/* BCME_PRS_REQ_FAILED */
+	-EINVAL,		/* BCME_NO_P2P_SE */
+	-EINVAL,		/* BCME_NOA_PND */
+	-EINVAL,		/* BCME_FRAG_Q_FAILED */
+	-EINVAL,		/* BCME_GET_AF_FAILED */
+	-EINVAL,		/* BCME_MSCH_NOTREADY */
+	-EINVAL,		/* BCME_IOV_LAST_CMD */
+	-EINVAL,		/* BCME_MINIPMU_CAL_FAIL */
+	-EINVAL,		/* BCME_RCAL_FAIL */
+	-EINVAL,		/* BCME_LPF_RCCAL_FAIL */
+	-EINVAL,		/* BCME_DACBUF_RCCAL_FAIL */
+	-EINVAL,		/* BCME_VCOCAL_FAIL */
+	-EINVAL,		/* BCME_BANDLOCKED */
+	-EINVAL,		/* BCME_BAD_IE_DATA */
+	-EINVAL,		/* BCME_REG_FAILED */
+	-EINVAL,		/* BCME_NOCHAN */
+	-EINVAL,		/* BCME_PKTTOSS */
+	-EINVAL,		/* BCME_DNGL_DEVRESET */
 
 /* When an new error code is added to bcmutils.h, add os
  * specific error translation here as well
@@ -886,7 +886,8 @@ osl_assert(const char *exp, const char *file, int line)
 
 	switch (g_assert_type) {
 	case 0:
-		panic("%s", tempbuf);
+		printk("%s", tempbuf);
+		BUG();
 		break;
 	case 1:
 		/* fall through */
@@ -942,7 +943,7 @@ osl_localtime_ns(void)
 {
 	uint64 ts_nsec = 0;
 
-	/* XXX: Some Linux based platform cannot use local_clock()
+	/* Some Linux based platform cannot use local_clock()
 	 * since it is defined by EXPORT_SYMBOL_GPL().
 	 * GPL-incompatible module (NIC builds wl.ko)
 	 * cannnot use the GPL-only symbol.
@@ -957,7 +958,7 @@ osl_get_localtime(uint64 *sec, uint64 *usec)
 	uint64 ts_nsec = 0;
 	unsigned long rem_nsec = 0;
 
-	/* XXX: Some Linux based platform cannot use local_clock()
+	/* Some Linux based platform cannot use local_clock()
 	 * since it is defined by EXPORT_SYMBOL_GPL().
 	 * GPL-incompatible module (NIC builds wl.ko) can
 	 * not use the GPL-only symbol.
@@ -1347,7 +1348,7 @@ osl_mutex_unlock(void *lock, unsigned long flags)
 static void
 osl_dma_lock(osl_t *osh)
 {
-	/* XXX: The conditional check is to avoid the scheduling bug.
+	/* The conditional check is to avoid the scheduling bug.
 	 * If the spin_lock_bh is used under the spin_lock_irqsave,
 	 * Kernel triggered the warning message as the spin_lock_irqsave
 	 * disables the interrupt and the spin_lock_bh doesn't use in case

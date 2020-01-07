@@ -85,7 +85,7 @@ static int __is_votf_create_link(int src_ip, int src_id, int dst_ip, int dst_id,
 	memset(&lost_cfg, 0, sizeof(struct votf_lost_cfg));
 
 	lost_cfg.recover_enable = 0x1;
-	lost_cfg.flush_enable = 0x1;
+	/* lost_cfg.flush_enable = 0x1; */
 	ret = votfitf_set_trs_lost_cfg(&vinfo, &lost_cfg);
 	if (ret < 0) {
 		ret = -EINVAL;

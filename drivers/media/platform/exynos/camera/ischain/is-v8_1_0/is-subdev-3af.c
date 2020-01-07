@@ -46,18 +46,22 @@ static int is_ischain_3af_start(struct is_device_ischain *device,
 	hw_bitwidth = queue->framecfg.format->hw_bitwidth;
 	hw_plane = queue->framecfg.format->hw_plane;
 
-	if ((otcrop->w > taa_param->otf_input.bayer_crop_width) ||
-		(otcrop->h > taa_param->otf_input.bayer_crop_height)) {
-		mrerr("FDPIG output size is invalid((%d, %d) > (%d, %d))", device, frame,
-			otcrop->w, otcrop->h,
+	if ((int)incrop->x < 0 || (int)incrop->y < 0 || (int)incrop->w < 0 || (int)incrop->h < 0 ||
+		(incrop->x + incrop->w > taa_param->otf_input.bayer_crop_width) ||
+		(incrop->y + incrop->h > taa_param->otf_input.bayer_crop_height)) {
+		mswarn("incrop is invalid. [%d, %d, %d, %d]->[0, 0, %d, %d]",
+			subdev, subdev,
+			incrop->x, incrop->y, incrop->w, incrop->h,
 			taa_param->otf_input.bayer_crop_width,
 			taa_param->otf_input.bayer_crop_height);
-		ret = -EINVAL;
-		goto p_err;
+		incrop->x = 0;
+		incrop->y = 0;
+		incrop->w = taa_param->otf_input.bayer_crop_width;
+		incrop->h = taa_param->otf_input.bayer_crop_height;
 	}
 
 	if (otcrop->x || otcrop->y) {
-		mwarn("FDPIG crop pos(%d, %d) is ignored", device, otcrop->x, otcrop->y);
+		mswarn(" outcrop pos(%d, %d) is ignored", subdev, subdev, otcrop->x, otcrop->y);
 		otcrop->x = 0;
 		otcrop->y = 0;
 	}
@@ -88,7 +92,6 @@ static int is_ischain_3af_start(struct is_device_ischain *device,
 
 	set_bit(IS_SUBDEV_RUN, &subdev->state);
 
-p_err:
 	return ret;
 }
 
@@ -193,6 +196,8 @@ static int is_ischain_3af_tag(struct is_subdev *subdev,
 				goto p_err;
 			}
 
+			mdbg_pframe("in_crop[%d, %d, %d, %d]\n", device, subdev, ldr_frame,
+				incrop->x, incrop->y, incrop->w, incrop->h);
 			mdbg_pframe("ot_crop[%d, %d, %d, %d] on\n", device, subdev, ldr_frame,
 				otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 		}
@@ -216,6 +221,8 @@ static int is_ischain_3af_tag(struct is_subdev *subdev,
 				goto p_err;
 			}
 
+			mdbg_pframe("in_crop[%d, %d, %d, %d]\n", device, subdev, ldr_frame,
+				incrop->x, incrop->y, incrop->w, incrop->h);
 			mdbg_pframe("ot_crop[%d, %d, %d, %d] off\n", device, subdev, ldr_frame,
 				otcrop->x, otcrop->y, otcrop->w, otcrop->h);
 		}

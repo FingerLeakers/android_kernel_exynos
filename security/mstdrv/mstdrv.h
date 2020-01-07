@@ -77,6 +77,8 @@ void mst_printk(int level, const char *fmt, ...);
 struct workqueue_struct *cluster_freq_ctrl_wq;
 struct delayed_work dwork;
 
+static uint32_t mode_set_wait = 40;
+
 #if defined(CONFIG_ARCH_QCOM)
 /* global variables */
 uint32_t ss_mst_bus_hdl;

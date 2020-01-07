@@ -422,7 +422,8 @@ typedef struct dhd_bus {
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 	uint64 isr_entry_time;
 	uint64 isr_exit_time;
-	uint64 dpc_sched_time;
+	uint64 isr_sched_dpc_time;
+	uint64 rpm_sched_dpc_time;
 	uint64 dpc_entry_time;
 	uint64 dpc_exit_time;
 	uint64 resched_dpc_time;

@@ -262,6 +262,12 @@ static void f2fs_write_end_io(struct bio *bio)
 		if (unlikely(bio->bi_status)) {
 			mapping_set_error(page->mapping, -EIO);
 			if (type == F2FS_WB_CP_DATA) {
+#ifdef CONFIG_DDAR
+				if (fscrypt_dd_encrypted(bio)) {
+					panic("Knox-DualDAR : I/O error on ino(%ld)",
+							fscrypt_dd_get_ino(bio));
+				}
+#endif
 				f2fs_stop_checkpoint(sbi, true);
 				f2fs_bug_on(sbi, 1);
 			}
@@ -270,7 +276,7 @@ static void f2fs_write_end_io(struct bio *bio)
 		f2fs_bug_on(sbi, page->mapping == NODE_MAPPING(sbi) &&
 					page->index != nid_of_node(page));
 
-		dec_page_count(sbi, type);
+		BUG_ON(dec_return_page_count(sbi, type) < 0);
 		if (f2fs_in_warm_node_list(sbi, page))
 			f2fs_del_fsync_node_entry(sbi, page);
 		clear_cold_data(page);
@@ -568,7 +574,7 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 
 	if (!f2fs_is_valid_blkaddr(fio->sbi, fio->new_blkaddr,
 			__is_meta_io(fio) ? META_GENERIC : DATA_GENERIC))
-		return -EFAULT;
+		return -EFSCORRUPTED;
 
 	trace_f2fs_submit_page_bio(page, fio);
 	f2fs_trace_ios(fio, 0);
@@ -592,7 +598,7 @@ int f2fs_submit_page_bio(struct f2fs_io_info *fio)
 
 #ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) { 
-		bio->bi_opf |= REQ_RT_PINNED;
+		bio->bi_opf |= REQ_HPB_PREFER;
 	}
 #endif
 
@@ -685,7 +691,7 @@ alloc_new:
 
 #ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
-		io->bio->bi_opf |= REQ_RT_PINNED;
+		io->bio->bi_opf |= REQ_HPB_PREFER;
 	}
 #endif
 
@@ -739,7 +745,7 @@ static struct bio *f2fs_grab_read_bio(struct inode *inode, block_t blkaddr,
 
 #ifdef CONFIG_FS_HPB
 	if(is_inode_flag_set(inode, FI_HPB_INODE)) {
-		bio->bi_opf |= REQ_RT_PINNED;
+		bio->bi_opf |= REQ_HPB_PREFER;
 	}
 #endif
 	return bio;
@@ -1251,7 +1257,7 @@ next_block:
 
 	if (__is_valid_data_blkaddr(blkaddr) &&
 		!f2fs_is_valid_blkaddr(sbi, blkaddr, DATA_GENERIC)) {
-		err = -EFAULT;
+		err = -EFSCORRUPTED;
 		goto sync_out;
 	}
 
@@ -2006,7 +2012,7 @@ int f2fs_do_write_data_page(struct f2fs_io_info *fio)
 
 		if (!f2fs_is_valid_blkaddr(fio->sbi, fio->old_blkaddr,
 							DATA_GENERIC))
-			return -EFAULT;
+			return -EFSCORRUPTED;
 
 		ipu_force = true;
 		fio->need_lock = LOCK_DONE;
@@ -2033,7 +2039,7 @@ got_it:
 	if (__is_valid_data_blkaddr(fio->old_blkaddr) &&
 		!f2fs_is_valid_blkaddr(fio->sbi, fio->old_blkaddr,
 							DATA_GENERIC)) {
-		err = -EFAULT;
+		err = -EFSCORRUPTED;
 		goto out_writepage;
 	}
 

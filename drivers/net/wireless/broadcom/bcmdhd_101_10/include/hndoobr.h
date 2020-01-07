@@ -64,7 +64,16 @@ typedef volatile struct hndoobr_percore_reg {
 } hndoobr_percore_reg_t;
 
 /* capability reg */
-#define OOBR_CAP_CORECNT_MASK   0x1fu
+#define OOBR_CAP_CORECNT_MASK				0x0000001Fu
+#define OOBR_CAP_MAX_INT2CORE_MASK			0x00F00000u
+#define OOBR_CAP_MAX_INT2CORE_SHIFT			20u
+
+#define OOBR_MAX_INT_PER_REG				4u
+
+/* CoreNConfig reg */
+#define OOBR_PERCORE_CORENCONFIG_INTOUTPUTS_MASK	0x0000FF00u
+#define OOBR_PERCORE_CORENCONFIG_INTOUTPUTS_SHIFT	8u
+
 typedef volatile struct hndoobr_reg {
 	uint32 capability;                      /* 0x00 */
 	uint32 reserved[3];

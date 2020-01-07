@@ -92,14 +92,14 @@
 		smpl_timer_val = <2>;	/* 300ms */
 		sub_smpl_en = "enabled"; /* enable */
 		check_jigon = <0>; /* do not check jigon */
-		/* RTC: If it's first boot, reset rtc to 1/1/2017 12:00:00(Sun) */
+		/* RTC: If it's first boot, reset rtc to 1/1/2020 12:00:00(Wed) */
 		init_time,sec = <0>;
 		init_time,min = <0>;
 		init_time,hour = <12>;
 		init_time,mday = <1>;
 		init_time,mon = <0>;
-		init_time,year = <117>;
-		init_time,wday = <0>;
+		init_time,year = <120>;
+		init_time,wday = <3>;
 
 		regulators {
 			buck1_reg: BUCK1M {
@@ -668,8 +668,8 @@
 				brightness = <0xE>; /* Nx20 = 280mA */
 				timeout = <0xF>;
 				torch_table_enable = <1>;
-				torch_table = <3 5 5 7 7 8 8 8 10 10>;
-				/* 60mA 100mA 140mA 160mA 200mA */
+				torch_table = <3 5 5 6 6 8 8 8 10 10>;
+				/* 60mA 100mA 120mA 160mA 200mA */
 			};
 		};
 	};

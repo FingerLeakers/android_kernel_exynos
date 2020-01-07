@@ -56,8 +56,11 @@ struct exynos_tmu_data {
 	int limited_frequency;
 	int limited_threshold;
 	int limited_threshold_release;
+	int limited_frequency_2;
+	int limited_threshold_2;
+	int limited_threshold_release_2;
 	struct pm_qos_request thermal_limit_request;
-	bool limited;
+	unsigned int limited;
 	void __iomem *base;
 	int irq;
 	struct work_struct irq_work;

@@ -1799,7 +1799,7 @@ static ssize_t show_kernel_sysfs_gpu_model(struct kobject *kobj, struct kobj_att
 	return scnprintf(buf, PAGE_SIZE, "%s\n", product_name);
 }
 
-#if defined(CONFIG_MALI_DVFS) && defined(CONFIG_EXYNOS_THERMAL_V2) && defined(CONFIG_GPU_THERMAL)
+#if defined(CONFIG_MALI_DVFS) && defined(CONFIG_GPU_THERMAL)
 
 extern struct exynos_tmu_data *gpu_thermal_data;
 
@@ -1817,14 +1817,22 @@ static ssize_t show_kernel_sysfs_gpu_temp(struct kobject *kobj, struct kobj_attr
 		return -ENODEV;
 	}
 
+#ifndef CONFIG_EXYNOS_THERMAL_V2
 	mutex_lock(&gpu_thermal_data->lock);
+#endif
 
 	if (gpu_thermal_data) {
 		gpu_thermal_data->tzd->ops->get_temp(gpu_thermal_data->tzd, &temp);
+#ifndef CONFIG_EXYNOS_THERMAL_V2
 		gpu_temp = temp * MCELSIUS;
+#else
+		gpu_temp = temp;	/* A standard unit of gpu temp is mili-celcius at V2-VERSION */
+#endif
 	}
 
+#ifndef CONFIG_EXYNOS_THERMAL_V2
 	mutex_unlock(&gpu_thermal_data->lock);
+#endif
 
 	gpu_temp_int = gpu_temp / 1000;
 	gpu_temp_point = gpu_temp % gpu_temp_int;

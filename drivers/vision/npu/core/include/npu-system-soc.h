@@ -23,6 +23,8 @@ u32 npu_get_hw_info(void);
 int npu_hwacg(struct npu_system *system, bool on);
 int npu_soc_core_on(struct npu_system *system, int core);
 int npu_soc_core_off(struct npu_system *system, int core);
+void npu_memory_sync_for_cpu(void);
+void npu_memory_sync_for_device(void);
 
 struct npu_iomem_init_data {
 	const char*	heapname;

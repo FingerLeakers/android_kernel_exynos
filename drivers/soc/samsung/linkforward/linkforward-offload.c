@@ -13,6 +13,7 @@
 #include <linux/miscdevice.h>
 #include <linux/if_ether.h>
 #include <linux/netdevice.h>
+#include <linux/linkforward.h>
 #include <net/net_namespace.h>
 #include "linkforward-ioctl.h"
 #include "linkforward-offload.h"
@@ -29,24 +30,18 @@ static inline bool offload_check_if_by_name(char *name)
 
 static inline bool offload_check_forward_ready(void)
 {
+	/* If we got both OFFLOAD_IOCTL_SET_UPSTRM_PARAM & OFFLOAD_IOCTL_ADD_DOWNSTREAM, */
+	/* this function should return true.                                             */
 	if (offload_check_if_by_name(offload.upstream.iface)
-		&& (offload_check_if_by_name(offload.downstream[0].iface)
-			|| offload_check_if_by_name(offload.downstream[1].iface)))
+		&& (offload_check_if_by_name(offload.downstream.iface)))
 		return true;
-
-	return false;
-}
-
-void perftest_offload_change_status(enum offload_state st)
-{
-	offload.status = st;
-	wake_up(&offload.wq);
+	else
+		return false;
 }
 
 static inline void offload_change_status(enum offload_state st)
 {
 	offload.status = st;
-	wake_up(&offload.wq);
 }
 
 static int offload_open(struct inode *inode, struct file *filp)
@@ -104,7 +99,6 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	struct forward_stat stat;
 	struct iface_info param;
 	uint64_t limit;
-	int idx;
 
 	switch (cmd) {
 	case OFFLOAD_IOCTL_INIT_OFFLOAD:
@@ -113,6 +107,8 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 
 	case OFFLOAD_IOCTL_STOP_OFFLOAD:
 		pr_info("OFFLOAD_IOCTL_STOP_OFFLOAD\n");
+		offload_change_status(STATE_OFFLOAD_OFFLINE);
+		offload_gen_event(INTERNAL_OFFLOAD_STOPPED);
 		break;
 
 	case OFFLOAD_IOCTL_SET_LOCAL_PRFIX:
@@ -121,18 +117,21 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 
 	case OFFLOAD_IOCTL_GET_FORWD_STATS:
 		stat.rxBytes =
-			atomic64_read(&offload.stat[OFFLOAD_RX__FORWARD].fwd_bytes);
+			atomic64_read(&offload.stat[OFFLOAD_RX_FORWARD].fwd_bytes);
 		stat.txBytes =
-			atomic64_read(&offload.stat[OFFLOAD_TX__FORWARD].fwd_bytes);
-		atomic64_set(&offload.stat[OFFLOAD_RX__FORWARD].fwd_bytes, 0);
-		atomic64_set(&offload.stat[OFFLOAD_TX__FORWARD].fwd_bytes, 0);
+			atomic64_read(&offload.stat[OFFLOAD_TX_FORWARD].fwd_bytes);
+		atomic64_set(&offload.stat[OFFLOAD_RX_FORWARD].fwd_bytes, 0);
+		atomic64_set(&offload.stat[OFFLOAD_TX_FORWARD].fwd_bytes, 0);
 
-		pr_info("forward_stat: stat.rxBytes = %llu, stat.txBytes = %llu\n",
+		pr_debug("ioctl forward_stat: stat.rxBytes = %llu, stat.txBytes = %llu\n",
 			stat.rxBytes, stat.txBytes);
 
 		err = copy_to_user((void __user *)arg,
 				(void *)&stat, sizeof(stat));
-
+		if (err) {
+			pr_err("copy_to_user() error:%d\n", err);
+			return err;
+		}
 		break;
 
 	/*
@@ -144,21 +143,31 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	case OFFLOAD_IOCTL_SET_DATA_LIMIT:
 		err = copy_from_user(&limit, (const void __user *)arg,
 				sizeof(uint64_t));
+		if (err) {
+			pr_err("copy_from_user() error:%d\n", err);
+			return err;
+		}
+
 		pr_info("OFFLOAD_IOCTL_SET_DATA_LIMIT = %llu\n", limit);
 
-		atomic64_set(&offload.stat[OFFLOAD_RX__FORWARD].limit_fwd_bytes,
+		atomic64_set(&offload.stat[OFFLOAD_RX_FORWARD].limit_fwd_bytes,
 				limit);
-		atomic64_set(&offload.stat[OFFLOAD_TX__FORWARD].limit_fwd_bytes,
+		atomic64_set(&offload.stat[OFFLOAD_TX_FORWARD].limit_fwd_bytes,
 				limit);
-		atomic64_set(&offload.stat[OFFLOAD_RX__FORWARD].reqst_fwd_bytes,
+		atomic64_set(&offload.stat[OFFLOAD_RX_FORWARD].reqst_fwd_bytes,
 				0);
-		atomic64_set(&offload.stat[OFFLOAD_TX__FORWARD].reqst_fwd_bytes,
+		atomic64_set(&offload.stat[OFFLOAD_TX_FORWARD].reqst_fwd_bytes,
 				0);
 		break;
 
 	case OFFLOAD_IOCTL_SET_UPSTRM_PARAM:
+		/* Set upstream interface */
 		err = copy_from_user(&offload.upstream, (const void __user *)arg,
 				sizeof(struct iface_info));
+		if (err) {
+			pr_err("copy_from_user() error:%d\n", err);
+			return err;
+		}
 
 		pr_info("OFFLOAD_IOCTL_SET_UPSTRM_PARAM = %s\n", offload.upstream.iface);
 
@@ -172,42 +181,46 @@ static long offload_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 	case OFFLOAD_IOCTL_ADD_DOWNSTREAM:
 		err = copy_from_user(&param, (const void __user *)arg,
 				sizeof(struct iface_info));
-
-		if (strstr(param.iface, "rndis") || strstr(param.iface, "ncm"))
-			idx = 0;
-		else
-			idx = 1;
-
-		err = copy_from_user(&offload.downstream[idx], (const void __user *)arg,
-				sizeof(struct iface_info));
-
-		pr_info("OFFLOAD_IOCTL_ADD_DOWNSTREAM(%d) = %s\n", idx,
-				offload.downstream[idx].iface);
-
-		if (offload_check_forward_ready()) {
-			offload_change_status(STATE_OFFLOAD_ONLINE);
-			offload_gen_event(OFFLOAD_STARTED);
+		if (err) {
+			pr_err("copy_from_user() error:%d\n", err);
+			return err;
 		}
+		pr_info("OFFLOAD_IOCTL_ADD_DOWNSTREAM = %s\n", param.iface);
 
+		/* Allow only RNDIS,NCM device for ADD_DOWNSTREAM */
+		if (strncmp(param.iface, NET_NAME_RNDIS, strlen(NET_NAME_RNDIS)) == 0 ||
+				strncmp(param.iface, NET_NAME_NCM, strlen(NET_NAME_NCM)) == 0) {
+			memcpy(&offload.downstream, &param,
+					sizeof(struct iface_info));
+			if (offload_check_forward_ready()) {
+				offload_change_status(STATE_OFFLOAD_ONLINE);
+				offload_gen_event(OFFLOAD_STARTED);
+			}
+		} else
+			pr_err("Not allowed device:%s for ADD_DOWNSTREAM\n",
+					param.iface);
 		break;
 
 	case OFFLOAD_IOCTL_REMOVE_DOWNSTRM:
 		err = copy_from_user(&param, (const void __user *)arg,
 				sizeof(struct iface_info));
-
-		if (strstr(param.iface, "rndis") || strstr(param.iface, "ncm"))
-			idx = 0;
-		else
-			idx = 1;
-
-		pr_info("OFFLOAD_IOCTL_REMOVE_DOWNSTRM(%d) = %s\n", idx, offload.downstream[idx].iface);
-
-		offload.downstream[idx].iface[0] = '\0';
-		if (offload_check_forward_ready()) {
-			offload_change_status(STATE_OFFLOAD_OFFLINE);
-			offload_gen_event(OFFLOAD_STOPPED_ERROR);
+		if (err) {
+			pr_err("copy_from_user() error:%d\n", err);
+			return err;
 		}
+		pr_info("OFFLOAD_IOCTL_REMOVE_DOWNSTRM = %s\n", param.iface);
 
+		/* Allow only RNDIS,NCM device for REMOVE_DOWNSTRM */
+		if (strncmp(param.iface, NET_NAME_RNDIS, strlen(NET_NAME_RNDIS)) == 0 ||
+				strncmp(param.iface, NET_NAME_NCM, strlen(NET_NAME_NCM)) == 0) {
+			offload.downstream.iface[0] = '\0';
+			if (offload_check_forward_ready()) {
+				offload_change_status(STATE_OFFLOAD_OFFLINE);
+				offload_gen_event(OFFLOAD_STOPPED_ERROR);
+			}
+		} else
+			pr_err("Not allowed device:%s for REMOVE_DOWNSTRM\n",
+					param.iface);
 		break;
 
 	case OFFLOAD_IOCTL_CONF_SET_HANDLES:
@@ -244,8 +257,8 @@ bool offload_keeping_bw(void)
 	if (offload.status != STATE_OFFLOAD_ONLINE)
 		return false;
 
-	rxstat = &offload.stat[OFFLOAD_RX__FORWARD];
-	txstat = &offload.stat[OFFLOAD_TX__FORWARD];
+	rxstat = &offload.stat[OFFLOAD_RX_FORWARD];
+	txstat = &offload.stat[OFFLOAD_TX_FORWARD];
 
 	ret = (atomic64_read(&rxstat->limit_fwd_bytes) >= atomic64_read(&rxstat->reqst_fwd_bytes)) &&
 		(atomic64_read(&txstat->limit_fwd_bytes) >= atomic64_read(&txstat->reqst_fwd_bytes));
@@ -257,16 +270,11 @@ bool offload_keeping_bw(void)
 		pr_info("OFFLOAD_STOPPED_LIMIT_REACHED: TX limit = %llu, fwd_bytes = %llu\n",
 			atomic64_read(&txstat->limit_fwd_bytes),
 			atomic64_read(&txstat->reqst_fwd_bytes));
-		offload_gen_event(OFFLOAD_STOPPED_LIMIT_REACHED);
 		offload_change_status(STATE_OFFLOAD_LIMIT_REACHED);
+		offload_gen_event(OFFLOAD_STOPPED_LIMIT_REACHED);
 	}
 
 	return ret;
-}
-
-bool offload_config_enabled(void)
-{
-	return offload.config_enabled;
 }
 
 int offload_get_status(void)
@@ -274,20 +282,37 @@ int offload_get_status(void)
 	return offload.status;
 }
 
+bool offload_enabled(void) {
+	if (offload.status == STATE_OFFLOAD_ONLINE)
+		return true;
+	else
+		return false;
+}
+
 void offload_update_tx_stat(int len)
 {
 	atomic64_add(len,
-		&offload.stat[OFFLOAD_TX__FORWARD].fwd_bytes);
+		&offload.stat[OFFLOAD_TX_FORWARD].fwd_bytes);
 	atomic64_add(len,
-		&offload.stat[OFFLOAD_TX__FORWARD].reqst_fwd_bytes);
+		&offload.stat[OFFLOAD_TX_FORWARD].reqst_fwd_bytes);
 }
 
 void offload_update_rx_stat(int len)
 {
 	atomic64_add((len - sizeof(struct ethhdr)),
-		&offload.stat[OFFLOAD_RX__FORWARD].fwd_bytes);
+		&offload.stat[OFFLOAD_RX_FORWARD].fwd_bytes);
 	atomic64_add((len - sizeof(struct ethhdr)),
-		&offload.stat[OFFLOAD_RX__FORWARD].reqst_fwd_bytes);
+		&offload.stat[OFFLOAD_RX_FORWARD].reqst_fwd_bytes);
+}
+
+u64 get_rx_offload_fwd_bytes(void)
+{
+	return atomic64_read(&offload.stat[OFFLOAD_RX_FORWARD].reqst_fwd_bytes);
+}
+
+u64 get_tx_offload_fwd_bytes(void)
+{
+	return atomic64_read(&offload.stat[OFFLOAD_TX_FORWARD].reqst_fwd_bytes);
 }
 
 struct linkforward_offload_ctl_t *offload_init_ctrl(void)
@@ -305,22 +330,16 @@ struct linkforward_offload_ctl_t *offload_init_ctrl(void)
 	spin_unlock_irqrestore(&offload.lock, flags);
 
 	memset(&offload.upstream, 0, sizeof(struct iface_info));
-	memset(&offload.downstream[0], 0, sizeof(struct iface_info) * OFFLOAD_MAX_DOWNSTREAM);
+	memset(&offload.downstream, 0, sizeof(struct iface_info));
 	memset(&offload.stat, 0, sizeof(struct linkforward_offload_stat_t) * OFFLOAD_MAX_FORWARD);
-	atomic64_set(&offload.stat[OFFLOAD_RX__FORWARD].limit_fwd_bytes, ULONG_MAX);
-	atomic64_set(&offload.stat[OFFLOAD_TX__FORWARD].limit_fwd_bytes, ULONG_MAX);
+	atomic64_set(&offload.stat[OFFLOAD_RX_FORWARD].limit_fwd_bytes, ULONG_MAX);
+	atomic64_set(&offload.stat[OFFLOAD_TX_FORWARD].limit_fwd_bytes, ULONG_MAX);
 
-	offload_reset();
+	offload_change_status(STATE_OFFLOAD_OFFLINE);
 
 	pr_info("done");
 
 	return &offload;
-}
-
-void offload_reset(void)
-{
-	offload_change_status(STATE_OFFLOAD_OFFLINE);
-	offload.config_enabled = false;
 }
 
 static const struct file_operations offload_fops = {
@@ -341,11 +360,8 @@ static struct miscdevice miscdev = {
 
 static inline int isDownstreamdevice(struct net_device *ndev)
 {
-	int i;
-
-	for (i = 0; i < OFFLOAD_MAX_DOWNSTREAM; i++)
-		if (strcmp(ndev->name, offload.downstream[i].iface) == 0)
-			return 1;
+	if (strcmp(ndev->name, offload.downstream.iface) == 0)
+		return 1;
 
 	return 0;
 }
@@ -363,6 +379,13 @@ static int offload_netdev_event(struct notifier_block *this,
 {
 	struct net_device *ndev = netdev_notifier_info_to_dev(ptr);
 
+	/* skip unknown devices */
+	if (strncmp(ndev->name, NET_NAME_RMNET, strlen(NET_NAME_RMNET)) != 0 &&
+		strncmp(ndev->name, NET_NAME_V4RMNET, strlen(NET_NAME_V4RMNET)) != 0 &&
+		strncmp(ndev->name, NET_NAME_RNDIS, strlen(NET_NAME_RNDIS)) != 0 &&
+		strncmp(ndev->name, NET_NAME_NCM, strlen(NET_NAME_NCM)) != 0)
+		return NOTIFY_DONE;
+
 	switch (event) {
 	case NETDEV_UP:
 		pr_info("%s:%s\n", ndev->name, "NETDEV_UP");
@@ -371,7 +394,6 @@ static int offload_netdev_event(struct notifier_block *this,
 			offload_change_status(STATE_OFFLOAD_ONLINE);
 			offload_gen_event(OFFLOAD_STARTED);
 		}
-
 		break;
 
 	case NETDEV_DOWN:
@@ -381,10 +403,6 @@ static int offload_netdev_event(struct notifier_block *this,
 			offload_change_status(STATE_OFFLOAD_OFFLINE);
 			offload_gen_event(OFFLOAD_STOPPED_ERROR);
 		}
-
-		break;
-
-	case NETDEV_CHANGE:
 		break;
 
 	default:

@@ -33,6 +33,7 @@
 #include <linux/page_idle.h>
 #include <linux/shmem_fs.h>
 #include <linux/oom.h>
+#include <linux/page_owner.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -2404,7 +2405,7 @@ static void unmap_page(struct page *page)
 	if (PageAnon(page))
 		ttu_flags |= TTU_SPLIT_FREEZE;
 
-	unmap_success = try_to_unmap(page, ttu_flags);
+	unmap_success = try_to_unmap(page, ttu_flags, NULL);
 	VM_BUG_ON_PAGE(!unmap_success, page);
 }
 
@@ -2507,6 +2508,9 @@ static void __split_huge_page(struct page *page, struct list_head *list,
 	}
 
 	ClearPageCompound(head);
+
+	split_page_owner(head, HPAGE_PMD_ORDER);
+
 	/* See comment in __split_huge_page_tail() */
 	if (PageAnon(head)) {
 		/* Additional pin to radix tree of swap cache */
@@ -2755,6 +2759,9 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 	if (!mapcount && page_ref_freeze(head, 1 + extra_pins)) {
 		if (!list_empty(page_deferred_list(head))) {
 			pgdata->split_queue_len--;
+#ifdef CONFIG_HUGEPAGE_POOL
+			count_vm_events(THP_DEFERRED_SPLIT_PAGE_CURRENT, -1);
+#endif
 			list_del(page_deferred_list(head));
 		}
 		if (mapping)
@@ -2804,6 +2811,9 @@ void free_transhuge_page(struct page *page)
 	spin_lock_irqsave(&pgdata->split_queue_lock, flags);
 	if (!list_empty(page_deferred_list(page))) {
 		pgdata->split_queue_len--;
+#ifdef CONFIG_HUGEPAGE_POOL
+		count_vm_events(THP_DEFERRED_SPLIT_PAGE_CURRENT, -1);
+#endif
 		list_del(page_deferred_list(page));
 	}
 	spin_unlock_irqrestore(&pgdata->split_queue_lock, flags);
@@ -2820,6 +2830,9 @@ void deferred_split_huge_page(struct page *page)
 	spin_lock_irqsave(&pgdata->split_queue_lock, flags);
 	if (list_empty(page_deferred_list(page))) {
 		count_vm_event(THP_DEFERRED_SPLIT_PAGE);
+#ifdef CONFIG_HUGEPAGE_POOL
+		count_vm_events(THP_DEFERRED_SPLIT_PAGE_CURRENT, 1);
+#endif
 		list_add_tail(page_deferred_list(page), &pgdata->split_queue);
 		pgdata->split_queue_len++;
 	}
@@ -2851,6 +2864,9 @@ static unsigned long deferred_split_scan(struct shrinker *shrink,
 			list_move(page_deferred_list(page), &list);
 		} else {
 			/* We lost race with put_compound_page() */
+#ifdef CONFIG_HUGEPAGE_POOL
+			count_vm_events(THP_DEFERRED_SPLIT_PAGE_CURRENT, -1);
+#endif
 			list_del_init(page_deferred_list(page));
 			pgdata->split_queue_len--;
 		}

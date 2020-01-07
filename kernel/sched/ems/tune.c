@@ -85,7 +85,9 @@ static const struct sysfs_ops emstune_sysfs_ops = {
 	container_of(_kobject, struct emstune_set, kobj)
 
 static void update_cur_set(struct emstune_set *set);
-#define emstune_attr_per_cpu_group(_name, _member)				\
+
+/* macro for per-cpu x per-group */
+#define emstune_attr_per_cpu_per_group(_name, _member)				\
 static ssize_t show_##_name(struct kobject *k, char *buf)			\
 {										\
 	int cpu, group, ret = 0;						\
@@ -144,7 +146,8 @@ store_##_name(struct kobject *k, const char *buf, size_t count)			\
 static struct emstune_attr _name##_attr =					\
 __ATTR(_member, 0644, show_##_name, store_##_name)
 
-#define emstune_attr_per_group(_name, _member)					\
+/* macro for per-group */
+#define emstune_attr_per_group(_name, _member, _max)				\
 static ssize_t show_##_name(struct kobject *k, char *buf)			\
 {										\
 	int group, ret = 0;							\
@@ -157,7 +160,7 @@ static ssize_t show_##_name(struct kobject *k, char *buf)			\
 	for (group = 0; group < STUNE_GROUP_COUNT; group++) {			\
 		ret += sprintf(buf + ret, "%4s: %d\n",				\
 				stune_group_simple_name[group],			\
-				_name->enabled[group]);				\
+				_name->_member[group]);				\
 	}									\
 										\
 	ret += sprintf(buf + ret, "\n");					\
@@ -177,13 +180,14 @@ store_##_name(struct kobject *k, const char *buf, size_t count)			\
 	struct emstune_##_name *_name = container_of(k,				\
 				struct emstune_##_name, kobj);			\
 										\
-	if (sscanf(buf, "%d %d", &group, &val) != 3)				\
+	if (sscanf(buf, "%d %d", &group, &val) != 2)				\
 		return -EINVAL;							\
 										\
-	if (group < 0 || group >= STUNE_GROUP_COUNT || val < 0)			\
+	if (group < 0 || group >= STUNE_GROUP_COUNT ||				\
+	    val < 0 || val > _max)						\
 		return -EINVAL;							\
 										\
-	_name->_member[group] = !!val;						\
+	_name->_member[group] = val;						\
 	_name->overriding = true;						\
 										\
 	update_cur_set(set_of(_name));						\
@@ -193,6 +197,53 @@ store_##_name(struct kobject *k, const char *buf, size_t count)			\
 										\
 static struct emstune_attr _name##_attr =					\
 __ATTR(_member, 0644, show_##_name, store_##_name)
+
+/* macro for per coregroup */
+#define emstune_attr_per_coregroup(_name, _member)				\
+static ssize_t									\
+show_##_name##_##_member(struct kobject *k, char *buf)				\
+{										\
+	int cpu, ret = 0;							\
+	struct emstune_##_name *_name = container_of(k,				\
+				struct emstune_##_name, kobj);			\
+										\
+	if (!(_name->overriding))						\
+		return sprintf(buf + ret, "inherit from default set");		\
+										\
+	for_each_possible_cpu(cpu)						\
+		ret += sprintf(buf + ret, "cpu%d: %3d\n",			\
+			cpu, _name->_member[cpu]);				\
+										\
+	ret += sprintf(buf + ret, "\n");					\
+	ret += sprintf(buf + ret, "usage:");					\
+	ret += sprintf(buf + ret, "	# echo <cpu> <%s> > %s\n",		\
+						#_member, #_member);		\
+										\
+	return ret;								\
+}										\
+										\
+static ssize_t									\
+store_##_name##_##_member(struct kobject *k, const char *buf, size_t count)	\
+{										\
+	int cpu, val, cursor;							\
+	struct emstune_##_name *_name = container_of(k,				\
+				struct emstune_##_name, kobj);			\
+										\
+	if (sscanf(buf, "%d %d", &cpu, &val) != 2)				\
+		return -EINVAL;							\
+										\
+	for_each_cpu(cursor, cpu_coregroup_mask(cpu))				\
+		_name->_member[cursor] = val;					\
+										\
+	_name->overriding = true;						\
+										\
+	update_cur_set(set_of(_name));						\
+										\
+	return count;								\
+}										\
+										\
+static struct emstune_attr _name##_##_member##_attr =				\
+__ATTR(_member, 0644, show_##_name##_##_member, store_##_name##_##_member);
 
 #define declare_kobj_type(_name)						\
 static struct kobj_type ktype_emstune_##_name = {				\
@@ -258,6 +309,9 @@ static void __update_cur_set(struct emstune_set *next_set)
 	update_cur_set_field(ontime);
 	update_cur_set_field(util_est);
 	update_cur_set_field(cpus_allowed);
+	update_cur_set_field(prio_pinning);
+	update_cur_set_field(init_util);
+	update_cur_set_field(frt);
 
 	emstune_notify_mode_update();
 }
@@ -287,6 +341,12 @@ void emstune_mode_change(int next_mode_idx)
 
 	spin_unlock_irqrestore(&emstune_mode_lock, flags);
 }
+
+int emstune_get_cur_mode()
+{
+	return cur_mode->idx;
+}
+
 
 /******************************************************************************
  * multi requests interface                                                   *
@@ -461,7 +521,7 @@ static ssize_t emstune_mode_read(struct file *filp, char __user *buf,
 	unsigned long flags;
 
 	spin_lock_irqsave(&emstune_mode_lock, flags);
-	value = get_mode_level();
+	value = cur_mode->idx;
 	spin_unlock_irqrestore(&emstune_mode_lock, flags);
 
 	return simple_read_from_buffer(buf, count, f_pos, &value, sizeof(s32));
@@ -485,7 +545,8 @@ static ssize_t emstune_mode_write(struct file *filp, const char __user *buf,
 	}
 
 	req = filp->private_data;
-	emstune_update_request(req, value);
+	emstune_mode_change(value);
+	emstune_update_request(req, 0);
 
 	return count;
 }
@@ -557,7 +618,7 @@ int emstune_prefer_idle(struct task_struct *p)
 	return cur_set.prefer_idle.enabled[st_idx];
 }
 
-emstune_attr_per_group(prefer_idle, enabled);
+emstune_attr_per_group(prefer_idle, enabled, 1);
 
 static struct attribute *emstune_prefer_idle_attrs[] = {
 	&prefer_idle_attr.attr,
@@ -612,7 +673,7 @@ int emstune_eff_weight(struct task_struct *p, int cpu, int idle)
 }
 
 /* efficiency weight for running cpu */
-emstune_attr_per_cpu_group(weight, ratio);
+emstune_attr_per_cpu_per_group(weight, ratio);
 
 static struct attribute *emstune_weight_attrs[] = {
 	&weight_attr.attr,
@@ -648,7 +709,7 @@ parse_weight(struct device_node *dn, struct emstune_set *set)
 }
 
 /* efficiency weight for idle cpu */
-emstune_attr_per_cpu_group(idle_weight, ratio);
+emstune_attr_per_cpu_per_group(idle_weight, ratio);
 
 static struct attribute *emstune_idle_weight_attrs[] = {
 	&idle_weight_attr.attr,
@@ -760,7 +821,7 @@ void emstune_cpu_update(int cpu, u64 now)
 	per_cpu(freq_boost_max, cpu) = boost_max;
 }
 
-emstune_attr_per_cpu_group(freq_boost, ratio);
+emstune_attr_per_cpu_per_group(freq_boost, ratio);
 
 static struct attribute *emstune_freq_boost_attrs[] = {
 	&freq_boost_attr.attr,
@@ -798,47 +859,7 @@ parse_freq_boost(struct device_node *dn, struct emstune_set *set)
 /******************************************************************************
  * energy step governor                                                       *
  ******************************************************************************/
-static ssize_t
-show_esg_step(struct kobject *k, char *buf)
-{
-	int cpu, ret = 0;
-	struct emstune_esg *esg = container_of(k, struct emstune_esg, kobj);
-
-	if (!(esg->overriding))
-		return sprintf(buf + ret, "inherit from default set");
-
-	for_each_possible_cpu(cpu)
-		ret += sprintf(buf + ret, "cpu%d: %2d\n",
-			cpu, esg->step[cpu]);
-
-	ret += sprintf(buf + ret, "\n");
-	ret += sprintf(buf + ret, "usage:");
-	ret += sprintf(buf + ret, "	# echo <cpu> <step> > step\n");
-
-	return ret;
-}
-
-static ssize_t
-store_esg_step(struct kobject *k, const char *buf, size_t count)
-{
-	int cpu, step, cursor;
-	struct emstune_esg *esg = container_of(k, struct emstune_esg, kobj);
-
-	if (sscanf(buf, "%d %d", &cpu, &step) != 2)
-		return -EINVAL;
-
-	for_each_cpu(cursor, cpu_coregroup_mask(cpu))
-		esg->step[cursor] = step;
-
-	esg->overriding = true;
-
-	update_cur_set(set_of(esg));
-
-	return count;
-}
-
-static struct emstune_attr esg_step_attr =
-__ATTR(step, 0644, show_esg_step, store_esg_step);
+emstune_attr_per_coregroup(esg, step);
 
 static struct attribute *emstune_esg_attrs[] = {
 	&esg_step_attr.attr,
@@ -894,7 +915,7 @@ int emstune_ontime(struct task_struct *p)
 	return cur_set.ontime.enabled[st_idx];
 }
 
-emstune_attr_per_group(ontime, enabled);
+emstune_attr_per_group(ontime, enabled, 1);
 
 static void init_ontime_list(struct emstune_ontime *ontime)
 {
@@ -1158,7 +1179,7 @@ int emstune_util_est_group(int st_idx)
 	return cur_set.util_est.enabled[st_idx];
 }
 
-emstune_attr_per_group(util_est, enabled);
+emstune_attr_per_group(util_est, enabled, 1);
 
 static struct attribute *emstune_util_est_attrs[] = {
 	&util_est_attr.attr,
@@ -1230,6 +1251,7 @@ static int get_sched_class_idx(const struct sched_class *class)
 	return NUM_OF_SCHED_CLASS;
 }
 
+static int emstune_prio_pinning(struct task_struct *p);
 const struct cpumask *emstune_cpus_allowed(struct task_struct *p)
 {
 	int st_idx;
@@ -1238,6 +1260,9 @@ const struct cpumask *emstune_cpus_allowed(struct task_struct *p)
 
 	if (unlikely(!emstune_initialized))
 		return cpu_active_mask;
+
+	if (emstune_prio_pinning(p))
+		return &cur_set.prio_pinning.mask;
 
 	class_idx = get_sched_class_idx(p->sched_class);
 	if (!(cpus_allowed->target_sched_class & (1 << class_idx)))
@@ -1414,6 +1439,275 @@ parse_cpus_allowed(struct device_node *dn, struct emstune_set *set)
 	}
 
 	cpus_allowed->overriding = true;
+
+	of_node_put(dn);
+
+	return 0;
+}
+
+/******************************************************************************
+ * priority pinning                                                           *
+ ******************************************************************************/
+#ifdef CONFIG_FAST_TRACK
+#include <cpu/ftt/ftt.h>
+#endif
+ static int emstune_prio_pinning(struct task_struct *p)
+{
+	int st_idx;
+	
+#ifdef CONFIG_FAST_TRACK
+	return is_ftt(&p->se);
+#endif
+
+	if (unlikely(!emstune_initialized))
+		return 0;
+
+	st_idx = schedtune_task_group_idx(p);
+	if (cur_set.prio_pinning.enabled[st_idx]) {
+		if (p->sched_class == &fair_sched_class &&
+		    p->prio <= cur_set.prio_pinning.prio)
+			return 1;
+	}
+
+	return 0;
+}
+
+static ssize_t
+show_pp_mask(struct kobject *k, char *buf)
+{
+	struct emstune_prio_pinning *prio_pinning = container_of(k,
+					struct emstune_prio_pinning, kobj);
+	int ret = 0;
+
+	if (!(prio_pinning->overriding))
+		return sprintf(buf + ret, "inherit from default set");
+
+	ret += sprintf(buf + ret, "mask : %*pbl\n",
+				cpumask_pr_args(&prio_pinning->mask));
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "usage:");
+	ret += sprintf(buf + ret,
+			"	# echo <mask> > pinning_mask\n");
+	ret += sprintf(buf + ret,
+			"	(hexadecimal)\n");
+
+	return ret;
+}
+
+static ssize_t
+store_pp_mask(struct kobject *k, const char *buf, size_t count)
+{
+	struct emstune_prio_pinning *prio_pinning = container_of(k,
+					struct emstune_prio_pinning, kobj);
+	char arg[STR_LEN];
+
+	if (sscanf(buf, "%s", &arg) != 1)
+		return -EINVAL;
+
+	cut_hexa_prefix(arg);
+	cpumask_parse(arg, &prio_pinning->mask);
+
+	prio_pinning->overriding = true;
+
+	update_cur_set(set_of(prio_pinning));
+
+	return count;
+}
+
+static struct emstune_attr pp_mask_attr =
+__ATTR(mask, 0644, show_pp_mask, store_pp_mask);
+
+emstune_attr_per_group(prio_pinning, enabled, 1);
+
+static ssize_t
+show_pp_prio(struct kobject *k, char *buf)
+{
+	struct emstune_prio_pinning *prio_pinning = container_of(k,
+					struct emstune_prio_pinning, kobj);
+	int ret = 0;
+
+	if (!(prio_pinning->overriding))
+		return sprintf(buf + ret, "inherit from default set");
+
+	ret += sprintf(buf + ret, "prio : %d\n", prio_pinning->prio);
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "usage:");
+	ret += sprintf(buf + ret,
+			"	# echo <prio> > prio\n");
+
+	return ret;
+}
+
+static ssize_t
+store_pp_prio(struct kobject *k, const char *buf, size_t count)
+{
+	struct emstune_prio_pinning *prio_pinning = container_of(k,
+					struct emstune_prio_pinning, kobj);
+	int val;
+
+	if (sscanf(buf, "%d", &val) != 1)
+		return -EINVAL;
+
+	if (val < 0 || val >= MAX_PRIO)
+		return -EINVAL;
+
+	prio_pinning->prio = val;
+
+	prio_pinning->overriding = true;
+
+	update_cur_set(set_of(prio_pinning));
+
+	return count;
+}
+
+static struct emstune_attr pp_prio_attr =
+__ATTR(prio, 0644, show_pp_prio, store_pp_prio);
+
+static struct attribute *emstune_prio_pinning_attrs[] = {
+	&pp_mask_attr.attr,
+	&prio_pinning_attr.attr,
+	&pp_prio_attr.attr,
+	NULL
+};
+
+declare_kobj_type(prio_pinning);
+
+static int
+parse_prio_pinning(struct device_node *dn, struct emstune_set *set)
+{
+	struct emstune_prio_pinning *prio_pinning = &set->prio_pinning;
+	const char *buf;
+	u32 val[STUNE_GROUP_COUNT];
+	int idx;
+
+	if (!dn)
+		return 0;
+
+	if (of_property_read_string(dn, "mask", &buf))
+		return -EINVAL;
+	else
+		cpulist_parse(buf, &prio_pinning->mask);
+
+	if (of_property_read_u32_array(dn, "enabled",
+				(u32 *)&val, STUNE_GROUP_COUNT))
+		return -EINVAL;
+
+	for (idx = 0; idx < STUNE_GROUP_COUNT; idx++)
+		prio_pinning->enabled[idx] = val[idx];
+
+	if (of_property_read_u32(dn, "prio", &prio_pinning->prio))
+		return -EINVAL;
+
+	prio_pinning->overriding = true;
+
+	of_node_put(dn);
+
+	return 0;
+}
+
+/******************************************************************************
+ * initial utilization                                                        *
+ ******************************************************************************/
+int emstune_init_util(struct task_struct *p)
+{
+	int st_idx;
+
+	if (unlikely(!emstune_initialized))
+		return 0;
+
+	st_idx = schedtune_task_group_idx(p);
+
+	return cur_set.init_util.ratio[st_idx];
+}
+
+emstune_attr_per_group(init_util, ratio, 100);
+
+static struct attribute *emstune_init_util_attrs[] = {
+	&init_util_attr.attr,
+	NULL
+};
+
+declare_kobj_type(init_util);
+
+static int
+parse_init_util(struct device_node *dn, struct emstune_set *set)
+{
+	struct emstune_init_util *init_util = &set->init_util;
+	u32 val[STUNE_GROUP_COUNT];
+	int idx;
+
+	if (!dn)
+		return 0;
+
+	if (of_property_read_u32_array(dn, "ratio",
+				(u32 *)&val, STUNE_GROUP_COUNT))
+		return -EINVAL;
+
+	for (idx = 0; idx < STUNE_GROUP_COUNT; idx++)
+		init_util->ratio[idx] = val[idx];
+
+	init_util->overriding = true;
+
+	of_node_put(dn);
+
+	return 0;
+}
+
+/******************************************************************************
+ * FRT                                                                        *
+ ******************************************************************************/
+emstune_attr_per_coregroup(frt, coverage_ratio);
+emstune_attr_per_coregroup(frt, active_ratio);
+
+static struct attribute *emstune_frt_attrs[] = {
+	&frt_coverage_ratio_attr.attr,
+	&frt_active_ratio_attr.attr,
+	NULL
+};
+
+declare_kobj_type(frt);
+
+static int
+parse_frt(struct device_node *dn, struct emstune_set *set)
+{
+	struct emstune_frt *frt = &set->frt;
+	int cpu, cursor, cnt;
+	u32 val[NR_CPUS];
+
+	if (!dn)
+		return 0;
+
+	cnt = of_property_count_u32_elems(dn, "coverage_ratio");
+	if (of_property_read_u32_array(dn, "coverage_ratio", (u32 *)&val, cnt))
+		return -EINVAL;
+
+	cnt = 0;
+	for_each_possible_cpu(cpu) {
+		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
+			continue;
+
+		for_each_cpu(cursor, cpu_coregroup_mask(cpu))
+			frt->coverage_ratio[cursor] = val[cnt];
+
+		cnt++;
+	}
+
+	cnt = of_property_count_u32_elems(dn, "active_ratio");
+	if (of_property_read_u32_array(dn, "active_ratio", (u32 *)&val, cnt))
+		return -EINVAL;
+
+	cnt = 0;
+	for_each_possible_cpu(cpu) {
+		if (cpu != cpumask_first(cpu_coregroup_mask(cpu)))
+			continue;
+
+		for_each_cpu(cursor, cpu_coregroup_mask(cpu))
+			frt->active_ratio[cursor] = val[cnt];
+
+		cnt++;
+	}
+
+	frt->overriding = true;
 
 	of_node_put(dn);
 
@@ -1644,6 +1938,35 @@ show_cur_set(struct kobject *k, struct kobj_attribute *attr, char *buf)
 	for (group = 0; group < STUNE_GROUP_COUNT; group++)
 		ret += sprintf(buf + ret, "%#5x",
 			*(unsigned int *)cpumask_bits(&cur_set.cpus_allowed.mask[group]));
+	ret += sprintf(buf + ret, "\n\n");
+
+	ret += sprintf(buf + ret, "[prio-pinning]\n");
+	ret += sprintf(buf + ret, "mask : %#x\n",
+			*(unsigned int *)cpumask_bits(&cur_set.prio_pinning.mask));
+	ret += sprintf(buf + ret, "prio : %d", cur_set.prio_pinning.prio);
+	ret += sprintf(buf + ret, "\n\n");
+	for (group = 0; group < STUNE_GROUP_COUNT; group++)
+		ret += sprintf(buf + ret, "%5s", stune_group_simple_name[group]);
+	ret += sprintf(buf + ret, "\n");
+	for (group = 0; group < STUNE_GROUP_COUNT; group++)
+		ret += sprintf(buf + ret, "%5d", cur_set.prio_pinning.enabled[group]);
+	ret += sprintf(buf + ret, "\n\n");
+
+	ret += sprintf(buf + ret, "[init_util]\n");
+	for (group = 0; group < STUNE_GROUP_COUNT; group++)
+		ret += sprintf(buf + ret, "%5s", stune_group_simple_name[group]);
+	ret += sprintf(buf + ret, "\n");
+	for (group = 0; group < STUNE_GROUP_COUNT; group++)
+		ret += sprintf(buf + ret, "%4d%%", cur_set.init_util.ratio[group]);
+	ret += sprintf(buf + ret, "\n\n");
+
+	ret += sprintf(buf + ret, "[frt]\n");
+	ret += sprintf(buf + ret, "      coverage active\n");
+	for_each_possible_cpu(cpu)
+		ret += sprintf(buf + ret, "cpu%d:%8d%% %5d%%\n",
+				cpu,
+				cur_set.frt.coverage_ratio[cpu],
+				cur_set.frt.active_ratio[cpu]);
 	ret += sprintf(buf + ret, "\n");
 
 	return ret;
@@ -1682,7 +2005,7 @@ show_aio_tuner(struct kobject *k, struct kobj_attribute *attr, char *buf)
 	ret += sprintf(buf + ret, "	(set one cpu, coregroup to which cpu belongs is set))\n");
 	ret += sprintf(buf + ret, "\n");
 	ret += sprintf(buf + ret, "ontime enable(index=5)\n");
-	ret += sprintf(buf + ret, "	# echo <mode,level,5,group> <en=1/dis=0> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,5,group> <en/dis> > aio_tuner\n");
 	ret += sprintf(buf + ret, "	(enable=1 disable=0)\n");
 	ret += sprintf(buf + ret, "	(group0/1/2/3/4=root/fg/bg/ta/rt)\n");
 	ret += sprintf(buf + ret, "\n");
@@ -1700,7 +2023,7 @@ show_aio_tuner(struct kobject *k, struct kobj_attribute *attr, char *buf)
 	ret += sprintf(buf + ret, "	(set one cpu, domain to which cpu belongs is set))\n");
 	ret += sprintf(buf + ret, "\n");
 	ret += sprintf(buf + ret, "util-est(index=9)\n");
-	ret += sprintf(buf + ret, "	# echo <mode,level,9,group> <en=1/dis=0> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,9,group> <en/dis> > aio_tuner\n");
 	ret += sprintf(buf + ret, "	(enable=1 disable=0)\n");
 	ret += sprintf(buf + ret, "	(group0/1/2/3/4=root/fg/bg/ta/rt)\n");
 	ret += sprintf(buf + ret, "\n");
@@ -1711,6 +2034,27 @@ show_aio_tuner(struct kobject *k, struct kobj_attribute *attr, char *buf)
 	ret += sprintf(buf + ret, "cpus_allowed(index=11)\n");
 	ret += sprintf(buf + ret, "	# echo <mode,level,11,group> <mask> > aio_tuner\n");
 	ret += sprintf(buf + ret, "	(hexadecimal, group0/1/2/3/4=root/fg/bg/ta/rt)\n");
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "prio_pinning mask(index=12)\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,12> <mask> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	(hexadecimal)\n");
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "prio_pinning enable(index=13)\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,13, group> <enable> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	(enable=1 disable=0)\n");
+	ret += sprintf(buf + ret, "	(group0/1/2/3/4=root/fg/bg/ta/rt)\n");
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "prio_pinning prio(index=14)\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,14> <prio> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	(0 <= prio < 140\n");
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "frt_coverage_ratio(index=15)\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,15,cpu> <ratio> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	(set one cpu, coregroup to which cpu belongs is set))\n");
+	ret += sprintf(buf + ret, "\n");
+	ret += sprintf(buf + ret, "frt_active_ratio(index=16)\n");
+	ret += sprintf(buf + ret, "	# echo <mode,level,16,cpu> <ratio> > aio_tuner\n");
+	ret += sprintf(buf + ret, "	(set one cpu, coregroup to which cpu belongs is set))\n");
 	ret += sprintf(buf + ret, "\n");
 
 	return ret;
@@ -1728,7 +2072,13 @@ enum {
 	ontime_bdr,
 	util_est,
 	cpus_allowed_tsc,
-	cpus_allowed
+	cpus_allowed,
+	prio_pinning_mask,
+	prio_pinning,
+	prio_pinning_prio,
+	init_util,
+	frt_coverage_ratio,
+	frt_active_ratio,
 };
 
 #define NUM_OF_KEY	(10)
@@ -1908,6 +2258,65 @@ store_aio_tuner(struct kobject *k, struct kobj_attribute *attr,
 		cpumask_parse(arg1, &set->cpus_allowed.mask[group]);
 		set->cpus_allowed.overriding = true;
 		break;
+	case prio_pinning_mask:
+		group = keys[3];
+		if (group == -1)
+			return -EINVAL;
+		cut_hexa_prefix(arg1);
+		cpumask_parse(arg1, &set->prio_pinning.mask);
+		set->prio_pinning.overriding = true;
+	case prio_pinning:
+		group = keys[3];
+		if (group == -1)
+			return -EINVAL;
+		ret = kstrtol(arg1, 10, &v);
+		if (ret)
+			return ret;
+		set->prio_pinning.enabled[group] = !!(int)v;
+		set->prio_pinning.overriding = true;
+		break;
+	case prio_pinning_prio:
+		group = keys[3];
+		if (group == -1)
+			return -EINVAL;
+		ret = kstrtol(arg1, 10, &v);
+		if (ret)
+			return ret;
+		set->prio_pinning.prio = (int)v;
+		set->prio_pinning.overriding = true;
+		break;
+	case init_util:
+		group = keys[3];
+		if (group == -1)
+			return -EINVAL;
+		ret = kstrtol(arg1, 10, &v);
+		if (ret)
+			return ret;
+		set->init_util.ratio[group] = !!(int)v;
+		set->init_util.overriding = true;
+		break;
+	case frt_coverage_ratio:
+		cpu = keys[3];
+		if (cpu == -1)
+			return -EINVAL;
+		ret = kstrtol(arg1, 10, &v);
+		if (ret)
+			return ret;
+		for_each_cpu(i, cpu_coregroup_mask(cpu))
+			set->frt.coverage_ratio[i] = (int)v;
+		set->frt.overriding = true;
+		break;
+	case frt_active_ratio:
+		cpu = keys[3];
+		if (cpu == -1)
+			return -EINVAL;
+		ret = kstrtol(arg1, 10, &v);
+		if (ret)
+			return ret;
+		for_each_cpu(i, cpu_coregroup_mask(cpu))
+			set->frt.active_ratio[i] = (int)v;
+		set->frt.overriding = true;
+		break;
 	}
 
 	update_cur_set(set);
@@ -1940,6 +2349,9 @@ emstune_set_init(struct device_node *dn, struct emstune_set *set)
 	parse(ontime);
 	parse(util_est);
 	parse(cpus_allowed);
+	parse(prio_pinning);
+	parse(init_util);
+	parse(frt);
 
 	return 0;
 }
@@ -2054,6 +2466,9 @@ static int __init emstune_sysfs_init(void)
 			init_kobj(ontime);
 			init_kobj(util_est);
 			init_kobj(cpus_allowed);
+			init_kobj(prio_pinning);
+			init_kobj(init_util);
+			init_kobj(frt);
 		}
 	}
 

@@ -179,6 +179,7 @@ enum abox_dai {
 	ABOX_NSRC6, /* Virtual DAI */
 	ABOX_NSRC7, /* Virtual DAI */
 	ABOX_USB = 0x90, /* Virtual DAI */
+	ABOX_FWD,
 	ABOX_BI_PDI0 = 0x100,
 	ABOX_BI_PDI1,
 	ABOX_BI_PDI2,

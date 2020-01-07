@@ -39,7 +39,7 @@
 #include "exynos9830-ems.dtsi"
 
 / {
-	compatible = "samsung,armv8", "samsung,exynos9830";
+	compatible = "samsung,armv8", "samsung,exynos990";
 	dtb-hw_rev = <0>;
 	dtb-hw_rev_end = <255>;
 	interrupt-parent = <&gic>;

@@ -58,9 +58,9 @@ struct sec_pm_debug_log_misc {
 
 #define QOS_NUM_OF_EXCLUSIVE_CLASSES	2
 
-static int pm_qos_exclusive_class[PM_QOS_NUM_CLASSES] = {
-	PM_QOS_DEVICE_THROUGHPUT,
-	PM_QOS_NETWORK_THROUGHPUT
+static char pm_qos_exclusive_class[PM_QOS_NUM_CLASSES] = {
+	[PM_QOS_DEVICE_THROUGHPUT] = 1,
+	[PM_QOS_NETWORK_THROUGHPUT] = 1,
 };
 
 static struct sec_pm_debug_log *sec_pm_log;
@@ -160,17 +160,10 @@ static int sec_pm_debug_qos_notifier(struct notifier_block *nb,
 
 static inline bool is_exclusive_of_qos_class(int pm_qos_class)
 {
-	bool skip = false;
-	int i;
+	if (pm_qos_exclusive_class[pm_qos_class])
+		return true;
 
-	for (i = 0; i < QOS_NUM_OF_EXCLUSIVE_CLASSES; i++) {
-		if (pm_qos_class == pm_qos_exclusive_class[i]) {
-			skip = true;
-			break;
-		}
-	}
-
-	return skip;
+	return false;
 }
 
 static void sec_pm_debug_register_notifier(struct sec_pm_debug_info *info)

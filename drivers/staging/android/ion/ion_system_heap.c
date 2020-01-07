@@ -54,9 +54,8 @@ static struct page *alloc_buffer_page(struct ion_system_heap *heap,
 				      unsigned long order)
 {
 	struct ion_page_pool *pool = heap->pools[order_to_index(order)];
-	bool nozero = buffer->flags & ION_FLAG_NOZEROED;
 
-	return ion_page_pool_alloc(pool, nozero);
+	return ion_page_pool_alloc(pool, buffer->flags);
 }
 
 static void free_buffer_page(struct ion_system_heap *heap,
@@ -288,6 +287,13 @@ err_create_pool:
 }
 
 static struct ion_system_heap *system_heap;
+
+unsigned int get_ion_system_heap_id(void)
+{
+	if (system_heap)
+		return system_heap->heap.id;
+	return -ENODEV;
+}
 
 void show_ion_system_heap_pool_size(struct seq_file *s)
 {

@@ -51,15 +51,6 @@
 #define USEC_PER_MSEC	1000
 #endif
 
-/**
- * XXX: WAR for CRWLPCIEGEN2-163, needed for all the chips at this point.
- * The PCIe core contains a 'snoop bus', that allows the logic in the PCIe core to read and write
- * to the PCIe configuration registers. When chip backplane reset hits, e.g. on driver unload, the
- * pcie snoop out will reset to default values and may get out of sync with pcie config registers.
- * This is causing failures because the LTR enable bit on the snoop bus gets out of sync. Also on
- * the snoop bus are the device power state, MSI info, L1subenable which may potentially cause
- * problems.
- */
 /* wd_mask/wd_val is only for chipc_corerev >= 65 */
 void pcie_watchdog_reset(osl_t *osh, si_t *sih, uint32 wd_mask, uint32 wd_val)
 {
@@ -160,6 +151,21 @@ pcie_cto_to_thresh_default(uint corerev)
 {
 	return REV_GE_69(corerev) ?
 			PCIE_CTO_TO_THRESH_DEFAULT_REV69 : PCIE_CTO_TO_THRESH_DEFAULT;
+}
+
+uint32
+pcie_corereg(osl_t *osh, volatile void *regs, uint32 offset, uint32 mask, uint32 val)
+{
+	volatile uint32 *regsva =
+		(volatile uint32 *)((volatile char *)regs + PCI_16KB0_PCIREGS_OFFSET + offset);
+
+	if (mask || val) {
+		uint32 w = R_REG(osh, regsva);
+		w &= ~mask;
+		w |= val;
+		W_REG(osh, regsva, w);
+	}
+	return (R_REG(osh, regsva));
 }
 
 #endif /* BCMDRIVER */

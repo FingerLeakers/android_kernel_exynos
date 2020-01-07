@@ -59,6 +59,10 @@
 #include <linux/pm_runtime.h>
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
+#if defined(CONFIG_SOC_EXYNOS9830)
+#include <linux/exynos-pci-ctrl.h>
+#endif /* CONFIG_SOC_EXYNOS9830 */
+
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 #ifndef AUTO_SUSPEND_TIMEOUT
 #define AUTO_SUSPEND_TIMEOUT 1000
@@ -994,6 +998,10 @@ static int dhdpcie_suspend_dev(struct pci_dev *dev)
 	}
 #endif /* OEM_ANDROID && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
 	DHD_ERROR(("%s: Enter\n", __FUNCTION__));
+#if defined(CONFIG_SOC_EXYNOS9830)
+	DHD_ERROR(("%s: Disable L1ss EP side\n", __FUNCTION__));
+	exynos_pcie_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI);
+#endif /* CONFIG_SOC_EXYNOS9830 */
 	dhdpcie_suspend_dump_cfgregs(bus, "BEFORE_EP_SUSPEND");
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
 	dhd_dpc_tasklet_kill(bus->dhd);
@@ -1073,6 +1081,10 @@ static int dhdpcie_resume_dev(struct pci_dev *dev)
 	}
 	BCM_REFERENCE(pch);
 	dhdpcie_suspend_dump_cfgregs(pch->bus, "AFTER_EP_RESUME");
+#if defined(CONFIG_SOC_EXYNOS9830)
+	DHD_ERROR(("%s: Enable L1ss EP side\n", __FUNCTION__));
+	exynos_pcie_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI);
+#endif /* CONFIG_SOC_EXYNOS9830 */
 out:
 	return err;
 }
@@ -2743,14 +2755,14 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 		bus->idlecount = 0;
 		if (DHD_BUS_BUSY_CHECK_IDLE(dhd) && !DHD_BUS_CHECK_DOWN_OR_DOWN_IN_PROGRESS(dhd) &&
 			!DHD_CHECK_CFG_IN_PROGRESS(dhd)) {
+			DHD_ERROR(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d \n",
+					__FUNCTION__, bus->idletime, dhd_runtimepm_ms));
 			bus->bus_wake = 0;
 			DHD_BUS_BUSY_SET_RPM_SUSPEND_IN_PROGRESS(dhd);
 			bus->runtime_resume_done = FALSE;
 			/* stop all interface network queue. */
 			dhd_bus_stop_queue(bus);
 			DHD_GENERAL_UNLOCK(dhd, flags);
-			DHD_ERROR(("%s: DHD Idle state!! -  idletime :%d, wdtick :%d \n",
-					__FUNCTION__, bus->idletime, dhd_runtimepm_ms));
 			/* RPM suspend is failed, return FALSE then re-trying */
 			if (dhdpcie_set_suspend_resume(bus, TRUE)) {
 				DHD_ERROR(("%s: exit with wakelock \n", __FUNCTION__));
@@ -2807,6 +2819,7 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 				/* Reschedule tasklet to process Rx frames */
 				DHD_ERROR(("%s: Schedule DPC to process pending Rx packets\n",
 					__FUNCTION__));
+				bus->rpm_sched_dpc_time = OSL_LOCALTIME_NS();
 				dhd_sched_dpc(bus->dhd);
 			}
 

@@ -151,6 +151,10 @@ void dhd_page_corrupt_cb(void *handle, void *addr_corrupt, size_t len);
 extern void register_page_corrupt_cb(page_corrupt_cb_t cb, void* handle);
 #endif /* DHD_DEBUG_PAGEALLOC */
 
+#ifdef ENABLE_DHD_SW_GRO
+#include <net/sch_generic.h>
+#endif /* ENABLE_DHD_SW_GRO */
+
 #define IP_PROT_RESERVED	0xFF
 
 #ifdef DHD_MQ
@@ -3023,7 +3027,8 @@ dhd_set_mac_address(struct net_device *dev, void *addr)
 			return ret;
 		}
 #endif /* WL_STATIC_IF */
-			return _dhd_set_mac_address(dhd, ifidx, dhdif->mac_addr);
+		wl_cfg80211_handle_macaddr_change(dev, dhdif->mac_addr);
+		return _dhd_set_mac_address(dhd, ifidx, dhdif->mac_addr);
 	}
 #endif /* WL_CFG80211 */
 
@@ -3837,18 +3842,22 @@ dhd_bus_wakeup_work(dhd_pub_t *dhdp)
 static void
 __dhd_txflowcontrol(dhd_pub_t *dhdp, struct net_device *net, bool state)
 {
-
-	if ((state == ON) && (dhdp->txoff == FALSE)) {
-		netif_stop_queue(net);
-		dhd_prot_update_pktid_txq_stop_cnt(dhdp);
-	} else if (state == ON) {
-		DHD_ERROR(("%s: Netif Queue has already stopped\n", __FUNCTION__));
+	if (state == ON) {
+		if (!netif_queue_stopped(net)) {
+			DHD_ERROR(("%s: Stop Netif Queue\n", __FUNCTION__));
+			netif_stop_queue(net);
+		} else {
+			DHD_LOG_MEM(("%s: Netif Queue already stopped\n", __FUNCTION__));
+		}
 	}
-	if ((state == OFF) && (dhdp->txoff == TRUE)) {
-		netif_wake_queue(net);
-		dhd_prot_update_pktid_txq_start_cnt(dhdp);
-	} else if (state == OFF) {
-		DHD_ERROR(("%s: Netif Queue has already started\n", __FUNCTION__));
+
+	if (state == OFF) {
+		if (netif_queue_stopped(net)) {
+			DHD_ERROR(("%s: Start Netif Queue\n", __FUNCTION__));
+			netif_wake_queue(net);
+		} else {
+			DHD_LOG_MEM(("%s: Netif Queue already started\n", __FUNCTION__));
+		}
 	}
 }
 
@@ -4379,9 +4388,28 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 	int pkt_wake = 0;
 	wake_counts_t *wcp = NULL;
 #endif /* DHD_WAKE_STATUS */
+#ifdef ENABLE_DHD_SW_GRO
+	bool dhd_sw_gso_enable = TRUE;
+#endif /* ENABLE_DHD_SW_GRO */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 	BCM_REFERENCE(dump_data);
+
+#ifdef ENABLE_DHD_SW_GRO
+	if (ifidx < DHD_MAX_IFS) {
+		ifp = dhd->iflist[ifidx];
+		if (ifp && ifp->net->qdisc) {
+			if (!ifp->net->qdisc->ops->cl_ops) {
+				dhd_sw_gso_enable = TRUE;
+				DHD_TRACE(("%s: enable sw gro\n", __FUNCTION__));
+			} else {
+				dhd_sw_gso_enable = FALSE;
+				DHD_TRACE(("%s: disable sw gro becasue of qdisc traffic control\n",
+						__FUNCTION__));
+			}
+		}
+	}
+#endif /* ENABLE_DHD_SW_GRO */
 
 	for (i = 0; pktbuf && i < numpkt; i++, pktbuf = pnext) {
 		struct ether_header *eh;
@@ -4898,7 +4926,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 				__FUNCTION__, __LINE__);
 #if defined(DHD_LB_RXP)
 #ifdef ENABLE_DHD_SW_GRO
-			napi_gro_receive(&dhd->rx_napi_struct, skb);
+			if (dhd_sw_gso_enable) {
+				napi_gro_receive(&dhd->rx_napi_struct, skb);
+			} else {
+				netif_receive_skb(skb);
+			}
 #else
 			netif_receive_skb(skb);
 #endif /* ENABLE_DHD_SW_GRO */
@@ -4932,7 +4964,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #endif /* BCMPCIE && DHDTCPACK_SUPPRESS */
 #if defined(DHD_LB_RXP)
 #ifdef ENABLE_DHD_SW_GRO
+		if (dhd_sw_gso_enable) {
 			napi_gro_receive(&dhd->rx_napi_struct, skb);
+		} else {
+			netif_receive_skb(skb);
+		}
 #else
 			netif_receive_skb(skb);
 #endif /* ENABLE_DHD_SW_GRO */
@@ -5631,7 +5667,6 @@ dhd_sched_dpc(dhd_pub_t *dhdp)
 		}
 		return;
 	} else {
-		dhd_bus_set_dpc_sched_time(dhdp);
 		tasklet_schedule(&dhd->tasklet);
 	}
 }
@@ -17109,6 +17144,18 @@ dhd_txfl_wake_lock_timeout(dhd_pub_t *pub, int val)
 #endif /* CONFIG_HAS_WAKE_LOCK */
 }
 
+void
+dhd_nan_wake_lock_timeout(dhd_pub_t *pub, int val)
+{
+#ifdef CONFIG_HAS_WAKELOCK
+	dhd_info_t *dhd = (dhd_info_t *)(pub->info);
+
+	if (dhd) {
+		wake_lock_timeout(&dhd->wl_nanwake, msecs_to_jiffies(val));
+	}
+#endif /* CONFIG_HAS_WAKE_LOCK */
+}
+
 int net_os_wake_lock(struct net_device *dev)
 {
 	dhd_info_t *dhd = DHD_DEV_INFO(dev);
@@ -17191,6 +17238,20 @@ void dhd_txfl_wake_unlock(dhd_pub_t *pub)
 #endif /* CONFIG_HAS_WAKELOCK */
 }
 
+void dhd_nan_wake_unlock(dhd_pub_t *pub)
+{
+#ifdef CONFIG_HAS_WAKELOCK
+	dhd_info_t *dhd = (dhd_info_t *)(pub->info);
+
+	if (dhd) {
+		/* if wl_nanwake is active, unlock it */
+		if (wake_lock_active(&dhd->wl_nanwake)) {
+			wake_unlock(&dhd->wl_nanwake);
+		}
+	}
+#endif /* CONFIG_HAS_WAKELOCK */
+}
+
 int dhd_os_check_wakelock(dhd_pub_t *pub)
 {
 #if defined(CONFIG_HAS_WAKELOCK) || defined(BCMSDIO)
@@ -17218,7 +17279,7 @@ dhd_os_check_wakelock_all(dhd_pub_t *pub)
 {
 #if defined(CONFIG_HAS_WAKELOCK) || defined(BCMSDIO)
 #if defined(CONFIG_HAS_WAKELOCK)
-	int l1, l2, l3, l4, l7, l8, l9;
+	int l1, l2, l3, l4, l7, l8, l9, l10;
 	int l5 = 0, l6 = 0;
 	int c, lock_active;
 #endif /* CONFIG_HAS_WAKELOCK */
@@ -17248,13 +17309,14 @@ dhd_os_check_wakelock_all(dhd_pub_t *pub)
 #endif /* DHD_USE_SCAN_WAKELOCK */
 	l8 = wake_lock_active(&dhd->wl_pmwake);
 	l9 = wake_lock_active(&dhd->wl_txflwake);
-	lock_active = (l1 || l2 || l3 || l4 || l5 || l6 || l7 || l8 || l9);
+	l10 = wake_lock_active(&dhd->wl_nanwake);
+	lock_active = (l1 || l2 || l3 || l4 || l5 || l6 || l7 || l8 || l9 || l10);
 
 	/* Indicate to the Host to avoid going to suspend if internal locks are up */
 	if (lock_active) {
 		DHD_ERROR(("%s wakelock c-%d wl-%d wd-%d rx-%d "
-			"ctl-%d intr-%d scan-%d evt-%d, pm-%d, txfl-%d\n",
-			__FUNCTION__, c, l1, l2, l3, l4, l5, l6, l7, l8, l9));
+			"ctl-%d intr-%d scan-%d evt-%d, pm-%d, txfl-%d nan-%d\n",
+			__FUNCTION__, c, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10));
 		return 1;
 	}
 #elif defined(BCMSDIO)
@@ -17472,6 +17534,7 @@ void dhd_os_wake_lock_init(struct dhd_info *dhd)
 #ifdef DHD_USE_SCAN_WAKELOCK
 	wake_lock_init(&dhd->wl_scanwake, WAKE_LOCK_SUSPEND, "wlan_scan_wake");
 #endif /* DHD_USE_SCAN_WAKELOCK */
+	wake_lock_init(&dhd->wl_nanwake, WAKE_LOCK_SUSPEND, "wlan_nan_wake");
 #endif /* CONFIG_HAS_WAKELOCK */
 #ifdef DHD_TRACE_WAKE_LOCK
 	dhd_wk_lock_trace_init(dhd);
@@ -17497,6 +17560,7 @@ void dhd_os_wake_lock_destroy(struct dhd_info *dhd)
 #ifdef DHD_USE_SCAN_WAKELOCK
 	wake_lock_destroy(&dhd->wl_scanwake);
 #endif /* DHD_USE_SCAN_WAKELOCK */
+	wake_lock_destroy(&dhd->wl_nanwake);
 #ifdef DHD_TRACE_WAKE_LOCK
 	dhd_wk_lock_trace_deinit(dhd);
 #endif /* DHD_TRACE_WAKE_LOCK */

@@ -34,8 +34,8 @@ typedef void (*si_serial_init_fn)(void *regs, uint irq, uint baud_base, uint reg
 #endif
 extern void si_serial_init(si_t *sih, si_serial_init_fn add);
 
-extern volatile void *hnd_jtagm_init(si_t *sih, uint clkd, bool exttap);
-extern void hnd_jtagm_disable(si_t *sih, volatile void *h);
+extern volatile void *hnd_jtagm_init(si_t *sih, uint clkd, bool exttap, uint32 *prev_jtagctrl);
+extern void hnd_jtagm_disable(si_t *sih, volatile void *h, uint32 *prev_jtagctrl);
 extern uint32 jtag_scan(si_t *sih, volatile void *h, uint irsz, uint32 ir0, uint32 ir1,
                         uint drsz, uint32 dr0, uint32 *dr1, bool rti);
 extern uint32 jtag_read_128(si_t *sih, volatile void *h, uint irsz, uint32 ir0, uint drsz,

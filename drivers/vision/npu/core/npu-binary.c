@@ -188,10 +188,17 @@ p_err:
 	return ret;
 
 request_fw:
-	if (mode == NPU_PERF_MODE_NPU_BOOST)
+	switch (mode) {
+	case NPU_PERF_MODE_NPU_BOOST:
 		npu_fw_path = NPU_FW_PATH4 NPU_PERF_FW_NAME;
-	else
+		break;
+	case NPU_PERF_MODE_NPU_DN:
+		npu_fw_path = NPU_FW_PATH5 NPU_DN_FW_NAME;
+		break;
+	default:
 		npu_fw_path = NPU_FW_PATH3 NPU_FW_NAME;
+		break;
+	}
 
 	ret = request_firmware(&fw_blob, npu_fw_path, binary->dev);
 	if (ret) {

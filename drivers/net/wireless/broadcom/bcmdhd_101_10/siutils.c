@@ -73,6 +73,9 @@
 #include "siutils_priv.h"
 #include "sbhndarm.h"
 #include <hndchipc.h>
+#ifdef SOCI_NCI_BUS
+#include <nci.h>
+#endif /* SOCI_NCI_BUS */
 
 #ifdef SECI_UART
 /* Defines the set of GPIOs to be used for SECI UART if not specified in NVRAM */
@@ -84,6 +87,7 @@ static bool force_seci_clk = 0;
 #endif /* SECI_UART */
 
 #define XTAL_FREQ_26000KHZ		26000
+#define XTAL_FREQ_59970KHZ		59970
 #define WCI2_UART_RX_BUF_SIZE	64
 
 /**
@@ -160,7 +164,7 @@ static si_cores_info_t ksii_cores_info;
  * devid - pci device id (used to determine chip#)
  * osh - opaque OS handle
  * regs - virtual address of initial core registers
- * bustype - pci/pcmcia/sb/sdio/etc
+ * bustype - pci/sb/sdio/etc
  * vars - pointer to a to-be created pointer area for "environment" variables. Some callers of this
  *        function set 'vars' to NULL, making dereferencing of this parameter undesired.
  * varsz - pointer to int to return the size of the vars
@@ -177,6 +181,13 @@ si_attach(uint devid, osl_t *osh, volatile void *regs,
 		SI_ERROR(("si_attach: malloc failed! malloced %d bytes\n", MALLOCED(osh)));
 		return (NULL);
 	}
+
+#ifdef BCMDVFS
+	if (si_dvfs_info_init((si_t *)sii, osh) == NULL) {
+		SI_ERROR(("si_dvfs_info_init failed\n"));
+		return (NULL);
+	}
+#endif /* BCMDVFS */
 
 	/* alloc si_cores_info_t */
 	if ((cores_info = (si_cores_info_t *)MALLOCZ(osh,
@@ -489,8 +500,7 @@ si_buscore_setup(si_info_t *sii, chipcregs_t *cc, uint bustype, uint32 savewin,
 #ifdef BCMSDIO
 		else if (((BUSTYPE(bustype) == SDIO_BUS) ||
 		          (BUSTYPE(bustype) == SPI_BUS)) &&
-		         ((cid == PCMCIA_CORE_ID) ||
-		          (cid == SDIOD_CORE_ID))) {
+		         (cid == SDIOD_CORE_ID)) {
 			sii->pub.buscorerev = (int16)crev;
 			sii->pub.buscoretype = (uint16)cid;
 			sii->pub.buscoreidx = (uint16)i;
@@ -656,7 +666,7 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 	}
 #endif /* AXI_TIMEOUTS_NIC */
 
-#if defined(AXI_TIMEOUTS_NIC)
+#if defined(AXI_TIMEOUTS_NIC) && defined(__linux__)
 	osl_set_bpt_cb(osh, (void *)si_clear_backplane_to_fast, (void *)sih);
 #endif	/* AXI_TIMEOUTS_NIC && linux */
 
@@ -756,6 +766,21 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, volatile void *regs,
 		}
 
 		ai_scan(&sii->pub, (void *)(uintptr)cc, devid);
+#ifdef SOCI_NCI_BUS
+	} else if (CHIPTYPE(sii->pub.socitype) == SOCI_NCI) {
+		sii->nci_info = nci_attach((void*)(uintptr)cc, sih->bustype);
+		if (sii->nci_info == NULL) {
+			SI_ERROR(("si_doattach: NCI Malloc Failed"));
+			goto exit;
+		}
+
+		if (nci_scan(sii->nci_info) == 0u) {
+			SI_ERROR(("si_doattach: NCI Scan Failed\n"));
+			goto exit;
+		} else {
+			nci_dump_erom(sii->nci_info);
+		}
+#endif /* SOCI_NCI_BUS */
 	} else if (CHIPTYPE(sii->pub.socitype) == SOCI_UBUS) {
 		SI_MSG(("Found chip type UBUS (0x%08x), chip id = 0x%4x\n", w, sih->chip));
 		/* pass chipc address instead of original core base */
@@ -882,6 +907,13 @@ si_detach(si_t *sih)
 #endif
 
 	if (BUSTYPE(sih->bustype) == SI_BUS) {
+#ifdef SOCI_NCI_BUS
+		if (sii->nci_info) {
+			nci_detach(sii->nci_info);
+			sii->nci_info = NULL;
+		}
+#endif /* SOCI_NCI_BUS */
+
 		for (idx = 0; idx < SI_MAXCORES; idx++) {
 			if (cores_info->regs[idx]) {
 				REG_UNMAP(cores_info->regs[idx]);
@@ -906,6 +938,10 @@ si_detach(si_t *sih)
 		MFREE(sii->osh, sii->axi_wrapper,
 			(sizeof(axi_wrapper_t) * SI_MAX_AXI_WRAPPERS));
 	}
+
+#ifdef BCMDVFS
+	si_dvfs_info_deinit(sih, sii->osh);
+#endif /* BCMDVFS */
 
 #if !defined(BCMBUSTYPE) || (BCMBUSTYPE == SI_BUS)
 	if (sii != &ksii)
@@ -1958,26 +1994,6 @@ si_chip_hostif(const si_t *sih)
 
 		break;
 
-	case BCM4349_CHIP_GRPID:
-		if (CST4349_CHIPMODE_SDIOD(sih->chipst))
-			hosti = CHIP_HOSTIF_SDIOMODE;
-		else if (CST4349_CHIPMODE_PCIE(sih->chipst))
-			hosti = CHIP_HOSTIF_PCIEMODE;
-		break;
-	case BCM4364_CHIP_ID:
-		 if (CST4364_CHIPMODE_SDIOD(sih->chipst))
-			 hosti = CHIP_HOSTIF_SDIOMODE;
-		 else if (CST4364_CHIPMODE_PCIE(sih->chipst))
-			 hosti = CHIP_HOSTIF_PCIEMODE;
-		 break;
-	case BCM4373_CHIP_ID:
-		 if (CST4373_CHIPMODE_USB20D(sih->chipst))
-			 hosti = CHIP_HOSTIF_USBMODE;
-		 else if (CST4373_CHIPMODE_SDIOD(sih->chipst))
-			 hosti = CHIP_HOSTIF_SDIOMODE;
-		 else if (CST4373_CHIPMODE_PCIE(sih->chipst))
-			 hosti = CHIP_HOSTIF_PCIEMODE;
-		 break;
 	case BCM4369_CHIP_GRPID:
 		 if (CST4369_CHIPMODE_SDIOD(sih->chipst))
 			 hosti = CHIP_HOSTIF_SDIOMODE;
@@ -2394,28 +2410,6 @@ si_gpioeventintmask(si_t *sih, uint32 mask, uint32 val, uint8 priority)
 	return (si_corereg(sih, SI_CC_IDX, regoff, mask, val));
 }
 
-/* assign the gpio to an led */
-uint32
-si_gpioled(si_t *sih, uint32 mask, uint32 val)
-{
-	if (CCREV(sih->ccrev) < 16)
-		return 0xffffffff;
-
-	/* gpio led powersave reg */
-	return (si_corereg(sih, SI_CC_IDX, OFFSETOF(chipcregs_t, gpiotimeroutmask), mask, val));
-}
-
-/* mask&set gpio timer val */
-uint32
-si_gpiotimerval(si_t *sih, uint32 mask, uint32 gpiotimerval)
-{
-	if (CCREV(sih->ccrev) < 16)
-		return 0xffffffff;
-
-	return (si_corereg(sih, SI_CC_IDX,
-		OFFSETOF(chipcregs_t, gpiotimerval), mask, gpiotimerval));
-}
-
 uint32
 si_gpiopull(si_t *sih, bool updown, uint32 mask, uint32 val)
 {
@@ -2712,8 +2706,15 @@ si_tcm_size(si_t *sih)
 	/* Get info for determining size. If in reset, come out of reset,
 	 * but remain in halt
 	 */
-	if (!(wasup = si_iscoreup(sih)))
+	if (!(wasup = si_iscoreup(sih))) {
+		/* WAR for 4389A0 system hang issue */
+		if ((CHIPID(sih->chip) == BCM4389_CHIP_GRPID) &&
+				(CHIPREV(sih->chiprev) == 3)) {
+			SI_ERROR(("Not to try reset when not up case\n"));
+			goto done;
+		}
 		si_core_reset(sih, SICF_CPUHALT, SICF_CPUHALT);
+	}
 
 	arm_cap_reg = (volatile uint32 *)(regs + SI_CR4_CAP);
 	corecap = R_REG(sii->osh, arm_cap_reg);
@@ -3023,10 +3024,6 @@ si_is_sprom_available(si_t *sih)
 	}
 
 	switch (CHIPID(sih->chip)) {
-	case BCM4349_CHIP_GRPID:
-		return (sih->chipst & CST4349_SPROM_PRESENT) != 0;
-	case BCM4364_CHIP_ID:
-		return (sih->chipst & CST4364_SPROM_PRESENT) != 0;
 	case BCM4369_CHIP_GRPID:
 		if (CHIPREV(sih->chiprev) == 0) {
 			/* WAR for 4369a0: HW4369-1729. no sprom, default to otp always. */
@@ -3039,7 +3036,6 @@ si_is_sprom_available(si_t *sih)
 		break;
 	CASE_BCM43602_CHIP:
 		return (sih->chipst & CST43602_SPROM_PRESENT) != 0;
-	case BCM4373_CHIP_ID:
 	case BCM43012_CHIP_ID:
 	case BCM43013_CHIP_ID:
 	case BCM43014_CHIP_ID:
@@ -3054,6 +3050,7 @@ si_is_sprom_available(si_t *sih)
 		return (sih->chipst & CST4387_SPROM_PRESENT) != 0;
 	case BCM4388_CHIP_GRPID:
 	case BCM4389_CHIP_GRPID:
+	case BCM4397_CHIP_GRPID:
 		/* 4389 supports only OTP */
 		return FALSE;
 	default:
@@ -3277,26 +3274,6 @@ si_pll_sr_reinit(si_t *sih)
 {
 }
 
-/* Programming d11 core oob  settings for 4364
- * WARs for HW4364-237 and HW4364-166
-*/
-void
-si_config_4364_d11_oob(si_t *sih, uint coreid)
-{
-	uint save_idx;
-
-	save_idx = si_coreidx(sih);
-	si_setcore(sih, coreid, 0);
-	si_wrapperreg(sih, AI_OOBSELINC30, ~0, 0x81828180);
-	si_wrapperreg(sih, AI_OOBSELINC74, ~0, 0x87868183);
-	si_wrapperreg(sih, AI_OOBSELOUTB74, ~0, 0x84858484);
-	si_setcore(sih, coreid, 1);
-	si_wrapperreg(sih, AI_OOBSELINC30, ~0, 0x81828180);
-	si_wrapperreg(sih, AI_OOBSELINC74, ~0, 0x87868184);
-	si_wrapperreg(sih, AI_OOBSELOUTB74, ~0, 0x84868484);
-	si_setcoreidx(sih, save_idx);
-}
-
 void
 si_pll_closeloop(si_t *sih)
 {
@@ -3316,6 +3293,7 @@ si_pll_closeloop(si_t *sih)
 		case BCM4387_CHIP_GRPID:
 		case BCM4388_CHIP_GRPID:
 		case BCM4389_CHIP_GRPID:
+		case BCM4397_CHIP_GRPID:
 			si_pmu_chipcontrol(sih, PMU_CHIPCTL1,
 				PMU_CC1_ENABLE_CLOSED_LOOP_MASK, PMU_CC1_ENABLE_CLOSED_LOOP);
 			break;
@@ -3630,6 +3608,24 @@ si_srpwr_domain_all_mask(const si_t *sih)
 	return mask;
 }
 
+uint32
+si_srpwr_bt_status(si_t *sih)
+{
+	uint32 r;
+	uint32 offset = (BUSTYPE(sih->bustype) == SI_BUS) ?
+		OFFSETOF(chipcregs_t, powerctl) : PWRREQ_OFFSET(sih);
+	uint32 cidx = (BUSTYPE(sih->bustype) == SI_BUS) ? SI_CC_IDX : sih->buscoreidx;
+
+	if (BUSTYPE(sih->bustype) == SI_BUS) {
+		r = si_corereg(sih, cidx, offset, 0, 0);
+	} else {
+		r = si_corereg_pciefast_read(sih, offset);
+	}
+
+	r = (r >> SRPWR_BT_STATUS_SHIFT) & SRPWR_BT_STATUS_MASK;
+
+	return r;
+}
 /* Utility API to read/write the raw registers with absolute address.
  * This function can be invoked from either FW or host driver.
  */

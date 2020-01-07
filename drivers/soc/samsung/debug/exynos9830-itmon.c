@@ -814,22 +814,6 @@ void itmon_wa_enable(const char *node_name, int node_type, bool enabled)
 	for (i = 0; i < (int)ARRAY_SIZE(nodegroup); i++) {
 		node = pdata->nodegroup[i].nodeinfo;
 		for (j = 0; j < pdata->nodegroup[i].nodesize; j++) {
-			if (node[j].type == S_NODE &&
-				node[j].type == node_type &&
-				!strncmp(node[j].name, node_name, strlen(node_name)) &&
-				node[j].tmout_enabled) {
-				offset = OFFSET_TMOUT_REG;
-				/* Enable Timeout setting */
-				__raw_writel(enabled, node[j].regs + offset + REG_DBG_CTL);
-				/* set tmout interval value */
-				__raw_writel(node[j].time_val,
-					     node[j].regs + offset + REG_TMOUT_INIT_VAL);
-				if (node[j].tmout_frz_enabled) {
-					/* Enable freezing */
-					__raw_writel(enabled,
-						     node[j].regs + offset + REG_TMOUT_FRZ_EN);
-				}
-			}
 			if (node[j].err_enabled &&
 				node[j].type == node_type &&
 				!strncmp(node[j].name, node_name, strlen(node_name))) {
@@ -1836,33 +1820,6 @@ static ssize_t itmon_timeout_fix_val_store(struct kobject *kobj,
 	return count;
 }
 
-static ssize_t itmon_timeout_show(struct kobject *kobj,
-			         struct kobj_attribute *attr, char *buf)
-{
-	unsigned long i, offset;
-	ssize_t n = 0;
-	unsigned long vec, bit = 0;
-	struct itmon_nodegroup *group = NULL;
-	struct itmon_nodeinfo *node;
-
-	/* Processing all group & nodes */
-	offset = OFFSET_TMOUT_REG;
-	for (i = 0; i < ARRAY_SIZE(nodegroup); i++) {
-		group = &nodegroup[i];
-		node = group->nodeinfo;
-		vec = GENMASK(group->nodesize, 0);
-		bit = 0;
-		for_each_set_bit(bit, &vec, group->nodesize) {
-			if (node[bit].type == S_NODE) {
-				n += scnprintf(buf + n, 60, "%-12s : 0x%08X, timeout : %x\n",
-					node[bit].name, node[bit].phy_regs,
-					__raw_readl(node[bit].regs + offset + REG_DBG_CTL));
-			}
-		}
-	}
-	return n;
-}
-
 static ssize_t itmon_timeout_val_show(struct kobject *kobj,
 			         struct kobj_attribute *attr, char *buf)
 {
@@ -1915,43 +1872,6 @@ static ssize_t itmon_timeout_freeze_show(struct kobject *kobj,
 		}
 	}
 	return n;
-}
-
-static ssize_t itmon_timeout_store(struct kobject *kobj,
-				struct kobj_attribute *attr,
-				const char *buf, size_t count)
-{
-	char *name;
-	unsigned int val, offset, i;
-	unsigned long vec, bit = 0;
-	struct itmon_nodegroup *group = NULL;
-	struct itmon_nodeinfo *node;
-
-	name = (char *)kstrndup(buf, count, GFP_KERNEL);
-	if (!name)
-		return count;
-
-	offset = OFFSET_TMOUT_REG;
-	for (i = 0; i < (int)ARRAY_SIZE(nodegroup); i++) {
-		group = &nodegroup[i];
-		node = group->nodeinfo;
-		vec = GENMASK(group->nodesize, 0);
-		bit = 0;
-		for_each_set_bit(bit, &vec, group->nodesize) {
-			if (node[bit].type == S_NODE &&
-				!strncmp(name, node[bit].name, strlen(name))) {
-				val = __raw_readl(node[bit].regs + offset + REG_DBG_CTL);
-				if (!val)
-					val = 1;
-				else
-					val = 0;
-				__raw_writel(val, node[bit].regs + offset + REG_DBG_CTL);
-				node[bit].tmout_enabled = val;
-			}
-		}
-	}
-	kfree(name);
-	return count;
 }
 
 static ssize_t itmon_timeout_val_store(struct kobject *kobj,
@@ -2025,8 +1945,6 @@ static ssize_t itmon_timeout_freeze_store(struct kobject *kobj,
 	return count;
 }
 
-static struct kobj_attribute itmon_timeout_attr =
-        __ATTR(timeout_en, 0644, itmon_timeout_show, itmon_timeout_store);
 static struct kobj_attribute itmon_timeout_fix_attr =
         __ATTR(set_val, 0644, itmon_timeout_fix_val_show, itmon_timeout_fix_val_store);
 static struct kobj_attribute itmon_timeout_val_attr =
@@ -2035,7 +1953,6 @@ static struct kobj_attribute itmon_timeout_freeze_attr =
         __ATTR(timeout_freeze, 0644, itmon_timeout_freeze_show, itmon_timeout_freeze_store);
 
 static struct attribute *itmon_sysfs_attrs[] = {
-	&itmon_timeout_attr.attr,
 	&itmon_timeout_fix_attr.attr,
 	&itmon_timeout_val_attr.attr,
 	&itmon_timeout_freeze_attr.attr,

@@ -1,12 +1,12 @@
 #
 # Copyright (C) 2019, Broadcom.
-# 
+#
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
 # under the terms of the GNU General Public License version 2 (the "GPL"),
 # available at http://www.broadcom.com/licenses/GPLv2.php, with the
 # following added to such license:
-# 
+#
 #      As a special exception, the copyright holders of this software give you
 # permission to link this software with independent modules, and to copy and
 # distribute the resulting executable under terms of your choice, provided that
@@ -102,6 +102,13 @@ config BCM4375
 	  This module adds support for wireless adapters based on
 	  Broadcom 4375 chipset.
 
+config BCM4389
+	tristate "Broadcom 4389 wireless cards support"
+	depends on BROADCOM_WIFI
+	---help---
+	  This module adds support for wireless adapters based on
+	  Broadcom 4389 chipset.
+
 config BCM43241
 	tristate "Broadcom 43241 wireless cards support"
 	depends on BROADCOM_WIFI
@@ -180,14 +187,14 @@ config WLAN_REGION_CODE
 
 config WLAIBSS
 	bool "Advanced IBSS mode"
-	depends on (BCM4335 || BCM4339 || BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375)
+	depends on (BCM4335 || BCM4339 || BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375 || BCM4389)
 	default y
 	---help---
 	  This is a configuration for Oxygen Network.
 
 config WL_RELMCAST
 	bool "Reliable Multicast Support"
-	depends on (BCM4335 || BCM4339 || BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375)
+	depends on (BCM4335 || BCM4339 || BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375 || BCM4389)
 	default y
 	---help---
 	  This is a configuration for RMC.
@@ -201,7 +208,7 @@ config WL_NAN
 
 config BCMDHD_PCIE
 	bool "Enable PCIe I/F Support"
-	depends on (BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375) && PCI
+	depends on (BCM4354 || BCM4358 || BCM4359 || BCM4361 || BCM4375 || BCM4389) && PCI
 	default y
 	---help---
 	  Enable PCI Express I/F Support

@@ -67,7 +67,7 @@ extern uint32 g_assert_type;
 #endif /* CONFIG_PHYS_ADDR_T_64BIT */
 /* ASSERT */
 #ifndef ASSERT
-#if defined(BCMASSERT_LOG)
+#if defined(BCMASSERT_LOG) && !defined(BINCMP)
 	#define ASSERT(exp) \
 		do { if (!(exp)) osl_assert(#exp, __FILE__, __LINE__); } while (0)
 extern void osl_assert(const char *exp, const char *file, int line);
@@ -120,7 +120,7 @@ typedef struct {
 	bool mmbus;		/**< Bus supports memory-mapped register accesses */
 	pktfree_cb_fn_t tx_fn;  /**< Callback function for PKTFREE */
 	void *tx_ctx;		/**< Context to the callback function */
-	void	*unused[3];	/**< XXX temp fix for USBAP cftpool handle currption */
+	void	*unused[3];	/**< temp fix for USBAP cftpool handle currption */
 	void (*rx_fn)(void *rx_ctx, void *p);
 	void *rx_ctx;
 } osl_pubinfo_t;
@@ -254,7 +254,6 @@ extern void osl_bpt_rreg(osl_t *osh, ulong addr, volatile void *v, uint size);
 		__osl_v; \
 	})
 #endif
-/* XXX REVISIT  Is there suppose to be a #else definition of OSL_READ/WRITE_REG? johnvb */
 
 #if defined(AXI_TIMEOUTS_NIC)
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
@@ -415,9 +414,6 @@ extern uint64 osl_systztime_us(void);
 /* Because the non BINOSL implemenation of the PKT OSL routines are macros (for
  * performance reasons),  we need the Linux headers.
  */
-/* XXX REVISIT  Is there a more specific header file we should be including for the
- * struct/definitions we need? johnvb
- */
 #include <linuxver.h>		/* use current 2.4.x calling conventions */
 
 #define OSL_RAND()		osl_rand()
@@ -429,14 +425,6 @@ extern uint32 osl_rand(void);
 	osl_dma_map((osh), (va), (size), (direction), (p), (dmah))
 
 #else /* ! BCMDRIVER */
-
-/* XXX  Non BCMDRIVER code "OSL".
- *   There are only a very limited number of OSL API's made available here:
- *     mem*'s, str*'s, b*'s, *printf's, MALLOC/MFREE and ASSERT.  All others are
- *   missing.  This doesn't really seem like an OSL implementation.  I am wondering
- *   if non BCMDRIVER code should be using a different header file defined for that
- *   purpose.  johnvb.
- */
 
 /* ASSERT */
 	#define ASSERT(exp)	do {} while (0)

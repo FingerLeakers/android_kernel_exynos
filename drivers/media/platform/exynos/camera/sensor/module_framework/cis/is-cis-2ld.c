@@ -591,68 +591,55 @@ int sensor_2ld_cis_log_status(struct v4l2_subdev *subdev)
 
 	pr_info("[%s] *******************************\n", __func__);
 	ret = is_sensor_write16(client, 0xFCFC, 0x4000);
-	if (unlikely(!ret)) pr_info("0x4000 page\n");
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0x4000 page\n"); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0000, &data16);
-	if (unlikely(!ret)) pr_info("model_id(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("model_id(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0002, &data16);
-	if (unlikely(!ret)) pr_info("revision_number(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("revision_number(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0005, &data8);
-	if (unlikely(!ret)) pr_info("frame_count(0x%x)\n", data8);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("frame_count(0x%x)\n", data8); else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0100, &data8);
-	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0340, &data16);
-	if (unlikely(!ret)) pr_info("FLL(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("FLL(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x021E, &data16);
-	if (unlikely(!ret)) pr_info("WDR(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("WDR(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0202, &data16);
-	if (unlikely(!ret)) pr_info("short EXP(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("short EXP(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0226, &data16);
-	if (unlikely(!ret)) pr_info("long EXP(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("long EXP(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0702, &data16);
-	if (unlikely(!ret)) pr_info("CIT shifter1(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("CIT shifter1(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0704, &data16);
-	if (unlikely(!ret)) pr_info("CIT shifter2(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("CIT shifter2(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0204, &data16);
-	if (unlikely(!ret)) pr_info("again(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("again(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x020E, &data16);
-	if (unlikely(!ret)) pr_info("short dgain(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("short dgain(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0230, &data16);
-	if (unlikely(!ret)) pr_info("long dgain(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("long dgain(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0B30, &data16);
-	if (unlikely(!ret)) pr_info("LN mode(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("LN mode(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0A7A, &data16);
-	if (unlikely(!ret)) pr_info("0x0A7A(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0x0A7A(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0A7C, &data16);
-	if (unlikely(!ret)) pr_info("0x0A7C(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0x0A7C(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0E0B, &data8);
-	if (unlikely(!ret)) pr_info("AEB(0x%x)\n", data8);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("AEB(0x%x)\n", data8); else goto i2c_err;
 	ret = is_sensor_write16(client, 0xFCFC, 0x2000);
-	if (unlikely(!ret)) pr_info("0x2000 page\n");
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0x2000 page\n"); else goto i2c_err;
 	ret = is_sensor_read16(client, 0xD570, &data16);
-	if (unlikely(!ret)) pr_info("0xD570(0x%x)\n", data16);
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("0xD570(0x%x)\n", data16); else goto i2c_err;
+	ret = is_sensor_write16(client, 0xFCFC, 0x2000);
+	if (unlikely(!ret)) pr_info("0x2007 page\n"); else goto i2c_err;
+	ret = is_sensor_read16(client, 0xF4B2, &data16);
+	if (unlikely(!ret)) pr_info("0xF4B2(0x%x)\n", data16); else goto i2c_err;
+	ret = is_sensor_read16(client, 0xF4B6, &data16);
+	if (unlikely(!ret)) pr_info("0xF4B6(0x%x)\n", data16); else goto i2c_err;
+	ret = is_sensor_read16(client, 0xF4B8, &data16);
+	if (unlikely(!ret)) pr_info("0xF4B8(0x%x)\n", data16); else goto i2c_err;
 	ret = is_sensor_write16(client, 0xFCFC, 0x4000);
-	if (unlikely(!ret)) pr_info("restore to 0x4000 page\n");
-	else goto i2c_err;
+	if (unlikely(!ret)) pr_info("restore to 0x4000 page\n"); else goto i2c_err;
 	pr_info("[%s] *******************************\n", __func__);
 
 i2c_err:
@@ -3708,9 +3695,8 @@ static struct is_cis_ops cis_ops_2ld = {
 	.cis_get_super_slow_motion_md_threshold = sensor_2ld_cis_get_super_slow_motion_md_threshold,
 	.cis_set_super_slow_motion_gmc_table_idx = sensor_2ld_cis_set_super_slow_motion_gmc_table_idx,
 	.cis_set_super_slow_motion_gmc_block_with_md_low = sensor_2ld_cis_set_super_slow_motion_gmc_block_with_md_low,
-	/* TEMP_2020 */
 //	.cis_recover_stream_on = sensor_2ld_cis_recover_stream_on,
-	.cis_recover_stream_off = sensor_2ld_cis_recover_stream_off,
+//	.cis_recover_stream_off = sensor_2ld_cis_recover_stream_off,
 	.cis_set_factory_control = sensor_2ld_cis_set_factory_control,
 };
 

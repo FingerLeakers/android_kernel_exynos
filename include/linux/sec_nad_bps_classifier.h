@@ -51,6 +51,15 @@ struct bps_info {
 	/* binary download info */
 	int dn_cnt;
 	char build_id[NAD_BPS_MAX_QUICKBUILD_LEN];
+#if defined(CONFIG_SEC_BPS_INFO)
+	int rbps_magic;
+	int rbpsp;
+	int rbpsf;
+	int n1bps;
+	int n2bps;
+	int n3bps;
+	int n4bps;
+#endif
 };
 
 static struct bps_info sec_nad_bps_env;

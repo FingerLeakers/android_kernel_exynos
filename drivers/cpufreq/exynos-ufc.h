@@ -27,6 +27,8 @@ struct ufc_table_info {
 	unsigned int		cur_index;
 	u32			**ufc_table;
 	struct list_head	list;
+
+	struct kobject		kobj;
 };
 
 struct ufc_domain {

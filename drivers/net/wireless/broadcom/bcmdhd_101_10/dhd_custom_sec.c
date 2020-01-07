@@ -428,7 +428,8 @@ int dhd_sel_ant_from_file(dhd_pub_t *dhd)
 		chip_id != BCM4355_CHIP_ID &&
 		chip_id != BCM4347_CHIP_ID &&
 		chip_id != BCM4361_CHIP_ID &&
-		chip_id != BCM4375_CHIP_ID) {
+		chip_id != BCM4375_CHIP_ID &&
+		chip_id != BCM4389_CHIP_ID) {
 		DHD_ERROR(("[WIFI_SEC] %s: This chipset does not support MIMO\n",
 			__FUNCTION__));
 		return ret;
@@ -886,7 +887,7 @@ const char *softap_info_items[] = {
 	"5G", "maxClient", "PowerSave",
 	"HalFn_setCountryCodeHal", "HalFn_getValidChannels", NULL
 };
-#if defined(BCM4361_CHIP) || defined(BCM4375_CHIP)
+#if defined(BCM4361_CHIP) || defined(BCM4375_CHIP) || defined(BCM4389_CHIP_DEF)
 const char *softap_info_values[] = {
 	"yes",
 #ifdef DHD_SOFTAP_DUAL_IF_INFO
@@ -918,7 +919,7 @@ const char *softap_info_values[] = {
 #endif /* DHD_SOFTAP_DUAL_IF_INFO */
 	"UNDEF", "UNDEF", "UNDEF", "UNDEF", "UNDEF", NULL
 };
-#endif /* defined(BCM4361_CHIP) || defined(BCM4375_CHIP) */
+#endif /* defined(BCM4361_CHIP) || defined(BCM4375_CHIP) || defined(BCM4389_CHIP_DEF) */
 #endif /* GEN_SOFTAP_INFO_FILE */
 
 #ifdef GEN_SOFTAP_INFO_FILE

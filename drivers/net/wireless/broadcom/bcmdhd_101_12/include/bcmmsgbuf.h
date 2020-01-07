@@ -483,7 +483,7 @@ typedef enum ring_config_subtype {
 	D2H_RING_CONFIG_SUBTYPE_MSI_DOORBELL = 2   /* MSI configuration */
 } ring_config_subtype_t;
 
-typedef struct ring_config_req { /* XXX: pulled from upcoming rev6 ... */
+typedef struct ring_config_req { /* pulled from upcoming rev6 ... */
 	cmn_msg_hdr_t	msg;
 	uint16	subtype;
 	uint16	ring_id;
@@ -1030,6 +1030,9 @@ typedef struct host_txbuf_post {
 #define BCMPCIE_TXPOST_FLAGS_PRIO_SHIFT		BCMPCIE_PKT_FLAGS_PRIO_SHIFT
 #define BCMPCIE_TXPOST_FLAGS_PRIO_MASK		BCMPCIE_PKT_FLAGS_PRIO_MASK
 
+#define BCMPCIE_TXPOST_RATE_EXT_USAGE		0x80 /* The rate field has extended usage */
+#define BCMPCIE_TXPOST_RATE_PROFILE_IDX_MASK	0x07 /* The Tx profile index in the rate field */
+
 /* H2D Txpost ring work items */
 typedef union txbuf_submit_item {
 	host_txbuf_post_t	txpost;
@@ -1329,7 +1332,7 @@ typedef struct tx_idle_flowring_resume_response {
 
 /* timesync related additions */
 
-/* XXX: defined similar to bcm_xtlv_t */
+/* defined similar to bcm_xtlv_t */
 typedef struct _bcm_xtlv {
 	uint16		id; /* TLV idenitifier */
 	uint16		len; /* TLV length in bytes */

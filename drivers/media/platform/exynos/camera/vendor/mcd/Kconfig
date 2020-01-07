@@ -112,3 +112,9 @@ config CAMERA_USE_INTERNAL_MCU
 	default n
 	help
 	  Use internal MCU for OIS.
+config CAMERA_CNT_V02
+        bool "This camera is cnt_v02"
+        depends on VENDER_MCD
+        default n
+        help
+          This camera is cnt_v02.

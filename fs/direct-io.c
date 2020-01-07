@@ -512,7 +512,7 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 
 #ifdef CONFIG_FS_HPB
 	if (dio->flags & DIO_HPB_IO)
-		bio->bi_opf |= REQ_RT_PINNED;
+		bio->bi_opf |= REQ_HPB_PREFER;
 #endif
 
 	if (sdio->submit_io) {

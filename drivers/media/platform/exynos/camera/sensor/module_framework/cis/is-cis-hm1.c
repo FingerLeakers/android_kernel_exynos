@@ -39,28 +39,37 @@
 #include "is-cis-hm1.h"
 #include "is-cis-hm1-setA.h"
 #include "is-helper-i2c.h"
+#include "is-sec-define.h"
 
 #define SENSOR_NAME "S5KHM1"
 /* #define DEBUG_HM1_PLL */
+/* #define GLOBAL_TIME_CAL_WRITE */
+#define HM1_BURST_WRITE
+/* #define DEBUG_CAL_WRITE */
 
-static const u32 *sensor_hm1_reset_tnp;
-static u32 sensor_hm1_reset_tnp_size;
+static const u32 *sensor_hm1_initial;
+static u32 sensor_hm1_initial_size;
+static const u32 *sensor_hm1_tnp;
+static u32 sensor_hm1_tnp_size;
 static const u32 *sensor_hm1_global;
 static u32 sensor_hm1_global_size;
+static const u32 *sensor_hm1_global_for_cal;
+static u32 sensor_hm1_global_for_cal_size;
 static const u32 **sensor_hm1_setfiles;
 static const u32 *sensor_hm1_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_hm1_pllinfos;
 static u32 sensor_hm1_max_setfile_num;
-static int sensor_hm1_ln_mode_delay_count;
-#if 0 //TEMP_2020
-static u8 sensor_hm1_ln_mode_frame_count;
-#endif
 
 /* For Recovery */
 static u32 sensor_hm1_frame_duration_backup;
 static struct ae_param sensor_hm1_again_backup;
 static struct ae_param sensor_hm1_dgain_backup;
 static struct ae_param sensor_hm1_target_exp_backup;
+
+static bool sensor_hm1_eeprom_cal_available;
+static bool sensor_hm1_first_entrance;
+
+int sensor_hm1_cis_set_global_setting(struct v4l2_subdev *subdev);
 
 static bool sensor_hm1_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 {
@@ -130,70 +139,29 @@ static int sensor_hm1_cis_set_mipi_clock(struct v4l2_subdev *subdev)
 }
 #endif
 
-#ifdef USE_CAMERA_EMBEDDED_HEADER
-#define SENSOR_HM1_PAGE_LENGTH 512
-#define SENSOR_HM1_VALID_TAG 0x5A
-#define SENSOR_HM1_FRAME_ID_PAGE 0
-#define SENSOR_HM1_FRAME_ID_OFFSET 26
-#define SENSOR_HM1_FLL_MSB_PAGE 0
-#define SENSOR_HM1_FLL_MSB_OFFSET 358
-#define SENSOR_HM1_FLL_LSB_PAGE 0
-#define SENSOR_HM1_FLL_LSB_OFFSET 360
-#define SENSOR_HM1_FRAME_COUNT_PAGE 0
-#define SENSOR_HM1_FRAME_COUNT_OFFSET 16
-
-static u32 frame_id_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FRAME_ID_PAGE) + SENSOR_HM1_FRAME_ID_OFFSET;
-static u32 fll_msb_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FLL_MSB_PAGE) + SENSOR_HM1_FLL_MSB_OFFSET;
-static u32 fll_lsb_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FLL_LSB_PAGE) + SENSOR_HM1_FLL_LSB_OFFSET;
-static u32 llp_msb_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FLL_MSB_PAGE) + SENSOR_HM1_FLL_MSB_OFFSET+4;
-static u32 llp_lsb_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FLL_LSB_PAGE) + SENSOR_HM1_FLL_LSB_OFFSET+4;
-static u32 frame_count_idx = (SENSOR_HM1_PAGE_LENGTH * SENSOR_HM1_FRAME_COUNT_PAGE) + SENSOR_HM1_FRAME_COUNT_OFFSET;
-
-static int sensor_hm1_cis_get_frame_id(struct v4l2_subdev *subdev, u8 *embedded_buf, u16 *frame_id)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	if (embedded_buf[frame_id_idx-1] == SENSOR_HM1_VALID_TAG) {
-		*frame_id = embedded_buf[frame_id_idx];
-
-		dbg_sensor(1, "%s - frame_count(%d)", __func__, embedded_buf[frame_count_idx]);
-		dbg_sensor(1, "%s - frame_id(%d)", __func__, *frame_id);
-		dbg_sensor(1, "%s - frame length line(0x%x)",
-				__func__, ((embedded_buf[fll_msb_idx]<<8)|embedded_buf[fll_lsb_idx]));
-		dbg_sensor(1, "%s - line length pclk(0x%x)",
-				__func__, ((embedded_buf[llp_msb_idx]<<8)|embedded_buf[llp_lsb_idx]));
-	} else {
-		err("%s : invalid valid tag(0x%x)", __func__, embedded_buf[frame_id_idx-1]);
-		*frame_id = 1;
-	}
-
-	return ret;
-}
-#endif
-
 static void sensor_hm1_set_integration_max_margin(u32 mode, cis_shared_data *cis_data)
 {
 	WARN_ON(!cis_data);
 
 	switch (mode) {
 	case SENSOR_HM1_12000X9000_10FPS:
-	case SENSOR_HM1_7680X4320_24FPS:
 	case SENSOR_HM1_4000X2252_30FPS_CENTER_CROP:
-	case SENSOR_HM1_4000X3000_30FPS:
-	case SENSOR_HM1_4000X2252_30FPS:
-	case SENSOR_HM1_4000X3000_60FPS:
-	case SENSOR_HM1_4000X2252_60FPS:
 	case SENSOR_HM1_1984X1488_30FPS:
 	case SENSOR_HM1_1920X1080_240FPS:
 	case SENSOR_HM1_1920X1080_120FPS:
 	case SENSOR_HM1_992X744_120FPS:
+		cis_data->max_margin_coarse_integration_time = 0x8;
+		break;
+	case SENSOR_HM1_7680X4320_24FPS:
+		cis_data->max_margin_coarse_integration_time = 0x2;
+		break;
+	case SENSOR_HM1_4000X3000_30FPS:
+	case SENSOR_HM1_4000X3000_30FPS_SHORT:
+	case SENSOR_HM1_4000X2252_30FPS:
+	case SENSOR_HM1_4000X3000_60FPS:
+	case SENSOR_HM1_4000X2252_60FPS:
+		cis_data->max_margin_coarse_integration_time = SENSOR_HM1_COARSE_INTEGRATION_TIME_MAX_MARGIN;
+		break;
 	default:
 		err("[%s] Unsupport hm1 sensor mode\n", __func__);
 		cis_data->max_margin_coarse_integration_time = SENSOR_HM1_COARSE_INTEGRATION_TIME_MAX_MARGIN;
@@ -337,9 +305,11 @@ int sensor_hm1_cis_select_setfile(struct v4l2_subdev *subdev)
 	rev = cis->cis_data->cis_rev;
 
 	info("hm1 sensor revision(0x%#x)\n", rev);
-	switch (rev) {
-	default:
- 		break;
+
+	if(rev >= 0xA101) {
+		info("hm1 sensor OTP\n");
+		sensor_hm1_tnp = sensor_hm1_setfile_A_TnP_OTP;
+		sensor_hm1_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_TnP_OTP);
 	}
 
 	return ret;
@@ -376,6 +346,10 @@ int sensor_hm1_cis_init(struct v4l2_subdev *subdev)
 	}
 #endif
 
+	sensor_hm1_eeprom_cal_available = false;
+	sensor_hm1_first_entrance = true;
+	cis->cis_data->sens_config_index_pre = SENSOR_HM1_MODE_MAX;
+
 	sensor_hm1_cis_select_setfile(subdev);
 
 	cis->cis_data->stream_on = false;
@@ -383,8 +357,6 @@ int sensor_hm1_cis_init(struct v4l2_subdev *subdev)
 	cis->cis_data->cur_width = SENSOR_HM1_MAX_WIDTH;
 	cis->cis_data->cur_height = SENSOR_HM1_MAX_HEIGHT;
 	cis->cis_data->low_expo_start = 33000;
-	cis->cis_data->pre_lownoise_mode = IS_CIS_LNOFF;
-	cis->cis_data->cur_lownoise_mode = IS_CIS_LNOFF;
 	cis->need_mode_change = false;
 	cis->long_term_mode.sen_strm_off_on_step = 0;
 	cis->long_term_mode.sen_strm_off_on_enable = false;
@@ -584,39 +556,309 @@ static void sensor_hm1_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_da
 
 	switch (mode) {
 	case SENSOR_HM1_12000X9000_10FPS:
-	case SENSOR_HM1_7680X4320_24FPS:
 	case SENSOR_HM1_4000X2252_30FPS_CENTER_CROP:
-	case SENSOR_HM1_4000X3000_30FPS:
-	case SENSOR_HM1_4000X2252_30FPS:
-	case SENSOR_HM1_4000X3000_60FPS:
-	case SENSOR_HM1_4000X2252_60FPS:
-	case SENSOR_HM1_1984X1488_30FPS:
-	case SENSOR_HM1_1920X1080_240FPS:
-	case SENSOR_HM1_1920X1080_120FPS:
-		cis_data->is_data.paf_stat_enable = true;
+		cis_data->is_data.paf_stat_enable = false;
 		break;
 	default:
-		cis_data->is_data.paf_stat_enable = false;
+		cis_data->is_data.paf_stat_enable = true;
 		break;
 	}
 }
 
-bool sensor_hm1_cis_get_lownoise_supported(cis_shared_data *cis_data)
+#ifdef HM1_BURST_WRITE
+int sensor_hm1_cis_write16_burst(struct i2c_client *client, u16 addr, u8 *val, u32 num, bool endian)
 {
-	WARN_ON(!cis_data);
+	int ret = 0;
+	struct i2c_msg msg[1];
+	int i = 0;
+	u8 *wbuf;
 
-#if 0 // TEMP_2020
-	switch (cis_data->sens_config_index_cur) {
-	case SENSOR_HM1_12000X9000_10FPS:
-	case SENSOR_HM1_4000X3000_30FPS:
-	case SENSOR_HM1_1984X1488_30FPS:
-	case SENSOR_HM1_4000X3000_60FPS:
-		return true;
-	default:
-		break;
+	if (val == NULL) {
+		pr_err("val array is null\n");
+		ret = -ENODEV;
+		goto p_err;
 	}
+
+	if (!client->adapter) {
+		pr_err("Could not find adapter!\n");
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	if (!wbuf) {
+		pr_err("failed to alloc buffer for burst i2c\n");
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	msg->addr = client->addr;
+	msg->flags = 0;
+	msg->len = 2 + (num * 2);
+	msg->buf = wbuf;
+	wbuf[0] = (addr & 0xFF00) >> 8;
+	wbuf[1] = (addr & 0xFF);
+	if (endian == HM1_BIG_ENDIAN) {
+		for (i = 0; i < num; i++) {
+			wbuf[(i * 2) + 2] = (val[(i * 2)] & 0xFF);
+			wbuf[(i * 2) + 3] = (val[(i * 2) + 1] & 0xFF);
+			i2c_info("I2CW16(%d) [0x%04x] : 0x%x%x\n", client->addr, addr, (val[(i * 2)] & 0xFF), (val[(i * 2) + 1] & 0xFF));
+		}
+	} else {
+		for (i = 0; i < num; i++) {
+			wbuf[(i * 2) + 2] = (val[(i * 2) + 1] & 0xFF);
+			wbuf[(i * 2) + 3] = (val[(i * 2)] & 0xFF);
+			i2c_info("I2CW16(%d) [0x%04x] : 0x%x%x\n", client->addr, addr, (val[(i * 2)] & 0xFF), (val[(i * 2) + 1] & 0xFF));
+		}
+	}
+
+	ret = is_i2c_transfer(client->adapter, msg, 1);
+	if (ret < 0) {
+		pr_err("i2c transfer fail(%d)", ret);
+		goto p_err_free;
+	}
+
+	kfree(wbuf);
+	return 0;
+
+p_err_free:
+	kfree(wbuf);
+p_err:
+	return ret;
+}
 #endif
-	return false;
+
+int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct is_rom_info *finfo = NULL;
+	char *cal_buf = NULL;
+	struct is_cis *cis = NULL;
+	bool endian = HM1_BIG_ENDIAN;
+	int start_addr = 0, end_addr = 0;
+#ifdef HM1_BURST_WRITE
+	int cal_size = 0;
+#endif
+	int i = 0;
+	u16 val = 0;
+	int len = 0;
+	bool emptyCal = false;
+
+	info("[%s] E", __func__);
+
+	if(sensor_hm1_eeprom_cal_available)
+		return 0;
+
+	is_sec_get_sysfs_finfo(&finfo, ROM_ID_REAR);
+
+	if (!test_bit(IS_ROM_STATE_CAL_READ_DONE, &finfo->rom_state)) {
+		err("eeprom read fail status, skip set cal");
+		sensor_hm1_eeprom_cal_available = false;
+		return 0;
+	}
+
+	info("[%s] eeprom read, start set cal\n", __func__);
+	is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
+
+	start_addr = finfo->rom_xtc_cal_data_addr_list[0];
+	if (cal_buf[start_addr + 2] == 0xFF && cal_buf[start_addr + 3] == 0xFF &&
+		cal_buf[start_addr + 4] == 0xFF && cal_buf[start_addr + 5] == 0xFF &&
+		cal_buf[start_addr + 6] == 0xFF && cal_buf[start_addr + 7] == 0xFF &&
+		cal_buf[start_addr + 8] == 0xFF && cal_buf[start_addr + 9] == 0xFF) {
+		info("empty Cal - cal offset[0x%04X] = val[0x%02X], cal offset[0x%04X] = val[0x%02X]",
+			start_addr + 2, cal_buf[start_addr + 2], start_addr + 9, cal_buf[start_addr + 9]);
+		emptyCal = true;
+	}
+
+	len = (finfo->rom_xtc_cal_data_addr_list_len / 3) - 1;
+	if (len >= 0) {
+		end_addr = finfo->rom_xtc_cal_data_addr_list[len * 3 + 1];
+		if (end_addr >= 7) {
+			if (cal_buf[end_addr    ] == 0xFF && cal_buf[end_addr - 1] == 0xFF &&
+				cal_buf[end_addr - 2] == 0xFF && cal_buf[end_addr - 3] == 0xFF &&
+				cal_buf[end_addr - 4] == 0xFF && cal_buf[end_addr - 5] == 0xFF &&
+				cal_buf[end_addr - 6] == 0xFF && cal_buf[end_addr - 7] == 0xFF) {
+				info("empty Cal - cal offset[0x%04X] = val[0x%02X], cal offset[0x%04X] = val[0x%02X]",
+					end_addr, cal_buf[end_addr], end_addr - 7, cal_buf[end_addr - 7]);
+				emptyCal = true;
+			}
+		}
+	}
+
+	if (emptyCal) {
+		info("[%s] empty Cal", __func__);
+		return 0;
+	}
+
+	WARN_ON(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+	WARN_ON(!cis);
+
+	if(finfo->rom_pdxtc_cal_data_addr_list_len <= 0 || finfo->rom_gcc_cal_data_addr_list_len <= 0 || finfo->rom_xtc_cal_data_addr_list_len <= 0) {
+		err("Not available DT, skip set cal");
+		sensor_hm1_eeprom_cal_available = false;
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
+	ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
+
+
+	dbg_sensor(1, "[%s] PDXTC start\n", __func__);
+	start_addr = finfo->rom_pdxtc_cal_data_addr_list[0];
+	if(finfo->rom_pdxtc_cal_endian_check) {
+		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
+			endian = HM1_BIG_ENDIAN;
+		else
+			endian = HM1_LITTLE_ENDIAN;
+
+		start_addr = start_addr + 2;
+	} else {
+		endian = HM1_BIG_ENDIAN;
+	}
+
+	for (len = 0; len < finfo->rom_pdxtc_cal_data_addr_list_len / 3; len ++) {
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_PDXTC[len], sensor_hm1_pre_PDXTC_size[len]);
+
+		dbg_sensor(1, "[%s] PDXTC Calibration Data E\n", __func__);
+		if ( len != 0 ) start_addr = finfo->rom_pdxtc_cal_data_addr_list[len * 3];
+		end_addr = finfo->rom_pdxtc_cal_data_addr_list[len * 3 + 1];
+
+#ifdef HM1_BURST_WRITE
+		if(finfo->rom_pdxtc_cal_data_addr_list[len * 3 + 2]) {
+			cal_size = (end_addr - start_addr) / 2 + 1;
+			dbg_sensor(1, "[%s] rom_pdxtc_cal burst write start(0x%X) end(0x%X)\n", __func__, start_addr, end_addr);
+			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
+			if (ret < 0) {
+				err("sensor_hm1_cis_write16_burst fail!!");
+				goto p_err;
+			}
+		} else
+#endif
+		for(i = start_addr; i <= end_addr; i += 2) {
+			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+			ret = is_sensor_write16(cis->client, 0x6F12, val);
+			if (ret < 0) {
+				err("is_sensor_write16 fail!!");
+				goto p_err;
+			}
+#ifdef DEBUG_CAL_WRITE
+			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+#endif
+		}
+
+		dbg_sensor(1, "[%s] PDXTC Calibration Data X\n", __func__);
+
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_PDXTC[len], sensor_hm1_post_PDXTC_size[len]);
+	}
+	dbg_sensor(1, "[%s] PDXTC end\n", __func__);
+
+	dbg_sensor(1, "[%s] GCC start\n", __func__);
+	start_addr = finfo->rom_gcc_cal_data_addr_list[0];
+	if(finfo->rom_gcc_cal_endian_check) {
+		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
+			endian = HM1_BIG_ENDIAN;
+		else
+			endian = HM1_LITTLE_ENDIAN;
+
+		start_addr = start_addr + 2;
+	} else {
+		endian = HM1_BIG_ENDIAN;
+	}
+
+	for (len = 0; len < finfo->rom_gcc_cal_data_addr_list_len / 3; len ++) {
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_GCC[len], sensor_hm1_pre_GCC_size[len]);
+
+		dbg_sensor(1, "[%s] GCC Calibration Data E\n", __func__);
+		if ( len != 0 ) start_addr = finfo->rom_gcc_cal_data_addr_list[len * 3];
+		end_addr = finfo->rom_gcc_cal_data_addr_list[len * 3 + 1];
+
+#ifdef HM1_BURST_WRITE
+		if(finfo->rom_gcc_cal_data_addr_list[len * 3 + 2]) {
+			cal_size = (end_addr - start_addr) / 2 + 1;
+			dbg_sensor(1, "[%s] rom_gcc_cal burst write start(0x%X) end(0x%X)\n", __func__, start_addr, end_addr);
+			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
+			if (ret < 0) {
+				err("sensor_hm1_cis_write16_burst fail!!");
+				goto p_err;
+			}
+		} else
+#endif
+		for(i = start_addr; i <= end_addr; i += 2) {
+			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+			ret = is_sensor_write16(cis->client, 0x6F12, val);
+			if (ret < 0) {
+				err("is_sensor_write16 fail!!");
+				goto p_err;
+			}
+#ifdef DEBUG_CAL_WRITE
+			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+#endif
+		}
+
+		dbg_sensor(1, "[%s] GCC Calibration Data X\n", __func__);
+
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_GCC[len], sensor_hm1_post_GCC_size[len]);
+	}
+	dbg_sensor(1, "[%s] GCC end\n", __func__);
+
+	dbg_sensor(1, "[%s] XTC start\n", __func__);
+	start_addr = finfo->rom_xtc_cal_data_addr_list[0];
+	if(finfo->rom_xtc_cal_endian_check) {
+		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
+			endian = HM1_BIG_ENDIAN;
+		else
+			endian = HM1_LITTLE_ENDIAN;
+
+		start_addr = start_addr + 2;
+	} else {
+		endian = HM1_BIG_ENDIAN;
+	}
+
+	for (len = 0; len < finfo->rom_xtc_cal_data_addr_list_len / 3; len ++) {
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_XTC[len], sensor_hm1_pre_XTC_size[len]);
+
+		dbg_sensor(1, "[%s] XTC Calibration Data E\n", __func__);
+		if ( len != 0 ) start_addr = finfo->rom_xtc_cal_data_addr_list[len * 3];
+		end_addr = finfo->rom_xtc_cal_data_addr_list[len * 3 + 1];
+
+#ifdef HM1_BURST_WRITE
+		if(finfo->rom_xtc_cal_data_addr_list[len * 3 + 2]) {
+			cal_size = (end_addr - start_addr) / 2 + 1;
+			dbg_sensor(1, "[%s] rom_xtc_cal burst write start(0x%X) end(0x%X) size(%d)\n", __func__, start_addr, end_addr, cal_size);
+			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
+			if (ret < 0) {
+				err("sensor_hm1_cis_write16_burst fail!!");
+				goto p_err;
+			}
+		} else
+#endif
+		for(i = start_addr; i <= end_addr; i += 2) {
+			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+			ret = is_sensor_write16(cis->client, 0x6F12, val);
+			if (ret < 0) {
+				err("is_sensor_write16 fail!!");
+				goto p_err;
+			}
+#ifdef DEBUG_CAL_WRITE
+			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+#endif
+		}
+
+		dbg_sensor(1, "[%s] XTC Calibration Data X\n", __func__);
+
+		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_XTC[len], sensor_hm1_post_XTC_size[len]);
+	}
+	dbg_sensor(1, "[%s] XTC end\n", __func__);
+
+	sensor_hm1_eeprom_cal_available = true;
+
+	info("[%s] X", __func__);
+
+p_err:
+	return ret;
 }
 
 int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
@@ -626,6 +868,8 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	struct is_module_enum *module;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	struct sensor_open_extended *ext_info = NULL;
+	struct is_device_sensor *device;
+	u32 ex_mode;
 
 	WARN_ON(!subdev);
 
@@ -633,13 +877,17 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	WARN_ON(!cis);
 	WARN_ON(!cis->cis_data);
 
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (unlikely(!device)) {
+		err("device sensor is null");
+		return -EINVAL;
+	}
+
 	if (mode >= sensor_hm1_max_setfile_num) {
 		err("invalid mode(%d)!!", mode);
 		ret = -EINVAL;
 		goto p_err;
 	}
-
-	sensor_hm1_ln_mode_delay_count = 0;
 
 	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
 	module = sensor_peri->module;
@@ -660,7 +908,24 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	is_sensor_write8(cis->client, 0x0100, 0x00);
-	info("[%s] sensor mode(%d)\n", __func__, mode);
+	ex_mode = is_sensor_g_ex_mode(device);
+
+#ifndef GLOBAL_TIME_CAL_WRITE
+	if ((ex_mode == EX_REMOSAIC_CAL || mode == SENSOR_HM1_7680X4320_24FPS) && !sensor_hm1_eeprom_cal_available) {
+		ret = sensor_hm1_cis_set_cal(subdev);
+		if (ret < 0) {
+			err("sensor_hm1_cis_set_cal fail!!");
+			goto p_err;
+		}
+	}
+#endif
+
+	if (cis->cis_data->sens_config_index_pre == SENSOR_HM1_992X744_120FPS && ex_mode != EX_REMOSAIC_CAL && mode == SENSOR_HM1_4000X3000_30FPS) {
+		info("[%s] short sensor mode\n", __func__);
+		mode = SENSOR_HM1_4000X3000_30FPS_SHORT;
+	}
+
+	info("[%s] sensor mode(%d) ex_mode(%d)\n", __func__, mode, ex_mode);
 	ret = sensor_cis_set_registers(subdev, sensor_hm1_setfiles[mode],
 							sensor_hm1_setfile_sizes[mode]);
 	if (ret < 0) {
@@ -669,28 +934,31 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	}
 	info("[%s] sensor mode done(%d)\n", __func__, mode);
 
-	if (sensor_hm1_cis_get_lownoise_supported(cis->cis_data)) {
-		cis->cis_data->pre_lownoise_mode = IS_CIS_LN2;
-		cis->cis_data->cur_lownoise_mode = IS_CIS_LN2;
-#if 0 // TEMP_2020
-		sensor_hm1_cis_set_lownoise_mode_change(subdev);
-#endif
-	} else {
-		cis->cis_data->pre_lownoise_mode = IS_CIS_LNOFF;
-		cis->cis_data->cur_lownoise_mode = IS_CIS_LNOFF;
-	}
+	cis->cis_data->sens_config_index_pre = mode;
 
-	info("[%s] mode changed(%d)\n", __func__, mode);
-
-	info("[%s] dual sync always master(%d)\n", __func__, sensor_hm1_cis_dual_master_settings_size);
+	info("[%s] dual sync always master\n", __func__);
 	ret = sensor_cis_set_registers(subdev, sensor_hm1_cis_dual_master_settings, sensor_hm1_cis_dual_master_settings_size);
 
-	info("[%s] no calibration data\n", __func__);
-	ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-	ret |= is_sensor_write16(cis->client, 0x6000, 0x0005);
-	ret |= is_sensor_write16(cis->client, 0x0D02, 0x0000);
-	ret |= is_sensor_write16(cis->client, 0x0B00, 0x0001);
-	ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
+	if (!sensor_hm1_eeprom_cal_available) {
+		info("[%s] no calibration data\n", __func__);
+		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
+		ret |= is_sensor_write16(cis->client, 0x6000, 0x0005);
+		ret |= is_sensor_write16(cis->client, 0x0D02, 0x0000);
+		ret |= is_sensor_write16(cis->client, 0x0B00, 0x0001);
+		ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
+	} else {
+		if (sensor_hm1_first_entrance) {
+			info("[%s] sensor_hm1_global_for_cal\n", __func__);
+			ret |= sensor_cis_set_registers(subdev, sensor_hm1_global_for_cal, sensor_hm1_global_for_cal_size);
+			sensor_hm1_first_entrance = false;
+		}
+	}
+
+	/* EMB Header off */
+	ret = is_sensor_write8(cis->client, 0x0118, 0x00);
+	if (ret < 0){
+		err("EMB header off fail");
+	}
 
 p_err_i2c_unlock:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -700,156 +968,6 @@ p_err:
 
 	return ret;
 }
-
-#if 0 // TEMP_2020
-int sensor_hm1_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct is_cis *cis = NULL;
-	unsigned int mode = 0;
-	struct is_module_enum *module;
-	struct is_device_sensor_peri *sensor_peri = NULL;
-	struct sensor_open_extended *ext_info = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
-	module = sensor_peri->module;
-	ext_info = &module->ext;
-	WARN_ON(!ext_info);
-
-	mode = cis->cis_data->sens_config_index_cur;
-
-	if (!sensor_hm1_cis_get_lownoise_supported(cis->cis_data)) {
-		pr_info("[%s] not support mode %d evt %x\n", __func__,
-			mode, cis->cis_data->cis_rev);
-		cis->cis_data->pre_lownoise_mode = cis->cis_data->cur_lownoise_mode;
-		return ret;
-	}
-
-	is_sensor_read8(cis->client, 0x0005, &sensor_hm1_ln_mode_frame_count);
-	pr_info("[%s] lownoise mode changed(%d) cur_mode(%d) sensor_hm1_ln_mode_frame_count(0x%x)\n",
-		__func__, cis->cis_data->cur_lownoise_mode, mode, sensor_hm1_ln_mode_frame_count);
-
-	sensor_hm1_ln_mode_delay_count = 3;
-
-	ret = is_sensor_write16(cis->client, 0x0104, 0x0101); /* api_rw_general_setup_grouped_parameter_hold */
-
-	switch (cis->cis_data->cur_lownoise_mode) {
-	case IS_CIS_LNOFF:
-		dbg_sensor(1, "[%s] IS_CIS_LNOFF\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0x6028, 0x2000);
-		ret |= is_sensor_write16(cis->client, 0x602A, 0xFF22);
-		ret |= is_sensor_write16(cis->client, 0x6F12, 0x0001);
-		ret |= is_sensor_write16(cis->client, 0x3012, 0x0101);
-
-#ifdef CAMERA_REAR2
-		switch (mode) {
-		case SENSOR_HM1_4032X3024_30FPS:
-		case SENSOR_HM1_4032X2268_30FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x0FE0);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00D0);
-			break;
-		case SENSOR_HM1_4032X3024_24FPS:
-		case SENSOR_HM1_4032X2268_24FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x1660);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00B0);
-			break;
-		}
-#endif
-		cis->cis_data->max_margin_coarse_integration_time = 0x24; /* 36 */
-		break;
-	case IS_CIS_LN2:
-		dbg_sensor(1, "[%s] IS_CIS_LN2\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0x6028, 0x2000);
-		ret |= is_sensor_write16(cis->client, 0x602A, 0xFF22);
-		ret |= is_sensor_write16(cis->client, 0x6F12, 0x0001);
-		ret |= is_sensor_write16(cis->client, 0x3012, 0x0201);
-
-#ifdef CAMERA_REAR2
-		switch (mode) {
-		case SENSOR_HM1_4032X3024_30FPS:
-		case SENSOR_HM1_4032X2268_30FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x0000);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00D0);
-			break;
-		case SENSOR_HM1_4032X3024_24FPS:
-		case SENSOR_HM1_4032X2268_24FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x0000);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00B0);
-			break;
-		}
-#endif
-		cis->cis_data->max_margin_coarse_integration_time = 0x48; /* 72 */
-		break;
-	case IS_CIS_LN4:
-		dbg_sensor(1, "[%s] IS_CIS_LN4\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0x6028, 0x2000);
-		ret |= is_sensor_write16(cis->client, 0x602A, 0xFF22);
-		ret |= is_sensor_write16(cis->client, 0x6F12, 0x0001);
-		ret |= is_sensor_write16(cis->client, 0x3012, 0x0401);
-
-#ifdef CAMERA_REAR2
-		switch (mode) {
-		case SENSOR_HM1_4032X3024_30FPS:
-		case SENSOR_HM1_4032X2268_30FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x0000);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00D0);
-			break;
-		case SENSOR_HM1_4032X3024_24FPS:
-		case SENSOR_HM1_4032X2268_24FPS:
-			ret |= is_sensor_write16(cis->client, 0x0A7A, 0x0000);
-			ret |= is_sensor_write16(cis->client, 0x0A7C, 0x00B0);
-			break;
-		}
-#endif
-		cis->cis_data->max_margin_coarse_integration_time = 0x6C; /* 108 */
-		break;
-	case IS_CIS_LN2_PEDESTAL128:
-		dbg_sensor(1, "[%s] IS_CIS_LN2_PEDESTAL128\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0x0B30, 0x0200);
-		ret |= is_sensor_write16(cis->client, 0x0BC0, 0x0080); /* pedestal 128 */
-
-#ifdef CAMERA_REAR2
-		ret |= is_sensor_write16(cis->client, 0x30D0, 0x0000);
-		ret |= is_sensor_write16(cis->client, 0x30D2, 0x0500);
-#endif
-		break;
-	case IS_CIS_LN4_PEDESTAL128:
-		dbg_sensor(1, "[%s] IS_CIS_LN4_PEDESTAL128\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0x0B30, 0x0300);
-		ret |= is_sensor_write16(cis->client, 0x0BC0, 0x0080); /* pedestal 128 */
-
-#ifdef CAMERA_REAR2
-		ret |= is_sensor_write16(cis->client, 0x30D0, 0x0000);
-		ret |= is_sensor_write16(cis->client, 0x30D2, 0x0500);
-#endif
-		break;
-	default:
-		dbg_sensor(1, "[%s] not support lownoise mode(%d)\n",
-				__func__, cis->cis_data->cur_lownoise_mode);
-	}
-
-	pr_info("[%s] max_margin_coarse_integration_time(%d)\n", __func__,
-		cis->cis_data->max_margin_coarse_integration_time);
-
-	ret |= is_sensor_write16(cis->client, 0x0104, 0x0001); /* api_rw_general_setup_grouped_parameter_hold */
-
-	if (ret < 0) {
-		err("sensor_hm1_set_registers fail!!");
-		goto p_err;
-	}
-
-	cis->cis_data->pre_lownoise_mode = cis->cis_data->cur_lownoise_mode;
-
-p_err:
-	return ret;
-}
-#endif
 
 int sensor_hm1_cis_set_global_setting(struct v4l2_subdev *subdev)
 {
@@ -864,14 +982,23 @@ int sensor_hm1_cis_set_global_setting(struct v4l2_subdev *subdev)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	info("[%s] global setting start\n", __func__);
 	/* setfile global setting is at camera entrance */
-	ret |= sensor_cis_set_registers(subdev, sensor_hm1_reset_tnp, sensor_hm1_reset_tnp_size);
+	ret |= sensor_cis_set_registers(subdev, sensor_hm1_initial, sensor_hm1_initial_size);
+	ret |= sensor_cis_set_registers(subdev, sensor_hm1_tnp, sensor_hm1_tnp_size);
 	ret |= sensor_cis_set_registers(subdev, sensor_hm1_global, sensor_hm1_global_size);
 	if (ret < 0) {
 		err("sensor_hm1_set_registers fail!!");
 		goto p_err;
 	}
-
 	info("[%s] global setting done\n", __func__);
+
+#ifdef GLOBAL_TIME_CAL_WRITE
+	ret = sensor_hm1_cis_set_cal(subdev);
+	if (ret < 0) {
+		err("sensor_hm1_cis_set_cal fail!!");
+		goto p_err;
+	}
+#endif
+
 p_err:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	return ret;
@@ -1203,13 +1330,6 @@ int sensor_hm1_cis_stream_off(struct v4l2_subdev *subdev)
 	if (ret < 0)
 		err("group_param_hold_func failed at stream off");
 
-	/* LN Off -> LN2 -> N+2 frame -> Stream Off */
-	if (sensor_hm1_ln_mode_delay_count > 0) {
-		info("%s: sensor_hm1_ln_mode_delay_count : %d ->(%d ms)\n",
-			__func__, sensor_hm1_ln_mode_delay_count, 100 * sensor_hm1_ln_mode_delay_count);
-		msleep(100 * sensor_hm1_ln_mode_delay_count);
-	}
-
 	is_sensor_read8(client, 0x0005, &cur_frame_count);
 	info("%s: frame_count(0x%x)\n", __func__, cur_frame_count);
 
@@ -1242,8 +1362,6 @@ int sensor_hm1_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	u32 line_length_pck = 0;
 	u32 min_fine_int = 0;
 	u16 coarse_integration_time_shifter = 0;
-
-	u16 remainder_cit = 0;
 
 	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
 	u16 cit_shifter_val = 0;
@@ -1319,83 +1437,19 @@ int sensor_hm1_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	line_length_pck = cis_data->line_length_pck;
 	min_fine_int = cis_data->min_fine_integration_time;
 
-	switch (cis->cis_data->cur_lownoise_mode) {
-	case IS_CIS_LNOFF:
-		long_coarse_int = ((target_exposure->long_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = long_coarse_int % 2;
-		long_coarse_int -= remainder_cit;
-		if (long_coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, long_coarse_int, cis_data->min_coarse_integration_time);
-			long_coarse_int = cis_data->min_coarse_integration_time;
-		}
-		short_coarse_int = ((target_exposure->short_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = short_coarse_int % 2;
-		short_coarse_int -= remainder_cit;
-		if (short_coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), short coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, short_coarse_int, cis_data->min_coarse_integration_time);
-			short_coarse_int = cis_data->min_coarse_integration_time;
-		}
-		break;
-	case IS_CIS_LN2:
-		long_coarse_int = ((target_exposure->long_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = long_coarse_int % 4;
-		long_coarse_int -= remainder_cit;
-		if (long_coarse_int < cis_data->min_coarse_integration_time * 2) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, long_coarse_int, cis_data->min_coarse_integration_time * 2);
-			long_coarse_int = cis_data->min_coarse_integration_time * 2;
-		}
-		short_coarse_int = ((target_exposure->short_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = short_coarse_int % 4;
-		short_coarse_int -= remainder_cit;
-		if (short_coarse_int < cis_data->min_coarse_integration_time * 2) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), short coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, short_coarse_int, cis_data->min_coarse_integration_time * 2);
-			short_coarse_int = cis_data->min_coarse_integration_time * 2;
-		}
-		break;
-	case IS_CIS_LN4:
-		long_coarse_int = ((target_exposure->long_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = long_coarse_int % 8;
-		long_coarse_int -= remainder_cit;
-		if (long_coarse_int < cis_data->min_coarse_integration_time * 4) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, long_coarse_int, cis_data->min_coarse_integration_time * 4);
-			long_coarse_int = cis_data->min_coarse_integration_time * 4;
-		}
-		short_coarse_int = ((target_exposure->short_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		remainder_cit = short_coarse_int % 8;
-		short_coarse_int -= remainder_cit;
-		if (short_coarse_int < cis_data->min_coarse_integration_time * 4) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), short coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, short_coarse_int, cis_data->min_coarse_integration_time * 4);
-			short_coarse_int = cis_data->min_coarse_integration_time * 4;
-		}
-		break;
-	default:
-		long_coarse_int = ((target_exposure->long_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		if (long_coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, long_coarse_int, cis_data->min_coarse_integration_time);
-			long_coarse_int = cis_data->min_coarse_integration_time;
-		}
-		short_coarse_int = ((target_exposure->short_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
-												/ line_length_pck;
-		if (short_coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), short coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, short_coarse_int, cis_data->min_coarse_integration_time);
-			short_coarse_int = cis_data->min_coarse_integration_time;
-		}
-		break;
+	long_coarse_int = ((target_exposure->long_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
+											/ line_length_pck;
+	if (long_coarse_int < cis_data->min_coarse_integration_time) {
+		dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
+			cis_data->sen_vsync_count, long_coarse_int, cis_data->min_coarse_integration_time);
+		long_coarse_int = cis_data->min_coarse_integration_time;
+	}
+	short_coarse_int = ((target_exposure->short_val * vt_pic_clk_freq_khz) / 1000 - min_fine_int)
+											/ line_length_pck;
+	if (short_coarse_int < cis_data->min_coarse_integration_time) {
+		dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), short coarse(%d) min(%d)\n", cis->id, __func__,
+			cis_data->sen_vsync_count, short_coarse_int, cis_data->min_coarse_integration_time);
+		short_coarse_int = cis_data->min_coarse_integration_time;
 	}
 
 	if (long_coarse_int > cis_data->max_coarse_integration_time) {
@@ -1681,9 +1735,6 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	cis_data = cis->cis_data;
 
-	if (sensor_hm1_ln_mode_delay_count > 0)
-		sensor_hm1_ln_mode_delay_count--;
-
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
 		switch(cis_data->sens_config_index_cur) {
 #if 0 // TEMP_2020
@@ -1730,10 +1781,7 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		ret = hold;
 		goto p_err_i2c_unlock;
 	}
-#if 0 // TEMP_2020
-	if (cis->cis_data->cur_lownoise_mode != cis->cis_data->pre_lownoise_mode)
-		ret |= sensor_hm1_cis_set_lownoise_mode_change(subdev);
-#endif
+
 	ret |= is_sensor_write16(client, 0x0340, frame_length_lines);
 
 	if (ret < 0)
@@ -2540,7 +2588,6 @@ int sensor_hm1_cis_compensate_gain_for_extremely_br(struct v4l2_subdev *subdev, 
 	u32 min_fine_int = 0;
 	u32 coarse_int = 0;
 	u32 compensated_again = 0;
-	u32 remainder_cit = 0;
 
 	FIMC_BUG(!subdev);
 	FIMC_BUG(!again);
@@ -2563,45 +2610,11 @@ int sensor_hm1_cis_compensate_gain_for_extremely_br(struct v4l2_subdev *subdev, 
 		goto p_err;
 	}
 
-	switch (cis->cis_data->cur_lownoise_mode) {
-	case IS_CIS_LNOFF:
-		coarse_int = ((expo * vt_pic_clk_freq_khz) / 1000 - min_fine_int) / line_length_pck;
-		remainder_cit = coarse_int % 2;
-		coarse_int -= remainder_cit;
-		if (coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, coarse_int, cis_data->min_coarse_integration_time);
-			coarse_int = cis_data->min_coarse_integration_time;
-		}
-		break;
-	case IS_CIS_LN2:
-		coarse_int = ((expo * vt_pic_clk_freq_khz) / 1000 - min_fine_int) / line_length_pck;
-		remainder_cit = coarse_int % 4;
-		coarse_int -= remainder_cit;
-		if (coarse_int < cis_data->min_coarse_integration_time * 2) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, coarse_int, cis_data->min_coarse_integration_time * 2);
-			coarse_int = cis_data->min_coarse_integration_time * 2;
-		}
-		break;
-	case IS_CIS_LN4:
-		coarse_int = ((expo * vt_pic_clk_freq_khz) / 1000 - min_fine_int) / line_length_pck;
-		remainder_cit = coarse_int % 8;
-		coarse_int -= remainder_cit;
-		if (coarse_int < cis_data->min_coarse_integration_time * 4) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, coarse_int, cis_data->min_coarse_integration_time * 4);
-			coarse_int = cis_data->min_coarse_integration_time * 4;
-		}
-		break;
-	default:
-		coarse_int = ((expo * vt_pic_clk_freq_khz) / 1000 - min_fine_int) / line_length_pck;
-		if (coarse_int < cis_data->min_coarse_integration_time) {
-			dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
-				cis_data->sen_vsync_count, coarse_int, cis_data->min_coarse_integration_time);
-			coarse_int = cis_data->min_coarse_integration_time;
-		}
-		break;
+	coarse_int = ((expo * vt_pic_clk_freq_khz) / 1000 - min_fine_int) / line_length_pck;
+	if (coarse_int < cis_data->min_coarse_integration_time) {
+		dbg_sensor(1, "[MOD:D:%d] %s, vsync_cnt(%d), long coarse(%d) min(%d)\n", cis->id, __func__,
+			cis_data->sen_vsync_count, coarse_int, cis_data->min_coarse_integration_time);
+		coarse_int = cis_data->min_coarse_integration_time;
 	}
 
 	if (coarse_int <= 1024) {
@@ -2621,6 +2634,102 @@ int sensor_hm1_cis_compensate_gain_for_extremely_br(struct v4l2_subdev *subdev, 
 	}
 
 p_err:
+	return ret;
+}
+
+int sensor_hm1_cis_set_wb_gain(struct v4l2_subdev *subdev, struct wb_gains wb_gains)
+{
+	int ret = 0;
+	int hold = 0;
+	struct is_cis *cis;
+	struct i2c_client *client;
+	int mode = 0;
+	u16 abs_gains[3] = {0, }; /* R, G, B */
+	u32 avg_g = 0, div = 0;
+
+#ifdef DEBUG_SENSOR_TIME
+	struct timeval st, end;
+	do_gettimeofday(&st);
+#endif
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (!cis->use_wb_gain)
+		return ret;
+
+	mode = cis->cis_data->sens_config_index_cur;
+	if (!sensor_hm1_support_wb_gain[mode]) {
+		return 0;
+	}
+
+	if (wb_gains.gr != wb_gains.gb) {
+		err("gr, gb not euqal"); /* check DDK layer */
+		return -EINVAL;
+	}
+
+	if (wb_gains.gr == 1024)
+		div = 4;
+	else if (wb_gains.gr == 2048)
+		div = 8;
+	else {
+		err("invalid gr,gb %d", wb_gains.gr); /* check DDK layer */
+		return -EINVAL;
+	}
+
+	dbg_sensor(1, "[SEN:%d]%s:DDK vlaue: wb_gain_gr(%d), wb_gain_r(%d), wb_gain_b(%d), wb_gain_gb(%d)\n",
+		cis->id, __func__, wb_gains.gr, wb_gains.r, wb_gains.b, wb_gains.gb);
+
+	avg_g = (wb_gains.gr + wb_gains.gb) / 2;
+	abs_gains[0] = (u16)((wb_gains.r / div) & 0xFFFF);
+	abs_gains[1] = (u16)((avg_g / div) & 0xFFFF);
+	abs_gains[2] = (u16)((wb_gains.b / div) & 0xFFFF);
+
+	dbg_sensor(1, "[SEN:%d]%s, abs_gain_r(0x%4X), abs_gain_g(0x%4X), abs_gain_b(0x%4X)\n",
+		cis->id, __func__, abs_gains[0], abs_gains[1], abs_gains[2]);
+
+	hold = sensor_hm1_cis_group_param_hold(subdev, 0x01);
+	if (hold < 0) {
+		ret = hold;
+		goto p_err;
+	}
+
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+	ret |= is_sensor_write16(client, 0xFCFC, 0x4000);
+	ret |= is_sensor_write16(client, 0x0D82, abs_gains[0]);
+	ret |= is_sensor_write16(client, 0x0D84, abs_gains[1]);
+	ret |= is_sensor_write16(client, 0x0D86, abs_gains[2]);
+	if (ret < 0) {
+		err("sensor_hm1_set_registers fail!!");
+		goto p_i2c_err;
+	}
+
+#ifdef DEBUG_SENSOR_TIME
+	do_gettimeofday(&end);
+	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
+#endif
+
+p_i2c_err:
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+p_err:
+	if (hold > 0) {
+		hold = sensor_hm1_cis_group_param_hold(subdev, 0x00);
+		if (hold < 0)
+			ret = hold;
+	}
+
 	return ret;
 }
 
@@ -2686,14 +2795,12 @@ static struct is_cis_ops cis_ops_hm1 = {
 	.cis_compensate_gain_for_extremely_br = sensor_hm1_cis_compensate_gain_for_extremely_br,
 	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
+	.cis_set_wb_gains = sensor_hm1_cis_set_wb_gain,
 	.cis_data_calculation = sensor_hm1_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_hm1_cis_long_term_exposure,
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 	.cis_update_mipi_info = sensor_hm1_cis_update_mipi_info,
 	.cis_get_mipi_clock_string = sensor_hm1_cis_get_mipi_clock_string,
-#endif
-#ifdef USE_CAMERA_EMBEDDED_HEADER
-	.cis_get_frame_id = sensor_hm1_cis_get_frame_id,
 #endif
 	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
@@ -2810,6 +2917,7 @@ static int cis_hm1_probe(struct i2c_client *client,
 		probe_info("%s f-number %d\n", __func__, cis->aperture_num);
 
 		cis->use_dgain = true;
+		cis->use_wb_gain = true;
 		cis->hdr_ctrl_by_again = false;
 
 		v4l2_set_subdevdata(subdev_cis, cis);
@@ -2818,6 +2926,9 @@ static int cis_hm1_probe(struct i2c_client *client,
 
 		sensor_cis_parse_dt(dev, cis->subdev);
 	}
+
+	sensor_hm1_eeprom_cal_available = false;
+	sensor_hm1_first_entrance = false;
 
 	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
 	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
@@ -2831,10 +2942,14 @@ static int cis_hm1_probe(struct i2c_client *client,
 	if (strcmp(setfile, "default") == 0 ||
 			strcmp(setfile, "setA") == 0) {
 		probe_info("%s setfile_A\n", __func__);
-		sensor_hm1_reset_tnp = sensor_hm1_setfile_A_Reset_TnP;
-		sensor_hm1_reset_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_Reset_TnP);
+		sensor_hm1_initial = sensor_hm1_setfile_A_Initial;
+		sensor_hm1_initial_size  = ARRAY_SIZE(sensor_hm1_setfile_A_Initial);
+		sensor_hm1_tnp = sensor_hm1_setfile_A_TnP;
+		sensor_hm1_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_TnP);
 		sensor_hm1_global = sensor_hm1_setfile_A_Global;
 		sensor_hm1_global_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global);
+		sensor_hm1_global_for_cal = sensor_hm1_setfile_A_Global_For_Calibration;
+		sensor_hm1_global_for_cal_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global_For_Calibration);
 		sensor_hm1_setfiles = sensor_hm1_setfiles_A;
 		sensor_hm1_setfile_sizes = sensor_hm1_setfile_A_sizes;
 		sensor_hm1_pllinfos = sensor_hm1_pllinfos_A;
@@ -2847,10 +2962,14 @@ static int cis_hm1_probe(struct i2c_client *client,
 #endif
 	} else {
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
-		sensor_hm1_reset_tnp = sensor_hm1_setfile_A_Reset_TnP;
-		sensor_hm1_reset_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_Reset_TnP);
+		sensor_hm1_initial = sensor_hm1_setfile_A_Initial;
+		sensor_hm1_initial_size  = ARRAY_SIZE(sensor_hm1_setfile_A_Initial);
+		sensor_hm1_tnp = sensor_hm1_setfile_A_TnP;
+		sensor_hm1_tnp_size  = ARRAY_SIZE(sensor_hm1_setfile_A_TnP);
 		sensor_hm1_global = sensor_hm1_setfile_A_Global;
 		sensor_hm1_global_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global);
+		sensor_hm1_global_for_cal = sensor_hm1_setfile_A_Global_For_Calibration;
+		sensor_hm1_global_for_cal_size = ARRAY_SIZE(sensor_hm1_setfile_A_Global_For_Calibration);
 		sensor_hm1_setfiles = sensor_hm1_setfiles_A;
 		sensor_hm1_setfile_sizes = sensor_hm1_setfile_A_sizes;
 		sensor_hm1_pllinfos = sensor_hm1_pllinfos_A;

@@ -306,7 +306,11 @@ enum {
 #define MSG2SSP_AP_GET_LIGHT_CAL		0x52
 #define MSG2SSP_AP_GET_PROX_TRIM		0x53
 #define MSG2SSP_AP_SET_LIGHT_CAL		0x54
-#define MSG2SSP_AP_SET_LCD_TYPE		0x56
+#define MSG2SSP_AP_SET_LCD_TYPE			0x56
+#define MSG2SSP_AP_SET_PROX_DYNAMIC_CAL		0x57
+#define MSG2AP_INST_PROX_CALL_MIN		0x58
+#define MSG2SSP_AP_SET_PROX_CALL_MIN		0x58
+#define MSG2SSP_AP_SET_FACTORY_BINARY_FLAG	0x59
 
 #define MSG2SSP_AP_REGISTER_DUMP		0x4A
 #define MSG2SSP_AP_REGISTER_SETTING		  0x4B
@@ -631,12 +635,21 @@ struct sensor_value {
 			u8 pocket_reason;
 			u32 pocket_base_proxy;
 			u32 pocket_current_proxy;
+			u32 pocket_lux;
 			u32 pocket_release_diff;
 			u32 pocket_min_release;
-			u32 pocket_light_data;
-			u32 pocket_temp;
-		} __attribute__((__packed__));
+			u32 pocket_min_recognition;
+			u32 pocket_open_data;
+			u32 pocket_close_data;
+			u32 pocket_high_prox_data;
+			u32 pocket_base_prox_time;
+			u32 pocket_current_prox_time;
+			u32 pocket_high_prox_time;
+			u32 pocket_temp[3];
+		} __attribute__((__packed__)); // pocket_mode use 62bytes
 		u8 led_cover_event;
+		u8 tap_tracker_event;
+		u8 shake_tracker_event;
 		u8 scontext_buf[SCONTEXT_DATA_SIZE];
 		struct {
 			u8 proximity_pocket_detect;
@@ -1050,6 +1063,8 @@ struct ssp_data {
         bool IsNoRespCnt;
 /* hall ic */
 	bool hall_ic_status; // 0: open 1: close
+	bool svc_octa_change; // default, false;
+	int prox_call_min; // default: -1
 };
 
 //#if defined (CONFIG_SENSORS_SSP_VLTE)
@@ -1234,6 +1249,8 @@ void report_call_gesture_data(struct ssp_data *data, int sensor_type, struct sen
 void report_move_detector_data(struct ssp_data *data, int sensor_type, struct sensor_value *move_detector_data);
 void report_pocket_mode_data(struct ssp_data *data, int sensor_type, struct sensor_value *pocket_data);
 void report_led_cover_event_data(struct ssp_data *data, int sensor_type, struct sensor_value *led_cover_event_data);
+void report_tap_tracker_data(struct ssp_data *data, int sensor_type, struct sensor_value *tap_tracker_data);
+void report_shake_tracker_data(struct ssp_data *data, int sensor_type, struct sensor_value *shake_tracker_data);
 
 unsigned int get_module_rev(struct ssp_data *data);
 void reset_mcu(struct ssp_data *data);
@@ -1308,4 +1325,7 @@ void initialize_super_vdis_setting(void);
 
 int proximity_save_calibration(int *cal_data, int size);
 int set_prox_cal_to_ssp(struct ssp_data *data);
+int set_prox_dynamic_cal_to_ssp(struct ssp_data *data);
+int set_prox_call_min_to_ssp(struct ssp_data *data);
+int set_factory_binary_flag_to_ssp(struct ssp_data *data);
 #endif

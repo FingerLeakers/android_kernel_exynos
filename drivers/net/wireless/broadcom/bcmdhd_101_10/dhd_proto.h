@@ -166,11 +166,6 @@ extern int dhd_prot_flow_ring_resume(dhd_pub_t *dhd, flow_ring_node_t *flow_ring
 #endif /* IDLE_TX_FLOW_MGMT */
 extern int dhd_prot_init_info_rings(dhd_pub_t *dhd);
 extern int dhd_prot_check_tx_resource(dhd_pub_t *dhd);
-extern void dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd);
-extern void dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd);
-#else
-static INLINE void dhd_prot_update_pktid_txq_stop_cnt(dhd_pub_t *dhd) { return; }
-static INLINE void dhd_prot_update_pktid_txq_start_cnt(dhd_pub_t *dhd) { return; }
 #endif /* BCMPCIE */
 
 #ifdef DHD_LB

@@ -35,9 +35,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-/* XXX Why isn't ASSERT always available as part of a non BCMDRIVER build?
- * It seems like there ought to be a non BCMDRIVER osl.
- */
 #ifndef ASSERT
 #define ASSERT(exp)
 #endif
@@ -46,7 +43,7 @@
 #include <bcmwifi_channels.h>
 
 #if defined(WIN32) && (defined(BCMDLL) || defined(WLMDLL))
-#include <bcmstdlib.h> 	/* For wlexe/Makefile.wlm_dll */
+#include <bcmstdlib.h>	/* For wlexe/Makefile.wlm_dll */
 #endif
 
 #include <802.11.h>
@@ -165,10 +162,6 @@ static bool wf_chanspec_iter_next_5g(wf_chanspec_iter_t *iter);
 static int wf_chanspec_iter_next_5g_range(wf_chanspec_iter_t *iter, chanspec_bw_t bw);
 static void wf_chanspec_iter_6g_range_init(wf_chanspec_iter_t *iter, chanspec_bw_t bw);
 static bool wf_chanspec_iter_next_6g(wf_chanspec_iter_t *iter);
-#ifdef WL11AC_80P80
-static int wf_chanspec_iter_next_8080_range(wf_chanspec_iter_t *iter, chanspec_band_t band);
-static int wf_chanspec_iter_next_8080_pair(wf_chanspec_iter_t *iter, chanspec_band_t band);
-#endif
 
 /**
  * Return the chanspec bandwidth in MHz
@@ -477,13 +470,10 @@ wf_chspec_aton(const char *a)
 	chanspec_bw_t chspec_bw;
 	uint bw;
 	uint num, pri_ch;
-	uint ch0, ch1;
 	char c, sb_ul = '\0';
-	int i;
 
 	bw = 20;
 	chspec_sb = 0;
-	ch0 = ch1 = 0;
 
 	/* parse channel num or band */
 	if (!read_uint(&a, &num))
@@ -508,8 +498,7 @@ wf_chspec_aton(const char *a)
 			return 0;
 
 		c = tolower((int)a[0]);
-	}
-	else {
+	} else {
 		/* first number is channel, use default for band */
 		pri_ch = num;
 		chspec_band = ((pri_ch <= CH_MAX_2G_CHANNEL) ?
@@ -540,11 +529,7 @@ wf_chspec_aton(const char *a)
 		return 0;
 
 	/* convert to chspec value */
-	if (bw == 5) {
-		chspec_bw = WL_CHANSPEC_BW_5;
-	} else if (bw == 10) {
-		chspec_bw = WL_CHANSPEC_BW_10;
-	} else if (bw == 20) {
+	if (bw == 20) {
 		chspec_bw = WL_CHANSPEC_BW_20;
 	} else if (bw == 40) {
 		chspec_bw = WL_CHANSPEC_BW_40;
@@ -558,7 +543,6 @@ wf_chspec_aton(const char *a)
 
 	/* So far we have <band>g<chan>/<bw>
 	 * Can now be followed by u/l if bw = 40,
-	 * or '+80' if bw = 80, to make '80+80' bw.
 	 */
 
 	c = tolower((int)a[0]);
@@ -574,35 +558,7 @@ wf_chspec_aton(const char *a)
 
 	/* check for 80+80 */
 	if (c == '+') {
-		/* 80+80 */
-		const char plus80[] = "80/";
-
-		/* must be looking at '+80/'
-		 * check and consume this string.
-		 */
-		chspec_bw = WL_CHANSPEC_BW_8080;
-
-		a ++; /* consume the char '+' */
-
-		/* consume the '80/' string */
-		for (i = 0; i < 3; i++) {
-			if (*a++ != plus80[i]) {
-				return 0;
-			}
-		}
-
-		/* read primary 80MHz channel */
-		if (!read_uint(&a, &ch0))
-			return 0;
-
-		/* must followed by '-' */
-		if (a[0] != '-')
-			return 0;
-		a ++; /* consume the char */
-
-		/* read secondary 80MHz channel */
-		if (!read_uint(&a, &ch1))
-			return 0;
+		return 0;
 	}
 
 done_read:
@@ -616,9 +572,9 @@ done_read:
 		return 0;
 
 	/* Now have all the chanspec string parts read;
-	 * chspec_band, pri_ch, chspec_bw, sb_ul, ch0, ch1.
+	 * chspec_band, pri_ch, chspec_bw, sb_ul.
 	 * chspec_band and chspec_bw are chanspec values.
-	 * Need to convert pri_ch, sb_ul, and ch0,ch1 into
+	 * Need to convert pri_ch, and sb_ul into
 	 * a center channel (or two) and sideband.
 	 */
 
@@ -632,22 +588,16 @@ done_read:
 			chspec_sb = WL_CHANSPEC_CTL_SB_LLU;
 		}
 		chspec = wf_create_40MHz_chspec_primary_sb(pri_ch, chspec_sb, chspec_band);
-	}
-	/* if the bw is 20, only need the primary channel and band */
-	else if (chspec_bw == WL_CHANSPEC_BW_20) {
+	} else if (chspec_bw == WL_CHANSPEC_BW_20) {
+		/* if the bw is 20, only need the primary channel and band */
 		chspec = wf_create_20MHz_chspec(pri_ch, chspec_band);
-	}
+	} else {
 	/* If the bw is 40/80/160 (and not 40MHz 2G), the channels are non-overlapping in
 	 * 5G or 6G bands. Each primary channel is contained in only one higher bandwidth
 	 * channel. The wf_create_chspec_from_primary() will create the chanspec.
 	 * 2G 40MHz is handled just above, assuming a {u,l} sub-band spec was given.
 	 */
-	else if (chspec_bw != WL_CHANSPEC_BW_8080) {
 		chspec = wf_create_chspec_from_primary(pri_ch, chspec_bw, chspec_band);
-	}
-	/* Otherwise, bw is 80+80. Figure out channel pair and sb */
-	else {
-		chspec = wf_create_8080MHz_chspec(pri_ch, ch0, ch1, chspec_band);
 	}
 
 	if (wf_chspec_malformed(chspec))
@@ -848,27 +798,18 @@ wf_chanspec_iter_init(wf_chanspec_iter_t *iter, chanspec_band_t band, chanspec_b
 	}
 
 	/* make sure the BW is unspecified (INVCHANSPEC), 20/40,
-	 * or (not 2g and 80/160/8080)
+	 * or (not 2g and 80/160)
 	 */
 	if (!(bw == INVCHANSPEC ||
 	      bw == WL_CHANSPEC_BW_20 ||
 	      bw == WL_CHANSPEC_BW_40 ||
 	      (band != WL_CHANSPEC_BAND_2G &&
 	       (bw == WL_CHANSPEC_BW_80 ||
-	        bw == WL_CHANSPEC_BW_160 ||
-	        bw == WL_CHANSPEC_BW_8080)))) {
+	        bw == WL_CHANSPEC_BW_160)))) {
 
 		ASSERT(0);
 		return FALSE;
 	}
-
-#ifndef WL11AC_80P80
-	/* could wrap this in the test above, but would be really ugly */
-	if (bw == WL_CHANSPEC_BW_8080) {
-		ASSERT(0);
-		return FALSE;
-	}
-#endif /* WL11AC_80P80 */
 
 	/* Validation of the params is successful so move to the "INIT" state to
 	 * allow the first wf_chanspec_iter_next() move the iteration to the first
@@ -915,13 +856,6 @@ wf_chanspec_iter_firstchan(wf_chanspec_iter_t *iter)
 		} else {
 			wf_chanspec_iter_6g_range_init(iter, bw);
 		}
-#ifdef WL11AC_80P80
-		if (bw == WL_CHANSPEC_BW_8080) {
-			chspec = wf_create_8080MHz_chspec(iter->range.start,
-			                                  iter->ch0, iter->ch1,
-			                                  band);
-		} else
-#endif /* WL11AC_80P80 */
 		{
 			chspec = wf_create_chspec_from_primary(iter->range.start, bw, band);
 		}
@@ -994,11 +928,6 @@ wf_iter_next_bw(chanspec_bw_t bw)
 	case WL_CHANSPEC_BW_80:
 		bw = WL_CHANSPEC_BW_160;
 		break;
-#ifdef WL11AC_80P80
-	case WL_CHANSPEC_BW_160:
-		bw = WL_CHANSPEC_BW_8080;
-		break;
-#endif /* WL11AC_80P80 */
 	default:
 		bw = INVCHANSPEC;
 		break;
@@ -1094,15 +1023,7 @@ wf_chanspec_iter_next_5g(wf_chanspec_iter_t *iter)
 
 	/* if we are not at the end of the iteration, calc the next chanspec from components */
 	if (chspec != INVCHANSPEC) {
-#ifdef WL11AC_80P80
-		if (bw == WL_CHANSPEC_BW_8080) {
-			chspec = wf_create_8080MHz_chspec(ch, iter->ch0, iter->ch1,
-			                                  WL_CHANSPEC_BAND_5G);
-		} else
-#endif /* WL11AC_80P80 */
-		{
-			chspec = wf_create_chspec_from_primary(ch, bw, WL_CHANSPEC_BAND_5G);
-		}
+		chspec = wf_create_chspec_from_primary(ch, bw, WL_CHANSPEC_BAND_5G);
 	}
 
 	iter->chanspec = chspec;
@@ -1147,12 +1068,6 @@ wf_chanspec_iter_next_5g_range(wf_chanspec_iter_t *iter, chanspec_bw_t bw)
 		return FALSE;
 	}
 
-#ifdef WL11AC_80P80
-	if (bw == WL_CHANSPEC_BW_8080) {
-		return wf_chanspec_iter_next_8080_range(iter, WL_CHANSPEC_BAND_5G);
-	}
-#endif /* WL11AC_80P80 */
-
 	if (bw == WL_CHANSPEC_BW_40) {
 		channels = wf_5g_40m_chans;
 		count = WF_NUM_5G_40M_CHANS;
@@ -1190,9 +1105,6 @@ wf_chanspec_iter_next_5g_range(wf_chanspec_iter_t *iter, chanspec_bw_t bw)
  * each chanspec in the set.
  * Each BW in 6g has one contiguous range of primary 20MHz channels. When a range is
  * exhausted, the iterator moves to the next BW.
- * For 8080 channels, the ranges are the span of 20MHz channels for each 80MHz segment.
- * The wf_chanspec_iter_next_8080_range() helper advances from one segment to the next,
- * then to the next 8080 channel pair.
  */
 static bool
 wf_chanspec_iter_next_6g(wf_chanspec_iter_t *iter)
@@ -1208,34 +1120,31 @@ wf_chanspec_iter_next_6g(wf_chanspec_iter_t *iter)
 		 * channel with that new primary 20MHz.
 		 */
 		ch += CH_20MHZ_APART;
-	}
-#ifdef WL11AC_80P80
-	else if (bw == WL_CHANSPEC_BW_8080 &&
-	         wf_chanspec_iter_next_8080_range(iter, WL_CHANSPEC_BAND_6G)) {
-		/* there was a 8080 channel pair, so start with the first primary20 */
-		ch = iter->range.start;
-	}
-#endif /* WL11AC_80P80 */
-	else if (iter->bw == INVCHANSPEC &&
-	           (bw = wf_iter_next_bw(bw)) != INVCHANSPEC) {
-		/* start the new bw with the first primary20 */
-		ch = iter->range.start;
+
+		/* try to create a valid channel of the current BW
+		 * with a primary20 'ch'
+		 */
+		chspec = wf_create_chspec_from_primary(ch, bw, WL_CHANSPEC_BAND_6G);
+
+		/* if chspec is INVCHANSPEC, then we hit the end
+		 * of the valid channels in the range.
+		 */
 	} else {
-		/* no more channels, ranges, or BWs */
+		/* hit the end of the current range */
 		chspec = INVCHANSPEC;
 	}
 
-	/* if we are not at the end of the iteration, calc the next chanspec from components */
-	if (chspec != INVCHANSPEC) {
-#ifdef WL11AC_80P80
-		if (bw == WL_CHANSPEC_BW_8080) {
-			chspec = wf_create_8080MHz_chspec(ch, iter->ch0, iter->ch1,
-			                                  WL_CHANSPEC_BAND_6G);
-		} else
-#endif /* WL11AC_80P80 */
-		{
-			chspec = wf_create_chspec_from_primary(ch, bw, WL_CHANSPEC_BAND_6G);
-		}
+	/* if we are at the end of the current channel range
+	 * check if there is another BW to iterate
+	 * Note: (iter->bw == INVCHANSPEC) indicates an unspecified BW for the interation,
+	 * so it will iterate over all BWs.
+	 */
+	if (chspec == INVCHANSPEC &&
+	    iter->bw == INVCHANSPEC &&
+	    (bw = wf_iter_next_bw(bw)) != INVCHANSPEC) {
+		/* start the new bw with the first primary20 */
+		ch = iter->range.start;
+		chspec = wf_create_chspec_from_primary(ch, bw, WL_CHANSPEC_BAND_6G);
 	}
 
 	iter->chanspec = chspec;
@@ -1262,159 +1171,11 @@ wf_chanspec_iter_6g_range_init(wf_chanspec_iter_t *iter, chanspec_bw_t bw)
 		iter->range.start = CH_MIN_6G_CHANNEL;
 		iter->range.end   = CH_MAX_6G_CHANNEL;
 		break;
-	case WL_CHANSPEC_BW_8080:
-		iter->ch0 = CH_MIN_6G_80M_CHANNEL;
-		iter->ch1 = CH_MIN_6G_80M_CHANNEL + 2*CH_80MHZ_APART;
-		break;
 	default:
 		ASSERT(0);
 		break;
 	}
 }
-
-#ifdef WL11AC_80P80
-/**
- * This is an 80+80 MHz helper for both 5g and 6g bands.
- * This function will set up
- *    iter->range.start
- *    iter->range.end
- * to the range of channels for first the lower 80MHz segment, then the for the
- * higher 80MHz segment.
- * Once both segments are complete, this function will call wf_chanspec_iter_next_8080_pair()
- * to advance to the next 8080 MHz channel in the band and set up range.start/end.
- */
-static int
-wf_chanspec_iter_next_8080_range(wf_chanspec_iter_t *iter, chanspec_band_t band)
-{
-	int ret = FALSE;
-	uint range_id = iter->range_id;
-	uint8 edge_offset = (uint8)center_chan_to_edge(WL_CHANSPEC_BW_80);
-	chanspec_t chspec = iter->chanspec;
-
-	/* check if the current range is for the lower channel ID */
-	if (range_id != RANGE_ID_INVAL && CHSPEC_CHAN0(chspec) < CHSPEC_CHAN1(chspec)) {
-		/* we are on the lower id, so move the range to the channels in the higher id */
-		chanspec_t secondary80 = wf_chspec_secondary80_chspec(chspec);
-		uint8 ch = CHSPEC_CHANNEL(secondary80);
-
-		iter->range.start = ch - edge_offset;
-		iter->range.end = ch + edge_offset;
-
-		ret = TRUE; /* all good */
-	} else {
-		/* If we are here, then we have covered the channels ranges for the current
-		 * 80+80MHz channel. Now we need to search for the next pair of 80MHz channels.
-		 */
-		ret = wf_chanspec_iter_next_8080_pair(iter, band);
-
-		if (ret) {
-			iter->range.start = iter->ch0 - edge_offset;
-			iter->range.end = iter->ch0 + edge_offset;
-		}
-	}
-
-	return ret;
-
-}
-
-/**
- * This is an 80+80 MHz helper for both 5g and 6g bands.
- * This function will find the next 8080 channel given the current chanspec in the iter struct.
- *
- * This function will set up
- *    iter->ch0
- *    iter->ch1
- * for the new chanspec.
- * If there are no more 8080 channels in the band, FALSE is returned.
- */
-static int
-wf_chanspec_iter_next_8080_pair(wf_chanspec_iter_t *iter, chanspec_band_t band)
-{
-	int ret = FALSE;
-	chanspec_t chspec = iter->chanspec;
-	uint range_id = iter->range_id;
-	uint8 id0, id1;
-	uint8 ch0, ch1;
-	uint8 count;
-
-	if (band == WL_CHANSPEC_BAND_5G) {
-		count = WF_NUM_5G_80M_CHANS;
-	} else if (band == WL_CHANSPEC_BAND_6G) {
-		count = WF_NUM_6G_80M_CHANS;
-	} else {
-		return FALSE; /* invalid band */
-	}
-
-	/* extract the two 80M channel IDs from the chanspec, or init
-	 * to the 0/0 to start the search. The iteration for an 8080 channel ends with the
-	 * higher 80MHz channel, so id0 will be the secondary80 channel.
-	 */
-	if (range_id == RANGE_ID_INVAL) {
-		id0 = id1 = 0;
-	} else {
-		id0 = CHSPEC_CHAN1(chspec); /* id0 is currently the secondary80 */
-		id1 = CHSPEC_CHAN0(chspec); /* id1 is currently the primary80 */
-	}
-
-	/* Each 80MHz channel has an ID [0 .. count-1] where 'count' is the number of
-	 * 80M channels in the band. It is easier to walk through the ID pairs than the
-	 * channel number pairs.
-	 *
-	 * The set of potential pairs are like this:
-	 *     id0: [0 .. N], id1: [ id0+1 .. N ]
-	 * where the the 80MHz channels represented by id0/1 need to be non-adjacent.
-	 *
-	 * If it was a straightforward 'for' loop to find all valid pairs, it would be:
-	 *    for (id0=0; id0<count; id0++)
-	 *        for (id1=id0+1; id1<count; id1++)
-	 *            if (valid(id0, id1)) { good pair }
-	 * but the code below needs to jump in the middle of that 'for' loop.
-	 */
-
-	/* move to the next pair of ids */
-	while (id1 < count) {
-		/* try the current id0 with the next id1 */
-		id1++;
-
-		/* if id1 has gone out of range of the valid 80MHz channels
-		 * bump up id0 to then next channel.
-		 */
-		if (id1 >= count) {
-			id0++;
-			/* the search for a valid pair start with
-			 * adjacent 80MHz channel ids.
-			 */
-			id1 = id0 + 1;
-			if (id1 >= count) {
-				/* ran out of pairs */
-				break;
-			}
-		}
-
-		/* get the center channels for each frequency segment */
-		if (band == WL_CHANSPEC_BAND_5G) {
-			ch0 = wf_chspec_5G_id80_to_ch(id0);
-			ch1 = wf_chspec_5G_id80_to_ch(id1);
-		} else {
-			ch0 = wf_chspec_6G_id80_to_ch(id0);
-			ch1 = wf_chspec_6G_id80_to_ch(id1);
-		}
-
-		/* A vaild pair is 80MHz segments that are non-adjacent, so separated
-		 * by more than 80MHz.
-		 * If the pair is valid, we have found our next 8080 channel.
-		 */
-		if (ch1 > ch0 + CH_80MHZ_APART) {
-			iter->ch0 = ch0;
-			iter->ch1 = ch1;
-			ret = TRUE; /* all good */
-			break;
-		}
-	}
-
-	return ret;
-}
-#endif /* WL11AC_80P80 */
 
 /**
  * Verify that the channel is a valid 20MHz channel according to 802.11.
@@ -2051,7 +1812,7 @@ wf_chspec_primary20_chspec(chanspec_t chspec)
 
 /* return chanspec given primary 20MHz channel and bandwidth
  * return 0 on error
- * XXX: does not support 6G
+ * does not support 6G
  */
 uint16
 wf_channel2chspec(uint pri_ch, uint bw)
@@ -2304,7 +2065,7 @@ static const uint16 sidebands[] = {
  *
  * returns INVCHANSPEC in case of error
  *
- * XXX: does not support 6G
+ * does not support 6G
  */
 chanspec_t
 wf_chspec_80(uint8 center_channel, uint8 primary_channel)
@@ -2343,7 +2104,7 @@ wf_chspec_80(uint8 center_channel, uint8 primary_channel)
  *
  * Refer to 802.11-2016 section 22.3.14 "Channelization".
  *
- * XXX: does not support 6G
+ * does not support 6G
  */
 chanspec_t
 wf_chspec_get8080_chspec(uint8 primary_20mhz, uint8 chan0, uint8 chan1)
@@ -2512,12 +2273,15 @@ wf_chspec_secondary80_chspec(chanspec_t chspec)
 		center_chan = CHSPEC_CHANNEL(chspec);
 
 		if (CHSPEC_CTL_SB(chspec) < WL_CHANSPEC_CTL_SB_ULL) {
-			/* Primary 80MHz is on lower side */
-			center_chan -= CH_40MHZ_APART;
-		}
-		else {
-			/* Primary 80MHz is on upper side */
+			/* Primary 80MHz is on lower side, so the secondary is on
+			 * the upper side
+			 */
 			center_chan += CH_40MHZ_APART;
+		} else {
+			/* Primary 80MHz is on upper side, so the secondary is on
+			 * the lower side
+			 */
+			center_chan -= CH_40MHZ_APART;
 		}
 
 		/* Create secondary 80MHz chanspec */
@@ -2542,19 +2306,7 @@ void
 wf_chspec_get_80p80_channels(chanspec_t chspec, uint8 *ch)
 {
 
-	if (CHSPEC_IS8080(chspec)) {
-		if (CHSPEC_IS5G(chspec)) {
-			ch[0] = wf_chspec_5G_id80_to_ch(CHSPEC_CHAN0(chspec));
-			ch[1] = wf_chspec_5G_id80_to_ch(CHSPEC_CHAN1(chspec));
-		} else if (CHSPEC_IS6G(chspec)) {
-			ch[0] = wf_chspec_6G_id80_to_ch(CHSPEC_CHAN0(chspec));
-			ch[1] = wf_chspec_6G_id80_to_ch(CHSPEC_CHAN1(chspec));
-		} else {
-			ch[0] = INVCHANNEL;
-			ch[1] = INVCHANNEL;
-		}
-	}
-	else if (CHSPEC_IS160(chspec)) {
+	if (CHSPEC_IS160(chspec)) {
 		uint8 center_chan = CHSPEC_CHANNEL(chspec);
 		ch[0] = center_chan - CH_40MHZ_APART;
 		ch[1] = center_chan + CH_40MHZ_APART;
@@ -2568,25 +2320,12 @@ wf_chspec_get_80p80_channels(chanspec_t chspec, uint8 *ch)
 
 }
 
-#ifdef WL11AC_80P80
-uint8
-wf_chspec_channel(chanspec_t chspec)
-{
-	if (CHSPEC_IS8080(chspec)) {
-		return wf_chspec_primary80_channel(chspec);
-	}
-	else {
-		return ((uint8)((chspec) & WL_CHANSPEC_CHAN_MASK));
-	}
-}
-#endif /* WL11AC_80P80 */
-
 /* Populates array with all 20MHz side bands of a given chanspec_t in the following order:
  *		primary20, secondary20, two secondary40s, four secondary80s.
  *    'chspec' is the chanspec of interest
  *    'pext' must point to an uint8 array of long enough to hold all side bands of the given chspec
  *
- * Works with 20, 40, 80, 80p80 and 160MHz chspec
+ * Works with 20, 40, 80, and 160MHz chspec
  */
 void
 wf_get_all_ext(chanspec_t chspec, uint8 *pext)
@@ -2594,7 +2333,7 @@ wf_get_all_ext(chanspec_t chspec, uint8 *pext)
 #ifdef WL11N_20MHZONLY
 	GET_ALL_SB(chspec, pext);
 #else /* !WL11N_20MHZONLY */
-	chanspec_t t = (CHSPEC_IS160(chspec) || CHSPEC_IS8080(chspec)) ? /* if bw > 80MHz */
+	chanspec_t t = (CHSPEC_IS160(chspec)) ? /* if bw > 80MHz */
 	wf_chspec_primary80_chspec(chspec) : (chspec); /* extract primary 80 */
 	/* primary20 channel as first element */
 	uint8 pri_ch = (pext)[0] = wf_chspec_primary20_chan(t);
@@ -2651,4 +2390,20 @@ channel_bw_to_width(chanspec_t chspec)
 		channel_width = VHT_OP_CHAN_WIDTH_20_40;
 
 	return channel_width;
+}
+
+uint wf_chspec_first_20_sb(chanspec_t chspec)
+{
+#if defined(WL_BW160MHZ)
+	if (CHSPEC_IS160(chspec)) {
+		return LLL_20_SB_160(CHSPEC_CHANNEL(chspec));
+	} else
+#endif
+	if (CHSPEC_IS80(chspec)) {
+		return LL_20_SB(CHSPEC_CHANNEL(chspec));
+	} else if (CHSPEC_IS40(chspec)) {
+		return LOWER_20_SB(CHSPEC_CHANNEL(chspec));
+	} else {
+		return CHSPEC_CHANNEL(chspec);
+	}
 }

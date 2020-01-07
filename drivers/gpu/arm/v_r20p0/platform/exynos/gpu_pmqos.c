@@ -34,7 +34,7 @@
 #if defined(CONFIG_SCHED_EMS)
 #include <linux/ems.h>
 #if defined(CONFIG_SCHED_EMS_TUNE)
-static struct emstune_mode_request emstune_req_g3d;
+//static struct emstune_mode_request emstune_req_g3d;
 #else
 static struct gb_qos_request gb_req = {
 	.name = "ems_boost",
@@ -150,19 +150,12 @@ int gpu_pm_qos_command(struct exynos_context *platform, gpu_pmqos_state state)
 				if (platform->sustainable.info_array[4] != 0)
 					pm_qos_update_request(&exynos5_g3d_cpu_cluster2_max_qos, platform->sustainable.info_array[4]);
 #endif
-#if defined(CONFIG_SCHED_EMS_TUNE)
-				emstune_update_request(&emstune_req_g3d, 3);
-#endif
-
 			} else {
 #if 0
 				platform->sustainable.status = false;
 				pm_qos_update_request(&exynos5_g3d_cpu_cluster0_max_qos, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
 				pm_qos_update_request(&exynos5_g3d_cpu_cluster1_max_qos, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
 				pm_qos_update_request(&exynos5_g3d_cpu_cluster2_max_qos, platform->table[platform->step].cpu_big_max_freq);
-#endif
-#if defined(CONFIG_SCHED_EMS_TUNE)
-				emstune_update_request(&emstune_req_g3d, 0);
 #endif
 			}
 		}
@@ -188,9 +181,6 @@ int gpu_pm_qos_command(struct exynos_context *platform, gpu_pmqos_state state)
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster1_min_qos, 0);
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster2_max_qos, PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
 #ifdef CONFIG_MALI_SUSTAINABLE_OPT
-#if defined(CONFIG_SCHED_EMS_TUNE)
-		emstune_update_request(&emstune_req_g3d, 0);
-#endif
 #if 0
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster0_max_qos, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster1_max_qos, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);

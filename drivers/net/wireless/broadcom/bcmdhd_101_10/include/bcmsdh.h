@@ -130,7 +130,7 @@ extern uint32 bcmsdh_reg_write(void *sdh, uintptr addr, uint size, uint32 data);
 extern int bcmsdhsdio_set_sbaddr_window(void *sdh, uint32 address, bool force_set);
 
 /* Indicate if last reg read/write failed */
-/* XXX Replace this with status pointers in reg_read/write */
+/* Replace this with status pointers in reg_read/write */
 extern bool bcmsdh_regfail(void *sdh);
 
 /* Buffer transfer to/from device (client) core via cmd53.
@@ -145,6 +145,7 @@ extern bool bcmsdh_regfail(void *sdh);
  * Returns 0 or error code.
  * NOTE: Async operation is not currently supported.
  */
+
 typedef void (*bcmsdh_cmplt_fn_t)(void *handle, int status, bool sync_waiting);
 extern int bcmsdh_send_buf(void *sdh, uint32 addr, uint fn, uint flags,
                            uint8 *buf, uint nbytes, void *pkt,
@@ -187,7 +188,7 @@ extern int bcmsdh_stop(void *sdh);
 /* Wait system lock free */
 extern int bcmsdh_waitlockfree(void *sdh);
 
-/* XXX Bogosity alert. This should only know about devids gleaned through
+/* Bogosity alert. This should only know about devids gleaned through
  * the standard CIS (versus some client dependent method), and we already
  * have an interface for the CIS.
  * Remove me.

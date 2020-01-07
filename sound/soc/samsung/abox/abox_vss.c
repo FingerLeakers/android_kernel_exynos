@@ -47,7 +47,6 @@ void abox_call_notify_event(enum abox_call_event evt, void *data)
 int abox_vss_notify_call(struct device *dev, struct abox_data *data, int en)
 {
 	static const char cookie[] = "vss_notify_call";
-	int ref_count = 0;
 	int ret = 0;
 
 	dev_dbg(dev, "%s(%d)\n", __func__, en);
@@ -61,13 +60,10 @@ int abox_vss_notify_call(struct device *dev, struct abox_data *data, int en)
 				ret = abox_qos_request_int(dev, E9810_INT_ID,
 						E9810_INT_FREQ, cookie);
 		} else if (IS_ENABLED(CONFIG_SOC_EXYNOS9830)) {
-			ref_count = atomic_inc_return(&abox_call_noti);
-			if (ref_count == 1) {
+			if (atomic_cmpxchg(&abox_call_noti, 0, 1) == 0) {
+				dev_info(dev, "%s en(%d)\n", __func__, en);
 				abox_call_notify_event(ABOX_CALL_EVENT_ON,
 						NULL);
-				dev_info(dev, "%s en(%d) rcnt(%d)\n", __func__,
-						en, ref_count);
-
 				llc_region_alloc(LLC_REGION_CALL, 1);
 			}
 		}
@@ -76,13 +72,10 @@ int abox_vss_notify_call(struct device *dev, struct abox_data *data, int en)
 			ret = abox_qos_request_int(dev, E9810_INT_ID, 0,
 					cookie);
 		} else if (IS_ENABLED(CONFIG_SOC_EXYNOS9830)) {
-			ref_count = atomic_dec_if_positive(&abox_call_noti);
-			if (ref_count == 0) {
+			if (atomic_cmpxchg(&abox_call_noti, 1, 0) == 1) {
+				dev_info(dev, "%s en(%d)\n", __func__, en);
 				abox_call_notify_event(ABOX_CALL_EVENT_OFF,
 						NULL);
-				dev_info(dev, "%s en(%d) rcnt(%d)\n", __func__,
-						en, ref_count);
-
 				llc_region_alloc(LLC_REGION_CALL, 0);
 			}
 		}

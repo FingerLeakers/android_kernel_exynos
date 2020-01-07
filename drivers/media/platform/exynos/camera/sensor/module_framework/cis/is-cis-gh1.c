@@ -48,6 +48,8 @@ static const struct v4l2_subdev_ops subdev_ops;
 
 static const u32 *sensor_gh1_global;
 static u32 sensor_gh1_global_size;
+static const u32 *sensor_gh1_global_secure;
+static u32 sensor_gh1_global_secure_size;
 static const u32 **sensor_gh1_setfiles;
 static const u32 *sensor_gh1_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_gh1_pllinfos;
@@ -61,18 +63,16 @@ int sensor_gh1_cis_set_frame_rate(struct v4l2_subdev *subdev, u32 min_fps);
 static bool sensor_gh1_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 {
 //ToDo : WDR always off for bring-up
-#if 0
+#if 1
 	unsigned int mode = cis_data->sens_config_index_cur;
 
 	if (is_vender_wdr_mode_on(cis_data) &&
-		(mode == SENSOR_GH1_7296X5472_17FPS
-		|| mode == SENSOR_GH1_3648X2736_30FPS
+		(mode == SENSOR_GH1_3648X2736_30FPS
 		|| mode == SENSOR_GH1_3968X2232_30FPS
-		|| mode == SENSOR_GH1_3968X2232_60FPS
-		|| mode == SENSOR_GH1_1984X1116_240FPS
-		|| mode == SENSOR_GH1_1824X1168_30FPS
+		|| mode == SENSOR_GH1_1824X1368_30FPS
 		|| mode == SENSOR_GH1_1984X1116_30FPS
-		|| mode == SENSOR_GH1_912X684_120FPS))
+		|| mode == SENSOR_GH1_2944x2208_30FPS
+		|| mode == SENSOR_GH1_3216x1808_30FPS))
 		return true;
 #endif
 	return false;
@@ -426,6 +426,7 @@ int sensor_gh1_cis_set_global_setting(struct v4l2_subdev *subdev)
 	int i;
 	struct is_cis *cis = NULL;
 	struct i2c_client *client;
+	struct is_core *core;
 	u32 post_set_address;
 	u32 post_set_value;
 
@@ -443,9 +444,21 @@ int sensor_gh1_cis_set_global_setting(struct v4l2_subdev *subdev)
 		goto p_err;
 	}
 
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("core is NULL");
+		return -EINVAL;
+	}
+
 	/* setfile global setting is at camera entrance */
 	info("[%s] global setting enter\n", __func__);
-	ret = sensor_cis_set_registers(subdev, sensor_gh1_global, sensor_gh1_global_size);
+	if (core->scenario == IS_SCENARIO_SECURE){
+		info("[%s] sensor_gh1 FD mode setting\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_gh1_global_secure, sensor_gh1_global_secure_size);
+	} else {
+		ret = sensor_cis_set_registers(subdev, sensor_gh1_global, sensor_gh1_global_size);
+	}
+
 	if (ret < 0) {
 		err("sensor_gh1_set_registers fail!!");
 		goto p_err;
@@ -472,17 +485,13 @@ static void sensor_gh1_cis_set_paf_stat_enable(u32 mode, cis_shared_data *cis_da
 	WARN_ON(!cis_data);
 
 	switch (mode) {
-    case SENSOR_GH1_7296X5472_15FPS:
-    case SENSOR_GH1_3648X2736_30FPS:
-    case SENSOR_GH1_3968X2232_30FPS:
-    case SENSOR_GH1_3968X2232_60FPS:
-    case SENSOR_GH1_1984X1116_240FPS:
-    case SENSOR_GH1_1824X1368_30FPS:
-    case SENSOR_GH1_1984X1116_30FPS:
-    case SENSOR_GH1_912X684_120FPS:
-    case SENSOR_GH1_2944x2208_30FPS:
-    case SENSOR_GH1_3216x1808_30FPS:
-			cis_data->is_data.paf_stat_enable = false;	/* TEMP_2020 */
+	case SENSOR_GH1_3648X2736_30FPS:
+	case SENSOR_GH1_3968X2232_30FPS:
+	case SENSOR_GH1_1824X1368_30FPS:
+	case SENSOR_GH1_1984X1116_30FPS:
+	case SENSOR_GH1_2944x2208_30FPS:
+	case SENSOR_GH1_3216x1808_30FPS:
+		cis_data->is_data.paf_stat_enable = true;
 		break;
 	default:
 		cis_data->is_data.paf_stat_enable = false;
@@ -496,6 +505,7 @@ int sensor_gh1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	struct is_cis *cis = NULL;
 	struct is_device_sensor *device;
 	struct is_device_sensor_peri *sensor_peri;
+	struct is_core *core;
 
 	FIMC_BUG(!subdev);
 
@@ -506,6 +516,12 @@ int sensor_gh1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
 	if (unlikely(!device)) {
 		err("device sensor is null");
+		return -EINVAL;
+	}
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		err("core is NULL");
 		return -EINVAL;
 	}
 
@@ -530,10 +546,12 @@ int sensor_gh1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	sensor_gh1_cis_set_paf_stat_enable(mode, cis->cis_data);
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
-	ret = sensor_cis_set_registers(subdev, sensor_gh1_setfiles[mode], sensor_gh1_setfile_sizes[mode]);
-	if (ret < 0) {
-		err("sensor_gh1_set_registers fail!!");
-		goto p_err_i2c_unlock;
+	if (core->scenario != IS_SCENARIO_SECURE){
+		ret = sensor_cis_set_registers(subdev, sensor_gh1_setfiles[mode], sensor_gh1_setfile_sizes[mode]);
+		if (ret < 0) {
+			err("sensor_gh1_set_registers fail!!");
+			goto p_err_i2c_unlock;
+		}
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
@@ -757,9 +775,6 @@ int sensor_gh1_cis_stream_on(struct v4l2_subdev *subdev)
 		err("group_param_hold_func failed at stream on");
 
 	msleep(8);
-	/* Dual sync Master setting start */
-	is_sensor_write16(client, 0x0A70, 0x0001);
-	is_sensor_write16(client, 0x0A72, 0x0100);
 
 	/* Sensor stream on */
 	is_sensor_write8(client, 0x0100, 0x01);
@@ -1789,6 +1804,102 @@ int sensor_gh1_cis_get_max_digital_gain(struct v4l2_subdev *subdev, u32 *max_dga
 	return ret;
 }
 
+int sensor_gh1_cis_set_wb_gain(struct v4l2_subdev *subdev, struct wb_gains wb_gains)
+{
+	int ret = 0;
+	int hold = 0;
+	struct is_cis *cis;
+	struct i2c_client *client;
+	int mode = 0;
+	u16 abs_gains[3] = {0, }; /* R, G, B */
+	u32 avg_g = 0, div = 0;
+
+#ifdef DEBUG_SENSOR_TIME
+	struct timeval st, end;
+	do_gettimeofday(&st);
+#endif
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	if (!cis->use_wb_gain)
+		return ret;
+
+	mode = cis->cis_data->sens_config_index_cur;
+	if (!sensor_gh1_support_wb_gain[mode]) {
+		return 0;
+	}
+
+	if (wb_gains.gr != wb_gains.gb) {
+		err("gr, gb not euqal"); /* check DDK layer */
+		return -EINVAL;
+	}
+
+	if (wb_gains.gr == 1024)
+		div = 4;
+	else if (wb_gains.gr == 2048)
+		div = 8;
+	else {
+		err("invalid gr,gb %d", wb_gains.gr); /* check DDK layer */
+		return -EINVAL;
+	}
+
+	dbg_sensor(1, "[SEN:%d]%s:DDK vlaue: wb_gain_gr(%d), wb_gain_r(%d), wb_gain_b(%d), wb_gain_gb(%d)\n",
+		cis->id, __func__, wb_gains.gr, wb_gains.r, wb_gains.b, wb_gains.gb);
+
+	avg_g = (wb_gains.gr + wb_gains.gb) / 2;
+	abs_gains[0] = (u16)((wb_gains.r / div) & 0xFFFF);
+	abs_gains[1] = (u16)((avg_g / div) & 0xFFFF);
+	abs_gains[2] = (u16)((wb_gains.b / div) & 0xFFFF);
+
+	dbg_sensor(1, "[SEN:%d]%s, abs_gain_r(0x%4X), abs_gain_g(0x%4X), abs_gain_b(0x%4X)\n",
+		cis->id, __func__, abs_gains[0], abs_gains[1], abs_gains[2]);
+
+	hold = sensor_gh1_cis_group_param_hold(subdev, 0x01);
+	if (hold < 0) {
+		ret = hold;
+		goto p_err;
+	}
+
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+	ret |= is_sensor_write16(client, 0xFCFC, 0x4000);
+	ret |= is_sensor_write16(client, 0x0D82, abs_gains[0]);
+	ret |= is_sensor_write16(client, 0x0D84, abs_gains[1]);
+	ret |= is_sensor_write16(client, 0x0D86, abs_gains[2]);
+	if (ret < 0) {
+		err("sensor_gh1_set_registers fail!!");
+		goto p_i2c_err;
+	}
+
+#ifdef DEBUG_SENSOR_TIME
+	do_gettimeofday(&end);
+	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
+#endif
+
+p_i2c_err:
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+p_err:
+	if (hold > 0) {
+		hold = sensor_gh1_cis_group_param_hold(subdev, 0x00);
+		if (hold < 0)
+			ret = hold;
+	}
+
+	return ret;
+}
+
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
 static int sensor_gh1_cis_update_mipi_info(struct v4l2_subdev *subdev)
 {
@@ -1913,6 +2024,7 @@ static struct is_cis_ops cis_ops = {
 	.cis_get_min_digital_gain = sensor_gh1_cis_get_min_digital_gain,
 	.cis_get_max_digital_gain = sensor_gh1_cis_get_max_digital_gain,
 	.cis_compensate_gain_for_extremely_br = sensor_cis_compensate_gain_for_extremely_br,
+	.cis_set_wb_gains = sensor_gh1_cis_set_wb_gain,
 	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 #ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
@@ -2030,6 +2142,7 @@ static int cis_gh1_probe(struct i2c_client *client,
 		probe_info("%s f-number %d\n", __func__, cis->aperture_num);
 
 		cis->use_dgain = true;
+		cis->use_wb_gain = true;
 		cis->hdr_ctrl_by_again = false;
 
 		v4l2_set_subdevdata(subdev_cis, cis);
@@ -2065,6 +2178,8 @@ static int cis_gh1_probe(struct i2c_client *client,
 		probe_info("%s setfile_A\n", __func__);
 		sensor_gh1_global = sensor_gh1_setfile_A_Global;
 		sensor_gh1_global_size = ARRAY_SIZE(sensor_gh1_setfile_A_Global);
+		sensor_gh1_global_secure = sensor_gh1_setfile_A_Global_Secure;
+		sensor_gh1_global_secure_size = ARRAY_SIZE(sensor_gh1_setfile_A_Global_Secure);
 		sensor_gh1_setfiles = sensor_gh1_setfiles_A;
 		sensor_gh1_setfile_sizes = sensor_gh1_setfile_A_sizes;
 		sensor_gh1_pllinfos = sensor_gh1_pllinfos_A;
@@ -2092,6 +2207,8 @@ static int cis_gh1_probe(struct i2c_client *client,
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
 		sensor_gh1_global = sensor_gh1_setfile_A_Global;
 		sensor_gh1_global_size = ARRAY_SIZE(sensor_gh1_setfile_A_Global);
+		sensor_gh1_global_secure = sensor_gh1_setfile_A_Global_Secure;
+		sensor_gh1_global_secure_size = ARRAY_SIZE(sensor_gh1_setfile_A_Global_Secure);
 		sensor_gh1_setfiles = sensor_gh1_setfiles_A;
 		sensor_gh1_setfile_sizes = sensor_gh1_setfile_A_sizes;
 		sensor_gh1_pllinfos = sensor_gh1_pllinfos_A;

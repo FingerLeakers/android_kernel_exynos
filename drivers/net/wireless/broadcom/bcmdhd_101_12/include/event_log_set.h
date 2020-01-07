@@ -33,7 +33,7 @@
 /* MSCH logging */
 #define EVENT_LOG_SET_MSCH_PROFILER	(4u)
 
-/* XXX: A particular customer uses sets 5, 6, and 7. There is a request
+/* A particular customer uses sets 5, 6, and 7. There is a request
  * to not name these log sets as that could limit their ability to
  * use different log sets in future.
  * Sets 5, 6, and 7 are instantiated by host
@@ -45,7 +45,7 @@
 #define EVENT_LOG_SET_6			(6u)
 #define EVENT_LOG_SET_7			(7u)
 
-/* XXX: Temporary change to satisfy compilation across branches
+/* Temporary change to satisfy compilation across branches
  * Will be removed after checkin
  */
 #define EVENT_LOG_SET_8			(8u)

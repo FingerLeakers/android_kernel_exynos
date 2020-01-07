@@ -839,7 +839,7 @@ static void ufshpb_hit_lru_info(struct victim_select_info *lru_info,
 
 static inline bool ufshpb_is_hpb_flag(struct request *rq)
 {
-	return rq->cmd_flags & REQ_RT_PINNED;
+	return rq->cmd_flags & REQ_HPB_PREFER;
 }
 
 static inline void ufshpb_act_rsp_list_add(struct ufshpb_lu *hpb,
@@ -1753,6 +1753,10 @@ static int ufshpb_execute_map_req(struct ufshpb_lu *hpb,
 #if defined(CONFIG_HPB_DEBUG_SYSFS)
 	ufshpb_increase_rb_count(hpb, rgn);
 #endif
+#if defined(SEC_UFS_ERROR_COUNT)
+	/* It's same as ufshpb_increase_rb_count() */
+	SEC_ufs_hpb_rb_count(hpb->ufsf->hba, rgn);
+#endif
 
 	return 0;
 }
@@ -2593,6 +2597,7 @@ static int ufshpb_issue_unset_rt_all_req(struct ufshpb_lu *hpb)
 	struct ufsf_feature *ufsf = hpb->ufsf;
 	unsigned char cdb[10] = { 0 };
 	int ret;
+	int retries = 0;
 
 	sdev = ufsf->sdev_ufs_lu[hpb->lun];
 	if (!sdev) {
@@ -2606,12 +2611,16 @@ static int ufshpb_issue_unset_rt_all_req(struct ufshpb_lu *hpb)
 
 	ufshpb_set_unset_rt_all_cmd(cdb);
 
-	ret = scsi_execute(sdev, cdb, DMA_NONE, NULL, 0, NULL, &sshdr,
-			   msecs_to_jiffies(30000), 3, 0, 0, NULL);
-	if (ret) {
-		ERR_MSG("issue unset_rt_all_req failed.");
-		if (driver_byte(ret) & DRIVER_SENSE)
-			scsi_print_sense_hdr(sdev, NULL, &sshdr);
+	for (retries = 0; retries < 3; retries++) {
+		ret = scsi_execute(sdev, cdb, DMA_NONE, NULL, 0, NULL, &sshdr,
+				msecs_to_jiffies(30000), 3, 0, 0, NULL);
+		if (ret) {
+			ERR_MSG("issue unset_rt_all_req failed. (%d)", retries);
+			if (driver_byte(ret) & DRIVER_SENSE)
+				scsi_print_sense_hdr(sdev, NULL, &sshdr);
+		} else {
+			break;
+		}
 	}
 
 	scsi_device_put(sdev);
@@ -3672,8 +3681,10 @@ static int ufshpb_init(struct ufsf_feature *ufsf)
 
 	return 0;
 out_free_mem:
-	seq_scan_lu(lun)
+	seq_scan_lu(lun) {
 		kfree(ufsf->ufshpb_lup[lun]);
+		ufsf->ufshpb_lup[lun] = NULL;
+	}
 
 	ufsf->ufshpb_state = HPB_FAILED;
 	return ret;

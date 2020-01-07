@@ -368,7 +368,7 @@ enum base_reg_index {
 #define MCSC_WIDTH_ALIGN		(4)
 #define MCSC_HEIGHT_ALIGN		(2)
 #define MCSC_PRECISION			(20)
-#define MCSC_POLY_RATIO_UP		(14)
+#define MCSC_POLY_RATIO_UP		(16)
 #define MCSC_POLY_RATIO_DOWN		(16)
 #define MCSC_POLY_MAX_RATIO_DOWN	(256)
 #define MCSC_POST_RATIO_DOWN		(16)
