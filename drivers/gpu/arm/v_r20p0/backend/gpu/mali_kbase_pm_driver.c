@@ -330,7 +330,10 @@ static void kbase_pm_invoke(struct kbase_device *kbdev,
 			}
 	}
 
-	if (action == ACTION_PWRON && core_type == KBASE_PM_CORE_SHADER) {
+	if (kbdev->wa.ctx &&
+	    action == ACTION_PWRON &&
+	    core_type == KBASE_PM_CORE_SHADER &&
+	    !(kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER)) {
 		kbase_wa_execute(kbdev, cores);
 	} else {
 		if (lo != 0)
@@ -1573,6 +1576,11 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	kbase_ctx_sched_restore_all_as(kbdev);
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 	mutex_unlock(&kbdev->mmu_hw_mutex);
+
+	if (kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER)
+		kbase_wa_execute(kbdev,
+				 kbase_pm_get_present_cores(kbdev,
+							    KBASE_PM_CORE_SHADER));
 
 	/* Enable the interrupts */
 	kbase_pm_enable_interrupts(kbdev);

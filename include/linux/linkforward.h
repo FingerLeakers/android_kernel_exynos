@@ -20,6 +20,32 @@
 #include <net/netfilter/nf_nat_l3proto.h>
 #include <net/netfilter/nf_nat_l4proto.h>
 
+/* #define DEBUG_LINK_FORWARD */
+/* #define DEBUG_LINK_FORWARD_LOW */
+/* #define DEBUG_TEST_UDP */
+
+/* LOG print */
+#define LOG_TAG_LINKFORWARD	"linkforward: "
+
+#define lf_err(fmt, ...) \
+	pr_err(LOG_TAG_LINKFORWARD "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+#define lf_err_limited(fmt, ...) \
+	printk_ratelimited(KERN_ERR LOG_TAG_LINKFORWARD "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+#define lf_info(fmt, ...) \
+	pr_info(LOG_TAG_LINKFORWARD "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+
+#ifdef DEBUG_LINK_FORWARD
+#define lf_debug(fmt, ...) lf_info(fmt, ##__VA_ARGS__)
+#ifdef DEBUG_LINK_FORWARD_LOW
+#define lf_debug_low(fmt, ...)	lf_info(fmt, ##__VA_ARGS__)
+#else
+#define lf_debug_low(fmt, ...)
+#endif
+#else
+#define lf_debug(fmt, ...)
+#define lf_debug_low(fmt, ...)
+#endif
+
 /* If this configure is enabled, tether-offload controls linkforward on/off */
 #define USE_TETHEROFFLOAD
 

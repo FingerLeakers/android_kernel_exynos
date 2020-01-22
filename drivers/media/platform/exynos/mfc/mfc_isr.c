@@ -364,6 +364,12 @@ static void __mfc_handle_frame_output_del(struct mfc_ctx *ctx, unsigned int err)
 			mfc_debug(2, "[SBWC] Uncompressed\n");
 		}
 
+		if (ctx->update_framerate) {
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_FRAMERATE_CH);
+			ctx->update_framerate = false;
+			mfc_debug(2, "[QoS] framerate changed\n");
+		}
+
 		if (ctx->dst_fmt->mem_planes == 1) {
 			vb2_set_plane_payload(&dst_mb->vb.vb2_buf, 0,
 					raw->total_plane_size);

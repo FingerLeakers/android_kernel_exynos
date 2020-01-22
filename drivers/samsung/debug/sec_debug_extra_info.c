@@ -1225,6 +1225,7 @@ static int __init secdbg_extra_info_init(void)
 
 	entry = proc_create("reset_rwc", S_IWUGO, NULL,
 				&sec_debug_reset_rwc_proc_fops);
+
 	if (!entry)
 		return -ENOMEM;
 

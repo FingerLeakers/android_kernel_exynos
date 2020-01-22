@@ -74,6 +74,7 @@ struct exynos_ehld_main {
 	int				enabled;
 	bool				suspending;
 	bool				resuming;
+	bool				sjtag;
 	struct exynos_ehld_dbgc		dbgc;
 	struct device			*dev;
 };
@@ -205,15 +206,21 @@ void exynos_ehld_do_policy(void)
 
 void exynos_ehld_value_raw_update(int cpu)
 {
-	u32 val;
+	u32 val, val_en;
 
 	if (ehld_main.dbgc.support && ehld_main.dbgc.enabled) {
 		write_sysreg(0, pmselr_el0);
 		isb();
 		val = read_sysreg(pmxevcntr_el0);
+		val_en = read_sysreg(pmcntenset_el0);
 		dbg_snapshot_set_core_pmu_val(val, cpu);
 
 		ehld_info(0, "%s: cpu%u: val:%x timer:%llx", __func__, cpu, val, arch_counter_get_cntvct());
+
+		if (val_en == 0) {
+			write_sysreg(1, pmcntenset_el0);
+			isb();
+		}
 	}
 }
 
@@ -246,7 +253,7 @@ static enum hrtimer_restart ehld_value_raw_hrtimer_fn(struct hrtimer *hrtimer)
 
 	if (!ehld_main.dbgc.enabled) {
 		ehld_err(1, "@%s: cpu%d, dbgc is not enabled, re-start\n", __func__, cpu);
-		hrtimer_forward_now(hrtimer, ns_to_ktime(NSEC_PER_SEC / 2));
+		hrtimer_forward_now(hrtimer, ns_to_ktime(NSEC_PER_SEC * 10));
 		return HRTIMER_RESTART;
 	}
 
@@ -379,13 +386,18 @@ void exynos_ehld_event_raw_update(int cpu)
 			ehld_info(0, "%s: cpu%d is turned on : running:%x, power:%x, offline:%ld\n",
 				__func__, cpu, ctrl->ehld_running, exynos_cpu.power_state(cpu), cpu_is_offline(cpu));
 
-			DBG_UNLOCK(ctrl->dbg_base + PMU_OFFSET);
-			val = __raw_readq(ctrl->dbg_base + PMU_OFFSET + PMUPCSR);
-			if (MSB_MASKING == (MSB_MASKING & val))
-				val |= MSB_PADDING;
-			data->pmpcsr[count] = val;
-			data->event[count] = __raw_readl(ctrl->dbg_base + PMU_OFFSET);
-			DBG_LOCK(ctrl->dbg_base + PMU_OFFSET);
+			if (!ehld_main.sjtag) {
+				DBG_UNLOCK(ctrl->dbg_base + PMU_OFFSET);
+				val = __raw_readq(ctrl->dbg_base + PMU_OFFSET + PMUPCSR);
+				if (MSB_MASKING == (MSB_MASKING & val))
+					val |= MSB_PADDING;
+				data->pmpcsr[count] = val;
+				data->event[count] = __raw_readl(ctrl->dbg_base + PMU_OFFSET);
+				DBG_LOCK(ctrl->dbg_base + PMU_OFFSET);
+			} else {
+				data->event[count] = dbg_snapshot_get_core_pmu_val(cpu);
+				data->pmpcsr[count] = 0;
+			}
 		}
 		if (ehld_main.dbgc.support && ehld_main.dbgc.enabled)
 			dbg_snapshot_set_core_pmu_val(val, cpu);
@@ -404,9 +416,6 @@ void exynos_ehld_event_raw_update_allcpu(void)
 	unsigned long long val;
 	unsigned long flags, count;
 	unsigned int cpu;
-
-	if (dbg_snapshot_get_sjtag_status() == true)
-		return;
 
 	raw_spin_lock_irqsave(&ehld_main.update_lock, flags);
 	for_each_possible_cpu(cpu) {
@@ -427,20 +436,19 @@ void exynos_ehld_event_raw_update_allcpu(void)
 			} else {
 				ehld_info(0, "%s: cpu%d is turned on : running:%x, power:%x, offline:%ld\n",
 					__func__, cpu, ctrl->ehld_running, exynos_cpu.power_state(cpu), cpu_is_offline(cpu));
-				DBG_UNLOCK(ctrl->dbg_base + PMU_OFFSET);
-				val = __raw_readq(ctrl->dbg_base + PMU_OFFSET + PMUPCSR);
-				if (MSB_MASKING == (MSB_MASKING & val))
-					val |= MSB_PADDING;
-				data->pmpcsr[count] = val;
-				data->event[count] = __raw_readl(ctrl->dbg_base + PMU_OFFSET);
 
-				ehld_info(0, "%s: cpu%d: 0x400:%x, 0xC00:%x, 0xE04:%x\n",
-						__func__, cpu,
-						__raw_readl(ctrl->dbg_base + PMU_OFFSET + 0x400),
-						__raw_readl(ctrl->dbg_base + PMU_OFFSET + 0xC00),
-						__raw_readl(ctrl->dbg_base + PMU_OFFSET + 0xE04));
-
-				DBG_LOCK(ctrl->dbg_base + PMU_OFFSET);
+				if (!ehld_main.sjtag) {
+					DBG_UNLOCK(ctrl->dbg_base + PMU_OFFSET);
+					val = __raw_readq(ctrl->dbg_base + PMU_OFFSET + PMUPCSR);
+					if (MSB_MASKING == (MSB_MASKING & val))
+						val |= MSB_PADDING;
+					data->pmpcsr[count] = val;
+					data->event[count] = __raw_readl(ctrl->dbg_base + PMU_OFFSET);
+					DBG_LOCK(ctrl->dbg_base + PMU_OFFSET);
+				} else {
+					data->event[count] = dbg_snapshot_get_core_pmu_val(cpu);
+					data->pmpcsr[count] = 0;
+				}
 			}
 			if (ehld_main.dbgc.support && ehld_main.dbgc.enabled)
 				dbg_snapshot_set_core_pmu_val(val, cpu);
@@ -474,7 +482,8 @@ void exynos_ehld_event_raw_dump(int cpu)
 		symname[KSYM_NAME_LEN - 1] = '\0';
 		i++;
 
-		if (lookup_symbol_name(data->pmpcsr[count], symname) < 0)
+		if (data->pmpcsr[count] == 0 ||
+			lookup_symbol_name(data->pmpcsr[count], symname) < 0)
 			symname[0] = '\0';
 
 		ehld_info(1, "      %03d    %03d     %015llu      0x%015llx      0x%016llx(%s)\n",
@@ -498,9 +507,6 @@ void exynos_ehld_event_raw_dump_allcpu(void)
 	unsigned long flags, count;
 	int cpu, i;
 	char symname[KSYM_NAME_LEN];
-
-	if (dbg_snapshot_get_sjtag_status() == true)
-		return;
 
 	symname[KSYM_NAME_LEN - 1] = '\0';
 	raw_spin_lock_irqsave(&ehld_main.update_lock, flags);
@@ -805,6 +811,8 @@ static int exynos_ehld_pm_notifier(struct notifier_block *notifier,
 
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
+	case PM_HIBERNATION_PREPARE:
+	case PM_RESTORE_PREPARE:
 		if (ehld_main.dbgc.support) {
 			adv_tracer_ehld_set_enable(false);
 			ehld_main.dbgc.enabled = false;
@@ -813,6 +821,8 @@ static int exynos_ehld_pm_notifier(struct notifier_block *notifier,
 		break;
 
 	case PM_POST_SUSPEND:
+	case PM_POST_HIBERNATION:
+	case PM_POST_RESTORE:
 		ehld_main.suspending = 0;
 		if (ehld_main.dbgc.support) {
 			for_each_possible_cpu(cpu) {
@@ -939,6 +949,8 @@ static int exynos_ehld_setup(void)
 
 	register_reboot_notifier(&exynos_ehld_reboot_block);
 	atomic_notifier_chain_register(&panic_notifier_list, &exynos_ehld_panic_block);
+
+	ehld_main.sjtag = dbg_snapshot_get_sjtag_status();
 
 	for_each_possible_cpu(cpu) {
 		ctrl = per_cpu_ptr(&ehld_ctrl, cpu);

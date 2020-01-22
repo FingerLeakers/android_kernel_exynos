@@ -302,6 +302,7 @@ int sensor_imx518_cis_init(struct v4l2_subdev *subdev)
 	cis->rev_flag = false;
 	
 	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+	FIMC_BUG(!sensor_peri);
 
 #ifdef TOF_MODULE_CHECK_ID
 	specific = core->vender.private_data;
@@ -505,6 +506,19 @@ int sensor_imx518_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	}
 	/* laser setting */
 	ret = sensor_cis_set_registers(subdev, sensor_imx518_laser_setting[mode_id_index], sensor_imx518_laser_setting_sizes[mode_id_index]);
+
+	if (mode == SENSOR_IMX518_320x480_30FPS) {	/* PD read disble in AF mode */
+		ret |= is_sensor_write8(cis->client, 0x0403, 0x20);	/* Send1_ctrl_devsel */
+		ret |= is_sensor_write8(cis->client, 0x0405, 0x00);	/* Send1_divide */
+		ret |= is_sensor_write8(cis->client, 0x0407, 0x00);	/* Send1_tx_buf_no */
+		ret |= is_sensor_write8(cis->client, 0x0500, 0x02);
+		ret |= is_sensor_write8(cis->client, 0x0501, 0x00);	/* Address of RST_DIS, APC_XEN */
+		ret |= is_sensor_write8(cis->client, 0x0502, 0x1C);	/* To disable APC_check pulse */
+		ret |= is_sensor_write8(cis->client, 0x0401, 0x01);	/* Send1_enable */
+		ret |= is_sensor_write8(cis->client, 0x0400, 0x01);	/* Send1_Trigger */
+		ret |= is_sensor_write8(cis->client, 0x0401, 0x00);	/* Send1_disable */
+	}
+
 	if (ret < 0) {
 		err("sensor_imx518_set_registers fail!!");
 		goto p_err;

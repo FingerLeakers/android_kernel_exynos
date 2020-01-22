@@ -153,6 +153,11 @@ static void abox_log_flush(struct device *dev,
 	if (abox_log_auto_save)
 		abox_log_file_save(dev, info);
 
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+	abox_log_extra_copy(log_buffer->buffer,
+				log_buffer->index_reader, index_writer, log_buffer->size);
+#endif
+
 	if (log_buffer->index_reader > index_writer) {
 		abox_log_memcpy(info->dev, kernel_buffer,
 				log_buffer->buffer + log_buffer->index_reader,

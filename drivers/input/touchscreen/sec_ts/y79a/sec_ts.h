@@ -201,6 +201,7 @@
 #define SEC_TS_CMD_SET_SCANRATE			0x94
 //#define SEC_TS_CMD_START_LOWPOWER_TEST	0x9B
 #define SEC_TS_CMD_LPM_AOD_OFF_ON		0x9B
+#define SEC_TS_CMD_SYNC_CHANGED			0x9C
 #define SEC_TS_CMD_SIP_MODE			0xB5
 #define SET_TS_CMD_SET_LOWTEMPERATURE_MODE	0xBE
 #define SET_TS_CMD_ELVSS_TEST	0xD7
@@ -381,6 +382,11 @@
 #define STATUS_EVENT_VENDOR_PROXIMITY	0x6A
 
 #define SEC_TS_CMD_PROX_POWER_OFF	0xBD
+
+enum sync_changed_data {
+	SEC_TS_SYNC_CHANGED_30_TO_60	= 1,
+	SEC_TS_SYNC_CHANGED_MAX
+};
 
 enum grip_write_mode {
 	G_NONE				= 0,
@@ -879,6 +885,7 @@ struct sec_ts_data {
 	short cm_raw_key_p2p_diff_data[2][3];	/* key : max support key is 3 */
 	short cm_raw_set_p2p_gap_y;
 	short cm_raw_set_p2p_gap_y_result;	/* mis_cal pass/fail */
+	short contact_gap_max;
 
 	u32	defect_probability;
 #ifdef MINORITY_REPORT

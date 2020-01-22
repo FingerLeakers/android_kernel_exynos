@@ -242,6 +242,10 @@ enum epen_virtual_event_mode {
 	EPEN_POS_COVER	= 2,
 };
 
+typedef enum {
+	WACOM_ENABLE = 0,
+	WACOM_DISABLE = 1,
+} wacom_disable_mode_t;
 
 /* elec data */
 #define COM_ELEC_NUM			38
@@ -455,6 +459,8 @@ struct wacom_i2c {
 	u8 dp_connect_state;
 	u8 dp_connect_cmd;
 
+	struct notifier_block nb;
+
 	/* open test*/
 	volatile bool is_open_test;
 	bool connection_check;
@@ -525,6 +531,7 @@ void wacom_sec_remove(struct wacom_i2c *);
 
 void wacom_print_info(struct wacom_i2c *wac_i2c);
 void wacom_i2c_coord_modify(struct wacom_i2c *wac_i2c);
+void wacom_disable_mode(struct wacom_i2c *wac_i2c, wacom_disable_mode_t mode);
 
 extern int set_scan_mode(int mode);
 #if WACOM_SEC_FACTORY

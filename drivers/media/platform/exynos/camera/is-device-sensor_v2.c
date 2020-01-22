@@ -977,6 +977,37 @@ p_err:
 	return ret;
 }
 
+static int is_sensor_votf_tag(struct is_device_sensor *device, struct is_subdev *subdev)
+{
+	int ret = 0;
+	struct is_frame *votf_frame;
+	struct is_framemgr *votf_fmgr;
+	struct is_group *group;
+
+	FIMC_BUG(!device);
+	FIMC_BUG(!subdev);
+
+	group = &device->group_sensor;
+
+	votf_frame = is_votf_get_frame(group, TWS, subdev->id);
+	if (votf_frame) {
+		votf_fmgr = is_votf_get_framemgr(group, TWS, subdev->id);
+
+		/* update mater first for preventing mismatch */
+		ret = votf_fmgr_call(votf_fmgr, master, s_addr, votf_frame);
+		if (ret)
+			mswarn("votf_fmgr_call(master) is fail(%d)",
+					device, subdev, ret);
+
+		ret = votf_fmgr_call(votf_fmgr, slave, s_addr, votf_frame);
+		if (ret)
+			mswarn("votf_fmgr_call(slave) is fail(%d)",
+					device, subdev, ret);
+	}
+
+	return ret;
+}
+
 int is_sensor_buf_tag(struct is_device_sensor *device,
 	struct is_subdev *f_subdev,
 	struct v4l2_subdev *v_subdev,
@@ -1455,6 +1486,7 @@ static void is_sensor_instanton(struct work_struct *data)
 	instant_cnt = device->instant_cnt;
 	core = (struct is_core *)device->private_data;
 
+	clear_bit(IS_SENSOR_ESD_RECOVERY, &device->state);
 	clear_bit(IS_SENSOR_FRONT_DTP_STOP, &device->state);
 	clear_bit(IS_SENSOR_BACK_NOWAIT_STOP, &device->state);
 	clear_bit(SENSOR_MODULE_GOT_INTO_TROUBLE, &device->state);
@@ -1771,6 +1803,7 @@ int is_sensor_open(struct is_device_sensor *device,
 	clear_bit(IS_SENSOR_STAND_ALONE, &device->state);
 	clear_bit(IS_SENSOR_FRONT_START, &device->state);
 	clear_bit(IS_SENSOR_FRONT_DTP_STOP, &device->state);
+	clear_bit(IS_SENSOR_ESD_RECOVERY, &device->state);
 	clear_bit(IS_SENSOR_BACK_START, &device->state);
 	clear_bit(IS_SENSOR_OTF_OUTPUT, &device->state);
 	clear_bit(IS_SENSOR_WAIT_STREAMING, &device->state);
@@ -3291,6 +3324,7 @@ int is_sensor_group_tag(struct is_device_sensor *device,
 	struct is_subdev *subdev;
 	struct camera2_node_group *node_group;
 	struct camera2_node *cap_node;
+	int vc;
 
 	group = &device->group_sensor;
 	node_group = &frame->shot_ext->node_group;
@@ -3299,6 +3333,15 @@ int is_sensor_group_tag(struct is_device_sensor *device,
 	if (ret) {
 		merr("is_sensor_group_tag is fail(%d)", device, ret);
 		goto p_err;
+	}
+
+	for (vc = ENTRY_SSVC0; vc <= ENTRY_SSVC3; vc++) {
+		subdev = group->subdev[vc];
+		if (subdev && test_bit(IS_SUBDEV_VOTF_USE, &subdev->state)) {
+			ret = is_sensor_votf_tag(device, subdev);
+			if (ret)
+				msrwarn("votf_frame is drop(%d)", device, subdev, frame, ret);
+		}
 	}
 
 	for (capture_id = 0; capture_id < CAPTURE_NODE_MAX; ++capture_id) {

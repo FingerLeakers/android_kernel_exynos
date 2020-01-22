@@ -1539,7 +1539,8 @@ static void is_shutdown(struct platform_device *pdev)
 			}
 
 			is_sensor_deinit_sensor_thread(sensor_peri);
-			is_sensor_deinit_mode_change_thread(sensor_peri);
+			cancel_work_sync(&sensor_peri->cis.global_setting_work);
+			cancel_work_sync(&sensor_peri->cis.mode_setting_work);
 		}
 	}
 	info("%s:--\n", __func__);

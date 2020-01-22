@@ -28,6 +28,11 @@
 #include <linux/rkp.h>
 #endif
 
+int debug_ddk;
+module_param(debug_ddk, int, 0644);
+char *attr_ddk[4];
+module_param_array(attr_ddk, charp, NULL, 0644);
+
 struct is_lib_support gPtr_lib_support;
 struct mutex gPtr_bin_load_ctrl;
 extern struct is_lib_vra *g_lib_vra;
@@ -2120,6 +2125,36 @@ static int is_votfitf_set_first_token_size(struct votf_info *vinfo, u32 size)
 
 }
 
+int is_debug_attr(char *cmd, int *param1, int *param2, int *param3)
+{
+	int ret = 0;
+
+	/* Command should have proper string */
+	if (cmd && attr_ddk[0]) {
+		snprintf(cmd, PATH_MAX, "%s", attr_ddk[0]);
+	} else {
+		ret = -EINVAL;
+		goto err;
+	}
+
+	if (param1 && attr_ddk[1]) {
+		if (kstrtoint(attr_ddk[1], 0, param1))
+			*param1 = 0;
+	}
+
+	if (param2 && attr_ddk[2]) {
+		if (kstrtoint(attr_ddk[2], 0, param2))
+			*param2 = 0;
+	}
+
+	if (param3 && attr_ddk[3]) {
+		if (kstrtoint(attr_ddk[3], 0, param3))
+			*param3 = 0;
+	}
+err:
+	return ret;
+}
+
 static int is_debug_level(void)
 {
 	return debug_ddk;
@@ -2226,6 +2261,7 @@ void set_os_system_funcs(os_system_func_t *funcs)
 
 	funcs[91] = (os_system_func_t)is_get_binary_version;
 	/* TODO: re-odering function table */
+	funcs[97] = (os_system_func_t)is_debug_attr;
 	funcs[98] = (os_system_func_t)is_debug_level;
 	funcs[99] = (os_system_func_t)is_event_write;
 }

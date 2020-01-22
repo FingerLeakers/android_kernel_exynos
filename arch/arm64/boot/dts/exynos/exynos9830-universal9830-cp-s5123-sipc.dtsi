@@ -139,6 +139,9 @@
 				sbi_ap2cp_kerneltime_usec_mask = <0xfffff>;
 				sbi_ap2cp_kerneltime_usec_pos = <0>;
 
+                                /* CP BTL (Back Trace Log) */
+                                cp_btl_node_name = "ramdump_memshare";
+
 				/* Packet processor */
 				pktproc_support = <1>;
 				pktproc_version = <2>;

@@ -986,11 +986,16 @@ static int is_tmu_notifier(struct notifier_block *nb,
 {
 #if defined(CONFIG_EXYNOS_THERMAL) || defined(CONFIG_EXYNOS_THERMAL_V2)
 	int ret = 0, fps = 0;
+#if defined(THROTTLING_MIF_LEVEl)
+	int mif_qos = 0;
+#endif
 	struct is_resourcemgr *resourcemgr;
+	struct is_dvfs_ctrl *dvfs_ctrl;
 #if IS_ENABLED(CONFIG_EXYNOS_SNAPSHOT_THERMAL) || IS_ENABLED(CONFIG_DEBUG_SNAPSHOT)
 	char *cooling_device_name = "ISP";
 #endif
 	resourcemgr = container_of(nb, struct is_resourcemgr, tmu_notifier);
+	dvfs_ctrl = &(resourcemgr->dvfs_ctrl);
 
 	switch (state) {
 	case ISP_NORMAL:
@@ -1009,9 +1014,19 @@ static int is_tmu_notifier(struct notifier_block *nb,
 		if (fps >= 60) {
 			resourcemgr->limited_fps = 0;
 			warn("[RSC] THROTTLING : Unlimited FPS");
+#if defined(THROTTLING_MIF_LEVEl)
+			mif_qos = dvfs_ctrl->cur_mif_qos;
+			pm_qos_update_request(&exynos_isp_qos_mem, mif_qos);
+			warn("[RSC] THROTTLING : Release min MIF level: %d", mif_qos);
+#endif
 		} else {
 			resourcemgr->limited_fps = fps;
-			warn("[RSC] THROTTLING : Limited %dFPS", fps);
+			warn("[RSC] THROTTLING : Limited %d FPS", fps);
+#if defined(THROTTLING_MIF_LEVEl)
+			mif_qos = THROTTLING_MIF_LEVEl;
+			pm_qos_update_request(&exynos_isp_qos_mem, mif_qos);
+			warn("[RSC] THROTTLING : Reduce min MIF level: %d", mif_qos);
+#endif
 		}
 		break;
 	case ISP_TRIPPING:
@@ -1227,6 +1242,9 @@ int is_resource_cdump(void)
 
 	core = (struct is_core *)dev_get_drvdata(is_dev);
 	if (!core)
+		goto exit;
+
+	if (atomic_read(&core->rsccount) == 0)
 		goto exit;
 
 	info("### %s dump start ###\n", __func__);

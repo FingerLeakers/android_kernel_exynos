@@ -1940,9 +1940,10 @@
 		samsung,fifo-size = <256>;
 		samsung,rts-gpio-control;
 		interrupts = <GIC_SPI INTREQ__BT_UART IRQ_TYPE_LEVEL_HIGH>;
-		pinctrl-names = "default", "rts";
-		pinctrl-0 = <&uart1_bus_single &uart1_rxd_pull>; /* or _bus_dual */
-		pinctrl-1 = <&uart1_bus_rts &uart1_bus_tx_input>;
+		pinctrl-names = "default", "rts", "tx_dat";
+		pinctrl-0 = <&uart1_bus_single>; /* or _bus_dual */
+		pinctrl-1 = <&uart1_bus_rts &uart1_bus_tx_con>;
+		pinctrl-2 = <&uart1_bus_tx_dat>;
 		samsung,usi-serial-v2;
 		clocks = <&clock GATE_PERIC1_TOP0_QCH_UART_BT>, <&clock DOUT_CLK_PERIC1_UART_BT>;
 		clock-names = "gate_uart_clk1", "ipclk_uart1";

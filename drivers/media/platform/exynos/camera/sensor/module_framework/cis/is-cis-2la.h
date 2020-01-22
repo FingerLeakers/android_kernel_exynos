@@ -22,7 +22,7 @@
 #define SENSOR_2LA_FINE_INTEGRATION_TIME_MIN                0x100
 #define SENSOR_2LA_FINE_INTEGRATION_TIME_MAX                0x100
 #define SENSOR_2LA_COARSE_INTEGRATION_TIME_MIN              0x10
-#define SENSOR_2LA_COARSE_INTEGRATION_TIME_MAX_MARGIN       0x30
+#define SENSOR_2LA_COARSE_INTEGRATION_TIME_MAX_MARGIN       0x10
 
 #define USE_GROUP_PARAM_HOLD	(0)
 
@@ -33,8 +33,6 @@ enum sensor_2la_mode_enum {
 	SENSOR_2LA_2016X1134_240FPS = 3,
 	SENSOR_2LA_2016X1134_120FPS = 4,
 	SENSOR_2LA_4032X3024_60FPS = 5,
-	SENSOR_2LA_4032X3024_24FPS = 6,
-	SENSOR_2LA_4032X2268_24FPS = 7,
 	SENSOR_2LA_MODE_MAX,
 };
 
@@ -45,8 +43,6 @@ static bool sensor_2la_support_wdr[] = {
 	false, //SENSOR_2LA_2016X1134_240FPS = 3,
 	false, //SENSOR_2LA_2016X1134_120FPS = 4,
 	false, //SENSOR_2LA_4032X3024_60FPS = 5,
-	false, //SENSOR_2LA_4032X3024_24FPS = 6,
-	false, //SENSOR_2LA_4032X2268_24FPS = 7,
 };
 
 const u32 sensor_2la_cis_dual_slave_settings[] = { /* no wait */

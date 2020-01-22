@@ -840,6 +840,18 @@ static int s2mps22_pmic_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void s2mps22_pmic_WA(struct s2mps22_info *s2mps22)
+{
+	u8 reg1 = 0, reg2 = 0;
+
+	s2mps22_read_reg(s2mps22->i2c, S2MPS22_REG_CTRL1, &reg1);
+
+	s2mps22_update_reg(s2mps22->i2c, S2MPS22_REG_CTRL1, 0x80, 0x80);
+
+	s2mps22_read_reg(s2mps22->i2c, S2MPS22_REG_CTRL1, &reg2);
+	pr_info("%s: 0x%02x -> 0x%02x\n", __func__, reg1, reg2);
+}
+
 static void s2mps22_pmic_shutdown(struct platform_device *pdev)
 {
 	struct s2mps22_info *s2mps22 = platform_get_drvdata(pdev);
@@ -849,6 +861,8 @@ static void s2mps22_pmic_shutdown(struct platform_device *pdev)
 	/* disable WTSR */
 	if (s2mps22->wtsr_en)
 		s2mps22_wtsr_disable(s2mps22);
+
+	s2mps22_pmic_WA(s2mps22);
 }
 
 #if defined(CONFIG_PM)

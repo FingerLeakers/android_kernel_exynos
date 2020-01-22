@@ -72,9 +72,9 @@ static void pdp_s_one_shot_enable(void *data, unsigned long id)
 		pdp->err_cnt_oneshot = 0;
 
 		if (pdp_hw_g_idle_state(pdp->base))
-			ret = pdp_hw_s_one_shot_enable(pdp->base);
+			ret = pdp_hw_s_one_shot_enable(pdp);
 	} else {
-		ret = pdp_hw_s_one_shot_enable(pdp->base);
+		ret = pdp_hw_s_one_shot_enable(pdp);
 	}
 
 	if (ret) {
@@ -130,6 +130,83 @@ static inline void wq_func_schedule(struct is_pdp *pdp, struct work_struct *work
 		schedule_work(work_wq);
 }
 
+static int is_hw_pdp_set_pdstat_reg(struct is_pdp *pdp)
+{
+	unsigned long flag;
+	struct pdp_stat_reg *regs;
+	u32 regs_size;
+	int i;
+	int ret = 0;
+
+	FIMC_BUG(!pdp);
+
+	spin_lock_irqsave(&pdp->slock_paf_s_param, flag);
+
+	if (pdp->stat_enable && test_bit(IS_PDP_SET_PARAM_COPY, &pdp->state)) {
+		pdp_hw_s_corex_type(pdp->base, COREX_IGNORE);
+
+		regs_size = pdp->regs_size;
+		regs = pdp->regs;
+		for (i = 0; i < regs_size; i++)
+			writel(regs[i].reg_data, pdp->base + regs[i].reg_addr + COREX_OFFSET);
+
+		clear_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
+
+		pdp_hw_s_wdma_init(pdp->base);
+		pdp_hw_s_line_row(pdp->base, pdp->stat_enable, pdp->vc_ext_sensor_mode, pdp->binning);
+
+		pdp_hw_s_corex_type(pdp->base, COREX_COPY);
+
+		dbg_pdp(1, " load ofs done", pdp);
+	}
+
+	spin_unlock_irqrestore(&pdp->slock_paf_s_param, flag);
+
+	return ret;
+}
+
+#if defined(USE_SKIP_DUMP_LIC_OVERFLOW)
+static int get_crc_flag(u32 instance, struct is_hw_ip *hw_ip, bool *crc_flag)
+{
+	int ret = 0;
+	struct is_group *group;
+	struct is_device_ischain *device;
+	struct is_device_sensor *sensor;
+	struct is_device_csi *csi;
+
+	FIMC_BUG(!hw_ip);
+
+	group = hw_ip->group[instance];
+	if (!group) {
+		mserr_hw("failed to get group", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	device = group->device;
+	if (!device) {
+		mserr_hw("failed to get devcie", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	sensor = device->sensor;
+	if (!sensor) {
+		mserr_hw("failed to get sensor", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+	if (!csi) {
+		mserr_hw("csi is null\n", instance, hw_ip);
+		return -ENODEV;
+	}
+
+	*crc_flag = csi->crc_flag;
+	csi->crc_flag = false;
+
+	return ret;
+}
+#endif
+
 static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 {
 	struct is_hw_ip *hw_ip;
@@ -144,6 +221,9 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 	struct is_work_list *work_list;
 	struct paf_rdma_param *param;
 	u32 en_votf;
+#if defined(USE_SKIP_DUMP_LIC_OVERFLOW)
+	bool crc_flag;
+#endif
 
 	hw_ip = (struct is_hw_ip *)data;
 	pdp = (struct is_pdp *)hw_ip->priv_info;
@@ -171,7 +251,12 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 	if (pdp_hw_is_occured(state, PE_START) && pdp_hw_is_occured(state, PE_END))
 		mswarn_hw(" end/start both occur(0x%x)", instance, hw_ip, state);
 
+	param = &hw_ip->region[instance]->parameter.paf;
+	en_votf = param->dma_input.v_otf_enable;
+
 	if (pdp_hw_is_occured(state, PE_START)) {
+		is_hw_pdp_set_pdstat_reg(pdp); /* PDP core setting */
+
 		_is_hw_frame_dbg_trace(hw_ip, atomic_read(&hw_ip->fcount), DEBUG_POINT_FRAME_START);
 
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
@@ -206,58 +291,20 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 
 				framemgr_x_barrier(stat_framemgr, FMGR_IDX_30);
 			}
-
 		}
 
-		param = &hw_ip->region[instance]->parameter.paf;
-		en_votf = param->dma_input.v_otf_enable;
-		if (en_votf == OTF_INPUT_COMMAND_ENABLE) {
-			int ret;
-			struct is_frame *votf_frame;
-			struct is_group *group = hw_ip->group[instance];
-			struct is_framemgr *votf_fmgr;
-
-			votf_frame = is_votf_get_frame(group, TRS, ENTRY_PAF);
-			if (votf_frame) {
-				votf_fmgr = is_votf_get_framemgr(group, TRS, ENTRY_PAF);
-				/* update mater first for preventing mismatch */
-				ret = votf_fmgr_call(votf_fmgr, master, s_addr, votf_frame);
-				if (ret)
-					mswarn_hw("votf_fmgr_call(master) is fail(%d)",
-						instance, hw_ip, ret);
-
-				ret = votf_fmgr_call(votf_fmgr, slave, s_addr, votf_frame);
-				if (ret)
-					mswarn_hw("votf_fmgr_call(slave) is fail(%d)",
-						instance, hw_ip, ret);
-			}
-
-			if (pdp->stat_enable) {
-				votf_frame = is_votf_get_frame(group, TRS, ENTRY_PDAF);
-				if (votf_frame) {
-					votf_fmgr = is_votf_get_framemgr(group, TRS, ENTRY_PDAF);
-					/* update mater first for preventing mismatch */
-					ret = votf_fmgr_call(votf_fmgr, master, s_addr, votf_frame);
-					if (ret)
-						mswarn_hw("votf_fmgr_call(master) is fail(%d)",
-							instance, hw_ip, ret);
-
-					ret = votf_fmgr_call(votf_fmgr, slave, s_addr, votf_frame);
-					if (ret)
-						mswarn_hw("votf_fmgr_call(slave) is fail(%d)",
-							instance, hw_ip, ret);
-				}
-			}
-
 #if defined(VOTF_GLOBAL_ENABLE)
+		if (en_votf == OTF_INPUT_COMMAND_ENABLE) {
+			struct is_group *group = hw_ip->group[instance];
+
 			/*
 			 * Call interrupt handler function of rear IP connected by OTF.
 			 * This is only used with col_row interrupt when v-blank is "0".
 			 * TODO: next IP don't have to use this relay.
 			 */
 			is_hw_interrupt_relay(group, hw_ip);
-#endif
 		}
+#endif
 	}
 
 	if (pdp_hw_is_occured(state, PE_END)) {
@@ -269,9 +316,24 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 
 		if (pdp->stat_enable)
 			wq_func_schedule(pdp, &pdp->work_stat[WORK_PDP_STAT1]);
-
+#if defined(USE_SKIP_DUMP_LIC_OVERFLOW)
+		/* clear crc flag */
+		get_crc_flag(instance, hw_ip, &crc_flag);
+#endif
 		atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 		wake_up(&hw_ip->status.wait_queue);
+
+		spin_lock(&pdp->slock_oneshot);
+		if (test_and_clear_bit(IS_PDP_ONESHOT_PENDING, &pdp->state)) {
+			spin_unlock(&pdp->slock_oneshot);
+
+			pdp_hw_s_one_shot_enable(pdp);
+			msinfo_hw("[F:%d] clear oneshot pending", instance, hw_ip,
+				atomic_read(&hw_ip->count.fe));
+		} else {
+			spin_unlock(&pdp->slock_oneshot);
+		}
+
 	}
 
 	if (pdp_hw_is_occured(state, PE_PAF_STAT0)) {
@@ -305,7 +367,17 @@ static irqreturn_t is_isr_pdp_int1(int irq, void *data)
 #endif
 			print_all_hw_frame_count(hw_ip->hardware);
 			is_hardware_sfr_dump(hw_ip->hardware, DEV_HW_END, false);
+#if defined(USE_SKIP_DUMP_LIC_OVERFLOW)
+			if (!get_crc_flag(instance, hw_ip, &crc_flag) && crc_flag == true) {
+				set_bit(IS_SENSOR_ESD_RECOVERY,
+					&hw_ip->group[instance]->device->sensor->state);
+				warn("skip to s2d dump");
+			} else {
+				is_debug_s2d(true, "LIC overflow");
+			}
+#else
 			is_debug_s2d(true, "LIC overflow");
+#endif
 		}
 	}
 
@@ -456,6 +528,8 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 {
 	int i;
 	struct is_pdp *pdp;
+	unsigned long flag;
+	u32 corex_enable;
 
 	pdp = (struct is_pdp *)v4l2_get_subdevdata(subdev);
 	if (!pdp) {
@@ -466,20 +540,40 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 	/* CAUTION: PD path must be on before algorithm block setting. */
 	pdp_hw_s_pdstat_path(pdp->base, true);
 
-	dbg_pdp(0, "PDP(%d) RTA setting, size(%d)\n", pdp, pdp->base, regs_size);
-	for (i = 0; i < regs_size; i++) {
-		dbg_pdp(1, "[%d] ofs: 0x%x, val: 0x%x\n", pdp,
-				i, regs[i].reg_addr, regs[i].reg_data);
-		writel(regs[i].reg_data, pdp->base + regs[i].reg_addr + COREX_OFFSET);
+	pdp_hw_g_corex_state(pdp->base, &corex_enable);
+	dbg_pdp(1, "state[0x%X], corex[%d]", pdp, pdp->state, corex_enable);
+
+	if (test_bit(IS_PDP_SET_PARAM, &pdp->state) && corex_enable) {
+		dbg_pdp(0, "PDP(%d) store RTA set, size(%d)\n", pdp, pdp->base, regs_size);
+
+		for (i = 0; i < regs_size; i++)
+			dbg_pdp(1, "[%d] store ofs: 0x%x, val: 0x%x\n", pdp,
+					i, regs[i].reg_addr, regs[i].reg_data);
+
+		spin_lock_irqsave(&pdp->slock_paf_s_param, flag);
+
+		pdp->regs_size = regs_size;
+		memcpy((void *)pdp->regs, (void *)regs, sizeof(struct pdp_stat_reg) * regs_size);
+		set_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
+
+		spin_unlock_irqrestore(&pdp->slock_paf_s_param, flag);
+	} else {
+		dbg_pdp(0, "PDP(%d) RTA setting, size(%d)\n", pdp, pdp->base, regs_size);
+
+		for (i = 0; i < regs_size; i++) {
+			dbg_pdp(1, "[%d] ofs: 0x%x, val: 0x%x\n", pdp,
+					i, regs[i].reg_addr, regs[i].reg_data);
+			writel(regs[i].reg_data, pdp->base + regs[i].reg_addr + COREX_OFFSET);
+		}
+
+		/* CAUTION: WDMA size must be set after PDSTAT_ROI block setting. */
+		pdp_hw_s_wdma_init(pdp->base);
+
+		if (pdp->stat_enable)
+			pdp_hw_s_line_row(pdp->base, pdp->stat_enable, pdp->vc_ext_sensor_mode, pdp->binning);
+
+		set_bit(IS_PDP_SET_PARAM, &pdp->state);
 	}
-
-	/* CAUTION: WDMA size must be set after PDSTAT_ROI block setting. */
-	pdp_hw_s_wdma_init(pdp->base);
-
-	if (pdp->stat_enable)
-		pdp_hw_s_line_row(pdp->base, pdp->stat_enable, pdp->vc_ext_sensor_mode, pdp->binning);
-
-	set_bit(IS_PDP_SET_PARAM, &pdp->state);
 
 	pdp->time_rta_cfg = local_clock();
 
@@ -488,7 +582,18 @@ int pdp_set_param(struct v4l2_subdev *subdev, struct paf_setting_t *regs, u32 re
 
 int pdp_get_ready(struct v4l2_subdev *subdev, u32 *ready)
 {
-	*ready = 1;
+	struct is_pdp *pdp;
+
+	pdp = (struct is_pdp *)v4l2_get_subdevdata(subdev);
+	if (!pdp) {
+		err("failed to get PDP");
+		return -ENODEV;
+	}
+
+	if (test_bit(IS_PDP_SET_PARAM_COPY, &pdp->state))
+		*ready = 0;
+	else
+		*ready = 1;
 
 	return 0;
 }
@@ -826,7 +931,7 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 
 	/* PDP context setting */
 	pdp_hw_s_sensor_type(pdp->base, sensor_type);
-	pdp_hw_s_core(pdp->base, enable, sensor_cfg, img_width, img_height, img_hwformat, img_pixelsize,
+	pdp_hw_s_core(pdp, enable, sensor_cfg, img_width, img_height, img_hwformat, img_pixelsize,
 		pd_width, pd_height, pd_hwformat, sensor_type, path, pdp->vc_ext_sensor_mode,
 		fps, en_sdc, en_votf, frame->num_buffers, pdp->freq, pdp->binning, position);
 
@@ -931,6 +1036,8 @@ static int is_hw_pdp_open(struct is_hw_ip *hw_ip, u32 instance,
 
 	spin_lock_init(&pdp->slock_paf_action);
 	INIT_LIST_HEAD(&pdp->list_of_paf_action);
+	spin_lock_init(&pdp->slock_paf_s_param);
+	spin_lock_init(&pdp->slock_oneshot);
 
 	for (work_id = WORK_PDP_STAT0; work_id < WORK_PDP_MAX; work_id++)
 		init_work_list(&pdp->work_list[work_id], work_id, MAX_WORK_COUNT);
@@ -1045,6 +1152,7 @@ static int is_hw_pdp_deinit(struct is_hw_ip *hw_ip, u32 instance)
 	}
 
 	clear_bit(IS_PDP_SET_PARAM, &pdp->state);
+	clear_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
 
 	return ret;
 }
@@ -1085,6 +1193,8 @@ static int is_hw_pdp_close(struct is_hw_ip *hw_ip, u32 instance)
 	clear_bit(HW_OPEN, &hw_ip->state);
 
 	clear_bit(IS_PDP_SET_PARAM, &pdp->state);
+	clear_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
+	clear_bit(IS_PDP_ONESHOT_PENDING, &pdp->state);
 
 	hardware = hw_ip->hardware;
 	if (!hardware) {
@@ -1278,6 +1388,8 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 	}
 
 	if (i == pdp->max_num) {
+		pdp_hw_s_reset(pdp->cmn_base);
+
 		/* ch0 global */
 		if (param->control.lut_index) {
 			lic_lut = &pdp->lic_lut[param->control.lut_index];
@@ -1462,7 +1574,7 @@ static int is_hw_pdp_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 		pdp_hw_s_fro(pdp->base, num_buffers);
 		pdp_hw_s_rdma_addr(pdp->base, &frame->dvaddr_buffer[cur_idx], num_buffers);
-		pdp_hw_s_one_shot_enable(pdp->base);
+		pdp_hw_s_one_shot_enable(pdp);
 	}
 
 	return ret;
@@ -1655,6 +1767,10 @@ static int is_hw_pdp_sensor_stop(struct is_hw_ip *hw_ip, u32 instance)
 		}
 	}
 
+	clear_bit(IS_PDP_SET_PARAM, &pdp->state);
+	clear_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
+	clear_bit(IS_PDP_ONESHOT_PENDING, &pdp->state);
+
 	spin_lock_irqsave(&cmn_reg_slock, flags);
 	en_val = readl(pdp->en_base);
 
@@ -1726,6 +1842,7 @@ static int is_hw_pdp_change_chain(struct is_hw_ip *hw_ip, u32 instance,
 p_err:
 	return ret;
 }
+
 static const struct v4l2_subdev_core_ops core_ops = {
 	.init = NULL
 };
@@ -2079,6 +2196,8 @@ static int __init pdp_probe(struct platform_device *pdev)
 	clear_bit(HW_TUNESET, &hw_ip->state);
 
 	clear_bit(IS_PDP_SET_PARAM, &pdp->state);
+	clear_bit(IS_PDP_SET_PARAM_COPY, &pdp->state);
+	clear_bit(IS_PDP_ONESHOT_PENDING, &pdp->state);
 
 	pdp_hw_g_int1_str(pdp->int1_str);
 	pdp_hw_g_int2_str(pdp->int2_str);

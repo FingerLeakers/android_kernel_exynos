@@ -1352,5 +1352,6 @@ static struct panel_dimming_info s6e3hab_hubble1_a3_s0_panel_dimming_info = {
 	.dimming_maptbl = hubble1_a3_s0_dimming_param_maptbl,
 	.dim_flash_on = true,	/* read dim flash when probe or not */
 	.irc_info = &s6e3hab_hubble1_irc,
+	.hbm_aor = NULL,
 };
 #endif /* __S6E3HAB_HUBBLE1_A3_S0_PANEL_DIMMING_H___ */

@@ -2337,9 +2337,8 @@ int decon_reg_check_global_limitation(struct decon_device *decon,
 				goto err;
 			}
 			/* 8-bit YUV */
-			/* TODO: config -> config[i] ? */
-			if ((config->src.w > ROT_MAX_W) &&
-				(config->src.w * config->src.h > ROT_MAX_SZ)) {
+			if ((config[i].src.w > ROT_MAX_W) &&
+				(config[i].src.w * config[i].src.h > ROT_MAX_SZ)) {
 				decon_err("Exceeded supporting ROT size!\n");
 				ret = -EPERM;
 				goto err;

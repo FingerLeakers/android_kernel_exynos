@@ -11,10 +11,18 @@
 #ifndef IS_HW_PDP_H
 #define IS_HW_PDP_H
 
+#include "is-hw-pdp.h"
 #include "is-device-sensor.h"
 #include "is-hw-api-common.h"
 
 #define COREX_OFFSET 0x8000
+
+#define COREX_IGNORE			(0)
+#define COREX_COPY			(1)
+#define COREX_SWAP			(2)
+
+#define HW_TRIGGER			(0)
+#define SW_TRIGGER			(1)
 
 enum pdp_event_type {
 	PE_START,
@@ -40,9 +48,11 @@ void pdp_hw_get_line(void __iomem *base);
 
 /* config */
 void pdp_hw_s_global_enable(void __iomem *base, bool enable);
-int pdp_hw_s_one_shot_enable(void __iomem *base);
+int pdp_hw_s_one_shot_enable(struct is_pdp *pdp);
 void pdp_hw_s_corex_enable(void __iomem *base, bool enable);
-void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
+void pdp_hw_s_corex_type(void __iomem *base, u32 type);
+void pdp_hw_g_corex_state(void __iomem *base, u32 *corex_enable);
+void pdp_hw_s_core(struct is_pdp *pdp, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
 	u32 img_width, u32 img_height, u32 img_hwformat, u32 img_pixelsize,
 	u32 pd_width, u32 pd_height, u32 pd_hwformat,
 	u32 sensor_type, u32 path, int sensor_mode, u32 fps, u32 en_sdc, u32 en_votf,
@@ -56,7 +66,7 @@ void pdp_hw_s_wdma_init(void __iomem *base);
 void pdp_hw_s_wdma_enable(void __iomem *base, dma_addr_t address);
 void pdp_hw_s_wdma_disable(void __iomem *base);
 void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize,
-	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma, ulong freq);
+	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma, ulong freq, u32 ex_mode);
 void pdp_hw_s_af_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 rmo,
 	u32 en_votf, u32 en_dma);
 void pdp_hw_s_af_rdma_tail_count_reset(void __iomem *base);

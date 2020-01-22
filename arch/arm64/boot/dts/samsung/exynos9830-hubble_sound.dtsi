@@ -798,8 +798,13 @@
 
 			sec-audio-sysfs {
 				compatible = "samsung,audio-sysfs";
-
+				status = "okay";
 				audio,no-earjack;
+			};
+
+			sec-audio-debug {
+				compatible = "samsung,audio-debug";
+				status = "okay";
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */

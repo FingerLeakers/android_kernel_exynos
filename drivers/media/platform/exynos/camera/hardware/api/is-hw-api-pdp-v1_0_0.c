@@ -412,6 +412,7 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 			val = 0;
 
 		PDP_SET_F_DIRECT(base, PDP_R_LIC_DYNAMIC_ALLOC_CONFIG, field_enum, val);
+		PDP_SET_F(base, PDP_R_LIC_DYNAMIC_ALLOC_CONFIG, field_enum, val);
 
 		/* STATIC mode - DMA: low priority(0), OTF: high priority(7) */
 		field_enum = PDP_F_LIC_WEIGHT_CONTEXT_0 + curr_ch;
@@ -421,6 +422,7 @@ static void _pdp_hw_s_lic_ch0_priority(void __iomem *base, u32 curr_ch, u32 curr
 			val = PDP_LIC_WEIGHT_MAX;
 
 		PDP_SET_F_DIRECT(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum, val);
+		PDP_SET_F(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum, val);
 
 		/* wait for register update */
 		read_val = PDP_GET_F(base, PDP_R_LIC_STATIC_ALLOC_CONFIG1, field_enum);
@@ -485,7 +487,7 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode, u32 
 	u32 bayer_height, tail_height;
 
 	bayer_height = PDP_GET_F(base, PDP_R_LIC_INPUT_CONFIG2, PDP_F_LIC_INPUT_IMAGE_HEIGHT);
-	tail_height = PDP_GET_F(base, PDP_R_LIC_INPUT_CONFIG3, PDP_F_LIC_INPUT_PDPXL_HEIGHT);	
+	tail_height = PDP_GET_F(base, PDP_R_LIC_INPUT_CONFIG3, PDP_F_LIC_INPUT_PDPXL_HEIGHT);
 
 	/*
 	 * stat end interrupt can't use hw limitation
@@ -574,8 +576,8 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode, u32 
 			line_row = max_pos_end_y * density;
 			line_row += (line_row + tail_density / 2) / tail_density;
 			line_row += margin;
-			
-			line_row_max = bayer_height + tail_height - 10;			
+
+			line_row_max = bayer_height + tail_height - 10;
 		} else {
 			line_row = max_pos_end_y * density + margin;
 
@@ -584,7 +586,7 @@ void pdp_hw_s_line_row(void __iomem *base, bool pd_enable, int sensor_mode, u32 
 
 		if (line_row > line_row_max)
 			line_row = line_row_max;
-			
+
 		info_hw("[PDP] LINE_IRQ for pd sensor mode(%d), density(%d, tail:%d), max_pos_end_y: %d, line_row: %d, num_sroi: %d",
 			sensor_mode, density, tail_density, max_pos_end_y, line_row, num_of_turn_on_sroi);
 	}
@@ -805,38 +807,73 @@ void pdp_hw_s_global_enable(void __iomem *base, bool enable)
  * Context: O
  * CR type: No Corex
  */
-int pdp_hw_s_one_shot_enable(void __iomem *base)
+int pdp_hw_s_one_shot_enable(struct is_pdp *pdp)
 {
 	int ret = 0;
+	unsigned long flag;
 	u32 idle;
 	u32 try_cnt = 0;
 	u32 total_line;
-	u32 curr_line;
+	u32 prev_line, prev_col;
+	u32 curr_line, curr_col;
+	u32 rmo;
+	void __iomem *base = pdp->base;
 
 	PDP_SET_F(base, PDP_R_FRO_GLOBAL_ENABLE, PDP_F_FRO_GLOBAL_ENABLE, 0);
 	PDP_SET_F(base, PDP_R_GLOBAL_ENABLE, PDP_F_GLOBAL_ENABLE, 0);
 
 	total_line = PDP_GET_F(base, PDP_R_CINFIFO_OUTPUT_IMAGE_DIMENSIONS,
 		PDP_F_CINFIFO_OUTPUT_IMAGE_HEIGHT);
+	prev_line = curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
+	prev_col = curr_col = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_COL_CNT);
 
-	do {
-		udelay(3); /* 3us * 10000 = 30 ms */
-
-		try_cnt++;
-		if (try_cnt >= PDP_TRY_COUNT) {
-			err_hw("[PDP] fail to wait idleness status(total:%d, curr:%d, idle:%d)",
-				total_line, curr_line, idle);
-
-			ret = -EBUSY;
-			break;
+	spin_lock_irqsave(&pdp->slock_oneshot, flag);
+	idle = PDP_GET_F(base, PDP_R_IDLENESS_STATUS, PDP_F_IDLENESS_STATUS);
+	while (!idle) {
+		/* Increase RMO */
+		if (!try_cnt) {
+			rmo = PDP_GET_R(base, PDP_R_RDMA_BAYER_MO);
+			PDP_SET_R(base, PDP_R_RDMA_BAYER_MO, rmo + 1);
+			PDP_SET_R(base, PDP_R_RDMA_AF_MO, rmo + 1);
 		}
 
-		idle = PDP_GET_F(base, PDP_R_IDLENESS_STATUS, PDP_F_IDLENESS_STATUS);
-		curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
+		info_hw("[PDP%d] oneshot busy(RMO:%d->%d, total:%d, curr:%d,%d, try:%d)\n",
+			pdp->id, rmo, rmo + 1, total_line, curr_line, curr_col, try_cnt);
 
-		dbg_hw(2, "[PDP] %s (total:%d, curr:%d, idle:%d)\n",
-			__func__, total_line, curr_line, idle);
-	} while (!idle);
+		try_cnt++;
+		if (try_cnt >= 3) {
+			if (prev_col == curr_col && prev_line == curr_line) {
+				set_bit(IS_PDP_ONESHOT_PENDING, &pdp->state);
+				err_hw("[PDP%d] PDP stuck", pdp->id);
+				ret = -EBUSY;
+			} else {
+				set_bit(IS_PDP_ONESHOT_PENDING, &pdp->state);
+				info_hw("[PDP%d] set oneshot pending\n", pdp->id);
+				ret = 0;
+			}
+
+			spin_unlock_irqrestore(&pdp->slock_oneshot, flag);
+
+			return ret;
+		}
+
+		udelay(30); /* 3us * 10000 = 30 ms */
+
+		curr_line = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_LINE_CNT);
+		curr_col = PDP_GET_R(base, PDP_R_CINFIFO_OUTPUT_COL_CNT);
+		idle = PDP_GET_F(base, PDP_R_IDLENESS_STATUS, PDP_F_IDLENESS_STATUS);
+	}
+	spin_unlock_irqrestore(&pdp->slock_oneshot, flag);
+
+	/* Restore RMO */
+	if (!try_cnt) {
+		rmo = PDP_GET_R(base, PDP_R_RDMA_BAYER_MO);
+		if (rmo != pdp->rmo) {
+			PDP_SET_R(base, PDP_R_RDMA_BAYER_MO, pdp->rmo);
+			PDP_SET_R(base, PDP_R_RDMA_AF_MO, pdp->rmo);
+			info_hw("[PDP%d] RMO:%d->%d", pdp->id, rmo, pdp->rmo);
+		}
+	}
 
 	pdp_hw_s_af_rdma_tail_count_reset(base);
 
@@ -870,6 +907,16 @@ void pdp_hw_s_corex_enable(void __iomem *base, bool enable)
 	}
 }
 
+void pdp_hw_s_corex_type(void __iomem *base, u32 type)
+{
+	PDP_SET_F(base, PDP_R_COREX_UPDATE_TYPE_0, PDP_F_COREX_UPDATE_TYPE_0, type);
+}
+
+void pdp_hw_g_corex_state(void __iomem *base, u32 *corex_enable)
+{
+	*corex_enable = PDP_GET_F(base, PDP_R_COREX_ENABLE, PDP_F_COREX_ENABLE);
+}
+
 /* state */
 int pdp_hw_g_stat0(void __iomem *base, void *buf, size_t len)
 {
@@ -895,7 +942,7 @@ void pdp_hw_s_pdstat_path(void __iomem *base, bool enable)
 }
 
 /* config */
-void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
+void pdp_hw_s_core(struct is_pdp *pdp, bool pd_enable, struct is_sensor_cfg *sensor_cfg,
 	u32 img_width, u32 img_height, u32 img_hwformat, u32 img_pixelsize,
 	u32 pd_width, u32 pd_height, u32 pd_hwformat,
 	u32 sensor_type, u32 path, int sensor_mode, u32 fps, u32 en_sdc, u32 en_votf,
@@ -904,6 +951,7 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sen
 	u32 rmo = PDP_RDMA_MO_DEFAULT;
 	u32 img_width_full;
 	u32 en_dma, en_afdma;
+	void __iomem *base = pdp->base;
 
 	if (en_sdc) {
 		img_width_full = sensor_cfg->width;
@@ -938,6 +986,9 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sen
 #if defined(PDP_RDMA_MO_LIMIT) /* Fixed RDMA MO */
 		rmo = PDP_RDMA_MO_LIMIT;
 #endif
+
+		pdp->rmo = rmo;
+
 		if (sensor_type == SENSOR_TYPE_MOD3)
 			en_afdma = 1;
 		else
@@ -950,7 +1001,7 @@ void pdp_hw_s_core(void __iomem *base, bool pd_enable, struct is_sensor_cfg *sen
 	pdp_hw_s_af_rdma_init(base, pd_width, pd_height, pd_hwformat, rmo,
 		en_votf, en_afdma);
 	pdp_hw_s_rdma_init(base, img_width, img_height, img_hwformat, img_pixelsize,
-		rmo, en_sdc, en_votf, en_dma, freq);
+		rmo, en_sdc, en_votf, en_dma, freq, sensor_cfg->ex_mode);
 
 	pdp_hw_s_fro(base, num_buffers);
 }
@@ -1059,7 +1110,7 @@ void pdp_hw_s_wdma_disable(void __iomem *base)
  * CR type: Corex
  */
 void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat, u32 pixelsize,
-	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma, ulong freq)
+	u32 rmo, u32 en_sdc, u32 en_votf, u32 en_dma, ulong freq, u32 ex_mode)
 {
 	u32 val;
 	u32 format;
@@ -1132,8 +1183,8 @@ void pdp_hw_s_rdma_init(void __iomem *base, u32 width, u32 height, u32 hwformat,
 	 * PDP_R_RDMA_LINE_GAP should be bigger than 3AA minimum line gap.
 	 * 3AA line gap is 0x32.
 	 */
-	line_gap = 0x64;
-	if (en_sdc && en_votf) {
+	line_gap = PDP_RDMA_LINE_GAP;
+	if (en_votf && (ex_mode == EX_DUALFPS_960 || ex_mode == EX_DUALFPS_480)) {
 		/* HACK: 3ms is forcly added in SSM mode for preventing config lock delay error. */
 		u32 total_gap = 3000; /* us */
 
@@ -1382,29 +1433,28 @@ void pdp_hw_strgen_disable(void __iomem *base)
 /* IRQ function */
 unsigned int pdp_hw_g_int1_state(void __iomem *base, bool clear, u32 *irq_state)
 {
-	u32 src_all, src_fro, src, src_err;
+	u32 src_all, src_fro, src_err;
 
 	/*
 	 * src_all: per-frame based PDP IRQ status
 	 * src_fro: FRO based PDP IRQ status
 	 *
-	 * final normal status(src): src_all & src_fro
+	 * final normal status: src_fro (start, line, end)
 	 * final error status(src_err): src_all & ERR_MASK
 	 */
 	src_all = PDP_GET_R(base, PDP_R_CONTINT_INT1);
 	src_fro = PDP_GET_R(base, PDP_R_FRO_INT0);
 
-	src = src_all & src_fro;
-	src_err = src_all & INT1_ERR_MASK;
-
 	if (clear) {
 		PDP_SET_R(base, PDP_R_CONTINT_INT1_CLEAR, src_all);
-		PDP_SET_R(base, PDP_R_FRO_INT0_CLEAR, src);
+		PDP_SET_R(base, PDP_R_FRO_INT0_CLEAR, src_fro);
 	}
+
+	src_err = src_all & INT1_ERR_MASK;
 
 	*irq_state = src_all;
 
-	return src | src_err;
+	return src_fro | src_err;
 }
 
 unsigned int pdp_hw_g_int1_mask(void __iomem *base)

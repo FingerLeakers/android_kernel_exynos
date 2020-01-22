@@ -580,6 +580,11 @@ int is_vender_probe(struct is_vender *vender)
 	/* init mutex for rom read */
 	mutex_init(&specific->rom_lock);
 
+#ifdef USE_TOF_AF
+	/* TOF AF data mutex */
+	mutex_init(&specific->tof_af_lock);
+#endif
+
 	if (is_create_sysfs(core)) {
 		probe_err("is_create_sysfs is failed");
 		ret = -EINVAL;
@@ -1042,6 +1047,8 @@ int is_vendor_rom_parse_dt(struct device_node *dnode, int rom_id)
 	DT_READ_U32_DEFAULT(dnode, "rom_pdxtc_cal_data_1_size", finfo->rom_pdxtc_cal_data_1_size, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_spdc_cal_data_start_addr", finfo->rom_spdc_cal_data_start_addr, -1);
 	DT_READ_U32_DEFAULT(dnode, "rom_spdc_cal_data_size", finfo->rom_spdc_cal_data_size, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_xtc_cal_data_start_addr", finfo->rom_xtc_cal_data_start_addr, -1);
+	DT_READ_U32_DEFAULT(dnode, "rom_xtc_cal_data_size", finfo->rom_xtc_cal_data_size, -1);
 
 	rom_pdxtc_cal_data_addr_list_spec = of_get_property(dnode, "rom_pdxtc_cal_data_addr_list", &finfo->rom_pdxtc_cal_data_addr_list_len);
 	if (rom_pdxtc_cal_data_addr_list_spec) {
@@ -2087,6 +2094,8 @@ int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH:
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_HANDHELD_FAST:
 		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_LE_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_CROPPED_REMOSAIC_DYNAMIC_SHOT:
 			captureCount = value & 0x0000FFFF;
 			break;
 		default:
@@ -2439,12 +2448,11 @@ int is_vender_remove_dump_fw_file(void)
 #ifdef USE_TOF_AF
 void is_vender_store_af(struct is_vender *vender, struct tof_data_t *data){
 	struct is_vender_specific *specific;
-
 	specific = vender->private_data;
-	copy_from_user(&specific->tof_af_data, data, sizeof(struct tof_data_t));
-	copy_from_user(&specific->af_data, specific->tof_af_data.data, sizeof(specific->af_data));
-	specific->tof_af_data.data = specific->af_data;
 
+	mutex_lock(&specific->tof_af_lock);
+	copy_from_user(&specific->tof_af_data, data, sizeof(struct tof_data_t));
+	mutex_unlock(&specific->tof_af_lock);
 	return;
 }
 #endif

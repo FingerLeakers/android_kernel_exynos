@@ -6264,6 +6264,8 @@ ufshcd_scsi_cmd_status(struct ufshcd_lrb *lrbp, int scsi_status)
 		break;
 	default:
 		result |= DID_ERROR << 16;
+		printk("%s unexpected scsi status Tag : %d , scsi_status : 0x%x\n",
+			__func__, lrbp->task_tag, scsi_status);
 		break;
 	} /* end of switch */
 

@@ -2018,7 +2018,7 @@ static void set_group_shots(struct is_group *group,
 	height = sensor_cfg->height;
 
 	if (ex_mode == EX_DUALFPS_960 || ex_mode == EX_DUALFPS_480
-		|| max_fps > 240
+		|| max_fps >= 240
 		|| height <= LINE_FOR_SHOT_VALID_TIME) {
 		group->asyn_shots = MIN_OF_ASYNC_SHOTS + 1;
 		group->sync_shots = MIN_OF_SYNC_SHOTS;
@@ -3259,12 +3259,11 @@ p_skip_sync:
 	}
 
 #ifdef ENABLE_DVFS
+	mutex_lock(&resourcemgr->dvfs_ctrl.lock);
 	is_dual_mode_update(device, group, frame);
 
 	if ((!pm_qos_request_active(&device->user_qos)) && (sysfs_debug.en_dvfs)) {
 		int scenario_id;
-
-		mutex_lock(&resourcemgr->dvfs_ctrl.lock);
 
 		/* try to find dynamic scenario to apply */
 		is_dual_dvfs_update(device, group, frame);
@@ -3288,8 +3287,8 @@ p_skip_sync:
 			is_set_dvfs((struct is_core *)device->interface->core, device, static_ctrl->cur_scenario_id);
 		}
 
-		mutex_unlock(&resourcemgr->dvfs_ctrl.lock);
 	}
+	mutex_unlock(&resourcemgr->dvfs_ctrl.lock);
 #endif
 
 	PROGRAM_COUNT(7);

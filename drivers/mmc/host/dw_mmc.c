@@ -1010,9 +1010,11 @@ static inline int dw_mci_prepare_desc64(struct dw_mci *host,
 	void *bounce_buffer_addr;
 	void *dma_phy_addr;
 
-	host->mem_check = 0;
 	host->bu_count = 0;
 	desc_first = desc_last = desc = host->sg_cpu;
+
+	if (host->bounce_buffer_addr == NULL)
+		return -EINVAL;
 
 	memset(host->bounce_buffer_addr, 0, (4096 * 512));
 	bounce_buffer_addr = host->bounce_buffer_addr;
@@ -1020,6 +1022,7 @@ static inline int dw_mci_prepare_desc64(struct dw_mci *host,
 	for (i = 0; i < sg_len; i++) {
 		if (data->sg[i].dma_address >= DMA_UPPER_ADDR) {
 			host->mem_check = 1;
+			break;
 		}
 	}
 
@@ -1113,7 +1116,8 @@ static inline int dw_mci_prepare_desc64(struct dw_mci *host,
 	return 0;
 err_own_bit:
 	/* restore the descriptor chain as it's polluted */
-	dev_dbg(host->dev, "descriptor is still owned by IDMAC.\n");
+	dev_err(host->dev, "descriptor is still owned by IDMAC.\n");
+	host->mem_check = 0;
 	memset(host->sg_cpu, 0, DESC_RING_BUF_SZ);
 	dw_mci_idmac_init(host);
 	return -EINVAL;
@@ -1881,6 +1885,7 @@ static void __dw_mci_start_request(struct dw_mci *host,
 	host->cmd_status = 0;
 	host->data_status = 0;
 	host->dir_status = 0;
+	host->mem_check = 0;
 
 	data = cmd->data;
 	if (data) {
@@ -3538,6 +3543,7 @@ static void dw_mci_timeout_timer(struct timer_list *t)
 		host->sg = NULL;
 		host->data = NULL;
 		host->cmd = NULL;
+		host->mem_check = 0;
 
 		switch (host->state) {
 		case STATE_IDLE:
@@ -4523,11 +4529,11 @@ int dw_mci_probe(struct dw_mci *host)
 		goto err_clk_ciu;
 	}
 
-	/* bounce buffer size 4K * 256 */
-	host->bounce_buffer_addr = kmalloc((4096 * 512), GFP_KERNEL);
+	/* bounce buffer size 4K * 512 */
+	host->bounce_buffer_addr = kmalloc((4096 * SG_MAX_LEN), GFP_KERNEL);
 	if (host->bounce_buffer_addr) {
 		dev_err(host->dev, "mmc bounce_buffer_addr = 0x%llx\n", host->bounce_buffer_addr);
-		memset(host->bounce_buffer_addr, 0, (4096 * 512));
+		memset(host->bounce_buffer_addr, 0, (4096 * SG_MAX_LEN));
 	} else {
 		dev_err(host->dev, "mmc bounce_buffer alloc fail\n");
 		goto err_workqueue;

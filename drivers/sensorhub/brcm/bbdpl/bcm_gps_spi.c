@@ -70,6 +70,9 @@ unsigned long g_rx_buffer_avail_bytes = HSI_PZC_MAX_RX_BUFFER; // Should be more
 
 static struct bcm_spi_priv *g_bcm_gps;
 
+extern struct spi_driver *pssp_driver;
+extern struct spi_device dummy_spi;
+
 struct bcm_spi_priv *bcm_get_bcm_gps(void)
 {
 	return g_bcm_gps;
@@ -776,12 +779,6 @@ static int bcm_ssi_tx(struct bcm_spi_priv *priv, int length)
 	return ret;
 }
 
-static size_t free_space_in_bbd(struct bcm_spi_priv *priv)
-{
-	struct circ_buf *rd_circ = &priv->read_buf;
-	return  CIRC_SPACE(rd_circ->head, rd_circ->tail, BCM_SPI_READ_BUF_SIZE);
-}
-
 int bcm_ssi_rx(struct bcm_spi_priv *priv, size_t *length)
 {
 	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
@@ -789,7 +786,6 @@ int bcm_ssi_rx(struct bcm_spi_priv *priv, size_t *length)
 	struct bcm_spi_strm_protocol *strm = &priv->rx_strm;
 	unsigned short ctrl_len = strm->pckt_len+1;  // +1 for rx status
 	unsigned short payload_len;
-	unsigned short free_space;
 
 	// pr_info("[SSPBBD]: %s ++\n", __func__);
 
@@ -811,15 +807,6 @@ int bcm_ssi_rx(struct bcm_spi_priv *priv, size_t *length)
 		return -1;
 
 	payload_len = bcm_ssi_get_len(strm->ctrl_byte, rx->data);
-
-	free_space = (unsigned short) free_space_in_bbd(priv);
-	if (free_space < payload_len) {
-        pr_info("[SSPBBD]: %s @ not enough rx ring buffer(%d, %d). \n",
-				__func__, free_space, payload_len);
-		if (free_space == 0)
-			return -2;
-		payload_len = min(payload_len, free_space);
-	}
 
 	//pr_info("[SSPBBD]: %s ++, len %u\n", __func__,payload_len);
 	if (payload_len == 0) {
@@ -1119,6 +1106,7 @@ static void bcm_spi_shutdown(struct spi_device *spi)
 	unsigned long int flags;
 
 	pr_info("[SSPBBD]: %s ++\n", __func__);
+	pssp_driver->shutdown(&dummy_spi);
 
 #if CONFIG_MEM_CORRUPT_CHECK
      bcm_ssi_check_mem_corruption(priv);

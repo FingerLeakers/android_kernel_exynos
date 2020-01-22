@@ -164,13 +164,6 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		}
 	}
 
-	/* init kthread for sensor register setting when s_format */
-	ret = is_sensor_init_mode_change_thread(sensor_peri);
-	if (ret) {
-		err("is_sensor_init_mode_change is fail(%d)\n", ret);
-		goto p_err;
-	}
-
 	ret = CALL_CISOPS(&sensor_peri->cis, cis_init, subdev_cis);
 	if (ret) {
 		err("v4l2_subdev_call(init) is fail(%d)", ret);
@@ -271,7 +264,7 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 	 * cis global setting need to start after other peri initialize finished
 	 */
 	if (IS_ENABLED(USE_CIS_GLOBAL_WORK) && device->pdata->scenario == SENSOR_SCENARIO_NORMAL)
-		kthread_queue_work(&sensor_peri->cis_global_worker, &sensor_peri->cis_global_work);
+		schedule_work(&sensor_peri->cis.global_setting_work);
 
 	pr_info("[MOD:%s] %s(%d)\n", module->sensor_name, __func__, val);
 
@@ -297,8 +290,8 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 
 	is_sensor_deinit_sensor_thread(sensor_peri);
 
-	/* kthread stop to sensor setting when s_format */
-	is_sensor_deinit_mode_change_thread(sensor_peri);
+	cancel_work_sync(&sensor_peri->cis.global_setting_work);
+	cancel_work_sync(&sensor_peri->cis.mode_setting_work);
 
 	if (sensor_peri->subdev_cis) {
 		CALL_CISOPS(&sensor_peri->cis, cis_deinit, sensor_peri->subdev_cis);
@@ -1140,11 +1133,13 @@ int sensor_module_s_format(struct v4l2_subdev *subdev,
 	BUG_ON(!core);
 
 	if (cis->cis_data->sens_config_index_cur != device->cfg->mode
+		|| cis->cis_data->sens_config_ex_mode_cur != device->cfg->ex_mode
 		|| sensor_peri->mode_change_first == true) {
 		dbg_sensor(1, "[%s] mode changed(%d->%d)\n", __func__,
 				cis->cis_data->sens_config_index_cur, device->cfg->mode);
 
 		cis->cis_data->sens_config_index_cur = device->cfg->mode;
+		cis->cis_data->sens_config_ex_mode_cur = device->cfg->ex_mode;
 		cis->cis_data->cur_width = fmt->format.width;
 		cis->cis_data->cur_height = fmt->format.height;
 

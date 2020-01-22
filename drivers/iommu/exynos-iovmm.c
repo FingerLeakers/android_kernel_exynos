@@ -55,7 +55,7 @@ static dma_addr_t alloc_iovm_region(struct exynos_iovmm *vmm, size_t size,
 	unsigned long end, i;
 	struct exynos_vm_region *region;
 	struct exynos_iommu_domain *domain = to_exynos_domain(vmm->domain);
-	size_t align = domain->pre_alloc ? SZ_4K : SZ_1M;
+	size_t align = domain->pre_alloc ? SZ_64K : SZ_1M;
 
 	BUG_ON(page_offset >= PAGE_SIZE);
 

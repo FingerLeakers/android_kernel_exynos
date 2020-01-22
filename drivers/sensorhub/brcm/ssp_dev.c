@@ -458,8 +458,12 @@ irqreturn_t ssp_shub_int_handler(int irq, void *device)
 
 	data->ts_stacked_cnt = (data->ts_stacked_cnt + 1) % SIZE_TIMESTAMP_BUFFER;
 	data->ts_index_buffer[data->ts_stacked_cnt] = timestamp;
-
+	
 	ssp_debug_time("[SSP_IRQ] ts_stacked_cnt %d timestamp %llu\n", data->ts_stacked_cnt, timestamp);
+	
+	gpio_set_value(data->pin_ap_sleep, 0);
+	gpio_set_value(data->pin_ap_sleep, 1);
+
 	return IRQ_HANDLED;
 }
 #endif
@@ -1162,6 +1166,12 @@ exit:
 static void ssp_shutdown(struct spi_device *spi)
 {
 	struct ssp_data *data = spi_get_drvdata(spi);
+
+	if (regulator_is_enabled(data->regulator_vdd_mcu_1p8)) {
+		int ret = regulator_disable(data->regulator_vdd_mcu_1p8);
+		pr_err("[SSP] %s - disable vdd_mcu_1p8(%d)", __func__, ret);
+		return;
+	}
 
 	pr_err("[SSP] lpm %d recovery\n", lpcharge);
 	func_dbg();

@@ -492,7 +492,7 @@ const u32 sensor_imx518_setfile_A_640x1920_30fps_B103[] = {
 };
 
 /* QQVGA - patron */
-const u32 sensor_imx518_setfile_A_320x960_30fps_B103[] = {
+const u32 sensor_imx518_setfile_A_320x480_30fps_B103[] = {
 	0x1040,	0x00, 0x01,
 	0x1041,	0xA6, 0x01,
 	0x1042,	0x03, 0x01,
@@ -1057,7 +1057,7 @@ const u32 sensor_imx518_setfile_A_640x1920_30fps_B303[] = {
 };
 
 /* QQVGA */
-const u32 sensor_imx518_setfile_A_320x960_30fps_B303[] = {
+const u32 sensor_imx518_setfile_A_320x480_30fps_B303[] = {
 	0x1040,	0x00, 0x01,
 	0x1041,	0xA6, 0x01,
 	0x1042,	0x03, 0x01,
@@ -1622,7 +1622,7 @@ const u32 sensor_imx518_setfile_A_640x1920_30fps_B503[] = {
 };
 
 /* QQVGA */
-const u32 sensor_imx518_setfile_A_320x960_30fps_B503[] = {
+const u32 sensor_imx518_setfile_A_320x480_30fps_B503[] = {
 	0x1040,	0x00, 0x01,
 	0x1041,	0xA6, 0x01,
 	0x1042,	0x03, 0x01,
@@ -2187,7 +2187,7 @@ const u32 sensor_imx518_setfile_A_640x1920_30fps_B703[] = {
 };
 
 /* QQVGA */
-const u32 sensor_imx518_setfile_A_320x960_30fps_B703[] = {
+const u32 sensor_imx518_setfile_A_320x480_30fps_B703[] = {
 	0x1040,	0x00, 0x01,
 	0x1041,	0xA6, 0x01,
 	0x1042,	0x03, 0x01,
@@ -2755,7 +2755,7 @@ const u32 sensor_imx518_setfile_A_640x1920_30fps_B903[] = {
 };
 
 /* Z3 QQVGA patron */
-const u32 sensor_imx518_setfile_A_320x960_30fps_B903[] = {
+const u32 sensor_imx518_setfile_A_320x480_30fps_B903[] = {
 	0x1040,	0x00, 0x01,
 	0x1041,	0xA6, 0x01,
 	0x1042,	0x03, 0x01,
@@ -3101,61 +3101,61 @@ static const u32 sensor_imx518_setfiles_mode_id_num =
 static const u32 *sensor_imx518_setfiles_A_B103[] = {
 	sensor_imx518_setfile_A_1280x3840_30fps_B103,  /* VGA */
 	sensor_imx518_setfile_A_640x1920_30fps_B103,   /* QVGA */
-	sensor_imx518_setfile_A_320x960_30fps_B103,    /* QQVGA */
+	sensor_imx518_setfile_A_320x480_30fps_B103,    /* QQVGA */
 };
 
 static const u32 *sensor_imx518_setfiles_A_B303[] = {
 	sensor_imx518_setfile_A_1280x3840_30fps_B303,  /* VGA */
 	sensor_imx518_setfile_A_640x1920_30fps_B303,   /* QVGA */
-	sensor_imx518_setfile_A_320x960_30fps_B303,    /* QQVGA */
+	sensor_imx518_setfile_A_320x480_30fps_B303,    /* QQVGA */
 };
 
 static const u32 *sensor_imx518_setfiles_A_B503[] = {
 	sensor_imx518_setfile_A_1280x3840_30fps_B503,  /* VGA */
 	sensor_imx518_setfile_A_640x1920_30fps_B503,   /* QVGA */
-	sensor_imx518_setfile_A_320x960_30fps_B503,    /* QQVGA */
+	sensor_imx518_setfile_A_320x480_30fps_B503,    /* QQVGA */
 };
 
 static const u32 *sensor_imx518_setfiles_A_B703[] = {
 	sensor_imx518_setfile_A_1280x3840_30fps_B703,  /* VGA */
 	sensor_imx518_setfile_A_640x1920_30fps_B703,   /* QVGA */
-	sensor_imx518_setfile_A_320x960_30fps_B703,    /* QQVGA */
+	sensor_imx518_setfile_A_320x480_30fps_B703,    /* QQVGA */
 };
 
 static const u32 *sensor_imx518_setfiles_A_B903[] = {
 	sensor_imx518_setfile_A_1280x3840_30fps_B903,  /* VGA */
 	sensor_imx518_setfile_A_640x1920_30fps_B903,   /* QVGA */
-	sensor_imx518_setfile_A_320x960_30fps_B903,    /* QQVGA */
+	sensor_imx518_setfile_A_320x480_30fps_B903,    /* QQVGA */
 };
 
 static const u32 sensor_imx518_setfiles_A_B103_sizes[] = {
 	sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B103) / sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B103[0]),
 	sizeof(sensor_imx518_setfile_A_640x1920_30fps_B103) / sizeof(sensor_imx518_setfile_A_640x1920_30fps_B103[0]),
-	sizeof(sensor_imx518_setfile_A_320x960_30fps_B103) / sizeof(sensor_imx518_setfile_A_320x960_30fps_B103[0]),
+	sizeof(sensor_imx518_setfile_A_320x480_30fps_B103) / sizeof(sensor_imx518_setfile_A_320x480_30fps_B103[0]),
 };
 
 static const u32 sensor_imx518_setfiles_A_B303_sizes[] = {
 	sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B303) / sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B303[0]),
 	sizeof(sensor_imx518_setfile_A_640x1920_30fps_B303) / sizeof(sensor_imx518_setfile_A_640x1920_30fps_B303[0]),
-	sizeof(sensor_imx518_setfile_A_320x960_30fps_B303) / sizeof(sensor_imx518_setfile_A_320x960_30fps_B303[0]),
+	sizeof(sensor_imx518_setfile_A_320x480_30fps_B303) / sizeof(sensor_imx518_setfile_A_320x480_30fps_B303[0]),
 };
 
 static const u32 sensor_imx518_setfiles_A_B503_sizes[] = {
 	sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B503) / sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B503[0]),
 	sizeof(sensor_imx518_setfile_A_640x1920_30fps_B503) / sizeof(sensor_imx518_setfile_A_640x1920_30fps_B503[0]),
-	sizeof(sensor_imx518_setfile_A_320x960_30fps_B503) / sizeof(sensor_imx518_setfile_A_320x960_30fps_B503[0]),
+	sizeof(sensor_imx518_setfile_A_320x480_30fps_B503) / sizeof(sensor_imx518_setfile_A_320x480_30fps_B503[0]),
 };
 
 static const u32 sensor_imx518_setfiles_A_B703_sizes[] = {
 	sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B703) / sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B703[0]),
 	sizeof(sensor_imx518_setfile_A_640x1920_30fps_B703) / sizeof(sensor_imx518_setfile_A_640x1920_30fps_B703[0]),
-	sizeof(sensor_imx518_setfile_A_320x960_30fps_B703) / sizeof(sensor_imx518_setfile_A_320x960_30fps_B703[0]),
+	sizeof(sensor_imx518_setfile_A_320x480_30fps_B703) / sizeof(sensor_imx518_setfile_A_320x480_30fps_B703[0]),
 };
 
 static const u32 sensor_imx518_setfiles_A_B903_sizes[] = {
 	sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B903) / sizeof(sensor_imx518_setfile_A_1280x3840_30fps_B903[0]),
 	sizeof(sensor_imx518_setfile_A_640x1920_30fps_B903) / sizeof(sensor_imx518_setfile_A_640x1920_30fps_B903[0]),
-	sizeof(sensor_imx518_setfile_A_320x960_30fps_B903) / sizeof(sensor_imx518_setfile_A_320x960_30fps_B903[0]),
+	sizeof(sensor_imx518_setfile_A_320x480_30fps_B903) / sizeof(sensor_imx518_setfile_A_320x480_30fps_B903[0]),
 };
 
 static const u32 **sensor_imx518_setfiles_A[] = {

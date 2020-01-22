@@ -469,7 +469,9 @@ static void prepare_mafpc_check_mode(struct panel_device *panel)
 
 	decon_bypass_on_global(0);
 	usleep_range(90000, 100000);
-	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], false);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_EXIT_SEQ);
 	if (ret < 0)
@@ -1069,7 +1071,10 @@ static int read_mcd_resistance(struct panel_device *panel)
 	struct timespec cur_ts, last_ts, delta_ts;
 
 	ktime_get_ts(&last_ts);
-	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], false);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_MCD_RS_ON_SEQ);
 	if (unlikely(ret < 0)) {
@@ -1117,9 +1122,9 @@ static int read_mcd_resistance(struct panel_device *panel)
 	}
 
 out:
-	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], true);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 	ktime_get_ts(&cur_ts);
 	delta_ts = timespec_sub(cur_ts, last_ts);
 	elapsed_usec = timespec_to_ns(&delta_ts) / 1000;
@@ -1450,9 +1455,12 @@ static bool gct_chksum_is_valid(struct panel_device *panel)
 
 static void prepare_gct_mode(struct panel_device *panel)
 {
+	int ret;
 	decon_bypass_on_global(0);
 	usleep_range(90000, 100000);
-	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], false);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 }
 
 static void clear_gct_mode(struct panel_device *panel)
@@ -1475,9 +1483,9 @@ static void clear_gct_mode(struct panel_device *panel)
 	ret = panel_do_seqtbl_by_index_nolock(panel, PANEL_INIT_SEQ);
 	if (ret < 0)
 		panel_err("PANEL:ERR:%s:failed init-seq\n", __func__);
-
-	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], true);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 	panel_data->props.gct_on = GRAM_TEST_OFF;
 	panel->state.cur_state = PANEL_STATE_NORMAL;
 	panel->state.disp_on = PANEL_DISPLAY_OFF;
@@ -3445,14 +3453,19 @@ static ssize_t self_mask_store(struct device *dev,
 
 static void prepare_self_mask_check(struct panel_device *panel)
 {
+	int ret = 0;
 	decon_bypass_on_global(0);
-	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], false);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 }
 
 static void clear_self_mask_check(struct panel_device *panel)
 {
-	clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-	enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	int ret = 0;
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], true);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 	decon_bypass_off_global(0);
 }
 

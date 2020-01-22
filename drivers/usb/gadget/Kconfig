@@ -499,6 +499,13 @@ config USB_CONFIGFS_F_CONN_GADGET
         help
           SydeSync
 
+config F_CONN_GADGET_DEBUGFS
+      bool "Conn gadget debugfs"
+      depends on USB_CONFIGFS_F_CONN_GADGET
+      default n
+      help
+        SydeSync Debugging
+
 config USB_CONFIGFS_F_ACC
 	bool "Accessory gadget"
 	depends on USB_CONFIGFS

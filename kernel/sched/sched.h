@@ -495,6 +495,7 @@ struct cfs_rq {
 #endif
 #ifdef CONFIG_FAST_TRACK
 	int 			ftt_rqcnt;
+	int			ftt_sched_count;
 #endif
 
 	struct rb_root_cached	tasks_timeline;

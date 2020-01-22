@@ -1682,7 +1682,7 @@
 			rear2_video_uhd_8k_int_cam = <DVFS_INT_CAM_L3>;
 			rear2_video_uhd_8k_tnr = <DVFS_TNR_L3>;
 			rear2_video_uhd_8k_cam = <DVFS_CAM_L1>;	/* OTF */
-			rear2_video_uhd_8k_mif = <DVFS_MIF_L3>;
+			rear2_video_uhd_8k_mif = <DVFS_MIF_L1>;
 			rear2_video_uhd_8k_int = <DVFS_INT_L2>;
 			rear2_video_uhd_8k_hpg = <1>;
 
@@ -1749,8 +1749,8 @@
 			rear_video_fhd_int = <DVFS_INT_L2>;
 			rear_video_fhd_hpg = <1>;
 
-			rear_video_hdr_int_cam = <DVFS_INT_CAM_L3>;
-			rear_video_hdr_tnr = <DVFS_TNR_L3>;
+			rear_video_hdr_int_cam = <DVFS_INT_CAM_L5>;
+			rear_video_hdr_tnr = <DVFS_TNR_L5>;
 			rear_video_hdr_cam = <DVFS_CAM_L1>;	/* VOTF */
 			rear_video_hdr_mif = <DVFS_MIF_L5>;
 			rear_video_hdr_int = <DVFS_INT_L2>;
@@ -1780,7 +1780,7 @@
 			rear_video_uhd_8k_int_cam = <DVFS_INT_CAM_L3>;
 			rear_video_uhd_8k_tnr = <DVFS_TNR_L3>;
 			rear_video_uhd_8k_cam = <DVFS_CAM_L1>;	/* VOTF */
-			rear_video_uhd_8k_mif = <DVFS_MIF_L3>;
+			rear_video_uhd_8k_mif = <DVFS_MIF_L1>;
 			rear_video_uhd_8k_int = <DVFS_INT_L2>;
 			rear_video_uhd_8k_hpg = <1>;
 
@@ -1996,7 +1996,7 @@
 
 			video_high_speed_dualfps_int_cam = <DVFS_INT_CAM_L3>;
 			video_high_speed_dualfps_tnr = <DVFS_TNR_L3>;
-			video_high_speed_dualfps_cam = <DVFS_CAM_L0>;	/* VOTF, LRTE align limitation */
+			video_high_speed_dualfps_cam = <DVFS_CAM_L1>;	/* VOTF */
 			video_high_speed_dualfps_mif = <DVFS_MIF_L3>;
 			video_high_speed_dualfps_int = <DVFS_INT_L2>;
 			video_high_speed_dualfps_hpg = <6>;

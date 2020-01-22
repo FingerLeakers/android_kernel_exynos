@@ -121,6 +121,9 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 			input_err(true, &ts->client->dev, "%s: failed to get pm_runtime\n", __func__);
 			return -EIO;
 		}
+
+		sec_input_notify(&ts->sec_input_nb, SEC_INPUT_CUSTOM_NOTIFIER_SECURE_TOUCH_ENABLE);
+
 		reinit_completion(&ts->secure_powerdown);
 		reinit_completion(&ts->secure_interrupt);
 #if defined(CONFIG_TRUSTONIC_TRUSTED_UI_QC)
@@ -161,6 +164,8 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 					__func__);
 			return -EIO;
 		}
+
+		sec_input_notify(&ts->sec_input_nb, SEC_INPUT_CUSTOM_NOTIFIER_SECURE_TOUCH_DISABLE);
 
 	} else {
 		input_err(true, &ts->client->dev, "%s: unsupport value:%d\n", __func__, data);
@@ -248,6 +253,14 @@ static struct attribute_group secure_attr_group = {
 	.attrs = secure_attr,
 };
 
+static int sec_touch_notify_call(struct notifier_block *n, unsigned long data, void *v)
+{
+	struct sec_ts_data *ts = container_of(n, struct sec_ts_data, sec_input_nb);
+
+	input_dbg(true, &ts->client->dev, "%s: call:%ld\n", __func__, data);
+
+	return 0;
+}
 
 static int secure_touch_init(struct sec_ts_data *ts)
 {
@@ -261,6 +274,8 @@ static int secure_touch_init(struct sec_ts_data *ts)
 			&ts->st_irq_received, secure_get_irq,
 			secure_touch_enable_store);
 #endif
+
+	sec_input_register_notify(&ts->sec_input_nb, sec_touch_notify_call);
 
 	return 0;
 }
@@ -3288,6 +3303,8 @@ static int sec_ts_remove(struct i2c_client *client)
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 	ts->shutdown_is_on_going = true;
 	shutdown_is_on_going_tsp = true;
+
+	sec_input_unregister_notify(&ts->sec_input_nb);
 
 	sec_ts_ioctl_remove(ts);
 

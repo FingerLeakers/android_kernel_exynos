@@ -205,6 +205,7 @@ typedef u32 base_mem_alloc_flags;
  */
 #define BASE_MEM_RESERVED_BIT_19 ((base_mem_alloc_flags)1 << 19)
 #define BASE_MEM_MAYBE_RESERVED_BIT_19 BASE_MEM_RESERVED_BIT_19
+
 /** TODO: allocate an available bit */
 #define BASE_MEM_FLAG_MAP_FIXED BASE_MEM_RESERVED_BIT_19
 

@@ -45,8 +45,6 @@
 
 extern ufshcd_link_hibern8_ctrl(struct ufs_hba *hba, bool en);
 
-struct ufs_eom_result_s **eom_results;
-
 /* UFS CAL interface */
 
 static ssize_t exynos_ufs_eom1_show(struct device *dev,
@@ -57,8 +55,10 @@ static ssize_t exynos_ufs_eom1_show(struct device *dev,
 	u32 test_cnt = 0;
 	static int current_cnt = 0;
 	int i = 0;
+	struct exynos_ufs *ufs = to_exynos_ufs(dev_get_drvdata(dev));
+	struct ufs_eom_result_s **p = ufs->cal_param->eom;
 
-	if (eom_results  == NULL) {
+	if (p == NULL) {
 		len += snprintf(buf + len, PAGE_SIZE,
 				"eom_result structure is NULL !!! \n");
 		goto exit;
@@ -67,9 +67,9 @@ static ssize_t exynos_ufs_eom1_show(struct device *dev,
 	while (current_cnt != EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX) {
 		len += snprintf(buf + len, PAGE_SIZE,
 				"%u %u %ld\n",
-				eom_results[i][current_cnt].phase,
-				eom_results[i][current_cnt].vref,
-				eom_results[i][current_cnt].err);
+				p[i][current_cnt].phase,
+				p[i][current_cnt].vref,
+				p[i][current_cnt].err);
 		current_cnt++;
 		test_cnt++;
 		if (test_cnt == 100)
@@ -87,7 +87,7 @@ static ssize_t exynos_ufs_eom1_store(struct device *dev,
 		const char *buf, size_t count)
 {
 	int op_num;
-	int i;
+	int ret;
 	struct ufs_hba *hba = dev_get_drvdata(dev);
 	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	struct ufs_cal_param *p = ufs->cal_param;
@@ -96,24 +96,16 @@ static ssize_t exynos_ufs_eom1_store(struct device *dev,
 		   &hba->clk_gating.ungate_work);
 	flush_workqueue(hba->clk_gating.clk_gating_workq);
 
-	kfree(eom_results);
-
-	eom_results = kzalloc(sizeof(struct ufs_eom_result_s*) *
-			(uint8_t)ufs->num_rx_lanes, GFP_KERNEL);
-
-	for(i  = 0; i < ufs->num_rx_lanes; i++) {
-		eom_results[i] = kzalloc(sizeof(struct ufs_eom_result_s) *
-				EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX, GFP_KERNEL);
-	}
-
 	if (sscanf(buf, "%10d", &op_num) == 0)
 		return -EINVAL;
 
 	switch (op_num) {
 	case 0:
 		/* cal */
-		ufs_cal_eom(p, p->max_gear,
-				ufs->num_rx_lanes, eom_results);
+		ret = ufs_cal_eom(p, p->max_gear,
+				ufs->num_rx_lanes, p->eom);
+		if (ret)
+			dev_err(dev, "EOM test fail!\n");
 		break;
 	}
 
@@ -137,11 +129,11 @@ static ssize_t exynos_ufs_eom2_show(struct device *dev,
 	int len = 0;
 	u32 test_cnt = 0;
 	static int current_cnt = 0;
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	struct exynos_ufs *ufs = to_exynos_ufs(hba);
 	int i = 1;
+	struct exynos_ufs *ufs = to_exynos_ufs(dev_get_drvdata(dev));
+	struct ufs_eom_result_s **p = ufs->cal_param->eom;
 
-	if (eom_results  == NULL) {
+	if (p == NULL) {
 		len += snprintf(buf + len, PAGE_SIZE,
 				"eom_result structure is NULL !!! \n");
 		goto exit;
@@ -155,9 +147,9 @@ static ssize_t exynos_ufs_eom2_show(struct device *dev,
 	while (current_cnt != EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX) {
 		len += snprintf(buf + len, PAGE_SIZE,
 				"%u %u %ld\n",
-				eom_results[i][current_cnt].phase,
-				eom_results[i][current_cnt].vref,
-				eom_results[i][current_cnt].err);
+				p[i][current_cnt].phase,
+				p[i][current_cnt].vref,
+				p[i][current_cnt].err);
 		current_cnt++;
 		test_cnt++;
 		if (test_cnt == 100)
@@ -215,25 +207,50 @@ static struct exynos_ufs_sfr_log ufs_log_std_sfr[] = {
 static inline int ufs_init_cal(struct exynos_ufs *ufs, int idx,
 					struct platform_device *pdev)
 {
-	int ret = 0;
+	int ret;
+	int ret_cal;
 	struct device *dev = &pdev->dev;
 	struct ufs_cal_param *p = NULL;
+	int i;
 
+	ret = -ENOMEM;
 	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
 	if (!p) {
 		dev_err(ufs->dev, "cannot allocate mem for cal param\n");
-		return -ENOMEM;
+		goto fail;
 	}
 	ufs->cal_param = p;
 
-	p->host = ufs;
-	p->board = 0;	/* ken: need a dt node for board */
-	if ((ret = ufs_cal_init(p, idx)) != UFS_CAL_NO_ERROR) {
-		dev_err(ufs->dev, "ufs_init_cal = %d!!!\n", ret);
-		return -EPERM;
+	/* allocate for eom */
+	p->eom = devm_kzalloc(dev, sizeof(struct ufs_eom_result_s*) * MAX_LANE, GFP_KERNEL);
+	if (!p->eom) {
+		dev_err(dev, "eom base alloc fail\n");
+		goto fail;
 	}
 
-	return 0;
+	for (i = 0; i < MAX_LANE; i++) {
+		p->eom[i] = kzalloc(sizeof(struct ufs_eom_result_s) *
+				EOM_PH_SEL_MAX * EOM_DEF_VREF_MAX, GFP_KERNEL);
+		if (!p->eom[i]) {
+			dev_err(dev, "eom result alloc fail\n");
+			goto fail;
+		}
+	}
+
+	ret = -EPERM;
+	p->host = ufs;
+	p->board = 0;	/* ken: need a dt node for board */
+	if ((ret_cal = ufs_cal_init(p, idx)) != UFS_CAL_NO_ERROR)
+		goto fail;
+
+	ret = 0;
+fail:
+	if (ret == -ENOMEM)
+		dev_err(ufs->dev, "%s: cannot allocate memory\n", __func__);
+	else if (ret == -EPERM)
+		dev_err(ufs->dev, "%s: ufs_init_cal = %d!!!\n", __func__, ret_cal);
+
+	return ret;
 }
 
 static void exynos_ufs_update_active_lanes(struct ufs_hba *hba)
@@ -1436,7 +1453,6 @@ static int exynos_ufs_populate_dt(struct device *dev, struct exynos_ufs *ufs)
 
 	if (of_property_read_u32(np, "ufs-pm-qos-fsys0", &ufs->pm_qos_fsys0_value))
 		ufs->pm_qos_fsys0_value = 0;
-
 
 out:
 	return ret;

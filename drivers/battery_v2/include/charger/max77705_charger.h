@@ -326,6 +326,7 @@ struct max77705_charger_data {
 	struct i2c_client       *i2c;
 	struct i2c_client       *pmic_i2c;
 	struct mutex            charger_mutex;
+	struct mutex            mode_mutex;
 
 	struct max77705_platform_data *max77705_pdata;
 

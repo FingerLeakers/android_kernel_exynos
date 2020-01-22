@@ -85,17 +85,20 @@ enum is_rom_dualcal_index {
 };
 
 #define AF_CAL_D_MAX 8
+
+#define TOF_AF_SIZE 1200
+
 struct tof_data_t {
 	u64 timestamp;
-	u16 *data;
 	u32 width;
 	u32 height;
+	u16 data[TOF_AF_SIZE];
 };
 
 #define TOF_CAL_SIZE_MAX 10
 #define TOF_CAL_VALID_MAX 10
 
-#define CROSSTALK_CAL_MAX 6
+#define CROSSTALK_CAL_MAX (3 * 13)
 
 #ifdef USE_CAMERA_HW_BIG_DATA
 #define CAM_HW_ERR_CNT_FILE_PATH "/data/vendor/camera/camera_hw_err_cnt.dat"

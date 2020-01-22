@@ -338,8 +338,13 @@ static ssize_t abox_qos_read_qos(char *buf, size_t size, struct abox_qos *qos)
 	return offset;
 }
 
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+ssize_t abox_qos_read_file(struct file *file, char __user *user_buf,
+				    size_t count, loff_t *ppos)
+#else /* CONFIG_SND_SOC_SAMSUNG_AUDIO */
 static ssize_t abox_qos_read_file(struct file *file, char __user *user_buf,
 				    size_t count, loff_t *ppos)
+#endif /* CONFIG_SND_SOC_SAMSUNG_AUDIO */
 {
 	struct abox_qos **p_qos;
 	const size_t size = PAGE_SIZE, len = ARRAY_SIZE(abox_qos_array);

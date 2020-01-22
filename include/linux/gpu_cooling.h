@@ -130,6 +130,7 @@ extern int gpu_dvfs_get_utilization(void);
 extern int gpu_dvfs_get_max_freq(void);
 extern int gpu_dvfs_get_sustainable_info_array(int index);
 extern int gpu_dvfs_get_max_lock(void);
+extern bool gpu_dvfs_get_need_cpu_qos(void);
 #else
 static inline int gpu_dvfs_get_clock(int level) { return 0; }
 static inline int gpu_dvfs_get_voltage(int clock) { return 0; }
@@ -137,5 +138,6 @@ static inline int gpu_dvfs_get_step(void) { return 0; }
 static inline int gpu_dvfs_get_cur_clock(void) { return 0; }
 static inline int gpu_dvfs_get_utilization(void) { return 0; }
 static inline int gpu_dvfs_get_max_freq(void) { return 0; }
+static inline bool gpu_dvfs_get_need_cpu_qos(void) { return false; }
 #endif
 #endif /* __GPU_COOLING_H__ */

@@ -58,6 +58,17 @@ unsigned long ml_task_util(struct task_struct *p)
 	return READ_ONCE(p->se.ml.util_avg);
 }
 
+int ml_task_hungry(struct task_struct *p)
+{
+	if (!emstune_hungry)
+		return 0;
+
+	if (emstune_boosted())
+		return 0;
+
+	return READ_ONCE(p->se.ml.hungry);
+}
+
 /*
  * ml_task_util_est - task util with util-est
  *
@@ -156,7 +167,7 @@ unsigned long _ml_cpu_util(int cpu, int sse)
 	if (sched_feat(UTIL_EST))
 		util = max_t(unsigned long, util, ml_cpu_util_est(cpu, sse));
 
-	return min_t(unsigned long, util, capacity_cpu(cpu, sse));
+	return util;
 }
 
 /*
@@ -241,9 +252,6 @@ unsigned long ml_cpu_util_without(int cpu, struct task_struct *p)
 		sse_util = max_t(unsigned long, sse_util, sse_util_est);
 	}
 
-	sse_util = min_t(unsigned long, sse_util, capacity_cpu(cpu, SSE));
-	uss_util = min_t(unsigned long, uss_util, capacity_cpu(cpu, USS));
-
 	return __normalize_util(cpu, sse_util, uss_util, USS);
 }
 
@@ -274,7 +282,7 @@ unsigned long __ml_cpu_util_with(int cpu, struct task_struct *p, int sse)
 		util = max_t(unsigned long, util, util_est);
 	}
 
-	return min_t(unsigned long, util, capacity_cpu(cpu, sse));
+	return util;
 }
 
 unsigned long ml_cpu_util_with(int cpu, struct task_struct *p)
@@ -307,9 +315,6 @@ void init_multi_load(struct sched_entity *se)
 	struct multi_load *ml = &se->ml;
 
 	memset(ml, 0, sizeof(*ml));
-
-	ml->runnable_sum = current->se.ml.runnable_sum >> 1;
-	ml->runnable_avg = current->se.ml.runnable_avg >> 1;
 }
 
 static u32 default_inherit_ratio = 25;
@@ -364,6 +369,21 @@ static void update_next_balance(struct multi_load *ml)
 		cpu_rq(smp_processor_id())->next_balance = jiffies;
 }
 
+static void test_task_hungry(struct multi_load *ml, unsigned long scale_cpu)
+{
+	/*
+	 * task utilization is greater than 12.8% of cpu capacity and
+	 * task runnable is greater than x1.5 task utilization,
+	 * (== task wait time is greater than half of task utilization)
+	 * then task is hungry.
+	 */
+	if ((ml->util_avg * 1024) > (scale_cpu * 128) &&
+	     ml->runnable_avg > ml->util_avg + (ml->util_avg >> 1))
+		ml->hungry = 1;
+	else
+		ml->hungry = 0;
+}
+
 static inline void util_change(struct multi_load *ml);
 
 /*
@@ -397,6 +417,8 @@ __update_task_util(struct multi_load *ml, u64 periods, u32 contrib,
 
 	ml->util_avg = ml->util_sum / divider;
 	ml->runnable_avg = div_u64(ml->runnable_sum, divider);
+
+	test_task_hungry(ml, scale_cpu);
 
 	update_next_balance(ml);
 	util_change(ml);

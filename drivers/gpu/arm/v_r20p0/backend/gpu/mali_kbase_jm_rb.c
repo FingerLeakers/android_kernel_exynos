@@ -33,6 +33,7 @@
 #include <mali_kbase_hwcnt_context.h>
 #include <mali_kbase_10969_workaround.h>
 #include <mali_kbase_reset_gpu.h>
+#include <mali_kbase_kinstr_jm.h>
 #include <backend/gpu/mali_kbase_cache_policy_backend.h>
 #include <backend/gpu/mali_kbase_device_internal.h>
 #include <backend/gpu/mali_kbase_jm_internal.h>
@@ -323,6 +324,7 @@ static void kbase_gpu_release_atom(struct kbase_device *kbdev,
 			kbase_pm_release_gpu_cycle_counter_nolock(kbdev);
 		/* ***FALLTHROUGH: TRANSITION TO LOWER STATE*** */
 
+		kbase_kinstr_jm_atom_hw_release(katom);
 		KBASE_TLSTREAM_TL_NRET_ATOM_LPU(kbdev, katom,
 			&kbdev->gpu_props.props.raw_props.js_features
 				[katom->slot_nr]);

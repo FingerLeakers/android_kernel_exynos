@@ -106,8 +106,6 @@ typedef int (*ddk_shut_down_func_t)(void *data);
 #define RTA_SHUT_DOWN_FUNC_ADDR	(RTA_LIB_ADDR + 0x100)
 typedef int (*rta_shut_down_func_t)(void *data);
 
-extern int debug_ddk;
-
 struct is_task_work {
 	struct kthread_work		work;
 	task_func			func;
@@ -367,4 +365,6 @@ int is_timer_reset(void *timer, ulong expires);
 int is_timer_query(void *timer, ulong timerValue);
 int is_timer_enable(int timer_id, u32 timeout_ms);
 int is_timer_disable(int timer_id);
+
+int is_debug_attr(char *cmd, int *param1, int *param2, int *param3);
 #endif

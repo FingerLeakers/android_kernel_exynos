@@ -60,7 +60,7 @@ static void do_sensor_tag(unsigned long data)
 {
 	int ret = 0;
 	u32 stream;
-	unsigned long flags, framemgr_flag;
+	unsigned long framemgr_flag;
 	struct is_framemgr *framemgr;
 	struct v4l2_subdev *subdev;
 	struct camera2_node ldr_node = {0, };
@@ -115,18 +115,6 @@ static void do_sensor_tag(unsigned long data)
 	if (ret) {
 		merr("is_sensor_group_tag is fail(%d)", group, ret);
 		goto p_err;
-	}
-
-	if (sensor->fcount >= frame->fcount) {
-		merr("late sensor tag. DMA will be canceled. (%d != %d)",
-				group, sensor->fcount, frame->fcount);
-		is_sensor_dma_cancel(sensor);
-
-		mginfo("[F%d] Start CANCEL Other subdev frame\n", group->device, group, frame->fcount);
-		flags = is_group_lock(group, group->device_type, true);
-		is_group_subdev_cancel(group, frame, group->device_type, FS_PROCESS, true);
-		is_group_unlock(group, flags, group->device_type, true);
-		mginfo("[F%d] End CANCEL Other subdev frame\n", group->device, group, frame->fcount);
 	}
 
 	mgrdbgs(5, "finish sensor tag(%s)\n", group->device, group, tag_data,

@@ -84,6 +84,80 @@
 				fuelgauge,qrtable20 = <0x0B82>;
 				fuelgauge,qrtable30 = <0x0902>;
 				fuelgauge,capacity = <0x0F12>;
+				fuelgauge,ttf_capacity = <3950>;
+				fuelgauge,cv_data = <
+					3228	864	1534
+					3133	866	1524
+					3067	872	1493
+					3019	874	1483
+					2929	879	1452
+					2896	881	1442
+					2843	883	1431
+					2792	885	1421
+					2754	887	1411
+					2695	892	1380
+					2660	893	1370
+					2625	895	1360
+					2580	897	1349
+					2531	898	1339
+					2492	902	1319
+					2450	903	1309
+					2410	905	1298
+					2348	908	1278
+					2296	909	1268
+					2263	910	1257
+					2214	915	1227
+					2182	916	1216
+					2147	919	1196
+					2103	920	1186
+					2051	922	1175
+					2019	924	1155
+					1981	927	1134
+					1948	928	1124
+					1911	930	1104
+					1879	932	1093
+					1834	933	1083
+					1795	935	1063
+					1761	938	1032
+					1722	942	1001
+					1689	944	981
+					1649	946	960
+					1592	948	940
+					1532	950	919
+					1493	954	878
+					1462	955	868
+					1410	958	827
+					1362	959	817
+					1338	960	807
+					1291	964	756
+					1264	968	715
+					1237	968	704
+					1213	969	694
+					1169	974	633
+					1127	975	622
+					1105	975	612
+					1073	980	541
+					1049	982	510
+					1010	983	489
+					993		984	479
+					972		986	448
+					955		988	407
+					932		990	387
+					881		990	377
+					864		996	356
+					761		1000	307
+					710		1000	297
+					688		1000	287
+					668		1000	235
+					658		1000	215
+					647		1000	184
+					635		1000	153
+					622		1000	123
+					610		1000	92
+					596		1000	61
+					583		1000	31
+					571		1000	0
+				>;
 			};
 
 			cable-info {
@@ -94,31 +168,46 @@
 			wireless-power-info {
 				current_group_0 {
 					fast_charging_current = <2750>;
-					ttf_charge_current = <2750>;
 				};
 				current_group_1 {
 					fast_charging_current = <2750>;
-					ttf_charge_current = <2750>;
 				};
 				current_group_2 {
 					fast_charging_current = <2750>;
-					ttf_charge_current = <2750>;
 				};
 				current_group_3 {
 					fast_charging_current = <2750>;
-					ttf_charge_current = <2750>;
 				};
 			};
 		}; /* end of __overlay__ */
 	}; /* end of fragment */
 };
 
+#define FOD_FLAG_NONE			0
+#define FOD_FLAG_ADD			1
+#define FOD_FLAG_USE_CC			2
+#define FOD_FLAG_USE_DEFAULT	3
+#define SET_FOD_CC(_flag)		(FOD_FLAG_ ##_flag)
+#define SET_FOD_CV(_flag)		(FOD_FLAG_ ##_flag << 4)
+#define SET_FOD_FULL(_flag)		(FOD_FLAG_ ##_flag << 8)
+
 &hsi2c_6 {
 	mfc-charger@3b {
-		battery,fod_data = <150 64 142 53 150 39 150 35 155 19 156 20>;
-		battery,fod_data_cv = <150 94 142 83 150 69 150 65 155 49 156 50>;
-		/delete-property/ battery,fod_hero_5v_data;
-		battery,fod_dream_data = <150 44 142 33 150 19 150 15 155 (-1) 156 0>;
-		battery,fod_dream_cv_data = <150 74 142 63 150 49 150 45 155 29 156 30>;
+		fod_list {
+			count = <2>;
+
+			pad_0x00 { /* DEFAULT */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(ADD))>;
+				cc = <150 64 142 53 150 39 150 35 155 19 156 20>;
+				cv = <150 94 142 83 150 69 150 65 155 49 156 50>;
+				full = <127 127 127 127 127 127 127 127 127 127 127 127>;
+			};
+
+			pad_0x31 { /* DREAM PAD(V) */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(USE_DEFAULT))>;
+				cc = <150 44 142 33 150 19 150 15 155 (-1) 156 0>;
+				cv = <150 74 142 63 150 49 150 45 155 29 156 30>;
+			};
+		};
 	};
 };

@@ -184,7 +184,7 @@ int auto_sleep_thread_create(struct auto_sleep_thread *newthr, const char *print
 	newthr->check_work = (check_work);
 	newthr->on_idle = (on_idle);
 	newthr->no_activity_threshold = DEFAULT_NO_ACTIVITY_THRESHOLD;
-	if (period < 0)
+	if (period == 0)
 		newthr->period = AUTO_SLEEP_THREAD_TIMEOUT;
 	else
 		newthr->period = period;
@@ -279,9 +279,12 @@ void auto_sleep_thread_set_period(struct auto_sleep_thread *thrctx,
 {
 	BUG_ON(!thrctx);
 	BUG_ON(!thrctx->thread_ref);
-	BUG_ON(period > 0);
 
-	thrctx->period = period;
+	if (period == 0)
+		thrctx->period = AUTO_SLEEP_THREAD_TIMEOUT;
+	else
+		thrctx->period = period;
+
 	npu_dbg("set AST (%s) period as %d\n", thrctx->name, thrctx->period);
 
 	/* immediately restart to re-set period */

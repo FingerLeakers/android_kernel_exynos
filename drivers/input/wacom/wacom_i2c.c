@@ -2354,6 +2354,91 @@ err_update_load_fw:
 	return -1;
 }
 
+#if WACOM_SEC_FACTORY
+/* epen_disable_mode : Use in Factory mode for test test
+ * 0 : wacom ic on
+ * 1 : wacom ic off
+ */
+void wacom_disable_mode(struct wacom_i2c *wac_i2c, wacom_disable_mode_t mode)
+{
+	struct i2c_client *client = wac_i2c->client;
+
+	if (wac_i2c->epen_blocked == mode){
+		input_info(true, &client->dev, "%s: duplicate call %d!\n", __func__, mode);
+		return;
+	}
+
+	if (mode == WACOM_DISABLE) {
+		input_info(true, &client->dev, "%s: power off\n", __func__);
+		wac_i2c->epen_blocked = mode;
+
+		wacom_enable_irq(wac_i2c, false);
+		wacom_enable_pdct_irq(wac_i2c, false);
+		wacom_power(wac_i2c, false);
+
+		wac_i2c->survey_mode = EPEN_SURVEY_MODE_NONE;
+		wac_i2c->function_result &= ~EPEN_EVENT_SURVEY;
+
+//temp
+//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
+		wac_i2c->is_tsp_block = false;
+		forced_release(wac_i2c);
+	} else if (mode == WACOM_DISABLE) {
+		input_info(true, &client->dev, "%s: power on\n", __func__);
+
+		wacom_power(wac_i2c, true);
+		msleep(500);
+
+		wacom_enable_irq(wac_i2c, true);
+		wacom_enable_pdct_irq(wac_i2c, true);
+		wac_i2c->epen_blocked = mode;
+	}
+	input_info(true, &client->dev, "%s: done %d!\n", __func__, mode);
+}
+#else
+/* epen_disable_mode : Use in Secure mode(TUI)
+ * 0 : enable wacom
+ * 1 : disable wacom
+ */
+void wacom_disable_mode(struct wacom_i2c *wac_i2c, wacom_disable_mode_t mode)
+{
+	struct i2c_client *client = wac_i2c->client;
+	static int depth;
+
+	if (mode == WACOM_DISABLE) {
+		if (!depth++)
+			goto out;
+	} else if (mode == WACOM_DISABLE) {
+		if (!(--depth))
+			goto out;
+
+		if (depth < 0)
+			depth = 0;
+	}
+
+	input_info(true, &client->dev, "%s: %s(%d)!\n",
+					__func__, mode ? "off" : "on", depth);
+
+	return;
+
+out:
+	wac_i2c->epen_blocked = mode;
+
+	if (!wac_i2c->power_enable && wac_i2c->epen_blocked) {
+		input_err(true, &wac_i2c->client->dev,
+			  "%s: already power off, return\n", __func__);
+		return;
+	}
+
+	wacom_select_survey_mode(wac_i2c, wac_i2c->screen_on);
+
+	if (wac_i2c->epen_blocked)
+		forced_release_fullscan(wac_i2c);
+
+	input_info(true, &client->dev, "%s: %s(%d)!\n",
+					__func__, mode ? "on" : "off", depth);
+}
+#endif
 
 #if defined(CONFIG_MUIC_SUPPORT_KEYBOARDDOCK)
 static void wac_i2c_kbd_work(struct work_struct *work)
@@ -2584,6 +2669,23 @@ static void wacom_i2c_nb_register_work(struct work_struct *work)
 	} while (count < 100);
 }
 #endif
+
+static int wacom_notifier_call(struct notifier_block *n, unsigned long data, void *v)
+{
+	struct wacom_i2c *wac_i2c = container_of(n, struct wacom_i2c, nb);
+
+	if (data == SEC_INPUT_CUSTOM_NOTIFIER_SECURE_TOUCH_ENABLE) {
+		input_info(true, &wac_i2c->client->dev, "%s: secure touch enabled, disable wacom\n", __func__);
+		wacom_disable_mode(wac_i2c, WACOM_DISABLE);
+	} else if (data == SEC_INPUT_CUSTOM_NOTIFIER_SECURE_TOUCH_DISABLE) {
+		input_info(true, &wac_i2c->client->dev, "%s: secure touch disabled, enable wacom\n", __func__);
+		wacom_disable_mode(wac_i2c, WACOM_ENABLE);
+	} else {
+		input_info(true, &wac_i2c->client->dev, "%s: else\n", __func__);
+	}
+
+	return 0;
+}
 
 static int wacom_request_gpio(struct i2c_client *client,
 			      struct wacom_g5_platform_data *pdata)
@@ -2997,6 +3099,7 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	}
 #endif
 
+	sec_input_register_notify(&wac_i2c->nb, wacom_notifier_call);
 	input_info(true, &client->dev, "probe done\n");
 	input_log_fix();
 
@@ -3067,6 +3170,8 @@ static void wacom_i2c_shutdown(struct i2c_client *client)
 	wac_i2c->probe_done = false;
 
 	input_info(true, &wac_i2c->client->dev, "%s called!\n", __func__);
+
+	sec_input_unregister_notify(&wac_i2c->nb);
 
 #if 0
 	if (wac_i2c->pdata->table_swap) {

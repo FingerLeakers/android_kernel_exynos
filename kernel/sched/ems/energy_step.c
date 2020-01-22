@@ -122,6 +122,9 @@ static void esg_update_freq_range(struct cpufreq_policy *policy)
 	if (unlikely((!esg_policy) || !esg_policy->enabled))
 		return;
 
+	if (cpumask_empty(policy->cpus))
+		return;
+
 	qos_min = pm_qos_request(esg_policy->qos_min_class);
 	qos_max = pm_qos_request(esg_policy->qos_max_class);
 
@@ -613,7 +616,7 @@ static unsigned int get_next_freq(struct esgov_policy *esg_policy,
 	struct cpufreq_policy *policy = esg_policy->policy;
 	unsigned int freq;
 
-	freq = (policy->max * util) / max;
+	freq = (policy->user_policy.max * util) / max;
 
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
@@ -763,6 +766,9 @@ esgov_update(struct update_util_data *hook, u64 time, unsigned int flags)
 	/* check iowait boot */
 	esgov_iowait_boost(esg_cpu, time, flags);
 	esg_cpu->last_update = time;
+
+	if (!cpufreq_this_cpu_can_update(esg_policy->policy))
+		return;
 
 	/*
 	 * try to hold lock.

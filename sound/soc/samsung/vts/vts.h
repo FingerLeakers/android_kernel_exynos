@@ -262,6 +262,8 @@ enum vts_dump_type {
 	KERNEL_PANIC_DUMP,
 	VTS_FW_NOT_READY,
 	VTS_IPC_TRANS_FAIL,
+	VTS_FW_ERROR,
+	VTS_ITMON_ERROR,
 	RUNTIME_SUSPEND_DUMP,
 	VTS_DUMP_LAST,
 };
@@ -388,6 +390,7 @@ struct vts_data {
 	struct vts_model_bin_info google_info;
 	spinlock_t state_spinlock;
 	struct notifier_block pm_nb;
+	struct notifier_block itmon_nb;
 	struct vts_dbg_dump p_dump[VTS_DUMP_LAST];
 	bool slif_dump_enabled;
 };

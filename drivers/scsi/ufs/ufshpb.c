@@ -1984,6 +1984,10 @@ static void ufshpb_unset_rt_req_compl_fn(struct request *req,
 	struct ufshpb_region *rgn = hpb->rgn_tbl + pre_req->rgn_idx;
 	unsigned long flags;
 
+#ifdef CONFIG_PM
+	ufshpb_mimic_blk_pm_put_request(req);
+#endif
+
 	if (hpb->ufsf->ufshpb_state != HPB_PRESENT) {
 		spin_lock_irqsave(&hpb->hpb_lock, flags);
 		goto free_pre_req;

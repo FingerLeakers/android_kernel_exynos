@@ -2584,12 +2584,15 @@ int request_direct_flash(struct is_sensor_interface *itf,
 {
 	int ret = 0;
 	struct is_device_sensor_peri *sensor_peri = NULL;
+	u32 vsync_cnt = 0;
 
 	FIMC_BUG(!itf);
 	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
 
 	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
 	FIMC_BUG(!sensor_peri);
+
+	vsync_cnt = get_vsync_count(itf);
 
 	dbg_flash("[%s] mode(%d), on(%d), intensity(%d), time(%d)\n", __func__, mode, on, intensity, time);
 
@@ -2605,6 +2608,10 @@ int request_direct_flash(struct is_sensor_interface *itf,
 			err("failed to turn off flash at flash expired handler\n");
 		}
 #endif
+		set_flash(itf, vsync_cnt + 2, CAM2_FLASH_MODE_OFF, 0, time);
+		if (ret < 0) {
+			pr_err("[%s] set_flash fail(%d)\n", __func__, ret);
+		}
 	}
 	else if (mode == CAM2_FLASH_MODE_TORCH && on == true)
 	{
@@ -3568,7 +3575,7 @@ int get_distance(struct is_sensor_interface *itf, u32 *distance_mm, u32 *confide
 #endif
 
 #ifdef USE_TOF_AF
-int get_tof_af_data(struct is_sensor_interface *itf, struct tof_data_t **data)
+int get_tof_af_data(struct is_sensor_interface *itf, struct tof_data_t *data)
 {
 	int ret=1;
 	struct is_core *core;
@@ -3577,7 +3584,11 @@ int get_tof_af_data(struct is_sensor_interface *itf, struct tof_data_t **data)
 	core = (struct is_core *)dev_get_drvdata(is_dev);
 	specific = core->vender.private_data;
 
-	*data = &specific->tof_af_data;
+	mutex_lock(&specific->tof_af_lock);
+
+	memcpy(data, &specific->tof_af_data, sizeof(struct tof_data_t));
+
+	mutex_unlock(&specific->tof_af_lock);
 	return ret;
 }
 #endif

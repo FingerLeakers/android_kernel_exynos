@@ -1,4 +1,39 @@
-BCM4375 DHD 101.12.9.2 for Android Hubble Project
+BCM4375 DHD 101.12.15.2 for Android Hubble Project
+
+DHD 101.12.15.2 - 2020.01.15
+Kernel Panic
+ - CS9659158(By Kwak Hogil) Fixed kernel panic issue (don't use GRO feature for the packet used in the pktlog module)
+
+
+DHD 101.12.15.1 - 2020.01.14
+Others
+ - CS9620282(By Cho NamJu) Fixed P2P connection failure under VSDB
+
+Vendor HAL Library
+- HAL_REL_1_59_15
+ - CS9600986(By Haejung Bang) Fixed to update transaction id properly during NAN disable
+
+
+DHD 101.12.15 - 2020.01.10
+Others
+ - CS4286706(By Kwak Hogil) Added STP / XID packet filter (ID 108, 109)
+ - CS9533372(By Lim Junhak) Added gARP keep alive (Disabled in Makefile)
+ - CS9533386(By Park Jun-young) Added NETBIOS packet filter (ID 110)
+
+
+DHD 101.12.13 - 2020.01.03
+Security Patch
+ - CS9455102(By Park Jun-young) SI-16054: Fixed buffer overflow and out-of-bound access in sysfs interface
+
+Others
+ - CS9390106(By Lee SoonHo) Added NAN log message (NAN status, Tx status, Rx frame event)
+ - CS9407214(By Lee SoonHo) Fixed to get memory dump when p2p-wlan0-0 mac address is mismatched
+ - CS9460693(By Lee SoonHo) Added log for NDP termination reason
+ - CS9461554(By Kim MinSoo) Added exynos_pcie_l1_exit before pcie write or read function for exynos 9830
+ - CS9462696(By Choi Junsu) Fixed Prevent issue (CID 76479)
+ - CS9502020(By Bang Haejung) Fixed to disable NAN properly when NAN work handler triggered
+ - CS9533329(By Seo Jung Kuk Seo) Fixed hotspot auto channel selection failure
+
 
 DHD 101.12.9.2 - 2019.12.20
 Others

@@ -80,6 +80,7 @@ void s51xx_pcie_chk_ep_conf(struct pci_dev *pdev)
 	int i;
 	u32 val1, val2, val3, val4;
 
+	/* full log 
 	for (i = 0x0; i < 0x50; i += 0x10) {
 		pci_read_config_dword(pdev, i, &val1);
 		pci_read_config_dword(pdev, i + 0x4, &val2);
@@ -88,6 +89,25 @@ void s51xx_pcie_chk_ep_conf(struct pci_dev *pdev)
 		dev_info(&pdev->dev, "0x%02x:  %08x  %08x  %08x  %08x\n",
 				i, val1, val2, val3, val4);
 	}
+	*/
+
+	i = 0x0;
+	pci_read_config_dword(pdev, i, &val1);
+	pci_read_config_dword(pdev, i + 0x4, &val2);
+	pci_read_config_dword(pdev, i + 0x8, &val3);
+	pci_read_config_dword(pdev, i + 0xC, &val4);
+	dev_info(&pdev->dev, "0x%02x:  %08x  %08x  %08x  %08x\n",
+			i, val1, val2, val3, val4);
+	i = 0x10;
+	pci_read_config_dword(pdev, i, &val1);
+	dev_info(&pdev->dev, "0x%02x:  %08x\n",
+			i, val1);
+	/*
+	i = 0x40;
+	pci_read_config_dword(pdev, i, &val1);
+	dev_info(&pdev->dev, "0x%02x:  %08x\n",
+			i, val1);
+	*/
 }
 
 inline int s51xx_pcie_send_doorbell_int(struct pci_dev *pdev, int int_num)
@@ -242,7 +262,9 @@ void s51xx_pcie_restore_state(struct pci_dev *pdev)
 	pci_load_saved_state(pdev, s51xx_pcie->pci_saved_configs);
 	pci_restore_state(pdev);
 
-	s51xx_pcie_chk_ep_conf(pdev);
+	/* move chk_ep_conf function after setting BME(Bus Master Enable)
+	 * s51xx_pcie_chk_ep_conf(pdev);
+	 */
 
 	pci_enable_wake(pdev, PCI_D0, 0);
 	/* pci_enable_wake(s51xx_pcie.s51xx_pdev, PCI_D3hot, 0); */
@@ -252,6 +274,9 @@ void s51xx_pcie_restore_state(struct pci_dev *pdev)
 	if (ret)
 		pr_err("Can't enable PCIe Device after linkup!\n");
 	pci_set_master(pdev);
+
+	/* DBG: print out EP config values after restore_state */
+	s51xx_pcie_chk_ep_conf(pdev);
 
 #ifdef CONFIG_DISABLE_PCIE_CP_L1_2
 	/* Disable L1.2 after PCIe power on */

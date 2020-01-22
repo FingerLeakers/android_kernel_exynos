@@ -1843,7 +1843,6 @@ int is_hw_ischain_cfg(void *ischain_data)
 	u32 dns_user_con0 = 0, dns_user_con1 = 0;
 	u32 itp_user_con = 0;
 	u32 mcsc_user_con2 = 0;
-	int smc_ret;
 
 	FIMC_BUG(!ischain_data);
 
@@ -1871,11 +1870,6 @@ int is_hw_ischain_cfg(void *ischain_data)
 
 	minfo("SYSREG OTF EN : TNR/DNS0,1/ITP/MCSC( %x, %x, %x, %x, %x)\n",
 		device, tnr_user_con, dns_user_con0, dns_user_con1, itp_user_con, mcsc_user_con2);
-
-	/* TNR should be set to non-secure for test  : D_TZPC_TNR : 0x1581_0000 */
-	smc_ret = exynos_smc(0x82000410, 0x1, 0x15810204, 0x2);
-	if (smc_ret)
-		minfo("tnr setting non secure mode is failed\n", device);
 
 	iounmap(tnr_sys_regs);
 	iounmap(dns_sys_regs);

@@ -133,14 +133,14 @@ static void sensor_2la_set_integration_max_margin(u32 mode, cis_shared_data *cis
 	WARN_ON(!cis_data);
 
 	switch (mode) {
+	case SENSOR_2LA_2016X1134_240FPS:
+	case SENSOR_2LA_2016X1134_120FPS:
+		cis_data->max_margin_coarse_integration_time = 0x20;
+		break;
 	case SENSOR_2LA_4032X3024_30FPS:
 	case SENSOR_2LA_4032X2268_30FPS:
 	case SENSOR_2LA_4032X2268_60FPS:
-	case SENSOR_2LA_2016X1134_240FPS:
-	case SENSOR_2LA_2016X1134_120FPS:
 	case SENSOR_2LA_4032X3024_60FPS:
-	case SENSOR_2LA_4032X3024_24FPS:
-	case SENSOR_2LA_4032X2268_24FPS:
 		cis_data->max_margin_coarse_integration_time = SENSOR_2LA_COARSE_INTEGRATION_TIME_MAX_MARGIN;
 		break;
 	default:
@@ -1332,9 +1332,16 @@ int sensor_2la_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		goto p_err;
 	}
 
-	sensor_2la_frame_duration_backup = frame_duration;
-
 	cis_data = cis->cis_data;
+
+	if (frame_duration < cis_data->min_frame_us_time) {
+		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
+		frame_duration = cis_data->min_frame_us_time;
+	}
+
+	sensor_2la_frame_duration_backup = frame_duration;
+	cis_data->cur_frame_us_time = frame_duration;
+
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
 		switch(cis_data->sens_config_index_cur) {
 		case SENSOR_2LA_2016X1134_240FPS:
@@ -1357,11 +1364,6 @@ int sensor_2la_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			}
 			break;
 		}
-	}
-
-	if (frame_duration < cis_data->min_frame_us_time) {
-		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
-		frame_duration = cis_data->min_frame_us_time;
 	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / (1000);
@@ -1391,7 +1393,6 @@ int sensor_2la_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			goto p_err_i2c_unlock;
 	}
 
-	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
 	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;

@@ -128,8 +128,8 @@ static void get_timestamp(struct ssp_data *data, char *pchRcvDataFrame,
 
 			if (time_delta_ns > current_timestamp) {
 				time_delta_ns = current_timestamp;
-				pr_err("[SSP_DEBUG_TIME] timestamp_error, ts_index: %d ts_index_cnt: %d timestamp: %llu\n",
-					       	ts_index, ts_index_cnt[ts_index], time_delta_ns);
+				pr_err("[SSP_DEBUG_TIME] timestamp_error, ts_index: %d ts_cnt: %d ts_index_cnt: %d timestamp: %llu\n",
+					       	ts_index, ts_cnt, ts_index_cnt[ts_index], time_delta_ns);
 			}
 		} else if (ts_flag == VDIS_TIMESTAMP_FORMAT) {
 			if (data->ts_index_buffer[ts_index] < data->ts_index_buffer[prev_index]) {
@@ -155,8 +155,8 @@ normal_parse:
 	update_timestamp = time_delta_ns;
 
 	if (ts_flag == VDIS_TIMESTAMP_FORMAT || ts_flag == SUPER_VDIS_FORMAT) {
-		ssp_debug_time("[SSP_DEBUG_TIME] ts_index: %u stacked_cnt: %u ts_flag: 0x%x ts_cnt: %d current_ts: %lld update_ts: %llu latency: %lld",
-			       	ts_index, data->ts_stacked_cnt, ts_flag, ts_cnt, current_timestamp, update_timestamp, current_timestamp - time_delta_ns);
+		ssp_debug_time("[SSP_DEBUG_TIME] ts_index: %u ts_index_cnt: %d stacked_cnt: %u ts_flag: 0x%x ts_cnt: %d current_ts: %lld update_ts: %llu latency: %lld",
+			       	ts_index, ts_index_cnt[ts_index], data->ts_stacked_cnt, ts_flag, ts_cnt, current_timestamp, update_timestamp, current_timestamp - time_delta_ns);
 	} else { 
 		ssp_debug_time("[SSP_DEBUG_TIME] sensor_type: %2d update_ts: %lld current_ts: %lld diff: %lld latency: %lld\n",
 			sensor_type, update_timestamp, current_timestamp,

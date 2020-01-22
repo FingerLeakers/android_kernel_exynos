@@ -497,7 +497,7 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 	u8 wy_pole = 0;
 	u8 tx_pole = 0;
 	u8 ty_pole = 0;
-	int retries = 30;
+	int retries = 600;
 	int i = 0;
 	int scale_factor = OIS_GYRO_SCALE_FACTOR_LSM6DSO;
 	long gyro_data_x = 0, gyro_data_y = 0, gyro_data_size = 0;
@@ -571,7 +571,7 @@ int ois_mcu_init(struct v4l2_subdev *subdev)
 	if (!ois_hw_check && test_bit(OM_HW_RUN, &mcu->state)) {
 		do {
 			val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_STATUS);
-			msleep(5);
+			usleep_range(500, 510);
 			if (--retries < 0) {
 				err_mcu("%s Read status failed!!!!, data = 0x%04x\n", __func__, val);
 				break;
@@ -1533,7 +1533,7 @@ int ois_mcu_set_power_mode(struct v4l2_subdev *subdev)
 	struct is_module_enum *module = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	u8 val = 0;
-	int retry = 5;
+	int retry = 200;
 
 	mcu = (struct ois_mcu_dev*)v4l2_get_subdevdata(subdev);
 	if(!mcu) {
@@ -1574,13 +1574,13 @@ int ois_mcu_set_power_mode(struct v4l2_subdev *subdev)
 	info_mcu("%s : E\n", __func__);
 
 #if defined(CONFIG_SEC_FACTORY) //Factory timing issue.
-	retry = 30;
+	retry = 600;
 #endif
 
 	if (!(ois_wide_init || ois_tele_init)) {
 		ois_mcu_device_ctrl(mcu);
 		do {
-			msleep(3);
+			usleep_range(500, 510);
 			val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_DEVCTRL);
 			if (--retry < 0) {
 				err_mcu("%s Read status failed!!!!, data = 0x%04x\n", __func__, val);

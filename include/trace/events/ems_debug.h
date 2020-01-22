@@ -16,47 +16,78 @@
 #include <linux/tracepoint.h>
 
 /*
+ * Tracepoint for multiple debugging
+ */
+TRACE_EVENT(ems_debug,
+
+	TP_PROTO(struct task_struct *p, int cpu, int state, char *event),
+
+	TP_ARGS(p, cpu, state, event),
+
+	TP_STRUCT__entry(
+		__array(	char,		comm,	TASK_COMM_LEN	)
+		__field(	pid_t,		pid			)
+		__field(	int,		cpu			)
+		__field(	int,		state			)
+		__array(	char,		event,	64		)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->comm, p ? p->comm : "no task", TASK_COMM_LEN);
+		__entry->pid			= p ? p->pid : -1;
+		__entry->cpu			= cpu;
+		__entry->state			= state;
+		strncpy(__entry->event, event ? event : "no event", 63);
+	),
+
+	TP_printk("comm=%s pid=%d cpu=%d state=%d event=%s",
+		  __entry->comm, __entry->pid, __entry->cpu, __entry->state, __entry->event)
+);
+
+/*
  * Tracepoint for wakeup balance
  */
 TRACE_EVENT(ems_select_fit_cpus,
 
 	TP_PROTO(struct task_struct *p, int wake,
 		unsigned int fit_cpus, unsigned int cpus_allowed, unsigned int ontime_fit_cpus,
-		unsigned int overutil_cpus, unsigned int busy_cpus, unsigned int free_cpus),
+		unsigned int overcap_cpus, unsigned int busy_cpus),
 
 	TP_ARGS(p, wake, fit_cpus, cpus_allowed, ontime_fit_cpus,
-				overutil_cpus, busy_cpus, free_cpus),
+				overcap_cpus, busy_cpus),
 
 	TP_STRUCT__entry(
 		__array(	char,		comm,	TASK_COMM_LEN	)
 		__field(	pid_t,		pid			)
 		__field(	int,		src_cpu			)
+		__field(	unsigned long,	task_util		)
+		__field(	int,		hungry			)
 		__field(	int,		wake			)
 		__field(	unsigned int,	fit_cpus		)
 		__field(	unsigned int,	cpus_allowed		)
 		__field(	unsigned int,	ontime_fit_cpus		)
-		__field(	unsigned int,	overutil_cpus		)
+		__field(	unsigned int,	overcap_cpus		)
 		__field(	unsigned int,	busy_cpus		)
-		__field(	unsigned int,	free_cpus		)
 	),
 
 	TP_fast_assign(
 		memcpy(__entry->comm, p->comm, TASK_COMM_LEN);
 		__entry->pid			= p->pid;
 		__entry->src_cpu		= task_cpu(p);
+		__entry->task_util		= p->se.ml.util_avg;
+		__entry->hungry			= p->se.ml.hungry;
 		__entry->wake			= wake;
 		__entry->fit_cpus		= fit_cpus;
 		__entry->cpus_allowed		= cpus_allowed;
 		__entry->ontime_fit_cpus	= ontime_fit_cpus;
-		__entry->overutil_cpus		= overutil_cpus;
+		__entry->overcap_cpus		= overcap_cpus;
 		__entry->busy_cpus		= busy_cpus;
-		__entry->free_cpus		= free_cpus;
 	),
 
-	TP_printk("comm=%s pid=%d src_cpu=%d wake=%d fit_cpus=%#x cpus_allowed=%#x ontime_fit_cpus=%#x overutil_cpus=%#x busy_cpus=%#x free_cpus=%#x",
-		  __entry->comm, __entry->pid, __entry->src_cpu,  __entry->wake,
-		  __entry->fit_cpus, __entry->cpus_allowed, __entry->ontime_fit_cpus,
-		  __entry->overutil_cpus, __entry->busy_cpus, __entry->free_cpus)
+	TP_printk("comm=%s pid=%d src_cpu=%d task_util=%lu hungry=%d wake=%d fit_cpus=%#x cpus_allowed=%#x ontime_fit_cpus=%#x overcap_cpus=%#x busy_cpus=%#x",
+		  __entry->comm, __entry->pid, __entry->src_cpu, __entry->task_util, __entry->hungry,
+		  __entry->wake, __entry->fit_cpus, __entry->cpus_allowed, __entry->ontime_fit_cpus,
+		  __entry->overcap_cpus, __entry->busy_cpus)
 );
 
 /*
@@ -165,6 +196,26 @@ TRACE_EVENT(ems_compute_perf,
 	TP_printk("comm=%s pid=%d sse=%d cpu=%d capacity=%u idle_state=%d",
 		__entry->comm, __entry->pid, __entry->sse, __entry->cpu,
 		__entry->capacity, __entry->idle_state)
+);
+
+/*
+ * Tracepoint for system busy boost
+ */
+TRACE_EVENT(ems_sysbusy_boost,
+
+       TP_PROTO(int boost),
+
+       TP_ARGS(boost),
+
+       TP_STRUCT__entry(
+               __field(int,    boost)
+       ),
+
+       TP_fast_assign(
+               __entry->boost  = boost;
+       ),
+
+       TP_printk("boost=%d", __entry->boost)
 );
 
 /*
@@ -557,6 +608,55 @@ TRACE_EVENT(cont_distribute_pmu_count,
 		__entry->curr0, __entry->curr1,
 		__entry->prev0, __entry->prev1,
 		__entry->diff0, __entry->diff1, __entry->event)
+);
+
+/*
+ * Tracepoint for updating load balance control
+ */
+TRACE_EVENT(group_smaller_max_cpu_capacity,
+
+	TP_PROTO(int level, int src_cpu, int dst_cpu, int src_cap, int dst_cap, int extra_margin),
+
+	TP_ARGS(level, src_cpu, dst_cpu, src_cap, dst_cap, extra_margin),
+
+	TP_STRUCT__entry(
+		__field(	int,	level		)
+		__field(	int,	src_cpu		)
+		__field(	int,	dst_cpu		)
+		__field(	int,	src_cap		)
+		__field(	int,	dst_cap		)
+		__field(	int,	extra_margin)
+	),
+
+	TP_fast_assign(
+		__entry->level			= level;
+		__entry->src_cpu		= src_cpu;
+		__entry->dst_cpu		= dst_cpu;
+		__entry->src_cap		= src_cap;
+		__entry->dst_cap		= dst_cap;
+		__entry->extra_margin		= extra_margin;
+	),
+
+	TP_printk("lv=%d cpu%d(cap=%d+%d) -> cpu%d(cap=%d) ",
+		__entry->level, __entry->src_cpu, __entry->src_cap, __entry->extra_margin,
+		__entry->dst_cpu, __entry->dst_cap)
+);
+
+TRACE_EVENT(enabled_iss_margin,
+
+	TP_PROTO(int flag),
+
+	TP_ARGS(flag),
+
+	TP_STRUCT__entry(
+		__field(	int,	flag		)
+	),
+
+	TP_fast_assign(
+		__entry->flag		= flag;
+	),
+
+	TP_printk("flag=%d", __entry->flag)
 );
 
 #endif /* _TRACE_EMS_DEBUG_H */

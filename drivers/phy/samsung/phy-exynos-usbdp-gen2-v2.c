@@ -868,6 +868,7 @@ void phy_exynos_usbdp_g2_v2_tune_late(struct exynos_usbphy_info *info)
 {
 	u32 cnt = 0;
 	void __iomem *link_base;
+	void __iomem *pcs_base;
 	u32 reg;
 
 	if (!info) {
@@ -875,6 +876,7 @@ void phy_exynos_usbdp_g2_v2_tune_late(struct exynos_usbphy_info *info)
 	}
 
 	link_base = info->link_base;
+	pcs_base = info->pcs_base;
 
 	/* Gen2 Tx DRIVER pre-shoot, de-emphasis ctrl
 	 * [17:12] Deemphasis
@@ -917,6 +919,11 @@ void phy_exynos_usbdp_g2_v2_tune_late(struct exynos_usbphy_info *info)
 		}
 		phy_exynos_usbdp_g2_v2_tune_each_late(info, para_name, val);
 	}
+
+	/* Squelch off when U3 */
+	reg = usbdp_cal_reg_rd(pcs_base + EXYNOS_USBDP_PCS_PM_OUT_VEC_3);
+	reg &= USBDP_PCS_PM_OUT_VEC_3_B2_SEL_OUT_CLR;	// Squelch off when U3
+	usbdp_cal_reg_wr(reg, pcs_base + EXYNOS_USBDP_PCS_PM_OUT_VEC_3);
 }
 
 void phy_exynos_usbdp_g2_v2_set_dtb_mux(struct exynos_usbphy_info *info, int mux_val)
@@ -2657,7 +2664,8 @@ static void phy_exynos_usbdp_g2_v2_set_pcs(struct exynos_usbphy_info *info)
 	reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBDP_PCS_PM_OUT_VEC_3);
 	reg &= USBDP_PCS_PM_OUT_VEC_3_B7_DYNAMIC_CLR;
 	reg |= USBDP_PCS_PM_OUT_VEC_3_B7_SEL_OUT_SET(1);
-	reg &= USBDP_PCS_PM_OUT_VEC_3_B2_SEL_OUT_CLR;	// Squelch off when U3
+	reg &= USBDP_PCS_PM_OUT_VEC_3_B2_SEL_OUT_CLR;
+	reg |= USBDP_PCS_PM_OUT_VEC_3_B2_SEL_OUT_SET(1);	// Squelch on when U3
 	usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBDP_PCS_PM_OUT_VEC_3);
 
 	// 20180822 PCS SFR setting : Noh M.W
@@ -4223,10 +4231,16 @@ void phy_exynos_usbdp_g2_v2_disable(struct exynos_usbphy_info *info)
 	void __iomem *regs_base = info->ctrl_base;
 	u32 reg;
 
+	// Change pipe pclk to suspend_clk
+	reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBCON_CLKRST);
+	reg &= ~CLKRST_LINK_PCLK_SEL;
+	usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBCON_CLKRST);
+
+	// powerdown and ropll/lcpll refclk off for reducing powerdown current
 	reg = usbdp_cal_reg_rd(regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);
-	reg &= ~PMA_ROPLL_REF_CLK_SEL_MASK;     // ropll refclk off for reducing powerdown current
+	reg &= ~PMA_ROPLL_REF_CLK_SEL_MASK;
 	reg |= PMA_ROPLL_REF_CLK_SEL_SET(1);
-	reg &= ~PMA_LCPLL_REF_CLK_SEL_MASK;     // lcpll refclk off for reducing powerdown current
+	reg &= ~PMA_LCPLL_REF_CLK_SEL_MASK;
 	reg |= PMA_LCPLL_REF_CLK_SEL_SET(1);
 	reg |= PMA_LOW_PWR;
 	usbdp_cal_reg_wr(reg, regs_base + EXYNOS_USBCON_COMBO_PMA_CTRL);

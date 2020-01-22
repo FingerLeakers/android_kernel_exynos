@@ -1707,7 +1707,7 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 				ccstat == cc_No_Connection) {
 			/* W/A of CC is detached but Vbus is valid(3.8~4.5V) */
 			vbvolt = 0;
-			muic_data->status3 = muic_data->status3 & (!BC_STATUS_VBUSDET_MASK);
+			muic_data->status3 = muic_data->status3 & ~(BC_STATUS_VBUSDET_MASK);
 			pr_info("%s vbadc(0x%x), ccstat(0x%x), set vbvolt to 0 => BC(0x%x)\n",
 					__func__, vbadc, ccstat, muic_data->status3);
 #if defined(CONFIG_HV_MUIC_MAX77705_AFC)
@@ -1746,7 +1746,7 @@ static void max77705_muic_detect_dev(struct max77705_muic_data *muic_data,
 
 #if !defined(CONFIG_SEC_FACTORY)
 	/* W/A of defect cable(Vbus is valid and CC is invalid), set or cancel vbus_wa_work */
-	if (irq == muic_data->irq_vbusdet) {
+	if (irq == muic_data->irq_vbusdet || irq == MUIC_IRQ_INIT_DETECT) {
 		wake_unlock(&muic_data->muic_wake_lock);
 		cancel_delayed_work(&(muic_data->vbus_wa_work));
 		if (vbvolt > 0) {
@@ -2137,6 +2137,12 @@ do {									\
 static void max77705_muic_free_irqs(struct max77705_muic_data *muic_data)
 {
 	pr_info("%s\n", __func__);
+	
+	disable_irq(muic_data->irq_uiadc);
+	disable_irq(muic_data->irq_chgtyp);
+	disable_irq(muic_data->irq_dcdtmo);
+	disable_irq(muic_data->irq_vbadc);
+	disable_irq(muic_data->irq_vbusdet);
 
 	/* free MUIC IRQ */
 	FREE_IRQ(muic_data->irq_uiadc, muic_data, "muic-uiadc");

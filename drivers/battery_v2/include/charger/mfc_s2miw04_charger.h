@@ -766,6 +766,28 @@ enum mfc_headroom {
 	MFC_HEADROOM_5, /* 0.082V */
 };
 
+#define DEFAULT_PAD_ID		0
+enum mfc_fod_state {
+	FOD_STATE_CC = 0,
+	FOD_STATE_CV,
+	FOD_STATE_FULL,
+
+	FOD_STATE_MAX
+};
+
+enum mfc_fod_flag {
+	FOD_FLAG_NONE = 0,
+	FOD_FLAG_ADD,
+	FOD_FLAG_USE_CC,
+	FOD_FLAG_USE_DEFAULT,
+};
+
+typedef struct _mfc_fod_data {
+	int pad_id;
+	int flag;
+	u32* data[FOD_STATE_MAX];
+} mfc_fod_data;
+
 struct mfc_charger_platform_data {
 	int pad_mode;
 	int wpc_det;
@@ -784,16 +806,10 @@ struct mfc_charger_platform_data {
 	int cable_type;
 	bool default_voreg;
 	int is_charging;
-	u32 *fod_data_cv;
-	u32 *fod_data;
-	u32 *fod_hero_5v_data;
-	u32 *fod_dream_data;
-	u32 *fod_dream_cv_data;
 	u32 *wireless20_vout_list;
 	u32 *wireless20_vrect_list;
 	u32 *wireless20_max_power_list;
 	u8 len_wc20_list;
-	int fod_data_check;
 	bool ic_on_mode;
 	int hw_rev_changed; /* this is only for noble/zero2 */
 	int otp_firmware_result;
@@ -813,6 +829,9 @@ struct mfc_charger_platform_data {
 	u32 oc_fod1;
 	u32 phone_fod_threshold;
 	u32 gear_ping_freq;
+
+	mfc_fod_data* fod_list;
+	int	fod_data_count;
 };
 
 #define mfc_charger_platform_data_t \

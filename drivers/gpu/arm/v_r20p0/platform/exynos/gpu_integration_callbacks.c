@@ -168,6 +168,17 @@ void gpu_destroy_context(void *ctx)
 #endif /* MALI_SEC_PROBE_TEST */
 }
 
+#ifdef CONFIG_MALI_SEC_NEGATIVE_BOOST
+void gpu_dvfs_set_need_cpu_qos(struct kbase_device *kbdev, bool need_cpu_qos)
+{
+	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+
+	DVFS_ASSERT(platform);
+
+	platform->need_cpu_qos = need_cpu_qos;
+}
+#endif
+
 int gpu_vendor_dispatch(struct kbase_context *kctx, u32 flags)
 {
 	struct kbase_device *kbdev;
@@ -305,6 +316,32 @@ int gpu_vendor_dispatch(struct kbase_context *kctx, u32 flags)
 #endif
 			break;
 		}
+		case KBASE_FUNC_SET_NEGATIVE_BOOST_LOCK:
+		{
+#if defined(CONFIG_SCHED_EMS_TUNE) && defined(CONFIG_MALI_SEC_NEGATIVE_BOOST)
+			struct exynos_context *platform;
+			platform = (struct exynos_context *) kbdev->platform_context;
+
+			mutex_lock(&platform->gpu_negative_boost_lock);
+			gpu_dvfs_set_need_cpu_qos(kbdev, true);
+			//dev_err(kctx->kbdev->dev, "KBASE_FUNC_SET_NEGATIVE_BOOST_LOCK\n"); //Debug
+			mutex_unlock(&platform->gpu_negative_boost_lock);
+#endif
+			break;
+		}
+		case KBASE_FUNC_UNSET_NEGATIVE_BOOST_LOCK:
+		{
+#if defined(CONFIG_SCHED_EMS_TUNE) && defined(CONFIG_MALI_SEC_NEGATIVE_BOOST)
+			struct exynos_context *platform;
+			platform = (struct exynos_context *) kbdev->platform_context;
+
+			mutex_lock(&platform->gpu_negative_boost_lock);
+			gpu_dvfs_set_need_cpu_qos(kbdev, false);
+			//dev_err(kctx->kbdev->dev, "KBASE_FUNC_UNSET_NEGATIVE_BOOST_LOCK\n"); //Debug
+			mutex_unlock(&platform->gpu_negative_boost_lock);
+#endif
+			break;
+		}
 #endif /* MALI_SEC_PROBE_TEST */
 	default:
 		break;
@@ -411,6 +448,11 @@ static void gpu_page_table_info_dp_level(struct kbase_context *kctx, u64 vaddr, 
 		dev_err(kctx->kbdev->dev, "kmap failure\n");
 		return;
 	}
+
+    if (kbase_hw_has_feature(kctx->kbdev, BASE_HW_FEATURE_AARCH64_MMU) && level > MIDGARD_MMU_BOTTOMLEVEL) {
+        dev_err(kctx->kbdev->dev, "Dumping level(%d) has been exceeded %d\n", level, MIDGARD_MMU_BOTTOMLEVEL);
+        return;
+    }
 
 	for (i = min_index; i <= max_index; i++) {
 		if (i == index) {

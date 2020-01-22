@@ -44,6 +44,8 @@ static struct emstune_mode *emstune_modes;
 static struct emstune_mode *cur_mode;
 static struct emstune_set cur_set;
 static int emstune_cur_level;
+int emstune_wake_wide = true;
+int emstune_hungry = true;
 
 static int emstune_mode_count;
 static int emstune_level_count;
@@ -347,6 +349,13 @@ int emstune_get_cur_mode()
 	return cur_mode->idx;
 }
 
+int emstune_boosted(void)
+{
+	if (unlikely(!emstune_initialized))
+		return false;
+
+	return emstune_cur_level == cur_mode->boost_level;
+}
 
 /******************************************************************************
  * multi requests interface                                                   *
@@ -361,7 +370,7 @@ static int get_mode_level(void)
 	return plist_last(&emstune_req_list)->prio;
 }
 
-static int emstune_request_active(struct emstune_mode_request *req)
+static inline int emstune_request_active(struct emstune_mode_request *req)
 {
 	unsigned long flags;
 	int active;
@@ -371,6 +380,53 @@ static int emstune_request_active(struct emstune_mode_request *req)
 	spin_unlock_irqrestore(&emstune_mode_lock, flags);
 
 	return active;
+}
+
+enum emstune_req_type {
+	REQ_ADD,
+	REQ_UPDATE,
+	REQ_REMOVE
+};
+
+static void
+__emstune_update_request(struct emstune_mode_request *req,
+			enum emstune_req_type type, s32 new_level)
+{
+	int prev_level;
+	unsigned long flags;
+
+	spin_lock_irqsave(&emstune_mode_lock, flags);
+
+	switch (type) {
+	case REQ_REMOVE:
+		plist_del(&req->node, &emstune_req_list);
+		req->active = 0;
+		break;
+	case REQ_UPDATE:
+		plist_del(&req->node, &emstune_req_list);
+	case REQ_ADD:
+		plist_node_init(&req->node, new_level);
+		plist_add(&req->node, &emstune_req_list);
+		req->active = 1;
+		break;
+	default:
+		;
+	}
+
+	prev_level = emstune_cur_level;
+	emstune_cur_level = get_mode_level();
+
+	if (!emstune_initialized) {
+		spin_unlock_irqrestore(&emstune_mode_lock, flags);
+		return;
+	}
+
+	if (prev_level != emstune_cur_level) {
+		__update_cur_set(&cur_mode->sets[emstune_cur_level]);
+		trace_emstune_mode(cur_mode->idx, emstune_cur_level);
+	}
+
+	spin_unlock_irqrestore(&emstune_mode_lock, flags);
 }
 
 static void emstune_work_fn(struct work_struct *work)
@@ -384,9 +440,6 @@ static void emstune_work_fn(struct work_struct *work)
 
 void __emstune_add_request(struct emstune_mode_request *req, char *func, unsigned int line)
 {
-	if (!emstune_initialized)
-		return;
-
 	if (emstune_request_active(req))
 		return;
 
@@ -394,16 +447,11 @@ void __emstune_add_request(struct emstune_mode_request *req, char *func, unsigne
 	req->func = func;
 	req->line = line;
 
-	emstune_update_request(req, 0);
+	__emstune_update_request(req, REQ_ADD, 0);
 }
 
 void emstune_remove_request(struct emstune_mode_request *req)
 {
-	unsigned long flags;
-
-	if (!emstune_initialized)
-		return;
-
 	if (!emstune_request_active(req))
 		return;
 
@@ -411,56 +459,20 @@ void emstune_remove_request(struct emstune_mode_request *req)
 		cancel_delayed_work_sync(&req->work);
 	destroy_delayed_work_on_stack(&req->work);
 
-	emstune_update_request(req, 0);
-
-	spin_lock_irqsave(&emstune_mode_lock, flags);
-	req->active = 0;
-	plist_del(&req->node, &emstune_req_list);
-	spin_unlock_irqrestore(&emstune_mode_lock, flags);
+	__emstune_update_request(req, REQ_REMOVE, 0);
 }
 
-void emstune_update_request(struct emstune_mode_request *req, s32 new_value)
+void emstune_update_request(struct emstune_mode_request *req, s32 new_level)
 {
-	unsigned long flags;
-	struct emstune_set *next_set;
-	int next_level;
-
-	if (!emstune_initialized)
-		return;
-
-	/* ignore if the request is active and the value does not change */
-	if (req->active && req->node.prio == new_value)
+	/* ignore if the request is not active */
+	if (!emstune_request_active(req))
 		return;
 
 	/* ignore if the value is out of range */
-	if (new_value < 0 || new_value > MAX_MODE_LEVEL)
+	if (new_level < 0 || new_level > MAX_MODE_LEVEL)
 		return;
 
-	spin_lock_irqsave(&emstune_mode_lock, flags);
-
-	/*
-	 * If the request already added to the list updates the value, remove
-	 * the request from the list and add it again.
-	 */
-	if (req->active)
-		plist_del(&req->node, &emstune_req_list);
-	else
-		req->active = 1;
-
-	plist_node_init(&req->node, new_value);
-	plist_add(&req->node, &emstune_req_list);
-
-	next_level = get_mode_level();
-
-	emstune_cur_level = next_level;
-	next_set = &cur_mode->sets[next_level];
-
-	if (cur_set.unique_id != next_set->unique_id) {
-		__update_cur_set(next_set);
-		trace_emstune_mode(cur_mode->idx, emstune_cur_level);
-	}
-
-	spin_unlock_irqrestore(&emstune_mode_lock, flags);
+	__emstune_update_request(req, REQ_UPDATE, new_level);
 }
 
 void emstune_update_request_timeout(struct emstune_mode_request *req, s32 new_value,
@@ -476,13 +488,10 @@ void emstune_update_request_timeout(struct emstune_mode_request *req, s32 new_va
 
 void emstune_boost(struct emstune_mode_request *req, int enable)
 {
-	if (enable) {
-		emstune_add_request(req);
+	if (enable)
 		emstune_update_request(req, cur_mode->boost_level);
-	} else {
+	else
 		emstune_update_request(req, 0);
-		emstune_remove_request(req);
-	}
 }
 
 void emstune_boost_timeout(struct emstune_mode_request *req, unsigned long timeout_us)
@@ -1454,16 +1463,16 @@ parse_cpus_allowed(struct device_node *dn, struct emstune_set *set)
  static int emstune_prio_pinning(struct task_struct *p)
 {
 	int st_idx;
-	
-#ifdef CONFIG_FAST_TRACK
-	return is_ftt(&p->se);
-#endif
 
 	if (unlikely(!emstune_initialized))
 		return 0;
 
 	st_idx = schedtune_task_group_idx(p);
 	if (cur_set.prio_pinning.enabled[st_idx]) {
+#ifdef CONFIG_FAST_TRACK
+	return is_ftt(&p->se);
+#endif
+
 		if (p->sched_class == &fair_sched_class &&
 		    p->prio <= cur_set.prio_pinning.prio)
 			return 1;
@@ -2327,6 +2336,50 @@ store_aio_tuner(struct kobject *k, struct kobj_attribute *attr,
 static struct kobj_attribute aio_tuner_attr =
 __ATTR(aio_tuner, 0644, show_aio_tuner, store_aio_tuner);
 
+static ssize_t
+show_wake_wide_tuner(struct kobject *k, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "wake_wide: %d\n", emstune_wake_wide);
+}
+
+static ssize_t
+store_wake_wide_tuner(struct kobject *k, struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	int val;
+
+	if (sscanf(buf, "%d", &val) != 1)
+		return -EINVAL;
+
+	emstune_wake_wide = val;
+
+	return count;
+}
+static struct kobj_attribute wake_wide_attr =
+__ATTR(wake_wide, 0644, show_wake_wide_tuner, store_wake_wide_tuner);
+
+static ssize_t
+show_hungry_tuner(struct kobject *k, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "hungry: %d\n", emstune_hungry);
+}
+
+static ssize_t
+store_hungry_tuner(struct kobject *k, struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	int val;
+
+	if (sscanf(buf, "%d", &val) != 1)
+		return -EINVAL;
+
+	emstune_hungry = val;
+
+	return count;
+}
+static struct kobj_attribute hungry_attr =
+__ATTR(hungry, 0644, show_hungry_tuner, store_hungry_tuner);
+
 /******************************************************************************
  * initialization                                                             *
  ******************************************************************************/
@@ -2482,6 +2535,12 @@ static int __init emstune_sysfs_init(void)
 		return -ENOMEM;
 
 	if (sysfs_create_file(emstune_kobj, &aio_tuner_attr.attr))
+		return -ENOMEM;
+
+	if (sysfs_create_file(emstune_kobj, &wake_wide_attr.attr))
+		return -ENOMEM;
+
+	if (sysfs_create_file(emstune_kobj, &hungry_attr.attr))
 		return -ENOMEM;
 
 	return 0;

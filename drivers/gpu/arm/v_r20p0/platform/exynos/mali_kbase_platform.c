@@ -355,6 +355,9 @@ static int gpu_dvfs_update_config_data_from_dt(struct kbase_device *kbdev)
 #ifdef CONFIG_DEBUG_SNAPSHOT
 	platform->gpu_dss_freq_id = DSS_FLAG_G3D;
 #endif
+#ifdef CONFIG_MALI_SEC_NEGATIVE_BOOST
+	platform->need_cpu_qos = false;
+#endif
 
 	return 0;
 }
@@ -461,6 +464,10 @@ static int gpu_context_init(struct kbase_device *kbdev)
 #ifdef CONFIG_MALI_SEC_VK_BOOST
 	mutex_init(&platform->gpu_vk_boost_lock);
 	platform->ctx_vk_need_qos = false;
+#endif
+
+#ifdef CONFIG_MALI_SEC_NEGATIVE_BOOST
+	mutex_init(&platform->gpu_negative_boost_lock);
 #endif
 
 	gpu_dvfs_update_config_data_from_dt(kbdev);

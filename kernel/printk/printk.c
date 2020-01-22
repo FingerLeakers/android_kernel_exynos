@@ -798,9 +798,9 @@ static int log_store(int facility, int level,
 #endif
 
 #ifdef CONFIG_SEC_DEBUG_INIT_LOG
-		if (task_pid_nr(current) == 1 && func_hook_init_log) {
+		/* user log only */
+		if (msg->facility && task_pid_nr(current) == 1 && func_hook_init_log)
 			func_hook_init_log(hook_text, hook_size);
-		}
 #endif
 
 #if CONFIG_SEC_DEBUG_FIRST2M_LOG

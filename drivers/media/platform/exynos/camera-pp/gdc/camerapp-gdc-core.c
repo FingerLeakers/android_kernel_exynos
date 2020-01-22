@@ -40,6 +40,9 @@ module_param_named(gdc_log_level, gdc_log_level, uint, S_IRUGO | S_IWUSR);
 int __gdc_measure_hw_latency;
 module_param_named(gdc_measure_hw_latency, __gdc_measure_hw_latency, int, 0644);
 
+static int gdc_suspend(struct device *dev);
+static int gdc_resume(struct device *dev);
+
 struct vb2_gdc_buffer {
 	struct v4l2_m2m_buffer mb;
 	struct gdc_ctx *ctx;
@@ -1030,11 +1033,7 @@ static int gdc_release(struct file *file)
 
 	if (test_bit(DEV_RUN, &gdc->state)) {
 		dev_err(gdc->dev, "%s, gdc is still running\n", __func__);
-		gdc_job_finish(gdc, ctx);
-		gdc_clk_power_disable(gdc);
-
-		clear_bit(DEV_RUN, &gdc->state);
-		clear_bit(CTX_ABORT, &ctx->flags);
+		gdc_suspend(gdc->dev);
 	}
 
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
@@ -1305,6 +1304,7 @@ static irqreturn_t gdc_irq_handler(int irq, void *priv)
 		else
 			v4l2_m2m_job_finish(gdc->m2m.m2m_dev, ctx->m2m_ctx);
 
+		gdc_resume(gdc->dev);
 		wake_up(&gdc->wait);
 	}
 

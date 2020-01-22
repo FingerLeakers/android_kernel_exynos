@@ -260,6 +260,27 @@ void clear_pending_bit(int irq)
 	}
 };
 
+int panel_set_gpio_irq(struct panel_gpio *gpio, bool enable)
+{
+	if (!panel_gpio_valid(gpio))
+		return -EINVAL;
+	if (enable == gpio->irq_enable) {
+		pr_info("PANEL:%s: %s(%d) irq is already %s(%d), so skip!\n", __func__,
+			gpio->name, gpio->num, gpio->irq_enable ? "enable" : "disable", gpio->irq_enable);
+		return 0;
+	}
+	if (enable) {
+		clear_pending_bit(gpio->irq);
+		enable_irq(gpio->irq);
+		pr_info("%s enable_irq %s\n", __func__, gpio->name);
+	} else 	{
+		disable_irq(gpio->irq);
+		pr_info("%s disable_irq %s\n", __func__, gpio->name);
+	}
+	gpio->irq_enable = enable;
+	return 0;
+}
+
 static int panel_regulator_enable(struct panel_device *panel)
 {
 	struct panel_regulator *regulator = panel->regulator;
@@ -562,6 +583,10 @@ static int __panel_seq_init(struct panel_device *panel)
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
+	ret = panel_regulator_set_voltage(panel, PANEL_STATE_NORMAL);
+	if (ret < 0)
+		panel_err("PANEL:ERR:%s:failed to set voltage\n",
+				__func__);
 #ifdef CONFIG_SUPPORT_AOD_BL
 	panel_bl_set_subdev(panel_bl, PANEL_BL_SUBDEV_TYPE_DISP);
 #endif
@@ -620,7 +645,9 @@ static int __panel_seq_exit(struct panel_device *panel)
 	int ret;
 	struct panel_bl_device *panel_bl = &panel->panel_bl;
 
-	disable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+	ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], false);
+	if (ret < 0)
+		panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 
 	mutex_lock(&panel_bl->lock);
 	mutex_lock(&panel->op_lock);
@@ -3198,8 +3225,10 @@ static long panel_core_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg
 				panel_info("PANEL:INFO:%s:FRAME_DONE (panel_state:%s, display on)\n",
 						__func__, panel_state_names[panel->state.cur_state]);
 				ret = panel_display_on(panel);
-				clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-				enable_irq(panel->gpio[PANEL_GPIO_DISP_DET].irq);
+
+				ret = panel_set_gpio_irq(&panel->gpio[PANEL_GPIO_DISP_DET], true);
+				if (ret < 0)
+					panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 				panel_check_ready(panel);
 			}
 			copr_update_start(&panel->copr, 3);
@@ -3283,7 +3312,7 @@ static int panel_drv_set_gpios(struct panel_device *panel)
 
 	if (!gpio_is_valid(gpio[PANEL_GPIO_DISP_DET].num)) {
 		panel_err("PANEL:ERR:%s:gpio(%s) not exist\n",
-			   	__func__, panel_gpio_names[PANEL_GPIO_RESET]);
+			   	__func__, panel_gpio_names[PANEL_GPIO_DISP_DET]);
 		return -EINVAL;
 	}
 	det_val = gpio_get_value(gpio[PANEL_GPIO_DISP_DET].num);
@@ -3447,7 +3476,7 @@ static int of_get_panel_gpio(struct device_node *np, struct panel_gpio *gpio)
 			of_node_put(pend_np);
 		}
 	}
-
+	gpio->irq_enable = false;
 	return 0;
 }
 
@@ -3617,6 +3646,7 @@ int panel_register_isr(struct panel_device *panel)
 					__func__, name, gpio[i].irq);
 			return ret;
 		}
+		gpio[i].irq_enable = true;
 	}
 
 	return 0;
@@ -3830,7 +3860,9 @@ static void disp_det_handler(struct work_struct *work)
 	case PANEL_STATE_ALPM:
 	case PANEL_STATE_NORMAL:
 		if (disp_det_state == PANEL_STATE_NOK) {
-			disable_irq(gpio[PANEL_GPIO_DISP_DET].irq);
+			ret = panel_set_gpio_irq(&gpio[PANEL_GPIO_DISP_DET], false);
+			if (ret < 0)
+				panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 			/* delay for disp_det deboundce */
 			usleep_range(10000, 11000);
 
@@ -3840,8 +3872,9 @@ static void disp_det_handler(struct work_struct *work)
 			if (ret)
 				panel_err("PANEL:ERR:%s:failed to recover panel\n",
 						__func__);
-			clear_pending_bit(panel->gpio[PANEL_GPIO_DISP_DET].irq);
-			enable_irq(gpio[PANEL_GPIO_DISP_DET].irq);
+			ret = panel_set_gpio_irq(&gpio[PANEL_GPIO_DISP_DET], true);
+			if (ret < 0)
+				panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 		}
 		break;
 	default:
@@ -3898,7 +3931,10 @@ void err_fg_handler(struct work_struct * data)
 		case PANEL_STATE_ALPM:
 		case PANEL_STATE_NORMAL:
 			if (err_fg_state == PANEL_STATE_NOK) {
-				disable_irq(gpio[PANEL_GPIO_ERR_FG].irq);
+				ret = panel_set_gpio_irq(&gpio[PANEL_GPIO_ERR_FG], false);
+				if (ret < 0)
+					panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
+
 				/* delay for disp_det deboundce */
 				usleep_range(10000, 11000);
 
@@ -3908,8 +3944,9 @@ void err_fg_handler(struct work_struct * data)
 				if (ret)
 					panel_err("PANEL:ERR:%s:failed to recover panel\n",
 							__func__);
-				clear_pending_bit(panel->gpio[PANEL_GPIO_ERR_FG].irq);
-				enable_irq(gpio[PANEL_GPIO_ERR_FG].irq);
+				ret = panel_set_gpio_irq(&gpio[PANEL_GPIO_ERR_FG], true);
+				if (ret < 0)
+					panel_warn("PANEL:WARN:%s:do not support irq\n", __func__);
 			}
 			break;
 		default:

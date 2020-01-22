@@ -64,8 +64,17 @@ void exynos_pcie_rc_pcie_phy_config(struct exynos_pcie *exynos_pcie, int ch_num)
 	void __iomem *phy_pcs_base_regs = exynos_pcie->phy_pcs_base;
 	void __iomem *sysreg_base_regs = exynos_pcie->sysreg_base;
 	int chip_ver = exynos_pcie->chip_ver;
+	u32 rx_oc_code[14] = {
+		0xE48, 0xE4C, 0xE54, 0xE58, 0xE60, 0xE64, 0xE6C,
+		0x1648, 0x164C, 0x1654, 0x1658, 0x1660, 0x1664, 0x166C
+	};
+	u32 rx_oc_code_val[14] = { 0,};
+	u32 val, count, i;
+	u32 val_rx_oc_lane0, val_rx_oc_lane1;
+	u32 pll_lock = 0, rx_oc_done = 0;
+	u32 rx_oc_done_retry_cnt = 0, rx_oc_code_retry_cnt = 0;
 
-	u32 val;
+phy_init_retry:
 
 	val = readl(sysreg_base_regs);
 
@@ -333,6 +342,85 @@ void exynos_pcie_rc_pcie_phy_config(struct exynos_pcie *exynos_pcie, int ch_num)
 	if (chip_ver == 1){
 		pr_info("[%s] GEN4PHY: For L2 power\n", __func__);
 		writel(0x300FF, phy_pcs_base_regs + 0x150);
+	}
+
+	/* Check PLL lock */
+	count = 0;
+	while (count < PLL_LOCK_TIMEOUT) {
+		val = readl(phy_base_regs + 0x3F0) & 0x0F;
+		if (val == 0xF) {
+			pll_lock = 1;
+			pr_info("[try_count:%d] PLL lock success\n", count);
+			break;
+		}
+		pll_lock = 0;
+		count++;
+		udelay(10);
+	}
+
+	if (pll_lock == 0)
+		pr_info("[count:%d] PLL lock fail, 0x3F0: 0x%x\n",
+				count, val);
+
+	/* Check RX OC done */
+	count = 0;
+	while (count < RX_OC_TIMEOUT) {
+		val_rx_oc_lane0 = readl(phy_base_regs + 0xFC0);
+		val_rx_oc_lane0 = (val_rx_oc_lane0 >> 6) & 0x3;
+
+		val_rx_oc_lane1 = readl(phy_base_regs + 0x17C0);
+		val_rx_oc_lane1 = (val_rx_oc_lane1 >> 6) & 0x3;
+
+		if ((val_rx_oc_lane0 == 0x3) && (val_rx_oc_lane1 == 0x3)) {
+			rx_oc_done = 1;
+			pr_info("[count:%d] RX OC DONE Success\n", count);
+			break;
+		}
+		rx_oc_done = 0;
+		count++;
+		udelay(10);
+	}
+
+	if (rx_oc_done == 0) {
+		rx_oc_done_retry_cnt++;
+		if (rx_oc_done_retry_cnt < 5) {
+			pr_info("[count:%d] retry phy init(retry cnt: %d)\n",
+					count, rx_oc_done_retry_cnt);
+			goto phy_init_retry;
+		} else {
+			pr_info("[count:%d] retry cnt: %d, RX OC DONE Fail, \
+					oc_done0: 0x%x, oc_done1: 0x%x\n",
+					count, rx_oc_done_retry_cnt,
+					val_rx_oc_lane0, val_rx_oc_lane1);
+		}
+	}
+
+	/* Check RX OC code */
+	count = 0;
+	for (i = 0; i < 14; i++) {
+		val = readl(phy_base_regs + rx_oc_code[i]);
+		val &= 0xFF;
+		rx_oc_code_val[i] = val;
+		if (val == 0xFF)
+			count++;
+	}
+	if (count >= 8) {
+		rx_oc_code_retry_cnt++;
+		if (rx_oc_code_retry_cnt < 5) {
+			pr_info("[rx oc 0xff:%d] retry phy init(retry cnt: %d)\n",
+					count, rx_oc_code_retry_cnt);
+			goto phy_init_retry;
+		} else {
+			pr_info("[rx oc 0xff:%d] retry cnt: %d, RX OC CODE Fail\n",
+					count, rx_oc_code_retry_cnt);
+		}
+	} else {
+		pr_info("[num of rx oc 0xff:%d] RX OC CODE Success\n", count);
+	}
+
+	/* print rx_oc_code val */
+	for (i = 0; i < 14; i++) {
+		pr_info("PHY(0x%x) = 0x%x\n", rx_oc_code[i], rx_oc_code_val[i]);
 	}
 }
 

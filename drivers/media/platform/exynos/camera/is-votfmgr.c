@@ -141,6 +141,7 @@ int is_votf_flush(struct is_group *group)
 	unsigned int src_gr_id;
 	struct is_subdev *src_sd;
 	int dma_ch;
+	struct is_device_ischain *device;
 	struct is_sensor_cfg *sensor_cfg;
 	int pd_mode;
 
@@ -157,7 +158,14 @@ int is_votf_flush(struct is_group *group)
 		 * because CSIS WDMA is not matched with sensor group id.
 		 */
 		sensor = src_gr->sensor;
-		dma_ch = src_sd->dma_ch[SCM_WO_PAF_HW];
+
+		sensor_cfg = sensor->cfg;
+		if (!sensor_cfg) {
+			mgerr("failed to get sensor_cfg", group, group);
+			return -EINVAL;
+		}
+
+		dma_ch = src_sd->dma_ch[sensor_cfg->scm];
 		src_gr_id = GROUP_ID_SS0 + dma_ch;
 	} else {
 		src_gr_id = src_gr->id;
@@ -179,10 +187,10 @@ int is_votf_flush(struct is_group *group)
 		mgerr("__is_votf_flush is fail(%d)", group, group, ret);
 
 	if (src_gr->device_type == IS_DEVICE_SENSOR) {
-		sensor_cfg = sensor->cfg;
-		if (!sensor_cfg) {
-			mgerr("failed to get sensor_cfg", group, group);
-			goto p_err;
+		device = group->device;
+		if (!device) {
+			mgerr("failed to get devcie", group, group);
+			return -ENODEV;
 		}
 
 		pd_mode = sensor_cfg->pd_mode;
@@ -196,8 +204,6 @@ int is_votf_flush(struct is_group *group)
 				mgerr("__is_votf_flush of subdev_pdaf is fail(%d)", group, group, ret);
 		}
 	}
-
-p_err:
 
 	return 0;
 }

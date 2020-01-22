@@ -23,6 +23,7 @@
 #include "sched.h"
 
 #include <trace/events/sched.h>
+#include <trace/events/ems_debug.h>
 
 #ifdef CONFIG_FAST_TRACK
 #include <cpu/ftt/ftt.h>
@@ -5282,7 +5283,7 @@ static inline void update_overutilized_status(struct rq *rq)
 
 			rcu_read_lock();
 			sd = rcu_dereference(rq->sd);
-			if (sd && lbt_overutilized(rq->cpu, sd->level)) {
+			if (sd && lbt_overutilized(rq->cpu, sd->level, 0)) {
 				WRITE_ONCE(rq->rd->overutilized, SG_OVERUTILIZED);
 				trace_sched_overutilized(1);
 			}
@@ -7324,7 +7325,8 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 
 	if (sched_feat(EMS)) {
-		new_cpu = exynos_select_task_rq(p, prev_cpu, sd_flag, sync, 1);
+		new_cpu = exynos_select_task_rq(p, prev_cpu,
+				sd_flag, sync, 1, sibling_count_hint);
 		if (new_cpu >= 0)
 			return new_cpu;
 		new_cpu = prev_cpu;
@@ -7656,6 +7658,25 @@ again:
 	if (prev->sched_class != &fair_sched_class)
 		goto simple;
 
+#ifdef CONFIG_FAST_TRACK
+	if (is_ftt(&prev->se)) {
+		if (cfs_rq->ftt_rqcnt != rq->nr_running) {
+			cfs_rq->ftt_sched_count++;
+			if (cfs_rq->ftt_sched_count >= FTT_MAX_SCHED) {
+				if (cfs_rq->ftt_sched_count == FTT_MAX_SCHED)
+					cfs_rq->ftt_sched_count += rq->nr_running << 1;
+				fttstat.wrong++;
+				__ftt_normalize_vruntime(cfs_rq_of(&prev->se), &prev->se);
+			}
+		}
+	} else {
+		if (cfs_rq->ftt_sched_count >= FTT_MAX_SCHED)
+			cfs_rq->ftt_sched_count--;
+		else
+			cfs_rq->ftt_sched_count = cfs_rq->ftt_sched_count - 2 > 0 ?
+				cfs_rq->ftt_sched_count - 2 : 0;
+	}
+#endif
 	/*
 	 * Because of the set_next_buddy() in dequeue_task_fair() it is rather
 	 * likely that a next task is from the same cgroup as the current.
@@ -7703,8 +7724,6 @@ again:
 #ifdef CONFIG_FAST_TRACK
 	if (is_ftt(se))
 		fttstat.pick_ftt++;
-	else if (unlikely(cfs_rq_of(se)->ftt_rqcnt))
-		fttstat.wrong++;
 #endif
 
 	/*
@@ -8989,9 +9008,35 @@ group_smaller_min_cpu_capacity(struct sched_group *sg, struct sched_group *ref)
 static inline bool
 group_smaller_max_cpu_capacity(struct sched_group *sg, struct sched_group *ref)
 {
-	return sg->sgc->max_capacity * capacity_margin <
-						ref->sgc->max_capacity * 1024;
+	return sg->sgc->max_capacity < ref->sgc->max_capacity;
 }
+
+#ifdef CONFIG_SCHED_EMS
+static int iss_capacity_margin = 1024;
+static bool
+ems_group_smaller_max_cpu_capacity(int level,
+		struct sched_group *sg, struct sched_group *ref)
+{
+	int extra_margin = 0;
+	int src_cpu = cpumask_first(to_cpumask(sg->cpumask));
+	int dst_cpu = cpumask_first(to_cpumask(ref->cpumask));
+
+	if (level && need_iss_margin(src_cpu, dst_cpu))
+		extra_margin = iss_capacity_margin;
+
+	trace_group_smaller_max_cpu_capacity(level, src_cpu, dst_cpu,
+		sg->sgc->max_capacity, ref->sgc->max_capacity, extra_margin);
+
+	return sg->sgc->max_capacity * (1024 + extra_margin)
+			< ref->sgc->max_capacity * 1024;
+}
+#else
+static inline bool ems_group_smaller_max_cpu_capacity(int level,
+		struct sched_group *sg, struct sched_group *ref)
+{
+	return group_smaller_max_cpu_capacity(sg, ref);
+}
+#endif
 
 static inline enum
 group_type group_classify(struct sched_group *group,
@@ -9052,6 +9097,7 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 
 	for_each_cpu_and(i, sched_group_span(group), env->cpus) {
 		struct rq *rq = cpu_rq(i);
+		enum cpu_idle_type idle;
 
 		if ((env->flags & LBF_NOHZ_STATS) && update_nohz_stats(rq, false))
 			env->flags |= LBF_NOHZ_AGAIN;
@@ -9070,9 +9116,11 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 		if (nr_running > 1)
 			*sg_status |= SG_OVERLOAD;
 
-		if (sched_feat(EMS) && lbt_overutilized(rq->cpu, env->sd->level))
-			*sg_status |= SG_OVERUTILIZED;
-		else if (cpu_overutilized(i))
+		idle = i == env->dst_cpu ? env->idle : 0;
+		if (sched_feat(EMS)) {
+			if (lbt_overutilized(rq->cpu, env->sd->level, idle))
+				*sg_status |= SG_OVERUTILIZED;
+		} else if (cpu_overutilized(i))
 			*sg_status |= SG_OVERUTILIZED;
 
 #ifdef CONFIG_NUMA_BALANCING
@@ -9133,7 +9181,7 @@ static bool update_sd_pick_busiest(struct lb_env *env,
 	 * internally or be covered by avg_load imbalance (eventually).
 	 */
 	if (sgs->group_type == group_misfit_task &&
-	    (!group_smaller_max_cpu_capacity(sg, sds->local) ||
+	    (!ems_group_smaller_max_cpu_capacity(env->sd->level, sg, sds->local) ||
 	     !group_has_capacity(env, &sds->local_stat)))
 		return false;
 
@@ -11241,6 +11289,7 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 #endif
 #ifdef CONFIG_FAST_TRACK
 	cfs_rq->ftt_rqcnt = 0;
+	cfs_rq->ftt_sched_count = 0;
 #endif
 }
 

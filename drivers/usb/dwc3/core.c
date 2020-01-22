@@ -92,11 +92,13 @@ static void dwc3_usb_link_state_check_work(struct work_struct *wk)
 {
 	struct delayed_work *delay_work = container_of(wk, struct delayed_work, work);
 	struct dwc3 *dwc = container_of(delay_work, struct dwc3, usb_link_state_check_work);
-	u32 ret;
-	ret = dwc3_gadget_get_link_state(dwc);
+	u32 ret = 0;
 
-	printk("usb: %s: link state=%d\n", __func__, ret);
-
+	if (dwc->pullups_connected) {
+		ret = dwc3_gadget_get_link_state(dwc);
+		printk("usb: %s: link state=%d\n", __func__, ret);
+	} else
+		printk("usb: %s: skip link state check\n", __func__);
 }
 #endif
 

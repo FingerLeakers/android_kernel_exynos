@@ -33,7 +33,7 @@
 		clock-names = "pll", "pll1", "audif", "bus", "cnt";
 		#sound-dai-cells = <1>;
 		sound-name-prefix = "ABOX";
-		samsung,quirks = "try to asrc off";
+		samsung,quirks = "try to asrc off", "int skew";
 		samsung,ipc-tx-area = <0x1 0x850000 0x18000>;
 		samsung,ipc-rx-area = <0x1 0x868000 0x18000>;
 		samsung,shm-area = <0x1 0x8bc000 0x4000>;

@@ -44,6 +44,8 @@
 
 #define SEC_AUDIO_DEBUG_STRING_WQ_NAME "sec_audio_dbg_str_wq"
 
+struct device *debug_dev;
+
 struct sec_audio_debug_data {
 	char *dbg_str_buf;
 	unsigned long long mode_time;
@@ -73,7 +75,7 @@ struct abox_log_kernel_buffer {
 	unsigned int index;
 	bool wrap;
 	bool updated;
-	wait_queue_head_t wq;
+	struct mutex abox_log_lock;
 };
 static struct abox_log_kernel_buffer *p_debug_aboxlog_data;
 
@@ -81,22 +83,25 @@ static int read_half_buff_id = 0;
 
 static void send_half_buff_full_event(int buffer_id)
 {
-	struct abox_data *aboxdata = abox_get_abox_data();
-	struct device *dev = aboxdata->dev;
 	char env[32] = {0,};
 	char *envp[2] = {env, NULL};
 
+	if (debug_dev == NULL) {
+		pr_err("%s: no debug_dev\n", __func__);
+		return;
+	}
+
 	read_half_buff_id = buffer_id;
 	snprintf(env, sizeof(env), "ABOX_HALF_BUFF_ID=%d", buffer_id);
-	kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, envp);
+	kobject_uevent_env(&debug_dev->kobj, KOBJ_CHANGE, envp);
 /*	pr_info("%s: env %s\n", __func__, env); */
 }
 
 static void abox_log_copy(const char *log_src, size_t copy_size)
 {
-	size_t left_size = ABOXLOG_BUFF_SIZE - p_debug_aboxlog_data->index;
+	size_t left_size = 0;
 
-	if (left_size < copy_size) {
+	while ((left_size = (ABOXLOG_BUFF_SIZE - p_debug_aboxlog_data->index)) < copy_size) {
 		memcpy(p_debug_aboxlog_data->buffer + p_debug_aboxlog_data->index, log_src,
 				left_size);
 
@@ -104,15 +109,16 @@ static void abox_log_copy(const char *log_src, size_t copy_size)
 		copy_size -= left_size;
 		p_debug_aboxlog_data->index = 0;
 		p_debug_aboxlog_data->wrap = true;
-		pr_info("%s: total buff full\n", __func__);
+		//pr_info("%s: total buff full\n", __func__);
 		half2_buff_use = 0;
 		send_half_buff_full_event(1);
 	}
+
 	memcpy(p_debug_aboxlog_data->buffer + p_debug_aboxlog_data->index, log_src, copy_size);
 	p_debug_aboxlog_data->index += (unsigned int)copy_size;
 
 	if ((half2_buff_use == 0) && (p_debug_aboxlog_data->index > (ABOXLOG_BUFF_SIZE / 2))) {
-		pr_info("%s: half buff full use 2nd half buff\n", __func__);
+		//pr_info("%s: half buff full use 2nd half buff\n", __func__);
 		half2_buff_use = 1;
 		send_half_buff_full_event(0);
 	}
@@ -121,6 +127,8 @@ static void abox_log_copy(const char *log_src, size_t copy_size)
 void abox_log_extra_copy(char *src_base, unsigned int index_reader,
 					unsigned int index_writer, unsigned int src_buff_size)
 {
+	mutex_lock(&p_debug_aboxlog_data->abox_log_lock);
+
 	if (index_reader > index_writer) {
 		abox_log_copy(src_base + index_reader,
 				src_buff_size - index_reader);
@@ -128,14 +136,10 @@ void abox_log_extra_copy(char *src_base, unsigned int index_reader,
 	}
 	abox_log_copy(src_base + index_reader,
 			index_writer - index_reader);
+
+	mutex_unlock(&p_debug_aboxlog_data->abox_log_lock);
 }
 EXPORT_SYMBOL_GPL(abox_log_extra_copy);
-
-void abox_log_extra_update(void)
-{
-	p_debug_aboxlog_data->updated = true;
-	wake_up_interruptible(&p_debug_aboxlog_data->wq);
-}
 
 int is_abox_rdma_enabled(int id)
 {
@@ -191,7 +195,7 @@ static void abox_debug_string_update_workfunc(struct work_struct *wk)
 			for (core_id = 0; core_id < 2; core_id++) {
 				for (index = 0; index < gpr_count; index++) {
 					len += snprintf(p_debug_data->dbg_str_buf + len, DBG_STR_BUFF_SZ - len,
-								"%08x ",abox_core_read_gpr_dump(core_id, gpr_id[index], 
+								"%08x ",abox_core_read_gpr_dump(core_id, gpr_id[index],
 								p_debug_data->abox_dbg_addr));
 					if (len >= DBG_STR_BUFF_SZ - 1)
 						goto buff_done;
@@ -574,111 +578,16 @@ void sec_audio_pmlog(int level, struct device *dev, const char *fmt, ...)
 	copy_msgs(temp_buf, p_dbg_log_data);
 }
 EXPORT_SYMBOL_GPL(sec_audio_pmlog);
-#if 0
+
 static const struct file_operations abox_qos_fops = {
 	.open = simple_open,
 	.read = abox_qos_read_file,
 	.llseek = default_llseek,
 };
-#endif
-static int aboxlog_file_open(struct inode *inode, struct  file *file)
-{
-	pr_info("%s\n", __func__);
-
-	if (aboxlog_file_opened) {
-		pr_err("%s: already opened\n", __func__);
-		return -EBUSY;
-	}
-
-	aboxlog_file_opened = 1;
-	aboxlog_file_index = -1;
-
-	return 0;
-}
-
-static int aboxlog_file_release(struct inode *inode, struct file *file)
-{
-	pr_info("%s\n", __func__);
-
-	aboxlog_file_opened = 0;
-
-	return 0;
-}
-
-static ssize_t aboxlog_file_read(struct file *file, char __user *buf,
-		size_t count, loff_t *ppos)
-{
-	unsigned int index;
-	size_t end, size;
-	bool first = (aboxlog_file_index < 0);
-	int ret;
-
-	pr_debug("%s(%zu, %lld)\n", __func__, count, *ppos);
-
-	if (first) {
-		aboxlog_file_index = likely(p_debug_aboxlog_data->wrap) ?
-				p_debug_aboxlog_data->index : 0;
-	}
-
-	do {
-		index = p_debug_aboxlog_data->index;
-		end = ((aboxlog_file_index < index) ||
-				((aboxlog_file_index == index) && !first)) ?
-				index : ABOXLOG_BUFF_SIZE;
-		size = min(end - aboxlog_file_index, count);
-
-		if (size == 0) {
-			if (file->f_flags & O_NONBLOCK) {
-				pr_info("%s: non block\n", __func__);
-				return -EAGAIN;
-			}
-			p_debug_aboxlog_data->updated = false;
-
-			ret = wait_event_interruptible(p_debug_aboxlog_data->wq,
-					p_debug_aboxlog_data->updated);
-			if (ret != 0) {
-				pr_info("%s: interrupted\n", __func__);
-				return ret;
-			}
-		}
-	} while (size == 0);
-
-	pr_debug("start=%zd, end=%zd size=%zd\n", aboxlog_file_index, end, size);
-	if (copy_to_user(buf, p_debug_aboxlog_data->buffer + aboxlog_file_index,
-			size)) {
-		pr_err("%s: copy_to_user err\n", __func__);
-		return -EFAULT;
-	}
-
-	aboxlog_file_index += size;
-	if (aboxlog_file_index >= ABOXLOG_BUFF_SIZE)
-		aboxlog_file_index = 0;
-
-	pr_debug("%s: size = %zd\n", __func__, size);
-
-	return size;
-}
-
-static unsigned int aboxlog_file_poll(struct file *file, poll_table *wait)
-{
-	pr_debug("%s\n", __func__);
-
-	poll_wait(file, &p_debug_aboxlog_data->wq, wait);
-	return POLLIN | POLLRDNORM;
-}
-
-static const struct file_operations aboxlog_fops = {
-	.open = aboxlog_file_open,
-	.release = aboxlog_file_release,
-	.read = aboxlog_file_read,
-	.poll = aboxlog_file_poll,
-	.llseek = generic_file_llseek,
-	.owner = THIS_MODULE,
-};
 
 static int aboxhalflog_file_open(struct inode *inode, struct  file *file)
 {
-	pr_info("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
 	if (aboxlog_file_opened) {
 		pr_err("%s: already opened\n", __func__);
@@ -698,14 +607,8 @@ static int aboxhalflog_file_open(struct inode *inode, struct  file *file)
 
 static int aboxhalflog_file_release(struct inode *inode, struct file *file)
 {
-	pr_info("%s\n", __func__);
+	pr_debug("%s\n", __func__);
 
-/*
-	if (read_half_buff_id == 0)
-		read_half_buff_id = 1;
-	else
-		read_half_buff_id = 0;
-*/
 	aboxlog_file_opened = 0;
 
 	return 0;
@@ -714,7 +617,7 @@ static int aboxhalflog_file_release(struct inode *inode, struct file *file)
 static ssize_t aboxhalflog_file_read(struct file *file, char __user *user_buf,
 		size_t count, loff_t *ppos)
 {
-	size_t end, copy_len;
+	size_t end, copy_len = 0;
 	ssize_t ret;
 
 	pr_debug("%s(%zu, %lld)\n", __func__, count, *ppos);
@@ -727,7 +630,7 @@ static ssize_t aboxhalflog_file_read(struct file *file, char __user *user_buf,
 
 	if (aboxlog_file_index > end) {
 		pr_err("%s: read done\n", __func__);
-		return -EINVAL;
+		return copy_len;
 	}
 
 	copy_len = min(count, end - aboxlog_file_index);
@@ -773,6 +676,35 @@ static const struct file_operations aboxhalflog_fops = {
 	.llseek = generic_file_llseek,
 	.owner = THIS_MODULE,
 };
+
+static int sec_audio_debug_probe(struct platform_device *pdev)
+{
+	debug_dev = &pdev->dev;
+
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_OF)
+static const struct of_device_id sec_audio_debug_of_match[] = {
+	{ .compatible = "samsung,audio-debug", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, sec_audio_debug_of_match);
+#endif /* CONFIG_OF */
+
+static struct platform_driver sec_audio_debug_driver = {
+	.driver		= {
+		.name	= "sec-audio-debug",
+		.owner	= THIS_MODULE,
+#if IS_ENABLED(CONFIG_OF)
+		.of_match_table = of_match_ptr(sec_audio_debug_of_match),
+#endif /* CONFIG_OF */
+	},
+
+	.probe		= sec_audio_debug_probe,
+};
+
+module_platform_driver(sec_audio_debug_driver);
 
 static int __init sec_audio_debug_init(void)
 {
@@ -849,7 +781,7 @@ static int __init sec_audio_debug_init(void)
 	p_debug_aboxlog_data->buffer = vzalloc(ABOXLOG_BUFF_SIZE);
 	p_debug_aboxlog_data->index = 0;
 	p_debug_aboxlog_data->wrap = false;
-	init_waitqueue_head(&p_debug_aboxlog_data->wq);
+	mutex_init(&p_debug_aboxlog_data->abox_log_lock);
 
 	p_debug_data->debug_string_wq = create_singlethread_workqueue(
 						SEC_AUDIO_DEBUG_STRING_WQ_NAME);
@@ -884,16 +816,11 @@ static int __init sec_audio_debug_init(void)
 	debugfs_create_file("pmlog",
 			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
 			audio_debugfs, p_debug_pmlog_data, &audio_log_fops);
-#if 0
+
 	debugfs_create_file("abox_qos",
 			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
 			audio_debugfs, NULL, &abox_qos_fops);
-#endif
-/*
-	debugfs_create_file("aboxlog",
-			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
-			audio_debugfs, NULL, &aboxlog_fops);
-*/
+
 	debugfs_create_file("aboxhalflog",
 			S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
 			audio_debugfs, NULL, &aboxhalflog_fops);
@@ -901,6 +828,7 @@ static int __init sec_audio_debug_init(void)
 	return 0;
 
 err_aboxlog_data:
+	mutex_destroy(&p_debug_aboxlog_data->abox_log_lock);
 	kfree_const(p_debug_aboxlog_data->buffer);
 	kfree(p_debug_aboxlog_data);
 	p_debug_aboxlog_data = NULL;
@@ -924,6 +852,7 @@ err_debugfs:
 	debugfs_remove_recursive(audio_debugfs);
 
 err_data:
+	mutex_destroy(&p_debug_data->dbg_lock);
 	kfree(p_debug_data);
 	p_debug_data = NULL;
 
@@ -933,6 +862,12 @@ early_initcall(sec_audio_debug_init);
 
 static void __exit sec_audio_debug_exit(void)
 {
+	mutex_destroy(&p_debug_aboxlog_data->abox_log_lock);
+	kfree_const(p_debug_aboxlog_data->buffer);
+	if (p_debug_aboxlog_data)
+		kfree(p_debug_aboxlog_data);
+	p_debug_aboxlog_data = NULL;
+
 	if (p_debug_pmlog_data->sz_log_buff)
 		free_sec_audio_log(p_debug_pmlog_data);
 	kfree_const(p_debug_pmlog_data->name);
@@ -959,6 +894,7 @@ static void __exit sec_audio_debug_exit(void)
 
 	debugfs_remove_recursive(audio_debugfs);
 
+	mutex_destroy(&p_debug_data->dbg_lock);
 	kfree(p_debug_data);
 	p_debug_data = NULL;
 }

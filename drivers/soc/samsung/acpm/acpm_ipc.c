@@ -616,6 +616,7 @@ retry:
 			acpm_ramdump();
 
 			dump_stack();
+			msleep(1000);
 			s3c2410wdt_set_emergency_reset(0, 0);
 		}
 

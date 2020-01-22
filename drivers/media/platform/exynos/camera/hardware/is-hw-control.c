@@ -1378,6 +1378,8 @@ void is_hardware_frame_start(struct is_hw_ip *hw_ip, u32 instance)
 	struct is_group *head;
 	struct is_hw_ip *hw_ip_ldr;
 	u32 shot_timeout = 0;
+	u32 queued_count;
+	int ret;
 
 	FIMC_BUG_VOID(!hw_ip);
 	head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN,
@@ -1448,6 +1450,27 @@ void is_hardware_frame_start(struct is_hw_ip *hw_ip, u32 instance)
 
 	clear_bit(HW_CONFIG, &hw_ip->state);
 	atomic_set(&hw_ip->status.Vvalid, V_VALID);
+
+	/* LATE SHOT NDONE */
+	if (test_bit(IS_GROUP_OTF_INPUT, &head->state)) {
+get_next_frame:
+		framemgr_e_barrier(framemgr, 0);
+		frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
+		queued_count = framemgr->queued_count[FS_HW_WAIT_DONE];
+		framemgr_x_barrier(framemgr, 0);
+
+		if (frame && frame->type == SHOT_TYPE_LATE) {
+			msinfo_hw("FS_HW_WAIT_DONE(%d)\n", instance, hw_ip, queued_count);
+
+			ret = is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_LATE_FRAME);
+			if (ret) {
+				mserr_hw("hardware_frame_ndone fail", frame->instance, hw_ip);
+				return;
+			}
+
+			goto get_next_frame;
+		}
+	}
 }
 
 int is_hardware_sensor_start(struct is_hardware *hardware, u32 instance,
@@ -1749,6 +1772,8 @@ void is_hardware_process_stop(struct is_hardware *hardware, u32 instance,
 	struct is_frame *frame;
 	int retry;
 	ulong flags = 0;
+	u32 state;
+	struct is_group *head;
 
 	FIMC_BUG_VOID(!hardware);
 
@@ -1767,23 +1792,33 @@ void is_hardware_process_stop(struct is_hardware *hardware, u32 instance,
 	framemgr = hw_ip->framemgr;
 	FIMC_BUG_VOID(!framemgr);
 
-	framemgr_e_barrier_common(framemgr, 0, flags);
-	frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
-	framemgr_x_barrier_common(framemgr, 0, flags);
-	if (frame && frame->instance != instance) {
-		msinfo_hw("frame->instance(%d), queued_count(%d)\n",
-			instance, hw_ip,
-			frame->instance, framemgr->queued_count[FS_HW_WAIT_DONE]);
-	} else {
-		retry = 10;
-		while (--retry && framemgr->queued_count[FS_HW_WAIT_DONE]) {
-			mswarn_hw("HW_WAIT_DONE(%d) com waiting...", instance, hw_ip,
-				framemgr->queued_count[FS_HW_WAIT_DONE]);
+	head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, hw_ip->group[instance]);
+	FIMC_BUG_VOID(!head);
 
-			usleep_range(5000, 5000);
+	if (test_bit(IS_GROUP_OTF_INPUT, &head->state))
+		state = FS_HW_WAIT_DONE;
+	else
+		state = FS_HW_CONFIGURE;
+
+	for (; state <= FS_HW_WAIT_DONE; state++) {
+		framemgr_e_barrier_common(framemgr, 0, flags);
+		frame = peek_frame(framemgr, state);
+		framemgr_x_barrier_common(framemgr, 0, flags);
+		if (frame && frame->instance != instance) {
+			msinfo_hw("frame->instance(%d), state(%s): queued_count(%d)\n",
+					instance, hw_ip, hw_frame_state_name[state],
+					frame->instance, framemgr->queued_count[state]);
+		} else {
+			retry = 10;
+			while (--retry && framemgr->queued_count[state]) {
+				mswarn_hw("%s(%d) com waiting...", instance, hw_ip,
+						hw_frame_state_name[state],
+						framemgr->queued_count[state]);
+				usleep_range(5000, 5000);
+			}
+			if (!retry)
+				mswarn_hw("waiting(until frame empty) is fail", instance, hw_ip);
 		}
-		if (!retry)
-			mswarn_hw("waiting(until frame empty) is fail", instance, hw_ip);
 	}
 
 	hw_map = hardware->hw_map[instance];
@@ -2347,8 +2382,8 @@ int is_hardware_frame_done(struct is_hw_ip *hw_ip, struct is_frame *frame,
 	head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN,
 			hw_ip->group[frame->instance]);
 
-	msdbgs_hw(2, "[0x%x]frame_done [F:%d][G:0x%x][B:0x%lx][C:0x%lx][O:0x%lx]\n",
-		frame->instance, hw_ip, output_id, frame->fcount,
+	msdbgs_hw(2, "[0x%x]frame_done [F:%d][HWF:%d][G:0x%x][B:0x%lx][C:0x%lx][O:0x%lx]\n",
+		frame->instance, hw_ip, output_id, frame->fcount, hw_fe_cnt,
 		GROUP_ID(head->id), frame->bak_flag, frame->core_flag, frame->out_flag);
 
 	/* check core_done */

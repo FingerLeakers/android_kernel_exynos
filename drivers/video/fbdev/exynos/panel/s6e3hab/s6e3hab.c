@@ -1686,6 +1686,7 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	struct panel_bl_device *panel_bl;
 	struct brightness_table *brt_tbl;
 	struct panel_info *panel_data;
+	struct panel_dimming_info *panel_dim_info;
 	int id, old_aor, aor, aor_offset = 0, layer, vfp, vtotal, base_vtotal;
 	struct panel_vrr *vrr;
 	u8(*aor_tbl)[2];
@@ -1701,6 +1702,7 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	panel_bl = &panel->panel_bl;
 	id = panel_bl->props.id;
 	brt_tbl = &panel_bl->subdev[id].brt_tbl;
+	panel_dim_info = panel_data->panel_dim_info[id];
 
 	layer = getidx_s6e3hab_vrr(panel_data->props.vrr_fps,
 			panel_data->props.vrr_mode);
@@ -1781,6 +1783,11 @@ static void copy_aor_maptbl(struct maptbl *tbl, u8 *dst)
 	dst[0] = (aor >> 8) & 0xFF;
 	dst[1] = aor & 0xFF;
 
+	if (panel_dim_info->hbm_aor && is_hbm_brightness(panel_bl, panel_bl->props.brightness)) {
+		dst[0] = panel_dim_info->hbm_aor[0];
+		dst[1] = panel_dim_info->hbm_aor[1];
+		aor = (dst[0] << 8) + dst[1];
+	}
 	panel_bl->props.aor_ratio = AOR_TO_RATIO(aor, vtotal);
 
 	pr_debug("aor %d->%d(%d) offset(%d), vfp %d vrr(%d %d)\n",

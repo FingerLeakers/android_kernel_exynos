@@ -306,6 +306,10 @@ struct exynos_context {
 	int gpu_vk_boost_max_clk_lock;
 	int gpu_vk_boost_mif_min_clk_lock;
 #endif
+#ifdef CONFIG_MALI_SEC_NEGATIVE_BOOST
+	bool need_cpu_qos;
+	struct mutex gpu_negative_boost_lock;
+#endif
 
 	int gpu_pmqos_cpu_cluster_num;
 
@@ -319,8 +323,6 @@ struct exynos_context {
 #ifdef CONFIG_MALI_SEC_CL_BOOST
 	bool cl_boost_disable;
 #endif
-
-	int wa_ctrl;
 
 	int gpu_set_pmu_duration_reg;
 	int gpu_set_pmu_duration_val;

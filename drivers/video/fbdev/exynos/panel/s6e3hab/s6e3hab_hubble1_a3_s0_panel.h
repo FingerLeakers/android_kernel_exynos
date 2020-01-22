@@ -2907,8 +2907,6 @@ static void *hubble1_a3_s0_set_bl_black_param_cmdtbl[] = {
 	&PKTINFO(hubble1_a3_s0_hbm_aor),
 	&PKTINFO(hubble1_a3_s0_aor),
 	&PKTINFO(hubble1_a3_s0_aid),
-	&PKTINFO(hubble1_a3_s0_tset_mps_elvss),
-	&PKTINFO(hubble1_a3_s0_elvss_temp),
 	&PKTINFO(hubble1_a3_s0_dbv),
 	&PKTINFO(hubble1_a3_s0_vgh_vint),
 	&PKTINFO(hubble1_a3_s0_vint_vrr_120hz),
@@ -2916,6 +2914,8 @@ static void *hubble1_a3_s0_set_bl_black_param_cmdtbl[] = {
 	&PKTINFO(hubble1_a3_s0_acl_onoff),
 	&PKTINFO(hubble1_a3_s0_irc_value),
 	&PKTINFO(hubble1_a3_s0_irc_on),
+	&PKTINFO(hubble1_a3_s0_tset_mps_elvss),
+	&PKTINFO(hubble1_a3_s0_elvss_temp),
 	&PKTINFO(hubble1_a3_s0_hbm_onoff),
 };
 
@@ -2929,8 +2929,6 @@ static void *hubble1_a3_s0_set_bl_param_cmdtbl[] = {
 	&PKTINFO(hubble1_a3_s0_gamma),
 	&PKTINFO(hubble1_a3_s0_aor),
 	&PKTINFO(hubble1_a3_s0_aid),
-	&PKTINFO(hubble1_a3_s0_tset_mps_elvss),
-	&PKTINFO(hubble1_a3_s0_elvss_temp),
 	&PKTINFO(hubble1_a3_s0_dbv),
 	&PKTINFO(hubble1_a3_s0_vgh_vint),
 	&PKTINFO(hubble1_a3_s0_vint_vrr_120hz),
@@ -2938,6 +2936,8 @@ static void *hubble1_a3_s0_set_bl_param_cmdtbl[] = {
 	&PKTINFO(hubble1_a3_s0_acl_onoff),
 	&PKTINFO(hubble1_a3_s0_irc_value),
 	&PKTINFO(hubble1_a3_s0_irc_on),
+	&PKTINFO(hubble1_a3_s0_tset_mps_elvss),
+	&PKTINFO(hubble1_a3_s0_elvss_temp),
 	&PKTINFO(hubble1_a3_s0_hbm_onoff),
 };
 

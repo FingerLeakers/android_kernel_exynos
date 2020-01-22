@@ -6,6 +6,7 @@
  */
 
 #include <trace/events/ems.h>
+#include <trace/events/ems_debug.h>
 
 #include "../sched.h"
 #include "ems.h"
@@ -57,7 +58,7 @@ check_cpu_capacity(struct rq *rq, struct sched_domain *sd)
 #define lb_sd_parent(sd) \
 	(sd->parent && sd->parent->groups != sd->parent->groups->next)
 
-bool lbt_overutilized(int cpu, int level);
+bool lbt_overutilized(int cpu, int level, enum cpu_idle_type idle);
 int lb_need_active_balance(enum cpu_idle_type idle, struct sched_domain *sd,
 					int src_cpu, int dst_cpu)
 {
@@ -71,14 +72,14 @@ int lb_need_active_balance(enum cpu_idle_type idle, struct sched_domain *sd,
 	    (cpu_rq(src_cpu)->cfs.h_nr_running == 1)) {
 		/* This domain is top and dst_cpu is bigger than src_cpu*/
 		if (!lb_sd_parent(sd) && src_cap < dst_cap)
-			if (lbt_overutilized(src_cpu, level))
+			if (lbt_overutilized(src_cpu, level, 0))
 				return 1;
 	}
 
 	if ((src_cap < dst_cap) &&
 		cpu_rq(src_cpu)->cfs.h_nr_running == 1 &&
-		lbt_overutilized(src_cpu, level) &&
-		!lbt_overutilized(dst_cpu, level)) {
+		lbt_overutilized(src_cpu, level, 0) &&
+		!lbt_overutilized(dst_cpu, level, idle)) {
 		return 1;
 	}
 
@@ -142,7 +143,7 @@ static inline int get_last_level(struct lbt_overutil *ou)
 /****************************************************************/
 /*			External APIs				*/
 /****************************************************************/
-bool lbt_overutilized(int cpu, int level)
+bool lbt_overutilized(int cpu, int level, enum cpu_idle_type idle)
 {
 	struct lbt_overutil *ou = per_cpu(lbt_overutil, cpu);
 	bool overutilized;
@@ -150,7 +151,11 @@ bool lbt_overutilized(int cpu, int level)
 	if (!ou)
 		return false;
 
-	overutilized = (ml_cpu_util(cpu) > ou[level].capacity) ? true : false;
+	if (idle == CPU_NEWLY_IDLE)
+		overutilized = false;
+	else
+		overutilized = (ml_cpu_util(cpu) > ou[level].capacity)
+						? true : false;
 
 	if (overutilized)
 		trace_ems_lbt_overutilized(cpu, level, ml_cpu_util(cpu),
@@ -263,6 +268,56 @@ void lb_update_misfit_status(struct task_struct *p, struct rq *rq,
 
 	per_cpu(lbt_overutil, cpu)->misfit_task = true;
 	rq->misfit_task_load = task_h_load;
+}
+
+#ifdef CONFIG_MALI_SEC_G3D_PEAK_NOTI
+static bool enable_iss_margin;
+int g3d_register_peak_mode_update_notifier(struct notifier_block *nb);
+static int ems_iss_margin_callback(struct notifier_block *nb,
+						unsigned long event, void *v)
+{
+	bool data = *((bool *)v);
+
+	if (data == 1) {
+		enable_iss_margin = data;
+		trace_enabled_iss_margin(enable_iss_margin);
+	} else if (data == 0) {
+		enable_iss_margin = data;
+		trace_enabled_iss_margin(enable_iss_margin);
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block ems_iss_margin_notifier = {
+	.notifier_call = ems_iss_margin_callback,
+};
+#else
+static bool enable_iss_margin = true;
+#endif
+
+bool
+need_iss_margin(int src_cpu, int dst_cpu)
+{
+	int cpu, uss_util = 0, sse_util = 0;
+
+	if (likely(!enable_iss_margin))
+		return false;
+
+	if (!cpumask_test_cpu(src_cpu, cpu_coregroup_mask(6)) ||
+		!cpumask_test_cpu(dst_cpu, cpu_coregroup_mask(4)))
+		return false;
+
+	for_each_cpu(cpu, cpu_coregroup_mask(src_cpu)) {
+		uss_util += cpu_rq(cpu)->cfs.ml.util_avg;
+		sse_util += cpu_rq(cpu)->cfs.ml.util_avg_s;
+	}
+	sse_util = (sse_util * capacity_ratio(src_cpu, USS)) >> SCHED_CAPACITY_SHIFT;
+
+	if (sse_util > uss_util)
+		return false;
+
+	return true;
 }
 
 /****************************************************************/
@@ -453,6 +508,9 @@ static int __init lbt_sysfs_init(void)
 
 	if (sysfs_create_group(lbt_kobj, &lbt_group))
 		goto out;
+#ifdef CONFIG_MALI_SEC_G3D_PEAK_NOTI
+	g3d_register_peak_mode_update_notifier(&ems_iss_margin_notifier);
+#endif
 
 	return 0;
 

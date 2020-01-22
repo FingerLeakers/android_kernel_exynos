@@ -2,7 +2,7 @@
  * Broadcom Dongle Host Driver (DHD), Linux-specific network interface.
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2019, Broadcom.
+ * Copyright (C) 2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -4926,7 +4926,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 				__FUNCTION__, __LINE__);
 #if defined(DHD_LB_RXP)
 #ifdef ENABLE_DHD_SW_GRO
-			if (dhd_sw_gso_enable) {
+			if (dhd_sw_gso_enable && !skb_cloned(skb)) {
 				napi_gro_receive(&dhd->rx_napi_struct, skb);
 			} else {
 				netif_receive_skb(skb);
@@ -4964,7 +4964,7 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 #endif /* BCMPCIE && DHDTCPACK_SUPPRESS */
 #if defined(DHD_LB_RXP)
 #ifdef ENABLE_DHD_SW_GRO
-		if (dhd_sw_gso_enable) {
+		if (dhd_sw_gso_enable && !skb_cloned(skb)) {
 			napi_gro_receive(&dhd->rx_napi_struct, skb);
 		} else {
 			netif_receive_skb(skb);
@@ -10688,7 +10688,13 @@ dhd_optimised_preinit_ioctls(dhd_pub_t * dhd)
 	if (FW_SUPPORTED(dhd, pf6)) {
 		/* Immediately pkt filter TYPE 6 Dicard Broadcast IP packet */
 		dhd->pktfilter[DHD_IP4BCAST_DROP_FILTER_NUM] = DISCARD_IPV4_BCAST;
-		dhd->pktfilter_count = 8;
+		/* Immediately pkt filter TYPE 6 Dicard Cisco STP packet */
+		dhd->pktfilter[DHD_LLC_STP_DROP_FILTER_NUM] = DISCARD_LLC_STP;
+		/* Immediately pkt filter TYPE 6 Dicard Cisco XID protocol */
+		dhd->pktfilter[DHD_LLC_XID_DROP_FILTER_NUM] = DISCARD_LLC_XID;
+		/* Immediately pkt filter TYPE 6 Dicard NETBIOS packet(port 137) */
+		dhd->pktfilter[DHD_UDPNETBIOS_DROP_FILTER_NUM] = DISCARD_UDPNETBIOS;
+		dhd->pktfilter_count = 11;
 	}
 
 #ifdef GAN_LITE_NAT_KEEPALIVE_FILTER
@@ -12862,6 +12868,9 @@ static int dhd_inetaddr_notifier_call(struct notifier_block *this,
 				__FUNCTION__));
 			aoe_update_host_ipv4_table(dhd_pub, ifa->ifa_address, TRUE, idx);
 #endif /* AOE_IP_ALIAS_SUPPORT */
+#ifdef WL_CFG80211
+			wl_cfg80211_update_ipv4_addr(ifa->ifa_dev->dev, ifa->ifa_address);
+#endif /* WL_CFG80211 */
 			break;
 
 		case NETDEV_DOWN:

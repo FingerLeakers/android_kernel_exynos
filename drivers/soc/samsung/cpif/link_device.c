@@ -364,8 +364,6 @@ static void link_trigger_cp_crash(struct mem_link_device *mld, u32 crash_type, c
 		case CRASH_REASON_MIF_TX_ERR:
 		case CRASH_REASON_MIF_RIL_BAD_CH:
 		case CRASH_REASON_MIF_RX_BAD_DATA:
-		case CRASH_REASON_MIF_ZMC:
-		case CRASH_REASON_MIF_MDM_CTRL:
 		case CRASH_REASON_MIF_FORCED:
 			if (strlen(string))
 				strlcat(ld->crash_reason.string, string,
@@ -382,8 +380,6 @@ static void link_trigger_cp_crash(struct mem_link_device *mld, u32 crash_type, c
 		case CRASH_REASON_MIF_TX_ERR:
 		case CRASH_REASON_MIF_RIL_BAD_CH:
 		case CRASH_REASON_MIF_RX_BAD_DATA:
-		case CRASH_REASON_MIF_ZMC:
-		case CRASH_REASON_MIF_MDM_CTRL:
 		case CRASH_REASON_MIF_FORCED:
 		case CRASH_REASON_RIL_TRIGGER_CP_CRASH:
 			if (strlen(string))
@@ -498,7 +494,7 @@ static void write_clk_table_to_shmem(struct mem_link_device *mld)
 	clk_tb = (struct clock_table *)mld->clk_table;
 
 	strcpy(clk_tb->parser_version, "CT0");
-	clk_tb->total_table_count = 3;
+	clk_tb->total_table_count = mld->total_freq_table_count;
 
 	strcpy(clk_tb->table_info[0].table_name, "MIF");
 	clk_tb->table_info[0].table_count = mld->mif_table.num_of_table;
@@ -2680,6 +2676,7 @@ static void pcie_send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
 	unsigned long flags;
+	bool force_crash = false;
 
 	spin_lock_irqsave(&mc->pcie_tx_lock, flags);
 
@@ -2701,10 +2698,13 @@ static void pcie_send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 	set_ctrl_msg(&mld->ap2cp_msg, mask);
 	mc->reserve_doorbell_int = false;
 	if (s51xx_pcie_send_doorbell_int(mc->s51xx_pdev, mld->intval_ap2cp_msg) != 0)
-		s5100_force_crash_exit_ext();
+		force_crash = true;
 
 exit:
 	spin_unlock_irqrestore(&mc->pcie_tx_lock, flags);
+
+	if (unlikely(force_crash))
+		s5100_force_crash_exit_ext();
 }
 
 static inline u16 pcie_read_ap2cp_irq(struct mem_link_device *mld)
@@ -2973,6 +2973,7 @@ static int parse_ect(struct mem_link_device *mld, char *dvfs_domain_name)
 
 	if (!strcmp(dvfs_domain_name, "MIF")) {
 		mld->mif_table.num_of_table = dvfs_domain->num_of_level;
+		mld->total_freq_table_count++;
 		for (i = dvfs_domain->num_of_level - 1; i >= 0; i--) {
 			mld->mif_table.freq[i] =
 				dvfs_domain->list_level[counter++].level;
@@ -2981,6 +2982,7 @@ static int parse_ect(struct mem_link_device *mld, char *dvfs_domain_name)
 		}
 	} else if (!strcmp(dvfs_domain_name, "CP")) {
 		mld->cp_table.num_of_table = dvfs_domain->num_of_level;
+		mld->total_freq_table_count++;
 		for (i = dvfs_domain->num_of_level - 1; i >= 0; i--) {
 			mld->cp_table.freq[i] =
 				dvfs_domain->list_level[counter++].level;
@@ -2989,6 +2991,7 @@ static int parse_ect(struct mem_link_device *mld, char *dvfs_domain_name)
 		}
 	} else if (!strcmp(dvfs_domain_name, "MODEM")) {
 		mld->modem_table.num_of_table = dvfs_domain->num_of_level;
+		mld->total_freq_table_count++;
 		for (i = dvfs_domain->num_of_level - 1; i >= 0; i--) {
 			mld->modem_table.freq[i] =
 				dvfs_domain->list_level[counter++].level;

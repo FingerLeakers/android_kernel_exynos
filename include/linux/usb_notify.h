@@ -190,7 +190,9 @@ extern int is_usb_host(struct otg_notify *n);
 extern bool is_blocked(struct otg_notify *n, int type);
 extern bool is_snkdfp_usb_device_connected(struct otg_notify *n);
 extern int is_known_usbaudio(struct usb_device *dev);
-extern void send_usb_audio_uevent(struct usb_device *dev);
+extern void set_usb_audio_cardnum(int card_num, int bundle, int attach);
+extern void send_usb_audio_uevent(struct usb_device *dev,
+		int cardnum, int attach);
 extern int send_usb_notify_uevent
 		(struct otg_notify *n, char *envp_ext[]);
 #if defined(CONFIG_USB_HW_PARAM)
@@ -234,7 +236,10 @@ static inline bool is_blocked(struct otg_notify *n, int type) {return false; }
 static inline bool is_snkdfp_usb_device_connected(struct otg_notify *n)
 			{return false; }
 static inline int is_known_usbaudio(struct usb_device *dev) {return 0; }
-static inline void send_usb_audio_uevent(struct usb_device *dev) {}
+static inline void set_usb_audio_cardnum(int card_num,
+		int bundle, int attach) {}
+static inline void send_usb_audio_uevent(struct usb_device *dev,
+		int cardnum, int attach) {}
 static inline int send_usb_notify_uevent
 			(struct otg_notify *n, char *envp_ext[]) {return 0; }
 #if defined(CONFIG_USB_HW_PARAM)

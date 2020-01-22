@@ -92,6 +92,7 @@
 #define ENABLE_IRQ_MULTI_TARGET
 #define IS_ONLINE_CPU_MIN	4
 #define ENABLE_3AA_LIC_OFFSET	1
+#define PDP_RDMA_LINE_GAP      (0x64)
 /*
  * PDP0: RDMA
  * PDP1: RDMA

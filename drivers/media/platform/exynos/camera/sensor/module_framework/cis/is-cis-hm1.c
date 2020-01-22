@@ -44,7 +44,6 @@
 #define SENSOR_NAME "S5KHM1"
 /* #define DEBUG_HM1_PLL */
 /* #define GLOBAL_TIME_CAL_WRITE */
-#define HM1_BURST_WRITE
 /* #define DEBUG_CAL_WRITE */
 
 static const u32 *sensor_hm1_initial;
@@ -239,6 +238,45 @@ static void sensor_hm1_cis_data_calculation(const struct sensor_pll_info_compact
 	cis_data->min_coarse_integration_time = SENSOR_HM1_COARSE_INTEGRATION_TIME_MIN;
 }
 
+int sensor_hm1_cis_wait_streamon(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	cis_shared_data *cis_data;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
+	if (unlikely(!cis)) {
+	    err("cis is NULL");
+	    ret = -EINVAL;
+	    goto p_err;
+	}
+
+	cis_data = cis->cis_data;
+	if (unlikely(!cis_data)) {
+	    err("cis_data is NULL");
+	    ret = -EINVAL;
+	    goto p_err;
+	}
+
+	ret = sensor_cis_wait_streamon(subdev);
+	if (ret < 0) {
+		if (cis_data->sens_config_index_cur == SENSOR_HM1_12000X9000_10FPS) {
+			info("sensor_cis_wait_streamon fail -> retry(%d)", ret);
+			ret = sensor_cis_wait_streamon(subdev);
+		}
+
+		if (ret < 0) {
+			err("sensor_cis_wait_streamon fail(%d)", ret);
+			goto p_err;
+		}
+	}
+
+p_err:
+	return ret;
+}
+
 void sensor_hm1_cis_data_calc(struct v4l2_subdev *subdev, u32 mode)
 {
 	struct is_cis *cis = NULL;
@@ -256,7 +294,7 @@ void sensor_hm1_cis_data_calc(struct v4l2_subdev *subdev, u32 mode)
 
 	if (cis->cis_data->stream_on) {
 		info("[%s] call mode change in stream on state\n", __func__);
-		sensor_cis_wait_streamon(subdev);
+		sensor_hm1_cis_wait_streamon(subdev);
 		sensor_hm1_cis_stream_off(subdev);
 		sensor_cis_wait_streamoff(subdev);
 		info("[%s] stream off done\n", __func__);
@@ -425,6 +463,9 @@ int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
 	pr_info("[%s] *******************************\n", __func__);
+	ret = is_sensor_write16(client, 0x6000, 0x0005);
+	if (unlikely(!ret)) pr_info("page unlock\n");
+	else goto i2c_err;
 	ret = is_sensor_write16(client, 0xFCFC, 0x4000);
 	if (unlikely(!ret)) pr_info("0x4000 page\n");
 	else goto i2c_err;
@@ -440,38 +481,57 @@ int sensor_hm1_cis_log_status(struct v4l2_subdev *subdev)
 	ret = is_sensor_read8(client, 0x0005, &data8);
 	if (unlikely(!ret)) pr_info("frame_count(0x%x)\n", data8);
 	else goto i2c_err;
+	ret = is_sensor_read16(client, 0x001A, &data16);
+	if (unlikely(!ret)) pr_info("0x001A(0x%x)\n", data16);
+	else goto i2c_err;
 	ret = is_sensor_read8(client, 0x0100, &data8);
 	if (unlikely(!ret)) pr_info("0x0100(0x%x)\n", data8);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x021E, &data16);
-	if (unlikely(!ret)) pr_info("WDR(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x021E(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0202, &data16);
-	if (unlikely(!ret)) pr_info("short EXP(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0202(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0226, &data16);
-	if (unlikely(!ret)) pr_info("long EXP(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0226(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0702, &data16);
-	if (unlikely(!ret)) pr_info("CIT shifter1(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0702(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0704, &data16);
-	if (unlikely(!ret)) pr_info("CIT shifter2(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0704(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0204, &data16);
-	if (unlikely(!ret)) pr_info("again(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0204(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x020E, &data16);
-	if (unlikely(!ret)) pr_info("short dgain(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x020E(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0230, &data16);
-	if (unlikely(!ret)) pr_info("long dgain(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0230(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0340, &data16);
-	if (unlikely(!ret)) pr_info("FLL(0x%x)\n", data16);
+	if (unlikely(!ret)) pr_info("0x0340(0x%x)\n", data16);
 	else goto i2c_err;
 	ret = is_sensor_read16(client, 0x0342, &data16);
 	if (unlikely(!ret)) pr_info("0x0342(0x%x)\n", data16);
+	else goto i2c_err;
+	ret = is_sensor_write16(client, 0xFCFC, 0x2000);
+	if (unlikely(!ret)) pr_info("0x2000 page\n");
+	else goto i2c_err;
+	{
+		int i = 0;
+		for (i = 0; i < 96; i += 2) {
+			ret = is_sensor_read16(client, 0xE580 + i, &data16);
+			if (unlikely(!ret)) pr_info("0x%X(0x%X)\n", 0xE580 + i, data16);
+		}
+	}
+	ret = is_sensor_write16(client, 0xFCFC, 0x4000);
+	if (unlikely(!ret)) pr_info("0x4000 page\n");
+	else goto i2c_err;
+	ret = is_sensor_write16(client, 0x6000, 0x0085);
+	if (unlikely(!ret)) pr_info("page lock\n");
 	else goto i2c_err;
 	pr_info("[%s] *******************************\n", __func__);
 
@@ -660,7 +720,7 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 	info("[%s] eeprom read, start set cal\n", __func__);
 	is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
-	start_addr = finfo->rom_xtc_cal_data_addr_list[0];
+	start_addr = finfo->rom_xtc_cal_data_addr_list[HM1_CAL_START_ADDR];
 	if (cal_buf[start_addr + 2] == 0xFF && cal_buf[start_addr + 3] == 0xFF &&
 		cal_buf[start_addr + 4] == 0xFF && cal_buf[start_addr + 5] == 0xFF &&
 		cal_buf[start_addr + 6] == 0xFF && cal_buf[start_addr + 7] == 0xFF &&
@@ -670,9 +730,9 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 		emptyCal = true;
 	}
 
-	len = (finfo->rom_xtc_cal_data_addr_list_len / 3) - 1;
+	len = (finfo->rom_xtc_cal_data_addr_list_len / HM1_CAL_ROW_LEN) - 1;
 	if (len >= 0) {
-		end_addr = finfo->rom_xtc_cal_data_addr_list[len * 3 + 1];
+		end_addr = finfo->rom_xtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_END_ADDR];
 		if (end_addr >= 7) {
 			if (cal_buf[end_addr    ] == 0xFF && cal_buf[end_addr - 1] == 0xFF &&
 				cal_buf[end_addr - 2] == 0xFF && cal_buf[end_addr - 3] == 0xFF &&
@@ -695,20 +755,21 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	WARN_ON(!cis);
 
-	if(finfo->rom_pdxtc_cal_data_addr_list_len <= 0 || finfo->rom_gcc_cal_data_addr_list_len <= 0 || finfo->rom_xtc_cal_data_addr_list_len <= 0) {
+	if (finfo->rom_pdxtc_cal_data_addr_list_len <= 0
+		|| finfo->rom_gcc_cal_data_addr_list_len <= 0
+		|| finfo->rom_xtc_cal_data_addr_list_len <= 0) {
 		err("Not available DT, skip set cal");
 		sensor_hm1_eeprom_cal_available = false;
-		ret = -EINVAL;
-		goto p_err;
+		return 0;
 	}
 
 	ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
 	ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
 
 
-	dbg_sensor(1, "[%s] PDXTC start\n", __func__);
-	start_addr = finfo->rom_pdxtc_cal_data_addr_list[0];
-	if(finfo->rom_pdxtc_cal_endian_check) {
+	info("[%s] PDXTC start\n", __func__);
+	start_addr = finfo->rom_pdxtc_cal_data_addr_list[HM1_CAL_START_ADDR];
+	if (finfo->rom_pdxtc_cal_endian_check) {
 		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
 			endian = HM1_BIG_ENDIAN;
 		else
@@ -719,15 +780,15 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 		endian = HM1_BIG_ENDIAN;
 	}
 
-	for (len = 0; len < finfo->rom_pdxtc_cal_data_addr_list_len / 3; len ++) {
+	for (len = 0; len < finfo->rom_pdxtc_cal_data_addr_list_len / HM1_CAL_ROW_LEN; len ++) {
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_PDXTC[len], sensor_hm1_pre_PDXTC_size[len]);
 
 		dbg_sensor(1, "[%s] PDXTC Calibration Data E\n", __func__);
-		if ( len != 0 ) start_addr = finfo->rom_pdxtc_cal_data_addr_list[len * 3];
-		end_addr = finfo->rom_pdxtc_cal_data_addr_list[len * 3 + 1];
+		if (len != 0) start_addr = finfo->rom_pdxtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_START_ADDR];
+		end_addr = finfo->rom_pdxtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_END_ADDR];
 
 #ifdef HM1_BURST_WRITE
-		if(finfo->rom_pdxtc_cal_data_addr_list[len * 3 + 2]) {
+		if (finfo->rom_pdxtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_BURST_CHECK]) {
 			cal_size = (end_addr - start_addr) / 2 + 1;
 			dbg_sensor(1, "[%s] rom_pdxtc_cal burst write start(0x%X) end(0x%X)\n", __func__, start_addr, end_addr);
 			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
@@ -737,27 +798,30 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 			}
 		} else
 #endif
-		for(i = start_addr; i <= end_addr; i += 2) {
-			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
-			ret = is_sensor_write16(cis->client, 0x6F12, val);
-			if (ret < 0) {
-				err("is_sensor_write16 fail!!");
-				goto p_err;
-			}
+		{
+			for(i = start_addr; i <= end_addr; i += 2) {
+				val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+				ret = is_sensor_write16(cis->client, 0x6F12, val);
+				if (ret < 0) {
+					err("is_sensor_write16 fail!!");
+					goto p_err;
+				}
 #ifdef DEBUG_CAL_WRITE
-			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+				info("cal offset[0x%04X] , val[0x%04X]", i, val);
 #endif
+			}
 		}
 
 		dbg_sensor(1, "[%s] PDXTC Calibration Data X\n", __func__);
 
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_PDXTC[len], sensor_hm1_post_PDXTC_size[len]);
 	}
-	dbg_sensor(1, "[%s] PDXTC end\n", __func__);
 
-	dbg_sensor(1, "[%s] GCC start\n", __func__);
-	start_addr = finfo->rom_gcc_cal_data_addr_list[0];
-	if(finfo->rom_gcc_cal_endian_check) {
+	info("[%s] PDXTC end\n", __func__);
+
+	info("[%s] GCC start\n", __func__);
+	start_addr = finfo->rom_gcc_cal_data_addr_list[HM1_CAL_START_ADDR];
+	if (finfo->rom_gcc_cal_endian_check) {
 		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
 			endian = HM1_BIG_ENDIAN;
 		else
@@ -768,15 +832,15 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 		endian = HM1_BIG_ENDIAN;
 	}
 
-	for (len = 0; len < finfo->rom_gcc_cal_data_addr_list_len / 3; len ++) {
+	for (len = 0; len < finfo->rom_gcc_cal_data_addr_list_len / HM1_CAL_ROW_LEN; len ++) {
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_GCC[len], sensor_hm1_pre_GCC_size[len]);
 
 		dbg_sensor(1, "[%s] GCC Calibration Data E\n", __func__);
-		if ( len != 0 ) start_addr = finfo->rom_gcc_cal_data_addr_list[len * 3];
-		end_addr = finfo->rom_gcc_cal_data_addr_list[len * 3 + 1];
+		if (len != 0) start_addr = finfo->rom_gcc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_START_ADDR];
+		end_addr = finfo->rom_gcc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_END_ADDR];
 
 #ifdef HM1_BURST_WRITE
-		if(finfo->rom_gcc_cal_data_addr_list[len * 3 + 2]) {
+		if (finfo->rom_gcc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_BURST_CHECK]) {
 			cal_size = (end_addr - start_addr) / 2 + 1;
 			dbg_sensor(1, "[%s] rom_gcc_cal burst write start(0x%X) end(0x%X)\n", __func__, start_addr, end_addr);
 			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
@@ -786,27 +850,29 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 			}
 		} else
 #endif
-		for(i = start_addr; i <= end_addr; i += 2) {
-			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
-			ret = is_sensor_write16(cis->client, 0x6F12, val);
-			if (ret < 0) {
-				err("is_sensor_write16 fail!!");
-				goto p_err;
-			}
+		{
+			for(i = start_addr; i <= end_addr; i += 2) {
+				val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+				ret = is_sensor_write16(cis->client, 0x6F12, val);
+				if (ret < 0) {
+					err("is_sensor_write16 fail!!");
+					goto p_err;
+				}
 #ifdef DEBUG_CAL_WRITE
-			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+				info("cal offset[0x%04X] , val[0x%04X]", i, val);
 #endif
+			}
 		}
 
 		dbg_sensor(1, "[%s] GCC Calibration Data X\n", __func__);
 
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_GCC[len], sensor_hm1_post_GCC_size[len]);
 	}
-	dbg_sensor(1, "[%s] GCC end\n", __func__);
+	info("[%s] GCC end\n", __func__);
 
-	dbg_sensor(1, "[%s] XTC start\n", __func__);
-	start_addr = finfo->rom_xtc_cal_data_addr_list[0];
-	if(finfo->rom_xtc_cal_endian_check) {
+	info("[%s] XTC start\n", __func__);
+	start_addr = finfo->rom_xtc_cal_data_addr_list[HM1_CAL_START_ADDR];
+	if (finfo->rom_xtc_cal_endian_check) {
 		if (cal_buf[start_addr] == 0xFF && cal_buf[start_addr + 1] == 0x00)
 			endian = HM1_BIG_ENDIAN;
 		else
@@ -817,15 +883,15 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 		endian = HM1_BIG_ENDIAN;
 	}
 
-	for (len = 0; len < finfo->rom_xtc_cal_data_addr_list_len / 3; len ++) {
+	for (len = 0; len < finfo->rom_xtc_cal_data_addr_list_len / HM1_CAL_ROW_LEN; len ++) {
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_pre_XTC[len], sensor_hm1_pre_XTC_size[len]);
 
 		dbg_sensor(1, "[%s] XTC Calibration Data E\n", __func__);
-		if ( len != 0 ) start_addr = finfo->rom_xtc_cal_data_addr_list[len * 3];
-		end_addr = finfo->rom_xtc_cal_data_addr_list[len * 3 + 1];
+		if (len != 0) start_addr = finfo->rom_xtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_START_ADDR];
+		end_addr = finfo->rom_xtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_END_ADDR];
 
 #ifdef HM1_BURST_WRITE
-		if(finfo->rom_xtc_cal_data_addr_list[len * 3 + 2]) {
+		if (finfo->rom_xtc_cal_data_addr_list[len * HM1_CAL_ROW_LEN + HM1_CAL_BURST_CHECK]) {
 			cal_size = (end_addr - start_addr) / 2 + 1;
 			dbg_sensor(1, "[%s] rom_xtc_cal burst write start(0x%X) end(0x%X) size(%d)\n", __func__, start_addr, end_addr, cal_size);
 			ret = sensor_hm1_cis_write16_burst(cis->client, 0x6F12, (u8 *)&cal_buf[start_addr], cal_size, endian);
@@ -835,23 +901,25 @@ int sensor_hm1_cis_set_cal(struct v4l2_subdev *subdev)
 			}
 		} else
 #endif
-		for(i = start_addr; i <= end_addr; i += 2) {
-			val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
-			ret = is_sensor_write16(cis->client, 0x6F12, val);
-			if (ret < 0) {
-				err("is_sensor_write16 fail!!");
-				goto p_err;
-			}
+		{
+			for(i = start_addr; i <= end_addr; i += 2) {
+				val = HM1_ENDIAN(cal_buf[i], cal_buf[i + 1], endian);
+				ret = is_sensor_write16(cis->client, 0x6F12, val);
+				if (ret < 0) {
+					err("is_sensor_write16 fail!!");
+					goto p_err;
+				}
 #ifdef DEBUG_CAL_WRITE
-			info("cal offset[0x%04X] , val[0x%04X]", i, val);
+				info("cal offset[0x%04X] , val[0x%04X]", i, val);
 #endif
+			}
 		}
 
 		dbg_sensor(1, "[%s] XTC Calibration Data X\n", __func__);
 
 		ret |= sensor_cis_set_registers(subdev, sensor_hm1_post_XTC[len], sensor_hm1_post_XTC_size[len]);
 	}
-	dbg_sensor(1, "[%s] XTC end\n", __func__);
+	info("[%s] XTC end\n", __func__);
 
 	sensor_hm1_eeprom_cal_available = true;
 
@@ -894,6 +962,25 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	ext_info = &module->ext;
 	WARN_ON(!ext_info);
 
+	info("[%s] E\n", __func__);
+
+	switch(mode) {
+		case SENSOR_HM1_12000X9000_10FPS:
+		case SENSOR_HM1_7680X4320_24FPS:
+		case SENSOR_HM1_4000X2252_30FPS_CENTER_CROP:
+			cis->cis_data->max_analog_gain[0] = 0x200; /* x16, gain=x/0x20 */
+			cis->cis_data->max_analog_gain[1] = sensor_cis_calc_again_permile(cis->cis_data->max_analog_gain[0]);
+			cis->cis_data->max_digital_gain[0] = 0x800; /* x8, gain=x/0x100 */
+			cis->cis_data->max_digital_gain[1] = sensor_cis_calc_dgain_permile(cis->cis_data->max_digital_gain[0]);
+		break;
+		default:
+			cis->cis_data->max_analog_gain[0] = 0x600; /* x48, gain=x/0x20 */
+			cis->cis_data->max_analog_gain[1] = sensor_cis_calc_again_permile(cis->cis_data->max_analog_gain[0]);
+			cis->cis_data->max_digital_gain[0] = 0x1000; /* x16, gain=x/0x100 */
+			cis->cis_data->max_digital_gain[1] = sensor_cis_calc_dgain_permile(cis->cis_data->max_digital_gain[0]);
+		break;
+	}
+
 #if 0 /* cis_data_calculation is called in module_s_format */
 	sensor_hm1_cis_data_calculation(sensor_hm1_pllinfos[mode], cis->cis_data);
 #endif
@@ -915,7 +1002,7 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		ret = sensor_hm1_cis_set_cal(subdev);
 		if (ret < 0) {
 			err("sensor_hm1_cis_set_cal fail!!");
-			goto p_err;
+			goto p_err_i2c_unlock;
 		}
 	}
 #endif
@@ -939,18 +1026,22 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	info("[%s] dual sync always master\n", __func__);
 	ret = sensor_cis_set_registers(subdev, sensor_hm1_cis_dual_master_settings, sensor_hm1_cis_dual_master_settings_size);
 
-	if (!sensor_hm1_eeprom_cal_available) {
-		info("[%s] no calibration data\n", __func__);
-		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-		ret |= is_sensor_write16(cis->client, 0x6000, 0x0005);
-		ret |= is_sensor_write16(cis->client, 0x0D02, 0x0000);
-		ret |= is_sensor_write16(cis->client, 0x0B00, 0x0001);
-		ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
-	} else {
-		if (sensor_hm1_first_entrance) {
-			info("[%s] sensor_hm1_global_for_cal\n", __func__);
-			ret |= sensor_cis_set_registers(subdev, sensor_hm1_global_for_cal, sensor_hm1_global_for_cal_size);
-			sensor_hm1_first_entrance = false;
+	if (ex_mode == EX_REMOSAIC_CAL
+		|| mode == SENSOR_HM1_7680X4320_24FPS
+		|| mode == SENSOR_HM1_12000X9000_10FPS) {
+		if (!sensor_hm1_eeprom_cal_available) {
+			info("[%s] no calibration data\n", __func__);
+			ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
+			ret |= is_sensor_write16(cis->client, 0x6000, 0x0005);
+			ret |= is_sensor_write16(cis->client, 0x0D02, 0x0000);
+			ret |= is_sensor_write16(cis->client, 0x0B00, 0x0001);
+			ret |= is_sensor_write16(cis->client, 0x6000, 0x0085);
+		} else {
+			if (sensor_hm1_first_entrance) {
+				info("[%s] sensor_hm1_global_for_cal\n", __func__);
+				ret |= sensor_cis_set_registers(subdev, sensor_hm1_global_for_cal, sensor_hm1_global_for_cal_size);
+				sensor_hm1_first_entrance = false;
+			}
 		}
 	}
 
@@ -965,6 +1056,7 @@ p_err_i2c_unlock:
 
 p_err:
 	/* sensor_hm1_cis_log_status(subdev); */
+	info("[%s] X\n", __func__);
 
 	return ret;
 }
@@ -1363,10 +1455,10 @@ int sensor_hm1_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	u32 min_fine_int = 0;
 	u16 coarse_integration_time_shifter = 0;
 
-	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u16 cit_shifter_array[33] = {0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6};
 	u16 cit_shifter_val = 0;
 	int cit_shifter_idx = 0;
-	u8 cit_denom_array[6] = {1, 2, 4, 8, 16, 32};
+	u8 cit_denom_array[7] = {1, 2, 4, 8, 16, 32, 64};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1406,7 +1498,7 @@ int sensor_hm1_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 #if 0 // TEMP_2020
 		case SENSOR_HM1_2016X1134_30FPS:
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 80000) {
-				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 16);
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 80000, 0), 32);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
@@ -1418,7 +1510,7 @@ int sensor_hm1_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 #endif
 		default:
 			if (MAX(target_exposure->long_val, target_exposure->short_val) > 160000) {
-				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 16);
+				cit_shifter_idx = MIN(MAX(MAX(target_exposure->long_val, target_exposure->short_val) / 160000, 0), 32);
 				cit_shifter_val = MAX(cit_shifter_array[cit_shifter_idx], cis_data->frame_length_lines_shifter);
 			} else {
 				cit_shifter_val = (u16)(cis_data->frame_length_lines_shifter);
@@ -1684,7 +1776,11 @@ int sensor_hm1_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	dbg_sensor(1, "[%s](vsync cnt = %d) adj duration, frame duraion(%d), min_frame_us(%d)\n",
 			__func__, cis_data->sen_vsync_count, frame_duration, cis_data->min_frame_us_time);
 
-	*target_duration = MAX(frame_duration, cis_data->min_frame_us_time);
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		*target_duration = MAX(frame_duration, cis_data->min_frame_us_time);
+	} else {
+		*target_duration = frame_duration;
+	}
 
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);
@@ -1707,9 +1803,9 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	u16 frame_length_lines = 0;
 	u8 frame_length_lines_shifter = 0;
 
-	u8 fll_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
+	u8 fll_shifter_array[33] = {0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6};
 	int fll_shifter_idx = 0;
-	u8 fll_denom_array[6] = {1, 2, 4, 8, 16, 32};
+	u8 fll_denom_array[7] = {1, 2, 4, 8, 16, 32, 64};
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1731,16 +1827,24 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		goto p_err;
 	}
 
-	sensor_hm1_frame_duration_backup = frame_duration;
-
 	cis_data = cis->cis_data;
+
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		if (frame_duration < cis_data->min_frame_us_time) {
+			dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
+			frame_duration = cis_data->min_frame_us_time;
+		}
+	}
+
+	sensor_hm1_frame_duration_backup = frame_duration;
+	cis_data->cur_frame_us_time = frame_duration;
 
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
 		switch(cis_data->sens_config_index_cur) {
 #if 0 // TEMP_2020
 		case SENSOR_HM1_2016X1134_30FPS:
 			if (frame_duration > 80000) {
-				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 16);
+				fll_shifter_idx = MIN(MAX(frame_duration / 80000, 0), 32);
 				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
 				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
 			} else {
@@ -1750,7 +1854,7 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 #endif
 		default:
 			if (frame_duration > 160000) {
-				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 16);
+				fll_shifter_idx = MIN(MAX(frame_duration / 160000, 0), 32);
 				frame_length_lines_shifter = fll_shifter_array[fll_shifter_idx];
 				frame_duration = frame_duration / fll_denom_array[frame_length_lines_shifter];
 			} else {
@@ -1758,11 +1862,6 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			}
 			break;
 		}
-	}
-
-	if (frame_duration < cis_data->min_frame_us_time) {
-		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
-		frame_duration = cis_data->min_frame_us_time;
 	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / (1000);
@@ -1794,7 +1893,6 @@ int sensor_hm1_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			goto p_err_i2c_unlock;
 	}
 
-	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
 	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;
@@ -2760,7 +2858,7 @@ int sensor_hm1_cis_recover_stream_on(struct v4l2_subdev *subdev)
 	if (ret < 0) goto p_err;
 	ret = sensor_hm1_cis_stream_on(subdev);
 	if (ret < 0) goto p_err;
-	ret = sensor_cis_wait_streamon(subdev);
+	ret = sensor_hm1_cis_wait_streamon(subdev);
 	if (ret < 0) goto p_err;
 
 	info("%s end\n", __func__);
@@ -2794,7 +2892,7 @@ static struct is_cis_ops cis_ops_hm1 = {
 	.cis_get_max_digital_gain = sensor_hm1_cis_get_max_digital_gain,
 	.cis_compensate_gain_for_extremely_br = sensor_hm1_cis_compensate_gain_for_extremely_br,
 	.cis_wait_streamoff = sensor_cis_wait_streamoff,
-	.cis_wait_streamon = sensor_cis_wait_streamon,
+	.cis_wait_streamon = sensor_hm1_cis_wait_streamon,
 	.cis_set_wb_gains = sensor_hm1_cis_set_wb_gain,
 	.cis_data_calculation = sensor_hm1_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_hm1_cis_long_term_exposure,

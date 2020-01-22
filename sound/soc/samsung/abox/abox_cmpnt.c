@@ -311,6 +311,7 @@ static int rate_get(struct snd_kcontrol *kcontrol,
 static int rate_put_ipc(struct device *adev, unsigned int val,
 		enum ABOX_CONFIGMSG configmsg)
 {
+	static DEFINE_MUTEX(lock);
 	struct abox_data *data = dev_get_drvdata(adev);
 	ABOX_IPC_MSG msg;
 	struct IPC_ABOX_CONFIG_MSG *abox_config_msg = &msg.msg.config;
@@ -318,7 +319,10 @@ static int rate_put_ipc(struct device *adev, unsigned int val,
 
 	dev_dbg(adev, "%s(%u, %#x)\n", __func__, val, configmsg);
 
-	set_sif_rate(data, configmsg, val);
+	mutex_lock(&lock);
+
+	if (val > 0)
+		set_sif_rate(data, configmsg, val);
 
 	msg.ipcid = IPC_ABOX_CONFIG;
 	abox_config_msg->param1 = get_sif_rate(data, configmsg);
@@ -327,6 +331,8 @@ static int rate_put_ipc(struct device *adev, unsigned int val,
 	if (ret < 0)
 		dev_err(adev, "%s(%u, %#x) failed: %d\n", __func__, val,
 				configmsg, ret);
+
+	mutex_unlock(&lock);
 
 	return ret;
 }
@@ -349,6 +355,7 @@ static int rate_put(struct snd_kcontrol *kcontrol,
 static int format_put_ipc(struct device *adev, snd_pcm_format_t format,
 		unsigned int channels, enum ABOX_CONFIGMSG configmsg)
 {
+	static DEFINE_MUTEX(lock);
 	struct abox_data *data = dev_get_drvdata(adev);
 	ABOX_IPC_MSG msg;
 	struct IPC_ABOX_CONFIG_MSG *abox_config_msg = &msg.msg.config;
@@ -358,8 +365,12 @@ static int format_put_ipc(struct device *adev, snd_pcm_format_t format,
 	dev_dbg(adev, "%s(%d, %u, %#x)\n", __func__, width, channels,
 			configmsg);
 
-	set_sif_format(data, configmsg, format);
-	set_sif_channels(data, configmsg, channels);
+	mutex_lock(&lock);
+
+	if (format > 0)
+		set_sif_format(data, configmsg, format);
+	if (channels > 0)
+		set_sif_channels(data, configmsg, channels);
 
 	width = get_sif_width(data, configmsg);
 	channels = get_sif_channels(data, configmsg);
@@ -401,6 +412,8 @@ static int format_put_ipc(struct device *adev, snd_pcm_format_t format,
 		dev_err(adev, "%d(%d bit, %u channels) failed: %d\n", configmsg,
 				width, channels, ret);
 
+	mutex_unlock(&lock);
+
 	return ret;
 }
 
@@ -425,9 +438,7 @@ static int width_get(struct snd_kcontrol *kcontrol,
 static int width_put_ipc(struct device *dev, unsigned int val,
 		enum ABOX_CONFIGMSG configmsg)
 {
-	struct abox_data *data = dev_get_drvdata(dev);
 	snd_pcm_format_t format = SNDRV_PCM_FORMAT_S16;
-	unsigned int channels = data->sif_channels[sif_idx(configmsg)];
 
 	dev_dbg(dev, "%s(%u, %#x)\n", __func__, val, configmsg);
 
@@ -448,8 +459,8 @@ static int width_put_ipc(struct device *dev, unsigned int val,
 	}
 
 	if (configmsg == SET_PIFS1_FORMAT)
-		format_put_ipc(dev, format, channels, SET_PIFS0_FORMAT);
-	return format_put_ipc(dev, format, channels, configmsg);
+		format_put_ipc(dev, format, 0, SET_PIFS0_FORMAT);
+	return format_put_ipc(dev, format, 0, configmsg);
 }
 
 static int width_put(struct snd_kcontrol *kcontrol,
@@ -488,13 +499,11 @@ static int channels_get(struct snd_kcontrol *kcontrol,
 static int channels_put_ipc(struct device *dev, unsigned int val,
 		enum ABOX_CONFIGMSG configmsg)
 {
-	struct abox_data *data = dev_get_drvdata(dev);
-	snd_pcm_format_t format = data->sif_format[sif_idx(configmsg)];
 	unsigned int channels = val;
 
 	dev_dbg(dev, "%s(%u, %#x)\n", __func__, val, configmsg);
 
-	return format_put_ipc(dev, format, channels, configmsg);
+	return format_put_ipc(dev, 0, channels, configmsg);
 }
 
 static int channels_put(struct snd_kcontrol *kcontrol,
@@ -6172,10 +6181,9 @@ int abox_cmpnt_restore(struct device *adev)
 	dev_dbg(adev, "%s\n", __func__);
 
 	for (i = SET_SIFS0_RATE; i <= SET_PIFS0_RATE; i++)
-		rate_put_ipc(adev, data->sif_rate[sif_idx(i)], i);
+		rate_put_ipc(adev, 0, i);
 	for (i = SET_SIFS0_FORMAT; i <= SET_PIFS0_FORMAT; i++)
-		format_put_ipc(adev, data->sif_format[sif_idx(i)],
-				data->sif_channels[sif_idx(i)], i);
+		format_put_ipc(adev, 0, 0, i);
 	if (s_default)
 		asrc_factor_put_ipc(adev, s_default, SET_ASRC_FACTOR_CP);
 	if (data->audio_mode)

@@ -454,7 +454,7 @@ static ssize_t store_pcie(struct device *dev,
 	struct pcie_port *pp = &pci->pp;
 	int wlan_gpio = of_get_named_gpio(dev->of_node, "pcie,wlan-gpio", 0);
 	static struct task_struct *task;
-	u64 iommu_addr, iommu_size;
+	u64 iommu_addr = 0, iommu_size = 0;
 	int ret;
 	u32 val;
 
@@ -1746,6 +1746,9 @@ static int exynos_pcie_parse_dt(struct device_node *np, struct pcie_port *pp)
 	if (exynos_pcie->int_min_lock)
 		pm_qos_add_request(&exynos_pcie_int_qos[exynos_pcie->ch_num],
 				PM_QOS_DEVICE_THROUGHPUT, 0);
+
+	dev_info(pci->dev, "%s: pcie int_min_lock = %d\n",
+			__func__, exynos_pcie->int_min_lock);
 #endif
 	exynos_pcie->pmureg = syscon_regmap_lookup_by_phandle(np,
 					"samsung,syscon-phandle");
@@ -2249,9 +2252,12 @@ int exynos_pcie_poweron(int ch_num)
 					PCIE_IS_ACTIVE);
 #endif
 #ifdef CONFIG_PM_DEVFREQ
-		if (exynos_pcie->int_min_lock)
+		if (exynos_pcie->int_min_lock) {
 			pm_qos_update_request(&exynos_pcie_int_qos[ch_num],
 					exynos_pcie->int_min_lock);
+			dev_info(pci->dev, "%s: pcie int_min_lock = %d\n",
+					__func__, exynos_pcie->int_min_lock);
+		}
 #endif
 		/* Enable SysMMU */
 		if (exynos_pcie->use_sysmmu)
@@ -2424,8 +2430,11 @@ void exynos_pcie_poweroff(int ch_num)
 					exynos_pcie->pin_state[PCIE_PIN_IDLE]);
 
 #ifdef CONFIG_PM_DEVFREQ
-		if (exynos_pcie->int_min_lock)
+		if (exynos_pcie->int_min_lock) {
 			pm_qos_update_request(&exynos_pcie_int_qos[ch_num], 0);
+			dev_info(pci->dev, "%s: pcie int_min_lock = %d\n",
+					__func__, exynos_pcie->int_min_lock);
+		}
 #endif
 #ifdef CONFIG_CPU_IDLE
 		if (exynos_pcie->use_sicd)

@@ -1138,7 +1138,7 @@ bool mif_gpio_set_value(unsigned int gpio, int value, unsigned int delay_ms)
 		mif_info("SET GPIO %d = %d (wait %dms, dup %d)\n", gpio, value, delay_ms, dup);
 
 	if (delay_ms > 0 && !dup) {
-		if (in_interrupt())
+		if (in_interrupt() || irqs_disabled())
 			mdelay(delay_ms);
 		else if (delay_ms < 20)
 			usleep_range(delay_ms * 1000, (delay_ms * 1000) + 5000);

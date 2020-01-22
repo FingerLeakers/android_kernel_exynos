@@ -39,6 +39,8 @@
 #endif
 #include <dt-bindings/soc/samsung/exynos9830-devfreq.h>
 #include <soc/samsung/exynos-devfreq.h>
+#include <soc/samsung/exynos-debug.h>
+
 
 #include "format.h"
 #include "decon.h"
@@ -2199,12 +2201,7 @@ int create_wcg_sysfs(struct decon_device *decon)
 
 	return ret;
 }
-
-
-
-
 #endif
-
 
 static int __decon_update_regs(struct decon_device *decon, struct decon_reg_data *regs)
 {
@@ -2874,7 +2871,7 @@ static void decon_update_regs(struct decon_device *decon,
 #ifdef CONFIG_LOGGING_BIGDATA_BUG
 			log_decon_bigdata(decon);
 #endif
-			BUG();
+			s3c2410wdt_set_emergency_reset(0,0); /* watch dog reset */
 		}
 
 		if (!regs->num_of_window) {
@@ -3522,10 +3519,11 @@ static int decon_set_win_config(struct decon_device *decon,
 add_new_regs:
 	mutex_lock(&decon->up.lock);
 	list_add_tail(&regs->list, &decon->up.list);
-	atomic_inc(&decon->up.remaining_frame);
-	if (atomic_read(&decon->up.remaining_frame) > 30) {
+	win_data->extra.remained_frames =
+		atomic_inc_return(&decon->up.remaining_frame);
+	if (win_data->extra.remained_frames >= 20) {
 		decon_info("[DECON%d:WARN]:%s:remaining_frame: %d\n", decon->id,
-			__func__, atomic_read(&decon->up.remaining_frame));
+			__func__, win_data->extra.remained_frames);
 	}
 
 	mutex_unlock(&decon->up.lock);
@@ -3548,6 +3546,7 @@ err_prepare:
 		put_unused_fd(win_data->retire_fence);
 	}
 	win_data->retire_fence = -1;
+	win_data->extra.remained_frames = -1;
 
 #ifdef DEBUG_DMA_BUF_LEAK
 	decon->free_cnt = 0;
@@ -3747,7 +3746,6 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 	struct decon_hdr_capabilities hdr_capa;
 	struct decon_hdr_capabilities_info hdr_capa_info;
 	struct decon_user_window user_window;	/* cursor async */
-	struct decon_win_config_data __user *argp;
 	struct decon_disp_info __user *argp_info;
 	struct dpp_restrictions_info __user *argp_res;
 	struct decon_color_mode_info cm_info;
@@ -3792,13 +3790,11 @@ static int decon_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = decon_set_vsync_int(info, active);
 		break;
 
+	case S3CFB_WIN_CONFIG_OLD:
 	case S3CFB_WIN_CONFIG:
-		argp = (struct decon_win_config_data __user *)arg;
 		DPU_EVENT_LOG(DPU_EVT_WIN_CONFIG, &decon->sd, ktime_set(0, 0));
 		decon_systrace(decon, 'C', "decon_win_config", 1);
-		if (copy_from_user(&win_data,
-				   (struct decon_win_config_data __user *)arg,
-				   sizeof(struct decon_win_config_data))) {
+		if (copy_from_user(&win_data, (void __user *)arg, _IOC_SIZE(cmd))) {
 			ret = -EFAULT;
 			break;
 		}

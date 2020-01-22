@@ -26,6 +26,7 @@
 #include <asm/cacheflush.h>
 
 #include <soc/samsung/exynos-s2mpufd.h>
+#include <soc/samsung/exynos-s2mpu.h>
 
 static irqreturn_t exynos_s2mpufd_irq_handler(int irq, void *dev_id)
 {
@@ -227,6 +228,9 @@ static int exynos_s2mpufd_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto out;
 	}
+	/* enable hsi1 s2mpu */
+	exynos_enable_s2mpu("hsi1");
+	//exynos_set_s2mpu_allmap("hsi1", 1, 0x00);
 
 #ifdef CONFIG_EXYNOS_S2MPUFD_ILLEGAL_READ_LOGGING
 	data->info_flag = STR_INFO_FLAG;

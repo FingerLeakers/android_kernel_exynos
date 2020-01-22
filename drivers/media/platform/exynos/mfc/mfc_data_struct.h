@@ -210,6 +210,7 @@ enum mfc_vb_flag {
 	MFC_FLAG_HDR_PLUS		= 6,
 	MFC_FLAG_DISP_RES_CHANGE	= 7,
 	MFC_FLAG_UNCOMP			= 8,
+	MFC_FLAG_FRAMERATE_CH		= 9,
 	MFC_FLAG_CSD			= 29,
 	MFC_FLAG_EMPTY_DATA		= 30,
 	MFC_FLAG_LAST_FRAME		= 31,
@@ -1694,6 +1695,7 @@ struct mfc_ctx {
 	unsigned long framerate;
 	unsigned long last_framerate;
 	unsigned int qos_ratio;
+	bool update_framerate;
 
 	int qos_req_step;
 	struct list_head qos_list;

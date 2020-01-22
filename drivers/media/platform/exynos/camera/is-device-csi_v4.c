@@ -748,24 +748,22 @@ static void csi_dma_tag(struct v4l2_subdev *subdev,
 
 static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_type type)
 {
-	int vc, err, err_flag = 0, votf_ch = 0;
+	int vc, err, votf_ch = 0;
+	unsigned long prev_err_flag = 0;
 	struct is_subdev *dma_subdev;
+	struct is_device_sensor *sensor;
 
 	/* 1. Check error */
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
-		err_flag |= csi->error_id[vc];
+		prev_err_flag |= csi->error_id[vc];
 
 		dma_subdev = csi->dma_subdev[vc];
 		votf_ch |= test_bit(IS_SUBDEV_VOTF_USE, &dma_subdev->state) << vc;
 	}
 
 	/* 2. If err occurs first in 1 frame, request DMA abort */
-	if (!err_flag) {
-		if (votf_ch && type == CSIS_LINK)
-			minfo("[CSI%d] No abort request. VOTF CH(0x%x)\n",csi, csi->ch, votf_ch);
-		else
-			csi_hw_s_control(csi->cmn_reg[csi->scm][0], CSIS_CTRL_DMA_ABORT_REQ, true);
-	}
+	if (!prev_err_flag)
+		csi_hw_s_control(csi->cmn_reg[csi->scm][0], CSIS_CTRL_DMA_ABORT_REQ, true);
 
 	/* 3. Cumulative error */
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++)
@@ -788,6 +786,23 @@ static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_t
 			/* disable next dma */
 			csi_s_output_dma(csi, CSI_VIRTUAL_CH_0, false);
 			break;
+		case CSIS_ERR_CRC:
+		case CSIS_ERR_MAL_CRC:
+		case CSIS_ERR_CRC_CPHY:
+			csi->crc_flag = true;
+
+			merr("[DMA%d][VC P%d, L%d][F%d] CSIS_ERR_CRC_XXX (ID %d)", csi,
+				csi->dma_subdev[CSI_VIRTUAL_CH_0]->dma_ch[csi->scm],
+				csi->dma_subdev[CSI_VIRTUAL_CH_0]->vc_ch[csi->scm],
+				CSI_VIRTUAL_CH_0, atomic_read(&csi->fcount), err);
+
+			if (!test_bit(CSIS_ERR_CRC, &prev_err_flag)
+				&& !test_bit(CSIS_ERR_MAL_CRC, &prev_err_flag)
+				&& !test_bit(CSIS_ERR_CRC_CPHY, &prev_err_flag)) {
+				sensor = v4l2_get_subdev_hostdata(*csi->subdev);
+				if (sensor)
+					is_sensor_dump(sensor);
+			}
 		default:
 			break;
 		}
@@ -2150,6 +2165,7 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 	}
 
 	set_bit(CSIS_START_STREAM, &csi->state);
+	csi->crc_flag = false;
 
 	return 0;
 

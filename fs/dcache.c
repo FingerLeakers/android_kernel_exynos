@@ -1498,13 +1498,9 @@ void shrink_dcache_parent(struct dentry *parent)
 			break;
 		
 		if (unlikely(need_sched)) {
-			if (current->state == TASK_RUNNING) {
-				schedule();
-			} else {
-				long prev_state = current->state;
-				if (!schedule_timeout(1))
-					set_current_state(prev_state);
-			}
+			long prev_state = current->state;
+			if (!schedule_timeout_uninterruptible(1))
+				set_current_state(prev_state);
 		}
 	}
 }

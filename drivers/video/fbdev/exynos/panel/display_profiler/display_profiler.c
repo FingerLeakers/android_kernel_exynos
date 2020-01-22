@@ -746,17 +746,24 @@ static ssize_t prop_config_store(struct device *dev,
 
 	while ((tok = strsep(&strbuf, ",")) != NULL) {
 		field = strsep(&tok, "=");
-		if (field != NULL)
-			field = strim(field);
+		if (field == NULL) {
+			panel_err("[DISP_PROFILER] %s, invalid field\n", __func__);
+			return -EINVAL;
+		}
+		field = strim(field);
 		if (strlen(field) < 1) {
-			panel_err("[DISP_PROFILER] %s:invalid field\n", __func__, tok);
+			panel_err("[DISP_PROFILER] %s, invalid field\n", __func__);
 			return -EINVAL;
 		}
 		value = strsep(&tok, "=");
+		if (value == NULL) {
+			panel_err("[DISP_PROFILER] %s, invalid value with field %s\n", __func__, field);
+			return -EINVAL;
+		}
 		profiler_info(profiler, profiler_debug, "[DISP_PROFILER] %s: field %s with value %s\n", __func__, field, value);
 		ret = kstrtouint(strim(value), 0, &val);
 		if (ret < 0) {
-			panel_err("[DISP_PROFILER] %s:invalid value %s, ret %d\n", __func__, value, ret);
+			panel_err("[DISP_PROFILER] %s, invalid value %s, ret %d\n", __func__, value, ret);
 			return ret;
 		}
 		for (i=0; i<ARRAY_SIZE(profiler_config_names); i++) {
@@ -769,7 +776,7 @@ static ssize_t prop_config_store(struct device *dev,
 				__func__, profiler_config_names[i], val);
 		}
 	}
-	
+
 	return size;
 }
 

@@ -749,6 +749,7 @@ static const struct file_operations pm_qos_debug_fops = {
 int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
 			 enum pm_qos_req_action action, int value)
 {
+	struct pm_qos_request *req;
 	unsigned long flags;
 	int prev_value, curr_value, new_value;
 	int ret;
@@ -786,11 +787,10 @@ int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
 
 	spin_unlock_irqrestore(&pm_qos_lock, flags);
 
-	trace_pm_qos_update_target(action, prev_value, curr_value);
+	req = container_of(node, struct pm_qos_request, node);
+	trace_pm_qos_update_target(req->pm_qos_class, action, prev_value, curr_value);
 
 	if (c->type == PM_QOS_FORCE_MAX) {
-		struct pm_qos_request *req = container_of(node, struct pm_qos_request, node);
-
 		if (c->notifiers)
 			blocking_notifier_call_chain(c->notifiers,
 						     (unsigned long)curr_value,
@@ -799,8 +799,6 @@ int pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
 	}
 
 	if (prev_value != curr_value) {
-		struct pm_qos_request *req = container_of(node, struct pm_qos_request, node);
-
 		ret = 1;
 		if (c->notifiers)
 			blocking_notifier_call_chain(c->notifiers,

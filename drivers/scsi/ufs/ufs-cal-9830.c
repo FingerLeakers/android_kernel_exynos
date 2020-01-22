@@ -1513,6 +1513,9 @@ ufs_cal_errno ufs_cal_eom(struct ufs_cal_param *p, u32 hs_gear, u32 num_of_activ
 
 	void *hba = p->host;
 
+	if (num_of_active_rx > MAX_LANE)
+		return UFS_CAL_ERROR;
+
 	ufs_cal_eom_prepare(p);
 
 	switch(hs_gear) {

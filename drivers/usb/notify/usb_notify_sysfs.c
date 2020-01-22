@@ -677,6 +677,37 @@ error:
 	return ret;
 }
 
+static ssize_t cards_show(
+	struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct usb_notify_dev *udev = (struct usb_notify_dev *)
+		dev_get_drvdata(dev);
+	char card_strings[MAX_CARD_STR_LEN] = {0,};
+	char buf_card[15] = {0,};
+	int i;
+	int cnt = 0;
+
+	for (i = 0; i < MAX_USB_AUDIO_CARDS; i++) {
+		if (udev->usb_audio_cards[i].cards) {
+			cnt += snprintf(buf_card, sizeof(buf_card),
+				"<%scard%d>", udev->usb_audio_cards[i].bundle ? "*" : "", i);
+			if (cnt < 0) {
+				pr_err("%s snprintf return %d\n", __func__, cnt);
+				continue;
+			}
+			if (cnt >= MAX_CARD_STR_LEN) {
+				pr_err("%s overflow\n", __func__);
+				goto err;
+			}			
+			strlcat(card_strings, buf_card, sizeof(card_strings));
+		}
+	}
+err:
+	pr_info("card_strings %s\n", card_strings);
+	return sprintf(buf, "%s\n", card_strings);
+}
+
 int usb_notify_dev_uevent(struct usb_notify_dev *udev, char *envp_ext[])
 {
 	int ret = 0;
@@ -715,6 +746,7 @@ static DEVICE_ATTR(otg_speed, 0444, otg_speed_show, NULL);
 static DEVICE_ATTR(gadget_speed, 0444, gadget_speed_show, NULL);
 static DEVICE_ATTR(whitelist_for_mdm, 0664,
 	whitelist_for_mdm_show, whitelist_for_mdm_store);
+static DEVICE_ATTR(cards, 0444, cards_show, NULL);
 #if defined(CONFIG_USB_HW_PARAM)
 static DEVICE_ATTR(usb_hw_param, 0664, usb_hw_param_show, usb_hw_param_store);
 static DEVICE_ATTR(hw_param, 0664, hw_param_show, hw_param_store);
@@ -726,6 +758,7 @@ static struct attribute *usb_notify_attrs[] = {
 	&dev_attr_otg_speed.attr,
 	&dev_attr_gadget_speed.attr,
 	&dev_attr_whitelist_for_mdm.attr,
+	&dev_attr_cards.attr,
 #if defined(CONFIG_USB_HW_PARAM)
 	&dev_attr_usb_hw_param.attr,
 	&dev_attr_hw_param.attr,

@@ -174,6 +174,7 @@ struct panel_gpio {
 	unsigned int irq_type;
 	void __iomem *irq_pend_reg;
 	int irq_pend_bit;
+	bool irq_enable;
 };
 
 struct panel_regulator {
@@ -548,6 +549,7 @@ int panel_set_vrr_nolock(struct panel_device *panel, int fps, int mode, bool bla
 int panel_set_vrr_info(struct panel_device *panel, void *arg);
 bool panel_gpio_valid(struct panel_gpio *gpio);
 void panel_send_ubconn_uevent(struct panel_device* panel);
+int panel_set_gpio_irq(struct panel_gpio *gpio, bool enable);
 
 #define PANEL_DRV_NAME "panel-drv"
 

@@ -41,6 +41,10 @@ static struct gb_qos_request gb_req = {
 };
 #endif
 #endif
+#ifdef CONFIG_MALI_SEC_G3D_PEAK_NOTI
+extern int g3d_notify_peak_mode_update(bool is_set);
+static unsigned int is_peak_mode = 0;
+#endif
 
 struct pm_qos_request exynos5_g3d_mif_min_qos;
 struct pm_qos_request exynos5_g3d_mif_max_qos;
@@ -132,6 +136,20 @@ int gpu_pm_qos_command(struct exynos_context *platform, gpu_pmqos_state state)
 		}
 		mutex_unlock(&platform->gpu_vk_boost_lock);
 #endif
+
+#ifdef CONFIG_MALI_SEC_G3D_PEAK_NOTI
+		if (!is_peak_mode && (platform->cur_clock == platform->gpu_max_clock))
+		{
+			g3d_notify_peak_mode_update(true);
+			is_peak_mode = 1;
+		}
+		else if(is_peak_mode && (platform->cur_clock != platform->gpu_max_clock))
+		{
+			g3d_notify_peak_mode_update(false);
+			is_peak_mode = 0;
+		}
+#endif
+
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster0_min_qos, platform->table[platform->step].cpu_little_min_freq); // LITTLE Min request
 #if PM_QOS_CPU_CLUSTER_NUM == 3
 		pm_qos_update_request(&exynos5_g3d_cpu_cluster1_min_qos, platform->table[platform->step].cpu_middle_min_freq); // MIDDLE Min request

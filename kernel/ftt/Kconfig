@@ -1,5 +1,5 @@
 config FAST_TRACK
     bool "ftt feature"
-    default n
+    default y
     help
       if set, ftt feature is enable

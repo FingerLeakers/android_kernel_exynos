@@ -342,6 +342,7 @@ typedef struct {
 	unsigned int product_name; /* sensor names such as IMX134, IMX135, and S5K3L2 */
 	unsigned int sens_config_index_cur;
 	unsigned int sens_config_index_pre;
+	unsigned int sens_config_ex_mode_cur;
 	unsigned int cur_frame_rate;
 	unsigned int pre_frame_rate;
 	bool is_active_area;
@@ -1203,7 +1204,7 @@ struct is_laser_af_interface_ops
 
 struct is_tof_af_interface_ops
 {
-	int (*get_data)(struct is_sensor_interface *itf, struct tof_data_t **data);
+	int (*get_data)(struct is_sensor_interface *itf, struct tof_data_t *data);
 };
 
 struct is_sensor_interface {

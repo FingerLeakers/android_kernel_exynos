@@ -63,6 +63,12 @@
 			reg = <0x0 0x80000000 0x1000>;
 		};
 
+		sec_rdx_bootdev {
+			compatible = "exynos,sec_debug_rdx_bootdev";
+			no-ship;
+			reg = <0x8 0x80000000 0x0AD00000>;
+		};
+
 		debug_snapshot {
 			#address-cells = <2>;
 			#size-cells = <1>;
@@ -199,7 +205,7 @@
 
 		camera_heap: camera {
 			compatible = "exynos9820-ion";
-			size = <0x29F00000>;
+			size = <0x22F00000>;
 			alloc-ranges =	<0xA 0x00000000 0xFFFFFFFF>,
 					<0x9 0x00000000 0xFFFFFFFF>;
 			alignment = <0x0 0x00400000>;

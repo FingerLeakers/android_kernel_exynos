@@ -524,8 +524,8 @@ int sensor_gw2_cis_set_pdxtc_cal(struct is_cis *cis)
 	coef_size	= finfo->rom_pdxtc_cal_data_coef_size;
 	val_size	= finfo->rom_pdxtc_cal_data_val_size;
 
-	memcpy(pdxtc_cal, &cal_buf[finfo->rom_pdxtc_cal_data_start_addr], SENSOR_GW2_PDXTC_CAL_SIZE); 
-	
+	memcpy(pdxtc_cal, &cal_buf[finfo->rom_pdxtc_cal_data_start_addr], SENSOR_GW2_PDXTC_CAL_SIZE);
+
 	/* PDXTC Setting */
 	/* Pre callibration */
 	ret = is_sensor_write16(cis->client, 0x6028, 0x4000);
@@ -569,13 +569,13 @@ int sensor_gw2_cis_set_pdxtc_cal(struct is_cis *cis)
 
 	for(i = 0; i < val_size; i+=2) {
 		u16 val = (pdxtc_cal[i + coef_size] << 8)|(pdxtc_cal[i + coef_size + 1]);	/* Big Endian => Little Endian */
-		ret = is_sensor_write16(cis->client, 0x6F12, val); 
+		ret = is_sensor_write16(cis->client, 0x6F12, val);
 		if (ret < 0) {
 			err("sensor_gw2_set_registers fail!!");
 			goto p_err;
 		}
 	}
-	
+
 	/* after cal */
 	ret = is_sensor_write16(cis->client, 0x6028, 0x2000);
 	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6028, 0x2000)\n", __func__);
@@ -803,7 +803,7 @@ static int sensor_gw2_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		warn("[%s] Don't change pdaf tail size\n", __func__);
 		break;
 	}
-	
+
 	select->input[CSI_VIRTUAL_CH_1].width = width;
 	select->input[CSI_VIRTUAL_CH_1].height = height;
 	select->output[CSI_VIRTUAL_CH_1].width = width;
@@ -840,6 +840,7 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	char *buf;
 	struct is_rom_info *finfo = NULL;
 	u32 setfile;
+	//u32 ex_mode;
 
 	FIMC_BUG(!subdev);
 
@@ -879,11 +880,15 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 #if 0 //TEMP_2020
 	/* always slave mode */
-	info("[%s]dual sync slave mode\n", __func__);
-	ret = sensor_cis_set_registers(subdev, sensor_gw2_dualsync_slave, sensor_gw2_dualsync_slave_size);
-	if (ret < 0) {
-		err("sensor_gw2_set_registers fail!!");
-		goto p_err_i2c_unlock;
+	/* dual sync for live focus */
+	ex_mode = is_sensor_g_ex_mode(device);
+	if (ex_mode == EX_LIVEFOCUS) {
+		info("[%s]dual sync slave mode\n", __func__);
+		ret = sensor_cis_set_registers(subdev, sensor_gw2_dualsync_slave, sensor_gw2_dualsync_slave_size);
+		if (ret < 0) {
+			err("sensor_gw2_set_registers fail!!");
+			goto p_err_i2c_unlock;
+		}
 	}
 #endif
 
@@ -910,7 +915,7 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		ret = is_sensor_write16(cis->client, 0x602A, 0x55B0);
 		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x602A, 0x55B0)\n", __func__);
 		ret = is_sensor_write16(cis->client, 0x6F12, 0x0000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x80)\n", __func__);
+		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0000)\n", __func__);
 		if (ret < 0){
 			err("sensor_gw2 disable pdxtc fail!");
 			goto p_err_i2c_unlock;
@@ -1679,9 +1684,15 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		goto p_err;
 	}
 
-	sensor_gw2_frame_duration_backup = frame_duration;
-
 	cis_data = cis->cis_data;
+
+	if (frame_duration < cis_data->min_frame_us_time) {
+		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
+		frame_duration = cis_data->min_frame_us_time;
+	}
+
+	sensor_gw2_frame_duration_backup = frame_duration;
+	cis_data->cur_frame_us_time = frame_duration;
 
 	if (i2c_log_frame_count > 10)
 		i2c_log_enable = false;
@@ -1711,11 +1722,6 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			}
 			break;
 		}
-	}
-
-	if (frame_duration < cis_data->min_frame_us_time) {
-		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
-		frame_duration = cis_data->min_frame_us_time;
 	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / 1000;
@@ -1748,7 +1754,6 @@ int sensor_gw2_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			goto p_err_i2c_unlock;
 	}
 
-	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
 	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;
@@ -2179,7 +2184,7 @@ int sensor_gw2_cis_set_digital_gain(struct v4l2_subdev *subdev, struct ae_param 
 	/* Long digital gain */
 	if (is_vender_wdr_mode_on(cis_data)) {
 		ret = is_sensor_write16(client, 0x0230, long_gain);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x021E, 0x%04x)\n", __func__, long_gain);
+		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0230, 0x%04x)\n", __func__, long_gain);
 		if (ret < 0)
 			goto p_err_i2c_unlock;
 	}

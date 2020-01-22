@@ -1848,7 +1848,7 @@ void phy_exynos_usb3p1_u3_rewa_enable(struct exynos_usbphy_info *info, int lfps_
 		writel(reg, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
 
 		/* Set lfpsresp_limit_cnt */
-		writel(lfpsresp_limit_cnt, regs_base + EXYNOS_USBCON_U3REWA_CTRL);
+		writel(lfpsresp_limit_cnt, regs_base + EXYNOS_USBCON_U3REWA_LMCNT);
 	}
 }
 

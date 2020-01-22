@@ -1522,6 +1522,12 @@ static void __mfc_nal_q_handle_frame_output_del(struct mfc_ctx *ctx,
 			mfc_debug(2, "[NALQ][SBWC] Uncompressed\n");
 		}
 
+		if (ctx->update_framerate) {
+			mfc_set_vb_flag(dst_mb, MFC_FLAG_FRAMERATE_CH);
+			ctx->update_framerate = false;
+			mfc_debug(2, "[NALQ][QoS] framerate changed\n");
+		}
+
 		for (i = 0; i < raw->num_planes; i++)
 			vb2_set_plane_payload(&dst_mb->vb.vb2_buf, i,
 					raw->plane_size[i]);

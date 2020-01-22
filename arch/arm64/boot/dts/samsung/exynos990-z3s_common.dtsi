@@ -1146,6 +1146,3 @@
     status = "okay";
 };
 
-&camera_heap {
-	size = <0x3E800000>;
-};

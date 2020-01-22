@@ -2746,7 +2746,7 @@ int proto_drv_open(struct npu_device *npu_device)
 	/* AST initialization */
 	ret = auto_sleep_thread_create(&npu_proto_drv.ast,
 		NPU_PROTO_DRV_AST_NAME,
-		proto_drv_do_task, proto_drv_check_work, proto_drv_on_idle, -1);
+		proto_drv_do_task, proto_drv_check_work, proto_drv_on_idle, 0);
 	if (ret) {
 		npu_err("fail(%d) in AST create\n", ret);
 		goto err_exit;

@@ -131,6 +131,10 @@ struct devfreq *find_exynos_devfreq_device(void *devdata);
 int find_exynos_devfreq_dm_type(struct device *dev, int *dm_type);
 #endif
 
+#ifdef CONFIG_EXYNOS_ALT_DVFS
+extern exynos_devfreq_alt_mode_change(unsigned int devfreq_type, int new_mode);
+#endif
+
 #if defined(CONFIG_ARM_EXYNOS_DEVFREQ)
 extern unsigned long exynos_devfreq_get_domain_freq(unsigned int devfreq_type);
 #else

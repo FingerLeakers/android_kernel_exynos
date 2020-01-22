@@ -963,6 +963,9 @@ static int is_ssx_video_g_ctrl(struct file *file, void *priv,
 			ctrl->value = 1;
 		else
 			ctrl->value = 0;
+		/* additional set for ESD notification */
+		if (test_bit(IS_SENSOR_ESD_RECOVERY, &device->state))
+			ctrl->value += 2;
 		break;
 	case V4L2_CID_IS_G_MIPI_ERR:
 		ctrl->value = is_sensor_g_csis_error(device);

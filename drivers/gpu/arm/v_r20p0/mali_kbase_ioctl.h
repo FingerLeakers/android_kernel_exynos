@@ -84,9 +84,10 @@ extern "C" {
  * - Reused padding field in base_jd_atom_v2 to pass job slot number.
  * 11.18:
  * - New ioctl: KBASE_IOCTL_GET_CPU_GPU_TIMEINFO
+ * - New ioctl: KBASE_IOCTL_KINSTR_JM_FD
  */
 #define BASE_UK_VERSION_MAJOR 11
-#define BASE_UK_VERSION_MINOR 17
+#define BASE_UK_VERSION_MINOR 18
 
 /**
  * struct kbase_ioctl_version_check - Check version compatibility with kernel
@@ -735,6 +736,16 @@ struct kbase_ioctl_slsi_vk_boost_flags {
 #define KBASE_IOCTL_SLSI_VK_BOOST_FLAGS \
 	_IOW(KBASE_IOCTL_TYPE, 43, struct kbase_ioctl_slsi_vk_boost_flags)
 
+/*
+ * struct kbase_ioctl_slsi_negative_boost_flags - Update the status of negative boost flag
+ * @flags: Flags for future expansion
+ */
+struct kbase_ioctl_slsi_negative_boost_flags {
+	__u32 flags;
+};
+
+#define KBASE_IOCTL_SLSI_NEGATIVE_BOOST_FLAGS \
+	_IOW(KBASE_IOCTL_TYPE, 44, struct kbase_ioctl_slsi_negative_boost_flags)
 /**
  * union kbase_ioctl_get_cpu_gpu_timeinfo - Request zero or more types of
  *                                          cpu/gpu time (counter values)
@@ -767,6 +778,9 @@ union kbase_ioctl_get_cpu_gpu_timeinfo {
 
 #define KBASE_IOCTL_GET_CPU_GPU_TIMEINFO \
 	_IOWR(KBASE_IOCTL_TYPE, 50, union kbase_ioctl_get_cpu_gpu_timeinfo)
+
+#define KBASE_IOCTL_KINSTR_JM_FD \
+	_IO(KBASE_IOCTL_TYPE, 52)
 
 /***************
  * test ioctls *

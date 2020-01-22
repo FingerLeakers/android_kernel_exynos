@@ -93,6 +93,10 @@ source "net/netlabel/Kconfig"
 	source "net/mptcp/Kconfig"
 #endif
 
+config NET_ANALYTICS
+	bool
+	default y
+
 endif # if INET
 
 config NETWORK_SECMARK

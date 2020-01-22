@@ -363,132 +363,6 @@ void is_sensor_deinit_sensor_thread(struct is_device_sensor_peri *sensor_peri)
 	}
 }
 
-int is_sensor_init_mode_change_thread(struct is_device_sensor_peri *sensor_peri)
-{
-	int ret = 0;
-
-	/* Always first applyed to mode change when camera on */
-	sensor_peri->mode_change_first = true;
-	sensor_peri->cis_global_complete = false;
-
-	kthread_init_work(&sensor_peri->cis_global_work, is_sensor_global_setting_work_fn);
-	kthread_init_worker(&sensor_peri->cis_global_worker);
-	sensor_peri->cis_global_task = kthread_run(kthread_worker_fn,
-						&sensor_peri->cis_global_worker,
-						"is_sensor_global_setting");
-	if (IS_ERR(sensor_peri->cis_global_task)) {
-		err("failed to create kthread for global setting, err(%ld)",
-			PTR_ERR(sensor_peri->cis_global_task));
-		ret = PTR_ERR(sensor_peri->cis_global_task);
-		sensor_peri->cis_global_task = NULL;
-		return ret;
-	}
-
-	kthread_init_work(&sensor_peri->mode_change_work, is_sensor_mode_change_work_fn);
-	kthread_init_worker(&sensor_peri->mode_change_worker);
-	sensor_peri->mode_change_task = kthread_run(kthread_worker_fn,
-						&sensor_peri->mode_change_worker,
-						"is_sensor_mode_change");
-	if (IS_ERR(sensor_peri->mode_change_task)) {
-		err("failed to create kthread fir sensor mode change, err(%ld)",
-			PTR_ERR(sensor_peri->mode_change_task));
-		ret = PTR_ERR(sensor_peri->mode_change_task);
-		sensor_peri->mode_change_task = NULL;
-
-		if (kthread_stop(sensor_peri->cis_global_task))
-			err("kthread_stop fail");
-
-		sensor_peri->cis_global_task = NULL;
-
-		return ret;
-	}
-
-	return ret;
-}
-
-void is_sensor_deinit_mode_change_thread(struct is_device_sensor_peri *sensor_peri)
-{
-	if (sensor_peri->mode_change_task != NULL) {
-		if (kthread_stop(sensor_peri->mode_change_task))
-			err("kthread_stop fail");
-
-		sensor_peri->mode_change_task = NULL;
-		info("%s:\n", __func__);
-	}
-
-	if (sensor_peri->cis_global_task != NULL) {
-		if (kthread_stop(sensor_peri->cis_global_task))
-			err("kthread_stop fail");
-
-		sensor_peri->cis_global_task = NULL;
-		info("%s:\n", __func__);
-	}
-}
-
-void is_sensor_global_setting_work_fn(struct kthread_work *work)
-{
-	struct is_device_sensor_peri *sensor_peri;
-	struct is_cis *cis;
-	int ret = 0;
-
-	TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
-	sensor_peri = container_of(work, struct is_device_sensor_peri, cis_global_work);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
-
-	ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
-	if (ret)
-		err("%s: cis global setting fail(%d)", __func__, ret);
-	else
-		sensor_peri->cis_global_complete = true;
-}
-
-void is_sensor_mode_change_work_fn(struct kthread_work *work)
-{
-	struct is_device_sensor_peri *sensor_peri;
-	struct is_cis *cis;
-	int ret = 0;
-
-	sensor_peri = container_of(work, struct is_device_sensor_peri, mode_change_work);
-
-	cis = (struct is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
-
-	if (IS_ENABLED(USE_CIS_GLOBAL_WORK)) {
-		/* wait global setting thread end */
-		kthread_flush_work(&sensor_peri->cis_global_work);
-
-		/* If global complete flag not set, call global setting  again */
-		if (!sensor_peri->cis_global_complete) {
-			ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
-			if (ret) {
-				err("cis global setting fail(%d)", ret);
-				return;
-			}
-			sensor_peri->cis_global_complete = true;
-		}
-	} else {
-		TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
-		if (sensor_peri->mode_change_first == true) {
-			ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
-			if (ret) {
-				err("cis global setting fail(%d)", ret);
-				TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
-				return;
-			}
-		}
-	}
-
-	ret = CALL_CISOPS(cis, cis_mode_change, cis->subdev, cis->cis_data->sens_config_index_cur);
-	if (ret) {
-		err("cis mode setting fail(%d)", ret);
-		TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
-		return;
-	}
-
-	sensor_peri->mode_change_first = false;
-	TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
-}
-
 int is_sensor_mode_change(struct is_cis *cis, u32 mode)
 {
 	int ret = 0;
@@ -504,7 +378,7 @@ int is_sensor_mode_change(struct is_cis *cis, u32 mode)
 	cis->dual_sync_work_mode = DUAL_SYNC_NONE;
 	CALL_CISOPS(cis, cis_data_calculation, cis->subdev, cis->cis_data->sens_config_index_cur);
 
-	kthread_queue_work(&sensor_peri->mode_change_worker, &sensor_peri->mode_change_work);
+	schedule_work(&sensor_peri->cis.mode_setting_work);
 
 	return ret;
 }
@@ -760,7 +634,9 @@ void is_sensor_flash_fire_work(struct work_struct *data)
 #ifndef CONFIG_FLASH_CURRENT_CHANGE_SUPPORT
 				flash->flash_data.intensity = 255;
 #endif
-				flash->flash_data.firing_time_us = 500000;
+				if (flash->flash_data.firing_time_us < 500000) {
+					flash->flash_data.firing_time_us = 500000;
+				}
 
 				info("[%s] main-flash ON(%d), pow(%d), time(%d)\n",
 					__func__,
@@ -1788,6 +1664,80 @@ void is_sensor_dual_sync_mode_work(struct work_struct *data)
 	cis->dual_sync_work_mode = DUAL_SYNC_NONE;
 }
 
+void is_sensor_cis_global_setting_work(struct work_struct *data)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	struct is_device_sensor_peri *sensor_peri;
+
+	FIMC_BUG_VOID(!data);
+
+	cis = container_of(data, struct is_cis, global_setting_work);
+	FIMC_BUG_VOID(!cis);
+
+	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+
+	if (sensor_peri->subdev_cis && !sensor_peri->cis_global_complete) {
+		ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+		if (ret < 0) {
+			err("err!!! cis_set_global_setting ret(%d)", ret);
+			return;
+		}
+		sensor_peri->cis_global_complete = true;
+	}
+
+	info("[%d] global setting work done", sensor_peri->module->instance);
+}
+
+void is_sensor_cis_mode_setting_work(struct work_struct *data)
+{
+	int ret = 0;
+	struct is_cis *cis;
+	struct is_device_sensor_peri *sensor_peri;
+
+	FIMC_BUG_VOID(!data);
+
+	cis = container_of(data, struct is_cis, mode_setting_work);
+	FIMC_BUG_VOID(!cis);
+
+	sensor_peri = container_of(cis, struct is_device_sensor_peri, cis);
+
+	if (sensor_peri->subdev_cis) {
+		if (IS_ENABLED(USE_CIS_GLOBAL_WORK)) {
+			/* wait global setting thread end */
+			cancel_work_sync(&cis->global_setting_work);
+
+			/* If global complete flag not set, call global setting  again */
+			if (!sensor_peri->cis_global_complete) {
+				ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+				if (ret) {
+					err("cis global setting fail(%d)", ret);
+					return;
+				}
+				sensor_peri->cis_global_complete = true;
+			}
+		} else {
+			if (sensor_peri->mode_change_first == true) {
+				ret = CALL_CISOPS(cis, cis_set_global_setting, cis->subdev);
+				if (ret) {
+					err("cis global setting fail(%d)", ret);
+					TIME_LAUNCH_END(LAUNCH_SENSOR_INIT);
+					return;
+				}
+			}
+		}
+
+		ret = CALL_CISOPS(cis, cis_mode_change, cis->subdev, cis->cis_data->sens_config_index_cur);
+		if (ret < 0) {
+			err("err!!! mode_setting_work ret(%d)", ret);
+			return;
+		}
+
+		sensor_peri->mode_change_first = false;
+	}
+	info("[%d] mode setting work done!", sensor_peri->module->instance);
+}
+
 void is_sensor_peri_init_work(struct is_device_sensor_peri *sensor_peri)
 {
 	FIMC_BUG_VOID(!sensor_peri);
@@ -1833,6 +1783,12 @@ void is_sensor_peri_init_work(struct is_device_sensor_peri *sensor_peri)
 		INIT_WORK(&sensor_peri->actuator->actuator_active_on, is_sensor_actuator_active_on_work);
 		INIT_WORK(&sensor_peri->actuator->actuator_active_off, is_sensor_actuator_active_off_work);
 	}
+
+	sensor_peri->mode_change_first = true;
+	sensor_peri->cis_global_complete = false;
+
+	INIT_WORK(&sensor_peri->cis.global_setting_work, is_sensor_cis_global_setting_work);
+	INIT_WORK(&sensor_peri->cis.mode_setting_work, is_sensor_cis_mode_setting_work);
 }
 
 void is_sensor_peri_probe(struct is_device_sensor_peri *sensor_peri)
@@ -2045,7 +2001,7 @@ int is_sensor_peri_s_stream(struct is_device_sensor *device,
 
 		/* If sensor setting @work is queued or executing,
 		   wait for it to finish execution when working s_format */
-		kthread_flush_work(&sensor_peri->mode_change_work);
+		flush_work(&cis->mode_setting_work);
 
 		/* just for auto dual camera mode to reduce power consumption */
 #ifdef USE_OIS_SLEEP_MODE

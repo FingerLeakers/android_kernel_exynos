@@ -76,7 +76,6 @@ enum pdp_int1 {
 	PDP_INT1_CNT,
 };
 
-#if defined(VOTF_ONESHOT)
 #define INT1_EN_MASK	((0)\
 			|(1 << FRAME_START)\
 			|(1 << FRAME_END_INTERRUPT)\
@@ -107,21 +106,6 @@ enum pdp_int1 {
 			|(1 << LIC_COLUMNS_ERROR_INT)\
 			|(1 << LIC_STREAM_OVERFLOW_SIG)\
 			|(1 << DMACLIENTS_ERROR_IRQ))
-#else
-#define INT1_EN_MASK   ((0)\
-			|(1 << FRAME_END_INTERRUPT)\
-			|(1 << FRAME_INT_ON_ROW_COL_INFO)\
-			|(1 << IRQ_CORRUPTED)\
-			|(1 << COREX_ERROR_INT)\
-			|(1 << COUTFIFO_SIZE_ERROR)\
-			|(1 << COUTFIFO_LINE_ERROR)\
-			|(1 << COUTFIFO_COL_ERROR)\
-			|(1 << COUTFIFO_OVERFLOW_ERROR)\
-			|(1 << LIC_LINES_ERROR_INT)\
-			|(1 << LIC_COLUMNS_ERROR_INT)\
-			|(1 << LIC_STREAM_OVERFLOW_SIG)\
-			|(1 << DMACLIENTS_ERROR_IRQ))
-#endif
 
 #define INT1_ERR_MASK	((0)\
 			/* |(1 << FRAME_START) */\

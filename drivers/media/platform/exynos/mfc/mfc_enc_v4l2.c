@@ -453,6 +453,18 @@ static int mfc_enc_s_fmt_vid_cap_mplane(struct file *file, void *priv,
 				return 0;
 			return -EINVAL;
 		}
+
+		/*
+		 * It takes a long time to allocate secure buffer,
+		 * so it is allocated here and use default size.
+		 */
+		ctx->dpb_count = MFC_OTF_DEFAULT_DPB_COUNT;
+		ctx->scratch_buf_size = MFC_OTF_DEFAULT_SCRATCH_SIZE;
+		enc->sbwc_option = 2;
+		if (mfc_alloc_codec_buffers(ctx)) {
+			mfc_err_ctx("[OTF] Failed to allocate encoding buffers\n");
+			return -EINVAL;
+		}
 	}
 
 	if (__mfc_enc_check_resolution(ctx)) {

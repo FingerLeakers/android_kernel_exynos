@@ -22,10 +22,12 @@
 #endif
 
 #define MAX_TIMEOUT		12000
-#define MAX_TIMEOUT_LANECHANGE  10000
 #define MAX_TIMEOUT_SPEEDCHANGE 10000
 #define MAX_TIMEOUT_LANECHANGE  10000
 #define MAX_L2_TIMEOUT		2000
+#define LNKRCVYWAIT_TIMEOUT	500
+#define PLL_LOCK_TIMEOUT	500
+#define RX_OC_TIMEOUT		500
 #define MAX_L1_EXIT_TIMEOUT	300
 #define ID_MASK			0xffff
 #define TPUT_THRESHOLD		150
@@ -228,6 +230,7 @@ struct exynos_pcie {
 	struct notifier_block	power_mode_nb;
 	struct notifier_block   ss_dma_mon_nb;
 	struct delayed_work	dislink_work;
+	struct delayed_work	cpl_timeout_work;
 	struct exynos_pcie_register_event *event_reg;
 #ifdef CONFIG_PM_DEVFREQ
 	unsigned int            int_min_lock;
@@ -260,6 +263,10 @@ struct exynos_pcie {
 
 	u32 app_req_exit_l1;
 	u32 app_req_exit_l1_mode;
+
+	u32 btl_target_addr;
+	u32 btl_offset;
+	u32 btl_size;
 };
 
 #define PCIE_EXYNOS_OP_READ(base, type)					\

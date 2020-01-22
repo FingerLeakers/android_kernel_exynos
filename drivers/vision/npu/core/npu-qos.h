@@ -15,6 +15,12 @@
 #include <linux/pm_qos.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
+#include <linux/notifier.h>
+
+struct npu_qos_freq_lock {
+	u32	npu_freq_maxlock;
+	u32	dnc_freq_maxlock;
+};
 
 struct npu_qos_setting {
 	struct mutex		npu_qos_lock;
@@ -25,6 +31,10 @@ struct npu_qos_setting {
 	struct pm_qos_request	npu_qos_req_npu;
 	struct pm_qos_request	npu_qos_req_mif;
 	struct pm_qos_request	npu_qos_req_int;
+	struct pm_qos_request	npu_qos_req_dnc_max;
+	struct pm_qos_request	npu_qos_req_npu_max;
+	struct pm_qos_request	npu_qos_req_mif_max;
+	struct pm_qos_request	npu_qos_req_int_max;
 	struct pm_qos_request	npu_qos_req_cpu_cl0;
 	struct pm_qos_request	npu_qos_req_cpu_cl1;
 	struct pm_qos_request	npu_qos_req_cpu_cl2;
@@ -36,6 +46,8 @@ struct npu_qos_setting {
 	s32		req_dnc_freq;
 	s32		req_mif_freq;
 	s32		req_int_freq;
+
+	struct notifier_block npu_qos_max_nb;
 };
 
 struct npu_session_qos_req {

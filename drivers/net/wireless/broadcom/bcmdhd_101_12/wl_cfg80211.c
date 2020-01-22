@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 2019, Broadcom.
+ * Copyright (C) 2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2133,6 +2133,9 @@ wl_cfg80211_iface_state_ops(struct wireless_dev *wdev,
 			if (wl_iftype == WL_IF_TYPE_P2P_GC) {
 				/* Disable firmware roaming for P2P interface  */
 				wldev_iovar_setint(ndev, "roam_off", 1);
+
+				/* set retry_max to CUSTOM_ASSOC_RETRY_MAX(3) */
+				wldev_iovar_setint(ndev, "assoc_retry_max", CUSTOM_ASSOC_RETRY_MAX);
 			}
 			if (wl_mode == WL_MODE_AP) {
 				/* Common code for AP/GO */
@@ -15869,6 +15872,9 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		ifp->post_roam_evt = TRUE;
 	}
 #endif /* DHD_POST_EAPOL_M1_AFTER_ROAM_EVT */
+#ifdef DHD_GARP_KEEPALIVE
+	wl_cfg80211_garp_keepalive(ndev);
+#endif /* DHD_GARP_KEEPALIVE */
 
 	return err;
 
@@ -19106,6 +19112,7 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 	cfg->wes_mode = OFF;
 	cfg->ncho_mode = OFF;
 	cfg->ncho_band = WLC_BAND_AUTO;
+	cfg->cur_ipa = 0x0;
 #ifdef WBTEXT
 	/* when wifi up, set roam_prof to default value */
 	if (dhd->wbtext_support) {
@@ -25898,3 +25905,105 @@ wl_cfg80211_handle_hang_event(struct net_device *ndev, uint16 hang_reason, uint3
 
 	return BCME_OK;
 }
+
+void
+wl_cfg80211_update_ipv4_addr(struct net_device *ndev, u32 ipa)
+{
+	struct bcm_cfg80211 *cfg;
+
+	if (!ndev) {
+		WL_ERR(("ndev is NULL\n"));
+		return;
+	}
+
+	cfg = wl_get_cfg(ndev);
+	BCM_REFERENCE(cfg);
+#ifdef DHD_GARP_KEEPALIVE
+	if (cfg && (ndev == bcmcfg_to_prmry_ndev(cfg))) {
+		cfg->cur_ipa = ipa;
+		wl_cfg80211_garp_keepalive(ndev);
+	}
+#endif /* DHD_GARP_KEEPALIVE */
+}
+
+#ifdef DHD_GARP_KEEPALIVE
+#define DHD_GARP_KEEPALIVE_ID		0u
+#define DHD_GARP_KEEPALIVE_MSEC		30000u
+#define DHD_GARP_IP_PKY_LEN		28u
+#define DHD_GARP_SENDMAC_IDX		8u
+#define DHD_GARP_SENDIP_IDX		14u
+#define DHD_GARP_TARGETIP_IDX		24u
+char ip_pkt[DHD_GARP_IP_PKY_LEN] = {
+	0x00, 0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x02,	/* gARP Protocol */
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,		/* Sender MAC address */
+	0x00, 0x00, 0x00, 0x00,				/* Sender IP address */
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff,		/* Target MAC address */
+	0x00, 0x00, 0x00, 0x00,				/* Target IP address */
+};
+
+int
+wl_cfg80211_garp_keepalive(struct net_device *dev)
+{
+	struct net_device *primary_ndev;
+	struct bcm_cfg80211 *cfg;
+	int ret = BCME_ERROR;
+	uint8 src_mac[ETHER_ADDR_LEN] = {0};
+	uint8 dst_mac[ETHER_ADDR_LEN] = {0};
+	u8 *curbssid = NULL;
+
+	if (!dev) {
+	    WL_ERR(("Dev is NULL\n"));
+	    return ret;
+	}
+
+	cfg = wl_get_cfg(dev);
+	if (!cfg) {
+	    WL_ERR(("cfg is NULL\n"));
+	    return ret;
+	}
+
+	primary_ndev = bcmcfg_to_prmry_ndev(cfg);
+	if (primary_ndev != dev) {
+	    WL_DBG(("It is not Primary netdev\n"));
+	    return ret;
+	}
+
+	if (cfg->cur_ipa == 0x0) {
+	    WL_ERR(("start_mkeep_alive is failed cur_ipa is 0x0\n"));
+	    return ret;
+	}
+
+	curbssid = wl_read_prof(cfg, dev, WL_PROF_BSSID);
+	if (!curbssid) {
+	    WL_ERR(("curbssid is NULL\n"));
+	    return ret;
+	}
+	(void)memcpy_s(dst_mac, ETHER_ADDR_LEN, curbssid, ETHER_ADDR_LEN);
+	(void)memcpy_s(src_mac, ETHER_ADDR_LEN, dev->dev_addr, ETHER_ADDR_LEN);
+	(void)memcpy_s((char*)&ip_pkt[DHD_GARP_SENDMAC_IDX], ETHER_ADDR_LEN,
+		src_mac, ETHER_ADDR_LEN);
+	(void)memcpy_s((char*)&ip_pkt[DHD_GARP_SENDIP_IDX], IPV4_ADDR_LEN,
+		(char*)&cfg->cur_ipa, sizeof(cfg->cur_ipa));
+	(void)memcpy_s((char*)&ip_pkt[DHD_GARP_TARGETIP_IDX], IPV4_ADDR_LEN,
+		(char*)&cfg->cur_ipa, sizeof(cfg->cur_ipa));
+
+	if (wl_dbg_level & WL_DBG_DBG) {
+		prhex("gARP_keep_alive", (char*)ip_pkt, DHD_GARP_IP_PKY_LEN);
+	}
+
+	ret = wl_cfg80211_stop_mkeep_alive(cfg, DHD_GARP_KEEPALIVE_ID);
+	if (ret < 0) {
+	    WL_ERR(("stop_mkeep_alive is failed ret: %d\n", ret));
+	    return ret;
+	}
+
+	ret = wl_cfg80211_start_mkeep_alive(cfg, DHD_GARP_KEEPALIVE_ID, ETHER_TYPE_ARP,
+		(char*)ip_pkt, DHD_GARP_IP_PKY_LEN, src_mac, dst_mac, DHD_GARP_KEEPALIVE_MSEC);
+	if (ret < 0) {
+	    WL_ERR(("start_mkeep_alive is failed ret: %d\n", ret));
+	    return ret;
+	}
+
+	return BCME_OK;
+}
+#endif /* DHD_GARP_KEEPALIVE */

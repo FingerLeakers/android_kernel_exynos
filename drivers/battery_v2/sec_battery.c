@@ -3880,19 +3880,23 @@ static void sec_bat_calc_time_to_full(struct sec_battery_info * battery)
 			charge = battery->pdata->ttf_hv_charge_current;
 		} else if (is_nv_wireless_type(battery->cable_type)) {
 			charge = battery->pdata->ttf_wireless_charge_current;
-		} else if (is_pd_wire_type(battery->cable_type) && battery->hv_pdo) {
-			if (battery->pd_max_charge_power > HV_CHARGER_STATUS_STANDARD4)
+		} else if (is_pd_apdo_wire_type(battery->cable_type) ||
+			(is_pd_fpdo_wire_type(battery->cable_type) && battery->hv_pdo)) {
+			if (battery->pd_max_charge_power > HV_CHARGER_STATUS_STANDARD4) {
 				charge = battery->pdata->ttf_dc45_charge_current;
-			else if (battery->pd_max_charge_power > HV_CHARGER_STATUS_STANDARD3)
+			} else if (battery->pd_max_charge_power > HV_CHARGER_STATUS_STANDARD3) {
 				charge = battery->pdata->ttf_dc25_charge_current;
-			else if (battery->pd_max_charge_power <= battery->pdata->pd_charging_charge_power &&
+			} else if (battery->pd_max_charge_power <= battery->pdata->pd_charging_charge_power &&
 				battery->pdata->charging_current[battery->cable_type].fast_charging_current >= \
-				battery->pdata->max_charging_current)
-				charge = battery->pdata->ttf_hv_charge_current; /* same PD power with AFC */
-			else
-				charge = battery->pd_max_charge_power / 5; /* other PD charging */
+				battery->pdata->max_charging_current) { /* same PD power with AFC */
+				charge = battery->pdata->ttf_hv_charge_current;
+			} else { /* other PD charging */
+				charge = (battery->pd_max_charge_power / 5) > battery->pdata->charging_current[battery->cable_type].fast_charging_current ?
+					battery->pdata->charging_current[battery->cable_type].fast_charging_current : (battery->pd_max_charge_power / 5);
+			}
 		} else {
-			charge = battery->max_charge_power / 5;
+			charge = (battery->max_charge_power / 5) > battery->pdata->charging_current[battery->cable_type].fast_charging_current ?
+					battery->pdata->charging_current[battery->cable_type].fast_charging_current : (battery->max_charge_power / 5);
 		}
 		value.intval = charge;
 		psy_do_property(battery->pdata->fuelgauge_name, get,
@@ -5133,16 +5137,19 @@ static void sec_bat_cable_work(struct work_struct *work)
 		current_cable_type = battery->wire_status;
 	}
 
-	if (is_pd_wire_type(current_cable_type) &&
-		is_pd_wire_type(battery->cable_type) &&
-		!is_slate_mode(battery)) {
-		cancel_delayed_work(&battery->afc_work);
-		wake_unlock(&battery->afc_wake_lock);
-		sec_bat_set_current_event(battery, 0,
-			SEC_BAT_CURRENT_EVENT_AFC | SEC_BAT_CURRENT_EVENT_AICL);
-		battery->aicl_current = 0;
-		sec_bat_set_charging_current(battery);
-		power_supply_changed(battery->psy_bat);
+	if ((current_cable_type == battery->cable_type) && !is_slate_mode(battery)) {
+		if (is_pd_wire_type(current_cable_type) && is_pd_wire_type(battery->cable_type)) {
+			cancel_delayed_work(&battery->afc_work);
+			wake_unlock(&battery->afc_wake_lock);
+			sec_bat_set_current_event(battery, 0,
+				SEC_BAT_CURRENT_EVENT_AFC | SEC_BAT_CURRENT_EVENT_AICL);
+			battery->aicl_current = 0;
+			sec_bat_set_charging_current(battery);
+			power_supply_changed(battery->psy_bat);
+		}
+		dev_info(battery->dev, "%s: Cable is NOT Changed(%d)\n",
+			__func__, battery->cable_type);
+		/* Do NOT activate cable work for NOT changed */
 		goto end_of_cable_work;
 	}
 
@@ -5150,14 +5157,6 @@ static void sec_bat_cable_work(struct work_struct *work)
 	if ((is_wired_type(battery->cable_type) && is_wireless_type(current_cable_type)) ||
 	    (is_wireless_type(battery->cable_type) && is_wired_type(current_cable_type)))
 		battery->max_charge_power = 0;
-
-	if ((current_cable_type == battery->cable_type) && !is_slate_mode(battery)) {
-		dev_dbg(battery->dev,
-				"%s: Cable is NOT Changed(%d)\n",
-				__func__, battery->cable_type);
-		/* Do NOT activate cable work for NOT changed */
-		goto end_of_cable_work;
-	}
 
 #if defined(CONFIG_BATTERY_SWELLING)
 	if (is_nocharge_type(current_cable_type) ||
@@ -5415,6 +5414,7 @@ static void sec_bat_cable_work(struct work_struct *work)
 
 	battery->polling_count = 1;	/* initial value = 1 */
 
+	cancel_delayed_work(&battery->monitor_work);
 	wake_lock(&battery->monitor_wake_lock);
 	queue_delayed_work(battery->monitor_wqueue, &battery->monitor_work, 0);
 end_of_cable_work:
@@ -5479,8 +5479,11 @@ static int sec_bat_set_property(struct power_supply *psy,
 		sec_bat_set_charging_status(battery, val->intval);
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:
-		if (battery->cable_type != SEC_BATTERY_CABLE_WIRELESS_FAKE)
-			sec_bat_ovp_uvlo_result(battery, val->intval);
+		if (battery->cable_type != SEC_BATTERY_CABLE_WIRELESS_FAKE) {
+			wake_lock(&battery->monitor_wake_lock);
+			queue_delayed_work(battery->monitor_wqueue,
+					   &battery->monitor_work, msecs_to_jiffies(100));
+		}
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
 		current_cable_type = val->intval;

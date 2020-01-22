@@ -287,6 +287,7 @@ DECLARE_EVENT_CLASS(multi_load_task,
 		__field( int,		sse				)
 		__field( unsigned long,	runnable			)
 		__field( unsigned long,	util				)
+		__field( unsigned long,	hungry				)
 	),
 
 	TP_fast_assign(
@@ -300,10 +301,11 @@ DECLARE_EVENT_CLASS(multi_load_task,
 		__entry->sse			= tsk ? tsk->sse : -1;
 		__entry->runnable		= ml->runnable_avg;
 		__entry->util			= ml->util_avg;
+		__entry->hungry			= ml->hungry;
 	),
-	TP_printk("comm=%s pid=%d cpu=%d sse=%d runnable=%lu util=%lu",
+	TP_printk("comm=%s pid=%d cpu=%d sse=%d runnable=%lu util=%lu hungry=%d",
 		  __entry->comm, __entry->pid, __entry->cpu, __entry->sse,
-					__entry->runnable, __entry->util)
+					__entry->runnable, __entry->util, __entry->hungry)
 );
 
 DEFINE_EVENT(multi_load_task, multi_load_task,
@@ -357,9 +359,9 @@ TRACE_EVENT(multi_load_cpu,
 TRACE_EVENT(ontime_migration,
 
 	TP_PROTO(struct task_struct *p, unsigned long load,
-		int src_cpu, int dst_cpu, int boost_migration),
+				int src_cpu, int dst_cpu),
 
-	TP_ARGS(p, load, src_cpu, dst_cpu, boost_migration),
+	TP_ARGS(p, load, src_cpu, dst_cpu),
 
 	TP_STRUCT__entry(
 		__array(	char,		comm,	TASK_COMM_LEN	)
@@ -368,7 +370,6 @@ TRACE_EVENT(ontime_migration,
 		__field(	unsigned long,	load			)
 		__field(	int,		src_cpu			)
 		__field(	int,		dst_cpu			)
-		__field(	int,		bm			)
 	),
 
 	TP_fast_assign(
@@ -378,12 +379,11 @@ TRACE_EVENT(ontime_migration,
 		__entry->load		= load;
 		__entry->src_cpu	= src_cpu;
 		__entry->dst_cpu	= dst_cpu;
-		__entry->bm		= boost_migration;
 	),
 
-	TP_printk("comm=%s pid=%d sse=%d ontime_load_avg=%lu src_cpu=%d dst_cpu=%d boost_migration=%d",
+	TP_printk("comm=%s pid=%d sse=%d ontime_load_avg=%lu src_cpu=%d dst_cpu=%d",
 		__entry->comm, __entry->pid, __entry->sse, __entry->load,
-		__entry->src_cpu, __entry->dst_cpu, __entry->bm)
+		__entry->src_cpu, __entry->dst_cpu)
 );
 
 /*
@@ -585,6 +585,27 @@ TRACE_EVENT(cont_set_period_start,
 			__entry->cpu, __entry->last_updated, __entry->period_start,
 			__entry->hist_idx, __entry->prev0, __entry->prev1)
 );
+
+TRACE_EVENT(ww_init,
+
+	TP_PROTO(int sch, unsigned int mask),
+
+	TP_ARGS(sch, mask),
+
+	TP_STRUCT__entry(
+		__field( int,		sch				)
+		__field( int,		mask				)
+	),
+
+	TP_fast_assign(
+		__entry->sch			= sch;
+		__entry->mask			= mask;
+	),
+
+	TP_printk("sch=%d, mask=%x",
+		__entry->sch, __entry->mask)
+);
+
 #endif /* _TRACE_EMS_H */
 
 /* This part must be outside protection */

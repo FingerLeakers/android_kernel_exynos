@@ -260,6 +260,7 @@ struct kbase_device;
 struct kbase_as;
 struct kbase_mmu_setup;
 struct kbase_ipa_model_vinstr_data;
+struct kbase_kinstr_jm;
 
 #ifdef CONFIG_DEBUG_FS
 /**
@@ -1787,10 +1788,18 @@ struct kbase_device {
 
 	struct {
 		struct kbase_context *ctx;
+		struct kbase_va_region *va_region;
 		u64 jc;
 		int slot;
+		u64 flags;
 	} wa;
 };
+
+#define KBASE_WA_FLAG_SERIALIZE (1ull << 0)
+#define KBASE_WA_FLAG_WAIT_POWERUP (1ull << 1)
+#define KBASE_WA_FLAG_LOGICAL_SHADER_POWER (1ull << 2)
+#define KBASE_WA_FLAGS (KBASE_WA_FLAG_SERIALIZE | KBASE_WA_FLAG_WAIT_POWERUP | \
+			KBASE_WA_FLAG_LOGICAL_SHADER_POWER)
 
 int kbase_wa_execute(struct kbase_device *kbdev, u64 cores);
 
@@ -2169,6 +2178,7 @@ struct kbase_sub_alloc {
  * @priority:             Indicates the context priority. Used along with @atoms_count
  *                        for context scheduling, protected by hwaccess_lock.
  * @atoms_count:          Number of gpu atoms currently in use, per priority
+ * @kinstr_jm:            Kernel job manager instrumentation context handle
  *
  * A kernel base context is an entity among which the GPU is scheduled.
  * Each context has its own GPU address space.
@@ -2327,6 +2337,7 @@ struct kbase_context {
 #ifdef CONFIG_MALI_SEC_VK_BOOST
 	bool ctx_vk_need_qos;
 #endif
+	struct kbase_kinstr_jm *kinstr_jm;
 };
 
 #ifdef CONFIG_MALI_CINSTR_GWT

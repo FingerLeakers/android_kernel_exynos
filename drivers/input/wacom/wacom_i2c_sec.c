@@ -1076,94 +1076,6 @@ static ssize_t epen_keyboard_mode_store(struct device *dev,
 	return count;
 }
 
-#if WACOM_SEC_FACTORY
-/* epen_disable_mode : Use in Factory mode for test test
- * 0 : wacom ic on
- * 1 : wacom ic off
- */
-void epen_disable_mode(int mode)
-{
-	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
-	struct i2c_client *client = wac_i2c->client;
-
-	if (wac_i2c->epen_blocked == mode){
-		input_info(true, &client->dev, "%s: duplicate call %d!\n", __func__, mode);
-		return;
-	}
-
-	if (mode) {
-		input_info(true, &client->dev, "%s: power off\n", __func__);
-		wac_i2c->epen_blocked = mode;
-
-		wacom_enable_irq(wac_i2c, false);
-		wacom_enable_pdct_irq(wac_i2c, false);
-		wacom_power(wac_i2c, false);
-
-		wac_i2c->survey_mode = EPEN_SURVEY_MODE_NONE;
-		wac_i2c->function_result &= ~EPEN_EVENT_SURVEY;
-
-//		wac_i2c->tsp_scan_mode = set_scan_mode(DISABLE_TSP_SCAN_BLCOK);
-		wac_i2c->is_tsp_block = false;
-		forced_release(wac_i2c);
-	} else {
-		input_info(true, &client->dev, "%s: power on\n", __func__);
-
-		wacom_power(wac_i2c, true);
-		msleep(500);
-
-		wacom_enable_irq(wac_i2c, true);
-		wacom_enable_pdct_irq(wac_i2c, true);
-		wac_i2c->epen_blocked = mode;
-	}
-	input_info(true, &client->dev, "%s: done %d!\n", __func__, mode);
-}
-#else
-/* epen_disable_mode : Use in Secure mode(TUI)
- * 0 : enable wacom
- * 1 : disable wacom
- */
-void epen_disable_mode(int mode)
-{
-	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
-	struct i2c_client *client = wac_i2c->client;
-	static int depth;
-
-	if (mode) {
-		if (!depth++)
-			goto out;
-	} else {
-		if (!(--depth))
-			goto out;
-
-		if (depth < 0)
-			depth = 0;
-	}
-
-	input_info(true, &client->dev, "%s: %s(%d)!\n",
-					__func__, mode ? "on" : "off", depth);
-
-	return;
-
-out:
-	wac_i2c->epen_blocked = mode;
-
-	if (!wac_i2c->power_enable && wac_i2c->epen_blocked) {
-		input_err(true, &wac_i2c->client->dev,
-			  "%s: already power off, return\n", __func__);
-		return;
-	}
-
-	wacom_select_survey_mode(wac_i2c, wac_i2c->screen_on);
-
-	if (wac_i2c->epen_blocked)
-		forced_release_fullscan(wac_i2c);
-
-	input_info(true, &client->dev, "%s: %s(%d)!\n",
-					__func__, mode ? "on" : "off", depth);
-}
-#endif
-EXPORT_SYMBOL(epen_disable_mode);
-
 static ssize_t epen_disable_mode_store(struct device *dev,
 				       struct device_attribute *attr,
 				       const char *buf, size_t count)
@@ -1179,11 +1091,12 @@ static ssize_t epen_disable_mode_store(struct device *dev,
 		return count;
 	}
 
-	val = !(!val);
+	if (val)
+		wacom_disable_mode(wac_i2c, WACOM_DISABLE);
+	else
+		wacom_disable_mode(wac_i2c, WACOM_ENABLE);
 
 	input_info(true, &client->dev, "%s: %d\n", __func__, val);
-
-	epen_disable_mode(val);
 
 	return count;
 }

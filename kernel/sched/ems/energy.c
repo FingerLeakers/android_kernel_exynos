@@ -259,6 +259,90 @@ static int find_best_idle(struct tp_env *env)
 	return best_cpu;
 }
 
+
+struct wake_wide {
+	struct cpumask	mask;
+	unsigned long	last_wake_wide;
+	int		sch;	/* sibling_count_hint */
+};
+struct wake_wide ems_ww;
+
+static void ww_init(int sch)
+{
+	int cpu;
+
+	ems_ww.sch = sch;
+	ems_ww.last_wake_wide = jiffies;
+
+	cpumask_clear(&ems_ww.mask);
+
+	while(sch--) {
+		int min_util = INT_MAX, min_cpu = 0;
+
+		for_each_possible_cpu(cpu) {
+			int cpu_util;
+			if(cpumask_test_cpu(cpu, &ems_ww.mask))
+				continue;
+
+			cpu_util = ml_cpu_util(cpu);
+			if (cpu_util < min_util) {
+				min_util = cpu_util;
+				min_cpu = cpu;
+			}
+		}
+		cpumask_set_cpu(min_cpu, &ems_ww.mask);
+	}
+
+	trace_ww_init(ems_ww.sch, *(unsigned int *)cpumask_bits(&ems_ww.mask));
+}
+
+int find_wide_cpu(struct tp_env *env, int sch)
+{
+	int cpu, best_cpu = -1, min_spare = INT_MAX;
+	int max_cpu = 0, max_spare = 0;
+	int task_util = ml_task_util_est(env->p);
+
+	/* init wake_wide */
+	if (!ems_ww.sch || (jiffies - ems_ww.last_wake_wide) > HZ * 2)
+		ww_init(sch);
+
+	/* find minimum spare fit cpu(min spare cpu) */
+	for_each_cpu(cpu, &ems_ww.mask) {
+		int cpu_cap = capacity_cpu(cpu, env->p->sse);
+		int cpu_util = ml_cpu_util_without(cpu, env->p);
+		int cpu_spare = cpu_cap - cpu_util;
+
+		/* pre-find max spare cpu */
+		if (cpu_spare > max_spare) {
+			max_spare = cpu_spare;
+			max_cpu = cpu;
+		}
+
+		if (cpu_spare + task_util > ((cpu_cap * 5) / 4))
+			continue;
+
+		if (task_cpu(env->p) == cpu) {
+			best_cpu = cpu;
+			continue;
+		}
+
+		if (cpu_spare < min_spare) {
+			min_spare = cpu_spare;
+			best_cpu = cpu;
+		}
+	}
+
+	/* select maximum spare cpu */
+	if (best_cpu == -1)
+		best_cpu = max_cpu;
+
+	cpumask_clear_cpu(best_cpu, &ems_ww.mask);
+	ems_ww.sch--;
+
+	return best_cpu;
+}
+
+
 static unsigned int
 compute_performance(struct task_struct *p, int target_cpu)
 {
@@ -298,8 +382,8 @@ static int
 find_best_eff(struct tp_env *env, int *eff, int idle)
 {
 	struct cpumask candidates;
-	unsigned int best_eff = 0;
-	int best_cpu = -1;
+	unsigned int best_eff = 0, prev_eff = 0;
+	int best_cpu = -1, prev_cpu = task_cpu(env->p);
 	int cpu;
 	int prefer_idle = 0;
 
@@ -321,9 +405,19 @@ find_best_eff(struct tp_env *env, int *eff, int idle)
 		else
 			eff = compute_efficiency(env->p, cpu, env->eff_weight[cpu]);
 
+		if (cpu == prev_cpu)
+			prev_eff = eff;
+
 		if (eff > best_eff) {
 			best_eff = eff;
 			best_cpu = cpu;
+		}
+	}
+
+	if (cpumask_test_cpu(best_cpu, cpu_coregroup_mask(prev_cpu))) {
+		if (prev_eff && (best_eff - prev_eff) < (prev_eff >> 4)) {
+			*eff = prev_eff;
+			return prev_cpu;
 		}
 	}
 
@@ -375,10 +469,13 @@ int find_allowed_capacity(int cpu, unsigned int freq, int power)
 {
 	struct energy_table *table = get_energy_table(cpu);
 	unsigned long new_power = 0;
-	int i;
+	int i, max_idx = table->nr_states - 1;
+
+	if (max_idx < 0)
+		return 0;
 
 	/* find power budget for new frequency */
-	for (i = 0; i < table->nr_states; i++)
+	for (i = 0; i < max_idx; i++)
 		if (table->states[i].frequency >= freq)
 			break;
 
@@ -390,16 +487,16 @@ int find_allowed_capacity(int cpu, unsigned int freq, int power)
 		if (table->states[i].power >= new_power)
 			return table->states[i].cap;
 
-	/* returne the max capaity */
-	return table->states[table->nr_states - 1].cap;
+	/* return max capacity */
+	return table->states[max_idx].cap;
 }
 
 int find_step_power(int cpu, int step)
 {
 	struct energy_table *table = get_energy_table(cpu);
-	int max_idx = table->nr_states - 1;
+	int max_idx = table->nr_states_orig - 1;
 
-	if (!step)
+	if (!step || max_idx < 0)
 		return 0;
 
 	return (table->states[max_idx].power - table->states[0].power) / step;

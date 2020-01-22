@@ -40,6 +40,25 @@
 #include <linux/pm_qos.h>
 #endif
 
+#ifdef CONFIG_MALI_SEC_G3D_PEAK_NOTI
+static RAW_NOTIFIER_HEAD(g3d_peak_mode_chain);
+
+int g3d_notify_peak_mode_update(bool is_set)
+{
+	return raw_notifier_call_chain(&g3d_peak_mode_chain, 0, &is_set);
+}
+
+int g3d_register_peak_mode_update_notifier(struct notifier_block *nb)
+{
+	return raw_notifier_chain_register(&g3d_peak_mode_chain, nb);
+}
+
+int g3d_unregister_peak_mode_notifier(struct notifier_block *nb)
+{
+	return raw_notifier_chain_unregister(&g3d_peak_mode_chain, nb);
+}
+#endif
+
 #include <linux/oom.h>
 
 #define G3D_DVFS_MIDDLE_CLOCK 377000
@@ -193,8 +212,6 @@ static void gpu_power_off(struct kbase_device *kbdev)
 	if (!platform)
 		return;
 
-	platform->wa_ctrl = 0;
-	GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "power off, release wa_ctrl\n");
 #ifdef CONFIG_MALI_RT_PM
 	gpu_control_enable_customization(kbdev);
 

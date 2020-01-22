@@ -148,7 +148,7 @@ u32 adv_tracer_ehld_get_interval(void)
 	return plugin_ehld.interval;
 }
 
-static int adv_tracer_ehld_noti_cpu_state(int cpu, int en)
+int adv_tracer_ehld_noti_cpu_state(int cpu, int en)
 {
 	struct adv_tracer_ipc_cmd cmd;
 	int ret = 0;
@@ -227,25 +227,19 @@ ATTRIBUTE_GROUPS(adv_tracer_ehld_sysfs);
 static int adv_tracer_ehld_c2_pm_notifier(struct notifier_block *self,
 						unsigned long action, void *v)
 {
-	int cpu = raw_smp_processor_id();
-
 	if (!plugin_ehld.enable)
 		return NOTIFY_OK;
 
 	switch (action) {
 	case CPU_PM_ENTER:
-		adv_tracer_ehld_noti_cpu_state(cpu, false);
 		break;
         case CPU_PM_ENTER_FAILED:
         case CPU_PM_EXIT:
-		adv_tracer_ehld_noti_cpu_state(cpu, true);
 		break;
 	case CPU_CLUSTER_PM_ENTER:
-		adv_tracer_ehld_noti_cpu_state(cpu, false);
 		break;
 	case CPU_CLUSTER_PM_ENTER_FAILED:
 	case CPU_CLUSTER_PM_EXIT:
-		adv_tracer_ehld_noti_cpu_state(cpu, true);
 		break;
 	}
 	return NOTIFY_OK;
@@ -259,11 +253,8 @@ static int adv_tracer_ehld_pm_notifier(struct notifier_block *notifier,
 
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
-		adv_tracer_ehld_set_enable(false);
 		break;
-
 	case PM_POST_SUSPEND:
-		adv_tracer_ehld_set_enable(true);
 		break;
 	}
 

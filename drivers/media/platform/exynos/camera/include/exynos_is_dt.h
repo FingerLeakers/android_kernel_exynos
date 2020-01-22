@@ -190,7 +190,9 @@
 #define	EX_3DHDR		6
 #define	EX_PDSTAT_OFF		7
 #define	EX_AEB			8
-#define	EX_REMOSAIC_CAL			11
+#define	EX_REMOSAIC_CAL		11
+#define	EX_LOW_RES_TETRA	12
+#define	EX_NIGHT		13
 
 /* LRTE */
 #define LRTE_DISABLE		0

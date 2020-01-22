@@ -276,6 +276,10 @@ struct is_rom_info {
 
 	int32_t		rom_spdc_cal_data_start_addr;
 	int32_t		rom_spdc_cal_data_size;
+
+	int32_t		rom_xtc_cal_data_start_addr;
+	int32_t		rom_xtc_cal_data_size;
+
 	bool	rom_pdxtc_cal_endian_check;
 	u32		rom_pdxtc_cal_data_addr_list[CROSSTALK_CAL_MAX];
 	u32		rom_pdxtc_cal_data_addr_list_len;

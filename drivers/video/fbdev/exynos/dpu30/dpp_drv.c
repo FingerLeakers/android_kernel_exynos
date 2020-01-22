@@ -1094,7 +1094,8 @@ irq_end:
 
 static irqreturn_t dma_irq_handler(int irq, void *priv)
 {
-	struct dpp_device *dpp = priv;
+	struct dpp_device *dpp = priv;	
+	struct decon_device *decon = get_decon_drvdata(0);
 	u32 irqs, val = 0;
 
 	spin_lock(&dpp->dma_slock);
@@ -1133,7 +1134,9 @@ static irqreturn_t dma_irq_handler(int irq, void *priv)
 		if ((irqs & IDMA_READ_SLAVE_ERROR) ||
 				(irqs & IDMA_STATUS_DEADLOCK_IRQ)) {
 			dpp_err("dma%d error irq occur(0x%x)\n", dpp->id, irqs);
-			dpp_dump(dpp);
+			decon_dump(decon, false);
+			//dpp_dump(dpp);
+			s3c2410wdt_set_emergency_reset(0,0); /* watch dog reset */
 			goto irq_end;
 		}
 		/*

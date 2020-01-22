@@ -97,6 +97,7 @@
 #define ENABLE_IRQ_MULTI_TARGET
 #define IS_ONLINE_CPU_MIN	4
 #define ENABLE_3AA_LIC_OFFSET	1
+#define PDP_RDMA_LINE_GAP      (0x64)
 
 #define ENABLE_MODECHANGE_CAPTURE
 /*
@@ -249,6 +250,8 @@
 #define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
 #define CHAIN_TAG_VC0_DMA_IN_HARDIRQ_CONTEXT	1
 
+#define USE_SKIP_DUMP_LIC_OVERFLOW	1
+
 /* default LIC value for 9830 */
 /*
  * MAX: 16383
@@ -265,6 +268,8 @@
 
 /* BTS */
 #define DISABLE_BTS_CALC	/* This is only for v8.1. next AP don't have to use this */
+
+#define THROTTLING_MIF_LEVEl	(1539000)
 
 /*
  * ======================================================

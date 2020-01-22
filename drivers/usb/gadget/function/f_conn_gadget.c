@@ -1092,7 +1092,7 @@ static int conn_gadget_bind_config(struct usb_configuration *c)
 }
 #endif
 
-
+#ifdef CONFIG_F_CONN_GADGET_DEBUGFS
 static ssize_t conn_gadget_usb_buffer_size_show(struct device *dev,
 		struct device_attribute *attr, char *buf) {
 	if (!_conn_gadget_dev) {
@@ -1215,17 +1215,20 @@ static struct device_attribute *conn_gadget_function_attributes[] = {
 	&dev_attr_in_max_packet_size,
 	NULL
 };
-
+#endif
 extern struct device *create_function_device(char *name);
 
 static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 {
 	struct conn_gadget_dev *dev;
 	struct device *android_dev;
+	int ret;
+#ifdef CONFIG_F_CONN_GADGET_DEBUGFS
 	struct device_attribute **attrs;
 	struct device_attribute *attr;
-	int ret;
 	int err = 0;
+#endif
+
 
 	printk(KERN_INFO "conn_gadget_setup\n");
 
@@ -1273,7 +1276,7 @@ static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 	android_dev = create_function_device("f_conn_gadget");
 	if (IS_ERR(android_dev))
 		return PTR_ERR(android_dev);
-
+#ifdef CONFIG_F_CONN_GADGET_DEBUGFS
 	attrs = conn_gadget_function_attributes;
 
 	if (attrs) {
@@ -1284,7 +1287,7 @@ static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 			goto err_;
 		}
 	}
-
+#endif
 	return 0;
 err_:
 

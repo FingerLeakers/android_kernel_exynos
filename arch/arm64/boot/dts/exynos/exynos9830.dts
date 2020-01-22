@@ -1382,6 +1382,9 @@
 		/* ----------------------- */
 		hw-rev = <UFS_VER_0006>;
 
+		/* PM QoS for INT power domain */
+		ufs-pm-qos-int = <333000>;
+
 		/* power mode change */
 		ufs,pmd-attr-lane = /bits/ 8 <2>;
 		ufs,pmd-attr-gear = /bits/ 8 <4>;
@@ -2224,11 +2227,25 @@
 
 			use_alt_dvfs;
 			polling_ms = <0>;
-			target_load = "60 676000:84 845000:90 1014000:95 1352000:97 2028000:99";
-			min_sample_time = <50>;
-			hold_sample_time = <100>;
-			hispeed_load = <98>;
-			hispeed_freq = <1014000>;
+			alt_mode {
+				default_mode = <0>;
+				mode_0 {
+					mode_id = <0>;
+					target_load = "60 676000:84 845000:90 1014000:95 1352000:97 2028000:99";
+					min_sample_time = <50>;
+					hold_sample_time = <100>;
+					hispeed_load = <98>;
+					hispeed_freq = <1014000>;
+				};
+				mode_1 {
+					mode_id = <1>;
+					target_load = "3 2730000:3";
+					min_sample_time = <50>;
+					hold_sample_time = <100>;
+					hispeed_load = <3>;
+					hispeed_freq = <2730000>;
+				};
+			};
 			skew {
 				skew_0 {
 					constraint_dm_type = <DM_INT>;

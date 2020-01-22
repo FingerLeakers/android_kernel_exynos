@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 2019, Broadcom.
+ * Copyright (C) 2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1518,6 +1518,7 @@ struct bcm_cfg80211 {
 	wl_ctx_tsinfo_t tsinfo;
 	struct wl_pmk_list *spmk_info_list;	/* single pmk info list */
 	int mfp_curcap;
+	u32 cur_ipa;
 };
 
 #define WL_DS_SKIP_THRESHOLD_MSECS  30000
@@ -2635,4 +2636,9 @@ do {	\
 		band_chan_arr[k].flags = IEEE80211_CHAN_DISABLED;	\
 	}	\
 } while (0)
+
+extern void wl_cfg80211_update_ipv4_addr(struct net_device *dev, u32 ipa);
+#ifdef DHD_GARP_KEEPALIVE
+extern int wl_cfg80211_garp_keepalive(struct net_device *dev);
+#endif /* DHD_GARP_KEEPALIVE */
 #endif /* _wl_cfg80211_h_ */

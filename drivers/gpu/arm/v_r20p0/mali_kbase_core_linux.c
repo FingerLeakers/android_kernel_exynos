@@ -52,6 +52,7 @@
 #include <mali_kbase_reset_gpu.h>
 #include <backend/gpu/mali_kbase_device_internal.h>
 #include "mali_kbase_ioctl.h"
+#include "mali_kbase_kinstr_jm.h"
 #include "mali_kbase_hwcnt_context.h"
 #include "mali_kbase_hwcnt_virtualizer.h"
 #include "mali_kbase_hwcnt_legacy.h"
@@ -855,6 +856,11 @@ static int kbase_api_mem_free(struct kbase_context *kctx,
 	return kbase_mem_free(kctx, free->gpu_addr);
 }
 
+static int kbase_api_kinstr_jm_fd(struct kbase_context *kctx)
+{
+	return kbase_kinstr_jm_fd(kctx->kinstr_jm);
+}
+
 static int kbase_api_hwcnt_reader_setup(struct kbase_context *kctx,
 		struct kbase_ioctl_hwcnt_reader_setup *setup)
 {
@@ -1254,6 +1260,17 @@ static int kbase_api_vk_boost(struct kbase_context *kctx,
 	return gpu_vendor_dispatch(kctx, flags->flags);
 }
 
+/* MALI_SEC_INTEGRATION */
+static int kbase_api_negative_boost(struct kbase_context *kctx,
+		struct kbase_ioctl_slsi_negative_boost_flags *flags)
+{
+	if (flags->flags == 0)
+		return -EINVAL;
+
+	return gpu_vendor_dispatch(kctx, flags->flags);
+}
+
+
 static int kbase_api_sticky_resource_map(struct kbase_context *kctx,
 		struct kbase_ioctl_sticky_resource_map *map)
 {
@@ -1588,6 +1605,11 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 
 	/* Instrumentation. */
+	case KBASE_IOCTL_KINSTR_JM_FD:
+		KBASE_HANDLE_IOCTL(KBASE_IOCTL_KINSTR_JM_FD,
+				kbase_api_kinstr_jm_fd,
+				kctx);
+		break;
 	case KBASE_IOCTL_HWCNT_READER_SETUP:
 		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_HWCNT_READER_SETUP,
 				kbase_api_hwcnt_reader_setup,
@@ -1668,6 +1690,13 @@ static long kbase_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_SLSI_VK_BOOST_FLAGS,
 				kbase_api_vk_boost,
 				struct kbase_ioctl_slsi_vk_boost_flags,
+				kctx);
+		break;
+		/* MALI_SEC_INTEGRATION */
+	case KBASE_IOCTL_SLSI_NEGATIVE_BOOST_FLAGS:
+		KBASE_HANDLE_IOCTL_IN(KBASE_IOCTL_SLSI_NEGATIVE_BOOST_FLAGS,
+				kbase_api_negative_boost,
+				struct kbase_ioctl_slsi_negative_boost_flags,
 				kctx);
 		break;
 	}
@@ -4079,13 +4108,18 @@ static int kbase_platform_device_remove(struct platform_device *pdev)
 {
 	struct kbase_device *kbdev = to_kbase_device(&pdev->dev);
 	const struct list_head *dev_list;
+	struct kbase_context *wa_ctx;
 
 	if (!kbdev)
 		return -ENODEV;
 
-	if (kbdev->wa.ctx) {
-		kbasep_js_release_privileged_ctx(kbdev, kbdev->wa.ctx);
-		kbase_destroy_context(kbdev->wa.ctx);
+	wa_ctx = READ_ONCE(kbdev->wa.ctx);
+	/* make this write visible before we tear down the ctx */
+	smp_store_mb(kbdev->wa.ctx, NULL);
+
+	if (wa_ctx) {
+		kbasep_js_release_privileged_ctx(kbdev, wa_ctx);
+		kbase_destroy_context(wa_ctx);
 	}
 
 	kfree(kbdev->gpu_props.prop_buffer);
@@ -4264,10 +4298,11 @@ struct wa_header {
 	u32 info_offset;
 } __packed;
 
-struct wa_v1_info {
+struct wa_v2_info {
 	u64 jc;
 	u32 js;
 	u32 blob_offset;
+	u64 flags;
 } __packed;
 
 struct wa_blob {
@@ -4288,36 +4323,35 @@ static int load_workaround(struct kbase_device *kbdev)
 	const struct firmware *firmware;
 	static const char wa_name[] = "valhall-1691526.wa";
 	const u32 signature = 0x4157;
-	const u32 version = 1;
+	const u32 version = 2;
 	const u8 *fw_end;
 	const u8 *fw;
 	const struct wa_header *header;
-	const struct wa_v1_info *v1_info;
+	const struct wa_v2_info *v2_info;
 	u32 blob_offset;
 	int err;
+	struct kbase_context *kctx;
 
-	kbdev->wa.ctx = kbase_create_context(kbdev, true,
-					     BASE_CONTEXT_CREATE_FLAG_NONE, 0,
-					     NULL);
+	kctx = kbase_create_context(kbdev, true,
+				    BASE_CONTEXT_CREATE_FLAG_NONE, 0,
+				    NULL);
 
-	if (!kbdev->wa.ctx) {
+	if (!kctx) {
 		dev_err(kbdev->dev, "Failed to create WA context\n");
 		goto no_ctx;
 	}
-	dev_err(kbdev->dev, "Completed to create WA context\n");
 
 	/* load the wa */
 	err = request_firmware(&firmware, wa_name, kbdev->dev);
 	if (err) {
 		dev_err(kbdev->dev, "Failed to load WA %s: %d\n", wa_name, err);
-		goto no_fw;
+		goto bad_fw;
 	}
-	dev_err(kbdev->dev, "Completed to load WA %s: %d\n", wa_name, err);
 
 	fw = firmware->data;
 	fw_end = fw + firmware->size;
 
-	dev_err(kbdev->dev, "Loaded firmware of size %zu bytes\n",
+	dev_dbg(kbdev->dev, "Loaded firmware of size %zu bytes\n",
 		firmware->size);
 
 	if (!in_range(fw, fw_end, 0, sizeof(*header))) {
@@ -4339,17 +4373,24 @@ static int load_workaround(struct kbase_device *kbdev)
 		goto bad_fw;
 	}
 
-	if (!in_range(fw, fw_end, header->info_offset, sizeof(*v1_info))) {
+	if (!in_range(fw, fw_end, header->info_offset, sizeof(*v2_info))) {
 		dev_err(kbdev->dev, "WA info offset out of bounds\n");
 		goto bad_fw;
 	}
 
-	v1_info = (const struct wa_v1_info *)(fw + header->info_offset);
+	v2_info = (const struct wa_v2_info *)(fw + header->info_offset);
 
-	kbdev->wa.slot = v1_info->js;
-	kbdev->wa.jc = v1_info->jc;
+	if (v2_info->flags & ~KBASE_WA_FLAGS) {
+		dev_err(kbdev->dev, "Unsupported WA flag(s): 0x%llx\n",
+			(unsigned long long)v2_info->flags);
+		goto bad_fw;
+	}
 
-	blob_offset = v1_info->blob_offset;
+	kbdev->wa.slot = v2_info->js;
+	kbdev->wa.jc = v2_info->jc;
+	kbdev->wa.flags = v2_info->flags;
+
+	blob_offset = v2_info->blob_offset;
 
 	while (blob_offset) {
 		const struct wa_blob *blob;
@@ -4378,7 +4419,7 @@ static int load_workaround(struct kbase_device *kbdev)
 		nr_pages = PFN_UP(blob->size);
 		flags = blob->map_flags | BASE_MEM_FLAG_MAP_FIXED;
 
-		va_region = kbase_mem_alloc(kbdev->wa.ctx, nr_pages, nr_pages,
+		va_region = kbase_mem_alloc(kctx, nr_pages, nr_pages,
 					    0, &flags, &gpu_va);
 
 		if (!va_region) {
@@ -4391,33 +4432,34 @@ static int load_workaround(struct kbase_device *kbdev)
 			/* copy the payload,  */
 			payload = fw + blob->payload_offset;
 
-			dst = kbase_vmap(kbdev->wa.ctx,
+			dst = kbase_vmap(kctx,
 					 va_region->start_pfn << PAGE_SHIFT,
 					 nr_pages << PAGE_SHIFT, &vmap);
 
 			if (dst) {
 				memcpy(dst, payload, blob->size);
-				kbase_vunmap(kbdev->wa.ctx, &vmap);
+				kbase_vunmap(kctx, &vmap);
 			} else {
 				dev_err(kbdev->dev,
 					"Failed to copy payload\n");
 			}
 
+			kbdev->wa.va_region = va_region;
 		}
 		blob_offset = blob->blob_offset; /* follow chain */
 	}
 
 	release_firmware(firmware);
 
-	kbasep_js_schedule_privileged_ctx(kbdev, kbdev->wa.ctx);
+	kbasep_js_schedule_privileged_ctx(kbdev, kctx);
+
+	kbdev->wa.ctx = kctx;
 
 	return 0;
 
 bad_fw:
 	release_firmware(firmware);
-no_fw:
-	kbase_destroy_context(kbdev->wa.ctx);
-	kbdev->wa.ctx = NULL;
+	kbase_destroy_context(kctx);
 no_ctx:
 	return -EFAULT;
 }
@@ -4437,7 +4479,7 @@ static u32 wait_any(struct kbase_device *kbdev, off_t offset, u32 bits)
 
 	if (loop == timeout) {
 		dev_err(kbdev->dev,
-			"Timeout reading register 0x%lx, bits 0x%lx, last read was 0x%x\n",
+			"Timeout reading register 0x%lx, bits 0x%lx, last read was 0x%lx\n",
 			(unsigned long)offset, (unsigned long)bits,
 			(unsigned long)val);
 	}
@@ -4460,7 +4502,7 @@ static int wait(struct kbase_device *kbdev, off_t offset, u32 bits)
 
 	if (loop == timeout) {
 		dev_err(kbdev->dev,
-			"Timeout reading register 0x%x, bits 0x%x, last read was 0x%lxx\n",
+			"Timeout reading register 0x%lx, bits 0x%lx, last read was 0x%lx\n",
 			(unsigned long)offset, (unsigned long)bits,
 			(unsigned long)val);
 		return -ETIMEDOUT;
@@ -4469,24 +4511,59 @@ static int wait(struct kbase_device *kbdev, off_t offset, u32 bits)
 	return 0;
 }
 
+static inline int run_job(struct kbase_device *kbdev, int as, int slot,
+			  u64 cores, u64 jc)
+{
+	u32 done;
+
+	/* setup job */
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_HEAD_NEXT_LO),
+			jc & U32_MAX);
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_HEAD_NEXT_HI),
+			jc >> 32);
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_AFFINITY_NEXT_LO),
+			cores & U32_MAX);
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_AFFINITY_NEXT_HI),
+			cores >> 32);
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_CONFIG_NEXT),
+			JS_CONFIG_DISABLE_DESCRIPTOR_WR_BK | as);
+
+	/* go */
+	kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_COMMAND_NEXT),
+			JS_COMMAND_START);
+
+	/* wait for the slot to finish (done, error) */
+	done = wait_any(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT),
+			(1ul << (16+slot)) | (1ul << slot));
+	kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_CLEAR), done);
+
+	if (done != (1ul << slot)) {
+		dev_err(kbdev->dev,
+			"Failed to run WA job on slot %d cores 0x%llx: done 0x%lx\n",
+			slot, (unsigned long long)cores,
+			(unsigned long)done);
+		dev_err(kbdev->dev, "JS_STATUS on failure: 0x%x\n",
+			kbase_reg_read(kbdev, JOB_SLOT_REG(slot, JS_STATUS)));
+
+		return -EFAULT;
+	} else {
+		return 0;
+	}
+}
+
 /* To be called after power up & MMU init, but before everything else */
 int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 {
-	u32 done;
 	int as;
 	int slot;
 	u64 jc;
-	int i;
 	int failed = 0;
 	int runs = 0;
 	u32 old_gpu_mask;
 	u32 old_job_mask;
-	struct exynos_context *platform = NULL;
 
 	if (!kbdev)
 		return -EFAULT;
-
-	platform = (struct exynos_context *)kbdev->platform_context;
 
 	if (!kbdev->wa.ctx)
 		return -EFAULT;
@@ -4505,19 +4582,16 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 	kbase_reg_write(kbdev, SHADER_PWRON_LO, (cores & U32_MAX));
 	kbase_reg_write(kbdev, SHADER_PWRON_HI, (cores >> 32));
 
-	if (platform->wa_ctrl == 1)
-	{
-		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), old_gpu_mask);
-		kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK), old_job_mask);
-		//printk("[G3D] %s, Skipped WA\n", __func__); //DEBUG
-		return 0;
-	}
-	else
-	{	/* wait for power-ups */
+	if (kbdev->wa.flags & KBASE_WA_FLAG_WAIT_POWERUP) {
+		/* wait for power-ups */
 		wait(kbdev, SHADER_READY_LO, (cores & U32_MAX));
 		if (cores >> 32)
 			wait(kbdev, SHADER_READY_HI, (cores >> 32));
 		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_CLEAR), U32_MAX);
+	}
+
+	if (kbdev->wa.flags & KBASE_WA_FLAG_SERIALIZE) {
+		int i;
 
 		/* do for each requested core */
 		for (i = 0; i < sizeof(cores) * 8; i++) {
@@ -4528,48 +4602,25 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 			if (!(cores & affinity))
 				continue;
 
-			/* setup job */
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_HEAD_NEXT_LO), jc & U32_MAX);
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_HEAD_NEXT_HI), jc >> 32);
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_AFFINITY_NEXT_LO),
-					affinity & U32_MAX);
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_AFFINITY_NEXT_HI),
-					affinity >> 32);
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_CONFIG_NEXT),
-					JS_CONFIG_DISABLE_DESCRIPTOR_WR_BK | as);
-
-			/* go */
-			kbase_reg_write(kbdev, JOB_SLOT_REG(slot, JS_COMMAND_NEXT),
-					JS_COMMAND_START);
-
-			/* wait for the slot to finish (done, error) */
-			done = wait_any(kbdev, JOB_CONTROL_REG(JOB_IRQ_RAWSTAT),
-					(1ul << (16+slot)) | (1ul << slot));
-			kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_CLEAR), done);
-
-			if (done != (1ul << slot)) {
-				dev_err(kbdev->dev,
-						"Failed to run WA job on slot %d affinity 0x%llx: done 0x%lx\n",
-						slot, (unsigned long long)affinity,
-						(unsigned long)done);
-				dev_err(kbdev->dev, "JS_STATUS on failure: 0x%x\n",
-						kbase_reg_read(kbdev, JOB_SLOT_REG(slot, JS_STATUS)));
+			if (run_job(kbdev, as, slot, affinity, jc))
 				failed++;
-			}
 			runs++;
 		}
 
-		/* restore IRQ masks */
-		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), old_gpu_mask);
-		kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK), old_job_mask);
-		//printk("[G3D] %s, Execution WA is set wa_ctrl %d\n", __func__, platform->wa_ctrl); //DEBUG
-		platform->wa_ctrl = 1;
+	} else {
+		if (run_job(kbdev, as, slot, cores, jc))
+			failed++;
+		runs++;
 	}
+
+	/* restore IRQ masks */
+	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), old_gpu_mask);
+	kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK), old_job_mask);
 
 	if (failed)
 		dev_err(kbdev->dev,
-				"WA complete with %d failures out of %d runs\n", failed,
-				runs);
+			"WA complete with %d failures out of %d runs\n", failed,
+			runs);
 
 	return failed ? -EFAULT : 0;
 }
@@ -4592,8 +4643,6 @@ static int kbase_platform_device_probe(struct platform_device *pdev)
 
 	kbdev->dev = &pdev->dev;
 	dev_set_drvdata(kbdev->dev, kbdev);
-
-	kbdev->wa.ctx = NULL;
 
 #ifdef CONFIG_MALI_NO_MALI
 	err = gpu_device_create(kbdev);

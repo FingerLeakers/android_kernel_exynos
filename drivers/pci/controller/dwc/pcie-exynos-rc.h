@@ -32,6 +32,7 @@
 //#define IRQ_LINK_DOWN			(0x1 << 14) // old ver
 #define IRQ_MSI_FALLING_ASSERT		(0x1 << 16)
 #define IRQ_MSI_RISING_ASSERT		(0x1 << 17)
+#define IRQ_RADM_CPL_TIMEOUT		(0x1 << 24)
 #define PCIE_IRQ0_EN			0x010
 #define PCIE_IRQ1_EN			0x014
 #define IRQ_LINKDOWN_ENABLE_EVT1_1	(0x1 << 10)
@@ -116,6 +117,7 @@
 #define PCIE_LINK_CTRL_STAT		0x80
 #define PCIE_CAP_NEGO_LINK_WIDTH_MASK	0x3f
 #define PCIE_CAP_LINK_SPEED		0xf
+#define PCIE_CAP_EXTENDED_SYNCH		(0x1 << 7)
 #define PCIE_CAP_NEGO_LINK_WIDTH_MASK	0x3f
 #define PCI_EXP_LNKCAP_MLW_X1		(0x1 << 4)
 #define PCI_EXP_LNKCAP_L1EL_64USEC	(0x7 << 15)
@@ -124,6 +126,8 @@
 #define PCI_EXP_LNKCTL2_TLS_2_5GB	0x1
 #define PCI_EXP_LNKCTL2_TLS_5_0GB	0x2
 #define PCI_EXP_LNKCTL2_TLS_8_0GB	0x3
+#define PCIE_CAP_CPL_TIMEOUT_VAL_MASK	0xf
+#define PCIE_CAP_CPL_TIMEOUT_VAL_6_2MS	0x2
 #define PCIE_LINK_L1SS_CONTROL		0x19C
 #define PORT_LINK_TCOMMON_32US		(0x20 << 8)
 #define LTR_L12_THRESHOLD_SCALE_1NS	(0x0 << 29)	/* Latency Tolerance Reporting */
@@ -276,6 +280,14 @@
 #define PCIE_ATU_LOWER_TARGET_OUTBOUND1	0x300214
 #define PCIE_ATU_UPPER_TARGET_OUTBOUND1	0x300218
 
+#define PCIE_ATU_CR1_OUTBOUND2		0x300400
+#define PCIE_ATU_CR2_OUTBOUND2		0x300404
+#define PCIE_ATU_LOWER_BASE_OUTBOUND2	0x300408
+#define PCIE_ATU_UPPER_BASE_OUTBOUND2	0x30040C
+#define PCIE_ATU_LIMIT_OUTBOUND2	0x300410
+#define PCIE_ATU_LOWER_TARGET_OUTBOUND2	0x300414
+#define PCIE_ATU_UPPER_TARGET_OUTBOUND2	0x300418
+
 #define EOM_PH_SEL_MAX		72
 #define EOM_DEF_VREF_MAX	256
 
@@ -338,7 +350,6 @@ u32 exynos_pcie_rc_read_dbi(struct dw_pcie *dw_pcie, void __iomem *base,
 				u32 reg, size_t size);
 void exynos_pcie_rc_write_dbi(struct dw_pcie *dw_pcie, void __iomem *base,
 				  u32 reg, size_t size, u32 val);
-int exynos_pcie_rc_lanechange(int ch_num, int lane);
 int exynos_pcie_rc_speedchange(int ch_num, int spd);
 int exynos_pcie_rc_lanechange(int ch_num, int lane);
 int exynos_pcie_rc_poweron(int ch_num);

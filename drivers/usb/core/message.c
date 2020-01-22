@@ -2010,7 +2010,7 @@ free_interfaces:
 	usb_set_device_state(dev, USB_STATE_CONFIGURED);
 
 #ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
-	send_usb_audio_uevent(dev);
+	send_usb_audio_uevent(dev, 0, 1);
 #endif
 
 	if (cp->string == NULL &&

@@ -57,8 +57,8 @@
 
 /* srinfo_offset */
 #define SRINFO_OFFSET		0x200
-#define SRINFO_SBD_OFFSET	0xF800
-#define SRINFO_SIZE		0x800
+#define SRINFO_SBD_OFFSET	0x28
+#define SRINFO_SIZE		0x3D8
 
 /* link_attr
  * compatible with enum link_attr_bit

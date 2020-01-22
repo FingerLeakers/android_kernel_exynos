@@ -156,17 +156,17 @@ static int secmem_release(struct inode *inode, struct file *file)
 			if (ret < 0)
 				pr_err("fail to lock/unlock drm status. lock = %d\n", false);
 		}
-	}
 
 #if defined(CONFIG_EXYNOS_DP_POWER_CONTROL)
-	if (ref_count_pm > 0) {
-		int i;
-		pr_err("ref_count_pm for DP remains (%d)\n", ref_count_pm);
-		for (i = 0; i < ref_count_pm; i++)
-			pm_runtime_put_sync(secmem_dev);
-		ref_count_pm = 0;
-	}
+		if (ref_count_pm > 0) {
+			int i;
+			pr_err("ref_count_pm for DP remains (%d)\n", ref_count_pm);
+			for (i = 0; i < ref_count_pm; i++)
+				pm_runtime_put_sync(secmem_dev);
+			ref_count_pm = 0;
+		}
 #endif
+	}
 	mutex_unlock(&drm_lock);
 
 	kfree(info);

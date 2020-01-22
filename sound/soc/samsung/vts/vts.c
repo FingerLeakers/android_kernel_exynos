@@ -39,6 +39,7 @@
 #include <sound/samsung/vts.h>
 #include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-el3_mon.h>
+#include <soc/samsung/exynos-itmon.h>
 
 #include "vts.h"
 #include "vts_log.h"
@@ -1544,11 +1545,28 @@ static irqreturn_t vts_error_handler(int irq, void *dev_id)
 
 	vts_mailbox_read_shared_register(data->pdev_mailbox,
 						&error_code, 3, 1);
+	if (error_code == 1) {
+		u32 error_cfsr, error_hfsr, error_dfsr, error_afsr;
+		vts_mailbox_read_shared_register(data->pdev_mailbox,
+							&error_cfsr, 1, 1);
+		vts_mailbox_read_shared_register(data->pdev_mailbox,
+							&error_hfsr, 2, 1);
+		vts_mailbox_read_shared_register(data->pdev_mailbox,
+							&error_dfsr, 4, 1);
+		vts_mailbox_read_shared_register(data->pdev_mailbox,
+							&error_afsr, 5, 1);
+		dev_err(dev, "HardFault CFSR 0x%x\n", (int)error_cfsr);
+		dev_err(dev, "HardFault HFSR 0x%x\n", (int)error_hfsr);
+		dev_err(dev, "HardFault DFSR 0x%x\n", (int)error_dfsr);
+		dev_err(dev, "HardFault AFSR 0x%x\n", (int)error_afsr);
+	}
 	vts_ipc_ack(data, 1);
-
 	dev_err(dev, "Error occurred on VTS: 0x%x\n", (int)error_code);
-	vts_reset_cpu();
 
+	/* Dump VTS GPR register & SRAM */
+	vts_dbg_dump_fw_gpr(dev, data, VTS_FW_ERROR);
+
+	vts_reset_cpu();
 	return IRQ_HANDLED;
 }
 
@@ -1947,7 +1965,8 @@ void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 				data->sramlog_baseaddr, SZ_2K);
 		}
 	} else if (dbg_type == KERNEL_PANIC_DUMP || dbg_type == VTS_FW_NOT_READY ||
-			dbg_type == VTS_IPC_TRANS_FAIL) {
+			dbg_type == VTS_IPC_TRANS_FAIL || dbg_type == VTS_FW_ERROR ||
+			dbg_type == VTS_ITMON_ERROR) {
 		if (dbg_type == KERNEL_PANIC_DUMP && !data->running) {
 			dev_info(dev, "%s is skipped due to not running\n", __func__);
 			return;
@@ -1966,8 +1985,6 @@ void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 		dev_info(dev, "%s is skipped due to invalid debug type\n", __func__);
 		return;
 	}
-
-
 	data->p_dump[dbg_type].time = sched_clock();
 	data->p_dump[dbg_type].dbg_type = dbg_type;
 	for (i = 0; i <= 14; i++)
@@ -2665,6 +2682,25 @@ static int vts_pm_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static int vts_itmon_notifier(struct notifier_block *nb,
+		unsigned long action, void *nb_data)
+{
+	struct vts_data *data = container_of(nb, struct vts_data, itmon_nb);
+	struct platform_device *pdev = data->pdev;
+	struct device *dev = &pdev->dev;
+	struct itmon_notifier *itmon_data = nb_data;
+
+	if (itmon_data && itmon_data->dest && (strncmp("VTS", itmon_data->dest,
+			sizeof("VTS") - 1) == 0)) {
+		dev_info(dev, "%s(%lu)\n", __func__, action);
+		/* Dump VTS GPR register & SRAM */
+		vts_dbg_dump_fw_gpr(dev, data, VTS_ITMON_ERROR);
+		data->enabled = false;
+		return NOTIFY_BAD;
+	}
+	return NOTIFY_DONE;
+}
+
 static int vts_component_probe(struct snd_soc_component *component)
 {
 	struct device *dev = component->dev;
@@ -3026,6 +3062,9 @@ static int samsung_vts_probe(struct platform_device *pdev)
 
 	data->pm_nb.notifier_call = vts_pm_notifier;
 	register_pm_notifier(&data->pm_nb);
+
+	data->itmon_nb.notifier_call = vts_itmon_notifier;
+	itmon_notifier_chain_register(&data->itmon_nb);
 
 	printk("come hear %d\n", __LINE__);
 	pm_runtime_enable(dev);

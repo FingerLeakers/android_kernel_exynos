@@ -1389,6 +1389,7 @@ static void max77705_chg_set_mode_state(struct max77705_charger_data *charger,
 	}
 #endif
 
+	mutex_lock(&charger->mode_mutex);
 	pr_info("%s: current_mode(0x%x), state(%d)\n", __func__, charger->cnfg00_mode, state);
 	switch(charger->cnfg00_mode) {
 		/* all off */
@@ -1520,6 +1521,7 @@ static void max77705_chg_set_mode_state(struct max77705_charger_data *charger,
 	max77705_read_reg(charger->i2c, MAX77705_CHG_REG_CNFG_00, &reg);
 	reg &= 0xF;
 	pr_info("%s: CNFG_00 (0x%x)\n", __func__, reg);
+	mutex_unlock(&charger->mode_mutex);
 }
 
 #if defined(CONFIG_UPDATE_BATTERY_DATA)
@@ -2478,6 +2480,7 @@ static int max77705_charger_probe(struct platform_device *pdev)
 	}
 
 	mutex_init(&charger->charger_mutex);
+	mutex_init(&charger->mode_mutex);
 
 	charger->dev = &pdev->dev;
 	charger->i2c = max77705->charger;

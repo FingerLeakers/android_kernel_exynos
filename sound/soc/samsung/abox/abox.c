@@ -239,6 +239,7 @@ static void abox_probe_quirks(struct abox_data *data, struct device_node *np)
 		unsigned int bit;
 	} map[] = {
 		DEC_MAP(ARAM_MODE),
+		DEC_MAP(INT_SKEW),
 	};
 
 	int i, ret;
@@ -855,6 +856,32 @@ static void abox_notify_cpu_gear(struct abox_data *data, unsigned int freq)
 	}
 }
 
+static int abox_quirk_aud_int_skew(struct device *dev, struct abox_data *data,
+		unsigned int id, unsigned int val, const char *name)
+{
+	const unsigned int SKEW_INT_VAL = 200000;
+	const unsigned int SKEW_INT_ID = DEFAULT_INT_FREQ_ID + 1;
+	const char SKEW_INT_NAME[] = "skew";
+	unsigned int aud_max = data->pm_qos_aud[0];
+	unsigned int old_target, new_target;
+	int ret;
+
+	dev_dbg(dev, "%s(%u, %u, %s)\n", __func__, id, val, name);
+
+	old_target = abox_qos_get_target(dev, ABOX_QOS_AUD);
+	if (old_target < aud_max && val >= aud_max)
+		abox_qos_request_int(dev, SKEW_INT_ID, SKEW_INT_VAL,
+				SKEW_INT_NAME);
+
+	ret = abox_qos_request_aud(dev, id, val, name);
+
+	new_target = abox_qos_get_target(dev, ABOX_QOS_AUD);
+	if (old_target >= aud_max && new_target < aud_max)
+		abox_qos_request_int(dev, SKEW_INT_ID, 0, SKEW_INT_NAME);
+
+	return ret;
+}
+
 int abox_request_cpu_gear(struct device *dev, struct abox_data *data,
 		unsigned int id, unsigned int level, const char *name)
 {
@@ -871,7 +898,10 @@ int abox_request_cpu_gear(struct device *dev, struct abox_data *data,
 		val = level;
 
 	old_val = abox_qos_get_value(dev, ABOX_QOS_AUD, id);
-	ret = abox_qos_request_aud(dev, id, val, name);
+	if (abox_test_quirk(data, ABOX_QUIRK_BIT_INT_SKEW))
+		ret = abox_quirk_aud_int_skew(dev, data, id, val, name);
+	else
+		ret = abox_qos_request_aud(dev, id, val, name);
 	abox_check_cpu_request(dev, data, id, old_val, val);
 
 	return ret;
@@ -2759,7 +2789,7 @@ static int abox_qos_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
-static int __maybe_unused abox_print_power_usage(struct device *dev, void *data)
+static int abox_print_power_usage(struct device *dev, void *data)
 {
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -2790,6 +2820,9 @@ static int abox_pm_notifier(struct notifier_block *nb,
 			ret = pm_runtime_suspend(dev);
 			if (ret < 0) {
 				dev_info(dev, "runtime suspend: %d\n", ret);
+				if (atomic_read(&dev->power.child_count) < 1)
+					abox_qos_print(dev, ABOX_QOS_AUD);
+				abox_print_power_usage(dev, NULL);
 				return NOTIFY_BAD;
 			}
 		}

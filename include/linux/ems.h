@@ -29,8 +29,9 @@ enum {
  * core
  */
 extern int
-exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup);
+exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup, int sch);
 extern int ems_can_migrate_task(struct task_struct *p, int dst_cpu);
+extern void sysbusy_boost(void);
 extern void init_ems(void);
 
 
@@ -90,9 +91,10 @@ extern int lb_need_active_balance(enum cpu_idle_type idle,
 				struct sched_domain *sd, int src_cpu, int dst_cpu);
 extern bool lb_sibling_overutilized(int dst_cpu, struct sched_domain *sd,
 					struct cpumask *lb_cpus);
-extern bool lbt_overutilized(int cpu, int level);
+extern bool lbt_overutilized(int cpu, int level, enum cpu_idle_type idle);
 extern void update_lbt_overutil(int cpu, unsigned long capacity);
 extern void lb_update_misfit_status(struct task_struct *p, struct rq *rq, unsigned long task_h_load);
+extern bool need_iss_margin(int src_cpu, int dst_cpu);
 
 /*
  * Core sparing
@@ -105,11 +107,12 @@ extern int ecs_is_sparing_cpu(int cpu);
  * core
  */
 static inline int
-exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup)
+exynos_select_task_rq(struct task_struct *p, int prev_cpu, int sd_flag, int sync, int wakeup, int sch)
 {
 	return -1;
 }
 static inline int ems_can_migrate_task(struct task_struct *p, int dst_cpu) { return 1; }
+static inline void sysbusy_boost(void) { }
 static inline void init_ems(void) { }
 
 

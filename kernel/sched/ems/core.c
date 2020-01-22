@@ -5,6 +5,8 @@
  * Park Bumgyu <bumgyu.park@samsung.com>
  */
 
+#include <linux/pm_qos.h>
+
 #include "../sched.h"
 #include "ems.h"
 
@@ -12,11 +14,16 @@
 #include <trace/events/ems.h>
 #include <trace/events/ems_debug.h>
 
+#include <soc/samsung/exynos-devfreq.h>
+#include <dt-bindings/soc/samsung/exynos9830-devfreq.h>
+
+static bool ems_core_initialized;
+
 static void select_fit_cpus(struct tp_env *env)
 {
 	struct cpumask fit_cpus;
 	struct cpumask cpus_allowed;
-	struct cpumask ontime_fit_cpus, overutil_cpus, busy_cpus, free_cpus, syncback;
+	struct cpumask ontime_fit_cpus, overcap_cpus, busy_cpus;
 	struct task_struct *p = env->p;
 	int cpu;
 
@@ -24,10 +31,9 @@ static void select_fit_cpus(struct tp_env *env)
 	cpumask_clear(&env->fit_cpus);
 	cpumask_clear(&fit_cpus);
 	cpumask_clear(&ontime_fit_cpus);
-	cpumask_clear(&overutil_cpus);
+	cpumask_clear(&overcap_cpus);
 	cpumask_clear(&busy_cpus);
-	cpumask_clear(&free_cpus);
-	cpumask_clear(&syncback);
+
 	/*
 	 * Make cpus allowed task assignment.
 	 * The fit cpus are determined among allowed cpus of below:
@@ -38,11 +44,10 @@ static void select_fit_cpus(struct tp_env *env)
 	cpumask_and(&cpus_allowed, &env->p->cpus_allowed, cpu_active_mask);
 	cpumask_and(&cpus_allowed, &cpus_allowed, emstune_cpus_allowed(env->p));
 	cpumask_and(&cpus_allowed, &cpus_allowed, ecs_cpus_allowed());
-	cpumask_and(&syncback, &cpus_allowed, &env->p->aug_cpus_allowed);
-	if (cpumask_empty(&syncback))
-		cpumask_or(&cpus_allowed, &cpus_allowed, &env->p->aug_cpus_allowed);
-	else
+	if (cpumask_intersects(&cpus_allowed, &env->p->aug_cpus_allowed))
 		cpumask_and(&cpus_allowed, &cpus_allowed, &env->p->aug_cpus_allowed);
+	else
+		cpumask_or(&cpus_allowed, &cpus_allowed, &env->p->aug_cpus_allowed);
 
 	if (cpumask_empty(&cpus_allowed)) {
 		/* no cpus allowed, give up on selecting cpus */
@@ -53,12 +58,11 @@ static void select_fit_cpus(struct tp_env *env)
 	ontime_select_fit_cpus(p, &ontime_fit_cpus);
 
 	/*
-	 * Find cpus to be overutilized.
-	 * If utilization of cpu with given task exceeds 80% of cpu capacity, it is
-	 * overutilized, but excludes cpu without running task because cpu is likely
-	 * to become idle.
+	 * Find cpus that becomes over capacity.
+	 * If utilization of cpu with given task exceeds cpu capacity, it is
+	 * over capacity.
 	 *
-	 * overutil_cpus = cpu util + task util > 80% of cpu capacity
+	 * overcap_cpus = cpu util + task util > cpu capacity
 	 */
 	for_each_cpu(cpu, &cpus_allowed) {
 		unsigned long capacity = capacity_cpu(cpu, p->sse);
@@ -67,8 +71,8 @@ static void select_fit_cpus(struct tp_env *env)
 		if (task_cpu(p) != cpu)
 			new_util += ml_task_util(p);
 
-		if (cpu_overutilized(capacity, new_util) && cpu_rq(cpu)->nr_running)
-			cpumask_set_cpu(cpu, &overutil_cpus);
+		if (new_util > capacity)
+			cpumask_set_cpu(cpu, &overcap_cpus);
 	}
 
 	/*
@@ -78,9 +82,12 @@ static void select_fit_cpus(struct tp_env *env)
 	 * exceeds 12.5% of cpu capacity, it is defined as busy cpu.
 	 * (12.5% : this percentage is heuristically obtained)
 	 *
+	 * However, the task wait time is too long (hungry state), don't consider
+	 * the busy cpu to spread the task as much as possible.
+	 *
 	 * busy_cpus = cpu util >= 12.5% of cpu capacity
 	 */
-	if (!env->wake) {
+	if (!env->wake && !ml_task_hungry(p)) {
 		for_each_cpu(cpu, &cpus_allowed) {
 			int threshold = capacity_cpu(cpu, p->sse) >> 3;
 
@@ -91,38 +98,21 @@ static void select_fit_cpus(struct tp_env *env)
 		goto combine_cpumask;
 	}
 
-	/*
-	 * Find free cpus.
-	 * Free cpus is used as an alternative when all cpus allowed become
-	 * overutilized. Define significantly low-utilized cpus(< 1.56%) as
-	 * free cpu.
-	 *
-	 * free_cpus = cpu util < 1.56% of cpu capacity
-	 */
-	if (unlikely(cpumask_equal(&cpus_allowed, &overutil_cpus))) {
-		for_each_cpu(cpu, &cpus_allowed) {
-			int threshold = capacity_cpu(cpu, p->sse) >> 6;
-
-			if (_ml_cpu_util(cpu, p->sse) < threshold)
-				cpumask_set_cpu(cpu, &free_cpus);
-		}
-	}
-
 combine_cpumask:
 	/*
 	 * To select cpuset where task fits, each cpumask is combined as
 	 * below sequence:
 	 *
 	 * 1) Pick ontime_fit_cpus from cpus allowed.
-	 * 2) Exclude overutil_cpu from fit cpus.
-	 *    The utilization of cpu with given task is overutilized, the cpu
-	 *    cannot process the task properly then performance drop. therefore,
-	 *    overutil_cpu is excluded.
+	 * 2) Exclude overcap_cpu from fit cpus.
+	 *    The utilization of cpu with given task become over capacity, the
+	 *    cpu cannot process the task properly then performance drop.
+	 *    therefore, overcap_cpu is excluded.
 	 *
-	 *    fit_cpus = cpus_allowed & ontime_fit_cpus & ~overutil_cpus
+	 *    fit_cpus = cpus_allowed & ontime_fit_cpus & ~overcap_cpus
 	 */
 	cpumask_and(&fit_cpus, &cpus_allowed, &ontime_fit_cpus);
-	cpumask_andnot(&fit_cpus, &fit_cpus, &overutil_cpus);
+	cpumask_andnot(&fit_cpus, &fit_cpus, &overcap_cpus);
 
 	/*
 	 * Case: task migration
@@ -138,35 +128,14 @@ combine_cpumask:
 		goto finish;
 	}
 
-	/*
-	 * Case: task wakeup
-	 *
-	 * 3) Select free cpus if cpus allowed are overutilized.
-	 *    If all cpus allowed are overutilized when it assigns given task
-	 *    to cpu, select free cpus as an alternative.
-	 *
-	 *    fit_cpus = free_cpus
-	 */
-	if (unlikely(cpumask_equal(&cpus_allowed, &overutil_cpus)))
-		cpumask_copy(&fit_cpus, &free_cpus);
-
-	/*
-	 * 4) Select cpus allowed if no cpus where fits task.
-	 *
-	 *    fit_cpus = cpus_allowed
-	 */
-	if (cpumask_empty(&fit_cpus))
-		cpumask_copy(&fit_cpus, &cpus_allowed);
-
 finish:
 	cpumask_copy(&env->fit_cpus, &fit_cpus);
 	trace_ems_select_fit_cpus(env->p, env->wake,
 		*(unsigned int *)cpumask_bits(&env->fit_cpus),
 		*(unsigned int *)cpumask_bits(&cpus_allowed),
 		*(unsigned int *)cpumask_bits(&ontime_fit_cpus),
-		*(unsigned int *)cpumask_bits(&overutil_cpus),
-		*(unsigned int *)cpumask_bits(&busy_cpus),
-		*(unsigned int *)cpumask_bits(&free_cpus));
+		*(unsigned int *)cpumask_bits(&overcap_cpus),
+		*(unsigned int *)cpumask_bits(&busy_cpus));
 }
 
 static void get_ready_env(struct tp_env *env)
@@ -197,10 +166,29 @@ static void get_ready_env(struct tp_env *env)
 		*(unsigned int *)cpumask_bits(&env->idle_candidates));
 }
 
+/*
+ * if there is more pending task than number of the llc_size
+ * set prefer_idle to spread task fastly
+ */
+static int wake_wide(int sch)
+{
+	if (!emstune_wake_wide)
+		return 0;
+
+	if (emstune_boosted())
+		return 0;
+
+	/* allow wake wide if sch is greater than NR_CPUS-2 */
+	if (sch + 2 >= NR_CPUS)
+		return 1;
+
+	return 0;
+}
+
 extern void sync_entity_load_avg(struct sched_entity *se);
 
 int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
-				int sd_flag, int sync, int wake)
+			int sd_flag, int sync, int wake, int sch)
 {
 	int target_cpu = -1;
 	struct tp_env env = {
@@ -215,6 +203,14 @@ int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
 	 */
 	if (!(sd_flag & SD_BALANCE_FORK))
 		sync_entity_load_avg(&p->se);
+
+	if (wake_wide(sch)) {
+		target_cpu = find_wide_cpu(&env, sch);
+		if (target_cpu >= 0) {
+			trace_ems_select_task_rq(p, target_cpu, sch, "wide_cpu");
+			return target_cpu;
+		}
+	}
 
 	select_fit_cpus(&env);
 	if (cpumask_empty(&env.fit_cpus)) {
@@ -231,21 +227,6 @@ int exynos_select_task_rq(struct task_struct *p, int prev_cpu,
 		if (cpumask_test_cpu(target_cpu, &env.fit_cpus)) {
 			trace_ems_select_task_rq(p, target_cpu, wake, "sync");
 			return target_cpu;
-		}
-	}
-
-	if (!wake) {
-		struct cpumask mask;
-
-		/*
-		 * 'wake = 0' indicates that running task attempt to migrate to
-		 * faster cpu by ontime migration. Therefore, if there are no
-		 * fit faster cpus, give up on choosing rq.
-		 */
-		cpumask_and(&mask, cpu_coregroup_mask(prev_cpu), &env.fit_cpus);
-		if (cpumask_weight(&mask)) {
-			trace_ems_select_task_rq(p, -1, wake, "no fit faster cpu");
-			return -1;
 		}
 	}
 
@@ -283,6 +264,60 @@ int ems_can_migrate_task(struct task_struct *p, int dst_cpu)
 	trace_ems_can_migrate_task(p, dst_cpu, true, "n/a");
 
 	return 1;
+}
+
+struct sysbusy {
+	raw_spinlock_t lock;
+	u64 last_update_time;
+	u64 boost_duration;
+	struct work_struct work;
+} sysbusy;
+
+static void sysbusy_boost_fn(struct work_struct *work)
+{
+	if (sysbusy.boost_duration)
+		exynos_devfreq_alt_mode_change(DEVFREQ_MIF, 1);
+	else
+		exynos_devfreq_alt_mode_change(DEVFREQ_MIF, 0);
+}
+
+void sysbusy_boost(void)
+{
+	int cpu, busy_count = 0;
+	unsigned long now = jiffies;
+	u64 old_boost_duration;
+
+	if (unlikely(!ems_core_initialized))
+		return;
+
+	if (!raw_spin_trylock(&sysbusy.lock))
+		return;
+
+	if (now <= sysbusy.last_update_time + sysbusy.boost_duration)
+		goto out;
+
+	sysbusy.last_update_time = now;
+
+	for_each_online_cpu(cpu) {
+		/* count busy cpu */
+		if (ml_cpu_util(cpu) * 100 >= capacity_cpu(cpu, USS) * 95)
+			busy_count++;
+	}
+
+	old_boost_duration = sysbusy.boost_duration;
+	if (busy_count >= (cpumask_weight(cpu_possible_mask) >> 1)) {
+		sysbusy.boost_duration = 250;	/* 250HZ == 1s*/
+		trace_ems_sysbusy_boost(1);
+	} else {
+		sysbusy.boost_duration = 0;
+		trace_ems_sysbusy_boost(0);
+	}
+
+	if (old_boost_duration != sysbusy.boost_duration)
+		schedule_work(&sysbusy.work);
+
+out:
+	raw_spin_unlock(&sysbusy.lock);
 }
 
 static ssize_t show_sched_topology(struct kobject *kobj,
@@ -332,6 +367,11 @@ static int __init init_ems_core(void)
 	ret = sysfs_create_file(ems_kobj, &sched_topology_attr.attr);
 	if (ret)
 		pr_warn("%s: failed to create sysfs\n", __func__);
+
+	raw_spin_lock_init(&sysbusy.lock);
+	INIT_WORK(&sysbusy.work, sysbusy_boost_fn);
+
+	ems_core_initialized = true;
 
 	return 0;
 }

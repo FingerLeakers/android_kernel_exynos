@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 2019, Broadcom.
+ * Copyright (C) 2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2134,9 +2134,15 @@ void dhd_schedule_edl_work(dhd_pub_t *dhdp, uint delay_ms);
 #define DHD_ARP_FILTER_NUM		5
 #define DHD_BROADCAST_ARP_FILTER_NUM	6
 #define DHD_IP4BCAST_DROP_FILTER_NUM	7
+#define DHD_LLC_STP_DROP_FILTER_NUM	8
+#define DHD_LLC_XID_DROP_FILTER_NUM	9
+#define DHD_UDPNETBIOS_DROP_FILTER_NUM	10
 #define DISCARD_IPV4_MCAST	"102 1 6 IP4_H:16 0xf0 0xe0"
 #define DISCARD_IPV6_MCAST	"103 1 6 IP6_H:24 0xff 0xff"
 #define DISCARD_IPV4_BCAST	"107 1 6 IP4_H:16 0xffffffff 0xffffffff"
+#define DISCARD_LLC_STP		"108 1 6 ETH_H:14 0xFFFFFFFFFFFF 0xAAAA0300000C"
+#define DISCARD_LLC_XID		"109 1 6 ETH_H:14 0xFFFFFF 0x0001AF"
+#define DISCARD_UDPNETBIOS	"110 1 6 UDP_H:2 0xffff 0x0089"
 extern int dhd_os_enable_packet_filter(dhd_pub_t *dhdp, int val);
 extern void dhd_enable_packet_filter(int value, dhd_pub_t *dhd);
 extern int dhd_packet_filter_add_remove(dhd_pub_t *dhdp, int add_remove, int num);

@@ -93,13 +93,12 @@ static bool sec_direct_chg_set_switching_charge(
 		sec_direct_charger_mode_str[charger->charger_mode_main],
 		sec_direct_charger_mode_str[charger_mode]);
 	
-	if(charger->charger_mode_main != charger_mode) {
 	charger->charger_mode_main = charger_mode;
 
 	value.intval = charger_mode;
 	psy_do_property(charger->pdata->main_charger_name, set,
 		POWER_SUPPLY_PROP_CHARGING_ENABLED, value);
-	}
+
 	return true;
 }
 

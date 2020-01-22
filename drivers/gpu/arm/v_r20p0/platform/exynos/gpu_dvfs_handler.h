@@ -62,6 +62,7 @@ int gpu_dvfs_get_utilization(void);
 int gpu_dvfs_get_max_freq(void);
 int gpu_dvfs_get_sustainable_info_array(int index);
 int gpu_dvfs_get_max_lock(void);
+bool gpu_dvfs_get_need_cpu_qos(void);
 
 int gpu_dvfs_decide_max_clock(struct exynos_context *platform);
 

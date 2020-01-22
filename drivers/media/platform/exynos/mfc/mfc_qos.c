@@ -1137,6 +1137,7 @@ void mfc_qos_update_framerate(struct mfc_ctx *ctx, u32 bytesused,
 				ctx->framerate, ctx->last_framerate, ctx->qos_ratio);
 		ctx->framerate = ctx->last_framerate;
 		update_framerate = true;
+		ctx->update_framerate = true;
 	}
 
 update_qos:

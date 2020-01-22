@@ -51,10 +51,12 @@ extern unsigned long ml_cpu_util_ratio(int cpu, int sse);
 extern unsigned long __ml_cpu_util_with(int cpu, struct task_struct *p, int sse);
 extern unsigned long ml_cpu_util_with(int cpu, struct task_struct *p);
 extern unsigned long ml_cpu_util_without(int cpu, struct task_struct *p);
+extern int ml_task_hungry(struct task_struct *p);
 extern void init_part(void);
 
 /* efficiency cpu selection */
 extern int find_best_cpu(struct tp_env *env);
+extern int find_wide_cpu(struct tp_env *env, int sch);
 
 /* ontime migration */
 struct ontime_dom {
@@ -210,6 +212,9 @@ extern int emstune_prefer_idle(struct task_struct *p);
 extern int emstune_ontime(struct task_struct *p);
 extern int emstune_util_est(struct task_struct *p);
 extern int emstune_init_util(struct task_struct *p);
+extern int emstune_boosted(void);
+extern int emstune_wake_wide;
+extern int emstune_hungry;
 
 static inline int cpu_overutilized(unsigned long capacity, unsigned long util)
 {

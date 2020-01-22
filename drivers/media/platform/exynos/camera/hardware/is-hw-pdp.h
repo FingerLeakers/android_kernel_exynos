@@ -20,10 +20,13 @@ extern int debug_pdp;
 	dbg_common((debug_pdp) >= (level), "[PDP%d]", fmt, pdp->id, ##args)
 
 #define PDP_STUCK_CNT		(20)
+#define STAT_REG_MAX		(400)
 
 enum is_pdp_state {
 	IS_PDP_SET_PARAM,
+	IS_PDP_SET_PARAM_COPY,
 	IS_PDP_VOTF_ONESHOT_FIRST_FRAME,
+	IS_PDP_ONESHOT_PENDING,
 };
 
 struct pdp_lic_lut {
@@ -38,6 +41,11 @@ enum pdp_irq_src {
 	PDP_INT2,
 	PDP_INT2_RDMA,
 	PDP_INT_MAX,
+};
+
+struct pdp_stat_reg {
+	u32 reg_addr;
+	u32 reg_data;
 };
 
 struct is_pdp {
@@ -74,6 +82,8 @@ struct is_pdp {
 
 	spinlock_t			slock_paf_action;
 	struct list_head		list_of_paf_action;
+	spinlock_t			slock_paf_s_param;
+	spinlock_t			slock_oneshot;
 
 	atomic_t			frameptr_stat0;
 
@@ -81,6 +91,9 @@ struct is_pdp {
 	struct work_struct		work_stat[WORK_PDP_MAX];
 	struct is_work_list		work_list[WORK_PDP_MAX];
 	struct is_framemgr              *stat_framemgr;
+
+	struct pdp_stat_reg 		regs[STAT_REG_MAX]; /* RTA CR setting buffer */
+	u32				regs_size;
 
 	const char			*int1_str[BITS_PER_LONG];
 	const char			*int2_str[BITS_PER_LONG];
@@ -91,6 +104,8 @@ struct is_pdp {
 
 	int				vc_ext_sensor_mode;
 	u32				err_cnt_oneshot;
+
+	u32				rmo; /* Backup RDMA MO */
 
 	/* debug */
 	unsigned long long		time_rta_cfg;

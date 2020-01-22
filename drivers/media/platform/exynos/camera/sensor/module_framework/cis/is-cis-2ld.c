@@ -69,6 +69,9 @@ static struct ae_param sensor_2ld_again_backup;
 static struct ae_param sensor_2ld_dgain_backup;
 static struct ae_param sensor_2ld_target_exp_backup;
 
+static bool sensor_2ld_LTE_1s_flag;
+static bool sensor_2ld_night_flag;
+
 static bool sensor_2ld_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 {
 	unsigned int mode = cis_data->sens_config_index_cur;
@@ -225,7 +228,7 @@ static void sensor_2ld_set_integration_max_margin(u32 mode, cis_shared_data *cis
 	case SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_960:
 	case SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_480:
 	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960:
-	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_480:
+	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960_SDC_OFF:
 		/* Binning */
 		cis_data->max_margin_coarse_integration_time = 0x2E;
 		break;
@@ -495,6 +498,8 @@ int sensor_2ld_cis_init(struct v4l2_subdev *subdev)
 #endif
 
 	sensor_2ld_load_retention = false;
+	sensor_2ld_LTE_1s_flag = false;
+
 	sensor_2ld_cis_data_calculation(sensor_2ld_pllinfos[setfile_index], cis->cis_data);
 	sensor_2ld_set_integration_max_margin(setfile_index, cis->cis_data);
 
@@ -794,7 +799,7 @@ int sensor_2ld_cis_retention_crc_enable(struct v4l2_subdev *subdev, u32 mode)
 	case SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_960:
 	case SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_480:
 	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960:
-	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_480:
+	case SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960_SDC_OFF:
 		break;
 	default:
 		/* Sensor stream on */
@@ -862,12 +867,22 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	struct is_module_enum *module;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	struct sensor_open_extended *ext_info = NULL;
+	u8 data8 = 0;
+	u32 ex_mode;
+	struct is_device_sensor *device;
 
 	WARN_ON(!subdev);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	WARN_ON(!cis);
 	WARN_ON(!cis->cis_data);
+
+	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (unlikely(!device)) {
+		err("device sensor is null");
+		return -EINVAL;
+	}
+
 
 	if (mode >= sensor_2ld_max_setfile_num) {
 		err("invalid mode(%d)!!", mode);
@@ -892,6 +907,8 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 #endif
 
 	sensor_2ld_cis_set_paf_stat_enable(mode, cis->cis_data);
+
+	ex_mode = is_sensor_g_ex_mode(device);
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
@@ -992,6 +1009,34 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	} else {
 		cis->cis_data->pre_lownoise_mode = IS_CIS_LNOFF;
 		cis->cis_data->cur_lownoise_mode = IS_CIS_LNOFF;
+	}
+
+	if (mode == SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_960
+		|| mode == SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_480
+		|| mode == SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960
+		|| mode == SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960_SDC_OFF) {
+		info("[%s] mitigation off (%d)\n", __func__, mode);
+		ret |= is_sensor_write8(cis->client, 0x0120, 0x01);
+
+		ret |= is_sensor_read8(cis->client, 0x1982, &data8);
+		if (unlikely(!ret))
+			pr_info("0x1982(0x%x)\n", data8);
+		else
+			goto p_err_i2c_unlock;
+	}
+
+	if (ex_mode == EX_NIGHT) {
+		info("[%s] night mode additional setting (%d)\n", __func__, mode);
+		sensor_2ld_night_flag = true;
+		ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_enable,
+									sensor_2ld_cis_night_settings_enable_size);
+	} else {
+		if (sensor_2ld_night_flag) {
+			info("[%s] night mode additional setting -> restore (%d)\n", __func__, mode);
+			sensor_2ld_night_flag = false;
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_disable,
+										sensor_2ld_cis_night_settings_disable_size);
+		}
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
@@ -1567,10 +1612,12 @@ int sensor_2ld_cis_stream_on(struct v4l2_subdev *subdev)
 		is_sensor_write16(cis->client,0x0B30, 0x0000); // LN OFF
 		cis_data->sen_frame_id = 0xF;
 	} else {
-		info("%s : disable AEB \n", __func__);
-		is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-		is_sensor_write8(cis->client, 0x0E0B, 0x00);
-		cis_data->sen_frame_id = 0xA;
+		if (!sensor_2ld_LTE_1s_flag) {
+			info("%s : disable AEB \n", __func__);
+			is_sensor_write16(cis->client, 0xFCFC, 0x4000);
+			is_sensor_write8(cis->client, 0x0E0B, 0x00);
+			cis_data->sen_frame_id = 0xA;
+		}
 	}
 
 	/* Sensor stream on */
@@ -1924,6 +1971,13 @@ int sensor_2ld_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 			ret |= is_sensor_write16(cis->client, 0x021E, 0x0000);
 		}
 
+		if (sensor_2ld_LTE_1s_flag) {
+			ret |= is_sensor_write16(cis->client, 0x0E1A, short_coarse_int);
+			ret |= is_sensor_write16(cis->client, 0x0E1E, long_coarse_int);
+			if (ret < 0)
+				goto p_err_i2c_unlock;
+		}
+
 		/* Short exposure */
 		ret |= is_sensor_write16(client, 0x0202, short_coarse_int);
 		if (ret < 0)
@@ -2127,7 +2181,11 @@ int sensor_2ld_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	dbg_sensor(1, "[%s](vsync cnt = %d) adj duration, frame duraion(%d), min_frame_us(%d)\n",
 			__func__, cis_data->sen_vsync_count, frame_duration, cis_data->min_frame_us_time);
 
-	*target_duration = MAX(frame_duration, cis_data->min_frame_us_time);
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		*target_duration = MAX(frame_duration, cis_data->min_frame_us_time);
+	} else {
+		*target_duration = frame_duration;
+	}
 
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);
@@ -2208,9 +2266,24 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	}
 #endif
 
-	sensor_2ld_frame_duration_backup = frame_duration;
+	if (cis->cis_data->sens_config_index_cur == SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_960
+		|| cis->cis_data->sens_config_index_cur == SENSOR_2LD_2016X1134_60FPS_MODE2_SSM_480
+		|| cis->cis_data->sens_config_index_cur == SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960
+		|| cis->cis_data->sens_config_index_cur == SENSOR_2LD_1280X720_60FPS_MODE2_SSM_960_SDC_OFF) {
+		return ret;
+	}
 
 	cis_data = cis->cis_data;
+
+	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
+		if (frame_duration < cis_data->min_frame_us_time) {
+			dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
+			frame_duration = cis_data->min_frame_us_time;
+		}
+	}
+
+	sensor_2ld_frame_duration_backup = frame_duration;
+	cis_data->cur_frame_us_time = frame_duration;
 
 	if (sensor_2ld_ln_mode_delay_count > 0)
 		sensor_2ld_ln_mode_delay_count--;
@@ -2237,11 +2310,6 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			}
 			break;
 		}
-	}
-
-	if (frame_duration < cis_data->min_frame_us_time) {
-		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
-		frame_duration = cis_data->min_frame_us_time;
 	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / (1000);
@@ -2280,6 +2348,12 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		if (cis->cis_data->cur_lownoise_mode != cis->cis_data->pre_lownoise_mode)
 			ret |= sensor_2ld_cis_set_lownoise_mode_change(subdev);
 
+		if (sensor_2ld_LTE_1s_flag) {
+			ret |= is_sensor_write16(client, 0x0E22, frame_length_lines);
+			if (ret < 0)
+				goto p_err_i2c_unlock;
+		}
+
 		ret |= is_sensor_write16(client, 0x0340, frame_length_lines);
 
 		if (ret < 0)
@@ -2298,7 +2372,6 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 				line_length_pck, frame_length_lines, frame_length_lines_shifter);
 	}
 
-	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
 	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;
@@ -2497,6 +2570,12 @@ int sensor_2ld_cis_set_analog_gain(struct v4l2_subdev *subdev, struct ae_param *
 		dbg_sensor(1, "%s, vsync_cnt(%d), frame_id(%#x), input_again = %d us, analog_gain(%#x)\n",
 			__func__, cis_data->sen_vsync_count, cis_data->sen_frame_id, again->val, analog_gain);
 	} else {
+		if (sensor_2ld_LTE_1s_flag) {
+			ret |= is_sensor_write16(client, 0x0E1C, analog_gain);
+			if (ret < 0)
+				goto p_err_i2c_unlock;
+		}
+
 		ret |= is_sensor_write16(client, 0x0204, analog_gain);
 		if (ret < 0)
 			goto p_err_i2c_unlock;
@@ -2743,6 +2822,12 @@ int sensor_2ld_cis_set_digital_gain(struct v4l2_subdev *subdev, struct ae_param 
 		dbg_sensor(1, "%s, vsync_cnt(%d), frame_id(%#x), input_dgain = %d/%d us, long_gain(%#x), short_gain(%#x)\n",
 			__func__, cis_data->sen_vsync_count, cis_data->sen_frame_id, dgain->long_val, dgain->short_val, long_gain, short_gain);
 	} else {
+		if (sensor_2ld_LTE_1s_flag) {
+			ret |= is_sensor_write16(client, 0x0E20, short_gain);
+			if (ret < 0)
+				goto p_err_i2c_unlock;
+		}
+
 		/* Short digital gain */
 		ret |= is_sensor_write16(client, 0x020E, short_gain);
 		if (ret < 0)
@@ -2939,7 +3024,47 @@ int sensor_2ld_cis_long_term_exposure(struct v4l2_subdev *subdev)
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	/* LTE mode or normal mode set */
 	if (lte_mode->sen_strm_off_on_enable) {
-		if (lte_mode->expo[0] > 125000) {
+		dbg_sensor(1, "%s ****************************************************************\n", __func__);
+		dbg_sensor(1, "%s enable(%d)\n", __func__, lte_mode->sen_strm_off_on_enable);
+		dbg_sensor(1, "%s expo[0](%d) expo[1](%d)\n", __func__, lte_mode->expo[0], lte_mode->expo[1]);
+		dbg_sensor(1, "%s tgain[0](%d) tgain[1](%d)\n", __func__, lte_mode->tgain[0], lte_mode->tgain[1]);
+		dbg_sensor(1, "%s again[0](%d) again[1](%d)\n", __func__, lte_mode->again[0], lte_mode->again[1]);
+		dbg_sensor(1, "%s dgain[0](%d) dgain[1](%d)\n", __func__, lte_mode->dgain[0], lte_mode->dgain[1]);
+		dbg_sensor(1, "%s frame_interval(%d)\n", __func__, lte_mode->frame_interval);
+		dbg_sensor(1, "%s ****************************************************************\n", __func__);
+
+		if (lte_mode->expo[0] >= 1000000) {
+			info("%s sensor LTE special setting", __func__);
+			sensor_2ld_LTE_1s_flag = true;
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_LTE_settings_1,sensor_2ld_cis_LTE_settings_1_size);
+#ifdef USE_SENSOR_LONG_EXPOSURE_SHOT
+			lte_expousre = lte_mode->expo[0];
+			cit_lshift_val = (unsigned char)(lte_mode->expo[0] / 125000);
+			while (cit_lshift_val) {
+				cit_lshift_val = cit_lshift_val / 2;
+				lte_expousre = lte_expousre / 2;
+				shift_count++;
+			}
+			lte_mode->expo[0] = lte_expousre;
+#else
+			cit_lshift_val = (unsigned char)(lte_mode->expo[0] / 125000);
+			while (cit_lshift_val) {
+				cit_lshift_val = cit_lshift_val / 2;
+				if (cit_lshift_val > 0)
+					shift_count++;
+			}
+			lte_mode->expo[0] = 125000;
+#endif
+			info("%s lte_mode->expo[0](%d), shift_count(%d)", __func__, lte_mode->expo[0], shift_count);
+			ret |= is_sensor_write16(cis->client, 0xBCA2, (shift_count << 8) | shift_count); // LTE FLL Shifter (1byte), CIT Shifter (1byte)
+			ret |= is_sensor_write16(cis->client, 0xBCA4, (shift_count << 8) | 0x9E); // LTE Long CIT Shifter (1byte)
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_LTE_settings_2,sensor_2ld_cis_LTE_settings_2_size);
+		} else if (lte_mode->expo[0] > 125000) {
+			if(sensor_2ld_LTE_1s_flag) {
+				info("%s senosr LTE special setting -> restore", __func__);
+				sensor_2ld_LTE_1s_flag = false;
+				ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_LTE_settings_3,sensor_2ld_cis_LTE_settings_3_size);
+			}
 #ifdef USE_SENSOR_LONG_EXPOSURE_SHOT
 			lte_expousre = lte_mode->expo[0];
 			cit_lshift_val = (unsigned char)(lte_mode->expo[0] / 125000);
@@ -2967,6 +3092,11 @@ int sensor_2ld_cis_long_term_exposure(struct v4l2_subdev *subdev)
 		ret |= is_sensor_write16(cis->client, 0xFCFC, 0x4000);
 		ret |= is_sensor_write8(cis->client, 0x0702, cit_lshift_val);
 		ret |= is_sensor_write8(cis->client, 0x0704, cit_lshift_val);
+		if(sensor_2ld_LTE_1s_flag) {
+			info("%s senosr LTE special setting -> preview", __func__);
+			sensor_2ld_LTE_1s_flag = false;
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_LTE_settings_3,sensor_2ld_cis_LTE_settings_3_size);
+		}
 	}
 
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -3819,6 +3949,8 @@ static int cis_2ld_probe(struct i2c_client *client,
 
 	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
 	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
+
+	sensor_2ld_night_flag = false;
 
 	ret = of_property_read_string(dnode, "setfile", &setfile);
 	if (ret) {

@@ -89,6 +89,7 @@ struct usb_notify {
 	struct delayed_work check_work;
 	struct typec_info typec_status;
 	struct usb_gadget_info gadget_status;
+	struct mutex state_lock;
 	int is_device;
 	int check_work_complete;
 	int oc_noti;
@@ -1202,8 +1203,10 @@ static void otg_notify_state(struct otg_notify *n,
 			if (n->set_peripheral)
 				n->set_peripheral(true);
 		} else {
+			mutex_lock(&u_notify->state_lock);
 			u_notify->ndev.mode = NOTIFY_NONE_MODE;
 			u_notify->gadget_status.bus_state = NOTIFY_UNCONFIGURE;
+			mutex_unlock(&u_notify->state_lock);
 			if (n->set_peripheral)
 				n->set_peripheral(false);
 			if (gpio_is_valid(n->redriver_en_gpio))
@@ -1582,6 +1585,7 @@ static void extra_notify_state(struct otg_notify *n,
 			u_notify->reserve_vbus_booster = 0;
 		break;
 	case NOTIFY_EVENT_USB_CABLE:
+		mutex_lock(&u_notify->state_lock);
 		if (enable)
 			u_notify->gadget_status.usb_cable_connect = 1;
 		else
@@ -1589,25 +1593,35 @@ static void extra_notify_state(struct otg_notify *n,
 
 		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE) {
 			if ((u_notify->gadget_status.bus_state == NOTIFY_SUSPEND)
-					&& u_notify->gadget_status.usb_cable_connect)
-				n->set_chg_current(NOTIFY_SUSPEND);
+					&& u_notify->gadget_status.usb_cable_connect) {
+				if (n->set_chg_current)
+					n->set_chg_current(NOTIFY_SUSPEND);
+			}
 		}
+		mutex_unlock(&u_notify->state_lock);
 		break;
 	case NOTIFY_EVENT_USBD_SUSPEND:
+		mutex_lock(&u_notify->state_lock);
 		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE) {
 			u_notify->gadget_status.bus_state = NOTIFY_SUSPEND;
-			if ((u_notify->gadget_status.bus_state == NOTIFY_SUSPEND)
-					&& u_notify->gadget_status.usb_cable_connect)
-				n->set_chg_current(NOTIFY_SUSPEND);
+			if (u_notify->gadget_status.usb_cable_connect) {
+				if (n->set_chg_current)
+					n->set_chg_current(NOTIFY_SUSPEND);
+			}
 		}
+		mutex_unlock(&u_notify->state_lock);
 		break;
 	case NOTIFY_EVENT_USBD_UNCONFIGURE:
+		mutex_lock(&u_notify->state_lock);
 		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE)
 			u_notify->gadget_status.bus_state = NOTIFY_UNCONFIGURE;
+		mutex_unlock(&u_notify->state_lock);
 		break;
 	case NOTIFY_EVENT_USBD_CONFIGURE:
+		mutex_lock(&u_notify->state_lock);
 		if (u_notify->ndev.mode == NOTIFY_PERIPHERAL_MODE)
 			u_notify->gadget_status.bus_state = NOTIFY_CONFIGURE;
+		mutex_unlock(&u_notify->state_lock);
 		break;
 	default:
 		break;
@@ -2023,6 +2037,8 @@ static struct dev_table known_usbaudio_device_table[] = {
 	},
 	{ .dev = { USB_DEVICE(0x04e8, 0xa059), },
 	},
+	{ .dev = { USB_DEVICE(0x04e8, 0xa05e), },
+	},
 	{}
 };
 
@@ -2045,12 +2061,45 @@ int is_known_usbaudio(struct usb_device *dev)
 }
 EXPORT_SYMBOL(is_known_usbaudio);
 
-void send_usb_audio_uevent(struct usb_device *dev)
+void set_usb_audio_cardnum(int card_num, int bundle, int attach)
+{
+	struct otg_notify *o_notify = get_otg_notify();
+	struct usb_notify *u_notify = NULL;
+
+	if (!o_notify) {
+		pr_err("%s o_notify is null\n", __func__);
+		goto err;
+	}
+	u_notify = (struct usb_notify *)(o_notify->u_notify);
+
+	if (!u_notify) {
+		pr_err("%s u_notify structure is null\n",
+			__func__);
+		goto err;
+	}
+
+	pr_info("%s card=%d attach=%d\n", __func__, card_num, attach);
+	
+	if (attach) {
+		u_notify->udev.usb_audio_cards[card_num].cards = 1;
+		if (bundle)
+			u_notify->udev.usb_audio_cards[card_num].bundle = 1;
+	} else {
+		u_notify->udev.usb_audio_cards[card_num].cards = 0;
+		u_notify->udev.usb_audio_cards[card_num].bundle = 0;
+	}
+err:
+	return;
+}
+
+void send_usb_audio_uevent(struct usb_device *dev,
+		int card_num, int attach)
 {
 	struct otg_notify *o_notify = get_otg_notify();
 	char *envp[6];
 	char *type = {"TYPE=usbaudio"};
-	char *state = {"STATE=ADD"};
+	char *state_add = {"STATE=ADD"};
+	char *state_remove = {"STATE=REMOVE"};
 	char vidpid_vuf[15];
 	char path_buf[50];
 	int index = 0;
@@ -2063,7 +2112,11 @@ void send_usb_audio_uevent(struct usb_device *dev)
 		goto err;
 
 	envp[index++] = type;
-	envp[index++] = state;
+
+	if (attach)
+		envp[index++] = state_add;
+	else
+		envp[index++] = state_remove;
 
 	snprintf(vidpid_vuf, sizeof(vidpid_vuf),
 		"ID=%04X/%04X", le16_to_cpu(dev->descriptor.idVendor),
@@ -2077,11 +2130,17 @@ void send_usb_audio_uevent(struct usb_device *dev)
 	envp[index++] = path_buf;
 
 #ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
-	cardnum = get_next_snd_card_number(THIS_MODULE);
-	if (cardnum < 0) {
-		pr_err("%s cardnum error\n", __func__);
-		goto err;
-	}
+	if (attach) {
+		cardnum = get_next_snd_card_number(THIS_MODULE);
+		if (cardnum < 0) {
+			pr_err("%s cardnum error\n", __func__);
+			goto err;
+		}
+	} else
+		cardnum = card_num;
+
+	set_usb_audio_cardnum(cardnum, 1, attach);
+
 	snprintf(cardnum_buf, sizeof(cardnum_buf),
 		"CARDNUM=%d", cardnum);
 
@@ -2284,6 +2343,7 @@ int set_otg_notify(struct otg_notify *n)
 	}
 
 	ovc_init(u_notify);
+	mutex_init(&u_notify->state_lock);
 
 	ATOMIC_INIT_NOTIFIER_HEAD(&u_notify->otg_notifier);
 	u_notify->otg_nb.notifier_call = otg_notifier_callback;

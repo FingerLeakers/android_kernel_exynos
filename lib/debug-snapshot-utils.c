@@ -291,6 +291,7 @@ static void dbg_snapshot_dump_one_task_info(struct task_struct *tsk, bool is_mai
 
 	if (tsk->state == TASK_RUNNING ||
 	    tsk->state == TASK_UNINTERRUPTIBLE ||
+	    tsk->state == TASK_WAKING ||
 	    tsk->state == TASK_KILLABLE) {
 		secdbg_dtsk_print_info(tsk, true);
 		show_stack(tsk, NULL);

@@ -179,7 +179,13 @@ static void exynos_smart_exception_handler(unsigned int id,
 
 	pr_err("========================================="
 		"=========================================\n");
-	/* make kernel panic */
+	/*
+	 * make kernel panic.
+	 * call dbg_snapshot_set_hardlockup(true) first.
+	 * it will triger wdt reset to save S2D data.
+	 */
+	dbg_snapshot_set_hardlockup(true);
+
 	BUG();
 
 	/* SHOULD NOT be here */

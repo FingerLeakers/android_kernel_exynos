@@ -681,6 +681,18 @@ int sensor_imx586_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		info("[%s] cis_rev=%#x\n", __func__, cis->cis_data->cis_rev);
 	}
 
+	switch(mode) {
+		case SENSOR_IMX586_REMOSAIC_FULL_8000X6000_15FPS:
+		case SENSOR_IMX586_REMOSAIC_CROP_4000X3000_30FPS:
+			cis->cis_data->max_analog_gain[0] = 960; /* x16 */
+			cis->cis_data->max_analog_gain[1] = sensor_imx586_cis_calc_again_permile(cis->cis_data->max_analog_gain[0]);
+			break;
+		default:
+			cis->cis_data->max_analog_gain[0] = SENSOR_IMX586_MAX_ANALOG_GAIN_SET_VALUE; /* x64 */
+			cis->cis_data->max_analog_gain[1] = sensor_imx586_cis_calc_again_permile(cis->cis_data->max_analog_gain[0]);
+			break;
+	}
+
 	sensor_imx586_set_integration_max_margin(mode, cis->cis_data);
 	sensor_imx586_set_integration_min(mode, cis->cis_data);
 	sensor_imx586_set_integration_step_value(mode);

@@ -63,7 +63,7 @@ static char* get_mode_string(enum exynos_ufc_execution_mode mode)
 		return "AARCH64_MODE";
 	case AARCH32_MODE:
 		return "AARCH32_MODE";
-	case MODE_END:
+	default :
 		return NULL;
 	}
 
@@ -79,7 +79,7 @@ static char* get_ctrl_type_string(enum exynos_ufc_ctrl_type type)
 		return "PM_QOS_MAX_LIMIT";
 	case PM_QOS_MIN_WO_BOOST_LIMIT:
 		return "PM_QOS_MIN_WO_BOOST_LIMIT";
-	case TYPE_END:
+	default :
 		return NULL;
 	}
 
@@ -679,7 +679,8 @@ static struct kobj_attribute cstate_control =
 
 static int __init init_sysfs_debug(void)
 {
-	int postfix_mode, ret;
+	int postfix_mode = 0;
+	int ret = 0;
 	char postfix_ctrltype[20];
 	struct ufc_table_info *table_info;
 
@@ -691,7 +692,7 @@ static int __init init_sysfs_debug(void)
 			case AARCH32_MODE:
 				postfix_mode = 32;
 				break;
-			case MODE_END:
+			default :
 				return -ENODEV;
 		}
 
@@ -705,7 +706,7 @@ static int __init init_sysfs_debug(void)
 			case PM_QOS_MIN_WO_BOOST_LIMIT:
 				strcpy(postfix_ctrltype, "min_wo_limit");
 				break;
-			case TYPE_END:
+			default :
 				return -ENODEV;
 		}
 
@@ -718,7 +719,7 @@ static int __init init_sysfs_debug(void)
 		}
 	}
 
-	return 0;
+	return ret;
 }
 
 static void ufc_free_all(void)

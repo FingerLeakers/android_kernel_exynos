@@ -574,40 +574,42 @@ static void mfc_rpp_set(struct mfc_charger_data *charger)
 		pr_info("%s: RPP scaling coefficient(0x%x)\n", __func__, data);
 }
 
-static void mfc_fod_set(struct mfc_charger_data *charger)
+static mfc_fod_data* mfc_get_fod_data(struct mfc_charger_data *charger)
 {
 	int i = 0;
 
-	pr_info("%s\n", __func__);
+	if (charger->pdata->fod_data_count <= 0)
+		return NULL;
 
-	if (charger->pdata->cable_type != SEC_WIRELESS_PAD_NONE) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, charger->pdata->fod_data[i]);
-	}
+	for (i = 0; i < charger->pdata->fod_data_count; i++)
+		if (charger->pdata->fod_list[i].pad_id == charger->tx_id)
+			return &charger->pdata->fod_list[i];
+
+	return (charger->pdata->fod_list[DEFAULT_PAD_ID].pad_id != 0) ?
+		NULL : &charger->pdata->fod_list[DEFAULT_PAD_ID];
 }
 
-static void mfc_fod_set_cv(struct mfc_charger_data *charger)
+static void mfc_fod_set(struct mfc_charger_data *charger, int fod_state)
 {
-	int i = 0;
+	mfc_fod_data* pfod_data = NULL;
+	int i;
 
-	pr_info("%s\n", __func__);
+	fod_state = (charger->is_full_status) ? FOD_STATE_FULL : fod_state;
+	pr_info("%s: pad_id = 0x%X, is_full_status = %d, fod_state = %d\n",
+		__func__, charger->tx_id, charger->is_full_status, fod_state);
 
-	if (charger->pdata->cable_type != SEC_WIRELESS_PAD_NONE) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, charger->pdata->fod_data_cv[i]);
-	}
-}
+	if (charger->pdata->cable_type == SEC_WIRELESS_PAD_NONE)
+		return;
 
-static void mfc_fod_set_cs100(struct mfc_charger_data *charger)
-{
-	int i = 0;
+	pfod_data = mfc_get_fod_data(charger);
+	if (pfod_data == NULL || pfod_data->data[fod_state] == NULL) {
+		pr_info("%s: skip to set fod because fod data is null\n", __func__);
+		return;
+	}
 
-	pr_info("%s\n", __func__);
-
-	if (charger->pdata->cable_type != SEC_WIRELESS_PAD_NONE) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, 0x7f);
-	}
+	for (i = 0; i < MFC_NUM_FOD_REG; i++)
+		mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG + i,
+			pfod_data->data[fod_state][i]);
 }
 
 static void mfc_set_tx_op_freq(struct mfc_charger_data *charger, unsigned int op_feq)
@@ -649,63 +651,6 @@ static void mfc_set_tx_oc_fod(struct mfc_charger_data *charger)
 
 	mfc_reg_write(charger->client, MFC_TX_OC_FOD1_LIMIT_L_REG, data[0]);
 	mfc_reg_write(charger->client, MFC_TX_OC_FOD1_LIMIT_H_REG, data[1]);
-}
-
-static void mfc_fod_set_hero_5v(struct mfc_charger_data *charger)
-{
-	int i = 0;
-	u8 fod[12] = {0, };
-
-	pr_info("%s\n", __func__);
-
-	if (charger->pdata->fod_hero_5v_data) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, charger->pdata->fod_hero_5v_data[i]);
-		msleep(2);
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_read(charger->client, MFC_WPC_FOD_0A_REG+i, &fod[i]);
-
-		pr_info("%s: HERO 5V FOD(%d %d %d %d %d %d %d %d %d %d %d %d)\n", __func__,
-			fod[0], fod[1], fod[2], fod[3], fod[4], fod[5], fod[6], fod[7], fod[8], fod[9], fod[10], fod[11]);
-	}
-}
-
-static void mfc_fod_set_dream(struct mfc_charger_data *charger)
-{
-	int i = 0;
-	u8 fod[12] = {0, };
-
-	pr_info("%s\n", __func__);
-
-	if (charger->pdata->fod_dream_data) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, charger->pdata->fod_dream_data[i]);
-		msleep(2);
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_read(charger->client, MFC_WPC_FOD_0A_REG+i, &fod[i]);
-
-		pr_info("%s: DreamPad FOD(%d %d %d %d %d %d %d %d %d %d %d %d)\n", __func__,
-			fod[0], fod[1], fod[2], fod[3], fod[4], fod[5], fod[6], fod[7], fod[8], fod[9], fod[10], fod[11]);
-	}
-}
-
-static void mfc_fod_set_dream_cv(struct mfc_charger_data *charger)
-{
-	int i = 0;
-	u8 fod[12] = {0, };
-
-	pr_info("%s\n", __func__);
-
-	if (charger->pdata->fod_dream_cv_data) {
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_write(charger->client, MFC_WPC_FOD_0A_REG+i, charger->pdata->fod_dream_cv_data[i]);
-		msleep(2);
-		for (i = 0; i < MFC_NUM_FOD_REG; i++)
-			mfc_reg_read(charger->client, MFC_WPC_FOD_0A_REG+i, &fod[i]);
-
-		pr_info("%s: DreamPad CV FOD(%d %d %d %d %d %d %d %d %d %d %d %d)\n", __func__,
-			fod[0], fod[1], fod[2], fod[3], fod[4], fod[5], fod[6], fod[7], fod[8], fod[9], fod[10], fod[11]);
-	}
 }
 
 EXTERN_MFC_FUNC
@@ -3055,7 +3000,7 @@ static void mfc_cs100_work(struct work_struct *work)
 	pr_info("%s \n", __func__);
 	if (is_wireless_pad_type(charger->pdata->cable_type)) {
 		/* set fake FOD values before send cs100, need to tune */
-		mfc_fod_set_cs100(charger);
+		mfc_fod_set(charger, FOD_STATE_FULL);
 	}
 	charger->pdata->cs100_status = mfc_send_cs100(charger);
 
@@ -3104,10 +3049,7 @@ static int mfc_chg_set_property(struct power_supply *psy,
 		} else if (val->intval == POWER_SUPPLY_STATUS_NOT_CHARGING) {
 			mfc_mis_align(charger);
 		} else if (val->intval == POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE) {
-			if (charger->tx_id == TX_ID_DREAM_STAND) {
-				mfc_fod_set_dream_cv(charger);
-			} else
-				mfc_fod_set_cv(charger);
+			mfc_fod_set(charger, FOD_STATE_CV);
 		}
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
@@ -3842,8 +3784,7 @@ static void mfc_wpc_det_work(struct work_struct *work)
 		}
 
 		/* set fod value */
-		if (charger->pdata->fod_data_check)
-			mfc_fod_set(charger);
+		mfc_fod_set(charger, FOD_STATE_CC);
 
 #if !defined(CONFIG_WIRELESS_NO_HV)
 		vrect_level = mfc_get_adc(charger, MFC_ADC_VRECT);
@@ -4032,6 +3973,9 @@ static void mfc_wpc_isr_work(struct work_struct *work)
 		}
 	} else if (cmd_data == WPC_TX_COM_TX_ID) {
 		if(!charger->tx_id_done) {
+			charger->tx_id = val_data;
+			mfc_fod_set(charger, (charger->pdata->capacity > 85) ? FOD_STATE_CV : FOD_STATE_CC);
+
 			switch (val_data) {
 			case TX_ID_UNKNOWN:
 			break;
@@ -4060,7 +4004,6 @@ static void mfc_wpc_isr_work(struct work_struct *work)
 					}
 				} else {
 					charger->pdata->cable_type = value.intval = SEC_WIRELESS_PAD_WPC_STAND;
-					mfc_fod_set_hero_5v(charger);
 				}
 				pr_info("%s: STAND Wireless Charge PAD %s\n", __func__,
 					charger->pad_vout == PAD_VOUT_10V ? "HV" : "");
@@ -4165,13 +4108,6 @@ static void mfc_wpc_isr_work(struct work_struct *work)
 #endif
 				break;
 			case TX_ID_DREAM_STAND:
-				pr_info("%s: Dream pad FOD, SOC(%d)\n", __func__, charger->pdata->capacity);
-				if (charger->pdata->fod_dream_data) {
-					if (charger->pdata->capacity > 85)
-						mfc_fod_set_dream_cv(charger);
-					else
-						mfc_fod_set_dream(charger);
-				}
 				value.intval = charger->pdata->cable_type;
 				pr_info("%s: Dream PAD : 0x%x\n", __func__, val_data);
 				break;
@@ -4208,7 +4144,6 @@ static void mfc_wpc_isr_work(struct work_struct *work)
 			queue_delayed_work(charger->wqueue, &charger->wpc_rx_power_work, msecs_to_jiffies(3000));
 #endif
 			charger->tx_id_done = true;
-			charger->tx_id = val_data;
 			pr_info("%s: TX_ID : 0x%x\n", __func__, val_data);
 		} else {
 			pr_err("%s: TX ID isr is already done\n", __func__);
@@ -4688,6 +4623,123 @@ INT_END:
 	return IRQ_HANDLED;
 }
 
+static void mfc_chg_parse_fod_data(struct device_node *np,
+		mfc_charger_platform_data_t *pdata)
+{
+	const char* fod_state_string[FOD_STATE_MAX] = {"cc", "cv", "full"};
+	struct device_node *child = NULL;
+	int ret = 0, idx = 0, i = 0;
+
+	np = of_find_node_by_name(np, "fod_list");
+	if (!np) {
+		pr_err("%s: fod list is NULL!\n", __func__);
+		return;
+	}
+
+	ret = of_property_read_u32(np, "count", &pdata->fod_data_count);
+	if (ret < 0) {
+		pr_err("%s: fod data size is NULL!\n", __func__);
+		return;
+	}
+
+	pdata->fod_list = kzalloc(sizeof(mfc_fod_data) * pdata->fod_data_count, GFP_KERNEL);
+	if (pdata->fod_list == NULL) {
+		pr_err("%s: failed to alloc memory(%d)\n", __func__, pdata->fod_data_count);
+		pdata->fod_data_count = 0;
+		return;
+	}
+
+	for_each_child_of_node(np, child) {
+		mfc_fod_data* pfod_data = NULL;
+
+		if (idx >= pdata->fod_data_count) {
+			pr_err("%s: skip set fod data because of overflow\n", __func__);
+			break;
+		}
+		pfod_data = &pdata->fod_list[idx++];
+
+		if (sscanf(child->name, "pad_0x%X", &pfod_data->pad_id) < 0) {
+			pr_err("%s: failed to get pad id of %s\n", __func__, child->name);
+			continue;
+		}
+
+		ret = of_property_read_u32(child, "flag", &pfod_data->flag);
+		if (ret < 0) {
+			pr_err("%s: failed to get flag of %s\n", __func__, child->name);
+			continue;
+		}
+
+		for (i = 0; i < FOD_STATE_MAX; i++) {
+			const u32 *p;
+			u32* pfod = NULL;
+			int len = 0;
+
+			switch ((pfod_data->flag >> (i * 4)) & 0xF) {
+			case FOD_FLAG_ADD:
+				p = of_get_property(child, fod_state_string[i], &len);
+				if (!p) {
+					pr_err("%s: %s - %s is null!!\n", __func__, child->name, fod_state_string[i]);
+					break;
+				}
+
+				pfod = kzalloc(sizeof(u32) * MFC_NUM_FOD_REG, GFP_KERNEL);
+				if (pfod == NULL) {
+					pr_err("%s: failed to alloc fod data\n", __func__);
+					break;
+				}
+
+				len = (len / sizeof(u32));
+				ret = of_property_read_u32_array(child, fod_state_string[i], pfod, len);
+				if (ret < 0) {
+					pr_err("%s: failed to get fod data(%s - %s)\n", __func__, child->name, fod_state_string[i]);
+					break;
+				}
+				pfod_data->data[i] = pfod;
+				break;
+			case FOD_FLAG_USE_CC:
+				if (pfod_data->data[FOD_STATE_CC] == NULL) {
+					pr_err("%s: failed to get cc fod data(%s - %s)\n", __func__, child->name, fod_state_string[i]);
+					break;
+				}
+				pfod_data->data[i] = pfod_data->data[FOD_STATE_CC];
+				break;
+			case FOD_FLAG_USE_DEFAULT:
+				if ((pdata->fod_list[DEFAULT_PAD_ID].pad_id != 0) ||
+					(pdata->fod_list[DEFAULT_PAD_ID].data[i] == NULL)) {
+					pr_err("%s: failed to get default fod data(%s - %s)\n", __func__, child->name, fod_state_string[i]);
+					break;
+				}
+				pfod_data->data[i] = pdata->fod_list[DEFAULT_PAD_ID].data[i];
+				break;
+			case FOD_FLAG_NONE:
+			default:
+				pr_info("%s: %s - %s is not set.", __func__, child->name, fod_state_string[i]);
+				break;
+			}
+		}
+	}
+
+	for (idx = 0; idx < pdata->fod_data_count; idx++) {
+		mfc_fod_data* pfod_data = &pdata->fod_list[idx];
+
+		pr_info("%s: PAD_ID = 0x%X, FLAG=0x%X\n", __func__, pfod_data->pad_id, pfod_data->flag);
+		for (i = 0; i < FOD_STATE_MAX; i++) {
+			if (pfod_data->data[i] != NULL) {
+				char temp_buf[1024] = {0, };
+				int j = 0, size = 1024;
+
+				for (j = 0; j < MFC_NUM_FOD_REG; j++) {
+					snprintf(temp_buf + strlen(temp_buf), size, "%d ", pfod_data->data[i][j]);
+					size = sizeof(temp_buf) - strlen(temp_buf);
+				}
+				pr_info("%s: %s - %s\n", __func__, fod_state_string[i], temp_buf);
+			} else {
+				pr_info("%s: %s is null\n", __func__, fod_state_string[i]);
+			}
+		}
+	}
+}
+
 static int mfc_chg_parse_dt(struct device *dev, 
 		mfc_charger_platform_data_t *pdata)
 {
@@ -4701,75 +4753,6 @@ static int mfc_chg_parse_dt(struct device *dev,
 		pr_err("%s np NULL\n", __func__);
 		return 1;
 	} else {
-		p = of_get_property(np, "battery,fod_data", &len);
-		if (p) {
-			len = len / sizeof(u32);
-			pdata->fod_data = kzalloc(sizeof(*pdata->fod_data) * len, GFP_KERNEL);
-			ret = of_property_read_u32_array(np, "battery,fod_data",
-							 pdata->fod_data, len);
-			pdata->fod_data_check = 1;
-
-			for (i = 0; i < len; i++)
-				pr_info("%s fod data = %d ", __func__, pdata->fod_data[i]);
-		} else {
-			pdata->fod_data_check = 0;
-			pr_err("%s there is not fod_data\n", __func__);
-		}
-
-		p = of_get_property(np, "battery,fod_data_cv", &len);
-		if (p) {
-			len = len / sizeof(u32);
-			pdata->fod_data_cv = kzalloc(sizeof(*pdata->fod_data_cv) * len, GFP_KERNEL);
-			ret = of_property_read_u32_array(np, "battery,fod_data_cv",
-							 pdata->fod_data_cv, len);
-			pdata->fod_data_check = 1;
-
-			for (i = 0; i < len; i++)
-				pr_info("%s fod data_cv = %d ", __func__, pdata->fod_data_cv[i]);
-		} else {
-			pdata->fod_data_check = 0;
-			pr_err("%s there is not fod_data_cv\n", __func__);
-		}
-
-		p = of_get_property(np, "battery,fod_hero_5v_data", &len);
-		if (p) {
-			len = len / sizeof(u32);
-			pdata->fod_hero_5v_data = kzalloc(sizeof(*pdata->fod_hero_5v_data) * len, GFP_KERNEL);
-			ret = of_property_read_u32_array(np, "battery,fod_hero_5v_data",
-							 pdata->fod_hero_5v_data, len);
-
-			for (i = 0; i < len; i++)
-				pr_info("%s fod Hero 5V data = 0x%x ", __func__, pdata->fod_hero_5v_data[i]);
-		} else {
-			pr_err("%s there is not fod_hero_5v_data\n", __func__);
-		}
-
-		p = of_get_property(np, "battery,fod_dream_data", &len);
-		if (p) {
-			len = len / sizeof(u32);
-			pdata->fod_dream_data = kzalloc(sizeof(*pdata->fod_dream_data) * len, GFP_KERNEL);
-			ret = of_property_read_u32_array(np, "battery,fod_dream_data",
-							 pdata->fod_dream_data, len);
-
-			for (i = 0; i < len; i++)
-				pr_info("%s fod Dream data = 0x%x ", __func__, pdata->fod_dream_data[i]);
-		} else {
-			pr_err("%s there is not fod_dream_data\n", __func__);
-		}
-
-		p = of_get_property(np, "battery,fod_dream_cv_data", &len);
-		if (p) {
-			len = len / sizeof(u32);
-			pdata->fod_dream_cv_data = kzalloc(sizeof(*pdata->fod_dream_cv_data) * len, GFP_KERNEL);
-			ret = of_property_read_u32_array(np, "battery,fod_dream_cv_data",
-							 pdata->fod_dream_cv_data, len);
-
-			for (i = 0; i < len; i++)
-				pr_info("%s fod Dream CV data = 0x%x ", __func__, pdata->fod_dream_cv_data[i]);
-		} else {
-			pr_err("%s there is not fod_dream_cv_data\n", __func__);
-		}
-
 		ret = of_property_read_string(np,
 			"battery,wireless_charger_name", (char const **)&pdata->wireless_charger_name);
 		if (ret < 0)
@@ -4906,6 +4889,7 @@ static int mfc_chg_parse_dt(struct device *dev,
 		if(pdata->wpc_vout_ctrl_lcd_on)
 			pr_info("%s flicker w/a\n", __func__);
 
+		mfc_chg_parse_fod_data(np, pdata);
 		return 0;
 	}
 }

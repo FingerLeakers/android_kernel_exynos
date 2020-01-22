@@ -43,6 +43,11 @@ static char *npu_scheduler_ip_name[] = {
 	"NPU",
 };
 
+static char *npu_scheduler_core_name[] = {
+	"DNC",
+	"NPU",
+};
+
 static int npu_scheduler_ip_pmqos_min[] = {
 	PM_QOS_CLUSTER0_FREQ_MIN,
 	PM_QOS_CLUSTER1_FREQ_MIN,
@@ -173,6 +178,7 @@ struct npu_scheduler_fps_load {
 struct npu_scheduler_dvfs_info {
 	char			*name;
 	struct platform_device	*dvfs_dev;
+	u32			activated;
 	struct pm_qos_request	qos_req_min;
 	struct pm_qos_request	qos_req_max;
 	s32			cur_freq;
@@ -279,5 +285,6 @@ void npu_pm_qos_update_request(struct npu_scheduler_dvfs_info *d,
 		struct pm_qos_request *req, s32 new_value);
 npu_s_param_ret npu_scheduler_param_handler(struct npu_session *sess,
 	struct vs4l_param *param, int *retval);
+void npu_scheduler_activate_peripheral_dvfs(unsigned long freq);
 
 #endif

@@ -51,9 +51,6 @@
 
 #include "linkforward-offload.h"
 
-//#define DEBUG_LINK_FORWARD
-//#define DEBUG_TEST_UDP
-
 struct nf_linkforward nf_linkfwd = {
 	.use = false,
 	.mode = 1,	/* RX only */
@@ -82,13 +79,13 @@ void set_linkforward_mode(int mode)
 
 void linkforward_enable(void)
 {
-	pr_info("%s\n", __func__);
+	lf_info("%s\n", __func__);
 	nf_linkfwd.use = 1;
 }
 
 void linkforward_disable(void)
 {
-	pr_info("%s\n", __func__);
+	lf_info("%s\n", __func__);
 	nf_linkfwd.use = 0;
 }
 
@@ -98,12 +95,12 @@ void print_hash(void)
 	struct linkforward_connection *node;
 
 	if (hash_empty(nf_linkfwd.h_mem_map)) {
-		pr_err("no hash table\n");
+		lf_err("no hash table\n");
 		return;
 	}
 
 	hash_for_each(nf_linkfwd.h_mem_map, i, node, h_node) {
-		pr_info("[%03d] key(%ld) name(%s) ip%pi4: port(%lu)\n",
+		lf_info("[%03d] key(%ld) name(%s) ip%pi4: port(%lu)\n",
 				i,
 				node->dst_port,
 				node->netdev->name,
@@ -119,7 +116,7 @@ struct linkforward_connection *find_conn(__be16 dst_port)
 	hash_for_each_possible(nf_linkfwd.h_mem_map, node, h_node, dst_port) {
 		if (node->dst_port == dst_port) {
 #ifdef DEBUG_LINK_FORWARD
-			pr_info("FOUND key(%ld) name(%s) ip%pi4: port(%lu)\n",
+			lf_info("FOUND key(%ld) name(%s) ip%pi4: port(%lu)\n",
 				node->dst_port,
 				node->netdev->name,
 				&node->t_org->src.u3.ip,
@@ -149,12 +146,12 @@ int linkforward_add(__be16 dst_port, struct nf_conntrack_tuple *t_rpl,
 		new_conn->t_rpl = t_rpl;
 		hash_add(nf_linkfwd.h_mem_map, &new_conn->h_node, dst_port);
 	} else {
-		pr_err("ERROR: fail to get memory for new connection\n");
+		lf_err("ERROR: fail to get memory for new connection\n");
 		return -1;
 	}
 
 #ifdef DEBUG_LINK_FORWARD
-	pr_info("Add Connection: %s [%ld/%hu] %pI4:%hu -> %pI4:%hu (reply %pI4:%hu -> %pI4:%hu)\n",
+	lf_info("Add Connection: %s [%ld/%hu] %pI4:%hu -> %pI4:%hu (reply %pI4:%hu -> %pI4:%hu)\n",
 		netdev->name,
 		dst_port,
 		ntohs(dst_port),
@@ -183,12 +180,12 @@ int linkforward_delete(__be16 dst_port)
 		hash_del(&conn->h_node);
 		kfree(conn);
 #ifdef DEBUG_LINK_FORWARD
-		pr_info("Delete connection (port =%hu)\n", ntohs(dst_port));
+		lf_info("Delete connection (port =%hu)\n", ntohs(dst_port));
 		print_hash();
 #endif
 		ret = 0;
 	} else {
-		pr_err("%s - ERR cannot find dst_port in hash table\n",
+		lf_err("%s - ERR cannot find dst_port in hash table\n",
 				__func__);
 		ret = -1;
 	}
@@ -212,7 +209,7 @@ struct nf_conntrack_tuple *__linkforward_check_tuple(__be16 src_port,
 
 #ifdef DEBUG_LINK_FORWARD
 	if (print)
-		pr_info("find Connection: [dir=%d] port:%hu\n",
+		lf_info("find Connection: [dir=%d] port:%hu\n",
 			dir, dir ? ntohs(dst_port) : ntohs(src_port));
 #endif
 
@@ -228,7 +225,7 @@ struct nf_conntrack_tuple *__linkforward_check_tuple(__be16 src_port,
 
 #ifdef DEBUG_LINK_FORWARD
 		if (print)
-			pr_info("connection was found at %s\n\t[%d] %pI4:%hu -> %pI4:%hu\n",
+			lf_info("connection was found at %s\n\t[%d] %pI4:%hu -> %pI4:%hu\n",
 					conn->netdev,
 					ntohs(port),
 					&target->src.u3.ip,
@@ -241,7 +238,7 @@ struct nf_conntrack_tuple *__linkforward_check_tuple(__be16 src_port,
 	} else {
 #ifdef DEBUG_LINK_FORWARD
 		if (print)
-			pr_info("connection was NOT found\n");
+			lf_info("connection was NOT found\n");
 #endif
 		return NULL;
 	}
@@ -254,15 +251,15 @@ ssize_t linkforward_get_state(char *buf)
 	struct linkforward_connection *node;
 
 #ifdef USE_TETHEROFFLOAD
-	pr_info("tetheroffload:%d\n", offload_enabled());
+	lf_info("tetheroffload:%d\n", offload_enabled());
 	count += sprintf(&buf[count], "tetheroffload:%d\n",
 			offload_enabled());
 #else
-	pr_info("nf_linkfwd.use:%d\n", nf_linkfwd.use);
+	lf_info("nf_linkfwd.use:%d\n", nf_linkfwd.use);
 	count += sprintf(&buf[count], "nf_linkfwd.use:%d\n", nf_linkfwd.use);
 #endif
 
-	pr_info("forward_stat: rxBytes = %llu, txBytes = %llu\n",
+	lf_info("forward_stat: rxBytes = %llu, txBytes = %llu\n",
 			get_rx_offload_fwd_bytes(),
 			get_tx_offload_fwd_bytes());
 	count += sprintf(&buf[count], "forward_stat rxBytes:%llu txBytes:%llu\n",
@@ -333,7 +330,7 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 
 #ifdef DEBUG_LINK_FORWARD
 					if (print)
-						pr_info("REPLY manip: [dir=%d] newport %pI4:%hu <- oldport %pI4:%hu (Seq=0x%08x, Ack=0x%08x)\n",
+						lf_info("REPLY manip: [dir=%d] newport %pI4:%hu <- oldport %pI4:%hu (Seq=0x%08x, Ack=0x%08x)\n",
 							dir, &iphdr->daddr,
 							ntohs(newport),
 							&addr, ntohs(oldport),
@@ -366,7 +363,7 @@ int __linkforward_manip_skb(struct sk_buff *skb, enum linkforward_dir dir)
 					}
 #ifdef DEBUG_LINK_FORWARD
 					if (print)
-						pr_info("ORIGIN manip: [dir=%d] oldport %pI4:%hu -> newport %pI4:%hu (Seq=0x%08x, Ack=0x%08x)\n",
+						lf_info("ORIGIN manip: [dir=%d] oldport %pI4:%hu -> newport %pI4:%hu (Seq=0x%08x, Ack=0x%08x)\n",
 							dir,  &addr,
 							ntohs(oldport),
 							&iphdr->saddr,
@@ -554,7 +551,7 @@ int nf_linkforward_add(struct nf_conn *ct)
 	int ret;
 
 #ifdef DEBUG_LINK_FORWARD
-	pr_info("add linkforward [%s] %pI4:%hu -> %pI4:%hu\n",
+	lf_info("add linkforward [%s] %pI4:%hu -> %pI4:%hu\n",
 		ct->netdev->name,
 		&t->src.u3.ip,		/* __be32 */
 		ntohs(t->src.u.all),	/* __be16 */
@@ -577,7 +574,7 @@ int nf_linkforward_delete(struct nf_conn *ct)
 		return -1;
 
 #ifdef DEBUG_LINK_FORWARD
-	pr_info("delete linkforward: %pI4:%hu -> %pI4:%hu\n",
+	lf_info("delete linkforward: %pI4:%hu -> %pI4:%hu\n",
 		&t->src.u3.ip,		/* __be32 */
 		ntohs(t->src.u.all),	/* __be16 */
 		&t->dst.u3.ip,
@@ -613,7 +610,7 @@ void nf_linkforward_monitor(struct nf_conn *ct)
 #endif
 
 #ifdef DEBUG_LINK_FORWARD
-	pr_info("[%d] tuple %pI4:%hu -> %pI4:%hu\n",
+	lf_info("[%d] tuple %pI4:%hu -> %pI4:%hu\n",
 		ct->packet_count,
 		&t->src.u3.ip,		/* __be32 */
 		ntohs(t->src.u.all),	/* __be16 */
@@ -657,14 +654,14 @@ static int netdev_linkforward_event(struct notifier_block *this,
 		return NOTIFY_DONE;
 
 	if (kstrtol(net->name + strlen(netdev_name), 10, &netdev_num) != 0) {
-		pr_err("Fail to get device number for %s\n", netdev_name);
+		lf_err("Fail to get device number for %s\n", netdev_name);
 		netdev_num = -1;
 	}
 
 	switch (event) {
 	case NETDEV_GOING_DOWN:
 	case NETDEV_DOWN:
-		pr_info("%s:%s\n", net->name, "NETDEV_DOWN");
+		lf_info("%s:%s\n", net->name, "NETDEV_DOWN");
 		if (netdev == RNDIS || netdev == NCM) {
 			linkforward_disable();
 			set_linkforwd_inner_dev(NULL);
@@ -673,14 +670,14 @@ static int netdev_linkforward_event(struct notifier_block *this,
 		break;
 
 	case NETDEV_UP:
-		pr_info("%s:%s\n", net->name, "NETDEV_UP");
+		lf_info("%s:%s\n", net->name, "NETDEV_UP");
 		if (netdev == RNDIS || netdev == NCM) {
 			memcpy(nf_linkfwd.brdg.if_mac, net->dev_addr, ETH_ALEN);
 			gether_get_host_addr_u8(net, nf_linkfwd.brdg.ldev_mac);
 #ifdef DEBUG_LINK_FORWARD
-			pr_info(" %s ldev MAC %pM\n", net->name,
+			lf_info(" %s ldev MAC %pM\n", net->name,
 					nf_linkfwd.brdg.ldev_mac);
-			pr_info(" %s ifac MAC %pM\n", net->name,
+			lf_info(" %s ifac MAC %pM\n", net->name,
 					nf_linkfwd.brdg.if_mac);
 #endif
 			set_linkforwd_inner_dev(net);
@@ -690,7 +687,7 @@ static int netdev_linkforward_event(struct notifier_block *this,
 		break;
 
 	case NETDEV_UNREGISTER:
-		pr_info("%s:%s\n", net->name, "NETDEV_UNREGISTER");
+		lf_info("%s:%s\n", net->name, "NETDEV_UNREGISTER");
 		if (netdev == RNDIS || netdev == NCM) {
 			linkforward_disable();
 			set_linkforwd_inner_dev(NULL);
@@ -724,11 +721,11 @@ void linkforward_init(void)
 
 	ret = register_netdevice_notifier(&netdev_linkforward_notifier);
 	if (ret)
-		pr_info("linkforward_init - register_notifier() ret:%d\n", ret);
+		lf_info("linkforward_init - register_notifier() ret:%d\n", ret);
 
 	set_linkforward_mode(1);
 	linkforward_enable();
 
 	ret = offload_initialize();
-	pr_info("offload_initialize: %d\n", ret);
+	lf_info("offload_initialize: %d\n", ret);
 }

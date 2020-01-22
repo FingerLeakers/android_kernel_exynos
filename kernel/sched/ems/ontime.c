@@ -79,7 +79,6 @@ struct ontime_env {
 	struct rq		*src_rq;
 	int			src_cpu;
 	struct task_struct	*target_task;
-	int			boost_migration;
 };
 DEFINE_PER_CPU(struct ontime_env, ontime_env);
 
@@ -119,10 +118,10 @@ void ontime_select_fit_cpus(struct task_struct *p, struct cpumask *fit_cpus)
 
 	/*
 	 * If the task belongs to a group that does not support ontime
-	 * migration or task is currently migrating, it can be assigned to all
-	 * active cpus without specifying fit cpus.
+	 * migration, task is currently migrating or task wait time is too
+	 * long(hungry state), it assigns all active cpus.
 	 */
-	if (!emstune_ontime(p) || ontime_of(p)->migrating) {
+	if (!emstune_ontime(p) || ontime_of(p)->migrating || ml_task_hungry(p)) {
 		cpumask_copy(&mask, cpu_active_mask);
 		goto done;
 	}
@@ -176,11 +175,11 @@ done:
 
 extern struct sched_entity *__pick_next_entity(struct sched_entity *se);
 static struct task_struct *
-pick_heavy_task(struct sched_entity *se, int *boost_migration)
+pick_heavy_task(struct sched_entity *se)
 {
 	struct task_struct *heaviest_task = NULL;
 	struct task_struct *p = container_of(se, struct task_struct, se);
-	u32 runnable, max_ratio = 0;
+	unsigned long runnable, max_runnable = 0;
 	int task_count = 0;
 
 	/*
@@ -191,15 +190,12 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 		runnable = ml_task_runnable(p);
 		if (runnable >= get_upper_boundary(task_cpu(p), p)) {
 			heaviest_task = p;
-			max_ratio = runnable * 100 / capacity_cpu(task_cpu(p), p->sse);
-			*boost_migration = 0;
+			max_runnable = runnable;
 		}
 	}
 
 	se = __pick_first_entity(se->cfs_rq);
 	while (se && task_count < TASK_TRACK_COUNT) {
-		int task_ratio;
-
 		/* Skip non-task entity */
 		if (!entity_is_task(se))
 			goto next_entity;
@@ -208,15 +204,18 @@ pick_heavy_task(struct sched_entity *se, int *boost_migration)
 		if (!emstune_ontime(p))
 			goto next_entity;
 
+		/*
+		 * Pick the task with the biggest runnable among tasks whose
+		 * wait tiem is too long (hungry state) or whose runnable is
+		 * greater than the upper boundary.
+		 */
 		runnable = ml_task_runnable(p);
-		if (runnable < get_upper_boundary(task_cpu(p), p))
-			goto next_entity;
-
-		task_ratio = runnable * 100 / capacity_cpu(task_cpu(p), p->sse);
-		if (task_ratio > max_ratio) {
-			heaviest_task = p;
-			max_ratio = task_ratio;
-			*boost_migration = 0;
+		if (ml_task_hungry(p) ||
+		    runnable >= get_upper_boundary(task_cpu(p), p)) {
+			if (runnable > max_runnable) {
+				heaviest_task = p;
+				max_runnable = runnable;
+			}
 		}
 
 next_entity:
@@ -289,7 +288,6 @@ static int ontime_migration_cpu_stop(void *data)
 	struct rq *src_rq, *dst_rq;
 	struct task_struct *p;
 	int src_cpu, dst_cpu;
-	int boost_migration;
 
 	/* Initialize environment data */
 	src_rq = env->src_rq;
@@ -297,7 +295,6 @@ static int ontime_migration_cpu_stop(void *data)
 	src_cpu = env->src_cpu = env->src_rq->cpu;
 	dst_cpu = env->dst_cpu;
 	p = env->target_task;
-	boost_migration = env->boost_migration;
 
 	raw_spin_lock_irq(&src_rq->lock);
 
@@ -311,7 +308,7 @@ static int ontime_migration_cpu_stop(void *data)
 	double_lock_balance(src_rq, dst_rq);
 	if (move_specific_task(p, env)) {
 		trace_ontime_migration(p, ml_task_runnable(p),
-				src_cpu, dst_cpu, boost_migration);
+					src_cpu, dst_cpu);
 	}
 	double_unlock_balance(src_rq, dst_rq);
 
@@ -349,7 +346,6 @@ void ontime_migration(void)
 		struct sched_entity *se;
 		struct task_struct *p;
 		struct ontime_env *env = &per_cpu(ontime_env, cpu);
-		int boost_migration = 0;
 		int dst_cpu;
 
 		raw_spin_lock_irqsave(&rq->lock, flags);
@@ -387,14 +383,14 @@ void ontime_migration(void)
 		 * Pick task to be migrated. Return NULL if there is no
 		 * heavy task in rq.
 		 */
-		p = pick_heavy_task(se, &boost_migration);
+		p = pick_heavy_task(se);
 		if (!p) {
 			raw_spin_unlock_irqrestore(&rq->lock, flags);
 			continue;
 		}
 
 		/* Select destination cpu which the task will be moved */
-		dst_cpu = exynos_select_task_rq(p, cpu, 0, 0, 0);
+		dst_cpu = exynos_select_task_rq(p, cpu, 0, 0, 0, 0);
 		if (dst_cpu < 0 || cpu == dst_cpu) {
 			raw_spin_unlock_irqrestore(&rq->lock, flags);
 			continue;
@@ -407,7 +403,6 @@ void ontime_migration(void)
 		env->dst_cpu = dst_cpu;
 		env->src_rq = rq;
 		env->target_task = p;
-		env->boost_migration = boost_migration;
 
 		/* Prevent active balance to use stopper for migration */
 		rq->active_balance = 1;
@@ -441,34 +436,29 @@ int ontime_can_migrate_task(struct task_struct *p, int dst_cpu)
 	}
 
 	/*
-	 * Migration is not allowed if the destination cpu is overutilized.
-	 * However, the following cases are exceptions.
-	 *  1. If there is no running task on the destination cpu
-	 *  2. If the source cpu is not overutilized
-	 */
-	if (cpu_overutilized(capacity_cpu(src_cpu, USS), ml_cpu_util(src_cpu)) &&
-	    cpu_overutilized(capacity_cpu(dst_cpu, USS), ml_cpu_util_with(dst_cpu, p))) {
-		if (cpu_rq(dst_cpu)->nr_running) {
-			trace_ontime_can_migrate_task(p, dst_cpu, false, "dest overutil");
-			return false;
-		}
-	}
-
-	/*
 	 * Task is heavy enough but load balancer tries to migrate the task to
 	 * slower cpu, it does not allow migration.
 	 */
 	runnable = ml_task_runnable(p);
 	if (runnable >= get_lower_boundary(src_cpu, p) &&
 	    check_migrate_slower(src_cpu, dst_cpu, p->sse)) {
+		int cpu_task_avg = _ml_cpu_util(src_cpu, p->sse) / cpu_rq(src_cpu)->nr_running;
+		int task_util = ml_task_util(p);
+
 		/*
 		 * However, only if the source cpu is overutilized, it allows
 		 * migration if the task is not very heavy.
 		 * (criteria : task util is under 75% of cpu util)
 		 */
 		if (cpu_overutilized(capacity_cpu(src_cpu, 0), ml_cpu_util(src_cpu)) &&
-		    ml_task_util(p) * 100 < (_ml_cpu_util(src_cpu, p->sse) * 75)) {
+			ml_task_util(p) * 100 < (_ml_cpu_util(src_cpu, p->sse) * 75)) {
 			trace_ontime_can_migrate_task(p, dst_cpu, true, "src overutil");
+			return true;
+		}
+
+		if (ml_task_hungry(p) &&
+			(task_util < cpu_task_avg + (cpu_task_avg >> 2))) {
+			trace_ontime_can_migrate_task(p, dst_cpu, true, "hungry task");
 			return true;
 		}
 

@@ -1435,7 +1435,7 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	u32 line_length_pck = 0;
 	u32 min_fine_int = 0;
 	u16 coarse_integration_time_shifter = 0;
-	
+
 	u16 remainder_cit = 0;
 
 	u16 cit_shifter_array[17] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5};
@@ -1503,7 +1503,7 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 			break;
 		}
 	}
-	
+
 #if 0
 	if (cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION1
 		|| cis_data->sens_config_index_cur == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2) {
@@ -1830,6 +1830,13 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	cis_data = cis->cis_data;
 
+	if (frame_duration < cis_data->min_frame_us_time) {
+		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
+		frame_duration = cis_data->min_frame_us_time;
+	}
+
+	cis_data->cur_frame_us_time = frame_duration;
+
 	if (ln_mode_delay_count > 0)
 		ln_mode_delay_count--;
 #if 0
@@ -1867,11 +1874,6 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		}
 	}
 
-	if (frame_duration < cis_data->min_frame_us_time) {
-		dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
-		frame_duration = cis_data->min_frame_us_time;
-	}
-
 	vt_pic_clk_freq_mhz = cis_data->pclk / (1000);
 	line_length_pck = cis_data->line_length_pck;
 
@@ -1904,7 +1906,6 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			goto p_err;
 	}
 
-	cis_data->cur_frame_us_time = frame_duration;
 	cis_data->frame_length_lines = frame_length_lines;
 	cis_data->max_coarse_integration_time = cis_data->frame_length_lines - cis_data->max_margin_coarse_integration_time;
 	cis_data->frame_length_lines_shifter = frame_length_lines_shifter;

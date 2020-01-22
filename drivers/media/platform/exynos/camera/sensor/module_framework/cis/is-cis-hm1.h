@@ -26,6 +26,12 @@
 
 #define USE_GROUP_PARAM_HOLD	(0)
 
+#define HM1_BURST_WRITE
+#define HM1_CAL_ROW_LEN	(3)
+#define HM1_CAL_START_ADDR	(0)
+#define HM1_CAL_END_ADDR	(1)
+#define HM1_CAL_BURST_CHECK	(2)
+
 enum sensor_hm1_mode_enum {
 	SENSOR_HM1_12000X9000_10FPS = 0,
 	SENSOR_HM1_7680X4320_24FPS = 1,
@@ -201,12 +207,17 @@ static u32 sensor_hm1_post_PDXTC_1[] = {
 };
 
 static u32 sensor_hm1_pre_PDXTC_2[] = {
+#ifdef HM1_BURST_WRITE
 	0x6004,	0x0001,	0x02,
+#endif
 	0x6028,	0x2000,	0x02,
 	0x602A,	0xBE30,	0x02,
 };
+static u32 sensor_hm1_post_PDXTC_2[] = {};
 
-static u32 sensor_hm1_post_PDXTC_2[] = {
+static u32 sensor_hm1_pre_PDXTC_3[] = {};
+
+static u32 sensor_hm1_post_PDXTC_3[] = {
 	0x6004,	0x0000,	0x02,
 	0x6028,	0x4000,	0x02,
 	0x602A,	0x0D02,	0x02,
@@ -233,21 +244,25 @@ static u32 sensor_hm1_post_PDXTC_2[] = {
 static u32 * sensor_hm1_pre_PDXTC[] = {
 	sensor_hm1_pre_PDXTC_1,
 	sensor_hm1_pre_PDXTC_2,
+	sensor_hm1_pre_PDXTC_3,
 };
 
 static const u32 sensor_hm1_pre_PDXTC_size[] = {
 	ARRAY_SIZE(sensor_hm1_pre_PDXTC_1),
 	ARRAY_SIZE(sensor_hm1_pre_PDXTC_2),
+	ARRAY_SIZE(sensor_hm1_pre_PDXTC_3),
 };
 
 static u32 * sensor_hm1_post_PDXTC[] = {
 	sensor_hm1_post_PDXTC_1,
 	sensor_hm1_post_PDXTC_2,
+	sensor_hm1_post_PDXTC_3,
 };
 
 static const u32 sensor_hm1_post_PDXTC_size[] = {
 	ARRAY_SIZE(sensor_hm1_post_PDXTC_1),
 	ARRAY_SIZE(sensor_hm1_post_PDXTC_2),
+	ARRAY_SIZE(sensor_hm1_post_PDXTC_3),
 };
 
 static u32 sensor_hm1_pre_GCC_1[] = {
@@ -257,7 +272,9 @@ static u32 sensor_hm1_pre_GCC_1[] = {
 	0x602a,	0x5ef0,	0x02,
 	0x6f12,	0x0003,	0x02,
 	0x6f12,	0x0201,	0x02,
+#ifdef HM1_BURST_WRITE
 	0x6004,	0x0001,	0x02,
+#endif
 	0x6028,	0x2000,	0x02,
 	0x602a,	0xca00,	0x02,
 };
@@ -432,19 +449,73 @@ static u32 sensor_hm1_pre_XTC_1[] = {
 	0x6028,	0x2000,	0x02,
 	0x602A,	0x4916,	0x02,
 	0x6F12,	0x1501,	0x02,
+#ifdef HM1_BURST_WRITE
 	0x6004,	0x0001,	0x02,
+#endif
 	0x6028,	0x200b,	0x02,
 	0x602A,	0x0000,	0x02,
 };
-
 static u32 sensor_hm1_post_XTC_1[] = {};
 
 static u32 sensor_hm1_pre_XTC_2[] = {
-	0x6028,	0x200b,	0x02,
+	0x602A,	0x03E6,	0x02,
+};
+static u32 sensor_hm1_post_XTC_2[] = {};
+
+static u32 sensor_hm1_pre_XTC_3[] = {
 	0x602A,	0x445c,	0x02,
 };
+static u32 sensor_hm1_post_XTC_3[] = {};
 
-static u32 sensor_hm1_post_XTC_2[] = {
+static u32 sensor_hm1_pre_XTC_4[] = {
+	0x602A,	0x4844,	0x02,
+};
+static u32 sensor_hm1_post_XTC_4[] = {};
+
+static u32 sensor_hm1_pre_XTC_5[] = {
+	0x602A,	0x4C2C,	0x02,
+};
+static u32 sensor_hm1_post_XTC_5[] = {};
+
+static u32 sensor_hm1_pre_XTC_6[] = {
+	0x602A,	0x5014,	0x02,
+};
+static u32 sensor_hm1_post_XTC_6[] = {};
+
+static u32 sensor_hm1_pre_XTC_7[] = {
+	0x602A,	0x53FC,	0x02,
+};
+static u32 sensor_hm1_post_XTC_7[] = {};
+
+static u32 sensor_hm1_pre_XTC_8[] = {
+	0x602A,	0x57E4,	0x02,
+};
+static u32 sensor_hm1_post_XTC_8[] = {};
+
+static u32 sensor_hm1_pre_XTC_9[] = {
+	0x602A,	0x5BCC,	0x02,
+};
+static u32 sensor_hm1_post_XTC_9[] = {};
+
+static u32 sensor_hm1_pre_XTC_10[] = {
+	0x602A,	0x5FB4,	0x02,
+};
+static u32 sensor_hm1_post_XTC_10[] = {};
+
+static u32 sensor_hm1_pre_XTC_11[] = {
+	0x602A,	0x639C,	0x02,
+};
+static u32 sensor_hm1_post_XTC_11[] = {};
+
+static u32 sensor_hm1_pre_XTC_12[] = {
+	0x602A,	0x6784,	0x02,
+};
+static u32 sensor_hm1_post_XTC_12[] = {};
+
+static u32 sensor_hm1_pre_XTC_13[] = {
+	0x602A,	0x6B6C,	0x02,
+};
+static u32 sensor_hm1_post_XTC_13[] = {
 	0x6004,	0x0000,	0x02,
 	0x6028,	0x2000,	0x02,
 	0x602A,	0x4730,	0x02,
@@ -481,21 +552,65 @@ static u32 sensor_hm1_post_XTC_2[] = {
 static u32 * sensor_hm1_pre_XTC[] = {
 	sensor_hm1_pre_XTC_1,
 	sensor_hm1_pre_XTC_2,
+	sensor_hm1_pre_XTC_3,
+	sensor_hm1_pre_XTC_4,
+	sensor_hm1_pre_XTC_5,
+	sensor_hm1_pre_XTC_6,
+	sensor_hm1_pre_XTC_7,
+	sensor_hm1_pre_XTC_8,
+	sensor_hm1_pre_XTC_9,
+	sensor_hm1_pre_XTC_10,
+	sensor_hm1_pre_XTC_11,
+	sensor_hm1_pre_XTC_12,
+	sensor_hm1_pre_XTC_13,
 };
 
 static const u32 sensor_hm1_pre_XTC_size[] = {
 	ARRAY_SIZE(sensor_hm1_pre_XTC_1),
 	ARRAY_SIZE(sensor_hm1_pre_XTC_2),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_3),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_4),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_5),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_6),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_7),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_8),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_9),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_10),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_11),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_12),
+	ARRAY_SIZE(sensor_hm1_pre_XTC_13),
 };
 
 static u32 * sensor_hm1_post_XTC[] = {
 	sensor_hm1_post_XTC_1,
 	sensor_hm1_post_XTC_2,
+	sensor_hm1_post_XTC_3,
+	sensor_hm1_post_XTC_4,
+	sensor_hm1_post_XTC_5,
+	sensor_hm1_post_XTC_6,
+	sensor_hm1_post_XTC_7,
+	sensor_hm1_post_XTC_8,
+	sensor_hm1_post_XTC_9,
+	sensor_hm1_post_XTC_10,
+	sensor_hm1_post_XTC_11,
+	sensor_hm1_post_XTC_12,
+	sensor_hm1_post_XTC_13,
 };
 
 static const u32 sensor_hm1_post_XTC_size[] = {
 	ARRAY_SIZE(sensor_hm1_post_XTC_1),
 	ARRAY_SIZE(sensor_hm1_post_XTC_2),
+	ARRAY_SIZE(sensor_hm1_post_XTC_3),
+	ARRAY_SIZE(sensor_hm1_post_XTC_4),
+	ARRAY_SIZE(sensor_hm1_post_XTC_5),
+	ARRAY_SIZE(sensor_hm1_post_XTC_6),
+	ARRAY_SIZE(sensor_hm1_post_XTC_7),
+	ARRAY_SIZE(sensor_hm1_post_XTC_8),
+	ARRAY_SIZE(sensor_hm1_post_XTC_9),
+	ARRAY_SIZE(sensor_hm1_post_XTC_10),
+	ARRAY_SIZE(sensor_hm1_post_XTC_11),
+	ARRAY_SIZE(sensor_hm1_post_XTC_12),
+	ARRAY_SIZE(sensor_hm1_post_XTC_13),
 };
 
 int sensor_hm1_cis_stream_on(struct v4l2_subdev *subdev);

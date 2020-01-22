@@ -328,6 +328,18 @@ struct devfreq_alt_dvfs_data {
 	unsigned int		max_load;
 	unsigned long long	max_spent;
 
+	struct devfreq_alt_dvfs_param *alt_param;
+	struct devfreq_alt_dvfs_param *alt_param_set;
+	struct devfreq_alt_dvfs_param *alt_user_mode;
+	int default_mode, current_mode, num_modes;
+#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
+	bool				load_track;
+	unsigned int		log_top;
+	struct devfreq_alt_load *log;
+#endif
+};
+
+struct devfreq_alt_dvfs_param {
 	/* ALT-DVFS parameter */
 	unsigned int		*target_load;
 	unsigned int		num_target_load;
@@ -336,12 +348,6 @@ struct devfreq_alt_dvfs_data {
 	unsigned int		hispeed_load;
 	unsigned int		hispeed_freq;
 	unsigned int		tolerance;
-
-#ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
-	bool				load_track;
-	unsigned int		log_top;
-	struct devfreq_alt_load *log;
-#endif
 };
 #endif /* ALT_DVFS */
 

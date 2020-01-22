@@ -19,8 +19,6 @@ int debug_irq_ddk;
 module_param(debug_irq_ddk, int, 0644);
 int debug_time_hw;
 module_param(debug_time_hw, int, 0644);
-int debug_ddk;
-module_param(debug_ddk, int, 0644);
 
 bool check_dma_done(struct is_hw_ip *hw_ip, u32 instance_id, u32 fcount)
 {
@@ -47,29 +45,11 @@ bool check_dma_done(struct is_hw_ip *hw_ip, u32 instance_id, u32 fcount)
 
 	FIMC_BUG(!framemgr);
 
-flush_wait_done_frame:
 	framemgr_e_barrier_common(framemgr, 0, flags);
 	frame = peek_frame(framemgr, FS_HW_WAIT_DONE);
 	framemgr_x_barrier_common(framemgr, 0, flags);
 
-	if (frame) {
-		u32 frame_fcount = frame->fcount;
-
-		if (unlikely(frame_fcount < fcount)) {
-			/* Flush the old frame which is in HW_WAIT_DONE state & retry. */
-			mswarn_hw("queued_count(%d) [ddk:%d,hw:%d] invalid frame(F:%d,idx:%d)",
-					instance_id, hw_ip,
-					framemgr->queued_count[FS_HW_WAIT_DONE],
-					fcount, hw_fcount,
-					frame_fcount, frame->cur_buf_index);
-			is_hardware_frame_ndone(hw_ip, frame, frame->instance, IS_SHOT_INVALID_FRAMENUMBER);
-			goto flush_wait_done_frame;
-		} else if (unlikely(frame_fcount > fcount)) {
-			mswarn_hw("%s:[F%d,ddk:%d] Too early frame. Skip it.", instance_id, hw_ip,
-					__func__, frame_fcount, fcount);
-			return true;
-		}
-	} else {
+	if (!frame) {
 		/* Flush the old frame which is in HW_CONFIGURE state & skip dma_done. */
 flush_config_frame:
 		framemgr_e_barrier_common(framemgr, 0, flags);
@@ -463,8 +443,8 @@ static void is_lib_camera_callback(void *this, enum lib_cb_event_type event_id,
 			msinfo_hw("[F:%d]F.S\n", instance_id, hw_ip,
 				hw_fcount);
 
-		is_hardware_frame_start(hw_ip, instance_id);
 		atomic_add(hw_ip->num_buffers, &hw_ip->count.fs);
+		is_hardware_frame_start(hw_ip, instance_id);
 		break;
 	case LIB_EVENT_FRAME_END:
 		_is_hw_frame_dbg_trace(hw_ip, hw_fcount, DEBUG_POINT_FRAME_END);

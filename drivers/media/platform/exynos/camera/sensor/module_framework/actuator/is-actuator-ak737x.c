@@ -161,7 +161,7 @@ static int sensor_ak737x_soft_landing_on_recording(struct v4l2_subdev *subdev)
 
 	if (actuator->vendor_soft_landing_list_len > 0) {
 		pr_info("[%s][%d] E\n", __func__, actuator->device);
-	
+
 		if (actuator->vendor_soft_landing_seqid == 1) {
 			/* setting mode on */
 			ret = is_sensor_addr8_write8(client, AK737X_REG_SETTING_MODE_ON, 0x3B);
@@ -169,6 +169,23 @@ static int sensor_ak737x_soft_landing_on_recording(struct v4l2_subdev *subdev)
 				goto p_err;
 			/* change Gain parameter */
 			ret = is_sensor_addr8_write8(client, AK737X_REG_CHANGE_GAIN_PARAMETER, 0x0A);
+			if (ret < 0)
+				goto p_err;
+		} else if (actuator->vendor_soft_landing_seqid == 2) {
+			/* setting mode on */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_SETTING_MODE_ON, 0x3B);
+			if (ret < 0)
+				goto p_err;
+			/* change Gamma parameter */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_CHANGE_GAMMA_PARAMETER, 0x40);
+			if (ret < 0)
+				goto p_err;
+			/* change Gain1 parameter */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_CHANGE_GAIN1_PARAMETER, 0x08);
+			if (ret < 0)
+				goto p_err;
+			/* change Gain2 parameter */
+			ret = is_sensor_addr8_write8(client, AK737X_REG_CHANGE_GAIN_PARAMETER, 0x08);
 			if (ret < 0)
 				goto p_err;
 		}

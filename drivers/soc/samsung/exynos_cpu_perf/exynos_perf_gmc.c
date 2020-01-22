@@ -19,12 +19,17 @@
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/exynos-devfreq.h>
 #include <linux/pm_qos.h>
-#include <linux/ems.h>
+//#include <linux/ems.h>
 #include <linux/miscdevice.h>
+#include "../../../kernel/sched/sched.h"
 #include "../../../kernel/sched/ems/ems.h"
+//#include "../../../kernel/sched/tune.h"
+#include <linux/cpumask.h>
+#include <linux/kernel.h>
 
 #define GAME_NORMAL_CL2_MAX	1690000
-#define GAME_NORMAL_CL1_MAX	2400000
+#define GAME_NORMAL_CL1_MAX	2314000
+#define GAME_NORMAL_CL1_MAX_SSE	2314000
 #define GAME_LITE_GPU	260000
 
 static struct emstune_mode_request emstune_req_gmc;
@@ -50,6 +55,8 @@ static int cl0_max = PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE;
 static int gpu_lite = GAME_LITE_GPU;
 static int mif_max = PM_QOS_BUS_THROUGHPUT_MAX_DEFAULT_VALUE;
 static int mif_min = PM_QOS_BUS_THROUGHPUT_DEFAULT_VALUE;
+static int ta_sse_ur_thd = 50;
+static int cl1_max_sse = GAME_NORMAL_CL1_MAX_SSE;
 
 static int prev_is_game = 0;
 
@@ -66,6 +73,8 @@ enum {
 	LIGHT_GAME_MODE,
 };
 
+#define CL1_MAX_SSE	2314000
+
 //---------------------------------------
 // thread main
 static int gmc_thread(void *data)
@@ -79,6 +88,11 @@ static int gmc_thread(void *data)
 	int online_cpus = 0;
 	int cpu = 0;
 	int cpu_util_avg = 0;
+//	int cl1_max_org = cl1_max;
+//	int ta_sse_ur_sum = 0;
+//	int ta_sse_cnt = 0;
+//	int ta_sse_ur_avg = 0;
+//	struct task_struct *p;
 
 	if (is_running) {
 		pr_info("[%s] gmc already running!!\n", prefix);
@@ -100,6 +114,7 @@ static int gmc_thread(void *data)
 
 		// cpu util
 		cpu_util_avg = 0;
+		online_cpus = 0;
 		for_each_online_cpu(cpu) {
 			cpu_util_avg += ml_cpu_util(cpu);
 			online_cpus++;
@@ -113,19 +128,61 @@ static int gmc_thread(void *data)
 		sus_array[1] = gpu_dvfs_get_sustainable_info_array(1);
 		gpu_max_lock = gpu_dvfs_get_max_lock();
 
-		pr_info("[%s] gmc -----> time:%ds cpu_util_avg:%d gpu_util:%d gpu_freq:%d / sus_array0:%d sus_array1:%d gpu_maxlock:%d\n", 
-				prefix, time_cnt++, cpu_util_avg, gpu_util, gpu_freq, sus_array[0], sus_array[1], gpu_max_lock);
+		//pr_info("[%s] gmc -----> time:%ds cpu_util_avg:%d gpu_util:%d gpu_freq:%d / sus_array0:%d sus_array1:%d gpu_maxlock:%d\n", 
+		//		prefix, time_cnt++, cpu_util_avg, gpu_util, gpu_freq, sus_array[0], sus_array[1], gpu_max_lock);
+		time_cnt++;
 
 		if (is_game) {
 
 			if (delay_cnt++ >= maxlock_delay_sec) {
-				pr_info("[%s] gmc [game] >>> pm_qos limit all %d %d %d %d %d\n", prefix, cl2_max, cl1_max, cl0_max, mif_max, mif_min);
+				//pr_info("[%s] gmc [game] >>> pm_qos limit all %d %d %d %d %d\n", prefix, cl2_max, cl1_max, cl0_max, mif_max, mif_min);
 				pm_qos_update_request(&pm_qos_cl2_max, cl2_max);
 				pm_qos_update_request(&pm_qos_cl1_max, cl1_max);
 				pm_qos_update_request(&pm_qos_cl0_max, cl0_max);
 				pm_qos_update_request(&pm_qos_mif_max, mif_max);
 				pm_qos_update_request(&pm_qos_mif_min, mif_min);
 			}
+#if 0
+			ta_sse_ur_sum = 0;
+			ta_sse_cnt = 0;
+			for_each_cpu(cpu, cpu_active_mask) {
+				//unsigned long flags;
+				struct rq *rq = cpu_rq(cpu);
+				struct sched_entity *se;
+
+				//raw_spin_lock_irqsave(&rq->lock, flags);
+
+				/* Find task entity if entity is cfs_rq. */
+				se = rq->cfs.curr;
+				if (!entity_is_task(se)) {
+					struct cfs_rq *cfs_rq = se->my_q;
+
+					while (cfs_rq) {
+						se = cfs_rq->curr;
+						cfs_rq = se->my_q;
+					}
+				}
+
+				//raw_spin_unlock_irqrestore(&rq->lock, flags);
+
+				p = container_of(se, struct task_struct, se);
+				if (p->sse) {	// 32-bits
+					int grp = schedtune_task_group_idx(p);
+					if (grp == 3) {	// top-app
+						ta_sse_ur_sum += ml_cpu_util(cpu) * 100 / capacity_cpu(task_cpu(p), p->sse);
+						ta_sse_cnt++;
+					}
+				}
+			}
+
+			ta_sse_ur_avg = (ta_sse_cnt > 0)? ta_sse_ur_sum / ta_sse_cnt : 0;
+			if (ta_sse_ur_avg >= ta_sse_ur_thd) {
+				cl1_max = cl1_max_sse;
+				pr_info("[%s] gmc >>> time_cnt=%d is_game=%d ta_sse_ur_avg=%d (ta_sse_ur_thd=%d) cl1_max=%d\n", prefix, time_cnt, is_game, ta_sse_ur_avg, ta_sse_ur_thd, cl1_max);
+			} else {
+				cl1_max = cl1_max_org;
+			}
+#endif
 
 #if 1
 			//emstune_mode_change(NORMAL_MODE);
@@ -146,17 +203,27 @@ static int gmc_thread(void *data)
 		} else {
 			delay_cnt = 0;
 
-			// release first
-			pr_info("[%s] gmc [not game] >>> pm_qos release all\n", prefix);
-			pm_qos_update_request(&pm_qos_cl2_max, PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
-			pm_qos_update_request(&pm_qos_cl1_max, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
-			pm_qos_update_request(&pm_qos_cl0_max, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
-			pm_qos_update_request(&pm_qos_mif_max, PM_QOS_BUS_THROUGHPUT_MAX_DEFAULT_VALUE);
-			pm_qos_update_request(&pm_qos_mif_min, PM_QOS_BUS_THROUGHPUT_DEFAULT_VALUE);
-
-			if (emstune_get_cur_mode() == LIGHT_GAME_MODE && prev_is_game) {
-				emstune_mode_change(NORMAL_MODE);
+			if (gpu_dvfs_get_need_cpu_qos()) {
+				pr_info("[%s] gmc >> sus time=%d", prefix, time_cnt);
+				emstune_mode_change(LIGHT_GAME_MODE);
 				emstune_update_request(&emstune_req_gmc, 0);
+				pm_qos_update_request(&pm_qos_cl2_max, PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_cl1_max, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
+				//pm_qos_update_request(&pm_qos_cl1_max, 1898000);
+				pm_qos_update_request(&pm_qos_cl0_max, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_mif_max, PM_QOS_BUS_THROUGHPUT_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_mif_min, PM_QOS_BUS_THROUGHPUT_DEFAULT_VALUE);
+			} else {
+				if (emstune_get_cur_mode() == LIGHT_GAME_MODE && !prev_is_game) {
+					pr_info("[%s] gmc >> restore to normal, time=%d", prefix, time_cnt);
+					emstune_mode_change(NORMAL_MODE);
+					emstune_update_request(&emstune_req_gmc, 0);
+				}
+				pm_qos_update_request(&pm_qos_cl2_max, PM_QOS_CLUSTER2_FREQ_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_cl1_max, PM_QOS_CLUSTER1_FREQ_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_cl0_max, PM_QOS_CLUSTER0_FREQ_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_mif_max, PM_QOS_BUS_THROUGHPUT_MAX_DEFAULT_VALUE);
+				pm_qos_update_request(&pm_qos_mif_min, PM_QOS_BUS_THROUGHPUT_DEFAULT_VALUE);
 			}
 #if 0
 			// cause: conflicting between MCD and slsi
@@ -252,7 +319,7 @@ static int register_is_game_misc(void)
 #define DEF_NODE(name) \
 	static ssize_t show_##name(struct kobject *k, struct kobj_attribute *attr, char *buf) { \
 		int ret = 0; \
-		ret += sprintf(buf + ret, "%d", name); \
+		ret += sprintf(buf + ret, "%d\n", name); \
 		return ret; } \
 	static ssize_t store_##name(struct kobject *k, struct kobj_attribute *attr, const char *buf, size_t count) { \
 		if (sscanf(buf, "%d", &name) != 1) \
@@ -265,11 +332,13 @@ DEF_NODE(polling_ms)
 DEF_NODE(bind_cpu)
 DEF_NODE(cl2_max)
 DEF_NODE(cl1_max)
+DEF_NODE(cl1_max_sse)
 DEF_NODE(cl0_max)
 DEF_NODE(mif_max)
 DEF_NODE(mif_min)
 DEF_NODE(gpu_lite)
 DEF_NODE(maxlock_delay_sec)
+DEF_NODE(ta_sse_ur_thd)
 
 // run
 static ssize_t show_run(struct kobject *k, struct kobj_attribute *attr, char *buf) 
@@ -302,11 +371,13 @@ static struct attribute *gmc_attrs[] = {
 	&is_game_attr.attr,
 	&cl2_max_attr.attr,
 	&cl1_max_attr.attr,
+	&cl1_max_sse_attr.attr,
 	&cl0_max_attr.attr,
 	&mif_max_attr.attr,
 	&mif_min_attr.attr,
 	&gpu_lite_attr.attr,
 	&maxlock_delay_sec_attr.attr,
+	&ta_sse_ur_thd_attr.attr,
 	NULL
 };
 static struct attribute_group gmc_group = {

@@ -60,7 +60,7 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 {
 	u32 src_pos_x = *x, src_pos_y = *y, src_width = *width, src_height = *height;
 #ifdef ENABLE_MCSC_CENTER_CROP
-	u32 crop_ratio, align;
+	u32 aspect_ratio, align;
 #endif
 
 #ifdef ENABLE_DJAG_IN_MCSC
@@ -75,6 +75,8 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 		/* Only cares about D-zoom crop scenario, not for stripe processing crop scenario. */
 		if (!input->stripe_total_count) {
 			/* adjust the center offset of crop region */
+			aspect_ratio = src_height * 1000 / src_width;
+
 			align = MCSC_WIDTH_ALIGN * 2;
 			src_width = DIV_ROUND_CLOSEST(src_width, align) * align;
 			src_width = (src_width > input->djag_out_width) ?
@@ -86,8 +88,7 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 			src_pos_x = (src_pos_x > 0) ? src_pos_x : 0;
 
 			align = MCSC_HEIGHT_ALIGN * 2;
-			crop_ratio = src_width * 1000 / input->djag_out_width;
-			src_height = input->djag_out_height * crop_ratio / 1000;
+			src_height = src_width * aspect_ratio / 1000;
 			src_height = DIV_ROUND_CLOSEST(src_height, align) * align;
 			src_height = (src_height > input->djag_out_height) ?
 				ALIGN_DOWN(input->djag_out_height, MCSC_HEIGHT_ALIGN) : src_height;

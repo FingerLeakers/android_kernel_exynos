@@ -163,6 +163,11 @@ struct exynos_access_cxt {
  * bytes_xfered field of @data must be written. This is ensured by
  * using barriers.
  */
+ 
+/*
+* exynos max_segs is 512
+*/
+#define SG_MAX_LEN	512
 struct dw_mci {
 	spinlock_t		lock;
 	spinlock_t		irq_lock;
@@ -295,9 +300,8 @@ struct dw_mci {
 	/* bouce buffer */
 	void *bounce_buffer_addr;
 #define DMA_UPPER_ADDR	0xa00000000	/* DMA UPPER 8GB ADDR */
-
-	void *backup_addr[5000];
-	u32 backup_size[5000];
+	void *backup_addr[SG_MAX_LEN];
+	u32 backup_size[SG_MAX_LEN];
 	u32 bu_count;
 	u32 data_trans;
 	u32 mem_check;

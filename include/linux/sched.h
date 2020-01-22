@@ -364,6 +364,8 @@ struct multi_load {
 	struct util_est                 util_est;
 	struct util_est                 util_est_s;
 	int				util_est_applied;
+
+	int				hungry;
 };
 
 #define EMS_PART_ENQUEUE        0x1

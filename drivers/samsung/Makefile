@@ -32,3 +32,4 @@ obj-$(CONFIG_SEC_BOOTSTAT)	+= sec_bootstat.o
 
 # Samsung System Update
 obj-$(CONFIG_SEC_SYSUP)		+= sec_sysup.o
+obj-$(CONFIG_SEC_DUMP_SINK)	+= sec_dump_sink.o

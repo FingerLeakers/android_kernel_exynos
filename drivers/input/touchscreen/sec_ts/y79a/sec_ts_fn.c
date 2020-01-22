@@ -108,6 +108,7 @@ static void get_crc_check(void *device_data);
 static void run_prox_intensity_read_all(void *device_data);
 static void set_low_power_sensitivity(void *device_data);
 static void set_sip_mode(void *device_data);
+static void sync_changed(void *device_data);
 static void not_support_cmd(void *device_data);
 static void run_elvss_test(void *device_data);
 static int execute_selftest(struct sec_ts_data *ts, bool save_result);
@@ -216,6 +217,7 @@ static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("run_prox_intensity_read_all", run_prox_intensity_read_all),},
 	{SEC_CMD_H("set_low_power_sensitivity", set_low_power_sensitivity),},	
 	{SEC_CMD("set_sip_mode", set_sip_mode),},
+	{SEC_CMD_H("sync_changed", sync_changed),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
 
@@ -1808,6 +1810,7 @@ static int execute_p2ptest(struct sec_ts_data *ts)
 			} else if (tBuff[1] == SEC_TS_VENDOR_ACK_RX_NODE_GAP_TEST_DONE) {
 				ts->cm_raw_set_p2p_gap_y = (tBuff[2] & 0xFF) << 8 | (tBuff[3] & 0xFF);
 				ts->cm_raw_set_p2p_gap_y_result = (tBuff[4] & 0x01);
+				ts->contact_gap_max = (tBuff[5] & 0xFF) << 8 | (tBuff[6] & 0xFF);
 			}
 		}
 
@@ -2771,6 +2774,8 @@ static int sec_ts_read_rawp2p_data_all(struct sec_ts_data *ts,
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_MAX");
 		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->cm_raw_set_p2p_gap_y);
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
+		snprintf(buff, sizeof(buff), "%d,%d", 0, ts->contact_gap_max);
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CONTACT_GAP");
 	}
 	sec->cmd_state = SEC_CMD_STATUS_OK;
 
@@ -2799,9 +2804,10 @@ error_power_state:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 
 	if (sec->cmd_all_factory_state == SEC_CMD_STATUS_RUNNING) {
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_AVG");
-		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_AVG");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CM_RAW_SET_P2P_MAX");
 		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "MIS_CAL");
+		sec_cmd_set_cmd_result_all(sec, buff, strnlen(buff, sizeof(buff)), "CONTACT_GAP");
 	}
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	return ret;
@@ -7387,6 +7393,39 @@ out:
 	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
 	sec_cmd_set_cmd_exit(sec);
 
+	return;
+}
+
+static void sync_changed(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct sec_ts_data *ts = container_of(sec, struct sec_ts_data, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+	int ret;
+	u8 data;
+
+	sec_cmd_set_default_result(sec);
+
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] >= SEC_TS_SYNC_CHANGED_MAX) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		goto out;
+	}
+
+	data = sec->cmd_param[0];
+	ret = ts->sec_ts_i2c_write(ts, SEC_TS_CMD_SYNC_CHANGED, &data, 1);
+	if (ret < 0) {
+		snprintf(buff, sizeof(buff), "NG");
+		sec->cmd_state = SEC_CMD_STATUS_FAIL;
+		goto out;
+	}
+
+	snprintf(buff, sizeof(buff), "OK");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+out:
+	input_info(true, &ts->client->dev, "%s: %d %s\n", __func__, sec->cmd_param[0], buff);
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
 	return;
 }
 

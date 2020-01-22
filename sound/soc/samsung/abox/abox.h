@@ -94,6 +94,8 @@
 
 #define ABOX_QUIRK_BIT_ARAM_MODE	BIT(0)
 #define ABOX_QUIRK_STR_ARAM_MODE	"aram mode"
+#define ABOX_QUIRK_BIT_INT_SKEW		BIT(1)
+#define ABOX_QUIRK_STR_INT_SKEW		"int skew"
 
 enum abox_dai {
 	ABOX_NONE,

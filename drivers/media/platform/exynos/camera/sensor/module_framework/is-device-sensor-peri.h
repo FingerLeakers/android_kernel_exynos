@@ -137,6 +137,9 @@ struct is_cis {
 
 	/* check i2c fail of global/mode setting */
 	enum cis_stream_state           stream_state;
+
+	struct work_struct		global_setting_work;
+	struct work_struct		mode_setting_work;
 };
 
 struct is_actuator_data {
@@ -494,15 +497,8 @@ struct is_device_sensor_peri {
 	struct kthread_worker		sensor_worker;
 	struct kthread_work		sensor_work;
 
-	/* Thread for sensor register setting */
-	struct task_struct		*cis_global_task;
-	struct kthread_worker		cis_global_worker;
-	struct kthread_work		cis_global_work;
+	/* Variable for checking global setting done */
 	bool				cis_global_complete;
-
-	struct task_struct		*mode_change_task;
-	struct kthread_worker		mode_change_worker;
-	struct kthread_work		mode_change_work;
 
 	/* first sensor mode setting flag */
         u32                             mode_change_first;

@@ -56,6 +56,8 @@
 #include <sound/pcm_params.h>
 #include <sound/initval.h>
 
+#include <linux/usb_notify.h>
+
 #include "usbaudio.h"
 #include "card.h"
 #include "midi.h"
@@ -704,6 +706,8 @@ static int usb_audio_probe(struct usb_interface *intf,
 			goto __error;
 	}
 
+	set_usb_audio_cardnum(chip->card->number, 0, 1);
+
 	/* we are allowed to call snd_card_register() many times */
 	err = snd_card_register(chip->card);
 	if (err < 0)
@@ -724,6 +728,7 @@ static int usb_audio_probe(struct usb_interface *intf,
 
  __error:
 	if (chip) {
+		set_usb_audio_cardnum(chip->card->number, 0, 0);
 		/* chip->active is inside the chip->card object,
 		 * decrement before memory is possibly returned.
 		 */
@@ -742,6 +747,11 @@ static int usb_audio_probe(struct usb_interface *intf,
 static void usb_audio_disconnect(struct usb_interface *intf)
 {
 	struct snd_usb_audio *chip = usb_get_intfdata(intf);
+#if 0
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	struct usb_device *dev = interface_to_usbdev(intf);
+#endif
+#endif
 	struct snd_card *card;
 	struct list_head *p;
 
@@ -750,6 +760,12 @@ static void usb_audio_disconnect(struct usb_interface *intf)
 
 	card = chip->card;
 
+#if 0
+#ifdef CONFIG_USB_AUDIO_ENHANCED_DETECT_TIME
+	send_usb_audio_uevent(dev, card->number, 0);
+#endif
+#endif
+	set_usb_audio_cardnum(chip->card->number, 0, 0);
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 	exynos_usb_audio_conn(0);
 #endif

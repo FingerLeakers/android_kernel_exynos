@@ -659,47 +659,6 @@ static ssize_t store_exynos_devfreq_disable_pm_qos(struct device *dev,
 	return count;
 }
 
-static ssize_t show_alt_dvfs_info(struct device *dev,
-					struct device_attribute *attr, char *buf)
-{
-#if defined(CONFIG_EXYNOS_ALT_DVFS)
-	struct device *parent = dev->parent;
-	struct platform_device *pdev = container_of(parent,
-						    struct platform_device,
-						    dev);
-	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
-	ssize_t count = 0;
-	int i;
-
-	mutex_lock(&data->devfreq->lock);
-
-	for (i = 0; i < data->simple_interactive_data.alt_data.num_target_load; i++) {
-		count += snprintf(buf + count, PAGE_SIZE, "%d%s",
-				  data->simple_interactive_data.alt_data.target_load[i],
-				  (i == data->simple_interactive_data.alt_data.num_target_load - 1) ?
-				  "" : (i % 2) ? ":" : " ");
-	}
-	count += snprintf(buf + count, PAGE_SIZE, "\n");
-	/* Parameters */
-	count += snprintf(buf + count, PAGE_SIZE, "MIN SAMPLE TIME: %u\n",
-				data->simple_interactive_data.alt_data.min_sample_time);
-	count += snprintf(buf + count, PAGE_SIZE, "HOLD SAMPLE TIME: %u\n",
-				data->simple_interactive_data.alt_data.hold_sample_time);
-	count += snprintf(buf + count, PAGE_SIZE, "HISPEED LOAD: %u\n",
-				data->simple_interactive_data.alt_data.hispeed_load);
-	count += snprintf(buf + count, PAGE_SIZE, "HISPEED FREQ: %u\n",
-				data->simple_interactive_data.alt_data.hispeed_freq);
-
-	mutex_unlock(&data->devfreq->lock);
-
-	return count;
-#else
-	return 0;
-#endif
-}
-
-static DEVICE_ATTR(alt_dvfs_info, 0640, show_alt_dvfs_info, NULL);
-
 static DEVICE_ATTR(exynos_devfreq_info, 0640, show_exynos_devfreq_info, NULL);
 static DEVICE_ATTR(exynos_devfreq_get_freq, 0640, show_exynos_devfreq_get_freq, NULL);
 static DEVICE_ATTR(exynos_devfreq_cmu_dump, 0640, show_exynos_devfreq_cmu_dump, NULL);
@@ -716,7 +675,6 @@ static struct attribute *exynos_devfreq_sysfs_entries[] = {
 	&dev_attr_debug_scaling_devfreq_min.attr,
 	&dev_attr_debug_scaling_devfreq_max.attr,
 	&dev_attr_disable_pm_qos.attr,
-	&dev_attr_alt_dvfs_info.attr,
 	NULL,
 };
 
@@ -893,8 +851,67 @@ static ssize_t store_delay_time(struct device *dev,
 	return count;
 }
 
+/* Sysfs node for ALT DVFS */
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
-static ssize_t show_target_load(struct device *dev,
+int __exynos_devfreq_alt_mode_change(struct exynos_devfreq_data *data, int new_mode)
+{
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+
+	mutex_lock(&data->devfreq->lock);
+	if (new_mode < alt_data->num_modes) {
+		alt_data->current_mode = new_mode;
+		if (new_mode != -1)
+			alt_data->alt_param = &alt_data->alt_param_set[new_mode];
+		else
+			alt_data->alt_param = alt_data->alt_user_mode;
+	} else {
+		pr_err("There has no mode number %d", new_mode);
+	}
+	mutex_unlock(&data->devfreq->lock);
+
+	return 0;
+}
+
+int exynos_devfreq_alt_mode_change(unsigned int devfreq_type, int new_mode)
+{
+	struct exynos_devfreq_data *data = NULL;
+
+	if (devfreq_data && devfreq_data[devfreq_type] &&
+			devfreq_data[devfreq_type]->simple_interactive_data.alt_data.alt_user_mode &&
+			devfreq_data[devfreq_type]->devfreq
+			)
+		data = devfreq_data[devfreq_type];
+
+	if (!data) {
+		printk("Fail to get exynos_devfreq_data\n");
+		return -EINVAL;
+	}
+
+	return __exynos_devfreq_alt_mode_change(devfreq_data[devfreq_type], new_mode);
+}
+EXPORT_SYMBOL(exynos_devfreq_alt_mode_change);
+
+static int change_target_load(struct exynos_devfreq_data *data, const char *buf)
+{
+	int ntokens;
+	int *new_target_load = NULL;
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+
+	new_target_load = get_tokenized_data(buf , &ntokens);
+	if (IS_ERR(new_target_load))
+		return PTR_RET(new_target_load);
+
+	mutex_lock(&data->devfreq->lock);
+	kfree(alt_user_mode->target_load);
+	alt_user_mode->target_load = new_target_load;
+	alt_user_mode->num_target_load = ntokens;
+	mutex_unlock(&data->devfreq->lock);
+
+	return 0;
+}
+
+/* Show Current ALT Parameter Info */
+static ssize_t show_current_target_load(struct device *dev,
 			      struct device_attribute *attr, char *buf)
 {
 	struct device *parent = dev->parent;
@@ -902,14 +919,15 @@ static ssize_t show_target_load(struct device *dev,
 						    struct platform_device,
 						    dev);
 	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_param = data->simple_interactive_data.alt_data.alt_param;
 	ssize_t count = 0;
 	int i;
 
 	mutex_lock(&data->devfreq->lock);
-	for (i = 0; i < data->simple_interactive_data.alt_data.num_target_load; i++) {
+	for (i = 0; i < alt_param->num_target_load; i++) {
 		count += snprintf(buf + count, PAGE_SIZE, "%d%s",
-				  data->simple_interactive_data.alt_data.target_load[i],
-				  (i == data->simple_interactive_data.alt_data.num_target_load - 1) ?
+				  alt_param->target_load[i],
+				  (i == alt_param->num_target_load - 1) ?
 				  "" : (i % 2) ? ":" : " ");
 	}
 	count += snprintf(buf + count, PAGE_SIZE, "\n");
@@ -917,7 +935,51 @@ static ssize_t show_target_load(struct device *dev,
 	return count;
 }
 
-static ssize_t store_target_load(struct device *dev,
+static ssize_t show_current_hold_sample_time(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_param = data->simple_interactive_data.alt_data.alt_param;
+	ssize_t count = 0;
+
+	mutex_lock(&data->devfreq->lock);
+	count += snprintf(buf, PAGE_SIZE, "%u\n",
+			  alt_param->hold_sample_time);
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+
+/* Show and Store User ALT Paramter Info */
+static ssize_t show_user_target_load(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+	ssize_t count = 0;
+	int i;
+
+	mutex_lock(&data->devfreq->lock);
+	for (i = 0; i < alt_user_mode->num_target_load; i++) {
+		count += snprintf(buf + count, PAGE_SIZE, "%d%s",
+				  alt_user_mode->target_load[i],
+				  (i == alt_user_mode->num_target_load - 1) ?
+				  "" : (i % 2) ? ":" : " ");
+	}
+	count += snprintf(buf + count, PAGE_SIZE, "\n");
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+static ssize_t store_user_target_load(struct device *dev,
 			       struct device_attribute *attr, const char *buf,
 			       size_t count)
 {
@@ -926,23 +988,13 @@ static ssize_t store_target_load(struct device *dev,
 						    struct platform_device,
 						    dev);
 	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
-	int ntokens;
-	int *new_target_load = NULL;
 
-	new_target_load = get_tokenized_data(buf , &ntokens);
-	if (IS_ERR(new_target_load))
-		return PTR_RET(new_target_load);
-
-	mutex_lock(&data->devfreq->lock);
-	kfree(data->simple_interactive_data.alt_data.target_load);
-	data->simple_interactive_data.alt_data.target_load = new_target_load;
-	data->simple_interactive_data.alt_data.num_target_load = ntokens;
-	mutex_unlock(&data->devfreq->lock);
+	change_target_load(data, buf);
 
 	return count;
 }
 
-static ssize_t show_hold_sample_time(struct device *dev, struct device_attribute *attr,
+static ssize_t show_user_hold_sample_time(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
 	struct device *parent = dev->parent;
@@ -950,16 +1002,17 @@ static ssize_t show_hold_sample_time(struct device *dev, struct device_attribute
 						    struct platform_device,
 						    dev);
 	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
 	ssize_t count = 0;
 
 	mutex_lock(&data->devfreq->lock);
 	count += snprintf(buf, PAGE_SIZE, "%u\n",
-			  data->simple_interactive_data.alt_data.hold_sample_time);
+			  alt_user_mode->hold_sample_time);
 	mutex_unlock(&data->devfreq->lock);
 	return count;
 }
 
-static ssize_t store_hold_sample_time(struct device *dev,
+static ssize_t store_user_hold_sample_time(struct device *dev,
 			     struct device_attribute *attr, const char *buf,
 			     size_t count)
 {
@@ -968,13 +1021,201 @@ static ssize_t store_hold_sample_time(struct device *dev,
 						    struct platform_device,
 						    dev);
 	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
 	int ret;
 
 	mutex_lock(&data->devfreq->lock);
-	ret = sscanf(buf, "%u", &data->simple_interactive_data.alt_data.hold_sample_time);
+	ret = sscanf(buf, "%u", &alt_user_mode->hold_sample_time);
 	mutex_unlock(&data->devfreq->lock);
 	if (ret != 1)
 		return -EINVAL;
+
+	return count;
+}
+
+static ssize_t show_user_hispeed_load(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+	ssize_t count = 0;
+
+	mutex_lock(&data->devfreq->lock);
+	count += snprintf(buf, PAGE_SIZE, "%u\n",
+			  alt_user_mode->hispeed_load);
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+static ssize_t store_user_hispeed_load(struct device *dev,
+			     struct device_attribute *attr, const char *buf,
+			     size_t count)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+	int ret;
+
+	mutex_lock(&data->devfreq->lock);
+	ret = sscanf(buf, "%u", &alt_user_mode->hispeed_load);
+	mutex_unlock(&data->devfreq->lock);
+	if (ret != 1)
+		return -EINVAL;
+
+	return count;
+}
+
+static ssize_t show_user_hispeed_freq(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+	ssize_t count = 0;
+
+	mutex_lock(&data->devfreq->lock);
+	count += snprintf(buf, PAGE_SIZE, "%u\n",
+			  alt_user_mode->hispeed_freq);
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+static ssize_t store_user_hispeed_freq(struct device *dev,
+			     struct device_attribute *attr, const char *buf,
+			     size_t count)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_param *alt_user_mode = data->simple_interactive_data.alt_data.alt_user_mode;
+	int ret;
+
+	mutex_lock(&data->devfreq->lock);
+	ret = sscanf(buf, "%u", &alt_user_mode->hispeed_freq);
+	mutex_unlock(&data->devfreq->lock);
+	if (ret != 1)
+		return -EINVAL;
+
+	return count;
+}
+
+/* Sysfs for ALT mode Info */
+static ssize_t show_current_mode(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+	ssize_t count = 0;
+
+	mutex_lock(&data->devfreq->lock);
+	count += snprintf(buf, PAGE_SIZE, "%d\n", alt_data->current_mode);
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+static ssize_t store_current_mode(struct device *dev,
+			     struct device_attribute *attr, const char *buf,
+			     size_t count)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	int new_mode;
+	int ret;
+
+	ret = sscanf(buf, "%d", &new_mode);
+	if (ret != 1)
+		return -EINVAL;
+	__exynos_devfreq_alt_mode_change(data, new_mode);
+
+	return count;
+}
+
+static ssize_t show_default_mode(struct device *dev, struct device_attribute *attr,
+			    char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+	ssize_t count = 0;
+
+	mutex_lock(&data->devfreq->lock);
+	count += snprintf(buf, PAGE_SIZE, "%d\n", alt_data->default_mode);
+	mutex_unlock(&data->devfreq->lock);
+	return count;
+}
+
+/* Show whole ALT DVFS Info */
+static void print_alt_dvfs_info(struct devfreq_alt_dvfs_param *alt_param, char *buf, ssize_t *count)
+{
+	int i;
+
+	for (i = 0; i < alt_param->num_target_load; i++) {
+		*count += snprintf(buf + *count, PAGE_SIZE, "%d%s",
+				  alt_param->target_load[i],
+				  (i == alt_param->num_target_load - 1) ?
+				  "" : (i % 2) ? ":" : " ");
+	}
+	*count += snprintf(buf + *count, PAGE_SIZE, "\n");
+	/* Parameters */
+	*count += snprintf(buf + *count, PAGE_SIZE, "MIN SAMPLE TIME: %u\n",
+				alt_param->min_sample_time);
+	*count += snprintf(buf + *count, PAGE_SIZE, "HOLD SAMPLE TIME: %u\n",
+				alt_param->hold_sample_time);
+	*count += snprintf(buf + *count, PAGE_SIZE, "HISPEED LOAD: %u\n",
+				alt_param->hispeed_load);
+	*count += snprintf(buf + *count, PAGE_SIZE, "HISPEED FREQ: %u\n",
+				alt_param->hispeed_freq);
+
+}
+
+static ssize_t show_alt_dvfs_info(struct device *dev,
+					struct device_attribute *attr, char *buf)
+{
+	struct device *parent = dev->parent;
+	struct platform_device *pdev = container_of(parent,
+						    struct platform_device,
+						    dev);
+	struct exynos_devfreq_data *data = platform_get_drvdata(pdev);
+	struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+	struct devfreq_alt_dvfs_param *alt_param_set = data->simple_interactive_data.alt_data.alt_param_set;
+	ssize_t count = 0;
+	int i;
+
+	mutex_lock(&data->devfreq->lock);
+
+	count += snprintf(buf + count, PAGE_SIZE, "Current Mode >> %d, # Modes >> %d\n", alt_data->current_mode, alt_data->num_modes);
+
+	for (i = 0; i < alt_data->num_modes; i++) {
+		count += snprintf(buf + count, PAGE_SIZE, "\n<< MODE %d >>\n", i);
+		print_alt_dvfs_info(&alt_param_set[i], buf, &count);
+	}
+
+	count += snprintf(buf + count, PAGE_SIZE, "\n<< MODE USER >>\n");
+	print_alt_dvfs_info(alt_data->alt_user_mode, buf, &count);
+
+	mutex_unlock(&data->devfreq->lock);
 
 	return count;
 }
@@ -1047,8 +1288,15 @@ static ssize_t show_load_tracking(struct file *file, struct kobject *kobj,
 static DEVICE_ATTR(use_delay_time, 0640, show_use_delay_time, store_use_delay_time);
 static DEVICE_ATTR(delay_time, 0640, show_delay_time, store_delay_time);
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
-static DEVICE_ATTR(target_load, 0640, show_target_load, store_target_load);
-static DEVICE_ATTR(hold_sample_time, 0640, show_hold_sample_time, store_hold_sample_time);
+static DEVICE_ATTR(current_target_load, 0440, show_current_target_load, NULL);
+static DEVICE_ATTR(current_hold_sample_time, 0440, show_current_hold_sample_time, NULL);
+static DEVICE_ATTR(user_target_load, 0640, show_user_target_load, store_user_target_load);
+static DEVICE_ATTR(user_hold_sample_time, 0640, show_user_hold_sample_time, store_user_hold_sample_time);
+static DEVICE_ATTR(user_hispeed_load, 0640, show_user_hispeed_load, store_user_hispeed_load);
+static DEVICE_ATTR(user_hispeed_freq, 0640, show_user_hispeed_freq, store_user_hispeed_freq);
+static DEVICE_ATTR(current_mode, 0640, show_current_mode, store_current_mode);
+static DEVICE_ATTR(default_mode, 0440, show_default_mode, NULL);
+static DEVICE_ATTR(alt_dvfs_info, 0440, show_alt_dvfs_info, NULL);
 #ifdef CONFIG_EXYNOS_ALT_DVFS_DEBUG
 static BIN_ATTR(load_tracking, 0640, show_load_tracking, store_load_tracking, 0);
 #endif
@@ -1058,8 +1306,15 @@ static struct attribute *devfreq_interactive_sysfs_entries[] = {
 	&dev_attr_use_delay_time.attr,
 	&dev_attr_delay_time.attr,
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
-	&dev_attr_target_load.attr,
-	&dev_attr_hold_sample_time.attr,
+	&dev_attr_current_target_load.attr,
+	&dev_attr_current_hold_sample_time.attr,
+	&dev_attr_user_target_load.attr,
+	&dev_attr_user_hold_sample_time.attr,
+	&dev_attr_user_hispeed_load.attr,
+	&dev_attr_user_hispeed_freq.attr,
+	&dev_attr_current_mode.attr,
+	&dev_attr_default_mode.attr,
+	&dev_attr_alt_dvfs_info.attr,
 #endif
 	NULL,
 };
@@ -1150,9 +1405,6 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 	const char *use_dtm;
 	int ntokens;
 	int not_using_ect = true;
-#if defined(CONFIG_EXYNOS_ALT_DVFS)
-	struct devfreq_alt_dvfs_data *alt_data;
-#endif
 
 	if (!np)
 		return -ENODEV;
@@ -1356,41 +1608,67 @@ static int exynos_devfreq_parse_dt(struct device_node *np, struct exynos_devfreq
 #if defined(CONFIG_EXYNOS_ALT_DVFS)
 		/* Parse ALT-DVFS related parameters */
 		if (of_property_read_bool(np, "use_alt_dvfs")) {
+			int default_mode, i = 0;
+			struct device_node *alt_mode, *child;
+			struct devfreq_alt_dvfs_data *alt_data = &data->simple_interactive_data.alt_data;
+			struct devfreq_alt_dvfs_param *alt_param;
 
-			alt_data = &(data->simple_interactive_data.alt_data);
+			alt_mode = of_find_node_by_name(np, "alt_mode");
 
-			if (!of_property_read_string(np, "target_load", &buf)) {
-				/* Parse target load table */
-				alt_data->target_load =
-					get_tokenized_data(buf, &ntokens);
-				alt_data->num_target_load = ntokens;
-			} else {
-				/* Fix target load as defined ALTDVFS_TARGET_LOAD */
-				alt_data->target_load =
-					kmalloc(sizeof(unsigned int), GFP_KERNEL);
-				if(!alt_data->target_load) {
-					dev_err(data->dev, "Failed to allocate memory\n");
-					return -ENOMEM;
+			of_property_read_u32(alt_mode, "default_mode", &default_mode);
+			alt_data->default_mode = alt_data->current_mode = default_mode;
+
+			alt_data->num_modes = of_get_child_count(alt_mode);
+			alt_data->alt_param_set = kzalloc(sizeof(struct devfreq_alt_dvfs_param) * alt_data->num_modes, GFP_KERNEL);
+
+			for_each_available_child_of_node(alt_mode, child) {
+				alt_param = &(alt_data->alt_param_set[i++]);
+
+				if (!of_property_read_string(child, "target_load", &buf)) {
+					/* Parse target load table */
+					alt_param->target_load =
+						get_tokenized_data(buf, &ntokens);
+					alt_param->num_target_load = ntokens;
+				} else {
+					/* Fix target load as defined ALTDVFS_TARGET_LOAD */
+					alt_param->target_load =
+						kmalloc(sizeof(unsigned int), GFP_KERNEL);
+					if(!alt_param->target_load) {
+						dev_err(data->dev, "Failed to allocate memory\n");
+						return -ENOMEM;
+					}
+					*(alt_param->target_load) = ALTDVFS_TARGET_LOAD;
+					alt_param->num_target_load = ALTDVFS_NUM_TARGET_LOAD;
 				}
-				*(alt_data->target_load) = ALTDVFS_TARGET_LOAD;
-				alt_data->num_target_load = ALTDVFS_NUM_TARGET_LOAD;
-			}
 
-			if (of_property_read_u32(np, "min_sample_time", &alt_data->min_sample_time))
-				alt_data->min_sample_time = ALTDVFS_MIN_SAMPLE_TIME;
-			if (of_property_read_u32(np, "hold_sample_time", &alt_data->hold_sample_time))
-				alt_data->hold_sample_time = ALTDVFS_HOLD_SAMPLE_TIME;
-			if (of_property_read_u32(np, "hispeed_load", &alt_data->hispeed_load))
-				alt_data->hispeed_load = ALTDVFS_HISPEED_LOAD;
-			if (of_property_read_u32(np, "hispeed_freq", &alt_data->hispeed_freq))
-				alt_data->hispeed_freq = ALTDVFS_HISPEED_FREQ;
-			if (of_property_read_u32(np, "tolerance", &alt_data->tolerance))
-				alt_data->tolerance = ALTDVFS_TOLERANCE;
+				if (of_property_read_u32(child, "min_sample_time", &alt_param->min_sample_time))
+					alt_param->min_sample_time = ALTDVFS_MIN_SAMPLE_TIME;
+				if (of_property_read_u32(child, "hold_sample_time", &alt_param->hold_sample_time))
+					alt_param->hold_sample_time = ALTDVFS_HOLD_SAMPLE_TIME;
+				if (of_property_read_u32(child, "hispeed_load", &alt_param->hispeed_load))
+					alt_param->hispeed_load = ALTDVFS_HISPEED_LOAD;
+				if (of_property_read_u32(child, "hispeed_freq", &alt_param->hispeed_freq))
+					alt_param->hispeed_freq = ALTDVFS_HISPEED_FREQ;
+				if (of_property_read_u32(child, "tolerance", &alt_param->tolerance))
+					alt_param->tolerance = ALTDVFS_TOLERANCE;
+				dev_info(data->dev, "p1 %d\n", alt_param->min_sample_time);
+			}
 
 			/* Initial buffer and load setup */
 			alt_data->front = alt_data->buffer;
 			alt_data->rear = alt_data->buffer;
 			alt_data->min_load = 100;
+
+			alt_data->alt_param = &alt_data->alt_param_set[default_mode];
+			dev_info(data->dev, "default mode %d\n", default_mode);
+
+			/* copy default parameter to user param */
+			alt_data->alt_user_mode = kzalloc(sizeof(struct devfreq_alt_dvfs_param), GFP_KERNEL);
+			memcpy(alt_data->alt_user_mode, &alt_data->alt_param_set[default_mode], sizeof(struct devfreq_alt_dvfs_param));
+			alt_data->alt_user_mode->num_target_load = alt_data->alt_param->num_target_load;
+			alt_data->alt_user_mode->target_load = kzalloc(sizeof(unsigned int) * alt_data->alt_param->num_target_load, GFP_KERNEL);
+			memcpy(alt_data->alt_user_mode->target_load, alt_data->alt_param_set[default_mode].target_load, sizeof(unsigned int) * alt_data->alt_param->num_target_load);
+			
 
 			/* Initial governor freq setup */
 			data->simple_interactive_data.governor_freq = 0;

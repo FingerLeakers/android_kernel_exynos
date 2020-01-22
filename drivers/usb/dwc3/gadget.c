@@ -37,7 +37,6 @@
 #define DWC3_ALIGN_FRAME(d)	(((d)->frame_number + (d)->interval) \
 					& ~((d)->interval - 1))
 
-#define CONFIG_USB_FIX_PHY_PULLUP_ISSUE
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static void dwc3_disconnect_gadget(struct dwc3 *dwc);
@@ -405,7 +404,12 @@ int dwc3_send_gadget_ep_cmd(struct dwc3_ep *dep, unsigned cmd,
 			dwc3_writel(dwc->regs, DWC3_GUSB2PHYCFG(0), reg);
 	}
 
+#if defined(CONFIG_SOC_EXYNOS9830) /* To support L1*/
+	if (DWC3_DEPCMD_CMD(cmd) == DWC3_DEPCMD_STARTTRANSFER ||
+			DWC3_DEPCMD_CMD(cmd) == DWC3_DEPCMD_UPDATETRANSFER) {
+#else
 	if (DWC3_DEPCMD_CMD(cmd) == DWC3_DEPCMD_STARTTRANSFER) {
+#endif
 		int		needs_wakeup;
 
 		needs_wakeup = (dwc->link_state == DWC3_LINK_STATE_U1 ||
@@ -1733,6 +1737,9 @@ static int __dwc3_gadget_wakeup(struct dwc3 *dwc)
 
 	switch (link_state) {
 	case DWC3_LINK_STATE_RX_DET:	/* in HS, means Early Suspend */
+#if defined(CONFIG_SOC_EXYNOS9830) /* To support L1*/
+	case DWC3_LINK_STATE_U2:	/* in HS, means SLEEP */
+#endif
 	case DWC3_LINK_STATE_U3:	/* in HS, means SUSPEND */
 		break;
 	default:
@@ -1945,12 +1952,12 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on, int suspend)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
 		dwc->pullups_connected = false;
+#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) && defined(CONFIG_SEC_FACTORY)
+		cancel_delayed_work(&dwc->usb_link_state_check_work);
+#endif
 	}
 
 	dwc3_writel(dwc->regs, DWC3_DCTL, reg);
-
-	if (!is_on)
-		mdelay(50);
 
 	do {
 		reg = dwc3_readl(dwc->regs, DWC3_DSTS);
@@ -2052,6 +2059,9 @@ static int dwc3_gadget_run_stop_vbus(struct dwc3 *dwc, int is_on, int suspend)
 			reg &= ~DWC3_DCTL_KEEP_CONNECT;
 
 		dwc->pullups_connected = false;
+#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) && defined(CONFIG_SEC_FACTORY)
+		cancel_delayed_work(&dwc->usb_link_state_check_work);
+#endif
 	}
 
 	dwc3_writel(dwc->regs, DWC3_DCTL, reg);
@@ -2239,6 +2249,17 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	}
 #endif
 
+	if (dwc->is_not_vbus_pad) {
+		if (is_on) {
+			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_ENABLE, NULL);
+			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_ENABLE, NULL);
+			dwc->max_cnt_link_info = DWC3_LINK_STATE_INFO_LIMIT;
+		} else {
+			phy_set(dwc->usb2_generic_phy, SET_DPPULLUP_DISABLE, NULL);
+			phy_set(dwc->usb3_generic_phy, SET_DPPULLUP_DISABLE, NULL);
+		}
+	}
+
 	ret = dwc3_gadget_run_stop(dwc, is_on, false);
 #ifdef CONFIG_USB_NOTIFY_PROC_LOG
 	if (ret == 0) {
@@ -2258,6 +2279,9 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	}
 #endif
 	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	if (!is_on)
+		msleep(50);
 
 	return ret;
 }

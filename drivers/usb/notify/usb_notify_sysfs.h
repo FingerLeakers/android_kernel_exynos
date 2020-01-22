@@ -14,6 +14,9 @@
 
 #define MAX_DISABLE_STR_LEN 32
 #define MAX_WHITELIST_STR_LEN 256
+#define MAX_USB_AUDIO_CARDS 15
+/* one card needs 9 byte ex) <card11> */
+#define MAX_CARD_STR_LEN (MAX_USB_AUDIO_CARDS * 9)
 #define MAX_CLASS_TYPE_NUM	USB_CLASS_VENDOR_SPEC
 
 enum u_interface_class_type {
@@ -36,6 +39,11 @@ enum u_interface_class_type {
 	U_CLASS_VENDOR_SPEC,
 };
 
+struct usb_audio_info {
+	int cards;
+	int bundle;
+};
+
 struct usb_notify_dev {
 	const char *name;
 	struct device *dev;
@@ -47,6 +55,7 @@ struct usb_notify_dev {
 	void (*set_mdm)(struct usb_notify_dev *udev, int mdm_disable);
 	char whitelist_str[MAX_WHITELIST_STR_LEN];
 	int whitelist_array_for_mdm[MAX_CLASS_TYPE_NUM+1];
+	struct usb_audio_info usb_audio_cards[MAX_USB_AUDIO_CARDS];
 };
 
 extern int usb_notify_dev_uevent(struct usb_notify_dev *udev,

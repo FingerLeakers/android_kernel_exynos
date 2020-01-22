@@ -740,32 +740,46 @@ static int cont_cpu_init(struct device_node *dn, struct cpumask *cpus, int type)
 		ca->type = type;
 
 		if (of_property_read_u32(dn, "search_hist_size", &val))
-			return -EINVAL;
+			goto fail_cont_init;
 		ca->search_hist_size = val;
 
 		if (of_property_read_u32(dn, "event_thr", &val))
-			return -EINVAL;
+			goto fail_cont_init;
 		ca->event_thr = val;
 
 		if (of_property_read_u32(dn, "active_thr", &val))
-			return -EINVAL;
+			goto fail_cont_init;
 		ca->active_thr = val;
 
 		if (type == CONT_VICTIM) {
 			ca->pmu_event = victim_pmu_event;
 			ca->victimd = kzalloc(sizeof(struct cont_avg_victim), GFP_KERNEL);
 			if (!ca->victimd)
-				return -EINVAL;
+				goto fail_cont_init;
 		} else {
 			ca->pmu_event = attacker_pmu_event;
 			ca->attackerd = kzalloc(sizeof(struct cont_avg_attacker), GFP_KERNEL);
 			if (!ca->attackerd)
-				return -EINVAL;
+				goto fail_cont_init;
 			cont_kthread_create(cpu, ca->attackerd);
 		}
 		per_cpu(cont_avg, cpu) = ca;
 	}
 
+	return 0;
+
+fail_cont_init:
+	for_each_cpu(cpu, cpus) {
+		struct cont_avg *ca;
+		ca = per_cpu(cont_avg, cpu);
+		if (!ca)
+			continue;
+		if (ca->victimd)
+			kfree(ca->victimd);
+		else if (ca->attackerd)
+			kfree(ca->attackerd);
+		kfree(ca);
+	}
 	return 0;
 }
 

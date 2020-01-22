@@ -19,6 +19,56 @@
 
 static struct npu_scheduler_info *g_npu_scheduler_info;
 
+void npu_scheduler_activate_peripheral_dvfs(unsigned long freq)
+{
+	bool dvfs_active = false;
+	bool is_core = false;
+	int i;
+	struct npu_scheduler_dvfs_info *d;
+	struct npu_scheduler_info *info;
+
+	info = g_npu_scheduler_info;
+
+	if (!info->activated)
+		return;
+
+	mutex_lock(&info->exec_lock);
+	/* get NPU max freq */
+	list_for_each_entry(d, &info->ip_list, ip_list) {
+		if (!strcmp("NPU", d->name))
+			break;
+	}
+	npu_info("NPU maxlock at %ld\n", freq);
+	if (freq >= d->max_freq)
+		/* maxlock deactivated, DVFS should be active */
+		dvfs_active = true;
+	else
+		/* maxlock activated, DVFS should be inactive */
+		dvfs_active = false;
+
+	list_for_each_entry(d, &info->ip_list, ip_list) {
+		is_core = false;
+		/* check for core DVFS */
+		for (i = 0; i < ARRAY_SIZE(npu_scheduler_core_name); i++)
+			if (!strcmp(npu_scheduler_core_name[i], d->name)) {
+				is_core = true;
+				break;
+			}
+
+		/* only for peripheral DVFS */
+		if (!is_core) {
+			npu_pm_qos_update_request(d, &d->qos_req_min, d->min_freq);
+			if (dvfs_active)
+				d->activated = 1;
+			else
+				d->activated = 0;
+			npu_info("%s %sactivated\n", d->name,
+					d->activated ? "" : "de");
+		}
+	}
+	mutex_unlock(&info->exec_lock);
+}
+
 void npu_scheduler_set_bts(struct npu_scheduler_info *info)
 {
 	int ret = 0;
@@ -617,6 +667,11 @@ static int npu_scheduler_execute_policy(struct npu_scheduler_info *info)
 
 	mutex_lock(&info->exec_lock);
 	list_for_each_entry(d, &info->ip_list, ip_list) {
+		if (!d->activated) {
+			npu_trace("%s deactivated\n", d->name);
+			continue;
+		}
+
 		if (d->delay > 0)
 			d->delay -= info->time_diff;
 
@@ -1155,6 +1210,7 @@ int npu_scheduler_load(struct npu_device *device, const struct npu_session *sess
 		npu_info("DVFS start : %s (%s)\n",
 				d->name, d->gov->name);
 		d->gov->ops->start(d);
+		d->activated = 1;
 	}
 	mutex_unlock(&info->exec_lock);
 	mutex_unlock(&info->fps_lock);
@@ -1187,6 +1243,7 @@ int npu_scheduler_unload(struct npu_device *device, const struct npu_session *se
 		list_for_each_entry(d, &info->ip_list, ip_list) {
 			npu_info("DVFS stop : %s (%s)\n",
 					d->name, d->gov->name);
+			d->activated = 0;
 			d->gov->ops->stop(d);
 		}
 	}

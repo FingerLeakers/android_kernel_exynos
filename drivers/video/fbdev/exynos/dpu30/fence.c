@@ -182,6 +182,7 @@ int decon_wait_fence(struct decon_device *decon, struct dma_fence *fence, int fd
 	int ret = 1;
 
 	struct dpu_fence_info in_fence;
+	ktime_t time = ktime_get();
 
 	dpu_save_fence_info(fd, fence, &in_fence);
 
@@ -213,10 +214,11 @@ int decon_wait_fence(struct decon_device *decon, struct dma_fence *fence, int fd
 	}
 
 	if ((err <= 0) || (fence_err <= 0)) {
-		decon_err("\t%s: ctx(%llu), seqno(%d), fd(%d), flags(0x%lx), err(%d:%d), remain_frame(%d)\n",
+		decon_err("\t%s: ctx(%llu), seqno(%d), fd(%d), flags(0x%lx), err(%d:%d), remaining_frame(%d), elapsed(%lldusec)\n",
 			in_fence.name, in_fence.context, in_fence.seqno,
 			in_fence.fd, in_fence.flags, err, fence_err,
-			atomic_read(&decon->up.remaining_frame));
+			atomic_read(&decon->up.remaining_frame),
+			ktime_to_us(ktime_sub(ktime_get(), time)));
 	}
 
 	return ret;

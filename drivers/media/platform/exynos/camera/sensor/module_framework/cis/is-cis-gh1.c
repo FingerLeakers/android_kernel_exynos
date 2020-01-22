@@ -41,8 +41,11 @@
 #include "is-cis-gh1-setA.h"
 #include "is-cis-gh1-setB.h"
 #include "is-helper-i2c.h"
+#include "is-sec-define.h"
 
 #define SENSOR_NAME "S5KGH1"
+#define GLOBAL_TIME_CAL_WRITE
+#define XTC_CAL_DISABLE		/* !!!! check A1 0x42C0 setting(XTC bypass) */
 
 static const struct v4l2_subdev_ops subdev_ops;
 
@@ -420,6 +423,214 @@ p_err:
 	return ret;
 }
 
+int sensor_gh1_write16_burst(struct i2c_client *client,
+	u16 addr, u8 *val, u32 num, bool endian)
+{
+	int ret = 0;
+	struct i2c_msg msg[1];
+	int i = 0;
+	u8 *wbuf;
+
+	if (val == NULL) {
+		pr_err("val array is null\n");
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	if (!client->adapter) {
+		pr_err("Could not find adapter!\n");
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	wbuf = kmalloc((2 + (num * 2)), GFP_KERNEL);
+	if (!wbuf) {
+		pr_err("failed to alloc buffer for burst i2c\n");
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	msg->addr = client->addr;
+	msg->flags = 0;
+	msg->len = 2 + (num * 2);
+	msg->buf = wbuf;
+	wbuf[0] = (addr & 0xFF00) >> 8;
+	wbuf[1] = (addr & 0xFF);
+	if (endian == GH1_BIG_ENDIAN) {
+		for (i = 0; i < num; i++) {
+			wbuf[(i * 2) + 2] = (val[(i * 2)] & 0xFF);
+			wbuf[(i * 2) + 3] = (val[(i * 2) + 1] & 0xFF);
+		}
+	} else {
+		for (i = 0; i < num; i++) {
+			wbuf[(i * 2) + 2] = (val[(i * 2) + 1] & 0xFF);
+			wbuf[(i * 2) + 3] = (val[(i * 2)] & 0xFF);
+		}
+	}
+
+	ret = is_i2c_transfer(client->adapter, msg, 1);
+	if (ret < 0) {
+		pr_err("i2c transfer fail(%d)", ret);
+		goto p_err_free;
+	}
+
+	kfree(wbuf);
+	return 0;
+
+p_err_free:
+	kfree(wbuf);
+p_err:
+	return ret;
+}
+
+
+int sensor_gh1_cis_set_pdxtc_calibration(struct is_cis *cis)
+{
+	int ret = 0, i = 0, cal_size[2] = { 0 };
+	char *cal_buf;
+	u8* cal_data;
+	struct is_rom_info *finfo = NULL;
+
+	is_sec_get_cal_buf(&cal_buf, ROM_ID_FRONT);
+	is_sec_get_sysfs_finfo(&finfo, ROM_ID_FRONT);
+
+	info("[%s] cur_header : %s", __func__, finfo->header_ver);
+#ifdef CAMERA_GH1_CAL_MODULE_VERSION
+	if(finfo->header_ver[10] < CAMERA_GH1_CAL_MODULE_VERSION) {
+		info("[%s] skip calibration, cal value not valid(cur_header : %s)", __func__, finfo->header_ver);
+		return 0;
+	}
+#endif
+	if (finfo->rom_pdxtc_cal_data_start_addr == -1) {
+		err("[%s] cal addr empty");
+		goto p_err;
+	} else {
+		cal_data = &cal_buf[finfo->rom_pdxtc_cal_data_start_addr];
+	}
+
+	cal_size[0] = finfo->rom_pdxtc_cal_data_0_size;
+	if (cal_size[0] == -1) {
+		err("[%s] cal_size0 empty");
+		goto p_err;
+	}
+	cal_size[1] = finfo->rom_pdxtc_cal_data_1_size;
+	if (cal_size[1] == -1) {
+		err("[%s] cal_size1 empty");
+		goto p_err;
+	}
+
+	ret = is_sensor_write16(cis->client, 0xFCFC, 0x4000);		/* default page setting */
+/* PDXTC */
+	ret = is_sensor_write16(cis->client, 0x6028, 0x2001);
+	for (i = 0; i < cal_size[0]; i += 2) {
+		u16 val = (cal_data[i] & 0xFF) << 8;
+		ret |= is_sensor_write16(cis->client, 0x602A, 0x585A + i);
+		if (i + 1 < cal_size[0]) {
+			val |= (cal_data[i + 1] & 0xFF);
+		}
+		ret |= is_sensor_write16(cis->client, 0x6F12, val);
+	}
+#ifdef GH1_NON_BURST
+	ret |= is_sensor_write16(cis->client, 0x602A, 0x5878);
+	for (i = 0; i < cal_size[1]; i += 2) {
+		u16 val = (cal_data[i + cal_size[0]] & 0xFF) << 8;
+		val |= (cal_data[i + cal_size[0] + 1] & 0xFF);
+		ret |= is_sensor_write16(cis->client, 0x6F12, val);
+	}
+#else
+	ret |= is_sensor_write16(cis->client, 0x6004, 0x0001); /* burst enable */
+	ret |= is_sensor_write16(cis->client, 0x602A, 0x5878);
+	ret |= sensor_gh1_write16_burst(cis->client, 0x6F12, (&cal_data[cal_size[0]]), cal_size[1] / 2 , GH1_BIG_ENDIAN);
+	ret |= is_sensor_write16(cis->client, 0x6004, 0x0000); /* burst disable */
+#endif
+	if (ret < 0) {
+		err("pdxtc_calibration fail!");
+		goto p_err;
+	}
+	info("[%s] cal done", __func__);
+p_err:
+	return ret;
+}
+
+int sensor_gh1_cis_set_xtc_calibration(struct is_cis *cis)
+{
+	int ret = 0, cal_size = 0;
+#ifdef GH1_NON_BURST
+	int i = 0;
+#endif
+	bool endian = GH1_BIG_ENDIAN;
+	char *cal_buf;
+	u8* cal_data;
+	struct is_rom_info *finfo = NULL;
+
+	is_sec_get_cal_buf(&cal_buf, ROM_ID_FRONT);
+	is_sec_get_sysfs_finfo(&finfo, ROM_ID_FRONT);
+
+	info("[%s] cur_header : %s", __func__, finfo->header_ver);
+#ifdef CAMERA_GH1_CAL_MODULE_VERSION
+	if(finfo->header_ver[10] < CAMERA_GH1_CAL_MODULE_VERSION) {
+		info("[%s] skip calibration, cal value not valid(cur_header : %s)", __func__, finfo->header_ver);
+		return 0;
+	} else if ((finfo->header_ver[10] > CAMERA_GH1_CAL_MODULE_VERSION)||(finfo->header_ver[8] >= '1')) {
+		endian = GH1_BIG_ENDIAN;
+	} else {
+		endian = GH1_LITTLE_ENDIAN;
+	}
+#endif
+	if (finfo->rom_xtc_cal_data_start_addr == -1) {
+		err("[%s] cal_addr empty");
+		goto p_err;
+	} else {
+		cal_data = &cal_buf[finfo->rom_xtc_cal_data_start_addr];
+	}
+
+	cal_size = finfo->rom_xtc_cal_data_size;
+	if (cal_size == -1) {
+		err("[%s] cal_size empty");
+		goto p_err;
+	}
+
+	ret = is_sensor_write16(cis->client, 0xFCFC, 0x4000);		/* default page setting */
+/* Tetra XTC */
+	ret |= sensor_cis_set_registers(cis->subdev, sensor_gh1_pre_xtc, ARRAY_SIZE(sensor_gh1_pre_xtc));
+	if (ret < 0) {
+		err("tetra xtc_calibration fail!");
+		goto p_err;
+	}
+	
+	info("[%s] endian : %d",__func__, endian);
+#ifdef GH1_NON_BURST
+	ret |= is_sensor_write16(cis->client, 0x6028, 0x2001); /* cal page */
+	ret |= is_sensor_write16(cis->client, 0x602A, 0x5D90); /* cal addr */
+	if (endian == GH1_BIG_ENDIAN) {
+		for (i = 0; i < cal_size; i+=2) {
+			u16 val = (cal_data[i] & 0xFF) << 8;
+			val |= cal_data[i + 1] & 0xFF;
+			ret |= is_sensor_write16(cis->client, 0x6F12, val);
+		}
+	} else {
+		for (i = 0; i < cal_size; i+=2) {
+			u16 val = cal_data[i] & 0xFF;
+			val |= (cal_data[i + 1] & 0xFF) << 8;
+			ret |= is_sensor_write16(cis->client, 0x6F12, val);
+		}
+	}
+#else
+	ret |= is_sensor_write16(cis->client, 0x6004, 0x0001); /* burst enable */
+	ret |= is_sensor_write16(cis->client, 0x6028, 0x2001); /* cal page */
+	ret |= is_sensor_write16(cis->client, 0x602A, 0x5D90); /* cal addr */
+	ret |= sensor_gh1_write16_burst(cis->client, 0x6F12, cal_data, cal_size / 2, endian);
+	ret |= is_sensor_write16(cis->client, 0x6004, 0x0000); /* burst disable */
+#endif
+	if (ret < 0) {
+		err("tetra xtc_calibration fail!");
+		goto p_err;
+	}
+	info("[%s] cal done", __func__);
+p_err:
+	return ret;
+}
+
 int sensor_gh1_cis_set_global_setting(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
@@ -457,6 +668,10 @@ int sensor_gh1_cis_set_global_setting(struct v4l2_subdev *subdev)
 		ret = sensor_cis_set_registers(subdev, sensor_gh1_global_secure, sensor_gh1_global_secure_size);
 	} else {
 		ret = sensor_cis_set_registers(subdev, sensor_gh1_global, sensor_gh1_global_size);
+		ret |= sensor_gh1_cis_set_pdxtc_calibration(cis);
+#if defined(GLOBAL_TIME_CAL_WRITE) && !defined(XTC_CAL_DISABLE)
+		ret |= sensor_gh1_cis_set_xtc_calibration(cis);
+#endif
 	}
 
 	if (ret < 0) {
@@ -546,6 +761,19 @@ int sensor_gh1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	sensor_gh1_cis_set_paf_stat_enable(mode, cis->cis_data);
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
+
+#if !defined(GLOBAL_TIME_CAL_WRITE) && !defined(XTC_CAL_DISABLE)
+	is_sensor_write8(cis->client, 0x0100, 0x00);
+
+	if (is_sensor_g_ex_mode(device) == EX_REMOSAIC_CAL) {
+		ret = sensor_gh1_cis_set_xtc_calibration(cis);
+		if (ret < 0) {
+			err("set xtc calibration failed!!");
+			goto p_err_i2c_unlock;
+		}
+	}
+#endif
+
 	if (core->scenario != IS_SCENARIO_SECURE){
 		ret = sensor_cis_set_registers(subdev, sensor_gh1_setfiles[mode], sensor_gh1_setfile_sizes[mode]);
 		if (ret < 0) {

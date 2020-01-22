@@ -42,7 +42,7 @@ extern struct spi_driver *pssp_driver;
 extern bool ssp_dbg;
 extern bool ssp_pkt_dbg;
 
-static struct spi_device dummy_spi = {
+struct spi_device dummy_spi = {
 	.dev = {
 		.init_name = "dummy",
 	},

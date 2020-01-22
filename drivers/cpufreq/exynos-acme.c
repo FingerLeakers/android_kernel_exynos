@@ -313,6 +313,7 @@ static int exynos_cpufreq_driver_init(struct cpufreq_policy *policy)
 	policy->freq_table = domain->freq_table;
 	policy->cur = get_freq(domain);
 	policy->cpuinfo.transition_latency = TRANSITION_LATENCY;
+	policy->dvfs_possible_from_any_cpu = true;
 	cpumask_copy(policy->cpus, &domain->cpus);
 
 	pr_info("CPUFREQ domain%d registered\n", domain->id);
@@ -658,6 +659,83 @@ static void slack_nop_timer(struct timer_list *timer)
 	 */
 	trace_exynos_slack_func(smp_processor_id());
 }
+
+/*********************************************************************
+ *                       CPUFREQ SYSFS			             *
+ *********************************************************************/
+
+static ssize_t show_cpufreq_qos_min(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	ssize_t count = 0;
+	struct exynos_cpufreq_domain *domain;
+
+	list_for_each_entry(domain, &domains, list)
+		count += snprintf(buf + count, 30, "cpu%d: qos_min: %d\n",
+				cpumask_first(&domain->cpus), domain->user_qos_min_req.node.prio);
+	return count;
+}
+
+static ssize_t store_cpufreq_qos_min(struct kobject *kobj, struct kobj_attribute *attr,
+					const char *buf, size_t count)
+{
+	int freq, cpu;
+	struct exynos_cpufreq_domain *domain;
+
+	if (!sscanf(buf, "%d %8d", &cpu, &freq))
+		return -EINVAL;
+	if (cpu < 0 || cpu >= NR_CPUS || freq < 0)					\
+		return -EINVAL;								\
+
+	domain = find_domain(cpu);
+	if (!domain)
+		return -EINVAL;
+
+	pm_qos_update_request(&domain->user_qos_min_req, freq);
+
+	return count;
+}
+
+
+static ssize_t show_cpufreq_qos_max(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	ssize_t count = 0;
+	struct exynos_cpufreq_domain *domain;
+
+	list_for_each_entry(domain, &domains, list)
+		count += snprintf(buf + count, 30, "cpu%d: qos_max: %d\n",
+				cpumask_first(&domain->cpus), domain->user_qos_max_req.node.prio);
+	return count;
+}
+
+static ssize_t store_cpufreq_qos_max(struct kobject *kobj, struct kobj_attribute *attr,
+					const char *buf, size_t count)
+{
+	int freq, cpu;
+	struct exynos_cpufreq_domain *domain;
+
+	if (!sscanf(buf, "%d %8d", &cpu, &freq))
+		return -EINVAL;
+	if (cpu < 0 || cpu >= NR_CPUS || freq < 0)					\
+		return -EINVAL;								\
+
+	domain = find_domain(cpu);
+	if (!domain)
+		return -EINVAL;
+
+	pm_qos_update_request(&domain->user_qos_max_req, freq);
+
+	return count;
+}
+
+static struct kobj_attribute user_qos_max =
+	__ATTR(cpufreq_qos_max, 0644,
+		show_cpufreq_qos_max, store_cpufreq_qos_max);
+
+static struct kobj_attribute user_qos_min =
+	__ATTR(cpufreq_qos_min, 0644,
+		show_cpufreq_qos_min, store_cpufreq_qos_min);
 
 /*********************************************************************
  *                       CPUFREQ PM QOS HANDLER                      *
@@ -1152,6 +1230,11 @@ static __init int init_pm_qos(struct exynos_cpufreq_domain *domain,
 	pm_qos_add_request(&domain->max_qos_req,
 			domain->pm_qos_max_class, domain->max_freq);
 
+	pm_qos_add_request(&domain->user_qos_min_req,
+			domain->pm_qos_min_class, domain->min_freq);
+	pm_qos_add_request(&domain->user_qos_max_req,
+			domain->pm_qos_max_class, domain->max_freq);
+
 	return 0;
 }
 
@@ -1501,6 +1584,25 @@ free:
 	return NULL;
 }
 
+static int __init exynos_sysfs_init(void)
+{
+	int ret;
+
+	ret = sysfs_create_file(power_kobj, &user_qos_max.attr);
+	if (ret) {
+		pr_err("failed to create usr_qos_max node\n");
+		return ret;
+	}
+
+	ret = sysfs_create_file(power_kobj, &user_qos_min.attr);
+	if (ret) {
+		pr_err("failed to create user_qos_min\n");
+		return ret;
+	}
+
+	return 0;
+}
+
 static int __init exynos_cpufreq_init(void)
 {
 	struct device_node *dn = NULL;
@@ -1575,6 +1677,7 @@ static int __init exynos_cpufreq_init(void)
 	cpufreq_init_flag = true;
 
 	exynos_ufc_init();
+	exynos_sysfs_init();
 
 	pr_info("Initialized Exynos cpufreq driver\n");
 

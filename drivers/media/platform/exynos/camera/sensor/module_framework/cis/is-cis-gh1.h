@@ -27,6 +27,11 @@
 
 #define USE_GROUP_PARAM_HOLD	(0)
 
+enum gh1_endian {
+	GH1_LITTLE_ENDIAN = 0,	/* Default */
+	GH1_BIG_ENDIAN = 1,
+};
+
 enum sensor_gh1_mode_enum {
 		SENSOR_GH1_7296X5472_15FPS = 0,
 		SENSOR_GH1_3648X2736_30FPS,
@@ -39,6 +44,15 @@ enum sensor_gh1_mode_enum {
 		SENSOR_GH1_3216x1808_30FPS,
 		SENSOR_GH1_912X684_120FPS,
 		SENSOR_GH1_3968X2232_120FPS,
+		SENSOR_GH1_3648X2736_30FPS_SECURE,
+};
+
+const u32 sensor_gh1_pre_xtc[] = {
+	0x6028, 0x2000, 0x02,
+	0x602A, 0x4450, 0x02,
+	0x6F12, 0x123D, 0x02,
+	0x602A, 0x42C2, 0x02,
+	0x6F12, 0x0000, 0x02,
 };
 
 static bool sensor_gh1_support_wb_gain[] = {

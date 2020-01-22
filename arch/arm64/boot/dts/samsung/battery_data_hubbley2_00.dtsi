@@ -76,9 +76,36 @@
 			wireless-power-info {
 				current_group_3 {
 					input_current_limit = <1200>;
-					ttf_charge_current = <2710>;
 					rx_power = <13200>;
 				};
+			};
+		};
+	};
+};
+
+#define FOD_FLAG_NONE			0
+#define FOD_FLAG_ADD			1
+#define FOD_FLAG_USE_CC			2
+#define FOD_FLAG_USE_DEFAULT	3
+#define SET_FOD_CC(_flag)		(FOD_FLAG_ ##_flag)
+#define SET_FOD_CV(_flag)		(FOD_FLAG_ ##_flag << 4)
+#define SET_FOD_FULL(_flag)		(FOD_FLAG_ ##_flag << 8)
+
+&hsi2c_6 {
+	mfc-charger@3b {
+		fod_list {
+			count = <2>;
+
+			pad_0x00 { /* DEFAULT */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(ADD))>;
+				cc = <150 64 142 53 150 38 150 34 155 18 156 17>;
+				cv = <150 94 142 83 150 68 150 64 155 48 156 47>;
+				full = <127 127 127 127 127 127 127 127 127 127 127 127>;
+			};
+
+			pad_0x30 { /* HERO PAD */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(USE_CC) | SET_FOD_FULL(USE_DEFAULT))>;
+				cc = <150 2 142 (-6) 150 (-20) 150 (-28) 165 185 156 (-39)>;
 			};
 		};
 	};

@@ -667,3 +667,21 @@ int gpu_dvfs_get_max_lock(void)
 
         return platform->max_lock;
 }
+
+#ifdef CONFIG_MALI_SEC_NEGATIVE_BOOST
+bool gpu_dvfs_get_need_cpu_qos(void)
+{
+	struct kbase_device *kbdev = pkbdev;
+	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+	bool need_cpu_qos = false;
+
+	DVFS_ASSERT(platform);
+
+	if (platform->need_cpu_qos
+		&& ((platform->min_lock == 377000 && platform->max_lock == 377000)
+		|| (platform->min_lock == 455000 && platform->max_lock == 455000)))
+		need_cpu_qos = true;
+
+	return need_cpu_qos;
+}
+#endif

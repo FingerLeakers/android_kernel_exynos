@@ -3100,6 +3100,8 @@ void scheduler_tick(void)
 
 	perf_event_task_tick();
 
+	sysbusy_boost();
+
 #ifdef CONFIG_SMP
 	rq->idle_balance = idle_cpu(cpu);
 	trigger_load_balance(rq);
