@@ -58,15 +58,12 @@
 #include <sound/hwdep.h>
 #include <linux/cpuidle.h>
 #include <linux/../../block/blk-mq-debugfs.h>
-#include <linux/f2fs_fs.h> // without this header, header below will give errors
-#include <linux/../../fs/f2fs/f2fs.h>
 #include <linux/debugfs.h>
 #include <media/v4l2-ioctl.h>
 #include <linux/pr.h>
 #include <../drivers/block/loop.h>
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
-#include <../drivers/soc/samsung/cpif/modem_prj.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -93,16 +90,6 @@ struct cpuidle_state_attr {
 	struct attribute attr;
 	ssize_t (*show)(struct cpuidle_state *, struct cpuidle_state_usage *, char *);
 	ssize_t (*store)(struct cpuidle_state *, struct cpuidle_state_usage *, const char *, size_t);
-};
-
-struct f2fs_attr {
-	struct attribute attr;
-	ssize_t (*show)(struct f2fs_attr *, struct f2fs_sb_info *, char *);
-	ssize_t (*store)(struct f2fs_attr *, struct f2fs_sb_info *,
-			 const char *, size_t);
-	int struct_type;
-	int offset;
-	int id;
 };
 
 struct simple_attr {
@@ -326,7 +313,6 @@ void FOKA(struct filename *fname, struct file *file)
 	struct elv_fs_entry *entry;
 	struct cpuidle_state_attr *cattr;
 	struct bus_attribute *bus_attr;
-	struct f2fs_attr *a;
 	struct simple_attr *sim_attr;
 	int size_of_v4l2_ioctls_array;
 	struct v4l2_ioctl_info *ioctl_info_element;
@@ -338,11 +324,6 @@ void FOKA(struct filename *fname, struct file *file)
 	struct scsi_disk *sdkp;
 	struct scsi_device *sdp;
 	struct loop_device *lo;
-	struct io_device *iod;
-	struct link_device *ld;
-	struct modem_ctl *mc;
-	// struct io_device *iod; - i comment out this variables, because header with this structure is fucked up
-	// struct link_device *ld; - i comment out this variables, because header with this structure is fucked up
 	// here ends variables for reversing fops
 	//////////////////////////////////////////////////
 	// below are some temporary variables to simplify my code
@@ -526,13 +507,6 @@ void FOKA(struct filename *fname, struct file *file)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "f2fs_attr_store")){
-							a = container_of(of->kn->priv, struct f2fs_attr, attr);
-							if(a && a->store){
-								if((entry_write = store_info_about_file(write_list, a->store, &temp_count, -1)) == NULL)
-									goto vmalloc_failed;
-							}
-						}
 					}
 				}
 				else if(strstr(entry_write->name, "cgroup_file_write")){
@@ -704,21 +678,7 @@ void FOKA(struct filename *fname, struct file *file)
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, lower_file->f_op->unlocked_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
-		}/*
-		else if(strstr(entry_unlocked_ioctl->name, "misc_ioctl")){
-			iod = (struct io_device *)file->private_data;
-			ld = get_current_link(iod);
-			if(ld && ld->ioctl){
-				entry_unlocked_ioctl = vmalloc(sizeof(struct function_entry));
-				if(!entry_unlocked_ioctl)
-					goto vmalloc_failed;
-				snprintf(entry_unlocked_ioctl->name, 127, "%ps", (void *) ld->ioctl);
-				entry_unlocked_ioctl->ptr = (void *) ld->ioctl;
-				entry_unlocked_ioctl->branch_nr = -1;
-				entry_unlocked_ioctl->count = ++temp_count;
-				list_add_tail(&entry_unlocked_ioctl->list, unlocked_ioctl_list);
-			}
-		}*/
+		}
 		else if(strstr(entry_unlocked_ioctl->name, "fb_ioctl")){
 			info = file_fb_info(file);
 			fb = info->fbops;
@@ -766,19 +726,6 @@ void FOKA(struct filename *fname, struct file *file)
 				}
 			}	
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "ipc_ioctl")){
-			iod = (struct io_device *)file->private_data;
-			ld = get_current_link(iod);
-			mc = iod->mc;
-			if(ld && ld->ioctl){
-				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, ld->ioctl, &temp_count, -1)) == NULL)
-					goto vmalloc_failed;
-			}
-			if(mc && mc->ops.trigger_cp_crash){
-				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, mc->ops.trigger_cp_crash, &temp_count, -1)) == NULL)
-					goto vmalloc_failed;
-			}
-		}
 		// here we end reversing "ioctl" function
 		// and we start reversing "ioctl_c" function
 		temp_count = 1; // but again, we need to reset function count to 1
@@ -795,21 +742,7 @@ void FOKA(struct filename *fname, struct file *file)
 				if((entry_compat_ioctl = store_info_about_file(compat_ioctl_list, lower_file->f_op->compat_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
-		}/*
-		else if(strstr(entry_compat_ioctl->name, "misc_ioctl")){
-			iod = (struct io_device *)file->private_data;
-			ld = get_current_link(iod);
-			if(ld && ld->ioctl){
-				entry_compat_ioctl = vmalloc(sizeof(struct function_entry));
-				if(!entry_compat_ioctl)
-					goto vmalloc_failed;
-				snprintf(entry_compat_ioctl->name, 127, "%ps", (void *) ld->ioctl);
-				entry_compat_ioctl->ptr = (void *) ld->ioctl;
-				entry_compat_ioctl->branch_nr = -1;
-				entry_compat_ioctl->count = ++temp_count;
-				list_add_tail(&entry_compat_ioctl->list, compat_ioctl_list);
-			}
-		}*/
+		}
 		else if(strstr(entry_compat_ioctl->name, "fb_compat_ioctl")){
 			info = file_fb_info(file);
 			fb = info->fbops;
