@@ -155,8 +155,14 @@ static void sensor_hm1_set_integration_max_margin(u32 mode, cis_shared_data *cis
 		cis_data->max_margin_coarse_integration_time = 0x2;
 		break;
 	case SENSOR_HM1_4000X3000_30FPS:
+	case SENSOR_HM1_4000X3000_30FPS_DECOMP_TIMING:
+	case SENSOR_HM1_4000X3000_30FPS_FULL_DILLUTION:
 	case SENSOR_HM1_4000X3000_30FPS_SHORT:
+	case SENSOR_HM1_4000X3000_30FPS_SHORT_DECOMP_TIMING:
+	case SENSOR_HM1_4000X3000_30FPS_SHORT_FULL_DILLUTION:
 	case SENSOR_HM1_4000X2252_30FPS:
+	case SENSOR_HM1_4000X2252_30FPS_FULL_DILLUTION:
+	case SENSOR_HM1_4000X2252_30FPS_SHORT:
 	case SENSOR_HM1_4000X3000_60FPS:
 	case SENSOR_HM1_4000X2252_60FPS:
 		cis_data->max_margin_coarse_integration_time = SENSOR_HM1_COARSE_INTEGRATION_TIME_MAX_MARGIN;
@@ -998,7 +1004,8 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	ex_mode = is_sensor_g_ex_mode(device);
 
 #ifndef GLOBAL_TIME_CAL_WRITE
-	if ((ex_mode == EX_REMOSAIC_CAL || mode == SENSOR_HM1_7680X4320_24FPS) && !sensor_hm1_eeprom_cal_available) {
+	if ((ex_mode == EX_REMOSAIC_CAL|| mode == SENSOR_HM1_7680X4320_24FPS)
+		&& !sensor_hm1_eeprom_cal_available) {
 		ret = sensor_hm1_cis_set_cal(subdev);
 		if (ret < 0) {
 			err("sensor_hm1_cis_set_cal fail!!");
@@ -1007,9 +1014,26 @@ int sensor_hm1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	}
 #endif
 
-	if (cis->cis_data->sens_config_index_pre == SENSOR_HM1_992X744_120FPS && ex_mode != EX_REMOSAIC_CAL && mode == SENSOR_HM1_4000X3000_30FPS) {
-		info("[%s] short sensor mode\n", __func__);
-		mode = SENSOR_HM1_4000X3000_30FPS_SHORT;
+	if (cis->cis_data->sens_config_index_pre == SENSOR_HM1_992X744_120FPS
+		&& ex_mode != EX_REMOSAIC_CAL) {
+		switch (mode) {
+		case SENSOR_HM1_4000X3000_30FPS:
+			info("[%s] SENSOR_HM1_4000X3000_30FPS_SHORT\n", __func__);
+			mode = SENSOR_HM1_4000X3000_30FPS_SHORT;
+			break;
+		case SENSOR_HM1_4000X3000_30FPS_DECOMP_TIMING:
+			info("[%s] SENSOR_HM1_4000X3000_30FPS_SHORT_DECOMP_TIMING\n", __func__);
+			mode = SENSOR_HM1_4000X3000_30FPS_SHORT_DECOMP_TIMING;
+			break;
+		case SENSOR_HM1_4000X3000_30FPS_FULL_DILLUTION:
+			info("[%s] SENSOR_HM1_4000X3000_30FPS_SHORT_FULL_DILLUTION\n", __func__);
+			mode = SENSOR_HM1_4000X3000_30FPS_SHORT_FULL_DILLUTION;
+			break;
+		case SENSOR_HM1_4000X2252_30FPS:
+			info("[%s] SENSOR_HM1_4000X2252_30FPS_SHORT\n", __func__);
+			mode = SENSOR_HM1_4000X2252_30FPS_SHORT;
+			break;
+		}
 	}
 
 	info("[%s] sensor mode(%d) ex_mode(%d)\n", __func__, mode, ex_mode);
@@ -1761,6 +1785,12 @@ int sensor_hm1_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	WARN_ON(!cis->cis_data);
 
 	cis_data = cis->cis_data;
+
+	if (input_exposure_time == 0) {
+		input_exposure_time  = cis_data->min_frame_us_time;
+		info("[%s] Not proper exposure time(0), so apply min frame duration to exposure time forcely!!!(%d)\n",
+			__func__, cis_data->min_frame_us_time);
+	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / (1000);
 	line_length_pck = cis_data->line_length_pck;

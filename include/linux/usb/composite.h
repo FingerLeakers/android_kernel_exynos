@@ -527,6 +527,7 @@ struct usb_composite_dev {
 	bool				force_disconnect;
 	bool				cleanup_flag;
 #endif
+	bool				is_rndis;
 	/* protects deactivations and delayed_status counts*/
 	spinlock_t			lock;
 

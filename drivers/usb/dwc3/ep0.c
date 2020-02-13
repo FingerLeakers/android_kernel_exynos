@@ -378,6 +378,9 @@ static int dwc3_ep0_handle_u1(struct dwc3 *dwc, enum usb_device_state state,
 		int set)
 {
 	u32 reg;
+	struct usb_composite_dev *cdev;
+
+	cdev = get_gadget_data(&dwc->gadget);
 
 	if (state != USB_STATE_CONFIGURED)
 		return -EINVAL;
@@ -390,7 +393,7 @@ static int dwc3_ep0_handle_u1(struct dwc3 *dwc, enum usb_device_state state,
 		return 0;
 
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
-	if (set)
+	if (set && !(cdev->is_rndis))
 		reg |= DWC3_DCTL_INITU1ENA;
 	else
 		reg &= ~DWC3_DCTL_INITU1ENA;
@@ -403,6 +406,9 @@ static int dwc3_ep0_handle_u2(struct dwc3 *dwc, enum usb_device_state state,
 		int set)
 {
 	u32 reg;
+	struct usb_composite_dev *cdev;
+
+	cdev = get_gadget_data(&dwc->gadget);
 
 
 	if (state != USB_STATE_CONFIGURED)
@@ -416,7 +422,7 @@ static int dwc3_ep0_handle_u2(struct dwc3 *dwc, enum usb_device_state state,
 		return 0;
 
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);
-	if (set)
+	if (set && !(cdev->is_rndis))
 		reg |= DWC3_DCTL_INITU2ENA;
 	else
 		reg &= ~DWC3_DCTL_INITU2ENA;
@@ -609,9 +615,12 @@ static int dwc3_ep0_delegate_req(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 {
 	enum usb_device_state state = dwc->gadget.state;
+	struct usb_composite_dev *cdev;
 	u32 cfg;
 	int ret;
 	u32 reg;
+
+	cdev = get_gadget_data(&dwc->gadget);
 
 	cfg = le16_to_cpu(ctrl->wValue);
 
@@ -650,9 +659,11 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 				 * Enable transition to U1/U2 state when
 				 * nothing is pending from application.
 				 */
-				reg = dwc3_readl(dwc->regs, DWC3_DCTL);
-				reg |= (DWC3_DCTL_ACCEPTU1ENA | DWC3_DCTL_ACCEPTU2ENA);
-				dwc3_writel(dwc->regs, DWC3_DCTL, reg);
+				if (!cdev->is_rndis) {
+					reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+					reg |= (DWC3_DCTL_ACCEPTU1ENA | DWC3_DCTL_ACCEPTU2ENA);
+					dwc3_writel(dwc->regs, DWC3_DCTL, reg);
+				}
 			}
 		}
 		break;

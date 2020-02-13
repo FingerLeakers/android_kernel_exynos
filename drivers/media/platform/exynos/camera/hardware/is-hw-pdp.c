@@ -935,8 +935,12 @@ static int is_hw_pdp_init_config(struct is_hw_ip *hw_ip, u32 instance, struct is
 		pd_width, pd_height, pd_hwformat, sensor_type, path, pdp->vc_ext_sensor_mode,
 		fps, en_sdc, en_votf, frame->num_buffers, pdp->freq, pdp->binning, position);
 
-	if (enable && (debug_pdp >= 5))
-	{
+	mutex_lock(&cmn_reg_lock);
+	/* ch0 context */
+	pdp_hw_s_context(pdp->cmn_base, pdp->id, path);
+	mutex_unlock(&cmn_reg_lock);
+
+	if (enable && debug_pdp >= 5) {
 		msinfo_hw(" is configured as default values\n", instance, hw_ip);
 		pdp_hw_s_config_default(pdp->base);
 
@@ -1412,9 +1416,6 @@ static int is_hw_pdp_enable(struct is_hw_ip *hw_ip, u32 instance, ulong hw_map)
 
 		msinfo_hw("first enterance pdp ch%d\n", instance, hw_ip, pdp->id);
 	}
-
-	/* ch0 context */
-	pdp_hw_s_context(pdp->cmn_base, pdp->id, path);
 
 	set_bit(HW_RUN, &hw_ip->state);
 	mutex_unlock(&cmn_reg_lock);

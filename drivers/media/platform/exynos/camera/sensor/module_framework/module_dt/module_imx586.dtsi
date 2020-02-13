@@ -26,7 +26,7 @@
 				margin_right = <0>;
 				margin_top = <0>;
 				margin_bottom = <0>;
-				max_framerate = <30>;
+				max_framerate = <120>;
 				bitwidth = <10>;
 				use_retention_mode = <SENSOR_RETENTION_UNSUPPORTED>;
 				sensor_maker = "SONY";

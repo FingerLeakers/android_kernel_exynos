@@ -1006,7 +1006,14 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 #endif
 			break;
 		}
+		case V4L2_CID_SENSOR_SET_TOF_INFO:
+		{
+		    struct is_vender *vender;
+		    vender = &core->vender;
+		    is_vendor_store_tof_info(vender, (struct tof_info_t *)ext_ctrl->ptr);
 
+		    break;
+		}
 		default:
 			ctrl.id = ext_ctrl->id;
 			ctrl.value = ext_ctrl->value;

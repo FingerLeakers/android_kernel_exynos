@@ -2909,9 +2909,12 @@ static int getidx_mdnie_trans_mode_maptbl(struct maptbl *tbl)
 
 static int getidx_mdnie_night_mode_maptbl(struct maptbl *tbl)
 {
+	int mode = 0;
 	struct mdnie_info *mdnie = (struct mdnie_info *)tbl->pdata;
 
-	return tbl->ncol * (mdnie->props.night_level);
+	if(mdnie->props.mode != AUTO) mode = 1;
+
+	return maptbl_index(tbl, mode , mdnie->props.night_level, 0);
 }
 
 static int init_mdnie_night_mode_table(struct maptbl *tbl)

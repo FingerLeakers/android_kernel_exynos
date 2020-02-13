@@ -44,11 +44,12 @@
 #include "is-sec-define.h"
 
 #define SENSOR_NAME "S5KGH1"
-#define GLOBAL_TIME_CAL_WRITE
-#define XTC_CAL_DISABLE		/* !!!! check A1 0x42C0 setting(XTC bypass) */
+//#define GLOBAL_TIME_CAL_WRITE
+//#define XTC_CAL_DISABLE		/* !!!! check A1 0x42C0 setting(XTC bypass) */
 
 static const struct v4l2_subdev_ops subdev_ops;
 
+static bool xtc_cal_first = true;
 static const u32 *sensor_gh1_global;
 static u32 sensor_gh1_global_size;
 static const u32 *sensor_gh1_global_secure;
@@ -283,6 +284,7 @@ int sensor_gh1_cis_init(struct v4l2_subdev *subdev)
 	CALL_CISOPS(cis, cis_get_max_digital_gain, subdev, &setinfo.return_value);
 	dbg_sensor(1, "[%s] max dgain : %d\n", __func__, setinfo.return_value);
 
+	xtc_cal_first = true;
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
@@ -601,16 +603,17 @@ int sensor_gh1_cis_set_xtc_calibration(struct is_cis *cis)
 	info("[%s] endian : %d",__func__, endian);
 #ifdef GH1_NON_BURST
 	ret |= is_sensor_write16(cis->client, 0x6028, 0x2001); /* cal page */
-	ret |= is_sensor_write16(cis->client, 0x602A, 0x5D90); /* cal addr */
 	if (endian == GH1_BIG_ENDIAN) {
 		for (i = 0; i < cal_size; i+=2) {
 			u16 val = (cal_data[i] & 0xFF) << 8;
+			ret |= is_sensor_write16(cis->client, 0x602A, 0x5D90 + i); /* cal addr */
 			val |= cal_data[i + 1] & 0xFF;
 			ret |= is_sensor_write16(cis->client, 0x6F12, val);
 		}
 	} else {
 		for (i = 0; i < cal_size; i+=2) {
 			u16 val = cal_data[i] & 0xFF;
+			ret |= is_sensor_write16(cis->client, 0x602A, 0x5D90 + i); /* cal addr */
 			val |= (cal_data[i + 1] & 0xFF) << 8;
 			ret |= is_sensor_write16(cis->client, 0x6F12, val);
 		}
@@ -762,24 +765,26 @@ int sensor_gh1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-#if !defined(GLOBAL_TIME_CAL_WRITE) && !defined(XTC_CAL_DISABLE)
-	is_sensor_write8(cis->client, 0x0100, 0x00);
-
-	if (is_sensor_g_ex_mode(device) == EX_REMOSAIC_CAL) {
-		ret = sensor_gh1_cis_set_xtc_calibration(cis);
-		if (ret < 0) {
-			err("set xtc calibration failed!!");
-			goto p_err_i2c_unlock;
-		}
-	}
-#endif
-
 	if (core->scenario != IS_SCENARIO_SECURE){
 		ret = sensor_cis_set_registers(subdev, sensor_gh1_setfiles[mode], sensor_gh1_setfile_sizes[mode]);
 		if (ret < 0) {
 			err("sensor_gh1_set_registers fail!!");
 			goto p_err_i2c_unlock;
 		}
+#if !defined(GLOBAL_TIME_CAL_WRITE) && !defined(XTC_CAL_DISABLE)
+		if (xtc_cal_first && is_sensor_g_ex_mode(device) == EX_REMOSAIC_CAL) {
+			ret = sensor_gh1_cis_set_xtc_calibration(cis);
+			if (ret < 0) {
+				err("set xtc calibration failed!!");
+				goto p_err_i2c_unlock;
+			}
+			info("[%s] decomp cal!", __func__);
+			ret = is_sensor_write16(cis->client, 0x6028, 0x2000); /* cal page */
+			ret |= is_sensor_write16(cis->client, 0x602A, 0x31B0); /* cal addr */
+			ret |= is_sensor_write16(cis->client, 0x6F12, 0x4000);
+			xtc_cal_first = false;
+		}
+#endif
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
@@ -1353,6 +1358,12 @@ int sensor_gh1_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	FIMC_BUG(!cis->cis_data);
 
 	cis_data = cis->cis_data;
+
+	if (input_exposure_time == 0) {
+		input_exposure_time  = cis_data->min_frame_us_time;
+		info("[%s] Not proper exposure time(0), so apply min frame duration to exposure time forcely!!!(%d)\n",
+			__func__, cis_data->min_frame_us_time);
+	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / 1000;
 	line_length_pck = cis_data->line_length_pck;

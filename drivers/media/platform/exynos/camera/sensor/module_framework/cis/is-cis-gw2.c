@@ -840,7 +840,7 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	char *buf;
 	struct is_rom_info *finfo = NULL;
 	u32 setfile;
-	//u32 ex_mode;
+	u32 ex_mode;
 
 	FIMC_BUG(!subdev);
 
@@ -878,7 +878,6 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-#if 0 //TEMP_2020
 	/* always slave mode */
 	/* dual sync for live focus */
 	ex_mode = is_sensor_g_ex_mode(device);
@@ -890,7 +889,6 @@ int sensor_gw2_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 			goto p_err_i2c_unlock;
 		}
 	}
-#endif
 
 	ret = sensor_cis_set_registers(subdev, sensor_gw2_setfiles[mode], sensor_gw2_setfile_sizes[mode]);
 	if (ret < 0) {
@@ -1254,6 +1252,7 @@ int sensor_gw2_cis_stream_off(struct v4l2_subdev *subdev)
 	struct is_cis *cis;
 	struct i2c_client *client;
 	cis_shared_data *cis_data;
+	u8 cur_frame_count = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
@@ -1283,6 +1282,15 @@ int sensor_gw2_cis_stream_off(struct v4l2_subdev *subdev)
 	ret = sensor_gw2_cis_group_param_hold_func(subdev, 0x00);
 	if (ret < 0)
 		err("group_param_hold_func failed at stream off");
+
+	is_sensor_read8(client, 0x0005, &cur_frame_count);
+	info("%s: frame_count(0x%x) mode(%d) ex_mode(%d)\n", __func__, cur_frame_count, 
+		cis->cis_data->sens_config_index_cur, cis->cis_data->sens_config_ex_mode_cur);
+	info("%s: backup param - frame_duration(%d), again(%d:%d), dgain(%d:%d), target_exp(%d:%d)",__func__,
+		sensor_gw2_frame_duration_backup, 
+		sensor_gw2_again_backup.short_val, sensor_gw2_again_backup.long_val,
+		sensor_gw2_dgain_backup.short_val, sensor_gw2_dgain_backup.long_val,
+		sensor_gw2_target_exp_backup.short_val, sensor_gw2_target_exp_backup.long_val);
 
 	/* Sensor stream off */
 	is_sensor_write16(client, 0x0100, 0x00);
@@ -1624,6 +1632,12 @@ int sensor_gw2_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	FIMC_BUG(!cis->cis_data);
 
 	cis_data = cis->cis_data;
+
+	if (input_exposure_time == 0) {
+		input_exposure_time  = cis_data->min_frame_us_time;
+		info("[%s] Not proper exposure time(0), so apply min frame duration to exposure time forcely!!!(%d)\n",
+			__func__, cis_data->min_frame_us_time);
+	}
 
 	vt_pic_clk_freq_khz = cis_data->pclk / 1000;
 	line_length_pck = cis_data->line_length_pck;

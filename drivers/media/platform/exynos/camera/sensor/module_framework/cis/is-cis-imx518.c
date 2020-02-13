@@ -763,6 +763,8 @@ int sensor_imx518_cis_stream_off(struct v4l2_subdev *subdev)
 	int ret = 0;
 	struct is_cis *cis;
 	struct i2c_client *client;
+	struct is_core *core;
+	struct is_vender_specific *specific;
 	cis_shared_data *cis_data;
 
 #ifdef DEBUG_SENSOR_TIME
@@ -776,6 +778,13 @@ int sensor_imx518_cis_stream_off(struct v4l2_subdev *subdev)
 
 	FIMC_BUG(!cis);
 	FIMC_BUG(!cis->cis_data);
+
+	core = (struct is_core *)dev_get_drvdata(is_dev);
+	if (!core) {
+		probe_info("core device is not yet probed");
+		return -1;
+	}
+	specific = core->vender.private_data;
 
 	client = cis->client;
 	if (unlikely(!client)) {
@@ -795,6 +804,9 @@ int sensor_imx518_cis_stream_off(struct v4l2_subdev *subdev)
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 	cis_data->stream_on = false;
+
+	specific->tof_info.TOFExposure = 0;
+	specific->tof_info.TOFFps = 0;
 
 #ifdef DEBUG_SENSOR_TIME
 	do_gettimeofday(&end);

@@ -3139,6 +3139,27 @@ int set_long_term_expo_mode(struct is_sensor_interface *itf,
 	return ret;
 }
 
+int set_lte_multi_capture_mode(struct is_sensor_interface *itf, bool lte_multi_capture_mode)
+{
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	cis_shared_data *cis_data = NULL;
+
+	WARN_ON(!itf);
+	WARN_ON(itf->magic != SENSOR_INTERFACE_MAGIC);
+
+	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
+	WARN_ON(!sensor_peri);
+
+	cis_data = sensor_peri->cis.cis_data;
+	WARN_ON(!cis_data);
+
+	cis_data->lte_multi_capture_mode = lte_multi_capture_mode;
+
+	info("[%s] lte_multi_capture_mode(%d)\n", __func__, lte_multi_capture_mode);
+
+	return 0;
+}
+
 int set_low_noise_mode(struct is_sensor_interface *itf, u32 mode)
 {
 	struct is_device_sensor_peri *sensor_peri = NULL;
@@ -3877,6 +3898,7 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	/* CIS ext2 interface */
 	/* Long Term Exposure mode(LTE mode) interface */
 	itf->cis_ext2_itf_ops.set_long_term_expo_mode = set_long_term_expo_mode;
+	itf->cis_ext2_itf_ops.set_lte_multi_capture_mode = set_lte_multi_capture_mode;
 	itf->cis_ext2_itf_ops.set_low_noise_mode = set_low_noise_mode;
 	itf->cis_ext2_itf_ops.get_sensor_max_dynamic_fps = get_sensor_max_dynamic_fps;
 	itf->cis_ext2_itf_ops.get_static_mem = get_static_mem;

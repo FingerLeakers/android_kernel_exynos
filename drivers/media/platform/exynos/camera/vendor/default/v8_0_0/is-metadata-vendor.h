@@ -1203,6 +1203,11 @@ struct camera2_video_output_size {
 	uint16_t			height;
 };
 
+struct tof_info {
+    uint16_t fps;
+    uint16_t exposureTime;
+};
+
 struct camera2_aa_ctl {
 	enum aa_ae_antibanding_mode	aeAntibandingMode;
 	int32_t				aeExpCompensation;
@@ -1250,7 +1255,10 @@ struct camera2_aa_ctl {
 	int16_t				vendor_flickerDetect;
 	struct camera2_video_output_size vendor_videoOutputSize;
 	enum aa_night_timelaps_mode	vendor_nightTimelapsMode;
-	uint32_t			vendor_reserved[39];
+	uint32_t                vendor_personalPresetIndex;
+	struct tof_info         vendor_TOFInfo;
+	uint32_t			vendor_reserved[37];
+
 };
 
 struct aa_apexInfo {

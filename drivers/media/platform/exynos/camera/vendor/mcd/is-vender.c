@@ -615,6 +615,8 @@ int is_vender_probe(struct is_vender *vender)
 	specific->mcu_sensor_index = mcu_sensor_index;
 	specific->aperture_sensor_index = aperture_sensor_index;
 	specific->zoom_running = false;
+        specific->tof_info.TOFExposure = 0;
+        specific->tof_info.TOFFps = 0;
 
 	for (i = 0; i < ROM_ID_MAX; i++) {
 		specific->eeprom_client[i] = NULL;
@@ -2055,6 +2057,15 @@ int is_vender_set_torch(struct camera2_shot *shot)
 	return 0;
 }
 
+void is_vender_update_meta(struct is_vender *vender, struct camera2_shot *shot)
+{
+    struct is_vender_specific *specific;
+    specific = vender->private_data;
+
+    shot->ctl.aa.vendor_TOFInfo.exposureTime = specific->tof_info.TOFExposure;
+    shot->ctl.aa.vendor_TOFInfo.fps = specific->tof_info.TOFFps;
+}
+
 int is_vender_video_s_ctrl(struct v4l2_control *ctrl,
 	void *device_data)
 {
@@ -2456,3 +2467,11 @@ void is_vender_store_af(struct is_vender *vender, struct tof_data_t *data){
 	return;
 }
 #endif
+
+void is_vendor_store_tof_info(struct is_vender *vender, struct tof_info_t *info){
+	struct is_vender_specific *specific;
+	specific = vender->private_data;
+
+	copy_from_user(&specific->tof_info, info, sizeof(struct tof_info_t));
+	return;
+}

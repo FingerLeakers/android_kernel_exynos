@@ -376,8 +376,8 @@ typedef struct {
 /*	SysSema_t pFlashCtrl_IsrSema; //[2014.08.13, kh14.koo] to add for sema of KTD2692 (flash dirver) */
 
 	bool binning; /* If binning is set, sensor should binning for size */
-
 	bool dual_slave;
+	bool lte_multi_capture_mode;
 
 	u32 cis_rev;
 	u32 cis_model_id;
@@ -997,7 +997,9 @@ struct is_cis_ext2_interface_ops {
 				bool on,
 				u32 intensity,
 				u32 time);
-	void *reserved[11];
+	int (*set_lte_multi_capture_mode)(struct is_sensor_interface *itf,
+				bool lte_multi_capture_mode);
+	void *reserved[10];
 };
 
 struct is_cis_event_ops {

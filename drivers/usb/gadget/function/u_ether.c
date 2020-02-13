@@ -691,6 +691,8 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	struct usb_ep		*in;
 	u16			cdc_filter;
 	unsigned long	tx_timeout;
+	bool eth_multi_pkt_xfer = 0;
+	bool eth_supports_multi_frame = 0;
 
 	if (dev->en_timer) {
 		hrtimer_cancel(&dev->tx_timer);
@@ -701,6 +703,8 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	if (dev->port_usb) {
 		in = dev->port_usb->in_ep;
 		cdc_filter = dev->port_usb->cdc_filter;
+		eth_multi_pkt_xfer = dev->port_usb->multi_pkt_xfer;
+		eth_supports_multi_frame = dev->port_usb->supports_multi_frame;
 	} else {
 		in = NULL;
 		cdc_filter = 0;
@@ -716,7 +720,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 #if 0
 	/* Allocate memory for tx_reqs to support multi packet transfer */
-	if (dev->port_usb->multi_pkt_xfer && !dev->tx_req_bufsize)
+	if (eth_multi_pkt_xfer && !dev->tx_req_bufsize)
 		alloc_tx_buffer(dev);
 #endif
 
@@ -758,7 +762,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	list_del(&req->list);
 
 	/* temporarily stop TX queue when the freelist empties */
-	if (list_empty(&dev->tx_reqs))
+	if (list_empty(&dev->tx_reqs) && (dev->tx_skb_hold_count >= (dev->dl_max_pkts_per_xfer -1)))
 		netif_stop_queue(net);
 
 	spin_unlock_irqrestore(&dev->tx_req_lock, flags);
@@ -778,12 +782,15 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 			/* Multi frame CDC protocols may store the frame for
 			 * later which is not a dropped frame.
 			 */
-			if (dev->port_usb->supports_multi_frame)
+			if (eth_supports_multi_frame)
 				goto multiframe;
 			goto drop;
 		}
 	}
 
+	spin_lock_irqsave(&dev->tx_req_lock, flags);
+	dev->tx_skb_hold_count++;
+	spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 	if (dev->port_usb->multi_pkt_xfer) {
 		/* Add RNDIS Header */
 		memcpy(req->buf + req->length, dev->port_usb->header,
@@ -798,7 +805,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		req->context = NULL;
 
 		spin_lock_irqsave(&dev->tx_req_lock, flags);
-		if (req->length < (dev->tx_req_bufsize - (dev->net->mtu + 80))) {
+		if (dev->tx_skb_hold_count < dev->dl_max_pkts_per_xfer) {
 			list_add(&req->list, &dev->tx_reqs);
 			spin_unlock_irqrestore(&dev->tx_req_lock, flags);
 
@@ -811,7 +818,9 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 			goto success;
 		}
 
+		dev->tx_skb_hold_count = 0;
 		spin_unlock_irqrestore(&dev->tx_req_lock, flags);
+
 	} else {
 		if (dev->port_usb->is_fixed) { /* ncm case */
 			req->length = skb->len;
@@ -840,7 +849,7 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	}
 
 	if (retval) {
-		if (!dev->port_usb->multi_pkt_xfer)
+		if (!eth_multi_pkt_xfer)
 			dev_kfree_skb_any(skb);
 drop:
 		dev->net->stats.tx_dropped++;
@@ -1193,7 +1202,7 @@ int gether_register_netdev(struct net_device *net)
 		dev_dbg(&g->dev, "register_netdev failed, %d\n", status);
 		return status;
 	} else {
-		INFO(dev, "HOST MAC %pM\n", dev->host_mac);
+		DBG(dev, "HOST MAC %pM\n", dev->host_mac);
 
 		/* two kinds of host-initiated state changes:
 		 *  - iff DATA transfer is active, carrier is "on"
@@ -1209,7 +1218,7 @@ int gether_register_netdev(struct net_device *net)
 	if (status)
 		pr_warn("cannot set self ethernet address: %d\n", status);
 	else
-		INFO(dev, "MAC %pM\n", dev->dev_mac);
+		DBG(dev, "MAC %pM\n", dev->dev_mac);
 
 	return status;
 }

@@ -75,7 +75,7 @@ module_param(rndis_dl_max_pkt_per_xfer, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(rndis_dl_max_pkt_per_xfer,
 	"Maximum packets per transfer for DL aggregation");
 
-static unsigned int rndis_ul_max_pkt_per_xfer = 3;
+static unsigned int rndis_ul_max_pkt_per_xfer = 5;
 module_param(rndis_ul_max_pkt_per_xfer, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(rndis_ul_max_pkt_per_xfer,
        "Maximum packets per transfer for UL aggregation");
@@ -305,7 +305,7 @@ static struct usb_ss_ep_comp_descriptor ss_intr_comp_desc = {
 	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
 
 	/* the following 3 values can be tweaked if necessary */
-	/* .bMaxBurst =		0, */
+	.bMaxBurst =		4,
 	/* .bmAttributes =	0, */
 	.wBytesPerInterval =	cpu_to_le16(STATUS_BYTECOUNT),
 };
@@ -859,7 +859,7 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 		status = -EINVAL;
 		goto fail_free_descs;
 	}
-
+	cdev->is_rndis = 1;
 	/* NOTE:  all that is done without knowing or caring about
 	 * the network link ... which is unavailable to this code
 	 * until we're activated via set_alt().
@@ -1082,6 +1082,7 @@ static void rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 	rndis->port.ioport = netdev_priv(opts->net);
 
 	opts->bound = false;
+	cdev->is_rndis = 0;
 #endif
 }
 

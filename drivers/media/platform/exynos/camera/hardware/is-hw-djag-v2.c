@@ -61,6 +61,8 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 	u32 src_pos_x = *x, src_pos_y = *y, src_width = *width, src_height = *height;
 #ifdef ENABLE_MCSC_CENTER_CROP
 	u32 aspect_ratio, align;
+	struct is_hw_mcsc *hw_mcsc = (struct is_hw_mcsc *)hw_ip->priv_info;
+	bool reprocessing = (hw_mcsc) ? (hw_mcsc->rep_flag[atomic_read(&hw_ip->instance)] & 0x1) : false;
 #endif
 
 #ifdef ENABLE_DJAG_IN_MCSC
@@ -72,8 +74,8 @@ void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_i
 		src_height = CONVRES(src_height, input->height, input->djag_out_height);
 
 #ifdef ENABLE_MCSC_CENTER_CROP
-		/* Only cares about D-zoom crop scenario, not for stripe processing crop scenario. */
-		if (!input->stripe_total_count) {
+		/* Only cares about preview D-zoom crop scenario, not for stripe processing crop scenario. */
+		if (!input->stripe_total_count && !reprocessing) {
 			/* adjust the center offset of crop region */
 			aspect_ratio = src_height * 1000 / src_width;
 

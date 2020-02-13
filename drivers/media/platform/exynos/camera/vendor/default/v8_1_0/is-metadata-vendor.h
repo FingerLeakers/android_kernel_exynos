@@ -1185,6 +1185,11 @@ enum aa_night_timelaps_mode {
 	AA_NIGHT_TIMELAPS_MODE_ON,
 };
 
+struct tof_info {
+    uint16_t fps;
+    uint16_t exposureTime;
+};
+
 struct camera2_video_output_size {
 	uint16_t			width;
 	uint16_t			height;
@@ -1238,6 +1243,9 @@ struct camera2_aa_ctl {
 	struct camera2_video_output_size vendor_videoOutputSize;
 	enum aa_night_timelaps_mode	vendor_nightTimelapsMode;
 	uint32_t			vendor_reserved[39];
+	uint32_t                        vendor_personalPresetIndex;
+	struct tof_info                 vendor_TOFInfo;
+	uint32_t			vendor_reserved[37];
 };
 
 struct aa_apexInfo {

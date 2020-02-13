@@ -565,7 +565,6 @@ void tzdev_run_fini_sequence(void)
 	tzdev_unregister_iwis();
 	tz_kthread_pool_fini();
 	tz_iwsock_fini();
-	tzdev_mem_fini();
 	tz_iwlog_fini();
 }
 

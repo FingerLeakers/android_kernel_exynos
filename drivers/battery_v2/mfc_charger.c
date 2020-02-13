@@ -2261,6 +2261,7 @@ static void mfc_wpc_afc_vout_work(struct work_struct *work)
 	struct mfc_charger_data *charger =
 		container_of(work, struct mfc_charger_data, wpc_afc_vout_work.work);
 	union power_supply_propval value = {0, };
+	u8 cmd = 0;
 
 	pr_info("%s start, current cable(%d)\n", __func__, charger->pdata->cable_type);
 
@@ -2307,6 +2308,11 @@ static void mfc_wpc_afc_vout_work(struct work_struct *work)
 	charger->is_afc_tx = true;
 	pr_info("%s: is_afc_tx = %d vout read = %d\n",
 		__func__, charger->is_afc_tx, mfc_get_adc(charger, MFC_ADC_VOUT));
+
+	/* use all CM FETs for 10V wireless charging */
+	mfc_reg_write(charger->client, MFC_RX_COMM_MOD_FET_REG, 0x00);
+	mfc_reg_read(charger->client, MFC_RX_COMM_MOD_FET_REG, &cmd);
+	pr_info("%s: CM FET setting(0x%x) \n", __func__, cmd);
 
 	pr_info("%s: check state(Vmode:%d, Vstatus:%d, Otg:%d)\n", __func__,
 		charger->vout_mode, charger->pdata->vout_status, charger->is_otg_on);

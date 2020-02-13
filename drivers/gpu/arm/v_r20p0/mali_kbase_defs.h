@@ -164,7 +164,7 @@
 
 /* MALI_SEC_INTEGRATION */
 #ifdef CONFIG_MALI_EXYNOS_TRACE
-#define KBASE_TRACE_SIZE_LOG2 10	/* 1024 entries */
+#define KBASE_TRACE_SIZE_LOG2 11	/* 2048 entries */
 #else
 #define KBASE_TRACE_SIZE_LOG2 8	/* 256 entries */
 #endif

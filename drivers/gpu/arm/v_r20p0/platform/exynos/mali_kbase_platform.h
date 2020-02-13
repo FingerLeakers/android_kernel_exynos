@@ -329,6 +329,7 @@ struct exynos_context {
 	bool gpu_bts_support;
 	char g3d_genpd_name[30];
 	int gpu_dss_freq_id;
+	bool hardstop;
 };
 
 struct kbase_device *gpu_get_device_structure(void);

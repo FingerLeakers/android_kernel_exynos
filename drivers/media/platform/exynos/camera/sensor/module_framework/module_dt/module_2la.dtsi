@@ -135,9 +135,7 @@
 						40 { pname = "VDDD_1.05V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						50 { pname = "VDDA_2.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						60 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
-						70 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
-						80 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
-						90 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
+						70 { pname = "pin"; pin = <PIN_OUTPUT 0 0>; };
 					};
 
 					scenario_vision_on {
@@ -168,9 +166,7 @@
 						40 { pname = "VDDD_1.05V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						50 { pname = "VDDA_2.8V_WIDESUB"; pin = <PIN_REGULATOR 0 0>; };
 						60 { pname = "MCLK"; pin = <PIN_MCLK 0 0>; };
-						70 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
-						80 { pname = "pin"; pin = <PIN_FUNCTION 1 0>; };
-						90 { pname = "pin"; pin = <PIN_FUNCTION 0 0>; };
+						70 { pname = "pin"; pin = <PIN_OUTPUT 0 0>; };
 					};
 
 					scenario_read_rom_on {

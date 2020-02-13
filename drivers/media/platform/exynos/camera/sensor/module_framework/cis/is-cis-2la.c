@@ -2194,8 +2194,7 @@ static struct is_cis_ops cis_ops_2la = {
 #endif
 	.cis_check_rev_on_init = sensor_cis_check_rev_on_init,
 	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
-	/* TEMP_2020 */
-//	.cis_recover_stream_on = sensor_2la_cis_recover_stream_on,
+	.cis_recover_stream_on = sensor_2la_cis_recover_stream_on, /* for ESD recovery */
 };
 
 static int cis_2la_probe(struct i2c_client *client,

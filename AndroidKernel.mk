@@ -56,8 +56,7 @@ KERNEL_DTBO_CFG := $(KERNEL_DTB_DIR)/$(TARGET_SOC)_dtboimg.cfg
 else
 KERNEL_DTBO_CFG := $(KERNEL_DTB_DIR)/$(TARGET_DTBO_CFG)
 endif
-#DPM_DTB_DIR := $(KERNEL_DTB_DIR)/dpm
-#DPM_DTB := $(DPM_DTB_DIR)/exynos-dpm.dtbo
+
 MKDTIMG := $(HOST_OUT_EXECUTABLES)/mkdtimg
 
 KERNEL_MERGE_CONFIG := $(TARGET_KERNEL_SOURCE)/scripts/kconfig/merge_config.sh

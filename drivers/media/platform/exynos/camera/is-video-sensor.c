@@ -870,7 +870,8 @@ static int is_ssx_video_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_IS_S_BNS:
 		break;
 	case V4L2_CID_SENSOR_SET_EXTENDEDMODE:
-		device->ex_mode = ctrl->value;
+		device->ex_mode = (ctrl->value & 0x1f);
+		device->ex_mode_option = (ctrl->value & 0xe0);
 		break;
 	case V4L2_CID_IS_S_STANDBY_OFF:
 		/*

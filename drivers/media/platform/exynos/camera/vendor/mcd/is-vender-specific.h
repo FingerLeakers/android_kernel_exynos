@@ -76,6 +76,7 @@ struct is_vender_specific {
 	struct tof_data_t	tof_af_data;
 	struct mutex		tof_af_lock;
 #endif
+        struct tof_info_t       tof_info;
 
 #if defined(CONFIG_CAMERA_FROM)
 	FRomPowersource		f_rom_power;

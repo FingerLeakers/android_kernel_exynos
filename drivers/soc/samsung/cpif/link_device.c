@@ -415,11 +415,11 @@ static void link_trigger_cp_crash(struct mem_link_device *mld, u32 crash_type, c
 		      handle_no_cp_crash_ack, (unsigned long)mld);
 #endif
 
+	update_ctrl_msg(&mld->ap2cp_united_status, ld->crash_reason.type,
+			mc->sbi_crash_type_mask, mc->sbi_crash_type_pos);
+
 #ifdef CONFIG_LINK_DEVICE_SHMEM
 	if (ld->interrupt_types == INTERRUPT_MAILBOX) {
-		update_ctrl_msg(&mld->ap2cp_united_status, ld->crash_reason.type,
-				mc->sbi_crash_type_mask, mc->sbi_crash_type_pos);
-
 		/* Send CRASH_EXIT command to a CP */
 		if (mld->ap2cp_msg.type == MAILBOX_SR)
 			mcu_ipc_reg_dump(0);
@@ -3561,7 +3561,7 @@ static enum hrtimer_restart sbd_print(struct hrtimer *timer)
 	u16 id;
 	struct sbd_ring_buffer *rb[ULDL];
 	struct io_device *iod;
-	char buf[BUFF_SIZE];
+	char buf[BUFF_SIZE] = { 0, };
 	int len = 0;
 
 #ifdef CONFIG_CP_PKTPROC_V2

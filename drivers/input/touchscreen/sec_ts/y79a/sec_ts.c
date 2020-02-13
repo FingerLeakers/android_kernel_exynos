@@ -2596,7 +2596,14 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	ts->power_status = SEC_TS_STATE_POWER_ON;
 	ts->tdata->external_factory = false;
 
-	sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
+	ret = sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
+	if (ret < 0) {
+		sec_ts_power(ts, false);
+		sec_ts_delay(30);
+		sec_ts_power(ts, true);
+		sec_ts_delay(TOUCH_POWER_ON_DWORK_TIME);
+		sec_ts_wait_for_ready(ts, SEC_TS_ACK_BOOT_COMPLETE);
+	}
 
 	input_info(true, &client->dev, "%s: power enable\n", __func__);
 

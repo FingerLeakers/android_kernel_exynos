@@ -322,7 +322,7 @@ struct is_sensor_cfg *is_sensor_g_mode(struct is_device_sensor *device)
 	long approximate_value = LONG_MAX;
 	struct is_sensor_cfg *cfg_table;
 	u32 cfgs, i;
-	u32 width, height, framerate, ex_mode;
+	u32 width, height, framerate, ex_mode, ex_mode_option;
 	struct is_module_enum *module;
 	int deviation;
 #ifdef CAMERA_REAR2_SENSOR_SHIFT_CROP
@@ -349,33 +349,60 @@ struct is_sensor_cfg *is_sensor_g_mode(struct is_device_sensor *device)
 	height = device->image.window.height;
 	framerate = device->image.framerate;
 	ex_mode = device->ex_mode;
+	ex_mode_option = device->ex_mode_option;
 
-	minfo("try to find sensor mode(%dx%d@%d) ex_mode(%d)", device,
+	minfo("try to find sensor mode(%dx%d@%d) ex_mode(%d:%d)", device,
 		width,
 		height,
 		framerate,
-		ex_mode);
+		ex_mode,
+		ex_mode_option);
 
-	/* find sensor mode by w/h and fps range */
-	for (i = 0; i < cfgs; i++) {
-		if ((cfg_table[i].width == width) && (cfg_table[i].height == height)
-			&& (cfg_table[i].ex_mode == ex_mode)) {
-			deviation = cfg_table[i].framerate - framerate;
-			if (deviation == 0) {
-				/* You don't need to find another sensor mode */
-				select = &cfg_table[i];
-				break;
-			} else if ((deviation > 0) && approximate_value > abs(deviation)) {
-				/* try to find framerate smaller than previous */
-				approximate_value = abs(deviation);
-				select = &cfg_table[i];
+
+#ifdef USE_EX_MODE_OPTION
+	/* find sensor mode first by w/h, fps range and ex_mode_option */
+	if (ex_mode_option > 0) {
+		for (i = 0; i < cfgs; i++) {
+			if ((cfg_table[i].width == width) && (cfg_table[i].height == height)
+				&& (cfg_table[i].ex_mode == ex_mode_option)) {
+				deviation = cfg_table[i].framerate - framerate;
+				if (deviation == 0) {
+					/* You don't need to find another sensor mode */
+					select = &cfg_table[i];
+					break;
+				} else if ((deviation > 0) && approximate_value > abs(deviation)) {
+					/* try to find framerate smaller than previous */
+					approximate_value = abs(deviation);
+					select = &cfg_table[i];
+				}
 			}
 		}
 	}
+#endif
 
 	if (!select) {
-		merr("sensor mode(%dx%d@%dfps, ex_mode:%d) is not found", device, width, height, framerate, ex_mode);
-		goto p_err;
+		/* find sensor mode by w/h and fps range */
+		for (i = 0; i < cfgs; i++) {
+			if ((cfg_table[i].width == width) && (cfg_table[i].height == height)
+				&& (cfg_table[i].ex_mode == ex_mode)) {
+				deviation = cfg_table[i].framerate - framerate;
+				if (deviation == 0) {
+					/* You don't need to find another sensor mode */
+					select = &cfg_table[i];
+					break;
+				} else if ((deviation > 0) && approximate_value > abs(deviation)) {
+					/* try to find framerate smaller than previous */
+					approximate_value = abs(deviation);
+					select = &cfg_table[i];
+				}
+			}
+		}
+
+		if (!select) {
+			merr("sensor mode(%dx%d@%dfps, ex_mode:%d,%d) is not found",
+				device, width, height, framerate, ex_mode, ex_mode_option);
+			goto p_err;
+		}
 	}
 
 #ifdef CAMERA_REAR2_SENSOR_SHIFT_CROP
@@ -1826,6 +1853,7 @@ int is_sensor_open(struct is_device_sensor *device,
 	device->early_buf_done_mode = 0;
 	device->ex_scenario = 0;
 	device->ex_mode = 0;
+	device->ex_mode_option = 0;
 	memset(&device->sensor_ctl, 0, sizeof(struct camera2_sensor_ctl));
 	memset(&device->lens_ctl, 0, sizeof(struct camera2_lens_ctl));
 	memset(&device->flash_ctl, 0, sizeof(struct camera2_flash_ctl));
@@ -3821,6 +3849,7 @@ already_stopped:
 	mutex_unlock(&device->mlock_state);
 
 	device->ex_mode = 0;
+	device->ex_mode_option = 0;
 
 	return ret;
 }

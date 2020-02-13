@@ -35,7 +35,7 @@ struct rational {
 #define CAMERA2_MAX_FACES			16
 #define CAMERA2_MAX_VENDER_LENGTH		400
 #define CAMERA2_AWB_VENDER_LENGTH		415
-#define CAMERA2_MAX_IPC_VENDER_LENGTH		2962
+#define CAMERA2_MAX_IPC_VENDER_LENGTH		3172
 #define CAMERA2_MAX_PDAF_MULTIROI_COLUMN	13
 #define CAMERA2_MAX_PDAF_MULTIROI_ROW		9
 #define CAMERA2_MAX_UCTL_VENDER_LENGTH		32
@@ -1198,6 +1198,11 @@ struct camera2_video_output_size {
 	uint16_t			height;
 };
 
+struct tof_info {
+	uint16_t			fps;
+	uint16_t			exposureTime;
+};
+
 struct camera2_aa_ctl {
 	enum aa_ae_antibanding_mode	aeAntibandingMode;
 	int32_t				aeExpCompensation;
@@ -1246,7 +1251,8 @@ struct camera2_aa_ctl {
 	struct camera2_video_output_size vendor_videoOutputSize;
 	enum aa_night_timelaps_mode	vendor_nightTimelapsMode;
 	uint32_t			vendor_personalPresetIndex;
-	uint32_t			vendor_reserved[38];
+	struct tof_info			vendor_TOFInfo;
+	uint32_t			vendor_reserved[37];
 };
 
 struct aa_apexInfo {
@@ -1994,13 +2000,20 @@ enum camera2_dcp_process_mode {
 	DCP_PROCESS_ON,
 };
 
+enum camera2_tnr_gdc_mode {
+	TNR_GDC_MODE_HW = 0,
+	TNR_GDC_MODE_SW,
+	TNR_GDC_MODE_MAX
+};
+
 struct camera2_grid_info {
 	int32_t grid_x[7][9];
 	int32_t grid_y[7][9];
 };
 
 struct camera2_tnr_uctl {
-  struct camera2_grid_info gdc_grid;
+	enum camera2_tnr_gdc_mode tnrGdcMode;
+	struct camera2_grid_info gdc_grid;
 };
 
 enum camera2_scene_index {

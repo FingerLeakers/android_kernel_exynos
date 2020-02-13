@@ -50,7 +50,7 @@
 #endif
 
 #define USE_CAMERA_FACTORY_DRAM_TEST
-
+#define USE_EX_MODE_OPTION
 /* #define USE_CAMERA_CHECK_SENSOR_REV */
 
 #define USE_CAMERA_HW_BIG_DATA

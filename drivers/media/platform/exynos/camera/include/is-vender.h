@@ -95,6 +95,11 @@ struct tof_data_t {
 	u16 data[TOF_AF_SIZE];
 };
 
+struct tof_info_t {
+	u16 TOFExposure;
+	u16 TOFFps;
+};
+
 #define TOF_CAL_SIZE_MAX 10
 #define TOF_CAL_VALID_MAX 10
 
@@ -166,6 +171,7 @@ void is_vender_check_retention(struct is_vender *vender, void *module_data);
 #endif
 void is_vender_itf_open(struct is_vender *vender, struct sensor_open_extended *ext_info);
 int is_vender_set_torch(struct camera2_shot *shot);
+void is_vender_update_meta(struct is_vender *vender, struct camera2_shot *shot);
 int is_vender_video_s_ctrl(struct v4l2_control *ctrl, void *device_data);
 int is_vender_ssx_video_s_ctrl(struct v4l2_control *ctrl, void *device_data);
 int is_vender_ssx_video_g_ctrl(struct v4l2_control *ctrl, void *device_data);
@@ -191,4 +197,5 @@ bool is_vendor_check_camera_running(int position);
 #ifdef USE_TOF_AF
 void is_vender_store_af(struct is_vender *vender, struct tof_data_t *data);
 #endif
+void is_vendor_store_tof_info(struct is_vender *vender, struct tof_info_t *info);
 #endif

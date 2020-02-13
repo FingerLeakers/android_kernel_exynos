@@ -496,6 +496,7 @@ int sensor_2ld_cis_init(struct v4l2_subdev *subdev)
 	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
 	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
 #endif
+	cis->cis_data->lte_multi_capture_mode = false;
 
 	sensor_2ld_load_retention = false;
 	sensor_2ld_LTE_1s_flag = false;
@@ -868,21 +869,12 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	struct sensor_open_extended *ext_info = NULL;
 	u8 data8 = 0;
-	u32 ex_mode;
-	struct is_device_sensor *device;
 
 	WARN_ON(!subdev);
 
 	cis = (struct is_cis *)v4l2_get_subdevdata(subdev);
 	WARN_ON(!cis);
 	WARN_ON(!cis->cis_data);
-
-	device = (struct is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
-	if (unlikely(!device)) {
-		err("device sensor is null");
-		return -EINVAL;
-	}
-
 
 	if (mode >= sensor_2ld_max_setfile_num) {
 		err("invalid mode(%d)!!", mode);
@@ -907,8 +899,6 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 #endif
 
 	sensor_2ld_cis_set_paf_stat_enable(mode, cis->cis_data);
-
-	ex_mode = is_sensor_g_ex_mode(device);
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
@@ -1023,20 +1013,6 @@ int sensor_2ld_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 			pr_info("0x1982(0x%x)\n", data8);
 		else
 			goto p_err_i2c_unlock;
-	}
-
-	if (ex_mode == EX_NIGHT) {
-		info("[%s] night mode additional setting (%d)\n", __func__, mode);
-		sensor_2ld_night_flag = true;
-		ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_enable,
-									sensor_2ld_cis_night_settings_enable_size);
-	} else {
-		if (sensor_2ld_night_flag) {
-			info("[%s] night mode additional setting -> restore (%d)\n", __func__, mode);
-			sensor_2ld_night_flag = false;
-			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_disable,
-										sensor_2ld_cis_night_settings_disable_size);
-		}
 	}
 
 	info("[%s] mode changed(%d)\n", __func__, mode);
@@ -2280,6 +2256,22 @@ int sensor_2ld_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 			dbg_sensor(1, "frame duration is less than min(%d)\n", frame_duration);
 			frame_duration = cis_data->min_frame_us_time;
 		}
+
+		I2C_MUTEX_LOCK(cis->i2c_lock);
+		if (cis_data->lte_multi_capture_mode == true
+			&& sensor_2ld_night_flag == false) {
+			info("[%s] lte_multi_capture_mode(%d)\n", __func__, cis_data->lte_multi_capture_mode);
+			sensor_2ld_night_flag = true;
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_enable,
+										sensor_2ld_cis_night_settings_enable_size);
+		} else if (cis_data->lte_multi_capture_mode == false
+			&& sensor_2ld_night_flag == true) {
+			info("[%s] lte_multi_capture_mode -> restore(%d)\n", __func__, cis_data->lte_multi_capture_mode);
+			sensor_2ld_night_flag = false;
+			ret |= sensor_cis_set_registers(subdev, sensor_2ld_cis_night_settings_disable,
+										sensor_2ld_cis_night_settings_disable_size);
+		}
+		I2C_MUTEX_UNLOCK(cis->i2c_lock);
 	}
 
 	sensor_2ld_frame_duration_backup = frame_duration;

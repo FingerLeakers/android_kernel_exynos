@@ -115,6 +115,7 @@
 #include "./platform/exynos/gpu_control.h"
 #endif
 
+#include "./platform/exynos/mali_kbase_platform.h"
 /* GPU IRQ Tags */
 #define	JOB_IRQ_TAG	0
 #define MMU_IRQ_TAG	1
@@ -4561,9 +4562,12 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 	int runs = 0;
 	u32 old_gpu_mask;
 	u32 old_job_mask;
+	struct exynos_context *platform = NULL;
 
 	if (!kbdev)
 		return -EFAULT;
+
+	platform = (struct exynos_context*)kbdev->platform_context;
 
 	if (!kbdev->wa.ctx)
 		return -EFAULT;
@@ -4582,7 +4586,10 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 	kbase_reg_write(kbdev, SHADER_PWRON_LO, (cores & U32_MAX));
 	kbase_reg_write(kbdev, SHADER_PWRON_HI, (cores >> 32));
 
+	udelay(250);
+
 	if (kbdev->wa.flags & KBASE_WA_FLAG_WAIT_POWERUP) {
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE_WAIT_POWERUP, kbdev->wa.flags, 0u, "wait power-up in %s\n", __func__);
 		/* wait for power-ups */
 		wait(kbdev, SHADER_READY_LO, (cores & U32_MAX));
 		if (cores >> 32)
@@ -4592,6 +4599,7 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 
 	if (kbdev->wa.flags & KBASE_WA_FLAG_SERIALIZE) {
 		int i;
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE_SERIALIZE, kbdev->wa.flags, 0u, "seriailize in %s\n", __func__);
 
 		/* do for each requested core */
 		for (i = 0; i < sizeof(cores) * 8; i++) {
@@ -4606,13 +4614,12 @@ int kbase_wa_execute(struct kbase_device *kbdev, u64 cores)
 				failed++;
 			runs++;
 		}
-
 	} else {
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE_PARALLEL, kbdev->wa.flags, 0u, "parallel in %s\n", __func__);
 		if (run_job(kbdev, as, slot, cores, jc))
 			failed++;
 		runs++;
 	}
-
 	/* restore IRQ masks */
 	kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), old_gpu_mask);
 	kbase_reg_write(kbdev, JOB_CONTROL_REG(JOB_IRQ_MASK), old_job_mask);

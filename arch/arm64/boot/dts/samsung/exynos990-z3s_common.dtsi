@@ -627,42 +627,54 @@
 						level_0 {
 							threshold = <100>;
 							lit_min = <1053000>;
+							irq_affinity = "enable";
 						};
 						level_1 {
 							threshold = <200>;
-							lit_min = <1300000>;
+							lit_min = <1540000>;
 							mif = <1014000>;
+							irq_affinity = "enable";
 						};
 						/* uses middle */
 						level_2 {
 							threshold = <300>;
 							mid_min = <1508000>;
-							lit_min = <1300000>;
-							mif = <1014000>;
+							lit_min = <1540000>;
+							mif = <2093000>;
+							int =<534000>;
+							irq_affinity = "enable";
 						};
 						level_3 {
 							threshold = <700>;
 							mid_min = <2106000>;
-							lit_min = <1586000>;
-							mif = <2028000>;
+							lit_min = <1794000>;
+							mif = <2093000>;
+							int =<534000>;
+							irq_affinity = "enable";
 						};
 						level_4 {
 							threshold = <800>;
 							mid_min = <2106000>;
-							lit_min = <1586000>;
-							mif = <2028000>;
+							lit_min = <1794000>;
+							mif = <2535000>;
+							int =<534000>;
+							irq_affinity = "enable";
 						};
 						level_5 {
 							threshold = <1500>;
 							mid_min = <2314000>;
 							lit_min = <1950000>;
-							mif = <2028000>;
+							mif = <2730000>;
+							int =<534000>;
+							irq_affinity = "enable";
 						};
 						level_6 {
 							threshold = <1600>;
 							mid_min = <2314000>;
 							lit_min = <1950000>;
-							mif = <2028000>;
+							mif = <2730000>;
+							int =<534000>;
+							irq_affinity = "enable";
 						};
 					};
 				};

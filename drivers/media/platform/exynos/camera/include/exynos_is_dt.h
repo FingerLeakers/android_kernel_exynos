@@ -192,7 +192,9 @@
 #define	EX_AEB			8
 #define	EX_REMOSAIC_CAL		11
 #define	EX_LOW_RES_TETRA	12
-#define	EX_NIGHT		13
+
+/* EX_OPTION 32 = 0x20 */
+#define	EX_OPTION_VIDEO		32
 
 /* LRTE */
 #define LRTE_DISABLE		0

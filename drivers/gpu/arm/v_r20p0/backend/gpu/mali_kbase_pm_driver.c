@@ -42,6 +42,8 @@
 #include <backend/gpu/mali_kbase_irq_internal.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
 #include <backend/gpu/mali_kbase_l2_mmu_config.h>
+#include <platform/exynos/gpu_control.h>
+#include <platform/exynos/mali_kbase_platform.h>
 
 #include <linux/of.h>
 
@@ -332,8 +334,9 @@ static void kbase_pm_invoke(struct kbase_device *kbdev,
 
 	if (kbdev->wa.ctx &&
 	    action == ACTION_PWRON &&
-	    core_type == KBASE_PM_CORE_SHADER &&
-	    !(kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER)) {
+		core_type == KBASE_PM_CORE_SHADER &&
+		!(kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER)) {
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE, kbdev->wa.flags, core_type, "before kbase_wa_execute in %s\n", __func__);
 		kbase_wa_execute(kbdev, cores);
 	} else {
 		if (lo != 0)
@@ -1577,10 +1580,10 @@ void kbase_pm_clock_on(struct kbase_device *kbdev, bool is_resume)
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 	mutex_unlock(&kbdev->mmu_hw_mutex);
 
-	if (kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER)
-		kbase_wa_execute(kbdev,
-				 kbase_pm_get_present_cores(kbdev,
-							    KBASE_PM_CORE_SHADER));
+	if (kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER) {
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE, kbdev->wa.flags, 0u, "before kbase_wa_execute in %s\n", __func__);
+		kbase_wa_execute(kbdev, kbase_pm_get_present_cores(kbdev, KBASE_PM_CORE_SHADER));
+	}
 
 	/* Enable the interrupts */
 	kbase_pm_enable_interrupts(kbdev);
@@ -1662,7 +1665,6 @@ bool kbase_pm_clock_off(struct kbase_device *kbdev, bool is_suspend)
 		kbdev->pm.backend.callback_power_off(kbdev);
 	return true;
 }
-
 KBASE_EXPORT_TEST_API(kbase_pm_clock_off);
 
 struct kbasep_reset_timeout_data {
@@ -1908,6 +1910,9 @@ static void reenable_protected_mode_hwcnt(struct kbase_device *kbdev)
 static int kbase_pm_do_reset(struct kbase_device *kbdev)
 {
 	struct kbasep_reset_timeout_data rtdata;
+	/* MALI_SEC_INTEGRATION */
+	struct exynos_context *platform = NULL;
+	platform = (struct exynos_context *)kbdev->platform_context;
 
 	KBASE_TRACE_ADD(kbdev, CORE_GPU_SOFT_RESET, NULL, NULL, 0u, 0);
 
@@ -1932,6 +1937,51 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 
 	/* Wait for the RESET_COMPLETED interrupt to be raised */
 	kbase_pm_wait_for_reset(kbdev);
+
+	if (platform->hardstop) {
+		hrtimer_cancel(&rtdata.timer);
+		dev_err(kbdev->dev, "Due to the hardstop, now attempting a power cycle\n");
+
+		/* power cycle */
+		platform->hardstop = false;
+		gpu_power_force_off(platform);
+		gpu_power_force_on(platform);
+		/* from ARM */
+		//kbdev->pm.backend.callback_power_off(kbdev);
+		//kbdev->pm.backend.callback_power_on(kbdev);
+
+		/* do a reset after the power cycle */
+		rtdata.timed_out = 0;
+		hrtimer_start(&rtdata.timer, HR_TIMER_DELAY_MSEC(RESET_TIMEOUT),
+								HRTIMER_MODE_REL);
+
+		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_IRQ_MASK), RESET_COMPLETED);
+		kbase_reg_write(kbdev, GPU_CONTROL_REG(GPU_COMMAND),
+				GPU_COMMAND_SOFT_RESET);
+
+		/* Wait for the RESET_COMPLETED interrupt to be raised */
+		kbase_pm_wait_for_reset(kbdev);
+
+		if (rtdata.timed_out == 0) {
+			/* GPU has been reset */
+			hrtimer_cancel(&rtdata.timer);
+			destroy_hrtimer_on_stack(&rtdata.timer);
+			return 0;
+		}
+
+		/* No interrupt has been received - check if the RAWSTAT register says
+		 * the reset has completed */
+		if (kbase_reg_read(kbdev, GPU_CONTROL_REG(GPU_IRQ_RAWSTAT)) &
+								RESET_COMPLETED) {
+			/* The interrupt is set in the RAWSTAT; this suggests that the
+			 * interrupts are not getting to the CPU */
+			dev_err(kbdev->dev, "Reset interrupt didn't reach CPU. Check interrupt assignments.\n");
+			/* If interrupts aren't working we can't continue. */
+		}
+
+		destroy_hrtimer_on_stack(&rtdata.timer);
+		return 0;
+	}
 
 	if (rtdata.timed_out == 0) {
 		/* GPU has been reset */
@@ -1977,9 +2027,6 @@ static int kbase_pm_do_reset(struct kbase_device *kbdev)
 	}
 
 	destroy_hrtimer_on_stack(&rtdata.timer);
-
-	dev_err(kbdev->dev, "Failed to hard-reset the GPU (timed out after %d ms)\n",
-								RESET_TIMEOUT);
 
 	return -EINVAL;
 }

@@ -128,23 +128,34 @@ inline int s51xx_pcie_send_doorbell_int(struct pci_dev *pdev, int int_num)
 	}
 
 	pci_read_config_word(pdev, PCI_COMMAND, &cmd);
-	if (((cmd & PCI_COMMAND_MASTER) == 0) || (cmd == 0xffff)) {
+	if ((((cmd & PCI_COMMAND_MEMORY) == 0) ||
+			(cmd & PCI_COMMAND_MASTER) == 0) || (cmd == 0xffff)) {
 		mif_err_limited("Can't send Interrupt(not setted bme_en, 0x%04x)!!!\n", cmd);
 
 		do {
 			cnt++;
 
+			/* set bme bit */
 			pci_set_master(pdev);
 
 			pci_read_config_word(pdev, PCI_COMMAND, &cmd);
 			mif_info("cmd reg = 0x%04x\n", cmd);
 
-			if ((cmd & PCI_COMMAND_MASTER) && (cmd != 0xffff))
+			/* set mse bit */
+			cmd |= PCI_COMMAND_MEMORY;
+			pci_write_config_word(pdev, PCI_COMMAND, cmd);
+
+			pci_read_config_word(pdev, PCI_COMMAND, &cmd);
+			mif_info("cmd reg = 0x%04x\n", cmd);
+
+			if ((cmd & PCI_COMMAND_MEMORY) &&
+					(cmd & PCI_COMMAND_MASTER) && (cmd != 0xffff))
 				break;
 		} while (cnt < 10);
 
 		if (cnt >= 10) {
 			mif_err_limited("BME is not set(cnt=%d)\n", cnt);
+			exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num);
 			return -EAGAIN;
 		}
 	}
@@ -173,12 +184,7 @@ send_doorbell_again:
 			goto send_doorbell_again;
 		}
 		mif_err("[Need to CHECK] Can't send doorbell int (0x%x)\n", reg);
-
-		mif_err("skip check ep config\n");
-		/* s51xx_pcie_chk_ep_conf(pdev); */
-		/* temporary block
-		exynos_pcie_host_v1_register_dump(s51xx_pcie.pcie_channel_num);
-		*/
+		exynos_pcie_rc_register_dump(s51xx_pcie->pcie_channel_num);
 
 		return -EAGAIN;
 	}

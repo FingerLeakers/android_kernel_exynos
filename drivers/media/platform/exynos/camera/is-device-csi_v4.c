@@ -751,7 +751,9 @@ static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_t
 	int vc, err, votf_ch = 0;
 	unsigned long prev_err_flag = 0;
 	struct is_subdev *dma_subdev;
+#if 0
 	struct is_device_sensor *sensor;
+#endif
 
 	/* 1. Check error */
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
@@ -785,6 +787,8 @@ static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_t
 		case CSIS_ERR_LOST_FS_VC:
 			/* disable next dma */
 			csi_s_output_dma(csi, CSI_VIRTUAL_CH_0, false);
+
+			csi->crc_flag = true; /* to prevent ESD kernel panic */
 			break;
 		case CSIS_ERR_CRC:
 		case CSIS_ERR_MAL_CRC:
@@ -796,6 +800,7 @@ static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_t
 				csi->dma_subdev[CSI_VIRTUAL_CH_0]->vc_ch[csi->scm],
 				CSI_VIRTUAL_CH_0, atomic_read(&csi->fcount), err);
 
+#if 0
 			if (!test_bit(CSIS_ERR_CRC, &prev_err_flag)
 				&& !test_bit(CSIS_ERR_MAL_CRC, &prev_err_flag)
 				&& !test_bit(CSIS_ERR_CRC_CPHY, &prev_err_flag)) {
@@ -803,6 +808,7 @@ static void csi_err_check(struct is_device_csi *csi, u32 *err_id, enum csis_hw_t
 				if (sensor)
 					is_sensor_dump(sensor);
 			}
+#endif
 		default:
 			break;
 		}

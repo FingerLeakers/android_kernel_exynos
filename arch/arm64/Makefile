@@ -115,9 +115,8 @@ core-$(CONFIG_EFI_STUB) += $(objtree)/drivers/firmware/efi/libstub/lib.a
 boot		:= arch/arm64/boot
 KBUILD_IMAGE	:= $(boot)/Image.gz
 KBUILD_DTBS	:= dtbs
-KBUILD_DPMS	:= dpms
 
-all:	Image.gz $(KBUILD_DTBS) $(KBUILD_DPMS)
+all:	Image.gz $(KBUILD_DTBS)
 
 
 Image: vmlinux
@@ -135,10 +134,7 @@ zinstall install:
 %.dtbo: scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts $(boot)/dts/$@
 
-PHONY += dtbs dtbs_install dpms
-
-dpms: prepare scripts
-	$(Q)$(MAKE) $(build)=$(boot)/dts/exynos/dpm
+PHONY += dtbs dtbs_install
 
 dtbs: prepare scripts
 	$(Q)$(MAKE) $(build)=$(boot)/dts

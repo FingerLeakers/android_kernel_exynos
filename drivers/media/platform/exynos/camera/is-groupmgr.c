@@ -814,6 +814,18 @@ static void is_group_set_torch(struct is_group *group,
 	return;
 }
 
+static void is_group_update_meta(struct is_device_ischain *device,
+ 	struct is_group *group, struct is_frame *ldr_frame)
+{
+	struct is_core *core;
+
+	if (group->prev)
+	    return;
+
+        core = (struct is_core *)device->interface->core;
+	is_vender_update_meta(&core->vender, ldr_frame->shot);
+}
+
 static bool is_group_kthread_queue_work(struct kthread_worker *worker, struct is_group *group, struct is_frame *frame)
 {
 	TIME_SHOT(TMS_Q);
@@ -3251,6 +3263,8 @@ p_skip_sync:
 #ifdef ENABLE_SHARED_METADATA
 	is_hw_shared_meta_update(device, group, frame, SHARED_META_SHOT);
 #endif
+
+        is_group_update_meta(device, group, frame);
 
 	ret = group->shot_callback(device, frame);
 	if (unlikely(ret)) {

@@ -119,15 +119,18 @@ static void print_mc_state(struct modem_ctl *mc)
 
 static void pcie_clean_dislink(struct modem_ctl *mc)
 {
+#if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
+    if (mc->pcie_voice_call_on) {
+        modem_notify_event(MODEM_EVENT_RESET, mc);
+        mc->pcie_voice_call_on = false;
+    }
+#endif
+
 	if (mc->pcie_powered_on)
 		s5100_poweroff_pcie(mc, true);
 
 	if (!mc->pcie_powered_on)
 		mif_err("Link is disconnected!!!\n");
-
-#if defined(CONFIG_SUSPEND_DURING_VOICE_CALL)
-	mc->pcie_voice_call_on = false;
-#endif
 }
 
 static void cp2ap_wakeup_work(struct work_struct *ws)
@@ -487,8 +490,8 @@ static int power_on_cp(struct modem_ctl *mc)
 	mif_info("sys_rev(%d)\n", sys_rev);
 
 	if (sys_rev < 21)
+		mif_gpio_set_value(mc->s5100_gpio_cp_pwr, 0, 50);
 #endif
-	mif_gpio_set_value(mc->s5100_gpio_cp_pwr, 0, 50);
 	mif_gpio_set_value(mc->s5100_gpio_cp_pwr, 1, 50);
 	mif_gpio_set_value(mc->s5100_gpio_cp_reset, 1, 50);
 
@@ -1379,6 +1382,9 @@ static void s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
 		return;
 	}
 	mif_info("S5100 PCIe Channel Number : %d\n", mc->pcie_ch_num);
+
+	mc->sbi_crash_type_mask = pdata->sbi_crash_type_mask;
+	mc->sbi_crash_type_pos = pdata->sbi_crash_type_pos;
 
 	mc->sbi_ds_det_mask = pdata->sbi_ds_det_mask;
 	mc->sbi_ds_det_pos = pdata->sbi_ds_det_pos;

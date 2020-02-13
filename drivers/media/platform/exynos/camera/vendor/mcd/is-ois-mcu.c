@@ -175,11 +175,20 @@ static int ois_mcu_runtime_suspend(struct device *dev)
 {
 	struct ois_mcu_dev *mcu = dev_get_drvdata(dev);
 	int ret = 0;
+	u8 val = 0;
+	int retries = 20;
 
 	info_mcu("%s E\n", __func__);
 
 	is_mcu_set_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_START, 0x00);
-	usleep_range(10000, 11000);
+	do {
+		val = is_mcu_get_reg(mcu->regs[OM_REG_CORE], R_OIS_CMD_STATUS);
+		usleep_range(1000, 1100);
+		if (--retries < 0) {
+			err_mcu("%s Read status failed!!!!, data = 0x%04x\n", __func__, val);
+			break;
+		}
+	} while (val != 0x01);
 
 	ret = __is_mcu_hw_disable(mcu->regs[OM_REG_CORE]);
 	ret |= __is_mcu_hw_set_clear_peri(mcu->regs[OM_REG_PERI_SETTING]); /*GPP9 clear */

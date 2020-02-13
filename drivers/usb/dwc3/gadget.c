@@ -2175,6 +2175,7 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *g, int is_active)
 			dwc->start_config_issued = false;
 			dwc->gadget.speed = USB_SPEED_UNKNOWN;
 			dwc->gadget.state = USB_STATE_NOTATTACHED;
+			dwc->vbus_current = 0;
 			dwc->setup_packet_pending = false;
 #endif
 			ret = dwc3_gadget_run_stop_vbus(dwc, 0, false);

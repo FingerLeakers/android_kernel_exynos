@@ -1204,6 +1204,34 @@ void exynos_pcie_rc_register_dump(int ch_num)
 				i, exynos_phy_read(exynos_pcie, i));
 
 	}
+	/* dump phy monitor registers */
+	/* common */
+	pr_err("PHY PMA 0x3F0 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x3F0));
+	/* lane0 */
+	for (i = 0xE00; i < 0xE50; i += 4) {
+		pr_err("PHY PMA 0x%04x : 0x%08x\n",
+				i, exynos_phy_read(exynos_pcie, i));
+
+	}
+	pr_err("PHY PMA 0xE74 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xE74));
+	pr_err("PHY PMA 0xE78 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xE78));
+	pr_err("PHY PMA 0xE7C : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xE7C));
+	pr_err("PHY PMA 0xEC4 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xEC4));
+	pr_err("PHY PMA 0xEC8 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xEC8));
+	pr_err("PHY PMA 0xFC0 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0xFC0));
+	/* lane1 */
+	for (i = 0x1600; i < 0x1650; i += 4) {
+		pr_err("PHY PMA 0x%04x : 0x%08x\n",
+				i, exynos_phy_read(exynos_pcie, i));
+
+	}
+	pr_err("PHY PMA 0x1674 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x1674));
+	pr_err("PHY PMA 0x1678 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x1678));
+	pr_err("PHY PMA 0x167C : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x167C));
+	pr_err("PHY PMA 0x16C4 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x16C4));
+	pr_err("PHY PMA 0x16C8 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x16C8));
+	pr_err("PHY PMA 0x17C0 : 0x%08x\n", exynos_phy_read(exynos_pcie, 0x17C0));
+
 	pr_err("\n");
 
 	/* PHY PCS : 0x0 ~ 0x200 */

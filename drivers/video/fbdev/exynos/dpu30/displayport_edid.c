@@ -618,7 +618,8 @@ void edid_check_detail_timing_desc1(u32 sst_id, struct displayport_device *displ
 				matched_resolution_fps = supported_videos[i].fps;
 			}
 
-			if ((mode->refresh == supported_videos[i].fps) &&
+			if ((mode->refresh == supported_videos[i].fps ||
+				mode->refresh == supported_videos[i].fps - 1) &&
 					!matched_timing_idx) {
 				matched_timing_idx = i;
 				displayport_info("found matched timing:%d\n", i);

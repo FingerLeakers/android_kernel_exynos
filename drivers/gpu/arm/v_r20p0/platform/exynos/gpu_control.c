@@ -457,6 +457,74 @@ int gpu_inter_frame_power_off(struct exynos_context *platform)
 	return 0;
 }
 
+int gpu_power_force_on(struct exynos_context *platform)
+{
+#ifdef CONFIG_MALI_RT_PM
+	int status;
+
+	mutex_lock(&platform->exynos_pm_domain->access_lock);
+
+	status = cal_pd_status(platform->exynos_pm_domain->cal_pdid);
+	if (status) {
+		GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u,
+				"%s: status checking : Already gpu power force on\n",__func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return 0;
+	}
+
+	if (cal_pd_control(platform->exynos_pm_domain->cal_pdid, 1) != 0) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to gpu power force on\n", __func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return -1;
+	}
+
+	status = cal_pd_status(platform->exynos_pm_domain->cal_pdid);
+	if (!status) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: status error : gpu power force on\n", __func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return -1;
+	}
+
+	mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	GPU_LOG(DVFS_DEBUG, LSI_IFPM_POWER_ON, 0u, 0u, "gpu power force on\n");
+#endif
+	return 0;
+}
+
+int gpu_power_force_off(struct exynos_context *platform)
+{
+#ifdef CONFIG_MALI_RT_PM
+	int status;
+
+	mutex_lock(&platform->exynos_pm_domain->access_lock);
+
+	status = cal_pd_status(platform->exynos_pm_domain->cal_pdid);
+	if (!status) {
+		GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u,
+				"%s: status checking: Already gpu power force off\n", __func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return 0;
+	}
+
+	if (cal_pd_control(platform->exynos_pm_domain->cal_pdid, 0) != 0) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to gpu power force off\n", __func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return -1;
+	}
+
+	status = cal_pd_status(platform->exynos_pm_domain->cal_pdid);
+	if (status) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: status error :  gpu power force off\n", __func__);
+		mutex_unlock(&platform->exynos_pm_domain->access_lock);
+		return -1;
+	}
+
+	mutex_unlock(&platform->exynos_pm_domain->access_lock);
+	GPU_LOG(DVFS_DEBUG, LSI_IFPM_POWER_OFF, 0u, 0u, "gpu power force off\n");
+#endif
+	return 0;
+}
+
 
 int gpu_control_enable_customization(struct kbase_device *kbdev)
 {
