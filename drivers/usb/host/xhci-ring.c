@@ -365,18 +365,12 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 	 * In the future we should distinguish between -ENODEV and -ETIMEDOUT
 	 * and try to recover a -ETIMEDOUT with a host controller reset.
 	 */
-#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
-	spin_unlock_irqrestore(&xhci->lock, flags);
-#endif
 	ret = xhci_handshake(&xhci->op_regs->cmd_ring,
 			CMD_RING_RUNNING, 0, 5 * 100 * 1000);
 	if (ret < 0) {
 		xhci_err(xhci, "Abort failed to stop command ring: %d\n", ret);
 		xhci_halt(xhci);
 		xhci_hc_died(xhci);
-#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
-		spin_lock_irqsave(&xhci->lock, flags);
-#endif
 		return ret;
 	}
 	/*
@@ -385,9 +379,7 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 	 * but the completion event in never sent. Wait 2 secs (arbitrary
 	 * number) to handle those cases after negation of CMD_RING_RUNNING.
 	 */
-#if !defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 	spin_unlock_irqrestore(&xhci->lock, flags);
-#endif
 	ret = wait_for_completion_timeout(&xhci->cmd_ring_stop_completion,
 					  msecs_to_jiffies(2000));
 	spin_lock_irqsave(&xhci->lock, flags);
@@ -406,6 +398,10 @@ static int xhci_abort_cmd_ring(struct xhci_hcd *xhci, unsigned long flags)
 #endif
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
 		xhci_info(xhci, "xhci->xhc_state 0x%x\n", xhci->xhc_state);
+#endif
+#ifdef CONFIG_USB_DWC3_EXYNOS
+		/* Checking timeout error to reset timeout_cnt. */
+		return ret;
 #endif
 	} else {
 		xhci_handle_stopped_cmd_ring(xhci, xhci_next_queued_cmd(xhci));
@@ -1350,6 +1346,9 @@ void xhci_handle_command_timeout(struct work_struct *work)
 	struct xhci_hcd *xhci;
 	unsigned long flags;
 	u64 hw_ring_state;
+#ifdef CONFIG_USB_DWC3_EXYNOS
+	static int timeout_cnt = 0;
+#endif
 
 	xhci = container_of(to_delayed_work(work), struct xhci_hcd, cmd_timer);
 #ifdef CONFIG_USB_DEBUG_DETAILED_LOG
@@ -1380,7 +1379,12 @@ void xhci_handle_command_timeout(struct work_struct *work)
 		/* Prevent new doorbell, and start command abort */
 		xhci->cmd_ring_state = CMD_RING_STATE_ABORTED;
 		xhci_dbg(xhci, "Command timeout\n");
+#ifdef CONFIG_USB_DWC3_EXYNOS
+		if (!xhci_abort_cmd_ring(xhci, flags))
+			timeout_cnt = 0;
+#else /* Original code */
 		xhci_abort_cmd_ring(xhci, flags);
+#endif
 		goto time_out_completed;
 	}
 
@@ -1391,6 +1395,17 @@ void xhci_handle_command_timeout(struct work_struct *work)
 
 		goto time_out_completed;
 	}
+
+#ifdef CONFIG_USB_DWC3_EXYNOS
+	timeout_cnt++;
+	if (timeout_cnt >= 5) {
+		xhci_err(xhci, "Command timeout count is expired.");
+		xhci_halt(xhci);
+		xhci_hc_died(xhci);
+		timeout_cnt = 0;
+		goto time_out_completed;
+	}
+#endif
 
 	/* command timeout on stopped ring, ring can't be aborted */
 	xhci_dbg(xhci, "Command timeout on stopped ring\n");
@@ -1695,10 +1710,6 @@ static void handle_port_status(struct xhci_hcd *xhci,
 				  bus_state->resume_done[hcd_portnum]);
 			usb_hcd_start_port_resume(&hcd->self, hcd_portnum);
 			bogus_port_status = true;
-#ifdef CONFIG_USB_DWC3_EXYNOS
-			/* REWA Disable */
-			phy_vendor_set(xhci->main_hcd->phy, 0, 0);
-#endif
 		}
 	}
 

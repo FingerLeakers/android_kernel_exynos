@@ -800,6 +800,7 @@
 				compatible = "samsung,audio-sysfs";
 				status = "okay";
 				audio,no-earjack;
+				audio,num-amp = <2>;
 			};
 
 			sec-audio-debug {
@@ -880,7 +881,7 @@
 		cirrus,dsp-part-name = "cs35l40-bot";
 		cirrus,right-channel-amp;
 		cirrus,mfd-suffix = "_r";
-		cirrus,bd-suffix = "_right";
+		cirrus,bd-suffix = "_1";
 		cirrus,use-fsync-errata;
 		cirrus,bd-max-temp = <110>;
 
@@ -930,7 +931,7 @@
 
 		cirrus,dsp-part-name = "cs35l40-rcv";
 		cirrus,mfd-suffix = "";
-		cirrus,bd-suffix = "_left";
+		cirrus,bd-suffix = "_0";
 		cirrus,use-fsync-errata;
 		cirrus,bd-max-temp = <100>;
 

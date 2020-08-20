@@ -149,7 +149,7 @@ enum {
 /**
  * Default minimum number of scheduling ticks before jobs are hard-stopped
  */
-#define DEFAULT_JS_HARD_STOP_TICKS_SS    (10) /* 5s */
+#define DEFAULT_JS_HARD_STOP_TICKS_SS    (30) /* 5s(Default) -> 3s */
 #define DEFAULT_JS_HARD_STOP_TICKS_SS_8408  (300) /* 30s */
 
 /**
@@ -178,7 +178,7 @@ enum {
  * Default minimum number of scheduling ticks before the GPU is reset to clear a
  * "stuck" job
  */
-#define DEFAULT_JS_RESET_TICKS_SS           (15) /* 5.5s --> 1.5s */
+#define DEFAULT_JS_RESET_TICKS_SS           (35) /* 5.5s --> 1.5s */
 #define DEFAULT_JS_RESET_TICKS_SS_8408     (450) /* 45s */
 
 /**
@@ -197,7 +197,7 @@ enum {
  * Default number of milliseconds given for other jobs on the GPU to be
  * soft-stopped when the GPU needs to be reset.
  */
-#define DEFAULT_RESET_TIMEOUT_MS (1000) /* 3s */
+#define DEFAULT_RESET_TIMEOUT_MS (3000) /* 3s */
 
 /**
  * Default timeslice that a context is scheduled in for, in nanoseconds.

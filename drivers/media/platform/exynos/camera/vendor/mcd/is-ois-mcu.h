@@ -20,7 +20,8 @@
 #define IS_MCU_SDCARD_PATH	"/vendor/firmware/"
 #endif
 #define	GYRO_CAL_VALUE_FROM_EFS	"/efs/FactoryApp/camera_ois_gyro_cal"
-#define	MAX_EFS_DATA_LENGTH	30
+#define	MAX_GYRO_EFS_DATA_LENGTH	30
+#define	MAX_HALL_SHIFT_DATA_LENGTH	800
 #define	OIS_GYRO_SCALE_FACTOR_LSM6DSO	114
 #define	FW_DRIVER_IC			0
 #define	FW_GYRO_SENSOR			1
@@ -30,6 +31,7 @@
 #define	OIS_BIN_LEN				45056
 #define	MCU_AF_MODE_STANDBY			0x40
 #define	MCU_AF_MODE_ACTIVE			0x00
+#define	MCU_AF_INIT_POSITION		0x7F
 #define	MCU_ACT_POS_SIZE_BIT		ACTUATOR_POS_SIZE_9BIT
 #define	MCU_ACT_POS_MAX_SIZE		((1 <<MCU_ACT_POS_SIZE_BIT) - 1)
 #define	MCU_ACT_POS_DIRECTION		ACTUATOR_RANGE_INF_TO_MAC
@@ -37,6 +39,11 @@
 #define	MCU_ACT_DEFAULT_FIRST_DELAY		2000
 #define	MCU_SHARED_SRC_ON_COUNT		1
 #define	MCU_SHARED_SRC_OFF_COUNT		0
+#define	MCU_HALL_SHIFT_ADDR_X_M2	0x02AA
+#define 	MCU_HALL_SHIFT_ADDR_Y_M2	0x02AC
+#define 	MCU_HALL_SHIFT_VALUE_FROM_EFS	"/efs/FactoryApp/camera_tilt_calibration_info_3_1"
+#define	MCU_BYPASS_MODE_WRITE_ID	0x48
+#define	MCU_BYPASS_MODE_READ_ID	0x49
 
 enum is_ois_power_mode {
 	OIS_POWER_MODE_SINGLE_WIDE = 0,
@@ -83,6 +90,17 @@ struct ois_mcu_dev {
 
 	unsigned long		state;
 	atomic_t 		shared_rsc_count;
+	int			current_rsc_count;
+};
+
+enum is_efs_state {
+	IS_EFS_STATE_READ,
+};
+
+struct mcu_efs_info {
+	unsigned long	efs_state;
+	s16 ois_hall_shift_x;
+	s16 ois_hall_shift_y;
 };
 
 /*

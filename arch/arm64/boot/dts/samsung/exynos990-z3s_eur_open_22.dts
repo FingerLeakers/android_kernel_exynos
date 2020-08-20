@@ -28,7 +28,7 @@
 / {
 	compatible = "samsung,Z3S EUR OPEN 22", "samsung,EXYNOS990";
 	dtbo-hw_rev = <22>;
-	dtbo-hw_rev_end = <255>;
+	dtbo-hw_rev_end = <23>;
 	edtbo-rev = <0>;
 
 	fragment@model {

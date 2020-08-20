@@ -23,7 +23,7 @@ int is_votf_change_link(struct is_group *group);
 struct is_framemgr *is_votf_get_framemgr(struct is_group *group, enum votf_service type,
 	unsigned long id);
 struct is_frame *is_votf_get_frame(struct is_group *group, enum votf_service type,
-	unsigned long id);
+	unsigned long id, u32 fcount);
 int is_votf_register_framemgr(struct is_group *group, enum votf_service type,
 	void *data, votf_s_addr fn, unsigned long id);
 int is_votf_register_oneshot(struct is_group *group, enum votf_service type,

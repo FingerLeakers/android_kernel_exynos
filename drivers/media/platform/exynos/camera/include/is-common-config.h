@@ -23,6 +23,7 @@
 
 #define IS_MAX_PRIO	(MAX_RT_PRIO)
 #define NI_BACKUP_MAX		32
+#define INTENT_RETRY_CNT	1
 
 /*
  * =================================================================================================
@@ -162,6 +163,8 @@ extern int debug_sensor;
 
 #define GET_STR(str) #str
 
+#define GET_ZOOM_RATIO(in, out) (typeof(out))(((ulong)(in) << MCSC_PRECISION) / (out))
+#define GET_SCALED_SIZE(in, ratio) (typeof(ratio))(((ulong)(in) << MCSC_PRECISION) / (ratio))
 /* sync log with HAL, FW */
 #define log_sync(sync_id) info("IS_SYNC %d\n", sync_id)
 

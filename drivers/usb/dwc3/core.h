@@ -831,6 +831,11 @@ enum dwc3_link_state {
 	DWC3_LINK_STATE_MASK		= 0x0f,
 };
 
+enum {
+	RELEASE	= 0,
+	NOTIFY	= 1,
+};
+
 /* TRB Length, PCM and Status */
 #define DWC3_TRB_SIZE_MASK	(0x00ffffff)
 #define DWC3_TRB_SIZE_LENGTH(n)	((n) & DWC3_TRB_SIZE_MASK)
@@ -1305,7 +1310,15 @@ struct dwc3 {
 #if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) && defined(CONFIG_SEC_FACTORY)
 	struct delayed_work		usb_link_state_check_work;
 #endif
+	struct delayed_work usb_event_work;
+	ktime_t rst_time_before;
+	ktime_t rst_time_first;
+	int rst_err_cnt;
+	bool rst_err_noti;
+	bool event_state;
 };
+
+#define ERR_RESET_CNT	3
 #define USB_BUS_CLOCK_DELAY_MS 3000
 #define INCRX_BURST_MODE 0
 #define INCRX_UNDEF_LENGTH_BURST_MODE 1

@@ -32,7 +32,14 @@
 
 #include <asm/cacheflush.h>
 
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+#include <soc/samsung/exynos-s2mpu.h>
+#endif
 static int swiotlb __ro_after_init;
+
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+static spinlock_t s2mpu_lock;
+#endif
 
 static pgprot_t __get_dma_pgprot(unsigned long attrs, pgprot_t prot,
 				 bool coherent)
@@ -387,6 +394,114 @@ extern int pcie_iommu_map(int ch_num, unsigned long iova, phys_addr_t paddr,
 extern size_t pcie_iommu_unmap(int ch_num, unsigned long iova, size_t size);
 dma_addr_t dma_pool_start;
 #endif
+
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+static uint32_t refer_table[131200] = {0};//0~32800, 32801~131200
+
+uint64_t exynos_pcie_set_dev_stage2_ap(const char *s2mpu_name, uint32_t vid, uint64_t base,
+		uint64_t size, enum stage2_ap ap)
+{
+	int i;
+	uint64_t start_idx, num;
+	uint64_t ret = 0;
+	unsigned long flags;
+
+	/* Make sure start address align least 64KB */
+	if ((base & (SZ_64K - 1)) != 0) {
+		size += base & (SZ_64K - 1);
+		base &= ~(SZ_64K - 1);
+	}
+
+	/* Make sure size align least 64KB */
+	size = (size + SZ_64K - 1) & ~(SZ_64K - 1);
+
+	if (base < 0x100000000 && base >= 0x80000000) {
+		start_idx = (base - 0x80000000) / SZ_64K;
+		/* maybe, need to add condition (base + size >= 0x100000000) */
+	} else if (base < 0xa00000000 && base >= 0x880000000) {
+		start_idx = ((base - 0x880000000) / SZ_64K) + 32800;
+	} else {
+		pr_err("NO Normal Zone!(WiFi code)\n");
+		return 1;
+	}
+
+	/* num  */
+	num = size / SZ_64K;
+
+	spin_lock_irqsave(&s2mpu_lock, flags);
+
+	/* table set */
+	for (i = 0; i < num; i++) {
+		(refer_table[start_idx + i])++;
+
+		if (refer_table[start_idx + i] == 1) {
+			ret = exynos_set_dev_stage2_pcie_ap(s2mpu_name, vid, base + (i * SZ_64K), SZ_64K, ATTR_RW);
+			if (ret != 0) {
+				printk("[pcie_set] set_ap error return: %llu\n", ret);
+				goto map_finish;
+			}
+			/* Need to fix "goto map_finish" like "goto retry" for the other loop*/
+		}
+	}
+
+map_finish:
+	spin_unlock_irqrestore(&s2mpu_lock, flags);
+	return ret;
+}
+
+uint64_t exynos_pcie_unset_dev_stage2_ap(const char *s2mpu_name, uint32_t vid, uint64_t base,
+		uint64_t size, enum stage2_ap ap)
+{
+	int i;
+	uint64_t start_idx, num;
+	uint64_t ret = 0;
+	unsigned long flags;
+
+	/* Make sure start address align least 64KB */
+	if ((base & (SZ_64K - 1)) != 0) {
+		size += base & (SZ_64K - 1);
+		base &= ~(SZ_64K - 1);
+	}
+
+	/* Make sure size align least 64KB */
+	size = (size + SZ_64K - 1) & ~(SZ_64K - 1);
+
+	if (base < 0x100000000 && base >= 0x80000000) {
+		start_idx = (base - 0x80000000) / SZ_64K;
+		/* maybe, need to add condition (base + size >= 0x100000000) */
+	} else if (base < 0xa00000000 && base >= 0x880000000) {
+		start_idx = ((base - 0x880000000) / SZ_64K) + 32800;
+	} else {
+		pr_err("NO Normal Zone!(WiFi code)\n");
+		return 1;
+	}
+
+	num = size / SZ_64K;
+
+	spin_lock_irqsave(&s2mpu_lock, flags);
+
+	/* reference counter--  */
+	for (i = 0; i < num; i++) {
+		(refer_table[start_idx + i])--;
+
+		if (refer_table[start_idx + i] < 1) {
+			refer_table[start_idx + i] = 0;
+
+			ret = exynos_set_dev_stage2_pcie_ap(s2mpu_name, vid, base + (i * SZ_64K), SZ_64K, ATTR_NO_ACCESS);
+			if (ret != 0) {
+				printk("[pcie_unset] set_ap error return: %llu\n", ret);
+				goto unmap_finish;
+			}
+			/* Need to fix "goto map_finish" like "goto retry" for the other loop*/
+		}
+	}
+
+unmap_finish:
+	spin_unlock_irqrestore(&s2mpu_lock, flags);
+	return ret;
+}
+#endif
+
 static void *__exynos_pcie_dma_alloc(struct device *dev, size_t size,
 		dma_addr_t *dma_handle, gfp_t flags,
 		unsigned long attrs)
@@ -394,11 +509,11 @@ static void *__exynos_pcie_dma_alloc(struct device *dev, size_t size,
 	void *coherent_ptr;
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
 	int ch_num = 0;
-#ifdef CONFIG_EXYNOS_PCIE_IOMMU
+#if defined(CONFIG_EXYNOS_PCIE_IOMMU) || defined(CONFIG_EXYNOS_PCIE_S2MPU)
 	int ret;
 #endif
 
-	dev_info(dev, "[%s] size: 0x%x\n", __func__, (unsigned int)size);
+	//dev_info(dev, "[%s] size: 0x%x\n", __func__, (unsigned int)size);
 	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
 		return NULL;
@@ -418,6 +533,17 @@ static void *__exynos_pcie_dma_alloc(struct device *dev, size_t size,
 		}
 	}
 #endif
+
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	if (coherent_ptr != NULL) {
+		ret = exynos_pcie_set_dev_stage2_ap("hsi1", 1, *dma_handle, size, ATTR_RW);
+		if (ret) {
+			pr_err("[harx] ATTR_RW setting fail\n");
+			__dma_free(dev, size, coherent_ptr, *dma_handle, attrs);
+			return NULL;
+		}
+	}
+#endif
 	return coherent_ptr;
 
 }
@@ -433,6 +559,9 @@ static void __exynos_pcie_dma_free(struct device *dev, size_t size,
 	int ch_num = 0;
 #endif
 
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	int ret;
+#endif
 	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
 		return;
@@ -445,6 +574,13 @@ static void __exynos_pcie_dma_free(struct device *dev, size_t size,
 	__dma_free(dev, size, vaddr, dma_handle, attrs);
 #ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	pcie_iommu_unmap(ch_num, dma_handle, size);
+#endif
+
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	ret = exynos_pcie_unset_dev_stage2_ap("hsi1", 1, dma_handle, size, ATTR_NO_ACCESS);
+	if (ret) {
+		pr_err("[harx] ATTR_NO_ACCESS setting fail\n");
+	}
 #endif
 }
 
@@ -460,11 +596,11 @@ static dma_addr_t __exynos_pcie_swiotlb_map_page(struct device *dev,
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
 #endif
-#ifdef CONFIG_EXYNOS_PCIE_IOMMU
+#if defined(CONFIG_EXYNOS_PCIE_IOMMU) || defined(CONFIG_EXYNOS_PCIE_S2MPU)
 	int ret;
 #endif
 
-	dev_info(dev, "[%s] size: 0x%x\n", __func__,(unsigned int)size);
+	//dev_info(dev, "[%s] size: 0x%x\n", __func__,(unsigned int)size);
 	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
 		return -EINVAL;
@@ -484,6 +620,12 @@ static dma_addr_t __exynos_pcie_swiotlb_map_page(struct device *dev,
 	}
 #endif
 
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	ret = exynos_pcie_set_dev_stage2_ap("hsi1", 1, dev_addr, size, ATTR_RW);
+	if (ret) {
+		pr_err("[harx] ATTR_RW setting fail\n");
+	}
+#endif
 	return dev_addr;
 }
 
@@ -498,7 +640,9 @@ static void __exynos_pcie_swiotlb_unmap_page(struct device *dev,
 #ifdef CONFIG_PCI_DOMAINS_GENERIC
 	struct pci_dev *epdev = to_pci_dev_from_dev(dev);
 #endif
-
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	int ret;
+#endif
 	if (dev == NULL) {
 		pr_err("EP device is NULL!!!\n");
 		return;
@@ -510,6 +654,12 @@ static void __exynos_pcie_swiotlb_unmap_page(struct device *dev,
 	__swiotlb_unmap_page(dev, dev_addr, size, dir, attrs);
 #ifdef CONFIG_EXYNOS_PCIE_IOMMU
 	pcie_iommu_unmap(ch_num, dev_addr, size);
+#endif
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	ret = exynos_pcie_unset_dev_stage2_ap("hsi1", 1, dev_addr, size, ATTR_NO_ACCESS);
+	if (ret) {
+		pr_err("[harx] ATTR_NO_ACCESS setting fail\n");
+	}
 #endif
 	return;
 }
@@ -700,6 +850,9 @@ EXPORT_SYMBOL(dummy_dma_ops);
 
 static int __init arm64_dma_init(void)
 {
+#ifdef CONFIG_EXYNOS_PCIE_S2MPU
+	spin_lock_init(&s2mpu_lock);
+#endif
 	if (swiotlb_force == SWIOTLB_FORCE ||
 	    max_pfn > (arm64_dma_phys_limit >> PAGE_SHIFT))
 		swiotlb = 1;

@@ -14,6 +14,7 @@
 #include <linux/of_platform.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
+#include <linux/pinctrl/consumer.h>
 
 #include <sound/pcm_params.h>
 #include <sound/samsung/abox.h>
@@ -25,6 +26,61 @@
 
 /* Predefined rate of MUX_CLK_AUD_UAIF for slave mode */
 #define RATE_MUX_SLAVE 100000000
+
+enum abox_if_quirk {
+	ABOX_IF_QUIRK_DELAYED_STOP,
+	ABOX_IF_QUIRK_COUNT,
+};
+
+static const char * const abox_if_quirk_str[ABOX_IF_QUIRK_COUNT] = {
+	"delayed stop",
+};
+
+static unsigned long abox_if_probe_quirks(struct device_node *np)
+{
+	int i, res;
+	unsigned long ret = 0;
+
+	for (i = 0; i < ABOX_IF_QUIRK_COUNT; i++) {
+		res = of_property_match_string(np, "samsung,quirks",
+				abox_if_quirk_str[i]);
+		if (res >= 0)
+			ret |= BIT(i);
+	}
+
+	return ret;
+}
+
+static bool abox_if_test_quirk(unsigned long quirks, enum abox_if_quirk quirk)
+{
+	return !!(quirks & BIT(quirk));
+}
+
+static int abox_if_disable_qchannel(struct abox_if_data *data, int disable)
+{
+	struct device *dev = data->cmpnt->dev;
+	struct abox_data *abox_data = data->abox_data;
+	int id = data->id;
+	enum qchannel clk;
+
+	dev_info(dev, "%s(%d)\n", __func__, disable);
+
+	clk = ABOX_BCLK_UAIF0 + id;
+	if (clk < ABOX_BCLK_UAIF0 || clk >= ABOX_BCLK_DSIF)
+		return -EINVAL;
+
+	return abox_disable_qchannel(dev, abox_data, clk, disable);
+}
+
+static int abox_if_set_tristate(struct snd_soc_dai *dai, int tristate)
+{
+	struct device *dev = dai->dev;
+	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
+
+	dev_dbg(dev, "%s(%d)\n", __func__, tristate);
+
+	return abox_if_disable_qchannel(data, !tristate);
+}
 
 static int abox_if_startup(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
@@ -81,6 +137,15 @@ static int abox_if_hw_free(struct snd_pcm_substream *substream,
 			'C' : 'P');
 
 	abox_register_bclk_usage(dev, abox_data, dai->id, 0, 0, 0);
+
+	if (abox_if_test_quirk(data->quirks, ABOX_IF_QUIRK_DELAYED_STOP)) {
+		unsigned long time;
+
+		/* time of 1 frame in us */
+		time = DIV_ROUND_UP(USEC_PER_SEC, data->config[ABOX_IF_RATE]);
+		udelay(time);
+		dev_info(dev, "delayed stop: %dus\n", time);
+	}
 
 	return 0;
 }
@@ -302,23 +367,6 @@ static int abox_uaif_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return ret;
 }
 
-static int abox_uaif_set_tristate(struct snd_soc_dai *dai, int tristate)
-{
-	struct device *dev = dai->dev;
-	struct abox_if_data *data = snd_soc_dai_get_drvdata(dai);
-	struct abox_data *abox_data = data->abox_data;
-	int id = data->id;
-	enum qchannel clk;
-
-	dev_dbg(dev, "%s(%d)\n", __func__, tristate);
-
-	clk = ABOX_BCLK_UAIF0 + id;
-	if (clk < ABOX_BCLK_UAIF0 || clk >= ABOX_BCLK_DSIF)
-		return -EINVAL;
-
-	return abox_disable_qchannel(dev, abox_data, clk, !tristate);
-}
-
 static int abox_uaif_startup(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
@@ -494,6 +542,7 @@ static const struct snd_soc_dai_ops abox_dsif_dai_ops = {
 	.set_bclk_ratio	= abox_dsif_set_bclk_ratio,
 	.set_fmt	= abox_dsif_set_fmt,
 	.set_channel_map	= abox_dsif_set_channel_map,
+	.set_tristate	= abox_if_set_tristate,
 	.startup	= abox_if_startup,
 	.shutdown	= abox_if_shutdown,
 	.hw_params	= abox_dsif_hw_params,
@@ -516,7 +565,7 @@ static struct snd_soc_dai_driver abox_dsif_dai_drv = {
 
 static const struct snd_soc_dai_ops abox_uaif_dai_ops = {
 	.set_fmt	= abox_uaif_set_fmt,
-	.set_tristate	= abox_uaif_set_tristate,
+	.set_tristate	= abox_if_set_tristate,
 	.startup	= abox_uaif_startup,
 	.shutdown	= abox_uaif_shutdown,
 	.hw_params	= abox_uaif_hw_params,
@@ -580,7 +629,40 @@ static int abox_if_config_put(struct snd_kcontrol *kcontrol,
 
 	dev_info(dev, "%s(0x%08x, %u)\n", __func__, reg, val);
 
+	if (val < mc->min || val > mc->max)
+		return -EINVAL;
+
 	data->config[reg] = val;
+
+	return 0;
+}
+
+static int abox_if_extend_bclk_get(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct abox_if_data *data = snd_soc_component_get_drvdata(cmpnt);
+	bool val = data->extend_bclk;
+
+	dev_dbg(dev, "%s: %d\n", __func__, val);
+
+	ucontrol->value.integer.value[0] = val;
+
+	return 0;
+}
+
+static int abox_if_extend_bclk_put(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct device *dev = cmpnt->dev;
+	struct abox_if_data *data = snd_soc_component_get_drvdata(cmpnt);
+	bool val = !!ucontrol->value.integer.value[0];
+
+	dev_info(dev, "%s(%d)\n", __func__, val);
+
+	data->extend_bclk = val;
 
 	return 0;
 }
@@ -612,12 +694,59 @@ static const struct snd_kcontrol_new abox_if_controls[] = {
 			abox_if_config_get, abox_if_config_put),
 	SOC_SINGLE_EXT("Rate", ABOX_IF_RATE, 0, 384000, 0,
 			abox_if_config_get, abox_if_config_put),
+	SOC_SINGLE_EXT("Extend BCLK", 0, 0, 1, 0,
+			abox_if_extend_bclk_get, abox_if_extend_bclk_put),
+};
+
+static int abox_if_bclk_event(struct snd_soc_dapm_widget *w,
+		struct snd_kcontrol *k, int e)
+{
+	struct snd_soc_dapm_context *dapm = w->dapm;
+	struct device *dev = dapm->dev;
+	struct abox_if_data *data = dev_get_drvdata(dev);
+	int disable = SND_SOC_DAPM_EVENT_ON(e);
+
+	dev_dbg(dev, "%s(%d)\n", __func__, e);
+
+	return abox_if_disable_qchannel(data, disable);
+}
+
+static int abox_if_bclk_connected(struct snd_soc_dapm_widget *source,
+		struct snd_soc_dapm_widget *sink)
+{
+	struct snd_soc_dapm_context *dapm = source->dapm;
+	struct abox_if_data *data = dev_get_drvdata(dapm->dev);
+
+	return data->extend_bclk;
+}
+
+static const struct snd_soc_dapm_widget abox_if_pinctrl_widgets[] = {
+	SND_SOC_DAPM_PINCTRL("PINCTRL", "active", "idle"),
+};
+
+static const struct snd_soc_dapm_route abox_if_pinctrl_routes[] = {
+	/* sink, control, source */
+	{"Playback", NULL, "PINCTRL"},
+	{"Capture", NULL, "PINCTRL"},
+};
+
+static const struct snd_soc_dapm_widget abox_if_widgets[] = {
+	SND_SOC_DAPM_SUPPLY("BCLK", SND_SOC_NOPM, 0, 0, abox_if_bclk_event,
+			SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+};
+
+static const struct snd_soc_dapm_route abox_if_routes[] = {
+	/* sink, control, source */
+	{"Playback", NULL, "BCLK", abox_if_bclk_connected},
+	{"Capture", NULL, "BCLK", abox_if_bclk_connected},
 };
 
 static int abox_if_cmpnt_probe(struct snd_soc_component *cmpnt)
 {
 	struct device *dev = cmpnt->dev;
 	struct abox_if_data *data = snd_soc_component_get_drvdata(cmpnt);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_get_dapm(cmpnt);
+	struct pinctrl *p;
 
 	dev_dbg(dev, "%s\n", __func__);
 
@@ -641,6 +770,18 @@ static int abox_if_cmpnt_probe(struct snd_soc_component *cmpnt)
 	default:
 		dev_err(dev, "invalid dai id: %d\n", data->dai_drv->id);
 		break;
+	}
+
+	p = pinctrl_get(dev);
+	if (!IS_ERR(p)) {
+		/* ALSA returns error if pinctrl widget is registered on
+		 * the device without pinctrl attribute.
+		 */
+		snd_soc_dapm_new_controls(dapm, abox_if_pinctrl_widgets,
+				ARRAY_SIZE(abox_if_pinctrl_widgets));
+		snd_soc_dapm_add_routes(dapm, abox_if_pinctrl_routes,
+				ARRAY_SIZE(abox_if_pinctrl_routes));
+		pinctrl_put(p);
 	}
 
 	return 0;
@@ -691,6 +832,10 @@ static int abox_if_write(struct snd_soc_component *cmpnt,
 static const struct snd_soc_component_driver abox_if_cmpnt = {
 	.controls	= abox_if_controls,
 	.num_controls	= ARRAY_SIZE(abox_if_controls),
+	.dapm_widgets	= abox_if_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(abox_if_widgets),
+	.dapm_routes	= abox_if_routes,
+	.num_dapm_routes = ARRAY_SIZE(abox_if_routes),
 	.probe		= abox_if_cmpnt_probe,
 	.remove		= abox_if_cmpnt_remove,
 	.read		= abox_if_read,
@@ -815,6 +960,8 @@ static int samsung_abox_if_probe(struct platform_device *pdev)
 	data->clk_bclk_gate = devm_clk_get_and_prepare(pdev, "bclk_gate");
 	if (IS_ERR(data->clk_bclk_gate))
 		return PTR_ERR(data->clk_bclk_gate);
+
+	data->quirks = abox_if_probe_quirks(np);
 
 	data->of_data = of_device_get_match_data(dev);
 	data->abox_data = dev_get_drvdata(dev_abox);

@@ -98,10 +98,6 @@
 
 /* kind of interrupt */
 #define mfc_get_int_err()		MFC_READL(MFC_REG_ERROR_CODE)
-#define mfc_get_err(x)		(((x) >> MFC_REG_ERR_STATUS_SHIFT)		\
-						& MFC_REG_ERR_STATUS_MASK)
-#define mfc_get_warn(x)		(((x) >> MFC_REG_WARN_STATUS_SHIFT)		\
-						& MFC_REG_WARN_STATUS_MASK)
 
 
 /* additional information */
@@ -261,6 +257,25 @@ static inline void mfc_clear_roi_enable(struct mfc_dev *dev)
 	reg = MFC_READL(MFC_REG_E_RC_ROI_CTRL);
 	reg &= ~(0x1);
 	MFC_WRITEL(reg, MFC_REG_E_RC_ROI_CTRL);
+}
+
+static inline void mfc_set_enc_src_sbwc(struct mfc_dev *dev, int onoff)
+{
+	unsigned int reg = 0;
+
+	reg = MFC_READL(MFC_REG_E_PARAM_CHANGE);
+	reg &= ~(0xf << 14);
+	reg |= (onoff << 14);
+	MFC_WRITEL(reg, MFC_REG_E_PARAM_CHANGE);
+}
+
+static inline void mfc_clear_enc_src_sbwc(struct mfc_dev *dev)
+{
+	unsigned int reg = 0;
+
+	reg = MFC_READL(MFC_REG_E_PARAM_CHANGE);
+	reg &= ~(0xf << 14);
+	MFC_WRITEL(reg, MFC_REG_E_PARAM_CHANGE);
 }
 
 void mfc_dbg_enable(struct mfc_dev *dev);

@@ -84,7 +84,6 @@ enum __ltssm_states {
 	S_LPBK_EXIT_TIMEOUT             = 0x1D,
 	S_HOT_RESET_ENTRY               = 0x1E,
 	S_HOT_RESET                             = 0x1F,
-	GEN3_LINKUP                     = 0x91,
 };
 
 #define LINK_STATE_DISP(state)  \
@@ -120,7 +119,6 @@ enum __ltssm_states {
         (state == S_LPBK_EXIT_TIMEOUT)  ? "LPBK EXIT TIMEOUT" : \
         (state == S_HOT_RESET_ENTRY)    ? "HOT RESET ENTRY" : \
         (state == S_HOT_RESET)          ? "HOT RESET" : \
-        (state == GEN3_LINKUP)                 ? "GEN3_L0" : \
         " Unknown state..!! "
 
 #define CAP_ID_NAME(id)	\
@@ -193,6 +191,7 @@ struct exynos_pcie_ops {
 
 struct exynos_pcie {
 	struct dw_pcie		*pci;
+	struct pci_bus		*ep_pci_bus;
 	void __iomem		*elbi_base;
 	void __iomem		*phy_base;
 	void __iomem		*sysreg_base;
@@ -220,6 +219,8 @@ struct exynos_pcie {
 	bool			use_sysmmu;
 	bool			use_ia;
 	bool			use_nclkoff_en;
+	bool			cpl_timeout_recovery;
+	bool			pcie_irq_enabled;
 	spinlock_t		conf_lock;
 	spinlock_t              reg_lock;
 	spinlock_t              pcie_l1_exit_lock;
@@ -232,6 +233,7 @@ struct exynos_pcie {
 	struct delayed_work	dislink_work;
 	struct delayed_work	cpl_timeout_work;
 	struct exynos_pcie_register_event *event_reg;
+	struct exynos_pcie_register_event *rc_event_reg[2];
 #ifdef CONFIG_PM_DEVFREQ
 	unsigned int            int_min_lock;
 #endif

@@ -112,6 +112,7 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 #endif
 	struct v4l2_subdev *subdev_ois = NULL;
 	struct v4l2_subdev *subdev_eeprom = NULL;
+	struct v4l2_subdev *subdev_laser_af = NULL;
 	struct is_device_sensor *device = NULL;
 #ifdef USE_CAMERA_HW_BIG_DATA
 	struct cam_hw_param *hw_param = NULL;
@@ -192,6 +193,15 @@ int sensor_module_init(struct v4l2_subdev *subdev, u32 val)
 		if (ret) {
 			err("[%s] sensor eeprom read fail\n", __func__);
 			ret = 0;
+		}
+	}
+
+	subdev_laser_af = sensor_peri->subdev_laser_af;
+	if (subdev_laser_af != NULL) {
+		ret = v4l2_subdev_call(subdev_laser_af, core, init, 0);
+		if (ret) {
+			err("v4l2_subdev_call(init) is fail(%d)", ret);
+			goto p_err;
 		}
 	}
 
@@ -303,7 +313,8 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 		flush_work(&sensor_peri->mcu->aperture->aperture_set_work);
 
 #ifdef CONFIG_CAMERA_USE_APERTURE
-		if (core->vender.closing_hint != IS_CLOSING_HINT_SWITCHING) {
+		if (core->vender.closing_hint != IS_CLOSING_HINT_REOPEN 
+			&& core->vender.closing_hint != IS_CLOSING_HINT_SWITCHING) {
 			if (sensor_peri->mcu->aperture->cur_value != APERTURE_CLOSE_VALUE
 				&& sensor_peri->mcu->aperture->step == APERTURE_STEP_STATIONARY) {
 				ret = CALL_APERTUREOPS(sensor_peri->mcu->aperture, aperture_deinit,
@@ -636,6 +647,15 @@ int sensor_module_g_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			goto p_err;
 		}
 		break;
+	case V4L2_CID_SENSOR_GET_SSM_FLICKER:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_get_super_slow_motion_flicker,
+				sensor_peri->subdev_cis, &ctrl->value);
+		if (ret < 0) {
+			err("err!!! ret(%d)", ret);
+			ret = -EINVAL;
+			goto p_err;
+		}
+		break;
 	case V4L2_CID_SENSOR_GET_MODEL_ID:
 		ret = CALL_CISOPS(&sensor_peri->cis, cis_check_model_id,
 			sensor_peri->subdev_cis);
@@ -839,6 +859,7 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 			goto p_err;
 		}
 		break;
+#if 0 // TO DO
 	case V4L2_CID_SENSOR_SET_LASER_CONTORL:
 		if (sensor_peri->laser_af) {
 			if (ctrl->value)
@@ -853,6 +874,14 @@ int sensor_module_s_ctrl(struct v4l2_subdev *subdev, struct v4l2_control *ctrl)
 				err("failed to laser control: %d\n", ctrl->value);
 				goto p_err;
 			}
+		}
+		break;
+#endif
+	case V4L2_CID_SENSOR_SET_LASER_MODE:
+		ret = CALL_CISOPS(&sensor_peri->cis, cis_set_laser_mode, sensor_peri->subdev_cis, ctrl->value);
+		if (ret < 0) {
+			err("failed to laser control: %d\n", ctrl->value);
+			goto p_err;
 		}
 		break;
 	case V4L2_CID_SENSOR_SET_SHUTTER:
@@ -931,6 +960,23 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 		ext_ctrl = (ctrls->controls + i);
 
 		switch (ext_ctrl->id) {
+		case V4L2_CID_SENSOR_SET_MODE_CHANGE:
+		{
+			struct seamless_mode_change_info mode_change;
+			ret = copy_from_user(&mode_change, ext_ctrl->ptr, sizeof(struct seamless_mode_change_info));
+			if (ret) {
+				err("copy_from_user of seamless_mode_change_info is fail(%d)", ret);
+				goto p_err;
+			}
+
+			ret = is_sensor_peri_s_mode_change(device, &mode_change);
+			if (ret < 0) {
+				err("failed to set mode change : %d\n - %d",
+						device->ex_mode, ret);
+				goto p_err;
+			}
+			break;
+		}
 		case V4L2_CID_SENSOR_SET_SSM_ROI:
 			ret = copy_from_user(&ssm_roi, ext_ctrl->ptr, sizeof(struct v4l2_rect));
 			if (ret) {
@@ -942,6 +988,21 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 				sensor_peri->subdev_cis, &ssm_roi);
 			if (ret < 0) {
 				err("failed to set super slow motion roi, ret(%d)\n", ret);
+				goto p_err;
+			}
+			break;
+
+		case V4L2_CID_SENSOR_SET_SSM_DEBUG_CONTROL:
+			ret = copy_from_user(&ssm_roi, ext_ctrl->ptr, sizeof(struct v4l2_rect));
+			if (ret) {
+				err("fail to copy_from_user, ret(%d)\n", ret);
+				goto p_err;
+			}
+
+			ret = CALL_CISOPS(&sensor_peri->cis, cis_set_super_slow_motion_setting,
+				sensor_peri->subdev_cis, &ssm_roi);
+			if (ret < 0) {
+				err("failed to set super slow motion setting, ret(%d)\n", ret);
 				goto p_err;
 			}
 			break;
@@ -1008,11 +1069,11 @@ int sensor_module_s_ext_ctrls(struct v4l2_subdev *subdev, struct v4l2_ext_contro
 		}
 		case V4L2_CID_SENSOR_SET_TOF_INFO:
 		{
-		    struct is_vender *vender;
-		    vender = &core->vender;
-		    is_vendor_store_tof_info(vender, (struct tof_info_t *)ext_ctrl->ptr);
+			struct is_vender *vender;
+			vender = &core->vender;
+			is_vendor_store_tof_info(vender, (struct tof_info_t *)ext_ctrl->ptr);
 
-		    break;
+			break;
 		}
 		default:
 			ctrl.id = ext_ctrl->id;

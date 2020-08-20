@@ -30,7 +30,7 @@
 		ip_ver = <0x14000100>;
 
 		/* Debug mode */
-		debug_mode = <1>;
+		debug_mode = <0>;
 
 		/* Sysmmu check */
 		share_sysmmu = <0>;
@@ -62,6 +62,8 @@
 		wait_nalq_status = <1 0x191107>;
 		/* DRM switch predict for cache flush */
 		drm_switch_predict = <1 0x0>;
+		/* Support SBWC per-frame control for encoder src */
+		sbwc_enc_src_ctrl = <1 0x200110>;
 
 		/* Default 10bit format for decoding (1: P010, 0: 8+2) */
 		P010_decoding = <1>;

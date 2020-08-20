@@ -35,6 +35,18 @@
 			377000    78   90   1  1352000        0       0       0
 			260000    78   93   1  1352000        0       0       0
 			156000     0   93   1  845000         0       0       0 >;
+		/* gpu-cl-pmqos-table-size */
+		gpu_cl_pmqos_table_size = <8 5>; /*<row col>*/
+		/*  g3d-freq  mif-min  mif-max  lit-min lit-max  mid-min  mid-max  big-min  big-max  */
+		gpu_cl_pmqos_table = <
+			832000    2028000  1300000 1404000 1690000
+			800000    2028000  1300000       0 1690000
+			702000    1539000  1300000       0       0
+			572000    1539000  1300000       0       0
+			455000    1352000  1300000       0       0
+			377000    1014000        0       0       0
+			260000     676000        0       0       0
+			156000     546000        0       0       0 >;
 		gpu_sustainable_info = <455000 85 0 0 0>;
 		gpu_pmqos_cpu_cluster_num = <3>;
 		gpu_pmu_status_reg_offset = <0x2204>;
@@ -56,13 +68,18 @@
 		gpu_dynamic_abb = <0>;
 		gpu_early_clk_gating = <0>;
 		gpu_dvs = <0>;
-		gpu_inter_frame_pm = <0>;
+		gpu_inter_frame_pm = <1>;
+		gpu_inter_frame_dynamic_util = <50>;
+		gpu_inter_frame_dynamic_freq = <702000>;
 		gpu_perf_gathering = <0>;
 		gpu_runtime_pm_delay_time = <50>;
 		gpu_dvfs_polling_time = <30>;
 		gpu_pmqos_int_disable = <1>;
 		gpu_pmqos_mif_max_clock = <2730000>;
 		gpu_pmqos_mif_max_clock_base = <650000>;
+		gpu_pmqos_g3d_clock = <800000 702000>;
+		gpu_pmqos_cl2_max_clock = <1378000 1690000>;
+		gpu_pmqos_cl1_max_clock = <1690000 0>;
 		gpu_cl_dvfs_start_base = <377000>;
 		gpu_debug_level = <3>; /*DEBUG(1) INFO(2) WARNING(3) ERROR(4)*/
 		gpu_trace_level = <8>; /*TRACE_ALL*/

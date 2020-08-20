@@ -93,11 +93,18 @@ struct tof_data_t {
 	u32 width;
 	u32 height;
 	u16 data[TOF_AF_SIZE];
+	int AIFCaptureNum;
 };
 
 struct tof_info_t {
 	u16 TOFExposure;
 	u16 TOFFps;
+};
+
+struct capture_intent_info_t {
+	u16 captureIntent;
+	u16 captureCount;
+	s16 captureEV;
 };
 
 #define TOF_CAL_SIZE_MAX 10
@@ -158,14 +165,15 @@ int is_vender_fw_sel(struct is_vender *vender);
 int is_vender_setfile_sel(struct is_vender *vender, char *setfile_name, int position);
 int is_vender_preprocessor_gpio_on_sel(struct is_vender *vender, u32 scenario, u32 *gpio_scenario);
 int is_vender_preprocessor_gpio_on(struct is_vender *vender, u32 scenario, u32 gpio_scenario);
-int is_vender_sensor_gpio_on_sel(struct is_vender *vender, u32 scenario, u32 *gpio_scenario);
+int is_vender_sensor_gpio_on_sel(struct is_vender *vender, u32 scenario, u32 *gpio_scenario, void *module_data);
 int is_vender_sensor_gpio_on(struct is_vender *vender, u32 scenario, u32 gpio_scenario);
 int is_vender_preprocessor_gpio_off_sel(struct is_vender *vender, u32 scenario, u32 *gpio_scenario,
 	void *module_data);
 int is_vender_preprocessor_gpio_off(struct is_vender *vender, u32 scenario, u32 gpio_scenario);
 int is_vender_sensor_gpio_off_sel(struct is_vender *vender, u32 scenario, u32 *gpio_scenario,
 	void *module_data);
-int is_vender_sensor_gpio_off(struct is_vender *vender, u32 scenario, u32 gpio_scenario);
+int is_vender_sensor_gpio_off(struct is_vender *vender, u32 scenario, u32 gpio_scenario, void *module_data);
+void is_vendor_sensor_suspend(void);
 #ifdef CONFIG_SENSOR_RETENTION_USE
 void is_vender_check_retention(struct is_vender *vender, void *module_data);
 #endif
@@ -198,4 +206,6 @@ bool is_vendor_check_camera_running(int position);
 void is_vender_store_af(struct is_vender *vender, struct tof_data_t *data);
 #endif
 void is_vendor_store_tof_info(struct is_vender *vender, struct tof_info_t *info);
+int is_vendor_shaking_gpio_on(struct is_vender *vender);
+int is_vendor_shaking_gpio_off(struct is_vender *vender);
 #endif

@@ -29,18 +29,21 @@
 #define	DVFS_SKIP		2 /* matched, but do not anything. skip changing dvfs */
 
 #define KEEP_FRAME_TICK_DEFAULT (5)
+#define KEEP_FRAME_TICK_FASTAE	(120)
 #define IS_DVFS_DUAL_TICK (4)
 #define IS_DVFS_SKIP_DYNAMIC (1)
 #define DVFS_SN_STR(__SCENARIO) #__SCENARIO
 #define GET_DVFS_CHK_FUNC(__SCENARIO) check_ ## __SCENARIO
 #define DECLARE_DVFS_CHK_FUNC(__SCENARIO) \
 	int check_ ## __SCENARIO \
-		(struct is_device_ischain *device, struct is_group *group, int position, int resol, \
-			int fps, int stream_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...)
+		(struct is_device_ischain *device, struct camera2_shot *shot, int position, int resol, \
+			int fps, int stream_cnt, int streaming_cnt, unsigned long sensor_map, \
+			struct is_dual_info *dual_info, ...)
 #define DECLARE_EXT_DVFS_CHK_FUNC(__SCENARIO) \
 	int check_ ## __SCENARIO \
 		(struct is_device_sensor *device, int position, int resol, int fps, \
-			int stream_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...)
+			int stream_cnt, int streaming_cnt, unsigned long sensor_map, \
+			struct is_dual_info *dual_info, ...)
 #define GET_KEY_FOR_DVFS_TBL_IDX(__HAL_VER) \
 	(#__HAL_VER "_TBL_IDX")
 
@@ -80,16 +83,17 @@ struct is_dvfs_scenario {
 	int keep_frame_tick;	/* keep qos lock during specific frames when dynamic scenario */
 
 	/* function pointer to check a scenario */
-	int (*check_func)(struct is_device_ischain *device, struct is_group *group, int position, int resol,
-			int fps, int stream_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...);
+	int (*check_func)(struct is_device_ischain *device, struct camera2_shot *shot, int position, int resol,
+			int fps, int stream_cnt, int streaming_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...);
 	int (*ext_check_func)(struct is_device_sensor *device, int position, int resol,
-			int fps, int stream_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...);
+			int fps, int stream_cnt, int streaming_cnt, unsigned long sensor_map, struct is_dual_info *dual_info, ...);
 };
 
 struct is_dvfs_scenario_ctrl {
 	int cur_scenario_id;	/* selected scenario idx */
 	int cur_frame_tick;	/* remained frame tick to keep qos lock in dynamic scenario */
 	int scenario_cnt;	/* total scenario count */
+	int fixed_scenario_cnt;	/* always scenario count */
 	int cur_scenario_idx;	/* selected scenario idx for scenarios */
 	struct is_dvfs_scenario *scenarios;
 };
@@ -97,7 +101,8 @@ struct is_dvfs_scenario_ctrl {
 int is_dvfs_init(struct is_resourcemgr *resourcemgr);
 int is_dvfs_sel_table(struct is_resourcemgr *resourcemgr);
 int is_dvfs_sel_static(struct is_device_ischain *device);
-int is_dvfs_sel_dynamic(struct is_device_ischain *device, struct is_group *group);
+int is_dvfs_sel_dynamic(struct is_device_ischain *device, struct is_group *group,
+	struct is_frame *frame);
 int is_dvfs_sel_external(struct is_device_sensor *device);
 int is_get_qos(struct is_core *core, u32 type, u32 scenario_id);
 int is_set_dvfs(struct is_core *core, struct is_device_ischain *device, u32 scenario_id);
@@ -109,4 +114,5 @@ void is_dual_dvfs_update(struct is_device_ischain *device,
 	struct is_frame *frame);
 
 unsigned int is_get_bit_count(unsigned long bits);
+bool is_dvfs_is_fast_ae(struct is_dvfs_ctrl *dvfs_ctrl);
 #endif

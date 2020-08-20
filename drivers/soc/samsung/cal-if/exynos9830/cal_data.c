@@ -69,6 +69,10 @@ void __iomem *cmu_top;
 void __iomem *cmu_bus0;
 void __iomem *ccmu_cpucl2;
 
+void __iomem *dll_apm_base;
+void __iomem *sysreg_apm_base;
+void __iomem *cmu_apm_base;
+
 static int cmu_stable_done(void __iomem *cmu,
 			unsigned char shift,
 			unsigned int done,
@@ -85,6 +89,83 @@ static int cmu_stable_done(void __iomem *cmu,
 	} while (--usec > 0);
 
 	return -EVCLKTIMEOUT;
+}
+
+int cal_dll_apm_enable(void)
+{
+	u32 timeout = 0, reg = 0;
+	int ret = 0;
+
+	if (!dll_apm_base || !sysreg_apm_base || !cmu_apm_base)
+		return -EINVAL;
+
+	/* DLL_APM_N_DCO settings */
+	__raw_writel(0x726, dll_apm_base + 0x4);
+
+	/* DLL_APM_CTRL0 settings */
+	__raw_writel(0x111, sysreg_apm_base + 0x0440);
+	while (1) {
+		if (__raw_readl(sysreg_apm_base + 0x0444) & 0x1)
+			break;
+		timeout++;
+		usleep_range(10, 11);
+		if (timeout > 1000) {
+			pr_err("%s, timed out during dll locking\n", __func__);
+			return -ETIMEDOUT;
+		}
+	}
+
+	/* MUX_DLL_USER set to select CLK_DLL_DCO */
+	reg = __raw_readl(cmu_apm_base + 0x0640);
+	__raw_writel(reg | (0x1 << 4), cmu_apm_base + 0x0640);
+	ret = cmu_stable_done(cmu_apm_base + 0x0640, 16, 0, 100);
+	if (ret) {
+		pr_err("MUX_DLL_USER change time out\n");
+		return ret;
+	}
+
+	/* MUX_CLKCMU_VTS_BUS set to select MUX_DLL_USER */
+	reg = __raw_readl(cmu_apm_base + 0x1004);
+	__raw_writel(reg | (0x1 << 0), cmu_apm_base + 0x1004);
+	ret = cmu_stable_done(cmu_apm_base + 0x1004, 16, 0, 100);
+	if (ret) {
+		pr_err("MUX_CLKCMU_SHUB_BUS change time out\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+int cal_dll_apm_disable(void)
+{
+	u32 reg = 0;
+	int ret = 0;
+
+	if (!dll_apm_base || !sysreg_apm_base || !cmu_apm_base)
+		return -EINVAL;
+
+	/* MUX_CLKCMU_VTS_BUS set to select OSCCLK_RCO_VTS */
+	reg = __raw_readl(cmu_apm_base + 0x1004);
+	__raw_writel(reg & ~(0x1 << 0), cmu_apm_base + 0x1004);
+	ret = cmu_stable_done(cmu_apm_base + 0x1004, 16, 0, 100);
+	if (ret) {
+		pr_err("MUX_CLKCMU_SHUB_BUS change time out\n");
+		return ret;
+	}
+
+	/* MUX_DLL_USER set to select OSCCLK_RCO_APM */
+	reg = __raw_readl(cmu_apm_base + 0x0640);
+	__raw_writel(reg & ~(0x1 << 4), cmu_apm_base + 0x0640);
+	ret = cmu_stable_done(cmu_apm_base + 0x0640, 16, 0, 100);
+	if (ret) {
+		pr_err("MUX_DLL_USER change time out\n");
+		return ret;
+	}
+
+	/* DLL_APM off */
+	__raw_writel(0x0, sysreg_apm_base + 0x0440);
+
+	return 0;
 }
 
 int pll_mmc_enable(int enable)
@@ -215,6 +296,18 @@ void exynos9830_cal_data_init(void)
 	ccmu_cpucl2 = ioremap(EXYNOS9830_CCMU_CPUCL2_BASE, SZ_4K);
 	if (!ccmu_cpucl2)
 		pr_err("%s: ccmu_cpucl2 ioremap failed\n", __func__);
+
+	dll_apm_base = ioremap(0x158b0000, SZ_4K);
+	if (!dll_apm_base)
+		pr_err("%s: dll_apm_base ioremap failed\n", __func__);
+
+	sysreg_apm_base = ioremap(0x15820000, SZ_4K);
+	if (!sysreg_apm_base)
+		pr_err("%s: sysreg_apm_base ioremap failed\n", __func__);
+
+	cmu_apm_base = ioremap(0x15800000, SZ_8K);
+	if (!cmu_apm_base)
+		pr_err("%s: cmu_apm_base ioremap failed\n", __func__);
 }
 
 void (*cal_data_init)(void) = exynos9830_cal_data_init;

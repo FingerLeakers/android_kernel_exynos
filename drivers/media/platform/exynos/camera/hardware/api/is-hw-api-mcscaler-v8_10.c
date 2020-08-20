@@ -2941,6 +2941,548 @@ u32 is_scaler_get_lfro_mode_status(void __iomem *base_addr, u32 hw_id)
 	return ret;
 }
 
+/* for Strip */
+u32 is_scaler_get_djag_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_CTRL], &mcsc_fields[MCSC_F_DJAG0_PS_STRIP_ENABLE]);
+	return ret;
+}
+
+void is_scaler_set_djag_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_CTRL], &mcsc_fields[MCSC_F_DJAG0_PS_STRIP_ENABLE], enable);
+}
+
+u32 is_scaler_get_djag_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_CTRL], &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_ENABLE]);
+	return ret;
+}
+
+void is_scaler_set_djag_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable, u32 pre_dst_h, u32 start_pos_h)
+{
+	is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_CTRL], &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_ENABLE], enable);
+}
+
+void is_scaler_set_djag_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	u32 reg_val = 0;
+
+	reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_POS_H], pos_x);
+	reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_POS_V], pos_y);
+	is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_DJAG0_OUT_CROP_POS], reg_val);
+
+	reg_val = 0;
+	reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_SIZE_H], width);
+	reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG0_OUT_CROP_SIZE_V], height);
+	is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_DJAG0_OUT_CROP_SIZE], reg_val);
+}
+
+void is_scaler_get_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_PS_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_DJAG0_PS_STRIP_PRE_DST_SIZE_H]);
+	*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_PS_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_DJAG0_PS_STRIP_IN_START_POS_H]);
+}
+
+void is_scaler_set_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_PS_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_DJAG0_PS_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+	is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_DJAG0_PS_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_DJAG0_PS_STRIP_IN_START_POS_H], start_pos_h);
+}
+
+u32 is_scaler_get_poly_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL],
+			&mcsc_fields[MCSC_F_SC0_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT1:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL],
+			&mcsc_fields[MCSC_F_SC1_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT2:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL],
+			&mcsc_fields[MCSC_F_SC2_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+void is_scaler_set_poly_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL], &mcsc_fields[MCSC_F_SC0_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL], &mcsc_fields[MCSC_F_SC1_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL], &mcsc_fields[MCSC_F_SC2_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_get_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_SC0_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_SC0_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT1:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_SC1_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_SC1_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT2:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_SC2_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_SC2_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_set_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_SC0_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_SC0_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_SC1_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_SC1_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_SC2_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_SC2_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+u32 is_scaler_get_poly_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL],
+			&mcsc_fields[MCSC_F_SC0_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT1:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL],
+			&mcsc_fields[MCSC_F_SC1_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT2:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL],
+			&mcsc_fields[MCSC_F_SC2_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+void is_scaler_set_poly_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL], &mcsc_fields[MCSC_F_SC0_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL], &mcsc_fields[MCSC_F_SC1_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL], &mcsc_fields[MCSC_F_SC2_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_get_poly_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC0_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC0_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC0_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT1:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC1_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC1_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC1_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT2:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC2_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_SC2_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_SC2_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_set_poly_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	u32 reg_val = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC0_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC0_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC0_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC0_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC0_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC0_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT1:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC1_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC1_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC1_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC1_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC1_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC1_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT2:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC2_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC2_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC2_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC2_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_SC2_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_SC2_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+u32 is_scaler_get_post_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_CTRL],
+			&mcsc_fields[MCSC_F_PC0_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT1:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_CTRL],
+			&mcsc_fields[MCSC_F_PC1_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT2:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_CTRL],
+			&mcsc_fields[MCSC_F_PC2_STRIP_ENABLE]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+void is_scaler_set_post_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC0_CTRL], &mcsc_fields[MCSC_F_PC0_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC1_CTRL], &mcsc_fields[MCSC_F_PC1_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC2_CTRL], &mcsc_fields[MCSC_F_PC2_STRIP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_get_post_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_PC0_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_PC0_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT1:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_PC1_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_PC1_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT2:
+		*pre_dst_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_STRIP_PRE_DST_SIZE],
+			&mcsc_fields[MCSC_F_PC2_STRIP_PRE_DST_SIZE_H]);
+		*start_pos_h = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_STRIP_IN_START_POS],
+			&mcsc_fields[MCSC_F_PC2_STRIP_IN_START_POS_H]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_set_post_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC0_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_PC0_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC0_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_PC0_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC1_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_PC1_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC1_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_PC1_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC2_STRIP_PRE_DST_SIZE], &mcsc_fields[MCSC_F_PC2_STRIP_PRE_DST_SIZE_H], pre_dst_h);
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC2_STRIP_IN_START_POS], &mcsc_fields[MCSC_F_PC2_STRIP_IN_START_POS_H], start_pos_h);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+u32 is_scaler_get_post_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	int ret = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_CTRL],
+			&mcsc_fields[MCSC_F_PC0_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT1:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_CTRL],
+			&mcsc_fields[MCSC_F_PC1_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT2:
+		ret = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_CTRL],
+			&mcsc_fields[MCSC_F_PC2_OUT_CROP_ENABLE]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+
+	return ret;
+}
+
+void is_scaler_set_post_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC0_CTRL], &mcsc_fields[MCSC_F_PC0_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT1:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC1_CTRL], &mcsc_fields[MCSC_F_PC1_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT2:
+		is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_PC2_CTRL], &mcsc_fields[MCSC_F_PC2_OUT_CROP_ENABLE], enable);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_get_post_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height)
+{
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC0_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC0_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC0_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT1:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC1_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC1_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC1_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT2:
+		*width = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC2_OUT_CROP_SIZE_H]);
+		*height = is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_PC2_OUT_CROP_SIZE],
+			&mcsc_fields[MCSC_F_PC2_OUT_CROP_SIZE_V]);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
+void is_scaler_set_post_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	u32 reg_val = 0;
+
+	switch (output_id) {
+	case MCSC_OUTPUT0:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC0_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC0_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC0_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC0_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC0_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC0_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT1:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC1_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC1_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC1_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC1_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC1_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC1_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT2:
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC2_OUT_CROP_POS_H], pos_x);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC2_OUT_CROP_POS_V], pos_y);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC2_OUT_CROP_POS], reg_val);
+
+		reg_val = 0;
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC2_OUT_CROP_SIZE_H], width);
+		reg_val = is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_PC2_OUT_CROP_SIZE_V], height);
+		is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_PC2_OUT_CROP_SIZE], reg_val);
+		break;
+	case MCSC_OUTPUT3:
+		/* not support */
+		break;
+	case MCSC_OUTPUT4:
+		/* not support */
+		break;
+	default:
+		break;
+	}
+}
+
 static void is_scaler0_clear_intr_src(void __iomem *base_addr, u32 status)
 {
 	if (status & (1 << INTR_MC_SCALER_SHADOW_COPY_FINISH_OVF))

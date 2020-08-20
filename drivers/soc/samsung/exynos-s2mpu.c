@@ -21,6 +21,40 @@
 static const char *exynos_s2mpu_list[EXYNOS_MAX_S2MPU_INSTANCE];
 static uint32_t s2mpu_num;
 
+uint64_t exynos_set_dev_stage2_pcie_ap(const char *s2mpu_name,
+		uint32_t vid,
+		uint64_t base,
+		uint64_t size,
+		uint32_t ap)
+{
+	uint32_t s2mpu_idx;
+
+	if (s2mpu_name == NULL) {
+		pr_err("%s: Invalid S2MPU name\n", __func__);
+		return ERROR_INVALID_S2MPU_NAME;
+	}
+
+	for (s2mpu_idx = 0; s2mpu_idx < s2mpu_num; s2mpu_idx++) {
+		if (!strncmp(exynos_s2mpu_list[s2mpu_idx],
+					s2mpu_name,
+					EXYNOS_MAX_S2MPU_NAME_LEN))
+			break;
+	}
+
+	if (s2mpu_idx == s2mpu_num) {
+		pr_err("%s: DO NOT support %s S2MPU\n",
+				__func__, s2mpu_name);
+		return ERROR_DO_NOT_SUPPORT_S2MPU;
+	}
+
+	return exynos_hvc(HVC_FID_SET_S2MPU_FOR_WIFI,
+			(vid << S2MPU_VID_SHIFT) |
+			s2mpu_idx,
+			base,
+			size,
+			ap);
+}
+
 uint64_t exynos_set_dev_stage2_ap(const char *s2mpu_name,
 				  uint32_t vid,
 				  uint64_t base,
@@ -54,60 +88,6 @@ uint64_t exynos_set_dev_stage2_ap(const char *s2mpu_name,
 			  size,
 			  ap);
 }
-
-uint64_t exynos_enable_s2mpu(const char *s2mpu_name)
-{
-	uint32_t s2mpu_idx;
-
-	if (s2mpu_name == NULL) {
-		pr_err("%s: Invalid S2MPU name\n", __func__);
-		return ERROR_INVALID_S2MPU_NAME;
-	}
-
-	for (s2mpu_idx = 0; s2mpu_idx < s2mpu_num; s2mpu_idx++) {
-		if (!strncmp(exynos_s2mpu_list[s2mpu_idx],
-				s2mpu_name,
-				EXYNOS_MAX_S2MPU_NAME_LEN))
-			break;
-	}
-
-	if (s2mpu_idx == s2mpu_num) {
-		pr_err("%s: DO NOT support %s S2MPU\n",
-				__func__, s2mpu_name);
-		return ERROR_DO_NOT_SUPPORT_S2MPU;
-	}
-
-	return exynos_hvc(HVC_FID_ENABLE_S2MPU, s2mpu_idx, 0, 0, 0);
-}
-
-uint64_t exynos_set_s2mpu_allmap(const char *s2mpu_name,
-				  uint32_t vid,
-				  uint32_t ap)
-{
-	uint32_t s2mpu_idx;
-
-	if (s2mpu_name == NULL) {
-		pr_err("%s: Invalid S2MPU name\n", __func__);
-		return ERROR_INVALID_S2MPU_NAME;
-	}
-
-	for (s2mpu_idx = 0; s2mpu_idx < s2mpu_num; s2mpu_idx++) {
-		if (!strncmp(exynos_s2mpu_list[s2mpu_idx],
-				s2mpu_name,
-				EXYNOS_MAX_S2MPU_NAME_LEN))
-			break;
-	}
-
-	if (s2mpu_idx == s2mpu_num) {
-		pr_err("%s: DO NOT support %s S2MPU\n",
-				__func__, s2mpu_name);
-		return ERROR_DO_NOT_SUPPORT_S2MPU;
-	}
-
-	return exynos_hvc(HVC_FID_SET_S2MPU_ALLMAP, s2mpu_idx, vid, ap, 0);
-}
-
-
 
 #ifdef CONFIG_OF_RESERVED_MEM
 static int __init exynos_s2mpu_reserved_mem_setup(struct reserved_mem *remem)

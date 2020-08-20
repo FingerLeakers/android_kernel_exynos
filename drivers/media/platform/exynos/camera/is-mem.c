@@ -41,6 +41,8 @@
 #include <linux/exynos_iovmm.h>
 
 #if defined(CONFIG_VIDEOBUF2_DMA_SG)
+#define IS_IOMMU_PROP	(IOMMU_READ | IOMMU_WRITE)
+
 struct vb2_dma_sg_buf {
 	struct device			*dev;
 	void				*vaddr;
@@ -144,7 +146,7 @@ static long is_vb2_dma_sg_remap_attr(struct is_vb2_buf *vbuf, int attr)
 	struct vb2_dma_sg_buf *buf;
 	unsigned int plane;
 	long ret;
-	int ioprot = IOMMU_READ	| IOMMU_WRITE;
+	int ioprot = IS_IOMMU_PROP;
 
 	for (plane = 0; plane < vb->num_planes; ++plane) {
 		buf = vb->planes[plane].mem_priv;
@@ -345,7 +347,7 @@ static long is_dbufcon_map(struct is_vb2_buf *vbuf)
 
 	for (i = 0; i < vbuf->num_merged_dbufs; i++) {
 		vbuf->dva[i] = ion_iovmm_map(vbuf->atch[i], 0, 0,
-				DMA_BIDIRECTIONAL, 0);
+				DMA_BIDIRECTIONAL, IS_IOMMU_PROP);
 		if (IS_ERR_VALUE(vbuf->dva[i])) {
 			err("failed to map dmabuf: %d", i);
 			ret = vbuf->dva[i];
@@ -564,7 +566,7 @@ static struct is_priv_buf *is_ion_alloc(void *ctx,
 
 	mutex_lock(&alloc_ctx->lock);
 	buf->iova = ion_iovmm_map(buf->attachment, 0,
-				   buf->size, buf->direction, 0);
+				   buf->size, buf->direction, IS_IOMMU_PROP);
 	if (IS_ERR_VALUE(buf->iova)) {
 		ret = (int)buf->iova;
 		mutex_unlock(&alloc_ctx->lock);

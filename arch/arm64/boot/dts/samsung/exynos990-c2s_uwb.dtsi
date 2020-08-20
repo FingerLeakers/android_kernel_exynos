@@ -12,50 +12,76 @@
  */
 
 &pinctrl_0 {
-	uwb_int_active: uwb-int-active {
+	uwb_int: uwb-int {
 		samsung,pins = "gpa3-7";
 		samsung,pin-function = <0xf>;
 		samsung,pin-pud = <1>;		/* DOWN */
 		samsung,pin-drv = <3>;
+		samsung,pin-con-pdn = <2>;	/* IN */
+		samsung,pin-pud-pdn = <1>;	/* DOWN */
 	};
-	uwb_int_suspend: uwb-int-suspend {
-		samsung,pins = "gpa3-7";
-		samsung,pin-function = <0xf>;
+};
+
+&pinctrl_1 {
+	uwb_ce: uwb-ce {
+		samsung,pins = "gpm21-0";
+		samsung,pin-function = <1>;	/* OUT */
 		samsung,pin-pud = <1>;		/* DOWN */
-		samsung,pin-drv = <3>;
+		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <0>;	/* OUT */
+		samsung,pin-pud-pdn = <1>;	/* DOWN */
+	};
+};
+
+&pinctrl_4 {
+	uwb_wakeup: uwb-wakeup {
+		samsung,pins = "gpp2-6";
+		samsung,pin-function = <1>;	/* OUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <0>;	/* OUT */
+		samsung,pin-pud-pdn = <1>;	/* DOWN */
 	};
 };
 
 &pinctrl_5 {
+	uwb_ri: uwb-ri {
+		samsung,pins = "gpp5-4";
+		samsung,pin-function = <1>;	/* OUT */
+		samsung,pin-pud = <1>;		/* DOWN */
+		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <0>;	/* OUT */
+		samsung,pin-pud-pdn = <1>;	/* DOWN */
+	};
 	spi9_bus: spi9-bus {
 		samsung,pins = "gpp6-6", "gpp6-5", "gpp6-4";
 		samsung,pin-function = <2>;	/* SPI */
-		samsung,pin-pud = <0>;		/* DOWN */
+		samsung,pin-pud = <0>;		/* NO */
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <2>;	/* IN */
+		samsung,pin-pud-pdn = <1>;	/* DOWN */
 	};
 	spi9_cs_func: spi9-cs-func {
 		samsung,pins = "gpp6-7";
 		samsung,pin-function = <2>;	/* SPI */
 		samsung,pin-pud = <3>;		/* UP */
 		samsung,pin-drv = <0>;
+		samsung,pin-con-pdn = <2>;	/* IN */
+		samsung,pin-pud-pdn = <3>;	/* UP */
 	};
 };
 
-/* SPI USI_PERIC0_USI00_SPI */
+/* SPI USI_PERIC1_USI09_SPI */
 &spi_9 {
 	status = "okay";
-	/delete-property/ pinctrl-names;
-	/delete-property/ pinctrl-0;
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi9_bus &spi9_cs_func>;
 
 	uwb_spi@0 {
 		compatible = "nxp,sr100";
 		reg = <0>;
-		pinctrl-names = "sleep", "default", "idle";
-		pinctrl-0 = <&uwb_int_suspend>;
-		pinctrl-1 = <&uwb_int_suspend>;
-		pinctrl-2 = <&uwb_int_active>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&uwb_int &uwb_ce &uwb_wakeup &uwb_ri>;
 		spi-max-frequency = <16000000>;
 		interrupt-parent = <&gpa3>;
 		interrupts = <7 0 0>;
@@ -72,8 +98,6 @@
 		/* RTC_SYNC RTC_SYNC AP->sr100 ri_gpio active high */
 		/* read ready idication */
 		nxp,sr100-ri = <&gpp5 4 0>;
-
-		nxp,vdd-pa = "VDD_UWB_RF_1P8";
 		nxp,vdd = "VDD_UWB_1P8";
 		controller-data {
 			samsung,spi-feedback-delay = <0>;

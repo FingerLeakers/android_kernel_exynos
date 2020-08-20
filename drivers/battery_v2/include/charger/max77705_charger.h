@@ -338,16 +338,14 @@ struct max77705_charger_data {
 	struct delayed_work	aicl_work;
 	struct delayed_work	isr_work;
 	struct delayed_work	recovery_work;	/*  softreg recovery work */
-	struct delayed_work	wpc_work;	/*  wpc detect work */
 	struct delayed_work	chgin_init_work;	/*  chgin init work */
 	struct delayed_work wc_current_work;
 
-/* mutex */
+	/* mutex */
 	struct mutex irq_lock;
 	struct mutex ops_lock;
 
 	/* wakelock */
-	struct wake_lock wpc_wake_lock;
 	struct wake_lock chgin_wake_lock;
 	struct wake_lock wc_current_wake_lock;
 	struct wake_lock aicl_wake_lock;
@@ -381,27 +379,12 @@ struct max77705_charger_data {
 	int		irq_wcin;
 	int		irq_chgin;
 	int		irq_aicl;
-	int             irq_aicl_enabled;
-	/* software regulation */
-	bool		soft_reg_state;
-	int		soft_reg_current;
+	int		irq_aicl_enabled;
 
-	/* unsufficient power */
-	bool		reg_loop_deted;
-
-	/* wireless charge, w(wpc), v(vbus) */
-	int		wc_w_gpio;
-	int		wc_w_irq;
-	int		wc_w_state;
-	int		wc_v_gpio;
-	int		wc_v_irq;
-	int		wc_v_state;
-	bool		wc_pwr_det;
-	int		soft_reg_recovery_cnt;
 	int		wc_current;
 	int		wc_pre_current;
 
-	bool            jig_low_active;
+	bool	jig_low_active;
 	int		jig_gpio;
 
 	bool enable_sysovlo_irq;
@@ -419,6 +402,8 @@ struct max77705_charger_data {
 	int charging_curr_step;
 	int float_voltage;
 	u8 *snkcap_data;
+
+	int misalign_cnt;
 
 	sec_charger_platform_data_t *pdata;
 };

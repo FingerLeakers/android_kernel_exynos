@@ -173,6 +173,7 @@ enum is_sensor_subdev_ioctl {
 	SENSOR_IOCTL_PATTERN_DISABLE,
 	SENSOR_IOCTL_REGISTE_VOTF,
 	SENSOR_IOCTL_G_FRAME_ID,
+	SENSOR_IOCTL_G_HW_FCOUNT,
 };
 
 #if defined(SECURE_CAMERA_IRIS)
@@ -362,6 +363,7 @@ struct is_device_sensor {
 	u64						timestamp[IS_TIMESTAMP_HASH_KEY];
 	u64						timestampboot[IS_TIMESTAMP_HASH_KEY];
 	u64						frame_id[IS_TIMESTAMP_HASH_KEY]; /* index 0 ~ 7 */
+	u64						prev_timestampboot;
 
 	u32						fcount;
 	u32						line_fcount;
@@ -439,7 +441,6 @@ struct is_device_sensor {
 	bool						dma_abstract;
 	u32						use_standby;
 	u32						sstream;
-	u32						num_buffers;
 	u32						ex_mode;
 	u32						ex_mode_option;
 	u32						ex_scenario;
@@ -463,6 +464,8 @@ struct is_device_sensor {
 	struct i2c_client			*client;
 	struct mutex				mutex_reboot;
 	bool					reboot;
+
+	bool					use_stripe_flag;
 };
 
 int is_sensor_open(struct is_device_sensor *device,
@@ -534,10 +537,12 @@ int is_sensor_g_module(struct is_device_sensor *device,
 	struct is_module_enum **module);
 int is_sensor_deinit_module(struct is_module_enum *module);
 int is_sensor_g_position(struct is_device_sensor *device);
+int is_sensor_g_fast_mode(struct is_device_sensor *device);
 int is_search_sensor_module_with_sensorid(struct is_device_sensor *device,
 	u32 sensor_id, struct is_module_enum **module);
 int is_search_sensor_module_with_position(struct is_device_sensor *device,
 	u32 position, struct is_module_enum **module);
+int is_sensor_votf_tag(struct is_device_sensor *device, struct is_subdev *subdev);
 int is_sensor_dm_tag(struct is_device_sensor *device,
 	struct is_frame *frame);
 int is_sensor_buf_tag(struct is_device_sensor *device,

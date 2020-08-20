@@ -105,9 +105,9 @@
 
 	k250a@23 {
 		status = "ok";
-		compatible = "snvm_k250a";
+		compatible = "sec_k250a";
 		1p8_pvdd-supply = <&ldo26_reg>;
-		reg = <0x23>;
+		/*reg = <0x23>;*/
 	};
 };
 

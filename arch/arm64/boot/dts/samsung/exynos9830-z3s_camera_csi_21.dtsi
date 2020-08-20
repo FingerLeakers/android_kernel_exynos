@@ -25,8 +25,6 @@
 		0 1 2 3>;
 	flite_ch = <FLITE_ID_NOTHING>;
 	is_bns = <0>;
-	use_ssvc2_internal;
-	use_ssvc3_internal;
 	status = "okay";
 	use_cphy = <1>;
 
@@ -227,7 +225,6 @@
 	vc_ch = <0 1 2 3>;
 	flite_ch = <FLITE_ID_NOTHING>;
 	is_bns = <0>;
-	use_ssvc2_internal;
 	status = "okay";
 	use_cphy = <1>;
 

@@ -18,6 +18,7 @@
 #include "exynos9830-hubblex1_input_common.dtsi"
 #include "exynos9830-hubble_vib.dtsi"
 #include "exynos9830-inputbooster.dtsi"
+#include "exynos990-hubble_panel_display_modes.dtsi"
 
 / {
 	compatible = "samsung,exynos990", "samsung,UNIVERSAL990";
@@ -328,9 +329,9 @@
 				status = "okay";
 
 				bootc {
-					bootc,time_spec_user = <40000>; /* user binary user build */
-					bootc,time_spec_eng = <90000>; /* user binary eng build */
-					bootc,time_spec_fac = <30000>; /* factory binary */
+					bootc,time_spec_user = <100000>; /* user binary user build */
+					bootc,time_spec_eng = <100000>; /* user binary eng build */
+					bootc,time_spec_fac = <100000>; /* factory binary */
 				};
 			};
 
@@ -844,8 +845,8 @@
 	snps,ux_exit_in_px_quirk;
 	/* elastic_buf_mode_quirk should be defined in MK */
 	snps,elastic_buf_mode_quirk;
-	usb3-lpm-capable;
-	snps,usb3_lpm_capable;
+	/* usb3-lpm-capable; */
+	/* snps,usb3_lpm_capable; */
 	adj-sof-accuracy = <1>;
 	/*
 	 * dis-u2-freeclk-exists-quirk, dis_u2_susphy_quirk are alternative.
@@ -855,7 +856,7 @@
 	/*snps,dis_u2_susphy_quirk;*/
 	samsung,no-extra-delay;
 	samsung,force-gen1;
-	usb_host_device_timeout = <0x7ff>; /* Max value */
+	usb_host_device_timeout = <200>; /* Max value */
 
 	usb_audio_offloading = <1>;
 	abox = <&abox>;
@@ -1002,7 +1003,6 @@
 	};
 	panel-lookup {
 		panel-name =
-			"s6e3ha9_davinci2_a3_s0_default",
 			/* OSC:96.5MHz */
 			"s6e3hab_hubble1_a3_s0_preliminary_osc_96_5m",
 			"s6e3hab_hubble1_a3_s0_default_osc_96_5m",
@@ -1011,20 +1011,19 @@
 			"s6e3hab_hubble1_a3_s0_preliminary",
 			"s6e3hab_hubble1_a3_s0_default",
 			"s6e3hab_hubble1_a3_s0_default_rev03";
-		panel-ddi-info = <&s6e3ha9 &s6e3hab>;
+		panel-ddi-info = <&s6e3hab>;
+		panel-display-modes = <&hubble_panel_display_modes>;
 		panel-lut = <
-			0xa10013 0xff00ff 0x0 0x0  /* S6E3HA9 1440x3040 PANEL*/
+			0x000000 0x0000CF 0x0 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV00, OSC:96.5 */
+			0x000001 0x0000CF 0x0 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:96.5 */
+			0x000002 0x0000CF 0x1 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV02, OSC:96.5 */
+			0x000000 0x0000C0 0x2 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV03, OSC:96.5 */
 
-			0x000000 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV00, OSC:96.5 */
-			0x000001 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:96.5 */
-			0x000002 0x0000CF 0x2 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV02, OSC:96.5 */
-			0x000000 0x0000C0 0x3 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV03, OSC:96.5 */
-
-			0x000040 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:86.4 */
-			0x000041 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:86.4 */
-			0x000042 0x0000CF 0x5 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV02, OSC:86.4 */
-			0x000040 0x0000C0 0x6 0x1  /* S6E3HAB 1440x3200 X1 PANEL REV03, OSC:86.4 */
-			0x000000 0x000000 0x3 0x1  /* default */
+			0x000040 0x0000CF 0x3 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:86.4 */
+			0x000041 0x0000CF 0x3 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV01, OSC:86.4 */
+			0x000042 0x0000CF 0x4 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV02, OSC:86.4 */
+			0x000040 0x0000C0 0x5 0x0  /* S6E3HAB 1440x3200 X1 PANEL REV03, OSC:86.4 */
+			0x000000 0x000000 0x2 0x0  /* default */
 		>;
 	};
 };
@@ -1041,7 +1040,7 @@
 &ufs {
 	/* board type for UFS CAL */
 	brd-for-cal = /bits/ 8 <16>;  /* (1:SMDK, 16:UNIV) board */
-
+	hpb-enable = <1>;
 };
 
 &dwmmc_2 {

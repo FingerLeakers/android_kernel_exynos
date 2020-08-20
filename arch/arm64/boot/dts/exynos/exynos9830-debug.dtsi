@@ -100,7 +100,7 @@
 
 		dbgc {
 			support = <1>;
-			interval = <30>;
+			interval = <50>;
 			warn-count = <30>;
 			lockup-count = <40>;
 			kill-count = <5>;
@@ -541,6 +541,20 @@
 		};
 	};
 
+	/* STM */
+	stm@1e00b000 {
+		compatible = "arm,coresight-stm", "arm,primecell";
+		arm,primecell-periphid = <0x0bb963>;
+		reg = <0 0x1e00b000 0x1000>, <0 0x1e200000 0x200000>;
+		reg-names = "stm-base", "stm-stimulus-base";
+		clocks = <&clock OSCCLK>;
+		clock-names = "apb_pclk";
+		port {
+			stm_out_port: endpoint {
+				remote-endpoint = <&funnel1_in_port7>;
+			};
+		};
+	};
 
 	/* FUNNEL0 link (to FUNNELm from ETF0) */
 	funnel0@1e007000 {
@@ -645,6 +659,15 @@
 					remote-endpoint = <&etm7_out_port>;
 				};
 			};
+
+			port@4 {
+				reg = <7>;
+				funnel1_in_port7: endpoint {
+					slave-mode;
+					remote-endpoint = <&stm_out_port>;
+				};
+			};
+
 		};
 	};
 

@@ -279,7 +279,6 @@ int is_votf_create_link(struct is_group *group, u32 width, u32 height)
 
 		if (pd_mode == PD_MOD3) {
 			subdev_pdaf = &device->pdaf;
-			set_bit(IS_SUBDEV_INTERNAL_USE, &subdev_pdaf->state);
 
 			pd_width = sensor_cfg->input[CSI_VIRTUAL_CH_1].width;
 			pd_height = sensor_cfg->input[CSI_VIRTUAL_CH_1].height;
@@ -360,8 +359,6 @@ int is_votf_destroy_link(struct is_group *group)
 			ret = is_subdev_internal_close(device, IS_DEVICE_ISCHAIN, subdev_pdaf);
 			if (ret)
 				merr("is_subdev_internal_close is fail(%d)", device, ret);
-
-			clear_bit(IS_SUBDEV_INTERNAL_USE, &subdev_pdaf->state);
 		}
 	}
 
@@ -507,7 +504,7 @@ struct is_framemgr *is_votf_get_framemgr(struct is_group *group,  enum votf_serv
 }
 
 struct is_frame *is_votf_get_frame(struct is_group *group,  enum votf_service type,
-	unsigned long subdev_id)
+	unsigned long subdev_id, u32 fcount)
 {
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
@@ -518,7 +515,7 @@ struct is_frame *is_votf_get_frame(struct is_group *group,  enum votf_service ty
 		return NULL;
 	}
 
-	frame = &framemgr->frames[0];
+	frame = &framemgr->frames[fcount % framemgr->num_frames];
 
 	return frame;
 }

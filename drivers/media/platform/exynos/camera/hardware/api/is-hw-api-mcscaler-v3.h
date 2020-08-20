@@ -249,6 +249,36 @@ void is_scaler_set_cac_map_crt_thr(void __iomem *base_addr, struct cac_cfg_by_ni
 void is_scaler_set_lfro_mode_enable(void __iomem *base_addr, u32 hw_id, u32 lfro_enable, u32 lfro_total_fnum);
 u32 is_scaler_get_lfro_mode_status(void __iomem *base_addr, u32 hw_id);
 
+
+/* strip */
+u32 is_scaler_get_djag_strip_enable(void __iomem *base_addr, u32 output_id);
+void is_scaler_get_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h);
+void is_scaler_set_djag_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable);
+void is_scaler_set_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h);
+
+u32 is_scaler_get_poly_strip_enable(void __iomem *base_addr, u32 output_id);
+void is_scaler_get_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h);
+void is_scaler_set_poly_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable);
+void is_scaler_set_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h);
+
+u32 is_scaler_get_poly_out_crop_enable(void __iomem *base_addr, u32 output_id);
+void is_scaler_get_poly_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height);
+void is_scaler_set_poly_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable);
+void is_scaler_set_poly_out_crop_size(void __iomem *base_addr, u32 output_id, u32 pos_x, u32 pos_y, u32 width, u32 height);
+
+u32 is_scaler_get_post_strip_enable(void __iomem *base_addr, u32 output_id);
+void is_scaler_get_post_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h);
+u32 is_scaler_get_post_out_crop_enable(void __iomem *base_addr, u32 output_id);
+void is_scaler_get_post_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height);
+
+void is_scaler_set_post_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable);
+void is_scaler_set_post_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h);
+void is_scaler_set_post_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable);
+void is_scaler_set_post_out_crop_size(void __iomem *base_addr, u32 output_id, u32 pos_x, u32 pos_y, u32 width, u32 height);
+
+
+
+
 void is_scaler_clear_intr_src(void __iomem *base_addr, u32 hw_id, u32 status);
 u32 is_scaler_get_intr_mask(void __iomem *base_addr, u32 hw_id);
 u32 is_scaler_get_intr_status(void __iomem *base_addr, u32 hw_id);

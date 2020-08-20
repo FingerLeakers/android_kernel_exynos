@@ -128,7 +128,11 @@ void hdcp_dplink_clear_all(void)
 
 void hdcp_dplink_connect_state(enum dp_state state)
 {
+	uint32_t ret = 0;
+
 	dp_hdcp_state = state;
+	hdcp_info("Displayport connect info (%d)\n", dp_hdcp_state);
+	ret = exynos_smc(SMC_DRM_DP_CONNECT_INFO, dp_hdcp_state, 0, 0);
 }
 
 int hdcp_dplink_is_auth_state(void)

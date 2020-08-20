@@ -26,6 +26,7 @@
 #include <linux/miscdevice.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/suspend.h>
+#include <linux/modem_notifier.h>
 
 #include <asm-generic/delay.h>
 
@@ -102,9 +103,11 @@ static void update_mask_value(volatile void __iomem *sfr,
 #define VTS_TRIGGERED_TIMEOUT_MS (5000)
 
 #define VTS_DUMP_MAGIC "VTS-LOG0" // 0x30474F4C2D535456ull /* VTS-LOG0 */
+#define VTS_SYS_CLOCK (60000000)	/* 60M */
 
 /* For only external static functions */
 static struct vts_data *p_vts_data;
+static atomic_t vts_call_noti = ATOMIC_INIT(0);
 static void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 			unsigned int dbg_type);
 
@@ -537,6 +540,11 @@ static void vts_cfg_gpio(struct device *dev, const char *name)
 	int ret;
 
 	dev_info(dev, "%s(%s)\n", __func__, name);
+
+	if (data->pinctrl == NULL) {
+		dev_err(dev, "pinctrl is NULL\n");
+		return;
+	}
 
 	pin_state = pinctrl_lookup_state(data->pinctrl, name);
 	if (IS_ERR(pin_state)) {
@@ -1697,6 +1705,11 @@ static irqreturn_t vts_record_period_elapsed_handler(int irq, void *dev_id)
 	struct vts_platform_data *platform_data = platform_get_drvdata(data->pdev_vtsdma[1]);
 	u32 pointer;
 
+	if(data->vts_state == VTS_STATE_RUNTIME_SUSPENDING || data->vts_state == VTS_STATE_RUNTIME_SUSPENDED ||
+		data->vts_state == VTS_STATE_NONE) {
+		dev_warn(dev, "%s: VTS wrong state\n", __func__);
+		return IRQ_HANDLED;
+	}
 	if (data->mic_ready & (0x1 << VTS_MICCONF_FOR_RECORD)) {
 		vts_mailbox_read_shared_register(data->pdev_mailbox,
 						 &pointer, 1, 1);
@@ -1967,9 +1980,11 @@ void vts_dbg_dump_fw_gpr(struct device *dev, struct vts_data *data,
 	} else if (dbg_type == KERNEL_PANIC_DUMP || dbg_type == VTS_FW_NOT_READY ||
 			dbg_type == VTS_IPC_TRANS_FAIL || dbg_type == VTS_FW_ERROR ||
 			dbg_type == VTS_ITMON_ERROR) {
-		if (dbg_type == KERNEL_PANIC_DUMP && !data->running) {
-			dev_info(dev, "%s is skipped due to not running\n", __func__);
-			return;
+		if (dbg_type == KERNEL_PANIC_DUMP || dbg_type == VTS_ITMON_ERROR) {
+			if(!data->running) {
+				dev_info(dev, "%s is skipped due to not running\n", __func__);
+				return;
+			}
 		}
 
 		for (i = 0; i <= 14; i++)
@@ -2135,6 +2150,10 @@ static int vts_runtime_suspend(struct device *dev)
 		data->vts_state = VTS_STATE_RUNTIME_SUSPENDED;
 		spin_unlock_irqrestore(&data->state_spinlock, flag);
 	}
+	if(cal_dll_apm_disable() == 0)
+	{
+		dev_info(dev, "cal_dll_apm_disable\n");
+	}
 
 	data->enabled = false;
 	data->exec_mode = VTS_OFF_MODE;
@@ -2162,6 +2181,19 @@ static int vts_runtime_resume(struct device *dev)
 	int result;
 
 	dev_info(dev, "%s \n", __func__);
+
+	/* for changing system clk */
+	if(cal_dll_apm_enable() == 0)
+	{
+		dev_info(dev, "cal_dll_apm_enable\n");
+	}
+	result = clk_set_rate(data->clk_sys, VTS_SYS_CLOCK);
+	if (result < 0) {
+		dev_err(dev, "clk_set_rate: %d\n", result);
+		goto error_clk;
+	}
+	data->sysclk_rate = clk_get_rate(data->clk_sys);
+	dev_info(dev, "System Clock : %ld\n", data->sysclk_rate);
 
 #if defined(CONFIG_SOC_EXYNOS9820)
 	exynos_pd_tz_restore(0x15410204);
@@ -2701,6 +2733,34 @@ static int vts_itmon_notifier(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static int vts_modem_notifier(struct notifier_block *nb, unsigned long action, void *nb_data)
+{
+	struct vts_data *data = container_of(nb, struct vts_data, modem_nb);
+	struct platform_device *pdev = data->pdev;
+	struct device *dev = &pdev->dev;
+
+	dev_info(dev, "%s(%lu)\n", __func__, action);
+
+	switch (action) {
+	case MODEM_VOICE_CALL_ON:
+		if (atomic_cmpxchg(&vts_call_noti, 0, 1) == 0) {
+			dev_info(dev, "%s pm get sync\n", __func__);
+			pm_runtime_get_sync(dev);
+		}
+		break;
+	case MODEM_VOICE_CALL_OFF:
+		if (atomic_cmpxchg(&vts_call_noti, 1, 0) == 1) {
+			dev_info(dev, "%s pm put sync\n", __func__);
+			pm_runtime_put_sync(dev);
+		}
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
 static int vts_component_probe(struct snd_soc_component *component)
 {
 	struct device *dev = component->dev;
@@ -2810,11 +2870,16 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	mutex_init(&data->ipc_mutex);
 	wake_lock_init(&data->wake_lock, WAKE_LOCK_SUSPEND, "vts");
 
-	data->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR(data->pinctrl)) {
-		dev_err(dev, "Couldn't get pins (%li)\n",
-				PTR_ERR(data->pinctrl));
-		return PTR_ERR(data->pinctrl);
+	if (data->pinctrl == NULL) {
+		data->pinctrl = devm_pinctrl_get(dev);
+		if (IS_ERR(data->pinctrl)) {
+			dev_err(dev, "Couldn't get pins (%li)\n",
+					PTR_ERR(data->pinctrl));
+			return PTR_ERR(data->pinctrl);
+		}
+	} else {
+		dev_err(dev, "pinctrl is not NULL\n");
+		data->pinctrl = NULL;
 	}
 
 	data->sfr_base = samsung_vts_devm_request_and_map(pdev, "sfr", NULL);
@@ -2955,6 +3020,11 @@ static int samsung_vts_probe(struct platform_device *pdev)
 		result = PTR_ERR(data->clk_dmic_sync);
 		goto error;
 	}
+	data->clk_sys = devm_clk_get_and_prepare(dev, "sysclk");
+	if (IS_ERR(data->clk_sys)) {
+		result = PTR_ERR(data->clk_sys);
+		goto error;
+	}
 
 	result = samsung_vts_devm_request_threaded_irq(pdev, "error",
 			VTS_IRQ_VTS_ERROR, vts_error_handler);
@@ -3066,7 +3136,9 @@ static int samsung_vts_probe(struct platform_device *pdev)
 	data->itmon_nb.notifier_call = vts_itmon_notifier;
 	itmon_notifier_chain_register(&data->itmon_nb);
 
-	printk("come hear %d\n", __LINE__);
+	data->modem_nb.notifier_call = vts_modem_notifier;
+	register_modem_voice_call_event_notifier(&data->modem_nb);
+
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
 

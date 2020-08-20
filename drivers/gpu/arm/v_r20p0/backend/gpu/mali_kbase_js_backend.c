@@ -184,6 +184,7 @@ static enum hrtimer_restart timer_callback(struct hrtimer *timer)
 
 					kbase_job_slot_softstop_swflags(kbdev,
 						s, atom, softstop_flags);
+					KBASE_TRACE_ADD(kbdev, LSI_GPU_SOFTSTOP, atom->kctx, NULL, 0u, 0u);
 #endif
 				} else if (ticks == hard_stop_ticks) {
 					/* Job has been scheduled for at least
@@ -198,6 +199,7 @@ static enum hrtimer_restart timer_callback(struct hrtimer *timer)
 					dev_warn(kbdev->dev, "JS: Job Hard-Stopped (took more than %lu ticks at %lu ms/tick)",
 							(unsigned long)ticks,
 							(unsigned long)ms);
+					KBASE_TRACE_ADD(kbdev, LSI_GPU_HARDSTOP, atom->kctx, NULL, 0u, 0u);
 					kbase_job_slot_hardstop(atom->kctx, s,
 									atom);
 #endif

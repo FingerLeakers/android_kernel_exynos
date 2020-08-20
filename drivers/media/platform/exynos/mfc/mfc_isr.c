@@ -953,6 +953,9 @@ static int __mfc_handle_stream(struct mfc_ctx *ctx)
 	mfc_debug(2, "[STREAM] encoded slice type: %d, size: %d, display order: %d\n",
 			slice_type, strm_size, pic_count);
 
+	/* clear SBWC enable */
+	mfc_clear_enc_src_sbwc(dev);
+
 	/* buffer full handling */
 	if (enc->buf_full) {
 		mfc_change_state(ctx, MFCINST_ABORT_INST);
@@ -1086,8 +1089,7 @@ static int __mfc_handle_seq_dec(struct mfc_ctx *ctx)
 	dec->mv_count = mfc_get_mv_count();
 	if (CODEC_10BIT(ctx) && dev->pdata->support_10bit) {
 		if (mfc_get_luma_bit_depth_minus8() ||
-			mfc_get_chroma_bit_depth_minus8() ||
-			mfc_get_profile() == MFC_REG_D_PROFILE_HEVC_MAIN_10) {
+			mfc_get_chroma_bit_depth_minus8()) {
 			ctx->is_10bit = 1;
 			mfc_info_ctx("[STREAM][10BIT] 10bit contents, profile: %d, depth: %d/%d\n",
 					mfc_get_profile(),

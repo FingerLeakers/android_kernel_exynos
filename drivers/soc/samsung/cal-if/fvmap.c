@@ -428,10 +428,39 @@ static const struct attribute_group percent_margin_group = {
 #include <soc/samsung/cal-if.h>
 #include "asv.h"
 
+#define VUP_0 12500
+#define VUP_1 25000
+
 enum spec_volt_type {
 	ASV_G_FUSED = 0,
 	ASV_G_GRP
 };
+
+static int asv_g_yield_volt[4];
+
+static int __init get_mvup(char *str)
+{
+	asv_g_yield_volt[1] = VUP_0;
+
+	return 0;
+}
+early_param("mvup", get_mvup);
+
+static int __init get_bvup(char *str)
+{
+	asv_g_yield_volt[2] = VUP_1;
+
+	return 0;
+}
+early_param("bvup", get_bvup);
+
+static int __init get_gvup(char *str)
+{
+	asv_g_yield_volt[3] = VUP_1;
+
+	return 0;
+}
+early_param("gvup", get_gvup);
 
 static ssize_t show_asv_g_spec(int id, enum spec_volt_type type, char *buf)
 {
@@ -500,6 +529,8 @@ static ssize_t show_asv_g_spec(int id, enum spec_volt_type type, char *buf)
 		pr_err("%s: There has no frequency %d on %d domain\n", __func__, vtyp_freq, spec_table_name[id]);
 		goto out;
 	}
+
+	fused_volt -= asv_g_yield_volt[id];
 
 	volt = (type == ASV_G_FUSED) ? fused_volt : grp_volt;
 
@@ -662,7 +693,7 @@ int fvmap_init(void __iomem *sram_base)
 #ifdef CONFIG_SOC_EXYNOS9830
 	asv_g_kobj = kobject_create_and_add("asv_g_spec", power_kobj);
 	if (sysfs_create_group(asv_g_kobj, &asv_g_spec_grp))
-		pr_err("Fail to create name_tbd group\n");
+		pr_err("Fail to create asv_g_spec group\n");
 #endif
 #endif /* CONFIG_SEC_FACTORY */
 

@@ -45,7 +45,6 @@ DEFINE_MUTEX(mst_mutex);
 #endif
 
 #if defined(CONFIG_MST_V2)
-#if defined(CONFIG_MFC_LDO_COMMAND)
 #define MFC_MST_LDO_CONFIG_1				0x7400
 #define MFC_MST_LDO_CONFIG_2				0x7409
 #define MFC_MST_LDO_CONFIG_3				0x7418
@@ -56,7 +55,9 @@ DEFINE_MUTEX(mst_mutex);
 #define MFC_MST_LDO_CONFIG_8				0x343c
 #define MFC_MST_OVER_TEMP_INT				0x0024
 #endif
-#endif
+#define MFC_CHIP_ID_L_REG				0x00
+#define MFC_CHIP_ID_P9320				0x20
+#define MFC_CHIP_ID_S2MIW04				0x04
 
 /* for logging */
 #include <linux/printk.h>
@@ -78,6 +79,12 @@ struct workqueue_struct *cluster_freq_ctrl_wq;
 struct delayed_work dwork;
 
 static uint32_t mode_set_wait = 40;
+static uint32_t idt_i2c_command = 0;
+
+typedef enum {
+	MFC_CHIP_ID_IDT = 1,
+	MFC_CHIP_ID_LSI,
+} mfc_chip_vendor;
 
 #if defined(CONFIG_ARCH_QCOM)
 /* global variables */

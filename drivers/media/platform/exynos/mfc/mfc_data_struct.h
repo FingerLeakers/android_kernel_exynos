@@ -211,6 +211,7 @@ enum mfc_vb_flag {
 	MFC_FLAG_DISP_RES_CHANGE	= 7,
 	MFC_FLAG_UNCOMP			= 8,
 	MFC_FLAG_FRAMERATE_CH		= 9,
+	MFC_FLAG_ENC_SRC_UNCOMP		= 28,
 	MFC_FLAG_CSD			= 29,
 	MFC_FLAG_EMPTY_DATA		= 30,
 	MFC_FLAG_LAST_FRAME		= 31,
@@ -226,6 +227,12 @@ enum mfc_idle_mode {
 	MFC_IDLE_MODE_RUNNING	= 1,
 	MFC_IDLE_MODE_IDLE	= 2,
 	MFC_IDLE_MODE_CANCEL	= 3,
+};
+
+enum mfc_enc_src {
+	MFC_ENC_SRC_SBWC_NO	= 0,
+	MFC_ENC_SRC_SBWC_OFF	= 1,
+	MFC_ENC_SRC_SBWC_ON	= 2,
 };
 
 enum mfc_nal_q_stop_cause {
@@ -431,6 +438,7 @@ struct mfc_debugfs {
 #endif
 	struct dentry *debug_level;
 	struct dentry *debug_ts;
+	struct dentry *debug_mode_en;
 	struct dentry *dbg_enable;
 	struct dentry *nal_q_dump;
 	struct dentry *nal_q_disable;
@@ -611,6 +619,7 @@ struct mfc_platdata {
 	struct mfc_feature wait_fw_status;
 	struct mfc_feature wait_nalq_status;
 	struct mfc_feature drm_switch_predict;
+	struct mfc_feature sbwc_enc_src_ctrl;
 
 	/* Encoder default parameter */
 	unsigned int enc_param_num;
@@ -696,7 +705,9 @@ typedef struct __EncoderInputStr {
 	int WeightUpper;
 	int RcMode;
 	int St2094_40sei[30];
-} EncoderInputStr; /* 81*4 = 324 bytes */
+	int SourcePlaneStride[3];
+	int SourcePlane2BitStride[2];
+} EncoderInputStr; /* 86*4 = 344 bytes */
 
 typedef struct __DecoderOutputStr {
 	int StartCode; /* 0xAAAAAAAA; Decoder output structure marker */
@@ -915,7 +926,8 @@ struct mfc_dev {
 	struct mfc_debug	*logging_data;
 
 	int num_inst;
-	int num_otf_inst;
+
+	unsigned long otf_inst_bits;
 
 	struct mutex mfc_mutex;
 
@@ -1287,6 +1299,8 @@ struct mfc_enc_params {
 	u32 display_primaries_0;
 	u32 display_primaries_1;
 	u32 display_primaries_2;
+	u32 chroma_qp_offset_cb; /* H.264, HEVC */
+	u32 chroma_qp_offset_cr; /* H.264, HEVC */
 
 	union {
 		struct mfc_h264_enc_params h264;
@@ -1587,6 +1601,7 @@ struct mfc_enc {
 	unsigned int buf_full;
 
 	int sbwc_option;
+	struct mfc_fmt *uncomp_fmt;
 
 	int stored_tag;
 	int roi_index;

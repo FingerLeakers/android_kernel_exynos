@@ -61,6 +61,8 @@
 #include "cpif_clat_info.h"
 #include "cpif_tethering_info.h"
 
+extern int exynos_pcie_rc_lanechange(int ch_num, int lane);
+
 #ifdef CONFIG_MODEM_IF_LEGACY_QOS
 #include "cpif_qos_info.h"
 #endif
@@ -132,6 +134,7 @@ static struct modem_ctl *create_modemctl_device(struct platform_device *pdev,
 
 	INIT_LIST_HEAD(&modemctl->modem_state_notify_list);
 	spin_lock_init(&modemctl->lock);
+	spin_lock_init(&modemctl->pcie_lock);
 	init_completion(&modemctl->init_cmpl);
 	init_completion(&modemctl->off_cmpl);
 
@@ -1100,7 +1103,7 @@ static int cpif_probe(struct platform_device *pdev)
 		mif_err("failed to initialize hiprio list(%d)\n", err);
 #endif
 
-	err = mif_init_argos_notifier();
+	err = mif_init_argos_notifier(modemctl);
 	if (err < 0)
 		mif_err("failed to initialize argos_notifier(%d)\n", err);
 

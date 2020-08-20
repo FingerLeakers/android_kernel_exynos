@@ -999,6 +999,7 @@ int get_sensor_flag(struct is_sensor_interface *itf,
 	int ex_mode, ret = 0;
 	struct is_device_sensor *sensor = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
+	struct is_module_enum *module = NULL;
 
 	FIMC_BUG(!itf);
 	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
@@ -1015,14 +1016,24 @@ int get_sensor_flag(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
+	module = get_subdev_module_enum(itf);
+	if (!module) {
+		err("failed to get module enum");
+		return -ENODEV;
+	}
+
 	ex_mode = is_sensor_g_ex_mode(sensor);
 	if (ex_mode == EX_AEB) {
 		*stat_control_type = SENSOR_STAT_NOTHING;
 		*exposure_count = EXPOSURE_GAIN_COUNT_2;
 		*hdr_mode_type = SENSOR_HDR_MODE_2AEB;
 	} else if (sensor_peri->cis.cis_data->is_data.wdr_enable) {
-		if (ex_mode == EX_3DHDR) {
-			*stat_control_type = SENSOR_STAT_LSI_3DHDR;
+		if (ex_mode == EX_3DHDR || ex_mode == EX_SEAMLESS_TETRA) {
+			if (!strcmp(module->sensor_maker, "SLSI"))
+				*stat_control_type = SENSOR_STAT_LSI_3DHDR;
+			else if (!strcmp(module->sensor_maker, "SONY"))
+				*stat_control_type = SENSOR_STAT_IMX_3DHDR;
+
 			*exposure_count = EXPOSURE_GAIN_COUNT_3;
 			*hdr_mode_type = SENSOR_HDR_MODE_3HDR;
 		} else {
@@ -1055,10 +1066,17 @@ int set_sensor_stat_control_mode_change(struct is_sensor_interface *itf,
 
 	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
 
-	if (stat_control_type == SENSOR_STAT_LSI_3DHDR)
-		sensor_peri->cis.sensor_stats = stat_control;
-	else
-		sensor_peri->cis.sensor_stats = NULL;
+	if (stat_control_type == SENSOR_STAT_LSI_3DHDR) {
+		sensor_peri->cis.lsi_sensor_stats
+			= *(struct sensor_lsi_3hdr_stat_control_mode_change *)stat_control;
+		sensor_peri->cis.sensor_stats = true;
+	} else if (stat_control_type == SENSOR_STAT_IMX_3DHDR) {
+		sensor_peri->cis.imx_sensor_stats
+			= *(struct sensor_imx_3hdr_stat_control_mode_change *)stat_control;
+		sensor_peri->cis.sensor_stats = true;
+	} else {
+		sensor_peri->cis.sensor_stats = false;
+	}
 
 	dbg_sensor(1, "[%s] sensor stat control mode change %s\n", __func__,
 		sensor_peri->cis.sensor_stats ? "Enabled" : "Disabled");
@@ -1086,7 +1104,8 @@ int set_sensor_roi_control(struct is_sensor_interface *itf,
 		sensor_ctl = get_sensor_ctl_from_module(itf, frame_count + i);
 		BUG_ON(!sensor_ctl);
 
-		if (stat_control_type == SENSOR_STAT_LSI_3DHDR) {
+		if ((stat_control_type == SENSOR_STAT_LSI_3DHDR)
+			|| (stat_control_type == SENSOR_STAT_IMX_3DHDR)) {
 			sensor_ctl->roi_control = *(struct roi_setting_t *)roi_control;
 			sensor_ctl->update_roi = true;
 		} else {
@@ -1120,8 +1139,12 @@ int set_sensor_stat_control_per_frame(struct is_sensor_interface *itf,
 		BUG_ON(!sensor_ctl);
 
 		if (stat_control_type == SENSOR_STAT_LSI_3DHDR) {
-			sensor_ctl->stat_control
+			sensor_ctl->lsi_stat_control
 				= *(struct sensor_lsi_3hdr_stat_control_per_frame *)stat_control;
+			sensor_ctl->update_3hdr_stat = true;
+		} else if (stat_control_type == SENSOR_STAT_IMX_3DHDR) {
+			sensor_ctl->imx_stat_control
+				= *(struct sensor_imx_3hdr_stat_control_per_frame *)stat_control;
 			sensor_ctl->update_3hdr_stat = true;
 		} else {
 			sensor_ctl->update_3hdr_stat = false;
@@ -1129,6 +1152,97 @@ int set_sensor_stat_control_per_frame(struct is_sensor_interface *itf,
 	}
 
 	dbg_sensor(1, "[%s][F:%d]: %d\n", __func__, frame_count, sensor_ctl->update_3hdr_stat);
+
+	return 0;
+}
+
+int set_sensor_lsc_table_init(struct is_sensor_interface *itf,
+		enum is_sensor_stat_control stat_control_type,
+		void *lsc_table)
+{
+	struct is_device_sensor_peri *sensor_peri = NULL;
+
+	FIMC_BUG(!itf);
+	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
+	FIMC_BUG(!lsc_table);
+
+	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
+
+	if (stat_control_type == SENSOR_STAT_IMX_3DHDR) {
+		sensor_peri->cis.imx_lsc_table_3hdr = *(struct sensor_imx_3hdr_lsc_table_init *)lsc_table;
+		sensor_peri->cis.lsc_table_status = true;
+	} else {
+		sensor_peri->cis.lsc_table_status = false;
+	}
+
+	dbg_sensor(1, "[%s] sensor 3hdr lsc table %s\n", __func__,
+			sensor_peri->cis.lsc_table_status ? "Loaded" : "Unloaded");
+
+	return 0;
+}
+
+int set_sensor_tone_control(struct is_sensor_interface *itf,
+		enum is_sensor_stat_control stat_control_type,
+		void *tone_control)
+{
+	u32 frame_count = 0;
+	struct is_sensor_ctl *sensor_ctl = NULL;
+	u32 num_of_frame = 1;
+	u32 i = 0;
+
+	FIMC_BUG(!itf);
+	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
+	FIMC_BUG(!tone_control);
+
+	frame_count = get_frame_count(itf);
+	get_num_of_frame_per_one_3aa(itf, &num_of_frame);
+
+	for (i = 0; i < num_of_frame; i++) {
+		sensor_ctl = get_sensor_ctl_from_module(itf, frame_count + i);
+		BUG_ON(!sensor_ctl);
+
+		if (stat_control_type == SENSOR_STAT_IMX_3DHDR) {
+			sensor_ctl->imx_tone_control = *(struct sensor_imx_3hdr_tone_control *)tone_control;
+			sensor_ctl->update_tone = true;
+		} else {
+			sensor_ctl->update_tone = false;
+		}
+	}
+
+	dbg_sensor(1, "[%s][F:%d]: %d\n", __func__, frame_count, sensor_ctl->update_tone);
+
+	return 0;
+}
+
+int set_sensor_ev_control(struct is_sensor_interface *itf,
+		enum is_sensor_stat_control stat_control_type,
+		void *ev_control)
+{
+	u32 frame_count = 0;
+	struct is_sensor_ctl *sensor_ctl = NULL;
+	u32 num_of_frame = 1;
+	u32 i = 0;
+
+	FIMC_BUG(!itf);
+	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
+	FIMC_BUG(!ev_control);
+
+	frame_count = get_frame_count(itf);
+	get_num_of_frame_per_one_3aa(itf, &num_of_frame);
+
+	for (i = 0; i < num_of_frame; i++) {
+		sensor_ctl = get_sensor_ctl_from_module(itf, frame_count + i);
+		BUG_ON(!sensor_ctl);
+
+		if (stat_control_type == SENSOR_STAT_IMX_3DHDR) {
+			sensor_ctl->imx_ev_control = *(struct sensor_imx_3hdr_ev_control *)ev_control;
+			sensor_ctl->update_ev = true;
+		} else {
+			sensor_ctl->update_ev = false;
+		}
+	}
+
+	dbg_sensor(1, "[%s][F:%d]: %d\n", __func__, frame_count, sensor_ctl->update_ev);
 
 	return 0;
 }
@@ -1923,6 +2037,24 @@ int update_sensor_dynamic_meta(struct is_sensor_interface *itf,
 	udm->sensor.shortDigitalGain = sensor_peri->cis.expecting_sensor_udm[index].shortDigitalGain;
 	udm->sensor.midDigitalGain = sensor_peri->cis.expecting_sensor_udm[index].midDigitalGain;
 
+#ifdef USE_OIS_HALL_DATA_FOR_VDIS
+	/* update ois hall data */
+	dm->aa.vendor_oisHallData.readTimeStamp = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.readTimeStamp;
+	dm->aa.vendor_oisHallData.counter = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.counter;
+	dm->aa.vendor_oisHallData.X_AngVel[0] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.X_AngVel[0];
+	dm->aa.vendor_oisHallData.Y_AngVel[0] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Y_AngVel[0];
+	dm->aa.vendor_oisHallData.Z_AngVel[0] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Z_AngVel[0];
+	dm->aa.vendor_oisHallData.X_AngVel[1] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.X_AngVel[1];
+	dm->aa.vendor_oisHallData.Y_AngVel[1] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Y_AngVel[1];
+	dm->aa.vendor_oisHallData.Z_AngVel[1] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Z_AngVel[1];
+	dm->aa.vendor_oisHallData.X_AngVel[2] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.X_AngVel[2];
+	dm->aa.vendor_oisHallData.Y_AngVel[2] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Y_AngVel[2];
+	dm->aa.vendor_oisHallData.Z_AngVel[2] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Z_AngVel[2];
+	dm->aa.vendor_oisHallData.X_AngVel[3] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.X_AngVel[3];
+	dm->aa.vendor_oisHallData.Y_AngVel[3] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Y_AngVel[3];
+	dm->aa.vendor_oisHallData.Z_AngVel[3] = sensor_peri->cis.expecting_aa_dm[index].vendor_oisHallData.Z_AngVel[3];
+#endif
+
 	dbg_sensor(1, "[%s] (F:%d): expo(%lld), duration(%lld), sensitivity(%d), rollingShutterSkew(%lld)\n",
 		__func__, frame_count,
 		dm->sensor.exposureTime,
@@ -1991,6 +2123,11 @@ int copy_sensor_ctl(struct is_sensor_interface *itf,
 			sensor_peri->ois->coef = (u8)shot->uctl.lensUd.oisCoefVal;
 		}
 #endif
+		if (sensor_peri->laser_af) {
+			sensor_peri->laser_af->rs_mode = shot->uctl.isModeUd.range_sensor_mode;
+		}
+
+		cis_data->is_data.scene_mode = shot->ctl.aa.sceneMode;
 		cis_data->video_mode = shot->ctl.aa.vendor_videoMode;
 
 		if (shot->uctl.isModeUd.wdr_mode == CAMERA_WDR_ON ||
@@ -2179,6 +2316,27 @@ int get_initial_exposure_gain_of_sensor(struct is_sensor_interface *itf,
 		(num_data == 3) ? dgain[EXPOSURE_GAIN_MIDDLE] : 0);
 
 	return 0;
+}
+
+u32 get_sensor_frameid(struct is_sensor_interface *itf, u32 *frameid)
+{
+	u32 ret = 0;
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	cis_shared_data *cis_data = NULL;
+
+	FIMC_BUG(!itf);
+	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
+
+	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
+	FIMC_BUG(!sensor_peri);
+
+	cis_data = sensor_peri->cis.cis_data;
+	FIMC_BUG(!cis_data);
+
+	dbg_sensor(1, "[%s] sen_frame_id(%d)\n", __func__, cis_data->sen_frame_id);
+	*frameid = cis_data->sen_frame_id;
+
+	return ret;
 }
 
 u32 set_adjust_sync(struct is_sensor_interface *itf, u32 setsync)
@@ -2738,10 +2896,11 @@ int get_vc_dma_buf(struct is_sensor_interface *itf,
 	struct is_device_csi *csi;
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
-	struct is_subdev *subdev;
+	struct is_subdev *subdev = NULL;
 	unsigned long flags;
 	int ret;
 	int ch;
+	int vc_type;
 
 	WARN_ON(!buf_addr);
 	WARN_ON(!buf_index);
@@ -2765,50 +2924,55 @@ int get_vc_dma_buf(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
-	subdev = &ischain->pdst;
-	if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
-		csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+	/* converting stat type used at RTA to Driver */
+	switch (request_data_type) {
+	case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+		vc_type = VC_TAILPDAF;
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == VC_EMBEDDED2) {
+				vc_type = VC_EMBEDDED2;
+				break;
+			}
+		}
+		break;
+	case VC_BUF_DATA_TYPE_SENSOR_STAT2:
+		vc_type = VC_EMBEDDED;
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+		vc_type = VC_PRIVATE;
+		subdev = &ischain->pdst; /* This is supported after PDP v1.0.0 */
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+		vc_type = VC_MIPISTAT;
+		subdev = &ischain->pdst; /* This is supported after PDP v1.0.0 */
+		break;
+	default:
+		err("invalid data type(%d)", request_data_type);
+		return -EINVAL;
+	}
 
-		switch (request_data_type) {
-		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_TAILPDAF)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_SENSOR_STAT2:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_EMBEDDED)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_PRIVATE)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT2:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_MIPISTAT)
-					break;
-			}
-			break;
-		default:
-			err("invalid data type(%d)", request_data_type);
-			return -EINVAL;
+	if (!subdev || !test_bit(IS_SUBDEV_START, &subdev->state)) {
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == vc_type)
+				break;
 		}
 
 		if (ch == CSI_VIRTUAL_CH_MAX) {
-			err("requested stat. type(%d) is not supported with current config",
-									request_data_type);
+			merr("requested stat. type(%d) is not supported with current config",
+								sensor, request_data_type);
 			return -EINVAL;
+		}
+
+		csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+		if (!csi) {
+			merr("failed to get csi device", sensor);
+			return -ENODEV;
 		}
 
 		subdev = csi->dma_subdev[ch];
 	}
 
-	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
+	framemgr = GET_SUBDEV_I_FRAMEMGR(subdev);
 	if (!framemgr) {
 		err("failed to get framemgr");
 		return -ENXIO;
@@ -2864,9 +3028,10 @@ int put_vc_dma_buf(struct is_sensor_interface *itf,
 	struct is_device_csi *csi;
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
-	struct is_subdev *subdev;
+	struct is_subdev *subdev = NULL;
 	unsigned long flags;
 	int ch;
+	int vc_type;
 
 	sensor = get_device_sensor(itf);
 	if (!sensor) {
@@ -2880,50 +3045,55 @@ int put_vc_dma_buf(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
-	subdev = &ischain->pdst;
-	if (!test_bit(IS_SUBDEV_START, &subdev->state)) {
-		csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+	/* converting stat type used at RTA to Driver */
+	switch (request_data_type) {
+	case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+		vc_type = VC_TAILPDAF;
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == VC_EMBEDDED2) {
+				vc_type = VC_EMBEDDED2;
+				break;
+			}
+		}
+		break;
+	case VC_BUF_DATA_TYPE_SENSOR_STAT2:
+		vc_type = VC_EMBEDDED;
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+		vc_type = VC_PRIVATE;
+		subdev = &ischain->pdst; /* This is supported after PDP v1.0.0 */
+		break;
+	case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+		vc_type = VC_MIPISTAT;
+		subdev = &ischain->pdst; /* This is supported after PDP v1.0.0 */
+		break;
+	default:
+		err("invalid data type(%d)", request_data_type);
+		return -EINVAL;
+	}
 
-		switch (request_data_type) {
-		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_TAILPDAF)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_SENSOR_STAT2:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_EMBEDDED)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_PRIVATE)
-					break;
-			}
-			break;
-		case VC_BUF_DATA_TYPE_GENERAL_STAT2:
-			for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
-				if (sensor->cfg->output[ch].type == VC_MIPISTAT)
-					break;
-			}
-			break;
-		default:
-			err("invalid data type(%d)", request_data_type);
-			return -EINVAL;
+	if (!subdev || !test_bit(IS_SUBDEV_START, &subdev->state)) {
+		for (ch = CSI_VIRTUAL_CH_1; ch < CSI_VIRTUAL_CH_MAX; ch++) {
+			if (sensor->cfg->output[ch].type == vc_type)
+				break;
 		}
 
 		if (ch == CSI_VIRTUAL_CH_MAX) {
-			err("requested stat. type(%d) is not supported with current config",
-									request_data_type);
+			merr("requested stat. type(%d) is not supported with current config",
+								sensor, request_data_type);
 			return -EINVAL;
+		}
+
+		csi = (struct is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+		if (!csi) {
+			merr("failed to get csi device", sensor);
+			return -ENODEV;
 		}
 
 		subdev = csi->dma_subdev[ch];
 	}
 
-	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
+	framemgr = GET_SUBDEV_I_FRAMEMGR(subdev);
 	if (!framemgr) {
 		mserr("failed to get framemgr", subdev, subdev);
 		return -ENXIO;
@@ -3160,6 +3330,27 @@ int set_lte_multi_capture_mode(struct is_sensor_interface *itf, bool lte_multi_c
 	return 0;
 }
 
+int set_aeb_mode(struct is_sensor_interface *itf, u32 mode)
+{
+	struct is_device_sensor_peri *sensor_peri = NULL;
+	cis_shared_data *cis_data = NULL;
+
+	WARN_ON(!itf);
+	WARN_ON(itf->magic != SENSOR_INTERFACE_MAGIC);
+
+	sensor_peri = container_of(itf, struct is_device_sensor_peri, sensor_interface);
+	WARN_ON(!sensor_peri);
+
+	cis_data = sensor_peri->cis.cis_data;
+	WARN_ON(!cis_data);
+
+	cis_data->cur_aeb_mode = mode;
+
+	dbg_sensor(1, "[%s] aeb_mode(%d)\n", __func__, mode);
+
+	return 0;
+}
+
 int set_low_noise_mode(struct is_sensor_interface *itf, u32 mode)
 {
 	struct is_device_sensor_peri *sensor_peri = NULL;
@@ -3191,6 +3382,7 @@ int get_sensor_max_dynamic_fps(struct is_sensor_interface *itf,
 	int ret = 0;
 	struct is_device_sensor *sensor = NULL;
 	u32 ex_mode;
+	struct is_device_csi *csi;
 
 	FIMC_BUG(!itf);
 	FIMC_BUG(!max_dynamic_fps);
@@ -3201,13 +3393,20 @@ int get_sensor_max_dynamic_fps(struct is_sensor_interface *itf,
 		return -ENODEV;
 	}
 
+	csi = get_subdev_csi(itf);
+	FIMC_BUG(!csi);
+
 	ex_mode = is_sensor_g_ex_mode(sensor);
-	if (ex_mode == EX_DUALFPS_960)
-		*max_dynamic_fps = 960;
-	else if (ex_mode == EX_DUALFPS_480)
+	if (ex_mode == EX_DUALFPS_960) {
+		if (csi->dma_batch_num < 16)
+			*max_dynamic_fps = 480;
+		else
+			*max_dynamic_fps = 960;
+	} else if (ex_mode == EX_DUALFPS_480) {
 		*max_dynamic_fps = 480;
-	else
+	} else {
 		*max_dynamic_fps = 0;
+	}
 
 	return ret;
 }
@@ -3560,7 +3759,7 @@ int paf_reserved(struct is_sensor_interface *itf)
 }
 
 #if !defined(DISABLE_LASER_AF)
-int get_distance(struct is_sensor_interface *itf, u32 *distance_mm, u32 *confidence)
+int set_laser_active(struct is_sensor_interface *itf, bool is_active)
 {
 	struct is_device_sensor_peri *sensor_peri;
 	struct is_laser_af *laser_af;
@@ -3586,8 +3785,41 @@ int get_distance(struct is_sensor_interface *itf, u32 *distance_mm, u32 *confide
 		return -ENODEV;
 	}
 
-	ret = CALL_LASEROPS(sensor_peri->laser_af, get_distance_info, sensor_peri->subdev_laser_af,
-			distance_mm, confidence);
+	ret = CALL_LASEROPS(laser_af, set_active, sensor_peri->subdev_laser_af, is_active);
+	if (ret)
+		err("failed to set_active %d", is_active);
+
+	return ret;
+}
+
+int get_laser_distance(struct is_sensor_interface *itf, void *data, u32 *size)
+{
+	struct is_device_sensor_peri *sensor_peri;
+	struct is_laser_af *laser_af;
+	int ret;
+
+	if (!itf) {
+		err("invalid sensor interface");
+		return -EINVAL;
+	}
+
+	FIMC_BUG(itf->magic != SENSOR_INTERFACE_MAGIC);
+
+	sensor_peri = container_of(itf, struct is_device_sensor_peri,
+			sensor_interface);
+	if (!sensor_peri) {
+		err("failed to get sensor_peri");
+		return -ENODEV;
+	}
+
+	laser_af = sensor_peri->laser_af;
+	if (!laser_af) {
+		err("failed to get laser_af");
+		return -ENODEV;
+	}
+
+	ret = CALL_LASEROPS(laser_af, get_distance, sensor_peri->subdev_laser_af,
+			data, size);
 	if (ret)
 		err("INVALID_LASER_DISTANCE");
 
@@ -3834,6 +4066,7 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	itf->cis_itf_ops.get_module_position = get_module_position;
 	itf->cis_itf_ops.set_sensor_3a_mode = set_sensor_3a_mode;
 	itf->cis_itf_ops.get_initial_exposure_gain_of_sensor = get_initial_exposure_gain_of_sensor;
+	itf->cis_itf_ops.get_sensor_frameid = get_sensor_frameid;
 	itf->cis_ext_itf_ops.change_cis_mode = change_cis_mode;
 
 	/* struct is_cis_event_ops */
@@ -3874,7 +4107,8 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	itf->paf_itf_ops.reserved[0] = paf_reserved;
 
 #if !defined(DISABLE_LASER_AF)
-	itf->laser_af_itf_ops.get_distance = get_distance;
+	itf->laser_af_itf_ops.set_active = set_laser_active;
+	itf->laser_af_itf_ops.get_distance = get_laser_distance;
 #endif
 
 #ifdef USE_TOF_AF
@@ -3904,6 +4138,7 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	itf->cis_ext2_itf_ops.get_static_mem = get_static_mem;
 	itf->cis_ext2_itf_ops.get_open_close_hint = get_open_close_hint;
 	itf->cis_ext2_itf_ops.set_mainflash_duration = set_mainflash_duration;
+	itf->cis_ext2_itf_ops.set_aeb_mode = set_aeb_mode;
 	itf->cis_ext_itf_ops.set_adjust_sync = set_adjust_sync;
 	itf->cis_ext_itf_ops.request_frame_length_line = request_frame_length_line;
 	itf->cis_ext_itf_ops.request_sensitivity = request_sensitivity;
@@ -3911,6 +4146,11 @@ int init_sensor_interface(struct is_sensor_interface *itf)
 	itf->cis_ext_itf_ops.set_sensor_stat_control_mode_change = set_sensor_stat_control_mode_change;
 	itf->cis_ext_itf_ops.set_sensor_roi_control = set_sensor_roi_control;
 	itf->cis_ext_itf_ops.set_sensor_stat_control_per_frame = set_sensor_stat_control_per_frame;
+#ifdef SUPPORT_SENSOR_SEAMLESS_3HDR
+	itf->cis_ext_itf_ops.set_sensor_lsc_table_init = set_sensor_lsc_table_init;
+	itf->cis_ext_itf_ops.set_sensor_tone_control = set_sensor_tone_control;
+	itf->cis_ext_itf_ops.set_sensor_ev_control = set_sensor_ev_control;
+#endif
 
 	/* Sensor dual sceanrio interface */
 	itf->dual_itf_ops.get_sensor_state = get_sensor_state;

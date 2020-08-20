@@ -2057,6 +2057,125 @@ u32 is_scaler_get_lfro_mode_status(void __iomem *base_addr, u32 hw_id)
 	return 0;
 }
 
+/* for Strip */
+u32 is_scaler_get_djag_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_djag_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	/* not support */
+}
+
+u32 is_scaler_get_djag_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_djag_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable, u32 pre_dst_h, u32 start_pos_h)
+{
+	/* not support */
+}
+
+void is_scaler_set_djag_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	/* not support */
+}
+
+void is_scaler_get_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	/* not support */
+}
+
+void is_scaler_set_djag_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	/* not support */
+}
+
+u32 is_scaler_get_poly_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_poly_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	/* not support */
+}
+
+void is_scaler_get_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	/* not support */
+}
+
+void is_scaler_set_poly_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	/* not support */
+}
+
+u32 is_scaler_get_poly_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_poly_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	/* not support */
+}
+
+void is_scaler_get_poly_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height)
+{
+	/* not support */
+}
+
+void is_scaler_set_poly_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	/* not support */
+}
+
+u32 is_scaler_get_post_strip_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_post_strip_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	/* not support */
+}
+
+void is_scaler_get_post_strip_config(void __iomem *base_addr, u32 output_id, u32 *pre_dst_h, u32 *start_pos_h)
+{
+	/* not support */
+}
+
+void is_scaler_set_post_strip_config(void __iomem *base_addr, u32 output_id, u32 pre_dst_h, u32 start_pos_h)
+{
+	/* not support */
+}
+
+u32 is_scaler_get_post_out_crop_enable(void __iomem *base_addr, u32 output_id)
+{
+	/* not support */
+}
+
+void is_scaler_set_post_out_crop_enable(void __iomem *base_addr, u32 output_id, u32 enable)
+{
+	/* not support */
+}
+
+void is_scaler_get_post_out_crop_size(void __iomem *base_addr, u32 output_id, u32 *width, u32 *height)
+{
+	/* not support */
+}
+
+void is_scaler_set_post_out_crop_size(void __iomem *base_addr, u32 output_id,
+	u32 pos_x, u32 pos_y, u32 width, u32 height)
+{
+	/* not support */
+}
+
 static void is_scaler0_clear_intr_src(void __iomem *base_addr, u32 status)
 {
 	if (status & (1 << INTR_MC_SCALER_OVERFLOW))

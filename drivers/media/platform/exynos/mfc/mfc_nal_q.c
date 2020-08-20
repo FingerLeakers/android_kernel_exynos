@@ -771,6 +771,7 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 	dma_addr_t src_addr[3] = {0, 0, 0};
 	dma_addr_t addr_2bit[2] = {0, 0};
 	unsigned int index, i;
+	int is_uncomp = 0;
 
 	mfc_debug_enter();
 
@@ -862,6 +863,34 @@ static int __mfc_nal_q_run_in_buf_enc(struct mfc_ctx *ctx, EncoderInputStr *pInS
 			pInStr->Frame2bitAddr[i] = addr_2bit[i];
 			mfc_debug(2, "[NALQ][BUFINFO][SBWC] ctx[%d] set src index:%d, 2bit addr[%d]: 0x%08llx\n",
 					ctx->num, index, i, addr_2bit[i]);
+		}
+	}
+
+	/* Support per-frame SBWC change for encoder source */
+	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->sbwc_enc_src_ctrl)
+			&& ctx->is_sbwc) {
+		pInStr->ParamChange &= ~(0xf << 14);
+
+		if (mfc_check_vb_flag(src_mb, MFC_FLAG_ENC_SRC_UNCOMP)) {
+			mfc_debug(2, "[NALQ][SBWC] src is uncomp\n");
+			is_uncomp = 1;
+			pInStr->ParamChange |= (MFC_ENC_SRC_SBWC_OFF << 14);
+		} else {
+			is_uncomp = 0;
+			pInStr->ParamChange |= (MFC_ENC_SRC_SBWC_ON << 14);
+		}
+
+		mfc_set_linear_stride_size(ctx, (is_uncomp ? enc->uncomp_fmt : ctx->src_fmt));
+
+		for (i = 0; i < raw->num_planes; i++) {
+			pInStr->SourcePlaneStride[i] = raw->stride[i];
+			mfc_debug(2, "[NALQ][FRAME] enc src plane[%d] stride: %d\n",
+					i, raw->stride[i]);
+			if (!is_uncomp) {
+				pInStr->SourcePlane2BitStride[i] = raw->stride_2bits[i];
+				mfc_debug(2, "[NALQ][FRAME] enc src plane[%d] 2bit stride: %d\n",
+						i, raw->stride_2bits[i]);
+			}
 		}
 	}
 
@@ -1707,7 +1736,9 @@ static void __mfc_nal_q_handle_frame_output(struct mfc_ctx *ctx, unsigned int er
 	}
 
 	/* Dequeued display buffer for user */
-	if (!IS_NO_DISPLAY(ctx, err))
+	if (IS_NO_DISPLAY(ctx, err))
+		__mfc_nal_q_handle_reuse_buffer(ctx, pOutStr);
+	else
 		__mfc_nal_q_handle_frame_output_del(ctx, pOutStr, err);
 
 	mfc_debug_leave();

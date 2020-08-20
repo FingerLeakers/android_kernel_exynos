@@ -440,6 +440,7 @@ static int muic_usb_handle_notification(struct notifier_block *nb,
 			pr_err("%s - ACTION Error!\n", __func__);
 		break;
 	default:
+		send_otg_notify(o_notify, NOTIFY_EVENT_USB_CABLE, 0);
 		break;
 	}
 #else
@@ -690,13 +691,13 @@ static int usb_set_chg_current(int state)
 	pr_info("usb : charing current set = %d\n", state);
 
 	switch (state) {
-	case NOTIFY_SUSPEND:
+	case NOTIFY_USB_SUSPENDED:
 		val.intval = USB_CURRENT_SUSPENDED;
 		break;
-	case NOTIFY_UNCONFIGURE:
+	case NOTIFY_USB_UNCONFIGURED:
 		val.intval = USB_CURRENT_UNCONFIGURED;
 		break;
-	case NOTIFY_CONFIGURE:
+	case NOTIFY_USB_CONFIGURED:
 		val.intval = USB_CURRENT_HIGH_SPEED;
 		break;
 	default:

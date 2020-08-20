@@ -330,12 +330,108 @@ static void put_vs4l_container64(struct vs4l_container_list *kp, struct vs4l_con
 	kp->containers = NULL;
 }
 
+static int get_vs4l_profiler(struct vs4l_profiler *kp, struct vs4l_profiler __user *up)
+{
+	int ret;
+	size_t size;
+	struct vs4l_profiler_node *kprofiler_node;
+
+	if (!access_ok(VERIFY_READ, up, sizeof(struct vs4l_profiler))) {
+		vision_err("access failed from user ptr(%pK)\n", up);
+		ret = -EFAULT;
+		goto p_err;
+	}
+
+	ret = copy_from_user(kp, (void __user *)up, sizeof(struct vs4l_profiler));
+	if (ret) {
+		vision_err("copy_from_user failed(%d) from %pK\n", ret, up);
+		goto p_err;
+	}
+
+	if (kp->node != NULL) {
+		size = sizeof(struct vs4l_profiler_node);
+		if (!access_ok(VERIFY_READ, (void __user *)kp->node, size)) {
+			vision_err("access to profiler node ptr failed (%pK)\n",
+					kp->node);
+			ret = -EFAULT;
+			goto p_err;
+		}
+
+		kprofiler_node = kzalloc(size, GFP_KERNEL);
+		if (!kprofiler_node) {
+			ret = -ENOMEM;
+			goto p_err_profiler_node;
+		}
+
+		ret = copy_from_user(kprofiler_node, (void __user *)kp->node, size);
+		if (ret) {
+			vision_err("error from copy_from_user(%d), size(%zu) about profiler\n", ret, size);
+			ret = -EFAULT;
+			goto p_err_profiler_node;
+		}
+		kp->node = kprofiler_node;
+	}
+
+	return ret;
+
+p_err_profiler_node:
+	kfree(kprofiler_node);
+	kp->node = NULL;
+
+p_err:
+	vision_err("Return with fail... (%d)\n", ret);
+	return ret;
+}
+
+static int put_vs4l_profiler(struct vs4l_profiler *kp, struct vs4l_profiler __user *up)
+{
+	int ret;
+	size_t size;
+	struct vs4l_profiler temp;
+
+	if (!access_ok(VERIFY_READ, up, sizeof(struct vs4l_profiler))) {
+		vision_err("access failed from user ptr(%pK)\n", up);
+		ret = -EFAULT;
+		goto p_err;
+	}
+
+	ret = copy_from_user(&temp, (void __user *)up, sizeof(struct vs4l_profiler));
+	if (ret) {
+		vision_err("copy_from_user failed(%d) from %pK\n", ret, up);
+		goto p_err;
+	}
+
+	if (kp->node != NULL) {
+		size = sizeof(struct vs4l_profiler_node);
+		if (!access_ok(VERIFY_READ, (void __user *)temp.node, size)) {
+			vision_err("access to profiler node ptr failed (%pK)\n",
+					temp.node);
+			ret = -EFAULT;
+			goto p_err;
+		}
+
+		// copy to user - Firmware duration
+		put_user(kp->node->duration, &temp.node->duration);
+
+		kfree(kp->node);
+		kp->node = NULL;
+	}
+
+	return ret;
+
+p_err:
+	vision_err("Return with fail... (%d)\n", ret);
+	return ret;
+}
+
 long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	static s64 buf_time = 0;
 	s64 now;
 	int get_time = 0;
 	int ret = 0;
+	static int p_flag = 0;
+	static int duration = 0;
 	struct vision_device *vdev = vision_devdata(file);
 	const struct vertex_ioctl_ops *ops = vdev->ioctl_ops;
 
@@ -347,6 +443,7 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct vs4l_ctrl vsc;
 		struct vs4l_sched_param vsprm;
 		struct vs4l_container_list vscl;
+		struct vs4l_profiler vspr;
 	} vs4l_kvar;
 
 	now = ktime_to_ns(ktime_get_boottime());
@@ -436,6 +533,8 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				vs4l_kvar.vscl.timestamp[0].tv_usec)
 			buf_time = now;
 
+		vs4l_kvar.vscl.timestamp[5].tv_sec = p_flag;
+		vs4l_kvar.vscl.timestamp[5].tv_usec = duration;
 		ret = ops->vertexioc_qbuf(file, &vs4l_kvar.vscl);
 		if (ret)
 			vision_err("vertexioc_qbuf failed(%d)\n", ret);
@@ -462,6 +561,7 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (get_time) {
 			now = ktime_to_ns(ktime_get_boottime());
 			vdev->tpf = now - buf_time;
+			duration = vs4l_kvar.vscl.timestamp[5].tv_usec;
 			get_time = 0;
 		}
 		break;
@@ -503,6 +603,38 @@ long vertex_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		put_vs4l_sched_param64(&vs4l_kvar.vsprm,
 				(struct vs4l_sched_param __user *)arg);
+		break;
+	case VS4L_VERTEXIOC_PROFILE_ON:
+		ret = get_vs4l_profiler(&vs4l_kvar.vspr,
+				(struct vs4l_profiler __user *)arg);
+		p_flag = vs4l_kvar.vspr.level;
+		duration = 0;
+
+		if (ret)
+			break;
+		ret = ops->vertexioc_profileon(file, &vs4l_kvar.vspr);
+		if (ret)
+			vision_err("vertexioc_profileon failed(%d)\n", ret);
+		ret = put_vs4l_profiler(&vs4l_kvar.vspr,
+				(struct vs4l_profiler __user *)arg);
+		if (ret)
+			break;
+		break;
+	case VS4L_VERTEXIOC_PROFILE_OFF:
+		ret = get_vs4l_profiler(&vs4l_kvar.vspr,
+				(struct vs4l_profiler __user *)arg);
+		if (ret)
+			break;
+		ret = ops->vertexioc_profileoff(file, &vs4l_kvar.vspr);
+		if (ret)
+			vision_err("vertexioc_profileoff failed(%d)\n", ret);
+
+		vs4l_kvar.vspr.node->duration = duration;
+		ret = put_vs4l_profiler(&vs4l_kvar.vspr,
+				(struct vs4l_profiler __user *)arg);
+		p_flag = 0;
+		if (ret)
+			break;
 		break;
 	default:
 		vision_err("ioctl(%u) is not supported(usr arg: %lx)\n",

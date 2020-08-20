@@ -511,6 +511,13 @@ void mmc_cleanup_queue(struct mmc_queue *mq)
 {
 	struct request_queue *q = mq->queue;
 
+#ifdef CONFIG_LARGE_DIRTY_BUFFER
+	/* Restore bdi min/max ratio before device removal */
+	/* Should proceed before blk_cleanup_queue */
+	bdi_set_min_ratio(q->backing_dev_info, 0);
+	bdi_set_max_ratio(q->backing_dev_info, 100);
+#endif
+
 	/*
 	 * The legacy code handled the possibility of being suspended,
 	 * so do that here too.
@@ -521,12 +528,6 @@ void mmc_cleanup_queue(struct mmc_queue *mq)
 	blk_cleanup_queue(q);
 	blk_mq_free_tag_set(&mq->tag_set);
 
-#ifdef CONFIG_LARGE_DIRTY_BUFFER
-	/* Restore bdi min/max ratio before device removal */
-	bdi_set_min_ratio(q->backing_dev_info, 0);
-	bdi_set_max_ratio(q->backing_dev_info, 100);
-#endif
-			
 	/*
 	 * A request can be completed before the next request, potentially
 	 * leaving a complete_work with nothing to do. Such a work item might

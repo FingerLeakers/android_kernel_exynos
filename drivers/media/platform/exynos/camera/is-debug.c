@@ -640,55 +640,72 @@ int is_debug_dma_dump(struct is_queue *queue, u32 index, u32 vid, u32 type)
 	int ret = 0;
 	u32 flags = 0;
 	int total_size = 0;
-	u32 framecount = 0;
 	char *filename;
 	struct vb2_buffer *buf;
 	struct is_binary bin;
+	struct is_frame *frame = &queue->framemgr.frames[index];
+	u32 region_id = 0;
 	buf = queue->vbq->bufs[index];
-	framecount = queue->framemgr.frames[index].fcount;
 
 #ifdef DBG_DMA_DUMP_VID_COND
 	if (!DBG_DMA_DUMP_VID_COND(vid))
 		return 0;
 #endif
 	/* manipulateed the count for dump */
-	if (((framecount - 1) % DBG_DMA_DUMP_INTEVAL) != 0)
+	if (((frame->fcount- 1) % DBG_DMA_DUMP_INTEVAL) != 0)
 		return 0;
 
 	switch (type) {
 	case DBG_DMA_DUMP_IMAGE:
-		filename = __getname();
+		/* Dump each region */
+		do {
+			filename = __getname();
+			if (unlikely(!filename))
+				return -ENOMEM;
 
-		if (unlikely(!filename))
-			return -ENOMEM;
+			snprintf(filename, PATH_MAX, "%s/V%02d_F%08d_I%02d_R%d.raw",
+					DBG_DMA_DUMP_PATH, vid, frame->fcount, index, region_id);
 
-		snprintf(filename, PATH_MAX, "%s/V%02d_F%08d_I%02d.raw",
-				DBG_DMA_DUMP_PATH, vid, framecount, index);
+			/* Dump each plane */
+			for (i = 0; i < (buf->num_planes - 1); i++) {
+				if (frame->stripe_info.region_num) {
+					bin.data = (void *)frame->stripe_info.kva[region_id][i];
+					bin.size = frame->stripe_info.size[region_id][i];
+				} else {
+					bin.data = (void *)queue->buf_kva[index][i];
+					bin.size = queue->framecfg.size[i];
+				}
 
-		for (i = 0; i < (buf->num_planes - 1); i++) {
-			bin.data = (void *)queue->buf_kva[index][i];
-			bin.size = queue->framecfg.size[i];
+				if (!bin.data) {
+					err("[V%d][F%d][I%d][R%d] kva is NULL\n",
+							vid, frame->fcount, index, region_id);
+					__putname(filename);
+					return -EINVAL;
+				}
 
-			if (!i) {
-				/* first plane for image */
-				flags = O_TRUNC | O_CREAT | O_EXCL | O_WRONLY | O_APPEND;
-				total_size += bin.size;
-			} else {
-				/* after first plane for image */
-				flags = O_WRONLY | O_APPEND;
-				total_size += bin.size;
+				if (!i) {
+					/* first plane for image */
+					flags = O_TRUNC | O_CREAT | O_EXCL | O_WRONLY | O_APPEND;
+					total_size += bin.size;
+				} else {
+					/* after first plane for image */
+					flags = O_WRONLY | O_APPEND;
+					total_size += bin.size;
+				}
+
+				ret = put_filesystem_binary(filename, &bin, flags);
+				if (ret) {
+					err("failed to dump %s (%d)", filename, ret);
+					__putname(filename);
+					return -EINVAL;
+				}
 			}
 
-			ret = put_filesystem_binary(filename, &bin, flags);
-			if (ret) {
-				err("failed to dump %s (%d)", filename, ret);
-				__putname(filename);
-				return -EINVAL;
-			}
-		}
+			info("[V%d][F%d][I%d][R%d] img dumped..(%s, %d)\n",
+					vid, frame->fcount, index, region_id, filename, total_size);
 
-		info("[V%d][F%d] img dumped..(%s, %d)\n", vid, framecount, filename, total_size);
-		__putname(filename);
+			__putname(filename);
+		} while (++region_id < frame->stripe_info.region_num);
 
 		break;
 	case DBG_DMA_DUMP_META:
@@ -698,7 +715,7 @@ int is_debug_dma_dump(struct is_queue *queue, u32 index, u32 vid, u32 type)
 			return -ENOMEM;
 
 		snprintf(filename, PATH_MAX, "%s/V%02d_F%08d_I%02d.meta",
-				DBG_DMA_DUMP_PATH, vid, framecount, index);
+				DBG_DMA_DUMP_PATH, vid, frame->fcount, index);
 
 		bin.data = (void *)queue->buf_kva[index][buf->num_planes - 1];
 		bin.size = queue->framecfg.size[buf->num_planes - 1];
@@ -714,7 +731,7 @@ int is_debug_dma_dump(struct is_queue *queue, u32 index, u32 vid, u32 type)
 			return -EINVAL;
 		}
 
-		info("[V%d][F%d] meta dumped..(%s, %d)\n", vid, framecount, filename, total_size);
+		info("[V%d][F%d] meta dumped..(%s, %d)\n", vid, frame->fcount, filename, total_size);
 		__putname(filename);
 
 		break;

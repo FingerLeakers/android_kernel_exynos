@@ -275,9 +275,6 @@ int is_itf_close_wrap(struct is_device_ischain *device)
 
 	atomic_dec(&hardware->rsccount);
 
-	if (rsccount == 1)
-		check_lib_memory_leak();
-
 	info("%s: done: hw_map[0x%lx][RSC:%d]\n", __func__,
 		hardware->hw_map[instance], atomic_read(&hardware->rsccount));
 
@@ -458,7 +455,7 @@ int is_itf_process_off_wrap(struct is_device_ischain *device, u32 group,
 	return ret;
 }
 
-void is_itf_sudden_stop_wrap(struct is_device_ischain *device, u32 instance)
+void is_itf_sudden_stop_wrap(struct is_device_ischain *device, u32 instance, struct is_group *group)
 {
 	int ret = 0;
 	struct is_device_sensor *sensor;
@@ -482,6 +479,18 @@ void is_itf_sudden_stop_wrap(struct is_device_ischain *device, u32 instance)
 			merr("is_sensor_front_stop is fail(%d)", sensor, ret);
 	}
 
+	if (group) {
+		if (test_bit(IS_GROUP_FORCE_STOP, &group->state)) {
+			ret = is_itf_force_stop(device, GROUP_ID(group->id));
+			if (ret)
+				mgerr(" is_itf_force_stop is fail(%d)", device, group, ret);
+		} else {
+			ret = is_itf_process_stop(device, GROUP_ID(group->id));
+			if (ret)
+				mgerr(" is_itf_process_stop is fail(%d)", device, group, ret);
+		}
+	}
+
 	return;
 }
 
@@ -501,7 +510,7 @@ int __nocfi is_itf_power_down_wrap(struct is_interface *interface, u32 instance)
 		return ret;
 	}
 
-	is_itf_sudden_stop_wrap(&core->ischain[instance], instance);
+	is_itf_sudden_stop_wrap(&core->ischain[instance], instance, NULL);
 
 #ifdef USE_DDK_SHUT_DOWN_FUNC
 #ifdef ENABLE_FPSIMD_FOR_USER
@@ -512,6 +521,8 @@ int __nocfi is_itf_power_down_wrap(struct is_interface *interface, u32 instance)
 	((ddk_shut_down_func_t)DDK_SHUT_DOWN_FUNC_ADDR)(data);
 #endif
 #endif
+
+	check_lib_memory_leak();
 
 	return ret;
 }

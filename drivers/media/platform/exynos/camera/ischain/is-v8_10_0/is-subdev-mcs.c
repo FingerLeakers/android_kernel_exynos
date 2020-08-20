@@ -98,6 +98,8 @@ void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
 	} else {
 		/* Right region */
 		stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+		frame->stripe_info.in.prev_h_pix_num = frame->stripe_info.in.h_pix_num;
+		frame->stripe_info.in.h_pix_num += stripe_w;
 	}
 
 	stripe_w += STRIPE_MARGIN_WIDTH;
@@ -202,6 +204,9 @@ static int is_ischain_mcs_cfg(struct is_subdev *leader,
 	input->otf_format = OTF_INPUT_FORMAT_YUV422;
 	input->otf_bitwidth = OTF_INPUT_BIT_WIDTH_8BIT;
 	input->otf_order = OTF_INPUT_ORDER_BAYER_GR_BG;
+	input->stripe_total_count = (frame) ? frame->stripe_info.region_num : 0;
+	input->stripe_region_index = (frame) ? frame->stripe_info.region_id : 0;
+	input->full_input_width = incrop->w;
 
 	*lindex |= LOWBIT_OF(PARAM_MCS_INPUT);
 	*hindex |= HIGHBIT_OF(PARAM_MCS_INPUT);

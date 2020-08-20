@@ -20,13 +20,16 @@
 
 void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 		struct is_frame *ldr_frame,
+		struct is_crop *incrop,
 		struct is_crop *otcrop,
-		struct is_fmt *fmt)
+		struct is_frame_cfg *framecfg)
 {
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
+	struct is_fmt *fmt = framecfg->format;
 	unsigned long flags;
-	u32 stripe_x, stripe_w, dma_offset = 0;
+	u32 region_id = ldr_frame->stripe_info.region_id;
+	u32 stripe_w = 0, dma_offset = 0;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
 	if (!framemgr)
@@ -37,36 +40,48 @@ void is_ischain_3ap_stripe_cfg(struct is_subdev *subdev,
 	frame = peek_frame(framemgr, ldr_frame->state);
 	if (frame) {
 		/* Output crop & WDMA offset configuration */
-		if (!ldr_frame->stripe_info.region_id) {
+		if (!region_id) {
 			/* Left region */
-			stripe_x = otcrop->x;
-			stripe_w = ldr_frame->stripe_info.out.h_pix_num;
-
-			frame->stripe_info.out.h_pix_ratio = stripe_w * STRIPE_RATIO_PRECISION / otcrop->w;
+			stripe_w = ldr_frame->stripe_info.in.h_pix_num;
 			frame->stripe_info.out.h_pix_num = stripe_w;
+			frame->stripe_info.region_base_addr[0] = frame->dvaddr_buffer[0];
+		} else if (region_id < ldr_frame->stripe_info.region_num - 1) {
+			/* Middle region */
+			stripe_w = ldr_frame->stripe_info.in.h_pix_num - frame->stripe_info.out.h_pix_num;
+			dma_offset = frame->stripe_info.out.h_pix_num;
+			dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+			dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * otcrop->h;
+			frame->stripe_info.out.h_pix_num += stripe_w;
+			stripe_w += STRIPE_MARGIN_WIDTH;
 		} else {
 			/* Right region */
-			stripe_x = 0;
-			stripe_w = otcrop->w - frame->stripe_info.out.h_pix_num;
-
-			/**
-			 * 3AA writes the right region with stripe margin.
-			 * Add horizontal & vertical DMA offset.
-			 */
-			dma_offset = frame->stripe_info.out.h_pix_num + STRIPE_MARGIN_WIDTH;
-			dma_offset = dma_offset * fmt->bitsperpixel[0] / BITS_PER_BYTE;
-			dma_offset *= otcrop->h;
+			stripe_w = incrop->w - frame->stripe_info.out.h_pix_num;
+			dma_offset = frame->stripe_info.out.h_pix_num;
+			dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+			dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * otcrop->h;
+			frame->stripe_info.out.h_pix_num += stripe_w;
 		}
 
 		stripe_w += STRIPE_MARGIN_WIDTH;
-
-		otcrop->x = stripe_x;
 		otcrop->w = stripe_w;
 
-		frame->dvaddr_buffer[0] += dma_offset;
+		frame->dvaddr_buffer[0] = frame->stripe_info.region_base_addr[0] + dma_offset;
+		frame->stream->stripe_h_pix_nums[region_id] = frame->stripe_info.out.h_pix_num;
+		frame->stream->stripe_region_num = ldr_frame->stripe_info.region_num;
 
+		if (frame->kvaddr_buffer[0]) {
+			frame->stripe_info.region_num = ldr_frame->stripe_info.region_num;
+			frame->stripe_info.kva[region_id][0] = frame->kvaddr_buffer[0] + dma_offset;
+			frame->stripe_info.size[region_id][0] = stripe_w
+							* fmt->bitsperpixel[0] / BITS_PER_BYTE
+							* otcrop->h;
+		}
+
+		msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, ldr_frame,
+				region_id,
+				incrop->x, incrop->y, incrop->w, incrop->h);
 		msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
+				region_id,
 				otcrop->x, otcrop->y, otcrop->w, otcrop->h, dma_offset);
 	}
 
@@ -90,6 +105,7 @@ static int is_ischain_3ap_start(struct is_device_ischain *device,
 	struct is_frame *frame,
 	struct is_queue *queue,
 	struct taa_param *taa_param,
+	struct is_crop *incrop,
 	struct is_crop *otcrop,
 	u32 *lindex,
 	u32 *hindex,
@@ -100,12 +116,13 @@ static int is_ischain_3ap_start(struct is_device_ischain *device,
 	struct param_dma_output *dma_output;
 	u32 hw_format, hw_bitwidth;
 	u32 hw_msb = MSB_OF_3AA_DMA_OUT;
-	struct is_crop otcrop_cfg;
+	struct is_crop incrop_cfg, otcrop_cfg;
 
 	FIMC_BUG(!queue);
 	FIMC_BUG(!queue->framecfg.format);
 
 	group = &device->group_3aa;
+	incrop_cfg = *incrop;
 	otcrop_cfg = *otcrop;
 
 	hw_format = queue->framecfg.format->hw_format;
@@ -117,8 +134,8 @@ static int is_ischain_3ap_start(struct is_device_ischain *device,
 	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame && frame->stripe_info.region_num)
 		is_ischain_3ap_stripe_cfg(subdev,
 				frame,
-				&otcrop_cfg,
-				queue->framecfg.format);
+				&incrop_cfg, &otcrop_cfg,
+				&queue->framecfg);
 
 	if ((otcrop_cfg.w > taa_param->otf_input.bayer_crop_width) ||
 		(otcrop_cfg.h > taa_param->otf_input.bayer_crop_height)) {
@@ -254,7 +271,7 @@ static int is_ischain_3ap_tag(struct is_subdev *subdev,
 	struct is_subdev *leader;
 	struct is_queue *queue;
 	struct taa_param *taa_param;
-	struct is_crop *otcrop, otparm;
+	struct is_crop *otcrop, otparm, inparm, *incrop;
 	struct is_device_ischain *device;
 	u32 lindex, hindex, indexes;
 	u32 pixelformat = 0;
@@ -299,6 +316,17 @@ static int is_ischain_3ap_tag(struct is_subdev *subdev,
 		*otcrop = otparm;
 
 	if (node->request) {
+		incrop = (struct is_crop *)node->input.cropRegion;
+
+		/* Need to check : vdma1_input? otf_input? */
+		inparm.x = taa_param->vdma1_input.bayer_crop_offset_x;
+		inparm.y = taa_param->vdma1_input.bayer_crop_offset_y;
+		inparm.w = taa_param->vdma1_input.bayer_crop_width;
+		inparm.h = taa_param->vdma1_input.bayer_crop_height;
+
+		if (IS_NULL_CROP(incrop))
+			*incrop = inparm;
+
 		if (!COMPARE_CROP(otcrop, &otparm) ||
 			CHECK_STRIPE_CFG(&ldr_frame->stripe_info) ||
 			!test_bit(IS_SUBDEV_RUN, &subdev->state) ||
@@ -308,6 +336,7 @@ static int is_ischain_3ap_tag(struct is_subdev *subdev,
 				ldr_frame,
 				queue,
 				taa_param,
+				incrop,
 				otcrop,
 				&lindex,
 				&hindex,

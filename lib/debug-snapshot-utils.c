@@ -253,6 +253,20 @@ int dbg_snapshot_save_context(void *v_regs)
 }
 EXPORT_SYMBOL(dbg_snapshot_save_context);
 
+static bool __dbg_snapshot_is_dump_backtrace(const char *wchan_name)
+{
+	static bool printed_once = false;
+
+	if (strncmp(wchan_name, "process_notifier", 17))
+		return true;
+
+	if (printed_once)
+		return false;
+
+	printed_once = true;
+	return true;
+}
+
 static void dbg_snapshot_dump_one_task_info(struct task_struct *tsk, bool is_main)
 {
 	char state_array[] = {'R', 'S', 'D', 'T', 't', 'X', 'Z', 'P', 'x', 'K', 'W', 'I', 'N'};
@@ -283,19 +297,20 @@ static void dbg_snapshot_dump_one_task_info(struct task_struct *tsk, bool is_mai
 	touch_softlockup_watchdog();
 	dss_soc_ops->soc_kick_watchdog(NULL);
 
-	dev_info(dss_desc.dev, "%8d %8d %8d %16lld %c(%d) %3d  %16zx %16zx  %16zx %c %16s [%s]\n",
-			tsk->pid, (int)(tsk->utime), (int)(tsk->stime),
+	dev_info(dss_desc.dev, "%8d %8llu %8llu %16llu %c(%d) %3d  %16zx %16zx  %16zx %c %16s [%s]\n",
+			tsk->pid, tsk->utime / NSEC_PER_MSEC, tsk->stime / NSEC_PER_MSEC,
 			tsk->se.exec_start, state_array[idx], (int)(tsk->state),
 			task_cpu(tsk), wchan, pc, (unsigned long)tsk,
 			is_main ? '*' : ' ', tsk->comm, symname);
 
 	if (tsk->state == TASK_RUNNING ||
-	    tsk->state == TASK_UNINTERRUPTIBLE ||
 	    tsk->state == TASK_WAKING ||
-	    tsk->state == TASK_KILLABLE) {
+	    task_contributes_to_load(tsk)) {
 		secdbg_dtsk_print_info(tsk, true);
-		show_stack(tsk, NULL);
-		dev_info(dss_desc.dev, "\n");
+		if (__dbg_snapshot_is_dump_backtrace(symname)) {
+			show_stack(tsk, NULL);
+			dev_info(dss_desc.dev, "\n");
+		}
 	}
 }
 
@@ -319,7 +334,7 @@ void dbg_snapshot_dump_task_info(void)
 	dev_info(dss_desc.dev, "\n");
 	dev_info(dss_desc.dev, " current proc : %d %s\n", current->pid, current->comm);
 	dev_info(dss_desc.dev, " ----------------------------------------------------------------------------------------------------------------------------\n");
-	dev_info(dss_desc.dev, "     pid      uTime    sTime      exec(ns)  stat  cpu       wchan           user_pc        task_struct       comm   sym_wchan\n");
+	dev_info(dss_desc.dev, "     pid  uTime(ms)  sTime(ms)    exec(ns)  stat  cpu       wchan           user_pc        task_struct       comm   sym_wchan\n");
 	dev_info(dss_desc.dev, " ----------------------------------------------------------------------------------------------------------------------------\n");
 
 	/* processes */
@@ -393,7 +408,7 @@ EXPORT_SYMBOL(dbg_snapshot_check_crash_key);
 
 void __init dbg_snapshot_allcorelockup_detector_init(void)
 {
-	int ret;
+	int ret = -1;
 
 	if (!dss_desc.multistage_wdt_irq)
 		return;

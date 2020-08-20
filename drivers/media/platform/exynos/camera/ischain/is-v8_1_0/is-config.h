@@ -81,6 +81,7 @@
  * =================================================================================================
  */
 #define CHAIN_USE_STRIPE_PROCESSING	1
+#define CHAIN_USE_STRIPE_REGION_NUM_META	1
 #define STRIPE_MARGIN_WIDTH		(512)
 #define STRIPE_WIDTH_ALIGN		(512)
 #define STRIPE_RATIO_PRECISION		(1000)
@@ -89,6 +90,7 @@
 #define ENABLE_10BIT_MCSC
 #define ENABLE_DJAG_IN_MCSC
 #define ENABLE_MCSC_CENTER_CROP
+#define USE_MCSC_STRIP_OUT_CROP		/* use for MCSC stripe */
 
 #define USE_ONE_BINARY
 #define USE_RTA_BINARY
@@ -238,7 +240,7 @@
 #undef RESERVED_MEM_IN_DT
 
 /* init AWB */
-#define ENABLE_INIT_AWB
+// #define ENABLE_INIT_AWB
 #define WB_GAIN_COUNT		(4)
 #define INIT_AWB_COUNT_REAR	(3)
 #define INIT_AWB_COUNT_FRONT	(8)
@@ -271,6 +273,7 @@
 
 #define THROTTLING_MIF_LEVEl	(1539000)
 
+#define SYNC_SHOT_ALWAYS	/* This is a feature for reducing late shot. */
 /*
  * ======================================================
  * CONFIG - Interface version configs

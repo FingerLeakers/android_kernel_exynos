@@ -36,3 +36,6 @@ obj-$(CONFIG_SEC_AUTO_INPUT)	+= sec_auto_input.o
 
 obj-$(CONFIG_RMI4_CORE)		+= rmi4/
 obj-$(CONFIG_INPUT_WACOM)	+= wacom/
+
+CFLAGS_sec_auto_input.o = -Wformat
+ccflags-y += -Wformat

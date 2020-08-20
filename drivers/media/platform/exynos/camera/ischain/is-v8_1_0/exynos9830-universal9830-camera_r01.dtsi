@@ -1097,8 +1097,6 @@
 	dma_ch = <2 2 2 2>;
 	vc_ch = <0 1 2 3>;
 	flite_ch = <FLITE_ID_NOTHING>;
-	use_ssvc2_internal;
-	use_ssvc3_internal;
 	is_bns = <0>;
 	status = "okay";
 

@@ -114,7 +114,8 @@
 	status = "okay";
 	samsung,reset-before-trans;
 	samsung,stop-after-trans;	/* LSI IC ONLY */
-	touchscreen@48 {
+
+	tsp_lsi: touchscreen@48 {
 		compatible = "sec,sec_ts";
 		reg = <0x48>;
 		pinctrl-names = "on_state", "off_state";
@@ -127,11 +128,14 @@
 		sec,regulator_dvdd = "tsp_io";
 		sec,regulator_avdd = "tsp_avdd";
 		sec,regulator_boot_on;
+		sec,bringup = <0>;
 		support_dex_mode;
 		enable_settings_aot;
 		support_ear_detect_mode;
-//		sync-reportrate-120 = "Y";
+		sync-reportrate-120 = "Y";
 		support_fod;
+		support_open_short_test;
+		support_mis_calibration_test;
 	};
 };
 
@@ -149,9 +153,9 @@
 		regulators {
 			ldo27_reg: LDO27M {
 				regulator-name = "wacom_avdd";
-				regulator-min-microvolt = <3000000>;
-				regulator-max-microvolt = <3000000>;
-				regulator-initial-mode = <2>;
+				regulator-min-microvolt = <3200000>;
+				regulator-max-microvolt = <3200000>;
+				regulator-initial-mode = <3>;
 				regulator-boot-on;
 			};
 		};
@@ -163,7 +167,8 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&wacomi2c_bus>;
 	samsung,reset-before-trans;
-	wacom@56 {
+
+	wacom: wacom@56 {
 		status = "okay";
 		compatible = "wacom,w90xx";
 		reg = <0x56>;
@@ -175,8 +180,6 @@
 		wacom,irq-gpio = <&gpa2 2 0>;
 		wacom,pdct-gpio = <&gpa3 2 0>;
 		wacom,fwe-gpio = <&gpm8 0 0>;
-		wacom,irq_type = <IRQ_TYPE_LEVEL_LOW>;
-		wacom,pdct_type = <IRQ_TYPE_EDGE_BOTH>;
 		/* features */
 		wacom,boot_addr = <0x09>;
 		wacom,origin = <0 0>; /* x y */
@@ -191,6 +194,8 @@
 		wacom,module_ver = <0x2>; /* this value use to distinguish open/short test (0x1 : only open test, 0x2: open/short test) */
 		wacom,support_aop_mode = "1"; /* S-note want to check to use aop */
 		wacom,use_garage;
+		wacom,support_garage_open_test = <1>;
+		wacom,spen_garage_pos = "1";
 	};
 };
 

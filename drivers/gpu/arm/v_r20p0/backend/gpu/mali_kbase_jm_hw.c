@@ -1220,6 +1220,11 @@ static void kbasep_reset_timeout_worker(struct work_struct *data)
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
 	mutex_unlock(&kbdev->mmu_hw_mutex);
 
+	if (kbdev->wa.flags & KBASE_WA_FLAG_LOGICAL_SHADER_POWER) {
+		GPU_LOG(DVFS_DEBUG, LSI_WA_EXECUTE, kbdev->wa.flags, 0u, "before kbase_wa_execute in %s\n", __func__);
+		kbase_wa_execute(kbdev, kbase_pm_get_present_cores(kbdev, KBASE_PM_CORE_SHADER));
+	}
+
 	kbase_pm_enable_interrupts(kbdev);
 
 	kbase_disjoint_state_down(kbdev);

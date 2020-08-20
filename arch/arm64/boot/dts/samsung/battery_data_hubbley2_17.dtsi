@@ -64,7 +64,7 @@
 				battery,dc_step_chg_cond_iin = <2030 1825 0>; /* <25w 3step> STEP_CHARGING_CONDITION_INPUT_CURRENT */
 				battery,dc_step_chg_val_vfloat = <4125 4250 4380>; /* <25w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
 				battery,dc_step_chg_val_iout = <5290 4090 3670>; /* <25w 3step> */
-				battery,dc_step_chg_cond_soc = <20 50 100>; /* <25w 3step> STEP_CHARGING_CONDITION_SOC */
+				battery,dc_step_chg_cond_soc = <20 50 100 20 50 100 20 50 100 20 50 100 20 50 100>; /* <25w 3step> STEP_CHARGING_CONDITION_SOC */
 
 				battery,snkcap_data = /bits/ 8 <0x04 0x2C 0x91 0x01 0x36 0xC8 0xD0 0x02 0x00 0xC8 0x90
 								0x41 0x8B 0x35 0x21 0xDC 0xC0>;
@@ -74,6 +74,8 @@
 				fuelgauge,qrtable20 = <0x0F00>;
 				fuelgauge,qrtable30 = <0x0B00>;
 				fuelgauge,capacity = <0x0FEF>;
+				/* fullcapnom(=capacity), dPacc, dQacc,  rcomp0, tempco */
+				fuelgauge,fg_reset_wa_data = <0x0FEF 0x3200 0x03FB 0x003A 0x2534>;
 			};
 
 			cable-info {
@@ -95,18 +97,13 @@
 &hsi2c_6 {
 	mfc-charger@3b {
 		fod_list {
-			count = <2>;
+			count = <1>;
 
 			pad_0x00 { /* DEFAULT */
 				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(ADD))>;
 				cc = <150 64 142 53 150 38 150 34 155 18 156 17>;
 				cv = <150 94 142 83 150 68 150 64 155 48 156 47>;
-				full = <127 127 127 127 127 127 127 127 127 127 127 127>;
-			};
-
-			pad_0x30 { /* HERO PAD */
-				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(USE_CC) | SET_FOD_FULL(USE_DEFAULT))>;
-				cc = <150 2 142 (-6) 150 (-20) 150 (-28) 165 185 156 (-39)>;
+				full = <255 127 255 127 255 127 255 127 255 127 255 127>;
 			};
 		};
 	};

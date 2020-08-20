@@ -114,6 +114,7 @@ bool gpu_check_trace_code(int code)
 	switch (code) {
 	case KBASE_TRACE_CODE(DUMMY):
 		return false;
+	case KBASE_TRACE_CODE(LSI_LOAD):
 	case KBASE_TRACE_CODE(LSI_CLOCK_VALUE):
 	case KBASE_TRACE_CODE(LSI_CLOCK_ON):
 	case KBASE_TRACE_CODE(LSI_CLOCK_OFF):
@@ -124,6 +125,10 @@ bool gpu_check_trace_code(int code)
 	case KBASE_TRACE_CODE(LSI_SECURE_CACHE):
 	case KBASE_TRACE_CODE(LSI_SECURE_CACHE_END):
 	case KBASE_TRACE_CODE(LSI_KBASE_PM_INIT_HW):
+	case KBASE_TRACE_CODE(LSI_FORCE_POWER_ON):
+	case KBASE_TRACE_CODE(LSI_FORCE_POWER_OFF):
+	case KBASE_TRACE_CODE(LSI_RESUME_CHECK):
+	case KBASE_TRACE_CODE(LSI_RESUME_FREQ):
 	case KBASE_TRACE_CODE(LSI_IFPM_POWER_ON):
 	case KBASE_TRACE_CODE(LSI_IFPM_POWER_OFF):
 		level = TRACE_CLK;
@@ -147,6 +152,8 @@ bool gpu_check_trace_code(int code)
 	case KBASE_TRACE_CODE(LSI_GPU_RPM_RESUME_API):
 	case KBASE_TRACE_CODE(LSI_GPU_RPM_SUSPEND_API):
 	case KBASE_TRACE_CODE(LSI_SUSPEND_CALLBACK):
+	case KBASE_TRACE_CODE(LSI_GPU_SOFTSTOP):
+	case KBASE_TRACE_CODE(LSI_GPU_HARDSTOP):
 	case KBASE_TRACE_CODE(KBASE_DEVICE_SUSPEND):
 	case KBASE_TRACE_CODE(KBASE_DEVICE_SUSPEND_RESTORE):
 	case KBASE_TRACE_CODE(KBASE_DEVICE_RESUME):
@@ -268,6 +275,8 @@ static int gpu_dvfs_update_config_data_from_dt(struct kbase_device *kbdev)
 		platform->interactive.highspeed_clock = of_data_int_array[0] == 0 ? 500 : (u32) of_data_int_array[0];
 		platform->interactive.highspeed_load  = of_data_int_array[1] == 0 ? 100 : (u32) of_data_int_array[1];
 		platform->interactive.highspeed_delay = of_data_int_array[2] == 0 ? 0 : (u32) of_data_int_array[2];
+	} else if (!strncmp("joint", of_string, strlen("joint"))) {
+		platform->governor_type = G3D_DVFS_GOVERNOR_JOINT;
 	} else if (!strncmp("static", of_string, strlen("static"))) {
 		platform->governor_type = G3D_DVFS_GOVERNOR_STATIC;
 	} else if (!strncmp("booster", of_string, strlen("booster"))) {
@@ -277,6 +286,7 @@ static int gpu_dvfs_update_config_data_from_dt(struct kbase_device *kbdev)
 	} else {
 		platform->governor_type = G3D_DVFS_GOVERNOR_DEFAULT;
 	}
+	platform->governor_type_init = platform->governor_type;
 
 #ifdef CONFIG_CAL_IF
 	platform->gpu_dvfs_start_clock = cal_dfs_get_boot_freq(platform->g3d_cmu_cal_id);
@@ -321,15 +331,34 @@ static int gpu_dvfs_update_config_data_from_dt(struct kbase_device *kbdev)
 	gpu_update_config_data_int(np, "gpu_pmqos_mif_max_clock", &platform->pmqos_mif_max_clock);
 	gpu_update_config_data_int(np, "gpu_pmqos_mif_max_clock_base", &platform->pmqos_mif_max_clock_base);
 	gpu_update_config_data_int(np, "gpu_cl_dvfs_start_base", &platform->cl_dvfs_start_base);
+#ifdef CONFIG_MALI_SEC_G3D_PERF_STABLE_PMQOS
+	gpu_update_config_data_int_array(np, "gpu_pmqos_cl2_max_clock", of_data_int_array, 2);
+	for (i = 0; i < 2; i++) {
+		platform->pmqos_cl2_max_clock[i] = of_data_int_array[i] == 0 ? INT_MAX : (u32) of_data_int_array[i];
+	}
+	gpu_update_config_data_int_array(np, "gpu_pmqos_cl1_max_clock", of_data_int_array, 2);
+	for (i = 0; i < 2; i++) {
+		platform->pmqos_cl1_max_clock[i] = of_data_int_array[i] == 0 ? 0 : (u32) of_data_int_array[i];
+	}
+	gpu_update_config_data_int_array(np, "gpu_pmqos_g3d_clock", of_data_int_array, 2);
+	for (i = 0; i < 2; i++) {
+		platform->pmqos_g3d_clock[i] = of_data_int_array[i] == 0 ? 0 : (u32) of_data_int_array[i];
+	}
+#endif
 #endif /* CONFIG_MALI_DVFS */
 	gpu_update_config_data_bool(np, "gpu_early_clk_gating", &platform->early_clk_gating_status);
 #ifdef CONFIG_MALI_RT_PM
 	gpu_update_config_data_bool(np, "gpu_dvs", &platform->dvs_status);
-	gpu_update_config_data_bool(np, "gpu_inter_frame_pm", &platform->inter_frame_pm_feature);
 #else
 	platform->dvs_status = 0;
+#endif
+
+#ifdef CONFIG_MALI_IFPO
+	gpu_update_config_data_bool(np, "gpu_inter_frame_pm", &platform->inter_frame_pm_feature);
+#else
 	platform->inter_frame_pm_feature = 0;
 #endif
+
 	gpu_update_config_data_int(np, "gpu_runtime_pm_delay_time", &platform->runtime_pm_delay_time);
 #ifdef CONFIG_EXYNOS_BTS
 	gpu_update_config_data_int(np, "gpu_mo_min_clock", &platform->mo_min_clock);
@@ -364,6 +393,12 @@ static int gpu_dvfs_update_config_data_from_dt(struct kbase_device *kbdev)
 	platform->need_cpu_qos = false;
 #endif
 
+#ifdef CONFIG_MALI_IFPO
+#ifdef CONFIG_MALI_DYNAMIC_IFPO
+	gpu_update_config_data_int(np, "gpu_inter_frame_dynamic_util", &platform->gpu_dynamic_ifpo_util);
+	gpu_update_config_data_int(np, "gpu_inter_frame_dynamic_freq", &platform->gpu_dynamic_ifpo_freq);
+#endif
+#endif
 	return 0;
 }
 
@@ -381,6 +416,10 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 	int table_idx;
 	struct device_node *np;
 	int i, j, cal_freq, cal_vol;
+#ifdef CONFIG_MALI_CL_PMQOS
+	int cl_pmqos_table_row_num = 0, cl_pmqos_table_col_num = 0;
+	int cl_pmqos_table_size = 0;
+#endif
 
 	np = kbdev->dev->of_node;
 	gpu_update_config_data_int_array(np, "gpu_dvfs_table_size", of_data_int_array, 2);
@@ -394,6 +433,19 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 		return -1;
 	}
 	dvfs_table = gpu_dvfs_table_default;
+
+#ifdef CONFIG_MALI_CL_PMQOS
+	gpu_update_config_data_int_array(np, "gpu_cl_pmqos_table_size", of_data_int_array, 2);
+
+	cl_pmqos_table_row_num = of_data_int_array[0];
+	cl_pmqos_table_col_num = of_data_int_array[1];
+	cl_pmqos_table_size = cl_pmqos_table_row_num * cl_pmqos_table_col_num;
+
+	if (cl_pmqos_table_size > OF_DATA_NUM_MAX) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "cl_pmqos_table size is not enough\n");
+		return -1;
+	}
+#endif
 
 	cal_get_dvfs_lv_num = cal_dfs_get_lv_num(platform->g3d_cmu_cal_id);
 	cal_table_size = cal_dfs_get_rate_asv_table(platform->g3d_cmu_cal_id, g3d_rate_volt);
@@ -429,7 +481,7 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 							dvfs_table[j].mem_freq, dvfs_table[j].cpu_little_min_freq, dvfs_table[j].cpu_middle_min_freq,
 							dvfs_table[j].cpu_big_max_freq);
 					} else {
-						//Assuming cpu cluster number is 2
+						// Assuming cpu cluster number is 2
 						dvfs_table[j].cpu_big_max_freq = (of_data_int_array[table_idx+6] ? of_data_int_array[table_idx+6]:CPU_MAX);
 						GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "up [%d] down [%d] staycnt [%d] mif [%d] lit [%d] big [%d]\n",
 								dvfs_table[j].max_threshold, dvfs_table[j].min_threshold, dvfs_table[j].down_staycount,
@@ -439,6 +491,46 @@ static int gpu_dvfs_update_asv_table(struct kbase_device *kbdev)
 			}
 		}
 	}
+#ifdef CONFIG_MALI_CL_PMQOS
+	gpu_update_config_data_int_array(np, "gpu_cl_pmqos_table", of_data_int_array, cl_pmqos_table_size);
+	/* no consider INT pmqos domain */
+	for (i = 0; i < cal_get_dvfs_lv_num; i++) {
+		cal_freq = g3d_rate_volt[i].rate;
+		if (cal_freq <= platform->gpu_max_clock && cal_freq >= platform->gpu_min_clock) {
+			for (j = 0; j < cl_pmqos_table_row_num; j++) {
+				table_idx = j * cl_pmqos_table_col_num;
+				if (cal_freq == of_data_int_array[table_idx]) {
+					platform->cl_pmqos_table[j].clock = cal_freq;
+					platform->cl_pmqos_table[j].mif_min_freq = of_data_int_array[table_idx+1];
+					/* platform->cl_pmqos_table[j].mif_max_freq = (of_data_int_array[table_idx+2] ? of_data_int_array[table_idx+2]:INT_MAX); */
+					platform->cl_pmqos_table[j].cpu_little_min_freq = of_data_int_array[table_idx+2];
+					/* platform->cl_pmqos_table[j].cpu_little_max_freq = (of_data_int_array[table_idx+4] ? of_data_int_array[table_idx+4]:INT_MAX); */
+
+					if (platform->gpu_pmqos_cpu_cluster_num == 3) {
+						platform->cl_pmqos_table[j].cpu_middle_min_freq = of_data_int_array[table_idx+3];
+						/* platform->cl_pmqos_table[j].cpu_middle_max_freq = (of_data_int_array[table_idx+6] ? of_data_int_array[table_idx+6]:INT_MAX); */
+						/* platform->cl_pmqos_table[j].cpu_big_min_freq = of_data_int_array[table_idx+7]; */
+						platform->cl_pmqos_table[j].cpu_big_max_freq = (of_data_int_array[table_idx+4] ? of_data_int_array[table_idx+4]:CPU_MAX);
+						GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "CL PMQOS TABLE G3D %7dKhz mif-min [%d] lit-min [%d] mid-min [%d] big-max [%d]\n",
+								platform->cl_pmqos_table[j].clock,
+								platform->cl_pmqos_table[j].mif_min_freq,
+								platform->cl_pmqos_table[j].cpu_little_min_freq,
+								platform->cl_pmqos_table[j].cpu_middle_min_freq,
+								platform->cl_pmqos_table[j].cpu_big_max_freq);
+					} else {
+						/* platform->cl_pmqos_table[j].cpu_big_min_freq = of_data_int_array[table_idx+5]; */
+						platform->cl_pmqos_table[j].cpu_big_max_freq = (of_data_int_array[table_idx+4] ? of_data_int_array[table_idx+4]:CPU_MAX);
+						GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "CL PMQOS TABLE G3D %7dKhz mif-min [%d] lit-min [%d] big-max [%d]\n",
+								platform->cl_pmqos_table[j].clock,
+								platform->cl_pmqos_table[j].mif_min_freq,
+								platform->cl_pmqos_table[j].cpu_little_min_freq,
+								platform->cl_pmqos_table[j].cpu_big_max_freq);
+					}
+				}
+			}
+		}
+	}
+#endif
 	return 0;
 }
 #endif
@@ -494,6 +586,11 @@ static int gpu_context_init(struct kbase_device *kbdev)
 
 #ifdef CONFIG_MALI_ASV_CALIBRATION_SUPPORT
 	platform->gpu_auto_cali_status = false;
+#endif
+
+#ifdef CONFIG_MALI_SEC_CL_BOOST
+	platform->previous_cl_job = 0;
+	platform->down_stay_no_count = 0;
 #endif
 
 	platform->inter_frame_pm_status = platform->inter_frame_pm_feature;

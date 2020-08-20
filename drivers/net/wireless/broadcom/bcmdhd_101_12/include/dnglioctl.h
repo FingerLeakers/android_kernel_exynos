@@ -18,7 +18,7 @@
  * modifications of the software.
  *
  *
- * <<Broadcom-WL-IPTag/Open:>>
+ * <<Broadcom-WL-IPTag/Dual:>>
  */
 
 #ifndef _dngl_ioctl_h_
@@ -56,8 +56,10 @@
 #define RTEDEVGETTSF		0x8915  /* Get device TSF */
 #define RTEDURATIONUNIT		0x8916  /* Duration unit */
 #define RTEWRITE_WAR_REGS	0x8917  /* write workaround regs */
+#define RTEDEVRMPMK		0x8918  /* Remove PMK */
+#define RTEDEVDBGVAL		0x8919  /* Set debug val */
 /* Ensure last RTE IOCTL define val is assigned to RTEIOCTLEND */
-#define RTEIOCTLEND		0x8917  /* LAST RTE IOCTL value */
+#define RTEIOCTLEND		0x8919  /* LAST RTE IOCTL value */
 
 #define RTE_IOCTL_QUERY		0x00
 #define RTE_IOCTL_SET		0x01
@@ -84,7 +86,9 @@ enum hnd_ioctl_cmd {
 	BUS_SET_MAC_WAKE_STATE = 13,
 	BUS_FRWD_PKT_RXCMPLT = 14,
 	BUS_PCIE_LATENCY_ENAB = 15, /* to enable latency feature in pcie */
-	BUS_GET_MAXITEMS = 16
+	BUS_GET_MAXITEMS = 16,
+	BUS_SET_BUS_CSO_CAP = 17,	/* Update the CSO cap from wl layer to bus layer */
+	BUS_DUMP_RX_DMA_STALL_RELATED_INFO = 18
 };
 
 #define SDPCMDEV_SET_MAXTXPKTGLOM	1
@@ -108,9 +112,16 @@ typedef struct memuse_info {
 	uint32 mf_count;        /* Malloc failure count */
 } memuse_info_t;
 
-#define D11_DMA_LOOPBACK	1
-#define BMC_DMA_LOOPBACK	2
-#define D11_DMA_HOST_MEM_LPBK	4
+/* Different DMA loopback modes */
+#define M2M_DMA_LOOPBACK	0	/* PCIE M2M mode */
+#define D11_DMA_LOOPBACK	1	/* PCIE M2M and D11 mode without ucode */
+#define BMC_DMA_LOOPBACK	2	/* PCIE M2M and D11 mode with ucode */
+#define M2M_NON_DMA_LOOPBACK	3	/* Non DMA(indirect) mode */
+#define D11_DMA_HOST_MEM_LPBK	4	/* D11 mode */
+#define M2M_DMA_WRITE_TO_RAM	6	/* PCIE M2M write to specific memory mode */
+#define M2M_DMA_READ_FROM_RAM	7	/* PCIE M2M read from specific memory mode */
+#define D11_DMA_WRITE_TO_RAM	8	/* D11 write to specific memory mode */
+#define D11_DMA_READ_FROM_RAM	9	/* D11 read from specific memory mode */
 
 /* For D11 DMA loopback test */
 typedef struct d11_dmalpbk_init_args {
@@ -125,6 +136,16 @@ typedef struct d11_dmalpbk_args {
 	uint8 core_num;
 	uint8 pad[3];
 } d11_dmalpbk_args_t;
+
+typedef enum wl_config_var {
+	WL_VAR_TX_PKTFETCH_INDUCE = 1,
+	WL_VAR_LAST
+} wl_config_var_t;
+
+typedef struct wl_config_buf {
+	wl_config_var_t var;
+	uint32 val;
+} wl_config_buf_t;
 
 /* ================================================================ */
 /* These are the existing ioctls moved from src/include/rte_ioctl.h */

@@ -1259,12 +1259,13 @@
 	snps,dis-u2-freeclk-exists-quirk;
 	/*snps,dis_u2_susphy_quirk;*/
 	samsung,no-extra-delay;
-	usb_host_device_timeout = <0x7ff>; /* Max value */
+	usb_host_device_timeout = <200>; /* Max value */
 
 	usb_audio_offloading = <1>;
 	abox = <&abox>;
 	/* check susphy support */
 	xhci_l2_support = <1>;
+	xhci_use_uram_for_audio = <1>;
 };
 
 &usbdrd_phy0 {

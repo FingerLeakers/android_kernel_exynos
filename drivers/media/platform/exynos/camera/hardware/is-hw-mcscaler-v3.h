@@ -293,12 +293,13 @@ void is_hw_mcsc_set_size_for_uvsp(struct is_hardware *hardware,
 void is_hw_mcsc_set_ni(struct is_hardware *hardware, struct is_frame *frame,
 	u32 instance);
 void is_hw_mcsc_adjust_size_with_djag(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
-	struct is_hw_mcsc_cap *cap, u32 *x, u32 *y, u32 *width, u32 *height);
+	struct is_hw_mcsc_cap *cap, u32 crop_type, u32 *x, u32 *y, u32 *width, u32 *height);
 int is_hw_mcsc_update_djag_register(struct is_hw_ip *hw_ip,
 		struct mcs_param *param,
 		u32 instance);
 int is_hw_mcsc_update_cac_register(struct is_hw_ip *hw_ip,
 	struct is_frame *frame, u32 instance);
+
 #ifdef DEBUG_HW_SIZE
 #define hw_mcsc_check_size(hw_ip, param, instance, output_id) \
 	is_hw_mcsc_check_size(hw_ip, param, instance, output_id)

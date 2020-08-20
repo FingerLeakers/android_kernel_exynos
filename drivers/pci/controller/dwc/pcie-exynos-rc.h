@@ -86,6 +86,7 @@
 #define PCIE_STATE_HISTORY_CHECK	0xC00
 #define HISTORY_BUFFER_ENABLE		0x3
 #define HISTORY_BUFFER_CLEAR		(0x1 << 1)
+#define HISTORY_BUFFER_CONDITION_SEL	(0x1 << 2)
 #define PCIE_STATE_POWER_S		0xC04
 #define PCIE_STATE_POWER_M		0xC08
 #define PCIE_HISTORY_REG(x)		(0xC0C + ((x) * 0x4)) /*history_reg0 : 0xC0C*/
@@ -100,6 +101,10 @@
 
 #define PCIE_MSTR_PEND_SEL_NAK		0x474
 #define NACK_ENABLE			0x1
+
+#define PCS_PORT_RESET			0x1400
+#define PCS_PHY_INIT_RESET		0x1404
+#define PHY_CMN_RESET			0x1408
 
 /* PCIe PMU registers */
 #define IDLE_IP3_STATE			0x3EC

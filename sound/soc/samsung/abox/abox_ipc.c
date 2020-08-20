@@ -28,6 +28,7 @@ static char ipc_buf[ABOX_IPC_SIZE];
 static DEFINE_SPINLOCK(lock_tx);
 static DEFINE_SPINLOCK(lock_rx);
 
+static DEFINE_SPINLOCK(lock_ipc_actions);
 static LIST_HEAD(ipc_actions);
 
 static void abox_ipc_print_log(const char *fmt, ...)
@@ -191,26 +192,32 @@ int abox_ipc_register_handler(struct device *dev, int ipc_id,
 		abox_ipc_handler_t handler, void *data)
 {
 	struct abox_ipc_action *action;
+	unsigned long flags;
 
 	dev_dbg(dev, "%s(%d, %ps)\n", __func__, ipc_id, handler);
 
+	spin_lock_irqsave(&lock_ipc_actions, flags);
 	list_for_each_entry(action, &ipc_actions, list) {
 		if (action->handler != handler || action->ipc_id != ipc_id ||
 				action->dev != dev)
 			continue;
 
 		action->data = data;
+		spin_unlock_irqrestore(&lock_ipc_actions, flags);
 		dev_info(dev, "%s(%d, %ps) updating data\n",
 				__func__, ipc_id, handler);
 		return 0;
 	}
+	spin_unlock_irqrestore(&lock_ipc_actions, flags);
 
 	action = devm_kmalloc(dev_abox, sizeof(*action), GFP_KERNEL);
 	action->dev = dev;
 	action->ipc_id = ipc_id;
 	action->handler = handler;
 	action->data = data;
+	spin_lock_irqsave(&lock_ipc_actions, flags);
 	list_add_tail(&action->list, &ipc_actions);
+	spin_unlock_irqrestore(&lock_ipc_actions, flags);
 
 	return 0;
 }
@@ -219,18 +226,22 @@ int abox_ipc_unregister_handler(struct device *dev, int ipc_id,
 		abox_ipc_handler_t handler)
 {
 	struct abox_ipc_action *action;
+	unsigned long flags;
 
 	dev_dbg(dev, "%s(%d, %ps)\n", __func__, ipc_id, handler);
 
+	spin_lock_irqsave(&lock_ipc_actions, flags);
 	list_for_each_entry(action, &ipc_actions, list) {
 		if (action->handler != handler || action->ipc_id != ipc_id ||
 				action->dev != dev)
 			continue;
 
 		list_del(&action->list);
+		spin_unlock_irqrestore(&lock_ipc_actions, flags);
 		devm_kfree(dev_abox, action);
 		return 0;
 	}
+	spin_unlock_irqrestore(&lock_ipc_actions, flags);
 
 	dev_err(dev, "%s(%d, %ps) handler not exist\n",
 			__func__, ipc_id, handler);
@@ -248,13 +259,16 @@ static irqreturn_t abox_ipc_irq_handler(int irq, void *dev_id)
 		ABOX_IPC_MSG *ipc = (ABOX_IPC_MSG *)ipc_buf;
 		enum IPC_ID ipc_id = ipc->ipcid;
 		struct abox_ipc_action *action;
+		unsigned long flags;
 
+		spin_lock_irqsave(&lock_ipc_actions, flags);
 		list_for_each_entry(action, &ipc_actions, list) {
 			if (action->ipc_id != ipc_id)
 				continue;
 
 			ret |= action->handler(ipc_id, action->data, ipc);
 		}
+		spin_unlock_irqrestore(&lock_ipc_actions, flags);
 	}
 
 	return ret;

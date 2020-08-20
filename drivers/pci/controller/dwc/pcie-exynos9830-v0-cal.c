@@ -1,10 +1,10 @@
 /*
- * PCIe phy driver for Samsung EXYNOS8890
+ * PCIe phy driver for Samsung EXYNOS9830
  *
  * Copyright (C) 2013 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
  *
- * Author: Kyoungil Kim <ki0351.kim@samsung.com>
+ * Author: Kwangho Kim <kwangho2.kim.kim@samsung.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -278,5 +278,10 @@ static void exynos_pcie_quirks(struct pci_dev *dev)
 {
 	device_disable_async_suspend(&dev->dev);
 	pr_info("[%s] async suspend disabled\n", __func__);
+
+#if defined(CONFIG_EXYNOS_PCIE_IOMMU) || defined(CONFIG_EXYNOS_PCIE_S2MPU)
+	set_dma_ops(&dev->dev, &exynos_pcie_dma_ops);
+	pr_info("DMA operations are changed to support SysMMU or S2MPU.\n");
+#endif
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, exynos_pcie_quirks);

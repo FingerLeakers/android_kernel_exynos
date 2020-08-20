@@ -58,8 +58,9 @@
 
 				/* step charging option */
 				battery,step_charging_type = <0x3E>;
+				battery,step_charging_step = <2>;
 				battery,step_charging_charge_power = <12000>;
-				battery,step_charging_condition = <55 100>;
+				battery,step_charging_condition = <55 100 55 100 55 100 55 100 55 100>;
 				battery,step_charging_condition_curr = <2850 2400>;
 				battery,step_charging_current = <3150 2850>;
 				battery,step_charging_float_voltage = <4210 4380>;
@@ -71,7 +72,7 @@
 				battery,dc_step_chg_cond_vol = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_VOLTAGE */ 
 				battery,dc_step_chg_cond_iin = <1800 1610 0>; /* STEP_CHARGING_CONDITION_INPUT_CURRENT */
 				battery,dc_step_chg_iin_check_cnt = <3>;
-				battery,dc_step_chg_cond_soc = <25 55 100>; /* STEP_CHARGING_CONDITION_SOC */
+				battery,dc_step_chg_cond_soc = <25 55 100 25 55 100 25 55 100 25 55 100 25 55 100>; /* STEP_CHARGING_CONDITION_SOC */
 				battery,dc_step_chg_val_vfloat = <4110 4210 4380>; /* STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
 				battery,dc_step_chg_val_iout = <4690 3600 3220>;
 
@@ -84,6 +85,8 @@
 				fuelgauge,qrtable20 = <0x1500>;
 				fuelgauge,qrtable30 = <0x1000>;
 				fuelgauge,capacity = <0x0E2E>;
+				/* fullcapnom(=capacity), dPacc, dQacc,  rcomp0, tempco */
+				fuelgauge,fg_reset_wa_data = <0x0E2E 0x3200 0x038B 0x0036 0x293A>;
 				fuelgauge,ttf_capacity = <3950>;
 				fuelgauge,cv_data = <
 					3228	864	1534
@@ -204,7 +207,7 @@
 				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(ADD))>;
 				cc = <150 64 142 53 150 39 150 35 155 19 156 20>;
 				cv = <150 94 142 83 150 69 150 65 155 49 156 50>;
-				full = <127 127 127 127 127 127 127 127 127 127 127 127>;
+				full = <255 127 255 127 255 127 255 127 255 127 255 127>;
 			};
 
 			pad_0x31 { /* DREAM PAD(V) */

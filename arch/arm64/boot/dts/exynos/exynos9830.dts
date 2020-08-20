@@ -38,6 +38,7 @@
 #include "exynos_perf_ncmemcpy.dtsi"
 #include "exynos9830-camera.dtsi"
 #include "exynos9830-ems.dtsi"
+#include <dt-bindings/soc/samsung/exynos-migov.h>
 
 / {
 	compatible = "samsung,armv8", "samsung,exynos990";
@@ -458,10 +459,14 @@
 		/* Execution Mode */
 		#define AARCH64_MODE			0
 		#define AARCH32_MODE			1
+		/* Auto Fill Flag for Little Freq */
+		#define AUTO_FILL			1
+		#define NOT_FILL			0
 
 		device_type = "cpufreq_ufc";
 		table-col = <5>;
 		table-row = <42>;
+		fill-flag = <AUTO_FILL>;
 
 		domain@0 {
 			device_type = "ufc_domain";
@@ -611,8 +616,8 @@
 				1687587	1690000	2106000	1157000 1
 				1671591	1690000	2002000	1157000 1
 				1599609	1690000	1898000	1157000 1
-				1583613	1586000	1898000	1157000 1
-				1495634	1586000	1794000	1157000 1
+				1583613	1482000	1898000	1157000 1
+				1495634	1482000	1794000	1157000 1
 				1479638	1482000	1794000	1157000 1
 				1410322	1482000	1690000	1157000 1
 				1375664	1378000	1690000	1157000 1
@@ -698,6 +703,7 @@
 			pm_qos-min-class = <3>;
 			pm_qos-max-class = <4>;
 			step = <10>;
+			patient_mode = <0>;
 		};
 		domain@1 {
 			device_type = "esgov-pol4";
@@ -705,6 +711,7 @@
 			pm_qos-min-class = <5>;
 			pm_qos-max-class = <6>;
 			step = <8>;
+			patient_mode = <0>;
 		};
 		domain@2 {
 			device_type = "esgov-pol6";
@@ -712,6 +719,7 @@
 			pm_qos-min-class = <7>;
 			pm_qos-max-class = <8>;
 			step = <10>;
+			patient_mode = <0>;
 		};
 	};
 
@@ -757,6 +765,8 @@
 				mif-perf {
 					const-type = <CONSTRAINT_MIN>;
 					dm-type = <DM_MIF>;
+					dynamic-disable;
+
 						/* cpu      mif */
 					table = < 2106000 0
 						2002000 0
@@ -806,6 +816,8 @@
 				mif-perf {
 					const-type = <CONSTRAINT_MIN>;
 					dm-type = <DM_MIF>;
+					dynamic-disable;
+
 						/* cpu     mif */
 					table = < 2600000 2730000
 						2504000 2730000
@@ -869,6 +881,8 @@
 				mif-perf {
 					const-type = <CONSTRAINT_MIN>;
 					dm-type = <DM_MIF>;
+					dynamic-disable;
+
 					/*  cpu     mif  */
 					table = < 3016000 2730000
 						2834000 2730000
@@ -950,6 +964,172 @@
 		release-duration = <15>;        /* msec */
 	};
 
+	exynos-cpu-profiler {
+		compatible = "samsung,exynos-cpu-profiler";
+		status = "okay";
+
+		#define CPU_CL0 "0-3"
+		#define CPU_CL1 "4-5"
+		#define CPU_CL2 "6-7"
+
+		cpu_domain0: domain@0 {
+			/* necessary data */
+			sibling-cpus = CPU_CL0;
+			cal-id = <ACPM_DVFS_CPUCL0>;
+
+			/* un-necessary data */
+			migov-id = <MIGOV_CL0>;
+			power-coefficient = <145>;
+			static-power-coefficient = <6>;
+			tz-name = "LITTLE";
+			dvfs-node = <&cpufreq_domain0>;
+		};
+		cpu_domain1: domain@1 {
+			/* necessary data */
+			sibling-cpus = CPU_CL1;
+			cal-id = <ACPM_DVFS_CPUCL1>;
+
+			/* un-necessary data */
+			migov-id = <MIGOV_CL1>;
+			power-coefficient = <269>;
+			static-power-coefficient = <81>;
+			tz-name = "MID";
+			dvfs-node = <&cpufreq_domain1>;
+		};
+		cpu_domain2: domain@2 {
+			/* necessary data */
+			sibling-cpus = CPU_CL2;
+			cal-id = <ACPM_DVFS_CPUCL2>;
+
+			/* un-necessary data */
+			migov-id = <MIGOV_CL2>;
+			power-coefficient = <719>;
+			static-power-coefficient = <270>;
+			tz-name = "BIG";
+			dvfs-node = <&cpufreq_domain2>;
+		};
+	};
+
+	exynos-gpu-profiler {
+		compatible = "samsung,exynos-gpu-profiler";
+		status = "okay";
+
+		/* necessary data */
+		cal-id = <ACPM_DVFS_G3D>;
+
+		/* un-necessary data */
+		migov-id = <MIGOV_GPU>;
+		power-coefficient = <6887>;
+		static-power-coefficient = <0>;
+		tz-name = "G3D";
+		dvfs-node = <&mali>;
+	};
+
+	exynos-mif-profiler {
+		compatible = "samsung,exynos-mif-profiler";
+		status = "okay";
+
+		/* necessary data */
+		cal-id = <ACPM_DVFS_MIF>;
+
+		/* un-necessary data */
+		migov-id = <MIGOV_MIF>;
+		devfreq-type = <DEVFREQ_MIF>;
+		power-coefficient = <78000000>;
+		static-power-coefficient = <200>;
+	};
+
+	exynos-migov {
+		compatible = "samsung,exynos-migov";
+		status = "okay";
+
+		window-period = < 250 >;
+		window-number = < 30 >;
+		active-pct-thr = < 100 >;
+		valid-freq-delta-pct = < 50 >;
+		min-sensitivity = < 10 >;
+		cpu-bottleneck-thr = < 300 >;
+		gpu-bottleneck-thr = < 50 >;
+		gpu-ar-bottleneck-thr = < 750 >;
+		mif-bottleneck-thr = < 4800 >;
+		mif-freq-stats-ratio-bottleneck-thr = < 70 >;
+		inc-perf-temp-thr = < 65 >;
+		inc-perf-power-thr = < 2500000 >;
+
+		/* FPS */
+		frame-src = < 0 >;
+		max-fps = < 600 >;
+		user-target-fps = < 600 >;
+		uncontrol-fps-delta-up = < 30 >;
+		uncontrol-fps-delta-down = < (-10) >;
+		dt-ctrl-en = < 1 >;
+		dt-over-thr = < 20 >;
+		dt-under-thr = < 10 >;
+		dt-up-step = < 10 >;
+		dt-down-step =  < 10 >;
+		dpat-upper-bound-thr = < 9000000 >;
+		dpat-lower-bound-thr = < 0 >;
+		dpat-lower-cnt-thr = < 1 >;
+		dpat-up-step = < 10 >;
+		dpat-down-step = < 10 >;
+		v-max-fps-count = < 30 >;
+
+		cl0 {
+			max = < 200 >;
+			min = < (-300) >;
+			up-step = < 3 >;
+			down-step = < 6 >;
+			default-step = < 10 >;
+			stall-pct-thr = < 0 >;		/* temp */
+			pm-qos-min-class = <3>;
+			pm-qos-max-class = <4>;
+			pm-qos-min-freq = < 1482000 >;
+		};
+		cl1 {
+			max = < 200 >;
+			min = < (-300) >;
+			up-step = < 3 >;
+			down-step = < 6 >;
+			default-step = < 10 >;
+			stall-pct-thr = < 0 >;		/* temp */
+			pm-qos-min-class = <5>;
+			pm-qos-max-class = <6>;
+			pm-qos-max-freq = < 2210000 >;
+		};
+		cl2 {
+			max = < 200 >;
+			min = < (-300) >;
+			up-step = < 3 >;
+			down-step = < 6 >;
+			default-step = < 10 >;
+			stall-pct-thr = < 0 >;		/* temp */
+			pm-qos-min-class = <7>;
+			pm-qos-max-class = <8>;
+			pm-qos-max-freq = < 1898000 >;
+		};
+		gpu {
+			max = < 220 >;
+			min = < 1 >;
+			up-step = < 3 >;
+			down-step = < 6 >;
+			default-step = < 2 >;
+			q0-empty-pct-thr = < 0 >;
+			q1-empty-pct-thr = < 0 >;
+			active-pct-thr = < 100 >;
+		};
+		mif {
+			max = < 500 >;
+			min = < 100 >;
+			up-step = < 3 >;
+			down-step = < 6 >;
+			default-step = < 10 >;
+			pm-qos-min-class = < 15 >; /* PM_QOS_BUS_THROUGHPUT */
+			freq-stats0-mode-min-freq = < 2028000 >;
+			freq-stats-ratio-mode-cnt-thr = < 4 >;
+			freq-stats0-thr = < 6000 >;
+			freq-stats0-updown-delta-pct-thr = < 100 >;
+		};
+	};
 
 	gic:interrupt-controller@10100000 {
 		compatible = "arm,cortex-a15-gic", "arm,cortex-a9-gic";
@@ -1683,6 +1863,10 @@
 			<0 0x17D00000 0x100000>,
 			<0 0x17E00000 0x100000>,
 			<0 0x17F00000 0x100000>,
+			<0 0x1E00C000 0x1000>,
+			<0 0x1E00B000 0x1000>,
+			<0 0x10040100 0x8>,
+			<0 0x106F0000 0x1000>,
 			<0 0x179C0000 0x10000>,
 			<0 0x17AC0000 0x10000>,
 			<0 0x19400000 0x200000>,
@@ -1698,6 +1882,10 @@
 				"SFR_NPU1",
 				"SFR_NPU2",
 				"SFR_NPU3",
+				"SFR_CORESIGHT",
+				"SFR_STM",
+				"SFR_MCT_G",
+				"PWM",
 				"MAILBOX0",
 				"MAILBOX1",
 				"IDPSRAM",
@@ -1705,7 +1893,7 @@
 				"FW_UNITTEST",
 				"FW_LOG";
 
-		samsung,npusched-tpf-others = <500>;	/* time in device driver, us */
+		samsung,npusched-tpf-others = <1500>;	/* time in device driver, us */
 		samsung,npusched-dvfs =
 			/* devfreq	init	delay	up	delay	down	delay
 			 * hispeed_idle_delay hispeed_delay hispeed_freq lowspeed_idle_delay	: exynos-interactive
@@ -1713,16 +1901,16 @@
 			 */
 			<&devfreq_9	933000	30	120	75	85	75
 				30	0	100	100
-				933000	933000	0	0>,
+				0	933000	0	0>,
 			<&devfreq_7	800000	30	120	75	85	75
 				30	0	100	100
-				800000	800000	0	0>,
+				0	800000	0	0>,
 			<&devfreq_1	533000	30	150	50	95	0
 				30	0	100	100
-				533000	533000	533000	533000>,
+				0	533000	533000	533000>,
 			<&devfreq_0	2028000	30	150	50	95	0
 				30	0	100	100
-				2028000	2730000	2028000	2028000>
+				0	2730000	2028000	2028000>
 			;
 		samsung,npusched-names =
 			"NPU",	"exynos-interactive",
@@ -1890,6 +2078,7 @@
 		pmu_mask = <0x0>;
 		pmu_offset = <0x72c>;
 		pmu_offset_dp = <0x704>;
+		tcxo_ctrl_offset = <0x380c>;
 		/* USBDP combo phy version  - 0x200 */
 		phy_version = <0x301>;
 		/* if it doesn't need phy user mux, */
@@ -2079,9 +2268,10 @@
 		region_name = "LLC_REGION_DISABLE",
 			    "LLC_REGION_CALL",
 			    "LLC_REGION_LIT_MID_ALL", /* default policy */
+			    "LLC_REGION_OFFLOAD_PLAY",
 			    "LLC_REGION_MFC_DISPLAY",
 			    "LLC_REGION_NPU";
-		region_way = <0x0 0xFFFF 0xFFFF 0x3 0xFF>;
+		region_way = <0x0 0xFFFF 0xFFFF 0xFFFF 0x3 0xFF>;
 	};
 
 	exynos_dm: exynos-dm@17000000 {
@@ -2226,6 +2416,7 @@
 			/* PPC_CPUCL2_0, PPC_CPUCL2_1, PPC_CPUCL0_0, PPC_CPUCL0_1, PPC_G3D0, PPC_G3D1, PPC_G3D2, PPCG3D3 */
 
 			use_alt_dvfs;
+			use_migov = "true";
 			polling_ms = <0>;
 			alt_mode {
 				default_mode = <0>;
@@ -2267,7 +2458,7 @@
 			/* Delay time */
 			use_delay_time = "false";
 
-			freq_info = <533000 200000 133000 133000 533000 400000>;
+			freq_info = <533000 133000 133000 133000 533000 400000>;
 			/* <initial_freq, default_qos, suspend_freq, min, max, reboot_freq> */
 
 			/* Booting value */
@@ -2323,7 +2514,7 @@
 			/* Delay time */
 			use_delay_time = "false";
 
-			freq_info = <666000 133000 133000 200000 666000 533000>;
+			freq_info = <666000 133000 133000 133000 666000 533000>;
 			/* <initial_freq, default_qos, suspend_freq, min, max, reboot_freq> */
 
 			/* Booting value */
@@ -3146,7 +3337,8 @@
 				<BURST_LENGTH_FMT_EVT	0x4  0x2  0x4  0x26 0x5  0x3  0x5  0x27>,
 				<REQ_BLOCK_FMT_EVT	0x2  0x10 0x10 0x26 0x3  0x11 0x11 0x27>,
 				<DATA_BLOCK_FMT_EVT	0x4  0x12 0x12 0x6  0x5  0x13 0x13 0x14>,
-				<REQ_TYPE_FMT_EVT	0x2  0x15 0x18 0x1B 0x3  0x16 0x19 0x1C>;
+				<REQ_TYPE_FMT_EVT	0x2  0x15 0x18 0x1B 0x3  0x16 0x19 0x1C>,
+				<BCM_CALC_FMT_EVT	0x4  0x5  0x20 0x23 0x0  0x1  0x24 0x25>;
 		default_define_event = <LATENCY_FMT_EVT>;
 
 		/* sm_id_mask sm_id_value */
@@ -3156,7 +3348,8 @@
 				<BURST_LENGTH_FMT_EVT	0x0  0x0>,
 				<REQ_BLOCK_FMT_EVT	0x0  0x0>,
 				<DATA_BLOCK_FMT_EVT	0x0  0x0>,
-				<REQ_TYPE_FMT_EVT	0x0  0x0>;
+				<REQ_TYPE_FMT_EVT	0x0  0x0>,
+				<BCM_CALC_FMT_EVT	0x0  0x0>;
 		/* ev0 ev1 ev2 ev3 ev4 ev5 ev6 ev7 */
 		define_filter_id_active = <NO_PRE_DEFINE_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<LATENCY_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
@@ -3164,7 +3357,8 @@
 					<BURST_LENGTH_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<REQ_BLOCK_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<DATA_BLOCK_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
-					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
+					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
+					<BCM_CALC_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
 		/* sm_other_type0 sm_other_mask0 sm_other_value0 */
 		define_filter_other_0 = <NO_PRE_DEFINE_EVT	0x0  0x0  0x0>,
 					<LATENCY_FMT_EVT	0x0  0x0  0x0>,
@@ -3172,7 +3366,8 @@
 					<BURST_LENGTH_FMT_EVT	0x0  0x0  0x0>,
 					<REQ_BLOCK_FMT_EVT	0x0  0x0  0x0>,
 					<DATA_BLOCK_FMT_EVT	0x0  0x0  0x0>,
-					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0>;
+					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0>,
+					<BCM_CALC_FMT_EVT	0x0  0x0  0x0>;
 		/* sm_other_type1 sm_other_mask1 sm_other_value1 */
 		define_filter_other_1 = <NO_PRE_DEFINE_EVT	0x0  0x0  0x0>,
 					<LATENCY_FMT_EVT	0x0  0x0  0x0>,
@@ -3180,7 +3375,8 @@
 					<BURST_LENGTH_FMT_EVT	0x0  0x0  0x0>,
 					<REQ_BLOCK_FMT_EVT	0x0  0x0  0x0>,
 					<DATA_BLOCK_FMT_EVT	0x0  0x0  0x0>,
-					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0>;
+					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0>,
+					<BCM_CALC_FMT_EVT	0x0  0x0  0x0>;
 		/* ev0 ev1 ev2 ev3 ev4 ev5 ev6 ev7 */
 		define_filter_other_active = <NO_PRE_DEFINE_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<LATENCY_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
@@ -3188,7 +3384,8 @@
 					<BURST_LENGTH_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<REQ_BLOCK_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<DATA_BLOCK_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
-					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
+					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
+					<BCM_CALC_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
 
 		/* peak_mask peak_id */
 		define_sample_id = <NO_PRE_DEFINE_EVT	0x0  0x0>,
@@ -3197,7 +3394,8 @@
 				<BURST_LENGTH_FMT_EVT	0x0  0x0>,
 				<REQ_BLOCK_FMT_EVT	0x0  0x0>,
 				<DATA_BLOCK_FMT_EVT	0x0  0x0>,
-				<REQ_TYPE_FMT_EVT	0x0  0x0>;
+				<REQ_TYPE_FMT_EVT	0x0  0x0>,
+				<BCM_CALC_FMT_EVT	0x0  0x0>;
 		/* ev0 ev1 ev2 ev3 ev4 ev5 ev6 ev7 */
 		define_sample_id_enable = <NO_PRE_DEFINE_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
 					<LATENCY_FMT_EVT	0x0  0x0  0x1  0x0  0x0  0x0  0x1  0x0>,
@@ -3205,7 +3403,8 @@
 					<BURST_LENGTH_FMT_EVT	0x0  0x0  0x1  0x1  0x0  0x0  0x1  0x1>,
 					<REQ_BLOCK_FMT_EVT	0x0  0x0  0x1  0x1  0x0  0x0  0x1  0x1>,
 					<DATA_BLOCK_FMT_EVT	0x0  0x0  0x1  0x0  0x0  0x0  0x1  0x0>,
-					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
+					<REQ_TYPE_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>,
+					<BCM_CALC_FMT_EVT	0x0  0x0  0x0  0x0  0x0  0x0  0x0  0x0>;
 
 		bcm_cnt_nr = <8>;
 		bcm_ip_nr = <60>;
@@ -3222,6 +3421,15 @@
 		available_stop_owner = <PANIC_HANDLE CAMERA_DRIVER MODEM_IF ITMON_HANDLE>;
 		buff_size = <0x200000>;
 		glb_auto_en = <1>;
+
+		/* profiler infomation */
+		bcm_calc_num_ip = <4>;
+		bcm_calc_ip_idx = <1>, <3>, <50>, <54>;
+		bcm_calc_ip_name = "CPUCL0_0", "CPUCL2_0", "G3D0", "IRPS0";
+		bcm_calc_ip_cnt = <2>, <4>, <4>, <2>;
+		bcm_calc_bus_width = <16>, <16>, <16>, <16>;
+		bcm_calc_sample_time = <50>;
+		perf_define_event = <BCM_CALC_FMT_EVT>;
 
 		ipc_bcm_event {
 			plugin-len = <5>;

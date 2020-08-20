@@ -175,7 +175,7 @@ int security_integrity_current(void)
 {
 	rcu_read_lock();
 	if ( rkp_cred_enable && 
-		(rkp_is_valid_cred_sp((u64)current_cred(),(u64)current_cred()->security)||
+		(rkp_is_valid_cred_sp((u64)current_cred(),(u64)current_cred()->security) ||
 		cmp_sec_integrity(current_cred(),current->mm)||
 		cmp_ns_integrity())) {
 		rcu_read_unlock();
@@ -204,8 +204,13 @@ static DEFINE_MUTEX(selinux_sdcardfs_lock);
 // ] SEC_SELINUX_PORTING_COMMON
 
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
+#if (defined CONFIG_KDP_CRED && defined CONFIG_SAMSUNG_PRODUCT_SHIP)
+static int selinux_enforcing_boot __kdp_ro;
+int selinux_enforcing __kdp_ro;
+#else
 static int selinux_enforcing_boot;
 int selinux_enforcing;
+#endif
 
 static int __init enforcing_setup(char *str)
 {
@@ -228,7 +233,11 @@ __setup("enforcing=", enforcing_setup);
 #endif
 
 #ifdef CONFIG_SECURITY_SELINUX_BOOTPARAM
+#if (defined CONFIG_KDP_CRED && defined CONFIG_SAMSUNG_PRODUCT_SHIP)
+int selinux_enabled __kdp_ro = CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE;
+#else
 int selinux_enabled = CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE;
+#endif
 
 static int __init selinux_enabled_setup(char *str)
 {
@@ -245,7 +254,11 @@ static int __init selinux_enabled_setup(char *str)
 }
 __setup("selinux=", selinux_enabled_setup);
 #else
+#if (defined CONFIG_KDP_CRED && defined CONFIG_SAMSUNG_PRODUCT_SHIP)
+int selinux_enabled __kdp_ro = 1;
+#else
 int selinux_enabled = 1;
+#endif
 #endif
 
 static unsigned int selinux_checkreqprot_boot =
@@ -4098,7 +4111,7 @@ static void selinux_cred_free(struct cred *cred)
 	BUG_ON(cred->security && (unsigned long) cred->security < PAGE_SIZE);
 #ifdef CONFIG_KDP_CRED
 	if (rkp_ro_page((unsigned long)cred)) {
-		uh_call(UH_APP_RKP, RKP_KDP_X45,(u64) &cred->security, 7,0,0);
+		uh_call(UH_APP_KDP, RKP_KDP_X45,(u64) &cred->security, 7,0,0);
 	} else
 #endif
 	cred->security = (void *) 0x7UL;

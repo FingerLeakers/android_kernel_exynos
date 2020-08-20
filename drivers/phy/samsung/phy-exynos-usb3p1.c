@@ -351,7 +351,7 @@ void phy_exynos_usb_v3p1_g2_link_pclk_sel(struct exynos_usbphy_info *info)
 	reg = readl(regs_base + EXYNOS_USBCON_CLKRST);
 	reg |= CLKRST_LINK_PCLK_SEL;
 	writel(reg, regs_base + EXYNOS_USBCON_CLKRST);
-	mdelay(3);
+	usleep_range(3000, 3300);
 }
 
 void phy_exynos_usb_v3p1_pipe_ready(struct exynos_usbphy_info *info)
@@ -1657,6 +1657,16 @@ int phy_exynos_usb3p1_rewa_enable(struct exynos_usbphy_info *info)
 	int cnt;
 	u32 reg;
 	void __iomem *regs_base = info->regs_base;
+
+	/* Disable All events source for abnormal event generation */
+	reg = readl(regs_base + EXYNOS_USBCON_HSREWA_INT1_MASK);
+	reg |= HSREWA_CTRL_HS_EVT_ERR_SUS |
+			HSREWA_CTRL_HS_EVT_ERR_DEV_K |
+			HSREWA_CTRL_HS_EVT_DISCON |
+			HSREWA_CTRL_HS_EVT_BYPASS_DIS |
+			HSREWA_CTRL_HS_EVT_RET_DIS |
+			HSREWA_CTRL_HS_EVT_RET_EN;
+	writel(reg, regs_base + EXYNOS_USBCON_HSREWA_INT1_MASK);
 
 	/* Clear the system valid flag */
 	reg = readl(regs_base + EXYNOS_USBCON_HSREWA_CTRL);

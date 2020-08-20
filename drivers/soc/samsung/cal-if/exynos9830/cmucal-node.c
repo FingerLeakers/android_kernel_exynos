@@ -2997,7 +2997,7 @@ struct cmucal_gate cmucal_gate_list[] = {
 unsigned int cmucal_fixed_rate_size = 59;
 struct cmucal_clk_fixed_rate cmucal_fixed_rate_list[] = {
 	FIXEDRATE(OSCCLK_RCO_APM, 49152000, EMPTY_CAL_ID),
-	FIXEDRATE(CLK_DLL_DCO, 400000000, EMPTY_CAL_ID),
+	FIXEDRATE(CLK_DLL_DCO, 120000000, EMPTY_CAL_ID),
 	FIXEDRATE(OSCCLK_APM, 26000000, EMPTY_CAL_ID),
 	FIXEDRATE(CLK_RCO_APM, 49152000, EMPTY_CAL_ID),
 	FIXEDRATE(CLK_RCO_I3C_PMIC, 49152000, EMPTY_CAL_ID),

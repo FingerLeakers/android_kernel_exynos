@@ -653,11 +653,28 @@ static int is_3aa_video_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_IS_INTENT:
 		value = (unsigned int)ctrl->value;
 		captureIntent = (value >> 16) & 0x0000FFFF;
-		if (captureIntent == AA_CAPTURE_INTENT_STILL_CAPTURE_OIS_DYNAMIC_SHOT) {
+		switch (captureIntent) {
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_DEBLUR_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_OIS_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_EXPOSURE_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_MFHDR_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_HANDHELD:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLHDR_VEHDR_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_VENR_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_LLS_FLASH:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_HANDHELD_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SUPER_NIGHT_SHOT_TRIPOD_LE_FAST:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_CROPPED_REMOSAIC_DYNAMIC_SHOT:
+		case AA_CAPTURE_INTENT_STILL_CAPTURE_SHORT_REF_LLHDR_DYNAMIC_SHOT:
 			captureCount = value & 0x0000FFFF;
-		} else {
+			break;
+		default:
 			captureIntent = ctrl->value;
 			captureCount = 0;
+			break;
 		}
 
 		head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, &device->group_3aa);
@@ -665,9 +682,9 @@ static int is_3aa_video_s_ctrl(struct file *file, void *priv,
 		head->intent_ctl.captureIntent = captureIntent;
 		head->intent_ctl.vendor_captureCount = captureCount;
 		if (captureIntent == AA_CAPTURE_INTENT_STILL_CAPTURE_OIS_MULTI) {
-			head->remainIntentCount = 2;
+			head->remainIntentCount = 2 + INTENT_RETRY_CNT;
 		} else {
-			head->remainIntentCount = 0;
+			head->remainIntentCount = 0 + INTENT_RETRY_CNT;
 		}
 
 		minfo("[3AA:V] s_ctrl intent(%d) count(%d) remainIntentCount(%d)\n",
@@ -675,6 +692,46 @@ static int is_3aa_video_s_ctrl(struct file *file, void *priv,
 		break;
 	case V4L2_CID_IS_FORCE_DONE:
 		set_bit(IS_GROUP_REQUEST_FSTOP, &device->group_3aa.state);
+		break;
+	case V4L2_CID_IS_FAST_CTL_LENS_POS:
+		{
+			struct fast_control_mgr *fastctlmgr = &device->fastctlmgr;
+			struct is_fast_ctl *fast_ctl = NULL;
+			unsigned long flags;
+			u32 state;
+
+			spin_lock_irqsave(&fastctlmgr->slock, flags);
+
+			state = IS_FAST_CTL_FREE;
+			if (fastctlmgr->queued_count[state]) {
+				/* get free list */
+				fast_ctl = list_first_entry(&fastctlmgr->queued_list[state],
+					struct is_fast_ctl, list);
+				list_del(&fast_ctl->list);
+				fastctlmgr->queued_count[state]--;
+
+				/* Write fast_ctl: lens */
+				if (ctrl->id == V4L2_CID_IS_FAST_CTL_LENS_POS) {
+					fast_ctl->lens_pos = ctrl->value;
+					fast_ctl->lens_pos_flag = true;
+				}
+
+				/* TODO: Here is place for additional fast_ctl. */
+
+				/* set req list */
+				state = IS_FAST_CTL_REQUEST;
+				fast_ctl->state = state;
+				list_add_tail(&fast_ctl->list, &fastctlmgr->queued_list[state]);
+				fastctlmgr->queued_count[state]++;
+			} else {
+				mwarn("not enough fast_ctl free queue\n", device, ctrl->value);
+			}
+
+			spin_unlock_irqrestore(&fastctlmgr->slock, flags);
+
+			if (fast_ctl)
+				mdbgv_3aa("%s: uctl.lensUd.pos(%d)\n", vctx, __func__, ctrl->value);
+		}
 		break;
 	default:
 		ret = is_video_s_ctrl(file, vctx, ctrl);
@@ -781,6 +838,33 @@ static int is_3aa_video_s_ext_ctrl(struct file *file, void *priv,
 		case V4L2_CID_IS_G_SETFILE_VERSION:
 			ret = is_ischain_g_ddk_setfile_version(device, ext_ctrl->ptr);
 			break;
+		case V4L2_CID_SENSOR_SET_CAPTURE_INTENT_INFO:
+		{
+			struct is_group *head;
+			struct capture_intent_info_t info;
+
+			ret = copy_from_user(&info, ext_ctrl->ptr, sizeof(struct capture_intent_info_t));
+			if (ret) {
+				err("fail to copy_from_user, ret(%d)\n", ret);
+				goto p_err;
+			}
+
+			head = GET_HEAD_GROUP_IN_DEVICE(IS_DEVICE_ISCHAIN, &device->group_3aa);
+
+			head->intent_ctl.captureIntent = info.captureIntent;
+			head->intent_ctl.vendor_captureCount = info.captureCount;
+			head->intent_ctl.vendor_captureEV = info.captureEV;
+
+			if (info.captureIntent == AA_CAPTURE_INTENT_STILL_CAPTURE_OIS_MULTI) {
+				head->remainIntentCount = 2 + INTENT_RETRY_CNT;
+			} else {
+				head->remainIntentCount = 0 + INTENT_RETRY_CNT;
+			}
+
+			info("s_ext_ctrl SET_CAPTURE_INTENT_INFO, intent(%d) count(%d) captureEV(%d) remainIntentCount(%d)\n",
+				info.captureIntent, info.captureCount, info.captureEV, head->remainIntentCount);
+			break;
+		}
 		default:
 			ctrl.id = ext_ctrl->id;
 			ctrl.value = ext_ctrl->value;
@@ -970,7 +1054,7 @@ static void is_3aa_buffer_queue(struct vb2_buffer *vb)
 
 static void is_3aa_buffer_finish(struct vb2_buffer *vb)
 {
-	int ret = 0;
+	int ret;
 	struct is_video_ctx *vctx;
 	struct is_device_ischain *device;
 
@@ -984,13 +1068,11 @@ static void is_3aa_buffer_finish(struct vb2_buffer *vb)
 
 	mvdbgs(3, "%s(%d)\n", vctx, &vctx->queue, __func__, vb->index);
 
-	is_queue_buffer_finish(vb);
-
 	ret = is_ischain_3aa_buffer_finish(device, vb->index);
-	if (ret) {
+	if (ret)
 		merr("is_ischain_3aa_buffer_finish is fail(%d)", device, ret);
-		return;
-	}
+
+	is_queue_buffer_finish(vb);
 }
 
 const struct vb2_ops is_3aa_qops = {

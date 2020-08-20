@@ -62,6 +62,43 @@ static struct mfc_fmt *__mfc_enc_find_format(struct mfc_ctx *ctx,
 	return fmt;
 }
 
+static void __mfc_enc_uncomp_format(struct mfc_ctx *ctx)
+{
+	struct mfc_enc *enc = ctx->enc_priv;
+	u32 org_fmt = ctx->src_fmt->fourcc;
+	u32 uncomp_fmt = 0;
+
+	switch (org_fmt) {
+		case V4L2_PIX_FMT_NV12M_SBWC_8B:
+			uncomp_fmt = V4L2_PIX_FMT_NV12M;
+			break;
+		case V4L2_PIX_FMT_NV21M_SBWC_8B:
+			uncomp_fmt = V4L2_PIX_FMT_NV21M;
+			break;
+		case V4L2_PIX_FMT_NV12N_SBWC_8B:
+			uncomp_fmt = V4L2_PIX_FMT_NV12N;
+			break;
+		case V4L2_PIX_FMT_NV12M_SBWC_10B:
+			if (ctx->mem_type_10bit)
+				uncomp_fmt = V4L2_PIX_FMT_NV12M_P010;
+			else
+				uncomp_fmt = V4L2_PIX_FMT_NV12M_S10B;
+			break;
+		case V4L2_PIX_FMT_NV12N_SBWC_10B:
+			uncomp_fmt = V4L2_PIX_FMT_NV12N_10B;
+			break;
+		default:
+			mfc_err_ctx("[SBWC] Cannot find uncomp format: %d\n", org_fmt);
+			break;
+	}
+
+	if (uncomp_fmt) {
+		enc->uncomp_fmt = __mfc_enc_find_format(ctx, uncomp_fmt);
+		if (enc->uncomp_fmt)
+			mfc_debug(2, "[SBWC] Uncompressed format is %s\n", enc->uncomp_fmt->name);
+	}
+}
+
 static struct v4l2_queryctrl *__mfc_enc_get_ctrl(int id)
 {
 	unsigned long i;
@@ -417,6 +454,7 @@ static int mfc_enc_s_fmt_vid_cap_mplane(struct file *file, void *priv,
 {
 	struct mfc_dev *dev = video_drvdata(file);
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
+	struct mfc_fmt *dst_fmt;
 	struct mfc_enc *enc = ctx->enc_priv;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 	int ret = 0;
@@ -428,12 +466,12 @@ static int mfc_enc_s_fmt_vid_cap_mplane(struct file *file, void *priv,
 		return -EBUSY;
 	}
 
-	ctx->dst_fmt = __mfc_enc_find_format(ctx, pix_fmt_mp->pixelformat);
-	if (!ctx->dst_fmt) {
+	dst_fmt = __mfc_enc_find_format(ctx, pix_fmt_mp->pixelformat);
+	if (!dst_fmt) {
 		mfc_err_ctx("Unsupported format for destination\n");
 		return -EINVAL;
 	}
-
+	ctx->dst_fmt = dst_fmt;
 	ctx->codec_mode = ctx->dst_fmt->codec_mode;
 	mfc_info_ctx("[STREAM] Enc dst codec(%d) : %s\n",
 			ctx->codec_mode, ctx->dst_fmt->name);
@@ -569,6 +607,7 @@ static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
 							struct v4l2_format *f)
 {
 	struct mfc_ctx *ctx = fh_to_mfc_ctx(file->private_data);
+	struct mfc_fmt *src_fmt;
 	struct v4l2_pix_format_mplane *pix_fmt_mp = &f->fmt.pix_mp;
 
 	mfc_debug_enter();
@@ -583,12 +622,12 @@ static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
 		return 0;
 	}
 
-	ctx->src_fmt = __mfc_enc_find_format(ctx, pix_fmt_mp->pixelformat);
-	if (!ctx->src_fmt) {
+	src_fmt = __mfc_enc_find_format(ctx, pix_fmt_mp->pixelformat);
+	if (!src_fmt) {
 		mfc_err_ctx("Unsupported format for source\n");
 		return -EINVAL;
 	}
-
+	ctx->src_fmt=src_fmt;
 	if (ctx->src_fmt->mem_planes != pix_fmt_mp->num_planes) {
 		mfc_err_ctx("[FRAME] enc src plane number is different (%d != %d)\n",
 				ctx->src_fmt->mem_planes, pix_fmt_mp->num_planes);
@@ -621,6 +660,9 @@ static int mfc_enc_s_fmt_vid_out_mplane(struct file *file, void *priv,
 	ctx->crop_width = ctx->img_width;
 	ctx->crop_height = ctx->img_height;
 	mfc_enc_calc_src_size(ctx);
+
+	if (ctx->is_sbwc)
+		__mfc_enc_uncomp_format(ctx);
 
 	ctx->output_state = QUEUE_FREE;
 
@@ -968,6 +1010,7 @@ static int __mfc_enc_ext_info(struct mfc_ctx *ctx)
 	val |= ENC_SET_PVC_MODE;
 	val |= ENC_SET_RATIO_OF_INTRA;
 	val |= ENC_SET_DROP_CONTROL;
+	val |= ENC_SET_CHROMA_QP_CONTROL;
 
 	if (MFC_FEATURE_SUPPORT(dev, dev->pdata->color_aspect_enc))
 		val |= ENC_SET_COLOR_ASPECT;
@@ -1886,6 +1929,12 @@ static int __mfc_enc_set_param(struct mfc_ctx *ctx, struct v4l2_control *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDEO_DROP_CONTROL:
 		p->drop_control = ctrl->value;
+		break;
+	case V4L2_CID_MPEG_VIDEO_CHROMA_QP_OFFSET_CB:
+		p->chroma_qp_offset_cb = ctrl->value;
+		break;
+	case V4L2_CID_MPEG_VIDEO_CHROMA_QP_OFFSET_CR:
+		p->chroma_qp_offset_cr = ctrl->value;
 		break;
 	case V4L2_CID_MPEG_MFC_HDR_USER_SHARED_HANDLE:
 		if (enc->sh_handle_hdr.fd == -1) {

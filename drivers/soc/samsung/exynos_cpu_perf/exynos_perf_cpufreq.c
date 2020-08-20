@@ -140,7 +140,7 @@ static int cpufreq_log_thread(void *data)
 	// mif, gpu, task
 	ret += snprintf(buf + ret, buf_size - ret, "05-mif_cur 06-gpu_util 06-gpu_cur 07-task_cpu ");
 	for_each_online_cpu(cpu) {
-		ret += snprintf(buf + ret, buf_size - ret, "08-cpuutil_cpu%d ", cpu);
+		ret += snprintf(buf + ret, buf_size - ret, "08-utilratio_cpu%d ", cpu);
 	}
 	ret -= 1;
 	ret += snprintf(buf + ret, buf_size - ret, "\n");
@@ -184,7 +184,7 @@ static int cpufreq_log_thread(void *data)
 			}
 		}
 		// mif
-#ifdef CONFIG_SOC_EXYNOS9830
+#if defined(CONFIG_SOC_EXYNOS9830) || defined(CONFIG_SOC_EXYNOS991)
 		mif = (uint)exynos_devfreq_get_domain_freq(devfreq_mif) / 1000;
 #else
 		mif = (uint)cal_dfs_cached_get_rate(cal_id_mif) / 1000;
@@ -199,7 +199,8 @@ static int cpufreq_log_thread(void *data)
 		ret += snprintf(buf + ret, buf_size - ret, "%d ", cpu);
 		// cpu util
 		for_each_online_cpu(cpu) {
-			cpu_util = ml_cpu_util(cpu);
+			cpu_util = (ml_cpu_util(cpu) * 100) / capacity_cpu(cpu, USS);
+			cpu_util = (cpu_util > 100)? 100 : cpu_util;
 			ret += snprintf(buf + ret, buf_size - ret, "%d ", cpu_util);
 		}
 		ret -= 1;
@@ -283,7 +284,7 @@ static ssize_t run_seq_write(struct file *file, const char __user *buffer, size_
 {
 	int run;
 	char bbuf[10];
-
+	count = (count > 10)? 10 : count;
 	if (copy_from_user(bbuf, buffer, count) != 0)
 		return -EFAULT;
 

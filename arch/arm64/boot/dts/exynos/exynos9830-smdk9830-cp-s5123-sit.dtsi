@@ -151,7 +151,7 @@
 				/* Size of data region is defined by reserved mem size */
 
 				pktproc_desc_mode = <1>;	/* Descriptor structure mode. 0:ringbuf mode, 1:sktbuf mode */
-				pktproc_desc_num_ratio_percent = <20>;
+				pktproc_desc_num_ratio_percent = <25>;
 				pktproc_num_queue = <1>;
 				pktproc_use_exclusive_irq = <0>;
 				pktproc_use_hw_iocc = <1>;	/* H/W IO cache coherency */
@@ -370,7 +370,7 @@
 						region,index = <SHMEM_PKTPROC>;
 						region,rmem = <2>;
 						region,offset = <0x00000000>;
-						region,size = <0x08000000>;
+						region,size = <0x04000000>;
 						region,cached = <1>;	/* set pktproc_use_hw_iocc instead of this */
 					};
 				};

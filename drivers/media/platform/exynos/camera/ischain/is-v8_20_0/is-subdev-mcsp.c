@@ -11,6 +11,7 @@
  */
 
 #include "is-device-ischain.h"
+#include "is-device-sensor.h"
 #include "is-subdev-ctrl.h"
 #include "is-config.h"
 #include "is-param.h"
@@ -21,54 +22,72 @@
 #include "is-dvfs.h"
 #include "is-hw-dvfs.h"
 
-void is_ischain_mxp_stripe_cfg(struct is_subdev *subdev,
+int is_ischain_mxp_stripe_cfg(struct is_subdev *subdev,
 		struct is_frame *ldr_frame,
 		struct is_crop *incrop,
 		struct is_crop *otcrop,
-		struct is_frame_cfg *framecfg)
+		struct is_frame_cfg *framecfg,
+		u32 mcs_out_flip)
 {
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
 	struct is_fmt *fmt = framecfg->format;
-	bool x_flip = test_bit(SCALER_FLIP_COMMAND_X_MIRROR, &framecfg->flip);
+	bool x_flip = mcs_out_flip & CAM_FLIP_MODE_HORIZONTAL ? true : false;
+	bool is_last_region = false;
 	unsigned long flags;
+	u32 region_id = ldr_frame->stripe_info.region_id;
 	u32 stripe_x, stripe_w;
 	u32 dma_offset = 0;
+	int temp_stripe_x = 0, temp_stripe_w = 0;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
 	if (!framemgr)
-		return;
+		return 0;
 
 	framemgr_e_barrier_irqs(framemgr, FMGR_IDX_24, flags);
 
 	frame = peek_frame(framemgr, ldr_frame->state);
 	if (frame) {
 		/* Input crop configuration */
-		if (!ldr_frame->stripe_info.region_id) {
+		if (!region_id) {
 			/* Left region w/o margin */
 			stripe_x = incrop->x;
-			stripe_w = ldr_frame->stripe_info.in.h_pix_num - stripe_x;
-
+			temp_stripe_w = ldr_frame->stripe_info.in.h_pix_num - stripe_x;
+			stripe_w = temp_stripe_w > 0 ? temp_stripe_w: 0;
 			frame->stripe_info.in.h_pix_ratio = stripe_w * STRIPE_RATIO_PRECISION / incrop->w;
 			frame->stripe_info.in.h_pix_num = stripe_w;
-		} else if (ldr_frame->stripe_info.region_id < ldr_frame->stripe_info.region_num - 1) {
+		} else if (region_id < ldr_frame->stripe_info.region_num - 1) {
 			/* Middle region w/o margin */
 			stripe_x = STRIPE_MARGIN_WIDTH;
-			stripe_w = ldr_frame->stripe_info.in.h_pix_num - frame->stripe_info.in.h_pix_num;
+			temp_stripe_w = ldr_frame->stripe_info.in.h_pix_num - frame->stripe_info.in.h_pix_num - incrop->x;
+
+			/* Stripe x when crop offset x start in middle region */
+			if (!frame->stripe_info.in.h_pix_num && incrop->x < ldr_frame->stripe_info.in.h_pix_num)
+				temp_stripe_x = incrop->x - ldr_frame->stripe_info.in.prev_h_pix_num;
+
+			/* Stripe width when crop region end in middle region */
+			if (incrop->x + incrop->w < ldr_frame->stripe_info.in.h_pix_num) {
+				temp_stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+				is_last_region = true;
+			}
+
+			stripe_w = temp_stripe_w > 0 ? temp_stripe_w: 0;
+			stripe_x = stripe_x + temp_stripe_x;
 
 			frame->stripe_info.in.h_pix_ratio = stripe_w * STRIPE_RATIO_PRECISION / incrop->w;
 			frame->stripe_info.in.h_pix_num += stripe_w;
 		} else {
 			/* Right region w/o margin */
 			stripe_x = STRIPE_MARGIN_WIDTH;
-			stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+			temp_stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+			stripe_w = temp_stripe_w > 0 ? temp_stripe_w: 0;
 		}
 
 		incrop->x = stripe_x;
 		incrop->w = stripe_w;
 
 		/* Output crop & WDMA offset configuration */
-		if (!ldr_frame->stripe_info.region_id) {
+		if (!region_id) {
 			/* Left region */
 			stripe_w = ALIGN(otcrop->w * frame->stripe_info.in.h_pix_ratio / STRIPE_RATIO_PRECISION, 2);
 
@@ -79,9 +98,12 @@ void is_ischain_mxp_stripe_cfg(struct is_subdev *subdev,
 			/* Add horizontal DMA offset */
 			if (x_flip)
 				dma_offset = (otcrop->w - stripe_w) * fmt->bitsperpixel[0] / BITS_PER_BYTE;
-		} else if (ldr_frame->stripe_info.region_id < ldr_frame->stripe_info.region_num - 1) {
+		} else if (region_id < ldr_frame->stripe_info.region_num - 1) {
 			/* Middle region */
-			stripe_w = ALIGN(otcrop->w * frame->stripe_info.in.h_pix_ratio / STRIPE_RATIO_PRECISION, 4);
+			if (is_last_region)
+				stripe_w = otcrop->w - frame->stripe_info.out.h_pix_num;
+			else
+				stripe_w = ALIGN(otcrop->w * frame->stripe_info.in.h_pix_ratio / STRIPE_RATIO_PRECISION, 2);
 
 			/* Add horizontal DMA offset */
 			if (x_flip)
@@ -102,19 +124,27 @@ void is_ischain_mxp_stripe_cfg(struct is_subdev *subdev,
 
 		otcrop->w = stripe_w;
 
+		if (temp_stripe_w <= 0) {
+			mdbg_pframe("Skip current stripe[#%d] region because stripe_width is too small(%d)\n",
+				subdev, subdev, ldr_frame, region_id, stripe_w);
+			framemgr_x_barrier_irqr(framemgr, FMGR_IDX_24, flags);
+			return -EAGAIN;
+		}
+
 		frame->dvaddr_buffer[0] = frame->stripe_info.region_base_addr[0] + dma_offset;
 		/* Calculate chroma base address for NV21M */
 		frame->dvaddr_buffer[1] = frame->stripe_info.region_base_addr[1] + dma_offset;
 
 		msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
+				region_id,
 				incrop->x, incrop->y, incrop->w, incrop->h);
 		msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
+				region_id,
 				otcrop->x, otcrop->y, otcrop->w, otcrop->h, dma_offset);
 	}
 
 	framemgr_x_barrier_irqr(framemgr, FMGR_IDX_24, flags);
+	return 0;
 }
 
 static int is_ischain_mxp_adjust_crop(struct is_device_ischain *device,
@@ -337,33 +367,6 @@ static int is_ischain_mxp_start(struct is_device_ischain *device,
 	incrop_cfg = *incrop;
 	otcrop_cfg = *otcrop;
 
-	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame && frame->stripe_info.region_num)
-		is_ischain_mxp_stripe_cfg(subdev, frame,
-				&incrop_cfg, &otcrop_cfg,
-				&queue->framecfg);
-
-	/* if output DS, skip check a incrop & input mcs param
-	 * because, DS input size set to preview port output size
-	 */
-	if ((index - PARAM_MCS_OUTPUT0) != MCSC_OUTPUT_DS)
-		is_ischain_mxp_compare_size(device, mcs_param, &incrop_cfg);
-
-	is_ischain_mxp_adjust_crop(device, incrop_cfg.w, incrop_cfg.h, &otcrop_cfg.w, &otcrop_cfg.h);
-
-	if (queue->framecfg.quantization == V4L2_QUANTIZATION_FULL_RANGE) {
-		crange = SCALER_OUTPUT_YUV_RANGE_FULL;
-		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
-			!COMPARE_CROP(otcrop, &subdev->output.crop) ||
-			debug_stream)
-			mdbg_pframe("CRange:W\n", device, subdev, frame);
-	} else {
-		crange = SCALER_OUTPUT_YUV_RANGE_NARROW;
-		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
-			!COMPARE_CROP(otcrop, &subdev->output.crop) ||
-			debug_stream)
-			mdbg_pframe("CRange:N\n", device, subdev, frame);
-	}
-
 	if (node->pixelformat && format->pixelformat != node->pixelformat) { /* per-frame control for RGB */
 		tmp_format = is_find_format((u32)node->pixelformat, 0);
 		if (tmp_format) {
@@ -388,6 +391,44 @@ static int is_ischain_mxp_start(struct is_device_ischain *device,
 		}
 	}
 
+	if (queue->framecfg.quantization == V4L2_QUANTIZATION_FULL_RANGE) {
+		crange = SCALER_OUTPUT_YUV_RANGE_FULL;
+		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			!COMPARE_CROP(otcrop, &subdev->output.crop) ||
+			debug_stream)
+			mdbg_pframe("CRange:W\n", device, subdev, frame);
+	} else {
+		crange = SCALER_OUTPUT_YUV_RANGE_NARROW;
+		if (!COMPARE_CROP(incrop, &subdev->input.crop) ||
+			!COMPARE_CROP(otcrop, &subdev->output.crop) ||
+			debug_stream)
+			mdbg_pframe("CRange:N\n", device, subdev, frame);
+	}
+
+	if (frame->shot_ext->mcsc_flip[index - PARAM_MCS_OUTPUT0] != mcs_output->flip) {
+		mdbg_pframe("flip is changed(%d->%d)\n",
+			device, subdev, frame,
+			mcs_output->flip,
+			frame->shot_ext->mcsc_flip[index - PARAM_MCS_OUTPUT0]);
+		mcs_output->flip = frame->shot_ext->mcsc_flip[index - PARAM_MCS_OUTPUT0];
+	}
+
+	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame
+		&& frame->stripe_info.region_num
+		&& device->sensor->use_stripe_flag)
+		is_ischain_mxp_stripe_cfg(subdev, frame,
+				&incrop_cfg, &otcrop_cfg,
+				&queue->framecfg,
+				mcs_output->flip);
+
+	/* if output DS, skip check a incrop & input mcs param
+	 * because, DS input size set to preview port output size
+	 */
+	if ((index - PARAM_MCS_OUTPUT0) != MCSC_OUTPUT_DS)
+		is_ischain_mxp_compare_size(device, mcs_param, &incrop_cfg);
+
+	is_ischain_mxp_adjust_crop(device, incrop_cfg.w, incrop_cfg.h, &otcrop_cfg.w, &otcrop_cfg.h);
+
 	mcs_output->otf_format = OTF_OUTPUT_FORMAT_YUV422;
 	mcs_output->otf_bitwidth = OTF_OUTPUT_BIT_WIDTH_8BIT;
 	mcs_output->otf_order = OTF_OUTPUT_ORDER_BAYER_GR_BG;
@@ -405,15 +446,16 @@ static int is_ischain_mxp_start(struct is_device_ischain *device,
 
 	mcs_output->width = otcrop_cfg.w; /* per frame */
 	mcs_output->height = otcrop_cfg.h; /* per frame */
-	/* HW spec: stride should be aligned by 16 byte. */
 
+	mcs_output->crop_cmd = 0;
+	mcs_output->crop_cmd |= (u32)(node->request & BIT(MCSC_CROP_TYPE)); /* 0: ceter crop, 1: freeform crop */
+	/* HW spec: stride should be aligned by 16 byte. */
 	mcs_output->dma_stride_y = ALIGN(max(otcrop->w * format->bitsperpixel[0] / BITS_PER_BYTE,
 					queue->framecfg.bytesperline[0]), 16);
 	mcs_output->dma_stride_c = ALIGN(max(otcrop->w * format->bitsperpixel[1] / BITS_PER_BYTE,
 					queue->framecfg.bytesperline[1]), 16);
 
 	mcs_output->yuv_range = crange;
-	mcs_output->flip = (u32)queue->framecfg.flip >> 1; /* Caution: change from bitwise to enum */
 
 #ifdef ENABLE_HWFC
 	if (test_bit(IS_ISCHAIN_REPROCESSING, &device->state))
@@ -552,6 +594,7 @@ static int is_ischain_mxp_tag(struct is_subdev *subdev,
 	u32 pixelformat = 0;
 	u32 *target_addr;
 	bool change_pixelformat = false;
+	bool change_flip = false;
 
 	device = (struct is_device_ischain *)device_data;
 
@@ -614,6 +657,8 @@ static int is_ischain_mxp_tag(struct is_subdev *subdev,
 		goto p_err;
 	}
 
+	memset(target_addr, 0, sizeof(ldr_frame->sc0TargetAddress));
+
 	mcs_output = is_itf_g_param(device, ldr_frame, index);
 
 	if (node->request) {
@@ -623,6 +668,9 @@ static int is_ischain_mxp_tag(struct is_subdev *subdev,
 			change_pixelformat = !COMPARE_FORMAT(pixelformat, node->pixelformat);
 			pixelformat = node->pixelformat;
 		}
+
+		if (ldr_frame->shot_ext->mcsc_flip[index - PARAM_MCS_OUTPUT0] != mcs_output->flip)
+			change_flip = true;
 
 		inparm.x = mcs_output->crop_offset_x;
 		inparm.y = mcs_output->crop_offset_y;
@@ -644,6 +692,7 @@ static int is_ischain_mxp_tag(struct is_subdev *subdev,
 			!COMPARE_CROP(otcrop, &otparm) ||
 			CHECK_STRIPE_CFG(&ldr_frame->stripe_info) ||
 			change_pixelformat ||
+			change_flip ||
 			!test_bit(IS_SUBDEV_RUN, &subdev->state) ||
 			test_bit(IS_SUBDEV_FORCE_SET, &leader->state)) {
 			ret = is_ischain_mxp_start(device,

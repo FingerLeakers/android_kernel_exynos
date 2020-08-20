@@ -20,11 +20,16 @@
 #define SENSOR_IMX518_MAX_WIDTH    (1280)
 #define SENSOR_IMX518_MAX_HEIGHT   (482)
 
-enum sensor_imx516_mode_enum {
+enum sensor_imx518_mode_enum {
 	SENSOR_IMX518_1280x3840_30FPS = 0,  /* VGA : 640 * 2, 480 * 8 */
 	SENSOR_IMX518_640x1920_30FPS,       /* QVGA : 320 * 2, 240 * 8  */
 	SENSOR_IMX518_320x480_30FPS,	    /* QQVGA(AF) : 160 * 2, 120 * 4  */
 	SENSOR_IMX518_MODE_MAX,
+};
+
+enum LASER_MODE {
+    LASER_MODE_NORMAL,
+    LASER_MODE_LIVE_FOCUS,
 };
 
 enum {

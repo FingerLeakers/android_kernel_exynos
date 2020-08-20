@@ -59,8 +59,9 @@
  * =================================================================================================
  */
 #define CHAIN_USE_STRIPE_PROCESSING		1
-#define STRIPE_MARGIN_WIDTH		(512)
-#define STRIPE_WIDTH_ALIGN		(512)
+#define CHAIN_USE_STRIPE_REGION_NUM_META	1
+#define STRIPE_MARGIN_WIDTH		(384)
+#define STRIPE_WIDTH_ALIGN		(128)
 #define STRIPE_RATIO_PRECISION		(1000)
 
 /* #define ENABLE_TNR */

@@ -14,10 +14,11 @@
 #include <dt-bindings/pci/pci.h>
 #include "exynos990-c2s_camera.dtsi"
 #include "exynos9830-picasso2lte_mst_r00.dtsi"
-#include "exynos9830-hubble_sound.dtsi"
+#include "exynos9830-canvas_sound.dtsi"
 #include "exynos9830-c2_input_common.dtsi"
 #include "exynos9830-hubble_vib.dtsi"
 #include "exynos9830-inputbooster.dtsi"
+#include "exynos990-c2s_panel_display_modes.dtsi"
 
 / {
 	compatible = "samsung,exynos990", "samsung,UNIVERSAL990";
@@ -61,12 +62,12 @@
 
 				hs_tune2 {
 					tune_name = "tx_vref";
-					tune_value = <0xe 0xe>;
+					tune_value = <0xc 0xc>;
 				};
 
 				hs_tune3 {
 					tune_name = "rx_sqrx";
-					tune_value = <0x4 0x4>;
+					tune_value = <0x5 0x5>;
 				};
 
 				hs_tune4 {
@@ -328,9 +329,9 @@
 				status = "okay";
 
 				bootc {
-					bootc,time_spec_user = <40000>; /* user binary user build */
-					bootc,time_spec_eng = <90000>; /* user binary eng build */
-					bootc,time_spec_fac = <30000>; /* factory binary */
+					bootc,time_spec_user = <100000>; /* user binary user build */
+					bootc,time_spec_eng = <100000>; /* user binary eng build */
+					bootc,time_spec_fac = <100000>; /* factory binary */
 				};
 			};
 
@@ -586,53 +587,79 @@
 						level_0 {
 							threshold = <100>;
 							lit_min = <1053000>;
-							mif = <845000>;
 						};
 						level_1 {
-							threshold = <150>;
+							threshold = <200>;
 							lit_min = <1300000>;
 							mif = <1014000>;
 						};
+						/* uses middle */
 						level_2 {
-							threshold = <200>;
-							lit_min = <1742000>;
-							mif = <1716000>;
+							threshold = <300>;
+							mid_min = <1222000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
 						};
 						level_3 {
-							threshold = <250>;
-							lit_min = <1742000>;
-							mif = <1716000>;
+							threshold = <700>;
+							mid_min = <1404000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
 						};
-						/* uses middle */
 						level_4 {
-							threshold = <300>;
-							mid_min = <1898000>;
-							lit_min = <1742000>;
-							mif = <2028000>;
+							threshold = <800>;
+							mid_min = <1404000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
 						};
 						level_5 {
-							threshold = <700>;
-							mid_min = <2106000>;
-							lit_min = <1846000>;
-							mif = <2535000>;
+							threshold = <1500>;
+							mid_min = <1508000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
 						};
 						level_6 {
-							threshold = <800>;
-							mid_min = <2106000>;
-							lit_min = <1846000>;
-							mif = <2535000>;
-						};
-						level_7 {
-							threshold = <1500>;
-							mid_min = <2314000>;
-							lit_min = <1950000>;
-							mif = <2730000>;
-						};
-						level_8 {
 							threshold = <1600>;
-							mid_min = <2314000>;
-							lit_min = <1950000>;
-							mif = <2730000>;
+							mid_min = <1508000>;
+							lit_min = <1300000>;
+							mif = <1014000>;
+						};
+					};
+				};
+				boot_device@7 {
+					net_boost,label="SWLAN";
+					net_boost,node="swlan0";
+					net_boost,slowdown;
+					net_boost,table {
+						level_0 {
+							threshold = <2>;
+							mid_min = <1456000>;
+							lit_min = <1456000>;
+						};
+						level_1 {
+							threshold = <5>;
+							mid_min = <1690000>;
+							lit_min = <1742000>;
+						};
+						level_2 {
+							threshold = <20>;
+							mid_min = <1898000>;
+							lit_min = <1742000>;
+							mif = <1352000>;
+							int = <400000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
+						};
+						level_3 {
+							threshold = <50>;
+							mid_min = <2106000>;
+							lit_min = <1742000>;
+							mif = <1716000>;
+							int = <533000>;
+							task_affinity = "enable";
+							irq_affinity = "enable";
+							hmp_boost = "enable";
 						};
 					};
 				};
@@ -802,8 +829,8 @@
 	snps,ux_exit_in_px_quirk;
 	/* elastic_buf_mode_quirk should be defined in MK */
 	snps,elastic_buf_mode_quirk;
-	usb3-lpm-capable;
-	snps,usb3_lpm_capable;
+	/* usb3-lpm-capable; */
+	/* snps,usb3_lpm_capable; */
 	adj-sof-accuracy = <1>;
 	/*
 	 * dis-u2-freeclk-exists-quirk, dis_u2_susphy_quirk are alternative.
@@ -813,7 +840,7 @@
 	/*snps,dis_u2_susphy_quirk;*/
 	samsung,no-extra-delay;
 	samsung,force-gen1;
-	usb_host_device_timeout = <0x7ff>; /* Max value */
+	usb_host_device_timeout = <200>; /* Max value */
 
 	usb_audio_offloading = <1>;
 	abox = <&abox>;
@@ -879,7 +906,7 @@
 &pinctrl_1 {
 	disp_det_ctrl:	disp-det-ctrl {
 		samsung,pins = "gpm17-0";
-		samsung,pin-pud = <0>;
+		samsung,pin-pud = <1>;
 	};
 };
 
@@ -892,12 +919,16 @@
 };
 
 &s6e3hab {
-	size = <72 159>;
+	size = <69 154>;
+};
+
+&s6e3hac {
+	size = <74 158>;
 };
 
 &panel_drv_0 {
     status = "okay";
-	ddi_info = <&s6e3hab>;
+	ddi_info = <&s6e3hac>;
 
 	#address-cells = <2>;
 	#size-cells = <1>;
@@ -959,29 +990,22 @@
 	};
 	panel-lookup {
 		panel-name =
-			"s6e3ha9_davinci2_a3_s0_default",
-			/* OSC:96.5MHz */
-			"s6e3hab_hubble3_a3_s0_preliminary_osc_96_5m",
-			"s6e3hab_hubble3_a3_s0_default_osc_96_5m",
-			"s6e3hab_hubble3_a3_s0_default_osc_96_5m_rev03",
-			/* OSC:86.4MHz */
-			"s6e3hab_hubble3_a3_s0_preliminary",
-			"s6e3hab_hubble3_a3_s0_default",
-			"s6e3hab_hubble3_a3_s0_default_rev03";
-		panel-ddi-info = <&s6e3ha9 &s6e3hab>;
+			"s6e3hac_canvas2_a3_s0_rev40",
+			"s6e3hac_canvas2_a3_s0_rev50",
+			"s6e3hac_canvas2_a3_s0_rev52",
+			"s6e3hac_canvas2_a3_s0_default";
+		panel-ddi-info = <&s6e3hac>;
+		panel-display-modes = <&canvas2_panel_display_modes>;
 		panel-lut = <
-			0xa10013 0xff00ff 0x0 0x0  /* S6E3HA9 1440x3040 PANEL*/
-
-			0x000000 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV00, OSC:96.5 */
-			0x000001 0x0000CF 0x1 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:96.5 */
-			0x000002 0x0000CF 0x2 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:96.5 */
-			0x000000 0x0000C0 0x3 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV03, OSC:96.5 */
-
-			0x000040 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
-			0x000041 0x0000CF 0x4 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV01, OSC:86.4 */
-			0x000042 0x0000CF 0x5 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV02, OSC:86.4 */
-			0x000040 0x0000C0 0x6 0x1  /* S6E3HAB 1440x3200 Z3 PANEL REV03, OSC:86.4 */
-			0x000000 0x000000 0x3 0x1  /* default */
+			/* id mask panel ddi */
+			0x000440 0x00FFF0 0x0 0x0  /* S6E3HAB 1440x3088 C2 PANEL REV40(EVT0)*/
+			0x010450 0x01FFFF 0x1 0x0  /* S6E3HAB 1440x3088 C2 PANEL REV50,51(EVT1)*/
+			0x010451 0x01FFFF 0x1 0x0  /* S6E3HAB 1440x3088 C2 PANEL REV50,51(EVT1)*/
+			0x000451 0x01FFFF 0x2 0x0  /* S6E3HAB 1440x3088 C2 PANEL REV51 U-TYPE(EVT1) */
+			0x010452 0x01FFFF 0x2 0x0  /* S6E3HAB 1440x3088 C2 PANEL REV52(EVT1)*/
+			0x000453 0x00FFFF 0x3 0x0  /* S6E3HAB 1440x3088 C2 PANEL DEFAULT(EVT1)*/
+			0x000454 0x00FFFC 0x3 0x0  /* S6E3HAB 1440x3088 C2 PANEL DEFAULT(EVT1)*/
+			0x000000 0x000000 0x3 0x0  /* default */
 		>;
 	};
 };
@@ -998,7 +1022,7 @@
 &ufs {
 	/* board type for UFS CAL */
 	brd-for-cal = /bits/ 8 <16>;  /* (1:SMDK, 16:UNIV) board */
-
+	hpb-enable = <1>;
 };
 
 &dwmmc_2 {
@@ -1076,7 +1100,7 @@
 
 &spi_14 {
         BCM4773@0 {
-        	ssp-ap-type = <2>;
+        	ssp-ap-type = <1>;
         };
 };
 &mcdhdr_0 {

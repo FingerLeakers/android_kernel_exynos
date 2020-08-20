@@ -198,10 +198,10 @@ int is_subdev_internal_stop(void *device, enum is_device_type type, struct is_su
 
 #define GET_SUBDEV_FRAMEMGR(subdev) \
 	({ struct is_framemgr *framemgr;						\
-	if ((subdev) && test_bit(IS_SUBDEV_INTERNAL_USE, &((subdev)->state)))	\
-		framemgr = &(subdev)->internal_framemgr;				\
-	else if ((subdev) && (subdev)->vctx)						\
+	if ((subdev) && (subdev)->vctx)							\
 		framemgr = &(subdev)->vctx->queue.framemgr;				\
+	else if ((subdev) && test_bit(IS_SUBDEV_INTERNAL_USE, &((subdev)->state)))	\
+		framemgr = &(subdev)->internal_framemgr;				\
 	else										\
 		framemgr = NULL;							\
 	framemgr;})

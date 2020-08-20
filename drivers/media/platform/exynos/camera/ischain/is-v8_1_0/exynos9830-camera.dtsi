@@ -782,6 +782,10 @@
 		#define LIC_MODE_STATIC		(1)
 		#define LIC_PATH_OTF		(0)
 		#define LIC_PATH_DMA		(1)
+		#define LIC_TOTAL_SIZE		(3584)
+
+		lic_mode_default = <LIC_MODE_DYNAMIC>;
+
 		/*
 		 * When DYNAMIC mode is selected, param means enable limitation for DMA path.
 		 * Example:
@@ -805,6 +809,14 @@
 			param1 = <0>;
 			param2 = <0>;
 		};
+
+		lic_scen1 { /* rear 120fps fast AE */
+			mode = <LIC_MODE_STATIC>;
+			param0 = <1792>;
+			param1 = <1792>;
+			param2 = <0>;
+		};
+
 	};
 
 	sensor_paf_pdp_0: sensor-paf-pdp@17090000 {

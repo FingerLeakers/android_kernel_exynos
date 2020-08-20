@@ -369,9 +369,11 @@ enum base_reg_index {
 #define MCSC_HEIGHT_ALIGN		(2)
 #define MCSC_PRECISION			(20)
 #define MCSC_POLY_RATIO_UP		(16)
+#define MCSC_POLY_QUALITY_RATIO_DOWN	(4)
 #define MCSC_POLY_RATIO_DOWN		(16)
 #define MCSC_POLY_MAX_RATIO_DOWN	(256)
 #define MCSC_POST_RATIO_DOWN		(16)
+#define MCSC_POST_MAX_WIDTH		(1440)
 /* #define MCSC_POST_WA */
 /* #define MCSC_POST_WA_SHIFT	(8)*/	/* 256 = 2^8 */
 #define MCSC_USE_DEJAG_TUNING_PARAM	(true)

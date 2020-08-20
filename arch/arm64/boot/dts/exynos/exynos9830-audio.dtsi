@@ -379,7 +379,7 @@
 			samsung,id = <0>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF0>, <&clock GATE_ABOX_BCLK0>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s0_bus>;
 			pinctrl-1 = <&aud_i2s0_idle>;
 			#sound-dai-cells = <0>;
@@ -393,7 +393,7 @@
 			samsung,id = <1>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF1>, <&clock GATE_ABOX_BCLK1>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s1_bus>;
 			pinctrl-1 = <&aud_i2s1_idle>;
 			#sound-dai-cells = <0>;
@@ -407,7 +407,7 @@
 			samsung,id = <2>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF2>, <&clock GATE_ABOX_BCLK2>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s2_bus>;
 			pinctrl-1 = <&aud_i2s2_idle>;
 			#sound-dai-cells = <0>;
@@ -421,7 +421,7 @@
 			samsung,id = <3>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF3>, <&clock GATE_ABOX_BCLK3>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s3_bus>;
 			pinctrl-1 = <&aud_i2s3_idle>;
 			#sound-dai-cells = <0>;
@@ -435,7 +435,7 @@
 			samsung,id = <4>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF4>, <&clock GATE_ABOX_BCLK4>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s4_bus>;
 			pinctrl-1 = <&aud_i2s4_idle>;
 			#sound-dai-cells = <0>;
@@ -449,7 +449,7 @@
 			samsung,id = <5>;
 			clocks = <&clock DOUT_CLK_AUD_UAIF5>, <&clock GATE_ABOX_BCLK5>;
 			clock-names = "bclk", "bclk_gate";
-			pinctrl-names = "default", "sleep";
+			pinctrl-names = "active", "idle";
 			pinctrl-0 = <&aud_i2s5_bus>;
 			pinctrl-1 = <&aud_i2s5_idle>;
 			#sound-dai-cells = <0>;
@@ -476,7 +476,7 @@
 			clocks = <&clock DOUT_CLK_AUD_DSIF>, <&clock GATE_ABOX_BCLK_DSIF>;
 			clock-names = "bclk", "bclk_gate";
 			/* DSIF and UAIF5 shares GPIO
-			 * pinctrl-names = "default", "sleep";
+			 * pinctrl-names = "active", "idle";
 			 * pinctrl-0 = <&aud_dsd_bus>;
 			 * pinctrl-1 = <&aud_dsd_idle>;
 			 */
@@ -596,8 +596,9 @@
 			&dmic_pdm1_idle &dmic_pdm2_idle>;
 		power-domains = <&pd_vts>;
 		clocks = <&clock UMUX_CLKCMU_VTS_RCO>, <&clock DOUT_CLK_VTS_DMIC_IF_PAD>,
-			<&clock DOUT_CLK_VTS_DMIC_IF>, <&clock DOUT_CLK_VTS_DMIC_IF_DIV2>;
-		clock-names = "rco", "dmic", "dmic_if", "dmic_sync";
+			<&clock DOUT_CLK_VTS_DMIC_IF>, <&clock DOUT_CLK_VTS_DMIC_IF_DIV2>,
+			<&clock DOUT_CLK_VTS_BUS>;
+		clock-names = "rco", "dmic", "dmic_if", "dmic_sync", "sysclk";
 
 		mailbox = <&mailbox_vts>;
 		#sound-dai-cells = <1>;

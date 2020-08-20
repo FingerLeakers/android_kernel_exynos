@@ -623,14 +623,21 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 	struct is_hw_mcsc *hw_mcsc;
 	u32 wdma_addr[MCSC_OUTPUT_MAX][4] = {{0} }, *wdma_base = NULL;
 	u32 plane, buf_idx, out_id, i, offset = 0;
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	u32 stripe_dma_offset = 0;
+	bool x_flip = false;
+#endif
 	ulong flag;
 	int idx, p_cur_idx, p_buf_idx;
+	struct is_hardware *hardware;
+	bool en;
 
 	BUG_ON(!cap);
 	BUG_ON(!hw_ip->priv_info);
 
 	param = &hw_ip->region[frame->instance]->parameter.mcs;
 	hw_mcsc = (struct is_hw_mcsc *)hw_ip->priv_info;
+	hardware = hw_ip->hardware;
 
 	for (out_id = MCSC_OUTPUT0; out_id < cap->max_output; out_id++) {
 		if ((cap->out_dma[out_id] != MCSC_CAP_SUPPORT)
@@ -656,7 +663,6 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 			spin_unlock_irqrestore(&mcsc_out_slock, flag);
 
 			msdbg_hw(2, "[OUT:%d]dma_out enabled\n", frame->instance, hw_ip, out_id);
-			is_scaler_set_dma_out_enable(hw_ip->regs[REG_SETA], out_id, true);
 
 			/* use only one buffer (per-frame) */
 			is_scaler_set_wdma_frame_seq(hw_ip->regs[REG_SETA], out_id,
@@ -673,6 +679,17 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 					 */
 					if (param->output[out_id].offset_x || param->output[out_id].offset_y)
 						offset = is_hw_mcsc_calculate_wdma_offset(hw_ip, frame, i, out_id);
+
+#ifdef USE_MCSC_STRIP_OUT_CROP
+					if (is_scaler_get_poly_out_crop_enable(hw_ip->regs[REG_SETA], out_id)
+					|| is_scaler_get_post_out_crop_enable(hw_ip->regs[REG_SETA], out_id)) {
+						x_flip = param->output[out_id].flip & 1 ? true : false;
+						if (x_flip)
+							stripe_dma_offset = ((param->output[out_id].full_output_width - param->output[out_id].stripe_roi_end_pos_x) * param->output[out_id].dma_bitwidth) / BITS_PER_BYTE;
+						else
+							stripe_dma_offset = (param->output[out_id].stripe_roi_start_pos_x * param->output[out_id].dma_bitwidth) / BITS_PER_BYTE;
+					}
+#endif
 					/*
 					 * If the number of buffers is not same between leader and subdev,
 					 * wdma addresses are forcibly set as the same address of first buffer.
@@ -681,13 +698,24 @@ static void is_hw_mcsc_wdma_cfg(struct is_hw_ip *hw_ip, struct is_frame *frame)
 					p_buf_idx = buf_idx * plane;
 					idx = i + p_cur_idx + p_buf_idx;
 
+					if (!hardware->hw_fro_en && !wdma_base[idx]) {
+						en = false;
+						break;
+					} else {
+						en = true;
+					}
+
 					wdma_addr[out_id][i] = wdma_base[idx] ?
 						wdma_base[idx] : wdma_base[i];
+#ifdef USE_MCSC_STRIP_OUT_CROP
+						wdma_addr[out_id][i] += stripe_dma_offset;
+#endif
 					wdma_addr[out_id][i] += offset;
 					dbg_hw(2, "M%dP(i:%d)(A:0x%X)\n", out_id, idx, wdma_addr[out_id][i]);
 				}
 				hw_mcsc_set_wdma_addr(hw_ip, wdma_addr[out_id], out_id, plane, buf_idx);
 			}
+			is_scaler_set_dma_out_enable(hw_ip->regs[REG_SETA], out_id, en);
 
 		} else {
 			is_hw_mcsc_wdma_clear(hw_ip, frame, param, out_id, cap);
@@ -727,6 +755,15 @@ static int is_hw_mcsc_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 		return -EINVAL;
 	}
 
+	hw_mcsc = (struct is_hw_mcsc *)hw_ip->priv_info;
+	param = &hw_ip->region[instance]->parameter;
+	mcs_param = &param->mcs;
+
+	if (mcs_param->control.cmd == CONTROL_COMMAND_STOP) {
+		msdbg_hw(2, "Stop MCSC\n", instance, hw_ip);
+		return 0;
+	}
+
 	if ((!test_bit(ENTRY_M0P, &frame->out_flag))
 		&& (!test_bit(ENTRY_M1P, &frame->out_flag))
 		&& (!test_bit(ENTRY_M2P, &frame->out_flag))
@@ -734,10 +771,6 @@ static int is_hw_mcsc_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 		&& (!test_bit(ENTRY_M4P, &frame->out_flag))
 		&& (!test_bit(ENTRY_M5P, &frame->out_flag)))
 		set_bit(hw_ip->id, &frame->core_flag);
-
-	hw_mcsc = (struct is_hw_mcsc *)hw_ip->priv_info;
-	param = &hw_ip->region[instance]->parameter;
-	mcs_param = &param->mcs;
 
 	head = hw_ip->group[frame->instance]->head;
 
@@ -768,8 +801,7 @@ static int is_hw_mcsc_shot(struct is_hw_ip *hw_ip, struct is_frame *frame,
 
 config:
 	/* multi-buffer */
-	if (frame->num_buffers)
-		hw_ip->num_buffers = frame->num_buffers;
+	hw_ip->num_buffers = frame->num_buffers;
 
 	/* RDMA cfg */
 	ret = is_hw_mcsc_rdma_cfg(hw_ip, frame, &mcs_param->input);
@@ -1416,18 +1448,64 @@ int is_hw_mcsc_dma_input(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	return ret;
 }
 
+void is_hw_mcsc_calc_poly_dst_size(struct is_hw_ip *hw_ip, u32 instance,
+	u32 src_length, u32 dst_length, u32 *poly_dst_length,
+	u32 poly_ratio_down, bool check_dst_size, u32 align, bool *post_en)
+{
+	u32 temp_dst_length = 0;
+	char is_type_length[2] = {'h','w'};
+	/*
+	 * w/ POST - x1/MCSC_POLY_QUALITY_RATIO_DOWN <= POLY RATIO <= xMCSC_POLY_RATIO_UP
+	 * w/o POST - x1/MCSC_POLY_MAX_RATIO_DOWN <= POLY RATIO <= xMCSC_POLY_RATIO_UP
+	 */
+	if ((src_length <= (dst_length * poly_ratio_down))
+		&& (dst_length <= (src_length * MCSC_POLY_RATIO_UP))) {
+		temp_dst_length = dst_length;
+		*post_en = false;
+	}
+	/*
+	 * POLY RATIO = x1/MCSC_POLY_QUALITY_RATIO_DOWN
+	 * POST RATIO = ~ x1/MCSC_POST_RATIO_DOWN
+	 */
+	else if ((src_length <= (dst_length * MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
+		&& ((dst_length * MCSC_POLY_QUALITY_RATIO_DOWN) < src_length)) {
+		temp_dst_length = MCSC_ROUND_UP(src_length / MCSC_POLY_QUALITY_RATIO_DOWN, align);
+		if (check_dst_size && temp_dst_length > MCSC_POST_MAX_WIDTH)
+			temp_dst_length = MCSC_POST_MAX_WIDTH;
+		*post_en = true;
+	}
+	/*
+	 * POLY RATIO = x1/MCSC_POLY_RATIO_DOWN ~ x1/MCSC_POLY_QUALITY_RATIO_DOWN
+	 * POST RATIO = x1/MCSC_POST_RATIO_DOWN
+	 */
+	else if ((src_length <= (dst_length * MCSC_POLY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
+		&& ((dst_length * MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN) < src_length)) {
+		temp_dst_length = dst_length * MCSC_POST_RATIO_DOWN;
+		if (check_dst_size && temp_dst_length > MCSC_POST_MAX_WIDTH)
+			temp_dst_length = MCSC_POST_MAX_WIDTH;
+		*post_en = true;
+	}
+	/* POLY RATIO = x1/MCSC_POLY_RATIO_DOWN */
+	else {
+		mserr_hw("hw_mcsc_poly_phase: Unsupported ratio, (%d)->(%d) w or h?(%c)\n",
+			instance, hw_ip, src_length, dst_length, is_type_length[check_dst_size]);
+		temp_dst_length = MCSC_ROUND_UP(src_length / MCSC_POLY_RATIO_DOWN, align);
+		*post_en = true;
+	}
+	*poly_dst_length = temp_dst_length;
+}
 
 int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	struct param_mcs_output *output, u32 output_id, u32 instance)
 {
 	int ret = 0;
-	u32 src_pos_x, src_pos_y, src_width, src_height;
+	u32 crop_type, src_pos_x, src_pos_y, src_width, src_height;
 	u32 poly_dst_width, poly_dst_height;
 	u32 out_width, out_height;
 	ulong temp_width, temp_height;
 	u32 hratio, vratio;
 	u32 input_id = 0;
-	u32 max_poly_ratio_down = MCSC_POLY_RATIO_DOWN;
+	u32 poly_ratio_down = MCSC_POLY_QUALITY_RATIO_DOWN;
 	bool config = true;
 	bool post_en = false;
 	bool round_mode_en = true;
@@ -1436,6 +1514,16 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	enum exynos_sensor_position sensor_position;
 	struct hw_mcsc_setfile *setfile;
 	struct scaler_coef_cfg *sc_coef;
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	u32 full_in_width = 0, full_out_width = 0;
+	u32 roi_start_x = 0, roi_end_x = 0, roi_start_w = 0, roi_end_w = 0;
+	u32 temp_stripe_start_pos_x = 0, temp_stripe_pre_dst_x = 0;
+	u32 otcrop_pos_x = 0, otcrop_pos_y = 0, otcrop_width = 0, otcrop_height = 0;
+	u32 use_out_crop = 0, is_align = 0;
+	u32 offset = 0;
+	u32 h_phase_offset = 0, max_dst_width = 0;
+	ulong temp = 0;
+#endif
 
 	FIMC_BUG(!hw_ip);
 	FIMC_BUG(!input);
@@ -1453,6 +1541,11 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	input_id = is_scaler_get_scaler_path(hw_ip->regs[REG_SETA], hw_ip->id, output_id);
 	config = (input_id == hw_ip->id ? true : false);
 
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	use_out_crop = (u32)((output->crop_cmd & BIT(MCSC_OUT_CROP)) >> MCSC_OUT_CROP);
+	full_in_width = output->full_input_width;
+	full_out_width = output->full_output_width;
+#endif
 	if (output->otf_cmd == OTF_OUTPUT_COMMAND_DISABLE
 		&& output->dma_cmd == DMA_OUTPUT_COMMAND_DISABLE) {
 		if (cap->enable_shared_output == false
@@ -1463,13 +1556,23 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	is_scaler_set_poly_scaler_enable(hw_ip->regs[REG_SETA], hw_ip->id, output_id, 1);
 
+	crop_type = (u32)((output->crop_cmd & BIT(MCSC_CROP_TYPE)) >> MCSC_CROP_TYPE);
 	src_pos_x = output->crop_offset_x;
 	src_pos_y = output->crop_offset_y;
 	src_width = output->crop_width;
 	src_height = output->crop_height;
 
-	is_hw_mcsc_adjust_size_with_djag(hw_ip, input, cap, &src_pos_x, &src_pos_y, &src_width, &src_height);
+	is_hw_mcsc_adjust_size_with_djag(hw_ip, input, cap, crop_type,
+		&src_pos_x, &src_pos_y, &src_width, &src_height);
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	if (use_out_crop) {
+		src_pos_x = 0;
+		src_width = input->djag_out_width ? input->djag_out_width : input->width;
 
+		roi_start_x = output->stripe_roi_start_pos_x;
+		roi_end_x = output->stripe_roi_end_pos_x;
+	}
+#endif
 	out_width = output->width;
 	out_height = output->height;
 
@@ -1487,37 +1590,20 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 
 	/* Allow higher ratio down of poly scaler if no post scaler in output. */
 	if (cap->out_post[output_id] == MCSC_CAP_NOT_SUPPORT)
-		max_poly_ratio_down = MCSC_POLY_MAX_RATIO_DOWN;
+		poly_ratio_down = MCSC_POLY_MAX_RATIO_DOWN;
 
-	if ((src_width <= (out_width * max_poly_ratio_down))
-		&& (out_width <= (src_width * MCSC_POLY_RATIO_UP))) {
-		poly_dst_width = out_width;
-		post_en = false;
-	} else if ((src_width <= (out_width * max_poly_ratio_down * MCSC_POST_RATIO_DOWN))
-		&& ((out_width * max_poly_ratio_down) < src_width)) {
-		poly_dst_width = MCSC_ROUND_UP(src_width / max_poly_ratio_down, MCSC_WIDTH_ALIGN);
-		post_en = true;
-	} else {
-		mserr_hw("hw_mcsc_poly_phase: Unsupported W ratio, (%dx%d)->(%dx%d)\n",
-			instance, hw_ip, src_width, src_height, out_width, out_height);
-		poly_dst_width = MCSC_ROUND_UP(src_width / max_poly_ratio_down, MCSC_WIDTH_ALIGN);
-		post_en = true;
-	}
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	is_hw_mcsc_calc_poly_dst_size(hw_ip, instance, full_in_width, full_out_width, &full_out_width,
+		poly_ratio_down, false, MCSC_WIDTH_ALIGN, &post_en);
+	output->full_input_width = full_out_width;
+#endif
+	/* W Ratio */
+	is_hw_mcsc_calc_poly_dst_size(hw_ip, instance, src_width, out_width, &poly_dst_width,
+		poly_ratio_down, true, MCSC_WIDTH_ALIGN, &post_en);
+	/* H Ratio */
+	is_hw_mcsc_calc_poly_dst_size(hw_ip, instance, src_height, out_height, &poly_dst_height,
+		poly_ratio_down, false, 1, &post_en);
 
-	if ((src_height <= (out_height * max_poly_ratio_down))
-		&& (out_height <= (src_height * MCSC_POLY_RATIO_UP))) {
-		poly_dst_height = out_height;
-		post_en = false;
-	} else if ((src_height <= (out_height * max_poly_ratio_down * MCSC_POST_RATIO_DOWN))
-		&& ((out_height * max_poly_ratio_down) < src_height)) {
-		poly_dst_height = (src_height / max_poly_ratio_down);
-		post_en = true;
-	} else {
-		mserr_hw("hw_mcsc_poly_phase: Unsupported H ratio, (%dx%d)->(%dx%d)\n",
-			instance, hw_ip, src_width, src_height, out_width, out_height);
-		poly_dst_height = (src_height / max_poly_ratio_down);
-		post_en = true;
-	}
 #if defined(MCSC_POST_WA)
 	/* The post scaler guarantee the quality of image          */
 	/*  in case the scaling ratio equals to multiple of x1/256 */
@@ -1555,23 +1641,98 @@ int is_hw_mcsc_poly_phase(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 			instance, hw_ip, output_id, poly_dst_width, MCSC_WIDTH_ALIGN);
 	}
 
-	is_scaler_set_poly_dst_size(hw_ip->regs[REG_SETA], output_id,
-		poly_dst_width, poly_dst_height);
-
 	temp_width  = (ulong)src_width;
 	temp_height = (ulong)src_height;
-	hratio = (u32)((temp_width  << MCSC_PRECISION) / poly_dst_width);
-	vratio = (u32)((temp_height << MCSC_PRECISION) / poly_dst_height);
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	/* Use ratio of full size if stripe processing  */
+	if (use_out_crop) {
+		hratio = GET_ZOOM_RATIO(full_in_width, full_out_width);
+		poly_dst_width = GET_SCALED_SIZE(src_width, hratio);
+		/* Check if last region is not multiple of alignment */
+		if (input->stripe_region_index == input->stripe_total_count - 1
+			&& !IS_ALIGNED(poly_dst_width, MCSC_WIDTH_ALIGN))
+			is_align = MCSC_WIDTH_ALIGN;
+		poly_dst_width = ALIGN_DOWN(poly_dst_width, MCSC_WIDTH_ALIGN);
+
+		output->stripe_roi_start_pos_x =  ALIGN_DOWN(GET_SCALED_SIZE(roi_start_x, hratio) + (MCSC_WIDTH_ALIGN / 2), MCSC_WIDTH_ALIGN);
+		output->stripe_roi_end_pos_x = ALIGN_DOWN(GET_SCALED_SIZE(roi_end_x, hratio) + (MCSC_WIDTH_ALIGN / 2), MCSC_WIDTH_ALIGN);
+		roi_start_w = ALIGN_DOWN(GET_SCALED_SIZE(roi_start_x, hratio), MCSC_WIDTH_ALIGN);
+		roi_end_w = ALIGN_DOWN(GET_SCALED_SIZE(roi_end_x, hratio), MCSC_WIDTH_ALIGN);
+	}
+	else
+#endif
+		hratio = GET_ZOOM_RATIO(temp_width, poly_dst_width);
+	vratio = GET_ZOOM_RATIO(temp_height, poly_dst_height);
 
 	sensor_position = hw_ip->hardware->sensor_position[instance];
 	setfile = hw_mcsc->cur_setfile[sensor_position][instance];
 
 	sc_coef = &setfile->sc_coef;
 
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	/* scale up case */
+	if (hratio < RATIO_X8_8)
+		h_phase_offset = hratio >> 1;
+
+	if (use_out_crop) {
+		/* Strip configuration */
+		if (is_scaler_get_djag_strip_enable(hw_ip->regs[REG_SETA], output_id)){
+			is_scaler_get_djag_strip_config(hw_ip->regs[REG_SETA], output_id, &temp_stripe_start_pos_x, &temp_stripe_pre_dst_x);
+		} else {
+			temp_stripe_start_pos_x = output->stripe_in_start_pos_x;
+		}
+		temp_stripe_pre_dst_x = ALIGN_DOWN((GET_SCALED_SIZE(temp_stripe_start_pos_x, hratio) + (MCSC_WIDTH_ALIGN / 2)), MCSC_WIDTH_ALIGN)+ is_align;
+		is_scaler_set_poly_strip_enable(hw_ip->regs[REG_SETA], output_id, 1);
+		is_scaler_set_poly_strip_config(hw_ip->regs[REG_SETA], output_id, temp_stripe_pre_dst_x, temp_stripe_start_pos_x);
+
+		msdbg_hw(2, "[OUT:%d] poly_phase: stripe input pos_x(%d), scaled output pos_x(%d)\n",
+			instance, hw_ip, output_id,
+			temp_stripe_start_pos_x, temp_stripe_pre_dst_x);
+
+		/*
+		 * Output size should not to be over Input if stripe processing.
+		 * (SRC_HSIZE - OFFSET) * 1048576 >= DST_HSIZE * H_RATIO
+		 */
+		temp = (temp_stripe_pre_dst_x * hratio) + h_phase_offset;
+		offset = (u32)(temp >> MCSC_PRECISION) - temp_stripe_start_pos_x;
+		max_dst_width = (u32)(((ulong)(src_width - offset) * RATIO_X8_8) / hratio);
+		if (input->stripe_region_index == input->stripe_total_count - 1) {
+			if (poly_dst_width > max_dst_width) {
+				msdbg_hw(2, "[OUT:%d] poly_phase: stripe output width(%d) is over input, output width changed(%d) -> (%d)\n",
+					instance, hw_ip, output_id,
+					poly_dst_width, max_dst_width,
+					poly_dst_width, ALIGN_DOWN(max_dst_width, MCSC_WIDTH_ALIGN));
+				poly_dst_width = ALIGN_DOWN(max_dst_width, MCSC_WIDTH_ALIGN);
+			}
+		}
+		/* Use out crop */
+		if (!post_en) {
+			otcrop_pos_x = ALIGN_DOWN((roi_start_w - temp_stripe_pre_dst_x + (MCSC_WIDTH_ALIGN / 2)), MCSC_WIDTH_ALIGN);
+			otcrop_pos_y = 0;
+			otcrop_width = ALIGN_DOWN((roi_end_w - roi_start_w), MCSC_WIDTH_ALIGN);
+			otcrop_height = poly_dst_height;
+			is_scaler_set_poly_out_crop_enable(hw_ip->regs[REG_SETA], output_id, 1);
+			is_scaler_set_poly_out_crop_size(hw_ip->regs[REG_SETA], output_id, otcrop_pos_x, 0, otcrop_width, poly_dst_height);
+
+			/* Stripe start position to be set for calculating dma offset */
+			output->stripe_roi_start_pos_x = roi_start_w;
+			msdbg_hw(2, "[OUT:%d] poly_phase use outcrop(output : %dx%d > output crop : %dx%d)\n",
+				instance, hw_ip, output_id,
+				poly_dst_width, poly_dst_height,
+				otcrop_width, otcrop_height);
+		}
+	} else {
+		is_scaler_set_poly_out_crop_enable(hw_ip->regs[REG_SETA], output_id, 0);
+		is_scaler_set_poly_strip_enable(hw_ip->regs[REG_SETA], output_id, 0);
+	}
+#endif
+
 	is_scaler_set_poly_scaling_ratio(hw_ip->regs[REG_SETA], output_id, hratio, vratio);
 	is_scaler_set_poly_scaler_coef(hw_ip->regs[REG_SETA], output_id, hratio, vratio,
 		sc_coef, sensor_position);
 	is_scaler_set_poly_round_mode(hw_ip->regs[REG_SETA], output_id, round_mode_en);
+	is_scaler_set_poly_dst_size(hw_ip->regs[REG_SETA], output_id,
+		poly_dst_width, poly_dst_height);
 
 	return ret;
 }
@@ -1592,6 +1753,18 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	enum exynos_sensor_position sensor_position;
 	struct hw_mcsc_setfile *setfile;
 	struct scaler_coef_cfg *sc_coef;
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	bool poly_otcrop_en = false;
+	u32 use_out_crop = 0;
+	u32 full_in_width = 0, full_out_width = 0;
+	u32 roi_start_x = 0, roi_end_x = 0, roi_start_w = 0, roi_end_w = 0;
+	u32 otcrop_pos_x = 0, otcrop_pos_y = 0, otcrop_width = 0, otcrop_height = 0;
+	u32 temp_stripe_start_pos_x = 0, temp_stripe_pre_dst_x = 0;
+	u32 is_align = 0;
+	u32 offset = 0;
+	u32 h_phase_offset = 0, max_dst_width = 0;
+	ulong temp = 0;
+#endif
 
 	FIMC_BUG(!hw_ip);
 	FIMC_BUG(!input);
@@ -1609,6 +1782,14 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 	input_id = is_scaler_get_scaler_path(hw_ip->regs[REG_SETA], hw_ip->id, output_id);
 	config = (input_id == hw_ip->id ? true : false);
 
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	use_out_crop = (u32)((output->crop_cmd & BIT(MCSC_OUT_CROP)) >> MCSC_OUT_CROP);
+	full_in_width = output->full_input_width;
+	full_out_width = output->full_output_width;
+	roi_start_x = output->stripe_roi_start_pos_x;
+	roi_end_x = output->stripe_roi_end_pos_x;
+#endif
+
 	if (output->otf_cmd == OTF_OUTPUT_COMMAND_DISABLE
 		&& output->dma_cmd == DMA_OUTPUT_COMMAND_DISABLE) {
 		if (cap->enable_shared_output == false
@@ -1617,7 +1798,17 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 		return ret;
 	}
 
-	is_scaler_get_poly_dst_size(hw_ip->regs[REG_SETA], output_id, &img_width, &img_height);
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	poly_otcrop_en = is_scaler_get_poly_out_crop_enable(hw_ip->regs[REG_SETA], output_id);
+	if (poly_otcrop_en) {
+		is_scaler_get_poly_out_crop_size(hw_ip->regs[REG_SETA], output_id, &img_width, &img_height);
+		output->width = img_width;
+		output->height = img_height;
+	} else
+#endif
+	{
+		is_scaler_get_poly_dst_size(hw_ip->regs[REG_SETA], output_id, &img_width, &img_height);
+	}
 
 	dst_width = output->width;
 	dst_height = output->height;
@@ -1638,22 +1829,92 @@ int is_hw_mcsc_post_chain(struct is_hw_ip *hw_ip, struct param_mcs_input *input,
 		is_scaler_set_post_scaler_enable(hw_ip->regs[REG_SETA], output_id, 1);
 
 	is_scaler_set_post_img_size(hw_ip->regs[REG_SETA], output_id, img_width, img_height);
-	is_scaler_set_post_dst_size(hw_ip->regs[REG_SETA], output_id, dst_width, dst_height);
 
 	temp_width  = (ulong)img_width;
 	temp_height = (ulong)img_height;
-	hratio = (u32)((temp_width  << MCSC_PRECISION) / dst_width);
-	vratio = (u32)((temp_height << MCSC_PRECISION) / dst_height);
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	/* Use ratio of full size if stripe processing  */
+	if (use_out_crop) {
+		hratio = GET_ZOOM_RATIO(full_in_width, full_out_width);
+		dst_width = GET_SCALED_SIZE(img_width, hratio);
+
+		/* Check if last region is not multiple of alignment */
+		if (input->stripe_region_index == input->stripe_total_count - 1
+			&& !IS_ALIGNED(dst_width, MCSC_WIDTH_ALIGN))
+			is_align = MCSC_WIDTH_ALIGN;
+		dst_width = ALIGN_DOWN(dst_width, MCSC_WIDTH_ALIGN);
+
+		output->stripe_roi_start_pos_x =  ALIGN_DOWN(GET_SCALED_SIZE(roi_start_x, hratio) + (MCSC_WIDTH_ALIGN / 2), MCSC_WIDTH_ALIGN);
+		output->stripe_roi_end_pos_x = ALIGN_DOWN(GET_SCALED_SIZE(roi_end_x, hratio) + (MCSC_WIDTH_ALIGN / 2), MCSC_WIDTH_ALIGN);
+		roi_start_w = ALIGN_DOWN(GET_SCALED_SIZE(roi_start_x, hratio), MCSC_WIDTH_ALIGN);
+		roi_end_w = ALIGN_DOWN(GET_SCALED_SIZE(roi_end_x, hratio), MCSC_WIDTH_ALIGN);
+	}
+	else
+#endif
+		hratio = GET_ZOOM_RATIO(temp_width, dst_width);
+	vratio = GET_ZOOM_RATIO(temp_height, dst_height);
 
 	sensor_position = hw_ip->hardware->sensor_position[instance];
 	setfile = hw_mcsc->cur_setfile[sensor_position][instance];
 
 	sc_coef = &setfile->sc_coef;
 
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	if (!poly_otcrop_en && use_out_crop) {
+		/* Strip configuration */
+		if (is_scaler_get_poly_strip_enable(hw_ip->regs[REG_SETA], output_id)){
+			is_scaler_get_poly_strip_config(hw_ip->regs[REG_SETA], output_id, &temp_stripe_start_pos_x, &temp_stripe_pre_dst_x);
+		} else {
+			temp_stripe_start_pos_x = output->stripe_in_start_pos_x;
+		}
+		temp_stripe_pre_dst_x = ALIGN_DOWN((GET_SCALED_SIZE(temp_stripe_start_pos_x, hratio) + (MCSC_WIDTH_ALIGN / 2)), MCSC_WIDTH_ALIGN) + is_align;
+		is_scaler_set_post_strip_enable(hw_ip->regs[REG_SETA], output_id, 1);
+		is_scaler_set_post_strip_config(hw_ip->regs[REG_SETA], output_id, temp_stripe_pre_dst_x, temp_stripe_start_pos_x);
+
+		msdbg_hw(2, "[OUT:%d] post_chain: stripe input pos_x(%d) scaled output pos_x(%d)\n",
+			instance, hw_ip, output_id,
+			temp_stripe_start_pos_x, temp_stripe_pre_dst_x);
+
+		/*
+		 * Output size should not to be over Input if stripe processing.
+		 * (SRC_HSIZE - OFFSET) * 1048576 >= DST_HSIZE * H_RATIO
+		 */
+		temp = (temp_stripe_pre_dst_x * hratio) + h_phase_offset;
+		offset = (u32)(temp >> MCSC_PRECISION) - temp_stripe_start_pos_x;
+		max_dst_width = (u32)(((ulong)(img_width - offset) * RATIO_X8_8) / hratio);
+		if (input->stripe_region_index == input->stripe_total_count - 1) {
+			if (dst_width > max_dst_width) {
+				msdbg_hw(2, "[OUT:%d] post_chain: stripe output width(%d) is over input, output width changed(%d) -> (%d)\n",
+					instance, hw_ip, output_id,
+					dst_width, max_dst_width,
+					dst_width, ALIGN_DOWN(max_dst_width, MCSC_WIDTH_ALIGN));
+				dst_width = ALIGN_DOWN(max_dst_width, MCSC_WIDTH_ALIGN);
+			}
+		}
+		/* Use Out crop */
+		otcrop_pos_x = ALIGN_DOWN((roi_start_w - temp_stripe_pre_dst_x + (MCSC_WIDTH_ALIGN / 2)), MCSC_WIDTH_ALIGN);
+		otcrop_pos_y = 0;
+		otcrop_width = ALIGN_DOWN((roi_end_w - roi_start_w), MCSC_WIDTH_ALIGN);
+		otcrop_height = dst_height;
+		is_scaler_set_post_out_crop_enable(hw_ip->regs[REG_SETA], output_id, 1);
+		is_scaler_set_post_out_crop_size(hw_ip->regs[REG_SETA], output_id, otcrop_pos_x, 0, otcrop_width, dst_height);
+
+		/* Stripe start position to be set for calculating dma offset */
+		output->stripe_roi_start_pos_x = roi_start_w;
+		msdbg_hw(2, "[OUT:%d] post_chain use outcrop(output : %dx%d > output crop : %dx%d)\n",
+			instance, hw_ip, output_id,
+			dst_width, dst_height,
+			otcrop_width, otcrop_height);
+	} else {
+		is_scaler_set_post_out_crop_enable(hw_ip->regs[REG_SETA], output_id, 0);
+		is_scaler_set_post_strip_enable(hw_ip->regs[REG_SETA], output_id, 0);
+	}
+#endif
+
 	is_scaler_set_post_scaling_ratio(hw_ip->regs[REG_SETA], output_id, hratio, vratio);
 	is_scaler_set_post_scaler_coef(hw_ip->regs[REG_SETA], output_id, hratio, vratio, sc_coef);
 	is_scaler_set_post_round_mode(hw_ip->regs[REG_SETA], output_id, round_mode_en);
-
+	is_scaler_set_post_dst_size(hw_ip->regs[REG_SETA], output_id, dst_width, dst_height);
 	return ret;
 }
 
@@ -1756,7 +2017,9 @@ int is_hw_mcsc_dma_output(struct is_hw_ip *hw_ip, struct param_mcs_output *outpu
 	struct is_hw_mcsc *hw_mcsc;
 	struct is_hw_mcsc_cap *cap = GET_MCSC_HW_CAP(hw_ip);
 	u32 conv420_weight = 0;
-
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	bool poly_otcrop_en = false, post_otcrop_en = false;
+#endif
 	FIMC_BUG(!hw_ip);
 	FIMC_BUG(!output);
 	FIMC_BUG(!cap);
@@ -1783,6 +2046,23 @@ int is_hw_mcsc_dma_output(struct is_hw_ip *hw_ip, struct param_mcs_output *outpu
 			|| (config && !test_bit(output_id, &mcsc_out_st)))
 			is_scaler_set_dma_out_enable(hw_ip->regs[REG_SETA], output_id, false);
 		return ret;
+	}
+
+#ifdef USE_MCSC_STRIP_OUT_CROP
+	poly_otcrop_en = is_scaler_get_poly_out_crop_enable(hw_ip->regs[REG_SETA], output_id);
+	post_otcrop_en = is_scaler_get_post_out_crop_enable(hw_ip->regs[REG_SETA], output_id);
+	if (poly_otcrop_en){
+		is_scaler_get_poly_out_crop_size(hw_ip->regs[REG_SETA], output_id, &scaled_width, &scaled_height);
+		output->width = scaled_width;
+		output->height = scaled_height;
+	} else if (post_otcrop_en){
+		is_scaler_get_post_out_crop_size(hw_ip->regs[REG_SETA], output_id, &scaled_width, &scaled_height);
+		output->width = scaled_width;
+		output->height = scaled_height;
+	} else
+#endif
+	{
+		is_scaler_get_post_dst_size(hw_ip->regs[REG_SETA], output_id, &scaled_width, &scaled_height);
 	}
 
 	out_width  = output->width;
@@ -1819,7 +2099,6 @@ int is_hw_mcsc_dma_output(struct is_hw_ip *hw_ip, struct param_mcs_output *outpu
 		conv420_weight = 16;
 	is_scaler_set_420_conversion(hw_ip->regs[REG_SETA], output_id, conv420_weight, conv420_en);
 
-	is_scaler_get_post_dst_size(hw_ip->regs[REG_SETA], output_id, &scaled_width, &scaled_height);
 	if ((scaled_width != 0) && (scaled_height != 0)) {
 		if ((scaled_width != out_width) || (scaled_height != out_height)) {
 			msdbg_hw(2, "Invalid output[%d] scaled size (%d/%d)(%d/%d)\n",

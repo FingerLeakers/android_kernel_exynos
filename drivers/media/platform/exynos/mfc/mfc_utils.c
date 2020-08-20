@@ -46,8 +46,7 @@ static int __mfc_calc_plane(int width, int height, int is_tiled)
 	return (mbX * 16) * (mbY * 16);
 }
 
-static void __mfc_set_linear_stride_size(struct mfc_ctx *ctx,
-				struct mfc_fmt *fmt)
+void mfc_set_linear_stride_size(struct mfc_ctx *ctx, struct mfc_fmt *fmt)
 {
 	struct mfc_raw_info *raw;
 	int i;
@@ -150,6 +149,7 @@ static void __mfc_set_linear_stride_size(struct mfc_ctx *ctx,
 				raw->stride[0], raw->stride[1], raw->stride_2bits[0], raw->stride_2bits[1]);
 		break;
 	default:
+		mfc_err_ctx("Invalid pixelformat : %s\n", fmt->name);
 		break;
 	}
 
@@ -252,7 +252,7 @@ void mfc_dec_calc_dpb_size(struct mfc_ctx *ctx)
 		break;
 	}
 
-	__mfc_set_linear_stride_size(ctx, ctx->dst_fmt);
+	mfc_set_linear_stride_size(ctx, ctx->dst_fmt);
 
 	/*
 	 * In case of 10bit,
@@ -417,7 +417,7 @@ void mfc_enc_calc_src_size(struct mfc_ctx *ctx)
 		break;
 	}
 
-	__mfc_set_linear_stride_size(ctx, ctx->src_fmt);
+	mfc_set_linear_stride_size(ctx, ctx->src_fmt);
 
 	for (i = 0; i < raw->num_planes; i++) {
 		if (raw->plane_size[i] < ctx->min_dpb_size[i])

@@ -11,36 +11,99 @@
  */
 
 #include "is-device-ischain.h"
+#include "is-device-sensor.h"
 #include "is-subdev-ctrl.h"
 #include "is-config.h"
 #include "is-param.h"
 #include "is-video.h"
 #include "is-type.h"
 
-void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
+int is_ischain_mcs_stripe_cfg(struct is_group* group,
+		struct is_subdev *subdev,
 		struct is_frame *frame,
 		struct is_crop *incrop,
-		struct is_crop *otcrop)
+		struct is_crop *otcrop,
+		struct is_frame_cfg *framecfg)
 {
-	u32 stripe_w;
+	struct camera2_stream *stream = (struct camera2_stream *) frame->shot_ext;
+	struct is_fmt *fmt = framecfg->format;
+	u32 region_id = frame->stripe_info.region_id;
+	u32 stripe_w, dma_offset = 0;
 
-	if (!frame->stripe_info.region_id) {
+	if (!region_id) {
 		/* Left region */
-		stripe_w = frame->stripe_info.in.h_pix_num;
-	} else if (frame->stripe_info.region_id < frame->stripe_info.region_num - 1) {
-		/* Middle region */
-		stripe_w = ALIGN((incrop->w * (frame->stripe_info.region_id + 1) / frame->stripe_info.region_num) - frame->stripe_info.in.h_pix_num, 2);
-		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		if (test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+			stripe_w = frame->stripe_info.in.h_pix_num;
+		} else if (stream->stripe_h_pix_nums[region_id]) {
+			stripe_w = stream->stripe_h_pix_nums[region_id];
+		} else {
+			stripe_w = ALIGN(incrop->w / frame->stripe_info.region_num, 2);
+			stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		}
 
-		frame->stripe_info.in.h_pix_num += stripe_w;
+		if (stripe_w == 0) {
+			msrdbgs(3, "Skip current stripe[#%d] region because stripe_width is too small(%d)\n",
+					subdev, subdev, frame, region_id, stripe_w);
+			frame->stripe_info.region_id++;
+			return -EAGAIN;
+		}
+
+		if (!test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+			frame->stripe_info.in.h_pix_num = stripe_w;
+			frame->stripe_info.region_base_addr[0] = frame->dvaddr_buffer[0];
+		}
+	} else if (region_id < frame->stripe_info.region_num - 1) {
+		/* Middle region */
+		if (test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+			stripe_w = frame->stripe_info.in.h_pix_num - frame->stripe_info.in.prev_h_pix_num;
+		} else if (stream->stripe_h_pix_nums[region_id]) {
+			stripe_w = stream->stripe_h_pix_nums[region_id] - frame->stripe_info.in.h_pix_num;
+		} else {
+			stripe_w = incrop->w * (region_id + 1) / frame->stripe_info.region_num;
+			stripe_w = ALIGN((stripe_w - frame->stripe_info.in.h_pix_num), 2);
+			stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		}
+
+		if (stripe_w == 0) {
+			msrdbgs(3, "Skip current stripe[#%d] region because stripe_width is too small(%d)\n",
+					subdev, subdev, frame, region_id, stripe_w);
+			frame->stripe_info.region_id++;
+			return -EAGAIN;
+		}
+
+		if (!test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+			if (stream->stripe_h_pix_nums[region_id]) {
+				dma_offset = frame->stripe_info.in.h_pix_num;
+				dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+				dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * incrop->h;
+			} else {
+				dma_offset = frame->stripe_info.in.h_pix_num - STRIPE_MARGIN_WIDTH;
+				dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE;
+			}
+
+			frame->stripe_info.in.h_pix_num += stripe_w;
+		} else {
+			frame->stripe_info.in.prev_h_pix_num = frame->stripe_info.in.h_pix_num;
+		}
+
 		stripe_w += STRIPE_MARGIN_WIDTH;
 	} else {
 		/* Right region */
 		stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+
+		if (!test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+			if (stream->stripe_h_pix_nums[region_id]) {
+				dma_offset = frame->stripe_info.in.h_pix_num;
+				dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+				dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * incrop->h;
+			} else {
+				dma_offset = frame->stripe_info.in.h_pix_num - STRIPE_MARGIN_WIDTH;
+				dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE;
+			}
+		}
 	}
 
 	stripe_w += STRIPE_MARGIN_WIDTH;
-
 	incrop->w = stripe_w;
 
 	/**
@@ -52,12 +115,17 @@ void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
 	otcrop->w = incrop->w;
 	otcrop->h = incrop->h;
 
+	if (!test_bit(IS_GROUP_OTF_INPUT, &group->state))
+		frame->dvaddr_buffer[0] = frame->stripe_info.region_base_addr[0] + dma_offset;
+
 	msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			incrop->x, incrop->y, incrop->w, incrop->h);
 	msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, frame,
 			frame->stripe_info.region_id,
 			otcrop->x, otcrop->y, otcrop->w, otcrop->h);
+
+	return 0;
 }
 
 static int is_ischain_mcs_cfg(struct is_subdev *leader,
@@ -88,10 +156,6 @@ static int is_ischain_mcs_cfg(struct is_subdev *leader,
 	FIMC_BUG(!hindex);
 	FIMC_BUG(!indexes);
 
-	group = &device->group_mcs;
-	incrop_cfg = *incrop;
-	otcrop_cfg = *otcrop;
-
 	queue = GET_SUBDEV_QUEUE(leader);
 	if (!queue) {
 		merr("queue is NULL", device);
@@ -99,9 +163,17 @@ static int is_ischain_mcs_cfg(struct is_subdev *leader,
 		goto p_err;
 	}
 
-	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame && frame->stripe_info.region_num)
-		is_ischain_mcs_stripe_cfg(leader, frame,
-				&incrop_cfg, &otcrop_cfg);
+	format = queue->framecfg.format;
+	group = &device->group_mcs;
+	incrop_cfg = *incrop;
+	otcrop_cfg = *otcrop;
+
+
+	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING)	&& frame
+			&& frame->stripe_info.region_num
+			&& device->sensor->use_stripe_flag)
+		is_ischain_mcs_stripe_cfg(group, leader, frame,
+				&incrop_cfg, &otcrop_cfg, &queue->framecfg);
 
 	input = is_itf_g_param(device, frame, PARAM_MCS_INPUT);
 	if (test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
@@ -119,7 +191,6 @@ static int is_ischain_mcs_cfg(struct is_subdev *leader,
 		input->dma_crop_width = incrop_cfg.w;
 		input->dma_crop_height = incrop_cfg.h;
 
-		format = queue->framecfg.format;
 		input->dma_format = format->hw_format;
 		input->dma_bitwidth = format->hw_bitwidth;
 		input->dma_order = change_to_input_order(format->hw_order);

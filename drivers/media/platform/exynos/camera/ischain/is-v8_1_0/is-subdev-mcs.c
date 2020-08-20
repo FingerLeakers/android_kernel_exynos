@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
  */
 
+#include "is-interface-ddk.h"
 #include "is-device-ischain.h"
 #include "is-subdev-ctrl.h"
 #include "is-config.h"
@@ -88,15 +89,14 @@ void is_ischain_mcs_stripe_cfg(struct is_subdev *subdev,
 		stripe_w = frame->stripe_info.in.h_pix_num;
 	} else if (frame->stripe_info.region_id < frame->stripe_info.region_num - 1) {
 		/* Middle region */
-		stripe_w = ALIGN((incrop->w * (frame->stripe_info.region_id + 1) / frame->stripe_info.region_num) - frame->stripe_info.in.h_pix_num, 4);
-		stripe_w = ALIGN_UPDOWN_STRIPE_WIDTH(stripe_w);
+		stripe_w = frame->stripe_info.in.h_pix_num - frame->stripe_info.in.prev_h_pix_num;
 
-		frame->stripe_info.in.prev_h_pix_num = frame->stripe_info.in.h_pix_num;
-		frame->stripe_info.in.h_pix_num += stripe_w;
 		stripe_w += STRIPE_MARGIN_WIDTH;
 	} else {
 		/* Right region */
 		stripe_w = incrop->w - frame->stripe_info.in.h_pix_num;
+		frame->stripe_info.in.prev_h_pix_num = frame->stripe_info.in.h_pix_num;
+		frame->stripe_info.in.h_pix_num += stripe_w;
 	}
 
 	stripe_w += STRIPE_MARGIN_WIDTH;
@@ -202,6 +202,8 @@ static int is_ischain_mcs_cfg(struct is_subdev *leader,
 	input->otf_bitwidth = OTF_INPUT_BIT_WIDTH_8BIT;
 	input->otf_order = OTF_INPUT_ORDER_BAYER_GR_BG;
 	input->stripe_total_count = (frame) ? frame->stripe_info.region_num : 0;
+	input->stripe_region_index = (frame) ? frame->stripe_info.region_id : 0;
+	input->full_input_width = incrop->w;
 
 	*lindex |= LOWBIT_OF(PARAM_MCS_INPUT);
 	*hindex |= HIGHBIT_OF(PARAM_MCS_INPUT);
@@ -323,6 +325,10 @@ static int is_ischain_mcs_tag(struct is_subdev *subdev,
 		mrerr("is_itf_s_param is fail(%d)", device, frame, ret);
 		goto p_err;
 	}
+
+	mcs_param->control.cmd = CONTROL_COMMAND_START;
+	if (frame->shot_ext && frame->shot_ext->tnr_mode == TNR_PROCESSING_TNR_ONLY)
+		mcs_param->control.cmd = CONTROL_COMMAND_STOP;
 
 p_err:
 	return ret;

@@ -91,6 +91,7 @@
 #define ENABLE_ORBMCH	1
 #define ENABLE_10BIT_MCSC
 #define ENABLE_DJAG_IN_MCSC
+#define USE_MCSC_STRIP_OUT_CROP				/* use for MCSC stripe */
 /* #define ENABLE_VRA */
 /* #define ENABLE_REPROCESSING_FD */
 /* #define ENABLE_VRA_CHANGE_SETFILE_PARSING */
@@ -262,6 +263,8 @@
 /* #define USE_CAMIF_FIX_UP	1 */
 #define CHAIN_TAG_SENSOR_IN_SOFTIRQ_CONTEXT	0
 #define CHAIN_TAG_VC0_DMA_IN_HARDIRQ_CONTEXT	1
+
+#define USE_SKIP_DUMP_LIC_OVERFLOW     1
 
 /* default LIC value for 9630 */
 /*

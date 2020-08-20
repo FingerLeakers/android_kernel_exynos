@@ -569,7 +569,7 @@ complete:
 
 	/* for debug */
 	DBG_DIGIT_TAG((ldr_frame->group) ? ((struct is_group *)ldr_frame->group)->slot : 0,
-			0, GET_QUEUE(sub_vctx), sub_frame, fcount - sub_frame->num_buffers + 1, 1);
+			0, GET_QUEUE(sub_vctx), sub_frame, fcount, 1);
 
 	CALL_VOPS(sub_vctx, done, sub_frame->index, done_state);
 
@@ -1755,6 +1755,7 @@ static void wq_func_group_xxx(struct is_groupmgr *groupmgr,
 	is_ischain_meta_invalid(frame);
 
 	frame->result = status;
+	frame->stripe_info.region_id++;
 	clear_bit(group->leader.id, &frame->out_flag);
 	is_group_done(groupmgr, group, frame, done_state);
 
@@ -1762,10 +1763,8 @@ static void wq_func_group_xxx(struct is_groupmgr *groupmgr,
 	 * Skip done when current frame is doing stripe process,
 	 * and re-trigger the group shot for next stripe process.
 	 */
-	if (!status && frame->state == FS_STRIPE_PROCESS) {
-		frame->stripe_info.region_id++;
+	if (!status && frame->state == FS_STRIPE_PROCESS)
 		return;
-	}
 
 	frame->stripe_info.region_id = 0;
 	frame->stripe_info.region_num  = 0;

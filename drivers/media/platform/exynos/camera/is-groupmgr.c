@@ -2029,20 +2029,13 @@ static void set_group_shots(struct is_group *group,
 	max_fps = sensor_cfg->max_fps;
 	height = sensor_cfg->height;
 
-	if (ex_mode == EX_DUALFPS_960 || ex_mode == EX_DUALFPS_480
-		|| max_fps >= 240
-		|| height <= LINE_FOR_SHOT_VALID_TIME) {
-		group->asyn_shots = MIN_OF_ASYNC_SHOTS + 1;
-		group->sync_shots = MIN_OF_SYNC_SHOTS;
-	} else {
 #ifdef REDUCE_COMMAND_DELAY
-		group->asyn_shots = MIN_OF_ASYNC_SHOTS + 1;
-		group->sync_shots = 0;
+	group->asyn_shots = MIN_OF_ASYNC_SHOTS + 1;
+	group->sync_shots = 0;
 #else
-		group->asyn_shots = MIN_OF_ASYNC_SHOTS + 0;
-		group->sync_shots = MIN_OF_SYNC_SHOTS;
+	group->asyn_shots = MIN_OF_ASYNC_SHOTS + 0;
+	group->sync_shots = MIN_OF_SYNC_SHOTS;
 #endif
-	}
 	group->init_shots = group->asyn_shots;
 	group->skip_shots = group->asyn_shots;
 
@@ -2121,10 +2114,7 @@ int is_group_start(struct is_groupmgr *groupmgr,
 			sema_init(&gtask->smp_resource, group->asyn_shots + group->sync_shots);
 			smp_shot_init(group, group->asyn_shots + group->sync_shots);
 		} else {
-			if (framerate > 120)
-				group->asyn_shots = MIN_OF_ASYNC_SHOTS_240FPS;
-			else
-				group->asyn_shots = MIN_OF_ASYNC_SHOTS;
+			group->asyn_shots = MIN_OF_ASYNC_SHOTS;
 			group->skip_shots = 0;
 			group->init_shots = 0;
 			group->sync_shots = 0;
@@ -2258,39 +2248,43 @@ int is_group_stop(struct is_groupmgr *groupmgr,
 	FIMC_BUG(!groupmgr);
 	FIMC_BUG(!group);
 	FIMC_BUG(!group->device);
-	FIMC_BUG(!group->head);
 	FIMC_BUG(!group->leader.vctx);
 	FIMC_BUG(group->instance >= IS_STREAM_COUNT);
 	FIMC_BUG(group->id >= GROUP_ID_MAX);
 
-	device = group->device;
+	if (!test_bit(IS_GROUP_START, &group->state)) {
+		mwarn("already group stop", group);
+		return -EPERM;
+	}
+	
 	head = group->head;
-	gtask = &groupmgr->gtask[head->id];
-	sensor = device->sensor;
+	if (head && !test_bit(IS_GROUP_START, &head->state)) {
+		mwarn("already head group stop", group);
+		return -EPERM;
+	}
+	
 	framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
 	if (!framemgr) {
 		mgerr("framemgr is NULL", group, group);
 		goto p_err;
 	}
 
-	if (!test_bit(IS_GROUP_START, &group->state) &&
-		!test_bit(IS_GROUP_START, &group->head->state)) {
-		mwarn("already group stop", group);
-		return -EPERM;
-	}
-
 	/* force stop set if only HEAD group OTF input */
-	if (test_bit(IS_GROUP_OTF_INPUT, &group->head->state)) {
+	if (test_bit(IS_GROUP_OTF_INPUT, &head->state)) {
 		if (test_bit(IS_GROUP_REQUEST_FSTOP, &group->state))
 			set_bit(IS_GROUP_FORCE_STOP, &group->state);
 	}
 	clear_bit(IS_GROUP_REQUEST_FSTOP, &group->state);
+
+	gtask = &groupmgr->gtask[head->id];
+	device = group->device;
 
 	retry = 150;
 	while (--retry && framemgr->queued_count[FS_REQUEST]) {
 		if (test_bit(IS_GROUP_OTF_INPUT, &head->state) &&
 			!list_empty(&head->smp_trigger.wait_list)) {
 
+			sensor = device->sensor;
 			if (!sensor) {
 				mwarn(" sensor is NULL, forcely trigger(pc %d)", device, head->pcount);
 				set_bit(IS_GROUP_FORCE_STOP, &head->state);
@@ -2500,12 +2494,14 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
 	struct is_device_sensor *sensor = NULL;
-	int i, max_width = 0;
+	struct is_group *next;
+	int i, max_width, min_const_width;
 #if defined(CONFIG_CAMERA_PDP)
 	struct is_module_enum *module = NULL;
 	struct is_device_sensor_peri *sensor_peri = NULL;
 	cis_shared_data *cis_data = NULL;
 #endif
+	int sram_sum = 0;
 
 	FIMC_BUG(!groupmgr);
 	FIMC_BUG(!group);
@@ -2607,6 +2603,7 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 					prev->shot->ctl.aa.captureIntent = frame->shot->ctl.aa.captureIntent;
 					prev->shot->ctl.aa.vendor_captureExposureTime = frame->shot->ctl.aa.vendor_captureExposureTime;
 					prev->shot->ctl.aa.vendor_captureCount = frame->shot->ctl.aa.vendor_captureCount;
+					prev->shot->ctl.aa.vendor_captureEV = frame->shot->ctl.aa.vendor_captureEV;
 				}
 			}
 		}
@@ -2654,10 +2651,25 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 			frame->shot->uctl.isModeUd.paf_mode = CAMERA_PAF_ON;
 	}
 #endif
+
+	if (!test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
+		if (group->slot == GROUP_SLOT_PAF || group->slot == GROUP_SLOT_3AA)
+			sram_sum = atomic_read(&resourcemgr->lic_sram.taa_sram_sum);
+	}
+
 #ifdef CHAIN_USE_STRIPE_PROCESSING
-		/* Trigger stripe processing for remosaic capture request. */
-		if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING)
-			&& (frame->shot_ext->node_group.leader.input.cropRegion[2] > group->leader.constraints_width)) {
+	/* Trigger stripe processing for remosaic capture request. */
+	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING)) {
+#ifdef CHAIN_USE_STRIPE_REGION_NUM_META
+		struct camera2_stream *stream = (struct camera2_stream *)frame->shot_ext;
+
+		if (IS_ENABLED(CHAIN_USE_STRIPE_REGION_NUM_META)
+			&& stream->stripe_region_num) {
+			frame->stripe_info.region_num = stream->stripe_region_num;
+		} else
+#endif
+		if ((frame->shot_ext->node_group.leader.input.cropRegion[2] > (group->leader.constraints_width - sram_sum))
+			&& (group->id != GROUP_ID_VRA0)) {
 			/* Find max_width in group */
 			max_width = frame->shot_ext->node_group.leader.input.cropRegion[2];
 			for (i = 0; i < CAPTURE_NODE_MAX; i++ ) {
@@ -2666,11 +2678,24 @@ int is_group_buffer_queue(struct is_groupmgr *groupmgr,
 				if (max_width < frame->shot_ext->node_group.capture[i].output.cropRegion[2])
 					max_width = frame->shot_ext->node_group.capture[i].output.cropRegion[2];
 			}
+
+			/* Find min_constraints_width in stream */
+			min_const_width = group->leader.constraints_width;
+			next = group->next;
+			while (next) {
+				if ((min_const_width > next->leader.constraints_width) && (next->id != GROUP_ID_VRA0))
+					min_const_width = next->leader.constraints_width;
+
+				next = next->next;
+			}
+
 			frame->stripe_info.region_num = DIV_ROUND_UP(max_width,
-							ALIGN_DOWN(group->leader.constraints_width - STRIPE_MARGIN_WIDTH * 2, STRIPE_MARGIN_WIDTH));
-			mgrdbgs(3, "set stripe_region_num %d\n", group, group, frame,
-					frame->stripe_info.region_num);
+					ALIGN_DOWN(min_const_width - STRIPE_MARGIN_WIDTH * 2, STRIPE_MARGIN_WIDTH));
 		}
+
+		mgrdbgs(3, "set stripe_region_num %d\n", group, group, frame,
+				frame->stripe_info.region_num);
+	}
 #endif
 
 	/* FIXME: remove a below block after debugging */
@@ -2812,10 +2837,7 @@ static int is_group_check_pre(struct is_groupmgr *groupmgr,
 		is_gframe_check(gprev, group, gnext, gframe, frame);
 	} else if (!gprev && gnext) {
 		/* leader */
-		if (atomic_read(&group->scount))
-			group->fcount += frame->num_buffers;
-		else
-			group->fcount++;
+		group->fcount++;
 
 		is_gframe_free_head(gframemgr, &gframe);
 		if (unlikely(!gframe)) {
@@ -2824,7 +2846,7 @@ static int is_group_check_pre(struct is_groupmgr *groupmgr,
 			is_gframe_print_group(group_leader);
 			spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
 			is_stream_status(groupmgr, group_leader);
-			group->fcount -= frame->num_buffers;
+			group->fcount--;
 			ret = -EINVAL;
 			goto p_err;
 		}
@@ -2839,7 +2861,7 @@ static int is_group_check_pre(struct is_groupmgr *groupmgr,
 				spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
 				mgerr("shot mismatch(%d, %d)", device, group,
 					frame->fcount, group->fcount);
-				group->fcount -= frame->num_buffers;
+				group->fcount--;
 				ret = -EINVAL;
 				goto p_err;
 			}
@@ -2902,10 +2924,7 @@ static int is_group_check_pre(struct is_groupmgr *groupmgr,
 			gframe = &dummy_gframe;
 		} else {
 			/* single */
-			if (atomic_read(&group->scount))
-				group->fcount += frame->num_buffers;
-			else
-				group->fcount++;
+			group->fcount++;
 
 			is_gframe_free_head(gframemgr, &gframe);
 			if (unlikely(!gframe)) {
@@ -2928,7 +2947,7 @@ static int is_group_check_pre(struct is_groupmgr *groupmgr,
 					spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
 					mgerr("shot mismatch(%d, %d)", device, group,
 						frame->fcount, group->fcount);
-					group->fcount -= frame->num_buffers;
+					group->fcount--;
 					ret = -EINVAL;
 					goto p_err;
 				}
@@ -2967,6 +2986,10 @@ static int is_group_check_post(struct is_groupmgr *groupmgr,
 	FIMC_BUG(!gframe);
 	FIMC_BUG(group->slot >= GROUP_SLOT_MAX);
 
+	/* Skip gframe transition when it is doing stripe processing. */
+	if (frame->state == FS_STRIPE_PROCESS)
+		return ret;
+
 	tail = group->tail;
 	gframemgr = &groupmgr->gframemgr[group->instance];
 
@@ -2974,12 +2997,10 @@ static int is_group_check_post(struct is_groupmgr *groupmgr,
 
 	if (gprev && !gnext) {
 		/* tailer */
-		if (frame->state != FS_STRIPE_PROCESS) {
-			ret = is_gframe_trans_grp_to_fre(gframemgr, gframe, group);
-			if (ret) {
-				mgerr("is_gframe_trans_grp_to_fre is fail(%d)", device, group, ret);
-				BUG();
-			}
+		ret = is_gframe_trans_grp_to_fre(gframemgr, gframe, group);
+		if (ret) {
+			mgerr("is_gframe_trans_grp_to_fre is fail(%d)", device, group, ret);
+			BUG();
 		}
 	} else if (!gprev && gnext) {
 		/* leader */
@@ -3054,7 +3075,6 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 	FIMC_BUG(group->id >= GROUP_ID_MAX);
 
 	set_bit(IS_GROUP_SHOT, &group->state);
-	atomic_dec(&group->rcount);
 	device = group->device;
 	gtask = &groupmgr->gtask[group->id];
 
@@ -3129,17 +3149,21 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 		if (group->init_shots > atomic_read(&group->scount)) {
 			frame->fcount = atomic_read(&group->sensor_fcount);
 			atomic_set(&group->backup_fcount, frame->fcount);
-			/* for multi-buffer */
-			if (frame->num_buffers)
-				atomic_set(&group->sensor_fcount, frame->fcount + frame->num_buffers);
-			else
-				atomic_inc(&group->sensor_fcount);
+			atomic_inc(&group->sensor_fcount);
 
 			goto p_skip_sync;
 		}
 	}
 
 	if (group->sync_shots) {
+#if defined(SYNC_SHOT_ALWAYS)
+		PROGRAM_COUNT(4);
+		ret = down_interruptible(&group->smp_trigger);
+		if (ret) {
+			mgerr(" down fail(%d) #4", group, group, ret);
+			goto p_err_ignore;
+		}
+#else
 		bool try_sync_shot = false;
 
 		if (group->asyn_shots == 0) {
@@ -3162,6 +3186,8 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 			}
 		}
 
+#endif
+
 		/* check for group stop */
 		if (unlikely(test_bit(IS_GROUP_FORCE_STOP, &group->state))) {
 			mgwarn(" cancel by fstop3", group, group);
@@ -3175,56 +3201,20 @@ int is_group_shot(struct is_groupmgr *groupmgr,
 			goto p_err_ignore;
 		}
 
-		/* for multi-buffer */
-		if (frame->num_buffers) {
-			u32 sensor_fcount = atomic_read(&group->sensor_fcount);
-			u32 backup_fcount = atomic_read(&group->backup_fcount);
-
-			if (sensor_fcount <= (backup_fcount + frame->num_buffers)) {
-				frame->fcount = backup_fcount + frame->num_buffers;
-			} else {
-#if defined(ENABLE_HW_FAST_READ_OUT)
-				frame->fcount = backup_fcount + frame->num_buffers;
-				frame->fcount = (int)DIV_ROUND_UP((sensor_fcount - frame->fcount), frame->num_buffers);
-				frame->fcount = backup_fcount + (frame->num_buffers * (1 + frame->fcount));
-				mgwarn(" frame count(%d->%d) reset by sensor fcount(%d)", group, group,
-					backup_fcount + frame->num_buffers,
-					frame->fcount, sensor_fcount);
-#else
-				frame->fcount = sensor_fcount;
-				mgwarn(" frame count reset by sensor fcount(%d->%d)", group, group,
-					backup_fcount + frame->num_buffers,
-					frame->fcount);
-#endif
-			}
-		} else {
-			frame->fcount = atomic_read(&group->sensor_fcount);
-		}
+		frame->fcount = atomic_read(&group->sensor_fcount);
 		atomic_set(&group->backup_fcount, frame->fcount);
 
+#if defined(SYNC_SHOT_ALWAYS)
+		/* Nothing */
+#else
 		/* real automatic increase */
 		if (!try_sync_shot && (smp_shot_get(group) > MIN_OF_SYNC_SHOTS)) {
-			/* for multi-buffer */
-			if (frame->num_buffers)
-				atomic_add(frame->num_buffers, &group->sensor_fcount);
-			else
-				atomic_inc(&group->sensor_fcount);
+			atomic_inc(&group->sensor_fcount);
 		}
+#endif
 	} else {
 		if (test_bit(IS_GROUP_OTF_INPUT, &group->state)) {
-			/* for multi-buffer */
-			if (frame->num_buffers) {
-				if (atomic_read(&group->sensor_fcount) <= (atomic_read(&group->backup_fcount) + frame->num_buffers)) {
-					frame->fcount = atomic_read(&group->backup_fcount) + frame->num_buffers;
-				} else {
-					frame->fcount = atomic_read(&group->sensor_fcount);
-					mgwarn(" _frame count reset by sensor fcount(%d->%d)", group, group,
-						atomic_read(&group->backup_fcount) + frame->num_buffers,
-						frame->fcount);
-				}
-			} else {
-				frame->fcount = atomic_read(&group->sensor_fcount);
-			}
+			frame->fcount = atomic_read(&group->sensor_fcount);
 			atomic_set(&group->backup_fcount, frame->fcount);
 		}
 	}
@@ -3282,7 +3272,7 @@ p_skip_sync:
 		/* try to find dynamic scenario to apply */
 		is_dual_dvfs_update(device, group, frame);
 
-		scenario_id = is_dvfs_sel_dynamic(device, group);
+		scenario_id = is_dvfs_sel_dynamic(device, group, frame);
 		if (scenario_id > 0) {
 			struct is_dvfs_scenario_ctrl *dynamic_ctrl = resourcemgr->dvfs_ctrl.dynamic_ctrl;
 			mgrinfo("tbl[%d] dynamic scenario(%d)-[%s]\n", device, group, frame,
@@ -3498,6 +3488,14 @@ int is_group_done(struct is_groupmgr *groupmgr,
 			return ret;
 		}
 	}
+
+#ifdef ENABLE_STRIPE_SYNC_PROCESSING
+	/* Re-trigger the group shot for next stripe processing. */
+	if (CHK_MODECHANGE_SCN(frame->shot->ctl.aa.captureIntent)
+			&& (frame->state == FS_STRIPE_PROCESS)) {
+		is_group_start_trigger(groupmgr, group, frame);
+	}
+#endif
 
 	return ret;
 }

@@ -225,7 +225,7 @@ int is_subdev_open(struct is_subdev *subdev,
 	void *ctl_data)
 {
 	int ret = 0;
-	struct is_video *video = GET_VIDEO(vctx);
+	struct is_video *video;
 	const struct param_control *init_ctl = (const struct param_control *)ctl_data;
 
 	FIMC_BUG(!subdev);
@@ -236,8 +236,13 @@ int is_subdev_open(struct is_subdev *subdev,
 		goto p_err;
 	}
 
-	subdev->vctx = vctx;
-	subdev->vid = (video) ? video->id : 0;
+	/* If it is internal VC, skip vctx setting. */
+	if (vctx) {
+		subdev->vctx = vctx;
+		video = GET_VIDEO(vctx);
+		subdev->vid = (video) ? video->id : 0;
+	}
+
 	subdev->cid = CAPTURE_NODE_MAX;
 	subdev->input.width = 0;
 	subdev->input.height = 0;
@@ -286,7 +291,6 @@ static int is_sensor_check_subdev_open(struct is_device_sensor *device,
 	struct is_subdev *subdev,
 	struct is_video_ctx *vctx)
 {
-	int ret = 0;
 	int i;
 	struct is_core *core;
 	struct is_device_sensor *all_sensor;
@@ -340,19 +344,13 @@ static int is_sensor_check_subdev_open(struct is_device_sensor *device,
 		}
 	}
 
-	ret = is_subdev_open(subdev, vctx, NULL);
-	if (ret) {
-		merr("is_subdev_open is fail(%d)", device, ret);
-		goto err_subdev_open;
-	}
 	is_put_sensor_device(core);
 
 	return 0;
 
-err_subdev_open:
 err_check_vc_open:
 	is_put_sensor_device(core);
-	return ret;
+	return -EBUSY;
 }
 int is_sensor_subdev_open(struct is_device_sensor *device,
 	struct is_video_ctx *vctx)
@@ -373,15 +371,22 @@ int is_sensor_subdev_open(struct is_device_sensor *device,
 
 	ret = is_sensor_check_subdev_open(device, subdev, vctx);
 	if (ret) {
-		merr("is_sensor_check_subdev_open is fail", device);
+		mserr("is_sensor_check_subdev_open is fail", subdev, subdev);
 		ret = -EINVAL;
 		goto err_check_subdev_open;
+	}
+
+	ret = is_subdev_open(subdev, vctx, NULL);
+	if (ret) {
+		mserr("is_subdev_open is fail(%d)", subdev, subdev, ret);
+		goto err_subdev_open;
 	}
 
 	vctx->subdev = subdev;
 
 	return 0;
 
+err_subdev_open:
 err_check_subdev_open:
 err_video2subdev:
 	return ret;
@@ -767,7 +772,6 @@ p_err:
 static int is_subdev_s_format(struct is_subdev *subdev,
 	struct is_queue *queue)
 {
-	struct is_device_ischain *device;
 	int ret = 0;
 	u32 pixelformat = 0, width, height;
 
@@ -776,7 +780,6 @@ static int is_subdev_s_format(struct is_subdev *subdev,
 	FIMC_BUG(!queue);
 	FIMC_BUG(!queue->framecfg.format);
 
-	device = GET_DEVICE(subdev->vctx);
 	pixelformat = queue->framecfg.format->pixelformat;
 
 	width = queue->framecfg.width;
@@ -789,8 +792,8 @@ static int is_subdev_s_format(struct is_subdev *subdev,
 	case ENTRY_M3P:
 	case ENTRY_M4P:
 		if (width % 8) {
-			merr("width(%d) of format(%d) is not multiple of 8: need to check size",
-				device, width, pixelformat);
+			mserr("width(%d) of format(%d) is not multiple of 8: need to check size",
+				subdev, subdev, width, pixelformat);
 		}
 		break;
 	default:
@@ -827,10 +830,14 @@ static int is_sensor_subdev_s_format(void *qdevice,
 		goto p_err;
 	}
 
-	ret = is_subdev_s_format(subdev, queue);
-	if (ret) {
-		merr("is_subdev_s_format is fail(%d)", device, ret);
-		goto p_err;
+	if (test_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state)) {
+		mswarn("%s: It is sharing with internal use.", subdev, subdev, __func__);
+	} else {
+		ret = is_subdev_s_format(subdev, queue);
+		if (ret) {
+			merr("is_subdev_s_format is fail(%d)", device, ret);
+			goto p_err;
+		}
 	}
 
 p_err:
@@ -1183,7 +1190,7 @@ static int _is_subdev_internal_start(struct is_subdev *subdev)
 	}
 
 	/* qbuf a setting num of buffers before stream on */
-	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
+	framemgr = GET_SUBDEV_I_FRAMEMGR(subdev);
 	if (unlikely(!framemgr)) {
 		mserr(" subdev's framemgr is null", subdev, subdev);
 		ret = -EINVAL;
@@ -1234,7 +1241,7 @@ static int _is_subdev_internal_stop(struct is_subdev *subdev)
 		goto p_err;
 	}
 
-	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
+	framemgr = GET_SUBDEV_I_FRAMEMGR(subdev);
 	if (unlikely(!framemgr)) {
 		mserr(" subdev's framemgr is null", subdev, subdev);
 		ret = -EINVAL;
@@ -1442,9 +1449,9 @@ int is_subdev_internal_open(void *device, enum is_device_type type, struct is_su
 	int ret = 0;
 	struct is_device_sensor *sensor = NULL;
 
-	if (!test_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state)) {
-		mserr("subdev is not in INTERNAL_USE state.", subdev, subdev);
-		return -EINVAL;
+	if (test_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state)) {
+		mswarn("already INTERNAL_USE state", subdev, subdev);
+		goto p_err;
 	}
 
 	switch (type) {
@@ -1457,6 +1464,14 @@ int is_subdev_internal_open(void *device, enum is_device_type type, struct is_su
 		if (ret) {
 			mserr("is_sensor_check_subdev_open is fail(%d)", subdev, subdev, ret);
 			goto p_err;
+		}
+
+		if (!test_bit(IS_SUBDEV_OPEN, &subdev->state)) {
+			ret = is_subdev_open(subdev, NULL, NULL);
+			if (ret) {
+				mserr("is_subdev_open is fail(%d)", subdev, subdev, ret);
+				goto p_err;
+			}
 		}
 
 		msinfo("[SS%d] %s\n", sensor, subdev, sensor->device_id, __func__);
@@ -1475,6 +1490,8 @@ int is_subdev_internal_open(void *device, enum is_device_type type, struct is_su
 		break;
 	}
 
+	set_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state);
+
 p_err:
 	return ret;
 };
@@ -1491,6 +1508,8 @@ int is_subdev_internal_close(void *device, enum is_device_type type, struct is_s
 	ret = is_subdev_close(subdev);
 	if (ret)
 		mserr("is_subdev_close is fail(%d)", subdev, subdev, ret);
+
+	clear_bit(IS_SUBDEV_INTERNAL_USE, &subdev->state);
 
 	return ret;
 };

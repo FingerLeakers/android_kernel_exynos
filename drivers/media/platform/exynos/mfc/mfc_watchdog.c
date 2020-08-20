@@ -349,8 +349,9 @@ static void __mfc_dump_state(struct mfc_dev *dev, int curr_ctx)
 	dev_err(dev->device, "has 2sysmmu:%d, has hwfc:%d, has mmcache:%d, has llc:%d, shutdown:%d, sleep:%d, itmon_notified:%d\n",
 			dev->has_2sysmmu, dev->has_hwfc, dev->has_mmcache, dev->has_llc,
 			dev->shutdown, dev->sleep, dev->itmon_notified);
-	dev_err(dev->device, "options debug_level:%d, debug_mode:%d, mmcache:%d, llc:%d, perf_boost:%d, wait_fw_status %d\n",
-			debug_level, dev->pdata->debug_mode, dev->mmcache.is_on_status, dev->llc_on_status, perf_boost_mode,
+	dev_err(dev->device, "options debug_level:%d, debug_mode:%d (%d), mmcache:%d, llc:%d, perf_boost:%d, wait_fw_status %d\n",
+			debug_level, dev->pdata->debug_mode, debug_mode_en,
+			dev->mmcache.is_on_status, dev->llc_on_status, perf_boost_mode,
 			dev->pdata->wait_fw_status.support);
 	if (nal_q_handle)
 		dev_err(dev->device, "NAL-Q state:%d, exception:%d, in_exe_cnt: %d, out_exe_cnt: %d, stop cause: %#x\n",
@@ -645,7 +646,7 @@ static void __mfc_dump_info(struct mfc_dev *dev)
 	__mfc_dump_buffer_info(dev);
 	__mfc_dump_regs(dev);
 
-	if (dev->num_otf_inst) {
+	if (dev->otf_inst_bits) {
 		dev_err(dev->device, "-----------dumping TS-MUX info-----------\n");
 #ifdef CONFIG_VIDEO_EXYNOS_TSMUX
 		tsmux_sfr_dump();
@@ -666,7 +667,7 @@ static void __mfc_dump_info_and_stop_hw(struct mfc_dev *dev)
 
 static void __mfc_dump_info_and_stop_hw_debug(struct mfc_dev *dev)
 {
-	if (!dev->pdata->debug_mode)
+	if (!dev->pdata->debug_mode && !debug_mode_en)
 		return;
 
 	MFC_TRACE_DEV("** mfc will stop!!!\n");

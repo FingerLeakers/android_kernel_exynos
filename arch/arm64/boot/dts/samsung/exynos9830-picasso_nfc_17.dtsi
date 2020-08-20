@@ -104,10 +104,10 @@ hsi2c22_nvm_off: hsi2c22-nvm-off {
 
 	k250a@23 {
 		status = "ok";
-		compatible = "snvm_k250a";
+		compatible = "sec_k250a";
 		1p8_pvdd-supply = <&ldo26_reg>;
 		reg = <0x23>;
-		k250a-i2c_node = <&hsi2c_22>;
+		/*k250a-i2c_node = <&hsi2c_22>;*/
 	};
 };
 

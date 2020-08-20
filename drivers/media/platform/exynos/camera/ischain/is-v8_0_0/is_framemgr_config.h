@@ -14,6 +14,7 @@
 #define IS_EXT_MAX_PLANES	4
 
 #define MAX_FRAME_INFO		(4)
+#define MAX_STRIPE_REGION_NUM	(5)
 
 enum is_frame_info_index {
 	INFO_FRAME_START,
@@ -44,6 +45,9 @@ struct fimc_is_stripe_info {
 	/* Stripe size for incrop/otcrop */
 	struct fimc_is_stripe_size	in;
 	struct fimc_is_stripe_size	out;
+	/* For image dump */
+	ulong                           kva[MAX_STRIPE_REGION_NUM][IS_MAX_PLANES];
+	size_t                          size[MAX_STRIPE_REGION_NUM][IS_MAX_PLANES];
 };
 
 struct is_frame {

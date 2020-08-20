@@ -21,14 +21,15 @@ void is_ischain_ixc_stripe_cfg(struct is_subdev *subdev,
 		struct is_frame *ldr_frame,
 		struct is_crop *incrop,
 		struct is_crop *otcrop,
-		struct is_frame_cfg *framecfg)
+		struct is_frame_cfg *framecfg,
+		u32 region_num)
 {
 	struct is_framemgr *framemgr;
 	struct is_frame *frame;
 	struct is_fmt *fmt = framecfg->format;
 	unsigned long flags;
-	u32 stripe_x = 0, stripe_w = 0;
-	u32 dma_offset = 0;
+	u32 region_id = ldr_frame->stripe_info.region_id;
+	u32 stripe_w = 0, dma_offset = 0;
 
 	framemgr = GET_SUBDEV_FRAMEMGR(subdev);
 	if (!framemgr)
@@ -38,38 +39,54 @@ void is_ischain_ixc_stripe_cfg(struct is_subdev *subdev,
 
 	frame = peek_frame(framemgr, ldr_frame->state);
 	if (frame) {
+		if (!region_num) {
+			frame->stream->stripe_region_num = 0;
+			framemgr_x_barrier_irqr(framemgr, FMGR_IDX_24, flags);
+			return;
+		}
 		/* Output crop & WDMA offset configuration */
-		if (!ldr_frame->stripe_info.region_id) {
+		if (!region_id) {
 			/* Left region */
-			stripe_x = otcrop->x;
 			stripe_w = ldr_frame->stripe_info.in.h_pix_num;
-
-			frame->stripe_info.out.h_pix_ratio = stripe_w * STRIPE_RATIO_PRECISION / otcrop->w;
 			frame->stripe_info.out.h_pix_num = stripe_w;
-		} else if (ldr_frame->stripe_info.region_id < ldr_frame->stripe_info.region_num - 1) {
+			frame->stripe_info.region_base_addr[0] = frame->dvaddr_buffer[0];
+		} else if (region_id < ldr_frame->stripe_info.region_num - 1) {
 			/* Middle region */
-			stripe_w = ALIGN(otcrop->w * frame->stripe_info.in.h_pix_ratio / STRIPE_RATIO_PRECISION, 2);
-
-			dma_offset = frame->stripe_info.out.h_pix_num * fmt->bitsperpixel[0] / BITS_PER_BYTE;
+			stripe_w = ldr_frame->stripe_info.in.h_pix_num - frame->stripe_info.out.h_pix_num;
+			dma_offset = frame->stripe_info.out.h_pix_num;
+			dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+			dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * otcrop->h;
 			frame->stripe_info.out.h_pix_num += stripe_w;
+			stripe_w += STRIPE_MARGIN_WIDTH;
 		} else {
 			/* Right region */
-			stripe_x = STRIPE_MARGIN_WIDTH;
-			stripe_w = incrop->w - frame->stripe_info.out.h_pix_num;
-
-			dma_offset = frame->stripe_info.out.h_pix_num * fmt->bitsperpixel[0] / BITS_PER_BYTE;
+			stripe_w = otcrop->w - frame->stripe_info.out.h_pix_num;
+			dma_offset = frame->stripe_info.out.h_pix_num;
+			dma_offset += STRIPE_MARGIN_WIDTH * ((2 * (region_id - 1)) + 1);
+			dma_offset *= fmt->bitsperpixel[0] / BITS_PER_BYTE * otcrop->h;
+			frame->stripe_info.out.h_pix_num += stripe_w;
 		}
 
-		otcrop->x = stripe_x;
+		stripe_w += STRIPE_MARGIN_WIDTH;
 		otcrop->w = stripe_w;
 
-		frame->dvaddr_buffer[0] += dma_offset;
+		frame->dvaddr_buffer[0] = frame->stripe_info.region_base_addr[0] + dma_offset;
+		frame->stream->stripe_h_pix_nums[region_id] = frame->stripe_info.out.h_pix_num;
+		frame->stream->stripe_region_num = ldr_frame->stripe_info.region_num;
+
+		if (frame->kvaddr_buffer[0]) {
+			frame->stripe_info.region_num = ldr_frame->stripe_info.region_num;
+			frame->stripe_info.kva[region_id][0] = frame->kvaddr_buffer[0] + dma_offset;
+			frame->stripe_info.size[region_id][0] = stripe_w
+							* fmt->bitsperpixel[0] / BITS_PER_BYTE
+							* otcrop->h;
+		}
 
 		msrdbgs(3, "stripe_in_crop[%d][%d, %d, %d, %d]\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
+				region_id,
 				incrop->x, incrop->y, incrop->w, incrop->h);
 		msrdbgs(3, "stripe_ot_crop[%d][%d, %d, %d, %d] offset %x\n", subdev, subdev, ldr_frame,
-				ldr_frame->stripe_info.region_id,
+				region_id,
 				otcrop->x, otcrop->y, otcrop->w, otcrop->h, dma_offset);
 	}
 
@@ -110,10 +127,11 @@ static int is_ischain_ixc_start(struct is_device_ischain *device,
 	incrop_cfg = *incrop;
 	otcrop_cfg = *otcrop;
 
-	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame && frame->stripe_info.region_num)
+	if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING) && frame)
 		is_ischain_ixc_stripe_cfg(subdev, frame,
 				&incrop_cfg, &otcrop_cfg,
-				&queue->framecfg);
+				&queue->framecfg,
+				frame->stripe_info.region_num);
 
 	dma_output = is_itf_g_param(device, frame, PARAM_ISP_VDMA5_OUTPUT);
 	dma_output->cmd = DMA_OUTPUT_COMMAND_ENABLE;
@@ -216,11 +234,6 @@ static int is_ischain_ixc_tag(struct is_subdev *subdev,
 		inparm.y = isp_param->vdma1_input.bayer_crop_offset_y;
 		inparm.w = isp_param->vdma1_input.bayer_crop_width;
 		inparm.h = isp_param->vdma1_input.bayer_crop_height;
-
-		otcrop->x = 0;
-		otcrop->y = 0;
-		otcrop->w = isp_param->otf_input.width;
-		otcrop->h = isp_param->otf_input.height;
 
 		otparm.x = 0;
 		otparm.y = 0;

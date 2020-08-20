@@ -73,7 +73,7 @@
 				battery,dc_step_chg_cond_iin = <3160 2255 0>; /* <45w 3step> STEP_CHARGING_CONDITION_INPUT_CURRENT */
 				battery,dc_step_chg_val_vfloat = <4130 4290 4380>; /* <45w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
 				battery,dc_step_chg_val_iout = <8000 6320 4510>; /* <45w 3step> */
-				battery,dc_step_chg_cond_soc = <20 60 100>; /* <45w 3step> STEP_CHARGING_CONDITION_SOC */
+				battery,dc_step_chg_cond_soc = <20 60 100 20 60 100 20 60 100 20 60 100 20 60 100>; /* <45w 3step> STEP_CHARGING_CONDITION_SOC */
 
 				battery,snkcap_data = /bits/ 8 <0x04 0x2C 0x91 0x01 0x36 0xC8 0xD0 0x02 0x00 0xC8 0x90
 								0x41 0x8B 0x51 0x21 0xDC 0xC0>;
@@ -84,6 +84,8 @@
 				fuelgauge,qrtable20 = <0x1000>;
 				fuelgauge,qrtable30 = <0x0B00>;
 				fuelgauge,capacity = <0x0708>;
+				/* fullcapnom(=capacity), dPacc, dQacc,  rcomp0, tempco */
+				fuelgauge,fg_reset_wa_data = <0x0708 0x3200 0x01C2 0x002C 0x242D>;
 				fuelgauge,ttf_capacity = <4500>;
 				fuelgauge,cv_data = <
 					4511	801	1503
@@ -218,6 +220,24 @@
 		battery,wpc_det = <&gpa2 0 0>;
 
 		battery,charger_name = "max77705-charger";
+	};
+
+	mfc-charger@3b {
+		fod_list {
+			count = <2>;
+
+			pad_0x00 { /* DEFAULT */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(ADD) | SET_FOD_FULL(ADD))>;
+				cc = <150 58 142 48 150 31 150 26 155 7 156 6>;
+				cv = <150 88 142 78 150 61 150 56 155 37 156 36>;
+				full = <255 127 255 127 255 127 255 127 255 127 255 127>;
+			};
+
+			pad_0x31 { /* DREAM PAD(V) */
+				flag = <(SET_FOD_CC(ADD) | SET_FOD_CV(USE_DEFAULT) | SET_FOD_FULL(USE_DEFAULT))>;
+				cc = <150 8 142 (-2) 150 (-19) 150 (-24) 155 (-43) 156 (-44)>;
+			};
+		};
 	};
 
 	mfc-s2miw04-charger@6f {

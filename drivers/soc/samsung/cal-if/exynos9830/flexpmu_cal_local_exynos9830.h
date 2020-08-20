@@ -930,6 +930,9 @@ struct pmucal_seq hsi0_save[] = {
 };
 
 struct pmucal_seq hsi0_off[] = {
+	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_DP_LINK_QCH_PCLK", 0x10A00000, 0x3018, (0x7 << 0), (0x2 << 0), 0, 0, 0xffffffff, 0),
+	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_DP_LINK_QCH_GTC_CLK", 0x10A00000, 0x3014, (0x7 << 0), (0x2 << 0), 0, 0, 0xffffffff, 0),
+	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "QCH_CON_LHM_AXI_P_HSI0_QCH", 0x10A00000, 0x3024, (0x7 << 0), (0x2 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "HSI0_CMU_HSI0_CONTROLLER_OPTION", 0x10a00000, 0x0800, (0x1 << 24), (0x0 << 24), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WRITE, "HSI0_CONFIGURATION", 0x15860000, 0x2380, (0x1 << 0), (0x0 << 0), 0, 0, 0xffffffff, 0),
 	PMUCAL_SEQ_DESC(PMUCAL_WAIT, "HSI0_STATUS", 0x15860000, 0x2384, (0x1 << 0), (0x0 << 0), 0, 0, 0xffffffff, 0),

@@ -41,7 +41,7 @@ int is_itf_stream_off_wrap(struct is_device_ischain *device);
 int is_itf_process_on_wrap(struct is_device_ischain *device, u32 group);
 int is_itf_process_off_wrap(struct is_device_ischain *device, u32 group,
 	u32 fstop);
-void is_itf_sudden_stop_wrap(struct is_device_ischain *device, u32 instance);
+void is_itf_sudden_stop_wrap(struct is_device_ischain *device, u32 instance, struct is_group *group);
 int is_itf_power_down_wrap(struct is_interface *interface, u32 instance);
 int is_itf_sys_ctl_wrap(struct is_device_ischain *device,
 	int cmd, int val);

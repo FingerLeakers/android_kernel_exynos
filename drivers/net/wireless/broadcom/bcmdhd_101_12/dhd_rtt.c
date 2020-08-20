@@ -3503,9 +3503,14 @@ dhd_rtt_nan_range_report(struct bcm_cfg80211 *cfg,
 		rtt_result_t *rtt_result, bool is_geofence)
 {
 	wl_nan_ev_rng_rpt_ind_t range_res;
-	int rtt_status = rtt_result->report.status;
+	int rtt_status;
 
 	UNUSED_PARAMETER(range_res);
+
+	if (!rtt_result)
+		return;
+
+	rtt_status = rtt_result->report.status;
 	bzero(&range_res, sizeof(range_res));
 	range_res.dist_mm = rtt_result->report.distance;
 	/* same src and header len, ignoring ret val here */
@@ -4241,6 +4246,21 @@ dhd_rtt_deinit(dhd_pub_t *dhd)
 	NULL_CHECK(dhd, "dhd is NULL", err);
 	rtt_status = GET_RTTSTATE(dhd);
 	NULL_CHECK(rtt_status, "rtt_status is NULL", err);
+
+#ifdef WL_NAN
+	if (delayed_work_pending(&rtt_status->rtt_retry_timer)) {
+		cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
+	}
+#endif /* WL_NAN */
+
+	if (work_pending(&rtt_status->work)) {
+		cancel_work_sync(&rtt_status->work);
+	}
+
+	if (delayed_work_pending(&rtt_status->proxd_timeout)) {
+		cancel_delayed_work_sync(&rtt_status->proxd_timeout);
+	}
+
 	rtt_status->status = RTT_STOPPED;
 	DHD_RTT(("rtt is stopped %s \n", __FUNCTION__));
 	/* clear evt callback list */
@@ -4264,16 +4284,6 @@ dhd_rtt_deinit(dhd_pub_t *dhd)
 		}
 	}
 	GCC_DIAGNOSTIC_POP();
-
-#ifdef WL_NAN
-	if (delayed_work_pending(&rtt_status->rtt_retry_timer)) {
-		cancel_delayed_work_sync(&rtt_status->rtt_retry_timer);
-	}
-#endif /* WL_NAN */
-
-	if (delayed_work_pending(&rtt_status->proxd_timeout)) {
-		cancel_delayed_work_sync(&rtt_status->proxd_timeout);
-	}
 #endif /* WL_CFG80211 */
 	return err;
 }

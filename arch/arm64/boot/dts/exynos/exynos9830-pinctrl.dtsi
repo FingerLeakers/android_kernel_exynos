@@ -913,7 +913,7 @@
 		uart0_bus: uart0-bus {
 			samsung,pins = "gpp4-6", "gpp4-7";
 			samsung,pin-function = <3>;
-			samsung,pin-pud = <0>;
+			samsung,pin-pud = <3>;
 		};
 
 		/* PERIC0 USI00 */

@@ -471,6 +471,16 @@ int fr_req_manager(int msgid, struct npu_frame *frame)
 		msg.command = COMMAND_PROCESS;
 		msg.length = sizeof(struct command);
 		break;
+	case NPU_FRAME_CMD_PROFILER:
+		cmd.c.process.oid = frame->uid;
+		cmd.c.process.fid = frame->frame_id;
+		cmd.c.process.priority = frame->priority;
+		cmd.c.process.profiler_ctrl = frame->output->timestamp[5].tv_sec;
+		cmd.length = frame->mbox_process_dat.address_vector_cnt;
+		cmd.payload = frame->mbox_process_dat.address_vector_start_daddr;
+		msg.command = COMMAND_PROCESS;
+		msg.length = sizeof(struct command);
+		break;
 	case NPU_FRAME_CMD_END:
 		break;
 	}
@@ -493,7 +503,7 @@ void makeStructToString(struct cmd_done *done)
 
 	memset(&fwProfile, 0, sizeof(struct fw_profile_info));
 	fwProfile.info_cnt = sizeof(struct cmd_done) / sizeof(u32);
-	for (i = 0; i < fwProfile.info_cnt; i++) {
+	for (i = 0; i < (int)fwProfile.info_cnt; i++) {
 		memset(tempbuf, 0, sizeof(tempbuf));
 		val = *(((u32 *)done + (i * sizeof(u32 *))));
 		sprintf(tempbuf, "%d", val);
@@ -575,7 +585,10 @@ int fr_rslt_manager(int *ret_msgid, struct npu_frame *frame)
 		return FALSE;
 
 	if (msg.command == COMMAND_DONE) {
-		npu_trace("COMMAND_DONE for mid: (%d)\n", msg.mid);
+		npu_dbg("COMMAND_DONE for mid: (%d)\n", msg.mid);
+		if (cmd.c.done.duration > 0) {
+			frame->duration	= cmd.c.done.duration;
+		}
 		frame->result_code = NPU_ERR_NO_ERROR;
 		makeStructToString(&(cmd.c.done));
 	} else if (msg.command == COMMAND_NDONE) {

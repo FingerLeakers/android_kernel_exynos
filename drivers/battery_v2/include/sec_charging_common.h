@@ -120,11 +120,14 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_DIRECT_HAS_APDO,
 	POWER_SUPPLY_EXT_PROP_DIRECT_TA_ALERT,
 	POWER_SUPPLY_EXT_PROP_DIRECT_CHARGER_CHG_STATUS,
-	POWER_SUPPLY_EXT_PRO_CHANGE_CHARGING_SOURCE,
+	POWER_SUPPLY_EXT_PROP_CHANGE_CHARGING_SOURCE,
 	POWER_SUPPLY_EXT_PROP_DIRECT_CLEAR_ERR,
+	POWER_SUPPLY_EXT_PROP_DIRECT_SEND_UVDM,
 #endif
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
+	POWER_SUPPLY_EXT_PROP_WPC_EN,
+	POWER_SUPPLY_EXT_PROP_WPC_EN_MST,
 };
 
 enum rx_device_type {
@@ -136,6 +139,7 @@ enum rx_device_type {
 };
 
 enum sec_battery_usb_conf {
+	USB_CURRENT_NONE = 0,
 	USB_CURRENT_SUSPENDED = 1,
 	USB_CURRENT_UNCONFIGURED = 100,
 	USB_CURRENT_HIGH_SPEED = 475,
@@ -146,6 +150,7 @@ enum power_supply_ext_health {
 	POWER_SUPPLY_HEALTH_VSYS_OVP = POWER_SUPPLY_HEALTH_MAX,
 	POWER_SUPPLY_HEALTH_VBAT_OVP,
 	POWER_SUPPLY_HEALTH_DC_ERR,
+	POWER_SUPPLY_HEALTH_WPC_EN,
 };
 
 enum sec_battery_cable {
@@ -448,6 +453,21 @@ enum sec_battery_measure_input {
 	SEC_BATTERY_VIN_UA,
 };
 
+enum sec_battery_wpc_en_ctrl {
+	WPC_EN_SYSFS = 0x1,
+	WPC_EN_CCIC = 0x2,
+	WPC_EN_CHARGING = 0x4,
+	WPC_EN_TX = 0x8,
+	WPC_EN_MST = 0x10,
+	WPC_EN_FW = 0x20,
+};
+
+enum sec_battery_direct_charging_source_ctrl {
+	SEC_TEST_MODE = 0x1,
+	SEC_SEND_UVDM = 0x2,
+	SEC_STORE_MODE = 0x4,
+};
+
 /* tx_event */
 #define BATT_TX_EVENT_WIRELESS_TX_STATUS		0x00000001
 #define BATT_TX_EVENT_WIRELESS_RX_CONNECT		0x00000002
@@ -466,6 +486,10 @@ enum sec_battery_measure_input {
 #define BATT_TX_EVENT_WIRELESS_TX_ETC           0x00004000
 #define BATT_TX_EVENT_WIRELESS_TX_RETRY			0x00008000
 #define BATT_TX_EVENT_WIRELESS_ALL_MASK			0x0000ffff
+#define BATT_TX_EVENT_WIRELESS_TX_ERR			(BATT_TX_EVENT_WIRELESS_TX_FOD | BATT_TX_EVENT_WIRELESS_TX_HIGH_TEMP | \
+	BATT_TX_EVENT_WIRELESS_RX_UNSAFE_TEMP | BATT_TX_EVENT_WIRELESS_RX_CHG_SWITCH | BATT_TX_EVENT_WIRELESS_RX_CS100 | \
+	BATT_TX_EVENT_WIRELESS_TX_OTG_ON | BATT_TX_EVENT_WIRELESS_TX_LOW_TEMP | BATT_TX_EVENT_WIRELESS_TX_SOC_DRAIN | \
+	BATT_TX_EVENT_WIRELESS_TX_CRITICAL_EOC | BATT_TX_EVENT_WIRELESS_TX_CAMERA_ON | BATT_TX_EVENT_WIRELESS_TX_OCP | BATT_TX_EVENT_WIRELESS_TX_MISALIGN | BATT_TX_EVENT_WIRELESS_TX_ETC)
 
 #define SEC_BAT_ERROR_CAUSE_NONE		0x0000
 #define SEC_BAT_ERROR_CAUSE_FG_INIT_FAIL	0x0001
@@ -772,9 +796,6 @@ struct sec_age_data {
 	unsigned int recharge_condition_vcell;
 	unsigned int full_condition_vcell;
 	unsigned int full_condition_soc;
-#if defined(CONFIG_STEP_CHARGING)
-	unsigned int step_charging_condition;
-#endif
 };
 
 #define sec_age_data_t \
@@ -839,6 +860,7 @@ struct sec_battery_platform_data {
 	unsigned int pre_wc_afc_input_current;
 	unsigned int store_mode_afc_input_current;
 	unsigned int store_mode_hv_wireless_input_current;
+	unsigned int store_mode_max_input_power;
 	unsigned int prepare_ta_delay;
 
 	char *pmic_name;
@@ -908,13 +930,13 @@ struct sec_battery_platform_data {
 
 #if defined(CONFIG_STEP_CHARGING)
 	/* step charging */
-	unsigned int *step_charging_condition;
+	unsigned int **step_charging_condition;
 	unsigned int *step_charging_condition_curr;
 	unsigned int *step_charging_current;
 	unsigned int *step_charging_float_voltage;
 #if defined(CONFIG_DIRECT_CHARGING)
 	unsigned int *dc_step_chg_cond_vol;
-	unsigned int *dc_step_chg_cond_soc;
+	unsigned int **dc_step_chg_cond_soc;
 	unsigned int *dc_step_chg_cond_iin;
 	int dc_step_chg_iin_check_cnt;
 
@@ -1111,6 +1133,7 @@ struct sec_battery_platform_data {
 
 	unsigned int store_mode_charging_max;
 	unsigned int store_mode_charging_min;
+	unsigned int store_mode_buckoff;
 	/* charger */
 	char *charger_name;
 	char *fgsrc_switch_name;
@@ -1326,8 +1349,8 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 			ret = psy->desc->function##_property(psy, \
 				(enum power_supply_property) (property), &(value)); \
 			if (ret < 0) {	\
-				pr_err("%s: Fail to %s "#function" (%d=>%d)\n", \
-						__func__, name, (property), ret);	\
+				pr_err("%s: Fail to %s "#function" "#property" (%d)\n", \
+						__func__, name, ret);	\
 				value.intval = 0;	\
 			}	\
 		} else {	\

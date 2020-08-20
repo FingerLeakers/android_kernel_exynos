@@ -78,6 +78,25 @@
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_FRACTION	(8)
 
+/* If RANK_BIT position in physical address is zero, it is main rank */
+#define is_main_rank(page)	!rankid(page)
+
+static inline void rank_list_add(struct page *page, struct list_head *list)
+{
+	if (is_main_rank(page))
+		list_add(&(page)->lru, list);
+	else
+		list_add_tail(&(page)->lru, list);
+}
+
+static inline void rank_list_move(struct page *page, struct list_head *list)
+{
+	if (is_main_rank(page))
+		list_move(&(page)->lru, list);
+	else
+		list_move_tail(&(page)->lru, list);
+}
+
 #ifdef CONFIG_USE_PERCPU_NUMA_NODE_ID
 DEFINE_PER_CPU(int, numa_node);
 EXPORT_PER_CPU_SYMBOL(numa_node);
@@ -883,13 +902,13 @@ done_merging:
 		higher_buddy = higher_page + (buddy_pfn - combined_pfn);
 		if (pfn_valid_within(buddy_pfn) &&
 		    page_is_buddy(higher_page, higher_buddy, order + 1)) {
-			list_add_tail(&page->lru,
+			rank_list_add(page,
 				&zone->free_area[order].free_list[migratetype]);
 			goto out;
 		}
 	}
 
-	list_add(&page->lru, &zone->free_area[order].free_list[migratetype]);
+	rank_list_add(page, &zone->free_area[order].free_list[migratetype]);
 out:
 	zone->free_area[order].nr_free++;
 }
@@ -1850,7 +1869,7 @@ static inline void expand(struct zone *zone, struct page *page,
 		if (set_page_guard(zone, &page[size], high, migratetype))
 			continue;
 
-		list_add(&page[size].lru, &area->free_list[migratetype]);
+		rank_list_add(&page[size], &area->free_list[migratetype]);
 		area->nr_free++;
 		set_page_order(&page[size], high);
 	}
@@ -1983,6 +2002,38 @@ static void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags
 }
 
 /*
+ * Search the free lists from requested order to MAX_ORDER to find
+ * the main rank page and returns the order if exists.
+ * If main rank page doesn't exist, returns the smallest order of
+ * available backup rank page.
+ *
+ * MAX_ORDER is returned if there's no available pages.
+ */
+static __always_inline
+unsigned int __get_min_rank_aware_order(struct zone *zone,
+					unsigned int order, int migratetype)
+{
+	unsigned int current_order, backup_order = MAX_ORDER;
+	struct free_area *area;
+	struct page *page;
+
+	/* Find a page of the appropriate size in the preferred list */
+	for (current_order = order; current_order < MAX_ORDER; ++current_order) {
+		area = &(zone->free_area[current_order]);
+		page = list_first_entry_or_null(&area->free_list[migratetype],
+						struct page, lru);
+		if (page) {
+			if (is_main_rank(page))
+				return current_order;
+			if (backup_order == MAX_ORDER)
+				backup_order = current_order;
+		}
+	}
+
+	return backup_order;
+}
+
+/*
  * Go through the free lists for the given migratetype and remove
  * the smallest available page from the freelists
  */
@@ -1994,22 +2045,20 @@ struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 	struct free_area *area;
 	struct page *page;
 
-	/* Find a page of the appropriate size in the preferred list */
-	for (current_order = order; current_order < MAX_ORDER; ++current_order) {
-		area = &(zone->free_area[current_order]);
-		page = list_first_entry_or_null(&area->free_list[migratetype],
-							struct page, lru);
-		if (!page)
-			continue;
-		list_del(&page->lru);
-		rmv_page_order(page);
-		area->nr_free--;
-		expand(zone, page, order, current_order, area, migratetype);
-		set_pcppage_migratetype(page, migratetype);
-		return page;
-	}
+	current_order = __get_min_rank_aware_order(zone, order, migratetype);
+	if (current_order == MAX_ORDER)
+		return NULL;
 
-	return NULL;
+	area = &(zone->free_area[current_order]);
+	page = list_first_entry_or_null(&area->free_list[migratetype],
+			struct page, lru);
+	list_del(&page->lru);
+	rmv_page_order(page);
+	area->nr_free--;
+	expand(zone, page, order, current_order, area, migratetype);
+	set_pcppage_migratetype(page, migratetype);
+
+	return page;
 }
 
 
@@ -2093,7 +2142,7 @@ static int move_freepages(struct zone *zone,
 		}
 
 		order = page_order(page);
-		list_move(&page->lru,
+		rank_list_move(page,
 			  &zone->free_area[order].free_list[migratetype]);
 		page += 1 << order;
 		pages_moved += 1 << order;
@@ -2243,7 +2292,7 @@ static void steal_suitable_fallback(struct zone *zone, struct page *page,
 
 single_page:
 	area = &zone->free_area[current_order];
-	list_move(&page->lru, &area->free_list[start_type]);
+	rank_list_move(page, &area->free_list[start_type]);
 }
 
 /*
@@ -2549,7 +2598,7 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 		 * for IO devices that can merge IO requests if the physical
 		 * pages are ordered properly.
 		 */
-		list_add_tail(&page->lru, list);
+		rank_list_add(page, list);
 		alloced++;
 		if (is_migrate_cma(get_pcppage_migratetype(page)))
 			__mod_zone_page_state(zone, NR_FREE_CMA_PAGES,
@@ -2827,7 +2876,7 @@ static void free_unref_page_commit(struct page *page, unsigned long pfn)
 	}
 
 	pcp = &this_cpu_ptr(zone->pageset)->pcp;
-	list_add(&page->lru, &pcp->lists[migratetype]);
+	rank_list_add(page, &pcp->lists[migratetype]);
 	pcp->count++;
 	if (pcp->count >= pcp->high) {
 		unsigned long batch = READ_ONCE(pcp->batch);
@@ -3053,6 +3102,24 @@ static struct page *rmqueue_pcplist(struct zone *preferred_zone,
 	return page;
 }
 
+#ifdef CONFIG_CMA
+static inline bool gfp_cma_alloc_allowed(gfp_t gfp_mask)
+{
+	if ((gfpflags_to_migratetype(gfp_mask) == MIGRATE_MOVABLE) &&
+#ifdef CONFIG_KZEROD
+		((gfp_mask & (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM))
+		  == (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM)) &&
+#else
+		((gfp_mask & GFP_HIGHUSER_MOVABLE) == GFP_HIGHUSER_MOVABLE) &&
+#endif
+		!(gfp_mask & __GFP_NOCMA))
+		return true;
+	return false;
+}
+#else
+static inline bool gfp_cma_alloc_allowed(gfp_t gfp_mask) { return false; }
+#endif
+
 /*
  * Allocate a page from the given zone. Use pcplists for order-0 allocations.
  */
@@ -3064,14 +3131,16 @@ struct page *rmqueue(struct zone *preferred_zone,
 {
 	unsigned long flags;
 	struct page *page;
-	int migratetype_rmqueue = migratetype;
+	int migratetype_rmqueue;
+
+	if ((zone_idx(zone) == ZONE_NORMAL) && (gfp_flags & __GFP_NOCMA))
+		migratetype = MIGRATE_UNMOVABLE;
+
+	migratetype_rmqueue = migratetype;
 
 #ifdef CONFIG_CMA
-	if ((migratetype_rmqueue == MIGRATE_MOVABLE) &&
-	    ((gfp_flags & (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM))
-	      == (GFP_HIGHUSER_MOVABLE & ~__GFP_DIRECT_RECLAIM)) &&
-	    !(gfp_flags & __GFP_NOCMA))
-	     migratetype_rmqueue = MIGRATE_CMA;
+	if (gfp_cma_alloc_allowed(gfp_flags))
+		migratetype_rmqueue = MIGRATE_CMA;
 #endif
 	if (likely(order == 0)) {
 		page = rmqueue_pcplist(preferred_zone, zone, order,
@@ -3966,11 +4035,9 @@ gfp_to_alloc_flags(gfp_t gfp_mask)
 	} else if (unlikely(rt_task(current)) && !in_interrupt())
 		alloc_flags |= ALLOC_HARDER;
 
-#ifdef CONFIG_CMA
-	if ((gfpflags_to_migratetype(gfp_mask) == MIGRATE_MOVABLE) ||
-		((gfp_mask & GFP_HIGHUSER_MOVABLE) == GFP_HIGHUSER_MOVABLE))
+	if (gfp_cma_alloc_allowed(gfp_mask))
 		alloc_flags |= ALLOC_CMA;
-#endif
+
 	return alloc_flags;
 }
 
@@ -4420,7 +4487,7 @@ got_pg:
 			a_file += node_page_state(pgdat, NR_ACTIVE_FILE);
 			in_file += node_page_state(pgdat, NR_INACTIVE_FILE);
 		}
-		pr_info("alloc stall: timeJS(ms):%u|%u rec:%lu|%lu ret:%d o:%d gfp:%#x(%pGg) AaiFai:%lukB|%lukB|%lukB|%lukB\n",
+		pr_info("alloc stall: timeJS(ms):%u|%llu rec:%lu|%lu ret:%d o:%d gfp:%#x(%pGg) AaiFai:%lukB|%lukB|%lukB|%lukB\n",
 			jiffies_to_msecs(jiffies - jiffies_s),
 			stime_d / NSEC_PER_MSEC,
 			did_some_progress, pages_reclaimed, retry_loop_count,
@@ -4457,7 +4524,7 @@ static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 	if (should_fail_alloc_page(gfp_mask, order))
 		return false;
 
-	if (IS_ENABLED(CONFIG_CMA) && ac->migratetype == MIGRATE_MOVABLE)
+	if (gfp_cma_alloc_allowed(gfp_mask))
 		*alloc_flags |= ALLOC_CMA;
 
 	return true;

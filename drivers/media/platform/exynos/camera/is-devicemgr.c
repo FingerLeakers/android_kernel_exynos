@@ -405,6 +405,9 @@ int is_devicemgr_shot_callback(struct is_group *group,
 	struct is_devicemgr *devicemgr;
 	struct devicemgr_sensor_tag_data *tag_data;
 	u32 stream;
+	int vc;
+	struct is_subdev *subdev;
+	struct is_device_sensor *sensor;
 
 	switch (type) {
 	case IS_DEVICE_SENSOR:
@@ -446,8 +449,20 @@ int is_devicemgr_shot_callback(struct is_group *group,
 		break;
 	case IS_DEVICE_ISCHAIN:
 		/* Only for sensor group with OTF */
-		if (group->head->device_type != IS_DEVICE_SENSOR ||
-			frame->type != SHOT_TYPE_EXTERNAL)
+		if (group->head->device_type != IS_DEVICE_SENSOR)
+			break;
+
+		sensor = group->head->sensor;
+		for (vc = ENTRY_SSVC0; vc <= ENTRY_SSVC3; vc++) {
+			subdev = group->head->subdev[vc];
+			if (subdev && test_bit(IS_SUBDEV_VOTF_USE, &subdev->state)) {
+				ret = is_sensor_votf_tag(sensor, subdev);
+				if (ret)
+					msrwarn("votf_frame is drop(%d)", sensor, subdev, frame, ret);
+			}
+		}
+
+		if (frame->type != SHOT_TYPE_EXTERNAL)
 			break;
 
 		devicemgr = group->device->devicemgr;

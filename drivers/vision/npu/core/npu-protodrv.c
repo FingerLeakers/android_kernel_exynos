@@ -1918,6 +1918,17 @@ static int npu_protodrv_handler_nw_completed(void)
 					&entry->nw, entry->nw.cmd, ret);
 			}
 
+			if (entry->nw.cmd == NPU_NW_CMD_LOAD &&
+					entry->nw.result_code != NPU_ERR_NO_ERROR) {
+				npu_uerr("CMD_LOAD failed with result(0x%8x), "
+					"need destroy session ref\n", &entry->nw, entry->nw.result_code);
+
+				/* Destroy session ref */
+				ret = drop_session_ref(entry->nw.uid);
+				if (ret)
+					npu_uerr("drop_session_ref error : %d", &entry->nw, ret);
+			}
+
 			if (entry->nw.cmd == NPU_NW_CMD_UNLOAD) {
 				/* Failed UNLOAD - left warning but session ref shall be destroyed anyway */
 				if (unlikely(entry->nw.result_code != NPU_ERR_NO_ERROR))

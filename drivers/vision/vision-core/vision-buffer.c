@@ -411,6 +411,8 @@ static int __vb_queue_alloc(struct vb_queue *q,
 	clist->direction = c->direction;
 	clist->count = c->count;
 	clist->flags = c->flags;
+	if (c->timestamp[5].tv_sec)
+		clist->timestamp[5].tv_sec = c->timestamp[5].tv_sec;
 
 	for (i = 0; i < clist->count; ++i) {
 		container = &clist->containers[i];
@@ -510,6 +512,8 @@ static int __vb_queue_check(struct vb_bundle *bundle,
 
 	clist->flags = c->flags;
 	clist->id = c->id;
+	if (c->timestamp[5].tv_sec)
+		clist->timestamp[5].tv_sec = c->timestamp[5].tv_sec;
 
 	for (i = 0; i < clist->count; ++i) {
 		container = &clist->containers[i];
@@ -795,6 +799,8 @@ static void __fill_vs4l_buffer(struct vb_bundle *bundle,
 
 	c->index = clist->index;
 	c->id = clist->id;
+	if(clist->timestamp[5].tv_sec == 1)
+		c->timestamp[5].tv_usec = clist->timestamp[5].tv_usec;
 }
 
 static void __vb_dqbuf(struct vb_bundle *bundle)

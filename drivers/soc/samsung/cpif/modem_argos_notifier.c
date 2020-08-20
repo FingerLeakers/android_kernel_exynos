@@ -24,6 +24,7 @@
 #define MIF_ARGOS_CLAT_LABEL	"CLAT"
 
 //#define MIF_ARGOS_DEBUG
+#define MIF_ARGOS_SUPPORT_PCIE_LANECHANGE
 
 const char *ndev_prefix[2] = {"rmnet", "v4-rmnet"};
 
@@ -35,10 +36,22 @@ enum ndev_prefix_idx {
 struct argos_notifier {
 	struct notifier_block ipc_nb;
 	struct notifier_block clat_nb;
+	struct modem_ctl *mc;
 	unsigned int prev_ipc_rps;
 	unsigned int prev_clat_rps;
 	unsigned int prev_level;
 };
+
+enum prev_mask {
+	PREV_MASK_LANE_CHANGED 	= 0,
+	PREV_MASK_GEN_CHANGED	= 1,
+	PREV_MASK_MAX		= 4,
+};
+
+#define PREV_BIT_MASK_LEVEL		(0xF)
+#define PREV_BIT_MASK_LANE_CHANGED	((1 << PREV_MASK_LANE_CHANGED) << 4)
+#define PREV_BIT_MASK_GEN_CHANGED	((1 << PREV_MASK_GEN_CHANGED) << 4)
+#define PREV_BIT_MASK_CLEAR		((PREV_MASK_MAX) << 4)
 
 unsigned int lit_rmnet_rps = 0x06;
 module_param(lit_rmnet_rps, uint, S_IRUGO | S_IWUSR | S_IWGRP);
@@ -67,6 +80,10 @@ MODULE_PARM_DESC(big_clat_rps, "rps_cpus for v4-rmnetx: BIG(both up)");
 unsigned int mif_rps_thresh = 300;
 module_param(mif_rps_thresh, uint, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(mif_rps_thresh, "threshold speed");
+
+int pcie_lane_change_thresh = 6;
+module_param(pcie_lane_change_thresh, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(pcie_lane_change_thresh, "pcie lane change thresh");
 
 int mif_gro_flush_thresh[] = {100, 200, -1};
 long mif_gro_flush_time[] = {10000, 50000, 100000};
@@ -192,31 +209,52 @@ static void mif_argos_notifier_gro_flushtime(unsigned long speed)
 static inline void mif_argos_notifier_gro_flushtime(unsigned long speed) {}
 #endif
 
+#ifdef MIF_ARGOS_SUPPORT_PCIE_LANECHANGE
+static int mif_argos_pcie_rc_lanechange(struct modem_ctl *mc, int lane)
+{
+	unsigned long flags;
+	int ret;
+
+	if (!mc) {
+		mif_info("modem_ctrl not initialized\n");
+		return -1;
+	}
+
+	spin_lock_irqsave(&mc->pcie_tx_lock, flags);
+	ret = exynos_pcie_rc_lanechange(1/*CP*/, lane);
+	spin_unlock_irqrestore(&mc->pcie_tx_lock, flags);
+
+	return ret;
+}
+
 static void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data)
 {
+	struct modem_ctl *mc = nf->mc;
 	int new_level    = *(int *)data;
-	int prev_level   = nf->prev_level & 0xf;
-	int lane_changed = nf->prev_level & 0x10;
+	int lane_changed = (nf->prev_level & PREV_BIT_MASK_LANE_CHANGED) >> 4;
 
-	mif_debug("level : [%d -> %d]\n", prev_level, new_level);
+#ifdef MIF_ARGOS_DEBUG
+	mif_info("level :[%d -> %d], lane=%d\n",
+			(nf->prev_level & PREV_BIT_MASK_LEVEL),
+			new_level, lane_changed);
+#endif
 
-	if (new_level >= 6 && !lane_changed) {
-		nf->prev_level &= (0x30);
-		nf->prev_level |= new_level;
-		if (!exynos_pcie_rc_lanechange(1, 2)) {
-			nf->prev_level |= 0x10;
+	/* change pcie lane to 2 for high tput */
+	if (new_level >= pcie_lane_change_thresh && !lane_changed) {
+		nf->prev_level = new_level;
+		if (!mif_argos_pcie_rc_lanechange(mc, 2)) {
+			nf->prev_level |= PREV_BIT_MASK_LANE_CHANGED;
 		} else {
 			mif_err("fail to change PCI lane 2\n");
 		}
-	} else if (new_level < 6 && lane_changed) {
-		if (!exynos_pcie_rc_lanechange(1, 1)) {
-			nf->prev_level &= (~0x30);
-			nf->prev_level |= new_level;
-		} else {
-			mif_err("fail to change PCI lane 1\n");
-		}
+	} else if (lane_changed && new_level == -1) {
+		/* lane chaned bit cleared */
+		nf->prev_level = (new_level & PREV_BIT_MASK_LEVEL);
 	}
 }
+#else
+static inline void mif_argos_notifier_pcie_ctrl(struct argos_notifier *nf, void *data) {}
+#endif
 
 static int mif_argos_notifier_ipc(struct notifier_block *nb, unsigned long speed, void *data)
 {
@@ -295,7 +333,7 @@ static int mif_argos_notifier_clat(struct notifier_block *nb, unsigned long spee
 }
 #endif
 
-int mif_init_argos_notifier(void)
+int mif_init_argos_notifier(struct modem_ctl *mc)
 {
 	struct argos_notifier *argos_nf;
 	int ret;
@@ -307,6 +345,8 @@ int mif_init_argos_notifier(void)
 		mif_err("failed to allocate argos_nf\n");
 		return -ENOMEM;
 	}
+
+	argos_nf->mc = mc;
 
 	argos_nf->ipc_nb.notifier_call = mif_argos_notifier_ipc;
 	ret = sec_argos_register_notifier(&argos_nf->ipc_nb, MIF_ARGOS_IPC_LABEL);

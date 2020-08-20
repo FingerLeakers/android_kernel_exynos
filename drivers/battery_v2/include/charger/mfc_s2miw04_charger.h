@@ -33,7 +33,7 @@
 #define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
 #define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
 
-#define MFC_FW_BIN_VERSION			0x101F
+#define MFC_FW_BIN_VERSION			0x1020
 #define MFC_FLASH_FW_HEX_LSI_PATH	"mfc/mfc_fw_flash_s2miw04.bin"
 
 /* for SPU FW update */
@@ -845,6 +845,7 @@ struct mfc_charger_data {
 	struct device					*dev;
 	mfc_charger_platform_data_t 	*pdata;
 	struct mutex io_lock;
+	struct mutex wpc_en_lock;
 	const struct firmware *firm_data_bin;
 
 	int wc_w_state;
@@ -882,6 +883,9 @@ struct mfc_charger_data {
 	struct delayed_work wpc_tx_duty_min_work;
 	struct delayed_work wpc_tx_phm_work;
 	struct delayed_work wpc_rx_power_work;
+#if defined(CONFIG_SEC_FACTORY)
+	struct delayed_work evt2_err_detect_work;
+#endif
 
 	struct alarm phm_alarm;
 
@@ -923,5 +927,6 @@ struct mfc_charger_data {
 	unsigned long gear_start_time;
 	int input_current;
 	int duty_min;
+	int wpc_en_flag;
 };
 #endif /* __WIRELESS_CHARGER_MFC_S2MIW04_H */

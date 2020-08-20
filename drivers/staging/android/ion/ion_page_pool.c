@@ -29,7 +29,7 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool, unsigned long
 		gfpmask &= ~__GFP_ZERO;
 
 	if (!(flags & ION_FLAG_MAY_HWRENDER))
-		gfpmask |= (GFP_HIGHUSER_MOVABLE | __GFP_NOCMA);
+		gfpmask |= (__GFP_MOVABLE | __GFP_NOCMA);
 
 #ifdef CONFIG_HUGEPAGE_POOL
 	/* we assume that this path is only being used by system heap */

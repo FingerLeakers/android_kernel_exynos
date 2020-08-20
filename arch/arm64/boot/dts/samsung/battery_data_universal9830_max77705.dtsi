@@ -259,12 +259,12 @@
 				battery,max_charging_charge_power = <25000>; /* 25W */
 				battery,battery_full_capacity = <4300>;
 
-				/* cycle, chg_float_voltage, recharge_condition_vcell, full_condition_vcell, full_condition_soc, step charging condition */
-				battery,age_data = <0 4350 4280 4250 93 45
-						300 4330 4260 4230 92 45
-						400 4310 4240 4210 91 45
-						700 4290 4220 4190 90 45
-						1000 4240 4170 4140 89 45>;
+				/* cycle, chg_float_voltage, recharge_condition_vcell, full_condition_vcell, full_condition_soc */
+				battery,age_data = <0 4350 4280 4250 93
+						300 4330 4260 4230 92
+						400 4310 4240 4210 91
+						700 4290 4220 4190 90
+						1000 4240 4170 4140 89>;
 
 				/* step charging option */
 				battery,step_charging_type = <0>;
@@ -277,7 +277,7 @@
 				battery,dc_step_chg_cond_vol = <4090 4190 4380>; /*<45w 3step> STEP_CHARGING_CONDITION_VOLTAGE */ 
 				battery,dc_step_chg_cond_iin = <1950 1550 0>; /* <45w 3step> STEP_CHARGING_CONDITION_INPUT_CURRENT */
 				battery,dc_step_chg_iin_check_cnt = <3>;
-				battery,dc_step_chg_cond_soc = <30 65 100>; /* <45w 3step> STEP_CHARGING_CONDITION_SOC */
+				battery,dc_step_chg_cond_soc = <30 65 100 30 65 100 30 65 100 30 65 100 30 65 100>; /* <45w 3step> STEP_CHARGING_CONDITION_SOC */
 				battery,dc_step_chg_val_vfloat = <4130 4310 4350>; /* <45w 3step> STEP_CHARGING_CONDITION_FLOAT_VOLTAGE */
 				battery,dc_step_chg_val_iout = <5100 3900 3100>; /* <45w 3step> */
 

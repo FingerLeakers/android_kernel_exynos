@@ -41,7 +41,6 @@ fimc-is-objs	:= is-core.o \
 		is-dt.o \
 		is-binary.o \
 		is-i2c-config.o \
-		is-sock.o \
 		is-work.o
 
 fimc-is-objs += is-interface-wrap.o

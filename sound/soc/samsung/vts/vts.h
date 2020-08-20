@@ -201,7 +201,7 @@
 #define SOUND_MODEL_SVOICE_SIZE_MAX (0x8000 + 0x300)
 
 /* google binary size defined in firmware (It is same with VTSDRV_MISC_MODEL_BIN_MAXSZ) */
-#define SOUND_MODEL_GOOGLE_SIZE_MAX (0xB500)
+#define SOUND_MODEL_GOOGLE_SIZE_MAX (0x10800)
 
 /* VTS Model Binary Max buffer sizes */
 #define VTS_MODEL_SVOICE_BIN_MAXSZ     (SOUND_MODEL_SVOICE_SIZE_MAX)
@@ -342,12 +342,14 @@ struct vts_data {
 	struct clk *clk_dmic;
 	struct clk *clk_dmic_if;
 	struct clk *clk_dmic_sync;
+	struct clk *clk_sys;
 	struct pinctrl *pinctrl;
 	unsigned int vtsfw_version;
 	unsigned int vtsdetectlib_version;
 	const struct firmware *firmware;
 	unsigned int vtsdma_count;
 	unsigned long syssel_rate;
+	unsigned long sysclk_rate;
 	struct platform_device *pdev_mailbox;
 	struct platform_device *pdev_vtsdma[2];
 	struct proc_dir_entry *proc_dir_entry;
@@ -391,6 +393,7 @@ struct vts_data {
 	spinlock_t state_spinlock;
 	struct notifier_block pm_nb;
 	struct notifier_block itmon_nb;
+	struct notifier_block modem_nb;
 	struct vts_dbg_dump p_dump[VTS_DUMP_LAST];
 	bool slif_dump_enabled;
 };
@@ -414,4 +417,8 @@ extern void vts_register_dma(struct platform_device *pdev_vts,
 extern int vts_set_dmicctrl(struct platform_device *pdev, int micconf_type, bool enable);
 extern int vts_sound_machine_drv_register(void);
 extern void vts_pad_retention(bool retention);
+extern int cal_dll_apm_disable(void);
+extern int cal_dll_apm_enable(void);
+
+
 #endif /* __SND_SOC_VTS_H */

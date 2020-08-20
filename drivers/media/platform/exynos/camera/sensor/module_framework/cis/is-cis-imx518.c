@@ -86,6 +86,7 @@ static const u16 ***sensor_imx518_setfiles_fps;
 int sensor_imx518_mode = -1;
 u16 sensor_imx518_HMAX;
 u32 sensor_imx518_frame_duration;
+int sensor_imx518_laser_mode = LASER_MODE_NORMAL;
 
 #ifndef USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION
 #define REAR_TX_DEFAULT_FREQ 100 /* MHz */
@@ -241,16 +242,9 @@ int sensor_imx518_cis_check_rev(struct is_cis *cis)
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 
-	info("sensor_imx518_cis_check_rev start ");
-	ret = is_sensor_read8(client, 0x0000, &rev);
-	info("sensor_imx518_cis_check_rev 0x0000 %x ", rev);
-	ret = is_sensor_read8(client, 0x0001, &rev);
-	info("sensor_imx518_cis_check_rev 0x0001 %x ", rev);
-	ret = is_sensor_read8(client, 0x0002, &rev);
-	info("sensor_imx518_cis_check_rev 0x0002 %x ", rev);
-	ret = is_sensor_read8(client, 0x0003, &rev);
-	info("sensor_imx518_cis_check_rev 0x0003 %x ", rev);
 	ret = is_sensor_read8(client, 0x0019,&rev);
+	if (ret < 0)
+		ret = is_sensor_read8(client, 0x0019,&rev);
 	info("sensor_imx518_cis_check_rev 0x0019 %x ", rev);
 	if (ret < 0) {
 		err("is_sensor_read8 fail, (ret %d)", ret);
@@ -336,6 +330,7 @@ int sensor_imx518_cis_init(struct v4l2_subdev *subdev)
 	cis->cis_data->low_expo_start = 33000;
 	cis->need_mode_change = false;
 	sensor_imx518_frame_duration = 0;
+	sensor_imx518_laser_mode = LASER_MODE_NORMAL;
 	sensor_imx518_mode = -1;
 
 #ifdef USE_CAMERA_REAR_TOF_TX_FREQ_VARIATION
@@ -442,6 +437,7 @@ int sensor_imx518_get_HMAX_value(const u32 *regs, const u32 size)
 	return 0;
 }
 
+int sensor_imx518_cis_set_laser_control(struct v4l2_subdev *subdev, u32 onoff);
 int sensor_imx518_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 {
 	int ret = 0;
@@ -532,6 +528,10 @@ int sensor_imx518_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 #endif
 p_err:
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+	if (sensor_imx518_laser_mode == LASER_MODE_LIVE_FOCUS) {
+		info("%s - Laser off at LiveFocus entrance",__func__);
+		sensor_imx518_cis_set_laser_control(subdev, false);
+	}
 	return ret;
 }
 
@@ -805,6 +805,10 @@ int sensor_imx518_cis_stream_off(struct v4l2_subdev *subdev)
 
 	cis_data->stream_on = false;
 
+	if (sensor_imx518_laser_mode == LASER_MODE_LIVE_FOCUS) {
+		sensor_imx518_cis_set_laser_control(subdev, true);
+		sensor_imx518_laser_mode = LASER_MODE_NORMAL;
+	}
 	specific->tof_info.TOFExposure = 0;
 	specific->tof_info.TOFFps = 0;
 
@@ -1012,6 +1016,12 @@ int sensor_imx518_cis_set_laser_control(struct v4l2_subdev *subdev, u32 onoff)
 
 p_err:
 	return ret;
+}
+
+int sensor_imx518_cis_set_laser_mode(struct v4l2_subdev *subdev, u32 mode)
+{
+	sensor_imx518_laser_mode = mode;
+	return 0;
 }
 
 int sensor_imx518_cis_set_vcsel_current(struct v4l2_subdev *subdev, u32 value)
@@ -1303,6 +1313,7 @@ static struct is_cis_ops cis_ops_imx518 = {
 	.cis_wait_streamoff = sensor_imx518_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_imx518_cis_wait_streamon,
 	.cis_set_laser_control = sensor_imx518_cis_set_laser_control,
+	.cis_set_laser_mode = sensor_imx518_cis_set_laser_mode,
 	.cis_set_laser_current = sensor_imx518_cis_set_vcsel_current,
 	.cis_get_laser_photo_diode = sensor_imx518_cis_get_vcsel_photo_diode,
 	.cis_set_frame_rate = sensor_imx518_cis_set_frame_rate,

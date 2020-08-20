@@ -546,6 +546,8 @@ static struct ufs_cal_phy_cfg post_init_cfg_evt1_g4[] = {
 	{0xA20, 0x00, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 	{0xA24, 0x02, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
 
+	{0x8B4, 0xB8, PMD_ALL, PHY_PMA_TRSV, BRD_ALL},
+
 	{0x10C, 0x18, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 	{0x10C, 0x00, PMD_ALL, PHY_PMA_COMN, BRD_ALL},
 

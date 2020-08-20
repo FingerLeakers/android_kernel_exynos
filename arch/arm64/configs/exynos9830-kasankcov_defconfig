@@ -1,0 +1,48 @@
+#
+# Increase by 12kB because we increased KASAN_THREAD_SHIFT
+# Required because of  https://bugs.llvm.org/show_bug.cgi?id=38809
+#
+CONFIG_FRAME_WARN=14336
+
+#
+# Enable multishot mode
+# https://github.sec.samsung.net/SRPOL-SRUK-SEC/syzkaller/issues/23
+#
+CONFIG_CMDLINE="kasan_multi_shot"
+
+#
+# Kernel Performance Events and Counters
+#
+CONFIG_SLUB_DEBUG=y
+
+#
+# Kernel Coverage support for syzkaller fuzzer
+#
+CONFIG_KCOV=y
+
+#
+# KASAN Kernel Address SANitizer
+#
+CONFIG_KASAN=y
+CONFIG_KASAN_INLINE=y
+CONFIG_LOG_BUF_SHIFT=21
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+
+#
+# Reduce kernel size because of bootloader memory map restriction
+#
+# CONFIG_DEBUG_KMEMLEAK is not set
+# CONFIG_RANDOMIZE_BASE is not set
+
+#
+#
+# Undefined config for Kernel SANitizers
+#
+# CONFIG_UH is not set
+# CONFIG_UH_RKP is not set
+# CONFIG_RKP_CFP_JOPP is not set
+
+#
+# DO NOT REMOVE THE LAST BLANK LINE
+#
+

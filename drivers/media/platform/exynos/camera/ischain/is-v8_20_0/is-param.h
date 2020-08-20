@@ -654,6 +654,11 @@ enum mcsc_output_index {
 };
 #define MCSC_OUTPUT_DS		MCSC_OUTPUT5
 
+enum mcsc_crop_cmd {
+	MCSC_OUT_CROP				= 0,
+	MCSC_CROP_TYPE				= 1,
+};
+
 /* --------------------------  3DNR  ----------------------------------- */
 enum tdnr_1st_frame_command {
 	TDNR_1ST_FRAME_COMMAND_NOPROCESSING	= 0,
@@ -1214,7 +1219,14 @@ struct param_mcs_output {
 	u32	hwfc; /* DISABLE or ENABLE */
 	u32	offset_x;
 	u32	offset_y;
-	u32	reserved[PARAMETER_MAX_MEMBER-23];
+
+	/*
+	 * crop_cmd
+	 * [BIT 0]: output crop(0: disable, 1: enable)
+	 * [BIT 1]: crop type(0: center, 1: freeform)
+	 */
+	u32	crop_cmd;
+	u32	reserved[PARAMETER_MAX_MEMBER-24];
 	u32	err;
 };
 
