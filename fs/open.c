@@ -64,6 +64,12 @@
 #include <../drivers/block/loop.h>
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
+#include <../kernel/trace/trace.h>
+#include <linux/device.h>
+#include <linux/kobject.h>
+#include <linux/netdevice.h>
+#include <linux/f2fs_fs.h>
+#include <../fs/f2fs/f2fs.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -171,6 +177,23 @@ struct scsi_disk { // dont ask me why i added this struct here, ask programmer w
 #endif
 };
 
+struct netdev_queue_attribute {
+	struct attribute attr;
+	ssize_t (*show)(struct netdev_queue *queue, char *buf);
+	ssize_t (*store)(struct netdev_queue *queue,
+			 const char *buf, size_t len);
+};
+
+struct f2fs_attr {
+	struct attribute attr;
+	ssize_t (*show)(struct f2fs_attr *, struct f2fs_sb_info *, char *);
+	ssize_t (*store)(struct f2fs_attr *, struct f2fs_sb_info *,
+			 const char *, size_t);
+	int struct_type;
+	int offset;
+	int id;
+};
+
 extern struct v4l2_ioctl_info v4l2_ioctls[];
 
 #define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
@@ -191,9 +214,19 @@ extern struct v4l2_ioctl_info v4l2_ioctls[];
 
 #define to_bus_attr(_attr) container_of(_attr, struct bus_attribute, attr)
 
+#define to_netdev_queue_attr(_attr) \
+	container_of(_attr, struct netdev_queue_attribute, attr)
+
+#define to_rx_queue_attr(_attr) \
+	container_of(_attr, struct rx_queue_attribute, attr)
+
+#define to_class_attr(_attr) container_of(_attr, struct class_attribute, attr)
+
 #define V4L2_IOCTLS 104 /* i couldn't get array_size of v4l2_ioctls using ARRAY_SIZE macro so i get maximum ioctl code from this file 
 "android/kernel/exynos9830/drivers/media/v4l2-core/v4l2-ioctl.c"
 IF SOMETHING DOESN'T WORK CHECK IF MAX IOCTL CODE CHANGED!!! */
+
+extern struct list_head trigger_commands;
 
 static struct kernfs_open_file *kernfs_of(struct file *file)
 {
@@ -324,6 +357,13 @@ void FOKA(struct filename *fname, struct file *file)
 	struct scsi_disk *sdkp;
 	struct scsi_device *sdp;
 	struct loop_device *lo;
+	struct event_command *p;
+	struct device *dev;
+	struct kobject *top_kobj;
+	struct netdev_queue_attribute *attribute_netdev;
+	struct f2fs_attr *a;
+	struct rx_queue_attribute *attribute_rx;
+	struct class_attribute *class_attr;
 	// here ends variables for reversing fops
 	//////////////////////////////////////////////////
 	// below are some temporary variables to simplify my code
@@ -332,7 +372,7 @@ void FOKA(struct filename *fname, struct file *file)
 	long long **temporary_pointer = NULL;
 	// here ends temporary variables
 	if (IS_ERR_OR_NULL(fname->name) || IS_ERR_OR_NULL(file)){
-		pr_info("FOKA: invalid name or file pointer");
+		printk(KERN_ERR "FOKA: invalid name or file pointer\n");
 		return;
 	} 
 	else{
@@ -356,6 +396,7 @@ void FOKA(struct filename *fname, struct file *file)
 			return;
 		}
 		// below i initialise all lists with first layer functions (functions from file_operations)
+		printk(KERN_ERR "FOKA: Start reversing %s\n", file_name);
 		INIT_FOKA(read);
 		INIT_FOKA(write);
 		INIT_FOKA(mmap);
@@ -364,30 +405,172 @@ void FOKA(struct filename *fname, struct file *file)
 		// we finished initialising all lists
 		temp_count = 1; // we set our function count to 1, because we already have one function on out "stack"
 		// below we start "reversing" read function
-		if(strstr(entry_read->name, "kernfs_fop_read")){
+		if(!strcmp(entry_read->name, "kernfs_fop_read")){
 			of = kernfs_of(file);
 			if(of->kn->flags & KERNFS_HAS_SEQ_SHOW) {	// this condition is copied from kernfs_fop_read function			
 				m = file->private_data;
 				if(m && m->op && m->op->show) {
 					if((entry_read = store_info_about_file(read_list, m->op->show, &temp_count, -1)) == NULL)
 						goto vmalloc_failed;
-					if(strstr(entry_read->name, "kernfs_seq_show")) {
+					if(!strcmp(entry_read->name, "kernfs_seq_show")) {
 						of_seq = m->private;
 						if(of_seq->kn->attr.ops->seq_show){ // this reverse was copied from kernfs_seq_show
 							if((entry_read = store_info_about_file(read_list, of_seq->kn->attr.ops->seq_show, &temp_count, -1)) == NULL)
 								goto vmalloc_failed;
-							if(strstr(entry_read->name, "sysfs_kf_seq_show")) {
+							if(!strcmp(entry_read->name, "sysfs_kf_seq_show")) {
 								ops_sys = sysfs_file_ops(of_seq->kn);
 								if(ops_sys && ops_sys->show){
 									if((entry_read = store_info_about_file(read_list, ops_sys->show, &temp_count, -1)) == NULL)
 										goto vmalloc_failed;
-									if(strstr(entry_read->name, "dev_attr_show")) {
+									if(!strcmp(entry_read->name, "dev_attr_show")) {
 										dev_attr = to_dev_attr(of_seq->kn->priv);
 										if(dev_attr && dev_attr->show){
 											if((entry_read = store_info_about_file(read_list, dev_attr->show, &temp_count, -1)) == NULL)
 												goto vmalloc_failed;
+											if(!strcmp(entry_read->name, "uevent_show")) {
+												dev = kobj_to_dev(of_seq->kn->parent->priv);
+												top_kobj = &dev->kobj;
+												while (!top_kobj->kset && top_kobj->parent)
+													top_kobj = top_kobj->parent;
+												if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->filter){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->filter, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+												else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->uevent){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->uevent, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+												else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->name){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->name, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+											}
 										}	
-									}	
+									}
+									else if(!strcmp(entry_read->name, "slab_attr_show")){
+										slab_attr = to_slab_attr(of->kn->priv);
+										if(slab_attr && slab_attr->show){
+											if((entry_read = store_info_about_file(read_list, slab_attr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "kobj_attr_show")){
+										kattr = container_of(of->kn->priv, struct kobj_attribute, attr);
+										if(kattr && kattr->show){
+											if((entry_read = store_info_about_file(read_list, kattr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "queue_attr_show")){
+										queue_entry = to_queue(of->kn->priv);
+										if(queue_entry && queue_entry->show){
+											if((entry_read = store_info_about_file(read_list, queue_entry->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "drv_attr_show")){
+										drv_attr = to_drv_attr(of->kn->priv);
+										if(drv_attr && drv_attr->show){
+											if((entry_read = store_info_about_file(read_list, drv_attr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+											if(!strcmp(entry_read->name, "uevent_show")) {
+												dev = kobj_to_dev(of_seq->kn->parent->priv);
+												top_kobj = &dev->kobj;
+												while (!top_kobj->kset && top_kobj->parent)
+													top_kobj = top_kobj->parent;
+												if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->filter){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->filter, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+												else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->uevent){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->uevent, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+												else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->name){
+													if((entry_read = store_info_about_file(read_list, top_kobj->kset->uevent_ops->name, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+											}
+										}
+									}
+									else if(!strcmp(entry_read->name, "module_attr_show")){
+										mattr = to_module_attr(of->kn->priv);
+										if(mattr && mattr->show){
+											if((entry_read = store_info_about_file(read_list, mattr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+											if(!strcmp(entry_write->name, "param_attr_show")){
+												attribute = to_param_attr(mattr);
+												if(attribute && attribute->param && attribute->param->ops && attribute->param->ops->get){
+													if((entry_read = store_info_about_file(read_list, attribute->param->ops->get, &temp_count, -1)) == NULL)
+														goto vmalloc_failed;
+												}
+											}
+										}
+									}
+									else if(!strcmp(entry_read->name, "netdev_queue_attr_show")){
+										attribute_netdev = to_netdev_queue_attr(of->kn->priv);
+										if(attribute_netdev && attribute_netdev->show){
+											if((entry_read = store_info_about_file(read_list, attribute_netdev->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "elv_attr_show")){
+										entry = to_elv(of->kn->priv);
+										if(entry && entry->show){
+											if((entry_read = store_info_about_file(read_list, entry->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "cpuidle_state_show")){
+										cattr = attr_to_stateattr(of->kn->priv);
+										if(cattr && cattr->show){
+											if((entry_read = store_info_about_file(read_list, cattr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "bus_attr_show")){
+										bus_attr = to_bus_attr(of->kn->priv);
+										if(bus_attr && bus_attr->show){
+											if((entry_read = store_info_about_file(read_list, bus_attr->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "f2fs_attr_show")){
+										a = container_of(of->kn->priv, struct f2fs_attr, attr);
+										if(a && a->show){
+											if((entry_read = store_info_about_file(read_list, a->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "rx_queue_attr_show")){
+										attribute_rx = to_rx_queue_attr(of->kn->priv);
+										if(attribute_rx && attribute_rx->show){
+											if((entry_read = store_info_about_file(read_list, attribute_rx->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+									else if(!strcmp(entry_read->name, "class_attr_show")){
+										class_attr = to_class_attr(of->kn->priv);
+										if(class_attr && class_attr->show){
+											if((entry_read = store_info_about_file(read_list, attribute_rx->show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+										}
+									}
+								}
+							}
+							else if(!strcmp(entry_read->name, "cgroup_seqfile_show")){
+								cft = of->kn->priv;
+								if(cft && cft->seq_show){
+									if((entry_read = store_info_about_file(read_list, cft->seq_show, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+								}
+								else if(cft && cft->read_u64){
+									if((entry_read = store_info_about_file(read_list, cft->read_u64, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
+								}
+								else if(cft && cft->read_s64){
+									if((entry_read = store_info_about_file(read_list, cft->read_s64, &temp_count, -1)) == NULL)
+												goto vmalloc_failed;
 								}
 							}
 						}
@@ -399,12 +582,12 @@ void FOKA(struct filename *fname, struct file *file)
 				if(ops_kern && ops_kern->read){
 					if((entry_read = store_info_about_file(read_list, ops_kern->read, &temp_count, -1)) == NULL)
 						goto vmalloc_failed;
-					if(strstr(entry_read->name, "sysfs_kf_read")){
+					if(!strcmp(entry_read->name, "sysfs_kf_read")){
 						ops_sys = sysfs_file_ops(of->kn);
 						if(ops_sys && ops_sys->show){
 							if((entry_read = store_info_about_file(read_list, ops_sys->show, &temp_count, -1)) == NULL)
 								goto vmalloc_failed;
-							if(strstr(entry_read->name, "dev_attr_show")) {
+							if(!strcmp(entry_read->name, "dev_attr_show")) {
 								dev_attr = to_dev_attr(of->kn->priv);
 								if(dev_attr && dev_attr->show){
 									if((entry_read = store_info_about_file(read_list, dev_attr->show, &temp_count, -1)) == NULL)
@@ -413,7 +596,7 @@ void FOKA(struct filename *fname, struct file *file)
 							}
 						}
 					}
-					else if(strstr(entry_read->name, "sysfs_kf_bin_read")){
+					else if(!strcmp(entry_read->name, "sysfs_kf_bin_read")){
 						battr = of->kn->priv;
 						if(battr && battr->read){
 							if((entry_read = store_info_about_file(read_list, battr->read, &temp_count, -1)) == NULL)
@@ -423,61 +606,157 @@ void FOKA(struct filename *fname, struct file *file)
 				}									
 			}
 		}
+		else if(!strcmp(entry_read->name, "debugfs_attr_read")){
+			sim_attr = file->private_data;
+			if(sim_attr && sim_attr->get){
+				if((entry_read = store_info_about_file(read_list, sim_attr->get, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "full_proxy_read")){
+			real_fops = debugfs_real_fops(file);	
+			if(real_fops && real_fops->read){
+				if((entry_read = store_info_about_file(read_list, real_fops->read, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "proc_sys_read")){
+			inode = file_inode(file);
+			table = PROC_I(inode)->sysctl_entry;
+			if (table && table->proc_handler){
+				if((entry_read = store_info_about_file(read_list, table->proc_handler, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "seq_read")){
+			m = file->private_data;
+			if(m && m->op && m->op->show) {
+				if((entry_read = store_info_about_file(read_list, m->op->show, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "proc_reg_read")){
+			pde = PDE(file_inode(file));
+			if(pde && pde->proc_fops && pde->proc_fops->read){
+				if((entry_read = store_info_about_file(read_list, pde->proc_fops->read, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "configfs_read_file")){
+			configfs_attr = to_attr(file->f_path.dentry);
+			if(configfs_attr && configfs_attr->show){
+				if((entry_read = store_info_about_file(read_list, configfs_attr->show, &temp_count, -1)) == NULL)
+									goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "v4l2_read")){
+			vdev = video_devdata(file);
+			if(vdev && vdev->fops && vdev->fops->read){
+				if((entry_read = store_info_about_file(read_list, vdev->fops->read, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_read->name, "sdcardfs_read")){
+			if(sdcardfs_lower_file(file) && sdcardfs_lower_file(file)->f_op && sdcardfs_lower_file(file)->f_op->read){
+				if((entry_read = store_info_about_file(read_list, sdcardfs_lower_file(file)->f_op->read, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+			if(sdcardfs_lower_file(file) && sdcardfs_lower_file(file)->f_op && sdcardfs_lower_file(file)->f_op->read_iter){
+				if((entry_read = store_info_about_file(read_list, sdcardfs_lower_file(file)->f_op->read_iter, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
 		// here we end reversing "read" function
 		// and here we start reversing "write" function
 		temp_count = 1; // but first we need to reset function count to 1
-		if(strstr(entry_write->name, "kernfs_fop_write")){
+		if(!strcmp(entry_write->name, "kernfs_fop_write")){
 			of = kernfs_of(file);
 			ops_kern = kernfs_ops(of->kn);
 			if(ops_kern && ops_kern->write){
 				if((entry_write = store_info_about_file(write_list, ops_kern->write, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
-				if(strstr(entry_write->name, "sysfs_kf_write")){
+				if(!strcmp(entry_write->name, "sysfs_kf_write")){
 					ops_sys = sysfs_file_ops(of->kn);
 					if(ops_sys && ops_sys->store){
 						if((entry_write = store_info_about_file(write_list, ops_sys->store, &temp_count, -1)) == NULL)
 							goto vmalloc_failed;
-						if(strstr(entry_write->name, "dev_attr_store")){							
+						if(!strcmp(entry_write->name, "dev_attr_store")){							
 							dev_attr = to_dev_attr(of->kn->priv); // of->kn->priv == struct attribute
 							if(dev_attr && dev_attr->store){
 								if((entry_write = store_info_about_file(write_list, dev_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
+								if(!strcmp(entry_write->name, "uevent_store")) {
+									dev = kobj_to_dev(of_seq->kn->parent->priv);
+									top_kobj = &dev->kobj;
+									while (!top_kobj->kset && top_kobj->parent)
+										top_kobj = top_kobj->parent;
+									if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->filter){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->filter, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+									else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->uevent){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->uevent, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+									else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->name){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->name, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+								}
 							}
 						}
-						else if(strstr(entry_write->name, "slab_attr_store")){
+						else if(!strcmp(entry_write->name, "slab_attr_store")){
 							slab_attr = to_slab_attr(of->kn->priv);
 							if(slab_attr && slab_attr->store){
 								if((entry_write = store_info_about_file(write_list, slab_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "kobj_attr_store")){
+						else if(!strcmp(entry_write->name, "kobj_attr_store")){
 							kattr = container_of(of->kn->priv, struct kobj_attribute, attr);
 							if(kattr && kattr->store){
 								if((entry_write = store_info_about_file(write_list, kattr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "queue_attr_store")){
+						else if(!strcmp(entry_write->name, "queue_attr_store")){
 							queue_entry = to_queue(of->kn->priv);
 							if(queue_entry && queue_entry->store){
 								if((entry_write = store_info_about_file(write_list, queue_entry->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "drv_attr_store")){
+						else if(!strcmp(entry_write->name, "drv_attr_store")){
 							drv_attr = to_drv_attr(of->kn->priv);
 							if(drv_attr && drv_attr->store){
 								if((entry_write = store_info_about_file(write_list, drv_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
+								if(!strcmp(entry_write->name, "uevent_store")) {
+									dev = kobj_to_dev(of_seq->kn->parent->priv);
+									top_kobj = &dev->kobj;
+									while (!top_kobj->kset && top_kobj->parent)
+										top_kobj = top_kobj->parent;
+									if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->filter){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->filter, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+									else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->uevent){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->uevent, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+									else if(top_kobj->kset && top_kobj->kset->uevent_ops && top_kobj->kset->uevent_ops->name){
+										if((entry_write = store_info_about_file(write_list, top_kobj->kset->uevent_ops->name, &temp_count, -1)) == NULL)
+											goto vmalloc_failed;
+									}
+								}
 							}
 						}
-						else if(strstr(entry_write->name, "module_attr_store")){
+						else if(!strcmp(entry_write->name, "module_attr_store")){
 							mattr = to_module_attr(of->kn->priv);
 							if(mattr && mattr->store){
 								if((entry_write = store_info_about_file(write_list, mattr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
-								if(strstr(entry_write->name, "param_attr_store")){
+								if(!strcmp(entry_write->name, "param_attr_store")){
 									attribute = to_param_attr(mattr);
 									if(attribute && attribute->param && attribute->param->ops && attribute->param->ops->set){
 										if((entry_write = store_info_about_file(write_list, attribute->param->ops->set, &temp_count, -1)) == NULL)
@@ -486,30 +765,44 @@ void FOKA(struct filename *fname, struct file *file)
 								}
 							}
 						}
-						else if(strstr(entry_write->name, "elv_attr_store")){
+						else if(!strcmp(entry_write->name, "elv_attr_store")){
 							entry = to_elv(of->kn->priv);
 							if(entry && entry->store){
 								if((entry_write = store_info_about_file(write_list, entry->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "cpuidle_state_store")){
+						else if(!strcmp(entry_write->name, "cpuidle_state_store")){
 							cattr = attr_to_stateattr(of->kn->priv);
 							if(cattr && cattr->store){
 								if((entry_write = store_info_about_file(write_list, cattr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
-						else if(strstr(entry_write->name, "bus_attr_store")){
+						else if(!strcmp(entry_write->name, "bus_attr_store")){
 							bus_attr = to_bus_attr(of->kn->priv);
 							if(bus_attr && bus_attr->store){
 								if((entry_write = store_info_about_file(write_list, bus_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 							}
 						}
+						else if(!strcmp(entry_write->name, "netdev_queue_attr_store")){
+							attribute_netdev = to_netdev_queue_attr(of->kn->priv);
+							if(attribute_netdev && attribute_netdev->store){
+								if((entry_write = store_info_about_file(write_list, attribute_netdev->store, &temp_count, -1)) == NULL)
+									goto vmalloc_failed;
+							}
+						}
+						else if(!strcmp(entry_write->name, "f2fs_attr_store")){
+							a = container_of(of->kn->priv, struct f2fs_attr, attr);
+							if(a && a->store){
+								if((entry_write = store_info_about_file(write_list, a->store, &temp_count, -1)) == NULL)
+									goto vmalloc_failed;
+							}
+						}
 					}
 				}
-				else if(strstr(entry_write->name, "cgroup_file_write")){
+				else if(!strcmp(entry_write->name, "cgroup_file_write")){
 					cft = of->kn->priv;
 					if(cft && cft->write){
 						if((entry_write = store_info_about_file(write_list, cft->write, &temp_count, -1)) == NULL)
@@ -524,9 +817,16 @@ void FOKA(struct filename *fname, struct file *file)
 									goto vmalloc_failed;
 					}
 				}
+				else if(!strcmp(entry_write->name, "sysfs_kf_bin_write")){
+					battr = of->kn->priv;
+					if(battr && battr->write){
+						if((entry_write = store_info_about_file(write_list, battr->write, &temp_count, -1)) == NULL)
+							goto vmalloc_failed;
+					}
+				}
 			}
 		}
-		else if(strstr(entry_write->name, "proc_sys_write")){
+		else if(!strcmp(entry_write->name, "proc_sys_write")){
 			inode = file_inode(file);
 			table = PROC_I(inode)->sysctl_entry;
 			if (table && table->proc_handler){
@@ -534,26 +834,26 @@ void FOKA(struct filename *fname, struct file *file)
 									goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_write->name, "configfs_write_file")){
+		else if(!strcmp(entry_write->name, "configfs_write_file")){
 			configfs_attr = to_attr(file->f_path.dentry);
 			if(configfs_attr && configfs_attr->store){
 				if((entry_write = store_info_about_file(write_list, configfs_attr->store, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_write->name, "proc_reg_write")){
+		else if(!strcmp(entry_write->name, "proc_reg_write")){
 			pde = PDE(file_inode(file));
 			if(pde && pde->proc_fops && pde->proc_fops->write){
 				if((entry_write = store_info_about_file(write_list, pde->proc_fops->write, &temp_count, -1)) == NULL)
 									goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_write->name, "full_proxy_write")){
+		else if(!strcmp(entry_write->name, "full_proxy_write")){
 			real_fops = debugfs_real_fops(file);	
 			if(real_fops && real_fops->write){
 				if((entry_write = store_info_about_file(write_list, real_fops->write, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
-				if(strstr(entry_write->name, "blk_mq_debugfs_write")){
+				if(!strcmp(entry_write->name, "blk_mq_debugfs_write")){
 					m = file->private_data;
 					attr = m->private;
 					if(attr && attr->write){
@@ -561,7 +861,7 @@ void FOKA(struct filename *fname, struct file *file)
 							goto vmalloc_failed;
 					}
 				}
-				else if(strstr(entry_write->name, "simple_attr_write")){
+				else if(!strcmp(entry_write->name, "simple_attr_write")){
 					sim_attr = file->private_data;
 					if(sim_attr && sim_attr->set){
 						if((entry_write = store_info_about_file(write_list, sim_attr->set, &temp_count, -1)) == NULL)
@@ -570,23 +870,46 @@ void FOKA(struct filename *fname, struct file *file)
 				}
 			}
 		}
-		else if(strstr(entry_write->name, "debugfs_attr_write")){
+		else if(!strcmp(entry_write->name, "debugfs_attr_write")){
 			sim_attr = file->private_data;
 			if(sim_attr && sim_attr->set){
 				if((entry_write = store_info_about_file(write_list, sim_attr->set, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
-		}		
+		}
+		else if(!strcmp(entry_write->name, "event_trigger_write")){
+			list_for_each_entry(p, &trigger_commands, list) {
+				if((entry_write = store_info_about_file(write_list, p->func, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_write->name, "v4l2_write")){
+			vdev = video_devdata(file);
+			if(vdev && vdev->fops && vdev->fops->write){
+				if((entry_write = store_info_about_file(write_list, vdev->fops->write, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
+		else if(!strcmp(entry_write->name, "sdcardfs_write")){
+			if(sdcardfs_lower_file(file) && sdcardfs_lower_file(file)->f_op && sdcardfs_lower_file(file)->f_op->write){
+				if((entry_write = store_info_about_file(write_list, sdcardfs_lower_file(file)->f_op->write, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+			if(sdcardfs_lower_file(file) && sdcardfs_lower_file(file)->f_op && sdcardfs_lower_file(file)->f_op->write_iter){
+				if((entry_write = store_info_about_file(write_list, sdcardfs_lower_file(file)->f_op->write_iter, &temp_count, -1)) == NULL)
+					goto vmalloc_failed;
+			}
+		}
 		// here we end reversing "write" function
 		// and we start reversing "mmap" function
 		temp_count = 1; // but again, we need to reset function count to 1
-		if(strstr(entry_mmap->name, "kernfs_fop_mmap")){
+		if(!strcmp(entry_mmap->name, "kernfs_fop_mmap")){
 			of = kernfs_of(file);
 			ops_kern = kernfs_ops(of->kn);
 			if((of->kn->flags & KERNFS_HAS_MMAP) && ops_kern && ops_kern->mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, ops_kern->mmap, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
-				if(strstr(entry_mmap->name, "sysfs_kf_bin_mmap")){
+				if(!strcmp(entry_mmap->name, "sysfs_kf_bin_mmap")){
 					battr = of->kn->priv;
 					if(battr && battr->mmap){
 						if((entry_mmap = store_info_about_file(mmap_list, battr->mmap, &temp_count, -1)) == NULL)
@@ -595,7 +918,7 @@ void FOKA(struct filename *fname, struct file *file)
 				}
 			}
 		}
-		else if(strstr(entry_mmap->name, "fb_mmap")){
+		else if(!strcmp(entry_mmap->name, "fb_mmap")){
 			info = file_fb_info(file);
 			fb = info->fbops;
 			if(info && info->fbops && info->fbops->fb_mmap){
@@ -603,28 +926,28 @@ void FOKA(struct filename *fname, struct file *file)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_mmap->name, "proc_reg_mmap")){
+		else if(!strcmp(entry_mmap->name, "proc_reg_mmap")){
 			pde = PDE(file_inode(file));
 			if(pde && pde->proc_fops && pde->proc_fops->mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, pde->proc_fops->mmap, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_mmap->name, "sdcardfs_mmap")){
+		else if(!strcmp(entry_mmap->name, "sdcardfs_mmap")){
 			lower_file = sdcardfs_lower_file(file);
 			if(lower_file && lower_file->f_op && lower_file->f_op->mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, lower_file->f_op->mmap, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_mmap->name, "v4l2_mmap")){
+		else if(!strcmp(entry_mmap->name, "v4l2_mmap")){
 			vdev = video_devdata(file);
 			if(vdev && vdev->fops && vdev->fops->mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, vdev->fops->mmap, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_mmap->name, "snd_hwdep_mmap")){
+		else if(!strcmp(entry_mmap->name, "snd_hwdep_mmap")){
 			hw = file->private_data;
 			if(hw && hw->ops.mmap){
 				if((entry_mmap = store_info_about_file(mmap_list, hw->ops.mmap, &temp_count, -1)) == NULL)
@@ -643,14 +966,14 @@ void FOKA(struct filename *fname, struct file *file)
 		// here we end reversing "mmap" function
 		// and we start reversing "ioctl" function
 		temp_count = 1; // but again, we need to reset function count to 1
-		if(strstr(entry_unlocked_ioctl->name, "proc_reg_unlocked_ioctl")){
+		if(!strcmp(entry_unlocked_ioctl->name, "proc_reg_unlocked_ioctl")){
 			pde = PDE(file_inode(file));
 			if(pde && pde->proc_fops && pde->proc_fops->unlocked_ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, pde->proc_fops->unlocked_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "v4l2_ioctl")){
+		else if(!strcmp(entry_unlocked_ioctl->name, "v4l2_ioctl")){
 			vdev = video_devdata(file);
 			if(vdev && vdev->fops && vdev->fops->unlocked_ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, vdev->fops->unlocked_ioctl, &temp_count, -1)) == NULL)
@@ -672,14 +995,14 @@ void FOKA(struct filename *fname, struct file *file)
 				}
 			}
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "sdcardfs_unlocked_ioctl")){
+		else if(!strcmp(entry_unlocked_ioctl->name, "sdcardfs_unlocked_ioctl")){
 			lower_file = sdcardfs_lower_file(file);
 			if(lower_file && lower_file->f_op && lower_file->f_op->unlocked_ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, lower_file->f_op->unlocked_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "fb_ioctl")){
+		else if(!strcmp(entry_unlocked_ioctl->name, "fb_ioctl")){
 			info = file_fb_info(file);
 			fb = info->fbops;
 			if(info && info->fbops && info->fbops->fb_ioctl){
@@ -687,20 +1010,20 @@ void FOKA(struct filename *fname, struct file *file)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "snd_hwdep_ioctl")){
+		else if(!strcmp(entry_unlocked_ioctl->name, "snd_hwdep_ioctl")){
 			hw = file->private_data;
 			if(hw && hw->ops.ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, hw->ops.ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_unlocked_ioctl->name, "block_ioctl")){
+		else if(!strcmp(entry_unlocked_ioctl->name, "block_ioctl")){
 			bdev = I_BDEV(bdev_file_inode(file));
 			disk = bdev->bd_disk;
 			if(disk && disk->fops && disk->fops->ioctl){
 				if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, disk->fops->ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
-				if(strstr(entry_unlocked_ioctl->name, "sd_ioctl")){
+				if(!strcmp(entry_unlocked_ioctl->name, "sd_ioctl")){
 					sdkp = scsi_disk(disk);
 					sdp = sdkp->device;
 					if(sdp && sdp->host && sdp->host->hostt && sdp->host->hostt->ioctl){
@@ -708,7 +1031,7 @@ void FOKA(struct filename *fname, struct file *file)
 							goto vmalloc_failed;
 					}
 				}
-				if(strstr(entry_unlocked_ioctl->name, "lo_ioctl")){
+				if(!strcmp(entry_unlocked_ioctl->name, "lo_ioctl")){
 					lo = bdev->bd_disk->private_data;
 					if(lo && lo->ioctl){
 						if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, lo->ioctl, &temp_count, -1)) == NULL)
@@ -729,21 +1052,21 @@ void FOKA(struct filename *fname, struct file *file)
 		// here we end reversing "ioctl" function
 		// and we start reversing "ioctl_c" function
 		temp_count = 1; // but again, we need to reset function count to 1
-		if(strstr(entry_compat_ioctl->name, "v4l2_compat_ioctl32")){
+		if(!strcmp(entry_compat_ioctl->name, "v4l2_compat_ioctl32")){
 			vdev = video_devdata(file);
 			if(vdev && vdev->fops && vdev->fops->compat_ioctl32){
 				if((entry_compat_ioctl = store_info_about_file(compat_ioctl_list, vdev->fops->compat_ioctl32, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_compat_ioctl->name, "sdcardfs_compat_ioctl")){
+		else if(!strcmp(entry_compat_ioctl->name, "sdcardfs_compat_ioctl")){
 			lower_file = sdcardfs_lower_file(file);
 			if(lower_file && lower_file->f_op && lower_file->f_op->compat_ioctl){
 				if((entry_compat_ioctl = store_info_about_file(compat_ioctl_list, lower_file->f_op->compat_ioctl, &temp_count, -1)) == NULL)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_compat_ioctl->name, "fb_compat_ioctl")){
+		else if(!strcmp(entry_compat_ioctl->name, "fb_compat_ioctl")){
 			info = file_fb_info(file);
 			fb = info->fbops;
 			if(info && info->fbops && info->fbops->fb_compat_ioctl){
@@ -751,7 +1074,7 @@ void FOKA(struct filename *fname, struct file *file)
 					goto vmalloc_failed;
 			}
 		}
-		else if(strstr(entry_compat_ioctl->name, "snd_hwdep_ioctl_compat")){
+		else if(!strcmp(entry_compat_ioctl->name, "snd_hwdep_ioctl_compat")){
 			hw = file->private_data;
 			if(hw && hw->ops.ioctl_compat){
 				if((entry_compat_ioctl = store_info_about_file(compat_ioctl_list, hw->ops.ioctl_compat, &temp_count, -1)) == NULL)
