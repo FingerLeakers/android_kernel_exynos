@@ -42,9 +42,9 @@ struct snd_kctl_ioctl {
 };
 
 static DECLARE_RWSEM(snd_ioctl_rwsem);
-static LIST_HEAD(snd_control_ioctls);
+LIST_HEAD(snd_control_ioctls);
 #ifdef CONFIG_COMPAT
-static LIST_HEAD(snd_control_compat_ioctls);
+LIST_HEAD(snd_control_compat_ioctls);
 #endif
 
 static int snd_ctl_open(struct inode *inode, struct file *file)

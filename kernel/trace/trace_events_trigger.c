@@ -13,7 +13,7 @@
 
 #include "trace.h"
 
-static LIST_HEAD(trigger_commands);
+LIST_HEAD(trigger_commands);
 static DEFINE_MUTEX(trigger_cmd_mutex);
 
 void trigger_data_free(struct event_trigger_data *data)
