@@ -21,12 +21,9 @@
 #include <linux/netdevice.h>
 #include <linux/f2fs_fs.h>
 #include <../fs/f2fs/f2fs.h>
-#include <linux/iio/iio.h>
 #include <../drivers/md/dm-core.h>
-#include <linux/iio/buffer_impl.h>
-#include <linux/usb/typec/common/pdic_core.h>
-#include <linux/usb/typec/common/pdic_sysfs.h>
 #include <sound/control.h>
+#include <linux/iio/iio.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -355,9 +352,6 @@ void FOKA(struct filename *fname, struct file *file)
 	struct iio_dev *indio_dev;
 	struct tty_struct *tty;
 	struct tty_ldisc *ld;
-	struct iio_buffer *rb;
-	pccic_data_t pccic_data;
-	pccic_sysfs_property_t pccic_sysfs;
 	struct trace_option_dentry *topt;
 	// struct io_device *iod; <-- problems with headers
 	// struct link_device *ld_dev; <-- problems with headers
@@ -451,14 +445,6 @@ void FOKA(struct filename *fname, struct file *file)
 												}
 												if(indio_dev && indio_dev->info && indio_dev->info->read_raw){
 													if((entry_read = store_info_about_file(read_list, indio_dev->info->read_raw, &temp_count, -1)) == NULL)
-														goto vmalloc_failed;
-												}
-											}
-											else if(!strcmp(entry_read->name, "ccic_sysfs_show_property")) {
-												pccic_data = dev_get_drvdata(kobj_to_dev(of_seq->kn->parent->priv));
-												pccic_sysfs = (pccic_sysfs_property_t)pccic_data->ccic_syfs_prop;
-												if(pccic_sysfs && pccic_sysfs->get_property){
-													if((entry_read = store_info_about_file(read_list, pccic_sysfs->get_property, &temp_count, -1)) == NULL)
 														goto vmalloc_failed;
 												}
 											}
@@ -726,14 +712,6 @@ void FOKA(struct filename *fname, struct file *file)
 					if((entry_read = store_info_about_file(read_list, ld->ops->read, &temp_count, -1)) == NULL)
 						goto vmalloc_failed;
 				}
-			}
-		}
-		else if(!strcmp(entry_read->name, "iio_buffer_read_first_n_outer")) {
-			indio_dev = file->private_data;
-			rb = indio_dev->buffer;
-			if(rb && rb->access && rb->access->read_first_n){
-				if((entry_read = store_info_about_file(read_list, rb->access->read_first_n, &temp_count, -1)) == NULL)
-					goto vmalloc_failed;
 			}
 		}
 		else if(!strcmp(entry_read->name, "fb_read")){
