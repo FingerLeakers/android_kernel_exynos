@@ -9,7 +9,6 @@
 #include <sound/hwdep.h>
 #include <linux/cpuidle.h>
 #include <linux/../../block/blk-mq-debugfs.h>
-#include <linux/debugfs.h>
 #include <media/v4l2-ioctl.h>
 #include <linux/pr.h>
 #include <../drivers/block/loop.h>
@@ -24,6 +23,7 @@
 #include <../drivers/md/dm-core.h>
 #include <sound/control.h>
 #include <linux/iio/iio.h>
+#include <../fs/debugfs/internal.h>
 // here ends list of includes which support reversing fops
 ///////////////////////////////////////////////////
 // here start list of structs and functions definitions which support reversing fops
@@ -166,8 +166,6 @@ struct snd_kctl_ioctl {
 	snd_kctl_ioctl_func_t fioctl;
 };
 
-extern struct v4l2_ioctl_info v4l2_ioctls[];
-
 #define to_dev_attr(_attr) container_of(_attr, struct device_attribute, attr)
 
 #define to_slab_attr(n) container_of(n, struct slab_attribute, attr)
@@ -186,21 +184,19 @@ extern struct v4l2_ioctl_info v4l2_ioctls[];
 
 #define to_bus_attr(_attr) container_of(_attr, struct bus_attribute, attr)
 
-#define to_netdev_queue_attr(_attr) \
-	container_of(_attr, struct netdev_queue_attribute, attr)
+#define to_netdev_queue_attr(_attr) container_of(_attr, struct netdev_queue_attribute, attr)
 
-#define to_rx_queue_attr(_attr) \
-	container_of(_attr, struct rx_queue_attribute, attr)
+#define to_rx_queue_attr(_attr) container_of(_attr, struct rx_queue_attribute, attr)
 
 #define to_class_attr(_attr) container_of(_attr, struct class_attribute, attr)
 
-#define to_iommu_group_attr(_attr)	\
-	container_of(_attr, struct iommu_group_attribute, attr)
+#define to_iommu_group_attr(_attr) container_of(_attr, struct iommu_group_attribute, attr)
 
-#define V4L2_IOCTLS 104 /* i couldn't get array_size of v4l2_ioctls using ARRAY_SIZE macro so i get maximum ioctl code from this file 
-"android/kernel/exynos9830/drivers/media/v4l2-core/v4l2-ioctl.c"
-IF SOMETHING DOESN'T WORK CHECK IF MAX IOCTL CODE CHANGED!!! */
+#define F_DENTRY(filp) ((filp)->f_path.dentry)
 
+#define V4L2_IOCTLS 82 // i couldn't get array_size of v4l2_ioctls using ARRAY_SIZE macro so i get maximum ioctl nymber from code
+
+extern struct v4l2_ioctl_info v4l2_ioctls[];
 extern struct list_head trigger_commands;
 extern struct list_head snd_control_ioctls;
 extern struct list_head snd_control_compat_ioctls;
@@ -248,6 +244,22 @@ static inline struct scsi_disk *scsi_disk(struct gendisk *disk)
 static inline struct tty_struct *file_tty(struct file *file)
 {
 	return ((struct tty_file_private *)file->private_data)->tty;
+}
+
+static const struct file_operations *debugfs_real_fops(const struct file *filp)
+{
+	struct debugfs_fsdata *fsd = F_DENTRY(filp)->d_fsdata;
+
+	if ((unsigned long)fsd & DEBUGFS_FSDATA_IS_REAL_FOPS_BIT) {
+		/*
+		 * Urgh, we've been called w/o a protecting
+		 * debugfs_file_get().
+		 */
+		WARN_ON(1);
+		return NULL;
+	}
+
+	return fsd->real_fops;
 }
 // here ends list of structs and functions definitions which support reversing fops
 ///////////////////////////////////////////////////
@@ -732,7 +744,7 @@ void FOKA(struct filename *fname, struct file *file)
 		if(file->f_mapping && file->f_mapping->a_ops) {
 			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
 			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
-				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+				if(temporary_pointer && *temporary_pointer) {
 					if(store_info_about_file(read_list, (void*) (*temporary_pointer), &temp_count, -10) == NULL)
 						goto vmalloc_failed;
 				}		
@@ -1047,7 +1059,7 @@ void FOKA(struct filename *fname, struct file *file)
 		if(file->f_mapping && file->f_mapping->a_ops) {
 			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
 			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
-				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+				if(temporary_pointer && *temporary_pointer) {
 					if(store_info_about_file(write_list, (void*) (*temporary_pointer), &temp_count, -10) == NULL)
 						goto vmalloc_failed;
 				}		
@@ -1110,8 +1122,8 @@ void FOKA(struct filename *fname, struct file *file)
 		if(file->f_mapping && file->f_mapping->a_ops) {
 			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
 			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
-				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
-					if(store_info_about_file(mmap_list, (void*) (*temporary_pointer), &temp_count, -2) == NULL)
+				if(temporary_pointer && *temporary_pointer) {
+					if(store_info_about_file(mmap_list, (void*) (*temporary_pointer), &temp_count, -10) == NULL)
 						goto vmalloc_failed;
 				}		
 			}
@@ -1134,17 +1146,23 @@ void FOKA(struct filename *fname, struct file *file)
 				size_of_v4l2_ioctls_array = V4L2_IOCTLS; // WARNING! THIS IS VERY DANGEROUS AND CAUSE LOTS OF TROUBLE - more info above (near declarition)
 				for(size_of_v4l2_ioctls_array = size_of_v4l2_ioctls_array - 1; size_of_v4l2_ioctls_array>=0; size_of_v4l2_ioctls_array--) {
 					ioctl_info_element = &v4l2_ioctls[size_of_v4l2_ioctls_array];
-					if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->func, &temp_count, -2) == NULL)
-						goto vmalloc_failed;
-					if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->debug, &temp_count, -2) == NULL)
-						goto vmalloc_failed;
+					if(ioctl_info_element && ioctl_info_element->func){
+						if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->func, &temp_count, -2) == NULL)
+							goto vmalloc_failed;
+					}
+					if(ioctl_info_element && ioctl_info_element->debug){
+						if(store_info_about_file(unlocked_ioctl_list, (void*) ioctl_info_element->debug, &temp_count, -2) == NULL)
+							goto vmalloc_failed;
+					}
 				}
 				size_of_ioctl_ops_struct = sizeof(const struct v4l2_ioctl_ops)/sizeof(void*);
-				for(temporary_pointer = (long long **) vdev->ioctl_ops, iterator = 0; size_of_ioctl_ops_struct > iterator; temporary_pointer++, iterator++) {
-					if(!IS_ERR_OR_NULL(*temporary_pointer)) {
-						if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -3) == NULL)
-							goto vmalloc_failed;
-					}		
+				if(vdev->ioctl_ops){	
+					for(temporary_pointer = (long long **) vdev->ioctl_ops, iterator = 0; size_of_ioctl_ops_struct > iterator; temporary_pointer++, iterator++) {
+						if(temporary_pointer && *temporary_pointer) {
+							if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -3) == NULL)
+								goto vmalloc_failed;
+						}		
+					}
 				}
 			}
 		}
@@ -1195,7 +1213,7 @@ void FOKA(struct filename *fname, struct file *file)
 			if(disk && disk->fops && disk->fops->pr_ops){
 				size_of_pr_ops = sizeof(struct pr_ops)/sizeof(void*);
 				for(temporary_pointer = (long long **) disk->fops->pr_ops, iterator = 0; size_of_pr_ops > iterator; temporary_pointer++, iterator++) {
-					if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+					if(temporary_pointer && *temporary_pointer) {
 						if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -2) == NULL)
 							goto vmalloc_failed;
 					}		
@@ -1219,20 +1237,10 @@ void FOKA(struct filename *fname, struct file *file)
 			}
 		}
 
-		
-		// else if(!strcmp(entry_unlocked_ioctl->name, "ipc_ioctl")){ // there are problems with headers with necessary structs
-		// 	iod = (struct io_device *)file->private_data;
-		// 	ld_dev = get_current_link(iod);
-		// 	if(ld_dev && ld_dev->ioctl){
-		// 		if((entry_unlocked_ioctl = store_info_about_file(unlocked_ioctl_list, ld_dev->ioctl, &temp_count, -1)) == NULL)
-		// 			goto vmalloc_failed;
-		// 	}
-		// }
-
 		if(file->f_mapping && file->f_mapping->a_ops) {
 			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
 			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
-				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+				if(temporary_pointer && *temporary_pointer) {
 					if(store_info_about_file(unlocked_ioctl_list, (void*) (*temporary_pointer), &temp_count, -10) == NULL)
 						goto vmalloc_failed;
 				}		
@@ -1287,19 +1295,12 @@ void FOKA(struct filename *fname, struct file *file)
 			if(disk && disk->fops && disk->fops->pr_ops){
 				size_of_pr_ops = sizeof(struct pr_ops)/sizeof(void*);
 				for(temporary_pointer = (long long **) disk->fops->pr_ops, iterator = 0; size_of_pr_ops > iterator; temporary_pointer++, iterator++) {
-					if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+					if(temporary_pointer && *temporary_pointer) {
 						if(store_info_about_file(compat_ioctl_list, (void*) (*temporary_pointer), &temp_count, -2) == NULL)
 							goto vmalloc_failed;
 					}		
 				}
 			}	
-		}
-		else if(!strcmp(entry_compat_ioctl->name, "v4l2_compat_ioctl32")){
-			vdev = video_devdata(file);
-			if(vdev && vdev->fops && vdev->fops->compat_ioctl32){
-				if((entry_compat_ioctl = store_info_about_file(compat_ioctl_list, vdev->fops->compat_ioctl32, &temp_count, -1)) == NULL)
-					goto vmalloc_failed;
-			}
 		}
 		else if(!strcmp(entry_compat_ioctl->name, "tty_compat_ioctl")){
 			tty = file_tty(file);
@@ -1321,7 +1322,7 @@ void FOKA(struct filename *fname, struct file *file)
 		if(file->f_mapping && file->f_mapping->a_ops) {
 			size_of_address_space_operations = sizeof(struct address_space_operations)/sizeof(void*);
 			for(temporary_pointer = (long long **) file->f_mapping->a_ops, iterator = 0; size_of_address_space_operations > iterator; temporary_pointer++, iterator++) {
-				if(!IS_ERR_OR_NULL(*temporary_pointer)) {
+				if(temporary_pointer && *temporary_pointer) {
 					if(store_info_about_file(compat_ioctl_list, (void*) (*temporary_pointer), &temp_count, -10) == NULL)
 						goto vmalloc_failed;
 				}		
